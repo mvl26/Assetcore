@@ -10,7 +10,13 @@ import frappe
 from frappe.utils import nowdate, add_days
 
 from assetcore.services.imm11 import create_calibration, cancel_calibration
-from assetcore.services.shared import CalibrationResult, ErrorCode, ServiceError
+from assetcore.services.shared import (
+    AssetStatus,
+    CalibrationResult,
+    CalibrationStatus,
+    ErrorCode,
+    ServiceError,
+)
 
 
 # ─── Fixture helpers ──────────────────────────────────────────────────────────
@@ -1265,3 +1271,893 @@ class TestCalibrationReconciliation(unittest.TestCase):
                          "_due_soon_asset_ids KHÔNG đổi bởi reconcile write-path")
         self.assertEqual(k_before["overdue_assets"], k_after["overdue_assets"])
         self.assertEqual(k_before["due_soon_assets"], k_after["due_soon_assets"])
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  BR-11-12 — Recalibration OoS-restore governance guard (TC-11-RESTORE-*)
+#  docs/imm-11/02_Analysis_Design.md §BR-11-12 + 04_Backend_Design.md §4.1.5
+#  AC-11-14..18 / AC-1..7. RED-prove: revert guard về `is_recalibration ∧ OoS`
+#  thô ⇒ cross-module/concurrent-hold cases FAIL (asset ép Active sai).
+# ════════════════════════════════════════════════════════════════════════════
+
+_DT_CAL = "IMM Asset Calibration"
+
+
+def _make_recal_pass_doc(asset_name: str, *, is_recalibration: int = 1):
+    """Insert + submit a passing IMM Asset Calibration (recalibration) so the
+    real on_submit → handle_calibration_pass path fires. Returns the cal doc."""
+    cal = frappe.get_doc({
+        "doctype": _DT_CAL,
+        "asset": asset_name,
+        "calibration_type": "In-House",
+        "scheduled_date": nowdate(),
+        "actual_date": nowdate(),
+        "status": "In Progress",
+        "is_recalibration": int(is_recalibration),
+        "reference_standard_serial": "STD-RESTORE-001",
+        "technician": "Administrator",
+        "measurements": [{
+            "parameter_name": "Temp", "unit": "C", "nominal_value": 100,
+            "tolerance_positive": 5, "tolerance_negative": 5, "measured_value": 101,
+        }],
+    })
+    cal.insert(ignore_permissions=True)
+    cal.submit()  # overall_result computed Passed → handle_calibration_pass
+    frappe.db.commit()
+    return cal
+
+
+def _latest_ale(asset_name: str) -> dict | None:
+    rows = frappe.get_all(
+        "Asset Lifecycle Event", filters={"asset": asset_name},
+        fields=["name", "event_type", "from_status", "to_status",
+                "root_doctype", "root_record", "notes"],
+        order_by="timestamp desc, creation desc", limit=1,
+    )
+    return rows[0] if rows else None
+
+
+def _count_passed_active_ale(asset_name: str) -> int:
+    """ALE 'activated' produced by the OoS/Calibrating → Active transition."""
+    return frappe.db.count("Asset Lifecycle Event", {
+        "asset": asset_name, "event_type": "activated", "to_status": "Active",
+    })
+
+
+class TestCalibrationRestoreGuard(unittest.TestCase):
+    """BR-11-12 — recalibration-pass restore CHỈ khi chủ-hold OoS == calibration
+    ∧ 0 hold governance khác mở. Kill force-override hold liên-module."""
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self._assets: list[str] = []
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+        for name in self._assets:
+            for cal in frappe.get_all(_DT_CAL, filters={"asset": name},
+                                      fields=["name"]):
+                frappe.db.delete("IMM Calibration Measurement", {"parent": cal.name})
+                frappe.db.delete(_DT_CAL, {"name": cal.name})
+            for dt, field in (("Incident Report", "asset"),
+                              ("Asset Repair", "asset_ref")):
+                if frappe.db.table_exists(dt):
+                    frappe.db.delete(dt, {field: name})
+            _purge_asset_with_deps(name)
+        frappe.db.commit()
+
+    def _new_asset(self, suffix: str):
+        a = _make_asset(suffix)
+        self._assets.append(a.name)
+        return a
+
+    def _draft_cal(self, asset_name: str) -> str:
+        """A real (draft) IMM Asset Calibration to satisfy the Dynamic Link
+        validation of Asset Lifecycle Event.root_record."""
+        cal = frappe.get_doc({
+            "doctype": _DT_CAL, "asset": asset_name,
+            "calibration_type": "In-House", "scheduled_date": nowdate(),
+            "status": "Scheduled", "is_recalibration": 1,
+            "reference_standard_serial": "STD-SRC-001",
+            "technician": "Administrator",
+        }).insert(ignore_permissions=True)
+        return cal.name
+
+    def _set_oos_via_calibration(self, asset_name: str):
+        """OoS hold whose latest ALE root_doctype == IMM Asset Calibration."""
+        from assetcore.services.imm00 import transition_asset_status
+        src = self._draft_cal(asset_name)
+        transition_asset_status(
+            asset_name=asset_name, to_status="Out of Service",
+            root_doctype=_DT_CAL, root_record=src,
+            reason="cal fail (self)",
+        )
+        frappe.db.commit()
+
+    # ── TC-CAL-RESTORE-01 (AC-1): Calibrating → Active luôn restore ──────────
+    def test_cal_restore_01_calibrating_pass_restores_active(self):
+        a = self._new_asset("-restore01")
+        frappe.db.set_value("AC Asset", a.name, "lifecycle_status", "Calibrating")
+        frappe.db.commit()
+
+        _make_recal_pass_doc(a.name, is_recalibration=0)
+
+        self.assertEqual(
+            frappe.db.get_value("AC Asset", a.name, "lifecycle_status"), "Active",
+            "AC-1: Calibrating + Pass phải restore Active (nhánh A giữ nguyên)")
+        ale = _latest_ale(a.name)
+        # nhánh A: transition tự ghi ALE 'activated' to=Active
+        self.assertEqual(ale["to_status"], "Active")
+
+    # ── TC-CAL-RESTORE-02 (AC-2): self-source OoS, no other hold → restore ───
+    def test_cal_restore_02_self_source_oos_restores_active(self):
+        a = self._new_asset("-restore02")
+        self._set_oos_via_calibration(a.name)
+
+        _make_recal_pass_doc(a.name)
+
+        self.assertEqual(
+            frappe.db.get_value("AC Asset", a.name, "lifecycle_status"), "Active",
+            "AC-2: OoS do cal-fail + không hold khác + recal Pass → Active")
+
+    # ── TC-CAL-RESTORE-03 (AC-3): OoS do Incident (IMM-12) → giữ OoS ─────────
+    def test_cal_restore_03_incident_hold_keeps_oos(self):
+        a = self._new_asset("-restore03")
+        # OoS đặt bởi Incident (root_doctype='Incident Report')
+        from assetcore.services.imm00 import transition_asset_status
+        ir = frappe.get_doc({
+            "doctype": "Incident Report", "asset": a.name,
+            "reported_by": "Administrator", "reported_at": frappe.utils.now(),
+            "incident_type": "Malfunction", "severity": "High",
+            "status": "Open", "description": "hold incident open",
+        }).insert(ignore_permissions=True)
+        transition_asset_status(
+            asset_name=a.name, to_status="Out of Service",
+            root_doctype="Incident Report", root_record=ir.name,
+            reason="incident hold")
+        frappe.db.commit()
+
+        before = _count_passed_active_ale(a.name)
+        _make_recal_pass_doc(a.name)
+
+        self.assertEqual(
+            frappe.db.get_value("AC Asset", a.name, "lifecycle_status"),
+            "Out of Service",
+            "AC-3: OoS do Incident → recal Pass GIỮ Out of Service (KHÔNG ép Active)")
+        self.assertEqual(_count_passed_active_ale(a.name), before,
+                         "KHÔNG được ghi ALE 'activated' khi giữ OoS")
+        ale = _latest_ale(a.name)
+        self.assertEqual(ale["event_type"], "calibration_passed")
+        self.assertEqual(ale["from_status"], "Out of Service")
+        self.assertEqual(ale["to_status"], "Out of Service")
+        self.assertIn("giữ Ngừng hoạt động do hạng mục khác", ale["notes"] or "")
+        self.assertIn("Sự cố", ale["notes"] or "")
+
+    # ── TC-CAL-RESTORE-04 (AC-3): OoS do Repair (IMM-09) → giữ OoS ───────────
+    def test_cal_restore_04_repair_hold_keeps_oos(self):
+        a = self._new_asset("-restore04")
+        from assetcore.services.imm00 import transition_asset_status
+        wo = frappe.get_doc({
+            "doctype": "Asset Repair", "asset_ref": a.name,
+            "failure_description": "broken", "repair_type": "Corrective",
+            "priority": "Normal", "status": "Open",
+        }).insert(ignore_permissions=True)
+        transition_asset_status(
+            asset_name=a.name, to_status="Out of Service",
+            root_doctype="Asset Repair", root_record=wo.name,
+            reason="repair hold")
+        frappe.db.commit()
+
+        _make_recal_pass_doc(a.name)
+
+        self.assertEqual(
+            frappe.db.get_value("AC Asset", a.name, "lifecycle_status"),
+            "Out of Service",
+            "AC-3: OoS do Repair → recal Pass GIỮ Out of Service")
+        ale = _latest_ale(a.name)
+        self.assertEqual(ale["to_status"], "Out of Service")
+        self.assertIn("Sửa chữa", ale["notes"] or "")
+
+    # ── TC-CAL-RESTORE-05 (AC-4): self-source OoS NHƯNG còn Incident mở ──────
+    def test_cal_restore_05_concurrent_incident_keeps_oos(self):
+        a = self._new_asset("-restore05")
+        # chủ-hold = calibration, NHƯNG vẫn còn 1 Incident mở
+        self._set_oos_via_calibration(a.name)
+        frappe.get_doc({
+            "doctype": "Incident Report", "asset": a.name,
+            "reported_by": "Administrator", "reported_at": frappe.utils.now(),
+            "incident_type": "Malfunction", "severity": "High",
+            "status": "Open", "description": "concurrent open incident",
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+        _make_recal_pass_doc(a.name)
+
+        self.assertEqual(
+            frappe.db.get_value("AC Asset", a.name, "lifecycle_status"),
+            "Out of Service",
+            "AC-4: chủ-hold cal NHƯNG còn Incident mở → GIỮ OoS (không restore)")
+        ale = _latest_ale(a.name)
+        self.assertEqual(ale["to_status"], "Out of Service")
+        self.assertIn("giữ Ngừng hoạt động do hạng mục khác", ale["notes"] or "")
+
+    # ── TC-CAL-RESTORE-06 (AC-5): terminal Decommissioned → no-raise ─────────
+    def test_cal_restore_06_decommissioned_no_raise(self):
+        a = self._new_asset("-restore06")
+        # asset thanh lý giữa chừng (terminal) — recal Pass KHÔNG được raise
+        frappe.db.set_value("AC Asset", a.name, "lifecycle_status", "Decommissioned")
+        frappe.db.commit()
+
+        try:
+            _make_recal_pass_doc(a.name)
+        except Exception as exc:  # noqa: BLE001
+            self.fail(f"on_submit recal Pass KHÔNG được raise (terminal): {exc}")
+
+        self.assertEqual(
+            frappe.db.get_value("AC Asset", a.name, "lifecycle_status"),
+            "Decommissioned",
+            "AC-5: terminal giữ nguyên, KHÔNG ép Active")
+        self.assertEqual(_count_passed_active_ale(a.name), 0,
+                         "KHÔNG ghi ALE 'activated' từ terminal")
+
+    # ── TC-CAL-RESTORE-07 (AC-5): idempotent — không ALE Active trùng ────────
+    def test_cal_restore_07_idempotent_no_duplicate_active(self):
+        a = self._new_asset("-restore07")
+        self._set_oos_via_calibration(a.name)
+        _make_recal_pass_doc(a.name)  # → Active (1 ALE 'activated')
+        self.assertEqual(
+            frappe.db.get_value("AC Asset", a.name, "lifecycle_status"), "Active")
+        n1 = _count_passed_active_ale(a.name)
+
+        # gọi lại handle_calibration_pass trên asset đã Active (prev==to → no-op)
+        from assetcore.services.imm11 import handle_calibration_pass
+        cal2 = frappe.get_all(_DT_CAL, filters={"asset": a.name},
+                              fields=["name"], limit=1)[0]
+        handle_calibration_pass(frappe.get_doc(_DT_CAL, cal2.name))
+        frappe.db.commit()
+
+        self.assertEqual(_count_passed_active_ale(a.name), n1,
+                         "AC-5: chạy lại Pass khi đã Active KHÔNG tạo ALE 'activated' trùng")
+
+    # ── TC-CAL-RESTORE-08 (AC-6): grep/AST-guard — mọi ép-Active-từ-OoS qua predicate
+    def test_cal_restore_08_grep_guard_predicate_gates_active(self):
+        """Static guard: trong handle_calibration_pass, KHÔNG có nhánh
+        _transition_asset(..., ACTIVE) từ ngữ cảnh prev=OUT_OF_SERVICE nằm NGOÀI
+        block bảo vệ bởi _can_restore_from_oos. AST: với mỗi call _transition_asset
+        có arg ACTIVE đặt trong elif OUT_OF_SERVICE, phải có gọi _can_restore_from_oos
+        bao quanh."""
+        import ast
+        import inspect
+        from assetcore.services import imm11
+
+        src = inspect.getsource(imm11.handle_calibration_pass)
+        tree = ast.parse(src.lstrip())
+
+        def _calls_predicate(node) -> bool:
+            for n in ast.walk(node):
+                if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) \
+                        and n.func.id == "_can_restore_from_oos":
+                    return True
+            return False
+
+        def _is_active_transition(call: ast.Call) -> bool:
+            if not (isinstance(call.func, ast.Name)
+                    and call.func.id == "_transition_asset"):
+                return False
+            for arg in call.args:
+                if isinstance(arg, ast.Attribute) and arg.attr == "ACTIVE":
+                    return True
+            return False
+
+        # Tìm mọi If có test so sánh current_status == OUT_OF_SERVICE
+        offending = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.If):
+                continue
+            test_src = ast.dump(node.test)
+            if "OUT_OF_SERVICE" not in test_src:
+                continue
+            # trong nhánh OoS: mọi _transition_asset(ACTIVE) phải nằm dưới predicate
+            for inner in ast.walk(node):
+                if isinstance(inner, ast.Call) and _is_active_transition(inner):
+                    # tìm If bao quanh inner gọi predicate
+                    guarded = any(
+                        isinstance(g, ast.If) and _calls_predicate(g)
+                        and inner in ast.walk(g)
+                        for g in ast.walk(node)
+                    )
+                    if not guarded:
+                        offending.append(ast.dump(inner))
+
+        self.assertEqual(
+            offending, [],
+            "AC-6: ép Active-từ-OoS phải nằm sau _can_restore_from_oos (0 bypass)")
+
+
+# ─── BR-11-08b: FAIL hiệu chuẩn ⇒ active Schedule due-now ─────────────────────
+
+def _submit_calibration_with_result(
+    asset_name: str, *, result: str,
+    calibration_schedule: str | None = None, is_recalibration: int = 0,
+) -> str:
+    """End-to-end: create + measurement (Pass/Fail) + submit → fire on_submit →
+    handle_calibration_fail / handle_calibration_pass.
+
+    Basis-date = certificate_date or actual_date or nowdate(). We rely on
+    actual_date (auto-set to nowdate() in before_submit) so basis == today —
+    deterministic without poking certificate_date (which round-trips as a
+    datetime.date and trips the controller's str-comparison guard).
+
+    Nominal=100, tol=±5% → ±5. measured 101 → Pass; 110 → Fail (out of tolerance).
+    """
+    from assetcore.services.imm11 import (
+        create_calibration, add_measurement, submit_calibration,
+    )
+    res = create_calibration(
+        asset=asset_name,
+        calibration_type="In-House",
+        scheduled_date=add_days(nowdate(), 1),
+        technician="Administrator",
+        reference_standard_serial="STD-FAILDUE-001",
+        calibration_schedule=calibration_schedule,
+        is_recalibration=is_recalibration,
+    )
+    name = res["name"]
+    measured = 110 if result == "Fail" else 101
+    add_measurement(
+        name, parameter_name="Temp", unit="C", nominal_value=100,
+        tolerance_positive=5, tolerance_negative=5, measured_value=measured,
+    )
+    frappe.db.commit()
+    submit_calibration(name)
+    frappe.db.commit()
+    return name
+
+
+class TestCalibrationFailDueNow(unittest.TestCase):
+    """BR-11-08b / INV-FAIL-DUENOW-1..5 — FAIL hiệu chuẩn phải hạ MỌI active
+    IMM Calibration Schedule.next_due_date về basis-date (due-now) → asset rơi
+    vào overdue/due-soon SoT set, KHÔNG còn mask ON_SCHEDULE.
+
+    SoT KPI = IMM Calibration Schedule.next_due_date (is_active=1), KHÔNG đọc
+    AC Asset.calibration_status cache (BR-11-08). Trước fix schedule giữ ngày
+    tương lai → TC-01 ĐỎ (RED-prove).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self._assets: list[str] = []
+        self._schedules: list[str] = []
+
+    def tearDown(self):
+        from assetcore.repositories.calibration_repo import CalibrationScheduleRepo
+        for asset in self._assets:
+            for cal in frappe.get_all(
+                "IMM Asset Calibration", filters={"asset": asset}, fields=["name"]
+            ):
+                frappe.db.delete("IMM Calibration Measurement", {"parent": cal.name})
+                frappe.db.delete("IMM Asset Calibration", {"name": cal.name})
+            for dt, field in (
+                ("IMM Calibration Schedule", "asset"),
+                ("IMM CAPA Record",          "asset"),
+                ("Incident Report",          "asset"),
+            ):
+                if frappe.db.table_exists(dt):
+                    try:
+                        frappe.db.delete(dt, {field: asset})
+                    except Exception:
+                        pass
+            _purge_asset_with_deps(asset)
+        frappe.db.commit()
+
+    def _new_asset(self, suffix: str) -> str:
+        a = _make_asset(suffix)
+        self._assets.append(a.name)
+        return a.name
+
+    def _new_schedule(self, asset_name: str, *, next_due: str, interval: int = 180,
+                      cal_type: str = "In-House", is_active: int = 1) -> str:
+        name = _make_schedule(
+            asset_name, next_due=next_due, cal_type=cal_type,
+            interval=interval, is_active=is_active,
+        )
+        self._schedules.append(name)
+        return name
+
+    @staticmethod
+    def _next_due(schedule_name: str) -> str:
+        from assetcore.repositories.calibration_repo import CalibrationScheduleRepo
+        return str(CalibrationScheduleRepo.get_value(schedule_name, "next_due_date"))
+
+    # ── TC-CAL-FAIL-DUE-01 (RED-prove) ───────────────────────────────────────
+    def test_fail_lowers_active_schedule_to_basis(self):
+        """FAIL với certificate_date=today → Schedule.next_due_date == today
+        (basis). TRƯỚC fix vẫn = future(+180d) → test ĐỎ."""
+        asset = self._new_asset("-faildue01")
+        sched = self._new_schedule(asset, next_due=add_days(nowdate(), 180))
+        _submit_calibration_with_result(
+            asset, result="Fail",
+            calibration_schedule=sched,
+        )
+        self.assertEqual(
+            self._next_due(sched), nowdate(),
+            "INV-FAIL-DUENOW-1: schedule active phải hạ về basis-date (today)",
+        )
+
+    # ── TC-CAL-FAIL-DUE-02 (overdue/due-soon set + KPI count) ────────────────
+    def test_fail_asset_enters_overdue_or_due_soon_set(self):
+        from assetcore.services import imm11 as svc
+        asset = self._new_asset("-faildue02")
+        sched = self._new_schedule(asset, next_due=add_days(nowdate(), 180))
+
+        # Trước fix asset KHÔNG nằm trong overdue/due-soon (mask gap).
+        self.assertNotIn(asset, svc._overdue_asset_ids())
+        self.assertNotIn(asset, svc._due_soon_asset_ids())
+        before = svc.get_kpis(
+            int(nowdate()[:4]), int(nowdate()[5:7])
+        )["kpis"]
+        before_due = before["overdue_assets"] + before["due_soon_assets"]
+
+        _submit_calibration_with_result(
+            asset, result="Fail",
+            calibration_schedule=sched,
+        )
+
+        in_overdue = asset in svc._overdue_asset_ids()
+        in_due_soon = asset in svc._due_soon_asset_ids()
+        self.assertTrue(
+            in_overdue or in_due_soon,
+            "INV-FAIL-DUENOW-1: asset FAIL phải ∈ overdue HOẶC due-soon (due-now)",
+        )
+        after = svc.get_kpis(
+            int(nowdate()[:4]), int(nowdate()[5:7])
+        )["kpis"]
+        after_due = after["overdue_assets"] + after["due_soon_assets"]
+        self.assertEqual(
+            after_due, before_due + 1,
+            "KPI overdue+due-soon phải tăng đúng 1 (count == drill, không undercount)",
+        )
+
+    # ── TC-CAL-FAIL-DUE-03 (null-safe: không có active schedule) ─────────────
+    def test_fail_without_active_schedule_no_raise(self):
+        """asset FAIL KHÔNG có active Schedule → handle_calibration_fail KHÔNG
+        raise; CAPA + Incident vẫn được tạo; no Schedule mutation."""
+        asset = self._new_asset("-faildue03")
+        # Schedule INACTIVE only (is_active=0) → loop active rỗng → no-op.
+        inactive = self._new_schedule(
+            asset, next_due=add_days(nowdate(), 180), is_active=0)
+        cal = _submit_calibration_with_result(
+            asset, result="Fail",
+        )
+        # Không raise (submit thành công); CAPA tạo (capa_record set trên cal) —
+        # luồng FAIL hiện hữu (CAPA + lookback + incident auto-report) BẤT BIẾN.
+        capa = frappe.db.get_value("IMM Asset Calibration", cal, "capa_record")
+        self.assertTrue(capa, "CAPA vẫn phải được tạo khi không có active schedule")
+        self.assertTrue(
+            frappe.db.exists("IMM CAPA Record", capa),
+            "CAPA record thực sự tồn tại (luồng FAIL bất biến)",
+        )
+        # asset vẫn chuyển Out of Service (write-path due-now KHÔNG ép trạng thái khác).
+        self.assertEqual(
+            frappe.db.get_value("AC Asset", asset, "lifecycle_status"),
+            "Out of Service",
+        )
+        # Inactive schedule (is_active=0) KHÔNG bị đụng (giữ ngày tương lai) —
+        # write-path chỉ loop active schedule.
+        self.assertEqual(self._next_due(inactive), add_days(nowdate(), 180))
+
+    # ── TC-CAL-FAIL-DUE-04 (vòng khép kín fail→due-now→pass→on-schedule) ─────
+    def test_fail_then_recalibration_pass_advances_schedule(self):
+        from assetcore.services import imm11 as svc
+        asset = self._new_asset("-faildue04")
+        sched = self._new_schedule(
+            asset, next_due=add_days(nowdate(), 180), interval=180)
+
+        _submit_calibration_with_result(
+            asset, result="Fail",
+            calibration_schedule=sched,
+        )
+        self.assertEqual(self._next_due(sched), nowdate())
+        self.assertTrue(
+            asset in svc._overdue_asset_ids() or asset in svc._due_soon_asset_ids())
+
+        # Recalibration PASS — asset đã OoS nên create_calibration cho phép
+        # qua is_recalibration=1 (BLOCKED_FOR_WO bypass).
+        _submit_calibration_with_result(
+            asset, result="Pass", calibration_schedule=sched, is_recalibration=1,
+        )
+
+        self.assertEqual(
+            self._next_due(sched), add_days(nowdate(), 180),
+            "INV-FAIL-DUENOW-5: PASS sau FAIL advance next_due_date = basis+interval",
+        )
+        self.assertNotIn(asset, svc._overdue_asset_ids())
+        self.assertNotIn(asset, svc._due_soon_asset_ids())
+
+    # ── TC-CAL-FAIL-DUE-05 (no-regression PASS lần đầu) ──────────────────────
+    def test_pass_first_advances_to_future(self):
+        from assetcore.services import imm11 as svc
+        asset = self._new_asset("-faildue05")
+        sched = self._new_schedule(
+            asset, next_due=add_days(nowdate(), 180), interval=180)
+        _submit_calibration_with_result(
+            asset, result="Pass",
+            calibration_schedule=sched,
+        )
+        self.assertEqual(
+            self._next_due(sched), add_days(nowdate(), 180),
+            "PASS lần đầu: next_due_date = basis+interval (tương lai), bất biến",
+        )
+        self.assertNotIn(asset, svc._overdue_asset_ids())
+        self.assertNotIn(asset, svc._due_soon_asset_ids())
+
+    # ── TC-CAL-FAIL-DUE-06 (basis SoT shared PASS & FAIL) ────────────────────
+    def test_basis_date_source_shared_pass_and_fail(self):
+        from assetcore.services.imm11 import _calibration_basis_date
+
+        class _Stub:
+            def __init__(self, cert, actual):
+                self.certificate_date = cert
+                self.actual_date = actual
+
+        # certificate_date có → dùng certificate_date
+        self.assertEqual(
+            _calibration_basis_date(_Stub("2026-01-10", "2026-01-20")), "2026-01-10")
+        # thiếu certificate_date, có actual_date → actual_date
+        self.assertEqual(
+            _calibration_basis_date(_Stub(None, "2026-01-20")), "2026-01-20")
+        # thiếu cả hai → nowdate()
+        self.assertEqual(
+            _calibration_basis_date(_Stub(None, None)), nowdate())
+
+    # ── TC-CAL-FAIL-DUE-07 (idempotent: re-apply không đẩy lệch) ─────────────
+    def test_fail_due_now_idempotent(self):
+        """Submit FAIL 2 lần trên cùng asset (re-apply write-path due-now, cùng
+        basis=today) KHÔNG nhân đôi/đẩy lệch next_due_date ngoài basis (today).
+        basis cố định theo phiếu → set_values lặp lại = bất biến."""
+        asset = self._new_asset("-faildue07")
+        sched = self._new_schedule(asset, next_due=add_days(nowdate(), 180))
+
+        _submit_calibration_with_result(asset, result="Fail")
+        first = self._next_due(sched)
+        self.assertEqual(first, nowdate())
+
+        # Lần 2 (recalibration cũng Fail — asset đang OoS, cần is_recalibration).
+        _submit_calibration_with_result(
+            asset, result="Fail", is_recalibration=1)
+        self.assertEqual(
+            self._next_due(sched), nowdate(),
+            "INV-FAIL-DUENOW-3: idempotent — re-apply giữ next_due_date == basis",
+        )
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  BR-11-13 — PASS → Asset-cache ROLLUP đa-lịch (worst-of-all + MIN next_due)
+#  docs/imm-11/02_Analysis_Design.md §BR-11-13 + 04_Backend_Design.md §4.1.7
+#  docs/imm-11/07_Testing_QA.md TC-11-PASS-ROLLUP-01..07 + N1
+# ════════════════════════════════════════════════════════════════════════════
+
+class TestCalibrationPassRollup(unittest.TestCase):
+    """BR-11-13 / INV-PASS-ROLLUP-1..6 — sau ``handle_calibration_pass`` (Pass
+    của 1 schedule), ASSET-cache ``calibration_status`` + ``next_calibration_date``
+    phải derive TỪ MỌI active schedule của asset (worst-of-all + MIN next_due),
+    KHÔNG hardcode ON_SCHEDULE + next-của-1-lịch-vừa-Pass.
+
+    RED-prove (code cũ hardcode ``calibration_status=ON_SCHEDULE`` +
+    ``next_calibration_date=basis+interval``): asset 2-lịch (A overdue + B Pass)
+    → TC-01/03 ĐỎ (badge "Đúng lịch" + asset rớt khỏi due-list). Sau khi thay block
+    bằng ``_apply_asset_calibration_rollup`` (§4.1.7) → GREEN.
+
+    basis-date = today (``_submit_calibration_with_result`` set actual_date=today).
+    interval schedule B = 180 → sau Pass(B), B advance next_due = today+180.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self._assets: list[str] = []
+
+    def tearDown(self):
+        for asset in self._assets:
+            for cal in frappe.get_all(
+                "IMM Asset Calibration", filters={"asset": asset}, fields=["name"]
+            ):
+                frappe.db.delete("IMM Calibration Measurement", {"parent": cal.name})
+                frappe.db.delete("IMM Asset Calibration", {"name": cal.name})
+            for dt, field in (
+                ("IMM Calibration Schedule", "asset"),
+                ("IMM CAPA Record",          "asset"),
+                ("Incident Report",          "asset"),
+            ):
+                if frappe.db.table_exists(dt):
+                    try:
+                        frappe.db.delete(dt, {field: asset})
+                    except Exception:
+                        pass
+            _purge_asset_with_deps(asset)
+        frappe.db.commit()
+
+    # ── fixture helpers ──────────────────────────────────────────────────────
+    def _new_asset(self, suffix: str) -> str:
+        a = _make_asset(suffix)
+        self._assets.append(a.name)
+        return a.name
+
+    def _sched(self, asset_name: str, *, next_due: str, cal_type: str = "External",
+               interval: int = 180, is_active: int = 1) -> str:
+        return _make_schedule(
+            asset_name, next_due=next_due, cal_type=cal_type,
+            interval=interval, is_active=is_active,
+        )
+
+    @staticmethod
+    def _cache(asset_name: str, field: str):
+        return frappe.db.get_value("AC Asset", asset_name, field)
+
+    @staticmethod
+    def _next_due(schedule_name: str) -> str:
+        from assetcore.repositories.calibration_repo import CalibrationScheduleRepo
+        return str(CalibrationScheduleRepo.get_value(schedule_name, "next_due_date"))
+
+    # ── TC-11-PASS-ROLLUP-01 (BUG CHÍNH — RED-prove) ─────────────────────────
+    def test_pass_multi_schedule_status_is_rollup_overdue(self):
+        """asset X có A (overdue today-10) + B (Pass). Sau Pass(B):
+        AC Asset.calibration_status == 'Overdue' (KHÔNG 'On Schedule') == SoT map.
+        Code cũ hardcode ON_SCHEDULE → ĐỎ."""
+        from assetcore.services import imm11 as svc
+        asset = self._new_asset("-pr01")
+        self._sched(asset, next_due=add_days(nowdate(), -10), cal_type="External")
+        sched_b = self._sched(asset, next_due=add_days(nowdate(), 5),
+                              cal_type="In-House")
+
+        _submit_calibration_with_result(
+            asset, result="Pass", calibration_schedule=sched_b)
+
+        status = self._cache(asset, "calibration_status")
+        self.assertEqual(
+            status, CalibrationStatus.OVERDUE,
+            "INV-PASS-ROLLUP-1: còn lịch A overdue → rollup Overdue (KHÔNG On Schedule)",
+        )
+        self.assertEqual(
+            status, svc._calibration_status_asset_ids().get(asset),
+            "AC Asset.calibration_status == _calibration_status_asset_ids()[X]",
+        )
+
+    # ── TC-11-PASS-ROLLUP-02 (schedule advance BR-11-04 bất biến) ─────────────
+    def test_pass_multi_schedule_advances_only_passed_schedule(self):
+        """Schedule B advance = today+interval; schedule A KHÔNG đổi (today-10)."""
+        asset = self._new_asset("-pr02")
+        sched_a = self._sched(asset, next_due=add_days(nowdate(), -10),
+                              cal_type="External")
+        sched_b = self._sched(asset, next_due=add_days(nowdate(), 5),
+                              cal_type="In-House", interval=180)
+
+        _submit_calibration_with_result(
+            asset, result="Pass", calibration_schedule=sched_b)
+
+        self.assertEqual(
+            self._next_due(sched_b), add_days(nowdate(), 180),
+            "BR-11-04: schedule vừa Pass advance next_due_date = basis+interval",
+        )
+        self.assertEqual(
+            self._next_due(sched_a), add_days(nowdate(), -10),
+            "schedule A (KHÔNG Pass) next_due_date bất biến",
+        )
+
+    # ── TC-11-PASS-ROLLUP-03 (next == MIN + KHÔNG rớt due-list) ───────────────
+    def test_pass_multi_schedule_next_is_min_and_in_due_list(self):
+        """AC Asset.next_calibration_date == MIN(next_due) (= A, today-10);
+        asset X ∈ get_due_calibrations(30).items (KHÔNG rớt khỏi filter).
+        Code cũ đẩy next về today+180 → asset rớt khỏi due-list → ĐỎ."""
+        from assetcore.services import imm11 as svc
+        asset = self._new_asset("-pr03")
+        self._sched(asset, next_due=add_days(nowdate(), -10), cal_type="External")
+        sched_b = self._sched(asset, next_due=add_days(nowdate(), 5),
+                              cal_type="In-House")
+
+        _submit_calibration_with_result(
+            asset, result="Pass", calibration_schedule=sched_b)
+
+        self.assertEqual(
+            str(self._cache(asset, "next_calibration_date")),
+            add_days(nowdate(), -10),
+            "INV-PASS-ROLLUP-2: next_calibration_date == MIN(next_due) = schedule A",
+        )
+        due = svc.get_due_calibrations(days=30)
+        names = {r["name"] for r in due["items"]}
+        self.assertIn(
+            asset, names,
+            "INV-PASS-ROLLUP-4: asset còn lịch overdue VẪN trong due-list",
+        )
+
+    # ── TC-11-PASS-ROLLUP-04 (ROLLUP-CONSISTENCY / idempotent scheduler) ──────
+    def test_pass_then_scheduler_idempotent(self):
+        """Sau Pass multi-schedule → check_calibration_expiry() chạy NGAY sau
+        KHÔNG đổi calibration_status (PASS-rollup == scheduler-rollup). Chạy 2×
+        bất biến (no flip-flop badge)."""
+        from assetcore.services import imm11 as svc
+        asset = self._new_asset("-pr04")
+        self._sched(asset, next_due=add_days(nowdate(), -10), cal_type="External")
+        sched_b = self._sched(asset, next_due=add_days(nowdate(), 5),
+                              cal_type="In-House")
+
+        _submit_calibration_with_result(
+            asset, result="Pass", calibration_schedule=sched_b)
+        after_pass = self._cache(asset, "calibration_status")
+
+        svc.check_calibration_expiry()
+        frappe.db.commit()
+        self.assertEqual(
+            self._cache(asset, "calibration_status"), after_pass,
+            "INV-PASS-ROLLUP-3: scheduler ngay sau Pass KHÔNG đổi cache (idempotent)",
+        )
+        # chạy lần 2 — vẫn bất biến (no flip-flop).
+        svc.check_calibration_expiry()
+        frappe.db.commit()
+        self.assertEqual(
+            self._cache(asset, "calibration_status"), after_pass,
+            "scheduler 2× → kết quả bất biến",
+        )
+
+    # ── TC-11-PASS-ROLLUP-05 (DUE_SOON rollup) ───────────────────────────────
+    def test_pass_multi_schedule_status_is_rollup_due_soon(self):
+        """asset có A (due_soon today+10) + B (Pass) → calibration_status ==
+        'Due Soon' (KHÔNG 'On Schedule'); next_calibration_date == MIN (= A)."""
+        asset = self._new_asset("-pr05")
+        self._sched(asset, next_due=add_days(nowdate(), 10), cal_type="External")
+        sched_b = self._sched(asset, next_due=add_days(nowdate(), 3),
+                              cal_type="In-House", interval=180)
+
+        _submit_calibration_with_result(
+            asset, result="Pass", calibration_schedule=sched_b)
+
+        self.assertEqual(
+            self._cache(asset, "calibration_status"), CalibrationStatus.DUE_SOON,
+            "còn lịch A due_soon → rollup Due Soon (KHÔNG On Schedule)",
+        )
+        self.assertEqual(
+            str(self._cache(asset, "next_calibration_date")),
+            add_days(nowdate(), 10),
+            "next_calibration_date == MIN(next_due) = schedule A (today+10)",
+        )
+
+    # ── TC-11-PASS-ROLLUP-06 (HAPPY 1-lịch bất biến) ─────────────────────────
+    def test_pass_single_schedule_unchanged_behaviour(self):
+        """asset chỉ 1 active schedule → Pass → calibration_status='On Schedule';
+        next_calibration_date == add_days(basis, interval); schedule advance;
+        ALE 'calibration_passed' đúng 1 record. Hành vi cũ giữ 100%."""
+        asset = self._new_asset("-pr06")
+        sched = self._sched(asset, next_due=add_days(nowdate(), 5),
+                            cal_type="In-House", interval=180)
+
+        _submit_calibration_with_result(
+            asset, result="Pass", calibration_schedule=sched)
+
+        self.assertEqual(
+            self._cache(asset, "calibration_status"), CalibrationStatus.ON_SCHEDULE,
+            "INV-PASS-ROLLUP-4: 1-lịch Pass → On Schedule (bất biến)",
+        )
+        self.assertEqual(
+            str(self._cache(asset, "next_calibration_date")),
+            add_days(nowdate(), 180),
+            "1-lịch: next_calibration_date == add_days(basis, interval) = MIN trên 1 lịch",
+        )
+        self.assertEqual(
+            self._next_due(sched), add_days(nowdate(), 180),
+            "schedule advance next_due_date = basis+interval",
+        )
+        ale = frappe.get_all(
+            "Asset Lifecycle Event",
+            filters={"asset": asset, "event_type": "calibration_passed"},
+            fields=["name"],
+        )
+        self.assertEqual(len(ale), 1, "đúng 1 ALE 'calibration_passed'")
+
+    # ── TC-11-PASS-ROLLUP-07 (BR-11-12 restore-guard bất biến — nhánh C OoS) ──
+    def test_pass_oos_other_hold_stays_oos_and_rolls_up(self):
+        """asset Out of Service, _can_restore_from_oos=False (còn Incident mở) →
+        Pass GIỮ OoS + ALE hold-note (BR-11-12 bất biến); cache rollup KHÔNG ép
+        Active; CalibrationRepo.next_calibration_date set như cũ."""
+        from assetcore.services import imm11 as svc
+        asset = self._new_asset("-pr07")
+        sched = self._sched(asset, next_due=add_days(nowdate(), 5),
+                            cal_type="In-House", interval=180)
+        # Đưa asset Out of Service qua governance hold KHÁC (Incident IMM-12)
+        # để _can_restore_from_oos=False (chủ-hold KHÔNG phải IMM Asset Calibration).
+        from assetcore.services.imm00 import transition_asset_status
+        incident = frappe.get_doc({
+            "doctype": "Incident Report",
+            "asset": asset,
+            "incident_type": "Failure",
+            "severity": "High",
+            "status": "Open",
+            "reported_by": "Administrator",
+            "reported_at": nowdate(),
+            "description": "_Test pr07 hold",
+        }).insert(ignore_permissions=True)
+        transition_asset_status(
+            asset_name=asset, to_status=AssetStatus.OUT_OF_SERVICE,
+            actor="Administrator", root_doctype="Incident Report",
+            root_record=incident.name, reason="hold pr07",
+        )
+        frappe.db.commit()
+        self.assertFalse(
+            svc._can_restore_from_oos(asset, None),
+            "tiền đề: còn governance hold khác → KHÔNG được restore",
+        )
+
+        cal_name = _submit_calibration_with_result(
+            asset, result="Pass", calibration_schedule=sched, is_recalibration=1)
+
+        self.assertEqual(
+            self._cache(asset, "lifecycle_status"), AssetStatus.OUT_OF_SERVICE,
+            "BR-11-12 nhánh C: Pass KHÔNG ép Active khi còn hold khác",
+        )
+        # ALE 'calibration_passed' đúng 1 record (hold-note nhồi vào note, KHÔNG +ALE).
+        ale = frappe.get_all(
+            "Asset Lifecycle Event",
+            filters={"asset": asset, "event_type": "calibration_passed"},
+            fields=["name", "notes"],
+        )
+        self.assertEqual(len(ale), 1, "đúng 1 ALE 'calibration_passed'")
+        # CalibrationRepo.next_calibration_date (phiếu) set = basis+interval như cũ.
+        from assetcore.repositories.calibration_repo import CalibrationRepo
+        self.assertEqual(
+            str(CalibrationRepo.get_value(cal_name, "next_calibration_date")),
+            add_days(nowdate(), 180),
+            "INV-PASS-ROLLUP-5: CalibrationRepo.next_calibration_date bất biến",
+        )
+
+    # ── TC-11-PASS-ROLLUP-N1 (no N+1 — bounded query) ────────────────────────
+    def test_rollup_helper_bounded_queries(self):
+        """_apply_asset_calibration_rollup cho asset 3 active schedule → số lần
+        frappe.db.sql gọi BOUNDED, KHÔNG loop per-schedule. Đếm cho 1 vs 3 lịch
+        phải BẰNG NHAU (độc lập số schedule)."""
+        from assetcore.services import imm11 as svc
+
+        def _count_sql_for_schedules(n: int) -> int:
+            asset = self._new_asset(f"-prN1-{n}")
+            _types = ("External", "In-House")
+            for i in range(n):
+                self._sched(asset, next_due=add_days(nowdate(), 5 + i),
+                            cal_type=_types[i % len(_types)])
+            calls = {"n": 0}
+            orig = frappe.db.sql
+
+            def _spy(*a, **k):
+                calls["n"] += 1
+                return orig(*a, **k)
+
+            frappe.db.sql = _spy
+            try:
+                svc._apply_asset_calibration_rollup(asset, nowdate())
+            finally:
+                frappe.db.sql = orig
+            return calls["n"]
+
+        one = _count_sql_for_schedules(1)
+        three = _count_sql_for_schedules(3)
+        # INVARIANT CHỐT (INV-PASS-ROLLUP-6): query count BẰNG NHAU bất kể số
+        # schedule → KHÔNG loop per-schedule SQL (KHÔNG N+1). Đây là ràng buộc thật.
+        self.assertEqual(
+            one, three,
+            "INV-PASS-ROLLUP-6: query count độc lập số schedule (KHÔNG N+1)",
+        )
+        # Bounded tuyệt đối: _calibration_status_asset_ids = 4 set-query toàn-tập
+        # (overdue + due_soon[=overdue+window] + on_schedule) + _asset_min_next_due
+        # 1 aggregate + AssetRepo.set_values write = ≤6 (hằng, không theo schedule).
+        self.assertLessEqual(
+            three, 6,
+            "rollup 1 asset = số query bounded (hằng số, KHÔNG theo schedule)",
+        )

@@ -19,7 +19,7 @@ description: >
 
 Giữ **nội dung + context phiên** liền mạch: ghi lại phiên chat (yêu cầu, việc làm, quyết định) vào file md local; phiên/người sau mở ra là **đọc trước → tiếp tục đúng các yêu cầu đang dở** mà không mất ngữ cảnh.
 
-**Mô hình lưu (QUAN TRỌNG):** **1 `STATE.md` chung** (cây gậy bàn giao xuyên phiên — đọc TRƯỚC) **+ MỖI PHIÊN 1 FILE** trong `sessions/` (chứa 🎯 mục tiêu + yêu cầu thô + log của riêng phiên đó). File phiên **khóa theo `session_id`** → nhiều phiên chạy đồng thời KHÔNG ghi đè/đua nhau.
+**Mô hình lưu (QUAN TRỌNG):** **1 `STATE.md` chung** (cây gậy bàn giao xuyên phiên — đọc TRƯỚC) **+ MỖI PHIÊN 1 FILE** trong `sessions/<YYYY-MM-DD>/<HHMM>_<sid8>.md` (folder theo NGÀY). File phiên **khóa theo `session_id`** → nhiều phiên chạy đồng thời KHÔNG ghi đè/đua nhau. Mỗi file phiên chứa: 🎯 mục tiêu + **Yêu cầu thô** (hook ghi mỗi prompt) + **Tiến trình semantic** (Claude bồi) + **🪞 Mirror toàn bộ lượt** (hook `Stop` tự chép NGUYÊN VĂN prompt + phản hồi Claude + tool calls/results sau MỖI lượt → file là bản sao gần-đầy-đủ của context, "thư viện tri thức" để truy gốc khi cần).
 
 **3 luật cốt lõi (đọc kỹ — đây là điều dễ làm sai nhất):**
 
@@ -33,13 +33,15 @@ Giữ **nội dung + context phiên** liền mạch: ghi lại phiên chat (yêu
 
 ## Chống compaction (anti-amnesia trong phiên DÀI) — vì sao có skill này
 
-Phiên dài bị **compact** → model dễ MẤT nội dung/yêu cầu gốc. Hệ thống chống bằng **3 lớp** (đã xác minh hành vi hook Claude Code):
+Phiên dài bị **compact** → model dễ MẤT nội dung/yêu cầu gốc. Hệ thống chống bằng **4 lớp** (đã xác minh hành vi hook Claude Code):
 
 1. **Capture cơ học (chống-compact tuyệt đối) — `UserPromptSubmit → on-prompt`.** Mỗi prompt user gửi, hook đọc stdin JSON lấy `.prompt` và **append nguyên văn vào FILE PHIÊN (mục "Yêu cầu (raw)") TRƯỚC khi model xử lý** → yêu cầu gốc nằm trên đĩa, compact không thể xoá. Không phụ thuộc Claude có nhớ checkpoint hay không. (Best-effort: lỗi parse cũng KHÔNG chặn prompt.)
-2. **Recovery sau compact — `SessionStart` matcher gồm `compact`.** Claude Code fire `SessionStart` lại với source `compact` SAU mỗi lần compact; stdout của nó (`show`) được nạp thẳng vào context → STATE + file phiên hiện tại tự hiện lại. ⚠️ Matcher PHẢI có `compact` (thiếu = sau compact im lặng, mất tác dụng).
-3. **Pin ngữ nghĩa — mục `🎯 Mục tiêu phiên` đầu FILE PHIÊN.** Claude ghi mục tiêu gốc của phiên ngay sau yêu cầu đầu phiên; là "la bàn" để định hướng lại sau compact (raw bullet bên dưới là bản sao lưu thô bổ trợ).
+2. **Mirror TOÀN BỘ lượt — `Stop → mirror`.** SAU mỗi lượt Claude trả lời, hook đọc `.transcript_path` (JSONL hội thoại) và **chép NGUYÊN VĂN các dòng MỚI** (prompt + text Claude + tool calls + kết quả tool, truncated hợp lý) vào mục `## 🪞 Mirror` của file phiên — incremental qua con trỏ `.cursors/<sid8>.cursor` (idempotent, không ghi trùng). → file phiên là bản sao gần-đầy-đủ của context, sống sót qua compact/ngắt. (Mặc định BỎ QUA `thinking`; đặt `MIRROR_THINKING=1` để chép cả suy nghĩ — "đầy đủ nhất" nhưng rất lớn.)
+3. **Recovery sau compact — `SessionStart` matcher gồm `compact`.** Claude Code fire `SessionStart` lại với source `compact` SAU mỗi lần compact; stdout của nó (`show`) được nạp thẳng vào context → STATE + phần CURATED của file phiên (🎯 + raw + semantic, CẮT trước mục 🪞 Mirror để không nhồi mirror khổng lồ) tự hiện lại. ⚠️ Matcher PHẢI có `compact` (thiếu = sau compact im lặng, mất tác dụng).
+4. **Pin ngữ nghĩa — mục `🎯 Mục tiêu phiên` đầu FILE PHIÊN.** Claude ghi mục tiêu gốc của phiên ngay sau yêu cầu đầu phiên; là "la bàn" để định hướng lại sau compact (raw bullet + mirror bên dưới là bản sao lưu bổ trợ).
 
-> PreCompact KHÔNG dùng: stdout của nó KHÔNG vào context (chỉ side-effect) → vô dụng cho recovery; capture đã do `on-prompt` lo.
+> PreCompact KHÔNG dùng: stdout của nó KHÔNG vào context (chỉ side-effect) → vô dụng cho recovery; capture đã do `on-prompt` + `mirror` lo.
+> **Stop hook stdout KHÔNG vào context** (chỉ side-effect ghi file) → mirror không làm bẩn context Claude; chỉ để truy gốc on-demand (đọc thẳng file phiên).
 
 ## When to use / NOT
 
@@ -60,8 +62,9 @@ Tất cả nằm **TRONG repo** nhưng **GITIGNORED** → user thấy được t
 | Path | Vai trò | Ghi thế nào |
 |------|---------|-------------|
 | **`STATE.md`** | Cây gậy bàn giao XUYÊN PHIÊN — SỰ THẬT HIỆN TẠI. Chỉ chứa thứ chuyển TIẾP. Đọc TRƯỚC TIÊN. | **GHI ĐÈ** (replace) — chỉ giữ cái còn đúng hôm nay |
-| **`sessions/<YYYY-MM-DD_HHMM>_<sid8>.md`** | **MỖI PHIÊN 1 FILE** — 🎯 mục tiêu + yêu cầu thô (máy ghi) + log semantic của riêng phiên. Khóa theo `session_id`. | Hook tạo + append raw; Claude bồi semantic vào CÙNG file (lấy path: `session-log.sh current`) |
-| `sessions/archive/…` hoặc `archive/…` | File phiên cũ khi `sessions/` quá nhiều (retention). | Chuyển file cũ sang (không xoá lịch sử quan trọng) |
+| **`sessions/<YYYY-MM-DD>/<HHMM>_<sid8>.md`** | **MỖI PHIÊN 1 FILE** (folder theo NGÀY) — 🎯 mục tiêu + yêu cầu thô (máy ghi) + log semantic (Claude bồi) + 🪞 Mirror toàn bộ lượt (máy ghi). Khóa theo `session_id`. | Hook tạo + append raw + mirror; Claude bồi semantic vào CÙNG file (lấy path: `session-log.sh current`) |
+| `.cursors/<sid8>.cursor` | Con trỏ "đã mirror tới dòng N của transcript" cho hook `Stop` (idempotent). | Hook `mirror` tự ghi — KHÔNG sửa tay |
+| `sessions/archive/…` hoặc `archive/…` | File phiên/folder-ngày cũ khi `sessions/` quá nhiều (retention). | Chuyển folder-ngày cũ sang (không xoá lịch sử quan trọng) |
 
 > KHÔNG còn `LOG.md` chung (đã nghỉ — gây đua ghi khi 2 phiên đồng thời). Lịch sử cũ ở `archive/LOG-pre-*.md`.
 
@@ -70,7 +73,7 @@ Tất cả nằm **TRONG repo** nhưng **GITIGNORED** → user thấy được t
 > **Luật cứng:** Trước khi xử lý BẤT KỲ yêu cầu nào của một phiên đang tiếp diễn / nối tiếp, PHẢI đọc context. Không đọc = không hành động. Không ngoại lệ ("việc nhỏ", "tôi nhớ rồi", "user nói luôn việc mới" đều KHÔNG miễn).
 
 1. Hook `SessionStart` tự `show` (STATE + file phiên gần nhất, **gồm cả sau compact**); hook `UserPromptSubmit` tự `on-prompt` — ghi prompt thô vào file phiên (chống-compact) rồi in STATE gọn vào **MỖI prompt**. Nếu KHÔNG thấy (agent con / phiên cũ) → chạy `./.claude/scripts/session-log.sh show`.
-2. Đọc `STATE.md` (🔴 Blockers → ▶️ Next step → 🟡 Open threads → 📝 Working-tree) **VÀ** file phiên gần nhất (🎯 + yêu cầu raw + tiến trình) để hiểu các yêu cầu đang dở.
+2. Đọc `STATE.md` (🔴 Blockers → ▶️ Next step → 🟡 Open threads → 📝 Working-tree) **VÀ** phần curated của file phiên gần nhất (🎯 + yêu cầu raw + tiến trình) để hiểu các yêu cầu đang dở. **Cần truy gốc chi tiết** (đã nói/đã làm chính xác gì) → đọc THẲNG mục `## 🪞 Mirror` của file phiên đó (`session-log.sh current` → path) — đây là "thư viện tri thức" đầy đủ.
 3. **Verify-before-trust**: context là ảnh chụp lúc ghi. Trước khi tin "code đã X", `git status`/grep xác minh (state có thể lỗi thời).
 
 ## WRITE protocol — CHECKPOINT THEO TỪNG YÊU CẦU (không đợi cuối phiên)
@@ -108,7 +111,7 @@ branch: feature/hieuc/core-refinement
 ## 📝 Working-tree note               ← nhóm thay đổi chưa commit (không liệt kê 60 file)
 ```
 
-## File-phiên schema (`sessions/<ts>_<sid8>.md` — 1 phiên 1 file)
+## File-phiên schema (`sessions/<YYYY-MM-DD>/<HHMM>_<sid8>.md` — 1 phiên 1 file)
 
 ```markdown
 ---
@@ -121,7 +124,10 @@ branch: feature/hieuc/core-refinement
 ## 🎯 Mục tiêu phiên (yêu cầu gốc)          ← Claude pin sau prompt đầu (anti-compact)
 ## Yêu cầu (raw — máy ghi tự động)          ← hook append `- [HH:MM] <prompt>`, để nguyên
 ## Tiến trình (semantic — Claude bồi)       ← Làm / Quyết định / Để lại
+## 🪞 Mirror (toàn bộ lượt — máy ghi)        ← hook Stop chép nguyên prompt+phản hồi+tool, để nguyên
 ```
+
+> 🪞 Mirror do hook `Stop` ghi tự động — **ĐỪNG sửa tay**. `show`/đầu phiên CHỈ inject phần curated (cắt trước mục Mirror); muốn truy gốc đầy đủ thì ĐỌC THẲNG file phiên (`session-log.sh current` → path).
 
 ## Ranh giới với memory/ (BẢNG QUYẾT ĐỊNH — chống lỗi #6 baseline)
 
@@ -142,16 +148,17 @@ Quy tắc 1 câu: **Sẽ-hết-khi-việc-xong → `.claude/contexts/`. Đúng-m
 |-----|--------|----------|
 | **Đọc** STATE + file phiên đầu phiên **VÀ sau compact** | Hook `SessionStart` matcher `startup\|resume\|clear\|compact` → `session-log.sh show` | ✅ Hoàn toàn auto |
 | **Capture prompt thô + đọc STATE gọn** MỖI prompt | Hook `UserPromptSubmit` → `session-log.sh on-prompt` (ghi `.prompt` vào file phiên trước khi model xử lý → chống-compact; rồi in brief) | ✅ Hoàn toàn auto |
+| **Mirror TOÀN BỘ lượt** (prompt+phản hồi+tool) vào 🪞 Mirror | Hook `Stop` → `session-log.sh mirror` → `mirror_transcript.py` đọc `.transcript_path`, chép dòng mới (con trỏ `.cursors/`, idempotent) | ✅ Auto (mechanical) |
 | **Breadcrumb** điểm phiên (ngày/branch/#file/HEAD) | Hook `SessionEnd` → `session-log.sh breadcrumb` (ghi 1 dòng vào file phiên) | ✅ Auto (mechanical) |
 | **Cập nhật semantic** STATE + 🎯/Tiến trình file phiên | Skill này (Claude viết) | 🖐 Cần invoke (pin 🎯 đầu phiên; nudge khi user nói "lưu context"; tự giác sau mỗi việc đáng kể) |
 
-> Honest limit: hook KHÔNG tự tóm tắt được "đã làm gì" (hook là shell, không phải Claude). Nó đảm bảo luôn có dấu vết cơ học; phần ngữ cảnh giàu là việc của skill.
+> Honest limit: hook `Stop` chép NGUYÊN VĂN lượt (🪞 Mirror) — "đã làm/đã nói gì" nằm verbatim trên đĩa — nhưng hook KHÔNG **tóm tắt/curate** được (hook là shell, không phải Claude). Mirror = bản thô đầy đủ để truy gốc; STATE gọn + Tiến trình semantic (Claude bồi) vẫn là việc của skill để phiên sau đọc NHANH thay vì lội cả mirror.
 
 ## Retention
 
 - `STATE.md` luôn nhỏ (chỉ cái còn đúng). Dọn item đã xong mỗi lần ghi.
-- `sessions/` tích nhiều file → chuyển file phiên cũ (vài tháng) sang `archive/`. Mỗi file phiên đã tự nhỏ gọn.
-- KHÔNG commit `.claude/contexts/` vào git (gitignored trong repo — ephemeral, local-only).
+- `sessions/<ngày>/` tích theo NGÀY → archive cả folder-ngày cũ (vài tháng) sang `archive/`. ⚠️ File phiên giờ có 🪞 Mirror nên có thể LỚN (KB→MB tuỳ phiên) — đây là đánh đổi để "ghi y hệt"; archive sớm nếu nặng. (`MIRROR_RESULT_MAX`/`MIRROR_INPUT_MAX` chỉnh độ truncate; `MIRROR_THINKING=1` chép cả thinking = lớn hơn nhiều.)
+- KHÔNG commit `.claude/contexts/` vào git (gitignored trong repo — ephemeral, local-only). `.cursors/` cũng nằm trong `.claude/contexts/` → gitignored.
 
 ## Red Flags — STOP
 
@@ -167,7 +174,9 @@ Quy tắc 1 câu: **Sẽ-hết-khi-việc-xong → `.claude/contexts/`. Đúng-m
 | Xử lý yêu cầu mới khi CHƯA đọc STATE + file phiên | R2 luật cứng — đọc trước, không ngoại lệ |
 | Vừa bị compact → tiếp tục theo "trí nhớ" trong context | SAI — context vừa bị nén, dễ mất gốc. Đọc lại STATE + 🎯 + yêu cầu raw của file phiên trước |
 | `SessionStart` matcher thiếu `compact` | Sau compact hook im lặng → KHÔNG recovery. Matcher PHẢI có `compact` |
-| Tạo file phiên thủ công / đặt tên khác | Để hook tạo (khóa theo `session_id`). Lấy path bằng `session-log.sh current` |
+| Tạo file phiên thủ công / đặt tên khác | Để hook tạo (folder ngày, khóa theo `session_id`). Lấy path bằng `session-log.sh current` |
+| Sửa tay / dọn mục `## 🪞 Mirror` | Mirror do hook `Stop` ghi (theo con trỏ `.cursors/`) — sửa tay = lệch cursor/ghi trùng. Bồi tay CHỈ vào mục "Tiến trình (semantic)" |
+| Cố inject cả Mirror vào context mỗi phiên | `show` cố ý CẮT trước mục Mirror (mirror có thể vài MB). Mirror để đọc on-demand, không nhồi vào mỗi prompt |
 | Định commit/push `.claude/contexts/` | R3 — context CHỈ local, không bao giờ lên GitHub |
 | "Để cuối phiên ghi 1 thể cho gọn" | Ghi-lazy = ngắt giữa chừng mất hết. Checkpoint sau MỖI việc đáng kể |
 

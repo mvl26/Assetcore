@@ -64,6 +64,7 @@ Mỗi US/BR/Activity phải có ≥ 1 test ở Phần III và xuất hiện tron
 | BR-04-06 (VR-04/G05) | No Open NC trước Release | `validate_gate_g05_g06` | Decision Table |
 | BR-04-07 (G06) | `board_approver` bắt buộc trước Submit/Release | `validate_gate_g05_g06` | EP (present/absent) |
 | BR-04-08 (GW-2) | Asset có CN ĐK lưu hành Active/Exempt trước Submit | `_validate_document_expiry` + GW-2 check | Decision Table |
+| BR-04-11 | Stamp `commissioning_date` tại Clinical Release (idempotent, 3 write-path) + KPI `released_this_month` đếm theo `commissioning_date ∈ tháng` (KHÔNG `modified`) | `_stamp_commissioning_date`, `get_dashboard_stats` | Invariant + Idempotency + BVA (biên tháng) |
 
 ### I.2.c. Từ Activity Flow / BPMN
 | Activity ID | Use Case | Branch chính | Branch ngoại lệ |
@@ -179,8 +180,11 @@ File hiện tại: `assetcore/tests/test_imm04.py`. Mỗi test class trace về 
 | `TestDocumentExpiry` | `_validate_document_expiry` | BVA | past/today/<30d/future | ⬜ Planned |
 | `TestOverdueScheduler` | `check_commissioning_overdue` | Use Case + cron | 200-open simulation | ⬜ Planned |
 | `TestOverdueSoT` (BR-04-10) | `overdue_commissioning_filter`, `get_dashboard_stats`, `list_commissioning(overdue=1)` | Invariant + EP | TC-04-30 helper trả đúng dict (anchor `reception_date`, `<today−OVERDUE_DAYS`, `workflow_state NOT IN terminal`, `docstatus!=2`); TC-04-31 `overdue_sla == list_commissioning({overdue:1}).pagination.total` (card==drill); TC-04-32 `overdue:1` AND filter khác không clobber + KHÔNG lọt raw column | ⬜ Planned |
+| `TestCommissioningDateKpi` (BR-04-11) | `_stamp_commissioning_date`, `transition_state`/`submit_commissioning`/`approve_clinical_release`, `get_dashboard_stats().kpis.released_this_month` | Invariant + EP + BVA + idempotency | TC-04-33 stamp tại MỖI 3 write-path (phiếu vào Clinical Release → `commissioning_date == nowdate()`, != NULL); TC-04-34 idempotent (set sẵn `commissioning_date` tháng trước → 2nd write-path KHÔNG ghi đè); TC-04-35 **BUG CHÍNH (RED-prove)**: phiếu Clinical Release `commissioning_date` tháng-TRƯỚC nhưng `modified` HÔM NAY (edit note) → `released_this_month` KHÔNG đếm (chứng minh re-anchor khỏi `modified`); TC-04-36 SoT card==count cùng cửa sổ (`released_this_month == count({Clinical Release, docstatus=1, commissioning_date ∈ [first_day, today]})`); TC-04-37 NULL-safe legacy (`commissioning_date` NULL → loại khỏi count, KHÔNG crash); TC-04-38 BVA biên tháng (`commissioning_date == first_day` in, `== last_day_prev_month` out, `== today` in) | ✅ Live — `tests/test_imm04_commissioning_date_kpi.py` (12 test: helper unit stamp/idempotent/noop + KPI in-month/exclude-last-month-edited/NULL-safe/card==drill/anchor-DELTA + 3-path wiring grep-guard + no-`modified` guard). RED-proven: code cũ FAIL 3 (KPI modified anchor + card!=drill + grep). |
 
 > **TC-04-30..32 (SoT overdue — vòng 32):** assert đo được trên data-live: tạo N phiếu `reception_date` vượt 30 ngày ở các state non-terminal + vài phiếu terminal/cancelled (không tính) → `overdue_sla` == số dòng `list_commissioning({overdue:1})`. Verify đổi anchor: phiếu có `expected_installation_date` quá hạn nhưng `reception_date` còn hạn → KHÔNG tính (chứng minh đã hợp nhất về `reception_date`). Verify `OVERDUE_DAYS` là constant (monkeypatch `=0` → mọi phiếu non-terminal tính overdue).
+
+> **TC-04-33..38 (SoT commissioning-date / "Bàn giao tháng này" — vòng 16, BR-04-11):** RED-prove TC-04-35 TRƯỚC fix: seed 1 phiếu `workflow_state=Clinical Release, docstatus=1, commissioning_date=` ngày tháng-trước, rồi `.save()` để `modified=hôm nay` → code cũ (`modified >= first_day`) đếm phiếu này = +1 SAI; sau fix (`commissioning_date BETWEEN`) = 0 ĐÚNG. Stamp test (TC-04-33) chạy 3 write-path riêng: (a) `transition_state` action→Clinical Release, (b) phiếu sẵn Clinical Release → `submit_commissioning`, (c) `approve_clinical_release` — mỗi path assert `frappe.db.get_value(_DT, name, 'commissioning_date') == nowdate()`. Idempotency (TC-04-34): set `commissioning_date` = mốc cũ trước khi chạy write-path thứ 2 → giá trị bất biến. NULL-safe (TC-04-37): seed phiếu Clinical Release docstatus=1 với `commissioning_date=None` → `get_dashboard_stats()` KHÔNG raise + phiếu này KHÔNG vào `released_this_month`. Fixture tự-purge (đồng pattern test_imm04 hiện hữu); KHÔNG để leak Asset (mint asset trên Clinical Release → cleanup `final_asset`). Module test: `test_imm04` + `test_dashboard` + `test_workflows` no-regression.
 
 ## III.3. Integration — DocType lifecycle
 
@@ -248,6 +252,29 @@ File: `tests/test_imm04_api.py` (⬜ Planned). Cover happy + envelope `success=t
 | `test_get_dashboard_stats` | `get_dashboard_stats` | fields KPI hợp lệ | Use Case |
 | `test_idempotent_submit` | `submit_commissioning` 2 lần | 2nd call → `code=BAD_STATE` | Error guessing |
 | `test_barcode_lookup` | `get_barcode_lookup?barcode=...` | trả asset_ref đúng | Use Case |
+
+### III.6.a — `TestGenerateQrLabelDeepLink` — dedup QR commissioning→asset (vòng 13 / ADR-001 §D6.1)
+
+File: `tests/test_imm04.py` (class MỚI `TestGenerateQrLabelDeepLink`). RED trước (TDD). Verify `generate_qr_label` ủy quyền deep-link asset + bỏ `scan_url` desk + không double-emit.
+
+| Test | Tình huống | Verify |
+|---|---|---|
+| `test_qr_url_present_when_final_asset` | Phiếu đã Clinical Release (có `final_asset` mang `qr_token`) | `res["qr_url"]` = chuỗi tuyệt đối kết thúc `/a/<token>`; token == `AC Asset.qr_token` của `final_asset`; `res` KHÔNG còn key `scan_url` |
+| `test_qr_url_uses_shared_helper` | Patch `imm00.ensure_asset_qr_token` + `_build_qr_url` | `generate_qr_label` GỌI 2 helper đó (dedup THẬT — không tái hiện CSPRNG/`get_url` trong imm04); `qr_url` == giá trị helper trả |
+| `test_qr_url_null_when_no_final_asset` | Phiếu chưa mint asset (`final_asset` rỗng, đã qua Identification → có `internal_tag_qr`) | `res["qr_url"] is None`; KHÔNG raise; `ensure_asset_qr_token` KHÔNG được gọi; `res["qr_value"] == internal_tag_qr` (fallback) |
+| `test_no_double_emit_qr_generated` | `final_asset` đã có `qr_token` (đã emit ở mint/backfill) | Gọi `generate_qr_label` KHÔNG tạo thêm ALE `qr_generated` (count trước == sau) |
+| `test_emit_once_when_asset_token_less` | `final_asset` tồn tại nhưng `qr_token` rỗng (legacy) | `generate_qr_label` → token sinh 1 lần + ĐÚNG 1 ALE `qr_generated`; gọi lần 2 → KHÔNG thêm event (idempotent) |
+| `test_no_label_printed_emitted` | Bất kỳ | `generate_qr_label` (GET preview) KHÔNG tạo ALE `label_printed` (đó là `mark_label_printed`) |
+| `test_rbac_unchanged_forbidden` | User không có read trên `Asset Commissioning` | `ServiceError(FORBIDDEN)` — gate giữ nguyên |
+| `test_bad_state_no_internal_tag_qr` | Phiếu chưa qua Identification (`internal_tag_qr` rỗng) | `ServiceError(INVALID_PARAMS)` "Phiếu chưa có mã QR nội bộ" — không đổi |
+| `test_internal_tag_qr_field_intact` | Sau dedup | `Asset Commissioning.internal_tag_qr` vẫn read-only + `get_barcode_lookup(internal_tag_qr)` vẫn resolve đúng (scanner-wedge không vỡ) |
+
+**Baseline GIỮ XANH:** `test_imm00` (108+ test — `ensure_asset_qr_token`/`_build_qr_url` không đổi behavior), `test_imm04` (39 commissioning), `test_workflows`, `test_dashboard`.
+
+**FE (vitest):** `frontend/src/components/commissioning/QRLabel.test.ts` — case deep-link:
+- `encode_qr_url_when_present`: mock `generateQrLabel` trả `qr_url=/a/TOKEN` → `QRCode.toDataURL` gọi với `/a/TOKEN` (KHÔNG phải `qr_value`).
+- `fallback_qr_value_when_url_empty`: `qr_url=null` → encode `qr_value` (tag); nhãn vẫn render, không lỗi.
+- Type-check `vue-tsc` 0 error sau khi `QrLabelData` đổi (`+qr_url?`, `−scan_url`).
 
 ## III.7. E2E browser (Playwright)
 
@@ -326,6 +353,7 @@ CI fail nếu coverage < target hoặc bất kỳ test nào fail.
 | BR-04-07 (G06) | board_approver bắt buộc | `TestGateG05G06::test_no_approver_blocks` | EP | 1 / 1 ✅ |
 | BR-04-08 (GW-2) | CN ĐK lưu hành Active/Exempt | `TestDocumentExpiry` | Decision Table | ⬜ Planned |
 | BR-04-10 | Overdue SoT drillable (anchor `reception_date`, `OVERDUE_DAYS=30`, KPI==drill) | `TestOverdueSoT` (TC-04-30..32) | Invariant + EP | 2 / 1 ⬜ Planned |
+| BR-04-11 | Stamp `commissioning_date` tại Clinical Release (idempotent) + KPI `released_this_month` re-anchor `modified`→`commissioning_date` (card==count cùng cửa sổ tháng) | `tests/test_imm04_commissioning_date_kpi.py` (12 test) + FE `commissioningKpi.test.ts` (8) | Invariant + EP + BVA + idempotency | ✅ Done (BE 12 + FE 8 GREEN; no-regression test_imm04 39 / test_workflows 8 / test_dashboard 55; vue-tsc 0) |
 
 ## IV.3. Component → Test mapping
 

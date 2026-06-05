@@ -38,6 +38,68 @@ class Visibility:
 
 _ALERT_THRESHOLDS = [(7, "Danger"), (30, "Critical"), (60, "Warning"), (90, "Info")]
 
+# ─── SoT predicate "Đã hết hạn" (BR-05-16 / INV-EXP-1) ────────────────────────
+# RC-EXP (count-vs-drill divergence): KPI 'expired_not_renewed' và drill
+# list_documents PHẢI dùng Y HỆT 1 predicate. Trước đây KPI đếm theo
+# expiry_date<today thuần còn drill lọc workflow_state='Expired' (dead-state —
+# KHÔNG transition nào dẫn vào) → drill rỗng, giấu hồ sơ quá hạn còn hiệu lực
+# (NĐ98 Điều 41: thiết bị vận hành với giấy phép hết hạn PHẢI hiện).
+#
+# Predicate DUY NHẤT:
+#   expiry_date IS NOT NULL AND expiry_date < today
+#   AND workflow_state NOT IN ('Archived','Rejected')
+# - Archived/Rejected dù quá hạn KHÔNG đếm (không phải compliance-gap còn sống).
+# - Active/Draft/Pending Review quá hạn ĐẾM (live gap NĐ98). Biên expiry==today
+#   CHƯA < today → chưa expired.
+#
+# ⚠ NULL-guard TƯỜNG MINH bắt buộc (LL-BE-EXP-1): `frappe.db.count` và
+# `frappe.get_all` xử lý `["<", date]` với hàng NULL KHÁC NHAU — `db.count`
+# (query_builder) loại NULL còn `get_all` (DatabaseQuery) bọc `ifnull()` nên
+# hàng `expiry_date=NULL` LẠI khớp `< today`. Nếu predicate KHÔNG có
+# `["expiry_date","is","set"]`, count (db.count) != drill (get_all) ngay khi tồn
+# tại 1 doc NULL-expiry còn-sống → tái lập đúng count-vs-drill divergence. Vì vậy
+# dùng dạng **list-of-conditions** (đồng nhất trên CẢ HAI API) + NULL-guard.
+_EXPIRED_EXCLUDED_STATES = [DocState.ARCHIVED, DocState.REJECTED]
+
+# FE phát biểu Ý ĐỊNH bằng marker semantic này; BE vật chất hóa thành predicate
+# qua `expired_filter()` (không để FE tự tính date — tránh client/server skew).
+_EXPIRY_STATUS_MARKER = "expiry_status"
+
+
+def expired_filter(today: str | None = None) -> list[list]:
+    """SoT predicate 'Đã hết hạn' — dùng CHUNG cho count (KPI) lẫn drill (list).
+
+    BR-05-16 / INV-EXP-1: cả `get_dashboard_stats` (count, `frappe.db.count`) lẫn
+    `list_documents` (drill, `frappe.get_all` qua marker ``expiry_status='expired'``)
+    tiêu thụ predicate này → count == len(drill items) cho MỌI tập dữ liệu (chênh=0).
+
+    Trả **list-of-conditions** ``[[field, op, value], ...]`` (KHÔNG dict): chỉ dạng
+    này cho kết quả ĐỒNG NHẤT trên `db.count` và `get_all` khi có hàng NULL-expiry
+    (xem ghi chú NULL-guard phía trên). NULL-guard ``["expiry_date","is","set"]`` là
+    BẮT BUỘC, không phải tuỳ chọn.
+    """
+    return [
+        ["expiry_date", "is", "set"],
+        ["expiry_date", "<", today or nowdate()],
+        ["workflow_state", "not in", _EXPIRED_EXCLUDED_STATES],
+    ]
+
+
+def _dict_to_conditions(filters: dict) -> list[list]:
+    """Chuyển Frappe filter dict sang list-of-conditions để AND với `expired_filter()`.
+
+    - giá trị thường ``"Active"`` → ``["field", "=", "Active"]``
+    - operator-tuple ``["not in", [...]]`` / ``["in", [...]]`` → ``["field", op, value]``
+    Cùng ngữ nghĩa AND như dict gốc, nhưng dạng list đồng nhất với SoT predicate.
+    """
+    conditions: list[list] = []
+    for field, value in (filters or {}).items():
+        if isinstance(value, (list, tuple)) and len(value) == 2 and isinstance(value[0], str):
+            conditions.append([field, value[0], value[1]])
+        else:
+            conditions.append([field, "=", value])
+    return conditions
+
 
 # ─── Access control helpers (capability, KHONG so ten role) ───────────────────
 
@@ -125,7 +187,18 @@ _LIST_FIELDS = [
 
 
 def list_documents(filters: dict, *, page: int = 1, page_size: int = 20) -> dict:
-    f = _apply_visibility_filter(filters or {})
+    f = dict(filters or {})
+    # BR-05-16: marker semantic `expiry_status` (KHÔNG phải field DB) → BE là nơi
+    # DUY NHẤT vật chất hóa predicate compliance NĐ98 (FE chỉ phát biểu ý định).
+    # Pop trước khi build Frappe filter; dịch 'expired' sang SoT `expired_filter()`
+    # — CÙNG predicate KPI count dùng (INV-EXP-1: count == len(drill items)).
+    expired = f.pop(_EXPIRY_STATUS_MARKER, "") == "expired"
+    f = _apply_visibility_filter(f)
+    if expired:
+        # `expired_filter()` là list-of-conditions (NULL-guard đồng nhất 2 API) nên
+        # KHÔNG merge được vào dict → gộp toàn bộ về list-of-conditions: các filter
+        # dict còn lại (doc_category, asset_ref, visibility...) AND với SoT predicate.
+        f = _dict_to_conditions(f) + expired_filter()
     rows, pg = DocumentRepo.list(
         filters=f, fields=_LIST_FIELDS,
         page=page, page_size=page_size,
@@ -335,11 +408,12 @@ def get_asset_documents(asset: str) -> dict:
 
 def get_dashboard_stats() -> dict:
     total_active = DocumentRepo.count({"workflow_state": DocState.ACTIVE})
-    # RC-08 (NextRound): KPI "Đã hết hạn" phải đếm theo expiry_date < today
-    # **bất kể** workflow_state — bao gồm cả Draft / Pending Review / Active
-    # nếu chúng đã quá ngày hết hạn (không chỉ những doc đã được cron đẩy
-    # sang state EXPIRED). Bỏ điều kiện AND workflow_state = 'Active'.
-    expired_not_renewed = DocumentRepo.count({"expiry_date": ["<", nowdate()]})
+    # RC-EXP: KPI "Đã hết hạn" đếm theo SoT predicate `expired_filter()` —
+    # CÙNG predicate (cùng list-of-conditions, gồm NULL-guard) với drill
+    # list_documents (kill count-vs-drill divergence). Đếm mọi doc quá hạn còn
+    # hiệu lực (Active/Draft/Pending Review) NHƯNG loại Archived/Rejected (không
+    # phải compliance-gap còn sống) và doc expiry_date NULL (không có hạn).
+    expired_not_renewed = DocumentRepo.count(expired_filter())
 
     ninety_days = add_days(nowdate(), 90)
     # Dùng SQL 1 lần cho câu hỏi "sắp hết hạn trong 90 ngày" + "số assets missing docs"

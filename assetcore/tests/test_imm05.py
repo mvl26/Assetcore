@@ -274,51 +274,123 @@ class TestListDocuments(unittest.TestCase):
         self.assertLessEqual(len(result["items"]), 5)
 
 
-# ─── RC-08 (NextRound): KPI "Đã hết hạn" phải đếm theo expiry_date < today
-#     bất kể workflow_state (bao gồm Draft / Pending Review / Active đã quá hạn).
-class TestKpiExpiredDocs(unittest.TestCase):
-    """Regression test cho RC-08 — đảm bảo expired-but-Draft cũng được đếm."""
+# ─── BR-05-16 / INV-EXP-1: SoT predicate "Đã hết hạn" (Self-Correction Vòng 19)
+#     Một predicate DUY NHẤT `expired_filter()` dùng CHUNG bởi KPI count
+#     (get_dashboard_stats) + drill (list_documents marker expiry_status='expired').
+#     Counterexample bug cũ: KPI đếm mọi doc quá hạn (kể cả Archived/Rejected) còn
+#     drill lọc workflow_state='Expired' (dead-state) → list rỗng = count-vs-drill
+#     divergence che giấu hồ sơ quá hạn còn hiệu lực (NĐ98 Điều 41).
+class TestExpiredSoT(unittest.TestCase):
+    """BR-05-16 / INV-EXP-1 — SoT 'Đã hết hạn' = expiry_date IS NOT NULL
+    AND expiry_date < today AND workflow_state NOT IN (Archived, Rejected),
+    dùng Y HỆT cho KPI count VÀ drill list."""
 
     asset: str
-    draft_expired_doc: str
-    active_expired_doc: str
 
     @classmethod
     def setUpClass(cls):
         frappe.set_user("Administrator")
         cls.asset = _make_asset()
-        # Doc Draft đã quá hạn 10 ngày — TRƯỚC FIX: bị bỏ qua vì state != Active
-        cls.draft_expired_doc = _make_doc(cls.asset, state=DocState.DRAFT)
-        frappe.db.set_value("Asset Document", cls.draft_expired_doc,
-                            "expiry_date", add_days(nowdate(), -10))
-        # Doc Pending Review đã quá hạn 5 ngày — TRƯỚC FIX cũng bị bỏ qua
-        cls.active_expired_doc = _make_doc(cls.asset, state=DocState.DRAFT)
-        # Bypass workflow guard: set trực tiếp state + expiry qua db.set_value
-        frappe.db.set_value("Asset Document", cls.active_expired_doc, {
-            "workflow_state": DocState.PENDING_REVIEW,
-            "expiry_date": add_days(nowdate(), -5),
-        })
-        frappe.db.commit()
 
     @classmethod
     def tearDownClass(cls):
         _purge_asset(cls.asset)
 
-    def test_expired_kpi_counts_draft_doc(self):
-        """expired_not_renewed phải bao gồm cả Draft expired (RC-08)."""
-        stats = get_dashboard_stats()
-        expired = stats["kpis"]["expired_not_renewed"]
-        # Ít nhất phải đếm 2 doc test (Draft + Active) đã quá hạn
-        self.assertGreaterEqual(expired, 2,
-            "RC-08: KPI 'Đã hết hạn' phải đếm cả Draft/Pending Review đã quá expiry_date")
+    def _mk(self, state: str, *, expiry) -> str:
+        """Seed an Asset Document at `state` with given expiry (date string or None).
 
-    def test_expired_kpi_filter_is_by_expiry_date_only(self):
-        """KPI count phải khớp với SQL filter `expiry_date < today` thuần."""
+        Bypass workflow guards via db.set_value so we can place a doc in any
+        terminal/non-terminal state deterministically for predicate testing.
+        """
+        name = _make_doc(self.asset, state=DocState.DRAFT)
+        patch: dict = {"workflow_state": state}
+        if expiry is not None:
+            patch["expiry_date"] = expiry
+        frappe.db.set_value("Asset Document", name, patch)
+        frappe.db.commit()
+        return name
+
+    def _drill_names(self) -> set[str]:
+        """Drill list applying the SAME SoT via the public marker contract."""
+        res = list_documents({"expiry_status": "expired"}, page=1, page_size=10000)
+        return {r["name"] for r in res["items"]}
+
+    # ── TC-EXP-01: BUG CHÍNH (RED-prove on old code) ────────────────────────────
+    def test_active_overdue_counted_and_in_drill(self):
+        """Active doc expiry=today-5 (cron set is_expired, KHÔNG đổi state):
+        KPI 'expired_not_renewed' đếm doc này (>=1) VÀ drill list chứa đúng doc.
+        Trên code cũ drill {workflow_state:'Expired'} = 0 dòng ⇒ FAIL."""
+        name = self._mk(DocState.ACTIVE, expiry=add_days(nowdate(), -5))
+        frappe.db.set_value("Asset Document", name, "is_expired", 1)
+        frappe.db.commit()
         stats = get_dashboard_stats()
-        kpi_count = stats["kpis"]["expired_not_renewed"]
-        truth = frappe.db.count("Asset Document", {"expiry_date": ["<", nowdate()]})
-        self.assertEqual(kpi_count, truth,
-            "RC-08: KPI phải bằng count theo expiry_date<today, không AND status")
+        self.assertGreaterEqual(stats["kpis"]["expired_not_renewed"], 1)
+        self.assertIn(name, self._drill_names(),
+            "Active doc quá hạn PHẢI hiện trong drill (NĐ98 Điều 41)")
+
+    # ── TC-EXP-02: tightening — Archived/Rejected quá hạn KHÔNG đếm ──────────────
+    def test_archived_overdue_excluded(self):
+        name = self._mk(DocState.ARCHIVED, expiry=add_days(nowdate(), -10))
+        self.assertNotIn(name, self._drill_names(),
+            "Archived quá hạn KHÔNG phải compliance-gap còn sống → loại")
+
+    def test_rejected_overdue_excluded(self):
+        name = self._mk(DocState.REJECTED, expiry=add_days(nowdate(), -10))
+        self.assertNotIn(name, self._drill_names(),
+            "Rejected quá hạn (đã thu hồi) → loại khỏi 'Đã hết hạn'")
+
+    # ── TC-EXP-03: biên ─────────────────────────────────────────────────────────
+    def test_expiry_today_not_expired(self):
+        """expiry_date = today (chưa < today) → KHÔNG expired."""
+        name = self._mk(DocState.ACTIVE, expiry=nowdate())
+        self.assertNotIn(name, self._drill_names())
+
+    def test_expiry_yesterday_is_expired(self):
+        name = self._mk(DocState.ACTIVE, expiry=add_days(nowdate(), -1))
+        self.assertIn(name, self._drill_names())
+
+    def test_expiry_null_not_expired_no_crash(self):
+        """expiry_date NULL → KHÔNG expired, không crash."""
+        name = self._mk(DocState.ACTIVE, expiry=None)
+        frappe.db.set_value("Asset Document", name, "expiry_date", None)
+        frappe.db.commit()
+        self.assertNotIn(name, self._drill_names())
+
+    # ── TC-EXP-04: đối-soát SoT (INV-EXP-1) — count == drill len, immune state ──
+    def test_count_equals_drill_mixed_set(self):
+        """Tập hỗn hợp → expired_not_renewed (count) == số dòng drill list."""
+        self._mk(DocState.ACTIVE, expiry=add_days(nowdate(), -3))
+        self._mk(DocState.DRAFT, expiry=add_days(nowdate(), -7))
+        self._mk(DocState.PENDING_REVIEW, expiry=add_days(nowdate(), -2))
+        self._mk(DocState.ARCHIVED, expiry=add_days(nowdate(), -8))   # excluded
+        self._mk(DocState.REJECTED, expiry=add_days(nowdate(), -8))   # excluded
+        self._mk(DocState.ACTIVE, expiry=add_days(nowdate(), 30))     # not expired
+        stats = get_dashboard_stats()
+        res = list_documents({"expiry_status": "expired"}, page=1, page_size=10000)
+        self.assertEqual(
+            stats["kpis"]["expired_not_renewed"], len(res["items"]),
+            "INV-EXP-1: count phải == len(drill items) cho mọi tập dữ liệu (chênh=0)")
+
+    # ── TC-EXP-05: no-regression — predicate helper trả filter chuẩn ────────────
+    def test_expired_filter_shape(self):
+        """SoT = list-of-conditions với NULL-guard tường minh (đồng nhất db.count
+        và get_all). `expiry_date < today` một mình KHÔNG đủ: get_all bọc ifnull()
+        nên hàng NULL khớp '<' → count != drill (đã chứng minh)."""
+        from assetcore.services.imm05 import expired_filter
+        f = expired_filter(today="2026-06-01")
+        self.assertEqual(f, [
+            ["expiry_date", "is", "set"],
+            ["expiry_date", "<", "2026-06-01"],
+            ["workflow_state", "not in", [DocState.ARCHIVED, DocState.REJECTED]],
+        ])
+
+    def test_other_kpis_unchanged_by_predicate(self):
+        """total_active / expiring_90d / assets_missing_docs vẫn có (predicate
+        chỉ đổi nguồn của expired_not_renewed, không đụng KPI khác)."""
+        stats = get_dashboard_stats()
+        for key in ("total_active", "expiring_90d",
+                    "expired_not_renewed", "assets_missing_docs"):
+            self.assertIn(key, stats["kpis"])
 
 
 # ─── Depreciation (RC-01 / RC-02) ────────────────────────────────────────────
@@ -730,7 +802,10 @@ class TestFullyDepreciatedReadPath(unittest.TestCase):
         accumulated = max(gross - book, 0.0)
         payload = {
             "doctype": "AC Asset",
-            "asset_name": f"_Test DeprRead {suffix} {frappe.generate_hash(length=4)}",
+            # NON-reserved asset_name (KHÔNG prefix '_'): data-hygiene SSoT ẩn '_…'
+            # khỏi list_assets_depreciation/get_depreciation_stats; read-path fixture
+            # cần XUẤT HIỆN trong drill ⇒ tên thường.
+            "asset_name": f"ZZTest DeprRead {suffix} {frappe.generate_hash(length=4)}",
             "gross_purchase_amount": gross,
             "residual_value": residual,
             "depreciation_method": method,

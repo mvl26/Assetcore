@@ -16,7 +16,9 @@ const openRcas = computed(() => store.dashboard?.open_rcas ?? [])
 const chronicFailures = computed(() => store.dashboard?.chronic_failures ?? [])
 const stats = computed(() => store.dashboard?.stats)
 
-// BR-12-09: vi phạm SLA (đọc từ stats — cùng nguồn predicate cờ với badge ở list).
+// BR-12-13: vi phạm SLA — đọc từ stats (BE đã đổi sang SoT LIVE sla_breach_count =
+// cờ-stamped OR đang-mở-quá-hạn). FE tile zero-change (vẫn bind stats.*), chỉ NGỮ
+// NGHĨA value đổi (live thay stale) → cùng predicate derived với badge per-row ở list.
 const slaResponseBreached = computed(() => store.dashboard?.stats?.sla_response_breached ?? 0)
 const slaResolutionBreached = computed(() => store.dashboard?.stats?.sla_resolution_breached ?? 0)
 
@@ -102,17 +104,30 @@ onMounted(() => store.fetchDashboard())
           <p class="text-3xl font-bold font-display tabular-nums text-orange-600">{{ stats.rca_pending ?? 0 }}</p>
           <p class="text-xs text-slate-500 mt-1">Chờ RCA</p>
         </div>
-        <div class="kpi-card p-4 text-center" style="--kpi-color: #7c3aed">
+        <!-- BR-12-12: tile 'Mãn tính' bind stats.chronic = SỐ NHÓM (asset,fault_code)
+             đang lặp lại LIVE trong cửa sổ 90 ngày (cùng SoT get_chronic_failures →
+             chronic_failure_count ở BE), KHÔNG đếm cờ stale chronic_failure_flag. Trên
+             cùng payload get_dashboard(): stats.chronic == len(chronic_failures) ⇒ tile
+             KHỚP số nhóm ở panel "Hỏng hóc mãn tính" bên dưới (kill divergence tile-vs-panel).
+             Khi 3+ sự cố cũ aged-out >90 ngày (cờ vẫn =1) nhưng hết nhóm live → tile về 0. -->
+        <div
+          class="kpi-card p-4 text-center"
+          style="--kpi-color: #7c3aed"
+          title="Số cụm thiết bị đang lặp lại sự cố (≥3 lần cùng mã lỗi trong 90 ngày) — chỉ tiêu thống kê live"
+        >
           <p class="text-3xl font-bold font-display tabular-nums text-purple-600">{{ stats.chronic ?? 0 }}</p>
           <p class="text-xs text-slate-500 mt-1">Mãn tính</p>
         </div>
-        <!-- BR-12-09: vi phạm SLA — tile thống kê tĩnh (chưa có filter list theo cờ
+        <!-- BR-12-13: vi phạm SLA — tile thống kê tĩnh (chưa có filter list theo cờ
              breach → KHÔNG clickable để tránh điều hướng sai lệch, theo LL-FE-34).
-             Count = số incident có cờ tương ứng (cùng predicate badge ở list). -->
+             Count = SoT LIVE (sla_breach_count ở BE) = (cờ-stamped) OR (đang-mở ∧
+             quá-hạn) — KHÔNG chỉ cờ scheduler stale → đếm cả incident vừa quá hạn mà
+             scheduler chưa kịp stamp (kill undercount cửa-sổ-trễ). Cùng predicate
+             derived với badge ở list → tile == số dòng có badge tương ứng. -->
         <div
           class="kpi-card p-4 text-center"
           style="--kpi-color: #dc2626"
-          title="Số sự cố quá hạn tiếp nhận (chưa được tiếp nhận trong SLA) — chỉ tiêu thống kê"
+          title="Số sự cố ĐANG quá hạn tiếp nhận (chưa được tiếp nhận trong SLA) — tính trực tiếp theo thời điểm hiện tại, chỉ tiêu thống kê"
         >
           <p class="text-3xl font-bold font-display tabular-nums text-red-600">{{ slaResponseBreached }}</p>
           <p class="text-xs text-slate-500 mt-1">Vi phạm SLA tiếp nhận</p>
@@ -120,7 +135,7 @@ onMounted(() => store.fetchDashboard())
         <div
           class="kpi-card p-4 text-center"
           style="--kpi-color: #dc2626"
-          title="Số sự cố quá hạn xử lý (chưa đóng trong SLA) — chỉ tiêu thống kê"
+          title="Số sự cố ĐANG quá hạn xử lý (chưa đóng trong SLA) — tính trực tiếp theo thời điểm hiện tại, chỉ tiêu thống kê"
         >
           <p class="text-3xl font-bold font-display tabular-nums text-red-600">{{ slaResolutionBreached }}</p>
           <p class="text-xs text-slate-500 mt-1">Vi phạm SLA xử lý</p>
@@ -152,13 +167,13 @@ class="mt-0.5 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium s
                   <p class="text-sm font-medium text-slate-800 truncate">{{ ir.asset_name || ir.asset }}</p>
                   <p class="text-xs text-slate-500 truncate">{{ ir.fault_code || '—' }}</p>
                   <div
-                    v-if="ir.response_breached || ir.resolution_breached"
+                    v-if="(ir.is_response_breached ?? ir.response_breached) || (ir.is_resolution_breached ?? ir.resolution_breached)"
                     class="flex flex-wrap gap-1 mt-1"
                   >
                     <SlaBreachBadge
                       size="xs"
-                      :response-breached="ir.response_breached"
-                      :resolution-breached="ir.resolution_breached"
+                      :response-breached="ir.is_response_breached ?? ir.response_breached"
+                      :resolution-breached="ir.is_resolution_breached ?? ir.resolution_breached"
                     />
                   </div>
                 </div>

@@ -25,6 +25,93 @@ _FREQ_MONTHS: dict[str, int] = {
     "Yearly":    12,
 }
 
+_DT_CATEGORY = "AC Asset Category"
+
+
+# ─── Depreciation-rule inheritance — SoT DUY NHẤT ─────────────────────────────
+#
+# ROOT CAUSE đóng: khi tạo/import 1 AC Asset có gross>0 + asset_category CÓ luật
+# (total_depreciation_months>0) mà KHÔNG truyền months/residual, asset trước đây
+# bị kẹt months=0 ⇒ regenerate_depreciation_schedule trả 422 oan "Thiếu: Số tháng
+# khấu hao". Hàm này là SoT DUY NHẤT kế thừa luật khấu hao từ Category xuống asset.
+#
+# Gọi chung bởi:
+#   1. ACAsset.before_insert (controller) — fix asset import/tạo-trực-tiếp.
+#   2. api.imm00.compute_all_depreciation — nút global backfill-rồi-sinh.
+# KHÔNG inline lại nhánh copy months+residual từ Category ở nơi khác (drift risk).
+# create_ac_asset (imm04) đã set sẵn từ Category trước insert ⇒ guard "đã có giá
+# trị" bên dưới khiến helper no-op trên đường đó (không double-apply lệch).
+
+def inherit_depreciation_rules_from_category(asset) -> bool:
+    """Kế thừa luật khấu hao từ AC Asset Category xuống 1 asset (TẠI NGUỒN).
+
+    INVARIANT:
+      - Chỉ kế thừa khi asset có `gross_purchase_amount > 0` ∧ có `asset_category`
+        ∧ Category CÓ luật (`total_depreciation_months > 0`). Category thiếu luật
+        ⇒ KHÔNG bịa số, KHÔNG raise — trả về False (asset giữ months=0, lỗi cấu
+        hình thật được lộ ở regenerate, KHÔNG che).
+      - KHÔNG clobber giá trị user nhập tay: field nào asset ĐÃ có
+        (`total_depreciation_months > 0`, `residual_value` khác 0, `depreciation_method`
+        không rỗng, `depreciation_frequency` không rỗng) thì GIỮ NGUYÊN.
+      - residual_value = round(gross * Category.default_residual_value_pct / 100, 2)
+        — KHỚP công thức create_ac_asset / bulk_regenerate_by_category (đều
+        gross * pct / 100), thêm round 2 chữ số cho ổn định VND.
+
+    Args:
+        asset: AC Asset Document (hoặc object có .get/.set như Frappe doc).
+
+    Returns:
+        True nếu có ÍT NHẤT 1 field được kế thừa (months hoặc residual). False khi
+        không đủ điều kiện hoặc mọi field đã được user set (no-op).
+    """
+    gross = flt(asset.get("gross_purchase_amount") or 0)
+    category = (asset.get("asset_category") or "").strip()
+    if gross <= 0 or not category:
+        return False
+
+    if not frappe.db.exists(_DT_CATEGORY, category):
+        return False
+
+    cat = frappe.db.get_value(
+        _DT_CATEGORY, category,
+        ["default_depreciation_method", "total_depreciation_months",
+         "depreciation_frequency", "default_residual_value_pct"],
+        as_dict=True,
+    ) or {}
+
+    cat_months = int(cat.get("total_depreciation_months") or 0)
+    # Category KHÔNG có luật khấu hao ⇒ không kế thừa, không bịa, không raise.
+    if cat_months <= 0:
+        return False
+
+    inherited = False
+
+    # total_depreciation_months — chỉ set khi asset đang thiếu (=0). Không clobber.
+    if int(asset.get("total_depreciation_months") or 0) <= 0:
+        asset.set("total_depreciation_months", cat_months)
+        inherited = True
+
+    # residual_value — chỉ set khi asset chưa có (==0). User nhập tay → giữ.
+    if flt(asset.get("residual_value") or 0) == 0:
+        residual_pct = flt(cat.get("default_residual_value_pct") or 0)
+        if residual_pct:
+            asset.set("residual_value", round(gross * residual_pct / 100.0, 2))
+            inherited = True
+
+    # method / frequency — fill khi thiếu để schedule sinh được (không tính vào
+    # "inherited" vì before_save cũng có fallback method; nhưng kế thừa từ Category
+    # ở đây chính xác hơn fallback Straight Line).
+    if not (asset.get("depreciation_method") or "").strip():
+        cat_method = (cat.get("default_depreciation_method") or "").strip()
+        if cat_method:
+            asset.set("depreciation_method", cat_method)
+    if not (asset.get("depreciation_frequency") or "").strip():
+        cat_freq = (cat.get("depreciation_frequency") or "").strip()
+        if cat_freq:
+            asset.set("depreciation_frequency", cat_freq)
+
+    return inherited
+
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -78,6 +165,27 @@ def is_configured_for_depreciation(asset_row: dict) -> bool:
     gross = flt(asset_row.get("gross_purchase_amount") or 0)
     months = int(asset_row.get("total_depreciation_months") or 0)
     return bool(method and method != "None" and gross > 0 and months > 0)
+
+
+def effective_book_value(asset_row: dict) -> float:
+    """SoT DUY NHẤT — đọc giá trị còn lại (book value) của asset (BR-05-13).
+
+    INVARIANT phân biệt None vs 0.0 (fix falsy-zero bug):
+      - current_book_value IS NONE (chưa từng chạy KH) ⇒ fallback = gross.
+      - current_book_value đã set — KỂ CẢ 0.0 (asset đã KH hết, residual=0) ⇒
+        dùng giá trị THẬT (verbatim), KHÔNG về gross.
+
+    Idiom cũ ``float(current_book_value or gross)`` SAI: `0.0 or gross` → gross
+    vì 0.0 falsy — không phân biệt None (chưa set) với 0.0 (đã set, hợp lệ).
+    3 consumer BE (compute_depreciation / _depr_enrich_row /
+    get_depreciation_stats) PHẢI gọi chung helper này, KHÔNG inline `or gross`.
+
+    Pure — không đụng DB. Đặt cạnh ``is_fully_depreciated`` (cùng cụm SoT đọc
+    book) để tránh drift.
+    """
+    raw = asset_row.get("current_book_value")
+    gross = flt(asset_row.get("gross_purchase_amount") or 0)
+    return gross if raw is None else flt(raw)
 
 
 def is_fully_depreciated(asset_row: dict) -> bool:
@@ -154,6 +262,12 @@ def _double_declining_amounts(
         amounts.append(candidate)
         book -= candidate
     return amounts
+
+
+# Số chữ số thập phân khi làm tròn residual (VND) — dùng bởi
+# bulk_regenerate_by_category để KHỚP công thức round() của SoT
+# inherit_depreciation_rules_from_category (ở đầu file).
+_RESIDUAL_ROUND_DP = 2
 
 
 # ─── Schedule Generator ──────────────────────────────────────────────────────
@@ -292,6 +406,15 @@ def run_due_depreciation(as_of: str | None = None, asset: str | None = None) -> 
         asset_clause = " AND d.parent = %(asset)s"
         params["asset"] = asset
 
+    # lifecycle_status NOT IN ('Decommissioned', 'Out of Service') exclude terminal/
+    # hold assets — KHÔNG chạy thêm kỳ nào. Đây CHỈ là lớp phòng vệ thứ hai cho
+    # Decommissioned: kỳ Pending của asset thanh lý ĐÃ được hủy thành 'Cancelled'
+    # ngay tại transition (services.imm00._cancel_pending_depreciation) nên thực tế
+    # không còn dòng Pending nào để JOIN — không còn "phantom overdue" chờ chạy.
+    # Out of Service (BR-00-25 / RC-08): PAUSE — exclude KHÔNG trích kỳ nào trong
+    # window OoS (KHÔNG hủy kỳ). Khi khôi phục Active←OoS, mọi kỳ Pending được DỜI
+    # scheduled_date += oos_days (services.imm00._reschedule_pending_depreciation_on_restore)
+    # → KHÔNG back-dated catch-up: executor KHÔNG trích bù toàn bộ kỳ idle 1 lần.
     rows = frappe.db.sql(f"""
         SELECT d.name, d.parent AS asset, d.depreciation_amount, d.period_number
         FROM `tabAC Asset Depreciation Schedule` d
@@ -359,13 +482,40 @@ def run_due_depreciation(as_of: str | None = None, asset: str | None = None) -> 
 # ─── Preview (không lưu DB — dùng cho FE preview trước khi generate) ────────
 
 def bulk_regenerate_by_category(category_name: str) -> dict:
-    """Regenerate schedule cho tất cả assets thuộc 1 Asset Category.
+    """Regenerate schedule cho TẤT CẢ assets thuộc 1 Asset Category.
 
-    Dùng khi admin thay đổi rules khấu hao của Category và muốn áp dụng
-    cho toàn bộ assets. CHỈ regenerate với assets chưa có kỳ nào Executed
-    để tránh phá vỡ lịch sử khấu hao đã chạy.
+    Dùng khi admin chỉnh luật khấu hao của Category rồi muốn áp dụng xuống
+    toàn bộ assets. Hợp nhất 100% về SoT round-1/2:
+
+      • KHÔNG clobber field user nhập tay: route DUY NHẤT qua
+        `inherit_depreciation_rules_from_category(asset)` — asset đã có
+        total_depreciation_months>0 / residual_value khác 0 / method /
+        frequency thì GIỮ NGUYÊN. KHÔNG còn 4 dòng inline copy
+        method/months/frequency/residual từ Category xuống asset.
+
+      • Bảo toàn lịch sử: asset có >=1 kỳ status='Executed' → skipped_has_history,
+        accumulated_depreciation / current_book_value bất biến.
+
+      • Hiệu năng (N+1 fix, mirror compute_all round-3): phép kiểm executed-history
+        TRƯỚC đây gọi `frappe.db.count` per-asset trong vòng lặp (số query tuyến
+        tính theo N). Giờ batch-prefetch bằng ĐÚNG 1 query GROUP BY parent chạy
+        MỘT LẦN trước loop → `executed_parents` set; trong loop chỉ còn lookup
+        O(1). Tổng số query KHÔNG còn phụ thuộc tuyến tính vào N cho phép kiểm này.
+
+      • Master-data thiếu luật KHÔNG bị che: asset gross<=0 hoặc Category cũng
+        thiếu luật (months<=0) → `skipped_no_rule` (KHÔNG bịa số, KHÔNG raise).
+
+      • Audit/lifecycle (CLAUDE.md §5): mỗi asset inherit luật sinh 1 Asset
+        Lifecycle Event 'depreciation_rules_inherited' + 1 IMM Audit Trail
+        'System' TỔNG cho lần bulk — best-effort, lỗi audit KHÔNG chặn payload.
+
+    Idempotent: chạy lần 2 trên cùng dataset → inherited=0 (không còn field thiếu),
+    regenerated=0 (asset đã có schedule rows → generate_schedule force=False skip).
+
+    Return: {category, total_assets, inherited, regenerated,
+             skipped_has_history, skipped_no_rule, errors}
     """
-    if not frappe.db.exists("AC Asset Category", category_name):
+    if not frappe.db.exists(_DT_CATEGORY, category_name):
         return {"error": "Category not found"}
 
     assets = frappe.get_all(
@@ -375,53 +525,130 @@ def bulk_regenerate_by_category(category_name: str) -> dict:
         limit_page_length=10000,
     )
 
-    # Inherit rules from Category to each asset first
-    cat = frappe.db.get_value(
-        "AC Asset Category", category_name,
-        ["default_depreciation_method", "total_depreciation_months",
-         "depreciation_frequency", "default_residual_value_pct"],
-        as_dict=True,
-    ) or {}
+    # ── N+1 fix (mirror compute_all round-3): batch-prefetch tập parent có >=1 kỳ
+    # Executed bằng ĐÚNG 1 query GROUP BY parent chạy MỘT LẦN trước vòng lặp, thay
+    # cho `frappe.db.count(parent=..)` per-asset. Set lookup O(1) trong loop →
+    # tổng số query KHÔNG còn tuyến tính theo N cho phép kiểm executed-history.
+    executed_parents = {
+        r["parent"] for r in frappe.get_all(
+            _DT_SCHED,
+            filters={"parenttype": _DT_ASSET, "status": "Executed"},
+            fields=["parent"],
+            group_by="parent",
+        )
+    }
 
+    inherited = 0
     regenerated = 0
-    skipped = 0
+    skipped_has_history = 0
+    skipped_no_rule = 0
     errors = 0
+    inherited_assets: list[str] = []
+
     for a in assets:
+        name = a["name"]
         try:
-            # Skip if any period already executed (preserve history)
-            executed_count = frappe.db.count(
-                _DT_SCHED,
-                {"parent": a.name, "status": "Executed"},
-            )
-            if executed_count > 0:
-                skipped += 1
+            # ── Asset đã có lịch sử Executed → KHÔNG đụng (preserve history) ──────
+            if name in executed_parents:
+                skipped_has_history += 1
                 continue
 
-            # Copy Category rules down to Asset
-            asset_doc = frappe.get_doc(_DT_ASSET, a.name)
-            asset_doc.depreciation_method = cat.get("default_depreciation_method") or ""
-            asset_doc.total_depreciation_months = int(cat.get("total_depreciation_months") or 0)
-            asset_doc.depreciation_frequency = cat.get("depreciation_frequency") or "Monthly"
-            residual_pct = float(cat.get("default_residual_value_pct") or 0)
-            gross = flt(asset_doc.gross_purchase_amount or 0)
-            asset_doc.residual_value = gross * residual_pct / 100.0 if residual_pct else 0
-            asset_doc.save(ignore_permissions=True)
+            # ── Kế thừa luật từ Category qua SoT DUY NHẤT (no-clobber) ────────────
+            asset_doc = frappe.get_doc(_DT_ASSET, name)
+            did_inherit = inherit_depreciation_rules_from_category(asset_doc)
+            if did_inherit:
+                asset_doc.flags.ignore_links = True
+                asset_doc.flags.ignore_mandatory = True
+                asset_doc.save(ignore_permissions=True)
+                inherited += 1
+                inherited_assets.append(name)
 
-            # Regenerate schedule
-            generate_schedule(a.name, force=True)
-            regenerated += 1
+            # ── Sau khi (có thể đã) kế thừa, asset vẫn cần đủ luật để sinh ────────
+            method = (asset_doc.depreciation_method or "").strip()
+            months = int(asset_doc.total_depreciation_months or 0)
+            gross = flt(asset_doc.gross_purchase_amount or 0)
+            configured = bool(method and method != "None" and months > 0 and gross > 0)
+            if not configured:
+                # gross<=0 hoặc Category cũng thiếu luật → KHÔNG che lỗi master-data.
+                skipped_no_rule += 1
+                continue
+
+            # ── Regenerate schedule (force=False → idempotent: đã có rows thì skip)
+            # generate_schedule trả {"skipped": True, ...} khi schedule đã tồn tại
+            # (force=False) hoặc thiếu input; chỉ đếm `regenerated` khi THỰC SỰ sinh
+            # kỳ mới (periods>0 ∧ không skipped) → chạy bulk lần 2 ⇒ regenerated=0.
+            res = generate_schedule(name, force=False)
+            if not res.get("skipped") and int(res.get("periods") or 0) > 0:
+                regenerated += 1
         except Exception as e:
-            frappe.logger().warning(f"Bulk regen failed for {a.name}: {e}")
+            frappe.logger().warning(f"Bulk regen failed for {name}: {e}")
             errors += 1
+
+    # ── Audit trail TỔNG cho lần bulk (CLAUDE.md §5) — best-effort ─────────────
+    # Outer guard: kể cả _log_bulk_regen_audit raise (vd test patch / lỗi master)
+    # cũng KHÔNG được chặn payload trả về cho user.
+    if inherited_assets:
+        try:
+            _log_bulk_regen_audit(category_name, inherited_assets)
+        except Exception:
+            frappe.log_error(frappe.get_traceback(),
+                             "bulk_regenerate_by_category audit failed")
 
     frappe.db.commit()
     return {
         "category": category_name,
         "total_assets": len(assets),
+        "inherited": inherited,
         "regenerated": regenerated,
-        "skipped_has_history": skipped,
+        "skipped_has_history": skipped_has_history,
+        "skipped_no_rule": skipped_no_rule,
         "errors": errors,
     }
+
+
+def _log_bulk_regen_audit(category_name: str, assets: list[str]) -> None:
+    """Ghi audit cho lần bulk regenerate theo Category (CLAUDE.md §5).
+
+    • Mỗi asset inherit luật → 1 Asset Lifecycle Event 'depreciation_rules_inherited'
+      (option có sẵn trong asset_lifecycle_event.json round-1 — KHÔNG migrate).
+    • 1 IMM Audit Trail event_type='System' TỔNG cho lần bulk.
+
+    Best-effort: lỗi audit KHÔNG được chặn payload trả về cho user (per-asset
+    guard try/except + outer guard).
+    """
+    try:
+        from assetcore.services.imm00 import create_lifecycle_event, log_audit_event
+        actor = frappe.session.user or "Administrator"
+        sample = ", ".join(assets[:10])
+        more = f" (+{len(assets) - 10} khác)" if len(assets) > 10 else ""
+        summary = (
+            f"Áp dụng luật khấu hao từ Danh mục '{category_name}' cho "
+            f"{len(assets)} tài sản (bulk regenerate theo danh mục). "
+            f"Mẫu: {sample}{more}."
+        )
+        for asset_name in assets:
+            # Per-asset guard: 1 asset lỗi KHÔNG làm hỏng audit tổng bên dưới.
+            try:
+                create_lifecycle_event(
+                    asset=asset_name, event_type="depreciation_rules_inherited",
+                    actor=actor, from_status="", to_status="",
+                    root_doctype=_DT_ASSET, root_record=asset_name,
+                    notes=f"Kế thừa luật khấu hao từ Danh mục '{category_name}' "
+                          f"(bulk regenerate).",
+                )
+            except Exception:
+                frappe.logger().warning(
+                    f"bulk regen lifecycle event failed for {asset_name}")
+        # event_type PHẢI khớp Select options của IMM Audit Trail → 'System'.
+        # `asset` (Link bắt buộc cho hash-chain) = 1 asset mẫu; ref_* trỏ về CHÍNH
+        # Category (đối tượng của hành động bulk) để audit truy ngược đúng nguồn.
+        log_audit_event(
+            asset=assets[0], event_type="System",
+            actor=actor, ref_doctype=_DT_CATEGORY, ref_name=category_name,
+            change_summary=summary,
+        )
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "bulk_regenerate_by_category audit failed")
 
 
 def preview_schedule(

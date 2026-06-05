@@ -380,7 +380,7 @@ Hotfix branch: `hotfix/imm12-v1.2.1`.
 | KPI-IMM12-001 | Incident MTTR | `AVG(resolved_at − reported_at)` | Tháng | IMM Operations Manager |
 | KPI-IMM12-002 | RCA On-Time Completion | `RCA Completed trước due_date / tổng RCA × 100%` | Tháng | IMM QA Officer |
 | KPI-IMM12-003 | CAPA On-Time Closure | `CAPA Closed trước due_date / tổng CAPA × 100%` | Tháng | IMM QA Officer |
-| KPI-IMM12-004 | Chronic Failure Count | `COUNT(AC Asset.chronic_failure_flag = True)` | Tuần | IMM QA Officer |
+| KPI-IMM12-004 | Chronic Failure Count | `chronic_failure_count()` = số nhóm `(asset, fault_code)` LIVE (≥3 sự cố cùng fault_code/90 ngày trượt) — BR-12-12, **KHÔNG** `COUNT(chronic_failure_flag=True)` (cờ stale) | Tuần | IMM QA Officer |
 | KPI-IMM12-005 | Critical Incidents / tháng | `COUNT(Incident Report.severity = Critical)` | Tháng | IMM Operations Manager |
 
 API: `get_incident_dashboard_kpis` trong `api/imm12.py` ⚠️ Pending.

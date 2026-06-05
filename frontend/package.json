@@ -21,6 +21,7 @@
     "@tanstack/vue-query": "^5.99.2",
     "@vueuse/core": "^10.9.0",
     "axios": "^1.7.2",
+    "jsqr": "^1.4.0",
     "pinia": "^3.0.0",
     "pinia-plugin-persistedstate": "^4.7.1",
     "qrcode": "^1.5.4",

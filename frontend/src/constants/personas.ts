@@ -17,6 +17,8 @@
 // trả bởi api/layout.get_user_context. `imm_roles` (prefix "IMM ") hiện rỗng
 // với role hiện tại nên chỉ gộp thêm cho khớp chữ ký, không phải nguồn chính.
 
+import { FRAPPE_ADMIN_ROLES } from './roles'
+
 /** moduleId hợp lệ — phải khớp key trong MODULE_NAV (AppSidebar.vue). */
 export type ModuleId =
   | 'master' | 'system'
@@ -49,12 +51,13 @@ export interface Persona {
   roleProfile: string
 }
 
-/** Role bypass — thấy mọi persona. Frappe-native + AssetCore super admin. */
-export const SUPERUSER_ROLES: readonly string[] = [
-  'Administrator',
-  'System Manager',
-  'AssetCore Super Admin',
-] as const
+/**
+ * Role bypass — thấy mọi persona. Frappe-native + AssetCore super admin.
+ * Re-export SSoT FRAPPE_ADMIN_ROLES (constants/roles.ts) — CÙNG nguồn với
+ * route-guard (router/index.ts) + button-gate (auth.can) → nav/route/affordance
+ * admin-bypass nhất quán, không drift literal mảng role ở nhiều nơi.
+ */
+export const SUPERUSER_ROLES: readonly string[] = FRAPPE_ADMIN_ROLES
 
 // ─── 8 Persona (Core Doc §2) ────────────────────────────────────────────────
 export const PERSONAS: readonly Persona[] = [

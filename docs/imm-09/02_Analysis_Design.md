@@ -174,7 +174,7 @@ flowchart TD
         PINSP -->|doc.submit| DONE[Completed]
         DONE -->|on_submit| ALE[Asset Lifecycle Event]
         DONE -->|on_submit| MTTR[Tính MTTR + SLA]
-        DONE -->|on_submit| AssetActive[Asset → Active]
+        DONE -->|on_submit| AssetActive[Asset → Active CHỈ khi prev=Under Repair BR-09-09; giữ hold OoS/Decommissioned nếu khác]
     end
     subgraph CannotRepair["Không thể sửa"]
         IR2 -->|cannot_repair=1| CNR[Cannot Repair]
@@ -247,7 +247,7 @@ KTV check `firmware_updated=1` → FE tự động hiển thị form tạo FCR �
 | MTTR                        | Tính tay, không tin cậy                          | Tự động `mttr_hours = time_to_complete_hours`                                |
 | SLA breach                  | Không phát hiện được                             | Scheduler `check_sla_breach` set `sla_breached=1`                                |
 | Repeat failure              | Không phát hiện                                   | `before_insert` quét 30 ngày, set `is_repeat_failure=1`                        |
-| Asset status                | Không cập nhật / cập nhật trễ                  | `on_submit` ⇒ Asset Active hoặc Out of Service (cannot_repair)                  |
+| Asset status                | Không cập nhật / cập nhật trễ                  | `on_submit` ⇒ Asset → Active CHỈ khi đang Under Repair (BR-09-09); giữ OoS/Decommissioned nếu có hold khác; hoặc Out of Service (cannot_repair) |
 | Audit trail                 | Mất dấu, không truy xuất sau 6 tháng         | Asset Lifecycle Event + immutable submit (docstatus=1)                           |
 | Báo cáo MTTR / SLA         | Excel rollup tay                                    | Dashboard truy về `Asset Repair` source                                         |
 | Tuân thủ NĐ98 / WHO HTM   | Khó chứng minh khi audit                         | Trace 100% qua ALE + spare parts + FCR + checklist                               |
@@ -269,9 +269,16 @@ flowchart TD
     G -->|Không| Err3[Block: checklist Fail BR-09-04]
     G -->|Có| H[doc.submit → on_submit complete_repair]
     H --> I[Tính mttr_hours + sla_breached]
-    I --> J[Asset.status = Active BR-09-05]
-    J --> K[Sinh ALE repair_completed]
+    I --> P{prev_status == Under Repair? BR-09-09}
+    P -->|Có| J[Asset.status = Active]
+    P -->|Out of Service / khác| J2[Giữ nguyên prev: hold governance — không override]
+    P -->|Decommissioned| J3[Bỏ qua restore: terminal — không raise]
+    J --> K[Sinh ALE repair_completed from=Under Repair to=Active]
+    J2 --> K2[Sinh ALE repair_completed from=to=prev + note hold khác]
+    J3 --> K3[Sinh ALE repair_completed from=to=Decommissioned + note đã thanh lý]
     K --> L[Emit is_repeat_failure KPI]
+    K2 --> L
+    K3 --> L
     L --> End([Kết thúc])
     Err1 --> End
     Err2 --> End
@@ -349,7 +356,7 @@ UC10 ..> UC02 : <<extend>>\n[gần SLA breach]
 | Brief          | KTV và Trưởng khoa hoàn thành nghiệm thu và đóng WO                         |
 | Primary actor  | KTV HTM                                                                              |
 | Pre-condition  | WO ở In Repair / Pending Inspection; checklist đã điền; vật tư có chứng từ |
-| Post-condition | WO Completed, docstatus=1; Asset Active; ALE repair_completed; MTTR tính xong       |
+| Post-condition | WO Completed, docstatus=1; Asset → Active CHỈ khi prev=Under Repair (BR-09-09, ngược lại giữ nguyên hold); ALE repair_completed (luôn ghi); MTTR tính xong |
 | Trigger        | KTV xác nhận sửa chữa hoàn thành                                               |
 
 #### Main flow
@@ -364,8 +371,8 @@ UC10 ..> UC02 : <<extend>>\n[gần SLA breach]
 | 6      | —                                              | Validate BR-09-03 (FCR nếu firmware_updated) |
 | 7      | —                                              | doc.submit() → on_submit complete_repair()   |
 | 8      | —                                              | Tính mttr_hours, sla_breached                |
-| 9      | —                                              | Asset.status = Active                         |
-| 10     | —                                              | Sinh ALE repair_completed                     |
+| 9      | —                                              | Đọc prev_status; Asset → Active CHỈ khi prev=Under Repair (BR-09-09); ngược lại giữ hold (OoS/Decommissioned) không override, không raise |
+| 10     | —                                              | Sinh ALE repair_completed (luôn ghi — cả 3 nhánh) |
 | 11     | —                                              | Return {status, mttr_hours, sla_breached}     |
 
 #### Alternative A1 — Cannot Repair
@@ -393,8 +400,8 @@ UC10 ..> UC02 : <<extend>>\n[gần SLA breach]
 | UC-04 Request Spare Parts    | UC-Validate Stock Entry (BR-09-02)      | Mỗi spare part phải có stock_entry_ref khi submit            |
 | UC-06 Close WO (Completed)   | UC-Validate Checklist (BR-09-04)        | 100% Pass mới Submit                                            |
 | UC-06 Close WO (Completed)   | UC-Compute MTTR & SLA                   | Auto sinh metric mttr_hours + sla_breached                       |
-| UC-06 Close WO (Completed)   | UC-Update Asset Status                  | Asset.status = Active                                             |
-| UC-06 Close WO (Completed)   | UC-Emit ALE repair_completed            | Audit trail bắt buộc                                            |
+| UC-06 Close WO (Completed)   | UC-Update Asset Status                  | Asset.status = Active CHỈ khi prev=Under Repair (BR-09-09); giữ hold nếu khác |
+| UC-06 Close WO (Completed)   | UC-Emit ALE repair_completed            | Audit trail bắt buộc — luôn ghi cả 3 nhánh                  |
 | UC-07 Cannot Repair          | UC-Update Asset Status                  | Asset.status = Out of Service                                     |
 | UC-07 Cannot Repair          | UC-Emit ALE cannot_repair               | Trigger EOL review (IMM-13/14 manual)                             |
 
@@ -455,11 +462,24 @@ Priority: Must | Estimate: 5SP
 - When close_work_order
 - Then error "Mục kiểm tra #3 '...' chưa Pass — không thể hoàn thành"
 
-**AC-2 — Happy path:**
+**AC-2 — Happy path (asset đang Under Repair):**
 
-- Given tất cả checklist Pass, dept_head_name điền, spare parts có stock_entry_ref
+- Given tất cả checklist Pass, dept_head_name điền, spare parts có stock_entry_ref, **asset đang `Under Repair`**
 - When close_work_order
-- Then WO Completed, mttr_hours set, sla_breached computed, Asset Active
+- Then WO Completed, mttr_hours set, sla_breached computed, Asset → Active; ALE `repair_completed` (from=Under Repair, to=Active)
+
+**AC-2b — Asset đang Out of Service do hold khác (BR-09-09 nhánh B):**
+
+- Given WO đủ điều kiện đóng, nhưng asset đã bị 1 governance khác (calib-fail/CAPA/incident) đẩy sang `Out of Service`
+- When close_work_order
+- Then WO Completed (docstatus=1), mttr/sla set; **asset GIỮ `Out of Service`** (KHÔNG ép Active); ALE `repair_completed` (from=to=Out of Service) + note "WO đóng nhưng asset giữ Out of Service do hold khác — cần giải toả riêng"
+
+**AC-2c — Asset đã Decommissioned (BR-09-09 nhánh C):**
+
+- Given WO đủ điều kiện đóng, nhưng asset đã `Decommissioned` (terminal)
+- When close_work_order
+- Then WO Completed (docstatus=1, đóng được — KHÔNG raise `InvalidAssetTransition`); asset giữ `Decommissioned`; ALE `repair_completed` (from=to=Decommissioned) + note "asset đã thanh lý"
+- **INV-09-RESTORE-1:** lifecycle_status mới ∈ {Active (chỉ khi prev=Under Repair), prev giữ nguyên (mọi prev khác)} — nhánh restore KHÔNG BAO GIỜ raise.
 
 ## IV.2. Business Rules
 
@@ -469,10 +489,27 @@ Priority: Must | Estimate: 5SP
 | BR-09-02 | Spare parts row phải có `stock_entry_ref` hợp lệ                   | `validate_spare_parts_stock_entries()` before_submit | Scenario 9.2      |
 | BR-09-03 | `firmware_updated=1` → FCR Approved linked                            | `validate_firmware_change_request()` before_submit   | Scenario 9.3      |
 | BR-09-04 | Repair Checklist đầy đủ + 100% Pass trước Submit                   | `validate_repair_checklist_complete()` before_submit | Scenario 9.4      |
-| BR-09-05 | Asset Under Repair khi open; Active khi Completed; OOS khi Cannot Repair | `set_asset_under_repair()` + `complete_repair()`   | Scenario 9.5, 9.6 |
+| BR-09-05 | Asset Under Repair khi open; **Active khi Completed CHỈ nếu asset đang Under Repair** (xem BR-09-09); OOS khi Cannot Repair | `set_asset_under_repair()` + `complete_repair()`   | Scenario 9.5, 9.6 |
 | BR-09-06 | WO trong 30 ngày →`is_repeat_failure=1`                              | `check_repeat_failure()` before_insert               | Scenario 9.7      |
-| BR-09-07 | MTTR > SLA target →`sla_breached=1`                                   | `complete_repair()` + `check_repair_sla_breach()`  | Scenario 9.5      |
+| BR-09-07 | MTTR ≥ SLA target →`sla_breached=1` (cờ monotonic). **KPI/drill 'SLA vi phạm' đếm theo LIVE SoT predicate**: `count(sla_breached=1)` + `count(open & sla_breached=0 & open_datetime+sla_target_hours < now())` — 2 nhánh exclusive, idempotent vs scheduler, kill undercount cửa-sổ-trễ-scheduler (KHÔNG chỉ đếm cờ stale). Drill `list_work_orders` enrich `is_sla_breached` live ⇒ card==drill trên tập live. | `is_sla_breached()` predicate (SoT, biên `>=`) + `cm_sla_breach_count()` / `sla_breach_live_filter()` / `_enrich_sla_breach()` (SoT live) — dùng bởi `api/dashboard.py` (`cm_sla_breached`) + `list_work_orders`; cờ-set giữ ở `complete_repair()` + `check_repair_sla_breach()` | Scenario 9.5, 9.9 |
 | BR-09-08 | "Đang mở" ⟺ status NOT IN `{Completed, Cannot Repair, Cancelled}`; KPI thẻ `cm_open` == số dòng drill-down (card == drill); `Cannot Repair` = TERMINAL ở mọi consumer; KHÔNG có literal ma `Closed` | `is_repair_open()` / `open_repair_filter()` / `REPAIR_TERMINAL_STATES` (SoT) — dùng chung bởi `api/dashboard.py` (`cm_open`, drill SQL, `my_cm`, `cm_urgent`) + `services/notifications.py` (alias) | Scenario 9.8 |
+| BR-09-09 | **Restore asset CÓ ĐIỀU KIỆN theo state machine (an toàn NĐ98).** `complete_repair` chỉ chuyển Asset → `Active` khi `prev_status == 'Under Repair'`. Nếu asset đang `Out of Service` (hold do calib-fail/CAPA/incident khác) → KHÔNG ép Active, giữ nguyên OoS (thiết bị out-of-tolerance không tự lọt lại lâm sàng). Nếu asset `Decommissioned` (terminal) → bỏ qua restore, KHÔNG raise → WO vẫn đóng được. MỌI nhánh ghi 1 ALE `repair_completed`. **INV-09-RESTORE-1:** lifecycle_status mới ∈ {Active (chỉ khi prev=Under Repair), prev giữ nguyên (mọi prev khác)} — nhánh restore KHÔNG BAO GIỜ raise. | `complete_repair()` (khối transition guarded) — đọc `prev_status` trước; nhánh A/B/C | Scenario 9.10, 9.11 |
+| BR-09-10 | **SLA/MTTR clock-stop khi WO chờ phụ tùng (Pending Parts).** Thời gian WO nằm `Pending Parts` (kho hết hàng — blocker cung ứng/vendor lead-time NGOÀI tầm đội sửa) KHÔNG tính vào elapsed dùng để quyết breach + MTTR. **SoT DUY NHẤT** `repair_elapsed_hours(doc, until) = max(0, (until − open_datetime) − parts_hold_hours_effective)` trong đó `parts_hold_hours_effective = parts_hold_hours + open-leg đang chạy` (nếu còn `parts_hold_started`, cộng `until − parts_hold_started`). CẢ 3 consumer (`complete_repair` lúc đóng, scheduler `check_repair_sla_breach` live, card `_row_is_live_overdue` live) phái sinh elapsed từ CÙNG SoT này, rồi gọi `is_sla_breached(elapsed, target)` BẤT BIẾN (biên `>=`, không đổi). `mttr_hours = repair_elapsed_hours(doc, completion_datetime)`. Khi `parts_hold_hours == 0` (WO không bao giờ qua Pending Parts) ⇒ elapsed == wall-clock cũ (no-regression). **Compliance:** false-breach phạt oan đội sửa vì lead-time NCC ⇒ méo KPI đáp ứng NĐ98 Article 56 (bảo trì/sửa chữa kịp thời) — clock-stop phản ánh đúng SLA-trong-tầm-kiểm-soát. | `repair_elapsed_hours()` (helper SoT mới) + 2 field `parts_hold_hours`/`parts_hold_started` + stamp/accumulate ở `submit_diagnosis`/`start_repair`/`request_spare_parts`/`complete_repair`; `is_sla_breached()`/`get_sla_target()`/`_SLA_MATRIX`/`update_asset_mttr_avg()` BẤT BIẾN | Scenario 9.12, TC-09-HOLD-01..06 |
+
+### IV.2-bis. Invariant namespace INV-CM-HOLD-* (BR-09-10)
+
+> Namespace RIÊNG, KHÔNG đè `INV-CM-SLA-*` (round-5 SLA-live-count) — clock-stop chỉ đổi NGUỒN elapsed, không đổi predicate breach/biên.
+
+| INV | Phát biểu (phải luôn đúng) |
+|-----|----------------------------|
+| **INV-CM-HOLD-1** | `repair_elapsed_hours` là điểm SoT DUY NHẤT phái sinh elapsed cho breach+MTTR. Cấm tính `(now/completion − open)` thô để quyết breach/MTTR ở BẤT KỲ consumer nào (card, scheduler, complete_repair). |
+| **INV-CM-HOLD-2** | `parts_hold_started` được STAMP (set datetime) khi VÀO Pending Parts; được CHỐT (cộng dồn `until − parts_hold_started` vào `parts_hold_hours` rồi RESET về null) khi RA Pending Parts hoặc khi đóng WO lúc đang hold. Tại mọi thời điểm: `parts_hold_started` non-null ⟺ status hiện tại == Pending Parts. |
+| **INV-CM-HOLD-3** | `parts_hold_hours` MONOTONIC tăng dần (chỉ cộng, không trừ); mỗi khoảng hold cộng `≥ 0` (biên vào==ra cùng thời điểm ⇒ cộng 0, KHÔNG âm). Nhiều chu kỳ hold ⇒ tổng = Σ mọi khoảng. |
+| **INV-CM-HOLD-4** | `parts_hold_hours == 0 ∧ parts_hold_started == null` (WO không bao giờ qua Pending Parts) ⇒ `repair_elapsed_hours == wall-clock (until − open)` cũ nguyên vẹn (no-regression, đối chứng). |
+| **INV-CM-HOLD-5** | Đóng WO khi đang Pending Parts: open-leg cuối được chốt tới `completion_datetime` TRƯỚC khi tính `mttr_hours` (không bỏ sót khoảng hold cuối; `parts_hold_started` reset null sau chốt). Thứ tự BẮT BUỘC: chốt-hold → tính elapsed → quyết breach. |
+| **INV-CM-HOLD-6** | Card `_row_is_live_overdue` (live) == scheduler `check_repair_sla_breach` (live) == `complete_repair` (stamp) — cả 3 phái sinh breach từ cùng `repair_elapsed_hours` (no divergence: card == drill == cờ stamp). |
+
+**Self-Correction (vòng 24 — lỗi thiết kế gốc):** Core Doc trước (BR-09-07 + IV.3 State Machine + 04 §MTTR) ngầm định elapsed = wall-clock thuần `(now/completion − open_datetime)` ở CẢ 3 consumer, KHÔNG có khái niệm "clock-stop". Pending Parts được vẽ là 1 state bình thường trong dòng thời gian SLA. → WO mở 80h trong đó 40h chờ phụ tùng hết kho (vendor lead-time) với target=72h bị stamp `sla_breached=1` SAI + `mttr_hours=80h` thổi phồng, phạt oan đội sửa và méo KPI NĐ98. **Sửa Core Doc TRƯỚC:** thêm BR-09-10 (clock-stop SoT), INV-CM-HOLD-1..6, 2 field DocType `parts_hold_hours`/`parts_hold_started`, side-effect stamp/accumulate ở 4 transition, và cập nhật IV.3 State Machine để chú thích cặp enter/exit hold. `is_sla_breached`/SLA matrix/biên `>=` KHÔNG đổi — chỉ NGUỒN elapsed đổi.
 
 ## IV.3. State Machine
 
@@ -482,9 +519,9 @@ stateDiagram-v2
     Open --> Assigned : assign_technician
     Open --> Cancelled : Workshop Manager cancel
     Assigned --> Diagnosing : (auto / start_repair)
-    Diagnosing --> PendingParts : submit_diagnosis(needs_parts=1)
+    Diagnosing --> PendingParts : submit_diagnosis(needs_parts=1) — STAMP parts_hold_started [BR-09-10]
     Diagnosing --> InRepair : submit_diagnosis(needs_parts=0)
-    PendingParts --> InRepair : request_spare_parts (parts confirmed)
+    PendingParts --> InRepair : request_spare_parts / start_repair — CHỐT hold→parts_hold_hours [BR-09-10]
     InRepair --> PendingInspection : close_work_order (pre-submit)
     PendingInspection --> Completed : doc.submit() — on_submit complete_repair
     PendingInspection --> CannotRepair : close_work_order(cannot_repair=1)
@@ -499,7 +536,7 @@ stateDiagram-v2
 | Open               | WO vừa tạo, chờ phân công       | 0         | Workshop Manager / Auto |
 | Assigned           | KTV được gán, Asset Under Repair | 0         | Workshop Manager        |
 | Diagnosing         | KTV đang chẩn đoán               | 0         | KTV HTM                 |
-| Pending Parts      | Chờ kho xuất vật tư              | 0         | KTV / Kho               |
+| Pending Parts      | Chờ kho xuất vật tư — **SLA tạm dừng (clock-stop, BR-09-10)**; `parts_hold_started` đang non-null | 0         | KTV / Kho               |
 | In Repair          | Đang sửa chữa                     | 0         | KTV HTM                 |
 | Pending Inspection | Sửa xong, chờ nghiệm thu          | 0         | KTV HTM                 |
 | Completed          | Nghiệm thu pass, Asset Active       | 1         | KTV + Trưởng khoa     |
@@ -540,6 +577,8 @@ stateDiagram-v2
 | E-09-05 | Checklist có row result=Fail                                         | Block submit | `VALIDATION` (CM-008)    |
 | E-09-06 | close_work_order khi status không phải In Repair/Pending Inspection | Block        | `BAD_STATE` (CM-012)     |
 | E-09-07 | dept_head_name rỗng khi Completed mode                               | Block        | `VALIDATION` (CM-013)    |
+| E-09-08 | WO đóng (`complete_repair`) trong khi đang Pending Parts             | Chốt open-leg hold tới `completion_datetime` TRƯỚC khi tính elapsed (INV-CM-HOLD-5); không bỏ sót khoảng hold cuối; KHÔNG raise | — (handled, BR-09-10) |
+| E-09-09 | Vào/ra Pending Parts cùng thời điểm (Δ=0)                            | Cộng 0 vào `parts_hold_hours` (INV-CM-HOLD-3); KHÔNG âm | — (handled, BR-09-10) |
 
 ---
 

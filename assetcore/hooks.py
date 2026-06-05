@@ -12,15 +12,16 @@ app_license = "MIT"
 # Fixtures — RBAC module-based (4 System + 26 Domain = 30 role)
 # ──────────────────────────────────────────────
 from assetcore.services.shared.constants import Roles as _Roles
-from assetcore.setup.role_profile_catalog import PROFILE_NAMES as _ROLE_PROFILE_NAMES
 
 _IMM_ROLES = list(_Roles.ALL)
 fixtures = [
     {"dt": "Role", "filters": [["name", "in", _IMM_ROLES]]},
-    # 8 Role Profile (tên VI thuần) — cơ chế gán bộ role chọn sẵn chuẩn Frappe.
-    # Core Doc FE_Persona_Navigation.md §7.quinquies. Seed/idempotent qua
-    # setup_role_profiles.run; fixture để fresh-site provisioning áp được.
-    {"dt": "Role Profile", "filters": [["name", "in", _ROLE_PROFILE_NAMES]]},
+    # 8 Role Profile (tên VI thuần) KHÔNG còn export/import qua fixtures.
+    # Lý do: "Role Profile" là DocType core Frappe có on_update → queue_action đẩy
+    # background job (update_all_users). Khi sync_fixtures import nó lúc bench migrate,
+    # enqueue chạy trong ngữ cảnh migrate (phụ thuộc Redis queue) → abort cả migrate.
+    # Provisioning chuyển HẲN sang setup_role_profiles.run() (catalog SSOT, idempotent)
+    # ở after_install (đồng bộ) + after_migrate (guarded). Xem setup/role_profile_catalog.py.
     {"dt": "IMM SLA Policy"},
     {"dt": "Workspace", "filters": [["name", "in", ["IMM Operations"]]]},
     {"dt": "Workflow", "filters": [["name", "in", [

@@ -4,7 +4,7 @@ import { useImm09Store } from '@/stores/imm09'
 import { useRouter } from 'vue-router'
 import { useNotify } from '@/composables/useNotify'
 import { MSG } from '@/i18n/messages'
-import { cmStatusLabel, cmStatusClass, priorityLabel, priorityClass, rootCauseLabel, repairTypeLabel, resultLabel } from '@/constants/labels'
+import { cmStatusLabel, cmStatusClass, priorityLabel, priorityClass, rootCauseLabel, repairTypeLabel, resultLabel, lifecycleStatusLabel, lifecycleStatusClass } from '@/constants/labels'
 
 const props = defineProps<{ id: string }>()
 const store = useImm09Store()
@@ -62,6 +62,21 @@ function startTimer() {
 
 const wo = computed(() => store.currentWO)
 
+// ─── Trạng thái vòng đời THỰC của thiết bị (BR-09-09 / INV-09-RESTORE-1) ───────
+// Bind theo `asset_info.lifecycle_status` THẬT từ response — KHÔNG hardcode 'Active'.
+// Sau khi đóng WO (complete_repair), asset CHỈ về 'Active' khi trước đó là 'Under
+// Repair'; nếu đang giữ hold governance khác (vd 'Out of Service' do calib-fail/CAPA/
+// incident) thì WO=Completed NHƯNG asset KHÔNG về Active → badge phải phản ánh đúng.
+const assetLifecycleStatus = computed<string | null>(() => wo.value?.asset_info?.lifecycle_status ?? null)
+
+// WO đã đóng (Completed) nhưng thiết bị KHÔNG ở 'Active' → còn hold hạng mục khác.
+// Hiện note phụ nhắc xử lý riêng (không để user tưởng "đóng phiếu = thiết bị trở lại").
+const showHoldNote = computed(() =>
+  wo.value?.status === 'Completed' &&
+  !!assetLifecycleStatus.value &&
+  assetLifecycleStatus.value !== 'Active',
+)
+
 const elapsedDisplay = computed(() => {
   const h = Math.floor(elapsed.value / 3600)
   const m = Math.floor((elapsed.value % 3600) / 60)
@@ -88,6 +103,13 @@ const slaTextColor = computed(() => {
   if (slaPercent.value >= 75) return 'text-orange-500'
   return 'text-slate-600'
 })
+
+// ─── BR-09-10 / INV-CM-HOLD: đồng hồ SLA TẠM DỪNG khi WO chờ phụ tùng ──────────
+// Khi `status === 'Pending Parts'` (chờ phụ tùng hết kho — blocker cung ứng ngoài
+// tầm đội sửa), BE KHÔNG cộng khoảng này vào elapsed (SoT repair_elapsed_hours).
+// FE phản ánh đúng: thay vì để live-timer chạy gây hiểu nhầm "đang trễ SLA", hiện
+// badge VI giải thích đồng hồ đang dừng. KHÔNG tự tính lại — chỉ trình bày trạng thái.
+const isOnPartsHold = computed(() => wo.value?.status === 'Pending Parts')
 
 // Actions
 async function doAssign() {
@@ -149,6 +171,15 @@ async function doConfirmInspection() {
           <span v-if="wo" :class="['px-2.5 py-1 rounded-full text-xs font-semibold', cmStatusClass(wo.status)]">{{ cmStatusLabel(wo.status) }}</span>
           <span v-if="wo?.is_repeat_failure" class="px-2 py-0.5 rounded-full text-xs bg-amber-100 text-amber-700 font-medium">Tái hỏng</span>
           <span v-if="wo?.sla_breached" class="px-2 py-0.5 rounded-full text-xs bg-red-100 text-red-700 font-semibold">SLA vi phạm</span>
+          <!-- Trạng thái vòng đời THỰC của thiết bị (BR-09-09) — bind giá trị thật, không hardcode -->
+          <span
+            v-if="assetLifecycleStatus"
+            :class="['px-2 py-0.5 rounded-full text-xs font-medium', lifecycleStatusClass(assetLifecycleStatus)]"
+            :title="`Trạng thái thiết bị: ${assetLifecycleStatus}`"
+            data-testid="asset-lifecycle-badge"
+          >
+            Thiết bị: {{ lifecycleStatusLabel(assetLifecycleStatus) }}
+          </span>
         </div>
         <div class="text-sm text-slate-500 mt-0.5">{{ wo?.asset_name || wo?.asset_ref }}</div>
       </div>
@@ -336,6 +367,31 @@ Phiếu bảo trì {{ wo.source_pm_wo }} →
             </div>
           </template>
 
+          <!-- WO chờ phụ tùng (BR-09-10): đồng hồ SLA TẠM DỪNG — không hiện progress chạy -->
+          <template v-else-if="isOnPartsHold">
+            <div
+              role="alert"
+              aria-live="polite"
+              data-testid="parts-hold-banner"
+              class="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-800"
+            >
+              <svg class="w-4 h-4 mt-0.5 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <div>
+                <p class="text-sm font-semibold">Chờ phụ tùng — SLA tạm dừng</p>
+                <p class="text-xs mt-0.5 text-amber-700">
+                  Đồng hồ SLA/MTTR đang dừng trong thời gian chờ phụ tùng hết kho;
+                  khoảng này không tính vào thời gian sửa chữa.
+                </p>
+              </div>
+            </div>
+            <div class="flex items-center justify-between mt-3 text-xs text-slate-500">
+              <span>SLA target</span>
+              <span class="font-mono font-semibold text-slate-700">{{ wo.sla_target_hours ?? '—' }}h</span>
+            </div>
+          </template>
+
           <!-- WO active: timer + progress bar -->
           <template v-else>
             <div class="flex items-center justify-between mb-1">
@@ -373,6 +429,17 @@ Phiếu bảo trì {{ wo.source_pm_wo }} →
               <span class="text-slate-500">Thời gian sửa chữa (TTR):</span>
               <span :class="['font-semibold', wo.sla_breached ? 'text-red-600' : 'text-green-600']">{{ wo.mttr_hours }}h</span>
             </div>
+          </div>
+
+          <!-- BR-09-09: WO đã đóng nhưng thiết bị vẫn giữ hold hạng mục khác (không về Active) -->
+          <div
+            v-if="showHoldNote"
+            class="mt-3 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-800"
+            data-testid="asset-hold-note"
+          >
+            Thiết bị giữ trạng thái
+            <b>{{ lifecycleStatusLabel(assetLifecycleStatus!) }}</b>
+            do hạng mục khác — cần xử lý riêng (phiếu sửa chữa đã hoàn thành nhưng chưa giải toả hold).
           </div>
         </div>
 

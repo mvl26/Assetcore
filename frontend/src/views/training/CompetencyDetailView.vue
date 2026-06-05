@@ -7,6 +7,7 @@ import { getExpiringCompetencies, signoffCompetency, revokeCompetency, recertify
 import type { UserCompetency } from '@/api/imm06'
 import PageHeader from '@/components/common/PageHeader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
+import { competencyEffectiveState } from './competencyStatus'
 
 const props = defineProps<{ name: string }>()
 const store = useImm06Store()
@@ -149,7 +150,11 @@ onMounted(load)
       ]"
     >
       <template #actions>
-        <StatusBadge v-if="competency" :state="competency.workflow_state" size="md" />
+        <StatusBadge
+          v-if="competency"
+          :state="competencyEffectiveState(competency.workflow_state, competency.days_until_expiry)"
+          size="md"
+        />
 
         <button
           v-if="canSignoff"

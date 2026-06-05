@@ -1,19 +1,46 @@
 <script setup lang="ts">
 // Copyright (c) 2026, AssetCore Team
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAssetStore } from '@/stores/imm00'
-import { getAssetTimeline, getAssetKpi, verifyChain, deleteAsset } from '@/api/imm00'
+import {
+  getAssetTimeline, getAssetKpi, verifyChain, deleteAsset,
+  getAssetLabelData, markLabelPrinted, regenerateAssetQrToken, type AssetLabelData,
+} from '@/api/imm00'
+import AssetQrLabel from '@/components/asset/AssetQrLabel.vue'
+import {
+  LABEL_FORMATS, DEFAULT_LABEL_FORMAT_KEY, getLabelFormat, pageRuleFor,
+  type LabelFormatKey,
+} from '@/constants/label'
 import { getCommissioningOrigin, type CommissioningOrigin } from '@/api/imm04'
+import {
+  createDecommission, approveDecommission,
+  type DisposalMethod,
+} from '@/api/imm14'
+import {
+  showDecommissionButton, canSubmitDecommission, requiresPatientDataConfirm as needsPhiConfirm,
+  DECOM_REASON_MIN_LEN,
+} from '@/api/decommissionGate'
 import AssetDowntimeWidget from '@/components/asset/AssetDowntimeWidget.vue'
 import AssetDepreciationSchedule from '@/components/asset/AssetDepreciationSchedule.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
+import BaseModal from '@/components/common/BaseModal.vue'
+import SmartSelect from '@/components/common/SmartSelect.vue'
 import type { AssetLifecycleEvent, AssetKpi, ChainVerifyResult, LifecycleStatus } from '@/types/imm00'
-import { translateFrequency, translateDepreciationMethod } from '@/utils/formatters'
+import { translateFrequency, translateDepreciationMethod, translateLifecycleEvent, translateStatus } from '@/utils/formatters'
+import { useCapabilities } from '@/composables/useCapabilities'
+import { useNotify } from '@/composables/useNotify'
+import { useToast } from '@/composables/useToast'
+import { useAuthStore } from '@/stores/auth'
+import { toApiError } from '@/api/errors'
 
 const props = defineProps<{ id: string }>()
 const router = useRouter()
 const store = useAssetStore()
+const { can } = useCapabilities()
+const notify = useNotify()
+const toast = useToast()
+const auth = useAuthStore()
 
 const timeline = ref<AssetLifecycleEvent[]>([])
 const kpi = ref<AssetKpi | null>(null)
@@ -25,14 +52,94 @@ const targetStatus = ref<LifecycleStatus | ''>('')
 const transitionReason = ref('')
 const activeTab = ref<'info' | 'depreciation' | 'timeline' | 'kpi' | 'audit'>('info')
 
+// ── A4: in nhãn QR cấp tài sản (preview ≠ ghi event) ────────────────────────────
+const showLabelModal = ref(false)
+const labelData = ref<AssetLabelData | null>(null)
+const labelLoading = ref(false)
+const labelError = ref<string | null>(null)
+const labelPrinting = ref(false)
+
+// Khổ tem chọn (SSoT @/constants/label — dùng chung với AssetLabelPrintView).
+// Mặc định A4 nhiều-nhãn = hành vi cũ; chọn tem vật lý → @page size mm + 1 tem/trang.
+const labelFormatKey = ref<LabelFormatKey>(DEFAULT_LABEL_FORMAT_KEY)
+const currentLabelFormat = computed(() => getLabelFormat(labelFormatKey.value))
+const labelPageRuleCss = computed(() => pageRuleFor(labelFormatKey.value))
+
+async function openLabelPreview() {
+  showLabelModal.value = true
+  labelData.value = null
+  labelError.value = null
+  labelLoading.value = true
+  try {
+    // Preview-only — getAssetLabelData KHÔNG ghi label_printed (BE D3).
+    labelData.value = await getAssetLabelData(props.id)
+  } catch (e: unknown) {
+    labelError.value = toApiError(e).message
+  } finally {
+    labelLoading.value = false
+  }
+}
+
+async function confirmPrintLabel() {
+  if (labelPrinting.value || !labelData.value) return
+  window.print()
+  // Ghi sự kiện in SAU khi in thật (label_printed + audit) — chỉ asset này.
+  labelPrinting.value = true
+  try {
+    await markLabelPrinted([props.id])
+    toast.show('Đã ghi nhận in nhãn QR.', 'success')
+  } catch (e: unknown) {
+    notify.fromError(toApiError(e))
+  } finally {
+    labelPrinting.value = false
+    showLabelModal.value = false
+  }
+}
+
+// ── B (hardening): cấp lại (rotate) mã QR — vô hiệu hoá nhãn cũ + token mới ──────
+// Gate hiển thị nút = can('asset.write') (rotate = thao tác GHI; BE gate asset.write).
+// Cảnh báo qua BaseModal (KHÔNG window.confirm). Xác nhận → regenerateAssetQrToken
+// → refetch asset (qr_url/nhãn phản ánh token mới) → toast VI. Huỷ → no-op (đóng modal).
+const showRegenModal = ref(false)
+const regenerating = ref(false)
+
+function openRegenModal() {
+  showRegenModal.value = true
+}
+
+async function confirmRegenQr() {
+  if (regenerating.value) return
+  regenerating.value = true
+  try {
+    await regenerateAssetQrToken(props.id)
+    // Refetch asset → nhãn/qr_url phản ánh token MỚI; token cũ vô hiệu.
+    await store.fetchOne(props.id)
+    showRegenModal.value = false
+    toast.success('Đã cấp lại mã QR. Nhãn QR đã in trước đó không còn hiệu lực.')
+  } catch (e: unknown) {
+    // Gate-error (403/404/IDOR) + rate-limit (429, Vòng 27 B / BR-00-38): notify VI
+    // verbatim. 429 → axios interceptor (handle429) đã dựng ApiError code=RATE_LIMITED
+    // + message VI cố định 'Bạn thao tác quá nhanh...' (SSoT, KHÔNG EN-leak/raw-code);
+    // notify.fromError render đúng bucket. KHÔNG leak EN/raw-code, KHÔNG trang trắng.
+    // GIỮ modal Sinh-lại MỞ (chỉ đóng khi thành công) → user thử lại/huỷ.
+    notify.fromError(toApiError(e))
+  } finally {
+    regenerating.value = false   // double-submit guard reset (cho phép thử lại sau 429)
+  }
+}
+
+// IMM-14: 'Decommissioned' CỐ TÌNH loại khỏi mọi transition trực tiếp — giải nhiệm
+// PHẢI đi qua "Hồ sơ giải nhiệm" (nút riêng + modal closure-record), không qua nút
+// chuyển-trạng-thái chung. Tránh bypass cổng closure từ FE (BE cũng chặn set
+// Decommissioned ngoài closure → BAD_STATE).
 const TRANSITIONS: Record<string, LifecycleStatus[]> = {
-  'Draft': ['Commissioned', 'Decommissioned'],
-  'Commissioned': ['Active', 'Out of Service', 'Decommissioned'],
-  'Active': ['Under Maintenance', 'Under Repair', 'Calibrating', 'Out of Service', 'Decommissioned'] as LifecycleStatus[],
-  'Under Maintenance': ['Active', 'Under Repair', 'Out of Service', 'Decommissioned'] as LifecycleStatus[],
-  'Under Repair': ['Active', 'Out of Service', 'Decommissioned'],
-  'Calibrating': ['Active', 'Out of Service', 'Decommissioned'],
-  'Out of Service': ['Active', 'Under Repair', 'Decommissioned'],
+  'Draft': ['Commissioned'],
+  'Commissioned': ['Active', 'Out of Service'],
+  'Active': ['Under Maintenance', 'Under Repair', 'Calibrating', 'Out of Service'] as LifecycleStatus[],
+  'Under Maintenance': ['Active', 'Under Repair', 'Out of Service'] as LifecycleStatus[],
+  'Under Repair': ['Active', 'Out of Service'],
+  'Calibrating': ['Active', 'Out of Service'],
+  'Out of Service': ['Active', 'Under Repair'],
   'Decommissioned': [],
 }
 
@@ -125,6 +232,112 @@ async function remove() {
   }
 }
 
+// ── IMM-14: Cổng "Hồ sơ giải nhiệm" (Decommission closure record) ──────────────
+// Naming contract: api/imm14.ts → assetcore.api.imm14.create_decommission/approve_decommission
+// Gate hiển thị nút: capability THẬT 'decommission.approve'/'decommission.create'
+// (khớp BE rbac.py CAPABILITY_MAP → Asset Decommission submit/create; cap có thật, tránh
+// empty-array trap LL-FE-22) + asset CHƯA terminal (đọc lifecycle_status, KHÔNG hardcode).
+// NEG-09 (đang bảo trì/sửa/hiệu chuẩn) KHÔNG disable cứng ở FE — BE là SoT, bấm sẽ nhận
+// lỗi gate VI → toast cảnh báo (doc §11.2).
+
+const DISPOSAL_OPTIONS: { value: DisposalMethod; label: string }[] = [
+  { value: 'Huỷ', label: 'Huỷ (tiêu huỷ vật lý)' },
+  { value: 'Điều chuyển/Donation', label: 'Điều chuyển / Hiến tặng' },
+  { value: 'Bán/Trade-in', label: 'Bán / Đổi cũ lấy mới' },
+  { value: 'Lưu trữ', label: 'Lưu trữ' },
+]
+const REASON_MIN_LEN = DECOM_REASON_MIN_LEN
+
+const showDecommissionModal = ref(false)
+const decommissioning = ref(false)
+const decomForm = ref<{
+  disposal_method: DisposalMethod | ''
+  patient_data_sanitized: boolean
+  sanitization_note: string
+  decommission_reason: string
+  responsible: string
+  confirm_name: string
+}>({
+  disposal_method: '',
+  patient_data_sanitized: false,
+  sanitization_note: '',
+  decommission_reason: '',
+  responsible: '',
+  confirm_name: '',
+})
+
+// Risk class C/D (WHO §3.6) = High/Critical trên AC Asset → bắt buộc xác nhận xử lý
+// dữ liệu bệnh nhân trước khi duyệt. Dùng predicate CHUNG với test (no drift).
+const requiresPatientDataConfirm = computed(
+  () => needsPhiConfirm(store.currentAsset?.risk_classification),
+)
+
+const isDecommissioned = computed(
+  () => store.currentAsset?.lifecycle_status === 'Decommissioned',
+)
+
+// Nút chỉ hiện khi có quyền duyệt giải nhiệm (Department Head) + asset chưa terminal.
+// Capability THẬT khớp BE rbac.py: 'decommission.approve' → ("Asset Decommission","submit").
+// KHÔNG hardcode role-name, KHÔNG dùng cap rỗng (LL-FE-12/22). Chấp nhận create-cap như
+// fallback OR (luồng MVP create→approve liên tiếp; người mở modal cần ít nhất quyền tạo).
+const canDecommission = computed(
+  () => showDecommissionButton(
+    !!store.currentAsset,
+    store.currentAsset?.lifecycle_status,
+    can(['decommission.approve', 'decommission.create']),
+  ),
+)
+
+// Disable nút "Xác nhận giải nhiệm" trong modal nếu chưa đủ field (mirror BE BR).
+const decomReasonLen = computed(() => decomForm.value.decommission_reason.trim().length)
+const decomCanSubmit = computed(
+  () => canSubmitDecommission(
+    decomForm.value,
+    store.currentAsset?.name ?? '',
+    store.currentAsset?.risk_classification,
+  ),
+)
+
+function openDecommissionModal() {
+  decomForm.value = {
+    disposal_method: '',
+    patient_data_sanitized: false,
+    sanitization_note: '',
+    decommission_reason: '',
+    responsible: auth.user?.email ?? '',
+    confirm_name: '',
+  }
+  showDecommissionModal.value = true
+}
+
+async function confirmDecommission() {
+  if (!store.currentAsset || !decomCanSubmit.value) return
+  decommissioning.value = true
+  try {
+    // 2-call tuần tự (doc §11.3): create_decommission (docstatus=0) → approve_decommission
+    // (submit → transition asset). Lỗi gate nào cũng surface qua toast cảnh báo VI.
+    const created = await createDecommission({
+      asset: store.currentAsset.name,
+      disposal_method: decomForm.value.disposal_method as DisposalMethod,
+      decommission_reason: decomForm.value.decommission_reason.trim(),
+      patient_data_sanitized: decomForm.value.patient_data_sanitized,
+      responsible: decomForm.value.responsible,
+      sanitization_note: decomForm.value.sanitization_note.trim() || undefined,
+    })
+    await approveDecommission(created.name)
+    showDecommissionModal.value = false
+    // Refresh asset → badge đổi 'Đã thanh lý' qua label map SSoT, nút tự ẩn.
+    await Promise.all([store.fetchOne(props.id), loadTimeline()])
+    toast.success('Đã giải nhiệm thiết bị thành công.')
+  } catch (e: unknown) {
+    // Gate-error: toast CẢNH BÁO với message VI verbatim từ BE (KHÔNG 'Lỗi hệ thống',
+    // KHÔNG leak EN/raw status). toApiError giữ code + message BE đã VI hoá.
+    notify.fromError(toApiError(e))
+  } finally {
+    decommissioning.value = false
+  }
+}
+
 async function onTabChange(tab: typeof activeTab.value) {
   activeTab.value = tab
   if (tab === 'timeline' && !timeline.value.length) await loadTimeline()
@@ -151,8 +364,10 @@ onMounted(async () => {
       ]"
     >
       <template #actions>
-        <button v-if="store.currentAsset" class="btn-ghost text-sm" @click="router.push(`/assets/${id}/edit`)">Chỉnh sửa</button>
-        <button v-if="store.currentAsset" class="text-red-600 hover:text-red-800 text-sm font-medium px-3 py-1.5" @click="remove">Xóa</button>
+        <!-- B (least-privilege): nút ghi gate capability (parity với In/Sinh-lại QR line 373/385). asset.write = sửa. -->
+        <button v-if="store.currentAsset && can('asset.write')" class="btn-ghost text-sm" @click="router.push(`/assets/${id}/edit`)">Chỉnh sửa</button>
+        <!-- asset.delete là DocPerm delete RIÊNG — KHÔNG dùng chung asset.write. -->
+        <button v-if="store.currentAsset && can('asset.delete')" class="text-red-600 hover:text-red-800 text-sm font-medium px-3 py-1.5" @click="remove">Xóa</button>
       </template>
     </PageHeader>
 
@@ -168,16 +383,45 @@ onMounted(async () => {
             <h1 class="text-xl font-bold text-slate-900">{{ store.currentAsset.asset_name }}</h1>
             <p class="text-sm text-slate-400 mt-0.5">{{ store.currentAsset.name }}</p>
           </div>
-          <span
-            class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium"
-            :class="statusColor[store.currentAsset.lifecycle_status] || 'bg-gray-100 text-gray-600'"
-          >
-            {{ lifecycleLabel[store.currentAsset.lifecycle_status] || store.currentAsset.lifecycle_status }}
-          </span>
+          <div class="flex items-center gap-3">
+            <button
+              v-if="can('asset.write')"
+              class="btn-ghost text-sm inline-flex items-center gap-1.5"
+              title="Xem trước & in nhãn QR cho thiết bị này"
+              @click="openLabelPreview"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round"
+                  d="M4 4h6v6H4V4zm10 0h6v6h-6V4zM4 14h6v6H4v-6zm13 0h3m-3 3h3m-3 3h3" />
+              </svg>
+              In nhãn QR
+            </button>
+            <button
+              v-if="can('asset.write')"
+              class="btn-ghost text-sm inline-flex items-center gap-1.5"
+              title="Cấp lại mã QR — vô hiệu hoá mọi nhãn QR đã in trước đó"
+              data-testid="btn-regen-qr"
+              @click="openRegenModal"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round"
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              Sinh lại mã QR
+            </button>
+            <span
+              class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium"
+              :class="statusColor[store.currentAsset.lifecycle_status] || 'bg-gray-100 text-gray-600'"
+            >
+              {{ lifecycleLabel[store.currentAsset.lifecycle_status] || store.currentAsset.lifecycle_status }}
+            </span>
+          </div>
         </div>
 
-        <!-- Transition buttons -->
-        <div v-if="TRANSITIONS[store.currentAsset.lifecycle_status]?.length" class="mt-4 flex flex-wrap gap-2">
+        <!-- Transition buttons — B: chuyển trạng thái là mutating → gate asset.write
+             (ẩn cả label "Chuyển trạng thái:" lẫn nút →state cho user read-only).
+             GIỮ điều kiện length sẵn có: status không có transition (vd Decommissioned) vẫn ẩn. -->
+        <div v-if="can('asset.write') && TRANSITIONS[store.currentAsset.lifecycle_status]?.length" class="mt-4 flex flex-wrap gap-2">
           <span class="text-xs text-slate-400 self-center">Chuyển trạng thái:</span>
           <button
             v-for="s in TRANSITIONS[store.currentAsset.lifecycle_status]"
@@ -284,6 +528,23 @@ onMounted(async () => {
           >
 ⚠️ Báo sự cố
 </button>
+          <!-- IMM-14: Giải nhiệm thiết bị — chỉ hiện khi có quyền + asset chưa terminal -->
+          <button
+            v-if="canDecommission"
+            class="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
+            title="Lập hồ sơ giải nhiệm thiết bị (cần đóng phiếu bảo trì/sửa/hiệu chuẩn đang mở trước)"
+            data-testid="btn-decommission"
+            @click="openDecommissionModal"
+          >
+🗑️ Giải nhiệm thiết bị
+</button>
+          <span
+            v-else-if="isDecommissioned"
+            class="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-gray-200 text-gray-500"
+            data-testid="badge-decommissioned"
+          >
+✓ Đã giải nhiệm
+</span>
         </div>
       </div>
 
@@ -456,11 +717,11 @@ onMounted(async () => {
             </div>
             <div class="card flex-1 p-3">
               <div class="flex justify-between items-start">
-                <span class="font-semibold text-sm text-slate-800">{{ event.event_type }}</span>
+                <span class="font-semibold text-sm text-slate-800" data-testid="ale-event-type">{{ translateLifecycleEvent(event.event_type) }}</span>
                 <span class="text-xs text-slate-400">{{ formatDateTime(event.event_timestamp) }}</span>
               </div>
-              <p v-if="event.from_status || event.to_status" class="text-xs text-slate-500 mt-1">
-                {{ event.from_status }} → {{ event.to_status }}
+              <p v-if="event.from_status || event.to_status" class="text-xs text-slate-500 mt-1" data-testid="ale-status-transition">
+                {{ translateStatus(event.from_status) }} → {{ translateStatus(event.to_status) }}
               </p>
               <p v-if="event.notes" class="text-xs text-slate-600 mt-1">{{ event.notes }}</p>
               <p class="text-xs text-slate-400 mt-1">bởi {{ event.actor }}</p>
@@ -518,6 +779,106 @@ onMounted(async () => {
       </div>
     </template>
 
+    <!-- A4: QR Label preview Modal (inline — KHÔNG Teleport, để vùng .qr-label-sheet
+         in được + nút 'In tem' nằm trong DOM view). preview-only: chỉ gọi
+         getAssetLabelData; ghi event label_printed CHỈ khi bấm 'In tem'. -->
+    <div v-if="showLabelModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 qr-modal-chrome">
+      <div class="bg-white rounded-xl shadow-xl p-6 w-full max-w-md mx-4">
+        <div class="flex items-center justify-between mb-4 qr-modal-chrome">
+          <h3 class="font-semibold text-slate-900">Nhãn QR thiết bị</h3>
+          <button class="text-slate-400 hover:text-slate-600" aria-label="Đóng" @click="showLabelModal = false">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <!-- Selector khổ tem (SSoT, dùng chung AssetLabelPrintView). Mặc định A4. -->
+        <label class="flex items-center gap-2 text-sm text-slate-600 mb-3 qr-modal-chrome">
+          <span>Khổ tem</span>
+          <select
+            v-model="labelFormatKey"
+            class="border border-slate-300 rounded px-2 py-1 text-sm"
+            aria-label="Chọn khổ tem in nhãn"
+          >
+            <option v-for="f in LABEL_FORMATS" :key="f.key" :value="f.key">
+              {{ f.label }}
+            </option>
+          </select>
+        </label>
+
+        <!-- Loading -->
+        <div v-if="labelLoading" class="py-8 text-center text-slate-400" aria-busy="true">
+          Đang tải dữ liệu nhãn…
+        </div>
+        <!-- Error -->
+        <div v-else-if="labelError" class="alert-error flex items-center gap-3" role="alert">
+          <span class="flex-1">{{ labelError }}</span>
+          <button class="text-sm underline" @click="openLabelPreview">Thử lại</button>
+        </div>
+        <!-- Preview — 1 tem đơn; lớp khổ tem để CSS in áp đúng @page/grid. -->
+        <div
+          v-else-if="labelData"
+          class="qr-label-sheet"
+          :class="`qr-label-sheet--${labelFormatKey}`"
+          :data-format="labelFormatKey"
+        >
+          <AssetQrLabel
+            :label="labelData"
+            :format="labelFormatKey"
+            :qr-size="currentLabelFormat.qrSizePx"
+          />
+        </div>
+
+        <div class="flex gap-2 justify-end mt-5 qr-modal-chrome">
+          <button class="btn-ghost text-sm" @click="showLabelModal = false">Đóng</button>
+          <button
+            class="btn-primary text-sm"
+            :disabled="labelPrinting || !labelData"
+            @click="confirmPrintLabel"
+          >
+            {{ labelPrinting ? 'Đang ghi nhận…' : 'In tem' }}
+          </button>
+        </div>
+      </div>
+
+      <!-- @page động cho TEM vật lý (1 tem/trang khít khổ). A4 → '' (không ép). -->
+      <component :is="'style'" v-if="labelPageRuleCss" data-testid="label-page-rule">
+        @media print { {{ labelPageRuleCss }} }
+      </component>
+    </div>
+
+    <!-- B (hardening): Modal cảnh báo cấp lại (rotate) mã QR -->
+    <BaseModal
+      v-if="showRegenModal"
+      title="Cấp lại mã QR thiết bị"
+      size="md"
+      danger
+      @close="showRegenModal = false"
+    >
+      <div class="space-y-3 text-sm">
+        <div class="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2.5 text-amber-800" role="alert">
+          Thao tác này sẽ <strong>vô hiệu hoá mọi nhãn QR đã in</strong> trước đó cho thiết bị này.
+          Mã QR cũ sẽ không còn quét được — bạn cần in lại nhãn mới sau khi cấp lại.
+        </div>
+        <p class="text-slate-600">
+          Chỉ thực hiện khi mã QR hiện tại bị lộ hoặc nhãn cũ thất lạc. Bạn có chắc chắn?
+        </p>
+      </div>
+      <template #footer>
+        <button class="btn-ghost text-sm" @click="showRegenModal = false">Huỷ</button>
+        <button
+          class="text-sm px-4 py-2 rounded-lg font-medium text-white transition-colors"
+          :class="regenerating ? 'bg-slate-300 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700'"
+          :disabled="regenerating"
+          data-testid="regen-confirm"
+          @click="confirmRegenQr"
+        >
+          {{ regenerating ? 'Đang xử lý...' : 'Xác nhận cấp lại' }}
+        </button>
+      </template>
+    </BaseModal>
+
     <!-- Transition Modal -->
     <div v-if="showTransitionModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
       <div class="bg-white rounded-xl shadow-xl p-6 w-full max-w-md mx-4">
@@ -541,5 +902,151 @@ onMounted(async () => {
       </div>
     </div>
 
-  </div>
+    <!-- IMM-14: Modal Hồ sơ giải nhiệm (closure record) -->
+    <BaseModal
+      v-if="showDecommissionModal"
+      title="Hồ sơ giải nhiệm thiết bị"
+      size="lg"
+      danger
+      @close="showDecommissionModal = false"
+    >
+      <div class="space-y-4 text-sm">
+        <div class="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
+          Hành động <strong>không thể đảo ngược</strong>. Sau khi duyệt, thiết bị chuyển sang
+          trạng thái <strong>Đã thanh lý</strong> và không thể thao tác tiếp.
+        </div>
+
+        <!-- Phương thức xử lý -->
+        <div>
+          <label class="block text-xs font-medium text-slate-600 mb-1">
+            Phương thức xử lý <span class="text-red-500">*</span>
+          </label>
+          <select
+            v-model="decomForm.disposal_method"
+            class="form-input w-full text-sm"
+            data-testid="decom-disposal-method"
+          >
+            <option value="" disabled>— Chọn phương thức xử lý —</option>
+            <option v-for="o in DISPOSAL_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
+          </select>
+          <p class="text-xs text-slate-400 mt-1">Theo WHO §3.8 / NĐ98.</p>
+        </div>
+
+        <!-- Xác nhận xử lý dữ liệu bệnh nhân -->
+        <div
+          class="rounded-lg px-3 py-2.5"
+          :class="requiresPatientDataConfirm ? 'bg-red-50 border border-red-200' : 'bg-slate-50 border border-slate-200'"
+        >
+          <label class="flex items-start gap-2 cursor-pointer">
+            <input
+              v-model="decomForm.patient_data_sanitized"
+              type="checkbox"
+              class="mt-0.5"
+              data-testid="decom-patient-data"
+            />
+            <span class="text-xs text-slate-700">
+              Đã xoá / xử lý dữ liệu bệnh nhân trên thiết bị.
+              <span v-if="requiresPatientDataConfirm" class="block text-red-600 font-medium mt-0.5">
+                Thiết bị phân loại nguy cơ C/D — bắt buộc xác nhận (WHO §3.6).
+              </span>
+            </span>
+          </label>
+          <input
+            v-model="decomForm.sanitization_note"
+            type="text"
+            class="form-input w-full text-xs mt-2"
+            placeholder="Ghi chú cách xử lý dữ liệu (tuỳ chọn)..."
+            data-testid="decom-sanitization-note"
+          />
+        </div>
+
+        <!-- Lý do giải nhiệm -->
+        <div>
+          <label class="block text-xs font-medium text-slate-600 mb-1">
+            Lý do giải nhiệm <span class="text-red-500">*</span>
+          </label>
+          <textarea
+            v-model="decomForm.decommission_reason"
+            rows="3"
+            class="form-input w-full text-sm"
+            placeholder="Mô tả lý do giải nhiệm (hết khấu hao, sửa chữa không kinh tế, có quyết định thanh lý...)"
+            data-testid="decom-reason"
+          />
+          <p class="text-xs mt-1" :class="decomReasonLen < REASON_MIN_LEN ? 'text-red-500' : 'text-slate-400'">
+            {{ decomReasonLen }}/{{ REASON_MIN_LEN }} ký tự tối thiểu
+          </p>
+        </div>
+
+        <!-- Người chịu trách nhiệm -->
+        <div>
+          <label class="block text-xs font-medium text-slate-600 mb-1">
+            Người chịu trách nhiệm <span class="text-red-500">*</span>
+          </label>
+          <SmartSelect
+            v-model="decomForm.responsible"
+            doctype="User"
+            placeholder="Chọn người chịu trách nhiệm..."
+            data-testid="decom-responsible"
+          />
+        </div>
+
+        <!-- Xác nhận 2 bước: gõ đúng mã thiết bị -->
+        <div class="pt-2 border-t border-slate-100">
+          <label class="block text-xs font-medium text-slate-600 mb-1">
+            Gõ mã thiết bị <span class="font-mono text-slate-800">{{ store.currentAsset?.name }}</span>
+            để xác nhận <span class="text-red-500">*</span>
+          </label>
+          <input
+            v-model="decomForm.confirm_name"
+            type="text"
+            class="form-input w-full text-sm font-mono"
+            :placeholder="store.currentAsset?.name"
+            data-testid="decom-confirm-name"
+          />
+        </div>
+      </div>
+
+      <template #footer>
+        <button class="btn-ghost text-sm" @click="showDecommissionModal = false">Huỷ</button>
+        <button
+          class="text-sm px-4 py-2 rounded-lg font-medium text-white transition-colors"
+          :class="decomCanSubmit && !decommissioning ? 'bg-red-600 hover:bg-red-700' : 'bg-slate-300 cursor-not-allowed'"
+          :disabled="!decomCanSubmit || decommissioning"
+          data-testid="decom-submit"
+          @click="confirmDecommission"
+        >
+          {{ decommissioning ? 'Đang xử lý...' : 'Xác nhận giải nhiệm' }}
+        </button>
+      </template>
+    </BaseModal>
+</div>
 </template>
+
+<style scoped>
+/* A4 — khi in nhãn 1 tài sản từ modal: chỉ hiện vùng .qr-label-sheet,
+   ẩn chrome modal (tiêu đề/nút) + nội dung trang. break-inside:avoid nằm
+   trong AssetQrLabel để không cắt đôi nhãn. */
+.qr-label-sheet {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.5rem;
+}
+@media print {
+  .qr-modal-chrome { display: none !important; }
+  /* Tem vật lý in 1 tem đơn: khít khổ @page, không lề thừa. */
+  .qr-label-sheet--tem-50x30,
+  .qr-label-sheet--tem-70x40 {
+    display: block;
+    gap: 0;
+  }
+  .qr-label-sheet--tem-50x30 > *,
+  .qr-label-sheet--tem-70x40 > * { height: 100%; }
+}
+</style>
+
+<style>
+/* Print global: ẩn shell app (sidebar/topbar) + backdrop modal khi in từ màn này. */
+@media print {
+  .app-sidebar, .app-topbar, .app-shell__nav { display: none !important; }
+}
+</style>

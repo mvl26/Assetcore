@@ -763,5 +763,429 @@ class TestNoInlineOverdueLiteral(unittest.TestCase):
         )
 
 
+class TestSearchLinkConfigFieldsExist(unittest.TestCase):
+    """search_link / _ALLOWED_SEARCH_DOCTYPES naming-contract guards (BR-11-12).
+
+    Bug gốc: config 'IMM Calibration Schedule' tham chiếu cột 'asset_ref' KHÔNG tồn
+    tại trên DocType (field thật = 'asset') → frappe.db.get_all raise OperationalError
+    1054 (Unknown column) → /calibration/new full-page crash + leak traceback ra UI.
+
+    INVARIANT chống tái diễn: MỌI doctype trong _ALLOWED_SEARCH_DOCTYPES có
+    search_fields ∪ extra_fields ∪ {label_field} đều là column thật (meta.has_field)
+    hoặc 'name'. Test quét toàn config → FAIL nếu bất kỳ config nào tham chiếu field
+    chết. RED trên config cũ (asset_ref) — GREEN sau fix.
+    """
+
+    @staticmethod
+    def _field_exists(doctype: str, field: str) -> bool:
+        # 'name' luôn hợp lệ (docname column ảo); các field còn lại phải has_field.
+        if field == "name":
+            return True
+        try:
+            return bool(frappe.get_meta(doctype).has_field(field))
+        except Exception:
+            return False
+
+    def test_calibration_schedule_config_has_no_asset_ref(self):
+        """TC-CAL-SEARCH-01/02 (bug chính): config IMM Calibration Schedule KHÔNG
+        còn 'asset_ref' (cột chết) — mọi field trong config tồn tại trên DocType."""
+        from assetcore.services.imm04 import _ALLOWED_SEARCH_DOCTYPES
+
+        dt = "IMM Calibration Schedule"
+        if not frappe.db.exists("DocType", dt):
+            self.skipTest("DocType IMM Calibration Schedule chưa cài")
+        config = _ALLOWED_SEARCH_DOCTYPES[dt]
+        referenced = set(config["search_fields"]) | set(config["extra_fields"]) | {config["label_field"]}
+        self.assertNotIn(
+            "asset_ref", referenced,
+            "Config 'IMM Calibration Schedule' vẫn tham chiếu cột chết 'asset_ref' "
+            "(field thật là 'asset') → search_link sẽ raise OperationalError 1054.",
+        )
+        dead = [f for f in referenced if not self._field_exists(dt, f)]
+        self.assertEqual(dead, [], f"Field chết trong config '{dt}': {dead}")
+
+    def test_all_search_configs_reference_real_columns(self):
+        """TC-CAL-SEARCH-02 (invariant tổng quát — anti-recurrence): loop MỌI doctype
+        trong _ALLOWED_SEARCH_DOCTYPES → mọi field ∈ search∪extra∪{label} là column
+        thật. Bảo vệ mọi config tương lai khỏi lặp lại bug 'asset_ref'."""
+        from assetcore.services.imm04 import _ALLOWED_SEARCH_DOCTYPES
+
+        offenders: list[tuple[str, str]] = []
+        for dt, config in _ALLOWED_SEARCH_DOCTYPES.items():
+            # optional config có thể trỏ DocType chưa cài (vd module chưa bật) → bỏ qua
+            # khi DocType vắng mặt (search_link tự return [] nhánh optional). Nhưng nếu
+            # DocType TỒN TẠI thì field PHẢI thật, kể cả config optional.
+            if not frappe.db.exists("DocType", dt):
+                if config.get("optional"):
+                    continue
+                offenders.append((dt, "<DocType không tồn tại>"))
+                continue
+            referenced = set(config["search_fields"]) | set(config["extra_fields"]) | {config["label_field"]}
+            for f in referenced:
+                if not self._field_exists(dt, f):
+                    offenders.append((dt, f))
+        self.assertEqual(
+            offenders, [],
+            f"Config search tham chiếu field/doctype chết (sẽ gây 1054/traceback): {offenders}",
+        )
+
+
+class TestSearchLinkRuntime(unittest.TestCase):
+    """search_link runtime: KHÔNG raise SQL/traceback ra caller (defense-in-depth)."""
+
+    def test_calibration_schedule_query_does_not_raise(self):
+        """TC-CAL-SEARCH-01 (runtime): search_link('IMM Calibration Schedule', 'X')
+        trả list[dict]{value,label,description} KHÔNG raise. Config cũ (asset_ref) ⇒
+        OperationalError 1054 (RED); sau fix ⇒ GREEN."""
+        from assetcore.services import imm04 as svc
+
+        if not frappe.db.exists("DocType", "IMM Calibration Schedule"):
+            self.skipTest("DocType IMM Calibration Schedule chưa cài")
+        rows = svc.search_link("IMM Calibration Schedule", query="X")
+        self.assertIsInstance(rows, list)
+        for r in rows:
+            self.assertIn("value", r)
+            self.assertIn("label", r)
+            self.assertIn("description", r)
+
+    def test_empty_query_returns_list(self):
+        """TC-CAL-SEARCH-05 (biên): query='' → trả list (rỗng hoặc full theo limit)
+        KHÔNG raise."""
+        from assetcore.services import imm04 as svc
+
+        if not frappe.db.exists("DocType", "IMM Calibration Schedule"):
+            self.skipTest("DocType IMM Calibration Schedule chưa cài")
+        rows = svc.search_link("IMM Calibration Schedule", query="")
+        self.assertIsInstance(rows, list)
+
+    def test_dead_field_in_config_does_not_leak_sql(self):
+        """TC-CAL-SEARCH-03 (guard defense-in-depth): tạm inject 1 config có field giả
+        'zzz_nonexistent' → search_link KHÔNG raise OperationalError (guard lọc field
+        chết), trả rows chỉ với cột tồn tại. Chứng minh endpoint không leak 1054."""
+        from assetcore.services import imm04 as svc
+
+        if not frappe.db.exists("DocType", "IMM Calibration Schedule"):
+            self.skipTest("DocType IMM Calibration Schedule chưa cài")
+        registry = svc._ALLOWED_SEARCH_DOCTYPES
+        # Tạm thay config 'IMM Calibration Schedule' bằng config có field GIẢ trỏ
+        # DocType THẬT → nếu search_link không lọc field chết, frappe.db.get_all sẽ
+        # raise OperationalError 1054. Guard phải lọc → trả list không raise.
+        saved = dict(registry["IMM Calibration Schedule"])
+        try:
+            registry["IMM Calibration Schedule"] = {
+                "label_field": "name",
+                "search_fields": ["name", "zzz_nonexistent"],
+                "filters": {},
+                "extra_fields": ["zzz_nonexistent"],
+                "optional": True,
+            }
+            rows = svc.search_link("IMM Calibration Schedule", query="")
+            self.assertIsInstance(rows, list)
+            for r in rows:
+                self.assertIn("value", r)
+        finally:
+            registry["IMM Calibration Schedule"] = saved
+
+    def test_other_doctypes_no_regression(self):
+        """TC-CAL-SEARCH-04 (no-regression): AC Asset + IMM Device Model vẫn trả
+        shape {value,label,description} đúng — không hồi quy doctype khác."""
+        from assetcore.services import imm04 as svc
+
+        for dt in ("AC Asset", "IMM Device Model"):
+            if not frappe.db.exists("DocType", dt):
+                continue
+            rows = svc.search_link(dt, query="")
+            self.assertIsInstance(rows, list)
+            for r in rows:
+                self.assertIn("value", r)
+                self.assertIn("label", r)
+                self.assertIn("description", r)
+
+
+# ─── B-3: Dedup generate_qr_label → asset deep-link (vòng 13 / ADR-001 §D6.1) ──
+#
+# RC dedup: sau vòng này CHỈ còn 1 đường QR quét-được = deep-link asset
+# /a/<token> (enumeration-safe). generate_qr_label trả thêm `qr_url` (tái dùng
+# imm00.ensure_asset_qr_token + _build_qr_url — 1 helper duy nhất, dedup THẬT),
+# BỎ field scan_url desk. internal_tag_qr + scanner-wedge GIỮ NGUYÊN.
+
+class TestGenerateQrLabelDeepLink(unittest.TestCase):
+    """ADR-001 §D6.1 — generate_qr_label ủy quyền deep-link asset + bỏ scan_url."""
+
+    @classmethod
+    def setUpClass(cls):
+        from assetcore.tests._asset_cleanup import purge_asset  # noqa: PLC0415
+        cls._purge_asset = staticmethod(purge_asset)
+        frappe.set_user("Administrator")
+        cls._created_comm: list[str] = []
+        cls._created_assets: list[str] = []
+
+        cls._cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": "_TEST B3 QR Dedup Category",
+        }).insert(ignore_permissions=True)
+
+    @classmethod
+    def tearDownClass(cls):
+        for name in cls._created_comm:
+            try:
+                frappe.delete_doc("Asset Commissioning", name, force=True,
+                                  ignore_permissions=True)
+            except Exception:
+                pass
+        for name in cls._created_assets:
+            try:
+                cls._purge_asset(name)
+            except Exception:
+                pass
+        try:
+            frappe.delete_doc("AC Asset Category", cls._cat.name, force=True,
+                              ignore_permissions=True)
+        except Exception:
+            pass
+        frappe.set_user("Administrator")
+
+    # ── factories ────────────────────────────────────────────────────────────
+    def _make_asset(self, with_token: bool = True) -> str:
+        # AC Asset Lifecycle workflow blocks direct Draft → Active; bypass via
+        # in_install flag (same pattern as test_imm00._insert_asset_bypass_workflow).
+        prev = frappe.flags.in_install
+        frappe.flags.in_install = "frappe"
+        try:
+            asset = frappe.get_doc({
+                "doctype": "AC Asset",
+                "asset_name": "_TEST B3 QR Asset",
+                "asset_category": self._cat.name,
+                "status": "Active",
+                "lifecycle_status": "Active",
+            }).insert(ignore_permissions=True)
+        finally:
+            frappe.flags.in_install = prev
+        type(self)._created_assets.append(asset.name)
+        if not with_token:
+            # Legacy/token-less asset: blank the qr_token that before_insert set.
+            frappe.db.set_value("AC Asset", asset.name, "qr_token", None,
+                                update_modified=False)
+        return asset.name
+
+    def _make_comm(self, *, final_asset: str | None,
+                   internal_tag_qr: str = "BV-RAD-2026-00042") -> str:
+        doc = frappe.get_doc({
+            "doctype": "Asset Commissioning",
+            "po_reference": "_TEST-PO-B3",
+            "master_item": "_TEST-MODEL-B3",
+            "vendor": "_TEST-VENDOR-B3",
+            "internal_tag_qr": internal_tag_qr,
+            "final_asset": final_asset,
+        }).insert(ignore_permissions=True, ignore_mandatory=True,
+                  ignore_links=True)
+        type(self)._created_comm.append(doc.name)
+        return doc.name
+
+    def _count_ale(self, asset_name: str, event_type: str = "qr_generated") -> int:
+        return frappe.db.count("Asset Lifecycle Event",
+                               {"asset": asset_name, "event_type": event_type})
+
+    # ── tests ─────────────────────────────────────────────────────────────────
+    def test_qr_url_present_when_final_asset(self):
+        """Phiếu đã release (final_asset có qr_token) → qr_url = .../a/<token>;
+        token == AC Asset.qr_token; KHÔNG còn key scan_url."""
+        import re
+        from assetcore.services import imm04 as svc
+
+        asset = self._make_asset(with_token=True)
+        token = frappe.db.get_value("AC Asset", asset, "qr_token")
+        self.assertTrue(token)
+        comm = self._make_comm(final_asset=asset)
+
+        res = svc.generate_qr_label(comm)
+        self.assertIsNotNone(res["qr_url"])
+        self.assertRegex(res["qr_url"], r"^https?://.+/a/[A-Za-z0-9_-]+$")
+        self.assertTrue(res["qr_url"].endswith(f"/a/{token}"))
+        self.assertNotIn("scan_url", res,
+                         "scan_url desk-login phải BỎ HẲN khỏi contract nhãn")
+
+    def test_qr_url_enumeration_safe(self):
+        """qr_url KHÔNG chứa internal_tag_qr (BV-...) hay name tuần tự; token opaque
+        == field qr_token."""
+        from assetcore.services import imm04 as svc
+
+        asset = self._make_asset(with_token=True)
+        token = frappe.db.get_value("AC Asset", asset, "qr_token")
+        comm = self._make_comm(final_asset=asset,
+                               internal_tag_qr="BV-ICU-2026-00777")
+
+        res = svc.generate_qr_label(comm)
+        self.assertNotIn("BV-ICU-2026-00777", res["qr_url"])
+        self.assertNotIn(asset, res["qr_url"])
+        self.assertNotIn(comm, res["qr_url"])
+        self.assertTrue(res["qr_url"].endswith(f"/a/{token}"))
+
+    def test_qr_url_uses_shared_helper(self):
+        """Patch imm00.ensure_asset_qr_token + _build_qr_url → generate_qr_label
+        GỌI đúng 2 helper đó (dedup THẬT — không tái hiện token/URL trong imm04)."""
+        from unittest import mock
+        from assetcore.services import imm04 as svc
+
+        asset = self._make_asset(with_token=True)
+        comm = self._make_comm(final_asset=asset)
+
+        with mock.patch("assetcore.services.imm00.ensure_asset_qr_token",
+                        return_value="STUBTOKEN") as m_ensure, \
+             mock.patch("assetcore.services.imm00._build_qr_url",
+                        return_value="https://x.test/a/STUBTOKEN") as m_build:
+            res = svc.generate_qr_label(comm)
+
+        m_ensure.assert_called_once_with(asset)
+        m_build.assert_called_once_with("STUBTOKEN")
+        self.assertEqual(res["qr_url"], "https://x.test/a/STUBTOKEN")
+
+    def test_qr_url_null_when_no_final_asset(self):
+        """Phiếu chưa mint asset (final_asset rỗng, có internal_tag_qr) → qr_url
+        None, KHÔNG raise, ensure_asset_qr_token KHÔNG gọi; qr_value fallback."""
+        from unittest import mock
+        from assetcore.services import imm04 as svc
+
+        comm = self._make_comm(final_asset=None,
+                               internal_tag_qr="BV-LAB-2026-00009")
+
+        with mock.patch("assetcore.services.imm00.ensure_asset_qr_token") as m_ensure:
+            res = svc.generate_qr_label(comm)
+
+        self.assertIsNone(res["qr_url"])
+        m_ensure.assert_not_called()
+        self.assertEqual(res["qr_value"], "BV-LAB-2026-00009")
+
+    def test_no_double_emit_qr_generated(self):
+        """final_asset đã có qr_token (emit ở mint/backfill) → generate_qr_label
+        KHÔNG tạo thêm ALE qr_generated (count trước == sau, gọi nhiều lần)."""
+        from assetcore.services import imm04 as svc
+
+        asset = self._make_asset(with_token=True)
+        comm = self._make_comm(final_asset=asset)
+
+        before = self._count_ale(asset)
+        svc.generate_qr_label(comm)
+        svc.generate_qr_label(comm)
+        self.assertEqual(self._count_ale(asset), before,
+                         "ensure idempotent: token đã có → KHÔNG emit lần 2")
+
+    def test_emit_once_when_asset_token_less(self):
+        """final_asset tồn tại nhưng qr_token rỗng (legacy) → đúng 1 ALE
+        qr_generated lần đầu; gọi lần 2 KHÔNG thêm event (idempotent)."""
+        from assetcore.services import imm04 as svc
+
+        asset = self._make_asset(with_token=False)
+        self.assertIsNone(frappe.db.get_value("AC Asset", asset, "qr_token"))
+        comm = self._make_comm(final_asset=asset)
+
+        before = self._count_ale(asset)
+        res = svc.generate_qr_label(comm)
+        token = frappe.db.get_value("AC Asset", asset, "qr_token")
+        self.assertTrue(token, "token-less asset → ensure phải sinh token")
+        self.assertTrue(res["qr_url"].endswith(f"/a/{token}"))
+        self.assertEqual(self._count_ale(asset), before + 1,
+                         "token đầu tiên → đúng 1 ALE qr_generated")
+        svc.generate_qr_label(comm)
+        self.assertEqual(self._count_ale(asset), before + 1,
+                         "gọi lại → idempotent, KHÔNG thêm event")
+
+    def test_no_label_printed_emitted(self):
+        """generate_qr_label (GET preview) KHÔNG tạo ALE label_printed."""
+        from assetcore.services import imm04 as svc
+
+        asset = self._make_asset(with_token=True)
+        comm = self._make_comm(final_asset=asset)
+
+        before = self._count_ale(asset, event_type="label_printed")
+        svc.generate_qr_label(comm)
+        self.assertEqual(self._count_ale(asset, event_type="label_printed"),
+                         before, "preview ≠ in nhãn — không emit label_printed")
+
+    def test_rbac_unchanged_forbidden(self):
+        """User không có read trên Asset Commissioning → ServiceError(FORBIDDEN);
+        ensure_asset_qr_token KHÔNG bypass quyền."""
+        from unittest import mock
+        from assetcore.services import imm04 as svc
+        from assetcore.services.shared import ServiceError, ErrorCode
+
+        asset = self._make_asset(with_token=True)
+        comm = self._make_comm(final_asset=asset)
+
+        with mock.patch("frappe.has_permission",
+                        side_effect=frappe.PermissionError), \
+             mock.patch("assetcore.services.imm00.ensure_asset_qr_token") as m_ensure:
+            with self.assertRaises(ServiceError) as ctx:
+                svc.generate_qr_label(comm)
+        self.assertEqual(ctx.exception.code, ErrorCode.FORBIDDEN)
+        m_ensure.assert_not_called()
+
+    def test_bad_state_no_internal_tag_qr(self):
+        """Phiếu chưa qua Identification (internal_tag_qr rỗng) →
+        ServiceError(INVALID_PARAMS) — guard giữ nguyên."""
+        from assetcore.services import imm04 as svc
+        from assetcore.services.shared import ServiceError, ErrorCode
+
+        comm = self._make_comm(final_asset=None, internal_tag_qr="")
+        with self.assertRaises(ServiceError) as ctx:
+            svc.generate_qr_label(comm)
+        self.assertEqual(ctx.exception.code, ErrorCode.INVALID_PARAMS)
+
+    def test_internal_tag_qr_field_intact(self):
+        """Sau dedup: get_barcode_lookup(internal_tag_qr) vẫn resolve đúng phiếu
+        (scanner-wedge / tương thích A1 KHÔNG vỡ)."""
+        from assetcore.services import imm04 as svc
+
+        asset = self._make_asset(with_token=True)
+        tag = "BV-OPD-2026-00321"
+        comm = self._make_comm(final_asset=asset, internal_tag_qr=tag)
+
+        looked = svc.get_barcode_lookup(tag)
+        self.assertEqual(looked.get("commissioning_id"), comm)
+        self.assertEqual(looked["device"]["internal_qr"], tag)
+
+    # (10) B (base-URL): dedup THẬT — generate_qr_label trả qr_url base CÔNG KHAI
+    # khi conf set (KHÔNG mock _build_qr_url → chứng minh 1 SSoT helper IMM-00,
+    # không copy logic dựng URL); token-less final_asset → qr_url=None như B-3.
+    def test_qr_url_public_base_via_shared_helper(self):
+        """conf assetcore_qr_base_url set → qr_url=https://htm.bv.vn/a/<token>
+        (đi xuyên _build_qr_url thật → dedup base-URL chung với IMM-00)."""
+        from assetcore.services import imm04 as svc
+
+        orig = frappe.conf.get("assetcore_qr_base_url")
+        try:
+            frappe.conf["assetcore_qr_base_url"] = "https://htm.bv.vn"
+            asset = self._make_asset(with_token=True)
+            token = frappe.db.get_value("AC Asset", asset, "qr_token")
+            comm = self._make_comm(final_asset=asset)
+
+            res = svc.generate_qr_label(comm)
+            self.assertEqual(res["qr_url"], f"https://htm.bv.vn/a/{token}",
+                             "qr_url phải dùng base công khai qua _build_qr_url chung")
+        finally:
+            if orig is None:
+                frappe.conf.pop("assetcore_qr_base_url", None)
+            else:
+                frappe.conf["assetcore_qr_base_url"] = orig
+
+    def test_qr_url_null_token_less_even_with_public_base(self):
+        """final_asset CHƯA mint (None) → qr_url=None bất kể conf base-URL set
+        (regression B-3 — không sinh asset-less QR rác)."""
+        from assetcore.services import imm04 as svc
+
+        orig = frappe.conf.get("assetcore_qr_base_url")
+        try:
+            frappe.conf["assetcore_qr_base_url"] = "https://htm.bv.vn"
+            comm = self._make_comm(final_asset=None,
+                                   internal_tag_qr="BV-LAB-2026-00111")
+            res = svc.generate_qr_label(comm)
+            self.assertIsNone(res["qr_url"])
+        finally:
+            if orig is None:
+                frappe.conf.pop("assetcore_qr_base_url", None)
+            else:
+                frappe.conf["assetcore_qr_base_url"] = orig
+
+
 if __name__ == "__main__":
     unittest.main()

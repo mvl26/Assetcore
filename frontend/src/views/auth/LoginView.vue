@@ -3,11 +3,21 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { accountState } from '@/api/auth'
+import { isSafeInternalRedirect } from '@/utils/navigation'
 import logoUrl from '@/assets/logo-miyano.png'
 
 const router = useRouter()
 const route = useRoute()
 const auth = useAuthStore()
+
+// Open-redirect guard (ADR-001 D4): route.query.redirect là untrusted input từ
+// luồng QR deep-link → 401 → login. Chỉ điều hướng tới path nội bộ hợp lệ; mọi
+// giá trị độc hại (//evil, https://x, javascript:, \\evil) → fallback /dashboard.
+// SSoT = isSafeInternalRedirect (utils/navigation). Dùng CHUNG cho cả 2 call site.
+const safeRedirect = computed<string>(() => {
+  const raw = route.query.redirect
+  return isSafeInternalRedirect(raw) ? (raw as string) : '/dashboard'
+})
 
 const email = ref('')
 const password = ref('')
@@ -23,8 +33,7 @@ onMounted(async () => {
     remember.value = true
   }
   if (auth.isAuthenticated) {
-    const redirect = (route.query.redirect as string) || '/dashboard'
-    router.push(redirect)
+    router.push(safeRedirect.value)
   }
 })
 
@@ -65,8 +74,7 @@ async function handleLogin() {
   errorType.value = null
   const ok = await auth.login(email.value.trim(), password.value, remember.value)
   if (ok) {
-    const redirect = (route.query.redirect as string) || '/dashboard'
-    router.push(redirect)
+    router.push(safeRedirect.value)
     return
   }
 

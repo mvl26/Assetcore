@@ -56,7 +56,47 @@ def validate_evaluation(doc: Document) -> None:
 
 
 def on_submit_evaluation(doc: Document) -> None:
-    pass  # Evaluation Evaluated state — không hành động bổ sung; downstream là PD
+    # Evaluation Evaluated state — downstream là PD. Nếu đỉnh HÒA (has_top_tie):
+    # ghi 1 IMM Audit Trail bất biến 'eval_tie_unresolved' (vì sao KHÔNG có gợi ý
+    # trúng thầu — căn cứ NĐ98). Idempotent: bỏ qua nếu đã có row (chống amend/resubmit).
+    if doc.has_top_tie:
+        _log_eval_tie_unresolved(doc)
+
+
+def _log_eval_tie_unresolved(doc: Document) -> None:
+    """Ghi audit 'eval_tie_unresolved' (event_type='System') — idempotent.
+
+    Marker máy ``eval_tie_unresolved`` ở đầu ``change_summary`` cho phép phát hiện
+    trùng (chống nhân đôi khi amend/resubmit) + câu Việt hoàn chỉnh (LL-BE-14).
+    Best-effort: audit-fail KHÔNG vỡ submit (chỉ log_error)."""
+    try:
+        existing = frappe.db.exists("IMM Audit Trail", {
+            "ref_doctype": _DT_VE,
+            "ref_name": doc.name,
+            "event_type": "System",
+            "change_summary": ("like", "eval_tie_unresolved%"),
+        })
+        if existing:
+            return
+        from assetcore.utils.lifecycle import log_audit_event
+        tied = doc.tied_candidates or ""
+        top = max((c.weighted_score or 0) for c in (doc.candidates or [])) \
+            if doc.candidates else 0
+        log_audit_event(
+            asset=None,
+            event_type="System",
+            ref_doctype=_DT_VE,
+            ref_name=doc.name,
+            change_summary=(
+                "eval_tie_unresolved — Hòa điểm đỉnh, KHÔNG tự gợi ý trúng thầu "
+                f"(spec: {doc.spec_ref or '—'}; NCC đồng hạng: {tied}; điểm: {top})"
+            ),
+        )
+    except Exception:
+        frappe.log_error(
+            title="IMM-03 eval_tie_unresolved audit failed",
+            message=frappe.get_traceback(),
+        )
 
 
 def _vr01_min_candidates(doc: Document) -> None:
@@ -109,15 +149,91 @@ def _check_avl_warnings(doc: Document) -> None:
         cand.in_avl = _is_supplier_in_avl(cand.supplier, category)
 
 
+def _avl_is_live(supplier: str, category: str | None = None) -> int:
+    """SoT predicate 'AVL còn hiệu lực' (INV-AVL-LIVE, 02 §IV.6).
+
+    Return 1 ⇔ tồn tại AVL của ``supplier`` với::
+
+        docstatus = 1
+        AND workflow_state ∈ {Approved, Conditional}
+        AND (valid_to IS NULL OR valid_to >= CURDATE())
+
+    1 truy vấn (``frappe.db.sql`` 1 câu, ``LIMIT 1``) — KHÔNG loop, KHÔNG migration
+    (``valid_to`` đã tồn tại). ``>=`` inclusive ⇒ biên ``valid_to == hôm nay`` vẫn
+    LIVE; bù khít ``check_avl_expiry`` dùng ``<`` (no off-by-one).
+
+    Mệnh đề OR-NULL ``(valid_to IS NULL OR valid_to >= CURDATE())`` viết thẳng SQL
+    (option #1 Core Doc 02 §IV.6) — TRÙNG TỪNG-BIT với reference predicate
+    ``_sync_supplier_avl_status`` (line ~380) để không tái-drift.
+
+    Đây là predicate DUY NHẤT — mọi điểm gọi eligibility/cổng/KPI ủy quyền về đây.
+    """
+    cat_clause = "AND device_category = %(category)s\n              " if category else ""
+    return 1 if frappe.db.sql(
+        f"""SELECT 1 FROM `tab{_DT_AVL}`
+            WHERE supplier = %(supplier)s AND docstatus = 1
+              {cat_clause}AND workflow_state IN ('Approved','Conditional')
+              AND (valid_to IS NULL OR valid_to >= CURDATE())
+            LIMIT 1""",
+        {"supplier": supplier, "category": category},
+    ) else 0
+
+
 def _is_supplier_in_avl(supplier: str, category: str | None) -> int:
-    filters = {"supplier": supplier, "docstatus": 1, "workflow_state": ["in", ["Approved", "Conditional"]]}
-    if category:
-        filters["device_category"] = category
-    return 1 if frappe.db.exists(_DT_AVL, filters) else 0
+    """Eligibility flag candidate — ủy quyền về predicate SoT ``_avl_is_live``
+    (INV-AVL-LIVE, 02 §IV.6). KHÔNG còn check ``workflow_state`` thuần; tên public
+    giữ nguyên cho backward-compat (FE đọc ``cand.in_avl`` 1/0 không đổi shape)."""
+    return _avl_is_live(supplier, category)
+
+
+# Epsilon trên giá trị weighted_score ĐÃ round(…, 4) — chênh ≤ ngưỡng này coi như
+# HÒA (loại bỏ float-noise tầng sâu). 1e-9 << 5e-5 (nửa ulp của round-4) ⇒ chỉ bắt
+# trùng-bit thực sự, KHÔNG gộp 2 điểm round khác nhau.
+_TIE_EPSILON = 1e-9
+
+
+def _resolve_recommendation(candidates) -> tuple[str | None, list[str]]:
+    """Cổng tie-break thuần (INV-VE-TIE §IV.7) — KHÔNG I/O, test đơn vị không cần DB.
+
+    Input: iterable candidate có ``.supplier`` + ``.weighted_score`` (đã round 4).
+    Trả ``(recommended, tied)``:
+
+      - ``top = max(weighted_score)``. Nếu ``top <= 0`` (chưa chấm) →
+        ``(None, [])`` (giữ hành vi empty/zero).
+      - ``tied = [c.supplier for c if abs((c.score or 0) - top) <= _TIE_EPSILON]``.
+      - ``len(tied) == 1`` → ``(tied[0], [])`` (higher-score-wins — hành vi cũ).
+      - ``len(tied) >= 2`` (HÒA đỉnh) → ``(None, sorted(tied))``: KHÔNG auto-gợi-ý
+        (phi-tất-định bị cấm), surface danh sách đồng hạng cho người chấm + audit.
+
+    Ordering ``sorted(tied)`` CHỈ để hiển thị/audit ổn định — KHÔNG dùng để chọn
+    winner khi hòa (auto-award first-row bị kill — INV-VE-TIE).
+    """
+    cands = list(candidates or [])
+    if not cands:
+        return None, []
+    top = max((c.weighted_score or 0) for c in cands)
+    if top <= 0:
+        return None, []
+    tied = [c.supplier for c in cands
+            if abs((c.weighted_score or 0) - top) <= _TIE_EPSILON]
+    if len(tied) == 1:
+        return tied[0], []
+    return None, sorted(tied)
 
 
 def _compute_eval_scores(doc: Document) -> None:
-    """Compute weighted_score per candidate dựa trên scores (JSON) × group weights."""
+    """Compute weighted_score per candidate dựa trên scores (JSON) × group weights,
+    rồi áp cổng tie-break INV-VE-TIE (§IV.7) — KHÔNG auto-award khi đỉnh HÒA.
+
+    Sau khi tính điểm, ủy quyền chọn winner cho ``_resolve_recommendation`` (thuần):
+      - 1 đỉnh duy nhất → ``recommended_candidate`` = supplier đó, ``has_top_tie=0``.
+      - ≥2 đỉnh hòa → ``recommended_candidate=None``, ``has_top_tie=1``,
+        ``tied_candidates = ','.join(sorted(tied))`` + ``frappe.logger('imm03')``
+        warning 'eval_tie_unresolved' (spec_ref, suppliers, score). KHÔNG raise.
+      - top ≤ 0 (chưa chấm) → reset về None/0/'' (giữ hành vi empty/zero).
+
+    An toàn ở validate context (chạy mỗi save) — chỉ gán field trên ``doc``, KHÔNG
+    ghi DB. Audit Trail bất biến ghi ở ``on_submit_evaluation`` (idempotent)."""
     weights = _parse_weighting(doc.weighting_scheme)
     crit_groups = {c.criterion: c.group for c in (doc.criteria or [])}
     crit_weights = {c.criterion: (c.weight_pct or 0) / 100 for c in (doc.criteria or [])}
@@ -132,11 +248,21 @@ def _compute_eval_scores(doc: Document) -> None:
             crit_w = crit_weights.get(crit_name, 0)
             total += float(crit_score) * grp_w * crit_w
         cand.weighted_score = round(total * 5, 4)  # scale to 0..5
-    # Pick top
-    cands_sorted = sorted((doc.candidates or []),
-                            key=lambda c: c.weighted_score or 0, reverse=True)
-    if cands_sorted and (cands_sorted[0].weighted_score or 0) > 0:
-        doc.recommended_candidate = cands_sorted[0].supplier
+
+    # Cổng tie-break — KHÔNG auto-gợi-ý khi đỉnh hòa (INV-VE-TIE §IV.7)
+    recommended, tied = _resolve_recommendation(doc.candidates or [])
+    doc.recommended_candidate = recommended
+    if tied:  # ≥2 candidate đồng hạng nhất → surface + KHÔNG auto-award
+        doc.has_top_tie = 1
+        doc.tied_candidates = ",".join(tied)
+        top = max((c.weighted_score or 0) for c in (doc.candidates or []))
+        frappe.logger("imm03").warning(
+            "eval_tie_unresolved spec_ref=%s suppliers=%s score=%s",
+            doc.spec_ref, doc.tied_candidates, top,
+        )
+    else:
+        doc.has_top_tie = 0
+        doc.tied_candidates = ""
 
 
 def _parse_weighting(raw) -> dict:
@@ -237,21 +363,18 @@ def _vr04_envelope_check(doc: Document) -> None:
 
 
 def _vr05_winner_avl_required(doc: Document) -> None:
-    """VR-03-05: winner phải có AVL Active hoặc Conditional + sign-off."""
+    """VR-03-05: winner_supplier phải có AVL **còn hiệu lực** (Approved/Conditional)
+    cho device_category. Dùng predicate SoT ``_avl_is_live`` (INV-AVL-LIVE,
+    02 §IV.6) → raise ServiceError(BUSINESS_RULE) nếu trả 0. Chặn trao thầu cho
+    AVL đã hết hạn trong cửa sổ trễ scheduler (INV-AVL-LIVE-1)."""
     if not doc.winner_supplier or not doc.spec_ref:
         return
     spec = frappe.get_doc(_DT_TS, doc.spec_ref)
     category = spec.device_category
-    avl = frappe.db.get_value(
-        _DT_AVL,
-        {"supplier": doc.winner_supplier, "device_category": category, "docstatus": 1,
-         "workflow_state": ["in", ["Approved", "Conditional"]]},
-        ["name", "workflow_state"], as_dict=True,
-    )
-    if not avl:
+    if not _avl_is_live(doc.winner_supplier, category):
         raise ServiceError(
             ErrorCode.BUSINESS_RULE,
-            _("VR-03-05: Winner '{0}' không có AVL Active/Conditional cho category '{1}'")
+            _("VR-03-05: Winner '{0}' không có AVL còn hiệu lực (Approved/Conditional) cho category '{1}'")
             .format(doc.winner_supplier, category or "—"),
         )
 
@@ -340,7 +463,12 @@ def activate_avl(doc: Document) -> None:
 
 
 def _sync_supplier_avl_status(supplier: str) -> None:
-    """Sync AC Supplier.imm_avl_status và imm_avl_categories từ active AVL entries."""
+    """Sync AC Supplier.imm_avl_status và imm_avl_categories từ active AVL entries.
+
+    Mệnh đề 'active' (workflow_state ∈ {Approved,Conditional} AND (valid_to IS NULL
+    OR valid_to >= CURDATE())) là **reference predicate** của ``_avl_is_live``
+    (INV-AVL-LIVE-3 parity, 02 §IV.6). KHÔNG đổi mệnh đề này lẻ — đổi phải đồng bộ
+    ``_avl_is_live`` (giữ trùng-từng-bit để không tái-drift)."""
     rows = frappe.db.sql(
         f"""SELECT device_category, workflow_state FROM `tab{_DT_AVL}`
             WHERE supplier = %s AND docstatus = 1
@@ -525,9 +653,12 @@ def update_vendor_scorecard() -> None:
     quarter = (today_d.month - 1) // 3 + 1
     year = today_d.year
 
+    # AVL còn hiệu lực (INV-AVL-LIVE parity — KHÔNG sinh scorecard cho NCC có AVL
+    # đã hết hạn trong cửa sổ trễ scheduler). Cùng mệnh đề với _avl_is_live / _sync.
     suppliers = frappe.db.sql_list(
         f"""SELECT DISTINCT supplier FROM `tab{_DT_AVL}`
-            WHERE docstatus = 1 AND workflow_state IN ('Approved','Conditional')"""
+            WHERE docstatus = 1 AND workflow_state IN ('Approved','Conditional')
+              AND (valid_to IS NULL OR valid_to >= CURDATE())"""
     )
     for sup in suppliers:
         # Idempotent — skip nếu đã có scorecard cho kỳ này

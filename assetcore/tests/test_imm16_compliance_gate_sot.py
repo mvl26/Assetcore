@@ -101,7 +101,7 @@ class TestComplianceGateSoT(unittest.TestCase):
                  due_date=None) -> str:
         """CAPA docstatus=0 với status / imm_risk_level / due_date tuỳ ý."""
         seed_due = due_date if due_date else add_days(nowdate(), 30)
-        doc = frappe.get_doc({
+        payload = {
             "doctype": _DT_CAPA,
             "asset": asset,
             "source_type": "Non-Conformance",
@@ -113,7 +113,19 @@ class TestComplianceGateSoT(unittest.TestCase):
             "opened_date": add_days(nowdate(), -10),
             "due_date": seed_due,
             "status": status,
-        }).insert(ignore_permissions=True)
+        }
+        # BR-00-26 (round 12): cổng hiệu quả SoT fire khi status=='Closed' BẤT KỂ
+        # workflow_state. CAPA 'Closed' hợp lệ PHẢI có effectiveness_check='Effective'
+        # (+ 3-field khắc phục) — seed cho khớp invariant, KHÔNG tạo trạng thái lai.
+        if status == "Closed":
+            payload.update({
+                "effectiveness_check": "Effective",
+                "root_cause": "Gate SoT fixture root cause",
+                "corrective_action": "Gate SoT fixture corrective action",
+                "preventive_action": "Gate SoT fixture preventive action",
+                "closed_date": nowdate(),
+            })
+        doc = frappe.get_doc(payload).insert(ignore_permissions=True)
         self._names.append(doc.name)
         frappe.db.commit()
         return doc.name

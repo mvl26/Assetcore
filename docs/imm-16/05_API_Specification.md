@@ -718,6 +718,19 @@ _AUDIT_LEAD_ROLES         = {"Compliance Manager", "Compliance User", "AssetCore
 }
 ```
 
+### §3.9 Scheduler side-effects — CAPA escalation (KHÔNG phải REST endpoint)
+
+`check_capa_due` (cron daily, `hooks.py` scheduler) KHÔNG có request/response client. Hợp đồng side-effect (Vòng 13, RC-CAPA-ESC):
+
+| Khía cạnh | Hợp đồng |
+|---|---|
+| Tier kích hoạt | **ĐỘC LẬP** theo `effective_risk × overdue_days` (KHÔNG if/elif loại trừ). Critical ≥1d→L1, ≥3d→L1+L2; High ≥3d→L2; Medium/Low→none. |
+| Effective-risk SoT | `_capa_escalation_severity(row)` — `imm_risk_level` khi High/Critical, else `severity`-normalized. `severity='Critical'` escalate đúng dù `imm_risk_level` rỗng/Medium. |
+| Idempotency | Field `escalation_level` (Int, read-only) = tier cao nhất đã gửi. Chỉ gửi tier `> escalation_level` → cron daily KHÔNG re-send. |
+| Audit | Mỗi tier mới = 1 IMM Audit Trail (`event_type="CAPA"`, `change_summary` ghi Level-N). |
+| Recipient | L1 = `responsible`; L2 = `responsible` + `notify_roles.CAPA_ESCALATION_MANAGER` (= `Compliance Manager`) qua `_get_role_emails` (SoT R21). |
+| Endpoint exposure | `escalation_level` tự lộ trong `get_capa` response (api delegate verbatim — KHÔNG sửa whitelist). |
+
 ---
 
 ## §4 Error Code Catalog
@@ -809,6 +822,7 @@ export interface CapaRecord {
   imm_root_cause_method: string | null
   imm_risk_level: CapaRiskLevel
   imm_reopen_count: number
+  escalation_level?: number   // NEW Vòng 13 — tier escalation cao nhất đã gửi (0/1/2); read-only, tự lộ qua get_capa (api delegate verbatim)
   imm_compliance_finding_ref: string | null
   imm_rca_ref: string | null
   imm_action_plan: CapaActionStep[]

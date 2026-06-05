@@ -74,7 +74,7 @@ Output: `PM Task Log` (immutable), cập nhật `Asset.custom_last_pm_date / nex
 
 | KPI | Định nghĩa | Baseline | Target | Đo ở đâu |
 |---|---|---|---|---|
-| PM Compliance Rate | `completed_on_time / total_scheduled × 100` | ~60% (Excel manual) | ≥ 90% | `get_pm_dashboard_stats` |
+| PM Compliance Rate | `completed_on_time / total_scheduled × 100`; `total_scheduled` = WO **không-Cancelled** trong tháng (INV-PM-KPI-6) | ~60% (Excel manual) | ≥ 90% | `get_pm_dashboard_stats` |
 | Số WO Overdue | WO quá `due_date` chưa hoàn thành | N/A | ≤ 5% tổng WO | Dashboard KPI card |
 | Avg Days Late | Trung bình ngày trễ của WO late | N/A | ≤ 2 ngày | Dashboard KPI card |
 | PM Task Log Coverage | % WO có Task Log immutable | 0% | 100% | Audit query |
@@ -462,7 +462,7 @@ Priority: Must | Estimate: 5SP
 |---|---|---|---|
 | BR-08-01 | Phải có Checklist Template trước khi tạo PM WO | `tasks.generate_pm_work_orders` (skip + email) | TC-PM-01 |
 | BR-08-02 | CM WO phải có `source_pm_wo` | `_validate_cm_source()` + `mandatory_depends_on` | TC-PM-05 |
-| BR-08-03 | `next_pm_date = completion_date + interval` (KHÔNG dùng due_date) | `_update_pm_schedule()` | TC-PM-02 |
+| BR-08-03 | **`next_pm_date` = SoT `compute_next_pm_date(completion_date, interval)`** — anchor LUÔN `completion_date` (KHÔNG dùng due_date, KHÔNG dùng nowdate); interval hiệu lực = `pm_interval_days` nếu > 0 else `PM_DEFAULT_INTERVAL_DAYS=90`. CẢ 3+ write-site (PM Schedule.next_due_date, AC Asset.next_pm_date, PM Task Log.next_pm_date, field API submit_result trả về) gọi CHUNG helper → bằng nhau byte-for-byte. KHÔNG inline `add_days`, KHÔNG literal 90, KHÔNG `or 0`/`or 90` ở call-site. | `compute_next_pm_date()` dùng chung bởi `update_pm_schedule_after_completion` / `handle_work_order_submit` / `submit_result` | TC-PM-02, TC-PM-NEXT-02, TC-PM-NEXT-03 |
 | BR-08-04 | Asset Out of Service → block PM WO | scheduler skip | TC-PM-06 |
 | BR-08-05 | `is_late = completion_date > due_date` | `_set_completion()` | TC-PM-02 |
 | BR-08-06 | Class III/C/D bắt buộc ảnh trước/sau PM | `_validate_photo_for_high_risk()` | TC-PM-04 |
@@ -472,6 +472,8 @@ Priority: Must | Estimate: 5SP
 | BR-08-10 | PM Task Log immutable | `in_create=1`, perms không có write/delete | TC-PM-02 |
 | BR-08-11 | **PM quá hạn (overdue) = SoT predicate `is_pm_overdue`** — `due_date < today` (strict) AND status ∈ {Open, In Progress, Pending–Device Busy}. 1 định nghĩa dùng chung cho cron `check_pm_overdue` (set status=Overdue), counter `count_overdue_pm`, và drill `?overdue=1`. | `is_pm_overdue()` / `count_overdue_pm()` / `_normalize_filters(overdue=1)` | TC-PM-OV-01, test_d_be_18 |
 | BR-08-12 | **PM đến hạn (due-soon) = SoT window predicate `due_soon_filter`** — `due_date ∈ [today, today+PM_DUE_SOON_WINDOW_DAYS]` (cả 2 biên inclusive) AND status NOT IN {Completed, Cancelled}. KPI `pm_due_7d` count == số dòng drill `?due_before=today+7` (card == drill, byte-for-byte). WO quá hạn (`due_date<today`) KHÔNG lọt vào due-soon → thuộc BR-08-11 (overdue). Hai tập **disjoint** (như IMM-11 round 9). | `due_soon_filter()` dùng chung bởi `_normalize_filters(due_before)` + `dashboard.pm_due_next7` | TC-PM-DS-01, test_d_be_18b |
+| BR-08-13 | **KPI dashboard đồng nhất phạm vi (vòng 10)** — `get_dashboard_stats(year,month)` tách `kpis` thành 2 khối: (a) **THÁNG** `total_scheduled`/`completed_on_time`/`overdue_in_month`/`pending_in_month`/`compliance_rate_pct`/`avg_days_late` (mọi field đếm trên population **THÁNG** = WO có `due_date` trong tháng ∧ **không-Cancelled** — xem BR-08-14) PHẢI hòa hợp số học `total_scheduled >= on_time + overdue_in_month + pending_in_month`; (b) **TOÀN HỆ THỐNG** `overdue` = `count_overdue_pm()` (RC-10, không đổi). `compliance_rate_pct` **null khi `total_scheduled==0`** (FE '—', KHÔNG 0%). FE gắn nhãn phạm vi từng tile: "Quá hạn trong tháng" (THÁNG) ≠ "Quá hạn (toàn hệ thống)" (drill `?overdue=1`). | `get_dashboard_stats()` §4.1.4 / `PMDashboardView.vue` / `PMWorkOrderListView.vue` strip | TC-PM-KPI-1..6 |
+| BR-08-14 | **Loại WO Cancelled khỏi MẪU tuân thủ + bucket pending (vòng 25, INV-PM-KPI-6)** — population khối-THÁNG = `scheduled` = WO `due_date` trong tháng ∧ `status != Cancelled`. WO `Cancelled` (hủy chủ động, hết nghĩa vụ thực hiện) KHÔNG vào `total_scheduled`, KHÔNG vào MẪU/tử compliance, KHÔNG rơi vào `pending_in_month`/`overdue_in_month`/`completed_on_time`. Diệt 2 lỗi: (a) cancelled-PM kéo `compliance_rate_pct` giả tụt (mẫu phình); (b) phantom 'chưa xong' ở `pending` không bao giờ làm. Tháng chỉ-Cancelled → `total_scheduled==0` ⇒ `compliance_rate_pct==None` (KHÔNG `0.0`). `trend_6months[*].rate` dùng CÙNG predicate loại-Cancelled. **No-regression:** tháng không có Cancelled → KPI bất biến. **OUT-of-scope:** KHÔNG đổi `count_overdue_pm()` global, `is_late`, bucket của `Halted–Major Failure` (giữ counted = kết cục PM không-tuân-thủ thật), shape/field-name API. | `get_dashboard_stats()` §4.1.4 (predicate `status != Cancelled`) | TC-PM-KPI-06..09 |
 
 ## IV.3. State Machine
 

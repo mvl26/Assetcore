@@ -366,6 +366,16 @@ Module có 12 UC chính → tách thành 3 nhóm phân rã, mỗi nhóm ≤ 6 UC
 | AC-11-11 | Given asset chỉ-có-schedule (`AC Asset.next_calibration_date` NULL) nhưng `Schedule.next_due_date < today`, When xem, Then asset được đếm Overdue ở CẢ dashboard VÀ IMM-11 KPI/drill (count == drill, BR-11-08) |
 | AC-11-12 | Given `AC Asset.calibration_status = Overdue` và lịch DUY NHẤT của asset bị `is_active=0` (hoặc bị xóa) → rollup map không còn chứa asset, When `check_calibration_expiry()` chạy, Then `calibration_status ∈ {Not Required, ''}` (KHÔNG còn badge `Overdue`/`Due Soon` cũ). BR-11-10 |
 | AC-11-13 | Given asset đã `handle_calibration_fail` (`calibration_status = Calibration Failed`, `lifecycle_status = Out of Service`, CAPA mở) còn active schedule overdue, When `check_calibration_expiry()` chạy, Then `calibration_status` GIỮ `Calibration Failed` (KHÔNG ghi đè về On Schedule/Due Soon/Overdue). BR-11-11 |
+| AC-11-14 | (giữ hành vi đúng) Given asset đang `Calibrating`, When recal/cal Pass submit, Then restore `Calibrating → Active`; ghi ALE `calibration_passed` from=Calibrating to=Active. BR-11-12 (nhánh Calibrating KHÔNG đổi) |
+| AC-11-15 | (cal-fail của CHÍNH nó) Given asset `Out of Service` do calibration fail trước (ALE mới nhất vào OoS có `root_doctype='IMM Asset Calibration'`) + KHÔNG còn hold khác, When recal Pass, Then restore `OoS → Active`; ghi ALE `calibration_passed` to=Active. BR-11-12 |
+| AC-11-16 | (OoS do module khác) Given asset `Out of Service` do Incident (IMM-12) HOẶC Repair (IMM-09) HOẶC PM-finding (IMM-08), When recal Pass, Then GIỮ `Out of Service` (KHÔNG ép Active); ghi 1 ALE `calibration_passed` from=OoS to=OoS + note `giữ Ngừng hoạt động do hạng mục khác (<nguồn>)`. BR-11-12 |
+| AC-11-17 | (hold đồng thời) Given asset OoS do cal-fail NHƯNG còn ≥1 Incident mở / Repair WO mở / PM WO OoS-finding mở, When recal Pass, Then GIỮ OoS (không restore) + hold-note nêu hold còn lại. BR-11-12 |
+| AC-11-18 | (no-raise / idempotent / grep-guard) Given recal Pass nhánh restore-guard, Then KHÔNG BAO GIỜ raise `InvalidAssetTransition` (kể cả asset đã Decommissioned giữa chừng) → on_submit Pass luôn đóng được; chạy lại cùng cal Pass KHÔNG tạo ALE `activated` trùng; transition to=Active từ OoS CHỈ xảy ra sau khi qua `_can_restore_from_oos(asset, cal)` (0 nhánh nào ép Active từ OoS bỏ qua predicate). BR-11-12 |
+| AC-11-19 | (FAIL → due-now) Given asset có active schedule (`is_active=1`) với `Schedule.next_due_date` **tương lai** (vd today+200) và `calibration_status` đang ON_SCHEDULE (asset KHÔNG trong overdue/due-soon set), When submit IMM Asset Calibration với `overall_result = Fail`, Then MỌI active schedule của asset có `next_due_date == basis` (`certificate_date \| actual_date \| nowdate()`) `<= today` → asset xuất hiện trong `_overdue_asset_ids()` HOẶC `_due_soon_asset_ids()`, KHÔNG còn ON_SCHEDULE; `get_calibration_kpis`/`get_dashboard` đếm asset vào overdue-or-due, con số == drill `?overdue=1`/`?due_soon=1`. BR-11-08b |
+| AC-11-20 | (idempotent / null-safe / khép-kín) Given asset FAIL KHÔNG có schedule active → `handle_calibration_fail` no-op trên schedule (KHÔNG raise, vẫn tạo CAPA+Incident+lookback); AND Given asset đã due-now sau FAIL, When recalibration Pass sau đó, Then `next_due_date` advance lại = `basis + interval` (tương lai) → asset RỜI nhóm overdue/due-soon, trở lại ON_SCHEDULE. BR-11-08b + BR-11-04 |
+| AC-11-21 | (PASS multi-schedule rollup — BUG CHÍNH) Given asset X có 2 active schedule: A (`next_due_date` quá khứ = OVERDUE) + B (đang Pass), When `handle_calibration_pass(B)`, Then (1) schedule B advance `next_due_date = basis + interval` (BR-11-04 bất biến); (2) **`AC Asset.calibration_status == 'Overdue'`** (KHÔNG `On Schedule` — rollup worst-of OVERDUE>DUE_SOON>ON_SCHEDULE TỪ MỌI active schedule), KHỚP `_calibration_status_asset_ids()[X]`; (3) **`AC Asset.next_calibration_date == MIN(next_due_date)` trên MỌI active schedule** (= ngày của A, KHÔNG phải next của B); (4) asset X VẪN nằm trong `get_due_calibrations(days=30).items` (KHÔNG rớt do cache bị đẩy tương lai). BR-11-13 |
+| AC-11-22 | (ROLLUP-CONSISTENCY / idempotent với scheduler) Given asset X multi-schedule sau `handle_calibration_pass(B)`, When `check_calibration_expiry()` chạy NGAY sau, Then `AC Asset.calibration_status` KHÔNG đổi (giá trị PASS-rollup == giá trị scheduler-rollup cho cùng asset) → no flip-flop badge, no notify spam; `_reconcile_calibration_status` thấy `new == old` → skip ghi. BR-11-13 |
+| AC-11-23 | (HAPPY-PATH 1-schedule bất biến) Given asset chỉ 1 active schedule, When Pass, Then `calibration_status == 'On Schedule'` và `next_calibration_date == add_days(basis, interval)` (= rollup MIN trên 1 schedule = chính schedule đó) → hành vi cũ giữ NGUYÊN 100%; ALE `calibration_passed` + `CalibrationRepo.next_calibration_date` + restore-guard 3-nhánh (BR-11-12) BẤT BIẾN. BR-11-13 + BR-11-04 + BR-11-12 |
 
 ### US-11-02: Auto Pass/Fail khi nhập measurement
 
@@ -381,16 +391,48 @@ Module có 12 UC chính → tách thành 3 nhóm phân rã, mỗi nhóm ≤ 6 UC
 | ID | Rule | Implement ở | Liên kết test |
 |---|---|---|---|
 | BR-11-01 | External: lab ISO 17025 + cert + accreditation số bắt buộc | `IMMAssetCalibration.validate()` | AC-11-03, AC-11-04 |
-| BR-11-02 | Fail → Out of Service + CAPA bắt buộc | `IMMAssetCalibration.on_submit()` | AC-11-02 |
+| BR-11-02 | Fail → Out of Service + CAPA bắt buộc (+ Schedule due-now BR-11-08b) | `IMMAssetCalibration.on_submit()` → `handle_calibration_fail()` | AC-11-02, AC-11-19 |
 | BR-11-03 | Lookback bắt buộc cùng `device_model` | `perform_lookback_assessment()` | AC-11-07 |
 | BR-11-04 | `next_cal = certificate_date + interval` (không phải due_date) | `handle_calibration_pass()` | AC-11-06 |
 | BR-11-05 | Immutable sau Submit; Amend với reason | Submittable + `on_cancel` block | AC-11-09 |
 | BR-11-06 | Decommissioned → suspend Schedule | `transition_asset_status()` cascade | — |
 | BR-11-07 | `validate_asset_for_operations()` gate (trừ `is_recalibration=1`) | service entry | AC-11-10 |
 | BR-11-08 | **SoT "đến hạn/quá hạn" hiệu chuẩn** — biên rõ + 1 nguồn date duy nhất | `is_calibration_overdue` / `is_calibration_due_soon` (services/imm11.py) | AC-11-11, TC-11-SOT-* |
+| BR-11-08b | **FAIL → Schedule due-now** — khi `overall_result = Failed`, MỌI active schedule (`is_active=1`) của asset phải hạ `next_due_date` về **ngày cơ sở của phiếu** (`certificate_date \| actual_date \| nowdate()`, cùng SoT basis-date với `handle_calibration_pass`) → `next_due_date <= today` → asset rơi vào `_overdue_asset_ids()` HOẶC `_due_soon_asset_ids()`. Kill Schedule stale giữ ngày-tương-lai khiến thiết bị non-conform (Out of Service) vẫn hiện ON_SCHEDULE trong KPI hiệu chuẩn. Idempotent + null-safe: 0 active schedule → no-op, KHÔNG raise. | `handle_calibration_fail()` (services/imm11.py) | AC-11-19, AC-11-20, TC-11-FAIL-DUENOW-* |
 | BR-11-09 | **De-dup theo asset** — 1 asset có >1 active schedule overdue chỉ đếm 1 lần | `get_calibration_kpis` + drill `list_schedules` | TC-11-SOT-DEDUP |
 | BR-11-10 | **Stale-clear** — asset KHÔNG còn active schedule (lịch bị `is_active=0`/xóa) thì rollup phải reset `calibration_status` về neutral (`Not Required`), KHÔNG giữ badge `Overdue`/`Due Soon` cũ vĩnh viễn | `check_calibration_expiry()` (reconcile UNION) | AC-11-12, TC-11-ROLLUP-STALE |
-| BR-11-11 | **FAILED-preserve (terminal)** — khi asset `lifecycle_status = Out of Service`, rollup KHÔNG được ghi đè `calibration_status = Calibration Failed` về `On Schedule`/`Due Soon`/`Overdue`. Terminal chỉ rời bằng recal Pass (`handle_calibration_pass`) | `check_calibration_expiry()` (preserve guard) | AC-11-13, TC-11-ROLLUP-FAILED |
+| BR-11-11 | **FAILED-preserve (terminal)** — khi asset `lifecycle_status = Out of Service`, rollup KHÔNG được ghi đè `calibration_status = Calibration Failed` về `On Schedule`/`Due Soon`/`Overdue`. Terminal chỉ rời bằng recal Pass (`handle_calibration_pass`) qua **BR-11-12** | `check_calibration_expiry()` (preserve guard) | AC-11-13, TC-11-ROLLUP-FAILED |
+| BR-11-12 | **Recalibration OoS-restore governance guard** — recal Pass CHỈ khôi phục `Out of Service → Active` khi hold OoS do **CHÍNH chuỗi hiệu chuẩn** đặt (ALE mới nhất vào OoS có `root_doctype = 'IMM Asset Calibration'`) VÀ **không còn hold governance khác** mở (Incident IMM-12 / Repair WO IMM-09 / PM WO OoS-finding IMM-08). Nếu OoS do module khác hoặc còn hold đồng thời → GIỮ Out of Service (KHÔNG ép Active), ghi 1 ALE `calibration_passed` from=OoS to=OoS + hold-note. Nhánh restore KHÔNG BAO GIỜ raise `InvalidAssetTransition` (kể cả asset đã Decommissioned giữa chừng) → on_submit Pass luôn đóng được. Kill force-override hold liên-module trên recal Pass. | `_can_restore_from_oos(asset, cal)` predicate trong `handle_calibration_pass()` | AC-11-14..18, TC-11-RESTORE-* |
+| BR-11-13 | **PASS → Asset-cache ROLLUP đa-lịch (worst-of-all)** — sau `handle_calibration_pass`, `AC Asset.calibration_status` và `AC Asset.next_calibration_date` (CACHE) phải set bằng **rollup TỪ MỌI active schedule của asset**, KHÔNG hardcode `On Schedule` + next-của-1-lịch-vừa-Pass. Cụ thể: `calibration_status = ` worst-of-all (`OVERDUE > DUE_SOON > ON_SCHEDULE`) qua **CÙNG SoT** `_calibration_status_asset_ids()` mà `check_calibration_expiry` dùng; `next_calibration_date = MIN(next_due_date)` trên MỌI `is_active=1` schedule của asset. Kill divergence badge "Đúng lịch" vs dashboard SoT vẫn Overdue khi asset còn lịch khác quá hạn; kill asset tự rớt khỏi `get_due_calibrations` filter (đọc cache `next_calibration_date`) khi còn lịch sớm hơn. **ROLLUP-CONSISTENCY:** giá trị cache PASS ghi == giá trị `check_calibration_expiry` (scheduler) sẽ ghi cho asset đó → chạy scheduler ngay sau PASS idempotent (no flip-flop). Schedule vừa Pass VẪN advance `next_due_date = basis + interval` (BR-11-04 bất biến — chỉ ASSET-cache đổi nguồn). HAPPY-PATH 1-lịch: rollup MIN trên 1 schedule = chính schedule đó → `On Schedule` + `add_days(basis, interval)` y hệt cũ (regression xanh). Bounded query (KHÔNG N+1 / KHÔNG loop per-schedule SQL). | `_apply_asset_calibration_rollup(asset)` helper TÁI DÙNG `_calibration_status_asset_ids` + `_asset_min_next_due()`, gọi trong `handle_calibration_pass()` | AC-11-21, AC-11-22, AC-11-23, TC-11-PASS-ROLLUP-* |
+
+### BR-11-12 — Recalibration OoS-restore governance guard (chi tiết)
+
+**Root cause (Self-Correction):** bản trước `handle_calibration_pass` ép `Out of Service → Active` VÔ ĐIỀU KIỆN trên mọi `is_recalibration` Pass (nhánh `elif cal_doc.is_recalibration and current_status == OUT_OF_SERVICE`), giả định OoS luôn do chính cal-fail đặt và không còn hold khác. Thực tế `lifecycle_status = Out of Service` là trạng thái **dùng chung nhiều module** (cal-fail IMM-11, incident IMM-12, repair IMM-09, PM-finding IMM-08). Một recal Pass force-restore → ép thiết bị đang còn Incident/Repair/PM mở (hoặc OoS do module khác) trở lại lâm sàng — vi phạm an toàn NĐ98 và xoá hold của module khác (force-override liên-module).
+
+**Quy tắc (cùng họ với BR-09-09 restore-guard của IMM-09):**
+
+1. **Phân biệt nguồn hold** — đọc ALE mới nhất đưa asset **VÀO** `Out of Service` (`to_status = 'Out of Service'`, order by `timestamp desc`/`creation desc`). `root_doctype` của ALE đó = chủ-hold:
+   - `'IMM Asset Calibration'` → hold do CHÍNH chuỗi hiệu chuẩn (cal-fail) → **đủ điều kiện 1** để restore.
+   - `'Incident Report'` / `'Asset Repair'` / `'PM Work Order'` → hold do module khác → **KHÔNG restore**.
+2. **Không còn hold đồng thời** — ngay cả khi chủ-hold là calibration, vẫn phải xác nhận KHÔNG còn:
+   - Incident mở: `Incident Report` của asset với `status NOT IN [Resolved*, Closed, Cancelled]` (dùng `open_incident_filter()` IMM-12).
+   - Repair WO mở: `Asset Repair` của asset với `is_repair_open(status)` True (dùng `open_repair_filter()` IMM-09).
+   - PM WO OoS-finding mở: `PM Work Order` của asset với `status NOT IN [Completed, Cancelled]` mà đã đẩy asset OoS (ALE root_doctype='PM Work Order').
+   - Còn ≥1 hold → **KHÔNG restore**, hold-note nêu rõ hold còn lại.
+3. **Predicate gom điều kiện**: `_can_restore_from_oos(asset, cal) -> bool` = (chủ-hold == calibration) ∧ (0 hold khác mở). MỌI nhánh ép Active từ OoS PHẢI đi qua predicate này (grep-guard SoT, AC-11-18).
+4. **No-raise / idempotent**: nhánh restore-guard bọc transition trong điều kiện `lifecycle_status` hợp lệ; nếu asset đã `Decommissioned` giữa chừng → KHÔNG ép Active (set rỗng → raise), chỉ ghi ALE audit. Chạy lại cùng cal Pass: transition no-op (prev==to) → KHÔNG tạo ALE `activated` trùng.
+
+**Bảng quyết định restore (recal Pass, asset đang Out of Service):**
+
+| Chủ-hold (ALE root_doctype vào OoS) | Hold khác mở? | Asset Decommissioned? | Hành động | ALE ghi |
+|---|---|---|---|---|
+| `IMM Asset Calibration` | Không | Không | **Restore OoS → Active** | `calibration_passed` from=OoS to=Active |
+| `IMM Asset Calibration` | ≥1 (Incident/Repair/PM) | Không | **Giữ OoS** | `calibration_passed` from=OoS to=OoS + hold-note hold còn lại |
+| `Incident Report`/`Asset Repair`/`PM Work Order` | bất kỳ | Không | **Giữ OoS** | `calibration_passed` from=OoS to=OoS + note `giữ Ngừng hoạt động do hạng mục khác (<nguồn>)` |
+| bất kỳ | bất kỳ | Có (Decommissioned) | **Giữ Decommissioned** (no-raise) | `calibration_passed` from=Decommissioned to=Decommissioned + note |
+| n/a (asset đang `Calibrating`, KHÔNG OoS) | n/a | n/a | **Restore Calibrating → Active** (nhánh cũ KHÔNG đổi — BR đã đúng) | `calibration_passed` from=Calibrating to=Active |
+
+**Hậu quả nếu sai (regulatory):** ép thiết bị còn hold mở/OoS-do-module-khác trở lại Active = thiết bị chưa an toàn lọt lại sử dụng lâm sàng (NĐ98 Điều 56 calibration + an toàn vận hành), đồng thời xoá hold của module khác (audit trail lệch — vi phạm CLAUDE.md §5).
 
 ### BR-11-08 — Single Source of Truth: predicate "đến hạn / quá hạn"
 
@@ -414,6 +456,55 @@ Trước đây tồn tại **2 nguồn ngày phân kỳ** cho cùng khái niệm
 - **Mint gap đóng:** asset tạo trực tiếp với `is_calibration_required` (`create_calibration_schedule_from_asset`) đã set `Schedule.next_due_date` → nay hiển thị nhất quán ở CẢ dashboard VÀ IMM-11 KPI/drill (không còn cảnh "chỉ dashboard thấy, IMM-11 KPI=0").
 
 Chi tiết hàm + SQL ở `04_Backend_Design.md §4.1`. Quy tắc count==drill (canonical-value) ở `05_API_Specification.md §6.1`.
+
+### BR-11-08b — FAIL phải hạ Schedule.next_due_date về due-now (Self-Correction)
+
+> **Root cause (lỗi thiết kế gốc — RC-FAIL-DUENOW):** BR-11-08 hợp nhất nguồn đếm KPI về **1 date-field SoT** = `IMM Calibration Schedule.next_due_date` (is_active=1). NHƯNG đường FAIL (`handle_calibration_fail`) chỉ: set `AC Asset.calibration_status = Calibration Failed` + transition Out of Service + CAPA + lookback + Incident — **KHÔNG bao giờ chạm `Schedule.next_due_date`**. Hệ quả: nếu schedule active của asset đang giữ **ngày-đến-hạn tương lai** (vd next_due = today+200), sau khi FAIL asset chuyển Out of Service nhưng `next_due_date` vẫn future → asset **KHÔNG** nằm trong `_overdue_asset_ids()` cũng KHÔNG trong `_due_soon_asset_ids()` → KPI/dashboard hiệu chuẩn vẫn xếp asset vào **ON_SCHEDULE** (mask compliance gap). Một thiết bị non-conform bị "ẩn" khỏi danh sách quá-hạn/đến-hạn — vi phạm minh bạch tuân thủ NĐ98 Article 56 + ISO 17025 §7.10.
+>
+> Lưu ý: `AC Asset.calibration_status = Calibration Failed` (cache) hiển thị đúng trên badge asset, NHƯNG **KPI/drill KHÔNG đọc cache** (BR-11-08 chủ ý: đếm theo SoT schedule, không theo cache → tránh undercount asset minted) → cache-FAILED không đủ để asset xuất hiện trong tập overdue/due-soon. Phải sửa **chính SoT** (schedule date), không phải cache.
+
+**Quy tắc:**
+
+1. **Basis-date thống nhất với PASS:** `basis = cal_doc.certificate_date or cal_doc.actual_date or nowdate()`. Đúng 1 nguồn basis-date dùng chung cả Pass (advance) lẫn Fail (due-now) → không drift.
+2. **Due-now write:** trong `handle_calibration_fail`, sau transition Out of Service, set `next_due_date = basis` cho **MỌI** schedule `{asset, is_active=1}` của asset (1 batch query, theo asset — KHÔNG chỉ `cal_doc.calibration_schedule`, vì asset Class B+ có thể có nhiều loại calibration → nhiều schedule active; tất cả phải due-now để KPI nhất quán). `basis <= today` (cert/actual không thể tương lai; nowdate()==today) → asset rơi vào overdue-set (basis<today) hoặc due-soon-set (basis==today, "due-now").
+3. **Idempotent + null-safe:** asset FAIL **không có** schedule active (is_active=1) → no-op, **KHÔNG raise**, KHÔNG vỡ submit; CAPA + Incident + lookback vẫn chạy như cũ (đường FAIL hiện hữu KHÔNG đổi hành vi). Chạy lại (amend/resubmit) đặt cùng basis → kết quả bất biến.
+4. **KHÔNG ép trạng thái vòng đời khác:** asset vẫn `Out of Service`; `calibration_status = Calibration Failed` giữ nguyên (terminal, BR-11-11). Fix này CHỈ chạm write-path `Schedule.next_due_date` — KHÔNG đổi state machine, KHÔNG đổi CAPA/Incident/lookback.
+5. **Khép kín vòng đời (fail → due-now → pass → on-schedule):** khi recalibration **Pass** sau đó (`handle_calibration_pass`, BR-11-04), `next_due_date` được advance lại = `basis + interval` (tương lai) → asset **rời** tập overdue/due-soon → trở lại ON_SCHEDULE. Vòng đời compliance khép kín, không kẹt due-now vĩnh viễn.
+
+**Đối soát KPI (INVARIANT):** sau FAIL, con số `get_calibration_kpis()` / `get_dashboard()` (overdue_assets/due_soon_assets) **== số dòng drill** `?overdue=1` / `?due_soon=1` (BR-11-08 count==drill bất biến) — asset FAIL nay được đếm vào nhóm overdue-or-due, KHÔNG undercount.
+
+Chi tiết write-path + null-guard ở `04_Backend_Design.md §4.1.6`.
+
+### BR-11-13 — PASS phải set Asset-cache theo ROLLUP đa-lịch (Self-Correction)
+
+> **Root cause (lỗi thiết kế gốc — RC-PASS-ROLLUP):** `handle_calibration_pass` (services/imm11.py:563-567) ghi cache `AC Asset.calibration_status = CalibrationStatus.ON_SCHEDULE` HARDCODE và `AC Asset.next_calibration_date = add_days(basis, interval)` = next-due của **CHỈ schedule vừa Pass** — bỏ qua MỌI active schedule KHÁC của asset. Nhưng `check_calibration_expiry` (scheduler) lại rollup cache từ **TẤT CẢ** active schedule qua `_calibration_status_asset_ids` (worst-of `OVERDUE > DUE_SOON > ON_SCHEDULE`). → **2 write-path cùng ghi 1 cache field nhưng theo 2 logic khác nhau** = divergence.
+>
+> **Hệ quả (BUG CHÍNH):** asset X Class B+ có 2 loại hiệu chuẩn → 2 active schedule: A (External, `next_due_date` quá khứ = OVERDUE) + B (In-House, đang Pass). Sau `handle_calibration_pass(B)`:
+> - **(badge sai)** `AC Asset.calibration_status` bị set `On Schedule` → badge thiết bị render **"Đúng lịch" (xanh)** dù dashboard SoT (`_calibration_status_asset_ids[X] = Overdue`) và drill `?overdue=1` vẫn liệt asset X là **"Quá hạn"**. Divergence badge-vs-dashboard = mất niềm tin dữ liệu.
+> - **(rớt khỏi due-list)** `AC Asset.next_calibration_date` bị đẩy về tương lai (= next của B, vd today+200). `get_due_calibrations` (services/imm11.py:1248) filter `next_calibration_date <= today+30` → asset X **biến mất** khỏi danh sách due/overdue dù schedule A vẫn quá hạn → Workshop Lead KHÔNG thấy thiết bị cần hiệu chuẩn gấp. Ẩn compliance gap — vi phạm NĐ98 Article 56 + ISO 17025 §7.10.
+> - **(flip-flop)** scheduler `check_calibration_expiry` chạy 06:30 hôm sau ghi đè cache về `Overdue` (rollup đúng) → badge "nhảy" Đúng-lịch → Quá-hạn mỗi ngày = flip-flop, notify spam.
+>
+> Đây là **mirror đối xứng của BR-11-08b**: BR-11-08b sửa FAIL-path KHÔNG hạ schedule date (SoT); BR-11-13 sửa PASS-path ghi ASSET-cache sai nguồn. Cả hai cùng nguyên tắc: **cache phải derive từ MỌI active schedule, không phải 1 schedule vừa thao tác.**
+
+**Quy tắc:**
+
+1. **Schedule vừa Pass KHÔNG đổi (BR-11-04 bất biến):** vẫn `CalibrationScheduleRepo.set_values(cal_doc.calibration_schedule, {last_calibration_date: basis, next_due_date: basis + interval})`. SoT schedule date của lịch vừa Pass advance về tương lai như cũ. `CalibrationRepo.set_values(cal_doc.name, {next_calibration_date})` (phiếu) cũng GIỮ NGUYÊN.
+2. **Asset-cache ghi theo ROLLUP (đổi nguồn):** thay block hardcode `{next_calibration_date: next_date, calibration_status: ON_SCHEDULE}` bằng `_apply_asset_calibration_rollup(cal_doc.asset)` — chạy SAU khi schedule vừa Pass đã advance (để rollup thấy date mới):
+   - `calibration_status = _calibration_status_asset_ids().get(asset, CalibrationStatus.ON_SCHEDULE)` — **CÙNG hàm SoT** mà `check_calibration_expiry` dùng → đảm bảo ROLLUP-CONSISTENCY (2 write-path 1 logic). Fallback `ON_SCHEDULE` chỉ khi asset không-còn trong map (mọi schedule `next_due > today+30`).
+   - `next_calibration_date = MIN(next_due_date)` trên MỌI `{asset, is_active=1}` schedule (1 query bounded, KHÔNG loop). Đây là hạn-gần-nhất thật của asset → `get_due_calibrations` filter đúng (asset còn lịch sớm hơn KHÔNG bị rớt).
+   - `last_calibration_date = basis` (ngày phiếu vừa Pass — đại diện lần hiệu chuẩn gần nhất, GIỮ như cũ).
+3. **ROLLUP-CONSISTENCY (idempotent với scheduler):** vì PASS-cache và scheduler-cache cùng gọi `_calibration_status_asset_ids` + cùng MIN-date helper, giá trị 2 nơi ghi cho 1 asset **bằng nhau**. Chạy `check_calibration_expiry` ngay sau PASS → `_reconcile_calibration_status` thấy `new == old` → skip ghi, skip notify (no flip-flop, no spam).
+4. **HAPPY-PATH 1-lịch bất biến (regression xanh):** asset chỉ 1 active schedule → sau step 1, schedule đó có `next_due_date = basis + interval` (tương lai) → `_calibration_status_asset_ids` trả `ON_SCHEDULE`, `MIN(next_due_date)` = chính `basis + interval`. → cache y hệt hành vi cũ (`On Schedule` + `add_days(basis, interval)`). KHÔNG đổi 1 byte hành vi quan sát được cho asset 1-lịch.
+5. **No N+1 / bounded:** `_calibration_status_asset_ids` đã là 3 set-query toàn-tập (không per-asset loop); rollup cho 1 asset đọc từ map đã build HOẶC — để tránh build map toàn-tập chỉ cho 1 asset — dùng biến thể scoped `_asset_rollup_status(asset)` chạy CÙNG predicate trên đúng schedule của 1 asset (≤ 2 query: 1 cho status-worst, 1 cho MIN-date), KHÔNG loop per-schedule SQL. BE chọn biến thể miễn giá trị == toàn-tập map cho asset đó (ROLLUP-CONSISTENCY là invariant chốt, không phải cách triển khai).
+
+**INVARIANT chốt (test ràng buộc):**
+- **INV-PASS-ROLLUP-1:** sau `handle_calibration_pass(X)`, `AC Asset.calibration_status == _calibration_status_asset_ids()[X]` (hoặc `ON_SCHEDULE` nếu X không trong map).
+- **INV-PASS-ROLLUP-2:** sau PASS, `AC Asset.next_calibration_date == MIN(next_due_date)` trên MỌI active schedule của X.
+- **INV-PASS-ROLLUP-3 (idempotent scheduler):** `check_calibration_expiry()` chạy ngay sau PASS KHÔNG đổi `AC Asset.calibration_status` của X.
+- **INV-PASS-ROLLUP-4 (due-list):** X còn ≥1 active schedule `next_due_date <= today+30` → X ∈ `get_due_calibrations(days=30).items`.
+- **INV-PASS-ROLLUP-5 (BR-11-12 bất biến):** restore-guard 3-nhánh + ALE `calibration_passed` (1 record) + `CalibrationRepo.next_calibration_date` KHÔNG đổi bởi BR-11-13 (chỉ chạm 3 field ASSET-cache).
+
+Chi tiết write-path + helper ở `04_Backend_Design.md §4.1.7`.
 
 ## IV.3. State Machine
 

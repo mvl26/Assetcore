@@ -223,9 +223,11 @@ _ALLOWED_SEARCH_DOCTYPES: dict[str, dict] = {
     },
     "IMM Calibration Schedule": {
         "label_field": "name",
-        "search_fields": ["name", "asset_ref"],
+        # 'asset' is the real Link→AC Asset column; 'asset_ref' does NOT exist
+        # on this DocType and previously raised OperationalError 1054.
+        "search_fields": ["name", "asset"],
         "filters": {},
-        "extra_fields": ["asset_ref"],
+        "extra_fields": ["asset"],
         "optional": True,
     },
 }
@@ -449,6 +451,20 @@ def log_lifecycle_event(doc: Document, event_type: str, from_status: str, to_sta
         })
     except Exception:
         pass
+
+
+def _stamp_commissioning_date(doc: Document) -> None:
+    """SoT (BR-04-11): set commissioning_date = ngày vào Clinical Release.
+
+    Idempotent — chỉ ghi khi field còn NULL (KHÔNG ghi đè ngày bàn giao đã có).
+    Mutate doc in-memory; caller chịu trách nhiệm persist (doc.save / doc.submit
+    của chính write-path). KHÔNG @whitelist (internal). Đây là điểm hội tụ logic
+    của cả 3 release path (transition_state / submit_commissioning /
+    approve_clinical_release) → 1 chỗ định nghĩa, mỗi path gọi 1 lần SAU khi
+    workflow_state đã thành Clinical Release.
+    """
+    if doc.workflow_state == _STATE_CLINICAL_RELEASE and not doc.get("commissioning_date"):
+        doc.commissioning_date = nowdate()
 
 
 def handle_commissioning_cancel(doc: Document) -> None:
@@ -946,9 +962,14 @@ def get_dashboard_stats() -> dict:
             "pending_count": sum(v for k, v in state_map.items() if k not in _TERMINAL_STATES),
             "hold_count": state_map.get("Clinical Hold", 0),
             "open_nc_count": frappe.db.count(_DT_NC, {"resolution_status": "Open", "docstatus": ("!=", 2)}),
+            # SoT (BR-04-11): 'Bàn giao tháng này' đếm theo commissioning_date
+            # (ngày vào Clinical Release) trong cửa sổ [đầu tháng, hôm nay] — KHÔNG
+            # dùng `modified` (mọi .save() tháng này sẽ thổi phồng count phiếu tháng
+            # trước). BETWEEN loại NULL legacy tự nhiên → NULL-safe, không lọt count.
+            # card count == số rows drill list Clinical Release cùng cửa sổ tháng.
             "released_this_month": frappe.db.count(_DT, {
                 "workflow_state": _STATE_CLINICAL_RELEASE, "docstatus": 1,
-                "modified": (">=", str(first_day)),
+                "commissioning_date": ("between", [str(first_day), str(nowdate())]),
             }),
             # SoT: cùng filter với list drill `overdue=1` + scheduler alert.
             # card count == drill rows == scheduler set (BR-04-10).
@@ -974,8 +995,25 @@ def generate_qr_label(name: str) -> dict:
         raise ServiceError(ErrorCode.FORBIDDEN, "Không có quyền truy cập")
     if not doc.internal_tag_qr:
         raise ServiceError(ErrorCode.INVALID_PARAMS, "Phiếu chưa có mã QR nội bộ")
+
+    # B — DEDUP QR: hội tụ nhãn commissioning về DUY NHẤT 1 đường quét-được =
+    # deep-link cấp tài sản /a/<token> (enumeration-safe). Khi phiếu đã release
+    # (final_asset đã mint), tái dùng helper IMM-00 (ensure_asset_qr_token +
+    # _build_qr_url) — KHÔNG copy-paste logic sinh token/URL, KHÔNG bump modified,
+    # KHÔNG nâng quyền (ensure idempotent: token đã có → no-op, KHÔNG double-emit
+    # qr_generated). Phiếu CHƯA có final_asset → qr_url=None (KHÔNG sinh token,
+    # KHÔNG throw); nhãn fallback dùng commissioning_id (qr_value) như cũ → không
+    # có asset-less QR rác. scan_url desk (/app/asset-commissioning/<name>) đã bị
+    # LOẠI khỏi contract — không còn URL desk-login lọt ra nhãn.
+    qr_url: str | None = None
+    if doc.final_asset:
+        from assetcore.services.imm00 import ensure_asset_qr_token, _build_qr_url
+        token = ensure_asset_qr_token(doc.final_asset)
+        qr_url = _build_qr_url(token)
+
     return {
         "qr_value": doc.internal_tag_qr,
+        "qr_url": qr_url,
         "label": {
             "title": "ASSETCORE — NHÃN THIẾT BỊ",
             "commissioning_id": doc.name,
@@ -990,7 +1028,6 @@ def generate_qr_label(name: str) -> dict:
             "asset_id": doc.final_asset or "Chưa có",
             "print_date": str(nowdate()),
         },
-        "scan_url": f"/app/asset-commissioning/{doc.name}",
         "docs_url": f"/documents/asset/{doc.final_asset}" if doc.final_asset else None,
     }
 
@@ -1013,12 +1050,21 @@ def search_link(
         for k, v in extra_filters.items():
             if k in allowed_dynamic:
                 filters[k] = v
+    # Defense-in-depth (root-cause class of bug IMM-11∩IMM-04): drop any
+    # configured field that is not a real column so a config drift can never
+    # surface as OperationalError 1054 / a leaked traceback to the caller.
+    # 'name' is always valid; business errors (FORBIDDEN/NOT_FOUND) are untouched.
+    meta = frappe.get_meta(doctype)
+    def _live(field: str) -> bool:
+        return field == "name" or meta.has_field(field)
+    search_fields = [f for f in config["search_fields"] if _live(f)]
+    extra_fields = [f for f in config["extra_fields"] if _live(f)]
     or_filters = []
     if query:
         q = f"%{query}%"
-        for field in config["search_fields"]:
+        for field in search_fields:
             or_filters.append([doctype, field, "like", q])
-    fields = [*{*config["extra_fields"], "name"}]
+    fields = [*{*extra_fields, "name"}]
     results = frappe.db.get_all(
         doctype, filters=filters, or_filters=or_filters or None,
         fields=fields, limit=int(page_length), order_by=_ORDER_MODIFIED,
@@ -1029,7 +1075,7 @@ def search_link(
     for row in results:
         value = row.get("name") or row.get(label_field, "")
         label = row.get(label_field) or value
-        desc_parts = [str(row[f]) for f in config["extra_fields"] if f != label_field and row.get(f)]
+        desc_parts = [str(row[f]) for f in extra_fields if f != label_field and row.get(f)]
         items.append({"value": value, "label": label, "description": " | ".join(desc_parts)})
     return items
 
@@ -1073,6 +1119,9 @@ def transition_state(name: str, action: str) -> dict:
     prev_state = doc.workflow_state
     frappe.model.workflow.apply_workflow(doc, action)
     log_lifecycle_event(doc, action, prev_state, doc.workflow_state)
+    # BR-04-11: stamp ngày bàn giao khi (và chỉ khi) phiếu vừa vào Clinical Release.
+    # Đặt TRƯỚC doc.save → persist cùng lượt với auto-mint create_ac_asset bên dưới.
+    _stamp_commissioning_date(doc)
     doc.save(ignore_permissions=False)
 
     # RC-06 fix: once we reach Clinical Release (acceptance "Hoàn tất"), auto-mint
@@ -1145,6 +1194,9 @@ def submit_commissioning(name: str) -> dict:
         except Exception:
             frappe.log_error(frappe.get_traceback(), "IMM-04: compliance gate failed")
 
+    # BR-04-11: bảo hiểm stamp ngày bàn giao cho phiếu vào Clinical Release từ
+    # trước fix mà chưa được stamp. Idempotent (no-op nếu đã có). submit persist.
+    _stamp_commissioning_date(doc)
     doc.submit()
     return {"name": name, "docstatus": 1, "final_asset": doc.final_asset}
 
@@ -1461,13 +1513,16 @@ def approve_clinical_release(commissioning: str, board_approver: str, approval_r
     doc.board_approver = board_approver
     if approval_remarks:
         doc.notes = (doc.notes or "") + f"\n[Board Approval] {approval_remarks}"
+    # BR-04-11: stamp ngày bàn giao TRƯỚC save (idempotent). Sau đây
+    # doc.commissioning_date luôn non-NULL → return đọc thẳng (bỏ fallback giả).
+    _stamp_commissioning_date(doc)
     doc.save(ignore_permissions=True)
     doc.submit()
     return {
         "commissioning": commissioning,
         "new_status": _STATE_CLINICAL_RELEASE,
         "asset_ref": doc.final_asset,
-        "commissioning_date": str(doc.commissioning_date or nowdate()),
+        "commissioning_date": str(doc.commissioning_date),
         "device_record_queued": True,
     }
 

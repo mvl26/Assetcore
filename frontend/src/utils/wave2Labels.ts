@@ -171,3 +171,21 @@ export function formatVnDate(d?: string | null): string {
   if (!d) return '—'
   try { return new Date(d).toLocaleDateString('vi-VN') } catch { return d }
 }
+
+// ─── IMM-03 tie chấm điểm NCC (INV-VE-TIE / NĐ98) — SSoT i18n ─────────────────
+// Nhãn cảnh báo hòa điểm là free-text nghiệp vụ, KHÔNG đi qua translateStatus
+// (không mangle). Đặt 1 nơi để mọi view dùng chung cùng câu chữ.
+
+/** Nhãn badge cảnh báo khi điểm đỉnh HÒA — không tự gợi ý trúng thầu. */
+export const EVAL_TIE_BANNER = 'Hòa điểm — cần quyết định thủ công'
+
+/** Gợi ý cho người dùng ở form Quyết định khi nguồn Evaluation còn hòa chưa giải quyết. */
+export const EVAL_TIE_DECISION_HINT =
+  'Hồ sơ đánh giá đang HÒA điểm ở vị trí cao nhất — hệ thống không tự gợi ý trúng thầu. '
+  + 'Vui lòng chọn nhà cung cấp trúng thầu kèm lý do; hệ thống vẫn kiểm tra AVL còn hiệu lực.'
+
+/** Tách CSV `tied_candidates` (BE trả) thành mảng supplier đã trim, bỏ rỗng. */
+export function parseTiedCandidates(csv?: string | null): string[] {
+  if (!csv) return []
+  return csv.split(',').map(s => s.trim()).filter(Boolean)
+}

@@ -159,7 +159,7 @@ async function handleSubmit() {
               class="w-4 h-4 text-purple-600"
             />
             <span class="text-sm text-slate-700 group-hover:text-slate-900">
-              Cần vật tư — chuyển trạng thái <span class="font-medium text-orange-600">Pending Parts</span>
+              Cần vật tư — chuyển trạng thái <span class="font-medium text-orange-600">Chờ vật tư</span>
             </span>
           </label>
         </div>

@@ -27,7 +27,7 @@ _DOMAIN_DOCTYPES: dict[str, list[str]] = {
         "IMM Procurement Decision", "IMM Supplier Audit", "Vendor Quotation Line",
         "Vendor Cert", "AC Purchase", "AC Purchase Item", "AC Purchase Device Item"],
     "Commissioning": ["Asset Commissioning", "Commissioning Checklist",
-        "Commissioning Document Record", "Asset Transfer"],
+        "Commissioning Document Record", "Asset Transfer", "Asset Decommission"],
     "Document": ["Asset Document", "Document Request", "Expiry Alert Log"],
     "Training": ["IMM Training Program", "IMM Training Session",
         "IMM Training Participant", "IMM Trainer", "IMM User Competency",
@@ -71,6 +71,15 @@ _DOMAIN_PRIMARY: dict[str, str] = {
     "Repair": "Asset Repair", "Calibration": "IMM Asset Calibration",
     "Corrective": "Incident Report", "Inventory": "AC Stock Movement",
     "Compliance": "IMM CAPA Record",
+    # ADR-001-asset-qr D4: AC Asset registry (IMM-00) cần capability prefix
+    # `asset.*` ĐỘC LẬP để gate QR deep-link resolve (`asset.read`) + in/regenerate
+    # label (`asset.write`) THEO DocPerm AC Asset, KHÔNG hardcode role-name (chống
+    # RBAC dead-gate). _shared (line 55) và _DOMAIN_PRIMARY là 2 map độc lập — AC
+    # Asset ở cả hai KHÔNG xung đột: _shared chỉ map DocType→domain cho audit/scope,
+    # _DOMAIN_PRIMARY sinh CAPABILITY_MAP prefix. Thêm 6 cap asset.{read,write,
+    # create,delete,submit,cancel} → CAP_SET_VERSION đổi → FE auto-invalidate
+    # persisted-caps stale (lesson IMM-14) + after_migrate invalidate_capabilities().
+    "Asset": "AC Asset",
 }
 
 _PTYPES = ("read", "write", "create", "delete", "submit", "cancel")
@@ -97,12 +106,50 @@ CAPABILITY_MAP.update({
     # nằm ở DocPerm "delete" trên IMM Training Session (Manager delete=1, User=0),
     # và "delete" resolve được trên doctype non-submittable.
     "training.submit":      ("IMM Training Session", "delete"),
+    # IMM-14 Giải nhiệm thiết bị: tạo hồ sơ = create, duyệt (giải nhiệm) = submit.
+    # Gate theo CAPABILITY THẬT (DocPerm trên Asset Decommission), KHÔNG hardcode
+    # role-name (tránh anti-pattern RBAC dead-gate).
+    "decommission.read":    ("Asset Decommission", "read"),
+    "decommission.create":  ("Asset Decommission", "create"),
+    "decommission.approve": ("Asset Decommission", "submit"),
 })
 
 
+# ── Cap-set version stamp (AC4) ────────────────────────────────────────────────
+# Hash on dinh theo NOI DUNG sorted(CAPABILITY_MAP keys). Khi them/bo cap (vd
+# decommission.*) → version DOI → FE phat hien persisted-caps cu da stale va
+# invalidate truoc khi render gate-button (KHONG can xoa localStorage tay).
+# Backward-compat: them vao caps dict duoi khoa rieng CAP_VERSION_KEY (gia tri
+# str, KHONG phai bool) → consumer cu doc caps[x] is True KHONG bi anh huong.
+# BE-FE naming contract: FE store (auth.ts splitCapVersion) tach key NAY ra khoi
+# cap-map boolean → DUNG `__cap_version` (KHONG `__version__`, tranh va app version).
+CAP_VERSION_KEY = "__cap_version"
+
+
+def _compute_cap_set_version() -> str:
+    import hashlib
+
+    keys = ",".join(sorted(CAPABILITY_MAP))
+    digest = hashlib.sha256(keys.encode("utf-8")).hexdigest()[:12]
+    # Prefix so cap de doc nhanh khi debug; hash dam bao doi-ten-cap cung doi version.
+    return f"v{len(CAPABILITY_MAP)}.{digest}"
+
+
+CAP_SET_VERSION: str = _compute_cap_set_version()
+
+
 def can(cap: str, doc=None) -> bool:
-    """True neu user hien tai co quyen tuong ung capability."""
-    dt, ptype = CAPABILITY_MAP[cap]  # KeyError neu cap sai — fail loud
+    """True neu user hien tai co quyen tuong ung capability.
+
+    Stale-safe (USER REWORK IMM-14, 2026-06-04): cap KHONG co trong
+    CAPABILITY_MAP → DENY (return False), KHONG raise KeyError. Worker
+    gunicorn cu (chua co cap moi trong RAM) phai degrade thanh "nut an / 403",
+    KHONG "loi server 500". require() ke thua → PermissionError thay vi KeyError.
+    """
+    binding = CAPABILITY_MAP.get(cap)
+    if binding is None:
+        return False
+    dt, ptype = binding
     return bool(frappe.has_permission(dt, ptype, doc=doc))
 
 
@@ -125,8 +172,14 @@ def get_capabilities(user: str | None = None) -> dict[str, bool]:
     key = _cache_key(user)
     cached = frappe.cache().get_value(key)
     if cached is not None:
+        # AC4 self-heal: cache cu (truoc khi co version stamp) duoc bo sung
+        # version stamp hien tai → consumer luon nhan duoc field phu.
+        if isinstance(cached, dict):
+            cached.setdefault(CAP_VERSION_KEY, CAP_SET_VERSION)
         return cached
     caps = {c: can(c) for c in CAPABILITY_MAP}
+    # Version stamp (AC4) — khoa rieng, gia tri str (KHONG bool) → can() bo qua.
+    caps[CAP_VERSION_KEY] = CAP_SET_VERSION
     frappe.cache().set_value(key, caps, expires_in_sec=3600)
     return caps
 

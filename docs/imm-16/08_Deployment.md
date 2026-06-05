@@ -46,6 +46,8 @@
 
 `assetcore/patches.txt` không chứa entry IMM-16 riêng — DocType + Custom Field load qua fixture. Data migration tương lai bổ sung `assetcore.patches.v3_2.NNN_*` nếu cần.
 
+> **Schema-delta Vòng 13 (RC-CAPA-ESC):** field mới `escalation_level` (Int, default 0, read_only) thêm vào DocType chuẩn `IMM CAPA Record` (`imm_capa_record.json`) → **chạy `bench --site miyano migrate`** sau khi merge để sync schema (DocType-field, KHÔNG phải Custom Field → KHÔNG cần fixture export riêng). CAPA hiện hữu mặc định `escalation_level=0` (cron sẽ tự backfill tier khi tới hạn). Không có patch dữ liệu bắt buộc.
+
 > ⚠️ Các section còn lại là deployment plan template — §0 là source-of-truth.
 
 ---

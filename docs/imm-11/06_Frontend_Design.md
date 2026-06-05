@@ -312,6 +312,24 @@ AC-ASSET-2026-00101 · S/N: SYSMEX-XN-001      ← text-xs text-slate-500 font-m
 
 GATE-1 (vue-tsc 0) + test `labels.test.ts` mở rộng: assert `calibrationStatusLabel('On Schedule') === 'Đúng lịch'`, `calibrationStatusLabel('Calibration Failed') === 'Không đạt hiệu chuẩn'`, `calibrationStatusLabel('Not Required') === 'Không yêu cầu'`.
 
+### 7c-ter. FE zero-change cho BR-11-08b (FAIL → due-now) — contract
+
+> **FE ZERO shape-change.** Fix BR-11-08b chỉ là **write-path DB** (`handle_calibration_fail` hạ `Schedule.next_due_date`) — KHÔNG đổi field response của `submit_calibration` (envelope §05 §10 giữ nguyên: `name/status/overall_result/asset_lifecycle_status/capa_created/lookback_assets/...`). KHÔNG endpoint mới, KHÔNG field mới.
+>
+> Hệ quả hiển thị (tự nhiên, không sửa FE logic): asset vừa FAIL nay xuất hiện trong KPI/drill **"Quá hạn"** (`?overdue=1`) hoặc **"Sắp đến hạn"/due-now** (`?due_soon=1`) của dashboard hiệu chuẩn vì BE count/list (render verbatim) đã thay đổi — FE KHÔNG inline-compute, chỉ render con số/list BE trả về (§05 §6.1). Badge thiết bị giữ `Calibration Failed` (§7c-bis) song song với việc asset nằm trong drill overdue/due-soon — KHÔNG mâu thuẫn (badge = cache sức-khoẻ thiết bị; KPI = SoT schedule date; 2 không-gian khác nhau, đều hợp lệ).
+>
+> FE deliverable: **không có** (no code). QA verify qua dashboard drill (Bước 5). Nếu có test FE regression cho dashboard calibration list → asset FAIL phải hiện trong tab Quá-hạn/Đến-hạn sau khi BE land (transport-agnostic, render BE list).
+
+### 7c-quater. FE zero-change cho BR-11-13 (PASS → cache rollup đa-lịch) — contract
+
+> **FE ZERO shape-change.** Fix BR-11-13 chỉ đổi **write-path DB** (`handle_calibration_pass` ghi `AC Asset.calibration_status` theo rollup worst-of-all thay vì hardcode `On Schedule`) — KHÔNG đổi field response của `submit_calibration` (envelope §05 §10 giữ nguyên; field `next_calibration_date` trong response Pass vẫn = lịch vừa Pass, xem §05). KHÔNG endpoint mới, KHÔNG field mới, KHÔNG đổi `labels.ts`.
+>
+> **Hệ quả hiển thị (đúng, KHÔNG phải bug):** với asset **multi-schedule** còn lịch khác quá hạn, sau khi submit Pass 1 lịch, badge `calibration_status` ở **AssetDetailView + CalibrationListView render `Overdue` → "Quá hạn" (đỏ)** chứ KHÔNG "Đúng lịch" — vì BE ghi cache = rollup worst-of-all (lịch kia vẫn Overdue). FE phải render **verbatim** giá trị BE trả về qua SSoT `calibrationStatusLabel()` (§7c-bis) — **TUYỆT ĐỐI KHÔNG hardcode/optimistic-set `'Đúng lịch'`/`On Schedule` sau khi submit Pass thành công** (giả định "Pass = On Schedule" là SAI cho asset multi-schedule). Sau submit, FE **refetch** asset từ BE (invalidate query) rồi render lại badge — KHÔNG inline-compute từ kết quả Pass.
+>
+> Asset **1-lịch** (happy-path): Pass → BE ghi `On Schedule` → badge "Đúng lịch" như cũ (không đổi). Phân biệt nằm ở BE rollup, FE chỉ render.
+>
+> FE deliverable: **không có code mới** nếu FE đã render verbatim qua SSoT. CHỈ cần kiểm: (a) sau submit Pass có invalidate/refetch asset badge (không giữ giá trị optimistic cũ); (b) KHÔNG có chỗ nào hardcode `On Schedule`/`'Đúng lịch'` post-Pass. QA verify: asset 2-lịch (1 overdue) → Pass lịch còn lại → badge AssetDetailView + CalibrationListView = **"Quá hạn" đỏ** (KHÔNG "Đúng lịch"); asset vẫn trong drill `?overdue=1`. AC-11-21.
+
 ### 7d. Cascade fields
 
 Field `device_model` auto-populate từ `asset`. Field `lab_supplier` reset khi `calibration_type` đổi.

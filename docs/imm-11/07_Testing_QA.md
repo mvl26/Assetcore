@@ -69,6 +69,7 @@ Toàn bộ artefact test được của IMM-11 (nguồn: 04 §DocType/§Service/
 | BR-11-06 | Decommissioned → suspend Schedule | #15 transition cascade | EP |
 | BR-11-07 | `validate_asset_for_operations()` gate (trừ `is_recalibration=1`) | #5 service entry | Decision Table |
 | BR-11-08 | SoT predicate due/overdue — biên rõ + 1 nguồn date (Schedule.next_due_date) | `is_calibration_overdue` / `is_calibration_due_soon` / `_overdue_asset_ids` | BVA (date boundary) + EP |
+| BR-11-08b | FAIL → hạ MỌI active `Schedule.next_due_date` về basis-date (due-now) → asset FAIL vào overdue/due-soon SoT, hết mask ON_SCHEDULE; null-safe | #8 `handle_calibration_fail` (write-path §04 §4.1.6) | Decision Table + BVA + Path |
 | BR-11-09 | De-dup theo asset (>1 active schedule overdue → đếm 1) | `_overdue_asset_ids` DISTINCT | EP |
 
 ### I.2.c. Từ Activity Flow / State Machine
@@ -178,6 +179,7 @@ File `assetcore/tests/test_imm11.py` (✅ Live — `unittest.TestCase`, helper `
 | `TestCalibrationSubmitGate` | `submit_calibration` + before_submit | Decision Table | 1 / 1 (`test_submit_blocked_without_measurements`, `test_submit_succeeds_with_measurement_and_result`) | ✅ Live |
 | `TestCalibrationPass` | `handle_calibration_pass` (BR-11-04 next_cal date) | BVA | 1 / 0 | ⬜ Planned |
 | `TestCalibrationFail` | `handle_calibration_fail` (OOS + CAPA) | Decision Table | 2 / 0 | ⬜ Planned |
+| `TestCalibrationFailDueNow` | `handle_calibration_fail` → Schedule due-now (BR-11-08b) | Decision Table + BVA + Path | 7 method (TC-CAL-FAIL-DUE-01..07; RED-prove 01/02/04) + FE `calFailDueNow.test.ts` 10 | ✅ Live |
 | `TestLookback` | `perform_lookback_assessment` | EP (Active/Decommissioned) + Path | 1 / 2 | ⬜ Planned |
 | `TestAddMeasurement` | `add_measurement` auto Pass/Fail | BVA tolerance | 2 / 1 | ⬜ Planned |
 | `TestSchedulerDueWOs` | `create_due_calibration_wos` idempotent | Use Case | 1 / 1 (duplicate guard) | ⬜ Planned |
@@ -334,12 +336,52 @@ bench --site miyano run-tests --module assetcore.tests.test_workflows
 | BR-11-01 | External: lab ISO 17025 + cert + accreditation | `test_external_blocks_*` (III.3) | Decision Table | 1 / 3 |
 | BR-11-02 | Fail → OOS + CAPA | `TestCalibrationFail`, `test_on_submit_fail_triggers_capa` | Decision Table | 1 / 1 |
 | BR-11-03 | Lookback cùng device_model | `TestLookback` | EP + Path | 1 / 2 |
-| BR-11-04 | next_cal = certificate_date + interval | `TestCalibrationPass`, `test_on_submit_pass_updates_asset` | BVA | 1 / 1 |
+| BR-11-04 | next_cal (Schedule + phiếu) = certificate_date + interval (Asset-cache next_calibration_date nay = MIN rollup, xem BR-11-13) | `TestCalibrationPass`, `test_on_submit_pass_updates_asset` | BVA | 1 / 1 |
 | BR-11-05 | Immutable sau Submit; Amend cần reason | `test_on_cancel_blocked_after_submit`, `test_on_trash_blocked_after_submit` | Error guessing | 1 / 2 |
 | BR-11-06 | Decommissioned → suspend Schedule | *(Cần khảo sát — test chưa định danh)* | EP | ⬜ |
 | BR-11-07 | gate `validate_asset_for_operations` (trừ recalibration) | `TestAssetGate` | Decision Table | 1 / 1 |
 | BR-11-08 | SoT predicate biên + count==drill + mint-gap | `TestCalibrationSoTPredicate`, `TestCalibrationCountDrillParity` (test_imm11) + `test_dashboard` parity | BVA + EP | nhiều |
+| BR-11-08b | FAIL → Schedule due-now (asset FAIL vào overdue/due-soon, hết mask ON_SCHEDULE) | `TestCalibrationFailDueNow` (TC-CAL-FAIL-DUE-01..07; RED-prove 01/02/04) ✅ Live + FE `calFailDueNow.test.ts` ✅ | Decision Table + BVA + Path | 7 / 2 |
 | BR-11-09 | De-dup theo asset | `TestCalibrationSoTDedup` | EP | 1 / 1 |
+| BR-11-10 | Stale-clear (hết active schedule → Not Required) | `TestCheckCalibrationExpiryRollup` (TC-11-ROLLUP-STALE) | Decision Table | 1 / 1 |
+| BR-11-11 | FAILED-preserve terminal (OoS) | `TestCheckCalibrationExpiryRollup` (TC-11-ROLLUP-FAILED*) | Decision Table | 1 / 2 |
+| BR-11-12 | Recalibration OoS-restore governance guard (chủ-hold == calibration ∧ 0 hold khác) | `TestCalibrationRestoreGuard` (TC-11-RESTORE-*) | Decision Table + Path | 2 / 3 |
+| BR-11-13 | PASS → Asset-cache rollup đa-lịch (worst-of-all + MIN next_due; ROLLUP-CONSISTENCY với scheduler; happy 1-lịch bất biến) | `TestCalibrationPassRollup` (TC-11-PASS-ROLLUP-01..07 + N1; RED-prove 01/03) + FE verify §06 §7c-quater | Decision Table + BVA + Path | 5 / 3 |
+
+### BR-11-12 — test cases bắt buộc (recalibration OoS-restore governance guard)
+
+| TC ID | Given | When | Then | AC |
+|---|---|---|---|---|
+| TC-11-RESTORE-CALIBRATING | asset đang `Calibrating` | cal Pass submit | restore `Calibrating → Active`; ALE `calibration_passed` from=Calibrating to=Active (nhánh A KHÔNG đổi) | AC-11-14 |
+| TC-11-RESTORE-SELF-OOS | asset `Out of Service` do cal-fail trước (ALE mới nhất vào OoS `root_doctype='IMM Asset Calibration'`) + KHÔNG hold khác | recal Pass | restore `OoS → Active`; ALE `calibration_passed` to=Active | AC-11-15 |
+| TC-11-RESTORE-INCIDENT-HOLD | asset `Out of Service` do Incident (IMM-12, ALE root='Incident Report') | recal Pass | GIỮ `Out of Service`; 1 ALE `calibration_passed` from=OoS to=OoS + note `giữ Ngừng hoạt động do hạng mục khác (Sự cố...)` | AC-11-16 |
+| TC-11-RESTORE-REPAIR-HOLD | asset `Out of Service` do Repair (IMM-09, ALE root='Asset Repair') | recal Pass | GIỮ OoS; ALE hold-note nguồn Sửa chữa | AC-11-16 |
+| TC-11-RESTORE-PM-HOLD | asset `Out of Service` do PM-finding (IMM-08, ALE root='PM Work Order') | recal Pass | GIỮ OoS; ALE hold-note nguồn Bảo trì | AC-11-16 |
+| TC-11-RESTORE-CONCURRENT | asset OoS do cal-fail NHƯNG còn ≥1 Incident mở / Repair WO mở / PM WO OoS-finding mở | recal Pass | GIỮ OoS (không restore); hold-note nêu hold còn lại | AC-11-17 |
+| TC-11-RESTORE-NORAISE-DECOM | asset OoS rồi bị `Decommissioned` giữa chừng | recal Pass submit | on_submit KHÔNG raise `InvalidAssetTransition`, phiếu đóng được; KHÔNG ép Active; ALE audit ghi | AC-11-18 |
+| TC-11-RESTORE-IDEMPOTENT | TC-11-RESTORE-SELF-OOS chạy lại cùng cal Pass | re-run | KHÔNG tạo ALE `activated` trùng (transition no-op prev==to) | AC-11-18 |
+| TC-11-RESTORE-GREPGUARD | static/grep `handle_calibration_pass` | inspect | 0 nhánh `_transition_asset(..., ACTIVE)` từ prev=OoS NGOÀI block `if _can_restore_from_oos(...)` | AC-11-18 |
+
+> Class mới `TestCalibrationRestoreGuard` (`tests/test_imm11.py`). Bắt buộc no-regression: `test_imm11`, `test_workflows`, `test_dashboard`, `test_imm09`, `test_imm12` GREEN. Predicate `_can_restore_from_oos` lazy-import `open_incident_filter`/`open_repair_filter` → KHÔNG tạo circular import (verify `bench start` không `ImportError`). KPI/dashboard shape KHÔNG đổi → FE `vue-tsc` 0.
+
+### BR-11-08b — test cases bắt buộc (FAIL → Schedule due-now)
+
+> **Class mới `TestCalibrationFailDueNow` (`tests/test_imm11.py`).** RED-prove TRƯỚC khi sửa: với code hiện tại (`handle_calibration_fail` KHÔNG chạm `Schedule.next_due_date`), asset FAIL có schedule active giữ `next_due` tương lai → asset KHÔNG nằm trong `_overdue_asset_ids()` cũng KHÔNG `_due_soon_asset_ids()` → TC-11-FAIL-DUENOW-01 FAIL (chứng minh mask). Sau khi thêm write-path (§04 §4.1.6) → GREEN.
+
+| TC ID | Given | When | Then | Trace |
+|---|---|---|---|---|
+| TC-11-FAIL-DUENOW-01 | asset Active có active schedule (`is_active=1`) `next_due = today+200` (ON_SCHEDULE, asset KHÔNG trong overdue/due-soon set) — **RED-prove bug** | submit IMM Asset Calibration `overall_result=Fail` (basis=actual_date=today) | schedule `next_due == today` (`<= today`) → asset ∈ `_due_soon_asset_ids()` (due-now); KHÔNG còn ON_SCHEDULE; asset rời tập on-schedule | AC-11-19, BR-11-08b |
+| TC-11-FAIL-DUENOW-01b | như trên nhưng `certificate_date = today-5` (basis quá khứ) | submit Fail | schedule `next_due == today-5 < today` → asset ∈ `_overdue_asset_ids()` | AC-11-19 |
+| TC-11-FAIL-DUENOW-02 | asset có **2** active schedule (External+In-House) cùng `next_due` tương lai | submit Fail | **CẢ 2** schedule `next_due == basis` (theo asset, không chỉ `cal_doc.calibration_schedule`); asset đếm 1 lần (de-dup BR-11-09) trong overdue-or-due | AC-11-19, BR-11-09 |
+| TC-11-FAIL-DUENOW-03 (KPI parity) | dataset có asset FAIL due-now | `get_calibration_kpis()` / `get_dashboard()` | `overdue_assets + due_soon_assets` GỒM asset FAIL; con số == số dòng drill `?overdue=1` ∪ `?due_soon=1` (count==drill, KHÔNG undercount) | AC-11-19, BR-11-08 |
+| TC-11-FAIL-DUENOW-04 (null-safe) | asset FAIL **KHÔNG** có schedule active (is_active=1) | submit Fail | `handle_calibration_fail` no-op trên schedule, KHÔNG raise, phiếu đóng được; CAPA + Incident + lookback vẫn tạo (đường FAIL bất biến) | AC-11-20 |
+| TC-11-FAIL-DUENOW-05 (idempotent) | asset đã due-now sau FAIL | resubmit/amend cùng basis (hoặc chạy lại) | `next_due` bất biến == basis; KHÔNG dời kép | AC-11-20 |
+| TC-11-FAIL-DUENOW-06 (state bất biến) | asset FAIL | sau write-path | `lifecycle_status == Out of Service` (do transition), `calibration_status == Calibration Failed` (BR-11-11), `is_active` schedule GIỮ 1 (vẫn được KPI đếm); KHÔNG ép state vòng đời khác | AC-11-20 |
+| TC-11-FAIL-DUENOW-07 (khép kín) | asset due-now sau FAIL | recalibration **Pass** (`handle_calibration_pass`, basis+interval) | `next_due` advance về tương lai → asset RỜI overdue/due-soon → ON_SCHEDULE; vòng đời fail→due-now→pass→on-schedule khép kín | AC-11-20, BR-11-04 |
+| TC-11-FAIL-DUENOW-08 (PASS regression) | asset Active có schedule | submit **Pass** | `next_due == basis + interval` (tương lai) BẤT BIẾN — fix KHÔNG đổi nhánh PASS | BR-11-04 |
+| TC-11-FAIL-DUENOW-N1 (no N+1) | asset 2 schedule active | submit Fail | write-path dùng 1 `CalibrationScheduleRepo.list({asset, is_active=1})` (1 query) + loop set_values — KHÔNG query-per-schedule trên list | INV-FAIL-DUENOW-2 |
+
+> Fixture: asset prefix `_Test` + `_purge_asset_with_deps` teardown (purge schedule + CAPA + Incident + ALE leak). Bắt buộc no-regression: `test_imm11`, `test_workflows`, `test_dashboard` GREEN. SoT helper `_overdue_asset_ids`/`_due_soon_asset_ids` KHÔNG đổi (fix chỉ chạm write-path FAIL) → SoT parity + dashboard không regress.
 
 ### BR-11-08 / BR-11-09 — test cases bắt buộc (SoT calibration due/overdue)
 
@@ -361,6 +403,23 @@ bench --site miyano run-tests --module assetcore.tests.test_workflows
 | TC-11-ROLLUP-RECOVER | asset từng FAILED, recal Pass đưa về Active (`handle_calibration_pass`), còn active schedule trong window | `check_calibration_expiry()` | cache tiếp quản bằng SoT rollup (On Schedule/Due Soon/Overdue) — KHÔNG kẹt FAILED |
 
 > 4 case rollup mới mở rộng class `TestCheckCalibrationExpiryRollup` (`tests/test_imm11.py`) — phải GIỮ 2 case idempotent/anti-spam cũ xanh. SoT count helper (`_overdue_asset_ids`/`_due_soon_asset_ids`/`_calibration_status_asset_ids`) KHÔNG đổi → `test_dashboard` + SoT parity không regress.
+
+### BR-11-13 — test cases bắt buộc (PASS → Asset-cache rollup đa-lịch)
+
+> **Class mới `TestCalibrationPassRollup` (`tests/test_imm11.py`).** RED-prove TRƯỚC khi sửa: với code hiện tại (`handle_calibration_pass` hardcode `calibration_status=ON_SCHEDULE` + `next_calibration_date=basis+interval` của 1 lịch), asset 2-lịch (A overdue + B Pass) sau Pass(B) → cache `On Schedule` + next tương lai → TC-11-PASS-ROLLUP-01/03 FAIL (chứng minh divergence + rớt due-list). Sau khi thay block bằng `_apply_asset_calibration_rollup` (§04 §4.1.7) → GREEN.
+
+| TC ID | Given | When | Then | Map |
+|---|---|---|---|---|
+| TC-11-PASS-ROLLUP-01 | asset X có 2 active schedule: A `next_due=today-10` (OVERDUE) + B `next_due=today+5` | `handle_calibration_pass(cal B)` (basis=today) — **RED-prove bug** | `AC Asset.calibration_status == 'Overdue'` (KHÔNG `On Schedule`); == `_calibration_status_asset_ids()[X]` | AC-11-21, BR-11-13 |
+| TC-11-PASS-ROLLUP-02 | như trên | sau Pass(B) | schedule B `next_due_date == today + interval` (BR-11-04 advance bất biến); schedule A `next_due_date` KHÔNG đổi (`today-10`) | AC-11-21, BR-11-04 |
+| TC-11-PASS-ROLLUP-03 | như trên | sau Pass(B) + `get_due_calibrations(days=30)` | asset X ∈ `.items` (KHÔNG rớt); `AC Asset.next_calibration_date == today-10` (= MIN trên A,B = schedule A) | AC-11-21, INV-PASS-ROLLUP-2/4 |
+| TC-11-PASS-ROLLUP-04 (consistency) | asset X multi-schedule sau Pass(B) | `check_calibration_expiry()` chạy NGAY sau | `AC Asset.calibration_status` KHÔNG đổi (PASS-rollup == scheduler-rollup); `_reconcile` thấy new==old → no-write, `notify_calibration_due` KHÔNG gọi (no flip-flop, no spam) | AC-11-22, INV-PASS-ROLLUP-3 |
+| TC-11-PASS-ROLLUP-05 (due-soon rollup) | asset có A `next_due=today+10` (DUE_SOON) + B Pass | Pass(B) | `calibration_status == 'Due Soon'`; `next_calibration_date == MIN` (= A nếu A < B-advanced) | AC-11-21, BR-11-13 |
+| TC-11-PASS-ROLLUP-06 (HAPPY 1-lịch bất biến) | asset chỉ 1 active schedule | Pass | `calibration_status == 'On Schedule'`; `next_calibration_date == add_days(basis, interval)`; hành vi == bản cũ 100% | AC-11-23, INV-PASS-ROLLUP-4 |
+| TC-11-PASS-ROLLUP-07 (BR-11-12 bất biến) | asset multi-schedule trong các nhánh restore (Calibrating / OoS self-hold / OoS other-hold) | Pass | restore-guard 3-nhánh + ALE `calibration_passed` (đúng 1 record) + `CalibrationRepo.next_calibration_date` KHÔNG đổi bởi rollup (chỉ 3 field ASSET-cache đổi nguồn) | AC-11-23, INV-PASS-ROLLUP-5 |
+| TC-11-PASS-ROLLUP-N1 (no N+1) | asset 3 active schedule | Pass | rollup ghi cache = số query bounded (≤4), KHÔNG loop per-schedule SQL (đếm query hoặc assert dùng `_calibration_status_asset_ids` set-query + 1 MIN aggregate) | AC-11-21, INV-PASS-ROLLUP-6 |
+
+> Fixture: asset prefix `_Test` + `_purge_asset_with_deps` teardown (purge schedule + ALE leak). No-regression bắt buộc: `test_imm11` + `test_workflows` + `test_dashboard` GREEN; FE vue-tsc prod 0 + vitest full GREEN. SoT helper (`_overdue_asset_ids`/`_due_soon_asset_ids`/`_calibration_status_asset_ids`) + `CalibrationScheduleRepo` advance (BR-11-04) + restore-guard (BR-11-12) KHÔNG đổi → parity không regress.
 
 DoD: mọi BR có ≥ 1 happy + ≥ 1 negative. `TestCalibrationSubmitGate` (✅ Live) đã cover gate before_submit (CAL-004).
 

@@ -10,16 +10,29 @@ import json
 
 import frappe
 from frappe import _
+from frappe.rate_limiter import rate_limit          # precedent api/auth.py:10
 
 from assetcore.utils.response import _ok, _err
 from assetcore.services.shared import ErrorCode, ServiceError
 from assetcore.services.shared.scope import apply_vendor_scope, assert_vendor_can_access
 from assetcore.utils.pagination import paginate
 from assetcore.services.shared.filters import count_with_or
+from assetcore.services.shared import rbac
 from assetcore.services.imm00 import (
     transition_asset_status,
     validate_asset_for_operations,
+    resolve_qr_token as _svc_resolve_qr_token,
+    regenerate_asset_qr_token as _svc_regenerate_asset_qr_token,
+    build_asset_scan_info as _svc_build_asset_scan_info,
+    ensure_asset_qr_token,
+    build_asset_label_data,
+    build_asset_label_data_batch,
+    mark_label_printed as _svc_mark_label_printed,
+    _MAX_LABEL_BATCH,            # SSoT cap số nhãn / 1 request (Vòng B — KHÔNG literal lặp)
+    _ERR_BATCH_TOO_LARGE,        # message VI cố định cho 413 (nêu giới hạn, KHÔNG leak name)
     byt_expiry_filter,
+    reserved_prefix_filter,      # SSoT loại asset rác test/security-audit (data-hygiene)
+    compose_reserved_into,       # SSoT name-safe merge (FR-00-84 — KHÔNG clobber vendor-scope)
     get_sla_policy,
     create_capa,
     close_capa,
@@ -35,12 +48,56 @@ from assetcore.services.imm00 import (
 
 _DT_ASSET = "AC Asset"
 _DT_DOWNTIME_LOG = "AC Asset Downtime Log"
+
+# Vòng 12 B (BR-00-29) — ngưỡng rate-limit 2 endpoint QR deep-link resolve.
+# 30 req/60s/IP/endpoint: ~2× headroom trên peak quét-rack (10–20 tb/phút), lỏng
+# hơn login (5/60s — credential-guess) nhưng chặt hơn policy GET chung (300/60s)
+# vì là deep-link bán-công-khai (token in trên nhãn). Token 128-bit
+# (secrets.token_urlsafe(16)) → rate-limit là defense-in-depth + chống DoS, KHÔNG
+# phải hàng rào duy nhất. 1 định nghĩa duy nhất (KHÔNG literal rải rác). Xem
+# docs/imm-00/05 §I.7a.
+AC_QR_RESOLVE_RATE_LIMIT = 30
+
+# Vòng 27 B (BR-00-38) — ngưỡng rate-limit endpoint GHI rotate
+# `regenerate_asset_qr_token`. Hằng RIÊNG (KHÔNG tái dùng AC_QR_RESOLVE_RATE_LIMIT):
+# rotate hiếm hơn quét (deliberate admin action ứng phó lộ token), blast-radius lớn
+# nhất (vô hiệu hoá MỌI nhãn QR đã in + write-amplification ALE/audit) → ngưỡng
+# THẤP hơn resolve (10 req/60s/IP) do BA chốt. Bucket RIÊNG: frappe rate_limiter
+# cache key gồm `frappe.form_dict.cmd` ⟹ counter rotate TÁCH BIỆT resolve/scan
+# (KHÔNG chung). Decorator bọc NGOÀI thân hàm → 429 raise TRƯỚC rbac.require ⇒ vượt
+# ngưỡng = KHÔNG side-effect (0 token mới, 0 ALE qr_regenerated, 0 audit), no-leak.
+# Đóng bất đối xứng read-throttled (BR-00-29) / write-rotate-unthrottled
+# (Self-Correction đảo quyết định Vòng 12). Xem docs/imm-00/04 §II.1.8d + 02 BR-00-38.
+AC_QR_REGEN_RATE_LIMIT = 10
+
 _DT_SUPPLIER = "AC Supplier"
 _DT_LOCATION = "AC Location"
 _DT_DEPARTMENT = "AC Department"
 _DT_ASSET_CATEGORY = "AC Asset Category"
 _DT_DEVICE_MODEL = "IMM Device Model"
 _DT_SLA_POLICY = "IMM SLA Policy"
+
+
+def _strip_qr_token(doc):
+    """SSoT no-raw-token (ADR-001 §D4 rule 9): bỏ key ``qr_token`` thô khỏi
+    payload đọc AC Asset TRƯỚC khi rời BE.
+
+    ``qr_token`` là khóa tra cứu MỜ (opaque) phục vụ nội bộ (before_insert sinh +
+    ``_build_qr_url``/``build_asset_label_data`` dựng deep-link server-side). Token
+    KHÔNG BAO GIỜ được surface thô qua endpoint đọc asset — FE chỉ cần ``qr_url``.
+    ``frappe.get_doc(...).as_dict()`` lại trả nguyên field (dù DocType đặt
+    hidden/read_only) ⇒ phải pop tường minh tại tầng API-response.
+
+    Idempotent + None-safe: ``None`` → ``None``; dict không có ``qr_token`` →
+    no-op. Mutate in-place (đủ cho luồng API) RỒI trả lại ``doc`` để gọi inline:
+    ``return _ok(_strip_qr_token(doc))``. 1 helper DUY NHẤT cho MỌI đường đọc AC
+    Asset trả ``as_dict()`` (KHÔNG inline ``pop`` lặp → chống regress khi thêm
+    endpoint asset-read mới; AST guard test khẳng định).
+    """
+    if doc is None:
+        return None
+    doc.pop("qr_token", None)
+    return doc
 
 
 def _enrich(items: list, field: str, doctype: str, display_field: str, out_field: str = None) -> None:
@@ -120,8 +177,23 @@ def list_assets(
         # field riêng). bucket không hợp lệ → byt_expiry_filter trả {} (no-op).
         filters.update(byt_expiry_filter(byt_status))
 
-    # AUTH-01: Vendor Engineer chỉ thấy asset được giao việc.
+    # AUTH-01: Vendor Engineer chỉ thấy asset được giao việc. Với Vendor Engineer,
+    # apply_vendor_scope đặt filters["name"] = ["in", assigned] (field-map AC Asset →
+    # "name", scope.py). KHÔNG được merge reserved-exclusion bằng dict.update sau đó
+    # (cùng key "name" → ghi đè → mất vendor-scope = RC-LIST-VENDORCLOBBER, Vòng 26 B).
     filters = apply_vendor_scope(filters, _DT_ASSET)
+
+    # Data-hygiene + AUTH-01 name-safe compose (FR-00-84 / BR-00-35 mục 6): loại asset
+    # rác test ('_…') + security-audit ('SI-…') BẰNG filter-list form qua SSoT helper
+    # compose_reserved_into() — KHÔNG dict.update. Helper chuyển filters dict (kể cả
+    # khi đã có "name in assigned" từ vendor-scope) sang list-of-conditions rồi THÊM
+    # dòng RIÊNG ["name","not in",reserved]; hai điều kiện "name" cùng tồn tại, ANDed
+    # → predicate hiệu dụng name ∈ (assigned ∖ reserved). 1 NGUỒN predicate cho CẢ
+    # count (count_with_or/db.count) lẫn get_list ⇒ INVARIANT total==len(items) giữ ở
+    # MỌI persona (Administrator/bypass → name không có → chỉ "name not in reserved";
+    # Vendor Engineer → "name in assigned" AND "name not in reserved"; empty-scope
+    # → "name in [__none__]" → 0 row, KHÔNG fallback). DB sạch → bỏ dòng reserved (no-op).
+    filters = compose_reserved_into(filters, _DT_ASSET)
 
     or_filters = None
     if search:
@@ -132,18 +204,13 @@ def list_assets(
             [_DT_ASSET, "manufacturer_sn", "like", like],
             [_DT_ASSET, "gmdn_code",       "like", like],
         ]
-        # NOTE: search COUNT uses a custom SQL that doesn't apply vendor scope;
-        # frappe.db.count fallback below honors the scoped filters dict, so the
-        # non-search path is safe. Vendor users rarely use full-text search on
-        # assets they cannot see anyway.
-        total = frappe.db.sql(
-            f"SELECT COUNT(*) FROM `tab{_DT_ASSET}`"
-            f" WHERE asset_name LIKE %s OR asset_code LIKE %s"
-            f" OR manufacturer_sn LIKE %s OR gmdn_code LIKE %s",
-            [like, like, like, like],
-        )[0][0]
-    else:
-        total = frappe.db.count(_DT_ASSET, filters=filters)
+
+    # Count dùng CHUNG filters (đã gồm data-hygiene + vendor-scope) + or_filters
+    # qua count_with_or → ĐÚNG cùng engine (DatabaseQuery) + cùng predicate với
+    # get_list bên dưới ⇒ INVARIANT total == len(items) cho CẢ search & non-search
+    # path (kể cả khi search kết hợp filter khác — no clobber). count_with_or fallback
+    # về frappe.db.count khi không search.
+    total = count_with_or(_DT_ASSET, filters, or_filters)
 
     pag = paginate(int(total), page, page_size)
 
@@ -197,7 +264,258 @@ def get_asset(name: str):
         doc["device_model_name"] = frappe.db.get_value(_DT_DEVICE_MODEL, doc["device_model"], "model_name") or ""
     if doc.get("responsible_technician"):
         doc["responsible_technician_name"] = frappe.db.get_value("User", doc["responsible_technician"], "full_name") or ""
-    return _ok(doc)
+    # No-raw-token (ADR-001 §D4 rule 9): qr_token là khóa tra cứu MỜ nội bộ —
+    # KHÔNG surface thô qua endpoint đọc asset (deep-link dùng qr_url server-side).
+    # as_dict() leak nguyên field dù hidden/read_only → pop qua SSoT trước return.
+    return _ok(_strip_qr_token(doc))
+
+
+@frappe.whitelist()
+@rate_limit(limit=AC_QR_RESOLVE_RATE_LIMIT, seconds=60, ip_based=True)  # Vòng 12 B — 429 TRƯỚC rbac.require (BR-00-29)
+def resolve_qr_token(token: str = ""):
+    """GET — A2 (ADR-001 D4): tra mã QR (deep-link /a/<token>) → định danh asset.
+
+    Flow màn QrResolveView (FE): quét/mở /a/<token> → gọi endpoint NÀY → thành
+    công thì điều hướng /assets/<name> (màn info đầy đủ là A6/V7). A2 CHỈ
+    resolve + định danh + field hiển thị tối thiểu, KHÔNG trả toàn bộ asset.
+
+    Bảo mật (theo thứ tự, ADR-001 D4):
+      0. ``@rate_limit(30/60s/IP)`` (Vòng 12 B, BR-00-29) — decorator bọc NGOÀI
+         thân hàm → frappe tăng counter rồi ``frappe.throw(RateLimitExceededError)``
+         (HTTP 429) TRƯỚC khi thân hàm chạy ⇒ TRƯỚC ``rbac.require``. Chống
+         brute-force token + DoS (entry-point camera điện thoại ``/a/<token>``).
+         No-leak parity: 429 body generic, KHÔNG build byte payload nào. Đếm MỌI
+         call (kể cả 404/403 → chống enumeration). KHÔNG-HTTP context (test/CLI)
+         bypass có chủ đích (``if not frappe.request: return fn``).
+      1. ``rbac.require("asset.read")`` → user KHÔNG có DocPerm read AC Asset →
+         ``frappe.PermissionError`` (HTTP 403). Gate bằng CAPABILITY (DocPerm),
+         KHÔNG hardcode role-name (chống RBAC dead-gate). NĐ98: KHÔNG public.
+      2. token rỗng/None hoặc không khớp asset nào → 404 leak-safe (KHÔNG 500,
+         KHÔNG phân biệt "sai định dạng" vs "không tồn tại", KHÔNG full-scan).
+      3. IDOR/vendor isolation: tái dùng ``assert_vendor_can_access`` (KHÔNG
+         re-implement) → vendor resolve token asset NGOÀI scope → 403, KHÔNG leak
+         payload.
+      4. Read-only → KHÔNG ghi audit/lifecycle (chống spam chain mỗi lần quét —
+         qr_generated/label_printed mới ghi, xem A1/A4).
+    """
+    # 1. RBAC gate — require asset.read (DocPerm AC Asset). PermissionError → 403.
+    rbac.require("asset.read")
+    # 2. Resolve token → payload tối thiểu (None nếu rỗng/không tồn tại → 404 no-leak).
+    payload = _svc_resolve_qr_token(token if isinstance(token, str) else "")
+    if not payload:
+        return _err(_(_ERR_ASSET_NOT_FOUND), 404)
+    # 3. IDOR guard — vendor không được giao việc trên asset → 403, KHÔNG leak payload.
+    try:
+        assert_vendor_can_access(_DT_ASSET, payload["name"])
+    except ServiceError as e:
+        return _err(e.message, e.code)
+    # 4. Read-only — KHÔNG audit. Trả định danh + field hiển thị tối thiểu.
+    return _ok(payload)
+
+
+@frappe.whitelist()
+@rate_limit(limit=AC_QR_RESOLVE_RATE_LIMIT, seconds=60, ip_based=True)  # Vòng 12 B — bucket RIÊNG (cache key gồm cmd), 429 TRƯỚC rbac.require
+def get_asset_scan_info(token: str = "", name: str = ""):
+    """GET — A6: payload màn THÔNG TIN thiết bị mobile-first khi quét QR.
+
+    Deep-link landing (route ``AssetScanInfo`` — ``/scan/:token`` / ``/assets/:id/info``)
+    gọi endpoint NÀY để dựng màn info read-only: định danh + model + vị trí +
+    lifecycle_status (mã canonical — FE dịch nhãn VI qua SSoT) + bảo trì gần nhất
+    + next_pm_date. Resolve theo ``token`` (deep-link QR) HOẶC ``name`` (điều hướng
+    nội bộ list/desktop). KHÔNG trả field nhạy cảm (giá mua, khấu hao, audit chain,
+    supplier code).
+
+    Bảo mật (theo thứ tự, đồng nhất A2 — ADR-001 D4):
+      0. ``@rate_limit(30/60s/IP)`` (Vòng 12 B, BR-00-29) — bucket RIÊNG với
+         ``resolve_qr_token`` (cache key gồm ``cmd``). 429 TRƯỚC ``rbac.require``,
+         no-leak parity (KHÔNG lộ asset name/lifecycle). Chống brute-force token +
+         DoS (entry-point camera điện thoại ``/scan/:token``).
+      1. ``rbac.require("asset.read")`` → user KHÔNG có DocPerm read AC Asset →
+         ``frappe.PermissionError`` (HTTP 403). Gate bằng CAPABILITY (DocPerm),
+         KHÔNG hardcode role-name. KHÔNG cấp cap/DocType mới (tái dùng asset.read).
+      2. token/name rỗng/None hoặc không khớp asset → 404 leak-safe (KHÔNG 500,
+         KHÔNG phân biệt "sai định dạng" vs "không tồn tại", KHÔNG full-scan).
+      3. IDOR/vendor isolation: tái dùng ``assert_vendor_can_access`` (KHÔNG
+         re-implement) → vendor ngoài scope → 403, KHÔNG leak payload.
+      4. Read-only → KHÔNG ghi audit/lifecycle (chống spam chain mỗi lần quét).
+    """
+    # 1. RBAC gate — require asset.read (DocPerm AC Asset). PermissionError → 403.
+    rbac.require("asset.read")
+    # 2. Resolve định danh asset: ưu tiên token (deep-link QR), fallback name.
+    #    Cả hai → name asset hoặc None (404 no-leak, KHÔNG phân biệt nhánh).
+    token = token if isinstance(token, str) else ""
+    name = name if isinstance(name, str) else ""
+    asset_name = None
+    if token:
+        resolved = _svc_resolve_qr_token(token)
+        if resolved:
+            asset_name = resolved.get("name")
+    elif name and frappe.db.exists(_DT_ASSET, name):
+        asset_name = name
+    if not asset_name:
+        return _err(_(_ERR_ASSET_NOT_FOUND), 404)
+    # 3. IDOR guard — vendor không được giao việc trên asset → 403, KHÔNG leak payload.
+    try:
+        assert_vendor_can_access(_DT_ASSET, asset_name)
+    except ServiceError as e:
+        return _err(e.message, e.code)
+    # 4. Read-only — KHÔNG audit. Trả payload mobile cốt lõi.
+    payload = _svc_build_asset_scan_info(asset_name)
+    if not payload:
+        return _err(_(_ERR_ASSET_NOT_FOUND), 404)
+    return _ok(payload)
+
+
+@frappe.whitelist()
+def get_asset_label_data(asset: str = ""):
+    """GET — A3 (ADR-001 D3): dữ liệu in nhãn QR cho 1 asset (READ-ONLY về print).
+
+    FE màn in nhãn (A4/V5) gọi để dựng payload tem + ``QRLabel`` encode URL
+    ``/a/<token>``. KHÔNG phải sự kiện in — chỉ lấy dữ liệu (KHÔNG emit
+    ``label_printed``/audit; preview ≠ in, chống spam chain — D3/D4).
+
+    Bảo mật (theo thứ tự):
+      1. ``rbac.require("asset.write")`` → PermissionError (403). Vòng B SIẾT
+         ``asset.read``→``asset.write`` (least-privilege, ADR-001 D4): in nhãn =
+         tiền-đề thao-tác-GHI + side-effect token-backfill ``ensure_asset_qr_token``
+         ⇒ nhóm WRITE. User chỉ-đọc (``asset.read`` NHƯNG KHÔNG ``asset.write``)
+         → 403. KHÔNG cap mới (``CAP_SET_VERSION`` GIỮ ``v95.3388ee5629c1``).
+      2. asset rỗng/không tồn tại → 404 leak-safe (KHÔNG 500, KHÔNG đoán id).
+      3. IDOR: ``assert_vendor_can_access`` → vendor ngoài scope → 403, KHÔNG leak.
+
+    ``qr_url`` KHÔNG BAO GIỜ rỗng: token-less asset → ``ensure_asset_qr_token``
+    (idempotent) trong service trước khi build (BR-00-28).
+    """
+    rbac.require("asset.write")
+    if not asset or not frappe.db.exists(_DT_ASSET, asset):
+        return _err(_(_ERR_ASSET_NOT_FOUND), 404)
+    try:
+        assert_vendor_can_access(_DT_ASSET, asset)
+    except ServiceError as e:
+        return _err(e.message, e.code)
+    return _ok(build_asset_label_data(asset))
+
+
+@frappe.whitelist()
+def get_asset_label_data_batch(assets=None):
+    """GET — A3 (ADR-001 D3): dữ liệu in nhãn QR hàng loạt (READ-ONLY, KHÔNG N+1).
+
+    FE in hàng loạt (A4/V5) gọi 1 lần lấy payload N asset. Output theo ĐÚNG thứ
+    tự input; asset không tồn tại → ``{"name": n, "error": "AC-E001"}`` tại đúng
+    index (KHÔNG drop → giữ index FE). 1 truy vấn gộp + IN-clause cho enrich
+    (KHÔNG loop get_value).
+
+    Bảo mật: ``rbac.require("asset.write")`` (403) — vòng B SIẾT ``asset.read``→
+    ``asset.write`` (least-privilege; in nhãn = nhóm WRITE). User chỉ-đọc → 403.
+    KHÔNG cap mới (``CAP_SET_VERSION`` GIỮ ``v95.3388ee5629c1``). IDOR mỗi asset
+    hợp lệ qua ``assert_vendor_can_access`` → vendor có ≥1 asset ngoài scope →
+    403 TOÀN call (KHÔNG partial, KHÔNG leak asset nào thuộc/không-thuộc scope).
+    """
+    rbac.require("asset.write")
+    names = frappe.parse_json(assets) if isinstance(assets, str) else (assets or [])
+    # CAP batch-size SAU rbac (chỉ user đã-auth-write tới đây — KHÔNG lộ giới hạn cho
+    # khách) TRƯỚC vòng exists/IDOR + build payload → chặn per-request payload-DoS.
+    # 413 bucket RIÊNG (PAYLOAD_TOO_LARGE), message VI cố định, KHÔNG leak asset name.
+    if len(names) > _MAX_LABEL_BATCH:
+        return _err(_(_ERR_BATCH_TOO_LARGE), 413)
+    try:
+        for n in names:
+            if frappe.db.exists(_DT_ASSET, n):
+                assert_vendor_can_access(_DT_ASSET, n)
+    except ServiceError as e:
+        return _err(e.message, e.code)
+    return _ok(build_asset_label_data_batch(names))
+
+
+@frappe.whitelist(methods=["POST"])
+def mark_label_printed(assets=None):
+    """POST — A3 (ADR-001 D3): ghi sự kiện in nhãn QR (1 event+audit / asset / lần in).
+
+    FE gọi SAU khi người dùng thực sự bấm in → ghi 1 ``Asset Lifecycle Event``
+    ``label_printed`` + 1 ``IMM Audit Trail`` cho MỖI asset (NĐ98 truy xuất tem).
+    Gọi N lần = N×len event (mỗi lần in 1 event — KHÔNG dedup theo asset).
+
+    All-or-nothing: validate tồn tại + RBAC + IDOR cho TẤT CẢ asset TRƯỚC khi ghi
+    event nào → tránh audit chain lệch. ≥1 không tồn tại → 404 (KHÔNG ghi gì);
+    vendor ngoài scope → 403 toàn call.
+
+    Bảo mật: ``rbac.require("asset.write")`` chạy ĐẦU TIÊN — vòng B SIẾT
+    ``asset.read``→``asset.write`` (ghi ``label_printed``+audit = side-effect bền
+    vững ⇒ WRITE rõ nghĩa, least-privilege ADR-001 D4). User chỉ-đọc → 403, chặn
+    TRƯỚC mọi write (KHÔNG dò được asset nào tồn tại, KHÔNG sinh event/audit).
+    KHÔNG cap mới ``asset.print_label`` (đã BỎ); ``CAP_SET_VERSION`` GIỮ
+    ``v95.3388ee5629c1``.
+    """
+    rbac.require("asset.write")
+    names = frappe.parse_json(assets) if isinstance(assets, str) else (assets or [])
+    # CAP batch-size SAU rbac, TRƯỚC mọi write/validate → chặn khuếch đại write/audit
+    # chain (2 record/asset). 413 bucket RIÊNG, message VI cố định, KHÔNG leak name,
+    # KHÔNG side-effect (0 ALE label_printed + 0 IMM Audit Trail khi vượt cap).
+    if len(names) > _MAX_LABEL_BATCH:
+        return _err(_(_ERR_BATCH_TOO_LARGE), 413)
+    # All-or-nothing: validate tồn tại + IDOR TRƯỚC khi ghi event nào.
+    try:
+        for n in names:
+            if not frappe.db.exists(_DT_ASSET, n):
+                return _err(_(_ERR_ASSET_NOT_FOUND), 404)
+            assert_vendor_can_access(_DT_ASSET, n)
+    except ServiceError as e:
+        return _err(e.message, e.code)
+    result = _svc_mark_label_printed(names)
+    frappe.db.commit()
+    return _ok(result)
+
+
+@frappe.whitelist(methods=["POST"])
+@rate_limit(limit=AC_QR_REGEN_RATE_LIMIT, seconds=60, ip_based=True)  # Vòng 27 B — 429 TRƯỚC rbac.require (BR-00-38); bucket+ngưỡng RIÊNG (KHÔNG chung resolve=30)
+def regenerate_asset_qr_token(asset: str = ""):
+    """POST — B (hardening): cấp lại (rotate) mã QR cấp tài sản.
+
+    Vô hiệu hoá qr_token bị lộ + cấp token MỚI enumeration-safe. KHÁC
+    ``ensure_asset_qr_token`` (idempotent — KHÔNG overwrite): rotate luôn GHI ĐÈ
+    token → mọi nhãn QR đã in/lộ KHÔNG còn resolve (token cũ → 404). FE màn
+    AssetDetailView gọi sau khi người dùng xác nhận cảnh báo "vô hiệu hoá mọi nhãn
+    QR đã in".
+
+    Bảo mật (theo thứ tự — ADR-001 D4 + lesson P1 417 → sig ``str=""``):
+      0. ``@rate_limit(AC_QR_REGEN_RATE_LIMIT/60s/IP)`` (Vòng 27 B, BR-00-38) —
+         decorator bọc NGOÀI thân hàm → frappe tăng counter rồi
+         ``frappe.throw(RateLimitExceededError)`` (HTTP 429) TRƯỚC khi thân hàm
+         chạy ⇒ TRƯỚC ``rbac.require``. Vượt ngưỡng → KHÔNG side-effect (0 token
+         mới, 0 ALE ``qr_regenerated``, 0 audit — service KHÔNG bị chạm), no-leak
+         (body generic, KHÔNG lộ asset name/token). Hằng + bucket RIÊNG (cache key
+         gồm ``cmd`` → counter TÁCH BIỆT resolve/scan; ngưỡng THẤP hơn resolve vì
+         rotate hiếm hơn + blast-radius lớn nhất). KHÔNG-HTTP context (test/CLI)
+         bypass có chủ đích (``if not frappe.request: return fn``). Đóng bất đối
+         xứng read-throttled (BR-00-29) / write-rotate-unthrottled.
+      1. ``rbac.require("asset.write")`` chạy ĐẦU TIÊN → user chỉ asset.read
+         (Guest/nurse) → ``frappe.PermissionError`` (403). Rotate = side-effect ghi
+         (đổi token + ghi event/audit) ⇒ nhóm WRITE (least-privilege). Gate bằng
+         CAPABILITY (DocPerm), KHÔNG hardcode role. KHÔNG cap mới
+         (``CAP_SET_VERSION`` GIỮ ``v95.3388ee5629c1``).
+      2. asset rỗng/không tồn tại → 404 leak-safe (KHÔNG 500, KHÔNG đoán id) —
+         chặn TRƯỚC khi đụng service (no side-effect khi không hợp lệ).
+      3. IDOR: ``assert_vendor_can_access`` → vendor ngoài scope → 403, KHÔNG leak
+         token mới (đồng nhất leak-safe với resolve).
+      4. Service rotate → token MỚI (str nội bộ). API dựng ``qr_url`` qua
+         ``build_asset_label_data`` (đọc token MỚI từ DB) → ``qr_url`` phản ánh
+         deep-link mới (preview/print). Envelope CHỈ trả ``{name, qr_url}`` —
+         KHÔNG surface token thô (ADR-001 §D4 rule 9 + 05 §III.1: FE chỉ cần
+         ``qr_url``, no-raw-token parity với resolve/scan).
+    """
+    rbac.require("asset.write")
+    if not asset or not isinstance(asset, str) or not frappe.db.exists(_DT_ASSET, asset):
+        return _err(_(_ERR_ASSET_NOT_FOUND), 404)
+    try:
+        assert_vendor_can_access(_DT_ASSET, asset)
+    except ServiceError as e:
+        return _err(e.message, e.code)
+    # Service vẫn trả str token nội bộ để dựng qr_url; KHÔNG đưa vào envelope.
+    _svc_regenerate_asset_qr_token(asset)
+    frappe.db.commit()
+    # qr_url phản ánh token MỚI (build_asset_label_data đọc lại token vừa overwrite).
+    label = build_asset_label_data(asset)
+    return _ok({"name": asset, "qr_url": label["qr_url"]})
 
 
 @frappe.whitelist(methods=["POST"])
@@ -1017,6 +1335,12 @@ def close_capa_record(name: str):
         )
         frappe.db.commit()
         return _ok({"name": name, "status": "Closed"})
+    except ServiceError as e:
+        # BR-00-26 (round 12): cổng hiệu quả CAPA raise ServiceError(VALIDATION,
+        # message_code='FIN-007'). Trả 422 + message_code để FE match thông báo VI
+        # 'Chưa xác minh hiệu quả — không thể đóng CAPA' (KHÔNG leak code/EN).
+        frappe.db.rollback()
+        return _err(e.message, e.code, message_code=e.message_code)
     except frappe.exceptions.ValidationError as e:
         return _err(str(e), 422)
 
@@ -1637,7 +1961,8 @@ def compute_depreciation(name: str):
     ) or {}
     gross = float(a.get("gross_purchase_amount") or 0)
     accumulated = float(a.get("accumulated_depreciation") or 0)
-    book_value = float(a.get("current_book_value") or gross)
+    # BR-05-13: SoT đọc book — None→gross, 0.0→0.0 (KHÔNG inline `or gross`).
+    book_value = depr_svc.effective_book_value(a)
     pct = round(accumulated / gross * 100, 1) if gross > 0 else 0.0
     return _ok({
         "name": name,
@@ -2056,8 +2381,40 @@ def regenerate_depreciation_schedule(asset_name: str, force: int = 1):
     if not frappe.db.exists(_DT_ASSET, asset_name):
         return _err(_(_ERR_ASSET_NOT_FOUND), 404)
 
+    # ── RC-04 (Round-2) per-asset self-heal (BR-00-22) ────────────────────────
+    # Asset CŨ (tạo TRƯỚC khi before_insert wire SoT inherit) có gross>0 +
+    # asset_category CÓ luật nhưng total_depreciation_months=0 ⇒ trước đây pre-check
+    # 4-field fail ngay ⇒ 422 "Thiếu: Số tháng" oan dù Category đã có luật.
+    # Fix: nạp doc, gọi SoT DUY NHẤT inherit_depreciation_rules_from_category(asset)
+    # TRƯỚC pre-check — KHÔNG inline copy months/residual ở đây (grep-guard:
+    # 0 occurrence trong api/imm00.py ngoài lời gọi SoT). did_inherit=True ⇒ save
+    # + audit. Pre-check chạy LẠI SAU (đọc state SAU self-heal) nên 422 chỉ còn khi
+    # Category cũng thiếu / không có asset_category (KHÔNG che lỗi master-data).
+    try:
+        asset_doc = frappe.get_doc(_DT_ASSET, asset_name)
+        did_inherit = depr_svc.inherit_depreciation_rules_from_category(asset_doc)
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(),
+                         f"RC-04 self-heal load/inherit failed: {asset_name}")
+        return _err(_("Lỗi hệ thống khi kế thừa luật khấu hao: {0}").format(str(e)), 500)
+    if did_inherit:
+        try:
+            asset_doc.flags.ignore_links = True
+            asset_doc.flags.ignore_mandatory = True
+            asset_doc.save(ignore_permissions=True)
+        except frappe.LinkValidationError as e:
+            return _err(_("Liên kết không hợp lệ khi lưu tài sản: {0}").format(str(e)), 422)
+        except Exception as e:
+            frappe.log_error(frappe.get_traceback(),
+                             f"RC-04 self-heal save failed: {asset_name}")
+            return _err(_("Lỗi hệ thống khi lưu luật khấu hao: {0}").format(str(e)), 500)
+        # Audit best-effort — KHÔNG để lỗi audit chặn sinh lịch. No-op → KHÔNG event.
+        _log_regenerate_selfheal_audit(asset_name)
+
     # Pre-validate inputs — bail early with a clear message instead of returning
     # `{skipped: true}` (which the FE may swallow as a non-error state).
+    # CHẠY LẠI SAU inherit: đọc giá trị MỚI (db.get_value sau save) — KHÔNG đọc
+    # state cũ trước self-heal (đó là gốc 422 oan ở round-1).
     a = frappe.db.get_value(
         _DT_ASSET, asset_name,
         ["depreciation_method", "total_depreciation_months",
@@ -2104,6 +2461,37 @@ def regenerate_depreciation_schedule(asset_name: str, force: int = 1):
     return _ok(result)
 
 
+def _log_regenerate_selfheal_audit(asset_name: str) -> None:
+    """1 Asset Lifecycle Event 'depreciation_rules_inherited' + 1 IMM Audit Trail
+    'System' cho self-heal per-asset (BR-00-22 / RC-04).
+
+    Best-effort (try/except) — KHÔNG để lỗi audit chặn sinh lịch. Chỉ gọi khi
+    did_inherit=True (caller guard) ⇒ no-op KHÔNG sinh event rác.
+    """
+    try:
+        from assetcore.services.imm00 import create_lifecycle_event, log_audit_event
+        actor = frappe.session.user or "Administrator"
+        # event_type 'depreciation_rules_inherited' = Select option HỢP LỆ
+        # (asset_lifecycle_event.json, đã thêm round-1) → KHÔNG cần migrate.
+        create_lifecycle_event(
+            asset=asset_name, event_type="depreciation_rules_inherited",
+            actor=actor, from_status="", to_status="",
+            root_doctype=_DT_ASSET, root_record=asset_name,
+            notes="Self-heal: kế thừa luật khấu hao từ Category khi sinh lịch (RC-04).",
+        )
+        # IMM Audit Trail event_type='System' = enum governance hiện hữu.
+        log_audit_event(
+            asset=asset_name, event_type="System", actor=actor,
+            ref_doctype=_DT_ASSET, ref_name=asset_name,
+            change_summary=(
+                f"Self-heal kế thừa luật khấu hao từ Category cho {asset_name} "
+                f"khi 'Sinh lịch khấu hao'."
+            ),
+        )
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "regenerate self-heal audit failed")
+
+
 @frappe.whitelist()
 def preview_depreciation_schedule(gross: float, residual: float, method: str,
                                     total_months: int, frequency: str, start_date: str):
@@ -2126,9 +2514,12 @@ def run_due_depreciation_now(as_of: str = ""):
 
 @frappe.whitelist(methods=["POST"])
 def bulk_regenerate_schedule_by_category(category_name: str):
-    """POST — Áp dụng lại luật khấu hao của Category cho tất cả assets.
+    """POST — Áp dụng luật khấu hao của Category cho TẤT CẢ assets thuộc danh mục.
 
-    Skip các assets đã có kỳ Executed (bảo vệ lịch sử).
+    Route 100% qua SoT inherit_depreciation_rules_from_category (no-clobber field
+    user nhập), sinh schedule cho asset chưa có. Asset đã có kỳ Executed → giữ
+    nguyên lịch sử. Payload: {category, total_assets, inherited, regenerated,
+    skipped_has_history, skipped_no_rule, errors}.
     """
     _assert_system_admin()
     from assetcore.services import depreciation as depr_svc
@@ -2161,9 +2552,11 @@ def _depr_row_progress(asset_name: str) -> tuple[int, int]:
 
 
 def _depr_enrich_row(a: dict) -> dict:
+    from assetcore.services.depreciation import effective_book_value
     gross = float(a.get("gross_purchase_amount") or 0)
     accumulated = float(a.get("accumulated_depreciation") or 0)
-    book_value = float(a.get("current_book_value") or gross)
+    # BR-05-13: SoT đọc book — None→gross, 0.0→0.0 (KHÔNG inline `or gross`).
+    book_value = effective_book_value(a)
     method = (a.get("depreciation_method") or "").strip()
     months = int(a.get("total_depreciation_months") or 0)
     configured = bool(method and method != "None" and gross > 0 and months > 0)
@@ -2203,6 +2596,9 @@ def list_assets_depreciation(page: int = 1, page_size: int = 50,
         filters["lifecycle_status"] = status_filter
     if category_filter:
         filters["asset_category"] = category_filter
+    # Data-hygiene SSoT: loại asset rác test/security-audit khỏi count + list
+    # (cùng predicate cả fast-path db.count lẫn get_all ⇒ INVARIANT count==list).
+    filters.update(reserved_prefix_filter())
 
     page    = int(page)
     pg_size = int(page_size)
@@ -2262,6 +2658,7 @@ def get_depreciation_stats():
     """
     from assetcore.services.depreciation import (
         is_fully_depreciated as _depr_is_fully_depreciated,
+        effective_book_value as _depr_effective_book_value,
     )
 
     BATCH = 500
@@ -2272,10 +2669,13 @@ def get_depreciation_stats():
     }
     count = 0
     offset = 0
+    # Data-hygiene SSoT: KPI total_assets KHÔNG đếm asset rác test/security-audit
+    # — cùng predicate với list_assets_depreciation ⇒ parity KPI↔list (count==list).
+    _depr_filters = {"docstatus": ("!=", 2), **reserved_prefix_filter()}
     while True:
         batch = frappe.get_all(
             _DT_ASSET,
-            filters={"docstatus": ("!=", 2)},
+            filters=_depr_filters,
             fields=_DEPR_LIST_FIELDS,
             limit_start=offset, limit_page_length=BATCH,
         )
@@ -2286,7 +2686,8 @@ def get_depreciation_stats():
             gross    = float(a.get("gross_purchase_amount") or 0)
             residual = float(a.get("residual_value") or 0)
             accum    = float(a.get("accumulated_depreciation") or 0)
-            book     = float(a.get("current_book_value") or gross)
+            # BR-05-13: SoT đọc book — None→gross, 0.0→0.0 (KHÔNG inline `or gross`).
+            book     = _depr_effective_book_value(a)
             method   = (a.get("depreciation_method") or "").strip()
             months   = int(a.get("total_depreciation_months") or 0)
             configured = bool(method and method != "None" and gross > 0 and months > 0)
@@ -2354,46 +2755,171 @@ def get_depreciation_stats():
 
 @frappe.whitelist(methods=["POST"])
 def compute_all_depreciation():
-    """POST — Regenerate schedule + execute due rows cho TẤT CẢ assets đã cấu hình.
+    """POST — Backfill luật khấu hao từ Category rồi sinh schedule + execute due
+    rows cho TẤT CẢ assets có thể khấu hao.
 
-    Equivalent to: (1) regen mọi asset chưa có schedule (force=False), rồi
-    (2) chạy run_due_depreciation để cập nhật accumulated/book value đến today.
+    ROOT-CAUSE fix (thay 'skip' cũ bằng 'backfill-rồi-sinh'):
+      Asset có gross>0 + Category có luật (total_depreciation_months>0) nhưng
+      asset đang thiếu method/months → trước đây bị bỏ qua (skipped). Giờ:
+        1. Backfill luật từ Category qua SoT DUY NHẤT
+           inherit_depreciation_rules_from_category (services/depreciation),
+           save(ignore_permissions=True), đếm vào `inherited`.
+        2. Asset có >=1 kỳ Executed → KHÔNG backfill/regenerate (preserve
+           history) → đếm `skipped_has_history`.
+        3. Asset không có cả luật ở Category (months<=0 hoặc không category) và
+           bản thân chưa cấu hình → `skipped_no_rule` (KHÔNG che lỗi cấu hình).
+      Sau đó sinh schedule cho asset chưa có (force=False) + run_due_depreciation.
+
+    Idempotent: chạy lần 2 trên cùng dataset → inherited=0 (không còn gì thiếu),
+    không tạo schedule trùng (generate_schedule skip khi đã có rows), accumulated
+    của asset đã Executed bất biến.
+
+    Hiệu năng (N+1 fix): 2 phép kiểm tra count trước đây (executed-history +
+    existing-schedule) chạy 2×N frappe.db.count per-asset. Giờ batch-prefetch
+    bằng ĐÚNG 2 query GROUP BY parent chạy MỘT LẦN trước vòng lặp:
+      • executed_parents  — parent có >=1 kỳ status='Executed' (preserve-history).
+      • scheduled_parents — parent đã có >=1 schedule row bất kỳ.
+    Trong loop chỉ còn set lookup O(1) → tổng số query KHÔNG còn phụ thuộc tuyến
+    tính vào N cho 2 phép kiểm tra này.
+
+    Return: {inherited, generated, executed_rows, updated_assets,
+             skipped_has_history, skipped_no_rule}
     """
     _assert_system_admin()
     from assetcore.services import depreciation as depr_svc
 
+    # Đọc sẵn asset_category + field khấu hao hiện có để tránh get_doc thừa cho
+    # asset KHÔNG cần backfill (chỉ get_doc khi thực sự inherit).
     assets = frappe.get_all(
         _DT_ASSET,
         filters={"docstatus": ("!=", 2)},
-        fields=["name", "depreciation_method", "total_depreciation_months",
-                "gross_purchase_amount"],
+        fields=["name", "asset_category", "depreciation_method",
+                "total_depreciation_months", "gross_purchase_amount"],
         limit_page_length=10000,
     )
 
+    inherited = 0
     generated = 0
-    skipped   = 0
+    skipped_has_history = 0
+    skipped_no_rule = 0
+    inherited_assets: list[str] = []
+
+    # ── N+1 fix: batch-prefetch 2 tập (executed-parents + schedule-parents) bằng
+    # ĐÚNG 2 query GROUP BY parent chạy MỘT LẦN trước vòng lặp, thay cho 2×N
+    # frappe.db.count per-asset. Set lookup O(1) trong loop → tổng số query
+    # KHÔNG còn phụ thuộc tuyến tính vào N cho 2 phép kiểm tra count này.
+    #   • executed_parents  → parent có >=1 kỳ status='Executed' (preserve-history).
+    #   • scheduled_parents → parent đã có >=1 schedule row bất kỳ status
+    #     (quyết định có generate_schedule hay không). KHÔNG có row nào được tạo
+    #     trước generate_schedule() nên set chụp-trước-loop là chính xác.
+    executed_parents = {
+        r["parent"] for r in frappe.get_all(
+            "AC Asset Depreciation Schedule",
+            filters={"parenttype": _DT_ASSET, "status": "Executed"},
+            fields=["parent"],
+            group_by="parent",
+        )
+    }
+    scheduled_parents = {
+        r["parent"] for r in frappe.get_all(
+            "AC Asset Depreciation Schedule",
+            filters={"parenttype": _DT_ASSET},
+            fields=["parent"],
+            group_by="parent",
+        )
+    }
+
     for a in assets:
+        name = a["name"]
         method = (a.get("depreciation_method") or "").strip()
         months = int(a.get("total_depreciation_months") or 0)
-        gross  = float(a.get("gross_purchase_amount") or 0)
-        if not method or method == "None" or months <= 0 or gross <= 0:
-            skipped += 1
+        gross = float(a.get("gross_purchase_amount") or 0)
+        configured = bool(method and method != "None" and months > 0 and gross > 0)
+
+        # ── Asset đã có lịch sử Executed → tuyệt đối KHÔNG đụng (preserve) ──────
+        if name in executed_parents:
+            skipped_has_history += 1
             continue
-        existing = frappe.db.count(
-            "AC Asset Depreciation Schedule",
-            {"parent": a["name"], "parenttype": _DT_ASSET},
-        )
-        if existing == 0:
+
+        # ── Asset thiếu luật (method rỗng / months<=0) → thử backfill từ Category ─
+        if not configured and gross > 0:
+            asset_doc = frappe.get_doc(_DT_ASSET, name)
+            did_inherit = depr_svc.inherit_depreciation_rules_from_category(asset_doc)
+            if did_inherit:
+                asset_doc.flags.ignore_links = True
+                asset_doc.flags.ignore_mandatory = True
+                asset_doc.save(ignore_permissions=True)
+                inherited += 1
+                inherited_assets.append(name)
+                # refresh post-backfill state để quyết định generate
+                method = (asset_doc.depreciation_method or "").strip()
+                months = int(asset_doc.total_depreciation_months or 0)
+                configured = bool(method and method != "None" and months > 0 and gross > 0)
+
+        # Vẫn chưa cấu hình được (cả Category cũng thiếu luật, hoặc gross<=0) →
+        # không có gì để sinh → skipped_no_rule (KHÔNG che lỗi cấu hình thật).
+        if not configured:
+            skipped_no_rule += 1
+            continue
+
+        if name not in scheduled_parents:
             try:
-                depr_svc.generate_schedule(a["name"], force=False)
+                depr_svc.generate_schedule(name, force=False)
                 generated += 1
             except Exception:
-                skipped += 1
+                # Sinh thất bại (input bất thường) → coi như không có luật khả dụng.
+                skipped_no_rule += 1
 
     run_res = depr_svc.run_due_depreciation(None)
+
+    # ── Audit trail cho hành động backfill global (CLAUDE.md §5) ───────────────
+    if inherited:
+        _log_compute_all_backfill_audit(inherited, inherited_assets)
+
     return _ok({
-        "generated_schedules": generated,
-        "skipped":             skipped,
+        "inherited":           inherited,
+        "generated":           generated,
         "executed_rows":       run_res.get("executed_rows", 0),
         "updated_assets":      run_res.get("updated_assets", 0),
+        "skipped_has_history": skipped_has_history,
+        "skipped_no_rule":     skipped_no_rule,
     })
+
+
+def _log_compute_all_backfill_audit(inherited: int, assets: list[str]) -> None:
+    """Ghi 1 lifecycle/audit event TỔNG cho lần backfill khấu hao global.
+
+    Best-effort — KHÔNG để lỗi audit chặn payload trả về cho user.
+    """
+    try:
+        from assetcore.services.imm00 import create_lifecycle_event, log_audit_event
+        actor = frappe.session.user or "Administrator"
+        sample = ", ".join(assets[:10])
+        more = f" (+{len(assets) - 10} khác)" if len(assets) > 10 else ""
+        summary = (
+            f"Backfill luật khấu hao từ AC Asset Category cho {inherited} tài sản "
+            f"qua 'Áp dụng khấu hao cho TẤT CẢ tài sản'. Mẫu: {sample}{more}."
+        )
+        for asset_name in assets:
+            # event_type 'depreciation_rules_inherited' = Select option HỢP LỆ
+            # (asset_lifecycle_event.json) → per-asset lifecycle trace của backfill.
+            # Per-asset guard: 1 asset lỗi KHÔNG được làm hỏng audit tổng bên dưới.
+            try:
+                create_lifecycle_event(
+                    asset=asset_name, event_type="depreciation_rules_inherited",
+                    actor=actor, from_status="", to_status="",
+                    root_doctype=_DT_ASSET, root_record=asset_name,
+                    notes="Kế thừa luật khấu hao từ Category (backfill global).",
+                )
+            except Exception:
+                frappe.logger().warning(
+                    f"compute_all backfill lifecycle event failed for {asset_name}")
+        # event_type PHẢI khớp Select options của IMM Audit Trail → 'System'
+        # (governance enum, KHÔNG mở rộng); change_summary mô tả rõ hành động.
+        log_audit_event(
+            asset=assets[0], event_type="System",
+            actor=actor, ref_doctype=_DT_ASSET, ref_name=assets[0],
+            change_summary=summary,
+        )
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "compute_all_depreciation audit failed")

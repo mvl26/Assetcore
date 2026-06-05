@@ -532,11 +532,13 @@ def check_capa_due() -> None:
     SoT: dùng _overdue_capa_filter() (services/imm00) — cùng INVARIANT với KPI/drill/setter.
     """
     from assetcore.services.imm00 import _overdue_capa_filter
+    # SoT fields select MỘT lần — fix RC-ESC-4 (N+1): _escalate_capa đọc
+    # severity/imm_risk_level/escalation_level TỪ row này, KHÔNG db.get_value riêng.
     overdue = frappe.get_all(
         "IMM CAPA Record",
         filters=_overdue_capa_filter(),
-        fields=["name", "responsible", "severity", "due_date",
-                "asset", "description"],
+        fields=["name", "responsible", "severity", "imm_risk_level",
+                "escalation_level", "due_date", "asset", "description"],
     )
     for capa in overdue:
         try:
@@ -613,9 +615,17 @@ def capa_record_validate(doc, method=None) -> None:
     if ws in ("Action Plan", "Implementation", "Verification", "Closed"):
         if not doc.get("imm_root_cause_method"):
             frappe.throw(_("VR-05: Phải chọn phương pháp phân tích root cause."))
-    if doc.status == "Closed" and (doc.workflow_state or "") == "Closed":
-        if not doc.effectiveness_check:
-            frappe.throw(_("VR-06: Effectiveness check chưa hoàn tất."))
+    # BR-00-26 (round 12): cổng hiệu quả SoT — fire khi status=='Closed' BẤT KỂ
+    # workflow_state (bỏ điều kiện kép cũ 'AND workflow_state==Closed' để mọi đường
+    # save-to-Closed: controller UI, set_value submit đều qua cổng). Gọi CÙNG
+    # predicate assert_capa_effectiveness_gate (imm00) — KHÔNG inline literal VR-06/07.
+    if doc.status == "Closed":
+        from assetcore.services.imm00 import assert_capa_effectiveness_gate
+        try:
+            assert_capa_effectiveness_gate(doc)
+        except ServiceError as e:
+            # Controller validate semantics: ServiceError → frappe.throw (rollback save).
+            frappe.throw(e.message)
 
 
 def capa_record_before_submit(doc, method=None) -> None:
@@ -779,13 +789,84 @@ def _compare_values(current: Any, op: str, threshold: Any) -> bool:
     return False
 
 
+# ─── CAPA escalation SoT severity (FIX RC-ESC-2 FIELD-SoT) ───────────────────
+_ESC_RISK_VOCAB = ("Low", "Medium", "High", "Critical")  # thang tier escalation
+
+
+def _severity_to_risk(severity: str | None) -> str:
+    """Normalize field `severity` (Minor/Major/Critical) → thang risk tier.
+    Minor→Low, Major→High, Critical→Critical. Rỗng/lạ → '' (no signal)."""
+    return {"Minor": "Low", "Major": "High", "Critical": "Critical"}.get(
+        (severity or "").strip(), "")
+
+
+def _capa_escalation_severity(row: dict) -> str:
+    """SoT effective-risk cho escalation (FIX RC-ESC-2).
+
+    Ưu tiên imm_risk_level KHI nó là tín hiệu thật (High/Critical); ngược lại
+    (rỗng / default-noise 'Medium' / 'Low') fall back severity-normalized.
+    Trả 1 giá trị trong _ESC_RISK_VOCAB hoặc '' (không escalate).
+    Predicate thuần (KHÔNG I/O) — nhận row đã select trong check_capa_due (fix RC-ESC-4)."""
+    risk = (row.get("imm_risk_level") or "").strip()
+    if risk in ("High", "Critical"):
+        return risk                       # imm_risk_level đã là tín hiệu rõ → tin
+    sev_risk = _severity_to_risk(row.get("severity"))
+    if sev_risk in ("High", "Critical"):
+        return sev_risk                   # severity THẬT vượt imm_risk_level default → dùng
+    # cả 2 đều ≤ Medium → trả mức cao hơn để minh bạch, nhưng vẫn KHÔNG escalate
+    return risk or sev_risk or "Medium"
+
+
 def _escalate_capa(capa: dict) -> None:
+    """Tiered escalation ĐỘC LẬP (FIX RC-ESC-1 TIER) + idempotency (RC-ESC-3).
+
+    Nhận NGUYÊN row từ check_capa_due (severity/imm_risk_level/escalation_level
+    đã select sẵn — fix RC-ESC-4 N+1). Tier KHÔNG if/elif loại trừ:
+    Critical ≥1d→L1, ≥3d→L1+L2; High ≥3d→L2; Medium/Low→none.
+    """
     overdue_days = (getdate(nowdate()) - getdate(capa["due_date"])).days
-    severity = frappe.db.get_value("IMM CAPA Record", capa["name"], "imm_risk_level") or "Medium"
-    if severity == "Critical" and overdue_days >= 1:
-        _send_capa_escalation(capa, level=1)
-    elif severity in ("High", "Critical") and overdue_days >= 3:
-        _send_capa_escalation(capa, level=2)
+    if overdue_days < 1:
+        return                                   # BVA: 0d → no escalate
+    risk = _capa_escalation_severity(capa)        # SoT (FIX RC-ESC-2)
+    already = int(capa.get("escalation_level") or 0)  # tier đã gửi (FIX RC-ESC-3)
+
+    # Tính tier ĐÁNG LẼ phải đạt theo (risk × overdue) — ĐỘC LẬP, không elif
+    target = 0
+    if risk == "Critical":
+        if overdue_days >= 1:
+            target = max(target, 1)              # Critical ≥1d → Level-1
+        if overdue_days >= 3:
+            target = max(target, 2)              # Critical ≥3d → Level-2 (KÈM Level-1)
+    elif risk == "High":
+        if overdue_days >= 3:
+            target = max(target, 2)              # High ≥3d → Level-2 (BVA: High <3d no escalate)
+    # Medium/Low → target = 0 (KHÔNG escalate bất kỳ ngày — BVA)
+
+    # CHỈ gửi các tier MỚI (level > already) → idempotency (FIX RC-ESC-3)
+    for level in range(already + 1, target + 1):
+        _send_capa_escalation(capa, level=level)
+        _record_capa_escalation(capa, level=level)   # 1 audit record/tier (CLAUDE.md §5)
+    if target > already:
+        frappe.db.set_value("IMM CAPA Record", capa["name"],
+                            "escalation_level", target, update_modified=False)
+
+
+def _record_capa_escalation(capa: dict, level: int) -> None:
+    """Ghi 1 IMM Audit Trail/tier escalation (CLAUDE.md §5 'mọi action có record').
+
+    Best-effort — KHÔNG vỡ luồng cron nếu audit chain fail (INV-CAPA-ESC-3)."""
+    try:
+        log_audit_event(
+            asset=capa.get("asset") or "",
+            event_type="CAPA",                  # option hợp lệ sẵn trên IMM Audit Trail
+            actor="Administrator",
+            ref_doctype="IMM CAPA Record", ref_name=capa["name"],
+            change_summary=_("CAPA {0} leo thang Level-{1} (quá hạn)").format(
+                capa["name"], level),
+        )
+    except Exception:
+        frappe.log_error(frappe.get_traceback(),
+                         f"IMM-16 CAPA escalation audit failed: {capa.get('name')}")
 
 
 def _send_capa_escalation(capa: dict, level: int) -> None:
@@ -1693,12 +1774,10 @@ def advance_capa_state(name: str, target_state: str,
                                    "Tất cả action plan rows phải status=Done")
 
     if target_state == "Closed":
-        if not doc.effectiveness_check:
-            raise ServiceError("FIN-007",
-                               "VR-06: effectiveness_check là bắt buộc")
-        if doc.effectiveness_check != "Effective":
-            raise ServiceError("FIN-007",
-                               "VR-07: effectiveness_check phải = 'Effective'")
+        # BR-00-26 (round 12): cổng hiệu quả SoT — gọi CÙNG predicate với close_capa
+        # (legacy) + capa_record_validate. Xoá literal VR-06/VR-07 trùng (1 SoT).
+        from assetcore.services.imm00 import assert_capa_effectiveness_gate
+        assert_capa_effectiveness_gate(doc)
 
     doc.workflow_state = target_state
     if target_state == "Closed":

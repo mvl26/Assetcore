@@ -5,19 +5,21 @@
 # (see .gitignore, R3) so it is visible in the editor yet never committed.
 #
 # Model: ONE shared STATE.md (cross-session carry-forward, read FIRST) +
-#        ONE md file PER SESSION under sessions/ (that session's 🎯 goal, raw
-#        prompt captures, and semantic log). Each session file is keyed by the
-#        Claude session_id, so concurrent sessions never share/clobber a file
-#        and there is no shared mutable pointer to race on.
+#        ONE md file PER SESSION under sessions/<YYYY-MM-DD>/ (that session's
+#        🎯 goal, raw prompt captures, semantic log, AND a full-turn MIRROR
+#        appended by the Stop hook). Each session file is keyed by the Claude
+#        session_id, so concurrent sessions never share/clobber a file and
+#        there is no shared mutable pointer to race on.
 #
 # Subcommands (all hooks receive the hook JSON — incl. session_id — on stdin):
 #   init        Create contexts dir + STATE.md skeleton + sessions/ if missing.
-#   show        Print STATE.md + this session's file (by session_id) or the newest
-#               session file (SessionStart: startup|resume|clear|compact — incl. recovery).
-#   brief       Print the compact STATE excerpt (Blockers/Next/Open) for per-prompt injection.
-#   on-prompt   Append the raw user prompt (stdin .prompt) into THIS session's file,
-#               creating it on first prompt, then print brief (UserPromptSubmit hook).
-#               Compaction-proof: the prompt hits disk before the model runs.
+#   show        Print STATE.md + this session's file (curated part, up to the
+#               mirror anchor) — SessionStart: startup|resume|clear|compact.
+#   brief       Print the compact STATE excerpt for per-prompt injection.
+#   on-prompt   Append the raw user prompt into THIS session's file (creating it
+#               on first prompt), then print brief (UserPromptSubmit hook).
+#   mirror      Append every NEW transcript turn (prompt + Claude reply + tool
+#               calls/results) into THIS session's file (Stop hook). Full-fidelity.
 #   current     Print the path of this session's (or newest) session file.
 #   breadcrumb  Append one mechanical line to this session's file (SessionEnd hook).
 #
@@ -27,7 +29,11 @@ set -euo pipefail
 SESS_DIR="${ASSETCORE_SESS_DIR:-/home/miyano/frappe-bench/apps/assetcore/.claude/contexts}"
 STATE_FILE="$SESS_DIR/STATE.md"
 LOGS_DIR="$SESS_DIR/sessions"
+CURSOR_DIR="$SESS_DIR/.cursors"
 REPO_DIR="/home/miyano/frappe-bench/apps/assetcore"
+MIRROR_PY="$REPO_DIR/.claude/scripts/mirror_transcript.py"
+MIRROR_ANCHOR_RE='^## 🪞 Mirror'
+MIRROR_ANCHOR_HEADER="## 🪞 Mirror (toàn bộ lượt — máy ghi tự động, đọc khi cần truy gốc)"
 
 _branch() { git -C "$REPO_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?'; }
 
@@ -36,9 +42,15 @@ _read_payload() { [ -t 0 ] && return 0; cat 2>/dev/null || true; }
 
 _sid8() { printf '%s' "$(printf '%s' "${1:-}" | jq -r '.session_id // empty' 2>/dev/null || true)" | cut -c1-8; }
 
-# Newest existing file for a given sid8 (empty if none / no sid).
-_file_for_sid() { [[ -n "${1:-}" ]] || return 0; ls -1t "$LOGS_DIR"/*_"$1".md 2>/dev/null | head -n1 || true; }
-_newest_file()  { ls -1t "$LOGS_DIR"/*.md 2>/dev/null | head -n1 || true; }
+# Newest existing file for a given sid8 — searched RECURSIVELY (date subfolders
+# + legacy flat files), so old sessions still resolve. Empty if none / no sid.
+_file_for_sid() {
+  [[ -n "${1:-}" ]] || return 0
+  find "$LOGS_DIR" -type f -name "*_${1}.md" 2>/dev/null | xargs -r ls -1t 2>/dev/null | head -n1 || true
+}
+_newest_file() {
+  find "$LOGS_DIR" -type f -name '*.md' 2>/dev/null | xargs -r ls -1t 2>/dev/null | head -n1 || true
+}
 
 # Resolve which session file to read/touch: this session's (by sid) else newest.
 _resolve_file() {
@@ -48,7 +60,7 @@ _resolve_file() {
 }
 
 ensure_skeleton() {
-  mkdir -p "$LOGS_DIR"
+  mkdir -p "$LOGS_DIR" "$CURSOR_DIR"
   if [[ ! -f "$STATE_FILE" ]]; then
     cat > "$STATE_FILE" <<'EOF'
 ---
@@ -60,7 +72,7 @@ branch: (unknown)
 # AssetCore — Session STATE (cây gậy bàn giao xuyên phiên)
 
 > ĐỌC ĐẦU TIÊN. Luôn là SỰ THẬT HIỆN TẠI (ghi đè, không append).
-> CHỈ chứa thứ CHUYỂN TIẾP sang phiên sau. 🎯 mục tiêu + log nội dung TỪNG phiên → sessions/<file>.md.
+> CHỈ chứa thứ CHUYỂN TIẾP sang phiên sau. 🎯 mục tiêu + log nội dung TỪNG phiên → sessions/<ngày>/<file>.md.
 
 ## 🔴 Blockers / chờ user duyệt
 - (chưa có)
@@ -80,12 +92,14 @@ EOF
   fi
 }
 
-# Create a fresh per-session file with a skeleton; echo its path. Arg1 = session_id.
+# Create a fresh per-session file under today's date folder; echo its path.
+# Arg1 = session_id. Layout: sessions/<YYYY-MM-DD>/<HHMM>_<sid8>.md
 _new_session_file() {
-  local sid ts sid8 file
-  sid="${1:-}"; ts="$(date '+%Y-%m-%d_%H%M')"
+  local sid day hm sid8 dir file
+  sid="${1:-}"; day="$(date '+%Y-%m-%d')"; hm="$(date '+%H%M')"
   sid8="$(printf '%s' "$sid" | cut -c1-8)"; [[ -n "$sid8" ]] || sid8="nosid"
-  file="$LOGS_DIR/${ts}_${sid8}.md"
+  dir="$LOGS_DIR/$day"; mkdir -p "$dir"
+  file="$dir/${hm}_${sid8}.md"
   if [[ ! -f "$file" ]]; then
     cat > "$file" <<EOF
 ---
@@ -104,13 +118,15 @@ branch: $(_branch)
 <!-- raw-capture: prompt mới chèn ngay DƯỚI dòng này, mới nhất trên cùng -->
 
 ## Tiến trình (semantic — Claude bồi: Làm / Quyết định / Để lại)
+
+$MIRROR_ANCHOR_HEADER
 EOF
   fi
   echo "$file"
 }
 
-# Best-effort capture of the raw prompt. MUST NOT break prompt submission, so it is
-# always invoked as `_capture_prompt || true` (which also suspends errexit inside it).
+# Best-effort capture of the raw prompt. MUST NOT break prompt submission, so it
+# is always invoked as `_capture_prompt || true`.
 _capture_prompt() {
   local payload prompt sid sid8 hm line file tmp
   payload="$(_read_payload)"
@@ -132,7 +148,24 @@ _capture_prompt() {
   return 0
 }
 
-cmd_init()    { ensure_skeleton; echo "session store ready: $SESS_DIR (sessions/ per-phiên, keyed by session_id)"; }
+# Mirror every NEW transcript turn into this session's file (Stop hook).
+# Best-effort: never block the stop. Delegates JSON parsing to python.
+_mirror_turns() {
+  local payload sid sid8 tpath file cursor
+  payload="$(_read_payload)"
+  [[ -n "$payload" ]] || return 0
+  tpath="$(printf '%s' "$payload" | jq -r '.transcript_path // empty' 2>/dev/null || true)"
+  [[ -n "$tpath" && -f "$tpath" ]] || return 0
+  sid="$(printf '%s' "$payload" | jq -r '.session_id // empty' 2>/dev/null || true)"
+  sid8="$(printf '%s' "$sid" | cut -c1-8)"; [[ -n "$sid8" ]] || sid8="nosid"
+  file="$(_file_for_sid "$sid8")"
+  [[ -n "$file" ]] || file="$(_new_session_file "$sid")"
+  cursor="$CURSOR_DIR/${sid8}.cursor"
+  python3 "$MIRROR_PY" "$tpath" "$file" "$cursor" 2>/dev/null || true
+  return 0
+}
+
+cmd_init()    { ensure_skeleton; echo "session store ready: $SESS_DIR (sessions/<ngày>/ per-phiên, keyed by session_id)"; }
 cmd_current() { ensure_skeleton; _resolve_file "$(_read_payload)"; }
 
 cmd_show() {
@@ -147,7 +180,12 @@ cmd_show() {
   if [[ -n "$f" ]]; then
     echo ""
     echo "------------- Phiên gần nhất: $(basename "$f") (đọc để tiếp đúng yêu cầu) -------------"
-    cat "$f"
+    # Inject only the CURATED part (🎯 + raw + semantic) — stop at the mirror
+    # anchor so a huge full-turn mirror does not flood every session start.
+    awk -v re="$MIRROR_ANCHOR_RE" '
+      $0 ~ re {print "\n> (Mirror TOÀN BỘ lượt nằm ở cuối file — đọc trực tiếp file khi cần truy gốc đầy đủ.)"; exit}
+      {print}
+    ' "$f"
   fi
 }
 
@@ -167,6 +205,11 @@ cmd_on_prompt() {
   cmd_brief
 }
 
+cmd_mirror() {
+  ensure_skeleton
+  _mirror_turns || true     # full-turn mirror is best-effort; never block stop
+}
+
 cmd_breadcrumb() {
   ensure_skeleton
   local f ts changes head
@@ -183,7 +226,8 @@ case "${1:-}" in
   show)       cmd_show ;;
   brief)      cmd_brief ;;
   on-prompt)  cmd_on_prompt ;;
+  mirror)     cmd_mirror ;;
   current)    cmd_current ;;
   breadcrumb) cmd_breadcrumb ;;
-  *) echo "usage: session-log.sh {init|show|brief|on-prompt|current|breadcrumb}" >&2; exit 2 ;;
+  *) echo "usage: session-log.sh {init|show|brief|on-prompt|mirror|current|breadcrumb}" >&2; exit 2 ;;
 esac

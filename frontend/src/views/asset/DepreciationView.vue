@@ -3,12 +3,14 @@
 // IMM-00 — Asset Finance / Depreciation Hub
 import { ref, computed, onMounted } from 'vue'
 import PageHeader from '@/components/common/PageHeader.vue'
+import BaseModal from '@/components/common/BaseModal.vue'
 import AssetDepreciationSchedule from '@/components/asset/AssetDepreciationSchedule.vue'
 import {
   listAssetsDepreciation, getDepreciationStats,
   computeDepreciation, computeAllDepreciation,
   type AssetDepreciationRow, type DepreciationStats,
   type ListAssetsDepreciationParams,
+  type ComputeAllDepreciationResult,
 } from '@/api/imm00'
 import { translateFrequency, translateDepreciationMethod } from '@/utils/formatters'
 
@@ -41,6 +43,10 @@ const toastOk       = ref(true)
 
 const scheduleOpen   = ref(false)
 const scheduleAsset  = ref<{ name: string; asset_name: string } | null>(null)
+
+// Compute-all: confirm modal (thay window.confirm) + kết quả chi tiết (6 số).
+const computeAllConfirmOpen = ref(false)
+const computeAllResult = ref<ComputeAllDepreciationResult | null>(null)
 
 // ─── Fetch ────────────────────────────────────────────────────────────────────
 async function loadStats() {
@@ -120,19 +126,31 @@ async function computeOne(name: string) {
   } finally { computing.value = null }
 }
 
-async function computeAll() {
-  if (!confirm(`Sinh schedule còn thiếu và chạy các kỳ khấu hao đến hạn cho toàn bộ ${stats.value?.configured_count || 0} thiết bị đã cấu hình?`)) return
+// Mở modal xác nhận (KHÔNG dùng window.confirm — UX nhất quán + testable).
+function openComputeAllConfirm() {
+  computeAllConfirmOpen.value = true
+}
+
+// Xác nhận trong modal → mới gọi API backfill + sinh + chạy kỳ đến hạn.
+async function confirmComputeAll() {
+  computeAllConfirmOpen.value = false
   computingAll.value = true
   try {
     const res = await computeAllDepreciation()
+    computeAllResult.value = res
     showToast(
-      `Sinh mới ${res.generated_schedules} schedule · Chạy ${res.executed_rows} kỳ khấu hao · Cập nhật ${res.updated_assets} thiết bị`,
+      `Kế thừa luật ${res.inherited} TS · Sinh ${res.generated} schedule · ` +
+      `Chạy ${res.executed_rows} kỳ · Cập nhật ${res.updated_assets} TS`,
       true,
     )
     await Promise.all([loadStats(), loadList()])
   } catch (e: unknown) {
     showToast((e as Error).message || 'Lỗi tính khấu hao hàng loạt', false)
   } finally { computingAll.value = false }
+}
+
+function closeComputeAllResult() {
+  computeAllResult.value = null
 }
 
 // ─── Schedule modal ───────────────────────────────────────────────────────────
@@ -189,12 +207,12 @@ onMounted(() => Promise.all([loadStats(), loadList()]))
         <button
           class="btn-primary flex items-center gap-2"
           :disabled="computingAll"
-          @click="computeAll"
+          @click="openComputeAllConfirm"
         >
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
           </svg>
-          {{ computingAll ? 'Đang chạy...' : 'Sinh + chạy kỳ đến hạn' }}
+          {{ computingAll ? 'Đang chạy...' : 'Áp dụng khấu hao cho TẤT CẢ tài sản' }}
         </button>
       </template>
     </PageHeader>
@@ -490,6 +508,63 @@ onMounted(() => Promise.all([loadStats(), loadList()]))
         </div>
       </div>
     </Transition>
+
+    <!-- Confirm modal cho "Áp dụng khấu hao cho TẤT CẢ tài sản" (thay window.confirm) -->
+    <BaseModal
+      v-if="computeAllConfirmOpen"
+      title="Áp dụng khấu hao cho tất cả tài sản"
+      size="md"
+      @close="computeAllConfirmOpen = false"
+    >
+      <p class="text-sm text-slate-600">
+        Hệ thống sẽ kế thừa luật khấu hao từ Danh mục tài sản cho những thiết bị
+        đang thiếu (số tháng / phương pháp / giá trị thu hồi), sinh lịch khấu hao
+        còn thiếu, rồi chạy các kỳ đến hạn. Tài sản đã có kỳ đã thực thi sẽ được
+        giữ nguyên lịch sử.
+      </p>
+      <template #footer>
+        <button class="btn-secondary" @click="computeAllConfirmOpen = false">Huỷ</button>
+        <button class="btn-primary" @click="confirmComputeAll">Xác nhận áp dụng</button>
+      </template>
+    </BaseModal>
+
+    <!-- Kết quả backfill (6 số) -->
+    <BaseModal
+      v-if="computeAllResult"
+      title="Kết quả áp dụng khấu hao"
+      size="md"
+      @close="closeComputeAllResult"
+    >
+      <div class="grid grid-cols-2 gap-3">
+        <div class="rounded-lg border border-slate-200 p-3">
+          <p class="text-xs text-slate-500">Kế thừa luật từ danh mục</p>
+          <p class="text-xl font-bold text-emerald-600" data-testid="result-inherited">{{ computeAllResult.inherited }}</p>
+        </div>
+        <div class="rounded-lg border border-slate-200 p-3">
+          <p class="text-xs text-slate-500">Lịch khấu hao sinh mới</p>
+          <p class="text-xl font-bold text-slate-900" data-testid="result-generated">{{ computeAllResult.generated }}</p>
+        </div>
+        <div class="rounded-lg border border-slate-200 p-3">
+          <p class="text-xs text-slate-500">Kỳ khấu hao đã chạy</p>
+          <p class="text-xl font-bold text-slate-900" data-testid="result-executed">{{ computeAllResult.executed_rows }}</p>
+        </div>
+        <div class="rounded-lg border border-slate-200 p-3">
+          <p class="text-xs text-slate-500">Tài sản được cập nhật</p>
+          <p class="text-xl font-bold text-slate-900" data-testid="result-updated">{{ computeAllResult.updated_assets }}</p>
+        </div>
+        <div class="rounded-lg border border-slate-200 p-3">
+          <p class="text-xs text-slate-500">Bỏ qua — có lịch sử</p>
+          <p class="text-xl font-bold text-amber-600" data-testid="result-skipped-history">{{ computeAllResult.skipped_has_history }}</p>
+        </div>
+        <div class="rounded-lg border border-slate-200 p-3">
+          <p class="text-xs text-slate-500">Bỏ qua — thiếu luật</p>
+          <p class="text-xl font-bold text-rose-600" data-testid="result-skipped-no-rule">{{ computeAllResult.skipped_no_rule }}</p>
+        </div>
+      </div>
+      <template #footer>
+        <button class="btn-primary" @click="closeComputeAllResult">Đóng</button>
+      </template>
+    </BaseModal>
   </div>
 </template>
 

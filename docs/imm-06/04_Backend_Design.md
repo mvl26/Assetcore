@@ -518,6 +518,89 @@ def compute_competency_dates(achieved_date, validity_months: int) -> dict:
 
 ---
 
+## §V.2 SoT — Predicate LIVE "Sắp hết hạn / Đã hết hạn" (BR-06-14)
+
+> **Self-Correction 2026-06-04 (Vòng 20):** lỗi thiết kế gốc — **count-vs-drill divergence**. `get_dashboard_stats` đếm KPI "Sắp hết hạn"/"Đã hết hạn" bằng `frappe.db.count(workflow_state==Expiring/Expired)` (cờ thuần), nhưng drill `get_expiring_competencies` lọc LIVE theo `expiry_date`. Scheduler chỉ stamp `workflow_state=Expiring` đúng mốc 60/30 ngày và `Expired` khi quá hạn (và có thể lỡ phiên) → cờ workflow_state KHÔNG phản ánh đúng thực-tại date-derived → **tile lệch list**, che năng lực hết hạn còn gắn cờ `Active`. Nay chốt **DUY NHẤT 1 predicate LIVE** dùng chung cho KPI count lẫn drill.
+
+**INVARIANT (predicate duy nhất, date-derived, đo bằng `today` runtime):**
+
+```
+EXPIRY_WINDOW_DAYS = 60   # KHỚP default get_expiring_competencies(days=60)
+
+expiring(c) ⟺ c.workflow_state ∈ {Active, Expiring}
+            ∧ c.expiry_date ∈ [today, today + EXPIRY_WINDOW_DAYS]      # window đóng 2 đầu
+
+expired(c)  ⟺ c.workflow_state ∈ {Active, Expiring, Expired}
+            ∧ c.expiry_date < today                                    # quá hạn, gồm cả late-scheduler
+```
+
+- **Revoked / Suspended LOẠI hoàn toàn** (terminal/tạm-ngưng — không bao giờ đếm vào expiring/expired).
+- `expired` gồm cả `workflow_state=Active` (scheduler `auto_expire_competencies` lỡ phiên) → **không undercount cửa-sổ-trễ-scheduler**.
+- `expiring` gồm cả `workflow_state=Active` có `expiry_date` trong 45 ngày (chưa trúng mốc 60/30 nên scheduler chưa stamp `Expiring`) → tile khớp drill.
+
+**Vì sao chọn predicate LIVE thay vì cờ workflow_state:**
+- Cờ `workflow_state` là **trạng-thái-rời-rạc** chỉ đổi tại mốc scheduler (90/60/30/quá-hạn) → trễ pha so với thời gian thực; KPI dashboard phải phản ánh thực-tại NGAY (NĐ98 — operator quá hạn không được hiển thị "Đang hiệu lực").
+- `get_expiring_competencies` **đã** là LIVE date-derived; chốt 1 predicate để **card == drill** (đo được).
+
+**2 helper SoT** (đặt tại `assetcore/services/imm06.py`, type-hinted + docstring, trả `dict` filter dùng cho `frappe.get_all` / `frappe.db.count`):
+
+```python
+EXPIRY_WINDOW_DAYS = 60  # INVARIANT — cửa sổ "sắp hết hạn", KHỚP get_expiring_competencies default
+
+def _expiring_competency_filter() -> dict:
+    """SoT predicate LIVE 'Sắp hết hạn' (BR-06-14).
+
+    expiring(c) ⟺ workflow_state ∈ {Active, Expiring}
+                ∧ expiry_date ∈ [today, today + EXPIRY_WINDOW_DAYS].
+    Dùng CHUNG cho KPI count (get_dashboard_stats) lẫn drill (get_expiring_competencies).
+    KHÔNG đếm theo cờ workflow_state==Expiring thuần.
+    """
+    today = nowdate()
+    return {
+        "workflow_state": ["in", [CompetencyStatus.ACTIVE, CompetencyStatus.EXPIRING]],
+        "expiry_date": ["between", [today, add_days(today, EXPIRY_WINDOW_DAYS)]],
+    }
+
+def _expired_competency_filter() -> dict:
+    """SoT predicate LIVE 'Đã hết hạn' (BR-06-14).
+
+    expired(c) ⟺ workflow_state ∈ {Active, Expiring, Expired}
+               ∧ expiry_date < today (gồm cả late-scheduler vẫn Active).
+    Loại Revoked/Suspended. KHÔNG đếm theo cờ workflow_state==Expired thuần.
+    """
+    return {
+        "workflow_state": ["in", [CompetencyStatus.ACTIVE, CompetencyStatus.EXPIRING,
+                                  CompetencyStatus.EXPIRED]],
+        "expiry_date": ["<", nowdate()],
+    }
+```
+
+**Write-site / read-site phải dùng SoT (delta so với bản trước):**
+
+| # | Site | Trước (lỗi) | Sau (SoT) |
+|---|---|---|---|
+| 1 | `get_dashboard_stats().competencies.expiring` | `_count(workflow_state==Expiring)` | `_count("IMM User Competency", _expiring_competency_filter())` |
+| 2 | `get_dashboard_stats().competencies.expired` | `_count(workflow_state==Expired)` | `_count("IMM User Competency", _expired_competency_filter())` |
+| 3 | `get_expiring_competencies(days)` | filter inline `[Active,Expiring] ∧ between[today, today+days]` | giữ shape; khi `days==EXPIRY_WINDOW_DAYS` filter **bằng** `_expiring_competency_filter()` (parity). Vẫn nhận `days` tham số (drill 90/365) nhưng default = `EXPIRY_WINDOW_DAYS`. |
+
+> **Giữ nguyên `competencies.active`:** KPI `.active` vẫn `_count(workflow_state==Active)` (tổng đang-hiệu-lực theo cờ) — KHÔNG đổi. Chỉ `.expiring` / `.expired` chuyển sang predicate LIVE. (Tránh hiểu nhầm: `.active` và `.expiring` có thể overlap về tập record — `.active` là tổng cờ Active, `.expiring` là tập con date-derived sắp hết hạn; đây là 2 KPI khác mục đích, không yêu cầu disjoint.)
+
+**INVARIANT đo được (acceptance test):**
+
+```
+∀ dataset:  get_dashboard_stats()["competencies"]["expiring"] == len(get_expiring_competencies(EXPIRY_WINDOW_DAYS))
+```
+
+- Năng lực `expiry_date` trong 45 ngày + `workflow_state=Active` (scheduler chưa stamp Expiring) → PHẢI đếm vào `expiring` **và** xuất hiện trong drill.
+- Năng lực `expiry_date < today` + `workflow_state=Active` (scheduler lỡ phiên) → PHẢI đếm vào `expired` (không undercount).
+- Năng lực `workflow_state ∈ {Revoked, Suspended}` → KHÔNG bao giờ đếm vào expiring/expired (kiểm cả 2 phía).
+
+**Scheduler BẤT BIẾN:** `check_expiring_competencies` / `auto_expire_competencies` GIỮ NGUYÊN — vẫn stamp `workflow_state` (phục vụ workflow transition + Alert Log idempotent + email + `_invalidate_auth_cache`). `CompetencyStatus.AUTHORIZED = (Active, Expiring)` và auth-cache gating (`get_asset_operator_coverage`, `check_user_authorization`) BẤT BIẾN — chỉ KPI/drill chuyển sang predicate LIVE.
+
+**No N+1 / no schema migration:** dùng `frappe.db.count(filters)` + `frappe.get_all` 1 query mỗi predicate; `expiry_date` / `days_until_expiry` / `is_expired` đã tồn tại (field #11/#23/#24 §III) — KHÔNG cần migration.
+
+---
+
 ## §V Controller Hooks (lifecycle)
 
 > ✅ Implemented — controllers wire vào `validate`/`before_save`/`on_update` của Program/Session/Competency.

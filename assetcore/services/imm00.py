@@ -3,9 +3,11 @@
 
 Nguyên tắc: controllers chỉ gọi service; business logic tập trung ở đây.
 """
+import secrets
+
 import frappe
 from frappe import _
-from frappe.utils import add_days, nowdate
+from frappe.utils import add_days, flt, getdate, nowdate
 
 from assetcore.utils.lifecycle import (
     log_audit_event as _log_audit_event,
@@ -14,6 +16,7 @@ from assetcore.utils.lifecycle import (
 )
 from assetcore.utils.email import get_role_emails, safe_sendmail
 from assetcore.services.shared import AssetStatus
+from assetcore.services.shared import ServiceError, ErrorCode
 from assetcore.services.shared import rbac
 
 
@@ -85,6 +88,610 @@ def verify_audit_chain(asset: str) -> dict:
 
 
 # ────────────────────────────────────────────
+# QR cấp tài sản (A1 — ADR-001 D1/D3/D5) — 3-tier: pure → service
+# ────────────────────────────────────────────
+# qr_token = khóa tra cứu MỜ (opaque), enumeration-safe (không tuần tự, không
+# đoán được), idempotent (sinh đúng 1 lần, bền), unique (DB UNIQUE). KHÔNG phải
+# định danh nghiệp vụ (đó là name/asset_code/manufacturer_sn). Payload deep-link
+# QR (/a/<token>) — chống liệt kê toàn bộ thiết bị y tế (NĐ98). Controller
+# before_insert CHỈ gọi generate_qr_token (set chuỗi); lifecycle/audit emit ở
+# after_insert / backfill (sau khi asset có name) qua ensure_asset_qr_token.
+
+QR_GENERATED_EVENT = "qr_generated"       # Asset Lifecycle Event.event_type (enum +2)
+QR_REGENERATED_EVENT = "qr_regenerated"   # rotate token bị lộ (B — enum +1)
+
+
+def generate_qr_token() -> str:
+    """Sinh 1 token QR enumeration-safe (PURE — không I/O, không DB).
+
+    ``secrets.token_urlsafe(16)`` → ~22 ký tự URL-safe ``[A-Za-z0-9_-]`` từ
+    CSPRNG → không tuần tự, không đoán được, không chứa định danh nghiệp vụ.
+    Field ``qr_token`` length=32 chứa thừa. 1 LẦN thử, KHÔNG check DB — collision-
+    safety là trách nhiệm của ``generate_unique_qr_token`` (SSoT, §II.1.8-COLL).
+    """
+    return secrets.token_urlsafe(16)
+
+
+_MAX_QR_TOKEN_RETRY = 5  # bounded retry — CSPRNG 128-bit va ~0, vẫn guard UNIQUE
+
+
+def generate_unique_qr_token(exclude: str | None = None) -> str:
+    """SSoT collision-safe (B — BR-00-31): sinh qr_token unique trong toàn bảng.
+
+    Hàm THUẦN token-gen — KHÔNG ghi DB (chỉ đọc qua ``frappe.db.exists`` để
+    pre-check). Loop ``generate_qr_token()`` tối đa ``_MAX_QR_TOKEN_RETRY`` lần tới
+    khi token:
+      (a) ``frappe.db.exists('AC Asset', {'qr_token': token})`` falsy (chưa asset
+          nào dùng — UNIQUE IDX → O(log n), KHÔNG full-scan), VÀ
+      (b) ``token != exclude`` (chặn token cũ khi rotate — rotate trùng cũ = vô
+          nghĩa; ``exclude`` được áp KỂ CẢ khi DB chưa có token cũ).
+
+    Đây là 1 NGUỒN DUY NHẤT cho collision-safety: MỌI đường ghi runtime
+    (``_ensure_qr_token`` before_insert, ``ensure_asset_qr_token``,
+    ``regenerate_asset_qr_token``) + backfill patch ``v3_2/008`` DELEGATE hàm này
+    → caller set token (đã unique) RỒI mới ghi DB ⇒ INSERT/set_value KHÔNG bao giờ
+    đụng UNIQUE ⇒ KHÔNG ``IntegrityError`` thô (HTTP 500) lọt UI/abort INSERT.
+
+    Cạn retry (bất khả với CSPRNG 128-bit, vẫn guard) → ``frappe.throw`` lỗi domain
+    rõ ràng (``frappe.ValidationError`` + message VI sạch qua envelope) — TUYỆT ĐỐI
+    KHÔNG để IntegrityError thô. Bounded → KHÔNG loop vô hạn.
+
+    Args:
+        exclude: token PHẢI khác (rotate truyền token cũ). None = không loại trừ.
+
+    Returns:
+        str: token enumeration-safe, unique trong ``AC Asset.qr_token``, != exclude.
+
+    Raises:
+        frappe.ValidationError: khi cạn ``_MAX_QR_TOKEN_RETRY`` lần vẫn va chạm.
+    """
+    for _attempt in range(_MAX_QR_TOKEN_RETRY):
+        token = generate_qr_token()
+        if exclude is not None and token == exclude:
+            continue
+        if not frappe.db.exists(_DOCTYPE_ASSET, {"qr_token": token}):
+            return token
+    frappe.throw(
+        _("Không sinh được mã QR duy nhất sau nhiều lần thử. Vui lòng thử lại."),
+        title=_("Lỗi sinh mã QR"),
+    )
+
+
+def _emit_qr_event(asset_name: str, event_type: str, summary: str,
+                   actor: str | None = None) -> None:
+    """Best-effort: ghi 1 Asset Lifecycle Event ``event_type`` + 1 IMM Audit Trail.
+
+    Helper DRY cho mọi sự kiện QR cấp tài sản (``qr_generated`` khi sinh mới,
+    ``qr_regenerated`` khi rotate). CLAUDE.md §5 — mọi nghiệp vụ sinh record audit.
+    Bọc try/except RIÊNG cho từng record: lỗi ghi lifecycle/audit KHÔNG được làm
+    vỡ luồng chính (token đã set TRƯỚC khi gọi). root_doctype/root_record trỏ
+    chính AC Asset. Audit dùng option enum CÓ SẴN 'System' (KHÔNG migrate enum IMM
+    Audit Trail). ``summary`` PHẢI mô tả nghiệp vụ — TUYỆT ĐỐI KHÔNG nhúng token
+    thô (leak-safe audit, BR-00-SEC).
+    """
+    actor = actor or frappe.session.user
+    try:
+        create_lifecycle_event(
+            asset=asset_name, event_type=event_type, actor=actor,
+            from_status="", to_status="",
+            root_doctype=_DOCTYPE_ASSET, root_record=asset_name,
+            notes=summary,
+        )
+    except Exception:
+        frappe.log_error(frappe.get_traceback(),
+                         f"_emit_qr_event({event_type}) lifecycle event failed")
+    try:
+        log_audit_event(
+            asset=asset_name, event_type="System", actor=actor,
+            ref_doctype=_DOCTYPE_ASSET, ref_name=asset_name,
+            change_summary=summary,
+        )
+    except Exception:
+        frappe.log_error(frappe.get_traceback(),
+                         f"_emit_qr_event({event_type}) audit trail failed")
+
+
+def emit_qr_generated(asset_name: str, token: str,
+                      actor: str | None = None) -> None:
+    """Best-effort: ghi 1 ``qr_generated`` lifecycle + 1 IMM Audit Trail.
+
+    Thin wrapper quanh ``_emit_qr_event`` (DRY). ``token`` KHÔNG ghi vào audit/
+    notes (leak-safe — chỉ giữ chữ ký tương thích caller A1).
+    """
+    _emit_qr_event(asset_name, QR_GENERATED_EVENT,
+                   "Sinh mã QR cấp tài sản (qr_token).", actor=actor)
+
+
+def emit_qr_regenerated(asset_name: str, actor: str | None = None) -> None:
+    """Best-effort: ghi 1 ``qr_regenerated`` lifecycle + 1 IMM Audit Trail (B).
+
+    Sự kiện rotate token QR (vô hiệu hoá nhãn đã in/lộ + cấp token mới). DRY qua
+    ``_emit_qr_event``. change_summary nêu rotate, KHÔNG log token thô (leak-safe).
+    """
+    _emit_qr_event(
+        asset_name, QR_REGENERATED_EVENT,
+        "Cấp lại mã QR cấp tài sản (rotate qr_token — vô hiệu hoá nhãn cũ).",
+        actor=actor)
+
+
+def ensure_asset_qr_token(asset, actor: str | None = None) -> str:
+    """SERVICE (idempotent): đảm bảo asset có ``qr_token`` + emit lifecycle/audit.
+
+    Nhận doc (``frappe.model.document.Document``) HOẶC tên asset (str). IF-EMPTY:
+      - Đã có token → NO-OP (trả token hiện có, KHÔNG emit lần 2 — bền/idempotent).
+      - Chưa có → sinh ``generate_unique_qr_token()`` (SSoT collision-safe, B —
+        BR-00-31), ghi DB (set_value, KHÔNG bump modified), emit ``qr_generated``
+        lifecycle + audit (best-effort).
+
+    Idempotent — gọi 2 lần liên tiếp trả CÙNG token, chỉ sinh + emit 1 lần
+    (acceptance A1). Dùng ở backfill patch + (gián tiếp) sau insert.
+    """
+    if isinstance(asset, str):
+        asset_name = asset
+        existing = frappe.db.get_value(_DOCTYPE_ASSET, asset_name, "qr_token")
+    else:
+        asset_name = asset.name
+        existing = asset.get("qr_token")
+
+    if existing:
+        return existing
+
+    # Collision-safe (B — BR-00-31): SSoT generate_unique_qr_token (pre-write
+    # check) → set_value KHÔNG đụng UNIQUE. Nhánh idempotent if-existing ở trên
+    # KHÔNG gọi helper (đã có token → no-op, KHÔNG emit lần 2).
+    token = generate_unique_qr_token()
+    frappe.db.set_value(_DOCTYPE_ASSET, asset_name, "qr_token", token,
+                        update_modified=False)
+    if not isinstance(asset, str):
+        asset.qr_token = token
+    emit_qr_generated(asset_name, token, actor=actor)
+    return token
+
+
+def regenerate_asset_qr_token(asset_name: str, actor: str | None = None) -> str:
+    """SERVICE (B — rotate): vô hiệu hoá qr_token bị lộ + cấp token MỚI.
+
+    KHÁC ``ensure_asset_qr_token`` (idempotent — KHÔNG overwrite token có sẵn):
+    rotate luôn GHI ĐÈ ``qr_token`` bằng token mới enumeration-safe
+    (``generate_qr_token``), bảo đảm token mới != token cũ (loop nếu va — xác suất
+    ~0 với CSPRNG 128-bit nhưng giữ bất biến). Ghi DB ``update_modified=False``
+    (KHÔNG bump ``modified`` — đồng nhất A1, không nhiễu optimistic-lock). Token CŨ
+    sau rotate KHÔNG còn resolve (UNIQUE field bị overwrite) → mọi nhãn QR đã in
+    vô hiệu. Emit ``qr_regenerated`` lifecycle + audit (best-effort, KHÔNG log
+    token thô). RBAC/IDOR/validate-tồn-tại do API tier xử lý TRƯỚC.
+
+    Trả token MỚI (str). Caller (API) dựng ``qr_url`` từ token này → nhãn/print
+    deep-link phản ánh token mới (BR-00-28).
+    """
+    old = frappe.db.get_value(_DOCTYPE_ASSET, asset_name, "qr_token")
+    # Collision-safe rotate (B — BR-00-31): 1 SSoT generate_unique_qr_token guard
+    # CẢ token cũ (exclude=old → rotate phải đổi) CẢ token asset KHÁC (UNIQUE) trong
+    # 1 vòng → thay vòng `while new == old` cũ (chỉ guard token cũ, hở UNIQUE).
+    token = generate_unique_qr_token(exclude=old)
+    frappe.db.set_value(_DOCTYPE_ASSET, asset_name, "qr_token", token,
+                        update_modified=False)
+    emit_qr_regenerated(asset_name, actor=actor)
+    return token
+
+
+def resolve_qr_token(token: str) -> dict | None:
+    """SERVICE (A2 — ADR-001 D4): tra token QR → payload tối thiểu của asset.
+
+    PURE-ish lookup (chỉ đọc DB, KHÔNG ghi — read-only nên KHÔNG audit, chống spam
+    chain mỗi lần quét). Trả ``None`` khi:
+      - token rỗng/None (guard — KHÔNG query toàn bảng, chống full-scan + leak),
+      - không có asset nào khớp ``qr_token`` (404 leak-safe — KHÔNG phân biệt
+        "token sai định dạng" vs "không tồn tại"; KHÔNG nhánh thời gian rõ rệt).
+
+    Khớp qua field ``qr_token`` (DB UNIQUE index → O(log n), KHÔNG full-scan).
+    Payload tối thiểu cho deep-link màn info (A6/V7): name + asset_code +
+    lifecycle_status + device_model_name + location_name. Gate quyền + IDOR do
+    API tier xử lý (require('asset.read') + assert_vendor_can_access) — service
+    chỉ lookup, KHÔNG quyết định quyền.
+    """
+    # Guard: token rỗng/None → None NGAY (không đụng DB → không full-scan/leak).
+    if not token or not isinstance(token, str):
+        return None
+    name = frappe.db.get_value(_DOCTYPE_ASSET, {"qr_token": token}, "name")
+    if not name:
+        return None
+    row = frappe.db.get_value(
+        _DOCTYPE_ASSET, name,
+        ["name", "asset_code", "lifecycle_status", "device_model", "location"],
+        as_dict=True,
+    ) or {}
+    return {
+        "name": row.get("name"),
+        "asset_code": row.get("asset_code") or "",
+        "lifecycle_status": row.get("lifecycle_status") or "",
+        "device_model_name": (
+            frappe.db.get_value("IMM Device Model", row["device_model"], "model_name")
+            if row.get("device_model") else ""
+        ) or "",
+        "location_name": (
+            frappe.db.get_value("AC Location", row["location"], "location_name")
+            if row.get("location") else ""
+        ) or "",
+    }
+
+
+# ────────────────────────────────────────────
+# A6 — Màn THÔNG TIN thiết bị mobile-first khi quét QR (deep-link landing)
+# ────────────────────────────────────────────
+# event_type ∈ tập "bảo trì" để lấy sự kiện bảo trì GẦN NHẤT (loại + ngày) cho
+# màn info. Khớp enum Asset Lifecycle Event.event_type (KHÔNG migrate enum):
+# pm_completed/repair_completed/calibration_passed = mốc hoàn thành; pm_started/
+# calibration_started = đang thực hiện. Đủ phủ "loại sự kiện bảo trì gần nhất".
+_MAINTENANCE_EVENT_TYPES: tuple[str, ...] = (
+    "pm_completed", "repair_completed", "calibration_passed",
+    "pm_started", "calibration_started",
+)
+
+
+# Trạng thái "ngừng dùng vĩnh viễn" (BR-00-36): thiết bị KHÔNG còn phải bảo trì →
+# KHÔNG gắn cờ PM quá hạn dù next_pm_date quá khứ (false alarm). SSoT 1 CHỖ DUY NHẤT =
+# AssetStatus.BLOCKED_FOR_WO = ("Out of Service", "Decommissioned") (constants.py:98).
+# KHÔNG literal status-string (chống drift); KHÔNG có status "Retired" riêng trong enum
+# AssetCore → acceptance "retired/decommissioned/ngừng-vĩnh-viễn" map về 2 mã này.
+_PM_OVERDUE_EXEMPT_STATUSES: frozenset[str] = frozenset(_BLOCKED_STATUSES)
+
+
+def _is_pm_overdue(next_pm_date, lifecycle_status: str | None) -> bool:
+    """Derive cờ PM quá hạn SERVER-SIDE (timezone-safe) — SSoT overdue ở BE (BR-00-36).
+
+    True ⟺ ``next_pm_date`` không rỗng ∧ ``getdate(next_pm_date) < getdate(nowdate())``
+    (STRICT ``<`` theo NGÀY server, KHÔNG client clock — hôm nay CHƯA quá hạn) ∧
+    ``lifecycle_status`` KHÔNG thuộc ``_PM_OVERDUE_EXEMPT_STATUSES`` (= ``BLOCKED_FOR_WO``).
+    Mọi nhánh khác (date NULL, hôm nay/tương lai, thiết bị ngừng-dùng) → False.
+    KHÔNG side-effect (read-only). FE CHỈ render cờ — KHÔNG so ngày client.
+    """
+    if not next_pm_date:
+        return False
+    if (lifecycle_status or "") in _PM_OVERDUE_EXEMPT_STATUSES:
+        return False
+    return getdate(next_pm_date) < getdate(nowdate())
+
+
+def _is_calibration_overdue(next_calibration_date, lifecycle_status: str | None) -> bool:
+    """Derive cờ HIỆU CHUẨN quá hạn SERVER-SIDE (timezone-safe) — SSoT overdue ở BE
+    (FR-00-86 / BR-00-37). Song song hoàn toàn với ``_is_pm_overdue`` (chiều PM).
+
+    True ⟺ ``next_calibration_date`` không rỗng ∧
+    ``getdate(next_calibration_date) < getdate(nowdate())`` (STRICT ``<`` theo NGÀY
+    server, KHÔNG client clock — hôm nay CHƯA quá hạn) ∧ ``lifecycle_status`` KHÔNG
+    thuộc ``_PM_OVERDUE_EXEMPT_STATUSES`` (= ``BLOCKED_FOR_WO`` — Out of Service /
+    Decommissioned: thiết bị ngừng dùng KHÔNG còn phải hiệu chuẩn).
+    Mọi nhánh khác (date NULL/rỗng, hôm nay/tương lai, thiết bị ngừng-dùng) → False.
+    KHÔNG side-effect (read-only). FE CHỈ render cờ — KHÔNG so ngày client.
+    """
+    if not next_calibration_date:
+        return False
+    if (lifecycle_status or "") in _PM_OVERDUE_EXEMPT_STATUSES:
+        return False
+    return getdate(next_calibration_date) < getdate(nowdate())
+
+
+def _date_str_or_none(value) -> str | None:
+    """Chuẩn hoá ngày → 'YYYY-MM-DD' str (rỗng/None → None) — contract FR-00-86.
+
+    Date field từ ``frappe.db.get_value`` trả ``datetime.date`` object; payload
+    scan-info cam kết ``str|None`` để FE ``formatDate`` (new Date(d)) parse được
+    đồng nhất với chuỗi ISO. Rỗng/None → ``None`` (FE hiển thị 'Chưa lên lịch').
+    """
+    if not value:
+        return None
+    return getdate(value).strftime("%Y-%m-%d")
+
+
+def _recent_maintenance_event(asset_name: str) -> dict | None:
+    """Sự kiện bảo trì GẦN NHẤT của asset (loại + ngày) — READ-ONLY, KHÔNG N+1.
+
+    1 truy vấn giới hạn ``ORDER BY timestamp DESC LIMIT 1`` trên Asset Lifecycle
+    Event lọc ``event_type ∈ _MAINTENANCE_EVENT_TYPES`` (KHÔNG load toàn timeline).
+    Trả ``{"event_type", "date"}`` hoặc ``None`` khi asset chưa có sự kiện bảo trì.
+    """
+    rows = frappe.get_all(
+        "Asset Lifecycle Event",
+        filters={"asset": asset_name,
+                 "event_type": ("in", _MAINTENANCE_EVENT_TYPES)},
+        fields=["event_type", "timestamp"],
+        order_by="timestamp desc",
+        limit=1,
+    )
+    if not rows:
+        return None
+    ev = rows[0]
+    return {"event_type": ev.get("event_type"), "date": ev.get("timestamp")}
+
+
+def build_asset_scan_info(asset_name: str) -> dict | None:
+    """SERVICE (A6): payload màn info mobile-first khi quét QR — READ-ONLY.
+
+    Mở rộng payload A2 (name/asset_code/lifecycle_status/device_model_name/
+    location_name) + ``asset_name`` + bảo trì gần nhất (``recent_maintenance``:
+    loại + ngày, ``ORDER BY timestamp DESC LIMIT 1`` — KHÔNG N+1) + ``next_pm_date``
+    (field AC Asset đã có) + ``pm_overdue`` (bool, cờ PM quá hạn derive SERVER-SIDE
+    qua ``_is_pm_overdue`` — timezone-safe; FE CHỈ render cờ, KHÔNG so ngày client)
+    + ``next_calibration_date`` (field AC Asset đã có) + ``calibration_overdue``
+    (bool, cờ HIỆU CHUẨN quá hạn derive SERVER-SIDE qua ``_is_calibration_overdue``
+    — FR-00-86/BR-00-37, song song pm_overdue).
+    ``lifecycle_status`` trả MÃ CANONICAL (FE dịch nhãn VI qua SSoT
+    ``LIFECYCLE_STATUS_LABEL`` — KHÔNG đính literal VI ở BE).
+
+    KHÔNG trả field nhạy cảm (giá mua, khấu hao, audit chain, supplier code nội bộ).
+    KHÔNG emit lifecycle/audit (đồng nhất quyết định A2 — chống spam chain mỗi lần
+    quét). Guard ``asset_name`` rỗng → ``None`` (KHÔNG query toàn bảng). Gate quyền
+    + IDOR do API tier xử lý (require('asset.read') + assert_vendor_can_access).
+    """
+    if not asset_name or not isinstance(asset_name, str):
+        return None
+    row = frappe.db.get_value(
+        _DOCTYPE_ASSET, asset_name,
+        ["name", "asset_code", "asset_name", "lifecycle_status",
+         "device_model", "location", "next_pm_date", "next_calibration_date"],
+        as_dict=True,
+    )
+    if not row:
+        return None
+    return {
+        "name": row.get("name"),
+        "asset_code": row.get("asset_code") or "",
+        "asset_name": row.get("asset_name") or "",
+        "lifecycle_status": row.get("lifecycle_status") or "",
+        "device_model_name": (
+            frappe.db.get_value("IMM Device Model", row["device_model"], "model_name")
+            if row.get("device_model") else ""
+        ) or "",
+        "location_name": (
+            frappe.db.get_value("AC Location", row["location"], "location_name")
+            if row.get("location") else ""
+        ) or "",
+        "next_pm_date": row.get("next_pm_date") or None,
+        # str|None theo contract FR-00-86: Date field từ get_value trả date object →
+        # chuẩn hoá về 'YYYY-MM-DD' (rỗng → None) để FE formatDate parse được.
+        "next_calibration_date": _date_str_or_none(row.get("next_calibration_date")),
+        "recent_maintenance": _recent_maintenance_event(asset_name),
+        # Cờ PM quá hạn derive SERVER-SIDE (timezone-safe). FE CHỈ render cờ này —
+        # KHÔNG tự so ngày client (chống lệch timezone giữa máy quét & server).
+        "pm_overdue": _is_pm_overdue(
+            row.get("next_pm_date"), row.get("lifecycle_status")
+        ),
+        # Cờ HIỆU CHUẨN quá hạn (FR-00-86/BR-00-37) derive SERVER-SIDE, song song
+        # pm_overdue. FE CHỈ render cờ — KHÔNG so ngày client.
+        "calibration_overdue": _is_calibration_overdue(
+            row.get("next_calibration_date"), row.get("lifecycle_status")
+        ),
+    }
+
+
+# ────────────────────────────────────────────
+# A3 — Dữ liệu in nhãn QR + sự kiện in (ADR-001 D3)
+# ────────────────────────────────────────────
+
+LABEL_PRINTED_EVENT = "label_printed"   # Asset Lifecycle Event.event_type (enum)
+# Mã lỗi entry batch (CHỐT Core Doc 05 §III.1) — asset không tồn tại trong list.
+# Literal "AC-E001" theo spec FE-contract (KHÔNG dùng ErrorCode.NOT_FOUND='NOT_FOUND').
+_BATCH_ERR_NOT_FOUND = "AC-E001"
+
+# Vòng B (hardening / BR-00-33) — CAP số asset / 1 request nhãn QR hàng loạt.
+# RC: get_asset_label_data_batch + mark_label_printed parse `assets`→list KHÔNG có
+# cap trên ⇒ 1 request truyền N (vô hạn) name → batch-read loop exists/IDOR per-name
+# + mark ghi 2 record (ALE label_printed + IMM Audit Trail) PER asset trong 1
+# transaction → per-request payload-DoS (KHÁC rate-limit V12 = req/phút). SSoT DUY
+# NHẤT: CẢ HAI endpoint tham chiếu hằng này (KHÔNG literal 200 lặp ở API layer).
+# Vượt cap → API trả _err(_ERR_BATCH_TOO_LARGE, 413) (bucket RIÊNG, KHÔNG 404/403/429),
+# SAU rbac.require('asset.write') (chỉ user đã-auth-write mới tới — không lộ giới hạn
+# cho khách). KHÔNG cap mới (CAP_SET_VERSION GIỮ v95.3388ee5629c1). Xem ADR-001 §B.
+_MAX_LABEL_BATCH = 200
+# Message VI cố định cho 413 — nêu giới hạn, KHÔNG leak asset name nào.
+_ERR_BATCH_TOO_LARGE = (
+    f"Chỉ in tối đa {_MAX_LABEL_BATCH} nhãn mỗi lần. Vui lòng chọn ít hơn."
+)
+
+
+# Base-URL deep-link QR — host CÔNG KHAI cấu hình được (B / ADR-001 D2).
+# RC: ``get_url`` resolve host nội bộ (vd http://miyano/a/<token>) → camera điện
+# thoại thật KHÔNG mở được (P2 blocker eval Vòng 4/9/10). site_config key MỚI cho
+# phép trỏ host công khai (vd https://htm.benhvien.vn) mà KHÔNG hardcode.
+_QR_BASE_URL_CONF_KEY = "assetcore_qr_base_url"
+_qr_base_url_warned = False  # log cảnh báo config sai 1 lần (KHÔNG spam log/in tem)
+
+
+def _qr_base_url() -> str | None:
+    """Base-URL deep-link công khai từ site_config — None khi vắng/sai (B / D2).
+
+    Đọc ``frappe.conf`` (config-time, KHÔNG đụng frappe.db → an toàn cả khi
+    no-request/build nhãn batch). Hợp lệ hoá ở 1 CHỖ DUY NHẤT:
+      - strip whitespace + dấu ``/`` thừa cuối,
+      - chỉ chấp nhận scheme ``http``/``https``,
+      - REJECT nếu có path/params/query/fragment hoặc khoảng trắng (tránh
+        base-URL lồng ``/a/...`` → token bị nhân đôi/inject).
+    Cấu hình sai → log ``warning`` ĐÚNG 1 LẦN + trả ``None`` (caller fallback
+    ``get_url`` — KHÔNG ném lỗi làm gãy in tem). Vắng/rỗng → ``None`` lặng lẽ
+    (fallback get_url là hành vi cũ, KHÔNG vỡ dev/test).
+    """
+    global _qr_base_url_warned
+    raw = frappe.conf.get(_QR_BASE_URL_CONF_KEY)
+    if not raw or not isinstance(raw, str):
+        return None
+    base = raw.strip()
+    if not base:
+        return None
+    # Khoảng trắng giữa chuỗi → URL không hợp lệ → reject.
+    if any(c.isspace() for c in base):
+        return _qr_base_url_reject(base)
+    base = base.rstrip("/")
+    from urllib.parse import urlsplit
+    parts = urlsplit(base)
+    # Scheme bắt buộc http/https; netloc bắt buộc; KHÔNG path/query/fragment.
+    if (parts.scheme not in ("http", "https") or not parts.netloc
+            or parts.path or parts.query or parts.fragment):
+        return _qr_base_url_reject(base)
+    return f"{parts.scheme}://{parts.netloc}"
+
+
+def _qr_base_url_reject(base: str) -> None:
+    """Log cảnh báo base-URL sai ĐÚNG 1 LẦN rồi trả None (helper nội bộ)."""
+    global _qr_base_url_warned
+    if not _qr_base_url_warned:
+        frappe.logger().warning(
+            f"[imm00] site_config '{_QR_BASE_URL_CONF_KEY}' không hợp lệ "
+            f"(yêu cầu scheme http/https, không path/query/fragment): {base!r} "
+            f"→ fallback frappe.utils.get_url('/a/<token>')."
+        )
+        _qr_base_url_warned = True
+    return None
+
+
+def _build_qr_url(token: str) -> str:
+    """Dựng deep-link URL tuyệt đối ``/a/<token>`` — 1 SSoT cho mọi consumer.
+
+    Thứ tự ưu tiên: **site_config ``assetcore_qr_base_url`` (host công khai) →
+    fallback ``frappe.utils.get_url``**. Khi key hợp lệ (đã validate ở
+    ``_qr_base_url``) → ``f'{base}/a/{token}'`` (đúng 1 dấu ``/`` nối, base đã
+    strip trailing slash). Key vắng/rỗng/sai → ``get_url(f'/a/{token}')`` (hành
+    vi cũ — KHÔNG vỡ dev/test). token urlsafe (``secrets.token_urlsafe`` →
+    [A-Za-z0-9_-]) nối THẲNG sau ``/a/`` → KHÔNG bao giờ bị URL-mangle. token
+    PHẢI khác rỗng (caller đảm bảo qua ``ensure_asset_qr_token`` — BR-00-28).
+    """
+    base = _qr_base_url()
+    if base:
+        return f"{base}/a/{token}"
+    return frappe.utils.get_url(f"/a/{token}")
+
+
+def build_asset_label_data(asset_name: str) -> dict:
+    """SERVICE (A3 — D3): payload nhãn QR cho 1 asset (READ-ONLY về print event).
+
+    Trả 6 field: name, asset_code, device_model_name, location_name,
+    lifecycle_status, qr_url. Token-less asset → ``ensure_asset_qr_token``
+    (idempotent — emit ``qr_generated`` 1 lần, KHÔNG phải print event) TRƯỚC khi
+    build ``qr_url`` → ``qr_url`` KHÔNG BAO GIỜ rỗng (BR-00-28). **KHÔNG emit
+    ``label_printed``** (preview nhãn ≠ in nhãn; sự kiện in chỉ ghi ở
+    ``mark_label_printed`` — tránh spam audit chain). Gate quyền + IDOR do API
+    tier xử lý.
+    """
+    row = frappe.db.get_value(
+        _DOCTYPE_ASSET, asset_name,
+        ["name", "asset_code", "lifecycle_status", "device_model", "location",
+         "qr_token"],
+        as_dict=True,
+    ) or {}
+    token = row.get("qr_token") or ensure_asset_qr_token(asset_name)
+    return {
+        "name": row.get("name"),
+        "asset_code": row.get("asset_code") or "",
+        "device_model_name": (
+            frappe.db.get_value("IMM Device Model", row["device_model"], "model_name")
+            if row.get("device_model") else ""
+        ) or "",
+        "location_name": (
+            frappe.db.get_value("AC Location", row["location"], "location_name")
+            if row.get("location") else ""
+        ) or "",
+        "lifecycle_status": row.get("lifecycle_status") or "",
+        "qr_url": _build_qr_url(token),
+    }
+
+
+def build_asset_label_data_batch(names: list[str]) -> list[dict]:
+    """SERVICE (A3 — D3): payload nhãn QR hàng loạt — 1 truy vấn gộp, KHÔNG N+1.
+
+    - 1 query gộp lấy MỌI asset (``name IN names``) → map theo name.
+    - 2 IN-query gộp resolve ``device_model``→model_name + ``location``→location_name
+      (KHÔNG loop ``get_value`` mỗi asset).
+    - Token-less asset → ``ensure_asset_qr_token`` CHỈ cho asset thực sự thiếu
+      (giữ "KHÔNG N+1" cho lookup hiển thị; thường 0 sau backfill D5).
+    - Trả theo ĐÚNG thứ tự ``names``; name không có row →
+      ``{"name": n, "error": "AC-E001"}`` tại đúng index (KHÔNG drop, KHÔNG leak).
+    """
+    if not names:
+        return []
+
+    rows = frappe.get_all(
+        _DOCTYPE_ASSET,
+        filters={"name": ["in", list(names)]},
+        fields=["name", "asset_code", "lifecycle_status", "device_model",
+                "location", "qr_token"],
+    )
+    by_name = {r["name"]: r for r in rows}
+
+    # 2 IN-query gộp → dict lookup (KHÔNG N+1).
+    model_ids = list({r["device_model"] for r in rows if r.get("device_model")})
+    loc_ids = list({r["location"] for r in rows if r.get("location")})
+    model_map: dict[str, str] = {}
+    loc_map: dict[str, str] = {}
+    if model_ids:
+        model_map = {
+            m["name"]: m["model_name"]
+            for m in frappe.get_all(
+                "IMM Device Model", filters={"name": ["in", model_ids]},
+                fields=["name", "model_name"])
+        }
+    if loc_ids:
+        loc_map = {
+            l["name"]: l["location_name"]
+            for l in frappe.get_all(
+                "AC Location", filters={"name": ["in", loc_ids]},
+                fields=["name", "location_name"])
+        }
+
+    out: list[dict] = []
+    for n in names:
+        row = by_name.get(n)
+        if not row:
+            out.append({"name": n, "error": _BATCH_ERR_NOT_FOUND})
+            continue
+        token = row.get("qr_token") or ensure_asset_qr_token(n)
+        out.append({
+            "name": row["name"],
+            "asset_code": row.get("asset_code") or "",
+            "device_model_name": model_map.get(row.get("device_model"), "") or "",
+            "location_name": loc_map.get(row.get("location"), "") or "",
+            "lifecycle_status": row.get("lifecycle_status") or "",
+            "qr_url": _build_qr_url(token),
+        })
+    return out
+
+
+def emit_label_printed(asset_name: str, actor: str | None = None) -> None:
+    """SERVICE (A3 — D3): ghi 1 ``label_printed`` lifecycle + 1 IMM Audit Trail.
+
+    Sự kiện in nhãn (NĐ98 — truy xuất tem). Khác ``emit_qr_generated``
+    (best-effort): in nhãn là sự kiện nghiệp vụ all-or-nothing → **KHÔNG nuốt
+    lỗi** (lỗi ghi event → propagate → caller rollback/422-500, tránh audit chain
+    lệch). root_doctype/root_record trỏ chính AC Asset. Audit dùng option enum
+    CÓ SẴN 'System'.
+    """
+    actor = actor or frappe.session.user
+    create_lifecycle_event(
+        asset=asset_name, event_type=LABEL_PRINTED_EVENT, actor=actor,
+        from_status="", to_status="",
+        root_doctype=_DOCTYPE_ASSET, root_record=asset_name,
+        notes="In nhãn QR cấp tài sản.",
+    )
+    log_audit_event(
+        asset=asset_name, event_type="System", actor=actor,
+        ref_doctype=_DOCTYPE_ASSET, ref_name=asset_name,
+        change_summary="In nhãn QR cấp tài sản.",
+    )
+
+
+def mark_label_printed(assets: list[str], actor: str | None = None) -> dict:
+    """SERVICE (A3 — D3): ghi sự kiện in cho từng asset (1 event / asset / lần in).
+
+    Loop ``ensure_asset_qr_token`` (đảm bảo có token để in được) + ``emit_label_printed``.
+    Validate tồn tại + RBAC + IDOR do API tier xử lý TRƯỚC (all-or-nothing). Gọi N
+    lần in → N×len event (mỗi lần in = 1 event, đúng nghiệp vụ — KHÔNG dedup).
+    """
+    actor = actor or frappe.session.user
+    for n in assets:
+        ensure_asset_qr_token(n, actor=actor)
+        emit_label_printed(n, actor=actor)
+    return {"printed": list(assets), "event_count": len(assets)}
+
+
+# ────────────────────────────────────────────
 # Asset status transitions (BR-00-02, 04, 05, 10)
 # ────────────────────────────────────────────
 
@@ -132,11 +739,20 @@ def transition_asset_status(
             f"đưa thiết bị về 'Active' trước khi thanh lý."
         )
 
+    # IMM-14 GATE (BR-14-W2-01): mọi đường vào Decommissioned PHẢI có 1 'Asset
+    # Decommission' record đã duyệt (docstatus=1) trỏ đúng asset. Closure tự
+    # truyền root_doctype="Asset Decommission" + root_record để qua gate khi
+    # đang submit. Mọi đường khác (set tay/đường nghiệp vụ cũ) → raise, giữ
+    # nguyên lifecycle_status. Lazy-import tránh circular import lúc bench start.
+    if to_status == _STATUS_DECOMMISSIONED:
+        from assetcore.services.imm14 import assert_decommission_gate
+        assert_decommission_gate(asset_name, root_record=root_record)
+
     frappe.db.set_value(_DOCTYPE_ASSET, asset_name, "lifecycle_status", to_status)
 
     create_lifecycle_event(
         asset=asset_name,
-        event_type=_lifecycle_event_for(to_status),
+        event_type=_lifecycle_event_for(to_status, prev_status),
         actor=actor or frappe.session.user,
         from_status=prev_status,
         to_status=to_status,
@@ -162,6 +778,23 @@ def transition_asset_status(
 
     if to_status == _STATUS_DECOMMISSIONED:
         _suspend_all_schedules(asset_name)
+        cancelled = _cancel_pending_depreciation(asset_name)
+        if cancelled >= 1:
+            _record_depreciation_stopped(asset_name, cancelled, actor=actor)
+
+    # ── BR-00-25 (RC-08): PAUSE khấu hao khi vào Out of Service ───────────────
+    # PAUSE thực thi bởi filter executor (run_due_depreciation exclude
+    # 'Out of Service' — depreciation.py:422); ở đây CHỈ ghi audit pause.
+    elif to_status == _STATUS_OUT_OF_SERVICE:
+        _pause_depreciation_on_oos(asset_name, actor=actor)         # best-effort
+
+    # ── BR-00-25 (RC-08): RESCHEDULE khi khôi phục Out of Service → Active ────
+    # Dùng prev_status (đọc đầu hàm) để CHỈ dời lịch khi Active đến TỪ Out of
+    # Service — KHÔNG dời khi Active đến từ Under Repair/Calibrating/Commissioned
+    # (các đường đó không pause khấu hao). Guard same-status đầu hàm
+    # (prev == to → return) chặn Active→Active no-op ⇒ không dời kép.
+    elif to_status == _STATUS_ACTIVE and prev_status == _STATUS_OUT_OF_SERVICE:
+        _reschedule_pending_depreciation_on_restore(asset_name, actor=actor)
 
 
 def _sync_downtime_log(*, asset: str, prev: str, nxt: str,
@@ -215,7 +848,18 @@ def _close_open_downtime_log(asset: str) -> None:
         doc.save(ignore_permissions=True)
 
 
-def _lifecycle_event_for(to_status: str) -> str:
+def _lifecycle_event_for(to_status: str, from_status: str = "") -> str:
+    """Nhãn Asset Lifecycle Event cho 1 transition (SoT — 1 chỗ duy nhất).
+
+    From-aware (INV-ALE-RESTORE-2): chỉ đường ``Out of Service → Active`` (khôi phục
+    sau tạm ngừng sử dụng) trả 'restored'. Mọi đường khác về Active (Under Repair /
+    Calibrating / Under Maintenance / Commissioned / rỗng) GIỮ 'activated' — bảo toàn
+    semantics test_imm09:839 + test_imm11:1317. Cả 2 call-site (service
+    transition_asset_status + controller ac_asset.on_update) đều truyền from_status
+    để nhãn 'restored' áp dụng đồng nhất (INV-ALE-RESTORE-4).
+    """
+    if to_status == _STATUS_ACTIVE and from_status == _STATUS_OUT_OF_SERVICE:
+        return "restored"
     return {
         "Active": "activated",
         "Commissioned": "commissioned",
@@ -235,6 +879,218 @@ def _suspend_all_schedules(asset_name: str) -> None:
         "next_pm_date": None,
         "next_calibration_date": None,
     })
+
+
+_DT_DEPR_SCHED = "AC Asset Depreciation Schedule"
+_DT_LIFECYCLE_EVENT = "Asset Lifecycle Event"
+
+
+def _cancel_pending_depreciation(asset_name: str) -> int:
+    """Hủy MỌI kỳ khấu hao status='Pending' của asset → 'Cancelled' (BR-00-18).
+
+    SoT DUY NHẤT cho việc "Cancelled-on-decommission" của depreciation. Gọi khi
+    asset chuyển sang Decommissioned: kỳ chưa chạy (Pending) bị hủy vĩnh viễn để
+    không còn "phantom overdue" treo trong run_due_depreciation (executor exclude
+    Decommissioned ⇒ Pending sẽ kẹt mãi nếu không hủy).
+
+    INVARIANT:
+      - CHỈ động kỳ status='Pending'. Kỳ 'Executed' (lịch sử đã ghi sổ) GIỮ NGUYÊN
+        bất biến — KHÔNG nuốt lịch sử khấu hao.
+      - 1 query UPDATE GROUP (KHÔNG N+1), update_modified=False (không bump asset
+        modified — đây là dọn nội bộ theo transition, không phải sửa data user).
+      - Idempotent: chạy lại khi không còn Pending → 0 rows affected, trả 0.
+
+    Returns: số kỳ Pending đã chuyển sang Cancelled.
+    """
+    cancelled = frappe.db.sql(
+        """
+        UPDATE `tabAC Asset Depreciation Schedule`
+        SET status = 'Cancelled'
+        WHERE parent = %s AND parenttype = 'AC Asset' AND status = 'Pending'
+        """,
+        (asset_name,),
+    )
+    # frappe.db.sql trả rowcount qua cursor; lấy số dòng thực sự đổi.
+    return int(frappe.db._cursor.rowcount or 0)
+
+
+def _record_depreciation_stopped(asset_name: str, cancelled: int,
+                                  actor: str | None = None) -> None:
+    """Best-effort: ghi 1 lifecycle event 'depreciation_stopped' + 1 audit trail.
+
+    CLAUDE.md §5 — mọi nghiệp vụ phải có record. Bọc try/except: lỗi ghi
+    audit/event KHÔNG được làm vỡ transition (lifecycle_status đã set
+    Decommissioned + rows đã Cancelled TRƯỚC khi gọi hàm này).
+
+    `event_type='depreciation_stopped'` đã thêm vào Asset Lifecycle Event JSON.
+    IMM Audit Trail dùng option có sẵn 'State Change' (KHÔNG migrate enum audit) —
+    việc dừng khấu hao là hệ quả của state change Decommissioned.
+    """
+    actor = actor or frappe.session.user
+    book = flt(frappe.db.get_value(_DOCTYPE_ASSET, asset_name,
+                                   "current_book_value") or 0)
+    notes = (
+        f"Hủy {cancelled} kỳ khấu hao chưa chạy do thanh lý; "
+        f"giá trị còn lại chốt tại {book:,.0f} VND"
+    )
+    try:
+        create_lifecycle_event(
+            asset=asset_name, event_type="depreciation_stopped",
+            actor=actor, from_status="", to_status="",
+            root_doctype=_DOCTYPE_ASSET, root_record=asset_name,
+            notes=notes,
+        )
+    except Exception:
+        frappe.log_error(frappe.get_traceback(),
+                         "depreciation_stopped lifecycle event failed")
+    try:
+        log_audit_event(
+            asset=asset_name, event_type="State Change", actor=actor,
+            ref_doctype=_DOCTYPE_ASSET, ref_name=asset_name,
+            change_summary=notes,
+        )
+    except Exception:
+        frappe.log_error(frappe.get_traceback(),
+                         "depreciation_stopped audit trail failed")
+
+
+# ────────────────────────────────────────────
+# BR-00-25 (RC-08): Depreciation PAUSE + RESCHEDULE on Out of Service ↔ Active
+# ────────────────────────────────────────────
+# Diệt phantom catch-up: trong window Out of Service KHÔNG trích kỳ nào (executor
+# exclude 'Out of Service'); khi khôi phục về Active, DỜI scheduled_date của mọi
+# kỳ Pending thêm oos_days → mọi kỳ idle đẩy sang tương lai → executor KHÔNG còn
+# back-dated catch-up (trích bù 1 lần toàn bộ kỳ ngừng). Tài sản tạm ngừng KHÔNG
+# trích KH trong kỳ ngừng → vòng đời khấu hao kéo dài tương ứng (Thông tư 45/2018).
+
+
+def _resolve_oos_start_date(asset_name: str):
+    """SoT mốc 'asset bắt đầu Out of Service' (BR-00-25 / FR-00-67).
+
+    Thứ tự ưu tiên (an toàn, KHÔNG raise):
+      1. ``start_time`` của AC Asset Downtime Log Out-of-Service GẦN NHẤT của asset
+         (reason='Hỏng hóc' = _DOWNTIME_REASON_MAP[OUT_OF_SERVICE]).
+         **KHÔNG lọc is_open** — tại nhánh restore, `_sync_downtime_log` đã ĐÓNG
+         (is_open=0) log OoS TRƯỚC khi reschedule chạy (ordering, xem
+         transition_asset_status). Lấy log mới nhất theo start_time (đóng hay mở
+         đều được — start_time bất biến khi đóng log).
+      2. fallback: ``creation`` của Asset Lifecycle Event event_type='out_of_service'
+         GẦN NHẤT của asset (khi không có downtime log OoS nào).
+    Cả 2 thiếu → trả None (caller no-op, KHÔNG raise). Trả ``date`` hoặc None.
+    """
+    row = frappe.get_all(
+        _DT_DOWNTIME_LOG,
+        filters={"asset": asset_name,
+                 "reason": _DOWNTIME_REASON_MAP[_STATUS_OUT_OF_SERVICE]},  # 'Hỏng hóc'
+        fields=["start_time"], order_by="start_time desc", limit=1,
+    )
+    if row and row[0].get("start_time"):
+        return getdate(row[0]["start_time"])
+
+    ev = frappe.get_all(
+        _DT_LIFECYCLE_EVENT,
+        filters={"asset": asset_name, "event_type": "out_of_service"},
+        fields=["creation"], order_by="creation desc", limit=1,
+    )
+    if ev and ev[0].get("creation"):
+        return getdate(ev[0]["creation"])
+    return None
+
+
+def _pause_depreciation_on_oos(asset_name: str, actor: str | None = None) -> int:
+    """Best-effort: đánh dấu khấu hao TẠM DỪNG khi asset vào Out of Service.
+
+    KHÔNG đụng dữ liệu khấu hao (PAUSE thực thi bởi filter executor — FR-00-63).
+    Chỉ ghi 1 ALE 'out_of_service' note 'depreciation paused' + số kỳ Pending bị
+    tạm dừng (audit rõ ràng). 0 kỳ Pending → no-op (không event rác). Lỗi audit
+    KHÔNG vỡ transition (status đã 'Out of Service' trước khi gọi).
+
+    Returns: số kỳ Pending đang bị tạm dừng (để test/assert).
+    """
+    pending = frappe.db.count(_DT_DEPR_SCHED, {
+        "parent": asset_name, "parenttype": _DOCTYPE_ASSET, "status": "Pending",
+    })
+    if not pending:
+        return 0
+    try:
+        create_lifecycle_event(
+            asset=asset_name, event_type="out_of_service",
+            actor=actor or frappe.session.user, from_status="", to_status="",
+            root_doctype=_DOCTYPE_ASSET, root_record=asset_name,
+            notes=(f"depreciation paused — tạm dừng trích khấu hao trong thời gian "
+                   f"tạm ngừng sử dụng ({pending} kỳ Pending chờ dời lịch khi khôi phục)."),
+        )
+    except Exception:
+        frappe.log_error(frappe.get_traceback(),
+                         "_pause_depreciation_on_oos audit failed")
+    return pending
+
+
+def _reschedule_pending_depreciation_on_restore(
+    asset_name: str, actor: str | None = None,
+) -> dict:
+    """DỜI scheduled_date mọi kỳ Pending += oos_days khi Out of Service → Active.
+
+    Diệt phantom catch-up (BR-00-25 / FR-00-65): mọi kỳ Pending quá hạn trong lúc
+    OoS được đẩy sang tương lai (cũ + oos_days) → executor KHÔNG trích bù 1 lần.
+
+    INVARIANT:
+      - CHỈ dời kỳ status='Pending'. Executed/Cancelled BẤT BIẾN.
+      - GIỮ NGUYÊN depreciation_amount, period_number, accumulated_amount,
+        remaining_value, số kỳ. Chỉ đổi scheduled_date.
+      - oos_days = restore_date(today) − oos_start_date (số ngày nguyên).
+      - oos_start_date None (FR-00-67) HOẶC oos_days <= 0 → no-op (rescheduled=0),
+        KHÔNG raise.
+      - Idempotent (GUARD chính = transition same-status): helper CHỈ chạy trong
+        nhánh transition `Active←Out of Service`, MỘT lần/khôi phục. Gọi lại
+        transition_asset_status(asset,'Active') khi đã Active → guard đầu hàm
+        prev_status == to_status → return chặn (KHÔNG vào nhánh reschedule) ⇒ KHÔNG
+        dời kép. Helper KHÔNG @frappe.whitelist (không expose standalone).
+
+    Returns: {"rescheduled": N, "oos_days": int}
+    """
+    oos_start = _resolve_oos_start_date(asset_name)
+    if oos_start is None:
+        return {"rescheduled": 0, "oos_days": 0}
+
+    oos_days = (getdate(nowdate()) - oos_start).days
+    if oos_days <= 0:                       # đồng hồ lệch / cùng ngày → no-op
+        return {"rescheduled": 0, "oos_days": 0}
+
+    pending = frappe.get_all(
+        _DT_DEPR_SCHED,
+        filters={"parent": asset_name, "parenttype": _DOCTYPE_ASSET,
+                 "status": "Pending"},
+        fields=["name", "scheduled_date"], limit_page_length=0,
+    )
+    if not pending:
+        return {"rescheduled": 0, "oos_days": oos_days}
+
+    for row in pending:
+        new_date = add_days(getdate(row["scheduled_date"]), oos_days)
+        frappe.db.set_value(_DT_DEPR_SCHED, row["name"], "scheduled_date",
+                            new_date, update_modified=False)
+    rescheduled = len(pending)
+
+    # Audit — best-effort (FR-00-68). Lỗi KHÔNG vỡ transition.
+    # KHÔNG emit lifecycle event ở đây nữa (INV-ALE-RESTORE-3): transition cha đã
+    # ghi DUY NHẤT 1 ALE 'restored' đúng nhãn (Out of Service → Active) qua
+    # _lifecycle_event_for(to, from). Helper này CHỈ ghi 1 IMM Audit Trail
+    # 'State Change' với note chi tiết dời kỳ khấu hao (oos_days/rescheduled) để
+    # chi tiết khấu hao vẫn truy được — diệt double-emit 'activated'+'restored'.
+    try:
+        notes = (f"Khôi phục sau tạm ngừng sử dụng: dời {rescheduled} kỳ khấu hao "
+                 f"Pending thêm {oos_days} ngày (oos_days={oos_days}). Không trích bù "
+                 f"kỳ ngừng — vòng đời khấu hao kéo dài tương ứng.")
+        log_audit_event(
+            asset=asset_name, event_type="State Change",
+            actor=actor or frappe.session.user,
+            ref_doctype=_DOCTYPE_ASSET, ref_name=asset_name, change_summary=notes,
+        )
+    except Exception:
+        frappe.log_error(frappe.get_traceback(),
+                         "_reschedule_pending_depreciation_on_restore audit failed")
+    return {"rescheduled": rescheduled, "oos_days": oos_days}
 
 
 def validate_asset_for_operations(asset_name: str) -> None:
@@ -307,23 +1163,78 @@ def create_capa(asset: str, source_type: str, source_ref: str, severity: str,
     return doc.name
 
 
+# ────────────────────────────────────────────
+# CAPA Effectiveness Gate — Single Source of Truth (BR-00-26 / VR-06 / VR-07)
+# ────────────────────────────────────────────
+# INVARIANT-1 (round 12, RC-CAPA-EFF): tồn tại 1 predicate DUY NHẤT định nghĩa
+# điều kiện đóng CAPA — effectiveness_check NOT NULL/rỗng (VR-06) VÀ == 'Effective'
+# (VR-07). CẢ close_capa() (legacy) lẫn capa_record_validate() (status=='Closed',
+# BẤT KỂ workflow_state) gọi CÙNG guard này → KHÔNG lặp literal điều kiện ở >1 nơi.
+# advance_capa_state (imm16) refactor để gọi cùng predicate (không nhân bản literal).
+EFFECTIVE = "Effective"  # hằng SoT — 1 chỗ duy nhất
+
+
+def assert_capa_effectiveness_gate(doc) -> None:
+    """SoT cổng hiệu quả CAPA (VR-06/VR-07 — BR-00-26).
+
+    Raise ServiceError(VALIDATION, message_code='FIN-007') nếu CAPA chưa đủ điều
+    kiện đóng. Idempotent, không side-effect, không DB write.
+
+    - effectiveness_check null/rỗng → VR-06 (bắt buộc xác minh hiệu quả).
+    - effectiveness_check != 'Effective' → VR-07 (phải = 'Effective' để đóng).
+    """
+    ec = (getattr(doc, "effectiveness_check", None) or "").strip()
+    if not ec:
+        raise ServiceError(
+            ErrorCode.VALIDATION,
+            _("VR-06: Phải xác minh hiệu quả (effectiveness_check) "
+              "trước khi đóng CAPA."),
+            http_status=422,
+            message_code="FIN-007",
+        )
+    if ec != EFFECTIVE:
+        raise ServiceError(
+            ErrorCode.VALIDATION,
+            _("VR-07: effectiveness_check phải = 'Effective' để đóng CAPA "
+              "(hiện tại: {0}).").format(ec),
+            http_status=422,
+            message_code="FIN-007",
+        )
+
+
+_EFFECTIVENESS_VI = {
+    "Effective": "Hiệu quả",
+    "Partially Effective": "Hiệu quả một phần",
+    "Not Effective": "Không hiệu quả",
+}
+
+
 def close_capa(capa_name: str, root_cause: str, corrective_action: str,
                preventive_action: str, effectiveness_check: str | None = None,
                actor: str | None = None) -> None:
-    """Submit và đóng CAPA Record với kết quả khắc phục. Ghi audit trail."""
+    """Submit và đóng CAPA Record với kết quả khắc phục. Ghi audit trail.
+
+    Cổng hiệu quả (BR-00-26/VR-06/VR-07): gọi ``assert_capa_effectiveness_gate``
+    TRƯỚC ``doc.submit()`` — effectiveness_check bắt buộc & phải = 'Effective',
+    nếu không RAISE ServiceError FIN-007 (CAPA KHÔNG đổi Closed, KHÔNG submit).
+    """
     doc = frappe.get_doc(_DOCTYPE_CAPA, capa_name)
     doc.root_cause = root_cause
     doc.corrective_action = corrective_action
     doc.preventive_action = preventive_action
-    if effectiveness_check:
-        doc.effectiveness_check = effectiveness_check
+    # effectiveness_check giờ BẮT BUỘC (không còn `if effectiveness_check`): luôn
+    # gán để cổng SoT đánh giá đúng giá trị do caller truyền (kể cả None → VR-06).
+    doc.effectiveness_check = effectiveness_check
+    # GATE SoT (round 12) — chặn trước khi set status/submit (no partial close).
+    assert_capa_effectiveness_gate(doc)
     doc.status = "Closed"
     doc.closed_date = nowdate()
     doc.submit()
+    eff_vi = _EFFECTIVENESS_VI.get(effectiveness_check, effectiveness_check)
     log_audit_event(
         asset=doc.asset, event_type="CAPA", actor=actor or frappe.session.user,
         ref_doctype=_DOCTYPE_CAPA, ref_name=capa_name,
-        change_summary="CAPA closed",
+        change_summary=_("Đã đóng CAPA — xác minh hiệu quả: {0}").format(eff_vi),
     )
 
 
@@ -586,6 +1497,174 @@ def byt_expiry_filter(bucket: str, ref_date: str | None = None) -> dict:
         # cận dưới = DATE min → NULL/'' bị loại tường minh (null-guard).
         return {"byt_reg_expiry": ["between", [_BYT_EXPIRY_DATE_FLOOR, add_days(ref, -1)]]}
     return {}  # bucket không hợp lệ → no-op
+
+
+# ────────────────────────────────────────────
+# Reserved test/security-audit asset prefixes — Single Source of Truth (data-hygiene)
+# ────────────────────────────────────────────
+# Bối cảnh: bộ test (FrappeTestCase) seed asset với asset_name bắt đầu '_' (vd
+# '_Test*', '_Probe*' — quy ước Frappe cho fixture) và security-audit/IDOR script
+# seed asset với asset_code/name bắt đầu 'SI-' (Security Injection). Các bản ghi
+# rác này KHÔNG được lọt vào danh sách/KPI mà user thật nhìn thấy ở /assets.
+#
+# INVARIANT (authoritative, dùng CHUNG cho list_assets + mọi asset-count KPI pair):
+#   asset hiển thị ⟺ asset_name NOT LIKE '_%'  (prefix '_' ĐẦU bị loại)
+#                AND name      NOT LIKE 'SI-%'
+# ESCAPE-safe: '_' trong LIKE là wildcard 1-ký-tự ⇒ phải escape thành '\_' để chỉ
+# khớp dấu gạch dưới ĐẦU CHUỖI literal. '%' đứng sau vẫn là wildcard "phần còn
+# lại". ⇒ asset tên có '_' ở GIỮA (vd 'Model_X') KHÔNG bị ẩn — chỉ prefix '_' đầu.
+# 'SI-' không chứa wildcard nên không cần escape, nhưng vẫn dùng CHUNG cơ chế.
+#
+# Trả 3 dạng từ 1 PREDICATE GỐC duy nhất (KHÔNG lặp literal '_%'/'SI-%' ở nơi khác):
+#   • reserved_prefix_sql()     → (fragment, params) raw-SQL có ESCAPE '\\' TƯỜNG MINH
+#                                  (AUTHORITATIVE). Cho path dùng frappe.db.sql (cả COUNT
+#                                  lẫn LIST của list_assets, donut dashboard) — không
+#                                  phụ thuộc sql_mode, param-hoá (SQLi-safe).
+#   • reserved_asset_names()    → list[str] name asset rác (NEGATE predicate gốc) — để
+#                                  dựng ORM filter ``not in`` đồng nhất giữa các engine.
+#   • reserved_prefix_filter()  → dict ``{"name": ["not in", [...]]}`` cho ORM
+#                                  get_list/db.count/get_all (depreciation, dashboard KPI).
+#
+# ⚠️ KHÔNG dùng ORM ``not like`` cho predicate này: frappe DatabaseQuery (get_list/
+# get_all) TỰ nhân đôi backslash (db_query.py:940 value.replace('\\','\\\\')) ⇒ '\_%'
+# → '\\_%' (khớp backslash literal, KHÔNG loại prefix '_'); trong khi frappe.db.count
+# (pypika) single-escape ⇒ 2 path LỆCH (count≠list). ESCAPE tường minh CHỈ biểu diễn
+# qua raw-SQL ⇒ list_assets/donut đi raw-SQL CHUNG; các path ORM khác đi ``not in``
+# (đồng nhất mọi engine). MỌI consumer PHẢI gọi 1 trong 3 — KHÔNG inline literal.
+_RESERVED_NAME_PREFIX = "_"          # asset_name prefix (Frappe test fixtures)
+_RESERVED_NAME_SI_PREFIX = "SI-"     # name prefix (security-injection / IDOR audit)
+# LIKE pattern: escape '_' (wildcard) → '\_'; '%' là "phần còn lại" của tên.
+_RESERVED_NAME_LIKE = "\\" + _RESERVED_NAME_PREFIX + "%"   # '\_%'
+_RESERVED_SI_LIKE = _RESERVED_NAME_SI_PREFIX + "%"         # 'SI-%'
+
+
+def reserved_prefix_sql(alias: str = "") -> tuple[str, list]:
+    """SSoT (raw-SQL) loại asset rác — mệnh đề ESCAPE-safe cho ``frappe.db.sql``.
+
+    Args:
+        alias: tiền tố cột (vd ``"a."`` khi JOIN). Mặc định '' = không alias.
+
+    Returns:
+        ``(fragment, params)`` — ``fragment`` là mệnh đề AND-able có ESCAPE '\\'
+        TƯỜNG MINH (không phụ thuộc sql_mode), ``params`` là list giá trị bind
+        (param-hoá ⇒ SQLi-safe, KHÔNG nội suy chuỗi). Ghép:
+        ``f"... WHERE (cond) AND {fragment}"`` rồi nối ``params`` vào bind-list.
+
+    Đây là predicate AUTHORITATIVE (1 SSoT) — ``reserved_asset_names`` và mọi
+    COUNT path đều phái sinh từ đây ⇒ INVARIANT count == len(list).
+
+    LƯU Ý KỸ THUẬT (vì sao KHÔNG dùng ORM ``not like`` cho path list/count):
+    ``frappe.model.db_query.DatabaseQuery`` (động cơ của ``get_list``/``get_all``)
+    TỰ nhân đôi backslash cho like/not-like (``value.replace("\\\\","\\\\\\\\")``,
+    db_query.py:940) ⇒ ``'\\_%'`` biến thành ``'\\\\_%'`` (khớp dấu backslash
+    literal) → KHÔNG loại được tên prefix '_'. Trong khi ``frappe.db.count`` đi
+    ngả pypika lại single-escape → 2 path LỆCH nhau (count==812 nhưng list==853).
+    ⇒ ESCAPE tường minh CHỈ biểu diễn được qua raw-SQL. Mọi consumer phải đi qua
+    helper này (hoặc :func:`reserved_asset_names`), KHÔNG tự ráp ORM ``not like``.
+    """
+    col_name = f"{alias}asset_name"
+    col_pk = f"{alias}name"
+    fragment = (
+        f"({col_name} NOT LIKE %s ESCAPE '\\\\' AND {col_pk} NOT LIKE %s ESCAPE '\\\\')"
+    )
+    return fragment, [_RESERVED_NAME_LIKE, _RESERVED_SI_LIKE]
+
+
+def reserved_asset_names() -> list[str]:
+    """SSoT — danh sách ``name`` asset rác (reserved-prefix) cần ẩn khỏi list/count.
+
+    Phái sinh TRỰC TIẾP từ :func:`reserved_prefix_sql` (NEGATE để LẤY tập rác) ⇒
+    cùng 1 predicate ESCAPE-safe. Dùng để xây ORM filter ``{"name": ["not in", ...]}``
+    cho ``frappe.get_list`` / ``frappe.db.count`` — ``not in`` hành xử GIỐNG NHAU ở
+    cả 2 path (KHÔNG dính bug double-escape của ``not like``) ⇒ INVARIANT
+    count == len(list) byte-for-byte. Tập rác bị chặn (chỉ fixture test/audit) nên
+    chi phí 1 query có index, IN-list nhỏ.
+
+    Returns:
+        list[str] — tên (PK) các asset có ``asset_name`` prefix '_' HOẶC ``name``
+        prefix 'SI-'. Rỗng nếu DB sạch.
+    """
+    frag, params = reserved_prefix_sql()
+    # frag loại tập rác (NOT LIKE) → NOT(frag) lấy tập rác. params giữ nguyên.
+    rows = frappe.db.sql(
+        f"SELECT name FROM `tab{_DOCTYPE_ASSET}` WHERE NOT {frag}",
+        params,
+    )
+    return [r[0] for r in rows]
+
+
+def reserved_prefix_filter() -> dict:
+    """SSoT loại asset rác test/security-audit khỏi ORM list/count (data-hygiene).
+
+    Returns:
+        dict — ORM filter merge AND vào ``frappe.get_list`` / ``frappe.db.count``:
+        ``{"name": ["not in", [<reserved names>]]}`` (rỗng → ``{}`` no-op).
+        Caller dùng ``filters.update(reserved_prefix_filter())`` (KHÔNG clobber
+        field khác — ``name`` chưa từng là filter-key ở list_assets).
+
+    Vì sao ``not in`` thay vì ``not like``: xem docstring :func:`reserved_prefix_sql`
+    — ORM ``not like`` bị DatabaseQuery double-escape ⇒ count(pypika) ≠ list(db_query).
+    ``not in`` với danh sách name (phái sinh từ raw-SQL ESCAPE-safe qua
+    :func:`reserved_asset_names`) hành xử ĐỒNG NHẤT ở cả 2 động cơ ⇒ INVARIANT
+    count == len(list). Mid-underscore ('Model_X') KHÔNG bị ẩn (predicate gốc chỉ
+    bắt prefix '_' / 'SI-').
+    """
+    names = reserved_asset_names()
+    if not names:
+        return {}
+    return {"name": ["not in", names]}
+
+
+def compose_reserved_into(
+    filters: dict | None,
+    doctype: str = _DOCTYPE_ASSET,
+) -> list:
+    """SSoT name-safe merge: AND reserved-exclusion vào ``filters`` qua **filter-list
+    form** — KHÔNG clobber predicate đã có trên field ``name`` (RC-LIST-VENDORCLOBBER,
+    Vòng 26 B / FR-00-84 / BR-00-35 mục 6).
+
+    Bối cảnh (vì sao KHÔNG dùng ``filters.update(reserved_prefix_filter())``):
+    ``apply_vendor_scope`` (AUTH-01) đặt ``filters["name"] = ["in", assigned]`` cho
+    Vendor Engineer (``_VENDOR_SCOPE_FIELD_MAP["AC Asset"] = "name"``). ``reserved_prefix_filter()``
+    cũng nhắm field ``name`` (``{"name": ["not in", reserved]}``). Hai predicate CÙNG
+    field ``name`` ⟹ ``dict.update`` GHI ĐÈ key → mất vendor-scope (HIGH security
+    regression — vendor thấy toàn bộ asset non-reserved). Cách an toàn DUY NHẤT là
+    compose AND **hai điều kiện ``name`` RIÊNG BIỆT** qua filter-list form
+    (``[[dt,"name","in",assigned],[dt,"name","not in",reserved]]``) — ``frappe.db.count``
+    / ``frappe.get_list`` / ``count_with_or`` đều AND đúng nhiều dòng cùng field
+    (verified). Predicate hiệu dụng: ``name ∈ (assigned ∖ reserved)``.
+
+    Hành vi (đồng nhất MỌI persona — 1 điểm merge cho cả vendor-path lẫn no-vendor-path):
+      • ``filters`` dict bất kỳ (kể cả có ``name``) → chuyển sang list-of-conditions
+        ``[doctype, field, op, value]``; mỗi key giữ nguyên op (scalar → ``"="``,
+        ``[op, val]`` → ``[op, val]``).
+      • THÊM 1 dòng ``[doctype, "name", "not in", reserved]`` khi
+        :func:`reserved_asset_names` non-empty (DB sạch → bỏ qua, no-op — đồng nhất
+        hành vi cũ ``filters.update(reserved_prefix_filter())`` trả ``{}``).
+      • Vendor-scope ``name in assigned`` (nếu có) đứng RIÊNG, cùng tồn tại với
+        ``name not in reserved`` → KHÔNG clobber. Empty-scope ``name in []``/
+        ``["__none__"]`` GIỮ nguyên → tập rỗng (KHÔNG fallback toàn bộ).
+
+    Args:
+        filters: AND-filter dict (đã qua ``apply_vendor_scope``), hoặc None.
+        doctype: tên DocType cho mỗi dòng filter-list (mặc định ``AC Asset``).
+
+    Returns:
+        list filter-list form sẵn truyền cho ``frappe.get_list`` /
+        ``frappe.db.count`` / :func:`count_with_or` — 1 NGUỒN predicate cho cả
+        count lẫn list ⟹ INVARIANT ``total == len(items)`` giữ.
+    """
+    conditions: list = []
+    for key, val in (filters or {}).items():
+        if isinstance(val, (list, tuple)) and len(val) == 2 and isinstance(val[0], str):
+            op, value = val[0], val[1]
+        else:
+            op, value = "=", val
+        conditions.append([doctype, key, op, value])
+    names = reserved_asset_names()
+    if names:
+        conditions.append([doctype, "name", "not in", names])
+    return conditions
 
 
 _DT_TRANSFER = "Asset Transfer"

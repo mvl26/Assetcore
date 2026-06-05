@@ -185,6 +185,7 @@ TDD bắt buộc (→ CLAUDE.md §17). Mỗi BR-08-01..10 có ≥ 1 happy + 1 ne
 | `TestGeneratePMWorkOrders` | `generate_pm_work_orders_from_schedule` | Use Case + idempotent | happy(due), skip(Out of Service BR-08-04), skip(no template BR-08-01), idempotent | ⬜ Planned |
 | `TestHandleFailures` | `_create_cm_wo_from_failure` | Decision Table | Fail-Minor → CM Medium + Active; Fail-Major → CM Critical + Out of Service (BR-08-09) | ⬜ Planned |
 | `TestUpdatePMSchedule` | `update_pm_schedule_after_completion` | BVA (date) | next_due = completion + interval (BR-08-03), KHÔNG từ due_date | ⬜ Planned |
+| `TestNextPMDateSoT` | `compute_next_pm_date` + 3 write-site (BR-08-03) | Invariant / BVA | **TC-PM-NEXT-01** pure helper: `compute_next_pm_date('2026-04-17', 90)=='2026-07-16'`; interval 0/None/<0 → +90 (PM_DEFAULT_INTERVAL_DAYS). **TC-PM-NEXT-02** anchor-invariant (RED-proof): submit WO với `completion_date` BACKDATED (≠ today, vd today-10) → `submit_result.next_pm_date == PM Schedule.next_due_date == AC Asset.next_pm_date == PM Task Log.next_pm_date` (byte-for-byte). Revert submit_result về `add_days(nowdate(),…)` → FAIL. **TC-PM-NEXT-03** default-invariant (RED-proof): `pm_interval_days` rỗng/0 → cả schedule + asset + API CÙNG +90; asset KHÔNG bị backfill scheduler coi PM-overdue. Revert `or 90`→`or 0` → FAIL. **Grep-guard**: 0 `add_days(nowdate(),…)` next_pm; 0 inline add_days completion ngoài helper; 0 literal 90 ngoài hằng. | 🔴 Viết mới (RED-first) |
 | `TestIsLate` | `handle_work_order_submit` | BVA boundary | completion ≤ due → is_late=False; completion > due → is_late=True (BR-08-05) | ⬜ Planned |
 | `TestReschedule` | `reschedule` | BVA + EP | happy(reason ≥ 5), fail(reason < 5 VR-08-09), fail(wrong state BAD_STATE) | ⬜ Planned |
 
@@ -253,7 +254,7 @@ Bổ sung: PM Task Log immutable — `frappe.db.set_value("PM Task Log", name, .
 | `test_submit_pm_result_class3_no_photo` | `submit_pm_result` (Class III no photo) | `code=VALIDATION` BR-08-06 | Decision Table |
 | `test_report_major_failure` | `report_major_failure` | WO Halted, Asset Out of Service, CM WO created | Use Case |
 | `test_reschedule_pm_short_reason` | `reschedule_pm` (reason="OK") | `code=VALIDATION` VR-08-09 | BVA |
-| `test_get_dashboard_stats` | `get_pm_dashboard_stats?year=2026&month=4` | `compliance_rate_pct`, `overdue`, `trend` present | Use Case |
+| `test_get_dashboard_stats` | `get_pm_dashboard_stats?year=2026&month=4` | `kpis` có CẢ `total_scheduled`/`completed_on_time`/`overdue_in_month`/`pending_in_month`/`compliance_rate_pct`/`avg_days_late` (khối tháng) lẫn `overdue` (global); `trend_6months` present (BR-08-13) | Use Case |
 | `test_no_permission_low_role` | `assign_technician` (AssetCore System User) | `code=FORBIDDEN` (HTTP 403) | EP (permission partition) |
 | `test_idempotent_submit` | `submit_pm_result` 2 lần | 2nd → `code=CONFLICT` "đã được Submit" | Error guessing |
 
@@ -332,7 +333,7 @@ Coverage % thực tế: *(Cần khảo sát — chạy `coverage report`)*. CI f
 |---|---|---|---|---|
 | BR-08-01 | Có template trước khi tạo WO | `TestGeneratePMWorkOrders` (skip + email) | Decision Table | 1 / 1 — ⬜ Planned |
 | BR-08-02 | CM WO có `source_pm_wo` | `validate_work_order` test | Decision Table | 1 / 1 — ⬜ Planned |
-| BR-08-03 | next_pm_date = completion + interval | `TestUpdatePMSchedule` | BVA | 1 / 1 — ⬜ Planned |
+| BR-08-03 | next_pm_date = SoT `compute_next_pm_date(completion_date, interval)`; anchor completion_date (≠ nowdate); default 90; 3+ write-site byte-for-byte | `TestNextPMDateSoT` (TC-PM-NEXT-01/02/03) + `TestUpdatePMSchedule` | Invariant / BVA | 3 / 0 — 🔴 RED-first (2 revert-proof) |
 | BR-08-04 | Out of Service → skip WO | `test_skip_when_out_of_service` | EP | 1 / 1 — ⬜ Planned |
 | BR-08-05 | is_late = completion > due | `TestIsLate` | BVA | 1 / 2 — ⬜ Planned |
 | BR-08-06 | Class III bắt buộc ảnh | `test_submit_pm_result_class3_no_photo` | Decision Table | 1 / 1 — ⬜ Planned |
@@ -342,8 +343,36 @@ Coverage % thực tế: *(Cần khảo sát — chạy `coverage report`)*. CI f
 | BR-08-10 | PM Task Log immutable | `test_audit_trail_immutable` | EP + Error guessing | 1 / 1 — ⬜ Planned |
 | BR-08-11 | Overdue SoT predicate `is_pm_overdue` (`due_date<today` + status∈source) | `TestPMOverdueSoT` (BVA boundary today-1/today) + `test_d_be_18` (drill route) | BVA | 1 / 2 — ✅ Live (predicate) |
 | BR-08-12 | **Due-soon window SoT `due_soon_filter`** — KPI count == drill rows, disjoint với overdue | `TestPMDueSoonConvergence` + `test_d_be_18b` (convergence, KHÔNG còn superset comment) | BVA + Decision Table | 1 / 3 — 🔴 Vòng 23 |
+| BR-08-13 | **KPI dashboard đồng nhất phạm vi** — strip tháng đối-soát số học; `overdue` global giữ RC-10; compliance null-safe | `TestPMDashboardKPIScope` (`test_imm08.py`/`test_dashboard.py`) — TC-PM-KPI-1..6 | Invariant + Decision Table | 0 / 6 — 🔴 Vòng 10 |
+| BR-08-14 | **Loại WO Cancelled khỏi MẪU tuân thủ + bucket pending** (INV-PM-KPI-6) — `total_scheduled`/compliance/pending bỏ Cancelled; tháng chỉ-Cancelled → `compliance_rate_pct==None`; trend dùng cùng predicate; no-regression Cancelled-free path | `TestPMDashboardKPIScope` (`test_imm08.py`) — TC-PM-KPI-06..09 | Invariant + Decision Table | 0 / 4 — 🔴 Vòng 25 |
 
 Bổ sung gate đã Live: `test_complete_blocked_when_labor_zero` (BR-08-09 duration > 0), `test_complete_blocked_when_sticker_missing` (BR-08-10 sticker).
+
+### IV.2.b Test mới vòng 10 — KPI dashboard scope consistency (BR-08-13)
+
+> Acceptance INV-PM-KPI-1..6. Dataset chuẩn cho phản ví dụ (INV-PM-KPI-4): tháng xem = M. Seed **0 WO due trong M** + **5 WO status==Overdue với due_date ∈ tháng (M-1)** → `count_overdue_pm()==5`.
+>
+> **Vòng 25:** INV-PM-KPI-6 = **loại Cancelled khỏi mẫu** (BR-08-14). `total_scheduled`/compliance/pending tính trên `scheduled` (WO không-Cancelled). No-regression (trend/avg_days_late bất biến khi Cancelled-free) là HỆ QUẢ của cùng invariant — gộp vào INV-PM-KPI-6. Test TC-PM-KPI-06..09 bên dưới.
+
+| Test ID | File | Assert | Trạng thái |
+|---|---|---|---|
+| `test_pm_kpi_month_arithmetic` (INV-PM-KPI-1) | `test_imm08.py` | Trên payload `get_dashboard_stats(year,month)` bất kỳ: `total_scheduled >= completed_on_time + overdue_in_month + pending_in_month` (đẳng thức khi KHÔNG có Completed-late; Completed-late là phần dôi qua `completed_in_month`); `overdue_in_month <= total_scheduled`. Dataset trộn mọi status (Open/In Progress/Completed-on-time/Completed-late/Overdue/Pending-Busy) due trong tháng. | 🔴 Viết mới |
+| `test_pm_kpi_overdue_global_unchanged` (INV-PM-KPI-2) | `test_imm08.py` | `kpis["overdue"] == count_overdue_pm()` (cùng giá trị/ngữ nghĩa, RC-10). Field `overdue_in_month` MỚI tồn tại, độc lập. Drill `?overdue=1` (`_normalize_filters(overdue=1)`) trả đúng `count_overdue_pm()` rows. | 🔴 Viết mới |
+| `test_pm_kpi_compliance_population` (INV-PM-KPI-3) | `test_imm08.py` | `compliance_rate_pct == round(completed_on_time/total_scheduled*100,1)` (tử+mẫu cùng tháng); `total_scheduled==0 → compliance_rate_pct is None` (KHÔNG 0.0). | 🔴 Viết mới |
+| `test_pm_kpi_counterexample` (INV-PM-KPI-4) | `test_imm08.py` | Dataset phản ví dụ (0 due in month, 5 Overdue from M-1): `total_scheduled==0 ∧ overdue_in_month==0 ∧ overdue==5 ∧ compliance_rate_pct is None`. | 🔴 Viết mới |
+| `test_pm_dashboard_kpi_labels` (INV-PM-KPI-5) | `PMDashboardView.test.ts` (vitest) | Render 2 nhãn khác nhau: "Quá hạn trong tháng" (bind `overdue_in_month`) + "Quá hạn (toàn hệ thống)" (bind `overdue`, drill `?overdue=1`). Mỗi tile tháng có sub-label "Phạm vi: tháng M/Y". `compliance==null → '—'`. Không leak EN/raw status. | 🔴 Viết mới |
+| `test_pm_kpi_no_regression` (INV-PM-KPI-6) | `test_imm08.py` + `test_dashboard.py` | `trend_6months` & `avg_days_late` KHÔNG đổi giá trị so baseline; drill tile global ra đúng `count_overdue_pm()`; `test_imm08`/`test_workflows`/`test_dashboard` GREEN; vue-tsc 0; vitest pm suite GREEN. | 🔴 Viết mới |
+
+**Test mới vòng 25 — loại Cancelled khỏi mẫu (BR-08-14 / INV-PM-KPI-6):**
+
+| Test ID | File | Assert | Trạng thái |
+|---|---|---|---|
+| `test_pm_kpi_cancelled_excluded_from_sample` (TC-PM-KPI-06) | `test_imm08.py` | Dataset tháng `{1 Completed on-time, 1 Completed late, 1 Overdue, 1 Cancelled}`: `total_scheduled==3` (KHÔNG 4); `compliance_rate_pct==33.3` (= `round(1/3*100,1)`, KHÔNG 25.0); `completed_on_time==1`; `overdue_in_month==1`; `pending_in_month==0`. KHÔNG còn Cancelled trong bất kỳ bucket nào. | 🔴 Viết mới |
+| `test_pm_kpi_only_cancelled_month` (TC-PM-KPI-07) | `test_imm08.py` | Dataset tháng chỉ `{2 Cancelled}` (0 khác): `total_scheduled==0`; `compliance_rate_pct is None` (KHÔNG 0.0); `pending_in_month==0`; `overdue_in_month==0`. | 🔴 Viết mới |
+| `test_pm_kpi_no_cancelled_path_invariant` (TC-PM-KPI-08) | `test_imm08.py` | No-regression đối chứng: tháng KHÔNG có Cancelled → `total_scheduled`/`compliance_rate_pct`/`pending_in_month`/`overdue_in_month` GIỮ NGUYÊN giá trị như tính-toán cũ (path `scheduled == wos`). So sánh trực tiếp với dataset không-Cancelled. | 🔴 Viết mới |
+| `test_pm_kpi_trend_same_predicate` (TC-PM-KPI-09) | `test_imm08.py` | `trend_6months[*].total` & `.rate` dùng CÙNG predicate loại-Cancelled: tháng có Cancelled → phần tử trend tương ứng có `total` = số WO không-Cancelled, `rate` khớp tile compliance tháng đó (1 SoT). INV-PM-KPI-1 (`≥`) vẫn giữ sau khi đổi mẫu. | 🔴 Viết mới |
+
+> **Grep guard QA:** `grep -n "compliance_rate_pct.*0.0 if\|else 0.0" assetcore/services/imm08.py` cho `get_dashboard_stats` == 0 (đã đổi sang `else None`). `kpis` dict phải có CẢ `overdue` lẫn `overdue_in_month` (2 field tách bạch). **Vòng 25:** `grep -n "PMStatus.CANCELLED" assetcore/services/imm08.py` phải thấy filter trong `get_dashboard_stats` (population `scheduled`) VÀ trong vòng lặp `trend` (month population) — 2 chỗ cùng predicate. KHÔNG còn `total = len(wos)` thô trong hàm.
 
 ### IV.2.a Test mới vòng 23 — Due-soon convergence (BR-08-12)
 

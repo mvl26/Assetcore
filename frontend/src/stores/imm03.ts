@@ -17,6 +17,7 @@ export const useImm03Store = defineStore('imm03', () => {
   const avlEntries = ref<AvlListItem[]>([])
   // Decision
   const decisions = ref<DecisionListItem[]>([])
+  const decisionTotal = ref(0)  // INV card==drill: tổng khớp tile (không bị page_size cắt)
   const currentDecision = ref<DecisionDoc | null>(null)
   // Common
   const loading = ref(false)
@@ -52,7 +53,13 @@ export const useImm03Store = defineStore('imm03', () => {
 
   async function fetchDecisions(filters: Record<string, unknown> = {}) {
     loading.value = true; error.value = null
-    try { decisions.value = (await api.listDecisions(filters)).items }
+    try {
+      // page_size=100 để số dòng hiển thị bám sát `total` (INV card==drill);
+      // total luôn là SoT cho count hiển thị, không phải decisions.length.
+      const res = await api.listDecisions(filters, 1, 100)
+      decisions.value = res.items
+      decisionTotal.value = res.total
+    }
     catch (e) { _setError(e) }
     finally { loading.value = false }
   }
@@ -69,7 +76,7 @@ export const useImm03Store = defineStore('imm03', () => {
   }
 
   return {
-    evaluations, currentEval, avlEntries, decisions, currentDecision,
+    evaluations, currentEval, avlEntries, decisions, decisionTotal, currentDecision,
     loading, error, kpis,
     clearError,
     fetchEvaluations, fetchEvaluation,

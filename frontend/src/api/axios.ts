@@ -226,6 +226,17 @@ function handle500(data: FrappeErrorData | undefined): never {
     ErrorCode.INTERNAL_ERROR, 500)
 }
 
+// IMM-00 B-hardening (Vòng 12 resolve/scan + rotate): @rate_limit vượt ngưỡng →
+// frappe.RateLimitExceededError (HTTP 429). Message gốc của Frappe là TIẾNG ANH
+// ("You hit the rate limit because of too many requests...") → KHÔNG passthrough
+// (chống EN-leak). Trả message VI verbatim + code RATE_LIMITED (FE bucket đúng,
+// render thông báo "thao tác quá nhanh"; với rotate QR, modal Sinh-lại GIỮ MỞ để
+// thử lại). KHÔNG leak raw status/code ra message.
+function handle429(): never {
+  throw new ApiError('Bạn thao tác quá nhanh, vui lòng thử lại sau ít phút.',
+    ErrorCode.RATE_LIMITED, 429)
+}
+
 /**
  * Build ApiError cho status 417/422 — ưu tiên hydrate từ `message_code` nếu BE
  * gửi qua frappe.local.response (nthrow_in_hook). Nếu không có, fallback parse
@@ -283,6 +294,7 @@ api.interceptors.response.use(
     if (status === 417 || status === 422) {
       throw makeBusinessRuleError(data, status)
     }
+    if (status === 429) return handle429()
     if (status === 500) return handle500(data)
 
     throw new ApiError(

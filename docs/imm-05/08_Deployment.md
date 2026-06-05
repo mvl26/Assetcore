@@ -370,7 +370,7 @@ Khi đã có user upload documents trong cửa sổ giữa deploy và rollback:
 |---|---|---|---|---|
 | KPI-IMM05-001 | Tỷ lệ hồ sơ đầy đủ (Completeness) | `COUNT(assets doc_completeness_pct=100) / COUNT(total) × 100%` | Tuần | Workshop Head |
 | KPI-IMM05-002 | Số tài liệu sắp hết hạn 30 ngày | `COUNT(Active, days_until_expiry ≤ 30)` | Tuần | QMS Officer |
-| KPI-IMM05-003 | Số tài liệu đã hết hạn | `COUNT(workflow_state=Expired)` | Ngày | Workshop Head |
+| KPI-IMM05-003 | Số tài liệu đã hết hạn | `COUNT(expired_filter())` = `COUNT(expiry_date < today AND workflow_state NOT IN ('Archived','Rejected'))` (SoT BR-05-16 — **KHÔNG** `workflow_state='Expired'`) | Ngày | Workshop Head |
 | KPI-IMM05-004 | Thời gian phê duyệt trung bình | `AVG(approval_date - submit_date)` | Tháng | QMS Officer |
 | KPI-IMM05-005 | Compliance % theo khoa | `COUNT(Compliant assets) / COUNT(total per dept) × 100%` | Tháng | VP Block2 |
 

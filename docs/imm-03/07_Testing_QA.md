@@ -196,14 +196,67 @@ Dẫn từ artefact phân tích (02) sang test layer. Mỗi US/BR/Activity phả
 |---|---|---|---|---|
 | `TestParseWeighting` | `_parse_weighting` (#10) | EP (none/dict/valid JSON/invalid JSON) | 4 | ✅ Live |
 | `TestParseJsonField` | `_parse_json_field` (#10) | EP | 4 | ✅ Live |
-| `TestComputeEvalScores` | `_compute_eval_scores` (#9) | EP + Path | 3 (higher wins / unknown criterion ignored / empty → no recommended) | ✅ Live |
+| `TestComputeEvalScores` | `_compute_eval_scores` (#9) | EP + Path + Decision Table (tie) | 3 cũ (higher wins / unknown criterion ignored / empty → no recommended) **+ 3 mới** (TC-32 tie-2 → recommended None + has_top_tie=1 / TC-33 tie-order-invariant / TC-34 zero → no tie) — xem §III.2.y | ✅ Live + ⬜ Planned (vòng 26 — TDD RED trước) |
 | `TestGateG04Method` | `_validate_gate_g04_method` (#16) | Decision Table | 6 (draft skip / chỉ định vượt 50M raise / chỉ định trong hạn no legal_basis raise / chào hàng trong hạn + legal_basis pass / unknown method skip / no method skip) | ✅ Live |
 | `TestMethodRules` | `_METHOD_RULES` constant (#16) | EP | 3 (chỉ định = 50M / chào hàng = 1B / đấu thầu rộng rãi no cap) | ✅ Live |
 | `TestActualDeliveryDefault` | `set_actual_delivery_on_received` (#22) | EP | 3 (received empty → today / received có value giữ nguyên / non-received skip) | ✅ Live |
 | `TestReceiptAgainstPO` | `validate_receipt_against_po` (#22) | EP + Error guessing | 3 (match pass / mismatch raise / unknown PO raise) | ✅ Live |
 | `TestReceiptAgainstPO` (DB) | PO code set after insert; traceability PO → Decision → Plan | Integration | 2 | ✅ Live |
 | `TestImm03ValidationRules` | `_vr03_quotation_validity`, `_vr04_envelope_check`, `_vr05_winner_avl_required` (#12–#14) | BVA + Decision Table | *(Cần khảo sát)* | ⬜ Planned |
+| `TestAvlLiveSoT` | `_avl_is_live` / `_is_supplier_in_avl` / `_vr05_winner_avl_required` / `_sync_supplier_avl_status` / dashboard `avl_active` — predicate SoT "AVL còn hiệu lực" (INV-AVL-LIVE, 02 §IV.6) | BVA (date boundary) + Decision Table + Parity | 6+ (INV-1..6) | ⬜ Planned (vòng 22 — TDD RED trước) |
 | `TestImm03ScorecardScheduler` | `update_vendor_scorecard` idempotency (#26) | Use Case | 1 | ⬜ Planned |
+| `TestDecisionDrillParity` (DB) | `_dashboard_kpis().decision_states` vs `_list_decisions({'workflow_state': S})['total']` — INVARIANT card==drill (INV-DEC-DRILL, 02 §IV.8) | Parity + BVA (docstatus=2, value=0) | 8 (INV-DEC-DRILL-1..5 BE; 6..8 FE-vitest) — xem §III.2.z | ⬜ Planned (TDD RED trước) |
+
+### III.2.x — TestAvlLiveSoT — Decision Table & BVA (spec vòng 22)
+
+Predicate SoT: `LIVE ⇔ docstatus=1 ∧ workflow_state ∈ {Approved,Conditional} ∧ (valid_to IS NULL ∨ valid_to ≥ CURDATE())`. **Viết test TRƯỚC, RED-prove trên code cũ** (cũ thiếu `valid_to` ở `_is_supplier_in_avl`/`_vr05`/dashboard → ca hết-hạn PASS sai).
+
+| TC | Invariant | Setup | Action | Assert |
+|---|---|---|---|---|
+| TC-AVL-LIVE-01 | INV-AVL-LIVE-1 | AVL `Approved`, `valid_to = hôm nay − 1d` (chưa flip Expired); Decision winner = supplier đó | `before_submit_decision` / submit | RAISE `ServiceError(BUSINESS_RULE)` VR-03-05. **Code cũ: RED (không raise).** |
+| TC-AVL-LIVE-02a | INV-AVL-LIVE-2 | AVL `Approved`, `valid_to = hôm nay − 1d` | `_is_supplier_in_avl(sup, cat)` | trả `0`. **Code cũ: RED (trả 1).** |
+| TC-AVL-LIVE-02b | INV-AVL-LIVE-2 | AVL `Approved`, `valid_to = hôm nay + 30d` | `_is_supplier_in_avl` | trả `1` |
+| TC-AVL-LIVE-02c | INV-AVL-LIVE-2 | AVL `Approved`, `valid_to = NULL` (vô thời hạn) | `_is_supplier_in_avl` | trả `1` |
+| TC-AVL-LIVE-03 | INV-AVL-LIVE-3 | Bộ AVL hỗn hợp (live / hết hạn / NULL / Suspended) | so tập supplier eligible (`_avl_is_live`) vs tập 'active' của `_sync_supplier_avl_status` | hai tập **bằng nhau** (parity) |
+| TC-AVL-LIVE-04 | INV-AVL-LIVE-4 | AVL `Approved`, `valid_to == hôm nay` | `_is_supplier_in_avl` + `_vr05` | ELIGIBLE (`>=` inclusive) — submit PASS; đồng thời `check_avl_expiry` (dùng `<`) KHÔNG flip Expired hôm nay |
+| TC-AVL-LIVE-05 | INV-AVL-LIVE-5 | AVL `Approved`, `valid_to` tương lai | submit Decision happy-path | eligible=1, submit PASS như cũ (no-regression) |
+| TC-AVL-LIVE-06 | INV-AVL-LIVE-6 | (AST/query-guard) | đếm truy vấn của `_avl_is_live` | đúng 1 `db.exists`/`get_value`/`sql`; KHÔNG loop Python; KHÔNG có patch thêm field `valid_to` (đã tồn tại) |
+
+> RED-prove bắt buộc: revert thân `_is_supplier_in_avl`/`_vr05` về "chỉ workflow_state" → TC-AVL-LIVE-01/02a/03 FAIL; restore `_avl_is_live` → GREEN. `test_imm03` (28→≥34) + `test_workflows` + `test_dashboard` GREEN, no leak.
+
+### III.2.y — TestComputeEvalScores (tie-break) — Decision Table & invariance (spec vòng 26)
+
+Cổng tie-break INV-VE-TIE (02 §IV.7). **Viết test TRƯỚC, RED-prove trên code cũ** (cũ luôn gán `recommended_candidate = cands_sorted[0].supplier` khi điểm > 0 ⇒ auto-award first-row khi hòa). Dùng harness `SimpleNamespace` hiện có (`_make_eval_doc`/`_make_candidate`/`_make_criterion`) — KHÔNG cần DB; ca audit-on-submit (TC-35) cần DB nên xếp Integration §III.3.
+
+| TC | Invariant | Setup (criteria 1 nhóm Technical 100% weight) | Action | Assert |
+|---|---|---|---|---|
+| TC-32 | INV-VE-TIE-2/3/5 | 2 candidate SUP-A, SUP-B cùng `scores={"Tech":0.8}` → cùng `weighted_score` (|Δ|≤1e-9) | `_compute_eval_scores(doc)` | `recommended_candidate is None`; `has_top_tie == 1`; `tied_candidates == "SUP-A,SUP-B"` (sorted); KHÔNG raise. **Code cũ: RED (recommended=SUP-A).** |
+| TC-33 | INV-VE-TIE-5 | Như TC-32 nhưng đảo thứ tự row đầu vào (SUP-B trước SUP-A) | `_compute_eval_scores(doc)` | Kết quả y hệt TC-32 (`recommended None`, `tied_candidates == "SUP-A,SUP-B"`) — bất biến theo thứ tự nhập. **Code cũ: RED (recommended=SUP-B).** |
+| TC-34 | INV-VE-TIE-4 | 2 candidate, mọi `scores={"Tech":0}` ⇒ `weighted_score ≤ 0` | `_compute_eval_scores(doc)` | `recommended_candidate is None`; `has_top_tie == 0`; `tied_candidates in (None, "")`. Giữ hành vi cũ. |
+| (giữ) `test_higher_score_candidate_wins` | INV-VE-TIE-1/6 | SUP-A 0.9 vs SUP-B 0.5 | `_compute_eval_scores(doc)` | `recommended_candidate == "SUP-A"`; `has_top_tie == 0`. KHÔNG hồi quy. |
+| (giữ) `test_empty_candidates_no_recommended` | INV-VE-TIE-4 | candidates=[] | `_compute_eval_scores(doc)` | `recommended_candidate is None`; `has_top_tie == 0`. KHÔNG hồi quy. |
+| TC-35 (DB, §III.3) | INV-VE-TIE-3 | VE thật có `has_top_tie=1` | `doc.submit()` → `on_submit_evaluation` | đúng **1** IMM Audit Trail row `change_summary LIKE 'eval_tie_unresolved%'` (idempotent khi save/submit lặp) + logger `imm03` có dòng `eval_tie_unresolved`. |
+
+> **Harness note:** `_make_eval_doc` (line 91-93) phải thêm `name="VE-TEST"` + khởi tạo `has_top_tie=0`, `tied_candidates=""` vào `SimpleNamespace` để assert field mới (hiện chỉ có `recommended_candidate=None`). `_make_candidate` đã có `weighted_score`.
+>
+> **RED-prove bắt buộc:** chạy TC-32/33 trên code cũ → FAIL (recommended = first/second row). Áp patch `_compute_eval_scores` (tie-detect) → GREEN. `bench --site miyano run-tests --module assetcore.tests.test_imm03` PASS toàn bộ (3 tie mới + 3 cũ `TestComputeEvalScores` + phần còn lại), no leak.
+
+### III.2.z — TestDecisionDrillParity — INVARIANT card==drill (spec INV-DEC-DRILL, 02 §IV.8)
+
+Bảo toàn INVARIANT **count tile == total list** cho 3 state decision. **Viết test TRƯỚC, RED-prove trên code cũ** (cũ: `_list_decisions` không loại `docstatus=2` → list đếm dư bản huỷ so với tile). Cần DB (seed `IMM Procurement Decision` thật) → xếp tại file `tests/test_imm03.py` lớp DB hoặc `test_imm03_decision_drill.py`. Predicate SoT: `docstatus<2 AND workflow_state = S`. Teardown phải purge mọi PD seed (theo `tests/_asset_cleanup.py` pattern, tránh leak DB chung).
+
+| TC | Invariant | Setup | Action | Assert |
+|---|---|---|---|---|
+| TC-DEC-DRILL-01 | INV-DEC-DRILL-1 | Seed ≥1 PD ở mỗi state {Awarded, Pending Approval, PO Issued} (docstatus 0/1) | `_dashboard_kpis()` + `_list_decisions({'workflow_state': S}, 1, 100)` cho từng S | `decision_states.get(S,0) == list['total']` cho cả 3 S |
+| TC-DEC-DRILL-02 | INV-DEC-DRILL-2 | Như 01 + thêm 1 PD `docstatus=2` mang `workflow_state='Awarded'` | so tile Awarded & total list Awarded trước/sau khi thêm bản huỷ | cả tile lẫn total **KHÔNG đổi** (loại cancelled). **Code cũ: RED — total list +1.** |
+| TC-DEC-DRILL-03 | INV-DEC-DRILL-3 | Bộ PD hỗn hợp docstatus 0/1/2 | đếm trực tiếp predicate | cả `_dashboard_kpis` lẫn `_list_decisions` chỉ đếm `docstatus ∈ {0,1}`; không nhánh nào đếm `docstatus=2` |
+| TC-DEC-DRILL-04 | INV-DEC-DRILL-4 | KHÔNG seed PD nào ở state `PO Issued` | tile `PO Issued` + `_list_decisions({'workflow_state':'PO Issued'})` | tile=0 và `total==0`; `items==[]`; KHÔNG raise |
+| TC-DEC-DRILL-05 | INV-DEC-DRILL-5 | Seed PD + 1 PD `docstatus=2` | `_list_decisions({'docstatus': 2})` (override tường minh) | trả đúng các bản huỷ (override mặc định `docstatus<2`); field/search/enrich/pagination không đổi so với baseline |
+| TC-DEC-DRILL-06 (vitest) | INV-DEC-DRILL-6 | mount `DecisionListView` (mock store real-refs) | click tile `Đã trao thầu`/`Chờ phê duyệt`/`Đã phát hành đơn hàng` | gọi `quickFilter('workflow_state', S)` với S = `Awarded`/`Pending Approval`/`PO Issued` (canonical) |
+| TC-DEC-DRILL-07 (vitest) | INV-DEC-DRILL-7 | tile active (filter trùng) | click tile active lần 2 / click "Xóa tất cả" | `filters.workflow_state` về `''`; `aria-pressed`/active class off; list về full; không kẹt |
+| TC-DEC-DRILL-08 (vitest/tsc) | INV-DEC-DRILL-8 | render badge các state | grep EN-leak + vue-tsc | `StatusBadge`/`stateLabel` phủ đủ `DECISION_STATES`; 0 nhãn EN; vue-tsc 0 lỗi |
+
+> **RED-prove bắt buộc:** TC-DEC-DRILL-02 chạy trên code cũ → FAIL (total list Awarded = tile + #cancelled). Áp patch `_list_decisions` (bơm `docstatus<2` mặc định) → GREEN. `bench --site miyano run-tests --module assetcore.tests.test_imm03` GREEN + `vitest` FE GREEN, no leak. KHÔNG sửa hành vi BE list/kpis ngoài việc đồng nhất predicate.
 
 ## III.3. Integration — DocType lifecycle
 
@@ -212,6 +265,7 @@ Dẫn từ artefact phân tích (02) sang test layer. Mỗi US/BR/Activity phả
 | Test | Setup | Action | Assert | Kỹ thuật |
 |---|---|---|---|---|
 | Decision on_submit mint PO | Eval Evaluated + Plan Line | `doc.submit()` (state Awarded) | AC Purchase tạo, Plan Line `status=Awarded` | EP |
+| Eval on_submit tie audit (TC-35) | VE có 2 candidate hòa đỉnh (`has_top_tie=1`) | `doc.submit()` → `on_submit_evaluation` | đúng 1 IMM Audit Trail `change_summary LIKE 'eval_tie_unresolved%'`, `event_type='System'`, `ref_name=doc.name`; submit lặp/amend KHÔNG nhân đôi (idempotent) | EP + idempotency |
 | Decision on_cancel | Decision Awarded | `doc.cancel()` | rollback Plan Line | EP |
 | AVL activate sync supplier | AVL Approved | `activate_avl` | `AC Supplier.imm_avl_status` update | EP |
 

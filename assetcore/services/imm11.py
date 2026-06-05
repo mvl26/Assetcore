@@ -23,7 +23,9 @@ from assetcore.services.shared import (
     CalibrationStatus,
 )
 from assetcore.services.shared.filters import pop_search
-from assetcore.repositories.asset_repo import AssetRepo, DeviceModelRepo, CapaRepo
+from assetcore.repositories.asset_repo import (
+    AssetRepo, DeviceModelRepo, CapaRepo, LifecycleEventRepo,
+)
 from assetcore.repositories.calibration_repo import CalibrationRepo, CalibrationScheduleRepo
 from assetcore.utils.notify import nthrow, MSG
 
@@ -445,7 +447,162 @@ def _nonempty_cache_asset_ids() -> set[str]:
     return {r["name"] for r in rows}
 
 
+# ─── BR-11-12: Recalibration OoS-restore governance guard ─────────────────────
+# docs/imm-11/02_Analysis_Design.md §BR-11-12 + 04_Backend_Design.md §4.1.5
+#
+# `Out of Service` là lifecycle_status DÙNG CHUNG nhiều module (cal-fail IMM-11,
+# incident IMM-12, repair IMM-09, PM-finding IMM-08). Recalibration Pass CHỈ được
+# khôi phục OoS → Active khi (1) chính chuỗi hiệu chuẩn đặt hold (ALE mới nhất vào
+# OoS có root_doctype='IMM Asset Calibration') VÀ (2) KHÔNG còn governance hold
+# khác mở. Mọi nhánh ép-Active-từ-OoS PHẢI đi qua `_can_restore_from_oos` (grep-
+# guard SoT). Pure read-only; KHÔNG raise → on_submit Pass luôn đóng được.
+
+_DT_INCIDENT = "Incident Report"
+_DT_REPAIR = "Asset Repair"
+_DT_PM_WO = "PM Work Order"
+# PM WO "đang mở" (OoS-finding chưa xử lý) = status NOT IN terminal.
+_PM_WO_TERMINAL = ("Completed", "Cancelled")
+
+# Map root_doctype hold → nhãn VI cho hold-note (de-conflict liên-module).
+_HOLD_SOURCE_LABELS = {
+    _DT_INCIDENT: "Sự cố (IMM-12)",
+    _DT_REPAIR: "Sửa chữa (IMM-09)",
+    _DT_PM_WO: "Bảo trì (IMM-08)",
+    _DT_CAL: "hiệu chuẩn (còn hold khác)",
+}
+
+
+def _oos_hold_source(asset_name: str) -> Optional[str]:
+    """SoT — root_doctype của ALE mới nhất đưa asset VÀO 'Out of Service'.
+
+    = "ai đang giữ hold Ngừng hoạt động". Order by timestamp desc → lấy hold hiện
+    hành (gần nhất). None nếu chưa từng có ALE vào OoS (an toàn: coi như không xác
+    định nguồn → không restore). Read-only.
+    """
+    # find_one không nhận order_by → dùng list(page_size=1, order_by) cho "mới nhất".
+    rows, _ = LifecycleEventRepo.list(
+        filters={"asset": asset_name, "to_status": AssetStatus.OUT_OF_SERVICE},
+        fields=["root_doctype"],
+        order_by="timestamp desc, creation desc",
+        page_size=1,
+    )
+    return (rows[0].get("root_doctype") if rows else None)
+
+
+def _hold_source_label(asset_name: str) -> str:
+    """Nhãn VI nguồn hold OoS cho hold-note (BR-11-12)."""
+    src = _oos_hold_source(asset_name)
+    return _HOLD_SOURCE_LABELS.get(src, "hạng mục khác")
+
+
+def _oos_hold_note(asset_name: str, source_label: str) -> str:
+    """Note VI cho ALE giữ-OoS: nêu rõ nguồn hold còn lại (traceability)."""
+    return f"Recalibration Pass — giữ Ngừng hoạt động do hạng mục khác ({source_label})"
+
+
+def _has_other_governance_hold(asset_name: str) -> bool:
+    """True nếu CÒN ≥1 governance hold khác mở (Incident IMM-12 / Repair IMM-09 /
+    PM-finding IMM-08). Mỗi loại đúng 1 db.count (không query thừa). Lazy-import
+    open-filter của module khác để tránh circular import (Pattern B)."""
+    # IMM-12 — Incident mở (SoT open_incident_filter)
+    from assetcore.services.imm12 import open_incident_filter  # noqa: PLC0415
+    if frappe.db.count(_DT_INCIDENT, open_incident_filter({"asset": asset_name})):
+        return True
+    # IMM-09 — Repair WO mở (SoT open_repair_filter)
+    from assetcore.services.imm09 import open_repair_filter  # noqa: PLC0415
+    if frappe.db.count(_DT_REPAIR, open_repair_filter({"asset_ref": asset_name})):
+        return True
+    # IMM-08 — PM WO OoS-finding mở (status NOT IN terminal).
+    if frappe.db.count(_DT_PM_WO, {
+        "asset_ref": asset_name,
+        "status": ("not in", list(_PM_WO_TERMINAL)),
+    }):
+        return True
+    return False
+
+
+def _can_restore_from_oos(asset_name: str, cal_doc) -> bool:
+    """BR-11-12 — True ⟺ recal Pass được phép đưa asset Out of Service → Active.
+
+    Điều kiện AND:
+      1. Chủ-hold OoS == chuỗi hiệu chuẩn: ALE mới nhất đưa asset VÀO
+         'Out of Service' có root_doctype == 'IMM Asset Calibration'.
+      2. KHÔNG còn governance hold khác mở (Incident / Repair / PM-finding).
+    Pure read-only; KHÔNG raise. Bất kỳ điều kiện fail → False (giữ OoS).
+    MỌI nhánh ép Active-từ-OoS trong handle_calibration_pass PHẢI đi qua đây
+    (grep-guard SoT, AC-11-18).
+    """
+    if _oos_hold_source(asset_name) != _DT_CAL:
+        return False
+    return not _has_other_governance_hold(asset_name)
+
+
 # ─── Submit handlers (gọi từ Controller on_submit) ────────────────────────────
+
+def _calibration_basis_date(cal_doc) -> str:
+    """SoT ngày cơ sở của 1 phiếu hiệu chuẩn — DÙNG CHUNG cho PASS (advance =
+    basis + interval) và FAIL (set = basis, due-now). 1 nguồn → pass/fail KHÔNG
+    drift (BR-11-08b, §4.1.6). Ưu tiên certificate_date, rồi actual_date, rồi
+    nowdate(); luôn trả str (yyyy-mm-dd)."""
+    return str(cal_doc.certificate_date or cal_doc.actual_date or nowdate())
+
+
+# ─── BR-11-13: PASS → Asset-cache ROLLUP đa-lịch (worst-of-all + MIN next_due) ─
+# docs/imm-11/02_Analysis_Design.md §BR-11-13 + 04_Backend_Design.md §4.1.7
+#
+# RC-PASS-ROLLUP (mirror BR-11-08b): handle_calibration_pass GHI ASSET-cache
+# {calibration_status: ON_SCHEDULE hardcode, next_calibration_date: basis+interval}
+# = trạng-thái/hạn của CHỈ schedule vừa Pass — bỏ qua active schedule KHÁC.
+# check_calibration_expiry rollup từ MỌI active schedule (_calibration_status_asset_ids).
+# → 2 write-path 1 cache field, 2 logic ≠ = divergence (badge "Đúng lịch" vs SoT
+# Overdue + asset rớt khỏi get_due_calibrations). FIX: cache PASS phải DÙNG CÙNG
+# SoT _calibration_status_asset_ids + MIN(next_due_date) → ROLLUP-CONSISTENCY.
+
+def _asset_min_next_due(asset_name: str) -> Optional[str]:
+    """MIN(next_due_date) trên MỌI active schedule của asset (1 aggregate query,
+    bounded). None nếu asset không còn active schedule có next_due_date.
+
+    = hạn-gần-nhất THẬT của asset (KHÔNG phải next của 1 lịch vừa Pass) → cache
+    `AC Asset.next_calibration_date` để `get_due_calibrations` filter đúng (asset
+    còn lịch sớm hơn KHÔNG bị rớt). BR-11-13, §4.1.7.
+    """
+    row = frappe.db.sql(
+        """
+        SELECT MIN(next_due_date) AS min_due
+        FROM `tabIMM Calibration Schedule`
+        WHERE asset = %(a)s AND is_active = 1 AND next_due_date IS NOT NULL
+        """,
+        {"a": asset_name}, as_dict=True,
+    )
+    min_due = row[0]["min_due"] if row and row[0]["min_due"] else None
+    return str(min_due) if min_due else None
+
+
+def _apply_asset_calibration_rollup(asset_name: str, basis: str) -> None:
+    """Ghi ASSET-cache 3 field theo ROLLUP đa-lịch (BR-11-13). Gọi SAU khi schedule
+    vừa Pass đã advance next_due_date (để rollup đọc được date mới — nếu chạy
+    TRƯỚC, rollup thấy date cũ → sai happy-path 1-lịch).
+
+    - `calibration_status` = `_calibration_status_asset_ids().get(asset, ON_SCHEDULE)`
+      — CÙNG hàm SoT mà `check_calibration_expiry` dùng (worst-of OVERDUE>DUE_SOON>
+      ON_SCHEDULE) → ROLLUP-CONSISTENCY: giá trị PASS-cache == scheduler-cache →
+      scheduler ngay sau Pass idempotent (no flip-flop badge). Fallback ON_SCHEDULE
+      CHỈ khi asset không-còn trong map (mọi schedule next_due > today+30).
+    - `next_calibration_date` = `_asset_min_next_due(asset)` (MIN, KHÔNG next 1-lịch).
+    - `last_calibration_date` = basis (ngày phiếu vừa Pass — GIỮ như cũ).
+
+    Bounded query (≤4: 3 set-query toàn-tập của `_calibration_status_asset_ids`
+    đã có sẵn — KHÔNG per-asset loop — + 1 aggregate MIN). KHÔNG N+1. §4.1.7.
+    """
+    status = _calibration_status_asset_ids().get(
+        asset_name, CalibrationStatus.ON_SCHEDULE)
+    min_due = _asset_min_next_due(asset_name)
+    AssetRepo.set_values(asset_name, {
+        "last_calibration_date": basis,
+        "next_calibration_date": min_due,
+        "calibration_status": status,
+    })
+
 
 def handle_calibration_pass(cal_doc) -> None:
     """on_submit Pass: cập nhật lịch + lifecycle event."""
@@ -457,37 +614,63 @@ def handle_calibration_pass(cal_doc) -> None:
         interval = DeviceModelRepo.get_value(
             cal_doc.device_model, "calibration_interval_days") or _DEFAULT_INTERVAL_DAYS
 
-    basis_date = cal_doc.certificate_date or cal_doc.actual_date or nowdate()
-    next_date = add_days(str(basis_date), interval)
+    basis_date = _calibration_basis_date(cal_doc)
+    next_date = add_days(basis_date, interval)
 
-    AssetRepo.set_values(cal_doc.asset, {
-        "last_calibration_date": basis_date,
-        "next_calibration_date": next_date,
-        "calibration_status": CalibrationStatus.ON_SCHEDULE,
-    })
+    # Phiếu (CalibrationRepo.next_calibration_date) — GIỮ (BR-11-04, không đổi).
     CalibrationRepo.set_values(cal_doc.name, {"next_calibration_date": next_date})
 
+    # Schedule vừa Pass advance next_due_date = basis + interval (BR-11-04).
+    # PHẢI chạy TRƯỚC rollup để _apply_asset_calibration_rollup đọc date mới.
     if cal_doc.calibration_schedule:
         CalibrationScheduleRepo.set_values(cal_doc.calibration_schedule, {
             "last_calibration_date": basis_date,
             "next_due_date": next_date,
         })
 
+    # BR-11-13 — ASSET-cache ghi theo ROLLUP đa-lịch (worst-of-all + MIN next_due),
+    # CÙNG SoT _calibration_status_asset_ids mà check_calibration_expiry dùng →
+    # ROLLUP-CONSISTENCY (KHÔNG hardcode ON_SCHEDULE 1-lịch). §4.1.7.
+    _apply_asset_calibration_rollup(cal_doc.asset, basis_date)
+
     current_status = AssetRepo.get_value(cal_doc.asset, "lifecycle_status")
+
+    # BR-11-12 restore-guard liên-module. 3 nhánh + audit 1 ALE 'calibration_passed':
+    #  (A) prev=Calibrating          → restore Active (transition tự ghi ALE 'activated').
+    #  (B) prev=OoS ∧ can_restore     → restore Active (chủ-hold cal ∧ 0 hold khác).
+    #  (C) prev=OoS ∧ ¬can_restore    → GIỮ OoS, ghi 1 ALE giữ-trạng-thái + hold-note.
+    #  (terminal/khác)               → no-op, ALE 'calibration_passed' from=to đủ audit.
+    # MỌI ép-Active-từ-OoS đi qua _can_restore_from_oos (grep-guard SoT, AC-11-18).
+    keep_oos_note = ""
+    if (current_status == AssetStatus.OUT_OF_SERVICE
+            and not _can_restore_from_oos(cal_doc.asset, cal_doc)):
+        # Nhánh C — note hold còn lại nhồi vào ALE 'calibration_passed' (1 ALE).
+        keep_oos_note = _oos_hold_note(
+            cal_doc.asset, _hold_source_label(cal_doc.asset))
+
+    base_note = f"Result: {cal_doc.overall_result}; next due: {next_date}"
     create_lifecycle_event(
         asset=cal_doc.asset, event_type="calibration_passed",
         actor=frappe.session.user,
         from_status=current_status, to_status=current_status,
         root_doctype=CalibrationRepo.DOCTYPE, root_record=cal_doc.name,
-        notes=f"Result: {cal_doc.overall_result}; next due: {next_date}",
+        notes=f"{base_note}. {keep_oos_note}".strip() if keep_oos_note else base_note,
     )
 
     if current_status == AssetStatus.CALIBRATING:
+        # Nhánh A — GIỮ NGUYÊN: Calibrating → Active (BR đúng, không gate).
         _transition_asset(cal_doc.asset, AssetStatus.ACTIVE, cal_doc.name,
                           reason=f"Calibration passed — {cal_doc.name}")
-    elif cal_doc.is_recalibration and current_status == AssetStatus.OUT_OF_SERVICE:
-        _transition_asset(cal_doc.asset, AssetStatus.ACTIVE, cal_doc.name,
-                          reason="Recalibration Pass after CAPA")
+    elif current_status == AssetStatus.OUT_OF_SERVICE:
+        # Nhánh B — restore CÓ ĐIỀU KIỆN. _transition_asset OoS→Active là transition
+        # hợp lệ (state machine) → không raise; idempotent prev==to no-op (imm00:105).
+        if _can_restore_from_oos(cal_doc.asset, cal_doc):
+            _transition_asset(
+                cal_doc.asset, AssetStatus.ACTIVE, cal_doc.name,
+                reason=f"Recalibration Pass — hold hiệu chuẩn giải toả, "
+                       f"không hold khác — {cal_doc.name}")
+        # else: nhánh C — đã ghi hold-note vào ALE trên; GIỮ OoS (no transition).
+    # else: terminal (Decommissioned)/khác → KHÔNG ép Active (no-raise, AC-11-18).
 
 
 def handle_calibration_fail(cal_doc) -> None:
@@ -517,6 +700,25 @@ def handle_calibration_fail(cal_doc) -> None:
         root_doctype=CalibrationRepo.DOCTYPE, root_record=cal_doc.name,
         reason=f"Calibration failed — {cal_doc.name}; CAPA: {capa_name}; lookback {len(lookback)} assets",
     )
+
+    # BR-11-08b (§4.1.6): hạ MỌI active schedule của asset về due-now (basis <=
+    # today) → asset rơi vào _overdue_asset_ids() (basis<today) ∪
+    # _due_soon_asset_ids() (basis==today), KHÔNG còn mask ON_SCHEDULE trong KPI
+    # SoT (BR-11-08 đếm theo Schedule.next_due_date, KHÔNG đọc cache FAILED).
+    # SoT-WRITE NOTE: đây là DUY NHẤT nơi set next_due_date về quá-khứ/today;
+    # mọi nơi khác (handle_calibration_pass, create_*) advance về tương lai.
+    # Theo ASSET (không chỉ cal_doc.calibration_schedule) — asset Class B+ có thể
+    # có nhiều loại calibration → nhiều schedule active; tất cả phải due-now.
+    # 1 query list + loop set_values (no N+1 trên list). Null-safe: 0 active
+    # schedule → loop rỗng → no-op, KHÔNG raise (CAPA/Incident/lookback bất biến).
+    # Idempotent: basis cố định theo phiếu → re-apply giữ next_due_date == basis.
+    basis = _calibration_basis_date(cal_doc)
+    active_scheds, _ = CalibrationScheduleRepo.list(
+        filters={"asset": cal_doc.asset, "is_active": 1},
+        fields=["name"], page_size=10_000,
+    )
+    for s in active_scheds:
+        CalibrationScheduleRepo.set_values(s["name"], {"next_due_date": basis})
 
     # IMM-12 cross-module: auto-report incident for failed calibration
     try:

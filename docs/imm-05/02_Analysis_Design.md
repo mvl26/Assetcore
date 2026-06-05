@@ -300,8 +300,8 @@ flowchart TD
     D -->|Có| E{Expiry Alert Log đã có (doc, today)?}
     E -->|Có| A
     E -->|Không| F[Tạo Expiry Alert Log]
-    F --> G{milestone = 0?}
-    G -->|Có| H[Set workflow_state=Expired]
+    F --> G{milestone = 0 (đã quá hạn)?}
+    G -->|Có| H[Set is_expired=1 cờ derived — KHÔNG đổi workflow_state, BR-05-16]
     G -->|Không| I[Send email theo mức]
     H --> I
     I --> A
@@ -500,10 +500,13 @@ UC03 ..> UC02 : <<extend>> [state=Pending]
 | BR-05-13 | Book value header (Executor) == `remaining_value` dòng cuối (Planner) sau kỳ cuối, chênh ≤ 0.01 (INV-DEP-3) | `run_due_depreciation()` ↔ `generate_schedule()` đồng công thức sàn | Internal |
 | BR-05-14 | Idempotent: chạy lại Executor khi hết Pending tới hạn → header không đổi, `executed_rows=0` (INV-DEP-4) | `run_due_depreciation()` chỉ cộng dòng Pending | Internal |
 | BR-05-15 | "Hết khấu hao" (`fully_depreciated`) có **một** predicate SoT: `is_fully_depreciated(row)` = `configured ∧ current_book_value ≤ residual_value + 1`, với `configured = method ∧ method≠'None' ∧ gross>0 ∧ months>0`. KPI count == drill rows (INV-DEP-5) | `services/depreciation.py::is_fully_depreciated`; gọi bởi `get_depreciation_stats` (count) **và** `list_assets_depreciation(depreciation_filter='fully_depreciated')` (drill) | Internal |
+| BR-05-16 | "Đã hết hạn" (`expired`) có **một** predicate SoT `EXPIRED_FILTER` = `expiry_date IS NOT NULL ∧ expiry_date < today ∧ workflow_state NOT IN ('Archived','Rejected')`. Dùng **Y HỆT** cho KPI count (`get_dashboard_stats().kpis.expired_not_renewed`) **và** drill (`list_documents`). KPI count == drill `len(items)`, chênh = 0 cho mọi tập dữ liệu (INV-EXP-1). Predicate KHÔNG dùng `workflow_state='Expired'` (dead-state, không transition nào dẫn vào) | `services/imm05.py::EXPIRED_FILTER` (dict filter Frappe-style) gọi bởi `get_dashboard_stats` (count) **và** mở rộng filter trong `list_documents` khi FE gửi marker `expired`; FE `documentFilters.ts::buildKpiFilter('expired')` + `buildExpiryFilter('expired')` cùng emit `{expiry_status:'expired'}` | NĐ98 Điều 41 |
 
 > **Self-Correction (Vòng 2):** BR-05-11..14 vá lỗi thiết kế gốc — Executor cũ sàn tại `0.0` (`depreciation.py:252`) và không chặn trần lũy kế (`:251`), lệch với Planner (sàn tại residual, `:174`). Chi tiết invariant + công thức: [04 Backend §2.5](./04_Backend_Design.md).
 >
 > **Self-Correction (Vòng 30):** BR-05-15 vá lỗi thiết kế gốc của read-path "Hết khấu hao" — biểu thức `book ≤ residual + 1` được **inline** trong `get_depreciation_stats` (`api/imm00.py:2242`) cho card count, nhưng `list_assets_depreciation` **không có** predicate này nên ô KPI không drill được (FE `DepreciationView.vue:189` là text câm; status-filter `:271` thiếu lựa chọn "Hết khấu hao"). Fix: rút predicate về **một** hàm SoT module-level `is_fully_depreciated(row)`, gọi từ cả 2 read-path → card count == drill rows (đo bằng INV-DEP-5). Chi tiết: [04 Backend §2.5](./04_Backend_Design.md); API: [imm-00/05 §III.18](../imm-00/05_API_Specification.md); FE: [imm-00/06 §III.10b](../imm-00/06_Frontend_Design.md).
+>
+> **Self-Correction (Vòng 19):** BR-05-16 vá lỗi thiết kế gốc count-vs-drill divergence của KPI "Đã hết hạn". **Root cause = 2 nguồn sự thật ≠ + 1 dead-state.** (1) State machine §IV.3 *khai báo* transition `Active --> Expired: Auto khi days_until_expiry=0 (Scheduler)` NHƯNG scheduler `check_document_expiry` (`imm05.py:82`) CHỈ set `is_expired=1`, KHÔNG đổi `workflow_state` → `Expired` là **dead-state**: workflow JSON `imm_05_document_workflow.json` không có transition nào dẫn vào (xác nhận: 9 transition, không có cái nào `next_state=Expired`). (2) Count `get_dashboard_stats` (`imm05.py:342`) đếm `{expiry_date < today}` thuần — gồm CẢ Archived/Rejected (over-count compliance, vi phạm NĐ98: doc đã thu hồi/lưu trữ không phải gap còn sống). (3) Drill FE `buildKpiFilter('expired')`/`buildExpiryFilter('expired')` (`documentFilters.ts:62,85`) emit `{workflow_state:'Expired'}` → BE query 0 dòng → tile báo N nhưng list rỗng → **che giấu hồ sơ quá hạn còn hiệu lực** (Active/Draft/Pending Review quá hạn = thiết bị vận hành với giấy phép hết hạn, NĐ98 Điều 41 BẮT BUỘC hiện). Fix: (a) rút về **một** SoT `EXPIRED_FILTER` dùng cho cả count + drill; (b) FE đổi marker `expired` thành `{expiry_status:'expired'}` (semantic flag, không phải literal state), BE `list_documents` dịch marker này thành `EXPIRED_FILTER`; (c) loại dead-state khỏi mọi filter builder (grep-guard: không còn literal `{workflow_state:'Expired'}`); (d) sửa state machine §IV.3 — gỡ transition phantom `Active→Expired`, ghi rõ "hết hạn" là **derived attribute** (`is_expired` + `EXPIRED_FILTER`), KHÔNG phải workflow_state. Đo bằng INV-EXP-1 (count == drill, chênh=0). Chi tiết: [04 Backend §2.6](./04_Backend_Design.md); API: [05 §2.1 + §2.8](./05_API_Specification.md); FE: [06 §3](./06_Frontend_Design.md).
 
 ## IV.3. State Machine
 
@@ -517,8 +520,9 @@ stateDiagram-v2
     Active --> Archived: Lưu trữ (CMMS Admin)
     Draft --> Archived: Hủy bỏ (CMMS Admin)
     Active --> Archived: Auto khi version mới Active (BR-05-01)
-    Active --> Expired: Auto khi days_until_expiry=0 (Scheduler)
 ```
+
+> **⚠️ "Đã hết hạn" KHÔNG phải workflow_state (BR-05-16).** Không có transition `→ Expired`: scheduler `check_document_expiry` chỉ set cờ derived `is_expired=1` (không đổi `workflow_state`). "Hết hạn" là **thuộc tính dẫn xuất** đo bằng predicate SoT `EXPIRED_FILTER` (`expiry_date < today ∧ state ∉ {Archived,Rejected}`) — áp song song lên MỌI state còn-sống (Active/Draft/Pending Review/Rejected*). Một doc Active quá hạn vẫn ở state `Active` (vẫn đếm/hiện trong KPI "Đã hết hạn"). Dead-state `Expired` (do thiết kế gốc khai báo nhầm) đã được gỡ khỏi state machine + mọi filter builder. *(Rejected loại khỏi predicate vì không phải gap còn sống — đã bị từ chối.)*
 
 **Bảng State:**
 
@@ -529,9 +533,10 @@ stateDiagram-v2
 | Active | 1 | Đang hiệu lực | CMMS Admin | Lưu trữ |
 | Rejected | 0 | Bị từ chối, cần sửa | Biomed / CMMS Admin | Gửi lại |
 | Archived | 2 | Đã lưu trữ (terminal) | — | Chỉ xem |
-| Expired | 1 | Hết hạn (terminal tạm) | Scheduler | Upload phiên bản mới |
 
-VR-05: Không cho phép thoát khỏi Archived hoặc Expired.
+> **Lưu ý dữ liệu legacy:** State `Expired` đã bị loại khỏi vòng đời. Nếu DB còn record `workflow_state='Expired'` (dữ liệu cũ trước Vòng 19) → BE patch hạ về `Active` (giữ `is_expired` derived) hoặc `Archived` tùy ngữ cảnh; predicate `EXPIRED_FILTER` đã loại Archived nên record legacy không gây double-count. KHÔNG còn DocType/workflow nào tạo mới state này.
+
+VR-05: Không cho phép thoát khỏi Archived (terminal). "Hết hạn" không terminal — doc quá hạn vẫn có thể được Lưu trữ hoặc thay bằng phiên bản mới (upload Draft mới → Active → auto-archive bản cũ, BR-05-01).
 
 ## IV.4. Input — Output
 

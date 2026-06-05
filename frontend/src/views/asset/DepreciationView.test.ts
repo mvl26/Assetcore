@@ -153,3 +153,60 @@ describe('DepreciationView — drill "Hết khấu hao" (fully_depreciated SoT)'
     expect(html).toContain('Hết khấu hao')          // chip nhãn VI
   })
 })
+
+// ── BR-05-13 falsy-zero guard: FE display layer KHÔNG được nuốt book=0.0 hợp lệ ──
+// Sau khi BE fix effective_book_value SoT, asset khấu hao HẾT trả current_book_value=0.0
+// (KHÔNG còn phantom gross). FE phải hiển thị "0 ₫" — KHÔNG "—" và KHÔNG nguyên giá.
+// vnd()/vndShort() dùng `v == null` (loose) nên 0 đi qua được; test này khoá chống
+// regression về idiom falsy `if (!v)` làm mất số 0 thật.
+describe('DepreciationView — BR-05-13 book=0.0 hiển thị "0 ₫" (falsy-zero guard)', () => {
+  beforeEach(() => {
+    listSpy.mockReset()
+    statsSpy.mockReset()
+  })
+
+  it('row current_book_value=0 → cột "Còn lại" render "0 ₫", KHÔNG "—" và KHÔNG nguyên giá', async () => {
+    statsSpy.mockResolvedValue({ ...emptyStats, total_assets: 1, configured_count: 1, fully_depreciated: 1 })
+    listSpy.mockResolvedValue({
+      items: [baseRow({
+        name: 'ACC-ASS-ZERO',
+        asset_name: 'Máy đã khấu hao hết',
+        gross_purchase_amount: 120_000_000,
+        accumulated_depreciation: 120_000_000,
+        current_book_value: 0,
+        pct_depreciated: 100,
+      })],
+      pagination: { total: 1 },
+    })
+    const wrapper = mount(DepreciationView, { global: { stubs } })
+    await flushPromises()
+
+    // Số 0 hợp lệ phải hiển thị thành "0 ₫" (Intl vi-VN), KHÔNG bị nuốt thành '—'.
+    // Dùng .text() (chuẩn hoá whitespace) vì html() escape U+00A0 → '&nbsp;'.
+    const bookCells = wrapper.findAll('td.text-emerald-700')
+    expect(bookCells.length).toBeGreaterThan(0)
+    expect(bookCells[0].text()).toMatch(/0\s*₫/)
+    expect(bookCells[0].text()).not.toBe('—')
+    // KHÔNG được lòi nguyên giá 120tr vào cột "Còn lại" (phantom gross cũ).
+    expect(bookCells[0].text()).not.toMatch(/120/)
+  })
+
+  it('stats.total_book_value=0 → KPI "Giá trị còn lại" render "0 ₫", KHÔNG "—"', async () => {
+    statsSpy.mockResolvedValue({
+      ...emptyStats, total_assets: 1, configured_count: 1, fully_depreciated: 1,
+      total_gross: 120_000_000, total_accumulated: 120_000_000, total_book_value: 0, overall_pct: 100,
+    })
+    listSpy.mockResolvedValue({ items: [], pagination: { total: 0 } })
+    const wrapper = mount(DepreciationView, { global: { stubs } })
+    await flushPromises()
+
+    expect(wrapper.html()).toContain('Giá trị còn lại')
+    // total_book_value=0 → vndShort(0) = vnd(0) = "0 ₫" (KHÔNG '—').
+    // KPI card thứ 3 ("Giá trị còn lại") chứa giá trị book tổng.
+    const kpiCards = wrapper.findAll('.card.p-5')
+    const bookKpi = kpiCards.find(c => c.text().includes('Giá trị còn lại'))
+    expect(bookKpi).toBeTruthy()
+    expect(bookKpi!.text()).toMatch(/0\s*₫/)
+    expect(bookKpi!.text()).not.toContain('—')
+  })
+})

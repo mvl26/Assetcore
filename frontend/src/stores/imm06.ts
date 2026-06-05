@@ -9,8 +9,10 @@ import {
   confirmSession, completeSession, cancelSession,
   listCompetencies, getUserCompetencies,
   signoffCompetency, revokeCompetency,
+  getDashboardStats, getExpiringCompetencies,
   type TrainingProgram, type TrainingSession,
   type UserCompetency, type TrainingParticipant,
+  type Imm06DashboardStats,
 } from '@/api/imm06'
 import { ApiError } from '@/api/errors'
 
@@ -29,6 +31,9 @@ export const useImm06Store = defineStore('imm06', () => {
   const competencies = ref<UserCompetency[]>([])
   const myCompetencies = ref<UserCompetency[]>([])
   const competencyPagination = ref({ page: 1, total: 0, total_pages: 0, page_size: 20 })
+
+  // Dashboard KPI state (get_dashboard_stats) — bind VERBATIM, FE KHÔNG tự đếm.
+  const dashboardStats = ref<Imm06DashboardStats | null>(null)
 
   // Loading / error
   const loading = ref(false)
@@ -183,6 +188,25 @@ export const useImm06Store = defineStore('imm06', () => {
     }
   }
 
+  // Drill tile "Sắp hết hạn": dùng CHUNG predicate SoT với KPI count
+  // (get_expiring_competencies(60)) → list length == tile value (INVARIANT card == drill).
+  async function fetchExpiringCompetencies(days = 60): Promise<void> {
+    loading.value = true
+    error.value = null
+    try {
+      const rows = await getExpiringCompetencies(days)
+      competencies.value = rows
+      competencyPagination.value = {
+        page: 1, page_size: rows.length || 20, total: rows.length,
+        total_pages: 1,
+      }
+    } catch (e: unknown) {
+      _setError(e)
+    } finally {
+      loading.value = false
+    }
+  }
+
   async function fetchMyCompetencies(user?: string): Promise<void> {
     loading.value = true
     error.value = null
@@ -216,11 +240,26 @@ export const useImm06Store = defineStore('imm06', () => {
     }
   }
 
+  // ─── Dashboard action ─────────────────────────────────────────────────────
+
+  async function fetchDashboardStats(): Promise<void> {
+    loading.value = true
+    error.value = null
+    try {
+      dashboardStats.value = await getDashboardStats()
+    } catch (e: unknown) {
+      _setError(e)
+    } finally {
+      loading.value = false
+    }
+  }
+
   return {
     // State
     programs, currentProgram, programPagination,
     sessions, currentSession, sessionPagination,
     competencies, myCompetencies, competencyPagination,
+    dashboardStats,
     loading, error,
     // Getters
     activePrograms, upcomingSessions,
@@ -230,7 +269,9 @@ export const useImm06Store = defineStore('imm06', () => {
     fetchSessions, fetchSession, doCreateSession,
     doConfirmSession, doCompleteSession, doCancelSession,
     // Competency actions
-    fetchCompetencies, fetchMyCompetencies,
+    fetchCompetencies, fetchExpiringCompetencies, fetchMyCompetencies,
     doSignoffCompetency, doRevokeCompetency,
+    // Dashboard
+    fetchDashboardStats,
   }
 })

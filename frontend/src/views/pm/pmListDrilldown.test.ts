@@ -1,13 +1,13 @@
 // TDD — Core Doc §9.4.2: PMWorkOrderListView pre-applies route.query.status.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
-import { ref } from 'vue'
+import { resetRouteMock, setRouteQuery } from '@/test/vueRouterMock'
 
-const routeQuery = ref<Record<string, string>>({})
-vi.mock('vue-router', () => ({
-  useRouter: () => ({ push: vi.fn() }),
-  useRoute: () => ({ get query() { return routeQuery.value } }),
-}))
+// ROOT-CAUSE test-isolation fix (xem src/test/vueRouterMock.ts): shared full-shape
+// router mock (route-state trên globalThis) đồng nhất mọi file PM → khi pool tái
+// dùng worker + đổi thứ tự file, factory nào "thắng" race cũng đọc cùng state →
+// hết "route.query undefined / query rỗng" cross-file (vd preflight chỉ mock useRouter).
+vi.mock('vue-router', async () => (await import('@/test/vueRouterMock')).vueRouterMockFactory())
 
 const fetchWOSpy = vi.fn().mockResolvedValue(undefined)
 vi.mock('@/stores/imm08', () => ({
@@ -42,10 +42,10 @@ const PageHeaderSlotStub = {
 }
 
 describe('PMWorkOrderListView drill-down query (Core Doc §9.4.2)', () => {
-  beforeEach(() => { fetchWOSpy.mockClear(); routeQuery.value = {}; canImpl = () => true })
+  beforeEach(() => { fetchWOSpy.mockClear(); resetRouteMock(); canImpl = () => true })
 
   it('query.status=Overdue → fetchWorkOrders gọi với status=[Overdue]', async () => {
-    routeQuery.value = { status: 'Overdue' }
+    setRouteQuery({ status: 'Overdue' })
     mount(PMWorkOrderListView, { global: { stubs } })
     await flushPromises()
     expect(fetchWOSpy).toHaveBeenCalled()
@@ -54,7 +54,7 @@ describe('PMWorkOrderListView drill-down query (Core Doc §9.4.2)', () => {
   })
 
   it('không có query → fetchWorkOrders không kèm status', async () => {
-    routeQuery.value = {}
+    resetRouteMock()
     mount(PMWorkOrderListView, { global: { stubs } })
     await flushPromises()
     const arg = fetchWOSpy.mock.calls[0][0]
@@ -63,7 +63,7 @@ describe('PMWorkOrderListView drill-down query (Core Doc §9.4.2)', () => {
 
   // R6 §9.4.3 — date-window drill từ KPI pm_due_7d.
   it('query.due_before=X → fetchWorkOrders gọi với due_before=X (virtual key)', async () => {
-    routeQuery.value = { due_before: '2026-06-09' }
+    setRouteQuery({ due_before: '2026-06-09' })
     mount(PMWorkOrderListView, { global: { stubs } })
     await flushPromises()
     const arg = fetchWOSpy.mock.calls[0][0]
@@ -77,7 +77,7 @@ describe('PMWorkOrderListView drill-down query (Core Doc §9.4.2)', () => {
     const d = new Date()
     d.setDate(d.getDate() + 7)
     const next7 = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-    routeQuery.value = { due_before: next7 }
+    setRouteQuery({ due_before: next7 })
     const w = mount(PMWorkOrderListView, { global: { stubs } })
     await flushPromises()
     const chips = (w.vm as unknown as { activeChips: { key: string; label: string }[] }).activeChips
@@ -88,7 +88,7 @@ describe('PMWorkOrderListView drill-down query (Core Doc §9.4.2)', () => {
   })
 
   it('chip due_before != today+7 → nhãn nêu rõ cận dưới "từ hôm nay"', async () => {
-    routeQuery.value = { due_before: '2030-01-15' }
+    setRouteQuery({ due_before: '2030-01-15' })
     const w = mount(PMWorkOrderListView, { global: { stubs } })
     await flushPromises()
     const chips = (w.vm as unknown as { activeChips: { key: string; label: string }[] }).activeChips
@@ -98,7 +98,7 @@ describe('PMWorkOrderListView drill-down query (Core Doc §9.4.2)', () => {
   })
 
   it('query.overdue=1 → fetchWorkOrders gọi với overdue=1 (BE dịch status=Overdue)', async () => {
-    routeQuery.value = { overdue: '1' }
+    setRouteQuery({ overdue: '1' })
     mount(PMWorkOrderListView, { global: { stubs } })
     await flushPromises()
     const args = fetchWOSpy.mock.calls.map(c => c[0])
@@ -109,7 +109,7 @@ describe('PMWorkOrderListView drill-down query (Core Doc §9.4.2)', () => {
 // Read-only oversight (opsmgr 2026-06-02): nút "Tạo phiếu bảo trì" gated bằng
 // can('pm.create'). opsmgr (read-only) KHÔNG có pm.create → KHÔNG thấy nút.
 describe('PMWorkOrderListView — nút Tạo phiếu gated bằng pm.create', () => {
-  beforeEach(() => { fetchWOSpy.mockClear(); routeQuery.value = {} })
+  beforeEach(() => { fetchWOSpy.mockClear(); resetRouteMock() })
   const gateStubs = { ...stubs, PageHeader: PageHeaderSlotStub }
 
   it('có pm.create → render nút Tạo phiếu bảo trì', async () => {

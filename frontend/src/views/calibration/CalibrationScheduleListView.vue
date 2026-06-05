@@ -9,9 +9,11 @@ import {
 } from '@/api/imm11'
 import type { CalibrationSchedule } from '@/api/imm11'
 import SmartSelect from '@/components/common/SmartSelect.vue'
+import BaseModal from '@/components/common/BaseModal.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import BasePagination from '@/components/common/BasePagination.vue'
 import { formatAssetDisplay, formatDate } from '@/utils/formatters'
+import { deriveCalStatus } from '@/utils/calibrationStatus'
 import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
@@ -181,20 +183,45 @@ async function save() {
   }
 }
 
-async function remove(name: string) {
-  if (!confirm(`Xóa lịch "${name}"?`)) return
+// LL-FE-14: cấm window.confirm() — dùng BaseModal styled confirm.
+const showDeleteModal = ref(false)
+const deleteTarget = ref<string | null>(null)
+const deleting = ref(false)
+
+function askRemove(name: string) {
+  deleteTarget.value = name
+  showDeleteModal.value = true
+}
+
+function closeDeleteModal() {
+  if (deleting.value) return
+  showDeleteModal.value = false
+  deleteTarget.value = null
+}
+
+async function confirmRemove() {
+  const name = deleteTarget.value
+  if (!name) return
+  deleting.value = true
   try {
     await deleteCalibrationSchedule(name)
     notify.show({ code: MSG.UI_DELETE_SUCCESS, ctx: { entity: 'lịch hiệu chuẩn' } })
+    showDeleteModal.value = false
+    deleteTarget.value = null
     await load()
   } catch (e: unknown) {
     store._captureError(e)
     notify.fromError(store.lastApiError)
+  } finally {
+    deleting.value = false
   }
 }
 
-function isOverdue(date: string | null) {
-  return date && new Date(date) < new Date()
+// Trạng thái tuân thủ hiệu chuẩn derive THUẦN từ next_due_date (SoT) — date-only,
+// khớp BE _overdue_asset_ids/_due_soon_asset_ids (BR-11-08). FAIL due-now
+// (next_due_date <= today) → 'Quá hạn'/'Đến hạn' (đỏ/cam), KHÔNG 'Đúng lịch'.
+function calStatus(date: string | null | undefined) {
+  return deriveCalStatus(date)
 }
 
 onMounted(() => {
@@ -297,11 +324,14 @@ onMounted(() => {
               <span class="text-slate-300">·</span>
               <span>{{ s.interval_days }} ngày</span>
               <span class="text-slate-300">·</span>
-              <span :class="isOverdue(s.next_due_date) ? 'text-red-600 font-semibold' : ''">{{ formatDate(s.next_due_date) }}</span>
+              <span :class="calStatus(s.next_due_date).textClass">{{ formatDate(s.next_due_date) }}</span>
+              <span class="text-xs px-1.5 py-0.5 rounded-full font-medium" :class="calStatus(s.next_due_date).badgeClass">
+                {{ calStatus(s.next_due_date).label }}
+              </span>
             </div>
             <div class="flex justify-end gap-3 mt-2 pt-2 border-t border-slate-100" @click.stop>
               <button class="text-blue-600 text-xs font-medium" @click="openEdit(s.name)">Sửa</button>
-              <button class="text-red-600 text-xs font-medium" @click="remove(s.name)">Xóa</button>
+              <button class="text-red-600 text-xs font-medium" @click="askRemove(s.name)">Xóa</button>
             </div>
           </div>
           <div v-if="items.length === 0" class="py-12 text-center text-slate-400">
@@ -319,7 +349,8 @@ onMounted(() => {
                 <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Loại</th>
                 <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Chu kỳ</th>
                 <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Ngày đến hạn</th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Trạng thái</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Trạng thái lịch</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Hoạt động</th>
                 <th class="px-4 py-3 text-right"></th>
               </tr>
             </thead>
@@ -344,8 +375,13 @@ onMounted(() => {
                   <span v-else class="text-slate-400">—</span>
                 </td>
                 <td class="px-4 py-3">{{ s.interval_days }} ngày</td>
-                <td class="px-4 py-3 text-xs" :class="isOverdue(s.next_due_date) ? 'text-red-600 font-semibold' : ''">
+                <td class="px-4 py-3 text-xs" :class="calStatus(s.next_due_date).textClass">
                   {{ formatDate(s.next_due_date) }}
+                </td>
+                <td class="px-4 py-3">
+                  <span class="text-xs px-2 py-0.5 rounded-full font-medium" :class="calStatus(s.next_due_date).badgeClass">
+                    {{ calStatus(s.next_due_date).label }}
+                  </span>
                 </td>
                 <td class="px-4 py-3">
                   <span class="text-xs px-2 py-0.5 rounded-full font-medium" :class="s.is_active ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'">
@@ -354,7 +390,7 @@ onMounted(() => {
                 </td>
                 <td class="px-4 py-3 text-right space-x-2 whitespace-nowrap">
                   <button class="text-blue-600 hover:text-blue-800 text-xs font-medium" @click="openEdit(s.name)">Sửa</button>
-                  <button class="text-red-600 hover:text-red-800 text-xs font-medium" @click="remove(s.name)">Xóa</button>
+                  <button class="text-red-600 hover:text-red-800 text-xs font-medium" @click="askRemove(s.name)">Xóa</button>
                 </td>
               </tr>
             </tbody>
@@ -407,5 +443,32 @@ onMounted(() => {
         </div>
       </div>
     </div>
+
+    <!-- LL-FE-14: confirm xoá lịch hiệu chuẩn qua BaseModal (thay window.confirm) -->
+    <BaseModal
+      v-if="showDeleteModal"
+      title="Xoá lịch hiệu chuẩn"
+      size="sm"
+      danger
+      data-testid="cal-schedule-delete-modal"
+      @close="closeDeleteModal"
+    >
+      <p class="text-sm text-slate-600">
+        Bạn có chắc muốn xoá lịch hiệu chuẩn
+        <span class="font-mono font-medium text-slate-800">{{ deleteTarget }}</span>?
+        Thao tác này không thể hoàn tác.
+      </p>
+      <template #footer>
+        <button class="btn-ghost text-sm" :disabled="deleting" @click="closeDeleteModal">Quay lại</button>
+        <button
+          class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50"
+          :disabled="deleting"
+          data-testid="cal-schedule-delete-confirm"
+          @click="confirmRemove"
+        >
+          {{ deleting ? 'Đang xoá...' : 'Xác nhận xoá' }}
+        </button>
+      </template>
+    </BaseModal>
   </div>
 </template>

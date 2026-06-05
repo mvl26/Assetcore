@@ -17,18 +17,32 @@ _DT_WH      = "AC Warehouse"
 # (KPI imm15, dashboard /inventory, danh sách /stock, drill, scheduler email kho)
 # PHẢI dùng CHUNG fragment này. KHÔNG nhân bản SQL.
 #
-#   effective_min(bin) = COALESCE(NULLIF(s.min_stock_override, 0), p.min_stock_level, 0)
-#   low(bin)           ⟺ effective_min > 0 AND s.qty_on_hand < effective_min
+# 🔧 Self-Correction (vòng 23, BR-15-17 / VR-15-17 — 04 §II.A): "dưới định mức / cần
+# đặt lại" so theo tồn KHẢ DỤNG (qty_on_hand − reserved_qty), KHÔNG phải tồn vật lý.
+# Lý do: bin reserved-full (on_hand=100, reserved=100 ⟹ available=0) với min=20 thoả
+# 100 ≥ 20 ⟹ predicate cũ KHÔNG flag low ⟹ dashboard báo "đủ tồn" dù 0 đơn vị cấp
+# phát được → trễ sửa thiết bị (R-15-04). Đảo quyết định round-3.
+#
+#   effective_min(bin)  = COALESCE(NULLIF(s.min_stock_override, 0), p.min_stock_level, 0)
+#   available_for_min   = (s.qty_on_hand − COALESCE(s.reserved_qty, 0))   -- RAW, KHÔNG clamp
+#   low(bin)            ⟺ effective_min > 0 AND available_for_min < effective_min
+#
+# Biểu thức RAW (KHÔNG cột stored `available_qty` đã MAX(0,…) clamp) để bắt cả oversell
+# (reserved > on_hand ⟹ raw < 0 < effective_min ⟹ vẫn low). Đối chứng: bin reserved=0
+# GIỮ NGUYÊN hành vi cũ (available raw == qty_on_hand) → KHÔNG false-positive.
 #
 # Đánh giá PER-BIN (mỗi spare_part × warehouse) — KHÔNG SUM-toàn-kho (sẽ che bin
 # riêng lẻ dưới định mức / dưới min_stock_override). Yêu cầu alias bảng:
 #   s = `tabAC Spare Part Stock`, p = `tabAC Spare Part`.
 EFFECTIVE_MIN_EXPR = "COALESCE(NULLIF(s.min_stock_override, 0), p.min_stock_level, 0)"
 
+# Tồn KHẢ DỤNG (raw — KHÔNG clamp) dùng trong predicate + ORDER BY "thiếu nhiều nhất".
+AVAILABLE_FOR_MIN_EXPR = "(s.qty_on_hand - COALESCE(s.reserved_qty, 0))"
+
 LOW_STOCK_COND = (
     f"p.is_active = 1 "
     f"AND {EFFECTIVE_MIN_EXPR} > 0 "
-    f"AND s.qty_on_hand < {EFFECTIVE_MIN_EXPR}"
+    f"AND {AVAILABLE_FOR_MIN_EXPR} < {EFFECTIVE_MIN_EXPR}"
 )
 
 
@@ -317,7 +331,7 @@ def get_stock_overview() -> dict:
         FROM `tabAC Spare Part Stock` s
         JOIN `tabAC Spare Part` p ON p.name = s.spare_part
         WHERE {LOW_STOCK_COND}
-        ORDER BY ({EFFECTIVE_MIN_EXPR} - s.qty_on_hand) DESC
+        ORDER BY ({EFFECTIVE_MIN_EXPR} - {AVAILABLE_FOR_MIN_EXPR}) DESC
         LIMIT 10
     """, as_dict=True)
 
@@ -415,7 +429,7 @@ def check_low_stock() -> None:
         FROM `tabAC Spare Part Stock` s
         JOIN `tabAC Spare Part` p ON p.name = s.spare_part
         WHERE {LOW_STOCK_COND}
-        ORDER BY ({EFFECTIVE_MIN_EXPR} - s.qty_on_hand) DESC
+        ORDER BY ({EFFECTIVE_MIN_EXPR} - {AVAILABLE_FOR_MIN_EXPR}) DESC
     """, as_dict=True)
 
     if not low:

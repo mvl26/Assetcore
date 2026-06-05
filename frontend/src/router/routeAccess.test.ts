@@ -94,6 +94,27 @@ describe('resolveRouteAccess — requiredCapabilities ưu tiên hơn moduleId', 
 })
 
 // ─── §7.septies — route master-group gate khớp sidebar + depreciation finance-gate
+// ─── A6 — route AssetScanInfo (màn info mobile-first khi quét QR) ──────────────
+describe('A6 — route AssetScanInfo gate asset.read', () => {
+  // Route /assets/:id/info (name='AssetScanInfo') khai requiredCapabilities:
+  // ['asset.read'] — tái dùng cap A2 (KHÔNG cap mới). Defense-in-depth với BE
+  // require('asset.read'): URL trực tiếp KHÔNG bypass được nếu thiếu quyền.
+  const META = { requiredCapabilities: ['asset.read'] }
+  it('thiếu asset.read → unauthorized (KHÔNG bypass bằng URL trực tiếp)', () => {
+    expect(resolveRouteAccess(META, ctx())).toBe('unauthorized')
+    // Có cap khác nhưng KHÔNG asset.read → vẫn chặn.
+    expect(resolveRouteAccess(META, ctx({ can: canOnly('pm.read', 'data.read') }))).toBe(
+      'unauthorized',
+    )
+  })
+  it('có asset.read → allow', () => {
+    expect(resolveRouteAccess(META, ctx({ can: canOnly('asset.read') }))).toBe('allow')
+  })
+  it('frappe admin → allow (bypass kể cả khi thiếu asset.read)', () => {
+    expect(resolveRouteAccess(META, ctx({ isFrappeAdmin: true }))).toBe('allow')
+  })
+})
+
 describe('§7.septies.2 — master-group list route gate data.read (VĐ1)', () => {
   // RT-CAP-1: route /suppliers,/device-models,/service-contracts khai
   // requiredCapabilities:['data.read']. Non-data user (can=false) bị chặn —
@@ -113,6 +134,74 @@ describe('§7.septies.2 — master-group list route gate data.read (VĐ1)', () =
         ctx({ can: canOnly('data.read') }),
       ),
     ).toBe('allow')
+  })
+})
+
+// ─── TC-RT-06-DASH-01 — route TrainingDashboard cap-gate training.read
+describe('TC-RT-06-DASH-01 — /imm06/dashboard yêu cầu cap training.read (parity IMM-06)', () => {
+  // Mirror chính xác meta route TrainingDashboard trong router/index.ts.
+  const DASH_META = { requiredCapabilities: ['training.read'], moduleId: 'imm06' }
+  it('persona thiếu cap training.read → unauthorized', () => {
+    expect(resolveRouteAccess(DASH_META, ctx())).toBe('unauthorized')
+    // có cap module khác cũng KHÔNG mở được dashboard đào tạo
+    expect(resolveRouteAccess(DASH_META, ctx({ can: canOnly('pm.read', 'inventory.read') }))).toBe('unauthorized')
+  })
+  it('persona có training.read → allow (parity với /imm06/competencies)', () => {
+    expect(resolveRouteAccess(DASH_META, ctx({ can: canOnly('training.read') }))).toBe('allow')
+  })
+  it('frappe-admin bypass → allow', () => {
+    expect(resolveRouteAccess(DASH_META, ctx({ isFrappeAdmin: true }))).toBe('allow')
+  })
+})
+
+// ─── A2 (ADR-001 D4) — route QrDeepLink /a/:token gate asset.read
+describe('A2 — /a/:token (QrDeepLink) yêu cầu cap asset.read', () => {
+  // Mirror chính xác meta route QrDeepLink trong router/index.ts. asset.read chỉ
+  // tồn tại SAU khi BE thêm domain Asset (_DOMAIN_PRIMARY) — chống RBAC dead-gate:
+  // user có DocPerm read AC Asset → cap True → vào được; thiếu → unauthorized
+  // (KHÔNG dead-gate âm thầm vì cap tồn tại thật trong CAPABILITY_MAP).
+  const QR_META = { requiredCapabilities: ['asset.read'] }
+  it('user KHÔNG có asset.read → unauthorized', () => {
+    expect(resolveRouteAccess(QR_META, ctx())).toBe('unauthorized')
+    // cap module khác KHÔNG mở được deep-link QR
+    expect(resolveRouteAccess(QR_META, ctx({ can: canOnly('pm.read', 'data.read') }))).toBe('unauthorized')
+  })
+  it('user có asset.read → allow', () => {
+    expect(resolveRouteAccess(QR_META, ctx({ can: canOnly('asset.read') }))).toBe('allow')
+  })
+  it('frappe-admin bypass → allow', () => {
+    expect(resolveRouteAccess(QR_META, ctx({ isFrappeAdmin: true }))).toBe('allow')
+  })
+})
+
+// ─── B (ADR-001 D4, siết RBAC least-privilege) — route AssetLabelPrint gate asset.write
+describe('B — /assets/labels/print (AssetLabelPrint) yêu cầu cap asset.write', () => {
+  // Mirror chính xác meta route AssetLabelPrint trong router/index.ts: in nhãn QR
+  // = side-effect (ghi ALE label_printed + audit) → gate asset.WRITE, KHÔNG
+  // asset.read. User chỉ-đọc (asset.read) KHÔNG vào được màn in. Defense-in-depth
+  // với BE get_asset_label_data_batch/mark_label_printed require('asset.write').
+  const LABEL_META = { requiredCapabilities: ['asset.write'] }
+  it('user chỉ-đọc (asset.read, KHÔNG asset.write) → unauthorized', () => {
+    expect(resolveRouteAccess(LABEL_META, ctx({ can: canOnly('asset.read') }))).toBe('unauthorized')
+    // cap module khác cũng KHÔNG mở được màn in
+    expect(resolveRouteAccess(LABEL_META, ctx({ can: canOnly('pm.write', 'data.read') }))).toBe('unauthorized')
+  })
+  it('user có asset.write → allow', () => {
+    expect(resolveRouteAccess(LABEL_META, ctx({ can: canOnly('asset.write') }))).toBe('allow')
+  })
+  it('frappe-admin bypass → allow (kể cả khi thiếu asset.write)', () => {
+    expect(resolveRouteAccess(LABEL_META, ctx({ isFrappeAdmin: true }))).toBe('allow')
+  })
+})
+
+// ─── B regression: route read-only quét QR vẫn CHỈ cần asset.read (KHÔNG bị siết nhầm)
+describe('B regression — QrDeepLink + AssetScanInfo giữ asset.read (read-only quét QR)', () => {
+  const QR_DEEPLINK_META = { requiredCapabilities: ['asset.read'] }
+  const SCAN_INFO_META = { requiredCapabilities: ['asset.read'] }
+  it('user chỉ-đọc (asset.read, KHÔNG asset.write) → vẫn quét QR + xem thông tin được', () => {
+    const readOnly = ctx({ can: canOnly('asset.read') })
+    expect(resolveRouteAccess(QR_DEEPLINK_META, readOnly)).toBe('allow')
+    expect(resolveRouteAccess(SCAN_INFO_META, readOnly)).toBe('allow')
   })
 })
 

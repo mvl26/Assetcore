@@ -263,7 +263,7 @@ Scheduler `check_avl_expiry()` daily → set status=Expired, update `AC Supplier
 | Brief | Procurement Officer chạy evaluation cho 1 Tech Spec đã Lock |
 | Primary actor | IMM Procurement Officer |
 | Pre-condition | IMM-02 Tech Spec đã tồn tại với `device_category` |
-| Post-condition | IMM Vendor Evaluation ở trạng thái Evaluated (docstatus=1); recommended_candidate = supplier name top weighted |
+| Post-condition | IMM Vendor Evaluation ở trạng thái Evaluated (docstatus=1); recommended_candidate = supplier name top weighted **DUY NHẤT** — **rỗng nếu đỉnh hòa** (`has_top_tie=1`, xem INV-VE-TIE §IV.7) |
 | Trigger | Procurement Officer gọi `create_evaluation(spec_ref)` (V1: pull-mode, không có event listener) |
 
 **Main flow:**
@@ -274,7 +274,7 @@ Scheduler `check_avl_expiry()` daily → set status=Expired, update `AC Supplier
 | 2 | Procurement Officer add candidates qua `add_candidate(name, supplier, sign_off_non_avl)` | `_is_supplier_in_avl()` set `in_avl` flag; warning nếu non-AVL |
 | 3 | Transition "Mở RFQ" qua `transition_eval_workflow` | State → Open RFQ |
 | 4 | `submit_quotations(name, quotations[])` | `_vr03_quotation_validity` check khi state ≥ Quotation Received |
-| 5 | `score_evaluation(name, scorer_role, scores_by_supplier)` | `_compute_eval_scores` Σ(score × group_weight × crit_weight); set recommended_candidate = supplier name top weighted |
+| 5 | `score_evaluation(name, scorer_role, scores_by_supplier)` | `_compute_eval_scores` Σ(score × group_weight × crit_weight); set recommended_candidate = supplier name top weighted DUY NHẤT — **None + `has_top_tie=1` nếu đỉnh hòa** (INV-VE-TIE §IV.7) |
 | 6 | Transition "Hoàn tất chấm điểm" | `apply_workflow` → docstatus=1, state Evaluated. V1: gate Eval-side chưa enforce trong service. |
 
 ### UC-02: Procurement Decision → Award
@@ -360,8 +360,9 @@ Là **VP Block1**, tôi muốn **Approve Decision và hệ thống tự động 
 | BR-03-04 | Quotation hết hạn không dùng cho Award | `_vr03_quotation_validity` | TC-16 (planned) |
 | BR-03-05 | Awarded price > 105% envelope cần justification | `_vr04_envelope_check` (ENVELOPE_HARD_LIMIT_PCT=105) | TC-25 (planned) |
 | BR-03-06 | Phương án mua sắm hợp pháp với giá trị + loại hàng | `_validate_gate_g04_method` (_METHOD_RULES dict) | TestGateG04Method.* |
-| BR-03-07 | Awarded vendor phải có AVL Approved hoặc Conditional cho device_category | `_vr05_winner_avl_required` | TC-26/27 (planned) |
+| BR-03-07 | Awarded vendor phải có AVL **còn hiệu lực** cho device_category — workflow_state ∈ {Approved, Conditional} **VÀ** (`valid_to` IS NULL **HOẶC** `valid_to` ≥ hôm nay). Xem **INV-AVL-LIVE** (§IV.6) — KHÔNG được chỉ check workflow_state vì có cửa sổ trễ scheduler. | `_vr05_winner_avl_required` → `_avl_is_live` | TestAvlLiveSoT (TC-26/27) |
 | BR-03-08 | PO TBYT cần link IMM Procurement Decision | `validate_ac_purchase_imm_link` (V1: soft warning) | TC-31 (planned) |
+| BR-03-09 | Khi điểm đỉnh HÒA (≥2 candidate cùng `weighted_score` tối đa, |Δ|≤1e-9) → **KHÔNG** auto-gợi-ý trúng thầu: `recommended_candidate=None`, set `has_top_tie=1` + `tied_candidates`, ghi audit `eval_tie_unresolved`. Người chấm phải áp tiebreak có hồ sơ. Xem **INV-VE-TIE** (§IV.7). | `_compute_eval_scores` (cờ) + `on_submit_evaluation` (audit) | TestComputeEvalScores (TC-32..34) |
 
 ## IV.3. Validation Rules
 
@@ -371,10 +372,11 @@ Là **VP Block1**, tôi muốn **Approve Decision và hệ thống tự động 
 | VR-03-02 | Vendor non-AVL cần `sign_off_non_avl` | V1: warning trả về từ `add_candidate` ("Vendor non-AVL — cần sign-off IMM Board Approver"); chưa hard-throw ở submit |
 | VR-03-03 | Quotation chưa hết hạn (state ≥ Quotation Received) | "VR-03-03: Quotation đã hết hạn: {list}" — throw `VALIDATION` |
 | VR-03-04 | Awarded ≤ 105% `Procurement Plan Line.allocated_budget` | "VR-03-04: Awarded {price} > 105% envelope {budget} ({pct}%) — yêu cầu giải trình ở method_legal_basis" — throw `CONFLICT` khi state in ("Pending Approval","Awarded") |
-| VR-03-05 | Winner có AVL Approved/Conditional cho `device_category` | "VR-03-05: Winner '{supplier}' không có AVL Active/Conditional cho category '{cat}'" — throw `BUSINESS_RULE` ở `before_submit` |
+| VR-03-05 | Winner có AVL **còn hiệu lực** cho `device_category`: workflow_state ∈ {Approved, Conditional} **VÀ** (`valid_to` IS NULL **HOẶC** `valid_to` ≥ hôm nay) — dùng predicate SoT `_avl_is_live` (§IV.6). | "VR-03-05: Winner '{supplier}' không có AVL còn hiệu lực (Approved/Conditional) cho category '{cat}'" — throw `BUSINESS_RULE` ở `before_submit` |
 | VR-03-06 | Lifecycle event/audit trail bất biến | V1: KHÔNG có hard-enforce trong service. Bảo vệ qua `permlevel` của `IMM Audit Trail` DocType (chung hệ thống). |
 | VR-03-07 | 1 Tech Spec ↔ 1 Decision Awarded/Contract Signed/PO Issued | "VR-03-07: Tech Spec {spec} đã có Decision Awarded ({existing})" — throw `DUPLICATE` |
 | VR-03-08 | AC Purchase có device rows nên có `imm_procurement_decision` | "BR-03-08 (warn): AC Purchase chứa thiết bị nhưng chưa link IMM-03..." — V1 soft `msgprint`, hard-enforce sẽ kích hoạt khi `enforce_imm_link=1` |
+| VR-03-09 | Đỉnh điểm HÒA → KHÔNG auto-set `recommended_candidate` | KHÔNG raise (mềm). `_compute_eval_scores` set `recommended_candidate=None` + `has_top_tie=1` + `tied_candidates`; cổng cứng nằm downstream: `_vr05_winner_avl_required` vẫn chặn winner-không-AVL nên winner phải do người nhập tay (xem INV-VE-TIE §IV.7 + E-03-10). |
 
 ## IV.4. Gates
 
@@ -398,6 +400,161 @@ Là **VP Block1**, tôi muốn **Approve Decision và hệ thống tự động 
 | E-03-06 | G05 fail: thiếu contract_doc | Block Pending Approval → Awarded | `BUSINESS_RULE` (G05) |
 | E-03-07 | Audit finding Critical → Suspend AVL | Auto suspend AVL vendor | `BUSINESS_RULE` |
 | E-03-08 | AC Purchase mint thất bại | Rollback Decision về Pending Approval | `INTERNAL` |
+| E-03-09 | Winner có AVL Approved nhưng `valid_to` < hôm nay (CHƯA bị scheduler flip Expired) → thử Submit Decision | Block | `BUSINESS_RULE` (VR-03-05 / INV-AVL-LIVE-1) |
+| E-03-10 | ≥2 candidate đồng hạng nhất (đỉnh hòa) → `recommended_candidate=None` (không auto-gợi-ý), `has_top_tie=1`, audit `eval_tie_unresolved`. Decision KHÔNG kế thừa winner mơ hồ; người chấm nhập `winner_supplier` tay → vẫn qua cổng `_vr05_winner_avl_required`. | Surface tie + KHÔNG raise | — (INV-VE-TIE / VR-03-09) |
+
+## IV.6. INV-AVL-LIVE — Single Source of Truth cho "AVL còn hiệu lực"
+
+> **Bối cảnh lỗi thiết kế gốc (Self-Correction vòng 22).** Khái niệm "AVL còn hiệu lực / eligible" được dùng ở ≥4 điểm gọi nhưng spec gốc KHÔNG định nghĩa **một** predicate duy nhất, dẫn tới drift:
+>
+> | Điểm gọi | Predicate gốc (LỖI) | Hậu quả |
+> |---|---|---|
+> | `_is_supplier_in_avl` (eligibility flag candidate) | chỉ `workflow_state ∈ {Approved,Conditional}` | flag `in_avl=1` SAI cho AVL đã hết hạn |
+> | `_vr05_winner_avl_required` (cổng trao thầu) | chỉ `workflow_state ∈ {Approved,Conditional}` | **trao thầu lọt** cho NCC có AVL hết hạn trong cửa sổ trễ scheduler → vi phạm NĐ98 §29 |
+> | `_sync_supplier_avl_status` (sync cờ Supplier) | `… AND (valid_to IS NULL OR valid_to ≥ CURDATE())` | ĐÚNG — nhưng lệch 2 điểm trên |
+> | `get_dashboard_stats.avl_active` (KPI) | chỉ `workflow_state ∈ {Approved,Conditional}` | KPI đếm cả AVL hết hạn |
+>
+> `check_avl_expiry` (scheduler daily) flip Expired bằng `valid_to < CURDATE()`. Giữa hai lần chạy scheduler tồn tại **cửa sổ trễ**: AVL có `valid_to < hôm nay` nhưng `workflow_state` vẫn `Approved` → predicate "chỉ workflow_state" PASS sai.
+
+**Quyết định chốt (Core Doc là tiếng nói cuối):** Hợp nhất về **một** predicate SoT duy nhất, đặt tên `_avl_is_live`, dùng tại **mọi** điểm gọi eligibility/cổng/KPI/sync. Predicate này phải **trùng từng-bit** với mệnh đề mà `_sync_supplier_avl_status` đang dùng (dòng 348 imm03.py).
+
+**Predicate canonical (`_avl_is_live`):**
+
+```
+AVL được coi LIVE (eligible) ⇔
+    docstatus = 1
+    AND workflow_state ∈ {Approved, Conditional}
+    AND (valid_to IS NULL OR valid_to >= CURDATE())
+```
+
+- `valid_to IS NULL` ⇒ AVL **không thời hạn** ⇒ LIVE.
+- So sánh **`>=` (inclusive)** ⇒ biên `valid_to == hôm nay` vẫn LIVE.
+- Scheduler-expire dùng **`<` (exclusive)** ⇒ AVL `valid_to == hôm nay` CHƯA bị expire. Hai mệnh đề **bù khít, no off-by-one**.
+
+**Hợp đồng hàm SoT:**
+
+| Hàm | Chữ ký | Trách nhiệm |
+|---|---|---|
+| `_avl_is_live(supplier, category=None) -> int` | trả `1`/`0` | Predicate SoT: 1 truy vấn `frappe.db.exists` với filter mở rộng `valid_to`. KHÔNG loop. Khi `category` None → bỏ filter `device_category`. |
+
+Quy ước filter Frappe cho mệnh đề OR-NULL (1 truy vấn, no N+1):
+```python
+filters = {
+    "supplier": supplier,
+    "docstatus": 1,
+    "workflow_state": ["in", ["Approved", "Conditional"]],
+    "valid_to": ["in", [None]],   # placeholder — xem ghi chú dưới
+}
+```
+> **Ghi chú implement (BE):** Frappe `db.exists`/`get_value` KHÔNG diễn đạt được `(valid_to IS NULL OR valid_to >= CURDATE())` bằng 1 dict filter. BE chọn **một** trong hai, miễn là **1 truy vấn/điểm-gọi** và **đồng nhất** predicate:
+> 1. `frappe.db.sql` 1 câu với mệnh đề `AND (valid_to IS NULL OR valid_to >= CURDATE())` (giống `_sync` line 348) — **khuyến nghị** để parity tuyệt đối; hoặc
+> 2. `frappe.db.exists` với filter list `[["valid_to", "is", "not set"]]` OR-combined — chỉ dùng nếu chứng minh được tương đương SQL.
+> KHÔNG được loop Python qua các AVL row để lọc `valid_to`. KHÔNG thêm field/migration — `valid_to` đã tồn tại (DocType IMM AVL Entry, §IV / 04_Backend_Design).
+
+**Điểm gọi sau hợp nhất (tất cả ủy quyền về `_avl_is_live`):**
+
+| Điểm gọi | Sau hợp nhất |
+|---|---|
+| `_is_supplier_in_avl(supplier, category)` | `return _avl_is_live(supplier, category)` (giữ tên public cho compat; thân ủy quyền) |
+| `_vr05_winner_avl_required(doc)` | dùng `_avl_is_live(winner_supplier, category)`; raise `BUSINESS_RULE` nếu trả 0 |
+| `_sync_supplier_avl_status(supplier)` | giữ SQL hiện tại (đã đúng) — đây là **reference predicate**; bổ sung comment trỏ về `_avl_is_live` để khẳng định parity |
+| `get_dashboard_stats.avl_active` (api/imm03.py) | đếm AVL LIVE: thêm `AND (valid_to IS NULL OR valid_to >= CURDATE())` vào count để parity với SoT |
+
+**Invariants (acceptance — viết test TRƯỚC, RED-prove trên code cũ):**
+
+| ID | Invariant |
+|---|---|
+| INV-AVL-LIVE-1 | Cổng trao thầu: Submit Decision với winner có AVL `Approved/Conditional` nhưng `valid_to < hôm nay` (chưa flip Expired) → `_vr05_winner_avl_required` RAISE `BUSINESS_RULE` (VR-03-05). Code cũ PASS sai → RED-prove. |
+| INV-AVL-LIVE-2 | Eligibility flag: `_is_supplier_in_avl` trả `0` khi `valid_to < hôm nay` dù `workflow_state=Approved`; trả `1` khi `valid_to ≥ hôm nay` HOẶC `valid_to IS NULL`. |
+| INV-AVL-LIVE-3 | Parity SoT: tập supplier qua cổng (`_is_supplier_in_avl`/`_vr05`) == tập supplier mà `_sync_supplier_avl_status` coi 'active' (cùng predicate). KHÔNG còn predicate lệch. |
+| INV-AVL-LIVE-4 | Biên hôm nay: `valid_to == hôm nay` → vẫn ELIGIBLE (`>=` inclusive); khớp `_sync` line 348 và `check_avl_expiry` dùng `<` để expire. No off-by-one. |
+| INV-AVL-LIVE-5 | Idempotent/no-regression: AVL `Approved` `valid_to` tương lai → eligible=1 + Submit Decision PASS như cũ; happy-path KHÔNG đổi hành vi. `test_imm03` + `test_workflows` + `test_dashboard` GREEN, no leak. |
+| INV-AVL-LIVE-6 | No N+1 / no schema-migration: predicate = 1 truy vấn/điểm-gọi (`db.exists`/`get_value`/`sql` 1 câu), KHÔNG loop; KHÔNG thêm field/migration. |
+
+## IV.7. INV-VE-TIE — Cổng tie-break khi chấm điểm NCC (KHÔNG auto-award khi hòa đỉnh)
+
+> **Bối cảnh lỗi thiết kế gốc (Self-Correction vòng 26).** `_compute_eval_scores` (imm03.py line 166-169) sắp xếp candidate `key=weighted_score desc` rồi luôn gán `recommended_candidate = cands_sorted[0].supplier` khi điểm > 0. Khi điểm đỉnh **HÒA** (≥2 candidate cùng `weighted_score` tối đa), kết quả `recommended_candidate` phụ thuộc **thứ tự row đầu vào** (Python `sorted` ổn định ⇒ giữ thứ tự xuất hiện) — tức **chọn ngẫu nhiên theo thứ tự nhập, không tất định về nghiệp vụ, không đối chứng**. Hệ quả NĐ98: hệ thống "gợi ý trúng thầu" cho một NCC khi hồ sơ chấm điểm chưa phân định được người thắng → quyết định trao thầu thiếu căn cứ, không thể audit "vì sao NCC này thắng NCC kia".
+
+**Quyết định chốt (Core Doc là tiếng nói cuối):** Khi đỉnh điểm HÒA, hệ thống **KHÔNG tự gợi ý** — trả `recommended_candidate` rỗng, **surface** sự hòa (cờ + danh sách + audit) để **người chấm áp tiêu chí phân định có hồ sơ** (vd: giá thấp hơn, thời gian giao ngắn hơn, theo Luật Đấu thầu) rồi nhập `winner_supplier` tay ở Procurement Decision. Tie-break thứ cấp tất định (supplier asc) **chỉ** dùng cho hiển thị thứ hạng FE, **KHÔNG** để auto-chọn winner.
+
+**Định nghĩa "đỉnh hòa" (canonical):**
+
+```
+top = max(c.weighted_score or 0 for c in candidates)        # đã round(·×5, 4)
+tied = [c.supplier for c in candidates if abs((c.weighted_score or 0) - top) <= 1e-9]
+has_top_tie ⇔ top > 0  AND  len(tied) >= 2
+```
+
+- `weighted_score` đã `round(total*5, 4)` trong cùng hàm ⇒ so sánh dung sai `1e-9` bắt đúng ca "hòa thực" sau làm tròn 4 chữ số, miễn nhiễu float.
+- `top <= 0` (chưa chấm / mọi điểm 0) ⇒ KHÔNG xét hòa: giữ hành vi cũ `recommended_candidate=None`.
+
+**Bảng quyết định (acceptance):**
+
+| top | len(tied) | recommended_candidate | has_top_tie | tied_candidates | Audit | Test |
+|---|---|---|---|---|---|---|
+| ≤ 0 | — | None | 0 | '' | — | TC-34 (zero) / empty PASS cũ |
+| > 0 | 1 | supplier đỉnh DUY NHẤT | 0 | '' | — | TC (higher-wins) PASS cũ |
+| > 0 | ≥ 2 | **None** | 1 | `','.join(sorted(tied))` | `eval_tie_unresolved` | TC-32, TC-33 |
+
+**Surface tie (audit-trail — CLAUDE.md §10):**
+- `_compute_eval_scores` (validate, chạy mỗi save): set cờ `has_top_tie` + `tied_candidates`; emit `frappe.logger("imm03").warning` structured `eval_tie_unresolved` gồm `spec_ref`, `suppliers=tied`, `score=top`. KHÔNG ghi DB ở validate (idempotent, không spam chain).
+- `on_submit_evaluation`: khi `has_top_tie=1` → ghi **1** dòng IMM Audit Trail bất biến qua `utils.lifecycle.log_audit_event(asset=None, event_type="System", ref_doctype="IMM Vendor Evaluation", ref_name=doc.name, change_summary="eval_tie_unresolved | spec=<spec_ref> | tied=<...> | score=<top>")`. Idempotent: bỏ qua nếu đã tồn tại audit row khớp `(ref_doctype, ref_name, change_summary LIKE 'eval_tie_unresolved%')`. (`event_type` chọn option Select hợp lệ `System`; nhãn nghiệp vụ `eval_tie_unresolved` nằm trong `change_summary` vì Select của IMM Audit Trail không có option riêng — KHÔNG migrate enum.)
+
+**Cổng downstream KHÔNG hồi quy (no-regression):** `recommended_candidate` rỗng KHÔNG nới lỏng cổng trao thầu. `before_submit_decision::_vr05_winner_avl_required` vẫn chặn `winner_supplier` không có AVL live (VR-03-05 / INV-AVL-LIVE-1). Vì `recommended_candidate=None`, người dùng buộc nhập `winner_supplier` tay → Decision KHÔNG kế thừa winner mơ hồ.
+
+**Invariants (acceptance — viết test TRƯỚC, RED-prove trên code cũ):**
+
+| ID | Invariant |
+|---|---|
+| INV-VE-TIE-1 | No-tie: CHỈ 1 candidate có `weighted_score` đỉnh → `recommended_candidate = supplier` đó, `has_top_tie=0`. Giữ `test_higher_score_candidate_wins` GREEN. |
+| INV-VE-TIE-2 | Tie đỉnh ≥2 candidate (|Δ|≤1e-9 sau round 4): `recommended_candidate` None/rỗng, **KHÔNG raise**, `has_top_tie=1`, `tied_candidates`=CSV sorted supplier. Code cũ RED (auto-award first-row). |
+| INV-VE-TIE-3 | Surface audit: tie ở đỉnh ⇒ có log `eval_tie_unresolved` (spec_ref + suppliers + score); on_submit ⇒ đúng 1 IMM Audit Trail row (idempotent). |
+| INV-VE-TIE-4 | Zero/empty: mọi `weighted_score ≤ 0` HOẶC không candidate → `recommended_candidate` None, `has_top_tie=0`. Giữ `test_empty/zero` GREEN. |
+| INV-VE-TIE-5 | Ordering tất định: tie-break thứ cấp (supplier asc) chỉ xếp hạng hiển thị; KHÔNG auto-chọn winner khi đỉnh hòa. Đảo thứ tự row đầu vào ⇒ cùng kết quả (recommended None + cùng `tied_candidates`). |
+| INV-VE-TIE-6 | No-regression cổng: `recommended_candidate` rỗng KHÔNG bypass `_vr05_winner_avl_required`; 3 test cũ `TestComputeEvalScores` GREEN; `test_imm03` toàn bộ PASS, no leak. |
+
+## IV.8. INV-DEC-DRILL — KPI tile "Quyết định mua sắm" drillable + bảo toàn INVARIANT card==drill
+
+> **Bối cảnh lỗi thiết kế gốc (Self-Correction vòng 1 — IMM-03 procurement drilldown).** Dashboard "Quyết định mua sắm" hiển thị 3 KPI tile theo `workflow_state`: **Đã trao thầu** (`Awarded`), **Chờ phê duyệt** (`Pending Approval`), **Đã phát hành đơn hàng** (`PO Issued`) — số lấy verbatim từ `dashboard_kpis().decision_states[S]`. Hai khiếm khuyết:
+> 1. **Predicate lệch (BE) — INVARIANT card==drill GÃY.** `_dashboard_kpis().decision_states` đếm bằng SQL `SELECT workflow_state, COUNT(*) FROM \`tabIMM Procurement Decision\` WHERE docstatus<2 GROUP BY workflow_state` ⇒ **loại** bản ghi cancelled (`docstatus=2`). Nhưng `_list_decisions(filters={'workflow_state': S})` dùng `frappe.get_list` + `count_with_or` (→ `frappe.db.count`/`frappe.get_all`) **KHÔNG** áp `docstatus<2` mặc định (Frappe v15: `db_query.docstatus = docstatus or []` ⇒ rỗng = không lọc docstatus). `IMM Procurement Decision` là `is_submittable=1`, và khi cancel, `workflow_state` **KHÔNG** tự xoá (vẫn giữ "Awarded"/"PO Issued"). ⇒ Có ≥1 Decision cancelled mang `workflow_state=S` thì `total(list[S]) = count(tile[S]) + #cancelled[S]` → **list nhiều dòng hơn tile**. Vi phạm acceptance "SỐ DÒNG list == số trên tile".
+> 2. **Tile không drillable (FE).** 3 `KpiCard` ở `DecisionListView.vue` (line 138–150) chỉ hiển-thị-số, KHÔNG `@click`, KHÔNG `cursor:pointer`/`role=button`/aria, KHÔNG highlight khi active. Người dùng thấy "5 đã trao thầu" nhưng không click để lọc list.
+>
+> **Hệ quả NĐ98 / audit:** con số trên dashboard mua sắm phải **đối chứng được** về danh sách nguồn (CLAUDE.md §5 "Dashboard phải truy về source"). Nếu click tile ra list lệch số (kể cả +1 do 1 QĐ đã huỷ), người duyệt mất niềm tin vào số liệu trao thầu — quyết định mua sắm thiếu căn cứ kiểm chứng.
+
+**Quyết định chốt (Core Doc là tiếng nói cuối):**
+
+1. **Predicate SoT đồng nhất `docstatus<2` cho CẢ count lẫn drill.** Cancelled (`docstatus=2`) KHÔNG được đếm ở cả hai nhánh. Cách thực thi (light-touch, KHÔNG đổi hành vi list ngoài việc đồng nhất predicate):
+   - `_list_decisions`: trước khi gọi `frappe.get_list`/`count_with_or`, **bơm** `docstatus` filter mặc định = `["<", 2]` vào dict `f` nếu caller chưa truyền `docstatus` → cả `items` và `total` cùng loại cancelled. KHÔNG thay đổi field trả về, search, hay pagination.
+   - `_dashboard_kpis().decision_states`: giữ nguyên SQL `WHERE docstatus<2` (đã đúng — đây là **reference predicate**; thêm comment trỏ INV-DEC-DRILL).
+   - Cancelled vẫn truy được qua filter tường minh `{"docstatus": 2}` nếu sau này cần màn "đã huỷ" — nhưng KHÔNG nằm trong 3 tile và KHÔNG vào list mặc định.
+2. **Tile drillable + active highlight + toggle (FE).** Mỗi tile click → `quickFilter('workflow_state', S)` đúng giá trị canonical (`Awarded` / `Pending Approval` / `PO Issued`). Tile có `cursor:pointer` + `role="button"` + `tabindex=0` + `@keydown.enter/space` + `aria-pressed`. Khi `filters.workflow_state === S` → tile **active** (ring/tô sáng). Click tile lần 2 (đang active) → toggle off (`quickFilter` về `''` ⇔ gọi nhánh clear) → list về full. "Xóa tất cả" (`resetFilters`) cũng gỡ filter → tile hết active.
+3. **Tile value=0 vẫn click được, không lỗi.** Click tile có giá trị 0 → list rỗng + empty-state, `total==0==tile`. Không guard chặn click.
+
+**Predicate canonical (SoT — dùng CHUNG, KHÔNG inline literal khác):**
+
+```
+decision_count(S)  ::= COUNT IMM Procurement Decision WHERE docstatus < 2 AND workflow_state = S
+decision_list(S)   ::= rows  IMM Procurement Decision WHERE docstatus < 2 AND workflow_state = S
+INVARIANT:  decision_count(S) == len(decision_list(S))   ∀ S ∈ {Awarded, Pending Approval, PO Issued}
+```
+
+- `docstatus < 2` ở **cả hai** nhánh (loại cancelled). KHÔNG đếm `docstatus=2`.
+- KHÔNG thêm field, KHÔNG migration, KHÔNG đổi workflow. Chỉ đồng nhất predicate + wire tile.
+
+**Invariants (acceptance — viết test TRƯỚC, RED-prove trên code cũ):**
+
+| ID | Invariant |
+|---|---|
+| INV-DEC-DRILL-1 | **Parity card==drill (BE guard).** Với cùng tập dữ liệu, `_dashboard_kpis().decision_states.get(S, 0) == _list_decisions({'workflow_state': S}, 1, 100)['total']` cho S ∈ {Awarded, Pending Approval, PO Issued}. Test seed ≥1 QĐ ở mỗi state. |
+| INV-DEC-DRILL-2 | **Cancelled không lệch (RED-prove).** Seed 1 QĐ `docstatus=2` mang `workflow_state='Awarded'` → tile Awarded KHÔNG đổi VÀ `total(list[Awarded])` KHÔNG đổi (vẫn loại cancelled). Code cũ RED (list đếm dư bản huỷ). |
+| INV-DEC-DRILL-3 | **Predicate `docstatus<2` đồng nhất.** Cả `_dashboard_kpis` lẫn `_list_decisions` chỉ đếm `docstatus ∈ {0,1}`. KHÔNG nhánh nào đếm `docstatus=2`. |
+| INV-DEC-DRILL-4 | **Value=0 an toàn.** State không có QĐ active → tile=0 và `total(list[S])==0`; list rỗng (empty-state), không raise. |
+| INV-DEC-DRILL-5 | **No-regression list.** Hành vi `_list_decisions` không đổi ngoài việc loại cancelled mặc định: field trả về, search (`pop_search`), enrich (`vendor_name`/`tech_spec_ref_name`/`ac_purchase_ref_name`), pagination (`count_with_or`) giữ nguyên. Filter tường minh `{'docstatus': 2}` vẫn lọc đúng cancelled (override). |
+| INV-DEC-DRILL-6 | **FE drill đúng giá trị.** Click tile `Đã trao thầu`/`Chờ phê duyệt`/`Đã phát hành đơn hàng` → `quickFilter('workflow_state', S)` với S = `Awarded`/`Pending Approval`/`PO Issued` (canonical, KHÔNG nhãn VI). vitest mock store assert payload. |
+| INV-DEC-DRILL-7 | **FE toggle/clear/active.** Tile đang active có affordance (cursor/role/aria-pressed) + highlight; click lần 2 hoặc "Xóa tất cả" gỡ filter → list full, tile hết active; không kẹt filter. |
+| INV-DEC-DRILL-8 | **No EN leak.** `StatusBadge`/`stateLabel` phủ đủ 3 state (+ các state khác trong `DECISION_STATES`) ra nhãn VI; vue-tsc 0 lỗi. |
+
+**Scope-fence (KHÔNG làm trong vòng này):** KHÔNG đổi logic workflow/transition; KHÔNG đổi field/migration; KHÔNG đụng eval_states/avl_active; KHÔNG tạo route dashboard mới (tile sống trên `DecisionListView.vue` đã có). CHỈ: (a) đồng nhất predicate `docstatus<2` ở `_list_decisions`, (b) wire 3 tile → drill + active/toggle, (c) test BE guard + vitest FE.
 
 ---
 

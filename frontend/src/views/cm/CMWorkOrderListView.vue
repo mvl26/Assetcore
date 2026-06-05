@@ -257,8 +257,10 @@ const filteredWOs = computed(() => {
             </span>
           </div>
           <!-- Flags -->
-          <div v-if="wo.sla_breached || wo.is_repeat_failure" class="flex gap-2 mt-1">
-            <span v-if="wo.sla_breached" class="text-[10px] text-red-600 font-medium">SLA vi phạm</span>
+          <!-- BR-09-07 LIVE: badge "SLA vi phạm" theo live-truth (is_sla_breached) ưu tiên,
+               fallback cờ thô (sla_breached) — kill undercount cửa-sổ-trễ-scheduler. -->
+          <div v-if="(wo.is_sla_breached ?? wo.sla_breached) || wo.is_repeat_failure" class="flex gap-2 mt-1">
+            <span v-if="wo.is_sla_breached ?? wo.sla_breached" class="text-[10px] text-red-600 font-medium">SLA vi phạm</span>
             <span v-if="wo.is_repeat_failure" class="text-[10px] text-amber-700">Tái hỏng</span>
           </div>
         </div>
@@ -298,7 +300,8 @@ const filteredWOs = computed(() => {
             >
               <td class="table-cell">
                 <div class="font-mono text-sm font-semibold text-brand-700">{{ wo.name }}</div>
-                <div v-if="wo.sla_breached" class="text-xs text-red-600 font-medium mt-0.5">SLA vi phạm</div>
+                <!-- BR-09-07 LIVE: live-truth (is_sla_breached) ưu tiên, fallback cờ thô. -->
+                <div v-if="wo.is_sla_breached ?? wo.sla_breached" class="text-xs text-red-600 font-medium mt-0.5">SLA vi phạm</div>
                 <div v-if="wo.is_repeat_failure" class="text-xs text-amber-700 mt-0.5">Tái hỏng</div>
               </td>
               <td class="table-cell">

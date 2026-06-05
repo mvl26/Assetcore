@@ -98,9 +98,18 @@ export interface AssetDocumentDetail extends AssetDocumentItem {
 
 export interface DocumentFilters {
   doc_category?: string
-  workflow_state?: string
+  /** Plain match (`'Active'`) or Frappe operator tuple (`['not in', ['Archived','Rejected']]`). */
+  workflow_state?: string | [string, unknown]
   asset_ref?: string
   visibility?: string
+  /** Frappe operator tuple, e.g. `['<', '2026-05-29']` or `['between', [from, to]]`. */
+  expiry_date?: unknown
+  /**
+   * Semantic marker (NOT a DB field) — BR-05-16. `'expired'` asks the BE to apply
+   * the SoT predicate `expiry_date < today AND state NOT IN (Archived,Rejected)`.
+   * `list_documents` pops + translates it; never sent as a raw filter dict.
+   */
+  expiry_status?: 'expired'
   [key: string]: unknown
 }
 

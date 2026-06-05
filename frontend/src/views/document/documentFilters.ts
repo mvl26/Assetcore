@@ -7,6 +7,25 @@
 // chokepoint; these builders only express query intent.
 import type { DocumentFilters } from '@/api/imm05'
 
+/**
+ * Semantic marker the FE sends to express the intent "Đã hết hạn".
+ *
+ * BR-05-16 / INV-EXP-1 (Self-Correction Vòng 19): the compliance predicate
+ * `expiry_date < today AND workflow_state NOT IN ('Archived','Rejected')` is a
+ * NĐ98 Điều 41 rule — it is anchored at the BE security/compliance chokepoint
+ * (`services/imm05.py::expired_filter()`), the ONE place it is materialized.
+ * The FE never ships the raw filter dict (it could drift / over- or under-count);
+ * it only declares intent via this marker, which `list_documents` pops and
+ * translates into the SoT predicate, IDENTICAL to the predicate the KPI count
+ * (`get_dashboard_stats().kpis.expired_not_renewed`) uses → count never diverges
+ * from drill.
+ *
+ * NOTE: there is NO `workflow_state = 'Expired'` anywhere. 'Expired' is a dead
+ * workflow state (no transition leads into it) — filtering by it returned 0 rows
+ * and hid genuinely-expired-but-still-live docs.
+ */
+const EXPIRED_MARKER: DocumentFilters = { expiry_status: 'expired' }
+
 /** Expiry-window dropdown options (Core Doc §3 / docs-fe). */
 export const EXPIRY_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
   { value: '', label: 'Mọi hết hạn' },
@@ -54,12 +73,14 @@ export function isoDate(base: Date, dayOffset = 0): string {
 /**
  * Build the expiry-window slice of a DocumentFilters payload.
  * - ''        → {} (no constraint)
- * - 'expired' → already-expired docs (workflow_state = Expired)
+ * - 'expired' → SoT marker {expiry_status:'expired'}; BE materializes the
+ *               predicate (expiry_date < today AND state NOT IN Archived/Rejected).
+ *               NOT workflow_state='Expired' — that dead state hid live gaps.
  * - '30'/'60'/'90' → Active docs whose expiry_date falls in [today, today+N]
  */
 export function buildExpiryFilter(option: string, now: Date = new Date()): DocumentFilters {
   if (option === '') return {}
-  if (option === 'expired') return { workflow_state: 'Expired' }
+  if (option === 'expired') return { ...EXPIRED_MARKER }
   // Only the whitelisted day-windows from EXPIRY_OPTIONS are honored; any other
   // value (stale query param, tampering) degrades to no constraint.
   if (!EXPIRY_OPTIONS.some((o) => o.value === option)) return {}
@@ -82,7 +103,9 @@ export function buildKpiFilter(kind: KpiKind, now: Date = new Date()): DocumentF
     case 'active':
       return { workflow_state: 'Active' }
     case 'expired':
-      return { workflow_state: 'Expired' }
+      // SoT — IDENTICAL to buildExpiryFilter('expired'): dropdown 'Đã hết hạn'
+      // and the KPI tile drill both emit the same marker so count never diverges.
+      return { ...EXPIRED_MARKER }
     case 'expiring':
       return buildExpiryFilter('90', now)
     case 'missing':

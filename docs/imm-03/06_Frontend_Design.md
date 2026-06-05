@@ -137,9 +137,18 @@ Stepper: [Draft] ▶ [Open RFQ] ▶ [Quotation Received] ▶ [Evaluated]
     ★ Đề xuất: Vinamed (4.32) — highest weighted score
     Compare table 3 vendor side-by-side (price / score / delivery / warranty)
     [Tạo Procurement Decision →]
+
+  Tab 3 — biến thể ĐỈNH HÒA (has_top_tie=1, INV-VE-TIE §IV.7):
+    ⚠ Banner (imm03.evaluation.tie_banner): "Điểm cao nhất đang HÒA…"
+    ✗ KHÔNG hiển thị ★ Đề xuất (recommended_candidate=null)
+    NCC đồng hạng nhất (tied_candidates): Vinamed (4.32), Hamilton VN (4.32)
+    Compare table vẫn hiện (xếp hạng hiển thị theo supplier asc — chỉ để xem)
+    [Tạo Procurement Decision →]  (winner_supplier KHÔNG prefill — người dùng chọn tay)
 ```
 
 **Props:** `name: string`
+
+**Hành vi đỉnh hòa (INV-VE-TIE §IV.7):** khi `has_top_tie=1` → ẩn dòng "★ Đề xuất", hiện banner cảnh báo + danh sách `tied_candidates`. Nút "Tạo Procurement Decision" vẫn cho phép nhưng **KHÔNG** prefill `winner_supplier` từ `recommended_candidate` (vì = null) — Decision form bắt người dùng chọn NCC trúng thầu thủ công; cổng `_vr05_winner_avl_required` (VR-03-05) vẫn chặn NCC không có AVL live khi submit.
 
 ---
 
@@ -177,6 +186,48 @@ Sau Awarded:
 
 **Props:** `name: string`
 **Computed:** `isEditable`, `availableActions` (theo role + state)
+
+---
+
+### II.4b `DecisionListView.vue` — KPI tile drillable ✅ (`frontend/src/views/procurement/DecisionListView.vue`)
+
+> Tiles "Quyết định mua sắm" sống TRÊN list view này (KHÔNG có route dashboard riêng). 3 `KpiCard` bind verbatim `store.kpis.decision_states[S]`. Vòng này (INV-DEC-DRILL, 02 §IV.8): biến 3 tile thành **drill** + active highlight + toggle, bảo toàn INVARIANT **card==drill**.
+
+```
+Quyết định mua sắm                                  [⚙ Bộ lọc]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+┌─────────────────┐ ┌─────────────────┐ ┌──────────────────────┐
+│ Đã trao thầu  5 │ │ Chờ phê duyệt 1 │ │ Đã phát hành ĐH   12 │   ← click = drill
+│  (active: ring) │ │                 │ │                      │
+└─────────────────┘ └─────────────────┘ └──────────────────────┘
+   ↓ click 'Đã trao thầu'
+Kết quả lọc: 5 quyết định            [Xóa tất cả]   (gỡ filter → full)
+┌─────────────────────────────────────────────────────────────┐
+│ PD-26-00045 │ TS-... │ Vinamed │ 2.0 tỷ │ 80% │ [Awarded] │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Tile → drill mapping (canonical state, KHÔNG nhãn VI khi gọi BE):**
+
+| Tile (nhãn VI) | `quickFilter('workflow_state', S)` | KpiCard value |
+|---|---|---|
+| Đã trao thầu | `Awarded` | `store.kpis.decision_states['Awarded'] \|\| 0` |
+| Chờ phê duyệt | `Pending Approval` | `store.kpis.decision_states['Pending Approval'] \|\| 0` |
+| Đã phát hành đơn hàng | `PO Issued` | `store.kpis.decision_states['PO Issued'] \|\| 0` |
+
+**Hành vi (acceptance INV-DEC-DRILL-6/7/8):**
+
+- **Affordance click rõ ràng:** tile có `cursor-pointer` + `role="button"` + `tabindex="0"` + `@keydown.enter/space` + `aria-pressed="<active>"`. KpiCard nhận prop `clickable`/`active` HOẶC bọc `<button>`/`@click` ngoài tile (giữ KpiCard reusable; KHÔNG hack global).
+- **Click tile S:** gọi `quickFilter('workflow_state', S)` (helper đã có, line 77) → set `filters.workflow_state=S` + `applyFilters()`. List lọc đúng state; `total` BE đã loại cancelled → SỐ DÒNG list == số tile.
+- **Active highlight:** khi `filters.workflow_state === S` → tile tô sáng (ring/đậm màu). Một thời điểm tối đa 1 tile active (3 state loại trừ nhau).
+- **Toggle off:** click tile đang active → `filters.workflow_state` về `''` (gọi `quickFilter('workflow_state', '')` hoặc nhánh clear) + `applyFilters()` → list full, không tile nào active. KHÔNG để filter kẹt.
+- **"Xóa tất cả"** (`resetFilters`, line 65) gỡ mọi filter (gồm workflow_state) → tile hết active, list full.
+- **Value=0:** tile=0 vẫn click được; list rỗng + empty-state hiện sẵn; `total==0==tile`; KHÔNG raise.
+- **No EN leak:** badge trong list dùng `StatusBadge`/`stateLabel` (`@/utils/wave2Labels`) phủ đủ `DECISION_STATES`; tile nhãn VI cứng. vue-tsc 0 lỗi.
+
+**Tests (vitest — `DecisionListView` spec):** click tile `Đã trao thầu`/`Chờ phê duyệt`/`Đã phát hành đơn hàng` → `quickFilter('workflow_state', <S>)` đúng `Awarded`/`Pending Approval`/`PO Issued`; click lại tile active → filter về `''`; assert `aria-pressed`/active class khi filter trùng. Mock store bằng real refs + real pinia `storeToRefs` (tránh false-positive error branch).
+
+**Props/State:** không thêm prop view; tái dùng `filters.workflow_state`, `quickFilter`, `resetFilters`, `activeChips`, `store.kpis` đã có. KHÔNG đổi `buildPayload` (workflow_state đã được map sang filter BE — line 58).
 
 ---
 
@@ -518,8 +569,13 @@ export const useImm03Store = defineStore("imm03", {
         (data) => {
           if (this.currentEvaluation) {
             this.currentEvaluation.candidates.forEach((c) => {
-              c.weighted_score = data.weighted_scores[c.name] ?? c.weighted_score;
+              // ⚠️ weighted_scores key = supplier name (c.supplier), KHÔNG phải row name
+              c.weighted_score = data.weighted_scores[c.supplier] ?? c.weighted_score;
             });
+            // INV-VE-TIE §IV.7 — surface đỉnh hòa cho banner
+            this.currentEvaluation.recommended_candidate = data.recommended ?? null;
+            this.currentEvaluation.has_top_tie = data.has_top_tie ?? 0;
+            this.currentEvaluation.tied_candidates = data.tied_candidates ?? "";
           }
         }
       );
@@ -620,6 +676,8 @@ export const useImm03Store = defineStore("imm03", {
 | `imm03.evaluation.open_rfq` | Mở RFQ | Button |
 | `imm03.evaluation.score_group` | Chấm điểm nhóm | Tab label |
 | `imm03.evaluation.recommended` | Nhà cung cấp đề xuất | Label |
+| `imm03.evaluation.tie_banner` | Điểm cao nhất đang HÒA giữa các NCC — hệ thống không tự gợi ý trúng thầu. Hội đồng cần áp tiêu chí phân định (giá, thời gian giao, theo Luật Đấu thầu) và nhập NCC trúng thầu thủ công ở bước Quyết định. | Banner (warning) |
+| `imm03.evaluation.tied_list` | NCC đồng hạng nhất | Label (danh sách) |
 | `imm03.decision.title` | Quyết định mua sắm | — |
 | `imm03.decision.award` | Phê duyệt & Award | Button |
 | `imm03.decision.submit_bgd` | Trình BGĐ | Button |

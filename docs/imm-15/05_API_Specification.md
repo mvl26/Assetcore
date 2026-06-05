@@ -390,10 +390,17 @@ POST /api/method/assetcore.api.imm15.generate_spare_forecast
 **Request body:**
 ```json
 {
+  "horizon_months": 3,
   "forecast_period": "2026-Q3",
   "method": "Moving_Avg"
 }
 ```
+
+| Param | Type | Default | Note |
+|---|---|---|---|
+| `horizon_months` | Int | 3 | Tầm dự báo. `lookback_months = max(horizon×4, 12)` chỉ ảnh hưởng `forecast_qty`/`reorder_point`/`safety_stock`. KHÔNG ảnh hưởng `historical_consumption_12m` (VR-15-15). |
+| `forecast_period` | Data | (auto) | VD "2026-Q3"; auto-suy nếu rỗng |
+| `method` | Select | Moving_Avg | Moving_Avg/PM_Driven/Failure_Rate/Manual (VR-15-12) |
 
 **Response:**
 ```json
@@ -407,6 +414,10 @@ POST /api/method/assetcore.api.imm15.generate_spare_forecast
   }
 }
 ```
+
+> **Data-contract (VR-15-15):** mỗi `IMM Spare Forecast Item.historical_consumption_12m` LUÔN = tổng qty Issue (docstatus=1) trong CHÍNH XÁC 12 tháng trailing, độc lập `horizon_months`. KHÔNG đổi schema/label DB ("Tiêu thụ 12 tháng", read_only=1). KHÔNG leak nhãn/code thô ra response.
+
+> **Tồn khả dụng (BR-15-17 / VR-15-17, vòng 23):** `IMM Spare Forecast Item.current_qty` = `Σ (qty_on_hand − COALESCE(reserved_qty,0))` toàn kho của part (`_sum_part_stock`, 1 aggregate — no N+1), KHÔNG còn `Σ qty_on_hand` vật lý. `recommended_action='Reorder'` khi `current_qty < reorder_point` → kích cho part **giữ-chỗ-hết** (available < reorder_point) mà on-hand ≥ reorder_point trước đây bị bỏ sót. `forecast_qty`/`safety_stock`/`reorder_point`/`historical_consumption_12m` **BẤT BIẾN**.
 
 ---
 
@@ -684,6 +695,11 @@ GET /api/method/assetcore.api.imm15.get_dashboard_stats?period=2026-05
 }
 ```
 
+> **SoT đồng nhất (VR-15-17, vòng 23):** `low_stock_alerts` (card) = `_count_low_stock()` =
+> `count_low_stock_bins()` = `len(get_low_stock_alerts().alerts)` (drill, cùng predicate
+> `LOW_STOCK_COND`). **KHÔNG divergence card-vs-drill** — 1 con số, 1 SoT. Predicate so theo
+> tồn **khả dụng** `(qty_on_hand − reserved_qty) < effective_min` → bin reserved-full được đếm.
+
 ---
 
 ### 3.13 `get_low_stock_alerts`
@@ -712,6 +728,12 @@ GET /api/method/assetcore.api.imm15.get_low_stock_alerts?warehouse=WH-01
   }
 }
 ```
+
+> **Predicate (BR-15-17 / VR-15-17, vòng 23):** drill dùng CHUNG `LOW_STOCK_COND` với card KPI
+> → bin có `qty_on_hand` ≥ định mức nhưng **giữ chỗ hết** (`qty_on_hand − reserved_qty < effective_min`)
+> vẫn xuất hiện. `min_stock_level` trả về = effective_min (per-bin override fallback part-min).
+> Response giữ `qty_on_hand` (tồn vật lý, để FE hiển thị) — phán định low đã so theo tồn khả dụng.
+> FE alert/badge: KHÔNG leak EN — nhãn VI ("Tồn khả dụng dưới định mức").
 
 ---
 
@@ -931,5 +953,5 @@ export interface ApiResponse<T> {
 3. **Emergency path:** API `issue_allocation` phải kiểm tra VR-15-10 (double-approval) trước khi bypass VR-15-03.
 4. **Concurrency:** Issue allocation song song trên cùng spare_part → dùng `FOR UPDATE` lock trong `vr_03_stock_sufficient()`.
 5. **Backward compat:** Mở rộng `reference_type` của `AC Stock Movement` qua Property Setter — KHÔNG sửa core JSON.
-6. **Gated Spare Batch:** Nếu `IMM Spare Batch` chưa build, `check_expiring_batches()` log "no-op (gated)" và return. `batch_no` field trên Allocation Item dùng làm Data.
+6. **Gated Spare Batch:** `check_expiring_batches()` gate bằng `frappe.db.table_exists("IMM Spare Batch")` — truyền **DocType name**, KHÔNG prefix `tab` (Frappe tự thêm; `"tabIMM Spare Batch"` → tìm `tabtabIMM Spare Batch` → luôn False → job chết âm thầm). Khi bảng tồn tại: chọn batch trong cửa sổ `[today, today+30]` có `qty_on_hand>0`, dùng field `batch_no` (Data, ≠ batch_code). Xem BR-15-11 / VR-15-16 / 04 §VII.
 7. **ABC quarterly:** Khai trong `hooks.py` dưới `"cron"` key — Frappe v15 không hỗ trợ key `"quarterly"`.

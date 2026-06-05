@@ -340,13 +340,18 @@ onMounted(load)
           <label class="form-label">Bằng chứng</label>
           <input v-model="effEvidence" class="form-input" placeholder="/files/evidence-...pdf" />
         </div>
-        <p class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
-          VR-07: chỉ "Hiệu quả" mới đóng được CAPA. Khác → tăng reopen_count + về Re-opened.
+        <p class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2" role="alert" aria-live="polite">
+          VR-07: chỉ "Hiệu quả" mới đóng được CAPA. Khác → tăng số lần mở lại + về "Mở lại".
         </p>
       </div>
       <template #footer>
         <button class="btn-ghost" @click="showEffectiveness = false">Huỷ</button>
-        <button class="btn-primary" :disabled="api.loading.value" @click="submitEffectiveness">Xác nhận</button>
+        <button
+          class="btn-primary"
+          :disabled="api.loading.value"
+          :title="effResult === 'Effective' ? 'Xác nhận hiệu quả và đóng CAPA' : 'Kết quả khác \'Hiệu quả\' sẽ mở lại CAPA (không đóng)'"
+          @click="submitEffectiveness"
+        >{{ effResult === 'Effective' ? 'Xác nhận & Đóng CAPA' : 'Xác nhận (Mở lại)' }}</button>
       </template>
     </BaseModal>
   </div>

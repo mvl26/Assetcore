@@ -213,7 +213,7 @@ Vào **Hồ sơ thiết bị → Dashboard** để xem tổng quan:
 | Đang hiệu lực (Active) | Xanh đậm | Được duyệt, đang có giá trị pháp lý |
 | Từ chối (Rejected) | Đỏ | Bị từ chối — cần upload lại |
 | Lưu trữ (Archived) | Xám | Phiên bản cũ sau khi có version mới, hoặc bị hủy bỏ |
-| Hết hạn (Expired) | Đỏ đậm | Đã qua ngày hết hạn — cần gia hạn |
+| Hết hạn | Đỏ đậm | *(Cờ tình trạng, không phải trạng thái workflow)* Đã qua ngày hết hạn — cần gia hạn. Tài liệu vẫn giữ trạng thái workflow của nó (vd: vẫn "Đang hiệu lực") nhưng được đánh dấu đã hết hạn |
 
 ## I.9. Liên Hệ Hỗ Trợ
 
@@ -258,7 +258,7 @@ Scheduler chạy hàng ngày lúc 00:30, phát hiện và cảnh báo tài liệ
 
 - Email cảnh báo tự động — không cần kiểm tra thủ công
 - Idempotent: không gửi email trùng lặp cùng ngày
-- Tự động chuyển tài liệu sang `Expired` khi quá ngày hết hạn
+- Tự động đánh dấu tài liệu "đã hết hạn" (cờ `is_expired`) khi quá ngày hết hạn — tài liệu hiện ngay trên ô KPI "Đã hết hạn" của dashboard và click vào ra đúng danh sách tài liệu quá hạn (số đếm = số dòng danh sách)
 - Dashboard với timeline hết hạn và compliance % theo khoa
 
 [→ Hướng dẫn: §I.6]

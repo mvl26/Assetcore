@@ -23,6 +23,26 @@ export const SYSTEM_ROLES = [
   'Vendor Engineer',
 ] as const
 
+// ─── Frappe admin-role SSoT (admin-bypass) ──────────────────────────────────
+// Tiêu chí "full platform access" dùng CHUNG cho:
+//   - route-guard (router/index.ts → resolveRouteAccess rule #1 admin bypass)
+//   - button/affordance-gate (stores/auth.ts::can → admin → can()=true mọi cap)
+// PHẢI là MỘT nguồn duy nhất để route-gate và button-gate KHÔNG lệch nhau
+// (split-brain: vào được trang nhưng mất nút). KHÔNG lặp literal mảng role ở 2 nơi.
+// SUPERUSER_ROLES (constants/personas.ts) re-export const này để nav cũng đồng nhất.
+// Đồng bộ với BE: services/shared/rbac.py (System Manager/Administrator/Super Admin
+// có DocPerm bao trùm). roles.ts là leaf-module (0 import) → an toàn để auth.ts dùng.
+export const FRAPPE_ADMIN_ROLES: readonly string[] = [
+  'System Manager',
+  'Administrator',
+  'AssetCore Super Admin',
+] as const
+
+/** True nếu danh sách role chứa ít nhất 1 admin-role (full platform access). */
+export function isFrappeAdminRole(roles: readonly string[]): boolean {
+  return roles.some((r) => FRAPPE_ADMIN_ROLES.includes(r))
+}
+
 export const DOMAINS = [
   'Data', 'Needs', 'Spec', 'Procurement', 'Commissioning',
   'Document', 'Training', 'PM', 'Repair', 'Calibration',

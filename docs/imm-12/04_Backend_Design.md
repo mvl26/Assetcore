@@ -210,7 +210,157 @@ Vấn đề thiết kế gốc (Self-Correction): KPI strip `IncidentListView.vu
 | `high` (global, giữ) | == tổng-mọi-status | `severity==High` |
 | **bất biến** | `critical_open <= critical` ∧ `high_open <= high` | luôn đúng (open-set ⊆ all-status) |
 
-**Hồi quy (KHÔNG đổi):** `open_total` (round-21), `chronic`, `closed`, `severity_breakdown` donut (ngoài scope), invariant card==drill (round-18/21).
+**Hồi quy (KHÔNG đổi):** `open_total` (round-21), `closed`, `severity_breakdown` donut (ngoài scope), invariant card==drill (round-18/21). ⚠️ `chronic` ĐỔI nghĩa ở BR-12-12 vòng này (xem dưới) — không còn "đếm cờ".
+
+---
+
+**BR-12-12 (delta vòng 3/50) — KPI "Lặp lại (Chronic)" = nhóm LIVE rolling-window, kill tile-vs-panel divergence:**
+
+Vấn đề thiết kế gốc (Self-Correction): `get_incident_stats()` đặt `"chronic": _count({"chronic_failure_flag": 1})` (`services/imm12.py:670`) — đếm **cờ bền vững** `chronic_failure_flag`. Cờ này do scheduler `_process_chronic_group()` (`:858-873`) set `=1` trên TỪNG incident-row thuộc cụm chronic, và **KHÔNG BAO GIỜ reset** khi cụm hết hạn 90 ngày (cờ là dấu lịch sử BR-12-03). Hậu quả:
+
+- **Tile monotone-stale**: tile `chronic` chỉ tăng, không giảm — khi 3+ incident cũ aged-out > 90 ngày, không còn nhóm `(asset, fault_code)` nào ≥ 3 trong 90d, nhưng tile VẪN > 0 vì cờ còn nguyên trên các incident cũ.
+- **Lệch đơn vị**: tile đếm **số incident-rows-có-cờ** (vd 6 row) trong khi panel ngay dưới (`get_dashboard().chronic_failures` = `get_chronic_failures()`) đếm **số nhóm `(asset, fault_code)` live** (vd 1 nhóm). 2 con số mâu thuẫn trên CÙNG 1 màn hình (`IMM12DashboardView.vue:106` tile vs `:221-234` panel).
+- **Định nghĩa doc lệch**: 02 §I.5:94 (cũ "Assets có cờ = True") vs §II.7 BR-12-03:189 / get_chronic_failures (live rolling). **BA CHỐT: SoT = LIVE** (định nghĩa rolling-window là cái user/QA Officer hành động theo); cờ giữ riêng cho badge per-row + RCA grouping.
+
+**Quyết định Core Doc:**
+
+1. **Thêm 1 SoT count helper dùng chung** `chronic_failure_count() -> int` — phái sinh từ CHÍNH `get_chronic_failures()` (anti-drift, KHÔNG re-implement SQL):
+
+```python
+# services/imm12.py — SoT DUY NHẤT cho KPI chronic (BR-12-12)
+def chronic_failure_count() -> int:
+    """Số nhóm (asset, fault_code) đang chronic theo cửa sổ trượt 90 ngày live.
+    CÙNG predicate get_chronic_failures() (GROUP BY HAVING >= 3) → 1 SoT, no drift."""
+    return len(get_chronic_failures())
+```
+
+2. **`get_incident_stats()` đổi `chronic` sang SoT helper** — XOÁ `_count({"chronic_failure_flag": 1})`:
+
+```python
+# services/imm12.py::get_incident_stats() — THAY (KHÔNG còn đếm cờ)
+"chronic": chronic_failure_count(),   # BR-12-12 LIVE — was _count({"chronic_failure_flag": 1})
+```
+
+3. **Grep guard**: trong `get_incident_stats()` KHÔNG còn `chronic_failure_flag` cho ngữ nghĩa KPI tile. Đếm chronic CHỈ sinh qua `chronic_failure_count()`/`get_chronic_failures()` (1 SoT). (Cờ `chronic_failure_flag` còn xuất hiện ở `_process_chronic_group` setter + list field cho badge per-row — đó là lifecycle riêng, KHÔNG đụng.)
+
+4. **Invariant tile == panel (BR-12-12, đo trên 1 payload `get_dashboard()`):** `stats.chronic == len(chronic_failures)`. ⚠️ **Lưu ý cắt top-5**: `get_dashboard().chronic_failures = get_chronic_failures()[:5]` (hiển thị top-5 panel). Để invariant ĐÚNG cả khi > 5 nhóm, Core Doc CHỐT 1 trong 2 (BE chọn, ghi rõ trong test):
+   - **(a) khuyến nghị:** invariant test giữ data ≤ 5 nhóm (thực tế live ~1 nhóm) ⇒ `[:5]` không cắt ⇒ `stats.chronic == len(dashboard["chronic_failures"])` đúng tự nhiên. Test assert trực tiếp trên payload.
+   - **(b) nếu BE muốn invariant bền > 5 nhóm:** so `stats.chronic` với `len(get_chronic_failures())` (FULL, không cắt) trong test — vì cả `stats.chronic` lẫn panel-source cùng phái sinh từ `get_chronic_failures()`, `[:5]` chỉ là view-limit hiển thị, KHÔNG phải nguồn đếm. KHÔNG bỏ `[:5]` ở payload (giữ UX top-5 panel).
+
+   → BE document lựa chọn trong docstring test `TestChronicSoT`.
+
+5. **RED-prove lifecycle (BẮT BUỘC, ≥1 test):** dựng 3+ incident cùng `(asset, fault_code)` với `reported_at` aged-out > 90 ngày (cờ `chronic_failure_flag=1` set trên chúng để mô phỏng cụm cũ đã từng chronic), KHÔNG có nhóm nào ≥ 3 trong 90d hiện tại ⇒ assert `get_incident_stats()["chronic"] == 0`. Revert SoT về `_count({"chronic_failure_flag": 1})` ⇒ test FAIL (tile = 3 ≠ 0, chứng minh test bắt được stale). Restore ⇒ GREEN.
+
+6. **Badge per-row GIỮ NGUYÊN (KHÔNG regression):** `chronic_failure_flag` tiếp tục phục vụ badge *"Lặp lại"* per-row (`IncidentListView.vue:271/:317`) — đánh dấu incident *từng thuộc* cụm chronic (lifecycle BR-12-03, audit/RCA grouping). KHÔNG xoá field, KHÔNG reset cờ, KHÔNG đổi `_process_chronic_group`. Test no-regression: badge vẫn render cho incident có cờ kể cả khi tile chronic = 0.
+
+**Invariant đo được (BR-12-12):**
+
+| Đối tượng | Giá trị | Nguồn |
+|---|---|---|
+| `stats.chronic` | == số nhóm `(asset, fault_code)` live (≥3/90d) | `chronic_failure_count()` = `len(get_chronic_failures())` |
+| `len(dashboard.chronic_failures)` | == `stats.chronic` (data ≤5 nhóm) hoặc == với FULL list (data >5) | `get_chronic_failures()[:5]` / FULL |
+| tile sau aged-out >90d (cờ còn =1) | `== 0` (RED-prove) | nhóm live = 0 |
+| badge per-row "Lặp lại" | render nếu `ir.chronic_failure_flag==1` | cờ bền vững — KHÔNG đổi |
+
+**Hồi quy (KHÔNG đổi):** `open_total`, `critical_open`/`high_open`, `closed`, donut. Endpoint `api/imm12.py::get_incident_stats()` đã delegate service-layer (round-29) ⇒ `chronic` mới tự lộ qua endpoint, **KHÔNG đụng `api/imm12.py`**.
+
+---
+
+### 3.2 SoT SLA-breach LIVE predicate (BR-12-13) — kill undercount cửa-sổ-trễ-scheduler
+
+Vấn đề thiết kế gốc (Self-Correction): `get_incident_stats()` đặt `"sla_response_breached": _count({"response_breached": 1})` + `"sla_resolution_breached": _count({"resolution_breached": 1})` (`services/imm12.py:677-678`) — đếm **cờ bền vững** `response_breached`/`resolution_breached`. 2 cờ này CHỈ do scheduler `check_incident_sla_breach()` (hourly, `:774`) hoặc write-path `acknowledge_incident`/`resolve_incident` (BR-12-08) stamp `=1`. Hậu quả **undercount cửa-sổ-trễ-scheduler**:
+
+- Incident OPEN vừa quá `resolution_due_at` 1–59 phút, scheduler chưa tới lượt quét hourly ⇒ cờ còn `0` ⇒ tile `sla_resolution_breached` đếm thiếu incident này (vẫn đang breach THẬT). QA Officer nhìn tile thấy 0 trong khi DB có incident quá hạn chưa đóng.
+- Cùng lỗi với badge per-row: `list_incidents`/`active_incidents` trả cờ thô `response_breached`/`resolution_breached` ⇒ FE badge chỉ hiện sau khi scheduler stamp, KHÔNG hiện ngay khi quá hạn.
+- **Định nghĩa BA CHỐT: SoT = LIVE** — "đang vi phạm SLA" là trạng thái user/QA hành động theo NGAY (NĐ98 Điều 67 cửa sổ luật định), KHÔNG đợi scheduler. Cờ giữ riêng cho escalation idempotent-key (BR-12-09) + audit lịch sử (BR-12-08).
+
+**Quyết định Core Doc:**
+
+1. **Predicate SoT `sla_breach_filter(kind)`** — định nghĩa DUY NHẤT nhánh **live-overdue** (dùng lại `open_incident_filter()` → terminal Cancelled/Closed/Resolved KHÔNG vào nhánh này):
+
+```python
+# services/imm12.py — SoT predicate cho nhánh live-overdue (BR-12-13)
+def sla_breach_filter(kind: str) -> dict:
+    """Filter dict cho nhánh LIVE-OVERDUE của breach (kind ∈ {"response","resolution"}).
+
+    `open_incident_filter()` ∧ `<kind>_due_at < now()` (+ kind==response: acknowledged_at unset).
+    KHÔNG gồm nhánh cờ=1 (đếm tách trong sla_breach_count để né OR trong frappe.db.count).
+    Terminal Cancelled/Closed/Resolved bị loại tự nhiên (không thuộc INCIDENT_OPEN_STATES) → INV-SLA-6.
+    """
+    now = now_datetime()
+    if kind == "response":
+        return open_incident_filter({
+            "response_due_at": ["<", now],
+            "acknowledged_at": ["is", "not set"],
+        })
+    return open_incident_filter({
+        "resolution_due_at": ["<", now],
+    })
+```
+
+2. **SoT count helper `sla_breach_count(kind)`** — phái sinh từ `sla_breach_filter`, cộng 2 nhánh mutually-exclusive (cờ=1 vs cờ=0∧live) → KHÔNG double-count:
+
+```python
+# services/imm12.py — SoT count cho KPI (BR-12-13). = (cờ=1) OR (đang-mở ∧ quá-hạn-live)
+def sla_breach_count(kind: str) -> int:
+    flag = "response_breached" if kind == "response" else "resolution_breached"
+    flagged = frappe.db.count(_DT_INCIDENT, {flag: 1})
+    live_filter = dict(sla_breach_filter(kind))
+    live_filter[flag] = 0            # nhánh live CHỈ đếm cờ chưa stamp → exclusive với flagged
+    live_unflagged = frappe.db.count(_DT_INCIDENT, live_filter)
+    return flagged + live_unflagged
+```
+
+> **Vì sao tách 2 `count` thay vì 1 OR**: `frappe.db.count` không hỗ trợ OR ở top-level. 2 nhánh `(cờ=1)` và `(cờ=0 ∧ open ∧ overdue)` **không giao nhau** (phân biệt theo giá trị cờ) ⇒ tổng = đúng predicate `(cờ=1) OR (đang-mở ∧ quá-hạn)`. Đây là lý do `sla_breach_filter` KHÔNG nhúng nhánh cờ — giữ filter "live-overdue" thuần để `sla_breach_count` ghép `flag=0`, đồng thời per-row enrich tái dùng cùng predicate.
+
+3. **`get_incident_stats()` đổi 2 KPI sang SoT helper** — XOÁ `_count({"response_breached":1})`/`_count({"resolution_breached":1})`:
+
+```python
+# services/imm12.py::get_incident_stats() — THAY (KHÔNG còn đếm cờ đơn lẻ)
+"sla_response_breached":   sla_breach_count("response"),     # BR-12-13 LIVE
+"sla_resolution_breached": sla_breach_count("resolution"),
+```
+
+4. **Per-row enrich LIVE** — `list_incidents()` + `get_dashboard().active_incidents` thêm `is_response_breached`/`is_resolution_breached` (0|1) derive từ CÙNG predicate trên từng row đã fetch (in-Python, KHÔNG query thêm per-row — đã có `response_due_at`/`resolution_due_at`/`acknowledged_at`/`status`/cờ trong field list). Helper per-row:
+
+```python
+# services/imm12.py — derive live breach 1 row (CÙNG predicate sla_breach_filter, in-Python)
+def _row_is_breached(row: dict, kind: str, now) -> int:
+    flag = row.get("response_breached" if kind == "response" else "resolution_breached")
+    if flag:                                   # nhánh cờ=1 (lịch sử / đã stamp)
+        return 1
+    if row.get("status") not in INCIDENT_OPEN_STATES:   # terminal → KHÔNG live-overdue (INV-SLA-6)
+        return 0
+    due = row.get("response_due_at" if kind == "response" else "resolution_due_at")
+    if not due or get_datetime(due) >= now:
+        return 0
+    if kind == "response" and row.get("acknowledged_at"):   # đã tiếp nhận → hết live response-breach
+        return 0
+    return 1
+```
+
+   - `list_incidents()` field list THÊM `response_due_at`, `resolution_due_at` (đã có `acknowledged_at`, cờ, status) → sau khi fetch rows, gán `row["is_response_breached"] = _row_is_breached(row, "response", now)` + `is_resolution_breached`.
+   - `get_dashboard().active_incidents` field list THÊM `response_due_at`, `resolution_due_at`, `acknowledged_at` (hiện chỉ có cờ) → enrich tương tự.
+   - Cờ thô `response_breached`/`resolution_breached` GIỮ trong payload (backward-compat) nhưng FE chuyển sang đọc `is_*_breached` (xem 06).
+
+5. **Grep guard (anti-drift, 1 SoT):** trong `get_incident_stats()` KHÔNG còn `_count({"response_breached":1})` / `_count({"resolution_breached":1})` đơn lẻ cho 2 KPI. Đếm SLA-breach CHỈ sinh qua `sla_breach_count()` → `sla_breach_filter()`. Per-row live CHỈ sinh qua `_row_is_breached()` (cùng predicate). (Cờ thô còn ở write-path `acknowledge_incident`/`resolve_incident`/`check_incident_sla_breach` setter + escalation idempotent-key — lifecycle riêng BR-12-08/09, KHÔNG đụng.)
+
+6. **Idempotent (INV-SLA-4, no double-path drift):** sau `check_incident_sla_breach()` stamp cờ, incident vừa-đếm-vì-live nay rơi vào nhánh `(cờ=1)` ⇒ `sla_breach_count` cho cùng con số (cờ=1 đếm 1, live-unflagged loại nó vì `flag=0` không match). RED-prove: gọi stats → chạy scheduler → gọi lại stats ⇒ `sla_resolution_breached` BẰNG nhau.
+
+7. **RED-prove (BẮT BUỘC):** OPEN incident `resolution_due_at = now()−2h`, `resolution_breached=0`, scheduler chưa chạy ⇒ assert `get_incident_stats()["sla_resolution_breached"] == 1`. Revert 2 KPI về `_count({"...breached":1})` ⇒ test FAIL (0 ≠ 1, chứng minh bắt được undercount). Restore ⇒ GREEN.
+
+**Invariant đo được (BR-12-13):**
+
+| Đối tượng | Giá trị | Nguồn |
+|---|---|---|
+| `stats.sla_resolution_breached` (OPEN overdue cờ=0) | `== 1` (INV-SLA-1) | `sla_breach_count("resolution")` nhánh live |
+| `stats.sla_response_breached` (OPEN unack overdue cờ=0) | `== 1` (INV-SLA-2) | `sla_breach_count("response")` nhánh live |
+| `stats.sla_*_breached` (Closed/Resolved cờ=1 lịch sử) | đếm qua nhánh `cờ=1` (INV-SLA-3) | `count(<flag>=1)` |
+| `stats.sla_*_breached` trước == sau scheduler | bằng nhau (INV-SLA-4) | idempotent 2-nhánh exclusive |
+| `row.is_*_breached` (per-row live) | == tile (INV-SLA-5) | `_row_is_breached()` cùng predicate |
+| terminal đóng-đúng-hạn cờ=0 | KHÔNG live-overdue (INV-SLA-6) | `status ∉ INCIDENT_OPEN_STATES` |
+
+**Hồi quy (KHÔNG đổi):** `open_total`, `critical_open`/`high_open`, `chronic`, `closed`, donut. Cờ `response_breached`/`resolution_breached` write-path + escalation BR-12-08/09 KHÔNG đụng. Endpoint `api/imm12.py` delegate service-layer ⇒ 2 KPI + field enrich mới tự lộ qua endpoint, **KHÔNG đụng `api/imm12.py`** (verify delegate verbatim).
 
 ---
 
@@ -230,10 +380,13 @@ Vấn đề thiết kế gốc (Self-Correction): KPI strip `IncidentListView.vu
 | `submit_rca(name, root_cause, corrective_action, preventive_action, five_why_steps, rca_notes)` | `dict {name, status, linked_capa}` | IMM-12 | BR-12-06: auto `create_capa()` via IMM-00 |
 | `list_incidents(status, severity, asset, page, page_size)` | `dict {pagination, items}` | IMM-12 | — |
 | `get_incident_detail(name)` | `dict` | IMM-12 | includes `allowed_transitions` + nested `rca` |
-| `get_incident_stats()` | `dict` | IMM-12 | counts per status + severity **+ `open_total` = count(`open_incident_filter()`) (BR-12-11 SoT card-count) + `critical_open`/`high_open` = count(`open_incident_filter()∧severity`) (BR-12-11b KPI-strip open-set) + `sla_response_breached` = count(`response_breached=1`) + `sla_resolution_breached` = count(`resolution_breached=1`)** (BR-12-09 FE divergence guard) |
+| `get_incident_stats()` | `dict` | IMM-12 | counts per status + severity **+ `open_total` = count(`open_incident_filter()`) (BR-12-11 SoT card-count) + `critical_open`/`high_open` = count(`open_incident_filter()∧severity`) (BR-12-11b KPI-strip open-set) + `chronic` = `chronic_failure_count()` (BR-12-12 LIVE rolling-window nhóm, KHÔNG cờ stale) + `sla_response_breached` = `sla_breach_count("response")` + `sla_resolution_breached` = `sla_breach_count("resolution")`** (BR-12-13 LIVE predicate — KHÔNG còn `_count(response_breached=1)`/`_count(resolution_breached=1)` đơn lẻ) |
 | `get_asset_incident_history(asset, limit)` | `dict {asset, items}` | IMM-12 | — |
+| `chronic_failure_count()` | `int` | IMM-12 | **BR-12-12 SoT helper** — `len(get_chronic_failures())` (CÙNG predicate: GROUP BY (asset, fault_code) HAVING ≥ 3 trong 90d, `status != Cancelled`). Nguồn DUY NHẤT cho `stats.chronic`. Implement = `return len(get_chronic_failures())` (KHÔNG re-implement SQL — 1 SoT predicate) |
 | `get_chronic_failures()` | `list` | IMM-12 | SQL GROUP BY (asset, fault_code), HAVING ≥ 3 |
-| `get_dashboard()` | `dict {stats, active_incidents, open_rcas, chronic_failures}` | IMM-12 | **`active_incidents` filter = `open_incident_filter()` (BR-12-11) — KHÔNG tuple cục bộ `[Open, In Progress]`; bao trùm Acknowledged + RCA Required; số dòng (trước cắt limit 10) == `stats.open_total`** |
+| `sla_breach_filter(kind)` | `dict` (filter) | IMM-12 | **BR-12-13 SoT predicate** — `kind ∈ {"response","resolution"}`. Trả filter dict cho nhánh **live-overdue** (`open_incident_filter()` ∧ `<kind>_due_at < now()` ∧ — chỉ response — `acknowledged_at` is not set). KHÔNG bao gồm nhánh cờ=1 (đếm tách qua `sla_breach_count` để tránh OR trong `frappe.db.count`). Nguồn DUY NHẤT định nghĩa "live-overdue" cho cả count lẫn per-row enrich |
+| `sla_breach_count(kind)` | `int` | IMM-12 | **BR-12-13 SoT count** — `count(<kind>_breached=1)` + `count(sla_breach_filter(kind) ∧ <kind>_breached=0)`. 2 nhánh mutually-exclusive (cờ=1 vs cờ=0) ⇒ cộng KHÔNG double-count. = predicate `(cờ=1) OR (đang-mở ∧ quá-hạn-live)`. Nguồn DUY NHẤT cho `stats.sla_response_breached`/`sla_resolution_breached` |
+| `get_dashboard()` | `dict {stats, active_incidents, open_rcas, chronic_failures}` | IMM-12 | **`active_incidents` filter = `open_incident_filter()` (BR-12-11) — KHÔNG tuple cục bộ `[Open, In Progress]`; bao trùm Acknowledged + RCA Required; số dòng (trước cắt limit 10) == `stats.open_total`. INVARIANT (BR-12-12): `stats.chronic == len(chronic_failures)` trên cùng payload (cả hai phái sinh từ `get_chronic_failures()`) — tile == panel, KHÔNG drift. ⚠️ `chronic_failures` field giữ `[:5]` để hiển thị top-5, nhưng `stats.chronic` đếm FULL `len(get_chronic_failures())`; nếu > 5 nhóm thì invariant test so `stats.chronic` với FULL list KHÔNG bị cắt — xem §test note `04` dưới.** |
 | `detect_chronic_failures()` | `dict {flagged, rca_created, groups}` | Scheduler | BR-12-03: flag + auto RCA Chronic |
 
 **Note:** Function `submit_rca_and_create_capa` does **not** exist — actual name is `submit_rca`. Field `fault_description` does **not** exist — actual field is `description`.

@@ -29,8 +29,43 @@ _ASSET_DEPENDENTS: list[tuple[str, str]] = [
     ("IMM Compliance Finding", "asset"),
     ("Incident Report", "asset"),
     ("Asset Transfer", "asset"),
+    ("Asset Decommission", "asset"),
     ("AC Asset Downtime Log", "asset"),
 ]
+
+
+def decommission_via_closure(
+    asset_name: str,
+    *,
+    actor: str = "Administrator",
+    disposal_method: str = "Huỷ",
+    reason: str = "Thiết bị hết niên hạn sử dụng theo quy định BYT; đã lập biên bản thanh lý.",
+    sanitized: bool = True,
+) -> str:
+    """Decommission an asset through the IMM-14 closure flow (gate-compliant).
+
+    Sau khi IMM-14 wire GATE (BR-14-W2-01), KHÔNG asset nào vào Decommissioned mà
+    không có 'Asset Decommission' docstatus=1. Test fixtures cần asset
+    Decommissioned (để verify side-effect: PM suspend, depreciation cancel, audit)
+    phải đi qua closure flow này thay vì gọi transition_asset_status trực tiếp.
+
+    Idempotent: asset đã Decommissioned → no-op, trả "".
+    Returns: tên Asset Decommission record (hoặc "" nếu đã terminal).
+    """
+    from assetcore.services import imm14
+    from assetcore.services.shared import AssetStatus
+
+    if frappe.db.get_value("AC Asset", asset_name, "lifecycle_status") == \
+            AssetStatus.DECOMMISSIONED:
+        return ""
+    rec = imm14.create_decommission(
+        asset=asset_name, disposal_method=disposal_method,
+        decommission_reason=reason, patient_data_sanitized=sanitized,
+        responsible=actor,
+    )["name"]
+    imm14.approve_decommission(rec)
+    frappe.db.commit()
+    return rec
 
 
 def purge_asset(asset_name: str) -> None:

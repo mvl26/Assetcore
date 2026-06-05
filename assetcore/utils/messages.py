@@ -191,6 +191,28 @@ class MSG:
     IMM11_CERT_RECEIVED_SUCCESS = "IMM11-CERT-RECEIVED-SUCCESS"
     IMM11_CANCEL_SUCCESS = "IMM11-CANCEL-SUCCESS"
 
+    # ── IMM-14 Giải nhiệm thiết bị (Decommission Closure Gate) ───────────────
+    # Cổng "Hồ sơ giải nhiệm": chặn asset vào Decommissioned nếu chưa có closure
+    # record ký duyệt + xác nhận xử lý dữ liệu BN (WHO §3.6) + phương thức (NĐ98).
+    IMM14_ASSET_NOT_FOUND = "IMM14-ASSET-NOT-FOUND"
+    IMM14_RECORD_NOT_FOUND = "IMM14-RECORD-NOT-FOUND"
+    IMM14_ALREADY_DECOMMISSIONED = "IMM14-ALREADY-DECOMMISSIONED"
+    IMM14_DUPLICATE_ACTIVE = "IMM14-DUPLICATE-ACTIVE"
+    IMM14_DISPOSAL_METHOD_REQUIRED = "IMM14-DISPOSAL-METHOD-REQUIRED"
+    IMM14_DISPOSAL_METHOD_INVALID = "IMM14-DISPOSAL-METHOD-INVALID"
+    IMM14_REASON_TOO_SHORT = "IMM14-REASON-TOO-SHORT"
+    IMM14_RESPONSIBLE_REQUIRED = "IMM14-RESPONSIBLE-REQUIRED"
+    IMM14_PATIENT_DATA_REQUIRED = "IMM14-PATIENT-DATA-REQUIRED"
+    IMM14_GATE_NO_CLOSURE = "IMM14-GATE-NO-CLOSURE"
+    IMM14_CREATE_SUCCESS = "IMM14-CREATE-SUCCESS"
+    IMM14_APPROVE_SUCCESS = "IMM14-APPROVE-SUCCESS"
+
+    # ── IMM-16 ∩ IMM-00 — Cổng hiệu quả CAPA (VR-06/VR-07, BR-00-26) ─────────
+    # ServiceError(VALIDATION, message_code='FIN-007') khi đóng CAPA mà
+    # effectiveness_check thiếu (VR-06) hoặc != 'Effective' (VR-07). Dùng CHUNG
+    # cho 3 path đóng: close_capa (legacy), advance_capa_state, capa_record_validate.
+    FIN_CAPA_NOT_EFFECTIVE = "FIN-007"
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # REGISTRY — câu chữ tiếng Việt, biên tập theo §5 miyano-error-framework.md
@@ -1009,6 +1031,100 @@ MESSAGES: dict[str, MessageEntry] = {
         "title": "Đã huỷ phiếu",
         "template": "Đã huỷ phiếu hiệu chuẩn {name}.",
         "action_hint": "",
+        "severity": "success",
+        "http_status": 200,
+    },
+    # ── IMM-16 ∩ IMM-00 — Cổng hiệu quả CAPA (VR-06/VR-07) ───────────────────
+    MSG.FIN_CAPA_NOT_EFFECTIVE: {
+        "title": "Không thể đóng CAPA",
+        "template": "Chưa xác minh hiệu quả — không thể đóng CAPA.",
+        "action_hint": "Thực hiện xác minh hiệu quả và đạt kết quả \"Hiệu quả\" trước khi đóng (VR-06/VR-07).",
+        "severity": "warning",
+        "http_status": 422,
+    },
+
+    # ── IMM-14 Giải nhiệm thiết bị (Decommission Closure Gate) ───────────────
+    MSG.IMM14_ASSET_NOT_FOUND: {
+        "title": "Không tìm thấy thiết bị",
+        "template": "Không tìm thấy thiết bị: {asset}.",
+        "action_hint": "Kiểm tra lại mã thiết bị trong danh sách tài sản.",
+        "severity": "warning",
+        "http_status": 404,
+    },
+    MSG.IMM14_RECORD_NOT_FOUND: {
+        "title": "Không tìm thấy hồ sơ giải nhiệm",
+        "template": "Không tìm thấy hồ sơ giải nhiệm: {name}.",
+        "action_hint": "Tải lại danh sách hồ sơ giải nhiệm và thử lại.",
+        "severity": "warning",
+        "http_status": 404,
+    },
+    MSG.IMM14_ALREADY_DECOMMISSIONED: {
+        "title": "Thiết bị đã giải nhiệm",
+        "template": "Thiết bị {asset} đã được giải nhiệm — không thể tạo hoặc duyệt hồ sơ giải nhiệm khác.",
+        "action_hint": "Thiết bị đã ở trạng thái cuối vòng đời. Không cần thao tác thêm.",
+        "severity": "warning",
+        "http_status": 409,
+    },
+    MSG.IMM14_DUPLICATE_ACTIVE: {
+        "title": "Đã có hồ sơ giải nhiệm",
+        "template": "Thiết bị {asset} đã có hồ sơ giải nhiệm đang xử lý ({existing}).",
+        "action_hint": "Mở hồ sơ đang xử lý để tiếp tục hoặc huỷ trước khi tạo hồ sơ mới.",
+        "severity": "warning",
+        "http_status": 409,
+    },
+    MSG.IMM14_DISPOSAL_METHOD_REQUIRED: {
+        "title": "Thiếu phương thức xử lý",
+        "template": "Vui lòng chọn phương thức xử lý thiết bị.",
+        "action_hint": "Chọn một trong: Huỷ, Điều chuyển/Donation, Bán/Trade-in, Lưu trữ.",
+        "severity": "warning",
+        "http_status": 422,
+    },
+    MSG.IMM14_DISPOSAL_METHOD_INVALID: {
+        "title": "Phương thức xử lý không hợp lệ",
+        "template": "Phương thức xử lý \"{value}\" không hợp lệ.",
+        "action_hint": "Chọn một trong: Huỷ, Điều chuyển/Donation, Bán/Trade-in, Lưu trữ.",
+        "severity": "warning",
+        "http_status": 422,
+    },
+    MSG.IMM14_REASON_TOO_SHORT: {
+        "title": "Lý do giải nhiệm quá ngắn",
+        "template": "Lý do giải nhiệm phải có ít nhất {min} ký tự.",
+        "action_hint": "Mô tả rõ căn cứ giải nhiệm (hết khấu hao, hỏng không kinh tế, có quyết định thanh lý…).",
+        "severity": "warning",
+        "http_status": 422,
+    },
+    MSG.IMM14_RESPONSIBLE_REQUIRED: {
+        "title": "Thiếu người chịu trách nhiệm",
+        "template": "Vui lòng chỉ định người chịu trách nhiệm (người ký duyệt).",
+        "action_hint": "Chọn người chịu trách nhiệm trước khi duyệt hồ sơ.",
+        "severity": "warning",
+        "http_status": 422,
+    },
+    MSG.IMM14_PATIENT_DATA_REQUIRED: {
+        "title": "Chưa xác nhận xử lý dữ liệu bệnh nhân",
+        "template": "Thiết bị phân loại {risk} (C/D) bắt buộc xác nhận đã xử lý dữ liệu bệnh nhân (WHO §3.6) trước khi duyệt.",
+        "action_hint": "Hoàn tất xoá/huỷ dữ liệu bệnh nhân trên thiết bị rồi tích xác nhận đã xử lý.",
+        "severity": "warning",
+        "http_status": 422,
+    },
+    MSG.IMM14_GATE_NO_CLOSURE: {
+        "title": "Chưa có hồ sơ giải nhiệm đã duyệt",
+        "template": "Chỉ được giải nhiệm thiết bị {asset} qua Hồ sơ giải nhiệm đã duyệt.",
+        "action_hint": "Tạo và duyệt Hồ sơ giải nhiệm cho thiết bị trước khi chuyển sang trạng thái Đã thanh lý.",
+        "severity": "warning",
+        "http_status": 409,
+    },
+    MSG.IMM14_CREATE_SUCCESS: {
+        "title": "Đã tạo hồ sơ giải nhiệm",
+        "template": "Đã tạo hồ sơ giải nhiệm {name} cho thiết bị {asset}.",
+        "action_hint": "Kiểm tra thông tin và duyệt hồ sơ để hoàn tất giải nhiệm.",
+        "severity": "success",
+        "http_status": 200,
+    },
+    MSG.IMM14_APPROVE_SUCCESS: {
+        "title": "Đã giải nhiệm thiết bị",
+        "template": "Thiết bị {asset} đã được giải nhiệm theo hồ sơ {name}.",
+        "action_hint": "Thiết bị đã chuyển sang trạng thái Đã thanh lý.",
         "severity": "success",
         "http_status": 200,
     },

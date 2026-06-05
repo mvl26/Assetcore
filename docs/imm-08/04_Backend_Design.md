@@ -174,8 +174,9 @@ File: `assetcore/services/imm08.py`
 | Function | Input | Output | Side effect |
 |---|---|---|---|
 | `validate_work_order(doc)` | PM Work Order doc | None | raise ServiceError (BR-08-02/06/08 gộp) |
-| `handle_work_order_submit(doc)` | PM Work Order doc | None | set completion, advance PM Schedule, sync Asset, ghi PM Task Log, tạo CM nếu Fail-Major |
-| `submit_result(name, ...)` | str + kwargs | dict | đóng WO, chuyển status `Completed` |
+| `compute_next_pm_date(completion_date, interval=None)` | str/date + int? | `str` | None — **SoT DUY NHẤT** cho ngày PM kế tiếp (BR-08-03). `= add_days(getdate(completion_date), effective_interval)`; `effective_interval = interval nếu interval and interval > 0, else PM_DEFAULT_INTERVAL_DAYS (=90)`. Anchor LUÔN là `completion_date`, KHÔNG bao giờ `nowdate()`. Mọi write-site PHẢI gọi hàm này — CẤM inline lại `add_days(...)`. |
+| `handle_work_order_submit(doc)` | PM Work Order doc | None | set completion, advance PM Schedule, sync Asset, ghi PM Task Log, tạo CM nếu Fail-Major. `next_pm_date` (Asset + PM Task Log) = `compute_next_pm_date(doc.completion_date, sched_interval)` |
+| `submit_result(name, ...)` | str + kwargs | dict | đóng WO, chuyển status `Completed`. Field trả về `next_pm_date` = `compute_next_pm_date(wo.completion_date, sched_interval)` — **byte-for-byte == PM Schedule.next_due_date đã persist == AC Asset.next_pm_date == PM Task Log.next_pm_date** |
 | `report_major_failure(pm_wo_name, *, failure_description)` | str + str | dict | set `Halted–Major Failure`, gọi `_create_cm_wo_from_failure` |
 | `reschedule(name, *, new_date, reason)` | str + str + str | dict | chuyển `Pending–Device Busy`, lưu reason |
 | `generate_pm_work_orders_from_schedule()` | — | dict | scheduler daily: tạo WO mới + đánh `Overdue` |
@@ -183,7 +184,7 @@ File: `assetcore/services/imm08.py`
 | `create_pm_schedule_from_commissioning(doc)` | Asset Commissioning doc | str / None | tạo PM Schedule khi commissioning submit |
 | `create_pm_schedule_from_asset(asset_doc, method)` | AC Asset doc | str / None | hook AC Asset.after_insert → tạo PM Schedule nếu `is_pm_required=1` |
 | `apply_template_to_category_assets(template_name)` | str | dict `{template, asset_category, created, skipped, errors}` | bulk-tạo PM Schedule cho mọi asset cùng danh mục; bỏ qua asset đã có lịch cùng `pm_type` |
-| `get_dashboard_stats(*, year, month)` | int, int | dict | — |
+| `get_dashboard_stats(*, year, month)` | int, int | dict | BR-08-13 — `kpis` tách 2 khối phạm vi: THÁNG (`total_scheduled`, `completed_on_time`, `overdue_in_month`, `pending_in_month`, `compliance_rate_pct` null-safe, `avg_days_late`) + GLOBAL (`overdue`=`count_overdue_pm()`, RC-10). Population THÁNG = WO **không-Cancelled** (`scheduled`, INV-PM-KPI-6). INV-PM-KPI-1..3,6 (§4.1.4) |
 | `get_calendar(*, year, month, ...)` | int, int, ... | dict | — |
 | `is_pm_overdue(status, due_date, ref_date=None)` | str, date, date? | `bool` | None — pure SoT predicate (BR-08-11), `due_date < today` strict + status ∈ overdue-source |
 | `due_soon_filter(window_end, ref_date=None)` | date, date? | `dict` | None — pure SoT window filter builder (BR-08-12), `{due_date: [between, [ref_date, window_end]], status: [not in, [Completed, Cancelled]]}` |
@@ -292,6 +293,149 @@ def due_soon_filter(window_end, ref_date=None) -> dict:
 ### 4.1.3 Quan hệ với overdue SoT (BR-08-11 — đã có sẵn)
 
 `is_pm_overdue(status, due_date, ref_date)` (đã tồn tại) định nghĩa overdue: `due_date < today` (strict) AND status ∈ `OVERDUE_SOURCE_STATES` {Open, In Progress, Pending–Device Busy}. Cron `check_pm_overdue` set `status=Overdue` theo predicate này; `count_overdue_pm()` đếm `status == Overdue`; drill `?overdue=1` (`_normalize_filters(overdue=1)`) trả cùng tập. Due-soon (BR-08-12) và overdue (BR-08-11) **disjoint by construction**: due-soon yêu cầu `due_date >= today`, overdue yêu cầu `due_date < today`.
+
+### 4.1.4 Dashboard KPI — đồng nhất phạm vi tháng vs toàn-hệ-thống (BR-08-13, vòng 10)
+
+> **Self-Correction (vòng 10).** RC-10 (vòng trước) đã đúng khi đổi `kpis.overdue` thành `count_overdue_pm()` **global** để khớp launcher widget + drill `?overdue=1`. NHƯNG sửa đó để lại **mâu thuẫn phạm vi không-đối-soát-được**: `get_dashboard_stats` đặt 1 field **toàn-hệ-thống** (`overdue`) đứng cạnh các field **bó-trong-tháng** (`total_scheduled`, `completed_on_time`, `compliance_rate_pct`) trong CÙNG dict `kpis` → FE render chung 1 strip. Phản ví dụ: tháng không có WO due nào nhưng còn 5 WO Overdue từ tháng trước → strip hiện "Tổng lên lịch: 0" cạnh "Quá hạn: 5" → người xem KHÔNG cách nào đối-soát (5 từ đâu ra khi tổng = 0?). Đồng thời `compliance_rate_pct = 0.0` khi `total==0` gây hiểu nhầm "tuân thủ 0%" trong khi thực ra "không có gì để đo".
+>
+> **Quyết định:** tách `kpis` thành **2 khối phạm vi** trong cùng payload, mỗi field có phạm vi DUY NHẤT & nhãn rõ ở FE. KHÔNG bỏ `overdue` global (giữ RC-10), THÊM `overdue_in_month` + `pending_in_month` cho khối tháng, và đổi `compliance_rate_pct` thành **null-safe**.
+
+**Hai khối phạm vi (cùng payload `get_dashboard_stats(year, month)`):**
+
+> **Self-Correction (vòng 25 — INV-PM-KPI-6).** Thiết kế gốc định nghĩa `total_scheduled = len(wos)` (MỌI status) và `pending_in_month = total − on_time − overdue_in_month` là **phần dư phủ kín mọi status còn lại** — chủ ý gồm cả `Cancelled-in-window`. Đây là **lỗi thiết kế gốc**: WO `Cancelled` (đã hủy chủ động, KHÔNG còn nghĩa vụ thực hiện) bị (a) tính vào MẪU compliance ⇒ kéo tụt `compliance_rate_pct` giả (vd 1/4=25.0 thay vì 1/3=33.3), và (b) rơi vào `pending_in_month` ⇒ phantom "chưa xong" không bao giờ ai làm. **Khắc phục:** loại `Cancelled` khỏi MẪU (`total_scheduled`) và mọi bucket tháng. Population mới = **WO không-Cancelled trong tháng** (`scheduled`).
+
+**Population CHỐT (vòng 25):** `scheduled = [w for w in wos if w["status"] != PMStatus.CANCELLED]`. `total_scheduled = len(scheduled)`. Mọi field khối-tháng (mẫu, tử, các bucket) suy TỪ `scheduled` — KHÔNG từ `wos` thô. `Cancelled` KHÔNG vào bất kỳ bucket nào (không completed, không overdue, không pending).
+
+| Field | Phạm vi | Định nghĩa BE |
+|---|---|---|
+| `total_scheduled` | **THÁNG** | `len(scheduled)` = số WO `due_date BETWEEN [start_month, end_month]` ∧ `status != Cancelled` (mẫu compliance — KHÔNG còn `len(wos)`) |
+| `completed_on_time` | **THÁNG** | `⊆ scheduled`: `status==Completed ∧ !is_late` (tử compliance) |
+| `overdue_in_month` | **THÁNG** | `⊆ scheduled`: `status==Overdue ∧ due_date trong tháng` — đếm TỪ `scheduled` đã lọc, KHÔNG gọi `count_overdue_pm()` |
+| `pending_in_month` | **THÁNG** | `total_scheduled − completed_in_month − overdue_in_month` (phần dư trên population đã-loại-Cancelled; trừ TẤT CẢ Completed (on-time + late), KHÔNG chỉ on-time → Completed-late KHÔNG rơi vào pending; `Cancelled` đã ngoài `total_scheduled` nên cũng KHÔNG rơi vào đây) |
+| `compliance_rate_pct` | **THÁNG** | `round(completed_on_time/total_scheduled*100, 1)` nếu `total_scheduled>0`, ngược lại **`None`** (FE '—') |
+| `avg_days_late` | **THÁNG** | trung bình `date_diff(completion, due)` của WO completed-late trong tháng (KHÔNG đổi) |
+| `overdue` | **TOÀN HỆ THỐNG** | `count_overdue_pm()` (RC-10, GIỮ NGUYÊN) — status==Overdue mọi thời gian; khớp launcher + drill `?overdue=1` |
+
+> **Lưu ý phạm vi (OUT-of-scope vòng 25):** `Halted–Major Failure` (lỗi nặng → CM) GIỮ counted trong population (kết cục PM **không-tuân-thủ thật**, rơi vào `pending_in_month` như cũ). CHỈ loại `Cancelled`. `count_overdue_pm()` global + quy tắc `is_late` + shape/field-name KHÔNG đổi.
+
+**INVARIANT đo được (BR-08-13):**
+- **INV-PM-KPI-1:** `total_scheduled >= completed_on_time + overdue_in_month + pending_in_month` (luôn, mọi dataset). Đẳng thức chỉ khi KHÔNG có Completed-late; khi có Completed-late thì WO đó là phần "dôi" (đã hoàn thành nhưng KHÔNG on-time, KHÔNG overdue, KHÔNG pending — đã trừ qua `completed_in_month`) ⇒ vế phải `< total_scheduled`. `pending_in_month` là phần-dư trên population đã-loại-Cancelled → bất biến `≥` giữ kể cả khi xuất hiện status mới. ⇒ `overdue_in_month <= total_scheduled` luôn đúng. KHÔNG còn `Cancelled` lọt vào bất kỳ bucket nào.
+- **INV-PM-KPI-2:** `overdue` (global) độc lập, KHÔNG ràng buộc với `total_scheduled`; có thể `overdue > total_scheduled` (chính xác về ngữ nghĩa — global ⊋ tháng) NHƯNG hai field ở 2 khối khác nhau, FE KHÔNG đặt chung strip.
+- **INV-PM-KPI-3:** tử & mẫu compliance CÙNG `scheduled` (đã loại Cancelled); `total_scheduled==0 ⇒ compliance=None`.
+- **INV-PM-KPI-6 (loại Cancelled khỏi mẫu — vòng 25):** WO `status==Cancelled` KHÔNG vào `total_scheduled`, KHÔNG vào MẪU compliance, KHÔNG vào `pending_in_month`/`overdue_in_month`/`completed_on_time`. Hệ quả đo được:
+  - Tháng `{1 Completed on-time, 1 Completed late, 1 Overdue, 1 Cancelled}` → `total_scheduled==3` (KHÔNG 4), `compliance_rate_pct==round(1/3*100,1)==33.3` (cũ sai `1/4==25.0`), `completed_on_time==1`, `overdue_in_month==1`, `pending_in_month==0` (`3 − 2 completed − 1 overdue = 0`; Completed-late nằm trong `completed_in_month`, KHÔNG pending; Cancelled ngoài mẫu).
+  - Tháng chỉ-Cancelled (vd 2 Cancelled, 0 khác) → `total_scheduled==0` ⇒ `compliance_rate_pct==None` (KHÔNG `0.0`), `pending_in_month==0`, `overdue_in_month==0`.
+  - **No-regression:** tháng KHÔNG có Cancelled → mọi KPI GIỮ NGUYÊN giá trị như trước fix (Cancelled-free path bất biến — vì `scheduled == wos` khi không có Cancelled).
+  - `trend_6months[*].rate` dùng CÙNG predicate loại-Cancelled (`t = số WO không-Cancelled trong tháng`) — cùng 1 SoT với tile compliance tháng hiện tại. `count_overdue_pm()` global + `is_late` + shape/field-name KHÔNG đổi.
+
+**Implementation (delta so với `get_dashboard_stats` hiện tại, services/imm08.py:858):**
+
+```python
+# INV-PM-KPI-6: population khối-tháng = WO KHÔNG-Cancelled (loại WO đã hủy khỏi mẫu).
+# Cancelled = đã hủy chủ động, KHÔNG còn nghĩa vụ → không kéo compliance, không phantom pending.
+scheduled = [w for w in wos if w["status"] != PMStatus.CANCELLED]
+total = len(scheduled)                                    # = total_scheduled (KHÔNG còn len(wos))
+completed = [w for w in scheduled if w["status"] == PMStatus.COMPLETED]
+on_time   = [w for w in completed if not w["is_late"]]
+# THÁNG: đếm overdue TỪ scheduled (due_date trong tháng, đã loại Cancelled) — KHÔNG dùng count_overdue_pm()
+overdue_in_month = sum(1 for w in scheduled if w["status"] == PMStatus.OVERDUE)
+completed_in_month = len(completed)                       # TẤT CẢ Completed (on-time + late)
+pending_in_month = total - completed_in_month - overdue_in_month  # phần dư → INV-PM-KPI-1 (Completed-late KHÔNG vào pending; Cancelled ngoài mẫu)
+# GLOBAL (RC-10, giữ nguyên): khớp launcher + drill ?overdue=1
+overdue_global = count_overdue_pm()
+compliance_rate = round(len(on_time) / total * 100, 1) if total else None  # null-safe (INV-PM-KPI-3/6)
+# avg_days_late: tính từ completed (đã trên scheduled) — Cancelled không có completion_date hợp lệ, không đổi
+...
+# trend_6months: t = số WO KHÔNG-Cancelled trong tháng (CÙNG predicate với tile — INV-PM-KPI-6)
+#   month_scheduled = [w for w in month_wos if w["status"] != PMStatus.CANCELLED]
+#   t = len(month_scheduled); rate = round(c_on / t * 100, 1) if t else 0.0
+return {
+    "kpis": {
+        "total_scheduled":     total,             # = len(scheduled), KHÔNG còn Cancelled
+        "completed_on_time":   len(on_time),
+        "overdue_in_month":    overdue_in_month,
+        "pending_in_month":    pending_in_month,
+        "compliance_rate_pct": compliance_rate,   # number | None
+        "avg_days_late":       avg_days_late,
+        "overdue":             overdue_global,    # GLOBAL — KHÔNG đổi (RC-10)
+    },
+    "trend_6months": trend,
+}
+```
+
+> `avg_days_late` KHÔNG đổi ngữ nghĩa (INV-PM-KPI-6 no-regression). `trend_6months[*].rate` dùng CÙNG mẫu loại-Cancelled (`t = số WO không-Cancelled trong tháng`) — KHÔNG để trend lệch chuẩn so với tile compliance tháng hiện tại (cùng 1 SoT predicate). Drill từ tile "Quá hạn (toàn hệ thống)" vẫn route `?overdue=1` → `count_overdue_pm()`.
+
+---
+
+## 4.2 SoT — "Ngày PM kế tiếp" (next_pm_date / next_due_date) (BR-08-03)
+
+> **Self-Correction (vòng 1).** Thiết kế gốc của BR-08-03 chỉ ghi công thức (`next_pm_date = completion_date + interval`, KHÔNG due_date) NHƯNG **không bắt buộc 1 nguồn-sự-thật-duy-nhất** → implementation đã trôi thành **3 bản inline phân kỳ trên 2 trục**:
+>
+> | Write-site | Anchor (mốc) | Default interval khi `pm_interval_days` rỗng/0 |
+> |---|---|---|
+> | `update_pm_schedule_after_completion` (:452-453) → persist `PM Schedule.next_due_date` | `completion_date` ✅ | `or 90` ✅ |
+> | `handle_work_order_submit` (:253-256, :269) → set `AC Asset.next_pm_date` + `PM Task Log.next_pm_date` | `completion_date` ✅ | `or 0` ❌ |
+> | `submit_result` (:622-623) → field `next_pm_date` API trả về | `nowdate()` ❌ | `or 0` ❌ |
+>
+> **2 hệ quả divergence thật:**
+> 1. **Anchor lệch (`nowdate()` vs `completion_date`):** khi PM hoàn thành trễ / backdated (`completion_date != today`), `submit_result` trả `next_pm_date` tính từ HÔM NAY, trong khi `PM Schedule.next_due_date` (đã persist) tính từ `completion_date` → API trả 1 ngày, DB lưu 1 ngày khác → KTV thấy lịch kế tiếp mâu thuẫn với phản hồi vừa nhận. Vi phạm trực tiếp mệnh đề BR-08-03 "KHÔNG dùng due_date" (và mặc nhiên KHÔNG dùng nowdate).
+> 2. **Default lệch (`or 0` vs `or 90`):** khi `pm_interval_days` rỗng/0, `PM Schedule.next_due_date` nhảy `+90` ngày, nhưng `AC Asset.next_pm_date` chỉ `+0` = `completion_date` (hôm nay) → asset LẬP TỨC bị scheduler `backfill_pm_schedules_for_due_assets` coi là **PM-overdue giả** (`next_pm_date <= today`) trong khi PM Schedule báo còn 90 ngày. Báo động sai + tạo lịch trùng.
+>
+> **Quyết định:** hợp nhất về **1 helper SoT `compute_next_pm_date`** + **1 hằng `PM_DEFAULT_INTERVAL_DAYS = 90`**. Mọi write-site gọi CHUNG — KHÔNG inline lại `add_days(...)`, KHÔNG dùng literal `90`, KHÔNG dùng `nowdate()` làm anchor.
+
+### 4.2.1 Hằng + helper SoT (pure, không I/O)
+
+```python
+# services/imm08.py — module-level constant (1 hằng, KHÔNG literal 90 rải rác)
+PM_DEFAULT_INTERVAL_DAYS = 90
+
+def compute_next_pm_date(completion_date, interval=None) -> str:
+    """SoT DUY NHẤT (BR-08-03): ngày PM kế tiếp = completion_date + interval hiệu lực.
+
+    INVARIANT anchor: LUÔN dùng completion_date (mốc hoàn thành thực tế của WO),
+    KHÔNG bao giờ nowdate(). Khi PM hoàn thành trễ/backdated, giá trị này phải
+    bằng nhau byte-for-byte ở MỌI nơi: PM Schedule.next_due_date (persist),
+    AC Asset.next_pm_date, PM Task Log.next_pm_date, và field next_pm_date mà
+    submit_result trả về.
+
+    INVARIANT default: interval hiệu lực = interval nếu interval và interval > 0,
+    else PM_DEFAULT_INTERVAL_DAYS (=90). Khi pm_interval_days rỗng/0, schedule —
+    asset — API CÙNG nhảy +90 ngày → asset KHÔNG còn hiện PM-overdue giả trong khi
+    schedule báo 90 ngày.
+
+    Args:
+        completion_date: mốc hoàn thành WO (str/date) — anchor BẮT BUỘC.
+        interval: số ngày chu kỳ PM (int/None). None hoặc <= 0 → dùng default 90.
+
+    Returns:
+        str: ngày PM kế tiếp (chuỗi YYYY-MM-DD do add_days trả về).
+    """
+    effective = interval if interval and interval > 0 else PM_DEFAULT_INTERVAL_DAYS
+    return add_days(getdate(completion_date), effective)
+```
+
+### 4.2.2 Consumer dùng chung (4 write-site, INVARIANT byte-for-byte)
+
+| Write-site | TRƯỚC (inline, phân kỳ) | SAU (gọi SoT) |
+|---|---|---|
+| `update_pm_schedule_after_completion` | `interval = sched.pm_interval_days or 90; sched.next_due_date = add_days(getdate(completion_date), interval)` | `sched.next_due_date = compute_next_pm_date(completion_date, sched.pm_interval_days)` |
+| `handle_work_order_submit` → `AC Asset.next_pm_date` | `sched_interval = ... or 0; _add_days(doc.completion_date, sched_interval)` | `compute_next_pm_date(doc.completion_date, sched_interval)` |
+| `handle_work_order_submit` → `PM Task Log.next_pm_date` | `_add_days(doc.completion_date, sched_interval)` | `compute_next_pm_date(doc.completion_date, sched_interval)` |
+| `submit_result` → field trả về | `add_days(nowdate(), sched_interval)` (anchor SAI) | `compute_next_pm_date(wo.completion_date, sched_interval)` |
+| `PM Schedule.before_save` (controller — **PERSISTER thực sự** của `next_due_date`) | `interval = pm_interval_days or 0; next_due_date = add_days(last_pm_date, interval)` (inline, `or 0` ⇒ interval=0 bỏ qua recompute → giá trị cũ kẹt) | `next_due_date = compute_next_pm_date(last_pm_date, pm_interval_days)` (anchor=last_pm_date, default trong helper) |
+
+- `sched_interval` ở `handle_work_order_submit` / `submit_result` truyền `pm_interval_days` **THÔ** từ PM Schedule (có thể rỗng/0/None) — KHÔNG còn `or 0` / `or 90` tại call-site; việc chọn default 90 nằm DUY NHẤT trong `compute_next_pm_date`.
+- **Latent 4th site (controller persister):** `PM Schedule.before_save` chạy SAU service-layer set `next_due_date` và RECOMPUTE từ `last_pm_date` (== `completion_date` sau PM). Trước đây dùng inline `add_days(last_pm_date, pm_interval_days or 0)` → là nguồn phân kỳ ẩn (đặc biệt khi `pm_interval_days=0`: nhánh `if last_pm_date and interval` bị bỏ qua, để giá trị cũ kẹt). Nay đi qua `compute_next_pm_date` → đồng nhất default 90 + anchor=last_pm_date với toàn bộ SoT. Lazy-import `compute_next_pm_date` trong `before_save` (tránh circular).
+- **INVARIANT byte-for-byte:** sau 1 lần submit WO, với MỌI `completion_date` (kể cả backdated) và MỌI `pm_interval_days` (kể cả 0/rỗng):
+  `submit_result.next_pm_date == PM Schedule.next_due_date (persist) == AC Asset.next_pm_date == PM Task Log.next_pm_date`.
+- **Grep guard (PASS bắt buộc):**
+  - 0 occurrence `add_days(nowdate(), <interval>)` cho next_pm_date/next_due_date ở BẤT KỲ đâu (anchor nowdate bị cấm cho ngày PM kế tiếp).
+  - 0 occurrence inline `add_days(...completion_date.../last_pm_date..., interval)` cho next_pm_date/next_due_date NGOÀI thân `compute_next_pm_date` (chỉ còn trong helper + docstring) — kể cả `PM Schedule.before_save`.
+  - 0 literal `90` cho interval ngoài hằng `PM_DEFAULT_INTERVAL_DAYS`; 0 `or 0` / `or 90` rải rác ở call-site (service + controller). _Lưu ý:_ `create_pm_schedule_from_asset` còn `pm_interval_days or 0` để CHỌN `pm_type` (qua `_PM_TYPE_FROM_INTERVAL`) — KHÔNG phải tính next-date, nằm ngoài phạm vi BR-08-03.
+
+### 4.2.3 Quan hệ với BR-08-05 (is_late) và overdue (BR-08-11)
+
+`compute_next_pm_date` chỉ tính NGÀY KẾ TIẾP, độc lập với `is_late` (BR-08-05: `is_late = completion_date > due_date`). Khi anchor đã đúng = `completion_date`, asset chỉ bị scheduler coi PM-overdue khi `next_pm_date <= today` THẬT (đến hạn) — không còn overdue-giả do `+0`. Default 90 đảm bảo asset thiếu cấu hình `pm_interval_days` vẫn có chu kỳ hợp lý thay vì kẹt ở hôm nay.
 
 ---
 

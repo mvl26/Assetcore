@@ -38,10 +38,32 @@
 | C3 | `IMM Spare Forecast Item` | — | — (child) | Dòng forecast |
 | 4 | `IMM Critical Spare Watchlist` | `field:watchlist_name` | No | Mapping critical asset → spare |
 | C4 | `IMM Spare Alternative` | — | — (child) | Alt parts (child CF trên AC Spare Part) |
-| 5 | `IMM Spare Batch` | `BAT-.YYYY.-.#####` | No | Lot/expiry tracking (gated qua scheduler `check_expiring_batches`) |
+| 5 | `IMM Spare Batch` | `BAT-.YYYY.-.#####` | No | Lot/expiry tracking — schema §II-bis; scheduler `check_expiring_batches` (BR-15-11) |
 | 6 | `IMM Device Spare Part` | — | — (child) | Mapping device → recommended spare |
 
 > Tất cả DocType trên đã có folder JSON dưới `assetcore/assetcore/doctype/imm_*` và service code tương ứng trong `assetcore/services/imm15.py`.
+
+### II-bis. Schema `IMM Spare Batch` (lot/expiry tracking)
+
+`autoname = BAT-.YYYY.-.#####` · `is_submittable = 0` · `track_changes = 1`. Ground truth: `assetcore/assetcore/doctype/imm_spare_batch/imm_spare_batch.json`.
+
+| Field | Type | Bắt buộc | Ghi chú |
+|---|---|---|---|
+| `naming_series` | Select (`BAT-.YYYY.-.#####`) | C | — |
+| `spare_part` | Link → AC Spare Part | C | search_index |
+| `batch_no` | **Data** | C | **Số lô — tên field DB CHÍNH XÁC là `batch_no`** (KHÔNG phải `batch_code`). Mọi query/render phải dùng `batch_no`. |
+| `manufacture_date` | Date | — | Ngày sản xuất |
+| `expiry_date` | Date | — | Ngày hết hạn — trục predicate `check_expiring_batches` (BR-15-11) |
+| `warehouse` | Link → AC Warehouse | C | Kho lưu |
+| `qty_on_hand` | Float (read_only) | — | SL tồn của lô — guard `> 0` mới cảnh báo (BR-15-11) |
+| `supplier` | Link → Supplier | — | — |
+| `supplier_lot_no` | Data | — | Số lô NCC |
+| `storage_condition` | Select (`Normal\nCold_Chain\nESD\nHazardous`) | — | default `Normal` |
+| `is_expired` | Check (read_only) | — | Set bởi controller `validate()`: `getdate(expiry_date) < getdate(today)` → 1. Lô đã quá hạn đi theo cờ này + quy trình riêng, **KHÔNG** vào danh sách "sắp hết hạn". |
+| `is_quarantined` | Check | — | Đang cách ly |
+| `notes` | Small Text | — | — |
+
+> **Controller** (`imm_spare_batch.py::validate`) là writer DUY NHẤT của `is_expired`. Scheduler `check_expiring_batches` CHỈ đọc — không set cờ.
 
 ---
 
@@ -70,27 +92,73 @@ Thêm vào section break `imm_section_strategic` sau section `section_flags`:
 - `imm_oem_part_number` → dùng `manufacturer_part_no`
 - `imm_shelf_life_months` → dùng `shelf_life_months`
 
-### II.A — Predicate CANONICAL "dưới định mức" (R7 §9.4.5 / BUG-15-03)
+### II.A — Predicate CANONICAL "dưới định mức / cần đặt lại" (R7 §9.4.5 / BUG-15-03 · vòng 23 → tồn KHẢ DỤNG)
+
+> 🔧 **Self-Correction (vòng 23, 2026-06-04) — đảo quyết định round-3 SoT:** Bản trước chốt
+> `LOW_STOCK_COND` so **tồn vật lý** `s.qty_on_hand < effective_min` (§III-bis.6 ghi rõ
+> *"GIỮ NGUYÊN dùng `qty_on_hand`… KHÔNG đổi sang available"*). Lỗi thiết kế gốc: một bin
+> **reserved-full** (`qty_on_hand=100`, `reserved_qty=100` ⟹ `available_qty=0`) với
+> `effective_min=20` thoả `100 ≥ 20` ⟹ **KHÔNG bị flag low** ⟹ dashboard báo "đủ tồn" trong
+> khi **không còn 1 đơn vị nào cấp phát được**. Hệ quả nghiệp vụ: WO cần phụ tùng nhưng kho
+> trống-khả-dụng vẫn không sinh cảnh báo / không đề xuất Reorder ⟹ trễ sửa chữa thiết bị
+> (vi phạm continuity-of-care, R-15-04 stockout Critical). **Chốt mới:** "dưới định mức" so
+> theo **tồn KHẢ DỤNG** = `qty_on_hand − reserved_qty`, KHÔNG phải tồn vật lý.
 
 Định mức áp dụng cho mỗi điểm tồn (bin = `spare_part` × `warehouse`) là **effective_min**:
 ưu tiên `min_stock_override` per-bin (trên `AC Spare Part Stock`), fallback `min_stock_level`
-của part (trên `AC Spare Part`). Một bin được coi là "dưới định mức" khi effective_min > 0
-và `qty_on_hand` < effective_min:
+của part (trên `AC Spare Part`). Một bin được coi là "dưới định mức / cần đặt lại" khi
+effective_min > 0 và **tồn khả dụng** < effective_min:
 
 ```
 effective_min(bin) = COALESCE(NULLIF(s.min_stock_override, 0), p.min_stock_level, 0)
-low(bin)           ⟺ effective_min > 0 AND s.qty_on_hand < effective_min
+available_expr(bin) = (s.qty_on_hand − COALESCE(s.reserved_qty, 0))   -- RAW, KHÔNG clamp
+low(bin)            ⟺ effective_min > 0 AND available_expr(bin) < effective_min
 ```
 
+- **Đại lượng so sánh = biểu thức RAW `(s.qty_on_hand − COALESCE(s.reserved_qty,0))`**, KHÔNG
+  dùng cột stored `available_qty`. Lý do: cột `available_qty` đã `MAX(0, …)` clamp tại 0
+  (before_save, §III-bis.5) → mất thông tin **oversell** (`reserved_qty > qty_on_hand`). Dùng
+  biểu thức raw thì bin oversell có available raw < 0 < effective_min ⟹ **vẫn low** (đúng:
+  đã giữ chỗ vượt tồn thì càng phải đặt lại). `available_qty` stored & biểu thức raw cho cùng
+  kết quả predicate khi `reserved ≤ on_hand`; chỉ khác ở oversell — chọn raw để bắt cả oversell.
 - Đánh giá **per-bin** — KHÔNG `SUM(qty_on_hand)` toàn kho (sẽ che bin riêng lẻ dưới
   định mức, đặc biệt bin có `min_stock_override` cao hơn part-min).
+- **Đối chứng giữ hành vi cũ khi không giữ chỗ:** bin `qty_on_hand=25`, `reserved_qty=0`,
+  `effective_min=20` ⟹ available raw `25 ≥ 20` ⟹ **KHÔNG low** (y hệt predicate cũ). Không
+  tạo false-positive — chỉ bin có `reserved_qty > 0` thay đổi hành vi.
 - **Một nguồn sự thật duy nhất**: fragment SQL `LOW_STOCK_COND` + `EFFECTIVE_MIN_EXPR`
   định nghĩa tại `services/inventory.py`; mọi nơi đếm/liệt kê (KPI `get_dashboard_stats`,
   dashboard `get_inventory_dashboard`/`get_stock_overview`, danh sách `list_stock_levels`,
-  drill `list_spare_parts(low_stock=1)`, alerts `get_low_stock_alerts`, scheduler email
-  `check_low_stock`) đều import chung — KHÔNG nhân bản predicate.
+  drill `list_spare_parts(low_stock=1)`, alerts `get_low_stock_alerts`, scheduler
+  `check_low_stock` + `check_low_stock_and_alert`) đều import chung — KHÔNG nhân bản predicate.
+  GREEN-GATE grep: **0 chỗ** còn so sánh trực tiếp `s.qty_on_hand < effective_min` ngoài
+  fragment SoT (kể cả `_list_stock_all` inline `qty_on_hand < min_level` — xem II.A.1).
 - `get_low_stock_alerts` trả `min_stock_level` = effective_min (vd bin override 80 trả 80,
   không phải part-min 50) để FE hiển thị đúng định mức áp dụng cho bin.
+
+#### II.A.1 — Điểm drift PHẢI hợp nhất (vòng 23)
+
+| Site | File:hàm | Trước | Sau (chốt) |
+|---|---|---|---|
+| Predicate SoT | `inventory.py::LOW_STOCK_COND` | `s.qty_on_hand < effective_min` | `(s.qty_on_hand − COALESCE(s.reserved_qty,0)) < effective_min` |
+| Count KPI | `inventory.py::count_low_stock_bins` | dùng `LOW_STOCK_COND` | KHÔNG đổi (tự kế thừa) |
+| Drill part-ids | `inventory.py::low_stock_part_ids` | dùng `LOW_STOCK_COND` | KHÔNG đổi (tự kế thừa) |
+| Alerts drill | `imm15.py::get_low_stock_alerts` | dùng `LOW_STOCK_COND` | KHÔNG đổi (tự kế thừa) |
+| Dashboard overview | `inventory.py::get_stock_overview` | dùng `LOW_STOCK_COND` | KHÔNG đổi (tự kế thừa) |
+| Stock-level page (low filter) | `api/inventory.py::_LOW_COND = svc.LOW_STOCK_COND` | dùng `LOW_STOCK_COND` | KHÔNG đổi (tự kế thừa) |
+| Scheduler email | `inventory.py::check_low_stock` | dùng `LOW_STOCK_COND` | KHÔNG đổi (tự kế thừa) |
+| Scheduler alert | `imm15.py::check_low_stock_and_alert` → `check_critical_spare_breach` | dùng `get_available_qty` | KHÔNG đổi (đã available) |
+| **Stock-level page (all rows)** | `api/inventory.py::_list_stock_all` | **inline** `(qty_on_hand or 0) < min_level` | **đổi** sang `(qty_on_hand − reserved_qty) < min_level` (Python, đã có cả 2 cột) — KHỚP SoT |
+
+`ORDER BY (effective_min − s.qty_on_hand)` trong các câu liệt kê **đổi sang**
+`(effective_min − (s.qty_on_hand − COALESCE(s.reserved_qty,0)))` để mức "thiếu khả dụng"
+nhiều nhất nổi lên đầu (nhất quán với predicate mới). Không bắt buộc cho count (không sort).
+
+> ⚠️ **Lưu ý wiring scheduler (tránh nhầm):** "low-stock-theo-định-mức" là
+> `inventory.check_low_stock` (hooks.py:299) — dùng `LOW_STOCK_COND` → **tự kế thừa fix**.
+> `imm15.check_low_stock_and_alert` (hooks.py:314) là **alias legacy** chỉ delegate sang
+> `check_critical_spare_breach` (watchlist-based, đã dùng `get_available_qty`) — KHÔNG wire
+> `LOW_STOCK_COND` vào đây. Cả hai con đường đều đã dựa trên tồn khả dụng sau fix.
 
 ---
 
@@ -199,9 +267,64 @@ low(bin)           ⟺ effective_min > 0 AND s.qty_on_hand < effective_min
 | `forecast_qty` | Float | Số lượng dự báo cần trong kỳ |
 | `reorder_point` | Float | VR-15-07: ≥ safety_stock |
 | `safety_stock` | Float | — |
-| `current_qty` | Float | Snapshot từ AC Spare Part Stock |
-| `historical_consumption_12m` | Float | Tiêu thụ 12 tháng gần nhất |
+| `current_qty` | Float | **(vòng 23 — ĐỔI)** Snapshot tồn **KHẢ DỤNG** toàn kho của part = `Σ (qty_on_hand − COALESCE(reserved_qty,0))` qua mọi bin (`_sum_part_stock`, §III.6.2). Trước đây = `Σ qty_on_hand` (vật lý) → part giữ-chỗ-hết bị bỏ sót Reorder. |
+| `historical_consumption_12m` | Float | **VR-15-15 (data-contract)**: ĐÚNG tổng qty Issue (docstatus=1) của `spare_part` trong CHÍNH XÁC 12 tháng trailing — `get_consumption(months=12)`, KHÔNG phụ thuộc `lookback_months`. Label DB giữ "Tiêu thụ 12 tháng" (read_only=1, không đổi schema). **BẤT BIẾN** qua fix vòng 23. |
 | `recommended_action` | Select | Hold / Reorder / ReduceMin / Obsolete |
+
+#### III.6.1 Logic `generate_spare_forecast(horizon_months, method, forecast_period)` — chuẩn (`services/imm15.py`)
+
+Hai cửa sổ thời gian TÁCH BIỆT, KHÔNG được gộp:
+
+| Cửa sổ | Biến | Công thức | Dùng cho |
+|---|---|---|---|
+| **Dự báo (biến thiên)** | `lookback_months = max(horizon_months * 4, 12)` | `total_consumed = get_consumption(part, months=lookback_months)` | `avg_monthly`, `forecast_qty`, `safety_stock`, `reorder_point` — GIỮ NGUYÊN |
+| **Lịch sử cố định (data-contract)** | `12` (hằng) | `hist_12m = get_consumption(part, months=12)` | CHỈ field `historical_consumption_12m` |
+
+Per part:
+
+```
+lookback_months = max(horizon_months * 4, 12)
+total_consumed  = get_consumption(part, months=lookback_months)
+avg_monthly     = total_consumed / lookback_months
+forecast_qty    = round(avg_monthly * horizon_months, 2)
+safety_stock    = round(avg_monthly * safety_stock_days / 30, 2)
+reorder_point   = round(safety_stock + (avg_monthly * lead_time_days / 30), 2)   # VR-15-07: ≥ safety_stock
+
+# data-contract field — cửa sổ 12 tháng CỐ ĐỊNH, tách khỏi lookback:
+hist_12m = total_consumed if lookback_months == 12 else get_consumption(part, months=12)
+historical_consumption_12m = round(hist_12m, 2)
+```
+
+**Reuse rule (no N+1):** khi `lookback_months == 12` (tức `horizon_months ∈ {1, 3}` → `max(4,12)=12`, `max(12,12)=12`) → tái dùng `total_consumed`, KHÔNG query lần 2. Chỉ khi `lookback_months > 12` (horizon ≥ 6 → 24, 48…) mới thêm đúng 1 lần `get_consumption(months=12)` per part. Baseline đã có 1 `get_consumption` per part → fix thêm tối đa 1 query per part, KHÔNG sinh N+1 mới.
+
+**Bug gốc (Self-Correction):** code cũ gán `historical_consumption_12m = total_consumed` với `lookback_months` biến thiên → tại `horizon=6` field = consumption **24 tháng** nhưng nhãn "Tiêu thụ 12 tháng" → SAI 2×, vi phạm data-contract. Sửa thiết kế: tách field sang cửa sổ 12 tháng cố định (VR-15-15).
+
+#### III.6.2 `current_qty` = tồn KHẢ DỤNG (Self-Correction vòng 23) — `recommended_action='Reorder'`
+
+> 🔧 **Lỗi thiết kế gốc (vòng 23):** `current_qty = _sum_part_stock(part)` dùng
+> `Σ qty_on_hand` (tồn **vật lý**). So với `reorder_point` (`current_qty < reorder_point → Reorder`)
+> trên tồn vật lý ⟹ part đã **giữ chỗ hết** (on_hand ≥ reorder_point nhưng available ≈ 0) **KHÔNG**
+> kích `Reorder` ⟹ forecast khuyên "Hold" trong khi thực tế không cấp phát được — **bỏ sót đặt hàng**.
+
+**CHỐT:** `current_qty` và `_sum_part_stock` đổi sang tồn **KHẢ DỤNG**:
+
+```sql
+-- _sum_part_stock(spare_part): MỘT aggregate, KHÔNG loop bin (no N+1)
+SELECT COALESCE(SUM(qty_on_hand - COALESCE(reserved_qty, 0)), 0)
+FROM `tabAC Spare Part Stock`
+WHERE spare_part = %s
+```
+
+- Quyết định cây action GIỮ NGUYÊN, chỉ đầu vào `current_qty` đổi nghĩa:
+  - `total_consumed ≤ 0` → `Obsolete` nếu `current_qty == 0`, ngược lại `Hold`.
+  - `current_qty < reorder_point` → **`Reorder`** ← kích cho part reserved-full (available < reorder_point)
+    mà on-hand ≥ reorder_point trước đây bỏ sót.
+  - `current_qty > reorder_point * 3` → `ReduceMin`; còn lại `Hold`.
+- **BẤT BIẾN** qua fix: `historical_consumption_12m`, `forecast_qty`, `safety_stock`, `reorder_point`,
+  `avg_monthly` — chỉ `current_qty` (và do đó `recommended_action`) thay đổi.
+- `_sum_part_stock` dùng `(qty_on_hand − COALESCE(reserved_qty,0))` RAW (KHÔNG cột `available_qty`
+  clamp) — nhất quán với predicate §II.A; aggregate có thể âm khi oversell → đúng ý "thiếu khả dụng".
+  Forecast hiển thị có thể clamp ≥ 0 ở UI nếu cần, nhưng logic so `< reorder_point` dùng raw.
 
 ### III.7 IMM Critical Spare Watchlist
 
@@ -294,9 +417,14 @@ def before_save(self):
 | Critical watchlist breach | `get_critical_watchlist` / `get_dashboard_stats` critical_breach | `get_available_qty` < min → đúng hơn (tính cả giữ chỗ) |
 | Tìm phụ tùng còn hàng | `search_parts(show_stock_only)` → `available_qty > 0` | Ẩn bin đã giữ hết |
 | Cycle-count baseline | `create_cycle_count` / `submit_cycle_count` system_qty (imm15.py:379/414) | `get_available_qty` |
-| **Low-stock predicate** | `LOW_STOCK_COND` / `EFFECTIVE_MIN_EXPR` | **GIỮ NGUYÊN dùng `qty_on_hand`** — định mức so tồn **vật lý**, KHÔNG đổi sang available (giữ semantics đã chốt round-3 SoT) |
+| **Low-stock predicate** | `LOW_STOCK_COND` / `EFFECTIVE_MIN_EXPR` | **(vòng 23 — ĐẢO)** so theo **tồn KHẢ DỤNG** `(s.qty_on_hand − COALESCE(s.reserved_qty,0)) < effective_min` — biểu thức RAW, KHÔNG clamp (xem §II.A) → bin reserved-full vẫn bị flag low |
 
-> 🚫 KHÔNG đổi `LOW_STOCK_COND` sang `available_qty`. Low-stock = tồn vật lý dưới định mức (đặt hàng bổ sung theo vật lý), độc lập với giữ chỗ.
+> ✅ **(vòng 23 — đảo round-3)** `LOW_STOCK_COND` so theo **tồn khả dụng** raw
+> `(s.qty_on_hand − COALESCE(s.reserved_qty,0))`. Lý do đảo: "dưới định mức" ⟺ "cần đặt lại
+> để còn cấp phát được" → phải tính phần đã giữ chỗ. Bin giữ chỗ hết (available=0) tuy còn
+> đầy tồn vật lý vẫn **không cấp phát được 1 đơn vị** ⟹ phải báo low + đề xuất Reorder, nếu
+> không sẽ trễ sửa thiết bị (R-15-04). Dùng biểu thức RAW (KHÔNG cột `available_qty` đã clamp)
+> để bắt cả bin oversell. Đối chứng: bin `reserved=0` cho kết quả y hệt predicate cũ (no FP).
 
 ### III-bis.7 SoT số-lượng-giữ-chỗ = số-lượng-xuất (BR-15-15) — Self-Correction vòng 1
 
@@ -632,7 +760,7 @@ scheduler_events = {
     "daily": [
         "assetcore.services.imm15.check_low_stock_and_alert",
         "assetcore.services.imm15.check_critical_spare_breach",
-        "assetcore.services.imm15.check_expiring_batches",       # gated (no-op nếu IMM Spare Batch empty)
+        "assetcore.services.imm15.check_expiring_batches",       # gated: table_exists("IMM Spare Batch")
         "assetcore.services.imm15.compute_inventory_kpis",
     ],
     "monthly": [
@@ -686,7 +814,7 @@ Cột **reserved** = hiệu ứng lên `reserved_qty` qua `recompute_reserved` (
 |---|---|---|---|
 | `check_low_stock_and_alert` | `services/imm15.py` | daily | Legacy alias → gọi `check_critical_spare_breach`; mục đích: extend LIVE `services.inventory.check_low_stock` |
 | `check_critical_spare_breach` | `services/imm15.py` | daily | Quét Watchlist; breach → CAPA seed + email khẩn |
-| `check_expiring_batches` | `services/imm15.py` | daily | Gated: no-op nếu `tabIMM Spare Batch` chưa tồn tại |
+| `check_expiring_batches` | `services/imm15.py` | daily 03:00 | Cảnh báo batch sắp hết hạn — **BR-15-11**. Gate `frappe.db.table_exists("IMM Spare Batch")` (DocType name, KHÔNG prefix `tab`). Predicate cửa sổ: `nowdate() <= expiry_date <= add_days(nowdate(), EXPIRY_WINDOW_DAYS=30)` AND `qty_on_hand > 0`. Field DB: `batch_no` (Data, ≠ batch_code). Email Inventory Manager chỉ khi recipients≠∅ VÀ có batch trong cửa sổ. Xem **VR-15-16**. |
 | `generate_spare_demand_forecast` | `services/imm15.py` | monthly | Tạo IMM Spare Part Forecast Draft (Moving_Avg default) |
 | `compute_inventory_kpis` | `services/imm15.py` | daily | Snapshot KPI: turnover, days-on-hand, stockout, breach, accuracy, MAPE |
 | `reclassify_abc` | `services/imm15.py` | cron `0 3 1 1,4,7,10 *` | ABC quarterly reclassification (XYZ reclassification chưa implemented) |

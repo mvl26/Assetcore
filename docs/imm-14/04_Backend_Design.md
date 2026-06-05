@@ -172,4 +172,113 @@ Theo `services/shared/constants.py` chuẩn AssetCore. Code dự kiến:
 
 ---
 
-*Hết file 04. Field detail + service code mẫu sẽ bổ sung trong sprint W3-1 sau khi BE scaffold.*
+---
+
+## IX. Wave 2 MVP — Cổng "Hồ sơ giải nhiệm" (Decommission Closure Gate) — CHỐT ĐỂ CODE
+
+> **Self-Correction (2026-06-04):** vòng 2 triển khai **một lát cắt hẹp** của IMM-14, KHÔNG phải toàn bộ thiết kế §I–§VIII (reconciliation 3-chiều, archive IMM-05, rollback 2-step, dashboard). Các phần đó GIỮ NGUYÊN làm `[ROADMAP]` Đợt 3. Hai chỉnh sửa thiết kế gốc:
+> 1. **Tên DocType** §I gọi `IMM Asset Closure`. MVP vòng 2 dùng tên **`Asset Decommission`** (đặt theo họ DocType lifecycle hiện có: `Asset Commissioning`, `Asset Repair`, `Asset Transfer`). `IMM Asset Closure` (full reconciliation) là superset Đợt 3 — sẽ extend `Asset Decommission` thêm child tables, KHÔNG tạo DocType thứ 2 trùng vai.
+> 2. **Error code** §VII/§05 liệt kê string `IMM14_*`. Codebase KHÔNG dùng string code module-local — dùng **semantic `ErrorCode` bucket** (`utils/response.py:ErrorCode`) + `message_code` (registry `MSG.*`). MVP vòng 2 raise `ServiceError(ErrorCode.BUSINESS_RULE | BAD_STATE | NOT_FOUND, <message VI>)` hoặc `InvalidAssetTransition`. Bảng `IMM14_*` ở §VII/§05 chỉ là *nhãn nghiệp vụ* tham chiếu, KHÔNG phải hằng số code.
+
+### IX.1. Phạm vi vòng 2 (scope-fence)
+
+**In:** DocType `Asset Decommission` (submittable) + gate chặn `lifecycle_status=Decommissioned` nếu chưa có closure approved + side-effect khi Approve + audit + entrypoint FE trên màn asset detail (IMM-00).
+
+**Out (KHÔNG làm vòng này):** IMM-13 stand-down/reassignment/replacement-review; đối soát kho IMM-15 / sổ kế toán / IMM-05 archive; rollback; dashboard end-of-life; donation/sale logistics; print format.
+
+### IX.2. DocType `Asset Decommission` (mới — submittable)
+
+| Thuộc tính | Giá trị |
+|---|---|
+| Module | AssetCore |
+| `is_submittable` | 1 (docstatus 0=Draft, 1=Approved, 2=Cancelled) |
+| `autoname` | `naming_series:` → series `DECOM-.YYYY.-.####` |
+| `track_changes` | 1 |
+| `title_field` | `asset` |
+
+**Fields:**
+
+| fieldname | label (VI) | fieldtype | options / ràng buộc | reqd | ghi chú |
+|---|---|---|---|---|---|
+| `naming_series` | Số hồ sơ | Select | `DECOM-.YYYY.-.####` | 1 | hidden, default |
+| `asset` | Thiết bị | Link | `AC Asset` | 1 | trỏ asset cần giải nhiệm |
+| `asset_name_snapshot` | Tên thiết bị | Data | read_only | 0 | fetch_from `asset.asset_name` (snapshot) |
+| `risk_classification_snapshot` | Phân loại rủi ro | Data | read_only | 0 | fetch_from `asset.risk_classification` (snapshot, drive gate IX.4-BR3) |
+| `disposal_method` | Phương thức xử lý | Select | `Huỷ\nĐiều chuyển/Donation\nBán/Trade-in\nLưu trữ` | 1 | BR-14-W2-02 |
+| `decommission_reason` | Lý do giải nhiệm | Small Text | length ≥ 20 ký tự (BR-14-W2-04) | 1 | free-text |
+| `patient_data_sanitized` | Đã xử lý dữ liệu bệnh nhân | Check | default 0 | 0* | *BẮT BUỘC=1 khi risk High/Critical (BR-14-W2-03) |
+| `sanitization_note` | Ghi chú xử lý dữ liệu | Small Text | — | 0 | mô tả phương thức xoá/huỷ ổ lưu |
+| `responsible` | Người chịu trách nhiệm | Link | `User` | 1 | người ký duyệt (BR-14-W2-05) |
+| `decommissioned_on` | Ngày giải nhiệm | Datetime | read_only | 0 | set khi Approve thành công |
+| `workflow_state` | Trạng thái | Select (workflow) | `Draft\nApproved\nCancelled` | 0 | đồng bộ docstatus |
+
+> `risk_classification` của `AC Asset` ∈ {Low, Medium, High, Critical} ≡ NĐ98 lớp A/B/C/D. "C/D" trong acceptance = **High / Critical**. Snapshot vào record lúc tạo để gate ổn định kể cả khi asset bị sửa sau.
+
+### IX.3. Service & API (3-tier)
+
+```
+assetcore/
+├── api/imm14.py              # 2 whitelist endpoints (NEW)
+├── services/imm14.py         # DecommissionService (NEW)
+└── (controller) assetcore/doctype/asset_decommission/asset_decommission.py  # validate/on_submit/on_cancel → delegate service
+```
+
+**`services/imm14.py` — hàm chính:**
+
+| Hàm | Chữ ký | Trách nhiệm |
+|---|---|---|
+| `create_decommission(asset, disposal_method, decommission_reason, patient_data_sanitized, responsible, sanitization_note="")` | → `dict` (closure record meta) | Tạo `Asset Decommission` docstatus=0. Validate field-level + BR-14-W2-06 (terminal) + BR-14-W2-07 (duplicate). KHÔNG đổi asset status. |
+| `validate_before_approve(doc)` | → `None` (raise) | Gọi trong controller `validate`/`before_submit`: kiểm BR-14-W2-02..05. Thiếu field → `ServiceError(BUSINESS_RULE, <VI>)`. |
+| `on_decommission_submit(doc, method=None)` | → `None` | Hook `on_submit`. **Idempotent.** Gọi `transition_asset_status(asset, AssetStatus.DECOMMISSIONED, actor, root_doctype="Asset Decommission", root_record=doc.name)`. Set `decommissioned_on`. |
+| `on_decommission_cancel(doc, method=None)` | → `None` | Hook `on_cancel`. Out-of-scope vòng 2 (rollback) → cho cancel record nhưng KHÔNG đảo asset status (ghi audit "Cancelled, asset status giữ Decommissioned"). |
+| `assert_decommission_gate(asset)` | → `None` (raise) | **GATE chính** — gọi từ `AC Asset` controller (xem IX.5). Raise nếu set `lifecycle_status=Decommissioned` mà KHÔNG có `Asset Decommission` docstatus=1 trỏ đúng asset. |
+
+**Quan hệ với `transition_asset_status` (KHÔNG viết lại side-effect):**
+
+`transition_asset_status(to=Decommissioned)` (đã có ở `services/imm00.py:92`) ĐÃ tự:
+- (a) chạy state-machine guard + **NEG-09** (chặn nếu asset đang Under Maintenance/Repair/Calibrating) — GIỮ NGUYÊN.
+- (b) ghi đúng 1 `Asset Lifecycle Event` `event_type='decommissioned'` (qua `_lifecycle_event_for`) với `root_record` truyền vào = tên closure record.
+- (c) ghi 1 `IMM Audit Trail` `event_type='State Change'`, `change_summary` = `lifecycle_status: <from> -> Decommissioned. <reason>`.
+- (d) `_cancel_pending_depreciation(asset)` + `_record_depreciation_stopped(...)` — Pending → Cancelled.
+
+⇒ `on_decommission_submit` CHỈ gọi `transition_asset_status` với `reason` chứa `disposal_method` + `patient_data_sanitized` (để (c) `change_summary` chứa 2 trường này theo acceptance). **KHÔNG** tự ghi lifecycle event / audit / cancel depreciation lần nữa (tránh double).
+
+> **Acceptance (c) "audit change_summary chứa disposal_method + patient_data_sanitized":** đạt được bằng cách build `reason = f"Phương thức: {disposal_method}. Đã xử lý dữ liệu bệnh nhân: {'Có' if patient_data_sanitized else 'Không'}. Closure: {doc.name}."` rồi truyền vào `transition_asset_status(..., reason=reason, root_doctype="Asset Decommission", root_record=doc.name)`. `transition_asset_status` nối `reason` vào `change_summary`.
+
+### IX.4. Business rules vòng 2
+
+| BR | Kiểm ở đâu | Cơ chế |
+|---|---|---|
+| **BR-14-W2-01 (GATE)** | `AC Asset` controller `validate`/`on_update` → `assert_decommission_gate` | KHÔNG cho `lifecycle_status` đổi sang `Decommissioned` nếu không tồn tại `Asset Decommission` docstatus=1, asset=this. Vi phạm → `InvalidAssetTransition`/`ServiceError(BAD_STATE)`, lifecycle_status GIỮ NGUYÊN. |
+| BR-14-W2-02 (disposal_method) | `validate_before_approve` | `disposal_method ∈ {Huỷ, Điều chuyển/Donation, Bán/Trade-in, Lưu trữ}`, không rỗng. |
+| BR-14-W2-03 (sanitization gate) | `validate_before_approve` | Nếu `risk_classification_snapshot ∈ {High, Critical}` ⇒ `patient_data_sanitized` PHẢI = 1. Thiếu → throw. (Low/Medium: khuyến nghị nhưng không chặn.) |
+| BR-14-W2-04 (reason) | `validate_before_approve` | `len(decommission_reason.strip()) ≥ 20`. |
+| BR-14-W2-05 (responsible) | `validate_before_approve` | `responsible` không rỗng (người ký). |
+| BR-14-W2-06 (terminal/idempotent) | `create_decommission` + `assert_decommission_gate` | Asset đã `Decommissioned` → tạo/Approve closure thứ 2 cho cùng asset bị chặn (`ServiceError(BAD_STATE, "Thiết bị đã giải nhiệm…")`). |
+| BR-14-W2-07 (single active) | `create_decommission` | Đã có `Asset Decommission` docstatus∈{0,1} cho asset → chặn tạo mới (`ServiceError(CONFLICT)`). |
+| BR-14-W2-08 (no double effect) | `on_decommission_submit` | `transition_asset_status` đã guard `prev==to → return`; nếu asset đã Decommissioned khi submit chạy lại ⇒ no double event/cancel. |
+| NEG-09 (reuse) | `transition_asset_status` | Asset đang Under Maintenance/Repair/Calibrating → Approve closure vẫn raise `InvalidAssetTransition`, lifecycle_status GIỮ NGUYÊN. |
+
+### IX.5. GATE wiring (BR-14-W2-01 — chống set-value vòng sau)
+
+Theo Pattern D (`assetcore-doc` Phần 3): **KHÔNG** ai được `frappe.db.set_value("AC Asset", name, "lifecycle_status", "Decommissioned")` trực tiếp. Cổng đặt 2 lớp:
+
+1. **Lớp service (chính):** mọi đường vào Decommissioned PHẢI qua `transition_asset_status`. `transition_asset_status` thêm 1 guard: nếu `to_status == DECOMMISSIONED` và `root_doctype != "Asset Decommission"` (hoặc thiếu closure approved cho asset) → gọi `assert_decommission_gate(asset)` raise. Closure tự nó truyền `root_doctype="Asset Decommission"` nên qua được.
+2. **Lớp controller `AC Asset`:** trong `validate`/`before_save`, nếu `lifecycle_status` đổi thành `Decommissioned` bằng đường khác (sửa form tay, import) mà không có closure approved → raise (`assert_decommission_gate`).
+
+> **Same-commit wiring rule:** định nghĩa `on_decommission_submit` + `assert_decommission_gate` → CÙNG commit phải wire vào `hooks.py::doc_events["Asset Decommission"]` (`on_submit`/`on_cancel`) + bổ sung gate vào `AC Asset` controller. Listener bắt buộc chữ ký `def on_decommission_submit(doc, method=None)`.
+
+### IX.6. hooks.py snippet (CHỐT)
+
+```python
+doc_events = {
+    # ...
+    "Asset Decommission": {
+        "validate": "assetcore.services.imm14.validate_before_approve",
+        "on_submit": "assetcore.services.imm14.on_decommission_submit",
+        "on_cancel": "assetcore.services.imm14.on_decommission_cancel",
+    },
+}
+```
+
+*Hết file 04. Field detail + service code mẫu sẽ bổ sung trong sprint W3-1 sau khi BE scaffold. §IX là CHỐT cho MVP vòng 2.*

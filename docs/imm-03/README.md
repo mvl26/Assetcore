@@ -6,7 +6,7 @@
 | Wave | 2 — Live ✅ |
 | Trạng thái | ✅ Đã triển khai — BE + FE LIVE |
 | Số file | 8 template chuẩn (nguồn gốc đã archive) |
-| Cập nhật cuối | 2026-05-27 |
+| Cập nhật cuối | 2026-06-04 |
 | Khối kiến trúc | A. KHỐI 1 — Planning & Procurement |
 | Đợt triển khai | 2 |
 | Owner | PTP Khối 1 · Nhóm ĐT-HĐ-NCC |
@@ -57,4 +57,4 @@ Files nguồn gốc đã được move sang `docs/architecture/archive/imm-03/`:
 
 ---
 
-*Module IMM-03 — Wave 2 LIVE. Cập nhật 2026-05-27.*
+*Module IMM-03 — Wave 2 LIVE. Cập nhật 2026-06-04 (vòng 22: hợp nhất cổng eligibility AVL về 1 SoT `_avl_is_live` — INV-AVL-LIVE, 02 §IV.6; vòng 26: cổng tie-break chấm điểm NCC — KHÔNG auto-award khi đỉnh hòa, INV-VE-TIE, 02 §IV.7; vòng drilldown: KPI tile "Quyết định mua sắm" drillable + bảo toàn INVARIANT card==drill bằng predicate `docstatus<2` đồng nhất count/list — INV-DEC-DRILL, 02 §IV.8).*

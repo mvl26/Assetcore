@@ -10,15 +10,20 @@ class PMSchedule(Document):
         """Đảm bảo next_due_date luôn có giá trị — nếu không, lịch sẽ bị scheduler
         và hook on_update bỏ qua, phiếu bảo trì không bao giờ được sinh.
 
-        - Có last_pm_date  → next = last_pm_date + interval
-        - Chưa có last_pm_date nhưng next_due_date trống → next = hôm nay + interval
-          (coi thời điểm tạo lịch là mốc bắt đầu chu kỳ đầu tiên)
+        BR-08-03: `next_due_date` đi qua SoT `compute_next_pm_date` (anchor =
+        last_pm_date nếu có, else hôm nay; default interval 90 nằm trong helper) —
+        KHÔNG inline `add_days(..., pm_interval_days)` riêng. Đây là write-site
+        PERSIST thực sự của next_due_date (controller chạy SAU service-layer set).
+        - Có last_pm_date → next = compute_next_pm_date(last_pm_date, interval)
+        - Chưa có last_pm_date nhưng next_due_date trống → next =
+          compute_next_pm_date(hôm nay, interval) (coi thời điểm tạo lịch là mốc
+          bắt đầu chu kỳ đầu tiên).
         """
-        interval = self.pm_interval_days or 0
-        if self.last_pm_date and interval:
-            self.next_due_date = add_days(self.last_pm_date, interval)
-        elif not self.next_due_date and interval:
-            self.next_due_date = add_days(getdate(nowdate()), interval)
+        from assetcore.services.imm08 import compute_next_pm_date  # noqa: PLC0415
+        if self.last_pm_date:
+            self.next_due_date = compute_next_pm_date(self.last_pm_date, self.pm_interval_days)
+        elif not self.next_due_date:
+            self.next_due_date = compute_next_pm_date(getdate(nowdate()), self.pm_interval_days)
 
     def validate(self) -> None:
         """Validate checklist template matches asset category (BR-08-01)."""

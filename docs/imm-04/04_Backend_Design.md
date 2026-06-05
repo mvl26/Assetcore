@@ -214,6 +214,7 @@ class AssetCommissioning(Document):
 | `handle_commissioning_cancel(doc)` | Document | None | Block cancel nếu final_asset tồn tại |
 | `overdue_commissioning_filter(today=None)` | str?/None | dict | **SoT** predicate "quá hạn SLA" (BR-04-10): `{reception_date < today−OVERDUE_DAYS, workflow_state NOT IN _TERMINAL_STATES, docstatus != 2}`. Pure, no side effect — dùng chung 3 call-site |
 | `check_commissioning_overdue()` | — | None | Email Workshop Head phiếu quá hạn — gọi `overdue_commissioning_filter()` (KHÔNG inline `reception_date<cutoff`); `_send_overdue_alert` tính `days_open` từ cùng anchor (scheduler daily — ⚠️ CHƯA đăng ký trong hooks.py) |
+| `_stamp_commissioning_date(doc)` (private) | Document | None | **SoT** stamp Clinical-Release date (BR-04-11). **Idempotent:** `if not doc.commissioning_date: doc.commissioning_date = nowdate()` (set khi NULL, KHÔNG ghi đè). Gọi bởi cả 3 write-path SAU khi `doc.workflow_state == _STATE_CLINICAL_RELEASE` được xác lập. Pure đối với mọi field khác. KHÔNG @whitelist (chỉ internal). Mutate doc in-memory — caller chịu trách nhiệm persist (`doc.save`/`doc.submit` đã có sẵn trong từng write-path) |
 | `submit_for_approval(commissioning, approver, stage, remarks)` | string + params | dict | Gửi phê duyệt nội bộ (Wave-2 approval flow) |
 | `approve_pending(commissioning, decision, remarks)` | string + params | dict | Duyệt/từ chối phiếu đang chờ |
 | `list_my_pending_approvals()` | — | list | Danh sách phiếu chờ duyệt của user hiện tại |
@@ -403,7 +404,52 @@ def list_commissioning(filters: dict, page=1, page_size=20) -> dict:
 **INVARIANT (kiểm thử trên data-live):**
 `get_dashboard_stats().kpis.overdue_sla == list_commissioning({"overdue": 1}, page=1, page_size=N).pagination.total` — card count == drill rows, **byte-for-byte**. Cùng `nowdate()` trong một request nên cùng cutoff.
 
-**KHÔNG đổi:** `pending_count`, `hold_count`, `open_nc_count`, `released_this_month` và mọi field KPI khác giữ nguyên giá trị — chỉ `overdue_sla` đổi anchor (`expected_installation_date` → `reception_date`).
+**KHÔNG đổi (trong scope BR-04-10):** `pending_count`, `hold_count`, `open_nc_count` giữ nguyên — chỉ `overdue_sla` đổi anchor (`expected_installation_date` → `reception_date`). `released_this_month` được re-anchor riêng trong §5.2 (BR-04-11).
+
+### 5.2. "Bàn giao tháng này" — stamp + KPI re-anchor cùng SoT (BR-04-11)
+
+**Bài toán (lỗi thiết kế gốc):** `get_dashboard_stats().kpis.released_this_month` đếm theo `modified >= first_day_of_month`. `modified` là timestamp Frappe tự cập nhật mỗi lần `.save()` → phiếu Released **tháng trước** mà bị edit (sửa note / upload doc / re-approve) **tháng này** lập tức bị kéo vào `released_this_month` → KPI throughput thổi phồng. Đồng thời phiếu chưa có cột thời điểm bàn giao thật: field `commissioning_date` (Date, read_only) tồn tại trên DocType nhưng **chưa write-path nào stamp** — `approve_clinical_release` chỉ đọc `doc.commissioning_date or nowdate()` ở return value (line ~1470), không persist.
+
+**Fix — 2 vế, cùng anchor `commissioning_date`:**
+
+**(a) Stamp tại 3 write-path** — gọi `_stamp_commissioning_date(doc)` SAU khi `workflow_state` đã thành `Clinical Release`, TRƯỚC `doc.save()`/`doc.submit()`:
+
+```python
+def _stamp_commissioning_date(doc) -> None:
+    """SoT (BR-04-11): set commissioning_date = ngày vào Clinical Release.
+    Idempotent — KHÔNG ghi đè giá trị đã có (re-submit/re-approve/edit giữ ngày gốc)."""
+    if doc.workflow_state == _STATE_CLINICAL_RELEASE and not doc.commissioning_date:
+        doc.commissioning_date = nowdate()
+```
+
+Wiring (chính xác, dùng symbol THẬT đã verify trong imm04.py):
+- **`transition_state(name, action)`** — sau `frappe.model.workflow.apply_workflow(doc, action)` (line ~1074) và TRƯỚC `doc.save(...)` (line ~1076): chèn `_stamp_commissioning_date(doc)`. Khi action đưa phiếu vào Clinical Release, doc.save persist commissioning_date cùng lượt (cùng khối auto-mint `create_ac_asset` đã có).
+- **`submit_commissioning(name)`** — phiếu PHẢI đã ở `Clinical Release` (guard line ~1121). Stamp TRƯỚC `doc.submit()` (line ~1148): `_stamp_commissioning_date(doc)` (submit persist). Bảo hiểm cho phiếu vào Clinical Release từ trước fix mà chưa stamp.
+- **`approve_clinical_release(...)`** — phiếu đã ở Clinical Release (guard line ~1447). Stamp TRƯỚC `doc.save(ignore_permissions=True)` (line ~1464): `_stamp_commissioning_date(doc)`. Return value đổi `str(doc.commissioning_date or nowdate())` → `str(doc.commissioning_date)` (sau stamp luôn non-NULL).
+
+> ⚠️ Idempotency: 3 path có thể nối tiếp nhau trên cùng phiếu (transition → approve → submit). Guard `not doc.commissioning_date` đảm bảo chỉ path ĐẦU TIÊN chạm Clinical Release ghi ngày; các path sau no-op → ngày bàn giao bất biến. KHÔNG `update_modified=False` cần thiết (stamp đi cùng save/submit hợp lệ của chính write-path).
+
+**(b) KPI re-anchor** trong `get_dashboard_stats()` — đổi count `released_this_month` từ `modified` sang `commissioning_date` trong cửa sổ tháng:
+
+```python
+first_day = get_first_day(nowdate())
+today = nowdate()
+...
+"released_this_month": frappe.db.count(_DT, {
+    "workflow_state": _STATE_CLINICAL_RELEASE, "docstatus": 1,
+    "commissioning_date": ("between", [str(first_day), str(today)]),
+}),
+```
+
+> ⚠️ Dùng **MỘT** tuple `("between", [first_day, today])` cho cột `commissioning_date` — KHÔNG tách 2 predicate cùng key `commissioning_date` trong filter dict (dict key trùng bị overwrite, chỉ còn 1 bound). Pattern `["between", [...]]` đã proven trong codebase: `imm05.py:361/409`, `imm06.py:1461`. `frappe.db.count` truyền filters qua cùng query-builder với `get_all` → `between` hợp lệ.
+
+- `("between", [first_day, today])` ⟺ `commissioning_date >= first_day AND <= today` (inclusive 2 đầu). `commissioning_date` NULL → `BETWEEN` loại tự nhiên (NULL không thỏa) → phiếu legacy NULL **không** crash, **không** lọt count (BR-04-11c).
+- Cùng `nowdate()` trong một request → `first_day`/`today` ổn định cho cả card lẫn drill list.
+
+**INVARIANT đo được (mirror §5.1, SoT-aligned):**
+`released_this_month == count({workflow_state==Clinical Release, docstatus==1, commissioning_date ∈ [first_day, today]})` == số rows drill list `Clinical Release` lọc cùng cửa sổ tháng. Card == drill.
+
+**KHÔNG đổi:** shape của `get_dashboard_stats()` (key `released_this_month` giữ nguyên type `int`/number); `states_breakdown`, `recent_list`, các KPI khác bất biến. KHÔNG schema migration (field đã có). Backfill phiếu Clinical Release legacy `commissioning_date` NULL = **optional, ngoài scope** (nếu cần: patch set `commissioning_date = modified` hoặc `creation` cho rows `workflow_state=Clinical Release AND commissioning_date IS NULL` — KHÔNG bắt buộc cho task này).
 
 ---
 
@@ -498,6 +544,72 @@ doc_events = {
 
 ---
 
+## 8.1. QR cấp tài sản (Asset-level QR) — tương thích ngược với commissioning
+
+> **Quyết định cuối:** [`./ADR-001-asset-qr.md`](./ADR-001-asset-qr.md). Tóm tắt tác động lên IMM-04 — schema/contract chi tiết ở [`../imm-00/04_Backend_Design.md`](../imm-00/04_Backend_Design.md) §II.1.8.
+
+**Bối cảnh:** QR cấp tài sản (`AC Asset.qr_token` + deep-link `/a/<token>`) là cơ chế MỚI ở IMM-00 registry, **song song** với QR cấp commissioning đang có ở IMM-04 (`internal_tag_qr`).
+
+| QR cũ (IMM-04 commissioning) | QR mới (IMM-00 asset) |
+|---|---|
+| Field `Asset Commissioning.internal_tag_qr` = `BV-{DEPT}-{YYYY}-{SEQ}` | Field `AC Asset.qr_token` = `secrets.token_urlsafe(16)` |
+| Sinh ở `assign_identification` (`services/imm04.py:543`) | Sinh `before_insert` mọi asset (3-tier ở IMM-00) |
+| Encode **chuỗi tag** (scanner-wedge gõ tay/đầu đọc) | Encode **URL** `/a/<token>` (camera điện thoại quét → màn info) |
+| Đoán được (DEPT+YYYY+SEQ tuần tự) + doc-bound | Enumeration-safe + idempotent + sống ở cấp tài sản |
+
+**Quy tắc tương thích ngược (ADR-001 D6):**
+- **GIỮ NGUYÊN field** `internal_tag_qr` + `assign_identification` / `generate_internal_qr` / `get_barcode_lookup` (`services/imm04.py:543,1350,921`) — KHÔNG breaking change. Field vẫn read-only + scanner-wedge lookup theo `internal_tag_qr` vẫn chạy. Nhãn tag-string đã in vẫn quét được bằng đầu đọc.
+- Vòng A (A1→A6) **KHÔNG đụng** logic QR của IMM-04. Hai cơ chế chạy song song trong giai đoạn chuyển tiếp.
+
+#### 8.1.1 — Dedup `generate_qr_label` → deep-link asset (CHỐT vòng 13 / B-3 — ADR-001 §D6.1)
+
+> **Quyết định cuối:** [`./ADR-001-asset-qr.md`](./ADR-001-asset-qr.md) §D6.1. Đây là **delta DUY NHẤT** vòng 13 trên IMM-04 — chỉ contract nhãn của `generate_qr_label`, KHÔNG field/cap/DocType/enum/patch mới.
+
+**RC dedup:** trước vòng 13 có 2 đường QR quét-được trên 1 thiết bị → (1) `generate_qr_label` mã hoá `internal_tag_qr` tuần tự + `scan_url=/app/asset-commissioning/<name>` (desk); (2) deep-link asset `/a/<token>` enumeration-safe. Sau vòng 13: **CHỈ còn (2)**.
+
+`generate_qr_label` ủy quyền (delegate) việc dựng deep-link sang helper QR cấp asset của IMM-00 — **KHÔNG copy-paste** logic sinh token/URL:
+
+```python
+# services/imm04.py::generate_qr_label — sau check permission + internal_tag_qr
+# Ưu tiên gọi 1 entry point public (tránh import symbol private _build_qr_url cross-module):
+from assetcore.services.imm00 import build_asset_label_data  # lazy import (Pattern B)
+
+qr_url = None
+if doc.final_asset:
+    # build_asset_label_data nội bộ đã: ensure_asset_qr_token (idempotent — token-less → sinh
+    # + emit qr_generated 1 lần) → _build_qr_url(token) (get_url("/a/{token}"), host từ site config).
+    qr_url = build_asset_label_data(doc.final_asset)["qr_url"]
+# (Tương đương: token = ensure_asset_qr_token(doc.final_asset); qr_url = _build_qr_url(token))
+
+return {
+    "qr_value": doc.internal_tag_qr,    # GIỮ — FE fallback khi qr_url rỗng + tương thích nhãn cũ
+    "qr_url": qr_url,                   # MỚI: deep-link tuyệt đối /a/<token> hoặc None (phiếu chưa mint asset)
+    "label": { ... },                   # GIỮ nguyên các field nhãn
+    "docs_url": ...,                    # GIỮ nguyên (không trong scope)
+    # scan_url: BỎ HẲN (desk-login) — thay bằng qr_url
+}
+```
+
+| # | Quy tắc | Chi tiết |
+|---|---|---|
+| 1 | `qr_url` khi có `final_asset` | Chuỗi tuyệt đối `/a/<token>` qua `ensure_asset_qr_token(final_asset)` + `_build_qr_url`. 1 helper duy nhất (dedup THẬT). |
+| 2 | Edge token-less | Phiếu CHƯA có `final_asset` → `qr_url=None`, KHÔNG gọi `ensure_asset_qr_token`, KHÔNG throw. Nhãn fallback `commissioning_id`. |
+| 3 | `scan_url` desk → BỎ | Field `scan_url=/app/asset-commissioning/<name>` xoá khỏi contract; FE đọc `qr_url`. |
+| 4 | `docs_url` | GIỮ nguyên — ngoài scope. |
+| 5 | RBAC | GIỮ `has_permission("Asset Commissioning","read")`. `ensure_asset_qr_token` chỉ set token, KHÔNG nâng quyền. |
+| 6 | Lifecycle | KHÔNG double-emit `qr_generated` (ensure idempotent). KHÔNG emit `label_printed` (đó là `mark_label_printed` POST). |
+
+**Endpoint QR cấp asset (A2/A3 — CHỐT ownership ở IMM-00 registry, KHÔNG IMM-04):**
+
+**Endpoint QR cấp asset (A2/A3 — CHỐT ownership ở IMM-00 registry, KHÔNG IMM-04):**
+- **Ownership chốt:** endpoint QR asset-bound đặt ở **`api/imm00.py` + `services/imm00.py`** (cùng nhà `AC Asset.qr_token` + `ensure_asset_qr_token` + `resolve_qr_token`). IMM-04 chỉ tham chiếu chéo — KHÔNG host logic QR asset. Spec đầy đủ: [`../imm-00/04_Backend_Design.md`](../imm-00/04_Backend_Design.md) §II.1.8b + [`../imm-00/05_API_Specification.md`](../imm-00/05_API_Specification.md).
+- `assetcore.api.imm00.get_asset_label_data(asset)` / `get_asset_label_data_batch(assets)` → trả payload nhãn (`name, asset_code, device_model_name, location_name, lifecycle_status, qr_url`); **READ-ONLY về sự kiện in** (KHÔNG emit `label_printed`). Khác `generate_qr_label` (commissioning-bound, `internal_tag_qr`) — endpoint mới asset-bound (`qr_url = /a/<token>`).
+- `assetcore.api.imm00.mark_label_printed(assets)` (POST) → emit lifecycle `label_printed` + audit, 1 event / asset / lần in.
+- `assetcore.api.imm00.resolve_qr_token(token)` (A2 — V3, **đã có**): IMM-00 ownership. RBAC `asset.read`. Xem ADR-001 D2/D4.
+- **A3 KHÔNG đụng IMM-04** `generate_qr_label`/`internal_tag_qr`. **Dedup CHỐT ở vòng 13 (§8.1.1):** `generate_qr_label` thêm `qr_url=/a/<token>` (tái dùng `ensure_asset_qr_token`+`_build_qr_url`), bỏ `scan_url` desk — field `internal_tag_qr` vẫn GIỮ.
+
+---
+
 ## 9. Migration & Patch
 
 **Patch path:** `assetcore/patches/v2/001_imm04_initial_setup.py`
@@ -532,7 +644,7 @@ assetcore.patches.v2.001_imm04_initial_setup
 - ERROR: `create_ac_asset` fail, `create_initial_document_set` exception
 
 **Idempotency:**
-- `generate_qr_label()`: idempotent — nếu `internal_tag_qr` đã có, trả giá trị hiện tại
+- `generate_qr_label()`: idempotent — `internal_tag_qr` đã có → trả giá trị hiện tại; `qr_url` (vòng 13) dựng qua `ensure_asset_qr_token` (idempotent — không sinh token thừa, không double-emit `qr_generated`)
 - `create_initial_document_set()`: graceful skip nếu document đã tồn tại (`source_commissioning` check)
 
 ---

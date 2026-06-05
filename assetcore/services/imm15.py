@@ -610,13 +610,22 @@ def generate_spare_forecast(horizon_months: int = 3,
                             forecast_period: str = "") -> dict:
     """Tạo IMM Spare Part Forecast (Moving Avg) cho `horizon_months` (§3.8).
 
-    Logic:
-      - Đọc consumption (Issue) `horizon_months * 4` tháng qua (default 12m)
-      - avg_monthly = consumption / lookback_months
-      - forecast_qty = avg_monthly × horizon_months
-      - safety_stock = avg_monthly × (lead_time_days + safety_stock_days) / 30
-      - reorder_point = safety_stock + (avg_monthly × lead_time_days / 30)
-      - recommended_action: Reorder / Hold / Obsolete
+    HAI cửa sổ thời gian TÁCH BIỆT (04 §III.6.1, VR-15-15):
+      • Dự báo (biến thiên): ``lookback_months = max(horizon_months * 4, 12)`` —
+        nuôi avg_monthly / forecast_qty / safety_stock / reorder_point.
+      • Lịch sử cố định (data-contract): ``historical_consumption_12m`` LUÔN dùng
+        cửa sổ 12 tháng trailing (khớp nhãn DocType "Tiêu thụ 12 tháng"), độc lập
+        với lookback. Tái dùng total_consumed khi lookback==12, ngược lại đọc thêm
+        đúng 1 lần get_consumption(months=12) per part (no N+1).
+
+    Logic forecast:
+      - total_consumed = get_consumption(part, months=lookback_months)
+      - avg_monthly    = total_consumed / lookback_months
+      - forecast_qty   = avg_monthly × horizon_months
+      - safety_stock   = avg_monthly × safety_stock_days / 30
+        (CHỈ safety_stock_days — KHÔNG cộng lead_time_days; lead vào reorder_point)
+      - reorder_point  = safety_stock + (avg_monthly × lead_time_days / 30)  # VR-15-07: ≥ safety_stock
+      - recommended_action: Reorder / Hold / Obsolete / ReduceMin
     """
     _require_any_role(_CAP_OPERATE,
                       "Không có quyền tạo forecast")
@@ -656,6 +665,13 @@ def generate_spare_forecast(horizon_months: int = 3,
         reorder_point = round(safety_stock + (avg_monthly * lead / 30), 2)
         forecast_qty = round(avg_monthly * horizon_months, 2)
         current_qty = _sum_part_stock(sp["name"])
+        # VR-15-15 (04 §III.6.1) — data-contract field uses a FIXED 12-month trailing
+        # window, decoupled from the variable lookback used for the forecast math.
+        # Reuse total_consumed when lookback IS already 12 (horizon ∈ {1,3} → max(*,12)
+        # collapses to 12) to avoid a redundant query; only read a second time when the
+        # lookback window is wider (horizon ≥ 6) → +1 query/part, no new N+1.
+        hist_12m = (total_consumed if lookback_months == 12
+                    else StockMovementRepo.get_consumption(sp["name"], months=12))
         if total_consumed <= 0:
             action = "Obsolete" if current_qty == 0 else "Hold"
         elif current_qty < reorder_point:
@@ -670,7 +686,7 @@ def generate_spare_forecast(horizon_months: int = 3,
             "reorder_point": reorder_point,
             "safety_stock": safety_stock,
             "current_qty": current_qty,
-            "historical_consumption_12m": round(total_consumed, 2),
+            "historical_consumption_12m": round(hist_12m, 2),
             "recommended_action": action,
         })
 
@@ -880,13 +896,16 @@ def get_dashboard_stats(period: str = "") -> dict:
 
 
 def get_low_stock_alerts(warehouse: str = "") -> dict:
-    """Alerts: các bin có qty_on_hand < định mức (§3.13).
+    """Alerts: các bin có tồn KHẢ DỤNG (qty_on_hand − reserved_qty) < định mức.
 
     R7 §9.4.5 / BUG-15-03 — canonical effective_min (per-bin min_stock_override
     fallback part min_stock_level). `min_stock_level` trả về = effective_min
     (vd bin override 80 trả 80, không phải 50) để KHỚP dashboard/drill/KPI.
+    BR-15-17 / VR-15-17 (vòng 23): predicate so theo tồn khả dụng qua LOW_STOCK_COND
+    (KHÔNG on-hand vật lý) → bin reserved-full vẫn được liệt kê.
     """
-    from assetcore.services.inventory import EFFECTIVE_MIN_EXPR, LOW_STOCK_COND
+    from assetcore.services.inventory import (
+        AVAILABLE_FOR_MIN_EXPR, EFFECTIVE_MIN_EXPR, LOW_STOCK_COND)
     cond = " AND s.warehouse = %(wh)s" if warehouse else ""
     rows = frappe.db.sql(
         f"""SELECT s.spare_part, p.part_name, s.warehouse, s.qty_on_hand,
@@ -894,7 +913,7 @@ def get_low_stock_alerts(warehouse: str = "") -> dict:
             FROM `tabAC Spare Part Stock` s
             JOIN `tabAC Spare Part` p ON p.name = s.spare_part
             WHERE {LOW_STOCK_COND} {cond}
-            ORDER BY ({EFFECTIVE_MIN_EXPR} - s.qty_on_hand) DESC
+            ORDER BY ({EFFECTIVE_MIN_EXPR} - {AVAILABLE_FOR_MIN_EXPR}) DESC
             LIMIT 100""",
         {"wh": warehouse} if warehouse else {},
         as_dict=True,
@@ -1096,8 +1115,17 @@ def _seed_capa_for_cycle_variance(cyc_doc) -> int:
 
 
 def _sum_part_stock(spare_part: str) -> float:
+    """Σ tồn KHẢ DỤNG (qty_on_hand − reserved_qty) của 1 phụ tùng qua mọi kho.
+
+    🔧 Self-Correction (vòng 23, BR-15-17 — 04 §III.6.2): đổi từ Σ qty_on_hand (tồn
+    vật lý) sang Σ available raw để `generate_spare_forecast.current_qty` so với
+    `reorder_point` theo tồn cấp-phát-được → part giữ-chỗ-hết (on_hand ≥ reorder_point
+    nhưng available < reorder_point) kích `Reorder` thay vì bỏ sót. MỘT aggregate (no
+    N+1). RAW (KHÔNG cột clamp `available_qty`) → nhất quán predicate §II.A; có thể âm
+    khi oversell (đúng ý "thiếu khả dụng" — logic so `< reorder_point` dùng raw)."""
     row = frappe.db.sql(
-        """SELECT COALESCE(SUM(qty_on_hand), 0) FROM `tabAC Spare Part Stock`
+        """SELECT COALESCE(SUM(qty_on_hand - COALESCE(reserved_qty, 0)), 0)
+           FROM `tabAC Spare Part Stock`
            WHERE spare_part = %s""",
         (spare_part,),
     )
@@ -1219,32 +1247,52 @@ def check_critical_spare_breach() -> None:
             pass
 
 
+EXPIRY_WINDOW_DAYS = 30  # SoT: cửa sổ cảnh báo batch sắp hết hạn (BR-15-11)
+
+
 def check_expiring_batches() -> None:
-    """Daily 03:00 (gated)."""
-    if not frappe.db.table_exists("tabIMM Spare Batch"):
+    """Daily 03:00 (gated) — cảnh báo batch phụ tùng sắp hết hạn.
+
+    Predicate cửa sổ (BR-15-11): chỉ batch CÒN tồn (qty_on_hand > 0) có
+    ``nowdate() <= expiry_date <= add_days(nowdate(), EXPIRY_WINDOW_DAYS)``.
+    Batch hết hạn sau 31+ ngày KHÔNG vào danh sách; batch ĐÃ quá hạn
+    (expiry_date < today) KHÔNG vào (đã có cờ ``is_expired`` + quy trình riêng).
+    Field DB thật là ``batch_no`` (KHÔNG phải batch_code).
+    """
+    # frappe.db.table_exists() expects the DocType NAME — it prepends `tab`
+    # internally. Passing "tabIMM Spare Batch" looks for `tabtabIMM Spare Batch`
+    # → always False → job was a silent no-op (latent bug, fixed vòng 21).
+    if not frappe.db.table_exists("IMM Spare Batch"):
         return
-    expiry_limit = add_days(nowdate(), 30)
+    today = nowdate()
+    expiry_limit = add_days(today, EXPIRY_WINDOW_DAYS)
     expiring = frappe.get_all(
         "IMM Spare Batch",
-        filters={"expiry_date": ("<=", expiry_limit), "expiry_date": (">=", nowdate())},
-        fields=["name", "spare_part", "batch_code", "expiry_date", "qty_on_hand"],
+        filters=[
+            ["expiry_date", ">=", today],
+            ["expiry_date", "<=", expiry_limit],
+            ["qty_on_hand", ">", 0],
+        ],
+        fields=["name", "spare_part", "batch_no", "expiry_date", "qty_on_hand"],
     )
     if not expiring:
         return
-    try:
-        from assetcore.utils.helpers import _get_role_emails, _safe_sendmail
-        recipients = _get_role_emails(["Inventory Manager"])
-        items_html = "".join(
-            f"<li>{b['spare_part']} — Batch {b['batch_code']} — Hết hạn: {b['expiry_date']}</li>"
-            for b in expiring
-        )
-        _safe_sendmail(
-            recipients=recipients,
-            subject=f"[AssetCore] {len(expiring)} batch phụ tùng sắp hết hạn",
-            message=f"<p>Các batch sau sẽ hết hạn trong 30 ngày:</p><ul>{items_html}</ul>",
-        )
-    except Exception:
-        pass
+    from assetcore.utils.helpers import _get_role_emails, _safe_sendmail
+    recipients = _get_role_emails(["Inventory Manager"])
+    if not recipients:
+        return
+    items_html = "".join(
+        f"<li>{b['spare_part']} — Batch {b['batch_no']} — Hết hạn: {b['expiry_date']}</li>"
+        for b in expiring
+    )
+    _safe_sendmail(
+        recipients=recipients,
+        subject=f"[AssetCore] {len(expiring)} batch phụ tùng sắp hết hạn",
+        message=(
+            f"<p>Các batch sau sẽ hết hạn trong {EXPIRY_WINDOW_DAYS} ngày:</p>"
+            f"<ul>{items_html}</ul>"
+        ),
+    )
 
 
 def compute_inventory_kpis() -> None:

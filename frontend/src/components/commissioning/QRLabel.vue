@@ -2,6 +2,7 @@
 import { ref, watch, onMounted } from 'vue'
 import QRCode from 'qrcode'
 import { generateQrLabel } from '@/api/imm04'
+import { translateStatus } from '@/utils/formatters'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import type { QrLabelData } from '@/types/imm04'
 
@@ -31,10 +32,15 @@ async function fetchLabel() {
   loading.value = true
   error.value = null
   try {
-    const res = await generateQrLabel(props.name) as unknown as { qr_value?: string } & typeof labelData.value
-    if (res?.qr_value) {
+    const res = await generateQrLabel(props.name)
+    // B (dedup QR): nếu phiếu đã release → mã hoá DEEP-LINK asset (/a/<token>,
+    // enumeration-safe) vào ảnh QR → quét điện thoại mở thẳng AssetScanInfo, KHÔNG
+    // ra chuỗi text thô. Phiếu CHƯA release (qr_url null) → fallback qr_value (tag
+    // BV-... cũ) để nhãn không vỡ. KHÔNG còn scan_url desk-login trong contract.
+    const encodeValue = res?.qr_url || res?.qr_value
+    if (encodeValue) {
       labelData.value = res
-      await generateQrImage(res.qr_value)
+      await generateQrImage(encodeValue)
     } else {
       error.value = 'Không thể tải dữ liệu QR'
     }
@@ -122,7 +128,11 @@ onMounted(fetchLabel)
           </div>
           <div class="flex justify-between gap-2">
             <span class="text-gray-500">Trạng thái:</span>
-            <span class="font-bold">{{ labelData.label.status }}</span>
+            <!-- SSoT formatter VI — KHÔNG leak workflow_state EN gốc (Clinical
+                 Release/Commissioned/…). Parity 1-1 với AssetQrLabel.vue:127.
+                 BE trả mã canonical EN (services/imm04.py status=workflow_state)
+                 → FE dịch DUY NHẤT qua translateStatus (ADR-001). -->
+            <span class="font-bold" data-testid="commissioning-status">{{ translateStatus(labelData.label.status) }}</span>
           </div>
         </div>
 

@@ -14,9 +14,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 
-vi.mock('vue-router', () => ({
-  useRouter: () => ({ push: vi.fn() }),
-}))
+// ROOT-CAUSE test-isolation fix: shared full-shape router mock (xem
+// src/test/vueRouterMock.ts). File này chỉ cần useRouter, nhưng dùng full-shape
+// để khi mock leak sang file PM khác (đọc useRoute().query) KHÔNG gây undefined.
+vi.mock('vue-router', async () => (await import('@/test/vueRouterMock')).vueRouterMockFactory())
 
 // IMM-08 create endpoint — never called in these tests.
 vi.mock('@/api/imm08', () => ({

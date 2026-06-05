@@ -11,13 +11,20 @@ import BasePagination from '@/components/common/BasePagination.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import type { LifecycleStatus, AssetListParams } from '@/types/imm00'
 import { BYT_EXPIRY_CHIP_LABEL } from '@/constants/labels'
+import { MAX_LABEL_BATCH } from '@/constants/label'
 import { useImportWizard } from '@/composables/useImportWizard'
 import ImportWizardModal from '@/components/import/ImportWizardModal.vue'
+import { useCapabilities } from '@/composables/useCapabilities'
 
 const router = useRouter()
 const route = useRoute()
 const store = useAssetStore()
 const refData = useRefDataStore()
+const { can } = useCapabilities()
+// B (siết RBAC least-privilege): in nhãn = side-effect (ghi ALE label_printed +
+// audit) → gate asset.WRITE, KHÔNG asset.read. User chỉ-đọc KHÔNG thấy nút in
+// hàng loạt (mirror route AssetLabelPrint requiredCapabilities:['asset.write']).
+const canPrintLabel = computed(() => can('asset.write'))
 
 const showFilters = ref(false)
 
@@ -198,8 +205,42 @@ const IMPORT_NOTICE = [
   'Mặc định trạng thái vòng đời = <strong>Draft</strong> nếu bỏ trống.',
 ]
 
-// Phơi bày cho test (chip drill BYT): activeChips để assert nhãn VI, clearChip cho nút X.
-defineExpose({ clearChip, activeChips })
+// ── A4: chọn nhiều + in nhãn QR hàng loạt ───────────────────────────────────────
+// selectedNames giữ ĐÚNG thứ tự bấm chọn (không reorder) → trang in giữ thứ tự.
+const selectedNames = ref<string[]>([])
+function toggleSelect(name: string) {
+  const i = selectedNames.value.indexOf(name)
+  if (i >= 0) selectedNames.value.splice(i, 1)
+  else selectedNames.value.push(name)
+}
+function isSelected(name: string): boolean {
+  return selectedNames.value.includes(name)
+}
+function clearSelection() {
+  selectedNames.value = []
+}
+const allOnPageSelected = computed(() =>
+  store.assets.length > 0 && store.assets.every(a => selectedNames.value.includes(a.name)),
+)
+function toggleSelectAllOnPage() {
+  if (allOnPageSelected.value) {
+    const pageNames = new Set(store.assets.map(a => a.name))
+    selectedNames.value = selectedNames.value.filter(n => !pageNames.has(n))
+  } else {
+    for (const a of store.assets) if (!selectedNames.value.includes(a.name)) selectedNames.value.push(a.name)
+  }
+}
+// Vòng B (BR-00-33): vượt cap → nút disabled + user KHÔNG bao giờ gửi request 413.
+// SSoT @/constants/label.MAX_LABEL_BATCH (đồng bộ BE _MAX_LABEL_BATCH).
+const overLabelLimit = computed(() => selectedNames.value.length > MAX_LABEL_BATCH)
+function printBatchLabels() {
+  // disabled-guard: rỗng → no-op; vượt cap → KHÔNG điều hướng (chặn request 413).
+  if (!selectedNames.value.length || overLabelLimit.value) return
+  router.push({ name: 'AssetLabelPrint', query: { names: selectedNames.value.join(',') } })
+}
+
+// Phơi bày cho test (chip drill BYT + batch-select A4).
+defineExpose({ clearChip, activeChips, toggleSelect, selectedNames, clearSelection })
 </script>
 
 <template>
@@ -210,6 +251,34 @@ defineExpose({ clearChip, activeChips })
     >
       <template #actions>
         <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
+        <button
+          v-if="canPrintLabel"
+          class="px-3 py-2 text-sm border rounded-lg flex items-center gap-1.5 transition-colors"
+          :class="(selectedNames.length && !overLabelLimit)
+            ? 'border-emerald-300 text-emerald-700 hover:bg-emerald-50'
+            : 'border-gray-200 text-gray-400 cursor-not-allowed'"
+          :disabled="!selectedNames.length || overLabelLimit"
+          :title="overLabelLimit
+            ? `Chỉ in tối đa ${MAX_LABEL_BATCH} nhãn mỗi lần. Vui lòng chọn ít hơn.`
+            : (selectedNames.length
+              ? `In nhãn QR cho ${selectedNames.length} thiết bị đã chọn`
+              : 'Chọn ít nhất 1 thiết bị (ô chọn ở cột đầu) để in nhãn hàng loạt')"
+          @click="printBatchLabels"
+        >
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round"
+              d="M4 4h6v6H4V4zm10 0h6v6h-6V4zM4 14h6v6H4v-6zm13 0h3m-3 3h3m-3 3h3" />
+          </svg>
+          In nhãn hàng loạt<span v-if="selectedNames.length"> ({{ selectedNames.length }})</span>
+        </button>
+        <!-- Vòng B (BR-00-33): hint VI khi vượt cap số nhãn / lần (role=alert). -->
+        <span
+          v-if="canPrintLabel && overLabelLimit"
+          class="text-xs text-amber-700"
+          role="alert"
+        >
+          Chỉ in tối đa {{ MAX_LABEL_BATCH }} nhãn mỗi lần. Vui lòng chọn ít hơn.
+        </span>
         <button
           class="px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600 flex items-center gap-1.5"
           title="Tải toàn bộ danh sách thiết bị về Excel"
@@ -310,7 +379,18 @@ defineExpose({ clearChip, activeChips })
           @click="router.push(`/assets/${asset.name}`)"
         >
           <div class="flex items-center justify-between mb-2">
-            <span class="font-mono text-sm font-semibold text-brand-700">{{ asset.name }}</span>
+            <div class="flex items-center gap-2">
+              <input
+                v-if="canPrintLabel"
+                type="checkbox"
+                class="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                :checked="isSelected(asset.name)"
+                :aria-label="`Chọn thiết bị ${asset.asset_name}`"
+                @click.stop
+                @change="toggleSelect(asset.name)"
+              />
+              <span class="font-mono text-sm font-semibold text-brand-700">{{ asset.name }}</span>
+            </div>
             <button @click.stop="quickFilter('lifecycle_status', asset.lifecycle_status)">
               <StatusBadge :state="asset.lifecycle_status" />
             </button>
@@ -341,6 +421,15 @@ defineExpose({ clearChip, activeChips })
           <table class="min-w-full divide-y divide-slate-100">
             <thead>
               <tr>
+                <th v-if="canPrintLabel" class="table-header w-10">
+                  <input
+                    type="checkbox"
+                    class="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                    :checked="allOnPageSelected"
+                    aria-label="Chọn tất cả thiết bị trên trang"
+                    @change="toggleSelectAllOnPage"
+                  />
+                </th>
                 <th class="table-header">Tên / Mã</th>
                 <th class="table-header">Danh mục</th>
                 <th class="table-header">Trạng thái</th>
@@ -356,8 +445,18 @@ defineExpose({ clearChip, activeChips })
                 v-for="asset in store.assets"
                 :key="asset.name"
                 class="hover:bg-slate-50 cursor-pointer transition-colors"
+                :class="isSelected(asset.name) ? 'bg-emerald-50/60' : ''"
                 @click="router.push(`/assets/${asset.name}`)"
               >
+                <td v-if="canPrintLabel" class="table-cell w-10" @click.stop>
+                  <input
+                    type="checkbox"
+                    class="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                    :checked="isSelected(asset.name)"
+                    :aria-label="`Chọn thiết bị ${asset.asset_name}`"
+                    @change="toggleSelect(asset.name)"
+                  />
+                </td>
                 <td class="table-cell">
                   <p class="font-medium text-slate-900">{{ asset.asset_name }}</p>
                   <p class="text-xs text-slate-400 font-mono mt-0.5">{{ asset.name }}</p>

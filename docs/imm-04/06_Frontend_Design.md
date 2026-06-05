@@ -143,6 +143,8 @@ Lưu ảnh tại `docs/imm-04/screenshots/`:
 | Tạm giữ lâm sàng | `kpis.hold_count` | warning | `filterState='Clinical Hold'` — hiển thị qua i18n (§ bảng map), KHÔNG để raw English |
 | NC mở | `kpis.open_nc_count` | danger | `filterState='Non Conformance'` |
 | Bàn giao tháng này | `kpis.released_this_month` | success | `filterState='Clinical Release'` — hiển thị tiếng Việt theo § i18n |
+<!-- BR-04-11: card count đếm theo commissioning_date ∈ tháng (BE đổi anchor modified→commissioning_date). FE ZERO shape-change — xem ghi chú "Vòng 16" dưới đây. -->
+
 | **Quá hạn SLA** | `kpis.overdue_sla` | **warning** | **`overdue:1`** (virtual filter — BR-04-10), KHÔNG còn display-only |
 
 > **Đính chính i18n (2026-06-02, factory vòng 9):** nhãn KPI strip PHẢI tiếng Việt theo quy tắc i18n ở § "State value tiếng Anh map qua i18n → tiếng Việt trên UI" và wireframe ("Tạm giữ LS"). Bản trước để raw `Clinical Hold` / `Release tháng này` là rò rỉ tiếng Anh, mâu thuẫn chính bảng i18n của module → đã thống nhất về VI. `filterState` vẫn dùng workflow_state gốc tiếng Anh (`Clinical Hold` / `Clinical Release`) làm khoá lọc.
@@ -156,6 +158,10 @@ Lưu ảnh tại `docs/imm-04/screenshots/`:
 > - INVARIANT FE↔BE: số trên thẻ `overdue_sla` = số dòng list sau khi áp `overdue:1` (cùng SoT BE).
 >
 > Mapping kpis→strip items: hàm thuần `commissioningKpiItems()` (`views/commissioning/commissioningKpi.ts`, có vitest `commissioningKpi.test.ts` — cập nhật K4 case: overdue giờ mang drill marker, KHÔNG còn display-only).
+
+> **Vòng 16 — "Bàn giao tháng này" re-anchor (BR-04-11) — FE ZERO shape-change:** BE đổi `released_this_month` từ count theo `modified` sang count theo `commissioning_date ∈ [đầu tháng, hôm nay]`. `get_dashboard_stats()` GIỮ NGUYÊN shape: `kpis.released_this_month` vẫn type `number`, nhãn "Bàn giao tháng này" bất biến, `filterState='Clinical Release'` bất biến. **FE KHÔNG đổi component/store/type** — chỉ giá trị số trả về chính xác hơn (phiếu Released tháng-trước bị edit tháng này không còn thổi phồng card).
+> - ⚠️ **Nuance drill (không phải bug, ghi rõ):** card đếm phiếu Clinical Release có `commissioning_date` trong THÁNG, nhưng click drill hiện lọc `filterState='Clinical Release'` = TẤT CẢ phiếu Clinical Release (không giới hạn tháng) → số drill ≥ số card. Đây là hành vi hiện hữu, KHÔNG nằm trong scope task này. INVARIANT BE-side (card == count cùng cửa sổ tháng) được verify ở tầng service/test (07 §commissioningKpi), KHÔNG qua FE drill. Nếu sau này muốn drill khớp tuyệt đối card → thêm virtual filter tháng (giống `overdue:1`) — `[ROADMAP]`, ngoài scope vòng 16.
+> - Test FE: NEW `commissioningKpi.test.ts` case — strip render `released_this_month` đúng số + nhãn VI "Bàn giao tháng này" + màu success (verbatim từ `commissioningKpiItems()`), KHÔNG leak EN. vue-tsc prod 0.
 
 **API gọi:** `get_dashboard_stats` (store `fetchDashboardStats`) — fetch song song với `fetchList` trong `onMounted`.
 **State:** strip ẩn khi chưa có dữ liệu (`v-if="items.length"`). KPI fetch **non-blocking**: dùng `dashboardError` riêng, KHÔNG đụng `error`/`loading` của list (KPI lỗi không che list skeleton/banner).
@@ -217,8 +223,21 @@ Lưu ảnh tại `docs/imm-04/screenshots/`:
 | `AssetLifecycleTimeline.vue` | Timeline lifecycle events immutable | `events: AssetLifecycleEvent[]` |
 | `ClinicalHoldAlert.vue` | Alert Clinical Hold với danh sách doc thiếu | `riskClass, qaOfficer, missingLicenses[]` |
 | `BaselineChecklistTable.vue` | Table đo kiểm inline editable | `items: CommissioningChecklist[], readonly: boolean` |
+| `commissioning/QRLabel.vue` | Preview + in nhãn QR của phiếu nghiệm thu | `name: string` |
 
 Đặt trong `frontend/src/components/imm04/`. Component dùng ≥ 2 module → promote ra `components/common/`.
+
+### 4.1 — `QRLabel.vue` mã hoá deep-link asset (dedup vòng 13 / ADR-001 §D6.1)
+
+> Hợp nhất nhãn QR commissioning về **1 đường deep-link** với QR cấp asset. Quét điện thoại trên phiếu đã release → mở thẳng màn `AssetScanInfo` (A6) thay vì ra chuỗi text thô.
+
+| # | Quy tắc FE | Chi tiết |
+|---|---|---|
+| 1 | Nguồn mã hoá ẢNH QR | `QRCode.toDataURL(value)` với `value = res.qr_url` khi `res.qr_url` không rỗng (deep-link `/a/<token>`); **fallback** `res.qr_value` (tag `internal_tag_qr`) CHỈ khi `qr_url` rỗng (phiếu chưa mint asset). KHÔNG bao giờ mã hoá tag tuần tự khi đã có deep-link. |
+| 2 | Type `QrLabelData` | `+qr_url?: string \| null`; **−`scan_url`** (BE bỏ field). `qr_value` GIỮ (fallback + nhãn cũ + scanner-wedge). |
+| 3 | Nhãn hiển thị | Các field `label.*` GIỮ nguyên (kể cả `internal_qr` read-only hiển thị tham chiếu nội bộ). Chỉ ĐỔI nội dung mã hoá VÀO ảnh QR. |
+| 4 | Edge token-less | `qr_url=null` → encode `qr_value` (như cũ) → nhãn vẫn in được, không lỗi, không màn trắng. |
+| 5 | Tương thích ngược | `internal_tag_qr` vẫn hiển thị + dùng cho scanner-wedge (`BarcodeScanner.vue` / `get_barcode_lookup`) — KHÔNG xoá khỏi UI.
 
 ---
 

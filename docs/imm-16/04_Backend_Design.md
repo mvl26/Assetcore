@@ -57,6 +57,7 @@ Existing fields: `naming_series`, `asset` (Link AC Asset), `severity` (Minor/Maj
 | 3 | `imm_risk_level` | Select | `\nLow\nMedium\nHigh\nCritical` | — | LIVE trong JSON |
 | 4 | `imm_compliance_finding_ref` | Link | `IMM Compliance Finding` | — | LIVE trong JSON |
 | 5 | `imm_reopen_count` | Int | default 0, read_only | — | LIVE trong JSON |
+| 6 | `escalation_level` | Int | default 0, read_only | — | **NEW Vòng 13 — cần `bench migrate`.** Mức leo thang cao nhất ĐÃ gửi cho CAPA này (0/1/2). Bút toán hệ thống của `_escalate_capa` → idempotency cron daily (INV-CAPA-ESC-3). Đặt sau section Verification, trước `notes`. `api/imm16.py` delegate verbatim → field tự lộ qua `get_capa`, KHÔNG cần sửa endpoint. |
 
 > **NOT in JSON**: `imm_correction_immediate`, `imm_action_plan` (Table), `imm_effectiveness_check_date`, `imm_change_control_ref`, `imm_audit_finding_ref`, `imm_rca_ref` — các fields này trong spec BA nhưng chưa được code hoá vào JSON. `advance_capa_state()` tham chiếu `doc.imm_action_plan` tại bước Implementation/Verification nhưng nếu field không có trong schema thì `getattr(doc, "imm_action_plan", None)` trả `None` và validation bị bypass.
 
@@ -473,6 +474,8 @@ scheduler_events = {
 
 > Khác biệt vs spec draft 0.3.0: DocType ràng buộc gate đổi từ generic `Work Order` → cụ thể `IMM PM Work Order` + `IMM CM Work Order` (AssetCore không dùng ERPNext core `Work Order`). Asset document hook bám DocType `AC Asset Document`. CAPA có thêm `before_submit` hook.
 
+> **Self-Correction round 12 (RC-CAPA-EFF) — cổng hiệu quả CAPA về 1 SoT (đồng bộ với IMM-00 04 §II.5.a).** Code thực thi `services/imm16.py:616` đã **drift** khỏi spec này: thêm điều kiện kép `status=='Closed' AND workflow_state=='Closed'` + inline 2 literal VR-06/VR-07 → mọi save-to-Closed không set `workflow_state='Closed'` lọt cổng, và độ chặt lặp ở 2 nơi (đây + `services/imm00.py::close_capa` vốn KHÔNG gate). Hợp nhất: `capa_record_validate` fire cổng khi **`status=='Closed'` BẤT KỂ `workflow_state`**, và gọi predicate SoT DUY NHẤT `assert_capa_effectiveness_gate(doc)` (định nghĩa ở `services/imm00.py`) thay vì inline literal. `advance_capa_state` (VR-06/VR-07 đã đúng, raise `ServiceError('FIN-007', ...)`) KHÔNG đổi hành vi. Chi tiết predicate + 2 đường gọi (close_capa legacy + đường này): `docs/imm-00/04_Backend_Design.md §II.5.a`.
+
 ```python
 # services/imm16.py
 
@@ -485,11 +488,13 @@ def capa_record_validate(doc, method=None):
     if ws == "Action Plan":
         if not doc.due_date or getdate(doc.due_date) <= getdate(today()):
             frappe.throw(_("VR-12: Hạn hoàn thành phải sau hôm nay."))
-    if doc.status == "Closed":
-        if not doc.effectiveness_check:
-            frappe.throw(_("VR-06: Effectiveness check chưa hoàn tất."))
-        if doc.effectiveness_check != "Effective":
-            frappe.throw(_("VR-07: Không thể Close khi effectiveness chưa Effective."))
+    if doc.status == "Closed":            # round 12: BẤT KỂ workflow_state (bỏ điều kiện kép cũ)
+        from assetcore.services.imm00 import assert_capa_effectiveness_gate
+        from assetcore.services.shared import ServiceError
+        try:
+            assert_capa_effectiveness_gate(doc)   # SoT đơn VR-06/VR-07 (INVARIANT-1)
+        except ServiceError as e:
+            frappe.throw(e.message)               # controller semantics (ValidationError)
 
 def capa_record_on_update(doc, method=None):
     """Cascade Finding → Resolved khi CAPA Closed; re-open detection."""
@@ -600,11 +605,140 @@ File: `assetcore/services/imm16.py` (không phải `tasks.py` — tất cả sch
 
 > **Khác biệt vs spec cũ**: `run_compliance_evaluation_daily` KHÔNG tồn tại — thay bằng `evaluate_all_compliance_rules` (daily). `check_capa_due_imm16` → đổi tên thành `check_capa_due`. Không có `EscalationMatrix` class — escalation logic inline trong `_escalate_capa()` / `_send_capa_escalation()`.
 
-## VI.2. Escalation thực tế
+## VI.2. Escalation thực tế (Vòng 13 — Self-Correction RC-CAPA-ESC)
 
-Trong `_escalate_capa(capa)`:
-- `imm_risk_level = Critical` + overdue ≥ 1 ngày → Level 1 (email `responsible`)
-- `imm_risk_level IN (High, Critical)` + overdue ≥ 3 ngày → Level 2 (email `responsible` + tất cả `IMM Workshop Lead`)
+> ⚠️ **Self-Correction (BA Vòng 13).** Spec cũ ở mục này codify đúng 2 lỗi thiết kế gốc đang nằm trong code (`if/elif` + đọc `imm_risk_level` thô + recipient "IMM Workshop Lead" đã chết). Mục này ghi đè bằng thiết kế tiered độc lập + SoT severity + idempotency/audit. 4 invariant ràng buộc: **INV-CAPA-ESC-1..4** (bảng dưới). Recipient Level-2 = SoT `notify_roles.CAPA_ESCALATION_MANAGER` (= `Compliance Manager`) — KHÔNG còn "IMM Workshop Lead".
+
+### VI.2.0. Bốn lỗi thiết kế gốc (root cause)
+
+| Bug | Triệu chứng | Nguyên nhân |
+|---|---|---|
+| **RC-ESC-1 TIER** | CAPA `imm_risk_level=Critical` quá hạn ≥3 ngày KHÔNG BAO GIỜ lên manager | `if severity=='Critical' and >=1` luôn khớp branch-1 → `elif` Level-2 **chết** (Python if/elif: nhánh đầu khớp → bỏ qua nhánh sau). Critical chỉ bao giờ chạm Level-1. |
+| **RC-ESC-2 FIELD-SoT** | CAPA `severity=Critical` nhưng KHÔNG escalate | `_escalate_capa` đọc `imm_risk_level` (default rỗng/`Medium`) trong khi severity THẬT ở field `severity`. `create_capa` (imm00) CHỈ set `severity`; `create_capa_from_incident` (imm16) KHÔNG set `imm_risk_level`; `create_capa_from_finding` set `imm_risk_level="Medium"` mặc định kể cả CAPA Critical. → key escalation đọc nhầm trường rỗng → `or "Medium"` → không escalate. |
+| **RC-ESC-3 IDEMPOTENCY** | Cron daily **re-send** email tier cũ mỗi ngày khi CAPA còn quá hạn | Không lưu mức đã escalate → mỗi lần `check_capa_due` chạy lại gửi y nguyên. Vi phạm CLAUDE.md §5 "mọi action có record" (không audit từng lần). |
+| **RC-ESC-4 N+1/DEAD-SELECT** | 1 query thừa/CAPA + field `severity` select ra nhưng không dùng | `check_capa_due` select `severity` (dòng 538) nhưng `_escalate_capa` lại `db.get_value(imm_risk_level)` riêng (dòng 792). Hai field rời nhau, không truyền nhau. |
+
+### VI.2.1. SoT severity escalation — `_capa_escalation_severity(row)` (FIX RC-ESC-2)
+
+> **BA chốt SoT (quyết định cuối):** "mức rủi ro escalation" = **effective risk level** trong từ vựng tier `{Low, Medium, High, Critical}`. Lý do dùng từ vựng `imm_risk_level` (không phải `severity` Minor/Major/Critical): biên BVA (High=3d→Level-2) nói "High" — chỉ tồn tại trong `imm_risk_level`, KHÔNG có trong `severity`. → cần normalize cả 2 trường về 1 thang.
+
+Predicate thuần (không I/O), nhận **row đã select trong `check_capa_due`** (KHÔNG query lại — đồng thời fix RC-ESC-4):
+
+```python
+# services/imm16.py — module-level helper (mới)
+_ESC_RISK_VOCAB = ("Low", "Medium", "High", "Critical")  # thang tier escalation
+
+def _severity_to_risk(severity: str | None) -> str:
+    """Normalize field `severity` (Minor/Major/Critical) → thang risk tier.
+    Minor→Low, Major→High, Critical→Critical. Rỗng/lạ → '' (no signal)."""
+    return {"Minor": "Low", "Major": "High", "Critical": "Critical"}.get(
+        (severity or "").strip(), "")
+
+def _capa_escalation_severity(row: dict) -> str:
+    """SoT effective-risk cho escalation (FIX RC-ESC-2).
+    Ưu tiên imm_risk_level KHI nó là tín hiệu thật (High/Critical);
+    ngược lại (rỗng / default-noise 'Medium' / 'Low') fall back severity-normalized.
+    Trả 1 giá trị trong _ESC_RISK_VOCAB hoặc '' (không escalate)."""
+    risk = (row.get("imm_risk_level") or "").strip()
+    if risk in ("High", "Critical"):
+        return risk                       # imm_risk_level đã là tín hiệu rõ → tin
+    sev_risk = _severity_to_risk(row.get("severity"))
+    if sev_risk in ("High", "Critical"):
+        return sev_risk                   # severity THẬT vượt imm_risk_level default → dùng
+    # cả 2 đều ≤ Medium → trả mức cao hơn để minh bạch, nhưng vẫn KHÔNG escalate
+    return risk or sev_risk or "Medium"
+```
+
+**INV-CAPA-ESC-2 (FIELD-SoT):** với CAPA `severity='Critical'`, `_capa_escalation_severity` trả `'Critical'` **bất kể** `imm_risk_level` rỗng/`Medium`. → Critical-CAPA từ incident/finding escalate đúng mà không cần nâng `imm_risk_level` thủ công.
+
+### VI.2.2. Tier độc lập (FIX RC-ESC-1) — `_escalate_capa(capa)`
+
+`check_capa_due` truyền NGUYÊN row (đã có `severity` + thêm `imm_risk_level`, `escalation_level` vào field select — fix RC-ESC-4) vào `_escalate_capa`. Logic tier **độc lập** (KHÔNG if/elif loại trừ):
+
+```python
+def _escalate_capa(capa: dict) -> None:
+    overdue_days = (getdate(nowdate()) - getdate(capa["due_date"])).days
+    if overdue_days < 1:
+        return                                   # BVA: 0d → no escalate
+    risk = _capa_escalation_severity(capa)        # SoT (VI.2.1)
+    already = int(capa.get("escalation_level") or 0)  # tier đã gửi (FIX RC-ESC-3)
+
+    # Tính tier ĐÁNG LẼ phải đạt theo (risk × overdue) — ĐỘC LẬP, không elif
+    target = 0
+    if risk == "Critical":
+        if overdue_days >= 1:
+            target = max(target, 1)              # Critical ≥1d → Level-1
+        if overdue_days >= 3:
+            target = max(target, 2)              # Critical ≥3d → Level-2 (KÈM Level-1)
+    elif risk == "High":
+        if overdue_days >= 3:
+            target = max(target, 2)              # High ≥3d → Level-2 (BVA: High <3d no escalate)
+    # Medium/Low → target = 0 (KHÔNG escalate bất kỳ ngày — INV-CAPA-ESC liệt kê BVA)
+
+    # CHỈ gửi các tier MỚI (level > already) → idempotency (FIX RC-ESC-3)
+    for level in range(already + 1, target + 1):
+        _send_capa_escalation(capa, level=level)
+        _record_capa_escalation(capa, level=level)   # 1 audit record/tier (CLAUDE.md §5)
+    if target > already:
+        frappe.db.set_value("IMM CAPA Record", capa["name"],
+                            "escalation_level", target, update_modified=False)
+```
+
+> ⚠️ **Critical ≥3d lần ĐẦU** (`already=0`, `target=2`): vòng `range(1, 3)` → gửi CẢ Level-1 VÀ Level-2 trong 1 lần chạy (cả 2 đều "mới"). Đúng AC BUG-1 (count level=2 ≥ 1) + biên BVA (=3d đồng thời Level-1 nếu chưa từng).
+
+### VI.2.3. Idempotency + Audit (FIX RC-ESC-3) — field `escalation_level` + `_record_capa_escalation`
+
+**Schema-delta (cần `bench migrate`):** thêm field vào `IMM CAPA Record`:
+
+| fieldname | fieldtype | label | default | thuộc tính |
+|---|---|---|---|---|
+| `escalation_level` | Int | Mức leo thang | `0` | `read_only=1`, `in_list_view=0`, đặt sau section Verification / trước `notes`. Bút toán hệ thống — không cho user sửa tay. |
+
+`_record_capa_escalation(capa, level)` — best-effort, KHÔNG vỡ luồng nếu audit fail:
+
+```python
+def _record_capa_escalation(capa: dict, level: int) -> None:
+    """Ghi 1 IMM Audit Trail/tier escalation (CLAUDE.md §5 'mọi action có record')."""
+    try:
+        from assetcore.utils.lifecycle import log_audit_event
+        log_audit_event(
+            asset=capa.get("asset") or "",
+            event_type="CAPA",                  # option hợp lệ sẵn trên IMM Audit Trail
+            actor="Administrator",
+            ref_doctype="IMM CAPA Record", ref_name=capa["name"],
+            change_summary=_("CAPA {0} leo thang Level-{1} (quá hạn)").format(capa["name"], level),
+        )
+    except Exception:
+        frappe.log_error(frappe.get_traceback(),
+                         f"IMM-16 CAPA escalation audit failed: {capa.get('name')}")
+```
+
+**INV-CAPA-ESC-3 (IDEMPOTENCY):** chạy `check_capa_due` 2 lần liên tiếp **cùng ngày** → lần 2 `already == target` → vòng `range` rỗng → KHÔNG `_send_capa_escalation` thêm (mock `_safe_sendmail` call-count bất biến) + KHÔNG ghi audit trùng.
+
+> **`IMM16_ESCALATION_RETRY_HOURS`** (env, default 24 — đã có trong 08 §Config): cadence retry. Với cron daily mặc định, `escalation_level` đã chặn re-send trong-ngày; biến này dành cho cấu hình gửi-lại tier ĐÃ gửi sau N giờ nếu CAPA vẫn treo (roadmap — KHÔNG yêu cầu round này hiện thực reset-by-time; round này chỉ honor bằng cách KHÔNG re-send < retry window). Round 13 chốt: idempotency theo `escalation_level` là cơ chế chính; retry-by-time là tinh chỉnh cadence tương lai `[ROADMAP]`.
+
+### VI.2.4. Bảng tier + recipient (cập nhật — recipient Level-2 đổi SoT)
+
+| Effective risk | Overdue | Tier kích hoạt | Recipient |
+|---|---|---|---|
+| Critical | ≥ 1d, < 3d | Level-1 | `responsible` |
+| Critical | ≥ 3d (lần đầu) | Level-1 **+** Level-2 | `responsible` + `notify_roles.CAPA_ESCALATION_MANAGER` (= `Compliance Manager`) |
+| High | ≥ 3d | Level-2 | `responsible` + `CAPA_ESCALATION_MANAGER` |
+| High | < 3d | — (no escalate) | — |
+| Medium / Low | bất kỳ ngày | — (no escalate) | — |
+
+> Recipient Level-2 lấy qua `_get_role_emails(notify_roles.CAPA_ESCALATION_MANAGER)` (SoT R21 — KHÔNG raw SQL `tabHas Role`, KHÔNG literal "IMM Workshop Lead" như spec cũ).
+
+### VI.2.5. Invariants (test-anchor)
+
+| Invariant | Phát biểu | Test BVA |
+|---|---|---|
+| **INV-CAPA-ESC-1 (TIER)** | Critical ≥3d (`already=0`) → `_send_capa_escalation(level=2)` được gọi ≥1 (đồng thời level=1) | =0d no-call · =1d L1 only · =2d L1 only (chưa L2) · =3d L1+L2 |
+| **INV-CAPA-ESC-2 (FIELD-SoT)** | `severity='Critical'` ∧ `imm_risk_level` rỗng/`Medium` → vẫn escalate (effective risk='Critical') | severity-driven escalate |
+| **INV-CAPA-ESC-3 (IDEMPOTENCY+AUDIT)** | 2× `check_capa_due` cùng ngày → `_safe_sendmail` call-count bất biến lần 2; mỗi tier mới = đúng 1 audit record | 2-run mock spy |
+| **INV-CAPA-ESC-4 (NO N+1)** | `_escalate_capa` đọc `severity`/`imm_risk_level`/`escalation_level` TỪ row select sẵn — 0 `db.get_value` phụ/CAPA | spy db.get_value=0 |
+| **BVA-HIGH** | High =2d → no escalate; =3d → Level-2 | High boundary |
+| **BVA-LOWMED** | Medium/Low mọi ngày → KHÔNG escalate | negative |
 
 ---
 

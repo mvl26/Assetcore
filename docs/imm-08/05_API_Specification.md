@@ -154,15 +154,36 @@ export interface PMChecklistResult {
 
 export interface PMDashboardStats {
   kpis: {
-    compliance_rate_pct: number;
-    total_scheduled: number;
-    completed_on_time: number;
-    overdue: number;
-    avg_days_late: number;
+    // ── KHỐI THÁNG (scope = due_date ∈ [start_month, end_month] ∧ status != Cancelled) — đối-soát số học ──
+    total_scheduled: number;        // WO có due_date trong tháng VÀ không-Cancelled (mẫu của compliance — INV-PM-KPI-6)
+    completed_on_time: number;      // ⊆ total_scheduled, status==Completed ∧ !is_late (tử của compliance)
+    overdue_in_month: number;       // ⊆ total_scheduled, status==Overdue ∧ due_date trong tháng (KHÔNG gồm Cancelled)
+    pending_in_month: number;       // ⊆ total_scheduled, phần còn lại (chưa Completed-on-time, chưa Overdue); Cancelled KHÔNG rơi vào đây (INV-PM-KPI-6)
+    compliance_rate_pct: number | null;  // completed_on_time / total_scheduled; total_scheduled = WO không-Cancelled trong tháng; null khi total_scheduled==0 (FE hiện '—')
+    avg_days_late: number;          // trung bình ngày trễ của WO completed-late trong tháng
+    // ── KHỐI TOÀN HỆ THỐNG (scope = mọi thời gian) — KHÔNG đối-soát với khối tháng ──
+    overdue: number;                // = count_overdue_pm(), status==Overdue toàn thời gian (RC-10, GIỮ NGUYÊN)
   };
   trend_6months: Array<{ month: string; total: number; on_time: number; rate: number }>;
 }
 ```
+
+> **Population (vòng 25 — INV-PM-KPI-6):** khối tháng tính trên `scheduled` = WO `due_date ∈ tháng` **∧ `status != Cancelled`** — KHÔNG phải `len(wos)` thô. WO `Cancelled` (hủy chủ động, hết nghĩa vụ) bị LOẠI khỏi mẫu compliance + mọi bucket.
+>
+> **INV-PM-KPI-1 (đối-soát strip tháng):** trên cùng một payload, các field khối-tháng PHẢI hòa hợp số học:
+> `total_scheduled >= completed_on_time + overdue_in_month + pending_in_month` (đẳng thức khi KHÔNG có Completed-late; có Completed-late thì WO đó là phần dôi, đã trừ qua `completed_in_month`).
+> Hệ quả: `overdue_in_month <= total_scheduled` luôn đúng. `pending_in_month` được tính bằng phần dư (`total_scheduled − completed_in_month − overdue_in_month`, trong đó `completed_in_month` = TẤT CẢ Completed on-time+late) chứ KHÔNG đếm độc lập → bao trùm mọi status **không-Cancelled chưa-xong-chưa-overdue** còn lại (Open, In Progress, Pending–Device Busy, Halted–Major Failure). `Completed-late` KHÔNG vào `pending` (đã ở `completed_in_month`). `Cancelled` đã bị loại khỏi `total_scheduled` ⇒ KHÔNG rơi vào `pending_in_month`.
+>
+> **INV-PM-KPI-2 (overdue global bất biến — RC-10):** field `overdue` GIỮ NGUYÊN giá trị + ngữ nghĩa = `count_overdue_pm()` (status==Overdue toàn thời gian) — khớp launcher widget + drill `?overdue=1`. KHÔNG đổi tên, KHÔNG đổi nguồn.
+>
+> **INV-PM-KPI-3 (compliance population-consistent):** `compliance_rate_pct = round(completed_on_time / total_scheduled * 100, 1)` — CẢ tử & mẫu cùng phạm-vi-tháng VÀ cùng population không-Cancelled. Khi `total_scheduled == 0` → trả `null` (FE render '—'/N/A, KHÔNG 0% gây hiểu nhầm "không tuân thủ"). TUYỆT ĐỐI KHÔNG trộn mẫu tháng với `overdue` global.
+>
+> **INV-PM-KPI-6 (loại Cancelled khỏi mẫu — vòng 25):** WO `status==Cancelled` KHÔNG vào `total_scheduled`, KHÔNG vào tử/mẫu compliance, KHÔNG vào `pending_in_month`/`overdue_in_month`/`completed_on_time`. Hệ quả đo được:
+> - Tháng `{1 Completed-on-time, 1 Completed-late, 1 Overdue, 1 Cancelled}` → `total_scheduled==3` (KHÔNG 4), `compliance_rate_pct==round(1/3*100,1)==33.3` (cũ sai `1/4==25.0`), `completed_on_time==1`, `overdue_in_month==1`, `pending_in_month==0`.
+> - Tháng chỉ-Cancelled (vd 2 Cancelled, 0 khác) → `total_scheduled==0` ⇒ `compliance_rate_pct==null` (FE '—', KHÔNG `0.0`), `pending_in_month==0`, `overdue_in_month==0`.
+> - **No-regression:** tháng KHÔNG có Cancelled → mọi KPI GIỮ NGUYÊN như trước fix (Cancelled-free path bất biến: `scheduled == wos`).
+> - **`trend_6months[*].rate`** dùng CÙNG predicate loại-Cancelled (`t = số WO không-Cancelled trong tháng`) — KHÔNG lệch chuẩn so với tile compliance tháng hiện tại (1 SoT predicate).
+> - **OUT-of-scope:** `Halted–Major Failure` GIỮ counted (kết cục PM không-tuân-thủ thật). `count_overdue_pm()` global + `is_late` + shape/field-name KHÔNG đổi.
 
 ### Pagination convention
 
@@ -354,6 +375,8 @@ export interface PMDashboardStats {
 }
 ```
 
+> **`next_pm_date` (BR-08-03 — SoT contract).** Trường này = `compute_next_pm_date(wo.completion_date, sched_interval)` (services/imm08.py §4.2), kiểu **string** `YYYY-MM-DD`. Anchor LUÔN là `completion_date` của WO (KHÔNG `nowdate()`) → khi PM hoàn thành trễ/backdated, giá trị API trả về **bằng byte-for-byte** với `PM Schedule.next_due_date` đã persist, `AC Asset.next_pm_date`, và `PM Task Log.next_pm_date`. Khi `pm_interval_days` rỗng/0 → mặc định `+90` ngày (`PM_DEFAULT_INTERVAL_DAYS`). FE hiển thị **verbatim** field này, KHÔNG tự tính lại.
+
 **Response error:**
 
 ```jsonc
@@ -469,26 +492,96 @@ export interface PMDashboardStats {
 
 **Request:** `?year=2026&month=4`
 
-**Response success:**
+**Response success (tháng có WO due trong tháng — `total_scheduled` đã loại Cancelled):**
 
 ```jsonc
 {
   "success": true,
   "data": {
     "kpis": {
-      "compliance_rate_pct": 87.5,
-      "total_scheduled": 16,
-      "completed_on_time": 14,
-      "overdue": 2,
-      "avg_days_late": 3.5
+      "total_scheduled": 16,        // WO không-Cancelled trong tháng (INV-PM-KPI-6) — KHÔNG gồm WO đã hủy
+      "completed_on_time": 14,      // ⊆ 16
+      "overdue_in_month": 1,        // ⊆ 16 (status==Overdue ∧ due_date trong tháng)
+      "pending_in_month": 1,        // 16 − 14 − 1 (phần dư, đối-soát INV-PM-KPI-1)
+      "compliance_rate_pct": 87.5,  // 14/16
+      "avg_days_late": 3.5,
+      "overdue": 5                  // GLOBAL — count_overdue_pm() toàn thời gian (RC-10), ≠ overdue_in_month
     },
     "trend_6months": [
-      { "month": "2025-11", "total": 14, "on_time": 12, "rate": 85.7 },
+      { "month": "2025-11", "total": 14, "on_time": 12, "rate": 85.7 },  // total = WO không-Cancelled
       { "month": "2026-04", "total": 16, "on_time": 14, "rate": 87.5 }
     ]
   }
 }
 ```
+
+**Response success (INV-PM-KPI-6 — tháng có 1 WO Cancelled bị loại khỏi mẫu):**
+
+Dataset: tháng `{1 Completed on-time, 1 Completed late, 1 Overdue, 1 Cancelled}` (4 WO due trong tháng).
+
+```jsonc
+{
+  "success": true,
+  "data": {
+    "kpis": {
+      "total_scheduled": 3,         // 4 WO − 1 Cancelled = 3 (KHÔNG 4 — INV-PM-KPI-6)
+      "completed_on_time": 1,
+      "overdue_in_month": 1,
+      "pending_in_month": 0,        // 3 − 2 completed (on-time+late) − 1 overdue = 0
+      "compliance_rate_pct": 33.3,  // round(1/3*100,1) — cũ SAI 1/4=25.0
+      "avg_days_late": 5.0,         // ngày trễ của WO Completed-late (không đổi quy tắc)
+      "overdue": 5                  // GLOBAL — không phụ thuộc Cancelled
+    },
+    "trend_6months": [ /* rate tháng này = 33.3, t = 3 (không-Cancelled) */ ]
+  }
+}
+```
+
+> **Số học ví dụ trên:** `pending_in_month = total_scheduled − completed_in_month − overdue_in_month = 3 − 2 − 1 = 0` — `completed_in_month` trừ TẤT CẢ Completed (cả on-time lẫn late), nên WO `Completed-late` KHÔNG rơi vào `pending`. INV-PM-KPI-1 (`≥`): vế phải `= completed_on_time + overdue_in_month + pending_in_month = 1 + 1 + 0 = 2 ≤ total_scheduled = 3` (WO Completed-late là phần dôi). `Cancelled` ngoài mọi bucket. Khớp acceptance: `total_scheduled==3, compliance==33.3, completed_on_time==1, overdue_in_month==1, pending_in_month==0`.
+
+**Response success (INV-PM-KPI-6 — tháng CHỈ có Cancelled WO):**
+
+Dataset: tháng `{2 Cancelled, 0 khác}`.
+
+```jsonc
+{
+  "success": true,
+  "data": {
+    "kpis": {
+      "total_scheduled": 0,         // 2 Cancelled bị loại hết → 0 (KHÔNG 2)
+      "completed_on_time": 0,
+      "overdue_in_month": 0,
+      "pending_in_month": 0,        // Cancelled KHÔNG rơi vào pending
+      "compliance_rate_pct": null,  // total_scheduled==0 → null → FE '—' (KHÔNG 0.0 hiểu nhầm "không tuân thủ")
+      "avg_days_late": 0.0,
+      "overdue": 5
+    },
+    "trend_6months": [ /* ... */ ]
+  }
+}
+```
+
+**Response success (INV-PM-KPI-4 — phản ví dụ: tháng KHÔNG có WO due trong tháng nhưng 5 WO Overdue từ tháng trước):**
+
+```jsonc
+{
+  "success": true,
+  "data": {
+    "kpis": {
+      "total_scheduled": 0,
+      "completed_on_time": 0,
+      "overdue_in_month": 0,         // không WO nào due trong tháng → 0, KHÔNG = 5
+      "pending_in_month": 0,
+      "compliance_rate_pct": null,   // total==0 → null → FE hiện '—' (KHÔNG 0%)
+      "avg_days_late": 0.0,
+      "overdue": 5                   // global vẫn = 5 (Overdue từ tháng trước), drill ?overdue=1 ra đúng 5
+    },
+    "trend_6months": [ /* ... */ ]
+  }
+}
+```
+
+> FE PHẢI render 2 nhãn KHÁC NHAU: tile khối-tháng "Quá hạn trong tháng" = `overdue_in_month` (gắn "Phạm vi: tháng M/Y"); tile riêng "Quá hạn (toàn hệ thống)" = `overdue` (gắn "Toàn hệ thống") + là tile drill `?overdue=1`. KHÔNG để tile "Quá hạn: 5" đứng cạnh "Tổng lên lịch: 0" trong cùng strip không-đối-soát (root cause vòng 10).
 
 ---
 

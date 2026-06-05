@@ -12,15 +12,21 @@ import frappe
 from frappe.utils import add_days, add_months, nowdate
 
 from assetcore.services.imm06 import (
+    EXPIRY_WINDOW_DAYS,
     RECERT_LEAD_DAYS,
     CompetencyStatus,
     ProgramStatus,
     SessionStatus,
+    _expired_competency_filter,
+    _expiring_competency_filter,
     archive_old_competency,
+    auto_expire_competencies,
+    check_expiring_competencies,
     compute_competency_dates,
     compute_expiry_dates,
     compute_overall_results,
     enroll_participants,
+    get_dashboard_stats,
     get_expiring_competencies,
     list_competencies,
     list_user_competencies,
@@ -1121,6 +1127,319 @@ class TestSeedWriteSiteUsesSoT(unittest.TestCase):
                              f"expiry must = achieved+{validity}mo")
             self.assertEqual(dates["recertification_due_date"], add_days(expiry, -60),
                              f"recert must = expiry−60d for validity={validity}")
+
+
+# ─── BR-06-14 SoT — predicate LIVE "Sắp/Đã hết hạn" (Vòng 20) ────────────────
+#
+# Lỗi thiết kế gốc (count-vs-drill divergence): get_dashboard_stats đếm KPI
+# competencies.expiring/expired = frappe.db.count(workflow_state==Expiring/Expired)
+# (cờ thuần do scheduler stamp đúng mốc 60/30 + quá-hạn), trong khi drill
+# get_expiring_competencies(60) lọc LIVE theo expiry_date → tile lệch list, che
+# operator quá hạn còn gắn cờ Active (rủi ro NĐ98).
+#
+# FIX SoT: 2 helper _expiring_competency_filter() / _expired_competency_filter()
+# (date-derived, EXPIRY_WINDOW_DAYS=60) dùng CHUNG cho cả KPI count lẫn drill.
+# INVARIANT đo được: kpis.competencies.expiring == len(get_expiring_competencies(60)).
+
+def _seed_competency(*, state: str, expiry_offset_days: int) -> str:
+    """Seed 1 IMM User Competency với workflow_state + expiry_date kiểm soát chính xác.
+
+    Dùng db.set_value(update_modified=False) cho workflow_state (Link→Workflow State,
+    bypass workflow transition validation) + expiry_date để mô phỏng các cảnh huống
+    scheduler-miss (Active-nhưng-quá-hạn, Active-45d-chưa-stamp-Expiring, biên cửa sổ).
+
+    Args:
+        state: CompetencyStatus.{ACTIVE,EXPIRING,EXPIRED,SUSPENDED,REVOKED}.
+        expiry_offset_days: offset so với today (âm = đã hết hạn).
+
+    Returns:
+        name (autoname COMP-YYYY-#####).
+    """
+    model_name = _ensure_test_model()
+    program_name = _ensure_test_program()
+    expiry = add_days(nowdate(), expiry_offset_days)
+    doc = frappe.get_doc({
+        "doctype": "IMM User Competency",
+        "user": "Administrator",
+        "device_model": model_name,
+        "training_program": program_name,
+        "workflow_state": CompetencyStatus.PENDING,
+        "achieved_date": add_days(expiry, -730),
+        "validity_months": 24,
+        "competency_level": "Operator",
+    })
+    doc.flags.ignore_mandatory = True
+    doc.flags.ignore_links = True
+    doc.insert(ignore_permissions=True)
+    # Đặt state + expiry trực tiếp (mô phỏng trạng thái runtime sau scheduler/legacy).
+    frappe.db.set_value("IMM User Competency", doc.name,
+                        {"workflow_state": state, "expiry_date": str(expiry)},
+                        update_modified=False)
+    return doc.name
+
+
+class TestExpiryPredicateSoT(unittest.TestCase):
+    """BR-06-14: KPI 'Sắp/Đã hết hạn' và drill cùng 1 predicate LIVE (date-derived).
+
+    Mỗi test seed dữ liệu cô lập trong setUp, purge trong tearDown (IMM User
+    Competency có on_trash guard → raw-SQL purge). KPI/drill chỉ đếm các record
+    vừa seed bằng cách lọc theo tập name đã tạo trong test.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        # Cô lập tuyệt đối: dọn mọi competency Active/Expiring/Expired còn sót lại
+        # của model test để KPI baseline không bị nhiễm bởi test khác trong module.
+        _purge_test_competencies()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self._created: list[str] = []
+
+    def tearDown(self):
+        if self._created:
+            # Alert Log do check_expiring_competencies (TC-06-EXP-06) sinh ra → purge trước.
+            frappe.db.delete(
+                "IMM Competency Alert Log", {"competency": ["in", self._created]})
+            frappe.db.delete("IMM User Competency", {"name": ["in", self._created]})
+            frappe.db.delete(
+                "IMM Audit Trail",
+                {"ref_doctype": "IMM User Competency", "ref_name": ["in", self._created]},
+            )
+            frappe.db.commit()
+
+    def _seed(self, *, state: str, expiry_offset_days: int) -> str:
+        name = _seed_competency(state=state, expiry_offset_days=expiry_offset_days)
+        self._created.append(name)
+        return name
+
+    def _kpi(self) -> dict:
+        return get_dashboard_stats()["competencies"]
+
+    def _expiring_count_seeded(self) -> int:
+        """COUNT theo SoT _expiring_competency_filter NHƯNG giới hạn vào tập seed
+        (tránh nhiễu bởi data thật/khác test cùng DB)."""
+        f = dict(_expiring_competency_filter())
+        f["name"] = ["in", self._created]
+        return frappe.db.count("IMM User Competency", f)
+
+    def _expired_count_seeded(self) -> int:
+        f = dict(_expired_competency_filter())
+        f["name"] = ["in", self._created]
+        return frappe.db.count("IMM User Competency", f)
+
+    def _drill_seeded(self) -> list:
+        return [r for r in get_expiring_competencies(EXPIRY_WINDOW_DAYS)
+                if r["name"] in self._created]
+
+    # ── TC-06-EXP-01 — RED-prove BUG CHÍNH: Active 45d → card phải == drill ──
+    def test_exp01_active_45d_counted_and_in_drill(self):
+        """Active expiry=today+45 (scheduler CHƯA stamp Expiring vì chưa trúng mốc
+        60/30). Trên code CŨ (db.count workflow_state==Expiring) → card=0 nhưng
+        drill có → card != drill (RED). Sau fix SoT: card == drill == 1 (GREEN)."""
+        self._seed(state=CompetencyStatus.ACTIVE, expiry_offset_days=45)
+        drill = self._drill_seeded()
+        self.assertEqual(len(drill), 1,
+                         "Active 45d PHẢI nằm trong drill get_expiring_competencies(60)")
+        self.assertEqual(self._expiring_count_seeded(), 1,
+                         "Active 45d PHẢI đếm vào 'Sắp hết hạn' (SoT live, không cờ thuần)")
+        # INVARIANT card == drill trên tập seed này.
+        self.assertEqual(self._expiring_count_seeded(), len(drill),
+                         "INVARIANT card == drill bị vi phạm (count-vs-drill divergence)")
+
+    # ── TC-06-EXP-02 — INVARIANT card==drill trên tập hỗn hợp ──
+    def test_exp02_invariant_card_equals_drill_mixed(self):
+        """Tập hỗn hợp (Active 45d, Expiring 20d, Active 90d ngoài cửa sổ, Revoked 10d)
+        → expiring count == len(drill); Active-90d và Revoked KHÔNG đếm."""
+        self._seed(state=CompetencyStatus.ACTIVE, expiry_offset_days=45)
+        self._seed(state=CompetencyStatus.EXPIRING, expiry_offset_days=20)
+        self._seed(state=CompetencyStatus.ACTIVE, expiry_offset_days=90)   # ngoài cửa sổ
+        self._seed(state=CompetencyStatus.REVOKED, expiry_offset_days=10)  # bị loại
+        drill = self._drill_seeded()
+        count = self._expiring_count_seeded()
+        self.assertEqual(count, 2,
+                         "Chỉ Active-45d + Expiring-20d nằm trong cửa sổ [today, today+60]")
+        self.assertEqual(count, len(drill),
+                         "INVARIANT card == drill (đo được trên tập hỗn hợp)")
+        drill_names = {r["name"] for r in drill}
+        self.assertEqual(len(drill_names), 2)
+
+    # ── TC-06-EXP-03 — no-undercount stale-Active expired (cửa-sổ-trễ-scheduler) ──
+    def test_exp03_stale_active_past_counted_as_expired(self):
+        """Active expiry=today-5 (scheduler lỡ auto_expire) + Expired expiry=today-30
+        → expired đếm = 2 (live), KHÔNG undercount stale-Active về 0."""
+        self._seed(state=CompetencyStatus.ACTIVE, expiry_offset_days=-5)   # scheduler lỡ phiên
+        self._seed(state=CompetencyStatus.EXPIRED, expiry_offset_days=-30)
+        self.assertEqual(self._expired_count_seeded(), 2,
+                         "Cả Active-quá-hạn (stale) lẫn Expired đều phải đếm 'Đã hết hạn'")
+        # stale-Active expired KHÔNG bị tính nhầm vào 'Sắp hết hạn'.
+        self.assertEqual(self._expiring_count_seeded(), 0,
+                         "expiry_date < today KHÔNG vào 'Sắp hết hạn'")
+
+    # ── TC-06-EXP-04 — loại Revoked/Suspended ──
+    def test_exp04_revoked_suspended_never_counted(self):
+        """Revoked expiry=today-2 + Suspended expiry=today+10 → KHÔNG đếm vào
+        expired/expiring (assert 0 contribution cả 2 phía)."""
+        self._seed(state=CompetencyStatus.REVOKED, expiry_offset_days=-2)
+        self._seed(state=CompetencyStatus.SUSPENDED, expiry_offset_days=10)
+        self.assertEqual(self._expired_count_seeded(), 0,
+                         "Revoked quá hạn KHÔNG được đếm 'Đã hết hạn'")
+        self.assertEqual(self._expiring_count_seeded(), 0,
+                         "Suspended trong cửa sổ KHÔNG được đếm 'Sắp hết hạn'")
+        self.assertEqual(len(self._drill_seeded()), 0,
+                         "Revoked/Suspended KHÔNG xuất hiện trong drill")
+
+    # ── TC-06-EXP-05 — biên cửa sổ (inclusive low/high, exclusive ngoài) ──
+    def test_exp05_window_boundaries(self):
+        """expiry==today → 'Sắp hết hạn' (inclusive low); expiry==today+60 → inclusive
+        high; expiry==today+61 → KHÔNG; expiry==today-1 → 'Đã hết hạn' KHÔNG 'Sắp'."""
+        n_today = self._seed(state=CompetencyStatus.ACTIVE, expiry_offset_days=0)
+        n_high = self._seed(state=CompetencyStatus.ACTIVE, expiry_offset_days=EXPIRY_WINDOW_DAYS)
+        self._seed(state=CompetencyStatus.ACTIVE, expiry_offset_days=EXPIRY_WINDOW_DAYS + 1)
+        n_past = self._seed(state=CompetencyStatus.ACTIVE, expiry_offset_days=-1)
+        drill_names = {r["name"] for r in self._drill_seeded()}
+        # today + today+60 vào cửa sổ; today+61 ngoài; today-1 đã hết hạn (không 'Sắp').
+        self.assertIn(n_today, drill_names, "expiry==today PHẢI vào 'Sắp hết hạn' (inclusive low)")
+        self.assertIn(n_high, drill_names, "expiry==today+60 PHẢI vào (inclusive high)")
+        self.assertEqual(self._expiring_count_seeded(), 2,
+                         "Chỉ today + today+60 trong cửa sổ; today+61 và today-1 bị loại")
+        self.assertNotIn(n_past, drill_names, "expiry==today-1 KHÔNG vào 'Sắp hết hạn'")
+        # today-1 thuộc 'Đã hết hạn'.
+        f = dict(_expired_competency_filter())
+        f["name"] = ["=", n_past]
+        self.assertEqual(frappe.db.count("IMM User Competency", f), 1,
+                         "expiry==today-1 PHẢI thuộc 'Đã hết hạn'")
+
+    # ── TC-06-EXP-06 — scheduler-behavior-invariant ──
+    def test_exp06_scheduler_invariant_kpi_idempotent(self):
+        """Chạy check_expiring_competencies + auto_expire_competencies SAU seed →
+        workflow_state vẫn được stamp như cũ, NHƯNG KPI live KHÔNG đổi giá trị
+        trước/sau scheduler (SoT date-derived idempotent với việc stamp cờ)."""
+        # Active đúng mốc 30 ngày → check_expiring_competencies sẽ stamp Expiring.
+        n_30 = self._seed(state=CompetencyStatus.ACTIVE, expiry_offset_days=30)
+        # Active quá hạn → auto_expire_competencies sẽ stamp Expired.
+        n_past = self._seed(state=CompetencyStatus.ACTIVE, expiry_offset_days=-3)
+        expiring_before = self._expiring_count_seeded()
+        expired_before = self._expired_count_seeded()
+        # Chạy scheduler (vẫn stamp workflow_state — hành vi BẤT BIẾN).
+        check_expiring_competencies()
+        auto_expire_competencies()
+        frappe.db.commit()
+        # Cờ workflow_state ĐÃ được stamp (scheduler hoạt động như cũ).
+        self.assertEqual(
+            frappe.db.get_value("IMM User Competency", n_30, "workflow_state"),
+            CompetencyStatus.EXPIRING, "check_expiring_competencies PHẢI stamp Expiring tại mốc 30")
+        self.assertEqual(
+            frappe.db.get_value("IMM User Competency", n_past, "workflow_state"),
+            CompetencyStatus.EXPIRED, "auto_expire_competencies PHẢI stamp Expired khi quá hạn")
+        # KPI live KHÔNG đổi (idempotent: count theo date, không theo cờ).
+        self.assertEqual(self._expiring_count_seeded(), expiring_before,
+                         "KPI 'Sắp hết hạn' PHẢI bất biến trước/sau scheduler (SoT date-derived)")
+        self.assertEqual(self._expired_count_seeded(), expired_before,
+                         "KPI 'Đã hết hạn' PHẢI bất biến trước/sau scheduler")
+
+    def test_exp06b_dashboard_no_pure_workflow_state_count(self):
+        """Verify get_dashboard_stats KHÔNG còn đếm expiring/expired theo cờ
+        workflow_state thuần (AST: call frappe.db.count với filter chứa
+        workflow_state==Expiring/Expired)."""
+        import ast
+        import inspect
+        src = inspect.getsource(get_dashboard_stats)
+        tree = ast.parse(src)
+        offenders = []
+        # Chỉ soi đối số filter của các call _count(...) / frappe.db.count(...) —
+        # tránh false-positive trên dict return lồng nhau.
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            fn = ast.unparse(node.func)
+            if fn not in ("_count", "frappe.db.count"):
+                continue
+            for arg in list(node.args) + [kw.value for kw in node.keywords]:
+                if not isinstance(arg, ast.Dict):
+                    continue
+                literal = ast.unparse(arg)
+                # Bắt cả dạng literal ("Expiring"/"Expired") lẫn enum-reference
+                # (CompetencyStatus.EXPIRING/EXPIRED) — KPI expiring/expired KHÔNG
+                # được đếm theo cờ workflow_state thuần (chỉ qua _expiring/_expired
+                # filter SoT). Cho phép workflow_state cho KPI active/pending/revoked.
+                if "workflow_state" in literal and (
+                    "Expiring" in literal or "Expired" in literal
+                    or "EXPIRING" in literal or "EXPIRED" in literal
+                ):
+                    offenders.append(literal)
+        self.assertEqual(
+            offenders, [],
+            "get_dashboard_stats KHÔNG được đếm expiring/expired theo cờ "
+            f"workflow_state thuần — tìm thấy: {offenders}")
+
+    # ── TC-06-EXP-07 — no N+1 / no-regression (INVARIANT full dashboard) ──
+    def test_exp07_dashboard_card_equals_drill_full(self):
+        """INVARIANT đầu-cuối: kpis.competencies.expiring (qua get_dashboard_stats)
+        == len(get_expiring_competencies(60)) trên TOÀN dataset (card == drill).
+        Đây là INVARIANT đo được của BR-06-14."""
+        self._seed(state=CompetencyStatus.ACTIVE, expiry_offset_days=45)
+        self._seed(state=CompetencyStatus.EXPIRING, expiry_offset_days=10)
+        self._seed(state=CompetencyStatus.ACTIVE, expiry_offset_days=200)  # ngoài cửa sổ
+        kpi_expiring = self._kpi()["expiring"]
+        drill_full = len(get_expiring_competencies(EXPIRY_WINDOW_DAYS))
+        self.assertEqual(kpi_expiring, drill_full,
+                         "INVARIANT card == drill trên toàn dataset (BR-06-14)")
+
+    def test_exp07b_count_helper_is_single_query(self):
+        """No N+1: KPI expiring/expired đi qua frappe.db.count (1 call/predicate),
+        KHÔNG loop per-row. Đếm số lần gọi frappe.db.count khi seed nhiều record:
+        số call cố định, KHÔNG scale theo số competency."""
+        from unittest.mock import patch
+
+        # Seed 3 record cùng vào cửa sổ → nếu N+1 thì call count sẽ tăng theo record.
+        self._seed(state=CompetencyStatus.ACTIVE, expiry_offset_days=30)
+        self._seed(state=CompetencyStatus.ACTIVE, expiry_offset_days=40)
+        self._seed(state=CompetencyStatus.ACTIVE, expiry_offset_days=50)
+
+        real_count = frappe.db.count
+        calls: list = []
+
+        def _counting(doctype, *args, **kwargs):
+            calls.append(doctype)
+            return real_count(doctype, *args, **kwargs)
+
+        with patch.object(frappe.db, "count", side_effect=_counting):
+            get_dashboard_stats()
+        comp_calls = [d for d in calls if d == "IMM User Competency"]
+        # 6 KPI competency-count cố định (total/pending/active/expiring/expired/revoked) —
+        # KHÔNG phụ thuộc số record seed (= no N+1, bounded per-predicate).
+        self.assertEqual(
+            len(comp_calls), 6,
+            "get_dashboard_stats phải gọi đúng 6 db.count cho IMM User Competency "
+            f"(per-predicate, no N+1) — thực tế {len(comp_calls)}")
+
+
+def _purge_test_competencies() -> None:
+    """Raw-SQL purge mọi competency của model/program test (on_trash chặn ORM)."""
+    names = frappe.db.sql_list(
+        "SELECT uc.name FROM `tabIMM User Competency` uc "
+        "LEFT JOIN `tabIMM Device Model` dm ON dm.name = uc.device_model "
+        "WHERE dm.model_name = %s OR uc.training_program IN ("
+        "  SELECT name FROM `tabIMM Training Program` WHERE program_code = %s)",
+        ("_Test Model IMM06", "_TEST-PROG-IMM06-SHARED"),
+    )
+    if names:
+        frappe.db.delete(
+            "IMM Competency Alert Log", {"competency": ["in", names]})
+        frappe.db.delete("IMM User Competency", {"name": ["in", names]})
+        frappe.db.delete(
+            "IMM Audit Trail",
+            {"ref_doctype": "IMM User Competency", "ref_name": ["in", names]})
+    # Quét sạch alert log mồ côi (competency đã purge ở phiên test trước).
+    orphan_alerts = frappe.db.sql_list(
+        "SELECT cal.name FROM `tabIMM Competency Alert Log` cal "
+        "LEFT JOIN `tabIMM User Competency` uc ON uc.name = cal.competency "
+        "WHERE uc.name IS NULL")
+    if orphan_alerts:
+        frappe.db.delete("IMM Competency Alert Log", {"name": ["in", orphan_alerts]})
+    frappe.db.commit()
 
 
 if __name__ == "__main__":

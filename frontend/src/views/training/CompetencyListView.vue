@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useImm06Store } from '@/stores/imm06'
 import { useApi } from '@/composables/useApi'
@@ -11,7 +11,9 @@ import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
+import { competencyEffectiveState, EXPIRY_WINDOW_DAYS } from './competencyStatus'
 
+const route = useRoute()
 const router = useRouter()
 const store = useImm06Store()
 const api = useApi()
@@ -24,6 +26,16 @@ const { competencies, competencyPagination, loading, error } = storeToRefs(store
 const filterState = ref('')
 const filterModel = ref('')
 const showFilters = ref(false)
+
+// Drill từ TrainingDashboard: query window = 'expiring' | 'expired'.
+// 'expiring' → dùng CHUNG predicate SoT với tile (get_expiring_competencies(60))
+// ⇒ INVARIANT card == drill. 'expired' → lọc list_competencies theo state Expired.
+const drillWindow = computed<string>(() => String(route.query.window ?? ''))
+const drillLabel = computed<string>(() => {
+  if (drillWindow.value === 'expiring') return `Sắp hết hạn (trong ${EXPIRY_WINDOW_DAYS} ngày)`
+  if (drillWindow.value === 'expired') return 'Đã hết hạn'
+  return ''
+})
 
 // Phải khớp chính xác BE CompetencyStatus (services/imm06.py)
 const WORKFLOW_STATES = [
@@ -67,10 +79,22 @@ function resetFilters() {
 }
 
 async function load(page = 1) {
+  // Drill 'expiring': dùng predicate SoT của tile (get_expiring_competencies(60))
+  // ⇒ số dòng list == giá trị tile (INVARIANT card == drill, BR-06-14).
+  if (drillWindow.value === 'expiring') {
+    await api.run(() => store.fetchExpiringCompetencies(EXPIRY_WINDOW_DAYS))
+    return
+  }
   const filters: Record<string, unknown> = {}
+  if (drillWindow.value === 'expired') filters.workflow_state = 'Expired'
   if (filterState.value) filters.workflow_state = filterState.value
   if (filterModel.value) filters.device_model = filterModel.value
   await api.run(() => store.fetchCompetencies(filters, page))
+}
+
+function clearDrill() {
+  router.replace({ path: '/imm06/competencies' })
+  load(1)
 }
 
 function levelLabel(v: string) {
@@ -142,7 +166,21 @@ onMounted(() => load())
       </div>
     </div>
 
+    <!-- Drill banner từ TrainingDashboard (window=expiring|expired) -->
+    <div
+      v-if="drillWindow"
+      class="card border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800 flex items-center gap-3"
+    >
+      <span class="flex-1">
+        Đang lọc theo: <strong>{{ drillLabel }}</strong>
+      </span>
+      <button class="text-xs underline hover:text-amber-900" @click="clearDrill">
+        Bỏ lọc
+      </button>
+    </div>
+
     <ListFilterBar
+      v-if="!drillWindow"
       :show="showFilters"
       :chips="activeChips"
       :show-search="false"
@@ -216,7 +254,7 @@ onMounted(() => load())
           >
             <div class="flex items-center justify-between mb-2">
               <span class="font-mono text-sm font-semibold text-brand-700">{{ c.name }}</span>
-              <StatusBadge :state="c.workflow_state" />
+              <StatusBadge :state="competencyEffectiveState(c.workflow_state, c.days_until_expiry)" />
             </div>
             <p class="text-sm font-medium text-slate-900 truncate">{{ c.user_full_name ?? c.user }}</p>
             <div class="flex flex-wrap gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
@@ -269,7 +307,7 @@ onMounted(() => load())
                   {{ formatDaysUntilExpiry(c.days_until_expiry) }}
                 </td>
                 <td class="table-cell">
-                  <StatusBadge :state="c.workflow_state" />
+                  <StatusBadge :state="competencyEffectiveState(c.workflow_state, c.days_until_expiry)" />
                 </td>
               </tr>
             </tbody>

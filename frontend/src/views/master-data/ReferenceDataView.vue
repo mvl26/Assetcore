@@ -6,7 +6,9 @@ import {
   listDepartments, getDepartment, createDepartment, updateDepartment, deleteDepartment,
   listAssetCategories, getAssetCategory, createAssetCategory, updateAssetCategory, deleteAssetCategory,
   bulkRegenerateScheduleByCategory,
+  type BulkRegenerateResult,
 } from '@/api/imm00'
+import BaseModal from '@/components/common/BaseModal.vue'
 import {
   previewRefImport, importRefData, buildErrorReport,
   getExportUrl, getTemplateUrl, initImportFolders,
@@ -179,21 +181,39 @@ async function save() {
   } catch (e: unknown) { err.value = e instanceof Error ? e.message : 'Lỗi lưu' }
 }
 
-async function applyToExistingAssets() {
+// Áp dụng luật khấu hao của Danh mục cho tất cả tài sản — KHÔNG dùng window.confirm
+// (skill rule WAVE2 pattern): mở BaseModal xác nhận, chỉ khi xác nhận mới gọi API.
+const applyConfirmOpen = ref(false)
+const applyRunning = ref(false)
+const applyResult = ref<BulkRegenerateResult | null>(null)
+
+function openApplyConfirm() {
   if (!editingName.value) return
-  const msg = `Áp dụng luật khấu hao cho tất cả tài sản thuộc "${editingName.value}"?\n\n` +
-              `Tài sản đã có kỳ khấu hao chạy sẽ được giữ nguyên (bảo vệ lịch sử).`
-  if (!confirm(msg)) return
+  applyConfirmOpen.value = true
+}
+
+async function confirmApplyToExistingAssets() {
+  if (!editingName.value) return
+  applyConfirmOpen.value = false
+  applyRunning.value = true
   try {
     const res = await bulkRegenerateScheduleByCategory(editingName.value)
+    applyResult.value = res
     toast.success(
-      `Đã regenerate ${res.regenerated} tài sản.\n` +
-      `Bỏ qua ${res.skipped_has_history} (đã có lịch sử).\n` +
-      `Lỗi: ${res.errors}.`,
+      `Kế thừa luật ${res.inherited} TS · Sinh lịch ${res.regenerated} TS · ` +
+      `Giữ lịch sử ${res.skipped_has_history} · Thiếu luật ${res.skipped_no_rule}` +
+      (res.errors ? ` · Lỗi ${res.errors}` : ''),
     )
   } catch (e: unknown) {
     err.value = e instanceof Error ? e.message : 'Lỗi áp dụng'
+    toast.error(err.value)
+  } finally {
+    applyRunning.value = false
   }
+}
+
+function closeApplyResult() {
+  applyResult.value = null
 }
 
 async function remove(name: string) {
@@ -767,10 +787,12 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
 
         <div v-if="tab === 'category' && editingName" class="pt-2">
           <button
-            class="w-full text-xs px-3 py-2 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors"
-            @click="applyToExistingAssets"
+            data-testid="apply-depr-btn"
+            class="w-full text-xs px-3 py-2 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors disabled:opacity-60"
+            :disabled="applyRunning"
+            @click="openApplyConfirm"
           >
-            🔄 Áp dụng luật khấu hao này cho tất cả tài sản thuộc danh mục
+            🔄 {{ applyRunning ? 'Đang áp dụng…' : 'Áp dụng luật khấu hao này cho tất cả tài sản thuộc danh mục' }}
           </button>
           <p class="text-[10px] text-gray-500 mt-1 text-center">
             Chỉ regenerate với tài sản chưa có kỳ nào đã chạy (bảo vệ lịch sử khấu hao)
@@ -1074,5 +1096,66 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
         </div>
       </div>
     </div>
+
+    <!-- Xác nhận áp dụng luật khấu hao cho danh mục (thay window.confirm) -->
+    <BaseModal
+      v-if="applyConfirmOpen"
+      title="Áp dụng luật khấu hao cho danh mục"
+      size="md"
+      @close="applyConfirmOpen = false"
+    >
+      <p class="text-sm text-gray-600" data-testid="apply-confirm-body">
+        Hệ thống sẽ kế thừa luật khấu hao của danh mục
+        <strong>"{{ editingName }}"</strong> cho những tài sản đang thiếu (số tháng /
+        phương pháp / giá trị thu hồi), rồi sinh lịch khấu hao còn thiếu.
+        <br />
+        Tài sản đã có kỳ chạy được giữ nguyên (bảo vệ lịch sử khấu hao); giá trị
+        bạn đã nhập tay sẽ KHÔNG bị ghi đè.
+      </p>
+      <template #footer>
+        <button class="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50"
+                data-testid="apply-cancel-btn"
+                @click="applyConfirmOpen = false">Huỷ</button>
+        <button class="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+                data-testid="apply-confirm-btn"
+                @click="confirmApplyToExistingAssets">Xác nhận áp dụng</button>
+      </template>
+    </BaseModal>
+
+    <!-- Kết quả áp dụng luật khấu hao -->
+    <BaseModal
+      v-if="applyResult"
+      title="Kết quả áp dụng khấu hao"
+      size="md"
+      @close="closeApplyResult"
+    >
+      <div class="grid grid-cols-2 gap-3">
+        <div class="rounded-lg border border-gray-200 p-3">
+          <p class="text-xs text-gray-500">Đã kế thừa luật</p>
+          <p class="text-xl font-bold text-emerald-600" data-testid="apply-result-inherited">{{ applyResult.inherited }}</p>
+        </div>
+        <div class="rounded-lg border border-gray-200 p-3">
+          <p class="text-xs text-gray-500">Sinh lịch khấu hao</p>
+          <p class="text-xl font-bold text-gray-900" data-testid="apply-result-regenerated">{{ applyResult.regenerated }}</p>
+        </div>
+        <div class="rounded-lg border border-gray-200 p-3">
+          <p class="text-xs text-gray-500">Bỏ qua — đã có lịch sử</p>
+          <p class="text-xl font-bold text-amber-600" data-testid="apply-result-skipped-history">{{ applyResult.skipped_has_history }}</p>
+        </div>
+        <div class="rounded-lg border border-gray-200 p-3">
+          <p class="text-xs text-gray-500">Bỏ qua — chưa có luật</p>
+          <p class="text-xl font-bold text-rose-500" data-testid="apply-result-skipped-no-rule">{{ applyResult.skipped_no_rule }}</p>
+        </div>
+        <div class="rounded-lg border border-gray-200 p-3 col-span-2">
+          <p class="text-xs text-gray-500">Lỗi</p>
+          <p class="text-xl font-bold text-rose-600" data-testid="apply-result-errors">{{ applyResult.errors }}</p>
+        </div>
+      </div>
+      <template #footer>
+        <button class="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+                data-testid="apply-result-close-btn"
+                @click="closeApplyResult">Đóng</button>
+      </template>
+    </BaseModal>
   </div>
 </template>

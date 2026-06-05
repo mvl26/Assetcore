@@ -1,0 +1,391 @@
+# Copyright (c) 2026, AssetCore Team
+"""IMM-14 — Decommission Closure Gate test suite (TDD — RED trước).
+
+Cổng "Hồ sơ giải nhiệm": KHÔNG asset nào chuyển sang lifecycle_status=
+'Decommissioned' nếu chưa tồn tại 1 'Asset Decommission' record docstatus=1
+(Approved) trỏ đúng asset đó.
+
+Run:
+  bench --site miyano run-tests --app assetcore \
+      --module assetcore.tests.test_imm14
+"""
+from __future__ import annotations
+
+import unittest
+
+import frappe
+
+from assetcore.tests._asset_cleanup import purge_asset
+from assetcore.services.shared import AssetStatus, ServiceError
+from assetcore.utils.messages import MSG
+
+_ASSET = "AC Asset"
+_DECOM = "Asset Decommission"
+_ALE = "Asset Lifecycle Event"
+_AUDIT = "IMM Audit Trail"
+_SCHED = "AC Asset Depreciation Schedule"
+
+
+def _insert_asset_bypass_workflow(data: dict):
+    """Insert AC Asset bỏ qua workflow guard (fixtures), cho phép lifecycle != Draft."""
+    prev = frappe.flags.in_install
+    frappe.flags.in_install = "frappe"
+    try:
+        doc = frappe.get_doc(data)
+        doc.flags.ignore_mandatory = True
+        doc.flags.ignore_links = True
+        return doc.insert(ignore_permissions=True)
+    finally:
+        frappe.flags.in_install = prev
+
+
+def setUpModule():
+    frappe.set_user("Administrator")
+
+
+class _BaseIMM14(unittest.TestCase):
+    """Base — quản lý danh sách asset tự dọn (no leak)."""
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self._assets: list[str] = []
+
+    def tearDown(self):
+        for name in self._assets:
+            try:
+                # Asset Decommission trỏ asset → purge_asset dọn trước qua dependents.
+                for d in frappe.get_all(_DECOM, filters={"asset": name}, pluck="name"):
+                    doc = frappe.get_doc(_DECOM, d)
+                    if doc.docstatus == 1:
+                        doc.cancel()
+                    frappe.delete_doc(_DECOM, d, force=True, ignore_permissions=True)
+                purge_asset(name)
+            except Exception:  # noqa: BLE001
+                pass
+        frappe.db.commit()
+
+    # ── fixtures ─────────────────────────────────────────────────────────────
+    def _make_asset(self, suffix: str, *, lifecycle: str = "Active",
+                    risk: str = "Medium", gross: float = 0.0) -> str:
+        data = {
+            "doctype": _ASSET,
+            "asset_name": f"_Test IMM14 {suffix}",
+            "lifecycle_status": lifecycle,
+            "risk_classification": risk,
+        }
+        if gross > 0:
+            data.update({
+                "gross_purchase_amount": gross,
+                "residual_value": 0,
+                "depreciation_method": "Straight Line",
+                "total_depreciation_months": 12,
+                "depreciation_frequency": "Monthly",
+                "depreciation_start_date": "2024-01-01",
+                "in_service_date": "2024-01-01",
+            })
+        doc = _insert_asset_bypass_workflow(data)
+        self._assets.append(doc.name)
+        # Commit fixture: rollback trong test (sau khi gate/NEG-09 raise) chỉ
+        # được undo transition, KHÔNG undo asset fixture (nếu chưa commit, asset
+        # bị rollback luôn → get_value trả None).
+        frappe.db.commit()
+        return doc.name
+
+    def _make_record(self, asset: str, *, disposal="Huỷ",
+                     reason="Thiết bị hết khấu hao, sửa chữa không kinh tế, đã có quyết định thanh lý.",
+                     sanitized=True, responsible="Administrator",
+                     note="") -> str:
+        from assetcore.services import imm14
+        res = imm14.create_decommission(
+            asset=asset, disposal_method=disposal,
+            decommission_reason=reason, patient_data_sanitized=sanitized,
+            responsible=responsible, sanitization_note=note,
+        )
+        frappe.db.commit()
+        return res["name"]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TC-1 — GATE chặn Decommissioned khi KHÔNG có closure record Approved
+# ─────────────────────────────────────────────────────────────────────────────
+class TestGateBlocksDecommissionWithoutRecord(_BaseIMM14):
+
+    def test_gate_blocks_decommission_without_record(self):
+        from assetcore.services.imm00 import (
+            transition_asset_status, InvalidAssetTransition,
+        )
+        asset = self._make_asset("gate-noclosure", lifecycle="Active")
+        before = frappe.db.get_value(_ASSET, asset, "lifecycle_status")
+        with self.assertRaises((InvalidAssetTransition, ServiceError)):
+            transition_asset_status(
+                asset, AssetStatus.DECOMMISSIONED, actor="Administrator",
+                reason="Cố thanh lý không qua hồ sơ",
+            )
+        frappe.db.rollback()
+        after = frappe.db.get_value(_ASSET, asset, "lifecycle_status")
+        # lifecycle_status BẤT BIẾN
+        self.assertEqual(after, before)
+        self.assertNotEqual(after, AssetStatus.DECOMMISSIONED)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TC-2 — patient_data_sanitized bắt buộc với risk C/D (High/Critical)
+# ─────────────────────────────────────────────────────────────────────────────
+class TestPatientDataRequiredForClassCD(_BaseIMM14):
+
+    def test_patient_data_required_for_class_C(self):
+        from assetcore.services import imm14
+        asset = self._make_asset("pdata-high", lifecycle="Active", risk="High")
+        rec = self._make_record(asset, sanitized=False)
+        with self.assertRaises(ServiceError) as ctx:
+            imm14.approve_decommission(rec)
+        self.assertEqual(ctx.exception.message_code, MSG.IMM14_PATIENT_DATA_REQUIRED)
+        # asset GIỮ NGUYÊN
+        frappe.db.rollback()
+        self.assertEqual(
+            frappe.db.get_value(_ASSET, asset, "lifecycle_status"), "Active")
+
+    def test_patient_data_required_for_class_D(self):
+        from assetcore.services import imm14
+        asset = self._make_asset("pdata-crit", lifecycle="Active", risk="Critical")
+        rec = self._make_record(asset, sanitized=False)
+        with self.assertRaises(ServiceError):
+            imm14.approve_decommission(rec)
+        frappe.db.rollback()
+        self.assertEqual(
+            frappe.db.get_value(_ASSET, asset, "lifecycle_status"), "Active")
+
+    def test_patient_data_not_required_for_class_A_B(self):
+        from assetcore.services import imm14
+        asset = self._make_asset("pdata-low", lifecycle="Active", risk="Low")
+        rec = self._make_record(asset, sanitized=False)
+        # risk Low → không bắt buộc, approve qua
+        imm14.approve_decommission(rec)
+        frappe.db.commit()
+        self.assertEqual(
+            frappe.db.get_value(_ASSET, asset, "lifecycle_status"),
+            AssetStatus.DECOMMISSIONED)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TC-3 — Approve flow: transition + ĐÚNG 1 ALE + ĐÚNG 1 audit + depreciation cancel
+# ─────────────────────────────────────────────────────────────────────────────
+class TestApproveFlowTransitionsAndAudits(_BaseIMM14):
+
+    def test_approve_flow_transitions_and_audits(self):
+        from assetcore.services import imm14, depreciation as depr
+        asset = self._make_asset("approve-flow", lifecycle="Active",
+                                 risk="Critical", gross=120_000_000)
+        # sinh lịch khấu hao Pending
+        depr.generate_schedule(asset, force=True)
+        frappe.db.commit()
+        pending_before = frappe.db.count(
+            _SCHED, {"parent": asset, "parenttype": _ASSET, "status": "Pending"})
+        self.assertGreater(pending_before, 0, "fixture phải có kỳ Pending")
+
+        ale_before = frappe.db.count(
+            _ALE, {"asset": asset, "event_type": "decommissioned"})
+        audit_before = frappe.db.count(
+            _AUDIT, {"asset": asset, "event_type": "State Change"})
+
+        rec = self._make_record(
+            asset, disposal="Bán/Trade-in", sanitized=True,
+            reason="Thiết bị hết khấu hao và không còn nhu cầu sử dụng lâm sàng.")
+        imm14.approve_decommission(rec)
+        frappe.db.commit()
+
+        # (1) asset Decommissioned
+        self.assertEqual(
+            frappe.db.get_value(_ASSET, asset, "lifecycle_status"),
+            AssetStatus.DECOMMISSIONED)
+        # docstatus=1
+        self.assertEqual(frappe.db.get_value(_DECOM, rec, "docstatus"), 1)
+        # decommissioned_on được set
+        self.assertTrue(frappe.db.get_value(_DECOM, rec, "decommissioned_on"))
+
+        # (a) ĐÚNG 1 ALE event_type='decommissioned' root_record=rec
+        ale_after = frappe.db.count(
+            _ALE, {"asset": asset, "event_type": "decommissioned"})
+        self.assertEqual(ale_after - ale_before, 1)
+        ale_root = frappe.db.get_value(
+            _ALE, {"asset": asset, "event_type": "decommissioned"},
+            "root_record", order_by="creation desc")
+        self.assertEqual(ale_root, rec)
+
+        # (b) ĐÚNG 1 IMM Audit Trail 'State Change' chứa disposal_method + patient_data.
+        # transition_asset_status ghi 1 audit 'State Change' (transition) +
+        # _record_depreciation_stopped ghi thêm 1 audit 'State Change' (dừng khấu
+        # hao, summary KHÁC — không chứa disposal_method). Acceptance (c) là audit
+        # transition: ĐÚNG 1 audit chứa disposal_method + dữ liệu bệnh nhân.
+        decom_audits = [
+            a for a in frappe.get_all(
+                _AUDIT, filters={"asset": asset, "event_type": "State Change"},
+                fields=["name", "change_summary"])
+            if a.change_summary and "Bán/Trade-in" in a.change_summary
+            and "dữ liệu bệnh nhân" in a.change_summary.lower()
+        ]
+        self.assertEqual(len(decom_audits), 1)
+
+        # (c) pending depreciation Cancelled
+        pending_after = frappe.db.count(
+            _SCHED, {"parent": asset, "parenttype": _ASSET, "status": "Pending"})
+        cancelled = frappe.db.count(
+            _SCHED, {"parent": asset, "parenttype": _ASSET, "status": "Cancelled"})
+        self.assertEqual(pending_after, 0)
+        self.assertEqual(cancelled, pending_before)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TC-4 — Idempotent + terminal
+# ─────────────────────────────────────────────────────────────────────────────
+class TestIdempotentAndTerminal(_BaseIMM14):
+
+    def test_terminal_blocks_second_record(self):
+        from assetcore.services import imm14
+        asset = self._make_asset("terminal", lifecycle="Active", risk="Low")
+        rec = self._make_record(asset, sanitized=True)
+        imm14.approve_decommission(rec)
+        frappe.db.commit()
+        self.assertEqual(
+            frappe.db.get_value(_ASSET, asset, "lifecycle_status"),
+            AssetStatus.DECOMMISSIONED)
+        # tạo record thứ 2 cho cùng asset đã Decommissioned → chặn
+        with self.assertRaises(ServiceError):
+            self._make_record(asset, sanitized=True)
+
+    def test_approve_twice_no_double_effect(self):
+        from assetcore.services import imm14
+        asset = self._make_asset("idemp", lifecycle="Active",
+                                 risk="Low", gross=120_000_000)
+        from assetcore.services import depreciation as depr
+        depr.generate_schedule(asset, force=True)
+        frappe.db.commit()
+        pending_before = frappe.db.count(
+            _SCHED, {"parent": asset, "parenttype": _ASSET, "status": "Pending"})
+
+        rec = self._make_record(asset, sanitized=True)
+        imm14.approve_decommission(rec)
+        frappe.db.commit()
+        ale_1 = frappe.db.count(
+            _ALE, {"asset": asset, "event_type": "decommissioned"})
+        cancelled_1 = frappe.db.count(
+            _SCHED, {"parent": asset, "parenttype": _ASSET, "status": "Cancelled"})
+
+        # approve lần 2 trên CÙNG record → no-op, no double event / no double cancel
+        imm14.approve_decommission(rec)
+        frappe.db.commit()
+        ale_2 = frappe.db.count(
+            _ALE, {"asset": asset, "event_type": "decommissioned"})
+        cancelled_2 = frappe.db.count(
+            _SCHED, {"parent": asset, "parenttype": _ASSET, "status": "Cancelled"})
+
+        self.assertEqual(ale_1, ale_2, "no double lifecycle event")
+        self.assertEqual(cancelled_1, cancelled_2, "no double depreciation cancel")
+        self.assertEqual(cancelled_1, pending_before)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TC-5 — NEG-09 vẫn chặn (gate mới KHÔNG bypass guard cũ)
+# ─────────────────────────────────────────────────────────────────────────────
+class TestNeg09StillBlocks(_BaseIMM14):
+
+    def test_neg09_still_blocks_with_approved_closure(self):
+        from assetcore.services import imm14
+        from assetcore.services.imm00 import InvalidAssetTransition
+        asset = self._make_asset("neg09", lifecycle="Under Repair", risk="Low")
+        rec = self._make_record(asset, sanitized=True)
+        # approve → on_submit gọi transition; NEG-09 chặn (Under Repair)
+        with self.assertRaises((InvalidAssetTransition, ServiceError)):
+            imm14.approve_decommission(rec)
+        frappe.db.rollback()
+        # lifecycle_status GIỮ NGUYÊN
+        self.assertEqual(
+            frappe.db.get_value(_ASSET, asset, "lifecycle_status"),
+            "Under Repair")
+        # record KHÔNG submit thành công
+        self.assertEqual(frappe.db.get_value(_DECOM, rec, "docstatus"), 0)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TC-IMM14-01 — RBAC đường THẬT: stale-safe deny (KHÔNG KeyError→500)
+# ─────────────────────────────────────────────────────────────────────────────
+class TestDecommissionRbacGate(_BaseIMM14):
+    """USER REWORK IMM-14 (2026-06-04): api.imm14 gate qua rbac.require(
+    'decommission.create'). User KHÔNG có DocPerm → PermissionError (403-style),
+    KHÔNG KeyError→500 (kể cả khi worker cũ thiếu cap trong RAM — rbac.can deny
+    thay vì raise). User CÓ DocPerm → tạo/duyệt thành công."""
+
+    def _mk_user(self, email: str, roles: list[str]) -> str:
+        if frappe.db.exists("User", email):
+            frappe.delete_doc("User", email, force=True, ignore_permissions=True)
+        u = frappe.get_doc({
+            "doctype": "User", "email": email,
+            "first_name": email.split("@")[0], "send_welcome_email": 0,
+            "user_type": "System User",
+        }).insert(ignore_permissions=True)
+        for r in roles:
+            u.append("roles", {"role": r})
+        u.flags.ignore_permissions = True
+        u.save()
+        frappe.db.commit()
+        from assetcore.services.shared import rbac as _rbac
+        _rbac.invalidate_capabilities(email)
+        self._extra_users = getattr(self, "_extra_users", [])
+        self._extra_users.append(email)
+        return email
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+        for email in getattr(self, "_extra_users", []):
+            try:
+                frappe.delete_doc("User", email, force=True, ignore_permissions=True)
+            except Exception:
+                pass
+        frappe.db.commit()
+        super().tearDown()
+
+    def test_create_decommission_no_docperm_denies_not_keyerror(self):
+        """No-DocPerm user gọi create_decommission → PermissionError (403),
+        TUYỆT ĐỐI KHÔNG KeyError (degrade an toàn, không 500)."""
+        from assetcore.api import imm14 as api14
+        asset = self._make_asset("rbac_deny", lifecycle="Active", risk="Low")
+        noperm = self._mk_user("_test_imm14_noperm@assetcore.test", ["PM User"])
+        try:
+            frappe.set_user(noperm)
+            with self.assertRaises(frappe.PermissionError):
+                api14.create_decommission(
+                    asset=asset, disposal_method="Huỷ",
+                    decommission_reason="Khong du quyen test — phai bi chan o BE.",
+                    patient_data_sanitized=1, responsible=noperm,
+                )
+        except KeyError:  # noqa: BLE001 — chính là regression bị cấm
+            self.fail("create_decommission raise KeyError → 500 (stale-unsafe). "
+                      "Phải là PermissionError 403.")
+        finally:
+            frappe.set_user("Administrator")
+
+    def test_create_decommission_with_docperm_succeeds(self):
+        """User CÓ DocPerm Asset Decommission (Commissioning Manager) → tạo
+        hồ sơ giải nhiệm thành công (no-regression đường thật)."""
+        from assetcore.api import imm14 as api14
+        asset = self._make_asset("rbac_ok", lifecycle="Active", risk="Low")
+        mgr = self._mk_user("_test_imm14_mgr@assetcore.test",
+                            ["Commissioning Manager"])
+        try:
+            frappe.set_user(mgr)
+            res = api14.create_decommission(
+                asset=asset, disposal_method="Huỷ",
+                decommission_reason="Thiet bi het khau hao, da co quyet dinh thanh ly.",
+                patient_data_sanitized=1, responsible=mgr,
+            )
+            frappe.db.commit()
+            data = res.get("data") if isinstance(res, dict) else res
+            name = data.get("name") if isinstance(data, dict) else None
+            self.assertTrue(name, f"phải tạo được DECOM record: {res}")
+            self.assertTrue(frappe.db.exists(_DECOM, name))
+        finally:
+            frappe.set_user("Administrator")
+
+
+if __name__ == "__main__":
+    unittest.main()

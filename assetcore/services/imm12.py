@@ -73,6 +73,92 @@ def open_incident_filter(extra: dict | None = None) -> dict:
         f.update(extra)
     return f
 
+
+# ─── SoT: SLA-breach LIVE predicate (BR-12-09 / BR-12-13) ───────────────────────
+# "Đang vi phạm SLA" = state user/QA hành động NGAY (NĐ98 Điều 67 cửa-sổ luật-định),
+# KHÔNG đợi scheduler hourly stamp cờ. Predicate SoT = (cờ-lịch-sử=1) OR (đang-mở ∧
+# quá-hạn-live). 2 cờ response_breached/resolution_breached chỉ do scheduler
+# check_incident_sla_breach() hoặc write-path acknowledge/resolve stamp → đếm cờ
+# thuần undercount cửa-sổ-trễ-scheduler (incident vừa quá hạn 1-59' chưa kịp quét).
+#
+# sla_breach_filter() định nghĩa DUY NHẤT nhánh LIVE-OVERDUE (tái dùng
+# open_incident_filter() → terminal Cancelled/Closed/Resolved loại tự nhiên,
+# INV-SLA-6). KHÔNG nhúng nhánh cờ=1 vào filter — sla_breach_count() ghép 2 nhánh
+# mutually-exclusive (cờ=1 vs cờ=0∧live) để né OR trong frappe.db.count + chống
+# double-count. Đây là điểm SoT duy nhất; KHÔNG re-implement predicate ở 2 chỗ.
+
+
+def sla_breach_filter(kind: str) -> dict:
+    """SoT predicate cho nhánh LIVE-OVERDUE của SLA breach (BR-12-09).
+
+    Trả filter dict: `open_incident_filter()` ∧ `<kind>_due_at < now()`
+    (+ kind=='response': `acknowledged_at` unset — chưa tiếp nhận). KHÔNG gồm nhánh
+    cờ=1 (đếm tách trong `sla_breach_count` để né OR trong frappe.db.count).
+    Terminal Cancelled/Closed/Resolved bị loại tự nhiên (không thuộc
+    INCIDENT_OPEN_STATES) → INV-SLA-6 (no phantom-count thiết bị đã đóng đúng hạn).
+    """
+    now = now_datetime()
+    if kind == "response":
+        return open_incident_filter({
+            "acknowledged_at": ("is", "not set"),
+            "response_due_at": ("<", now),
+        })
+    return open_incident_filter({
+        "resolution_due_at": ("<", now),
+    })
+
+
+def sla_breach_count(kind: str) -> int:
+    """SoT count cho KPI SLA-breach (BR-12-09) = (cờ=1) OR (đang-mở ∧ quá-hạn-live).
+
+    Cộng 2 nhánh mutually-exclusive → KHÔNG double-count:
+      A. cờ lịch sử `<kind>_breached == 1` (gồm cả terminal Closed/Resolved đã breach).
+      B. live-overdue ∧ cờ == 0 (`sla_breach_filter(kind)` ∧ `<flag> == 0`).
+    Idempotent vs scheduler (INV-SLA-4): trước stamp incident vào nhánh B (live, cờ=0);
+    sau stamp rơi vào nhánh A (cờ=1) → tổng KHÔNG đổi. `frappe.db.count` không hỗ trợ
+    OR top-level nên tách 2 count; 2 nhánh phân biệt theo giá trị cờ ⇒ không giao nhau.
+    """
+    flag = "response_breached" if kind == "response" else "resolution_breached"
+    flagged = frappe.db.count(_DT_INCIDENT, filters={flag: 1})
+    live_filter = dict(sla_breach_filter(kind))
+    live_filter[flag] = 0
+    live_unflagged = frappe.db.count(_DT_INCIDENT, filters=live_filter)
+    return flagged + live_unflagged
+
+
+def _row_is_breached(row: dict, kind: str, now=None) -> int:
+    """Derive live SLA-breach cho 1 row đã fetch (CÙNG predicate sla_breach_filter,
+    in-Python — KHÔNG query thêm per-row). Trả 0|1 cho FE badge.
+
+    = (cờ=1) OR (status ∈ open-set ∧ <kind>_due_at < now [∧ response: chưa ack]).
+    Terminal status → chỉ qua nhánh cờ=1 (INV-SLA-6). Cùng SoT với tile count.
+    """
+    flag_field = "response_breached" if kind == "response" else "resolution_breached"
+    if row.get(flag_field):
+        return 1
+    if row.get("status") not in INCIDENT_OPEN_STATES:
+        return 0  # terminal → KHÔNG live-overdue
+    if now is None:
+        now = now_datetime()
+    due_field = "response_due_at" if kind == "response" else "resolution_due_at"
+    due = row.get(due_field)
+    if not due or now <= frappe.utils.get_datetime(due):
+        return 0
+    if kind == "response" and row.get("acknowledged_at"):
+        return 0  # đã tiếp nhận → response không còn live-overdue
+    return 1
+
+
+def _enrich_sla_breach(rows: list, now=None) -> None:
+    """Gán `is_response_breached`/`is_resolution_breached` (0|1, derived LIVE) cho mỗi
+    row — badge FE đọc field derived thay cờ thô (INV-SLA-5: badge live == tile)."""
+    if now is None:
+        now = now_datetime()
+    for r in rows:
+        r["is_response_breached"] = _row_is_breached(r, "response", now)
+        r["is_resolution_breached"] = _row_is_breached(r, "resolution", now)
+
+
 _SEV_HIGH = "High"
 _SEV_CRITICAL = "Critical"
 _HIGH_SEVERITY = (_SEV_HIGH, _SEV_CRITICAL)
@@ -604,13 +690,16 @@ def list_incidents(
                 "reported_by", "reported_at", "description", "linked_capa", "linked_repair_wo",
                 "rca_required", "rca_record", "chronic_failure_flag", "patient_affected",
                 "closed_date", "assigned_to", "acknowledged_at", "resolved_at",
-                # BR-12-09: cờ vi phạm SLA để FE render badge "Vi phạm SLA" (list + dashboard).
-                "response_breached", "resolution_breached"],
+                # BR-12-09: cờ thô (giữ backward-compat) + due_at để derive LIVE badge.
+                "response_breached", "resolution_breached",
+                "response_due_at", "resolution_due_at"],
         order_by=_ORDER_REPORTED_AT,
         limit_start=offset,
         limit_page_length=page_size,
     )
     _enrich_asset_names(rows)
+    # BR-12-09 LIVE: badge đọc is_*_breached (derived) thay cờ thô → khớp tile (INV-SLA-5).
+    _enrich_sla_breach(rows)
     return {
         "pagination": {
             "total": total, "page": page, "page_size": page_size,
@@ -667,11 +756,17 @@ def get_incident_stats() -> dict:
         "critical_open": _count(open_incident_filter({"severity": _SEV_CRITICAL})),
         "high_open": _count(open_incident_filter({"severity": _SEV_HIGH})),
         "rca_pending": _count({"rca_required": 1, "rca_record": ("is", "not set")}),
-        "chronic": _count({"chronic_failure_flag": 1}),
-        # BR-12-09: số incident vi phạm SLA (cùng predicate cờ với badge ở list →
-        # dashboard count = số dòng có badge tương ứng, không divergence).
-        "sla_response_breached": _count({"response_breached": 1}),
-        "sla_resolution_breached": _count({"resolution_breached": 1}),
+        # BR-12-12: KPI 'chronic' = số NHÓM (asset, fault_code) chronic LIVE
+        # (rolling-window 90d, SoT chronic_failure_count == len(get_chronic_failures())).
+        # KHÔNG đếm cờ stale chronic_failure_flag (monotone, không giảm khi aged-out →
+        # divergence tile-vs-panel). Cờ giữ riêng cho badge per-row (lifecycle BR-12-03).
+        "chronic": chronic_failure_count(),
+        # BR-12-09 (LIVE SoT): số incident vi phạm SLA = sla_breach_count() =
+        # (cờ-lịch-sử=1) OR (đang-mở ∧ quá-hạn-live). KHÔNG đếm cờ thuần
+        # _count({..._breached:1}) — sẽ undercount cửa-sổ-trễ-scheduler (incident vừa
+        # quá hạn chưa kịp stamp). 1 SoT sla_breach_filter → badge per-row khớp tile.
+        "sla_response_breached": sla_breach_count("response"),
+        "sla_resolution_breached": sla_breach_count("resolution"),
     }
 
 
@@ -702,6 +797,21 @@ def get_chronic_failures() -> list:
     """, (cutoff, _CHRONIC_MIN_COUNT), as_dict=True)
 
 
+def chronic_failure_count() -> int:
+    """BR-12-12 SoT helper — số NHÓM (asset, fault_code) đang chronic LIVE.
+
+    Cùng predicate get_chronic_failures() (GROUP BY (asset, fault_code) HAVING
+    COUNT(*) >= _CHRONIC_MIN_COUNT trong cửa sổ rolling _CHRONIC_WINDOW_DAYS,
+    status != Cancelled, fault_code non-empty). Phái sinh TRỰC TIẾP từ
+    get_chronic_failures() — KHÔNG re-implement SQL (1 SoT, anti-drift).
+
+    Nguồn DUY NHẤT cho KPI tile 'chronic' (get_incident_stats) — KHÔNG đếm cờ
+    bền vững chronic_failure_flag (cờ là dấu lifecycle BR-12-03, monotone-stale,
+    không giảm khi cụm aged-out > 90 ngày → divergence tile-vs-panel nếu đếm cờ).
+    """
+    return len(get_chronic_failures())
+
+
 def get_dashboard() -> dict:
     stats = get_incident_stats()
     # SoT: dùng CHÍNH open_incident_filter() — KHÔNG tuple open-set cục bộ (chống
@@ -711,12 +821,15 @@ def get_dashboard() -> dict:
         _DT_INCIDENT,
         filters=open_incident_filter(),
         fields=["name", "asset", "severity", "status", "reported_at", "fault_code",
-                # BR-12-09: cờ SLA để dashboard "Sự cố đang xử lý" hiện badge.
-                "response_breached", "resolution_breached"],
+                # BR-12-09: cờ thô + acknowledged_at/due_at để derive LIVE badge.
+                "response_breached", "resolution_breached", "acknowledged_at",
+                "response_due_at", "resolution_due_at"],
         order_by=_ORDER_REPORTED_AT,
         limit_page_length=10,
     )
     _enrich_asset_names(recent)
+    # BR-12-09 LIVE: badge dashboard "Sự cố đang xử lý" đọc is_*_breached (INV-SLA-5).
+    _enrich_sla_breach(recent)
     rca_open = frappe.get_all(
         _DT_RCA,
         filters={"status": ["in", [_RCA_REQUIRED, _RCA_IN_PROGRESS]]},

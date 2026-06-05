@@ -228,6 +228,59 @@ def is_fully_depreciated(row: dict) -> bool:
 
 ---
 
+### §2.6 SoT predicate "Đã hết hạn" + marker `expiry_status` (BR-05-16 / INV-EXP-1)
+
+**Vấn đề (Self-Correction Vòng 19) — count-vs-drill divergence + dead-state:**
+- **Count** `get_dashboard_stats` (`services/imm05.py:342`): `expired_not_renewed = DocumentRepo.count({"expiry_date": ["<", nowdate()]})` — đếm MỌI doc quá hạn **kể cả Archived/Rejected** (over-count compliance; doc đã thu hồi/lưu trữ KHÔNG phải gap còn sống — NĐ98 Điều 41).
+- **Drill** FE `buildKpiFilter('expired')` + `buildExpiryFilter('expired')` (`documentFilters.ts:62,85`): emit `{workflow_state:'Expired'}`. NHƯNG `Expired` là **dead-state** — workflow `imm_05_document_workflow.json` không có transition nào `next_state=Expired` (scheduler chỉ set `is_expired=1`, không đổi `workflow_state`). → drill trả **0 dòng** ⇒ tile báo N nhưng list rỗng ⇒ **che giấu hồ sơ quá hạn còn hiệu lực**.
+
+**Fix — predicate DUY NHẤT, module-level (mirror BR-05-15):**
+
+```python
+# assetcore/services/imm05.py  (module-level, cạnh class DocState)
+
+def expired_filter(today: str | None = None) -> list[list]:
+    """SoT predicate "Đã hết hạn" — dùng CHUNG bởi count (stats) + drill (list).
+
+    BR-05-16: hồ sơ COMPLIANCE-GAP CÒN SỐNG ⇔
+        expiry_date IS NOT NULL  ∧  expiry_date < today
+        ∧  workflow_state NOT IN ('Archived','Rejected').
+    - Loại Archived/Rejected: đã thu hồi/lưu trữ ⇒ KHÔNG phải gap còn sống (NĐ98 Điều 41).
+    - Active/Draft/Pending Review quá hạn ĐẾM: thiết bị vận hành với giấy phép hết hạn PHẢI hiện.
+    - KHÔNG dùng workflow_state='Expired' (dead-state, không transition nào dẫn vào).
+    Trả **list-of-conditions** — dạng DUY NHẤT cho kết quả đồng nhất trên cả
+    frappe.db.count (count) và frappe.get_all (drill); xem cảnh báo NULL-guard.
+    """
+    return [
+        ["expiry_date", "is", "set"],                          # NULL-guard BẮT BUỘC
+        ["expiry_date", "<", today or nowdate()],
+        ["workflow_state", "not in", [DocState.ARCHIVED, DocState.REJECTED]],
+    ]
+```
+
+> **⚠ NULL-guard `["expiry_date","is","set"]` là BẮT BUỘC (LL-BE-EXP-1, Self-Correction sau khi implement):** `frappe.db.count` (query_builder) và `frappe.get_all` (DatabaseQuery) xử lý `["<", date]` với hàng `expiry_date=NULL` **KHÁC NHAU** — `db.count` loại NULL, còn `get_all` bọc `ifnull()` nên hàng NULL **lại khớp** `< today`. Nếu thiếu NULL-guard, count (db.count) ≠ drill (get_all) ngay khi tồn tại 1 doc NULL-expiry còn-sống → **tái lập đúng count-vs-drill divergence** mà BR-05-16 đang vá. Vì lý do này predicate phải dùng **list-of-conditions** (không phải dict) + NULL-guard tường minh, KHÔNG phải tuỳ chọn. (Đã chứng minh bằng probe: dict `{"expiry_date":["<",t]}` cho `db.count=0` nhưng `get_all=1 NULL-row`; list-form `[["expiry_date","is","set"],...]` cho `count=1==get_all=1`.)
+> **Vị trí:** module-level trong `services/imm05.py`. Public (no leading underscore) để test + (tương lai) report tái dùng.
+> **Gộp với filter khác:** khi `list_documents` nhận marker `expiry_status='expired'`, các filter dict còn lại (doc_category, asset_ref, visibility) được chuyển sang list-of-conditions qua `_dict_to_conditions()` rồi AND với `expired_filter()`.
+> **Cấm:** KHÔNG inline lại biểu thức này; KHÔNG còn literal `{"expiry_date": ["<", ...]}` trần (thiếu loại Archived/Rejected + thiếu NULL-guard) ở `get_dashboard_stats`; KHÔNG còn `{workflow_state:'Expired'}` ở bất kỳ filter builder FE nào (grep-guard).
+
+**`get_dashboard_stats`** (`:342`): thay `DocumentRepo.count({"expiry_date": ["<", nowdate()]})` bằng `DocumentRepo.count(expired_filter())`. Giá trị `expired_not_renewed` GIẢM đúng phần Archived/Rejected quá hạn (tightening đúng compliance — không phải hồi quy).
+
+**`list_documents`** nhận marker `expiry_status` trong `filters` (pop trước khi build Frappe filter):
+
+| Bước | Quy tắc |
+|---|---|
+| 1. Pop marker | `status = filters.pop("expiry_status", "")` — marker semantic, KHÔNG phải field DB. |
+| 2. Dịch | Nếu `status == "expired"` → `filters.update(expired_filter())` (merge AND với filter còn lại như `doc_category`, `asset_ref`). |
+| 3. Visibility | `_apply_visibility_filter` áp như cũ (sau bước 2). |
+| 4. Query | `DocumentRepo.list(filters, ...)` như cũ. |
+
+> **INV-EXP-1 (đo được):** `get_dashboard_stats().kpis.expired_not_renewed` == `list_documents({"expiry_status":"expired"}, page_size=<đủ lớn>)` → `len(items)` (hoặc `pagination.total`), chênh = 0 cho mọi tập dữ liệu test. Cả hai gọi `expired_filter()`.
+> **Counterexample test:** asset có 1 doc `workflow_state='Active'`, `expiry_date=today-5`, `is_expired=1` (cron set) → count đếm doc này (≥1) VÀ drill `{expiry_status:'expired'}` chứa đúng doc này. (Trước fix: drill `{workflow_state:'Expired'}` = 0 dòng.)
+
+**Không hồi quy:** predicate chỉ **đọc**; không ghi DB; không đụng workflow transition (chỉ GỠ phantom đã-khai-báo-nhầm khỏi doc + filter, code scheduler vốn đã không thực thi nó).
+
+---
+
 ## §3 — Workflow
 
 ### §3.1 Workflow states
@@ -239,7 +292,8 @@ def is_fully_depreciated(row: dict) -> bool:
 | Active | 1 | Success | — |
 | Rejected | 0 | Danger | — |
 | Archived | 2 | Default | ✓ (VR-05) |
-| Expired | 1 | Danger | ✓ (VR-05) |
+
+> **Không có state `Expired` (BR-05-16).** "Đã hết hạn" là **thuộc tính dẫn xuất** (cờ `is_expired` do `set_computed_fields` + predicate `expired_filter()` §2.6), KHÔNG phải workflow_state. Workflow JSON `imm_05_document_workflow.json` chỉ có 5 state trên + KHÔNG transition nào dẫn vào `Expired`. (State `Expired` đã bị loại khỏi vòng đời ở Vòng 19 — xem 02 §IV.3.)
 
 ### §3.2 Transition matrix
 
@@ -251,8 +305,9 @@ def is_fully_depreciated(row: dict) -> bool:
 | Gửi lại | Rejected | Pending Review | Biomed Engineer, CMMS Admin |
 | Lưu trữ | Active | Archived | CMMS Admin |
 | Hủy bỏ | Draft | Archived | CMMS Admin |
-| Auto: Expired | Active | Expired | Scheduler (milestone=0) |
 | Auto: Archived | Active | Archived | archive_old_versions (on new Active) |
+
+> **Đã gỡ transition phantom `Auto: Expired (Active→Expired)`** (Vòng 19): khai báo cũ KHÔNG có trong workflow JSON và scheduler KHÔNG thực thi (chỉ set `is_expired=1`). Hết hạn không đổi state — xem §2.6 + §7.2.
 
 ### §3.3 Controller hook pattern
 
@@ -281,8 +336,8 @@ class AssetDocument(Document):
         if self.workflow_state == "Active":
             self.archive_old_versions()
             self.update_asset_completeness()
-        if self.workflow_state in ("Expired", "Active"):
-            self.update_asset_completeness()
+        # BR-05-16: KHÔNG còn nhánh "Expired" (dead-state đã gỡ). Hết hạn không
+        # đổi workflow_state — completeness chỉ cần recompute khi state = Active.
 
     def on_trash(self):
         frappe.throw("Không được phép xóa tài liệu. Thay thế bằng lưu trữ.")
@@ -482,9 +537,11 @@ scheduler_events = {
 
 ### §7.2 `assetcore.services.imm05.check_document_expiry` — Daily
 
+> **BR-05-16 — scheduler KHÔNG đổi workflow_state.** Khi `expiry_date < today` job set cờ **derived** `is_expired=1` (đường code thực tế `services/imm05.py:82` đã làm vậy), KHÔNG `workflow_state="Expired"`. Doc quá hạn giữ nguyên state còn-sống (Active/...) và được KPI/drill "Đã hết hạn" bắt qua predicate `expired_filter()` (§2.6). Pseudocode dưới minh họa nhánh milestone; nhánh `milestone==0` chỉ set `is_expired=1`.
+
 ```python
 def check_document_expiry() -> None:
-    """Gửi alert expiry và set Expired cho tài liệu đến hạn.
+    """Gửi alert expiry và set cờ is_expired (derived) cho tài liệu đến hạn.
 
     Milestones: 90 ngày (Info), 60 ngày (Warning), 30 ngày (Critical), 0 ngày (Danger).
     Idempotent: bỏ qua nếu Expiry Alert Log đã tồn tại hôm nay cho cùng doc.
@@ -516,9 +573,8 @@ def check_document_expiry() -> None:
             }).insert(ignore_permissions=True)
 
             if milestone == 0:
-                doc = frappe.get_doc("Asset Document", name)
-                doc.workflow_state = "Expired"
-                doc.save(ignore_permissions=True)
+                # BR-05-16: chỉ set cờ derived — KHÔNG đổi workflow_state.
+                frappe.db.set_value("Asset Document", name, "is_expired", 1)
 ```
 
 ### §7.3 `update_asset_completeness` — Daily 01:00 *(Not yet implemented)*

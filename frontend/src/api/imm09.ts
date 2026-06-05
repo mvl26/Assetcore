@@ -11,7 +11,7 @@ export interface AssetRepair {
   risk_class: string
   department_name?: string
   location_name?: string
-  asset_info?: Record<string, unknown>
+  asset_info?: AssetInfo
   serial_no: string
   repair_type: 'Corrective' | 'Breakdown' | 'Warranty Repair'
   priority: 'Normal' | 'Urgent' | 'Emergency'
@@ -25,6 +25,27 @@ export interface AssetRepair {
   mttr_hours: number | null
   sla_target_hours: number | null
   sla_breached: boolean
+  /**
+   * BR-09-10 / INV-CM-HOLD — đồng hồ SLA/MTTR DỪNG khi WO nằm 'Pending Parts'
+   * (chờ phụ tùng hết kho — blocker cung ứng ngoài tầm đội sửa). BE là SoT:
+   * `repair_elapsed_hours = (until − open) − parts_hold_hours`. FE chỉ RENDER
+   * verbatim (KHÔNG tự tính lại): `mttr_hours` ở trên đã = elapsed-trừ-hold do BE chốt.
+   *
+   * `parts_hold_hours`   = tổng số giờ WO đã nằm Pending Parts (cộng dồn mọi chu kỳ hold).
+   * `parts_hold_started` = mốc VÀO Pending Parts của chu kỳ hold đang mở (null nếu không hold).
+   *
+   * Cả 2 read-only + optional (forward-compat: trước khi BE enrich → undefined,
+   * badge "Chờ phụ tùng — SLA tạm dừng" vẫn render vì gate theo `status`, KHÔNG vỡ).
+   */
+  parts_hold_hours?: number
+  parts_hold_started?: string | null
+  /**
+   * Live-truth vượt SLA (BR-09-07 LIVE) — BE `list_repair_work_orders` enrich
+   * per-row: `bool(sla_breached) || _row_is_live_overdue(open & vượt hạn & cờ chưa stamp)`.
+   * Badge/computed đọc `is_sla_breached ?? sla_breached` (live ưu tiên, fallback cờ thô —
+   * forward-compat: trước khi BE enrich, undefined → fallback cờ thô, KHÔNG vỡ). Optional.
+   */
+  is_sla_breached?: boolean
   is_repeat_failure: boolean
   incident_report: string | null
   source_pm_wo: string | null
@@ -37,6 +58,26 @@ export interface AssetRepair {
   total_parts_cost: number
   spare_parts_used: SparePartRow[]
   repair_checklist: RepairChecklistRow[]
+}
+
+/**
+ * Snapshot thông tin tài sản kèm trong detail (`get_repair_work_order` → `asset_info`).
+ * `lifecycle_status` = trạng thái vòng đời THỰC của AC Asset tại thời điểm fetch
+ * (SoT do nhiều process quản: repair / calibration-fail / incident / decommission).
+ * BR-09-09 / INV-09-RESTORE-1: sau khi đóng WO, `complete_repair` CHỈ đưa asset về
+ * 'Active' khi trước đó là 'Under Repair' — nếu asset đang giữ hold governance khác
+ * (vd 'Out of Service' do calib-fail/CAPA) thì WO=Completed NHƯNG asset KHÔNG về Active.
+ * → FE PHẢI bind badge/banner theo giá trị THỰC này, KHÔNG hardcode 'Active'.
+ */
+export interface AssetInfo {
+  asset_name?: string
+  asset_category?: string
+  lifecycle_status?: string
+  risk_classification?: string
+  manufacturer_sn?: string
+  department?: string
+  location?: string
+  [key: string]: unknown
 }
 
 export interface SparePartRow {

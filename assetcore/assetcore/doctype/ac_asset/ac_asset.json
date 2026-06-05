@@ -46,6 +46,7 @@
   "column_break_htm",
   "manufacturer_sn",
   "udi_code",
+  "qr_token",
   "gmdn_code",
   "section_byt",
   "byt_reg_no",
@@ -302,6 +303,17 @@
    "fieldtype": "Data",
    "label": "UDI Code",
    "search_index": 1
+  },
+  {
+   "description": "Khóa tra cứu mờ cho QR cấp tài sản (enumeration-safe, sinh tự động, bất biến). Không phải định danh nghiệp vụ.",
+   "fieldname": "qr_token",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Mã QR (token)",
+   "length": 32,
+   "no_copy": 1,
+   "read_only": 1,
+   "unique": 1
   },
   {
    "fetch_from": "device_model.gmdn_code",

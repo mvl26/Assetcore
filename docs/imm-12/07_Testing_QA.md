@@ -187,6 +187,7 @@ CLAUDE.md §17 (TDD mandatory).
 | `TestRCAToCAPAAndIncidentChain` | `on_rca_completed()` / `_advance_incident_after_rca()` / `submit_rca()` | Use Case + Path coverage | 5 (test_rca_completed_creates_capa_and_advances_incident, test_capa_chain_idempotent_when_capa_exists / test_rca_no_incident_link_skips_silently, test_rca_invalid_incident_skips_silently, test_advance_skipped_when_not_in_rca_required) | ✅ Live |
 | `TestCloseGate` (đề xuất) | `validate_incident_close_gate()` BR-12-02 | Decision Table | High + RCA Completed→pass / High + RCA In Progress→raise | ⬜ Planned |
 | `TestChronicDetect` (đề xuất) | `detect_chronic_failures()` BR-12-03 | BVA + idempotency | 3 IR/90d→RCA / 2 IR→no RCA / RCA mở sẵn→no dup | ⬜ Planned |
+| `TestChronicSoT` (đề xuất) | `chronic_failure_count()` / `get_incident_stats().chronic` BR-12-12 | SoT consolidation + RED-prove | (1) `stats.chronic == len(get_chronic_failures())` (cùng SoT); (2) **RED-prove lifecycle**: 3+ IR aged-out >90d (cờ `chronic_failure_flag=1` còn) ∧ 0 nhóm live ⇒ `stats.chronic == 0` (revert SoT→`_count(chronic_failure_flag=1)` ⇒ FAIL); (3) **invariant 1 payload**: `get_dashboard()` → `stats.chronic == len(dashboard["chronic_failures"])` (data ≤5 nhóm) hoặc == `len(get_chronic_failures())` FULL (data >5); (4) no-regression: badge cờ vẫn set bởi `_process_chronic_group` khi cụm live (BR-12-03 KHÔNG đổi); (5) grep-guard: 0 inline `chronic_failure_flag` cho KPI tile trong `get_incident_stats()` | ⬜ Planned |
 | `TestCriticalOOS` (đề xuất) | `report_incident()` BR-12-04 | Decision Table | Critical→asset OOS / asset đã OOS→skip+audit | ⬜ Planned |
 | `TestMapSeverity` (đề xuất) | `_map_severity()` / `_needs_rca()` | EP | Low/Medium→no RCA, High/Critical→RCA | ⬜ Planned |
 
@@ -348,6 +349,21 @@ Mọi US trong 02 §IV.1 có ≥ 1 dòng. Cột Status không trống.
 | BR-12-08 | SLA breach tracking (set cờ + due-time từ policy) | `test_sla_breach_flags_overdue_incident` | BVA | ⬜ 1 / 1 Planned |
 | BR-12-09 | Breach 0→1 → bắn ĐÚNG 1 notification (in-app+email) + idempotent + audit escalated | `TC-12-SLA-ESC-01..05` (xem dưới) | State transition + EP | ⬜ Planned |
 | BR-12-10 | Critical/High breach → thêm QA Officer + Ops Manager (NĐ98 gate) | `TC-12-SLA-ESC-NĐ98` | Decision Table | ⬜ Planned |
+| BR-12-13 | KPI "Vi phạm SLA tiếp nhận/xử lý" = LIVE predicate `sla_breach_filter(kind)` (cờ=1 OR đang-mở∧quá-hạn); kill undercount cửa-sổ-trễ-scheduler; per-row enrich `is_*_breached`; idempotent; grep-guard 1 SoT | `TC-12-SLA-LIVE-01..06` (xem dưới) + FE `slaBreachLiveTile.test.ts` | BVA + State transition + EP | ⬜ Planned (DoD vòng 4) |
+
+**TC-12-SLA-LIVE-* (BR-12-13) — bắt buộc cho DoD vòng 4 (BE `test_imm12`/`test_dashboard`):**
+
+| Test ID | Inv | Given | When | Then |
+|---|---|---|---|---|
+| TC-12-SLA-LIVE-01 | INV-SLA-1 | incident OPEN, `resolution_due_at = now()−2h`, `resolution_breached=0`, scheduler CHƯA chạy | `get_incident_stats()` | `sla_resolution_breached == 1` (LIVE). **RED-prove:** revert KPI về `_count({"resolution_breached":1})` ⇒ =0 ⇒ FAIL |
+| TC-12-SLA-LIVE-02 | INV-SLA-2 | incident OPEN chưa `acknowledged_at`, `response_due_at = now()−1h`, `response_breached=0`, scheduler chưa chạy | `get_incident_stats()` | `sla_response_breached == 1` |
+| TC-12-SLA-LIVE-03 | INV-SLA-3 | incident `Closed`/`Resolved` với `resolution_breached=1` (lịch sử, due KHÔNG còn live-open) | `get_incident_stats()` | VẪN được đếm (nhánh cờ=1). Không regression count cũ |
+| TC-12-SLA-LIVE-04 | INV-SLA-4 | sau khi `check_incident_sla_breach()` stamp cờ trên incident đã đếm vì live | gọi `get_incident_stats()` TRƯỚC + SAU scheduler | `sla_resolution_breached` BẰNG nhau (idempotent — đếm vì live = đếm vì cờ, 2 nhánh exclusive) |
+| TC-12-SLA-LIVE-05 | INV-SLA-5 | incident OPEN overdue, cờ DB còn 0 | `list_incidents()` + `get_dashboard()` | mỗi row có `is_resolution_breached=1` (derive live); số row `is_*_breached=1` == tile tương ứng |
+| TC-12-SLA-LIVE-06 | INV-SLA-6 | incident `Cancelled`/`Closed`/`Resolved` đóng đúng hạn, cờ=0 | `get_incident_stats()` + row enrich | KHÔNG bị tính live-overdue (`is_*_breached=0`); không phantom-count |
+| TC-12-SLA-LIVE-GREP | — | grep `get_incident_stats` body | static | KHÔNG còn `_count({"response_breached":1})`/`_count({"resolution_breached":1})` đơn lẻ; CHỈ `sla_breach_count("response"/"resolution")`. RED-prove: revert ⇒ LIVE-01/02/04/05 FAIL |
+
+**FE `slaBreachLiveTile.test.ts` (BR-12-13):** FE-01 badge bind `ir.is_response_breached`/`ir.is_resolution_breached` (KHÔNG cờ thô) — row `is_resolution_breached=1` ∧ `resolution_breached=0` ⇒ badge "Vi phạm SLA xử lý" hiện; **RED-prove** revert binding→cờ thô ⇒ badge ẩn ⇒ FAIL. FE-02 tile `sla_response_breached`/`sla_resolution_breached` == số badge live trong list (INV-SLA-5 không lệch). Nhãn KPI giữ VI 'Vi phạm SLA tiếp nhận/xử lý'; KHÔNG leak raw code/EN status. `vue-tsc` 0.
 
 **TC-12-SLA-ESC-* (BR-12-09 / BR-12-10) — bắt buộc cho DoD vòng này:**
 

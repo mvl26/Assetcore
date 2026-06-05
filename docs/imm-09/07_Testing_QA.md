@@ -79,6 +79,8 @@ Dẫn từ artefact phân tích (02_Analysis_Design.md) sang test layer. Mỗi U
 | BR-09-05 | Asset Under Repair khi open; Active khi Completed; OOS khi Cannot Repair; chặn WO trùng | `set_asset_under_repair` (#14), `validate_asset_not_under_repair` (#8), `complete_repair` (#13) | State Transition + EP |
 | BR-09-06 | WO trong 30 ngày → `is_repeat_failure=1` | `check_repeat_failure` (#9) | BVA (biên cửa sổ 30 ngày) |
 | BR-09-07 | `elapsed/MTTR >= SLA target → sla_breached=1` (biên: BẰNG target ⇒ breach). 1 SoT `is_sla_breached(elapsed, target)` dùng chung; cờ monotonic — completion không reset 1→0 | `is_sla_breached` (SoT), `complete_repair` (#13), `check_repair_sla_breach` (#18) | BVA (biên SLA: <, ==, >) + Decision Table |
+| BR-09-09 | Restore asset CÓ ĐIỀU KIỆN theo state machine: Asset→Active CHỈ khi prev=`Under Repair`; prev=`Out of Service`/khác → giữ hold (no override NĐ98); prev=`Decommissioned` → bỏ restore, no raise. MỌI nhánh ghi 1 ALE. **INV-09-RESTORE-1**: lifecycle_status mới ∈ {Active (chỉ khi prev=Under Repair), prev giữ nguyên}; nhánh restore không raise | `complete_repair` (#13) khối transition guarded — `TestRestoreGuard` | Decision Table (3 nhánh prev) + State Transition |
+| BR-09-10 | **SLA/MTTR clock-stop khi Pending Parts.** SoT `repair_elapsed_hours = (until−open) − parts_hold_hours_effective` (trừ thời gian chờ phụ tùng). 3 consumer (`complete_repair`/`check_repair_sla_breach`/`_row_is_live_overdue`) cùng SoT. `is_sla_breached`/SLA matrix/biên `>=` BẤT BIẾN. **INV-CM-HOLD-1..6** (SoT duy nhất; stamp/accumulate đối xứng; monotonic ≥0; no-regression khi hold=0; chốt hold cuối trước elapsed; card==scheduler==stamp) | `repair_elapsed_hours`/`enter_parts_hold`/`exit_parts_hold` (SoT mới) + 2 field; `complete_repair` (#13), `check_repair_sla_breach` (#18), `_row_is_live_overdue` — `TestSlaClockStop` | BVA (biên hold: 0, Δ==0, multi-cycle) + State Transition + invariant |
 
 ### I.2.c. Từ Activity Flow / BPMN
 → 02 §Activity Diagram per UC
@@ -209,12 +211,26 @@ Dẫn từ artefact phân tích (02_Analysis_Design.md) sang test layer. Mỗi U
 | `TestFirmwareCR` | `validate_firmware_change_request` (#11) | Decision Table | 4 (no firmware / FCR Approved / FCR Draft / no FCR) | ⬜ Planned |
 | `TestChecklist` | `validate_repair_checklist_complete` (#12) | EP | 4 (all Pass / 1 Fail / N-A / empty) | ⬜ Planned |
 | `TestSlaBreachPredicate` | `is_sla_breached` (SoT) | BVA biên (`<`, `==`, `>`) | 3 (mttr<target→False; mttr==target→True; mttr>target→True) + None-guard | ✅ Live |
-| `TestComplete` | `complete_repair` (#13) | BVA SLA | 4 (mttr_hours calc; mttr<target→0; mttr==target→1; mttr>target→1; ALE + Asset→Active) | ✅ Live |
+| `TestComplete` | `complete_repair` (#13) | BVA SLA | 4 (mttr_hours calc; mttr<target→0; mttr==target→1; mttr>target→1; ALE + Asset→Active khi prev=Under Repair) | ✅ Live |
+| `TestRestoreGuard` | `complete_repair` khối transition (BR-09-09) | State Transition + Decision Table | 3 (A prev=Under Repair → Active + ALE from=Under Repair to=Active; B prev=Out of Service → GIỮ OoS, KHÔNG ép Active + ALE from=to=OoS note hold; C prev=Decommissioned → submit KHÔNG raise, giữ Decommissioned + ALE from=to note đã thanh lý) — **INV-09-RESTORE-1** | ⬜ Planned (Scenario 9.10, 9.11) |
 | `TestSlaMonotonic` | `complete_repair` ↔ `check_repair_sla_breach` | State Transition | 2 (scheduler set 1 lúc đang chạy → confirm_inspection giữ 1, KHÔNG lật 0 cho mttr==target; mttr<target chưa từng breach → 0) | ✅ Live |
 | `TestCannotRepair` | `_mark_cannot_repair` (#15) | State Transition | 2 (Asset→Out of Service, ALE created) | ⬜ Planned |
 | `TestScheduler` | `check_repair_sla_breach` (#18) | Use Case + Error guessing | 3 (breach flag khi elapsed==target; skip completed; idempotent — không re-publish khi đã 1) | ✅ Live |
+| `TestCmSlaBreachLiveSoT` | `cm_sla_breach_count` / `_row_is_live_overdue` / `_enrich_sla_breach` (BR-09-07 LIVE) | State + Decision Table + invariant | 5 (INV-CM-SLA-1 open live-overdue cờ=0 → count +1 ngay; INV-CM-SLA-2 idempotent trước==sau scheduler stamp; INV-CM-SLA-3 completed cờ=1 vẫn đếm + completed in-hạn cờ=0 không đếm; INV-CM-SLA-4 Cannot Repair/Cancelled overdue cờ=0 no-phantom; INV-CM-SLA-5 list enrich is_sla_breached live == count card) + grep-guard (no `_count({sla_breached:1})` cho KPI) | ⬜ Planned (Scenario 9.9) |
+| `TestSlaClockStop` | `repair_elapsed_hours` (SoT) / `enter_parts_hold` / `exit_parts_hold` / 3 consumer (BR-09-10) | BVA biên hold + State Transition + invariant | **6** — xem TC-09-HOLD-01..06 dưới (INV-CM-HOLD-1..6) + grep-guard (0 idiom `(now/completion−open)` thô quyết breach/MTTR) | ⬜ Planned (Scenario 9.12) |
 
-> **Mẹo thực thi**: dùng `SimpleNamespace` cho test thuần công thức (`get_sla_target`) — chạy ms-level, không cần fixture cleanup.
+**TestSlaClockStop — chi tiết test case (BR-09-10):**
+
+| TC | Setup | Action | Expect | INV |
+|----|-------|--------|--------|-----|
+| **TC-09-HOLD-01** *(RED-prove)* | WO mở tổng 80h, trong đó 40h ở Pending Parts (`parts_hold_hours=40`); target=72h (Class II Normal) | `complete_repair` (until=open+80h) | `mttr_hours==40.0` ∧ `sla_breached==0` (clock-stop: 80−40=40 < 72). **RED:** dùng `(completion−open)` thô ⇒ mttr=80, breach=1 (SAI) | INV-CM-HOLD-1 |
+| **TC-09-HOLD-02** *(no-regression)* | WO không bao giờ qua Pending Parts (`parts_hold_hours=0`, `parts_hold_started=null`), mở 80h | `repair_elapsed_hours(doc, open+80h)` | `== 80.0` (wall-clock cũ nguyên vẹn — đối chứng) | INV-CM-HOLD-4 |
+| **TC-09-HOLD-03** *(SoT đồng nhất)* | 1 WO Pending Parts đang hold 40h, target=72, open 80h trước | gọi `_row_is_live_overdue(row, now)` ∧ `check_repair_sla_breach` ∧ `complete_repair` trên cùng dữ liệu | cả 3 phái sinh elapsed=40 ⇒ KHÔNG breach; card==scheduler==stamp (no divergence) | INV-CM-HOLD-6 |
+| **TC-09-HOLD-04** *(multi-cycle + biên Δ=0)* | enter→exit (10h) → enter→exit (15h) → enter→exit (Δ=0 cùng thời điểm) | đọc `parts_hold_hours` | `== 25.0` (10+15+0); KHÔNG âm; mỗi khoảng ≥0 | INV-CM-HOLD-3 |
+| **TC-09-HOLD-05** *(đóng khi đang hold)* | WO đang Pending Parts (`parts_hold_started` non-null, đã hold 20h), đóng tại completion=open+50h | `complete_repair` | `exit_parts_hold(until=completion)` chốt 20h cuối TRƯỚC → `parts_hold_hours==20`, `parts_hold_started==null`; `mttr_hours==30` (50−20); không bỏ sót khoảng cuối | INV-CM-HOLD-5/2 |
+| **TC-09-HOLD-06** *(stamp/reset đối xứng + ALE)* | submit_diagnosis(needs_parts=1) → start_repair | sau mỗi bước assert field + ALE | sau enter: `parts_hold_started` non-null ∧ ALE `parts_hold_started`; sau exit: `parts_hold_started==null` ∧ `parts_hold_hours>0` ∧ ALE `parts_hold_resumed`; `is_sla_breached`/`get_sla_target` BẤT BIẾN (cùng input → cùng output trước/sau patch) | INV-CM-HOLD-2 + bất biến SoT |
+
+> **Mẹo thực thi**: dùng `SimpleNamespace` cho test thuần công thức (`get_sla_target`, `repair_elapsed_hours` — pure, no DB) — chạy ms-level, không cần fixture cleanup. `TestCmSlaBreachLiveSoT` + `TestSlaClockStop` (TC-03/05/06) cần fixture Asset Repair thật (open_datetime/parts_hold backdated) + teardown `_purge` (prefix `_Test CM-SLA%` / `_Test CM-HOLD%`). **RED-prove (BR-09-07 LIVE):** revert `cm_sla_breached` về `_count({sla_breached:1})` + bỏ `_enrich_sla_breach` ⇒ INV-CM-SLA-1/5 FAIL (`0!=1` card, `None!=true` badge); restore ⇒ GREEN. **RED-prove (BR-09-10):** TC-09-HOLD-01 — thay `repair_elapsed_hours` bằng `(completion−open)` thô ⇒ `mttr==80 != 40`, `sla_breached==1 != 0` FAIL; restore SoT ⇒ GREEN.
 
 ## III.3. Integration — DocType lifecycle
 
@@ -225,10 +241,17 @@ Dẫn từ artefact phân tích (02_Analysis_Design.md) sang test layer. Mỗi U
 | `test_on_insert_sets_asset_under_repair` | Asset Active | `doc.insert()` | `Asset.status == "Under Repair"` | State Transition | ⬜ Planned |
 | `test_on_insert_creates_lifecycle_event` | Asset Active | `doc.insert()` | ALE `event_type == "repair_opened"` | EP | ⬜ Planned |
 | `test_before_submit_validates_checklist` | WO In Repair, 1 Fail row | `close_work_order` | `frappe.ValidationError` (BR-09-04) | EP | ⬜ Planned |
-| `test_on_complete_sets_asset_active` | WO Pending Inspection, all Pass | `confirm_inspection` | `Asset.status == "Active"`, `mttr_hours > 0` | State Transition | ⬜ Planned |
+| `test_on_complete_sets_asset_active` | WO Pending Inspection, asset Under Repair, all Pass | `confirm_inspection` | `Asset.status == "Active"`, `mttr_hours > 0`, WO=Completed | State Transition | ⬜ Planned |
 | `test_cannot_repair_sets_oos` | WO with reason | `_mark_cannot_repair` | `Asset.status == "Out of Service"` | State Transition | ⬜ Planned |
+| `test_complete_repair_keeps_oos_hold` (Scenario 9.10) | WO Pending Inspection; asset đã `Out of Service` do hold khác (calib-fail/CAPA) | `confirm_inspection` | `Asset.status == "Out of Service"` (KHÔNG ép Active); WO=Completed; mttr/sla set; ALE `repair_completed` from=to=OoS + note hold | State Transition (BR-09-09 nhánh B) | ⬜ Planned |
+| `test_complete_repair_decommissioned_no_raise` (Scenario 9.11) | WO Pending Inspection; asset đã `Decommissioned` (terminal) | `confirm_inspection` | KHÔNG raise `InvalidAssetTransition`; WO=Completed (docstatus=1, đóng được); asset giữ `Decommissioned`; ALE `repair_completed` from=to + note đã thanh lý | State Transition (BR-09-09 nhánh C) | ⬜ Planned |
+| `test_close_while_pending_parts_clamps_hold` (Scenario 9.12) | WO đang Pending Parts, đã hold 40h, đóng tại completion=open+80h (cannot_repair=0 → qua Pending Inspection→Completed) | `confirm_inspection` (→ `complete_repair`) | `parts_hold_hours` gồm cả khoảng hold cuối tới completion; `mttr_hours==40` (80−40); `sla_breached==0` (target 72); `parts_hold_started==null`; ALE `parts_hold_resumed` + `repair_completed` | State Transition (BR-09-10, INV-CM-HOLD-5) | ⬜ Planned |
 
 > Fixture trong `setUpClass` phải có `tearDownClass` purge — xem skill `assetcore-test` LL-TEST-17.
+>
+> **RED-prove (BR-09-10 / INV-CM-HOLD-5):** bỏ `exit_parts_hold(until=completion)` trong `complete_repair` (không chốt khoảng hold cuối) ⇒ Scenario 9.12 FAIL (`parts_hold_hours` thiếu khoảng cuối → mttr/breach sai). Restore ⇒ GREEN.
+>
+> **RED-prove (BR-09-09 / INV-09-RESTORE-1):** revert gate (đưa `complete_repair` về `transition_asset_status(to_status=ACTIVE)` không-điều-kiện) ⇒ Scenario 9.10 FAIL (`Out of Service` bị lật → `Active`) VÀ Scenario 9.11 FAIL (`InvalidAssetTransition` raise → `on_submit` vỡ, WO un-closeable). Restore gate ⇒ cả hai GREEN. Grep-guard: `transition_asset_status(..., to_status=AssetStatus.ACTIVE)` trong `complete_repair` chỉ tồn tại bên trong nhánh `if prev_status == AssetStatus.UNDER_REPAIR`.
 
 ## III.4. Integration — Workflow transitions
 
@@ -239,9 +262,9 @@ Dẫn từ artefact phân tích (02_Analysis_Design.md) sang test layer. Mỗi U
 | 1 | Phân công KTV | Open → Assigned | System Manager | ⬜ | ⬜ |
 | 2 | Hủy phiếu | Open → Cancelled | System Manager | ⬜ | ⬜ |
 | 3 | Bắt đầu chẩn đoán | Assigned → Diagnosing | Repair User | ⬜ | ⬜ |
-| 4 | Yêu cầu linh kiện | Diagnosing → Pending Parts | Repair User | ⬜ | ⬜ |
+| 4 | Yêu cầu linh kiện | Diagnosing → Pending Parts | Repair User | ⬜ *(BR-09-10: stamp `parts_hold_started`)* | ⬜ |
 | 5 | Bắt đầu sửa chữa | Diagnosing → In Repair | Repair User | ⬜ | ⬜ |
-| 6 | Linh kiện đã nhận - bắt đầu sửa | Pending Parts → In Repair | Repair User | ⬜ | ⬜ |
+| 6 | Linh kiện đã nhận - bắt đầu sửa | Pending Parts → In Repair | Repair User | ⬜ *(BR-09-10: chốt hold → `parts_hold_hours`, reset `parts_hold_started`)* | ⬜ |
 | 7 | Hoàn thành sửa chữa - chờ kiểm tra | In Repair → Pending Inspection | Repair User | ⬜ | ⬜ |
 | 8 | Không thể sửa chữa | In Repair → Cannot Repair | System Manager | ⬜ | ⬜ (require reason) |
 | 9 | Xác nhận hoàn thành | Pending Inspection → Completed | System Manager | ⬜ | ⬜ (checklist gate) |
@@ -434,6 +457,7 @@ Reset: `bench --site uat.assetcore.vn execute assetcore.scripts.uat.uat_imm09.se
 | UAT-IMM-09-10 | Repair User (2 account) | WO-A→ktv.anha, WO-B→ktv.binh | VI.1 RBAC | EP permission | `ktv.anha` chỉ thấy WO-A; truy cập WO-B → 403 |
 | UAT-IMM-09-11 | IMM Operations Manager | Có WO Completed | US-09-10, US-09-11 | Use Case | Dashboard KPI hiển thị; drill-down MTTR theo risk class |
 | UAT-IMM-09-12 | IMM QA Officer | WO Completed (UAT-05) | III.5 Audit | Use Case audit | `verify_audit_chain(asset)==True`; sửa trực tiếp ALE bị block |
+| UAT-IMM-09-13 | Repair User → IMM Department Head | WO Class II Normal (target 72h), mở 80h trong đó 40h chờ phụ tùng hết kho | BR-09-10 | BVA + State Transition | Khi ở Pending Parts: detail hiện badge "Chờ phụ tùng — SLA tạm dừng" (amber), progress bar xám, KHÔNG báo vi phạm. Sau Complete: MTTR=40h, **KHÔNG** `sla_breached`. Đối chứng WO không qua Pending Parts (mở 80h) → MTTR=80h, breach=1 |
 
 ## V.5. Tổng hợp kết quả & Bug found
 

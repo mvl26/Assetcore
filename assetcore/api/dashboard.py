@@ -8,10 +8,16 @@ import frappe
 from frappe.utils import today, add_days, now_datetime
 
 from assetcore.utils.response import _ok, _err
-from assetcore.services.imm00 import count_pending_approvals, byt_expiry_filter
+from assetcore.services.imm00 import (
+    count_pending_approvals,
+    byt_expiry_filter,
+    reserved_prefix_filter,   # SSoT loại asset rác test/security-audit khỏi KPI total
+    reserved_prefix_sql,      # SSoT (raw-SQL, ESCAPE tường minh) cho donut COUNT path
+)
 from assetcore.services.imm08 import count_overdue_pm, due_soon_filter
 from assetcore.services.imm09 import (
     REPAIR_TERMINAL_STATES,
+    cm_sla_breach_count,
     open_repair_filter,
 )
 
@@ -53,18 +59,25 @@ def get_overview() -> dict:
         next30 = add_days(today_str, 30)
 
         # ── IMM-00: Thiết bị ─────────────────────────────────────────────────
-        assets_total = _count(_DT_ASSET)
-        assets_active = _count(_DT_ASSET, {"lifecycle_status": "Active"})
-        assets_repair = _count(_DT_ASSET, {"lifecycle_status": _STATUS_UNDER_REPAIR})
-        assets_calibrating = _count(_DT_ASSET, {"lifecycle_status": "Calibrating"})
-        assets_out = _count(_DT_ASSET, {"lifecycle_status": _STATUS_OUT_OF_SERVICE})
-        assets_decommissioned = _count(_DT_ASSET, {"lifecycle_status": "Decommissioned"})
+        # DATA-HYGIENE (SSoT): mọi asset KPI loại asset rác test/security-audit
+        # (_Test*/_Probe*/SI-*) qua reserved_prefix_filter() — CÙNG predicate với
+        # list_assets ⇒ INVARIANT KPI total == drill list total (parity IMM-06/12).
+        # Merge AND vào từng filter (asset_name/name chưa từng là count-key → KHÔNG
+        # clobber lifecycle_status/byt). total == sum(breakdown) giữ nguyên vì mọi
+        # nhánh áp CÙNG exclusion.
+        _rsv = reserved_prefix_filter()
+        assets_total = _count(_DT_ASSET, _rsv)
+        assets_active = _count(_DT_ASSET, {"lifecycle_status": "Active", **_rsv})
+        assets_repair = _count(_DT_ASSET, {"lifecycle_status": _STATUS_UNDER_REPAIR, **_rsv})
+        assets_calibrating = _count(_DT_ASSET, {"lifecycle_status": "Calibrating", **_rsv})
+        assets_out = _count(_DT_ASSET, {"lifecycle_status": _STATUS_OUT_OF_SERVICE, **_rsv})
+        assets_decommissioned = _count(_DT_ASSET, {"lifecycle_status": "Decommissioned", **_rsv})
         # BR-00-17 (SoT, NĐ98): đếm số ĐK lưu hành BYT sắp/đã hết hạn qua
         # byt_expiry_filter() — CÙNG predicate với drill list_assets(byt_status=...)
         # → INVARIANT count==drill (số thẻ == số dòng list khi click). KHÔNG inline
-        # literal window 'byt_reg_expiry'.
-        assets_byt_expiring = _count(_DT_ASSET, byt_expiry_filter("expiring", today_str))
-        assets_byt_expired = _count(_DT_ASSET, byt_expiry_filter("expired", today_str))
+        # literal window 'byt_reg_expiry'. AND reserved-exclusion để parity với drill.
+        assets_byt_expiring = _count(_DT_ASSET, {**byt_expiry_filter("expiring", today_str), **_rsv})
+        assets_byt_expired = _count(_DT_ASSET, {**byt_expiry_filter("expired", today_str), **_rsv})
 
         # ── IMM-04: Tiếp nhận ─────────────────────────────────────────────────
         comm_pending = _count(_DT_COMM, {"workflow_state": [_OP_NOT_IN, ["Clinical_Release", "Return_To_Vendor"]], "docstatus": ["!=", 2]})
@@ -101,11 +114,14 @@ def get_overview() -> dict:
         # KHÔNG còn literal ma 'Closed'. Đếm CÙNG tập với drill-down repair SQL
         # (INVARIANT card == drill): số thẻ == số dòng list khi click.
         cm_open = _count("Asset Repair", open_repair_filter())
-        # BR-09-07 canonical-value rule: KPI thẻ phải đếm CÙNG tập WO với drill
-        # /cm/work-orders?sla_breached=1 (không status filter). sla_breached là
-        # sự thật lịch sử monotonic — WO đã Completed mà vi phạm vẫn tính. Trước
-        # đây loại Completed/Closed → số thẻ ≠ số dòng list khi click.
-        cm_sla_breached = _count("Asset Repair", {"sla_breached": 1})
+        # BR-09-07 LIVE (SoT): card 'SLA vi phạm' đếm qua cm_sla_breach_count() =
+        # cờ lịch sử (sla_breached=1, monotonic — WO Completed vi phạm vẫn tính)
+        # + live-overdue (open ∧ cờ=0 ∧ quá hạn ngay BÂY GIỜ, KHÔNG đợi scheduler
+        # hourly). 2 nhánh exclusive → idempotent vs scheduler, no double-count.
+        # Drill /cm/work-orders?sla_breached=1 nay enrich is_sla_breached live →
+        # card == drill trên TẬP LIVE đúng (INV-CM-SLA-1..5). KHÔNG inline
+        # _count({sla_breached:1}) ở đây — undercount cửa-sổ-trễ-scheduler.
+        cm_sla_breached = cm_sla_breach_count()
         cm_repeat_failure = _count("Asset Repair", {"is_repeat_failure": 1})
         cm_completed_30d = _count("Asset Repair", {"status": "Completed", "completion_datetime": [">=", add_days(today_str, -30)]})
 
@@ -153,7 +169,8 @@ def get_overview() -> dict:
         # để FE donut segment-click drill tới /assets?lifecycle_status=<code>.
         # 'state' ở đây vốn đã English canonical → code = state. label_vi cho hiển thị.
         _lc_raw = [
-            ("Commissioned", _count(_DT_ASSET, {"lifecycle_status": "Commissioned"})),
+            # reserved-exclusion AND để donut segment == drill list khi click.
+            ("Commissioned", _count(_DT_ASSET, {"lifecycle_status": "Commissioned", **_rsv})),
             ("Active", assets_active),
             (_STATUS_UNDER_REPAIR, assets_repair),
             ("Calibrating", assets_calibrating),
@@ -325,24 +342,30 @@ def get_dashboard_data() -> dict:
         # phải đồng bộ. Dashboard widget mặc định scope="mine" (phiếu của tôi)
         # để khớp với list_my_pending_approvals. Trường `pending_commissioning_all`
         # giữ lại số global cho admin overview, FE quyết hiển thị field nào.
+        # DATA-HYGIENE (SSoT): loại asset rác test/security-audit khỏi KPI Command
+        # Center — CÙNG predicate với list_assets/get_overview (parity, no leak).
+        _rsv = reserved_prefix_filter()
         kpi_metrics = {
-            "total_assets":        _count(_DT_ASSET, {"docstatus": ["!=", 2]}),
-            "under_repair":        _count(_DT_ASSET, {"lifecycle_status": _STATUS_UNDER_REPAIR}),
-            "under_maintenance":   _count(_DT_ASSET, {"lifecycle_status": "Under Maintenance"}),
+            "total_assets":        _count(_DT_ASSET, {"docstatus": ["!=", 2], **_rsv}),
+            "under_repair":        _count(_DT_ASSET, {"lifecycle_status": _STATUS_UNDER_REPAIR, **_rsv}),
+            "under_maintenance":   _count(_DT_ASSET, {"lifecycle_status": "Under Maintenance", **_rsv}),
             "pending_commissioning": count_pending_approvals(scope="mine"),
             "pending_commissioning_all": count_pending_approvals(scope="all"),
             "overdue_pm":          count_overdue_pm(),
         }
 
         # ── 2. Donut chart: phân bổ trạng thái ───────────────────────────────
+        # AND reserved_prefix_sql() (ESCAPE tường minh, param-hoá) → donut == KPI.
+        _hyg_sql, _hyg_params = reserved_prefix_sql()
         status_rows = frappe.db.sql(
-            """
+            f"""
             SELECT COALESCE(lifecycle_status, 'Chưa xác định') AS status, COUNT(*) AS cnt
             FROM `tabAC Asset`
-            WHERE docstatus != 2
+            WHERE docstatus != 2 AND {_hyg_sql}
             GROUP BY lifecycle_status
             ORDER BY cnt DESC
             """,
+            _hyg_params,
             as_dict=True,
         ) or []
         labels, series, colors, codes = [], [], [], []

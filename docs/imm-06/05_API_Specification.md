@@ -731,7 +731,9 @@ _DASHBOARD_ROLES = {
 |---|---|
 | Permission | `_DASHBOARD_ROLES` |
 
-**Query params:** `?days=90` (default 90, max 365)
+**Query params:** `?days=60` (default **60** = `EXPIRY_WINDOW_DAYS`; drill có thể truyền 90/365, max 365)
+
+> **BR-06-14 parity (2026-06-04):** Khi gọi với `days=60` (default), filter của endpoint **bằng** `_expiring_competency_filter()` SoT → `count` ở response = `get_dashboard_stats().competencies.expiring` (card == drill, INVARIANT đo được). Predicate LIVE: `workflow_state ∈ {Active, Expiring} ∧ expiry_date ∈ [today, today+days]` (window đóng 2 đầu, loại Revoked/Suspended). Chi tiết: `04_Backend_Design.md §V.2`.
 
 **Response 200:**
 
@@ -881,6 +883,27 @@ _DASHBOARD_ROLES = {
 ```
 
 **Errors:** `FORBIDDEN`
+
+> **Ground-truth envelope (BR-06-14 — predicate LIVE, 2026-06-04):** Shape JSON ở trên là **bản mở rộng theo roadmap** (kpis/expiry_timeline/compliance_by_dept). **Implementation hiện tại** của `services.imm06.get_dashboard_stats()` trả về nhóm `competencies` theo trạng thái — FE/BE phải bind theo shape THẬT này:
+>
+> ```json
+> {
+>   "success": true,
+>   "data": {
+>     "sessions":     { "total": 0, "planned": 0, "confirmed": 0, "in_progress": 0, "completed": 0, "cancelled": 0 },
+>     "competencies": { "total": 0, "pending": 0, "active": 0, "expiring": 0, "expired": 0, "revoked": 0 },
+>     "programs":     { "total": 0, "active": 0 }
+>   }
+> }
+> ```
+>
+> **Hợp đồng KPI (INVARIANT, đo được):**
+> - `data.competencies.expiring` = `COUNT` theo `_expiring_competency_filter()` (LIVE date-derived: `workflow_state ∈ {Active,Expiring} ∧ expiry_date ∈ [today, today+60]`) — **KHÔNG** còn `frappe.db.count(workflow_state==Expiring)` thuần.
+> - `data.competencies.expired` = `COUNT` theo `_expired_competency_filter()` (LIVE: `workflow_state ∈ {Active,Expiring,Expired} ∧ expiry_date < today`, loại Revoked/Suspended).
+> - **`data.competencies.expiring == get_expiring_competencies(60).count`** với MỌI tập dữ liệu (card == drill). Click tile "Sắp hết hạn" → drill `get_expiring_competencies` PHẢI khớp số.
+> - `data.competencies.active` giữ nguyên `COUNT(workflow_state==Active)` (tổng cờ — không đổi).
+>
+> Chi tiết predicate + 2 helper SoT: `04_Backend_Design.md §V.2`. Khi nhóm `kpis.expiring_90d`/`expired_not_renewed` (roadmap) được ship, giá trị cũng PHẢI phái sinh qua 2 helper SoT (không count cờ thuần).
 
 ---
 

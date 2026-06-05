@@ -57,6 +57,11 @@ export interface EvalDoc {
   quotations: VendorQuotationLine[]
   criteria: { group: string; criterion: string; weight_pct: number; scorer_role?: string }[]
   recommended_candidate?: string
+  // INV-VE-TIE (§IV.7): BE đặt cờ khi ≥2 candidate đồng hạng nhất (cùng weighted_score
+  // tối đa) ⇒ recommended_candidate rỗng. `tied_candidates` = CSV supplier (sorted asc).
+  // FE chỉ ĐỌC verbatim 2 field này, KHÔNG tự tính tie từ điểm.
+  has_top_tie?: 0 | 1
+  tied_candidates?: string
   workflow_state?: EvalState
   docstatus?: 0 | 1 | 2
 }

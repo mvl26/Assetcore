@@ -87,6 +87,14 @@
         (2) cập nhật trạng thái dòng kế hoạch sang "Đã trao thầu",
         (3) gửi sự kiện sang module Lắp đặt – Nghiệm thu.
       </p>
+      <!-- INV-VE-TIE: nguồn Evaluation còn HÒA điểm → KHÔNG prefill winner, bắt chọn tay -->
+      <div v-if="evalHasTopTie" class="tie-hint" role="alert" aria-live="assertive">
+        <strong>⚖ {{ EVAL_TIE_BANNER }}</strong>
+        <p>{{ EVAL_TIE_DECISION_HINT }}</p>
+        <ul v-if="tiedSuppliers.length" class="tie-list">
+          <li v-for="s in tiedSuppliers" :key="s.supplier">{{ s.label }}</li>
+        </ul>
+      </div>
       <form class="form" @submit.prevent="doAward">
         <div class="grid-2col">
           <label>Nhà cung cấp trúng thầu <span class="req">*</span>
@@ -168,11 +176,16 @@ import { useImm03Store } from '@/stores/imm03'
 import {
   getEvaluation, awardDecision, recordContract, transitionDecisionWorkflow,
 } from '@/api/imm03'
-import type { DecisionState, VendorEvalCandidate } from '@/types/imm03'
-import { stateLabel, formatVnd, formatVnDate } from '@/utils/wave2Labels'
+import type { DecisionState, VendorEvalCandidate, EvalDoc } from '@/types/imm03'
+import {
+  stateLabel, formatVnd, formatVnDate, EVAL_TIE_BANNER, EVAL_TIE_DECISION_HINT,
+  parseTiedCandidates,
+} from '@/utils/wave2Labels'
+import { useNotify } from '@/composables/useNotify'
 
 const props = defineProps<{ id: string }>()
 const route = useRoute()
+const notify = useNotify()
 const store = useImm03Store()
 
 const WORKFLOW_STATES: DecisionState[] = [
@@ -191,6 +204,16 @@ const TRANSITIONS_BY_STATE: Record<string, string[]> = {
 }
 
 const evalCandidates = ref<VendorEvalCandidate[]>([])
+// INV-VE-TIE: snapshot nguồn Evaluation để biết có hòa điểm chưa giải quyết không.
+const sourceEval = ref<EvalDoc | null>(null)
+const evalHasTopTie = computed(() => Boolean(sourceEval.value?.has_top_tie))
+const tiedSuppliers = computed(() => {
+  const byCode = new Map(evalCandidates.value.map(c => [c.supplier, c.supplier_name || c.supplier]))
+  return parseTiedCandidates(sourceEval.value?.tied_candidates).map(supplier => ({
+    supplier,
+    label: byCode.get(supplier) || supplier,
+  }))
+})
 
 const awardForm = reactive({
   winner_supplier: '', awarded_price: 0,
@@ -230,15 +253,21 @@ async function loadEvalCandidates() {
   if (!store.currentDecision?.evaluation_ref) return
   try {
     const ev = await getEvaluation(store.currentDecision.evaluation_ref)
+    sourceEval.value = ev
     evalCandidates.value = ev.candidates || []
+    // INV-VE-TIE: nếu nguồn còn hòa điểm chưa giải quyết → KHÔNG prefill winner.
+    // (Decision không kế thừa winner mơ hồ; người dùng phải chọn tay có lý do.)
   } catch { /* ignore — fallback to empty */ }
 }
 
 async function doAward() {
   if (!store.currentDecision?.name || !canSubmitAward.value) return
-  if (!globalThis.confirm(
-    `Phê duyệt trúng thầu cho ${awardForm.winner_supplier} với giá ${formatVnd(awardForm.awarded_price)}?`,
-  )) return
+  const ok = await notify.confirm({
+    title: 'Xác nhận trao thầu',
+    body: `Phê duyệt trúng thầu cho ${awardForm.winner_supplier} với giá ${formatVnd(awardForm.awarded_price)}?`,
+    confirmText: 'Phê duyệt',
+  })
+  if (!ok) return
   awarding.value = true
   try {
     await awardDecision(
@@ -251,6 +280,10 @@ async function doAward() {
       awardForm.remarks,
     )
     await store.fetchDecision(store.currentDecision.name)
+  } catch (e) {
+    // VR-03-05 (AVL hết hiệu lực) và mọi lỗi nghiệp vụ khác → toast/modal VI
+    // chuẩn notification-contract, KHÔNG nuốt lỗi (giữ form để user sửa).
+    notify.fromError(e)
   } finally {
     awarding.value = false
   }
@@ -258,20 +291,32 @@ async function doAward() {
 
 async function doRecordContract() {
   if (!store.currentDecision?.name) return
-  await recordContract(
-    store.currentDecision.name,
-    contractForm.contract_no,
-    contractForm.contract_doc,
-    contractForm.signed_date,
-  )
-  await store.fetchDecision(store.currentDecision.name)
+  try {
+    await recordContract(
+      store.currentDecision.name,
+      contractForm.contract_no,
+      contractForm.contract_doc,
+      contractForm.signed_date,
+    )
+    await store.fetchDecision(store.currentDecision.name)
+  } catch (e) {
+    notify.fromError(e)
+  }
 }
 
 async function doTransition(action: string) {
   if (!store.currentDecision?.name) return
-  if (!globalThis.confirm(`Thực hiện "${action}"?`)) return
-  await transitionDecisionWorkflow(store.currentDecision.name, action)
-  await store.fetchDecision(store.currentDecision.name)
+  const ok = await notify.confirm({
+    title: 'Xác nhận thao tác',
+    body: `Thực hiện "${action}"?`,
+  })
+  if (!ok) return
+  try {
+    await transitionDecisionWorkflow(store.currentDecision.name, action)
+    await store.fetchDecision(store.currentDecision.name)
+  } catch (e) {
+    notify.fromError(e)
+  }
 }
 
 onMounted(async () => {
@@ -317,6 +362,12 @@ dl dd { margin: 0; font-weight: 500; }
 .warn { color: #c2410c; font-weight: 600; }
 .ok { color: #065f46; }
 .req { color: #ef4444; }
+.tie-hint { background: #fef3f2; border: 1px solid #fca5a5; border-left: 4px solid #dc2626;
+  border-radius: 6px; padding: 0.85rem 1.1rem; margin-bottom: 1rem; color: #7f1d1d; }
+.tie-hint strong { display: block; font-size: 0.95rem; margin-bottom: 0.25rem; }
+.tie-hint p { margin: 0 0 0.5rem; font-size: 0.85rem; }
+.tie-list { margin: 0; padding-left: 1.2rem; font-size: 0.85rem; }
+.tie-list li { font-weight: 600; }
 .loading { padding: 3rem; text-align: center; color: #6b7280; }
 code { font-family: ui-monospace, monospace; background: #f3f4f6; padding: 0.1rem 0.3rem; border-radius: 4px; font-size: 0.85rem; }
 </style>

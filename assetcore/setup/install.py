@@ -62,10 +62,32 @@ _USER_CUSTOM_FIELDS: list[dict] = [
 ]
 
 
+# Fieldtype trỏ tới DocType khác — cần target DocType tồn tại trước khi tạo field.
+_LINK_LIKE_FIELDTYPES = {"Link", "Table", "Table MultiSelect"}
+
+
 def _ensure_custom_field(dt: str, fieldname: str, definition: dict) -> None:
-    """Tạo Custom Field nếu chưa tồn tại."""
+    """Tạo Custom Field nếu chưa tồn tại.
+
+    Bỏ qua AN TOÀN nếu field là Link/Table trỏ tới DocType **chưa tồn tại** — tránh
+    `WrongOptionsDoctypeLinkError` chặn cả `install-app` khi `after_install` chạy
+    trước lúc DocType đích (vd ``AC Department``) sync xong trên fresh site / cloud.
+    Field sẽ được tạo ở lần `after_migrate` kế tiếp khi DocType đích đã có (cả hai
+    hook đều gọi `create_user_custom_fields`, nên idempotent + self-heal).
+    """
     existing = frappe.db.exists("Custom Field", {"dt": dt, "fieldname": fieldname})
     if existing:
+        return
+    options = definition.get("options")
+    if (
+        definition.get("fieldtype") in _LINK_LIKE_FIELDTYPES
+        and options
+        and not frappe.db.exists("DocType", options)
+    ):
+        print(
+            f"[AssetCore] Bỏ qua Custom Field {dt}.{fieldname}: DocType đích "
+            f"{options!r} chưa tồn tại (sẽ tạo lại ở migrate kế tiếp)."
+        )
         return
     cf = frappe.new_doc("Custom Field")
     cf.dt = dt
@@ -139,7 +161,26 @@ def after_migrate() -> None:
     _seed_module_profiles()
     _apply_core_permissions()
     _install_notifications()
+    _bust_capability_cache()
     _build_frontend(force=False)
+
+
+def _bust_capability_cache() -> None:
+    """BE-2 (USER REWORK IMM-14): sau khi DocPerm/Role/Role Profile da sync
+    (rbac matrix + role profiles + core perms), bust toan bo cache Redis
+    `ac_caps::*` → cap moi (vd decommission.*) toi FE NGAY lan goi
+    get_capabilities dau tien sau deploy, KHONG doi TTL 1h.
+
+    Idempotent + best-effort: loi cache KHONG duoc chan migrate."""
+    try:
+        from assetcore.services.shared import rbac
+
+        rbac.invalidate_capabilities()
+        print(f"[AssetCore] ac_caps::* busted (cap-set {rbac.CAP_SET_VERSION})")
+    except Exception as e:  # noqa: BLE001
+        frappe.log_error(
+            f"_bust_capability_cache failed: {e}", "AssetCore after_migrate"
+        )
 
 
 def _seed_uoms() -> None:

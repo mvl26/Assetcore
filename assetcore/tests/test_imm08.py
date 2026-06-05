@@ -7,7 +7,7 @@ from __future__ import annotations
 import unittest
 
 import frappe
-from frappe.utils import add_days, nowdate
+from frappe.utils import add_days, getdate, nowdate
 
 from assetcore.services.imm08 import (
     create_adhoc_work_order,
@@ -1036,3 +1036,778 @@ class TestPMDueSoonBoundaryAndDisjoint(unittest.TestCase):
                          "due-soon chỉ chứa WO due_date>=today (loại WO quá hạn)")
         self.assertEqual(count_overdue_pm("Administrator"), 1,
                          "overdue counter chỉ chứa WO status==Overdue (disjoint)")
+
+
+# ─── BR-08-03: SoT compute_next_pm_date (anchor=completion, default=90) ───────
+
+class TestComputeNextPmDateSoT(unittest.TestCase):
+    """BR-08-03 — TC-PM-NEXT-01: helper SoT `compute_next_pm_date` (pure).
+
+    INVARIANT: anchor LUÔN `completion_date` (KHÔNG nowdate); interval hiệu lực =
+    `pm_interval_days` nếu > 0 else `PM_DEFAULT_INTERVAL_DAYS = 90`. Mọi write-site
+    gọi CHUNG helper → bằng nhau byte-for-byte.
+    """
+
+    def test_const_default_interval_is_90(self):
+        from assetcore.services.imm08 import PM_DEFAULT_INTERVAL_DAYS
+        self.assertEqual(PM_DEFAULT_INTERVAL_DAYS, 90)
+
+    def test_explicit_interval(self):
+        from assetcore.services.imm08 import compute_next_pm_date
+        # 2026-03-01 + 90 = 2026-05-30
+        self.assertEqual(compute_next_pm_date("2026-03-01", 90), "2026-05-30")
+
+    def test_zero_interval_falls_back_to_90(self):
+        from assetcore.services.imm08 import compute_next_pm_date
+        self.assertEqual(
+            compute_next_pm_date("2026-03-01", 0),
+            str(add_days(getdate("2026-03-01"), 90)),
+            "interval 0 PHẢI fallback PM_DEFAULT_INTERVAL_DAYS (+90), KHÔNG +0",
+        )
+
+    def test_none_interval_falls_back_to_90(self):
+        from assetcore.services.imm08 import compute_next_pm_date
+        self.assertEqual(
+            compute_next_pm_date("2026-03-01", None),
+            str(add_days(getdate("2026-03-01"), 90)),
+            "interval None PHẢI fallback +90",
+        )
+
+    def test_negative_interval_falls_back_to_90(self):
+        from assetcore.services.imm08 import compute_next_pm_date
+        self.assertEqual(
+            compute_next_pm_date("2026-03-01", -5),
+            str(add_days(getdate("2026-03-01"), 90)),
+            "interval âm KHÔNG hợp lệ → fallback +90 (interval > 0 mới dùng)",
+        )
+
+    def test_boundary_end_of_month(self):
+        from assetcore.services.imm08 import compute_next_pm_date
+        # 2026-01-31 + 30 ngày → đúng add_days (rollover sang tháng 3)
+        self.assertEqual(
+            compute_next_pm_date("2026-01-31", 30),
+            str(add_days(getdate("2026-01-31"), 30)),
+        )
+
+    def test_returns_str(self):
+        from assetcore.services.imm08 import compute_next_pm_date
+        out = compute_next_pm_date("2026-03-01", 90)
+        self.assertIsInstance(out, str)
+
+
+class TestNextPmDateParityAndAnchor(unittest.TestCase):
+    """BR-08-03 — TC-PM-NEXT-02/03/04/05: anchor=completion, default=90, parity.
+
+    Sau 1 submit WO: submit_result.next_pm_date == PM Schedule.next_due_date
+    (persist) == AC Asset.next_pm_date == PM Task Log.next_pm_date (byte-for-byte,
+    1 SoT). + grep-guard không-inline-literal.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.cat = _ensure_cat("_TestCatIMM08Next")
+        cls.asset = _make_asset("-next")
+        cls.asset.asset_category = cls.cat
+        cls.asset.save(ignore_permissions=True)
+        tmpl = _make_template(cls.cat)
+        cls.template_name = tmpl["name"]
+
+    @classmethod
+    def tearDownClass(cls):
+        for wo in frappe.get_all(
+            "PM Work Order", filters={"asset_ref": cls.asset.name}, fields=["name"]
+        ):
+            d = frappe.get_doc("PM Work Order", wo.name)
+            if d.docstatus == 1:
+                d.cancel()
+            frappe.delete_doc("PM Work Order", wo.name, force=True, ignore_permissions=True)
+        for log in frappe.get_all(
+            "PM Task Log", filters={"asset_ref": cls.asset.name}, pluck="name"
+        ):
+            frappe.delete_doc("PM Task Log", log, force=True, ignore_permissions=True)
+        for sch in frappe.get_all(
+            "PM Schedule", filters={"asset_ref": cls.asset.name}, pluck="name"
+        ):
+            frappe.delete_doc("PM Schedule", sch, force=True, ignore_permissions=True)
+        frappe.delete_doc(
+            "PM Checklist Template", cls.template_name, force=True, ignore_permissions=True
+        )
+        purge_asset(cls.asset.name)
+        cat_name = frappe.db.get_value(
+            "AC Asset Category", {"category_name": "_TestCatIMM08Next"}, "name"
+        )
+        if cat_name:
+            frappe.delete_doc("AC Asset Category", cat_name, force=True, ignore_permissions=True)
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        # Reset PM Schedule sạch cho mỗi test (interval khác nhau giữa các test).
+        for sch in frappe.get_all(
+            "PM Schedule", filters={"asset_ref": self.asset.name}, pluck="name"
+        ):
+            for wo in frappe.get_all(
+                "PM Work Order", filters={"pm_schedule": sch}, pluck="name"
+            ):
+                d = frappe.get_doc("PM Work Order", wo)
+                if d.docstatus == 1:
+                    d.cancel()
+                frappe.delete_doc("PM Work Order", wo, force=True, ignore_permissions=True)
+            frappe.delete_doc("PM Schedule", sch, force=True, ignore_permissions=True)
+
+    def _make_schedule_interval(self, interval):
+        """Tạo PM Schedule với pm_interval_days tùy ý (kể cả 0/None để test default).
+
+        `create_schedule` yêu cầu pm_interval_days truthy (required field) → tạo
+        bằng 90 rồi ép thẳng pm_interval_days=0/None ở DB để mô phỏng dữ liệu
+        rỗng/0 (test default-90 SoT).
+        """
+        sched = create_schedule({
+            "asset_ref": self.asset.name,
+            "pm_type": "Quarterly",
+            "pm_interval_days": interval if interval else 90,
+            "checklist_template": self.template_name,
+            "status": "Active",
+        })
+        if not interval:  # 0 hoặc None — ép raw để bypass required validation
+            frappe.db.set_value(
+                "PM Schedule", sched["name"], "pm_interval_days", interval,
+                update_modified=False,
+            )
+            frappe.db.commit()
+        return sched["name"]
+
+    def _make_wo(self, sched_name):
+        res = create_adhoc_work_order({
+            "asset_ref": self.asset.name,
+            "pm_schedule": sched_name,
+            "due_date": add_days(nowdate(), -10),  # due trong quá khứ
+            "assigned_to": "Administrator",
+        })
+        frappe.db.commit()
+        return res["name"]
+
+    def _rated(self, wo_name):
+        wo = frappe.get_doc("PM Work Order", wo_name)
+        return [
+            {"idx": r.idx, "result": "Pass", "measured_value": None, "notes": ""}
+            for r in (wo.checklist_results or [])
+        ]
+
+    def _submit(self, wo_name):
+        from assetcore.services.imm08 import submit_result
+        res = submit_result(
+            wo_name, checklist_results=self._rated(wo_name),
+            overall_result="Pass", pm_sticker_attached=1, duration_minutes=30,
+        )
+        frappe.db.commit()
+        return res
+
+    # ── TC-PM-NEXT-04: cross-path parity (1 SoT, byte-for-byte) ──────────────
+    def test_next_pm_cross_path_parity(self):
+        """4 nơi (API return / PM Schedule / AC Asset / PM Task Log) bằng nhau."""
+        sched_name = self._make_schedule_interval(90)
+        wo_name = self._make_wo(sched_name)
+        res = self._submit(wo_name)
+
+        wo = frappe.get_doc("PM Work Order", wo_name)
+        from assetcore.services.imm08 import compute_next_pm_date
+        expected = compute_next_pm_date(wo.completion_date, 90)
+
+        sched_next = str(frappe.db.get_value("PM Schedule", sched_name, "next_due_date"))
+        asset_next = str(frappe.db.get_value("AC Asset", self.asset.name, "next_pm_date"))
+        log_next = str(frappe.db.get_value(
+            "PM Task Log", {"pm_work_order": wo_name}, "next_pm_date"
+        ))
+
+        self.assertEqual(res["next_pm_date"], expected)
+        self.assertEqual(sched_next, expected, "PM Schedule.next_due_date phải == SoT")
+        self.assertEqual(asset_next, expected, "AC Asset.next_pm_date phải == SoT")
+        self.assertEqual(log_next, expected, "PM Task Log.next_pm_date phải == SoT")
+        # 4-way equality byte-for-byte
+        self.assertEqual(
+            {res["next_pm_date"], sched_next, asset_next, log_next}, {expected},
+            "Cả 4 write-site PHẢI bằng nhau byte-for-byte (1 SoT)",
+        )
+
+    # ── TC-PM-NEXT-02: anchor == completion_date, KHÔNG nowdate ──────────────
+    def test_submit_anchor_is_completion_not_independent_nowdate(self):
+        """submit_result.next_pm_date neo theo wo.completion_date (mốc hoàn thành
+        WO mà handle_work_order_submit đã set), KHÔNG gọi nowdate() độc lập.
+
+        Bằng chứng: giá trị return == compute_next_pm_date(wo.completion_date, …)
+        == PM Schedule.next_due_date (đã persist từ chính completion_date đó).
+        Nếu submit_result còn add_days(nowdate(), …) mà PM Schedule dùng
+        completion_date → hai nguồn lệch khi completion != nowdate.
+        """
+        sched_name = self._make_schedule_interval(90)
+        wo_name = self._make_wo(sched_name)
+        res = self._submit(wo_name)
+
+        wo = frappe.get_doc("PM Work Order", wo_name)
+        from assetcore.services.imm08 import compute_next_pm_date
+        self.assertEqual(
+            res["next_pm_date"],
+            compute_next_pm_date(wo.completion_date, 90),
+            "next_pm_date PHẢI neo theo completion_date (anchor SoT)",
+        )
+        # parity với DB-persisted (nguồn dùng completion_date) — chống anchor-drift
+        sched_next = str(frappe.db.get_value("PM Schedule", sched_name, "next_due_date"))
+        self.assertEqual(
+            res["next_pm_date"], sched_next,
+            "API return PHẢI == PM Schedule.next_due_date (cùng anchor completion_date)",
+        )
+
+    def test_backdated_completion_anchor_writers(self):
+        """TC-PM-NEXT-02 backdate: với completion_date lùi 5 ngày, các writer
+        (update_pm_schedule_after_completion + AC Asset + PM Task Log) PHẢI tính
+        từ completion_date, KHÔNG từ nowdate(). Test trực tiếp writer layer vì
+        controller on_submit ép completion=nowdate ở luồng submit_result.
+        """
+        from assetcore.services.imm08 import (
+            compute_next_pm_date,
+            update_pm_schedule_after_completion,
+        )
+        backdated = add_days(nowdate(), -5)
+        sched_name = self._make_schedule_interval(90)
+
+        update_pm_schedule_after_completion(sched_name, backdated)
+        sched_next = str(frappe.db.get_value("PM Schedule", sched_name, "next_due_date"))
+        self.assertEqual(
+            sched_next, compute_next_pm_date(backdated, 90),
+            "next_due_date PHẢI = completion_date(-5) + 90, KHÔNG today + 90",
+        )
+        self.assertNotEqual(
+            sched_next, add_days(nowdate(), 90),
+            "anchor PHẢI là completion_date backdated, KHÔNG nowdate (RED nếu còn nowdate)",
+        )
+
+    # ── TC-PM-NEXT-03: default interval 90 đồng nhất khi rỗng/0 ───────────────
+    def test_default_interval_uniform_when_zero(self):
+        """pm_interval_days = 0 → next_pm_date == completion + 90 ở CẢ 3 nơi
+        (PM Schedule / AC Asset / API). KHÔNG +0 ⇒ asset KHÔNG bị PM-overdue giả.
+        """
+        sched_name = self._make_schedule_interval(0)
+        # xác nhận schedule thật sự rỗng/0 (không bị default ngầm)
+        self.assertIn(
+            frappe.db.get_value("PM Schedule", sched_name, "pm_interval_days"),
+            (0, None),
+        )
+        wo_name = self._make_wo(sched_name)
+        res = self._submit(wo_name)
+
+        wo = frappe.get_doc("PM Work Order", wo_name)
+        expected_plus90 = str(add_days(getdate(wo.completion_date), 90))
+
+        asset_next = str(frappe.db.get_value("AC Asset", self.asset.name, "next_pm_date"))
+        sched_next = str(frappe.db.get_value("PM Schedule", sched_name, "next_due_date"))
+
+        self.assertEqual(res["next_pm_date"], expected_plus90,
+                         "interval 0 → API +90 (KHÔNG +0 = completion_date)")
+        self.assertEqual(asset_next, expected_plus90,
+                         "interval 0 → AC Asset.next_pm_date +90 (KHÔNG còn `or 0`)")
+        self.assertEqual(sched_next, expected_plus90)
+        self.assertNotEqual(
+            asset_next, str(getdate(wo.completion_date)),
+            "asset.next_pm_date KHÔNG được == completion_date (PM-overdue giả)",
+        )
+        # 3 nơi bằng nhau
+        self.assertEqual({res["next_pm_date"], asset_next, sched_next}, {expected_plus90})
+
+    # ── TC-PM-NEXT-05: no-inline-literal guard (grep thân hàm) ────────────────
+    def test_no_inline_nowdate_anchor_or_literal_90(self):
+        """Grep thân submit_result + handle_work_order_submit +
+        update_pm_schedule_after_completion: 0 nowdate-anchored next-date,
+        0 literal 90 NGOÀI hằng PM_DEFAULT_INTERVAL_DAYS / compute_next_pm_date.
+        """
+        import inspect
+        import re
+        from assetcore.services import imm08
+
+        for fn in (imm08.submit_result, imm08.handle_work_order_submit,
+                   imm08.update_pm_schedule_after_completion):
+            src = inspect.getsource(fn)
+            # KHÔNG add_days(nowdate(), …) — anchor nowdate bị cấm cho ngày PM kế tiếp
+            self.assertNotRegex(
+                src, r"add_days\(\s*_?nowdate\(\)",
+                f"{fn.__name__}: còn add_days(nowdate(), …) — anchor SAI",
+            )
+            # KHÔNG add_days(...completion_date..., interval) inline (phải qua SoT)
+            self.assertNotRegex(
+                src, r"_?add_days\([^)]*completion_date[^)]*,\s*\w*interval",
+                f"{fn.__name__}: còn inline add_days(completion_date, interval) — phải qua compute_next_pm_date",
+            )
+            # KHÔNG literal `or 0` / `or 90` quanh interval ở call-site
+            self.assertNotRegex(
+                src, r"pm_interval_days\s+or\s+\d+",
+                f"{fn.__name__}: còn `pm_interval_days or N` — default phải nằm trong compute_next_pm_date",
+            )
+            self.assertNotIn(
+                "or 90", src,
+                f"{fn.__name__}: còn `or 90` — literal default phải qua PM_DEFAULT_INTERVAL_DAYS",
+            )
+
+        # compute_next_pm_date là nơi DUY NHẤT chứa default 90 (qua hằng).
+        src_helper = inspect.getsource(imm08.compute_next_pm_date)
+        self.assertIn("PM_DEFAULT_INTERVAL_DAYS", src_helper)
+
+
+class TestPMDashboardKpiScope(unittest.TestCase):
+    """INV-PM-KPI-1..6 — KPI dashboard PM phải ĐỒNG NHẤT PHẠM VI.
+
+    Tách 'Quá hạn trong tháng' (overdue_in_month — subset của total_scheduled,
+    đối-soát được) khỏi 'Quá hạn (toàn hệ thống)' (overdue — count_overdue_pm()
+    global, RC-10, khớp launcher + drill ?overdue=1).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.cat = _ensure_cat("_TestCatIMM08Kpi")
+        cls.asset = _make_asset("-kpi")
+        cls.asset.asset_category = cls.cat
+        cls.asset.save(ignore_permissions=True)
+        tmpl = _make_template(cls.cat)
+        cls.template_name = tmpl["name"]
+        sched = _make_schedule(cls.asset.name, cls.template_name)
+        cls.schedule_name = sched["name"]
+        # Tháng "xem" cố định trong quá khứ để KHÔNG đụng WO của môi trường/round
+        # khác (tách phạm vi). Mọi WO seed đều due trong tháng này.
+        cls.view_year = 2025
+        cls.view_month = 3   # 2025-03
+        cls.prev_year = 2025
+        cls.prev_month = 2   # 2025-02 (tháng trước, dùng cho counter-example)
+
+    @classmethod
+    def tearDownClass(cls):
+        for wo in frappe.get_all(
+            "PM Work Order", filters={"asset_ref": cls.asset.name}, fields=["name"]
+        ):
+            d = frappe.get_doc("PM Work Order", wo.name)
+            if d.docstatus == 1:
+                d.cancel()
+            frappe.delete_doc("PM Work Order", wo.name, force=True, ignore_permissions=True)
+        for sch in frappe.get_all(
+            "PM Schedule", filters={"asset_ref": cls.asset.name}, pluck="name"
+        ):
+            frappe.delete_doc("PM Schedule", sch, force=True, ignore_permissions=True)
+        frappe.delete_doc(
+            "PM Checklist Template", cls.template_name, force=True, ignore_permissions=True
+        )
+        purge_asset(cls.asset.name)
+        cat_name = frappe.db.get_value(
+            "AC Asset Category", {"category_name": "_TestCatIMM08Kpi"}, "name"
+        )
+        if cat_name:
+            frappe.delete_doc("AC Asset Category", cat_name, force=True, ignore_permissions=True)
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        # Sạch WO trước mỗi test để stats đo đúng phạm vi seed. KHÔNG commit ở đây
+        # (cùng connection vẫn thấy xoá) — tránh lock contention/deadlock khi nhiều
+        # test class commit song song trong cùng module run.
+        for wo in frappe.get_all(
+            "PM Work Order", filters={"asset_ref": self.asset.name}, fields=["name"]
+        ):
+            d = frappe.get_doc("PM Work Order", wo.name)
+            if d.docstatus == 1:
+                d.cancel()
+            frappe.delete_doc("PM Work Order", wo.name, force=True, ignore_permissions=True)
+
+    def _seed_wo(self, *, due_date, status, is_late=0, completion_date=None):
+        """Tạo 1 PM Work Order với due_date/status/is_late/completion_date cụ thể.
+
+        create_adhoc_work_order set status='Open'; ép thẳng các field còn lại ở DB
+        để mô phỏng đầy đủ trạng thái (Completed on-time/late, Overdue) mà
+        get_dashboard_stats đọc trực tiếp từ repo (KHÔNG qua controller).
+
+        KHÔNG commit per-seed: get_dashboard_stats/count_overdue_pm chạy cùng
+        connection → thấy write chưa commit; bỏ commit để giảm deadlock + giữ
+        isolation cho test-runner rollback (LL — fixture commit gây leak/deadlock).
+        """
+        res = create_adhoc_work_order({
+            "asset_ref": self.asset.name,
+            "pm_schedule": self.schedule_name,
+            "due_date": due_date,
+            "assigned_to": "Administrator",
+        })
+        updates = {"status": status, "is_late": is_late}
+        if completion_date is not None:
+            updates["completion_date"] = completion_date
+        for f, v in updates.items():
+            frappe.db.set_value("PM Work Order", res["name"], f, v, update_modified=False)
+        return res["name"]
+
+    def _stats(self):
+        from assetcore.services.imm08 import get_dashboard_stats
+        return get_dashboard_stats(year=self.view_year, month=self.view_month)["kpis"]
+
+    # ── TC-PM-KPI-01: INV-PM-KPI-1 đối-soát strip tháng ──────────────────────
+    def test_month_strip_reconciles(self):
+        """3 WO trong tháng (1 on-time, 1 late, 1 Overdue): total==3,
+        completed_on_time==1, overdue_in_month==1, pending_in_month==0; và
+        total >= completed_on_time + overdue_in_month + pending_in_month.
+        """
+        self._seed_wo(due_date="2025-03-05", status="Completed", is_late=0,
+                      completion_date="2025-03-04")
+        self._seed_wo(due_date="2025-03-10", status="Completed", is_late=1,
+                      completion_date="2025-03-20")
+        self._seed_wo(due_date="2025-03-15", status="Overdue", is_late=0)
+
+        k = self._stats()
+        self.assertEqual(k["total_scheduled"], 3)
+        self.assertEqual(k["completed_on_time"], 1)
+        self.assertEqual(k["overdue_in_month"], 1)
+        self.assertEqual(k["pending_in_month"], 0)
+        self.assertGreaterEqual(
+            k["total_scheduled"],
+            k["completed_on_time"] + k["overdue_in_month"] + k["pending_in_month"],
+            "strip tháng PHẢI hòa hợp số học (INV-PM-KPI-1)",
+        )
+
+    # ── TC-PM-KPI-02: BUG CHÍNH (RED-prove) — overdue global vs in-month ──────
+    def test_counterexample_overdue_global_vs_in_month(self):
+        """5 WO Overdue due THÁNG TRƯỚC (2025-02) + 0 WO due tháng xem (2025-03):
+        overdue(global) tăng +5, overdue_in_month==0, total_scheduled==0.
+        Nếu FE đọc 'overdue' (global) như số tháng → 5>0=total → mâu thuẫn không
+        đối-soát. GREEN khi tách overdue_in_month==0.
+
+        overdue (global) assert theo DELTA (count_overdue_pm KHÔNG lọc tháng →
+        có thể chứa Overdue WO thật/của test khác) — in-month assert tuyệt đối vì
+        cửa-sổ 2025-03 biệt lập, không test/khách-thể nào khác đụng.
+        """
+        from assetcore.services.imm08 import count_overdue_pm
+        before_global = count_overdue_pm()
+        for i in range(5):
+            self._seed_wo(due_date=f"2025-02-{10 + i:02d}", status="Overdue")
+
+        k = self._stats()
+        self.assertEqual(k["total_scheduled"], 0,
+                         "0 WO due trong tháng xem (2025-03)")
+        self.assertEqual(k["overdue_in_month"], 0,
+                         "0 Overdue ∧ due ∈ tháng xem → overdue_in_month==0")
+        self.assertEqual(k["overdue"] - before_global, 5,
+                         "overdue (global) phải +5 WO Overdue mới (toàn thời gian)")
+        self.assertEqual(k["overdue"], count_overdue_pm(),
+                         "kpis.overdue == count_overdue_pm() global (RC-10)")
+        # KHÔNG bao giờ overdue_in_month > total_scheduled (INV-PM-KPI-1)
+        self.assertLessEqual(k["overdue_in_month"], k["total_scheduled"])
+
+    # ── TC-PM-KPI-03: INV-PM-KPI-3 compliance None khi total==0 ───────────────
+    def test_compliance_none_when_no_scheduled(self):
+        """total_scheduled==0 → compliance_rate_pct == None (KHÔNG 0.0/100.0
+        gây hiểu nhầm 'không tuân thủ')."""
+        # 5 Overdue tháng trước, 0 WO tháng xem → total tháng = 0
+        for i in range(5):
+            self._seed_wo(due_date=f"2025-02-{10 + i:02d}", status="Overdue")
+        k = self._stats()
+        self.assertEqual(k["total_scheduled"], 0)
+        self.assertIsNone(k["compliance_rate_pct"],
+                          "total==0 → compliance None, KHÔNG 0.0")
+
+    def test_compliance_value_when_has_data(self):
+        """Có WO trong tháng → compliance là số (KHÔNG None). 2 on-time / 4 tổng
+        → 50.0."""
+        self._seed_wo(due_date="2025-03-02", status="Completed", is_late=0,
+                      completion_date="2025-03-01")
+        self._seed_wo(due_date="2025-03-03", status="Completed", is_late=0,
+                      completion_date="2025-03-02")
+        self._seed_wo(due_date="2025-03-04", status="Completed", is_late=1,
+                      completion_date="2025-03-12")
+        self._seed_wo(due_date="2025-03-05", status="Overdue")
+        k = self._stats()
+        self.assertEqual(k["total_scheduled"], 4)
+        self.assertEqual(k["compliance_rate_pct"], 50.0)
+
+    # ── TC-PM-KPI-04: INV-PM-KPI-2 no-regression RC-10 (global overdue) ───────
+    def test_overdue_global_equals_counter_and_drill(self):
+        """field 'overdue' == count_overdue_pm() global, khớp drill
+        _normalize_filters(overdue=1) list total; đổi tháng xem KHÔNG đổi value.
+        """
+        from assetcore.services.imm08 import (
+            count_overdue_pm, list_work_orders, _normalize_filters, get_dashboard_stats,
+        )
+        # Seed Overdue rải nhiều tháng — global đếm hết, không phân biệt tháng.
+        self._seed_wo(due_date="2025-02-05", status="Overdue")
+        self._seed_wo(due_date="2025-03-05", status="Overdue")
+        self._seed_wo(due_date="2025-01-05", status="Overdue")
+
+        counter = count_overdue_pm()
+        self.assertEqual(_normalize_filters({"overdue": "1"}), {"status": "Overdue"})
+        listed = list_work_orders({"overdue": "1"}, page=1, page_size=500)
+
+        k_mar = get_dashboard_stats(year=2025, month=3)["kpis"]
+        k_feb = get_dashboard_stats(year=2025, month=2)["kpis"]
+        self.assertEqual(k_mar["overdue"], counter,
+                         "'overdue' (global) == count_overdue_pm()")
+        self.assertEqual(k_mar["overdue"], listed["pagination"]["total"],
+                         "'overdue' == drill ?overdue=1 list total (RC-10)")
+        self.assertEqual(k_mar["overdue"], k_feb["overdue"],
+                         "đổi tháng xem KHÔNG đổi 'overdue' (global invariant)")
+        # in-month thì PHẢI đổi theo tháng (mỗi tháng 1 Overdue ở seed này)
+        self.assertEqual(k_mar["overdue_in_month"], 1)
+        self.assertEqual(k_feb["overdue_in_month"], 1)
+
+    # ── TC-PM-KPI-05: no-regression trend + avg_days_late ─────────────────────
+    def test_trend_and_avg_days_late_invariant(self):
+        """trend_6months có đủ 6 phần tử + key bất biến; avg_days_late tính từ
+        completed-late (4 ngày). overdue_in_month KHÔNG nhiễu các field cũ.
+        """
+        from assetcore.services.imm08 import get_dashboard_stats
+        self._seed_wo(due_date="2025-03-10", status="Completed", is_late=1,
+                      completion_date="2025-03-14")  # trễ 4 ngày
+        res = get_dashboard_stats(year=2025, month=3)
+        k = res["kpis"]
+        self.assertEqual(k["avg_days_late"], 4.0)
+        self.assertEqual(len(res["trend_6months"]), 6)
+        for t in res["trend_6months"]:
+            self.assertEqual(set(t.keys()), {"month", "total", "on_time", "rate"})
+        # Shape kpis có đủ cả field cũ + 2 field mới (no breaking).
+        self.assertTrue(
+            {"compliance_rate_pct", "total_scheduled", "completed_on_time",
+             "overdue", "overdue_in_month", "pending_in_month", "avg_days_late"}
+            <= set(k.keys())
+        )
+
+    def test_pending_in_month_counts_unfinished(self):
+        """pending_in_month = WO trong tháng chưa Completed & chưa Overdue
+        (Open/In Progress). 1 Open + 1 Completed-ontime → pending==1, total==2."""
+        self._seed_wo(due_date="2025-03-20", status="Open")
+        self._seed_wo(due_date="2025-03-02", status="Completed", is_late=0,
+                      completion_date="2025-03-01")
+        k = self._stats()
+        self.assertEqual(k["total_scheduled"], 2)
+        self.assertEqual(k["pending_in_month"], 1)
+        self.assertEqual(k["completed_on_time"], 1)
+        self.assertEqual(k["overdue_in_month"], 0)
+        self.assertEqual(
+            k["total_scheduled"],
+            k["completed_on_time"] + k["overdue_in_month"] + k["pending_in_month"],
+        )
+
+
+class TestPmComplianceExcludeCancelled(unittest.TestCase):
+    """BR-08-14 / INV-PM-KPI-6 — WO 'Cancelled' (hủy chủ động, hết nghĩa vụ) bị
+    LOẠI khỏi MẪU tuân thủ (total_scheduled) + bucket pending/overdue/completed.
+
+    ROOT CAUSE (cũ): get_dashboard_stats đặt total = len(wos) (MỌI status) →
+    Cancelled (a) phình mẫu compliance kéo tụt giả; (b) rơi vào pending phantom.
+    Fix: population THÁNG = scheduled = [w for w in wos if status != Cancelled].
+    'Halted–Major Failure' GIỮ counted (kết cục non-compliant thật) — chỉ
+    Cancelled bị loại.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.cat = _ensure_cat("_TestCatIMM08Canc")
+        cls.asset = _make_asset("-canc")
+        cls.asset.asset_category = cls.cat
+        cls.asset.save(ignore_permissions=True)
+        tmpl = _make_template(cls.cat)
+        cls.template_name = tmpl["name"]
+        sched = _make_schedule(cls.asset.name, cls.template_name)
+        cls.schedule_name = sched["name"]
+        cls.view_year = 2025
+        cls.view_month = 3   # 2025-03 (biệt lập, quá khứ)
+
+    @classmethod
+    def tearDownClass(cls):
+        for wo in frappe.get_all(
+            "PM Work Order", filters={"asset_ref": cls.asset.name}, fields=["name"]
+        ):
+            d = frappe.get_doc("PM Work Order", wo.name)
+            if d.docstatus == 1:
+                d.cancel()
+            frappe.delete_doc("PM Work Order", wo.name, force=True, ignore_permissions=True)
+        for sch in frappe.get_all(
+            "PM Schedule", filters={"asset_ref": cls.asset.name}, pluck="name"
+        ):
+            frappe.delete_doc("PM Schedule", sch, force=True, ignore_permissions=True)
+        frappe.delete_doc(
+            "PM Checklist Template", cls.template_name, force=True, ignore_permissions=True
+        )
+        purge_asset(cls.asset.name)
+        cat_name = frappe.db.get_value(
+            "AC Asset Category", {"category_name": "_TestCatIMM08Canc"}, "name"
+        )
+        if cat_name:
+            frappe.delete_doc("AC Asset Category", cat_name, force=True, ignore_permissions=True)
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        for wo in frappe.get_all(
+            "PM Work Order", filters={"asset_ref": self.asset.name}, fields=["name"]
+        ):
+            d = frappe.get_doc("PM Work Order", wo.name)
+            if d.docstatus == 1:
+                d.cancel()
+            frappe.delete_doc("PM Work Order", wo.name, force=True, ignore_permissions=True)
+
+    def _seed_wo(self, *, due_date, status, is_late=0, completion_date=None):
+        res = create_adhoc_work_order({
+            "asset_ref": self.asset.name,
+            "pm_schedule": self.schedule_name,
+            "due_date": due_date,
+            "assigned_to": "Administrator",
+        })
+        updates = {"status": status, "is_late": is_late}
+        if completion_date is not None:
+            updates["completion_date"] = completion_date
+        for f, v in updates.items():
+            frappe.db.set_value("PM Work Order", res["name"], f, v, update_modified=False)
+        return res["name"]
+
+    def _stats(self):
+        from assetcore.services.imm08 import get_dashboard_stats
+        return get_dashboard_stats(year=self.view_year, month=self.view_month)["kpis"]
+
+    # ── TC-08-CANC-01 (RED-prove) — Cancelled loại khỏi mẫu compliance ───────
+    def test_tc_08_canc_01_cancelled_excluded_from_compliance_sample(self):
+        """Tháng {1 Completed on-time, 1 Completed late, 1 Overdue, 1 Cancelled}:
+        total_scheduled==3 (KHÔNG 4); compliance = round(1/3*100,1)=33.3
+        (cũ SAI: 1/4=25.0). RED trên code cũ → GREEN sau fix.
+        """
+        self._seed_wo(due_date="2025-03-05", status="Completed", is_late=0,
+                      completion_date="2025-03-04")
+        self._seed_wo(due_date="2025-03-10", status="Completed", is_late=1,
+                      completion_date="2025-03-20")
+        self._seed_wo(due_date="2025-03-15", status="Overdue", is_late=0)
+        self._seed_wo(due_date="2025-03-18", status="Cancelled", is_late=0)
+
+        k = self._stats()
+        self.assertEqual(k["total_scheduled"], 3,
+                         "Cancelled KHÔNG vào total_scheduled (cũ: 4)")
+        self.assertEqual(k["compliance_rate_pct"], 33.3,
+                         "mẫu loại Cancelled → 1/3=33.3 (cũ SAI 1/4=25.0)")
+        self.assertEqual(k["completed_on_time"], 1)
+        self.assertEqual(k["overdue_in_month"], 1)
+
+    # ── TC-08-CANC-02 — Cancelled KHÔNG vào pending_in_month ─────────────────
+    def test_tc_08_canc_02_cancelled_not_in_pending(self):
+        """Cùng fixture: pending_in_month==0 (cũ: 1 phantom 'chưa xong')."""
+        self._seed_wo(due_date="2025-03-05", status="Completed", is_late=0,
+                      completion_date="2025-03-04")
+        self._seed_wo(due_date="2025-03-10", status="Completed", is_late=1,
+                      completion_date="2025-03-20")
+        self._seed_wo(due_date="2025-03-15", status="Overdue", is_late=0)
+        self._seed_wo(due_date="2025-03-18", status="Cancelled", is_late=0)
+
+        k = self._stats()
+        self.assertEqual(k["pending_in_month"], 0,
+                         "Cancelled KHÔNG rơi vào pending (cũ: 1 phantom)")
+
+    # ── TC-08-CANC-03 — tháng chỉ-Cancelled → total==0, compliance None ──────
+    def test_tc_08_canc_03_cancelled_only_month(self):
+        """2 Cancelled, 0 khác → total_scheduled==0 ⇒ compliance_rate_pct is None
+        ('—' ở FE, KHÔNG 0.0 hiểu nhầm 'không tuân thủ'); pending==0; overdue==0.
+        """
+        self._seed_wo(due_date="2025-03-05", status="Cancelled", is_late=0)
+        self._seed_wo(due_date="2025-03-12", status="Cancelled", is_late=0)
+
+        k = self._stats()
+        self.assertEqual(k["total_scheduled"], 0)
+        self.assertIsNone(k["compliance_rate_pct"],
+                          "total==0 → None (KHÔNG 0.0)")
+        self.assertEqual(k["pending_in_month"], 0)
+        self.assertEqual(k["overdue_in_month"], 0)
+
+    # ── TC-08-CANC-04 (no-regression đối chứng) — tháng KHÔNG Cancelled ──────
+    def test_tc_08_canc_04_no_cancelled_invariant(self):
+        """{1 on-time, 1 late, 1 Overdue} (KHÔNG Cancelled): total_scheduled==3,
+        compliance==33.3, pending==0, overdue_in_month==1 — Cancelled-free path
+        BẤT BIẾN như trước fix.
+        """
+        self._seed_wo(due_date="2025-03-05", status="Completed", is_late=0,
+                      completion_date="2025-03-04")
+        self._seed_wo(due_date="2025-03-10", status="Completed", is_late=1,
+                      completion_date="2025-03-20")
+        self._seed_wo(due_date="2025-03-15", status="Overdue", is_late=0)
+
+        k = self._stats()
+        self.assertEqual(k["total_scheduled"], 3)
+        self.assertEqual(k["compliance_rate_pct"], 33.3)
+        self.assertEqual(k["pending_in_month"], 0)
+        self.assertEqual(k["overdue_in_month"], 1)
+
+    # ── TC-08-CANC-05 (đối-soát số học INV-PM-KPI-1) ─────────────────────────
+    def test_tc_08_canc_05_arithmetic_invariant_with_cancelled(self):
+        """Mọi fixture (kể cả có Cancelled): total_scheduled >= completed_on_time
+        + overdue_in_month + pending_in_month, và KHÔNG Cancelled nào lọt bucket.
+        """
+        self._seed_wo(due_date="2025-03-05", status="Completed", is_late=0,
+                      completion_date="2025-03-04")
+        self._seed_wo(due_date="2025-03-08", status="Open")           # pending
+        self._seed_wo(due_date="2025-03-15", status="Overdue", is_late=0)
+        self._seed_wo(due_date="2025-03-18", status="Cancelled", is_late=0)
+        self._seed_wo(due_date="2025-03-22", status="Cancelled", is_late=0)
+
+        k = self._stats()
+        self.assertEqual(k["total_scheduled"], 3,
+                         "2 Cancelled bị loại khỏi mẫu (5 WO → 3 scheduled)")
+        self.assertGreaterEqual(
+            k["total_scheduled"],
+            k["completed_on_time"] + k["overdue_in_month"] + k["pending_in_month"],
+            "INV-PM-KPI-1 hòa hợp số học vẫn đúng sau khi đổi mẫu",
+        )
+        # Đối-soát đầy đủ: 1 on-time + 1 overdue + 1 pending == 3 (KHÔNG Cancelled)
+        self.assertEqual(
+            k["completed_on_time"] + k["overdue_in_month"] + k["pending_in_month"],
+            3,
+        )
+
+    # ── TC-08-CANC-06 (trend SoT) — trend dùng CÙNG predicate loại-Cancelled ──
+    def test_tc_08_canc_06_trend_excludes_cancelled(self):
+        """Tháng-trend (2025-01) có Cancelled → trend rate dùng mẫu loại-Cancelled
+        (t = số WO không-Cancelled). Seed 2025-01: {1 Completed on-time, 1
+        Cancelled} → t==1, on_time==1, rate==100.0 (KHÔNG 1/2=50.0 nếu kéo bởi
+        Cancelled). CÙNG SoT predicate với tile compliance tháng hiện tại.
+        """
+        from assetcore.services.imm08 import get_dashboard_stats
+        # 2025-01 nằm trong cửa-sổ trend 6 tháng của view 2025-03.
+        self._seed_wo(due_date="2025-01-10", status="Completed", is_late=0,
+                      completion_date="2025-01-09")
+        self._seed_wo(due_date="2025-01-20", status="Cancelled", is_late=0)
+
+        res = get_dashboard_stats(year=2025, month=3)
+        jan = next(t for t in res["trend_6months"] if t["month"] == "2025-01")
+        self.assertEqual(jan["total"], 1,
+                         "trend total loại Cancelled (t = không-Cancelled)")
+        self.assertEqual(jan["on_time"], 1)
+        self.assertEqual(jan["rate"], 100.0,
+                         "rate = c_on/t = 1/1 = 100.0 (KHÔNG 1/2=50.0)")
+
+    def test_tc_08_canc_06b_trend_cancelled_only_rate_zero(self):
+        """Tháng-trend chỉ-Cancelled → t==0 → rate==0.0 (giữ default cũ, KHÔNG
+        ZeroDivision). Đối chứng: trend không phình bởi Cancelled."""
+        from assetcore.services.imm08 import get_dashboard_stats
+        self._seed_wo(due_date="2025-02-10", status="Cancelled", is_late=0)
+        self._seed_wo(due_date="2025-02-14", status="Cancelled", is_late=0)
+
+        res = get_dashboard_stats(year=2025, month=3)
+        feb = next(t for t in res["trend_6months"] if t["month"] == "2025-02")
+        self.assertEqual(feb["total"], 0, "2 Cancelled → t==0 (loại hết)")
+        self.assertEqual(feb["rate"], 0.0, "t==0 → rate 0.0 (KHÔNG ZeroDivision)")
+
+    # ── TC-08-CANC-07 (Halted GIỮ counted — ranh giới) ──────────────────────
+    def test_tc_08_canc_07_halted_stays_counted(self):
+        """WO 'Halted–Major Failure' trong tháng VẪN trong total_scheduled (KHÔNG
+        bị loại như Cancelled) → khẳng định CHỈ Cancelled bị loại; Halted là kết
+        cục PM non-compliant thật. {1 Completed on-time, 1 Halted, 1 Cancelled}:
+        total_scheduled==2 (Halted IN, Cancelled OUT).
+        """
+        self._seed_wo(due_date="2025-03-05", status="Completed", is_late=0,
+                      completion_date="2025-03-04")
+        self._seed_wo(due_date="2025-03-10", status="Halted–Major Failure",
+                      is_late=0)
+        self._seed_wo(due_date="2025-03-15", status="Cancelled", is_late=0)
+
+        k = self._stats()
+        self.assertEqual(k["total_scheduled"], 2,
+                         "Halted GIỮ counted, chỉ Cancelled bị loại (3 WO → 2)")
+        # Halted không Completed/Overdue → rơi vào pending (chưa-xong-non-compliant)
+        self.assertEqual(k["completed_on_time"], 1)
+        self.assertEqual(k["pending_in_month"], 1,
+                         "Halted nằm trong pending bucket (KHÔNG Cancelled)")
+        # compliance = 1 on-time / 2 scheduled = 50.0
+        self.assertEqual(k["compliance_rate_pct"], 50.0)

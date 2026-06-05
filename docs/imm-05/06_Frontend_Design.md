@@ -172,6 +172,28 @@
 | Document Request Modal | `screenshots/imm05-request-modal.png` | 1440px | Modal open |
 | Exempt Modal | `screenshots/imm05-exempt-modal.png` | 1440px | Modal với warning text |
 
+### §3.f Filter "Ngày hết hạn" + KPI drill "Đã hết hạn" — 1 SoT (BR-05-16)
+
+> Source: `frontend/src/views/document/documentFilters.ts` (pure builders) + dashboard tile.
+
+**Dropdown EXPIRY_OPTIONS** (giữ nguyên 5 lựa chọn, KHÔNG đổi label):
+
+| value | label | Filter gửi BE (`list_documents`) |
+|---|---|---|
+| `''` | Mọi hết hạn | `{}` |
+| `'expired'` | Đã hết hạn | **`{ expiry_status: 'expired' }`** ← đổi (cũ: `{workflow_state:'Expired'}`) |
+| `'30'` | Trong 30 ngày | `{ workflow_state:'Active', expiry_date:['between',[today, today+30]] }` |
+| `'60'` | Trong 60 ngày | `{ ..., today+60 }` |
+| `'90'` | Trong 90 ngày | `{ ..., today+90 }` |
+
+**Quy tắc (đo bằng INV-EXP-1):**
+- `buildExpiryFilter('expired')` **và** `buildKpiFilter('expired')` PHẢI cùng trả `{ expiry_status: 'expired' }` (marker semantic — BE dịch sang `EXPIRED_FILTER`). **KHÔNG còn literal `{ workflow_state: 'Expired' }`** ở 2 hàm này (grep-guard).
+- Tile KPI "Đã hết hạn" (`KPI_FILTERS[kind='expired']`) **vẫn `clickable: true`** — click dẫn về `list_documents({expiry_status:'expired'})`, KHÔNG dead-end. Số trên tile (`expired_not_renewed`) == số dòng list sau khi áp filter (cùng SoT).
+- Dropdown chọn "Đã hết hạn" và click tile **cùng** một đích lọc (1 SoT) → không divergence.
+- No-leak: label hiển thị "Đã hết hạn" (VI), KHÔNG rò `expired`/`Expired`/raw-state ra UI.
+
+**Counterexample (acceptance):** asset có 1 doc Active, `expiry_date=today-5`, `is_expired=1` → tile "Đã hết hạn" đếm ≥1 VÀ click tile → list chứa đúng doc đó. (Trước fix: list 0 dòng vì lọc dead-state `Expired`.)
+
 ---
 
 ## §4 — Components
@@ -198,26 +220,31 @@ interface DocumentStatusBadgeProps {
   state: DocumentWorkflowState;
 }
 
-// DocState values (ground truth từ services/imm05.py)
+// DocState values (ground truth từ services/imm05.py).
+// BR-05-16: KHÔNG có EXPIRED — "hết hạn" là thuộc tính dẫn xuất (is_expired),
+// hiển thị qua ExpiryCountdown (badge đỏ "Đã hết hạn"), KHÔNG phải workflow_state.
 class DocState {
   DRAFT = "Draft"
   PENDING_REVIEW = "Pending Review"  // space, không phải underscore
   ACTIVE = "Active"
   ARCHIVED = "Archived"
-  EXPIRED = "Expired"
   REJECTED = "Rejected"
 }
 
-// Badge mapping — dùng đúng key từ DocState
+// Badge mapping — dùng đúng key từ DocState (5 state, KHÔNG có "Expired").
 const BADGE_MAP: Record<string, { label: string; class: string }> = {
   "Draft":          { label: "Nháp",           class: "badge-gray" },
   "Pending Review": { label: "Chờ duyệt",      class: "badge-yellow" },
   "Active":         { label: "Đang hiệu lực",  class: "badge-green" },
   "Rejected":       { label: "Bị từ chối",     class: "badge-red" },
   "Archived":       { label: "Đã lưu trữ",     class: "badge-gray" },
+  // Legacy fallback CHỈ để hiển thị record cũ (pre-Vòng 19) nếu còn sót — KHÔNG
+  // tạo mới state này; tình trạng hết hạn dùng ExpiryCountdown (is_expired).
   "Expired":        { label: "Đã hết hạn",     class: "badge-red" },
 };
 ```
+
+> **Cờ "đã hết hạn" trên hàng list** dùng `ExpiryCountdown` (`days_until_expiry < 0` → đỏ "Đã hết hạn"), độc lập với badge workflow_state. Một hàng có thể đồng thời badge "Đang hiệu lực" (Active) + cờ đỏ "Đã hết hạn" (quá hạn) — đúng ngữ nghĩa BR-05-16.
 
 ### §4.3 `ExpiryCountdown` — spec
 
@@ -267,7 +294,7 @@ const currentDocument = ref<AssetDocumentDetail | null>(null)
 **Getters thực tế:**
 - `totalDocuments` — `pagination.total`
 - `pendingReviewDocs` — filter `workflow_state === 'Pending Review'`
-- `expiredDocs` — filter `workflow_state === 'Expired'`
+- `expiredDocs` — filter **derived** (BR-05-16): `expiry_date != null && expiry_date < today && !['Archived','Rejected'].includes(workflow_state)` — **KHÔNG** `workflow_state === 'Expired'` (dead-state). Mirror predicate `EXPIRED_FILTER` của BE. *(Self-Correction Vòng 19.)*
 - `kpis` — from `dashboardStats.kpis`
 - `openRequests` — filter `status === 'Open' || 'Overdue'`
 
@@ -352,7 +379,7 @@ async function handleApprove(name: string) {
 | Đang hiệu lực | Active |
 | Chờ duyệt | Pending Review |
 | Đã lưu trữ | Archived |
-| Đã hết hạn | Expired |
+| Đã hết hạn | `expiry_status='expired'` (thuộc tính dẫn xuất, **không** phải workflow_state — BR-05-16) |
 | Miễn đăng ký | Exempt (NĐ98) |
 | Công khai | Public |
 | Nội bộ | Internal_Only |

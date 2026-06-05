@@ -30,6 +30,8 @@
   "sla_target_hours",
   "mttr_hours",
   "sla_breached",
+  "parts_hold_started",
+  "parts_hold_hours",
   "is_repeat_failure",
   "section_assign",
   "assigned_to",
@@ -199,6 +201,23 @@
    "fieldtype": "Check",
    "label": "Vi phạm SLA",
    "read_only": 1
+  },
+  {
+   "fieldname": "parts_hold_started",
+   "fieldtype": "Datetime",
+   "label": "Bắt đầu chờ phụ tùng (hold)",
+   "read_only": 1,
+   "no_copy": 1,
+   "description": "BR-09-10: mốc WO vào Pending Parts (SLA tạm dừng); null khi không hold. non-null ⟺ status==Pending Parts."
+  },
+  {
+   "fieldname": "parts_hold_hours",
+   "fieldtype": "Float",
+   "label": "Tổng giờ chờ phụ tùng",
+   "default": "0",
+   "read_only": 1,
+   "no_copy": 1,
+   "description": "BR-09-10: tổng giờ WO nằm Pending Parts (clock-stop). MONOTONIC tăng; trừ khỏi MTTR/SLA elapsed."
   },
   {
    "fieldname": "is_repeat_failure",

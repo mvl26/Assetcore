@@ -81,12 +81,18 @@ IMM-15 Sidebar (Storekeeper)
 
 **Stock badge logic:**
 
+> **(vòng 23 — BR-15-17)** Badge "dưới định mức" so theo **tồn KHẢ DỤNG** `available_qty`
+> (`= qty_on_hand − reserved_qty`), KHÔNG phải `qty_on_hand` vật lý. Đặt `actual_qty := available_qty`
+> (fallback `?? qty_on_hand` chỉ khi field thiếu — dữ liệu cũ). Bin giữ-chỗ-hết (available=0)
+> hiện Đỏ dù còn đầy tồn vật lý. Nhãn cảnh báo VI: "Tồn khả dụng dưới định mức" — **KHÔNG leak EN**
+> trên alert/badge. Card "Low stock alerts" và drill dùng cùng số từ BE (1 SoT, không tự tính lại FE).
+
 | Điều kiện | Màu | Icon |
 |---|---|---|
-| `actual_qty >= min_qty * 2` | Xanh | ✅ |
-| `min_qty <= actual_qty < min_qty * 2` | Vàng | ⚠ |
-| `0 < actual_qty < min_qty` | Cam | 🟠 |
-| `actual_qty == 0` | Đỏ | 🔴 |
+| `available_qty >= min_qty * 2` | Xanh | ✅ |
+| `min_qty <= available_qty < min_qty * 2` | Vàng | ⚠ |
+| `0 < available_qty < min_qty` | Cam | 🟠 |
+| `available_qty == 0` | Đỏ | 🔴 |
 | Critical Watchlist breach | Đỏ + viền đậm | 🚨 |
 
 **Actions:**

@@ -117,14 +117,20 @@ _INTERNAL_VIEW_ROLES = {
 
 ```typescript
 // Workflow state values — ground truth từ services/imm05.py class DocState
-// Dùng SPACE (đồng bộ với workflow fixture + service constants)
+// Dùng SPACE (đồng bộ với workflow fixture + service constants).
+// LƯU Ý (BR-05-16): KHÔNG có "Expired" — "hết hạn" là thuộc tính DẪN XUẤT
+// (is_expired + predicate EXPIRED_FILTER), KHÔNG phải workflow_state.
 export type DocumentWorkflowState =
   | "Draft"
   | "Pending Review"
   | "Active"
   | "Rejected"
-  | "Archived"
-  | "Expired";
+  | "Archived";
+
+// Bộ lọc "tình trạng hết hạn" (semantic, không phải state) — gửi qua filter
+// `expiry_status` của list_documents (§2.1). Chỉ 'expired' được BE dịch sang
+// EXPIRED_FILTER; '' = không ràng buộc.
+export type ExpiryStatus = "" | "expired";
 
 export type DocumentVisibility = "Public" | "Internal_Only";
 
@@ -204,9 +210,22 @@ export interface Pagination {
 
 | Param | Kiểu | Default | Mô tả |
 |---|---|---|---|
-| `filters` | JSON string | `"{}"` | Frappe filter dict |
+| `filters` | JSON string | `"{}"` | Frappe filter dict + 1 marker semantic `expiry_status` (xem dưới) |
 | `page` | int | 1 | Trang (1-based) |
 | `page_size` | int | 20 | Tối đa 100 |
+
+**Marker `expiry_status` (BR-05-16 — SoT drill "Đã hết hạn"):**
+
+`filters` có thể chứa key đặc biệt `expiry_status` (KHÔNG phải field DB — là marker semantic). Service `list_documents` **pop** marker này trước khi build Frappe filter và dịch sang predicate SoT `EXPIRED_FILTER`:
+
+| `expiry_status` | Service hành vi |
+|---|---|
+| `"expired"` | Áp **EXPIRED_FILTER** = `{"expiry_date": ["<", today], ...}` + `workflow_state` `["not in", ["Archived","Rejected"]]` (xác định trong `services/imm05.py::EXPIRED_FILTER`). Merge với các filter khác (AND). |
+| `""` / vắng | Không ràng buộc hết-hạn. |
+
+> **Bất biến INV-EXP-1:** `get_dashboard_stats().kpis.expired_not_renewed` (count) == `len(list_documents({"expiry_status":"expired"}).items)` (toàn bộ trang) cho mọi tập dữ liệu — cả hai cùng tiêu thụ **một** hằng `EXPIRED_FILTER`. FE KHÔNG gửi `{workflow_state:'Expired'}` (dead-state — đã loại, grep-guard).
+
+> **Tại sao marker thay vì để FE gửi thẳng filter dict?** Predicate `not in [Archived,Rejected]` + `expiry_date<today` là **compliance rule NĐ98 Điều 41** — phải neo ở BE (security/compliance chokepoint), không để FE tự ghép (FE có thể gửi sai/cũ → over/under-count). FE chỉ phát biểu **ý định** (`expiry_status:'expired'`); BE là nơi DUY NHẤT vật chất hóa predicate.
 
 **Response data:**
 
@@ -492,6 +511,17 @@ Auto áp `_apply_visibility_filter`. Compliance tính on-the-fly (v3).
 | Method | GET |
 | Path | `assetcore.api.imm05.get_dashboard_stats` |
 | Permission | Workshop Head, VP Block2, CMMS Admin, Tổ HC-QLCL |
+
+**KPI semantics (predicate đếm — phải đồng nhất với drill list):**
+
+| KPI | Predicate (SoT) | Drill tile dẫn về |
+|---|---|---|
+| `total_active` | `workflow_state = 'Active'` | `list_documents({workflow_state:'Active'})` |
+| `expiring_90d` | `workflow_state='Active' ∧ today < expiry_date ≤ today+90` | `list_documents` (expiry window 90, §2.1) |
+| `expired_not_renewed` | **EXPIRED_FILTER** = `expiry_date IS NOT NULL ∧ expiry_date < today ∧ workflow_state NOT IN ('Archived','Rejected')` (BR-05-16) | `list_documents({expiry_status:'expired'})` — CÙNG hằng `EXPIRED_FILTER` |
+| `assets_missing_docs` | `# AC Asset không có Active doc` (theo thiết bị, không drill — tile tĩnh) | — |
+
+> **`expired_not_renewed` (BR-05-16, INV-EXP-1):** Đếm hồ sơ **còn sống** đã quá hạn = compliance-gap NĐ98 Điều 41 (thiết bị vận hành với giấy phép hết hạn phải hiện). **Đếm:** Active/Draft/Pending Review/(Rejected*) quá hạn. **KHÔNG đếm:** Archived/Rejected (đã thu hồi — không phải gap còn sống), doc `expiry_date` NULL (không có hạn). KPI count **bằng** `len(items)` của drill `{expiry_status:'expired'}` (chênh=0) vì cả hai gọi **một** hằng `EXPIRED_FILTER` trong `services/imm05.py`. *(Self-Correction Vòng 19: trước fix count đếm cả Archived/Rejected + drill lọc dead-state `Expired` → list rỗng. Xem 02 §IV.3 + BR-05-16.)*
 
 **Response data:**
 

@@ -192,4 +192,70 @@ describe('LoginView — regression guard surface reject reason (IMM-00)', () => 
 
     expect(routerPush).toHaveBeenCalledWith('/incidents')
   })
+
+  // ── Redirect-safety (open-redirect hardening, IMM-00 B / ADR-001 D4) ────────
+  // route.query.redirect là untrusted input. Sau login OK HOẶC onMounted khi đã
+  // auth, chỉ điều hướng tới path nội bộ HỢP LỆ; mọi giá trị độc hại → /dashboard.
+
+  it('LV-FE-08: login true + redirect độc hại //evil.com → push /dashboard (KHÔNG //evil)', async () => {
+    loginMock.mockResolvedValue(true)
+    routeQuery = { redirect: '//evil.com' }
+
+    const w = mountLogin()
+    await fillAndSubmit(w, 'user@x.test', 'goodpass')
+
+    expect(routerPush).toHaveBeenCalledWith('/dashboard')
+    expect(routerPush).not.toHaveBeenCalledWith('//evil.com')
+  })
+
+  it('LV-FE-08b: login true + redirect absolute https://phish/a/x → push /dashboard', async () => {
+    loginMock.mockResolvedValue(true)
+    routeQuery = { redirect: 'https://phish/a/x' }
+
+    const w = mountLogin()
+    await fillAndSubmit(w, 'user@x.test', 'goodpass')
+
+    expect(routerPush).toHaveBeenCalledWith('/dashboard')
+  })
+
+  it('LV-FE-08c: login true + redirect QR deep-link /a/TOKEN → push y nguyên (giữ luồng QR)', async () => {
+    loginMock.mockResolvedValue(true)
+    routeQuery = { redirect: '/a/8ePtYlcy2h9DJnLnaRM_lA' }
+
+    const w = mountLogin()
+    await fillAndSubmit(w, 'user@x.test', 'goodpass')
+
+    expect(routerPush).toHaveBeenCalledWith('/a/8ePtYlcy2h9DJnLnaRM_lA')
+  })
+
+  it('LV-FE-08d: login true + redirect absent → push /dashboard', async () => {
+    loginMock.mockResolvedValue(true)
+    routeQuery = {}
+
+    const w = mountLogin()
+    await fillAndSubmit(w, 'user@x.test', 'goodpass')
+
+    expect(routerPush).toHaveBeenCalledWith('/dashboard')
+  })
+
+  it('LV-FE-09: onMounted đã-auth + redirect //evil.com → push /dashboard (KHÔNG //evil)', async () => {
+    authState.isAuthenticated = true
+    routeQuery = { redirect: '//evil.com' }
+
+    mountLogin()
+    await flushPromises()
+
+    expect(routerPush).toHaveBeenCalledWith('/dashboard')
+    expect(routerPush).not.toHaveBeenCalledWith('//evil.com')
+  })
+
+  it('LV-FE-09b: onMounted đã-auth + redirect /assets/AC-ASSET-2026-00001/info → push y nguyên', async () => {
+    authState.isAuthenticated = true
+    routeQuery = { redirect: '/assets/AC-ASSET-2026-00001/info' }
+
+    mountLogin()
+    await flushPromises()
+
+    expect(routerPush).toHaveBeenCalledWith('/assets/AC-ASSET-2026-00001/info')
+  })
 })

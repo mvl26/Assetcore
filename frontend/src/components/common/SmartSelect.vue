@@ -91,15 +91,23 @@ const dropdownStyle = computed(() => ({
   maxHeight: `${props.maxHeight ?? 320}px`,
 }))
 
+// Resilience (TC-FE-CAL-SEARCH-06): nếu search_link reject (vd BE trả 500 /
+// config drift / mạng lỗi) thì NUỐT lỗi tại đây → dropdown vẫn mở và hiển thị
+// empty-state ("Chưa có dữ liệu") thay vì để promise reject lan ra event handler
+// (toggle/watch immediate) gây unhandled rejection / vỡ trang. KHÔNG đổi happy-path.
 async function ensureLoaded() {
-  if (useFilter.value) {
-    if (allItems.value.length === 0) {
-      await store.fetchFiltered(props.doctype, props.filters as Record<string, unknown>)
+  try {
+    if (useFilter.value) {
+      if (allItems.value.length === 0) {
+        await store.fetchFiltered(props.doctype, props.filters as Record<string, unknown>)
+      }
+      return
     }
-    return
-  }
-  if (allItems.value.length === 0) {
-    await store.fetchDoctype(props.doctype)
+    if (allItems.value.length === 0) {
+      await store.fetchDoctype(props.doctype)
+    }
+  } catch {
+    // Lỗi tải master data → giữ form, render empty-state. Không throw.
   }
 }
 

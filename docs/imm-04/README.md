@@ -6,7 +6,7 @@
 | Wave | 1 |
 | Trạng thái | Mature — có v2 UAT |
 | Số file hiện có | 8 |
-| Cập nhật cuối | 2026-06-03 |
+| Cập nhật cuối | 2026-06-04 |
 | Khối kiến trúc | B. KHỐI 2 |
 | Đợt triển khai | 1 |
 | Owner | PTP Khối 2 · Workshop / Nhóm TBYT · Mạng lưới TBYT nội viện |
@@ -41,6 +41,9 @@
 - [`07_Testing_QA.md`](./07_Testing_QA.md) — Test plan + UAT script + Security review
 - [`08_Deployment.md`](./08_Deployment.md) — Deployment plan + QMS compliance mapping
 - [`09_Release.md`](./09_Release.md) — User guide (VI) + Release notes + Traceability matrix
+
+### Architecture Decision Records (ADR)
+- [`ADR-001-asset-qr.md`](./ADR-001-asset-qr.md) — **QR cấp tài sản** (factory QR vòng 1): 6 quyết định kiến trúc (payload `qr_token`, deep-link `/a/<token>`, lifecycle `qr_generated`/`label_printed`, RBAC `asset.read`, backfill, tương thích ngược `internal_tag_qr`) + roadmap A1→A6+B. Schema chi tiết ở `imm-00` §II.1.8 + IMM-04 §8.1.
 
 ### Source docs (cũ) đã archive
 Source docs (cũ) đã archive tại `docs/architecture/archive/imm-04/`:

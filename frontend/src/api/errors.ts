@@ -17,6 +17,7 @@ export const ErrorCode = {
   BAD_STATE: 'BAD_STATE',
   DUPLICATE: 'DUPLICATE',
   INVALID_PARAMS: 'INVALID_PARAMS',
+  PAYLOAD_TOO_LARGE: 'PAYLOAD_TOO_LARGE',
   RATE_LIMITED: 'RATE_LIMITED',
   COMPLIANCE_BLOCKED: 'COMPLIANCE_BLOCKED',
   INTERNAL: 'INTERNAL',
@@ -121,8 +122,13 @@ export function httpStatusToCode(status: number): ErrorCodeType {
     case 403: return ErrorCode.FORBIDDEN
     case 404: return ErrorCode.NOT_FOUND
     case 409: return ErrorCode.CONFLICT
+    case 413: return ErrorCode.PAYLOAD_TOO_LARGE
     case 417:
     case 422: return ErrorCode.BUSINESS_RULE
+    // Vòng 27 B (FR-00-87): 429 rate-limit → bucket RATE_LIMITED. Trước fix rơi về
+    // UNKNOWN (mis-bucket — kể cả 429 resolve/scan đã throttle từ Vòng 12). Mirror
+    // BE `frappe.RateLimitExceededError` → HTTP 429.
+    case 429: return ErrorCode.RATE_LIMITED
     case 500:
     case 502:
     case 503: return ErrorCode.INTERNAL_ERROR

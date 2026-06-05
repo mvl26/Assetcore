@@ -5,8 +5,10 @@
 | Khối kiến trúc | D. KHỐI 4 (End-of-life) |
 | Đợt triển khai | 3 |
 | Owner | PTP Khối 2 + Tổ HC-QLCL & Risk + Nhóm KH-TC |
-| Trạng thái docs | In Progress (from-scratch — BE chưa scaffold) |
-| Cập nhật | 2026-05-10 |
+| Trạng thái docs | In Progress — **MVP vòng 2 CHỐT để code** (closure-record + gate); reconciliation/rollback/dashboard = ROADMAP Đợt 3 |
+| Cập nhật | 2026-06-04 |
+
+> **Vòng 2 (2026-06-04):** spec CHỐT cho Cổng "Hồ sơ giải nhiệm" — DocType `Asset Decommission` + gate chặn `Decommissioned` nếu chưa có closure approved + entrypoint FE trên màn asset detail. Chi tiết: [02 §VI](./02_Analysis_Design.md#phần-vi--wave-2-mvp-cổng-hồ-sơ-giải-nhiệm-decommission-closure-gate) · [04 §IX](./04_Backend_Design.md) · [05 §6](./05_API_Specification.md) · [06 §11](./06_Frontend_Design.md). Reuse `transition_asset_status` (services/imm00.py) — KHÔNG viết lại lifecycle event / audit / cancel depreciation.
 
 > Module **đóng vòng đời** asset: phát hành closure record, đối soát asset – kho – kế toán – hồ sơ, xoá/lưu trữ định danh, xử lý dữ liệu bệnh nhân (sanitization), và cập nhật registry sau khi IMM-13 đã đưa thiết bị về trạng thái `pending_decommission`.
 >

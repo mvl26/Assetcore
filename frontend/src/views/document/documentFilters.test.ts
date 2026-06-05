@@ -42,8 +42,15 @@ describe('buildExpiryFilter', () => {
     expect(buildExpiryFilter('', REF)).toEqual({})
   })
 
-  it('"expired" maps to workflow_state = Expired (Core Doc §3 + vocab map)', () => {
-    expect(buildExpiryFilter('expired', REF)).toEqual({ workflow_state: 'Expired' })
+  // BR-05-16 / INV-EXP-1 (Self-Correction Vòng 19): 'expired' KHÔNG còn emit
+  // {workflow_state:'Expired'} (dead-state — không transition nào dẫn vào). FE chỉ
+  // phát biểu Ý ĐỊNH bằng marker semantic; BE vật chất hóa SoT predicate EXPIRED_FILTER.
+  it('"expired" emits the semantic marker {expiry_status:"expired"} (BR-05-16, no dead-state)', () => {
+    expect(buildExpiryFilter('expired', REF)).toEqual({ expiry_status: 'expired' })
+  })
+
+  it('"expired" no longer leaks the dead workflow_state Expired (grep-guard)', () => {
+    expect(JSON.stringify(buildExpiryFilter('expired', REF))).not.toContain('Expired')
   })
 
   it('"30" returns Active docs expiring within the next 30 days (between today..today+30)', () => {
@@ -77,8 +84,18 @@ describe('KPI_FILTERS / buildKpiFilter', () => {
     expect(buildKpiFilter('active', REF)).toEqual({ workflow_state: 'Active' })
   })
 
-  it('"expired" filters by workflow_state Expired', () => {
-    expect(buildKpiFilter('expired', REF)).toEqual({ workflow_state: 'Expired' })
+  it('"expired" tile emits the SoT marker {expiry_status:"expired"} (BR-05-16)', () => {
+    expect(buildKpiFilter('expired', REF)).toEqual({ expiry_status: 'expired' })
+  })
+
+  it('KPI "expired" === dropdown "expired" (single SoT, no dropdown-vs-tile divergence)', () => {
+    expect(buildKpiFilter('expired', REF)).toEqual(buildExpiryFilter('expired', REF))
+  })
+
+  it('"expired" tile stays clickable (no dead-end) and never leaks raw state', () => {
+    const tile = KPI_FILTERS.find((k) => k.kind === 'expired')!
+    expect(tile.clickable).toBe(true)
+    expect(JSON.stringify(buildKpiFilter('expired', REF))).not.toContain('Expired')
   })
 
   it('"expiring" reuses the 90-day expiry window (no dead-end)', () => {

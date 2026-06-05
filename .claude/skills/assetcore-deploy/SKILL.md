@@ -238,6 +238,26 @@ cd ~/frappe-bench && bench --site <site> set-maintenance-mode off
 > **`bench update` chạy CHỌN-BƯỚC theo cờ:** truyền `--pull` thì CHỈ git pull (vì vậy
 > phải `build`/`migrate`/`restart` riêng ở bước 2-4). `bench update` không cờ = làm hết
 > (pull+build+migrate+restart) nhưng kéo cả frappe/erpnext — tránh trên prod.
+>
+> **⚠️ RBAC capability cache `ac_caps::*` (stale-safe — USER REWORK IMM-14, 2026-06-04).**
+> Sau khi thêm capability mới (vd `decommission.*` trong `services/shared/rbac.py::CAPABILITY_MAP`):
+> - **`bench migrate` (bước 3) TỰ bust** `ac_caps::*` — `after_migrate` → `_bust_capability_cache()`
+>   → `rbac.invalidate_capabilities()` (idempotent, best-effort log_error; in `[AssetCore] ac_caps::*
+>   busted (cap-set vN.<hash>)`) → cap mới có hiệu lực ngay lần `get_capabilities` đầu tiên, KHÔNG đợi
+>   TTL Redis 1h. (Wired: `assetcore/setup/install.py::after_migrate` sau `_apply_core_permissions`.)
+> - **`bench restart` (bước 4) BẮT BUỘC** — gunicorn `--preload` worker cũ giữ `CAPABILITY_MAP` cũ
+>   trong RAM; thiếu restart → `api.imm14.create_decommission` deny `decommission.create`
+>   (stale-safe: trả 403 VI, KHÔNG còn 500 KeyError sau fix AC1).
+> - **Hot-add KHÔNG qua migrate** (sửa DocPerm/Role runtime ở `/app`): hook `role_hooks.invalidate_caps`
+>   tự bust theo User/Has Role/Role Profile. Nếu đổi chính `CAPABILITY_MAP` (code) mà không migrate
+>   → thủ công: `bench restart` (reload worker) + `bench --site <site> execute assetcore.services.shared.rbac.invalidate_capabilities`.
+> - **Version-stamp (AC4):** `get_capabilities` nhúng `__cap_version` = `rbac.CAP_SET_VERSION`
+>   (`vN.<sha256[:12]>` của sorted(CAPABILITY_MAP) — TỰ đổi khi thêm/đổi tên cap, KHÔNG bump tay BE).
+>   FE store `auth.ts::CAP_SET_VERSION` PHẢI khớp giá trị này (SoT = BE; lấy bằng
+>   `bench --site <site> execute assetcore.services.shared.rbac._compute_cap_set_version`). Khi cap-set
+>   đổi → cập nhật hằng số FE cho khớp → persisted-caps cũ ở localStorage tự invalidate (init-time
+>   `isCapCacheStale`), nút gate render sau reload mà KHÔNG cần xóa localStorage tay. `__cap_version` là
+>   field PHỤ trong caps dict (str, không phải bool) → consumer cũ đọc `caps[x]===true` KHÔNG vỡ shape.
 
 ### Smoke validation sau deploy
 ```bash
@@ -499,6 +519,6 @@ Reference: `CONVENTIONS.md §32`, `§33`; `assetcore-be` LL-BE-21, LL-BE-22.
 
 ## 🔗 Session context — bàn giao phiên (assetcore-session)
 
-- **Trước khi xử lý/sửa BẤT KỲ việc gì:** chạy `.claude/scripts/session-log.sh show` (đọc STATE+LOG mới nhất — "đang dở ở đâu"; dữ liệu NGOÀI repo, đừng tìm `sessions/` trong repo). Main session hook tự nạp mỗi prompt; subagent phải chạy lệnh này.
-- **Sau MỖI việc đáng kể (đụng file/quyết định):** invoke **`assetcore-session`** checkpoint NGAY `STATE.md`(ghi đè)+`LOG.md` — KHÔNG đợi cuối phiên (ngắt giữa chừng = mất).
-- **Ranh giới:** state-tạm-sẽ-hết → `sessions/`; fact-bền-vững-dùng-lại → `memory/`. KHÔNG trộn.
+- **Trước khi xử lý/sửa BẤT KỲ việc gì:** chạy `.claude/scripts/session-log.sh show` (đọc STATE + file phiên mới nhất (curated; cần truy gốc chi tiết → đọc mục 🪞 Mirror của file phiên) — "đang dở ở đâu"; dữ liệu trong `.claude/contexts/` — gitignored; file phiên ở `sessions/<ngày>/`). Main session: hook tự nạp mỗi prompt + tự **mirror TOÀN BỘ lượt** (prompt+phản hồi+tool) vào file phiên qua hook `Stop`; subagent phải TỰ chạy lệnh này.
+- **Sau MỖI việc đáng kể (đụng file/quyết định):** invoke **`assetcore-session`** checkpoint NGAY: `STATE.md`(ghi đè) + bồi **semantic** vào file phiên (`session-log.sh current` → path; **KHÔNG còn LOG.md**). Hook `Stop` đã mirror nguyên văn → bạn CHỈ cần tóm Làm/Quyết-định/Để-lại. KHÔNG đợi cuối phiên (ngắt giữa chừng = mất).
+- **Ranh giới:** state-tạm-sẽ-hết → `.claude/contexts/` (STATE.md + sessions/<ngày>/); fact-bền-vững-dùng-lại → `memory/`. KHÔNG trộn.

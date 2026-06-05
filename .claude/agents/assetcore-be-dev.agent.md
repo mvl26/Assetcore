@@ -52,6 +52,6 @@ Final message của bạn **chính là giá trị trả về** cho orchestrator/
 
 ## 🔗 Session context (assetcore-session)
 
-- **Chạy ĐỘC LẬP (ngoài factory):** chạy `.claude/scripts/session-log.sh show` (đọc STATE+LOG; dữ liệu ngoài repo) TRƯỚC khi xử lý bất kỳ việc gì; checkpoint `STATE.md`+`LOG.md` sau MỖI việc đáng kể (skill `assetcore-session`, không đợi cuối phiên).
+- **Chạy ĐỘC LẬP (ngoài factory):** chạy `.claude/scripts/session-log.sh show` (đọc STATE + file phiên mới nhất; dữ liệu trong `.claude/contexts/`, gitignored) TRƯỚC khi xử lý bất kỳ việc gì; checkpoint `STATE.md`(ghi đè) + bồi semantic vào file phiên (`session-log.sh current`) sau MỖI việc đáng kể (skill `assetcore-session`; **KHÔNG còn LOG.md**; main session tự mirror toàn bộ lượt qua hook `Stop`; không đợi cuối phiên).
 - **Trong factory:** orchestrator lo handoff run→run; bạn chỉ cần trả `open_issues`/backlog ĐẦY ĐỦ để được ghi vào STATE.
-- **Ranh giới:** state-tạm-sẽ-hết → `sessions/`; fact-bền-vững → `memory/`. KHÔNG trộn.
+- **Ranh giới:** state-tạm-sẽ-hết → `.claude/contexts/` (STATE.md + sessions/<ngày>/); fact-bền-vững → `memory/`. KHÔNG trộn.

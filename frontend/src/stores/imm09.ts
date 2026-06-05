@@ -33,7 +33,9 @@ export const useImm09Store = defineStore('imm09', () => {
   }
 
   const openWOs = computed(() => workOrders.value.filter(w => w.status === 'Open'))
-  const breachedWOs = computed(() => workOrders.value.filter(w => w.sla_breached))
+  // BR-09-07 LIVE (Core Doc §06): breach = live-truth (is_sla_breached) ưu tiên,
+  // fallback cờ thô (sla_breached) — không undercount cửa-sổ-trễ-scheduler.
+  const breachedWOs = computed(() => workOrders.value.filter(w => w.is_sla_breached ?? w.sla_breached))
   const checklistComplete = computed(() => {
     if (!currentWO.value) return false
     return currentWO.value.repair_checklist.every(r => r.result !== null)

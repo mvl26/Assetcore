@@ -71,7 +71,7 @@ Toàn bộ artefact test được của IMM-16. Mỗi dòng → ≥ 1 test class
 | BR ID | Phát biểu (rút gọn) | Component liên quan (I.1) | Kỹ thuật test phù hợp |
 |---|---|---|---|
 | BR-16-01 | Finding severity ≥ High → mở CAPA trong 5 NLV | #11, #21 (`check_capa_due`) | EP + Use Case |
-| BR-16-02 | CAPA Critical > 30 ngày → escalate | #11 (`_escalate_capa`), #21 | BVA (boundary 30 ngày) |
+| BR-16-02 | CAPA quá hạn → escalate tiered ĐỘC LẬP (Critical ≥1d/≥3d, High ≥3d, Medium/Low none) — effective-risk SoT + idempotent | #11 (`_escalate_capa` / `_capa_escalation_severity`), #21 | BVA (biên 0/1/2/3 ngày × risk) + Decision Table |
 | BR-16-03 | CAPA Close chỉ khi effectiveness=Effective; Not Effective → Re-open + reopen_count++ | #11 (`perform_effectiveness_check`) | Decision Table |
 | BR-16-04 | Audit Major NC → CAPA (VR-08 gate close) | #12 (`close_internal_audit`) | Decision Table |
 | BR-16-05 | Rule đổi threshold/severity → change control versioned | #9 (`update_rule`), #18 (`compliance_rule_before_save`) | Decision Table |
@@ -220,6 +220,27 @@ File: `assetcore/tests/test_imm16.py` — **12 TestCase, 29 test method** (LIVE)
 | `TestCAPAFromIncidentChain::test_create_capa_from_incident_idempotent` | #11 `create_capa_from_incident` | Error guessing (idempotent) | 1 happy | ✅ Live |
 | `TestCAPAFromIncidentChain::test_create_capa_links_back_to_rca` | #11 `create_capa_from_incident` + RCA link | Use Case | 1 happy | ✅ Live |
 | `TestCAPAFromIncidentChain::test_create_capa_from_invalid_incident_raises` | #11 `create_capa_from_incident` | Error guessing | 1 negative | ✅ Live |
+| `TestCapaEscalation::*` (`test_imm16_capa_escalation.py`, TC-CAPA-ESC-01..08, 11 test) | #11 `_escalate_capa` / `_capa_escalation_severity` / `_severity_to_risk` / `_record_capa_escalation` / `check_capa_due` (BR-16-02, RC-CAPA-ESC) | BVA + Decision Table | 4 happy / 7 boundary-neg | ✅ Live (Vòng 13) |
+
+### III.2c. CAPA Escalation BVA matrix (BR-16-02 — Vòng 13)
+
+> Fixture isolated `_TestCapaEsc-*` (asset + CAPA self-contained, teardown purge). Mock `_safe_sendmail` (đếm call) + spy `frappe.db.get_value`. Backdate `due_date` để set `overdue_days` chính xác. RED-prove: khôi phục `if/elif` cũ ⇒ TC-ESC-01 FAIL (level=2 count 0).
+
+| Test ID | Setup (effective-risk, overdue) | escalation_level trước | Kỳ vọng | Invariant |
+|---|---|---|---|---|
+| **TC-ESC-01** (BUG-1 chính) | `imm_risk_level=Critical`, =3d | 0 | `_send_capa_escalation(level=2)` count ≥1 (đồng thời level=1); `escalation_level→2` | INV-CAPA-ESC-1 |
+| **TC-ESC-02** (BUG-2) | `severity=Critical`, `imm_risk_level=''`/`Medium`, =1d | 0 | escalate L1 (effective-risk='Critical' qua fallback severity) | INV-CAPA-ESC-2 |
+| **TC-ESC-03** | Critical, =0d | 0 | KHÔNG escalate (no sendmail) | BVA biên 0 |
+| **TC-ESC-04** | Critical, =1d | 0 | CHỈ Level-1 (`escalation_level→1`) | BVA |
+| **TC-ESC-05** | Critical, =2d | 0 | VẪN chỉ Level-1 (chưa Level-2) | BVA biên 2 |
+| **TC-ESC-06** | Critical, =3d | 1 (đã L1) | CHỈ gửi Level-2 mới (L1 không re-send) | INV-CAPA-ESC-3 |
+| **TC-ESC-07** (BUG-3 idempotency) | Critical, =3d | 0 | chạy `check_capa_due` 2×: lần 2 `_safe_sendmail` call-count BẤT BIẾN; audit không trùng | INV-CAPA-ESC-3 |
+| **TC-ESC-08** | `imm_risk_level=High`, =2d | 0 | KHÔNG escalate | BVA-HIGH biên 2 |
+| **TC-ESC-09** | High, =3d | 0 | Level-2 (`escalation_level→2`) | BVA-HIGH |
+| **TC-ESC-10** | Medium / Low, =5d | 0 | KHÔNG escalate bất kỳ ngày | BVA-LOWMED neg |
+| **TC-ESC-11** (BUG-4 N+1) | Critical, =3d (qua `check_capa_due`) | 0 | spy `frappe.db.get_value` = 0 lần trong `_escalate_capa` (đọc từ row select) | INV-CAPA-ESC-4 |
+
+**No-regression bắt buộc:** `test_imm16` + `test_imm16_compliance_gate_sot` + `test_capa_overdue_sot` + `test_capa_open_sot` GREEN; `_overdue_capa_filter` / `check_capa_overdue` SoT BẤT BIẾN (round này KHÔNG đụng); `api/imm16.py` delegate verbatim.
 
 **Gap (⬜ Planned)**: chưa có unit riêng cho `_compare_values` (threshold BVA/EP toàn matrix op), `create_capa_from_finding`, `mark_false_positive`, scheduler idempotency của `evaluate_all_compliance_rules`.
 
@@ -393,7 +414,7 @@ bench --site [site] run-tests --module assetcore.tests.test_workflows
 | BR ID | Phát biểu (rút gọn) | Test ID | Kỹ thuật | Happy / Negative |
 |---|---|---|---|---|
 | BR-16-01 | Finding High → CAPA 5 NLV | `check_capa_due` scheduler test | Use Case | ⬜ / ⬜ |
-| BR-16-02 | CAPA Critical > 30 ngày escalate | `_escalate_capa` BVA test | BVA | ⬜ / ⬜ |
+| BR-16-02 | CAPA quá hạn → escalate tiered ĐỘC LẬP theo effective-risk (Vòng 13, RC-CAPA-ESC) | `TestCapaEscalationTiered::*` (`test_imm16.py`) — TC-ESC-01..10 BVA | BVA + Decision Table | ✅ Planned → đạt khi round = ✅ |
 | BR-16-03 | Not Effective → Re-open | `TestEffectivenessCheck::test_not_effective_reopens_capa` | Decision Table | 1 ✅ / ⬜ (Effective→Closed) |
 | BR-16-04 | Audit Major NC → CAPA (VR-08) | `TestAuditClose::test_close_audit_missing_planned_audit` | Decision Table | ⬜ / 1 ✅ |
 | BR-16-05 | Rule change control versioned | `TestRuleLifecycle::test_update_rule_with/without_change_summary` | Decision Table | 1 ✅ / 1 ✅ |

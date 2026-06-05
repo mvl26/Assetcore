@@ -91,7 +91,9 @@ class _BytSeedMixin:
             ("null", None),                       # OUT cả 2 (chưa khai báo ĐK)
         ]
         for suffix, expiry in plan:
-            name = f"_TEST-BYT-{suffix}"
+            # NON-reserved asset_name (KHÔNG prefix '_'): data-hygiene SSoT ẩn '_…'
+            # khỏi list_assets; fixture cần XUẤT HIỆN trong drill ⇒ tên thường.
+            name = f"ZZTEST-BYT-{suffix}"
             if frappe.db.exists("AC Asset", {"asset_name": name}):
                 continue
             # lifecycle_status để mặc định (Draft) — byt filter độc lập với lifecycle;
@@ -155,15 +157,15 @@ class TestBytExpiryCountEqualsDrill(_BytSeedMixin, FrappeTestCase):
         exp_names = {
             r["asset_name"] for r in list_assets(byt_status="expiring", page_size=500)["data"]["items"]
         }
-        assert "_TEST-BYT-today" in exp_names
-        assert "_TEST-BYT-plus30" in exp_names
-        assert "_TEST-BYT-plus31" not in exp_names
-        assert "_TEST-BYT-null" not in exp_names
+        assert "ZZTEST-BYT-today" in exp_names
+        assert "ZZTEST-BYT-plus30" in exp_names
+        assert "ZZTEST-BYT-plus31" not in exp_names
+        assert "ZZTEST-BYT-null" not in exp_names
         expd_names = {
             r["asset_name"] for r in list_assets(byt_status="expired", page_size=500)["data"]["items"]
         }
-        assert "_TEST-BYT-minus1" in expd_names
-        assert "_TEST-BYT-null" not in expd_names
+        assert "ZZTEST-BYT-minus1" in expd_names
+        assert "ZZTEST-BYT-null" not in expd_names
 
 
 class TestListAssetsBytStatusNoClobber(_BytSeedMixin, FrappeTestCase):
@@ -185,8 +187,8 @@ class TestListAssetsBytStatusNoClobber(_BytSeedMixin, FrappeTestCase):
         for it in items:
             assert it["asset_category"] == self._CAT
         names = {it["asset_name"] for it in items}
-        assert "_TEST-BYT-today" in names           # thoả cả 2
-        assert "_TEST-BYT-plus31" not in names       # đúng category nhưng OUT bucket
+        assert "ZZTEST-BYT-today" in names           # thoả cả 2
+        assert "ZZTEST-BYT-plus31" not in names       # đúng category nhưng OUT bucket
 
     def test_garbage_byt_status_is_noop(self):
         # bucket rác → byt filter bỏ qua; list trả như không có byt_status.
