@@ -22,7 +22,9 @@ import unittest
 import frappe
 
 from assetcore.setup.install import (
+    _drop_orphan_user_link_fields,
     _ensure_app_doctypes_synced,
+    _foreign_custom_field_specs,
     _rebuild_module_map,
     before_install,
 )
@@ -80,6 +82,38 @@ class TestInstallModuleMap(unittest.TestCase):
         _ensure_app_doctypes_synced()
         self.assertTrue(frappe.db.exists("DocType", "AC Asset"))
         self.assertIs(frappe.local.app_modules, before)
+
+    def test_drop_orphan_keeps_valid_field_when_target_exists(self) -> None:
+        # An toàn: KHÔNG gỡ Custom Field còn hợp lệ. Trên site test "AC Department"
+        # tồn tại → field User.ac_department phải được GIỮ NGUYÊN.
+        self.assertTrue(frappe.db.exists("DocType", "AC Department"))
+        cf_before = frappe.db.exists(
+            "Custom Field", {"dt": "User", "fieldname": "ac_department"}
+        )
+        _drop_orphan_user_link_fields()
+        cf_after = frappe.db.exists(
+            "Custom Field", {"dt": "User", "fieldname": "ac_department"}
+        )
+        self.assertEqual(
+            cf_before,
+            cf_after,
+            "field hợp lệ (target tồn tại) KHÔNG được bị gỡ",
+        )
+
+    def test_foreign_custom_field_specs_covers_user_and_asset(self) -> None:
+        # before_uninstall phải biết gỡ field AssetCore khỏi doctype core/ERPNext.
+        specs = _foreign_custom_field_specs()
+        # User: field gây crash + các field IMM khác.
+        self.assertIn(("User", "ac_department"), specs)
+        self.assertIn(("User", "imm_approval_status"), specs)
+        # ERPNext Asset: field từ asset_custom_fields.json (kể cả khi chưa cài ERPNext,
+        # spec vẫn liệt kê để dọn sạch nếu site có Asset).
+        asset_specs = [fn for (dt, fn) in specs if dt == "Asset"]
+        self.assertIn("custom_imm_device_model", asset_specs)
+        # KHÔNG đụng tới doctype của chính AssetCore (chúng tự drop theo app).
+        self.assertNotIn(
+            "AC Asset", {dt for (dt, _fn) in specs}
+        )
 
 
 if __name__ == "__main__":
