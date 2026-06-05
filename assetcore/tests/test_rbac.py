@@ -288,16 +288,25 @@ class TestRoleFixture(unittest.TestCase):
         names = {r["name"] for r in data}
         self.assertEqual(names, set(Roles.ALL))
 
-    def test_role_profile_fixture_present_module_profile_removed(self):
-        """Core Doc §7.quater: Role Profile = persona → role_profile.json fixture
-        có mặt (8 profile); Module Profile vẫn bị bỏ."""
-        from assetcore.setup.role_profile_catalog import PROFILE_NAMES
+    def test_role_profile_provisioned_by_seed_not_fixture(self):
+        """Role Profile (core doctype có on_update→background job) KHÔNG còn import
+        qua fixtures — import lúc sync_fixtures sẽ enqueue trong ngữ cảnh migrate và
+        abort cả `bench migrate`. Provisioning chuyển sang setup_role_profiles.run()
+        (catalog SSOT, idempotent). role_profile.json + module_profile.json đều bỏ;
+        catalog vẫn đủ đúng 8 profile."""
+        from assetcore.setup.role_profile_catalog import (
+            PROFILE_NAMES,
+            ROLE_PROFILE_CATALOG,
+        )
         base = frappe.get_app_path("assetcore", "fixtures")
-        rp_path = os.path.join(base, "role_profile.json")
-        self.assertTrue(os.path.exists(rp_path), "role_profile.json fixture phải tồn tại")
-        names = {p["name"] for p in json.load(open(rp_path, encoding="utf-8"))}
-        self.assertEqual(names, set(PROFILE_NAMES))
+        self.assertFalse(
+            os.path.exists(os.path.join(base, "role_profile.json")),
+            "role_profile.json fixture phải bị gỡ (provision qua seed, không qua sync_fixtures)",
+        )
         self.assertFalse(os.path.exists(os.path.join(base, "module_profile.json")))
+        # Catalog vẫn là SSOT đủ 8 Role Profile.
+        self.assertEqual(len(PROFILE_NAMES), 8)
+        self.assertEqual(set(PROFILE_NAMES), set(ROLE_PROFILE_CATALOG.keys()))
 
 
 class TestWorkflowRoles(unittest.TestCase):

@@ -79,10 +79,22 @@ def _upsert_role_profile(name: str, roles: list[str]) -> str:
 
 
 def seed_assetcore_role_profiles() -> dict[str, str]:
-    """Tạo/cập nhật 8 Role Profile. Idempotent. Trả {name: outcome}."""
+    """Tạo/cập nhật 8 Role Profile. Idempotent. Trả {name: outcome}.
+
+    Ép Role Profile.on_update (Frappe core) chạy ``update_all_users`` ĐỒNG BỘ thay
+    vì đẩy background job: core tính ``now = in_test or in_install``; khi seed lúc
+    ``after_migrate`` thì cả hai False → enqueue → phụ thuộc Redis queue (có thể
+    abort). Set ``in_install`` tạm thời (idiom đã dùng trong test-suite) + restore
+    trong ``finally`` để provisioning luôn deterministic, không cần Redis.
+    """
     results: dict[str, str] = {}
-    for name, roles in profile_name_to_roles().items():
-        results[name] = _upsert_role_profile(name, roles)
+    prev_in_install = frappe.flags.in_install
+    frappe.flags.in_install = prev_in_install or "frappe"
+    try:
+        for name, roles in profile_name_to_roles().items():
+            results[name] = _upsert_role_profile(name, roles)
+    finally:
+        frappe.flags.in_install = prev_in_install
     frappe.db.commit()
     return results
 
