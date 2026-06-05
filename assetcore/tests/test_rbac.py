@@ -570,9 +570,12 @@ class TestVendorScopeIsolation(unittest.TestCase):
             frappe.db.commit()
             f = {"workflow_state": "Open"}
             scoped = apply_vendor_scope(f, "PM Work Order", user=u)
-            self.assertIn("asset", scoped)
-            self.assertEqual(scoped["asset"][0], "in")
-            self.assertEqual(scoped["asset"][1], ["__none__"])
+            # PM Work Order links the asset via column `asset_ref` (NOT `asset` —
+            # that column doesn't exist; the old map key `asset` made the scope a
+            # no-op at query time). Empty assignment → sentinel `__none__` (0 rows).
+            self.assertIn("asset_ref", scoped)
+            self.assertEqual(scoped["asset_ref"][0], "in")
+            self.assertEqual(scoped["asset_ref"][1], ["__none__"])
         finally:
             frappe.delete_doc("User", u, force=True, ignore_permissions=True)
             frappe.db.commit()

@@ -96,10 +96,22 @@ def assert_not_self_submitter(
 
 _VENDOR_ROLE = "Vendor Engineer"
 _BYPASS_ROLES_FOR_SCOPE = ("AssetCore Super Admin", "AssetCore Auditor", "System Manager")
+# Asset-link field per DocType (keyed by the doctype STRING the API passes, which
+# for calibration is an alias, not the real DocType name). Field names verified
+# against DB columns (SHOW COLUMNS):
+#   • AC Asset → "name" (asset PK is the scope key itself).
+#   • PM Work Order / Asset Repair → "asset_ref" (NOT "asset"! The real column is
+#     `asset_ref`; querying "asset" raised Unknown-column 1054 at runtime, swallowed
+#     by the resolver's bare except → vendor scope silently returned [] — fixed as
+#     part of RC-LIST-VENDORCLOBBER).
+#   • "Calibration Schedule"/"Calibration Record" are API aliases handled by the
+#     IMM-11 service layer against the real `IMM Calibration Schedule`/`IMM Asset
+#     Calibration` DocTypes whose asset column IS "asset" → keep field "asset".
+#   • Incident Report → "asset".
 _VENDOR_SCOPE_FIELD_MAP = {
     "AC Asset": "name",
-    "PM Work Order": "asset",
-    "Asset Repair": "asset",
+    "PM Work Order": "asset_ref",
+    "Asset Repair": "asset_ref",
     "Incident Report": "asset",
     "Calibration Schedule": "asset",
     "Calibration Record": "asset",
@@ -107,15 +119,25 @@ _VENDOR_SCOPE_FIELD_MAP = {
 
 
 def _resolve_vendor_assigned_assets(user: str) -> list[str]:
-    """Return list of asset names a Vendor Engineer is currently assigned to via WO."""
+    """Return list of asset names a Vendor Engineer is currently assigned to via WO.
+
+    Reads the asset link from both ``PM Work Order`` and ``Asset Repair`` where the
+    user is the ``assigned_to`` actor. **The asset link field on BOTH DocTypes is
+    ``asset_ref`` (NOT ``asset``)** — verified against DocType JSON + DB columns
+    (``SHOW COLUMNS``). Querying the non-existent ``asset`` column raised
+    ``OperationalError(1054, "Unknown column 'asset'")`` which was swallowed by the
+    bare ``except`` → resolver always returned ``[]`` → ``apply_vendor_scope`` forced
+    the ``__none__`` sentinel (masked previously only because the reserved-prefix
+    merge clobbered the ``name`` predicate). Fixed as part of RC-LIST-VENDORCLOBBER.
+    """
     try:
         rows = frappe.db.sql(
             """
-            SELECT DISTINCT asset FROM `tabPM Work Order`
-            WHERE assigned_to=%(u)s AND asset IS NOT NULL AND asset != ''
+            SELECT DISTINCT asset_ref FROM `tabPM Work Order`
+            WHERE assigned_to=%(u)s AND asset_ref IS NOT NULL AND asset_ref != ''
             UNION
-            SELECT DISTINCT asset FROM `tabAsset Repair`
-            WHERE assigned_to=%(u)s AND asset IS NOT NULL AND asset != ''
+            SELECT DISTINCT asset_ref FROM `tabAsset Repair`
+            WHERE assigned_to=%(u)s AND asset_ref IS NOT NULL AND asset_ref != ''
             """,
             {"u": user},
             as_dict=False,
@@ -176,13 +198,16 @@ def assert_vendor_can_access(doctype: str, name: str, user: str | None = None) -
     else:
         if doctype not in _VENDOR_SCOPE_FIELD_MAP:
             return
-        asset = frappe.db.get_value(doctype, name, "asset")
+        # Asset link field is the doctype's scope field (e.g. PM WO/Asset Repair →
+        # "asset_ref"), NOT a literal "asset" column. See _resolve_vendor_assigned_assets.
+        asset = frappe.db.get_value(doctype, name, _VENDOR_SCOPE_FIELD_MAP[doctype])
         if not asset:
             return
+    # PM Work Order / Asset Repair link the asset via column "asset_ref".
     is_assigned = frappe.db.exists(
-        "PM Work Order", {"asset": asset, "assigned_to": user}
+        "PM Work Order", {"asset_ref": asset, "assigned_to": user}
     ) or frappe.db.exists(
-        "Asset Repair", {"asset": asset, "assigned_to": user}
+        "Asset Repair", {"asset_ref": asset, "assigned_to": user}
     )
     if is_assigned:
         return
