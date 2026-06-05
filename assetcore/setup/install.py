@@ -95,12 +95,53 @@ def _ensure_custom_field(dt: str, fieldname: str, definition: dict) -> None:
     for k, v in definition.items():
         if k != "fieldname":
             cf.set(k, v)
+    # Gắn module AssetCore → Frappe track field này theo app, giúp uninstall dọn
+    # sạch (KHÔNG để orphan trên doctype core như User). before_uninstall vẫn xoá
+    # tường minh để phủ cả field cũ đã tạo với module=None.
+    cf.module = "AssetCore"
     cf.flags.ignore_permissions = True
     cf.insert(ignore_if_duplicate=True)
 
 
+def _drop_orphan_user_link_fields() -> None:
+    """Gỡ Custom Field Link/Table trên User trỏ tới DocType KHÔNG còn tồn tại.
+
+    Triệu chứng: mở form User trên desk báo
+    `Field ac_department is referring to non-existing doctype AC Department`
+    (frappe/desk/form/meta.py::add_search_fields → get_meta(options) →
+    DoesNotExistError → frappe.throw). Xảy ra khi DocType đích (vd `AC Department`)
+    chưa/không sync (bug app_modules cache cũ trên cloud) NHƯNG Custom Field đã tồn
+    tại từ lần cài trước → orphan, làm crash desk.
+
+    Gỡ orphan để desk không vỡ. Field idempotent sẽ được tạo lại ở
+    `create_user_custom_fields` lần migrate kế tiếp khi DocType đích đã có. Chỉ gỡ
+    khi target THỰC SỰ thiếu (broken state) → no-op trên site khỏe; an toàn vì field
+    vô dụng nếu thiếu doctype đích.
+    """
+    for field_def in _USER_CUSTOM_FIELDS:
+        if field_def.get("fieldtype") not in _LINK_LIKE_FIELDTYPES:
+            continue
+        options = field_def.get("options")
+        if not options or frappe.db.exists("DocType", options):
+            continue
+        cf = frappe.db.exists(
+            "Custom Field", {"dt": "User", "fieldname": field_def["fieldname"]}
+        )
+        if cf:
+            frappe.delete_doc(
+                "Custom Field", cf, ignore_permissions=True, force=True
+            )
+            print(
+                f"[AssetCore] Gỡ orphan Custom Field User.{field_def['fieldname']} "
+                f"(DocType đích {options!r} chưa tồn tại — desk khỏi crash; sẽ tạo lại "
+                f"khi doctype đích đã sync)."
+            )
+
+
 def create_user_custom_fields() -> None:
     """Tạo toàn bộ custom fields cho User nếu chưa có."""
+    # Dọn field orphan TRƯỚC: tránh `Missing DocType` crash khi target chưa sync.
+    _drop_orphan_user_link_fields()
     for field_def in _USER_CUSTOM_FIELDS:
         fieldname = field_def["fieldname"]
         if fieldname.endswith("_section"):
@@ -133,7 +174,103 @@ def _reconcile_approval_status_field() -> None:
         )
 
 
+def before_install() -> None:
+    """Rebuild module map TRƯỚC khi Frappe sync doctype — fix fresh-install cloud.
+
+    Triệu chứng đã gặp (cloud, bench đang chạy): `bench install-app assetcore` báo
+    `Workflow sync error … DocType <X> not found` cho MỌI doctype + `_seed_uoms` lỗi
+    `No module named 'frappe.core.doctype.ac_uom'`.
+
+    Nguyên nhân: trên bench cloud có web worker + scheduler sống, Redis cache key
+    `app_modules`/`all_apps` được nạp TRƯỚC khi assetcore thêm vào bench → cache cũ
+    KHÔNG có "assetcore". Khi tiến trình `install-app` boot, `setup_module_map()` đọc
+    cache cũ (truthy → KHÔNG rebuild) → `frappe.local.app_modules` thiếu key
+    "assetcore". `install_app()` gọi `frappe.clear_cache()` (xoá Redis key) NHƯNG
+    KHÔNG reset `local.app_modules` in-memory → vẫn cũ. `sync_for("assetcore")` lặp
+    `frappe.local.app_modules.get("assetcore") or []` → rỗng → 0/108 doctype được
+    sync → `after_install` (_sync_workflows/_seed_uoms) fail vì doctype chưa tồn tại
+    (`get_controller("AC UOM")` fallback `["Core", …]` → import `frappe.core.…`).
+
+    `install_app()` chạy `before_install` NGAY TRƯỚC `add_module_defs` + `sync_for`,
+    nên bust cache app-list/module-map ở đây + rebuild khiến `sync_for` thấy
+    assetcore và sync đủ doctype. Idempotent + no-op trên site đã đúng map (local dev).
+    Best-effort: lỗi rebuild KHÔNG được chặn install.
+    """
+    try:
+        _rebuild_module_map()
+        mods = (frappe.local.app_modules or {}).get("assetcore") or []
+        print(f"[AssetCore] before_install: module map rebuilt — assetcore modules={mods}")
+    except Exception as e:  # noqa: BLE001
+        frappe.log_error(
+            frappe.get_traceback(),
+            "AssetCore before_install: module map refresh failed",
+        )
+        print(f"[AssetCore] before_install warning: {e}")
+
+
+def _rebuild_module_map() -> None:
+    """Bust cache app-list/module-map rồi rebuild để Frappe thấy module 'assetcore'.
+
+    Xem docstring `before_install` cho bối cảnh: trên bench cloud đang chạy, Redis
+    cache `app_modules` cũ có thể thiếu "assetcore" → mọi cơ chế dựa vào
+    `frappe.local.app_modules` (sync_for, get_module_app) bỏ sót doctype của app.
+    """
+    frappe.cache.delete_value([
+        "app_modules",
+        "installed_app_modules",
+        "all_apps",
+        "installed_apps",
+        "module_app",
+        "module_installed_app",
+    ])
+    frappe.setup_module_map(include_all_apps=True)
+
+
+def _ensure_app_doctypes_synced() -> None:
+    """Self-heal: bảo đảm doctype của AssetCore đã được sync TRƯỚC các bước phụ thuộc.
+
+    `install_app()` của Frappe gọi `sync_for("assetcore")` trước `after_install`,
+    nhưng trên bench cloud đang chạy, `sync_for` có thể lặp 0 module (app_modules
+    cache cũ thiếu "assetcore") → 0/108 doctype được tạo → `_sync_workflows`,
+    `_seed_uoms` và cả `sync_fixtures` (chạy SAU after_install) đều fail
+    'DocType ... not found'. Hook `before_install` đã rebuild map để sync_for native
+    chạy đúng; hàm này là lớp phòng vệ thứ 2: nếu doctype VẪN thiếu khi after_install
+    chạy thì rebuild map + `sync_for(force=True)` thủ công ngay tại đây.
+
+    Idempotent: nếu doctype mốc ("AC Asset") đã tồn tại → no-op nhanh, không sync lại.
+    Vì hàm chạy ở ĐẦU after_install (trước workflow/UOM) và after_install chạy TRƯỚC
+    sync_fixtures trong install_app, sửa được ở đây = sạch toàn bộ chuỗi cài.
+    """
+    if frappe.db.exists("DocType", "AC Asset"):
+        return
+    try:
+        from frappe.model.sync import sync_for
+
+        _rebuild_module_map()
+        mods = (frappe.local.app_modules or {}).get("assetcore") or []
+        if not mods:
+            print(
+                "[AssetCore] after_install self-heal: app_modules vẫn thiếu 'assetcore' "
+                "sau rebuild — kiểm tra modules.txt/apps.txt + file doctype trên server."
+            )
+            return
+        sync_for("assetcore", force=True, reset_permissions=True)
+        frappe.db.commit()
+        synced = frappe.db.exists("DocType", "AC Asset")
+        print(
+            f"[AssetCore] after_install self-heal: sync_for('assetcore') xong "
+            f"(modules={mods}, AC Asset tồn tại={synced!r})."
+        )
+    except Exception as e:  # noqa: BLE001 — không chặn install; bước sau sẽ báo cụ thể
+        frappe.log_error(
+            frappe.get_traceback(),
+            "AssetCore after_install: ensure doctypes synced failed",
+        )
+        print(f"[AssetCore] after_install doctype self-heal warning: {e}")
+
+
 def after_install() -> None:
+    _ensure_app_doctypes_synced()
     _sync_workflows()
     _seed_uoms()
     create_user_custom_fields()
@@ -146,9 +283,107 @@ def after_install() -> None:
 
 
 def before_migrate() -> None:
-    """Xóa Has Role orphan rows thuộc AssetCore Role Profiles trước khi fixture sync.
-    Ngăn lỗi 'already has the role' khi Frappe delete+reinsert Role Profile fixture."""
+    """Rebuild module map + xóa Has Role orphan rows trước khi migrate sync schema.
+
+    `before_migrate` chạy TRƯỚC `sync_all()` (đồng bộ doctype) trong `bench migrate`.
+    Rebuild map ở đây bảo đảm đường RECOVERY (`bench migrate` chữa site đã lỡ cài
+    hỏng vì app_modules cache cũ) cũng sync đủ doctype — cùng lý do với `before_install`.
+    `_clear_role_profile_has_role_rows`: ngăn lỗi 'already has the role' khi Frappe
+    delete+reinsert Role Profile fixture."""
+    try:
+        _rebuild_module_map()
+    except Exception:
+        frappe.log_error(
+            frappe.get_traceback(),
+            "AssetCore before_migrate: module map refresh failed",
+        )
     _clear_role_profile_has_role_rows()
+
+
+def _asset_custom_fields_path() -> str:
+    """Đường dẫn JSON Custom Field cho ERPNext Asset.
+
+    LƯU Ý path: file ở `apps/assetcore/assetcore/config/...` (dưới Python PACKAGE),
+    KHÔNG ở dưới module folder. `get_app_path('assetcore')` đã = `.../assetcore/assetcore`
+    nên CHỈ thêm 'config' — KHÔNG thêm 'assetcore' nữa (bug cũ thêm dư → path không tồn
+    tại → _apply_erpnext_asset_custom_fields silent no-op trên site ERPNext).
+    """
+    return frappe.get_app_path(
+        "assetcore", "config", "erpnext_integration", "asset_custom_fields.json"
+    )
+
+
+def _load_asset_custom_field_names() -> list[str]:
+    """Đọc fieldname của Custom Field AssetCore đặt lên ERPNext Asset (từ JSON nguồn)."""
+    import json as _json
+    import os
+
+    json_path = _asset_custom_fields_path()
+    if not os.path.exists(json_path):
+        return []
+    with open(json_path) as f:
+        docs = _json.load(f)
+    return [d["fieldname"] for d in docs if d.get("fieldname")]
+
+
+def _foreign_custom_field_specs() -> list[tuple[str, str]]:
+    """(dt, fieldname) cho mọi Custom Field AssetCore đặt lên doctype KHÔNG thuộc app.
+
+    Gồm: User (Frappe core — 6 field IMM/ac_department) + Asset (ERPNext — custom_imm_*).
+    Dùng để gỡ sạch khi uninstall (Frappe không tự dọn field trên doctype ngoài app).
+    """
+    specs: list[tuple[str, str]] = [
+        ("User", fdef["fieldname"]) for fdef in _USER_CUSTOM_FIELDS
+    ]
+    try:
+        specs += [("Asset", fn) for fn in _load_asset_custom_field_names()]
+    except Exception:  # noqa: BLE001 — không có ERPNext / JSON lỗi → bỏ qua
+        pass
+    return specs
+
+
+def _remove_foreign_customizations() -> int:
+    """Xóa Custom Field AssetCore khỏi doctype core/ERPNext (User, Asset). Trả số đã xóa."""
+    removed = 0
+    for dt, fieldname in _foreign_custom_field_specs():
+        cf = frappe.db.exists("Custom Field", {"dt": dt, "fieldname": fieldname})
+        if cf:
+            frappe.delete_doc(
+                "Custom Field", cf, ignore_permissions=True, force=True
+            )
+            removed += 1
+    # Property Setter AssetCore trên doctype foreign (hiện không có, nhưng quét cho chắc).
+    for ps in frappe.get_all(
+        "Property Setter", filters={"module": "AssetCore"}, pluck="name"
+    ):
+        frappe.delete_doc("Property Setter", ps, ignore_permissions=True, force=True)
+        removed += 1
+    if removed:
+        frappe.db.commit()
+    return removed
+
+
+def before_uninstall() -> None:
+    """Dọn modification AssetCore lên doctype CORE/ERPNext TRƯỚC khi gỡ app.
+
+    AssetCore thêm Custom Field vào doctype KHÔNG thuộc app (User của Frappe, Asset
+    của ERPNext). `uninstall-app` của Frappe chỉ drop doctype thuộc module app → các
+    field này bị bỏ lại (orphan). Hậu quả: mở form User/Asset sau khi gỡ báo
+    `Field <x> is referring to non-existing doctype <Y>` (frappe/desk/form/meta.py
+    add_search_fields → get_meta → DoesNotExist). Hàm này xóa tường minh các field đó
+    (phủ cả field cũ tạo với module=None). Idempotent + best-effort: lỗi KHÔNG chặn gỡ.
+    """
+    try:
+        n = _remove_foreign_customizations()
+        print(
+            f"[AssetCore] before_uninstall: gỡ {n} customization khỏi doctype core/ERPNext "
+            f"(User/Asset Custom Field + Property Setter)."
+        )
+    except Exception:
+        frappe.log_error(
+            frappe.get_traceback(),
+            "AssetCore before_uninstall: remove foreign customizations failed",
+        )
 
 
 def after_migrate() -> None:
@@ -257,9 +492,7 @@ def _apply_erpnext_asset_custom_fields() -> None:
     if not frappe.db.exists("DocType", "Asset"):
         return
 
-    json_path = frappe.get_app_path(
-        "assetcore", "assetcore", "config", "erpnext_integration", "asset_custom_fields.json"
-    )
+    json_path = _asset_custom_fields_path()
     if not os.path.exists(json_path):
         return
 
@@ -267,6 +500,11 @@ def _apply_erpnext_asset_custom_fields() -> None:
         with open(json_path) as f:
             docs = _json.load(f)
         for doc in docs:
+            # Gắn module AssetCore (JSON gốc để None) → field được track theo app để
+            # uninstall dọn sạch khỏi doctype ERPNext Asset, không để orphan.
+            doc.setdefault("module", "AssetCore")
+            if not doc.get("module"):
+                doc["module"] = "AssetCore"
             _import_doc(doc, path=json_path)
         frappe.db.commit()
         print(f"[AssetCore] ERPNext Asset custom fields applied ({len(docs)} fields).")
