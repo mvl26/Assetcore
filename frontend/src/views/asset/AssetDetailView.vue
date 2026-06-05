@@ -3,7 +3,15 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAssetStore } from '@/stores/imm00'
-import { getAssetTimeline, getAssetKpi, verifyChain, deleteAsset } from '@/api/imm00'
+import {
+  getAssetTimeline, getAssetKpi, verifyChain, deleteAsset,
+  getAssetLabelData, markLabelPrinted, regenerateAssetQrToken, type AssetLabelData,
+} from '@/api/imm00'
+import AssetQrLabel from '@/components/asset/AssetQrLabel.vue'
+import {
+  LABEL_FORMATS, DEFAULT_LABEL_FORMAT_KEY, getLabelFormat, pageRuleFor,
+  type LabelFormatKey,
+} from '@/constants/label'
 import { getCommissioningOrigin, type CommissioningOrigin } from '@/api/imm04'
 import {
   createDecommission, approveDecommission,
@@ -43,6 +51,82 @@ const showTransitionModal = ref(false)
 const targetStatus = ref<LifecycleStatus | ''>('')
 const transitionReason = ref('')
 const activeTab = ref<'info' | 'depreciation' | 'timeline' | 'kpi' | 'audit'>('info')
+
+// ── A4: in nhãn QR cấp tài sản (preview ≠ ghi event) ────────────────────────────
+const showLabelModal = ref(false)
+const labelData = ref<AssetLabelData | null>(null)
+const labelLoading = ref(false)
+const labelError = ref<string | null>(null)
+const labelPrinting = ref(false)
+
+// Khổ tem chọn (SSoT @/constants/label — dùng chung với AssetLabelPrintView).
+// Mặc định A4 nhiều-nhãn = hành vi cũ; chọn tem vật lý → @page size mm + 1 tem/trang.
+const labelFormatKey = ref<LabelFormatKey>(DEFAULT_LABEL_FORMAT_KEY)
+const currentLabelFormat = computed(() => getLabelFormat(labelFormatKey.value))
+const labelPageRuleCss = computed(() => pageRuleFor(labelFormatKey.value))
+
+async function openLabelPreview() {
+  showLabelModal.value = true
+  labelData.value = null
+  labelError.value = null
+  labelLoading.value = true
+  try {
+    // Preview-only — getAssetLabelData KHÔNG ghi label_printed (BE D3).
+    labelData.value = await getAssetLabelData(props.id)
+  } catch (e: unknown) {
+    labelError.value = toApiError(e).message
+  } finally {
+    labelLoading.value = false
+  }
+}
+
+async function confirmPrintLabel() {
+  if (labelPrinting.value || !labelData.value) return
+  window.print()
+  // Ghi sự kiện in SAU khi in thật (label_printed + audit) — chỉ asset này.
+  labelPrinting.value = true
+  try {
+    await markLabelPrinted([props.id])
+    toast.show('Đã ghi nhận in nhãn QR.', 'success')
+  } catch (e: unknown) {
+    notify.fromError(toApiError(e))
+  } finally {
+    labelPrinting.value = false
+    showLabelModal.value = false
+  }
+}
+
+// ── B (hardening): cấp lại (rotate) mã QR — vô hiệu hoá nhãn cũ + token mới ──────
+// Gate hiển thị nút = can('asset.write') (rotate = thao tác GHI; BE gate asset.write).
+// Cảnh báo qua BaseModal (KHÔNG window.confirm). Xác nhận → regenerateAssetQrToken
+// → refetch asset (qr_url/nhãn phản ánh token mới) → toast VI. Huỷ → no-op (đóng modal).
+const showRegenModal = ref(false)
+const regenerating = ref(false)
+
+function openRegenModal() {
+  showRegenModal.value = true
+}
+
+async function confirmRegenQr() {
+  if (regenerating.value) return
+  regenerating.value = true
+  try {
+    await regenerateAssetQrToken(props.id)
+    // Refetch asset → nhãn/qr_url phản ánh token MỚI; token cũ vô hiệu.
+    await store.fetchOne(props.id)
+    showRegenModal.value = false
+    toast.success('Đã cấp lại mã QR. Nhãn QR đã in trước đó không còn hiệu lực.')
+  } catch (e: unknown) {
+    // Gate-error (403/404/IDOR) + rate-limit (429, Vòng 27 B / BR-00-38): notify VI
+    // verbatim. 429 → axios interceptor (handle429) đã dựng ApiError code=RATE_LIMITED
+    // + message VI cố định 'Bạn thao tác quá nhanh...' (SSoT, KHÔNG EN-leak/raw-code);
+    // notify.fromError render đúng bucket. KHÔNG leak EN/raw-code, KHÔNG trang trắng.
+    // GIỮ modal Sinh-lại MỞ (chỉ đóng khi thành công) → user thử lại/huỷ.
+    notify.fromError(toApiError(e))
+  } finally {
+    regenerating.value = false   // double-submit guard reset (cho phép thử lại sau 429)
+  }
+}
 
 // IMM-14: 'Decommissioned' CỐ TÌNH loại khỏi mọi transition trực tiếp — giải nhiệm
 // PHẢI đi qua "Hồ sơ giải nhiệm" (nút riêng + modal closure-record), không qua nút
@@ -280,8 +364,10 @@ onMounted(async () => {
       ]"
     >
       <template #actions>
-        <button v-if="store.currentAsset" class="btn-ghost text-sm" @click="router.push(`/assets/${id}/edit`)">Chỉnh sửa</button>
-        <button v-if="store.currentAsset" class="text-red-600 hover:text-red-800 text-sm font-medium px-3 py-1.5" @click="remove">Xóa</button>
+        <!-- B (least-privilege): nút ghi gate capability (parity với In/Sinh-lại QR line 373/385). asset.write = sửa. -->
+        <button v-if="store.currentAsset && can('asset.write')" class="btn-ghost text-sm" @click="router.push(`/assets/${id}/edit`)">Chỉnh sửa</button>
+        <!-- asset.delete là DocPerm delete RIÊNG — KHÔNG dùng chung asset.write. -->
+        <button v-if="store.currentAsset && can('asset.delete')" class="text-red-600 hover:text-red-800 text-sm font-medium px-3 py-1.5" @click="remove">Xóa</button>
       </template>
     </PageHeader>
 
@@ -297,16 +383,45 @@ onMounted(async () => {
             <h1 class="text-xl font-bold text-slate-900">{{ store.currentAsset.asset_name }}</h1>
             <p class="text-sm text-slate-400 mt-0.5">{{ store.currentAsset.name }}</p>
           </div>
-          <span
-            class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium"
-            :class="statusColor[store.currentAsset.lifecycle_status] || 'bg-gray-100 text-gray-600'"
-          >
-            {{ lifecycleLabel[store.currentAsset.lifecycle_status] || store.currentAsset.lifecycle_status }}
-          </span>
+          <div class="flex items-center gap-3">
+            <button
+              v-if="can('asset.write')"
+              class="btn-ghost text-sm inline-flex items-center gap-1.5"
+              title="Xem trước & in nhãn QR cho thiết bị này"
+              @click="openLabelPreview"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round"
+                  d="M4 4h6v6H4V4zm10 0h6v6h-6V4zM4 14h6v6H4v-6zm13 0h3m-3 3h3m-3 3h3" />
+              </svg>
+              In nhãn QR
+            </button>
+            <button
+              v-if="can('asset.write')"
+              class="btn-ghost text-sm inline-flex items-center gap-1.5"
+              title="Cấp lại mã QR — vô hiệu hoá mọi nhãn QR đã in trước đó"
+              data-testid="btn-regen-qr"
+              @click="openRegenModal"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round"
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              Sinh lại mã QR
+            </button>
+            <span
+              class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium"
+              :class="statusColor[store.currentAsset.lifecycle_status] || 'bg-gray-100 text-gray-600'"
+            >
+              {{ lifecycleLabel[store.currentAsset.lifecycle_status] || store.currentAsset.lifecycle_status }}
+            </span>
+          </div>
         </div>
 
-        <!-- Transition buttons -->
-        <div v-if="TRANSITIONS[store.currentAsset.lifecycle_status]?.length" class="mt-4 flex flex-wrap gap-2">
+        <!-- Transition buttons — B: chuyển trạng thái là mutating → gate asset.write
+             (ẩn cả label "Chuyển trạng thái:" lẫn nút →state cho user read-only).
+             GIỮ điều kiện length sẵn có: status không có transition (vd Decommissioned) vẫn ẩn. -->
+        <div v-if="can('asset.write') && TRANSITIONS[store.currentAsset.lifecycle_status]?.length" class="mt-4 flex flex-wrap gap-2">
           <span class="text-xs text-slate-400 self-center">Chuyển trạng thái:</span>
           <button
             v-for="s in TRANSITIONS[store.currentAsset.lifecycle_status]"
@@ -664,6 +779,106 @@ onMounted(async () => {
       </div>
     </template>
 
+    <!-- A4: QR Label preview Modal (inline — KHÔNG Teleport, để vùng .qr-label-sheet
+         in được + nút 'In tem' nằm trong DOM view). preview-only: chỉ gọi
+         getAssetLabelData; ghi event label_printed CHỈ khi bấm 'In tem'. -->
+    <div v-if="showLabelModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 qr-modal-chrome">
+      <div class="bg-white rounded-xl shadow-xl p-6 w-full max-w-md mx-4">
+        <div class="flex items-center justify-between mb-4 qr-modal-chrome">
+          <h3 class="font-semibold text-slate-900">Nhãn QR thiết bị</h3>
+          <button class="text-slate-400 hover:text-slate-600" aria-label="Đóng" @click="showLabelModal = false">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <!-- Selector khổ tem (SSoT, dùng chung AssetLabelPrintView). Mặc định A4. -->
+        <label class="flex items-center gap-2 text-sm text-slate-600 mb-3 qr-modal-chrome">
+          <span>Khổ tem</span>
+          <select
+            v-model="labelFormatKey"
+            class="border border-slate-300 rounded px-2 py-1 text-sm"
+            aria-label="Chọn khổ tem in nhãn"
+          >
+            <option v-for="f in LABEL_FORMATS" :key="f.key" :value="f.key">
+              {{ f.label }}
+            </option>
+          </select>
+        </label>
+
+        <!-- Loading -->
+        <div v-if="labelLoading" class="py-8 text-center text-slate-400" aria-busy="true">
+          Đang tải dữ liệu nhãn…
+        </div>
+        <!-- Error -->
+        <div v-else-if="labelError" class="alert-error flex items-center gap-3" role="alert">
+          <span class="flex-1">{{ labelError }}</span>
+          <button class="text-sm underline" @click="openLabelPreview">Thử lại</button>
+        </div>
+        <!-- Preview — 1 tem đơn; lớp khổ tem để CSS in áp đúng @page/grid. -->
+        <div
+          v-else-if="labelData"
+          class="qr-label-sheet"
+          :class="`qr-label-sheet--${labelFormatKey}`"
+          :data-format="labelFormatKey"
+        >
+          <AssetQrLabel
+            :label="labelData"
+            :format="labelFormatKey"
+            :qr-size="currentLabelFormat.qrSizePx"
+          />
+        </div>
+
+        <div class="flex gap-2 justify-end mt-5 qr-modal-chrome">
+          <button class="btn-ghost text-sm" @click="showLabelModal = false">Đóng</button>
+          <button
+            class="btn-primary text-sm"
+            :disabled="labelPrinting || !labelData"
+            @click="confirmPrintLabel"
+          >
+            {{ labelPrinting ? 'Đang ghi nhận…' : 'In tem' }}
+          </button>
+        </div>
+      </div>
+
+      <!-- @page động cho TEM vật lý (1 tem/trang khít khổ). A4 → '' (không ép). -->
+      <component :is="'style'" v-if="labelPageRuleCss" data-testid="label-page-rule">
+        @media print { {{ labelPageRuleCss }} }
+      </component>
+    </div>
+
+    <!-- B (hardening): Modal cảnh báo cấp lại (rotate) mã QR -->
+    <BaseModal
+      v-if="showRegenModal"
+      title="Cấp lại mã QR thiết bị"
+      size="md"
+      danger
+      @close="showRegenModal = false"
+    >
+      <div class="space-y-3 text-sm">
+        <div class="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2.5 text-amber-800" role="alert">
+          Thao tác này sẽ <strong>vô hiệu hoá mọi nhãn QR đã in</strong> trước đó cho thiết bị này.
+          Mã QR cũ sẽ không còn quét được — bạn cần in lại nhãn mới sau khi cấp lại.
+        </div>
+        <p class="text-slate-600">
+          Chỉ thực hiện khi mã QR hiện tại bị lộ hoặc nhãn cũ thất lạc. Bạn có chắc chắn?
+        </p>
+      </div>
+      <template #footer>
+        <button class="btn-ghost text-sm" @click="showRegenModal = false">Huỷ</button>
+        <button
+          class="text-sm px-4 py-2 rounded-lg font-medium text-white transition-colors"
+          :class="regenerating ? 'bg-slate-300 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700'"
+          :disabled="regenerating"
+          data-testid="regen-confirm"
+          @click="confirmRegenQr"
+        >
+          {{ regenerating ? 'Đang xử lý...' : 'Xác nhận cấp lại' }}
+        </button>
+      </template>
+    </BaseModal>
+
     <!-- Transition Modal -->
     <div v-if="showTransitionModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
       <div class="bg-white rounded-xl shadow-xl p-6 w-full max-w-md mx-4">
@@ -806,3 +1021,32 @@ onMounted(async () => {
     </BaseModal>
 </div>
 </template>
+
+<style scoped>
+/* A4 — khi in nhãn 1 tài sản từ modal: chỉ hiện vùng .qr-label-sheet,
+   ẩn chrome modal (tiêu đề/nút) + nội dung trang. break-inside:avoid nằm
+   trong AssetQrLabel để không cắt đôi nhãn. */
+.qr-label-sheet {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.5rem;
+}
+@media print {
+  .qr-modal-chrome { display: none !important; }
+  /* Tem vật lý in 1 tem đơn: khít khổ @page, không lề thừa. */
+  .qr-label-sheet--tem-50x30,
+  .qr-label-sheet--tem-70x40 {
+    display: block;
+    gap: 0;
+  }
+  .qr-label-sheet--tem-50x30 > *,
+  .qr-label-sheet--tem-70x40 > * { height: 100%; }
+}
+</style>
+
+<style>
+/* Print global: ẩn shell app (sidebar/topbar) + backdrop modal khi in từ màn này. */
+@media print {
+  .app-sidebar, .app-topbar, .app-shell__nav { display: none !important; }
+}
+</style>

@@ -224,7 +224,13 @@ export interface DashboardStats {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface QrLabelData {
+  /** Chuỗi tag nội bộ cũ (BV-DEPT-YYYY-SEQ) — CHỈ dùng fallback nhãn khi phiếu
+   *  chưa release (chưa có asset). Tương thích ngược scanner-wedge. */
   qr_value: string
+  /** B (dedup): deep-link asset tuyệt đối /a/<token> (enumeration-safe). Có giá
+   *  trị khi phiếu đã release (final_asset đã mint); null khi chưa release. Là
+   *  CHUỖI DUY NHẤT mã hoá vào ảnh QR khi hiện diện — quét mobile mở AssetScanInfo. */
+  qr_url: string | null
   label: {
     title: string
     commissioning_id: string
@@ -239,7 +245,8 @@ export interface QrLabelData {
     asset_id: string
     print_date: string
   }
-  scan_url: string
+  /** Liên kết kho tài liệu thiết bị (giữ nguyên, ngoài scope dedup QR). */
+  docs_url?: string | null
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

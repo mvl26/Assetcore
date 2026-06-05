@@ -21,6 +21,7 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { resolveRouteAccess, type RouteAccessMeta } from './routeAccess'
+import { FRAPPE_ADMIN_ROLES } from '@/constants/roles'
 // LL-FE-22: route-guard giờ gate hoàn toàn bằng capability (requiredCapabilities)
 // + moduleId fallback. Không còn import `ROLES_*` empty-stub (no-op) từ
 // constants/roles.ts — đồng bộ với sidebar (sidebarNav.ts) dùng useCapabilities.
@@ -94,10 +95,48 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, title: 'Quét QR — GMDN Status' },
   },
   {
+    // A2 (ADR-001 D4): deep-link QR cấp tài sản /a/<token> → resolver MỎNG →
+    // resolve_qr_token → router.replace('/assets/:id'). Gate asset.read (literal —
+    // valid SAU khi BE thêm domain Asset vào _DOMAIN_PRIMARY; cap-set 89→95).
+    // requiresAuth: NĐ98 — KHÔNG public-anonymous; login redirect giữ deep-link
+    // qua query.redirect (router.beforeEach). Token sai/403 → màn lỗi VI trong
+    // view (KHÔNG trang trắng).
+    path: '/a/:token',
+    name: 'QrDeepLink',
+    component: () => import('@/views/system/QrResolveView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Tra cứu thiết bị', requiredCapabilities: ['asset.read'] },
+  },
+  {
+    // A6: màn THÔNG TIN thiết bị mobile-first khi quét QR (deep-link landing).
+    // QrResolveView resolve token → router.replace(name='AssetScanInfo') vào ĐÂY
+    // (read-only, 1-cột) — KHÔNG vào AssetDetail (màn admin nặng). Static segment
+    // '/info' → KHÔNG collide /assets/:id hay /assets/:id/edit. Gate asset.read
+    // (tái dùng cap A2 — KHÔNG cap mới); defense-in-depth với BE require('asset.read').
+    path: '/assets/:id/info',
+    name: 'AssetScanInfo',
+    component: () => import('@/views/asset/AssetScanInfoView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Thông tin thiết bị', requiredCapabilities: ['asset.read'] },
+  },
+  {
     path: '/assets/new',
     name: 'AssetCreate',
     component: () => import('@/views/asset/AssetCreateView.vue'),
     meta: { requiresAuth: true, title: 'Thêm Thiết bị', requiredCapabilities: ['data.create'] },
+  },
+  {
+    // A4 (ADR-001 D3): in nhãn QR HÀNG LOẠT. AssetList chọn N asset → push
+    // {name:'AssetLabelPrint', query:{names:'A1,A2,A3'}} → batch fetch 1 lần
+    // (chống N+1). Static 2-segment path → KHÔNG collide /assets/:id. B (siết
+    // RBAC least-privilege): gate asset.WRITE — in/ghi label_printed là side-effect
+    // (ghi ALE label_printed + audit), KHÔNG phải read-only. User chỉ-đọc
+    // (asset.read, KHÔNG asset.write) → unauthorized, KHÔNG vào được màn in.
+    // Mirror BE: get_asset_label_data_batch/mark_label_printed require('asset.write').
+    path: '/assets/labels/print',
+    name: 'AssetLabelPrint',
+    component: () => import('@/views/asset/AssetLabelPrintView.vue'),
+    meta: { requiresAuth: true, title: 'In nhãn QR hàng loạt', requiredCapabilities: ['asset.write'] },
   },
   {
     path: '/assets/:id',
@@ -1047,9 +1086,10 @@ router.beforeEach(async (to, _from, next) => {
   // Manager / Administrator bypass. Ưu tiên meta.requiredCapabilities; legacy
   // meta.requiredRoles chỉ gate nếu non-empty (stub `[]` no-op); cuối cùng
   // fallback moduleId → `<domain>.read`.
-  const isFrappeAdmin = auth.hasAnyRole([
-    'System Manager', 'Administrator', 'AssetCore Super Admin',
-  ])
+  // Tiêu chí admin-role lấy từ SSoT FRAPPE_ADMIN_ROLES (constants/roles.ts) —
+  // CÙNG nguồn auth.can() dùng để admin-bypass button-gate → route-gate và
+  // button-gate KHÔNG lệch (B affordance↔route parity). KHÔNG lặp literal mảng.
+  const isFrappeAdmin = auth.hasAnyRole(FRAPPE_ADMIN_ROLES)
 
   // Lazy load capabilities neu cache rong (admin van can de cac guard khac chay)
   if (!isFrappeAdmin && Object.keys(auth.capabilities ?? {}).length === 0) {

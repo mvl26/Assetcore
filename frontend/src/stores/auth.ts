@@ -14,7 +14,7 @@ import { loginPath } from '@/utils/navigation'
 import { getUserContext } from '@/api/layout'
 import api, { setCsrfToken } from '@/api/axios'
 import type { FrappeUser } from '@/types/imm04'
-import { Roles, ALL_IMM_ROLES } from '@/constants/roles'
+import { Roles, ALL_IMM_ROLES, FRAPPE_ADMIN_ROLES } from '@/constants/roles'
 
 // Re-export role constants for backward compatibility with legacy components.
 export const ROLE_SYS_ADMIN = Roles.SYS_ADMIN
@@ -43,7 +43,7 @@ const CAP_DOC_APPROVE = 'doc.approve'
 // (forward-compat FE-3); nếu BE chưa wire → fallback hằng số NÀY.
 // SoT: assetcore/services/shared/rbac.py::CAP_SET_VERSION (bench execute
 // assetcore.services.shared.rbac._compute_cap_set_version để lấy giá trị hiện tại).
-export const CAP_SET_VERSION = 'v89.2df4c16c2bbd'
+export const CAP_SET_VERSION = 'v95.3388ee5629c1'
 
 /**
  * SSoT cho quyết định invalidate cache caps theo version-stamp (FE-2/AC4).
@@ -95,11 +95,25 @@ export const useAuthStore = defineStore('auth', () => {
   const hasAnyRole = (checkRoles: readonly string[]) =>
     checkRoles.some((r) => roleSet.value.has(r))
 
-  /** Capability lookup — code dung `can('pm.write')`, khong so role-name. */
-  const can = (cap: string): boolean => capabilities.value[cap] === true
+  // SSoT admin-bypass: KHỚP rule #1 của resolveRouteAccess (route-guard). Tiêu chí
+  // admin-role dùng CHUNG hằng FRAPPE_ADMIN_ROLES với router/index.ts → route-gate
+  // và button-gate KHÔNG còn split-brain (vào được trang nhưng mất nút). admin-role
+  // = full platform access (đồng nhất route bypass + BE DocPerm bao trùm).
+  const isFrappeAdmin = computed(() => hasAnyRole(FRAPPE_ADMIN_ROLES))
+
+  /**
+   * Capability lookup — code dung `can('pm.write')`, khong so role-name.
+   *
+   * Admin-bypass (B affordance↔route parity): admin-role → can()=true cho MỌI cap,
+   * y hệt resolveRouteAccess rule #1. Nhờ vậy với 1 admin cap-set rỗng `asset.*`,
+   * route-gate VÀ button-gate trả CÙNG kết quả (đều allow/đều hiện). Non-admin giữ
+   * THUẦN-CAP (capabilities[cap]===true) — KHÔNG nới quyền (least-privilege).
+   * useCapabilities().can() tự kế thừa vì gọi auth.can().
+   */
+  const can = (cap: string): boolean => isFrappeAdmin.value || capabilities.value[cap] === true
 
   // ── Legacy `isXxx` — wrap capability de view chua refactor khong vo ─────
-  const isSystemAdmin = computed(() => can('data.admin') || hasRole('AssetCore Super Admin'))
+  const isSystemAdmin = computed(() => isFrappeAdmin.value || can('data.admin'))
   const isQAOfficer = computed(() => can('compliance.write'))
   const isDeptHead = computed(() => can('commissioning.submit'))
   const isOpsManager = computed(() => can('commissioning.submit'))
@@ -243,6 +257,7 @@ export const useAuthStore = defineStore('auth', () => {
   return {
     user, loading, bootstrapping, error,
     isAuthenticated, roles, roleProfileName, capabilities,
+    isFrappeAdmin,
     isSystemAdmin, isQAOfficer, isDeptHead, isOpsManager,
     isWorkshopLead, isTechnician, isDocOfficer, hasAnyImmRole,
     canCreate, canSubmit, canApprove, canViewDashboard, canManageDocs,

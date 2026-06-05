@@ -49,6 +49,142 @@ export function validateForOperations(name: string): Promise<{ valid: boolean; r
   return frappeGet(`${BASE}.validate_for_operations`, { name })
 }
 
+// ─── QR deep-link (A2 — ADR-001 D4) ────────────────────────────────────────────
+// Payload tối thiểu trả từ resolve_qr_token — A2 CHỈ resolve + định danh; màn info
+// đầy đủ là /assets/:id (A6/V7). Khớp 1-1 với service BE resolve_qr_token.
+export interface QrResolvePayload {
+  name: string
+  asset_code: string
+  lifecycle_status: string
+  device_model_name: string
+  location_name: string
+}
+
+/**
+ * Tra mã QR deep-link (/a/<token>) → định danh asset.
+ * Mirror BE `assetcore.api.imm00.resolve_qr_token` (naming contract).
+ * Lỗi: 403 (thiếu asset.read) / 404 (token sai/không tồn tại) → ApiError, view
+ * QrResolveView bắt và render màn lỗi VI (KHÔNG redirect).
+ */
+export function resolveQrToken(token: string): Promise<QrResolvePayload> {
+  return frappeGet(`${BASE}.resolve_qr_token`, { token })
+}
+
+// ─── QR scan info (A6 — màn THÔNG TIN thiết bị mobile-first) ────────────────────
+// Payload màn info read-only khi quét QR (deep-link landing). Mở rộng A2 với
+// asset_name + bảo trì gần nhất + next_pm_date. lifecycle_status là MÃ CANONICAL
+// (FE dịch nhãn VI qua SSoT lifecycleStatusLabel — KHÔNG leak mã EN thô ra UI).
+// Khớp 1-1 với service BE build_asset_scan_info. KHÔNG field nhạy cảm (giá mua,
+// khấu hao, audit chain, supplier code).
+export interface RecentMaintenance {
+  event_type: string
+  date: string | null
+}
+export interface AssetScanInfo {
+  name: string
+  asset_code: string
+  asset_name: string
+  device_model_name: string
+  location_name: string
+  lifecycle_status: string
+  recent_maintenance: RecentMaintenance | null
+  next_pm_date: string | null
+  // Cờ PM quá hạn derive SERVER-SIDE (timezone-safe) — FE CHỈ render, KHÔNG so
+  // ngày bằng client clock. true ⟺ next_pm_date quá khứ ∧ thiết bị còn dùng.
+  pm_overdue: boolean
+  // Chiều HIỆU CHUẨN (FR-00-86 / BR-00-37) — song song next_pm_date/pm_overdue.
+  next_calibration_date: string | null
+  // Cờ HIỆU CHUẨN quá hạn derive SERVER-SIDE (timezone-safe) — FE CHỈ render cờ,
+  // KHÔNG so next_calibration_date với client clock. true ⟺ next_calibration_date
+  // quá khứ ∧ thiết bị còn dùng (∉ Out of Service/Decommissioned).
+  calibration_overdue: boolean
+}
+
+/**
+ * Lấy payload màn thông tin thiết bị mobile-first khi quét QR (A6).
+ * Mirror BE `assetcore.api.imm00.get_asset_scan_info` (naming contract — path =
+ * tên function BE). Resolve theo `token` (deep-link QR) HOẶC `name` (điều hướng
+ * nội bộ). Lỗi: 403 (thiếu asset.read / IDOR vendor) / 404 (token|name sai) →
+ * ApiError; AssetScanInfoView bắt và render màn lỗi VI (KHÔNG trang trắng).
+ */
+export function getAssetScanInfo(params: { token?: string; name?: string }): Promise<AssetScanInfo> {
+  return frappeGet(`${BASE}.get_asset_scan_info`, params as Record<string, unknown>)
+}
+
+// ─── QR label print (A4 — ADR-001 D3) ──────────────────────────────────────────
+// Payload nhãn QR cấp tài sản (6 field). Khớp 1-1 với service BE
+// build_asset_label_data — qr_url là chuỗi tuyệt đối /a/<token>, FE encode TRỰC
+// TIẾP vào QR ảnh (KHÔNG tự build URL, KHÔNG mã hoá chuỗi tag commissioning).
+export interface AssetLabelData {
+  name: string
+  asset_code: string
+  device_model_name: string
+  location_name: string
+  lifecycle_status: string
+  qr_url: string
+}
+
+// Batch item: payload hợp lệ HOẶC ô lỗi {name, error} (AC-E001 = asset không tồn tại).
+// BE giữ ĐÚNG thứ tự input → index ổn định cho FE render.
+export interface BatchLabelErrorItem {
+  name: string
+  error: string
+}
+export type BatchLabelItem = AssetLabelData | BatchLabelErrorItem
+
+/** Type guard — phân biệt ô lỗi với payload nhãn hợp lệ. */
+export function isBatchLabelError(item: BatchLabelItem): item is BatchLabelErrorItem {
+  return 'error' in item && typeof (item as BatchLabelErrorItem).error === 'string'
+}
+
+/**
+ * Lấy dữ liệu in nhãn QR cho 1 asset (READ-ONLY — KHÔNG ghi label_printed).
+ * Mirror BE `assetcore.api.imm00.get_asset_label_data` (naming contract).
+ */
+export function getAssetLabelData(asset: string): Promise<AssetLabelData> {
+  return frappeGet(`${BASE}.get_asset_label_data`, { asset })
+}
+
+/**
+ * Lấy dữ liệu in nhãn QR hàng loạt — 1 LẦN gọi (chống N+1), giữ ĐÚNG thứ tự.
+ * Mirror BE `assetcore.api.imm00.get_asset_label_data_batch`.
+ * List-param convention: JSON.stringify (BE parse_json khi nhận chuỗi) — GET
+ * repeat-key không tin cậy qua form_dict.
+ */
+export function getAssetLabelDataBatch(assets: string[]): Promise<BatchLabelItem[]> {
+  return frappeGet(`${BASE}.get_asset_label_data_batch`, { assets: JSON.stringify(assets) })
+}
+
+/**
+ * Ghi sự kiện in nhãn (label_printed + audit) cho MỖI asset — gọi SAU khi in thật.
+ * Mirror BE `assetcore.api.imm00.mark_label_printed` (POST). preview KHÔNG gọi.
+ * POST body JSON → gửi mảng NATIVE (BE parse_json bỏ qua list, dùng thẳng) — KHÔNG
+ * stringify (khác GET batch: GET cần JSON-string vì form_dict repeat-key không tin cậy).
+ */
+export function markLabelPrinted(assets: string[]): Promise<{ printed: string[]; event_count: number }> {
+  return frappePost(`${BASE}.mark_label_printed`, { assets })
+}
+
+// ─── QR token rotate (B — hardening) ────────────────────────────────────────────
+// Cấp lại (rotate) qr_token bị lộ: vô hiệu hoá MỌI nhãn QR đã in (token cũ KHÔNG
+// còn resolve) + cấp token mới. KHÁC getAssetLabelData (read-only): đây là thao
+// tác GHI (gate asset.write ở BE). Trả qr_url MỚI để refresh nhãn/print —
+// KHÔNG surface token thô (ADR-001 §D4 rule 9: no-raw-token, FE chỉ cần qr_url).
+export interface RegenerateQrResult {
+  name: string
+  qr_url: string
+}
+
+/**
+ * Cấp lại (rotate) mã QR cho 1 asset — vô hiệu hoá nhãn cũ + token mới (POST).
+ * Mirror BE `assetcore.api.imm00.regenerate_asset_qr_token` (naming contract).
+ * Gate asset.write ở BE → user chỉ-đọc nhận 403; vendor ngoài scope 403 (IDOR);
+ * asset không tồn tại 404 → ApiError, view bắt và notify VI (KHÔNG white-screen).
+ */
+export function regenerateAssetQrToken(asset: string): Promise<RegenerateQrResult> {
+  return frappePost(`${BASE}.regenerate_asset_qr_token`, { asset })
+}
+
 // ─── AC Supplier ──────────────────────────────────────────────────────────────
 
 export function listSuppliers(page = 1, page_size = 50, search = ''): Promise<PaginatedResponse<AcSupplier>> {
