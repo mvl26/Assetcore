@@ -241,6 +241,30 @@ State Transition Testing — mỗi edge = 1 test pass + 1 test fail (sai role / 
 
 → 04 Backend §Audit Trail · DocType `IMM Audit Trail` (kế thừa IMM-00). Hook qua `_log()` → `imm00.log_audit_event()`; không bypass.
 
+### III.5.a V4-GATE — Canonical lifecycle event `incident_reported` + provenance (BR-12-16 / TC-12-LIFECYCLE-PROV)
+
+> Mục tiêu (AC2): sau `report_incident` thành công → trục lifecycle event canonical + provenance nguồn báo hỏng + hash-chain KHÔNG vỡ.
+
+| Test | Setup | Verify | Trạng thái |
+|---|---|---|---|
+| `test_report_emits_incident_reported_lifecycle` | `report_incident(asset, ...)` thành công | ≥1 `Asset Lifecycle Event` `event_type='incident_reported'` cho asset (KHÔNG còn CHỈ generic audit `event_type='Incident'`) | ⬜ Planned |
+| `test_provenance_qr_scan` | `report_incident(..., source="qr-scan")` | lifecycle `notes` chứa "qr-scan" + audit `change_summary` chứa "qr-scan" | ⬜ Planned |
+| `test_provenance_manual_default` | `report_incident(...)` (không truyền source) | `notes`/`change_summary` chứa "manual" (default) | ⬜ Planned |
+| `test_provenance_invalid_source_falls_back_manual` | `report_incident(..., source="bogus")` | coi như "manual" (KHÔNG throw) | ⬜ Planned |
+| `test_audit_chain_valid_after_report` | `report_incident(...)` | `verify_audit_chain(asset)['valid'] == True` (lifecycle KHÔNG trong chain; audit-row mới hash hợp lệ) | ⬜ Planned |
+| `test_lifecycle_root_link_set` | `report_incident(...)` | lifecycle event `root_doctype="Incident Report"` + `root_record=<IR>` (KHÔNG bị nuốt — pattern IMM-09) | ⬜ Planned |
+
+### III.5.b V4-GATE — FE field-lock + source (BR-12-16 D3 / TC-12-LOCK-SRC)
+
+**File (MỚI):** `frontend/src/views/incident/IncidentCreateView.test.ts`.
+
+| Test | Setup | Verify | Trạng thái |
+|---|---|---|---|
+| `test_qr_scan_locks_asset` | mount `?asset=X&source=qr-scan` | `SmartSelect` `disabled` (user KHÔNG đổi được) + prefill `X` | ⬜ Planned |
+| `test_qr_scan_payload_source` | submit với deep-link qr-scan | `reportIncident` payload chứa `source='qr-scan'` | ⬜ Planned |
+| `test_manual_editable_no_regression` | mount `/incidents/new` (không query) | `SmartSelect` editable + payload `source='manual'` | ⬜ Planned |
+| `test_qr_scan_without_asset_not_locked` | `?source=qr-scan` (KHÔNG asset) | `SmartSelect` KHÔNG khoá (fallback editable) | ⬜ Planned |
+
 ## III.6. API test
 
 **File:** `assetcore/tests/test_imm12.py` (API layer — 14 endpoint LIVE). Cover: happy + envelope `success=true`, invalid params → `VALIDATION`, no permission → 403/`FORBIDDEN`, pagination, idempotent retry.
@@ -253,7 +277,9 @@ State Transition Testing — mỗi edge = 1 test pass + 1 test fail (sai role / 
 | `test_get_not_found` | `get_incident?name=FAKE` | success=false / NOT_FOUND | Error guessing | ⬜ Planned |
 | `test_report_incident_happy` | `report_incident` (Medium) | success=true, IR name | Use Case | ⬜ Planned |
 | `test_report_critical_no_clinical_impact` | `report_incident` (Critical, no impact) | VALIDATION | EP | ⬜ Planned |
-| `test_report_no_permission` | `report_incident` (AssetCore System User) | FORBIDDEN / 403 | EP (permission partition) | ⬜ Planned |
+| `test_report_no_permission` **(V4 BR-12-15 / TC-12-CAPGATE)** | `report_incident` — user CÓ `corrective.read` NHƯNG KHÔNG `corrective.create` | **403** + message KHÔNG chứa raw `'corrective.create'` (no-leak) | EP (permission partition) | ⬜ Planned |
+| `test_report_has_create_ok` **(V4 BR-12-15)** | `report_incident` — user CÓ `corrective.create` | 200 + Incident tạo | EP | ⬜ Planned |
+| `test_capgate_3tier_parity` **(V4 BR-12-15)** | route-guard `IncidentCreate` ∧ scan-action `report_failure.capability` ∧ API gate | ĐỀU == `corrective.create` (test tương đẳng 3 binding) | Equivalence | ⬜ Planned |
 | `test_acknowledge_incident` | `acknowledge_incident` | status=Acknowledged, acknowledged_at set | Use Case | ⬜ Planned |
 | `test_resolve_high_triggers_rca` | `resolve_incident` (High) | RCA Required + RCA created | Use Case | ⬜ Planned |
 | `test_close_high_rca_incomplete` | `close_incident` (High, RCA In Progress) | BUSINESS_RULE (BR-12-02) | Decision Table | ⬜ Planned |

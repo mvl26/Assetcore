@@ -18,7 +18,7 @@
 
 | # | Endpoint (actual @frappe.whitelist name) | Method | Mô tả | Role guard | US |
 |---|---|---|---|---|---|
-| 1 | `assetcore.api.imm12.report_incident` | POST | Tạo Incident Report | authenticated | US-12-01 |
+| 1 | `assetcore.api.imm12.report_incident` | POST | Tạo Incident Report | **`corrective.create`** (V4 D1) | US-12-01 |
 | 2 | `assetcore.api.imm12.get_incident` | GET | Chi tiết 1 IR (calls `get_incident_detail`) | authenticated | US-12-07 |
 | 3 | `assetcore.api.imm12.list_incidents` | GET | List IR với filter + pagination | authenticated | US-12-07 |
 | 4 | `assetcore.api.imm12.acknowledge_incident` | POST | Open → Acknowledged (hoặc → In Progress) | ROLES_INVESTIGATE | US-12-02 |
@@ -128,7 +128,7 @@ FE đọc `response.data.data` (axios + Frappe lớp ngoài đã wrap).
 |---|---|
 | Method | POST |
 | Path | `/api/method/assetcore.api.imm12.report_incident` |
-| Role | Authenticated (Guest → 401) |
+| Role | **Cap-gate `corrective.create`** (V4-GATE D1) — Guest → 401; authenticated thiếu `corrective.create` → **403** (message VI sạch, KHÔNG leak raw cap) |
 | Idempotent | No |
 
 **Request (actual parameters — `fault_description` KHÔNG tồn tại):**
@@ -144,7 +144,8 @@ FE đọc `response.data.data` (axios + Frappe lớp ngoài đã wrap).
   "patient_affected": 0,
   "patient_impact_description": "",
   "immediate_action": "",
-  "linked_repair_wo": ""
+  "linked_repair_wo": "",
+  "source": "qr-scan"                        // V4 D2: provenance enum {manual,qr-scan}; mặc định "manual" nếu thiếu/lạ
 }
 ```
 
@@ -165,16 +166,20 @@ FE đọc `response.data.data` (axios + Frappe lớp ngoài đã wrap).
 ```
 
 **Errors:**
-| Code (BE) | Code (FE) | Khi nào |
-|---|---|---|
-| `BUSINESS_RULE` | `BUSINESS_RULE_VIOLATION` | Critical + không có clinical_impact (BR-12-01) |
-| `VALIDATION` | `VALIDATION_ERROR` | Thiếu required fields |
-| `NOT_FOUND` | `NOT_FOUND` | Asset không tồn tại |
+| HTTP | Code (BE) | Code (FE) | Khi nào |
+|---|---|---|---|
+| 401 | `UNAUTHENTICATED` | — | Guest (chưa đăng nhập) |
+| **403** | `PERMISSION` | `FORBIDDEN` | **V4 D1:** authenticated thiếu `corrective.create` — message "Không có quyền thực hiện hành động này" (KHÔNG chứa raw cap `corrective.create`) |
+| 422 | `BUSINESS_RULE` | `BUSINESS_RULE_VIOLATION` | Critical + không có clinical_impact (BR-12-01) |
+| 422 | `VALIDATION` | `VALIDATION_ERROR` | Thiếu required fields |
+| 404 | `NOT_FOUND` | `NOT_FOUND` | Asset không tồn tại |
 
-**Side effects (Critical):**
-- `imm00.transition_asset_status(asset, "Out of Service")`
-- `imm00.create_lifecycle_event(asset, "incident_reported", ...)`
-- `imm00.log_audit_event(...)`
+**Side effects (mọi severity — V4 D2):**
+- `imm00.create_lifecycle_event(asset, "incident_reported", root_doctype="Incident Report", root_record=<IR>, notes="Báo hỏng ({source_label}) — …")` — canonical lifecycle event + provenance.
+- `imm00.log_audit_event(...)` `change_summary` thêm provenance `({source_label})` (hash-chain GIỮ).
+
+**Side effects bổ sung (Critical):**
+- `imm00.transition_asset_status(asset, "Out of Service")` (BR-12-04)
 - Email BGĐ + Workshop Lead
 
 ---

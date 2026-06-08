@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { reportIncident } from '@/api/imm12'
 import SmartSelect from '@/components/common/SmartSelect.vue'
@@ -8,6 +8,10 @@ import { incidentSeverityLabel, INCIDENT_TYPE_LABEL } from '@/constants/labels'
 
 const router = useRouter()
 const route = useRoute()
+
+// Provenance nguồn báo sự cố (mirror BE contract): chỉ 'qr-scan' khi điều hướng từ
+// màn quét QR mới được coi là qr-scan, mọi giá trị khác (kể cả thiếu) → 'manual'.
+const querySource = route.query.source === 'qr-scan' ? 'qr-scan' : 'manual'
 
 const form = ref({
   asset: (route.query.asset as string) || '',
@@ -20,6 +24,7 @@ const form = ref({
   clinical_impact: '',
   patient_affected: false,
   patient_impact_description: '',
+  source: querySource as 'manual' | 'qr-scan',
 })
 
 const { clear: clearDraft } = useFormDraft('incident-create', form)
@@ -28,6 +33,11 @@ const { clear: clearDraft } = useFormDraft('incident-create', form)
 // có draft cũ trong localStorage (user vừa click "Báo sự cố" trên trang chi tiết).
 const queryAsset = (route.query.asset as string) || ''
 if (queryAsset) form.value.asset = queryAsset
+// Khoá ô Thiết bị KHI và CHỈ KHI đến từ quét QR (source=qr-scan) + có asset prefill.
+// Tạo thủ công (manual / không source) → ô Thiết bị editable như cũ (no regression).
+const lockedFromScan = computed(
+  () => route.query.source === 'qr-scan' && !!queryAsset,
+)
 
 const saving = ref(false)
 const error = ref('')
@@ -62,6 +72,7 @@ async function submit() {
       patient_affected: form.value.patient_affected ? 1 : 0,
       patient_impact_description: form.value.patient_impact_description,
       immediate_action: form.value.immediate_action,
+      source: form.value.source,
     })
     if (res?.name) {
       clearDraft()
@@ -87,8 +98,20 @@ async function submit() {
       <div v-if="error" class="text-red-600 text-sm bg-red-50 px-3 py-2 rounded-lg">{{ error }}</div>
 
       <div>
-        <label class="block text-sm font-medium text-slate-700 mb-1">Thiết bị <span class="text-red-500">*</span></label>
-        <SmartSelect v-model="form.asset" doctype="AC Asset" placeholder="Tìm thiết bị theo tên / mã / serial..." />
+        <label class="block text-sm font-medium text-slate-700 mb-1">
+          Thiết bị <span class="text-red-500">*</span>
+          <span
+            v-if="lockedFromScan"
+            role="status"
+            aria-live="polite"
+            class="ml-2 inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700 align-middle"
+          >
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" /></svg>
+            Tạo từ quét QR
+          </span>
+        </label>
+        <SmartSelect v-model="form.asset" doctype="AC Asset" :disabled="lockedFromScan" placeholder="Tìm thiết bị theo tên / mã / serial..." />
+        <p v-if="lockedFromScan" class="text-xs text-slate-500 mt-1">Thiết bị đã được xác định từ mã QR — không thể thay đổi.</p>
       </div>
 
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">

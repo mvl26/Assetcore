@@ -92,7 +92,7 @@ State machine BE thật (khớp `imm_12_incident_workflow.json` + `_VALID_TRANSI
 │  BÁO CÁO SỰ CỐ THIẾT BỊ                          [Hủy] [Gửi]  │
 │                                                                  │
 │  Section 1: Thiết bị                                            │
-│  Thiết bị *          [Search AC Asset ▼]                        │
+│  Thiết bị *          [Search AC Asset ▼]  (KHOÁ nếu source=qr-scan) │
 │  Khoa phòng          [Auto-fill from Asset]                     │
 │                                                                  │
 │  Section 2: Mô tả sự cố                                         │
@@ -110,6 +110,21 @@ State machine BE thật (khớp `imm_12_incident_workflow.json` + `_VALID_TRANSI
 │  └────────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+#### 2.2.a V4-GATE — Field-lock + source propagation từ quét QR (BR-12-16, D3) ✅ CHỐT
+
+> **ADR:** `ADR-IMM12-REPORT-FAILURE.md` D3. **Gap (verify tại source):** `IncidentCreateView.vue` prefill `?asset` đúng (`:13`,`:29-30`) NHƯNG `SmartSelect` (`:91`) **luôn editable**; KHÔNG đọc `route.query.source`; `reportIncident({...})` (`:54-65`) KHÔNG có `source`.
+
+**CHỐT FE delta (đo được):**
+1. **Đọc source (whitelist):** `const source = route.query.source === 'qr-scan' ? 'qr-scan' : 'manual'` (mọi giá trị khác → `manual`).
+2. **Khoá field Thiết bị:** `lockAsset = source === 'qr-scan' && !!form.asset` → `<SmartSelect v-model="form.asset" :disabled="lockAsset" />`. Khi khoá → helper VI dưới ô: *"Thiết bị đã xác định từ mã QR — không thể đổi"*.
+   - CHỈ khoá khi `source==='qr-scan'` **VÀ** có `asset` từ query. source=qr-scan nhưng KHÔNG có asset (lạ) → **KHÔNG khoá** (fallback editable, tránh user kẹt).
+3. **Truyền source:** thêm `source` vào `ReportIncidentPayload` (`api/imm12.ts`: `source?: 'manual'|'qr-scan'`) + `reportIncident({ ..., source })`.
+4. **SmartSelect `disabled` prop:** *(Cần khảo sát)* nếu `SmartSelect.vue` chưa nhận `disabled` → FE task thêm pass-through `:disabled` xuống control (disabled THẬT cho a11y + chặn đổi). Không disable được → fallback render read-only text + hidden value (miễn user KHÔNG đổi được).
+
+**NO-regression:** `/incidents/new` không query (hoặc nút "Tạo" từ list) ⇒ `source='manual'`, ô Thiết bị **editable y như hiện tại**. Test FE 2 nhánh (qr-scan→khoá+source / no-source→editable+manual).
+
+**Luồng deep-link (D3 ↔ ADR-IMM00-QR-SCAN-ACTION D3):** màn quét QR → nút "Báo hỏng" → `router.push({name:'IncidentCreate', query:{asset:<name>, source:'qr-scan'}})` → view này khoá asset + gắn source. `<name>`=`asset_code` (invariant `asset_code==name`). KHÔNG truyền raw `qr_token`.
 
 ### 2.3 Incident Detail (`/incidents/list/:name`)
 
@@ -423,7 +438,7 @@ export const imm12Keys = {
 - `resolveIncident(name, resolution_notes, root_cause)` → `{name, status, linked_capa?}`
 - `closeIncident(name, verification_notes)` → `{name, status, closed_date?}`
 - `getIncidentStats()` → `IncidentStats`
-- `reportIncident(data: ReportIncidentPayload)` → `{name, status, severity}`
+- `reportIncident(data: ReportIncidentPayload)` → `{name, status, severity}` — **V4 D3:** `ReportIncidentPayload` THÊM `source?: 'manual'|'qr-scan'` (provenance, default manual ở BE).
 - `cancelIncident(name, reason)` → `{name, status}`
 - `createRca(incident_name, rca_method)` → `{name, status}`
 - `getRca(name)` → `RCADetail`
