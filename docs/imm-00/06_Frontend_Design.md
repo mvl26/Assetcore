@@ -359,31 +359,33 @@ export function getAssetScanInfo(p: { name?: string; token?: string }): Promise<
 
 **KHÔNG hiển thị (mirror BE whitelist):** giá mua, khấu hao/giá trị còn lại, supplier code nội bộ, audit chain, số ĐKLH chi tiết. View chỉ render đúng các field payload trả về.
 
-### II.3d. In nhãn QR — gate `asset.write` (Vòng B — least-privilege)
+### II.3d. In nhãn QR — gate `asset.print` (D6 EXECUTED Vòng 3 — least-privilege)
 
-> **Đề mục B.** Mirror BE siết RBAC: in nhãn QR = hành-động-ghi → FE chỉ hiện/cho-vào màn in cho user có cap **`asset.write`**. User chỉ-đọc (`asset.read`) KHÔNG thấy nút, KHÔNG vào được route (defense-in-depth với BE `require("asset.write")`). **KHÔNG cap mới** — dùng `asset.write` đã có (`CAP_SET_VERSION` GIỮ `v95.3388ee5629c1`, KHÔNG bump `auth.ts::CAP_SET_VERSION`).
+> **D6 (ADR-IMM00-QR-SCAN-ACTION, EXECUTED Vòng 3).** Mirror BE: in nhãn QR = quyền PRINT → FE chỉ hiện/cho-vào màn in cho user có cap **`asset.print`** (đổi từ `asset.write`). User KHÔNG có print (chỉ `asset.read`) KHÔNG thấy nút, KHÔNG vào được route (defense-in-depth với BE `require("asset.print")`). **2 cap mới** `asset.print`+`asset.qr.rotate` → `auth.ts::CAP_SET_VERSION` ĐÃ bump `v95.3388ee5629c1` → **`v97.c30c69b8974d`** (isCapCacheStale tự bỏ persisted-caps cũ). Nút "Sinh lại mã QR" gate `asset.qr.rotate` riêng (§II.3e).
 
-| Điểm gate FE | Trước (A3/A4) | Sau (B) |
+| Điểm gate FE | Trước (Vòng B) | Sau (D6 EXECUTED Vòng 3) |
 |---|---|---|
-| Nút "In nhãn QR" — `AssetDetailView.vue` (~:344) | `v-if="can('asset.read')"` | **`v-if="can('asset.write')"`** |
-| Nút "In nhãn hàng loạt" — `AssetListView.vue` (~:244) | KHÔNG gate cap (chỉ disable theo `selectedNames`) | **thêm `v-if="can('asset.write')"`** (giữ disable theo selection) |
-| Route `AssetLabelPrint` (`/assets/labels/print`) — `router/index.ts` (~:135) | `meta.requiredCapabilities: ['asset.read']` | **`['asset.write']`** |
+| Nút "In nhãn QR" — `AssetDetailView.vue` (~:388) | `v-if="can('asset.write')"` | **`v-if="can('asset.print')"`** |
+| Nút "In nhãn hàng loạt" — `AssetListView.vue::canPrintLabel` | `computed(() => can('asset.write'))` | **`computed(() => can('asset.print'))`** |
+| Route `AssetLabelPrint` (`/assets/labels/print`) — `router/index.ts` (~:139) | `meta.requiredCapabilities: ['asset.write']` | **`['asset.print']`** |
+| Nút "Sinh lại mã QR" — `AssetDetailView.vue` (~:400) | `v-if="can('asset.write')"` | **`v-if="can('asset.qr.rotate')"`** |
 
-- **`can('asset.write')`** = `authStore.capabilities['asset.write']` (Pinia, đã hydrate từ `get_capabilities`). DENY-safe: cap thiếu/stale → `false` → ẩn nút (KHÔNG vỡ trang — lesson IMM-14).
+- **`can('asset.print')` / `can('asset.qr.rotate')`** = `authStore.capabilities[...]` (Pinia, đã hydrate từ `get_capabilities`). DENY-safe: cap thiếu/stale → `false` → ẩn nút (KHÔNG vỡ trang — lesson IMM-14). `auth.ts::CAP_SET_VERSION` = `v97.c30c69b8974d` (đã bump).
+- Nút "Chỉnh sửa" GIỮ `can('asset.write')` (sửa asset ≠ in/rotate).
 - Read-only QR (`/a/:token`, `/assets/:id`, `/assets/:id/info`) GIỮ `asset.read`.
 - **vue-tsc 0, vitest GREEN** sau đổi (chỉ literal cap string — KHÔNG đổi type/shape).
 
 ### II.3e. Sinh-lại (rotate) mã QR — nút "Sinh lại mã QR" + BaseModal cảnh báo (ADR-001 B-2)
 
-> **Đề mục B item 2.** `AssetDetailView` thêm nút **"Sinh lại mã QR"** (cạnh "In nhãn QR") — vô hiệu hoá QR bị lộ + cấp token mới. Gate `can('asset.write')` (cùng cổng in nhãn — least-privilege). Vì rotate **vô hiệu hoá mọi nhãn đã in** (destructive về nhãn) → BẮT BUỘC xác nhận qua **BaseModal** (WAVE2 pattern — **KHÔNG `window.confirm`**, giống §III.10b-bis / §III.10d). Envelope BE ở [`05_API_Specification.md`](./05_API_Specification.md) §III.1 `regenerate_asset_qr_token`.
+> **D6 (EXECUTED Vòng 3).** `AssetDetailView` nút **"Sinh lại mã QR"** (cạnh "In nhãn QR") — vô hiệu hoá QR bị lộ + cấp token mới. Gate **`can('asset.qr.rotate')`** (TÁCH khỏi cổng in — least-privilege; persona vận hành in được NHƯNG KHÔNG rotate được). Vì rotate **vô hiệu hoá mọi nhãn đã in** (destructive về nhãn) → BẮT BUỘC xác nhận qua **BaseModal** (WAVE2 pattern — **KHÔNG `window.confirm`**, giống §III.10b-bis / §III.10d). Envelope BE ở [`05_API_Specification.md`](./05_API_Specification.md) §III.1 `regenerate_asset_qr_token`.
 
 | Điểm | Spec |
 |---|---|
-| Nút "Sinh lại mã QR" — `AssetDetailView.vue` (card header QR, cạnh "In nhãn QR") | `v-if="can('asset.write')"` (user chỉ-đọc KHÔNG thấy — defense-in-depth với BE `require("asset.write")`). |
+| Nút "Sinh lại mã QR" — `AssetDetailView.vue` (card header QR, cạnh "In nhãn QR") | `v-if="can('asset.qr.rotate')"` (D6 — đổi từ `asset.write`; user chỉ-đọc/chỉ-print KHÔNG thấy — defense-in-depth với BE `require("asset.qr.rotate")`). |
 | Xác nhận | Click → mở **`BaseModal`** cảnh báo VI: tiêu đề "Sinh lại mã QR?", nội dung **"Thao tác này sẽ vô hiệu hoá mọi nhãn QR đã in cho thiết bị này. Các tem cũ sẽ không còn quét được. Bạn có chắc chắn?"** + nút "Xác nhận" / "Huỷ". **`window.confirm` tuyệt đối KHÔNG được gọi.** API CHỈ gọi **sau** khi user bấm "Xác nhận". |
 | Xác nhận → API | `regenerateAssetQrToken(route.params.id)` (api/imm00.ts — NEW, xem dưới) → **refetch asset** (invalidate query `['asset', id]` / `store.fetchAsset(id)`) để preview nhãn + `qr_url` phản ánh token MỚI → **toast VI thành công** ("Đã sinh lại mã QR. Vui lòng in lại nhãn cho thiết bị."). |
 | Huỷ | Đóng modal, **no-op** (KHÔNG gọi API, KHÔNG đổi gì). |
-| Lỗi 403/404/IDOR | 403 (thiếu `asset.write`) / 404 / vendor IDOR → `notify.fromError(toApiError(e))` (toast/alert lỗi VI verbatim từ BE, KHÔNG leak raw method/token/mã EN). **Modal GIỮ MỞ** để user thử lại/huỷ. |
+| Lỗi 403/404/IDOR | 403 (thiếu `asset.qr.rotate`) / 404 / vendor IDOR → `notify.fromError(toApiError(e))` (toast/alert lỗi VI verbatim từ BE, KHÔNG leak raw method/token/mã EN). **Modal GIỮ MỞ** để user thử lại/huỷ. |
 | **Lỗi 429 (rate-limit rotate — Vòng 27 B / FR-00-88)** | BE rotate bị throttle (BR-00-38) → **429**. `confirmRegenQr` catch nhận `ApiError.code === ErrorCode.RATE_LIMITED` (sau khi `httpStatusToCode` map — FR-00-87) HOẶC `httpStatus === 429` → hiển thị **message VI cố định** `'Bạn thao tác quá nhanh, vui lòng thử lại sau ít phút.'` (toast warning) — **KHÔNG** render `e.message` thô (frappe trả EN "You hit the rate limit…" → EN-leak), **KHÔNG** raw-code. **Modal "Sinh lại mã QR" GIỮ MỞ** để user thử lại sau. Double-submit guard `regenerating` GIỮ NGUYÊN (reset ở `finally`). |
 
 **API client (`api/imm00.ts`) — NEW:**
@@ -396,7 +398,7 @@ export function regenerateAssetQrToken(asset: string): Promise<RegenerateQrResul
 }
 ```
 
-- **DoD FE (vitest):** assert (a) click "Sinh lại mã QR" **KHÔNG** gọi `window.confirm`, mở BaseModal, API **chưa** gọi; (b) bấm "Xác nhận" → API gọi 1 lần với đúng `id` + refetch asset + toast thành công; (c) bấm "Huỷ" → no-op (0 API call); (d) nút **ẩn** khi `can('asset.write')` = false (mock useCapabilities read-only); (e) lỗi 403/404 → toast lỗi VI, KHÔNG leak token/mã EN, modal GIỮ MỞ; (f) **lỗi 429 → toast message VI `'Bạn thao tác quá nhanh, vui lòng thử lại sau ít phút.'`, KHÔNG EN-leak ("rate limit"/"Too Many"), KHÔNG raw-code, modal GIỮ MỞ** (FR-00-88). **vue-tsc 0.**
+- **DoD FE (vitest):** assert (a) click "Sinh lại mã QR" **KHÔNG** gọi `window.confirm`, mở BaseModal, API **chưa** gọi; (b) bấm "Xác nhận" → API gọi 1 lần với đúng `id` + refetch asset + toast thành công; (c) bấm "Huỷ" → no-op (0 API call); (d) nút **ẩn** khi `can('asset.qr.rotate')` = false (mock useCapabilities — kể cả user chỉ có `asset.print`); (e) lỗi 403/404 → toast lỗi VI, KHÔNG leak token/mã EN, modal GIỮ MỞ; (f) **lỗi 429 → toast message VI `'Bạn thao tác quá nhanh, vui lòng thử lại sau ít phút.'`, KHÔNG EN-leak ("rate limit"/"Too Many"), KHÔNG raw-code, modal GIỮ MỞ** (FR-00-88). **vue-tsc 0.**
 
 #### II.3e-RATELIMIT — Map HTTP 429 → bucket lỗi VI (Vòng 27 B — FR-00-87/88, kèm BE BR-00-38) — **NEW**
 
@@ -453,7 +455,7 @@ Sau fix: axios interceptor nhánh `default` (`axios.ts:288`) build `ApiError(mes
 
 - **`@page { size: <mm> }` đúng kỹ thuật:** scoped CSS KHÔNG vươn tới `@page` → inject qua `<style>` global có guard (chỉ render khi chọn tem vật lý; `pageRuleFor(key)` sinh `@page { size: <mm>; margin: 0 }`). Chọn `A4 nhiều-nhãn` → **KHÔNG** inject `@page` (giữ lưới 2 cột A4 mặc định).
 - **QR theo đơn vị mm:** `AssetQrLabel` nhận prop `qrSize` (px theo SSoT) + prop `format`; tem vật lý áp class `qr-label--physical` → QR + field scale theo mm, **KHÔNG còn pixel cố định 120px** → QR đủ lớn để camera điện thoại quét.
-- **Giữ nguyên (no-regression):** `markLabelPrinted` ghi event chỉ sau in thật + chỉ name hợp lệ; preview-only KHÔNG ghi `label_printed`; error-bucket VI cố định (forbidden/notfound/unknown); checkbox-select + gate `can('asset.write')`; ô lỗi `AC-E001` VI + `translateStatus` SSoT + `break-inside:avoid`; đường mã hoá QR vẫn encode `qr_url` (KHÔNG đổi).
+- **Giữ nguyên (no-regression):** `markLabelPrinted` ghi event chỉ sau in thật + chỉ name hợp lệ; preview-only KHÔNG ghi `label_printed`; error-bucket VI cố định (forbidden/notfound/unknown); checkbox-select + gate `can('asset.print')` (D6); ô lỗi `AC-E001` VI + `translateStatus` SSoT + `break-inside:avoid`; đường mã hoá QR vẫn encode `qr_url` (KHÔNG đổi).
 - **DoD FE (vitest):** chọn `tem-50x30` → DOM chứa `@page size 50mm 30mm` + lưới 1-nhãn; `tem-70x40` → `70mm 40mm`; `a4-multi`/mặc định → KHÔNG ép `@page`, giữ lưới 2 cột A4; modal đổi khổ áp đúng `@page`/grid cho single-print + `markLabelPrinted([id])` 1 lần sau `window.print`; `AssetQrLabel` QR/field scale theo khổ (tem KHÔNG dùng 120px); regression no-leak error-bucket VI. **vue-tsc 0, eslint 0, vitest GREEN.**
 
 ### II.3g. Cap kích thước batch nhãn QR — guard FE song song + map 413 (ADR-001 B-6 / BR-00-33 — Vòng 22)
@@ -464,7 +466,7 @@ Sau fix: axios interceptor nhánh `default` (`axios.ts:288`) build `ApiError(mes
 - **Guard 1 — `AssetListView.vue` (selectAll / in nhãn hàng loạt):** khi `selectedNames.length > _MAX_LABEL_BATCH` → **chặn điều hướng** sang `AssetLabelPrint` + hiện cảnh báo VI (toast/banner) `"Chỉ in tối đa 200 nhãn mỗi lần. Vui lòng chọn ít hơn."` (nội suy hằng). Nút "In nhãn hàng loạt" disable HOẶC click → cảnh báo (KHÔNG navigate). selectAll trên trang hiện tại thường ≤ page-size nên ít chạm; chạm khi user tích chọn nhiều trang/chọn-tất-cả-kết-quả.
 - **Guard 2 — `AssetLabelPrintView.vue` (đọc `query.names` CSV):** parse `route.query.names` (CSV) → nếu `names.length > _MAX_LABEL_BATCH` → KHÔNG gọi `getAssetLabelDataBatch`; render thẳng **bucket lỗi VI** (cùng message) + nút quay lại danh sách. Tránh phóng request chắc-413 + tránh build N nhãn client-side.
 - **Map 413 (defense-in-depth — request vẫn lọt):** nếu `getAssetLabelDataBatch`/`markLabelPrinted` trả **HTTP 413** (paste URL vượt cap, hoặc race) → handler map sang **bucket lỗi VI cố định** (`"Chỉ in tối đa 200 nhãn mỗi lần. Vui lòng chọn ít hơn."`), KHÔNG render raw `.message`, KHÔNG trang trắng, KHÔNG leak EN. Thêm `413` vào bộ phân loại lỗi của màn in cạnh `forbidden`/`notfound`/`unknown` (parity error-bucket §II.3f). FE đọc `error.response?.status === 413` (hoặc envelope code tương ứng) → bucket `too-large`.
-- **No-regression:** ≤ cap → luồng preview/in GIỮ NGUYÊN (selection, gate `can('asset.write')`, `markLabelPrinted` sau in thật, khổ tem §II.3f, encode `qr_url`, ô `AC-E001` VI). 0/1 tem → bình thường (KHÔNG cảnh báo cap).
+- **No-regression:** ≤ cap → luồng preview/in GIỮ NGUYÊN (selection, gate `can('asset.print')` (D6), `markLabelPrinted` sau in thật, khổ tem §II.3f, encode `qr_url`, ô `AC-E001` VI). 0/1 tem → bình thường (KHÔNG cảnh báo cap).
 - **DoD FE (vitest):** `selectedNames.length == 200` → navigate OK; `== 201` → chặn + cảnh báo VI, KHÔNG navigate; `AssetLabelPrintView` với `query.names` 201 phần tử → bucket lỗi VI, KHÔNG gọi API; mock API trả 413 → màn in render bucket `too-large` VI (KHÔNG raw message, KHÔNG blank). **vue-tsc 0, eslint 0, vitest GREEN.**
 
 ## II.4. Auth Guard

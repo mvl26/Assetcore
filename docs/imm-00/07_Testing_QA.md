@@ -47,7 +47,7 @@ Toàn bộ artefact test được của foundation layer. Mỗi dòng → ≥ 1 
 | 22 | `verify_chain` | API endpoint | `api/imm00.py::verify_chain` | API integration |
 | 23 | `open_capa` / `close_capa_record` | API endpoint | `api/imm00.py::open_capa`, `::close_capa_record` | API integration |
 | 24 | `update_user_roles` | API/service | role management (RBAC) | Integration (permission) |
-| 25 | AC Asset permission query | Permission hook | `permission.py::get_ac_asset_permission_query()` | Integration (RBAC isolation) |
+| 25 | AC Asset permission query (Vendor isolated; KTV nội bộ read-all — ADR-IMM00-LIST-SCOPE) | Permission hook | `permissions.py::ac_asset_query` + `ac_asset_has_permission`; INVARIANT `count==rows` | Integration (RBAC isolation) |
 | 26 | ReferenceDataView / SlaPolicyListView | FE view | `frontend/src/views/master-data/*.vue` | E2E (Playwright) |
 | 27 | useAssetStore / useRefDataStore / useCapaStore / useIncidentStore | Pinia store | `frontend/src/stores/imm00.ts` | Unit (vitest) |
 
@@ -463,31 +463,37 @@ File: `assetcore/tests/test_imm00_list_assets.py` (live). Envelope `{success, da
 | `transition_status` invalid → error | `api/imm00.transition_status` | error envelope | Error guessing | ⬜ Planned |
 | `verify_chain` | `api/imm00.verify_chain` | `{verified, count, last_hash}` | Use Case | ⬜ Planned |
 
-### III.6.0b — Vòng B: SIẾT RBAC in nhãn QR `asset.read`→`asset.write` (ADR-001 D4)
+### III.6.0b — D6 (EXECUTED Vòng 3): TÁCH cap in/rotate `asset.print` + `asset.qr.rotate` (ADR-IMM00-QR-SCAN-ACTION)
 
-File BE: cập nhật class `TestAssetLabelData` (`assetcore/tests/test_imm00.py` ~:2429). **Giữ** `test_label_endpoints_require_asset_read` (no-cap/Guest vẫn 403) NHƯNG **THÊM** test phân-tách read vs write — đo QUA layer `require` với **user THẬT** có/không `asset.write` (KHÔNG mock `require`, KHÔNG mock `has_permission` → tránh test false-green; luật skill: test mới phải đi QUA layer require).
+File BE: class `TestLabelWriteCapability` + `TestRegenerateQrToken` (`assetcore/tests/test_imm00.py`). **D6 RECONCILE:** in nhãn gate `asset.write`→**`asset.print`** (DocPerm print=1 sẵn cho persona vận hành → in được); rotate gate `asset.write`→**`asset.qr.rotate`** (=write, chỉ Super Admin/được cấp). Đo QUA layer `require` với **user THẬT** (KHÔNG mock `require`/`has_permission` → tránh false-green; luật skill).
 
-**Acceptance — chạy XANH:** `bench --site miyano run-tests test_imm00` + `test_rbac` GREEN; `bench migrate` sạch (cap-set version GIỮ `v95.3388ee5629c1`); `vue-tsc` 0; `vitest` GREEN. Toàn bộ test cũ vẫn xanh (regression).
+**Acceptance — ĐÃ XANH (2026-06-08):** `bench --site miyano run-tests test_imm00` (254 OK) + `test_rbac` (53 OK); `bench migrate` sạch; **cap-set version `v95.3388ee5629c1` → `v97.c30c69b8974d`** (thêm 2 cap); `vue-tsc` 0; `vitest` 941 OK. Toàn bộ test cũ xanh (regression).
 
 | TC (BE) | Kịch bản (user THẬT, qua layer `require`) | Verify | Kỹ thuật |
 |---|---|---|---|
-| `test_label_data_read_only_user_403` | user có `asset.read` NHƯNG KHÔNG `asset.write` (DocPerm AC Asset: read=1, write=0) gọi `get_asset_label_data` | `PermissionError` (403) | EP (least-privilege) |
-| `test_label_batch_read_only_user_403` | cùng user trên gọi `get_asset_label_data_batch([a])` | `PermissionError` (403) | EP |
-| `test_mark_printed_read_only_user_403` | cùng user trên gọi `mark_label_printed([a])` | `PermissionError` (403); KHÔNG ghi `label_printed`/audit (count trước=sau) | EP + state-based |
-| `test_label_data_write_user_200` | user có `asset.write` (DocPerm write=1) gọi `get_asset_label_data` | 200, payload đủ 6 key | Use Case (positive) |
-| `test_mark_printed_write_user_200` | user có `asset.write` gọi `mark_label_printed([a])` | 200; ĐÚNG 1 `label_printed` + 1 audit / asset | Use Case (positive) |
-| `test_readonly_qr_endpoints_keep_asset_read` | user có `asset.read` (KHÔNG write) gọi `resolve_qr_token` / `get_asset_scan_info` / `get_asset` | 200 (read-only GIỮ `asset.read` — KHÔNG bị siết) | Regression (negative-scope) |
-| `test_label_idor_unchanged_after_write_gate` | user có `asset.write` NHƯNG vendor ngoài scope (Vendor Engineer) | **403 IDOR** (`assert_vendor_can_access`) — siết RBAC KHÔNG nới IDOR | IDOR (regression) |
-| `test_cap_set_version_unchanged` | sau `bench migrate` | `CAP_SET_VERSION == "v95.3388ee5629c1"`; `"asset.write" in CAPABILITY_MAP`; KHÔNG có `"asset.print_label"` | White-box (no-churn guard) |
+| `test_label_data_print_user_200` | user CÓ `asset.print` NHƯNG KHÔNG `asset.write` (Commissioning User: read=1,write=0,print=1) gọi `get_asset_label_data` | **200**, payload đủ 8 key (KHÔNG 403) | Use Case (D6 positive) |
+| `test_label_batch_print_user_200` | cùng user gọi `get_asset_label_data_batch([a])` | **200** | Use Case |
+| `test_mark_printed_print_user_200` | cùng user gọi `mark_label_printed([a])` | **200**; ĐÚNG 1 `label_printed` + 1 audit | Use Case + state-based |
+| `test_label_data_no_print_user_403` | user KHÔNG `asset.print` (Guest) gọi `get_asset_label_data` | `PermissionError` (403) VI sạch | EP (least-privilege) |
+| `test_mark_printed_no_print_user_403_no_side_effect` | Guest gọi `mark_label_printed([a])` | 403; KHÔNG ghi `label_printed`/audit (count trước=sau) | EP + state-based |
+| `test_label_data_write_user_200` | Super Admin (print=1+write=1) gọi `get_asset_label_data` | 200, 8 key | Use Case |
+| `test_readonly_qr_endpoints_keep_asset_read` | user print (read=1) gọi `resolve_qr_token`/`get_asset_scan_info`/`get_asset` | 200 (read-only GIỮ `asset.read`) | Regression (negative-scope) |
+| `test_label_idor_unchanged_after_print_gate` | user CÓ `asset.print` (Vendor Engineer) NHƯNG vendor ngoài scope | **403 IDOR** — đổi gate KHÔNG nới IDOR | IDOR (regression) |
+| `test_regenerate_print_only_user_403` | user CÓ `asset.print` NHƯNG KHÔNG `asset.qr.rotate` gọi rotate | **403**; qr_token KHÔNG đổi (no side-effect) | EP (tách quyền) |
+| `test_regenerate_write_user_200_new_token` | user `asset.qr.rotate` (write=1) gọi rotate | 200; token mới ≠ cũ; no-raw-token | Use Case |
+| `test_cap_set_version_changed_after_split_caps` | sau `bench migrate` | `CAP_SET_VERSION == "v97.c30c69b8974d"` (≠ v95…); `asset.print`→(AC Asset,"print"); `asset.qr.rotate`→(AC Asset,"write") ∈ CAPABILITY_MAP; KHÔNG `asset.print_label` | White-box (version guard) |
 
-> **KHÔNG test false-green:** test tạo user thật + cấp/không-cấp DocPerm `write` trên `AC Asset` (qua Role có DocPerm tương ứng), `frappe.set_user(...)`, rồi gọi endpoint. KHÔNG `monkeypatch rbac.require`/`frappe.has_permission`. Gate đi đúng đường `require("asset.write")` → `can` → `frappe.has_permission("AC Asset","write")`.
+> **KHÔNG test false-green:** test tạo user thật + cấp/không-cấp DocPerm `print`/`write` trên `AC Asset` (qua Role/Custom DocPerm), `frappe.set_user(...)`, rồi gọi endpoint. KHÔNG `monkeypatch rbac.require`/`frappe.has_permission`. Gate đi đúng đường `require("asset.print")`/`require("asset.qr.rotate")` → `can` → `frappe.has_permission("AC Asset", permtype)`.
 
 | TC (FE) | Kịch bản | Verify |
 |---|---|---|
-| `AssetDetailView.test.ts::print_btn_hidden_read_only` | mock caps `{asset.read:true, asset.write:false}` | nút "In nhãn QR" KHÔNG render |
-| `AssetDetailView.test.ts::print_btn_shown_with_write` | mock caps `{asset.write:true}` | nút "In nhãn QR" render |
-| `AssetListView.test.ts::batch_print_btn_gated_write` | mock caps `{asset.write:false}` | nút "In nhãn hàng loạt" KHÔNG render |
-| `router.test.ts::label_print_route_requires_write` | guard `AssetLabelPrint` với caps `{asset.read:true,asset.write:false}` | redirect Unauthorized (KHÔNG vào view) |
+| `assetDetailQrPrint.test.ts` (D6) | mock caps `{asset.read:true}` (KHÔNG print) | nút "In nhãn QR" KHÔNG render |
+| `assetDetailQrPrint.test.ts` (D6) | mock caps `{asset.print:true}` | nút "In nhãn QR" render |
+| `assetDetailQrRegenerate.test.ts` (D6) | mock caps `{asset.print:true}` (KHÔNG rotate) | nút "Sinh lại mã QR" KHÔNG render (tách quyền) |
+| `assetDetailQrRegenerate.test.ts` (D6) | mock caps `{asset.qr.rotate:true}` | nút "Sinh lại mã QR" render |
+| `assetListBatchSelect.test.ts` (D6) | mock caps `{asset.read:true}` (KHÔNG print) | nút "In nhãn hàng loạt" KHÔNG render |
+| `routeAccess.test.ts` (D6) | guard `AssetLabelPrint` với caps `{asset.read:true}` | unauthorized; `{asset.print:true}` → allow |
+| `assetDetailRbacAffordance.test.ts` (D6) | caps `{asset.print:true}` only | "In nhãn QR" hiện, "Sinh lại mã QR"/"Chỉnh sửa" ẩn (least-privilege) |
 
 ### III.6.0c — Vòng 22 / B-6: Cap batch nhãn QR — 413 payload-DoS (ADR-001 D3/D4, BR-00-33)
 
@@ -613,18 +619,19 @@ File BE: thêm class `TestRegenerateAssetQrToken` vào `assetcore/tests/test_imm
 | `test_regenerate_old_token_no_longer_resolves` | rotate xong | `resolve_qr_token(old)` → `None`/404; `resolve_qr_token(new)` → asset đúng | Use Case (vô hiệu hoá nhãn cũ — acceptance) |
 | `test_regenerate_emits_qr_regenerated_event` | rotate có quyền | ĐÚNG **1** `Asset Lifecycle Event` `event_type='qr_regenerated'` (root_doctype/record='AC Asset'/name) | Integration (lifecycle) |
 | `test_regenerate_emits_audit_no_raw_token` | rotate | ĐÚNG **1** `IMM Audit Trail`; `change_summary` nêu rotate/vô-hiệu-hoá; **KHÔNG chứa** giá trị `old`/`new` token (assert token NOT IN change_summary/notes) | Integration (no-leak audit) |
-| `test_regenerate_read_only_user_403` | user có `asset.read` NHƯNG KHÔNG `asset.write` (Guest/nurse) | `PermissionError` (403); `qr_token` KHÔNG đổi; KHÔNG ghi event/audit (count trước=sau) | EP + state-based |
-| `test_regenerate_write_user_200` | user có `asset.write` | 200; token đổi; 1 event + 1 audit | Use Case (positive) |
+| `test_regenerate_print_only_user_403` *(D6: đổi từ `_read_only_user_403`)* | user CÓ `asset.print` NHƯNG KHÔNG `asset.qr.rotate` (Commissioning User write=0) | `PermissionError` (403); `qr_token` KHÔNG đổi; KHÔNG ghi event/audit | EP (tách quyền) |
+| `test_regenerate_write_user_200_new_token` | user có `asset.qr.rotate` (write=1) | 200; token đổi; 1 event + 1 audit | Use Case (positive) |
 | `test_regenerate_unknown_asset_404` | asset không tồn tại | **404** `AC-E001` (KHÔNG 500, KHÔNG đoán id); KHÔNG ghi gì | Error guessing (leak-safe) |
-| `test_regenerate_vendor_out_of_scope_403_no_leak` | vendor user (có asset.write), asset NGOÀI scope | **403** (`assert_vendor_can_access`); token KHÔNG đổi; KHÔNG ghi event | IDOR |
+| `test_regenerate_vendor_out_of_scope_forbidden_no_leak` | vendor user (có asset.qr.rotate), asset NGOÀI scope | **403** (`assert_vendor_can_access`); token KHÔNG đổi; KHÔNG ghi event | IDOR |
 | `test_regenerate_label_reflects_new_token` | rotate xong → `get_asset_label_data(asset)` | `qr_url` chứa token MỚI (deep-link mới), KHÔNG còn token cũ | Integration (nhãn phản ánh token mới) |
 | `test_regenerate_response_no_raw_token` | rotate 200 | envelope `data` = `{name, qr_url}`; **KHÔNG** field token thô | Contract (no-leak) |
-| `test_regenerate_cap_set_version_unchanged` | sau khi thêm endpoint | `CAP_SET_VERSION == "v95.3388ee5629c1"` (KHÔNG cap mới) | Static (regression cap-set) |
+| `test_rotate_cap_in_map_and_version_changed` *(D6)* | sau migrate | `CAP_SET_VERSION == "v97.c30c69b8974d"`; `asset.qr.rotate`→(AC Asset,"write") ∈ CAPABILITY_MAP | Static (version guard) |
 
 | TC (FE) | Kịch bản | Verify |
 |---|---|---|
-| `assetDetailQrRegenerate.test.ts::btn_hidden_read_only` | mock caps `{asset.read:true, asset.write:false}` | nút "Sinh lại mã QR" KHÔNG render |
-| `assetDetailQrRegenerate.test.ts::btn_shown_with_write` | mock caps `{asset.write:true}` | nút "Sinh lại mã QR" render |
+| `assetDetailQrRegenerate.test.ts` (D6) | mock caps `{asset.read:true}` (KHÔNG rotate) | nút "Sinh lại mã QR" KHÔNG render |
+| `assetDetailQrRegenerate.test.ts` (D6) | mock caps `{asset.print:true}` (in được, KHÔNG rotate) | nút "Sinh lại mã QR" KHÔNG render (tách quyền) |
+| `assetDetailQrRegenerate.test.ts` (D6) | mock caps `{asset.qr.rotate:true}` | nút "Sinh lại mã QR" render |
 | `assetDetailQrRegenerate.test.ts::click_opens_modal_no_confirm_no_api` | click nút | **KHÔNG** gọi `window.confirm`; mở `BaseModal` cảnh báo "vô hiệu hoá mọi nhãn QR đã in"; API **chưa** gọi |
 | `assetDetailQrRegenerate.test.ts::confirm_calls_api_refetch_toast` | bấm "Xác nhận" | `regenerateAssetQrToken(id)` gọi **1 lần** đúng id; refetch asset; toast VI thành công |
 | `assetDetailQrRegenerate.test.ts::cancel_noop` | bấm "Huỷ" | đóng modal; **0** API call; KHÔNG đổi gì |
@@ -1043,7 +1050,7 @@ Mỗi scenario theo template §Phụ lục A. ID `UAT-IMM-00-NN`.
 > Ghi chú audit: Write/Create trên IMM Audit Trail chỉ cấp cho Super Admin nhằm phục vụ `log_audit_event` qua `ignore_permissions`; ở tầng application controller chặn update (BR-00-03). Cần xác nhận perm này không cho user thật sửa record (xem VI.3).
 
 - **Field-level permission**: *(Cần khảo sát — chưa xác minh permlevel ≠ 0 cho field nhạy cảm như cost/funding trong các DocType foundation.)*
-- **User Permission**: filter row theo responsible_technician qua `permission.py::get_ac_asset_permission_query()` (RISK-00-04, NFR-00-07).
+- **User Permission**: row-scope qua `permissions.py::ac_asset_query` (+ `ac_asset_has_permission` IDOR gate) — **ADR-IMM00-LIST-SCOPE (2026-06-08):** CHỈ Vendor Engineer scope `responsible_technician`; KTV nội bộ (Role Profile "Kỹ thuật viên") **read-all**. Count permission-aware → INVARIANT `count==rows` (RISK-00-04, NFR-00-07). Test: INV-1..INV-7 trong ADR (INV-3 chứng minh vendor vẫn isolated sau khi mở KTV read-all).
 
 ## VI.2. API security
 

@@ -52,7 +52,7 @@ Nguyên tắc kiến trúc bắt buộc: AssetCore **chỉ phụ thuộc Frappe 
 | 5 Inventory DocTypes (v4) | **Live ✅** | AC Warehouse, AC Spare Part, AC Spare Part Stock, AC Stock Movement (+ Item child), AC Stock Movement Item |
 | Services (imm00.py) | **Live ✅** | 22 public functions implement (transfer, GMDN, scheduler, KPI rollup) |
 | Role fixtures | **Live ✅** | 30 roles (4 System + 26 Domain = 13 module × Manager/User) seed qua `fixtures/role.json`; nguồn canonical: `services/shared/constants.py::Roles` |
-| Permission query | **Live ✅** | `permission.py` cho AC Asset (scoped theo `responsible_technician`) |
+| Permission query | **Live ✅** | `permissions.py::ac_asset_query` cho AC Asset. **2026-06-08 (ADR-IMM00-LIST-SCOPE):** KTV nội bộ (Role Profile "Kỹ thuật viên") → **read-all**; **CHỈ Vendor Engineer** còn scope `responsible_technician`. Count permission-aware (`get_list`) → INVARIANT `count==rows`. |
 | Scheduler | **Live ✅** | 5 daily IMM-00 jobs + weekly + monthly (xem §III.7) |
 | FE shell + views | **Partial** | 12+ views built (asset/ ×10, audit/ ×2, master-data/ ×2); phần còn lại cuốn chiếu |
 
@@ -570,7 +570,7 @@ HTTP Request / Frappe Scheduler
 
 | NFR ID | Yêu cầu | Target |
 |---|---|---|
-| NFR-00-07 | Role-based + Permission Query cho IMM Technician | Enforced qua `permission.py` |
+| NFR-00-07 | Role-based + Permission Query (Vendor isolation; KTV nội bộ read-all — ADR-IMM00-LIST-SCOPE) | Enforced qua `permissions.py::ac_asset_query` + `ac_asset_has_permission` |
 | NFR-00-08 | SHA-256 chain phải verify thành công | `verify_audit_chain` trả `{valid: true, count, last_hash}` |
 
 ## V.3. Khả dụng & Bảo trì
