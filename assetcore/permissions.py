@@ -67,15 +67,28 @@ def _esc(value: str) -> str:
 # ─── permission_query_conditions (list/search filter) ─────────────────────────
 
 def ac_asset_query(user: str | None = None) -> str:
+    """permission_query_conditions for AC Asset list/search (ADR-IMM00-LIST-SCOPE).
+
+    Row-scope policy (USER-chốt 2026-06-08):
+    - Senior (Super Admin + module Managers) + Auditor → read-all (``""``).
+    - Internal technician (``_TECHNICIAN_ROLES`` = PM/Repair/Calibration/Corrective
+      User = Role Profile "Kỹ thuật viên", nhân sự NỘI BỘ) → **read-all** (D1).
+      They work on hospital-wide equipment (ai rảnh nhận việc nấy / trực ca /
+      hỗ trợ chéo khoa) — scoping by responsible_technician liệt list. The internal
+      branch is placed **BEFORE** the vendor branch so a user who is both internal
+      and vendor resolves to read-all (ADR §3.3 default edge case).
+    - Vendor Engineer (KTV của NCC, nhân sự NGOÀI viện) → **isolation GIỮ NGUYÊN**
+      (D2 / CLAUDE.md §5/§19): chỉ thấy asset họ là ``responsible_technician``.
+      ``_esc`` (frappe.db.escape) giữ nguyên → KHÔNG mở SQLi.
+    """
     user = user or frappe.session.user
     roles = _user_roles(user)
     if _is_senior(roles) or _AUDITOR_ROLE in roles:
-        return ""
-    safe = _esc(user)
-    if _VENDOR_ROLE in roles:
-        # Vendor sees only assets where they are responsible_technician.
-        return f"(`tabAC Asset`.responsible_technician = '{safe}')"
+        return ""                                    # senior + auditor → read-all
     if roles & _TECHNICIAN_ROLES:
+        return ""                                    # D1: KTV NỘI BỘ → read-all
+    if _VENDOR_ROLE in roles:                         # D2: VENDOR → GIỮ isolation
+        safe = _esc(user)
         return f"(`tabAC Asset`.responsible_technician = '{safe}')"
     return ""
 
@@ -154,21 +167,33 @@ def _scope_check_assigned(doc, user: str, *fields: str) -> bool:
 
 
 def ac_asset_has_permission(doc, ptype: str = "read", user: str | None = None, **_kw) -> bool:
+    """has_permission (detail/IDOR gate) for AC Asset — MUST mirror ac_asset_query.
+
+    ADR-IMM00-LIST-SCOPE §4(a): if the list is read-all for a persona, opening one
+    specific asset must also succeed (else list shows N rows but /assets/<name> 403s).
+
+    - Senior + Auditor (read ptypes) → True (read-all).
+    - Internal technician (``_TECHNICIAN_ROLES``) READ → **True** (read-all, D1).
+      Placed BEFORE the vendor branch (matches ac_asset_query precedence:
+      internal-kiêm-vendor → read-all). Write still deferred to DocPerm (False).
+    - Vendor Engineer → isolation GIỮ NGUYÊN (D2): only assets they are
+      responsible_technician for; block ANY ptype on foreign assets (IDOR).
+    """
     user = user or frappe.session.user
     roles = _user_roles(user)
     if _is_senior(roles):
         return True
     if _AUDITOR_ROLE in roles and ptype in ("read", "print", "email", "export"):
         return True
-    if _VENDOR_ROLE in roles:
-        # Vendor: only assets they are responsible for. Block ANY ptype on
-        # other assets, including read (IDOR).
-        return _scope_check_assigned(doc, user, "responsible_technician")
     if roles & _TECHNICIAN_ROLES:
         if ptype == "read":
-            return _scope_check_assigned(doc, user, "responsible_technician")
+            return True                               # D1: KTV NỘI BỘ → read-all
         # technicians cannot mutate AC Asset directly — let DocPerm decide.
         return False
+    if _VENDOR_ROLE in roles:
+        # Vendor: only assets they are responsible for. Block ANY ptype on
+        # other assets, including read (IDOR). Isolation BẤT BIẾN (D2).
+        return _scope_check_assigned(doc, user, "responsible_technician")
     # Other roles → DocPerm chain decides (return True to defer, Frappe still
     # applies DocPerm role/permission rules).
     return True

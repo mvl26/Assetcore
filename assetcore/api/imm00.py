@@ -159,6 +159,19 @@ def list_assets(
     byt_expiry_filter(byt_status) HỢP NHẤT (AND) với mọi filter hiện có. Giá trị
     khác → no-op (bỏ qua, không throw). Count get_overview().assets.byt_* ==
     total list này khi cùng bucket (INVARIANT count==drill).
+
+    INVARIANT pagination.total == len(items) (cộng dồn qua các trang) — ENFORCED
+    cho MỌI persona (ADR-IMM00-LIST-SCOPE): count (count_with_or) và items
+    (frappe.get_list) dùng CÙNG ``filters``/``or_filters`` VÀ CÙNG
+    ``permission_query_conditions`` (count qua frappe.get_list, KHÔNG db.count/
+    get_all). Row-scope:
+      • Senior / Auditor / Internal technician (PM/Repair/Calibration/Corrective
+        User) → read-all (ac_asset_query="").
+      • Vendor Engineer → isolated: responsible_technician=<user> (ac_asset_query)
+        ∩ asset-được-giao-qua-WO (apply_vendor_scope) — count==rows giữ vì cả 2
+        lớp áp cho count lẫn list.
+    Reserved-prefix exclusion ('_' / 'SI-') + apply_vendor_scope (RC-LIST-
+    VENDORCLOBBER) giữ nguyên — fix này CỘNG THÊM permission-awareness vào count.
     """
     page, page_size = int(page), int(page_size)
     filters = {}
@@ -206,10 +219,10 @@ def list_assets(
         ]
 
     # Count dùng CHUNG filters (đã gồm data-hygiene + vendor-scope) + or_filters
-    # qua count_with_or → ĐÚNG cùng engine (DatabaseQuery) + cùng predicate với
-    # get_list bên dưới ⇒ INVARIANT total == len(items) cho CẢ search & non-search
-    # path (kể cả khi search kết hợp filter khác — no clobber). count_with_or fallback
-    # về frappe.db.count khi không search.
+    # qua count_with_or → ĐÚNG cùng engine (DatabaseQuery), cùng predicate VÀ cùng
+    # permission_query_conditions (ac_asset_query) với get_list bên dưới ⇒ INVARIANT
+    # total == len(items) cho CẢ search & non-search path & MỌI persona (ADR-IMM00-
+    # LIST-SCOPE §4b — count_with_or nay đếm qua frappe.get_list, KHÔNG db.count).
     total = count_with_or(_DT_ASSET, filters, or_filters)
 
     pag = paginate(int(total), page, page_size)

@@ -107,21 +107,33 @@ def count_with_or(
     filters: dict | None,
     or_filters: list | None,
 ) -> int:
-    """Count rows matching ``filters`` AND/OR ``or_filters``.
+    """Count rows matching ``filters`` AND/OR ``or_filters`` — permission-aware.
 
-    ``frappe.db.count`` only accepts AND filters. When a list endpoint uses
-    ``or_filters`` for free-text LIKE search, the total must apply the same
-    OR clause — otherwise pagination is wrong (FE shows ``total`` from a
-    larger result set than what was returned).
+    INVARIANT (ADR-IMM00-LIST-SCOPE §4b): the total MUST be computed with the
+    **same predicate that ``frappe.get_list`` applies to the items** — including
+    ``permission_query_conditions`` (row-scope hooks). The previous implementation
+    used ``frappe.db.count`` / ``frappe.get_all``, **neither of which applies
+    ``permission_query_conditions``**, so for a row-scoped persona (vendor /
+    internal technician before the read-all fix) the count counted EVERY row while
+    ``get_list`` returned only the scoped subset → header "Tổng N" ≠ số dòng thực.
 
-    Falls back to ``frappe.db.count`` when no ``or_filters`` provided.
+    Fix: count via ``frappe.get_list(..., limit_page_length=0)`` for BOTH the
+    search (``or_filters``) and non-search paths. ``get_list`` runs the same
+    ``DatabaseQuery`` engine as the items query and applies the same
+    ``permission_query_conditions`` + DocPerm checks ⇒ ``count == len(items)`` for
+    every persona on every list endpoint that pairs this helper with
+    ``frappe.get_list`` (AC Asset / NR / Plan Period / Tender Spec / Vendor Eval /
+    Procurement Document). ``or_filters`` is preserved verbatim for free-text LIKE
+    search parity.
+
+    NOTE: ``limit_page_length=0`` materializes the matching ``name`` list (capped
+    by the bounded dataset). Acceptable at current scale (~1.4k assets); see ADR
+    §4b ROADMAP for a streaming count if a dataset grows past ~50k.
     """
-    if not or_filters:
-        return frappe.db.count(doctype, filters=filters)
-    rows = frappe.get_all(
+    rows = frappe.get_list(
         doctype,
         filters=filters,
-        or_filters=or_filters,
+        or_filters=or_filters if or_filters else None,
         fields=["name"],
         limit_page_length=0,
     )
