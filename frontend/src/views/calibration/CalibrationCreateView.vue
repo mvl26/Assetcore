@@ -50,6 +50,16 @@ const form = ref({
 })
 
 const { clear: clearDraft } = useFormDraft('calibration-create', form)
+
+// Deep-link từ màn quét QR (D3): query hằng = {asset, source}. Field nội bộ Cal = 'asset'.
+// Provenance: chỉ 'qr-scan' mới coi là quét QR; mọi giá trị khác (kể cả thiếu) → manual.
+// Ưu tiên asset từ query (tránh draft cũ che mất thiết bị vừa xác định) + khoá ô Thiết bị
+// KHI và CHỈ KHI đến từ quét QR + có asset prefill (no regression khi tạo thủ công).
+const queryAsset = (route.query.asset as string) || ''
+if (queryAsset) form.value.asset = queryAsset
+const querySource = route.query.source === 'qr-scan' ? 'qr-scan' : 'manual'
+const lockedFromScan = computed(() => querySource === 'qr-scan' && !!queryAsset)
+
 const saving = ref(false)
 const err = ref('')
 const assetMeta = ref<AssetMeta | null>(null)
@@ -181,8 +191,20 @@ onMounted(() => {
     <form class="card p-5 space-y-4" @submit.prevent="submit">
       <!-- Asset -->
       <div>
-        <label class="form-label">Thiết bị <span class="text-red-500">*</span></label>
-        <SmartSelect v-model="form.asset" doctype="AC Asset" placeholder="Tìm thiết bị..." />
+        <label class="form-label">
+          Thiết bị <span class="text-red-500">*</span>
+          <span
+            v-if="lockedFromScan"
+            role="status"
+            aria-live="polite"
+            class="ml-2 inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700 align-middle"
+          >
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" /></svg>
+            Tạo từ quét QR
+          </span>
+        </label>
+        <SmartSelect v-model="form.asset" doctype="AC Asset" :disabled="lockedFromScan" placeholder="Tìm thiết bị..." />
+        <p v-if="lockedFromScan" class="text-xs text-slate-500 mt-1">Thiết bị đã được xác định từ mã QR — không thể thay đổi.</p>
         <div v-if="assetMeta" class="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
           <div class="bg-slate-50 rounded px-2 py-1.5"><span class="text-slate-500">Tên:</span> <b>{{ assetMeta.asset_name || '—' }}</b></div>
           <div class="bg-slate-50 rounded px-2 py-1.5"><span class="text-slate-500">Model:</span> {{ assetMeta.device_model || '—' }}</div>

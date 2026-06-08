@@ -404,6 +404,137 @@ def _recent_maintenance_event(asset_name: str) -> dict | None:
     return {"event_type": ev.get("event_type"), "date": ev.get("timestamp")}
 
 
+# ────────────────────────────────────────────
+# R1 QR-SCAN-ACTION (ADR-IMM00-QR-SCAN-ACTION §D1/D2) — available_actions =
+# capability ∩ lifecycle, derive SERVER-SIDE qua 1 predicate SSoT.
+# ────────────────────────────────────────────
+# 4 CTA màn quét QR (D1) — bảng SSoT DUY NHẤT {key, label VI, route-name,
+# capability}. Nhãn VI là literal SSoT BE (KHÔNG rải rác). capability mỗi action =
+# `<domain>.create` (svc tier gate .create): report_failure→corrective.create
+# (IMM-12 IncidentCreate), request_pm→pm.create (IMM-08 PMWorkOrderCreate),
+# request_cm→repair.create (IMM-09 CMCreate), request_calibration→calibration.create
+# (IMM-11 CalibrationCreate). route = ROUTE-NAME (FE dựng URL qua router.resolve —
+# KHÔNG path thô). 4 cap đã tồn tại trong CAPABILITY_MAP (auto-gen <domain>.create).
+_SCAN_ACTION_SPECS: tuple[dict[str, str], ...] = (
+    {"key": "report_failure",      "label": "Báo hỏng",
+     "route": "IncidentCreate",    "capability": "corrective.create"},
+    {"key": "request_pm",          "label": "Yêu cầu bảo trì",
+     "route": "PMWorkOrderCreate", "capability": "pm.create"},
+    {"key": "request_cm",          "label": "Yêu cầu sửa chữa",
+     "route": "CMCreate",          "capability": "repair.create"},
+    {"key": "request_calibration", "label": "Hiệu chuẩn",
+     "route": "CalibrationCreate", "capability": "calibration.create"},
+)
+
+# Bảng lifecycle×action (D2) — SSoT DUY NHẤT cho "trạng thái nào cho phép action
+# nào". Đọc constants.AssetStatus (đã alias đầu module: _STATUS_*) làm SSoT, KHÔNG
+# literal chuỗi status rải rác. Out of Service = _STATUS_OUT_OF_SERVICE (1 trong 2
+# mã của BLOCKED_FOR_WO) → CHỈ report_failure + request_cm (báo hỏng / sửa chữa).
+# Decommissioned = _STATUS_DECOMMISSIONED → cấm 4 (đã thanh lý). Draft =
+# _STATUS_DRAFT → cấm 4 (chưa vận hành). MỌI status vận hành khác
+# (Active/Commissioned/Under Maintenance/Under Repair/Calibrating) → cho phép 4.
+# Status rỗng/lạ → safe-default cấm 4 (KHÔNG KeyError).
+_OOS_ALLOWED_ACTIONS: frozenset[str] = frozenset({"report_failure", "request_cm"})
+# Status "đang vận hành" cho phép cả 4 action (nếu đủ cap). Liệt kê TƯỜNG MINH từ
+# AssetStatus (KHÔNG literal) → status lạ/rỗng rớt ra ngoài tập này ⇒ safe-default.
+_OPERATIONAL_STATUSES: frozenset[str] = frozenset({
+    _STATUS_ACTIVE, _STATUS_COMMISSIONED, _STATUS_UNDER_MAINTENANCE,
+    _STATUS_UNDER_REPAIR, _STATUS_CALIBRATING,
+})
+
+# Reason VI (D2) — chuỗi SSoT cố định, CHỈ dùng khi enabled=False.
+_LIFECYCLE_REASON_DECOMMISSIONED = "Thiết bị đã thanh lý"
+_LIFECYCLE_REASON_OUT_OF_SERVICE = (
+    "Thiết bị đang ngừng hoạt động — chỉ cho phép báo hỏng / yêu cầu sửa chữa"
+)
+_LIFECYCLE_REASON_DRAFT = "Thiết bị chưa đưa vào vận hành"
+_CAPABILITY_REASON = "Bạn không có quyền thực hiện thao tác này"
+
+
+def _scan_action_specs() -> tuple[dict[str, str], ...]:
+    """SSoT 4 spec CTA màn quét QR (D1): {key, label VI, route-name, capability}.
+
+    1 NGUỒN DUY NHẤT cho cả nhãn VI lẫn binding capability — caller (FE qua
+    available_actions, test) đọc tại đây, KHÔNG hardcode rải rác. Trả tuple bất
+    biến (read-only). Thứ tự cố định = thứ tự render FE.
+    """
+    return _SCAN_ACTION_SPECS
+
+
+def _lifecycle_allows(status: str, key: str) -> bool:
+    """1 predicate SSoT (D2): lifecycle ``status`` có cho phép action ``key`` không.
+
+    Đọc bảng lifecycle×action qua constants.AssetStatus (SSoT — KHÔNG literal
+    chuỗi status). Safe-default: status rỗng/lạ ⇒ False (KHÔNG KeyError). Out of
+    Service ⇒ CHỈ report_failure + request_cm. Decommissioned/Draft ⇒ False mọi
+    action. Mọi status vận hành (Active/Commissioned/Under Maintenance/Under
+    Repair/Calibrating) ⇒ True mọi action.
+    """
+    status = status or ""
+    if status == _STATUS_OUT_OF_SERVICE:
+        return key in _OOS_ALLOWED_ACTIONS
+    return status in _OPERATIONAL_STATUSES
+
+
+def _lifecycle_reason(status: str, key: str) -> str:
+    """Chuỗi VI giải thích vì sao lifecycle ``status`` CHẶN action ``key`` (D2).
+
+    Trả "" khi lifecycle KHÔNG chặn (``_lifecycle_allows`` True) — reason quyền
+    (nếu có) do caller áp riêng. Khi chặn: nhóm theo trạng thái (thanh lý / ngừng
+    hoạt động / chưa vận hành). Status rỗng/lạ → "" (lifecycle không-chặn-rõ-ràng;
+    caller vẫn derive enabled=False qua _lifecycle_allows nhưng reason để trống an
+    toàn — KHÔNG bịa nhãn). Đọc constants.AssetStatus (KHÔNG literal status).
+    """
+    if _lifecycle_allows(status, key):
+        return ""
+    status = status or ""
+    if status == _STATUS_DECOMMISSIONED:
+        return _LIFECYCLE_REASON_DECOMMISSIONED
+    if status == _STATUS_OUT_OF_SERVICE:
+        return _LIFECYCLE_REASON_OUT_OF_SERVICE
+    if status == _STATUS_DRAFT:
+        return _LIFECYCLE_REASON_DRAFT
+    return ""
+
+
+def _build_available_actions(status: str) -> list[dict]:
+    """Derive available_actions (D2) = ``has_cap ∩ lifecycle_allows`` per action.
+
+    Lặp ``_scan_action_specs()`` (SSoT 4 action). Mỗi action:
+      - ``has_cap`` = ``rbac.can(spec.capability)`` (DocPerm — KHÔNG hardcode
+        role-name; cap-not-in-map → False stale-safe).
+      - ``enabled`` = ``has_cap AND _lifecycle_allows(status, key)``.
+      - ``reason`` (CHỈ khi disabled): ưu tiên lifecycle > capability =
+        ``_lifecycle_reason(status, key) or (cap thiếu → _CAPABILITY_REASON)`` —
+        rỗng "" khi enabled. lifecycle-chặn KÉO theo reason lifecycle KỂ CẢ khi
+        cũng thiếu cap (đo được: Decommissioned + thiếu cap → 'đã thanh lý').
+    Trả list dict shape CHÍNH XÁC {key, label, route, enabled, reason} (KHÔNG
+    thừa). READ-ONLY (không I/O ghi).
+    """
+    actions: list[dict] = []
+    for spec in _scan_action_specs():
+        key = spec["key"]
+        has_cap = rbac.can(spec["capability"])
+        lifecycle_ok = _lifecycle_allows(status, key)
+        enabled = bool(has_cap and lifecycle_ok)
+        if enabled:
+            reason = ""
+        else:
+            # Ưu tiên lifecycle > capability (D2): lifecycle_reason trước, fallback
+            # capability_reason khi lifecycle KHÔNG chặn nhưng thiếu cap.
+            reason = _lifecycle_reason(status, key) or (
+                "" if has_cap else _CAPABILITY_REASON
+            )
+        actions.append({
+            "key": key,
+            "label": spec["label"],
+            "route": spec["route"],
+            "enabled": enabled,
+            "reason": reason,
+        })
+    return actions
+
+
 def build_asset_scan_info(asset_name: str) -> dict | None:
     """SERVICE (A6): payload màn info mobile-first khi quét QR — READ-ONLY.
 
@@ -461,6 +592,13 @@ def build_asset_scan_info(asset_name: str) -> dict | None:
         "calibration_overdue": _is_calibration_overdue(
             row.get("next_calibration_date"), row.get("lifecycle_status")
         ),
+        # R1 §D2 — 4 CTA màn quét QR với enabled derive = has_cap ∩ lifecycle_allows
+        # (1 predicate SSoT _build_available_actions). KHÔNG inline literal status ở
+        # đây (toàn bộ rẽ-nhánh lifecycle dồn vào _lifecycle_allows/_lifecycle_reason).
+        # KHÔNG chứa qr_token (no-raw-token parity GIỮ). FE dựng URL từ route-name.
+        "available_actions": _build_available_actions(
+            row.get("lifecycle_status") or ""
+        ),
     }
 
 
@@ -480,8 +618,9 @@ _BATCH_ERR_NOT_FOUND = "AC-E001"
 # transaction → per-request payload-DoS (KHÁC rate-limit V12 = req/phút). SSoT DUY
 # NHẤT: CẢ HAI endpoint tham chiếu hằng này (KHÔNG literal 200 lặp ở API layer).
 # Vượt cap → API trả _err(_ERR_BATCH_TOO_LARGE, 413) (bucket RIÊNG, KHÔNG 404/403/429),
-# SAU rbac.require('asset.write') (chỉ user đã-auth-write mới tới — không lộ giới hạn
-# cho khách). KHÔNG cap mới (CAP_SET_VERSION GIỮ v95.3388ee5629c1). Xem ADR-001 §B.
+# SAU rbac.require('asset.print') (D6 phương án B — chỉ user đã-auth-print mới tới,
+# không lộ giới hạn cho khách). CAP_SET_VERSION hiện hành v97.c30c69b8974d (sau D6
+# tách asset.print/asset.qr.rotate). Xem ADR-001 §B + ADR-IMM00-QR-SCAN-ACTION §D6.
 _MAX_LABEL_BATCH = 200
 # Message VI cố định cho 413 — nêu giới hạn, KHÔNG leak asset name nào.
 _ERR_BATCH_TOO_LARGE = (
@@ -561,26 +700,33 @@ def _build_qr_url(token: str) -> str:
 
 
 def build_asset_label_data(asset_name: str) -> dict:
-    """SERVICE (A3 — D3): payload nhãn QR cho 1 asset (READ-ONLY về print event).
+    """SERVICE (A3 — D3/D5): payload nhãn QR cho 1 asset (READ-ONLY về print event).
 
-    Trả 6 field: name, asset_code, device_model_name, location_name,
-    lifecycle_status, qr_url. Token-less asset → ``ensure_asset_qr_token``
-    (idempotent — emit ``qr_generated`` 1 lần, KHÔNG phải print event) TRƯỚC khi
-    build ``qr_url`` → ``qr_url`` KHÔNG BAO GIỜ rỗng (BR-00-28). **KHÔNG emit
-    ``label_printed``** (preview nhãn ≠ in nhãn; sự kiện in chỉ ghi ở
-    ``mark_label_printed`` — tránh spam audit chain). Gate quyền + IDOR do API
-    tier xử lý.
+    Trả 8 field: name, asset_code, asset_name, manufacturer_sn,
+    device_model_name, location_name, lifecycle_status, qr_url. D5
+    (ADR-IMM00-QR-SCAN-ACTION) tách bạch **Mã tài sản** (``asset_code``) ↔
+    **Số serial NSX** (``manufacturer_sn``) ↔ **Tên tài sản** (``asset_name``)
+    trên tem in/quét — định danh truy xuất NĐ98. Token-less asset →
+    ``ensure_asset_qr_token`` (idempotent — emit ``qr_generated`` 1 lần, KHÔNG
+    phải print event) TRƯỚC khi build ``qr_url`` → ``qr_url`` KHÔNG BAO GIỜ rỗng
+    (BR-00-28). **KHÔNG emit ``label_printed``** (preview nhãn ≠ in nhãn; sự kiện
+    in chỉ ghi ở ``mark_label_printed`` — tránh spam audit chain). ``manufacturer_sn``
+    / ``asset_name`` rỗng-None → ``''`` (KHÔNG None). Gate quyền + IDOR do API tier.
     """
     row = frappe.db.get_value(
         _DOCTYPE_ASSET, asset_name,
-        ["name", "asset_code", "lifecycle_status", "device_model", "location",
-         "qr_token"],
+        ["name", "asset_code", "asset_name", "manufacturer_sn",
+         "lifecycle_status", "device_model", "location", "qr_token"],
         as_dict=True,
     ) or {}
     token = row.get("qr_token") or ensure_asset_qr_token(asset_name)
     return {
         "name": row.get("name"),
         "asset_code": row.get("asset_code") or "",
+        # ADR-IMM00-QR-SCAN-ACTION D5: tách bạch Mã tài sản ↔ Số serial NSX +
+        # Tên tài sản trên tem. Cột sẵn có trên cùng get_value → KHÔNG N+1.
+        "asset_name": row.get("asset_name") or "",
+        "manufacturer_sn": row.get("manufacturer_sn") or "",
         "device_model_name": (
             frappe.db.get_value("IMM Device Model", row["device_model"], "model_name")
             if row.get("device_model") else ""
@@ -595,9 +741,15 @@ def build_asset_label_data(asset_name: str) -> dict:
 
 
 def build_asset_label_data_batch(names: list[str]) -> list[dict]:
-    """SERVICE (A3 — D3): payload nhãn QR hàng loạt — 1 truy vấn gộp, KHÔNG N+1.
+    """SERVICE (A3 — D3/D5): payload nhãn QR hàng loạt — 1 truy vấn gộp, KHÔNG N+1.
 
-    - 1 query gộp lấy MỌI asset (``name IN names``) → map theo name.
+    Mỗi item HỢP LỆ trả 8 field (D5: + ``asset_name`` + ``manufacturer_sn``,
+    tách bạch Mã tài sản ↔ Số serial NSX ↔ Tên tài sản). Item lỗi GIỮ NGUYÊN
+    ``{name, error: 'AC-E001'}`` (KHÔNG nở key mới).
+
+    - 1 query gộp lấy MỌI asset (``name IN names``) → map theo name. 2 cột mới
+      (``asset_name``/``manufacturer_sn``) chỉ MỞ RỘNG fields list sẵn có →
+      KHÔNG thêm query (no N+1).
     - 2 IN-query gộp resolve ``device_model``→model_name + ``location``→location_name
       (KHÔNG loop ``get_value`` mỗi asset).
     - Token-less asset → ``ensure_asset_qr_token`` CHỈ cho asset thực sự thiếu
@@ -611,8 +763,8 @@ def build_asset_label_data_batch(names: list[str]) -> list[dict]:
     rows = frappe.get_all(
         _DOCTYPE_ASSET,
         filters={"name": ["in", list(names)]},
-        fields=["name", "asset_code", "lifecycle_status", "device_model",
-                "location", "qr_token"],
+        fields=["name", "asset_code", "asset_name", "manufacturer_sn",
+                "lifecycle_status", "device_model", "location", "qr_token"],
     )
     by_name = {r["name"]: r for r in rows}
 
@@ -646,6 +798,9 @@ def build_asset_label_data_batch(names: list[str]) -> list[dict]:
         out.append({
             "name": row["name"],
             "asset_code": row.get("asset_code") or "",
+            # D5: cột sẵn trên cùng get_all gộp → KHÔNG thêm query (no N+1).
+            "asset_name": row.get("asset_name") or "",
+            "manufacturer_sn": row.get("manufacturer_sn") or "",
             "device_model_name": model_map.get(row.get("device_model"), "") or "",
             "location_name": loc_map.get(row.get("location"), "") or "",
             "lifecycle_status": row.get("lifecycle_status") or "",

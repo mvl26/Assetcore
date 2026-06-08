@@ -174,22 +174,22 @@ describe('A2 — /a/:token (QrDeepLink) yêu cầu cap asset.read', () => {
   })
 })
 
-// ─── B (ADR-001 D4, siết RBAC least-privilege) — route AssetLabelPrint gate asset.write
-describe('B — /assets/labels/print (AssetLabelPrint) yêu cầu cap asset.write', () => {
+// ─── D6 (ADR-IMM00-QR-SCAN-ACTION, phương án B) — route AssetLabelPrint gate asset.print
+describe('D6 — /assets/labels/print (AssetLabelPrint) yêu cầu cap asset.print', () => {
   // Mirror chính xác meta route AssetLabelPrint trong router/index.ts: in nhãn QR
-  // = side-effect (ghi ALE label_printed + audit) → gate asset.WRITE, KHÔNG
-  // asset.read. User chỉ-đọc (asset.read) KHÔNG vào được màn in. Defense-in-depth
-  // với BE get_asset_label_data_batch/mark_label_printed require('asset.write').
-  const LABEL_META = { requiredCapabilities: ['asset.write'] }
-  it('user chỉ-đọc (asset.read, KHÔNG asset.write) → unauthorized', () => {
+  // = quyền PRINT (DocPerm print=1 sẵn cho persona vận hành) → gate asset.PRINT,
+  // KHÔNG còn asset.write (chỉ Super Admin). Defense-in-depth với BE
+  // get_asset_label_data_batch/mark_label_printed require('asset.print').
+  const LABEL_META = { requiredCapabilities: ['asset.print'] }
+  it('user KHÔNG có asset.print (chỉ read) → unauthorized', () => {
     expect(resolveRouteAccess(LABEL_META, ctx({ can: canOnly('asset.read') }))).toBe('unauthorized')
     // cap module khác cũng KHÔNG mở được màn in
     expect(resolveRouteAccess(LABEL_META, ctx({ can: canOnly('pm.write', 'data.read') }))).toBe('unauthorized')
   })
-  it('user có asset.write → allow', () => {
-    expect(resolveRouteAccess(LABEL_META, ctx({ can: canOnly('asset.write') }))).toBe('allow')
+  it('user có asset.print → allow', () => {
+    expect(resolveRouteAccess(LABEL_META, ctx({ can: canOnly('asset.print') }))).toBe('allow')
   })
-  it('frappe-admin bypass → allow (kể cả khi thiếu asset.write)', () => {
+  it('frappe-admin bypass → allow (kể cả khi thiếu asset.print)', () => {
     expect(resolveRouteAccess(LABEL_META, ctx({ isFrappeAdmin: true }))).toBe('allow')
   })
 })

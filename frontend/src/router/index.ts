@@ -128,15 +128,15 @@ const routes: RouteRecordRaw[] = [
   {
     // A4 (ADR-001 D3): in nhãn QR HÀNG LOẠT. AssetList chọn N asset → push
     // {name:'AssetLabelPrint', query:{names:'A1,A2,A3'}} → batch fetch 1 lần
-    // (chống N+1). Static 2-segment path → KHÔNG collide /assets/:id. B (siết
-    // RBAC least-privilege): gate asset.WRITE — in/ghi label_printed là side-effect
-    // (ghi ALE label_printed + audit), KHÔNG phải read-only. User chỉ-đọc
-    // (asset.read, KHÔNG asset.write) → unauthorized, KHÔNG vào được màn in.
-    // Mirror BE: get_asset_label_data_batch/mark_label_printed require('asset.write').
+    // (chống N+1). Static 2-segment path → KHÔNG collide /assets/:id. D6 (ADR-
+    // IMM00-QR-SCAN-ACTION, phương án B): gate asset.PRINT — quyền IN nhãn (DocPerm
+    // print=1 sẵn cho persona vận hành KTV/QL vật tư), KHÔNG còn asset.write (chỉ
+    // Super Admin). User KHÔNG có print → unauthorized, KHÔNG vào màn in.
+    // Mirror BE: get_asset_label_data_batch/mark_label_printed require('asset.print').
     path: '/assets/labels/print',
     name: 'AssetLabelPrint',
     component: () => import('@/views/asset/AssetLabelPrintView.vue'),
-    meta: { requiresAuth: true, title: 'In nhãn QR hàng loạt', requiredCapabilities: ['asset.write'] },
+    meta: { requiresAuth: true, title: 'In nhãn QR hàng loạt', requiredCapabilities: ['asset.print'] },
   },
   {
     path: '/assets/:id',
@@ -307,7 +307,9 @@ const routes: RouteRecordRaw[] = [
     path: '/pm/work-orders/new',
     name: 'PMWorkOrderCreate',
     component: () => import('@/views/pm/PMWorkOrderCreateView.vue'),
-    meta: { requiresAuth: true, title: 'Tạo Phiếu Bảo trì', requiredCapabilities: ['pm.write'] },
+    // Parity 3 tầng (D1): route-guard cap == available_actions[].capability == svc create gate.
+    // pm.create để persona có .create (qua nút scan-action) vào được form, hết dead-end.
+    meta: { requiresAuth: true, title: 'Tạo Phiếu Bảo trì', requiredCapabilities: ['pm.create'] },
   },
   {
     path: '/pm/work-orders/:id',
@@ -341,7 +343,8 @@ const routes: RouteRecordRaw[] = [
     path: '/cm/create',
     name: 'CMCreate',
     component: () => import('@/views/cm/CMCreateView.vue'),
-    meta: { requiresAuth: true, title: 'Tạo Phiếu Sửa chữa', requiredCapabilities: ['repair.write'] },
+    // Parity 3 tầng (D1): route-guard cap == available_actions[].capability == svc create gate.
+    meta: { requiresAuth: true, title: 'Tạo Phiếu Sửa chữa', requiredCapabilities: ['repair.create'] },
   },
   {
     path: '/cm/work-orders',
@@ -414,7 +417,8 @@ const routes: RouteRecordRaw[] = [
     path: '/calibration/new',
     name: 'CalibrationCreate',
     component: () => import('@/views/calibration/CalibrationCreateView.vue'),
-    meta: { requiresAuth: true, title: 'Tạo Phiếu Hiệu chuẩn', requiredCapabilities: ['calibration.write'] },
+    // Parity 3 tầng (D1): route-guard cap == available_actions[].capability == svc create gate.
+    meta: { requiresAuth: true, title: 'Tạo Phiếu Hiệu chuẩn', requiredCapabilities: ['calibration.create'] },
   },
   {
     path: '/calibration/schedules',

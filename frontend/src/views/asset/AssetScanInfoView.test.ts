@@ -13,8 +13,14 @@ import { formatDate } from '@/utils/formatters'
 const routeParams = ref<Record<string, string>>({ id: 'AC-ASSET-2026-00042' })
 const replaceSpy = vi.fn().mockResolvedValue(undefined)
 const pushSpy = vi.fn().mockResolvedValue(undefined)
+// router.resolve dùng để DỰNG URL deep-link (D3) — trả href chứa query asset+source.
+// Mock phản chiếu vue-router thật: ghép query-string từ location.query.
+const resolveSpy = vi.fn((to: { name?: string; query?: Record<string, string> }) => {
+  const qs = new URLSearchParams(to.query ?? {}).toString()
+  return { href: `/resolved/${to.name}${qs ? `?${qs}` : ''}` }
+})
 vi.mock('vue-router', () => ({
-  useRouter: () => ({ replace: replaceSpy, push: pushSpy }),
+  useRouter: () => ({ replace: replaceSpy, push: pushSpy, resolve: resolveSpy }),
   useRoute: () => ({ get params() { return routeParams.value } }),
 }))
 
@@ -24,6 +30,14 @@ vi.mock('@/api/imm00', () => ({
 }))
 
 import AssetScanInfoView from './AssetScanInfoView.vue'
+
+// 4 CTA đủ enabled (Active + đủ cap) — shape MIRROR BE _build_available_actions.
+const ACTIONS_ALL_ENABLED = [
+  { key: 'report_failure',      label: 'Báo hỏng',          route: 'IncidentCreate',    enabled: true,  reason: '' },
+  { key: 'request_pm',          label: 'Yêu cầu bảo trì',   route: 'PMWorkOrderCreate', enabled: true,  reason: '' },
+  { key: 'request_cm',          label: 'Yêu cầu sửa chữa',  route: 'CMCreate',          enabled: true,  reason: '' },
+  { key: 'request_calibration', label: 'Hiệu chuẩn',        route: 'CalibrationCreate', enabled: true,  reason: '' },
+]
 
 const PAYLOAD = {
   name: 'AC-ASSET-2026-00042',
@@ -39,11 +53,13 @@ const PAYLOAD = {
   // Chiều HIỆU CHUẨN (FR-00-86 / BR-00-37) — song song next_pm_date/pm_overdue.
   next_calibration_date: '2026-09-15',
   calibration_overdue: false,
+  // R1 (D2) — 4 CTA derive SERVER-SIDE. Mặc định đủ enabled (Active + đủ cap).
+  available_actions: ACTIONS_ALL_ENABLED,
 }
 
 describe('AssetScanInfoView — A6 màn info mobile-first khi quét QR', () => {
   beforeEach(() => {
-    replaceSpy.mockClear(); pushSpy.mockClear()
+    replaceSpy.mockClear(); pushSpy.mockClear(); resolveSpy.mockClear()
     getAssetScanInfoSpy.mockReset()
     routeParams.value = { id: 'AC-ASSET-2026-00042' }
   })
@@ -65,6 +81,25 @@ describe('AssetScanInfoView — A6 màn info mobile-first khi quét QR', () => {
     expect(txt).not.toContain('pm_completed')
     // KHÔNG render màn lỗi khi thành công.
     expect(w.find('[role="alert"]').exists()).toBe(false)
+  })
+
+  // ── i18n SSoT sweep: status pill 'Under Maintenance' (mã canonical BE phát) ──
+  //    Bug gốc: LIFECYCLE_STATUS_LABEL/CLASS THIẾU 'Under Maintenance' → pill leak
+  //    raw-EN 'Under Maintenance' + nền xám. Fix tại nguồn map (constants/labels.ts)
+  //    → tự lan tới màn quét QR (statusLabel/statusClass đọc qua SSoT).
+  it("lifecycle_status='Under Maintenance' → pill 'Đang bảo trì' + nền cam (KHÔNG leak raw-EN, KHÔNG xám)", async () => {
+    getAssetScanInfoSpy.mockResolvedValue({ ...PAYLOAD, lifecycle_status: 'Under Maintenance' })
+    const w = mount(AssetScanInfoView)
+    await flushPromises()
+    const txt = w.text()
+    // Nhãn VI hiển thị; KHÔNG leak mã canonical EN.
+    expect(txt).toContain('Đang bảo trì')
+    expect(txt).not.toContain('Under Maintenance')
+    // Pill có nền cam (SSoT class), KHÔNG rơi fallback xám.
+    const pill = w.findAll('span').find(s => s.text().includes('Đang bảo trì'))
+    expect(pill, 'không tìm thấy status pill').toBeTruthy()
+    expect(pill!.classes().join(' ')).toContain('bg-orange-100')
+    expect(pill!.classes().join(' ')).not.toContain('bg-gray-100')
   })
 
   it('read-only — KHÔNG có nút Sửa/Xóa/chuyển trạng thái; CÓ nút Quét lại + Về trang chủ', async () => {
@@ -214,5 +249,264 @@ describe('AssetScanInfoView — A6 màn info mobile-first khi quét QR', () => {
     expect(txt).toContain('Hiệu chuẩn kế tiếp')
     expect(txt).toContain('Chưa lên lịch')
     expect(txt).not.toContain('Quá hạn hiệu chuẩn')
+  })
+
+  // ── A6 defensive (P2): phân biệt 'field absent' (undefined — payload partial/
+  //    stale từ worker cũ) vs 'null thật' (BE chủ động báo CHƯA có lịch). ───────
+  //    Quy tắc: key PRESENT + null/rỗng → 'Chưa lên lịch' (giữ hành vi cũ);
+  //    key ABSENT (undefined) → 'Cần kiểm tra' (KHÔNG tuyên bố sai là chưa lên
+  //    lịch). Cờ overdue ABSENT → KHÔNG bịa pill.
+
+  // (1) regression-guard: null THẬT (key có mặt, value=null) → vẫn 'Chưa lên lịch'.
+  it('next_pm_date=null (key CÓ mặt) → render "Chưa lên lịch" (hành vi cũ GIỮ NGUYÊN)', async () => {
+    getAssetScanInfoSpy.mockResolvedValue({
+      ...PAYLOAD, next_pm_date: null, pm_overdue: false,
+    })
+    const w = mount(AssetScanInfoView)
+    await flushPromises()
+    const txt = w.text()
+    expect(txt).toContain('Bảo trì định kỳ kế tiếp')
+    expect(txt).toContain('Chưa lên lịch')
+    expect(txt).not.toContain('Cần kiểm tra')
+    expect(txt).not.toContain('Quá hạn bảo trì')
+  })
+
+  // (2) ABSENT key next_pm_date (delete khỏi object — undefined runtime) →
+  //     'Cần kiểm tra', KHÔNG 'Chưa lên lịch' cho ô PM.
+  it('next_pm_date ABSENT (undefined — payload partial/stale) → "Cần kiểm tra", KHÔNG tuyên bố "Chưa lên lịch"', async () => {
+    const partial: Record<string, unknown> = { ...PAYLOAD }
+    delete partial.next_pm_date
+    // calibration vẫn đầy đủ để cô lập ô PM (calibration có ngày hợp lệ).
+    getAssetScanInfoSpy.mockResolvedValue(partial)
+    const w = mount(AssetScanInfoView)
+    await flushPromises()
+    const txt = w.text()
+    expect(txt).toContain('Bảo trì định kỳ kế tiếp')
+    // KHÔNG được tuyên bố sai "Chưa lên lịch" cho ô PM (calibration có ngày → 'Chưa
+    // lên lịch' KHÔNG xuất hiện ở đâu cả khi calibration đầy đủ).
+    expect(txt).toContain('Cần kiểm tra')
+    expect(txt).not.toContain('Chưa lên lịch')
+  })
+
+  // (3) ABSENT key next_calibration_date → ô calibration 'Cần kiểm tra', KHÔNG 'Chưa lên lịch'.
+  it('next_calibration_date ABSENT (undefined) → ô hiệu chuẩn "Cần kiểm tra", KHÔNG "Chưa lên lịch"', async () => {
+    const partial: Record<string, unknown> = { ...PAYLOAD }
+    delete partial.next_calibration_date
+    getAssetScanInfoSpy.mockResolvedValue(partial)
+    const w = mount(AssetScanInfoView)
+    await flushPromises()
+    const txt = w.text()
+    expect(txt).toContain('Hiệu chuẩn kế tiếp')
+    expect(txt).toContain('Cần kiểm tra')
+    expect(txt).not.toContain('Chưa lên lịch')
+  })
+
+  // (4) ABSENT cờ pm_overdue → KHÔNG bịa pill 'Quá hạn bảo trì'.
+  it('pm_overdue ABSENT (undefined) → KHÔNG render pill "Quá hạn bảo trì" (không bịa cờ)', async () => {
+    const partial: Record<string, unknown> = { ...PAYLOAD }
+    delete partial.pm_overdue
+    getAssetScanInfoSpy.mockResolvedValue(partial)
+    const w = mount(AssetScanInfoView)
+    await flushPromises()
+    expect(w.text()).not.toContain('Quá hạn bảo trì')
+    expect(w.find('[aria-label="Cảnh báo: quá hạn bảo trì định kỳ"]').exists()).toBe(false)
+  })
+
+  // (5) ABSENT cờ calibration_overdue → KHÔNG bịa pill 'Quá hạn hiệu chuẩn'.
+  it('calibration_overdue ABSENT (undefined) → KHÔNG render pill "Quá hạn hiệu chuẩn" (không bịa cờ)', async () => {
+    const partial: Record<string, unknown> = { ...PAYLOAD }
+    delete partial.calibration_overdue
+    getAssetScanInfoSpy.mockResolvedValue(partial)
+    const w = mount(AssetScanInfoView)
+    await flushPromises()
+    expect(w.text()).not.toContain('Quá hạn hiệu chuẩn')
+    expect(w.find('[aria-label="Cảnh báo: quá hạn hiệu chuẩn"]').exists()).toBe(false)
+  })
+
+  // ── R1 QR-SCAN-ACTION (ADR-IMM00-QR-SCAN-ACTION §D1/D2/D3) — cụm nút hành động ─
+  //    capability-gated từ payload BE available_actions. FE v-for render MỌI phần
+  //    tử (kể cả enabled=false → disabled + reason). KHÔNG hardcode danh sách
+  //    action. Nhãn từ SSoT SCAN_ACTION_LABELS. Deep-link ?asset=&source=qr-scan,
+  //    TUYỆT ĐỐI KHÔNG qr_token. Quét lại + Về trang chủ GIỮ NGUYÊN.
+
+  // helper: lấy nút action theo key (data-action-key) — KHÔNG lẫn nút Quét lại/Home.
+  const actionBtn = (w: ReturnType<typeof mount>, key: string) =>
+    w.find(`[data-action-key="${key}"]`)
+
+  it('4 action enabled → render đúng 4 nút action (nhãn VI SSoT), + 2 nút Quét lại/Về trang chủ', async () => {
+    getAssetScanInfoSpy.mockResolvedValue(PAYLOAD)
+    const w = mount(AssetScanInfoView)
+    await flushPromises()
+    // Đủ 4 nút action render (KHÔNG ẩn nút nào).
+    const actionEls = w.findAll('[data-action-key]')
+    expect(actionEls.length).toBe(4)
+    // Nhãn VI từ SSoT SCAN_ACTION_LABELS (KHÔNG hardcode .vue).
+    expect(actionBtn(w, 'report_failure').text()).toContain('Báo hỏng')
+    expect(actionBtn(w, 'request_pm').text()).toContain('Yêu cầu bảo trì')
+    expect(actionBtn(w, 'request_cm').text()).toContain('Yêu cầu sửa chữa')
+    expect(actionBtn(w, 'request_calibration').text()).toContain('Hiệu chuẩn')
+    // 4 nút enabled → KHÔNG disabled.
+    for (const key of ['report_failure', 'request_pm', 'request_cm', 'request_calibration']) {
+      expect(actionBtn(w, key).attributes('disabled')).toBeUndefined()
+    }
+    // 2 nút điều hướng đáy GIỮ NGUYÊN.
+    const btns = w.findAll('button').map(b => b.text())
+    expect(btns.some(t => t.includes('Quét lại'))).toBe(true)
+    expect(btns.some(t => t.includes('Về trang chủ'))).toBe(true)
+  })
+
+  it('click nút report_failure (enabled) → router.push({ name:"IncidentCreate", query:{ asset, source:"qr-scan" } }) — KHÔNG qr_token', async () => {
+    getAssetScanInfoSpy.mockResolvedValue(PAYLOAD)
+    const w = mount(AssetScanInfoView)
+    await flushPromises()
+    await actionBtn(w, 'report_failure').trigger('click')
+    expect(pushSpy).toHaveBeenCalledTimes(1)
+    expect(pushSpy).toHaveBeenCalledWith({
+      name: 'IncidentCreate',
+      query: { asset: 'AC-ASSET-2026-00042', source: 'qr-scan' },
+    })
+    // KHÔNG có qr_token trong location truyền cho router.push.
+    const arg = pushSpy.mock.calls[0][0]
+    expect(JSON.stringify(arg)).not.toContain('qr_token')
+    expect(Object.keys(arg.query)).toEqual(['asset', 'source'])
+  })
+
+  it('click các nút enabled khác → push đúng route name + query (asset + qr-scan, no qr_token)', async () => {
+    getAssetScanInfoSpy.mockResolvedValue(PAYLOAD)
+    const w = mount(AssetScanInfoView)
+    await flushPromises()
+    const cases: Array<[string, string]> = [
+      ['request_pm', 'PMWorkOrderCreate'],
+      ['request_cm', 'CMCreate'],
+      ['request_calibration', 'CalibrationCreate'],
+    ]
+    for (const [key, routeName] of cases) {
+      pushSpy.mockClear()
+      await actionBtn(w, key).trigger('click')
+      expect(pushSpy).toHaveBeenCalledWith({
+        name: routeName,
+        query: { asset: 'AC-ASSET-2026-00042', source: 'qr-scan' },
+      })
+      expect(JSON.stringify(pushSpy.mock.calls[0][0])).not.toContain('qr_token')
+    }
+  })
+
+  it('action enabled=false (Decommissioned reason) → nút disabled + title=reason + aria-disabled; click no-op', async () => {
+    const REASON = 'Thiết bị đã thanh lý'
+    getAssetScanInfoSpy.mockResolvedValue({
+      ...PAYLOAD,
+      lifecycle_status: 'Decommissioned',
+      available_actions: [
+        { key: 'report_failure',      label: 'Báo hỏng',         route: 'IncidentCreate',    enabled: false, reason: REASON },
+        { key: 'request_pm',          label: 'Yêu cầu bảo trì',  route: 'PMWorkOrderCreate', enabled: false, reason: REASON },
+        { key: 'request_cm',          label: 'Yêu cầu sửa chữa', route: 'CMCreate',          enabled: false, reason: REASON },
+        { key: 'request_calibration', label: 'Hiệu chuẩn',       route: 'CalibrationCreate', enabled: false, reason: REASON },
+      ],
+    })
+    const w = mount(AssetScanInfoView)
+    await flushPromises()
+    const btn = actionBtn(w, 'report_failure')
+    // disabled + a11y.
+    expect(btn.attributes('disabled')).toBeDefined()
+    expect(btn.attributes('aria-disabled')).toBe('true')
+    expect(btn.attributes('title')).toBe(REASON)
+    // reason đọc được trên màn (title + cụm aria-live).
+    expect(w.text()).toContain(REASON)
+    // click KHÔNG điều hướng (no-op).
+    await btn.trigger('click')
+    expect(pushSpy).not.toHaveBeenCalled()
+    // KHÔNG ẩn nút nào — vẫn đủ 4 nút action render.
+    expect(w.findAll('[data-action-key]').length).toBe(4)
+  })
+
+  it('lifecycle Out of Service → 2 enabled (report_failure+request_cm) + 2 disabled (pm+calibration reason) — KHÔNG ẩn nút nào (tổng 4)', async () => {
+    const OOS_REASON = 'Thiết bị đang ngừng hoạt động — chỉ cho phép báo hỏng / yêu cầu sửa chữa'
+    getAssetScanInfoSpy.mockResolvedValue({
+      ...PAYLOAD,
+      lifecycle_status: 'Out of Service',
+      available_actions: [
+        { key: 'report_failure',      label: 'Báo hỏng',         route: 'IncidentCreate',    enabled: true,  reason: '' },
+        { key: 'request_cm',          label: 'Yêu cầu sửa chữa', route: 'CMCreate',          enabled: true,  reason: '' },
+        { key: 'request_pm',          label: 'Yêu cầu bảo trì',  route: 'PMWorkOrderCreate', enabled: false, reason: OOS_REASON },
+        { key: 'request_calibration', label: 'Hiệu chuẩn',       route: 'CalibrationCreate', enabled: false, reason: OOS_REASON },
+      ],
+    })
+    const w = mount(AssetScanInfoView)
+    await flushPromises()
+    // Tổng 4 nút action render (KHÔNG ẩn nút nào).
+    expect(w.findAll('[data-action-key]').length).toBe(4)
+    // 2 enabled.
+    expect(actionBtn(w, 'report_failure').attributes('disabled')).toBeUndefined()
+    expect(actionBtn(w, 'request_cm').attributes('disabled')).toBeUndefined()
+    // 2 disabled + reason OOS.
+    for (const key of ['request_pm', 'request_calibration']) {
+      const b = actionBtn(w, key)
+      expect(b.attributes('disabled')).toBeDefined()
+      expect(b.attributes('aria-disabled')).toBe('true')
+      expect(b.attributes('title')).toBe(OOS_REASON)
+    }
+    expect(w.text()).toContain(OOS_REASON)
+    // enabled vẫn điều hướng được.
+    await actionBtn(w, 'request_cm').trigger('click')
+    expect(pushSpy).toHaveBeenCalledWith({
+      name: 'CMCreate', query: { asset: 'AC-ASSET-2026-00042', source: 'qr-scan' },
+    })
+    // disabled click no-op.
+    pushSpy.mockClear()
+    await actionBtn(w, 'request_pm').trigger('click')
+    expect(pushSpy).not.toHaveBeenCalled()
+  })
+
+  it('action enabled=false vì THIẾU QUYỀN (reason capability) → disabled + title=reason quyền (FE chỉ render reason BE)', async () => {
+    const CAP_REASON = 'Bạn không có quyền thực hiện thao tác này'
+    getAssetScanInfoSpy.mockResolvedValue({
+      ...PAYLOAD,
+      lifecycle_status: 'Active',
+      available_actions: [
+        { key: 'report_failure',      label: 'Báo hỏng',         route: 'IncidentCreate',    enabled: true,  reason: '' },
+        { key: 'request_pm',          label: 'Yêu cầu bảo trì',  route: 'PMWorkOrderCreate', enabled: false, reason: CAP_REASON },
+        { key: 'request_cm',          label: 'Yêu cầu sửa chữa', route: 'CMCreate',          enabled: true,  reason: '' },
+        { key: 'request_calibration', label: 'Hiệu chuẩn',       route: 'CalibrationCreate', enabled: true,  reason: '' },
+      ],
+    })
+    const w = mount(AssetScanInfoView)
+    await flushPromises()
+    const b = actionBtn(w, 'request_pm')
+    expect(b.attributes('disabled')).toBeDefined()
+    expect(b.attributes('aria-disabled')).toBe('true')
+    // reason quyền (≠ reason lifecycle) — FE render ĐÚNG chuỗi BE trả.
+    expect(b.attributes('title')).toBe(CAP_REASON)
+    expect(w.text()).toContain(CAP_REASON)
+    // click no-op.
+    await b.trigger('click')
+    expect(pushSpy).not.toHaveBeenCalled()
+  })
+
+  it('available_actions rỗng/absent → KHÔNG crash, KHÔNG render nút action (vẫn còn Quét lại/Home)', async () => {
+    const partial: Record<string, unknown> = { ...PAYLOAD }
+    delete partial.available_actions
+    getAssetScanInfoSpy.mockResolvedValue(partial)
+    const w = mount(AssetScanInfoView)
+    await flushPromises()
+    expect(w.findAll('[data-action-key]').length).toBe(0)
+    const btns = w.findAll('button').map(b => b.text())
+    expect(btns.some(t => t.includes('Quét lại'))).toBe(true)
+    expect(btns.some(t => t.includes('Về trang chủ'))).toBe(true)
+  })
+
+  it('nhãn nút action lấy TỪ SSoT SCAN_ACTION_LABELS — đổi BE label vẫn render nhãn SSoT theo key', async () => {
+    // BE trả label "lệch" (mô phỏng drift) — FE PHẢI ưu tiên SSoT theo key.
+    getAssetScanInfoSpy.mockResolvedValue({
+      ...PAYLOAD,
+      available_actions: [
+        { key: 'report_failure', label: 'XXX-drift', route: 'IncidentCreate', enabled: true, reason: '' },
+        ...ACTIONS_ALL_ENABLED.slice(1),
+      ],
+    })
+    const w = mount(AssetScanInfoView)
+    await flushPromises()
+    // Render nhãn SSoT VI (KHÔNG render label drift của BE).
+    expect(actionBtn(w, 'report_failure').text()).toContain('Báo hỏng')
+    expect(w.text()).not.toContain('XXX-drift')
   })
 })

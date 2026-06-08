@@ -214,23 +214,43 @@ export function docStatusClass(v: number) { return DOC_STATUS_CLASS[v] ?? 'bg-gr
 // ─── AC Asset lifecycle ───────────────────────────────────────────────────────
 export const LIFECYCLE_STATUS_LABEL: Record<string, string> = {
   // Đồng bộ wording với formatters.translateStatus + AssetListView (chống drift).
-  'Commissioned':    'Đã đưa vào sử dụng',
-  'Active':          'Đang hoạt động',
-  'Under Repair':    'Đang sửa chữa',
-  'Calibrating':     'Đang hiệu chuẩn',
-  'Out of Service':  'Ngừng hoạt động',
-  'Decommissioned':  'Đã thanh lý',
+  // Phủ ĐỦ 7 mã canonical BE phát cho AC Asset.lifecycle_status (ADR-001):
+  // Active / Commissioned / Under Maintenance / Under Repair / Calibrating /
+  // Out of Service / Decommissioned — không mã nào rơi fallback raw-EN trên màn quét QR.
+  'Commissioned':       'Đã đưa vào sử dụng',
+  'Active':             'Đang hoạt động',
+  'Under Maintenance':  'Đang bảo trì',   // khớp formatters.STATUS_MAP:96 (single wording)
+  'Under Repair':       'Đang sửa chữa',
+  'Calibrating':        'Đang hiệu chuẩn',
+  'Out of Service':     'Ngừng hoạt động',
+  'Decommissioned':     'Đã thanh lý',
 }
 export const LIFECYCLE_STATUS_CLASS: Record<string, string> = {
-  'Commissioned':    'bg-indigo-100 text-indigo-800',
-  'Active':          'bg-green-100 text-green-800',
-  'Under Repair':    'bg-orange-100 text-orange-800',
-  'Calibrating':     'bg-cyan-100 text-cyan-800',
-  'Out of Service':  'bg-red-100 text-red-800',
-  'Decommissioned':  'bg-gray-200 text-gray-500',
+  'Commissioned':       'bg-indigo-100 text-indigo-800',
+  'Active':             'bg-green-100 text-green-800',
+  'Under Maintenance':  'bg-orange-100 text-orange-800',   // cam — đồng bộ COLOR_ORANGE (formatters STATUS_COLORS:399) & 'Under Repair'
+  'Under Repair':       'bg-orange-100 text-orange-800',
+  'Calibrating':        'bg-cyan-100 text-cyan-800',
+  'Out of Service':     'bg-red-100 text-red-800',
+  'Decommissioned':     'bg-gray-200 text-gray-500',
 }
 export function lifecycleStatusLabel(v: string) { return LIFECYCLE_STATUS_LABEL[v] ?? v }
 export function lifecycleStatusClass(v: string) { return LIFECYCLE_STATUS_CLASS[v] ?? 'bg-gray-100 text-gray-600' }
+
+// ─── Hành động màn quét QR (R1 — ADR-IMM00-QR-SCAN-ACTION §D1) ────────────────
+// SSoT nhãn VI cho 4 CTA màn quét QR (AssetScanInfoView). Key = action.key BE
+// emit trong available_actions (build_asset_scan_info → _scan_action_specs). FE
+// render nhãn TỪ map này (KHÔNG hardcode nhãn trong .vue) — no-drift parity với
+// label BE (_SCAN_ACTION_SPECS imm00.py: 'Báo hỏng'/'Yêu cầu bảo trì'/
+// 'Yêu cầu sửa chữa'/'Hiệu chuẩn'). BE vẫn là nguồn enabled/reason/route; map
+// này CHỈ là nhãn hiển thị, khoá wording VI một chỗ.
+export const SCAN_ACTION_LABELS: Record<string, string> = {
+  report_failure:      'Báo hỏng',
+  request_pm:          'Yêu cầu bảo trì',
+  request_cm:          'Yêu cầu sửa chữa',
+  request_calibration: 'Hiệu chuẩn',
+}
+export function scanActionLabel(key: string) { return SCAN_ACTION_LABELS[key] ?? key }
 
 // ─── Số ĐK lưu hành Bộ Y tế — drill NĐ98 (BR-00-17) ───────────────────────────
 // SSoT nhãn tiếng Việt cho 2 bucket byt_status. KHÔNG hardcode chuỗi rải rác

@@ -21,10 +21,11 @@ const route = useRoute()
 const store = useAssetStore()
 const refData = useRefDataStore()
 const { can } = useCapabilities()
-// B (siết RBAC least-privilege): in nhãn = side-effect (ghi ALE label_printed +
-// audit) → gate asset.WRITE, KHÔNG asset.read. User chỉ-đọc KHÔNG thấy nút in
-// hàng loạt (mirror route AssetLabelPrint requiredCapabilities:['asset.write']).
-const canPrintLabel = computed(() => can('asset.write'))
+// D6 (ADR-IMM00-QR-SCAN-ACTION, phương án B): in nhãn = quyền PRINT (DocPerm
+// print=1 sẵn cho KTV/QL vật tư) → gate asset.PRINT, KHÔNG còn asset.write (chỉ
+// Super Admin). Mirror route AssetLabelPrint requiredCapabilities:['asset.print']
+// + BE get_asset_label_data_batch/mark_label_printed require('asset.print').
+const canPrintLabel = computed(() => can('asset.print'))
 
 const showFilters = ref(false)
 

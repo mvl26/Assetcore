@@ -97,7 +97,9 @@ async function confirmPrintLabel() {
 }
 
 // ── B (hardening): cấp lại (rotate) mã QR — vô hiệu hoá nhãn cũ + token mới ──────
-// Gate hiển thị nút = can('asset.write') (rotate = thao tác GHI; BE gate asset.write).
+// D6 (ADR-IMM00-QR-SCAN-ACTION, phương án B): gate nút = can('asset.qr.rotate')
+// (rotate = thao tác GHI; BE gate asset.qr.rotate→write). Nút "In nhãn QR" gate
+// asset.print riêng (persona vận hành in được, KHÔNG rotate được).
 // Cảnh báo qua BaseModal (KHÔNG window.confirm). Xác nhận → regenerateAssetQrToken
 // → refetch asset (qr_url/nhãn phản ánh token mới) → toast VI. Huỷ → no-op (đóng modal).
 const showRegenModal = ref(false)
@@ -357,14 +359,15 @@ onMounted(async () => {
       back-to="/assets"
       back-label="← Danh sách thiết bị"
       :title="store.currentAsset?.asset_name || 'Chi tiết thiết bị'"
-      :subtitle="store.currentAsset ? `Mã: ${store.currentAsset.name}` : ''"
+      :subtitle="store.currentAsset ? `Mã: ${store.currentAsset.asset_code || store.currentAsset.name}` : ''"
       :breadcrumb="[
         { label: 'Thiết bị', to: '/assets' },
         { label: store.currentAsset?.asset_name || id },
       ]"
     >
       <template #actions>
-        <!-- B (least-privilege): nút ghi gate capability (parity với In/Sinh-lại QR line 373/385). asset.write = sửa. -->
+        <!-- Nút Chỉnh sửa gate asset.write (sửa asset). In nhãn gate asset.print,
+             Sinh-lại QR gate asset.qr.rotate (D6 phương án B — tách quyền). -->
         <button v-if="store.currentAsset && can('asset.write')" class="btn-ghost text-sm" @click="router.push(`/assets/${id}/edit`)">Chỉnh sửa</button>
         <!-- asset.delete là DocPerm delete RIÊNG — KHÔNG dùng chung asset.write. -->
         <button v-if="store.currentAsset && can('asset.delete')" class="text-red-600 hover:text-red-800 text-sm font-medium px-3 py-1.5" @click="remove">Xóa</button>
@@ -385,7 +388,7 @@ onMounted(async () => {
           </div>
           <div class="flex items-center gap-3">
             <button
-              v-if="can('asset.write')"
+              v-if="can('asset.print')"
               class="btn-ghost text-sm inline-flex items-center gap-1.5"
               title="Xem trước & in nhãn QR cho thiết bị này"
               @click="openLabelPreview"
@@ -397,7 +400,7 @@ onMounted(async () => {
               In nhãn QR
             </button>
             <button
-              v-if="can('asset.write')"
+              v-if="can('asset.qr.rotate')"
               class="btn-ghost text-sm inline-flex items-center gap-1.5"
               title="Cấp lại mã QR — vô hiệu hoá mọi nhãn QR đã in trước đó"
               data-testid="btn-regen-qr"
@@ -609,7 +612,10 @@ onMounted(async () => {
         <div class="card p-4">
           <h3 class="text-sm font-semibold text-slate-700 mb-3">Thông tin HTM</h3>
           <dl class="space-y-2 text-sm">
-            <div class="flex justify-between"><dt class="text-slate-400">Serial No</dt><dd class="text-slate-800 font-mono text-xs">{{ store.currentAsset.manufacturer_sn || '—' }}</dd></div>
+            <!-- V1-E / ADR-IMM00-ASSETCODE §D1/D4: Mã tài sản (asset_code = PK) TÁCH BẠCH với Số serial NSX.
+                 Fallback name khi asset_code rỗng (invariant asset_code == name cho legacy). -->
+            <div class="flex justify-between"><dt class="text-slate-400">Mã tài sản</dt><dd class="text-slate-800 font-mono text-xs">{{ store.currentAsset.asset_code || store.currentAsset.name || '—' }}</dd></div>
+            <div class="flex justify-between"><dt class="text-slate-400">Số serial NSX</dt><dd class="text-slate-800 font-mono text-xs">{{ store.currentAsset.manufacturer_sn || '—' }}</dd></div>
             <div class="flex justify-between"><dt class="text-slate-400">UDI Code</dt><dd class="text-slate-800 font-mono text-xs">{{ store.currentAsset.udi_code || '—' }}</dd></div>
             <div class="flex justify-between"><dt class="text-slate-400">GMDN</dt><dd class="text-slate-800">{{ store.currentAsset.gmdn_code || '—' }}</dd></div>
             <div class="flex justify-between items-center">
@@ -635,13 +641,15 @@ onMounted(async () => {
             </div>
             <div class="flex justify-between">
               <dt class="text-slate-400">Bảo trì tiếp theo</dt>
-              <dd :class="isPmOverdue(store.currentAsset.next_pm_date) ? 'text-red-600 font-semibold' : 'text-slate-800'">
+              <!-- SSoT: đọc cờ server pm_overdue (KHÔNG so ngày client) — đồng bộ màn quét-QR -->
+              <dd :class="store.currentAsset.pm_overdue ? 'text-red-600 font-semibold' : 'text-slate-800'">
                 {{ formatDate(store.currentAsset.next_pm_date) }}
               </dd>
             </div>
             <div class="flex justify-between">
               <dt class="text-slate-400">Hiệu chuẩn tiếp theo</dt>
-              <dd :class="isPmOverdue(store.currentAsset.next_calibration_date) ? 'text-red-600 font-semibold' : 'text-slate-800'">
+              <!-- SSoT: đọc cờ server calibration_overdue (KHÔNG so ngày client) — exempt Out of Service -->
+              <dd :class="store.currentAsset.calibration_overdue ? 'text-red-600 font-semibold' : 'text-slate-800'">
                 {{ formatDate(store.currentAsset.next_calibration_date) }}
               </dd>
             </div>

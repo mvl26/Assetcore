@@ -35,9 +35,10 @@ vi.mock('@/stores/imm00', () => ({
 vi.mock('@/composables/useImportWizard', () => ({
   useImportWizard: () => ({ open: vi.fn(), doExport: vi.fn() }),
 }))
-// B (siết RBAC): nút 'In nhãn hàng loạt' + cột checkbox gate asset.WRITE.
-// `canCaps` set ngoài test để giả lập user write / user chỉ-đọc.
-const canCaps = new Set<string>(['asset.write'])
+// D6 (ADR-IMM00-QR-SCAN-ACTION, phương án B): nút 'In nhãn hàng loạt' + cột
+// checkbox gate asset.PRINT (quyền in — persona vận hành có). `canCaps` set ngoài
+// test để giả lập user-có-print / user-không-print.
+const canCaps = new Set<string>(['asset.print'])
 vi.mock('@/composables/useCapabilities', () => ({
   useCapabilities: () => ({
     can: (c: string | readonly string[]) =>
@@ -58,12 +59,12 @@ describe('AssetListView — chọn nhiều + in nhãn hàng loạt (A4)', () => 
   beforeEach(() => {
     pushSpy.mockClear()
     routeQuery.value = {}
-    // mặc định: user CÓ asset.write (write user) cho các case batch bên dưới.
+    // mặc định: user CÓ asset.print cho các case batch bên dưới.
     canCaps.clear()
-    canCaps.add('asset.write')
+    canCaps.add('asset.print')
   })
 
-  it("B — user CHỈ-ĐỌC (asset.read, KHÔNG asset.write) → nút 'In nhãn hàng loạt' KHÔNG render", async () => {
+  it("D6 — user KHÔNG có asset.print (chỉ read) → nút 'In nhãn hàng loạt' KHÔNG render", async () => {
     canCaps.clear()
     canCaps.add('asset.read')
     const w = mount(AssetListView, { global: { stubs } })

@@ -24,6 +24,10 @@ from assetcore.services.imm00 import (
     resolve_qr_token as _svc_resolve_qr_token,
     regenerate_asset_qr_token as _svc_regenerate_asset_qr_token,
     build_asset_scan_info as _svc_build_asset_scan_info,
+    # SSoT overdue derivers (tz-safe + exempt BLOCKED_FOR_WO) — tái dùng CHÍNH
+    # deriver của màn quét-QR cho màn admin-detail (KHÔNG re-implement so ngày).
+    _is_pm_overdue,
+    _is_calibration_overdue,
     ensure_asset_qr_token,
     build_asset_label_data,
     build_asset_label_data_batch,
@@ -287,6 +291,16 @@ def get_asset(name: str):
         doc["device_model_name"] = frappe.db.get_value(_DT_DEVICE_MODEL, doc["device_model"], "model_name") or ""
     if doc.get("responsible_technician"):
         doc["responsible_technician_name"] = frappe.db.get_value("User", doc["responsible_technician"], "full_name") or ""
+    # SSoT overdue (server-flag) — derive 2 cờ bằng CHÍNH deriver của màn quét-QR
+    # (_is_pm_overdue/_is_calibration_overdue): tz-safe (getdate server, STRICT <)
+    # + exempt BLOCKED_FOR_WO (Out of Service / Decommissioned → cờ=False dù ngày
+    # quá khứ). KHÔNG re-implement so ngày ở đây ⇒ màn admin-detail & màn quét-QR
+    # CÙNG 1 kết luận overdue. FE CHỈ render cờ — KHÔNG so ngày client (chống
+    # tz-drift). next_pm_date/next_calibration_date đọc từ doc (đã as_dict).
+    _status = doc.get("lifecycle_status")
+    doc["pm_overdue"] = _is_pm_overdue(doc.get("next_pm_date"), _status)
+    doc["calibration_overdue"] = _is_calibration_overdue(
+        doc.get("next_calibration_date"), _status)
     # No-raw-token (ADR-001 §D4 rule 9): qr_token là khóa tra cứu MỜ nội bộ —
     # KHÔNG surface thô qua endpoint đọc asset (deep-link dùng qr_url server-side).
     # as_dict() leak nguyên field dù hidden/read_only → pop qua SSoT trước return.
@@ -398,18 +412,21 @@ def get_asset_label_data(asset: str = ""):
     ``label_printed``/audit; preview ≠ in, chống spam chain — D3/D4).
 
     Bảo mật (theo thứ tự):
-      1. ``rbac.require("asset.write")`` → PermissionError (403). Vòng B SIẾT
-         ``asset.read``→``asset.write`` (least-privilege, ADR-001 D4): in nhãn =
-         tiền-đề thao-tác-GHI + side-effect token-backfill ``ensure_asset_qr_token``
-         ⇒ nhóm WRITE. User chỉ-đọc (``asset.read`` NHƯNG KHÔNG ``asset.write``)
-         → 403. KHÔNG cap mới (``CAP_SET_VERSION`` GIỮ ``v95.3388ee5629c1``).
+      1. ``rbac.require("asset.print")`` → PermissionError (403). ADR-IMM00-QR-
+         SCAN-ACTION D6 (Accepted→EXECUTED, phương án B): TÁCH cap riêng
+         ``asset.print``→(AC Asset,"print") thay ``asset.write`` (vốn chỉ Super
+         Admin có → KTV/QL vật tư KHÔNG in được — self-correction P2). Resolve
+         ``has_permission("AC Asset","print")``: DocPerm print=1 sẵn cho ~mọi role
+         vận hành ⇒ in được NGAY (KHÔNG đổi DocPerm). User KHÔNG có print → 403.
+         (Cap mới ⇒ ``CAP_SET_VERSION`` ĐỔI ``v95.3388ee5629c1``→
+         ``v97.c30c69b8974d`` — FE auto-invalidate persisted-caps stale.)
       2. asset rỗng/không tồn tại → 404 leak-safe (KHÔNG 500, KHÔNG đoán id).
       3. IDOR: ``assert_vendor_can_access`` → vendor ngoài scope → 403, KHÔNG leak.
 
     ``qr_url`` KHÔNG BAO GIỜ rỗng: token-less asset → ``ensure_asset_qr_token``
     (idempotent) trong service trước khi build (BR-00-28).
     """
-    rbac.require("asset.write")
+    rbac.require("asset.print")
     if not asset or not frappe.db.exists(_DT_ASSET, asset):
         return _err(_(_ERR_ASSET_NOT_FOUND), 404)
     try:
@@ -428,15 +445,17 @@ def get_asset_label_data_batch(assets=None):
     index (KHÔNG drop → giữ index FE). 1 truy vấn gộp + IN-clause cho enrich
     (KHÔNG loop get_value).
 
-    Bảo mật: ``rbac.require("asset.write")`` (403) — vòng B SIẾT ``asset.read``→
-    ``asset.write`` (least-privilege; in nhãn = nhóm WRITE). User chỉ-đọc → 403.
-    KHÔNG cap mới (``CAP_SET_VERSION`` GIỮ ``v95.3388ee5629c1``). IDOR mỗi asset
-    hợp lệ qua ``assert_vendor_can_access`` → vendor có ≥1 asset ngoài scope →
+    Bảo mật: ``rbac.require("asset.print")`` (403) — ADR-IMM00-QR-SCAN-ACTION D6
+    (phương án B): TÁCH cap ``asset.print``→(AC Asset,"print") thay ``asset.write``
+    (least-privilege; in nhãn = quyền PRINT, không phải WRITE toàn asset). DocPerm
+    print=1 sẵn cho ~mọi role vận hành → in hàng loạt được NGAY. User KHÔNG có
+    print → 403. (Cap mới ⇒ ``CAP_SET_VERSION`` ĐỔI →``v97.c30c69b8974d``.) IDOR mỗi
+    asset hợp lệ qua ``assert_vendor_can_access`` → vendor có ≥1 asset ngoài scope →
     403 TOÀN call (KHÔNG partial, KHÔNG leak asset nào thuộc/không-thuộc scope).
     """
-    rbac.require("asset.write")
+    rbac.require("asset.print")
     names = frappe.parse_json(assets) if isinstance(assets, str) else (assets or [])
-    # CAP batch-size SAU rbac (chỉ user đã-auth-write tới đây — KHÔNG lộ giới hạn cho
+    # CAP batch-size SAU rbac (chỉ user đã-auth-print tới đây — KHÔNG lộ giới hạn cho
     # khách) TRƯỚC vòng exists/IDOR + build payload → chặn per-request payload-DoS.
     # 413 bucket RIÊNG (PAYLOAD_TOO_LARGE), message VI cố định, KHÔNG leak asset name.
     if len(names) > _MAX_LABEL_BATCH:
@@ -462,14 +481,16 @@ def mark_label_printed(assets=None):
     event nào → tránh audit chain lệch. ≥1 không tồn tại → 404 (KHÔNG ghi gì);
     vendor ngoài scope → 403 toàn call.
 
-    Bảo mật: ``rbac.require("asset.write")`` chạy ĐẦU TIÊN — vòng B SIẾT
-    ``asset.read``→``asset.write`` (ghi ``label_printed``+audit = side-effect bền
-    vững ⇒ WRITE rõ nghĩa, least-privilege ADR-001 D4). User chỉ-đọc → 403, chặn
-    TRƯỚC mọi write (KHÔNG dò được asset nào tồn tại, KHÔNG sinh event/audit).
-    KHÔNG cap mới ``asset.print_label`` (đã BỎ); ``CAP_SET_VERSION`` GIỮ
-    ``v95.3388ee5629c1``.
+    Bảo mật: ``rbac.require("asset.print")`` chạy ĐẦU TIÊN — ADR-IMM00-QR-SCAN-
+    ACTION D6 (phương án B, Accepted→EXECUTED): cap ``asset.print``→(AC Asset,
+    "print"). Ghi ``label_printed``+audit là HỆ QUẢ của hành-động-IN → gate đúng
+    quyền PRINT (least-privilege; KHÔNG cần ``asset.write`` toàn asset). DocPerm
+    print=1 sẵn cho ~mọi role vận hành → KTV/QL vật tư in được NGAY (sửa lỗi
+    self-correction P2: trước đây chỉ Super Admin in được). User KHÔNG có print →
+    403, chặn TRƯỚC mọi write (KHÔNG dò được asset tồn tại, KHÔNG sinh event/audit).
+    (Cap mới ⇒ ``CAP_SET_VERSION`` ĐỔI ``v95.3388ee5629c1``→``v97.c30c69b8974d``.)
     """
-    rbac.require("asset.write")
+    rbac.require("asset.print")
     names = frappe.parse_json(assets) if isinstance(assets, str) else (assets or [])
     # CAP batch-size SAU rbac, TRƯỚC mọi write/validate → chặn khuếch đại write/audit
     # chain (2 record/asset). 413 bucket RIÊNG, message VI cố định, KHÔNG leak name,
@@ -511,11 +532,15 @@ def regenerate_asset_qr_token(asset: str = ""):
          rotate hiếm hơn + blast-radius lớn nhất). KHÔNG-HTTP context (test/CLI)
          bypass có chủ đích (``if not frappe.request: return fn``). Đóng bất đối
          xứng read-throttled (BR-00-29) / write-rotate-unthrottled.
-      1. ``rbac.require("asset.write")`` chạy ĐẦU TIÊN → user chỉ asset.read
-         (Guest/nurse) → ``frappe.PermissionError`` (403). Rotate = side-effect ghi
-         (đổi token + ghi event/audit) ⇒ nhóm WRITE (least-privilege). Gate bằng
-         CAPABILITY (DocPerm), KHÔNG hardcode role. KHÔNG cap mới
-         (``CAP_SET_VERSION`` GIỮ ``v95.3388ee5629c1``).
+      1. ``rbac.require("asset.qr.rotate")`` chạy ĐẦU TIÊN → user không có quyền
+         rotate (Guest/nurse/KTV chỉ-print) → ``frappe.PermissionError`` (403).
+         ADR-IMM00-QR-SCAN-ACTION D6 (phương án B, Accepted→EXECUTED): TÁCH cap
+         ``asset.qr.rotate``→(AC Asset,"write"). Rotate = side-effect GHI (đổi định
+         danh phụ + vô hiệu nhãn cũ + ghi event/audit) ⇒ bind permtype "write"
+         (KHÔNG ``asset.print`` — print KHÔNG được rotate). Gate bằng CAPABILITY
+         (DocPerm), KHÔNG hardcode role. Hiện chỉ Super Admin (write=1); QL vật tư
+         cấp thêm write/grant qua DocPerm (config /app, KHÔNG deploy code). (Cap
+         mới ⇒ ``CAP_SET_VERSION`` ĐỔI ``v95.3388ee5629c1``→``v97.c30c69b8974d``.)
       2. asset rỗng/không tồn tại → 404 leak-safe (KHÔNG 500, KHÔNG đoán id) —
          chặn TRƯỚC khi đụng service (no side-effect khi không hợp lệ).
       3. IDOR: ``assert_vendor_can_access`` → vendor ngoài scope → 403, KHÔNG leak
@@ -526,7 +551,7 @@ def regenerate_asset_qr_token(asset: str = ""):
          KHÔNG surface token thô (ADR-001 §D4 rule 9 + 05 §III.1: FE chỉ cần
          ``qr_url``, no-raw-token parity với resolve/scan).
     """
-    rbac.require("asset.write")
+    rbac.require("asset.qr.rotate")
     if not asset or not isinstance(asset, str) or not frappe.db.exists(_DT_ASSET, asset):
         return _err(_(_ERR_ASSET_NOT_FOUND), 404)
     try:

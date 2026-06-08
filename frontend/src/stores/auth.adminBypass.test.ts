@@ -7,7 +7,8 @@
 // Split-brain trước fix: `routeAccess.ts` admin-bypass (isFrappeAdmin → allow)
 // NHƯNG `auth.can(cap) = capabilities[cap]===true` KHÔNG bypass → Super Admin với
 // cap-set rỗng `asset.*` VÀO được route (AssetLabelPrint/AssetDetail) nhưng nút
-// QR/print BỊ ẨN (can('asset.write')=false). Nav-vào-được nhưng action biến mất.
+// QR/print BỊ ẨN (can('asset.print')/can('asset.qr.rotate')=false). Nav-vào-được
+// nhưng action biến mất. (D6: in nhãn gate asset.print, rotate gate asset.qr.rotate.)
 //
 // Fix (1 SSoT): auth.can(cap) = isFrappeAdmin || capabilities[cap]===true.
 // Tiêu chí admin-role dùng CHUNG hằng FRAPPE_ADMIN_ROLES (constants/roles.ts) với
@@ -85,29 +86,29 @@ describe('auth.can — admin-bypass SSoT (B affordance↔route parity)', () => {
       }
     }
 
-    it('admin-role + 0 cap: route AssetLabelPrint=allow VÀ can(asset.write)=true (đồng thuận)', () => {
+    it('admin-role + 0 cap: route AssetLabelPrint=allow VÀ can(asset.print)=true (đồng thuận)', () => {
       const auth = withUser(['AssetCore Super Admin'], {})
-      const route = resolveRouteAccess({ requiredCapabilities: ['asset.write'] }, routeCtx(auth))
+      const route = resolveRouteAccess({ requiredCapabilities: ['asset.print'] }, routeCtx(auth))
       expect(route).toBe('allow')
-      expect(auth.can('asset.write')).toBe(true)
+      expect(auth.can('asset.print')).toBe(true)
       // 2 cổng đồng thuận (chống tái phát split-brain)
-      expect(route === 'allow').toBe(auth.can('asset.write'))
+      expect(route === 'allow').toBe(auth.can('asset.print'))
     })
 
-    it('non-admin chỉ-đọc: route AssetLabelPrint=unauthorized VÀ can(asset.write)=false (đồng thuận)', () => {
+    it('non-admin chỉ-đọc: route AssetLabelPrint=unauthorized VÀ can(asset.print)=false (đồng thuận)', () => {
       const auth = withUser(['Data User'], { 'asset.read': true })
-      const route = resolveRouteAccess({ requiredCapabilities: ['asset.write'] }, routeCtx(auth))
+      const route = resolveRouteAccess({ requiredCapabilities: ['asset.print'] }, routeCtx(auth))
       expect(route).toBe('unauthorized')
-      expect(auth.can('asset.write')).toBe(false)
-      expect(route === 'allow').toBe(auth.can('asset.write'))
+      expect(auth.can('asset.print')).toBe(false)
+      expect(route === 'allow').toBe(auth.can('asset.print'))
     })
 
-    it('non-admin có asset.write: route=allow VÀ can(asset.write)=true (đồng thuận, regression)', () => {
-      const auth = withUser(['Data Manager'], { 'asset.write': true })
-      const route = resolveRouteAccess({ requiredCapabilities: ['asset.write'] }, routeCtx(auth))
+    it('D6 — non-admin có asset.print: route=allow VÀ can(asset.print)=true (đồng thuận, regression)', () => {
+      const auth = withUser(['Data Manager'], { 'asset.print': true })
+      const route = resolveRouteAccess({ requiredCapabilities: ['asset.print'] }, routeCtx(auth))
       expect(route).toBe('allow')
-      expect(auth.can('asset.write')).toBe(true)
-      expect(route === 'allow').toBe(auth.can('asset.write'))
+      expect(auth.can('asset.print')).toBe(true)
+      expect(route === 'allow').toBe(auth.can('asset.print'))
     })
   })
 })

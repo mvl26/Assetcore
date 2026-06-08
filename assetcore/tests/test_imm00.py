@@ -1979,6 +1979,218 @@ class TestAssetQRToken(unittest.TestCase):
 
 
 # ──────────────────────────────────────────────────────────────────────────
+# BE-D4 (ADR-IMM00-QR-SCAN-ACTION §D4) — QR-gen COVERAGE proof across MỌI đường
+# tạo asset + read-only baseline + idempotent backfill reproof.
+#
+# 🎯 "QR sinh ở đâu?" — 1 NGUỒN DUY NHẤT: model-layer
+#     ``ac_asset.py::before_insert`` → ``_ensure_qr_token`` (ac_asset.py:50,63,65).
+#   Mọi đường tạo asset gọi ``doc.insert()`` ⇒ Frappe lifecycle fire before_insert
+#   ⇒ token tự sinh. KHÔNG có code QR riêng cho form / import / registration.
+#     (1) form   : api/imm00.py::create_asset → frappe.get_doc(...).insert()
+#     (2) import : api/import_data.py:348-350 new_doc().update().insert()
+#                  (đường import e2e: test_import_asset_identity.TestQrGenCoverageImport)
+#     (3) regist.: services/imm04.py::create_ac_asset → asset.insert() (:598)
+#                  + belt-and-suspenders ensure_asset_qr_token (imm04.py:1010-1011)
+#
+# RED-guard: nếu before_insert/_ensure_qr_token bị gỡ (patch no-op) → cả 3 đường
+# ra token rỗng → root-cause neo vào model hook (KHÔNG rải logic QR ở từng caller).
+# ──────────────────────────────────────────────────────────────────────────
+
+
+class TestQrGenCoverageD4(unittest.TestCase):
+    """BE-D4: chứng minh qr_token != rỗng SAU mỗi đường tạo + baseline + backfill."""
+
+    _URLSAFE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": "Danh mục test QR coverage D4",
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        _purge_category("Danh mục test QR coverage D4")
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self._tok = frappe.generate_hash(length=6).upper()
+        self._saved_form_dict = getattr(frappe.local, "form_dict", None)
+
+    def tearDown(self):
+        frappe.local.form_dict = self._saved_form_dict or frappe._dict()
+
+    # ── (1) FORM path — qua endpoint create_asset thật ──────────────────────
+    def test_qr_token_generated_on_form_create(self):
+        """create_asset (đường HTTP form) → asset.qr_token != rỗng.
+
+        Bổ sung so với test_qr_token_generated_on_insert (dùng
+        _insert_asset_bypass_workflow): test này đi qua ENDPOINT create_asset —
+        đúng path FE gọi.
+        """
+        from assetcore.api.imm00 import create_asset
+
+        code = f"TS-QRFORM-{self._tok}"
+        frappe.local.form_dict = frappe._dict({
+            "cmd": "assetcore.api.imm00.create_asset",
+            "asset_name": f"Máy QR form {self._tok}",
+            "asset_category": self.cat.name,
+            "asset_code": code,
+        })
+        resp = create_asset()
+        self.assertTrue(resp.get("success"), f"create_asset phải OK: {resp}")
+        name = resp["data"]["name"]
+        self.addCleanup(_purge_asset, name)
+
+        token = frappe.db.get_value("AC Asset", name, "qr_token")
+        self.assertTrue(token, "qr_token != rỗng sau form-create endpoint")
+        self.assertGreaterEqual(len(token), 20)
+        self.assertRegex(token, self._URLSAFE)
+
+    # ── (3) REGISTRATION path — create_ac_asset (commissioning) ─────────────
+    def test_qr_token_generated_on_registration(self):
+        """IMM-04/05 commissioning tạo final_asset qua create_ac_asset →
+        final_asset.qr_token != rỗng (assert tại điểm tạo doctype .insert()).
+
+        Đây là đường registration THẬT: services/imm04.py::create_ac_asset gọi
+        ``asset.insert()`` (:598) ⇒ before_insert sinh token.
+        """
+        from assetcore.services.imm04 import create_ac_asset
+
+        # Insert ở Draft để skip Gate G01 (commissioning docs) — create_ac_asset
+        # CHỈ đọc field của doc (asset_description/vendor_serial_no/final_asset),
+        # KHÔNG re-validate workflow_state của phiếu → đường mint asset đúng.
+        comm = frappe.get_doc({
+            "doctype": "Asset Commissioning",
+            "workflow_state": "Draft",
+            "asset_description": f"Máy thở Dräger Evita V500 (reg {self._tok})",
+            "vendor_serial_no": f"SN-REG-{self._tok}",
+        }).insert(ignore_permissions=True, ignore_mandatory=True, ignore_links=True)
+        self.addCleanup(
+            lambda: frappe.db.exists("Asset Commissioning", comm.name)
+            and frappe.delete_doc("Asset Commissioning", comm.name,
+                                  force=True, ignore_permissions=True))
+        frappe.db.commit()
+
+        asset_name = create_ac_asset(comm)
+        self.addCleanup(_purge_asset, asset_name)
+        self.assertTrue(asset_name, "create_ac_asset phải mint AC Asset")
+
+        token = frappe.db.get_value("AC Asset", asset_name, "qr_token")
+        self.assertTrue(token,
+                        "final_asset.qr_token != rỗng sau registration "
+                        "(before_insert qua asset.insert())")
+        self.assertGreaterEqual(len(token), 20)
+        self.assertRegex(token, self._URLSAFE)
+
+    # ── RED-guard — before_insert là NGUỒN DUY NHẤT ─────────────────────────
+    def test_qr_token_before_insert_is_sole_source(self):
+        """Nếu _ensure_qr_token bị no-op (gỡ hook) → form + import đều ra token
+        rỗng ⇒ chứng minh root-cause neo vào model hook, KHÔNG có code QR riêng
+        ở caller. (Patch _ensure_qr_token thành no-op, assert insert ra token rỗng.)
+        """
+        from unittest.mock import patch as _mock_patch
+        from assetcore.assetcore.doctype.ac_asset.ac_asset import ACAsset
+
+        # FORM path với hook bị gỡ → token rỗng
+        with _mock_patch.object(ACAsset, "_ensure_qr_token", lambda self: None):
+            doc = _insert_asset_bypass_workflow({
+                "doctype": "AC Asset",
+                "asset_name": f"Máy no-hook form {self._tok}",
+                "asset_category": self.cat.name,
+                "asset_code": f"TS-NOHOOK-FORM-{self._tok}",
+                "lifecycle_status": "Draft",
+            })
+            self.addCleanup(_purge_asset, doc.name)
+            self.assertFalse(
+                frappe.db.get_value("AC Asset", doc.name, "qr_token"),
+                "gỡ _ensure_qr_token → form-create KHÔNG còn sinh token "
+                "(token KHÔNG sinh ở caller — sole source là before_insert)")
+
+        # IMPORT path (new_doc().update().insert()) với hook bị gỡ → token rỗng
+        with _mock_patch.object(ACAsset, "_ensure_qr_token", lambda self: None):
+            d2 = frappe.new_doc("AC Asset")
+            d2.update({
+                "asset_name": f"Máy no-hook import {self._tok}",
+                "asset_category": self.cat.name,
+                "asset_code": f"TS-NOHOOK-IMP-{self._tok}",
+                "lifecycle_status": "Draft",
+            })
+            d2.insert(ignore_permissions=True)
+            self.addCleanup(_purge_asset, d2.name)
+            self.assertFalse(
+                frappe.db.get_value("AC Asset", d2.name, "qr_token"),
+                "gỡ _ensure_qr_token → import-insert KHÔNG còn sinh token")
+
+        # Sanity: KHÔNG patch → token sinh lại bình thường (hook là nguồn DUY NHẤT)
+        d3 = _insert_asset_bypass_workflow({
+            "doctype": "AC Asset",
+            "asset_name": f"Máy có-hook {self._tok}",
+            "asset_category": self.cat.name,
+            "asset_code": f"TS-HOOK-OK-{self._tok}",
+            "lifecycle_status": "Draft",
+        })
+        self.addCleanup(_purge_asset, d3.name)
+        self.assertTrue(
+            frappe.db.get_value("AC Asset", d3.name, "qr_token"),
+            "không patch → before_insert sinh token (sole source hoạt động)")
+
+    # ── BE-D4-b — read-only baseline count (KHÔNG mutate) ───────────────────
+    def test_backfill_baseline_count_readonly(self):
+        """COUNT(*) AC Asset WHERE qr_token IN ('', NULL) đo được + KHÔNG mutate:
+        count trước == count sau khi chỉ-đọc.
+        """
+        def _missing_count() -> int:
+            return frappe.db.count("AC Asset", {"qr_token": ["in", ["", None]]})
+
+        before = _missing_count()
+        # Chỉ đọc lại — KHÔNG ghi gì. Phải bằng nhau (đo không có side-effect).
+        after = _missing_count()
+        self.assertEqual(before, after,
+                         "đo baseline phải read-only — count không đổi")
+        self.assertGreaterEqual(before, 0)
+
+    # ── BE-D4-c reproof — backfill idempotent 2 lần + KHÔNG emit lần 2 ──────
+    def test_backfill_idempotent_twice(self):
+        """Asset legacy giả-lập token rỗng → ensure_asset_qr_token lần 1 sinh
+        token, lần 2 trả CÙNG token, qr_generated event KHÔNG tăng lần 2.
+        """
+        from assetcore.services.imm00 import ensure_asset_qr_token
+
+        asset = _insert_asset_bypass_workflow({
+            "doctype": "AC Asset",
+            "asset_name": f"Máy legacy {self._tok}",
+            "asset_category": self.cat.name,
+            "asset_code": f"TS-LEGACY-{self._tok}",
+            "lifecycle_status": "Draft",
+        })
+        self.addCleanup(_purge_asset, asset.name)
+        # Giả legacy: xoá token (raw SQL — không qua validate/before hooks)
+        frappe.db.sql("UPDATE `tabAC Asset` SET qr_token=NULL WHERE name=%s",
+                      (asset.name,))
+        frappe.db.commit()
+
+        t1 = ensure_asset_qr_token(asset.name)
+        self.assertTrue(t1, "lần 1: sinh token cho asset legacy")
+        events_after_1 = frappe.db.count(
+            "Asset Lifecycle Event",
+            {"asset": asset.name, "event_type": "qr_generated"})
+
+        t2 = ensure_asset_qr_token(asset.name)
+        self.assertEqual(t1, t2, "lần 2: backfill idempotent — CÙNG token")
+        events_after_2 = frappe.db.count(
+            "Asset Lifecycle Event",
+            {"asset": asset.name, "event_type": "qr_generated"})
+        self.assertEqual(
+            events_after_1, events_after_2,
+            "đã có token → KHÔNG emit qr_generated lần 2 (idempotent)")
+
+
+# ──────────────────────────────────────────────────────────────────────────
 # B (Vòng 17) — SSoT collision-safe qr_token generation (BR-00-31 / FR-00-76..79)
 # 1 helper DUY NHẤT generate_unique_qr_token(exclude) — pre-write check
 # frappe.db.exists + bounded retry _MAX_QR_TOKEN_RETRY + cạn→frappe.ValidationError
@@ -2328,10 +2540,11 @@ class TestAssetCapabilityEnablement(unittest.TestCase):
         self.assertNotEqual(CAP_SET_VERSION, "v89.2df4c16c2bbd",
                             "CAP_SET_VERSION phải đổi sau khi thêm 6 cap asset.* "
                             "(quên bump = FE giữ cap-set rỗng asset.*)")
-        self.assertTrue(CAP_SET_VERSION.startswith("v95."),
-                        f"95 cap sau A2 → version prefix 'v95.' (hiện {CAP_SET_VERSION})")
-        self.assertEqual(len(CAPABILITY_MAP), 95,
-                         "89 + 6 cap asset.* = 95")
+        self.assertTrue(CAP_SET_VERSION.startswith("v97."),
+                        f"97 cap (89 + 6 asset.* + 2 D6 print/rotate) → version "
+                        f"prefix 'v97.' (hiện {CAP_SET_VERSION})")
+        self.assertEqual(len(CAPABILITY_MAP), 97,
+                         "89 + 6 cap asset.* + 2 cap D6 (asset.print/asset.qr.rotate) = 97")
 
 
 class TestResolveQrToken(unittest.TestCase):
@@ -2866,8 +3079,10 @@ class TestAssetScanInfoPmOverdue(unittest.TestCase):
             self.assertIn(k, data, f"payload PHẢI giữ field cũ '{k}'")
         self.assertEqual(
             set(data.keys()),
-            self._EXISTING_KEYS | {"pm_overdue"} | self._CALIBRATION_KEYS,
-            "payload = 8 field cũ + pm_overdue + 2 field hiệu chuẩn (KHÔNG dư)",
+            self._EXISTING_KEYS | {"pm_overdue"} | self._CALIBRATION_KEYS
+            | {"available_actions"},
+            "payload = 8 field cũ + pm_overdue + 2 field hiệu chuẩn + "
+            "available_actions (R1 §D2 — KHÔNG dư field khác)",
         )
         leaked = self._SENSITIVE_KEYS & set(data.keys())
         self.assertFalse(leaked, f"KHÔNG leak field nhạy cảm: {leaked}")
@@ -2970,8 +3185,10 @@ class TestAssetScanInfoCalibrationOverdue(unittest.TestCase):
             self.assertIn(k, data, f"payload PHẢI giữ field cũ '{k}'")
         self.assertEqual(
             set(data.keys()),
-            self._EXISTING_KEYS | {"next_calibration_date", "calibration_overdue"},
-            "payload = 9 field cũ + đúng 2 field hiệu chuẩn (KHÔNG dư/thiếu)",
+            self._EXISTING_KEYS | {"next_calibration_date", "calibration_overdue"}
+            | {"available_actions"},
+            "payload = 9 field cũ + 2 field hiệu chuẩn + available_actions "
+            "(R1 §D2 — KHÔNG dư/thiếu field khác)",
         )
 
     # ── True ⟺ next_calibration_date quá khứ ∧ status đang dùng ──────────────
@@ -3042,6 +3259,439 @@ class TestAssetScanInfoCalibrationOverdue(unittest.TestCase):
 
 
 # ──────────────────────────────────────────────────────────────────────────
+# R1 QR-SCAN-ACTION (ADR-IMM00-QR-SCAN-ACTION §D2) — màn quét QR emit
+# available_actions = capability ∩ lifecycle derive SERVER-SIDE qua 1 predicate
+# SSoT (_scan_action_specs + _lifecycle_allows). 4 action map 1-1 cap (D1):
+# report_failure→corrective.create, request_pm→pm.create, request_cm→repair.create,
+# request_calibration→calibration.create. Bảng lifecycle×action (D2):
+# Active/Commissioned/Under Maintenance/Under Repair/Calibrating → 4 enabled;
+# Out of Service → CHỈ report_failure+request_cm; Decommissioned → 0; Draft → 0.
+# reason ưu tiên lifecycle > capability. Payload read-only cũ (11 key) GIỮ NGUYÊN.
+# no-raw-token parity GIỮ. RED viết TRƯỚC impl.
+# ──────────────────────────────────────────────────────────────────────────
+class TestScanInfoAvailableActions(unittest.TestCase):
+    """R1 §D2 — available_actions = has_cap ∩ lifecycle_allows (SSoT 1 predicate).
+
+    Administrator có MỌI DocPerm ⇒ rbac.can(*) True cho cả 4 cap → dùng để đo
+    nhánh lifecycle thuần (không nhiễu capability). Test thiếu-cap monkeypatch
+    rbac.can (module attribute service tham chiếu) để ép 1 cap False. KHÔNG mock
+    getdate/nowdate. RED viết TRƯỚC impl."""
+
+    _ACTION_KEYS = {"report_failure", "request_pm", "request_cm",
+                    "request_calibration"}
+    _ROUTES = {"IncidentCreate", "PMWorkOrderCreate", "CMCreate",
+               "CalibrationCreate"}
+    _SHAPE_KEYS = {"key", "label", "route", "enabled", "reason"}
+    # 11 key read-only cũ (contract A6) — regression guard không đổi.
+    _EXISTING_PAYLOAD_KEYS = {
+        "name", "asset_code", "asset_name", "lifecycle_status",
+        "device_model_name", "location_name", "next_pm_date",
+        "next_calibration_date", "recent_maintenance", "pm_overdue",
+        "calibration_overdue",
+    }
+    _REASON_DECOM = "Thiết bị đã thanh lý"
+    _REASON_OOS = ("Thiết bị đang ngừng hoạt động — chỉ cho phép báo hỏng / "
+                   "yêu cầu sửa chữa")
+    _REASON_DRAFT = "Thiết bị chưa đưa vào vận hành"
+    _REASON_NO_CAP = "Bạn không có quyền thực hiện thao tác này"
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": "Thiết bị Scan Actions (R1)",
+            "description": "Category cho test available_actions scan-info",
+            "is_active": 1,
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        frappe.delete_doc("AC Asset Category", cls.cat.name,
+                          force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self._created: list[str] = []
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+        frappe.db.rollback()
+        for name in self._created:
+            _purge_asset(name)
+        frappe.db.commit()
+
+    def _make_asset(self, suffix="", status="Active", **extra):
+        import uuid
+        uniq = f"{suffix or '0001'}-{uuid.uuid4().hex[:8]}"
+        data = {
+            "doctype": "AC Asset",
+            "asset_name": f"Máy ScanAction {uniq}",
+            "asset_category": self.cat.name,
+            "manufacturer_sn": f"SA-SN-{uniq}",
+            "asset_code": f"SA-ASSET-{uniq}",
+            "lifecycle_status": status,
+        }
+        data.update(extra)
+        doc = _insert_asset_bypass_workflow(data)
+        self._created.append(doc.name)
+        return doc
+
+    def _actions(self, asset):
+        from assetcore.services.imm00 import build_asset_scan_info
+        payload = build_asset_scan_info(asset.name)
+        self.assertIn("available_actions", payload,
+                      "payload PHẢI có key available_actions")
+        return {a["key"]: a for a in payload["available_actions"]}
+
+    # ── Active + đủ 4 cap → 4 enabled, reason rỗng ──────────────────────────
+    def test_active_full_cap_4_enabled(self):
+        from assetcore.services.imm00 import _scan_action_specs
+        asset = self._make_asset("active", status="Active")
+        actions = self._actions(asset)
+        self.assertEqual(set(actions), self._ACTION_KEYS,
+                         "đủ 4 action key canonical")
+        specs = {s["key"]: s for s in _scan_action_specs()}
+        for key, a in actions.items():
+            self.assertIs(a["enabled"], True,
+                          f"Active + đủ cap → {key} enabled=True")
+            self.assertEqual(a["reason"], "",
+                             f"enabled=True → reason rỗng ({key})")
+            self.assertEqual(a["label"], specs[key]["label"],
+                             f"label khớp _scan_action_specs ({key})")
+            self.assertEqual(a["route"], specs[key]["route"],
+                             f"route khớp _scan_action_specs ({key})")
+
+    def test_commissioned_full_cap_4_enabled(self):
+        asset = self._make_asset("commi", status="Commissioned")
+        for key, a in self._actions(asset).items():
+            self.assertIs(a["enabled"], True, f"Commissioned → {key} enabled")
+            self.assertEqual(a["reason"], "")
+
+    # ── Decommissioned → 4 disabled, reason 'đã thanh lý' ───────────────────
+    def test_decommissioned_all_disabled(self):
+        asset = self._make_asset("decom", status="Decommissioned")
+        for key, a in self._actions(asset).items():
+            self.assertIs(a["enabled"], False,
+                          f"Decommissioned → {key} enabled=False")
+            self.assertEqual(a["reason"], self._REASON_DECOM,
+                             f"Decommissioned reason ({key})")
+
+    # ── Out of Service → CHỈ report_failure + request_cm enabled ────────────
+    def test_out_of_service_only_report_and_cm(self):
+        asset = self._make_asset("oos", status="Out of Service")
+        actions = self._actions(asset)
+        self.assertIs(actions["report_failure"]["enabled"], True,
+                      "OoS → report_failure enabled")
+        self.assertEqual(actions["report_failure"]["reason"], "")
+        self.assertIs(actions["request_cm"]["enabled"], True,
+                      "OoS → request_cm enabled")
+        self.assertEqual(actions["request_cm"]["reason"], "")
+        for key in ("request_pm", "request_calibration"):
+            self.assertIs(actions[key]["enabled"], False,
+                          f"OoS → {key} disabled")
+            self.assertEqual(actions[key]["reason"], self._REASON_OOS,
+                             f"OoS disabled reason ({key})")
+
+    # ── Draft → 4 disabled 'chưa đưa vào vận hành' ──────────────────────────
+    def test_draft_all_disabled(self):
+        asset = self._make_asset("draft", status="Draft")
+        for key, a in self._actions(asset).items():
+            self.assertIs(a["enabled"], False, f"Draft → {key} disabled")
+            self.assertEqual(a["reason"], self._REASON_DRAFT,
+                             f"Draft reason ({key})")
+
+    def test_under_maintenance_full_cap_4_enabled(self):
+        asset = self._make_asset("um", status="Under Maintenance")
+        for key, a in self._actions(asset).items():
+            self.assertIs(a["enabled"], True, f"Under Maintenance → {key} enabled")
+            self.assertEqual(a["reason"], "")
+
+    def test_calibrating_full_cap_4_enabled(self):
+        asset = self._make_asset("calng", status="Calibrating")
+        for key, a in self._actions(asset).items():
+            self.assertIs(a["enabled"], True, f"Calibrating → {key} enabled")
+            self.assertEqual(a["reason"], "")
+
+    # ── Thiếu cap (Active) → action thiếu cap disabled reason quyền ─────────
+    def test_missing_capability_disabled_with_reason(self):
+        """Active nhưng user THIẾU pm.create (mock rbac.can) → request_pm disabled
+        reason quyền; các action có cap vẫn enabled."""
+        from assetcore.services import imm00 as svc
+        asset = self._make_asset("nocap", status="Active")
+        orig_can = svc.rbac.can
+
+        def _fake_can(cap, doc=None):
+            if cap == "pm.create":
+                return False
+            return orig_can(cap, doc=doc)
+
+        svc.rbac.can = _fake_can
+        try:
+            actions = self._actions(asset)
+        finally:
+            svc.rbac.can = orig_can
+        self.assertIs(actions["request_pm"]["enabled"], False,
+                      "thiếu pm.create → request_pm disabled")
+        self.assertEqual(actions["request_pm"]["reason"], self._REASON_NO_CAP,
+                         "reason thiếu cap")
+        for key in ("report_failure", "request_cm", "request_calibration"):
+            self.assertIs(actions[key]["enabled"], True,
+                          f"{key} có cap + Active → enabled")
+            self.assertEqual(actions[key]["reason"], "")
+
+    # ── Lifecycle > capability: Decommissioned + thiếu cap → reason lifecycle ─
+    def test_lifecycle_reason_priority_over_capability(self):
+        from assetcore.services import imm00 as svc
+        asset = self._make_asset("prio", status="Decommissioned")
+
+        def _fake_can(cap, doc=None):
+            return False  # thiếu TẤT CẢ cap
+
+        orig_can = svc.rbac.can
+        svc.rbac.can = _fake_can
+        try:
+            actions = self._actions(asset)
+        finally:
+            svc.rbac.can = orig_can
+        for key, a in actions.items():
+            self.assertIs(a["enabled"], False, f"{key} disabled")
+            self.assertEqual(a["reason"], self._REASON_DECOM,
+                             f"ưu tiên lifecycle 'đã thanh lý' KHÔNG reason quyền ({key})")
+
+    # ── Shape & keys chính xác ──────────────────────────────────────────────
+    def test_action_shape_and_keys(self):
+        asset = self._make_asset("shape", status="Active")
+        from assetcore.services.imm00 import build_asset_scan_info
+        actions = build_asset_scan_info(asset.name)["available_actions"]
+        self.assertEqual(len(actions), 4, "đúng 4 phần tử")
+        keys_seen = set()
+        for a in actions:
+            self.assertEqual(set(a.keys()), self._SHAPE_KEYS,
+                             f"shape CHÍNH XÁC {self._SHAPE_KEYS}, không thừa: {a}")
+            self.assertIsInstance(a["key"], str)
+            self.assertIsInstance(a["label"], str)
+            self.assertIsInstance(a["route"], str)
+            self.assertIsInstance(a["enabled"], bool)
+            self.assertIsInstance(a["reason"], str)
+            self.assertIn(a["route"], self._ROUTES, "route ∈ tập route-name D1")
+            keys_seen.add(a["key"])
+        self.assertEqual(keys_seen, self._ACTION_KEYS,
+                         "set key = 4 action canonical")
+
+    def test_capability_map_per_action_d1(self):
+        """Mỗi spec map ĐÚNG capability D1 = <domain>.create."""
+        from assetcore.services.imm00 import _scan_action_specs
+        cap_by_key = {s["key"]: s["capability"] for s in _scan_action_specs()}
+        self.assertEqual(cap_by_key, {
+            "report_failure": "corrective.create",
+            "request_pm": "pm.create",
+            "request_cm": "repair.create",
+            "request_calibration": "calibration.create",
+        })
+
+    # ── Regression — 11 key read-only cũ GIỮ NGUYÊN ─────────────────────────
+    def test_existing_payload_unchanged(self):
+        from assetcore.services.imm00 import build_asset_scan_info
+        asset = self._make_asset("regress", status="Active",
+                                 next_pm_date=add_days(nowdate(), 30),
+                                 next_calibration_date=add_days(nowdate(), 30))
+        payload = build_asset_scan_info(asset.name)
+        missing = self._EXISTING_PAYLOAD_KEYS - set(payload.keys())
+        self.assertFalse(missing, f"payload cũ MẤT key: {missing}")
+        self.assertEqual(payload["name"], asset.name)
+        self.assertEqual(payload["asset_code"], asset.asset_code)
+        self.assertEqual(payload["asset_name"], asset.asset_name)
+        self.assertEqual(payload["lifecycle_status"], "Active")
+        self.assertIs(payload["pm_overdue"], False)
+        self.assertIs(payload["calibration_overdue"], False)
+
+    # ── no-raw-token parity — available_actions KHÔNG chứa qr_token ─────────
+    def test_no_raw_token_parity(self):
+        from assetcore.api.imm00 import get_asset_scan_info
+        asset = self._make_asset("notoken", status="Active")
+        data = get_asset_scan_info(token=asset.qr_token)["data"]
+        self.assertNotIn("qr_token", data, "payload tổng KHÔNG leak qr_token")
+        for a in data["available_actions"]:
+            for v in a.values():
+                self.assertNotIn("qr_token", str(v),
+                                 "available_actions item KHÔNG chứa qr_token")
+        # grep toàn payload JSON = 0 occurrence 'qr_token'
+        import json as _json
+        self.assertNotIn("qr_token", _json.dumps(data, default=str),
+                         "grep qr_token trong payload available_actions = 0")
+
+    # ── Status rỗng/lạ → 4 disabled an toàn, KHÔNG KeyError ─────────────────
+    def test_unknown_status_safe_default(self):
+        from assetcore.services.imm00 import (
+            _lifecycle_allows, build_asset_scan_info,
+        )
+        # White-box: status lạ/rỗng → _lifecycle_allows trả False (KHÔNG KeyError).
+        for key in self._ACTION_KEYS:
+            self.assertIs(_lifecycle_allows("", key), False,
+                          f"status rỗng → {key} không cho phép")
+            self.assertIs(_lifecycle_allows("Trạng-thái-lạ", key), False,
+                          f"status lạ → {key} không cho phép")
+        # Black-box qua payload: status rỗng → 4 disabled, KHÔNG crash.
+        asset = self._make_asset("unkstat", status="Active")
+        frappe.db.set_value("AC Asset", asset.name, "lifecycle_status", "",
+                            update_modified=False)
+        payload = build_asset_scan_info(asset.name)
+        actions = {a["key"]: a for a in payload["available_actions"]}
+        self.assertEqual(set(actions), self._ACTION_KEYS)
+        for a in actions.values():
+            self.assertIs(a["enabled"], False,
+                          "status rỗng → mọi action disabled (safe default)")
+            self.assertIsInstance(a["reason"], str)
+
+    # ── SSoT: Out of Service đọc constants, KHÔNG literal rải rác ───────────
+    def test_no_inline_literal_status_check_in_derive(self):
+        """grep literal-status-check quanh derive available_actions = 0.
+
+        Thân build_asset_scan_info KHÔNG được inline `if status == 'Out of
+        Service'` (hoặc 'Decommissioned'/'Draft'/'Active'); toàn bộ rẽ-nhánh
+        lifecycle dồn vào _lifecycle_allows/_lifecycle_reason (SSoT predicate)."""
+        import inspect
+        from assetcore.services.imm00 import build_asset_scan_info
+        src = inspect.getsource(build_asset_scan_info)
+        for literal in ("'Out of Service'", '"Out of Service"',
+                        "'Decommissioned'", '"Decommissioned"',
+                        "'Draft'", '"Draft"'):
+            self.assertNotIn(literal, src,
+                             f"build_asset_scan_info KHÔNG inline literal {literal} "
+                             "(dùng _lifecycle_allows SSoT)")
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# SSoT overdue (PM + hiệu chuẩn) cho màn ADMIN-DETAIL (get_asset) — Vòng 3 QR.
+# get_asset(name) (api/imm00.py:244) phải trả 2 cờ bool pm_overdue +
+# calibration_overdue derive bằng CHÍNH _is_pm_overdue/_is_calibration_overdue
+# (KHÔNG re-implement so ngày) → 2 màn (quét-QR ↔ admin-detail) CÙNG 1 SSoT
+# server-flag. Parity no-raw-token GIỮ NGUYÊN (payload KHÔNG leak qr_token qua
+# _strip_qr_token). RED viết TRƯỚC impl.
+# ──────────────────────────────────────────────────────────────────────────
+class TestGetAssetOverdueFlags(unittest.TestCase):
+    """get_asset(name) emit pm_overdue + calibration_overdue server-flag (SSoT).
+
+    Đồng bộ với màn quét-QR (build_asset_scan_info) — derive cùng deriver
+    tz-safe + exempt BLOCKED_FOR_WO. FE admin-detail CHỈ render cờ, KHÔNG so
+    ngày client. KHÔNG mock getdate/nowdate; set ngày THẬT quanh nowdate()."""
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": "Thiết bị get_asset Overdue",
+            "description": "Category cho test get_asset overdue flags",
+            "is_active": 1,
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        frappe.delete_doc("AC Asset Category", cls.cat.name,
+                          force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self._created: list[str] = []
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+        frappe.db.rollback()
+        for name in self._created:
+            _purge_asset(name)
+        frappe.db.commit()
+
+    def _make_asset(self, suffix="", status="Active", **extra):
+        import uuid
+        uniq = f"{suffix or '0001'}-{uuid.uuid4().hex[:8]}"
+        data = {
+            "doctype": "AC Asset",
+            "asset_name": f"Máy GAOverdue {uniq}",
+            "asset_category": self.cat.name,
+            "manufacturer_sn": f"GAO-SN-{uniq}",
+            "asset_code": f"GAO-ASSET-{uniq}",
+            "lifecycle_status": status,
+        }
+        data.update(extra)
+        doc = _insert_asset_bypass_workflow(data)
+        self._created.append(doc.name)
+        return doc
+
+    def _get(self, asset):
+        from assetcore.api.imm00 import get_asset
+        return get_asset(asset.name)["data"]
+
+    # ── Nhánh 1: quá khứ + Active → cờ True ───────────────────────────────────
+    def test_get_asset_emits_pm_overdue_true(self):
+        asset = self._make_asset("pm-true", status="Active",
+                                 next_pm_date=add_days(nowdate(), -1))
+        data = self._get(asset)
+        self.assertIn("pm_overdue", data, "payload get_asset PHẢI có pm_overdue")
+        self.assertIs(data["pm_overdue"], True,
+                      "next_pm_date hôm-qua ∧ Active → pm_overdue=True")
+
+    def test_get_asset_emits_calibration_overdue_true(self):
+        asset = self._make_asset("cal-true", status="Active",
+                                 next_calibration_date=add_days(nowdate(), -1))
+        data = self._get(asset)
+        self.assertIn("calibration_overdue", data,
+                      "payload get_asset PHẢI có calibration_overdue")
+        self.assertIs(data["calibration_overdue"], True,
+                      "next_calibration_date quá khứ ∧ Active → True")
+
+    # ── Nhánh 2: tương lai → cả 2 cờ False ────────────────────────────────────
+    def test_get_asset_overdue_false_when_future(self):
+        asset = self._make_asset("future", status="Active",
+                                 next_pm_date=add_days(nowdate(), 7),
+                                 next_calibration_date=add_days(nowdate(), 7))
+        data = self._get(asset)
+        self.assertIs(data["pm_overdue"], False, "PM tương lai → False")
+        self.assertIs(data["calibration_overdue"], False,
+                      "hiệu chuẩn tương lai → False")
+
+    # ── Nhánh 3: NULL → cả 2 cờ False (no KeyError) ───────────────────────────
+    def test_get_asset_overdue_false_when_null(self):
+        asset = self._make_asset("null", status="Active")  # KHÔNG set ngày nào
+        data = self._get(asset)
+        self.assertIn("pm_overdue", data)
+        self.assertIn("calibration_overdue", data)
+        self.assertIs(data["pm_overdue"], False, "next_pm_date None → False")
+        self.assertIs(data["calibration_overdue"], False,
+                      "next_calibration_date None → False")
+
+    # ── Nhánh 4: status BLOCKED_FOR_WO + ngày quá khứ → exempt (False) ─────────
+    def test_get_asset_overdue_exempt_out_of_service(self):
+        asset = self._make_asset("oos", status="Out of Service",
+                                 next_pm_date=add_days(nowdate(), -30),
+                                 next_calibration_date=add_days(nowdate(), -30))
+        data = self._get(asset)
+        self.assertIs(data["calibration_overdue"], False,
+                      "Out of Service ∈ BLOCKED_FOR_WO → calibration_overdue False")
+        self.assertIs(data["pm_overdue"], False,
+                      "Out of Service ∈ BLOCKED_FOR_WO → pm_overdue False")
+
+    # ── Parity no-raw-token GIỮ NGUYÊN sau khi thêm 2 cờ ─────────────────────
+    def test_get_asset_still_strips_qr_token(self):
+        asset = self._make_asset("strip", status="Active",
+                                 next_pm_date=add_days(nowdate(), -1))
+        data = self._get(asset)
+        self.assertTrue(asset.qr_token, "fixture: asset có qr_token")
+        self.assertNotIn("qr_token", data,
+                         "payload get_asset KHÔNG leak qr_token (đi qua _strip_qr_token)")
+        # 2 cờ vẫn có mặt (đảm bảo thêm cờ KHÔNG vô tình undo strip).
+        self.assertIn("pm_overdue", data)
+        self.assertIn("calibration_overdue", data)
+
+
+# ──────────────────────────────────────────────────────────────────────────
 # A3 — Dữ liệu in nhãn QR + sự kiện in (ADR-001 D3)
 # get_asset_label_data (1) + get_asset_label_data_batch (batch, KHÔNG N+1) +
 # mark_label_printed (POST emit label_printed + audit). RED viết TRƯỚC impl.
@@ -3051,9 +3701,11 @@ class TestAssetScanInfoCalibrationOverdue(unittest.TestCase):
 class TestAssetLabelData(unittest.TestCase):
     """A3 — endpoint dữ liệu in nhãn + sự kiện in (get/batch/mark)."""
 
+    # ADR-IMM00-QR-SCAN-ACTION D5: nhãn QR tách bạch Mã tài sản (asset_code) ↔
+    # Số serial NSX (manufacturer_sn) + Tên tài sản (asset_name) ⇒ 8 key.
     _LABEL_KEYS = {
-        "name", "asset_code", "device_model_name", "location_name",
-        "lifecycle_status", "qr_url",
+        "name", "asset_code", "asset_name", "manufacturer_sn",
+        "device_model_name", "location_name", "lifecycle_status", "qr_url",
     }
     _QR_URL_RE = r"^https?://.+/a/[A-Za-z0-9_-]{20,}$"
 
@@ -3119,9 +3771,17 @@ class TestAssetLabelData(unittest.TestCase):
         self.assertTrue(resp["success"], "asset hợp lệ → success")
         data = resp["data"]
         self.assertEqual(set(data.keys()), self._LABEL_KEYS,
-                         "payload nhãn PHẢI đúng 6 key (không thiếu/thừa)")
+                         "payload nhãn PHẢI đúng 8 key (không thiếu/thừa)")
+        self.assertGreaterEqual(set(data.keys()), self._LABEL_KEYS)
         self.assertEqual(data["name"], asset.name)
         self.assertEqual(data["asset_code"], asset.asset_code)
+        # D5: Số serial NSX + Tên tài sản tách bạch khỏi Mã tài sản.
+        self.assertEqual(data["manufacturer_sn"], asset.manufacturer_sn,
+                         "manufacturer_sn (Số serial NSX) == giá trị asset")
+        self.assertEqual(data["asset_name"], asset.asset_name,
+                         "asset_name (Tên tài sản) == giá trị asset")
+        self.assertNotEqual(data["asset_code"], data["manufacturer_sn"],
+                            "Mã tài sản ≠ Số serial NSX (KHÔNG trộn 2 khái niệm)")
         self.assertEqual(data["lifecycle_status"], "Active")
         self.assertRegex(data["qr_url"], self._QR_URL_RE,
                          "qr_url phải là URL tuyệt đối /a/<token>")
@@ -3175,9 +3835,14 @@ class TestAssetLabelData(unittest.TestCase):
         # thứ tự khớp input
         self.assertEqual([d["name"] for d in data], names,
                          "output theo ĐÚNG thứ tự input")
+        by_name = {a.name: a for a in (a1, a2, a3)}
         for d in data:
             self.assertEqual(set(d.keys()), self._LABEL_KEYS)
             self.assertRegex(d["qr_url"], self._QR_URL_RE)
+            # D5: mỗi item HỢP LỆ chứa manufacturer_sn + asset_name đúng value.
+            src = by_name[d["name"]]
+            self.assertEqual(d["manufacturer_sn"], src.manufacturer_sn)
+            self.assertEqual(d["asset_name"], src.asset_name)
 
     def test_get_asset_label_data_batch_missing_keeps_index(self):
         from assetcore.api.imm00 import get_asset_label_data_batch
@@ -3196,8 +3861,83 @@ class TestAssetLabelData(unittest.TestCase):
                          "missing → entry lỗi rõ ràng AC-E001")
         self.assertNotIn("asset_code", data[1],
                          "entry lỗi KHÔNG leak field khác")
+        # entry lỗi GIỮ NGUYÊN {name, error} — KHÔNG nở key mới.
+        self.assertEqual(set(data[1].keys()), {"name", "error"},
+                         "entry lỗi đúng {name, error} (D5 KHÔNG đổi nhánh lỗi)")
+        self.assertNotIn("manufacturer_sn", data[1])
+        self.assertNotIn("asset_name", data[1])
         self.assertEqual(data[2]["name"], a2.name)
         self.assertNotIn("error", data[2])
+        # item hợp lệ 2 bên chứa 2 key mới đúng value.
+        self.assertEqual(data[0]["manufacturer_sn"], a1.manufacturer_sn)
+        self.assertEqual(data[0]["asset_name"], a1.asset_name)
+        self.assertEqual(data[2]["manufacturer_sn"], a2.manufacturer_sn)
+        self.assertEqual(data[2]["asset_name"], a2.asset_name)
+
+    # ── D5: manufacturer_sn / asset_name rỗng-None → '' (KHÔNG None) ─────────
+    def test_get_asset_label_data_empty_serial_name_coerced_to_blank(self):
+        from assetcore.api.imm00 import get_asset_label_data
+        asset = self._make_asset("blank")
+        # set manufacturer_sn + asset_name về None ở DB (bỏ qua validate đường form)
+        frappe.db.set_value("AC Asset", asset.name,
+                            {"manufacturer_sn": None}, update_modified=False)
+        frappe.db.set_value("AC Asset", asset.name,
+                            {"asset_name": None}, update_modified=False)
+        resp = get_asset_label_data(asset=asset.name)
+        self.assertTrue(resp["success"])
+        data = resp["data"]
+        self.assertEqual(data["manufacturer_sn"], "",
+                         "manufacturer_sn None → '' (KHÔNG None, không vỡ render)")
+        self.assertEqual(data["asset_name"], "",
+                         "asset_name None → '' (KHÔNG None)")
+        self.assertIsNotNone(data["manufacturer_sn"])
+        self.assertIsNotNone(data["asset_name"])
+
+    def test_get_asset_label_data_batch_empty_serial_name_coerced_to_blank(self):
+        from assetcore.api.imm00 import get_asset_label_data_batch
+        asset = self._make_asset("bblank")
+        frappe.db.set_value("AC Asset", asset.name,
+                            {"manufacturer_sn": None, "asset_name": None},
+                            update_modified=False)
+        resp = get_asset_label_data_batch(assets=[asset.name])
+        self.assertTrue(resp["success"])
+        d = resp["data"][0]
+        self.assertEqual(d["manufacturer_sn"], "")
+        self.assertEqual(d["asset_name"], "")
+
+    # ── D5 no-extra-query guard: 2 key mới = cột thêm vào get_value/get_all
+    #    SẴN CÓ, KHÔNG thêm query nào (2 asset cùng device_model) ───────────
+    def test_get_asset_label_data_batch_new_cols_no_extra_query(self):
+        from assetcore.api.imm00 import get_asset_label_data_batch
+        # 2 asset cùng device_model (None ở đây) → batch vẫn gộp; thêm 2 cột
+        # vào fields get_all KHÔNG được sinh query mới.
+        a1 = self._make_asset("nc1")
+        a2 = self._make_asset("nc2")
+        names = [a1.name, a2.name]
+
+        def _count_queries():
+            calls = {"n": 0}
+            orig = frappe.db.sql
+
+            def _wrap(*a, **k):
+                calls["n"] += 1
+                return orig(*a, **k)
+
+            frappe.db.sql = _wrap
+            try:
+                resp = get_asset_label_data_batch(assets=names)
+            finally:
+                frappe.db.sql = orig
+            return calls["n"], resp
+
+        n, resp = _count_queries()
+        data = resp["data"]
+        # 2 key mới có value đúng (cột mở rộng đã trả về row).
+        self.assertEqual(data[0]["manufacturer_sn"], a1.manufacturer_sn)
+        self.assertEqual(data[0]["asset_name"], a1.asset_name)
+        # Cận trên query rộng nhưng chống N+1: 2 asset KHÔNG kéo query/asset.
+        self.assertLess(n, len(names) + 6,
+                        f"thêm 2 cột KHÔNG tăng query/asset (n={n})")
 
     def test_get_asset_label_data_batch_no_n_plus_1_query_count(self):
         """Batch lookup gộp: số query KHÔNG tỉ lệ với số asset (chống N+1)."""
@@ -3520,45 +4260,56 @@ class TestAssetLabelData(unittest.TestCase):
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# A3 / Vòng B — SIẾT RBAC in nhãn QR: asset.read → asset.write (ADR-001 D4)
+# ADR-IMM00-QR-SCAN-ACTION D6 (Accepted→EXECUTED, phương án B) — TÁCH cap in/rotate
 #
-# Least-privilege: 3 endpoint GHI/side-effect (get_asset_label_data,
-# get_asset_label_data_batch, mark_label_printed) gate `asset.write` thay vì
-# `asset.read`. User chỉ-đọc (asset.read NHƯNG KHÔNG asset.write) → 403; user
-# có asset.write → 200. KHÔNG cap mới (CAP_SET_VERSION GIỮ v95.3388ee5629c1).
+# RECONCILE (2026-06-08): trước đây 3 endpoint nhãn + rotate gate `asset.write`,
+# mà write=1 CHỈ Super Admin có → KTV/QL vật tư KHÔNG in/rotate được (self-
+# correction P2). Phương án B TÁCH cap riêng:
+#   - get_asset_label_data / _batch / mark_label_printed → gate `asset.print`
+#     →(AC Asset,"print"). DocPerm print=1 sẵn cho ~MỌI role vận hành ⇒ in được
+#     NGAY (KHÔNG đổi DocPerm). User KHÔNG có print → 403.
+#   - regenerate_asset_qr_token → gate `asset.qr.rotate`→(AC Asset,"write").
+#     Rotate = GHI ⇒ bind "write" (chỉ Super Admin/role được cấp write). print
+#     KHÔNG đủ để rotate.
+# Thêm 2 cap ⇒ CAP_SET_VERSION ĐỔI v95.3388ee5629c1 → v97.c30c69b8974d.
 #
 # KHÔNG test false-green (luật skill): test tạo user THẬT + cấp/không-cấp DocPerm
-# `write` trên AC Asset (qua Role), frappe.set_user(...), rồi gọi endpoint qua
-# layer require("asset.write") → can → frappe.has_permission("AC Asset","write").
-# KHÔNG monkeypatch rbac.require / frappe.has_permission.
+# `print`/`write` trên AC Asset (qua Role/Custom DocPerm), frappe.set_user(...),
+# rồi gọi endpoint qua layer require(...) → can → frappe.has_permission("AC Asset",
+# permtype). KHÔNG monkeypatch rbac.require / frappe.has_permission.
 #
-# DocPerm thực tế (site miyano): chỉ "AssetCore Super Admin" có write=1 trên AC
-# Asset; mọi role "* User" có read=1/write=0 → dùng "Commissioning User" làm
-# user chỉ-đọc, "AssetCore Super Admin" làm user write. IDOR test cần user CÓ
-# write NHƯNG vendor-scope (Vendor Engineer, KHÔNG bypass) → cấp write tạm cho
-# role Vendor Engineer qua Custom DocPerm trong setUp, gỡ ở tearDown.
+# DocPerm thực tế (site miyano, verified 2026-06-08): MỌI role có print=1 trên AC
+# Asset; chỉ "AssetCore Super Admin" có write=1. ⇒ "Commissioning User"
+# (read=1,write=0,print=1) = user CÓ print NHƯNG KHÔNG write → in 200, rotate 403.
+# "AssetCore Super Admin" (write=1,print=1) → in 200 + rotate 200. User KHÔNG
+# print → gỡ print qua Custom DocPerm tạm (hoặc Guest no-cap). IDOR test cần user
+# CÓ print NHƯNG vendor-scope (Vendor Engineer) → cấp print tạm, gỡ ở tearDown.
 # ──────────────────────────────────────────────────────────────────────────
 
 
 class TestLabelWriteCapability(unittest.TestCase):
-    """Vòng B — 3 endpoint in nhãn gate asset.write (least-privilege).
+    """D6 phương án B — in nhãn gate asset.print, rotate gate asset.qr.rotate.
 
-    Phân tách read (đọc) vs write (in/ghi label_printed): user chỉ-đọc bị 403,
-    user write 200. Read-only QR endpoint (resolve_qr_token/get_asset_scan_info/
-    get_asset) GIỮ asset.read. IDOR (assert_vendor_can_access) KHÔNG bị nới.
+    Phân tách quyền IN (`asset.print`, persona vận hành có) vs quyền ROTATE
+    (`asset.qr.rotate`=write, chỉ Super Admin/được cấp). Read-only QR endpoint
+    (resolve_qr_token/get_asset_scan_info/get_asset) GIỮ asset.read. IDOR
+    (assert_vendor_can_access) KHÔNG bị nới.
     """
 
+    # D5 (ADR-IMM00-QR-SCAN-ACTION): nhãn QR + asset_name + manufacturer_sn ⇒ 8 key.
     _LABEL_KEYS = {
-        "name", "asset_code", "device_model_name", "location_name",
-        "lifecycle_status", "qr_url",
+        "name", "asset_code", "asset_name", "manufacturer_sn",
+        "device_model_name", "location_name", "lifecycle_status", "qr_url",
     }
-    # Role chỉ-đọc trên AC Asset (read=1, write=0) — least-privilege user.
-    _READONLY_ROLE = "Commissioning User"
-    # Role có write=1 trên AC Asset (DocPerm thật) — user write hợp lệ.
+    # Role có print=1 NHƯNG write=0 trên AC Asset → user CÓ asset.print NHƯNG
+    # KHÔNG asset.qr.rotate (persona vận hành: KTV/QL vật tư mặc định).
+    _PRINT_ONLY_ROLE = "Commissioning User"
+    # Role có write=1 (⇒ asset.qr.rotate) + print=1 trên AC Asset (DocPerm thật).
     _WRITE_ROLE = "AssetCore Super Admin"
-    _READONLY_USER = "be_b_label_readonly@example.com"
+    _PRINT_USER = "be_b_label_printonly@example.com"
     _WRITE_USER = "be_b_label_write@example.com"
-    _IDOR_USER = "be_b_label_idor_write@example.com"
+    _IDOR_USER = "be_b_label_idor_print@example.com"
+    _NOPRINT_USER = "be_b_label_noprint@example.com"
 
     _CATEGORY_NAME = "Thiết bị RBAC In nhãn (B)"
 
@@ -3575,17 +4326,20 @@ class TestLabelWriteCapability(unittest.TestCase):
         cls.cat = frappe.get_doc({
             "doctype": "AC Asset Category",
             "category_name": cls._CATEGORY_NAME,
-            "description": "Category cho test siết RBAC in nhãn QR",
+            "description": "Category cho test RBAC in/rotate nhãn QR (D6)",
             "is_active": 1,
         }).insert(ignore_permissions=True)
-        cls._readonly = cls._ensure_user(cls._READONLY_USER, [cls._READONLY_ROLE])
+        # User CÓ print (write=0) — persona vận hành: in 200, rotate 403.
+        cls._printer = cls._ensure_user(cls._PRINT_USER, [cls._PRINT_ONLY_ROLE])
+        # User write=1 (⇒ asset.qr.rotate) + print=1 — Super Admin: in + rotate 200.
         cls._writer = cls._ensure_user(cls._WRITE_USER, [cls._WRITE_ROLE])
         frappe.db.commit()
 
     @classmethod
     def tearDownClass(cls):
         frappe.set_user("Administrator")
-        for email in (cls._READONLY_USER, cls._WRITE_USER, cls._IDOR_USER):
+        for email in (cls._PRINT_USER, cls._WRITE_USER,
+                      cls._IDOR_USER, cls._NOPRINT_USER):
             if frappe.db.exists("User", email):
                 frappe.delete_doc("User", email, force=True,
                                   ignore_permissions=True)
@@ -3636,59 +4390,101 @@ class TestLabelWriteCapability(unittest.TestCase):
     def _count_audit(self, asset_name):
         return frappe.db.count("IMM Audit Trail", {"asset": asset_name})
 
-    # ── 403 — user chỉ-đọc (asset.read, NO asset.write) bị chặn ──────────────
-    def test_label_data_read_only_user_403(self):
-        """get_asset_label_data: user asset.read (KHÔNG write) → PermissionError."""
+    # ── D6 phương án B — user CÓ print (write=0) → 200 (KHÔNG còn 403) ────────
+    def test_label_data_print_user_200(self):
+        """get_asset_label_data: user CÓ asset.print NHƯNG KHÔNG write → 200.
+
+        D6 RECONCILE: gate đổi asset.write→asset.print. Persona vận hành (KTV/QL
+        vật tư, DocPerm print=1 write=0) BÂY GIỜ in được (sửa self-correction P2).
+        """
         from assetcore.api.imm00 import get_asset_label_data
-        asset = self._make_asset("ro1")
-        frappe.set_user(self._READONLY_USER)
+        from assetcore.services.shared import rbac
+        asset = self._make_asset("pr1")
+        frappe.set_user(self._PRINT_USER)
         try:
-            # tiền đề: user CÓ asset.read NHƯNG KHÔNG asset.write (least-privilege)
-            from assetcore.services.shared import rbac
-            self.assertTrue(rbac.can("asset.read"),
-                            "tiền đề: user có asset.read")
+            # tiền đề ĐO ĐƯỢC: user CÓ asset.print NHƯNG KHÔNG asset.write/rotate.
+            self.assertTrue(rbac.can("asset.print"),
+                            "tiền đề: user có asset.print (DocPerm print=1)")
             self.assertFalse(rbac.can("asset.write"),
                              "tiền đề: user KHÔNG có asset.write")
+            self.assertFalse(rbac.can("asset.qr.rotate"),
+                             "tiền đề: user KHÔNG có asset.qr.rotate (write=0)")
+            resp = get_asset_label_data(asset=asset.name)
+            self.assertTrue(resp["success"],
+                            "user print (không write) → 200 (KHÔNG 403)")
+            self.assertEqual(set(resp["data"].keys()), self._LABEL_KEYS,
+                             "payload nhãn đúng 8 key")
+        finally:
+            frappe.set_user("Administrator")
+
+    def test_label_batch_print_user_200(self):
+        """get_asset_label_data_batch: user CÓ print (write=0) → 200."""
+        from assetcore.api.imm00 import get_asset_label_data_batch
+        asset = self._make_asset("pr2")
+        frappe.set_user(self._PRINT_USER)
+        try:
+            resp = get_asset_label_data_batch(assets=[asset.name])
+            self.assertTrue(resp["success"], "user print → 200 (KHÔNG 403)")
+        finally:
+            frappe.set_user("Administrator")
+
+    def test_mark_printed_print_user_200(self):
+        """mark_label_printed: user CÓ print (write=0) → 200 + 1 event + 1 audit."""
+        from assetcore.api.imm00 import mark_label_printed
+        asset = self._make_asset("pr3")
+        before_label = self._count_label_events(asset.name)
+        before_audit = self._count_audit(asset.name)
+        frappe.set_user(self._PRINT_USER)
+        try:
+            resp = mark_label_printed(assets=[asset.name])
+            self.assertTrue(resp["success"], "user print → 200 (KHÔNG 403)")
+            self.assertEqual(resp["data"]["event_count"], 1)
+        finally:
+            frappe.set_user("Administrator")
+        self.assertEqual(self._count_label_events(asset.name), before_label + 1,
+                         "user print → ĐÚNG 1 label_printed / asset")
+        self.assertEqual(self._count_audit(asset.name), before_audit + 1,
+                         "user print → ĐÚNG 1 IMM Audit Trail / asset")
+
+    # ── 403 — user KHÔNG có print (Guest no-cap) bị chặn + no side-effect ─────
+    def test_label_data_no_print_user_403(self):
+        """get_asset_label_data: user KHÔNG có asset.print (Guest) → 403 VI sạch."""
+        from assetcore.api.imm00 import get_asset_label_data
+        from assetcore.services.shared import rbac
+        asset = self._make_asset("np1")
+        frappe.set_user("Guest")
+        try:
+            self.assertFalse(rbac.can("asset.print"),
+                             "tiền đề: Guest KHÔNG có asset.print")
             with self.assertRaises(frappe.PermissionError):
                 get_asset_label_data(asset=asset.name)
         finally:
             frappe.set_user("Administrator")
 
-    def test_label_batch_read_only_user_403(self):
-        """get_asset_label_data_batch: user chỉ-đọc → PermissionError (403)."""
-        from assetcore.api.imm00 import get_asset_label_data_batch
-        asset = self._make_asset("ro2")
-        frappe.set_user(self._READONLY_USER)
-        try:
-            with self.assertRaises(frappe.PermissionError):
-                get_asset_label_data_batch(assets=[asset.name])
-        finally:
-            frappe.set_user("Administrator")
+    def test_mark_printed_no_print_user_403_no_side_effect(self):
+        """mark_label_printed: user KHÔNG print → 403 + KHÔNG sinh event/audit.
 
-    def test_mark_printed_read_only_user_403(self):
-        """mark_label_printed: user chỉ-đọc → 403 VÀ KHÔNG sinh event/audit.
-
-        Gate WRITE chạy ĐẦU TIÊN → chặn TRƯỚC mọi side-effect (no label_printed,
+        Gate print chạy ĐẦU TIÊN → chặn TRƯỚC mọi side-effect (no label_printed,
         no IMM Audit Trail) — least-privilege + no-side-effect khi bị chặn.
         """
         from assetcore.api.imm00 import mark_label_printed
-        asset = self._make_asset("ro3")
+        asset = self._make_asset("np2")
         before_label = self._count_label_events(asset.name)
         before_audit = self._count_audit(asset.name)
-        frappe.set_user(self._READONLY_USER)
+        frappe.set_user("Guest")
         try:
             with self.assertRaises(frappe.PermissionError):
                 mark_label_printed(assets=[asset.name])
         finally:
             frappe.set_user("Administrator")
         self.assertEqual(self._count_label_events(asset.name), before_label,
-                         "user chỉ-đọc bị chặn → KHÔNG sinh label_printed")
+                         "user không-print bị chặn → KHÔNG sinh label_printed")
         self.assertEqual(self._count_audit(asset.name), before_audit,
-                         "user chỉ-đọc bị chặn → KHÔNG ghi IMM Audit Trail")
+                         "user không-print bị chặn → KHÔNG ghi IMM Audit Trail")
 
-    # ── 200 — user có asset.write qua được gate ──────────────────────────────
+    # ── 200 — user có asset.write (Super Admin) qua được gate print ───────────
     def test_label_data_write_user_200(self):
-        """get_asset_label_data: user asset.write → 200 + payload đủ 6 key."""
+        """get_asset_label_data: Super Admin (print=1+write=1) → 200 + 8 key."""
         from assetcore.api.imm00 import get_asset_label_data
         asset = self._make_asset("w1")
         frappe.set_user(self._WRITE_USER)
@@ -3696,7 +4492,7 @@ class TestLabelWriteCapability(unittest.TestCase):
             resp = get_asset_label_data(asset=asset.name)
             self.assertTrue(resp["success"], "user write → success")
             self.assertEqual(set(resp["data"].keys()), self._LABEL_KEYS,
-                             "payload nhãn đúng 6 key")
+                             "payload nhãn đúng 8 key")
         finally:
             frappe.set_user("Administrator")
 
@@ -3731,7 +4527,7 @@ class TestLabelWriteCapability(unittest.TestCase):
         )
         asset = self._make_asset("rd")
         token = asset.qr_token
-        frappe.set_user(self._READONLY_USER)
+        frappe.set_user(self._PRINT_USER)
         try:
             r1 = resolve_qr_token(token=token)
             self.assertTrue(r1["success"],
@@ -3745,31 +4541,27 @@ class TestLabelWriteCapability(unittest.TestCase):
         finally:
             frappe.set_user("Administrator")
 
-    # ── IDOR — user CÓ write nhưng vendor ngoài scope → 403 (KHÔNG nới IDOR) ──
-    def test_label_idor_unchanged_after_write_gate(self):
-        """user asset.write + Vendor Engineer ngoài scope → 403 IDOR.
+    # ── IDOR — user CÓ print nhưng vendor ngoài scope → 403 (KHÔNG nới IDOR) ──
+    def test_label_idor_unchanged_after_print_gate(self):
+        """user asset.print + Vendor Engineer ngoài scope → 403 IDOR.
 
-        Siết gate read→write KHÔNG được nới IDOR: assert_vendor_can_access vẫn
-        chặn user CÓ write nhưng asset NGOÀI WO được giao. Cấp write tạm cho
-        role Vendor Engineer (Custom DocPerm) để user qua gate WRITE rồi đập IDOR.
+        Đổi gate write→print KHÔNG được nới IDOR: assert_vendor_can_access vẫn
+        chặn user CÓ print nhưng asset NGOÀI WO được giao. Vendor Engineer đã có
+        print=1 (DocPerm chuẩn) → qua gate PRINT mà KHÔNG cần grant tạm; IDOR
+        đập SAU gate. (D6 phương án B — print mở rộng persona NHƯNG IDOR bất biến.)
         """
-        from frappe.permissions import add_permission, update_permission_property
         from assetcore.api.imm00 import get_asset_label_data, mark_label_printed
         from assetcore.services.shared import rbac
-        asset = self._make_asset("idorw")
+        asset = self._make_asset("idorp")
         name = asset.name
-        role = "Vendor Engineer"
         u = self._ensure_user(self._IDOR_USER, ["Vendor Engineer", "Repair User"])
-        # Cấp write tạm cho Vendor Engineer trên AC Asset (data, KHÔNG cap mới).
-        add_permission("AC Asset", role, 0)
-        update_permission_property("AC Asset", role, 0, "write", 1)
         frappe.clear_cache()
         frappe.db.commit()
         try:
             frappe.set_user(self._IDOR_USER)
-            # tiền đề: user CÓ asset.write (qua gate WRITE) NHƯNG vendor-scope.
-            self.assertTrue(rbac.can("asset.write"),
-                            "tiền đề: user IDOR có asset.write (qua gate)")
+            # tiền đề: user CÓ asset.print (qua gate PRINT) NHƯNG vendor-scope.
+            self.assertTrue(rbac.can("asset.print"),
+                            "tiền đề: user IDOR có asset.print (qua gate)")
             resp = get_asset_label_data(asset=name)
             self.assertFalse(resp["success"], "vendor ngoài scope → KHÔNG success")
             self.assertEqual(resp["http_status"], 403,
@@ -3782,12 +4574,6 @@ class TestLabelWriteCapability(unittest.TestCase):
                              "mark_label_printed IDOR → 403 (KHÔNG nới IDOR)")
         finally:
             frappe.set_user("Administrator")
-            cp = frappe.db.get_value(
-                "Custom DocPerm",
-                {"parent": "AC Asset", "role": role, "permlevel": 0}, "name")
-            if cp:
-                frappe.delete_doc("Custom DocPerm", cp, force=True,
-                                  ignore_permissions=True)
             frappe.clear_cache()
             rbac.invalidate_capabilities(self._IDOR_USER)
             if frappe.db.exists("User", self._IDOR_USER):
@@ -3795,23 +4581,33 @@ class TestLabelWriteCapability(unittest.TestCase):
                                   ignore_permissions=True)
             frappe.db.commit()
 
-    # ── No-churn guard — cap-set version KHÔNG đổi (KHÔNG thêm cap) ───────────
-    def test_cap_set_version_unchanged(self):
-        """Siết read→write dùng cap CÓ SẴN → CAP_SET_VERSION GIỮ v95.3388ee5629c1.
+    # ── Version guard — thêm 2 cap (D6) → CAP_SET_VERSION ĐỔI + cap mới có ─────
+    def test_cap_set_version_changed_after_split_caps(self):
+        """D6 phương án B: thêm asset.print + asset.qr.rotate → version ĐỔI.
 
-        White-box no-churn: asset.write ∈ CAPABILITY_MAP; KHÔNG có asset.print_label
-        (cap mới đã BỎ khỏi roadmap) → FE auth.ts::CAP_SET_VERSION KHÔNG cần bump.
+        White-box: CAP_SET_VERSION KHÔNG còn v95.3388ee5629c1 (giá trị cũ) → đổi
+        v97.c30c69b8974d (97 cap). FE auth.ts::CAP_SET_VERSION PHẢI bump khớp →
+        isCapCacheStale tự bỏ persisted-caps cũ. 2 cap mới bind đúng permtype.
+        KHÔNG còn asset.print_label (tên cũ trong roadmap đã đổi đúng theo ADR).
         """
         from assetcore.services.shared.rbac import CAP_SET_VERSION, CAPABILITY_MAP
-        self.assertEqual(CAP_SET_VERSION, "v95.3388ee5629c1",
-                         "siết read→write KHÔNG thêm cap → version GIỮ NGUYÊN "
-                         "(KHÔNG churn FE auth.ts CAP_SET_VERSION)")
+        self.assertNotEqual(CAP_SET_VERSION, "v95.3388ee5629c1",
+                            "thêm 2 cap (D6) → CAP_SET_VERSION PHẢI đổi giá trị cũ")
+        self.assertEqual(CAP_SET_VERSION, "v97.c30c69b8974d",
+                         "97 cap sau D6 → version v97.c30c69b8974d "
+                         "(khớp FE auth.ts CAP_SET_VERSION)")
+        self.assertIn("asset.print", CAPABILITY_MAP,
+                      "asset.print (D6 phương án B) phải có trong CAPABILITY_MAP")
+        self.assertEqual(CAPABILITY_MAP["asset.print"], ("AC Asset", "print"),
+                         "asset.print bind ('AC Asset','print') — DocPerm print")
+        self.assertIn("asset.qr.rotate", CAPABILITY_MAP,
+                      "asset.qr.rotate (D6 phương án B) phải có trong CAPABILITY_MAP")
+        self.assertEqual(CAPABILITY_MAP["asset.qr.rotate"], ("AC Asset", "write"),
+                         "asset.qr.rotate bind ('AC Asset','write') — rotate=GHI")
         self.assertIn("asset.write", CAPABILITY_MAP,
-                      "asset.write phải có sẵn (qua _DOMAIN_PRIMARY['Asset'])")
-        self.assertEqual(CAPABILITY_MAP["asset.write"], ("AC Asset", "write"),
-                         "asset.write bind ('AC Asset','write')")
+                      "asset.write GIỮ (qua _DOMAIN_PRIMARY['Asset'])")
         self.assertNotIn("asset.print_label", CAPABILITY_MAP,
-                         "KHÔNG thêm cap mới asset.print_label (đã BỎ khỏi roadmap)")
+                         "tên cũ asset.print_label KHÔNG dùng (ADR chốt asset.print)")
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -4038,7 +4834,8 @@ class TestQrWhitelistHttpLayer(unittest.TestCase):
 
 # ──────────────────────────────────────────────────────────────────────────
 # B (hardening) — Regenerate (rotate) QR token cấp AC Asset
-# Endpoint regenerate_asset_qr_token(asset): gate asset.write (403 read-only) →
+# Endpoint regenerate_asset_qr_token(asset): gate asset.qr.rotate →(AC Asset,
+# "write") (D6 phương án B — tách cap rotate; 403 khi user chỉ print/read) →
 # token MỚI != cũ (enumeration-safe, overwrite, update_modified=False) → token
 # CŨ KHÔNG còn resolve → 1 ALE 'qr_regenerated' + 1 IMM Audit Trail (KHÔNG log
 # token thô) → IDOR-safe (assert_vendor_can_access) → 404 leak-safe. RED viết TRƯỚC.
@@ -4046,11 +4843,11 @@ class TestQrWhitelistHttpLayer(unittest.TestCase):
 
 
 class TestRegenerateQrToken(unittest.TestCase):
-    """B — rotate qr_token: vô hiệu hoá token bị lộ + cấp token mới (RED-first)."""
+    """D6/B — rotate qr_token gate asset.qr.rotate (=write): print KHÔNG đủ."""
 
-    # Role chỉ-đọc trên AC Asset (read=1, write=0) — least-privilege user.
+    # Role print=1 write=0 → CÓ asset.print NHƯNG KHÔNG asset.qr.rotate.
     _READONLY_ROLE = "Commissioning User"
-    # Role có write=1 trên AC Asset (DocPerm thật) — user write hợp lệ.
+    # Role có write=1 (⇒ asset.qr.rotate) trên AC Asset (DocPerm thật).
     _WRITE_ROLE = "AssetCore Super Admin"
     _READONLY_USER = "be_b_regen_readonly@example.com"
     _WRITE_USER = "be_b_regen_write@example.com"
@@ -4186,24 +4983,29 @@ class TestRegenerateQrToken(unittest.TestCase):
             frappe.db.get_value("AC Asset", asset.name, "qr_token"), old,
             "Guest bị chặn → qr_token KHÔNG đổi")
 
-    def test_regenerate_read_only_user_403(self):
-        """User asset.read NHƯNG KHÔNG asset.write → PermissionError, KHÔNG rotate."""
+    def test_regenerate_print_only_user_403(self):
+        """User CÓ asset.print NHƯNG KHÔNG asset.qr.rotate → 403, KHÔNG rotate.
+
+        D6 phương án B: rotate gate asset.qr.rotate(=write). Persona vận hành CÓ
+        print (in nhãn được) NHƯNG KHÔNG rotate được — least-privilege chính xác.
+        """
         from assetcore.api.imm00 import regenerate_asset_qr_token
         from assetcore.services.shared import rbac
         asset = self._make_asset("ro")
         old = asset.qr_token
         frappe.set_user(self._READONLY_USER)
         try:
-            self.assertTrue(rbac.can("asset.read"), "tiền đề: có asset.read")
-            self.assertFalse(rbac.can("asset.write"),
-                             "tiền đề: KHÔNG có asset.write")
+            self.assertTrue(rbac.can("asset.print"),
+                            "tiền đề: user CÓ asset.print (in nhãn được)")
+            self.assertFalse(rbac.can("asset.qr.rotate"),
+                             "tiền đề: user KHÔNG có asset.qr.rotate (write=0)")
             with self.assertRaises(frappe.PermissionError):
                 regenerate_asset_qr_token(asset=asset.name)
         finally:
             frappe.set_user("Administrator")
         self.assertEqual(
             frappe.db.get_value("AC Asset", asset.name, "qr_token"), old,
-            "user chỉ-đọc bị chặn → qr_token KHÔNG đổi (no side-effect)")
+            "user chỉ-print bị chặn → qr_token KHÔNG đổi (no side-effect)")
 
     # ── Token CŨ KHÔNG còn resolve; token MỚI resolve đúng asset ────────────
     def test_old_token_unresolvable_new_token_resolves(self):
@@ -4261,7 +5063,7 @@ class TestRegenerateQrToken(unittest.TestCase):
 
     # ── 403 IDOR — vendor rotate asset ngoài scope → chặn, leak-safe ────────
     def test_regenerate_vendor_out_of_scope_forbidden_no_leak(self):
-        """user CÓ asset.write + Vendor Engineer ngoài scope → 403 IDOR, KHÔNG rotate."""
+        """user CÓ asset.qr.rotate + Vendor Engineer ngoài scope → 403 IDOR."""
         from frappe.permissions import add_permission, update_permission_property
         from assetcore.api.imm00 import regenerate_asset_qr_token
         from assetcore.services.shared import rbac
@@ -4269,16 +5071,17 @@ class TestRegenerateQrToken(unittest.TestCase):
         old = asset.qr_token
         role = "Vendor Engineer"
         u = self._ensure_user(self._IDOR_USER, ["Vendor Engineer", "Repair User"])
-        # Cấp write tạm cho Vendor Engineer trên AC Asset (data, KHÔNG cap mới)
-        # → user QUA gate WRITE rồi đập IDOR (assert_vendor_can_access).
+        # Cấp write tạm cho Vendor Engineer trên AC Asset (data) → asset.qr.rotate
+        # (bind write) resolve TRUE → user QUA gate ROTATE rồi đập IDOR
+        # (assert_vendor_can_access). KHÔNG hardcode role, cấp qua DocPerm.
         add_permission("AC Asset", role, 0)
         update_permission_property("AC Asset", role, 0, "write", 1)
         frappe.clear_cache()
         frappe.db.commit()
         try:
             frappe.set_user(self._IDOR_USER)
-            self.assertTrue(rbac.can("asset.write"),
-                            "tiền đề: user IDOR có asset.write (qua gate)")
+            self.assertTrue(rbac.can("asset.qr.rotate"),
+                            "tiền đề: user IDOR có asset.qr.rotate (qua gate)")
             resp = regenerate_asset_qr_token(asset=asset.name)
             self.assertFalse(resp["success"], "vendor ngoài scope → KHÔNG success")
             self.assertEqual(resp["http_status"], 403,
@@ -4367,14 +5170,14 @@ class TestRegenerateQrToken(unittest.TestCase):
         self.assertEqual(before, after,
                          "rotate qr_token dùng update_modified=False (KHÔNG bump)")
 
-    # ── No-churn guard — CAP_SET_VERSION KHÔNG đổi (KHÔNG thêm cap) ─────────
-    def test_cap_set_version_unchanged(self):
-        """rotate dùng asset.write CÓ SẴN → CAP_SET_VERSION GIỮ v95.3388ee5629c1."""
+    # ── Version guard — rotate cap tách riêng (D6) → version ĐỔI ────────────
+    def test_rotate_cap_in_map_and_version_changed(self):
+        """D6: rotate gate asset.qr.rotate→(AC Asset,write); CAP_SET_VERSION ĐỔI."""
         from assetcore.services.shared.rbac import CAP_SET_VERSION, CAPABILITY_MAP
-        self.assertEqual(CAP_SET_VERSION, "v95.3388ee5629c1",
-                         "rotate KHÔNG thêm cap → version GIỮ NGUYÊN (no FE churn)")
-        self.assertIn("asset.write", CAPABILITY_MAP,
-                      "asset.write có sẵn (qua _DOMAIN_PRIMARY['Asset'])")
+        self.assertEqual(CAP_SET_VERSION, "v97.c30c69b8974d",
+                         "thêm asset.print + asset.qr.rotate → version v97.c30c69b8974d")
+        self.assertEqual(CAPABILITY_MAP.get("asset.qr.rotate"), ("AC Asset", "write"),
+                         "asset.qr.rotate bind ('AC Asset','write') — rotate=GHI")
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -4681,9 +5484,9 @@ class TestQrResolveRateLimit(unittest.TestCase):
     def test_cap_set_version_unchanged(self):
         from assetcore.services.shared.rbac import CAP_SET_VERSION
         self.assertEqual(
-            CAP_SET_VERSION, "v95.3388ee5629c1",
-            "thêm @rate_limit (decorator) KHÔNG đổi CAPABILITY_MAP → "
-            "CAP_SET_VERSION GIỮ v95.3388ee5629c1 (no FE auth.ts churn)")
+            CAP_SET_VERSION, "v97.c30c69b8974d",
+            "@rate_limit (decorator) KHÔNG đổi CAPABILITY_MAP; giá trị hiện hành "
+            "v97.c30c69b8974d (sau D6 tách asset.print/asset.qr.rotate)")
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -4975,9 +5778,9 @@ class TestQrRegenerateRateLimit(unittest.TestCase):
     def test_regen_cap_set_version_unchanged(self):
         from assetcore.services.shared.rbac import CAP_SET_VERSION
         self.assertEqual(
-            CAP_SET_VERSION, "v95.3388ee5629c1",
-            "thêm @rate_limit lên rotate KHÔNG đổi CAPABILITY_MAP → "
-            "CAP_SET_VERSION GIỮ v95.3388ee5629c1")
+            CAP_SET_VERSION, "v97.c30c69b8974d",
+            "@rate_limit lên rotate KHÔNG đổi CAPABILITY_MAP; giá trị hiện hành "
+            "v97.c30c69b8974d (sau D6 tách asset.print/asset.qr.rotate)")
 
 
 # ─── B (hardening) — base-URL công khai cấu hình được cho deep-link QR ─────────
@@ -5134,12 +5937,12 @@ class TestQrBaseUrl(unittest.TestCase):
                 _purge_asset(n)
             frappe.db.commit()
 
-    # (9) regression: cap-set version vẫn v95.3388ee5629c1 (KHÔNG cap change).
+    # (9) regression: cap-set version hiện hành v97.c30c69b8974d (sau D6).
     def test_cap_set_version_unchanged(self):
         from assetcore.services.shared.rbac import CAP_SET_VERSION
         self.assertEqual(
-            CAP_SET_VERSION, "v95.3388ee5629c1",
-            "base-URL deep-link là logic dựng URL — KHÔNG thêm cap/field/DocType")
+            CAP_SET_VERSION, "v97.c30c69b8974d",
+            "base-URL deep-link là logic dựng URL — KHÔNG thêm cap (D6 mới đổi version)")
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -5151,7 +5954,8 @@ class TestQrBaseUrl(unittest.TestCase):
 # get_asset_timeline, get_asset_kpi, list_assets đều KHÔNG có qr_token/token.
 # Deep-link vẫn dùng qua qr_url (build_asset_label_data server-side, A3/A4).
 # Test-case RED viết TRƯỚC fix (test_get_asset_no_raw_qr_token fail vì as_dict
-# leak). KHÔNG cap/field/DocType/enum mới → CAP_SET_VERSION GIỮ v95.3388ee5629c1.
+# leak). KHÔNG cap/field/DocType/enum mới ở vòng này (CAP_SET_VERSION hiện hành
+# v97.c30c69b8974d — D6 tách asset.print/asset.qr.rotate mới đổi version).
 # ──────────────────────────────────────────────────────────────────────────
 class TestGetAssetNoRawQrToken(unittest.TestCase):
     """B — no-raw-token parity MỌI đường đọc AC Asset (ADR-001 D4 rule 9)."""

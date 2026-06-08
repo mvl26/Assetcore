@@ -25,9 +25,10 @@ vi.mock('@/stores/imm00', () => ({
   }),
 }))
 vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ user: 'tester' }) }))
-// B (siết RBAC): nút 'In nhãn QR' gate asset.WRITE (in = side-effect, KHÔNG read-only).
-// `canCaps` set ngoài test để giả lập user write / user chỉ-đọc.
-const canCaps = new Set<string>(['asset.write'])
+// D6 (ADR-IMM00-QR-SCAN-ACTION, phương án B): nút 'In nhãn QR' gate asset.PRINT
+// (quyền in nhãn — persona vận hành có; KHÔNG còn asset.write). `canCaps` set ngoài
+// test để giả lập user-có-print / user-không-print.
+const canCaps = new Set<string>(['asset.print'])
 vi.mock('@/composables/useCapabilities', () => ({
   useCapabilities: () => ({
     can: (c: string | readonly string[]) =>
@@ -76,22 +77,22 @@ describe('AssetDetailView — in nhãn QR 1 tài sản (A4)', () => {
     getLabelSpy.mockReset().mockResolvedValue(VALID_LABEL)
     markPrintedSpy.mockClear()
     vi.spyOn(window, 'print').mockImplementation(() => {})
-    // mặc định: user CÓ asset.write (write user) cho happy-path bên dưới.
+    // mặc định: user CÓ asset.print cho happy-path bên dưới.
     canCaps.clear()
-    canCaps.add('asset.write')
+    canCaps.add('asset.print')
   })
 
-  it("B — user CHỈ-ĐỌC (asset.read, KHÔNG asset.write) → nút 'In nhãn QR' KHÔNG render", async () => {
+  it("D6 — user KHÔNG có asset.print (chỉ read) → nút 'In nhãn QR' KHÔNG render", async () => {
     canCaps.clear()
-    canCaps.add('asset.read') // chỉ đọc, KHÔNG write
+    canCaps.add('asset.read') // chỉ đọc, KHÔNG print
     const w = mount(AssetDetailView, { props: { id: 'AC-ASSET-2026-00042' }, global: { stubs } })
     await flushPromises()
     expect(findByText(w, 'In nhãn QR')).toBeFalsy()
   })
 
-  it("B — user CÓ asset.write → nút 'In nhãn QR' render", async () => {
+  it("D6 — user CÓ asset.print → nút 'In nhãn QR' render", async () => {
     canCaps.clear()
-    canCaps.add('asset.write')
+    canCaps.add('asset.print')
     const w = mount(AssetDetailView, { props: { id: 'AC-ASSET-2026-00042' }, global: { stubs } })
     await flushPromises()
     expect(findByText(w, 'In nhãn QR')).toBeTruthy()

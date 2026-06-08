@@ -91,8 +91,10 @@ describe('AssetDetailView — siết affordance ghi theo capability (B)', () => 
     expect(w.text()).toContain('Máy thở Dräger')
   })
 
-  it('full {write+delete} + status có TRANSITIONS → render đủ 5 nhóm (≥1 nút →state)', async () => {
+  it('full {write+delete+print+rotate} + status có TRANSITIONS → render đủ 5 nhóm (≥1 nút →state)', async () => {
+    // D6: In nhãn gate asset.print, Sinh-lại QR gate asset.qr.rotate (tách khỏi write).
     canCaps.add('asset.read'); canCaps.add('asset.write'); canCaps.add('asset.delete')
+    canCaps.add('asset.print'); canCaps.add('asset.qr.rotate')
     const w = mount(AssetDetailView, { props: { id: 'AC-ASSET-2026-00042' }, global: { stubs } })
     await flushPromises()
     expect(findBtn(w, 'Chỉnh sửa')).toBeTruthy()
@@ -103,13 +105,25 @@ describe('AssetDetailView — siết affordance ghi theo capability (B)', () => 
     expect(w.findAll('button').filter(b => b.text().startsWith('→')).length).toBeGreaterThanOrEqual(1)
   })
 
-  it('split {write, !delete} → THẤY Sửa/transition/QR, KHÔNG thấy Xóa (delete tách khỏi write)', async () => {
-    canCaps.add('asset.read'); canCaps.add('asset.write') // KHÔNG delete
+  it('D6 split {print, !rotate, !write} → THẤY In nhãn, KHÔNG thấy Sửa/Sinh-lại QR', async () => {
+    // Persona vận hành (KTV): chỉ print → in được NHƯNG KHÔNG sửa/rotate (least-privilege).
+    canCaps.add('asset.read'); canCaps.add('asset.print') // KHÔNG write/rotate/delete
+    const w = mount(AssetDetailView, { props: { id: 'AC-ASSET-2026-00042' }, global: { stubs } })
+    await flushPromises()
+    expect(findBtn(w, 'In nhãn QR')).toBeTruthy()
+    expect(findBtn(w, 'Sinh lại mã QR')).toBeFalsy()
+    expect(findBtn(w, 'Chỉnh sửa')).toBeFalsy()
+    expect(findBtn(w, 'Xóa')).toBeFalsy()
+  })
+
+  it('split {write, !delete} → THẤY Sửa/transition, KHÔNG thấy Xóa (delete tách khỏi write)', async () => {
+    canCaps.add('asset.read'); canCaps.add('asset.write') // KHÔNG delete/print/rotate
     const w = mount(AssetDetailView, { props: { id: 'AC-ASSET-2026-00042' }, global: { stubs } })
     await flushPromises()
     expect(findBtn(w, 'Chỉnh sửa')).toBeTruthy()
-    expect(findBtn(w, 'In nhãn QR')).toBeTruthy()
-    expect(findBtn(w, 'Sinh lại mã QR')).toBeTruthy()
+    // D6: In nhãn/Sinh-lại QR KHÔNG còn theo write (gate riêng print/rotate).
+    expect(findBtn(w, 'In nhãn QR')).toBeFalsy()
+    expect(findBtn(w, 'Sinh lại mã QR')).toBeFalsy()
     expect(w.findAll('button').filter(b => b.text().startsWith('→')).length).toBeGreaterThanOrEqual(1)
     // asset.delete=False → nút Xóa ẩn dù được write.
     expect(findBtn(w, 'Xóa')).toBeFalsy()

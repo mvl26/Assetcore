@@ -80,6 +80,26 @@ export interface RecentMaintenance {
   event_type: string
   date: string | null
 }
+// R1 QR-SCAN-ACTION (ADR-IMM00-QR-SCAN-ACTION §D2) — 1 phần tử của available_actions.
+// Mirror CHÍNH XÁC shape BE `_build_available_actions` (services/imm00.py): derive
+// SERVER-SIDE = has_cap ∩ lifecycle_allows. FE CHỈ render (KHÔNG hardcode action,
+// KHÔNG tự tính enabled/reason).
+//   • key     — định danh action (report_failure | request_pm | request_cm |
+//               request_calibration). FE dịch nhãn VI qua SCAN_ACTION_LABELS (SSoT).
+//   • label   — nhãn VI BE phát (fallback khi key chưa có trong SSoT FE).
+//   • route   — TÊN route (vue-router name), KHÔNG path thô. FE dựng URL qua
+//               router.resolve({ name, query }) — KHÔNG ghép query-string thủ công,
+//               KHÔNG kèm qr_token.
+//   • enabled — true ⟺ có quyền ∧ lifecycle cho phép. false → nút disabled + reason.
+//   • reason  — chuỗi VI giải thích vì sao disabled (CHỈ khi enabled=false). Ưu tiên
+//               lifecycle > capability (BE đã quyết — FE chỉ render).
+export interface ScanAction {
+  key: string
+  label: string
+  route: string
+  enabled: boolean
+  reason: string
+}
 export interface AssetScanInfo {
   name: string
   asset_code: string
@@ -98,6 +118,9 @@ export interface AssetScanInfo {
   // KHÔNG so next_calibration_date với client clock. true ⟺ next_calibration_date
   // quá khứ ∧ thiết bị còn dùng (∉ Out of Service/Decommissioned).
   calibration_overdue: boolean
+  // R1 QR-SCAN-ACTION (D2) — 4 CTA màn quét derive SERVER-SIDE. FE v-for render
+  // MỌI phần tử (kể cả enabled=false → nút disabled + reason; KHÔNG ẩn nút chết).
+  available_actions: ScanAction[]
 }
 
 /**
@@ -112,12 +135,16 @@ export function getAssetScanInfo(params: { token?: string; name?: string }): Pro
 }
 
 // ─── QR label print (A4 — ADR-001 D3) ──────────────────────────────────────────
-// Payload nhãn QR cấp tài sản (6 field). Khớp 1-1 với service BE
+// Payload nhãn QR cấp tài sản (8 field). Khớp 1-1 với service BE
 // build_asset_label_data — qr_url là chuỗi tuyệt đối /a/<token>, FE encode TRỰC
 // TIẾP vào QR ảnh (KHÔNG tự build URL, KHÔNG mã hoá chuỗi tag commissioning).
+// ADR-IMM00-QR-SCAN-ACTION D5: tách bạch Mã tài sản (asset_code) ↔ Số serial NSX
+// (manufacturer_sn) + Tên tài sản (asset_name) — định danh truy xuất NĐ98 trên tem.
 export interface AssetLabelData {
   name: string
   asset_code: string
+  asset_name: string
+  manufacturer_sn: string
   device_model_name: string
   location_name: string
   lifecycle_status: string
@@ -140,6 +167,7 @@ export function isBatchLabelError(item: BatchLabelItem): item is BatchLabelError
 /**
  * Lấy dữ liệu in nhãn QR cho 1 asset (READ-ONLY — KHÔNG ghi label_printed).
  * Mirror BE `assetcore.api.imm00.get_asset_label_data` (naming contract).
+ * Gate asset.print ở BE (D6 phương án B) → user không có quyền in nhận 403.
  */
 export function getAssetLabelData(asset: string): Promise<AssetLabelData> {
   return frappeGet(`${BASE}.get_asset_label_data`, { asset })
@@ -167,9 +195,10 @@ export function markLabelPrinted(assets: string[]): Promise<{ printed: string[];
 
 // ─── QR token rotate (B — hardening) ────────────────────────────────────────────
 // Cấp lại (rotate) qr_token bị lộ: vô hiệu hoá MỌI nhãn QR đã in (token cũ KHÔNG
-// còn resolve) + cấp token mới. KHÁC getAssetLabelData (read-only): đây là thao
-// tác GHI (gate asset.write ở BE). Trả qr_url MỚI để refresh nhãn/print —
-// KHÔNG surface token thô (ADR-001 §D4 rule 9: no-raw-token, FE chỉ cần qr_url).
+// còn resolve) + cấp token mới. KHÁC getAssetLabelData (gate asset.print): đây là
+// thao tác GHI → gate asset.qr.rotate ở BE (D6 phương án B — tách cap rotate khỏi
+// in). Trả qr_url MỚI để refresh nhãn/print — KHÔNG surface token thô (ADR-001
+// §D4 rule 9: no-raw-token, FE chỉ cần qr_url).
 export interface RegenerateQrResult {
   name: string
   qr_url: string
@@ -178,8 +207,8 @@ export interface RegenerateQrResult {
 /**
  * Cấp lại (rotate) mã QR cho 1 asset — vô hiệu hoá nhãn cũ + token mới (POST).
  * Mirror BE `assetcore.api.imm00.regenerate_asset_qr_token` (naming contract).
- * Gate asset.write ở BE → user chỉ-đọc nhận 403; vendor ngoài scope 403 (IDOR);
- * asset không tồn tại 404 → ApiError, view bắt và notify VI (KHÔNG white-screen).
+ * Gate asset.qr.rotate ở BE → user chỉ print/đọc nhận 403; vendor ngoài scope 403
+ * (IDOR); asset không tồn tại 404 → ApiError, view bắt và notify VI (KHÔNG white-screen).
  */
 export function regenerateAssetQrToken(asset: string): Promise<RegenerateQrResult> {
   return frappePost(`${BASE}.regenerate_asset_qr_token`, { asset })

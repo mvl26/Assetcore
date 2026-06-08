@@ -103,10 +103,26 @@ describe('AssetDetailView — admin-bypass QR/print (B parity, chuỗi thật)',
     expect(w.text()).toContain('Máy thở Dräger')
   })
 
-  it('non-admin có asset.write → In nhãn QR HIỆN (regression thuần-cap)', async () => {
-    seedAuth(['Data Manager'], { 'asset.write': true })
+  it('D6 — non-admin có asset.print → In nhãn QR HIỆN (regression thuần-cap)', async () => {
+    seedAuth(['Data Manager'], { 'asset.print': true })
     const w = mount(AssetDetailView, { props: { id: 'AC-ASSET-2026-00042' }, global: { stubs } })
     await flushPromises()
     expect(findBtn(w, 'In nhãn QR')).toBeTruthy()
+  })
+
+  it('D6 — non-admin có asset.print NHƯNG KHÔNG rotate → Sinh lại mã QR ẨN', async () => {
+    // Tách quyền least-privilege: in được nhưng KHÔNG rotate token được.
+    seedAuth(['Data Manager'], { 'asset.print': true })
+    const w = mount(AssetDetailView, { props: { id: 'AC-ASSET-2026-00042' }, global: { stubs } })
+    await flushPromises()
+    expect(findBtn(w, 'In nhãn QR')).toBeTruthy()
+    expect(findBtn(w, 'Sinh lại mã QR')).toBeFalsy()
+  })
+
+  it('D6 — non-admin có asset.qr.rotate → Sinh lại mã QR HIỆN', async () => {
+    seedAuth(['Data Manager'], { 'asset.qr.rotate': true })
+    const w = mount(AssetDetailView, { props: { id: 'AC-ASSET-2026-00042' }, global: { stubs } })
+    await flushPromises()
+    expect(findBtn(w, 'Sinh lại mã QR')).toBeTruthy()
   })
 })
