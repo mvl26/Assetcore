@@ -5432,8 +5432,386 @@ class TestGetAssetNoRawQrToken(unittest.TestCase):
         """strip qr_token = logic API-response — KHÔNG cap/field/DocType/enum."""
         from assetcore.services.shared.rbac import CAP_SET_VERSION
         self.assertEqual(
-            CAP_SET_VERSION, "v95.3388ee5629c1",
-            "no-raw-token strip KHÔNG thêm cap → CAP_SET_VERSION GIỮ nguyên")
+            CAP_SET_VERSION, "v97.c30c69b8974d",
+            "no-raw-token strip KHÔNG thêm cap; giá trị hiện hành v97.c30c69b8974d (sau D6)")
+
+
+class TestGetAssetIdentityPayload(unittest.TestCase):
+    """[V1-E] BE guard — get_asset PHẢI trả CẢ 2 key định danh: asset_code
+    ('Mã tài sản' = PK) VÀ manufacturer_sn ('Số serial NSX' = field nghiệp vụ).
+
+    CONTEXT (ADR-IMM00-ASSETCODE §D1/D4): màn AssetDetailView (FE) hiển thị 2 hàng
+    TÁCH BẠCH 'Mã tài sản' (asset_code, fallback name) và 'Số serial NSX'
+    (manufacturer_sn). FE chỉ render — KHÔNG derive. ⇒ Contract đọc-asset PHẢI luôn
+    surface 2 key NÀY, nếu không UI rớt trường định danh (regression im lặng).
+
+    Guard = KEY-PRESENCE (không phụ thuộc GIÁ TRỊ): chống regress nếu ai đó sửa
+    fields-list / _strip_qr_token / as_dict làm rớt 1 trong 2 key. get_asset trả full
+    doc via _strip_qr_token(frappe.get_doc(...).as_dict()) (api/imm00.py L294) ⇒ kỳ
+    vọng GREEN ngay (no-op BE — chỉ khoá contract). Đỏ ⇒ root-cause bổ sung key.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": "Thiết bị Định danh (V1-E)",
+            "description": "Category cho test identity-payload get_asset",
+            "is_active": 1,
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        frappe.delete_doc("AC Asset Category", cls.cat.name,
+                          force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self._created: list[str] = []
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+        frappe.db.rollback()
+        for name in self._created:
+            _purge_asset(name)
+        frappe.db.commit()
+
+    def _make_asset(self, *, with_serial=True):
+        import uuid
+        uniq = uuid.uuid4().hex[:8]
+        data = {
+            "doctype": "AC Asset",
+            "asset_name": f"Máy Định danh {uniq}",
+            "asset_category": self.cat.name,
+            "asset_code": f"IDP-ASSET-{uniq}",
+            "lifecycle_status": "Active",
+        }
+        if with_serial:
+            data["manufacturer_sn"] = f"IDP-SN-{uniq}"
+        doc = _insert_asset_bypass_workflow(data)
+        self._created.append(doc.name)
+        return doc
+
+    def test_get_asset_payload_has_identity_keys(self):
+        """KEY-PRESENCE: payload chứa CẢ 'asset_code' VÀ 'manufacturer_sn'."""
+        from assetcore.api.imm00 import get_asset
+        asset = self._make_asset(with_serial=True)
+        resp = get_asset(name=asset.name)
+        self.assertTrue(resp["success"], "asset tồn tại → success")
+        data = resp["data"]
+        self.assertIn("asset_code", data,
+                      "get_asset PHẢI trả key 'asset_code' (Mã tài sản — ADR D4)")
+        self.assertIn("manufacturer_sn", data,
+                      "get_asset PHẢI trả key 'manufacturer_sn' (Số serial NSX — ADR D4)")
+        # value-parity (định danh không bị clobber/đổi qua tầng API)
+        self.assertEqual(data["asset_code"], asset.asset_code)
+        self.assertEqual(data["manufacturer_sn"], asset.manufacturer_sn)
+
+    def test_identity_keys_present_even_when_serial_empty(self):
+        """Key-presence ĐỘC LẬP giá trị: serial rỗng → key VẪN có mặt (value rỗng),
+        KHÔNG bị as_dict bỏ key ⇒ FE luôn render hàng 'Số serial NSX' (fallback '—')."""
+        from assetcore.api.imm00 import get_asset
+        asset = self._make_asset(with_serial=False)
+        data = get_asset(name=asset.name)["data"]
+        self.assertIn("asset_code", data)
+        self.assertIn("manufacturer_sn", data,
+                      "key 'manufacturer_sn' PHẢI có mặt kể cả khi giá trị rỗng")
+        # asset_code == name (invariant D5) → fallback FE an toàn
+        self.assertEqual(data["asset_code"], asset.name)
+
+
+_AC_ASSET_NAME_RE = re.compile(r"^AC-ASSET-\d{4}-\d{5}$")
+
+
+class TestACAssetCodeNaming(unittest.TestCase):
+    """QA-1..5 — định danh tài sản: autoname 2 nhánh + asset_code DB-unique/immutable
+    + manufacturer_sn app-unique/mutable.
+
+    Phủ ĐỦ acceptance V1-GATE asset-code (ADR-IMM00-ASSETCODE D1–D5):
+      - QA-1 autoname 2 nhánh (trống→series ^AC-ASSET-\\d{4}-\\d{5}$ & asset_code==name;
+        nhập 'TS-LAB-001'→name=='TS-LAB-001' & asset_code=='TS-LAB-001').
+      - QA-2 asset_code DB-unique + IMMUTABLE sau tạo (đổi rồi save → throw).
+      - QA-3 manufacturer_sn app-unique nhưng MUTABLE (đổi sang giá trị mới → OK).
+      - QA-4 KHÔNG default-theo-serial (manufacturer_sn có, asset_code trống →
+        auto-gen series, KHÔNG copy serial).
+      - QA-5 invariant asset_code==name cho CẢ 2 nhánh tạo.
+      - Pattern reject (khoảng trắng / ký tự lạ) + whitespace trim.
+
+    Tự dọn fixture qua addCleanup(_purge_asset) ⇒ chạy lặp 2 lần vẫn GREEN, no leak,
+    no real-data collision (mọi mã test mang prefix run-token duy nhất).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": "Thiết bị chẩn đoán hình ảnh — Định danh test",
+        }).insert(ignore_permissions=True)
+
+    @classmethod
+    def tearDownClass(cls):
+        _purge_category("Thiết bị chẩn đoán hình ảnh — Định danh test")
+
+    def setUp(self):
+        # Run-token duy nhất / phương thức test → mọi asset_code & serial test
+        # KHÔNG đụng data thật và KHÔNG đụng nhau khi chạy lặp.
+        self._tok = frappe.generate_hash(length=6).upper()
+
+    def _new_asset(self, **overrides):
+        """Tạo AC Asset tối thiểu qua đường chuẩn (KHÔNG bypass autoname/validate).
+
+        addCleanup ⇒ tự purge dù test pass/fail. lifecycle_status để mặc định
+        (Draft) — autoname/validate chạy đầy đủ như production create flow.
+        """
+        data = {
+            "doctype": "AC Asset",
+            "asset_name": f"Asset định danh {self._tok}",
+            "asset_category": self.cat.name,
+        }
+        data.update(overrides)
+        doc = frappe.get_doc(data).insert(ignore_permissions=True)
+        self.addCleanup(_purge_asset, doc.name)
+        return doc
+
+    # ── QA-1 (a) autoname blank → series ──────────────────────────────────────
+    def test_autoname_blank_generates_series(self):
+        asset = self._new_asset()  # KHÔNG truyền asset_code
+        self.assertRegex(
+            asset.name, _AC_ASSET_NAME_RE,
+            "asset_code trống → name phải khớp ^AC-ASSET-\\d{4}-\\d{5}$",
+        )
+        self.assertEqual(asset.asset_code, asset.name,
+                         "QA-1a: asset_code phải == name sau auto-gen")
+
+    # ── QA-1 (b) autoname supplied → name == code ─────────────────────────────
+    def test_autoname_supplied_used_as_name(self):
+        code = f"TS-LAB-{self._tok}"
+        asset = self._new_asset(asset_code=code)
+        self.assertEqual(asset.name, code, "QA-1b: name phải == asset_code đã nhập")
+        self.assertEqual(asset.asset_code, code,
+                         "QA-1b: asset_code giữ nguyên giá trị nhập")
+
+    # ── QA-2 asset_code DB-unique (collision) ─────────────────────────────────
+    def test_asset_code_db_unique_collision_throws(self):
+        code = f"TS-DUP-{self._tok}"
+        self._new_asset(asset_code=code)
+        with self.assertRaises((frappe.DuplicateEntryError, frappe.ValidationError)):
+            self._new_asset(asset_code=code)
+
+    # ── QA-2 asset_code IMMUTABLE sau tạo ─────────────────────────────────────
+    def test_asset_code_immutable_after_create(self):
+        asset = self._new_asset(asset_code=f"TS-IMM-{self._tok}")
+        asset.asset_code = f"TS-IMM2-{self._tok}"
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            asset.save(ignore_permissions=True)
+        self.assertIn("không thể thay đổi", str(ctx.exception),
+                      "throw phải nói rõ asset_code immutable")
+
+    # ── QA-3 manufacturer_sn app-unique (collision) ──────────────────────────
+    def test_manufacturer_sn_app_unique_collision_throws(self):
+        serial = f"SN-DUP-{self._tok}"
+        asset_a = self._new_asset(manufacturer_sn=serial)
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            self._new_asset(manufacturer_sn=serial)
+        msg = str(ctx.exception)
+        # ADR-IMM00-ASSETCODE D4: nhãn VI 'Số serial NSX', KHÔNG lead-EN 'Serial number'.
+        self.assertIn("Số serial NSX", msg,
+                      "throw phải dùng nhãn VI 'Số serial NSX' (ADR D4) — parity import_validators")
+        self.assertNotIn("Serial number", msg,
+                         "KHÔNG còn lead-EN 'Serial number' trong message dup-serial")
+        # No-leak định danh chéo: KHÔNG nhúng asset_code/name (PK) của tài sản KHÁC.
+        self.assertNotIn(asset_a.name, msg,
+                         "message KHÔNG được lộ PK (name/asset_code) của asset thứ nhất")
+        # Serial chính chủ (giá trị user vừa nhập) vẫn hiện để người dùng nhận biết.
+        self.assertIn(serial, msg,
+                      "message phải chứa chính giá trị serial người dùng vừa nhập")
+
+    # ── QA-3 manufacturer_sn MUTABLE (đổi sang giá trị mới → OK) ──────────────
+    def test_manufacturer_sn_mutable_ok(self):
+        asset = self._new_asset(manufacturer_sn=f"SN-OLD-{self._tok}")
+        new_serial = f"SN-NEW-{self._tok}"
+        asset.manufacturer_sn = new_serial
+        asset.save(ignore_permissions=True)  # KHÔNG throw
+        asset.reload()
+        self.assertEqual(asset.manufacturer_sn, new_serial,
+                         "QA-3: manufacturer_sn mutable — đổi giá trị mới phải lưu được")
+
+    # ── QA-4 KHÔNG default-theo-serial ───────────────────────────────────────
+    def test_blank_code_not_defaulted_from_serial(self):
+        serial = f"SN-XYZ-{self._tok}"
+        asset = self._new_asset(manufacturer_sn=serial)  # asset_code TRỐNG
+        self.assertRegex(
+            asset.asset_code, _AC_ASSET_NAME_RE,
+            "QA-4: asset_code trống → auto-gen series, KHÔNG copy serial",
+        )
+        self.assertNotEqual(asset.asset_code, serial,
+                            "QA-4: asset_code KHÔNG được lấy từ manufacturer_sn")
+        self.assertEqual(asset.asset_code, asset.name)
+
+    # ── QA-5 invariant asset_code == name cho CẢ 2 nhánh ─────────────────────
+    def test_invariant_asset_code_equals_name_both_branches(self):
+        blank = self._new_asset()
+        self.assertEqual(blank.asset_code, blank.name,
+                         "QA-5 nhánh trống: asset_code == name")
+        supplied = self._new_asset(asset_code=f"TS-INV-{self._tok}")
+        self.assertEqual(supplied.asset_code, supplied.name,
+                         "QA-5 nhánh nhập: asset_code == name")
+
+    # ── Pattern reject (khoảng trắng / ký tự lạ) ─────────────────────────────
+    def test_asset_code_pattern_reject(self):
+        for bad in (f"TS {self._tok}", f"TS#{self._tok}"):
+            with self.subTest(bad=bad):
+                with self.assertRaises(frappe.ValidationError) as ctx:
+                    self._new_asset(asset_code=bad)
+                self.assertIn("Mã tài sản chỉ được chứa", str(ctx.exception))
+
+    # ── Whitespace trim ──────────────────────────────────────────────────────
+    def test_asset_code_whitespace_trimmed(self):
+        code = f"TS-WS-{self._tok}"
+        asset = self._new_asset(asset_code=f"  {code}  ")
+        self.assertEqual(asset.name, code,
+                         "asset_code có khoảng trắng đầu/cuối → trim trước khi làm name")
+        self.assertEqual(asset.asset_code, code)
+
+
+class TestCreateAssetEndpoint(unittest.TestCase):
+    """V1-B — api.imm00.create_asset (endpoint-level, đường HTTP create thực).
+
+    Phủ 2 P1 (eval 2026-06-08):
+      - B1: dup asset_code trên INSERT → 422 + VI 'đã tồn tại', KHÔNG 409 raw
+        'DuplicateEntryError'/'Duplicate entry'/key 'PRIMARY'. Friendly check fire
+        TRƯỚC khi chạm DB PRIMARY. Lần 2 fail → KHÔNG để row rác.
+      - B2: thiếu Danh mục (asset_category) → 422 + nhãn VI 'Danh mục', KHÔNG lộ
+        dev-string '[AC Asset' / 'asset_category' raw / 'MandatoryError'.
+    + regression: blank code auto-gen series; explicit code verbatim; immutable
+      vẫn chặn ở nhánh update.
+
+    setUp dùng run-token duy nhất ⇒ chạy lặp GREEN, no real-data collision; mọi
+    asset tạo qua endpoint được addCleanup(_purge_asset).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": "Danh mục test create_asset endpoint",
+        }).insert(ignore_permissions=True)
+
+    @classmethod
+    def tearDownClass(cls):
+        _purge_category("Danh mục test create_asset endpoint")
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self._tok = frappe.generate_hash(length=6).upper()
+        self._saved_form_dict = getattr(frappe.local, "form_dict", None)
+
+    def tearDown(self):
+        frappe.local.form_dict = self._saved_form_dict or frappe._dict()
+
+    def _call_create(self, **fields) -> dict:
+        """Gọi create_asset như HTTP layer: nạp form_dict rồi invoke endpoint."""
+        from assetcore.api.imm00 import create_asset
+        payload = {"cmd": "assetcore.api.imm00.create_asset"}
+        payload.update(fields)
+        frappe.local.form_dict = frappe._dict(payload)
+        resp = create_asset()
+        if resp.get("success") and resp.get("data", {}).get("name"):
+            self.addCleanup(_purge_asset, resp["data"]["name"])
+        return resp
+
+    @staticmethod
+    def _blob(resp: dict) -> str:
+        """Toàn bộ message + envelope → chuỗi để assert no-raw-leak."""
+        return str(resp)
+
+    # ── B1: dup asset_code trên INSERT → VI 422, KHÔNG raw 409 ────────────────
+    def test_create_asset_dup_asset_code_on_insert_returns_vi_422(self):
+        code = f"TS-LAB-{self._tok}"
+        first = self._call_create(asset_name=f"Asset A {self._tok}",
+                                   asset_category=self.cat.name, asset_code=code)
+        self.assertTrue(first.get("success"), f"lần 1 phải tạo OK: {first}")
+
+        second = self._call_create(asset_name=f"Asset B {self._tok}",
+                                    asset_category=self.cat.name, asset_code=code)
+        self.assertFalse(second.get("success"), "lần 2 (trùng code) phải fail")
+        self.assertEqual(second.get("http_status"), 422,
+                         f"dup asset_code phải trả 422, nhận: {second}")
+        self.assertIn("đã tồn tại", second.get("error", ""),
+                      "message phải là VI thân thiện 'đã tồn tại'")
+        blob = self._blob(second)
+        for leak in ("DuplicateEntry", "Duplicate entry", "PRIMARY", "MandatoryError"):
+            self.assertNotIn(leak, blob, f"KHÔNG được lộ raw dev-string '{leak}'")
+
+    def test_create_asset_dup_asset_code_no_orphan_row(self):
+        code = f"TS-ORP-{self._tok}"
+        self._call_create(asset_name=f"Asset orp {self._tok}",
+                          asset_category=self.cat.name, asset_code=code)
+        self._call_create(asset_name=f"Asset orp2 {self._tok}",
+                          asset_category=self.cat.name, asset_code=code)
+        self.assertEqual(
+            frappe.db.count("AC Asset", {"asset_code": code}), 1,
+            "lần 2 fail KHÔNG được tạo row rác — vẫn đúng 1 asset mang code này",
+        )
+
+    # ── B2: thiếu Danh mục → VI 422, KHÔNG lộ dev-string ──────────────────────
+    def test_create_asset_missing_category_returns_vi_422(self):
+        resp = self._call_create(asset_name=f"Asset no-cat {self._tok}")
+        self.assertFalse(resp.get("success"), "thiếu category phải fail")
+        self.assertEqual(resp.get("http_status"), 422,
+                         f"thiếu category phải 422, nhận: {resp}")
+        self.assertIn("Danh mục", resp.get("error", ""),
+                      "message phải chứa nhãn VI 'Danh mục'")
+        blob = self._blob(resp)
+        for leak in ("[AC Asset", "MandatoryError", "AC-ASSET-2026"):
+            self.assertNotIn(leak, blob, f"KHÔNG lộ dev-string '{leak}'")
+        # 'asset_code'/'asset_category' raw fieldname KHÔNG được nằm trong message VI
+        self.assertNotIn("asset_category", resp.get("error", ""),
+                         "message VI KHÔNG được chứa raw fieldname")
+
+    def test_create_asset_missing_name_returns_vi_422(self):
+        resp = self._call_create(asset_category=self.cat.name)
+        self.assertFalse(resp.get("success"))
+        self.assertEqual(resp.get("http_status"), 422)
+        self.assertIn("Tên tài sản", resp.get("error", ""),
+                      "thiếu asset_name → nhãn VI 'Tên tài sản'")
+        self.assertNotIn("MandatoryError", self._blob(resp))
+
+    # ── Regression: auto-gen + verbatim + immutable ───────────────────────────
+    def test_create_asset_blank_code_autogen_unchanged(self):
+        resp = self._call_create(asset_name=f"Asset autogen {self._tok}",
+                                  asset_category=self.cat.name)  # asset_code TRỐNG
+        self.assertTrue(resp.get("success"), f"auto-gen phải OK: {resp}")
+        name = resp["data"]["name"]
+        self.assertRegex(name, _AC_ASSET_NAME_RE,
+                         "asset_code trống → name khớp ^AC-ASSET-\\d{4}-\\d{5}$")
+        self.assertEqual(frappe.db.get_value("AC Asset", name, "asset_code"), name,
+                         "asset_code == name sau auto-gen")
+
+    def test_create_asset_explicit_code_verbatim(self):
+        code = f"TS-NEW-{self._tok}"
+        resp = self._call_create(asset_name=f"Asset verbatim {self._tok}",
+                                  asset_category=self.cat.name, asset_code=code)
+        self.assertTrue(resp.get("success"), f"explicit code phải OK: {resp}")
+        self.assertEqual(resp["data"]["name"], code,
+                         "asset_code hợp lệ → dùng verbatim làm name")
+
+    def test_validate_unique_asset_code_update_immutable_still_blocks(self):
+        code = f"TS-UPD-{self._tok}"
+        resp = self._call_create(asset_name=f"Asset upd {self._tok}",
+                                  asset_category=self.cat.name, asset_code=code)
+        self.assertTrue(resp.get("success"))
+        doc = frappe.get_doc("AC Asset", resp["data"]["name"])
+        doc.asset_code = f"TS-UPD2-{self._tok}"
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            doc.save(ignore_permissions=True)
+        self.assertIn("không thể thay đổi", str(ctx.exception),
+                      "đổi asset_code trên doc đã tồn tại vẫn throw VI immutable")
 
 
 def run_all():

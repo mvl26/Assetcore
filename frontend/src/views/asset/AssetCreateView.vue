@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import DateInput from '@/components/common/DateInput.vue'
 // Copyright (c) 2026, AssetCore Team
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { createAsset, getDeviceModel } from '@/api/imm00'
 import SmartSelect from '@/components/common/SmartSelect.vue'
@@ -13,6 +13,8 @@ const router = useRouter()
 
 const saving = ref(false)
 const error = ref<string | null>(null)
+// Lỗi inline cạnh ô Danh mục (parity BE reqd=1 — chặn payload rỗng âm thầm).
+const categoryError = ref('')
 
 const form = ref<Partial<AcAsset>>({
   asset_name: '',
@@ -48,6 +50,8 @@ watch(() => form.value.device_model, async (modelName) => {
 
 // BR-00-FE-01: đổi danh mục → reset model + PM/Cal
 function onCategoryChange() {
+  // Chọn/đổi danh mục → xoá lỗi inline reqd (nếu trước đó submit thiếu).
+  if (form.value.asset_category) categoryError.value = ''
   form.value.device_model = ''
   form.value.is_pm_required = 0
   form.value.pm_interval_days = undefined
@@ -57,11 +61,38 @@ function onCategoryChange() {
   form.value.gmdn_code = ''
 }
 
+// D4 (ADR-IMM00-ASSETCODE): pattern parity với BE _ASSET_CODE_PATTERN ở ac_asset.py.
+// Mã tài sản chỉ chứa chữ/số + . _ - / (không khoảng trắng, không unicode dấu).
+const ASSET_CODE_PATTERN = /^[A-Za-z0-9._\-/]+$/
+
+const assetCodeError = computed(() => {
+  const raw = form.value.asset_code?.trim()
+  if (!raw) return '' // trống = hợp lệ (BE tự sinh)
+  return ASSET_CODE_PATTERN.test(raw)
+    ? ''
+    : 'Mã tài sản chỉ được chứa chữ, số và các ký tự . _ - / (không khoảng trắng, không dấu).'
+})
+
 async function submit() {
+  categoryError.value = ''
   if (!form.value.asset_name?.trim()) {
     error.value = 'Tên thiết bị là bắt buộc'
     return
   }
+  // B2 parity BE reqd=1: chặn gửi payload thiếu Danh mục — KHÔNG để BE trả 422 sau.
+  if (!form.value.asset_category?.trim()) {
+    categoryError.value = 'Vui lòng chọn Danh mục thiết bị'
+    error.value = categoryError.value
+    return
+  }
+  // D4: chặn sớm sai pattern asset_code (FE-parity với BE) trước khi gửi.
+  if (assetCodeError.value) {
+    error.value = assetCodeError.value
+    return
+  }
+  // Trim asset_code: '  TS-001  ' → 'TS-001' (parity test_asset_code_whitespace_trimmed).
+  const trimmedCode = form.value.asset_code?.trim()
+  if (trimmedCode) form.value.asset_code = trimmedCode
   saving.value = true
   error.value = null
   try {
@@ -102,9 +133,35 @@ async function submit() {
             <label class="form-label">Tên thiết bị <span class="text-red-500">*</span></label>
             <input v-model="form.asset_name" type="text" class="form-input w-full" placeholder="VD: Máy X-quang Philips DR-X" required />
           </div>
+          <!-- D1/D4 (ADR-IMM00-ASSETCODE): Mã tài sản = định danh nội bộ (PK), KHÁC Số serial NSX -->
+          <div class="md:col-span-2">
+            <label for="asset_code" class="form-label">Mã tài sản</label>
+            <input
+              id="asset_code"
+              v-model="form.asset_code"
+              type="text"
+              class="form-input w-full font-mono"
+              :class="{ 'border-red-400': assetCodeError }"
+              placeholder="VD: TS-LAB-001 (để trống = hệ thống tự sinh)"
+              autocomplete="off"
+              :aria-invalid="!!assetCodeError"
+              aria-describedby="asset_code_help"
+            />
+            <p id="asset_code_help" class="mt-1 text-xs text-slate-500">
+              Để trống = hệ thống tự sinh; nhập = dùng làm mã định danh, không sửa được sau khi tạo.
+            </p>
+            <p v-if="assetCodeError" class="mt-1 text-xs text-red-600">{{ assetCodeError }}</p>
+          </div>
           <div>
-            <label class="form-label">Danh mục</label>
-            <SmartSelect v-model="form.asset_category" doctype="AC Asset Category" placeholder="Tìm danh mục..." @select="onCategoryChange" @clear="onCategoryChange" />
+            <label class="form-label">Danh mục <span class="text-red-500">*</span></label>
+            <SmartSelect
+              v-model="form.asset_category"
+              doctype="AC Asset Category"
+              placeholder="Tìm danh mục..."
+              @select="onCategoryChange"
+              @clear="onCategoryChange"
+            />
+            <p v-if="categoryError" class="mt-1 text-xs text-red-600" role="alert">{{ categoryError }}</p>
           </div>
           <div>
             <label class="form-label">
@@ -167,9 +224,13 @@ async function submit() {
       <div class="card p-5">
         <h2 class="text-sm font-semibold text-slate-700 mb-4 pb-2 border-b border-slate-100">Nhận dạng HTM / Pháp lý</h2>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <!-- D1/D4: Số serial NSX = field nghiệp vụ riêng, KHÔNG phải mã định danh tài sản -->
           <div>
-            <label class="form-label">Serial Number</label>
-            <input v-model="form.manufacturer_sn" type="text" class="form-input w-full font-mono" placeholder="SN-XXXX-0001" />
+            <label for="manufacturer_sn" class="form-label">Số serial NSX</label>
+            <input id="manufacturer_sn" v-model="form.manufacturer_sn" type="text" class="form-input w-full font-mono" placeholder="SN-XXXX-0001" aria-describedby="manufacturer_sn_help" />
+            <p id="manufacturer_sn_help" class="mt-1 text-xs text-slate-500">
+              Số serial của nhà sản xuất (NSX). Field nghiệp vụ — KHÔNG phải mã định danh tài sản.
+            </p>
           </div>
           <div>
             <label class="form-label">UDI Code</label>

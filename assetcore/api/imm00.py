@@ -126,6 +126,16 @@ _ERR_TRANSFER_NOT_FOUND = "Asset Transfer không tồn tại"
 _ERR_CONTRACT_NOT_FOUND = "Service Contract không tồn tại"
 
 _ERR_ASSET_NOT_FOUND = "Asset không tồn tại"
+
+# B2 — ánh xạ fieldname (reqd=1 trên AC Asset) → nhãn VI thân thiện. Dùng để
+# pre-validate mandatory TRƯỚC doc.insert() và để map MandatoryError → message VI
+# sạch (KHÔNG lộ dev-string '[AC Asset, AC-ASSET-2026-#####]: asset_category').
+# Chỉ liệt kê field người dùng có thể bỏ trống thực tế (naming_series xử lý trong
+# autoname; status/lifecycle_status có default JSON ⇒ không bao giờ MandatoryError).
+_ASSET_REQD_LABELS_VI = {
+    "asset_name": "Tên tài sản",
+    "asset_category": "Danh mục thiết bị",
+}
 _ERR_SUPPLIER_NOT_FOUND = "Nhà cung cấp không tồn tại"
 _ERR_DEVICE_MODEL_NOT_FOUND = "Device Model không tồn tại"
 _ERR_AUDIT_NOT_FOUND = "Audit Trail entry không tồn tại"
@@ -543,9 +553,36 @@ def create_asset():
     """
     data = dict(frappe.local.form_dict)
     desired_status = data.pop("lifecycle_status", None) or ""
+    clean = {k: v for k, v in data.items() if k not in ("cmd", "doctype")}
+
+    # B2 (root-cause): pre-validate mandatory fields TRƯỚC doc.insert() → trả 422 +
+    # nhãn VI sạch thay vì để Frappe raise MandatoryError (dev-string
+    # '[AC Asset, AC-ASSET-2026-#####]: asset_category'). Quét MỌI field trong
+    # _ASSET_REQD_LABELS_VI (asset_name + asset_category) — coi "" / khoảng trắng /
+    # thiếu key là vi phạm.
+    missing_labels = [
+        label
+        for field, label in _ASSET_REQD_LABELS_VI.items()
+        if not str(clean.get(field) or "").strip()
+    ]
+    if missing_labels:
+        return _err(
+            _("Vui lòng nhập: {0}.").format(", ".join(missing_labels)),
+            ErrorCode.VALIDATION,
+            fields={
+                field: _("Trường bắt buộc")
+                for field in _ASSET_REQD_LABELS_VI
+                if not str(clean.get(field) or "").strip()
+            },
+        )
+
+    # SAVEPOINT cục bộ: rollback CHỈ phần insert đang dở khi lỗi (KHÔNG nuốt cả
+    # transaction → tránh xoá công việc khác trong cùng request / fixture test).
+    # Bảo đảm 'Failed cases KHÔNG tạo row rác' mà KHÔNG dùng frappe.db.rollback() thô.
+    frappe.db.savepoint("create_asset")
     try:
         doc = frappe.new_doc(_DT_ASSET)
-        doc.update({k: v for k, v in data.items() if k not in ("cmd", "doctype")})
+        doc.update(clean)
         doc.insert(ignore_permissions=False)
         if desired_status and desired_status != doc.lifecycle_status:
             # Draft → Active phải đi qua Commissioned (state machine guard).
@@ -558,8 +595,38 @@ def create_asset():
                 )
         frappe.db.commit()
         return _ok({"name": doc.name})
+    except frappe.exceptions.MandatoryError as e:
+        # Defense-in-depth: nếu một reqd field khác (ngoài map) thiếu, KHÔNG để
+        # dev-string '[AC Asset, ...]: <field>' lộ ra user — map sang nhãn VI.
+        frappe.db.rollback(save_point="create_asset")
+        return _err(_map_mandatory_error_vi(e), ErrorCode.VALIDATION)
     except frappe.exceptions.ValidationError as e:
-        return _err(str(e), 422)
+        # Nhánh lỗi nghiệp vụ (dup asset_code, immutable, pattern, dates…) — message
+        # đã là VI sạch từ controller AC Asset. Rollback savepoint → KHÔNG để row rác.
+        frappe.db.rollback(save_point="create_asset")
+        return _err(str(e), ErrorCode.VALIDATION)
+
+
+def _map_mandatory_error_vi(exc: Exception) -> str:
+    """B2 — map frappe MandatoryError → message VI sạch (KHÔNG lộ dev-string).
+
+    Frappe raise MandatoryError với message dạng
+    ``[AC Asset, AC-ASSET-2026-#####]: asset_category`` (đôi khi nhiều field cách
+    nhau dấu phẩy sau dấu ``:``). Trích phần fieldname sau ``:``, ánh xạ qua
+    _ASSET_REQD_LABELS_VI (fallback nhãn từ DocType meta nếu field nằm ngoài map).
+    """
+    raw = str(exc) or ""
+    field_part = raw.rsplit(":", 1)[-1].strip() if ":" in raw else raw.strip()
+    fieldnames = [f.strip() for f in field_part.split(",") if f.strip()]
+    labels = []
+    for fn in fieldnames:
+        label = _ASSET_REQD_LABELS_VI.get(fn)
+        if not label:
+            label = frappe.get_meta(_DT_ASSET).get_label(fn) or fn
+        labels.append(label)
+    if not labels:
+        return _("Vui lòng nhập đầy đủ các trường bắt buộc.")
+    return _("Vui lòng nhập: {0}.").format(", ".join(labels))
 
 
 @frappe.whitelist(methods=["POST"])
