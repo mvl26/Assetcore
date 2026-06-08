@@ -2161,3 +2161,90 @@ class TestCalibrationPassRollup(unittest.TestCase):
             three, 6,
             "rollup 1 asset = số query bounded (hằng số, KHÔNG theo schedule)",
         )
+
+
+class TestGetDueCalibrationsNullExclusion(unittest.TestCase):
+    """ROOT-CAUSE GUARD — ``get_due_calibrations`` chỉ trả asset CÓ
+    ``next_calibration_date`` đã set (due_soon/overdue thật), KHÔNG trả asset
+    chưa-có-lịch (``next_calibration_date`` IS NULL).
+
+    BUG (verified @ SQL): Frappe query-builder render filter ``<= threshold``
+    thành ``ifnull(next_calibration_date, '0001-01-01') <= threshold`` ⇒ MỌI
+    asset NULL-date bị coerce '0001-01-01' và LỌT filter, sort ASC lên đầu.
+    Với ~1500 asset NULL-date trong DB + ``limit=50``, page lấp kín bằng asset
+    phantom (NULL) ⇒ asset overdue THẬT bị đẩy quá hàng 50 → rớt khỏi due-list
+    (INV-PASS-ROLLUP-4 / KPI 'sắp đến hạn' đếm sai). Fix = thêm guard
+    ``next_calibration_date IS SET`` vào filter (semantics đúng: chưa-có-lịch ≠
+    'đến hạn').
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self._assets: list[str] = []
+
+    def tearDown(self):
+        for asset in self._assets:
+            _purge_asset_with_deps(asset)
+        frappe.db.commit()
+
+    def _new_asset(self, suffix: str) -> object:
+        a = _make_asset(suffix)
+        self._assets.append(a.name)
+        return a
+
+    def test_null_next_calibration_date_excluded_from_due_list(self):
+        """Asset MỚI (chưa có lịch → next_calibration_date NULL) KHÔNG xuất hiện
+        trong get_due_calibrations(30). RED-prove: code cũ coerce NULL→'0001-01-01'
+        ⇒ asset NULL-date LỌT filter (sai)."""
+        from assetcore.services import imm11 as svc
+        asset = self._new_asset("-null-due")
+        # đảm bảo NULL (asset mới, chưa Pass calibration nào → KHÔNG có cache date)
+        self.assertIsNone(
+            frappe.db.get_value("AC Asset", asset.name, "next_calibration_date"),
+            "tiền đề: asset mới có next_calibration_date NULL",
+        )
+        # limit=100 (max page) — đủ rộng để asset NULL-date LỌT nếu filter sai.
+        due = svc.get_due_calibrations(days=30, limit=100)
+        names = {r["name"] for r in due["items"]}
+        self.assertNotIn(
+            asset.name, names,
+            "asset chưa-có-lịch (NULL date) KHÔNG phải 'đến hạn' → ngoài due-list",
+        )
+        # KHÔNG item nào trong due-list có next_calibration_date NULL.
+        self.assertTrue(
+            all(r.get("next_calibration_date") for r in due["items"]),
+            "due-list KHÔNG chứa item next_calibration_date NULL (no phantom)",
+        )
+
+    def test_overdue_asset_present_despite_null_date_assets_beyond_limit(self):
+        """Asset overdue THẬT (next_calibration_date = today-10) PHẢI có trong
+        get_due_calibrations(30) DÙ DB có hàng nghìn asset NULL-date. RED-prove:
+        code cũ để NULL-date asset lấp kín limit=50 → asset overdue rớt khỏi page.
+
+        Set next_calibration_date trực tiếp (cache field) thay vì dựng schedule —
+        đủ để test filter của get_due_calibrations."""
+        from assetcore.services import imm11 as svc
+        asset = self._new_asset("-real-overdue")
+        overdue_date = add_days(nowdate(), -10)
+        frappe.db.set_value(
+            "AC Asset", asset.name, "next_calibration_date", overdue_date,
+            update_modified=False,
+        )
+        frappe.db.commit()
+        # default limit=50: với ~1500 asset NULL-date trong DB, asset overdue
+        # THẬT phải vẫn lọt page (vì NULL-date đã bị loại khỏi filter).
+        due = svc.get_due_calibrations(days=30)
+        names = {r["name"] for r in due["items"]}
+        self.assertIn(
+            asset.name, names,
+            "asset overdue thật KHÔNG bị NULL-date asset đẩy khỏi due-list (limit=50)",
+        )
+        # và mọi item trả về PHẢI có next_calibration_date set (no NULL leak).
+        self.assertTrue(
+            all(r.get("next_calibration_date") for r in due["items"]),
+            "due-list KHÔNG chứa item next_calibration_date NULL",
+        )
