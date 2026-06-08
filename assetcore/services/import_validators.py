@@ -16,6 +16,16 @@ import frappe
 
 from assetcore.utils.import_helpers import is_valid_email, is_valid_gmdn_code
 
+# SoT DUY NHẤT — KHÔNG khai báo / re.compile regex asset_code thứ 2.
+# Pattern + hằng reserved-prefix dùng CHUNG với BE create path (parity defense
+# lớp 2 ở ac_asset.autoname / _validate_unique_*). Import ở module-level để
+# grep-guard (test_import_asset_identity) xác minh 1-nguồn.
+from assetcore.assetcore.doctype.ac_asset.ac_asset import _ASSET_CODE_PATTERN
+from assetcore.services.imm00 import (
+    _RESERVED_NAME_PREFIX,
+    _RESERVED_NAME_SI_PREFIX,
+)
+
 
 class ImportError(TypedDict):
     row: int
@@ -644,12 +654,23 @@ class AssetImportValidator(BaseImportValidator):
         }
         seen_codes: set[str] = set()
 
+        # manufacturer_sn (Số serial NSX) app-unique (ADR D3 — KHÔNG nâng DB-unique).
+        # Pre-validate parity với BE _validate_unique_manufacturer_sn: chặn dup DB +
+        # dup-trong-file ngay ở bước validate, tránh frappe.throw nổ mid-insert.
+        existing_sns: set[str] = {
+            r.manufacturer_sn for r in frappe.get_all(
+                "AC Asset", filters={"manufacturer_sn": ["!=", ""]},
+                fields=["manufacturer_sn"],
+            ) if r.manufacturer_sn
+        }
+        seen_sns: set[str] = set()
+
         errors: list[ImportError] = []
         for i, row in enumerate(rows, start=1):
             errors.extend(self._validate_asset_row(
                 row, i,
                 categories, models, locations, departments, suppliers, users,
-                existing_codes, seen_codes,
+                existing_codes, seen_codes, existing_sns, seen_sns,
             ))
         return errors
 
@@ -658,6 +679,7 @@ class AssetImportValidator(BaseImportValidator):
         categories: set, models: set, locations: set, departments: set,
         suppliers: set, users: set,
         existing_codes: set, seen_codes: set,
+        existing_sns: set, seen_sns: set,
     ) -> list[ImportError]:
         errors: list[ImportError] = []
 
@@ -666,10 +688,31 @@ class AssetImportValidator(BaseImportValidator):
             if e:
                 errors.append(e)
 
-        # Duplicate asset_code (in DB and within batch)
+        # asset_code: pattern + reserved-prefix + duplicate (DB & trong-file).
+        # .strip() TRƯỚC mọi check (parity create path — autoname strip giá trị user).
         code = str(row.get("asset_code", "")).strip()
         if code:
-            if code in existing_codes:
+            # (1) PATTERN — SoT _ASSET_CODE_PATTERN (ac_asset). Sai pattern thì
+            # asset_code không thể là PK → chặn ở đây, KHÔNG để autoname throw.
+            if not _ASSET_CODE_PATTERN.match(code):
+                errors.append(self._err(
+                    row_idx, "asset_code",
+                    "Mã tài sản chỉ được chứa chữ cái, số và các ký tự . _ - /",
+                ))
+            # (2) RESERVED-PREFIX — '_' (test fixtures) / 'SI-' (security-audit).
+            # Dùng hằng SoT services.imm00 (KHÔNG hardcode literal lần 2). '_' / 'SI-'
+            # phải ở ĐẦU chuỗi ('_' giữa tên & 'TS-' KHÔNG bị chặn).
+            elif (
+                code.startswith(_RESERVED_NAME_PREFIX)
+                or code.upper().startswith(_RESERVED_NAME_SI_PREFIX)
+            ):
+                errors.append(self._err(
+                    row_idx, "asset_code",
+                    "Mã tài sản không được bắt đầu bằng tiền tố dành riêng "
+                    f"({_RESERVED_NAME_PREFIX}, {_RESERVED_NAME_SI_PREFIX})",
+                ))
+            # (3) DUPLICATE (in DB and within batch)
+            elif code in existing_codes:
                 errors.append(self._err(
                     row_idx, "asset_code",
                     f"Mã tài sản '{code}' đã tồn tại trong hệ thống",
@@ -680,6 +723,22 @@ class AssetImportValidator(BaseImportValidator):
                     f"Mã tài sản '{code}' bị trùng lặp trong file",
                 ))
             seen_codes.add(code)
+
+        # manufacturer_sn (Số serial NSX) — optional, mutable. Trống thì bỏ qua.
+        # Parity BE _validate_unique_manufacturer_sn: dup DB / dup-trong-file.
+        sn = str(row.get("manufacturer_sn", "")).strip()
+        if sn:
+            if sn in existing_sns:
+                errors.append(self._err(
+                    row_idx, "manufacturer_sn",
+                    f"Số serial NSX '{sn}' đã tồn tại trong hệ thống",
+                ))
+            elif sn in seen_sns:
+                errors.append(self._err(
+                    row_idx, "manufacturer_sn",
+                    f"Số serial NSX '{sn}' bị trùng lặp trong file",
+                ))
+            seen_sns.add(sn)
 
         # Link validations
         cat = str(row.get("asset_category", "")).strip()

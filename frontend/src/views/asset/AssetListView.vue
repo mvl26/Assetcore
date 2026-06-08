@@ -201,7 +201,11 @@ const doExport = importWizard.doExport
 
 const IMPORT_NOTICE = [
   'Các tham chiếu Danh mục / Khoa / Vị trí / Model / NCC phải đã được nhập sẵn (xem trang Dữ liệu tham chiếu).',
-  'Mã tài sản (nội bộ) phải duy nhất — để trống nếu muốn hệ thống tự sinh theo naming_series.',
+  // ADR-IMM00-ASSETCODE D4: nhãn chuẩn "Mã tài sản"; chỉ chữ/số và . _ - /
+  // (không khoảng trắng/dấu). Để trống = hệ thống tự sinh.
+  '<strong>Mã tài sản</strong> phải duy nhất, chỉ gồm chữ, số và các ký tự . _ - / (không khoảng trắng, không dấu) — để trống nếu muốn hệ thống tự sinh.',
+  // V1-D: phân biệt rõ với Số serial NSX để user không nhập serial vào ô mã.
+  '<strong>Số serial NSX</strong> là số serial của nhà sản xuất (khác Mã tài sản) — không bắt buộc, nhưng nếu nhập phải duy nhất.',
   'Mặc định trạng thái vòng đời = <strong>Draft</strong> nếu bỏ trống.',
 ]
 
