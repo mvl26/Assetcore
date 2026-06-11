@@ -374,7 +374,7 @@ def _submit_benchmark(spec_ref: str, candidates: str, weighting_scheme: str) -> 
 
 @frappe.whitelist(methods=["POST"])
 def submit_lock_in_assessment(spec_ref: str, items: str = "[]",
-                               threshold: float | None = None,
+                               threshold: float = 0,
                                mitigation_plan: str = "",
                                mitigation_evidence: str = "") -> dict:
     return _handle(_submit_lock_in_assessment, spec_ref, items, threshold,
@@ -386,7 +386,11 @@ def _submit_lock_in_assessment(spec_ref: str, items: str, threshold,
     item_rows = _parse_json(items, default=[])
     lr = frappe.new_doc(_DT_LR)
     lr.spec_ref = spec_ref
-    if threshold is not None:
+    # D-PRECOND OpenAPI: API param threshold đổi union-optional sang `float=0`.
+    # `0` ≡ 'không truyền' (None-cũ) → KHÔNG override threshold mặc định của DocType
+    # (lock-in threshold=0% là vô nghĩa nghiệp vụ; caller chưa từng truyền 0).
+    # `if threshold:` (falsy) thay `if threshold is not None:` để 0 đồng nhất None-cũ.
+    if threshold:
         lr.threshold_used = float(threshold)
     if mitigation_plan:
         lr.mitigation_plan = mitigation_plan

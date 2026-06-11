@@ -9,6 +9,12 @@ app_publisher = "miyano"
 app_description = "Medical Equipment Lifecycle Management (HTM)"
 app_email = ""
 app_license = "MIT"
+# D16 doc-base SSoT cho OpenAPI externalDocs (api/openapi.py:_doc_base). Trỏ nơi tài liệu
+# THỰC SỰ web-served (published docs site HOẶC Git browse base, vd
+# "https://github.com/<org>/assetcore/tree/master"). RỖNG = CHƯA cấu hình ⟹ generator OMIT
+# externalDocs HẲN (link chết tệ hơn không link). Đội triển khai bệnh viện set khi go-live.
+# KHÔNG dùng get_url() (= API origin → dead 404 vì docs/ chỉ tồn-tại-trong-repo).
+app_docs_url = ""
 
 # ──────────────────────────────────────────────
 # Fixtures — RBAC module-based (4 System + 26 Domain = 30 role)

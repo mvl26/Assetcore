@@ -407,8 +407,10 @@ def get_dashboard_stats() -> dict:
 
 
 @frappe.whitelist()
-def get_compliance_heatmap(period_year: int | None = None,
-                            period_month: int | None = None) -> dict:
+def get_compliance_heatmap(period_year: int = 0,
+                            period_month: int = 0) -> dict:
+    # D-PRECOND OpenAPI: param đổi union-optional sang `int=0`. `0` (falsy) ≡ None-cũ
+    # → `py/pm=None` (không lọc theo kỳ) — hành vi bất biến (year/month 0 không hợp lệ).
     py = int(period_year) if period_year else None
     pm = int(period_month) if period_month else None
     return _handle(svc.get_compliance_heatmap, py, pm)

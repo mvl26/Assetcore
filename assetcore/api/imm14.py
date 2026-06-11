@@ -36,7 +36,7 @@ def create_decommission(
     disposal_method: str,
     decommission_reason: str,
     patient_data_sanitized: int = 0,
-    responsible: str | None = None,
+    responsible: str = "",
     sanitization_note: str = "",
 ):
     """Tạo hồ sơ giải nhiệm (Asset Decommission) docstatus=0. KHÔNG đổi asset status."""

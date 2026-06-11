@@ -103,7 +103,7 @@ def submit_commissioning(name: str) -> dict:
 
 
 @frappe.whitelist(methods=["POST"])
-def save_commissioning(name: str, fields: str | dict | None = None) -> dict:
+def save_commissioning(name: str, fields: str = "") -> dict:
     rbac.require("commissioning.write")
     try:
         parsed = _parse_json(fields, field_name="fields")
@@ -113,7 +113,7 @@ def save_commissioning(name: str, fields: str | dict | None = None) -> dict:
 
 
 @frappe.whitelist(methods=["POST"])
-def create_commissioning(data: str | dict | None = None) -> dict:
+def create_commissioning(data: str = "") -> dict:
     rbac.require("commissioning.create")
     try:
         parsed = _parse_json(data, field_name="data")
@@ -123,7 +123,7 @@ def create_commissioning(data: str | dict | None = None) -> dict:
 
 
 @frappe.whitelist(methods=["POST"])
-def report_nonconformance(commissioning_name: str, nc_data: str | dict | None = None) -> dict:
+def report_nonconformance(commissioning_name: str, nc_data: str = "") -> dict:
     rbac.require("commissioning.write")
     try:
         parsed = _parse_json(nc_data, field_name="nc_data")
@@ -153,7 +153,7 @@ def generate_internal_qr(name: str) -> dict:
 
 
 @frappe.whitelist(methods=["POST"])
-def submit_baseline_checklist(name: str, results: str | list | None = None) -> dict:
+def submit_baseline_checklist(name: str, results: str = "") -> dict:
     rbac.require("commissioning.write")
     try:
         parsed = _parse_json(results, field_name="results", default=[])
