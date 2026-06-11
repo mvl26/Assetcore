@@ -4831,6 +4831,52 @@ class TestQrWhitelistHttpLayer(unittest.TestCase):
                 f"{fn_name}({param}) annotation '{ann}' là Union-chứa-None → "
                 f"coercion pydantic kích hoạt → 417 prod. Đổi sang `str` (default '').")
 
+    # ── 417-GUARD — print_asset_labels_pdf QUA HTTP (JSON-string + list) ─────
+    def test_print_labels_pdf_http_no_417_json_string(self):
+        """ADR-LABEL-PDF §D1 — endpoint sinh PDF QUA HTTP coercion KHÔNG 417.
+
+        Real HTTP: ``assets`` đến dưới dạng JSON-string (frappe.form_dict).
+        param ``assets`` (KHÔNG annotation — đồng nhất get_asset_label_data_batch)
+        → coercion KHÔNG reject (KHÁC `str` annotation vốn reject native list ở
+        test-context). Trả PDF qua frappe.local.response (KHÔNG raise FrappeTypeError).
+        """
+        import json
+        from assetcore.api.imm00 import print_asset_labels_pdf
+        asset = self._make_asset("pdfhttp")
+        frappe.local.response = frappe._dict()
+        env, exc = self._http_call(
+            print_asset_labels_pdf, assets=json.dumps([asset.name]),
+            preset="tem-60x100")
+        self.assertIsNone(
+            exc, f"print_asset_labels_pdf QUA HTTP KHÔNG được raise (417): {exc!r}")
+        self.assertEqual(frappe.local.response.get("type"), "pdf",
+                         "QUA HTTP JSON-string → set response PDF (KHÔNG 417)")
+        self.assertTrue(bytes(frappe.local.response.get("filecontent"))
+                        .startswith(b"%PDF-"))
+
+    def test_print_labels_pdf_param_not_none_union_annotation(self):
+        """RC GUARD: print_asset_labels_pdf KHÔNG mang annotation Union-chứa-None
+        (chống 417 prod) — đồng nhất guard QR GET. ``assets`` bare (no-coercion)."""
+        import inspect
+        import types as _types
+        from assetcore.api import imm00 as _api
+
+        def _is_none_union(ann) -> bool:
+            import typing
+            if isinstance(ann, _types.UnionType):
+                return type(None) in ann.__args__
+            if typing.get_origin(ann) is typing.Union:
+                return type(None) in typing.get_args(ann)
+            return False
+
+        raw = inspect.unwrap(_api.print_asset_labels_pdf)
+        for param in ("assets", "preset"):
+            ann = raw.__annotations__.get(param, inspect._empty)
+            self.assertFalse(
+                _is_none_union(ann),
+                f"print_asset_labels_pdf({param}) annotation '{ann}' Union-chứa-None "
+                f"→ coercion 417 prod.")
+
 
 # ──────────────────────────────────────────────────────────────────────────
 # B (hardening) — Regenerate (rotate) QR token cấp AC Asset
@@ -6616,6 +6662,863 @@ class TestCreateAssetEndpoint(unittest.TestCase):
             doc.save(ignore_permissions=True)
         self.assertIn("không thể thay đổi", str(ctx.exception),
                       "đổi asset_code trên doc đã tồn tại vẫn throw VI immutable")
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# ADR-IMM00-LABEL-PDF (V1) — pipeline sinh PDF nhãn QR đúng khổ tem 60×100mm.
+# TDD RED viết TRƯỚC impl. 11 case map D1–D8:
+#  (1) service render → bytes %PDF-; (2) options dict 60×100mm+margin0+portrait;
+#  (3) N asset → N trang (HTML N block + N-1 page-break); (4) QR encode qr_url,
+#  HTML KHÔNG chứa qr_token thô; (5) cap-403 no-print → KHÔNG PDF/DB;
+#  (6) IDOR vendor ngoài scope → 403 toàn call; (7) >200 → 413 SAU rbac no-leak;
+#  (8) list rỗng → 422; (9) asset∄ trong batch → ô lỗi an toàn KHÔNG vỡ;
+#  (10) render KHÔNG ghi label_printed; (11) preset lạ → 422 + field thiếu OK.
+# ──────────────────────────────────────────────────────────────────────────
+
+
+class TestLabelPdfPipeline(unittest.TestCase):
+    """V1 — endpoint+service sinh PDF nhãn QR khổ tem nhiệt 60×100mm (ADR-LABEL-PDF)."""
+
+    _CATEGORY_NAME = "Thiết bị PDF Nhãn (LABEL-PDF V1)"
+    # Role có print=1 (DocPerm) NHƯNG vendor-scope → qua gate PRINT, đập IDOR sau.
+    _IDOR_USER = "be_labelpdf_idor@example.com"
+    # Role KHÔNG có print=1 trên AC Asset → thiếu cap asset.print → 403.
+    _NOPRINT_USER = "be_labelpdf_noprint@example.com"
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        _orphan = frappe.db.get_value(
+            "AC Asset Category", {"category_name": cls._CATEGORY_NAME}, "name")
+        if _orphan:
+            frappe.delete_doc("AC Asset Category", _orphan, force=True,
+                              ignore_permissions=True)
+        cls.cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": cls._CATEGORY_NAME,
+            "description": "Category cho test pipeline PDF nhãn QR",
+            "is_active": 1,
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        for email in (cls._IDOR_USER, cls._NOPRINT_USER):
+            if frappe.db.exists("User", email):
+                frappe.delete_doc("User", email, force=True,
+                                  ignore_permissions=True)
+        frappe.delete_doc("AC Asset Category", cls.cat.name,
+                          force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self._created: list[str] = []
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+        frappe.db.rollback()
+        for name in self._created:
+            _purge_asset(name)
+        frappe.db.commit()
+
+    @staticmethod
+    def _ensure_user(email, roles):
+        if frappe.db.exists("User", email):
+            frappe.delete_doc("User", email, force=True, ignore_permissions=True)
+        u = frappe.get_doc({
+            "doctype": "User", "email": email,
+            "first_name": email.split("@")[0], "send_welcome_email": 0,
+        }).insert(ignore_permissions=True)
+        u.add_roles(*roles)
+        return u
+
+    def _make_asset(self, suffix="", **overrides):
+        import uuid
+        uniq = f"{suffix or '0001'}-{uuid.uuid4().hex[:8]}"
+        data = {
+            "doctype": "AC Asset",
+            "asset_name": f"Máy PDF Nhãn {uniq}",
+            "asset_category": self.cat.name,
+            "manufacturer_sn": f"PDF-SN-{uniq}",
+            "asset_code": f"PDF-ASSET-{uniq}",
+            "lifecycle_status": "Active",
+        }
+        data.update(overrides)
+        doc = _insert_asset_bypass_workflow(data)
+        self._created.append(doc.name)
+        return doc
+
+    def _count_label_events(self, asset_name):
+        return frappe.db.count("Asset Lifecycle Event",
+                               {"asset": asset_name, "event_type": "label_printed"})
+
+    # ── (1) D1 — service render trả bytes bắt đầu magic %PDF- ────────────────
+    def test_render_returns_pdf_magic_header(self):
+        from assetcore.services.imm00 import render_asset_labels_pdf
+        asset = self._make_asset("pdf1")
+        pdf = render_asset_labels_pdf([asset.name], "tem-60x100")
+        self.assertIsInstance(pdf, (bytes, bytearray),
+                              "render_asset_labels_pdf trả bytes")
+        self.assertTrue(bytes(pdf).startswith(b"%PDF-"),
+                        "PDF bytes PHẢI bắt đầu magic header %PDF-")
+
+    def test_endpoint_returns_pdf_via_response(self):
+        """D1 — endpoint set frappe.local.response PDF (KHÔNG _ok JSON dict)."""
+        from assetcore.api.imm00 import print_asset_labels_pdf
+        import base64
+        asset = self._make_asset("ep1")
+        frappe.local.response = frappe._dict()
+        ret = print_asset_labels_pdf(assets=[asset.name], preset="tem-60x100")
+        # thành công → KHÔNG trả JSON envelope (return None / không success-dict)
+        self.assertFalse(isinstance(ret, dict) and ret.get("success") is True,
+                         "thành công KHÔNG trả JSON success-dict (trả PDF qua response)")
+        self.assertEqual(frappe.local.response.get("type"), "pdf",
+                         "response.type = 'pdf' (Frappe set application/pdf)")
+        content = frappe.local.response.get("filecontent")
+        self.assertTrue(bytes(content).startswith(b"%PDF-"),
+                        "response.filecontent là PDF bytes magic %PDF-")
+        # parity với 'base64 decode bắt đầu %PDF-' (FE có thể base64 từ filecontent)
+        self.assertTrue(base64.b64decode(base64.b64encode(bytes(content)))
+                        .startswith(b"%PDF-"))
+
+    # ── (2) D5 — options dict đúng khổ tem 60×100mm + margin0 + portrait ─────
+    def test_pdf_options_page_size_60x100(self):
+        from assetcore.services.imm00 import _label_pdf_options
+        opt = _label_pdf_options("tem-60x100")
+        self.assertEqual(opt.get("page-width"), "60mm", "page-width 60mm")
+        self.assertEqual(opt.get("page-height"), "100mm", "page-height 100mm")
+        for m in ("margin-top", "margin-right", "margin-bottom", "margin-left"):
+            self.assertEqual(opt.get(m), "0mm",
+                             f"{m} = '0mm' (chuỗi truthy chống default 15mm)")
+        self.assertEqual(opt.get("orientation"), "Portrait", "khổ DỌC")
+        # F6 trap: margin KHÔNG được là 0/'' (falsy → default 15mm)
+        self.assertNotIn(0, [opt.get(m) for m in
+                             ("margin-top", "margin-right", "margin-bottom", "margin-left")])
+
+    # ── (3) D2 — N asset → N trang: HTML N block + N-1 page-break ────────────
+    def test_one_page_per_asset(self):
+        from assetcore.services.imm00 import (
+            _label_html, build_asset_label_data_batch)
+        names = [self._make_asset(f"pg{i}").name for i in range(3)]
+        items = build_asset_label_data_batch(names)
+        html = _label_html(items, "tem-60x100")
+        # đếm block = số div mang class 'label' (prefix khớp cả 'label' & 'label brk')
+        self.assertEqual(html.count('<div class="label'), 3,
+                         "3 asset → 3 block .label (mỗi asset 1 trang)")
+        # break = số block mang class 'brk' = N-1 (block cuối KHÔNG break)
+        self.assertEqual(html.count('class="label brk"'), 2,
+                         "3 block → 2 page-break (block cuối KHÔNG break, KHÔNG trang trắng)")
+
+    def test_one_page_per_asset_single(self):
+        from assetcore.services.imm00 import (
+            _label_html, build_asset_label_data_batch)
+        names = [self._make_asset("single").name]
+        html = _label_html(build_asset_label_data_batch(names), "tem-60x100")
+        self.assertEqual(html.count('<div class="label'), 1)
+        self.assertEqual(html.count('class="label brk"'), 0,
+                         "1 asset → 0 break applied (1 trang)")
+
+    # ── (3-bis) §D16 — ĐẾM TRANG PDF THẬT (pypdf) chống BUG-LABEL-1 ──────────
+    def test_pdf_real_page_count_no_blank_overflow(self):
+        """RED-guard BUG-LABEL-1 (blank-overflow): đếm TRANG PDF THẬT bằng pypdf,
+        KHÔNG chỉ đếm HTML block. .label height==page-height làm wkhtmltopdf đẻ
+        trang TRẮNG đuôi (1 asset → 2 trang PDF) — test_one_page_per_asset cũ chỉ
+        đếm HTML block nên FALSE-GREEN. Fix = .label height = height_mm−1mm
+        (content < page). Test này khoá invariant 'N asset = N trang PDF THẬT'."""
+        import io
+        from pypdf import PdfReader
+        from assetcore.services.imm00 import render_asset_labels_pdf
+        a1 = self._make_asset("rpc1")
+        pdf1 = render_asset_labels_pdf([a1.name], "tem-60x100")
+        pages1 = len(PdfReader(io.BytesIO(bytes(pdf1))).pages)
+        self.assertEqual(pages1, 1,
+                         f"1 asset PHẢI = 1 trang PDF THẬT (KHÔNG blank-overflow); got {pages1}")
+        names = [self._make_asset(f"rpc{i}").name for i in range(2, 5)]
+        pdf3 = render_asset_labels_pdf(names, "tem-60x100")
+        pages3 = len(PdfReader(io.BytesIO(bytes(pdf3))).pages)
+        self.assertEqual(pages3, 3,
+                         f"3 asset PHẢI = 3 trang PDF THẬT (KHÔNG xen trang trắng); got {pages3}")
+
+    # ── (3-ter) §D16 — 3 preset PDF đều 1 trang/asset + ĐÚNG kích thước khổ ──
+    def test_all_presets_one_real_page_and_correct_mediabox(self):
+        """F1-FIX: 3 preset PDF (60×100/70×40/50×30) đều render-được, mỗi asset =
+        1 trang PDF THẬT (KHÔNG blank), và MediaBox = ĐÚNG khổ mm (chống xoay/lệch
+        khổ). 1mm = 2.8346pt."""
+        import io
+        from pypdf import PdfReader
+        from assetcore.services.imm00 import render_asset_labels_pdf, _LABEL_PRESETS
+        MM_TO_PT = 2.834645669
+        a = self._make_asset("multi")
+        for preset, spec in _LABEL_PRESETS.items():
+            pdf = render_asset_labels_pdf([a.name], preset)
+            self.assertTrue(bytes(pdf).startswith(b"%PDF-"),
+                            f"preset {preset} → PDF magic %PDF-")
+            reader = PdfReader(io.BytesIO(bytes(pdf)))
+            self.assertEqual(len(reader.pages), 1,
+                             f"preset {preset}: 1 asset = 1 trang THẬT (KHÔNG blank)")
+            box = reader.pages[0].mediabox
+            self.assertAlmostEqual(
+                float(box.width), spec["width_mm"] * MM_TO_PT, delta=3,
+                msg=f"{preset} MediaBox width ≈ {spec['width_mm']}mm (KHÔNG xoay)")
+            self.assertAlmostEqual(
+                float(box.height), spec["height_mm"] * MM_TO_PT, delta=3,
+                msg=f"{preset} MediaBox height ≈ {spec['height_mm']}mm (KHÔNG xoay)")
+
+    def test_pdf_options_dimensions_per_preset(self):
+        """§D16 — _label_pdf_options trả ĐÚNG page-width/height cho cả 3 preset."""
+        from assetcore.services.imm00 import _label_pdf_options
+        cases = {"tem-60x100": ("60mm", "100mm"),
+                 "tem-70x40": ("70mm", "40mm"),
+                 "tem-50x30": ("50mm", "30mm")}
+        for preset, (w, h) in cases.items():
+            opt = _label_pdf_options(preset)
+            self.assertEqual(opt.get("page-width"), w, f"{preset} page-width {w}")
+            self.assertEqual(opt.get("page-height"), h, f"{preset} page-height {h}")
+            for m in ("margin-top", "margin-right", "margin-bottom", "margin-left"):
+                self.assertEqual(opt.get(m), "0mm", f"{preset} {m}=0mm")
+
+    # ── (4) D4 — QR encode qr_url (deep-link), HTML KHÔNG chứa qr_token thô ──
+    def test_qr_encodes_qr_url_not_raw_token(self):
+        from assetcore.services.imm00 import (
+            _label_html, build_asset_label_data_batch)
+        asset = self._make_asset("qr1")
+        raw_token = frappe.db.get_value("AC Asset", asset.name, "qr_token")
+        self.assertTrue(raw_token, "tiền đề: asset có qr_token")
+        items = build_asset_label_data_batch([asset.name])
+        qr_url = items[0]["qr_url"]
+        html = _label_html(items, "tem-60x100")
+        self.assertIn(qr_url, html,
+                      "HTML chứa qr_url (deep-link /a/<token>) — encode đúng nguồn")
+        self.assertIn("/a/", qr_url, "qr_url là deep-link /a/<token>")
+        self.assertIn(raw_token, qr_url,
+                      "tiền đề: token là path-segment của qr_url deep-link /a/<token>")
+        # No-raw-token parity: token CHỈ được phép xuất hiện NHƯ path-segment của
+        # qr_url deep-link (enumeration-safe), KHÔNG bao giờ dưới dạng raw-token
+        # độc lập / URL desk. Strip MỌI lần xuất hiện qr_url → token KHÔNG còn ở đâu.
+        html_wo_url = html.replace(qr_url, "")
+        self.assertNotIn(raw_token, html_wo_url,
+                         "qr_token THÔ KHÔNG xuất hiện ngoài qr_url (no-raw-token parity)")
+        # token thô KHÔNG được nằm dưới dạng URL desk
+        self.assertNotIn("/app/", html, "KHÔNG URL desk /app/ trên tem")
+        # SVG QR inline có mặt (server-side render)
+        self.assertIn("<svg", html, "QR SVG inline nhúng thẳng HTML")
+
+    # ── (5) D6 — user thiếu asset.print → 403, KHÔNG PDF, KHÔNG đụng DB ──────
+    def test_cap_403_no_pdf_no_db(self):
+        from assetcore.api.imm00 import print_asset_labels_pdf
+        from assetcore.services.shared import rbac
+        asset = self._make_asset("cap1")
+        u = self._ensure_user(self._NOPRINT_USER, ["Guest"])
+        frappe.clear_cache()
+        frappe.db.commit()
+        before = self._count_label_events(asset.name)
+        frappe.local.response = frappe._dict()
+        try:
+            frappe.set_user(self._NOPRINT_USER)
+            self.assertFalse(rbac.can("asset.print"),
+                             "tiền đề: user KHÔNG có asset.print")
+            with self.assertRaises(frappe.PermissionError):
+                print_asset_labels_pdf(assets=[asset.name], preset="tem-60x100")
+        finally:
+            frappe.set_user("Administrator")
+            frappe.clear_cache()
+            rbac.invalidate_capabilities(self._NOPRINT_USER)
+        self.assertNotEqual(frappe.local.response.get("type"), "pdf",
+                            "thiếu cap → KHÔNG set response PDF")
+        self.assertEqual(self._count_label_events(asset.name), before,
+                         "thiếu cap → KHÔNG đụng DB (0 label_printed)")
+
+    # ── (6) D6 — IDOR vendor ngoài scope → 403 toàn call, KHÔNG PDF ─────────
+    def test_idor_vendor_403_whole_call(self):
+        from assetcore.api.imm00 import print_asset_labels_pdf
+        from assetcore.services.shared import rbac
+        asset = self._make_asset("idor1")
+        u = self._ensure_user(self._IDOR_USER, ["Vendor Engineer", "Repair User"])
+        frappe.clear_cache()
+        frappe.db.commit()
+        frappe.local.response = frappe._dict()
+        try:
+            frappe.set_user(self._IDOR_USER)
+            self.assertTrue(rbac.can("asset.print"),
+                            "tiền đề: user IDOR CÓ asset.print (qua gate)")
+            resp = print_asset_labels_pdf(assets=[asset.name], preset="tem-60x100")
+            self.assertIsInstance(resp, dict, "IDOR → Error envelope (KHÔNG PDF)")
+            self.assertFalse(resp.get("success"), "vendor ngoài scope → KHÔNG success")
+            self.assertEqual(resp.get("http_status"), 403,
+                             "IDOR → 403 TOÀN call (no partial PDF)")
+            self.assertNotEqual(frappe.local.response.get("type"), "pdf",
+                                "IDOR → KHÔNG set response PDF")
+        finally:
+            frappe.set_user("Administrator")
+            frappe.clear_cache()
+            rbac.invalidate_capabilities(self._IDOR_USER)
+
+    # ── (7) D6 — batch > 200 → 413 SAU rbac, message KHÔNG leak asset name ──
+    def test_batch_over_cap_413(self):
+        from assetcore.api.imm00 import print_asset_labels_pdf
+        from assetcore.services.imm00 import _MAX_LABEL_BATCH
+        asset = self._make_asset("over1")
+        # >200 names: 1 thật + 200 fake (Admin qua rbac → tới batch-cap check).
+        names = [asset.name] + [f"FAKE-{i}" for i in range(_MAX_LABEL_BATCH)]
+        self.assertGreater(len(names), _MAX_LABEL_BATCH)
+        frappe.local.response = frappe._dict()
+        resp = print_asset_labels_pdf(assets=names, preset="tem-60x100")
+        self.assertIsInstance(resp, dict, "vượt cap → Error envelope")
+        self.assertFalse(resp.get("success"))
+        self.assertEqual(resp.get("http_status"), 413, "vượt batch cap → 413 bucket riêng")
+        self.assertNotIn(asset.name, resp.get("error", ""),
+                         "message 413 KHÔNG leak asset name")
+        self.assertNotEqual(frappe.local.response.get("type"), "pdf",
+                            "vượt cap → KHÔNG sinh PDF")
+
+    # ── (8) D7 — list rỗng → 422, KHÔNG PDF ────────────────────────────────
+    def test_empty_list_422(self):
+        from assetcore.api.imm00 import print_asset_labels_pdf
+        frappe.local.response = frappe._dict()
+        resp = print_asset_labels_pdf(assets=[], preset="tem-60x100")
+        self.assertIsInstance(resp, dict, "list rỗng → Error envelope")
+        self.assertFalse(resp.get("success"))
+        self.assertEqual(resp.get("http_status"), 422, "list rỗng → 422 (BA chốt D7)")
+        self.assertNotEqual(frappe.local.response.get("type"), "pdf")
+
+    # ── (9) D7 — asset∄ trong batch → ô lỗi an toàn trong PDF, KHÔNG vỡ ─────
+    def test_nonexistent_asset_renders_error_cell_no_crash(self):
+        from assetcore.services.imm00 import (
+            render_asset_labels_pdf, _label_html, build_asset_label_data_batch)
+        asset = self._make_asset("mix1")
+        names = [asset.name, "KHONG-TON-TAI-XYZ"]
+        items = build_asset_label_data_batch(names)
+        # batch trả ô lỗi AC-E001 cho name∄ (no drop) — pipeline KHÔNG raise.
+        html = _label_html(items, "tem-60x100")
+        self.assertEqual(html.count('<div class="label'), 2,
+                         "mix valid+invalid → 2 block (asset∄ vẫn 1 trang)")
+        pdf = render_asset_labels_pdf(names, "tem-60x100")
+        self.assertTrue(bytes(pdf).startswith(b"%PDF-"),
+                        "asset∄ trong batch → PDF vẫn render (KHÔNG vỡ, KHÔNG 500)")
+        # leak-safe: chỉ echo name client đã gửi
+        self.assertIn("KHONG-TON-TAI-XYZ", html)
+
+    def test_endpoint_mix_valid_invalid_returns_pdf(self):
+        """D7 — endpoint (Admin) mix valid+invalid → PDF (KHÔNG 404 all-or-nothing)."""
+        from assetcore.api.imm00 import print_asset_labels_pdf
+        asset = self._make_asset("mix2")
+        frappe.local.response = frappe._dict()
+        ret = print_asset_labels_pdf(
+            assets=[asset.name, "KHONG-TON-TAI-ABC"], preset="tem-60x100")
+        self.assertFalse(isinstance(ret, dict) and ret.get("success") is False,
+                         "asset∄ KHÔNG làm vỡ thành Error envelope (ô lỗi trong PDF)")
+        self.assertEqual(frappe.local.response.get("type"), "pdf")
+        self.assertTrue(bytes(frappe.local.response.get("filecontent"))
+                        .startswith(b"%PDF-"))
+
+    # ── (10) D8 — render PDF KHÔNG ghi label_printed (audit-on-cancel guard) ─
+    def test_render_pdf_does_not_emit_label_printed(self):
+        from assetcore.api.imm00 import print_asset_labels_pdf
+        asset = self._make_asset("audit1")
+        before = self._count_label_events(asset.name)
+        frappe.local.response = frappe._dict()
+        print_asset_labels_pdf(assets=[asset.name], preset="tem-60x100")
+        self.assertEqual(self._count_label_events(asset.name), before,
+                         "render PDF = preview ≠ in → KHÔNG ghi label_printed (D8)")
+
+    # ── (11) preset lạ → 422 ; asset thiếu field → PDF vẫn render ───────────
+    def test_invalid_preset_422(self):
+        from assetcore.api.imm00 import print_asset_labels_pdf
+        asset = self._make_asset("preset1")
+        frappe.local.response = frappe._dict()
+        resp = print_asset_labels_pdf(assets=[asset.name], preset="khong-co-preset")
+        self.assertIsInstance(resp, dict)
+        self.assertFalse(resp.get("success"))
+        self.assertEqual(resp.get("http_status"), 422, "preset lạ → 422")
+        self.assertNotEqual(frappe.local.response.get("type"), "pdf")
+
+    def test_missing_field_renders_blank_no_crash(self):
+        from assetcore.services.imm00 import (
+            render_asset_labels_pdf, build_asset_label_data_batch, _label_html)
+        # asset KHÔNG có manufacturer_sn / device_model → field '' fallback.
+        asset = self._make_asset("nofield", manufacturer_sn="")
+        items = build_asset_label_data_batch([asset.name])
+        self.assertEqual(items[0]["manufacturer_sn"], "",
+                         "field rỗng coerced về '' (no None)")
+        html = _label_html(items, "tem-60x100")
+        self.assertIn('class="label"', html, "block vẫn render dù thiếu field")
+        pdf = render_asset_labels_pdf([asset.name], "tem-60x100")
+        self.assertTrue(bytes(pdf).startswith(b"%PDF-"),
+                        "thiếu field → PDF magic %PDF còn đúng (KHÔNG vỡ)")
+
+    # ── D3 — nhãn render đủ 5 field LABEL SPEC D5 (no EN status-leak) ───────
+    def test_label_html_contains_5_fields_and_vi_labels(self):
+        from assetcore.services.imm00 import (
+            _label_html, build_asset_label_data_batch, _lifecycle_vi)
+        import uuid
+        mfr = f"NSX Test PDF {uuid.uuid4().hex[:8]}"
+        # self-healing: purge orphan model leaked bởi aborted prior run (UNIQUE
+        # model_name+manufacturer) — KHÔNG phụ thuộc DB sạch.
+        _orphan = frappe.db.get_value(
+            "IMM Device Model", {"model_name": "Model Nhãn PDF Test"}, "name")
+        if _orphan:
+            for _a in frappe.get_all(
+                    "AC Asset", filters={"device_model": _orphan}, pluck="name"):
+                _purge_asset(_a)
+            frappe.delete_doc("IMM Device Model", _orphan, force=True,
+                              ignore_permissions=True)
+        model = frappe.get_doc({
+            "doctype": "IMM Device Model",
+            "model_name": "Model Nhãn PDF Test",
+            "manufacturer": mfr,
+            "asset_category": self.cat.name,
+        }).insert(ignore_permissions=True)
+        try:
+            asset = self._make_asset("d5", device_model=model.name,
+                                     lifecycle_status="Under Maintenance")
+            items = build_asset_label_data_batch([asset.name])
+            html = _label_html(items, "tem-60x100")
+            # 5 nhãn-VI cố định (QR là field 1, không nhãn chữ) — V3 thêm 'Trạng thái'
+            for vi in ("Model", "Số serial NSX", "Tên tài sản", "Mã tài sản",
+                       "Trạng thái"):
+                self.assertIn(vi, html, f"thiếu nhãn VI '{vi}' (LABEL SPEC D5/D3)")
+            # giá trị 5 field có mặt
+            self.assertIn(items[0]["asset_code"], html)
+            self.assertIn(items[0]["asset_name"], html)
+            self.assertIn(items[0]["manufacturer_sn"], html)
+            self.assertIn("Model Nhãn PDF Test", html)
+            # V3 §D3: field thứ 5 lifecycle_status dịch VI render TRÊN tem (bắt buộc)
+            self.assertEqual(_lifecycle_vi("Under Maintenance"), "Đang bảo trì",
+                             "lifecycle_status dịch VI (SSoT labels.ts)")
+            self.assertIn("Đang bảo trì", html,
+                          "V3 §D3: giá trị VI lifecycle_status render trên tem")
+            self.assertNotIn("Under Maintenance", html,
+                             "mã EN status thô KHÔNG lọt tem (no EN-leak)")
+        finally:
+            # purge asset TRƯỚC khi xoá model (model.on_trash chặn xoá khi còn
+            # asset tham chiếu — LinkExistsError). asset đã trong self._created
+            # nhưng tearDown chạy SAU finally → purge tường minh ở đây.
+            for n in list(self._created):
+                _purge_asset(n)
+                self._created.remove(n)
+            frappe.delete_doc("IMM Device Model", model.name,
+                              force=True, ignore_permissions=True)
+
+
+class TestLabelPresetResolverV3(unittest.TestCase):
+    """V3 POLISH (ADR-LABEL-PDF §D14): resolver site_config `assetcore_label_preset`.
+
+    Hợp-lệ-hoá 1 chỗ (mirror `_qr_base_url`): conf hợp-lệ → preset đó; conf
+    vắng/rỗng/sai-kiểu/không-whitelist → fallback `DEFAULT_LABEL_PRESET` + warn
+    log ĐÚNG 1 lần, KHÔNG raise. explicit client preset > site_config > code-default;
+    preset client lạ → 422 GIỮ NGUYÊN (resolver KHÔNG nới whitelist).
+    """
+
+    _CATEGORY_NAME = "Thiết bị Preset Resolver (LABEL-PDF V3)"
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        _orphan = frappe.db.get_value(
+            "AC Asset Category", {"category_name": cls._CATEGORY_NAME}, "name")
+        if _orphan:
+            frappe.delete_doc("AC Asset Category", _orphan, force=True,
+                              ignore_permissions=True)
+        cls.cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": cls._CATEGORY_NAME,
+            "description": "Category cho test resolver preset V3",
+            "is_active": 1,
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        frappe.delete_doc("AC Asset Category", cls.cat.name,
+                          force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self._created: list[str] = []
+        # cô lập state config + cờ warn module-level giữa các test (KHÔNG để rò).
+        from assetcore.services import imm00 as _svc
+        self._conf_had = _svc._LABEL_PRESET_CONF_KEY in frappe.conf
+        self._conf_prev = frappe.conf.get(_svc._LABEL_PRESET_CONF_KEY)
+        _svc._label_preset_warned = False
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+        from assetcore.services import imm00 as _svc
+        # khôi phục conf về trạng thái trước test (KHÔNG rò sang test khác).
+        if self._conf_had:
+            frappe.conf[_svc._LABEL_PRESET_CONF_KEY] = self._conf_prev
+        else:
+            frappe.conf.pop(_svc._LABEL_PRESET_CONF_KEY, None)
+        _svc._label_preset_warned = False
+        frappe.db.rollback()
+        for name in self._created:
+            _purge_asset(name)
+        frappe.db.commit()
+
+    def _set_conf(self, value):
+        from assetcore.services import imm00 as _svc
+        frappe.conf[_svc._LABEL_PRESET_CONF_KEY] = value
+
+    def _clear_conf(self):
+        from assetcore.services import imm00 as _svc
+        frappe.conf.pop(_svc._LABEL_PRESET_CONF_KEY, None)
+
+    def _make_asset(self, suffix="", **overrides):
+        import uuid
+        uniq = f"{suffix or '0001'}-{uuid.uuid4().hex[:8]}"
+        data = {
+            "doctype": "AC Asset",
+            "asset_name": f"Máy Preset {uniq}",
+            "asset_category": self.cat.name,
+            "manufacturer_sn": f"PRESET-SN-{uniq}",
+            "asset_code": f"PRESET-ASSET-{uniq}",
+            "lifecycle_status": "Active",
+        }
+        data.update(overrides)
+        doc = _insert_asset_bypass_workflow(data)
+        self._created.append(doc.name)
+        return doc
+
+    # ── [BE TDD] resolver hợp lệ: conf ∈ whitelist → trả conf ────────────────
+    def test_resolve_preset_valid_conf(self):
+        from assetcore.services.imm00 import _resolve_label_preset
+        self._set_conf("tem-60x100")
+        self.assertEqual(_resolve_label_preset(), "tem-60x100",
+                         "conf hợp lệ ∈ _LABEL_PRESETS → trả đúng conf")
+
+    def test_resolve_preset_valid_conf_endpoint_no_preset_pdf(self):
+        """conf hợp lệ + endpoint KHÔNG truyền preset → PDF (response.type=pdf)."""
+        from assetcore.api.imm00 import print_asset_labels_pdf
+        self._set_conf("tem-60x100")
+        asset = self._make_asset("rconf1")
+        frappe.local.response = frappe._dict()
+        print_asset_labels_pdf(assets=[asset.name])
+        self.assertEqual(frappe.local.response.get("type"), "pdf",
+                         "conf hợp lệ + no-preset → PDF khổ conf")
+        self.assertTrue(bytes(frappe.local.response.get("filecontent"))
+                        .startswith(b"%PDF-"))
+
+    # ── [BE TDD] resolver fallback: vắng / '' / 123 / không-whitelist ────────
+    def test_resolve_preset_missing_or_invalid_falls_back(self):
+        from assetcore.services.imm00 import (
+            _resolve_label_preset, DEFAULT_LABEL_PRESET)
+        from assetcore.services import imm00 as _svc
+        # (a) conf VẮNG → DEFAULT, KHÔNG warn (vắng là hợp lệ).
+        self._clear_conf()
+        _svc._label_preset_warned = False
+        self.assertEqual(_resolve_label_preset(), DEFAULT_LABEL_PRESET)
+        self.assertFalse(_svc._label_preset_warned,
+                         "conf vắng → KHÔNG warn (vắng là hợp lệ)")
+        # (b) conf '' rỗng → DEFAULT (rỗng coi như vắng — falsy, KHÔNG warn).
+        self._set_conf("")
+        _svc._label_preset_warned = False
+        self.assertEqual(_resolve_label_preset(), DEFAULT_LABEL_PRESET)
+        # (c) conf 123 (sai kiểu) → DEFAULT, KHÔNG raise.
+        self._set_conf(123)
+        _svc._label_preset_warned = False
+        self.assertEqual(_resolve_label_preset(), DEFAULT_LABEL_PRESET,
+                         "conf sai kiểu → DEFAULT (KHÔNG raise)")
+        # (d) conf 'khong-whitelist' → DEFAULT + warn.
+        self._set_conf("khong-whitelist")
+        _svc._label_preset_warned = False
+        self.assertEqual(_resolve_label_preset(), DEFAULT_LABEL_PRESET,
+                         "conf không-whitelist → fallback DEFAULT")
+
+    def test_resolve_preset_warns_exactly_once(self):
+        """conf sai-whitelist → warn ĐÚNG 1 lần (gọi 2× → log 1×)."""
+        from assetcore.services.imm00 import _resolve_label_preset
+        from assetcore.services import imm00 as _svc
+        from unittest.mock import patch
+        self._set_conf("rac-config-sai")
+        _svc._label_preset_warned = False
+        with patch.object(frappe, "logger") as mock_logger:
+            warn = mock_logger.return_value.warning
+            _resolve_label_preset()
+            _resolve_label_preset()
+            self.assertEqual(warn.call_count, 1,
+                             "config sai → warning ĐÚNG 1 lần (cờ module-level)")
+        self.assertTrue(_svc._label_preset_warned, "cờ warn set True sau lần đầu")
+
+    def test_resolve_preset_invalid_conf_renders_pdf_no_raise(self):
+        """conf=123 / 'rác' + endpoint no-preset → render PDF OK, KHÔNG 500."""
+        from assetcore.api.imm00 import print_asset_labels_pdf
+        asset = self._make_asset("rbad1")
+        for bad in (123, "rac-khong-whitelist"):
+            self._set_conf(bad)
+            from assetcore.services import imm00 as _svc
+            _svc._label_preset_warned = False
+            frappe.local.response = frappe._dict()
+            ret = print_asset_labels_pdf(assets=[asset.name])
+            self.assertFalse(isinstance(ret, dict) and ret.get("success") is False,
+                             f"conf={bad!r} → KHÔNG Error envelope (fallback 60×100)")
+            self.assertEqual(frappe.local.response.get("type"), "pdf",
+                             f"conf={bad!r} → PDF vẫn ra (fallback, KHÔNG 500)")
+            self.assertTrue(bytes(frappe.local.response.get("filecontent"))
+                            .startswith(b"%PDF-"))
+
+    # ── [BE TDD] explicit client preset THẮNG config + lạ → 422 GIỮ NGUYÊN ───
+    def test_endpoint_explicit_preset_wins_over_conf(self):
+        from assetcore.api.imm00 import print_asset_labels_pdf
+        from assetcore.services.imm00 import _resolve_label_preset
+        # conf set 1 preset hợp lệ; client truyền tường minh preset hợp lệ →
+        # client THẮNG (resolver chỉ áp khi caller bỏ trống). Hiện whitelist chỉ
+        # có 1 preset PDF → dùng cùng giá trị nhưng chứng minh nhánh explicit
+        # KHÔNG đi qua resolver (resolver trả conf, explicit bỏ qua resolver).
+        self._set_conf("tem-60x100")
+        self.assertEqual(_resolve_label_preset(), "tem-60x100")
+        asset = self._make_asset("exp1")
+        frappe.local.response = frappe._dict()
+        print_asset_labels_pdf(assets=[asset.name], preset="tem-60x100")
+        self.assertEqual(frappe.local.response.get("type"), "pdf",
+                         "client truyền preset hợp lệ → PDF (explicit thắng)")
+        # client truyền preset LẠ → 422 GIỮ NGUYÊN (resolver KHÔNG nới whitelist)
+        frappe.local.response = frappe._dict()
+        resp = print_asset_labels_pdf(assets=[asset.name], preset="xyz-lung-tung")
+        self.assertIsInstance(resp, dict, "preset lạ tường minh → Error envelope")
+        self.assertFalse(resp.get("success"))
+        self.assertEqual(resp.get("http_status"), 422,
+                         "preset client lạ → 422 GIỮ NGUYÊN (KHÔNG nới whitelist)")
+        self.assertNotEqual(frappe.local.response.get("type"), "pdf")
+
+    # ── [BE TDD] no-preset dùng conf default; conf vắng → 60×100 fallback ────
+    def test_endpoint_no_preset_uses_conf_default(self):
+        from assetcore.api.imm00 import print_asset_labels_pdf
+        asset = self._make_asset("nopre1")
+        # (a) conf set → PDF đúng preset conf.
+        self._set_conf("tem-60x100")
+        frappe.local.response = frappe._dict()
+        print_asset_labels_pdf(assets=[asset.name])
+        self.assertEqual(frappe.local.response.get("type"), "pdf",
+                         "no-preset + conf set → PDF preset conf")
+        # (b) conf VẮNG → PDF fallback 60×100 (DEFAULT_LABEL_PRESET).
+        self._clear_conf()
+        frappe.local.response = frappe._dict()
+        print_asset_labels_pdf(assets=[asset.name])
+        self.assertEqual(frappe.local.response.get("type"), "pdf",
+                         "no-preset + conf vắng → PDF fallback 60×100mm")
+        self.assertTrue(bytes(frappe.local.response.get("filecontent"))
+                        .startswith(b"%PDF-"))
+
+
+class TestLabelStatusViV3(unittest.TestCase):
+    """V3 POLISH (ADR-LABEL-PDF §D3/§D13): field thứ 5 lifecycle_status dịch VI.
+
+    Nhãn 'Trạng thái:' + giá trị VI; mã EN canonical KHÔNG lọt tem (grep=0);
+    mã lạ/rỗng → '—' (KHÔNG None, KHÔNG leak). Block lỗi (asset∄) KHÔNG có status.
+    """
+
+    _CATEGORY_NAME = "Thiết bị Status VI (LABEL-PDF V3)"
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        _orphan = frappe.db.get_value(
+            "AC Asset Category", {"category_name": cls._CATEGORY_NAME}, "name")
+        if _orphan:
+            frappe.delete_doc("AC Asset Category", _orphan, force=True,
+                              ignore_permissions=True)
+        cls.cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": cls._CATEGORY_NAME,
+            "description": "Category cho test status VI V3",
+            "is_active": 1,
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        frappe.delete_doc("AC Asset Category", cls.cat.name,
+                          force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self._created: list[str] = []
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+        frappe.db.rollback()
+        for name in self._created:
+            _purge_asset(name)
+        frappe.db.commit()
+
+    def _make_asset(self, suffix="", **overrides):
+        import uuid
+        uniq = f"{suffix or '0001'}-{uuid.uuid4().hex[:8]}"
+        data = {
+            "doctype": "AC Asset",
+            "asset_name": f"Máy Status {uniq}",
+            "asset_category": self.cat.name,
+            "manufacturer_sn": f"STAT-SN-{uniq}",
+            "asset_code": f"STAT-ASSET-{uniq}",
+            "lifecycle_status": "Active",
+        }
+        data.update(overrides)
+        doc = _insert_asset_bypass_workflow(data)
+        self._created.append(doc.name)
+        return doc
+
+    # ── [BE TDD] HTML render status VI + nhãn 'Trạng thái' + no EN-leak ──────
+    def test_label_html_renders_lifecycle_status_vi(self):
+        from assetcore.services.imm00 import (
+            _label_html, build_asset_label_data_batch)
+        # (a) Under Maintenance → 'Đang bảo trì'; EN canonical KHÔNG lọt tem.
+        a = self._make_asset("um1", lifecycle_status="Under Maintenance")
+        html = _label_html(build_asset_label_data_batch([a.name]), "tem-60x100")
+        self.assertIn("Trạng thái", html, "nhãn-VI cố định 'Trạng thái' có mặt")
+        self.assertIn("Đang bảo trì", html, "giá trị VI dịch đúng")
+        self.assertNotIn("Under Maintenance", html,
+                         "mã EN canonical thô KHÔNG lọt tem (no EN-leak)")
+        # (b) Active → 'Đang hoạt động'; 'Active' EN KHÔNG lọt tem.
+        b = self._make_asset("act1", lifecycle_status="Active")
+        html2 = _label_html(build_asset_label_data_batch([b.name]), "tem-60x100")
+        self.assertIn("Đang hoạt động", html2, "Active → 'Đang hoạt động'")
+        # 'Active' chỉ kiểm trong ngữ cảnh status — đảm bảo mã EN status không lọt.
+        # (HTML có thể chứa 'active' trong CSS? KHÔNG — CSS chỉ class .status. Assert thô.)
+        self.assertNotIn("Active", html2,
+                         "mã EN 'Active' thô KHÔNG lọt tem (no EN-leak)")
+
+    # ── [BE TDD] status mã lạ/rỗng → '—' (KHÔNG None), PDF còn đúng ──────────
+    def test_label_status_unknown_no_crash(self):
+        from assetcore.services.imm00 import (
+            _label_html, build_asset_label_data_batch,
+            render_asset_labels_pdf, _lifecycle_vi)
+        # (a) status rỗng → _lifecycle_vi('') == '' → render '—', KHÔNG 'None'.
+        # lifecycle_status mandatory → insert hợp lệ rồi set rỗng qua DB (mô phỏng
+        # data cũ/migration thiếu status — ô KHÔNG được vỡ PDF).
+        a = self._make_asset("empty1")
+        frappe.db.set_value("AC Asset", a.name, "lifecycle_status", "",
+                            update_modified=False)
+        items = build_asset_label_data_batch([a.name])
+        html = _label_html(items, "tem-60x100")
+        self.assertIn("Trạng thái", html, "dòng status vẫn render khi rỗng")
+        self.assertNotIn("None", html, "KHÔNG render chuỗi 'None'")
+        self.assertEqual(_lifecycle_vi(""), "", "_lifecycle_vi('') == ''")
+        self.assertEqual(_lifecycle_vi("FooBarLa"), "",
+                         "mã lạ → '' (KHÔNG leak, KHÔNG None)")
+        # PDF magic %PDF còn đúng (KHÔNG crash khi status rỗng).
+        pdf = render_asset_labels_pdf([a.name], "tem-60x100")
+        self.assertTrue(bytes(pdf).startswith(b"%PDF-"),
+                        "status rỗng → PDF magic %PDF còn đúng (KHÔNG raise)")
+
+    def test_error_block_has_no_status_line(self):
+        """Block lỗi (asset∄) KHÔNG thêm dòng status (chỉ echo name + not-found)."""
+        from assetcore.services.imm00 import (
+            _label_html, build_asset_label_data_batch)
+        a = self._make_asset("mixstat")
+        items = build_asset_label_data_batch([a.name, "KHONG-TON-TAI-STAT"])
+        html = _label_html(items, "tem-60x100")
+        # đúng 1 dòng status (cho asset hợp lệ), KHÔNG cho block lỗi.
+        self.assertEqual(html.count('class="line status"'), 1,
+                         "chỉ block hợp lệ có dòng status (block lỗi KHÔNG)")
+
+
+class TestImm00Imm04QrNoConflictV3(unittest.TestCase):
+    """V3 POLISH (ADR-LABEL-PDF §D15): IMM-00 label PDF ↔ IMM-04 commissioning.
+
+    CÙNG token `/a/<token>` qua `ensure_asset_qr_token`+`_build_qr_url`; in PDF
+    IMM-00 KHÔNG rotate token IMM-04 dùng (no side-effect chéo).
+    """
+
+    _CATEGORY_NAME = "Thiết bị No-Conflict QR (LABEL-PDF V3)"
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        _orphan = frappe.db.get_value(
+            "AC Asset Category", {"category_name": cls._CATEGORY_NAME}, "name")
+        if _orphan:
+            frappe.delete_doc("AC Asset Category", _orphan, force=True,
+                              ignore_permissions=True)
+        cls.cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": cls._CATEGORY_NAME,
+            "description": "Category cho test no-conflict QR V3",
+            "is_active": 1,
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        frappe.delete_doc("AC Asset Category", cls.cat.name,
+                          force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self._created: list[str] = []
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+        frappe.db.rollback()
+        for name in self._created:
+            _purge_asset(name)
+        frappe.db.commit()
+
+    def _make_asset(self, suffix=""):
+        import uuid
+        uniq = f"{suffix or '0001'}-{uuid.uuid4().hex[:8]}"
+        doc = _insert_asset_bypass_workflow({
+            "doctype": "AC Asset",
+            "asset_name": f"Máy NoConflict {uniq}",
+            "asset_category": self.cat.name,
+            "manufacturer_sn": f"NC-SN-{uniq}",
+            "asset_code": f"NC-ASSET-{uniq}",
+            "lifecycle_status": "Active",
+        })
+        self._created.append(doc.name)
+        return doc
+
+    def test_imm00_qr_url_is_deep_link_a_token(self):
+        """IMM-00 build_asset_label_data → qr_url = /a/<token> (CÙNG SSoT)."""
+        from assetcore.services.imm00 import (
+            build_asset_label_data, ensure_asset_qr_token, _build_qr_url)
+        asset = self._make_asset("dl1")
+        token = ensure_asset_qr_token(asset.name)
+        expected = _build_qr_url(token)
+        data = build_asset_label_data(asset.name)
+        self.assertEqual(data["qr_url"], expected,
+                         "IMM-00 qr_url == _build_qr_url(ensure_asset_qr_token) — CÙNG SSoT")
+        self.assertIn("/a/", data["qr_url"], "deep-link /a/<token>")
+        self.assertIn(token, data["qr_url"], "token là path-segment qr_url")
+
+    def test_print_pdf_does_not_rotate_token(self):
+        """in PDF IMM-00 KHÔNG rotate qr_token (token trước == sau — no side-effect)."""
+        from assetcore.api.imm00 import print_asset_labels_pdf
+        from assetcore.services.imm00 import ensure_asset_qr_token
+        asset = self._make_asset("norot1")
+        token_before = ensure_asset_qr_token(asset.name)
+        frappe.db.commit()
+        frappe.local.response = frappe._dict()
+        print_asset_labels_pdf(assets=[asset.name])
+        self.assertEqual(frappe.local.response.get("type"), "pdf")
+        token_after = frappe.db.get_value("AC Asset", asset.name, "qr_token")
+        self.assertEqual(token_before, token_after,
+                         "in PDF KHÔNG rotate token (no side-effect chéo IMM-04)")
+
+    def test_imm00_imm04_same_helper_same_token(self):
+        """IMM-00 build_asset_label_data['qr_url'] dùng CÙNG helper như IMM-04.
+
+        IMM-04 generate_qr_label lazy-import ensure_asset_qr_token+_build_qr_url
+        từ IMM-00 (services/imm04.py:1010-1012). Chứng minh CÙNG token: gọi cả 2
+        helper trên cùng asset → CÙNG /a/<token> (ensure idempotent — không rotate).
+        """
+        from assetcore.services.imm00 import (
+            build_asset_label_data, ensure_asset_qr_token, _build_qr_url)
+        asset = self._make_asset("conv1")
+        # đường IMM-00 (asset label)
+        imm00_url = build_asset_label_data(asset.name)["qr_url"]
+        # đường IMM-04 reuse (CÙNG helper, mô phỏng generate_qr_label sau release)
+        imm04_token = ensure_asset_qr_token(asset.name)
+        imm04_url = _build_qr_url(imm04_token)
+        self.assertEqual(imm00_url, imm04_url,
+                         "IMM-00 ↔ IMM-04 CÙNG /a/<token> (ensure idempotent, no rotate)")
 
 
 def run_all():

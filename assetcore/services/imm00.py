@@ -847,6 +847,317 @@ def mark_label_printed(assets: list[str], actor: str | None = None) -> dict:
 
 
 # ────────────────────────────────────────────
+# A3-PDF — Sinh PDF nhãn QR khổ tem nhiệt (ADR-IMM00-LABEL-PDF, V1)
+# ────────────────────────────────────────────
+#
+# Đường in MỚI (PDF server-side) THÊM cạnh đường preview HTML cũ — KHÔNG chạm
+# logic gen/rotate/scan/resolve QR (ADR §D9). Render HTML N trang (1 asset =
+# 1 trang) → QR vẽ SERVER-SIDE bằng pyqrcode SVG inline (encode qr_url deep-link
+# /a/<token>, KHÔNG raw token) → frappe.utils.pdf.get_pdf với options khổ tem
+# 60×100mm margin0 → trả PDF bytes (magic %PDF-). KHÔNG emit label_printed
+# (render = preview ≠ in; sự kiện in để mark_label_printed gọi RIÊNG — §D8).
+
+# SSoT khổ tem (ADR §D2/§D16) — dict, KHÔNG literal rải rác. Preset không trong
+# dict → API _err(422) (chống render khổ giấy tuỳ ý từ client). Mỗi preset khai:
+#   - width_mm/height_mm: khổ tem vật lý (page-width/height truyền wkhtmltopdf).
+#   - qr_mm: bề rộng QR (mm) — camera điện thoại quét được (≥~16mm/≤37 module
+#     ở error='M' ⇒ ≥0.5mm/module). 60×100 dùng 40mm (rộng rãi); tem nhỏ thu QR
+#     nhưng GIỮ ≥0.5mm/module để vẫn quét.
+#   - pad_mm: lề trong nhãn (tem nhỏ lề nhỏ để chừa chỗ QR).
+#   - fields: DANH SÁCH field chữ in DƯỚI QR (theo khổ) — tem nhỏ rút gọn còn
+#     mã/tên để KHÔNG tràn (overflow:hidden). 60×100 = đủ 5 field §D5/§D3.
+# F1-FIX (BUG-LABEL-1 dropdown chết): 3 preset PDF dùng-được ⇒ FE dropdown 'Khổ
+# tem' truyền preset THẬT (KHÔNG ép cứng 60×100). BLANK-OVERFLOW fix: .label
+# height = height_mm − 1mm (xem _label_html) để content < page → KHÔNG trang trắng.
+_LABEL_PRESETS = {
+    "tem-60x100": {
+        "width_mm": 60, "height_mm": 100, "qr_mm": 40, "pad_mm": 4,
+        "compact": False, "font_pt": 9,
+        "fields": ["code", "name", "model", "sn", "status"],
+        "label_vi": "Tem nhiệt 60×100mm",
+    },
+    "tem-70x40": {
+        "width_mm": 70, "height_mm": 40, "qr_mm": 22, "pad_mm": 3,
+        "compact": True, "font_pt": 9,
+        "fields": ["code", "name"],
+        "label_vi": "Tem nhiệt 70×40mm",
+    },
+    "tem-50x30": {
+        "width_mm": 50, "height_mm": 30, "qr_mm": 18, "pad_mm": 2,
+        "compact": True, "font_pt": 8,
+        "fields": ["code"],
+        "label_vi": "Tem nhiệt 50×30mm",
+    },
+}
+
+# Preset PDF mặc định (ADR §D9 — site_config assetcore_label_preset polish V3).
+DEFAULT_LABEL_PRESET = "tem-60x100"
+
+# site_config key chọn preset khổ tem mặc định cho bệnh viện khác (ADR §D14).
+# Mirror cấu trúc _QR_BASE_URL_CONF_KEY: hợp-lệ-hoá ở 1 CHỖ DUY NHẤT qua
+# _resolve_label_preset (validate whitelist + log-once + fallback an toàn).
+_LABEL_PRESET_CONF_KEY = "assetcore_label_preset"
+_label_preset_warned = False  # log cảnh báo config sai 1 lần (KHÔNG spam log/in tem)
+
+
+def _resolve_label_preset() -> str:
+    """Preset khổ tem mặc định server-side từ site_config — ADR §D14.
+
+    Mirror cấu trúc ``_qr_base_url`` (hợp-lệ-hoá ở 1 CHỖ DUY NHẤT). Đọc
+    ``frappe.conf`` (config-time, KHÔNG đụng frappe.db → an toàn cả khi
+    no-request/build nhãn batch). Quy tắc (đo được — §D14):
+
+      - raw rỗng/None/không-phải-str → trả ``DEFAULT_LABEL_PRESET`` LẶNG LẼ
+        (KHÔNG warn — vắng config là hợp lệ, hành vi mặc định).
+      - raw str ∈ ``_LABEL_PRESETS`` → trả ``raw.strip()`` (preset hợp lệ).
+      - raw str KHÔNG ∈ ``_LABEL_PRESETS`` (sai/không-whitelist) → log warning
+        ĐÚNG 1 LẦN (cờ module-level ``_label_preset_warned`` qua helper
+        ``_label_preset_reject``) + trả ``DEFAULT_LABEL_PRESET``.
+
+    KHÔNG BAO GIỜ raise → render tem KHÔNG gãy vì config sai (DONE-gate: lỗi
+    cấu hình KHÔNG được crash handler). Chỉ áp khi caller bỏ trống preset; caller
+    truyền tường minh đi qua gate whitelist 422 RIÊNG (resolver KHÔNG nới whitelist).
+    """
+    raw = frappe.conf.get(_LABEL_PRESET_CONF_KEY)
+    # Vắng/rỗng/sai-kiểu → DEFAULT lặng lẽ (vắng config = hợp lệ, KHÔNG warn).
+    if not raw or not isinstance(raw, str):
+        return DEFAULT_LABEL_PRESET
+    value = raw.strip()
+    if value in _LABEL_PRESETS:
+        return value
+    # str nhưng không-whitelist (sai cấu hình) → warn-once + fallback DEFAULT.
+    return _label_preset_reject(value)
+
+
+def _label_preset_reject(value: str) -> str:
+    """Log cảnh báo preset config sai ĐÚNG 1 LẦN rồi trả DEFAULT (helper nội bộ)."""
+    global _label_preset_warned
+    if not _label_preset_warned:
+        frappe.logger().warning(
+            f"[imm00] site_config '{_LABEL_PRESET_CONF_KEY}' không hợp lệ "
+            f"(không thuộc whitelist khổ tem {sorted(_LABEL_PRESETS)}): "
+            f"{value!r} → fallback {DEFAULT_LABEL_PRESET!r}."
+        )
+        _label_preset_warned = True
+    return DEFAULT_LABEL_PRESET
+
+# Nhãn VI cho lifecycle_status (no EN-leak — ADR §D3/§D13). SSoT đồng nhất
+# frontend/src/constants/labels.ts::ASSET_STATUS_LABELS (8 mã canonical). Render
+# tem là SERVER-SIDE → FE KHÔNG dịch được → BE map VI tại đây. Mã lạ → "" (KHÔNG
+# leak mã EN thô ra tem).
+_LIFECYCLE_VI = {
+    "Draft": "Nháp",
+    "Commissioned": "Đã đưa vào sử dụng",
+    "Active": "Đang hoạt động",
+    "Under Maintenance": "Đang bảo trì",
+    "Under Repair": "Đang sửa chữa",
+    "Calibrating": "Đang hiệu chuẩn",
+    "Out of Service": "Ngừng sử dụng",
+    "Decommissioned": "Đã thanh lý",
+}
+
+
+def _lifecycle_vi(status: str) -> str:
+    """Nhãn VI cho lifecycle_status — no EN-leak (ADR §D3). Mã lạ/rỗng → ''."""
+    return _LIFECYCLE_VI.get(status or "", "")
+
+
+def _label_pdf_options(preset: str) -> dict:
+    """Options wkhtmltopdf cho khổ tem (ADR §D5/§D16) — khổ mm chính xác, margin0.
+
+    Truyền THẲNG vào ``pdfkit`` (KHÔNG qua ``frappe.utils.pdf.get_pdf``). LÝ DO
+    (BUG-LABEL-1 root cause): get_pdf → ``prepare_header_footer`` GHI ĐÈ
+    ``margin-top``/``margin-bottom`` = "15mm" khi HTML KHÔNG có ``#header-html``/
+    ``#footer-html`` (pdf.py:336-340) → vùng in co còn 70mm trên khổ 100mm →
+    nhãn TRÀN sang trang 2 (trang trắng đuôi). pdfkit trực tiếp giữ margin 0mm
+    thật → 1 asset = 1 trang.
+
+    ``disable-smart-shrinking`` chặn wkhtmltopdf scale lại layout (lệch khổ);
+    ``margin-*`` = chuỗi "0mm" (truthy, đúng đơn vị). page-width/height tường minh
+    quyết định MediaBox = khổ tem vật lý (KHÔNG cần page-size).
+    """
+    p = _LABEL_PRESETS[preset]   # KeyError chặn ở API (preset đã validate → 422)
+    return {
+        "page-width":  f"{p['width_mm']}mm",    # "60mm"
+        "page-height": f"{p['height_mm']}mm",   # "100mm"
+        "margin-top":    "0mm",
+        "margin-right":  "0mm",
+        "margin-bottom": "0mm",
+        "margin-left":   "0mm",
+        "orientation": "Portrait",
+        "encoding": "UTF-8",
+        "disable-smart-shrinking": "",
+        "disable-javascript": "",
+        "disable-local-file-access": "",
+        "quiet": "",
+    }
+
+
+def _qr_svg_inline(qr_url: str) -> str:
+    """QR SVG inline (SERVER-SIDE, pyqrcode error='M') encode qr_url — ADR §D4.
+
+    Encode ``qr_url`` (deep-link ``/a/<token>``) — TUYỆT ĐỐI KHÔNG raw
+    ``qr_token``, KHÔNG URL desk. ``omithw=True`` + ``xmldecl=False`` → SVG nhúng
+    THẲNG HTML, kích thước điều khiển bằng CSS container (QR co dãn theo khổ tem,
+    KÊU width/height ngoài). ``pyqrcode`` là lib QR DUY NHẤT có sẵn trong bench
+    (qrcode/segno KHÔNG có — KHÔNG pip install, HARD-STOP USER). scale=4 đủ nét
+    cho viewBox; kích thước thật do CSS .qr {width:qr_mm} quyết định.
+    """
+    import io
+    import pyqrcode
+    qr = pyqrcode.create(qr_url, error="M")
+    buf = io.BytesIO()
+    qr.svg(buf, scale=4, xmldecl=False, svgns=True, omithw=True)
+    return buf.getvalue().decode("utf-8")
+
+
+def _esc(val) -> str:
+    """HTML-escape giá trị field → chặn injection + render an toàn (rỗng → '')."""
+    from frappe.utils import escape_html
+    return escape_html(str(val)) if val else ""
+
+
+def _label_block(item: dict, preset: str, is_last: bool) -> str:
+    """1 block nhãn (= 1 trang) cho 1 asset — ADR §D2/§D3/§D7.
+
+    Item hợp lệ → QR SVG (encode qr_url) + 5 field (Mã/Tên/Model/Số serial NSX).
+    Item lỗi (``error == 'AC-E001'`` từ batch — asset∄) → ô lỗi an toàn (KHÔNG
+    QR, KHÔNG field thật, chỉ echo name client gửi) — leak-safe, KHÔNG raise,
+    vẫn = 1 trang (giữ invariant N→N trang — §D7).
+
+    Mỗi block LUÔN mang class ``label`` (đếm block ổn định). Trang KHÔNG-cuối thêm
+    class ``brk`` (page-break-after: always) → N block = N-1 break = N trang
+    (block cuối KHÔNG break, tránh trang trắng thừa). ``qr_url`` nhúng kèm thuộc
+    tính ``data-qr-url`` (auditable — ADR §D4 đo "HTML chứa qr_url") cạnh QR SVG.
+    """
+    p = _LABEL_PRESETS[preset]
+    compact = p.get("compact", False)   # tem nhỏ → value-only 1 dòng (KHÔNG cắt dọc)
+    cls = "label" if is_last else "label brk"
+    if compact:
+        cls += " compact"
+    if item.get("error"):
+        name = _esc(item.get("name"))
+        head = name if compact else f"Mã tài sản: {name}"
+        return (
+            f'<div class="{cls} label-error">'
+            f'<div class="line code">{head}</div>'
+            '<div class="line err">Không tìm thấy tài sản</div>'
+            '</div>'
+        )
+    qr_url = item.get("qr_url") or ""
+    qr_svg = _qr_svg_inline(qr_url)
+    # V3 §D3/§D13: lifecycle_status DỊCH VI (no EN-leak). Mã lạ/rỗng → '' → '—'
+    # (KHÔNG None, KHÔNG leak mã EN canonical thô). lifecycle_status ĐÃ có trong
+    # 8-field batch → KHÔNG query thêm (no N+1).
+    # §D16 (F1-FIX): chọn field chữ theo preset.fields — tem nhỏ rút gọn (mã/tên)
+    # để KHÔNG tràn khổ; 60×100 = đủ 5 field. THỨ TỰ render = thứ tự trong fields.
+    # compact (tem nhỏ): in VALUE-only (bỏ tiền tố 'VI:') + 1 dòng nowrap+ellipsis
+    # (CSS) ⇒ mã dài KHÔNG wrap rồi bị overflow:hidden cắt mất dòng dưới.
+    _line_map = {
+        "code":   ("code",   "Mã tài sản",    _esc(item.get("asset_code"))),
+        "name":   ("name",   "Tên tài sản",   _esc(item.get("asset_name"))),
+        "model":  ("model",  "Model",         _esc(item.get("device_model_name"))),
+        "sn":     ("sn",     "Số serial NSX", _esc(item.get("manufacturer_sn"))),
+        "status": ("status", "Trạng thái",    _esc(_lifecycle_vi(item.get("lifecycle_status") or ""))),
+    }
+    fields = p.get("fields", list(_line_map))
+    lines = "".join(
+        (f'<div class="line {css_cls}">{val or "—"}</div>' if compact
+         else f'<div class="line {css_cls}">{vi}: {val or "—"}</div>')
+        for css_cls, vi, val in (_line_map[f] for f in fields if f in _line_map)
+    )
+    return (
+        f'<div class="{cls}">'
+        f'<div class="qr" data-qr-url="{_esc(qr_url)}">{qr_svg}</div>'
+        f'{lines}'
+        '</div>'
+    )
+
+
+def _label_html(items: list[dict], preset: str) -> str:
+    """HTML N trang nhãn QR khổ tem (ADR §D2) — 1 asset = 1 block .label = 1 trang.
+
+    page-break-after: always GIỮA các block — TRỪ block CUỐI (tránh trang trắng
+    thừa) → N block mang class ``brk`` ở N-1 đầu = N trang. @page size khớp preset
+    (defense-in-depth; wkhtmltopdf chủ yếu nghe options _label_pdf_options).
+    QR vẽ server-side (pyqrcode SVG). lifecycle_status (nếu in) dịch VI no-EN-leak
+    — V1 D5 5 field KHÔNG bắt buộc in status (Vòng 3 thêm qua _lifecycle_vi).
+
+    CSS khổ tem: ``display: block`` (KHÔNG flex — premailer/cssutils của
+    ``frappe.utils.pdf`` strip ``display:flex`` → cảnh báo + mất layout; block +
+    text-align:center + margin auto cho QR là portable trên wkhtmltopdf).
+    """
+    p = _LABEL_PRESETS[preset]
+    n = len(items)
+    body = "".join(
+        _label_block(it, preset, is_last=(i == n - 1))
+        for i, it in enumerate(items)
+    )
+    css = f"""
+    @page {{ size: {p['width_mm']}mm {p['height_mm']}mm; margin: 0; }}
+    * {{ box-sizing: border-box; }}
+    html, body {{ margin: 0; padding: 0; }}
+    .label {{
+      width: {p['width_mm']}mm; height: {p['height_mm'] - 1}mm;
+      padding: {p['pad_mm']}mm; overflow: hidden;
+      font-family: Arial, "DejaVu Sans", sans-serif; text-align: center;
+    }}
+    .label.brk {{ page-break-after: always; }}
+    .qr {{
+      width: {p['qr_mm']}mm; height: {p['qr_mm']}mm;
+      margin: 0 auto 1mm auto;
+    }}
+    .qr svg {{ width: 100%; height: 100%; }}
+    .line {{ width: 100%; line-height: 1.25; }}
+    .code {{ font-size: 11pt; font-weight: 700; }}
+    .name {{ font-size: 9pt; }}
+    .model, .sn {{ font-size: 8pt; }}
+    /* V3 §D3: dòng trạng thái (field thứ 5) — font hợp khổ 60×100mm, KHÔNG tràn */
+    .status {{ font-size: 8pt; margin-top: 1mm; font-weight: 600; }}
+    .err {{ font-size: 9pt; color: #b00; }}
+    /* §D16: tem nhỏ (compact 50×30 / 70×40) — value-only 1 dòng, font thu theo
+       khổ + nowrap+ellipsis ⇒ mã/tên dài KHÔNG wrap rồi bị cắt dọc (chỉ cắt
+       ngang bằng … nếu vượt bề rộng). */
+    .label.compact .line {{
+      font-size: {p['font_pt']}pt; line-height: 1.2;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }}
+    .label.compact .code {{ font-size: {p['font_pt']}pt; font-weight: 700; }}
+    """
+    return (
+        "<!DOCTYPE html><html><head><meta charset='utf-8'>"
+        f"<style>{css}</style></head><body>{body}</body></html>"
+    )
+
+
+def render_asset_labels_pdf(names: list[str], preset: str = DEFAULT_LABEL_PRESET) -> bytes:
+    """SERVICE (ADR-LABEL-PDF §D2): render PDF nhãn QR khổ tem — trả PDF bytes.
+
+    Nguồn 8 field = ``build_asset_label_data_batch`` (no N+1 — KHÔNG viết lại
+    truy vấn asset). Mỗi asset → 1 block .label = 1 trang; QR vẽ server-side
+    (pyqrcode SVG inline encode qr_url). Item lỗi (asset∄) → ô lỗi an toàn (KHÔNG
+    vỡ PDF — §D7). Render HTML → ``pdfkit`` (wkhtmltopdf) TRỰC TIẾP với options
+    khổ tem margin0 (§D5/§D16) → PDF bytes bắt đầu ``%PDF-``.
+
+    KHÔNG dùng ``frappe.utils.pdf.get_pdf`` (document-oriented): nó ép margin
+    15mm cho header/footer (pdf.py:336-340) → nhãn TRÀN trang 2 (BUG-LABEL-1).
+    pdfkit trực tiếp = full control vùng in → 1 asset = 1 trang THẬT (test
+    ``test_pdf_real_page_count_no_blank_overflow`` khoá invariant này bằng pypdf).
+
+    KHÔNG emit ``label_printed`` (render = preview ≠ in — §D8). Gate quyền +
+    IDOR + batch-cap do API tier xử lý TRƯỚC (all-or-nothing). preset PHẢI thuộc
+    ``_LABEL_PRESETS`` (caller/API validate → 422; KeyError nếu bỏ qua).
+    """
+    import pdfkit
+    items = build_asset_label_data_batch(names)
+    html = _label_html(items, preset)
+    options = _label_pdf_options(preset)
+    # output_path=False → trả PDF bytes (KHÔNG ghi file tạm).
+    pdf = pdfkit.from_string(html, False, options=options)
+    return pdf if isinstance(pdf, (bytes, bytearray)) else bytes(pdf)
+
+
+# ────────────────────────────────────────────
 # Asset status transitions (BR-00-02, 04, 05, 10)
 # ────────────────────────────────────────────
 

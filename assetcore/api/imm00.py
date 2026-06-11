@@ -1,5 +1,5 @@
 # Copyright (c) 2026, AssetCore Team
-"""IMM-00 REST API — 42 endpoints for AssetCore foundation DocTypes.
+"""IMM-00 REST API — 43 endpoints for AssetCore foundation DocTypes.
 
 Convention:
   GET  → frappe.whitelist(allow_guest=False)
@@ -32,6 +32,10 @@ from assetcore.services.imm00 import (
     build_asset_label_data,
     build_asset_label_data_batch,
     mark_label_printed as _svc_mark_label_printed,
+    render_asset_labels_pdf as _svc_render_asset_labels_pdf,  # ADR-LABEL-PDF §D2 — render PDF nhãn QR khổ tem
+    _LABEL_PRESETS,              # SSoT whitelist khổ tem (ADR-LABEL-PDF §D2 — preset lạ → 422)
+    _resolve_label_preset,       # V3 §D14 — default preset từ site_config (hợp-lệ-hoá 1 chỗ, fallback an toàn)
+    DEFAULT_LABEL_PRESET,        # V3 §D14 — fallback code-default khi config vắng/sai
     _MAX_LABEL_BATCH,            # SSoT cap số nhãn / 1 request (Vòng B — KHÔNG literal lặp)
     _ERR_BATCH_TOO_LARGE,        # message VI cố định cho 413 (nêu giới hạn, KHÔNG leak name)
     byt_expiry_filter,
@@ -73,6 +77,21 @@ AC_QR_RESOLVE_RATE_LIMIT = 30
 # Đóng bất đối xứng read-throttled (BR-00-29) / write-rotate-unthrottled
 # (Self-Correction đảo quyết định Vòng 12). Xem docs/imm-00/04 §II.1.8d + 02 BR-00-38.
 AC_QR_REGEN_RATE_LIMIT = 10
+
+# ADR-IMM00-LABEL-PDF §D6 — ngưỡng rate-limit endpoint sinh PDF nhãn QR
+# `print_asset_labels_pdf`. Hằng RIÊNG (KHÔNG tái dùng resolve/regen): render
+# wkhtmltopdf tốn CPU (mỗi call N trang + N QR SVG) → ngưỡng THẤP hơn resolve
+# (20 req/60s/IP) do BA chốt. Bucket RIÊNG: frappe rate_limiter cache key gồm
+# `cmd` ⟹ counter TÁCH BIỆT resolve/scan/regen. Decorator bọc NGOÀI thân hàm →
+# 429 raise TRƯỚC rbac.require ⇒ vượt ngưỡng = 0 render PDF, no-leak.
+AC_LABEL_PDF_RATE_LIMIT = 20
+
+# ADR-IMM00-LABEL-PDF §D7 — list rỗng → 422 (KHÔNG render PDF 0 trang). Message
+# VI leak-safe (KHÔNG echo asset/id). SSoT 1 chỗ (KHÔNG literal lặp ở handler).
+_ERR_LABEL_EMPTY = "Vui lòng chọn ít nhất một tài sản để in nhãn."
+# §D5 — preset khổ tem không thuộc whitelist `_LABEL_PRESETS` → 422 (chống render
+# khổ giấy tuỳ ý từ client). Message VI cố định, KHÔNG echo giá trị preset client.
+_ERR_LABEL_PRESET = "Khổ tem không hợp lệ."
 
 _DT_SUPPLIER = "AC Supplier"
 _DT_LOCATION = "AC Location"
@@ -508,6 +527,81 @@ def mark_label_printed(assets=None):
     result = _svc_mark_label_printed(names)
     frappe.db.commit()
     return _ok(result)
+
+
+@frappe.whitelist()
+@rate_limit(limit=AC_LABEL_PDF_RATE_LIMIT, seconds=60, ip_based=True)  # ADR-LABEL-PDF §D6 — 429 TRƯỚC rbac.require; bucket RIÊNG (cmd), render nặng → ngưỡng thấp
+def print_asset_labels_pdf(assets="", preset=""):
+    """A3-PDF (ADR-IMM00-LABEL-PDF §D1/§D6): sinh PDF nhãn QR khổ tem nhiệt 60×100mm.
+
+    FE tải PDF → iframe ẩn → ``iframe.print()`` → hộp thoại in → chọn máy in tem
+    LAN → ra CHÍNH XÁC 60×100mm (mỗi asset = 1 trang). QR vẽ SERVER-SIDE (pyqrcode
+    SVG inline encode ``qr_url`` deep-link ``/a/<token>`` — KHÔNG raw token).
+
+    **Trả PDF bytes** (KHÔNG ``_ok`` JSON envelope) — set ``frappe.local.response``
+    (Frappe set Content-Type: application/pdf + download). **Lỗi nghiệp vụ**
+    (cap/IDOR/batch/preset/empty) = ``_err`` HTTP-200 Error envelope (DONE-gate
+    LL-BE-42 — KHÔNG raise→4xx). Chỉ THÀNH CÔNG mới set response PDF.
+
+    Signature: ``assets`` bare (KHÔNG annotation — đồng nhất
+    ``get_asset_label_data_batch``; annotation ``str``/``X|None`` kích hoạt
+    coercion pydantic v15 → reject native list 417). Default ``""`` (KHÔNG
+    ``None``). Real HTTP gửi JSON-string; test/python gửi list — cả 2 OK qua
+    ``frappe.parse_json``. ``preset`` default ``""`` (V3 §D14 — KHÔNG hardcode
+    ``"tem-60x100"``): caller bỏ trống → ``_resolve_label_preset()`` (site_config
+    ``assetcore_label_preset``, hợp-lệ-hoá 1 chỗ + fallback an toàn 60×100mm, KHÔNG
+    raise); caller truyền tường minh → GIỮ gate whitelist (lạ → 422). Thứ tự ưu
+    tiên: explicit > site_config > code-default. Thứ tự gate (§D6 — đo từng bậc):
+
+      0. ``@rate_limit`` (429 TRƯỚC rbac, decorator NGOÀI thân).
+      1. ``rbac.require("asset.print")`` ĐẦU TIÊN → user thiếu cap →
+         PermissionError (403) + KHÔNG render + KHÔNG đụng DB.
+      2. resolve preset rỗng → site_config default (V3 §D14); preset không
+         whitelist → 422 (chống render khổ tuỳ ý từ client; resolver KHÔNG nới).
+      3. list rỗng → 422 (BA chốt §D7 — KHÔNG render PDF 0 trang).
+      4. ``len > _MAX_LABEL_BATCH(200)`` → 413 bucket RIÊNG, msg VI cố định
+         (KHÔNG leak asset name), SAU rbac (chỉ user đã-auth-print biết giới hạn).
+      5. IDOR all-or-nothing: mỗi asset tồn tại qua ``assert_vendor_can_access``;
+         vendor có ≥1 asset ngoài scope → 403 TOÀN call (no partial, no leak).
+      6. asset∄ TRONG batch (mix valid+invalid) KHÔNG chặn — render "ô lỗi an
+         toàn" trong PDF (§D7); asset valid khác VẪN in được (KHÔNG 404 all-or-nothing).
+
+    **KHÔNG emit ``label_printed``** (render = preview ≠ in — §D8; sự kiện in chỉ
+    ghi qua ``mark_label_printed`` gọi RIÊNG sau khi user xác nhận đã in). KHÔNG
+    chạm logic gen/rotate/scan/resolve QR (§D9 — chỉ ĐỌC ``qr_url`` qua batch).
+    """
+    rbac.require("asset.print")
+    names = frappe.parse_json(assets) if isinstance(assets, str) else (assets or [])
+    # V3 §D14: caller bỏ trống preset → server-default qua resolver (site_config
+    # assetcore_label_preset, hợp-lệ-hoá 1 chỗ + fallback an toàn 60×100mm, KHÔNG
+    # raise). Thứ tự ưu tiên: explicit client > site_config > code-default. Resolver
+    # LUÔN trả giá-trị-whitelist → nhánh-resolved KHÔNG bao giờ tự-422.
+    if not preset:
+        preset = _resolve_label_preset()
+    # GIỮ NGUYÊN gate whitelist (caller truyền preset LẠ tường minh vẫn 422 —
+    # resolver KHÔNG nới whitelist; chỉ áp khi `not preset`).
+    if preset not in _LABEL_PRESETS:
+        return _err(_(_ERR_LABEL_PRESET), 422)
+    if not names:
+        return _err(_(_ERR_LABEL_EMPTY), 422)
+    # CAP batch SAU rbac (chỉ user đã-auth-print tới đây) TRƯỚC IDOR + render →
+    # chặn payload-DoS render N PDF. 413 bucket RIÊNG, msg VI, KHÔNG leak name.
+    if len(names) > _MAX_LABEL_BATCH:
+        return _err(_(_ERR_BATCH_TOO_LARGE), 413)
+    # IDOR all-or-nothing: asset tồn tại nào cũng phải trong scope. asset∄ KHÔNG
+    # chặn (render ô-lỗi trong PDF — §D7); vendor có ≥1 asset ngoài scope → 403 toàn call.
+    try:
+        for n in names:
+            if frappe.db.exists(_DT_ASSET, n):
+                assert_vendor_can_access(_DT_ASSET, n)
+    except ServiceError as e:
+        return _err(e.message, e.code)
+    # Render chỉ tới đây khi pass hết gate → KHÔNG render cho call thiếu quyền/quá-batch/IDOR.
+    pdf_bytes = _svc_render_asset_labels_pdf(names, preset)
+    frappe.local.response.filename = "asset-labels.pdf"
+    frappe.local.response.filecontent = pdf_bytes
+    frappe.local.response.type = "pdf"
+    # KHÔNG return _ok(...) — PDF trả qua frappe.local.response (Frappe Content-Type pdf).
 
 
 @frappe.whitelist(methods=["POST"])

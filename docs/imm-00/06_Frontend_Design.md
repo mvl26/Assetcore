@@ -458,6 +458,37 @@ Sau fix: axios interceptor nhánh `default` (`axios.ts:288`) build `ApiError(mes
 - **Giữ nguyên (no-regression):** `markLabelPrinted` ghi event chỉ sau in thật + chỉ name hợp lệ; preview-only KHÔNG ghi `label_printed`; error-bucket VI cố định (forbidden/notfound/unknown); checkbox-select + gate `can('asset.print')` (D6); ô lỗi `AC-E001` VI + `translateStatus` SSoT + `break-inside:avoid`; đường mã hoá QR vẫn encode `qr_url` (KHÔNG đổi).
 - **DoD FE (vitest):** chọn `tem-50x30` → DOM chứa `@page size 50mm 30mm` + lưới 1-nhãn; `tem-70x40` → `70mm 40mm`; `a4-multi`/mặc định → KHÔNG ép `@page`, giữ lưới 2 cột A4; modal đổi khổ áp đúng `@page`/grid cho single-print + `markLabelPrinted([id])` 1 lần sau `window.print`; `AssetQrLabel` QR/field scale theo khổ (tem KHÔNG dùng 120px); regression no-leak error-bucket VI. **vue-tsc 0, eslint 0, vitest GREEN.**
 
+### II.3f-PDF. In nhãn QR khổ tem 60×100mm qua PDF server-side — luồng iframe + preview WYSIWYG (ADR-IMM00-LABEL-PDF §D10–D12 — Vòng 2)
+
+> **Đề mục LABEL-PDF Vòng 2 (FE).** USER có **máy in tem nhiệt 60×100mm** (portrait, LAN). Luồng `window.print()` + `@page` CSS cũ (§II.3f) KHÔNG đảm bảo ra đúng khổ tem (browser bỏ qua `@page mm` → in A4/lệch). **Phương án A (USER duyệt):** BE render **PDF server-side đúng khổ 60×100mm** (`print_asset_labels_pdf` — D1–D9 đã code), FE tải PDF blob → iframe ẩn → `iframe.print()` (hộp thoại in → chọn máy in tem → ra đúng khổ); preview = chính PDF đó (WYSIWYG thật). **THÊM đường PDF cạnh luồng cũ (§II.3f GIỮ song song — D12.7); ƯU TIÊN PDF cho 60×100mm. FE-only ở FE-tier; KHÔNG cap/field/DocType/route MỚI; `CAP_SET_VERSION` GIỮ `v97.c30c69b8974d`** (cap `asset.print` đã có từ §II.3d).
+
+**API client (§D10) — `frontend/src/api/imm00.ts`:**
+- `printAssetLabelsPdf(assets: string[], preset='tem-60x100'): Promise<Blob>` — `api.post('...print_asset_labels_pdf', {assets: JSON.stringify(assets), preset}, {responseType:'blob'})` qua axios **`api` raw** (NOT `frappeGet/frappePost` — 2 helper unwrap JSON envelope, không đọc Blob). Giữ `withCredentials`+CSRF (mặc định `api`). Batch = **1 lời gọi** giữ thứ tự `names` (BE render mỗi asset = 1 trang).
+- Hằng MỚI `DEFAULT_LABEL_PRESET = 'tem-60x100'` ở `constants/label.ts` (mirror BE `_LABEL_PRESETS`/`services/imm00.py:873`). **TÁCH BIỆT** với `LabelFormatKey`/`LABEL_FORMATS` cũ (§II.3f `a4-multi`/`tem-50x30`/`tem-70x40` — đường print-CSS); KHÔNG thêm vào `LABEL_FORMATS`.
+
+**Content-type guard (§D11 — Self-Correction CỐT LÕI):** BE trả **HTTP-200 cho CẢ** thành công (`application/pdf` blob) **LẪN** 4 nhánh lỗi nghiệp vụ `_err` (preset/empty/batch/IDOR — `application/json` envelope, KHÔNG raise→4xx). Với `responseType:'blob'`, axios interceptor **KHÔNG bắt** lỗi HTTP-200 → client PHẢI tự guard:
+
+| Tình huống | HTTP | Content-Type | Ai bắt | Kết quả FE |
+|---|---|---|---|---|
+| THÀNH CÔNG | 200 | `application/pdf` | guard `extractPdfBlobOrThrow` → resolve Blob | iframe.print() |
+| preset/empty-422 · IDOR-403 · batch-413 | 200 | `application/json` | guard → `res.data.text()`→JSON.parse→unwrap `{message:{error,code,http_status}}`→ **ném ApiError VI** | toast VI, **KHÔNG** iframe |
+| cap-403 (`rbac.require` RAISE) · dispatcher-403 · 429 | 403/429 | application/json | axios interceptor `handle403`/`handle429` | toast VI (defense-in-depth) |
+
+- **TUYỆT ĐỐI KHÔNG** đưa JSON-blob cho `<iframe>` (tránh in JSON thô). Guard dựa **content-type** (KHÔNG status-line — vì lỗi nghiệp vụ ở HTTP-200). Parse-fail → ApiError VI cố định (KHÔNG crash). Message VI lấy từ `envelope.error` (đã VI server-side).
+
+**Luồng in + preview (§D12):**
+- **AssetDetailView** — nút **"In nhãn QR"** (`v-if can('asset.print')`, §D12.6) → `printAssetLabelsPdf([id])` → `URL.createObjectURL(blob)` → preview `BaseModal` embed `<iframe>/<embed> src=Blob URL` (WYSIWYG — cùng file PDF sẽ in) → bấm in → `<iframe>` ẩn (`display:none`) append body → `iframe.onload`→`contentWindow.print()` (hộp thoại in → chọn máy in tem).
+- **AssetListView** nút **"In nhãn hàng loạt"** (`v-if can('asset.print')`) + **AssetLabelPrintView** → `printAssetLabelsPdf(names)` **1 LẦN** toàn batch (D12.3) → cùng luồng iframe.print(). Giữ thứ tự + chỉ name hợp lệ.
+- **markLabelPrinted-on-confirm (§D12.4 — audit-on-cancel):** `markLabelPrinted(names)` CHỈ ghi `label_printed` qua **nút tường minh "Đã in xong"** (ưu tiên) HOẶC `iframe.onafterprint` — **KHÔNG** ghi khi user mở hộp thoại rồi HUỶ (mirror preview-only cũ). `onafterprint` KHÔNG đảm bảo phân biệt huỷ trên mọi browser → ưu tiên nút "Đã in xong" (nếu dùng `onafterprint` → over-count nhẹ, chấp nhận + ghi rõ).
+- **Revoke (§D12.5):** mọi Blob URL `URL.revokeObjectURL` SAU in/đóng modal/`onafterprint`/unmount; iframe ẩn remove khỏi DOM sau in (chống memory leak).
+- **No EN-leak (§D12.8):** PDF đã VI server-side (D3); FE chỉ hiển thị PDF + toast lỗi VI — KHÔNG leak status/raw-code/email/token EN.
+
+**No-regression (§D12.7):** luồng `window.print()` + `@page` CSS cũ (§II.3f, A4/50×30/70×40) GIỮ XANH song song. PDF chỉ THÊM cho 60×100mm. Suite hiện hành (`assetDetailQrPrint.test.ts`, `AssetLabelPrintView.test.ts`, `assetLabelFormat.test.ts`, `assetListBatchSelect.test.ts`) PASS 0 regression.
+
+**DoD FE (vitest — §D10/D11/D12):** mock `api.post` blob → (a) content-type `application/pdf` → `printAssetLabelsPdf` trả Blob (KHÔNG throw); (b) content-type `application/json` body `{message:{success:false,error:'Vui lòng chọn...',http_status:422}}` → ApiError `httpStatus===422` msg VI, **KHÔNG** trả Blob; (c) blob parse-fail → ApiError VI cố định; (d) bấm "In nhãn QR" → `printAssetLabelsPdf([id])` 1 lần + `createObjectURL` + tạo iframe + `contentWindow.print()` gọi; (e) preview src === blob URL; (f) chưa "Đã in xong" → `markLabelPrinted` KHÔNG gọi; bấm "Đã in xong" → `markLabelPrinted(names)` 1 lần (chỉ name hợp lệ); (g) đóng/onafterprint → `revokeObjectURL(url)` gọi; (h) thiếu `asset.print` → nút absent; (i) batch N asset → `api.post` **1 lần**; (j) luồng `window.print()` cũ regression XANH. **vue-tsc 0.**
+
+**GIỚI HẠN GHI RÕ (KHÔNG tuyên bố vượt):** `print_asset_labels_pdf` là BE `.py` thêm SAU gunicorn `--preload` boot → **CHƯA live HTTP** tới khi USER reload gunicorn → **Playwright LIVE trên endpoint PDF = BLOCKED**. QA gate Vòng 2 = **vitest** (FE unit) + `bench run-tests` (BE đã GREEN Vòng 1). [USER] eval **KHÔNG** được tuyên bố "đã verify in thật trên HTTP / máy in tem".
+
 ### II.3g. Cap kích thước batch nhãn QR — guard FE song song + map 413 (ADR-001 B-6 / BR-00-33 — Vòng 22)
 
 > **Đề mục B-6 (payload-DoS cap).** Mirror BE cap `_MAX_LABEL_BATCH=200`: FE chặn user gửi request **chắc-chắn-413** (chọn quá nhiều tem) NGAY trước khi điều hướng/in, đồng thời nếu request 413 vẫn lọt (URL paste thủ công) → màn print map 413 sang **bucket lỗi VI** (KHÔNG trang trắng, KHÔNG EN-leak), parity với `QrResolveView`/`AssetScanInfoView`. **FE-only; KHÔNG cap/field/DocType/route/BE; `CAP_SET_VERSION` GIỮ `v95.3388ee5629c1`.**

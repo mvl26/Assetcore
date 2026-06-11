@@ -8,8 +8,11 @@
 //   • AssetQrLabel: prop qrSize/khổ tem → QR + field scale (tem KHÔNG dùng 120px cố định).
 //   • Regression: error-bucket VI cố định + markLabelPrinted chỉ name hợp lệ vẫn nguyên.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { mount, flushPromises } from '@vue/test-utils'
+import { mount, flushPromises, config } from '@vue/test-utils'
 import { ref } from 'vue'
+
+// BaseModal teleports tới <body>; render inline để wrapper.find reach modal PDF.
+config.global.stubs = { teleport: true }
 
 // ── AssetLabelPrintView (batch) ───────────────────────────────────────────────
 const routeQuery = ref<Record<string, string | string[]>>({ names: 'A1,A2,A3' })
@@ -20,12 +23,29 @@ vi.mock('vue-router', () => ({
 }))
 const getBatchSpy = vi.fn()
 const markPrintedSpy = vi.fn().mockResolvedValue({ printed: [], event_count: 0 })
+const printPdfSpy = vi.fn()
 vi.mock('@/api/imm00', () => ({
   getAssetLabelDataBatch: (names: string[]) => getBatchSpy(names),
   getAssetLabelData: vi.fn(),
   markLabelPrinted: (assets: string[]) => markPrintedSpy(assets),
+  printAssetLabelsPdf: (names: string[]) => printPdfSpy(names),
 }))
 vi.mock('qrcode', () => ({ default: { toDataURL: vi.fn().mockResolvedValue('data:image/png;base64,QR==') } }))
+
+// Mock composable usePdfLabelPrint (DRY iframe in PDF) — giả lập tải Blob OK.
+const printLabelsSpy = vi.fn()
+const pdfPreviewUrl = ref<string | null>(null)
+const pdfPrinting = ref(false)
+const pdfErrorRef = ref<unknown>(null)
+vi.mock('@/composables/usePdfLabelPrint', () => ({
+  usePdfLabelPrint: () => ({
+    printLabels: (names: string[], opts: { onAfterPrint?: (n: string[]) => void } = {}) => {
+      pdfPreviewUrl.value = 'blob:mock-pdf'
+      return printLabelsSpy(names, opts)
+    },
+    previewUrl: pdfPreviewUrl, printing: pdfPrinting, error: pdfErrorRef, revoke: vi.fn(),
+  }),
+}))
 
 import AssetLabelPrintView from './AssetLabelPrintView.vue'
 import AssetQrLabel from '@/components/asset/AssetQrLabel.vue'
@@ -46,6 +66,11 @@ describe('AssetLabelPrintView — selector khổ tem (batch)', () => {
   beforeEach(() => {
     getBatchSpy.mockReset().mockResolvedValue([lbl('A1'), lbl('A2'), lbl('A3')])
     markPrintedSpy.mockClear()
+    printPdfSpy.mockReset().mockResolvedValue(new Blob(['%PDF'], { type: 'application/pdf' }))
+    printLabelsSpy.mockReset().mockResolvedValue(new Blob(['%PDF'], { type: 'application/pdf' }))
+    pdfPreviewUrl.value = null
+    pdfPrinting.value = false
+    pdfErrorRef.value = null
     pushSpy.mockClear()
     routeQuery.value = { names: 'A1,A2,A3' }
     vi.spyOn(window, 'print').mockImplementation(() => {})
@@ -110,7 +135,7 @@ describe('AssetLabelPrintView — selector khổ tem (batch)', () => {
     expect(labels[0].props('qrSize')).toBe(getLabelFormat('tem-70x40').qrSizePx)
   })
 
-  it("Regression: chọn tem rồi In tất cả → markLabelPrinted chỉ name hợp lệ (không đổi)", async () => {
+  it("Regression: chọn tem rồi In tất cả → printLabels 1 lần name hợp lệ; 'Đã in xong' → markLabelPrinted name hợp lệ", async () => {
     getBatchSpy.mockResolvedValue([lbl('A1'), { name: 'BAD', error: 'AC-E001' }, lbl('A3')])
     const w = mount(AssetLabelPrintView)
     await flushPromises()
@@ -118,9 +143,14 @@ describe('AssetLabelPrintView — selector khổ tem (batch)', () => {
     const printBtn = w.findAll('button').find(b => b.text().includes('In tất cả'))
     await printBtn!.trigger('click')
     await flushPromises()
-    expect(window.print).toHaveBeenCalled()
+    // Luồng PDF: printLabels 1 lần với CHỈ name hợp lệ (loại AC-E001).
+    expect(printLabelsSpy).toHaveBeenCalledTimes(1)
+    expect(printLabelsSpy.mock.calls[0][0]).toEqual(['A1', 'A3'])
+    // Ghi audit qua 'Đã in xong' — chỉ name hợp lệ.
+    await w.find('[data-testid="btn-pdf-printed"]').trigger('click')
+    await flushPromises()
     expect(markPrintedSpy).toHaveBeenCalledWith(['A1', 'A3'])
-    // Ô lỗi VI vẫn render.
+    // Ô lỗi VI vẫn render (preview grid trên màn hình giữ nguyên).
     expect(w.text()).toContain('Không tìm thấy thiết bị')
   })
 })

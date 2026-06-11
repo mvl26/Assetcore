@@ -6,6 +6,8 @@
 // KHÔNG wrap thêm ApiResponse<T>.
 
 import { frappeGet, frappePost } from './helpers'
+import api from './axios'
+import { ApiError, ErrorCode, httpStatusToCode, type ErrorCodeType } from './errors'
 import type {
   AcAsset, AcAssetListItem, AcSupplier, AcLocation, AcDepartment,
   AcAssetCategory, ImmDeviceModel, ImmSlaPolicy, ImmAuditTrail,
@@ -191,6 +193,106 @@ export function getAssetLabelDataBatch(assets: string[]): Promise<BatchLabelItem
  */
 export function markLabelPrinted(assets: string[]): Promise<{ printed: string[]; event_count: number }> {
   return frappePost(`${BASE}.mark_label_printed`, { assets })
+}
+
+// ─── QR label PDF — đa khổ tem (ADR-IMM00-LABEL-PDF — phương án A) ───────────────
+// Khổ tem SSoT (mirror BE services/imm00.py:_LABEL_PRESETS + DEFAULT_LABEL_PRESET).
+// Server render HTML → PDF ĐÚNG khổ tem nhiệt đã chọn (MỖI nhãn = 1 trang), FE tải
+// Blob → iframe ẩn → iframe.print() → ra ĐÚNG khổ (KHÔNG còn @page CSS giả-lập sai-khổ).
+//
+// Whitelist 3 preset PDF hợp lệ — KEY KHỚP CHÍNH XÁC (phân biệt hoa thường) với BE
+// `_LABEL_PRESETS`. preset ngoài 3 key này → BE trả 422 (FE chặn trước qua dropdown).
+// 'tem-60x100' là MẶC ĐỊNH (USER có máy in tem 6×10cm portrait).
+export const LABEL_PDF_PRESETS = [
+  { key: 'tem-60x100', label: 'Tem 60×100mm' },
+  { key: 'tem-70x40', label: 'Tem 70×40mm' },
+  { key: 'tem-50x30', label: 'Tem 50×30mm' },
+] as const
+
+export type LabelPdfPreset = (typeof LABEL_PDF_PRESETS)[number]['key']
+
+/** Preset PDF mặc định = 'tem-60x100' (mirror BE DEFAULT_LABEL_PRESET). */
+export const LABEL_PDF_PRESET: LabelPdfPreset = 'tem-60x100'
+
+/** Nhãn VI của 1 preset PDF (fallback rỗng nếu key lạ). */
+export function labelPdfPresetLabel(preset: string): string {
+  return LABEL_PDF_PRESETS.find((p) => p.key === preset)?.label ?? ''
+}
+
+// Shape error envelope BE phát trên HTTP-200 (Frappe whitelist bọc dưới `message`).
+// print_asset_labels_pdf trả: THÀNH CÔNG = Content-Type application/pdf (bytes);
+// LỖI nghiệp vụ (cap-403/preset-422/empty-422/batch-413/IDOR-403) = _err JSON
+// HTTP-200 → KHÔNG đưa Blob-JSON cho iframe (tránh in JSON thô ra giấy).
+interface PdfErrorEnvelope {
+  success?: boolean
+  error?: string
+  code?: string
+  http_status?: number
+  fields?: Record<string, string>
+}
+
+// Đọc text từ Blob — ưu tiên Blob.text() (browser + jsdom mới); fallback FileReader
+// (jsdom cũ KHÔNG có Blob.text()). Đảm bảo error-envelope parse được ở mọi env.
+async function blobText(blob: Blob): Promise<string> {
+  if (typeof blob.text === 'function') return blob.text()
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result ?? ''))
+    reader.onerror = () => reject(reader.error)
+    reader.readAsText(blob)
+  })
+}
+
+/**
+ * Sinh PDF nhãn QR khổ tem nhiệt (đa khổ — `preset`) cho `assets` (mỗi asset = 1
+ * trang). Mirror BE `assetcore.api.imm00.print_asset_labels_pdf` (naming contract —
+ * path = tên function BE). Gửi `assets` dạng JSON-string (BE parse_json — parity
+ * getAssetLabelDataBatch) + `preset` (1 trong 3 key whitelist LABEL_PDF_PRESETS;
+ * mặc định 'tem-60x100'). preset NGOÀI whitelist → BE trả 422.
+ *
+ * Dùng axios `api` TRỰC TIẾP (KHÔNG frappeGet/frappePost — chúng unwrap JSON
+ * envelope, làm hỏng Blob nhị phân). Giữ withCredentials + CSRF (interceptor
+ * request đính `X-Frappe-CSRF-Token`). responseType:'blob'.
+ *
+ * BE trả 2 dạng trên HTTP-200:
+ *   (a) THÀNH CÔNG = Content-Type application/pdf → resolve Blob.
+ *   (b) LỖI nghiệp vụ = Error JSON envelope (application/json, success:false,
+ *       code/http_status) → đọc blob.text() → JSON.parse → ném ApiError (message
+ *       VI từ envelope). KHÔNG resolve Blob-JSON (tránh iframe in ra JSON thô).
+ */
+export async function printAssetLabelsPdf(
+  assets: string[],
+  preset: LabelPdfPreset = LABEL_PDF_PRESET,
+): Promise<Blob> {
+  const response = await api.post<Blob>(
+    `${BASE}.print_asset_labels_pdf`,
+    { assets: JSON.stringify(assets), preset },
+    { responseType: 'blob' },
+  )
+  const blob = response.data
+  const contentType = String(response.headers['content-type'] ?? '').toLowerCase()
+
+  // THÀNH CÔNG: Content-Type application/pdf → trả Blob nguyên vẹn cho iframe.
+  if (contentType.includes('application/pdf')) return blob
+
+  // LỖI nghiệp vụ (HTTP-200 + JSON envelope): đọc text → parse → ApiError VI.
+  // Frappe bọc return value whitelist dưới `message`; _err shape {success,error,code,http_status}.
+  const text = await blobText(blob)
+  let env: PdfErrorEnvelope = {}
+  try {
+    const parsed = JSON.parse(text) as { message?: PdfErrorEnvelope } & PdfErrorEnvelope
+    env = (parsed.message ?? parsed) as PdfErrorEnvelope
+  } catch {
+    // Không parse được JSON → lỗi không xác định (KHÔNG echo raw text → tránh leak EN).
+    throw new ApiError('Không thể tạo PDF nhãn QR. Vui lòng thử lại.', ErrorCode.UNKNOWN, 0)
+  }
+  const httpStatus = typeof env.http_status === 'number' ? env.http_status : 0
+  const code: ErrorCodeType = (env.code as ErrorCodeType | undefined)
+    ?? (httpStatus ? httpStatusToCode(httpStatus) : ErrorCode.UNKNOWN)
+  throw new ApiError(
+    env.error || 'Không thể tạo PDF nhãn QR. Vui lòng thử lại.',
+    { code, httpStatus, fields: env.fields },
+  )
 }
 
 // ─── QR token rotate (B — hardening) ────────────────────────────────────────────

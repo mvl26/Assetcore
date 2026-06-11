@@ -5,8 +5,10 @@ import { useRouter } from 'vue-router'
 import { useAssetStore } from '@/stores/imm00'
 import {
   getAssetTimeline, getAssetKpi, verifyChain, deleteAsset,
-  getAssetLabelData, markLabelPrinted, regenerateAssetQrToken, type AssetLabelData,
+  getAssetLabelData, markLabelPrinted, regenerateAssetQrToken,
+  printAssetLabelsPdf, type AssetLabelData,
 } from '@/api/imm00'
+import { usePdfLabelPrint } from '@/composables/usePdfLabelPrint'
 import AssetQrLabel from '@/components/asset/AssetQrLabel.vue'
 import {
   LABEL_FORMATS, DEFAULT_LABEL_FORMAT_KEY, getLabelFormat, pageRuleFor,
@@ -94,6 +96,57 @@ async function confirmPrintLabel() {
     labelPrinting.value = false
     showLabelModal.value = false
   }
+}
+
+// ── A3-PDF (ADR-IMM00-LABEL-PDF): in nhãn QR PDF khổ tem 60×100mm (phương án A) ──
+// Đường ƯU TIÊN cho 60×100mm: server sinh PDF đúng khổ → FE tải Blob → iframe ẩn →
+// iframe.print() → hộp thoại in (chọn máy in tem LAN) → ra CHÍNH XÁC 60×100mm.
+// Preview modal embed CHÍNH file PDF đó (WYSIWYG thật). label_printed CHỈ ghi sau
+// khi in xong (nút 'Đã in xong' / onafterprint) — KHÔNG ghi khi mở-rồi-huỷ.
+const showPdfModal = ref(false)
+const pdfLoading = ref(false)
+const pdfError = ref<string | null>(null)
+const labelMarked = ref(false)
+const pdfPrint = usePdfLabelPrint((names) => printAssetLabelsPdf(names))
+const { previewUrl: pdfPreviewUrl, printing: pdfPrinting } = pdfPrint
+
+// Ghi label_printed cho asset này — gọi onafterprint (bổ trợ) + nút 'Đã in xong'
+// (chính). Idempotent qua labelMarked → KHÔNG double-ghi khi cả 2 cùng fire.
+async function markPrintedOnce() {
+  if (labelMarked.value) return
+  labelMarked.value = true
+  try {
+    await markLabelPrinted([props.id])
+    toast.show('Đã ghi nhận in nhãn QR.', 'success')
+  } catch (e: unknown) {
+    labelMarked.value = false // cho phép thử lại (giấy đã in nhưng audit lỗi)
+    notify.fromError(toApiError(e))
+  }
+}
+
+// Mở modal PDF → tải Blob → preview + iframe.print(). onafterprint → markPrintedOnce.
+async function openPdfLabelPrint() {
+  if (pdfLoading.value) return
+  showPdfModal.value = true
+  pdfError.value = null
+  labelMarked.value = false
+  pdfLoading.value = true
+  const blob = await pdfPrint.printLabels([props.id], { onAfterPrint: markPrintedOnce })
+  pdfLoading.value = false
+  if (!blob) {
+    // Lỗi nghiệp vụ (403/413/422) → toast VI bucket (defense-in-depth) + đóng modal.
+    if (pdfPrint.error.value) {
+      pdfError.value = pdfPrint.error.value.message
+      notify.fromError(pdfPrint.error.value)
+    }
+  }
+}
+
+// Đóng modal PDF → revoke Blob URL (chống leak). KHÔNG ghi audit (huỷ ≠ in xong).
+function closePdfModal() {
+  showPdfModal.value = false
+  pdfError.value = null
+  pdfPrint.revoke()
 }
 
 // ── B (hardening): cấp lại (rotate) mã QR — vô hiệu hoá nhãn cũ + token mới ──────
@@ -390,8 +443,8 @@ onMounted(async () => {
             <button
               v-if="can('asset.print')"
               class="btn-ghost text-sm inline-flex items-center gap-1.5"
-              title="Xem trước & in nhãn QR cho thiết bị này"
-              @click="openLabelPreview"
+              title="Xem trước & in nhãn QR khổ tem 60×100mm cho thiết bị này"
+              @click="openPdfLabelPrint"
             >
               <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round"
@@ -551,12 +604,12 @@ onMounted(async () => {
         </div>
       </div>
 
-      <!-- Tabs -->
-      <div class="flex gap-1 mb-4 border-b border-slate-200">
+      <!-- Tabs — P4: cuộn ngang mobile (overflow-x-auto + shrink-0) → tab cuối 'audit' reachable, KHÔNG cắt. -->
+      <div class="flex gap-1 mb-4 border-b border-slate-200 overflow-x-auto">
         <button
           v-for="tab in (['info', 'depreciation', 'timeline', 'kpi', 'audit'] as const)"
           :key="tab"
-          class="px-4 py-2 text-sm font-medium transition-colors"
+          class="shrink-0 whitespace-nowrap px-4 py-2 text-sm font-medium transition-colors"
           :class="activeTab === tab ? 'text-blue-600 border-b-2 border-blue-600 -mb-px' : 'text-slate-500 hover:text-slate-800'"
           @click="onTabChange(tab)"
         >
@@ -787,9 +840,56 @@ onMounted(async () => {
       </div>
     </template>
 
-    <!-- A4: QR Label preview Modal (inline — KHÔNG Teleport, để vùng .qr-label-sheet
-         in được + nút 'In tem' nằm trong DOM view). preview-only: chỉ gọi
-         getAssetLabelData; ghi event label_printed CHỈ khi bấm 'In tem'. -->
+    <!-- A3-PDF (ADR-IMM00-LABEL-PDF): Modal in nhãn QR PDF khổ tem 60×100mm.
+         Preview embed CHÍNH file PDF (WYSIWYG thật — preview == bản in). Hộp thoại
+         in đã tự bật qua iframe.print(); nút 'Đã in xong' ghi label_printed (audit).
+         Đóng/huỷ → revoke Blob URL, KHÔNG ghi audit. -->
+    <BaseModal
+      v-if="showPdfModal"
+      title="In nhãn QR — khổ tem 60×100mm"
+      size="lg"
+      @close="closePdfModal"
+    >
+      <div class="space-y-3 text-sm">
+        <!-- Loading -->
+        <div v-if="pdfLoading" class="py-12 text-center text-slate-400" aria-busy="true">
+          Đang tạo PDF nhãn QR…
+        </div>
+        <!-- Error (403/413/422) — message VI từ ApiError (KHÔNG raw EN). -->
+        <div v-else-if="pdfError" class="alert-error flex items-center gap-3" role="alert">
+          <span class="flex-1">{{ pdfError }}</span>
+          <button class="text-sm underline" @click="openPdfLabelPrint">Thử lại</button>
+        </div>
+        <!-- Preview = CHÍNH file PDF Blob (WYSIWYG). -->
+        <template v-else-if="pdfPreviewUrl">
+          <p class="text-xs text-slate-500">
+            Hộp thoại in đã mở — chọn máy in tem (khổ 60×100mm). Sau khi in xong,
+            bấm “Đã in xong” để ghi nhận.
+          </p>
+          <iframe
+            :src="pdfPreviewUrl"
+            title="Xem trước PDF nhãn QR"
+            class="w-full rounded-lg border border-slate-200"
+            style="height: 60vh"
+            data-testid="pdf-preview-iframe"
+          ></iframe>
+        </template>
+      </div>
+      <template #footer>
+        <button class="btn-ghost text-sm" @click="closePdfModal">Đóng</button>
+        <button
+          class="btn-primary text-sm"
+          :disabled="pdfPrinting || pdfLoading || !pdfPreviewUrl || labelMarked"
+          data-testid="btn-pdf-printed"
+          @click="markPrintedOnce"
+        >
+          {{ labelMarked ? 'Đã ghi nhận' : 'Đã in xong' }}
+        </button>
+      </template>
+    </BaseModal>
+
+    <!-- A4 (LEGACY — giữ song song, KHÔNG xoá tới khi BA chốt thay hẳn): QR Label
+         preview Modal HTML/CSS @page (đường in cũ, KHÔNG đảm bảo khổ tem nhiệt). -->
     <div v-if="showLabelModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 qr-modal-chrome">
       <div class="bg-white rounded-xl shadow-xl p-6 w-full max-w-md mx-4">
         <div class="flex items-center justify-between mb-4 qr-modal-chrome">

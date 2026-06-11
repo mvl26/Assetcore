@@ -9,9 +9,13 @@
 //   • loading → aria-busy; lỗi network → role=alert thông điệp VI.
 //   • empty (0 name) → hint VI, KHÔNG gọi batch API.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { mount, flushPromises } from '@vue/test-utils'
+import { mount, flushPromises, config } from '@vue/test-utils'
 import { ref } from 'vue'
 import { ApiError, ErrorCode } from '@/api/errors'
+
+// BaseModal teleports tới <body>; render teleport inline để wrapper.find reach
+// modal PDF (nút 'Đã in xong' / iframe preview).
+config.global.stubs = { teleport: true }
 
 const routeQuery = ref<Record<string, string | string[]>>({})
 const pushSpy = vi.fn()
@@ -23,12 +27,50 @@ vi.mock('vue-router', () => ({
 const getBatchSpy = vi.fn()
 const getOneSpy = vi.fn()
 const markPrintedSpy = vi.fn().mockResolvedValue({ printed: [], event_count: 0 })
-vi.mock('@/api/imm00', () => ({
-  getAssetLabelDataBatch: (names: string[]) => getBatchSpy(names),
-  getAssetLabelData: (n: string) => getOneSpy(n),
-  markLabelPrinted: (assets: string[]) => markPrintedSpy(assets),
-}))
+// printPdfSpy nhận (names, preset) — assert preset đang chọn được truyền xuống.
+const printPdfSpy = vi.fn()
+// SSoT preset PDF (mirror api/imm00) — định nghĩa TRONG factory (vi.mock hoisted →
+// KHÔNG tham chiếu biến top-level). Giữ giá trị thật cho dropdown + nhãn VI.
+vi.mock('@/api/imm00', () => {
+  const presets = [
+    { key: 'tem-60x100', label: 'Tem 60×100mm' },
+    { key: 'tem-70x40', label: 'Tem 70×40mm' },
+    { key: 'tem-50x30', label: 'Tem 50×30mm' },
+  ] as const
+  return {
+    getAssetLabelDataBatch: (names: string[]) => getBatchSpy(names),
+    getAssetLabelData: (n: string) => getOneSpy(n),
+    markLabelPrinted: (assets: string[]) => markPrintedSpy(assets),
+    printAssetLabelsPdf: (names: string[], preset?: string) => printPdfSpy(names, preset),
+    LABEL_PDF_PRESETS: presets,
+    LABEL_PDF_PRESET: 'tem-60x100',
+    labelPdfPresetLabel: (preset: string) =>
+      presets.find((p) => p.key === preset)?.label ?? '',
+  }
+})
 vi.mock('qrcode', () => ({ default: { toDataURL: vi.fn().mockResolvedValue('data:image/png;base64,QR==') } }))
+
+// ── Mock composable usePdfLabelPrint ────────────────────────────────────────────
+// QUAN TRỌNG: gọi fetcher THẬT do view truyền vào → printAssetLabelsPdf(names, preset)
+// được invoke với preset người dùng chọn (assert preset truyền đúng).
+const printLabelsSpy = vi.fn()
+const revokeSpy = vi.fn()
+const pdfPreviewUrl = ref<string | null>(null)
+const pdfPrinting = ref(false)
+const pdfErrorRef = ref<unknown>(null)
+let capturedOnAfterPrint: ((names: string[]) => void | Promise<void>) | undefined
+vi.mock('@/composables/usePdfLabelPrint', () => ({
+  usePdfLabelPrint: (fetcher: (names: string[]) => Promise<Blob>) => ({
+    printLabels: (names: string[], opts: { onAfterPrint?: (n: string[]) => void } = {}) => {
+      capturedOnAfterPrint = opts.onAfterPrint
+      pdfPreviewUrl.value = 'blob:mock-pdf'
+      // Gọi fetcher thật → printAssetLabelsPdf(names, selectedPreset) bị invoke.
+      void fetcher(names)
+      return printLabelsSpy(names, opts)
+    },
+    previewUrl: pdfPreviewUrl, printing: pdfPrinting, error: pdfErrorRef, revoke: revokeSpy,
+  }),
+}))
 
 // Toast SSoT (parity màn in đơn AssetDetailView) — spy success/error/show qua
 // composable (KHÔNG hardcode DOM / literal trùng lặp).
@@ -52,6 +94,13 @@ describe('AssetLabelPrintView — in nhãn QR hàng loạt (A4)', () => {
     getOneSpy.mockReset()
     markPrintedSpy.mockClear()
     markPrintedSpy.mockResolvedValue({ printed: [], event_count: 0 })
+    printPdfSpy.mockReset().mockResolvedValue(new Blob(['%PDF'], { type: 'application/pdf' }))
+    printLabelsSpy.mockReset().mockResolvedValue(new Blob(['%PDF'], { type: 'application/pdf' }))
+    revokeSpy.mockClear()
+    pdfPreviewUrl.value = null
+    pdfPrinting.value = false
+    pdfErrorRef.value = null
+    capturedOnAfterPrint = undefined
     pushSpy.mockClear()
     toastSuccessSpy.mockClear()
     toastErrorSpy.mockClear()
@@ -83,17 +132,120 @@ describe('AssetLabelPrintView — in nhãn QR hàng loạt (A4)', () => {
     expect(w.findAll('img').length).toBe(2)
   })
 
-  it("bấm 'In' → markLabelPrinted chỉ gửi name HỢP LỆ (loại item error)", async () => {
+  it("bấm 'In tất cả' → printLabels 1 LẦN với CHỈ name HỢP LỆ THEO THỨ TỰ (loại item error)", async () => {
     getBatchSpy.mockResolvedValue([lbl('A1'), { name: 'BAD', error: 'AC-E001' }, lbl('A3')])
     const w = mount(AssetLabelPrintView)
     await flushPromises()
-    const printBtn = w.findAll('button').find(b => b.text().includes('In'))
+    const printBtn = w.findAll('button').find(b => b.text().includes('In tất cả'))
     expect(printBtn).toBeTruthy()
     await printBtn!.trigger('click')
     await flushPromises()
-    expect(window.print).toHaveBeenCalled()
+    // 1 LẦN gọi cho TOÀN batch (KHÔNG N lời gọi), chỉ name hợp lệ theo thứ tự.
+    expect(printLabelsSpy).toHaveBeenCalledTimes(1)
+    expect(printLabelsSpy.mock.calls[0][0]).toEqual(['A1', 'A3'])
+    // markLabelPrinted CHƯA gọi (mở hộp thoại ≠ in xong).
+    expect(markPrintedSpy).not.toHaveBeenCalled()
+  })
+
+  it("'Đã in xong' → markLabelPrinted chỉ name HỢP LỆ ĐÚNG 1 lần", async () => {
+    getBatchSpy.mockResolvedValue([lbl('A1'), { name: 'BAD', error: 'AC-E001' }, lbl('A3')])
+    const w = mount(AssetLabelPrintView)
+    await flushPromises()
+    await w.findAll('button').find(b => b.text().includes('In tất cả'))!.trigger('click')
+    await flushPromises()
+    const done = w.find('[data-testid="btn-pdf-printed"]')
+    expect(done.exists()).toBe(true)
+    await done.trigger('click')
+    await flushPromises()
     expect(markPrintedSpy).toHaveBeenCalledTimes(1)
     expect(markPrintedSpy).toHaveBeenCalledWith(['A1', 'A3'])
+  })
+
+  it("đóng modal PDF (huỷ) → revoke + KHÔNG ghi audit", async () => {
+    getBatchSpy.mockResolvedValue([lbl('A1'), lbl('A2'), lbl('A3')])
+    const w = mount(AssetLabelPrintView)
+    await flushPromises()
+    await w.findAll('button').find(b => b.text().includes('In tất cả'))!.trigger('click')
+    await flushPromises()
+    const close = w.findAll('button').find(b => b.text().trim() === 'Đóng')
+    await close!.trigger('click')
+    await flushPromises()
+    expect(revokeSpy).toHaveBeenCalled()
+    expect(markPrintedSpy).not.toHaveBeenCalled()
+  })
+
+  it("preview modal PDF embed CHÍNH Blob URL (iframe src=previewUrl)", async () => {
+    getBatchSpy.mockResolvedValue([lbl('A1'), lbl('A2'), lbl('A3')])
+    const w = mount(AssetLabelPrintView)
+    await flushPromises()
+    await w.findAll('button').find(b => b.text().includes('In tất cả'))!.trigger('click')
+    await flushPromises()
+    const iframe = w.find('[data-testid="pdf-preview-iframe"]')
+    expect(iframe.exists()).toBe(true)
+    expect(iframe.attributes('src')).toBe('blob:mock-pdf')
+  })
+
+  // ── F1/F3: dropdown khổ tem ĐIỀU KHIỂN PDF THẬT + badge khổ ──────────────────
+
+  it('dropdown khổ tem render ĐÚNG 3 option PDF với value KHỚP key BE', async () => {
+    getBatchSpy.mockResolvedValue([lbl('A1'), lbl('A2'), lbl('A3')])
+    const w = mount(AssetLabelPrintView)
+    await flushPromises()
+    const select = w.find('[data-testid="label-preset-select"]')
+    expect(select.exists()).toBe(true)
+    const opts = select.findAll('option')
+    expect(opts.map(o => o.attributes('value'))).toEqual(['tem-60x100', 'tem-70x40', 'tem-50x30'])
+    expect(opts.map(o => o.text())).toEqual(['Tem 60×100mm', 'Tem 70×40mm', 'Tem 50×30mm'])
+    // Mặc định chọn sẵn 'tem-60x100'.
+    expect((select.element as HTMLSelectElement).value).toBe('tem-60x100')
+  })
+
+  it("badge khổ tĩnh hiển thị khổ ĐANG CHỌN trước khi in (mặc định 60×100)", async () => {
+    getBatchSpy.mockResolvedValue([lbl('A1'), lbl('A2'), lbl('A3')])
+    const w = mount(AssetLabelPrintView)
+    await flushPromises()
+    const badge = w.find('[data-testid="label-preset-badge"]')
+    expect(badge.exists()).toBe(true)
+    expect(badge.text()).toContain('Tem 60×100mm')
+    // Đổi khổ → badge cập nhật (không cần mở modal).
+    const select = w.find('[data-testid="label-preset-select"]')
+    await select.setValue('tem-50x30')
+    expect(w.find('[data-testid="label-preset-badge"]').text()).toContain('Tem 50×30mm')
+  })
+
+  it("chọn 'tem-50x30' → 'In tất cả' → printAssetLabelsPdf gọi với preset 'tem-50x30' (KHÔNG 60×100)", async () => {
+    getBatchSpy.mockResolvedValue([lbl('A1'), lbl('A2'), lbl('A3')])
+    const w = mount(AssetLabelPrintView)
+    await flushPromises()
+    // Chọn khổ 50×30.
+    await w.find('[data-testid="label-preset-select"]').setValue('tem-50x30')
+    await w.findAll('button').find(b => b.text().includes('In tất cả'))!.trigger('click')
+    await flushPromises()
+    // Fetcher thật được invoke → printAssetLabelsPdf(names, 'tem-50x30').
+    expect(printPdfSpy).toHaveBeenCalledTimes(1)
+    expect(printPdfSpy.mock.calls[0][0]).toEqual(['A1', 'A2', 'A3'])
+    expect(printPdfSpy.mock.calls[0][1]).toBe('tem-50x30')
+  })
+
+  it("mặc định (KHÔNG đổi dropdown) → printAssetLabelsPdf gọi với preset 'tem-60x100'", async () => {
+    getBatchSpy.mockResolvedValue([lbl('A1'), lbl('A2'), lbl('A3')])
+    const w = mount(AssetLabelPrintView)
+    await flushPromises()
+    await w.findAll('button').find(b => b.text().includes('In tất cả'))!.trigger('click')
+    await flushPromises()
+    expect(printPdfSpy).toHaveBeenCalledTimes(1)
+    expect(printPdfSpy.mock.calls[0][1]).toBe('tem-60x100')
+  })
+
+  it("chọn 'tem-70x40' → tiêu đề modal PDF phản ánh khổ đang chọn", async () => {
+    getBatchSpy.mockResolvedValue([lbl('A1'), lbl('A2'), lbl('A3')])
+    const w = mount(AssetLabelPrintView)
+    await flushPromises()
+    await w.find('[data-testid="label-preset-select"]').setValue('tem-70x40')
+    await w.findAll('button').find(b => b.text().includes('In tất cả'))!.trigger('click')
+    await flushPromises()
+    // Tiêu đề modal chứa khổ đang chọn (KHÔNG còn hardcode 60×100mm).
+    expect(w.text()).toContain('Tem 70×40mm')
   })
 
   it('loading → aria-busy hiển thị', async () => {
@@ -271,47 +423,44 @@ describe('AssetLabelPrintView — in nhãn QR hàng loạt (A4)', () => {
   // ── B-hardening a11y: phản hồi thành-công/lỗi + aria-live cho IN BATCH ───────
   // Parity màn in đơn AssetDetailView (toast VI qua useToast); KHÔNG nuốt câm.
 
-  it("printAll() thành công → useToast.success gọi ĐÚNG 1 lần với chuỗi VI chứa số nhãn hợp lệ", async () => {
+  it("'Đã in xong' thành công → useToast.success ĐÚNG 1 lần với chuỗi VI chứa số nhãn hợp lệ", async () => {
     getBatchSpy.mockResolvedValue([lbl('A1'), { name: 'BAD', error: 'AC-E001' }, lbl('A3')])
     const w = mount(AssetLabelPrintView)
     await flushPromises()
-    const printBtn = w.findAll('button').find(b => b.text().includes('In tất cả'))
-    await printBtn!.trigger('click')
+    await w.findAll('button').find(b => b.text().includes('In tất cả'))!.trigger('click')
     await flushPromises()
-    expect(window.print).toHaveBeenCalled()
+    await w.find('[data-testid="btn-pdf-printed"]').trigger('click')
+    await flushPromises()
     // 2 nhãn hợp lệ (A1, A3) → toast.success ĐÚNG 1 lần với chuỗi VI chứa '2'.
     expect(toastSuccessSpy).toHaveBeenCalledTimes(1)
     const msg = toastSuccessSpy.mock.calls[0][0] as string
     expect(msg).toContain('2')
     expect(msg).toContain('Đã ghi nhận in')
-    // KHÔNG gọi toast.error khi thành công.
     expect(toastErrorSpy).not.toHaveBeenCalled()
   })
 
-  it("printAll() khi markLabelPrinted REJECT → useToast.error (bucket VI) + KHÔNG throw + KHÔNG echo raw EN + window.print vẫn gọi", async () => {
+  it("'Đã in xong' khi markLabelPrinted REJECT → useToast.error (bucket VI) + KHÔNG throw + KHÔNG echo raw EN", async () => {
     getBatchSpy.mockResolvedValue([lbl('A1'), lbl('A2'), lbl('A3')])
     // Audit-write lỗi: BE trả message tiếng Anh thô.
     markPrintedSpy.mockRejectedValue(
       new ApiError('Internal Server Error (AttributeError)', ErrorCode.UNKNOWN, 500))
     const w = mount(AssetLabelPrintView)
     await flushPromises()
-    const printBtn = w.findAll('button').find(b => b.text().includes('In tất cả'))
-    // KHÔNG throw lên trên (printAll nuốt lỗi audit nhưng có phản hồi).
-    await expect(printBtn!.trigger('click')).resolves.toBeUndefined()
+    await w.findAll('button').find(b => b.text().includes('In tất cả'))!.trigger('click')
     await flushPromises()
-    // Giấy KHÔNG bị chặn — đã in trước khi ghi audit.
-    expect(window.print).toHaveBeenCalled()
+    const done = w.find('[data-testid="btn-pdf-printed"]')
+    await expect(done.trigger('click')).resolves.toBeUndefined()
+    await flushPromises()
     // toast.error bucket VI cố định — KHÔNG echo error.message raw EN.
     expect(toastErrorSpy).toHaveBeenCalledTimes(1)
     const emsg = toastErrorSpy.mock.calls[0][0] as string
     expect(emsg).not.toContain('Internal Server Error')
     expect(emsg).not.toContain('AttributeError')
     expect(emsg.length).toBeGreaterThan(0)
-    // KHÔNG báo nhầm thành công.
     expect(toastSuccessSpy).not.toHaveBeenCalled()
   })
 
-  it("aria-live: sau printAll thành công, role='status' aria-live='polite' chứa text VI số nhãn", async () => {
+  it("aria-live: sau 'Đã in xong' thành công, role='status' aria-live='polite' chứa text VI số nhãn", async () => {
     getBatchSpy.mockResolvedValue([lbl('A1'), lbl('A2'), lbl('A3')])
     const w = mount(AssetLabelPrintView)
     await flushPromises()
@@ -320,8 +469,9 @@ describe('AssetLabelPrintView — in nhãn QR hàng loạt (A4)', () => {
     expect(status.attributes('aria-live')).toBe('polite')
     // Trước khi in → rỗng (không vang nhầm).
     expect(status.text()).toBe('')
-    const printBtn = w.findAll('button').find(b => b.text().includes('In tất cả'))
-    await printBtn!.trigger('click')
+    await w.findAll('button').find(b => b.text().includes('In tất cả'))!.trigger('click')
+    await flushPromises()
+    await w.find('[data-testid="btn-pdf-printed"]').trigger('click')
     await flushPromises()
     expect(status.text()).toContain('3')
     expect(status.text()).toContain('Đã ghi nhận in')
@@ -333,13 +483,31 @@ describe('AssetLabelPrintView — in nhãn QR hàng loạt (A4)', () => {
       new ApiError('Internal Server Error (AttributeError)', ErrorCode.UNKNOWN, 500))
     const w = mount(AssetLabelPrintView)
     await flushPromises()
-    const printBtn = w.findAll('button').find(b => b.text().includes('In tất cả'))
-    await printBtn!.trigger('click')
+    await w.findAll('button').find(b => b.text().includes('In tất cả'))!.trigger('click')
+    await flushPromises()
+    await w.find('[data-testid="btn-pdf-printed"]').trigger('click')
     await flushPromises()
     const status = w.find('[role="status"]')
     expect(status.text().length).toBeGreaterThan(0)
     expect(status.text()).not.toContain('Internal Server Error')
     expect(status.text()).not.toContain('AttributeError')
+  })
+
+  it("onafterprint → markLabelPrinted (đường bổ trợ) + KHÔNG double-ghi với 'Đã in xong'", async () => {
+    getBatchSpy.mockResolvedValue([lbl('A1'), { name: 'BAD', error: 'AC-E001' }, lbl('A3')])
+    const w = mount(AssetLabelPrintView)
+    await flushPromises()
+    await w.findAll('button').find(b => b.text().includes('In tất cả'))!.trigger('click')
+    await flushPromises()
+    expect(capturedOnAfterPrint).toBeTruthy()
+    await capturedOnAfterPrint!(['A1', 'A3'])
+    await flushPromises()
+    expect(markPrintedSpy).toHaveBeenCalledTimes(1)
+    expect(markPrintedSpy).toHaveBeenCalledWith(['A1', 'A3'])
+    // 'Đã in xong' sau đó → KHÔNG double-ghi (idempotent labelMarked).
+    await w.find('[data-testid="btn-pdf-printed"]').trigger('click')
+    await flushPromises()
+    expect(markPrintedSpy).toHaveBeenCalledTimes(1)
   })
 
   it("Regression: 'In tất cả' disabled khi 0 nhãn hợp lệ (toàn item lỗi AC-E001)", async () => {
