@@ -45,6 +45,19 @@ export default defineConfig(({ command, mode }) => {
     || resolve(fileURLToPath(new URL('.', import.meta.url)), '../../../sites')
   const enableFileServer = env.VITE_SERVE_FRAPPE_FILES !== '0'
 
+  // Hosts cho phép truy cập dev server (Vite chặn Host header lạ mặc định).
+  // Leading-dot = match domain + mọi subdomain → sống sót khi ngrok đổi tên tunnel.
+  // Thêm host khác qua VITE_ALLOWED_HOSTS (phân tách bằng dấu phẩy).
+  const allowedHosts = [
+    '.ngrok-free.dev',
+    '.ngrok-free.app',
+    '.ngrok.io',
+    ...(env.VITE_ALLOWED_HOSTS || '')
+      .split(',')
+      .map((h) => h.trim())
+      .filter(Boolean),
+  ]
+
   const MIME: Record<string, string> = {
     '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
     '.gif': 'image/gif',  '.webp': 'image/webp',  '.svg': 'image/svg+xml',
@@ -102,6 +115,7 @@ export default defineConfig(({ command, mode }) => {
       strictPort: true,
       host: '0.0.0.0',
       cors: true,
+      allowedHosts,
       proxy: {
         '/api': commonProxyOptions,
         '/files': commonProxyOptions,
