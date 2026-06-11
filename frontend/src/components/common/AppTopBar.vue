@@ -10,11 +10,13 @@ import {
   type NotificationItem, type UserContext,
 } from '@/api/layout'
 import { sanitizeHtml } from '@/utils/sanitizeHtml'
+import { useCommandPaletteStore } from '@/stores/commandPalette'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const { collapsed, openMobile } = useSidebar()
+const cmdk = useCommandPaletteStore()
 
 const userMenuOpen = ref(false)
 const notifOpen = ref(false)
@@ -193,6 +195,24 @@ onUnmounted(() => {
     <!-- Actions + user -->
     <div class="flex items-center gap-2 shrink-0">
       <!-- Persona switcher GỠ (Phase 1.2): nav/quyền derive từ ROLE THẬT. -->
+
+      <!-- ─── ⌘K Tìm nhanh (ADR-IMM00-CMDK D4) — net-new cạnh Bell ──── -->
+      <!-- Lối vào DUY NHẤT trên mobile no-keyboard. Touch target ≥44px. -->
+      <button
+        type="button"
+        class="cmdk-hint flex items-center gap-2 rounded-lg px-2.5 transition-colors duration-150
+               text-slate-500 hover:text-slate-800 hover:bg-slate-100"
+        style="min-height: 44px; min-width: 44px"
+        aria-label="Tìm nhanh"
+        title="Tìm nhanh (⌘K / Ctrl+K)"
+        @click="cmdk.openPalette"
+      >
+        <svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" class="w-[18px] h-[18px] shrink-0">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z" />
+        </svg>
+        <span class="hidden md:inline text-sm">Tìm nhanh</span>
+        <kbd class="hidden sm:inline text-[11px] font-medium text-slate-400 border border-slate-200 rounded px-1.5 py-0.5 leading-none">⌘K</kbd>
+      </button>
 
       <!-- ─── Notification Bell ────────────────────────────────── -->
       <div class="relative">

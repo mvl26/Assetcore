@@ -92,7 +92,7 @@ const routes: RouteRecordRaw[] = [
     path: '/qr-scan',
     name: 'QRScan',
     component: () => import('@/views/system/QRScanView.vue'),
-    meta: { requiresAuth: true, title: 'Quét QR — GMDN Status' },
+    meta: { requiresAuth: true, title: 'Mở hồ sơ thiết bị' },
   },
   {
     // A2 (ADR-001 D4): deep-link QR cấp tài sản /a/<token> → resolver MỎNG →

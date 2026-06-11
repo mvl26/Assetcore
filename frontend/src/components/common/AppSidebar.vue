@@ -15,9 +15,14 @@ import { useAuthStore } from '@/stores/auth'
 import { SUPERUSER_ROLES } from '@/constants/personas'
 import { buildSidebarGroupsForRoles, type NavItem, type SidebarGroup } from '@/constants/sidebarNav'
 import {
+  GROUPS_STORAGE_KEY,
   readClosedGroups,
   toggleClosedGroup,
   isGroupOpen,
+  readPinnedGroups,
+  togglePinnedGroup,
+  defaultClosedGroups,
+  orderGroupsWithPins,
 } from '@/constants/sidebarGroups'
 
 const router = useRouter()
@@ -76,8 +81,14 @@ const personaColor = computed<string>(() => primaryPersona.value?.color ?? '#0E6
 
 // Nav theo GROUP — buildSidebarGroupsForRoles UNION module mọi persona role thật,
 // lọc capability + dedupe path toàn cục + bỏ group rỗng.
+// D7: chỉ ORDER lại (nhóm ghim lên đầu) — KHÔNG đụng items/itemVisible (RBAC bất
+// biến: orderGroupsWithPins không thêm/bớt nhóm hay entry nào).
+const pinnedGroups = ref<string[]>(readPinnedGroups())
 const navGroups = computed(() =>
-  buildSidebarGroupsForRoles(personas.value, can, isSuperuser.value),
+  orderGroupsWithPins(
+    buildSidebarGroupsForRoles(personas.value, can, isSuperuser.value),
+    pinnedGroups.value,
+  ),
 )
 // Flat list (collapsed mode + active-path matching).
 const navItems = computed<NavItem[]>(() => navGroups.value.flatMap((g) => g.items))
@@ -109,9 +120,21 @@ const activeItemPath = computed<string>(() => {
 })
 function isActive(path: string): boolean { return activeItemPath.value === path }
 
-// ─── Collapsible groups (Core Doc §7.bis) ─────────────────────────────────────
+// ─── Collapsible groups (Core Doc §7.bis + ADR-IMM00-CMDK D7) ─────────────────
 // Persist danh sách group ĐANG ĐÓNG; default mở; group active luôn mở.
-const closedGroups = ref<string[]>(readClosedGroups())
+// D7: persona đa-nhóm (> ngưỡng) → nhóm "ít dùng" (Governance/Compliance/Admin)
+// default-collapsed; nhóm vận hành expanded. CHỈ áp khi user CHƯA tự tuỳ chỉnh
+// (chưa có key persist) — tôn trọng lựa chọn user sau khi họ đã toggle.
+// Nhóm GHIM (📌) luôn expand (defaultClosedGroups đã loại pinned).
+const hasPersistedClosed = localStorage.getItem(GROUPS_STORAGE_KEY) !== null
+const closedGroups = ref<string[]>(
+  hasPersistedClosed
+    ? readClosedGroups()
+    : defaultClosedGroups(
+        buildSidebarGroupsForRoles(personas.value, can, isSuperuser.value),
+        pinnedGroups.value,
+      ),
+)
 
 // Group chứa item đang active → để auto-open (không giấu chức năng đang dùng).
 const activeGroupTitle = computed<string | null>(() => {
@@ -122,11 +145,21 @@ const activeGroupTitle = computed<string | null>(() => {
 })
 
 function groupOpen(group: SidebarGroup): boolean {
+  // Nhóm ghim → luôn mở (D7).
+  if (pinnedGroups.value.includes(group.title)) return true
   return isGroupOpen(group, closedGroups.value, activeGroupTitle.value)
 }
 
 function toggleGroup(group: SidebarGroup): void {
   closedGroups.value = toggleClosedGroup(group.title)
+}
+
+function togglePinGroup(group: SidebarGroup, e: Event): void {
+  e.stopPropagation()
+  pinnedGroups.value = togglePinnedGroup(group.title)
+}
+function isGroupPinned(title: string): boolean {
+  return pinnedGroups.value.includes(title)
 }
 
 // ─── Logo → dashboard (persona home) ──────────────────────────────────────────
@@ -204,22 +237,37 @@ function goHome() { router.push('/dashboard') }
       <!-- Expanded: grouped + collapsible (Core Doc §7.bis) -->
       <template v-if="!collapsed && hasNav">
         <div v-for="group in navGroups" :key="group.title + group.code" class="nav-group">
-          <button
-            type="button"
-            class="nav-group-header w-full flex items-center justify-between"
-            :aria-expanded="groupOpen(group)"
-            :title="groupOpen(group) ? 'Thu gọn nhóm' : 'Mở rộng nhóm'"
-            @click="toggleGroup(group)"
-          >
-            <span class="nav-group-label">{{ group.title }}</span>
-            <svg
-              class="nav-group-chevron w-3.5 h-3.5 shrink-0 transition-transform duration-200"
-              :class="groupOpen(group) ? '' : '-rotate-90'"
-              fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"
+          <div class="nav-group-header w-full flex items-center justify-between">
+            <button
+              type="button"
+              class="nav-group-toggle flex-1 flex items-center justify-between min-w-0"
+              :aria-expanded="groupOpen(group)"
+              :title="groupOpen(group) ? 'Thu gọn nhóm' : 'Mở rộng nhóm'"
+              @click="toggleGroup(group)"
             >
-              <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-            </svg>
-          </button>
+              <span class="nav-group-label truncate">{{ group.title }}</span>
+              <svg
+                class="nav-group-chevron w-3.5 h-3.5 shrink-0 transition-transform duration-200"
+                :class="groupOpen(group) ? '' : '-rotate-90'"
+                fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"
+              >
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            <!-- D7: ghim nhóm → lên đầu + luôn expand -->
+            <button
+              type="button"
+              class="nav-group-pin shrink-0"
+              :class="isGroupPinned(group.title) ? 'pinned' : ''"
+              :aria-label="isGroupPinned(group.title) ? 'Bỏ ghim nhóm' : 'Ghim nhóm'"
+              :title="isGroupPinned(group.title) ? 'Bỏ ghim nhóm' : 'Ghim nhóm lên đầu'"
+              @click="togglePinGroup(group, $event)"
+            >
+              <svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" class="w-3 h-3">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M5 5l14 14M9 4h6l-1 5 3 3v2H7v-2l3-3-1-5z" />
+              </svg>
+            </button>
+          </div>
           <div v-show="groupOpen(group)">
             <button
               v-for="item in group.items"
@@ -304,12 +352,26 @@ function goHome() { router.push('/dashboard') }
 .nav-group { padding-bottom: 2px; }
 .nav-group-header {
   padding: 12px 16px 4px;
-  background: transparent; border: none; cursor: pointer;
   color: #6f8aa8;
-  transition: color 0.15s;
 }
-.nav-group-header:hover { color: #9fc3e8; }
-.nav-group-header:hover .nav-group-chevron { color: #9fc3e8; }
+.nav-group-toggle {
+  background: transparent; border: none; cursor: pointer;
+  color: inherit;
+  transition: color 0.15s;
+  padding: 0;
+}
+.nav-group-toggle:hover { color: #9fc3e8; }
+.nav-group-toggle:hover .nav-group-chevron { color: #9fc3e8; }
+.nav-group-pin {
+  background: transparent; border: none; cursor: pointer;
+  color: #4a6280;
+  margin-left: 6px;
+  opacity: 0;
+  transition: color 0.15s, opacity 0.15s;
+}
+.nav-group-header:hover .nav-group-pin { opacity: 1; }
+.nav-group-pin:hover { color: #9fc3e8; }
+.nav-group-pin.pinned { color: #0E6FFF; opacity: 1; }
 .nav-group-label {
   font-size: 10.5px;
   font-weight: 600;
