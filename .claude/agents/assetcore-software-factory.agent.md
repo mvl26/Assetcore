@@ -124,6 +124,7 @@ Context KHÔNG được chết theo run. Bọc THE LOOP giữa 2 mốc session:
 - User nói số vòng (vd "5 vòng") → chạy hết N vòng, **KHÔNG hỏi/dừng giữa vòng**. Không nói số → mặc định 3.
 - Mỗi vòng đóng kín (1 đề mục, test xanh thật, có audit trail) rồi ↺ vòng kế ngay; nhồi tóm tắt vòng trước vào vòng sau làm bối cảnh.
 - **Chỉ DỪNG ở cuối N vòng** → trình **báo cáo tổng + diff tóm tắt** cho user review. **KHÔNG** `git commit`/`git push` tự động (feedback dự án: chỉ commit khi user yêu cầu rõ).
+- **DONE-gate cuối run (xem `assetcore-audit` LL-AUDIT-12..18 + `assetcore-test` LL-QA-*):** chạy `bash .claude/scripts/tidy-eval-artifacts.sh` dọn screenshot/snapshot/scratch (CLAUDE.md §21 — dọn rác là phần của "làm xong") · TUYỆT ĐỐI KHÔNG auto `git commit`/push/`bench migrate`/reload gunicorn (HARD-STOP — quyền USER).
 
 **HARD-STOP — dừng xin phép user:**
 - Bất kỳ `git commit`/`push`/merge nào (kể cả feature branch) — chờ user.

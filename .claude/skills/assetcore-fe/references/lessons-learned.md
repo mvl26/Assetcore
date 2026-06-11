@@ -425,6 +425,8 @@ Bug session 2026-05-26: FE hiển thị "Locked", "Evaluated", "Contract Signed"
    - `STATUS_MAP` (label tiếng Việt)
    - `STATUS_COLOR` (1 trong 6: COLOR_GREEN/BLUE/YELLOW/ORANGE/RED/PURPLE/GRAY)
 
+   **Audit-list key thường thiếu** (Wave2 — phải có entry, áp grep cả DetailView + dashboard card, KHÔNG chỉ ListView): `Under Maintenance`→'Đang bảo trì', `Scheduled`→'Đã lên lịch', `Locked`, `Evaluated`, `Contract Signed`, `Weekly`, `Minor`. Bug IMM-12-A (dashboard cards 'Open'/'In Progress') + IMM-11-B (Cal detail 'Scheduled' dù list đã đúng) lọt vì detail+card quên áp map dù list đúng → mở rộng phạm vi grep GATE-1/GATE-2 sang detail+card.
+
 2. Audit script trước khi tag release:
    ```bash
    # Dump all states từ workflow JSON files:
@@ -759,7 +761,9 @@ Reference: `CONVENTIONS.md §42`, `assetcore-be` LL-BE-23 (hook chain), `assetco
 
 Reference: `CONVENTIONS.md §43`, `assetcore-fe` LL-FE-17 (KPI consistency — bổ trợ).
 
-### LL-FE-34: KPI/tile clickable PHẢI có đích lọc THẬT — nếu không thì render TĨNH (2026-05-29)
+### LL-FE-39: KPI/tile clickable PHẢI có đích lọc THẬT — nếu không thì render TĨNH (2026-05-29)
+
+> (Trước đây đánh số LL-FE-34 — đổi thành LL-FE-39 để nhường số 34 cho Responsive DoD theo ADR-IMM00-RESPONSIVE D5; nội dung KHÔNG đổi.)
 
 **Bug đã gặp 2026-05-29 (IMM-05 document KPI):** tile "Thiết bị thiếu hồ sơ" được làm clickable → `router.push('/assets?filter=missing-docs')`, nhưng `/assets` **KHÔNG handle** query `filter=missing-docs` → điều hướng tới list hiển thị **toàn bộ asset** (không lọc) → user tưởng đang xem "thiếu hồ sơ" nhưng thấy tất cả. **Đổi một dead-end ("đang phát triển" toast) lấy một điều hướng SAI LỆCH — còn tệ hơn** (LL-FE-17/29: KPI count ≠ list count).
 
@@ -856,3 +860,118 @@ Cross-ref: LL-FE-36 (route↔nav gate), [[LL-BE-38]] (over-grant DocPerm là g�
 **Quy tắc:** thấy đề xuất thêm "đổi persona/role ở UI để xem giao diện khác" → TỪ CHỐI; phân quyền + nav phải theo role thật. Muốn test nhiều persona → tạo user test có role tương ứng (`scripts/seed_test_users.py`), đăng nhập từng user.
 
 Cross-ref: LL-FE-36/37 (gate theo role thật), [[LL-BE-37]] (gán role qua admin), Core Doc `FE_Persona_Navigation.md §7.bis–7.septies`.
+
+### LL-FE-34: Responsive DoD (mobile-first) — 5 pattern P1-P5, breakpoint sm/md/lg/xl, modal full-screen mobile (2026-06-10)
+
+**Bối cảnh (ADR-IMM00-RESPONSIVE, Accepted 2026-06-09):** KTV TBYT làm việc tại hiện trường cầm phone quét tem QR → cần xem danh sách / báo hỏng / tạo WO ngay trên mobile. FE có pattern responsive rải rác (37 view dùng `hidden sm:block`/`sm:hidden`) NHƯNG không DoD bắt buộc → view mới quên → bảng tràn ngang, tab-bar cắt, touch <44px. Đây là họ bug kế tiếp sau English/raw-code leak (memory `wave2_ui_bugs`).
+
+**Breakpoint chuẩn (Tailwind DEFAULT — KHÔNG custom px, KHÔNG `theme.screens`):**
+
+| Prefix | min-width | Persona |
+|---|---|---|
+| (base) | 0 | Mobile — KTV hiện trường (phone) |
+| `sm:` | 640px | Phone ngang / phablet |
+| `md:` | 768px | Tablet — QL vật tư |
+| `lg:` | 1024px | Laptop |
+| `xl:` | 1280px | Desktop — admin |
+
+- **Mobile-first:** class base = trạng thái mobile; thêm `sm:`/`md:`/`lg:` cho màn lớn hơn. KHÔNG `max-sm:` ngược chiều trừ bất khả kháng.
+- **KHÔNG PWA** (service worker / manifest / offline cache / "install app"). Responsive web thuần.
+- **KHÔNG custom breakpoint px** — cấm `min-[900px]:` / `max-[...]:` ad-hoc trong `src/views`. md/lg đã đủ. (Lưu ý: `min-h-[44px]`/`min-w-[44px]` là touch-target, KHÔNG phải media-prefix breakpoint — hợp lệ.)
+
+**5 PATTERN BẮT BUỘC (vi phạm = blocker FE-DoD, `assetcore-audit` Pillar 6 flag 🟠):**
+
+| # | Pattern | Class chốt | Áp cho |
+|---|---|---|---|
+| P1 | List = table→card | desktop `<table>` bọc `hidden sm:block`; mobile `<div class="mobile-card-list sm:hidden">` mỗi record 1 card | mọi List view |
+| P2 | Form = 1-col mobile → 2-col desktop | `grid grid-cols-1 md:grid-cols-2 gap-*` | mọi form create/edit |
+| P3 | MỌI `<table>` bọc `overflow-x-auto` | `<div class="overflow-x-auto"><table>…</table></div>` | mọi bảng (kể cả khi có card-list — bảng desktop vẫn cần) |
+| P4 | Tab-bar / chip-bar dài cuộn được | `overflow-x-auto` (cuộn ngang) HOẶC `flex-wrap` trên container; mỗi item `shrink-0` | mọi tab-bar/chip-bar (vd AssetDetail 5 tab) |
+| P5 | Touch target ≥44px | `min-h-[44px] min-w-[44px]` (hoặc `h-11 w-11`) | mọi nút icon/action chạm bằng ngón tay |
+
+**Modal full-screen mobile (D3):**
+- Mobile (base): `inset-0 w-full h-full rounded-none max-h-screen` — chiếm full viewport, dễ thao tác ngón tay, không tràn.
+- `sm:`+ : centered card `sm:inset-auto sm:m-auto sm:w-full sm:max-w-* sm:rounded-2xl sm:h-auto sm:max-h-[90vh]`.
+- Nút đóng modal ≥44px (P5).
+- `BaseModal.vue` + ⌘K `CommandPalette.vue` ĐỒNG BỘ rule này (CommandPalette full-screen mobile qua scoped CSS `@media (max-width:639px)`).
+
+**Self-check (chạy trước khi nói DONE):**
+```bash
+# D1 — không ad-hoc breakpoint px trong views (touch-target min-h-[44px] KHÔNG tính):
+grep -rnE '\b(min|max)-\[[^]]+\]:' frontend/src/views   # = 0
+# P3 — mọi <table> trong views có ancestor overflow-x-auto.
+# P1 — mọi List view có cặp hidden sm:block (table) + sm:hidden (card-list).
+# Playwright viewport 375px: body scrollWidth <= clientWidth (0 horizontal-scroll); tab cuối reachable; modal full-screen.
+```
+
+**Anti-pattern PHẢI tránh:** `<table>` không bọc `overflow-x-auto` → tràn mobile · custom breakpoint px ad-hoc · tab-bar không cuộn → cắt item cuối · nút icon <44px · modal centered cố định mobile · PWA/service worker (ngoài scope) · quên DoD → lặp bug mỗi vòng.
+
+**Light-touch:** KHÔNG audit-rewrite 37 view đã đúng — chỉ áp DoD cho view MỚI + 4 gap đã verify (`AssetDetailView` tab-bar, `PersonaDashboardShell` KPI tablet, `RCAListView` card, `ListCard` table overflow) + `BaseModal` full-screen.
+
+Cross-ref: ADR-IMM00-RESPONSIVE (D1-D5), `component-patterns.md` ## Responsive, LL-FE-25 (dual-display Link), memory `wave2_ui_bugs`.
+
+### LL-FE-40: CẤM raw `frappe.client.*` call ở FE — lookup phải qua endpoint AssetCore whitelisted permission-aware (2026-06-11)
+
+**Triệu chứng:** BUG-META-1 — view/composable/store gọi thẳng `frappe.client.get_value/get_list/get` → 417 + bypass permission (frappe.client là generic CRUD, KHÔNG áp `permission_query_conditions` của AssetCore).
+**Nguyên nhân:** DONE-gate cũ (GATE-1 EN-enum / GATE-2 raw-code / GATE-3 hardcoded-EN) KHÔNG cover raw frappe.client call → lọt.
+**Rule kiểm được (PRE-DONE GREP GATE-4, output PHẢI = 0):**
+```bash
+grep -rnE "frappe\.client\.(get_value|get_list|get)" frontend/src/{views,composables,stores}
+```
+≠0 → thay bằng endpoint module whitelisted (`assetcore.api.<module>.<fn>` qua `frappeGet/frappePost`) permission-aware. KHÔNG skip.
+
+Cross-ref: GATE-4 (SKILL.md PRE-DONE GREP GATE), LL-FE-35 (api-client trỏ method có thật), [[LL-BE-38]] (FE ẩn ≠ BE bảo vệ).
+
+### LL-FE-41: Fieldname FE xin/khai PHẢI khớp EXACT fieldname DocType — `risk_class` ≠ `risk_classification` (field-name drift) (2026-06-11)
+
+**Triệu chứng:** BUG-META-1 — `CalibrationCreateView.vue:86` xin field `risk_class` (∄, field thật = `risk_classification`); `Cal:19` define `risk_class?` sai trong TS interface → asset meta nhận về luôn `null` cho field đó → render em-dash dù record tồn tại.
+**Nguyên nhân:** đặt fieldname theo trí nhớ, KHÔNG đối chiếu DocType. TS cast pass typecheck nhưng runtime field rỗng (BE không có key đó để trả).
+**Rule kiểm được:** trước khi viết TS interface hoặc request `fields=[...]`, verify fieldname khớp EXACT DocType JSON HOẶC field BE thực trả — KHÔNG đặt theo trí nhớ:
+```bash
+grep -E '"fieldname"' assetcore/assetcore/doctype/<dt>/<dt>.json
+# HOẶC copy key từ response thật:
+bench --site miyano execute assetcore.api.imm00.get_asset --kwargs '{"name":"<id>"}'
+```
+Field rủi ro asset = `risk_classification` (KHÔNG `risk_class`). Self-check: field FE xin nhận về LUÔN `null`/`undefined` dù record tồn tại = nghi field-name drift → đối chiếu DocType JSON.
+
+**Khác LL-FE-24** (DocType-string drift `"AC Department"` vs `"Department"`) — đây là FIELDNAME drift trong cùng 1 record.
+
+Cross-ref: LL-FE-40 (raw client ban), LL-FE-42 (prefetch meta), LL-FE-8 (Select options match DocType JSON).
+
+### LL-FE-42: Prefetch meta cho create-view (qr-scan prefill) — fetch fail/null → error-state + retry, KHÔNG render '—' im lặng (2026-06-11)
+
+**Triệu chứng:** BUG-META-1 — create-view prefetch asset meta cho qr-scan prefill render '—' TOÀN BỘ block (asset_name/device_model_name/manufacturer_sn/risk_classification/location_name) dù asset tồn tại → user tưởng asset rỗng.
+**Nguyên nhân:** prefetch đi qua endpoint sai (raw `frappe.client.get_value`, LL-FE-40) + field-name drift (`risk_class`→null, LL-FE-41) → meta CÓ data nhưng nhận về null → FE render '—' im lặng không báo lỗi.
+**Rule kiểm được:** khi create-view prefetch asset/entity meta, fetch fail HOẶC trả null → KHÔNG render '—' im lặng; PHẢI show error-state + retry (tri-branch loading/error/data như list view). Test BẮT BUỘC: với asset hợp lệ, mọi nhãn meta render giá trị THẬT — assert KHÔNG render '—'/em-dash cho field BE trả non-null. Self-check: meta block toàn '—' khi asset tồn tại = prefetch hỏng → kiểm endpoint permission-aware (LL-FE-40) + field-name (LL-FE-41) TRƯỚC.
+
+**Khác LL-FE-20/32** (computed/null cell hợp lệ khi data thực null) — đây là meta CÓ data nhưng prefetch hỏng.
+
+Cross-ref: LL-FE-40, LL-FE-41, LL-FE-20 (computed render), LL-FE-32 (cell null vs not-rendered).
+
+### LL-FE-43: qr-scan create-view PHẢI prefill SmartSelect locked text == asset code (2026-06-11)
+
+**Triệu chứng:** BUG-PM-1 — vào create-view qua `?asset=<id>&source=qr-scan`, SmartSelect tài sản bị lock nhưng text hiển thị RỖNG (chỉ có id ngầm, user không thấy mã thiết bị).
+**Nguyên nhân:** prefill set `v-model` (id) nhưng không hydrate label hiển thị của SmartSelect → locked control rỗng.
+**Rule kiểm được (PRE-DONE GREP GATE-6a manual):** mỗi create-view có qr-scan prefill chạy parity test 4 view **PM / Incident / CM / Cal** → locked SmartSelect text == asset code (KHÔNG rỗng). Prefill phải set cả id + label (hoặc trigger load option để SmartSelect resolve label).
+
+Cross-ref: GATE-6 (SKILL.md), LL-FE-9 (Link → SmartSelect), LL-FE-25 (dual-display Link).
+
+### LL-FE-44: Form required-dropdown dựa list endpoint — case `total:0` phải có banner + ≥1 lối thoát actionable, KHÔNG chỉ disabled (2026-06-11)
+
+**Triệu chứng:** BUG-PM-2 — form tạo WO với required-dropdown "Lịch bảo trì" lấy từ list endpoint; khi `total:0` (chưa có schedule) → dropdown disabled trống, submit bất khả → dead-end, user không biết phải làm gì.
+**Nguyên nhân:** 0-state chỉ disable control, không hướng dẫn cách tạo nguồn dữ liệu thiếu.
+**Rule kiểm được (PRE-DONE GREP GATE-6b manual):** mỗi form có required-dropdown dựa list endpoint chạy test-case `total:0` → PHẢI có banner giải thích + ≥1 lối thoát actionable (nút "Tạo lịch bảo trì" / navigate tới nơi tạo), KHÔNG chỉ disabled. Đồng pattern empty-state-actionable của LL-FE-13.
+
+Cross-ref: GATE-6 (SKILL.md), LL-FE-13 (no dead-end UX), LL-FE-9 (Link → SmartSelect).
+
+### LL-FE-45: prefetch ref/lookup PHỤ dùng `Promise.allSettled` — 1×403 KHÔNG được blank cả trang (2026-06-11)
+
+**Triệu chứng:** Factory §Khác(c) — `Promise.all([...])` prefetch nhiều ref/lookup; 1 nhánh 403 → reject toàn bộ → blank cả trang dù phần chính load được.
+**Nguyên nhân:** `Promise.all` fail-fast: 1 reject huỷ cả batch; ref phụ (vendor/location/category) thiếu quyền KHÔNG nên đánh sập màn hình.
+**Rule kiểm được (PRE-DONE GREP GATE-5):**
+```bash
+grep -rn 'Promise.all(' frontend/src/{stores,composables}
+```
+review MỖI match: prefetch ref/lookup PHỤ → đổi `Promise.allSettled` (xử lý từng `result.status === 'fulfilled'`). Giữ `Promise.all` CHỈ khi mọi nhánh bắt buộc thành công (vd data chính của trang).
+
+Cross-ref: GATE-5 (SKILL.md), LL-FE-23/26 (action ẩn do permission → hint, không silent), memory `factory_rounds_6_10` (allSettled ref-prefetch 403 không blank trang).

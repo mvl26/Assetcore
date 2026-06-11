@@ -261,28 +261,49 @@ Bug 2026-05-27: trong lúc cleanup 13:55, test chạy parallel tạo data mới 
 - [ ] Scheduler tạm pause: `bench --site <site> disable-scheduler`
 - [ ] Sau cleanup: `enable-scheduler` + `set-maintenance-mode off`
 
-### R-11: Screenshot/artifact Playwright PHẢI vào `.playwright-mcp/` — KHÔNG để gốc repo
+### R-11: Screenshot/artifact Playwright → `.playwright/eval/` — KHÔNG để gốc repo
+
+> ⚠️ **CẬP NHẬT 2026-06-11 (LL-QA-2):** kho ảnh bền nay là **`.playwright/eval/`**, KHÔNG còn `.playwright-mcp/`. `.playwright-mcp/` chỉ là output TẠM của MCP — sweep về `.playwright/eval/` sau mỗi run. Mọi chỗ R-11 ghi `.playwright-mcp/` là kho cuối ĐÃ LỖI THỜI; đọc convention mới ở LL-QA-2 + chạy `bash .claude/scripts/tidy-eval-artifacts.sh` để sweep.
 
 **Bug đã gặp 2026-05-29:** bước [User] eval lưu screenshot ra **gốc repo** với tên tuỳ ý (`3a-imm08-pm-dashboard.png`, `dashboard-admin.png`, ...) → 21 file PNG rải khắp root, lẫn vào `git status`, suýt commit nhầm.
 
 **Quy tắc:**
 
-1. **Mọi** `browser_take_screenshot` (và artifact eval khác) PHẢI ghi vào `.playwright-mcp/` — thư mục này **đã gitignore** (`.gitignore` có dòng `.playwright-mcp/`). Dùng subfolder theo phiên/phase cho gọn:
+1. **Mọi** `browser_take_screenshot` (và artifact eval khác) PHẢI ghi vào `.playwright/eval/` — đã gitignore (`.gitignore:50-52`). Dùng subfolder theo phiên/phase cho gọn:
    ```
-   .playwright-mcp/eval/<phase>-<module>-<screen>.png
-   # vd: .playwright-mcp/eval/3a-imm08-pm-dashboard.png
+   .playwright/eval/<phase>-<module>-<screen>.png
+   # vd: .playwright/eval/3a-imm08-pm-dashboard.png
    ```
-   Khi gọi tool, set `filename` = đường dẫn tuyệt đối dưới `.playwright-mcp/eval/`. KHÔNG để mặc định rơi ra cwd (gốc repo).
+   Khi gọi tool, set `filename` = đường dẫn tuyệt đối dưới `.playwright/eval/`. KHÔNG để mặc định rơi ra cwd (gốc repo). Nếu MCP buộc ghi vào `.playwright-mcp/` → sweep về `.playwright/eval/` cuối run (LL-QA-2).
 
 2. **TUYỆT ĐỐI KHÔNG** lưu `.png`/`.jpg`/artifact eval ra gốc repo hay trong `frontend/`, `assetcore/`. Screenshot là bằng chứng tạm, không phải source → không bao giờ commit.
 
 3. **Self-check cuối mỗi session eval** (phải rỗng):
    ```bash
    git status --porcelain --untracked-files=all | grep -iE '\.(png|jpg|jpeg|webp)$'
-   # Có output → đã rơi artifact ra ngoài .playwright-mcp/ → mv vào .playwright-mcp/eval/
+   # Có output → đã rơi artifact ra ngoài .playwright/eval/ → bash .claude/scripts/tidy-eval-artifacts.sh
    ```
 
-4. Báo cáo eval **tham chiếu đường dẫn** screenshot dưới `.playwright-mcp/eval/`, không attach/đính kèm ra ngoài.
+4. Báo cáo eval **tham chiếu đường dẫn** screenshot dưới `.playwright/eval/`, không attach/đính kèm ra ngoài.
+
+---
+
+### R-12: POST-RUN CLEANUP là phần BẮT BUỘC của "DONE" — verdict KHÔNG = DONE nếu chưa dọn (LL-QA-1/2/3)
+
+**Triệu chứng→nguyên nhân:** test/eval/Playwright/factory-run sinh artifact rác (ảnh chụp, scratch script `_scan_junk*.py`, MCP snapshot `page-*.yml`) → `git add .` lọt commit (R-11 risk). USER feedback 2026-06-11: "sau khi làm xong PHẢI dọn sạch... ảnh rác cho gọn vào `.playwright/eval`".
+
+**Rule kiểm-được — cuối MỖI kỳ test/eval/factory-run, TRƯỚC khi tuyên bố DONE:**
+
+1. Chạy **`bash .claude/scripts/tidy-eval-artifacts.sh`** (idempotent; `--dry` xem trước). Script: sweep `.playwright-mcp/*` → `.playwright/eval/`, xoá scratch (`_scan_junk*.py`/`_cleanup_junk*.py`/`*.py.tmp.*`/`*.py.orig`/MCP `page-*.yml`/`*.log`). Guard `git ls-files --error-unmatch` → CHỈ đụng file UNTRACKED, KHÔNG xoá asset thật (swagger-ui favicon `assetcore/public/swagger-ui/*.png`, FE/docs img trong subdir).
+
+2. **Self-check phải rỗng** (có output = CHƯA dọn = CHƯA DONE):
+   ```bash
+   git status --porcelain -uall | grep -iE '\.(png|jpg|jpeg|webp|gif)$|_scan_junk|\.py\.tmp\.|\.py\.orig'
+   ```
+
+3. **Scratch debug callable** (LL-TEST-15): đặt trong `apps/assetcore/assetcore/<name>.py`, chạy `bench execute`, rồi `rm` NGAY sau dùng — KHÔNG để ở repo root. gitignore chặn `_scan_junk*.py`/`*.py.tmp.*`/`*.py.orig` (`.gitignore:54-57`) nhưng dọn vẫn là phần của DONE, KHÔNG ỷ gitignore.
+
+Reference: `memory/feedback_tidy_eval_artifacts.md`, `.claude/scripts/tidy-eval-artifacts.sh`.
 
 ---
 
@@ -1230,6 +1251,62 @@ Reference: `CONVENTIONS.md §41`, `assetcore-be` LL-BE-24, `assetcore-audit` Ph�
    ```
 
 Reference: `CONVENTIONS.md §43`, `assetcore-fe` LL-FE-29.
+
+### LL-TEST-21: `tests_ran`/`PASS` chỉ true khi chạy THẬT `bench run-tests` + ĐỌC output (chống false-green) (LL-QA-4)
+
+Triệu chứng→nguyên nhân: set `tests_ran=true`/`verdict=PASS` từ code-grep hoặc giả định → false-green. Pass-ngay-lần-đầu trên feature side-effect (notification/hook/SLA) thường che bug (xem §Event-driven). Phải đọc output mới biết: `errors=1` ở `setUpClass` abort cả class → đếm test sụt (631 vs 624) mà grep không thấy.
+
+**Rule kiểm-được:**
+1. Chạy THẬT `bench --site miyano run-tests --app assetcore` (hoặc `--module assetcore.tests.test_<x>`).
+2. ĐỌC dòng tổng nguyên văn: `Ran N tests ... OK` / `FAILED (failures=.., errors=..)` — báo số pass/fail từ output, KHÔNG suy đoán.
+3. Phân biệt `errors=N` ở tearDown (cancel-children, xem LL-TEST-17) ≠ `failures=N` logic.
+4. Pass ngay lần đầu trên feature side-effect mới = NGHI false-green → kiểm side-effect có THẬT được assert (Phần 1 §Event-driven assert side-effect).
+
+Reference: `memory/factory_rounds_6_10_20260602.md`, Phần 1 §Event-driven, LL-TEST-17.
+
+### LL-TEST-22: Fixture `setUpClass` PHẢI dọn ở `tearDownClass` qua `tests/_asset_cleanup.py::purge_asset` (LL-QA-5)
+
+Triệu chứng→nguyên nhân: doc tạo trong `setUpClass` → commit → KHÔNG rollback per-test (R-9). Asset đi qua `on_trash` guard (`force=True` KHÔNG bypass ISO/LinkExists) → leak thật đã gặp: 53 asset + 21 part + 21 warehouse.
+
+**Rule kiểm-được:**
+1. Asset cleanup dùng `from assetcore.tests._asset_cleanup import purge_asset` — raw-SQL purge IMM Audit Trail + Asset Lifecycle Event + Asset Document (cả 3 có `on_trash` guard không bypass được), cancel children docstatus=1 trước (xem LL-TEST-17).
+2. **KHÔNG** `try/except: pass` quanh delete chain → nuốt exception = leak thầm. Để exception propagate.
+3. Local-var fixture trong test method → `self.addCleanup(...)` NGAY (`tearDownClass` chỉ thấy `cls.*`).
+4. Pre-release verify count `%test%` = 0 (R-9).
+
+Reference: `assetcore/tests/_asset_cleanup.py`, R-9, LL-TEST-17, `memory/test_session_20260529_wave1.md`.
+
+### LL-TEST-23: AC Asset Category — tra cứu + cleanup theo field `category_name`, KHÔNG theo `name` (LL-QA-6)
+
+Triệu chứng→nguyên nhân: `autoname: autoname` → `name = CAT-####` series ≠ `category_name`. `frappe.db.exists("AC Asset Category", X)` LUÔN miss (PK là `CAT-####`) → insert lần 2 → `UniqueValidationError` trên index `category_name`, row leak hiện raw `CAT-####` trên UI (đã gặp 3×).
+
+**Rule kiểm-được:** mọi test đụng AC Asset Category PHẢI:
+- Tra tồn tại: `frappe.db.get_value("AC Asset Category", {"category_name": X}, "name")`.
+- Cleanup/delete: resolve real name qua `frappe.get_all(filters={"category_name": X}, pluck="name")` rồi delete.
+
+Reference: LL-TEST-9 (cùng pattern autoname), `memory/factory_rounds_6_10_20260602.md`, `_purge_category`.
+
+### LL-TEST-24: Flaky QueryDeadlock — retry đúng module 1 LẦN rồi mới kết luận (LL-QA-7)
+
+Triệu chứng→nguyên nhân: `bench run-tests` báo `QueryDeadlockError`/`LockWaitTimeout`/`OperationalError 1213` — infra-transient, thường do chạy `run-tests` song song destructive DB op (R-10), KHÔNG phải regression logic.
+
+**Rule kiểm-được:**
+1. Re-run đúng module 1 LẦN: `--module assetcore.tests.test_<x>`. Pass lần 2 = flaky → ghi nhận, KHÔNG block vòng.
+2. Vẫn fail lần 2 = bug thật.
+3. KHÔNG retry-vô-hạn để "làm xanh" (che bug). KHÔNG chạy `run-tests` song song destructive DB op (R-10) — chính là nguồn deadlock.
+
+Reference: R-10, `memory/factory_rounds_6_10_20260602.md`.
+
+### LL-TEST-25: Reload gunicorn TRƯỚC Playwright live khi đã sửa `api/`/`services/` .py — `--preload` đông cứng import (LL-QA-8)
+
+Triệu chứng→nguyên nhân: gunicorn boot `--preload` → sửa `api/*.py`/`services/*.py` SAU boot CHỈ live ở `bench run-tests`/`bench execute` (fresh import), CHƯA live HTTP tới khi USER reload (HARD-STOP — BE/QA KHÔNG tự reload/restart/migrate). 417 phantom + guest-403 KHÔNG phải dấu hiệu stale.
+
+**Rule kiểm-được — trước Playwright xác minh fix BE:**
+1. `bench execute assetcore.api.<mod>.<fn>` chạy được = code OK (LL-TEST-12).
+2. Nếu (1) OK mà HTTP vẫn lỗi cũ → nghi STALE-WORKER → báo USER reload, KHÔNG kết luận FE bug.
+3. Sau USER reload mới chạy Playwright live.
+
+Reference: `memory/gunicorn_preload_staleness.md`, `references/playwright-patterns.md:136` (LL-BE-16), LL-TEST-12.
 
 ---
 

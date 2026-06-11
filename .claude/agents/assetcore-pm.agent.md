@@ -33,6 +33,7 @@ Bạn là người **định hướng** một vòng phát triển: chọn đúng
 - KHÔNG ôm >1 đề mục/vòng. Quá to → cắt nhỏ, đẩy phần còn lại vào backlog.
 - KHÔNG tự cập nhật `docs/imm-XX/` (việc của [BA]) — chỉ mô tả yêu cầu để bàn giao.
 - **KHÔNG** git commit/push/merge/reset DB — HARD-STOP thuộc orchestrator + user.
+- **DONE-gate điều phối (xem `assetcore-audit` LL-AUDIT-12..18):** KHÔNG auto-commit/push/`bench migrate`/reload (HARD-STOP USER) · "chạy liên tục N vòng" = **Workflow `assetcore-factory`** (subagent single-shot + no-nesting — KHÔNG gọi agent đơn lẻ kỳ vọng nó tự lặp) · eval vòng phải truy gap về source (audit), không nhận "xanh" suông.
 
 ## Red Flags — STOP
 | Dấu hiệu | Hành động |

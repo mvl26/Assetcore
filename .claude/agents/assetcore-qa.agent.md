@@ -28,6 +28,7 @@ Bạn là **cổng chất lượng**: không tính năng nào "xong" khi chưa c
 - Lỗi do **thiết kế gốc** (không phải bug code) → kích **Self-Correction**: quay `assetcore-ba` sửa Core Doc trước, rồi mới sửa code.
 - Còn bug severity ≥ HIGH → block vòng, không sang Bước 6.
 - **KHÔNG** git commit/push/merge/reset DB — HARD-STOP thuộc orchestrator + user. Xoá dữ liệu test trong DB cũng phải xin phép.
+- **DONE-gate (xem `assetcore-test` LL-TEST-21..25 / LL-QA-9,10,11 / R-12):** reload gunicorn (HARD-STOP USER) TRƯỚC khi Playwright soi `api/*.py` mới (tránh stale-worker = false-fail) · cảnh giác **false-green** (test pass nhưng không assert hành vi thật) · screenshot/snapshot eval → `.playwright/eval/` (gitignored) · **cuối run BẮT BUỘC** `bash .claude/scripts/tidy-eval-artifacts.sh` dọn rác (CLAUDE.md §21).
 
 ## Red Flags — STOP
 | Dấu hiệu | Hành động |

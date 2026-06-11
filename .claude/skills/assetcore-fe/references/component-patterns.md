@@ -75,6 +75,64 @@ Common columns layout:
 </table>
 ```
 
+## Responsive (mobile-first)
+
+> DoD bắt buộc — xem `lessons-learned.md` LL-FE-34 + ADR-IMM00-RESPONSIVE. Breakpoint Tailwind DEFAULT (`sm:640 md:768 lg:1024 xl:1280`), KHÔNG custom px, KHÔNG PWA. Mobile-first: base = mobile, thêm `sm:`/`md:`/`lg:`.
+
+**P1 — List = table→card** (desktop table `hidden sm:block`; mobile `mobile-card-list sm:hidden`):
+
+```vue
+<!-- Mobile cards (< sm) -->
+<div class="mobile-card-list sm:hidden">
+  <div v-for="row in items" :key="row.name" class="mobile-card" @click="goDetail(row)">
+    <div class="flex items-center justify-between mb-2">
+      <span class="font-mono text-sm font-semibold text-brand-700">{{ row.name }}</span>
+      <StatusBadge :state="row.status" size="xs" />
+    </div>
+    <p class="text-sm font-medium text-slate-900 truncate">{{ row.asset_name || row.asset }}</p>
+  </div>
+</div>
+
+<!-- Desktop table (sm+) — P3: luôn bọc overflow-x-auto -->
+<div class="hidden sm:block overflow-x-auto">
+  <table class="min-w-full text-sm">…</table>
+</div>
+```
+
+**P2 — Form grid 1-col mobile → 2-col desktop:**
+
+```vue
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+  <FormField … /> <FormField … />
+</div>
+```
+
+**P3 — MỌI `<table>` bọc `overflow-x-auto`** (kể cả khi đã có card-list — bảng desktop vẫn cần): `<div class="overflow-x-auto"><table>…</table></div>`.
+
+**P4 — Tab-bar / chip-bar dài cuộn được** (`overflow-x-auto` + mỗi item `shrink-0`, giữ 1 hàng):
+
+```vue
+<div class="flex gap-1 mb-4 border-b border-slate-200 overflow-x-auto">
+  <button v-for="tab in tabs" :key="tab" class="shrink-0 px-4 py-2 whitespace-nowrap …">{{ label(tab) }}</button>
+</div>
+```
+
+**P5 — Touch target ≥44px** cho nút icon/action chạm: `min-h-[44px] min-w-[44px]` (hoặc `h-11 w-11`).
+
+**Modal full-screen mobile** (`BaseModal` + ⌘K đồng bộ):
+
+```vue
+<!-- card container -->
+<div :class="['bg-white shadow-2xl w-full flex flex-col',
+   'inset-0 fixed h-full rounded-none max-h-screen',           /* mobile base */
+   'sm:inset-auto sm:relative sm:m-auto sm:rounded-2xl sm:h-auto sm:max-h-[90vh]', /* sm:+ centered */
+   sizeClass[size]]">
+  …
+  <!-- nút đóng ≥44px (P5) -->
+  <button class="min-h-[44px] min-w-[44px] rounded-lg flex items-center justify-center …" @click="onClose">✕</button>
+</div>
+```
+
 ## Loading + error state (required in all List and Detail views)
 
 Every view that fetches async data must have all three branches. Never use just `v-if="loading"` + `v-else`:

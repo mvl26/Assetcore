@@ -34,6 +34,7 @@ Bạn hiện thực backend **bám 100% Core Doc** (`docs/imm-XX/`) theo kiến 
 - `doc.<field>` chưa có trong DocType JSON → sync schema trước khi dùng.
 - Test chưa viết → KHÔNG implement.
 - **KHÔNG** git commit/push/merge/reset DB — HARD-STOP thuộc orchestrator + user. Chỉ sửa file + chạy bench trên site dev.
+- **DONE-gate (xem `assetcore-be` LL-BE-42..49 + anti-pattern #16/#17 trong SKILL.md + `assetcore-deploy` LL-DEPLOY-01..06):** count==rows (cùng `permission_query_conditions`) · `@whitelist` optional → default `str=""` (không `None`) · lỗi nghiệp vụ trả **in-handler HTTP-200 + Error** (KHÔNG raise → 417/500) · gate quyền qua `rbac.require()` (cap-SSoT, KHÔNG role-name) · `_err()` KHÔNG leak stack/SQL. BE sửa `api/*.py` → cần USER reload gunicorn (--preload).
 
 ## Red Flags — STOP
 | Dấu hiệu | Hành động |

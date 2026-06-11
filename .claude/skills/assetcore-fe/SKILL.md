@@ -430,7 +430,7 @@ Use `useFormDraft` for any multi-step or long form (saves to localStorage). See 
 
 ## 🛑 PRE-DONE GREP GATE (chạy TRƯỚC khi nói DONE)
 
-5 phiên test 2026-05-15..26 leak lại cùng pattern dù LL-FE-3/6/13 đã có. Bắt buộc chạy 3 grep gate dưới đây trên view/component bạn vừa sửa. **Output ≠ 0 → fix, không skip.**
+5 phiên test 2026-05-15..26 leak lại cùng pattern dù LL-FE-3/6/13 đã có. Bắt buộc chạy các grep gate dưới đây (GATE-1..5 + manual GATE-6a/6b) trên view/component bạn vừa sửa. **Output ≠ 0 → fix, không skip.**
 
 ```bash
 cd /home/miyano/frappe-bench/apps/assetcore
@@ -449,11 +449,24 @@ grep -rnE "row\.(asset|model|vendor|warehouse|department|technician|assigned_to|
 # GATE-3: Hardcoded English status strings trong code (không phải template)
 grep -rnE "['\"](Locked|Evaluated|Contract Signed|Scheduled|Weekly|Minor|Open|In Progress)['\"]" \
   frontend/src/views/<your-domain>/ | grep -v "STATUS_LABEL\|// "
+
+# GATE-4: Raw frappe.client.* call leak (→ LL-FE-40). Output PHẢI = 0.
+# Mọi lookup phải qua endpoint AssetCore whitelisted permission-aware — KHÔNG frappe.client.get_value/get_list/get.
+grep -rnE "frappe\.client\.(get_value|get_list|get)" frontend/src/{views,composables,stores}
+
+# GATE-5: Promise.all ref-prefetch (→ LL-FE-45). Review MỖI match.
+# prefetch ref/lookup PHỤ phải đổi Promise.allSettled (giữ Promise.all chỉ khi mọi nhánh bắt buộc thành công).
+# Mục tiêu: 1×403 KHÔNG blank cả trang.
+grep -rn 'Promise.all(' frontend/src/{stores,composables}
 ```
 
-Kèm 2 manual check không tự động được:
+**GATE-1/GATE-2 scope (BẮT BUỘC mở rộng — KHÔNG chỉ ListView):** chạy GATE-1 (EN-enum) + GATE-2 (raw-code) thêm trên **DetailView + dashboard card** (`{{ ...status }}` trong `KpiCard`/donut), không chỉ ListView. Bug Wave2 IMM-12-A (dashboard cards 'Open'/'In Progress') + IMM-11-B (Cal detail 'Scheduled' dù list đã 'Đã lên lịch') lọt vì detail+card quên áp map dù list đúng. Bồi thêm key thiếu vào audit-list LL-FE-30: `Under Maintenance`→'Đang bảo trì', `Scheduled`→'Đã lên lịch', `Locked`, `Evaluated`, `Contract Signed`, `Weekly`, `Minor`.
+
+Kèm 4 manual check không tự động được:
 - DetailView có **TRANSITIONS_BY_STATE đầy đủ initial state** (Draft/Open/Planned)? Count entries trong map phải = số state non-terminal trong workflow JSON.
 - ListView có **ít nhất 1 action button** (Tạo / Import / Navigate)? Empty state actionable?
+- **GATE-6a — qr-scan prefill parity** (→ LL-FE-43): mỗi create-view có qr-scan prefill (`?asset=<id>&source=qr-scan`) chạy parity test 4 view (PM/Incident/CM/Cal) → locked SmartSelect text == asset code (KHÔNG rỗng).
+- **GATE-6b — form 0-state** (→ LL-FE-44): mỗi form có required-dropdown dựa list endpoint chạy test-case `total:0` → có banner + ≥1 lối thoát actionable, KHÔNG chỉ disabled.
 
 Reference: §0 + §13–§24 trong [CONVENTIONS.md](../CONVENTIONS.md).
 

@@ -10,6 +10,16 @@ browser_click: "Đăng nhập" (hoặc button[type=submit])
 browser_snapshot  → verify URL không còn là /login
 ```
 
+### LL-QA-10: Login cần test-user có password biết-trước — sau cleanup chỉ còn 3 user gốc → BLOCKED-on-user
+
+Triệu chứng → cần verify RBAC/anti-leak theo persona scoped (KTV/vendor) nhưng không login được vì không biết password user đó.
+Nguyên nhân → sau cleanup DB chỉ còn 3 user gốc; persona scoped không có credential biết-trước.
+Rule (kiểm được):
+1. TRƯỚC live-walk @:3000: đọc `.env` lấy `TEST_USER`/`TEST_PASSWORD` (SKILL.md:482-490) — KHÔNG hardcode creds.
+2. Cần persona scoped (KTV/vendor) để verify RBAC/anti-leak mà KHÔNG có user+pw → **BLOCKED**, báo USER cấp test-user. KHÔNG bịa login, KHÔNG dùng `Administrator` thay persona (Admin bypass mọi gate → false-green).
+3. MCP unstable (OOM, lock) sau 2 recovery fail → fallback static code-audit, báo USER sớm (SKILL.md:569-592).
+Cross-ref: SKILL.md:482-490 (.env creds), 569-592 (MCP recovery + fallback); LL-TEST-11/14 (role-gated ≠ bug).
+
 ## Navigate và chờ
 
 ```
@@ -84,6 +94,19 @@ browser_network_requests  → filter theo URL pattern "/api/method/assetcore.api
 browser_take_screenshot  → lưu để đính vào báo cáo FAIL
 ```
 
+### LL-QA-9: Artifact eval → kho bền `.playwright/eval/`; `.playwright-mcp/` chỉ là output tạm phải sweep sau mỗi run
+
+Triệu chứng → ảnh `browser_take_screenshot` rơi mặc định vào `.playwright-mcp/` (kho output tạm), lẫn vào `git status`, suýt commit nhầm / không tập trung 1 chỗ.
+Nguyên nhân → MCP default ghi ra `.playwright-mcp/` thay vì kho bền; không sweep → tích lũy rác transient (`page-*.yml`, `*.log`).
+Rule (kiểm được):
+1. Set `filename` của `browser_take_screenshot` = **path tuyệt đối dưới `.playwright/eval/`** (kho bền). Khi MCP vẫn rớt mặc định vào `.playwright-mcp/`, cuối session chạy:
+   ```bash
+   bash .claude/scripts/tidy-eval-artifacts.sh   # sweep .playwright-mcp/* → .playwright/eval/ + xoá page-*.yml / *.log transient
+   ```
+2. Báo cáo eval **THAM CHIẾU path dưới `.playwright/eval/`** — KHÔNG attach/đính kèm ra ngoài.
+3. Self-check cuối session (phải RỖNG): `git status --porcelain -uall | grep -iE '\.(png|jpg|jpeg|webp)$'` → có output nghĩa là ảnh còn ngoài kho bền, chưa sweep.
+Cross-ref: `.claude/scripts/tidy-eval-artifacts.sh:45-48` (sweep `.playwright-mcp` → `.playwright/eval`); `.gitignore:51-52` (cả 2 đã ignore); memory/feedback_tidy_eval_artifacts.md; R-11 ở SKILL.md (cùng mục tiêu hygiene — kho bền nay là `.playwright/eval/`).
+
 ## Workflow action button
 
 AssetCore action bar ở bottom, sticky. Pattern:
@@ -135,4 +158,10 @@ Bug đã gặp 2026-06-01 (verify banner login G5): sau phiên dev server (Vite)
 3. Cross-check 3 tầng trước khi tuyên bố "FE bug": (a) BE response qua `bench execute`, (b) gọi handler trực tiếp trên component instance, (c) click-flow DOM. Chỉ khi (a)+(b) đúng mà (c) sai LẶP LẠI trên tab sạch mới là FE bug thật.
 4. Lưu ý kèm: thêm `@frappe.whitelist()` method mới → phải reload gunicorn/bench (worker cũ `--preload` chưa nạp → `AttributeError`); verify `bench execute assetcore.api.X.method` chạy được TRƯỚC khi test qua HTTP/Playwright (xem `assetcore-deploy` troubleshooting + LL-BE-16).
 
-Cross-ref: `assetcore-be` LL-BE-16 (werkzeug reload không tin cậy), LL-FE-27 (bench execute trước khi sửa FE).
+**LL-QA-11 — Decision gate trước khi tuyên bố "FE bug":** khi Playwright click-flow cho kết quả SAI, nghi **Vite HMR instability TRƯỚC**, không vội báo FE bug. Chỉ kết luận FE bug thật khi đủ 3 điều kiện:
+- (a) BE đúng qua `bench execute` (response/state mong đợi), VÀ
+- (b) gọi handler trực tiếp trên component instance ra đúng + `npm run typecheck` sạch, VÀ
+- (c) click-flow DOM vẫn SAI **lặp lại trên tab Vite mới khởi động sạch HOẶC `npm run build` + preview**.
+(a)+(b) đúng mà (c) chỉ sai trên dev-server đã HMR nhiều lần = dev-server churn (v-model desync / instance churn), KHÔNG phải FE bug. Thêm `@frappe.whitelist()` mới → reload gunicorn trước (xem rule 4 / LL-QA-8 / LL-BE-16) để loại trừ `AttributeError` phantom.
+
+Cross-ref: `assetcore-be` LL-BE-16 (werkzeug reload không tin cậy), LL-FE-27 (bench execute trước khi sửa FE), memory/gunicorn_preload_staleness.md; bug 2026-06-01 verify banner login G5 (cùng section trên).

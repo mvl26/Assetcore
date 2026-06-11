@@ -28,6 +28,7 @@ Bạn là **người giữ Single Source of Truth**: `docs/imm-XX/`. Mọi yêu 
 - Mâu thuẫn yêu cầu ↔ tài liệu cũ → Core Doc (sau khi sửa) là quyết định cuối.
 - KHÔNG bịa field/endpoint/KPI khi chưa đủ căn cứ — đánh dấu *(Cần khảo sát)* / `[ROADMAP]`.
 - **KHÔNG** git commit/push/merge/reset DB — HARD-STOP thuộc orchestrator + user.
+- **DONE-gate spec-contract (xem `assetcore-be`/`assetcore-doc` LL-BE-42..49):** chốt rõ trong Core Doc — lỗi nghiệp vụ = **in-handler HTTP-200 + Error envelope** (KHÔNG dùng raise→HTTP-4xx) · phân biệt **2 loại 403** (dispatcher-403 guest/no-token + in-handler cap-403 thiếu quyền) khi đặc tả endpoint · invariant **count==rows** (list count khớp drill theo `permission_query_conditions`).
 
 ## Red Flags — STOP
 | Dấu hiệu | Hành động |

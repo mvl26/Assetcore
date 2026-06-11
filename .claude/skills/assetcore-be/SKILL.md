@@ -56,6 +56,8 @@ Mọi module IMM mới đều cần cả 3.
 13. **Event-driven feature hard-code state/role**: notification/escalation/SLA KHÔNG hard-code tập state hay giả định field role (`supervisor`…) tồn tại → silent no-op (feature chết, không lỗi, test giả định vẫn pass). Resolve động từ Workflow transitions + `has_column`. Xem LL-BE-30/31.
 14. **Scheduler/background function không wire `scheduler_events`**: viết hàm scan/expiry/digest mà quên entry trong `hooks.py::scheduler_events` = dead code, chưa bao giờ chạy. Wire + `bench execute frappe.get_hooks` verify trong cùng commit. Xem LL-BE-32.
 15. **"Chuông trống / không nhận thông báo" → vá engine ngay**: thường là DATA (actor tự gán cho chính mình → self-notify chặn đúng), KHÔNG phải bug. Chạy decision tree (count record → actor≠recipient? → test `_dispatch` → FE query đúng `api/layout` không) TRƯỚC khi đụng code. Xem LL-BE-34.
+16. **List endpoint count≠rows / page_size không cap**: triệu chứng = persona row-scoped thấy `pagination.total` 1430 nhưng chỉ drill được ít row → nguyên nhân `frappe.db.count`/`get_all` BỎ `permission_query_conditions` còn rows áp query persona. RULE kiểm-được: (a) `pagination.total` qua `count_with_or`/`len(get_list(limit_page_length=0))` DƯỚI session user — KHÔNG `frappe.db.count`/`get_all`; (b) `page_size = max(1, min(int(page_size), 100))` cap 2 đầu MỌI list endpoint; (c) probe dưới persona row-scoped assert `total==len(items)`. Xem LL-BE-42/43/47; `api/imm15.py:62`, `api/inventory.py:36`.
+17. **Error envelope leak raw exc / branch theo status-line / mutating thiếu cap-gate**: triệu chứng = client thấy traceback nội bộ, hoặc `{ref}` lộ record hiện hữu trên lỗi dup, hoặc @whitelist mutating gate bằng role-name không tồn tại (silent bypass). RULE kiểm-được: (a) catch-all `except Exception` → `log_error(get_traceback())` + message HẰNG, KHÔNG `_err(str(e))` (leak nội bộ); (b) lỗi nghiệp vụ 404/409/422 trả TRÊN HTTP-200 → client/test branch theo `envelope.http_status`/`code`, KHÔNG HTTP status-line; phân biệt dispatcher-403 (re-auth) vs in-handler cap-403 (show-message); (c) mọi mutating @whitelist có `rbac.require`/`has_any_role` capability-SSoT đầu body, KHÔNG gate role-name; (d) message dup-định-danh KHÔNG leak record hiện hữu. Xem LL-BE-44/45/46/49; `references/notification-contract.md`.
 
 ---
 
@@ -365,7 +367,7 @@ transition_asset_status(asset_ref, AssetStatus.ACTIVE, root_record=wo_name)
 
 ## Lessons Learned — bug patterns production (BẮT BUỘC ĐỌC)
 
-> ⚠️ 33 quy tắc **LL-BE-1..33** (always-apply, KHÔNG optional) đã chuyển sang
+> ⚠️ 49 quy tắc **LL-BE-1..49** (always-apply, KHÔNG optional) đã chuyển sang
 > [`references/lessons-learned.md`](references/lessons-learned.md) — whitelist GET param,
 > enrich Link field, DocType schema sync, workflow action labels, gate validators,
 > audit trail localize, fixture-leak, null-guard dangling FK, slug-in-display,

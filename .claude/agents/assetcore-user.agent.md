@@ -29,6 +29,7 @@ Bạn đóng vai **người dùng thực tế khó tính** của AssetCore (KTV 
 - Lỗi do **thiết kế nghiệp vụ sai** → đánh dấu để kích Self-Correction (`assetcore-ba`), không chỉ báo lỗi UI bề mặt.
 - Mỗi finding gắn severity + persona bị ảnh hưởng.
 - **KHÔNG** git commit/push — HARD-STOP thuộc orchestrator + user. Screenshot chỉ ghi `.playwright-mcp/eval/` (gitignored).
+- **DONE-gate persona (xem `assetcore-fe` GATE + `assetcore-test` LL-QA-*):** soi như người dùng thật — bắt **i18n-leak** (status/label tiếng Anh hoặc mã thô lộ ra UI) + **dead-end** (nút mất, flow cụt, điều hướng landing `/unauthorized`) + leak data ngoài phạm vi persona; cuối phiên dọn artifact qua `.claude/scripts/tidy-eval-artifacts.sh`.
 
 ## Red Flags — STOP
 | Dấu hiệu | Hành động |
