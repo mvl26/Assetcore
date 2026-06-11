@@ -12,7 +12,9 @@ from assetcore.services.imm00 import (
     count_pending_approvals,
     byt_expiry_filter,
     reserved_prefix_filter,   # SSoT loại asset rác test/security-audit khỏi KPI total
-    reserved_prefix_sql,      # SSoT (raw-SQL, ESCAPE tường minh) cho donut COUNT path
+    # NOTE: reserved_prefix_sql (raw-SQL ESCAPE) KHÔNG còn dùng — donut chart
+    # chuyển sang frappe.get_list(group_by) permission-aware (ADR §4b) nên dùng
+    # reserved_prefix_filter (ORM dict) đồng nhất với KPI count path.
 )
 from assetcore.services.imm08 import count_overdue_pm, due_soon_filter
 from assetcore.services.imm09 import (
@@ -29,11 +31,81 @@ _STATUS_OUT_OF_SERVICE = "Out of Service"
 _OP_NOT_IN = "not in"
 
 
-def _count(doctype: str, filters: dict = None) -> int:
+# ─── Permission-aware count SSoT (ADR-IMM00-LIST-SCOPE §4b) ───────────────────
+# 5 doctype CÓ permission_query_conditions hook (row-scope: vendor isolation /
+# technician). Đếm KPI cho chúng PHẢI áp CÙNG predicate như drill list
+# (frappe.get_list) ⇒ INVARIANT count == drill cho MỌI persona. Doctype KHÔNG
+# hook → frappe.db.count (rẻ, đúng — không scope nhầm).
+#
+# Tập 5 doctype DERIVE từ hooks.py::permission_query_conditions (SSoT, không
+# hardcode lệch). `frappe.get_hooks("permission_query_conditions")` trả MERGED
+# set (gồm core Frappe doctype) → giao với tập doctype AssetCore mà dashboard
+# THỰC SỰ đếm để được đúng 5.
+_DASHBOARD_SCOPED_CANDIDATES = frozenset({
+    "AC Asset", "PM Work Order", "Incident Report",
+    "Asset Repair", "Asset Commissioning",
+})
+
+
+def _perm_scoped_doctypes() -> set[str]:
+    """SSoT: doctype dashboard đếm CÓ permission_query_conditions hook.
+
+    Đọc động từ ``frappe.get_hooks`` rồi giao với candidate set của dashboard →
+    nếu ai gỡ/thêm hook trong hooks.py, hàm này tự cập nhật (không drift). Nếu
+    introspection lỗi (test/CLI edge) → fallback candidate set tĩnh.
+    """
     try:
+        hooked = set(frappe.get_hooks("permission_query_conditions").keys())
+        return _DASHBOARD_SCOPED_CANDIDATES & hooked
+    except Exception:
+        return set(_DASHBOARD_SCOPED_CANDIDATES)
+
+
+def _count(doctype: str, filters: dict = None) -> int:
+    """Đếm rows — permission-aware cho doctype CÓ permission_query_conditions hook.
+
+    Nhánh (a) doctype KHÔNG hook → ``frappe.db.count`` (không áp row-scope, đúng
+    & rẻ; KHÔNG bị thu hẹp nhầm theo persona).
+
+    Nhánh (b) doctype CÓ hook (5 doctype, _perm_scoped_doctypes) → đếm qua
+    ``frappe.get_list(limit_page_length=0)`` chạy DƯỚI ``frappe.session.user``
+    (KHÔNG ``ignore_permissions``) ⇒ áp CÙNG ``permission_query_conditions`` +
+    DocPerm như drill list → count == số dòng persona thấy khi drill (INVARIANT
+    count==drill, ADR §4b). Reuse pattern ``count_with_or`` (services/shared/
+    filters.py). Persona thiếu DocPerm read (vendor không có read trên WO/Incident
+    /Repair/Commissioning) → get_list raise PermissionError → except → 0 (đúng:
+    drill cũng 0 dòng ⇒ count==drill==0, KHÔNG leak aggregate toàn viện).
+    """
+    try:
+        if doctype in _perm_scoped_doctypes():
+            return len(frappe.get_list(
+                doctype, filters=filters or {}, fields=["name"],
+                limit_page_length=0,
+            ))
         return frappe.db.count(doctype, filters=filters or {})
     except Exception:
         return 0
+
+
+def _scoped_helper(fn, default: int = 0) -> int:
+    """Gọi service-helper count (cm_sla_breach_count/count_overdue_pm/…) AN TOÀN
+    dưới persona scoped.
+
+    Các helper service layer (imm08/09/00/11) đếm qua ``frappe.db.count`` /
+    ``Repo.list`` trên doctype CÓ hook NHƯNG chưa permission-aware (SoT riêng,
+    BA-gated — KHÔNG sửa trong scope này). Dưới persona thiếu DocPerm read chúng
+    raise ``PermissionError`` → crash cả get_overview (trả VALIDATION_ERROR thay
+    vì payload scoped). Wrap để degrade về ``default`` (0) — persona scoped thấy
+    0 (đúng: họ không drill được vào tập đó) thay vì vỡ dashboard. Read-all
+    persona (admin/internal/auditor) KHÔNG raise ⇒ giá trị y như trước (no-change).
+
+    ▶️ TODO (BA-gated): đồng bộ các helper này sang permission-aware để vendor
+    thấy đúng SUBSET (thay vì 0) — cần BA chốt scope service layer trước.
+    """
+    try:
+        return int(fn())
+    except Exception:
+        return default
 
 
 def _recent(doctype: str, fields: list[str], limit: int = 5, order_by: str = "modified desc", filters: dict = None) -> list[dict]:
@@ -100,7 +172,7 @@ def get_overview() -> dict:
         # imm08.count_overdue_pm() để launcher widget, /pm/dashboard và endpoint
         # này không lệch nhau. WO status == "Overdue" được scheduler cron
         # `check_pm_overdue` set theo CLAUDE.md §11 (WO là operational record duy nhất).
-        pm_overdue = count_overdue_pm()
+        pm_overdue = _scoped_helper(count_overdue_pm)
         # BR-08-12 (SoT): KPI 'PM đến hạn' đếm CÙNG predicate với drill
         # /pm/work-orders?due_before=today+7 (services/imm08._normalize_filters).
         # due_soon_filter → due_date BETWEEN [today, today+7] + status NOT IN
@@ -121,7 +193,7 @@ def get_overview() -> dict:
         # Drill /cm/work-orders?sla_breached=1 nay enrich is_sla_breached live →
         # card == drill trên TẬP LIVE đúng (INV-CM-SLA-1..5). KHÔNG inline
         # _count({sla_breached:1}) ở đây — undercount cửa-sổ-trễ-scheduler.
-        cm_sla_breached = cm_sla_breach_count()
+        cm_sla_breached = _scoped_helper(cm_sla_breach_count)
         cm_repeat_failure = _count("Asset Repair", {"is_repeat_failure": 1})
         cm_completed_30d = _count("Asset Repair", {"status": "Completed", "completion_datetime": [">=", add_days(today_str, -30)]})
 
@@ -136,8 +208,8 @@ def get_overview() -> dict:
             _overdue_asset_ids as _imm11_overdue_ids,
             _due_soon_asset_ids as _imm11_due_soon_ids,
         )
-        calib_overdue = len(_imm11_overdue_ids())
-        calib_due = len(_imm11_due_soon_ids())
+        calib_overdue = _scoped_helper(lambda: len(_imm11_overdue_ids()))
+        calib_due = _scoped_helper(lambda: len(_imm11_due_soon_ids()))
 
         # ── Incident / CAPA ──────────────────────────────────────────────────
         # SoT: open_incident_filter() (services/imm12) — POSITIVE-state predicate
@@ -349,28 +421,33 @@ def get_dashboard_data() -> dict:
             "total_assets":        _count(_DT_ASSET, {"docstatus": ["!=", 2], **_rsv}),
             "under_repair":        _count(_DT_ASSET, {"lifecycle_status": _STATUS_UNDER_REPAIR, **_rsv}),
             "under_maintenance":   _count(_DT_ASSET, {"lifecycle_status": "Under Maintenance", **_rsv}),
-            "pending_commissioning": count_pending_approvals(scope="mine"),
-            "pending_commissioning_all": count_pending_approvals(scope="all"),
-            "overdue_pm":          count_overdue_pm(),
+            "pending_commissioning": _scoped_helper(lambda: count_pending_approvals(scope="mine")),
+            "pending_commissioning_all": _scoped_helper(lambda: count_pending_approvals(scope="all")),
+            "overdue_pm":          _scoped_helper(count_overdue_pm),
         }
 
         # ── 2. Donut chart: phân bổ trạng thái ───────────────────────────────
-        # AND reserved_prefix_sql() (ESCAPE tường minh, param-hoá) → donut == KPI.
-        _hyg_sql, _hyg_params = reserved_prefix_sql()
-        status_rows = frappe.db.sql(
-            f"""
-            SELECT COALESCE(lifecycle_status, 'Chưa xác định') AS status, COUNT(*) AS cnt
-            FROM `tabAC Asset`
-            WHERE docstatus != 2 AND {_hyg_sql}
-            GROUP BY lifecycle_status
-            ORDER BY cnt DESC
-            """,
-            _hyg_params,
-            as_dict=True,
-        ) or []
+        # PERMISSION-AWARE (ADR-IMM00-LIST-SCOPE §4b): donut segment click drill
+        # tới /assets?lifecycle_status=<code> → donut count PHẢI == drill rows cho
+        # MỌI persona. Raw frappe.db.sql trên `tabAC Asset` KHÔNG áp
+        # permission_query_conditions → donut toàn viện trong khi drill scoped
+        # (leak + count!=drill cho vendor). Dùng frappe.get_list(group_by=...) chạy
+        # DƯỚI session user → DatabaseQuery áp CÙNG hook như drill. _rsv giữ predicate
+        # loại rác (AND vào filters), CÙNG nguồn với kpi_metrics.total_assets.
+        try:
+            status_rows = frappe.get_list(
+                _DT_ASSET,
+                filters={"docstatus": ["!=", 2], **_rsv},
+                fields=["lifecycle_status AS status", "count(name) AS cnt"],
+                group_by="lifecycle_status",
+                order_by="cnt desc",
+                limit_page_length=0,
+            ) or []
+        except Exception:
+            status_rows = []
         labels, series, colors, codes = [], [], [], []
         for row in status_rows:
-            raw = row["status"]                       # canonical English (hoặc 'Chưa xác định')
+            raw = row.get("status") or "Chưa xác định"   # canonical English (hoặc sentinel)
             label = _STATUS_LABELS_VI.get(raw, raw)   # nhãn VI hiển thị
             labels.append(label)
             series.append(int(row["cnt"] or 0))
@@ -470,11 +547,14 @@ _VALID_PERSONAS = {
 
 
 def _kpi(key: str, label_vi: str, value, foot_vi: str = "", tone: str = "info",
-         drill: dict | None = None) -> dict:
+         drill: dict = None) -> dict:
     """Chuẩn hoá 1 KPI card (Core Doc §3 + §9.1). tone ∈ {primary,info,ok,warn,danger}.
 
     drill (optional, Core Doc §9.1): {route, query} → FE render RouterLink click-through
-    tới list view đã pre-apply filter. None = card tĩnh (không drill được).
+    tới list view đã pre-apply filter. None = card tĩnh (không drill được — FE check
+    drill===null). `_kpi` là helper PRIVATE (`_`-prefix, KHÔNG @frappe.whitelist) →
+    KHÔNG vào OpenAPI spec; bỏ `| None` (D-PRECOND grep) nhưng GIỮ default None runtime
+    để 38 call-site truyền dict literal + sentinel card-tĩnh bất biến.
     """
     return {"key": key, "label_vi": label_vi, "value": value, "foot_vi": foot_vi,
             "tone": tone, "drill": drill}
@@ -887,15 +967,18 @@ _PERSONA_BUILDERS = {
 
 
 @frappe.whitelist()
-def get_persona_dashboard(persona: str | None = None) -> dict:
+def get_persona_dashboard(persona: str = "") -> dict:
     """GET /api/method/assetcore.api.dashboard.get_persona_dashboard?persona=<code>
 
     Trả layout + data theo persona (Core Doc FE_Persona_Dashboards.md §3-§5).
     Persona không hợp lệ → payload rỗng an toàn (KHÔNG raise).
 
-    LL-BE-1: type-hint là `str | None` (không `str = ""`) để Frappe v15
-    `validate_argument_types` KHÔNG raise FrappeTypeError → HTTP 417 khi
-    query param vắng/null (`persona=None`). Body normalize None → "" an toàn.
+    D-PRECOND OpenAPI (ADR-IMM00-OPENAPI #8): type-hint `str = ""` (KHÔNG
+    `str | None`) — introspection ra JSON-type ĐƠN (string), KHÔNG `anyOf
+    [string, null]`. `str=""` cũng tránh HTTP 417: Frappe v15
+    `validate_argument_types` chấp nhận query param vắng (mặc định "") và
+    chuỗi rỗng đều khớp `str`. `persona=""` ≡ None-cũ → `(persona or "")`
+    normalize giống hệt (payload rỗng an toàn).
     """
     try:
         persona = (persona or "").strip().lower()
