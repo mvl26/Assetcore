@@ -249,3 +249,4 @@ Luôn include:
 - Chỉ giữ thông tin lâu dài
 - Update khi có pattern mới
 - Không chứa: API key / log / runtime data
+- **Dọn rác sau khi "làm xong"** (factory run / Playwright eval / scratch debug): chạy `bash .claude/scripts/tidy-eval-artifacts.sh` → ảnh eval về `.playwright/eval/` (gitignored), xoá scratch (`_scan_junk*`, `*.py.tmp.*`, MCP `page-*.yml`/`*.log`). KHÔNG để ảnh/junk ở repo root (R-11 commit risk). Asset thật (swagger favicon, FE/docs img) ≠ rác.
