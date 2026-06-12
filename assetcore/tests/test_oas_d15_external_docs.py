@@ -17,7 +17,7 @@ markdown chỉ tồn-tại-trong-repo, KHÔNG web-served @8000). D16 SỬA:
     `...→tags→x-assetcore-stats` LIỀN. Lý do: link chết tệ hơn không link — Swagger UI render
     sạch (KHÔNG fabricate URL relative/404). `generate_spec()` KHÔNG raise ở cả 2 nhánh.
   - **Fail-safe** (T6 D16): `_doc_base` bọc `_app_meta_hook` (fail-safe → None khi hook vắng/
-    rỗng/exception) → OMIT (KHÔNG raise, KHÔNG fabricate). 486 endpoint sinh đủ ở cả 2 nhánh.
+    rỗng/exception) → OMIT (KHÔNG raise, KHÔNG fabricate). 488 endpoint sinh đủ ở cả 2 nhánh.
   - **No-hardcode** (T7 D16): vùng build externalDocs KHÔNG literal scheme://host/'miyano'/
     `get_url`; `_doc_base` reference `app_docs_url`. Mutation `get_url` KHÔNG đổi externalDocs
     (doc-base TÁCH khỏi API-base — chứng minh không leak get_url).
@@ -471,9 +471,9 @@ class TestOasD16Invariant(unittest.TestCase):
 
     def _assert_stats(self, spec):
         stats = spec["x-assetcore-stats"]
-        self.assertEqual(stats["total_endpoints"], 487)
+        self.assertEqual(stats["total_endpoints"], 488)
         self.assertEqual(stats["total_endpoints"], len(spec["paths"]))
-        self.assertEqual(stats["get_count"], 237)
+        self.assertEqual(stats["get_count"], 238)
         self.assertEqual(stats["post_count"], 250)
         self.assertEqual(stats["get_count"] + stats["post_count"], stats["total_endpoints"])
         self.assertEqual(stats["guest_count"], 5)
@@ -485,13 +485,13 @@ class TestOasD16Invariant(unittest.TestCase):
             if ovr.enrich_meta_for(p.replace("/api/method/assetcore.api.", "", 1)) is not None
         )
         self.assertEqual(stats["enriched_count"], expected_enriched)
-        self.assertEqual(stats["error_responses_typed_count"], 487)
+        self.assertEqual(stats["error_responses_typed_count"], 488)
         self.assertEqual(stats["json_param_count"], 64)
         self.assertTrue(stats["cap_set_version"], "cap_set_version non-empty.")
         self.assertTrue(stats["generated_app_version"], "generated_app_version non-empty.")
 
     def test_d16_07_stats_unchanged_both_branches(self):
-        """x-assetcore-stats (487/237/250/5/<enriched-động>/487/64) BẤT BIẾN ở cả omit LẪN config-base."""
+        """x-assetcore-stats (488/238/250/5/<enriched-động>/488/64) BẤT BIẾN ở cả omit LẪN config-base."""
         self._assert_stats(self.spec_omit)
         self._assert_stats(self.spec_cfg)
 

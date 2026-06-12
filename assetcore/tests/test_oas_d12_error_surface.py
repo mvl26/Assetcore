@@ -32,8 +32,11 @@ from assetcore.utils.response import ErrorCode, _HTTP_FOR_CODE
 # Bề mặt invariant baseline (D2/D11/D9/D6) — KHÔNG đổi sau D12.
 # 2026-06-11 re-baseline 486→487 / get 236→237: working tree thêm endpoint thứ 487
 # `imm00.print_asset_labels_pdf` (GET, whitelist mới từ IMM-00 print/rotate caps đã commit).
-_BASELINE_TOTAL = 487
-_BASELINE_GET = 237
+# 2026-06-12 re-baseline 487→488 / get 237→238: working tree thêm endpoint thứ 488
+# `imm00.get_asset_action_meta` (GET, panel META NẠC cho 3 màn tạo WO — KHÔNG-parse-param,
+# 6-key NẠC, RBAC/vendor-isolation intact; NĐ98 data-min). Delta = đúng 1 GET, POST giữ 250.
+_BASELINE_TOTAL = 488
+_BASELINE_GET = 238
 _BASELINE_POST = 250
 _BASELINE_GUEST = 5
 # enriched_count derive ĐỘNG (D6-IMM09-ENRICH: KHÔNG còn magic 161 cho 3-module). D12
@@ -113,7 +116,7 @@ class TestOasD12ErrorSurface(unittest.TestCase):
                         f"{op['operationId']}/{code}: $ref={ref!r} != {_ERR_ENVELOPE_REF}"
                     )
         self.assertEqual(missing, [], "Authed op thiếu 401/403 hoặc ref sai:\n  " + "\n  ".join(missing))
-        # Sanity: phải có hàng trăm authed op (481 ở baseline 486-5-guest).
+        # Sanity: phải có hàng trăm authed op (483 ở baseline 488-5-guest).
         self.assertGreater(authed_n, 400, "Phải có >400 authed op.")
 
     def test_d12_01b_401_403_codes_match_ssot_http(self):
@@ -268,12 +271,12 @@ class TestOasD12ErrorSurface(unittest.TestCase):
             "error_responses_typed_count PHẢI == đếm động op có ≥1 response 4xx/5xx.",
         )
         self.assertIsInstance(stats["error_responses_typed_count"], int)
-        # Sau D12: MỌI op có ≥1 response 4xx — authed (482) có 401+403; guest (5) có 403
-        # baseline (cấm-quyền vẫn xảy ra ở guest endpoint). ⟹ typed_count == total (487).
+        # Sau D12: MỌI op có ≥1 response 4xx — authed (483) có 401+403; guest (5) có 403
+        # baseline (cấm-quyền vẫn xảy ra ở guest endpoint). ⟹ typed_count == total (488).
         self.assertEqual(
             stats["error_responses_typed_count"],
             _BASELINE_TOTAL,
-            "Mọi op (authed 401/403 + guest 403) có ≥1 status 4xx → typed_count == total (487).",
+            "Mọi op (authed 401/403 + guest 403) có ≥1 status 4xx → typed_count == total (488).",
         )
 
     def test_d12_05b_sibling_stats_unchanged(self):
@@ -281,8 +284,8 @@ class TestOasD12ErrorSurface(unittest.TestCase):
         from assetcore.services.shared import rbac
 
         stats = self.spec["x-assetcore-stats"]
-        self.assertEqual(stats["total_endpoints"], _BASELINE_TOTAL, "total GIỮ 487.")
-        self.assertEqual(stats["get_count"], _BASELINE_GET, "get GIỮ 237.")
+        self.assertEqual(stats["total_endpoints"], _BASELINE_TOTAL, "total GIỮ 488.")
+        self.assertEqual(stats["get_count"], _BASELINE_GET, "get GIỮ 238.")
         self.assertEqual(stats["post_count"], _BASELINE_POST, "post GIỮ 250.")
         self.assertEqual(stats["guest_count"], _BASELINE_GUEST, "guest GIỮ 5.")
         expected_enriched = sum(

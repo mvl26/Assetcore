@@ -287,12 +287,12 @@ class TestOasD17Invariant(unittest.TestCase):
             if ovr.enrich_meta_for(p.replace("/api/method/assetcore.api.", "", 1)) is not None
         )
         baseline = {
-            "total_endpoints": 487,
-            "get_count": 237,
+            "total_endpoints": 488,
+            "get_count": 238,
             "post_count": 250,
             "guest_count": 5,
             "enriched_count": expected_enriched,
-            "error_responses_typed_count": 487,
+            "error_responses_typed_count": 488,
             "json_param_count": 64,
         }
         for key, val in baseline.items():

@@ -16,7 +16,7 @@ D10 phủ:
     {'x-decoded-schema': {...}}. ≥2 entry; MỌI key resolve về param JSON-string introspect-được
     (drift-guard: entry trỏ param không-tồn-tại → fail). Override đè x-decoded-default-type.
   - `x-assetcore-stats.json_param_count` = Σ param JSON-string introspect-được (đếm động).
-  - Invariant: len(paths)==486; enriched_count = derive ĐỘNG (đếm op enrich, no magic);
+  - Invariant: len(paths)==488; enriched_count = derive ĐỘNG (đếm op enrich, no magic);
     root tags 23 canonical; openapi==3.1.0;
     format:json chỉ THÊM khoá (type vẫn 'string') — backward-compatible.
 
@@ -286,9 +286,9 @@ class TestOasD10InvariantRegression(unittest.TestCase):
         super().setUpClass()
         cls.spec = openapi.generate_spec()
 
-    def test_d10_07_path_count_487(self):
-        """len(paths) == 487 GIỮ (D1 intact; 486→487 thêm imm00.print_asset_labels_pdf)."""
-        self.assertEqual(len(self.spec["paths"]), 487)
+    def test_d10_07_path_count_488(self):
+        """len(paths) == 488 GIỮ (D1 intact; 487→488 thêm imm00.get_asset_action_meta — GET)."""
+        self.assertEqual(len(self.spec["paths"]), 488)
 
     def test_d10_07_enriched_count_dynamic(self):
         """enriched_count == derive ĐỘNG (D6 intact, KHÔNG magic 161 — nay 4 module enrich)."""
