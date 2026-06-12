@@ -253,3 +253,48 @@ def asset_commissioning_has_permission(doc, ptype: str = "read", user: str | Non
     if _VENDOR_ROLE in roles:
         return _scope_check_assigned(doc, user, "vendor_engineer_name", "owner")
     return True
+
+
+# ─── AC Mobile Device Token — row-level self-scope (EPIC-D / D7) ───────────────
+#
+# Token push FCM là DỮ LIỆU CÁ NHÂN của 1 user (device đăng ký để nhận thông báo).
+# Bất kỳ user nào CHỈ được thấy / thao tác token CỦA CHÍNH MÌNH — KHÔNG đọc/sửa
+# token user khác (chống enumerate device người khác, IDOR). Khác pattern vendor
+# (scope theo asset-assignment): đây là self-scope thuần theo field `user`.
+#
+# Senior/admin (ops/support) read-all để chẩn đoán; Auditor read-all (NĐ98 trail).
+# Field định danh chủ = `user` (DocType D1, ac_mobile_device_token.json).
+
+def ac_mobile_device_token_query(user: str | None = None) -> str:
+    """permission_query_conditions cho AC Mobile Device Token list/search (D7 self-scope).
+
+    Row-scope:
+    - Senior (Super Admin + module Managers + System Manager) + Auditor → read-all
+      (``""``) cho ops/chẩn đoán + audit trail NĐ98.
+    - Mọi user khác → CHỈ token của chính mình (``user == session.user``). ``_esc``
+      (frappe.db.escape) giữ literal an toàn → KHÔNG mở SQLi.
+    """
+    user = user or frappe.session.user
+    roles = _user_roles(user)
+    if _is_senior(roles) or _AUDITOR_ROLE in roles:
+        return ""                                       # ops/audit → read-all
+    safe = _esc(user)
+    return f"(`tabAC Mobile Device Token`.user = '{safe}')"
+
+
+def ac_mobile_device_token_has_permission(doc, ptype: str = "read", user: str | None = None, **_kw) -> bool:
+    """has_permission (detail/IDOR gate) cho AC Mobile Device Token (D7 self-scope).
+
+    - Senior + Auditor (read ptypes) → True (ops/chẩn đoán + audit NĐ98).
+    - Mọi user khác → CHỈ token của chính mình (``doc.user == session.user``);
+      token user khác bị chặn MỌI ptype (kể cả read) — chống IDOR enumerate device.
+    """
+    user = user or frappe.session.user
+    roles = _user_roles(user)
+    if _is_senior(roles):
+        return True
+    if _AUDITOR_ROLE in roles and ptype in ("read", "print", "email", "export"):
+        return True
+    # Self-scope: chỉ chủ token. `doc` có thể là dict (Frappe truyền) hoặc Document.
+    owner = doc.get("user") if hasattr(doc, "get") else getattr(doc, "user", None)
+    return owner == user

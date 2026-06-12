@@ -391,6 +391,8 @@ permission_query_conditions = {
     "Asset Repair": "assetcore.permissions.asset_repair_query",
     "PM Work Order": "assetcore.permissions.pm_work_order_query",
     "Asset Commissioning": "assetcore.permissions.asset_commissioning_query",
+    # EPIC-D / D7 — row-level self-scope: user chỉ thấy device-token CỦA CHÍNH MÌNH.
+    "AC Mobile Device Token": "assetcore.permissions.ac_mobile_device_token_query",
 }
 has_permission = {
     "AC Asset": "assetcore.permissions.ac_asset_has_permission",
@@ -398,6 +400,8 @@ has_permission = {
     "Asset Repair": "assetcore.permissions.asset_repair_has_permission",
     "PM Work Order": "assetcore.permissions.pm_work_order_has_permission",
     "Asset Commissioning": "assetcore.permissions.asset_commissioning_has_permission",
+    # EPIC-D / D7 — IDOR gate: chặn đọc/sửa device-token của user khác.
+    "AC Mobile Device Token": "assetcore.permissions.ac_mobile_device_token_has_permission",
 }
 
 # Not overriding any Frappe/ERPNext DocType — AssetCore is Frappe-only (no ERPNext dep)
