@@ -27,6 +27,34 @@ export function getAsset(name: string): Promise<AcAsset> {
   return frappeGet(`${BASE}.get_asset`, { name })
 }
 
+// ─── Asset action meta (panel NẠC — màn tạo WO: CM / Hiệu chuẩn / PM) ───────────
+// Payload least-privilege (NĐ98 data-minimization) cho panel meta thiết bị 5-dòng.
+// CHỈ 6 field — KHÔNG kế thừa AcAsset (full doc rò gross_purchase_amount /
+// accumulated_depreciation / current_book_value / purchase_cost / salvage_value /
+// qr_token / audit-chain). Đóng over-fetch tài chính ở đường QR scan-action: 3 màn
+// tạo WO gọi getAssetActionMeta THAY getAsset cho panel. `name` là khóa nội bộ; FE
+// render asset_name / device_model_name / location_name / lifecycle_status /
+// risk_classification. Mirror BE `assetcore.api.imm00.get_asset_action_meta` 1-1.
+export interface AssetActionMeta {
+  name: string
+  asset_name?: string
+  device_model_name?: string
+  lifecycle_status?: string
+  risk_classification?: string
+  location_name?: string
+}
+
+/**
+ * Nạp meta NẠC cho panel thiết bị ở màn tạo WO (CM/Hiệu chuẩn/PM).
+ * Mirror BE `assetcore.api.imm00.get_asset_action_meta` (naming contract — path =
+ * tên function BE). Cùng 3 lớp bảo mật như getAsset: 404 (name rỗng/không tồn tại)
+ * / 403 (vendor-IDOR / thiếu DocPerm read) → ApiError; caller bắt → assetMeta=null
+ * (panel ẩn, KHÔNG vỡ trang, KHÔNG leak raw exc/email/qr_token).
+ */
+export function getAssetActionMeta(name: string): Promise<AssetActionMeta> {
+  return frappeGet(`${BASE}.get_asset_action_meta`, { name })
+}
+
 export function createAsset(data: Partial<AcAsset>): Promise<{ name: string }> {
   return frappePost(`${BASE}.create_asset`, data as Record<string, unknown>)
 }
@@ -106,6 +134,16 @@ export interface AssetScanInfo {
   name: string
   asset_code: string
   asset_name: string
+  // D5 (ADR-IMM00-QR-SCAN-ACTION — NĐ98): Số serial NSX = định danh truy xuất hợp
+  // lệ. BE coalesce '' khi rỗng (parity asset_code/asset_name — KHÔNG None). KTV
+  // xác nhận ĐÚNG thiết bị vật lý trước khi báo hỏng/tạo WO.
+  manufacturer_sn: string
+  // Vòng 38 (risk_classification — phân loại rủi ro): enum EN AC Asset
+  // 'Low/Medium/High/Critical' (read-only, fetch_from device_model). BE GIỮ raw
+  // enum làm SSoT (KHÔNG dịch); FE map sang VI qua riskClassificationLabel +
+  // nhãn 'Chưa phân loại' khi rỗng. BE coalesce '' khi rỗng (parity manufacturer_sn
+  // — KHÔNG None). KHÔNG nhầm với risk_class (A/B/C/D — WHO/NĐ98 letter class).
+  risk_classification: string
   device_model_name: string
   location_name: string
   lifecycle_status: string
@@ -120,6 +158,16 @@ export interface AssetScanInfo {
   // KHÔNG so next_calibration_date với client clock. true ⟺ next_calibration_date
   // quá khứ ∧ thiết bị còn dùng (∉ Out of Service/Decommissioned).
   calibration_overdue: boolean
+  // Vòng 48 (trạng thái BẢO HÀNH): warranty_expiry_date = str|None 'YYYY-MM-DD'
+  // (qua _date_str_or_none — parity next_pm_date/next_calibration_date; rỗng/None →
+  // null). KTV biết "còn/hết bảo hành" TRƯỚC khi báo hỏng/tạo CM (affordance chi
+  // phí sửa chữa). FE map nhãn VI presence-aware (KHÔNG leak datetime thô/phi-ISO).
+  warranty_expiry_date: string | null
+  // Cờ HẾT BẢO HÀNH derive SERVER-SIDE (timezone-safe) qua _is_warranty_expired —
+  // STRICT < ngày server, KHÔNG client clock. ĐỘC LẬP lifecycle (KHÁC pm/cal
+  // overdue: bảo hành = sự kiện HỢP ĐỒNG — Out-of-Service/Decommissioned VẪN có
+  // thể còn/hết bảo hành). true ⟺ warranty_expiry_date quá khứ. FE CHỈ render cờ.
+  warranty_expired: boolean
   // R1 QR-SCAN-ACTION (D2) — 4 CTA màn quét derive SERVER-SIDE. FE v-for render
   // MỌI phần tử (kể cả enabled=false → nút disabled + reason; KHÔNG ẩn nút chết).
   available_actions: ScanAction[]
