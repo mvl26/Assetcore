@@ -24,23 +24,29 @@ vi.mock('@/api/imm08', () => ({
   createAdhocPMWorkOrder: vi.fn(),
 }))
 
-// Asset-meta + schedule fetch go through frappeGet. Return a benign Active asset
-// so the panel always renders; schedules list resolves empty.
+// Asset-meta nay nạp qua getAsset (perm-aware, api/imm00) — KHÔNG còn
+// frappe.client.get_value (LL-FE-40). frappeGet CHỈ còn dùng cho list_pm_schedules.
 vi.mock('@/api/helpers', () => ({
-  frappeGet: vi.fn().mockImplementation((path: string) => {
-    if (typeof path === 'string' && path.includes('get_value')) {
-      return Promise.resolve({
-        asset_name: 'Máy thở ICU-01',
-        device_model: 'VENT-X',
-        lifecycle_status: 'Active',
-        location: 'ICU',
-      })
-    }
-    // list_pm_schedules
-    return Promise.resolve({ data: [] })
-  }),
+  frappeGet: vi.fn().mockImplementation(() => Promise.resolve({ data: [] })),
   frappePost: vi.fn(),
 }))
+
+// getAssetActionMeta NẠC perm-aware (panel meta loader Vòng 25) — trả benign Active
+// asset (display-name, KHÔNG field tài chính). getAsset giữ mock cho hoàn chỉnh module.
+// (Inline object — vi.mock hoist lên đầu file, KHÔNG ref top-level var.)
+vi.mock('@/api/imm00', () => {
+  const benign = {
+    name: 'AC-ASSET-0001',
+    asset_name: 'Máy thở ICU-01',
+    device_model_name: 'VENT-X',
+    lifecycle_status: 'Active',
+    location_name: 'ICU',
+  }
+  return {
+    getAssetActionMeta: vi.fn().mockResolvedValue(benign),
+    getAsset: vi.fn().mockResolvedValue(benign),
+  }
+})
 
 // The compliance gate — controlled per test.
 const gateSpy = vi.fn()
@@ -54,6 +60,11 @@ vi.mock('@/composables/useApi', () => ({
 }))
 vi.mock('@/composables/useFormDraft', () => ({
   useFormDraft: () => ({ clear: vi.fn() }),
+}))
+// Capability gate (CTA 'Tạo lịch bảo trì' trong empty-state) — không liên quan các
+// test ở file này; stub để view mount KHÔNG cần Pinia auth store thật.
+vi.mock('@/composables/useCapabilities', () => ({
+  useCapabilities: () => ({ can: () => true }),
 }))
 
 import PMWorkOrderCreateView from './PMWorkOrderCreateView.vue'

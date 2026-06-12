@@ -35,6 +35,10 @@ vi.mock('@/composables/useFormDraft', () => ({
 vi.mock('@/composables/useApi', () => ({
   useApi: () => ({ run: vi.fn().mockResolvedValue(null) }),
 }))
+// Empty-state CTA gate — stub để view mount không cần Pinia auth store.
+vi.mock('@/composables/useCapabilities', () => ({
+  useCapabilities: () => ({ can: () => true }),
+}))
 
 import PMWorkOrderCreateView from './PMWorkOrderCreateView.vue'
 import SmartSelect from '@/components/common/SmartSelect.vue'

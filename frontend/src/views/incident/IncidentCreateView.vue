@@ -1,13 +1,26 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { reportIncident } from '@/api/imm12'
+import { getAssetActionMeta } from '@/api/imm00'
 import SmartSelect from '@/components/common/SmartSelect.vue'
 import { useFormDraft } from '@/composables/useFormDraft'
-import { incidentSeverityLabel, INCIDENT_TYPE_LABEL } from '@/constants/labels'
+import { incidentSeverityLabel, INCIDENT_TYPE_LABEL, lifecycleStatusLabel } from '@/constants/labels'
 
 const router = useRouter()
 const route = useRoute()
+
+// Panel ngữ-cảnh-thiết-bị (chỉ đường QR scan-action) — derive từ meta NẠC qua
+// getAssetActionMeta (api/imm00, perm-aware, 6 field, KHÔNG full-doc tài chính).
+// Hiển thị display-name (device_model_name / location_name), KHÔNG raw Link id;
+// status dịch nhãn VI qua SSoT. Parity với CM/Cal/PM CreateView.
+interface AssetMeta {
+  asset_name?: string
+  device_model_name?: string
+  lifecycle_status?: string
+  location_name?: string
+}
+const assetMeta = ref<AssetMeta | null>(null)
 
 // Provenance nguồn báo sự cố (mirror BE contract): chỉ 'qr-scan' khi điều hướng từ
 // màn quét QR mới được coi là qr-scan, mọi giá trị khác (kể cả thiếu) → 'manual'.
@@ -38,6 +51,38 @@ if (queryAsset) form.value.asset = queryAsset
 const lockedFromScan = computed(
   () => route.query.source === 'qr-scan' && !!queryAsset,
 )
+
+// Nạp meta NẠC cho panel ngữ-cảnh-thiết-bị qua getAssetActionMeta (api/imm00) —
+// endpoint NẠC perm-aware (IDOR/vendor-gate + DocPerm read ở BE), CHỈ 6 field meta
+// → KHÔNG over-fetch giá mua/khấu hao/giá trị sổ sách/qr_token vào màn báo hỏng.
+// KHÔNG dùng getAsset full-doc / frappe.client.get_value (LL-FE-40). Lỗi
+// (403 vendor-IDOR / 404 / network) → assetMeta=null (fail-safe): panel ẩn hoàn
+// toàn, KHÔNG vỡ trang, KHÔNG leak raw exc/email/qr_token, KHÔNG chặn việc gửi báo
+// hỏng. Reuse mẫu CMCreateView (parity — KHÔNG fork logic mới).
+async function loadAssetMeta() {
+  if (!form.value.asset) {
+    assetMeta.value = null
+    return
+  }
+  try {
+    const a = await getAssetActionMeta(form.value.asset)
+    assetMeta.value = {
+      asset_name: a.asset_name,
+      device_model_name: a.device_model_name,
+      lifecycle_status: a.lifecycle_status,
+      location_name: a.location_name,
+    }
+  } catch {
+    assetMeta.value = null
+  }
+}
+
+// Nhãn-an-toàn VI cho panel — model/location rỗng (legacy/drift) → 'Chưa gán'
+// (KHÔNG '—' câm; parity Vòng 8/22 no-em-dash); status rỗng/lạ → nhãn VI an toàn
+// qua lifecycleStatusLabel SSoT (KHÔNG leak mã English/code thô).
+const modelText = computed(() => assetMeta.value?.device_model_name || 'Chưa gán')
+const locationText = computed(() => assetMeta.value?.location_name || 'Chưa gán')
+const statusLabel = computed(() => lifecycleStatusLabel(assetMeta.value?.lifecycle_status ?? ''))
 
 const saving = ref(false)
 const error = ref('')
@@ -85,6 +130,13 @@ async function submit() {
   saving.value = false
 }
 
+// Chỉ nạp meta khi đến từ quét QR (lockedFromScan) + có asset prefill — luồng tạo
+// thủ công KHÔNG fetch thừa (no-regression). Panel render khi lockedFromScan &&
+// assetMeta (template), tự ẩn khi loader lỗi (assetMeta=null fail-safe).
+onMounted(() => {
+  if (lockedFromScan.value && queryAsset) loadAssetMeta()
+})
+
 </script>
 
 <template>
@@ -112,6 +164,39 @@ async function submit() {
         </label>
         <SmartSelect v-model="form.asset" doctype="AC Asset" :disabled="lockedFromScan" placeholder="Tìm thiết bị theo tên / mã / serial..." />
         <p v-if="lockedFromScan" class="text-xs text-slate-500 mt-1">Thiết bị đã được xác định từ mã QR — không thể thay đổi.</p>
+
+        <!-- Panel ngữ-cảnh-thiết-bị NẠC — chỉ render khi đến từ quét QR + meta nạp OK
+             (fail-safe: lỗi loader → assetMeta=null → ẩn hoàn toàn). 4 dòng từ meta
+             least-privilege; KHÔNG raw Link id / qr_token / field tài chính. a11y:
+             heading <h3> + <dl>/<dt>/<dd> đọc được screen-reader (KHÔNG chỉ dựa màu). -->
+        <section
+          v-if="lockedFromScan && assetMeta"
+          data-test="scan-incident-meta"
+          aria-labelledby="scan-incident-meta-heading"
+          class="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-4"
+        >
+          <h3 id="scan-incident-meta-heading" class="text-sm font-semibold text-slate-700 mb-2">
+            Thiết bị báo hỏng
+          </h3>
+          <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm">
+            <div data-test="scan-incident-meta-name" class="flex flex-col">
+              <dt class="text-xs text-slate-500">Tên thiết bị</dt>
+              <dd class="font-medium text-slate-800">{{ assetMeta.asset_name || 'Chưa có tên' }}</dd>
+            </div>
+            <div data-test="scan-incident-meta-model" class="flex flex-col">
+              <dt class="text-xs text-slate-500">Model</dt>
+              <dd class="text-slate-800">{{ modelText }}</dd>
+            </div>
+            <div data-test="scan-incident-meta-location" class="flex flex-col">
+              <dt class="text-xs text-slate-500">Vị trí</dt>
+              <dd class="text-slate-800">{{ locationText }}</dd>
+            </div>
+            <div data-test="scan-incident-meta-status" class="flex flex-col">
+              <dt class="text-xs text-slate-500">Trạng thái</dt>
+              <dd class="font-medium text-slate-800">{{ statusLabel }}</dd>
+            </div>
+          </dl>
+        </section>
       </div>
 
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
