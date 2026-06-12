@@ -975,3 +975,14 @@ grep -rn 'Promise.all(' frontend/src/{stores,composables}
 review MỖI match: prefetch ref/lookup PHỤ → đổi `Promise.allSettled` (xử lý từng `result.status === 'fulfilled'`). Giữ `Promise.all` CHỈ khi mọi nhánh bắt buộc thành công (vd data chính của trang).
 
 Cross-ref: GATE-5 (SKILL.md), LL-FE-23/26 (action ẩn do permission → hint, không silent), memory `factory_rounds_6_10` (allSettled ref-prefetch 403 không blank trang).
+
+### LL-FE-46: UI/trang "xong" = RENDER THẬT chứng minh, KHÔNG chỉ vitest/structural xanh (2026-06-11)
+
+**Triệu chứng→nguyên nhân:** Swagger UI page (`www/api-docs.html`) vitest + oas-test XANH nhưng trang render TRẮNG ("Unable to render this definition") vì feed spec bọc `{message:}` (F-C1). Unit/structural test KHÔNG chạm DOM render thật → "xanh" mà user thấy trang chết.
+
+**Rule kiểm được:** deliverable UI/trang KHÔNG tuyên "xong" CHỈ bằng vitest/vue-tsc/structural xanh. Cần 1 trong:
+1. **Render THẬT:** Playwright mở trang (@:3000) — assert có DOM/opblock/nội dung thật + console 0 error; HOẶC `curl` HTML đã serve + grep loader đúng (HTTP-wire, LL-TEST-26);
+2. Nếu BLOCKED (reload-pending `api/*.py`, thiếu login persona) → ghi RÕ "blocked on reload/login", KHÔNG tuyên "trang hoạt động".
+Endpoint spec/JSON mà trang FE tiêu thụ: unwrap envelope Frappe `payload.message || payload` + feed `spec:` object, KHÔNG `url:` thẳng (LL-BE-50).
+
+Cross-ref: LL-BE-50 (`{message:}` envelope), LL-TEST-26 (assert render/wire thật), `references/playwright-patterns.md`; session 2026-06-11 F-C1.

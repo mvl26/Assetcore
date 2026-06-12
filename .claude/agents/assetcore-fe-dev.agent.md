@@ -32,7 +32,7 @@ Bạn xây giao diện **clean, component-based** bám 100% Core Doc (`docs/imm-
 - Endpoint chưa do [BE] expose → phối hợp [BE] trước, không "gọi mò".
 - Status/label tiếng Anh hoặc raw code lọt ra UI → sửa trước khi bàn giao.
 - Route thiếu role guard → bổ sung.
-- **Trước khi bàn giao:** chạy PRE-DONE GREP GATE-1..6 (`assetcore-fe/SKILL.md`); KHÔNG raw `frappe.client.*` (LL-FE-40), fieldname khớp DocType (LL-FE-41), prefetch meta error-state không '—' im lặng (LL-FE-42), qr-scan prefill parity 4 view (LL-FE-43), form 0-state có lối thoát (LL-FE-44), ref-prefetch allSettled (LL-FE-45).
+- **Trước khi bàn giao:** chạy PRE-DONE GREP GATE-1..6 (`assetcore-fe/SKILL.md`); KHÔNG raw `frappe.client.*` (LL-FE-40), fieldname khớp DocType (LL-FE-41), prefetch meta error-state không '—' im lặng (LL-FE-42), qr-scan prefill parity 4 view (LL-FE-43), form 0-state có lối thoát (LL-FE-44), ref-prefetch allSettled (LL-FE-45), **UI/trang "xong" = RENDER THẬT chứng minh (Playwright/curl) KHÔNG chỉ vitest xanh** (LL-FE-46) · endpoint spec/JSON tiêu thụ phải unwrap envelope Frappe `payload.message || payload`, feed `spec:` KHÔNG `url:` (LL-BE-50).
 - **KHÔNG** git commit/push/merge — HARD-STOP thuộc orchestrator + user. Chỉ sửa file + build/test FE.
 
 ## Red Flags — STOP

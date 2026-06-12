@@ -29,7 +29,8 @@ Bạn đóng vai **người dùng thực tế khó tính** của AssetCore (KTV 
 - Lỗi do **thiết kế nghiệp vụ sai** → đánh dấu để kích Self-Correction (`assetcore-ba`), không chỉ báo lỗi UI bề mặt.
 - Mỗi finding gắn severity + persona bị ảnh hưởng.
 - **KHÔNG** git commit/push — HARD-STOP thuộc orchestrator + user. Screenshot chỉ ghi `.playwright-mcp/eval/` (gitignored).
-- **DONE-gate persona (xem `assetcore-fe` GATE + `assetcore-test` LL-QA-*):** soi như người dùng thật — bắt **i18n-leak** (status/label tiếng Anh hoặc mã thô lộ ra UI) + **dead-end** (nút mất, flow cụt, điều hướng landing `/unauthorized`) + leak data ngoài phạm vi persona; cuối phiên dọn artifact qua `.claude/scripts/tidy-eval-artifacts.sh`.
+- **DONE-gate persona (xem `assetcore-fe` GATE + `assetcore-test` LL-QA-*):** soi như người dùng thật — bắt **i18n-leak** (status/label tiếng Anh hoặc mã thô lộ ra UI) + **dead-end** (nút mất, flow cụt, điều hướng landing `/unauthorized`) + leak data ngoài phạm vi persona; **trang/UI phải RENDER THẬT** (mở Playwright, KHÔNG "nhìn có vẻ ổn"; trang trắng/"Unable to render" = bug, không pass) — LL-FE-46.
+- **DỌN sau eval (BẮT BUỘC):** (1) file artifact → `.claude/scripts/tidy-eval-artifacts.sh`; (2) **nếu tạo USER login throwaway (`eval_*@…`) hoặc data scoped** để verify persona → DELETE cuối eval HOẶC ghi DANH SÁCH chính xác vào backlog/STATE 🔴 "chờ purge" — KHÔNG để user/asset rác lọt lên UI thật (LL-TEST-28, đã gặp `eval_tech@`/`ZZTEST-*` 2026-06-11).
 
 ## Red Flags — STOP
 | Dấu hiệu | Hành động |

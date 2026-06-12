@@ -1308,6 +1308,42 @@ Triệu chứng→nguyên nhân: gunicorn boot `--preload` → sửa `api/*.py`/
 
 Reference: `memory/gunicorn_preload_staleness.md`, `references/playwright-patterns.md:136` (LL-BE-16), LL-TEST-12.
 
+### LL-TEST-26: Test PHẢI assert HIỆN-VẬT/RÀNG-BUỘC THẬT, KHÔNG proxy cấu trúc (false-green SÂU) (LL-QA-12)
+
+Triệu chứng→nguyên nhân: test PASS nhưng KHÔNG bắt bug vì assert PROXY thay cho hành vi thật (đã gặp 2026-06-11, 3 lần):
+- guard `_assert_200_oneof_discriminator` chỉ assert `propertyName=="success"` (CÓ key) — KHÔNG assert `type=="string"` → khoá-cứng `discriminator` trên property **boolean** = OAS-illegal (openapi-generator drop/sinh code hỏng). 57 test xanh, contract vẫn vỡ.
+- test đếm SỐ BLOCK HTML thay vì SỐ TRANG PDF THẬT → nhãn tràn trang-2 vẫn "xanh" (BUG-LABEL-1).
+- test gọi `openapi.spec()` Python-direct assert `dict['openapi']` → KHÔNG test HTTP wire → bỏ sót Frappe bọc `{message:}` làm Swagger render trắng (F-C1 blind-spot).
+
+**Rule kiểm-được — khi viết/duyệt 1 guard test:**
+1. Assert HIỆN-VẬT THẬT cuối cùng mà user/integrator chạm: trang PDF thật (`pypdf` page+MediaBox), **HTTP wire body** (không Python-return), kiểu+ràng-buộc OAS thật (`type=="string"` không chỉ "có key"), pixel render (Playwright) — KHÔNG proxy (đếm HTML block, "có key", "không-touch-nên-xanh").
+2. Thêm guard → ghi RÕ failure-mode nó chặn + confirm RED fail ĐÚNG vì failure đó (LL-TEST-21 §4). "Có-mặt" (`assertIn` key) ≠ "đúng-ràng-buộc" (`assertEqual` type/value).
+3. Pass NGAY trên fix vừa thêm guard = NGHI proxy → hỏi "revert fix thì test này có ĐỎ không?". Không đỏ = proxy, viết lại.
+
+Reference: LL-TEST-21 §4, memory `mobile_be_openapi_contract_gotchas` (#3 boolean-discriminator, #4 {message:} envelope), session 2026-06-11.
+
+### LL-TEST-27: Sửa SSoT introspect-được → chạy LẠI MỌI suite assert nó; KHÔNG báo aggregate từ giả định (LL-QA-13)
+
+Triệu chứng→nguyên nhân: báo "full suite xanh, 285" = SỐ HỌC BỊA (cộng con số per-module nhớ/giả định, CHỈ chạy thật module vừa sửa). Module KHÁC (không đụng source) assert vào spec introspect ĐỘNG → endpoint mới (`imm00.print_asset_labels_pdf`) đẩy count 486→487 ⇒ 4 module `test_oas_d10/d12/d15/d17` (hardcode `assertEqual(total,486)`) ĐỎ, nhưng QA báo xanh vì "không touch nên giả định xanh" (gặp 2026-06-11; biến thể LL-TEST-21).
+
+**Rule kiểm-được:**
+1. Thay đổi đụng SSoT DÙNG-CHUNG introspect-được (tổng endpoint, cap-set version, status/label map, schema components) → CHẠY LẠI MỌI suite assert vào nó (vd toàn bộ `test_oas_*`+`test_mobile_*`), KHÔNG chỉ module vừa sửa.
+2. KHÔNG báo aggregate ("N xanh") bằng cộng số per-module nhớ/giả định — chỉ tính từ output `Ran N OK` THẬT của lượt chạy này. Module KHÔNG chạy lượt này = KHÔNG được tính "xanh".
+3. Baseline hardcode (vd `total==486`) = nợ kỹ thuật: ưu tiên derive ĐỘNG; khi mismatch → re-baseline + XÁC NHẬN delta là endpoint hợp lệ mới (không phải mất/thừa do bug) + sweep `grep` sửa MỌI nơi hardcode (đã có 4 file lệch cùng lúc).
+
+Reference: LL-TEST-21, session 2026-06-11 (4 oas false-green do drift 486→487).
+
+### LL-TEST-28: Eval/persona tạo USER login + data scoped throwaway → PHẢI dọn (tidy mở rộng sang DB) (LL-QA-14)
+
+Triệu chứng→nguyên nhân: agent [USER]/eval tạo user login throwaway (`eval_tech@example.com`/`eval_vendor@example.com`) + asset/data scoped để verify RBAC persona → để LẠI trong DB (tidy-eval-artifacts CHỈ dọn FILE, không dọn DB) → user/data rác hiện trên UI thật (gặp 2026-06-11 cùng `ZZTEST-BYT-*`).
+
+**Rule kiểm-được:**
+1. Eval/persona tạo User login hoặc data scoped → tear-down CUỐI eval (delete user+data); nếu cần USER duyệt xoá (mass/production-like) → ghi DANH SÁCH CHÍNH XÁC vào `open_issues`/STATE 🔴 "chờ purge" (KHÔNG để lọt im lặng).
+2. Ưu tiên `_Test`-prefix + Frappe auto-rollback (LL-TEST-22) thay vì user/data commit thật khi có thể.
+3. "Xong" của eval = file artifact dọn (tidy-eval-artifacts, LL-AUDIT-13) **VÀ** DB test-user/data đã dọn-hoặc-flag. Verdict KHÔNG Pass khi còn user/data rác chưa khai báo.
+
+Reference: LL-AUDIT-13 (tidy file), LL-TEST-22 (asset cleanup), `references/playwright-patterns.md` (persona cần user+pw), session 2026-06-11.
+
 ---
 
 ## 🔗 Session context — bàn giao phiên (assetcore-session)

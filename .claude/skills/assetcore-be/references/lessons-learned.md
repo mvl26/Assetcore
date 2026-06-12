@@ -1,4 +1,4 @@
-# assetcore-be — Lessons Learned (LL-BE-1..49)
+# assetcore-be — Lessons Learned (LL-BE-1..54)
 
 > Bug patterns production đã gặp — **always-apply rules**, KHÔNG phải tham khảo tùy chọn.
 > `SKILL.md` trỏ tới file này; ĐỌC TRƯỚC khi viết/sửa service · API · DocType · workflow.
@@ -1176,3 +1176,40 @@ Cross-ref: `memory/overdue_server_flag_ssot.md`; `services/imm00.py:339-360`; LL
 **Rule (kiểm được):** MỌI `@frappe.whitelist(methods=["POST"])` (hoặc mutating semantics) → `rbac.require("<cap>.write")` HOẶC `has_any_role((Roles.X, Roles.SYS_ADMIN))` ở DÒNG ĐẦU body. Capability string BE==FE EXACT; gate bằng CAPABILITY resolve qua `rbac.can()`/`frappe.has_permission`, KHÔNG gate bằng role-name không có trong `role.json`/`constants.py:Roles`. Endpoint sửa role/role_profile/enabled = admin tuyệt đối, KHÔNG self-bypass (LL-BE-37). CÒN backlog (P2, 0 gate): `imm15.py` (12 POST), `inventory.py` (19 POST), `purchase.py` (7 POST), `imm01/02/03/imm16` mutating. Self-check = AST audit LL-BE-24 §5 trên từng file.
 
 Cross-ref: LL-BE-24 (whitelist permission backup gate), LL-BE-30 (RBAC dead-gate), LL-BE-37 (self-bypass admin); `memory/role_security_audit_20260601.md`.
+
+### LL-BE-50: `@frappe.whitelist` BỌC return vào `{"message": <value>}` — consumer đọc RAW (Swagger `url:`/openapi-generator) vỡ (2026-06-11)
+
+**Triệu chứng→nguyên nhân:** `openapi.spec()` return raw dict (docstring ghi "no envelope") NHƯNG dispatcher Frappe VẪN bọc → HTTP body = `{"message": {openapi:..., paths:...}}`. SwaggerUIBundle/openapi-generator trỏ `url:` thẳng vào endpoint → đọc top-level KHÔNG thấy `openapi:` → "Unable to render this definition" (render trắng, 0 opblock). "Raw dict" trong docstring chỉ bỏ SuccessEnvelope của AssetCore, KHÔNG bỏ `{message:}` của Frappe.
+
+**Rule (kiểm được):** endpoint mà consumer NGOÀI đọc body như TÀI-LIỆU/HIỆN-VẬT thô (OpenAPI spec, file, XML, CSV) KHÔNG dùng `return <dict>` thẳng (sẽ bị bọc `{message:}`):
+- (A khuyến nghị) serve RAW qua `frappe.local.response` (như endpoint PDF/file) → body = chính hiện vật;
+- (B) consumer tự `fetch` + unwrap `payload.message || payload` rồi feed (vd `www/api-docs.html` feed `spec:` object, KHÔNG `url:`).
+Test PHẢI assert HTTP WIRE body (KHÔNG `openapi.spec()` Python-direct — sẽ false-green, bỏ sót envelope; LL-TEST-26).
+
+Cross-ref: memory `mobile_be_openapi_contract_gotchas` #4; LL-TEST-26 (assert hiện-vật thật); `www/api-docs.html` (test D18-04 guard); session 2026-06-11 F-C1.
+
+### LL-BE-51: Degrade-guard PHẢI phủ MỌI service-call trong dashboard/persona builder, KHÔNG chỉ `_count` (2026-06-10)
+
+**Triệu chứng→nguyên nhân:** `get_persona_dashboard?persona=tech` CRASH (VALIDATION_ERROR) cho CHÍNH persona KTV (dashboard mặc định họ tiếp đất) — `_build_tech` (dashboard.py:704) gọi `list_allocations`→IMM Spare Allocation KHÔNG degrade-guard → PermissionError bung → catch-all banner đỏ "Lỗi không xác định". Vòng trước chỉ hardened `get_overview` (`_count`/`_scoped_helper`), KHÔNG hardened persona builders. Cùng họ `_build_qa` (imm16 scorecard/findings/audits + CAPA).
+
+**Rule (kiểm được):** mọi builder dashboard/persona gọi service trên doctype CÓ `permission_query_conditions` (hoặc DocPerm có thể thiếu cho persona) PHẢI degrade per-call (try/except → 0/`—`/ẩn card), KHÔNG để 1 PermissionError sập CẢ dashboard (all-or-nothing). Quyết scope với BA TRƯỚC: card thiếu quyền = (a) cấp DocPerm read cho persona, hay (b) degrade ẩn. Catch-all `_err(str(e))` với PermissionError = message rỗng → FE "Lỗi không xác định" + nút "Thử lại" re-fail vô hạn → đổi message VI có ngữ cảnh / degrade per-section. +test: persona thiếu DocPerm gọi builder → assert `success==True` (không crash). ⚠️ Backlog P1 CHƯA fix (eval 2026-06-10).
+
+Cross-ref: LL-BE-49 (rbac gate), permission-aware count (count==drill SSoT predicate); session 2026-06-10 USER eval P1 persona-dashboard crash.
+
+### LL-BE-52: Field OpenAPI gốc từ Frappe `Check` fieldtype = `integer enum[0,1]`, KHÔNG `boolean` (codegen crash) (2026-06-12)
+
+**Triệu chứng→nguyên nhân:** list-item/response field gốc doctype `Check` (vd `sla_breached`/`rca_required`/`patient_affected`) wire emit **int 0/1** (Check = tinyint, KHÔNG JSON true/false). OpenAPI khai `type:boolean` → strict-codegen Dart/Kotlin sinh `bool` → deser runtime **CRASH 'int is not subtype of bool'**. Tác giả ĐÚNG ở 1 derived-flag (`is_response_breached`) nhưng MISS 8 raw Check khác = cùng trap.
+
+**Rule (kiểm được):** mọi field OpenAPI gốc từ Frappe `Check` khai `type: integer, enum: [0,1]` (KHÔNG boolean). Guard test (RED-first): introspect mọi list-item/response schema, assert KHÔNG có field Check-derived nào `type==boolean`. Cross-ref: LL-BE-53 (cùng họ codegen-typing); session run50 backlog P1 #1; memory `mobile_be_openapi_contract_gotchas`.
+
+### LL-BE-53: oneOf-at-HTTP-200 = closed-schema (additionalProperties:false + disjoint required), KHÔNG `discriminator` boolean (2026-06-12)
+
+**Triệu chứng→nguyên nhân:** in-handler error 404/409/422 trả TRÊN HTTP-200 (LL-BE-45) → response `200` = `oneOf [<Created>, Error]`. Dùng `discriminator: {propertyName: success}` với `success` kiểu **boolean** = OAS 3.x **ILLEGAL** (discriminator property PHẢI string) → openapi-generator Dart/Kotlin DROP discriminator hoặc sinh `switch(string)` so boolean → deser fail. Guard chỉ assert propertyName-tồn-tại = **FALSE-GREEN**.
+
+**Rule (kiểm được):** KHÔNG `discriminator` cho oneOf phân-biệt-bằng-boolean. Set `additionalProperties:false` trên CẢ nhánh + required-set **DISJOINT** (Created `required[success,data]` vs Error `required[success,error,code,http_status]`) → codegen route bằng structural-distinctness. Guard assert disjoint-required + additionalProperties:false (KHÔNG assert propertyName). Cùng cơ chế 403 dual-shape `FrappeRawError.additionalProperties:false`. Cross-ref: memory gotchas #3; LL-BE-45/50/52; session run50 Decision-B.
+
+### LL-BE-54: 429 Retry-After honesty — `@rate_limit` decorator đơn KHÔNG emit backoff header (2026-06-12)
+
+**Triệu chứng→nguyên nhân:** doc/spec hứa 429 chứa `Retry-After`/`X-RateLimit-*` cho endpoint `@rate_limit` (vd resolve_qr_token). FALSE: `rate_limiter.py` throw-path (~:162-166) KHÔNG emit header — CHỈ nhánh `conf.rate_limit` (site_config) HOẶC nginx `limit_req` mới inject Retry-After. Client tin doc → chờ header không bao giờ có.
+
+**Rule (kiểm được):** KHÔNG khai Retry-After/X-RateLimit là guaranteed cho 429 trừ khi enforcement-layer (`conf.rate_limit`/nginx) THẬT emit. `@rate_limit` decorator đơn → 429 không header → client tự exponential-backoff+jitter. Guard machine-check 'CHỈ phát header khi conf.rate_limit set'. Cross-ref: session run50 backlog P1 #2; [[gunicorn_preload_staleness]] cluster; `rate_limiter.py`.
