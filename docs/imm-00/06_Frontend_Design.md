@@ -252,8 +252,10 @@ Các routes dưới đây đánh dấu `[BUILT]` nếu có Vue component, `[SPEC
 1. `onMounted`/`useQuery` → gọi `getAssetScanInfo({ name: route.params.id })` (api/imm00.ts — NEW, xem dưới). Cũng nhận `token` query nếu có (luồng gộp 1 chặng tương lai).
 2. **Loading:** khối `aria-busy="true"` + spinner + "Đang tải thông tin thiết bị…". KHÔNG trang trắng.
 3. **Thành công:** layout **1 cột trên mobile** (`max-w-md mx-auto`, `space-y-4`), font ≥ `text-base`, touch-target nút ≥ 44px:
-   - **Header định danh:** `asset_name` (lớn, `text-lg font-semibold`) + `asset_code` (phụ) + **status pill VI** (`lifecycle_status_label` qua màu theo `lifecycle_status` — tái dùng `LIFECYCLE_STATUS_CLASS` từ `constants/labels.ts`). KHÔNG hiển thị mã EN thô.
-   - **Thông tin:** `device_model_name`, `location_name` (mỗi dòng nhãn VI + giá trị; rỗng → "—").
+   - **Header định danh:** `asset_name` (lớn, `text-lg font-semibold`) + `asset_code` (phụ) + **status pill VI** — text = `lifecycleStatusLabel(info.lifecycle_status)`, màu = `lifecycleStatusClass(info.lifecycle_status)` (cả 2 từ `constants/labels.ts`). **KHÔNG hiển thị mã EN thô** ngay cả khi `lifecycle_status` rỗng/lạ (legacy/drift): `lifecycleStatusLabel` trả nhãn VI an toàn `'Không xác định'` (FR-00-93 / BR-00-42 / ADR §D10) + `lifecycleStatusClass` trả chip trung tính gray. Xem §II.3e-PILLNOLEAK dưới. **A11y + anchor (Vòng 39 — FR-00-104 / BR-00-53):** pill mang `role="status"` + `aria-label="Trạng thái thiết bị: <nhãn VI>"` (dùng CHUNG `statusLabel` — SSoT, WCAG 1.4.1 parity badge quá hạn, KHÔNG-chỉ-bằng-màu) + `data-test="scan-status"` (anchor ổn định, đúng-1-pill). Xem §II.3e-PILLA11Y dưới.
+   - **Thông tin:** `device_model_name`, `location_name` (mỗi dòng nhãn VI + giá trị; rỗng → `'Chưa gán'` qua `modelText`/`locationText` — KHÔNG `'—'` câm, vòng 22).
+   - **Số serial NSX (Vòng 37 — A6-hardening, FR-00-103 / BR-00-52):** dòng **"Số serial NSX"** = `serialText` (`manufacturer_sn` nguyên văn; rỗng/null/undefined/whitespace → `'Chưa rõ'`). Định danh truy xuất NĐ98 để KTV xác nhận đúng thiết bị vật lý trước báo hỏng/tạo WO. TUYỆT ĐỐI KHÔNG fallback `info.name` (docname nội bộ). Xem §II.3d-SERIALSN dưới.
+   - **Phân loại rủi ro + cờ urgency (Vòng 38 nhãn + Vòng 47 cờ — FR-00-105 / BR-00-54):** dòng **"Phân loại rủi ro"** = `riskText` (map enum EN Low/Medium/High/Critical→VI Thấp/Trung bình/Cao/Nghiêm trọng; rỗng→'Chưa phân loại'; ngoài-enum→'Khác' — vòng 38, GIỮ NGUYÊN). **Vòng 47:** khi `riskUrgent` (=`risk_classification ∈ {High, Critical}`, derive THUẦN enum-equality trên giá-trị server — **KHÔNG so client-clock**, parity overdue-SSoT vòng 21) → THÊM cờ cảnh báo trực quan (icon ⚠ + nhãn VI 'Rủi ro cao', màu cảnh báo) mang `role="status"` + `aria-label="Cảnh báo rủi ro cao: <nhãn VI>"` (dùng CHUNG `riskText` — SSoT, WCAG 1.4.1 KHÔNG-chỉ-bằng-màu) + `data-test="scan-risk-urgent"`. Low/Medium/rỗng/Khác → KHÔNG cờ (no-false-alarm). `data-test="scan-risk"` + `riskText` GIỮ NGUYÊN. Xem §II.3f-SCANRISKURGENT dưới.
    - **Bảo trì gần nhất:** nếu `last_maintenance`/`recent_maintenance` → "{event_type_label} · {date}"; nếu `null` → "Chưa có lịch sử bảo trì". `next_pm_date` → "PM kế tiếp: {date}" (rỗng → ẩn dòng).
    - **Cờ PM quá hạn (Vòng 27 B — A6-hardening, FR-00-85 / BR-00-36):** cạnh dòng "Bảo trì định kỳ kế tiếp" (`AssetScanInfoView.vue:182-187`), khi `info.pm_overdue === true` → render badge VI **"Quá hạn bảo trì"** (style cảnh báo đỏ). FE **CHỈ render cờ `pm_overdue` từ payload** — TUYỆT ĐỐI KHÔNG tự so sánh `next_pm_date` với `Date()`/đồng hồ client (SSoT quá-hạn ở BE, timezone-safe — chống lệch múi giờ máy quét vs server). `pm_overdue === false` → giữ NGUYÊN hiển thị ngày như cũ, KHÔNG badge. Xem §II.3c-PMOVERDUE dưới.
    - **Hiệu chuẩn kế tiếp + cờ quá hạn (Vòng 28 B — A6-hardening, FR-00-86 / BR-00-37 — chiều HIỆU CHUẨN):** trong CÙNG card "Bảo trì gần nhất", thêm dòng **"Hiệu chuẩn kế tiếp"** = `formatDate(info.next_calibration_date)` hoặc "Chưa lên lịch" khi rỗng; khi `info.calibration_overdue === true` → render badge VI **"Quá hạn hiệu chuẩn"** (style cảnh báo đỏ + `role="status"` + `aria-label`). FE **CHỈ render cờ `calibration_overdue` từ payload** — TUYỆT ĐỐI KHÔNG tự so `next_calibration_date` với `Date()`/client clock. `calibration_overdue === false` → giữ NGUYÊN ngày, KHÔNG badge. Xem §II.3d-CALOVERDUE dưới.
@@ -267,6 +269,7 @@ Các routes dưới đây đánh dấu `[BUILT]` nếu có Vue component, `[SPEC
 ```ts
 export interface AssetScanInfo {
   name: string; asset_code: string; asset_name: string;
+  manufacturer_sn: string;   // NEW (Vòng 37 / FR-00-103 / BR-00-52) — Số serial NSX (định danh truy xuất NĐ98); BE coalesce '' → LUÔN str; FE serialText fallback 'Chưa rõ'
   device_model_name: string; location_name: string;
   lifecycle_status: string; lifecycle_status_label: string;
   last_maintenance: { event_type: string; event_type_label: string; date: string } | null;
@@ -274,6 +277,11 @@ export interface AssetScanInfo {
   pm_overdue: boolean;   // NEW (Vòng 27 B / BR-00-36) — cờ PM quá hạn derive SERVER-SIDE; FE chỉ render
   next_calibration_date: string | null;   // NEW (Vòng 28 B / BR-00-37) — ngày hiệu chuẩn kế tiếp
   calibration_overdue: boolean;            // NEW (Vòng 28 B / BR-00-37) — cờ hiệu chuẩn quá hạn derive SERVER-SIDE; FE chỉ render
+  available_actions: ScanAction[];         // ADR §D1/D2/D9 — 4 CTA derive SERVER-SIDE (capability ∩ lifecycle)
+}
+// 4 CTA màn quét QR (BE-driven). reason VI từ BE (FR-00-92 — non-rỗng khi enabled=false); FE render nguyên văn, KHÔNG bịa.
+export interface ScanAction {
+  key: string; label: string; route: string; enabled: boolean; reason: string;
 }
 export function getAssetScanInfo(p: { name?: string; token?: string }): Promise<AssetScanInfo> {
   return get('assetcore.api.imm00.get_asset_scan_info', p)
@@ -358,6 +366,166 @@ export function getAssetScanInfo(p: { name?: string; token?: string }): Promise<
 **Auth + cap:** route gate `requiredCapabilities: ['asset.read']` (tái dùng A2 — KHÔNG cap mới). BE 403 → màn error 403 (không trang trắng); guard `beforeEach` chặn user thiếu cap trước cả khi vào view (defense-in-depth).
 
 **KHÔNG hiển thị (mirror BE whitelist):** giá mua, khấu hao/giá trị còn lại, supplier code nội bộ, audit chain, số ĐKLH chi tiết. View chỉ render đúng các field payload trả về.
+
+#### II.3d-SERIALSN — Dòng "Số serial NSX" (`manufacturer_sn`) qua computed `serialText` + fallback VI `'Chưa rõ'` (Vòng 37 / A6-hardening, FR-00-103 / BR-00-52) — **NEW**
+
+> **Đề mục factory vòng 37 (2026-06-12 — Self-Correction parity định danh truy xuất NĐ98 với đường label-PDF D5).** BE bổ sung `manufacturer_sn: string` vào payload `get_asset_scan_info` (xem 04 §II.1.8d-SCANSN / 05). FE thêm dòng **"Số serial NSX"** vào card định danh để KTV cầm điện thoại quét tem **đối chiếu serial khắc trên thân máy → xác nhận đúng thiết bị vật lý** TRƯỚC khi báo hỏng / yêu cầu PM/CM/hiệu chuẩn. **FE-only render + 1 field type** — KHÔNG cap/route/store mới; `CAP_SET_VERSION` GIỮ `v97.c30c69b8974d`.
+
+**Type (`api/imm00.ts::AssetScanInfo`):** THÊM `manufacturer_sn: string` (bắt buộc, parity BE — coalesce `''` ở BE nên LUÔN str; `getAssetScanInfo` mirror 1-1). `vue-tsc` 0.
+
+**Computed (`AssetScanInfoView.vue`):** hằng mới `SERIAL_UNKNOWN = 'Chưa rõ'` (KHÁC `UNASSIGNED='Chưa gán'` / `ASSET_CODE_UNASSIGNED='Chưa gán mã'` — "Chưa rõ" = chưa-biết-giá-trị, đúng ngữ nghĩa serial KTV chưa nhập). Computed presence-aware (parity `modelText`/`locationText` vòng 22 + `assetCodeText` vòng 27):
+
+```ts
+const SERIAL_UNKNOWN = 'Chưa rõ'
+// manufacturer_sn từ BE LUÔN là str (coalesce '' khi rỗng). Defensive runtime: trim
+// rồi kiểm presence — chuỗi-có-giá-trị → render NGUYÊN VĂN (no-regress, vd 'SN-12345');
+// '' / null / undefined / chỉ-whitespace → SERIAL_UNKNOWN. TUYỆT ĐỐI KHÔNG fallback
+// info.name (docname Frappe nội bộ — record-ID thô, có thể hash). Thuần presentation.
+const serialText = computed(() => (info.value?.manufacturer_sn ?? '').trim() || SERIAL_UNKNOWN)
+```
+
+**Render (dòng trong card định danh / card "Model & Vị trí"):**
+
+```html
+<!-- DÒNG SERIAL NSX (vòng 37): qua serialText — manufacturer_sn rỗng/null/undefined/
+     whitespace → 'Chưa rõ' (SSoT VI), KHÔNG '—' câm, KHÔNG leak docname info.name. -->
+<dd ... data-test="scan-serial">{{ serialText }}</dd>   <!-- nhãn "Số serial NSX" ở <dt> -->
+```
+
+| Quy tắc Vòng 37 (FE) | Lý do |
+|---|---|
+| `serialText` = `manufacturer_sn || 'Chưa rõ'` (presence-aware, trim) | parity no-em-dash vòng 22 (`modelText`/`locationText`); có-giá-trị → nguyên văn |
+| **TUYỆT ĐỐI KHÔNG fallback `info.name`** | docname Frappe nội bộ = record-ID thô (có thể hash) — no-raw-docname-leak (parity assetCodeText vòng 27 / assetTitleText vòng 28) |
+| Fallback = `'Chưa rõ'` (KHÁC `'Chưa gán'`/`'Chưa gán mã'`) | serial = chưa-biết (chưa nhập), KHÔNG phải chưa-gán-quan-hệ; no-EN-leak (i18n VI) |
+| FE chỉ render str từ payload (BE coalesce `''`) | mirror BE whitelist; KHÔNG render `'null'`/`'undefined'`/`'—'` câm |
+
+**Test (`AssetScanInfoView.test.ts`) — RED-first → GREEN:** (a) mock `manufacturer_sn:'SN-12345'` → `[data-test="scan-serial"]` text == `'SN-12345'` nguyên văn; (b) `manufacturer_sn` ∈ {`''`, `null`, `undefined`, `'   '`} → text == `'Chưa rõ'` (KHÔNG `'—'`, KHÔNG `'null'`/`'undefined'`); (c) `manufacturer_sn:''` + `name:'AST-0042-x9'` → text == `'Chưa rõ'` (KHÔNG render docname — no-leak); (d) grep `serialText` KHÔNG chứa `info.name`; đúng 1 hằng `SERIAL_UNKNOWN='Chưa rõ'`. `vue-tsc` 0 lỗi; full asset-domain vitest suite no-regression. **FE-only — KHÔNG cần reload/migrate.**
+
+#### II.3c-ACTIONS — Cụm CTA `available_actions` + render `reason` an toàn (ADR §D1/D2/D9, FR-00-92 / BR-00-41) {#reason-render}
+
+> **Đề mục factory vòng 7 (2026-06-11 — scan-action / reason-when-disabled).** `AssetScanInfoView.vue` render 4 CTA từ `info.available_actions` (BE-driven — FE KHÔNG tự tính quyền/lifecycle, SSoT BE D2). Mỗi nút `enabled=false` ở trạng thái **disabled + reason VI**. **Lỗi thiết kế gốc D2** (xem 02 §IV.18): khi BE trả `{enabled:false, reason:""}` (status rỗng/lạ + có cap — đã fix BE qua FR-00-92), FE phát sinh **dangling `aria-describedby`** + **trailing-rỗng `aria-label`** + mất tooltip. Vòng 7 fix BE (reason luôn non-rỗng) **VÀ** làm FE phòng-thủ-kép.
+
+**Render (vị trí: cụm `<section>` "Thao tác nhanh" + `<ul aria-live>` reason — `AssetScanInfoView.vue:286-323`):**
+
+| Attr nút disabled | Quy tắc | Lý do |
+|---|---|---|
+| `:disabled="!a.enabled"` + `:aria-disabled` | GIỮ — nút disabled không click | a11y: trạng thái rõ |
+| `:title="a.enabled ? undefined : a.reason"` | reason hiển thị tooltip (BE non-rỗng ⟹ luôn có) | hover thấy lý do |
+| `:aria-label` đuôi = `a.reason` thực | BE non-rỗng ⟹ KHÔNG còn `"… không khả dụng: "` trailing rỗng | screen-reader đọc đủ |
+| `:aria-describedby="reason-${a.key}"` | trỏ `<li id="reason-${a.key}">` PHẢI tồn tại | **hết dangling** |
+
+**Phòng-thủ-kép (DELTA Vòng 7 — đo được):** cụm `<li>` reason đổi filter từ `!x.enabled && x.reason` → **`!x.enabled`** (BỎ điều kiện `&& x.reason`) ⟹ MỌI nút disabled luôn có `<li id="reason-<key>">` tương ứng ⟹ `aria-describedby` KHÔNG bao giờ dangling (kể cả nếu BE — giả định — trả rỗng). Phương án thay thế tương đương: set `:aria-describedby` **có-điều-kiện** (chỉ khi `a.reason` non-rỗng). Chọn 1 (BA khuyến nghị bỏ `&& x.reason` — đơn giản + an toàn nhất; với BE non-rỗng thì hành vi không đổi cho 5 status đã biết). **KHÔNG còn nút disabled thiếu cả tooltip lẫn dòng giải thích.**
+
+**SSoT reason ở BE — FE KHÔNG bịa:** FE render `a.reason` **nguyên văn** (`{{ a.reason }}` + `:title`/`:aria-label`); FE TUYỆT ĐỐI KHÔNG hardcode/dịch/ghép chuỗi reason (no-EN-leak — reason 100% VI từ BE). Nhãn nút lấy từ `a.label` (BE đã VI, F18) — KHÔNG hardcode. Phần info read-only (F19) + shape `available_actions` GIỮ NGUYÊN.
+
+**Test (`AssetScanInfoView.test.ts`) — RED-first → GREEN:** (a) payload action `{enabled:false, reason:'Thiết bị đã thanh lý'}` → nút `disabled` + `title==reason` + tồn tại `<li id="reason-<key>">` (aria-describedby trỏ tới element THẬT, KHÔNG dangling) + `aria-label` kết thúc bằng reason thực (KHÔNG trailing `: `); (b) MỌI nút disabled trong payload đều có `<li>` reason tương ứng (đếm `li[id^=reason-]` == số nút disabled); (c) nút enabled → KHÔNG `aria-describedby`/`title`. `vue-tsc` 0 lỗi.
+
+#### II.3e-PILLNOLEAK — Status pill VI an toàn: `lifecycleStatusLabel` no-EN/raw-code/empty leak (Vòng 8 — FR-00-93 / BR-00-42 / ADR §D10) {#status-pill-safe}
+
+> **Đề mục factory vòng 8 (2026-06-11 — scan-action / status-pill no-EN-leak — Self-Correction lỗi thiết kế gốc FE-formatter).** Status pill header (§II.3c bước 3) render text qua `lifecycleStatusLabel(info.lifecycle_status)`. **Lỗi thiết kế gốc:** `lifecycleStatusLabel(v) { return LIFECYCLE_STATUS_LABEL[v] ?? v }` (`constants/labels.ts:237`) — fallback `?? v` trả mã thô khi `v` ∉ 7 mã canonical ⟹ leak mã EN/code (`'In Use'`/`'Retired'`/`'active'` legacy/drift) HOẶC box rỗng (`''` BE phát `or ""` cho asset legacy → `?? ''` → `''`). KHÁC §II.3c-ACTIONS reason (nút disabled, SSoT BE); đây là **nhãn pill** ở tầng formatter VI FE.
+
+**Delta FE (1 SSoT formatter, `constants/labels.ts`):**
+
+| Phần tử | Delta |
+|---|---|
+| Hằng mới | `export const LIFECYCLE_STATUS_UNKNOWN_LABEL = 'Không xác định'` (cạnh `LIFECYCLE_STATUS_LABEL`/`LIFECYCLE_STATUS_CLASS`). |
+| `lifecycleStatusLabel` | đổi `?? v` → `?? LIFECYCLE_STATUS_UNKNOWN_LABEL` → với `v` ∉ map (mã lạ + `''`/null/undefined) trả `'Không xác định'`, KHÔNG raw, KHÔNG rỗng. |
+| `lifecycleStatusClass` | **GIỮ NGUYÊN** fallback `'bg-gray-100 text-gray-600'` (mã lạ/rỗng → chip trung tính; verify giữ — KHÔNG rơi màu trạng thái khác). |
+| 7 mã canonical | nhãn + màu **byte-for-byte** KHÔNG đổi (test FROZEN giữ xanh). |
+
+**Bất biến đo được:** (1) `lifecycleStatusLabel('In Use') !== 'In Use'`, `!== 'Retired'`, `!== 'active'` (no-EN/raw-code leak); (2) `lifecycleStatusLabel('') === 'Không xác định'` (non-empty); (3) `lifecycleStatusLabel(<canonical>)` → nhãn VI cũ; (4) `lifecycleStatusClass(<lạ/rỗng>) === 'bg-gray-100 text-gray-600'`. **SSoT FE — BE KHÔNG đổi** (`or ""` giữ); pill là consumer thụ hưởng, mọi consumer khác của `lifecycleStatusLabel` cũng an toàn.
+
+**Test:** `labels.test.ts` (RED-first — case mã-lạ/rỗng FAIL trước fix do `?? v`) + `AssetScanInfoView.test.ts` (payload `lifecycle_status` rỗng/lạ → text pill = `'Không xác định'`, snapshot/text KHÔNG chứa mã English `[A-Za-z]{2,}` ngoài từ VI có dấu). `vue-tsc` 0 lỗi; full asset-domain suite no-regression.
+
+#### II.3e-PILLA11Y — Status pill lifecycle: a11y (`role="status"` + `aria-label` VI SSoT) + anchor ổn định `data-test="scan-status"` (Vòng 39 — FR-00-104 / BR-00-53 / ADR §D14) {#status-pill-a11y}
+
+> **Đề mục factory vòng 39 (2026-06-12 — scan-action / status-pill a11y + test-anchor — Self-Correction lỗi thiết kế gốc: bất đối xứng a11y CÙNG card + test bám heuristic mong manh).** Status pill lifecycle (`AssetScanInfoView.vue:445-450`) render `{{ statusLabel }}` với `:class="statusClass"`. **Lỗi thiết kế gốc (2 mặt):** **(a) a11y bất đối xứng — trạng-thái-chỉ-bằng-màu:** badge "Quá hạn bảo trì"/"Quá hạn hiệu chuẩn" CÙNG màn đã có `role="status"` + `aria-label` (WCAG 1.4.1 — §II.3c-PMOVERDUE/§II.3d-CALOVERDUE) NHƯNG status pill — tín hiệu trạng-thái QUAN TRỌNG NHẤT của card định danh — KHÔNG có `role`/`aria-label`: screen-reader đọc text trần không ngữ-cảnh, và phân-biệt-trạng-thái dựa CHÍNH vào màu `statusClass` ⇒ vi phạm WCAG 1.4.1 (Use of Color); **(b) test-anchor mong manh:** pill thiếu `data-test` ⇒ test bám `findAll('span').find(s => s.classes().includes('rounded-full'))` — nhưng `rounded-full` xuất hiện **5 lần** (status pill + badge PM-overdue + badge cal-overdue + chip CTA-urgency + nút CTA) ⇒ match NHẦM phần tử → test giòn.
+
+**Delta FE (CHỈ template — 3 attr trên `<span>` pill `:445-450`; KHÔNG đổi computed/class/logic):**
+
+```vue
+<!-- Status pill lifecycle (card định danh). Vòng 39: THÊM data-test (anchor ổn
+     định — test bám selector này, KHÔNG heuristic 'rounded-full' match nhầm
+     overdue-badge/CTA-chip) + role=status + aria-label VI dùng CHUNG statusLabel
+     (SSoT lifecycleStatusLabel — KHÔNG rải literal). WCAG 1.4.1 parity badge quá
+     hạn: trạng thái KHÔNG truyền tải CHỈ bằng màu. statusLabel/statusClass GIỮ. -->
+<span
+  class="shrink-0 inline-flex items-center rounded-full px-3 py-1 text-xs font-medium"
+  :class="statusClass"
+  data-test="scan-status"
+  role="status"
+  :aria-label="`Trạng thái thiết bị: ${statusLabel}`"
+>
+  {{ statusLabel }}
+</span>
+```
+
+| Phần tử | Delta | Lý do |
+|---|---|---|
+| `data-test="scan-status"` | THÊM (anchor ổn định, đúng-1-pill) | test bám `[data-test="scan-status"]`, KHÔNG còn `findAll('span').find(...'rounded-full'...)` (đụng 2 overdue-badge + CTA-chip + nút CTA cùng dùng `rounded-full`) |
+| `role="status"` | THÊM cố định | a11y — screen-reader nhận diện vùng tín hiệu trạng thái (parity badge quá hạn) |
+| `:aria-label` | `` `Trạng thái thiết bị: ${statusLabel}` `` — **dùng CHUNG `statusLabel`** (SSoT `lifecycleStatusLabel`) | WCAG 1.4.1 — KHÔNG truyền tải CHỈ bằng màu; KHÔNG rải literal nhãn, KHÔNG hardcode wording riêng cho aria-label |
+| `statusLabel` / `statusClass` / class màu | **GIỮ NGUYÊN byte-for-byte** | chỉ THÊM 3 attr; `lifecycleStatusLabel`/`lifecycleStatusClass` (fallback gray trung tính) KHÔNG đổi — KHÔNG đụng BE / `constants/labels.ts` logic |
+
+**Bất biến đo được:** (1) `[data-test="scan-status"]` tồn tại + `role==='status'` + `aria-label !== ''`; (2) `aria-label === 'Trạng thái thiết bị: ' + statusLabel` (ghép từ CHÍNH `statusLabel` — đổi nhãn → aria-label đổi theo, KHÔNG drift); (3) **no-EN/raw-code/empty leak (parity §II.3e-PILLNOLEAK):** `lifecycle_status` rỗng/lạ (`'In Use'`/`'LegacyUnknown'`/`''`) → `statusLabel==='Không xác định'` ⇒ text pill VÀ `aria-label==='Trạng thái thiết bị: Không xác định'` — `aria-label` KHÔNG chứa mã English/code thô; (4) **exactly-one:** `findAll('[data-test="scan-status"]').length === 1` (CTA buttons + 2 overdue badges + CTA-urgency chip KHÔNG nhận selector); (5) overdue-badge a11y (`role=status`/`aria-label` của chúng) GIỮ NGUYÊN. **FE-only — BE KHÔNG đổi; `statusClass`/màu KHÔNG đổi.**
+
+**Test:** `AssetScanInfoView.test.ts` (RED-first — assert `[data-test="scan-status"]` + `role="status"` + `aria-label` khớp `'Trạng thái thiết bị: ' + statusLabel` FAIL trước khi thêm 3 attr): (a) `lifecycle_status='Active'` → pill `data-test=scan-status`, `aria-label==='Trạng thái thiết bị: Đang hoạt động'`; (b) `''`/`'In Use'` → text VÀ aria-label = `'Trạng thái thiết bị: Không xác định'`, aria-label KHÔNG chứa `'In Use'`; (c) `findAll('[data-test="scan-status"]').length===1`; (d) overdue-badge test GIỮ XANH. `vue-tsc` 0 lỗi; full asset-domain suite no-regression. **Playwright/quét-QR-thật BLOCKED reload gunicorn --preload (HARD-STOP USER) → vitest + code-audit là gate.**
+
+#### II.3f-SCANRISKURGENT — Dòng "Phân loại rủi ro": cờ CẢNH BÁO trực quan + a11y khi `risk_classification ∈ {High,Critical}` — derive THUẦN enum-equality từ giá-trị server (no client-clock) (Vòng 47 — FR-00-105 / BR-00-54 / ADR §D15) {#scan-risk-urgent}
+
+> **Đề mục factory vòng 47 (2026-06-12 — scan-action / scan-risk urgency + a11y — Self-Correction lỗi thiết kế gốc: tín hiệu rủi-ro-cao render NEUTRAL giống Low/Medium).** Dòng "Phân loại rủi ro" (`AssetScanInfoView.vue:466-473`, vòng 38) render `{{ riskText }}` class `text-slate-500` NEUTRAL cho MỌI mức (`riskText`=map enum EN Low/Medium/High/Critical→VI Thấp/Trung bình/Cao/Nghiêm trọng; rỗng→'Chưa phân loại'; ngoài-enum→'Khác'). **Lỗi thiết kế gốc:** `risk_classification` là phân-loại an-toàn thiết bị (NĐ98 Class A/B/C/D — drive PM frequency/calibration bắt buộc Class C/D/Class D 24h CAPA SLA), nhưng thiết bị `High`/`Critical` KHÔNG có affordance cảnh báo nào (thị-giác lẫn a11y), ngang hàng Low/Medium — bất đối xứng CÙNG card với 2 overdue badge (§II.3c/§II.3d) + CTA-urgency (§II.3-CTA) đã mang affordance. KTV quét tem thiết bị Critical (vd máy thở ICU) KHÔNG nhận tín hiệu ưu tiên; người mù-màu/screen-reader không nhận-diện mức nguy hiểm.
+
+**Delta FE (CHỈ `AssetScanInfoView.vue` — 1 computed + 3 hằng VI + 1 phần tử template; KHÔNG đổi `riskText`/`RISK_CLASSIFICATION_LABEL`/BE/payload):**
+
+```ts
+// Vòng 47: cờ urgency dòng "Phân loại rủi ro" — derive THUẦN enum-equality trên
+// GIÁ-TRỊ-SERVER risk_classification (parity nguyên-tắc overdue-SSoT vòng 21:
+// đọc enum server, TUYỆT ĐỐI KHÔNG so client-clock, KHÔNG nghiệp vụ FE). Tập
+// urgency cố định = {High, Critical} (SSoT hằng RISK_URGENT_VALUES — test/grep bám).
+// Low/Medium/rỗng/whitespace/ngoài-4-enum → false (no-false-alarm). riskText GIỮ NGUYÊN.
+const RISK_URGENT_VALUES = ['High', 'Critical'] as const   // SSoT tập rủi-ro-cao (có thể đặt constants/labels.ts)
+const RISK_URGENT_LABEL = 'Rủi ro cao'                      // nhãn VI urgency (no-EN-leak)
+const RISK_URGENT_ARIA_PREFIX = 'Cảnh báo rủi ro cao: '     // tiền-tố VI aria-label (dùng CHUNG riskText)
+const riskUrgent = computed(() => {
+  const raw = (info.value?.risk_classification ?? '').trim()
+  return (RISK_URGENT_VALUES as readonly string[]).includes(raw)   // enum-equality, KHÔNG Date()/client-clock
+})
+```
+
+```vue
+<!-- Dòng "Phân loại rủi ro" — data-test="scan-risk" GIỮ NGUYÊN (anchor cũ, no-regress).
+     Vòng 47: KHI riskUrgent → THÊM phần tử cảnh báo (icon ⚠ + nhãn VI 'Rủi ro cao',
+     màu cảnh báo amber/rose parity overdue badge) mang role="status" (BA chốt — KHÔNG
+     alert: risk là thuộc-tính tĩnh, không sự-kiện ngắt) + aria-label VI dùng CHUNG
+     riskText (SSoT). data-test="scan-risk-urgent" để test bám không-heuristic. -->
+<p class="text-sm text-slate-500 mt-0.5 flex flex-wrap items-center gap-1.5" data-test="scan-risk">
+  <span>Phân loại rủi ro: {{ riskText }}</span>
+  <span
+    v-if="riskUrgent"
+    class="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2 py-0.5 text-xs font-semibold text-rose-700"
+    role="status"
+    :aria-label="`${RISK_URGENT_ARIA_PREFIX}${riskText}`"
+    data-test="scan-risk-urgent"
+  >
+    <span aria-hidden="true">⚠</span>
+    {{ RISK_URGENT_LABEL }}
+  </span>
+</p>
+```
+
+| Phần tử | Delta | Lý do |
+|---|---|---|
+| `riskUrgent` (computed) | THÊM — `RISK_URGENT_VALUES.includes(raw)`, `raw=(risk_classification ?? '').trim()` | derive THUẦN enum-equality trên giá-trị server; High/Critical→true, còn lại→false; **KHÔNG `Date()`/client-clock** (parity overdue-SSoT vòng 21) |
+| `data-test="scan-risk"` | **GIỮ NGUYÊN** trên dòng | no-regress anchor cũ (vòng 38) |
+| `data-test="scan-risk-urgent"` | THÊM trên phần tử cảnh báo (chỉ render khi `riskUrgent`) | test bám không-heuristic; exactly-one khi true, 0 khi false |
+| `role="status"` (KHÔNG `alert`) | THÊM — BA chốt | `risk_classification` tĩnh có-sẵn-khi-load → polite parity status-pill/overdue badge cùng màn; `alert` assertive ngắt SR sai ngữ-cảnh |
+| `:aria-label` | `` `${RISK_URGENT_ARIA_PREFIX}${riskText}` `` — dùng CHUNG `riskText` | WCAG 1.4.1 — KHÔNG-chỉ-bằng-màu; no-EN-leak (ghép từ `riskText` VI); KHÔNG hardcode wording riêng |
+| icon ⚠ + nhãn VI `RISK_URGENT_LABEL` | THÊM (text + màu cảnh báo) | non-color-only — có icon + text VI, KHÔNG chỉ màu |
+| `riskText` / `RISK_CLASSIFICATION_LABEL` / 6 nhãn-mức | **GIỮ NGUYÊN byte-for-byte** | no-regress vòng 38/40 — chỉ THÊM cờ, KHÔNG đổi nhãn hiển thị |
+
+**Bất biến đo được:** (1) High/Critical → `riskUrgent===true` + `findAll('[data-test="scan-risk-urgent"]').length===1` (icon + nhãn VI 'Rủi ro cao'); (2) **no-false-alarm:** `Low`/`Medium`/`''`/null/undefined/`'   '`/`'UNKNOWN_DRIFT'` → `false` + 0 urgent-anchor; (3) **no-client-clock:** grep source KHÔNG `Date`/`new Date`/so-ngày; tập = `RISK_URGENT_VALUES`; (4) `role==='status'` (KHÔNG `'alert'`); (5) `aria-label === 'Cảnh báo rủi ro cao: ' + riskText` (Critical→'…: Nghiêm trọng', High→'…: Cao'); (6) **no-EN-leak:** urgent-anchor+aria-label KHÔNG chứa `'High'`/`'Critical'` thô; (7) `[data-test="scan-risk"]` đúng-1 + `riskText` 6 nhãn byte-for-byte (no-regress); (8) WCAG 1.4.1 (icon+text+role+aria-label). **FE-only — BE `build_asset_scan_info` KHÔNG đổi (đã emit `risk_classification`); `constants/labels.ts` logic KHÔNG đổi (hằng urgency có thể THÊM làm SSoT).**
+
+**Test:** `assetScanInfoRisk.test.ts` + `AssetScanInfoView.test.ts` (RED-first — urgent-anchor + `role="status"` + `aria-label` FAIL trước khi thêm): (a) `risk_classification='High'`/`'Critical'` → 1 urgent-anchor, `role=status`, `aria-label==='Cảnh báo rủi ro cao: Cao'`/`'…: Nghiêm trọng'`; (b) `'Low'`/`'Medium'`/`''`/null/`'   '`/`'UNKNOWN_DRIFT'` → 0 urgent-anchor; (c) grep source KHÔNG so client-clock; (d) `[data-test="scan-risk"]` đúng-1 + `riskText` 6 nhãn no-regress; (e) no-EN-leak. `vue-tsc` 0; full asset-domain no-regression (overdue badge/status-pill a11y/serial GIỮ XANH). **Playwright/quét-QR-thật BLOCKED reload gunicorn --preload (HARD-STOP USER) → vitest + code-audit là gate.**
 
 ### II.3d. In nhãn QR — gate `asset.print` (D6 EXECUTED Vòng 3 — least-privilege)
 
@@ -460,7 +628,9 @@ Sau fix: axios interceptor nhánh `default` (`axios.ts:288`) build `ApiError(mes
 
 ### II.3f-PDF. In nhãn QR khổ tem 60×100mm qua PDF server-side — luồng iframe + preview WYSIWYG (ADR-IMM00-LABEL-PDF §D10–D12 — Vòng 2)
 
-> **Đề mục LABEL-PDF Vòng 2 (FE).** USER có **máy in tem nhiệt 60×100mm** (portrait, LAN). Luồng `window.print()` + `@page` CSS cũ (§II.3f) KHÔNG đảm bảo ra đúng khổ tem (browser bỏ qua `@page mm` → in A4/lệch). **Phương án A (USER duyệt):** BE render **PDF server-side đúng khổ 60×100mm** (`print_asset_labels_pdf` — D1–D9 đã code), FE tải PDF blob → iframe ẩn → `iframe.print()` (hộp thoại in → chọn máy in tem → ra đúng khổ); preview = chính PDF đó (WYSIWYG thật). **THÊM đường PDF cạnh luồng cũ (§II.3f GIỮ song song — D12.7); ƯU TIÊN PDF cho 60×100mm. FE-only ở FE-tier; KHÔNG cap/field/DocType/route MỚI; `CAP_SET_VERSION` GIỮ `v97.c30c69b8974d`** (cap `asset.print` đã có từ §II.3d).
+> **⚠️ V24 SUPERSEDE (ADR §D20):** trong `AssetDetailView` đường in nhãn legacy `window.print()` HTML **GỠ HẲN** — `AssetDetailView` CHỈ còn DUY NHẤT đường PDF khổ tem (§II.3f-PDF này). Mọi câu "GIỮ song song"/"luồng cũ regression XANH" dưới đây CHỈ còn đúng cho `AssetLabelPrintView` (batch, ngoài phạm vi V24), KHÔNG còn đúng cho `AssetDetailView`. Chi tiết symbol/CSS/test gỡ: ADR §D20.1–D20.8.
+
+> **Đề mục LABEL-PDF Vòng 2 (FE).** USER có **máy in tem nhiệt 60×100mm** (portrait, LAN). Luồng `window.print()` + `@page` CSS cũ (§II.3f) KHÔNG đảm bảo ra đúng khổ tem (browser bỏ qua `@page mm` → in A4/lệch). **Phương án A (USER duyệt):** BE render **PDF server-side đúng khổ 60×100mm** (`print_asset_labels_pdf` — D1–D9 đã code), FE tải PDF blob → iframe ẩn → `iframe.print()` (hộp thoại in → chọn máy in tem → ra đúng khổ); preview = chính PDF đó (WYSIWYG thật). **V2: THÊM đường PDF cạnh luồng cũ (D12.7) → V24 (D20): GỠ HẲN luồng cũ khỏi `AssetDetailView`** (đường PDF là DUY NHẤT ở màn chi tiết); `AssetLabelPrintView` batch GIỮ. FE-only ở FE-tier; KHÔNG cap/field/DocType/route MỚI; `CAP_SET_VERSION` GIỮ `v97.c30c69b8974d`** (cap `asset.print` đã có từ §II.3d).
 
 **API client (§D10) — `frontend/src/api/imm00.ts`:**
 - `printAssetLabelsPdf(assets: string[], preset='tem-60x100'): Promise<Blob>` — `api.post('...print_asset_labels_pdf', {assets: JSON.stringify(assets), preset}, {responseType:'blob'})` qua axios **`api` raw** (NOT `frappeGet/frappePost` — 2 helper unwrap JSON envelope, không đọc Blob). Giữ `withCredentials`+CSRF (mặc định `api`). Batch = **1 lời gọi** giữ thứ tự `names` (BE render mỗi asset = 1 trang).
@@ -483,11 +653,18 @@ Sau fix: axios interceptor nhánh `default` (`axios.ts:288`) build `ApiError(mes
 - **Revoke (§D12.5):** mọi Blob URL `URL.revokeObjectURL` SAU in/đóng modal/`onafterprint`/unmount; iframe ẩn remove khỏi DOM sau in (chống memory leak).
 - **No EN-leak (§D12.8):** PDF đã VI server-side (D3); FE chỉ hiển thị PDF + toast lỗi VI — KHÔNG leak status/raw-code/email/token EN.
 
-**No-regression (§D12.7):** luồng `window.print()` + `@page` CSS cũ (§II.3f, A4/50×30/70×40) GIỮ XANH song song. PDF chỉ THÊM cho 60×100mm. Suite hiện hành (`assetDetailQrPrint.test.ts`, `AssetLabelPrintView.test.ts`, `assetLabelFormat.test.ts`, `assetListBatchSelect.test.ts`) PASS 0 regression.
+**No-regression (§D12.7 — ⚠️ V24/D20 thu hẹp phạm vi):** ~~luồng `window.print()` + `@page` CSS cũ trong `AssetDetailView` GIỮ song song~~ → **V24: đường legacy XOÁ khỏi `AssetDetailView`** (ADR §D20). No-regression nay = `AssetLabelPrintView` batch (`AssetLabelPrintView.test.ts`, `assetLabelFormat.test.ts`, `assetListBatchSelect.test.ts`) GIỮ XANH (vẫn `window.print()`+`LABEL_FORMATS`, ngoài phạm vi). `assetDetailQrPrint.test.ts` (đường PDF) 0 regression + grep-0 `window.print(` trong `AssetDetailView.vue` (lock `:187-194`).
 
-**DoD FE (vitest — §D10/D11/D12):** mock `api.post` blob → (a) content-type `application/pdf` → `printAssetLabelsPdf` trả Blob (KHÔNG throw); (b) content-type `application/json` body `{message:{success:false,error:'Vui lòng chọn...',http_status:422}}` → ApiError `httpStatus===422` msg VI, **KHÔNG** trả Blob; (c) blob parse-fail → ApiError VI cố định; (d) bấm "In nhãn QR" → `printAssetLabelsPdf([id])` 1 lần + `createObjectURL` + tạo iframe + `contentWindow.print()` gọi; (e) preview src === blob URL; (f) chưa "Đã in xong" → `markLabelPrinted` KHÔNG gọi; bấm "Đã in xong" → `markLabelPrinted(names)` 1 lần (chỉ name hợp lệ); (g) đóng/onafterprint → `revokeObjectURL(url)` gọi; (h) thiếu `asset.print` → nút absent; (i) batch N asset → `api.post` **1 lần**; (j) luồng `window.print()` cũ regression XANH. **vue-tsc 0.**
+**DoD FE (vitest — §D10/D11/D12):** mock `api.post` blob → (a) content-type `application/pdf` → `printAssetLabelsPdf` trả Blob (KHÔNG throw); (b) content-type `application/json` body `{message:{success:false,error:'Vui lòng chọn...',http_status:422}}` → ApiError `httpStatus===422` msg VI, **KHÔNG** trả Blob; (c) blob parse-fail → ApiError VI cố định; (d) bấm "In nhãn QR" → `printAssetLabelsPdf([id])` 1 lần + `createObjectURL` + tạo iframe + `contentWindow.print()` gọi; (e) preview src === blob URL; (f) chưa "Đã in xong" → `markLabelPrinted` KHÔNG gọi; bấm "Đã in xong" → `markLabelPrinted(names)` 1 lần (chỉ name hợp lệ); (g) đóng/onafterprint → `revokeObjectURL(url)` gọi; (h) thiếu `asset.print` → nút absent; (i) batch N asset → `api.post` **1 lần**; ~~(j) luồng `window.print()` cũ regression XANH~~ → **(j) V24/D20: `grep -c 'window.print(' AssetDetailView.vue`==0 + KHÔNG entry-point mở modal legacy (no nút "In tem"/`showLabelModal`/`label-page-rule`) + `grep -c 'markLabelPrinted(' AssetDetailView.vue`==1 (chỉ `markPrintedOnce`).** **vue-tsc 0 (no dead-import).**
 
 **GIỚI HẠN GHI RÕ (KHÔNG tuyên bố vượt):** `print_asset_labels_pdf` là BE `.py` thêm SAU gunicorn `--preload` boot → **CHƯA live HTTP** tới khi USER reload gunicorn → **Playwright LIVE trên endpoint PDF = BLOCKED**. QA gate Vòng 2 = **vitest** (FE unit) + `bench run-tests` (BE đã GREEN Vòng 1). [USER] eval **KHÔNG** được tuyên bố "đã verify in thật trên HTTP / máy in tem".
+
+#### II.3f-PDF-QREMPTY. `AssetQrLabel` guard `qr_url` rỗng → ô-fallback an toàn (re-verify, Vòng 30 — BR-00-49 / FR-00-100 / ADR §D20) — **NO BEHAVIOR CHANGE (parity với BE-PDF fix)**
+
+> **Bối cảnh:** trên-màn (FE) đã AN TOÀN từ trước — `AssetQrLabel.vue:73` guard `if (!value) { qrFailed.value = true; return }` (trong `renderQr()`, SAU narrow `itemIsError`) → `qr_url` rỗng/null/undefined → KHÔNG gọi `QRCode.toDataURL` (chống QR-rác client-side) → render ô-fallback `<div class="qr-label__qr-fallback" role="alert">Không tạo được mã QR</div>` (`:123-124`). Vòng 30 fix bất đối xứng **CHỈ ở BE-PDF** (server-side `_label_block` chưa guard — §D20). FE task = **re-verify guard CÒN RĂNG** + parity nhãn VI; **KHÔNG đổi 1 dòng logic FE**.
+
+- **Guard hiện hữu (KHÔNG sửa):** `AssetQrLabel.vue` `renderQr()` — `const value = props.label.qr_url; if (!value) { qrFailed.value = true; return }`. Narrow `itemIsError` (AC-E001) đã return TRƯỚC đó (`:71`) → guard `:73` áp cho item HỢP-LỆ nhưng `qr_url` rỗng. Empty-string `''`/`undefined`/`null` → falsy → guard bắt. Nhãn fallback VI `Không tạo được mã QR` (`:124`) = CÙNG chuỗi BE-PDF ô-QR-lỗi (§D20 parity) — KHÔNG EN-leak, KHÔNG raw token/qr_url.
+- **DoD FE (vitest — revert-proof, LL-TEST-26):** (a) mount `AssetQrLabel` prop `label.qr_url=''` → `qrFailed===true` + DOM chứa `.qr-label__qr-fallback` text `Không tạo được mã QR` + KHÔNG `<canvas>`/`<img data-qr>` (KHÔNG gọi `QRCode.toDataURL`); lặp `null`/`undefined` → cùng kết quả; (b) `label.qr_url='/a/TOKEN'` (hợp lệ) → `qrFailed===false` + QR render (no-regression); (c) **revert-proof:** xoá guard `:73` (`if(!value){...}`) → test (a) ĐỎ (component cố `toDataURL('')` → qrFailed sai / junk); khôi phục → XANH (guard CÒN RĂNG). **vue-tsc 0, vitest GREEN.** **KHÔNG cần reload** (thuần FE — KHÔNG đụng BE/HTTP).
 
 ### II.3g. Cap kích thước batch nhãn QR — guard FE song song + map 413 (ADR-001 B-6 / BR-00-33 — Vòng 22)
 

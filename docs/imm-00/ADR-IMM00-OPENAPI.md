@@ -547,6 +547,30 @@ Liệt **9 chữ ký** (F5) phải đổi từ `X | None = None` sang **default 
 
 ---
 
+### D-OAS-DEVTOK — DEVICE-TOKEN (EPIC-D D4) TYPED theo Decision-B closed-schema route-by-VALUE (KHÔNG discriminator) ▶️ **Vòng 17 (DONE+GREEN, BA spec + test)**
+
+> **Phạm vi:** quyết định này thuộc **spec MOBILE thứ-2** (`docs/mobile/openapi/assetcore-mobile.openapi.yaml`, OpenAPI 3.0.3 — codegen Dart/Kotlin/TS), KHÔNG phải spec runtime auto-gen (D1-D18). Theo **ADR-MOBILE-001 A1 "2-spec-by-design"**: runtime spec (`api/openapi.py`, 3.1.0, ~487 path) = SSoT human-browse/integrator; mobile yaml (16 path) = SSoT codegen mobile MANG Decision-B. ADR này ghi quyết-định device-token để IMM-00 OpenAPI-record đầy đủ + cross-link.
+
+**Bối cảnh:** R4 (§8.7 04-api-contract) GIỮ 2 device-token path (`mobile.v1.register/unregister_device_token`) ở STUB vì service+handler CHƯA tồn tại (BA gate R-CD-4 KHÔNG bịa endpoint). **EPIC-D D2** (Vòng 16) tạo `services/mobile_device_token.py` (3-tier, GROUNDED) ⇒ **D4** (Vòng 17) GỠ 2 STUB cuối: type `data` GROUNDED chữ-ký service THẬT.
+
+**5 câu hỏi domain (assetcore-doc Phần 2):** (1) **WHO HTM stage:** cross-cutting IMM-00 (mobile-BE platform) — kênh push FCM phục vụ Maintenance (PM/CM/Calibration overdue). (2) **NĐ98:** không mandate trực tiếp; register/unregister sinh audit IMM Audit Trail SHA-256 (NĐ98 §6.3 truy xuất ai-đăng-ký-token-nào-khi-nào). (3) **Stakeholder:** field-tech (self-service đăng ký token thiết bị của chính mình); mobile-dev (codegen client). (4) **Lifecycle event:** không (token registry ≠ asset lifecycle); audit-only. (5) **Hậu quả nếu data sai:** spoof token (client gửi `user=<nạn nhân>` → push sai người) — chặn bằng server-ÉP `frappe.session.user` (§6.2).
+
+**Quyết định cốt lõi (DT1-DT5 — đo được):**
+
+- **DT1 — Decision-B closed-schema route-by-VALUE (KHÔNG discriminator boolean):** 2 path 200 = inline `oneOf [<Created>, Error]`. Nhánh Created (`additionalProperties:false`, `success.enum:[true]`, required `[success, data]`) ∩ Error (`additionalProperties:false`, `success.enum:[false]`, required `[success, error, code, http_status]`) = ∅ → disjoint required-set + closed ⇒ codegen route ĐÚNG theo **GIÁ TRỊ** `body.success` (KHÔNG cần `discriminator` — `success` là BOOLEAN, OAS 3.x discriminator.propertyName yêu cầu property STRING → illegal/deser-fail). **0 discriminator-key** toàn spec (đồng pattern 3 create-triad §5c). Đây là **đóng băng Decision-B** cho device-token (KHÔNG mở lại boolean-discriminator).
+
+- **DT2 — `data` GROUNDED service return THẬT (KHÔNG bịa wrap):** `register_device_token` trả `name` (str = hash record, `mobile_device_token.py:153/166`) → `handle()`/`_ok(name)` ⇒ `RegisterDeviceTokenCreatedEnvelope.data` = `string` (KHÔNG object `{device_token_id}`). `unregister_device_token` trả `None` → `_ok(None)` ⇒ `UnregisterDeviceTokenAckEnvelope.data` = `null` (nullable string, ack thuần). BA gate: handler chỉ wrap service — KHÔNG ép wrap object divergent với D2.
+
+- **DT3 — request `DeviceTokenRequest` closed + anti-spoof:** `fcm_token` reqd (khóa dedup UNIQUE), `platform` enum `[android, ios]` (Select-canonical `_VALID_PLATFORMS` `mobile_device_token.py:56`), `device_label?`/`app_version?` optional. `additionalProperties:false`. **KHÔNG khai `user`** — server ÉP `frappe.session.user` (signature service KHÔNG nhận `user`; `**_ignore` nuốt kwargs lạ, §6.2). content oneOf `application/json` + `application/x-www-form-urlencoded` (Frappe RPC `form_dict`).
+
+- **DT4 — 2 loại 403 + symmetry 12:** `403` = **single-shape** `Forbidden` (FrappeRawError) = dispatcher-403 (guest/no-token = `PermissionError` HTTP-403 status-line, `is_whitelisted __init__.py:876`) — bearer-gated self-service KHÔNG allow_guest (06 §2.3). `401` = `Unauthorized401` (bearer hết-hạn). in-handler `422 VALIDATION` (register: fcm_token rỗng/platform ngoài enum, `mobile_device_token.py:130-137`) ARRIVE HTTP-200 body → gom nhánh Error (KHÔNG status-line key, quirk §5). 2 device-token GIỮ symmetry 401/403 (12==12 path MVP). `_STUB_PATHS = ∅` (0 STUB-on-MVP).
+
+- **DT5 — same-commit wiring (Pattern A):** `hooks.py` `permission_query_conditions` + `has_permission` thêm `'AC Mobile Device Token'` (self-scope `user==frappe.session.user`, D7) wire CÙNG-COMMIT với hàm `permissions.py` — KHÔNG để hook trỏ hàm chưa tồn tại.
+
+> **Verify @source (Vòng 17, BA doc+test-only):** yaml 16 path / 3.0.3 / **0 dangling $ref** / **0 discriminator-key** (PyYAML probe); 2 device-token: `requestBody $ref DeviceTokenBody` + 200 oneOf `[<Created>, Error]` (KHÔNG `responses/Stub`); 3 schema mới (`DeviceTokenRequest`/`RegisterDeviceTokenCreatedEnvelope`/`UnregisterDeviceTokenAckEnvelope`) + 1 requestBody (`DeviceTokenBody`) `$ref`'d ngay (KHÔNG orphan); `responses/Stub` HẾT ref → forward-reserve (`_RESERVED_ORPHANS`). Tests `tests/test_mobile_oas.py::TestMobileDeviceTokenTyped` TC-MOB-OAS-22a..i (**9 TC**) GREEN; `test_mobile_oas` **131 OK** (122→131); guard-suite 6-module **219 OK** (210→219); `test_mobile_docset` 9 OK (count-parity). **KHÔNG sửa service/api `.py` vòng này** (BA doc+yaml+test introspect-only — handler `api/mobile/v1/device_token.py` = BE impl cùng EPIC-D D4); LIVE HTTP chờ USER reload gunicorn. Chi tiết: `docs/mobile/04-api-contract.md §8.9` + `completion/EPIC-D-push-fcm.md §D4` + ADR-MOBILE-001.
+
+---
+
 ## Anti-pattern PHẢI tránh (rút từ memory + customer-doc rules)
 
 - ❌ **Hardcode danh mục endpoint** trong spec → drift. Luôn introspect (D1).
