@@ -1213,3 +1213,35 @@ Cross-ref: LL-BE-49 (rbac gate), permission-aware count (count==drill SSoT predi
 **Triệu chứng→nguyên nhân:** doc/spec hứa 429 chứa `Retry-After`/`X-RateLimit-*` cho endpoint `@rate_limit` (vd resolve_qr_token). FALSE: `rate_limiter.py` throw-path (~:162-166) KHÔNG emit header — CHỈ nhánh `conf.rate_limit` (site_config) HOẶC nginx `limit_req` mới inject Retry-After. Client tin doc → chờ header không bao giờ có.
 
 **Rule (kiểm được):** KHÔNG khai Retry-After/X-RateLimit là guaranteed cho 429 trừ khi enforcement-layer (`conf.rate_limit`/nginx) THẬT emit. `@rate_limit` decorator đơn → 429 không header → client tự exponential-backoff+jitter. Guard machine-check 'CHỈ phát header khi conf.rate_limit set'. Cross-ref: session run50 backlog P1 #2; [[gunicorn_preload_staleness]] cluster; `rate_limiter.py`.
+
+### LL-BE-55: Frappe `get_pdf` ÉP margin 15mm cho output khổ-cố-định (label/tem/vé) → tràn trang (2026-06-11)
+
+**Triệu chứng→nguyên nhân:** BUG-LABEL-1 — `print_asset_labels_pdf` qua `frappe.utils.pdf.get_pdf` → `prepare_header_footer` (`frappe/utils/pdf.py:336-340`) GHI ĐÈ `margin-top`/`margin-bottom`="15mm" khi HTML KHÔNG có `#header-html`/`#footer-html`. Khổ nhãn 60×100mm → vùng in co còn 60×70mm → nhãn TRÀN sang trang 2 trắng. `get_pdf` là document-oriented (giả định trang in có header/footer) — SAI cho artifact khổ-chính-xác.
+
+**Rule (kiểm được):** output khổ-chính-xác (tem/nhãn/vé/badge) gọi **`pdfkit.from_string(html, False, options)` TRỰC TIẾP** (KHÔNG `get_pdf`). `options` = `margin-top/right/bottom/left = "0mm"` (chuỗi truthy, KHÔNG bị `prepare_header_footer` đụng) + `disable-smart-shrinking` + `disable-javascript` + `disable-local-file-access` + `encoding:UTF-8` + `page-width`/`page-height` đúng mm. `.label { height: <height_mm − 1>mm }` (content < page, chừa 1mm tránh round-over trang). DONE-gate: feature PDF khổ cố định PHẢI assert MediaBox = đúng khổ mm + số TRANG PDF THẬT == kỳ vọng (pypdf `PdfReader(...).pages`), KHÔNG chỉ assert "có byte PDF".
+
+Cross-ref: LL-BE-56 (cùng họ: bọc binary-call print PDF); `frappe/utils/pdf.py:336-340`; session 2026-06-11 BUG-LABEL-1 (QR-asset label).
+
+### LL-BE-56: Bọc MỌI lời gọi binary ngoài trong endpoint (no-500 / no-traceback-leak) (2026-06-11)
+
+**Triệu chứng→nguyên nhân:** `print_asset_labels_pdf` gọi render (pdfkit→wkhtmltopdf subprocess) KHÔNG try/except. Binary lỗi runtime ở môi trường live (wkhtmltopdf thiếu, font lỗi, OOM, timeout) = whitelist endpoint bung exception → dispatcher Frappe trả **HTTP-500 + LEAK `frappe.get_traceback()`** ra body (lộ path server/lib version).
+
+**Rule (kiểm được):** MỌI lời gọi binary/subprocess ngoài (wkhtmltopdf, pdfkit, `subprocess`, `convert`/ImageMagick, PIL, ffmpeg) trong whitelist endpoint PHẢI `try/except Exception as e → frappe.log_error(frappe.get_traceback(), "<ctx>") → return _err(<msg_VI>, ErrorCode.INTERNAL)` (in-handler HTTP-200 + Error, LL-BE-45). KHÔNG để traceback ra wire. DONE-gate: +test mock binary `raise Exception` → assert response = `_err` VI có ngữ cảnh + `'Traceback' not in body` + KHÔNG raise (no-500).
+
+Cross-ref: LL-BE-45 (in-handler error HTTP-200), LL-BE-55 (PDF label render), `_err`/`ErrorCode.INTERNAL`; session 2026-06-11 BUG-LABEL-1.
+
+### LL-BE-57: Context-panel cho persona vận hành = endpoint META NẠC, KHÔNG full-doc (data-minimization) (2026-06-12)
+
+**Triệu chứng→nguyên nhân:** run50 — 3 màn scan-action (CM/Calibration/PM create từ QR) gọi `get_asset` full-doc để hiện panel ngữ-cảnh read-only cho KTV → payload chứa field tài chính (`purchase_value`/giá mua, khấu hao, giá trị sổ sách) → lộ cho field-tech KHÔNG có need-to-know. Full-doc tiện nhưng vi phạm least-data.
+
+**Rule (kiểm được):** panel ngữ-cảnh read-only cho field-tech (scan-action, mobile preflight) dùng endpoint NẠC riêng (vd `get_asset_action_meta` trả CHỈ `asset_name`/`device_model_name`/`location_name`/`lifecycle_status`/`risk_classification`) — KHÔNG `get_asset` full-doc. Data-minimization = bảo mật + nghiệp vụ (least-data theo persona). DONE-gate: endpoint context-panel → assert payload KHÔNG có key tài chính (`purchase_value`/`book_value`/`depreciation*`/`acquisition_cost`...).
+
+Cross-ref: LL-BE-49 (rbac gate cap-SSoT), vendor-isolation/data-minimization §5 CONVENTIONS; memory `mobile_be_openapi_contract_gotchas`; session run50 scan-action panel.
+
+### LL-BE-58: Enum TRÙNG TÊN ≠ TRÙNG DOMAIN — không suy diễn logic cross-domain (2026-06-12)
+
+**Triệu chứng→nguyên nhân:** run50 nhiều vòng lẫn 3 khái niệm "rủi ro" trùng tên gần: `AC Asset.risk_classification` (Low/Med/High/Critical) ≠ `Device Model`/`Commissioning.risk_class` (NĐ98 A/B/C/D/Radiation) ≠ `WO`/`Asset Repair.risk_class` (Class I/II/III). Bug điển hình: `isHighRisk = risk in {'C','D'}` áp lên field giá trị Low/Med/High/Critical = LUÔN false (so chuỗi khác domain) → gate high-risk chết âm thầm.
+
+**Rule (kiểm được):** TRA DocType `.json` (field `fieldname` THẬT + `Select.options` THẬT) TRƯỚC khi derive logic theo enum. Gate 'high-risk' phải chốt theo domain NÀO + SSoT mapping/ADR — KHÔNG suy diễn giá trị từ domain khác. DONE-gate: mọi logic phụ thuộc enum rủi ro → cite `field + doctype` nguồn ngay tại chỗ; nếu cross-domain (map A/B/C/D ↔ Low/Med/High/Critical) → BẮT BUỘC ADR + mapping table, KHÔNG hardcode set ký tự.
+
+Cross-ref: LL-BE-49 verify field type/enum trước derive; doctype-catalog.md (tên verbatim); ADR dual-track status/workflow_state; session run50 risk-enum confusion.

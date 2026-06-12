@@ -91,6 +91,8 @@ BE và FE ở Bước 4 độc lập → có thể dispatch song song (2 Agent c
 
 Cuối Bước 6 in: `VÒNG r/N HOÀN TẤT` → **↺ Bước 1 NGAY** nếu còn vòng (r < N); chỉ dừng + báo cáo khi đã đủ N vòng (xem §Autonomy). KHÔNG chờ commit giữa các vòng.
 
+**⚠️ Anti gate-churn (LL-AUDIT-19):** Bước 1 [PM] PHẢI kiểm "còn task **[AUTO]** CHƯA làm không?". Nếu epic/backlog hết task AUTO (tất cả còn lại = `[HARD-STOP USER]`: cloud/migrate/reload/site_config/creds/toolchain) → **ADVANCE epic kế HOẶC dừng sớm + báo cáo**, **KHÔNG** sinh đề mục "re-verify gate đã GREEN" lần 2+ (churn — run50 đốt 5 vòng D-GATE re-verify). Re-verify 1 lần sau khi đóng là đủ. Verify-before-trust: ĐỌC source/yaml/checklist HIỆN TẠI trước khi chọn (code có thể đã tiến qua run song song — LL-AUDIT-21).
+
 ---
 
 ## Session handoff (bàn giao run→run) — skill `assetcore-session`
@@ -144,5 +146,6 @@ Context KHÔNG được chết theo run. Bọc THE LOOP giữa 2 mốc session:
 | Fix triệu chứng, không sửa root | Self-Correction → `assetcore-ba` |
 | Ôm nhiều feature 1 vòng | Cắt còn 1 đề mục (Bước 1) |
 | Sắp commit/push/reset DB/deploy | HARD-STOP, hỏi user |
+| Định phóng factory fix "lỗi live" sau khi vừa sửa code | LOẠI TRỪ stale-worker TRƯỚC bằng `curl` endpoint (417 "no attribute" = stale → USER `bench restart`, KHÔNG factory) — `assetcore-deploy` LL-DEPLOY-07 |
 | Không có Agent/dispatch tool (đang là subagent) | KHÔNG stall/hỏi — chạy THE LOOP in-session qua skill (§Fallback) |
 | Scope quá lớn (nhiều module/dashboard) | Chia phase/sub-batch, mỗi lần đóng kín + dừng review |

@@ -986,3 +986,19 @@ Cross-ref: GATE-5 (SKILL.md), LL-FE-23/26 (action ẩn do permission → hint, k
 Endpoint spec/JSON mà trang FE tiêu thụ: unwrap envelope Frappe `payload.message || payload` + feed `spec:` object, KHÔNG `url:` thẳng (LL-BE-50).
 
 Cross-ref: LL-BE-50 (`{message:}` envelope), LL-TEST-26 (assert render/wire thật), `references/playwright-patterns.md`; session 2026-06-11 F-C1.
+
+### LL-FE-47: DEAD CONTROL = bug giao diện — control không đổi hành vi downstream (2026-06-11)
+
+**Triệu chứng:** F1 — dropdown "Khổ tem" @AssetLabelPrintView render 3 option (Tem 50×30 / 70×40 / 60×100) NHƯNG `printAll()` HARDCODE `preset='tem-60x100'` ngay ở call-site → user chọn "Tem 50×30" vẫn in ra 60×100 IM LẶNG, không cảnh báo.
+**Nguyên nhân:** control chỉ đổi state hiển thị/preview, giá trị thật bị hardcode ở call-site nên không truyền xuống logic/API → lựa chọn UI vô nghĩa.
+**Rule kiểm được:** mọi control (dropdown/toggle/radio/checkbox) PHẢI thật sự đổi param/logic downstream — KHÔNG để giá trị bị hardcode ở call-site. Test BẮT BUỘC: assert **param phát đi (body/query/store) == lựa chọn UI** — chọn option B → spy nhận B; KHÔNG chỉ assert "render đủ N option". Red-flag: "control chỉ đổi state hiển thị/preview, không truyền xuống API".
+
+Cross-ref: LL-FE-48 (verify render thật khổ in), LL-FE-46 (xanh structural ≠ render thật), LL-TEST (assert param/artifact thật); session 2026-06-11 F1.
+
+### LL-FE-48: Layout in/khổ-cố-định — `overflow:hidden` CẮT chữ ÂM THẦM → verify bằng RENDER ẢNH THẬT (2026-06-11)
+
+**Triệu chứng:** tem 50×30 / 70×40 — mã/tên dài wrap rồi bị `overflow:hidden` cắt mất dòng dưới; vitest DOM assertion PASS (text vẫn nằm trong DOM) NHƯNG bản in thực tế CẮT chữ.
+**Nguyên nhân:** assertion text-trong-DOM không phản ánh layout in khổ cố định — text có trong DOM nhưng bị clip khỏi vùng nhìn/in; DOM-test mù với pixel render.
+**Rule kiểm được:** với output in (PDF/tem/khổ cố định) verify bằng RENDER ra ảnh (pdftoppm/screenshot → đọc ảnh bằng mắt), KHÔNG tin assertion text-trong-DOM. Khổ nhỏ: in VALUE-only (bỏ tiền tố nhãn) + `nowrap` + `text-overflow:ellipsis` + font/QR thu theo khổ (KHÔNG wrap→cắt dọc); QR giữ ≥18mm để còn quét được.
+
+Cross-ref: LL-FE-47 (dead control khổ tem), LL-FE-46 (render thật chứng minh), LL-TEST (assert artifact render thật, không assert template); session 2026-06-11 F1.

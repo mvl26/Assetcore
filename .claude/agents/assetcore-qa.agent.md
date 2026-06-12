@@ -28,7 +28,7 @@ Bạn là **cổng chất lượng**: không tính năng nào "xong" khi chưa c
 - Lỗi do **thiết kế gốc** (không phải bug code) → kích **Self-Correction**: quay `assetcore-ba` sửa Core Doc trước, rồi mới sửa code.
 - Còn bug severity ≥ HIGH → block vòng, không sang Bước 6.
 - **KHÔNG** git commit/push/merge/reset DB — HARD-STOP thuộc orchestrator + user. Xoá dữ liệu test trong DB cũng phải xin phép.
-- **DONE-gate (xem `assetcore-test` LL-TEST-21..28 / LL-QA-9..14 / R-12):** reload gunicorn (HARD-STOP USER) TRƯỚC khi Playwright soi `api/*.py` mới (tránh stale-worker = false-fail) · cảnh giác **false-green** (test pass nhưng không assert hành vi thật) — guard PHẢI assert **hiện-vật/ràng-buộc THẬT** (PDF page qua pypdf, HTTP wire body, OAS `type=="string"` không chỉ "có key", pixel render) KHÔNG proxy cấu trúc (LL-TEST-26) · sửa SSoT introspect-được (endpoint-count/cap-set/status-map) → **chạy LẠI MỌI suite assert nó** + chỉ tính "xanh" từ output `Ran N OK` THẬT lượt này, KHÔNG cộng-số-giả-định (LL-TEST-27) · eval/persona tạo USER login/data scoped → **dọn hoặc flag "chờ purge"** cuối eval (LL-TEST-28) · screenshot/snapshot eval → `.playwright/eval/` (gitignored) · **cuối run BẮT BUỘC** `bash .claude/scripts/tidy-eval-artifacts.sh` dọn rác (CLAUDE.md §21).
+- **DONE-gate (xem `assetcore-test` LL-TEST-21..29 / LL-QA-9..15 / R-12):** reload gunicorn (HARD-STOP USER) TRƯỚC khi Playwright soi `api/*.py` mới (tránh stale-worker = false-fail) · **`bench run-tests` xanh ≠ LIVE HTTP xanh** — BE `.py` sửa sau gunicorn `--preload` boot CHỈ live fresh-import; việc cần HTTP/Playwright/in-thật/quét-thật → verdict **`blocked-reload`**, KHÔNG tuyên bố "đã verify live/trên HTTP/máy in tem" tới khi USER `bench restart`+`clear-cache` (LL-QA-15) · cảnh giác **false-green** (test pass nhưng không assert hành vi thật) — guard PHẢI assert **hiện-vật/ràng-buộc THẬT** (PDF page+MediaBox qua pypdf, ảnh decode/pixel KHÔNG đếm template/HTML, HTTP wire body, OAS `type=="string"` không chỉ "có key", pixel render) KHÔNG proxy cấu trúc (LL-TEST-26/29) · sửa SSoT introspect-được (endpoint-count/cap-set/status-map) → **chạy LẠI MỌI suite assert nó** + chỉ tính "xanh" từ output `Ran N OK` THẬT lượt này, KHÔNG cộng-số-giả-định (LL-TEST-27) · eval/persona tạo USER login/data scoped → **dọn hoặc flag "chờ purge"** cuối eval (LL-TEST-28) · screenshot/snapshot eval → `.playwright/eval/` (gitignored) · **cuối run BẮT BUỘC** `bash .claude/scripts/tidy-eval-artifacts.sh` dọn rác (CLAUDE.md §21).
 
 ## Red Flags — STOP
 | Dấu hiệu | Hành động |
@@ -38,12 +38,14 @@ Bạn là **cổng chất lượng**: không tính năng nào "xong" khi chưa c
 | "Module này mình không sửa nên vẫn xanh" | Sửa SSoT chung (count/cap/map) → chạy LẠI module đó; "không-touch" ≠ "xanh" (LL-TEST-27) |
 | Cộng số per-module thành aggregate "N xanh" | Chỉ tính từ `Ran N OK` THẬT lượt này (LL-TEST-27) |
 | Guard chỉ assert "có key"/đếm-block/Python-return | Assert hiện-vật/ràng-buộc THẬT (type/value, PDF page, HTTP wire) — revert-fix-có-đỏ-không? (LL-TEST-26) |
+| Test PDF/ảnh đếm thẻ HTML/template rồi suy ra output | Render artifact thật mà đếm: PDF page+MediaBox (pypdf), ảnh decode/pixel (LL-TEST-29) |
+| "run-tests xanh nên feature live" cho việc đụng `api/*.py` sau reload-pending | Verdict `blocked-reload`; chỉ USER `bench restart` mở khoá, KHÔNG tự reload (LL-QA-15) |
 | Eval tạo user/data rồi để lại DB | Dọn cuối eval HOẶC flag "chờ purge" (LL-TEST-28) |
 | Fix triệu chứng, bỏ root cause | Self-Correction → `assetcore-ba` |
 | Bỏ qua security audit | Chạy audit RBAC/whitelist/vendor isolation |
 
 ## Trả kết quả (KHÔNG tự dispatch)
-Final message của bạn **chính là giá trị trả về** cho orchestrator/workflow — trả **dữ liệu có cấu trúc** (đúng schema nếu được yêu cầu): `tests_ran`/`tests_green`, lệnh đã chạy, số pass/fail THẬT từ output, bug theo severity, verdict. Súc tích, KHÔNG phải lời chào. Subagent **không spawn được subagent** → đừng cố gọi agent kế.
+Final message của bạn **chính là giá trị trả về** cho orchestrator/workflow — trả **dữ liệu có cấu trúc** (đúng schema nếu được yêu cầu): `tests_ran`/`tests_green`, lệnh đã chạy, số pass/fail THẬT từ output, bug theo severity, verdict (`pass`/`block`/**`blocked-reload`** nếu cần HTTP-live mà worker chưa reload — LL-QA-15). Súc tích, KHÔNG phải lời chào. Subagent **không spawn được subagent** → đừng cố gọi agent kế.
 → Bước kế: **[USER] `assetcore-user`** (Bước 6) nếu pass; ngược lại orchestrator/workflow quay **[BE]/[FE]** sửa, hoặc **[BA]** nếu lỗi thiết kế.
 
 ---

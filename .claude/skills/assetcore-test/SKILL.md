@@ -747,6 +747,7 @@ Việc cần làm: [action items cụ thể]
 - [ ] Workflow smoke test còn pass: `--module assetcore.tests.test_workflows`
 - [ ] `EXPECTED_WORKFLOWS` đã update nếu thêm workflow mới
 - [ ] Không có `except: pass` mới
+- [ ] "Test xanh" cho việc đụng `api/*.py`/`services/*.py` sau reload-pending → KHÔNG kết luận "feature live"; gắn verdict **`blocked-reload`** tới khi USER reload (LL-QA-15). Test output render (PDF/ảnh/file) → assert ARTIFACT THẬT đã render, KHÔNG đếm template/HTML (LL-TEST-29).
 
 ### UI (tất cả phải pass)
 - [ ] Pre-check master data đủ (R-2) — nếu tạo mới thì dùng tên thực tế (R-3)
@@ -1343,6 +1344,30 @@ Triệu chứng→nguyên nhân: agent [USER]/eval tạo user login throwaway (`
 3. "Xong" của eval = file artifact dọn (tidy-eval-artifacts, LL-AUDIT-13) **VÀ** DB test-user/data đã dọn-hoặc-flag. Verdict KHÔNG Pass khi còn user/data rác chưa khai báo.
 
 Reference: LL-AUDIT-13 (tidy file), LL-TEST-22 (asset cleanup), `references/playwright-patterns.md` (persona cần user+pw), session 2026-06-11.
+
+### LL-TEST-29: Test OUTPUT SINH RA → assert ARTIFACT THẬT đã render, KHÔNG assert template trung gian (false-green) (LL-QA-15 sibling)
+
+Triệu chứng→nguyên nhân: `test_one_page_per_asset` (BUG-LABEL-1, 2026-06-11) đếm `html.count('<div class="label"')` == N rồi SUY RA "N trang" → PASS, NHƯNG PDF render THẬT có trang trắng (1 asset → 2 trang). Đếm thẻ HTML / đoạn template ≠ đếm output thật — template đúng vẫn render sai (overflow, page-break, MediaBox). Biến thể cụ thể của LL-TEST-26 cho output file/ảnh/PDF.
+
+**Rule kiểm-được — test mọi PDF/ảnh/file SINH RA:**
+1. Assert trên ARTIFACT ĐÃ RENDER, không trên template/HTML trung gian:
+   - PDF: `len(pypdf.PdfReader(BytesIO(pdf_bytes)).pages)` + MediaBox dims (kích thước trang thật).
+   - Ảnh: decode/pixel (PIL `Image.open(BytesIO(...)).size` / kiểm pixel), KHÔNG đếm `<img>`/data-URI.
+2. Red-flag: "đếm phần tử template (block/div/thẻ) rồi SUY RA output đúng" → STOP, render artifact thật mà đếm.
+3. Pass ngay khi vừa thêm guard đếm-template = NGHI proxy (LL-TEST-26 §3): "revert fix → test có ĐỎ không?". Không đỏ = proxy, viết lại assert trên artifact render.
+
+Reference: LL-TEST-26 (proxy cấu trúc), BUG-LABEL-1 session 2026-06-11.
+
+### LL-QA-15: `bench run-tests` xanh ≠ LIVE HTTP xanh — verdict `blocked-reload` khi BE `.py` sửa sau gunicorn `--preload` boot
+
+Triệu chứng→nguyên nhân: 2026-06-11 — lỗi user "Không thể tạo PDF nhãn" = gunicorn `--preload` worker STALE (boot TRƯỚC khi tạo endpoint; `curl` → 417 "module … has no attribute"), KHÔNG phải bug code. Factory verify bằng `run-tests` (fresh-import) = false-green: code MỚI live ở `bench run-tests`/`bench execute` nhưng CHƯA live trên HTTP (worker đông cứng import — xem LL-TEST-25).
+
+**Rule kiểm-được:**
+1. BE `.py` (`api/*.py`/`services/*.py`) sửa SAU gunicorn `--preload` boot → CHỈ live ở `bench run-tests`/`bench execute`, CHƯA live HTTP. `bench run-tests` xanh KHÔNG chứng minh feature live trên HTTP/Playwright/in-thật/quét-thật.
+2. QA/USER cho việc cần HTTP / Playwright / in-thật (PDF nhãn, máy in tem) / quét-QR → verdict **`blocked-reload`**. TUYỆT ĐỐI KHÔNG tuyên bố "đã verify live / trên HTTP / máy in tem" khi chưa reload.
+3. Chỉ USER `bench restart` + `clear-cache` mới mở khoá (HARD-STOP — BE/QA KHÔNG tự reload/restart/migrate). Sau USER reload mới chạy Playwright/HTTP live rồi đổi verdict.
+
+Reference: LL-TEST-25 (`--preload` đông cứng import), `memory/gunicorn_preload_staleness.md`, session 2026-06-11.
 
 ---
 

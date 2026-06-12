@@ -467,6 +467,8 @@ Kèm 4 manual check không tự động được:
 - ListView có **ít nhất 1 action button** (Tạo / Import / Navigate)? Empty state actionable?
 - **GATE-6a — qr-scan prefill parity** (→ LL-FE-43): mỗi create-view có qr-scan prefill (`?asset=<id>&source=qr-scan`) chạy parity test 4 view (PM/Incident/CM/Cal) → locked SmartSelect text == asset code (KHÔNG rỗng).
 - **GATE-6b — form 0-state** (→ LL-FE-44): mỗi form có required-dropdown dựa list endpoint chạy test-case `total:0` → có banner + ≥1 lối thoát actionable, KHÔNG chỉ disabled.
+- **GATE-6c — control mới (dropdown/toggle/radio)** (→ LL-FE-47): test **param phát đi (body/query/store) == UI-selection** (chọn option B → spy nhận B), chống dead-control — KHÔNG để giá trị hardcode ở call-site, KHÔNG chỉ assert "render đủ N option".
+- **GATE-6d — output in/khổ cố định** (→ LL-FE-48): verify bằng RENDER ẢNH thật (pdftoppm/screenshot → đọc bằng mắt), KHÔNG chỉ DOM-assert text-trong-DOM (`overflow:hidden` cắt chữ âm thầm mà DOM-test vẫn PASS).
 
 Reference: §0 + §13–§24 trong [CONVENTIONS.md](../CONVENTIONS.md).
 

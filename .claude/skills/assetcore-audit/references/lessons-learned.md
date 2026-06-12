@@ -569,3 +569,21 @@ grep -nE 'target *== *actor|session\.user *!= *user|self-edit' assetcore/api/use
 
 Cross-ref: bổ trợ LL-AUDIT-11 tầng 4 (escalation gate); `memory/` role_security_audit_20260601 (SEC-RBAC-1 `update_user_roles` self-edit bypass→Super Admin; SEC-RBAC-2 `assign_role_profile` self-assign; `_save_user` `ignore_permissions`).
 
+### LL-AUDIT-19: Factory gate-churn — khi epic hết task [AUTO] thì ADVANCE/STOP, KHÔNG re-verify gate đã GREEN lặp lại (2026-06-12)
+
+**Triệu chứng→nguyên nhân:** factory-run50 đốt ~5 vòng làm "D-GATE re-verify @source #1..#5" — re-confirm CÙNG 1 gate đã GREEN vì task còn lại của epic toàn `[HARD-STOP USER]`. PM không phát hiện "0 task AUTO mở" → chọn lại đề mục biến-thể "re-verify" thay vì advance epic. Cùng họ: nhiều vòng "reconcile count-drift" cuối run = lợi nhuận giảm dần (N vòng > lượng AUTO thực có).
+
+**Rule (kiểm được):** PM mỗi vòng kiểm "epic hiện còn task [AUTO] CHƯA làm không?" — nếu 0 → ADVANCE sang epic kế (theo dependency) HOẶC tuyên bố exit-gate + STOP, KHÔNG sinh đề mục "re-verify gate đã đóng". Re-verify 1 LẦN sau khi đóng là đủ; lần 2+ trên cùng gate-GREEN = churn. Khi toàn bộ task còn lại = HARD-STOP USER → factory KHÔNG còn việc → báo cáo + dừng (đừng chạy nốt vòng "cho đủ N"). Cross-ref: LL-AUDIT-16 (Workflow N-vòng); session run50.
+
+### LL-AUDIT-20: Doc count-drift — số literal trong prose (test/path count) drift theo source; thêm self-verify meta-guard, đừng tin số (2026-06-12)
+
+**Triệu chứng→nguyên nhân:** docset SSoT ghi số literal (vd "test_mobile_oas 106 OK", "16-path", "190 OK") → code lớn lên, số THẬT đổi (141 OK) → prose stale, nhiều vòng factory phải "reconcile count 75/80/85/89...". Đếm bằng tay trong doc = nguồn drift bất tận.
+
+**Rule (kiểm được):** số đo đếm-được (test count, path count, $ref count) trong doc = CHỈ DẪN; thêm **self-verify meta-guard test** re-count @source + assert khớp doc HOẶC tránh hardcode số trong prose (dùng "xem test output"). Cross-ref: D4 re-verify @source; LL-AUDIT-16; session run50 F-C3/F-B6 count-self-verify.
+
+### LL-AUDIT-21: Verify-before-trust qua run song song/trước — ĐỌC source trước khi redo, code có thể đã tiến (2026-06-12)
+
+**Triệu chứng→nguyên nhân:** run song song (apidocs factory) đã typed vài STUB + đóng P1-discriminator (Decision B) trong khi run khác vẫn coi là "chưa làm" → redo/mâu thuẫn. Factory report cũng từng nói "files_changed: none" trong khi BA đã ghi yaml (chỉ aggregate file của BE).
+
+**Rule (kiểm được):** trước khi PM chọn / BE sửa 1 task: ĐỌC source + yaml + checklist HIỆN TẠI (KHÔNG tin STATE/đề-mục cũ tuyệt đối) → bỏ qua phần đã DONE, chỉ làm phần còn thiếu. Verdict/report phải verify TRÊN ĐĨA (git status + grep), KHÔNG chỉ tin return của agent. Cross-ref: LL-AUDIT-20; session run50 verify-before-trust.
+

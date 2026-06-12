@@ -367,13 +367,17 @@ transition_asset_status(asset_ref, AssetStatus.ACTIVE, root_record=wo_name)
 
 ## Lessons Learned — bug patterns production (BẮT BUỘC ĐỌC)
 
-> ⚠️ 49 quy tắc **LL-BE-1..49** (always-apply, KHÔNG optional) đã chuyển sang
+> ⚠️ quy tắc **LL-BE-1..58** (always-apply, KHÔNG optional) đã chuyển sang
 > [`references/lessons-learned.md`](references/lessons-learned.md) — whitelist GET param,
 > enrich Link field, DocType schema sync, workflow action labels, gate validators,
 > audit trail localize, fixture-leak, null-guard dangling FK, slug-in-display,
 > state reachability, event-driven resolve động (KHÔNG hard-code state/role),
 > Workflow State style/type không persist runtime, scheduler_events wiring,
 > verify field type/enum + sendmail reference…
+>
+> **DONE-gate bổ sung:**
+> - Feature in **PDF khổ cố định** (tem/nhãn/vé) → `pdfkit`-direct (KHÔNG `get_pdf`) + test assert MediaBox = đúng khổ mm & pypdf page-count (LL-BE-55); bọc binary-call no-500 (LL-BE-56).
+> - Logic theo **enum rủi ro** → cite `field+doctype` nguồn, KHÔNG lẫn `risk_classification` (Low/Med/High/Critical) ↔ `risk_class` (NĐ98 A/B/C/D / Class I/II/III) (LL-BE-58).
 >
 > **BẮT BUỘC: `Read references/lessons-learned.md` TRƯỚC KHI viết/sửa service · API · DocType · workflow.**
 > Bỏ qua = tái phạm bug đã biết.
