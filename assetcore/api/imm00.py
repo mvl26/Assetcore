@@ -41,6 +41,7 @@ from assetcore.services.imm00 import (
     byt_expiry_filter,
     reserved_prefix_filter,      # SSoT loại asset rác test/security-audit (data-hygiene)
     compose_reserved_into,       # SSoT name-safe merge (FR-00-84 — KHÔNG clobber vendor-scope)
+    escape_like_term,            # SSoT escape LIKE-metachar (FR-00-95 — '%'/'_' user gõ = literal)
     get_sla_policy,
     create_capa,
     close_capa,
@@ -86,12 +87,110 @@ AC_QR_REGEN_RATE_LIMIT = 10
 # 429 raise TRƯỚC rbac.require ⇒ vượt ngưỡng = 0 render PDF, no-leak.
 AC_LABEL_PDF_RATE_LIMIT = 20
 
+# Vòng 14 (BR-00-45 / FR-00-96 — Self-Correction, mirror rotate) — ngưỡng rate-limit
+# endpoint GHI `mark_label_printed`. Hằng RIÊNG (KHÔNG tái dùng resolve/regen/pdf):
+# mark = thao-tác-GHI write-AUDIT-amplification (mỗi call N asset ghi 2×N record =
+# N ALE `label_printed` + N IMM Audit Trail → bơm phồng audit-chain NĐ98 + tải DB)
+# → ngưỡng THẤP, ≤ AC_QR_REGEN_RATE_LIMIT (mark CÙNG HỌ write-amplify như rotate).
+# Bucket RIÊNG: frappe rate_limiter cache key gồm `frappe.form_dict.cmd` ⟹ counter
+# TÁCH BIỆT resolve(30)/scan(30)/regen(10)/pdf(20)/batch(20). Decorator bọc NGOÀI
+# thân hàm → 429 raise TRƯỚC rbac.require("asset.print") ⇒ vượt ngưỡng = 0 ALE
+# `label_printed` + 0 IMM Audit Trail (no side-effect), no-leak body generic. Đóng
+# bất đối xứng read-throttled-PDF / write-mark-unthrottled (BR-00-29 mục 6 đã thu
+# hẹp). Xem docs/imm-00/05 §I.7c + 02 BR-00-45.
+AC_LABEL_MARK_RATE_LIMIT = 10
+
+# Vòng 14 (BR-00-46 / FR-00-97 — đồng-đề-mục BR-00-45) — ngưỡng rate-limit endpoint
+# ĐỌC `get_asset_label_data_batch`. Hằng RIÊNG (KHÔNG tái dùng resolve/regen/pdf/
+# mark — TÁCH BIỆT ngữ-nghĩa kể cả trùng giá-trị pdf): batch = read-only (0 side-
+# effect) đọc N asset/call → ngưỡng CAO hơn mark (write-amplify), SONG SONG
+# AC_LABEL_PDF_RATE_LIMIT=20 (đọc/render preview cùng tần-suất FE-batch). Bucket
+# RIÊNG (cache key gồm `cmd`) ⟹ counter TÁCH BIỆT mark/pdf/resolve/regen. Decorator
+# bọc NGOÀI thân → 429 raise TRƯỚC rbac.require("asset.print") ⇒ 0 byte payload
+# build (`build_asset_label_data_batch` KHÔNG chạy), no-leak. Chặn DoS đọc batch.
+# Xem docs/imm-00/05 §I.7c + 02 BR-00-46.
+AC_LABEL_BATCH_RATE_LIMIT = 20
+
+# Vòng 36 (BR-00-51 / FR-00-102) — ngưỡng rate-limit endpoint ĐỌC single
+# `get_asset_label_data` (preview nhãn 1 asset). Hằng RIÊNG (KHÔNG tái dùng
+# resolve/regen/pdf/mark/batch — TÁCH BIỆT ngữ-nghĩa kể cả khi trùng giá-trị
+# batch/pdf=20): read-mostly preview FE màn in nhãn. ⚠ KHÔNG side-effect-free
+# hoàn toàn: token-less asset → `ensure_asset_qr_token` (idempotent) GHI token +
+# emit `qr_generated` (ALE + audit) → endpoint nếu KHÔNG throttle bị hammer ⇒
+# write-amplification mint-token (bơm phồng audit-chain NĐ98). Đóng lỗ hổng cuối
+# họ endpoint nhãn QR (parity batch/mark/pdf/resolve/regen). Giá-trị = 20 (đọc
+# preview cùng tần-suất batch=20/pdf=20). Bucket RIÊNG: frappe rate_limiter cache
+# key gồm `frappe.form_dict.cmd` ⟹ counter TÁCH BIỆT batch/mark/pdf/resolve/regen
+# (1 endpoint vượt ngưỡng KHÔNG khoá endpoint khác). Decorator bọc NGOÀI thân →
+# 429 raise TRƯỚC rbac.require("asset.print") ⇒ vượt ngưỡng = 0 byte payload build
+# + 0 mint-token side-effect, no-leak. Xem docs/imm-00/05 §I.7c + 02 BR-00-51.
+AC_LABEL_DATA_RATE_LIMIT = 20
+
 # ADR-IMM00-LABEL-PDF §D7 — list rỗng → 422 (KHÔNG render PDF 0 trang). Message
 # VI leak-safe (KHÔNG echo asset/id). SSoT 1 chỗ (KHÔNG literal lặp ở handler).
 _ERR_LABEL_EMPTY = "Vui lòng chọn ít nhất một tài sản để in nhãn."
 # §D5 — preset khổ tem không thuộc whitelist `_LABEL_PRESETS` → 422 (chống render
 # khổ giấy tuỳ ý từ client). Message VI cố định, KHÔNG echo giá trị preset client.
 _ERR_LABEL_PRESET = "Khổ tem không hợp lệ."
+# §D16 — render PDF lỗi runtime (wkhtmltopdf/pdfkit/ảnh hỏng) → degrade VI sạch,
+# KHÔNG để traceback 500 leak ra client (DONE-gate no-traceback-leak). Message
+# khớp fallback FE `imm00.ts` ('Không thể tạo PDF nhãn…').
+_ERR_LABEL_RENDER = "Không thể tạo PDF nhãn, vui lòng thử lại sau."
+
+
+def _coerce_asset_names(assets) -> list[str]:
+    """SSoT coerce tham số ``assets`` của 3 endpoint nhãn QR → ``list[str]`` an toàn (dedup within-call).
+
+    Real HTTP (Frappe RPC form_dict) gửi ``assets`` dạng JSON-string; test/python
+    gửi ``list``. Hàm nhận MỌI dạng đầu vào hợp-lệ-hoá về list tên-asset str
+    non-empty, **KHÔNG BAO GIỜ raise** — malformed → ``[]`` (caller đi nhánh
+    empty-path sẵn có: PDF/batch → 422 empty / batch rỗng; mark → 404/empty
+    no-side-effect). Khoá 2 lớp lỗi cũ (LL-BE-42 no-500/no-traceback):
+
+    - ``frappe.parse_json`` TRẦN trên mã thô/non-JSON (``'AC-2026-00001'``,
+      ``''``, ``'   '``, ``'not-json'``) raise ``JSONDecodeError`` → HTTP-500 +
+      traceback leak. Bọc try/except → ``[]``.
+    - JSON-scalar-string (``'"AC-1"'`` → str ``'AC-1'``): nếu nhả nguyên str cho
+      ``len()``/vòng-for thì DUYỆT từng KÝ TỰ (``'A','C','-','1'``) → 4 ô lỗi /
+      4 lần ``frappe.db.exists`` / IDOR trên ký tự. Coi scalar (str/int/float/
+      bool/dict/None) là 'không có asset hợp lệ' → ``[]``.
+    - JSON-number/object/bool (``'123'``/``'{"a":1}'``/``'true'``) → int/dict/
+      bool: ``len()``/iteration TypeError → 500. Cùng nhánh scalar → ``[]``.
+
+    Chỉ 2 nguồn hợp lệ cho ra phần tử: (a) ``list`` truyền trực tiếp; (b) str
+    parse ra ``list``. Cả 2 lọc về phần tử ``str`` non-empty (loại ``1``/``None``/
+    ``''`` → KHÔNG đẩy giá trị lạ vào ``frappe.db.exists``/``assert_vendor_can_access``).
+
+    **Dedup WITHIN-CALL** (Vòng 15): name LẶP trong CÙNG 1 call bị bỏ, GIỮ thứ tự
+    xuất hiện đầu (``['AC-1','AC-1','AC-2','AC-1']`` → ``['AC-1','AC-2']``). 1 chỗ
+    áp cho cả 3 endpoint ⇒ chặn khuếch-đại ghi-audit/PDF/batch (mark KHÔNG ghi
+    N× ALE/audit trùng; PDF KHÔNG in N trang trùng; batch KHÔNG trả N entry trùng)
+    + cap ``_MAX_LABEL_BATCH`` đo TRÊN list đã dedup (unique). **CHỈ trong-call** —
+    KHÔNG xuyên-call: 2 lần gọi RIÊNG ``mark_label_printed([a1])`` VẪN ghi 2 event
+    (mỗi lần in = 1 sự kiện, đúng nghiệp vụ NĐ98 — bất biến cross-call GIỮ NGUYÊN).
+
+    Args:
+        assets: list (tên asset) HOẶC JSON-string (array / scalar) HOẶC giá trị lạ.
+
+    Returns:
+        list[str]: tên-asset str non-empty, ĐÃ DEDUP within-call (giữ thứ tự xuất
+        hiện đầu). Malformed → ``[]``.
+    """
+    if isinstance(assets, str):
+        try:
+            assets = frappe.parse_json(assets)
+        except (ValueError, TypeError):
+            # JSONDecodeError (subclass ValueError) hoặc input non-str → coi như []
+            return []
+    if not isinstance(assets, list):
+        # scalar (str/int/float/bool/dict/None) hoặc parse ra non-list → không có asset
+        return []
+    # Dedup within-call GIỮ thứ tự xuất hiện đầu (seen.add trả None → giữ phần tử
+    # lần đầu, loại mọi lần lặp sau). Lọc str non-empty TRƯỚC khi xét trùng.
+    seen: set[str] = set()
+    return [a for a in assets
+            if isinstance(a, str) and a and a not in seen and not seen.add(a)]
+
 
 _DT_SUPPLIER = "AC Supplier"
 _DT_LOCATION = "AC Location"
@@ -170,14 +269,47 @@ _ORDER_EVENT_TS_DESC = "timestamp desc"
 _ORDER_MODIFIED_DESC = "modified desc"
 _ORDER_DUE_DATE_ASC  = "due_date asc"
 
+
+def _safe_page_int(value, default: int) -> int:
+    """Coerce page/page_size pagination param sang int AN TOÀN cho list_assets.
+
+    Frappe form_dict đưa query-string vào dưới dạng str (hoặc None khi param
+    vắng). ``int('abc')`` / ``int('10.5')`` raise ValueError, ``int(None)`` raise
+    TypeError ⇒ HTTP-500 traceback rò ra envelope. Helper này chặn nhánh phi-số:
+    giá trị KHÔNG ép được về int (None / '' / 'abc' / '10.5' / whitespace-rỗng)
+    → fall-back ``default`` (KHÔNG throw). Số HỢP LỆ giữ nguyên hành vi cũ; chuỗi
+    số có whitespace bao quanh ('  3  ') được strip rồi parse (parity name/preset
+    whitespace-norm).
+
+    KHÔNG clamp ở đây — clamp [1, _MAX_PAGE_SIZE] vẫn do paginate() đảm nhận (1
+    SSoT). Vì vậy '9999'→9999 (paginate clamp→100), '-5'→-5 (paginate clamp→1):
+    parity round-5 page_size-cap GIỮ NGUYÊN.
+
+    KHU TRÚ: chỉ list_assets (đường QR-asset) dùng helper này — KHÔNG đụng 9
+    call-site int(page) khác (timeline/suppliers/device-models/audit/capa/
+    lifecycle/incidents) vốn nhận param number do FE kiểm soát.
+    """
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        # bool là subclass của int trong Python; coi như phi-số → default.
+        return default
+    if isinstance(value, int):
+        return value
+    try:
+        return int(str(value).strip())
+    except (ValueError, TypeError):
+        return default
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # AC Asset  (8 endpoints)
 # ─────────────────────────────────────────────────────────────────────────────
 
 @frappe.whitelist()
 def list_assets(
-    page: int = 1,
-    page_size: int = 20,
+    page: "int" = 1,
+    page_size: "int" = 20,
     lifecycle_status: str = None,
     department: str = None,
     location: str = None,
@@ -205,8 +337,34 @@ def list_assets(
         lớp áp cho count lẫn list.
     Reserved-prefix exclusion ('_' / 'SI-') + apply_vendor_scope (RC-LIST-
     VENDORCLOBBER) giữ nguyên — fix này CỘNG THÊM permission-awareness vào count.
+
+    search (free-text, FR-00-95 / BR-00-44 / ADR-IMM00-SEARCH-ESCAPE): đi qua
+    escape_like_term (SSoT) → '%'/'_'/'\\' user gõ là KÝ TỰ LITERAL (không phải
+    wildcard SQL): search='_'/'%' KHÔNG over-match toàn bảng, search='\\' KHÔNG
+    throw, '%%%%%%%%%%' finite (đóng LIKE-backtracking DoS surface). Escape áp CÙNG
+    or_filters cho cả count (count_with_or) lẫn items (get_list) ⟹ INVARIANT
+    total==len(items) giữ. SQLi-safe BẤT BIẾN (parametrized — escape TRƯỚC bind).
+
+    page / page_size (FR-00-LIST-SCOPE coercion): form_dict đưa query-string là
+    str (hoặc None khi vắng). Annotation CHỦ Ý viết dạng CHUỖI ``"int"`` (KHÔNG
+    real-type ``int``) — module này KHÔNG có ``from __future__ import annotations``
+    nên annotation giữ NGUYÊN là chuỗi runtime. Tác động kép & cố ý:
+      (1) @frappe.whitelist() → transform_parameter_types: gặp annotation kiểu
+          str/ForwardRef thì ``continue`` (BỎ QUA pydantic-cast) ⇒ '?page=abc'/
+          'page_size=10.5' KHÔNG còn raise FrappeTypeError (HTTP-417/500) ở lớp
+          decorator → chuỗi phi-số đi LỌT vào thân để _safe_page_int xử lý.
+      (2) OpenAPI generator (_json_type_for): chuỗi 'int' → _TYPE_MAP → 'integer'
+          ⇒ OAS contract page/page_size GIỮ type:integer (regression A2 mobile-BE
+          codegen KHÔNG vỡ). KHÔNG được đổi về real-type ``int`` (sẽ bật lại
+          pydantic-reject) hay bỏ annotation (OAS rớt về 'string').
+    _safe_page_int → phi-số ('abc'/'10.5'/''/None) fall-back default (page=1,
+    page_size=20) thay vì ném ValueError/TypeError ⇒ HTTP-500. Clamp
+    [1, _MAX_PAGE_SIZE] VẪN do paginate() đảm nhận (1 SSoT) ⇒ '9999'→100, '-5'→1,
+    '  3  '→3. Coercion CHỈ đụng 2 param số — KHÔNG đụng filters/or_filters/
+    permission_query_conditions ⇒ INVARIANT total==len(items) GIỮ NGUYÊN mọi persona.
     """
-    page, page_size = int(page), int(page_size)
+    page = _safe_page_int(page, 1)
+    page_size = _safe_page_int(page_size, 20)
     filters = {}
     if lifecycle_status:
         filters["lifecycle_status"] = lifecycle_status
@@ -243,7 +401,13 @@ def list_assets(
 
     or_filters = None
     if search:
-        like = f"%{search}%"
+        # FR-00-95 / BR-00-44 (ADR-IMM00-SEARCH-ESCAPE): bọc search qua escape_like_term
+        # (SSoT) → '%'/'_'/'\' user gõ là KÝ TỰ LITERAL, KHÔNG wildcard SQL. Chống
+        # over-match toàn bảng (search='_'/'%' không match-all) + LIKE-backtracking DoS
+        # ('%%%%%%%%%%' finite). 4 cột dùng CÙNG term đã-escape (1 lời gọi — KHÔNG rải
+        # .replace thủ công). or_filters đi y nguyên cho CẢ count_with_or lẫn get_list
+        # qua CÙNG động cơ DatabaseQuery ⟹ INVARIANT total==len(items) GIỮ mọi persona.
+        like = f"%{escape_like_term(str(search))}%"
         or_filters = [
             [_DT_ASSET, "asset_name",      "like", like],
             [_DT_ASSET, "asset_code",      "like", like],
@@ -274,7 +438,7 @@ def list_assets(
         or_filters=or_filters if or_filters else None,
         fields=fields,
         limit_start=pag["offset"],
-        limit_page_length=page_size,
+        limit_page_length=pag["page_size"],
         order_by=_ORDER_MODIFIED_DESC,
     )
     _enrich(items, "asset_category", _DT_ASSET_CATEGORY, "category_name")
@@ -288,7 +452,24 @@ def list_assets(
 
 @frappe.whitelist()
 def get_asset(name: str):
-    """GET /api/method/assetcore.api.imm00.get_asset?name=AC-ASSET-..."""
+    """GET /api/method/assetcore.api.imm00.get_asset?name=AC-ASSET-...
+
+    Bảo mật — 3 lớp theo thứ tự (parity get_asset_scan_info / resolve_qr_token):
+      0. ``rbac.require("asset.read")`` chạy ĐẦU TIÊN → user thiếu DocPerm read
+         AC Asset → ``frappe.PermissionError`` (HTTP 403). Gate bằng CAPABILITY
+         (DocPerm), KHÔNG hardcode role-name. Chạy TRƯỚC ``frappe.db.exists`` →
+         no existence-oracle (thiếu cap → 403, KHÔNG 404 — user không dò được
+         tài sản có tồn tại). RC: ``frappe.get_doc(...).as_dict()`` trên whitelist
+         method KHÔNG tự enforce read-DocPerm → nếu thiếu gate này, user thiếu
+         read vẫn đọc trọn doc qua endpoint QR-detail (đối xứng sibling read).
+      1. exists → ``_err(404)`` leak-safe (name không tồn tại).
+      2. IDOR/vendor isolation: ``assert_vendor_can_access`` → vendor ngoài scope
+         → 403, KHÔNG leak payload (KHÔNG re-implement).
+    Sau 3 lớp: strip qr_token (no-raw-token ADR-001 §D4) + 2 cờ overdue server-flag.
+    """
+    # 0. RBAC gate — require asset.read (DocPerm AC Asset). PermissionError → 403.
+    #    TRƯỚC exists → no existence-oracle (parity scan_info/resolve_qr_token).
+    rbac.require("asset.read")
     if not frappe.db.exists(_DT_ASSET, name):
         return _err(_(_ERR_ASSET_NOT_FOUND), 404)
     # AUTH-10: IDOR guard — vendor user can't read assets outside their scope.
@@ -324,6 +505,82 @@ def get_asset(name: str):
     # KHÔNG surface thô qua endpoint đọc asset (deep-link dùng qr_url server-side).
     # as_dict() leak nguyên field dù hidden/read_only → pop qua SSoT trước return.
     return _ok(_strip_qr_token(doc))
+
+
+# SSoT 6 key panel meta thiết bị (màn tạo WO: CM / Hiệu chuẩn / PM). Cố định, KHÔNG
+# kế thừa as_dict() đầy đủ → đóng over-fetch field tài chính/nhạy cảm
+# (gross_purchase_amount, accumulated_depreciation, current_book_value, purchase_cost,
+# salvage_value) + qr_token + audit-chain. FE chỉ render 5 dòng (name là khóa nội bộ).
+_ASSET_ACTION_META_KEYS = (
+    "name",
+    "asset_name",
+    "device_model_name",
+    "lifecycle_status",
+    "risk_classification",
+    "location_name",
+)
+
+
+@frappe.whitelist()
+def get_asset_action_meta(name: str = ""):
+    """GET — panel META NẠC cho 3 màn tạo WO (CM/Hiệu chuẩn/PM).
+
+    Trả ĐÚNG 6 key cố định (``_ASSET_ACTION_META_KEYS``) — KHÔNG over-fetch field
+    tài chính/nhạy cảm như ``get_asset`` (full doc rò ``gross_purchase_amount`` /
+    ``accumulated_depreciation`` / ``current_book_value`` / ``purchase_cost`` /
+    ``salvage_value`` / ``qr_token`` / audit-chain). FE panel chỉ render 5 dòng
+    (asset_name / device_model_name / location_name / lifecycle_status /
+    risk_classification); ``name`` là khóa nội bộ.
+
+    Bảo mật — 3 lớp ĐỒNG NHẤT thứ tự với ``get_asset`` (KHÔNG nới):
+      0. ``rbac.require("asset.read")`` chạy ĐẦU TIÊN (CÂU LỆNH ĐẦU thân hàm) →
+         user thiếu DocPerm read AC Asset → ``frappe.PermissionError`` (HTTP 403).
+         Gate bằng CAPABILITY (DocPerm), KHÔNG hardcode role-name. Chạy TRƯỚC
+         ``frappe.db.exists`` → no existence-oracle: user thiếu cap KHÔNG dò được
+         tài sản tồn tại hay không qua endpoint meta NẠC này (parity get_asset /
+         get_asset_scan_info / resolve_qr_token). Nếu thiếu gate này, ``get_doc``
+         chỉ enforce DocPerm SAU exists → tên-không-tồn-tại trả 404 còn tên-tồn-tại
+         trả 403 ⇒ rò sự tồn tại của asset cho user thiếu read.
+      1. name rỗng/None hoặc không tồn tại → ``_err(404)`` leak-safe (KHÔNG 500/
+         traceback, KHÔNG full-scan). Chỉ tới đây sau khi user ĐÃ có asset.read.
+      2. IDOR/vendor isolation: ``assert_vendor_can_access(_DT_ASSET, name)`` → vendor
+         ngoài scope → 403, KHÔNG leak payload (tái dùng, KHÔNG re-implement).
+
+    Enrich: ``device_model_name`` / ``location_name`` resolve từ Link
+    (``device_model`` → IMM Device Model.model_name; ``location`` → AC Location.
+    location_name). Asset thiếu link/risk → field "" (KHÔNG None — tránh vỡ FE).
+    """
+    # 0. RBAC gate — require asset.read (DocPerm AC Asset). PermissionError → 403.
+    #    CÂU LỆNH ĐẦU TIÊN, TRƯỚC exists → no existence-oracle (parity get_asset).
+    rbac.require("asset.read")
+    if not name or not frappe.db.exists(_DT_ASSET, name):
+        return _err(_(_ERR_ASSET_NOT_FOUND), 404)
+    # IDOR guard — vendor user không được đọc asset ngoài scope (parity get_asset).
+    try:
+        assert_vendor_can_access(_DT_ASSET, name)
+    except ServiceError as e:
+        return _err(e.message, e.code)
+    # DocPerm read enforce qua get_doc().has_permission (PermissionError → 403) —
+    # KHÔNG dùng frappe.db.get_value bỏ qua perm. Chỉ pull field cần cho panel.
+    doc = frappe.get_doc(_DT_ASSET, name)
+    device_model = doc.get("device_model")
+    location = doc.get("location")
+    device_model_name = (
+        frappe.db.get_value(_DT_DEVICE_MODEL, device_model, "model_name") or ""
+    ) if device_model else ""
+    location_name = (
+        frappe.db.get_value(_DT_LOCATION, location, "location_name") or ""
+    ) if location else ""
+    meta = {
+        "name": doc.name,
+        "asset_name": doc.get("asset_name") or "",
+        "device_model_name": device_model_name,
+        "lifecycle_status": doc.get("lifecycle_status") or "",
+        "risk_classification": doc.get("risk_classification") or "",
+        "location_name": location_name,
+    }
+    # Guard cứng: payload CHỈ gồm 6 key allowlist (chống regress over-fetch nếu sửa sau).
+    return _ok({k: meta[k] for k in _ASSET_ACTION_META_KEYS})
 
 
 @frappe.whitelist()
@@ -401,6 +658,14 @@ def get_asset_scan_info(token: str = "", name: str = ""):
     #    Cả hai → name asset hoặc None (404 no-leak, KHÔNG phân biệt nhánh).
     token = token if isinstance(token, str) else ""
     name = name if isinstance(name, str) else ""
+    # Parity nhánh token (Vòng 6 — `_svc_resolve_qr_token` đã `.strip()` SSoT):
+    # chuẩn-hoá `name` bằng strip 2 đầu TRƯỚC `frappe.db.exists`. Asset hợp lệ
+    # kèm leading/trailing whitespace/newline (deep-link /assets/:id/info,
+    # copy-paste, mobile-BE) → khớp exists → mở ĐÚNG hồ sơ (200) thay vì 404 giả.
+    # CHỈ strip 2 đầu (KHÔNG lowercase/transform giữa-chuỗi — KHÔNG over-normalize;
+    # space GIỮA = id hỏng thật → vẫn 404). Rỗng-sau-strip rơi guard `elif name`
+    # → asset_name=None → 404 no-leak, KHÔNG query exists (chống full-scan).
+    name = name.strip()
     asset_name = None
     if token:
         resolved = _svc_resolve_qr_token(token)
@@ -423,6 +688,7 @@ def get_asset_scan_info(token: str = "", name: str = ""):
 
 
 @frappe.whitelist()
+@rate_limit(limit=AC_LABEL_DATA_RATE_LIMIT, seconds=60, ip_based=True)  # Vòng 36 / BR-00-51 — 429 TRƯỚC rbac.require; bucket RIÊNG (cmd), read-mostly preview; đóng write-amplification mint-token (ensure_asset_qr_token emit qr_generated)
 def get_asset_label_data(asset: str = ""):
     """GET — A3 (ADR-001 D3): dữ liệu in nhãn QR cho 1 asset (READ-ONLY về print).
 
@@ -431,6 +697,14 @@ def get_asset_label_data(asset: str = ""):
     ``label_printed``/audit; preview ≠ in, chống spam chain — D3/D4).
 
     Bảo mật (theo thứ tự):
+      0. ``@rate_limit(AC_LABEL_DATA_RATE_LIMIT/60s/IP)`` (Vòng 36, BR-00-51) —
+         decorator bọc NGOÀI thân → frappe tăng counter + ``frappe.throw(
+         RateLimitExceededError)`` (429) TRƯỚC ``rbac.require`` ⇒ vượt ngưỡng = 0
+         byte payload build + 0 mint-token side-effect (``ensure_asset_qr_token``
+         KHÔNG chạy → 0 ``qr_generated`` ALE/audit). Đóng write-amplification do
+         mint-token bị hammer không giới hạn. Bucket RIÊNG (cache key gồm ``cmd``)
+         TÁCH BIỆT batch/mark/pdf/resolve/regen → 1 endpoint vượt ngưỡng KHÔNG
+         khoá endpoint khác. read-mostly preview → ngưỡng song song batch/pdf=20.
       1. ``rbac.require("asset.print")`` → PermissionError (403). ADR-IMM00-QR-
          SCAN-ACTION D6 (Accepted→EXECUTED, phương án B): TÁCH cap riêng
          ``asset.print``→(AC Asset,"print") thay ``asset.write`` (vốn chỉ Super
@@ -456,6 +730,7 @@ def get_asset_label_data(asset: str = ""):
 
 
 @frappe.whitelist()
+@rate_limit(limit=AC_LABEL_BATCH_RATE_LIMIT, seconds=60, ip_based=True)  # Vòng 14 / BR-00-46 — 429 TRƯỚC rbac.require; bucket RIÊNG (cmd), read-only ngưỡng cao hơn mark
 def get_asset_label_data_batch(assets=None):
     """GET — A3 (ADR-001 D3): dữ liệu in nhãn QR hàng loạt (READ-ONLY, KHÔNG N+1).
 
@@ -464,6 +739,14 @@ def get_asset_label_data_batch(assets=None):
     index (KHÔNG drop → giữ index FE). 1 truy vấn gộp + IN-clause cho enrich
     (KHÔNG loop get_value).
 
+    Thứ tự gate (Vòng 14 / BR-00-46 — đo từng bậc):
+      0. ``@rate_limit(AC_LABEL_BATCH_RATE_LIMIT/60s/IP)`` — decorator bọc NGOÀI
+         thân → frappe tăng counter + ``frappe.throw(RateLimitExceededError)``
+         (429) TRƯỚC ``rbac.require`` ⇒ vượt ngưỡng = 0 byte payload build
+         (``build_asset_label_data_batch`` KHÔNG chạy), no-leak. Bucket RIÊNG
+         (cache key gồm ``cmd``) TÁCH BIỆT mark/pdf/resolve/regen. read-only →
+         ngưỡng CAO hơn mark (song song pdf=20).
+
     Bảo mật: ``rbac.require("asset.print")`` (403) — ADR-IMM00-QR-SCAN-ACTION D6
     (phương án B): TÁCH cap ``asset.print``→(AC Asset,"print") thay ``asset.write``
     (least-privilege; in nhãn = quyền PRINT, không phải WRITE toàn asset). DocPerm
@@ -471,9 +754,18 @@ def get_asset_label_data_batch(assets=None):
     print → 403. (Cap mới ⇒ ``CAP_SET_VERSION`` ĐỔI →``v97.c30c69b8974d``.) IDOR mỗi
     asset hợp lệ qua ``assert_vendor_can_access`` → vendor có ≥1 asset ngoài scope →
     403 TOÀN call (KHÔNG partial, KHÔNG leak asset nào thuộc/không-thuộc scope).
+
+    ``assets`` coerce an toàn qua ``_coerce_asset_names`` (SSoT 3 endpoint):
+    malformed (bare-code/non-JSON/scalar/int/dict) → ``[]`` → batch RỖNG hợp lệ
+    (read-only) — KHÔNG HTTP-500, KHÔNG traceback/JSONDecodeError leak, KHÔNG
+    duyệt ký-tự khi là JSON-scalar-string (ref LL-BE-42 no-500/no-traceback).
+    Coerce DEDUP within-call (Vòng 15): name lặp trong CÙNG call → 1 entry (giữ
+    thứ tự đầu) ⇒ ``[a1,a1]`` trả ĐÚNG 1 phần tử; cap đo TRÊN list đã dedup.
     """
     rbac.require("asset.print")
-    names = frappe.parse_json(assets) if isinstance(assets, str) else (assets or [])
+    # SSoT coerce an toàn — assets malformed (bare-code/non-JSON/scalar/int/dict)
+    # → [] → batch rỗng hợp lệ (read-only, KHÔNG 500/leak). KHÔNG parse_json trần.
+    names = _coerce_asset_names(assets)
     # CAP batch-size SAU rbac (chỉ user đã-auth-print tới đây — KHÔNG lộ giới hạn cho
     # khách) TRƯỚC vòng exists/IDOR + build payload → chặn per-request payload-DoS.
     # 413 bucket RIÊNG (PAYLOAD_TOO_LARGE), message VI cố định, KHÔNG leak asset name.
@@ -489,16 +781,29 @@ def get_asset_label_data_batch(assets=None):
 
 
 @frappe.whitelist(methods=["POST"])
+@rate_limit(limit=AC_LABEL_MARK_RATE_LIMIT, seconds=60, ip_based=True)  # Vòng 14 / BR-00-45 — 429 TRƯỚC rbac.require; bucket RIÊNG (cmd), write-audit-amplification → ngưỡng thấp
 def mark_label_printed(assets=None):
     """POST — A3 (ADR-001 D3): ghi sự kiện in nhãn QR (1 event+audit / asset / lần in).
 
     FE gọi SAU khi người dùng thực sự bấm in → ghi 1 ``Asset Lifecycle Event``
-    ``label_printed`` + 1 ``IMM Audit Trail`` cho MỖI asset (NĐ98 truy xuất tem).
-    Gọi N lần = N×len event (mỗi lần in 1 event — KHÔNG dedup theo asset).
+    ``label_printed`` + 1 ``IMM Audit Trail`` cho MỖI asset UNIQUE (NĐ98 truy xuất
+    tem). Coerce DEDUP within-call (Vòng 15): name lặp trong CÙNG 1 call → ghi
+    ĐÚNG 1 event/audit (``[a1,a1,a1]`` 1 call → 1 event, KHÔNG 3 — chặn khuếch
+    đại ghi-audit). Gọi N lần RIÊNG = N event (mỗi lần in 1 event — KHÔNG dedup
+    XUYÊN-call; bất biến cross-call GIỮ NGUYÊN).
 
     All-or-nothing: validate tồn tại + RBAC + IDOR cho TẤT CẢ asset TRƯỚC khi ghi
     event nào → tránh audit chain lệch. ≥1 không tồn tại → 404 (KHÔNG ghi gì);
     vendor ngoài scope → 403 toàn call.
+
+    Thứ tự gate (Vòng 14 / BR-00-45 — đo từng bậc):
+      0. ``@rate_limit(AC_LABEL_MARK_RATE_LIMIT/60s/IP)`` — decorator bọc NGOÀI
+         thân → frappe tăng counter + ``frappe.throw(RateLimitExceededError)``
+         (429) TRƯỚC ``rbac.require`` ⇒ vượt ngưỡng = 0 ALE ``label_printed`` +
+         0 IMM Audit Trail (KHÔNG chạm ``_svc_mark_label_printed``/``commit``),
+         no-leak body generic. Bucket RIÊNG (cache key gồm ``cmd``) TÁCH BIỆT
+         resolve/scan/regen/pdf/batch. mark = write-audit-amplification (2×N
+         record/call) → ngưỡng THẤP, ≤ regen.
 
     Bảo mật: ``rbac.require("asset.print")`` chạy ĐẦU TIÊN — ADR-IMM00-QR-SCAN-
     ACTION D6 (phương án B, Accepted→EXECUTED): cap ``asset.print``→(AC Asset,
@@ -508,9 +813,18 @@ def mark_label_printed(assets=None):
     self-correction P2: trước đây chỉ Super Admin in được). User KHÔNG có print →
     403, chặn TRƯỚC mọi write (KHÔNG dò được asset tồn tại, KHÔNG sinh event/audit).
     (Cap mới ⇒ ``CAP_SET_VERSION`` ĐỔI ``v95.3388ee5629c1``→``v97.c30c69b8974d``.)
+
+    ``assets`` coerce an toàn qua ``_coerce_asset_names`` (SSoT 3 endpoint):
+    malformed (bare-code/non-JSON/scalar/int/dict) → ``[]`` → all-or-nothing
+    404/empty no-side-effect (KHÔNG ghi ALE ``label_printed``/``IMM Audit Trail``)
+    — KHÔNG HTTP-500, KHÔNG traceback/JSONDecodeError leak (ref LL-BE-42).
+    Coerce DEDUP within-call (Vòng 15): name lặp trong CÙNG call → ghi 1 lần
+    (giữ thứ tự đầu); cap ``_MAX_LABEL_BATCH`` đo TRÊN list đã dedup (unique).
     """
     rbac.require("asset.print")
-    names = frappe.parse_json(assets) if isinstance(assets, str) else (assets or [])
+    # SSoT coerce an toàn — assets malformed → [] → all-or-nothing 404/empty
+    # no-side-effect (KHÔNG ghi ALE/audit). KHÔNG parse_json trần (no-500/leak).
+    names = _coerce_asset_names(assets)
     # CAP batch-size SAU rbac, TRƯỚC mọi write/validate → chặn khuếch đại write/audit
     # chain (2 record/asset). 413 bucket RIÊNG, message VI cố định, KHÔNG leak name,
     # KHÔNG side-effect (0 ALE label_printed + 0 IMM Audit Trail khi vượt cap).
@@ -535,8 +849,10 @@ def print_asset_labels_pdf(assets="", preset=""):
     """A3-PDF (ADR-IMM00-LABEL-PDF §D1/§D6): sinh PDF nhãn QR khổ tem nhiệt 60×100mm.
 
     FE tải PDF → iframe ẩn → ``iframe.print()`` → hộp thoại in → chọn máy in tem
-    LAN → ra CHÍNH XÁC 60×100mm (mỗi asset = 1 trang). QR vẽ SERVER-SIDE (pyqrcode
-    SVG inline encode ``qr_url`` deep-link ``/a/<token>`` — KHÔNG raw token).
+    LAN → ra CHÍNH XÁC 60×100mm (mỗi asset UNIQUE = 1 trang). QR vẽ SERVER-SIDE
+    (pyqrcode SVG inline encode ``qr_url`` deep-link ``/a/<token>`` — KHÔNG raw
+    token). Coerce DEDUP within-call (Vòng 15): name lặp trong CÙNG call → 1
+    trang (``[a1,a1]`` → ĐÚNG 1 trang PDF, KHÔNG 2 trang trùng).
 
     **Trả PDF bytes** (KHÔNG ``_ok`` JSON envelope) — set ``frappe.local.response``
     (Frappe set Content-Type: application/pdf + download). **Lỗi nghiệp vụ**
@@ -546,8 +862,11 @@ def print_asset_labels_pdf(assets="", preset=""):
     Signature: ``assets`` bare (KHÔNG annotation — đồng nhất
     ``get_asset_label_data_batch``; annotation ``str``/``X|None`` kích hoạt
     coercion pydantic v15 → reject native list 417). Default ``""`` (KHÔNG
-    ``None``). Real HTTP gửi JSON-string; test/python gửi list — cả 2 OK qua
-    ``frappe.parse_json``. ``preset`` default ``""`` (V3 §D14 — KHÔNG hardcode
+    ``None``). Real HTTP gửi JSON-string; test/python gửi list — cả 2 coerce an
+    toàn qua ``_coerce_asset_names`` (SSoT 3 endpoint): malformed (bare-code/
+    non-JSON/scalar/int/dict) → ``[]`` → đi nhánh ``_err(_ERR_LABEL_EMPTY, 422)``
+    sẵn có — KHÔNG HTTP-500, KHÔNG traceback/JSONDecodeError leak, KHÔNG duyệt
+    KÝ TỰ khi là JSON-scalar-string (ref LL-BE-42). ``preset`` default ``""`` (V3 §D14 — KHÔNG hardcode
     ``"tem-60x100"``): caller bỏ trống → ``_resolve_label_preset()`` (site_config
     ``assetcore_label_preset``, hợp-lệ-hoá 1 chỗ + fallback an toàn 60×100mm, KHÔNG
     raise); caller truyền tường minh → GIỮ gate whitelist (lạ → 422). Thứ tự ưu
@@ -556,8 +875,13 @@ def print_asset_labels_pdf(assets="", preset=""):
       0. ``@rate_limit`` (429 TRƯỚC rbac, decorator NGOÀI thân).
       1. ``rbac.require("asset.print")`` ĐẦU TIÊN → user thiếu cap →
          PermissionError (403) + KHÔNG render + KHÔNG đụng DB.
-      2. resolve preset rỗng → site_config default (V3 §D14); preset không
-         whitelist → 422 (chống render khổ tuỳ ý từ client; resolver KHÔNG nới).
+      2. ``preset`` strip 2-đầu TRƯỚC gate whitelist (Vòng 32 §D6 — parity token
+         Vòng 6 / name Vòng 31): preset hợp lệ kèm whitespace/newline (copy-paste/
+         mobile-BE/dropdown stray ``\n``) → khớp whitelist → render đúng khổ thay
+         vì 422 giả. CHỈ strip leading/trailing — KHÔNG lowercase/transform GIỮA
+         chuỗi (no-over-normalize: 'tem 60x100' space-GIỮA / 'TEM-60X100' case khác
+         vẫn 422). Rỗng-sau-strip ('   '/'\n'/non-str) → site_config default (V3
+         §D14); preset LẠ tường minh → 422 (chống render khổ tuỳ ý; resolver KHÔNG nới).
       3. list rỗng → 422 (BA chốt §D7 — KHÔNG render PDF 0 trang).
       4. ``len > _MAX_LABEL_BATCH(200)`` → 413 bucket RIÊNG, msg VI cố định
          (KHÔNG leak asset name), SAU rbac (chỉ user đã-auth-print biết giới hạn).
@@ -571,11 +895,23 @@ def print_asset_labels_pdf(assets="", preset=""):
     chạm logic gen/rotate/scan/resolve QR (§D9 — chỉ ĐỌC ``qr_url`` qua batch).
     """
     rbac.require("asset.print")
-    names = frappe.parse_json(assets) if isinstance(assets, str) else (assets or [])
-    # V3 §D14: caller bỏ trống preset → server-default qua resolver (site_config
-    # assetcore_label_preset, hợp-lệ-hoá 1 chỗ + fallback an toàn 60×100mm, KHÔNG
-    # raise). Thứ tự ưu tiên: explicit client > site_config > code-default. Resolver
-    # LUÔN trả giá-trị-whitelist → nhánh-resolved KHÔNG bao giờ tự-422.
+    # SSoT coerce an toàn — assets malformed (bare-code/non-JSON/scalar/int/dict)
+    # → [] → đi nhánh _err(_ERR_LABEL_EMPTY, 422) sẵn có. KHÔNG parse_json trần
+    # (chống JSONDecodeError/TypeError → HTTP-500/traceback-leak; chống duyệt KÝ TỰ
+    # khi assets là JSON-scalar-string). LL-BE-42 no-500/no-traceback.
+    names = _coerce_asset_names(assets)
+    # Vòng 32 §D6 bước 2: chuẩn-hoá `preset` strip 2-đầu TRƯỚC gate whitelist
+    # (parity token Vòng 6 / name Vòng 31). preset hợp lệ kèm whitespace/newline
+    # (copy-paste / mobile-BE / dropdown stray \n) → khớp whitelist → render đúng
+    # khổ thay vì 422 giả. CHỈ strip leading/trailing — KHÔNG lowercase/transform
+    # GIỮA chuỗi (no-over-normalize: 'tem 60x100' space-GIỮA / 'TEM-60X100' case
+    # khác vẫn KHÔNG ∈ _LABEL_PRESETS → 422; whitelist KHÔNG bị nới). non-str
+    # (0/None qua coercion) → '' qua isinstance guard (no raise/500).
+    preset = preset.strip() if isinstance(preset, str) else ""
+    # V3 §D14: caller bỏ trống preset (rỗng-sau-strip rơi đúng đây) → server-default
+    # qua resolver (site_config assetcore_label_preset, hợp-lệ-hoá 1 chỗ + fallback
+    # an toàn 60×100mm, KHÔNG raise). Thứ tự ưu tiên: explicit client > site_config >
+    # code-default. Resolver LUÔN trả giá-trị-whitelist → nhánh-resolved KHÔNG tự-422.
     if not preset:
         preset = _resolve_label_preset()
     # GIỮ NGUYÊN gate whitelist (caller truyền preset LẠ tường minh vẫn 422 —
@@ -597,7 +933,15 @@ def print_asset_labels_pdf(assets="", preset=""):
     except ServiceError as e:
         return _err(e.message, e.code)
     # Render chỉ tới đây khi pass hết gate → KHÔNG render cho call thiếu quyền/quá-batch/IDOR.
-    pdf_bytes = _svc_render_asset_labels_pdf(names, preset)
+    # §D16 hardening: bọc render — pdfkit/wkhtmltopdf có thể raise runtime
+    # (binary thiếu, ảnh hỏng, OOM…). KHÔNG để raise → 500+traceback leak; trả
+    # _err VI sạch (HTTP-200 Error envelope, FE map về message 'Không thể tạo PDF…').
+    try:
+        pdf_bytes = _svc_render_asset_labels_pdf(names, preset)
+    except Exception:
+        frappe.log_error(frappe.get_traceback(),
+                         "print_asset_labels_pdf render error")
+        return _err(_(_ERR_LABEL_RENDER), ErrorCode.INTERNAL)
     frappe.local.response.filename = "asset-labels.pdf"
     frappe.local.response.filecontent = pdf_bytes
     frappe.local.response.type = "pdf"
@@ -792,7 +1136,7 @@ def get_asset_timeline(name: str, page: int = 1, page_size: int = 50):
         filters={"asset": name},
         fields=["name", "event_type", "actor", "from_status", "to_status", "timestamp", "notes"],
         limit_start=pag["offset"],
-        limit_page_length=page_size,
+        limit_page_length=pag["page_size"],
         order_by=_ORDER_EVENT_TS_DESC,
     )
     return _ok({"pagination": pag, "items": items})
@@ -941,7 +1285,7 @@ def list_suppliers(page: int = 1, page_size: int = 20, search: str = None, suppl
         fields=["name", "supplier_name", "supplier_code", "supplier_group", "vendor_type",
                 "country", "email_id", "phone", "contract_end", "is_active"],
         limit_start=pag["offset"],
-        limit_page_length=page_size,
+        limit_page_length=pag["page_size"],
         order_by="supplier_name asc",
     )
     return _ok({"pagination": pag, "items": items})
@@ -1165,7 +1509,7 @@ def list_device_models(page: int = 1, page_size: int = 20, manufacturer: str = N
         fields=["name", "model_name", "model_version", "manufacturer",
                 "medical_device_class", "gmdn_code", "asset_category", "model_image"],
         limit_start=pag["offset"],
-        limit_page_length=page_size,
+        limit_page_length=pag["page_size"],
         order_by="model_name asc",
     )
     _enrich(items, "asset_category", _DT_ASSET_CATEGORY, "category_name")
@@ -1377,7 +1721,7 @@ def list_audit_trail(asset: str = None, q: str = None, event_type: str = None,
                 "from_status", "to_status", "ref_doctype", "ref_name",
                 "timestamp", "hash_sha256 as hash"],
         limit_start=pag["offset"],
-        limit_page_length=page_size,
+        limit_page_length=pag["page_size"],
         order_by=_ORDER_EVENT_TS_DESC,
     )
     # Batch-enrich với asset_name (tránh N+1; dùng UX pattern "Tên chính — Mã phụ")
@@ -1471,7 +1815,7 @@ def list_capas(
                 "severity", "description", "source_type", "source_ref",
                 "due_date", "owner", "creation"],
         limit_start=pag["offset"],
-        limit_page_length=page_size,
+        limit_page_length=pag["page_size"],
         order_by=_ORDER_DUE_DATE_ASC,
     )
     _enrich(items, "asset", _DT_ASSET, "asset_name")
@@ -1561,7 +1905,7 @@ def list_overdue_capas(page: int = 1, page_size: int = 20):
         filters=filters,
         fields=["name", "capa_type", "status", "asset", "title", "due_date", "owner"],
         limit_start=pag["offset"],
-        limit_page_length=page_size,
+        limit_page_length=pag["page_size"],
         order_by=_ORDER_DUE_DATE_ASC,
     )
     return _ok({"pagination": pag, "items": items})
@@ -1588,7 +1932,7 @@ def list_lifecycle_events(asset: str, page: int = 1, page_size: int = 50, event_
         fields=["name", "event_type", "actor", "from_status", "to_status",
                 "timestamp", "root_doctype", "root_record", "notes"],
         limit_start=pag["offset"],
-        limit_page_length=page_size,
+        limit_page_length=pag["page_size"],
         order_by=_ORDER_EVENT_TS_DESC,
     )
     return _ok({"pagination": pag, "items": items})
@@ -1631,7 +1975,7 @@ def list_incidents(
         fields=["name", "severity", "status", "asset", "description",
                 "reported_at", "incident_type", "patient_affected", "reported_to_byt"],
         limit_start=pag["offset"],
-        limit_page_length=page_size,
+        limit_page_length=pag["page_size"],
         order_by="reported_at desc",
     )
     _enrich(items, "asset", _DT_ASSET, "asset_name")
@@ -1720,7 +2064,7 @@ def list_transfers(asset: str = None, status: str = None,
                 "from_custodian", "to_custodian", "reason",
                 "approved_by", "approval_date", "received_by", "received_date"],
         limit_start=pag["offset"],
-        limit_page_length=page_size,
+        limit_page_length=pag["page_size"],
         order_by="transfer_date desc",
     )
     asset_ids = {r.get("asset") for r in items if r.get("asset")}
@@ -1787,7 +2131,7 @@ def list_service_contracts(
             fields=["name", "contract_title", "supplier", "contract_type",
                     "contract_start", "contract_end", "contract_value", "sla_response_hours"],
             limit_start=pag["offset"],
-            limit_page_length=page_size,
+            limit_page_length=pag["page_size"],
             order_by="contract_end asc",
         )
         _enrich(items, "supplier", _DT_SUPPLIER, "supplier_name")

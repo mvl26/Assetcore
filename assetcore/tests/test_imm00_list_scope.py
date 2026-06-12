@@ -322,3 +322,136 @@ class TestAcAssetListScope(FrappeTestCase):
                                  "vendor search KHÔNG leak asset người khác")
         finally:
             frappe.set_user("Administrator")
+
+    # ── TC-SRCH-7 (FR-00-95 / BR-00-44): escape LIKE-metachar — INVARIANT
+    #    count==rows giữ cho metachar-search ở MỌI persona. count_with_or +
+    #    get_list dùng CÙNG or_filters đã-escape qua CÙNG động cơ DatabaseQuery
+    #    ⟹ total == len(items). Kể cả khi escape biến '%'/'_' thành literal
+    #    (0 match), bất biến count==rows KHÔNG được vỡ.
+    def test_srch7_internal_technician_metachar_search_count_equals_rows(self):
+        frappe.set_user(self.internal_user)
+        try:
+            for q in ("_", "%", "\\", "%%%%%%%%%%"):
+                total, names = self._list_all_names(search=q)
+                self.assertEqual(
+                    total, len(names),
+                    f"TC-SRCH-7 internal: metachar search={q!r} → count == rows",
+                )
+        finally:
+            frappe.set_user("Administrator")
+
+    def test_srch7_vendor_metachar_search_count_equals_rows(self):
+        frappe.set_user(self.vendor_user)
+        try:
+            for q in ("_", "%", "\\", "%%%%%%%%%%"):
+                total, names = self._list_all_names(search=q)
+                self.assertEqual(
+                    total, len(names),
+                    f"TC-SRCH-7 vendor: metachar search={q!r} → count == rows (no leak)",
+                )
+                for a in names:
+                    self.assertEqual(
+                        a, self.vendor_asset,
+                        f"TC-SRCH-7 vendor: metachar search={q!r} KHÔNG leak asset người khác",
+                    )
+        finally:
+            frappe.set_user("Administrator")
+
+
+class TestListAssetsPaginationCoercion(FrappeTestCase):
+    """Vòng 33 — coerce an toàn page/page_size phi-số ở list_assets (line 300).
+
+    @frappe.whitelist truyền page/page_size dưới dạng STRING từ form_dict. Giá trị
+    phi-số ('abc', '10.5', '', None) TRƯỚC ĐÂY làm ``int(page)`` ném ValueError/
+    TypeError → HTTP-500 traceback. Sau fix: ``_safe_page_int`` fall-back về default
+    rồi vẫn đi qua clamp [1,100] của paginate() (SSoT round-5 KHÔNG đổi).
+
+    KHÔNG seed fixture: chạy mặc định bằng Administrator (read-all) — chỉ cần bất
+    biến envelope + clamp + invariant total==len(items), độc lập với data thật.
+
+    Run: bench --site miyano run-tests --app assetcore \
+         --module assetcore.tests.test_imm00_list_scope
+    """
+
+    # ── helper unit-test trực tiếp ───────────────────────────────────────────
+    def test_safe_page_int_helper_units(self):
+        from assetcore.api.imm00 import _safe_page_int
+        # phi-số → default
+        self.assertEqual(_safe_page_int("abc", 1), 1)
+        self.assertEqual(_safe_page_int("10.5", 20), 20)
+        self.assertEqual(_safe_page_int("", 20), 20)
+        self.assertEqual(_safe_page_int(None, 20), 20)
+        # số hợp lệ giữ nguyên
+        self.assertEqual(_safe_page_int("7", 1), 7)
+        # whitespace-wrap số hợp lệ vẫn parse (parity name/preset round 31/32)
+        self.assertEqual(_safe_page_int("  4  ", 1), 4)
+        # int truyền thẳng (call nội bộ) vẫn ổn
+        self.assertEqual(_safe_page_int(3, 1), 3)
+
+    def test_safe_page_int_does_not_swallow_other_errors(self):
+        """KHÔNG nuốt lỗi ngoài (ValueError|TypeError) — object lạ str()-able vẫn
+        đi qua int() và fall-back; nhưng helper KHÔNG được nuốt mọi Exception."""
+        from assetcore.api.imm00 import _safe_page_int
+        # list → str(['x']) = "['x']" → int() ném ValueError → default (TypeError/
+        # ValueError được bắt). Đây là nhánh hợp lệ, KHÔNG raise.
+        self.assertEqual(_safe_page_int(["x"], 9), 9)
+
+    # ── endpoint: page phi-số → fall-back 1 ──────────────────────────────────
+    def test_list_assets_page_non_numeric_falls_back_to_1(self):
+        resp = list_assets(page="abc")
+        data = resp["data"]
+        self.assertIn("items", data)
+        self.assertIn("pagination", data)
+        self.assertEqual(data["pagination"]["page"], 1)
+
+    # ── endpoint: page_size phi-số → fall-back default 20 ────────────────────
+    def test_list_assets_page_size_float_string_falls_back_to_20(self):
+        data = list_assets(page_size="10.5")["data"]
+        self.assertEqual(data["pagination"]["page_size"], 20)
+
+    def test_list_assets_page_size_alpha_and_empty_fall_back_to_20(self):
+        for bad in ("abc", ""):
+            data = list_assets(page_size=bad)["data"]
+            self.assertEqual(
+                data["pagination"]["page_size"], 20,
+                f"page_size={bad!r} → fall-back default 20",
+            )
+
+    # ── endpoint: None (param vắng/null từ form_dict) → KHÔNG TypeError ──────
+    def test_list_assets_none_params_default_without_typeerror(self):
+        data = list_assets(page=None, page_size=None)["data"]
+        self.assertEqual(data["pagination"]["page"], 1)
+        self.assertEqual(data["pagination"]["page_size"], 20)
+
+    # ── regression parity round-5: clamp [1,100] GIỮ ─────────────────────────
+    def test_list_assets_page_size_over_cap_clamped_to_100(self):
+        data = list_assets(page_size="9999")["data"]
+        self.assertEqual(data["pagination"]["page_size"], 100)
+
+    def test_list_assets_negative_page_clamped_to_1(self):
+        data = list_assets(page="-5")["data"]
+        self.assertEqual(data["pagination"]["page"], 1)
+
+    # ── valid values giữ hành vi cũ ──────────────────────────────────────────
+    def test_list_assets_valid_string_page_kept(self):
+        data = list_assets(page="2", page_size="50")["data"]
+        self.assertEqual(data["pagination"]["page"], 2)
+        self.assertEqual(data["pagination"]["page_size"], 50)
+
+    # ── whitespace-wrap số hợp lệ vẫn parse ──────────────────────────────────
+    def test_list_assets_whitespace_wrapped_page_parsed(self):
+        data = list_assets(page="  3  ")["data"]
+        self.assertEqual(data["pagination"]["page"], 3)
+
+    # ── INVARIANT total == cộng-dồn len(items) GIỮ (coercion KHÔNG đụng count) ─
+    def test_list_assets_invariant_total_equals_cumulative_items(self):
+        first = list_assets(page=1, page_size=5)["data"]
+        total = first["pagination"]["total"]
+        total_pages = first["pagination"].get("total_pages") or 0
+        names = [r["name"] for r in first["items"]]
+        for p in range(2, total_pages + 1):
+            names.extend(r["name"] for r in list_assets(page=p, page_size=5)["data"]["items"])
+        self.assertEqual(
+            total, len(names),
+            "INVARIANT: pagination.total == cộng-dồn len(items) (coercion KHÔNG đổi count/filter)",
+        )

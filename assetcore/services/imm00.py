@@ -288,9 +288,20 @@ def resolve_qr_token(token: str) -> dict | None:
     lifecycle_status + device_model_name + location_name. Gate quyền + IDOR do
     API tier xử lý (require('asset.read') + assert_vendor_can_access) — service
     chỉ lookup, KHÔNG quyết định quyền.
+
+    Chuẩn hoá: token được ``strip()`` 2 đầu TRƯỚC lookup (SSoT DUY NHẤT —
+    deep-link camera / tem nhiệt có thể kèm whitespace/newline khi encode QR).
+    CHỈ strip leading/trailing (token urlsafe [A-Za-z0-9_-] KHÔNG chứa space
+    giữa — space giữa = token hỏng thật → 404); KHÔNG lowercase/transform
+    (case-sensitive). Sau strip rỗng (token toàn whitespace) → ``None`` leak-safe
+    KHÔNG query (giữ guard chống full-scan). ``get_asset_scan_info`` nhánh token
+    kế thừa chuẩn hoá NÀY (KHÔNG fork).
     """
-    # Guard: token rỗng/None → None NGAY (không đụng DB → không full-scan/leak).
-    if not token or not isinstance(token, str):
+    # Chuẩn hoá + guard: ép str, strip 2 đầu, rồi rỗng → None NGAY (không đụng DB →
+    # không full-scan/leak). strip TRƯỚC empty-check ⇒ token toàn whitespace cũng
+    # rơi vào guard rỗng (KHÔNG query bảng AC Asset).
+    token = token.strip() if isinstance(token, str) else ""
+    if not token:
         return None
     name = frappe.db.get_value(_DOCTYPE_ASSET, {"qr_token": token}, "name")
     if not name:
@@ -336,6 +347,42 @@ _MAINTENANCE_EVENT_TYPES: tuple[str, ...] = (
 _PM_OVERDUE_EXEMPT_STATUSES: frozenset[str] = frozenset(_BLOCKED_STATUSES)
 
 
+def _safe_getdate(value):
+    """CRASH-SAFE wrapper quanh ``frappe.utils.getdate`` cho 4 hàm xử-lý-ngày
+    của ``build_asset_scan_info`` (warranty / next_pm / next_calibration).
+
+    Trả ``getdate(value)`` (``datetime.date | None``) khi parse được; trả
+    ``None`` khi ``value`` là chuỗi DỊ-DẠNG (legacy import lỏng / canonical
+    drift / mobile-BE copy-paste bẩn) thay vì để ngoại lệ leo lên endpoint
+    quét QR thành HTTP-500 traceback-leak. 1 record xấu KHÔNG kéo sập cả màn
+    quét (graceful degrade — caller coi None = 'không xác định ≠ hết hạn/quá
+    hạn'). Parity FE ``formatIsoDateLabel`` ISO-strict (Vòng 18-19) — nay đối
+    xứng ở BE.
+
+    Catch HẸP — CHỈ lỗi parse-date, KHÔNG ``except Exception:`` trần (che lỗi
+    nghiệp vụ khác = no-mask-real-bug):
+    - ``frappe.exceptions.ValidationError`` — getdate ném khi
+      ``dateutil.parser`` raise ``ParserError`` ('not-a-date', '2020-13-45',
+      '2020-99-99'). LƯU Ý: ValidationError KHÔNG phải subclass ``ValueError``
+      (kế thừa thẳng ``Exception``) → BẮT BUỘC liệt kê tường minh; nếu chỉ
+      ``except (ValueError, TypeError):`` thì KHÔNG bắt được → vẫn 500.
+    - ``ValueError`` — dateutil out-of-range biên hiếm khác.
+    - ``TypeError`` — kiểu không-str/không-date lạ truyền vào parser.
+
+    Giá trị HỢP LỆ (``datetime.date`` object từ DB, chuỗi ISO 'YYYY-MM-DD',
+    None, '') GIỮ NGUYÊN hành vi ``getdate`` cũ (None/'' → getdate trả
+    date hôm nay theo Frappe? KHÔNG — caller đã guard ``not value`` TRƯỚC khi
+    gọi, nên ở đây value luôn truthy). KHÔNG side-effect (read-only).
+    """
+    try:
+        return getdate(value)
+    except (frappe.exceptions.ValidationError, ValueError, TypeError):
+        # Chuỗi phi-parse (drift/legacy/import bẩn) → None: caller degrade an
+        # toàn (cờ overdue/expired = False, _date_str_or_none = None) thay vì
+        # để 1 record xấu chặn cả màn quét QR (HTTP-500). KHÔNG catch-all.
+        return None
+
+
 def _is_pm_overdue(next_pm_date, lifecycle_status: str | None) -> bool:
     """Derive cờ PM quá hạn SERVER-SIDE (timezone-safe) — SSoT overdue ở BE (BR-00-36).
 
@@ -344,12 +391,21 @@ def _is_pm_overdue(next_pm_date, lifecycle_status: str | None) -> bool:
     ``lifecycle_status`` KHÔNG thuộc ``_PM_OVERDUE_EXEMPT_STATUSES`` (= ``BLOCKED_FOR_WO``).
     Mọi nhánh khác (date NULL, hôm nay/tương lai, thiết bị ngừng-dùng) → False.
     KHÔNG side-effect (read-only). FE CHỈ render cờ — KHÔNG so ngày client.
+
+    CRASH-SAFE (Vòng 50): ``next_pm_date`` phi-parse (legacy/drift/import bẩn,
+    vd 'garbage'/'2020-13-45') → ``_safe_getdate`` trả None → False (degrade,
+    KHÔNG raise — KHÔNG bịa cờ quá hạn từ date dị-dạng). 1 record xấu KHÔNG
+    chặn build_asset_scan_info (HTTP-500). Catch HẸP ở ``_safe_getdate`` (chỉ
+    lỗi parse-date), KHÔNG catch-all che lỗi nghiệp vụ.
     """
     if not next_pm_date:
         return False
     if (lifecycle_status or "") in _PM_OVERDUE_EXEMPT_STATUSES:
         return False
-    return getdate(next_pm_date) < getdate(nowdate())
+    parsed = _safe_getdate(next_pm_date)
+    if parsed is None:  # date dị-dạng → degrade an toàn (KHÔNG bịa cờ quá hạn)
+        return False
+    return parsed < getdate(nowdate())
 
 
 def _is_calibration_overdue(next_calibration_date, lifecycle_status: str | None) -> bool:
@@ -363,12 +419,50 @@ def _is_calibration_overdue(next_calibration_date, lifecycle_status: str | None)
     Decommissioned: thiết bị ngừng dùng KHÔNG còn phải hiệu chuẩn).
     Mọi nhánh khác (date NULL/rỗng, hôm nay/tương lai, thiết bị ngừng-dùng) → False.
     KHÔNG side-effect (read-only). FE CHỈ render cờ — KHÔNG so ngày client.
+
+    CRASH-SAFE (Vòng 50): ``next_calibration_date`` phi-parse (legacy/drift, vd
+    '2020-99-99') → ``_safe_getdate`` trả None → False (degrade, KHÔNG raise —
+    parity ``_is_pm_overdue``). KHÔNG bịa cờ quá hạn từ date dị-dạng; 1 record
+    xấu KHÔNG chặn màn quét QR. Catch HẸP (chỉ lỗi parse-date), KHÔNG catch-all.
     """
     if not next_calibration_date:
         return False
     if (lifecycle_status or "") in _PM_OVERDUE_EXEMPT_STATUSES:
         return False
-    return getdate(next_calibration_date) < getdate(nowdate())
+    parsed = _safe_getdate(next_calibration_date)
+    if parsed is None:  # date dị-dạng → degrade an toàn (parity pm_overdue)
+        return False
+    return parsed < getdate(nowdate())
+
+
+def _is_warranty_expired(value) -> bool:
+    """Derive cờ HẾT BẢO HÀNH SERVER-SIDE (timezone-safe) — SSoT cờ bảo hành ở BE.
+
+    True ⟺ ``value`` KHÔNG rỗng ∧ ``getdate(value) < getdate(nowdate())``
+    (STRICT ``<`` theo NGÀY server, KHÔNG client clock — hôm-nay CHƯA hết hạn).
+    NULL/rỗng/None/hôm-nay/tương-lai → False. KHÔNG side-effect (read-only).
+    FE CHỈ render cờ — KHÔNG so ngày client.
+
+    KHÁC ``_is_pm_overdue`` / ``_is_calibration_overdue``: KHÔNG nhận/áp
+    ``lifecycle_status``, KHÔNG có ``*_EXEMPT``. Bảo hành là sự kiện HỢP ĐỒNG
+    độc lập lifecycle — thiết bị Out of Service / Decommissioned VẪN có thể
+    còn / hết bảo hành (cờ KHÔNG được tắt theo trạng thái thiết bị). Đó là lý do
+    helper này chỉ nhận 1 đối số ``value`` (no-exempt, không signature-drift sang
+    pattern overdue).
+
+    CRASH-SAFE (Vòng 50): ``value`` phi-parse (legacy/drift/import bẩn, vd
+    'not-a-date'/'2020-13-45') → ``_safe_getdate`` trả None → False (degrade,
+    KHÔNG raise — chuỗi phi-parse coi như 'không xác định ≠ hết hạn',
+    no-false-alarm). 1 record xấu KHÔNG chặn build_asset_scan_info (HTTP-500).
+    Catch HẸP ở ``_safe_getdate`` (chỉ lỗi parse-date), KHÔNG catch-all che
+    lỗi nghiệp vụ khác.
+    """
+    if not value:
+        return False
+    parsed = _safe_getdate(value)
+    if parsed is None:  # warranty dị-dạng → 'không xác định ≠ hết hạn' (False)
+        return False
+    return parsed < getdate(nowdate())
 
 
 def _date_str_or_none(value) -> str | None:
@@ -377,10 +471,42 @@ def _date_str_or_none(value) -> str | None:
     Date field từ ``frappe.db.get_value`` trả ``datetime.date`` object; payload
     scan-info cam kết ``str|None`` để FE ``formatDate`` (new Date(d)) parse được
     đồng nhất với chuỗi ISO. Rỗng/None → ``None`` (FE hiển thị 'Chưa lên lịch').
+
+    CRASH-SAFE (Vòng 50): ``value`` phi-ISO/drift (vd 'not-a-date') →
+    ``_safe_getdate`` trả None → ``None`` (KHÔNG leak verbatim chuỗi bẩn,
+    KHÔNG mis-parse câm, KHÔNG raise). Parity FE ``formatIsoDateLabel``
+    ISO-strict (Vòng 18-19) — nay đối xứng ở BE. 1 record xấu KHÔNG chặn
+    build_asset_scan_info. Catch HẸP ở ``_safe_getdate`` (chỉ lỗi parse-date).
     """
     if not value:
         return None
-    return getdate(value).strftime("%Y-%m-%d")
+    parsed = _safe_getdate(value)
+    if parsed is None:  # phi-ISO/drift → None (KHÔNG leak verbatim, KHÔNG crash)
+        return None
+    return parsed.strftime("%Y-%m-%d")
+
+
+def _str_or_blank(value) -> str:
+    """Chuẩn hoá trường định danh CHUỖI → str đã strip 2 đầu (rỗng/whitespace-
+    only/None/non-str → '') — SSoT duy nhất, parity contract ``_date_str_or_none``.
+
+    Contract: LUÔN trả ``str`` (NEVER ``None`` — như ``_date_str_or_none`` luôn
+    trả ``str|None`` theo type cam kết; ở đây type cam kết là ``str``). Giá trị
+    ``None`` / non-str (canonical drift / legacy / int leak) / blank /
+    whitespace-only (``'   '`` / ``'\\n'`` / ``'\\t'``) → ``''``; ngược lại
+    ``value.strip()`` (cắt whitespace 2 đầu, KHÔNG transform giữa-chuỗi — parity
+    chuẩn hoá ``qr_token`` / preset Vòng 6/31/32, ``' SN-123 '`` → ``'SN-123'``,
+    KHÔNG nuốt nội dung).
+
+    Lý do: khử rò junk-whitespace (drift ``'   '`` ở field định danh) ra
+    mobile-BE / non-Vue consumer của payload scan-info + nhãn QR — trước đây
+    FE ``.trim()`` ÂM THẦM gánh, consumer khác (mobile-BE, in tem) nhận raw
+    junk → h1/định danh/serial trên màn quét & tem lệch. 1 helper, KHÔNG rải
+    logic strip lặp ở từng field.
+    """
+    if not isinstance(value, str):
+        return ""
+    return value.strip()
 
 
 def _recent_maintenance_event(asset_name: str) -> dict | None:
@@ -389,11 +515,35 @@ def _recent_maintenance_event(asset_name: str) -> dict | None:
     1 truy vấn giới hạn ``ORDER BY timestamp DESC LIMIT 1`` trên Asset Lifecycle
     Event lọc ``event_type ∈ _MAINTENANCE_EVENT_TYPES`` (KHÔNG load toàn timeline).
     Trả ``{"event_type", "date"}`` hoặc ``None`` khi asset chưa có sự kiện bảo trì.
+
+    Field ``date`` chuẩn hoá ``str|None 'YYYY-MM-DD'`` qua SSoT
+    ``_date_str_or_none`` (parity FR-00-86 với ``next_pm_date`` /
+    ``next_calibration_date`` — Vòng 11) → 3 trường ngày màn scan-info CÙNG shape,
+    KHÔNG còn datetime thô kèm phần giờ. ``getdate()`` ép datetime của timestamp
+    → ngày (cắt 'HH:MM:SS'). ``event_type`` GIỮ NGUYÊN giá trị canonical thật,
+    COALESCE ``None``/``''`` (nullable col / legacy / drift) → ``''`` (str) — parity
+    type với ``date`` (str|None) và ''-coalesce manufacturer_sn/asset_code/
+    risk_classification; KHÔNG bao giờ là ``None`` khi ``recent_maintenance != None``
+    (Vòng 44 — đúng FE type ``RecentMaintenance.event_type: string``).
+
+    LƯU Ý FE-contract (Vòng 18): ``date`` CÓ THỂ là ``None`` HỢP LỆ (timestamp rỗng/
+    legacy) → màn quét QR (AssetScanInfoView) BẮT BUỘC có fallback presence-aware
+    (None/non-ISO → nhãn VI 'Chưa rõ ngày', KHÔNG render em-dash trơ, KHÔNG leak raw).
     """
+    # Candidate event_type: các mã bảo trì canonical + drift-tolerance ('' và NULL).
+    # Lý do drift-tolerance: cột event_type là Select reqd nhưng dữ liệu legacy /
+    # bypass-validate có thể trôi về NULL/'' (Vòng 44). 1 row như vậy VẪN là sự kiện
+    # bảo trì cũ → phải lọt LIMIT 1 (KHÔNG bị `IN (...)` loại ⇒ recent_maintenance
+    # GIẢ-None). Sự kiện NON-maintenance KHÔNG-drift giữ mã thật (vd 'commissioned')
+    # → KHÔNG khớp tập này ⇒ vẫn loại đúng (no-regress _none_when_no_event). event_type
+    # sau đó COALESCE '' ở dict-build (parity type str).
+    _MAINTENANCE_OR_DRIFT = (*_MAINTENANCE_EVENT_TYPES, "")
     rows = frappe.get_all(
         "Asset Lifecycle Event",
-        filters={"asset": asset_name,
-                 "event_type": ("in", _MAINTENANCE_EVENT_TYPES)},
+        filters=[
+            ["asset", "=", asset_name],
+            ["ifnull(event_type, '')", "in", _MAINTENANCE_OR_DRIFT],
+        ],
         fields=["event_type", "timestamp"],
         order_by="timestamp desc",
         limit=1,
@@ -401,7 +551,13 @@ def _recent_maintenance_event(asset_name: str) -> dict | None:
     if not rows:
         return None
     ev = rows[0]
-    return {"event_type": ev.get("event_type"), "date": ev.get("timestamp")}
+    # event_type COALESCE về '' (str) khi None/'' (nullable col / legacy / drift) —
+    # parity ''-coalesce manufacturer_sn/asset_code/risk_classification + parity TYPE
+    # với date (str|None) → KHỬ rò None ra mobile-BE/non-Vue consumer, đúng FE type
+    # RecentMaintenance.event_type: string (imm00.ts:110). Giá trị canonical thật
+    # ('pm_completed'...) GIỮ NGUYÊN VĂN (or-coalesce KHÔNG nuốt truthy).
+    return {"event_type": ev.get("event_type") or "",
+            "date": _date_str_or_none(ev.get("timestamp"))}
 
 
 # ────────────────────────────────────────────
@@ -449,6 +605,11 @@ _LIFECYCLE_REASON_OUT_OF_SERVICE = (
 )
 _LIFECYCLE_REASON_DRAFT = "Thiết bị chưa đưa vào vận hành"
 _CAPABILITY_REASON = "Bạn không có quyền thực hiện thao tác này"
+# D9 — lifecycle_status rỗng ('')/mã LẠ ngoài enum AssetStatus (legacy/drift) mà
+# user CÓ capability: lifecycle chặn nhưng KHÔNG nhận diện được nhóm cụ thể →
+# reason mặc định an toàn (KHÔNG để rỗng = nút disabled-không-lý-do). SSoT VI ở
+# BE no-EN-leak. Bất biến: enabled=False ⟹ reason != "".
+_LIFECYCLE_REASON_UNKNOWN = "Thiết bị không ở trạng thái cho phép thao tác này"
 
 
 def _scan_action_specs() -> tuple[dict[str, str], ...]:
@@ -504,10 +665,16 @@ def _build_available_actions(status: str) -> list[dict]:
       - ``has_cap`` = ``rbac.can(spec.capability)`` (DocPerm — KHÔNG hardcode
         role-name; cap-not-in-map → False stale-safe).
       - ``enabled`` = ``has_cap AND _lifecycle_allows(status, key)``.
-      - ``reason`` (CHỈ khi disabled): ưu tiên lifecycle > capability =
-        ``_lifecycle_reason(status, key) or (cap thiếu → _CAPABILITY_REASON)`` —
-        rỗng "" khi enabled. lifecycle-chặn KÉO theo reason lifecycle KỂ CẢ khi
-        cũng thiếu cap (đo được: Decommissioned + thiếu cap → 'đã thanh lý').
+      - ``reason`` (CHỈ khi disabled): 3 bậc ưu tiên lifecycle > capability >
+        unknown-fallback =
+        ``_lifecycle_reason(status, key) or (cap thiếu → _CAPABILITY_REASON) or
+        _LIFECYCLE_REASON_UNKNOWN`` — rỗng "" CHỈ khi enabled. lifecycle-chặn KÉO
+        theo reason lifecycle KỂ CẢ khi cũng thiếu cap (đo được: Decommissioned +
+        thiếu cap → 'đã thanh lý'). Bậc 3 (_LIFECYCLE_REASON_UNKNOWN) bịt nhánh
+        status rỗng/lạ + đủ cap (lifecycle chặn nhưng KHÔNG nhận diện nhóm) →
+        không còn nút disabled-không-lý-do.
+    BẤT BIẾN ĐO ĐƯỢC (D9): ``enabled is False ⟹ reason != ""`` với MỌI status
+    (kể cả '' và mã LẠ); ``enabled is True ⟹ reason == ""`` (giữ nguyên).
     Trả list dict shape CHÍNH XÁC {key, label, route, enabled, reason} (KHÔNG
     thừa). READ-ONLY (không I/O ghi).
     """
@@ -520,10 +687,14 @@ def _build_available_actions(status: str) -> list[dict]:
         if enabled:
             reason = ""
         else:
-            # Ưu tiên lifecycle > capability (D2): lifecycle_reason trước, fallback
-            # capability_reason khi lifecycle KHÔNG chặn nhưng thiếu cap.
-            reason = _lifecycle_reason(status, key) or (
-                "" if has_cap else _CAPABILITY_REASON
+            # 3 bậc ưu tiên lifecycle > capability > unknown (D9): lifecycle_reason
+            # trước; nếu lifecycle không-chặn-rõ-ràng thì capability_reason khi
+            # thiếu cap; cuối cùng _LIFECYCLE_REASON_UNKNOWN bảo đảm disabled LUÔN
+            # có lý do VI (status rỗng/lạ + đủ cap rơi vào bậc này).
+            reason = (
+                _lifecycle_reason(status, key)
+                or ("" if has_cap else _CAPABILITY_REASON)
+                or _LIFECYCLE_REASON_UNKNOWN
             )
         actions.append({
             "key": key,
@@ -549,6 +720,31 @@ def build_asset_scan_info(asset_name: str) -> dict | None:
     ``lifecycle_status`` trả MÃ CANONICAL (FE dịch nhãn VI qua SSoT
     ``LIFECYCLE_STATUS_LABEL`` — KHÔNG đính literal VI ở BE).
 
+    ``manufacturer_sn`` (Vòng 37 — D5, định danh truy xuất NĐ98) = **Số serial NSX**
+    của thiết bị vật lý → KTV xác nhận ĐÚNG máy trước khi báo hỏng / tạo WO. Đọc từ
+    field thật ``AC Asset.manufacturer_sn`` trong CÙNG 1 ``get_value`` (KHÔNG thêm
+    round-trip DB). READ-ONLY, KHÔNG nhạy cảm (KHÔNG phải docname/giá/khấu hao) →
+    KHÔNG emit audit/lifecycle (giữ quyết định A2 chống spam chain). Rỗng/None →
+    ``''`` (parity coalesce ``asset_code``/``asset_name`` — KHÔNG None, KHÔNG raw).
+
+    ``warranty_expiry_date`` / ``warranty_expired`` (Vòng 48 — trạng thái BẢO HÀNH):
+    ``warranty_expiry_date`` = str|None 'YYYY-MM-DD' qua CÙNG ``_date_str_or_none``
+    (parity ``next_pm_date`` / ``next_calibration_date`` — rỗng/None → None, KHÔNG
+    leak datetime thô / chuỗi phi-ISO). ``warranty_expired`` = bool derive SERVER-SIDE
+    qua ``_is_warranty_expired`` (STRICT ``<`` theo NGÀY server — no client-clock;
+    hôm-nay CHƯA hết hạn). ĐỘC LẬP lifecycle_status (no-exempt) — bảo hành là sự
+    kiện HỢP ĐỒNG, thiết bị Out of Service / Decommissioned VẪN có thể hết bảo hành
+    (KHÁC pm_overdue/calibration_overdue exempt-aware). Đọc field thật
+    ``AC Asset.warranty_expiry_date`` (Date) trong CÙNG ``get_value`` (KHÔNG
+    round-trip DB thêm). KTV biết còn/hết bảo hành TRƯỚC khi báo hỏng / tạo CM.
+
+    ``device_model_name`` / ``location_name`` (Vòng 46) nay qua ``_str_or_blank``
+    (parity Vòng 45): nguồn ``model_name`` / ``location_name`` whitespace-only
+    (``'   '`` / ``'\\n'`` / ``'\\t'``) / None → ``''`` đã strip 2 đầu (KHÔNG
+    transform giữa-chuỗi) — khử rò junk ra mobile-BE/non-Vue. Điều kiện
+    ``if row.get('device_model')`` GIỮ NGUYÊN (skip query khi unassigned — KHÔNG
+    N+1; ``_str_or_blank('')`` → ``''``). KHÔNG round-trip DB thêm.
+
     KHÔNG trả field nhạy cảm (giá mua, khấu hao, audit chain, supplier code nội bộ).
     KHÔNG emit lifecycle/audit (đồng nhất quyết định A2 — chống spam chain mỗi lần
     quét). Guard ``asset_name`` rỗng → ``None`` (KHÔNG query toàn bảng). Gate quyền
@@ -558,26 +754,56 @@ def build_asset_scan_info(asset_name: str) -> dict | None:
         return None
     row = frappe.db.get_value(
         _DOCTYPE_ASSET, asset_name,
-        ["name", "asset_code", "asset_name", "lifecycle_status",
-         "device_model", "location", "next_pm_date", "next_calibration_date"],
+        ["name", "asset_code", "asset_name", "manufacturer_sn", "risk_classification",
+         "lifecycle_status", "device_model", "location", "next_pm_date",
+         "next_calibration_date", "warranty_expiry_date"],
         as_dict=True,
     )
     if not row:
         return None
     return {
         "name": row.get("name"),
-        "asset_code": row.get("asset_code") or "",
-        "asset_name": row.get("asset_name") or "",
+        # Vòng 45: 4 trường định danh chuỗi qua SSoT _str_or_blank (whitespace-only/
+        # None → '' đã strip 2 đầu) — khử rò junk-whitespace ra mobile-BE/non-Vue
+        # consumer mà FE .trim() đang gánh; parity qr_token/preset (Vòng 6/31/32).
+        "asset_code": _str_or_blank(row.get("asset_code")),
+        "asset_name": _str_or_blank(row.get("asset_name")),
+        # D5 (ADR-IMM00-QR-SCAN-ACTION — NĐ98): Số serial NSX = định danh truy xuất
+        # hợp lệ. Đọc từ CÙNG get_value trên (KHÔNG round-trip DB thêm), chuẩn hoá ''
+        # qua _str_or_blank parity asset_code/asset_name — KHÔNG None, KHÔNG raw/junk.
+        # KTV xác nhận ĐÚNG thiết bị vật lý trước khi báo hỏng/tạo WO. KHÔNG field nhạy cảm mới.
+        "manufacturer_sn": _str_or_blank(row.get("manufacturer_sn")),
+        # Vòng 38 (risk_classification — phân loại rủi ro Low/Medium/High/Critical):
+        # enum EN read-only của AC Asset (fetch_from device_model). BE GIỮ RAW enum
+        # làm SSoT contract — KHÔNG dịch sang VI (FE map nhãn VI qua labels.ts SSoT).
+        # Đọc từ CÙNG get_value trên (KHÔNG round-trip DB thêm), chuẩn hoá '' qua
+        # _str_or_blank parity manufacturer_sn/asset_code (Vòng 45) — KHÔNG None, KHÔNG
+        # junk. KHÔNG nhầm với risk_class (A/B/C/D — WHO/NĐ98 letter class).
+        "risk_classification": _str_or_blank(row.get("risk_classification")),
+        # Vòng 45: lifecycle_status GIỮ RAW (KHÔNG áp _str_or_blank). Mã canonical
+        # lifecycle có _lifecycle_vi/_build_available_actions xử lý rỗng RIÊNG (FE
+        # dịch nhãn VI qua SSoT) — coalesce '' để derive actions, KHÔNG strip vì
+        # enum canonical KHÔNG bao giờ có whitespace bao quanh hợp lệ.
         "lifecycle_status": row.get("lifecycle_status") or "",
-        "device_model_name": (
+        # Vòng 46: 2 nhãn quan hệ qua SSoT _str_or_blank (parity 4 trường định
+        # danh Vòng 45) — model_name/location_name nguồn whitespace-only
+        # ('   ' / '\n' / '\t') / None → '' đã strip 2 đầu, KHÔNG còn rò junk ra
+        # mobile-BE/non-Vue + tem in. Điều kiện `if row.get('device_model')` GIỮ
+        # NGUYÊN (skip query khi unassigned — KHÔNG N+1; _str_or_blank('') → '').
+        # KHÔNG round-trip DB thêm (chỉ bọc kết quả get_value sẵn có).
+        "device_model_name": _str_or_blank(
             frappe.db.get_value("IMM Device Model", row["device_model"], "model_name")
             if row.get("device_model") else ""
-        ) or "",
-        "location_name": (
+        ),
+        "location_name": _str_or_blank(
             frappe.db.get_value("AC Location", row["location"], "location_name")
             if row.get("location") else ""
-        ) or "",
-        "next_pm_date": row.get("next_pm_date") or None,
+        ),
+        # str|None theo contract FR-00-86 (Vòng 11 — parity với next_calibration_date):
+        # Date field từ get_value trả date object → chuẩn hoá 'YYYY-MM-DD' (rỗng → None)
+        # qua CÙNG helper để FE formatDate parse ổn định. Cờ pm_overdue derive từ RAW
+        # row[...] (date object) ở dưới — TÍNH ĐỘC LẬP, KHÔNG đọc key đã normalize này.
+        "next_pm_date": _date_str_or_none(row.get("next_pm_date")),
         # str|None theo contract FR-00-86: Date field từ get_value trả date object →
         # chuẩn hoá về 'YYYY-MM-DD' (rỗng → None) để FE formatDate parse được.
         "next_calibration_date": _date_str_or_none(row.get("next_calibration_date")),
@@ -592,6 +818,18 @@ def build_asset_scan_info(asset_name: str) -> dict | None:
         "calibration_overdue": _is_calibration_overdue(
             row.get("next_calibration_date"), row.get("lifecycle_status")
         ),
+        # Vòng 48 — trạng thái BẢO HÀNH (KTV biết còn/hết bảo hành TRƯỚC khi báo
+        # hỏng/tạo CM → lường chi phí sửa). Đọc field thật AC Asset.warranty_expiry_date
+        # (Date) từ CÙNG get_value trên (KHÔNG round-trip DB thêm, KHÔNG N+1).
+        # str|None 'YYYY-MM-DD' qua CÙNG _date_str_or_none (parity next_pm_date/
+        # next_calibration_date — rỗng/None → None; KHÔNG leak datetime thô có giờ
+        # / chuỗi phi-ISO verbatim). KHÔNG emit lifecycle/audit (giữ A2 chống spam).
+        "warranty_expiry_date": _date_str_or_none(row.get("warranty_expiry_date")),
+        # Cờ HẾT BẢO HÀNH derive SERVER-SIDE (timezone-safe) qua _is_warranty_expired
+        # — FE CHỈ render cờ, KHÔNG so ngày client (parity pm_overdue/calibration_overdue).
+        # KHÁC overdue: ĐỘC LẬP lifecycle_status (no-exempt) — bảo hành là sự kiện
+        # HỢP ĐỒNG, thiết bị Out of Service / Decommissioned VẪN có thể hết bảo hành.
+        "warranty_expired": _is_warranty_expired(row.get("warranty_expiry_date")),
         # R1 §D2 — 4 CTA màn quét QR với enabled derive = has_cap ∩ lifecycle_allows
         # (1 predicate SSoT _build_available_actions). KHÔNG inline literal status ở
         # đây (toàn bộ rẽ-nhánh lifecycle dồn vào _lifecycle_allows/_lifecycle_reason).
@@ -610,6 +848,15 @@ LABEL_PRINTED_EVENT = "label_printed"   # Asset Lifecycle Event.event_type (enum
 # Mã lỗi entry batch (CHỐT Core Doc 05 §III.1) — asset không tồn tại trong list.
 # Literal "AC-E001" theo spec FE-contract (KHÔNG dùng ErrorCode.NOT_FOUND='NOT_FOUND').
 _BATCH_ERR_NOT_FOUND = "AC-E001"
+# Nhãn-lỗi VI SSoT cho ô-lỗi-an-toàn trên tem PDF (`_label_block`) — KHÔNG rải
+# literal. 2 NHÁNH LỖI KHÁC NHAU, KHÔNG nhầm:
+#  • asset∄ (error == AC-E001 từ batch) → "Không tìm thấy tài sản".
+#  • qr_url rỗng/whitespace (drift / contract-violation BR-00-28) → "Không tạo
+#    được mã QR" — parity FE AssetQrLabel.vue:73/:124 (guard + fallback on-screen).
+# No-EN-leak (CLAUDE.md §13). qr_url hợp-lệ-build (build_asset_label_data[_batch]
+# qua _build_qr_url) KHÔNG bao giờ rỗng — nhãn này là PHÒNG-THỦ render-tier.
+_LBL_ERR_ASSET_NOT_FOUND = "Không tìm thấy tài sản"
+_LBL_ERR_QR_EMPTY = "Không tạo được mã QR"
 
 # Vòng B (hardening / BR-00-33) — CAP số asset / 1 request nhãn QR hàng loạt.
 # RC: get_asset_label_data_batch + mark_label_printed parse `assets`→list KHÔNG có
@@ -621,6 +868,9 @@ _BATCH_ERR_NOT_FOUND = "AC-E001"
 # SAU rbac.require('asset.print') (D6 phương án B — chỉ user đã-auth-print mới tới,
 # không lộ giới hạn cho khách). CAP_SET_VERSION hiện hành v97.c30c69b8974d (sau D6
 # tách asset.print/asset.qr.rotate). Xem ADR-001 §B + ADR-IMM00-QR-SCAN-ACTION §D6.
+# Vòng 15 — CAP đo TRÊN list ĐÃ DEDUP: `_coerce_asset_names` (SSoT API) dedup
+# within-call TRƯỚC khi đếm ⇒ `len(names) > _MAX_LABEL_BATCH` đo trên UNIQUE.
+# 300 phần tử thô / <200 unique → QUA cap; >200 UNIQUE → vẫn 413 (đếm sau dedup).
 _MAX_LABEL_BATCH = 200
 # Message VI cố định cho 413 — nêu giới hạn, KHÔNG leak asset name nào.
 _ERR_BATCH_TOO_LARGE = (
@@ -711,7 +961,10 @@ def build_asset_label_data(asset_name: str) -> dict:
     phải print event) TRƯỚC khi build ``qr_url`` → ``qr_url`` KHÔNG BAO GIỜ rỗng
     (BR-00-28). **KHÔNG emit ``label_printed``** (preview nhãn ≠ in nhãn; sự kiện
     in chỉ ghi ở ``mark_label_printed`` — tránh spam audit chain). ``manufacturer_sn``
-    / ``asset_name`` rỗng-None → ``''`` (KHÔNG None). Gate quyền + IDOR do API tier.
+    / ``asset_name`` / ``asset_code`` + (Vòng 46) ``device_model_name`` /
+    ``location_name`` nay qua ``_str_or_blank``: whitespace-only/None → ``''`` đã
+    strip 2 đầu (KHÔNG None, KHÔNG rò junk ra tem in/non-Vue; KHÔNG round-trip DB
+    thêm — ``if device_model``/``location`` GIỮ skip-query). Gate quyền + IDOR do API tier.
     """
     row = frappe.db.get_value(
         _DOCTYPE_ASSET, asset_name,
@@ -722,19 +975,27 @@ def build_asset_label_data(asset_name: str) -> dict:
     token = row.get("qr_token") or ensure_asset_qr_token(asset_name)
     return {
         "name": row.get("name"),
-        "asset_code": row.get("asset_code") or "",
+        # Vòng 45: 3 trường định danh nhãn qua SSoT _str_or_blank (parity payload
+        # scan-info) — whitespace-only/None → '' đã strip; tem KHÔNG rò junk ra máy
+        # in/non-Vue consumer. qr_url KHÔNG đụng (đã .strip() riêng tầng render).
+        "asset_code": _str_or_blank(row.get("asset_code")),
         # ADR-IMM00-QR-SCAN-ACTION D5: tách bạch Mã tài sản ↔ Số serial NSX +
         # Tên tài sản trên tem. Cột sẵn có trên cùng get_value → KHÔNG N+1.
-        "asset_name": row.get("asset_name") or "",
-        "manufacturer_sn": row.get("manufacturer_sn") or "",
-        "device_model_name": (
+        "asset_name": _str_or_blank(row.get("asset_name")),
+        "manufacturer_sn": _str_or_blank(row.get("manufacturer_sn")),
+        # Vòng 46: 2 nhãn quan hệ qua SSoT _str_or_blank (parity scan-info +
+        # asset_code/asset_name/manufacturer_sn Vòng 45) — model_name/
+        # location_name whitespace-only/None → '' đã strip; tem KHÔNG rò junk.
+        # `if row.get('device_model')` GIỮ NGUYÊN (skip query unassigned — no
+        # N+1). KHÔNG round-trip DB thêm.
+        "device_model_name": _str_or_blank(
             frappe.db.get_value("IMM Device Model", row["device_model"], "model_name")
             if row.get("device_model") else ""
-        ) or "",
-        "location_name": (
+        ),
+        "location_name": _str_or_blank(
             frappe.db.get_value("AC Location", row["location"], "location_name")
             if row.get("location") else ""
-        ) or "",
+        ),
         "lifecycle_status": row.get("lifecycle_status") or "",
         "qr_url": _build_qr_url(token),
     }
@@ -751,7 +1012,10 @@ def build_asset_label_data_batch(names: list[str]) -> list[dict]:
       (``asset_name``/``manufacturer_sn``) chỉ MỞ RỘNG fields list sẵn có →
       KHÔNG thêm query (no N+1).
     - 2 IN-query gộp resolve ``device_model``→model_name + ``location``→location_name
-      (KHÔNG loop ``get_value`` mỗi asset).
+      (KHÔNG loop ``get_value`` mỗi asset). (Vòng 46) ``device_model_name`` /
+      ``location_name`` bọc giá trị map đã có qua ``_str_or_blank`` (parity single
+      + scan-info): whitespace-only/None → ``''`` đã strip — KHÔNG đụng IN-query
+      gộp (vẫn no-N+1), KHÔNG rò junk ra tem; nhánh item LỖI GIỮ NGUYÊN.
     - Token-less asset → ``ensure_asset_qr_token`` CHỈ cho asset thực sự thiếu
       (giữ "KHÔNG N+1" cho lookup hiển thị; thường 0 sau backfill D5).
     - Trả theo ĐÚNG thứ tự ``names``; name không có row →
@@ -797,12 +1061,20 @@ def build_asset_label_data_batch(names: list[str]) -> list[dict]:
         token = row.get("qr_token") or ensure_asset_qr_token(n)
         out.append({
             "name": row["name"],
-            "asset_code": row.get("asset_code") or "",
+            # Vòng 45: 3 trường định danh qua SSoT _str_or_blank (parity single +
+            # scan-info) — item HỢP LỆ KHÔNG rò junk-whitespace. Nhánh item LỖI
+            # ở trên GIỮ NGUYÊN {name, error} (KHÔNG đụng, KHÔNG nở key).
+            "asset_code": _str_or_blank(row.get("asset_code")),
             # D5: cột sẵn trên cùng get_all gộp → KHÔNG thêm query (no N+1).
-            "asset_name": row.get("asset_name") or "",
-            "manufacturer_sn": row.get("manufacturer_sn") or "",
-            "device_model_name": model_map.get(row.get("device_model"), "") or "",
-            "location_name": loc_map.get(row.get("location"), "") or "",
+            "asset_name": _str_or_blank(row.get("asset_name")),
+            "manufacturer_sn": _str_or_blank(row.get("manufacturer_sn")),
+            # Vòng 46: bọc giá trị map đã có qua SSoT _str_or_blank (parity
+            # single + scan-info) — model_name/location_name whitespace-only/
+            # None → '' đã strip; item HỢP LỆ KHÔNG rò junk. KHÔNG đụng IN-query
+            # gộp (vẫn no-N+1; chỉ chuẩn hoá value đã resolve). Nhánh item LỖI
+            # {name, error} ở trên GIỮ NGUYÊN (KHÔNG nở key).
+            "device_model_name": _str_or_blank(model_map.get(row.get("device_model"))),
+            "location_name": _str_or_blank(loc_map.get(row.get("location"))),
             "lifecycle_status": row.get("lifecycle_status") or "",
             "qr_url": _build_qr_url(token),
         })
@@ -836,8 +1108,11 @@ def mark_label_printed(assets: list[str], actor: str | None = None) -> dict:
     """SERVICE (A3 — D3): ghi sự kiện in cho từng asset (1 event / asset / lần in).
 
     Loop ``ensure_asset_qr_token`` (đảm bảo có token để in được) + ``emit_label_printed``.
-    Validate tồn tại + RBAC + IDOR do API tier xử lý TRƯỚC (all-or-nothing). Gọi N
-    lần in → N×len event (mỗi lần in = 1 event, đúng nghiệp vụ — KHÔNG dedup).
+    Validate tồn tại + RBAC + IDOR do API tier xử lý TRƯỚC (all-or-nothing). Coerce
+    DEDUP within-call ở ``_coerce_asset_names`` (API tier) ⇒ ``assets`` tới đây ĐÃ
+    unique (name lặp trong 1 call đã gộp) → ghi 1 event/asset/call. Service tier
+    KHÔNG tự dedup (in 1 event cho MỖI phần tử nhận được). Gọi N lần in RIÊNG →
+    N event (mỗi lần in = 1 event, đúng nghiệp vụ — dedup CHỈ trong-call, KHÔNG xuyên-call).
     """
     actor = actor or frappe.session.user
     for n in assets:
@@ -943,8 +1218,7 @@ def _label_preset_reject(value: str) -> str:
 
 # Nhãn VI cho lifecycle_status (no EN-leak — ADR §D3/§D13). SSoT đồng nhất
 # frontend/src/constants/labels.ts::ASSET_STATUS_LABELS (8 mã canonical). Render
-# tem là SERVER-SIDE → FE KHÔNG dịch được → BE map VI tại đây. Mã lạ → "" (KHÔNG
-# leak mã EN thô ra tem).
+# tem là SERVER-SIDE → FE KHÔNG dịch được → BE map VI tại đây.
 _LIFECYCLE_VI = {
     "Draft": "Nháp",
     "Commissioned": "Đã đưa vào sử dụng",
@@ -956,10 +1230,26 @@ _LIFECYCLE_VI = {
     "Decommissioned": "Đã thanh lý",
 }
 
+# Nhãn VI an toàn cho lifecycle_status RỖNG ('') / MÃ LẠ-DRIFT-LEGACY ngoài 8 mã
+# canonical (vd 'Retired', 'RANDOM_DRIFT', 'active' sai-case). Vòng 41: trước đây
+# fallback trả '' → dòng "Trạng thái" trên tem in '—' CÂM (presence-blind, không
+# phân biệt "không có data" với "render lỗi"). Nay trả 'Chưa rõ' — nhãn VI an
+# toàn, presence-aware, TUYỆT ĐỐI KHÔNG leak mã EN thô ra tem (hard-constraint
+# no-leak: extract_text của tem KHÔNG chứa raw code lẫn '—' câm ở dòng status).
+# empty vs unknown CÙNG render 'Chưa rõ' (an-toàn-thống-nhất). Parity FE
+# AssetQrLabel.vue statusLabel (translateStatus '—' → 'Chưa rõ' chỉ tại dòng QR).
+_LIFECYCLE_VI_UNKNOWN = "Chưa rõ"
+
 
 def _lifecycle_vi(status: str) -> str:
-    """Nhãn VI cho lifecycle_status — no EN-leak (ADR §D3). Mã lạ/rỗng → ''."""
-    return _LIFECYCLE_VI.get(status or "", "")
+    """Nhãn VI cho lifecycle_status — no EN-leak (ADR §D3).
+
+    - Mã canonical (1 trong 8) → nhãn VI tương ứng (giữ nguyên, no-regress).
+    - Rỗng ('') / mã lạ-drift-legacy ngoài enum → ``_LIFECYCLE_VI_UNKNOWN``
+      ('Chưa rõ') — KHÔNG '' (chống '—' câm trên tem), KHÔNG raw `status` (chống
+      EN-leak). empty vs unknown CÙNG nhãn an-toàn-thống-nhất.
+    """
+    return _LIFECYCLE_VI.get(status or "", _LIFECYCLE_VI_UNKNOWN)
 
 
 def _label_pdf_options(preset: str) -> dict:
@@ -1025,6 +1315,15 @@ def _label_block(item: dict, preset: str, is_last: bool) -> str:
     QR, KHÔNG field thật, chỉ echo name client gửi) — leak-safe, KHÔNG raise,
     vẫn = 1 trang (giữ invariant N→N trang — §D7).
 
+    NHÁNH PHÒNG-THỦ — ``qr_url`` rỗng/whitespace (sau ``.strip()``): item KHÔNG-error
+    nhưng ``qr_url`` rỗng/space (drift / contract-violation BR-00-28 — pipeline-build
+    ``build_asset_label_data(_batch)`` qua ``_build_qr_url`` KHÔNG bao giờ tạo) →
+    Ô-LỖI AN TOÀN ('Không tạo được mã QR'), tái dùng CÙNG shape/class ``label-error``
+    nhánh AC-E001 — KHÔNG gọi ``_qr_svg_inline`` (``pyqrcode.create('')`` KHÔNG raise
+    nhưng encode 1 QR RÁC vô nghĩa) → KHÔNG ``<svg>`` junk-QR, KHÔNG ``data-qr-url``
+    rỗng dán lên thiết bị. Parity FE ``AssetQrLabel.vue:73`` (guard ``if(!value)``)
+    + ``:124`` (fallback on-screen). Vẫn = 1 trang (giữ invariant N→N).
+
     Mỗi block LUÔN mang class ``label`` (đếm block ổn định). Trang KHÔNG-cuối thêm
     class ``brk`` (page-break-after: always) → N block = N-1 break = N trang
     (block cuối KHÔNG break, tránh trang trắng thừa). ``qr_url`` nhúng kèm thuộc
@@ -1035,16 +1334,26 @@ def _label_block(item: dict, preset: str, is_last: bool) -> str:
     cls = "label" if is_last else "label brk"
     if compact:
         cls += " compact"
-    if item.get("error"):
-        name = _esc(item.get("name"))
+    def _error_cell(name_val: str, err_vi: str) -> str:
+        # Ô-lỗi-an-toàn DÙNG CHUNG cho AC-E001 (asset∄) + qr_url rỗng — CÙNG
+        # shape/class label-error (KHÔNG QR, KHÔNG data-qr-url, KHÔNG field thật).
+        name = _esc(name_val)
         head = name if compact else f"Mã tài sản: {name}"
         return (
             f'<div class="{cls} label-error">'
             f'<div class="line code">{head}</div>'
-            '<div class="line err">Không tìm thấy tài sản</div>'
+            f'<div class="line err">{err_vi}</div>'
             '</div>'
         )
-    qr_url = item.get("qr_url") or ""
+    if item.get("error"):
+        return _error_cell(item.get("name"), _LBL_ERR_ASSET_NOT_FOUND)
+    # PHÒNG-THỦ render-tier (BR-00-28): qr_url rỗng/whitespace (sau .strip()) →
+    # ô-lỗi-an-toàn 'Không tạo được mã QR' — KHÔNG gọi _qr_svg_inline (pyqrcode
+    # KHÔNG bao giờ nhận chuỗi rỗng/whitespace) → 0 junk-QR, 0 data-qr-url rỗng.
+    # Parity FE AssetQrLabel.vue:73. Chỉ qua guard mới gán qr_url + encode QR.
+    qr_url = (item.get("qr_url") or "").strip()
+    if not qr_url:
+        return _error_cell(item.get("name"), _LBL_ERR_QR_EMPTY)
     qr_svg = _qr_svg_inline(qr_url)
     # V3 §D3/§D13: lifecycle_status DỊCH VI (no EN-leak). Mã lạ/rỗng → '' → '—'
     # (KHÔNG None, KHÔNG leak mã EN canonical thô). lifecycle_status ĐÃ có trong
@@ -2034,6 +2343,45 @@ def reserved_prefix_sql(alias: str = "") -> tuple[str, list]:
         f"({col_name} NOT LIKE %s ESCAPE '\\\\' AND {col_pk} NOT LIKE %s ESCAPE '\\\\')"
     )
     return fragment, [_RESERVED_NAME_LIKE, _RESERVED_SI_LIKE]
+
+
+def escape_like_term(term: str) -> str:
+    """SSoT — escape LIKE-metachar trong free-text search → match LITERAL khi đẩy qua
+    ORM ``frappe.get_list(or_filters=[[field, "like", f"%{escape_like_term(t)}%"]])``.
+
+    Bối cảnh (FR-00-95 / BR-00-44 / ADR-IMM00-SEARCH-ESCAPE): ``list_assets`` dựng
+    LIKE-term BẰNG nội-suy trần ``f"%{search}%"`` ⇒ ký tự ``%`` (wildcard nhiều ký
+    tự) / ``_`` (wildcard 1 ký tự) user gõ bị diễn giải như wildcard SQL → over-match
+    toàn bảng (``search='_'``/``'%'`` match-all) + LIKE-backtracking DoS surface
+    (``'%%%%%%%%%%'``). Helper này biến ``%``/``_`` thành KÝ TỰ LITERAL.
+
+    Vì sao CHỈ escape ``%``/``_`` (KHÔNG đụng ``\\``): Frappe ``DatabaseQuery``
+    (động cơ của ``frappe.get_list``/``count_with_or``) cho operator ``like`` TỰ
+    nhân đôi backslash (``value.replace("\\\\","\\\\\\\\")``, db_query.py:938-940)
+    NHƯNG KHÔNG escape ``%``/``_`` (giữ wildcard) và KHÔNG emit ``ESCAPE`` clause.
+    ⟹ tầng app phải prefix 1 backslash cho ``%``/``_`` để biến chúng thành literal;
+    KHÔNG đụng ``\\`` (engine đã nhân đôi hộ — escape thêm sẽ thành match dấu
+    backslash, lệch literal). Verify thực nghiệm probe site `miyano` 2026-06-11
+    (ADR §2 probe table): "escape chỉ ``%``/``_``" thoả MỌI acceptance, kể cả
+    ``search='\\'`` (1 backslash) trả literal-backslash row, no-throw.
+
+    Total-function: KHÔNG raise với mọi str. ``''`` → ``''``. Áp NHẤT QUÁN cho CẢ
+    4 cột ``or_filters`` của ``list_assets`` qua 1 lời gọi (KHÔNG rải ``.replace``
+    thủ công ở từng cột). count==rows giữ vì ``count_with_or`` + ``get_list`` dùng
+    CÙNG ``or_filters`` đã-escape qua CÙNG động cơ DatabaseQuery.
+
+    Args:
+        term: chuỗi free-text user gõ (caller bảo đảm là ``str``).
+
+    Returns:
+        str — ``term`` đã escape ``%`` → ``\\%`` và ``_`` → ``\\_`` (KHÔNG đụng ``\\``).
+
+    KHÔNG dùng ``frappe.db.escape`` ở đây (escape giá trị SQL, KHÔNG escape
+    LIKE-metachar — sai mục đích). Edge metachar-kẹp-giữa term dài (vd ``AC_001``)
+    có thể under-match qua ORM (Frappe doubling + absent-ESCAPE) → literal-match
+    hoàn hảo = [ROADMAP] raw-SQL ``ESCAPE '\\'`` (ADR §2/§6, ngoài scope Vòng 13).
+    """
+    return term.replace("%", "\\%").replace("_", "\\_")
 
 
 def reserved_asset_names() -> list[str]:
