@@ -64,6 +64,19 @@ vi.mock('@/api/imm00', () => ({
   getAssetKpi: vi.fn().mockResolvedValue(null),
   verifyChain: vi.fn().mockResolvedValue({ valid: true, count: 2 }),
   deleteAsset: vi.fn().mockResolvedValue(undefined),
+  getAssetLabelData: vi.fn().mockResolvedValue({}),
+  markLabelPrinted: vi.fn(),
+  regenerateAssetQrToken: vi.fn(),
+  printAssetLabelsPdf: vi.fn(),
+  // SSoT preset khổ tem (selector 3-preset Vòng 4) — view import ở module-level.
+  LABEL_PDF_PRESETS: [
+    { key: 'tem-60x100', label: 'Tem 60×100mm' },
+    { key: 'tem-70x40', label: 'Tem 70×40mm' },
+    { key: 'tem-50x30', label: 'Tem 50×30mm' },
+  ],
+  LABEL_PDF_PRESET: 'tem-60x100',
+  labelPdfPresetLabel: (p: string) =>
+    ({ 'tem-60x100': 'Tem 60×100mm', 'tem-70x40': 'Tem 70×40mm', 'tem-50x30': 'Tem 50×30mm' } as Record<string, string>)[p] ?? '',
 }))
 vi.mock('@/api/imm04', () => ({
   getCommissioningOrigin: vi.fn().mockResolvedValue(null),
@@ -145,10 +158,13 @@ describe('translateLifecycleEvent — SSoT nhãn VI cho event_type vòng đời'
     expect(translateLifecycleEvent('restored')).not.toBe(translateLifecycleEvent('activated'))
   })
 
-  it('null/empty → "—"; key lạ → trả nguyên (không crash, không bịa)', () => {
+  it("null/empty → '—'; key lạ → nhãn an toàn 'Khác' (no-leak, KHÔNG trả raw code)", () => {
     expect(translateLifecycleEvent(null)).toBe('—')
     expect(translateLifecycleEvent('')).toBe('—')
-    expect(translateLifecycleEvent('khong_co_trong_enum')).toBe('khong_co_trong_enum')
+    // Invariant no-leak (hard-constraint): mã không thuộc enum KHÔNG được rò ra UI.
+    // Trước đây assert leak (→ chính nó); nay chốt lại = nhãn VI an toàn cố định.
+    expect(translateLifecycleEvent('khong_co_trong_enum')).not.toBe('khong_co_trong_enum')
+    expect(translateLifecycleEvent('khong_co_trong_enum')).toBe('Khác')
   })
 
   it('phủ ĐỦ 18 option enum Asset Lifecycle Event — không leak mã EN', () => {

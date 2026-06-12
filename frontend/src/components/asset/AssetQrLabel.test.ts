@@ -173,4 +173,66 @@ describe('AssetQrLabel — A4 in nhãn QR cấp tài sản', () => {
     expect(text).not.toContain('Active')
     expect(text).not.toContain('Decommissioned')
   })
+
+  // ── Vòng 30 — parity BE _label_block: qr_url rỗng/whitespace (non-error) → guard
+  //   AssetQrLabel.vue:73 `if(!value){qrFailed=true;return}` → KHÔNG encode + fallback
+  //   an toàn 'Không tạo được mã QR'. REVERT-PROOF: xoá guard :73 → 2 test này ĐỎ
+  //   (toDataURL bị gọi với '' / '   ', không còn fallback). Khôi phục → XANH. ──────
+  it('TC7: qr_url="" (non-error) → KHÔNG gọi QRCode.toDataURL, fallback an toàn', async () => {
+    const w = mount(AssetQrLabel, { props: { label: { ...VALID, qr_url: '' } } })
+    await flushPromises()
+    // KHÔNG encode chuỗi rỗng thành QR (chống junk-QR).
+    expect(toDataURLSpy).not.toHaveBeenCalled()
+    // KHÔNG render ảnh QR; CÓ ô fallback VI an toàn.
+    expect(w.find('img').exists()).toBe(false)
+    expect(w.text()).toContain('Không tạo được mã QR')
+    // KHÔNG vỡ component (vẫn render field định danh).
+    expect(w.text()).toContain('AC-ASSET-2026-00042')
+    expect(w.text()).not.toContain('undefined')
+  })
+
+  it('TC8 parity: qr_url="   " (whitespace) → fallback an toàn, KHÔNG encode whitespace', async () => {
+    const w = mount(AssetQrLabel, { props: { label: { ...VALID, qr_url: '   ' } } })
+    await flushPromises()
+    // PARITY BE .strip(): whitespace-only → trim rỗng → KHÔNG encode (KHÔNG biến
+    // dấu cách thành QR). REVERT-PROOF: đổi guard về `if(!value)` (bỏ .trim) → đỏ.
+    expect(toDataURLSpy).not.toHaveBeenCalled()
+    expect(w.find('img').exists()).toBe(false)
+    expect(w.text()).toContain('Không tạo được mã QR')
+    expect(w.text()).not.toContain('undefined')
+  })
+
+  // ── Vòng 41 — parity BE services/imm00.py::_lifecycle_vi: dòng 'Trạng thái' với
+  //   lifecycle_status rỗng/lạ → nhãn SSoT VI 'Chưa rõ' (KHÔNG '—' câm, KHÔNG leak
+  //   mã EN thô). 8 mã canonical GIỮ nhãn cũ. REVERT-PROOF: bỏ safe-fallback ở
+  //   AssetQrLabel.vue → dòng status về '—'/raw-code → 3 test này ĐỎ. ─────────────
+  it('TC41a: lifecycle_status="" → dòng Trạng thái = "Chưa rõ" (KHÔNG "—")', async () => {
+    const w = mount(AssetQrLabel, { props: { label: { ...VALID, lifecycle_status: '' } } })
+    await flushPromises()
+    const dd = w.find('[data-testid="lifecycle-status"]')
+    expect(dd.exists()).toBe(true)
+    expect(dd.text()).toBe('Chưa rõ')
+    // KHÔNG '—' câm trên dòng status.
+    expect(dd.text()).not.toBe('—')
+  })
+
+  it('TC41b: lifecycle_status="WeirdDrift" (mã lạ) → "Chưa rõ", KHÔNG leak "WeirdDrift"', async () => {
+    const w = mount(AssetQrLabel, {
+      props: { label: { ...VALID, lifecycle_status: 'WeirdDrift' } },
+    })
+    await flushPromises()
+    const dd = w.find('[data-testid="lifecycle-status"]')
+    expect(dd.text()).toBe('Chưa rõ')
+    // No-EN-leak: mã thô KHÔNG xuất hiện trên nhãn.
+    expect(w.text()).not.toContain('WeirdDrift')
+  })
+
+  it('TC41c: lifecycle_status="Active" → nhãn VI "Đang hoạt động" (no-regress canonical)', async () => {
+    const w = mount(AssetQrLabel, { props: { label: { ...VALID, lifecycle_status: 'Active' } } })
+    await flushPromises()
+    const dd = w.find('[data-testid="lifecycle-status"]')
+    expect(dd.text()).toBe('Đang hoạt động')
+    expect(dd.text()).not.toBe('Chưa rõ')
+    expect(w.text()).not.toContain('Active')
+  })
 })

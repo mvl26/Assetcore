@@ -56,6 +56,16 @@ vi.mock('@/api/imm00', () => ({
   getAssetLabelData: vi.fn().mockResolvedValue({}),
   markLabelPrinted: vi.fn(),
   regenerateAssetQrToken: vi.fn(),
+  printAssetLabelsPdf: vi.fn(),
+  // SSoT preset khổ tem (selector 3-preset Vòng 4) — view import ở module-level.
+  LABEL_PDF_PRESETS: [
+    { key: 'tem-60x100', label: 'Tem 60×100mm' },
+    { key: 'tem-70x40', label: 'Tem 70×40mm' },
+    { key: 'tem-50x30', label: 'Tem 50×30mm' },
+  ],
+  LABEL_PDF_PRESET: 'tem-60x100',
+  labelPdfPresetLabel: (p: string) =>
+    ({ 'tem-60x100': 'Tem 60×100mm', 'tem-70x40': 'Tem 70×40mm', 'tem-50x30': 'Tem 50×30mm' } as Record<string, string>)[p] ?? '',
 }))
 vi.mock('@/api/imm04', () => ({ getCommissioningOrigin: vi.fn().mockResolvedValue(null) }))
 vi.mock('@/api/imm14', () => ({ createDecommission: vi.fn(), approveDecommission: vi.fn() }))
