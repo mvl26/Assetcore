@@ -96,13 +96,15 @@
 | Runbook tạo client | [`10-deploy-ops.md §1`](../10-deploy-ops.md) numbered steps (USER chạy — HARD-STOP) |
 | Decision (chủ ý) | Giữ runbook thủ công + preflight READ-ONLY = **gate khách quan** thay helper-write (DB-write vi phạm read-only ADR-MOBILE-001 nếu auto). Xem §4 task B1. |
 
-### 3.4 Device-token cho FCM CHƯA tồn tại (chặn EPIC-D)
+### 3.4 Device-token cho FCM (snapshot @2026-06-11 — `[SUPERSEDED]` bởi EPIC-D D4)
 
-| Điểm | Trạng thái @source |
+> ⚠️ **`[SUPERSEDED]` @F-B 2026-06-12:** bảng dưới là snapshot LỊCH-SỬ ground 2026-06-11 (khi device-token CHƯA tồn tại). EPIC-D **D4 (Vòng 17) + D6/D7 (Vòng 20)** ĐÃ impl + typed: artifact THẬT @source `assetcore/api/mobile/v1/device_token.py` + `assetcore/services/mobile_device_token.py` + `assetcore/assetcore/doctype/ac_mobile_device_token/` (json+py+__init__); symbol `_STUB_PATHS = set()` (∅) @`test_mobile_oas.py` (2 device-token path nay TYPED — KHÔNG còn STUB). B3 impl-state = **DONE** thuộc EPIC-D ([`EPIC-D-push-fcm.md §D4/§5.1`](./EPIC-D-push-fcm.md) · `ACCEPTANCE-CHECKLIST.md` D-A0/D-A1b). Bảng snapshot GIỮ cho audit-trail tiến độ — KHÔNG đọc như trạng-thái-hiện-hành. `bench migrate` (DB UNIQUE) + reload = **[HARD-STOP USER]** vẫn `[ ]`. _(F-B7 2026-06-12: line-ref tuyệt-đối `test_mobile_oas.py:<NNN>` cũ → dạng-SYMBOL — re-verify @source theo symbol/tên test, chống line-drift; nội-dung snapshot GIỮ nguyên.)_
+
+| Điểm | Trạng thái @source (snapshot 2026-06-11 — xem note `[SUPERSEDED]` trên) |
 |---|---|
-| DocType "AC Mobile Device Token" | **CHƯA tồn tại** — grep `device_token`/`fcm_token`/`AC Mobile Device Token` toàn `assetcore/**/*.py,*.json` (trừ docs) = chỉ 5 hit, TẤT CẢ ở `tests/test_mobile_oas.py` (`:108-109` STUB path map, `:114-115` operationId, `:641` names-frozen guard) — KHÔNG có DocType/service/controller |
+| DocType "AC Mobile Device Token" | **CHƯA tồn tại** — grep `device_token`/`fcm_token`/`AC Mobile Device Token` toàn `assetcore/**/*.py,*.json` (trừ docs) = chỉ 5 hit, TẤT CẢ ở `tests/test_mobile_oas.py` (symbol `_STUB_PATHS`/`_EXPECTED` path-map + operationId, guard `test_mob_oas_06_device_token_names_frozen`) — KHÔNG có DocType/service/controller |
 | `api/mobile/` hiện trạng | CHỈ `__init__.py` + `preflight.py` (KHÔNG `v1/`, KHÔNG `device_token.py`) |
-| OpenAPI STUB | yaml `registerDeviceToken` + `unregisterDeviceToken` (STUB) — guard `test_mobile_oas.py:641` `test_mob_oas_06_device_token_names_frozen` |
+| OpenAPI STUB | yaml `registerDeviceToken` + `unregisterDeviceToken` (STUB) — guard `test_mob_oas_06_device_token_names_frozen` (symbol `_DEVICE_TOKEN_FROZEN` @`test_mobile_oas.py`) |
 | BA spec nguồn | [`06-push-fcm.md §2`](../06-push-fcm.md): 7 field (§2.1), `autoname=hash` (§2.2), `fcm_token` UNIQUE/UPSERT-dedup (§2.4), self-scope `permission_query_conditions`+`has_permission user==session.user` (§2.3), ÉP `user=session.user` chống spoof (§5.3), audit register/unregister NĐ98 (§5.4) |
 
 ---
@@ -118,8 +120,8 @@
 - **Files (Modify):** `docs/mobile/completion/EPIC-B-auth-provisioning.md` (file này, §3.2/§3.3/B1) — TRỎ NGƯỢC `10 §1` + `03 §4` + `12`, KHÔNG nhân đôi bảng field.
 - **Files (KHÔNG tạo):** không tạo fixture/patch/helper-write — quyết định giữ thủ công (§3.3).
 - **Acceptance:**
-  - `bench --site miyano run-tests --module assetcore.tests.test_mobile_preflight` → TC-MOB-PRE-01..09 xanh (drift-guard 7 điều kiện + count==0 no-raise + read-only).
-  - Runbook [`10 §1`](../10-deploy-ops.md) step 1 liệt kê đủ 7 field khớp [`03 §4`](../03-auth-oauth2.md) (KHÔNG nhân đôi — TRỎ NGƯỢC).
+  - `bench --site miyano run-tests --module assetcore.tests.test_mobile_preflight` → TC-MOB-PRE-01..26 xanh (`Ran 26 tests ... OK`): drift-guard 7 điều kiện + count==0 no-raise + read-only (01..09) **+ doc-value parity F-B3 (10..13)** **+ report-shape doc↔code F-B4 (14..17)** **+ blocker-VI remediation F-B5 (18..21)** **+ count-self-verify meta-guard F-B6 (22)** **+ stale-line-ref reconciliation §3.4 F-B7 (`TC-MOB-PRE-23a..d`, analog F-C4 `test_mob_oas_29c`)** (`_EXPECTED_PREFLIGHT_TEST_COUNT=26` SSoT đầu module — thêm/bớt TC quên cập const = RED ngay).
+  - Runbook [`10 §1`](../10-deploy-ops.md) step 1 liệt kê đủ 7 field khớp [`03 §4`](../03-auth-oauth2.md) (KHÔNG nhân đôi — TRỎ NGƯỢC). **(F-B3) Nay MACHINE-CHECKED:** `TestMobilePreflightDocValueParity` (`TC-MOB-PRE-10..13`) scan raw-text 4 hằng `preflight.EXPECTED_*` + `skip_authorization=0` xuất hiện nguyên-văn ở CẢ `03 §4` VÀ `10 §1` step1 ⇒ runbook drift khỏi field-spec = test ĐỎ (3-source value-constant drift-guard, STDLIB-only, no-DB).
 - **Owner:** BA · **Tag:** `[AUTO]` (doc + test read-only) · phần TẠO record = **[HARD-STOP USER]** (xem B4).
 - **Dependencies:** none (∥ EPIC-C). Cung cấp gate cho B4.
 
@@ -131,6 +133,7 @@
 - **Files (KHÔNG sửa):** `frappe/integrations/oauth2.py` · `frappe/oauth.py` (core — WIRE-not-write, ADR-MOBILE-001 a).
 - **Acceptance:**
   - `bench --site miyano run-tests --module assetcore.tests.test_mobile_oas` → `TC-MOB-OAUTH-TOKEN-01..05` xanh (passthrough `OAuthError400` 200-keys/400/revoke-empty guard).
+  - **(F-B2) Nay MACHINE-CHECKED:** `TestMobileRefreshOn401DocGuard` (`TC-MOB-OAS-30a..d`, 4 TC) raw-text scan invariant refresh-on-401 hiện diện nguyên-văn ở CẢ `03 §2.5` (policy 401→refresh `grant_type=refresh_token` MỘT lần→retry + fail re-auth + "KHÔNG vòng lặp refresh vô hạn") · `03 §2.6` (block sequence 3-bước: 401 dispatcher RAW → get_token refresh → retry access MỚI) · `04 §9d(n)` (curl 3-bước + quy tắc "refresh MỘT lần → retry → fail re-auth") + cross-file `grant_type=refresh_token` parity (≥1 hit mỗi file) ⇒ xoá block §9d HOẶC đổi `grant_type=refresh_token→authorization_code` = test ĐỎ (RED-before string-mutate, STDLIB-only, no-DB). Thay one-time grep B-A4 bằng guard chạy mỗi suite.
   - **[HARD-STOP USER cloud]** smoke trên public HTTPS host: `http --form POST https://$HOST/api/method/frappe.integrations.oauth2.get_token grant_type=refresh_token refresh_token=$RT` → 200 `{access_token,...}` mới (KHÔNG bắt login lại) — sequence [`03 §1.3 (e)`](../03-auth-oauth2.md).
 - **Owner:** BA · **Tag:** `[AUTO]` (doc + test read-only); smoke cloud = **[HARD-STOP USER]** (cần host + reload).
 - **Dependencies:** Provider ready (§3.1, no-op code). Cloud smoke phụ thuộc **EPIC-G** (host/HTTPS/reload).

@@ -74,7 +74,7 @@ verify ở `G4`.
 ### 3.3 5 site_config / System-Setting knob — hiện ABSENT (state cloud chưa go-live)
 | Knob | Vị trí gate THẬT (grounded) | Hiện trạng (dev `miyano`) | Cần (prod) |
 |---|---|---|---|
-| `host_name` | `frappe/utils/data.py:1605` (`conf.host_name or conf.hostname`); vắng ⇒ fallback Host header `:1611-1614` → `protocol+site` `:1631` = `http://miyano` nội bộ | `None` | public HTTPS host |
+| `host_name` | `frappe/utils/data.py:1599` (`def get_url`) · `:1605` (`host_name = ...conf.host_name or ...conf.hostname`); vắng ⇒ fallback Host header `:1611-1614` → `protocol + ...site` `:1631` = `http://miyano` nội bộ ⇒ `get_url()`/OIDC issuer sai (KHÔNG public host). **GUARD-9 machine-check** (`TestSecGateHostNameIssuerDoc`): source-grounded @source + prose-invariant `08 §5.1(f)`/`10 §3`+§6.2(3c0)+§6.3, phủ-định `KHÔNG http://miyano` | `None` | public HTTPS host (`get_url()`/`openid_configuration issuer == public host`) |
 | `allow_cors` | `frappe/app.py:275` lọc list-origin BỎ QUA khi value=`'*'`; `:283-284` echo `Access-Control-Allow-Credentials:true`+`Origin` khi set (ADR-004 §c) | `None` (= CORS OFF) | LIST origin tường minh (CHỈ nếu web) / GIỮ `None` nếu thuần native |
 | `allow_error_traceback` | **System Setting (KHÔNG site_config), default=1 (ON)** — `system_settings.json:262-265`; gate `frappe/utils/response.py:60-65` `is_traceback_allowed()`, dùng `:36/:182/:190/:203` | mặc định 1 ⇒ prod LEAK traceback/SQL ở 401/403/429 raw | System Setting → **0** |
 | `rate_limit` (conf) | `@rate_limit` dùng `frappe.rate_limiter`; thiếu key `conf.rate_limit` ⇒ `frappe.local.rate_limiter` không instantiate ⇒ 429 KHÔNG có `Retry-After`/`X-RateLimit-*` (LL-DEPLOY-04) | `None` | `conf.rate_limit` HOẶC nginx `limit_req` |
@@ -230,6 +230,12 @@ EPIC-B (OAuth Client) + EPIC-D (device-token) — KHÔNG khai trong EPIC-G. Knob
 - **NĐ98 / Audit:** action-từ-mobile xuất hiện ở audit-chain với actor = KTV thật (bearer token
   mang đúng `frappe.session.user`); chuỗi audit hiện hữu, KHÔNG thêm field/đường audit cho
   mobile (ADR-004 §d / `08 §2`). Verify `verify_audit_chain` pass (`08 §4 verify`).
+- **host_name / OIDC issuer (G4 (f), GUARD-9):** `host_name` set ⇒ `get_url()` + OIDC
+  `openid_configuration issuer == public host`, **KHÔNG `http://miyano`** nội bộ (gate
+  `frappe/utils/data.py:1605`; vắng ⇒ fallback `protocol + ...site` `:1631` = `http://miyano` ⇒ QR
+  deep-link/issuer sai, flow-2 hỏng — §8 R4). Machine-check prose-invariant = GUARD-9
+  (`TestSecGateHostNameIssuerDoc`, source-grounded @source + raw-text `08 §5.1(f)`/`10 §3`+§6.2+§6.3);
+  live `get_url()`/issuer == public host = [HARD-STOP USER] G-U2/G-U6.
 - **Status-line vs body invariant:** in-handler 4xx đến trên HTTP-200 + Error body (§3.2) —
   security-gate phải đọc `body.http_status` KHÔNG status-line cho in-handler; phân biệt
   dispatcher-403 (status-line THẬT) vs in-handler cap-403 (LL-DEPLOY-06).
@@ -252,7 +258,7 @@ EPIC-B (OAuth Client) + EPIC-D (device-token) — KHÔNG khai trong EPIC-G. Knob
 | R1 | Deploy G1 nhưng QUÊN `bench restart` → worker `--preload` cũ giữ code/cap-set cũ ⇒ endpoint mobile 417 AttributeError hoặc deny cap mới | Cao | G1 Acceptance bắt buộc hit authenticated endpoint xác nhận KHÔNG 417; LL-DEPLOY-01/03 ghi 4-bước. |
 | R2 | Set `allow_cors='*'` "cho tiện" (web+native chung) → mọi origin credential-echo (T3) | Cao | G2/G4 gate `grep -c '\*'` == 0; ADR-004 §c cấm tường minh; native KHÔNG cần CORS. |
 | R3 | Quên tắt `allow_error_traceback` (default ON) → prod leak stack/SQL ở 401/403/429 raw | Cao | G3 Acceptance `is_traceback_allowed → False`; G4 curl-guest body KHÔNG `Traceback`. |
-| R4 | `host_name` vắng → `get_url()` = `http://miyano` nội bộ → QR deep-link/issuer sai, app KHÔNG mở được hồ sơ (flow-2) | Cao | G2 Acceptance `get_url()` == public HTTPS host. |
+| R4 | `host_name` vắng → `get_url()` = `http://miyano` nội bộ → QR deep-link/issuer sai, app KHÔNG mở được hồ sơ (flow-2) | Cao | G2 Acceptance `get_url()` == public HTTPS host (KHÔNG `http://miyano`) + `openid_configuration issuer == public host`. **GUARD-9 machine-check** (`TestSecGateHostNameIssuerDoc`): source-grounded @source `data.py:1605`/`:1631` + prose-invariant `08 §5.1(f)`/`10 §3`+§6.2+§6.3 (analog GUARD-5/7/8); live curl `get_url()`/issuer == public host = [HARD-STOP USER] G-U2/G-U6. |
 | R5 | Thiếu `conf.rate_limit`/nginx `limit_req` → 429 không `Retry-After` (backoff câm, app retry-storm) | Trung | G3/G4 verify 429 có `Retry-After`; ADR-004 §a tầng ngoài. |
 | R6 | Placeholder host `REPLACE-WITH-PUBLIC-HOST` (yaml:107) / version `*-skeleton` (yaml:89) lọt prod build → client codegen trỏ host sai | Trung | G4 CI-guard `grep` chặn placeholder khi build prod-flagged. |
 | R7 | Deploy G1 trước khi EPIC-C contract khoá / EPIC-B client provisioned → migrate tạo doctype nhưng app native gọi contract chưa-ổn-định / không có client verify | Trung | Dependency gate: G1 chỉ chạy sau C đóng (codegen-ready) + B (preflight `ready=True`). |

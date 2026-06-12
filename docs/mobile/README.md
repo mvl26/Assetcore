@@ -13,9 +13,9 @@
 
 ---
 
-## 1. Chỉ mục đầy đủ (19 mục: 14 chương 00–13 + ADR-001..004 + openapi/)
+## 1. Chỉ mục đầy đủ (20 mục: 15 chương 00–14 + ADR-001..004 + openapi/)
 
-### Chương đánh số (00–13)
+### Chương đánh số (00–14)
 
 | File | Mô tả 1 dòng |
 |---|---|
@@ -32,7 +32,8 @@
 | [`10-deploy-ops.md`](./10-deploy-ops.md) | **Runbook go-live mobile-BE (A9)** — quy trình THỰC THI CÓ THỨ TỰ (khác 02 feasibility): §1 bật OAuth2 · §2 CORS list-origin · §3 public host+QR deep-link · §4 FCM creds · §5 versioning `Sunset`/`Deprecation` · §6 checklist go-live (pre-flight/execute/smoke curl) · §7 rollback. Mỗi bước HARD-STOP USER. |
 | [`11-phase-a-exit.md`](./11-phase-a-exit.md) | **Phase-A EXIT GATE (A11 — đóng Phase A)** — §1 traceability matrix 6 flow MVP × 7 cột (màn · endpoint `file:line` @source · capability · operationId · offline-class · push-event · STUB-status; 9 nghiệp vụ + 3 auth verify @source, 15/15 operationId) · §2 Phase-B prereqs/blocker hợp nhất (B-1..B-8, trỏ ngược 02/03 §4/08 §4/10, chủ thể=USER) · §3 checklist go/no-go A→B đo được (13 đã-đạt vs 9 chờ-USER) · §4 KPI/acceptance exit. doc-only. **A14: matrix §1 (endpoint↔capability) nay GUARDED máy-đọc bởi `assetcore/tests/test_mobile_capability_map.py` (`TC-MOB-CAP-01..06`) — binding `(DocType, ptype)` ↔ SSoT `rbac.py` + anti-cap-creep `v97.c30c69b8974d`.** |
 | [`12-phase-b-preflight.md`](./12-phase-b-preflight.md) | **Phase-B pre-flight verifier (B0-PREFLIGHT — Phase A→B bridge)** — biến checklist OAuth Client (`03 §4` / blocker B-1) thành hợp đồng CHẠY ĐƯỢC: §0 mục tiêu/out-of-scope + admin-only ngoài hợp đồng app · §1 lệnh `bench execute …verify_oauth_client` + diễn giải 7 check · §2 map 7 check ↔ B-1 field `03 §4` ↔ runbook `10 §1` · §3 đọc report `ready`/`blockers` + khắc phục · §4 acceptance. Verifier READ-ONLY (`assetcore/api/mobile/preflight.py`), gate System Manager, chịu count==0 (KHÔNG raise). doc-only + verifier read-only. |
-| [`13-be-completion-roadmap.md`](./13-be-completion-roadmap.md) | **MASTER roadmap BE-completion** (cấu trúc USER duyệt 2026-06-11) — hoàn thiện lớp Backend-for-Mobile để repo native gọi API chạy app. DoD TỔNG = MVP field-tech 6-flow E2E trên cloud. **5 EPIC khoá-ID:** C (API Contract codegen-ready: 4 STUB typed + list-element + userinfo + P1 in-handler-error-on-HTTP-200) · B (Auth & Provisioning: refresh ✅ + TTL 3600s + preflight gate + device-token) · D (Push FCM: kênh #3 `_dispatch` + FCM HTTP v1 + DocType) · G (Go-live & Hardening: 5 knob site_config matrix + traceback/CORS/rate-limit) · V (Codegen Verify + Handoff: gen Dart/Kotlin + E2E runbook + gói handoff). Thứ tự C→B∥D-design→G→D→V; mỗi TASK tag `[AUTO]` vs `[HARD-STOP USER]`. doc-only. |
+| [`13-be-completion-roadmap.md`](./13-be-completion-roadmap.md) | **MASTER roadmap BE-completion** (cấu trúc USER duyệt 2026-06-11) — hoàn thiện lớp Backend-for-Mobile để repo native gọi API chạy app. DoD TỔNG = MVP field-tech 6-flow E2E trên cloud. **5 EPIC khoá-ID:** C (API Contract codegen-ready: 4 STUB typed + list-element + userinfo + P1 in-handler-error-on-HTTP-200) · B (Auth & Provisioning: refresh ✅ + TTL 3600s + preflight gate + device-token) · D (Push FCM: kênh #3 `_dispatch` + FCM HTTP v1 + DocType) · G (Go-live & Hardening: 5 knob site_config matrix + traceback/CORS/rate-limit) · V (Codegen Verify + Handoff: gen Dart/TS+Kotlin-config + E2E runbook + gói handoff). Thứ tự C→B∥D-design→G→D→V; mỗi TASK tag `[AUTO]` vs `[HARD-STOP USER]`. doc-only. |
+| [`14-e2e-field-tech-runbook.md`](./14-e2e-field-tech-runbook.md) | **E2E field-tech runbook CHẠY-ĐƯỢC (EPIC-V V3)** — hợp nhất coverage phân mảnh (`11 §1` design-matrix + `10 §6.3` smoke 2-lệnh + `09 §6.2` checklist) thành **1 sequence 6 flow tuần tự**: login OAuth2+refresh → quét QR → báo hỏng → WO PM/CM/Cal → "phiếu của tôi" → push FCM. Mỗi bước: **operationId trục** (`getOAuthToken`/`resolveQrToken`/`reportIncident`/`createPmWorkOrder`/`listPmWorkOrders`/`registerDeviceToken`) + lệnh kiểm-được THẬT (curl + dart-dio) + **expected envelope** (`success`+`code`+`http_status`, route-by-VALUE) + tiền-điều-kiện (OAuth Client+bearer) + tag `[AUTO]`/`[HARD-STOP USER]`. §2 hợp đồng đọc-envelope (HTTP-200 quirk + Decision-B closed-schema + refresh-on-401). doc-only. |
 
 ### ADR (Architecture Decision Records)
 

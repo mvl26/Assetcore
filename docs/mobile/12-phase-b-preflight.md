@@ -129,13 +129,20 @@ Hiện trạng thật @source (chưa provision). Hành động: USER tạo `OAut
 
 ### 3.3 `ready = false` + `client_count >= 1`
 
-Đã có client nhưng cấu hình sai. Đọc `blockers` (tiếng Việt) → mỗi blocker chỉ rõ field sai + giá trị hiện tại. Sửa record `OAuth Client` (USER, Desk → OAuth Client → record được chấm = `checked_client`) theo đúng dòng field-spec [`03 §4`](./03-auth-oauth2.md). Ví dụ:
+Đã có client nhưng cấu hình sai. Đọc `blockers` (tiếng Việt) → mỗi blocker chỉ rõ field sai + giá trị hiện tại. Sửa record `OAuth Client` (USER, Desk → OAuth Client → record được chấm = `checked_client`) theo đúng dòng field-spec [`03 §4`](./03-auth-oauth2.md).
 
-| Blocker | Sửa |
-|---|---|
-| `grant_type phải là 'Authorization Code'…` | Đổi field `grant_type` → `Authorization Code`. |
-| `default_redirect_uri phải == 'assetcore://oauth/callback' VÀ nằm trong redirect_uris…` | Sửa `default_redirect_uri` + thêm dòng vào `redirect_uris`. |
-| `allowed_roles rỗng…` | Thêm role field-tech (KTV) vào `allowed_roles`. |
+> **Bảng SSoT-derived (KHÔNG tay-chép):** mỗi dòng dưới là **stem nguyên-văn** của 1 trong **6 record-level blocker** mà `verify_oauth_client()` (qua `_evaluate_client()`) phát — cột "Blocker (stem)" bám message THẬT trong `preflight.py`, cột "Field" + "Sửa" trỏ đúng dòng field-spec [`03 §4`](./03-auth-oauth2.md). Bảng được **machine-guard** (F-B5, `tests/test_mobile_preflight.py::TestMobilePreflightBlockerViDocGuard`, TC-MOB-PRE-18..21): nếu `preflight.py` reword/thêm/bớt blocker mà bảng này KHÔNG cập nhật → test ĐỎ. KHÔNG sửa bảng bằng tay rời khỏi blocker thật.
+
+| Field | Blocker (stem nguyên-văn từ `verify_oauth_client()`) | Sửa (theo [`03 §4`](./03-auth-oauth2.md)) |
+|---|---|---|
+| `grant_type` | `grant_type phải là 'Authorization Code' (Implicit đã deprecated, không hỗ trợ PKCE)` | Đổi field `grant_type` → `Authorization Code` (03 §4 dòng `grant_type`). |
+| `response_type` | `response_type phải là 'Code' (khớp response_type=code ở bước authorize)` | Đổi field `response_type` → `Code` (03 §4 dòng `response_type`). |
+| `default_redirect_uri` | `default_redirect_uri phải == 'assetcore://oauth/callback' VÀ nằm trong redirect_uris (custom-scheme native; sai → provider reject)` | Sửa `default_redirect_uri` = `assetcore://oauth/callback` + thêm cùng dòng vào `redirect_uris` (03 §4 dòng `redirect_uris`/`default_redirect_uri`). |
+| `scopes` | `scopes nên là 'all openid' (coarse — quyền thực do RBAC capability theo user, 03 §3.2)` | Đặt field `scopes` = `all openid` (03 §4 dòng `scopes`; quyền thực = RBAC theo user, không nới scope ở đây). |
+| `skip_authorization` | `skip_authorization phải = 0 (hiện màn Allow/Deny lần đầu); chỉ đặt 1 cho first-party trusted có chủ đích` | Đặt `skip_authorization` = `0` (03 §4 dòng `skip_authorization`; chỉ đặt 1 cho first-party trusted có chủ đích). |
+| `allowed_roles` | `allowed_roles rỗng — phải giới hạn role field-tech (KTV) để least-privilege, giảm bề mặt (T5, 08 §3b)` | Thêm role field-tech (KTV) vào `allowed_roles` (03 §4 dòng `allowed_roles`; least-privilege). |
+
+> ℹ️ Blocker count==0 ('Chưa có OAuth Client') KHÔNG nằm bảng này — đó là nhánh `client_count = 0` (§3.2), guard riêng tại F-B4 TC-MOB-PRE-16. Bảng §3.3 chỉ phủ **6 blocker cấp-record** (client đã tồn tại nhưng cấu hình sai).
 
 > ⚠️ Nếu vừa đổi capability/Role Profile cho role field-tech → cần `bench migrate` HOẶC bust `ac_caps::*` + reload gunicorn để cap-set live HTTP (B-7, `10 §1` step 3). **HARD-STOP USER.** Verifier chỉ chấm config OAuth Client, KHÔNG kiểm cap-set live.
 

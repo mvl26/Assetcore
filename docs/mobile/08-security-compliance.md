@@ -154,6 +154,7 @@ bản ghi NĐ98 bất biến, actor = KTV thật, truy xuất ai-làm-gì-khi-n�
 - [ ] **(b)** Public host = HTTPS, cert hợp lệ, HTTP→HTTPS redirect; HTTP:80 KHÔNG expose mobile (T7)
 - [ ] **(b)** OAuth Client (Phase B): grant=Authorization Code, PKCE bật, redirect = native-scheme, allowed_roles = field-tech, scope-set least-privilege (T5)
 - [ ] **(b)** FCM creds + `assetcore_qr_base_url` trong `site_config` (KHÔNG commit) (`06 §5.2`)
+- [ ] **(b)** **PROD TẮT `allow_error_traceback` (System Setting=0)** — chống leak traceback/SQL ở body 401/403/429 (T-leak). Gate THẬT = `is_traceback_allowed()` (`response.py:60-65`) đọc `get_system_settings("allow_error_traceback")` (System Setting field `system_settings.json:263`, fieldtype Check, **default 1 = ON** ⇒ prod mặc-định LEAK). Dùng ở `response.py:36/:182/:190/:203`. **GHI RÕ: gate KHÔNG phải `developer_mode` / `site_config`** — đổi qua desk hoặc `bench --site <site> execute` (verify `is_traceback_allowed → False`); LIVE HTTP chỉ SAU reload gunicorn (`--preload`).
 - [ ] **(b)** KHÔNG cấp token cho tài khoản dùng-chung (giữ actor audit đúng — §2)
 - [ ] **(c)** Token lưu Keychain/Keystore; KHÔNG plaintext/log (T4)
 - [ ] **(c)** Cert-pinning bật trong HTTP-client native (T7)
@@ -164,7 +165,38 @@ bản ghi NĐ98 bất biến, actor = KTV thật, truy xuất ai-làm-gì-khi-n�
 
 ---
 
-## 5. KPI · Acceptance bảo mật
+## 5. Security gate — Acceptance bảo mật (EPIC-G G4)
+
+### 5.1 Lệnh gate bảo mật (DoD EPIC-G G4)
+
+> **Gate tổng hợp** chạy SAU khi G1–G3 xong (deploy + host/HTTPS + tắt traceback). Phần `[AUTO]`
+> (test guard introspection) chạy local; phần `curl` public-host = **HARD-STOP USER** (cần G2 live trên
+> cloud). 6 invariant: (a) no-traceback-leak · (b) CORS no-wildcard · (c) no token-leak · (d) 429 `Retry-After`
+> · **(e) audit-actor NĐ98** (chuỗi `bearer→set_user→log_audit_event(actor=session.user)→verify_audit_chain`
+> ghi actor = KTV thật — §2) · **(f) host_name/issuer go-live** (`host_name` set ⇒ `get_url()` + OIDC
+> `openid_configuration issuer == public host`, **KHÔNG `http://miyano`** nội bộ — flow-2 QR deep-link/issuer).
+> Cơ chế "in-handler-4xx arrive HTTP-200" → smoke đọc `body.http_status`, KHÔNG status-line (xem `EPIC-G §3.2`).
+
+| # | Gate | Lệnh kiểm | PASS khi | Owner |
+|---|---|---|---|---|
+| **(a)** | **no-traceback-leak** (`allow_error_traceback` OFF) | **[AUTO]** `bench --site <site> run-tests --module assetcore.tests.test_mobile_security_gate` (GUARD-1 `verify_oauth_client()` no-raise + no-marker) · **[HARD-STOP USER]** `curl -s https://<host>/api/method/<auth-method>` (guest) | body 401/403/429 **KHÔNG chứa** `Traceback (most recent call last)` / SQL; gate THẬT = `is_traceback_allowed()` (`frappe/utils/response.py:60`, đọc System Setting `allow_error_traceback`, **default 1 = ON ⇒ prod mặc-định LEAK** → PHẢI tắt, §4) | QA/USER |
+| **(b)** | **CORS no-wildcard** | **[AUTO]** GUARD-3 (docset đặc tả prod KHÔNG có literal khuyến-nghị wildcard `allow_cors='*'` ở dạng YAML config-form) · **[HARD-STOP USER]** `grep -c '*' <(python3 -c "import json;print(json.load(open('sites/<site>/site_config.json')).get('allow_cors'))")` | `== 0` (no-wildcard) HOẶC `allow_cors=None` (native OFF hợp lệ); `app.py:275` chỉ lọc list khi `!= '*'` ⇒ wildcard bỏ-lọc + credential-echo (T3) | USER |
+| **(c)** | **no-token-leak** (`getAsset`/`getAssetScanInfo`) | **[HARD-STOP USER]** smoke 2 (10 §6.3): envelope 200 của `getAsset`/`getAssetScanInfo` KHÔNG chứa `qr_token` | response body KHÔNG có key `qr_token` thô (đã `_strip_qr_token` — `imm00.py:203/507`); FE chỉ nhận `qr_url` (ADR-001 §D4 rule 9) | QA/USER |
+| **(d)** | **429 có `Retry-After`** | **[HARD-STOP USER]** vượt ngưỡng `@rate_limit` (`imm00.py`/device-token) → đọc response header | header `Retry-After` (+ `X-RateLimit-*`) present; **KNOWN:** header CHỈ phát khi `conf.rate_limit`/nginx `limit_req` set (rate_limiter instantiate) — decorator-429 trần = body-only no-header (`10 §6.2`, G-U5) | USER |
+| **(e)** | **audit-actor NĐ98** (action-từ-mobile ghi audit actor = KTV thật) | **[AUTO]** GUARD-8 (`TestSecGateAuditActorNd98Doc`): source-grounded @source `lifecycle.py` (`log_audit_event` thân chứa `actor = actor or frappe.session.user` :44 + `verify_audit_chain` integrity-compare `expected != ...hash_sha256` + `prev_hash` mismatch :110-111) + `auth.py:667` (`set_user(OAuth Bearer Token.user)` = bearer→KTV thật) + doc-invariant `08 §2.2`/§5.1(e)/`10 §6.3 (verify-audit)` · **[HARD-STOP USER]** `verify_audit_chain(asset)` THẬT sau 1 action-từ-mobile bằng bearer token KTV (G-U?) | `actor = frappe.session.user` = KTV thật (KHÔNG service-account/Administrator — §2); `verify_audit_chain` → `valid=True`; chuỗi hash-chain bất biến + liên-tục (`lifecycle.py:9/18/110-113`) | QA/USER |
+| **(f)** | **host_name/issuer go-live** (`host_name` set ⇒ `get_url()`/OIDC issuer == public host) | **[AUTO]** GUARD-9 (`TestSecGateHostNameIssuerDoc`): source-grounded @source `frappe/utils/data.py` (`def get_url` :1599; thân chứa `host_name = ...conf.host_name or ...conf.hostname` :1605 + fallback `protocol + ...site` nội bộ :1631) + doc-invariant raw-text `08 §5.1(f)` + `10 §3`/§6.2(3c0)/§6.3 (verify-host) chứa `host_name` + `get_url()`/`openid_configuration issuer == public host` + phủ-định `KHÔNG http://miyano` · **[HARD-STOP USER]** `get_url()` == public host + curl `openid_configuration issuer == public host` (G-U2/G-U6) | `get_url()` == public HTTPS host + `openid_configuration issuer == public host`, **KHÔNG `http://miyano`** nội bộ (gate `data.py:1605`; vắng ⇒ fallback `protocol+site` `:1631` = `http://miyano` ⇒ QR deep-link/issuer sai, flow-2 hỏng — `EPIC-G §8 R4`) | QA/USER |
+
+> **CI-guard placeholder (cùng gate — GUARD-2):** khi build gắn cờ prod → spec yaml KHÔNG còn
+> `REPLACE-WITH-PUBLIC-HOST` (yaml:108) + version KHÔNG `*-skeleton` (yaml:90). Hiện skeleton-Phase-A
+> (cờ off) = control GREEN. Bảo vệ R6 (`EPIC-G §8`): placeholder lọt prod → client codegen trỏ host sai.
+> Guard THẬT: `test_mobile_security_gate.py::TestSecGateCiPlaceholderGuard` (RED-before inject + prod-flag ON).
+
+> **Status-line-vs-body invariant (GUARD-4, §3.2):** `_err(...)` (`utils/response.py:95`) body LUÔN có key
+> `http_status` (CẢ nhánh int-code `:127` LẪN chuỗi ErrorCode `:131`) ⇒ in-handler-4xx ARRIVE trên HTTP-200,
+> smoke/client route theo `body.http_status` KHÔNG status-line. Phân biệt 2 loại 403: **dispatcher-403**
+> (guest/no-token, status-line 403 THẬT) vs **in-handler cap-403** (HTTP-200 + `{code:FORBIDDEN, http_status:403}`).
+
+### 5.2 KPI · Acceptance bảo mật
 
 | KPI / Acceptance | Đo | Mục tiêu | Nguồn |
 |---|---|---|---|

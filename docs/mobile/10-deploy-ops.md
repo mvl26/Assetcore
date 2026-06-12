@@ -109,11 +109,20 @@
 
 > **Mục tiêu:** có **public HTTPS host** (reverse-proxy + TLS + domain) cho: (a) OAuth redirect, (b) bearer-over-HTTPS, (c) QR deep-link mở được trên điện thoại. Hiện dev = nginx HTTP:80 `server_name` rỗng — KHÔNG dùng prod (`02 §4.1`).
 
-**Cơ chế QR host (verified — KHÔNG bịa key):**
+**Cơ chế public host + QR host (verified — KHÔNG bịa key):**
 
 | Knob | Giá trị thật | Evidence | Hiện trạng |
 |---|---|---|---|
+| `site_config.host_name` | public HTTPS host cho `get_url()` + OIDC `openid_configuration` issuer (issuer == public host) | `frappe/utils/data.py:1599` (`def get_url`) · `:1605` (`host_name = ...conf.host_name or ...conf.hostname`) · fallback `:1631` (`protocol + ...site` nội bộ) | `None` ⇒ `get_url()` fallback `protocol+site` = `http://miyano` nội bộ ⇒ QR deep-link/OIDC issuer SAI (app KHÔNG mở được hồ sơ — flow-2; `EPIC-G §8 R4`) |
 | `site_config.assetcore_qr_base_url` | host công khai cho QR deep-link (validate scheme http/https, no path/query) | `services/imm00.py:635` (`_QR_BASE_URL_CONF_KEY = "assetcore_qr_base_url"`) · `:685` (`_build_qr_url`) | `None` ⇒ fallback host nội bộ `http://miyano` (camera điện thoại KHÔNG mở được — blocker đã biết `02 §4.2`) |
+
+> ⚠️ **Invariant `host_name` (GUARD-9, EPIC-G G2/§8 R4):** đặt `host_name` = **public HTTPS host** để
+> `get_url()` + OIDC `openid_configuration issuer == public host` — **KHÔNG `http://miyano`** nội bộ. Cơ chế
+> THẬT (`frappe/utils/data.py:1605`): `get_url` đọc `conf.host_name or conf.hostname`; **vắng** ⇒ fallback
+> `protocol + ...site` (`:1631`) = `http://miyano` (internal) ⇒ camera/QR deep-link KHÔNG mở được + OIDC issuer
+> sai. Verify (go-live, [HARD-STOP USER]): `get_url()` == public host + `openid_configuration issuer == public host`
+> (KHÔNG `http://miyano`) — §6.2/§6.3 (`verify-host`/`verify-qr`). Machine-check prose-invariant = GUARD-9
+> `test_mobile_security_gate.py::TestSecGateHostNameIssuerDoc` (source-grounded @source + raw-text drift-guard).
 
 > ⚠️ **App native KHÔNG dùng URL `/a/<token>`** (không server route — là SPA-only; `hooks.py:400` website_route_rules chỉ có `/assetcore/<path>`). App tự decode QR → **parse token khỏi URL** → gọi thẳng `resolve_qr_token`/`get_asset_scan_info` (`02 §4.2`, `06`/`05`). `assetcore_qr_base_url` vẫn cần set để QR payload trỏ host công khai (web/cross-channel).
 
@@ -122,8 +131,9 @@
 1. **[USER]** Provision domain + TLS cert hợp lệ cho host công khai (vd `https://mobile.<benh-vien>.vn`).
 2. **[USER]** Cấu hình reverse-proxy nginx: `server_name` = domain, `listen 443 ssl`, redirect HTTP→HTTPS, proxy_pass tới gunicorn backend. (KHÔNG dùng bench-generated dev nginx HTTP:80.) **HARD-STOP** (sửa nginx).
 3. **[USER]** (Bảo mật go-live) Thêm `limit_req` cho location `/api/method/frappe.integrations.oauth2.*` (rate-limit oauth2 ở TẦNG NGOÀI — KHÔNG sửa frappe core; T1, `ADR-MOBILE-004 (a)` · `08 §3b`). **HARD-STOP.**
-4. **[USER]** Ghi `site_config.assetcore_qr_base_url` = host HTTPS công khai (key thật `services/imm00.py:635`):
+4. **[USER]** Ghi `site_config.host_name` = host HTTPS công khai để `get_url()`/OIDC issuer == public host (KHÔNG `http://miyano`; gate `frappe/utils/data.py:1605`) + `site_config.assetcore_qr_base_url` = host HTTPS công khai (key thật `services/imm00.py:635`):
    ```jsonc
+   "host_name": "https://mobile.<benh-vien>.vn",
    "assetcore_qr_base_url": "https://mobile.<benh-vien>.vn"
    ```
 5. **[USER]** `nginx -t` + reload nginx + **reload gunicorn**. **HARD-STOP.**
@@ -220,10 +230,16 @@
 - [ ] **(2)** `site_config.allow_cors` = LIST origin tường minh, KHÔNG `'*'` — §2 (`app.py:269/275/283-284`)
 - [ ] **(3a)** Reverse-proxy nginx + TLS + `server_name` domain + HTTP→HTTPS redirect — §3
 - [ ] **(3b)** nginx `limit_req` cho `oauth2.*` (rate-limit tầng ngoài) — §3 (`ADR-004 a`)
+- [ ] **(3c0)** `site_config.host_name` = public HTTPS host ⇒ `get_url()`/OIDC `openid_configuration issuer == public host`, **KHÔNG `http://miyano`** nội bộ (gate `frappe/utils/data.py:1605`; fallback `protocol+site` `:1631` = `http://miyano` khi vắng) — §3 (G-U2; GUARD-9 prose-invariant)
 - [ ] **(3c)** `site_config.assetcore_qr_base_url` = host HTTPS công khai — §3 (`imm00.py:635`)
 - [ ] **(4)** FCM creds trong `site_config` (`fcm_service_account_path`/`fcm_project_id`) — §4, KHÔNG commit/log/API
 - [ ] **(5)** (nếu Phase C/E) wrapper `api/mobile/v1` + cơ chế header `Sunset`/`Deprecation` sẵn sàng — §5
+- [ ] **(6)** (Hardening — G3) **PROD TẮT `allow_error_traceback` (System Setting=0)** qua desk hoặc `bench --site <site> execute` — chống leak traceback/SQL ở body 401/403/429 (gate `is_traceback_allowed()` `response.py:60-65`; KHÔNG phải `developer_mode`/`site_config`; `08 §4` · `ADR-004` Consequences). **HARD-STOP USER.**
 - [ ] **(reload)** `bench migrate` (nếu đổi cap) + **reload gunicorn** + reload nginx — **HARD-STOP USER** (gunicorn `--preload`: conf/cap live SAU reload)
+
+> **Note (hardening — G3): reload + rate-limit-header.**
+> 1. **SAU đổi System Setting `allow_error_traceback`** (=0) → **HARD-STOP USER reload gunicorn** (`--preload`, 41 workers) MỚI live ở HTTP. Verify SAU reload: `bench --site <site> execute frappe.utils.response.is_traceback_allowed` = `False` (smoke curl guest → body KHÔNG còn `Traceback`).
+> 2. **Rate-limit header (429):** header `Retry-After` / `X-RateLimit-Limit` / `X-RateLimit-Remaining` / `X-RateLimit-Reset` CHỈ phát khi `conf.rate_limit` (`site_config`) HOẶC nginx `limit_req` được set (rate-limiter instantiate). **KNOWN:** `@rate_limit` decorator (vd `imm00.py`) khi `conf.rate_limit` vắng = **body-only no-header** (decorator-429 không tự emit backoff header) — header chỉ xuất hiện sau khi USER set `conf.rate_limit`/nginx + reload.
 
 ### 6.3 Post-verify (smoke test — 2 lệnh curl, sau reload)
 
@@ -256,11 +272,23 @@ curl -sS "https://$HOST/api/method/assetcore.api.imm00.get_asset_scan_info?token
 - [ ] **(verify-biz)** Smoke 2 trả HTTP-200 + success envelope chuẩn (bearer→RBAC→envelope OK)
 - [ ] **(verify-cors)** curl preflight `OPTIONS` với `Origin` hợp lệ → nhận `Access-Control-Allow-Origin`; `Origin` lạ → KHÔNG nhận (list-origin OK, `app.py:275`)
 - [ ] **(verify-cors-neg)** grep `site_config` → `'*'` KHÔNG xuất hiện (T3)
-- [ ] **(verify-host)** curl `https://$HOST/api/method/frappe.integrations.oauth2.openid_configuration` → 200, issuer = host công khai
+- [ ] **(verify-host)** `bench --site <site> execute "frappe.utils.get_url()"` == public host + curl `https://$HOST/api/method/frappe.integrations.oauth2.openid_configuration` → 200, `openid_configuration issuer == public host` (KHÔNG `http://miyano`) — `host_name` set đúng (`frappe/utils/data.py:1605`)
 - [ ] **(verify-qr)** QR payload mới chứa host công khai (KHÔNG `http://miyano`) — `imm00.py:_build_qr_url`
 - [ ] **(verify-audit)** action từ Smoke 2 (nếu là write) xuất hiện ở audit-chain với actor = user thật (`verify_audit_chain`, `08 §2`)
 
-> **Liên kết bảo mật go-live:** checklist security đầy đủ (T1–T7 + 3 nhóm mitigation) ở [`08-security-compliance.md §4`](./08-security-compliance.md) — runbook này gom phần **deploy/ops execute**; KHÔNG nhân đôi threat model.
+**Security gate post-verify (EPIC-G G4 — 5 invariant a/b/c/d/e):**
+> (e) audit-actor NĐ98 = `(verify-audit)` ở trên (action-từ-mobile → `verify_audit_chain` `valid=True`, actor = user thật; machine-check @source = GUARD-8 `TestSecGateAuditActorNd98Doc`, `08 §5.1(e)`).
+
+> Gate bảo mật chia 2 lớp: (1) **local AUTO** chạy NGAY (introspection, KHÔNG cần cloud); (2) **4 curl gate**
+> = **HARD-STOP USER** chạy trên cloud SAU khi G1–G3 xong (host/HTTPS live + traceback OFF + reload).
+
+- [ ] **(sec-auto)** **[AUTO]** `bench --site <site> run-tests --module assetcore.tests.test_mobile_security_gate` → exit 0 (GUARD-1 no-traceback-leak re-use preflight · GUARD-2 CI placeholder/skeleton · GUARD-3 CORS no-wildcard literal · GUARD-4 `_err.http_status` invariant §3.2). Đặc tả gate: [`08-security-compliance.md §5.1`](./08-security-compliance.md).
+- [ ] **(sec-a) no-traceback** — **[HARD-STOP USER]** `curl -s https://$HOST/api/method/<auth-method>` (guest) → body KHÔNG chứa `Traceback (most recent call last)` (gate `is_traceback_allowed()` OFF — G-U4 / §6.2 note)
+- [ ] **(sec-b) CORS no-wildcard** — **[HARD-STOP USER]** `grep -c '*' <(python3 -c "import json;print(json.load(open('sites/$SITE/site_config.json')).get('allow_cors'))")` → `0` (hoặc `allow_cors=None` native OFF) (§2, `app.py:275`)
+- [ ] **(sec-c) no-token-leak** — **[HARD-STOP USER]** Smoke 2 envelope của `getAsset`/`getAssetScanInfo` KHÔNG chứa `qr_token` thô (đã `_strip_qr_token` `imm00.py:203/507`)
+- [ ] **(sec-d) 429 `Retry-After`** — **[HARD-STOP USER]** vượt ngưỡng `@rate_limit` → response 429 có header `Retry-After` (CHỈ khi `conf.rate_limit`/nginx `limit_req` set — G-U5 / §6.2 note 2)
+
+> **Liên kết bảo mật go-live:** checklist security đầy đủ (T1–T7 + 3 nhóm mitigation) ở [`08-security-compliance.md §4`](./08-security-compliance.md); 4 lệnh gate G4 ở [`§5.1`](./08-security-compliance.md) — runbook này gom phần **deploy/ops execute** + post-verify smoke; KHÔNG nhân đôi threat model.
 
 ---
 

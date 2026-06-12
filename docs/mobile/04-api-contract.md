@@ -219,9 +219,11 @@ Các ngoại lệ này KHÔNG đi qua `_ok`/`_err` AssetCore ⇒ body THẬT = *
 
 ---
 
-## 5c. Status-line-correctness cho create path — route-by-body + closed-schema (G-OAS-NO-BOOL-DISC)
+## 5c. Status-line-correctness cho create path + read path — route-by-body + closed-schema (G-OAS-NO-BOOL-DISC)
 
 > ⚠️ **P1 contract-correctness.** In-handler business error của create path (`reportIncident` 404/422; `createRepairWorkOrder`/`createCalibration`/`createPmWorkOrder` 404/409/422) **KHÔNG arrive trên HTTP status-line** — chúng đi qua `_err` (`response.py:95-154`) + `handle()` return **dict** (`api_handler.py:48`) → Frappe serialize **HTTP-200** (`hooks.py:405` KHÔNG có `after_request` hook đổi status-line ⇒ status-line **KHÔNG BAO GIỜ** set cho in-handler error). Codegen route-by-status-line **không bao giờ** thấy HTTP 404/422/409 → response-key đó = **dead-deser branch**.
+
+> 🔵 **C6 — read-path P1 closure (2026-06-11): cùng quirk áp cho 3 GET read.** `resolveQrToken`/`getAssetScanInfo`/`getAsset` cũng phát in-handler error qua `_err` → **HTTP-200 + Error body**: **404** (`_err(…,404)`) + **vendor-IDOR-403** (`assert_vendor_can_access` raise `ServiceError(FORBIDDEN)` **caught** → `_err(e.message, e.code)`, KHÔNG `frappe.throw`). Vì 3 read KHÔNG có `requestBody`, P1 read-path TRƯỚC ĐÂY bị bỏ sót (200 = single `$ref <ReadEnvelope>`, KHÔNG nhánh Error → in-handler 404/403 dead-deser cho native client). C6 áp **CÙNG quyết-định Decision-B** dưới đây cho read: 200 = `oneOf [<ReadEnvelope>, Error]` closed-schema KHÔNG discriminator. Chỉ **dispatcher-403** (guest/no-token; `resolve`/`scan-info` có thêm `rbac.require('asset.read')`) GIỮ status-line key `403`.
 
 > 🔴 **SELF-CORRECTION R1 (factory-run3-apidocs → R4) — BỎ boolean-discriminator illegal.** Vòng R1 đặt `'200'` = oneOf [Created|Error] + `discriminator {propertyName: success}`. **SAI codegen-legal:** OAS 3.x yêu cầu `discriminator.propertyName` trỏ property kiểu **STRING**; `success` là **BOOLEAN** → `openapi-generator` (Dart/Kotlin/Java) **drop** discriminator + fallback try-each-branch HOẶC sinh `switch(string)` so boolean → **deser-fail**. mapping keys `'true'`/`'false'` (string) KHÔNG khớp value boolean. **QUYẾT ĐỊNH BA = CÁCH B** (mirror R2 fix-403 `FrappeRawError` closed): **BỎ block `discriminator`**, GIỮ `oneOf`, đặt `additionalProperties:false` trên CẢ `<X>CreatedEnvelope` + `Error` → 2 nhánh máy-phân-biệt bằng **closed-schema + disjoint required-set**. *(Cách A — thêm field STRING `result_type` enum[created,error] làm propertyName — BỊ LOẠI: `_ok`/`_err` KHÔNG emit `result_type` ⇒ phải bịa wire-field BE không sản sinh → vi phạm gate "KHÔNG bịa field".)*
 
@@ -241,7 +243,15 @@ Các ngoại lệ này KHÔNG đi qua `_ok`/`_err` AssetCore ⇒ body THẬT = *
 | `createCalibration` | `CreateCalibrationCreatedEnvelope` `{name,status}` (`imm11.py:1015`) | `Error` | `[200,401,403]` | 404 asset∄ `imm11.py:999` · 409 ASSET_BLOCKED CAL-008 `imm11.py:1002` (`messages.py:860`) |
 | `createPmWorkOrder` | `CreatePmWorkOrderCreatedEnvelope` `{name,status,checklist_items_count}` (`imm08.py:836-840`) | `Error` | `[200,401,403]` | 422 thiếu field/schedule-mismatch `imm08.py:791,802` · 404 PM Schedule∄ `imm08.py:800` · 409 asset BAD_STATE `imm08.py:815` |
 
-> **Hợp đồng client native (non-negotiable):** với create path, **KHÔNG branch theo HTTP status-line** cho business outcome — đọc `body.success` trước (KHÔNG cần discriminator — generator sinh oneOf-deserializer dựa closed-schema/required-set); nếu `false` đọc `body.code` + `body.http_status`. Chỉ 401/403 (pre-handler) mới mang HTTP status-line THẬT. Root-fact verified @source: `_err` `response.py:95-154` + `handle()` return dict `api_handler.py:48` + `hooks.py:405` no `after_request`. Guard: `TC-MOB-OAS-18a/b/c` (assert KHÔNG discriminator + closed-schema + disjoint required-set).
+**🔵 C6 — read-path (3 GET read áp CÙNG bảng route-by-body + closed-schema):**
+
+| Path | `'200'` oneOf (success:true) | `'200'` oneOf (success:false) | status-set | In-handler error (gom nhánh Error) |
+|---|---|---|---|---|
+| `resolveQrToken` | `QrResolveEnvelope` `{data: QrResolveResult}` (`imm00.py:303`) | `Error` | `[200,401,403,429]` | 404 token∄/leak-safe `imm00.py:366` · vendor-IDOR-403 `imm00.py:371` |
+| `getAssetScanInfo` | `AssetScanInfoEnvelope` `{data: AssetScanInfo}` (`imm00.py:567`) | `Error` | `[200,401,403,429]` | 404 token/name∄ `imm00.py:416,425` · vendor-IDOR-403 `imm00.py:421` |
+| `getAsset` | `AssetDetailEnvelope` `{data: AssetDetail}` (`imm00.py:324`) | `Error` | `[200,401,403]` | 404 asset∄ `imm00.py:297` · vendor-IDOR-403 `imm00.py:302` |
+
+> **Hợp đồng client native (non-negotiable):** với create path **VÀ read path (C6)**, **KHÔNG branch theo HTTP status-line** cho business outcome — đọc `body.success` trước (KHÔNG cần discriminator — generator sinh oneOf-deserializer dựa closed-schema/required-set); nếu `false` đọc `body.code` + `body.http_status` (read: 404 NOT_FOUND / vendor-IDOR FORBIDDEN nằm TRONG body). Chỉ 401/dispatcher-403 (pre-handler) mới mang HTTP status-line THẬT (read: vendor-IDOR-403 KHÔNG status-line — nó đi nhánh Error 200). Root-fact verified @source: `_err` `response.py:95-154` + `handle()` return dict `api_handler.py:48` + `hooks.py:405` no `after_request`. Guard create: `TC-MOB-OAS-18a/b/c`; guard read (C6): `TC-MOB-OAS-24a..d` (assert oneOf + KHÔNG discriminator + closed-schema + disjoint required-set + status-set pre-handler-only).
 
 ---
 
@@ -301,8 +311,8 @@ VERIFIED qua AST introspect 3 hàm whitelist (read-only): `imm08.list_pm_work_or
 
 | List endpoint | Service trả | rows-key (sau `handle()`/`_ok`) | Envelope wire | Param query |
 |---|---|---|---|---|
-| `imm08.list_pm_work_orders` | `{"data": rows, "pagination": pg}` (`imm08.py:569`) | **`data.data[]`** | `WorkOrderListEnvelope` (200→`WorkOrderList`) | `filters`/`page`/`page_size` |
-| `imm09.list_repair_work_orders` | `{"data": rows, "pagination": pg}` (`imm09.py:697`) | **`data.data[]`** | `WorkOrderListEnvelope` (200→`WorkOrderList`) | `filters`/`page`/`page_size` |
+| `imm08.list_pm_work_orders` | `{"data": rows, "pagination": pg}` (`imm08.py:569`) | **`data.data[]`** | `PmWorkOrderListEnvelope` (200→`PmWorkOrderList`; item `PmWorkOrderListItem` — C3-split) | `filters`/`page`/`page_size` |
+| `imm09.list_repair_work_orders` | `{"data": rows, "pagination": pg}` (`imm09.py:697`) | **`data.data[]`** | `RepairWorkOrderListEnvelope` (200→`RepairWorkOrderList`; item `RepairWorkOrderListItem` — C3-split) | `filters`/`page`/`page_size` |
 | `imm12.list_incidents` | `{"items": rows, "pagination": pg}` (`imm12.py:764-770`) | **`data.items[]`** | `IncidentListEnvelope` (200→`IncidentList`) | `status`/`severity`/`asset`/`open`/`page`/`page_size` |
 
 **QUYẾT ĐỊNH BA = Option (A) — khai 2 envelope PHÂN BIỆT** (KHÔNG chuẩn-hoá 1 key round này):
@@ -313,6 +323,36 @@ VERIFIED qua AST introspect 3 hàm whitelist (read-only): `imm08.list_pm_work_or
 - **KNOWN-GAP → Phase-E normalize:** thống nhất 2 rows-key (`data` vs `items`) về 1 key chung là việc **Phase-E** (chuẩn hoá envelope, đụng `services/imm08|09|12.py` + test). Tới khi đó, contract phản ánh ĐÚNG di sản 2 service. Quyết định kiến trúc: [`ADR-MOBILE-001.md` (g)](./ADR-MOBILE-001.md).
 
 > **Cross-ref:** quyết định envelope list-read ↔ [ADR-MOBILE-001 (g)](./ADR-MOBILE-001.md) ↔ [11 §1 traceability](./11-phase-a-exit.md). Scope `reported_by` vs `assigned_to` (A2 finding) vẫn là known-gap hành vi (không đổi shape) — Phase-C kế.
+
+### 6.3 List-ELEMENT schema (`PmWorkOrderListItem` / `RepairWorkOrderListItem` / `IncidentListItem`) — C3-split (đóng KNOWN-GAP "KHÔNG ép chung")
+
+Phần tử (`data.data[].items` / `data.items[].items`) từng generic `{type: object}` ⇒ integrator KHÔNG bind được model "phiếu của tôi". C3 ban đầu khai 1 UNION `WorkOrderListItem` (PM∪CM). **C3-split (round này)** tách thành **2 item-schema field-disjoint per-endpoint** (PM ≠ CM field-set), mỗi list path có envelope + item RIÊNG (re-verify @source D4 — mở file, tìm symbol, KHÔNG tin số dòng):
+
+| Element schema | Wire vào | Grounded @source | `required` |
+|---|---|---|---|
+| `PmWorkOrderListItem` | `PmWorkOrderListEnvelope.data.data[].items` | CHỈ `services/imm08.py::list_work_orders` (PM) — 12 repo-field + enrich `asset_name`/`location_name`/`assigned_to_name`/`supervisor_name` = 16 field | `[name]` |
+| `RepairWorkOrderListItem` | `RepairWorkOrderListEnvelope.data.data[].items` | CHỈ `services/imm09.py::list_work_orders` (CM) — 16 repo-field (`parts_hold_started` bị `r.pop()`) + enrich `department_name`/`location_name`/`assigned_to_name` + derived `is_sla_breached`/`sla_paused` = 21 field | `[name]` |
+| `IncidentListItem` | `IncidentListEnvelope.data.items[].items` | `services/imm12.py::list_incidents` (23 repo-field) + `_enrich_asset_names` (asset_name/reporter_name/assigned_to_name) + `_enrich_sla_breach` (is_response_breached/is_resolution_breached) | `[name]` |
+
+**QUYẾT ĐỊNH BA = Option (A) — schema all-optional trừ `name` REQUIRED (closed-schema, KHÔNG discriminator = Decision-B):**
+
+- `name` là **PK chung** mỗi doctype (AC PM Work Order / AC Asset Repair / Incident Report) ⇒ field duy nhất luôn có. Mọi field khác **optional** (service có thể trả `""`).
+- `additionalProperties: false` (đóng) ⇒ codegen native sinh model tường minh; thừa key = lỗi spec, KHÔNG nuốt câm.
+- **PM ≠ CM field-set ⇒ 2 item-schema RIÊNG (field-disjoint).** PM(imm08)/CM(imm09) projection KHÁC nhau (16 vs 21 field) ⇒ KHÔNG ép 1 union. Mỗi path (`list_pm_work_orders` / `list_repair_work_orders`) trỏ envelope + item của nó; rows-key `data` GIỮ nguyên cả 2. Codegen sinh 2 model tường minh, integrator KHÔNG còn đoán field nào thuộc PM, field nào thuộc CM.
+
+**Field RIÊNG mỗi loại (DISJOINT — chứng cứ "KHÔNG ép chung"):**
+
+| Nhóm | Field |
+|---|---|
+| Overlap-key (cả 2 doctype cùng trả) | `name`, `asset_ref`, `asset_name`, `status`, `assigned_to`, `assigned_to_name`, `location_name` |
+| PM-only (`PmWorkOrderListItem`) | `pm_type`, `wo_type`, `due_date`, `completion_date`, `supervisor`, `supervisor_name`, `overall_result`, `is_late`, `source_pm_wo` |
+| CM-only (`RepairWorkOrderListItem`) | `repair_type`, `priority`, `open_datetime`, `completion_datetime`, `mttr_hours`, `sla_breached`, `sla_target_hours`, `is_repeat_failure`, `root_cause_category`, `risk_class`, `parts_hold_hours`, `department_name`, `is_sla_breached` (derived), `sla_paused` (derived) |
+
+PM-only ∩ CM-only = ∅. `PmWorkOrderListItem` = overlap ∪ PM-only (16); `RepairWorkOrderListItem` = overlap ∪ CM-only (21). Guard `test_mob_oas_21g_pm_cm_field_sets_disjoint` đóng băng.
+
+> ⚠️ **Re-verify @source corrections (D4):** (1) `parts_hold_started` **KHÔNG khai** ở CM — imm09 `list_work_orders` gọi `r.pop("parts_hold_started", None)` trước khi trả ⇒ KHÔNG ra wire. (2) imm08 enrich `assigned_to_name`/`supervisor_name`; imm09 enrich `assigned_to_name`/`department_name`/`location_name`. (3) `IncidentListItem` dùng key **`asset`** (KHÔNG `asset_ref` như Work Order).
+
+> ✅ **KNOWN-GAP normalize element ĐÓNG (C3-split):** tách 2 item-schema per-endpoint **KHÔNG đụng service `.py`** (chỉ thêm 2 envelope + 2 response + 2 item-schema trong yaml + wire 2 path) ⇒ đóng NGAY round này, KHÔNG defer Phase-E. Phase-E CÒN LẠI chỉ lo normalize **rows-key** `data` vs `items` (§6.2 — việc đó MỚI đụng service). Quyết định: [ADR-MOBILE-001 (g)](./ADR-MOBILE-001.md).
 
 ---
 
@@ -353,16 +393,17 @@ VERIFIED định hướng tại `01-architecture.md §4`.
 5. **`get_X` → `getX`:** `get_asset` → `getAsset`; `get_asset_scan_info` → `getAssetScanInfo`.
 6. **`report_X` → `reportX`:** `report_incident` → `reportIncident`.
 7. **`resolve_qr_token` → `resolveQrToken`** (token/QR viết liền theo CamelCase từng từ snake).
-8. **OAuth = verb-first** (provider Frappe `frappe.integrations.oauth2.*`): vì gốc-tail (`authorize`/`get_token`/`revoke_token`) KHÔNG mang ngữ cảnh "OAuth", thêm hậu tố `OAuth` để rõ + tránh va tên: `authorize` → `authorizeOAuth`; `get_token` → `getOAuthToken`; `revoke_token` → `revokeOAuthToken`.
+8. **OAuth = verb-first** (provider Frappe `frappe.integrations.oauth2.*`): vì gốc-tail (`authorize`/`get_token`/`revoke_token`) KHÔNG mang ngữ cảnh "OAuth", thêm hậu tố `OAuth` để rõ + tránh va tên: `authorize` → `authorizeOAuth`; `get_token` → `getOAuthToken`; `revoke_token` → `revokeOAuthToken`. **(C4)** `openid_profile` (userinfo/whoami) → **`getUserInfo`** — verb-first nhóm auth, NHÃN ngữ-nghĩa "userinfo" rõ hơn tail thô `openidProfile`.
 9. **2 device-token GIỮ NGUYÊN TÊN** (chốt **A5**, KHÔNG đổi để tránh drift client đã sinh): `register_device_token` → **`registerDeviceToken`**; `unregister_device_token` → **`unregisterDeviceToken`** (theo đúng luật 4/2, đã đặt sẵn từ A5).
 
-**Bảng 15/15 operationId (A10 — codegen-able):**
+**Bảng 16/16 operationId (A10 + C4 — codegen-able):**
 
 | `operationId` | Verb | RPC path (`/api/method/...`) |
 |---|---|---|
 | `authorizeOAuth` | GET | `frappe.integrations.oauth2.authorize` |
 | `getOAuthToken` | POST | `frappe.integrations.oauth2.get_token` |
 | `revokeOAuthToken` | POST | `frappe.integrations.oauth2.revoke_token` |
+| `getUserInfo` | GET | `frappe.integrations.oauth2.openid_profile` *(C4 — OIDC userinfo/whoami)* |
 | `resolveQrToken` | GET | `assetcore.api.imm00.resolve_qr_token` |
 | `getAssetScanInfo` | GET | `assetcore.api.imm00.get_asset_scan_info` |
 | `getAsset` | GET | `assetcore.api.imm00.get_asset` |
@@ -376,7 +417,7 @@ VERIFIED định hướng tại `01-architecture.md §4`.
 | `registerDeviceToken` | POST | `assetcore.api.mobile.v1.register_device_token` *(A5 — giữ nguyên)* |
 | `unregisterDeviceToken` | POST | `assetcore.api.mobile.v1.unregister_device_token` *(A5 — giữ nguyên)* |
 
-**Invariant (guard test):** mọi path-operation CÓ `operationId`; `operationId` **duy nhất** toàn file (`len(set)==len(list)==15`); khớp regex camelCase; 2 device-token tên đóng băng; **sau R4 (§8.7) chỉ CÒN 2 path STUB** = 2 device-token (`register`/`unregister` — handler CHƯA tồn tại @source, `[ROADMAP]` BE-PENDING) **VẪN STUB** (0 `requestBody`, 200→`#/components/responses/Stub`). 4 read/create cũ (2 QR + `get_asset` + `createPmWorkOrder`) ĐÃ rời STUB với typed `data` ở R4 §8.7 (cùng `report_incident` §8.3, 3 list §8.4, `createRepairWorkOrder` §8.5, `createCalibration` §8.6). Guard = `assetcore/tests/test_mobile_oas.py` (TC-MOB-OAS-01..07 + 20, read-only yaml — KHÔNG đọc auto-gen AssetCore spec). **Phase C/R4** khi bồi path PHẢI: (a) đặt `operationId` theo luật trên, (b) thêm dòng vào map `_EXPECTED` của guard test, (c) giữ STUB→schema thật KHÔNG đổi `operationId`, (d) gỡ path tương ứng khỏi `_STUB_PATHS` của guard khi bồi schema thật (NHƯNG giữ trong `_MVP_BUSINESS_PATHS` để 401/403 symmetry KHÔNG vỡ — xem §8.3/§8.4/§8.6/§8.7).
+**Invariant (guard test):** mọi path-operation CÓ `operationId`; `operationId` **duy nhất** toàn file (`len(set)==len(list)==16` — C4 +`getUserInfo`); khớp regex camelCase; 2 device-token tên đóng băng; **sau EPIC-D D4 (§8.9): `_STUB_PATHS = ∅` (0 STUB-on-MVP)** — 2 device-token (`register`/`unregister`) ĐÃ rời STUB với typed `requestBody DeviceTokenRequest` + 200 oneOf `[<Created>, Error]` (service D2 `mobile_device_token.py` tồn tại @source). 4 read/create cũ (2 QR + `get_asset` + `createPmWorkOrder`) ĐÃ rời STUB ở R4 §8.7 (cùng `report_incident` §8.3, 3 list §8.4, `createRepairWorkOrder` §8.5, `createCalibration` §8.6). `responses/Stub` HẾT referenced → forward-reserve (§8.2 RESERVED + `_RESERVED_ORPHANS`). Guard = `assetcore/tests/test_mobile_oas.py` (TC-MOB-OAS-01..07 + 20 + **22** device-token typed, read-only yaml — KHÔNG đọc auto-gen AssetCore spec). **Phase C/R4/D4** khi bồi path PHẢI: (a) đặt `operationId` theo luật trên, (b) thêm dòng vào map `_EXPECTED` của guard test, (c) GROUNDED chữ-ký service THẬT KHÔNG đổi `operationId`, (d) gỡ path tương ứng khỏi `_STUB_PATHS` của guard khi bồi schema thật (NHƯNG giữ symmetry trong `_MVP_BUSINESS_PATHS`/`_DEVICE_TOKEN_FROZEN` để 401/403 KHÔNG vỡ — xem §8.3/§8.4/§8.6/§8.7/§8.9).
 
 > ⚠️ **A10 chỉ thêm contract-identity** (`operationId`) — KHÔNG bồi `requestBody`/`response` schema chi tiết. Phase-C đã bồi **requestBody** cho `report_incident` (§8.3) + **list-read** cho 3 list path (§8.4) + **requestBody** cho `createRepairWorkOrder` (§8.5) + **requestBody** cho `createCalibration` (§8.6); **R4 §8.7** type tiếp **`data`** cho 4 read/create (2 QR + `get_asset` + `createPmWorkOrder`) GROUNDED chữ-ký service THẬT ⇒ **chỉ CÒN 2 device-token STUB** (`[ROADMAP]` BE chưa impl).
 
@@ -393,9 +434,11 @@ VERIFIED định hướng tại `01-architecture.md §4`.
 
 > **A16 — ERROR-STATUS contract fix (tách 401 vs 403 + body raw THẬT; orphan VẪN 10):** vòng A16 (1) wire `'403'`→`Forbidden` lên **TẤT CẢ 12 path MVP** (10 business STUB **đã** có 403 từ A13-wiring + **bổ sung 2 device-token** `register/unregister_device_token` hiện thiếu — bearer-gated self-service [`06-push-fcm.md §2.3`](./06-push-fcm.md), guest/no-token cũng `PermissionError` 403 `__init__.py:876`) ⇒ **tập path-403 == tập path-401 (12==12, đối xứng)**. `Forbidden` **KHÔNG** ở RESERVED (đã referenced từ A13 — wire thêm 2 device-token KHÔNG đổi orphan). (2) **+component `schemas/FrappeRawError`** {`exc_type`* req · `exception?`/`exc?`/`_server_messages?` opt} source-char @`frappe/utils/response.py` V1 (`exc_type` `:46`; `exception` `:43-45` gated; `exc` `:185`; `_server_messages` `:188`) + **repoint** `Unauthorized401`/`Forbidden`/`RateLimited429` `$ref` từ `schemas/Error` → `schemas/FrappeRawError` (3 response pre-handler raw — KHÔNG Error envelope) ⇒ codegen sinh model KHỚP body runtime (KHÔNG deser-fail). `FrappeRawError` được `$ref` **NGAY** bởi 3 response ⇒ **KHÔNG orphan** → KHÔNG vào allow-list. (3) `RateLimited429` **KHÔNG** thêm `Retry-After`/`X-RateLimit-*` (P2 DEFER — `conf.rate_limit=null` ⇒ 0 backoff-header, §5). 3 auth path GIỮ NGUYÊN (302/200/400 — KHÔNG declare 403). **DIFF A16** = +1 schema (`FrappeRawError`) + repoint 3 `$ref` + wire `'403'` lên 2 device-token. `operationId` FROZEN, 0 path mới.
 
-**Bảng RESERVED — 9 orphan-component hợp lệ (SSoT của allow-list; guard `TC-MOB-OAS-10` phản chiếu bảng này):**
+**Bảng RESERVED — 10 orphan-component hợp lệ (SSoT của allow-list; guard `TC-MOB-OAS-10` phản chiếu bảng này):**
 
-> **G-OAS-STATUSLINE (P1 contract-correctness, orphan 6→9):** `responses/NotFound404` + `responses/Unprocessable422` + `responses/Conflict409` **TRỞ LẠI RESERVED** — chúng KHÔNG còn được `$ref` từ 3 create path vì in-handler business error (404/422 report; 404/409 repair/cal) **arrive HTTP status-line 200 + Error body** (quirk §5: `_err` `response.py:95-154` + `handle()` return dict `api_handler.py:48` + `hooks.py:405` no `after_request` ⇒ status-line KHÔNG BAO GIỜ set cho in-handler error). Keying chúng dưới HTTP-code response-key = **DEAD-DESER branch** (codegen route-by-status-line KHÔNG bao giờ khớp). ⇒ gom vào nhánh `Error` của `200`-oneOf-discriminator (route-by-body, §5c) + giữ 3 component làm **forward-reserve doc-intent** (Phase-E nếu `after_request` hook đổi status-line thật).
+> **EPIC-D D4 (Vòng 17, orphan 9→10):** `responses/Stub` **VÀO RESERVED** — 2 device-token RỜI Stub (typed `requestBody` + 200 oneOf `[<Created>, Error]`, §8.9) ⇒ `responses/Stub` HẾT referenced (0 path MVP còn dùng). GIỮ component làm **forward-reserve**: 2 negative-injection guard (`TC-MOB-OAS-23d`/`24e`) inject `$ref Stub` vào deepcopy để chứng RED-before — gỡ component = phá precondition test. ⇒ orphan **9→10**.
+
+> **G-OAS-STATUSLINE (P1 contract-correctness, orphan 6→9):** `responses/NotFound404` + `responses/Unprocessable422` + `responses/Conflict409` **TRỞ LẠI RESERVED** — chúng KHÔNG còn được `$ref` từ 3 create path vì in-handler business error (404/422 report; 404/409 repair/cal) **arrive HTTP status-line 200 + Error body** (quirk §5: `_err` `response.py:95-154` + `handle()` return dict `api_handler.py:48` + `hooks.py:405` no `after_request` ⇒ status-line KHÔNG BAO GIỜ set cho in-handler error). Keying chúng dưới HTTP-code response-key = **DEAD-DESER branch** (codegen route-by-status-line KHÔNG bao giờ khớp). ⇒ gom vào nhánh `Error` của `200`-oneOf [Created, Error] closed-schema route-by-VALUE `body.success` (Decision-B §5c — KHÔNG discriminator) + giữ 3 component làm **forward-reserve doc-intent** (Phase-E nếu `after_request` hook đổi status-line thật).
 
 | Pointer (`#/components/...`) | Nhóm | Vì sao GIỮ (forward-reserve / false-orphan) | Nguồn chân lý / forward-phase |
 |---|---|---|---|
@@ -407,6 +450,7 @@ VERIFIED định hướng tại `01-architecture.md §4`.
 | `responses/NotFound404` | In-handler 404 → doc-only | 404 (asset∄) arrive HTTP-200 + Error body (route-by-body §5c) — KHÔNG status-line key (dead-deser). Doc-intent + Phase-E nếu `after_request` set status-line. | §5c + `services/imm12.py:361`/`imm09.py:746`/`imm11.py:999` |
 | `responses/Unprocessable422` | In-handler 422 → doc-only | 422 (BR-12-01) arrive HTTP-200 + Error body — KHÔNG status-line key. Doc-intent + Phase-E. | §5c + `services/imm12.py:359` |
 | `responses/Conflict409` | In-handler 409 + offline reuse → doc-only | 409 (HAS_OPEN_WO / ASSET_BLOCKED) arrive HTTP-200 + Error body — KHÔNG status-line key; + offline optimistic-lock reuse (§4). Doc-intent + Phase-E. | §5c + `services/imm09.py:753`/`imm11.py:1002` |
+| `responses/Stub` | **D4 forward-reserve** | EPIC-D D4: 2 device-token rời Stub (typed §8.9) ⇒ Stub HẾT referenced. GIỮ làm forward-reserve (negative-injection guard `TC-MOB-OAS-23d`/`24e` inject ref này vào deepcopy chứng RED-before). | §8.9 + `test_mobile_oas.py::_RESERVED_ORPHANS` |
 | `securitySchemes/OAuth2` | **False-orphan** | Dùng qua **top-level `security:`** keyword (KHÔNG `$ref`) + per-op `security: []` của 3 auth path → walk `$ref` naive KHÔNG thấy ⇒ **phải** allow-list, KHÔNG forbid naive. | §8.1 + [`03-auth-oauth2.md`](./03-auth-oauth2.md) — security keyword |
 
 > **Đã GỠ khỏi RESERVED ở C-REQBODY-CREATEREPAIR** (hết orphan vì đã wire vào `create_repair_work_order.post`): `responses/Conflict409` (409 = asset đã có WO mở `IMM09_ASSET_HAS_OPEN_WO` `services/imm09.py:753`, http_status **409** `messages.py:667`). orphan **7→6**. SELF-CORRECTION: đề mục viết "422→Unprocessable422" cho HAS_OPEN_WO — **SAI @source** (message-code map 409 CONFLICT, KHÔNG 422); doc bám sự-thật `_HTTP_TO_BUCKET[409]=CONFLICT` (`notify.py:42`). `responses/NotFound404` (404 asset∄ `IMM09_ASSET_NOT_FOUND` `services/imm09.py:746`) đã GỠ khỏi RESERVED từ G-REQBODY (dùng chung, nay createRepair tái dùng — vẫn referenced).
@@ -423,7 +467,7 @@ VERIFIED định hướng tại `01-architecture.md §4`.
 
 > **C-REQBODY-REPORTINCIDENT (Phase-C) — `ReportIncidentRequest`+`ReportIncidentBody` KHÔNG vào RESERVED (wired ngay) — orphan VẪN 10:** Phase-C thêm 2 component **`schemas/ReportIncidentRequest`** (4 field required EXACT — §8.3) + **`requestBodies/ReportIncidentBody`** (wrapper `required:true`, content `application/json`). Cả 2 **được `$ref` NGAY khi thêm** (`requestBodies/ReportIncidentBody` → `schemas/ReportIncidentRequest`; `report_incident.post.requestBody` → `requestBodies/ReportIncidentBody`) ⇒ **KHÔNG orphan** → **KHÔNG** ghi vào allow-list. ⇒ **orphan-count GIỮ NGUYÊN 10** (bảng RESERVED trên KHÔNG đổi). **KHÔNG đụng `NotFound404`/`Unprocessable422`** (404/422 vẫn reserve cho Phase-C kế — chưa wire vòng này; tránh scope-creep). `defined` component: 22→**24** (+2); `$ref` distinct: 12→**14** (+2: `requestBodies/ReportIncidentBody` + `schemas/ReportIncidentRequest`); `$ref` occurrence: 50→**52** (+2: path→requestBody + requestBody→schema). DIFF Phase-C = +1 schema + +1 requestBody + wire `requestBody` lên `report_incident` (CHỈ — KHÔNG đổi response surface 200/401/403). `operationId` FROZEN, 0 path mới. `report_incident` RỜI `_STUB_PATHS` (có requestBody) NHƯNG GIỮ `_MVP_BUSINESS_PATHS` ⇒ symmetry 401/403 (12==12) BẤT BIẾN.
 
-> **C-LISTREAD (Phase-C list-read) — `PaginatedListEnvelope` ĐÃ tách & GỠ khỏi RESERVED (orphan 10→9):** orphan cũ `schemas/PaginatedListEnvelope` (khai `data.{pagination, items}`) chỉ KHỚP imm12, **MÂU THUẪN** imm08/09 (rows-key `data`). C-LISTREAD **tách** thành 2 envelope PHÂN BIỆT theo rows-key THẬT @source (§6.2) — **`schemas/WorkOrderListEnvelope`** (`data.data[]`, imm08/09) + **`schemas/IncidentListEnvelope`** (`data.items[]`, imm12) — kèm 2 wrapper response **`responses/WorkOrderList`**/**`responses/IncidentList`** + 7 param pagination (`Page`/`PageSize`/`WorkOrderFilters`/`IncidentStatus`/`IncidentSeverity`/`IncidentAsset`/`IncidentOpen`). **TẤT CẢ 11 component mới `$ref`'d NGAY** (path→response→schema; path→param) ⇒ KHÔNG orphan → KHÔNG vào allow-list; `PaginatedListEnvelope` cũ **xoá** (đã thay) ⇒ **gỡ khỏi RESERVED → orphan 10→9**. **KHÔNG đụng `NotFound404`/`Unprocessable422`** (vẫn reserve Phase-C kế). `defined` component: 24→**34** (+10: −1 PaginatedListEnvelope +11 mới); `$ref` distinct: 14→**25** (+11); `$ref` occurrence: 52→**67** (+15: 3 list path × {1×200-response + 2..4 param}). DIFF C-LISTREAD = −1 orphan-schema + 2 list-envelope + 2 list-response + 7 param + wire 3 list path (param + 200). `operationId` FROZEN, 0 path/verb mới (giữ 15 path). 3 list RỜI `_STUB_PATHS` NHƯNG GIỮ `_MVP_BUSINESS_PATHS` ⇒ symmetry 401/403 (12==12) BẤT BIẾN.
+> **C-LISTREAD (Phase-C list-read) — `PaginatedListEnvelope` ĐÃ tách & GỠ khỏi RESERVED (orphan 10→9):** orphan cũ `schemas/PaginatedListEnvelope` (khai `data.{pagination, items}`) chỉ KHỚP imm12, **MÂU THUẪN** imm08/09 (rows-key `data`). C-LISTREAD **tách** theo rows-key THẬT @source (§6.2); **C3-split** tách tiếp WO theo field-set → **`schemas/PmWorkOrderListEnvelope`** + **`schemas/RepairWorkOrderListEnvelope`** (`data.data[]`, imm08/imm09 RIÊNG) + **`schemas/IncidentListEnvelope`** (`data.items[]`, imm12) — kèm wrapper response **`responses/PmWorkOrderList`**/**`responses/RepairWorkOrderList`**/**`responses/IncidentList`** + 7 param pagination (`Page`/`PageSize`/`WorkOrderFilters`/`IncidentStatus`/`IncidentSeverity`/`IncidentAsset`/`IncidentOpen`). **TẤT CẢ 11 component mới `$ref`'d NGAY** (path→response→schema; path→param) ⇒ KHÔNG orphan → KHÔNG vào allow-list; `PaginatedListEnvelope` cũ **xoá** (đã thay) ⇒ **gỡ khỏi RESERVED → orphan 10→9**. **KHÔNG đụng `NotFound404`/`Unprocessable422`** (vẫn reserve Phase-C kế). `defined` component: 24→**34** (+10: −1 PaginatedListEnvelope +11 mới); `$ref` distinct: 14→**25** (+11); `$ref` occurrence: 52→**67** (+15: 3 list path × {1×200-response + 2..4 param}). DIFF C-LISTREAD = −1 orphan-schema + 2 list-envelope + 2 list-response + 7 param + wire 3 list path (param + 200). `operationId` FROZEN, 0 path/verb mới (giữ 15 path). 3 list RỜI `_STUB_PATHS` NHƯNG GIỮ `_MVP_BUSINESS_PATHS` ⇒ symmetry 401/403 (12==12) BẤT BIẾN.
 
 > **G-REQBODY (Phase-C) — `NotFound404`+`Unprocessable422` ĐÃ wire & GỠ khỏi RESERVED (orphan 9→7); +`ReportIncidentResponse`/`ReportIncidentCreated`/`ReportIncidentForbidden` KHÔNG vào RESERVED (wired ngay):** G-REQBODY đóng 4 contract-gap codegen `report_incident`. (1) **wire `404`→`NotFound404`** (asset∄ `IMM12_ASSET_NOT_FOUND` `services/imm12.py:361`) + **`422`→`Unprocessable422`** (BR-12-01 Critical→`clinical_impact` `services/imm12.py:359`) vào `report_incident.post` ⇒ CẢ 2 hết-orphan → **gỡ khỏi RESERVED → orphan 9→7**. (2) **+schema `ReportIncidentResponse`** `{name, status, severity}` (grounded `services/imm12.py:410`; `status` enum Select-canonical 7 @`incident_report.json`) + **response `ReportIncidentCreated`** (success envelope, `data` `$ref ReportIncidentResponse`) — `report_incident.post.'200'` repoint `Stub`→`ReportIncidentCreated`. (3) **+response `ReportIncidentForbidden`** = `oneOf [Error, FrappeRawError]` (DUAL-SHAPE 403 §5a/§5b) — `report_incident.post.'403'` repoint `Forbidden`→`ReportIncidentForbidden`. (4) **`ReportIncidentBody.content`** +media-type `application/x-www-form-urlencoded` (CÙNG `$ref ReportIncidentRequest` — Frappe RPC `form_dict`, §9). 3 component mới `$ref`'d NGAY ⇒ KHÔNG orphan → KHÔNG vào allow-list. `defined` component: 34→**37** (+3: `ReportIncidentResponse`/`ReportIncidentCreated`/`ReportIncidentForbidden`); `$ref` distinct: 25→**30** (+5: 3 component mới + `NotFound404` + `Unprocessable422` — 2 cái này trước defined-mà-orphan, nay referenced); `$ref` occurrence: 67→**73** (+6: report 404+422+ form-urlencoded media-type-schema + ReportIncidentCreated→ReportIncidentResponse + 2 nhánh oneOf của ReportIncidentForbidden; repoint 200/403 thay ref cũ KHÔNG đổi tổng path-level). **orphan 9→7** (gỡ `NotFound404`/`Unprocessable422`). **Symmetry 401/403 (12==12) BẤT BIẾN** (`report_incident` VẪN declare 403, chỉ KHÁC shape). `operationId` FROZEN, 0 path mới.
 
@@ -437,7 +481,7 @@ VERIFIED định hướng tại `01-architecture.md §4`.
 - `TC-MOB-OAS-11` (error-response coverage): MỌI **12 path MVP** (10 nghiệp vụ + 2 device-token) declare `401`→`Unauthorized401`; **ĐÚNG 2** path `@rate_limit` (`imm00.resolve_qr_token` `:311` + `imm00.get_asset_scan_info` `:354`) declare `429`→`RateLimited429` (KHÔNG path nào khác — wire chỗ khác = FAIL "bịa hợp đồng"); 3 auth path KHÔNG declare 429. **G-REQBODY:** `404`/`422` wire **ĐÚNG 1 path** = `report_incident` (`404`→`NotFound404` asset∄ `services/imm12.py:361`; `422`→`Unprocessable422` BR-12-01 `services/imm12.py:359`); KHÔNG path NÀO KHÁC declare 404/422 (chống scope-creep). Verify @source: `@rate_limit` ĐÚNG 2 GET QR (`grep rate_limit imm00.py` = `:311/:354` MVP + `:514` regenerate ngoài-MVP). B1: `get_token` có `'400'`→`OAuthError400` (auth status-set {200,400}; authorize=302, revoke=200 GIỮ NGUYÊN).
 - `TC-MOB-OAS-12` (error-status-class 401/403 split + body raw): (a) MỌI **12 path MVP** declare `403`; **11 path** → `Forbidden` (single `FrappeRawError`), **G-REQBODY EXEMPT** `report_incident` → `403` = `ReportIncidentForbidden` (DUAL-SHAPE `oneOf [Error, FrappeRawError]` — in-handler cap-403 HTTP-200+Error `imm12.py:96` ≠ dispatcher-403 HTTP-403+FrappeRawError `__init__.py:876`); tập path-403 **==** tập path-401 (12==12 đối xứng — `report_incident` VẪN declare 403, chỉ KHÁC shape); 403 ngoài 12 path = FAIL "bịa hợp đồng". (b) 3 response pre-handler (`Unauthorized401`/`Forbidden`/`RateLimited429`) `$ref` `schemas/FrappeRawError` (KHÔNG `schemas/Error` — anti-regress repoint); `schemas/FrappeRawError` tồn tại + props = `{exc_type*, exception?, exc?, _server_messages?}` (`exc_type` required) DISTINCT vs Error envelope. `ReportIncidentForbidden.oneOf` = `[Error, FrappeRawError]` (BOTH shape). (c) 3 auth path Frappe-core KHÔNG declare 403 (302/200/400). Verify @source: `AuthenticationError` 401 `frappe/exceptions.py:26-27` (raise `auth.py:630`); `PermissionError` 403 `:34-35` (raise `__init__.py:876`); body-field `frappe/utils/response.py` V1 `:46/:43-45/:185/:188`.
 - `TC-MOB-OAS-13` (Phase-C `reportIncident` requestBody + response G-REQBODY — class riêng `TestMobileReportIncidentBody`, §8.3): (a) `report_incident.post` có `requestBody` = **`$ref`-ONLY** `requestBodies/ReportIncidentBody` (**G-OAS-403-DISAMBIG**: gỡ sibling `required:true` ở path-level); (b) `requestBodies/ReportIncidentBody` `required:true` + content **oneOf `application/json` + `application/x-www-form-urlencoded`** (CÙNG `$ref` `schemas/ReportIncidentRequest` — Frappe RPC `form_dict` §9); (c) `schemas/ReportIncidentRequest.required` **EXACT** = `[asset, incident_type, severity, description]` (4 field `reqd=1` @`incident_report.json`); (d) `severity` enum = `[Low, Medium, High, Critical]` + `incident_type` enum = `[Failure, Safety Event, Near Miss, Malfunction]` (Select-canonical 1:1 @`incident_report.json`); (e) `asset`/`description` type `string`; `source` **KHÔNG** ở body (server coerce — `imm12.py:83`); (f) **G-REQBODY** response surface BỒI: `200`→`ReportIncidentCreated` (success envelope, `data` `$ref` `ReportIncidentResponse` {name,status,severity} grounded `services/imm12.py:410`; `status` enum Select-canonical 7), `401`→`Unauthorized401`, `403`→`ReportIncidentForbidden` (dual-shape), `404`→`NotFound404`, `422`→`Unprocessable422`; status-set = `[200,401,403,404,422]`.
-- `TC-MOB-OAS-14` (C-LISTREAD — Phase-C list-read contract cho 3 list path, class riêng `TestMobileListReadContract`, §8.4): (a) 3 list path RỜI `_STUB_PATHS` (200 != `Stub`) NHƯNG GIỮ `_MVP_BUSINESS_PATHS` (401/403 symmetry 12==12 bất biến); (b) param query đủ + đúng `$ref`: imm08/09 = `filters`+`Page`+`PageSize`, imm12 = `status`+`severity`+`asset`+`open`+`Page`+`PageSize`; (c) `Page`/`PageSize` đúng type+default+min/max (page int default 1 min 1; page_size int default 20 min 1 max 100 — `pagination.py:7-8`); (d) `filters` JSON-string default `'{}'` (imm08/09); `open` int enum `[0,1]` default 0, `status`/`severity`/`asset` string default `''` (imm12); (e) 200 trỏ envelope rows-key PHÂN BIỆT: imm08/09→`WorkOrderList`, imm12→`IncidentList`; 401/403 GIỮ; KHÔNG `requestBody` (GET); (f) `WorkOrderListEnvelope`=`data.{pagination, data[]}`, `IncidentListEnvelope`=`data.{pagination, items[]}`, cả 2 dùng CHUNG `Pagination`; `PaginatedListEnvelope` cũ ĐÃ gỡ; (g) **LIVE introspect** — `page`/`page_size` (+ `filters` / `status,severity,asset,open`) CÓ THẬT trong signature whitelist `imm08.list_pm_work_orders`/`imm09.list_repair_work_orders`/`imm12.list_incidents` (yaml KHÔNG bịa param so với hàm thật).
+- `TC-MOB-OAS-14` (C-LISTREAD — Phase-C list-read contract cho 3 list path, class riêng `TestMobileListReadContract`, §8.4): (a) 3 list path RỜI `_STUB_PATHS` (200 != `Stub`) NHƯNG GIỮ `_MVP_BUSINESS_PATHS` (401/403 symmetry 12==12 bất biến); (b) param query đủ + đúng `$ref`: imm08/09 = `filters`+`Page`+`PageSize`, imm12 = `status`+`severity`+`asset`+`open`+`Page`+`PageSize`; (c) `Page`/`PageSize` đúng type+default+min/max (page int default 1 min 1; page_size int default 20 min 1 max 100 — `pagination.py:7-8`); (d) `filters` JSON-string default `'{}'` (imm08/09); `open` int enum `[0,1]` default 0, `status`/`severity`/`asset` string default `''` (imm12); (e) 200 trỏ response RIÊNG (C3-split): imm08→`PmWorkOrderList`, imm09→`RepairWorkOrderList`, imm12→`IncidentList`; 401/403 GIỮ; KHÔNG `requestBody` (GET); (f) `Pm`/`RepairWorkOrderListEnvelope`=`data.{pagination, data[]}`, `IncidentListEnvelope`=`data.{pagination, items[]}`, cả 3 dùng CHUNG `Pagination`; `PaginatedListEnvelope` cũ ĐÃ gỡ; (g) **LIVE introspect** — `page`/`page_size` (+ `filters` / `status,severity,asset,open`) CÓ THẬT trong signature whitelist `imm08.list_pm_work_orders`/`imm09.list_repair_work_orders`/`imm12.list_incidents` (yaml KHÔNG bịa param so với hàm thật).
 - `TC-MOB-OAUTH-TOKEN-01..05` (B1 — AUTH-section token-endpoint RESPONSE contract, class riêng `TestMobileOAuthToken`): (01) `getOAuthToken` `'400'`→`OAuthError400`; (02) `OAuthError400` wire **ĐÚNG 1 path** (`getOAuthToken`) + **0 path business** nhận (anti-leak); (03) `OAuthError400` schema-keys = `{error*, error_description?, error_uri?, description?, status_code?}` (`error` required) — DISTINCT vs Error envelope (KHÔNG `success`/`code`/`http_status`); (04) `getOAuthToken` 200-keys = `{access_token*, expires_in*, token_type*, scope?, refresh_token?}` source-characterized (tokens.py:309-326), KHÔNG bọc `{success,data}`; (05) `revoke` 200 empty-object (RFC 7009) + `authorize` 302 + cả 2 KHÔNG 400.
 
 Guard sống ở `assetcore/tests/test_mobile_oas.py` (read-only yaml — KHÔNG đọc auto-gen AssetCore spec `openapi.py`; KHÔNG cài lib). Codegen handoff: [`09-native-repo-guide.md §2.3`](./09-native-repo-guide.md). STUB-status từng path: [`11-phase-a-exit.md §1`](./11-phase-a-exit.md).
@@ -493,7 +537,8 @@ Guard sống ở `assetcore/tests/test_mobile_oas.py` (read-only yaml — KHÔNG
 **Param query bồi (§6.1):** `Page`/`PageSize` (cả 3) + `WorkOrderFilters` (imm08/09, JSON-string) + `IncidentStatus`/`IncidentSeverity`/`IncidentAsset`/`IncidentOpen` (imm12). Tái dùng component, KHÔNG inline trùng.
 
 **Envelope bồi (§6.2 — 2 PHÂN BIỆT theo rows-key):**
-- `schemas/WorkOrderListEnvelope` (`data.{pagination, data[]}`) ← imm08/09 — wrapper `responses/WorkOrderList` (200).
+- `schemas/PmWorkOrderListEnvelope` (`data.{pagination, data[]}`, item `PmWorkOrderListItem`) ← imm08 — wrapper `responses/PmWorkOrderList` (200). [C3-split]
+- `schemas/RepairWorkOrderListEnvelope` (`data.{pagination, data[]}`, item `RepairWorkOrderListItem`) ← imm09 — wrapper `responses/RepairWorkOrderList` (200). [C3-split]
 - `schemas/IncidentListEnvelope` (`data.{pagination, items[]}`) ← imm12 — wrapper `responses/IncidentList` (200).
 - `Pagination` sub-schema DÙNG CHUNG (không đổi).
 
@@ -578,25 +623,85 @@ Guard sống ở `assetcore/tests/test_mobile_oas.py` (read-only yaml — KHÔNG
 
 **4 path rời STUB với `data` typed — KHÔNG bịa field (đọc service return THẬT):**
 
-| Path (operationId) | 200 envelope | `data` schema GROUNDED @source | Field |
+| Path (operationId) | 200 (oneOf) | `data` schema GROUNDED @source | Field |
 |---|---|---|---|
-| `imm00.resolve_qr_token` (`resolveQrToken`) | `QrResolveEnvelope` | `QrResolveResult` ← `services/imm00.py:303-315` | `name, asset_code, lifecycle_status, device_model_name, location_name` |
-| `imm00.get_asset_scan_info` (`getAssetScanInfo`) | `AssetScanInfoEnvelope` | `AssetScanInfo` ← `services/imm00.py:567-602` | `name, asset_code, asset_name, lifecycle_status, device_model_name, location_name, next_pm_date?, next_calibration_date?, pm_overdue, calibration_overdue, recent_maintenance?, available_actions[]` |
-| `imm00.get_asset` (`getAsset`) | `AssetDetailEnvelope` | `AssetDetail` ← `api/imm00.py:288-324` (AC Asset `as_dict()` enrich + 2 overdue) | core: `name, asset_code, lifecycle_status, *_name…, next_*_date?, pm_overdue, calibration_overdue` (`additionalProperties:true` vì `as_dict()` surface field doctype denormalized) |
+| `imm00.resolve_qr_token` (`resolveQrToken`) | oneOf `[QrResolveEnvelope \| Error]` (**C6** §5c read-path) | `QrResolveResult` ← `services/imm00.py:303-315` | `name, asset_code, lifecycle_status, device_model_name, location_name` |
+| `imm00.get_asset_scan_info` (`getAssetScanInfo`) | oneOf `[AssetScanInfoEnvelope \| Error]` (**C6** §5c read-path) | `AssetScanInfo` ← `services/imm00.py:567-602` | `name, asset_code, asset_name, lifecycle_status, device_model_name, location_name, next_pm_date?, next_calibration_date?, pm_overdue, calibration_overdue, recent_maintenance?, available_actions[]` |
+| `imm00.get_asset` (`getAsset`) | oneOf `[AssetDetailEnvelope \| Error]` (**C6** §5c read-path) | `AssetDetail` ← `api/imm00.py:288-324` (AC Asset `as_dict()` enrich + 2 overdue) | core: `name, asset_code, lifecycle_status, *_name…, next_*_date?, pm_overdue, calibration_overdue` (`additionalProperties:true` vì `as_dict()` surface field doctype denormalized) |
 | `imm08.create_pm_work_order` (`createPmWorkOrder`) | oneOf `[CreatePmWorkOrderCreatedEnvelope \| Error]` (§5c) | `CreatePmWorkOrderResponse` ← `services/imm08.py:836-840` | `name, status, checklist_items_count` |
+
+> 🔵 **C6 — read-path P1 closure (2026-06-11):** 3 GET read 200 ĐÃ ĐỔI từ single `$ref <ReadEnvelope>` → **oneOf `[<ReadEnvelope>, Error]`** CLOSED-SCHEMA Decision-B (KHÔNG discriminator, mirror create §5c). LÝ DO: in-handler business error của 3 read **arrive HTTP-200 + Error body** — y hệt create-path P1: **404** (`_err(…,404)` — `get_asset` `imm00.py:297` / `resolve_qr_token` `imm00.py:366` / `get_asset_scan_info` `imm00.py:416,425`) + **vendor-IDOR-403** (`assert_vendor_can_access` → `ServiceError(FORBIDDEN)` **caught** → `_err(e.message, e.code)` — `get_asset` `imm00.py:302` / `resolve` `imm00.py:371` / `scan-info` `imm00.py:421`). TRƯỚC C6, 200 single-`$ref` ⇒ codegen KHÔNG có deser-branch `Error` cho read → in-handler 404/403 = **dead-deser**. Sau C6, 2 nhánh máy-phân-biệt bằng `additionalProperties:false` (ENVELOPE-level) + disjoint required-set (`[success,data]` vs `[success,error,code,http_status]`) ⇒ codegen route ĐÚNG theo `body.success`/`body.http_status` (KHÔNG cần discriminator boolean — illegal OAS 3.x). **dispatcher-403** (guest/no-token; `resolve`/`scan-info` thêm `rbac.require('asset.read')`; `getAsset` whitelist-only) GIỮ status-line key `403` (trip TRƯỚC `handle()`). `getAsset.data` (`AssetDetail`) GIỮ `additionalProperties:true` (as_dict surface field) — KHÔNG ảnh hưởng disjoint vì ĐÓNG ở tầng **envelope**. Guard: `TC-MOB-OAS-24a..d` (`TestMobileRead200OneOfClosed`) + `TC-MOB-OAS-20a` cập nhật.
 
 - **`AvailableAction`** (element của `available_actions[]`) = shape CHÍNH XÁC `{key, label, route, enabled, reason}` ← `_build_available_actions` (`services/imm00.py:528-534`); `enabled = has_cap ∩ lifecycle_allows` (SSoT). **KHÔNG chứa `qr_token`** (no-raw-token parity).
 - **`pm_overdue`/`calibration_overdue`** = **SERVER-FLAG SSoT** (`_is_pm_overdue`/`_is_calibration_overdue`, tz-safe, exempt BLOCKED_FOR_WO) — FE **CHỈ render cờ**, KHÔNG so ngày client (memory: overdue-server-flag-SSoT).
 - **`createPmWorkOrder`**: 200 = oneOf `[Created | Error]` (§5c) — in-handler 422 (thiếu field/schedule-mismatch `imm08.py:791,802`) + 404 (PM Schedule∄ `imm08.py:800`) + 409 (asset BAD_STATE `imm08.py:815`) arrive HTTP-200 body. 403 = single-shape `Forbidden` (`rbac.require('pm.create')` `imm08.py:92` dispatcher-403). requestBody = form_dict required `[asset_ref, pm_schedule, due_date]` (`imm08.py:788`) — typed requestBody schema = **backlog Phase-C kế** (R4 type RESPONSE trước).
 
-**🔴 2 device-token = `[ROADMAP]` BE-PENDING (GIỮ STUB — BA gate KHÔNG bịa endpoint):**
+**🟢 2 device-token = TYPED ở EPIC-D D4 (Vòng 17) — service D2 ĐÃ tồn tại @source ⇒ GỠ STUB. Xem §8.9 dưới.**
 
-- `mobile.v1.register_device_token` / `mobile.v1.unregister_device_token` — **handler CHƯA tồn tại @source** (`api/mobile/` chỉ có `__init__.py` + `preflight.py`; KHÔNG có hàm register/unregister, KHÔNG có doctype `AC Mobile Device Token`). **BA GATE:** KHÔNG type `data` cho endpoint chưa có code (R-CD-4 cam-kết-Roadmap-không-cam-kết-hiện-trạng). GIỮ STUB 200→`responses/Stub` + 401/403; summary đánh dấu `[ROADMAP Phase E]`. Hợp đồng DỰ KIẾN khi BE implement (ack `{success, device_token_id?}` / `{success}`) ghi trong description + ADR-MOBILE-001 (h).
+- `mobile.v1.register_device_token` / `mobile.v1.unregister_device_token` — **R4 còn STUB** vì handler+service CHƯA tồn tại. **EPIC-D D2** (Vòng 16) tạo `services/mobile_device_token.py` (3-tier, GROUNDED) ⇒ **D4** (Vòng 17) type `data` GROUNDED chữ-ký service THẬT (KHÔNG còn bịa). Chi tiết §8.9.
 
 **Bất biến vòng này (đối chiếu `TC-MOB-OAS-20` + `TC-MOB-OAS-07`):**
-- STUB: **4→2** (chỉ còn 2 device-token). 4 typed path rời `_STUB_PATHS` (→ hằng `_TYPED_READ_PATHS` + `_CREATE_PM_PATH`) NHƯNG GIỮ `_MVP_BUSINESS_PATHS` ⇒ **symmetry 401/403 (12==12) BẤT BIẾN**.
+- STUB: **4→2** (R4 còn 2 device-token; **D4 §8.9 đưa về 0**). 4 typed path rời `_STUB_PATHS` (→ hằng `_TYPED_READ_PATHS` + `_CREATE_PM_PATH`) NHƯNG GIỮ `_MVP_BUSINESS_PATHS` ⇒ **symmetry 401/403 (12==12) BẤT BIẾN**.
 - 9 component mới (`QrResolveResult/QrResolveEnvelope/AvailableAction/AssetScanInfo/AssetScanInfoEnvelope/AssetDetail/AssetDetailEnvelope/CreatePmWorkOrderResponse/CreatePmWorkOrderCreatedEnvelope`) `$ref`'d NGAY ⇒ KHÔNG orphan; 0 dangling `$ref`. `responses/Stub` VẪN referenced (2 device-token) ⇒ KHÔNG orphan.
+- **🔵 C6 update (2026-06-11):** R4 ban đầu khai 3 read 200 = single `$ref <ReadEnvelope>`. C6 đổi thành **oneOf `[<ReadEnvelope>, Error]`** (read-path P1 closure — xem §5c/§8.7-note). 3 `<ReadEnvelope>` GIỮ NGUYÊN (`$ref` trong oneOf, KHÔNG orphan); thêm nhánh `schemas/Error` (đã tồn tại). `TC-MOB-OAS-20a` cập nhật (single-$ref → oneOf); `_codegen_dry_introspect` read-branch cập nhật (single-$ref → oneOf chứa Env+Error) để C5 GIỮ GREEN. Symmetry 401/403 BẤT BIẾN (read GIỮ trong `_MVP_BUSINESS_PATHS`).
 - **KHÔNG sửa service/api `.py`** (doc/yaml/test introspect-only). Path serve LIVE HTTP chờ USER reload gunicorn — blocker đứng.
+
+---
+
+### 8.8 C5 — codegen-readiness (DoD codegen-dry verify · AUTO introspection proxy)
+
+> **C5 (EPIC-C DoD).** Chốt codegen-readiness bằng **introspection proxy PyYAML STDLIB** (KHÔNG `java`/`npx`) = proxy CHÍNH-THỨC cho codegen-DoD tới khi USER cấp toolchain. Guard sống ở `assetcore/tests/test_mobile_oas.py` class `TestMobileCodegenDryDoD` (`TC-MOB-OAS-23a..e`).
+
+**STUB-count (đối chiếu `TC-MOB-OAS-23b/07`):**
+- **10 path MVP-business = 0 Stub** (typed `data` qua `$ref` schema cụ thể): 3 typed read (`resolveQrToken`/`getAssetScanInfo`/`getAsset` — **sau C6: 200 = oneOf `[<ReadEnvelope>, Error]`**, mỗi nhánh `$ref` typed) + `createPmWorkOrder` + `reportIncident` + `createRepairWorkOrder` + `createCalibration` (4 create: 200 = oneOf `[<Created>, Error]`) + 3 list (`list_pm_work_orders`/`list_repair_work_orders`/`list_incidents`). `_codegen_dry_introspect` read-branch (`TC-MOB-OAS-23d`) nhận diện read-oneOf = typed (chứa `<ReadEnvelope>` + `Error`) — C5 GIỮ GREEN sau C6.
+- **2 device-token = TYPED ở EPIC-D D4 (Vòng 17)** (`register`/`unregister_device_token`) — service D2 ĐÃ tồn tại @source ⇒ 200 = oneOf `[<Created>, Error]` (KHÔNG còn `Stub`). `_STUB_PATHS` NAY = ∅ (0 STUB-on-MVP toàn bộ 12 path). `TC-MOB-OAS-23b` cập nhật: device-token RỜI Stub. `responses/Stub` HẾT referenced → forward-reserve trong `_RESERVED_ORPHANS` (negative-injection guard 23d/24e). Xem §8.9.
+
+**3 guard introspection (chạy KHÔNG-toolchain — `bench --site miyano run-tests --module assetcore.tests.test_mobile_oas` = 108 OK, count HIỆN HÀNH @source Vòng 11 2026-06-11):**
+- **(a / Guard-1)** 0 path MVP còn trỏ `responses/Stub` (KHÔNG Stub-envelope free-form).
+- **(b / Guard-2)** 0 dangling `$ref` toàn spec (mọi `$ref` resolve về node tồn tại — tiền-đề codegen).
+- **(c / Guard-3)** mỗi 10 path MVP có 200-`data` TYPED `$ref`: read=`*Envelope.data` $ref; create=`oneOf [<CreatedEnvelope>, Error]` mỗi nhánh $ref (closed-schema Decision-B); list=response-component→`*Envelope` $ref. KHÔNG generic `{type:object}`.
+
+**Trạng thái toolchain THẬT (KHÔNG tuyên bố "codegen verified" khi chưa chạy generator):**
+
+| Lớp | Cách kiểm | Trạng thái @2026-06-11 |
+|---|---|---|
+| **Proxy (AUTO)** | `TestMobileCodegenDryDoD` introspection PyYAML STDLIB | ✅ **XANH** (108 OK count HIỆN HÀNH @source Vòng 11) — 3 guard PASS. Đây KHÔNG phải codegen THẬT, là **proxy** cho codegen-DoD |
+| **Codegen THẬT** | `npx @openapitools/openapi-generator-cli generate` (đọc `openapitools.json` 3 target) | ❌ **CHƯA chạy** — `java` **NOT FOUND** + generator chưa cài (npx canceled). `[HARD-STOP USER]` → EPIC-V V-U1/V-U2 |
+
+> ⚠️ **Phân biệt rõ:** introspection PyYAML XANH **KHÔNG đồng nghĩa** "codegen Dart/Kotlin verified". Nó khẳng-định spec **đủ điều kiện cần** để codegen (0 Stub-on-MVP · 0 dangling · typed data). Verify **đủ điều kiện đủ** (generator sinh model deser route-by closed-schema thật) = EPIC-V THẬT khi USER cấp `java`+`npx`. `openapitools.json` nay là **runnable-config** (3 generator block: `mobile-dart`/`mobile-kotlin`/`mobile-typescript` trỏ spec) — chuẩn bị handoff V.
+
+---
+
+### 8.9 EPIC-D / D4 — device-token TYPED (gỡ 2 STUB cuối · wrap service D2)
+
+> **EPIC-D D4 (Vòng 17).** Sau D2 (Vòng 16) tạo `services/mobile_device_token.py` (3-tier, GROUNDED), D4 type `data` cho 2 device-token path **GROUNDED chữ-ký service THẬT** (KHÔNG còn `[ROADMAP]` bịa). Handler `api/mobile/v1/device_token.py` (BE impl cùng round) chỉ **wrap service D2** qua `utils/api_handler.handle` — KHÔNG nhồi logic vào controller (CLAUDE.md §15). Sau D4: `_STUB_PATHS = ∅` (0 STUB-on-MVP toàn bộ 12 path).
+
+**2 path rời STUB với `data` typed — đọc service return THẬT (`services/mobile_device_token.py`):**
+
+| operationId | Verb | requestBody | 200 oneOf nhánh Created | `data` (GROUNDED) |
+|---|---|---|---|---|
+| `registerDeviceToken` | POST | `DeviceTokenBody` (`DeviceTokenRequest`) | `RegisterDeviceTokenCreatedEnvelope` | `string` = `name` (hash record, `mobile_device_token.py:153/166` → `_ok(name)`) |
+| `unregisterDeviceToken` | POST | `DeviceTokenBody` (`DeviceTokenRequest`) | `UnregisterDeviceTokenAckEnvelope` | `null` (ack thuần — `unregister` trả `None` → `_ok(None)`, `mobile_device_token.py:172`) |
+
+**`DeviceTokenRequest` (request, closed-schema `additionalProperties:false`):**
+
+- `fcm_token` (**reqd** — khóa dedup UNIQUE, `mobile_device_token.py:94`).
+- `platform` enum `[android, ios]` (**reqd khi register** — Select-canonical `_VALID_PLATFORMS` `mobile_device_token.py:56`; unregister bỏ qua).
+- `device_label?` / `app_version?` (optional telemetry).
+- **KHÔNG có `user`** — server **ÉP** `frappe.session.user` (signature service KHÔNG nhận `user`; `**_ignore` nuốt kwargs lạ → client KHÔNG chọn được chủ token, **chống spoof §6.2**). Client gửi `user` = no-op.
+- `content` oneOf `application/json` + `application/x-www-form-urlencoded` (CÙNG `$ref` — Frappe RPC `form_dict`, §9).
+
+**Response 200 = oneOf `[<Created>, Error]` CLOSED-SCHEMA route-by-VALUE (Decision-B §5c, KHÔNG discriminator):**
+
+- Nhánh Created (`success.enum:[true]`, required `[success, data]`) ∩ nhánh Error (`success.enum:[false]`, required `[success, error, code, http_status]`) = ∅ → 2 nhánh disjoint required-set + closed ⇒ codegen route ĐÚNG theo **GIÁ TRỊ** `body.success` (KHÔNG cần discriminator boolean illegal).
+- in-handler `422 VALIDATION` (register: `fcm_token` rỗng / `platform` ngoài enum, `mobile_device_token.py:130-137`) ARRIVE **HTTP-200** body → gom nhánh Error (KHÔNG status-line key, quirk §5).
+- `401`→`Unauthorized401` (bearer hết-hạn) · `403`→`Forbidden` **single-shape** (guest/no-token = dispatcher `PermissionError` HTTP-403 status-line, `is_whitelisted __init__.py:876`). status-set = `[200, 401, 403]`.
+
+**Bất biến (đối chiếu `TC-MOB-OAS-22` (class `TestMobileDeviceTokenTyped`, 9 TC) + `TC-MOB-OAS-07/23b`):**
+- STUB: **2→0**. 2 device-token RỜI `_STUB_PATHS` (= ∅) NHƯNG GIỮ trong `_DEVICE_TOKEN_FROZEN`/`_MVP_BUSINESS_PATHS`-symmetry ⇒ **symmetry 401/403 (12==12) BẤT BIẾN**. `operationId` FROZEN (A5).
+- 3 component mới (`DeviceTokenRequest` schema · `RegisterDeviceTokenCreatedEnvelope` · `UnregisterDeviceTokenAckEnvelope`) + 1 requestBody (`DeviceTokenBody`) `$ref`'d NGAY ⇒ KHÔNG orphan; 0 dangling `$ref`. `responses/Stub` HẾT referenced → forward-reserve (`_RESERVED_ORPHANS` + bảng RESERVED §8.2).
+- **same-commit wiring (Pattern A):** `hooks.py` `permission_query_conditions` + `has_permission` thêm `'AC Mobile Device Token'` (self-scope `user==frappe.session.user`) wire CÙNG-COMMIT với hàm `permissions.py` (D7) — KHÔNG để hook trỏ hàm chưa tồn tại.
+- **KHÔNG nhận `user` từ client** (§6.2) — handler KHÔNG forward `user`; service ÉP session.
 
 ---
 
@@ -768,6 +873,69 @@ curl -H "Authorization: Bearer <token_calibration.create>" \
 #     Client SHOW "chuyển thiết bị về hoạt động HOẶC dùng tái hiệu chuẩn (is_recalibration=1)".
 #   📌 404 (asset∄) vs 409 (asset∃ nhưng blocked): client phân biệt theo message_code/http_status.
 ```
+
+### 9d. userinfo / whoami + refresh-on-401 (`getUserInfo`) — C4
+
+> **PASSTHROUGH RAW — KHÔNG envelope AssetCore.** `openid_profile` set `frappe.local.response = body` (`oauth2.py:172-174`) ⇒ trả nguyên dict OIDC claims, **KHÔNG bọc `{success,data}`** (§2) và **KHÔNG `{message:}`**. Đây là **cùng pattern passthrough của OAuth token-endpoint** (`getOAuthToken`/`revokeOAuthToken` — xem §5b điểm 1 + [`03-auth-oauth2.md §2`](./03-auth-oauth2.md)): auth-section dùng shape Frappe/OIDC core, KHÔNG dùng AssetCore Error/Success envelope. Client native parse trực-tiếp dict claims.
+
+**(m) Lấy danh tính sau đăng nhập** (bearer hợp lệ, scope `openid`):
+
+```bash
+curl -H "Authorization: Bearer <access_token>" \
+  "https://HOST/api/method/frappe.integrations.oauth2.openid_profile"
+# HTTP/1.1 200 OK   — RAW OIDC claims (KHÔNG envelope)
+# {"sub":"a1b2...","name":"Nguyễn Văn A","given_name":"A","family_name":"Nguyễn Văn",
+#  "email":"ktv01@benhvien.vn","picture":null,
+#  "roles":["Technician","All","Asset User"],"iss":"https://HOST"}
+#   ← get_userinfo oauth.py:530-555. App dùng name + roles hiển thị danh tính KTV (flow-1).
+#     sub/picture có thể null (oauth.py:531-548). KHÔNG {success}/{message} — RAW passthrough.
+```
+
+**(n) Sequence refresh-on-401** (access hết hạn → đóng vòng OAuth2 + refresh, retry MỘT lần):
+
+```bash
+# 1) userinfo với access cũ/hết hạn → 401 (dispatcher RAW Frappe, KHÔNG envelope)
+curl -i -H "Authorization: Bearer <access cũ>" \
+  "https://HOST/api/method/frappe.integrations.oauth2.openid_profile"
+# HTTP/1.1 401 ...
+
+# 2) đổi refresh_token → access mới  (§9 / 03-auth §1.1 bước (e))
+curl -X POST "https://HOST/api/method/frappe.integrations.oauth2.get_token" \
+  -d "grant_type=refresh_token" -d "refresh_token=<refresh>" -d "client_id=<client_id>"
+# HTTP/1.1 200 OK  {"access_token":"<MỚI>","refresh_token":"...","expires_in":3600,...}
+
+# 3) retry userinfo với access MỚI → 200 RAW claims (bước (m))
+curl -H "Authorization: Bearer <access MỚI>" \
+  "https://HOST/api/method/frappe.integrations.oauth2.openid_profile"
+# refresh fail (Revoked/hết hạn) → xoá token Keychain/Keystore → re-auth (03-auth §2.5).
+```
+
+> 📌 Quy tắc refresh-on-401 áp **mọi request** (KHÔNG riêng userinfo): refresh MỘT lần → retry → fail thì re-auth. Cross-ref [`03-auth-oauth2.md §2.5/§2.6`](./03-auth-oauth2.md) (policy app + claims grounded).
+
+---
+
+## 9b. Hai spec OpenAPI phân vai (2-spec-by-design — F-C2)
+
+> Cross-ref quyết định kiến trúc: [`ADR-MOBILE-001.md (k)`](./ADR-MOBILE-001.md). Trạng thái: [`completion/EPIC-C-api-contract.md §F-C2`](./completion/EPIC-C-api-contract.md).
+
+Repo có **HAI** artefact OpenAPI CÓ CHỦ ĐÍCH — KHÔNG hợp nhất; mỗi spec có **1 audience + 1 SSoT rõ**:
+
+| | (A) Runtime spec `openapi.spec` | (B) YAML mobile (file này mô tả) |
+|---|---|---|
+| Nguồn | `api/openapi.py::generate_spec()` (`:1254`) + `openapi_overrides.py` (enrich D1–D16) — sinh ĐỘNG từ introspection chữ-ký hàm | `docs/mobile/openapi/assetcore-mobile.openapi.yaml` — viết tay |
+| OAS | **3.1.0** | **3.0.3** |
+| Path | **487** (toàn bề mặt API) | **16** (4 auth + 10 MVP-business + 2 device-token STUB) |
+| Served | LIVE Swagger UI `www/api-docs.html` (+ `www/api-docs.py`) | KHÔNG serve — file repo cho codegen |
+| Audience / SSoT | **human-browse + integrator** (Swagger UI, full surface) | **codegen repo-native mobile** (subset MVP field-tech) |
+| Decision-B `oneOf[Env,Error]` | **KHÔNG** — create/read 200 = plain `$ref SuccessEnvelope`; key 404/422 dưới HTTP-status-line (KHÔNG phản ánh HTTP-200-quirk §5) | **CÓ ĐẦY ĐỦ** — closed-schema `oneOf` (§5c create + §8.7/C6 read) + requestBody `oneOf json+form` (§9d) |
+
+**Scope-boundary BẮT BUỘC:** codegen mobile **CHỈ** dùng (B) YAML. **KHÔNG** codegen-against-runtime (A): runtime spec create/read 200 = plain `SuccessEnvelope` (KHÔNG nhánh `Error`) ⇒ client sinh-từ-runtime **dead-deser** in-handler **404 / IDOR-403** (lỗi nghiệp vụ arrive HTTP-200 + Error body qua `_err` — §5/§5c). Swagger UI/integrator **CHỈ** dùng (A) runtime (full 487-path).
+
+**Drift-guard [AUTO introspection-only]** — `tests/test_mobile_oas.py::TestMobileSpecParityRuntime` (TC-25a..e): import IN-PROCESS `openapi.generate_spec()` (KHÔNG HTTP/reload/migrate) cross-check 16-path YAML vs runtime. Bất biến: **10 mobile-business path** (loại 2 device-token STUB + 4 auth passthrough) PHẢI tồn tại trong runtime với **CÙNG dotted-path-tail + CÙNG security-class**. Lệch → RED (chống drift câm).
+
+- **⚠️ KNOWN-DIVERGENCE verb `create_calibration`:** runtime suy verb=**GET** (`@frappe.whitelist()` THIẾU `methods=["POST"]` `imm11.py:89`) vs YAML khai **POST** (đúng ngữ nghĩa). Allowlist trong guard; fix @source = thêm `methods=["POST"]` (đụng `api/*.py` ⇒ HARD-STOP reload) = **Phase-F backlog**.
+
+**HARD-STOP USER = backlog Phase-F:** (1) port Decision-B vào `openapi_overrides.py` để runtime carry `oneOf` (A2 — đụng runtime + reload); (2) codegen-against-runtime live HTTP (gate EPIC-V); (3) fix `create_calibration` decorator.
 
 ---
 

@@ -68,6 +68,7 @@ Action-từ-mobile sinh audit qua `set_user(token.user)`→`log_audit_event` (`l
 **Ràng buộc / phải làm:**
 
 - **Phase B (HARD-STOP USER):** nginx rate-limit oauth2.*, `allow_cors` list-origin, HTTPS/TLS, OAuth Client least-privilege scope-set, creds `site_config`. Agent KHÔNG tự thực thi.
+- **PROD TẮT `allow_error_traceback` (System Setting=0)** (HARD-STOP USER) — chống leak traceback/SQL ở body 401/403/429 (T-leak). Gate THẬT = `is_traceback_allowed()` (`response.py:60-65`) đọc `get_system_settings("allow_error_traceback")` (System Setting field `system_settings.json:263`, default 1 = ON ⇒ prod mặc-định LEAK; dùng ở `response.py:36/:182/:190/:203`). **GHI RÕ: gate KHÔNG phải `developer_mode` / `site_config`** — đổi qua desk hoặc `bench execute` (verify `is_traceback_allowed → False`); đồng bộ checklist `08 §4`.
 - **Repo native (Phase D):** token Keychain/Keystore, cert-pinning, KHÔNG log token, PKCE S256, revoke khi logout/mất máy.
 - **Phase F:** pentest bề mặt OAuth2 + token; baseline KPI bảo mật *(Cần khảo sát khi có traffic thật)*.
 

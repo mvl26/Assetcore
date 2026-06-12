@@ -108,6 +108,7 @@
 | **(c)** | App đổi `code`→token. BE: validate grant_type, **PKCE check** (tính lại challenge từ `code_verifier` so với cái đã lưu), trả token. | `grant_type=authorization_code`, `code`, `redirect_uri`, `client_id`, **`code_verifier`** | `get_token` whitelisted `allow_guest=True` — `oauth2.py:123-124`; grant hợp lệ — `oauth.py:187`; PKCE S256 verify — `oauth.py:146-164`; thiếu `code_verifier` khi có challenge → xoá code + reject — `oauth.py:151-155`. |
 | **(d)** | App gắn `Authorization: Bearer <access_token>` mọi request nghiệp vụ. BE verify → `set_user` → RBAC capability áp nguyên vẹn. | header `Authorization: Bearer <token>` | `validate_oauth` — `auth.py:633`; `frappe.set_user(token.user)` — `auth.py:667`; `rbac.can` → `has_permission` — `rbac.py:156-168`. |
 | **(e)** | Khi access hết hạn (hoặc nhận 401), app đổi `refresh_token`→access mới (KHÔNG bắt user login lại). | `grant_type=refresh_token`, `refresh_token` | grant hợp lệ — `oauth.py:187`; `get_original_scopes`/`validate_refresh_token` (status=Active) — `oauth.py:244-296`. |
+| **(e2) userinfo / whoami** | Sau khi có access token, app GET `openid_profile` → lấy **danh tính** (tên + role) hiển thị màn KTV (đóng mảnh flow-1). RAW claims, KHÔNG envelope. | header `Authorization: Bearer <token>` (scope `openid`) | `openid_profile` whitelisted **KHÔNG `allow_guest`** (bearer bắt buộc) — `oauth2.py:163`; claims `get_userinfo` — `oauth.py:530-555`; set `frappe.local.response = body` (passthrough RAW) — `oauth2.py:172-174`. |
 | **(f)** | Logout / mất máy: thu hồi token (RFC 7009). | `token`, `token_type_hint` (`access_token`/`refresh_token`) | `revoke_token` whitelisted `allow_guest=True` — `oauth2.py:144-145`; set `status="Revoked"` — `oauth.py:262-268` (method `revoke_token` def `oauth.py:252`). |
 
 > **OIDC discovery (tuỳ chọn, hỗ trợ tự-cấu-hình app):** `openid_configuration` (whitelisted `allow_guest=True` — `oauth2.py:180-181`) trả issuer + endpoint URLs (`id_token_signing_alg_values_supported=["HS256"]`). App có thể đọc để lấy `authorization_endpoint`/`token_endpoint` thay vì hard-code.
@@ -236,6 +237,39 @@ http --form POST https://$HOST/api/method/frappe.integrations.oauth2.revoke_toke
 | **Refresh thất bại** (refresh hết hạn / `Revoked` / lỗi) | Xoá token khỏi Keychain/Keystore → **re-auth** (chạy lại sequence từ bước (a)). KHÔNG vòng lặp refresh vô hạn. |
 | **Logout chủ động / mất máy** | Gọi **revoke** (2.3) → xoá token local. |
 | **Lưu token** | Keychain/Keystore. KHÔNG SharedPreferences/UserDefaults plaintext, KHÔNG log token. |
+
+### 2.6 userinfo / whoami — danh tính KTV sau đăng nhập (C4)
+
+> **Mục đích (flow-1):** sau khi đổi `code`→token, app cần hiển thị **danh tính người dùng** (tên + role KTV) ở màn chính / header. Endpoint OIDC userinfo của Frappe core đáp ứng việc này — KHÔNG cần endpoint AssetCore riêng.
+
+- **Endpoint:** `GET /api/method/frappe.integrations.oauth2.openid_profile` — `operationId getUserInfo`.
+- **Bearer bắt buộc:** `openid_profile` whitelisted **KHÔNG `allow_guest`** (`oauth2.py:163`) ⇒ guest/no-token/expired → **dispatcher-401** (RAW Frappe). Scope cần `openid`.
+- **Claims (RAW passthrough — KHÔNG envelope AssetCore):** `openid_profile` set `frappe.local.response = body` trực tiếp (`oauth2.py:172-174`) ⇒ trả nguyên dict OIDC, **KHÔNG bọc `{success,data}` hay `{message:}`**. Claims từ `get_userinfo` (`oauth.py:530-555`):
+
+| Claim | Kiểu | Nguồn @oauth.py | Ghi chú |
+|---|---|---|---|
+| `sub` | string \| **null** | `:531-535` (User Social Login.userid provider=frappe) | null nếu user chưa có social-login record |
+| `name` | string | `:537` (`join(first_name,last_name)`) | App hiển thị tên KTV |
+| `given_name` | string | `:538` (`first_name`) | |
+| `family_name` | string | `:539` (`last_name`) | |
+| `email` | string | `:540` (`user.email`) | |
+| `picture` | string \| **null** | `:529-548` (`user_image` resolve URL) | null nếu không có ảnh |
+| `roles` | array\<string\> | `:541` (`frappe.get_roles(user)`) | App map sang nhãn KTV / persona |
+| `iss` | string | `:542` (server URL) | issuer |
+
+- **Sequence refresh-on-401 (đóng vòng OAuth2 + refresh):**
+
+```text
+app → GET openid_profile  (Authorization: Bearer <access cũ/hết hạn>)
+   ← 401 (dispatcher, RAW Frappe)
+app → POST get_token  grant_type=refresh_token & refresh_token=<refresh>   [§1.1 bước (e)]
+   ← 200 {access_token mới, refresh_token, expires_in}
+app → GET openid_profile  (Authorization: Bearer <access MỚI>)  [retry MỘT lần]
+   ← 200 {sub, name, given_name, family_name, email, picture, roles[], iss}   (RAW)
+# refresh fail (refresh Revoked/hết hạn) → xoá token Keychain/Keystore → re-auth (§2.5)
+```
+
+> Quy tắc refresh-on-401 GIỐNG mọi request nghiệp vụ (§2.5): refresh MỘT lần → retry; fail → re-auth. KHÔNG vòng lặp refresh vô hạn.
 
 ---
 

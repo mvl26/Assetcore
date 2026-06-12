@@ -79,6 +79,11 @@
 
 > Cả hai stack đều thoả D-STACK (native, HTTP-client riêng KHÔNG chịu CORS browser, PKCE S256 — `01-architecture.md §1`). Quyết định cuối thuộc đội Phase D; tài liệu này không khoá.
 
+> **V3-BA — chốt "Dart/Kotlin vs Dart+TypeScript" (EPIC-V V3, 2026-06-12).** DoD EPIC-V ghi "gen client **Dart/Kotlin**" trong khi PROSE-SAMPLE chương này chỉ minh hoạ **Dart** (`dart-dio` §2.1) + **TypeScript** (`typescript-axios` §2.2). Reconcile **KHÔNG để mâu thuẫn config↔docset**:
+> - **Codegen-config (`openapitools.json` SSoT) = 3 generator THẬT:** `mobile-dart` (`dart-dio`) · `mobile-kotlin` (`kotlin`, `library: jvm-retrofit2`) · `mobile-typescript` (`typescript-axios`). ⇒ **Kotlin LÀ target codegen hợp lệ** (DoD "Dart/Kotlin" thoả ở tầng config — V-U1/V-U2 verify Dart+Kotlin). Đây là SSoT quyết định, KHÔNG phải prose-sample.
+> - **Prose-sample chương 09 = Dart + TypeScript** (2 generator điển hình của trade-off §1.1 Flutter vs RN). **Kotlin = config-only** (chạy được từ `openapitools.json` khi USER cấp toolchain `java`+`npx`; KHÔNG cần sample prose riêng — tên method = `operationId` ổn định mọi generator, §2.3). Thêm sample Kotlin = bloat KHÔNG cần (3 generator dùng CÙNG yaml + CÙNG operationId).
+> - **Kết luận (KHÔNG re-litigate):** DoD GIỮ "Dart bắt buộc; Kotlin/TS theo `openapitools.json`" — KHÔNG narrow về "Dart + TypeScript" (sẽ bỏ rơi target Kotlin đã khai trong config + DoD). Docset phủ: Dart-sample + TS-sample (prose) + Dart/Kotlin/TS (config runnable). Hết mâu thuẫn.
+
 ### 1.2 Skeleton Flutter (đề xuất)
 
 ```
