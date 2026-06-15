@@ -3,7 +3,7 @@
 // Đảm bảo: createObjectURL gọi 1 lần · iframe tạo + chèn DOM · contentWindow.print()
 // gọi · onafterprint → onAfterPrint(names) + revokeObjectURL gọi (no leak) · iframe
 // gỡ khỏi DOM · lỗi fetcher → error set + trả null (KHÔNG throw chưa-bắt).
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from 'vitest'
 import { defineComponent, h } from 'vue'
 import { mount } from '@vue/test-utils'
 import { usePdfLabelPrint } from './usePdfLabelPrint'
@@ -18,6 +18,23 @@ function makeHost(fetcher: (names: string[]) => Promise<Blob>) {
   const wrapper = mount(Host)
   return { wrapper, get api() { return exposed } }
 }
+
+// jsdom 29 cố navigate <iframe> khi `src` (blob:) được set → tạo document
+// opaque-origin → truy cập localStorage ném SecurityError (vitest 4 fail test khi
+// unhandled). Production ĐÚNG (browser thật navigate blob: bình thường); trong test
+// ta chỉ LƯU giá trị src (không set content-attribute) để jsdom KHÔNG navigate.
+let _origIframeSrc: PropertyDescriptor | undefined
+beforeAll(() => {
+  _origIframeSrc = Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, 'src')
+  Object.defineProperty(HTMLIFrameElement.prototype, 'src', {
+    configurable: true,
+    get() { return (this as unknown as { __src?: string }).__src ?? '' },
+    set(v: string) { (this as unknown as { __src?: string }).__src = v },
+  })
+})
+afterAll(() => {
+  if (_origIframeSrc) Object.defineProperty(HTMLIFrameElement.prototype, 'src', _origIframeSrc)
+})
 
 let createSpy: ReturnType<typeof vi.fn>
 let revokeSpy: ReturnType<typeof vi.fn>

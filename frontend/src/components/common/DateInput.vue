@@ -20,7 +20,7 @@ const emit = defineEmits<{
   (e: 'change', v: string): void
 }>()
 
-const { text, nativeRef, onInput, onBlur, onNativeChange, openPicker } =
+const { text, onInput, onBlur, onNativeChange, openPicker } =
   useMaskedDateInput(() => props.modelValue, emit, dateMaskConfig)
 </script>
 

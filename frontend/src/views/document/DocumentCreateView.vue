@@ -43,7 +43,6 @@ const form = ref({
 const { clear: clearDraft } = useFormDraft('document-create', form)
 
 // File upload state
-const fileInputRef = ref<HTMLInputElement | null>(null)
 const selectedFile = ref<File | null>(null)
 const fileError = ref('')
 
@@ -311,7 +310,6 @@ function goBack() {
           <label for="field-file-attachment">File đính kèm <span class="required">*</span></label>
           <input
             id="field-file-attachment"
-            ref="fileInputRef"
             type="file"
             accept=".pdf,.jpg,.jpeg,.png,.docx"
             class="input"

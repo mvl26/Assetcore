@@ -38,7 +38,6 @@ const results     = ref<UserOption[]>([])
 const loading     = ref(false)
 const open        = ref(false)
 const highlighted = ref(-1)
-const inputRef    = ref<HTMLInputElement | null>(null)
 const selectedUser = ref<UserOption | null>(null)
 
 // ─── Debounce search ──────────────────────────────────────────────────────────
@@ -204,7 +203,6 @@ watch(() => props.modelValue, (val) => {
       <!-- Search input when no user selected -->
       <template v-else>
         <input
-          ref="inputRef"
           type="text"
           :value="query"
           :disabled="disabled"

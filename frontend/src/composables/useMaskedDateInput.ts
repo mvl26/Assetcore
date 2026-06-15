@@ -1,6 +1,6 @@
 // Composable dùng chung cho DateInput / DateTimeInput.
 // Quản lý text mask + sync với modelValue + mở native picker.
-import { ref, watch, type Ref } from 'vue'
+import { ref, watch, useTemplateRef, type Ref } from 'vue'
 
 export interface DateMaskConfig {
   isoToDisplay: (iso: string | number | null | undefined) => string
@@ -12,7 +12,6 @@ export interface DateMaskConfig {
 
 export interface MaskedDateInputApi {
   text: Ref<string>
-  nativeRef: Ref<HTMLInputElement | null>
   onInput: (e: Event) => void
   onBlur: () => void
   onNativeChange: (e: Event) => void
@@ -30,7 +29,11 @@ export function useMaskedDateInput(
   config: DateMaskConfig,
 ): MaskedDateInputApi {
   const text = ref('')
-  const nativeRef = ref<HTMLInputElement | null>(null)
+  // CONTRACT: consumer phải bind `ref="nativeRef"` trên <input> native.
+  // useTemplateRef (Vue 3.5) wire phần tử về composable mà không cần
+  // consumer destructure/expose biến — tránh false-positive noUnusedLocals
+  // dưới vue-tsc 3 (template string-ref không tính là "read").
+  const nativeRef = useTemplateRef<HTMLInputElement>('nativeRef')
 
   watch(modelValue, (v) => {
     const next = config.isoToDisplay(v)
@@ -82,7 +85,7 @@ export function useMaskedDateInput(
     el.click()
   }
 
-  return { text, nativeRef, onInput, onBlur, onNativeChange, openPicker }
+  return { text, onInput, onBlur, onNativeChange, openPicker }
 }
 
 const NON_DIGIT_RE = /\D/g
