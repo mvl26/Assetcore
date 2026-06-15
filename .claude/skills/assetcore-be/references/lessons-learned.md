@@ -61,7 +61,7 @@ def _get_needs_request(name):
 
 **Quy tắc**: mọi field kiểu Link bắt buộc có `_name` companion trong response. Dùng pattern `_enrich()` batch (xem `imm00.py`) cho list endpoints để tránh N+1.
 
-**List endpoint pattern chuẩn (CONVENTIONS §37)** — bug recurring 2026-05-27 `list_user_competencies`:
+**List endpoint pattern chuẩn** — bug recurring 2026-05-27 `list_user_competencies`:
 ```python
 def list_user_competencies(filters, *, page=1, page_size=20) -> dict:
     rows, pg = UserCompetencyRepo.list(filters=..., fields=[..., "device_model"], ...)
@@ -566,7 +566,6 @@ WHERE name IN (SELECT name FROM (SELECT name FROM `tabIMM Audit Trail` WHERE ...
 - [ ] Mọi giá trị từ user/string interpolation → dùng param `%s` với tuple
 - [ ] Mọi LIKE pattern chứa `_` hoặc `%` literal → escape `\_` `\%` + ESCAPE clause
 - [ ] Mọi subquery trên cùng table đang mutate → wrap alias `(SELECT ... ) x`
-- [ ] Reference: `CONVENTIONS.md §32`
 
 ### LL-BE-22: Verify column tồn tại TRƯỚC khi viết raw SQL (2026-05-27)
 
@@ -604,7 +603,7 @@ WHERE name IN (SELECT name FROM (SELECT name FROM `tabIMM Audit Trail` WHERE ...
 | `source_doctype` (IMM Audit Trail) | `ref_doctype`, `ref_name` |
 | `reported_issue` (Asset Repair) | `failure_description` |
 
-Reference: `CONVENTIONS.md §32 (c)`, `assetcore-audit` data-hygiene pillar.
+Reference: `assetcore-audit` data-hygiene pillar.
 
 ### LL-BE-23: Lifecycle Hook Chain — cross-module trigger PHẢI wire + idempotent + audit (2026-05-27)
 
@@ -685,7 +684,7 @@ Bug records:
    # Đối chiếu mỗi terminal transition với 04_Backend_Design.md §Cross-Module Triggers
    ```
 
-Reference: `CONVENTIONS.md §40`, `assetcore-audit` Pillar 9, `docs/res/reports/AssetCore_Test_Plan_NextRound_1_Analysis.md` §3.
+Reference: `assetcore-audit` Pillar 9, `docs/res/reports/AssetCore_Test_Plan_NextRound_1_Analysis.md` §3.
 
 ### LL-BE-24: Whitelist Permission Backup Gate — BE PHẢI gate, không tin FE hide (2026-05-27)
 
@@ -741,7 +740,7 @@ Reference: `CONVENTIONS.md §40`, `assetcore-audit` Pillar 9, `docs/res/reports/
    done
    ```
 
-Reference: `CONVENTIONS.md §41`, `assetcore-audit` Pillar 8 Security.
+Reference: `assetcore-audit` Pillar 8 Security.
 
 ### LL-BE-25: Auto-Default Field on Create — `before_save` controller hook (2026-05-27)
 
@@ -779,7 +778,7 @@ Reference: `CONVENTIONS.md §41`, `assetcore-audit` Pillar 8 Security.
 
 5. **Trace check**: với mọi field downstream service đọc (vd `services/imm05.py:generate_depreciation_schedule` đọc `asset.depreciation_method`), trace ngược nơi field được set. Nếu không có default + không required → bug tái xuất.
 
-Reference: `CONVENTIONS.md §44`, `docs/res/reports/AssetCore_Test_Plan_NextRound_1_Analysis.md` §3 RC-02.
+Reference: `docs/res/reports/AssetCore_Test_Plan_NextRound_1_Analysis.md` §3 RC-02.
 
 ### LL-BE-26: State machine — MỌI state khai báo phải REACHABLE (2026-05-29)
 
@@ -1236,7 +1235,7 @@ Cross-ref: LL-BE-45 (in-handler error HTTP-200), LL-BE-55 (PDF label render), `_
 
 **Rule (kiểm được):** panel ngữ-cảnh read-only cho field-tech (scan-action, mobile preflight) dùng endpoint NẠC riêng (vd `get_asset_action_meta` trả CHỈ `asset_name`/`device_model_name`/`location_name`/`lifecycle_status`/`risk_classification`) — KHÔNG `get_asset` full-doc. Data-minimization = bảo mật + nghiệp vụ (least-data theo persona). DONE-gate: endpoint context-panel → assert payload KHÔNG có key tài chính (`purchase_value`/`book_value`/`depreciation*`/`acquisition_cost`...).
 
-Cross-ref: LL-BE-49 (rbac gate cap-SSoT), vendor-isolation/data-minimization §5 CONVENTIONS; memory `mobile_be_openapi_contract_gotchas`; session run50 scan-action panel.
+Cross-ref: LL-BE-49 (rbac gate cap-SSoT), vendor-isolation/data-minimization; memory `mobile_be_openapi_contract_gotchas`; session run50 scan-action panel.
 
 ### LL-BE-58: Enum TRÙNG TÊN ≠ TRÙNG DOMAIN — không suy diễn logic cross-domain (2026-06-12)
 
