@@ -56,7 +56,7 @@ Bug: PP detail chỉ có nút "Đưa NR vào kế hoạch" cho state Draft, thi�
 
 Bug recurring: subtitle hiển thị `AC-DEPT-0101` thay vì `Khoa Tim mạch can thiệp`. Field `requesting_department` là Link, FE phải đọc `requesting_department_name` (BE đã enrich).
 
-**Bug 2026-05-27** (IMM-06 CompetencyListView): `c.device_model` render `IMM-MDL-2026-0023` thay vì "Dräger Evita V500" — BE quên enrich + FE quên fallback. Fix yêu cầu cả 2 phía (xem CONVENTIONS §37 + §38).
+**Bug 2026-05-27** (IMM-06 CompetencyListView): `c.device_model` render `IMM-MDL-2026-0023` thay vì "Dräger Evita V500" — BE quên enrich + FE quên fallback. Fix yêu cầu cả 2 phía.
 
 ```vue
 <!-- ❌ SAI -->
@@ -72,8 +72,8 @@ Bug recurring: subtitle hiển thị `AC-DEPT-0101` thay vì `Khoa Tim mạch ca
 
 **Quy tắc**:
 1. Snapshot Playwright → grep tìm `AC-*`, `IMM-*`, `email@...` — nơi nào không phải là link/ID thuần thì bug.
-2. Chạy CONVENTIONS §0 GATE-2 grep trước khi mark Done — bắt mọi biến (`row`, `item`, `doc`, `c`, `r`, `x`) reference Link field thiếu `_name`.
-3. Nếu BE chưa enrich `<field>_name`, FE KHÔNG được hardcode lookup ở FE — sửa BE (xem `assetcore-be` LL-BE-2 + CONVENTIONS §37) rồi FE mới render.
+2. Chạy GATE-2 grep trước khi mark Done — bắt mọi biến (`row`, `item`, `doc`, `c`, `r`, `x`) reference Link field thiếu `_name`.
+3. Nếu BE chưa enrich `<field>_name`, FE KHÔNG được hardcode lookup ở FE — sửa BE (xem `assetcore-be` LL-BE-2) rồi FE mới render.
 
 ### LL-FE-7: Frappe child table — KHÔNG hiển thị `row.name`
 
@@ -543,7 +543,7 @@ Bug 2026-05-26 (BUG-006/007/011): Calibration "Bắt đầu" + Training "Thêm h
    # Mỗi empty const → grep usage để migrate
    grep -rn "ROLES_CAL_EXECUTE\|ROLES_TRAINING_MANAGE" frontend/src/
    ```
-4. CONVENTIONS §11 đã forbid `hasAnyRole(ROLES_*)` — empty arrays là FE-side violation chính của rule này.
+4. `hasAnyRole(ROLES_*)` is forbidden — empty arrays là FE-side violation chính của rule này.
 5. Reference: `composables/useCapabilities.ts`, `services/shared/rbac.CAPABILITY_MAP`.
 
 ### LL-FE-23: Khi action không render do permission, PHẢI show explicit hint — không silent empty panel
@@ -703,7 +703,7 @@ grep -n "supplier\|location" frontend/src/views/<domain>/<X>DetailView.vue
    done
    ```
 
-Reference: `CONVENTIONS.md §42`, `assetcore-be` LL-BE-23 (hook chain), `assetcore-audit` Pillar 5 + Pillar 9.
+Reference: `assetcore-be` LL-BE-23 (hook chain), `assetcore-audit` Pillar 5 + Pillar 9.
 
 ### LL-FE-29: KPI Scope Disambiguation — label phải nêu rõ phạm vi (2026-05-27)
 
@@ -759,7 +759,7 @@ Reference: `CONVENTIONS.md §42`, `assetcore-be` LL-BE-23 (hook chain), `assetco
 
 6. **Document scope trong page header**: list page có filter scope → render `<PageHeader subtitle="Hiển thị: Của tôi" />` để user thấy ngay phạm vi đang xem.
 
-Reference: `CONVENTIONS.md §43`, `assetcore-fe` LL-FE-17 (KPI consistency — bổ trợ).
+Reference: `assetcore-fe` LL-FE-17 (KPI consistency — bổ trợ).
 
 ### LL-FE-39: KPI/tile clickable PHẢI có đích lọc THẬT — nếu không thì render TĨNH (2026-05-29)
 
