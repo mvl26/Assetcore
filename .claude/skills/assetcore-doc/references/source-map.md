@@ -111,12 +111,12 @@ Dùng cho:
 |---|---|
 | 04 §I DocType design | `.claude/skills/assetcore-doctype-designer/SKILL.md` |
 | 04 §III Workflow | `.claude/skills/assetcore-workflow-builder/SKILL.md` |
-| 04 §IV Service 3-tier | `.claude/skills/CONVENTIONS.md` §2 + `assetcore-be-module/SKILL.md` |
-| 05 API envelope | `CONVENTIONS.md` §3 |
+| 04 §IV Service 3-tier | `assetcore-be-module/SKILL.md` |
+| 05 API envelope | `assetcore-be-module/SKILL.md` (envelope contract) |
 | 05 ErrorCode catalog | `assetcore/services/shared/constants.py` (đọc thật) |
 | 06 FE pattern | `.claude/skills/assetcore-fe-module/SKILL.md` |
-| 07 Test standard | `CONVENTIONS.md` §6 |
-| 08 Permission model | `CONVENTIONS.md` §5 + `assetcore-security/SKILL.md` |
+| 07 Test standard | `assetcore-test/SKILL.md` |
+| 08 Permission model | `assetcore-security/SKILL.md` |
 
 ## Anti-patterns khi fill source
 
