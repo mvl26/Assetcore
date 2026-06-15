@@ -28,6 +28,16 @@
 
 ---
 
+## ADR — Quyết định kiến trúc
+
+| ADR | Phạm vi | Trạng thái |
+|---|---|---|
+| [`ADR-IMM12-REPORT-FAILURE.md`](./ADR-IMM12-REPORT-FAILURE.md) | **V4-GATE Báo hỏng e2e từ quét QR** — D1 cap-gate `corrective.create` 3-tier parity (đóng lỗ leo quyền P1) · D2 canonical lifecycle `incident_reported` + provenance `source` · D3 FE field-lock + source · D4 scope-guard | ✅ Accepted (2026-06-08) |
+
+> ADR là quyết định cuối cho slice tương ứng. Khi mâu thuẫn doc ↔ ADR → ADR thắng. Liên quan: `../imm-00/ADR-IMM00-QR-SCAN-ACTION.md`, `../imm-00/ADR-IMM00-ASSETCODE.md`.
+
+---
+
 ## Map cũ → Template chuẩn
 
 | Template (chuẩn mới) | File cũ (reference) | Ghi chú |

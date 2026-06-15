@@ -15,10 +15,36 @@ description: >
 
 # AssetCore Doc — Tài liệu, Domain & Integration
 
-Skill này xử lý 3 nhiệm vụ liên quan đến tài liệu:
-1. **Quản trị bộ docs module** (imm-XX/): rà soát, sinh, chuẩn hóa theo template 8 file
+## Overview
+
+Skill này quản trị tài liệu phát triển AssetCore và grounding knowledge để thiết kế đúng. Nguyên tắc cốt lõi: **Light-touch** (bổ sung/vá, KHÔNG rewrite content đã tốt) cho docs nội bộ; **Verify-Before-Claim** (mọi claim kỹ thuật phải có `file:line` evidence hoặc nhãn `[ROADMAP]`) cho customer-facing docs. Tài liệu module là input bắt buộc cho `assetcore-be` / `assetcore-fe` — docs sai/thiếu → code lệch.
+
+Skill xử lý 3 nhiệm vụ liên quan:
+1. **Quản trị bộ docs module** (imm-XX/): rà soát, sinh, chuẩn hóa theo template 9 file
 2. **Domain knowledge** WHO HTM / NĐ98 / GMDN: cung cấp kiến thức regulatory để ground thiết kế
 3. **Cross-module integration patterns**: thiết kế feature chạm >1 IMM module
+
+## When to Use
+
+- Rà soát / sinh / chuẩn hóa docs module (imm-XX/) theo template 9 file; fill module thiếu.
+- Cần ground domain regulatory (WHO HTM stage, NĐ98 article, GMDN, compliance mapping) trước khi thiết kế.
+- Thiết kế feature chạm >1 IMM module (dependency, event hooks, gates, shared enum).
+- Viết / review customer-facing doc (`docs/res/*.docx`, proposal, escrow, technical reply) — verify claim.
+- **KHÔNG dùng khi**: viết code BE/data model (→ `assetcore-be`), code FE (→ `assetcore-fe`),
+  viết/chạy test (→ `assetcore-test`), hoặc còn ở mức ý tưởng chưa chốt module (→ `assetcore-plan`).
+
+---
+
+## Process — chọn nguồn chuẩn rồi light-touch + verify-before-claim
+
+Quy trình từng bước (spine — chi tiết ở mục dưới):
+1. **Chọn nguồn chuẩn** — ground theo source hierarchy (WHO/NĐ98/GMDN > Architecture > docs nội bộ) → §References trong skill, §Tham chiếu chéo, [`references/source-map.md`].
+2. **Quản trị bộ 9-file module** — light-touch (bổ sung/vá, không rewrite) + spec-before-code gate + Boundaries Always/Ask/Never → §Phần 1 — Quản trị bộ tài liệu module.
+3. **HTM domain knowledge** — WHO HTM stage / NĐ98 / GMDN, cite nguồn + flag `[UNVERIFIED]` → §Phần 2 — HTM Domain Knowledge.
+4. **Cross-module integration** — dependency graph, event hooks, gates, shared enum (lazy-import + truyền PK) → §Phần 3 — Cross-Module Integration Patterns.
+5. **Customer-facing docs** — Verify-Before-Claim + evidence cross-check + remap stale name + đếm số thật → §Phần 4 — Customer-Facing Docs (sales, proposal, escrow, technical reply).
+6. **ADR khi quyết định kiến trúc** — Context/Decision/Consequences; đổi thì Supersede, không xoá ADR cũ → §Phần 5 — Named principles (absorb từ agent-skills).
+7. **Verification** — đối chiếu thật (link file thật, claim có evidence/`[ROADMAP]`, grep stale=0), không "có vẻ đủ" → §Verification.
 
 ---
 
@@ -55,7 +81,9 @@ docs/
 
 **File count rule**: module folder đủ chuẩn có **9 files** (README + 02-09). `_REPORT.md` là output audit — không phải required deliverable. Template kit có 12 files nhưng chỉ 9 được copy sang module folder.
 
-### 17 module (snapshot 2026-05-10)
+### 17 module nghiệp vụ + IMM-00 = 18 tổng (xem R-CD-3) — snapshot 2026-05-10
+
+> Bảng dưới liệt kê 17 module nghiệp vụ (IMM-01..17). Tính cả IMM-00 (master/cross-cutting) thì tổng = **18 module (IMM-00..17)** — xem R-CD-3 (Phần 4).
 
 | Khối | Module | Trạng thái docs |
 |---|---|---|
@@ -71,12 +99,16 @@ docs/
 
 Module thiếu = **5** (IMM-07, 10, 13, 14, 17).
 
+> 🗂️ Catalog 17 module với metadata đầy đủ: [`references/module-catalog.md`](references/module-catalog.md).
+
 ### Chiến lược Light-touch (mặc định)
 
 - **KHÔNG rewrite** content cũ đã viết tốt.
 - Chỉ **bổ sung** section thiếu, **vá** structure lệch, **thêm** mapping với GMDN/WHO/Architecture.
-- Khi module chưa có doc nào → sinh đầy đủ 8 file từ template, kéo content từ 4 source.
+- Khi module chưa có doc nào → sinh đầy đủ 9 file từ template, kéo content từ 4 source.
 - Full rewrite chỉ khi user yêu cầu rõ.
+
+> 🍳 Recipe light-touch cụ thể cho TỪNG file template: [`references/light-touch-recipes.md`](references/light-touch-recipes.md).
 
 ### Workflow chuẩn
 
@@ -94,7 +126,7 @@ Module thiếu = **5** (IMM-07, 10, 13, 14, 17).
 1. `docs/architecture/Ho_so_kien_truc_IMMIS.md` — ground truth cho tên module, khối, owner, đợt
 2. `docs/template/00_README.md` — section nào bắt buộc
 3. `docs/template/MIGRATION_GUIDE.md` — quy tắc map content cũ
-4. Mỗi target module — check 8 file tồn tại? Section nào thiếu? Placeholder `<XX>` chưa thay?
+4. Mỗi target module — check 9 file tồn tại? Section nào thiếu? Placeholder `<XX>` chưa thay?
 
 Output bước này: **bảng gap** trong response, KHÔNG ghi file.
 
@@ -136,11 +168,13 @@ Output bước này: **bảng gap** trong response, KHÔNG ghi file.
 | 02 §I.5 KPI | WHO HTM (chương Performance) + Architecture KPI |
 | 02 §I.6 Compliance | `docs/gmdn/Quyết định *.md` |
 | 02 §II BPMN | WHO HTM (process chapter của domain) |
-| 04 Backend | DocType: `assetcore-be` skill + CONVENTIONS.md |
-| 05 API | Envelope: CONVENTIONS.md §3; ErrorCode: `services/shared/constants.py` |
+| 04 Backend | DocType: `assetcore-be` skill |
+| 05 API | Envelope: `assetcore-be` skill (envelope contract); ErrorCode: `services/shared/constants.py` |
 | 06 Frontend | `assetcore-fe` skill |
 
 **KHÔNG bịa số liệu.** Nếu không có baseline KPI → ghi "*(Cần khảo sát baseline)*".
+
+> 🔍 Chi tiết section ↔ source line: [`references/source-map.md`](references/source-map.md).
 
 ### Khi module thiếu hoàn toàn (from-scratch)
 
@@ -225,216 +259,13 @@ Cho IMM-07 / 10 / 13 / 14 / 17 (Đợt 3):
 
 ## Phần 2 — HTM Domain Knowledge
 
-Khi user hỏi về WHO HTM stage, NĐ98, GMDN, hoặc compliance requirement — dùng phần này để ground quyết định thiết kế trước khi code.
-
-### WHO HTM Lifecycle — 6 giai đoạn
-
-| # | WHO Stage | Description | IMM Modules |
-|---|---|---|---|
-| 1 | Needs Assessment | Nhu cầu lâm sàng, gap, thay thế | IMM-01 |
-| 2 | Procurement | Spec, đấu thầu, PO | IMM-02, IMM-03 |
-| 3 | Installation & Commissioning | Tiếp nhận, IQ/OQ/PQ, clinical release | IMM-04, IMM-05 |
-| 4 | Operation & Use | Đào tạo người dùng | IMM-06 |
-| 5 | Maintenance | PM, CM, calibration, incident, spare parts | IMM-08, IMM-09, IMM-11, IMM-12, IMM-15 |
-| 6 | Decommission | Retire, dispose, transfer, write-off | IMM-13, IMM-14 |
-| ✱ | Cross-cutting | Foundation + governance | IMM-00, IMM-16, IMM-17 |
-
-**Design rule:** feature không fit stage nào → có thể thuộc IMM-00 (master data) hoặc IMM-16 (governance).
-
-### NĐ98/2021 — Yêu cầu AssetCore thực thi
-
-| NĐ98 Requirement | Trong code |
-|---|---|
-| Đăng ký lưu hành | IMM-05 `Asset Registration` — số đăng ký + hạn |
-| Phân loại (Class A/B/C/D) | `AC Asset.risk_class` → drive PM frequency IMM-08 |
-| Truy xuất nguồn gốc (UDI/Serial) | `AC Asset.serial_no` unique + SHA-256 audit chain |
-| Hồ sơ thiết bị | IMM-05 doc expiry tracking |
-| Calibration Class B/C/D | IMM-11 mandatory schedule auto-created on commissioning |
-| Incident reporting | IMM-12 submittable within statutory window |
-| CAPA on serious adverse event | IMM-16 CAPA auto-created from severity=Critical |
-
-### Asset risk classification
-
-| NĐ98 Class | AssetCore value | Operational impact |
-|---|---|---|
-| A (Low) | `Low` | PM tiêu chuẩn, không bắt buộc calibration |
-| B (Medium) | `Medium` | PM + calibration recommended |
-| C (High) | `High` | Mandatory calibration, photo evidence (BR-08-06) |
-| D (Critical) | `Critical` | All of above + redundancy + 24h CAPA SLA |
-
-### GMDN
-
-Taxonomy chuẩn cho thiết bị y tế (ISO 15225). AssetCore dùng GMDN code trên `Device Model`, không phải `AC Asset`.
-- Reference: `docs/gmdn/`
-- Field: `Device Model.gmdn_code`
-
-### Compliance Mapping — Business Rules → Regulation
-
-| Business Rule | Module | Regulation |
-|---|---|---|
-| BR-04-01: IQ/OQ/PQ checklist 100% trước clinical release | IMM-04 | NĐ98 Article 33 |
-| BR-05-03: Doc expiry <30 ngày → warning | IMM-05 | NĐ98 doc continuity |
-| BR-08-06: PM Class C/D cần photo evidence | IMM-08 | ISO 13485 §7.5 |
-| BR-11-02: Failed calibration → tạo CM | IMM-11 | ISO 17025 §7.10 + NĐ98 Article 56 |
-| BR-12-04: Critical incident CAPA SLA = 24h | IMM-12/16 | NĐ98 Article 67 |
-| BR-16-09: Open Critical CAPA blocks WO submit | IMM-16 | ISO 13485 §8.5.2 |
-
-### Domain Glossary
-
-| Vietnamese | English | HTM canonical |
-|---|---|---|
-| Thiết bị | Asset | Equipment |
-| Bảo trì định kỳ | PM | Preventive Maintenance |
-| Sửa chữa | CM | Corrective Maintenance |
-| Hiệu chuẩn | Calibration | Calibration |
-| Sự cố | Incident | Adverse Event |
-| CAPA | CAPA | Corrective & Preventive Action |
-| Sự kiện vòng đời | Lifecycle Event | Lifecycle Event |
-| Lệnh công việc | Work Order (WO) | Work Order |
-
-### 5 câu hỏi kiểm tra trước khi thiết kế
-
-1. Feature này thuộc **WHO HTM stage** nào?
-2. **NĐ98 article** nào mandate hoặc constrain điều này?
-3. **Stakeholder** nào owns workflow step này?
-4. **Lifecycle event** nào feature này sẽ produce?
-5. **Regulatory consequence** nếu data sai là gì?
+> 📚 Heavy reference: WHO HTM lifecycle (6 giai đoạn), NĐ98/2021 requirements, asset risk classification (Class A/B/C/D), GMDN taxonomy, compliance mapping (BR → regulation), domain glossary, và 5 câu hỏi kiểm tra trước thiết kế → [`references/htm-domain-knowledge.md`](references/htm-domain-knowledge.md). Đọc TRƯỚC khi ground thiết kế theo WHO HTM / NĐ98 / GMDN.
 
 ---
 
 ## Phần 3 — Cross-Module Integration Patterns
 
-Dùng phần này **trước** khi viết code chạm >1 IMM module.
-
-### Module dependency graph
-
-```
-IMM-00 (Master / Foundation) ── shared services + lifecycle helpers
-     │
-     ├── IMM-01 → IMM-02 → IMM-03 → IMM-04
-     │
-     ├── IMM-04 → IMM-05 (Registration)
-     │       ├──→ IMM-08 (PM Schedule auto-created)
-     │       └──→ IMM-11 (Calibration Schedule for Class B+)
-     │
-     ├── IMM-08 → IMM-09 (PM finds defect → CM)
-     ├── IMM-09 → IMM-15 (consumes spare parts)
-     ├── IMM-11 → IMM-09 (failed cal → CM)
-     ├── IMM-12 → IMM-09 (CM) + IMM-16 (CAPA)
-     ├── IMM-06 → IMM-04 (Clinical Release gate)
-     └── IMM-16 ─── gates ─→ IMM-08, IMM-09, IMM-04
-```
-
-Circular edges forbidden — nếu thấy trong design, dùng event hoặc shared module.
-
-### Pattern A — Event-driven hooks (ít coupling nhất)
-
-```python
-# hooks.py
-doc_events = {
-    "Asset Commissioning": {
-        "on_submit": [
-            "assetcore.services.imm08.create_pm_schedule_for_asset",
-            "assetcore.services.imm11.create_calibration_schedule_if_needed",
-            "assetcore.services.imm16.register_compliance_baseline",
-        ]
-    },
-}
-```
-
-**Rules:**
-- Listener phải handle `docstatus=2` (cancel/amend)
-- Listener phải idempotent
-- Signature bắt buộc: `def listener(doc, method=None)` — Real bug: thiếu `method=None` → TypeError
-- **Same-commit wiring rule**: định nghĩa gate function → cùng commit PHẢI wire vào `hooks.py::doc_events`
-
-### Pattern B — Direct service-to-service (lazy import)
-
-```python
-# services/imm04.py
-def commission_asset(asset_name: str, operator_user: str) -> dict:
-    from assetcore.services.imm06 import validate_user_authorized_for_asset  # lazy import
-    if not validate_user_authorized_for_asset(operator_user, asset_name):
-        raise ServiceError(ErrorCode.BUSINESS_RULE, "Chưa được đào tạo")
-```
-
-**Rules:**
-- Luôn lazy-import bên trong function body
-- Truyền primary key (string `name`), không truyền live `Document` objects
-- Callee phải define stable contract
-
-### Pattern C — Compliance gates (IMM-16 blocks everything)
-
-```python
-# services/imm09.py
-def create_repair(asset_ref: str, **kwargs) -> dict:
-    from assetcore.services.imm16 import gate_wo_submit
-    gate_wo_submit(asset_ref, wo_type="CM")   # raises ServiceError if blocked
-```
-
-**Rules:**
-- Gate functions never return data — chỉ raise hoặc pass
-- Caller gọi gate **trước** bất kỳ DB write nào
-
-### Pattern D — Asset status propagation
-
-```python
-from assetcore.services.imm00 import transition_asset_status
-from assetcore.services.shared import AssetStatus
-
-transition_asset_status(asset_name, AssetStatus.OUT_OF_SERVICE, root_record=repair_doc.name)
-```
-
-**KHÔNG BAO GIỜ** `frappe.db.set_value("AC Asset", name, "status", ...)` trực tiếp.
-
-### Pattern E — Shared enums
-
-| Enum | Path |
-|---|---|
-| `Roles` | `services/shared/constants.py` |
-| `ErrorCode` | `services/shared/constants.py` |
-| `AssetStatus` | `services/shared/constants.py` |
-
-Module-local Status (`RepairStatus`, `PMStatus`) ở trong file service riêng. Nếu 2 module cùng cần — promote lên `services/shared/constants.py`.
-
-### Cross-module integration bugs phổ biến
-
-| Bug | Symptom | Fix |
-|---|---|---|
-| Circular import | `ImportError` khi `bench start` | Lazy-import bên trong function |
-| Hook fires on cancel | Phantom records, duplicate audit rows | Check `doc.docstatus == 1` trong listener |
-| Status string drift | "Active" vs "ACTIVE" fail silently | Dùng `AssetStatus.ACTIVE` constant |
-| CAPA deadlock | WO cần để đóng CAPA, nhưng CAPA block WO | Thêm `wo_type="CAPA_REMEDIATION"` exception |
-| Stale Document object | Changes không persist | Pass primary keys, reload với `frappe.get_doc` |
-| Listener swallows error | Submit OK nhưng downstream effect miss | Không `except: pass` trong listener |
-
-### Khi KHÔNG integrate
-
-- **IMM-17 Reporting** đọc denormalized snapshots — không gọi live service functions từ report
-- **FHIR adapter** là one-way outbound — không để FHIR import gọi thẳng IMM-09
-- **Nếu cross-module call tạo cycle** → dùng event (Pattern A)
-
-### Hooks.py audit checklist
-
-Bất cứ khi nào chạm `hooks.py`:
-- [ ] Mọi `doc_events` entry trỏ đến function thực tế trong service
-- [ ] Mọi listener handle `docstatus` đúng
-- [ ] Mọi `scheduler_events` function là module-scoped (không leading underscore)
-- [ ] Listener documented trong `docs/imm-<YY>/04_workflow.md`
-- [ ] Listener idempotent
-- [ ] Fixture exports vẫn include workflow/role/custom field mới
-
----
-
-## References trong skill
-
-- `references/light-touch-recipes.md` — recipe cụ thể cho từng file template
-- `references/module-catalog.md` — 17 module với metadata đầy đủ
-- `references/source-map.md` — chi tiết section ↔ source line
-- `references/htm-domain.md` — WHO HTM / NĐ98 / GMDN chi tiết
-- `references/integration-patterns.md` — integration patterns chi tiết
-
-Đọc files gốc trong `docs/` khi cần data thực tế — skill này cung cấp quy trình và framework.
+> 🔗 Heavy reference: module dependency graph, Pattern A–E (event-driven hooks, direct service-to-service lazy import, compliance gates, asset status propagation, shared enums), cross-module integration bugs phổ biến, khi KHÔNG integrate, và hooks.py audit checklist → [`references/cross-module-integration.md`](references/cross-module-integration.md). Đọc **trước** khi viết code chạm >1 IMM module.
 
 ---
 
@@ -444,7 +275,7 @@ Tài liệu cho khách hàng (`docs/res/*.docx`, proposal, response cho phòng C
 
 ### R-CD-1: Verify-Before-Claim (BẮT BUỘC trước khi viết bất kỳ claim kỹ thuật nào)
 
-Tuân thủ `CONVENTIONS.md §34` — mọi claim phải có `file:line` evidence hoặc đánh dấu `[ROADMAP]`. Cross-check claim với **evidence table §34** trước khi giữ/sửa/xóa trong customer doc.
+Tuân thủ quy tắc Verify-Before-Claim — mọi claim phải có `file:line` evidence hoặc đánh dấu `[ROADMAP]`. Cross-check claim với **evidence table** ở `memory/customer_doc_claims.md` (bảng đầy đủ ở git history trước commit fbf19c8) trước khi giữ/sửa/xóa trong customer doc.
 
 **Common false-positive cần check khi review docs/res/:**
 
@@ -502,7 +333,114 @@ KHÔNG viết: "Hệ thống hỗ trợ X" hoặc "X được tích hợp sẵn"
 - [ ] Bảng tech stack đầy đủ (Frontend: Vue+Vite+Pinia+TanStack+Tailwind, KHÔNG "Frappe UI", KHÔNG "FastAPI")
 - [ ] RBAC mô tả 30 role module-based, KHÔNG persona cũ
 - [ ] Cam kết SLA / coverage / CI khả thi — verify trước khi ký
-- [ ] Cross-check với `CONVENTIONS.md §34` evidence table
+- [ ] Cross-check với evidence table ở `memory/customer_doc_claims.md` (bảng đầy đủ ở git history trước commit fbf19c8)
+
+---
+
+## Phần 5 — Named principles (absorb từ agent-skills)
+
+Core Doc `docs/imm-XX/` = **PRD/spec của dự án**. 3 principle dưới đây gắn tên tường minh, áp dụng mọi lần viết/sửa docs module.
+
+### P-DOC-1: spec-driven-development → **spec-before-code gate**
+
+- **Luật dự án (đã có): chưa có Core Doc thì KHÔNG code** (CLAUDE.md §17: BA chốt spec → BE/FE mới build). Gọi đúng tên: *spec-before-code gate*. Docs sai/thiếu → code lệch.
+- Mỗi spec module phải có **Boundaries** rõ (giống agent-skills 3-tier nhưng tailor):
+  - **Always**: sinh record cho mọi action · gắn workflow+SLA · cite source domain · type hint + docstring.
+  - **Ask first**: đổi DocType schema / field · thêm dependency cross-module · đổi enum dùng chung.
+  - **Never**: bịa DocType field/endpoint/ErrorCode/KPI · modify ERPNext core · code khi Core Doc chưa chốt.
+- Ví dụ: user xin "thêm API hủy WO IMM-09" mà `docs/imm-09/05_API_Specification.md` chưa mô tả endpoint → **STOP, viết spec trước** (Boundaries: Ask-first vì chạm schema docstatus).
+
+### P-DOC-2: source-driven-development → **cite nguồn + flag unverified**
+
+- Mọi **domain claim** (WHO HTM stage / GMDN code / NĐ98 article / Frappe-ERPNext behavior) phải **cite nguồn** — không viết theo trí nhớ. Hierarchy: WHO/NĐ98/GMDN PDF gốc > `Ho_so_kien_truc_IMMIS.md` > docs nội bộ. (Liên hệ [`references/source-map.md`](references/source-map.md) cho map section↔source line.)
+- Tra **Frappe/ERPNext API** (DocType meta, hooks, workflow, permission) bằng **context7 MCP** (`resolve-library-id` → `query-docs`) thay vì nhớ — training data stale.
+- Chưa kiểm chứng được → **flag `[UNVERIFIED]`** (hoặc `[NEEDS VERIFICATION]`), KHÔNG bỏ lửng làm fact. Trùng tinh thần Verify-Before-Claim của customer doc (Phần 4) nhưng áp cả docs nội bộ.
+- Ví dụ: "NĐ98 yêu cầu hiệu chuẩn 12 tháng" → phải dẫn `docs/gmdn/Quyết định *.md` hoặc article cụ thể; nếu chỉ nhớ mang máng → `[UNVERIFIED]`.
+
+### P-DOC-3: documentation-and-adrs → **ADR (Architecture Decision Record)**
+
+Quyết định kiến trúc trong docs module phải ghi *vì sao* (Context/Decision/Consequences), không chỉ *cái gì*. Dự án đã có ADR informal (vd **dual-track status/workflow_state**, capability-based RBAC) — chuẩn hoá template ngắn dưới đây, đặt trong `docs/imm-XX/02_Analysis_Design.md` (mục Quyết định kiến trúc) hoặc `04_Backend_Design.md`:
+
+```markdown
+### ADR-IMM-XX-NN: <Tiêu đề quyết định>
+- **Status**: Proposed | Accepted | Superseded by ADR-IMM-XX-MM
+- **Date**: YYYY-MM-DD
+- **Context**: ràng buộc/lý do cần quyết (lifecycle, NĐ98, Frappe limit…)
+- **Decision**: chọn cái gì (1–2 dòng)
+- **Alternatives**: phương án loại + lý do loại
+- **Consequences**: hệ quả + đánh đổi (vd: thêm field → migration)
+```
+
+KHÔNG xoá ADR cũ — quyết định đổi thì viết ADR mới `Supersede`. Ví dụ: ADR ghi vì sao dùng `workflow_state` (UI flow) song song `docstatus` (Frappe ledger) thay vì gộp 1 trường.
+
+---
+
+## References trong skill
+
+- [`references/light-touch-recipes.md`](references/light-touch-recipes.md) — recipe cụ thể cho từng file template
+- [`references/module-catalog.md`](references/module-catalog.md) — 17 module với metadata đầy đủ
+- [`references/source-map.md`](references/source-map.md) — chi tiết section ↔ source line
+- [`references/htm-domain-knowledge.md`](references/htm-domain-knowledge.md) — WHO HTM / NĐ98 / GMDN chi tiết (Phần 2)
+- [`references/cross-module-integration.md`](references/cross-module-integration.md) — integration patterns chi tiết (Phần 3)
+
+Đọc files gốc trong `docs/` khi cần data thực tế — skill này cung cấp quy trình và framework.
+
+---
+
+## Common Rationalizations
+
+| Lý do hay viện để skip | Sự thật |
+|---|---|
+| "Viết claim kỹ thuật theo trí nhớ, verify sau" | Customer doc sai claim = vi phạm hợp đồng (R-CD-1). Mọi claim phải có `file:line` evidence hoặc `[ROADMAP]` TRƯỚC khi viết. |
+| "Tạo docs mới full cho nhanh thay vì light-touch" | Rewrite content đã tốt = destructive, mất công BA/Tech Lead viết (Light-touch). Chỉ bổ sung/vá; full rewrite chỉ khi user yêu cầu rõ. |
+| "Heading lệch template → sửa luôn cho chuẩn" | Heading wording / metadata column cũ là load-bearing; đổi = destructive rewrite. Phân vân sửa/report → **chọn report** (_REPORT.md). |
+| "Module thiếu → bịa DocType field + endpoint shape cho đủ" | Bịa schema/endpoint/ErrorCode/KPI = docs sai → code lệch. From-scratch chỉ liệt kê tên DocType + endpoint name + verb. |
+| "Feature không fit module nào → tạo module mới" | Cross-cutting feature thuộc IMM-00 (master) hoặc IMM-16 (governance), không đẻ module. Chạy 5 câu hỏi (htm-domain-knowledge.md). |
+| "Cross-module → import thẳng service kia ở đầu file" | Top-level import gây circular `ImportError` khi `bench start`. Lazy-import trong function body + truyền primary key (Pattern B). |
+| "Số liệu cũ trong doc chắc vẫn đúng, copy lại" | DocType/endpoint/role/module count drift liên tục. Đếm thật bằng grep/ls, không "100+"/"8+" (R-CD-3). |
+| "IMMIS / IMESOM trong doc cũ — giữ cho khỏi đụng" | Tên stale, codebase = AssetCore. Phải remap (R-CD-2) + grep stale name = 0 trước khi gửi. |
+| "Code luôn đi, viết Core Doc sau cũng được" | Vi phạm **spec-before-code gate** (P-DOC-1). Chưa có Core Doc → KHÔNG code (CLAUDE.md §17). Mỗi spec phải có Boundaries Always/Never. |
+| "Domain claim (WHO/NĐ98/Frappe) nhớ rồi, khỏi tra nguồn" | **source-driven** (P-DOC-2): viết theo trí nhớ = stale. Cite nguồn gốc; Frappe tra context7 MCP; chưa chứng được → `[UNVERIFIED]`. |
+| "Quyết định kiến trúc tự hiểu, khỏi ghi" | 6 tháng sau cãi lại từ đầu. Ghi **ADR** (P-DOC-3) Context/Decision/Consequences; đổi thì Supersede, không xoá ADR cũ. |
+
+## Red Flags — STOP
+
+- Customer doc có claim kỹ thuật KHÔNG kèm `file:line` evidence hoặc nhãn `[ROADMAP]` (R-CD-1).
+- Đang **rewrite** content cũ đã viết kỹ (Pitch I.1 / Stakeholder I.3 / KPI I.5) thay vì bổ sung (Light-touch).
+- Đổi tên cột metadata README hoặc heading wording cũ (destructive — phải report, không sửa).
+- From-scratch doc có DocType field / endpoint shape / ErrorCode / baseline KPI / test case ID **bịa**.
+- Số liệu dạng "100+", "44+", "8+" trong customer doc thay vì con số đếm thật (R-CD-3).
+- Tên stale "IMMIS"/"IMESOM"/"SCM.CH1" còn sót, hoặc "FastAPI"/"Frappe UI" trong tech stack (R-CD-2 / R-CD-5).
+- Cross-module: top-level import service module khác (circular risk) hoặc truyền live `Document` object thay vì primary key.
+- Feature mới đẻ ra module thay vì xếp vào WHO HTM stage / IMM-00 / IMM-16.
+- Bắt đầu code BE/FE khi Core Doc `docs/imm-XX/` chưa chốt (vi phạm spec-before-code gate, P-DOC-1) — hoặc spec thiếu mục Boundaries Always/Never.
+- Domain claim (WHO HTM / GMDN / NĐ98 / Frappe behavior) viết theo trí nhớ, không cite nguồn và không gắn `[UNVERIFIED]` (P-DOC-2).
+- Quyết định kiến trúc (vd dual-track status/workflow_state) không có ADR ghi *vì sao* (P-DOC-3).
+
+## Verification
+
+Trước khi khai báo doc "xong" — phải đối chiếu thật, không "có vẻ đủ":
+
+**Docs module nội bộ (Phần 1):**
+- [ ] Mỗi file md có `# <Heading>` đầu trang + bảng metadata.
+- [ ] Không còn placeholder `<XX>` chưa thay (trừ code block ví dụ).
+- [ ] Mỗi link nội bộ trỏ đến file thật; README module link tới ≥6 file con đang tồn tại.
+- [ ] Light-touch giữ nguyên content cũ đã tốt; mọi lệch heading/schema đã **report** chứ không sửa.
+- [ ] Báo cáo cuối lượt liệt kê đủ file đã chạm + mapping mới.
+
+**Named principles (Phần 5):**
+- [ ] Spec-before-code gate giữ vững (P-DOC-1): code chỉ bắt đầu khi Core Doc chốt; spec có Boundaries Always/Never.
+- [ ] Mọi domain claim (WHO/GMDN/NĐ98/Frappe) cite nguồn hoặc gắn `[UNVERIFIED]`; Frappe tra context7 MCP (P-DOC-2).
+- [ ] Quyết định kiến trúc có ADR (Context/Decision/Consequences); đổi quyết định = ADR mới Supersede, không xoá cũ (P-DOC-3).
+
+**Customer-facing doc (Phần 4 / R-CD-5):**
+- [ ] Mọi claim kỹ thuật có evidence path hoặc nhãn `[ROADMAP]`.
+- [ ] `grep` stale name (IMMIS, IMESOM, SCM.CH1) = 0.
+- [ ] Số liệu đếm thật (DocType, endpoint, role, module) — không "100+"/"44+"/"8+".
+- [ ] Bảng tech stack đầy đủ (Vue+Vite+Pinia+TanStack+Tailwind, KHÔNG "Frappe UI"/"FastAPI").
+- [ ] RBAC mô tả 30 role module-based, KHÔNG persona cũ.
+- [ ] Cam kết SLA / coverage / CI khả thi — verify trước khi ký.
+- [ ] Cross-check với evidence table ở `memory/customer_doc_claims.md` (bảng đầy đủ ở git history trước commit fbf19c8).
 
 ---
 

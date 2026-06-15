@@ -39,6 +39,16 @@ vi.mock('@/api/imm00', () => ({
   getAssetLabelData: vi.fn().mockResolvedValue({}),
   markLabelPrinted: vi.fn(),
   regenerateAssetQrToken: vi.fn(),
+  printAssetLabelsPdf: vi.fn(),
+  // SSoT preset khổ tem (selector 3-preset Vòng 4) — view import ở module-level.
+  LABEL_PDF_PRESETS: [
+    { key: 'tem-60x100', label: 'Tem 60×100mm' },
+    { key: 'tem-70x40', label: 'Tem 70×40mm' },
+    { key: 'tem-50x30', label: 'Tem 50×30mm' },
+  ],
+  LABEL_PDF_PRESET: 'tem-60x100',
+  labelPdfPresetLabel: (p: string) =>
+    ({ 'tem-60x100': 'Tem 60×100mm', 'tem-70x40': 'Tem 70×40mm', 'tem-50x30': 'Tem 50×30mm' } as Record<string, string>)[p] ?? '',
 }))
 vi.mock('@/api/imm04', () => ({ getCommissioningOrigin: vi.fn().mockResolvedValue(null) }))
 vi.mock('@/api/imm14', () => ({ createDecommission: vi.fn(), approveDecommission: vi.fn() }))
@@ -103,10 +113,26 @@ describe('AssetDetailView — admin-bypass QR/print (B parity, chuỗi thật)',
     expect(w.text()).toContain('Máy thở Dräger')
   })
 
-  it('non-admin có asset.write → In nhãn QR HIỆN (regression thuần-cap)', async () => {
-    seedAuth(['Data Manager'], { 'asset.write': true })
+  it('D6 — non-admin có asset.print → In nhãn QR HIỆN (regression thuần-cap)', async () => {
+    seedAuth(['Data Manager'], { 'asset.print': true })
     const w = mount(AssetDetailView, { props: { id: 'AC-ASSET-2026-00042' }, global: { stubs } })
     await flushPromises()
     expect(findBtn(w, 'In nhãn QR')).toBeTruthy()
+  })
+
+  it('D6 — non-admin có asset.print NHƯNG KHÔNG rotate → Sinh lại mã QR ẨN', async () => {
+    // Tách quyền least-privilege: in được nhưng KHÔNG rotate token được.
+    seedAuth(['Data Manager'], { 'asset.print': true })
+    const w = mount(AssetDetailView, { props: { id: 'AC-ASSET-2026-00042' }, global: { stubs } })
+    await flushPromises()
+    expect(findBtn(w, 'In nhãn QR')).toBeTruthy()
+    expect(findBtn(w, 'Sinh lại mã QR')).toBeFalsy()
+  })
+
+  it('D6 — non-admin có asset.qr.rotate → Sinh lại mã QR HIỆN', async () => {
+    seedAuth(['Data Manager'], { 'asset.qr.rotate': true })
+    const w = mount(AssetDetailView, { props: { id: 'AC-ASSET-2026-00042' }, global: { stubs } })
+    await flushPromises()
+    expect(findBtn(w, 'Sinh lại mã QR')).toBeTruthy()
   })
 })

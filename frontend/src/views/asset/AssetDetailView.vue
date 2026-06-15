@@ -5,13 +5,11 @@ import { useRouter } from 'vue-router'
 import { useAssetStore } from '@/stores/imm00'
 import {
   getAssetTimeline, getAssetKpi, verifyChain, deleteAsset,
-  getAssetLabelData, markLabelPrinted, regenerateAssetQrToken, type AssetLabelData,
+  markLabelPrinted, regenerateAssetQrToken,
+  printAssetLabelsPdf,
+  LABEL_PDF_PRESETS, LABEL_PDF_PRESET, labelPdfPresetLabel, type LabelPdfPreset,
 } from '@/api/imm00'
-import AssetQrLabel from '@/components/asset/AssetQrLabel.vue'
-import {
-  LABEL_FORMATS, DEFAULT_LABEL_FORMAT_KEY, getLabelFormat, pageRuleFor,
-  type LabelFormatKey,
-} from '@/constants/label'
+import { usePdfLabelPrint } from '@/composables/usePdfLabelPrint'
 import { getCommissioningOrigin, type CommissioningOrigin } from '@/api/imm04'
 import {
   createDecommission, approveDecommission,
@@ -52,52 +50,73 @@ const targetStatus = ref<LifecycleStatus | ''>('')
 const transitionReason = ref('')
 const activeTab = ref<'info' | 'depreciation' | 'timeline' | 'kpi' | 'audit'>('info')
 
-// ── A4: in nhãn QR cấp tài sản (preview ≠ ghi event) ────────────────────────────
-const showLabelModal = ref(false)
-const labelData = ref<AssetLabelData | null>(null)
-const labelLoading = ref(false)
-const labelError = ref<string | null>(null)
-const labelPrinting = ref(false)
+// ── A3-PDF (ADR-IMM00-LABEL-PDF): in nhãn QR PDF khổ tem 60×100mm (phương án A) ──
+// Vòng 24: đường in nhãn HTML legacy (modal preview HTML + in qua trình duyệt) ĐÃ
+// KHAI TỬ. Chỉ còn DUY NHẤT lối in = đường PDF khổ tem bên dưới (openPdfLabelPrint).
+// Đường ƯU TIÊN cho 60×100mm: server sinh PDF đúng khổ → FE tải Blob → iframe ẩn →
+// iframe.print() → hộp thoại in (chọn máy in tem LAN) → ra CHÍNH XÁC 60×100mm.
+// Preview modal embed CHÍNH file PDF đó (WYSIWYG thật). label_printed CHỈ ghi sau
+// khi in xong (nút 'Đã in xong' / onafterprint) — KHÔNG ghi khi mở-rồi-huỷ.
+const showPdfModal = ref(false)
+const pdfLoading = ref(false)
+const pdfError = ref<string | null>(null)
+const labelMarked = ref(false)
 
-// Khổ tem chọn (SSoT @/constants/label — dùng chung với AssetLabelPrintView).
-// Mặc định A4 nhiều-nhãn = hành vi cũ; chọn tem vật lý → @page size mm + 1 tem/trang.
-const labelFormatKey = ref<LabelFormatKey>(DEFAULT_LABEL_FORMAT_KEY)
-const currentLabelFormat = computed(() => getLabelFormat(labelFormatKey.value))
-const labelPageRuleCss = computed(() => pageRuleFor(labelFormatKey.value))
+// Khổ tem chọn = preset PDF (SSoT @/api/imm00 — KHỚP KEY BE; parity AssetLabelPrintView).
+// 3 preset whitelist (tem-60x100 mặc định / tem-70x40 / tem-50x30). Selector hiện
+// TRƯỚC khi bấm in (user chọn khổ trước khi mở hộp thoại in). KHÔNG khai lại danh sách.
+const selectedPreset = ref<LabelPdfPreset>(LABEL_PDF_PRESET)
+// Nhãn VI khổ đang chọn — tiêu đề modal + badge + microcopy (hết hardcode '60×100mm').
+const selectedPresetLabel = computed(() => labelPdfPresetLabel(selectedPreset.value))
 
-async function openLabelPreview() {
-  showLabelModal.value = true
-  labelData.value = null
-  labelError.value = null
-  labelLoading.value = true
-  try {
-    // Preview-only — getAssetLabelData KHÔNG ghi label_printed (BE D3).
-    labelData.value = await getAssetLabelData(props.id)
-  } catch (e: unknown) {
-    labelError.value = toApiError(e).message
-  } finally {
-    labelLoading.value = false
-  }
-}
+// Fetcher đọc selectedPreset.value tại THỜI ĐIỂM in (ref) → PDF ra ĐÚNG khổ user chọn
+// (parity AssetLabelPrintView:138 — KHÔNG ép cứng 60×100).
+const pdfPrint = usePdfLabelPrint((names) => printAssetLabelsPdf(names, selectedPreset.value))
+const { previewUrl: pdfPreviewUrl, printing: pdfPrinting } = pdfPrint
 
-async function confirmPrintLabel() {
-  if (labelPrinting.value || !labelData.value) return
-  window.print()
-  // Ghi sự kiện in SAU khi in thật (label_printed + audit) — chỉ asset này.
-  labelPrinting.value = true
+// Ghi label_printed cho asset này — gọi onafterprint (bổ trợ) + nút 'Đã in xong'
+// (chính). Idempotent qua labelMarked → KHÔNG double-ghi khi cả 2 cùng fire.
+async function markPrintedOnce() {
+  if (labelMarked.value) return
+  labelMarked.value = true
   try {
     await markLabelPrinted([props.id])
     toast.show('Đã ghi nhận in nhãn QR.', 'success')
   } catch (e: unknown) {
+    labelMarked.value = false // cho phép thử lại (giấy đã in nhưng audit lỗi)
     notify.fromError(toApiError(e))
-  } finally {
-    labelPrinting.value = false
-    showLabelModal.value = false
   }
 }
 
+// Mở modal PDF → tải Blob → preview + iframe.print(). onafterprint → markPrintedOnce.
+async function openPdfLabelPrint() {
+  if (pdfLoading.value) return
+  showPdfModal.value = true
+  pdfError.value = null
+  labelMarked.value = false
+  pdfLoading.value = true
+  const blob = await pdfPrint.printLabels([props.id], { onAfterPrint: markPrintedOnce })
+  pdfLoading.value = false
+  if (!blob) {
+    // Lỗi nghiệp vụ (403/413/422) → toast VI bucket (defense-in-depth) + đóng modal.
+    if (pdfPrint.error.value) {
+      pdfError.value = pdfPrint.error.value.message
+      notify.fromError(pdfPrint.error.value)
+    }
+  }
+}
+
+// Đóng modal PDF → revoke Blob URL (chống leak). KHÔNG ghi audit (huỷ ≠ in xong).
+function closePdfModal() {
+  showPdfModal.value = false
+  pdfError.value = null
+  pdfPrint.revoke()
+}
+
 // ── B (hardening): cấp lại (rotate) mã QR — vô hiệu hoá nhãn cũ + token mới ──────
-// Gate hiển thị nút = can('asset.write') (rotate = thao tác GHI; BE gate asset.write).
+// D6 (ADR-IMM00-QR-SCAN-ACTION, phương án B): gate nút = can('asset.qr.rotate')
+// (rotate = thao tác GHI; BE gate asset.qr.rotate→write). Nút "In nhãn QR" gate
+// asset.print riêng (persona vận hành in được, KHÔNG rotate được).
 // Cảnh báo qua BaseModal (KHÔNG window.confirm). Xác nhận → regenerateAssetQrToken
 // → refetch asset (qr_url/nhãn phản ánh token mới) → toast VI. Huỷ → no-op (đóng modal).
 const showRegenModal = ref(false)
@@ -357,14 +376,15 @@ onMounted(async () => {
       back-to="/assets"
       back-label="← Danh sách thiết bị"
       :title="store.currentAsset?.asset_name || 'Chi tiết thiết bị'"
-      :subtitle="store.currentAsset ? `Mã: ${store.currentAsset.name}` : ''"
+      :subtitle="store.currentAsset ? `Mã: ${store.currentAsset.asset_code || store.currentAsset.name}` : ''"
       :breadcrumb="[
         { label: 'Thiết bị', to: '/assets' },
         { label: store.currentAsset?.asset_name || id },
       ]"
     >
       <template #actions>
-        <!-- B (least-privilege): nút ghi gate capability (parity với In/Sinh-lại QR line 373/385). asset.write = sửa. -->
+        <!-- Nút Chỉnh sửa gate asset.write (sửa asset). In nhãn gate asset.print,
+             Sinh-lại QR gate asset.qr.rotate (D6 phương án B — tách quyền). -->
         <button v-if="store.currentAsset && can('asset.write')" class="btn-ghost text-sm" @click="router.push(`/assets/${id}/edit`)">Chỉnh sửa</button>
         <!-- asset.delete là DocPerm delete RIÊNG — KHÔNG dùng chung asset.write. -->
         <button v-if="store.currentAsset && can('asset.delete')" class="text-red-600 hover:text-red-800 text-sm font-medium px-3 py-1.5" @click="remove">Xóa</button>
@@ -383,12 +403,36 @@ onMounted(async () => {
             <h1 class="text-xl font-bold text-slate-900">{{ store.currentAsset.asset_name }}</h1>
             <p class="text-sm text-slate-400 mt-0.5">{{ store.currentAsset.name }}</p>
           </div>
-          <div class="flex items-center gap-3">
+          <div class="flex items-center gap-3 flex-wrap justify-end">
+            <!-- Selector khổ tem = preset PDF (SSoT, KHỚP KEY BE). Hiện TRƯỚC khi in →
+                 user chọn khổ trước khi mở hộp thoại in. Gate can('asset.print') —
+                 parity với nút In nhãn QR (persona thiếu quyền KHÔNG thấy cả 2). -->
+            <label v-if="can('asset.print')" class="flex items-center gap-1.5 text-sm text-slate-600">
+              <span>Khổ tem</span>
+              <select
+                v-model="selectedPreset"
+                class="border border-slate-300 rounded px-2 py-1 text-sm"
+                aria-label="Chọn khổ tem in nhãn"
+                data-testid="label-preset-select"
+              >
+                <option v-for="p in LABEL_PDF_PRESETS" :key="p.key" :value="p.key">
+                  {{ p.label }}
+                </option>
+              </select>
+            </label>
+            <!-- Badge tĩnh: hiện khổ ĐANG CHỌN TRƯỚC khi in — labelPdfPresetLabel (no hardcode). -->
+            <span
+              v-if="can('asset.print')"
+              class="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700"
+              data-testid="label-preset-badge"
+            >
+              Khổ: {{ selectedPresetLabel }}
+            </span>
             <button
-              v-if="can('asset.write')"
+              v-if="can('asset.print')"
               class="btn-ghost text-sm inline-flex items-center gap-1.5"
-              title="Xem trước & in nhãn QR cho thiết bị này"
-              @click="openLabelPreview"
+              :title="`Xem trước & in nhãn QR khổ ${selectedPresetLabel} cho thiết bị này`"
+              @click="openPdfLabelPrint"
             >
               <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round"
@@ -397,7 +441,7 @@ onMounted(async () => {
               In nhãn QR
             </button>
             <button
-              v-if="can('asset.write')"
+              v-if="can('asset.qr.rotate')"
               class="btn-ghost text-sm inline-flex items-center gap-1.5"
               title="Cấp lại mã QR — vô hiệu hoá mọi nhãn QR đã in trước đó"
               data-testid="btn-regen-qr"
@@ -548,12 +592,12 @@ onMounted(async () => {
         </div>
       </div>
 
-      <!-- Tabs -->
-      <div class="flex gap-1 mb-4 border-b border-slate-200">
+      <!-- Tabs — P4: cuộn ngang mobile (overflow-x-auto + shrink-0) → tab cuối 'audit' reachable, KHÔNG cắt. -->
+      <div class="flex gap-1 mb-4 border-b border-slate-200 overflow-x-auto">
         <button
           v-for="tab in (['info', 'depreciation', 'timeline', 'kpi', 'audit'] as const)"
           :key="tab"
-          class="px-4 py-2 text-sm font-medium transition-colors"
+          class="shrink-0 whitespace-nowrap px-4 py-2 text-sm font-medium transition-colors"
           :class="activeTab === tab ? 'text-blue-600 border-b-2 border-blue-600 -mb-px' : 'text-slate-500 hover:text-slate-800'"
           @click="onTabChange(tab)"
         >
@@ -609,7 +653,10 @@ onMounted(async () => {
         <div class="card p-4">
           <h3 class="text-sm font-semibold text-slate-700 mb-3">Thông tin HTM</h3>
           <dl class="space-y-2 text-sm">
-            <div class="flex justify-between"><dt class="text-slate-400">Serial No</dt><dd class="text-slate-800 font-mono text-xs">{{ store.currentAsset.manufacturer_sn || '—' }}</dd></div>
+            <!-- V1-E / ADR-IMM00-ASSETCODE §D1/D4: Mã tài sản (asset_code = PK) TÁCH BẠCH với Số serial NSX.
+                 Fallback name khi asset_code rỗng (invariant asset_code == name cho legacy). -->
+            <div class="flex justify-between"><dt class="text-slate-400">Mã tài sản</dt><dd class="text-slate-800 font-mono text-xs">{{ store.currentAsset.asset_code || store.currentAsset.name || '—' }}</dd></div>
+            <div class="flex justify-between"><dt class="text-slate-400">Số serial NSX</dt><dd class="text-slate-800 font-mono text-xs">{{ store.currentAsset.manufacturer_sn || '—' }}</dd></div>
             <div class="flex justify-between"><dt class="text-slate-400">UDI Code</dt><dd class="text-slate-800 font-mono text-xs">{{ store.currentAsset.udi_code || '—' }}</dd></div>
             <div class="flex justify-between"><dt class="text-slate-400">GMDN</dt><dd class="text-slate-800">{{ store.currentAsset.gmdn_code || '—' }}</dd></div>
             <div class="flex justify-between items-center">
@@ -635,13 +682,15 @@ onMounted(async () => {
             </div>
             <div class="flex justify-between">
               <dt class="text-slate-400">Bảo trì tiếp theo</dt>
-              <dd :class="isPmOverdue(store.currentAsset.next_pm_date) ? 'text-red-600 font-semibold' : 'text-slate-800'">
+              <!-- SSoT: đọc cờ server pm_overdue (KHÔNG so ngày client) — đồng bộ màn quét-QR -->
+              <dd :class="store.currentAsset.pm_overdue ? 'text-red-600 font-semibold' : 'text-slate-800'">
                 {{ formatDate(store.currentAsset.next_pm_date) }}
               </dd>
             </div>
             <div class="flex justify-between">
               <dt class="text-slate-400">Hiệu chuẩn tiếp theo</dt>
-              <dd :class="isPmOverdue(store.currentAsset.next_calibration_date) ? 'text-red-600 font-semibold' : 'text-slate-800'">
+              <!-- SSoT: đọc cờ server calibration_overdue (KHÔNG so ngày client) — exempt Out of Service -->
+              <dd :class="store.currentAsset.calibration_overdue ? 'text-red-600 font-semibold' : 'text-slate-800'">
                 {{ formatDate(store.currentAsset.next_calibration_date) }}
               </dd>
             </div>
@@ -779,74 +828,53 @@ onMounted(async () => {
       </div>
     </template>
 
-    <!-- A4: QR Label preview Modal (inline — KHÔNG Teleport, để vùng .qr-label-sheet
-         in được + nút 'In tem' nằm trong DOM view). preview-only: chỉ gọi
-         getAssetLabelData; ghi event label_printed CHỈ khi bấm 'In tem'. -->
-    <div v-if="showLabelModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 qr-modal-chrome">
-      <div class="bg-white rounded-xl shadow-xl p-6 w-full max-w-md mx-4">
-        <div class="flex items-center justify-between mb-4 qr-modal-chrome">
-          <h3 class="font-semibold text-slate-900">Nhãn QR thiết bị</h3>
-          <button class="text-slate-400 hover:text-slate-600" aria-label="Đóng" @click="showLabelModal = false">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-
-        <!-- Selector khổ tem (SSoT, dùng chung AssetLabelPrintView). Mặc định A4. -->
-        <label class="flex items-center gap-2 text-sm text-slate-600 mb-3 qr-modal-chrome">
-          <span>Khổ tem</span>
-          <select
-            v-model="labelFormatKey"
-            class="border border-slate-300 rounded px-2 py-1 text-sm"
-            aria-label="Chọn khổ tem in nhãn"
-          >
-            <option v-for="f in LABEL_FORMATS" :key="f.key" :value="f.key">
-              {{ f.label }}
-            </option>
-          </select>
-        </label>
-
+    <!-- A3-PDF (ADR-IMM00-LABEL-PDF): Modal in nhãn QR PDF khổ tem 60×100mm.
+         Preview embed CHÍNH file PDF (WYSIWYG thật — preview == bản in). Hộp thoại
+         in đã tự bật qua iframe.print(); nút 'Đã in xong' ghi label_printed (audit).
+         Đóng/huỷ → revoke Blob URL, KHÔNG ghi audit. -->
+    <BaseModal
+      v-if="showPdfModal"
+      :title="`In nhãn QR — ${selectedPresetLabel}`"
+      size="lg"
+      @close="closePdfModal"
+    >
+      <div class="space-y-3 text-sm">
         <!-- Loading -->
-        <div v-if="labelLoading" class="py-8 text-center text-slate-400" aria-busy="true">
-          Đang tải dữ liệu nhãn…
+        <div v-if="pdfLoading" class="py-12 text-center text-slate-400" aria-busy="true">
+          Đang tạo PDF nhãn QR…
         </div>
-        <!-- Error -->
-        <div v-else-if="labelError" class="alert-error flex items-center gap-3" role="alert">
-          <span class="flex-1">{{ labelError }}</span>
-          <button class="text-sm underline" @click="openLabelPreview">Thử lại</button>
+        <!-- Error (403/413/422) — message VI từ ApiError (KHÔNG raw EN). -->
+        <div v-else-if="pdfError" class="alert-error flex items-center gap-3" role="alert">
+          <span class="flex-1">{{ pdfError }}</span>
+          <button class="text-sm underline" @click="openPdfLabelPrint">Thử lại</button>
         </div>
-        <!-- Preview — 1 tem đơn; lớp khổ tem để CSS in áp đúng @page/grid. -->
-        <div
-          v-else-if="labelData"
-          class="qr-label-sheet"
-          :class="`qr-label-sheet--${labelFormatKey}`"
-          :data-format="labelFormatKey"
-        >
-          <AssetQrLabel
-            :label="labelData"
-            :format="labelFormatKey"
-            :qr-size="currentLabelFormat.qrSizePx"
-          />
-        </div>
-
-        <div class="flex gap-2 justify-end mt-5 qr-modal-chrome">
-          <button class="btn-ghost text-sm" @click="showLabelModal = false">Đóng</button>
-          <button
-            class="btn-primary text-sm"
-            :disabled="labelPrinting || !labelData"
-            @click="confirmPrintLabel"
-          >
-            {{ labelPrinting ? 'Đang ghi nhận…' : 'In tem' }}
-          </button>
-        </div>
+        <!-- Preview = CHÍNH file PDF Blob (WYSIWYG). -->
+        <template v-else-if="pdfPreviewUrl">
+          <p class="text-xs text-slate-500">
+            Hộp thoại in đã mở — chọn máy in tem (khổ {{ selectedPresetLabel }}). Sau khi in xong,
+            bấm “Đã in xong” để ghi nhận.
+          </p>
+          <iframe
+            :src="pdfPreviewUrl"
+            title="Xem trước PDF nhãn QR"
+            class="w-full rounded-lg border border-slate-200"
+            style="height: 60vh"
+            data-testid="pdf-preview-iframe"
+          ></iframe>
+        </template>
       </div>
-
-      <!-- @page động cho TEM vật lý (1 tem/trang khít khổ). A4 → '' (không ép). -->
-      <component :is="'style'" v-if="labelPageRuleCss" data-testid="label-page-rule">
-        @media print { {{ labelPageRuleCss }} }
-      </component>
-    </div>
+      <template #footer>
+        <button class="btn-ghost text-sm" @click="closePdfModal">Đóng</button>
+        <button
+          class="btn-primary text-sm"
+          :disabled="pdfPrinting || pdfLoading || !pdfPreviewUrl || labelMarked"
+          data-testid="btn-pdf-printed"
+          @click="markPrintedOnce"
+        >
+          {{ labelMarked ? 'Đã ghi nhận' : 'Đã in xong' }}
+        </button>
+      </template>
+    </BaseModal>
 
     <!-- B (hardening): Modal cảnh báo cấp lại (rotate) mã QR -->
     <BaseModal
@@ -1021,32 +1049,3 @@ onMounted(async () => {
     </BaseModal>
 </div>
 </template>
-
-<style scoped>
-/* A4 — khi in nhãn 1 tài sản từ modal: chỉ hiện vùng .qr-label-sheet,
-   ẩn chrome modal (tiêu đề/nút) + nội dung trang. break-inside:avoid nằm
-   trong AssetQrLabel để không cắt đôi nhãn. */
-.qr-label-sheet {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 0.5rem;
-}
-@media print {
-  .qr-modal-chrome { display: none !important; }
-  /* Tem vật lý in 1 tem đơn: khít khổ @page, không lề thừa. */
-  .qr-label-sheet--tem-50x30,
-  .qr-label-sheet--tem-70x40 {
-    display: block;
-    gap: 0;
-  }
-  .qr-label-sheet--tem-50x30 > *,
-  .qr-label-sheet--tem-70x40 > * { height: 100%; }
-}
-</style>
-
-<style>
-/* Print global: ẩn shell app (sidebar/topbar) + backdrop modal khi in từ màn này. */
-@media print {
-  .app-sidebar, .app-topbar, .app-shell__nav { display: none !important; }
-}
-</style>

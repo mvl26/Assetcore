@@ -1,0 +1,358 @@
+"""TC-OAS-D12-01..06 — BASELINE-ERR-SURFACE: typed 401/403 cho MỌI op authed.
+
+Bám ADR-IMM00-OPENAPI §D12-BASELINE-ERR. Test viết TRƯỚC implement (TDD RED→GREEN).
+
+Vấn đề: 325 op non-enriched chỉ có `default` (opaque ErrorEnvelope) — KHÔNG có
+response status-coded 401/403, integrator/Swagger UI không biết op cần phiên/quyền gì.
+161 op enriched (imm00/04/12) đã có status-coded error (curated D6) nhưng phần còn lại
+trống.
+
+Fix D12: với MỌI op AUTHED (security==[{cookieSession:[]}]) THÊM baseline response
+`401`(UNAUTHORIZED) + `403`(FORBIDDEN) — schema $ref ErrorEnvelope, description VI DẪN
+XUẤT từ SSoT (constants BE). MERGE bằng setdefault (key chưa tồn tại) → enrich D6 chạy
+SAU vẫn override/bồi `examples` cho 161 op curated mà KHÔNG bị baseline đè. Op GUEST
+(security==[]) KHÔNG có 401 (không cần phiên) — chỉ 200+default. Bất biến guest_count==5.
+
+`x-assetcore-stats` thêm `error_responses_typed_count` = số op có ≥1 response status 4xx/5xx
+(đếm động). total/get/post/guest/enriched/json_param/cap_set_version KHÔNG đổi.
+
+Run: bench --site miyano run-tests --module assetcore.tests.test_oas_d12_error_surface
+"""
+from __future__ import annotations
+
+import re
+import unittest
+
+import frappe  # noqa: F401 — môi trường Frappe
+
+from assetcore.api import openapi
+from assetcore.api import openapi_overrides as _ovr
+from assetcore.utils.response import ErrorCode, _HTTP_FOR_CODE
+
+# Bề mặt invariant baseline (D2/D11/D9/D6) — KHÔNG đổi sau D12.
+# 2026-06-11 re-baseline 486→487 / get 236→237: working tree thêm endpoint thứ 487
+# `imm00.print_asset_labels_pdf` (GET, whitelist mới từ IMM-00 print/rotate caps đã commit).
+# 2026-06-12 re-baseline 487→488 / get 237→238: working tree thêm endpoint thứ 488
+# `imm00.get_asset_action_meta` (GET, panel META NẠC cho 3 màn tạo WO — KHÔNG-parse-param,
+# 6-key NẠC, RBAC/vendor-isolation intact; NĐ98 data-min). Delta = đúng 1 GET, POST giữ 250.
+_BASELINE_TOTAL = 488
+_BASELINE_GET = 238
+_BASELINE_POST = 250
+_BASELINE_GUEST = 5
+# enriched_count derive ĐỘNG (D6-IMM09-ENRICH: KHÔNG còn magic 161 cho 3-module). D12
+# (error-surface) KHÔNG đụng enrich → vẫn KHỚP số op enrich đếm qua helper SSoT.
+# 2026-06-11 re-baseline 63→64: print_asset_labels_pdf(assets=…) list-param = json param thứ 64.
+_BASELINE_JSON_PARAM = 64
+
+_ERR_ENVELOPE_REF = "#/components/schemas/ErrorEnvelope"
+_PREFIX = "/api/method/assetcore.api."
+
+# Regex VI-clean guards (đồng bộ test_oas_generator._CAP_TOKEN_RE / _EN_STATUS_RE).
+_CAP_TOKEN_RE = re.compile(r"[a-z]+\.[a-z]+")
+_EN_STATUS_RE = re.compile(r"\b(Active|Out of Service|Under Maintenance|Decommissioned)\b")
+# Op enriched mẫu (imm12/imm00) — phải GIỮ examples + status D6 sau merge baseline.
+_ENRICHED_SAMPLES = {
+    "imm12.report_incident": "post",
+    "imm00.create_asset": "post",
+}
+
+
+def _is_authed(op: dict) -> bool:
+    """True nếu op yêu cầu phiên: security == [{'cookieSession': []}] (D2)."""
+    return op.get("security") == [{"cookieSession": []}]
+
+
+def _is_guest(op: dict) -> bool:
+    """True nếu op guest: security == [] (D2/D11)."""
+    return op.get("security") == []
+
+
+def _iter_ops(spec: dict):
+    """Yield (path, verb, op) cho mọi operation trong spec['paths']."""
+    for path, item in spec["paths"].items():
+        for verb, op in item.items():
+            yield path, verb, op
+
+
+class TestOasD12ErrorSurface(unittest.TestCase):
+    """Baseline 401/403 typed cho mọi authed op; guest KHÔNG có 401; merge giữ curated."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.spec = openapi.generate_spec()
+
+    def _op(self, op_tail: str, verb: str) -> dict:
+        path = f"{_PREFIX}{op_tail}"
+        self.assertIn(path, self.spec["paths"], f"Thiếu path {path}.")
+        item = self.spec["paths"][path]
+        self.assertIn(verb, item, f"{path} thiếu verb {verb} (có: {list(item)}).")
+        return item[verb]
+
+    # ── TC-OAS-D12-01 — mọi authed op có 401+403 ref ErrorEnvelope ────────────
+    def test_d12_01_every_authed_op_has_401_403_ref_error_envelope(self):
+        """MỌI op security==[{cookieSession:[]}] có responses['401'] và ['403'], cả 2
+        schema $ref == ErrorEnvelope."""
+        missing: list[str] = []
+        authed_n = 0
+        for _path, _verb, op in _iter_ops(self.spec):
+            if not _is_authed(op):
+                continue
+            authed_n += 1
+            r = op.get("responses", {})
+            for code in ("401", "403"):
+                if code not in r:
+                    missing.append(f"{op['operationId']}: thiếu response {code}")
+                    continue
+                ref = (
+                    r[code]
+                    .get("content", {})
+                    .get("application/json", {})
+                    .get("schema", {})
+                    .get("$ref")
+                )
+                if ref != _ERR_ENVELOPE_REF:
+                    missing.append(
+                        f"{op['operationId']}/{code}: $ref={ref!r} != {_ERR_ENVELOPE_REF}"
+                    )
+        self.assertEqual(missing, [], "Authed op thiếu 401/403 hoặc ref sai:\n  " + "\n  ".join(missing))
+        # Sanity: phải có hàng trăm authed op (483 ở baseline 488-5-guest).
+        self.assertGreater(authed_n, 400, "Phải có >400 authed op.")
+
+    def test_d12_01b_401_403_codes_match_ssot_http(self):
+        """response 401 ↔ ErrorCode.UNAUTHORIZED; 403 ↔ ErrorCode.FORBIDDEN (SSoT _HTTP_FOR_CODE)."""
+        self.assertEqual(_HTTP_FOR_CODE[ErrorCode.UNAUTHORIZED], 401, "SSoT: UNAUTHORIZED→401.")
+        self.assertEqual(_HTTP_FOR_CODE[ErrorCode.FORBIDDEN], 403, "SSoT: FORBIDDEN→403.")
+        # Lấy 1 op authed non-enriched bất kỳ → example code khớp.
+        for _path, _verb, op in _iter_ops(self.spec):
+            if not _is_authed(op):
+                continue
+            r = op["responses"]
+            ex401 = r["401"]["content"]["application/json"].get("example")
+            ex403 = r["403"]["content"]["application/json"].get("example")
+            if ex401 is not None:
+                self.assertEqual(ex401["code"], ErrorCode.UNAUTHORIZED)
+                self.assertEqual(ex401["http_status"], 401)
+            if ex403 is not None:
+                self.assertEqual(ex403["code"], ErrorCode.FORBIDDEN)
+                self.assertEqual(ex403["http_status"], 403)
+            break
+
+    # ── TC-OAS-D12-02 — guest op KHÔNG có 401; guest_count==5 ─────────────────
+    def test_d12_02_guest_ops_have_no_401(self):
+        """MỌI op guest (security==[]) KHÔNG có responses['401'] (không cần phiên)."""
+        offenders: list[str] = []
+        guest_n = 0
+        for _path, _verb, op in _iter_ops(self.spec):
+            if not _is_guest(op):
+                continue
+            guest_n += 1
+            if "401" in op.get("responses", {}):
+                offenders.append(op["operationId"])
+        self.assertEqual(
+            offenders, [], "Op guest KHÔNG được có 401 (không cần phiên):\n  " + "\n  ".join(offenders)
+        )
+        self.assertEqual(guest_n, _BASELINE_GUEST, "Bề mặt guest THẬT phải == 5 (D11 bất biến).")
+        self.assertEqual(
+            self.spec["x-assetcore-stats"]["guest_count"],
+            _BASELINE_GUEST,
+            "guest_count GIỮ 5 (D11 bất biến).",
+        )
+
+    def test_d12_02b_guest_ops_keep_200_and_default_only(self):
+        """Guest op GIỮ 200 + default; KHÔNG thêm 401 (403 có thể có nếu enrich curated, nhưng
+        guest hiện tại không thuộc 3 module enrich → chỉ 200+default)."""
+        for _path, _verb, op in _iter_ops(self.spec):
+            if not _is_guest(op):
+                continue
+            r = op.get("responses", {})
+            self.assertIn("200", r, f"{op['operationId']}: guest phải giữ 200.")
+            self.assertIn("default", r, f"{op['operationId']}: guest phải giữ default.")
+            self.assertNotIn("401", r, f"{op['operationId']}: guest KHÔNG có 401.")
+
+    # ── TC-OAS-D12-03 — VI-clean description ─────────────────────────────────
+    def test_d12_03_baseline_401_403_descriptions_vi_clean(self):
+        """description của 401/403 non-empty, tiếng Việt sạch — KHÔNG khớp EN-status,
+        KHÔNG khớp cap-token regex `[a-z]+\\.[a-z]+`."""
+        offenders: list[str] = []
+        for _path, _verb, op in _iter_ops(self.spec):
+            if not _is_authed(op):
+                continue
+            r = op["responses"]
+            for code in ("401", "403"):
+                desc = r[code].get("description", "")
+                if not desc.strip():
+                    offenders.append(f"{op['operationId']}/{code}: description rỗng")
+                    continue
+                if _EN_STATUS_RE.search(desc):
+                    offenders.append(f"{op['operationId']}/{code}: EN-status leak → {desc!r}")
+                if _CAP_TOKEN_RE.search(desc):
+                    offenders.append(f"{op['operationId']}/{code}: cap-token leak → {desc!r}")
+        self.assertEqual(offenders, [], "Description 401/403 không sạch:\n  " + "\n  ".join(offenders))
+
+    def test_d12_03b_baseline_vi_descriptions_are_derived_from_ssot(self):
+        """description baseline 401/403 lấy DẪN XUẤT từ constants BE (VI), non-hardcode-rời.
+
+        Lấy 1 op authed non-enriched (không thuộc imm00/04/12) → so với helper SSoT.
+        """
+        baseline = openapi._baseline_error_responses(is_guest=False)
+        self.assertIn("401", baseline)
+        self.assertIn("403", baseline)
+        desc401 = baseline["401"]["description"]
+        desc403 = baseline["403"]["description"]
+        # VI-clean + chứa từ khoá ngữ nghĩa SSoT (chưa đăng nhập / quyền).
+        self.assertTrue(desc401.strip())
+        self.assertTrue(desc403.strip())
+        self.assertNotEqual(desc401, desc403, "401/403 description phải khác nhau.")
+        self.assertFalse(_EN_STATUS_RE.search(desc401))
+        self.assertFalse(_EN_STATUS_RE.search(desc403))
+        self.assertFalse(_CAP_TOKEN_RE.search(desc401))
+        self.assertFalse(_CAP_TOKEN_RE.search(desc403))
+        # example code khớp ErrorCode SSoT.
+        self.assertEqual(baseline["401"]["content"]["application/json"]["example"]["code"], ErrorCode.UNAUTHORIZED)
+        self.assertEqual(baseline["403"]["content"]["application/json"]["example"]["code"], ErrorCode.FORBIDDEN)
+
+    def test_d12_03c_baseline_guest_has_no_401(self):
+        """`_baseline_error_responses(is_guest=True)` KHÔNG chứa 401, có 403."""
+        baseline = openapi._baseline_error_responses(is_guest=True)
+        self.assertNotIn("401", baseline, "Guest baseline KHÔNG có 401.")
+        self.assertIn("403", baseline, "Guest baseline vẫn có 403 (forbidden có thể xảy ra).")
+
+    # ── TC-OAS-D12-04 — enriched op GIỮ examples + status D6 ─────────────────
+    def test_d12_04_enriched_ops_keep_examples_and_d6_status(self):
+        """report_incident/create_asset GIỮ examples.errors + status codes D6 sau merge."""
+        for op_tail, verb in _ENRICHED_SAMPLES.items():
+            op = self._op(op_tail, verb)
+            r = op["responses"]
+            # 401/403 vẫn có (cả baseline lẫn curated đều phơi 2 mã này).
+            self.assertIn("401", r, f"{op_tail}: phải có 401.")
+            self.assertIn("403", r, f"{op_tail}: phải có 403.")
+            # Curated phải THẮNG baseline → 403/401 có 'example' (curated thêm example),
+            # và op có ÍT NHẤT 1 mã status D6 ngoài 401/403 (vd 422 VALIDATION).
+            self.assertIn(
+                "example",
+                r["403"]["content"]["application/json"],
+                f"{op_tail}/403: curated phải GIỮ example (merge không mất).",
+            )
+            extra_4xx = [c for c in r if re.fullmatch(r"[45]\d\d", c) and c not in ("401", "403")]
+            self.assertGreater(
+                len(extra_4xx),
+                0,
+                f"{op_tail}: phải GIỮ ≥1 status D6 ngoài 401/403 (vd 422) — merge không xoá curated.",
+            )
+
+    def test_d12_04b_report_incident_keeps_422_validation_example(self):
+        """report_incident GIỮ 422 (VALIDATION) curated với example VI sau merge baseline."""
+        op = self._op("imm12.report_incident", "post")
+        r = op["responses"]
+        http422 = str(_HTTP_FOR_CODE[ErrorCode.VALIDATION])
+        self.assertIn(http422, r, "report_incident phải GIỮ 422 (VALIDATION) curated.")
+        ex = r[http422]["content"]["application/json"].get("example")
+        self.assertIsNotNone(ex, "422 curated phải GIỮ example.")
+        self.assertEqual(ex["code"], ErrorCode.VALIDATION)
+        # 403 curated giữ message VI cụ thể (không bị baseline đè).
+        ex403 = r["403"]["content"]["application/json"].get("example")
+        self.assertIsNotNone(ex403, "403 curated phải GIỮ example.")
+        self.assertEqual(ex403["code"], ErrorCode.FORBIDDEN)
+
+    # ── TC-OAS-D12-05 — stats.error_responses_typed_count + invariants ───────
+    def test_d12_05_error_responses_typed_count_matches_dynamic(self):
+        """error_responses_typed_count == đếm động op có ≥1 response status 4xx/5xx."""
+        stats = self.spec["x-assetcore-stats"]
+        self.assertIn("error_responses_typed_count", stats, "Thiếu khóa error_responses_typed_count.")
+        expected = sum(
+            1
+            for _path, _verb, op in _iter_ops(self.spec)
+            if any(re.fullmatch(r"[45]\d\d", str(c)) for c in op.get("responses", {}))
+        )
+        self.assertEqual(
+            stats["error_responses_typed_count"],
+            expected,
+            "error_responses_typed_count PHẢI == đếm động op có ≥1 response 4xx/5xx.",
+        )
+        self.assertIsInstance(stats["error_responses_typed_count"], int)
+        # Sau D12: MỌI op có ≥1 response 4xx — authed (483) có 401+403; guest (5) có 403
+        # baseline (cấm-quyền vẫn xảy ra ở guest endpoint). ⟹ typed_count == total (488).
+        self.assertEqual(
+            stats["error_responses_typed_count"],
+            _BASELINE_TOTAL,
+            "Mọi op (authed 401/403 + guest 403) có ≥1 status 4xx → typed_count == total (488).",
+        )
+
+    def test_d12_05b_sibling_stats_unchanged(self):
+        """total/get/post/guest/enriched/json_param/cap_set_version KHÔNG đổi so baseline."""
+        from assetcore.services.shared import rbac
+
+        stats = self.spec["x-assetcore-stats"]
+        self.assertEqual(stats["total_endpoints"], _BASELINE_TOTAL, "total GIỮ 488.")
+        self.assertEqual(stats["get_count"], _BASELINE_GET, "get GIỮ 238.")
+        self.assertEqual(stats["post_count"], _BASELINE_POST, "post GIỮ 250.")
+        self.assertEqual(stats["guest_count"], _BASELINE_GUEST, "guest GIỮ 5.")
+        expected_enriched = sum(
+            1
+            for p in self.spec["paths"]
+            if _ovr.enrich_meta_for(p.replace(_PREFIX, "", 1)) is not None
+        )
+        self.assertEqual(
+            stats["enriched_count"], expected_enriched,
+            "enriched_count == số op enrich đếm động (D12 không đụng enrich, KHÔNG magic).",
+        )
+        self.assertEqual(stats["json_param_count"], _BASELINE_JSON_PARAM, "json_param GIỮ 64.")
+        self.assertEqual(stats["cap_set_version"], rbac.CAP_SET_VERSION, "cap_set_version KHÔNG đổi.")
+
+    # ── TC-OAS-D12-06 — 0 dangling $ref + openapi 3.1 + key-order ────────────
+    def test_d12_06_no_dangling_ref_and_valid_openapi(self):
+        """Walk toàn spec — mọi $ref resolve về component TỒN TẠI; openapi==3.1.0; JSON-serializable."""
+        spec = self.spec
+        self.assertEqual(spec["openapi"], "3.1.0")
+        defined = set(spec["components"]["schemas"].keys()) | set(
+            spec["components"].get("securitySchemes", {}).keys()
+        )
+
+        dangling: list[str] = []
+
+        def _walk(node):
+            if isinstance(node, dict):
+                ref = node.get("$ref")
+                if isinstance(ref, str):
+                    # '#/components/schemas/X' hoặc '#/components/securitySchemes/X'
+                    name = ref.rsplit("/", 1)[-1]
+                    if name not in defined:
+                        dangling.append(ref)
+                for v in node.values():
+                    _walk(v)
+            elif isinstance(node, list):
+                for v in node:
+                    _walk(v)
+
+        _walk(spec)
+        self.assertEqual(dangling, [], f"0 dangling $ref required; thấy: {dangling}")
+        self.assertIn("ErrorEnvelope", spec["components"]["schemas"], "ErrorEnvelope phải tồn tại.")
+
+    def test_d12_06b_spec_json_serializable_and_key_order(self):
+        """spec JSON-serializable; key-order info→components→paths→tags→x-assetcore-stats giữ."""
+        import json
+
+        s = frappe.as_json(self.spec)
+        rt = json.loads(s)
+        self.assertEqual(rt["openapi"], "3.1.0")
+        keys = list(self.spec.keys())
+        self.assertLess(keys.index("info"), keys.index("components"))
+        self.assertLess(keys.index("components"), keys.index("paths"))
+        self.assertLess(keys.index("paths"), keys.index("tags"))
+        self.assertLess(keys.index("tags"), keys.index("x-assetcore-stats"))
+
+    def test_d12_06c_status_code_keys_are_valid_http_strings(self):
+        """Mọi status-code key 4xx/5xx là chuỗi HTTP hợp lệ (str(int) trong _HTTP_FOR_CODE.values())."""
+        valid_http = {str(v) for v in _HTTP_FOR_CODE.values()}
+        offenders: list[str] = []
+        for _path, _verb, op in _iter_ops(self.spec):
+            for code in op.get("responses", {}):
+                if code in ("200", "default"):
+                    continue
+                if not re.fullmatch(r"[45]\d\d", code):
+                    offenders.append(f"{op['operationId']}: key {code!r} không phải 4xx/5xx")
+                    continue
+                if code not in valid_http:
+                    offenders.append(f"{op['operationId']}: status {code} ∉ _HTTP_FOR_CODE.values()")
+        self.assertEqual(offenders, [], "Status-code key không hợp lệ:\n  " + "\n  ".join(offenders))

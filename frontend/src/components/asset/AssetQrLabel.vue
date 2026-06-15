@@ -5,12 +5,13 @@
 // nội bộ qr_value). Ở ĐÂY: mã hoá TRỰC TIẾP label.qr_url (chuỗi tuyệt đối /a/<token>
 // do BE trả) vào QR ảnh — KHÔNG tự build URL, KHÔNG mã hoá asset_code/token/chuỗi tag.
 //
-// Prop `label` nhận BatchLabelItem: payload hợp lệ (6 field) HOẶC ô lỗi
+// Prop `label` nhận BatchLabelItem: payload hợp lệ (8 field) HOẶC ô lỗi
 // {name, error} (AC-E001) → render ô lỗi VI tại đúng vị trí (KHÔNG nhãn trắng,
 // KHÔNG QR, KHÔNG throw) để in hàng loạt không vỡ trang.
 import { ref, computed, watch, onMounted } from 'vue'
 import QRCode from 'qrcode'
 import { translateStatus } from '@/utils/formatters'
+import { ASSET_STATUS_LABELS } from '@/constants/labels'
 import type { BatchLabelItem, BatchLabelErrorItem, AssetLabelData } from '@/api/imm00'
 import type { LabelFormatKey } from '@/constants/label'
 
@@ -61,6 +62,26 @@ const valid = computed<AssetLabelData | null>(() =>
 )
 const ariaName = computed(() => valid.value?.asset_code || props.label.name)
 
+// PARITY tem in BE services/imm00.py::_lifecycle_vi (Vòng 41): dòng "Trạng thái"
+// — status rỗng/null/lạ/drift KHÔNG hiển thị '—' CÂM mà hiển thị nhãn VI an toàn
+// 'Chưa rõ' (presence-aware, đồng bộ on-screen ↔ tem in). CHỈ áp tại dòng status
+// của nhãn QR (KHÔNG đổi translateStatus dùng chung → tránh regress IMM khác).
+//
+// Gate theo CANONICAL membership (ASSET_STATUS_LABELS — 8 mã hợp lệ SSoT):
+//   • mã canonical hợp lệ → giữ nhãn VI cũ qua translateStatus (no-regress,
+//     vd 'Active' → 'Đang hoạt động').
+//   • rỗng/null/lạ/drift/legacy ngoài enum (vd 'WeirdDrift','Retired') → 'Chưa
+//     rõ'. KHÔNG dùng sentinel '—' của translateStatus (nó trả raw code cho mã
+//     lạ → leak): canonical-gate đảm bảo TUYỆT ĐỐI KHÔNG leak mã EN thô ra UI.
+const STATUS_UNKNOWN_LABEL = 'Chưa rõ'
+const statusLabel = computed(() => {
+  const raw = valid.value?.lifecycle_status
+  if (raw && Object.prototype.hasOwnProperty.call(ASSET_STATUS_LABELS, raw)) {
+    return translateStatus(raw)
+  }
+  return STATUS_UNKNOWN_LABEL
+})
+
 const qrDataUrl = ref<string>('')
 const qrFailed = ref(false)
 
@@ -69,10 +90,13 @@ async function renderQr() {
   qrDataUrl.value = ''
   // Item lỗi → KHÔNG gọi encode (chống QR rác cho asset không tồn tại).
   if (itemIsError(props.label)) return
-  const value = props.label.qr_url
+  // PARITY BE services/imm00.py::_label_block (Vòng 30): qr_url rỗng/whitespace
+  // (sau trim) → KHÔNG encode (pyqrcode/QRCode KHÔNG bao giờ nhận chuỗi rỗng/space)
+  // → fallback an toàn 'Không tạo được mã QR' (chống junk-QR dán/in trên thiết bị).
+  const value = (props.label.qr_url ?? '').trim()
   if (!value) { qrFailed.value = true; return }
   try {
-    // ENCODE ĐÚNG label.qr_url (KHÔNG asset_code/token/chuỗi tag).
+    // ENCODE ĐÚNG label.qr_url đã trim (KHÔNG asset_code/token/chuỗi tag).
     qrDataUrl.value = await QRCode.toDataURL(value, {
       width: props.qrSize ?? 140,
       margin: 1,
@@ -104,7 +128,7 @@ onMounted(renderQr)
     </div>
   </div>
 
-  <!-- NHÃN HỢP LỆ — QR ảnh + 6 field VI. -->
+  <!-- NHÃN HỢP LỆ — QR ảnh + 8 field VI. -->
   <div
     v-else-if="valid"
     class="qr-label"
@@ -125,28 +149,36 @@ onMounted(renderQr)
       </div>
     </div>
     <dl class="qr-label__fields">
-      <div class="qr-label__row">
-        <dt>Mã hệ thống</dt>
-        <dd class="font-mono">{{ valid.name }}</dd>
-      </div>
+      <!-- ADR-IMM00-ASSETCODE D1/D5: asset_code LÀ name/PK — 1 hàng định danh DUY
+           NHẤT (KHÔNG hàng Mã hệ thống tách biệt). Fallback name khi asset_code rỗng
+           (legacy) — đồng nhất AssetDetailView.vue / AssetScanInfoView.vue. -->
       <div class="qr-label__row">
         <dt>Mã tài sản</dt>
-        <dd class="font-mono">{{ valid.asset_code || '—' }}</dd>
+        <dd class="font-mono">{{ valid.asset_code || valid.name || '—' }}</dd>
       </div>
+      <!-- D5: Tên tài sản + Số serial NSX (manufacturer_sn) TÁCH BẠCH khỏi Mã
+           tài sản — định danh truy xuất NĐ98. Nhãn VI nguyên văn ADR D4. -->
       <div class="qr-label__row">
+        <dt>Tên tài sản</dt>
+        <dd>{{ valid.asset_name || '—' }}</dd>
+      </div>
+      <div class="qr-label__row qr-label__row--serial">
+        <dt>Số serial NSX</dt>
+        <dd class="font-mono">{{ valid.manufacturer_sn || '—' }}</dd>
+      </div>
+      <div class="qr-label__row qr-label__row--secondary">
         <dt>Model</dt>
         <dd>{{ valid.device_model_name || '—' }}</dd>
       </div>
-      <div class="qr-label__row">
+      <div class="qr-label__row qr-label__row--secondary">
         <dt>Vị trí</dt>
         <dd>{{ valid.location_name || '—' }}</dd>
       </div>
       <div class="qr-label__row">
         <dt>Trạng thái</dt>
-        <!-- SSoT formatter VI — KHÔNG leak chuỗi EN gốc (Active/Commissioned/…). -->
-        <dd data-testid="lifecycle-status">
-          {{ translateStatus(valid.lifecycle_status) }}
-        </dd>
+        <!-- SSoT formatter VI — KHÔNG leak chuỗi EN gốc (Active/Commissioned/…).
+             status rỗng/lạ/drift → 'Chưa rõ' (KHÔNG '—' câm), parity tem in BE. -->
+        <dd data-testid="lifecycle-status">{{ statusLabel }}</dd>
       </div>
     </dl>
   </div>
@@ -216,8 +248,10 @@ onMounted(renderQr)
 .qr-label--physical .qr-label__qr img { width: auto; height: auto; }
 .qr-label--physical .qr-label__fields { font-size: 2.1mm; line-height: 1.2; }
 .qr-label--physical .qr-label__row dt { width: 13mm; }
-/* Tem 50×30 nhỏ nhất → bỏ Model/Vị trí để khỏi tràn; giữ mã + trạng thái. */
+/* Tem 50×30 nhỏ nhất → ẩn Model/Vị trí (secondary) để khỏi tràn. GIỮ Mã tài sản
+   + Số serial NSX (định danh truy xuất NĐ98 — D5) + Tên tài sản + Trạng thái. */
 .qr-label--tem-50x30 .qr-label__fields { font-size: 1.9mm; }
+.qr-label--tem-50x30 .qr-label__row--secondary { display: none; }
 
 /* In: viền đậm + bỏ shadow để nhãn rõ trên giấy, không cắt đôi qua trang. */
 @media print {

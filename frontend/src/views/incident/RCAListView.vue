@@ -115,7 +115,38 @@ onMounted(() => store.fetchRcas())
     </div>
 
     <div v-else class="table-wrapper">
-      <div v-if="store.rcaListItems.length" class="overflow-x-auto">
+      <!-- Mobile cards (< sm) — P1 table→card: mỗi RCA 1 card (mã/sự cố/thiết bị/trạng thái). -->
+      <div v-if="store.rcaListItems.length" class="mobile-card-list sm:hidden">
+        <div
+          v-for="rca in store.rcaListItems"
+          :key="rca.name"
+          class="mobile-card"
+          @click="router.push(`/rca/${rca.name}`)"
+        >
+          <div class="flex items-center justify-between mb-2">
+            <span class="font-mono text-sm font-semibold text-brand-700">{{ rca.name }}</span>
+            <span :class="['inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium leading-none whitespace-nowrap', rcaStatusClass(rca.status)]">
+              {{ rcaStatusLabel(rca.status) }}
+            </span>
+          </div>
+          <p class="text-sm font-medium text-slate-900 truncate" :title="rca.asset">
+            {{ rca.asset_name ?? rca.asset ?? '—' }}
+          </p>
+          <div class="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
+            <span v-if="rca.incident_report" class="font-mono">{{ rca.incident_report }}</span>
+            <span v-else>{{ rca.trigger_type ? rcaTriggerLabel(rca.trigger_type) : '—' }}</span>
+            <span class="text-slate-300">·</span>
+            <span>{{ rca.rca_method || '—' }}</span>
+            <template v-if="rca.linked_capa">
+              <span class="text-slate-300">·</span>
+              <span class="text-purple-600 font-mono">{{ rca.linked_capa }}</span>
+            </template>
+          </div>
+        </div>
+      </div>
+
+      <!-- Desktop table (sm+) — P3: giữ overflow-x-auto quanh bảng. -->
+      <div v-if="store.rcaListItems.length" class="hidden sm:block overflow-x-auto">
         <table class="min-w-full divide-y divide-slate-100">
           <thead>
             <tr>

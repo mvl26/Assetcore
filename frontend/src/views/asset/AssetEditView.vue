@@ -61,6 +61,23 @@ onMounted(load)
             <label class="form-label">Tên thiết bị <span class="text-red-500">*</span></label>
             <input v-model="form.asset_name" type="text" class="form-input w-full" required />
           </div>
+          <!-- D3/D4 (ADR-IMM00-ASSETCODE): Mã tài sản IMMUTABLE sau khi tạo → read-only -->
+          <div class="md:col-span-2">
+            <label for="asset_code" class="form-label">Mã tài sản</label>
+            <input
+              id="asset_code"
+              :value="form.asset_code"
+              type="text"
+              class="form-input w-full font-mono bg-slate-50 text-slate-500 cursor-not-allowed"
+              readonly
+              aria-readonly="true"
+              aria-describedby="asset_code_help"
+              title="Mã định danh, không sửa được sau khi tạo"
+            />
+            <p id="asset_code_help" class="mt-1 text-xs text-slate-500">
+              Mã định danh, không sửa được sau khi tạo.
+            </p>
+          </div>
           <div>
             <label class="form-label">Danh mục</label>
             <SmartSelect v-model="form.asset_category" doctype="AC Asset Category" placeholder="Tìm danh mục..." />
@@ -113,9 +130,13 @@ onMounted(load)
       <div class="card p-5">
         <h2 class="text-sm font-semibold text-slate-700 mb-4 pb-2 border-b border-slate-100">Nhận dạng &amp; Pháp lý Thiết bị Y tế</h2>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <!-- D1/D4: Số serial NSX = field nghiệp vụ riêng, KHÔNG phải mã định danh tài sản -->
           <div>
-            <label class="form-label">Số seri nhà sản xuất</label>
-            <input v-model="form.manufacturer_sn" type="text" class="form-input w-full font-mono" />
+            <label for="manufacturer_sn" class="form-label">Số serial NSX</label>
+            <input id="manufacturer_sn" v-model="form.manufacturer_sn" type="text" class="form-input w-full font-mono" aria-describedby="manufacturer_sn_help" />
+            <p id="manufacturer_sn_help" class="mt-1 text-xs text-slate-500">
+              Số serial của nhà sản xuất (NSX). Field nghiệp vụ — KHÔNG phải mã định danh tài sản.
+            </p>
           </div>
           <div>
             <label class="form-label">Mã định danh thiết bị (UDI)</label>

@@ -1299,14 +1299,24 @@ def cancel_calibration(name: str, reason: str) -> dict:
 
 
 def get_due_calibrations(days: int = 30, limit: int = 50) -> dict:
-    """Danh sách asset due_soon/overdue (≤ N ngày)."""
+    """Danh sách asset due_soon/overdue (≤ N ngày).
+
+    CHỈ trả asset CÓ ``next_calibration_date`` đã set (có lịch hiệu chuẩn thật).
+    Guard ``is set`` BẮT BUỘC: Frappe query-builder render ``<= threshold`` thành
+    ``ifnull(next_calibration_date, '0001-01-01') <= threshold`` ⇒ nếu KHÔNG loại
+    NULL, mọi asset chưa-có-lịch (next_calibration_date NULL) bị coerce
+    '0001-01-01' và LỌT filter, sort ASC lên đầu, lấp kín ``limit`` → đẩy asset
+    overdue thật khỏi due-list (sai KPI 'sắp đến hạn' + drill). Asset chưa-có-lịch
+    KHÔNG phải 'đến hạn'.
+    """
     today = nowdate()
     threshold = add_days(today, int(days))
     rows, _ = AssetRepo.list(
-        filters={
-            "lifecycle_status": _NOT_DECOMMISSIONED,
-            "next_calibration_date": ("<=", threshold),
-        },
+        filters=[
+            ["lifecycle_status", "not in", [AssetStatus.DECOMMISSIONED]],
+            ["next_calibration_date", "is", "set"],
+            ["next_calibration_date", "<=", threshold],
+        ],
         fields=["name", "asset_name", "device_model", "location",
                 "next_calibration_date", "calibration_status"],
         order_by=_ORDER_NEXT_CAL_ASC,

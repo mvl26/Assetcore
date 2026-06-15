@@ -12,8 +12,33 @@ description: >
 
 # AssetCore Backend — Architecture, DocType & Workflow
 
+## Overview
+
 Skill này bao 3 lớp phát triển backend: **3-tier code** + **DocType schema** + **Workflow state machine**.
-Mọi module IMM mới đều cần cả 3.
+Mọi module IMM mới đều cần cả 3. Nguyên tắc cốt lõi: **API mỏng → Service giữ nghiệp vụ → Repository chạm DB**; mọi action đổi-state sinh audit; KHÔNG hardcode role/status.
+
+## When to Use
+
+- Thêm/sửa endpoint, service, validator nghiệp vụ, controller hook cho module IMM-XX.
+- Tạo DocType mới / thêm field / child table / naming series / thiết kế bảng.
+- Tạo hoặc sửa Workflow state machine (state, transition, approval flow, docstatus).
+- Wire SLA, lifecycle event, audit trail, KPI, scheduler job.
+- Build sequence cho module IMM mới (DocType → workflow → repo → service → api → test).
+- **KHÔNG dùng khi**: chỉ đụng FE (→ `assetcore-fe`), chỉ viết/chạy test (→ `assetcore-test`),
+  hoặc còn ở mức ý tưởng chưa chốt module (→ `assetcore-plan` / `assetcore-doc`).
+
+## Process — build BE module IMM-XX theo 3-tier (DocType→repo→service→api→test)
+
+Quy trình từng bước (spine — chi tiết ở mục dưới; giữ nguyên ranh giới §Kiến trúc 3-tier: API mỏng → Service nghiệp vụ → Repo chạm DB):
+1. **Đọc Core Doc + Lessons Learned** — `docs/imm-XX/02+05`, chốt BR-XX-NN/tên endpoint; đọc LL-BE-1..58 trước khi viết → §Lessons Learned
+2. **DocType schema** — folder + JSON template, naming series, status/timestamp `read_only+no_copy`, tra catalog tránh đoán tên → §DocType schema
+3. **Workflow state machine + 3-list fixtures** — states/transitions, docstatus rule, update CẢ 3 list (Workflow + State + Action Master) cùng commit → §Workflow state machine
+4. **Repository (Tier 3)** — `<Name>Repo(BaseRepository)`, DB chỉ qua repo, custom method khi cần raw SQL → §Tier 3 — Repository
+5. **Service (Tier 2)** — Status class → validators → entrypoints; `require_role` đầu mutating, raise `nthrow(MSG.*)` → §Tier 2 — Service layer
+6. **API (Tier 1) contract-first/Hyrum** — shared `handle`/`parse_json`, tên = spec, envelope chuẩn, boundary validate+cap → §Tier 1 — API layer
+7. **Lifecycle & Audit trail** — mọi action đổi-state gọi `log_audit_event`/`transition_asset_status`, không insert trail trực tiếp → §Lifecycle & Audit trail (bắt buộc)
+8. **Build sequence exact-path + fixtures** — đi lát mỏng dọc stack, export-fixtures + migrate, sync docs/`.ts`/openapi → §Build sequence module mới (exact file paths)
+9. **Test TRƯỚC (TDD) + Verification** — `run-tests` xanh (paste output), `EXPECTED_WORKFLOWS` đếm từ JSON, đóng cổng → §Verification
 
 ---
 
@@ -52,10 +77,12 @@ Mọi module IMM mới đều cần cả 3.
 9. **DocType field dùng trong service nhưng không có trong JSON**: sau khi viết service, grep `doc\.<field>` và verify từng field trong DocType JSON.
 10. **`doc.save()` trên workflow-managed doc**: dùng `frappe.db.set_value(DOCTYPE, name, "workflow_state", state, update_modified=False)`.
 11. **`_parse_json`/`_handle` định nghĩa lại per-file**: ĐÃ DEPRECATED. Dùng SHARED `from assetcore.utils.api_handler import handle, parse_json` — KHÔNG copy/viết lại block cục bộ. Xem [`references/notification-contract.md`](references/notification-contract.md) §5.
-12. **Fixture wiring thiếu 1 trong 3 list**: mỗi workflow mới phải cập nhật CẢ 3 list trong `hooks.py` — Workflow + Workflow State + Workflow Action Master — trong cùng commit. Thiếu bất kỳ list nào → fresh-site fail. Xem `CONVENTIONS.md §1b`.
+12. **Fixture wiring thiếu 1 trong 3 list**: mỗi workflow mới phải cập nhật CẢ 3 list trong `hooks.py` — Workflow + Workflow State + Workflow Action Master — trong cùng commit. Thiếu bất kỳ list nào → fresh-site fail.
 13. **Event-driven feature hard-code state/role**: notification/escalation/SLA KHÔNG hard-code tập state hay giả định field role (`supervisor`…) tồn tại → silent no-op (feature chết, không lỗi, test giả định vẫn pass). Resolve động từ Workflow transitions + `has_column`. Xem LL-BE-30/31.
 14. **Scheduler/background function không wire `scheduler_events`**: viết hàm scan/expiry/digest mà quên entry trong `hooks.py::scheduler_events` = dead code, chưa bao giờ chạy. Wire + `bench execute frappe.get_hooks` verify trong cùng commit. Xem LL-BE-32.
 15. **"Chuông trống / không nhận thông báo" → vá engine ngay**: thường là DATA (actor tự gán cho chính mình → self-notify chặn đúng), KHÔNG phải bug. Chạy decision tree (count record → actor≠recipient? → test `_dispatch` → FE query đúng `api/layout` không) TRƯỚC khi đụng code. Xem LL-BE-34.
+16. **List endpoint count≠rows / page_size không cap**: triệu chứng = persona row-scoped thấy `pagination.total` 1430 nhưng chỉ drill được ít row → nguyên nhân `frappe.db.count`/`get_all` BỎ `permission_query_conditions` còn rows áp query persona. RULE kiểm-được: (a) `pagination.total` qua `count_with_or`/`len(get_list(limit_page_length=0))` DƯỚI session user — KHÔNG `frappe.db.count`/`get_all`; (b) `page_size = max(1, min(int(page_size), 100))` cap 2 đầu MỌI list endpoint; (c) probe dưới persona row-scoped assert `total==len(items)`. Xem LL-BE-42/43/47; `api/imm15.py:62`, `api/inventory.py:36`.
+17. **Error envelope leak raw exc / branch theo status-line / mutating thiếu cap-gate**: triệu chứng = client thấy traceback nội bộ, hoặc `{ref}` lộ record hiện hữu trên lỗi dup, hoặc @whitelist mutating gate bằng role-name không tồn tại (silent bypass). RULE kiểm-được: (a) catch-all `except Exception` → `log_error(get_traceback())` + message HẰNG, KHÔNG `_err(str(e))` (leak nội bộ); (b) lỗi nghiệp vụ 404/409/422 trả TRÊN HTTP-200 → client/test branch theo `envelope.http_status`/`code`, KHÔNG HTTP status-line; phân biệt dispatcher-403 (re-auth) vs in-handler cap-403 (show-message); (c) mọi mutating @whitelist có `rbac.require`/`has_any_role` capability-SSoT đầu body, KHÔNG gate role-name; (d) message dup-định-danh KHÔNG leak record hiện hữu. Xem LL-BE-44/45/46/49; `references/notification-contract.md`.
 
 ---
 
@@ -92,6 +119,18 @@ def get_thing(name: str) -> dict:
     doc = frappe.get_doc("AC Asset", name)
     return _ok(doc.as_dict())
 ```
+
+### Interface design — named principles (API là HỢP ĐỒNG)
+
+> Whitelist signature + envelope field + naming = **hợp đồng với FE (`frontend/src/api/immXX.ts`) và mobile (`assetcore-mobile.openapi.yaml`)**. Áp dụng khi thiết kế/sửa BẤT KỲ @whitelist nào.
+
+| Principle | Nghĩa cho AssetCore | Ví dụ Frappe |
+|---|---|---|
+| **Contract-first** | Khai shape (param + envelope `data`) khớp `05_API_Specification.md` + type FE/OpenAPI TRƯỚC khi viết service. Type FE/OpenAPI = spec, code follow. | Đổi `wo_name` → `repair_name` trong response = phải sync `.ts` + `.openapi.yaml` cùng commit. |
+| **Hyrum's Law** | Mọi field/behavior observable (tên field, thứ tự list, text lỗi, default page_size) sẽ bị FE/mobile dựa vào → đổi = **breaking** dù spec không hứa. Đừng leak field nội bộ (`workflow_state` plumbing, `_internal_*`). | Rename `assigned_to`→`technician` lặng lẽ = vỡ FE binding + mobile codegen. Field thừa trong `as_dict()` cũng thành commitment. |
+| **One-Version Rule** | KHÔNG fork `list_things_v2`/`do_action_old`. Extend bằng param/field optional, giữ 1 endpoint. Nhiều version = diamond-dep cho FE + mobile. | Thêm `include_history: bool = False` thay vì `get_repair_v2`. |
+| **Error semantics ổn định** | Mã lỗi = `message_code` (`MSG.*`) + `code`/`http_status` HẰNG trong envelope — client branch theo mã, KHÔNG theo text/HTTP status-line (lỗi nghiệp vụ 404/409/422 đến TRÊN HTTP-200, xem anti-pattern #17). Đổi text OK, đổi mã = breaking. | `nthrow(MSG.IMMXX_NOT_FOUND)` → `code="NOT_FOUND"` ổn định; FE switch theo `error.message_code`. |
+| **Boundary validation** | Validate + cast + `parse_json` ở ranh giới API/controller (input ngoài) TRƯỚC khi vào service; service tin type đã sạch, KHÔNG re-validate giữa các hàm nội bộ. | `page_size = max(1, min(int(page_size), 100))` + `parse_json(filters, default={})` ở Tier-1; service nhận dict đã chuẩn. |
 
 **Conventions:**
 - Mutating endpoints khai báo `methods=["POST"]`.
@@ -287,6 +326,10 @@ transition_asset_status(asset_ref, AssetStatus.ACTIVE, root_record=wo_name)
 
 ## Build sequence module mới (exact file paths)
 
+> 🧱 **Incremental — thin vertical slice**: thay vì build trọn module 1 lượt, đi LÁT MỎNG dọc stack `DocType → repo → service → api → test` cho MỘT entrypoint (vd `create_repair`), chạy `run-tests` xanh, **commit nhỏ**, rồi mới sang entrypoint kế. Mỗi lát để hệ ở trạng thái build-được + test-được. **Safe default**: tham số/feature mới mặc định conservative (`notify=False`, flag tắt qua `site_config`). **Rollback-friendly**: ưu tiên thay đổi additive (file/field mới dễ revert); DocType/field deprecate qua Frappe patch riêng — KHÔNG xoá+thay trong cùng commit.
+>
+> 📚 **Source-driven**: mọi quyết định Frappe/ERPNext v15 (hook signature, `frappe.qb`, naming series, child-table API, permission API) phải **cite tài liệu chính thức** — tra qua **context7 MCP** (`resolve-library-id` → `query-docs` cho frappe/erpnext) thay vì viết từ trí nhớ; nếu không tìm được nguồn xác minh → **flag `UNVERIFIED`** ở comment/PR, đừng để pattern lỗi thời thành template.
+
 1. **Đọc docs**: `docs/imm-XX/02_Analysis_Design.md` + `05_API_Specification.md` — xác nhận BR-XX-NN và tên endpoint.
 
 2. **DocType schema**: tạo folder + 4 files:
@@ -328,7 +371,7 @@ transition_asset_status(asset_ref, AssetStatus.ACTIVE, root_record=wo_name)
    ```
    Update `assetcore/tests/test_workflows.py::EXPECTED_WORKFLOWS`.
 
-8. **hooks.py — 3 list update** (xem CONVENTIONS.md §1b):
+8. **hooks.py — 3 list update**:
    ```python
    # assetcore/hooks.py — fixtures list
    # Thêm workflow name + tất cả states + tất cả actions
@@ -358,14 +401,11 @@ transition_asset_status(asset_ref, AssetStatus.ACTIVE, root_record=wo_name)
 - `assetcore/assetcore/doctype/asset_repair/` — DocType reference
 - [`references/doctype-catalog.md`](references/doctype-catalog.md) — bản đồ 107 DocType (tên verbatim + domain map) — đọc trước khi Link/thiết kế
 
-## Cross-skill
-Đọc [`CONVENTIONS.md`](../CONVENTIONS.md) — §2 Architecture, §3 Error Handling, §4 Audit, §5 Permissions.
-
 ---
 
 ## Lessons Learned — bug patterns production (BẮT BUỘC ĐỌC)
 
-> ⚠️ 33 quy tắc **LL-BE-1..33** (always-apply, KHÔNG optional) đã chuyển sang
+> ⚠️ quy tắc **LL-BE-1..58** (always-apply, KHÔNG optional) đã chuyển sang
 > [`references/lessons-learned.md`](references/lessons-learned.md) — whitelist GET param,
 > enrich Link field, DocType schema sync, workflow action labels, gate validators,
 > audit trail localize, fixture-leak, null-guard dangling FK, slug-in-display,
@@ -373,8 +413,59 @@ transition_asset_status(asset_ref, AssetStatus.ACTIVE, root_record=wo_name)
 > Workflow State style/type không persist runtime, scheduler_events wiring,
 > verify field type/enum + sendmail reference…
 >
+> **DONE-gate bổ sung:**
+> - Feature in **PDF khổ cố định** (tem/nhãn/vé) → `pdfkit`-direct (KHÔNG `get_pdf`) + test assert MediaBox = đúng khổ mm & pypdf page-count (LL-BE-55); bọc binary-call no-500 (LL-BE-56).
+> - Logic theo **enum rủi ro** → cite `field+doctype` nguồn, KHÔNG lẫn `risk_classification` (Low/Med/High/Critical) ↔ `risk_class` (NĐ98 A/B/C/D / Class I/II/III) (LL-BE-58).
+>
 > **BẮT BUỘC: `Read references/lessons-learned.md` TRƯỚC KHI viết/sửa service · API · DocType · workflow.**
 > Bỏ qua = tái phạm bug đã biết.
+
+---
+
+## Common Rationalizations
+
+| Lý do hay viện để skip | Sự thật |
+|---|---|
+| "Service nhỏ, viết logic thẳng trong api/ cho nhanh" | Vi phạm 3-tier; logic trong API không test được ở service-layer + bị bypass khi gọi từ hook. Luôn API→Service. |
+| "Đặt tên endpoint theo trí nhớ, sửa sau" | Lệch `05_API_Specification.md` → FE gọi sai (anti-pattern #8 / LL-BE-10). Copy tên verbatim từ spec TRƯỚC. |
+| "Tạo DocType mới cho nhanh, kệ catalog" | 107 DocType đã tồn tại; tạo trùng domain vi phạm §5/§19, đoán tên = LL-BE-10. Đọc `references/doctype-catalog.md`. |
+| "Thêm workflow chỉ cần khai Workflow fixture" | Thiếu 1/3 list (Workflow State / Action Master) → fresh-site fail (anti-pattern #12). Update CẢ 3 cùng commit. |
+| "Notification/SLA hard-code tập state cho gọn" | Hard-code state/role = silent no-op, test giả vẫn xanh (anti-pattern #13, LL-BE-30/31). Resolve động từ transitions + `has_column`. |
+| "Bug 'chuông trống' → vá engine ngay" | Thường là DATA (self-notify), không phải bug. Chạy decision tree LL-BE-34 TRƯỚC khi đụng code. |
+| "`except Exception: pass` cho đỡ noise" | Nuốt lỗi = mù production. Tối thiểu `frappe.log_error(get_traceback())` + message HẰNG (anti-pattern #17 / LL-BE-44). |
+| "Viết hàm scan/digest xong là nó chạy" | Quên `scheduler_events` = dead code (anti-pattern #14, LL-BE-32). Wire + `bench execute frappe.get_hooks` verify. |
+| "Rename field response cho gọn, FE sửa sau" | Hyrum's Law — FE/mobile đã dựa vào tên cũ → đổi = breaking. Sync `.ts`+`.openapi.yaml` cùng commit hoặc giữ tên. |
+| "Thêm `do_action_v2` cho chắc, khỏi đụng cái cũ" | Vi phạm One-Version Rule → diamond-dep cho FE+mobile. Extend bằng param optional, 1 endpoint. |
+| "Hook Frappe này mình nhớ signature rồi" | Trí nhớ ≠ bằng chứng, v15 đổi API. Tra context7 MCP + cite; không rõ → flag UNVERIFIED. |
+
+## Red Flags — STOP
+
+- Business logic nằm trong `api/` hoặc inline trong controller hook (phải ở service).
+- `_handle`/`_parse_json`/`_err` định nghĩa cục bộ (deprecated — dùng shared `utils/api_handler`).
+- `frappe.throw(_("literal"))` / `ServiceError(..., "literal string")` — message phải qua `MSG.*`.
+- `doc.save()` trên submitted/workflow-managed doc (dùng `frappe.db.set_value`).
+- Insert `IMM Audit Trail` trực tiếp (phải qua `log_audit_event` — hash chain).
+- Field dùng trong service nhưng không có trong DocType JSON; function import nhưng không tồn tại.
+- Hard-code role/status string; gate mutating endpoint bằng role-name thay vì capability SSoT.
+- `list`/`count` endpoint: `frappe.db.count`/`get_all` (bỏ permission query) hoặc `page_size` không cap (LL-BE-42/43).
+- Thêm workflow mà chỉ update 1/3 fixture list; thêm scheduler fn mà quên `scheduler_events`.
+- Đổi tên/kiểu field response hoặc fork endpoint `*_v2` mà không sync FE `.ts` + `assetcore-mobile.openapi.yaml` (Hyrum's Law / One-Version).
+- Client branch theo HTTP status-line hay text lỗi thay vì `message_code`/`code` (error semantics không ổn định).
+- Viết hook/`frappe.qb`/permission API Frappe v15 từ trí nhớ, không cite docs (context7) và không flag UNVERIFIED.
+
+## Verification
+
+Trước khi khai báo BE "xong" — phải có BẰNG CHỨNG (không "có vẻ đúng"):
+- [ ] `bench --site miyano run-tests --module assetcore.tests.test_immXX` xanh (paste output).
+- [ ] `test_workflows` xanh; `EXPECTED_WORKFLOWS` state/transition count đếm từ JSON, không đoán.
+- [ ] `grep doc\.<field> services/` ↔ DocType JSON khớp từng field; `grep -r "<imported_fn>" services/` tồn tại.
+- [ ] Mọi mutating fn có permission/capability check ở đầu; mọi action đổi-state gọi `log_audit_event`.
+- [ ] api dùng shared `handle`/`parse_json`; GET optional JSON param default `str = ""` (tránh 417).
+- [ ] Contract-first: param + envelope field khớp `05_API_Specification.md` + FE `.ts` + `assetcore-mobile.openapi.yaml`; thay đổi field là additive/optional (Hyrum's Law); không fork `*_v2` (One-Version); validate+cap+`parse_json` ở boundary.
+- [ ] Slice nhỏ: từng entrypoint test xanh + commit riêng; param/feature mới safe-default; quyết định Frappe v15 đã cite (context7) hoặc flag UNVERIFIED.
+- [ ] Workflow fixtures: cập nhật CẢ 3 list (Workflow + State + Action Master) trong cùng commit.
+- [ ] Scheduler/event fn đã wire `hooks.py` (`scheduler_events`/`doc_events`) — verify `bench execute frappe.get_hooks`.
+- [ ] Đã đọc `references/lessons-learned.md` (LL-BE-1..58) trước khi viết — không tái phạm.
 
 ---
 

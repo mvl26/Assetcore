@@ -17,22 +17,44 @@
 // thật sự KHÔNG có camera API (vd desktop không webcam) — fallback nhập tay vẫn
 // luôn dùng được. Rời màn / điều hướng → stop() chống rò camera.
 import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import PageHeader from '@/components/common/PageHeader.vue'
 import { useQrCameraScanner } from '@/composables/useQrCameraScanner'
 
 const router = useRouter()
+const route = useRoute()
 const manualCode = ref('')
 const loading = ref(false)
 const error = ref('')
 const qrInput = ref<HTMLInputElement | null>(null)
 const videoEl = ref<HTMLVideoElement | null>(null)
 
+// Vòng 12 — mở từ QrResolveView 'Nhập mã thủ công' (deep-link mode=manual): user
+// camera-hỏng cần gõ mã NGAY → focus ô nhập tay BẤT KỂ camera/UI khác có giữ
+// focus hay không. Đường quét bình thường (KHÔNG mode) GIỮ NGUYÊN hành vi cũ:
+// chỉ auto-focus khi activeElement===body → KHÔNG cướp focus khi camera đang chạy.
 onMounted(() => {
+  const manualMode = route.query.mode === 'manual'
   nextTick(() => {
-    if (document.activeElement === document.body) qrInput.value?.focus()
+    if (manualMode || document.activeElement === document.body) {
+      qrInput.value?.focus()
+    }
   })
 })
+
+/**
+ * Decode an toàn 1 segment percent-encoded. Malformed percent (vd "%ZZ",
+ * "%E0%A4" cụt) khiến decodeURIComponent ném URIError → CATCH → giữ NGUYÊN
+ * chuỗi thô (KHÔNG throw, KHÔNG nuốt token, KHÔNG trang trắng) → resolver tự xử
+ * 404 nếu sai. Decode idempotent trên chuỗi không có "%".
+ */
+function safeDecode(s: string): string {
+  try {
+    return decodeURIComponent(s)
+  } catch {
+    return s
+  }
+}
 
 /**
  * Trích qr_token từ input người dùng.
@@ -47,9 +69,16 @@ function extractToken(raw: string): string {
   // Khớp ".../a/<token>" ở cả URL tuyệt đối lẫn path tương đối; dừng token tại
   // ranh giới path/query/hash ("/", "?", "#").
   const m = code.match(/\/a\/([^/?#]+)/)
-  if (m) return m[1]
+  // Bịt bất đối xứng với auto-decode của vue-router trên nav /a/:token TRỰC TIẾP:
+  // vue-router tự decodeURIComponent route.params, nhưng đường paste/quét đi qua
+  // đây KHÔNG → segment percent-encoded (vd "%2D" do app nhắn tin / trình duyệt
+  // encode path tem) sẽ lệch token đã-decode trong DB → 404 giả. CHỈ decode
+  // segment trích TỪ /a/<seg> (host-agnostic, 1 SSoT cho URL tuyệt đối lẫn path).
+  if (m) return safeDecode(m[1])
   // Phòng URL không có "/a/" mà vẫn là http(s) → KHÔNG coi cả URL là token.
   if (/^https?:\/\//i.test(code)) return ''
+  // Nhánh token-thô-gõ-tay: KHÔNG blanket-decode — "%" trong token gõ tay là
+  // literal (không có semantics percent-encode) nên giữ nguyên.
   return code
 }
 

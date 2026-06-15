@@ -1797,3 +1797,242 @@ class TestSlaBreachKpiSoT(unittest.TestCase):
         fsrc = inspect.getsource(svc12.sla_breach_filter)
         self.assertIn("open_incident_filter", fsrc,
                       "sla_breach_filter phải tái dùng open_incident_filter (SoT 'open')")
+
+
+# ─── V4-GATE BÁO-HỎNG e2e (ADR-IMM12-REPORT-FAILURE D1/D2) ──────────────────────
+# AC1 3-tier cap-gate parity (đóng lỗ leo quyền P1) + AC2 canonical lifecycle
+# event 'incident_reported' + provenance source + hash-chain intact.
+
+class TestReportIncidentCapGate(unittest.TestCase):
+    """AC1 (D1): API report_incident PHẢI gate cap 'corrective.create'.
+
+    user CÓ corrective.read NHƯNG KHÔNG corrective.create → 403 VI sạch (KHÔNG
+    leak raw cap 'corrective.create'), KHÔNG tạo Incident. user có corrective.create
+    → 200 + Incident tạo. Gate ở API tier (đường HTTP duy nhất) — pattern cancel_incident.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.asset = _make_asset("-capgate")
+        # read-only persona: AssetCore Auditor có read=1 NHƯNG create=0 trên Incident
+        # Report (verified live DocPerm) → có corrective.read, KHÔNG corrective.create.
+        cls.reader = cls._ensure_user(
+            "_test_corr_reader@assetcore.test", ["AssetCore Auditor"])
+        # create persona: Corrective User có create=1.
+        cls.creator = cls._ensure_user(
+            "_test_corr_creator@assetcore.test", ["Corrective User"])
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        purge_asset(cls.asset.name)
+        for u in (cls.reader, cls.creator):
+            try:
+                frappe.delete_doc("User", u, force=True, ignore_permissions=True)
+            except Exception:
+                pass
+
+    @staticmethod
+    def _ensure_user(email: str, roles: list[str]) -> str:
+        if not frappe.db.exists("User", email):
+            doc = frappe.get_doc({
+                "doctype": "User", "email": email, "first_name": email.split("@")[0],
+                "send_welcome_email": 0, "enabled": 1,
+            }).insert(ignore_permissions=True)
+        else:
+            doc = frappe.get_doc("User", email)
+        existing = {r.role for r in doc.get("roles", [])}
+        for r in roles:
+            if r not in existing:
+                doc.append("roles", {"role": r})
+        doc.save(ignore_permissions=True)
+        frappe.db.commit()
+        return email
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+
+    def _count_incidents(self) -> int:
+        return frappe.db.count("Incident Report", {"asset": self.asset.name})
+
+    def test_report_incident_requires_corrective_create_cap(self):
+        """user thiếu corrective.create → 403 VI, KHÔNG tạo Incident, KHÔNG leak raw cap."""
+        from assetcore.api.imm12 import report_incident as api_report
+        before = self._count_incidents()
+        frappe.set_user(self.reader)
+        try:
+            res = api_report(
+                asset=self.asset.name, incident_type="Malfunction",
+                severity="Medium", description="_Test capgate forbidden reader",
+            )
+        finally:
+            frappe.set_user("Administrator")
+        # 403 + không thành công.
+        self.assertFalse(res.get("success"),
+                         f"reader (corrective.read, KHÔNG create) phải bị chặn, nhận: {res}")
+        self.assertEqual(res.get("http_status"), 403,
+                         f"phải trả HTTP 403, nhận: {res.get('http_status')}")
+        # KHÔNG leak raw capability string vào message VI.
+        msg = (res.get("error") or res.get("message") or "")
+        self.assertNotIn("corrective.create", msg,
+                         f"message KHÔNG được leak raw cap 'corrective.create', nhận: {msg!r}")
+        # KHÔNG tạo Incident.
+        self.assertEqual(self._count_incidents(), before,
+                         "user thiếu cap KHÔNG được tạo Incident")
+
+    def test_report_incident_with_cap_succeeds(self):
+        """user có corrective.create → 200 + Incident tạo."""
+        from assetcore.api.imm12 import report_incident as api_report
+        frappe.set_user(self.creator)
+        try:
+            res = api_report(
+                asset=self.asset.name, incident_type="Malfunction",
+                severity="Medium", description="_Test capgate allowed creator",
+            )
+        finally:
+            frappe.set_user("Administrator")
+        frappe.db.commit()
+        self.assertTrue(res.get("success"),
+                        f"creator (corrective.create) phải tạo được Incident, nhận: {res}")
+        data = res.get("data") or res
+        self.assertTrue(data.get("name"),
+                        f"phải trả tên Incident, nhận: {res}")
+
+
+class TestReportIncidentLifecycleProvenance(unittest.TestCase):
+    """AC2 (D2): report_incident emit canonical lifecycle event 'incident_reported'
+    + provenance source trong notes; audit hash-chain KHÔNG vỡ."""
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.asset = _make_asset("-lifecycle")
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        purge_asset(cls.asset.name)
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+
+    def _lifecycle_events(self, event_type: str | None = None) -> list:
+        f: dict = {"asset": self.asset.name}
+        if event_type:
+            f["event_type"] = event_type
+        return frappe.get_all(
+            "Asset Lifecycle Event", filters=f,
+            fields=["name", "event_type", "notes", "root_doctype", "root_record"],
+            order_by="creation desc",
+        )
+
+    def test_report_incident_emits_failure_reported_event(self):
+        """Sau report_incident: lifecycle event 'incident_reported' cho incident vừa tạo.
+
+        Đo DELTA (asset chia sẻ per-class — test khác cùng class có thể đã tạo event
+        trước): KHÔNG có event nào trỏ root_record=incident-này TRƯỚC report; có SAU.
+        """
+        out = report_incident(
+            asset=self.asset.name, incident_type="Malfunction", severity="Medium",
+            description="_Test lifecycle emit incident_reported here",
+        )
+        frappe.db.commit()
+        self.assertTrue(out.get("name"))
+        after = self._lifecycle_events("incident_reported")
+        ev = next((e for e in after if e["root_record"] == out["name"]), None)
+        self.assertIsNotNone(
+            ev,
+            "sau report phải có Asset Lifecycle Event event_type='incident_reported' "
+            "trỏ tới incident vừa tạo")
+        # Canonical event PHẢI link tới Incident Report (root_doctype + root_record).
+        self.assertEqual(ev["root_doctype"], "Incident Report")
+        self.assertEqual(ev["root_record"], out["name"])
+
+    def test_report_incident_source_provenance_qr_scan(self):
+        """source='qr-scan' → provenance 'qr-scan' trong notes của lifecycle event."""
+        out = report_incident(
+            asset=self.asset.name, incident_type="Failure", severity="Low",
+            description="_Test provenance qr-scan source here",
+            source="qr-scan",
+        )
+        frappe.db.commit()
+        evs = self._lifecycle_events("incident_reported")
+        target = next((e for e in evs if e["root_record"] == out["name"]), None)
+        self.assertIsNotNone(target, "phải có lifecycle event cho incident vừa tạo")
+        self.assertIn("qr-scan", (target["notes"] or ""),
+                      f"notes phải chứa provenance 'qr-scan', nhận: {target['notes']!r}")
+
+    def test_report_incident_source_provenance_manual_default(self):
+        """source mặc định (không truyền) → provenance 'manual' trong notes."""
+        out = report_incident(
+            asset=self.asset.name, incident_type="Failure", severity="Low",
+            description="_Test provenance manual default source",
+        )
+        frappe.db.commit()
+        evs = self._lifecycle_events("incident_reported")
+        target = next((e for e in evs if e["root_record"] == out["name"]), None)
+        self.assertIsNotNone(target)
+        self.assertIn("manual", (target["notes"] or ""),
+                      f"notes default phải chứa 'manual', nhận: {target['notes']!r}")
+
+    def test_report_incident_source_unknown_coerced_to_manual(self):
+        """source giá trị lạ → coerce về 'manual' (ADR D2: KHÔNG throw, provenance≠gate)."""
+        out = report_incident(
+            asset=self.asset.name, incident_type="Failure", severity="Low",
+            description="_Test provenance unknown coerce manual value",
+            source="hacker-injected-value",
+        )
+        frappe.db.commit()
+        evs = self._lifecycle_events("incident_reported")
+        target = next((e for e in evs if e["root_record"] == out["name"]), None)
+        self.assertIsNotNone(target)
+        self.assertIn("manual", (target["notes"] or ""),
+                      f"source lạ phải coerce 'manual', nhận: {target['notes']!r}")
+        self.assertNotIn("hacker-injected-value", (target["notes"] or ""),
+                         "KHÔNG echo giá trị source lạ vào notes")
+
+    def test_report_incident_audit_chain_intact(self):
+        """Sau report (+lifecycle event): verify_audit_chain(asset) valid=True (chain KHÔNG vỡ)."""
+        from assetcore.utils.lifecycle import verify_audit_chain
+        report_incident(
+            asset=self.asset.name, incident_type="Malfunction", severity="Medium",
+            description="_Test audit chain intact after report here",
+            source="qr-scan",
+        )
+        frappe.db.commit()
+        result = verify_audit_chain(self.asset.name)
+        self.assertTrue(result.get("valid"),
+                        f"hash-chain audit KHÔNG được vỡ sau report, nhận: {result}")
+
+
+class TestCorrectiveCreateCapConsistency(unittest.TestCase):
+    """AC1 3-tier parity (test tương đẳng): scan-action SSoT == route meta == svc gate cap.
+
+    Chứng minh CẢ 3 binding cap đều = 'corrective.create' (1 SSoT, không drift).
+    Route-meta parity (tầng-1, FE) verify bằng vue-test riêng — ở đây assert 2 binding
+    BE (scan-action SSoT tầng-2 + API gate tầng-3) + đọc cap literal route từ ADR/source.
+    """
+
+    def test_scan_action_report_failure_cap_is_corrective_create(self):
+        """tầng-2: _SCAN_ACTION_SPECS report_failure.capability == 'corrective.create'."""
+        from assetcore.services.imm00 import _SCAN_ACTION_SPECS
+        spec = next((s for s in _SCAN_ACTION_SPECS
+                     if s.get("key") == "report_failure"), None)
+        self.assertIsNotNone(spec, "scan-action SSoT phải có report_failure")
+        self.assertEqual(spec["capability"], "corrective.create",
+                         "scan-action report_failure capability phải = corrective.create")
+        self.assertEqual(spec["route"], "IncidentCreate",
+                         "scan-action report_failure route phải = IncidentCreate (parity FE)")
+
+    def test_api_report_incident_gates_corrective_create(self):
+        """tầng-3: api/imm12.py module hằng _CAP_REPORT == 'corrective.create'."""
+        import assetcore.api.imm12 as api12
+        self.assertEqual(getattr(api12, "_CAP_REPORT", None), "corrective.create",
+                         "API report_incident phải gate cap _CAP_REPORT='corrective.create'")
+
+    def test_corrective_create_resolves_to_incident_report_create(self):
+        """SSoT cap binding: CAPABILITY_MAP['corrective.create'] == ('Incident Report','create')."""
+        from assetcore.services.shared.rbac import CAPABILITY_MAP
+        self.assertEqual(CAPABILITY_MAP.get("corrective.create"),
+                         ("Incident Report", "create"))

@@ -144,6 +144,62 @@ export const useMasterDataStore = defineStore('masterData', () => {
     return _entry(doctype).items.find(it => it.id === id)
   }
 
+  // ── Single-item resolve (BUG-PM-1) ──────────────────────────────────────
+  // Khi modelValue (vd asset prefill khoá QR) KHÔNG nằm trong trang đầu
+  // search_link (danh mục > page_length) → getItemById trả undefined →
+  // SmartSelect chỉ hiện raw mã. resolveOne fetch ĐƠN item perm-aware qua cùng
+  // endpoint search_link (query = id) rồi UPSERT vào cache theo id để label
+  // resolve được tên đọc-được.
+  //
+  // Hợp đồng:
+  //   • Đã có id trong cache → trả ngay, KHÔNG fetch thêm.
+  //   • UPSERT (không clear trang hiện có); KHÔNG đổi loadedAt của full-list
+  //     (giữ cache trang hợp lệ); idempotent theo id.
+  //   • Nuốt lỗi (reject/403/deleted/mạng) → trả null (no-regression).
+  const resolvingIds = ref<Record<string, Promise<MasterItem | null>>>({})
+
+  async function resolveOne(doctype: DocType, id: string): Promise<MasterItem | null> {
+    if (!id) return null
+
+    // Cache hit → không fetch (no extra network).
+    const cached = getItemById(doctype, id)
+    if (cached) return cached
+
+    // De-dup: cùng (doctype,id) đang resolve → chờ cùng promise (idempotent).
+    const dedupeKey = `${doctype}::${id}`
+    const inflight = resolvingIds.value[dedupeKey]
+    if (inflight) return inflight
+
+    const p = (async (): Promise<MasterItem | null> => {
+      try {
+        const rows = await frappeGet<Array<{ value: string; label: string; description?: string }>>(
+          BASE, { doctype, query: id, page_length: 5 },
+        )
+        const match = (Array.isArray(rows) ? rows : []).find(r => r.value === id)
+        if (!match) return null
+        const item: MasterItem = {
+          id: match.value,
+          name: match.label || match.value,
+          description: match.description,
+        }
+        // UPSERT theo id — KHÔNG clear trang, KHÔNG đổi loadedAt của full-list.
+        const entry = _entry(doctype)
+        const idx = entry.items.findIndex(it => it.id === item.id)
+        if (idx >= 0) entry.items[idx] = item
+        else entry.items.push(item)
+        return item
+      } catch {
+        // Item bị xóa / 403 / mạng lỗi → fail-safe, giữ hành vi cũ (raw modelValue).
+        return null
+      } finally {
+        delete resolvingIds.value[dedupeKey]
+      }
+    })()
+
+    resolvingIds.value[dedupeKey] = p
+    return p
+  }
+
   function isLoading(doctype: DocType): boolean {
     return _entry(doctype).loading
   }
@@ -178,6 +234,7 @@ export const useMasterDataStore = defineStore('masterData', () => {
     isLoadingFiltered,
     getItems,
     getItemById,
+    resolveOne,
     isLoading,
     invalidate,
   }

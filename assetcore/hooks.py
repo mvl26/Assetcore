@@ -9,6 +9,12 @@ app_publisher = "miyano"
 app_description = "Medical Equipment Lifecycle Management (HTM)"
 app_email = ""
 app_license = "MIT"
+# D16 doc-base SSoT cho OpenAPI externalDocs (api/openapi.py:_doc_base). Trỏ nơi tài liệu
+# THỰC SỰ web-served (published docs site HOẶC Git browse base, vd
+# "https://github.com/<org>/assetcore/tree/master"). RỖNG = CHƯA cấu hình ⟹ generator OMIT
+# externalDocs HẲN (link chết tệ hơn không link). Đội triển khai bệnh viện set khi go-live.
+# KHÔNG dùng get_url() (= API origin → dead 404 vì docs/ chỉ tồn-tại-trong-repo).
+app_docs_url = ""
 
 # ──────────────────────────────────────────────
 # Fixtures — RBAC module-based (4 System + 26 Domain = 30 role)
@@ -385,6 +391,8 @@ permission_query_conditions = {
     "Asset Repair": "assetcore.permissions.asset_repair_query",
     "PM Work Order": "assetcore.permissions.pm_work_order_query",
     "Asset Commissioning": "assetcore.permissions.asset_commissioning_query",
+    # EPIC-D / D7 — row-level self-scope: user chỉ thấy device-token CỦA CHÍNH MÌNH.
+    "AC Mobile Device Token": "assetcore.permissions.ac_mobile_device_token_query",
 }
 has_permission = {
     "AC Asset": "assetcore.permissions.ac_asset_has_permission",
@@ -392,6 +400,8 @@ has_permission = {
     "Asset Repair": "assetcore.permissions.asset_repair_has_permission",
     "PM Work Order": "assetcore.permissions.pm_work_order_has_permission",
     "Asset Commissioning": "assetcore.permissions.asset_commissioning_has_permission",
+    # EPIC-D / D7 — IDOR gate: chặn đọc/sửa device-token của user khác.
+    "AC Mobile Device Token": "assetcore.permissions.ac_mobile_device_token_has_permission",
 }
 
 # Not overriding any Frappe/ERPNext DocType — AssetCore is Frappe-only (no ERPNext dep)

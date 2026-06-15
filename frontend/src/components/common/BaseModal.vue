@@ -9,24 +9,33 @@ const emit = defineEmits<{ close: [] }>()
 
 function onClose() { emit('close') }
 
+// Size cap chỉ áp ở sm:+ (mobile full-screen w-full không bị max-w giới hạn — D3).
 const sizeClass: Record<string, string> = {
-  sm: 'max-w-sm',
-  md: 'max-w-md',
-  lg: 'max-w-lg',
-  xl: 'max-w-2xl',
+  sm: 'sm:max-w-sm',
+  md: 'sm:max-w-md',
+  lg: 'sm:max-w-lg',
+  xl: 'sm:max-w-2xl',
 }
 </script>
 
 <template>
   <Teleport to="body">
+    <!-- Overlay. Mobile: stretch (modal full-screen); sm:+ : centered card (ADR-IMM00-RESPONSIVE D3). -->
     <div
-      class="fixed inset-0 z-50 flex items-center justify-center p-4"
+      class="fixed inset-0 z-50 flex items-stretch justify-center sm:items-center sm:justify-center sm:p-4"
       style="background: rgba(0,0,0,0.45)"
       @click.self="onClose"
     >
       <div
-        :class="['bg-white rounded-2xl shadow-2xl w-full flex flex-col', sizeClass[size ?? 'md']]"
-        style="max-height: 90vh"
+        data-testid="modal-card"
+        :class="[
+          'bg-white shadow-2xl flex flex-col',
+          // Mobile (base): full-screen — inset-0 w-full h-full rounded-none, không tràn.
+          'inset-0 w-full h-full rounded-none max-h-screen',
+          // sm:+ : centered card (giữ pattern desktop hiện hữu).
+          'sm:inset-auto sm:m-auto sm:w-full sm:rounded-2xl sm:h-auto sm:max-h-[90vh]',
+          sizeClass[size ?? 'md'],
+        ]"
       >
         <!-- Header -->
         <div
@@ -40,10 +49,12 @@ const sizeClass: Record<string, string> = {
             {{ title }}
           </h2>
           <button
-            class="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+            data-testid="modal-close"
+            aria-label="Đóng"
+            class="min-h-[44px] min-w-[44px] -mr-2 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
             @click="onClose"
           >
-            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" class="w-4 h-4">
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" class="w-5 h-5">
               <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>

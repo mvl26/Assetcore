@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<!--
+  AssetCore — Tài liệu API (Swagger UI). ADR-IMM00-OPENAPI §D7 + §D18 (dev-preview fallback).
+  Frappe website page (KHÔNG phải Vue SPA route). Swagger UI SELF-HOST từ
+  /assets/assetcore/swagger-ui/* — ƯU TIÊN LOCAL (prod bệnh viện air-gapped/offline).
+  DEV-PREVIEW FALLBACK (§D18): werkzeug dev :8000 KHÔNG serve /assets/ (chỉ nginx prod) →
+  local 404 → fallback CDN jsdelivr swagger-ui-dist@5.17.14 + SRI CHỈ KHI local load fail.
+  Prod air-gapped: local LUÔN resolve → KHÔNG bao giờ chạm CDN (KHÔNG ép phụ thuộc mạng ngoài).
+  Spec lấy động từ endpoint session-gated `assetcore.api.openapi.spec`
+  (Guest → 401, KHÔNG lộ 485-endpoint). Asset path là hằng /assets/assetcore/...
+  (public/ serve qua symlink) → KHÔNG cần Jinja context cho URL tĩnh; trang chỉ
+  còn phụ thuộc cổng Guest→login trong api-docs.py.
+-->
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AssetCore API — Tài liệu OpenAPI</title>
+  <link rel="icon" type="image/png" sizes="32x32"
+        href="/assets/assetcore/swagger-ui/favicon-32x32.png" />
+  <link rel="icon" type="image/png" sizes="16x16"
+        href="/assets/assetcore/swagger-ui/favicon-16x16.png" />
+  <!-- Swagger UI CSS — SELF-HOST trước (prod air-gapped); onerror → CDN fallback CHỈ khi local 404
+       (dev werkzeug :8000 KHÔNG serve /assets/, chỉ nginx prod). Pin version + crossorigin để SRI
+       parity với JS bundle bên dưới. -->
+  <link rel="stylesheet" href="/assets/assetcore/swagger-ui/swagger-ui.css"
+        onerror="this.onerror=null;this.href='https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.17.14/swagger-ui.css'" />
+  <style>
+    html { box-sizing: border-box; overflow-y: scroll; }
+    *, *:before, *:after { box-sizing: inherit; }
+    body { margin: 0; background: #fafafa; }
+    .ac-doc-banner {
+      background: #059669; color: #fff; padding: 10px 20px; font-size: 14px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    .ac-doc-banner strong { font-weight: 600; }
+    .ac-doc-stats {
+      display: none; background: #ecfdf5; color: #065f46; padding: 8px 20px;
+      font-size: 13px; border-bottom: 1px solid #a7f3d0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    .ac-doc-stats strong { font-weight: 600; }
+    #swagger-ui { max-width: 1460px; margin: 0 auto; }
+    .ac-doc-error {
+      display: none; max-width: 800px; margin: 60px auto; padding: 24px;
+      border: 1px solid #fecaca; background: #fef2f2; border-radius: 8px; color: #991b1b;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    .ac-doc-error code { background: #fee2e2; padding: 2px 6px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div class="ac-doc-banner">
+    <strong>AssetCore — Tài liệu API.</strong>
+    Sinh tự động từ mã nguồn (OpenAPI 3.1). Cần đăng nhập để xem.
+  </div>
+
+  <!-- Banner thống kê (D8 + D10 + D12) — đọc x-assetcore-stats từ spec đã tải, KHÔNG fetch riêng.
+       Fail-safe: ẩn khi thiếu số liệu lõi (KHÔNG vỡ trang). json_param_count (D10) +
+       error_responses_typed_count (D12) là TÙY CHỌN: chỉ thêm cụm khi BE emit số,
+       KHÔNG 'undefined'. -->
+  <div id="ac-doc-stats" class="ac-doc-stats"></div>
+
+  <div id="ac-doc-error" class="ac-doc-error">
+    <h2>Không tải được tài liệu API</h2>
+    <p>
+      Vui lòng <a href="/login?redirect-to=/api-docs">đăng nhập</a> rồi tải lại trang.
+      Nếu đã đăng nhập mà vẫn lỗi, kiểm tra endpoint
+      <code>/api/method/assetcore.api.openapi.spec</code>.
+    </p>
+  </div>
+
+  <div id="swagger-ui"></div>
+
+  <!-- Swagger UI bundle: ƯU TIÊN LOCAL self-host (public/swagger-ui/, air-gapped prod). DEV-PREVIEW
+       FALLBACK (§D18): nạp 2 bundle qua loader tuần tự; nếu local script onerror (werkzeug :8000
+       KHÔNG serve /assets/ → 404) → nạp lại từ CDN jsdelivr swagger-ui-dist@5.17.14 + SRI. Prod
+       air-gapped: local resolve → KHÔNG chạm CDN. SRI integrity = chống tamper khi (chỉ) dev dùng CDN. -->
+  <script>
+    // §D18 — loader local-first + CDN-fallback (SRI). Trả Promise resolve khi script sẵn sàng.
+    // Local fail (onerror) → thử CDN (CHỈ nhánh dev; prod local LUÔN ok). Cả 2 fail → reject → trang
+    // hiện khối lỗi (KHÔNG vỡ trắng). KHÔNG hardcode origin app; CDN cố định + pin version + SRI.
+    var AC_SWAGGER_CDN = "https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.17.14/";
+    // SRI sha384 cho swagger-ui-dist@5.17.14 (jsdelivr) — DEV-ONLY fallback. ⚠️ TRỐNG có chủ đích:
+    //   local files trên đĩa KHÔNG có version-marker để verify parity với CDN 5.17.14 → KHÔNG
+    //   hardcode hash KHÔNG kiểm chứng (BA gate: KHÔNG bịa). ĐIỀN hash THẬT trước khi cho phép
+    //   dev dùng CDN trên mạng-không-tin-cậy (npm view swagger-ui-dist@5.17.14 dist.integrity HOẶC
+    //   openssl dgst -sha384 -binary <file> | openssl base64 -A). Prod air-gapped KHÔNG chạm CDN
+    //   ⇒ thiếu SRI KHÔNG ảnh hưởng prod. crossorigin='anonymous' GIỮ. ADR-IMM00-OPENAPI §D18.
+    var AC_SWAGGER_SRI = {
+      // "swagger-ui-bundle.js": "sha384-…",            // điền khi verify version
+      // "swagger-ui-standalone-preset.js": "sha384-…"  // điền khi verify version
+    };
+    function acLoadScript(localSrc, file) {
+      return new Promise(function (resolve, reject) {
+        var s = document.createElement("script");
+        s.src = localSrc; s.charset = "UTF-8"; s.async = false;
+        s.onload = function () { resolve(); };
+        s.onerror = function () {
+          // Local 404 (dev werkzeug) → fallback CDN + SRI. Prod air-gapped KHÔNG vào nhánh này.
+          var c = document.createElement("script");
+          c.src = AC_SWAGGER_CDN + file; c.charset = "UTF-8"; c.async = false;
+          c.crossOrigin = "anonymous";
+          if (AC_SWAGGER_SRI[file]) { c.integrity = AC_SWAGGER_SRI[file]; }
+          c.onload = function () { resolve(); };
+          c.onerror = function () { reject(new Error("Không tải được " + file + " (local + CDN)")); };
+          document.body.appendChild(c);
+        };
+        document.body.appendChild(s);
+      });
+    }
+    // Tuần tự: bundle TRƯỚC (định nghĩa SwaggerUIBundle) rồi standalone-preset (cần bundle).
+    window.acSwaggerReady = acLoadScript(
+      "/assets/assetcore/swagger-ui/swagger-ui-bundle.js", "swagger-ui-bundle.js"
+    ).then(function () {
+      return acLoadScript(
+        "/assets/assetcore/swagger-ui/swagger-ui-standalone-preset.js", "swagger-ui-standalone-preset.js"
+      );
+    });
+  </script>
+  <script>
+    // D8 — banner thống kê: đọc x-assetcore-stats TỪ spec ĐÃ TẢI (KHÔNG fetch riêng).
+    // Fail-safe: thiếu key / spec rỗng → ẩn banner (KHÔNG vỡ trang). Text VI sạch,
+    // KHÔNG leak raw key tiếng Anh.
+    function acRenderStatsBanner(spec) {
+      var el = document.getElementById("ac-doc-stats");
+      if (!el) { return; }
+      var stats = spec && spec["x-assetcore-stats"];
+      if (!stats || typeof stats !== "object") { el.style.display = "none"; return; }
+      var n = stats.total_endpoints, g = stats.get_count, p = stats.post_count,
+          gu = stats.guest_count, en = stats.enriched_count, cap = stats.cap_set_version;
+      // Thiếu bất kỳ số nào → fail-safe ẩn (không hiển thị 'undefined').
+      if ([n, g, p, gu, en].some(function (x) { return typeof x !== "number"; })) {
+        el.style.display = "none"; return;
+      }
+      // json_param_count (D10) — TÙY CHỌN: chỉ thêm khi là số (BE chưa emit → bỏ qua,
+      // KHÔNG 'undefined', KHÔNG vỡ banner). Param JSON-string introspect-được trong spec.
+      var jp = stats.json_param_count;
+      var jpFragment = (typeof jp === "number") ? (" · " + jp + " tham số JSON") : "";
+      // error_responses_typed_count (D12) — TÙY CHỌN: số endpoint có phản hồi lỗi định kiểu
+      // (4xx/5xx, vd 401/403/422). Chỉ thêm khi BE emit là số; thiếu → bỏ qua (fail-safe,
+      // KHÔNG 'undefined', KHÔNG vỡ banner). Mỗi op AUTHED có 401/403 dẫn xuất từ SSoT.
+      var et = stats.error_responses_typed_count;
+      var etFragment = (typeof et === "number") ? (" · " + et + " endpoint có phản hồi lỗi định kiểu") : "";
+      // info.contact / info.license (D14) — TÙY CHỌN: nhà phát hành + giấy phép DẪN XUẤT từ
+      // app-metadata (hooks.py SSoT) mà BE emit vào spec.info. Swagger UI ĐÃ render 2 trường
+      // này trong header tài liệu tự động; cụm dưới chỉ MIRROR vào banner thống kê.
+      // Fail-safe (pattern D10/D12): CHỈ render khi BE emit info.contact.name / info.license.name;
+      // thiếu key → bỏ qua KHÔNG 'undefined', KHÔNG vỡ banner. KHÔNG hardcode 'miyano'/'MIT' —
+      // mọi giá trị đọc TỪ spec (nguồn = frappe.get_hooks app_publisher / app_license).
+      var info = (spec && spec.info && typeof spec.info === "object") ? spec.info : null;
+      var contact = info && info.contact;
+      var pub = (contact && typeof contact.name === "string" && contact.name) ? contact.name : "";
+      var pubFragment = pub ? (" · nhà phát hành " + pub) : "";
+      var license = info && info.license;
+      var lic = (license && typeof license.name === "string" && license.name) ? license.name : "";
+      var licFragment = lic ? (" · giấy phép " + lic) : "";
+      // root externalDocs (D16 §4.8.11) — TÙY CHỌN: link 'Tài liệu module' DẪN XUẤT từ
+      // spec.externalDocs.url (D16: nguồn = hook `app_docs_url` + docs/imm-00/README — KHÔNG
+      // get_url(); CHƯA cấu hình → BE OMIT externalDocs HẲN ⟹ extDocs=null → KHÔNG render link
+      // chết). Swagger UI ĐÃ render link 'Find out more' tự động (khi present); cụm dưới chỉ
+      // MIRROR vào banner thống kê. Fail-safe (pattern D10/D12/D14): CHỈ render khi url là string
+      // NON-EMPTY; thiếu/rỗng/omit → bỏ qua (KHÔNG 'undefined', KHÔNG vỡ banner). KHÔNG hardcode.
+      var extDocs = (spec && spec.externalDocs && typeof spec.externalDocs === "object")
+        ? spec.externalDocs : null;
+      var docUrl = (extDocs && typeof extDocs.url === "string" && extDocs.url) ? extDocs.url : "";
+      var docFragment = docUrl
+        ? (" · <a href=\"" + encodeURI(docUrl) + "\" target=\"_blank\" rel=\"noopener\">Tài liệu module</a>")
+        : "";
+      el.innerHTML =
+        "<strong>Tổng " + n + " endpoint</strong> · " + g + " GET · " + p + " POST · " +
+        gu + " công khai · " + en + " đã làm giàu tài liệu · phiên bản cap " + (cap || "—") +
+        jpFragment + etFragment + pubFragment + licFragment + docFragment;
+      el.style.display = "block";
+    }
+
+    // §D18 — bootstrap CHỜ acSwaggerReady (local-first/CDN-fallback xong) rồi mới dựng UI.
+    //   Cả 2 nguồn fail → khối lỗi (KHÔNG vỡ trắng).
+    // §F-C1 (2026-06-11) — UNWRAP envelope Frappe: openapi.spec() là @frappe.whitelist nên
+    //   dispatcher Frappe BỌC giá trị trả về vào {"message": <spec>}. Nếu feed `url:` thẳng,
+    //   Swagger UI đọc body top-level KHÔNG thấy 'openapi:' → "Unable to render this definition".
+    //   => FETCH tự + UNWRAP `.message` rồi feed `spec:` (object). Robust cả khi BE serve raw
+    //   (payload.openapi) lẫn còn envelope (payload.message.openapi). Self-fetch xử lý 401/403.
+    function acBootstrapSwagger() {
+      return fetch("/api/method/assetcore.api.openapi.spec", {
+        credentials: "same-origin",
+        headers: { "Accept": "application/json" }
+      })
+        .then(function (res) {
+          // Session-gated: Guest/hết phiên → 401/403 → hiện hướng dẫn đăng nhập (no raw leak).
+          if (res.status === 401 || res.status === 403) {
+            document.getElementById("ac-doc-error").style.display = "block";
+            return null;
+          }
+          return res.json();
+        })
+        .then(function (payload) {
+          if (!payload) { return; }
+          // Unwrap envelope Frappe {message:} → spec OpenAPI top-level (có 'openapi:').
+          var spec = (payload && typeof payload === "object" &&
+                      payload.message && typeof payload.message === "object")
+            ? payload.message : payload;
+          window.ui = SwaggerUIBundle({
+            spec: spec,
+            dom_id: "#swagger-ui",
+            deepLinking: true,
+            presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
+            plugins: [SwaggerUIBundle.plugins.DownloadUrl],
+            layout: "StandaloneLayout",
+            docExpansion: "none",
+            defaultModelsExpandDepth: -1,
+            // Same-origin cookie sid cho 'Try it out' (lần fetch spec ở trên đã tự gửi cookie).
+            requestInterceptor: function (req) { req.credentials = "same-origin"; return req; },
+            onComplete: function () {
+              document.getElementById("ac-doc-error").style.display = "none";
+              // Banner thống kê (D8) đọc TỪ spec đã unwrap, KHÔNG fetch lại.
+              try { acRenderStatsBanner(spec); } catch (e) { /* fail-safe ẩn banner */ }
+            }
+          });
+        })
+        .catch(function () {
+          document.getElementById("ac-doc-error").style.display = "block";
+        });
+    }
+
+    window.onload = function () {
+      // CHỜ Swagger UI bundle sẵn sàng (local-first, dev-fallback CDN). 2 nguồn fail → khối lỗi.
+      var ready = window.acSwaggerReady || Promise.reject(new Error("loader chưa khởi tạo"));
+      ready.then(acBootstrapSwagger).catch(function () {
+        document.getElementById("ac-doc-error").style.display = "block";
+      });
+    };
+  </script>
+</body>
+</html>

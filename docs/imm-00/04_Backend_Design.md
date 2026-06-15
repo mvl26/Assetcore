@@ -282,6 +282,9 @@ def generate_unique_qr_token(exclude: str | None = None) -> str:
 from frappe.rate_limiter import rate_limit          # top-of-file import (precedent auth.py:10)
 AC_QR_RESOLVE_RATE_LIMIT = 30                        # 30 req/60s/IP/endpoint — Vòng 12 B (BR-00-29) — resolve/scan (đọc)
 AC_QR_REGEN_RATE_LIMIT = 10                          # 10 req/60s/IP — Vòng 27 B (BR-00-38) — rotate (ghi); RIÊNG, THẤP hơn resolve
+AC_LABEL_PDF_RATE_LIMIT = 20                         # 20 req/60s/IP — ADR-LABEL-PDF §D6 — render PDF nhãn (nặng CPU)
+AC_LABEL_MARK_RATE_LIMIT = 10                        # 10 req/60s/IP — Vòng 14 (BR-00-45) — mark_label_printed: GHI write-audit-amplification (2×N ALE+audit/call); RIÊNG, ≤ regen
+AC_LABEL_BATCH_RATE_LIMIT = 20                       # 20 req/60s/IP — Vòng 14 (BR-00-46) — get_asset_label_data_batch: ĐỌC N-asset/call; RIÊNG, CAO hơn mark (read-only), song song pdf
 
 @frappe.whitelist()
 @rate_limit(limit=AC_QR_RESOLVE_RATE_LIMIT, seconds=60, ip_based=True)  # chạy TRƯỚC thân hàm → 429 trước RBAC
@@ -318,6 +321,83 @@ from assetcore.services.shared.rbac import CAPABILITY_MAP
 assert "asset.read" in CAPABILITY_MAP   # XANH chỉ SAU khi A2 thêm "Asset" vào _DOMAIN_PRIMARY
 ```
 
+> **⚠️ Ghi chú vị trí SSoT (factory vòng 6):** snippet trên minh hoạ shape A2 ở API tier, NHƯNG **lookup `qr_token → name` thực tế nằm ở service** `services/imm00.py::resolve_qr_token(token)` (`api/imm00.py::resolve_qr_token` endpoint gọi `_svc_resolve_qr_token`). Chuẩn-hoá whitespace (§II.1.8a-NORM dưới) đặt ở **service SSoT** — KHÔNG ở API tier — để mọi caller (endpoint + `get_asset_scan_info` + mobile-BE + CLI) cùng hưởng.
+
+##### II.1.8a-NORM — Chuẩn hoá whitespace `qr_token` ở SSoT service resolve (factory vòng 6 — BR-00-40 / FR-00-90/91) — **NEW (Self-Correction A2/A6)**
+
+> **Đề mục factory vòng 6 (2026-06-11 — token whitespace normalization).** Tem QR in **máy nhiệt** (preset `tem-60x100`, BR-00-30) khi encode `/a/<token>` có thể đính space/`\n` thừa; user nhập tay cũng có thể kèm space; wedge-scanner gắn `Enter`. Token DB sạch `secrets.token_urlsafe(16)` (KHÔNG space) → `resolve_qr_token` cũ tra THẲNG → **false-404**. **Chuẩn hoá đặt DUY NHẤT ở service SSoT** — KHÔNG fork nhánh thứ 2. **KHÔNG schema/cap/field/DocType/enum/patch delta;** `CAP_SET_VERSION` GIỮ NGUYÊN; FE GIỮ trim làm defense-in-depth lớp 1. Chi tiết: 02 §IV.17 / BR-00-40; contract 05 §III.1; ADR-IMM00-QR-SCAN-ACTION §D8; test 07 §III.6.c-TOKENNORM.
+
+**Vị trí strip — ĐẦU hàm `services/imm00.py::resolve_qr_token`, TRƯỚC guard rỗng + TRƯỚC query:**
+
+```python
+# services/imm00.py
+def resolve_qr_token(token: str) -> dict | None:
+    # Chuẩn hoá whitespace (BR-00-40): tem QR in máy nhiệt / nhập tay / wedge-scanner
+    # có thể đính space/newline thừa; token DB sạch (token_urlsafe — KHÔNG space).
+    # Strip ĐẦU HÀM → SSoT DUY NHẤT (mọi caller + get_asset_scan_info nhánh token hưởng).
+    token = token.strip() if isinstance(token, str) else ""
+    # Guard rỗng-sau-strip: '' / whitespace-only → None NGAY, KHÔNG đụng DB (query-count = 0).
+    if not token:
+        return None
+    name = frappe.db.get_value(_DOCTYPE_ASSET, {"qr_token": token}, "name")
+    if not name:
+        return None
+    # … (enrich payload 5-field GIỮ NGUYÊN — KHÔNG đổi)
+```
+
+| Quy tắc NORM | Acceptance đo được |
+|---|---|
+| Strip `token.strip()` đầu hàm, TRƯỚC guard + query | `resolve_qr_token(' <tok> ')` / `'<tok>\n'` / `'\t<tok>\t'` → trả ĐÚNG payload asset `<tok>` (5-field) — hết false-404 |
+| Guard rỗng-sau-strip return None TRƯỚC query | token TOÀN whitespace (`'   '`/`'\t'`/`'\n'`) → strip `''` → return None **KHÔNG query DB** → **query-count = 0** (đối xứng `''`) |
+| Whitespace KHÔNG khớp asset → None | `' khong-ton-tai '` → strip → không khớp → None → 404 leak-safe (KHÔNG phân biệt sai-định-dạng vs không-tồn-tại, KHÔNG 500/417, KHÔNG raw exc) |
+| SSoT DUY NHẤT — KHÔNG fork | `get_asset_scan_info` nhánh `token` gọi `_svc_resolve_qr_token` → chuẩn-hoá kế thừa; grep: chỉ 1 `.strip()` cho token-resolve (KHÔNG strip thứ 2 ở API/scan-info) |
+| `get_asset_scan_info` parity | `get_asset_scan_info(token=' <tok> ')` / `'<tok>\n'` → payload A6 (11-field) đúng; whitespace-only → 404 KHÔNG query asset thừa |
+| Read-only / no-leak GIỮ | KHÔNG audit/lifecycle (A2/D4); RBAC `asset.read` + IDOR `assert_vendor_can_access` + rate-limit `AC_QR_RESOLVE_RATE_LIMIT=30` GIỮ NGUYÊN |
+
+**Đo query-count = 0 (path whitespace-only) — pattern test (07 §III.6.c-TOKENNORM):**
+```python
+# Đếm SQL query trong scope path rỗng-sau-strip (vd qua frappe.db.sql counter / patch executemany)
+# whitespace-only token → 0 query trên AC Asset (return None tại guard, TRƯỚC get_value)
+```
+
+**No-regression (BE-only):** `bench --site miyano run-tests test_imm00` GREEN — `TestResolveQrToken` (token hợp lệ/404/empty/IDOR/no-audit) + `TestAssetScanInfo` + label-pdf suite KHÔNG regress; thêm class `TestResolveQrTokenWhitespace` (RED-first). `bench migrate` KHÔNG cần (0 schema/patch). `CAP_SET_VERSION` GIỮ NGUYÊN. **Logic-level fresh-import — KHÔNG tuyên bố verify HTTP/Playwright live** (cần USER reload gunicorn nếu muốn xác minh HTTP — xem STATE 🔴#1).
+
+##### II.1.8a-NAMENORM — Chuẩn hoá whitespace tham số `name` ở `get_asset_scan_info` (Vòng 31 — BR-00-50 / FR-00-101) — **NEW (Self-Correction A6 — parity nhánh token Vòng 6)**
+
+> **Đề mục Vòng 31 (2026-06-12 — name whitespace normalization, parity nhánh token).** `get_asset_scan_info` resolve 2 nhánh độc lập: nhánh `token` (qua `_svc_resolve_qr_token` — đã strip ở SSoT, §II.1.8a-NORM Vòng 6) và nhánh `name` (`elif name and frappe.db.exists(_DT_ASSET, name)` — tra `name` THÔ, KHÔNG strip). Bất đối xứng: cùng 1 endpoint, 2 nhánh chuẩn-hoá khác nhau → `name` hợp lệ kèm whitespace (deep-link `/assets/:id/info`, copy-paste, mobile-BE) cho **false-404 giả**. BR-00-40 §(5) cố ý KHÔNG fork strip-TOKEN lên `name` (đúng — đường khác); Vòng 31 đóng việc nhánh `name` tự chuẩn-hoá INPUT của chính nó (CHỈ strip leading/trailing, KHÔNG over-normalize). **KHÔNG schema/cap/field/DocType/enum/patch delta;** `CAP_SET_VERSION` GIỮ `v97.c30c69b8974d`. Chi tiết: 02 §IV.26 / BR-00-50; contract 05 §`get_asset_scan_info` case-table; ADR-IMM00-QR-SCAN-ACTION §D12; test 07 §III.6.l-NAMENORM.
+
+**Vị trí strip — trong `api/imm00.py::get_asset_scan_info`, ngay sau coerce `name`, TRƯỚC nhánh `db.exists`:**
+
+```python
+# api/imm00.py
+def get_asset_scan_info(token: str = "", name: str = ""):
+    rbac.require("asset.read")                          # gate TRƯỚC resolve (403)
+    token = token if isinstance(token, str) else ""
+    name = name if isinstance(name, str) else ""
+    name = name.strip()                                 # ← Vòng 31 (BR-00-50): strip 2 đầu
+                                                        #   parity nhánh token; whitespace-only → '' → elif short-circuit
+    asset_name = None
+    if token:
+        resolved = _svc_resolve_qr_token(token)         # SSoT — ĐÃ strip token (BR-00-40); BẤT ĐỘNG
+        if resolved:
+            asset_name = resolved.get("name")
+    elif name and frappe.db.exists(_DT_ASSET, name):    # name đã strip → '  A-042  ' khớp; '   ' → falsy → KHÔNG query
+        asset_name = name
+    if not asset_name:
+        return _err(_(_ERR_ASSET_NOT_FOUND), 404)       # 404 leak-safe, KHÔNG full-scan
+    # … IDOR assert_vendor_can_access → build payload (BẤT ĐỘNG)
+```
+
+| Quy tắc NAMENORM | Acceptance đo được |
+|---|---|
+| Strip `name.strip()` SAU coerce-str, TRƯỚC `db.exists` (KHÔNG ở service, đường `name` riêng) | `get_asset_scan_info(name='  A-042  ')` / `'A-042\n'` / `'\tA-042\t'` → strip → `'A-042'` → `db.exists` khớp → payload A6 (11-field) HTTP-200 — hết false-404 |
+| Whitespace-only → `''` → `elif name and …` short-circuit, KHÔNG query | `name='   '`/`'\n'`/`'\t'` → strip `''` → `name` falsy → `frappe.db.exists` KHÔNG gọi → `asset_name=None` → 404 leak-safe, KHÔNG full-scan (query-count trên `AC Asset` = 0 cho nhánh này) |
+| Space GIỮA = name hỏng thật → 404 (KHÔNG over-normalize) | `name='A 042'` → strip 2 đầu VẪN `'A 042'` → `db.exists` không khớp → 404; KHÔNG lowercase/collapse-inner/transform (parity quy tắc token Vòng 6) |
+| token-path BẤT ĐỘNG — KHÔNG fork/double-strip | `get_asset_scan_info(token=' <tok> ')` GIỮ parity Vòng 6 qua `_svc_resolve_qr_token`; grep: chỉ 1 `name.strip()` cho nhánh name (KHÔNG strip token thứ 2 ở scan-info) |
+| Contract bất biến — CHỈ thêm normalize input | payload 11-field A6 GIỮ; RBAC `asset.read`→403 (gate TRƯỚC resolve) GIỮ; 404 no-leak GIỮ; IDOR `assert_vendor_can_access`→403 GIỮ; `assert 'qr_token' not in data` (BR-00-34) GIỮ; read-only no-audit (A2/D4) GIỮ; rate-limit `AC_QR_RESOLVE_RATE_LIMIT=30` (BR-00-29) GIỮ |
+
+**No-regression (BE-only):** `bench --site miyano run-tests test_imm00` GREEN — `TestAssetScanInfo` + `TestResolveQrToken`/`TestResolveQrTokenWhitespace` + label-pdf suite KHÔNG regress; thêm class `TestAssetScanInfoNameWhitespace` (RED-first: `name='  <name>  '` 404 trước fix → 200 sau). `bench migrate` KHÔNG cần (0 schema/patch). `CAP_SET_VERSION` GIỮ `v97.c30c69b8974d`. **Logic-level fresh-import (sửa `api/imm00.py` live ở run-tests) — KHÔNG tuyên bố verify HTTP/Playwright live** (cần USER reload gunicorn --preload nếu muốn xác minh HTTP — backlog [BLOCKED reload]; xem STATE 🔴#1).
+
 ##### II.1.8a-RL — Rate-limit 2 endpoint QR deep-link resolve (Vòng 12 B — BR-00-29) — **NEW**
 
 > **Đề mục Vòng 12 B (hardening/security).** Áp `@rate_limit` lên **CẢ HAI** entry-point camera điện thoại: `resolve_qr_token` (`/a/<token>`) VÀ `get_asset_scan_info` (`/scan/:token`). Chống brute-force token + DoS. Thuần thêm decorator + hằng + test — **KHÔNG** cap/field/DocType/patch mới; `CAP_SET_VERSION` GIỮ `v95.3388ee5629c1`; FE KHÔNG đổi. Ngưỡng + lý do chốt: [`05_API_Specification.md`](./05_API_Specification.md) §I.7a + [`02_Analysis_Design.md`](./02_Analysis_Design.md) BR-00-29.
@@ -340,7 +420,8 @@ def get_asset_scan_info(token: str = "", name: str = ""): ...
 | Mỗi endpoint **bucket RIÊNG** | cache key `rl:{frappe.form_dict.cmd}:{ip}` gồm `cmd` → 2 endpoint KHÔNG chung trần; 1 scan = 1 resolve + 1 scan_info đếm riêng |
 | Đếm MỌI call (kể cả 404/403) | counter++ trước thân hàm → dò token-sai (404) vẫn bị tính → chống enumeration |
 | Vượt → `frappe.RateLimitExceededError` (HTTP **429**), body generic | no-leak parity 404/403; KHÔNG payload/name/asset_code/lý-do |
-| **KHÔNG** áp lên `get_asset_label_data[_batch]`/`mark_label_printed` (3 endpoint in-nhãn) | đã `asset.write`-gated, low-volume admin; in-nhãn-hàng-loạt là tần-suất-cao hợp lệ → least-surprise |
+| **CÓ** áp lên `mark_label_printed` + `get_asset_label_data_batch` (Vòng 14 / BR-00-45/46) — hằng RIÊNG `AC_LABEL_MARK_RATE_LIMIT=10` / `AC_LABEL_BATCH_RATE_LIMIT=20`, bucket RIÊNG | **Self-Correction:** mark = GHI write-audit-amplification (2×N record ALE+`label_printed`+audit/call → bơm audit-chain), batch = đọc N-asset/call (DoS đọc). Mark ngưỡng THẤP (≤ regen), batch CAO hơn (read-only, = pdf). KHÔNG chung counter. Chi tiết §II.1.8b-LABELRL + 02 BR-00-45/46 |
+| **KHÔNG** áp lên `get_asset_label_data` (single, 1 record/call) | low-amplify preview-từng-tem → least-surprise; CHỈ endpoint nhãn còn unthrottled ([BACKLOG] hằng RIÊNG nếu đo cần) |
 | **CÓ** áp lên `regenerate_asset_qr_token` (rotate) — hằng RIÊNG `AC_QR_REGEN_RATE_LIMIT=10`, bucket RIÊNG (Vòng 27 B / BR-00-38) | **Self-Correction:** rotate KHÁC in-nhãn — là GHI bảo mật (vô hiệu hoá nhãn đã in + audit), có thể bị spam-rotate (DoS nhãn + write-amplification). Ngưỡng THẤP hơn resolve (rotate hiếm hơn quét). KHÔNG chung counter resolve/scan. Chi tiết §II.1.8d + 02 BR-00-38 |
 | Test/CLI bypass có chủ đích | `rate_limit` wrapper `if not frappe.request: return fn(...)` → unit test cũ (gọi hàm trực tiếp, không set `frappe.local.request`) KHÔNG trip limiter → A2/A6 suite cũ KHÔNG regress |
 
@@ -454,22 +535,144 @@ def reserved_test_prefix_sql(alias: str = "") -> tuple[str, list]:
 |---|---|
 | Vendor Engineer có scope | `result ⊆ assigned` ∧ `result ∩ reserved = ∅` (= `name ∈ assigned ∖ reserved`) |
 | Vendor Engineer scope RỖNG | `assigned=["__none__"]` AND reserved-exclusion → **0 row** (KHÔNG fallback toàn bộ) |
-| INVARIANT count==list | `total == len(items)` ở non-search count + search raw-SQL count + `get_list` cho MỌI persona (Administrator/bypass + Vendor Engineer) |
+| INVARIANT count==list | `total == len(items)` cho MỌI persona: Administrator/bypass + **KTV nội bộ read-all** + Vendor Engineer (isolated). **Điều kiện đủ (ADR-IMM00-LIST-SCOPE §4b):** count phải permission-aware như `get_list` (`count_with_or` dùng `frappe.get_list(limit_page_length=0)`, KHÔNG `db.count`/`get_all`). Trước fix, KTV nội bộ vỡ INVARIANT (count 1430 không scope vs rows 0 scoped) — P1 factory run2. |
 | Administrator / bypass-role | scope no-op (filters không có `name in …`) → chỉ reserved-exclusion áp; baseline GIỮ XANH |
 
 **Phạm vi (đã verify):** CHỈ `list_assets` bị (endpoint DUY NHẤT chèn `name in assigned` rồi merge reserved). 2 endpoint depreciation **KHÔNG đổi hành vi**: `list_assets_depreciation` (`api/imm00.py:2570`) + `get_depreciation_stats` (`:2643`) KHÔNG gọi `apply_vendor_scope` và base filter KHÔNG có key `name` (chỉ `docstatus`/`depreciation_method`/`lifecycle_status`/`asset_category`) ⟹ `filters.update(reserved_prefix_filter())` vẫn an toàn ở đó (test khẳng định no-regress). Wiring `dashboard.py` GIỮ NGUYÊN (get_overview không vendor-scope).
 
+#### II.1.13-PAGESIZE — Hard-cap `page_size` ở 11 list-endpoint imm00 (`clamp_page_size`) — BR-00-39 / FR-00-89 — **NEW (factory vòng 5, 2026-06-11 — Self-Correction)**
+
+> **Đề mục vòng 5 (hardening / list-scope — page_size upper-cap).** Self-Correction lỗi thiết kế gốc: `05_API_Specification.md §I.5` TỪNG khẳng định "server cap tại 100" cho `page_size`, NHƯNG 11 list-endpoint imm00 KHÔNG enforce cap đó lên **query thực**. Spec ràng buộc đầy đủ: [`02_Analysis_Design.md`](./02_Analysis_Design.md) **BR-00-39** + **FR-00-89**; contract API: [`05_API_Specification.md §I.5b`](./05_API_Specification.md). **Schema-delta: KHÔNG** (thuần helper + 11 wiring + test). `CAP_SET_VERSION` GIỮ NGUYÊN.
+
+**Triệu chứng (@source — factory vòng 5 xác nhận):** mọi list-endpoint imm00 nhận `page_size` parse `page, page_size = int(page), int(page_size)` (vd `api/imm00.py:213`) rồi truyền THẲNG `limit_page_length=page_size` vào `frappe.get_list` (vd `:281`) **KHÔNG cap**. `paginate()` (`utils/pagination.py:8`) CHỈ clamp **metadata** `[1,100]`, KHÔNG clamp limit query ⟹ (1) **invariant `len(items) <= pagination.page_size` VỠ** (metadata 100, query trả tới `page_size` raw); (2) **truy vấn vô giới hạn** (`page_size=100000` materialize toàn bảng → DoS/perf). Sibling đã clamp: `imm01:93,365` · `imm02:70` · `imm03:65,270,556` · `imm04:853` — imm00 là **module lệch**.
+
+**SSoT (thêm vào `assetcore/utils/pagination.py` — cùng nhà `paginate`):**
+```python
+MAX_PAGE_SIZE = 100  # hard-cap upper bound cho page_size đi vào query (DoS/perf guard)
+
+def clamp_page_size(page_size, default: int = 20) -> int:
+    """Clamp page_size về [1, MAX_PAGE_SIZE]. Raise ValueError nếu non-int
+    (KHÔNG nuốt lỗi thầm — giữ hành vi int() cũ)."""
+    return max(1, min(int(page_size or default), MAX_PAGE_SIZE))
+```
+- `paginate()` GIỮ NGUYÊN (đã clamp metadata `[1,100]` ở line 8) — KHÔNG đổi; nay nó và `clamp_page_size` chia CÙNG hằng `MAX_PAGE_SIZE` (refactor literal `100` ở `paginate` line 8 sang `MAX_PAGE_SIZE` để 1 nguồn — optional nhưng khuyến nghị để khỏi drift).
+- Endpoint clamp `page_size` THỰC (đi vào `limit_page_length`) **TRƯỚC** mọi query (count `count_with_or` + list `get_list`), dùng GIÁ TRỊ ĐÃ CLAMP cho CẢ `paginate()` lẫn `limit_page_length` → metadata == limit thực (hết divergence).
+
+**Wiring 11 điểm (mỗi endpoint clamp ngay sau dòng `page, page_size = int(page), int(page_size)`):**
+
+| # | Endpoint | Vị trí `int()`-parse @source | Vị trí `limit_page_length` @source |
+|---|---|---|---|
+| 1 | `list_assets` | `api/imm00.py:213` | `:281` |
+| 2 | `get_asset_timeline` | `:799` | `:807` |
+| 3 | `list_suppliers` | `:924` | `:956` |
+| 4 | `list_device_models` | `:1145` | `:1180` |
+| 5 | `list_audit_trail` | `:1360` | `:1392` |
+| 6 | `list_capas` | `:1458` | `:1486` |
+| 7 | `list_overdue_capas` | `:1567` | `:1576` |
+| 8 | `list_lifecycle_events` | `:1591` | `:1603` |
+| 9 | `list_incidents` | `:1630` | `:1646` |
+| 10 | `list_transfers` | `:1719` | `:1735` |
+| 11 | `list_service_contracts` | `:1788` | `:1802` |
+
+> Mẫu sửa mỗi điểm: `page, page_size = int(page), clamp_page_size(page_size)` (thay `int(page_size)`). Import: thêm `clamp_page_size` (và `MAX_PAGE_SIZE` nếu dùng) vào dòng `from assetcore.utils.pagination import paginate` (`api/imm00.py:18`). KHÔNG literal `100` rải rác trong api (acceptance AC2 — MỘT SSoT).
+
+**Bất biến cài đặt:**
+- **Biên dưới:** `page_size <= 0`/âm → `>= 1` (KHÔNG 0/âm → KHÔNG trả 0-row sai). `page_size <= 100` hợp lệ → giữ NGUYÊN (KHÔNG regress trang nhỏ default 20/50).
+- **Non-int:** `int()` raise `ValueError` như cũ (KHÔNG thêm `try/except` nuốt lỗi). Clamp chỉ áp sau khi `int()` OK.
+- **`list_assets` — INVARIANT count==drill/count==rows GIỮ:** clamp CHỈ đụng `limit_page_length`. **KHÔNG** đụng `filters`/`or_filters`/`apply_vendor_scope`/`compose_reserved_into`/`permission_query_conditions` (ADR-IMM00-LIST-SCOPE §4b + BR-00-17/35 nguyên vẹn). `count_with_or` đếm với `limit_page_length=0` (không liên quan cap) → count không đổi; CHỈ `len(items)` mỗi trang bị cap về ≤100 — đúng định nghĩa pagination.
+- **No-leak:** KHÔNG thêm field-select → `test_list_assets_no_qr_token` GIỮ XANH (AC6).
+
+> **EXCLUSION — `list_assets_depreciation` KHÔNG nằm trong 11 điểm.** Path đếm/cắt-trang RIÊNG (`pg_size`, pagination `{page, page_size, total}` inline — `api/imm00.py:2788`/`:2814`); **drill test khấu hao cố ý `page_size=200`** để gom toàn tập theo trang (de-dup INV-DEP-5 — `test_imm00.py:1485,1516` dùng `page*200 >= total` làm điều kiện dừng). Clamp depreciation về 100 sẽ under-fetch → phá drill. Round này KHÔNG đụng depreciation; cap depreciation = **[ROADMAP]** riêng (phải đồng sửa drill-loop test sang `page_size <= 100`). Các endpoint dùng path service paginate riêng (`list_pm_schedules`/`list_pm_templates`/`list_firmware_crs`/`list_document_requests` qua `_paginate_service` `:2248`) cũng NGOÀI scope round này — đề mục chỉ liệt kê 11 endpoint dùng trực tiếp `paginate()` + `frappe.get_list`.
+
+#### II.1.13-SEARCHESCAPE — Escape LIKE-metachar (`%`/`_`/`\`) trong tham số `search` của `list_assets` (`escape_like_term`) — BR-00-44 — **NEW (Vòng 13, 2026-06-11 — Self-Correction)**
+
+> **Đề mục Vòng 13 (hardening / list-scope — escape LIKE-metachar trong free-text search).** Self-Correction lỗi thiết kế gốc: `list_assets` dựng LIKE-term BẰNG nội suy chuỗi trần `like = f"%{search}%"` (`api/imm00.py:292`) KHÔNG escape metachar → `_`/`%` user gõ thành **wildcard SQL** (over-match toàn bảng) + `%%%%…` thành multi-wildcard LIKE (backtracking DoS). Gate chốt đầy đủ: [`ADR-IMM00-SEARCH-ESCAPE.md`](./ADR-IMM00-SEARCH-ESCAPE.md) (probe escape table §2 = nguồn quyết định dựa-trên-dữ-liệu). **Schema-delta: KHÔNG** (thuần 1 helper SSoT + 2-dòng wiring + test). `CAP_SET_VERSION` GIỮ NGUYÊN.
+
+**Triệu chứng (@source — verify thực nghiệm site `miyano` 2026-06-11):** `list_assets(search='_')` → pattern `%_%` → `_` là wildcard 1-ký-tự → **match gần như MỌI row** (probe: 10/10 asset). `list_assets(search='%')` → `%%%` → **match-all** (`total == toàn tập hợp lệ`). `search='%%%%%%%%%%'` (10×`%`) → multi-wildcard LIKE → backtracking pathological + match-all. KHÔNG phải SQLi (đã parametrized qua `frappe.get_list`), mà là vỡ ngữ-nghĩa-literal + bề mặt over-match/DoS.
+
+**Nền kỹ thuật (BẮT BUỘC — Frappe ORM `like`):** `frappe.model.db_query.DatabaseQuery` (động cơ `frappe.get_list`/`get_all`, dùng ở CẢ `list_assets` items LẪN `count_with_or` — ADR-LIST-SCOPE §4b) cho `like`/`not like` chạy `value.replace("\\","\\\\").replace("%","%%")` (`db_query.py:938-940`): nhân đôi backslash, **KHÔNG** escape `%`/`_` (giữ wildcard), **KHÔNG** emit `ESCAPE` clause. ⟹ tầng app phải tự prefix 1 backslash cho `%`/`_`; **KHÔNG** đụng `\` (engine đã nhân đôi hộ — escape thêm → match dấu backslash, lệch literal).
+
+**SSoT helper (thuần hàm — đề xuất `services/imm00.py` cạnh `reserved_prefix_sql`, HOẶC `services/shared/filters.py` cạnh `pop_search` để tái dùng backlog §6 ADR):**
+```python
+def escape_like_term(term: str) -> str:
+    """Escape LIKE-metachar cho ORM or_filters: '%'→'\\%', '_'→'\\_' (KHÔNG đụng '\\').
+    Frappe DatabaseQuery tự nhân đôi backslash + không emit ESCAPE (db_query.py:938-940);
+    prefix 1 backslash cho '%'/'_' → literal. Total-function, KHÔNG raise; '' → ''."""
+    return term.replace("%", "\\%").replace("_", "\\_")
+```
+
+**Wiring `list_assets` (DELTA tối thiểu — đổi 1 dòng dựng `like`, KHÔNG đụng gì khác):**
+```python
+or_filters = None
+if search:
+    like = f"%{escape_like_term(str(search))}%"      # ← DELTA: escape literal metachar
+    or_filters = [[_DT_ASSET, c, "like", like] for c in
+                  ("asset_name", "asset_code", "manufacturer_sn", "gmdn_code")]
+# count_with_or + get_list dùng CÙNG or_filters đã-escape (INVARIANT count==rows GIỮ)
+```
+
+**Bảng probe thực nghiệm (site `miyano` — chọn chiến lược escape):**
+
+| User gõ | escape `%`+`_` (KHÔNG `\`) qua ORM | escape `\`+`%`+`_` | Acceptance |
+|---|---|---|---|
+| `_` | **1** (literal `_` only) ✅ | 1 ✅ | literal `_` |
+| `%` | **1** (literal `%` only) ✅ | 1 ✅ | literal `%` |
+| `\` | **1** (literal `\`) ✅ | **0** ❌ | literal `\`, no-500 |
+| `vent` | 1 ✅ | 1 ✅ | substring no-regress |
+| `%%%%%%%%%%` | **0, hữu hạn** ✅ | 0 ✅ | DoS: không match-all |
+
+⟹ Chọn **escape CHỈ `%` và `_`** (cột giữa) — thỏa MỌI acceptance kể cả `search='\'`. "Backslash-first" SAI cho đường ORM (Frappe đã nhân đôi backslash).
+
+| # | Đảm bảo | Vì sao đúng |
+|---|---|---|
+| count==rows | `total == len(items)` cho CẢ search & non-search, MỌI persona | count (`count_with_or`) + list (`get_list`) dùng **CÙNG `or_filters` đã-escape** qua **CÙNG động cơ DatabaseQuery** → mọi biến đổi pattern (kể cả nhân-đôi-backslash) áp đồng nhất 2 path. ADR-LIST-SCOPE §4b nguyên vẹn. |
+| SQLi-safe | `search="x' OR '1'='1"` → 0-row + `total==len(items)`, KHÔNG throw | `or_filters` parametrized qua `frappe.get_list` (bind-param). `escape_like_term` chỉ escape LIKE-metachar TRƯỚC bind → KHÔNG mở injection. `test_search_param_is_sqli_safe` GREEN. |
+| no-regress | `vent`/`AC-ASSET`/`35304` match như cũ | term không-metachar → `escape_like_term` no-op → pattern y nguyên. `test_search_by_gmdn_code_substring` GREEN. |
+| reserved/vendor | KHÔNG đụng `compose_reserved_into`/`apply_vendor_scope`/`permission_query_conditions` | escape CHỈ chạm giá trị `or_filters` (4 cột text), KHÔNG chạm `filters` (name-scope). §II.1.13-TESTPREFIX + RC-LIST-VENDORCLOBBER + ADR-LIST-SCOPE GIỮ NGUYÊN. |
+
+**Edge NGOÀI acceptance (ghi rõ, KHÔNG chặn):** term DÀI có metachar **kẹp giữa** (vd `AC_001`) có thể under-match qua ORM (tương tác nhân-đôi-backslash + absent-ESCAPE). Acceptance Vòng 13 không có input loại này (substring hợp lệ đều không metachar). Literal-match hoàn hảo cho metachar-kẹp-giữa → chuyển search sang **raw-SQL `ESCAPE '\\'`** (precedent `reserved_prefix_sql`) cho CẢ count lẫn list = **[ROADMAP]** (đổi raw-SQL phải tự AND vendor-scope/reserved/permission → rủi ro cao, ngoài Vòng 13).
+
+**Phạm vi (CHỈ `list_assets`):** các list endpoint khác cùng nội suy trần (`list_suppliers` `:994`, `list_device_models` `:1213-1227`, `list_audit_trail` q `:1436`, IMM-11 search) → **[BACKLOG]** dùng chung `escape_like_term` SSoT. Endpoint có path raw-SQL (`list_suppliers`/`list_device_models`) cần thêm `ESCAPE '\\'` tường minh + escape cả `\` (raw KHÔNG có Frappe-doubling → quy tắc escape KHÁC đường ORM). KHÔNG ôm Vòng 13.
+
 #### II.1.8b — A3: Dữ liệu in nhãn + sự kiện in (`get_asset_label_data` / batch / `mark_label_printed`) — ADR-001 D3
 
 > **Đề mục A3 (V4) + B (siết RBAC, V8+).** BE: endpoint trả payload nhãn (1 + batch) READ-ONLY về print-event + endpoint ghi sự kiện in (`label_printed`) + audit. Envelope chi tiết ở [`05_API_Specification.md`](./05_API_Specification.md) §III.1 (`get_asset_label_data`, `get_asset_label_data_batch`, `mark_label_printed`). Vị trí code: **`api/imm00.py` + `services/imm00.py`** (cùng nhà với `resolve_qr_token`/`ensure_asset_qr_token` — đây là logic registry cấp `AC Asset`; IMM-04 chỉ cross-link, KHÔNG đụng `internal_tag_qr` ở vòng A — ADR D6).
-> **Vòng B (2026-06-04):** 3 endpoint trên SIẾT gate `require("asset.read")` → **`require("asset.write")`** (least-privilege — in nhãn là hành-động-ghi). KHÔNG cap mới, `CAP_SET_VERSION` GIỮ `v95.3388ee5629c1`. Read-only `resolve_qr_token`/`get_asset_scan_info`/`get_asset` GIỮ `asset.read`. IDOR `assert_vendor_can_access` GIỮ NGUYÊN.
+> **Vòng B (2026-06-04):** 3 endpoint trên SIẾT gate `require("asset.read")` → `require("asset.write")` (least-privilege — in nhãn là hành-động-ghi). *(superseded bởi D6 dưới.)*
+> **✅ D6 (EXECUTED Vòng 3, 2026-06-08 — ADR-IMM00-QR-SCAN-ACTION):** TÁCH cap riêng — 3 endpoint in nhãn `require("asset.write")` → **`require("asset.print")`** (→(AC Asset,"print"); DocPerm print=1 sẵn cho persona vận hành KTV/QL vật tư → in được NGAY); `regenerate_asset_qr_token` `require("asset.write")` → **`require("asset.qr.rotate")`** (→(AC Asset,"write"); rotate = GHI). Thêm 2 cap → **`CAP_SET_VERSION` v95.3388ee5629c1 → v97.c30c69b8974d** (FE `auth.ts` ĐÃ bump). Read-only `resolve_qr_token`/`get_asset_scan_info`/`get_asset` GIỮ `asset.read`. IDOR `assert_vendor_can_access` GIỮ NGUYÊN. Lý do: `asset.write` chỉ Super Admin có → trước D6 KTV/QL vật tư KHÔNG in/rotate được (self-correction P2).
 > **Consumer cross-module (vòng 13 / B-3 — ADR-001 §D6.1):** IMM-04 `services.imm04.generate_qr_label` **tái dùng** `ensure_asset_qr_token(final_asset)` + `_build_qr_url(token)` (lazy import — Pattern B) để dựng `qr_url=/a/<token>` cho nhãn commissioning (dedup về 1 deep-link). 2 helper này KHÔNG đổi signature/behavior — IMM-00 là SSoT sinh token + URL. Vì `ensure_asset_qr_token` idempotent → consumer KHÔNG gây double-emit `qr_generated`. Spec IMM-04: [`../imm-04/04_Backend_Design.md`](../imm-04/04_Backend_Design.md) §8.1.1.
 
-**Import delta `api/imm00.py`** (thêm vào block `from assetcore.services.imm00 import (...)` line 20-36): `ensure_asset_qr_token, build_asset_label_data, build_asset_label_data_batch, emit_label_printed`. **Vòng 22 (BR-00-33):** thêm `_MAX_LABEL_BATCH` vào CÙNG block import (hằng SSoT ở service — KHÔNG redefine literal ở api). `assert_vendor_can_access` + `rbac` + `_ok`/`_err` đã import sẵn (line 14-19). `frappe.utils.get_url` dùng trực tiếp (đã import `frappe`). Message `_ERR_LABEL_BATCH_TOO_LARGE` đặt cạnh `_ERR_ASSET_NOT_FOUND` trong `api/imm00.py` (nội suy `{_MAX_LABEL_BATCH}` để khỏi drift).
+**Import delta `api/imm00.py`** (thêm vào block `from assetcore.services.imm00 import (...)` line 20-36): `ensure_asset_qr_token, build_asset_label_data, build_asset_label_data_batch, emit_label_printed`. **Vòng 22 (BR-00-33):** thêm `_MAX_LABEL_BATCH` vào CÙNG block import (hằng SSoT ở service — KHÔNG redefine literal ở api). **V10 (D17):** thêm `_coerce_asset_names` vào CÙNG block import (SSoT coerce — 3 endpoint nhãn dùng chung). `assert_vendor_can_access` + `rbac` + `_ok`/`_err` đã import sẵn (line 14-19). `frappe.utils.get_url` dùng trực tiếp (đã import `frappe`). Message `_ERR_LABEL_BATCH_TOO_LARGE` đặt cạnh `_ERR_ASSET_NOT_FOUND` trong `api/imm00.py` (nội suy `{_MAX_LABEL_BATCH}` để khỏi drift).
 
 **Service constants/helpers cần thêm trong `services/imm00.py`** (hiện chưa có):
 - `LABEL_PRINTED_EVENT = "label_printed"` (cạnh `QR_GENERATED_EVENT` line 100).
 - **`_MAX_LABEL_BATCH = 200`** (Vòng 22 / BR-00-33): hằng SSoT DUY NHẤT giới hạn số asset/lần cho `get_asset_label_data_batch` + `mark_label_printed`. Đặt cạnh các hằng QR khác (vd dưới `_MAX_QR_TOKEN_RETRY`). KHÔNG literal `200` lặp ở `api/imm00.py` — api `import` hằng này. (Service-side thuần là HẰNG; cap-CHECK đặt ở API tier vì là gate HTTP-status, đồng nhất pattern gate ở api/imm00.py.)
+- **`_coerce_asset_names(assets) -> list[str]`** (V10 / ADR-IMM00-LABEL-PDF D17 — **V15 thêm dedup D19**): **SSoT coerce an toàn + khử trùng-lặp** tham số `assets` cho CẢ 3 endpoint nhãn (`print_asset_labels_pdf`, `get_asset_label_data_batch`, `mark_label_printed`) — thay dòng trần `frappe.parse_json(assets) if isinstance(assets,str) else (assets or [])` vốn raise `JSONDecodeError`/`TypeError` (HTTP-500 + traceback leak) trên bare-code/non-JSON/scalar và char-walk JSON-scalar-string. **Total-function, KHÔNG raise, idempotent + dedup giữ-thứ-tự (in-call).** ⚠️ **Vị-trí THỰC-TẾ = `api/imm00.py:126`** (NOT `services/imm00.py` như bản nháp cũ — drift-guard `test_coerce_8_single_ssot_helper_no_bare_parse_json` đọc source `api/imm00.py` xác nhận; D19.1 KHÔNG di-chuyển helper). Impl (V15 — khớp source thật):
+  ```python
+  def _coerce_asset_names(assets) -> list[str]:
+      """Coerce input `assets` (HTTP/python) về list[str] an toàn — KHÔNG raise.
+
+      Bare-code/non-JSON/scalar/number/object → []; list/JSON-array-string giữ
+      nguyên (lọc phần tử non-str non-rỗng) RỒI khử trùng-lặp giữ-thứ-tự (in-call).
+      Chặn JSONDecodeError-500 + char-walk (D17) + khuếch đại audit/PDF do trùng (D19).
+      Empty-[] để gate empty TỪNG endpoint xử lý.
+      """
+      if isinstance(assets, str):
+          try:
+              assets = frappe.parse_json(assets)        # json.loads — có thể raise
+          except (ValueError, TypeError):
+              return []                                  # bare-code/'' /'   '/'not-json'
+      if not isinstance(assets, list):                   # loại str-đơn/int/dict-scalar/None
+          return []                                      # KHÔNG char-walk, KHÔNG len()-sai-kiểu
+      names = [a for a in assets if isinstance(a, str) and a]   # D17: lọc kiểu (str non-rỗng)
+      return list(dict.fromkeys(names))                  # D19: khử trùng-lặp giữ thứ tự xuất hiện ĐẦU (in-call)
+  ```
+  Đặt ở `api/imm00.py` (cạnh `_MAX_LABEL_BATCH` import + 3 handler nhãn). KHÔNG biết HTTP-status (KHÔNG raise 422) — gate empty của TỪNG endpoint xử coerce-`[]` (PDF→422 `_ERR_LABEL_EMPTY`; batch→`_ok([])`; mark→`_ok` no-side-effect). **Dedup `list(dict.fromkeys(...))`** (D19): `dict.fromkeys` giữ thứ-tự-chèn (Py3.7+) → giữ lần xuất hiện ĐẦU, bỏ trùng SAU; stdlib thuần O(n), KHÔNG `set()` (mất thứ-tự). Dedup CHỈ trong-call (no state xuyên-call) → GIỮ bất biến cross-call `test_mark_label_printed_idempotent_count` (2 call riêng = 2 event).
+
+  - **§II.1.8c-LABELDEDUP (D19) — hệ quả khử trùng-lặp lan tới 3 endpoint qua SSoT (đo được):**
+    - `mark_label_printed([a1,a1,a1])` (1 call) → coerce `[a1]` → vòng exists/IDOR/ghi 1 lần → **1 ALE `label_printed` + 1 IMM Audit Trail**, `event_count=1` (KHÔNG 3). All-or-nothing GIỮ.
+    - `print_asset_labels_pdf([a1,a1])` → coerce `[a1]` → `render_asset_labels_pdf([a1])` → **PDF 1 trang** (1 block, 0 page-break), `pypdf.PdfReader.pages==1`, MediaBox khổ preset.
+    - `get_asset_label_data_batch([a1,a1])` → coerce `[a1]` → `_ok([1 phần tử])` (count==rows).
+    - **Cap `_MAX_LABEL_BATCH=200` đo TRÊN list ĐÃ dedup** (coerce chạy TRƯỚC `len>cap`): `[a]*300`→dedup `[a]`→KHÔNG 413; `>200 UNIQUE`→413 GIỮ.
 - `build_asset_label_data(asset_name: str) -> dict` (service): lấy 1 row + enrich `device_model_name`/`location_name`; gọi `ensure_asset_qr_token(asset_name)` (idempotent) rồi `qr_url = _build_qr_url(token)` (SSoT §II.1.8-QRBASE — host công khai cấu hình được, fallback `get_url`). **KHÔNG emit `label_printed`** (read-only về sự kiện in).
 - `build_asset_label_data_batch(names: list[str]) -> list[dict]` (service): **1 truy vấn gộp** `frappe.get_all("AC Asset", filters={"name":["in",names]}, fields=["name","asset_code","lifecycle_status","device_model","location","qr_token"])` → map theo `name`; resolve `device_model`→`model_name` + `location`→`location_name` qua **2 IN-query gộp** → dict; build `qr_url` từ `qr_token` đã lấy (token-less → `ensure_asset_qr_token` chỉ cho asset thiếu); trả theo **đúng thứ tự `names`**; name không có row → `{"name": n, "error": "AC-E001"}`. **KHÔNG N+1** (cấm loop `get_value` mỗi asset).
 - `emit_label_printed(asset_name, actor=None)` (service): 1 `create_lifecycle_event(event_type=LABEL_PRINTED_EVENT, root_doctype="AC Asset", root_record=asset_name, from_status="", to_status="")` + 1 `log_audit_event(event_type="System", ref_doctype="AC Asset", ref_name=asset_name, change_summary="In nhãn QR cấp tài sản.")`. Khác `emit_qr_generated` (best-effort): `mark_label_printed` ghi sự kiện in NĐ98 → **KHÔNG nuốt lỗi** (lỗi ghi event → raise → 422/500, all-or-nothing).
@@ -477,19 +680,21 @@ def reserved_test_prefix_sql(alias: str = "") -> tuple[str, list]:
 **Contract API (3-tier — gate ở API tier, logic ở service):**
 
 ```python
-# api/imm00.py — VÒNG B: gate đổi asset.read → asset.write (least-privilege)
-@frappe.whitelist()                                       # GET — tiền-đề thao-tác-in (nhóm WRITE)
+# api/imm00.py — D6 (EXECUTED Vòng 3): gate đổi asset.write → asset.print (in nhãn)
+@frappe.whitelist()                                       # GET — dữ liệu in nhãn (nhóm PRINT)
 def get_asset_label_data(asset: str = ""):               # P1: str="" (KHÔNG str|None → tránh 417)
-    rbac.require("asset.write")                           # B: 403 nếu user CHỈ có asset.read
+    rbac.require("asset.print")                           # D6: 403 nếu user KHÔNG có asset.print
     if not asset or not frappe.db.exists(_DT_ASSET, asset):
         return _err(_(_ERR_ASSET_NOT_FOUND), 404)         # leak-safe, KHÔNG 500
     assert_vendor_can_access(_DT_ASSET, asset)            # IDOR → 403 (GIỮ NGUYÊN — không nới)
     return _ok(build_asset_label_data(asset))             # qr_url tuyệt đối, KHÔNG rỗng
 
 @frappe.whitelist()                                       # GET batch
+@rate_limit(limit=AC_LABEL_BATCH_RATE_LIMIT, seconds=60, ip_based=True)  # Vòng 14 (BR-00-46) — 429 TRƯỚC rbac; bucket RIÊNG (cmd); read-only ngưỡng CAO hơn mark
 def get_asset_label_data_batch(assets=None):
-    rbac.require("asset.write")                           # B: siết từ asset.read
-    names = frappe.parse_json(assets) if isinstance(assets, str) else (assets or [])
+    # 0. @rate_limit (BR-00-46): vượt AC_LABEL_BATCH_RATE_LIMIT/60s/IP → RateLimitExceededError (429) NGOÀI/TRƯỚC thân → 0 byte payload build
+    rbac.require("asset.print")                           # D6: gate PRINT (DocPerm print=1)
+    names = _coerce_asset_names(assets)                   # V10 (D17): SSoT coerce — KHÔNG raise/char-walk
     if len(names) > _MAX_LABEL_BATCH:                     # Vòng 22 (BR-00-33): payload-DoS cap
         return _err(_(_ERR_LABEL_BATCH_TOO_LARGE), 413)  # SAU rbac, TRƯỚC exists/IDOR; no-leak
     for n in names:                                       # IDOR: 403 toàn call nếu ≥1 ngoài scope
@@ -498,9 +703,11 @@ def get_asset_label_data_batch(assets=None):
     return _ok(build_asset_label_data_batch(names))       # đúng thứ tự; missing → {name,error}
 
 @frappe.whitelist(methods=["POST"])                       # POST — ghi sự kiện in
+@rate_limit(limit=AC_LABEL_MARK_RATE_LIMIT, seconds=60, ip_based=True)   # Vòng 14 (BR-00-45) — 429 TRƯỚC rbac; bucket RIÊNG (cmd); write-amplify ngưỡng THẤP (≤ regen)
 def mark_label_printed(assets=None):
-    rbac.require("asset.write")                           # B: ghi label_printed = WRITE rõ nghĩa
-    names = frappe.parse_json(assets) if isinstance(assets, str) else (assets or [])
+    # 0. @rate_limit (BR-00-45): vượt AC_LABEL_MARK_RATE_LIMIT/60s/IP → 429 NGOÀI/TRƯỚC thân → 0 ALE label_printed + 0 IMM Audit Trail (no side-effect)
+    rbac.require("asset.print")                           # D6: in = quyền PRINT (label_printed là hệ quả)
+    names = _coerce_asset_names(assets)                   # V10 (D17): SSoT coerce — coerce-[] → vòng exists rỗng → no-side-effect
     if len(names) > _MAX_LABEL_BATCH:                     # Vòng 22 (BR-00-33): cap TRƯỚC vòng write
         return _err(_(_ERR_LABEL_BATCH_TOO_LARGE), 413)  # chặn khuếch đại 2-record/asset/transaction
     for n in names:                                       # all-or-nothing: validate TRƯỚC khi ghi
@@ -518,16 +725,18 @@ def mark_label_printed(assets=None):
 
 | Quy tắc (vòng B) | Lý do |
 |---|---|
-| Cả 3 endpoint gate `rbac.require("asset.write")` **đầu hàm** (SIẾT từ `asset.read`) | in nhãn = WRITE (ghi `label_printed`+audit; GET là tiền-đề + side-effect token-backfill). Cap qua DocPerm AC Asset `write` (KHÔNG hardcode role). **KHÔNG cap mới** `asset.print_label` (đã BỎ — ADR D4 Self-Correction) → `CAP_SET_VERSION` GIỮ `v95.3388ee5629c1`, FE `auth.ts` KHÔNG đổi. Read-only `resolve_qr_token`/`get_asset_scan_info`/`get_asset` GIỮ `asset.read`. |
+| Cả 3 endpoint gate `rbac.require("asset.print")` **đầu hàm** (D6 EXECUTED — đổi từ `asset.write`) | in nhãn = quyền PRINT (`label_printed`+audit là hệ quả của in). Cap `asset.print`→(AC Asset,"print") qua DocPerm (KHÔNG hardcode role); **DocPerm print=1 sẵn cho mọi role vận hành** → KTV/QL vật tư in được NGAY. **2 cap mới** `asset.print`+`asset.qr.rotate` → `CAP_SET_VERSION` v95.3388ee5629c1→**v97.c30c69b8974d**, FE `auth.ts` ĐÃ bump. Read-only `resolve_qr_token`/`get_asset_scan_info`/`get_asset` GIỮ `asset.read`. |
 | `qr_url = _build_qr_url(token)` | URL tuyệt đối, host = base-URL **công khai cấu hình được** (site_config `assetcore_qr_base_url`), fallback `get_url` — KHÔNG hardcode (BR-00-30; §II.1.8-QRBASE). Tem quét được bằng camera điện thoại thật, KHÔNG lộ host nội bộ. |
 | Token-less asset → `ensure_asset_qr_token` TRƯỚC khi build `qr_url` | KHÔNG trả `qr_url` rỗng (BR-00-28); emit `qr_generated` 1 lần (idempotent — KHÔNG phải print event) |
 | GET `get_asset_label_data[_batch]` **KHÔNG emit `label_printed`/audit** | preview nhãn ≠ in nhãn — read-only về print event, tránh spam chain (D3/D4, giống resolve A2) |
 | Batch: 1 truy vấn gộp + IN-clause cho enrich | **KHÔNG N+1**; thứ tự output = thứ tự input; missing → `{name,error:"AC-E001"}` (KHÔNG drop → giữ index FE) |
 | `mark_label_printed`: 1 ALE `label_printed` + 1 audit / asset / lần in | mỗi lần in 1 event (đúng nghiệp vụ); gọi N lần = N×len event (KHÔNG dedup theo asset) |
-| `mark_label_printed` all-or-nothing | validate WRITE gate + tồn tại + IDOR TẤT CẢ asset TRƯỚC khi ghi event nào → tránh audit chain lệch. Thứ tự: `require("asset.write")` → **cap-check (413)** → tồn-tại → IDOR → ghi |
-| **Batch-size cap `_MAX_LABEL_BATCH=200` → 413** (Vòng 22 / BR-00-33) | per-request payload-DoS: `len(names) > _MAX_LABEL_BATCH` → `_err(_ERR_LABEL_BATCH_TOO_LARGE, 413)`. Hằng SSoT DUY NHẤT ở `services/imm00.py`; CẢ 2 endpoint (read batch + mark write) tham chiếu — KHÔNG literal lặp. Cap chạy **SAU `rbac.require("asset.write")`, TRƯỚC** vòng `exists`/IDOR → chỉ user đã-auth-write chạm ngưỡng (no-leak). 413 = bucket RIÊNG (KHÔNG nhầm 404/403/429), KHÔNG leak asset name. KHÁC rate-limit BR-00-29 (req/phút). `len==200` PASS, `+1` → 413, `0`/`None` → empty (KHÔNG side-effect). |
+| `mark_label_printed` all-or-nothing | validate PRINT gate + tồn tại + IDOR TẤT CẢ asset TRƯỚC khi ghi event nào → tránh audit chain lệch. Thứ tự: `require("asset.print")` → **cap-check (413)** → tồn-tại → IDOR → ghi |
+| **Batch-size cap `_MAX_LABEL_BATCH=200` → 413** (Vòng 22 / BR-00-33) | per-request payload-DoS: `len(names) > _MAX_LABEL_BATCH` → `_err(_ERR_LABEL_BATCH_TOO_LARGE, 413)`. Hằng SSoT DUY NHẤT ở `services/imm00.py`; CẢ 2 endpoint (read batch + mark write) tham chiếu — KHÔNG literal lặp. Cap chạy **SAU `rbac.require("asset.print")`, TRƯỚC** vòng `exists`/IDOR → chỉ user đã-auth-print chạm ngưỡng (no-leak). 413 = bucket RIÊNG (KHÔNG nhầm 404/403/429), KHÔNG leak asset name. KHÁC rate-limit BR-00-29 (req/phút). `len==200` PASS, `+1` → 413, `0`/`None` → empty (KHÔNG side-effect). |
 | Asset không tồn tại → **404 `AC-E001`** | leak-safe, KHÔNG 500, KHÔNG đoán id nội bộ |
 | IDOR → `assert_vendor_can_access("AC Asset", name)` (TÁI DÙNG `scope.py:160`) | vendor ngoài scope → 403; batch/POST → 403 toàn call, KHÔNG partial, KHÔNG leak |
+| **Coerce `assets` qua `_coerce_asset_names` (V10 / D17 — V15 +dedup D19)** — 3 endpoint nhãn (PDF/batch/mark) gọi `names = _coerce_asset_names(assets)` NGAY SAU `rbac.require`, TRƯỚC cap/exists/IDOR | SSoT 1 helper **`api/imm00.py:126`** (⚠️ NOT `services/imm00.py` — drift-note D19.1) — KHÔNG lặp parse 3 chỗ; KHÔNG còn `frappe.parse_json(assets)` trần ở handler. Total-function: bare-code/''/'   '/non-JSON/scalar-str/number/object → `[]` (KHÔNG raise JSONDecodeError/TypeError → no-500/no-traceback-leak); JSON-scalar-string `'"AC-1"'` → `[]` (KHÔNG char-walk 4 ô lỗi / 4 `db.exists` — giữ count==rows); list/JSON-array-string giữ nguyên (lọc element non-str — `[1,'AC-1',None]`→`['AC-1']`). Coerce-`[]`: PDF→`_ERR_LABEL_EMPTY` (422); batch→`_ok([])`; mark→vòng exists rỗng `_ok` no-side-effect. Thứ tự gate KHÔNG đổi — `rbac.require` ĐẦU (403 Guest/thiếu-cap TRƯỚC coerce → no-leak). |
+| **Khử trùng-lặp in-call `_coerce_asset_names` (V15 / D19)** — bước cuối `list(dict.fromkeys(...))` giữ-thứ-tự (lần đầu giữ, trùng sau bỏ) | Chặn khuếch đại trong 1 call: `mark_label_printed([a1,a1,a1])`→**1** ALE+1 audit (event_count=1, KHÔNG 3); `print_asset_labels_pdf([a1,a1])`→PDF **1** trang (KHÔNG 2 trùng); `get_asset_label_data_batch([a1,a1])`→**1** phần tử (count==rows). Cap `_MAX_LABEL_BATCH=200` đo TRÊN list dedup (`[a]*300`→KHÔNG 413; `>200 unique`→413 GIỮ). Dedup CHỈ trong-call (no state xuyên-call) → **GIỮ bất biến cross-call** `test_mark_label_printed_idempotent_count` (2 call riêng = 2 event). Malformed→`[]` GIỮ (D17). FE 0 regression (validNames đã unique — lưới-an-toàn BE). |
 
 **Verify acceptance (chống dead-gate + regression):**
 ```python
@@ -543,7 +752,78 @@ assert CAP_SET_VERSION == "v95.3388ee5629c1"  # B KHÔNG thêm cap → version K
 # vendor ngoài scope → 403; asset không tồn tại → 404 (KHÔNG 500)
 ```
 
-> **BR-00-28 (A3): `qr_url` không bao giờ rỗng.** Endpoint dữ liệu nhãn PHẢI đảm bảo asset có `qr_token` (qua `ensure_asset_qr_token` idempotent) trước khi build `qr_url`. Asset legacy/import lọt backfill D5 → sinh token on-demand (emit `qr_generated` 1 lần), KHÔNG trả `qr_url` rỗng → tem in ra luôn quét được.
+> **BR-00-28 (A3): `qr_url` không bao giờ rỗng.** Endpoint dữ liệu nhãn PHẢI đảm bảo asset có `qr_token` (qua `ensure_asset_qr_token` idempotent) trước khi build `qr_url`. Asset legacy/import lọt backfill D5 → sinh token on-demand (emit `qr_generated` 1 lần), KHÔNG trả `qr_url` rỗng → tem in ra luôn quét được. **⚠️ BR-00-28 là contract BUILD-TIER (`build_asset_label_data*`) — KHÔNG đảm bảo RENDER-TIER (`_label_block`) tin tưởng được khi data drift; guard render-tier ở §II.1.8h-LABELQREMPTY (BR-00-49).**
+
+##### II.1.8h-LABELQREMPTY — Guard render-tier `qr_url` rỗng/whitespace → ô-QR-lỗi an toàn ở tem PDF (Vòng 30 — BR-00-49 / FR-00-100 / ADR §D20) — **NEW (Self-Correction `or ''` defense CHẾT, §D7 chưa đóng nhánh #3)**
+
+> **Đề mục Vòng 30 (hardening / patient-safety — junk-QR rỗng dán lên thiết bị).** `_label_block` (`services/imm00.py:1067`) chốt 2 nhánh edge ở §D7 (asset∄ `AC-E001` → ô-lỗi; list-rỗng → 422 ở API) NHƯNG nhánh KHÔNG-error gọi `qr_url = item.get("qr_url") or ""` (`:1094`) **rồi GỌI THẲNG `_qr_svg_inline(qr_url)`** (`:1095`) → `pyqrcode.create('', error='M')` + `create('   ')` **KHÔNG raise** → encode chuỗi RỖNG/whitespace thành QR cú-pháp-hợp-lệ NHƯNG quét ra payload TRỐNG → tem vật-lý mang junk-QR (silent-bad-data, tệ hơn crash). FE `AssetQrLabel.vue:73` ĐÃ guard (on-screen an-toàn); CHỈ server-PDF lệch. **Fix render-tier (BE-only, 1 guard):** rỗng-sau-`.strip()` → ô-QR-lỗi VI `Không tạo được mã QR` (parity AC-E001 shape + FE `:124`), 5 field chữ VẪN render, giữ invariant N→N trang. **Schema/cap-delta: KHÔNG** (`CAP_SET_VERSION` GIỮ; `bench run-tests` fresh-import, KHÔNG reload/migrate).
+
+**Phân biệt 3 nhánh `_label_block` (DỨT KHOÁT — D20 bổ sung nhánh #3):**
+
+| # | Tình huống item | Điều kiện | QR | Field chữ | Block |
+|---|---|---|---|---|---|
+| 1 | **Asset∄** (batch lỗi) | `item.get("error") == 'AC-E001'` | KHÔNG QR | KHÔNG (chỉ echo `name` + "Không tìm thấy tài sản") | `label-error` (`:1085-1093`) |
+| 2 | **Asset OK, qr_url hợp lệ** | KHÔNG `error` ∧ `qr_url.strip()` non-rỗng | `_qr_svg_inline(qr_url)` SVG + `data-qr-url=/a/<token>` | ĐỦ 5 field (D3/D13) | block thường |
+| 3 | **Asset OK, qr_url RỖNG/whitespace** (D20 MỚI) | KHÔNG `error` ∧ `qr_url.strip() == ''` | **KHÔNG QR** — ô-QR-lỗi `.qr.qr-error`/`.err` VI `Không tạo được mã QR` (KHÔNG `<svg>`, KHÔNG `data-qr-url` rỗng) | **ĐỦ 5 field** (asset có data) | block-có-field + ô-QR-lỗi |
+
+**Impl (1 guard render-tier, `_label_block` `:1094`):**
+```python
+# TRƯỚC (defense CHẾT — junk-QR rỗng):
+qr_url = item.get("qr_url") or ""
+qr_svg = _qr_svg_inline(qr_url)               # pyqrcode.create('') KHÔNG raise → QR rỗng
+# SAU (D20 — guard rỗng-sau-strip TRƯỚC create):
+qr_url = (item.get("qr_url") or "").strip()   # whitespace ≡ rỗng
+if not qr_url:                                 # asset OK nhưng qr_url drift (BR-00-28 build-tier hở)
+    qr_cell = '<div class="qr qr-error"><div class="line err">Không tạo được mã QR</div></div>'
+else:
+    qr_cell = f'<div class="qr" data-qr-url="{_esc(qr_url)}">{_qr_svg_inline(qr_url)}</div>'
+# khối return nhánh KHÔNG-error: nhúng {qr_cell} thay khối .qr cứng; {lines} (5 field) GIỮ NGUYÊN
+```
+
+| Quy tắc | Lý do |
+|---|---|
+| Guard `.strip()` TRƯỚC, KHÔNG-gọi `_qr_svg_inline` khi rỗng | `pyqrcode.create()` KHÔNG BAO GIỜ nhận `''`/`'   '`; whitespace ≡ rỗng (parity resolve `_normalize_qr_token` strip) |
+| Reuse class `.err`(`:1164`) + `.qr-error` TRONG `.qr`(=`qr_mm` preset) | layout 5-field KHÔNG xô, tem KHÔNG tràn khổ; KHÔNG thêm preset/`@page`; KHÔNG đụng `_label_pdf_options` |
+| 5 field chữ `{lines}` VẪN render (KHÁC AC-E001) | asset có data thật — chỉ QR hỏng; AC-E001 = asset∄ nên ẩn field |
+| `_qr_svg_inline` chữ-ký + body BẤT ĐỘNG | chỉ KHÔNG-gọi khi rỗng — KHÔNG sửa helper (no-regress đường QR hợp-lệ) |
+| Invariant N→N trang GIỮ (§D7) | 1 asset qr_url-rỗng = 1 block `.label` = 1 trang; KHÔNG raise toàn-call (`_ERR_LABEL_RENDER`); batch `[ok, rỗng, ok]`→`pypdf.PdfReader.pages==3` |
+| KHÔNG đụng `build_asset_label_data(_batch)`/`_build_qr_url`/gen/rotate/scan/resolve | BR-00-28 build-tier bất động; D20 chỉ thêm lưới-an-toàn render-tier (defense-in-depth) |
+| FE re-verify (KHÔNG đổi hành vi) | `AssetQrLabel.vue:73` guard CÒN RĂNG — revert-proof vitest; parity nhãn VI on-screen ≡ PDF |
+
+> **Đo (RED→GREEN, `bench run-tests test_imm00` fresh-import):** `_label_block({"asset_code":"A-1","asset_name":"X","qr_url":""}, "tem-60x100", True)` → HTML CHỨA `Không tạo được mã QR` ∧ `"<svg" not in html` ∧ `"A-1" in html` (trước fix: chứa `<svg>` QR-rác). `render_asset_labels_pdf([a_ok, a_empty_qr, a_ok2])` → `len(pypdf.PdfReader(BytesIO(pdf)).pages)==3` ∧ trang[1] `extract_text()` chứa `Không tạo được mã QR` ∧ KHÔNG `<svg>`-marker ∧ MediaBox portrait đúng khổ (`width<height`, `height/width≈100/60` tol ±2%). `pyqrcode.create` spy 0-call cho `''`/`'   '`. Test §III.6.k-LABELQREMPTY (`07`). No-regress: AC-E001 + đường QR-hợp-lệ + §D2/D3/D7/D13/D17/D19 GIỮ XANH.
+
+##### II.1.8b-LABELRL — Rate-limit `mark_label_printed` (write-audit-amplification) + `get_asset_label_data_batch` (read) (Vòng 14 — BR-00-45 / BR-00-46 / FR-00-96 / FR-00-97) — **NEW (Self-Correction BR-00-29 mục 6 / BR-00-38 mục 8, mirror rotate)**
+
+> **Đề mục Vòng 14 (hardening/security).** Áp `@rate_limit` lên 2 endpoint nhãn còn hở: `mark_label_printed` (POST GHI **2×N record/call** = N ALE `label_printed` + N IMM Audit Trail → write-audit-amplification) + `get_asset_label_data_batch` (GET ĐỌC N asset/call). BR-00-29 mục 6 cố tình miễn nhóm in-nhãn; BR-00-38 đã carve-out rotate nhưng chưa đụng 2 endpoint này → đóng bất đối xứng (PDF đã throttle nhưng mark — bề-mặt tốn-kém hơn per-call — vẫn unthrottled). Thuần thêm 2 decorator + 2 hằng + test — **KHÔNG** cap/field/DocType/patch mới; `CAP_SET_VERSION` GIỮ `v97.c30c69b8974d`; FE KHÔNG đổi (429→`RATE_LIMITED`+VI ĐÃ CÓ từ FR-00-87/88). Ngưỡng + lý do chốt: [`05_API_Specification.md`](./05_API_Specification.md) §I.7c + [`02_Analysis_Design.md`](./02_Analysis_Design.md) BR-00-45/46 + [ADR-IMM00-LABEL-PDF §D18](./ADR-IMM00-LABEL-PDF.md).
+
+```python
+@frappe.whitelist(methods=["POST"])
+@rate_limit(limit=AC_LABEL_MARK_RATE_LIMIT, seconds=60, ip_based=True)   # SÁT def — 429 TRƯỚC rbac
+def mark_label_printed(assets=None): ...
+
+@frappe.whitelist()
+@rate_limit(limit=AC_LABEL_BATCH_RATE_LIMIT, seconds=60, ip_based=True)  # SÁT def — 429 TRƯỚC rbac
+def get_asset_label_data_batch(assets=None): ...
+```
+
+| Quy tắc | Lý do |
+|---|---|
+| Hằng `AC_LABEL_MARK_RATE_LIMIT = 10` + `AC_LABEL_BATCH_RATE_LIMIT = 20` (khối hằng đầu `api/imm00.py`, cạnh `AC_LABEL_PDF_RATE_LIMIT`), `seconds=60`, `ip_based=True` | 1 chỗ chỉnh, KHÔNG literal `10`/`20` rải rác; comment lý do (write-audit-amplification vs read). **KHÔNG tái dùng** resolve(30)/regen(10)/pdf(20) — 2 hằng RIÊNG (TÁCH BIỆT ngữ-nghĩa kể cả batch trùng giá-trị pdf). |
+| `AC_LABEL_MARK_RATE_LIMIT ≤ AC_QR_REGEN_RATE_LIMIT (=10)` | mark = GHI write-amplify (2×N record ALE+audit) cùng họ rotate-asymmetry-logic → ngưỡng THẤP. 10 call/60s × tới 200 asset/call = dư cho in-thực-tế hợp lệ. |
+| `AC_LABEL_BATCH_RATE_LIMIT (=20) > AC_LABEL_MARK_RATE_LIMIT` | batch read-only (0 side-effect) → ngưỡng CAO hơn mark, song song pdf=20 (FE preview-rồi-mark → batch nhiều call hơn mark). |
+| `@rate_limit` bọc NGOÀI thân hàm → 429 **TRƯỚC** `rbac.require("asset.print")` | frappe tăng counter rồi `frappe.throw(RateLimitExceededError)` trước khi gọi `fn` → no-leak (0 byte build/đọc). Layout: `@frappe.whitelist(...)` (trên) → `@rate_limit(...)` (SÁT `def`). |
+| Bucket RIÊNG (cache key gồm `frappe.form_dict.cmd`) | `rl:…mark_label_printed:<ip>` và `rl:…get_asset_label_data_batch:<ip>` TÁCH BIỆT counter resolve/scan/regen/pdf — vượt mark KHÔNG bóp batch/pdf. |
+| **`mark_label_printed` vượt → 0 side-effect:** **0 ALE `label_printed` + 0 IMM Audit Trail** ở call bị 429 | chặn trước thân hàm ⟹ `emit_label_printed`+`frappe.db.commit()` KHÔNG chạm — đồng nhất no-side-effect 404/403. Đo: COUNT 2 bảng KHÔNG tăng (trước+sau trip). |
+| **`get_asset_label_data_batch` vượt → 0 byte payload** | `build_asset_label_data_batch` + IN-query enrich KHÔNG chạy. |
+| Vượt → `frappe.RateLimitExceededError` (HTTP **429**), body generic | no-leak parity 404/403; KHÔNG `name`/`asset_code`/số-record/lý-do. |
+| Đếm MỌI call kể cả 404/403 | counter tăng TRƯỚC thân hàm → dò asset∄ (mark→404) / ngoài-scope (403) VẪN bị tính → chống grind. |
+| `get_asset_label_data` (single) GIỮ unthrottled | 1 record/call, low-amplify → least-surprise preview-từng-tem; CHỈ endpoint nhãn còn miễn ([BACKLOG] hằng RIÊNG nếu đo cần). |
+| Test/CLI bypass có chủ đích | `rate_limit` wrapper `if not frappe.request: return fn(...)` → toàn bộ test nhãn QR hiện có (gọi trực tiếp, KHÔNG set `frappe.local.request`) KHÔNG trip → `TestLabelPdfPipeline`/`TestLabelCoerceAssets`/`TestMarkLabelPrinted`/batch suite + 288+ `test_imm00` GIỮ GREEN. |
+| Decorator-presence + constant-value guard | introspection assert 2 endpoint mang `@rate_limit` + `AC_LABEL_MARK_RATE_LIMIT==10` ∧ `AC_LABEL_BATCH_RATE_LIMIT==20`; **`test_write_endpoints_not_rate_limited` ĐẢO** (xoá 2 endpoint khỏi list miễn, chỉ còn `get_asset_label_data` single; assert 2 endpoint kia NAY có decorator). Chống tái-gỡ âm thầm. |
+
+**Test 429 (HTTP context):** class test MỚI `TestLabelMarkBatchRateLimit` (mirror `TestQrRegenerateRateLimit`) set `frappe.local.request` truthy + `frappe.local.request_ip` (per-test-uniq) + `frappe.form_dict.cmd` (cache key cần `cmd`), dội >10 mark → call #11 raise `RateLimitExceededError` (+COUNT ALE/audit KHÔNG tăng ở #11); >20 batch → #21 429; ≤ngưỡng → vẫn 200/`_ok`. Teardown PHẢI xoá `rl:*` cache (hoặc dùng IP/cmd duy nhất mỗi test). Xem [`07_Testing_QA.md`](./07_Testing_QA.md) §III.6.i-LABELRL.
+
+> **Import:** `from frappe.rate_limiter import rate_limit` ĐÃ có sẵn (Vòng 12 B, line top-of-file). 2 hằng MỚI thêm vào khối hằng đầu `api/imm00.py` cạnh `AC_LABEL_PDF_RATE_LIMIT`. KHÔNG đụng thân hàm/thứ-tự-gate/coerce/audit-logic của 2 endpoint (chỉ THÊM bậc-0 decorator).
 
 #### II.1.8c — A6: Thông tin thiết bị mobile-first khi quét (`get_asset_scan_info`) — ADR-001 V7
 
@@ -567,7 +847,7 @@ def get_asset_scan_info(token: str = "", name: str = ""):
 ```
 
 **Service (`services/imm00.py`) — `build_asset_scan_info(asset_name: str) -> dict` (READ-ONLY):**
-- 1 `frappe.db.get_value("AC Asset", asset_name, [...], as_dict=True)` lấy: `name, asset_code, asset_name, lifecycle_status, device_model, location, next_pm_date`.
+- 1 `frappe.db.get_value("AC Asset", asset_name, [...], as_dict=True)` lấy: `name, asset_code, asset_name, manufacturer_sn, lifecycle_status, device_model, location, next_pm_date, next_calibration_date`. **`manufacturer_sn` (Số serial NSX) THÊM vào CÙNG fields-list này (Vòng 37 / FR-00-103, §II.1.8d-SCANSN — KHÔNG round-trip riêng).** **Hai field Date (`next_pm_date`/`next_calibration_date`) trả `datetime.date` object thô từ DB → PHẢI chuẩn hoá qua `_date_str_or_none` → `str\|None` (`'YYYY-MM-DD'`/`None`) trong dict trả về (Vòng 11 / FR-00-86, §II.1.8d-PMDATESTR).**
 - Enrich `device_model_name` (1 `get_value` `IMM Device Model.model_name`) + `location_name` (1 `get_value` `AC Location.location_name`).
 - `lifecycle_status_label = LIFECYCLE_STATUS_LABEL_VI.get(status, status)` (SSoT VI — xem §III.1c-6 dưới; fallback = mã gốc, KHÔNG để rỗng).
 - **Bảo trì gần nhất — 1 truy vấn giới hạn (KHÔNG N+1, KHÔNG load timeline):**
@@ -585,7 +865,9 @@ def get_asset_scan_info(token: str = "", name: str = ""):
           "date": str(getdate(ev[0]["timestamp"])),
       }
   ```
-- **`pm_overdue: bool` — DERIVE SERVER-SIDE (Vòng 27 B / A6-hardening, BR-00-36).** Field thứ 9 thêm vào payload (sau `next_pm_date`/`recent_maintenance`). Cờ "Quá hạn bảo trì" tính 100% ở BE — xem block riêng §II.1.8c-PMOVERDUE dưới đây. **KHÔNG đổi 8 field hiện có.**
+- **`manufacturer_sn: str` — SỐ SERIAL NSX (Vòng 37 / A6-hardening, FR-00-103 — parity định danh truy xuất NĐ98 với đường label-PDF D5).** Emit `row.get("manufacturer_sn") or ""` ⇒ str (rỗng/NULL → `''`, KHÔNG None, KHÔNG raw object — đối xứng tuyệt đối `asset_code`/`asset_name`). Định danh truy xuất hợp lệ (D5/NĐ98) để KTV xác nhận đúng thiết bị vật lý TRƯỚC báo hỏng/tạo WO — KHÔNG phải docname/giá/khấu hao. Xem §II.1.8d-SCANSN dưới đây.
+- **`next_pm_date: str\|None` — CHUẨN HOÁ QUA `_date_str_or_none` (Vòng 11 / A6-hardening, FR-00-86 — parity với `next_calibration_date`).** Field `AC Asset.next_pm_date` (`fieldtype=Date`) đọc từ `frappe.db.get_value` trả về `datetime.date` object THÔ — KHÔNG được emit thẳng vào payload (FE `formatDate(new Date(d))` cần chuỗi ISO đồng nhất). Payload PHẢI emit `_date_str_or_none(row.get("next_pm_date"))` → `'YYYY-MM-DD'` str (rỗng/NULL → `None`). **Đối xứng HOÀN TOÀN với `next_calibration_date` (đã qua `_date_str_or_none` từ Vòng 28 B).** Xem §II.1.8d-PMDATESTR dưới đây.
+- **`pm_overdue: bool` — DERIVE SERVER-SIDE (Vòng 27 B / A6-hardening, BR-00-36).** Field thứ 9 thêm vào payload (sau `next_pm_date`/`recent_maintenance`). Cờ "Quá hạn bảo trì" tính 100% ở BE — xem block riêng §II.1.8c-PMOVERDUE dưới đây. **KHÔNG đổi 8 field hiện có.** **INVARIANT (KHÔNG hồi quy):** cờ `pm_overdue` derive từ giá trị RAW `row.get("next_pm_date")` (date object) — TÍNH TRƯỚC, ĐỘC LẬP với việc normalize string ở key `next_pm_date` của dict trả về. KHÔNG truyền chuỗi đã `_date_str_or_none` vào `_is_pm_overdue` (cờ vẫn so `getdate(raw) < getdate(nowdate())`, vẫn exempt `BLOCKED_FOR_WO`).
 - **`next_calibration_date: str\|None` + `calibration_overdue: bool` — DERIVE SERVER-SIDE (Vòng 28 B / A6-hardening, BR-00-37 — chiều HIỆU CHUẨN).** ĐÚNG 2 field thứ 10–11 thêm vào payload (sau `pm_overdue`). `next_calibration_date` đọc field AC Asset **đã có** (`ac_asset.json:453`, chỉ thêm vào fields-list của `db.get_value`); cờ "Quá hạn hiệu chuẩn" tính 100% ở BE qua helper `_is_calibration_overdue` (mirror `_is_pm_overdue`) — xem block riêng §II.1.8e-CALOVERDUE dưới đây. **KHÔNG đổi 9 field FR-00-85.**
 - Trả **whitelist tường minh** (chỉ các field A6) — KHÔNG `as_dict()` toàn doc rồi pop. **KHÔNG** trả `gross_purchase_amount`, `current_book_value`, `accumulated_depreciation`, audit chain, `supplier`/internal code, chi tiết `byt_reg_no`.
 - **KHÔNG emit lifecycle/audit, KHÔNG gọi `ensure_asset_qr_token`** (read-only — đồng nhất quyết định A2/D4: mỗi lần quét KHÔNG sinh record).
@@ -597,7 +879,7 @@ def get_asset_scan_info(token: str = "", name: str = ""):
 | `assert_vendor_can_access` SAU khi có name | IDOR — vendor resolve token asset ngoài scope → 403, KHÔNG leak |
 | `lifecycle_status_label` từ SSoT VI, KHÔNG ghép chuỗi tại view | KHÔNG leak mã EN thô ra UI; 1 nguồn nhãn cho mọi surface |
 | `last_maintenance`/`recent_maintenance` = ALE `ORDER BY timestamp DESC LIMIT 1` (filtered event_type) | bảo trì gần nhất, KHÔNG load toàn timeline (chống N+1) |
-| `next_pm_date` đọc field denormalized trên `AC Asset` | KHÔNG truy PM Schedule/Work Order (đã denormalize ở IMM-08) |
+| `next_pm_date` đọc field denormalized trên `AC Asset`, chuẩn hoá qua `_date_str_or_none` → `str\|None` | KHÔNG truy PM Schedule/Work Order (đã denormalize ở IMM-08); shape `'YYYY-MM-DD'`/`None` đối xứng `next_calibration_date` (Vòng 11 / FR-00-86 — xem §II.1.8d-PMDATESTR) |
 | `pm_overdue` derive SERVER-SIDE (nowdate timezone-safe) | SSoT quá-hạn ở BE; FE KHÔNG so ngày bằng client clock (chống lệch timezone máy quét vs server) |
 | `next_calibration_date` đọc field denormalized trên `AC Asset` (đã có) | KHÔNG truy Calibration Schedule/Work Order (đã denormalize ở IMM-11) |
 | `calibration_overdue` derive SERVER-SIDE (nowdate timezone-safe) | SSoT quá-hạn hiệu chuẩn ở BE; FE KHÔNG so ngày client (Vòng 28 B / BR-00-37) |
@@ -668,6 +950,88 @@ Trong payload `build_asset_scan_info`:
 | READ-ONLY — KHÔNG emit event/audit khi đọc cờ | đồng nhất A2/A6/D4: quét KHÔNG sinh record |
 
 **DoD BE (Vòng 27 B):** `bench --site miyano run-tests test_imm00` GREEN (baseline `TestAssetScanInfo` + class mới `pm_overdue`); `bench migrate` exit 0 (KHÔNG schema/patch); `CAP_SET_VERSION` GIỮ `v95.3388ee5629c1`. Test xem 07 §III.6.a-PMOVERDUE.
+
+##### II.1.8d-PMDATESTR — A6-hardening (Vòng 11): chuẩn hoá `next_pm_date` → `str\|None` — FR-00-86 (parity)
+
+> **Đề mục Vòng 11 (Self-Correction / parity bug).** Khi thêm `next_calibration_date` (Vòng 28 B) ta đưa nó qua helper `_date_str_or_none` → `'YYYY-MM-DD'` str. Nhưng `next_pm_date` (Vòng 27 B) vẫn emit `row.get("next_pm_date") or None` ⟹ trả **`datetime.date` object THÔ** (vì `frappe.db.get_value` trên `fieldtype=Date` trả `date`, KHÔNG str). **Bất đối xứng này là LỖI THIẾT KẾ GỐC** (spec Vòng 27 B không yêu cầu normalize, Vòng 28 B lại yêu cầu) → hai field cùng bản chất (denormalized Date trên AC Asset) lại có shape khác nhau trong CÙNG payload. **Quyết định: chuẩn hoá `next_pm_date` qua CÙNG helper `_date_str_or_none`** để đối xứng hoàn toàn. **KHÔNG endpoint/cap/schema/DocType/field/enum/patch mới**; `CAP_SET_VERSION` GIỮ `v95.3388ee5629c1`; whitelist payload (9 FR-00-85 + `next_calibration_date` + `calibration_overdue` + `available_actions`) KHÔNG đổi — CHỈ đổi **kiểu giá trị** của 1 key đã có.
+
+> **Vì sao parity quan trọng:** FE `AssetScanInfoView.scheduleLabel('next_pm_date')` gọi `formatDate(v)` = `new Date(v)`. Với chuỗi ISO `'2026-07-18'` → parse ổn định; với `date` object serialize-qua-JSON-RPC của Frappe có thể ra `'2026-07-18 00:00:00'` hoặc dạng khác → rủi ro `Invalid Date` / hiển thị lệch. `next_calibration_date` đã an toàn nhờ normalize → `next_pm_date` PHẢI cùng chuẩn.
+
+**Định nghĩa (bất biến FR-00-86, parity):**
+
+```
+next_pm_date (trong payload)  ==  _date_str_or_none(row["next_pm_date"])
+    • row["next_pm_date"] rỗng/NULL                → None
+    • row["next_pm_date"] có giá trị (date object)  → getdate(...).strftime("%Y-%m-%d")  # 'YYYY-MM-DD'
+```
+
+| Nhánh | row["next_pm_date"] | payload `next_pm_date` |
+|---|---|---|
+| Có lịch quá khứ (`add_days(nowdate(), -1)`) | `date(...)` | `'YYYY-MM-DD'` str (== `getdate(...).strftime('%Y-%m-%d')`) |
+| Có lịch tương lai/hôm nay | `date(...)` | `'YYYY-MM-DD'` str |
+| Chưa lên lịch | `None`/`""` | `None` |
+
+**Delta code (`build_asset_scan_info`, 1 dòng — đổi GIÁ TRỊ key đã có):**
+
+```python
+# TRƯỚC (Vòng 27 B — emit date object thô, BẤT đối xứng):
+"next_pm_date": row.get("next_pm_date") or None,
+# SAU (Vòng 11 — chuẩn hoá str|None qua CÙNG helper như next_calibration_date):
+"next_pm_date": _date_str_or_none(row.get("next_pm_date")),
+```
+
+**INVARIANT pm_overdue KHÔNG hồi quy (BẮT BUỘC):** cờ `pm_overdue` derive qua `_is_pm_overdue(row.get("next_pm_date"), row.get("lifecycle_status"))` đọc **giá trị RAW từ `row`** (date object) — TÍNH HOÀN TOÀN ĐỘC LẬP với việc normalize string ở key dict. KHÔNG đổi thứ tự để truyền chuỗi đã-normalize vào `_is_pm_overdue`. Cờ vẫn: past+active→`True`, today/future→`False`, blocked (`BLOCKED_FOR_WO`)→`False`, NULL→`False`. (Cùng quy tắc cho `calibration_overdue` đọc raw `row["next_calibration_date"]` — đã đúng.)
+
+| Quy tắc Vòng 11 | Lý do |
+|---|---|
+| Dùng LẠI helper `_date_str_or_none` (KHÔNG viết hàm thứ 2) | 1 SSoT chuẩn-hoá-ngày cho payload scan-info; đối xứng PM↔hiệu chuẩn |
+| Cờ `pm_overdue` đọc RAW `row[...]`, KHÔNG đọc key dict đã normalize | tránh phụ-thuộc thứ tự + tránh re-parse chuỗi → date thừa; logic overdue bất biến |
+| Whitelist + `CAP_SET_VERSION` + schema KHÔNG đổi | thuần đổi kiểu 1 value; KHÔNG breaking shape (FE đã chịu được null/str) |
+| READ-ONLY — KHÔNG emit event/audit | đồng nhất A6/D4 |
+
+**DoD BE (Vòng 11):** `bench --site miyano run-tests test_imm00` GREEN (baseline 3 class scan-info `TestAssetScanInfo` / `TestAssetScanInfoPmOverdue` / `TestAssetScanInfoCalibrationOverdue` + assertion mới `next_pm_date` là `str\|None` + giá trị `== getdate(...).strftime('%Y-%m-%d')`); KHÔNG `bench migrate` (zero schema); KHÔNG reload gunicorn; `CAP_SET_VERSION` GIỮ `v95.3388ee5629c1`. Test xem 07 §III.6.f-PMDATESTR.
+
+##### II.1.8d-SCANSN — A6-hardening (Vòng 37): `manufacturer_sn` (Số serial NSX) vào payload `build_asset_scan_info` — FR-00-103 / BR-00-52 (parity định danh truy xuất NĐ98 với label-PDF D5)
+
+> **Đề mục Vòng 37 (Self-Correction lỗi thiết kế gốc — bất đối xứng định danh truy xuất 2 đường song sinh).** Đường label-PDF `build_asset_label_data` ĐÃ mang `manufacturer_sn` (`services/imm00.py:769-782`, D5) làm định danh truy xuất NĐ98 trên tem in; codebase coi `name/asset_code/manufacturer_sn` là 3 định danh nghiệp vụ hợp lệ (đối lập `qr_token` opaque — `:95`). NHƯNG đường scan-info `build_asset_scan_info` (`:596-625`) — payload màn KTV quét tem point-of-care — KHÔNG trả `manufacturer_sn`. Bất đối xứng CÙNG 1 thiết bị: tem có serial NSX, màn quét (nơi xác nhận đúng máy TRƯỚC khi báo hỏng/yêu cầu PM/CM/hiệu chuẩn) thiếu. **Hệ quả:** 2 máy cùng model dán nhầm/bong tem → KTV không đối chiếu được serial khắc thân máy ⇒ rủi ro báo hỏng/WO nhầm thiết bị vật lý = sai hồ sơ truy xuất NĐ98 (UDI/Serial). **Quyết định: payload thêm DUY NHẤT 1 field `manufacturer_sn: str`.** **KHÔNG endpoint/cap/schema/DocType/field/enum/patch mới** — `manufacturer_sn` là field AC Asset **đã có** (`ac_asset.json:296`, `fieldtype=Data`), CHỈ thêm vào fields-list của `frappe.db.get_value` + dict trả về; `CAP_SET_VERSION` GIỮ `v97.c30c69b8974d`; KHÔNG đổi các field A6 hiện có. Payload **11→12-field**.
+
+**Định nghĩa (bất biến FR-00-103):**
+
+```
+manufacturer_sn (trong payload)  ==  row.get("manufacturer_sn") or ""
+    • row["manufacturer_sn"] có giá trị  → str nguyên văn (vd 'SN-12345')
+    • row["manufacturer_sn"] rỗng/NULL    → ''  (str — KHÔNG None, KHÔNG raw object)
+```
+
+**Delta code (`build_asset_scan_info`, 2 chỗ — 1 cột + 1 key):**
+
+```python
+# (1) THÊM "manufacturer_sn" vào CÙNG fields-list của get_value (no extra round-trip / no-N+1):
+row = frappe.db.get_value(
+    "AC Asset", asset_name,
+    ["name", "asset_code", "asset_name", "manufacturer_sn", "lifecycle_status",
+     "device_model", "location", "next_pm_date", "next_calibration_date"],
+    as_dict=True,
+)
+# (2) THÊM key vào dict trả về (coalesce '' parity asset_code/asset_name):
+"manufacturer_sn": row.get("manufacturer_sn") or "",
+```
+
+**INVARIANT KHÔNG hồi quy (BẮT BUỘC):**
+- Early-return rỗng-name → `None` (`if not asset_name or not isinstance(asset_name,str): return None`) GIỮ NGUYÊN — payload-key chỉ thêm trong nhánh có-row; KHÔNG query toàn bảng.
+- `manufacturer_sn` ⊂ {định danh truy xuất hợp lệ} — payload KHÔNG thêm field tài chính (giá mua/khấu hao/audit chain/supplier/docname); `assert 'qr_token' not in payload` (BR-00-34) GIỮ.
+- RBAC `asset.read` / IDOR `assert_vendor_can_access` / rate-limit / read-only no-audit của `get_asset_scan_info` GIỮ NGUYÊN (chỉ làm giàu payload trong nhánh có-row).
+- KHÔNG thêm `frappe.db.get_value(..., "manufacturer_sn")` riêng (grep-guard no-N+1).
+
+| Quy tắc Vòng 37 | Lý do |
+|---|---|
+| `manufacturer_sn` THÊM vào CÙNG get_value (không round-trip riêng) | no-N+1; parity cách `asset_name` được thêm |
+| Coalesce `or ""` → str | đối xứng `asset_code`/`asset_name`; FE nhận str ổn định, KHÔNG None/raw-object |
+| KHÔNG đụng RBAC/IDOR/rate-limit/no-audit/`CAP_SET_VERSION` | thuần làm giàu payload 1 key; KHÔNG breaking shape (FE additive) |
+| Field định danh truy xuất NĐ98 (KHÔNG tài chính/docname) | NĐ98 UDI/Serial — xác nhận đúng thiết bị vật lý; KHÔNG leak field nhạy cảm |
+| READ-ONLY — KHÔNG emit event/audit | đồng nhất A6/D4 (chống spam audit chain mỗi lần quét) |
+
+**DoD BE (Vòng 37):** `bench --site miyano run-tests test_imm00` GREEN — class mới `TestScanInfoManufacturerSn`: (1) asset có serial → `payload['manufacturer_sn'] == <giá-trị-thật>` (RED-first: KeyError/absent trước fix); (2) serial rỗng/NULL → `== ''` (KHÔNG None); (3) rỗng-name → `None` no-regress; (4) grep KHÔNG `get_value(..., "manufacturer_sn")` riêng (no-N+1); (5) `'qr_token' not in payload` GIỮ; baseline `TestAssetScanInfo`/PmOverdue/CalibrationOverdue no-regression. KHÔNG `bench migrate` (zero schema); KHÔNG reload gunicorn; `CAP_SET_VERSION` GIỮ `v97.c30c69b8974d`. FE serialText: xem 06 §AssetScanInfoView serialText. Test xem 07 §III.6.m-SCANSN. **Verify HTTP/Playwright/quét-QR-thật BLOCKED reload (HARD-STOP USER) → backlog, KHÔNG đánh DONE.**
 
 ##### II.1.8e-CALOVERDUE — A6-hardening (Vòng 28 B): cờ `calibration_overdue` + `next_calibration_date` server-side — BR-00-37
 
@@ -742,6 +1106,141 @@ def _is_calibration_overdue(next_calibration_date, lifecycle_status: str) -> boo
 
 **DoD BE (Vòng 28 B):** `bench --site miyano run-tests test_imm00` GREEN (baseline `TestAssetScanInfo` + `TestAssetScanInfoPmOverdue` + class mới `TestAssetScanInfoCalibrationOverdue`, RED-first); `bench migrate` exit 0 (KHÔNG schema/patch — `next_calibration_date` đã tồn tại); `CAP_SET_VERSION` GIỮ `v95.3388ee5629c1`. Test xem 07 §III.6.b-CALOVERDUE.
 
+##### II.1.8e-SAFEDATE — A6-hardening (Vòng 50): crash-safe `getdate` ở 4 hàm xử-lý-ngày của `build_asset_scan_info` — FR-00-107 / BR-00-56 (degrade graceful ngày drift, bịt HTTP-500 traceback-leak; ADR §D17)
+
+> **Đề mục Vòng 50 (hardening/robustness — Self-Correction lỗi thiết kế gốc).** 4 hàm xử-lý-ngày của `build_asset_scan_info` — `_is_warranty_expired` (`:385`), `_is_pm_overdue` (`:350`), `_is_calibration_overdue` (`:366`), `_date_str_or_none` (`:405`) — gọi `getdate(value)` TRỰC TIẾP sau guard `if not value`. Giả-định ngầm: giá-trị từ `frappe.db.get_value` trên 3 Date col (`warranty_expiry_date`/`next_pm_date`/`next_calibration_date`) luôn `date` hợp lệ HOẶC NULL. **SAI cho dữ-liệu drift** → `getdate('not-a-date')`/`getdate('2020-13-45')` NÉM `frappe.exceptions.ValidationError` → `build_asset_scan_info` raise → endpoint `get_asset_scan_info` **HTTP-500 + traceback-leak** (LL-BE-42). Fix: bọc lời gọi `getdate` (vế giá-trị-từ-DB) trong guard CHỈ-nuốt-parse-error, degrade về `None`/`False`. **BE-only — KHÔNG đổi payload type/key/shape, RBAC, `CAP_SET_VERSION` (GIỮ `v97.c30c69b8974d`); KHÔNG migration/reload.**
+
+**FACT @source (verified 2026-06-12, `bench execute getdate`):**
+
+| Input | `getdate(input)` | Ghi chú |
+|---|---|---|
+| `'not-a-date'` / `'2020-13-45'` / `'2020-99-99'` / `'garbage'` | **RAISE** `frappe.exceptions.ValidationError` | `"<strong>…</strong> is not a valid date string."` — đây là root crash |
+| `''` / `None` | trả **ngày HÔM NAY** (KHÔNG raise) | guard `if not value` đã chặn TRƯỚC ⇒ KHÔNG chạm getdate (no behavior change) |
+| `'2020-01-15'` / `date(2020,1,15)` (date-obj) | trả `date` đúng | nhánh hợp-lệ GIỮ |
+
+> ⚠️ **MRO `ValidationError = [ValidationError, Exception, object]` — KHÔNG subclass `ValueError`/`TypeError`** ⇒ `except (ValueError, TypeError)` đơn thuần KHÔNG bắt được (vẫn 500). Guard PHẢI liệt kê `frappe.exceptions.ValidationError` TƯỜNG MINH + `ValueError`/`TypeError` (phòng-thủ input bypass Frappe → Python `datetime`/`str` raise các loại này).
+
+**Vector drift (vì sao Date col chứa chuỗi rác):** `frappe.get_doc(...).insert()` Frappe-validate Date → chặn; NHƯNG **raw SQL** (`UPDATE \`tabAC Asset\` SET warranty_expiry_date='not-a-date'` — MariaDB chấp nhận syntax, verified) / **legacy import bypass-validate** / **migration cũ** ghi được chuỗi rác → `frappe.db.get_value` đọc trả lại chuỗi đó → `getdate` choke.
+
+**Snippet — helper SSoT `_safe_getdate` (khuyến nghị — 1 chỗ, KHÔNG rải `try/except` 4 lần; parity `_str_or_blank`/`_date_str_or_none`):**
+
+```python
+import frappe
+from frappe.utils import getdate, nowdate
+
+
+def _safe_getdate(value):
+    """getdate() crash-safe — chuỗi ngày dị-dạng (legacy/drift) → None thay vì raise.
+
+    `getdate('not-a-date')` NÉM frappe.exceptions.ValidationError. Date col AC Asset
+    có thể chứa chuỗi rác qua raw SQL / legacy import bypass-validate → 1 record xấu
+    KHÔNG được làm sập cả màn quét QR (point-of-care). Degrade an toàn: "không-xác-định"
+    ⇒ caller coi như None/False (≠ hết hạn/quá hạn, no-false-alarm).
+    CHỈ nuốt LỖI PARSE-DATE (ValidationError/ValueError/TypeError) — KHÔNG catch-all
+    (no-mask-real-bug: lỗi RBAC/IDOR/DB/logic vẫn propagate).
+    """
+    try:
+        return getdate(value)
+    except (frappe.exceptions.ValidationError, ValueError, TypeError):
+        return None
+```
+
+**Delta 4 helper (vế `getdate(nowdate())` KHÔNG bọc — `nowdate()` luôn ISO hợp lệ; guard `if not value` cũ GIỮ TRƯỚC):**
+
+```python
+def _is_warranty_expired(value) -> bool:
+    if not value:
+        return False
+    d = _safe_getdate(value)                 # drift/legacy → None → coi "không-xác-định"
+    return bool(d) and d < getdate(nowdate())   # None → False (no-false-alarm)
+
+def _is_pm_overdue(next_pm_date, lifecycle_status) -> bool:
+    if not next_pm_date:
+        return False
+    if (lifecycle_status or "") in _PM_OVERDUE_EXEMPT_STATUSES:
+        return False
+    d = _safe_getdate(next_pm_date)
+    return bool(d) and d < getdate(nowdate())
+
+# _is_calibration_overdue: tương tự _is_pm_overdue (chiều hiệu chuẩn)
+
+def _date_str_or_none(value) -> str | None:
+    if not value:
+        return None
+    d = _safe_getdate(value)                 # drift → None (KHÔNG leak verbatim/crash)
+    return d.strftime("%Y-%m-%d") if d else None
+```
+
+| Quy tắc | Lý do |
+|---|---|
+| Guard CHỈ `frappe.exceptions.ValidationError` + `ValueError` + `TypeError` | `getdate` ném ValidationError (KHÔNG subclass ValueError — F20); ValueError/TypeError phòng-thủ input bypass Frappe. KHÔNG `except Exception`/`except:` trần (no-mask-real-bug — RBAC/IDOR/DB/logic vẫn raise) |
+| 1 helper SSoT `_safe_getdate` (KHÔNG rải 4 `try/except`) | parity `_str_or_blank`/`_date_str_or_none`; sửa 1 chỗ, test 1 chỗ |
+| Bọc CHỈ vế giá-trị-từ-DB, KHÔNG bọc `getdate(nowdate())` | `nowdate()` luôn trả ISO hợp lệ — KHÔNG cần guard (tránh nuốt nhầm) |
+| Guard `if not value` cũ GIỮ TRƯỚC `_safe_getdate` | rỗng/None KHÔNG chạm getdate (no-regress; `''`/None → `False`/`None` như cũ) |
+| `build_asset_scan_info` GIỮ cấu-trúc dict-build (degrade field-độc-lập) | 1 field-ngày drift → CHỈ field đó về `None`/`False`, 13 field còn lại GIỮ; KHÔNG `try/except` quanh cả dict (sẽ nuốt nhầm field khác) |
+| Comment giải-thích degrade-an-toàn (drift/legacy) tại source | red-flag "catch nuốt im lặng" → comment lý do nghiệp vụ bắt buộc |
+
+**DoD BE (Vòng 50):** `bench --site miyano run-tests --module assetcore.tests.test_imm00` GREEN (fresh-import, KHÔNG reload — service `.py`, test import trực tiếp; KHÁC `api/imm00.py` reload-gated) gồm BE-WAR-EDGE-1..6 RED-first: (1) `_is_warranty_expired('not-a-date'/'2020-13-45')`→`False` no-raise; (2) `_is_pm_overdue('garbage',None)`+`_is_calibration_overdue('2020-99-99',None)`→`False` no-raise; (3) `_date_str_or_none('not-a-date')`→`None` no-raise; (4) **integration** `build_asset_scan_info` asset 1-field-ngày-drift→no-raise+payload 16-key+field-lỗi degrade+13 field GIỮ+tài-chính∩keys=∅ (inject drift qua `frappe.db.sql UPDATE` raw / monkeypatch `get_value`); (5) no-regress date-obj/ISO/None/'' + `TestWarrantyExpiredHelper` BE-WAR-1..5 + `TestWarrantyInScanInfo` BE-WAR-6..8 byte-for-byte; (6) no-mask grep KHÔNG catch-all + comment tồn tại. `CAP_SET_VERSION` GIỮ `v97.c30c69b8974d`; KHÔNG migration/reload. Test xem 07 §III.6.q-SAFEDATE.
+
+##### II.1.8f — D2: `available_actions` = capability ∩ lifecycle + reason VI non-empty (`_build_available_actions`) — ADR §D1/D2/D9 / BR-00-41 / FR-00-92 — **REASON-NON-EMPTY (factory vòng 7, Self-Correction D2)**
+
+> **Đề mục factory vòng 7 (2026-06-11 — scan-action / available_actions reason-when-disabled).** `get_asset_scan_info` (A6) emit field `available_actions: list[dict]` (4 CTA màn quét QR — ADR §D1/D2) derive 100% SERVER-SIDE qua `_build_available_actions(status)`. **Lỗi thiết kế gốc D2** (đặc tả `reason = lifecycle_reason or capability_reason`) hở khi `lifecycle_status` rỗng/lạ + user có cap → `reason=""` mà `enabled=False`. Fix = thêm **bậc-3 fallback** hằng VI `_LIFECYCLE_REASON_UNKNOWN`. **KHÔNG endpoint/cap/schema/DocType/field/enum/patch mới**; `CAP_SET_VERSION` GIỮ; shape `{key,label,route,enabled,reason}` không đổi.
+
+**SSoT 3 hàm (services/imm00.py — đã tồn tại từ Vòng QR-SCAN-ACTION):**
+
+| Hàm | Vai trò | Vị trí |
+|---|---|---|
+| `_scan_action_specs() -> tuple[dict,…]` | SSoT 4 spec `{key, label VI, route-name, capability}` (nhãn VI literal SSoT BE) | `services/imm00.py:465` |
+| `_lifecycle_allows(status, key) -> bool` | 1 predicate: status có cho phép action không. Safe-default **False** cho status rỗng/lạ (KHÔNG KeyError). Out of Service → CHỈ `report_failure`+`request_cm`; Decommissioned/Draft → False; operational (Active/Commissioned/Under Maintenance/Under Repair/Calibrating) → True | `services/imm00.py:475` |
+| `_lifecycle_reason(status, key) -> str` | VI giải thích lifecycle chặn. Map 3 nhóm; **rỗng/lạ → `""`** (KHÔNG bịa nhãn — fallback ráp ở caller). **KHÔNG đổi** (D9 không đụng hàm này) | `services/imm00.py:490` |
+| `_build_available_actions(status) -> list[dict]` | Lặp specs → derive `enabled`+`reason`. **Điểm sửa D9 DUY NHẤT** | `services/imm00.py:511` |
+
+**Hằng reason VI (literal SSoT BE — services/imm00.py:457-462, +1 hằng MỚI D9):**
+
+```python
+_LIFECYCLE_REASON_DECOMMISSIONED = "Thiết bị đã thanh lý"
+_LIFECYCLE_REASON_OUT_OF_SERVICE = (
+    "Thiết bị đang ngừng hoạt động — chỉ cho phép báo hỏng / yêu cầu sửa chữa"
+)
+_LIFECYCLE_REASON_DRAFT = "Thiết bị chưa đưa vào vận hành"
+_CAPABILITY_REASON = "Bạn không có quyền thực hiện thao tác này"
+# ── NEW (D9 / BR-00-41) — fallback bậc-3 cho status rỗng/lạ + user CÓ cap ──
+_LIFECYCLE_REASON_UNKNOWN = "Thiết bị không ở trạng thái cho phép thao tác này"
+```
+
+**Derive reason 3 bậc (trong `_build_available_actions`, CHỈ khi `enabled=False`) — DELTA D9:**
+
+```python
+enabled = bool(has_cap and lifecycle_ok)
+if enabled:
+    reason = ""
+else:
+    # D9: 3 bậc — lifecycle (3 nhóm) > capability (thiếu cap) > unknown (rỗng/lạ + có cap).
+    # Bịt lỗ disabled-không-lý-do: status rỗng/lạ + has_cap → bậc 1 & 2 rỗng → bậc 3.
+    reason = (
+        _lifecycle_reason(status, key)              # bậc 1
+        or ("" if has_cap else _CAPABILITY_REASON)  # bậc 2
+        or _LIFECYCLE_REASON_UNKNOWN                 # bậc 3 (NEW)
+    )
+```
+
+> **DELTA chính xác:** trước D9 nhánh `else` là `reason = _lifecycle_reason(...) or ("" if has_cap else _CAPABILITY_REASON)`. D9 THÊM **đúng 1** ` or _LIFECYCLE_REASON_UNKNOWN` ở cuối + **1 hằng**. KHÔNG đụng `_lifecycle_reason`/`_lifecycle_allows`/`_scan_action_specs`/loop/append/shape.
+
+| Quy tắc | Lý do |
+|---|---|
+| Bậc 3 đặt ở **caller** (`_build_available_actions`), KHÔNG trong `_lifecycle_reason` | `_lifecycle_reason` không biết về capability; giữ contract trả `""` khi không-khớp-nhóm. Ráp 3 bậc 1 chỗ = SSoT derive |
+| Bậc 2 ưu tiên bậc 3 (thiếu cap → reason quyền, KHÔNG nhảy unknown) | reason quyền cụ thể hơn; unknown CHỈ khi đã có cap mà status rỗng/lạ |
+| `_LIFECYCLE_REASON_UNKNOWN` literal VI ở **BE** | reason SSoT BE — FE KHÔNG bịa/dịch (no-EN-leak) |
+| Bậc 3 KHÔNG chạm path `enabled=True` | bất biến `enabled=True ⟹ reason==""` GIỮ |
+
+**Bất biến đo được (BR-00-41 / FR-00-92):**
+- `for a in _build_available_actions(s): a["enabled"] is False ⟹ a["reason"] != ""` — ∀ `s ∈ {Active, Commissioned, Under Maintenance, Under Repair, Calibrating, Out of Service, Decommissioned, Draft, '', '<mã-lạ>'}` × 4 action.
+- `s ∈ {'', '<mã-lạ>'}` + đủ cap → 4 action `reason == _LIFECYCLE_REASON_UNKNOWN`.
+- `s ∈ {'', '<mã-lạ>'}` + thiếu cap action đó → `reason == _CAPABILITY_REASON`.
+- 5 status đã biết (Active/Commissioned/Decommissioned/Out of Service/Draft) reason **byte-for-byte** như trước D9.
+
+**DoD BE (Vòng 7):** `bench --site miyano run-tests test_imm00` GREEN — `TestScanInfoAvailableActions` bổ sung TC unknown/empty-status→`_LIFECYCLE_REASON_UNKNOWN` + bất biến `enabled=False ⟹ reason!=""` quét 7+ status; siết `test_unknown_status_safe_default` assert `reason != ""` (RED-first). `CAP_SET_VERSION` GIỮ `v95.3388ee5629c1`. KHÔNG `bench migrate` (logic-level — fresh-import; HTTP-live reload-pending 🔴 STATE#1). Test xem 07 §III.6.d-REASONNONEMPTY.
+
 #### II.1.8d — B-2: Sinh-lại (rotate) `qr_token` (`regenerate_asset_qr_token`) — ADR-001 D1/D3/D4
 
 > **Đề mục B item 2 (hardening).** Vô hiệu hoá QR bị lộ + cấp token MỚI. **KHÁC `ensure_asset_qr_token`** (idempotent if-empty — KHÔNG overwrite token đang có). Envelope chi tiết ở [`05_API_Specification.md`](./05_API_Specification.md) §III.1 `regenerate_asset_qr_token`. Vị trí code: **`api/imm00.py` + `services/imm00.py`** (cùng nhà `resolve_qr_token`/`ensure_asset_qr_token`). **KHÔNG cap/field/DocType mới** (tái dùng `asset.write` + `AC Asset.qr_token`); schema-delta DUY NHẤT = **+1 option `qr_regenerated`** vào `Asset Lifecycle Event.event_type` (xem §II.6 / §II.1d-B2).
@@ -778,7 +1277,7 @@ def _is_calibration_overdue(next_calibration_date, lifecycle_status: str) -> boo
 def regenerate_asset_qr_token(asset: str = ""):
     # 0. @rate_limit (BR-00-38): vượt AC_QR_REGEN_RATE_LIMIT/60s/IP → RateLimitExceededError (429)
     #    TRƯỚC thân hàm ⇒ KHÔNG side-effect (0 token mới, 0 ALE qr_regenerated, 0 audit), no-leak.
-    rbac.require("asset.write")                          # B: rotate = WRITE; 403 nếu chỉ-đọc/Guest
+    rbac.require("asset.qr.rotate")                      # D6: rotate=GHI →(AC Asset,write); 403 nếu chỉ-đọc/chỉ-print/Guest
     if not asset or not frappe.db.exists(_DT_ASSET, asset):
         return _err(_(_ERR_ASSET_NOT_FOUND), 404)        # 404 leak-safe, KHÔNG 500
     try:
@@ -794,14 +1293,14 @@ def regenerate_asset_qr_token(asset: str = ""):
 
 | Quy tắc B-2 | Lý do |
 |---|---|
-| **`@rate_limit(AC_QR_REGEN_RATE_LIMIT/60s/IP)` ĐẶT NGOÀI thân hàm, sát `def` (Vòng 27 B / BR-00-38)** | đóng bất đối xứng read-throttled/write-rotate-unthrottled. Decorator bọc ngoài → 429 chạy TRƯỚC `rbac.require("asset.write")` ⇒ vượt ngưỡng → KHÔNG side-effect (0 token mới, 0 ALE, 0 audit), no-leak. Hằng + bucket RIÊNG (KHÔNG chung resolve=30). Thứ tự: `@frappe.whitelist(methods=["POST"])` (trên) → `@rate_limit(...)` (sát `def`). |
-| Gate `rbac.require("asset.write")` ĐẦU HÀM (KHÔNG cap mới) | rotate = overwrite token + emit event/audit ⇒ WRITE rõ nghĩa. Cap qua DocPerm AC Asset `write` (KHÔNG hardcode role — chống dead-gate). `CAP_SET_VERSION` GIỮ `v95.3388ee5629c1` — `asset.write` đã có từ A2, KHÔNG churn version, FE `auth.ts` KHÔNG đổi. |
+| **`@rate_limit(AC_QR_REGEN_RATE_LIMIT/60s/IP)` ĐẶT NGOÀI thân hàm, sát `def` (Vòng 27 B / BR-00-38)** | đóng bất đối xứng read-throttled/write-rotate-unthrottled. Decorator bọc ngoài → 429 chạy TRƯỚC `rbac.require("asset.qr.rotate")` ⇒ vượt ngưỡng → KHÔNG side-effect (0 token mới, 0 ALE, 0 audit), no-leak. Hằng + bucket RIÊNG (KHÔNG chung resolve=30). Thứ tự: `@frappe.whitelist(methods=["POST"])` (trên) → `@rate_limit(...)` (sát `def`). |
+| Gate `rbac.require("asset.qr.rotate")` ĐẦU HÀM (D6 EXECUTED — đổi từ `asset.write`) | rotate = overwrite token + emit event/audit ⇒ GHI rõ nghĩa. Cap `asset.qr.rotate`→(AC Asset,"write") qua DocPerm (KHÔNG hardcode role — chống dead-gate); KHÔNG đủ với `asset.print` (in ≠ rotate). `CAP_SET_VERSION` v95.3388ee5629c1→**v97.c30c69b8974d** (cap mới), FE `auth.ts` ĐÃ bump. |
 | Token mới qua SSoT `generate_unique_qr_token(exclude=old)` (Vòng 17 B) | enumeration-safe (CSPRNG, không tuần tự); guard CẢ token cũ (`exclude=old` — rotate phải đổi) CẢ token asset khác (pre-write `frappe.db.exists` → UNIQUE-safe, KHÔNG 500). Thay vòng `while new == old` cũ (guard-một-nửa). |
 | GHI ĐÈ `qr_token` `update_modified=False` | KHÁC `ensure_asset_qr_token` (chỉ set if-empty). Rotate LUÔN overwrite → nhãn QR cũ chết. KHÔNG bump `modified` (metadata kỹ thuật, không phải sửa nghiệp vụ — tránh nhiễu "Sửa lần cuối"). |
 | `emit_qr_regenerated` KHÔNG nuốt lỗi (≠ `emit_qr_generated`) | sự kiện bảo mật (ứng phó lộ token) → audit BẮT BUỘC ghi được; lỗi ghi event → raise → 422/500, KHÔNG để asset đổi token mà thiếu audit (NĐ98 truy xuất). |
 | `change_summary`/`notes` KHÔNG chứa token thô | token = khoá tra cứu mờ; ghi token vào audit chain = leak deep-link (audit có thể export/đọc rộng hơn). Chỉ ghi hành động "rotate/vô hiệu hoá". |
 | `assert_vendor_can_access` TRƯỚC rotate | IDOR — vendor KHÔNG rotate được asset ngoài scope → 403. Đồng nhất leak-safe với `resolve_qr_token`. |
-| Thứ tự gate: **`@rate_limit` (429)** → `require("asset.write")` (403) → tồn-tại (404) → IDOR (403) → rotate | **429 chạy NGOÀI/TRƯỚC thân hàm** (BR-00-38) ⇒ vượt ngưỡng → 0 side-effect (KHÔNG dò được, KHÔNG ghi). Sau RL: gate WRITE ĐẦU TIÊN → user chỉ-đọc KHÔNG dò được asset nào tồn tại; all-or-nothing (commit sau khi rotate+emit OK). |
+| Thứ tự gate: **`@rate_limit` (429)** → `require("asset.qr.rotate")` (403) → tồn-tại (404) → IDOR (403) → rotate | **429 chạy NGOÀI/TRƯỚC thân hàm** (BR-00-38) ⇒ vượt ngưỡng → 0 side-effect (KHÔNG dò được, KHÔNG ghi). Sau RL: gate ROTATE ĐẦU TIÊN → user chỉ-đọc/chỉ-print KHÔNG dò được asset nào tồn tại; all-or-nothing (commit sau khi rotate+emit OK). |
 | `qr_url` trả về = deep-link MỚI; nhãn (A3 `get_asset_label_data`) tự phản ánh token mới | FE refetch asset → preview/print dùng deep-link mới (acceptance). KHÔNG cần đụng A3 (đọc `qr_token` field hiện tại). KHÔNG trả token thô trong envelope. |
 
 > **BR-00-29 (B-2): Rotate vô hiệu hoá nhãn cũ.** `regenerate_asset_qr_token` PHẢI sinh token KHÁC token cũ + GHI ĐÈ (KHÔNG idempotent). Sau rotate: `resolve_qr_token(old_token)` → 404 (nhãn đã in chết), `resolve_qr_token(new_token)` → asset đúng. Mỗi rotate ghi đúng **1** ALE `qr_regenerated` + **1** audit (no raw token). Phân biệt rõ với BR-00-28 (`ensure_asset_qr_token` idempotent if-empty — KHÔNG overwrite).
@@ -2222,12 +2721,14 @@ Vòng lặp `for _dom, _dt in _DOMAIN_PRIMARY.items()` (rbac.py:79) tự sinh 6 
 | Capability | (DocType, ptype) | Dùng ở |
 |---|---|---|
 | `asset.read` | `("AC Asset", "read")` | **A2** — gate read-only: `resolve_qr_token`, `get_asset_scan_info`, `get_asset`; route FE `/a/:token`, `/assets/:id`, `/assets/:id/info` |
-| `asset.write` | `("AC Asset", "write")` | **B** — gate in nhãn: `get_asset_label_data[_batch]`, `mark_label_printed`; route FE `AssetLabelPrint`; nút "In nhãn QR" + "In nhãn hàng loạt" |
+| `asset.write` | `("AC Asset", "write")` | gate sửa asset: nút "Chỉnh sửa" (`AssetDetailView`), transition trạng thái. *(KHÔNG còn gate in nhãn — D6 tách sang `asset.print`.)* |
 | `asset.create` / `delete` / `submit` / `cancel` | `("AC Asset", <ptype>)` | sinh kèm (chưa wire endpoint riêng — dùng dần) |
+| `asset.print` | `("AC Asset", "print")` | **D6 (EXECUTED Vòng 3)** — gate in nhãn: `get_asset_label_data[_batch]`, `mark_label_printed`; route FE `AssetLabelPrint`; nút "In nhãn QR" + "In nhãn hàng loạt". DocPerm print=1 sẵn cho mọi role vận hành. |
+| `asset.qr.rotate` | `("AC Asset", "write")` | **D6 (EXECUTED Vòng 3)** — gate rotate token: `regenerate_asset_qr_token`; nút "Sinh lại mã QR". Rotate=GHI ⇒ bind "write" (chỉ Super Admin/role được cấp). |
 
 - **KHÔNG đụng `_shared`:** giữ `"AC Asset"` trong `_DOMAIN_DOCTYPES["_shared"]`. Hai map độc lập (grouping vs cap-primary) — không xung đột.
 - **Resolve thật:** `can("asset.read")` → `frappe.has_permission("AC Asset", "read", doc)` theo DocPerm `AC Asset` (KHÔNG hardcode role-name).
-- **Cap-set version (lesson IMM-14):** thêm 6 cap → `len(CAPABILITY_MAP)` 89→95, `sorted(...)` đổi → `_compute_cap_set_version()` ra hash mới → `CAP_SET_VERSION` đổi (`v89.2df4c16c2bbd` → `v95.<sha>`). Hệ quả wiring (xem III.1c-3):
+- **Cap-set version (lesson IMM-14):** thêm 6 cap `asset.*` → `len(CAPABILITY_MAP)` 89→95 → `CAP_SET_VERSION` `v89.2df4c16c2bbd` → `v95.3388ee5629c1`. **D6 (Vòng 3) thêm 2 cap `asset.print`+`asset.qr.rotate`** → 95→**97** → `CAP_SET_VERSION` **`v95.3388ee5629c1` → `v97.c30c69b8974d`** (giá trị hiện hành). Hệ quả wiring (xem III.1c-3):
   - BE: `after_migrate` (`assetcore.setup.install.after_migrate`, đã wired install.py:156) gọi `rbac.invalidate_capabilities()` bust `ac_caps::*` → user lấy cap-set mới (có `asset.*`) ngay lần gọi đầu sau migrate.
   - FE: hằng số `auth.ts::CAP_SET_VERSION` PHẢI bump khớp giá trị BE mới → `isCapCacheStale()` bỏ persisted-caps cũ (rỗng `asset.*`) lúc init → nút/route `asset.read` hoạt động KHÔNG cần xóa localStorage tay.
 - **Acceptance guard:** `from assetcore.services.shared.rbac import CAPABILITY_MAP; assert "asset.read" in CAPABILITY_MAP`.
@@ -2586,28 +3087,47 @@ scheduler_events = {
 ## V.2. `assetcore/hooks.py` — Permission Query
 
 ```python
+# Thực tế (hooks.py:382-394): 5 DocType + bộ has_permission song hành (IDOR gate).
 permission_query_conditions = {
-    "AC Asset": "assetcore.permission.get_ac_asset_permission_query",
+    "AC Asset":            "assetcore.permissions.ac_asset_query",
+    "Incident Report":     "assetcore.permissions.incident_report_query",
+    "Asset Repair":        "assetcore.permissions.asset_repair_query",
+    "PM Work Order":       "assetcore.permissions.pm_work_order_query",
+    "Asset Commissioning": "assetcore.permissions.asset_commissioning_query",
+}
+has_permission = {  # detail/IDOR gate — frappe.has_permission KHÔNG tự áp query-conditions
+    "AC Asset":            "assetcore.permissions.ac_asset_has_permission",
+    "Incident Report":     "assetcore.permissions.incident_report_has_permission",
+    "Asset Repair":        "assetcore.permissions.asset_repair_has_permission",
+    "PM Work Order":       "assetcore.permissions.pm_work_order_has_permission",
+    "Asset Commissioning": "assetcore.permissions.asset_commissioning_has_permission",
 }
 ```
 
-**`assetcore/permission.py`:**
+> **⚠️ ĐÃ ĐỔI WIRING & PREDICATE (đính chính 2026-06-08):** wiring thực tế trỏ `assetcore.permissions.ac_asset_query` (file `permissions.py`, KHÔNG phải `permission.py`); ngoài ra còn `Incident Report`/`Asset Repair`/`PM Work Order`/`Asset Commissioning` + bộ `has_permission` (IDOR gate). Snippet cũ dưới đây (chỉ technician scope) **STALE** — thay bằng predicate chốt ở **[`ADR-IMM00-LIST-SCOPE.md`](./ADR-IMM00-LIST-SCOPE.md)**.
+
+**`assetcore/permissions.py::ac_asset_query` (sau ADR-IMM00-LIST-SCOPE — D1/D2 chốt 2026-06-08):**
 
 ```python
-import frappe
-
-def get_ac_asset_permission_query(user: str) -> str:
-    """Domain User (PM User / Repair User / Calibration User) chỉ thấy AC Asset được gán cho mình.
-    Vendor Engineer chỉ thấy Asset thuộc WO/PM/Repair/Cal được phân công.
-    Nguồn: assetcore/permissions.py (post patch v3_2.001)."""
-    roles = frappe.get_roles(user)
-    technician_roles = {"PM User", "Repair User", "Calibration User"}
-    if "AssetCore Super Admin" in roles:
+# Senior (Super Admin + Manager) + Auditor → read-all (return "").
+# KTV NỘI BỘ (PM/Repair/Calibration/Corrective User = _TECHNICIAN_ROLES,
+#   = Role Profile "Kỹ thuật viên") → read-all (D1). KHÔNG scope responsible_technician.
+# VENDOR ENGINEER (role gán thủ công cho nhân sự NCC, KHÔNG thuộc 8 Role Profile)
+#   → GIỮ isolation: responsible_technician = <user> (D2 — bất biến CLAUDE.md §5).
+def ac_asset_query(user=None):
+    user = user or frappe.session.user
+    roles = _user_roles(user)
+    if _is_senior(roles) or _AUDITOR_ROLE in roles:
         return ""
-    if technician_roles & set(roles):
-        return f"(`tabAC Asset`.responsible_technician = '{user}')"
+    if roles & _TECHNICIAN_ROLES:           # KTV nội bộ → read-all (D1)
+        return ""
+    if _VENDOR_ROLE in roles:               # Vendor → isolation (D2)
+        safe = _esc(user)
+        return f"(`tabAC Asset`.responsible_technician = '{safe}')"
     return ""
 ```
+
+> **INVARIANT `count == rows` (ADR-IMM00-LIST-SCOPE §4b):** count trong `list_assets` phải permission-aware như `get_list` → `count_with_or` dùng `frappe.get_list(..., limit_page_length=0)` (KHÔNG `frappe.db.count`/`frappe.get_all` — 2 hàm này bỏ qua `permission_query_conditions` ⟹ đếm 1430 trong khi `get_list` scoped 0 = lỗi P1 factory run2). `apply_vendor_scope` + reserved-exclusion (RC-LIST-VENDORCLOBBER) GIỮ NGUYÊN, ADR này CỘNG THÊM permission-awareness. `ac_asset_has_permission` (IDOR detail gate) sửa đồng bộ: KTV nội bộ `ptype=read` → `True` (read-all); vendor → GIỮ scope. Chi tiết role nội-bộ vs vendor + 7 invariant test: [`ADR-IMM00-LIST-SCOPE.md`](./ADR-IMM00-LIST-SCOPE.md).
 
 ## V.3. `assetcore/hooks.py` — Fixtures
 

@@ -1,4 +1,4 @@
-# assetcore-be — Lessons Learned (LL-BE-1..35)
+# assetcore-be — Lessons Learned (LL-BE-1..54)
 
 > Bug patterns production đã gặp — **always-apply rules**, KHÔNG phải tham khảo tùy chọn.
 > `SKILL.md` trỏ tới file này; ĐỌC TRƯỚC khi viết/sửa service · API · DocType · workflow.
@@ -61,7 +61,7 @@ def _get_needs_request(name):
 
 **Quy tắc**: mọi field kiểu Link bắt buộc có `_name` companion trong response. Dùng pattern `_enrich()` batch (xem `imm00.py`) cho list endpoints để tránh N+1.
 
-**List endpoint pattern chuẩn (CONVENTIONS §37)** — bug recurring 2026-05-27 `list_user_competencies`:
+**List endpoint pattern chuẩn** — bug recurring 2026-05-27 `list_user_competencies`:
 ```python
 def list_user_competencies(filters, *, page=1, page_size=20) -> dict:
     rows, pg = UserCompetencyRepo.list(filters=..., fields=[..., "device_model"], ...)
@@ -566,7 +566,6 @@ WHERE name IN (SELECT name FROM (SELECT name FROM `tabIMM Audit Trail` WHERE ...
 - [ ] Mọi giá trị từ user/string interpolation → dùng param `%s` với tuple
 - [ ] Mọi LIKE pattern chứa `_` hoặc `%` literal → escape `\_` `\%` + ESCAPE clause
 - [ ] Mọi subquery trên cùng table đang mutate → wrap alias `(SELECT ... ) x`
-- [ ] Reference: `CONVENTIONS.md §32`
 
 ### LL-BE-22: Verify column tồn tại TRƯỚC khi viết raw SQL (2026-05-27)
 
@@ -604,7 +603,7 @@ WHERE name IN (SELECT name FROM (SELECT name FROM `tabIMM Audit Trail` WHERE ...
 | `source_doctype` (IMM Audit Trail) | `ref_doctype`, `ref_name` |
 | `reported_issue` (Asset Repair) | `failure_description` |
 
-Reference: `CONVENTIONS.md §32 (c)`, `assetcore-audit` data-hygiene pillar.
+Reference: `assetcore-audit` data-hygiene pillar.
 
 ### LL-BE-23: Lifecycle Hook Chain — cross-module trigger PHẢI wire + idempotent + audit (2026-05-27)
 
@@ -685,7 +684,7 @@ Bug records:
    # Đối chiếu mỗi terminal transition với 04_Backend_Design.md §Cross-Module Triggers
    ```
 
-Reference: `CONVENTIONS.md §40`, `assetcore-audit` Pillar 9, `docs/res/reports/AssetCore_Test_Plan_NextRound_1_Analysis.md` §3.
+Reference: `assetcore-audit` Pillar 9, `docs/res/reports/AssetCore_Test_Plan_NextRound_1_Analysis.md` §3.
 
 ### LL-BE-24: Whitelist Permission Backup Gate — BE PHẢI gate, không tin FE hide (2026-05-27)
 
@@ -741,7 +740,7 @@ Reference: `CONVENTIONS.md §40`, `assetcore-audit` Pillar 9, `docs/res/reports/
    done
    ```
 
-Reference: `CONVENTIONS.md §41`, `assetcore-audit` Pillar 8 Security.
+Reference: `assetcore-audit` Pillar 8 Security.
 
 ### LL-BE-25: Auto-Default Field on Create — `before_save` controller hook (2026-05-27)
 
@@ -779,7 +778,7 @@ Reference: `CONVENTIONS.md §41`, `assetcore-audit` Pillar 8 Security.
 
 5. **Trace check**: với mọi field downstream service đọc (vd `services/imm05.py:generate_depreciation_schedule` đọc `asset.depreciation_method`), trace ngược nơi field được set. Nếu không có default + không required → bug tái xuất.
 
-Reference: `CONVENTIONS.md §44`, `docs/res/reports/AssetCore_Test_Plan_NextRound_1_Analysis.md` §3 RC-02.
+Reference: `docs/res/reports/AssetCore_Test_Plan_NextRound_1_Analysis.md` §3 RC-02.
 
 ### LL-BE-26: State machine — MỌI state khai báo phải REACHABLE (2026-05-29)
 
@@ -1107,3 +1106,141 @@ Cross-ref: LL-BE-38 (over-grant base role), `services/imm04.py::search_link`, `_
 **Anti-FP / quy tắc khoá:** mọi predicate "count card == drill rows" (SoT chung 2 read-path) PHẢI: (a) thêm NULL-guard tường minh nếu field nullable; (b) verify INV bằng **probe thật seed hàng NULL** (count==len(drill)), không tin "operator tự loại NULL". `db.count` đúng KHÔNG bảo chứng `get_all` đúng và ngược lại.
 
 Cross-ref: BR-05-15 (is_fully_depreciated count==drill), `expired_filter()`, `_dict_to_conditions()`, test `TestExpiredSoT::test_expiry_null_not_expired_no_crash` + `test_count_equals_drill_mixed_set`.
+
+## Lessons Learned 2026-06-10 — List/permission scoping, page-size DoS, error-surface, identity-leak, RBAC gate (QA + mobile-BE audit)
+
+### LL-BE-42: List `pagination.total` PHẢI dùng cùng `permission_query_conditions` như drill — KHÔNG `db.count`/`get_all` (2026-06-10)
+
+**Triệu chứng→nguyên nhân:** persona row-scoped (vendor/technician có `ac_asset_query`) → header "Tổng N" ≠ số dòng (KTV `/assets` total 1430, rows 0). `frappe.db.count` VÀ `frappe.get_all` đều BỎ QUA `permission_query_conditions` row-scope hook → count đếm CẢ bảng, rows chỉ subset.
+
+**Rule (kiểm được):** mọi list endpoint phân trang → `pagination.total = len(frappe.get_list(DT, filters=..., or_filters=..., limit_page_length=0))` DƯỚI session user (KHÔNG `ignore_permissions`), cùng `filters`+`or_filters` với items query. Helper chuẩn = `count_with_or` (`services/shared/filters.py:105-160`, đã chuyển sang `get_list(limit_page_length=0)`). Self-check: probe `GET ...list_X?page=1&page_size=5` dưới persona row-scoped → assert `pagination.total == len(items_toàn_bộ_trang)`; KHÔNG bao giờ để count + items chạy 2 predicate khác nhau.
+
+Cross-ref: LL-BE-41 (NULL-ifnull divergence — KHÁC; rule này lo permission_query_conditions scoping); `memory/asset_list_count_drill_technician_p1.md` (P1 KTV); `services/shared/filters.py:105-160`.
+
+### LL-BE-43: `page_size` PHẢI cap upper-bound `min(int(page_size),100)` ở MỌI list endpoint — chống unbounded-fetch DoS (2026-06-10)
+
+**Triệu chứng→nguyên nhân:** client gửi `page_size=999999` → `page_size=int(page_size)` trần materialize toàn bảng → OOM/latency.
+
+**Rule (kiểm được):** mọi `@frappe.whitelist()` list/paginated endpoint → `page_size = max(1, min(int(page_size), 100))` NGAY dòng đầu function (trước khi truyền xuống service/get_list). Pattern đúng = `imm01.py:93/365`, `imm02.py:70`, `imm03.py:65/270/556`, `layout.py:56`, `user.py:889`. CÒN THIẾU cap (P1 backlog): `imm00.list_assets` (page_size:int=20 không clamp), `imm15.py:62/144/193`, `imm16.py:41/61/87`, `inventory.py:36/84`, `purchase.py:84`. Self-check: `grep -n 'page_size' api/*.py | grep -v 'min('` → mỗi list endpoint không có `min(...,100)` là 1 gap.
+
+Cross-ref: LL-BE-42 (count==rows cùng predicate); `api/imm01.py:93` (pattern đúng) vs `api/imm15.py:62`/`inventory.py:36`/`purchase.py:84` (trần).
+
+### LL-BE-44: `_err(str(e))`/`nthrow(str(e))` catch-all LEAK raw exception text ra FE — dùng message hằng + log_error trace riêng (2026-06-10)
+
+**Triệu chứng→nguyên nhân:** `except Exception as e: return _err(str(e), ErrorCode.INTERNAL)` → `str(e)` rò chi tiết nội bộ (tên cột SQL, path, stack hint, DocType) ra envelope FE thấy.
+
+**Rule (kiểm được):** trong `except Exception as e:` của API layer TUYỆT ĐỐI KHÔNG forward `str(e)`. Pattern đúng: `frappe.log_error(frappe.get_traceback(), '<MODULE-XX> <func>')` (giữ trace — LL-BE-20) RỒI `return _err(_(<hằng message Việt trung lập>), ErrorCode.INTERNAL)` HOẶC `nthrow(MSG.GENERIC_SERVER_ERROR)`. CHỈ forward `str(e)` khi e là `ServiceError` đã dùng `MSG.*` registry — bắt riêng `except ServiceError` TRƯỚC `except Exception`. Self-check: `grep -rn '_err(str(e)\|nthrow(str(e)\|_err(f"{e}' api/*.py` → mỗi match trên nhánh `ErrorCode.INTERNAL`/catch-all = leak. CÒN: `dashboard.py:337/532/1001`, `imm01.py:60`, `imm02.py:45`, `imm03.py:46`.
+
+Cross-ref: LL-BE-20 (log_error full traceback), notification-contract `MSG.*`.
+
+### LL-BE-45: In-handler error (404/409/422) đến TRÊN HTTP-200 + 2 loại 403 khác nhau — client/test KHÔNG branch theo status-line (2026-06-10)
+
+**Triệu chứng→nguyên nhân:** `_err`/`nthrow`→`handle()` KHÔNG set `frappe.local.response.http_status_code` (verify `bench execute`: status-line = NULL); 404/409/422 CHỈ nằm trong body JSON (`http_status`/`code`). `messages.py['http_status']` là SSoT (vd `IMM11_ASSET_BLOCKED`=409 CAL-008, KHÔNG 422).
+
+**Rule (kiểm được):**
+1. Mô hình hoá OpenAPI cho client codegen → đáp lỗi nghiệp vụ khai dưới response `'200'` = `oneOf[<Created>, Error]` + discriminator `success` — KHÔNG khai key `'404'`/`'409'` (codegen route theo status-line không bắt được).
+2. PHÂN BIỆT 2 loại 403: **dispatcher-403** (guest/no-token, gate `rbac.require(...)`/`frappe.throw(PermissionError)` TRƯỚC `handle()` vd imm09.py:40/imm11.py:95) = status-line 403 THẬT → client RE-AUTH; **in-handler cap-403** (bearer hợp lệ thiếu cap, `_err(msg,403)` vd imm12.py:96) = HTTP-200 + envelope `{code:FORBIDDEN, http_status:403}` → client SHOW-MESSAGE, KHÔNG re-auth.
+3. Test/FE branch theo `envelope.http_status`/`envelope.code`, KHÔNG theo HTTP status-line.
+
+Cross-ref: `memory/mobile_be_openapi_contract_gotchas.md` §2-3; `messages.py` http_status SSoT.
+
+### LL-BE-46: Message trùng-định-danh (dup serial/asset_code) KHÔNG được leak record HIỆN HỮU sở hữu định danh đó (2026-06-10)
+
+**Triệu chứng→nguyên nhân:** template `MSG.IMM04_DUP_SERIAL` = `"VR-01: Serial '{serial}' đã được gán cho {ref}."` (messages.py:424) → `{ref}` lộ asset hiện hữu → rò định danh chéo (user A biết asset của khoa/vendor B qua thông báo trùng).
+
+**Rule (kiểm được):** lỗi duplicate trên field định danh (serial, asset_code, UDI) → template message KHÔNG interpolate tên/ref của record KHÁC giữ giá trị. Sửa: bỏ `{ref}` khỏi template user-facing (chỉ "Serial đã tồn tại trong hệ thống" + action_hint tra cứu); nếu cần điều hướng tới bản ghi cũ → gate theo quyền đọc record đó (chỉ surface `{ref}` khi caller có read-permission) HOẶC trả `ref` trong field `context` riêng để FE quyết định theo cap. Áp cho mọi `*_DUP_*`/`*_DUPLICATE_*` template có placeholder trỏ record khác.
+
+Cross-ref: `utils/messages.py:422-426`; commit c827de3 (validate asset code+serial identity on bulk import).
+
+### LL-BE-47: Predicate date so-sánh nullable (ifnull-coercion) — NULL-guard tường minh cho imm06/imm11 due/expiry (2026-06-10)
+
+**Triệu chứng→nguyên nhân:** filter `{"<field>": ["<", nowdate()]}` trên field NULLABLE diverge giữa read-path (db.count loại NULL; get_list bọc `ifnull(...)` khớp NULL) → count card ≠ drill rows.
+
+**Rule (kiểm được):** mọi predicate "count card == drill rows" trên field date nullable PHẢI thêm NULL-guard TƯỜNG MINH `["<field>", "is", "set"]` + dùng list-of-conditions `[[field,op,val],...]` (KHÔNG dict), verify bằng probe seed-NULL (count==len(drill)). Đã chuẩn ở imm05 (`expired_filter`). Áp đồng dạng cho `imm06.py:104` (`expiry_date: ["<", nowdate()]`) + `imm06.py:607` (`expiry_date: ("<", today)`) + mọi `due_date`/`recertification_due_date`/`next_calibration_date` count-vs-drill ở imm06/imm11 — đừng tin operator tự loại NULL.
+
+Cross-ref: LL-BE-41 (imm05 expired_filter divergence), LL-BE-42; `services/imm06.py:104,607`.
+
+### LL-BE-48: Overdue (PM/calibration/date-derived) = SERVER-side boolean flag SSoT — không có client-clock so-sánh, không deriver song song (2026-06-10)
+
+**Triệu chứng→nguyên nhân:** QR-screen vs admin-detail bất đồng vì admin dùng `isPmOverdue()` client-clock (tz-drift → highlight đỏ sai).
+
+**Rule (kiểm được):** mọi chỉ báo "quá hạn" suy từ ngày PHẢI là 1 boolean flag tính SERVER-side qua deriver dùng-chung, trả trong MỌI payload màn hình đó dùng; FE CHỈ render flag, KHÔNG bao giờ `new Date(d) < new Date()`. Deriver chuẩn (tz-safe): `True ⟺ ngày≠rỗng ∧ getdate(d) < getdate(nowdate())` (STRICT `<`) `∧ lifecycle_status ∉ BLOCKED_FOR_WO (Out of Service, Decommissioned)`. Reference duy nhất: `services/imm00.py:_is_pm_overdue` (:339) / `_is_calibration_overdue` (:355) — feed CẢ scan-info (`build_asset_scan_info`) LẪN admin-detail (`get_asset` emit `pm_overdue`+`calibration_overdue`). Chỉ báo date-derived MỚI → thêm flag mới qua deriver dùng-chung, KHÔNG so-sánh date client-side song song. Caveat: `byt_reg_expiry` (BYT) khác ngữ nghĩa → flag riêng `byt_reg_expired`, KHÔNG tái dùng deriver PM.
+
+Cross-ref: `memory/overdue_server_flag_ssot.md`; `services/imm00.py:339-360`; LL-BE-47 (NULL-guard predicate).
+
+### LL-BE-49: Mutating `@whitelist` endpoint THIẾU `rbac.require`/`has_any_role` = lỗ leo quyền (FE hide ≠ BE gate) — gate capability SSoT, không gate role-name (2026-06-10)
+
+**Triệu chứng→nguyên nhân:** attacker gọi API trực tiếp qua DevTools/curl bypass FE button-hide (LL-BE-24). Gate bằng role-name literal không có trong hệ role thật → 'RBAC dead-gate': `has_any_role` luôn False (fail âm thầm, test giả định vẫn pass — LL-BE-30).
+
+**Rule (kiểm được):** MỌI `@frappe.whitelist(methods=["POST"])` (hoặc mutating semantics) → `rbac.require("<cap>.write")` HOẶC `has_any_role((Roles.X, Roles.SYS_ADMIN))` ở DÒNG ĐẦU body. Capability string BE==FE EXACT; gate bằng CAPABILITY resolve qua `rbac.can()`/`frappe.has_permission`, KHÔNG gate bằng role-name không có trong `role.json`/`constants.py:Roles`. Endpoint sửa role/role_profile/enabled = admin tuyệt đối, KHÔNG self-bypass (LL-BE-37). CÒN backlog (P2, 0 gate): `imm15.py` (12 POST), `inventory.py` (19 POST), `purchase.py` (7 POST), `imm01/02/03/imm16` mutating. Self-check = AST audit LL-BE-24 §5 trên từng file.
+
+Cross-ref: LL-BE-24 (whitelist permission backup gate), LL-BE-30 (RBAC dead-gate), LL-BE-37 (self-bypass admin); `memory/role_security_audit_20260601.md`.
+
+### LL-BE-50: `@frappe.whitelist` BỌC return vào `{"message": <value>}` — consumer đọc RAW (Swagger `url:`/openapi-generator) vỡ (2026-06-11)
+
+**Triệu chứng→nguyên nhân:** `openapi.spec()` return raw dict (docstring ghi "no envelope") NHƯNG dispatcher Frappe VẪN bọc → HTTP body = `{"message": {openapi:..., paths:...}}`. SwaggerUIBundle/openapi-generator trỏ `url:` thẳng vào endpoint → đọc top-level KHÔNG thấy `openapi:` → "Unable to render this definition" (render trắng, 0 opblock). "Raw dict" trong docstring chỉ bỏ SuccessEnvelope của AssetCore, KHÔNG bỏ `{message:}` của Frappe.
+
+**Rule (kiểm được):** endpoint mà consumer NGOÀI đọc body như TÀI-LIỆU/HIỆN-VẬT thô (OpenAPI spec, file, XML, CSV) KHÔNG dùng `return <dict>` thẳng (sẽ bị bọc `{message:}`):
+- (A khuyến nghị) serve RAW qua `frappe.local.response` (như endpoint PDF/file) → body = chính hiện vật;
+- (B) consumer tự `fetch` + unwrap `payload.message || payload` rồi feed (vd `www/api-docs.html` feed `spec:` object, KHÔNG `url:`).
+Test PHẢI assert HTTP WIRE body (KHÔNG `openapi.spec()` Python-direct — sẽ false-green, bỏ sót envelope; LL-TEST-26).
+
+Cross-ref: memory `mobile_be_openapi_contract_gotchas` #4; LL-TEST-26 (assert hiện-vật thật); `www/api-docs.html` (test D18-04 guard); session 2026-06-11 F-C1.
+
+### LL-BE-51: Degrade-guard PHẢI phủ MỌI service-call trong dashboard/persona builder, KHÔNG chỉ `_count` (2026-06-10)
+
+**Triệu chứng→nguyên nhân:** `get_persona_dashboard?persona=tech` CRASH (VALIDATION_ERROR) cho CHÍNH persona KTV (dashboard mặc định họ tiếp đất) — `_build_tech` (dashboard.py:704) gọi `list_allocations`→IMM Spare Allocation KHÔNG degrade-guard → PermissionError bung → catch-all banner đỏ "Lỗi không xác định". Vòng trước chỉ hardened `get_overview` (`_count`/`_scoped_helper`), KHÔNG hardened persona builders. Cùng họ `_build_qa` (imm16 scorecard/findings/audits + CAPA).
+
+**Rule (kiểm được):** mọi builder dashboard/persona gọi service trên doctype CÓ `permission_query_conditions` (hoặc DocPerm có thể thiếu cho persona) PHẢI degrade per-call (try/except → 0/`—`/ẩn card), KHÔNG để 1 PermissionError sập CẢ dashboard (all-or-nothing). Quyết scope với BA TRƯỚC: card thiếu quyền = (a) cấp DocPerm read cho persona, hay (b) degrade ẩn. Catch-all `_err(str(e))` với PermissionError = message rỗng → FE "Lỗi không xác định" + nút "Thử lại" re-fail vô hạn → đổi message VI có ngữ cảnh / degrade per-section. +test: persona thiếu DocPerm gọi builder → assert `success==True` (không crash). ⚠️ Backlog P1 CHƯA fix (eval 2026-06-10).
+
+Cross-ref: LL-BE-49 (rbac gate), permission-aware count (count==drill SSoT predicate); session 2026-06-10 USER eval P1 persona-dashboard crash.
+
+### LL-BE-52: Field OpenAPI gốc từ Frappe `Check` fieldtype = `integer enum[0,1]`, KHÔNG `boolean` (codegen crash) (2026-06-12)
+
+**Triệu chứng→nguyên nhân:** list-item/response field gốc doctype `Check` (vd `sla_breached`/`rca_required`/`patient_affected`) wire emit **int 0/1** (Check = tinyint, KHÔNG JSON true/false). OpenAPI khai `type:boolean` → strict-codegen Dart/Kotlin sinh `bool` → deser runtime **CRASH 'int is not subtype of bool'**. Tác giả ĐÚNG ở 1 derived-flag (`is_response_breached`) nhưng MISS 8 raw Check khác = cùng trap.
+
+**Rule (kiểm được):** mọi field OpenAPI gốc từ Frappe `Check` khai `type: integer, enum: [0,1]` (KHÔNG boolean). Guard test (RED-first): introspect mọi list-item/response schema, assert KHÔNG có field Check-derived nào `type==boolean`. Cross-ref: LL-BE-53 (cùng họ codegen-typing); session run50 backlog P1 #1; memory `mobile_be_openapi_contract_gotchas`.
+
+### LL-BE-53: oneOf-at-HTTP-200 = closed-schema (additionalProperties:false + disjoint required), KHÔNG `discriminator` boolean (2026-06-12)
+
+**Triệu chứng→nguyên nhân:** in-handler error 404/409/422 trả TRÊN HTTP-200 (LL-BE-45) → response `200` = `oneOf [<Created>, Error]`. Dùng `discriminator: {propertyName: success}` với `success` kiểu **boolean** = OAS 3.x **ILLEGAL** (discriminator property PHẢI string) → openapi-generator Dart/Kotlin DROP discriminator hoặc sinh `switch(string)` so boolean → deser fail. Guard chỉ assert propertyName-tồn-tại = **FALSE-GREEN**.
+
+**Rule (kiểm được):** KHÔNG `discriminator` cho oneOf phân-biệt-bằng-boolean. Set `additionalProperties:false` trên CẢ nhánh + required-set **DISJOINT** (Created `required[success,data]` vs Error `required[success,error,code,http_status]`) → codegen route bằng structural-distinctness. Guard assert disjoint-required + additionalProperties:false (KHÔNG assert propertyName). Cùng cơ chế 403 dual-shape `FrappeRawError.additionalProperties:false`. Cross-ref: memory gotchas #3; LL-BE-45/50/52; session run50 Decision-B.
+
+### LL-BE-54: 429 Retry-After honesty — `@rate_limit` decorator đơn KHÔNG emit backoff header (2026-06-12)
+
+**Triệu chứng→nguyên nhân:** doc/spec hứa 429 chứa `Retry-After`/`X-RateLimit-*` cho endpoint `@rate_limit` (vd resolve_qr_token). FALSE: `rate_limiter.py` throw-path (~:162-166) KHÔNG emit header — CHỈ nhánh `conf.rate_limit` (site_config) HOẶC nginx `limit_req` mới inject Retry-After. Client tin doc → chờ header không bao giờ có.
+
+**Rule (kiểm được):** KHÔNG khai Retry-After/X-RateLimit là guaranteed cho 429 trừ khi enforcement-layer (`conf.rate_limit`/nginx) THẬT emit. `@rate_limit` decorator đơn → 429 không header → client tự exponential-backoff+jitter. Guard machine-check 'CHỈ phát header khi conf.rate_limit set'. Cross-ref: session run50 backlog P1 #2; [[gunicorn_preload_staleness]] cluster; `rate_limiter.py`.
+
+### LL-BE-55: Frappe `get_pdf` ÉP margin 15mm cho output khổ-cố-định (label/tem/vé) → tràn trang (2026-06-11)
+
+**Triệu chứng→nguyên nhân:** BUG-LABEL-1 — `print_asset_labels_pdf` qua `frappe.utils.pdf.get_pdf` → `prepare_header_footer` (`frappe/utils/pdf.py:336-340`) GHI ĐÈ `margin-top`/`margin-bottom`="15mm" khi HTML KHÔNG có `#header-html`/`#footer-html`. Khổ nhãn 60×100mm → vùng in co còn 60×70mm → nhãn TRÀN sang trang 2 trắng. `get_pdf` là document-oriented (giả định trang in có header/footer) — SAI cho artifact khổ-chính-xác.
+
+**Rule (kiểm được):** output khổ-chính-xác (tem/nhãn/vé/badge) gọi **`pdfkit.from_string(html, False, options)` TRỰC TIẾP** (KHÔNG `get_pdf`). `options` = `margin-top/right/bottom/left = "0mm"` (chuỗi truthy, KHÔNG bị `prepare_header_footer` đụng) + `disable-smart-shrinking` + `disable-javascript` + `disable-local-file-access` + `encoding:UTF-8` + `page-width`/`page-height` đúng mm. `.label { height: <height_mm − 1>mm }` (content < page, chừa 1mm tránh round-over trang). DONE-gate: feature PDF khổ cố định PHẢI assert MediaBox = đúng khổ mm + số TRANG PDF THẬT == kỳ vọng (pypdf `PdfReader(...).pages`), KHÔNG chỉ assert "có byte PDF".
+
+Cross-ref: LL-BE-56 (cùng họ: bọc binary-call print PDF); `frappe/utils/pdf.py:336-340`; session 2026-06-11 BUG-LABEL-1 (QR-asset label).
+
+### LL-BE-56: Bọc MỌI lời gọi binary ngoài trong endpoint (no-500 / no-traceback-leak) (2026-06-11)
+
+**Triệu chứng→nguyên nhân:** `print_asset_labels_pdf` gọi render (pdfkit→wkhtmltopdf subprocess) KHÔNG try/except. Binary lỗi runtime ở môi trường live (wkhtmltopdf thiếu, font lỗi, OOM, timeout) = whitelist endpoint bung exception → dispatcher Frappe trả **HTTP-500 + LEAK `frappe.get_traceback()`** ra body (lộ path server/lib version).
+
+**Rule (kiểm được):** MỌI lời gọi binary/subprocess ngoài (wkhtmltopdf, pdfkit, `subprocess`, `convert`/ImageMagick, PIL, ffmpeg) trong whitelist endpoint PHẢI `try/except Exception as e → frappe.log_error(frappe.get_traceback(), "<ctx>") → return _err(<msg_VI>, ErrorCode.INTERNAL)` (in-handler HTTP-200 + Error, LL-BE-45). KHÔNG để traceback ra wire. DONE-gate: +test mock binary `raise Exception` → assert response = `_err` VI có ngữ cảnh + `'Traceback' not in body` + KHÔNG raise (no-500).
+
+Cross-ref: LL-BE-45 (in-handler error HTTP-200), LL-BE-55 (PDF label render), `_err`/`ErrorCode.INTERNAL`; session 2026-06-11 BUG-LABEL-1.
+
+### LL-BE-57: Context-panel cho persona vận hành = endpoint META NẠC, KHÔNG full-doc (data-minimization) (2026-06-12)
+
+**Triệu chứng→nguyên nhân:** run50 — 3 màn scan-action (CM/Calibration/PM create từ QR) gọi `get_asset` full-doc để hiện panel ngữ-cảnh read-only cho KTV → payload chứa field tài chính (`purchase_value`/giá mua, khấu hao, giá trị sổ sách) → lộ cho field-tech KHÔNG có need-to-know. Full-doc tiện nhưng vi phạm least-data.
+
+**Rule (kiểm được):** panel ngữ-cảnh read-only cho field-tech (scan-action, mobile preflight) dùng endpoint NẠC riêng (vd `get_asset_action_meta` trả CHỈ `asset_name`/`device_model_name`/`location_name`/`lifecycle_status`/`risk_classification`) — KHÔNG `get_asset` full-doc. Data-minimization = bảo mật + nghiệp vụ (least-data theo persona). DONE-gate: endpoint context-panel → assert payload KHÔNG có key tài chính (`purchase_value`/`book_value`/`depreciation*`/`acquisition_cost`...).
+
+Cross-ref: LL-BE-49 (rbac gate cap-SSoT), vendor-isolation/data-minimization; memory `mobile_be_openapi_contract_gotchas`; session run50 scan-action panel.
+
+### LL-BE-58: Enum TRÙNG TÊN ≠ TRÙNG DOMAIN — không suy diễn logic cross-domain (2026-06-12)
+
+**Triệu chứng→nguyên nhân:** run50 nhiều vòng lẫn 3 khái niệm "rủi ro" trùng tên gần: `AC Asset.risk_classification` (Low/Med/High/Critical) ≠ `Device Model`/`Commissioning.risk_class` (NĐ98 A/B/C/D/Radiation) ≠ `WO`/`Asset Repair.risk_class` (Class I/II/III). Bug điển hình: `isHighRisk = risk in {'C','D'}` áp lên field giá trị Low/Med/High/Critical = LUÔN false (so chuỗi khác domain) → gate high-risk chết âm thầm.
+
+**Rule (kiểm được):** TRA DocType `.json` (field `fieldname` THẬT + `Select.options` THẬT) TRƯỚC khi derive logic theo enum. Gate 'high-risk' phải chốt theo domain NÀO + SSoT mapping/ADR — KHÔNG suy diễn giá trị từ domain khác. DONE-gate: mọi logic phụ thuộc enum rủi ro → cite `field + doctype` nguồn ngay tại chỗ; nếu cross-domain (map A/B/C/D ↔ Low/Med/High/Critical) → BẮT BUỘC ADR + mapping table, KHÔNG hardcode set ký tự.
+
+Cross-ref: LL-BE-49 verify field type/enum trước derive; doctype-catalog.md (tên verbatim); ADR dual-track status/workflow_state; session run50 risk-enum confusion.

@@ -48,7 +48,9 @@ function goRow(r: Record<string, unknown>): void {
       <span class="text-xs text-neutral-400">{{ rows.length }}</span>
     </div>
     <div class="p-2">
-      <table v-if="rows.length" class="w-full text-sm">
+      <!-- P3 — bọc overflow-x-auto: KHÔNG tràn viewport mobile khi nhúng nhiều card. -->
+      <div v-if="rows.length" class="overflow-x-auto">
+        <table class="w-full text-sm">
         <thead>
           <tr class="text-left text-xs text-neutral-400">
             <th v-for="c in columns" :key="c.key" class="px-2 py-1.5 font-medium">{{ c.label }}</th>
@@ -89,7 +91,8 @@ function goRow(r: Record<string, unknown>): void {
             </td>
           </tr>
         </tbody>
-      </table>
+        </table>
+      </div>
       <p v-else class="px-3 py-6 text-center text-sm text-neutral-400">
         {{ emptyText ?? 'Không có dữ liệu' }}
       </p>

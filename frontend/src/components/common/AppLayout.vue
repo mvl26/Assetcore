@@ -1,12 +1,38 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import { useMagicKeys } from '@vueuse/core'
 import AppSidebar from '@/components/common/AppSidebar.vue'
 import AppTopBar from '@/components/common/AppTopBar.vue'
+import CommandPalette from '@/components/common/CommandPalette.vue'
 import { useSidebar } from '@/composables/useSidebar'
+import { useCommandRegistry } from '@/composables/useCommandRegistry'
+import { useCommandPaletteStore } from '@/stores/commandPalette'
 
 const route = useRoute()
 const { mainClass, mobileOpen, closeMobile } = useSidebar()
+
+// ── ⌘K / Ctrl+K (ADR-IMM00-CMDK D4) ─────────────────────────────────────────
+// Bind toàn cục qua useMagicKeys (cleanup tự động — KHÔNG addEventListener tay).
+// preventDefault chặn browser bookmark/search default. Mount <CommandPalette/> ở
+// shell (bao toàn app). Registry inject 1 lần từ useCommandRegistry → store.
+const cmdk = useCommandPaletteStore()
+const { registry } = useCommandRegistry()
+watch(registry, (items) => cmdk.setRegistry(items), { immediate: true })
+
+// useMagicKeys quản lý listener keydown (auto-cleanup, KHÔNG addEventListener tay).
+// onEventFired đọc TRỰC TIẾP e.metaKey/e.ctrlKey trên event thật → vừa
+// preventDefault (chặn bookmark default) vừa toggle, ổn định mọi nền tảng/jsdom.
+useMagicKeys({
+  passive: false,
+  onEventFired(e) {
+    if (e.type !== 'keydown') return
+    if (e.key?.toLowerCase() === 'k' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault()
+      cmdk.toggle()
+    }
+  },
+})
 
 // Fullscreen routes (meta.fullscreen) ẩn sidebar + topbar để chiếm toàn viewport.
 // Hiện không route nào dùng (Launcher đã gỡ); giữ làm cơ chế chung cho tương lai.
@@ -42,6 +68,9 @@ const fullscreen = computed(() => Boolean(route.meta.fullscreen))
       </main>
     </div>
   </div>
+
+  <!-- Command Palette ⌘K — mount ở shell, bao toàn app (mọi route) -->
+  <CommandPalette />
 </template>
 
 <style scoped>

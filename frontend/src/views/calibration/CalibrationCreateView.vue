@@ -3,7 +3,9 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { createCalibration, listCalibrationSchedules, type CalibrationSchedule } from '@/api/imm11'
+import { getAssetActionMeta } from '@/api/imm00'
 import { frappeGet } from '@/api/helpers'
+import { lifecycleStatusLabel, riskClassificationLabel } from '@/constants/labels'
 import SmartSelect from '@/components/common/SmartSelect.vue'
 import DateInput from '@/components/common/DateInput.vue'
 import { useFormDraft } from '@/composables/useFormDraft'
@@ -12,12 +14,16 @@ import { useToast } from '@/composables/useToast'
 import { useNotify } from '@/composables/useNotify'
 import { MSG } from '@/i18n/messages'
 
+// Panel meta thiết bị — derive từ meta NẠC (getAssetActionMeta perm-aware, 6 field,
+// KHÔNG full-doc tài chính). Hiển thị display-name (device_model_name /
+// location_name), KHÔNG raw Link id. Field rủi ro là risk_classification (field
+// 'risk_class' KHÔNG tồn tại trên AC Asset).
 interface AssetMeta {
-  device_model?: string
+  device_model_name?: string
   asset_name?: string
   lifecycle_status?: string
-  risk_class?: string
-  location?: string
+  risk_classification?: string
+  location_name?: string
 }
 
 interface ScheduleMeta {
@@ -50,6 +56,16 @@ const form = ref({
 })
 
 const { clear: clearDraft } = useFormDraft('calibration-create', form)
+
+// Deep-link từ màn quét QR (D3): query hằng = {asset, source}. Field nội bộ Cal = 'asset'.
+// Provenance: chỉ 'qr-scan' mới coi là quét QR; mọi giá trị khác (kể cả thiếu) → manual.
+// Ưu tiên asset từ query (tránh draft cũ che mất thiết bị vừa xác định) + khoá ô Thiết bị
+// KHI và CHỈ KHI đến từ quét QR + có asset prefill (no regression khi tạo thủ công).
+const queryAsset = (route.query.asset as string) || ''
+if (queryAsset) form.value.asset = queryAsset
+const querySource = route.query.source === 'qr-scan' ? 'qr-scan' : 'manual'
+const lockedFromScan = computed(() => querySource === 'qr-scan' && !!queryAsset)
+
 const saving = ref(false)
 const err = ref('')
 const assetMeta = ref<AssetMeta | null>(null)
@@ -57,6 +73,17 @@ const scheduleMeta = ref<ScheduleMeta | null>(null)
 
 const isExternal = computed(() => form.value.calibration_type === 'External')
 const isInHouse = computed(() => form.value.calibration_type === 'In-House')
+
+// AC2/AC3: Nhãn VI an toàn cho ô "Mức rủi ro" qua SSoT riskClassificationLabel
+// (parity AC1 màn CM). risk_classification ∈ {Low,Medium,High,Critical} (fetch_from
+// device_model trên AC Asset) — KHÔNG nhầm risk_class (A/B/C/D field KHÁC).
+//   rỗng/whitespace/undefined → 'Chưa phân loại' (parity scan-info Vòng 38, 1 SSoT).
+//   in-enum → VI (Thấp/Trung bình/Cao/Nghiêm trọng).
+//   drift/legacy ngoài 4 enum → 'Khác' (KHÔNG leak EN/code thô).
+const riskClassDisplay = computed(() => {
+  const r = (assetMeta.value?.risk_classification ?? '').trim()
+  return r ? riskClassificationLabel(r) : 'Chưa phân loại'
+})
 
 const canSubmit = computed(() => {
   if (!form.value.asset || !form.value.scheduled_date || !form.value.technician) return false
@@ -67,15 +94,22 @@ const canSubmit = computed(() => {
   return true
 })
 
+// Nạp meta qua getAssetActionMeta (api/imm00) — endpoint NẠC perm-aware (IDOR guard
+// + DocPerm read ở BE), CHỈ 6 field meta → KHÔNG over-fetch giá mua/khấu hao/giá trị
+// sổ sách qua đường QR scan-action. KHÔNG dùng frappe.client.get_value (LL-FE-40).
+// Lỗi (403 vendor-IDOR / 404 / network) → assetMeta=null (fail-safe): panel ẩn,
+// KHÔNG vỡ trang, KHÔNG leak raw exception/email/qr_token ra UI.
 async function loadAssetMeta() {
   if (!form.value.asset) { assetMeta.value = null; return }
   try {
-    const r = await frappeGet<AssetMeta>('/api/method/frappe.client.get_value', {
-      doctype: 'AC Asset',
-      filters: form.value.asset,
-      fieldname: JSON.stringify(['device_model', 'asset_name', 'lifecycle_status', 'risk_class', 'location']),
-    })
-    assetMeta.value = r ?? null
+    const a = await getAssetActionMeta(form.value.asset)
+    assetMeta.value = {
+      asset_name: a.asset_name,
+      device_model_name: a.device_model_name,
+      lifecycle_status: a.lifecycle_status,
+      risk_classification: a.risk_classification,
+      location_name: a.location_name,
+    }
   } catch { assetMeta.value = null }
 }
 
@@ -181,16 +215,56 @@ onMounted(() => {
     <form class="card p-5 space-y-4" @submit.prevent="submit">
       <!-- Asset -->
       <div>
-        <label class="form-label">Thiết bị <span class="text-red-500">*</span></label>
-        <SmartSelect v-model="form.asset" doctype="AC Asset" placeholder="Tìm thiết bị..." />
-        <div v-if="assetMeta" class="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-          <div class="bg-slate-50 rounded px-2 py-1.5"><span class="text-slate-500">Tên:</span> <b>{{ assetMeta.asset_name || '—' }}</b></div>
-          <div class="bg-slate-50 rounded px-2 py-1.5"><span class="text-slate-500">Model:</span> {{ assetMeta.device_model || '—' }}</div>
-          <div :class="['rounded px-2 py-1.5', assetMeta.lifecycle_status === 'Decommissioned' ? 'bg-red-50 text-red-700' : 'bg-slate-50']">
-            <span class="text-slate-500">Trạng thái:</span> <b>{{ assetMeta.lifecycle_status || '—' }}</b>
-          </div>
-          <div class="bg-slate-50 rounded px-2 py-1.5"><span class="text-slate-500">Mức rủi ro:</span> <b>{{ assetMeta.risk_class || '—' }}</b></div>
-        </div>
+        <label class="form-label">
+          Thiết bị <span class="text-red-500">*</span>
+          <span
+            v-if="lockedFromScan"
+            role="status"
+            aria-live="polite"
+            class="ml-2 inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700 align-middle"
+          >
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" /></svg>
+            Tạo từ quét QR
+          </span>
+        </label>
+        <SmartSelect v-model="form.asset" doctype="AC Asset" :disabled="lockedFromScan" placeholder="Tìm thiết bị..." />
+        <p v-if="lockedFromScan" class="text-xs text-slate-500 mt-1">Thiết bị đã được xác định từ mã QR — không thể thay đổi.</p>
+        <!-- Panel meta thiết bị (scan-action) — a11y dl/dt/dd parity panel Incident
+             round 26 + màn CM. Render khi assetMeta (loader-lỗi→null→ẩn). KHÔNG đổi
+             điều kiện hiển thị / loader getAssetActionMeta / shape assetMeta. -->
+        <section
+          v-if="assetMeta"
+          data-test="scan-cal-meta"
+          aria-labelledby="scan-cal-meta-heading"
+          class="mt-2"
+        >
+          <h3 id="scan-cal-meta-heading" class="sr-only">Thông tin thiết bị</h3>
+          <dl class="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+            <div data-test="scan-cal-meta-name" class="bg-slate-50 rounded px-2 py-1.5">
+              <dt class="inline text-slate-500">Tên:</dt>
+              <dd class="inline font-bold">{{ assetMeta.asset_name || 'Chưa có tên' }}</dd>
+            </div>
+            <div data-test="scan-cal-meta-model" class="bg-slate-50 rounded px-2 py-1.5">
+              <dt class="inline text-slate-500">Model:</dt>
+              <dd class="inline">{{ assetMeta.device_model_name || 'Chưa gán' }}</dd>
+            </div>
+            <div data-test="scan-cal-meta-location" class="bg-slate-50 rounded px-2 py-1.5">
+              <dt class="inline text-slate-500">Vị trí:</dt>
+              <dd class="inline">{{ assetMeta.location_name || 'Chưa gán' }}</dd>
+            </div>
+            <div
+              data-test="scan-cal-meta-status"
+              :class="['rounded px-2 py-1.5', assetMeta.lifecycle_status === 'Decommissioned' ? 'bg-red-50 text-red-700' : 'bg-slate-50']"
+            >
+              <dt class="inline text-slate-500">Trạng thái:</dt>
+              <dd class="inline font-bold">{{ assetMeta.lifecycle_status ? lifecycleStatusLabel(assetMeta.lifecycle_status) : 'Chưa xác định' }}</dd>
+            </div>
+            <div data-test="scan-cal-meta-risk" class="bg-slate-50 rounded px-2 py-1.5">
+              <dt class="inline text-slate-500">Mức rủi ro:</dt>
+              <dd class="inline font-bold">{{ riskClassDisplay }}</dd>
+            </div>
+          </dl>
+        </section>
         <div v-if="assetMeta?.lifecycle_status === 'Decommissioned'" class="mt-2 alert-error text-sm">
           Thiết bị đã thanh lý — không thể hiệu chuẩn.
         </div>

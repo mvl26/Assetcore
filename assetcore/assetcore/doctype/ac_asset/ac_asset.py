@@ -193,6 +193,21 @@ class ACAsset(Document):
     def _validate_unique_asset_code(self) -> None:
         if not self.asset_code:
             return
+        if self.is_new():
+            # B1 (root-cause): autoname() đã set self.name = self.asset_code TRƯỚC
+            # validate(). Dùng filter {name != self.name} ở đây sẽ TỰ LOẠI đúng hàng
+            # trùng duy nhất (chính hàng đã tồn tại) ⇒ friendly check không bao giờ
+            # fire → DB PRIMARY collide → DuplicateEntryError 409 thô. So PK trực tiếp
+            # qua frappe.db.exists(_DOCTYPE, self.asset_code) (KHÔNG self-exclude) để
+            # bắt trùng TRƯỚC khi chạm DB ⇒ trả message VI thân thiện (HTTP 422).
+            existing = frappe.db.exists(_DOCTYPE, self.asset_code)
+            if existing:
+                frappe.throw(
+                    _("Mã tài sản {0} đã tồn tại trên {1}").format(self.asset_code, existing)
+                )
+            return
+        # Nhánh update — KHÔNG self-exclude problem (name đã cố định). Vẫn chặn
+        # mọi hàng KHÁC mang cùng asset_code (an toàn unique) trước immutable guard.
         existing = frappe.db.exists(
             _DOCTYPE,
             {"asset_code": self.asset_code, "name": ["!=", self.name or ""]},
@@ -200,13 +215,12 @@ class ACAsset(Document):
         if existing:
             frappe.throw(_("Mã tài sản {0} đã tồn tại trên {1}").format(self.asset_code, existing))
         # Immutable sau khi tạo — asset_code đã unify với name (PK).
-        if not self.is_new():
-            old = frappe.db.get_value(_DOCTYPE, self.name, "asset_code")
-            if old and old != self.asset_code:
-                frappe.throw(_(
-                    "Mã tài sản không thể thay đổi sau khi tạo "
-                    "(hiện tại: {0}, cố đổi sang: {1})."
-                ).format(old, self.asset_code))
+        old = frappe.db.get_value(_DOCTYPE, self.name, "asset_code")
+        if old and old != self.asset_code:
+            frappe.throw(_(
+                "Mã tài sản không thể thay đổi sau khi tạo "
+                "(hiện tại: {0}, cố đổi sang: {1})."
+            ).format(old, self.asset_code))
 
     def _validate_unique_manufacturer_sn(self) -> None:
         if not self.manufacturer_sn:
@@ -216,8 +230,12 @@ class ACAsset(Document):
             {"manufacturer_sn": self.manufacturer_sn, "name": ["!=", self.name or ""]},
         )
         if existing:
+            # ADR-IMM00-ASSETCODE D4: nhãn VI 'Số serial NSX' (KHÔNG lead-EN 'Serial number').
+            # No-leak định danh chéo: KHÔNG nhúng 'existing' (asset_code/name = PK của tài sản
+            # KHÁC) vào message — người tạo asset X không được nhìn thấy mã nội bộ của asset Y.
+            # Single-quote quanh giá trị để parity import_validators.py:734.
             frappe.throw(
-                _("Serial number {0} đã tồn tại trên {1}").format(self.manufacturer_sn, existing)
+                _("Số serial NSX '{0}' đã tồn tại trong hệ thống").format(self.manufacturer_sn)
             )
 
     def _validate_lifecycle_status_guard(self) -> None:

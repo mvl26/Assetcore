@@ -184,6 +184,9 @@ export interface ReportIncidentPayload {
   patient_impact_description?: string
   immediate_action?: string
   linked_repair_wo?: string
+  /** Nguồn gốc báo sự cố — provenance audit (mirror BE contract):
+   *  'qr-scan' khi điều hướng từ màn quét QR, 'manual' (mặc định) khi tạo thủ công. */
+  source?: 'manual' | 'qr-scan'
 }
 
 export function reportIncident(data: ReportIncidentPayload) {

@@ -91,6 +91,28 @@ const dropdownStyle = computed(() => ({
   maxHeight: `${props.maxHeight ?? 320}px`,
 }))
 
+// Single-item resolve (BUG-PM-1): khi modelValue truthy (vd asset prefill khoá QR)
+// mà selectedItem==null sau ensureLoaded (asset không nằm trong trang đầu
+// search_link với danh mục lớn) → tự gọi store.resolveOne(doctype, id) 1 LẦN để
+// resolve tên đọc-được. Guard `resolvedIds` tránh gọi lặp cùng id (idempotent).
+// Mọi lỗi NUỐT → fallback template line 224-226 (raw modelValue) làm lưới an toàn.
+const resolvedIds = ref<Set<string>>(new Set())
+
+async function ensureSingleResolved() {
+  const id = props.modelValue
+  if (!id) return
+  // Đã có trong cache → không cần resolve (no extra network).
+  if (store.getItemById(props.doctype, id)) return
+  // Guard: đã thử resolve id này → không gọi lặp.
+  if (resolvedIds.value.has(id)) return
+  resolvedIds.value.add(id)
+  try {
+    await store.resolveOne(props.doctype, id)
+  } catch {
+    // Fail-safe: giữ form, fallback raw modelValue. Không throw.
+  }
+}
+
 // Resilience (TC-FE-CAL-SEARCH-06): nếu search_link reject (vd BE trả 500 /
 // config drift / mạng lỗi) thì NUỐT lỗi tại đây → dropdown vẫn mở và hiển thị
 // empty-state ("Chưa có dữ liệu") thay vì để promise reject lan ra event handler
@@ -183,9 +205,14 @@ function onClickOutside(e: MouseEvent) {
   if (wrapperRef.value && !wrapperRef.value.contains(e.target as Node)) close()
 }
 
-// Khi modelValue từ bên ngoài set → đảm bảo đã load cache để resolve label
+// Khi modelValue từ bên ngoài set → đảm bảo đã load cache để resolve label.
+// Sau ensureLoaded, nếu vẫn KHÔNG resolve được id (asset ngoài trang đầu của
+// danh mục lớn) → single-item resolveOne. Chạy cả khi allItems.length>0 nhưng
+// thiếu id (BUG-PM-1: prefill khoá QR mà cache trang không chứa asset).
 watch(() => props.modelValue, async (val) => {
-  if (val && allItems.value.length === 0) await ensureLoaded()
+  if (!val) return
+  if (allItems.value.length === 0) await ensureLoaded()
+  if (!store.getItemById(props.doctype, val)) await ensureSingleResolved()
 }, { immediate: true })
 
 // Cascade: khi filters đổi → reload tập kết quả (nếu dropdown đang mở)

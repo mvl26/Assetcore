@@ -47,7 +47,7 @@ Toàn bộ artefact test được của foundation layer. Mỗi dòng → ≥ 1 
 | 22 | `verify_chain` | API endpoint | `api/imm00.py::verify_chain` | API integration |
 | 23 | `open_capa` / `close_capa_record` | API endpoint | `api/imm00.py::open_capa`, `::close_capa_record` | API integration |
 | 24 | `update_user_roles` | API/service | role management (RBAC) | Integration (permission) |
-| 25 | AC Asset permission query | Permission hook | `permission.py::get_ac_asset_permission_query()` | Integration (RBAC isolation) |
+| 25 | AC Asset permission query (Vendor isolated; KTV nội bộ read-all — ADR-IMM00-LIST-SCOPE) | Permission hook | `permissions.py::ac_asset_query` + `ac_asset_has_permission`; INVARIANT `count==rows` | Integration (RBAC isolation) |
 | 26 | ReferenceDataView / SlaPolicyListView | FE view | `frontend/src/views/master-data/*.vue` | E2E (Playwright) |
 | 27 | useAssetStore / useRefDataStore / useCapaStore / useIncidentStore | Pinia store | `frontend/src/stores/imm00.ts` | Unit (vitest) |
 
@@ -72,6 +72,7 @@ Toàn bộ artefact test được của foundation layer. Mỗi dòng → ≥ 1 
 | FR-00-53..55 | **Per-asset self-heal (RC-04, Round-2)** tại `regenerate_depreciation_schedule` cho asset CŨ | inherit-trước-precheck (200/periods>0), no-che-master-data (422 đúng field), no-clobber, preserve Executed, idempotent + audit (ALE+IMM Audit Trail chỉ khi did_inherit) | Unit + Integration + API + grep-guard |
 | FR-00-56..58 | **`bulk_regenerate_by_category` hợp nhất về SoT (RC-05, Round-4)** — nút "Áp dụng khấu hao theo từng Danh mục" | no-clobber (route qua SoT, bỏ 4 dòng inline), N+1 đóng (1 query GROUP BY executed-history), payload 7-key `+inherited+skipped_no_rule`, preserve Executed, idempotent, audit (per-asset ALE + 1 IMM Audit Trail tổng), FE BaseModal thay window.confirm | Unit + Integration + Performance(query-count) + grep-guard + FE vitest |
 | FR-00-59..62 | **Thanh lý hủy kỳ Pending khấu hao (RC-07, Vòng 8)** — `transition_asset_status(Decommissioned)` → `_cancel_pending_depreciation_on_decommission` | hủy MỌI Pending → Cancelled (pending_periods=0), Executed bất biến (accumulated/book không đổi), cron không đào lại (executed_rows=0), idempotent (0 Pending→0 event), ≥1 hủy → 1 ALE `depreciation_stopped` + 1 IMM Audit Trail `System`, best-effort (lỗi audit không vỡ transition), schema-delta `event_type+=depreciation_stopped` | Unit + Integration(cron+audit) + State/Idempotent + fault-injection + schema (RED-first TC-DEP-80) |
+| FR-00-89 | **Hard-cap `page_size [1,100]` ở 11 list-endpoint imm00 (BR-00-39, factory vòng 5)** — SSoT `clamp_page_size()`+`MAX_PAGE_SIZE` | `page_size=100000`→`len(items)<=100` ∧ `pagination.page_size==100`; `<=0`→`>=1`; `<=100` giữ nguyên; non-int→`ValueError`; `list_assets` count==drill GIỮ; no field-leak; 1 SSoT (no literal 100 rải rác); EXCLUDE depreciation | API + BVA(boundary) + Regression + grep-guard |
 | FR-00-63..69 | **Tạm ngừng sử dụng: PAUSE + DỜI lịch khấu hao (RC-08, Vòng 9) + nhãn `restored` single-emit (RC-09, Vòng 14)** — `transition_asset_status('Out of Service')` → `_pause_depreciation_on_oos`; `transition_asset_status('Active' từ prev='Out of Service')` → emit ĐÚNG 1 ALE `restored` (qua `_lifecycle_event_for(to,from)`) + `_reschedule_pending_depreciation_on_restore` (CHỈ audit) | PAUSE: executor không trích trong window OoS (executed_rows=0, book bất biến); NO PHANTOM CATCH-UP (bug chính RC-08): delta_accumulated=0 cho kỳ idle sau restore; RESCHEDULE: kỳ Pending dời `scheduled_date += oos_days` (count/sum/period_number/amount bất biến); Executed/Cancelled bất biến; oos_start SoT (downtime log → fallback ALE → no-op không raise); idempotent (Active→Active no-op không dời kép); **audit (RC-09): ≥1 ALE `out_of_service`(pause) + ĐÚNG 1 ALE `restored`(resume, do transition) + 0 `activated` + ≥1 IMM Audit Trail — bất kể có/không Pending (consistency); KHÔNG double-emit**; đường về Active không-từ-OoS giữ `activated`; KHÔNG schema-delta | Unit + Integration(cron+audit) + State/Idempotent + fault-injection + fallback (RED-first TC-DEP-92 + TC-ALE-RESTORE-01) |
 
 ### I.2.b. Từ Business Rule
@@ -100,6 +101,22 @@ Toàn bộ artefact test được của foundation layer. Mỗi dòng → ≥ 1 
 | BR-00-22 | Per-asset self-heal tại `regenerate` (RC-04): inherit-trước-precheck; precheck chạy LẠI sau; no-clobber; preserve Executed; idempotent; audit chỉ khi did_inherit; grep-guard 1 SoT | `regenerate_depreciation_schedule()` → `inherit_depreciation_rules_from_category()` | EP + Decision Table + State + Integration + grep-guard |
 | BR-00-23 | `bulk_regenerate_by_category` route qua SoT (RC-05): no-clobber 4 field user; N+1 đóng (1 query GROUP BY executed-history); preserve Executed; skipped_no_rule không che master-data; idempotent; payload 7-key; audit per-asset ALE + 1 IMM Audit Trail; grep-guard 0 inline copy | `bulk_regenerate_by_category()` → `inherit_depreciation_rules_from_category()` | Decision Table + Performance(query-count) + State + Integration + grep-guard |
 | BR-05-13 | SoT `effective_book_value` fix falsy-zero (RC-06): None→gross, 0.0→0.0 (KHÔNG `or gross`); fully_depreciated đếm asset book=0.0; total_book/by_category no-phantom; count==drill; no-regression book=None; grep-guard 0 idiom `or gross` | `effective_book_value()` → `compute_depreciation()` + `_depr_enrich_row()` + `get_depreciation_stats()` + `is_fully_depreciated()` | EP(boundary None/0.0) + Decision Table(RED-first) + Integration(invariant) + Regression + grep-guard |
+| BR-00-39 | Hard-cap `page_size [1,100]` ở 11 list-endpoint imm00 (RC-LIST-PAGESIZE): SSoT `clamp_page_size()`; `page_size>100`→limit thực+metadata=100; `<=0`→1; `<=100` giữ nguyên; non-int→`ValueError` (no nuốt lỗi); `list_assets` count==drill/count==rows giữ (clamp chỉ đụng `limit_page_length`); no field-leak; no literal 100 rải rác; EXCLUDE `list_assets_depreciation` | `utils/pagination.py::clamp_page_size()` + 11 endpoint `api/imm00.py` | BVA(boundary 0/1/100/100000) + API(parity 11 endpoint) + Regression(count==drill) + grep-guard(1 SSoT) |
+
+#### TC cho BR-00-39 — hard-cap `page_size [1,100]` (factory vòng 5)
+> File: bổ sung class `TestListPageSizeCap` vào `assetcore/tests/test_imm00.py` (chạy `bench --site miyano run-tests --module assetcore.tests.test_imm00`). Verify logic-level, fresh-import — KHÔNG cần reload gunicorn / KHÔNG bench migrate / KHÔNG tuyên bố verify HTTP/Playwright live (STALE-WORKER gate).
+
+| TC | Request | Expected | Kỹ thuật | AC |
+|---|---|---|---|---|
+| TC-00-PS-01 | `list_assets(page=1, page_size=100000)` (≥101 asset trong DB) | `len(resp['data']['items']) <= 100` **VÀ** `resp['data']['pagination']['page_size'] == 100` (metadata == limit thực) | BVA (vượt cap) | AC1 |
+| TC-00-PS-02 | MỖI endpoint trong 11 (`list_assets`/`get_asset_timeline`/`list_lifecycle_events`/`list_suppliers`/`list_device_models`/`list_audit_trail`/`list_capas`/`list_overdue_capas`/`list_incidents`/`list_transfers`/`list_service_contracts`) với `page_size=100000` | `len(items) <= 100` ∧ `pagination.page_size == 100` (parity toàn module) | API (parity) | AC2 |
+| TC-00-PS-03 | `page_size=0` và `page_size=-5` | clamp về `>= 1` (`pagination.page_size == 1`, KHÔNG 0/âm → KHÔNG trả 0 row sai) | BVA (biên dưới) | AC3 |
+| TC-00-PS-04 | `page_size=20` (hợp lệ) | giữ NGUYÊN 20 (KHÔNG regress trang nhỏ); `len(items) <= 20` | BVA (no-regress) | AC3 |
+| TC-00-PS-05 | `page_size='abc'` (non-int) | raise `ValueError` (giữ hành vi cũ — KHÔNG nuốt lỗi thầm, KHÔNG trả envelope 200) | Error guessing | AC3 |
+| TC-00-PS-06 | `list_assets(page_size=100000)` đủ data ở trang | `len(items) == pagination.page_size` (==100) ∧ `<= 100` | INVARIANT | AC4 |
+| TC-00-PS-07 | `list_assets` count==drill / count==rows hiện có (vendor + KTV nội bộ) | KHÔNG regress sau fix — clamp KHÔNG đụng `filters`/`or_filters`/`permission_query_conditions` (suite ADR-IMM00-LIST-SCOPE GIỮ XANH) | Regression (invariant) | AC4 |
+| TC-00-PS-08 | `test_list_assets_no_qr_token` (hiện có) | GIỮ XANH — fix KHÔNG thêm field-select | Regression (no-leak) | AC6 |
+| TC-00-PS-09 | grep `grep -n "min(.*100\|100)" assetcore/api/imm00.py` (loại comment) | literal cap `100` chỉ ở `utils/pagination.py` (`MAX_PAGE_SIZE`) — KHÔNG copy-paste rải rác trong api | grep-guard (1 SSoT) | AC2 |
 
 #### TC cho BR-00-16 — filter composition (conjoin, no-clobber)
 | TC | Request | Expected | Kỹ thuật |
@@ -463,31 +480,37 @@ File: `assetcore/tests/test_imm00_list_assets.py` (live). Envelope `{success, da
 | `transition_status` invalid → error | `api/imm00.transition_status` | error envelope | Error guessing | ⬜ Planned |
 | `verify_chain` | `api/imm00.verify_chain` | `{verified, count, last_hash}` | Use Case | ⬜ Planned |
 
-### III.6.0b — Vòng B: SIẾT RBAC in nhãn QR `asset.read`→`asset.write` (ADR-001 D4)
+### III.6.0b — D6 (EXECUTED Vòng 3): TÁCH cap in/rotate `asset.print` + `asset.qr.rotate` (ADR-IMM00-QR-SCAN-ACTION)
 
-File BE: cập nhật class `TestAssetLabelData` (`assetcore/tests/test_imm00.py` ~:2429). **Giữ** `test_label_endpoints_require_asset_read` (no-cap/Guest vẫn 403) NHƯNG **THÊM** test phân-tách read vs write — đo QUA layer `require` với **user THẬT** có/không `asset.write` (KHÔNG mock `require`, KHÔNG mock `has_permission` → tránh test false-green; luật skill: test mới phải đi QUA layer require).
+File BE: class `TestLabelWriteCapability` + `TestRegenerateQrToken` (`assetcore/tests/test_imm00.py`). **D6 RECONCILE:** in nhãn gate `asset.write`→**`asset.print`** (DocPerm print=1 sẵn cho persona vận hành → in được); rotate gate `asset.write`→**`asset.qr.rotate`** (=write, chỉ Super Admin/được cấp). Đo QUA layer `require` với **user THẬT** (KHÔNG mock `require`/`has_permission` → tránh false-green; luật skill).
 
-**Acceptance — chạy XANH:** `bench --site miyano run-tests test_imm00` + `test_rbac` GREEN; `bench migrate` sạch (cap-set version GIỮ `v95.3388ee5629c1`); `vue-tsc` 0; `vitest` GREEN. Toàn bộ test cũ vẫn xanh (regression).
+**Acceptance — ĐÃ XANH (2026-06-08):** `bench --site miyano run-tests test_imm00` (254 OK) + `test_rbac` (53 OK); `bench migrate` sạch; **cap-set version `v95.3388ee5629c1` → `v97.c30c69b8974d`** (thêm 2 cap); `vue-tsc` 0; `vitest` 941 OK. Toàn bộ test cũ xanh (regression).
 
 | TC (BE) | Kịch bản (user THẬT, qua layer `require`) | Verify | Kỹ thuật |
 |---|---|---|---|
-| `test_label_data_read_only_user_403` | user có `asset.read` NHƯNG KHÔNG `asset.write` (DocPerm AC Asset: read=1, write=0) gọi `get_asset_label_data` | `PermissionError` (403) | EP (least-privilege) |
-| `test_label_batch_read_only_user_403` | cùng user trên gọi `get_asset_label_data_batch([a])` | `PermissionError` (403) | EP |
-| `test_mark_printed_read_only_user_403` | cùng user trên gọi `mark_label_printed([a])` | `PermissionError` (403); KHÔNG ghi `label_printed`/audit (count trước=sau) | EP + state-based |
-| `test_label_data_write_user_200` | user có `asset.write` (DocPerm write=1) gọi `get_asset_label_data` | 200, payload đủ 6 key | Use Case (positive) |
-| `test_mark_printed_write_user_200` | user có `asset.write` gọi `mark_label_printed([a])` | 200; ĐÚNG 1 `label_printed` + 1 audit / asset | Use Case (positive) |
-| `test_readonly_qr_endpoints_keep_asset_read` | user có `asset.read` (KHÔNG write) gọi `resolve_qr_token` / `get_asset_scan_info` / `get_asset` | 200 (read-only GIỮ `asset.read` — KHÔNG bị siết) | Regression (negative-scope) |
-| `test_label_idor_unchanged_after_write_gate` | user có `asset.write` NHƯNG vendor ngoài scope (Vendor Engineer) | **403 IDOR** (`assert_vendor_can_access`) — siết RBAC KHÔNG nới IDOR | IDOR (regression) |
-| `test_cap_set_version_unchanged` | sau `bench migrate` | `CAP_SET_VERSION == "v95.3388ee5629c1"`; `"asset.write" in CAPABILITY_MAP`; KHÔNG có `"asset.print_label"` | White-box (no-churn guard) |
+| `test_label_data_print_user_200` | user CÓ `asset.print` NHƯNG KHÔNG `asset.write` (Commissioning User: read=1,write=0,print=1) gọi `get_asset_label_data` | **200**, payload đủ 8 key (KHÔNG 403) | Use Case (D6 positive) |
+| `test_label_batch_print_user_200` | cùng user gọi `get_asset_label_data_batch([a])` | **200** | Use Case |
+| `test_mark_printed_print_user_200` | cùng user gọi `mark_label_printed([a])` | **200**; ĐÚNG 1 `label_printed` + 1 audit | Use Case + state-based |
+| `test_label_data_no_print_user_403` | user KHÔNG `asset.print` (Guest) gọi `get_asset_label_data` | `PermissionError` (403) VI sạch | EP (least-privilege) |
+| `test_mark_printed_no_print_user_403_no_side_effect` | Guest gọi `mark_label_printed([a])` | 403; KHÔNG ghi `label_printed`/audit (count trước=sau) | EP + state-based |
+| `test_label_data_write_user_200` | Super Admin (print=1+write=1) gọi `get_asset_label_data` | 200, 8 key | Use Case |
+| `test_readonly_qr_endpoints_keep_asset_read` | user print (read=1) gọi `resolve_qr_token`/`get_asset_scan_info`/`get_asset` | 200 (read-only GIỮ `asset.read`) | Regression (negative-scope) |
+| `test_label_idor_unchanged_after_print_gate` | user CÓ `asset.print` (Vendor Engineer) NHƯNG vendor ngoài scope | **403 IDOR** — đổi gate KHÔNG nới IDOR | IDOR (regression) |
+| `test_regenerate_print_only_user_403` | user CÓ `asset.print` NHƯNG KHÔNG `asset.qr.rotate` gọi rotate | **403**; qr_token KHÔNG đổi (no side-effect) | EP (tách quyền) |
+| `test_regenerate_write_user_200_new_token` | user `asset.qr.rotate` (write=1) gọi rotate | 200; token mới ≠ cũ; no-raw-token | Use Case |
+| `test_cap_set_version_changed_after_split_caps` | sau `bench migrate` | `CAP_SET_VERSION == "v97.c30c69b8974d"` (≠ v95…); `asset.print`→(AC Asset,"print"); `asset.qr.rotate`→(AC Asset,"write") ∈ CAPABILITY_MAP; KHÔNG `asset.print_label` | White-box (version guard) |
 
-> **KHÔNG test false-green:** test tạo user thật + cấp/không-cấp DocPerm `write` trên `AC Asset` (qua Role có DocPerm tương ứng), `frappe.set_user(...)`, rồi gọi endpoint. KHÔNG `monkeypatch rbac.require`/`frappe.has_permission`. Gate đi đúng đường `require("asset.write")` → `can` → `frappe.has_permission("AC Asset","write")`.
+> **KHÔNG test false-green:** test tạo user thật + cấp/không-cấp DocPerm `print`/`write` trên `AC Asset` (qua Role/Custom DocPerm), `frappe.set_user(...)`, rồi gọi endpoint. KHÔNG `monkeypatch rbac.require`/`frappe.has_permission`. Gate đi đúng đường `require("asset.print")`/`require("asset.qr.rotate")` → `can` → `frappe.has_permission("AC Asset", permtype)`.
 
 | TC (FE) | Kịch bản | Verify |
 |---|---|---|
-| `AssetDetailView.test.ts::print_btn_hidden_read_only` | mock caps `{asset.read:true, asset.write:false}` | nút "In nhãn QR" KHÔNG render |
-| `AssetDetailView.test.ts::print_btn_shown_with_write` | mock caps `{asset.write:true}` | nút "In nhãn QR" render |
-| `AssetListView.test.ts::batch_print_btn_gated_write` | mock caps `{asset.write:false}` | nút "In nhãn hàng loạt" KHÔNG render |
-| `router.test.ts::label_print_route_requires_write` | guard `AssetLabelPrint` với caps `{asset.read:true,asset.write:false}` | redirect Unauthorized (KHÔNG vào view) |
+| `assetDetailQrPrint.test.ts` (D6) | mock caps `{asset.read:true}` (KHÔNG print) | nút "In nhãn QR" KHÔNG render |
+| `assetDetailQrPrint.test.ts` (D6) | mock caps `{asset.print:true}` | nút "In nhãn QR" render |
+| `assetDetailQrRegenerate.test.ts` (D6) | mock caps `{asset.print:true}` (KHÔNG rotate) | nút "Sinh lại mã QR" KHÔNG render (tách quyền) |
+| `assetDetailQrRegenerate.test.ts` (D6) | mock caps `{asset.qr.rotate:true}` | nút "Sinh lại mã QR" render |
+| `assetListBatchSelect.test.ts` (D6) | mock caps `{asset.read:true}` (KHÔNG print) | nút "In nhãn hàng loạt" KHÔNG render |
+| `routeAccess.test.ts` (D6) | guard `AssetLabelPrint` với caps `{asset.read:true}` | unauthorized; `{asset.print:true}` → allow |
+| `assetDetailRbacAffordance.test.ts` (D6) | caps `{asset.print:true}` only | "In nhãn QR" hiện, "Sinh lại mã QR"/"Chỉnh sửa" ẩn (least-privilege) |
 
 ### III.6.0c — Vòng 22 / B-6: Cap batch nhãn QR — 413 payload-DoS (ADR-001 D3/D4, BR-00-33)
 
@@ -517,6 +540,64 @@ File BE: cập nhật class `TestAssetLabelData` (`assetcore/tests/test_imm00.py
 | `label.test.ts::fe_cap_matches_be` | so khớp | `frontend/src/constants/label.ts::_MAX_LABEL_BATCH == 200` (đồng bộ BE — guard drift) |
 
 > **KHÔNG test false-green:** test cap đi QUA endpoint thật với `len(names)` ở biên; KHÔNG monkeypatch `_MAX_LABEL_BATCH` xuống số nhỏ rồi assert (giữ test phản ánh ngưỡng prod). Dùng đúng 200/201 name (name giả `"AC-ASSET-FAKE-{i}"` cho test 413 — vì cap chặn TRƯỚC `exists` nên không cần asset thật cho biên trên).
+
+### III.6.0 — V10: Coerce an toàn tham số `assets` (3 endpoint nhãn) — `TestLabelCoerceAssets` (ADR-IMM00-LABEL-PDF D17)
+
+File BE: class MỚI `TestLabelCoerceAssets` trong `assetcore/tests/test_imm00.py` (cạnh `TestAssetLabelData`). **Guard Python thuần tier API/service** → fresh-import qua `run-tests`, KHÔNG cần reload gunicorn/migrate.
+
+**Acceptance — chạy XANH:** `bench --site miyano run-tests test_imm00` GREEN (288+ baseline 0 regression + TC mới). **RED-first chứng minh:** trước fix `assets='AC-2026-00001'` FAIL (raise `JSONDecodeError`/500) → sau fix GREEN. KHÔNG cần `vue-tsc`/`vitest` (BE-only). Toàn bộ test nhãn cũ (`TestAssetLabelData`, `TestLabelPdfPipeline`, cap-tests) GIỮ xanh.
+
+> **Vector chuẩn (dùng chung 3 endpoint):** `BAD = ['AC-2026-00001', '', '   ', 'not-json', '"AC-1"', '123', '{"a":1}']` (string KHÔNG-list-hợp-lệ) · `GOOD = (['AC-1','AC-2'], '["AC-1"]')` (list + JSON-array-string) · `MIXED = [1, 'AC-1', None]` (list lẫn non-str).
+
+| TC (BE) | Kịch bản | Verify | Kỹ thuật |
+|---|---|---|---|
+| `test_pdf_bad_assets_no_500_returns_label_empty_422` | `print_asset_labels_pdf(assets=v)` ∀ `v ∈ BAD` (Administrator có cap) | **KHÔNG raise** (no JSONDecodeError/TypeError/500); coerce-`[]` → `_err` HTTP-200, `http_status==422`, message == `_ERR_LABEL_EMPTY`; KHÔNG traceback trong body; KHÔNG set `frappe.local.response` PDF | EP + no-500 |
+| `test_batch_bad_assets_no_500_returns_ok_empty` | `get_asset_label_data_batch(assets=v)` ∀ `v ∈ BAD` | KHÔNG raise; `success==True`, `data == []` (KHÔNG 4-entry char-walk); KHÔNG 500 | EP + count==rows |
+| `test_mark_bad_assets_no_500_no_side_effect` | `mark_label_printed(assets=v)` ∀ `v ∈ BAD` | KHÔNG raise; coerce-`[]` → vòng exists rỗng → `success==True` no-side-effect (0 `label_printed` + 0 audit, count trước==sau); KHÔNG 500 | State-based no-side-effect |
+| `test_scalar_string_no_char_walk` | `get_asset_label_data_batch(assets='"AC-1"')` mock/spy `frappe.db.exists` | `db.exists` gọi **0 lần** (coerce-`[]`, KHÔNG 4 lần trên `'A','C','-','1'`); `data == []` — char-walk guard | White-box (call-count == #asset hợp lệ ≠ #ký-tự) |
+| `test_number_object_no_typeerror` | `print_asset_labels_pdf(assets='123')` + `(assets='{"a":1}')` | KHÔNG `TypeError` trên `len()`/iterate; `_err` 422 VI sạch | Error guessing (type-coerce) |
+| `test_valid_list_byte_for_byte` | `get_asset_label_data_batch(assets=['AC-1','AC-2'])` (asset thật) | render/đọc ĐÚNG như trước fix (payload đầy đủ, giữ thứ tự) — 0 regression đường hợp lệ | Regression |
+| `test_valid_json_array_string_byte_for_byte` | `get_asset_label_data_batch(assets='["AC-1"]')` (asset thật) | đọc đúng (parse JSON-array-string → list) — đường HTTP hợp lệ giữ nguyên | Regression |
+| `test_mixed_list_filters_non_str` | `mark_label_printed(assets=[1, a.name, None])` (a thật) | chỉ ghi cho `a.name`; `1`/`None` bị lọc — KHÔNG đẩy vào `db.exists`/`assert_vendor_can_access`; 1 `label_printed` | White-box (per-element filter) |
+| `test_coerce_runs_after_rbac_guest_403` | Guest gọi 3 endpoint với `assets='AC-2026-00001'` | **403** (PermissionError dispatcher) TRƯỚC coerce — coerce KHÔNG rò giới hạn/empty-path cho khách chưa-auth; thứ tự gate giữ | Ordering (no-leak) |
+| `test_coerce_8_single_ssot_helper_no_bare_parse_json` | đọc source `assetcore/api/imm00.py` | regex `parse_json\(assets\)` match **đúng 1 lần** — BÊN TRONG `_coerce_asset_names` (helper ĐỊNH NGHĨA ở `api/imm00.py:126`, NOT `services/imm00.py`); handler-pattern trần `parse_json(assets) if isinstance` match **0 lần** — drift-guard | White-box (grep source) |
+
+> **KHÔNG test false-green:** RED-first BẮT BUỘC — viết `test_pdf_bad_assets_no_500…` TRƯỚC fix, chứng kiến FAIL (raise/500), rồi mới impl `_coerce_asset_names`. Char-walk guard đếm `db.exists` call-count == số asset-name **hợp lệ** (KHÔNG == số ký tự của scalar-string) — nếu bỏ list-gate, test này FAIL (4 call). Đường hợp lệ phải PASS cùng assertion với test cũ (superset an toàn). ⚠️ **Drift-note:** SSoT `_coerce_asset_names` THỰC-TẾ ở `api/imm00.py:126` (NOT `services/imm00.py` như bản cũ ghi — `test_coerce_8…` đọc source `api/imm00.py` xác nhận).
+
+### III.6.0-DEDUP — V15: Khử trùng-lặp asset TRONG-CALL ở SSoT `_coerce_asset_names` — `TestLabelCoerceDedup` (ADR-IMM00-LABEL-PDF D19 / BR-00-47 / FR-00-98)
+
+File BE: class MỚI `TestLabelCoerceDedup` trong `assetcore/tests/test_imm00.py` (cạnh `TestLabelCoerceAssets`). **Guard Python thuần tier API** → fresh-import qua `run-tests`, KHÔNG cần reload gunicorn/migrate. **RED-first:** `_coerce_asset_names(['AC-1','AC-1','AC-2','AC-1'])` → 4 phần tử (FAIL) TRƯỚC fix → `['AC-1','AC-2']` (GREEN) sau khi thêm `list(dict.fromkeys(...))`.
+
+**Acceptance — chạy XANH:** `bench --site miyano run-tests test_imm00` GREEN (baseline 0 regression + 7 TC mới). Bộ test nhãn cũ (`TestAssetLabelData`/`TestLabelPdfPipeline`/`TestLabelCoerceAssets`/cap-tests) + **`test_mark_label_printed_idempotent_count` (`:4342`)** GIỮ XANH. FE: vitest baseline 135 file 0 regression (validNames đã unique — KHÔNG sửa FE, KHÔNG cần `vue-tsc`).
+
+| TC (BE) | ID | Kịch bản | Verify | Kỹ thuật |
+|---|---|---|---|---|
+| `test_coerce_dedup_in_call_keep_first_order` | TC-LABEL-DEDUP-01 | `_coerce_asset_names(['AC-1','AC-1','AC-2','AC-1'])` + `(['AC-2','AC-1','AC-2'])` | → `['AC-1','AC-2']` + `['AC-2','AC-1']` (giữ lần xuất-hiện-ĐẦU, bỏ trùng SAU, **KHÔNG sort**) | EP + order-preserve (unit, no DB) |
+| `test_coerce_dedup_compose_after_type_filter` | TC-LABEL-DEDUP-02 | `_coerce_asset_names([1,'AC-X',None,'AC-X',''])` + `'["AC-1","AC-1"]'` | → `['AC-X']` + `['AC-1']` (lọc-kiểu D17 TRƯỚC, dedup D19 SAU; áp cả đường JSON-array-string) | White-box (compose) |
+| `test_mark_label_printed_dedup_one_call_one_event` | TC-LABEL-DEDUP-03 | `mark_label_printed(assets=[a1.name,a1.name,a1.name])` (1 call, a1 thật) | `success`; `data.event_count==1`, `data.printed==[a1.name]`; `COUNT(ALE label_printed)`==before+1 ∧ `COUNT(IMM Audit Trail)`==before+1 (**KHÔNG +3**) | State-based (no-amplify) |
+| `test_print_pdf_dedup_one_page` | TC-LABEL-DEDUP-04 | `print_asset_labels_pdf(assets=[a1.name,a1.name])` (a1 thật, cap) | bytes `%PDF-`; **`len(pypdf.PdfReader(BytesIO(pdf)).pages)==1`** (HARD invariant — KHÔNG 2 trang trùng); MediaBox khổ-DỌC đúng tỷ-lệ portrait 60:100 — `width<height` ∧ `height/width ≈ 100/60` (tol ±2%). ⚠️ KHÔNG assert pt-tuyệt-đối: wkhtmltopdf có thể emit MediaBox theo **px@96DPI** (60mm→226.77px, 100mm→377.95px) KHÁC pt (170.08×283.46) tuỳ engine → assert tỷ-lệ + portrait, KHÔNG hardcode pt | Output-based (pypdf page-count HARD + MediaBox ratio) |
+| `test_batch_dedup_one_element` | TC-LABEL-DEDUP-05 | `get_asset_label_data_batch(assets=[a1.name,a1.name])` (a1 thật) | `success`; `len(data)==1` (count==rows: 1 unique == 1 row); `data[0].name==a1.name` | EP + count==rows |
+| `test_cap_measured_on_deduped_list` | TC-LABEL-DEDUP-06 | (a) `get_asset_label_data_batch(assets=[a1.name]*300)` (300 trùng, a1 thật); (b) `>200 asset UNIQUE` thật | (a) **KHÔNG 413** — dedup `[a1]` (len 1 ≤ 200), `_ok` 1-item; (b) **413** `_ERR_LABEL_BATCH_TOO_LARGE` GIỮ (cap đo unique) | Boundary (cap-on-dedup, trực giao cap) |
+| `test_mark_label_printed_idempotent_count` (HIỆN HỮU `:4342`) | TC-LABEL-DEDUP-07 | 2 lần gọi RIÊNG `mark_label_printed([a1.name])` | **2** event `label_printed` cho a1 (cross-call KHÔNG dedup — dedup CHỈ trong-call) — bất biến PHẢI vẫn XANH | Regression (cross-call invariant) |
+
+> **KHÔNG test false-green:** RED-first — viết TC-01/03/04/05 TRƯỚC khi thêm `list(dict.fromkeys(...))`, chứng kiến FAIL (4 phần tử / event_count=3 / 2 trang / 2 phần tử), rồi mới impl. **Cross-call guard (TC-07) BẮT BUỘC PASS cả trước-lẫn-sau fix** — nếu fix vô tình thêm state xuyên-call (cache/DB-lookup) thì TC-07 FAIL → reject. **pypdf** đã có ở bench (dùng đọc page-count + MediaBox; KHÔNG đếm chuỗi `%PDF` thô). Malformed→`[]` (TC `TestLabelCoerceAssets` cũ) GIỮ XANH (dedup `[]`→`[]` no-op).
+
+### III.6.k-LABELQREMPTY — Guard render-tier `qr_url` rỗng/whitespace → ô-QR-lỗi an toàn ở tem PDF (Vòng 30 — BR-00-49 / FR-00-100 / ADR §D20)
+
+File BE: class MỚI `TestLabelQrEmpty` trong `assetcore/tests/test_imm00.py` (cạnh `TestLabelPdfPipeline`). **Guard Python thuần render-tier (`services/imm00.py::_label_block`/`render_asset_labels_pdf`)** → fresh-import qua `run-tests`, KHÔNG reload gunicorn/migrate. **RED-first:** `_label_block({...,"qr_url":""},...)` chứa `<svg>` QR-rác rỗng (FAIL) TRƯỚC fix → ô-QR-lỗi VI `Không tạo được mã QR` KHÔNG `<svg>` (GREEN) sau guard. FE: revert-proof vitest `AssetQrLabel` (xoá guard `:73`→ĐỎ, khôi phục→XANH). **pypdf** đo TẦNG PDF THẬT (page-count + extract_text + MediaBox; KHÔNG đếm `<svg>` ở HTML trung gian — đo bytes PDF cuối).
+
+**Acceptance — chạy XANH:** `bench --site miyano run-tests test_imm00` GREEN (baseline 0 regression + 6 TC mới). Bộ test nhãn cũ (`TestAssetLabelData`/`TestLabelPdfPipeline`/`TestLabelCoerceAssets`/`TestLabelCoerceDedup`/cap/AC-E001) GIỮ XANH. FE: `AssetQrLabel.*.test.ts` GREEN + revert-proof guard.
+
+| TC | ID | Kịch bản | Verify | Kỹ thuật |
+|---|---|---|---|---|
+| `test_label_block_empty_qr_url_safe_cell` | TC-LABEL-QREMPTY-01 | `_label_block({"asset_code":"A-1","asset_name":"X","qr_url":""}, "tem-60x100", True)` + lặp `qr_url:"   "` (whitespace) | HTML KHÔNG chứa `"<svg"` ∧ KHÔNG chứa `data-qr-url=""` (rỗng) ∧ CHỨA `Không tạo được mã QR` ∧ CHỨA field-chữ `A-1`/`X`; whitespace cho CÙNG kết quả (strip ≡ rỗng) | Unit white-box (HTML assert) |
+| `test_label_block_qr_svg_inline_not_called_when_empty` | TC-LABEL-QREMPTY-02 | spy/monkeypatch `_qr_svg_inline`; `_label_block` item `{qr_url:""}` + `{qr_url:"   "}` | `_qr_svg_inline` 0-call (HOẶC assert `pyqrcode.create` KHÔNG nhận `''`/`'   '`); 0 raise, 0 junk-QR | Guard-trước-create (spy) |
+| `test_render_pdf_empty_qr_url_n_to_n_pages` | TC-LABEL-QREMPTY-03 | `render_asset_labels_pdf([a_ok, a_empty_qr, a_ok2])` (a_empty_qr = asset thật nhưng qr_url drift rỗng) | bytes `%PDF-`; **`len(pypdf.PdfReader(BytesIO(pdf)).pages)==3`** (N→N — 1 asset xấu KHÔNG giết batch); trang[1] `extract_text()` chứa `Không tạo được mã QR` ∧ KHÔNG `<svg>`-marker; MediaBox portrait đúng khổ (`width<height` ∧ `height/width≈100/60` tol ±2% — KHÔNG hardcode pt) | Output-based (pypdf page-count HARD + text + MediaBox ratio) |
+| `test_render_pdf_empty_qr_url_no_raise_no_junk` | TC-LABEL-QREMPTY-04 | inject `_label_block`/`render_asset_labels_pdf` item `{qr_url:""}` + `{qr_url:"   "}` | 0 raise (KHÔNG `_ERR_LABEL_RENDER` toàn-call); PDF bytes KHÔNG chứa chuỗi `qr_url` rỗng/junk embed cho ô đó | No-raise batch |
+| `test_label_no_regression_ace001_and_valid_qr` | TC-LABEL-QREMPTY-05 | `[valid, "KHONG-TON-TAI"]` (§D7 AC-E001) + asset QR-hợp-lệ | AC-E001 VẪN 2 trang (1 QR-thật + 1 "Không tìm thấy tài sản" KHÔNG QR); asset QR-hợp-lệ VẪN có `<svg>` + `data-qr-url=/a/<token>` trong HTML | Regression (AC-E001 + đường QR-hợp-lệ) |
+| `test_fe_assetqrlabel_empty_qr_guard_revert_proof` | TC-LABEL-QREMPTY-06 | (vitest) `AssetQrLabel` `qr_url:''` → `qrFailed==true` + ô-fallback render "Không tạo được mã QR"; xoá guard `:73`→ĐỎ, khôi phục→XANH | guard `:73` CÒN RĂNG (LL-TEST-26); parity nhãn VI on-screen ≡ PDF | FE revert-proof (vitest) |
+
+> **KHÔNG test false-green:** RED-first — viết TC-01/03 TRƯỚC khi thêm guard, chứng kiến FAIL (HTML chứa `<svg>` QR-rác / PDF trang ô-rỗng có `<svg>`), rồi mới impl. **Đo ở TẦNG PDF THẬT (pypdf)** cho TC-03/04 — KHÔNG đếm `<svg>` ở HTML trung gian (đo bytes PDF cuối: `extract_text()` + MediaBox). **N→N trang (TC-03) HARD invariant** — nếu fix vô tình raise toàn-call (giết batch) thì `pages != 3` → reject. **pyqrcode KHÔNG BAO GIỜ nhận `''`/`'   '`** (TC-02 spy) — guard TRƯỚC create. AC-E001 (asset∄, §D7) + đường QR-hợp-lệ + §D2/D3/D13/D17/D19 GIỮ XANH (TC-05). **KHÁC AC-E001:** nhánh #3 (qr_url rỗng) VẪN render 5 field chữ (asset có data) — assert field-chữ hiện diện (TC-01).
 
 ### III.6.a — A6: `get_asset_scan_info` — màn info mobile-first khi quét QR (ADR-001 V7)
 
@@ -602,6 +683,208 @@ File BE: thêm class `TestAssetScanInfoCalibrationOverdue` vào `assetcore/tests
 | `AssetScanInfoView.test.ts::cal_badge_a11y_not_color_only` | mock `calibration_overdue:true` | badge có text + `role="status"` + `aria-label` (a11y — KHÔNG chỉ dựa màu) |
 | `AssetScanInfoView.test.ts::cal_no_client_date_compare` | mock `calibration_overdue:false` NHƯNG `next_calibration_date` quá khứ | KHÔNG render badge (FE KHÔNG tự so ngày — chỉ theo cờ BE) |
 
+#### III.6.f-PMDATESTR — A6-hardening (Vòng 11): `next_pm_date` → `str\|None` (parity `next_calibration_date`) — FR-00-86
+
+File BE: thêm **đúng 1 TC** `test_scan_info_next_pm_date_is_str_or_none` vào class `TestAssetScanInfoPmOverdue` (cùng `assetcore/tests/test_imm00.py`) — mirror chính xác `test_payload_has_calibration_fields_9_fields_intact` (vốn assert `next_calibration_date` là `str|None`). FE: **KHÔNG đổi** (`scheduleLabel('next_pm_date')` đã chịu được str/null/absent — `vitest` GIỮ XANH). **RED-first BẮT BUỘC:** TC chưa tồn tại + `build_asset_scan_info` còn emit `row.get("next_pm_date") or None` (date object thô) → assert `isinstance(str)` + `== getdate(...).strftime('%Y-%m-%d')` FAIL → đổi 1 dòng sang `_date_str_or_none(row.get("next_pm_date"))` → GREEN. Đo QUA `build_asset_scan_info`/`get_asset_scan_info` THẬT (KHÔNG mock — tạo asset thật, set `next_pm_date` thật).
+
+**Acceptance — chạy XANH:** `bench --site miyano run-tests test_imm00` (`TestAssetScanInfo` + `TestAssetScanInfoPmOverdue` + `TestAssetScanInfoCalibrationOverdue` GIỮ baseline + TC mới). KHÔNG `bench migrate` (zero schema), KHÔNG reload gunicorn. `CAP_SET_VERSION` GIỮ `v95.3388ee5629c1`.
+
+| TC (BE) | Input | Expected | Kỹ thuật |
+|---|---|---|---|
+| `test_scan_info_next_pm_date_is_str_or_none` | `next_pm_date = add_days(nowdate(), -1)`, gọi `build_asset_scan_info` | `isinstance(data["next_pm_date"], str)` **AND** `data["next_pm_date"] == getdate(add_days(nowdate(),-1)).strftime("%Y-%m-%d")` — KHÔNG còn `datetime.date` object | Type + value-exact |
+| `test_scan_info_next_pm_date_none_when_null` | KHÔNG set `next_pm_date` | `data["next_pm_date"] is None` (rỗng/NULL → None, KHÔNG raise) | EP (null) |
+| `test_scan_info_pm_overdue_unaffected_by_str_normalize` | `next_pm_date = add_days(nowdate(), -1)`, Active | `pm_overdue is True` ∧ `next_pm_date` là str `'YYYY-MM-DD'` — cờ derive từ RAW row TRƯỚC normalize (KHÔNG hồi quy) | Invariant (orthogonal) |
+| `test_scan_info_payload_shape_unchanged_after_pmdate_str` | asset bất kỳ | `set(data.keys())` == 9 FR-00-85 + `next_calibration_date` + `calibration_overdue` + `available_actions` (KHÔNG thêm/bớt key — chỉ đổi KIỂU value `next_pm_date`) | Field-whitelist (no-delta) |
+
+#### III.6.c-TOKENNORM — factory vòng 6: chuẩn hoá whitespace `qr_token` ở SSoT resolve — BR-00-40 / FR-00-90/91 / ADR §D8
+
+File BE: thêm class `TestResolveQrTokenWhitespace` vào `assetcore/tests/test_imm00.py` (cạnh `TestResolveQrToken` A2 + `TestGetAssetScanInfo`). FE: **KHÔNG đổi** (BE-only — FE `QrResolveView.vue:34`/`QRScanView.vue:45` trim đã có làm defense-in-depth lớp 1, `vitest` GIỮ XANH). **RED-first BẮT BUỘC:** class/TC chưa tồn tại + `resolve_qr_token` chưa strip → TC token-kèm-`\n`/space FAIL (false-404) → thêm `token = token.strip()` đầu hàm `services/imm00.py::resolve_qr_token` → GREEN. Đo QUA `resolve_qr_token`/`get_asset_scan_info` THẬT (KHÔNG mock `frappe.db.get_value` — tạo asset thật, tra token thật).
+
+**Acceptance — chạy XANH:** `bench --site miyano run-tests test_imm00` (`TestResolveQrToken` + `TestAssetScanInfo` baseline + `TestResolveQrTokenWhitespace` mới + label-pdf suite) GREEN — 0 regression. `bench migrate` KHÔNG cần (0 schema/patch). `CAP_SET_VERSION` GIỮ NGUYÊN. **Logic-level fresh-import — KHÔNG tuyên bố verify HTTP/Playwright live** (endpoint live HTTP cần USER reload gunicorn — STATE 🔴#1; round này doc+test introspection/logic-level).
+
+| TC (BE) | Kịch bản | Verify | Kỹ thuật |
+|---|---|---|---|
+| `test_resolve_token_with_leading_trailing_space` | asset có `qr_token=<tok>` → `resolve_qr_token(token=f' {tok} ')` | `success is True`; `data["name"] == asset.name`; `data["asset_code"] == asset.asset_code` — KHÔNG false-404 | EP (positive, FR-00-90 BE-1) |
+| `test_resolve_token_with_trailing_newline` | `resolve_qr_token(token=f'{tok}\n')` (artifact encode QR tem nhiệt) | `success is True`; `data["name"] == asset.name` | EP (positive, FR-00-90 BE-1) |
+| `test_resolve_token_with_tabs_mixed_whitespace` | `resolve_qr_token(token=f'\t {tok} \n')` | `success is True`; `data["name"] == asset.name` | EP (robustness) |
+| `test_resolve_whitespace_only_token_404_no_query` | `resolve_qr_token(token='   ')` / `'\t'` / `'\n'` | `success is False`; `http_status==404`; **assert 0 query trên AC Asset** (đếm SQL/`get_value` trên path rỗng-sau-strip — return None tại guard TRƯỚC `get_value`) | White-box (query-count=0, FR-00-90 BE-3) |
+| `test_resolve_whitespace_no_match_404_leak_safe` | `resolve_qr_token(token=' khong-ton-tai-zzz ')` | `success is False`; `http_status==404`; KHÔNG 500/417; KHÔNG raw exception/traceback trong message | EP (negative leak-safe, FR-00-90 BE-5) |
+| `test_resolve_empty_string_still_404_no_query` *(regression)* | `resolve_qr_token(token='')` | `http_status in (400,404)`; 0 query (guard rỗng GIỮ — đối xứng whitespace-only) | EP (regression baseline) |
+| `test_scan_info_token_with_space_returns_payload` | `get_asset_scan_info(token=f' {tok} ')` | `success is True`; payload A6 (11-field) đúng asset — parity với resolve | EP (parity, FR-00-91 BE-2) |
+| `test_scan_info_token_with_newline_returns_payload` | `get_asset_scan_info(token=f'{tok}\n')` | `success is True`; payload A6 đúng | EP (parity, FR-00-91 BE-2) |
+| `test_scan_info_whitespace_only_token_404_no_query` | `get_asset_scan_info(token='   ')` | `http_status==404`; KHÔNG query asset thừa (SSoT strip → None TRƯỚC build payload) | White-box (FR-00-91 BE-3) |
+| `test_scan_info_name_branch_not_affected_by_token_strip` | `get_asset_scan_info(name=asset.name)` (nhánh name, KHÔNG token) | payload A6 đúng — nhánh `name` KHÔNG bị ép strip-TOKEN (đường khác; nhánh name có chuẩn-hoá riêng `name.strip()` — xem §III.6.l-NAMENORM Vòng 31) | EP (boundary — name branch intact) |
+| `test_normalization_single_ssot_grep` | grep `.strip()` cho token-resolve toàn `services/imm00.py`/`api/imm00.py` | chỉ **1** điểm strip token-resolve (trong `resolve_qr_token`) — KHÔNG fork nhánh strip thứ 2 ở API/scan-info | Grep-guard (FR-00-90 BE-4) |
+| `test_resolve_whitespace_no_audit_side_effect` *(regression)* | `resolve_qr_token(token=f' {tok} ')` N lần | KHÔNG tạo `Asset Lifecycle Event`/`IMM Audit Trail` (read-only GIỮ — A2/D4) | State-based (no-write) |
+
+> **Pattern đo query-count = 0 (path whitespace-only):** bọc call trong context đếm SQL (vd monkeypatch `frappe.db.sql`/`get_value` đếm invocation trên `AC Asset`, HOẶC `frappe.db.sql_list` counter) → assert 0 query khi token rỗng-sau-strip (return None tại guard TRƯỚC `frappe.db.get_value`). So sánh với token rỗng `''` (cùng = 0 query) để chứng minh đối xứng.
+
+**REG (acceptance đề mục):** 100% test QR-asset BE hiện có — `TestResolveQrToken` (token hợp lệ/unknown-404/empty-404/no-cap-403/IDOR-403/no-audit), `TestAssetScanInfo` (+ `TestAssetScanInfoPmOverdue`/`TestAssetScanInfoCalibrationOverdue`), `TestQrWhitelistHttpLayer`, label-pdf suite (`test_imm00` print/preset) — GIỮ GREEN, 0 regression. KHÔNG đổi `qr_url`/encode/no-raw-token parity (BR-00-34) / rate-limit (BR-00-29).
+
+#### III.6.l-NAMENORM — Vòng 31: chuẩn hoá whitespace tham số `name` ở `get_asset_scan_info` (parity nhánh token) — FR-00-101 / BR-00-50 / ADR §D12
+
+File BE: **bổ sung** class `TestAssetScanInfoNameWhitespace` (`assetcore/tests/test_imm00.py` — cạnh `TestAssetScanInfo`). **RED-first BẮT BUỘC:** TC `name='  <name>  '` assert `http_status==200` + payload A6 đúng asset ĐỎ trước fix (hiện `db.exists("  A-042  ")` = False → 404) → thêm `name = name.strip()` trong `get_asset_scan_info` (sau coerce-str, TRƯỚC nhánh `elif name and frappe.db.exists`) → GREEN. Đo QUA `get_asset_scan_info` THẬT (Administrator có mọi DocPerm — KHÔNG mock; tạo 1 AC Asset thật rồi gọi với biến thể whitespace). Spec: [`04 §II.1.8a-NAMENORM`](./04_Backend_Design.md) + [`05 §get_asset_scan_info case-table`](./05_API_Specification.md) + [`02 §IV.26 / BR-00-50`](./02_Analysis_Design.md) + [ADR §D12](./ADR-IMM00-QR-SCAN-ACTION.md).
+
+**Acceptance — chạy XANH:** `bench --site miyano run-tests test_imm00` (`TestAssetScanInfoNameWhitespace` mới + `TestAssetScanInfo`/`TestResolveQrToken`/`TestResolveQrTokenWhitespace` baseline + label-pdf suite) GREEN — 0 regression. `bench migrate` KHÔNG cần (0 schema/patch). `CAP_SET_VERSION` GIỮ `v97.c30c69b8974d`. **Logic-level fresh-import (sửa `api/imm00.py` live ở run-tests) — KHÔNG tuyên bố verify HTTP/Playwright live** (endpoint live HTTP cần USER reload gunicorn --preload → backlog [BLOCKED reload]; STATE 🔴#1).
+
+| TC (BE) | Kịch bản | Verify | Kỹ thuật |
+|---|---|---|---|
+| `test_scan_info_name_with_leading_trailing_space_200` | AC Asset thật `name=A` → `get_asset_scan_info(name=f'  {A}  ')` | `success is True`; `http_status==200`; `data["name"]==A`; payload A6 (11-field) — KHÔNG false-404 | EP (positive, FR-00-101 #2) |
+| `test_scan_info_name_with_trailing_newline_200` | `get_asset_scan_info(name=f'{A}\n')` (copy-paste / deep-link artifact) | `success is True`; `data["name"]==A` | EP (positive, FR-00-101 #2) |
+| `test_scan_info_name_with_tabs_mixed_whitespace_200` | `get_asset_scan_info(name=f'\t{A}\t')` | `success is True`; `data["name"]==A` | EP (robustness) |
+| `test_scan_info_name_whitespace_only_404_no_full_scan` | `get_asset_scan_info(name='   ')` / `'\n'` / `'\t'` | `success is False`; `http_status==404` (`AC-E001`); **assert 0 query `frappe.db.exists` trên AC Asset** (strip→`''`→`elif name and …` short-circuit) — KHÔNG full-scan | White-box (query-count=0, FR-00-101 #3) |
+| `test_scan_info_name_inner_space_still_404` | `get_asset_scan_info(name='A 042')` (space GIỮA — name hỏng thật) | `success is False`; `http_status==404`; KHÔNG 500; CHỈ strip leading/trailing (không lowercase/collapse) | EP (negative, FR-00-101 #4 — KHÔNG over-normalize) |
+| `test_scan_info_name_with_space_no_audit_side_effect` *(regression)* | `get_asset_scan_info(name=f'  {A}  ')` N lần | KHÔNG tạo `Asset Lifecycle Event`/`IMM Audit Trail` (read-only GIỮ — A2/D4) | State-based (no-write) |
+| `test_scan_info_name_with_space_idor_403_unchanged` *(regression)* | vendor user ngoài scope → `get_asset_scan_info(name=f'  {A}  ')` | `http_status==403` (`assert_vendor_can_access` GIỮ — strip xảy ra TRƯỚC resolve, IDOR sau) | Regression (IDOR no-regression) |
+| `test_scan_info_name_strip_single_grep` | grep `name.strip()` trong `get_asset_scan_info` (`api/imm00.py`) | đúng **1** điểm strip cho nhánh `name`; KHÔNG đụng `_svc_resolve_qr_token` (token-path bất động) | Grep-guard (FR-00-101 #5) |
+
+> **Pattern đo query-count = 0 (name whitespace-only):** monkeypatch/đếm `frappe.db.exists` trên `AC Asset` → assert 0 invocation khi `name` rỗng-sau-strip (`elif name and …` short-circuit do `name` falsy). So với `name=''` (cùng 0 query) chứng minh đối xứng — KHÔNG full-scan.
+
+**REG (acceptance đề mục):** `TestAssetScanInfo` (+ `…PmOverdue`/`…CalibrationOverdue`/`…AvailableActions`), `TestResolveQrToken`/`TestResolveQrTokenWhitespace`, `TestQrWhitelistHttpLayer`, label-pdf suite — GIỮ GREEN, 0 regression. Token-path BẤT ĐỘNG (parity Vòng 6 BR-00-40 GIỮ). KHÔNG đổi payload shape / no-raw-token (BR-00-34) / rate-limit (BR-00-29) / RBAC / IDOR.
+
+#### III.6.m-SCANSN — Vòng 37: `manufacturer_sn` (Số serial NSX) vào payload `build_asset_scan_info` + FE `serialText` fallback `'Chưa rõ'` — FR-00-103 / BR-00-52 / ADR §D13
+
+File BE: **bổ sung** class `TestScanInfoManufacturerSn` (`assetcore/tests/test_imm00.py` — cạnh `TestAssetScanInfo`). File FE: cập nhật `frontend/src/views/asset/AssetScanInfoView.test.ts` (thêm TC dòng "Số serial NSX" + empty-fallback). **RED-first BẮT BUỘC:** TC `assert 'manufacturer_sn' in payload` + `== <giá-trị-thật>` ĐỎ trước fix (key absent → KeyError/None) → thêm `"manufacturer_sn"` vào fields-list `db.get_value` + key payload `row.get("manufacturer_sn") or ""` → GREEN; TC FE `serialText==='Chưa rõ'` khi rỗng ĐỎ trước thêm computed → GREEN. Đo QUA `build_asset_scan_info` THẬT (Administrator có mọi DocPerm — KHÔNG mock; tạo AC Asset thật, set `manufacturer_sn` thật + biến thể rỗng). Spec: [`04 §II.1.8d-SCANSN`](./04_Backend_Design.md) + [`05 §get_asset_scan_info payload 12-field`](./05_API_Specification.md) + [`02 §IV.28 / BR-00-52`](./02_Analysis_Design.md) + [`06 §II.3d-SERIALSN`](./06_Frontend_Design.md) + [ADR §D13](./ADR-IMM00-QR-SCAN-ACTION.md).
+
+**Acceptance — chạy XANH:** `bench --site miyano run-tests test_imm00` (`TestScanInfoManufacturerSn` mới + `TestAssetScanInfo`/`…PmOverdue`/`…CalibrationOverdue`/`…AvailableActions`/`TestResolveQrToken` baseline + label-pdf suite) GREEN — 0 regression. `bench migrate` KHÔNG cần (0 schema/patch — `manufacturer_sn` đã là field AC Asset). `CAP_SET_VERSION` GIỮ `v97.c30c69b8974d`. FE: `vitest AssetScanInfoView.test.ts` GREEN + `vue-tsc` 0 + full asset-domain vitest no-regression. **Logic-level fresh-import (BE) + vitest (FE render — KHÔNG cần reload) — KHÔNG tuyên bố verify HTTP/Playwright/quét-QR-thật live** (endpoint live HTTP cần USER reload gunicorn --preload → backlog [BLOCKED reload]; STATE 🔴#1).
+
+| TC (BE) | Kịch bản | Verify | Kỹ thuật |
+|---|---|---|---|
+| `test_scan_info_has_manufacturer_sn_key` | AC Asset thật `manufacturer_sn='SN-12345'` → `build_asset_scan_info(asset.name)` | `'manufacturer_sn' in payload`; `payload['manufacturer_sn'] == 'SN-12345'` (str nguyên văn) | EP (positive, FR-00-103 #1 — RED-first absent) |
+| `test_scan_info_manufacturer_sn_empty_coalesces_to_str` | asset `manufacturer_sn` null/rỗng → `build_asset_scan_info` | `payload['manufacturer_sn'] == ''` (str); `payload['manufacturer_sn'] is not None`; KHÔNG raw object | EP (empty → `''`, FR-00-103 #2 — parity `asset_code`/`asset_name`) |
+| `test_scan_info_manufacturer_sn_no_extra_round_trip` | grep/AST `build_asset_scan_info` | `"manufacturer_sn"` nằm trong CÙNG `frappe.db.get_value([...], as_dict=True)`; KHÔNG `get_value(_DOCTYPE_ASSET, …, "manufacturer_sn")` riêng (no-N+1) | White-box / Grep-guard (FR-00-103 #3) |
+| `test_scan_info_empty_name_returns_none_unchanged` *(regression)* | `build_asset_scan_info('')` / `None` / non-str | `is None` (early-return GIỮ); KHÔNG query toàn bảng | EP (no-regress guard, FR-00-103 #4) |
+| `test_scan_info_no_sensitive_field_leak_with_sn` *(regression)* | `build_asset_scan_info(asset.name)` | `'qr_token' not in payload` (BR-00-34 GIỮ); KHÔNG `gross_purchase_amount`/`current_book_value`/`accumulated_depreciation`/`supplier` trong payload | State-based (no-leak, FR-00-103 #5) |
+
+| TC (FE — `AssetScanInfoView.test.ts`) | Kịch bản | Verify |
+|---|---|---|
+| `serial line renders verbatim` | mock `getAssetScanInfo` → `manufacturer_sn:'SN-12345'` | `[data-test="scan-serial"]` text == `'SN-12345'` (FR-00-103 #7) |
+| `serial empty → 'Chưa rõ'` | `manufacturer_sn` ∈ {`''`, `null`, `undefined`, `'   '`} | text == `'Chưa rõ'`; KHÔNG `'—'`; KHÔNG `'null'`/`'undefined'` (FR-00-103 #8 — RED-first) |
+| `serial empty does NOT leak docname` | `manufacturer_sn:''` + `name:'AST-0042-x9'` | `[data-test="scan-serial"]` text == `'Chưa rõ'` (KHÔNG `'AST-0042-x9'`) (FR-00-103 #9 — no-raw-docname-leak) |
+| `serialText no info.name fallback (grep)` | grep `serialText` trong `AssetScanInfoView.vue` | KHÔNG chứa `info.name`/`info.value?.name`; đúng 1 hằng `SERIAL_UNKNOWN='Chưa rõ'` (FR-00-103 #9/#10) |
+
+> **Pattern empty-fallback (FE):** TC empty dùng `it.each(['', null, undefined, '   '])` → mỗi biến thể assert `serialText`/DOM == `'Chưa rõ'` — bao trùm coalesce-BE-`''` + defensive-FE (null/undefined/whitespace payload partial/stale). KHÔNG so `info.name` ⟹ chứng minh no-docname-leak ngay cả khi serial rỗng + name có giá trị.
+
+**REG (acceptance đề mục):** `TestAssetScanInfo` (+ `…PmOverdue`/`…CalibrationOverdue`/`…AvailableActions`), `TestResolveQrToken`/`TestResolveQrTokenWhitespace`/`TestAssetScanInfoNameWhitespace`, `TestQrWhitelistHttpLayer`, label-pdf suite — GIỮ GREEN, 0 regression. Payload shape additive (11→12-field, FE chịu được key mới). KHÔNG đổi RBAC / IDOR / rate-limit (BR-00-29) / no-raw-token (BR-00-34) / no-audit (A2/D4) / `available_actions` shape.
+
+#### III.6.n-PILLA11Y — Vòng 39: status pill lifecycle `role="status"` + `aria-label` VI (SSoT `statusLabel`) + anchor `data-test="scan-status"` — FR-00-104 / BR-00-53 / ADR §D14 — **NEW (FE-only)**
+
+File FE: cập nhật `frontend/src/views/asset/AssetScanInfoView.test.ts` (thêm TC pill a11y + anchor + exactly-one). **KHÔNG file BE** (FE-only, KHÔNG đụng `build_asset_scan_info`/payload). **RED-first BẮT BUỘC:** TC assert `wrapper.get('[data-test="scan-status"]')` + `role==='status'` + `aria-label` khớp `'Trạng thái thiết bị: ' + statusLabel` ĐỎ trước khi thêm 3 attr (pill cũ chỉ có `class`/`:class` → `[data-test="scan-status"]` không tồn tại / `role` undefined) → thêm `data-test="scan-status"` + `role="status"` + `:aria-label` lên `<span>` pill (`AssetScanInfoView.vue:445-450`) → GREEN. Đo QUA mount THẬT `AssetScanInfoView` (mock `getAssetScanInfo` trả payload với `lifecycle_status` biến thể — KHÔNG mock `lifecycleStatusLabel`; aria-label phải bằng giá-trị `statusLabel` THẬT để chứng minh SSoT-shared). Spec: [`02 §IV.29 / FR-00-104 / BR-00-53`](./02_Analysis_Design.md) + [`06 §II.3e-PILLA11Y`](./06_Frontend_Design.md) + [ADR §D14](./ADR-IMM00-QR-SCAN-ACTION.md). Parity §II.3e-PILLNOLEAK (no-EN/raw-code/empty leak — Vòng 8) cho nhánh aria-label.
+
+**Acceptance — chạy XANH:** `vitest AssetScanInfoView.test.ts` (TC pill-a11y mới + baseline pill no-leak/PM-overdue/cal-overdue/serial/available-actions) GREEN + `vue-tsc` 0 + full asset-domain vitest no-regression. **KHÔNG BE test / KHÔNG `bench migrate` / KHÔNG reload** (FE-only template attr — `statusLabel`/`statusClass`/`constants/labels.ts`/payload KHÔNG đổi). `CAP_SET_VERSION` GIỮ `v97.c30c69b8974d`. **Verify Playwright/quét-QR-thật BLOCKED reload gunicorn --preload (HARD-STOP USER) → vitest + code-audit là gate hợp lệ; KHÔNG tuyên bố DONE live.**
+
+| TC (FE — `AssetScanInfoView.test.ts`) | Kịch bản | Verify |
+|---|---|---|
+| `status pill has stable anchor` | mount với `lifecycle_status:'Active'` | `wrapper.get('[data-test="scan-status"]')` tồn tại; text == `statusLabel` (`'Đang hoạt động'`) (FR-00-104 #1) |
+| `status pill role=status` | mount bất kỳ `lifecycle_status` | `[data-test="scan-status"]` attr `role==='status'` (FR-00-104 #2 — RED-first) |
+| `aria-label shares statusLabel (SSoT)` | `lifecycle_status:'Active'` | `aria-label === 'Trạng thái thiết bị: Đang hoạt động'` (== `'Trạng thái thiết bị: ' + statusLabel`); KHÔNG hardcode wording riêng (FR-00-104 #3) |
+| `aria-label WCAG 1.4.1 non-empty` | mount | pill có (text != '' ∧ role=status ∧ aria-label != '') — parity 2 overdue badge (FR-00-104 #4) |
+| `aria-label no-EN/empty leak` | `it.each(['', 'In Use', 'LegacyUnknown', null, undefined])` | text pill VÀ `aria-label === 'Trạng thái thiết bị: Không xác định'`; `aria-label` KHÔNG chứa `'In Use'`/`'LegacyUnknown'` (FR-00-104 #5 — parity §II.3e-PILLNOLEAK) |
+| `class/màu giữ nguyên` | `lifecycle_status:'Active'` vs `''` | `[data-test="scan-status"]` `:class` == `statusClass` cũ (Active → màu cũ; rỗng/lạ → `bg-gray-100 text-gray-600`) — chỉ THÊM attr, KHÔNG đổi class (FR-00-104 #6) |
+| `exactly one scan-status anchor` | mount payload có `pm_overdue:true` + `calibration_overdue:true` + ≥1 CTA enabled urgency | `wrapper.findAll('[data-test="scan-status"]').length === 1` (2 overdue badge + CTA chip/button KHÔNG nhận selector) (FR-00-104 #7) |
+| `overdue badges a11y intact` *(regression)* | `pm_overdue:true`/`calibration_overdue:true` | badge `getByText('Quá hạn bảo trì')`/`('Quá hạn hiệu chuẩn')` vẫn `role=status` + `aria-label` riêng; KHÔNG bị anchor mới ảnh hưởng (FR-00-104 #8) |
+
+> **Pattern aria-label-SSoT (FE):** TC aria-label assert bằng `'Trạng thái thiết bị: ' + statusLabel` (ghép động từ CHÍNH `statusLabel`) — KHÔNG so literal cứng — chứng minh aria-label đọc chung SSoT `lifecycleStatusLabel`, đổi nhãn → aria-label đổi theo (no-drift). Nhánh empty/lạ tái dùng `it.each` của §II.3e-PILLNOLEAK ⟹ no-EN/raw-code/empty leak bao trùm CẢ text pill LẪN aria-label.
+
+**REG (acceptance đề mục):** §II.3e-PILLNOLEAK (`lifecycleStatusLabel` no-leak), §II.3c-PMOVERDUE/§II.3d-CALOVERDUE (overdue badge a11y), §III.6.m-SCANSN (serial), §III.6.d-REASONNONEMPTY (action reason) — GIỮ GREEN, 0 regression. FE-only: KHÔNG đổi `statusClass`/màu / `constants/labels.ts` logic / BE payload / RBAC / `available_actions` shape.
+
+#### III.6.o-SCANRISKURGENT — Vòng 47: dòng "Phân loại rủi ro" cờ urgency High/Critical (`role="status"` + `aria-label` VI SSoT `riskText` + anchor `data-test="scan-risk-urgent"`) — derive THUẦN enum-equality (no client-clock) — FR-00-105 / BR-00-54 / ADR §D15 — **NEW (FE-only)**
+
+File FE: cập nhật `frontend/src/views/asset/assetScanInfoRisk.test.ts` (thêm TC cờ urgency — file vòng 38 đã có TC nhãn `riskText`) + `AssetScanInfoView.test.ts` (TC integration). **KHÔNG file BE** (FE-only, KHÔNG đụng `build_asset_scan_info`/payload — BE đã emit `risk_classification` coalesce `''`). **RED-first BẮT BUỘC:** TC assert `wrapper.find('[data-test="scan-risk-urgent"]')` tồn tại + `role==='status'` + `aria-label` khớp `'Cảnh báo rủi ro cao: ' + riskText` ĐỎ trước khi thêm (dòng risk cũ chỉ có `riskText`, KHÔNG cờ) → thêm computed `riskUrgent` + 3 hằng VI + phần tử `data-test="scan-risk-urgent"` vào `AssetScanInfoView.vue` (dòng `:466-473`) → GREEN. Đo QUA mount THẬT `AssetScanInfoView` (mock `getAssetScanInfo` trả payload với `risk_classification` biến thể — KHÔNG mock `riskClassificationLabel`; aria-label phải bằng giá-trị `riskText` THẬT để chứng minh SSoT-shared). Spec: [`02 §IV.30 / FR-00-105 / BR-00-54`](./02_Analysis_Design.md) + [`06 §II.3f-SCANRISKURGENT`](./06_Frontend_Design.md) + [ADR §D15](./ADR-IMM00-QR-SCAN-ACTION.md). Parity nguyên-tắc overdue-SSoT vòng 21 (derive cờ server, no client-clock) + status-pill a11y vòng 39 (role=status + aria-label SSoT-shared).
+
+**Acceptance — chạy XANH:** `vitest` (`assetScanInfoRisk.test.ts` TC urgency mới + `AssetScanInfoView.test.ts` + baseline riskText nhãn vòng 38/40 + pill-a11y/serial/overdue) GREEN + `vue-tsc` 0 + full asset-domain vitest no-regression. **KHÔNG BE test / KHÔNG `bench migrate` / KHÔNG reload** (FE-only template + computed — `riskText`/`RISK_CLASSIFICATION_LABEL`/`constants/labels.ts`/payload KHÔNG đổi). `CAP_SET_VERSION` GIỮ `v97.c30c69b8974d`. **Verify Playwright/quét-QR-thật BLOCKED reload gunicorn --preload (HARD-STOP USER) → vitest + code-audit là gate hợp lệ; KHÔNG tuyên bố DONE live.**
+
+| TC (FE — `assetScanInfoRisk.test.ts` / `AssetScanInfoView.test.ts`) | Kịch bản | Verify |
+|---|---|---|
+| `risk urgent flag for High` | mount `risk_classification:'High'` | `riskUrgent===true`; `findAll('[data-test="scan-risk-urgent"]').length===1`; phần tử chứa icon ⚠ + nhãn VI `'Rủi ro cao'` (FR-00-105 #1 — RED-first) |
+| `risk urgent flag for Critical` | mount `risk_classification:'Critical'` | `findAll('[data-test="scan-risk-urgent"]').length===1`; (FR-00-105 #1) |
+| `no false-alarm Low/Medium` | `it.each(['Low','Medium'])` | `riskUrgent===false`; `findAll('[data-test="scan-risk-urgent"]').length===0` (FR-00-105 #2) |
+| `no false-alarm empty/Other` | `it.each(['', null, undefined, '   ', 'UNKNOWN_DRIFT'])` | `riskUrgent===false`; 0 urgent-anchor (FR-00-105 #2) |
+| `derive pure enum-equality (no client-clock)` | grep source `AssetScanInfoView.vue` | `riskUrgent` KHÔNG chứa `Date(`/`Date.now`/`new Date`/so-ngày; tập = hằng `RISK_URGENT_VALUES` SSoT (FR-00-105 #3) |
+| `urgent element role=status` | mount `risk_classification:'Critical'` | `[data-test="scan-risk-urgent"]` attr `role==='status'` (KHÔNG `'alert'` — BA chốt) (FR-00-105 #4) |
+| `aria-label shares riskText (SSoT)` | `'Critical'` → `'Nghiêm trọng'`; `'High'` → `'Cao'` | `aria-label === 'Cảnh báo rủi ro cao: Nghiêm trọng'` / `'…: Cao'` (== `'Cảnh báo rủi ro cao: ' + riskText`); KHÔNG hardcode wording riêng (FR-00-105 #5) |
+| `no-EN-leak ở cờ + aria-label` | `'High'`/`'Critical'` | urgent-anchor + `aria-label` KHÔNG chứa `'High'`/`'Critical'` thô; nhãn = từ VI `'Rủi ro cao'` (FR-00-105 #6) |
+| `riskText + nhãn-mức GIỮ no-regress` | `it.each([['High','Cao'],['Critical','Nghiêm trọng'],['Low','Thấp'],['Medium','Trung bình'],['','Chưa phân loại'],['UNKNOWN_DRIFT','Khác']])` | dòng `data-test="scan-risk"` text == `'Phân loại rủi ro: ' + viLabel` byte-for-byte (vòng 38/40) (FR-00-105 #7) |
+| `scan-risk anchor exactly-one + urgent exactly-one` | mount `'Critical'` | `findAll('[data-test="scan-risk"]').length===1` (no-regress); `findAll('[data-test="scan-risk-urgent"]').length===1`; KHÔNG đụng overdue/status-pill/CTA chip (FR-00-105 #8) |
+| `WCAG 1.4.1 non-color-only` | mount `'High'` | urgent có (icon ⚠ aria-hidden + text VI `'Rủi ro cao'` ∧ `role=status` ∧ `aria-label!=''`) — parity overdue badge (FR-00-105 #9) |
+
+> **Pattern aria-label-SSoT (FE):** TC aria-label assert bằng `'Cảnh báo rủi ro cao: ' + riskText` (ghép động từ CHÍNH `riskText`) — KHÔNG so literal cứng — chứng minh aria-label đọc chung SSoT `riskClassificationLabel`, đổi nhãn → aria-label đổi theo (no-drift), no-EN-leak bao trùm.
+
+**REG (acceptance đề mục):** §II.3f-SCANRISKURGENT mới + nhãn `riskText` (vòng 38, `assetScanInfoRisk.test.ts` TC1-TC7) — GIỮ GREEN 0 regression; §II.3e-PILLA11Y (status-pill), §II.3c-PMOVERDUE/§II.3d-CALOVERDUE (overdue badge), §III.6.m-SCANSN (serial) — GIỮ XANH. FE-only: KHÔNG đổi `riskText`/`RISK_CLASSIFICATION_LABEL` logic / BE payload / RBAC / `available_actions` shape.
+
+#### III.6.q-SAFEDATE — Vòng 50: crash-safe `getdate` ở 4 hàm xử-lý-ngày của `build_asset_scan_info` (`_is_warranty_expired`/`_is_pm_overdue`/`_is_calibration_overdue`/`_date_str_or_none`) degrade graceful ngày drift → `None`/`False`, bịt HTTP-500 traceback-leak — FR-00-107 / BR-00-56 / ADR §D17 — **NEW (BE-only)**
+
+File BE: **bổ sung** vào `assetcore/tests/test_imm00.py` — mở rộng `TestWarrantyExpiredHelper` (BE-WAR-EDGE-1..3 helper parse-fail) + `TestWarrantyInScanInfo` (BE-WAR-EDGE-4 integration degrade) HOẶC class mới `TestScanDateCrashSafe`. **KHÔNG file FE** (BE-only — payload type `str|None`/`bool` GIỮ; FE đọc cờ server như cũ). **RED-first BẮT BUỘC:** TC `_is_warranty_expired('not-a-date')` assert `is False` ĐỎ trước fix (`getdate` raise `frappe.exceptions.ValidationError` → test fail vì exception, KHÔNG return) → thêm helper SSoT `_safe_getdate` + đổi 4 hàm dùng nó (vế giá-trị-DB) → GREEN; TC integration `build_asset_scan_info` trên asset 1-field-ngày-drift assert no-raise + payload 16-key ĐỎ trước fix (build raise) → GREEN. Đo QUA helper + `build_asset_scan_info` THẬT (Administrator; tạo AC Asset thật rồi inject chuỗi drift qua `frappe.db.sql UPDATE` raw — KHÔNG `get_doc().insert()` vì Frappe chặn Date-validate — HOẶC monkeypatch `frappe.db.get_value` trả row có chuỗi xấu). Spec: [`04 §II.1.8e-SAFEDATE`](./04_Backend_Design.md) + [`02 §IV.32 / FR-00-107 / BR-00-56`](./02_Analysis_Design.md) + [ADR §D17](./ADR-IMM00-QR-SCAN-ACTION.md). Parity FE `formatIsoDateLabel` ISO-strict (vòng 18-19 — nay đối xứng ở BE).
+
+**Acceptance — chạy XANH:** `bench --site miyano run-tests --module assetcore.tests.test_imm00` GREEN (fresh-import, KHÔNG reload — service `.py`, test import trực tiếp; KHÁC `api/imm00.py` reload-gated) gồm BE-WAR-EDGE-1..6 mới + `TestWarrantyExpiredHelper` BE-WAR-1..5 + `TestWarrantyInScanInfo` BE-WAR-6..8 + `TestAssetScanInfo`(+`…PmOverdue`/`…CalibrationOverdue`/`…AvailableActions`) baseline — 0 regression. `bench migrate` KHÔNG cần (0 schema/patch). `CAP_SET_VERSION` GIỮ `v97.c30c69b8974d`. **KHÔNG marker-trust — đọc OK count THẬT.** **Verify HTTP/Playwright/quét-QR-thật BLOCKED reload gunicorn --preload (HARD-STOP USER) → `bench run-tests` + code-audit là gate hợp lệ; KHÔNG tuyên bố DONE live.**
+
+| TC (BE) | Kịch bản | Verify | Kỹ thuật |
+|---|---|---|---|
+| `test_be_war_edge_1_warranty_garbage_date_false_no_raise` | `_is_warranty_expired('not-a-date')` / `_is_warranty_expired('2020-13-45')` | trả `False`; KHÔNG ném `frappe.exceptions.ValidationError` (bọc `try`/`assertRaises`-negative) | EP (parse-fail → False, BE-WAR-EDGE-1 — RED-first: `getdate` raise trước fix) |
+| `test_be_war_edge_2_overdue_garbage_date_false_no_raise` | `_is_pm_overdue('garbage', None)` + `_is_calibration_overdue('2020-99-99', None)` | cả 2 trả `False`; KHÔNG raise (parity warranty — date dị-dạng KHÔNG bịa cờ quá hạn) | EP (parity overdue, BE-WAR-EDGE-2) |
+| `test_be_war_edge_3_date_str_or_none_garbage_returns_none` | `_date_str_or_none('not-a-date')` | trả `None`; KHÔNG raise; KHÔNG leak `'not-a-date'` verbatim (parity FE ISO-strict) | EP (parse-fail → None, BE-WAR-EDGE-3) |
+| `test_be_war_edge_4_scan_info_drift_date_degrades_field_independent` *(assert-chính, integration)* | AC Asset thật, inject `warranty_expiry_date='not-a-date'` (hoặc `next_pm_date`/`next_calibration_date`) qua `frappe.db.sql UPDATE` raw / monkeypatch `get_value` → `build_asset_scan_info(asset.name)` | KHÔNG raise; `set(payload.keys())` == 16-key đầy-đủ; field-lỗi degrade (`warranty_expired is False` / `pm_overdue is False` / `warranty_expiry_date is None`); 13 field còn lại GIỮ (vd `asset_code`/`asset_name`/`lifecycle_status` đúng); cấm-financial ∩ keys = ∅; KHÔNG traceback-leak | State-based (degrade field-độc-lập, BE-WAR-EDGE-4 — RED-first: build raise trước fix) |
+| `test_be_war_edge_5_valid_values_no_regress` *(regression)* | `it`/loop: `date(2020,1,1)` (past) → `_is_warranty_expired`→`True`; `nowdate()`→`False`; `add_days(nowdate(),30)`→`False`; `None`/`''`→`False`; `_date_str_or_none(date(2020,1,15))`→`'2020-01-15'`; `_date_str_or_none(None/'')`→`None` | mọi giá-trị HỢP LỆ GIỮ NGUYÊN hành vi cũ; `TestWarrantyExpiredHelper` BE-WAR-1..5 + `TestWarrantyInScanInfo` BE-WAR-6..8 byte-for-byte XANH | EP (no-regress, BE-WAR-EDGE-5) |
+| `test_be_war_edge_6_guard_only_swallows_parse_error` *(no-mask)* | grep/AST 4 helper + `_safe_getdate` | `except` clause CHỈ `(frappe.exceptions.ValidationError, ValueError, TypeError)`; KHÔNG `except Exception`/`except:` trần; comment giải-thích degrade-an-toàn (drift/legacy) tồn tại; (tùy) inject exception KHÁC parse (vd `KeyError`) vào getdate-path → VẪN propagate | White-box / Grep-guard (no-mask-real-bug, BE-WAR-EDGE-6) |
+
+> **Pattern inject-drift (BE):** Date col KHÔNG nhận chuỗi rác qua `frappe.get_doc().insert()` (Frappe Date-validate). 2 cách hợp lệ: (a) `frappe.db.sql("UPDATE \`tabAC Asset\` SET warranty_expiry_date=%s WHERE name=%s", ('not-a-date', asset.name))` (mô phỏng drift raw-SQL/legacy import — MariaDB chấp nhận syntax) rồi `build_asset_scan_info` đọc lại; (b) monkeypatch `frappe.db.get_value` trả row dict có chuỗi xấu (deterministic, KHÔNG phụ thuộc SQL-mode). Cả 2 chứng minh degrade — BE chọn; teardown rollback sạch. **`_safe_getdate` test trực-tiếp** (BE-WAR-EDGE-1..3) độc lập DB — gọi hàm với chuỗi literal.
+
+**REG (acceptance đề mục):** `TestWarrantyExpiredHelper` (BE-WAR-1..5) + `TestWarrantyInScanInfo` (BE-WAR-6..8) + `TestAssetScanInfo`(+`…PmOverdue`/`…CalibrationOverdue`/`…AvailableActions`) + §III.6.f-PMDATESTR + §III.6.b-CALOVERDUE (3 trường-ngày scan-info) — GIỮ GREEN, 0 regression (giá-trị hợp-lệ degrade-path KHÔNG kích hoạt). BE-only: KHÔNG đổi payload type/key/shape / RBAC / IDOR / rate-limit / no-audit / `available_actions` shape; FE KHÔNG đụng.
+
+#### III.6.d-REASONNONEMPTY — factory vòng 7: action disabled LUÔN kèm `reason` VI — bịt lỗ status rỗng/lạ — FR-00-92 / BR-00-41 / ADR §D9
+
+File BE: **bổ sung** class `TestScanInfoAvailableActions` (`assetcore/tests/test_imm00.py:3463` — ĐÃ tồn tại từ vòng QR-SCAN-ACTION) + **SIẾT** `test_unknown_status_safe_default` (`:3719`). File FE: cập nhật `frontend/src/views/asset/AssetScanInfoView.test.ts` (thêm TC reason non-rỗng + non-dangling aria-describedby). **RED-first BẮT BUỘC:** TC unknown/empty-status assert `reason == _LIFECYCLE_REASON_UNKNOWN` + bất biến `enabled=False ⟹ reason!=""` ĐỎ trước fix (hiện `reason==""` cho status rỗng/lạ + Admin) → thêm hằng `_LIFECYCLE_REASON_UNKNOWN` + bậc-3 `or` ở `_build_available_actions` → GREEN. Đo QUA `build_asset_scan_info` THẬT (Administrator có mọi DocPerm = nhánh lifecycle thuần; monkeypatch `svc.rbac.can` ép thiếu cap — KHÔNG mock `getdate`/`nowdate`). Spec: [`04 §II.1.8f`](./04_Backend_Design.md) + [`05 §III.1 available_actions`](./05_API_Specification.md) + [`02 §IV.18 / BR-00-41`](./02_Analysis_Design.md) + [`06 §reason-render`](./06_Frontend_Design.md) + [ADR §D9](./ADR-IMM00-QR-SCAN-ACTION.md).
+
+**Acceptance — chạy XANH:** `bench --site miyano run-tests test_imm00` (`TestScanInfoAvailableActions` mở rộng + baseline) GREEN + `vitest AssetScanInfoView` GREEN. `bench migrate` KHÔNG cần (0 schema/patch). `CAP_SET_VERSION` GIỮ NGUYÊN. **Logic-level / vitest — KHÔNG tuyên bố verify HTTP/Playwright live** (endpoint live cần USER reload — STATE 🔴#1).
+
+| TC (BE) | Kịch bản | Verify | Kỹ thuật |
+|---|---|---|---|
+| `test_empty_status_with_cap_reason_unknown` | asset `lifecycle_status=''` (`set_value`) + Admin (đủ 4 cap) | 4 action `enabled is False`; `reason == _LIFECYCLE_REASON_UNKNOWN` ("Thiết bị không ở trạng thái cho phép thao tác này") | EP (FR-00-92 D9-2) |
+| `test_unknown_status_with_cap_reason_unknown` | `lifecycle_status='Trạng-thái-lạ'` + Admin | 4 action disabled; `reason == _LIFECYCLE_REASON_UNKNOWN` | EP (mã lạ ngoài enum) |
+| `test_unknown_status_missing_cap_reason_capability` | `lifecycle_status=''` + monkeypatch `rbac.can` ép `pm.create=False` | `request_pm.reason == _CAPABILITY_REASON` (bậc 2 ưu tiên bậc 3, KHÔNG unknown, KHÔNG rỗng); các action có cap → `_LIFECYCLE_REASON_UNKNOWN` | EP (FR-00-92 D9-3 — ưu tiên cap) |
+| `test_disabled_always_has_reason_all_statuses` | quét 7+ status `{Active, Commissioned, Under Maintenance, Under Repair, Calibrating, Out of Service, Decommissioned, Draft, '', 'Trạng-thái-lạ'}` × 4 action | `for a in available_actions: a["enabled"] is False ⟹ a["reason"] != ""` (KHÔNG ô disabled-rỗng) | Integration (bất biến D9-1) |
+| `test_enabled_reason_empty_invariant` *(regression)* | Active + đủ cap | mọi action `enabled is True` ⟹ `reason == ""` | EP (bất biến cũ D9-5) |
+| `test_known_status_reason_byte_for_byte` *(regression)* | Decommissioned / Out of Service / Draft + đủ cap | reason **byte-for-byte**: "Thiết bị đã thanh lý" / "Thiết bị đang ngừng hoạt động — chỉ cho phép báo hỏng / yêu cầu sửa chữa" (pm/cal) / "Thiết bị chưa đưa vào vận hành" — KHÔNG đổi | EP (no-regression D9-4) |
+| `test_unknown_status_safe_default` *(SIẾT)* | `lifecycle_status=''` qua payload | GIỮ 4 disabled + **THÊM** assert `a["reason"] != ""` (trước đây chỉ `isinstance(str)` = false-green) | White-box (siết hole) |
+| `test_reason_no_en_leak` | mọi reason non-rỗng | reason ∈ tập 4 hằng VI BE; grep KHÔNG ký tự EN-status thô / KHÔNG `[a-z]{3,}` tiếng Anh lọt | Static (no-EN-leak) |
+| `test_shape_unchanged_with_unknown_status` *(regression)* | `lifecycle_status=''` | mỗi phần tử `set(a.keys()) == {key,label,route,enabled,reason}` — KHÔNG field thừa | EP (shape D9-7) |
+
+| TC (FE — `AssetScanInfoView.test.ts`) | Kịch bản | Verify |
+|---|---|---|
+| `disabled action có reason → title + li#reason tồn tại` | payload action `{enabled:false, reason:'Thiết bị đã thanh lý'}` | nút `disabled`; `title==reason`; tồn tại `<li id="reason-<key>">` (aria-describedby trỏ element THẬT); `aria-label` kết thúc bằng reason thực (KHÔNG trailing `: `) |
+| `mọi nút disabled đều có li reason (no-dangling)` | payload 4 action disabled reason non-rỗng | `li[id^="reason-"]` count == số nút disabled; KHÔNG `aria-describedby` dangling |
+| `nút enabled không có aria-describedby/title` *(regression)* | action `enabled:true, reason:''` | `aria-describedby`/`title` undefined |
+
+> **Pattern siết false-green:** TC cũ `test_unknown_status_safe_default` chỉ `assertIsInstance(a["reason"], str)` ⟹ `""` PASS (lỗ hổng). Đổi/thêm assert `assertNotEqual(a["reason"], "")` (HOẶC `self.assertTrue(a["reason"])`) → ĐỎ trước fix → chứng minh test thật bắt được hole.
+
+**REG (acceptance đề mục):** `TestScanInfoAvailableActions` baseline (Active 4-enabled / Decommissioned-Draft-OoS reason / missing-cap / lifecycle>capability priority / shape / capability-map-D1 / no-raw-token parity) GIỮ GREEN; reason 5 status đã biết byte-for-byte; shape `{key,label,route,enabled,reason}` + `CAP_SET_VERSION` KHÔNG đổi; FE `vitest` baseline (badge PM/calibration + 4-action enabled/disabled) GIỮ XANH; `vue-tsc` 0 lỗi. KHÔNG schema/migration/reload.
+
+#### III.6.e-PILLNOLEAK — factory vòng 8: status pill VI an toàn — `lifecycleStatusLabel` no-EN/raw-code/empty leak — FR-00-93 / BR-00-42 / ADR §D10
+
+> **Đề mục factory vòng 8 (2026-06-11 — scan-action / status-pill no-EN-leak — Self-Correction lỗi thiết kế gốc FE-formatter).** **FE-only** — BE KHÔNG đổi (`build_asset_scan_info`/`resolve_qr_token` GIỮ `or ""`). File FE: `frontend/src/constants/labels.test.ts` (mở rộng block `lifecycleStatusLabel`/`lifecycleStatusClass` — ĐÃ có) + `frontend/src/views/asset/AssetScanInfoView.test.ts` (thêm TC pill rỗng/lạ). **RED-first BẮT BUỘC:** TC mã-lạ (`'In Use'`/`'Retired'`/`'active'`) + rỗng (`''`/null/undefined) assert `=== 'Không xác định'` ĐỎ trước fix (hiện `?? v` trả raw/empty) → thêm hằng `LIFECYCLE_STATUS_UNKNOWN_LABEL` + đổi fallback formatter → GREEN. Spec: [`06 §status-pill-safe`](./06_Frontend_Design.md) + [`02 §IV.19 / BR-00-42`](./02_Analysis_Design.md) + [ADR §D10](./ADR-IMM00-QR-SCAN-ACTION.md).
+
+**Acceptance — chạy XANH:** `vitest` (`labels.test.ts` + `AssetScanInfoView.test.ts`) GREEN + `vue-tsc` 0 lỗi + full asset-domain vitest suite no-regression. **KHÔNG cần reload/migrate** (FE-only — BE KHÔNG đổi). KHÔNG tuyên bố verify HTTP/Playwright live.
+
+| TC (FE — `labels.test.ts`) | Kịch bản | Verify |
+|---|---|---|
+| `lifecycleStatusLabel mã lạ legacy → 'Không xác định'` *(RED-first)* | `lifecycleStatusLabel('In Use')` / `'Retired'` / `'active'` (chữ thường) | `=== 'Không xác định'`; `!== 'In Use'`/`!== 'Retired'`/`!== 'active'` (no-EN/raw-code leak) |
+| `lifecycleStatusLabel('') → 'Không xác định'` *(RED-first)* | `''` (BE phát `or ""` cho legacy asset) | `=== 'Không xác định'` (KHÔNG `''` — pill không box trống) |
+| `lifecycleStatusLabel null/undefined → 'Không xác định'` | `null as any` / `undefined as any` | `=== 'Không xác định'` (phòng thủ) |
+| `lifecycleStatusLabel no-EN-leak grep` | mọi `v` lạ | kết quả KHÔNG chứa mã English `[A-Za-z]{2,}` ngoài từ VI có dấu |
+| `lifecycleStatusLabel 7 canonical byte-for-byte` *(regression, FROZEN)* | mỗi mã canonical | nhãn VI cũ (Active→'Đang hoạt động', Under Maintenance→'Đang bảo trì', …) — KHÔNG đổi |
+| `lifecycleStatusClass mã lạ/rỗng → gray` *(verify giữ nguyên)* | `'In Use'` / `''` / `'Retired'` | `=== 'bg-gray-100 text-gray-600'` (chip trung tính — KHÔNG rơi màu trạng thái khác) |
+| `lifecycleStatusClass 7 canonical màu cũ` *(regression, FROZEN)* | mỗi mã canonical | màu cũ (Active→green, Under Maintenance→orange, Out of Service→red, …) — KHÔNG đổi |
+
+| TC (FE — `AssetScanInfoView.test.ts`) | Kịch bản | Verify |
+|---|---|---|
+| `pill status rỗng → 'Không xác định' no-raw-code` | payload `info.lifecycle_status=''` | text status pill = `'Không xác định'`; snapshot/text KHÔNG chứa mã English; class pill = gray trung tính |
+| `pill status lạ → 'Không xác định' no-EN-leak` | `info.lifecycle_status='In Use'` (legacy/drift) | text pill = `'Không xác định'`, KHÔNG `'In Use'`; KHÔNG `[A-Za-z]{2,}` mã English trên pill |
+| `pill status canonical → nhãn VI đúng` *(regression)* | `info.lifecycle_status='Active'` | text pill = `'Đang hoạt động'`; class = green (byte-for-byte) |
+
+> **Pattern RED-first:** TC mã-lạ/rỗng FAIL trước fix vì `lifecycleStatusLabel(v) = ... ?? v` trả `'In Use'`/`''` thô → assert `=== 'Không xác định'` ĐỎ → đổi fallback `?? LIFECYCLE_STATUS_UNKNOWN_LABEL` → GREEN. Chứng minh test thật bắt được leak.
+
+**REG (acceptance đề mục):** block `lifecycleStatusLabel`/`lifecycleStatusClass` baseline (`labels.test.ts` — 7 canonical phủ-đủ + wording-drift-guard khớp `translateStatus` + FROZEN 6 mã) GIỮ GREEN; `AssetScanInfoView.test.ts` baseline (renders_mobile_payload + badge PM/calibration + 4-action) GIỮ XANH; `vue-tsc` 0 lỗi; full asset-domain vitest no-regression. BE KHÔNG đổi → `CAP_SET_VERSION`/schema/payload-shape KHÔNG đổi; KHÔNG migration/reload.
+
 ### III.6.b — B item 2: `regenerate_asset_qr_token` — rotate QR token (ADR-001 D1/D3/D4)
 
 File BE: thêm class `TestRegenerateAssetQrToken` vào `assetcore/tests/test_imm00.py` (cạnh `TestAssetLabelData` / `TestGetAssetScanInfo`). FE: `frontend/src/views/asset/assetDetailQrRegenerate.test.ts` (NEW) + cập nhật `routeAccess.test.ts` (không route mới — gate ở nút). **RED-first BẮT BUỘC** (class chưa tồn tại → ImportError/AttributeError → impl → GREEN). Đo QUA layer `require` với **user THẬT** có/không `asset.write` (KHÔNG mock `require`/`has_permission` — chống false-green; baseline 116 test giữ xanh).
@@ -613,18 +896,19 @@ File BE: thêm class `TestRegenerateAssetQrToken` vào `assetcore/tests/test_imm
 | `test_regenerate_old_token_no_longer_resolves` | rotate xong | `resolve_qr_token(old)` → `None`/404; `resolve_qr_token(new)` → asset đúng | Use Case (vô hiệu hoá nhãn cũ — acceptance) |
 | `test_regenerate_emits_qr_regenerated_event` | rotate có quyền | ĐÚNG **1** `Asset Lifecycle Event` `event_type='qr_regenerated'` (root_doctype/record='AC Asset'/name) | Integration (lifecycle) |
 | `test_regenerate_emits_audit_no_raw_token` | rotate | ĐÚNG **1** `IMM Audit Trail`; `change_summary` nêu rotate/vô-hiệu-hoá; **KHÔNG chứa** giá trị `old`/`new` token (assert token NOT IN change_summary/notes) | Integration (no-leak audit) |
-| `test_regenerate_read_only_user_403` | user có `asset.read` NHƯNG KHÔNG `asset.write` (Guest/nurse) | `PermissionError` (403); `qr_token` KHÔNG đổi; KHÔNG ghi event/audit (count trước=sau) | EP + state-based |
-| `test_regenerate_write_user_200` | user có `asset.write` | 200; token đổi; 1 event + 1 audit | Use Case (positive) |
+| `test_regenerate_print_only_user_403` *(D6: đổi từ `_read_only_user_403`)* | user CÓ `asset.print` NHƯNG KHÔNG `asset.qr.rotate` (Commissioning User write=0) | `PermissionError` (403); `qr_token` KHÔNG đổi; KHÔNG ghi event/audit | EP (tách quyền) |
+| `test_regenerate_write_user_200_new_token` | user có `asset.qr.rotate` (write=1) | 200; token đổi; 1 event + 1 audit | Use Case (positive) |
 | `test_regenerate_unknown_asset_404` | asset không tồn tại | **404** `AC-E001` (KHÔNG 500, KHÔNG đoán id); KHÔNG ghi gì | Error guessing (leak-safe) |
-| `test_regenerate_vendor_out_of_scope_403_no_leak` | vendor user (có asset.write), asset NGOÀI scope | **403** (`assert_vendor_can_access`); token KHÔNG đổi; KHÔNG ghi event | IDOR |
+| `test_regenerate_vendor_out_of_scope_forbidden_no_leak` | vendor user (có asset.qr.rotate), asset NGOÀI scope | **403** (`assert_vendor_can_access`); token KHÔNG đổi; KHÔNG ghi event | IDOR |
 | `test_regenerate_label_reflects_new_token` | rotate xong → `get_asset_label_data(asset)` | `qr_url` chứa token MỚI (deep-link mới), KHÔNG còn token cũ | Integration (nhãn phản ánh token mới) |
 | `test_regenerate_response_no_raw_token` | rotate 200 | envelope `data` = `{name, qr_url}`; **KHÔNG** field token thô | Contract (no-leak) |
-| `test_regenerate_cap_set_version_unchanged` | sau khi thêm endpoint | `CAP_SET_VERSION == "v95.3388ee5629c1"` (KHÔNG cap mới) | Static (regression cap-set) |
+| `test_rotate_cap_in_map_and_version_changed` *(D6)* | sau migrate | `CAP_SET_VERSION == "v97.c30c69b8974d"`; `asset.qr.rotate`→(AC Asset,"write") ∈ CAPABILITY_MAP | Static (version guard) |
 
 | TC (FE) | Kịch bản | Verify |
 |---|---|---|
-| `assetDetailQrRegenerate.test.ts::btn_hidden_read_only` | mock caps `{asset.read:true, asset.write:false}` | nút "Sinh lại mã QR" KHÔNG render |
-| `assetDetailQrRegenerate.test.ts::btn_shown_with_write` | mock caps `{asset.write:true}` | nút "Sinh lại mã QR" render |
+| `assetDetailQrRegenerate.test.ts` (D6) | mock caps `{asset.read:true}` (KHÔNG rotate) | nút "Sinh lại mã QR" KHÔNG render |
+| `assetDetailQrRegenerate.test.ts` (D6) | mock caps `{asset.print:true}` (in được, KHÔNG rotate) | nút "Sinh lại mã QR" KHÔNG render (tách quyền) |
+| `assetDetailQrRegenerate.test.ts` (D6) | mock caps `{asset.qr.rotate:true}` | nút "Sinh lại mã QR" render |
 | `assetDetailQrRegenerate.test.ts::click_opens_modal_no_confirm_no_api` | click nút | **KHÔNG** gọi `window.confirm`; mở `BaseModal` cảnh báo "vô hiệu hoá mọi nhãn QR đã in"; API **chưa** gọi |
 | `assetDetailQrRegenerate.test.ts::confirm_calls_api_refetch_toast` | bấm "Xác nhận" | `regenerateAssetQrToken(id)` gọi **1 lần** đúng id; refetch asset; toast VI thành công |
 | `assetDetailQrRegenerate.test.ts::cancel_noop` | bấm "Huỷ" | đóng modal; **0** API call; KHÔNG đổi gì |
@@ -659,7 +943,7 @@ def _http_ctx(self, cmd):
 | `test_rate_limit_constant_value` | `from assetcore.api.imm00 import AC_QR_RESOLVE_RATE_LIMIT` | `== 30` (hằng tồn tại, KHÔNG literal rải rác) | Static |
 | `test_cap_set_version_unchanged` | sau khi thêm decorator | `CAP_SET_VERSION == "v95.3388ee5629c1"` | Static (regression) |
 
-> **DoD Vòng 12 B:** `bench --site miyano run-tests test_imm00` GREEN (baseline **108+** + class `TestQrResolveRateLimit`); `bench migrate` sạch (KHÔNG schema/patch); `CAP_SET_VERSION` GIỮ `v95.3388ee5629c1`; FE KHÔNG đổi (vue-tsc/vitest baseline GIỮ NGUYÊN — BE-only). Grep-guard: hằng `AC_QR_RESOLVE_RATE_LIMIT` xuất hiện đúng 1 định nghĩa; `@rate_limit` áp đúng 2 endpoint resolve, **+1 rotate** (`regenerate_asset_qr_token` — bucket/hằng RIÊNG, §III.6.d-ROTATERL), 0 trên 3 endpoint in-nhãn. Teardown PHẢI xoá `rl:*` cache (tránh rò trần sang test khác).
+> **DoD Vòng 12 B:** `bench --site miyano run-tests test_imm00` GREEN (baseline **108+** + class `TestQrResolveRateLimit`); `bench migrate` sạch (KHÔNG schema/patch); `CAP_SET_VERSION` GIỮ `v95.3388ee5629c1`; FE KHÔNG đổi (vue-tsc/vitest baseline GIỮ NGUYÊN — BE-only). Grep-guard: hằng `AC_QR_RESOLVE_RATE_LIMIT` xuất hiện đúng 1 định nghĩa; `@rate_limit` áp đúng 2 endpoint resolve, **+1 rotate** (`regenerate_asset_qr_token` — bucket/hằng RIÊNG, §III.6.d-ROTATERL). **⚠️ Cập nhật Vòng 14 (§III.6.i-LABELRL):** `mark_label_printed` + `get_asset_label_data_batch` + `print_asset_labels_pdf` NAY CŨNG có `@rate_limit` (bucket/hằng RIÊNG) → CHỈ `get_asset_label_data` (single) còn unthrottled. Teardown PHẢI xoá `rl:*` cache (tránh rò trần sang test khác).
 
 ### III.6.d-ROTATERL — Vòng 27 B: Rate-limit rotate `regenerate_asset_qr_token` (BR-00-38) — **NEW**
 
@@ -693,6 +977,38 @@ File FE: `frontend/src/api/errors.test.ts` (httpStatusToCode) + `frontend/src/vi
 | grep gate no-EN-leak | snapshot toast text trên đường 429 | 0 EN-leak, 0 raw-code |
 
 > **DoD Vòng 27 B:** `bench --site miyano run-tests test_imm00` GREEN (baseline `TestRegenerateQrToken` + class mới `TestQrRegenerateRateLimit`, RED-first); `bench migrate` exit 0 (KHÔNG schema/cap/field/DocType/enum/patch); `CAP_SET_VERSION` GIỮ `v95.3388ee5629c1`; resolve/scan rate-limit cũ (BR-00-29) KHÔNG đổi hành vi; FE `vitest` GREEN (errors + assetDetailQrRegenerate) + `vue-tsc` 0; grep-gate: `AC_QR_REGEN_RATE_LIMIT` đúng 1 định nghĩa cạnh `AC_QR_RESOLVE_RATE_LIMIT`, `@rate_limit` áp đúng 3 endpoint (2 resolve + 1 rotate), 0 EN-leak/0 raw-code trên đường 429 FE. KHÔNG commit (working tree để user review).
+
+### III.6.i-LABELRL — Vòng 14: Rate-limit `mark_label_printed` (write-audit-amplification) + `get_asset_label_data_batch` (read) (BR-00-45 / BR-00-46 / FR-00-96/97) — **NEW** (Self-Correction, mirror rotate)
+
+File BE: thêm class `TestLabelMarkBatchRateLimit` vào `assetcore/tests/test_imm00.py` (cạnh `TestQrRegenerateRateLimit`, **tái dùng pattern** `_http_call`/`_drain`/IP-uniq/teardown `rl:`). **BE-only test** (FE 429→RATE_LIMITED+VI ĐÃ CÓ từ §III.6.d-FE429 / FR-00-87/88 — KHÔNG cần TC FE mới). Spec contract: [`05 §I.7c` + `§III.1 mark_label_printed`/`get_asset_label_data_batch`](./05_API_Specification.md) + [`04 §II.1.8b-LABELRL`](./04_Backend_Design.md) + [`02 BR-00-45/46`](./02_Analysis_Design.md) + [ADR-IMM00-LABEL-PDF §D18](./ADR-IMM00-LABEL-PDF.md).
+
+**Hạ tầng test (BẮT BUỘC — sai → false-green):** mô phỏng HTTP context (`frappe.local.request` truthy + `request_ip` per-test-uniq + `frappe.form_dict.cmd` = đúng path mỗi endpoint); user `asset.print` (DocPerm print=1 — Administrator hoặc role vận hành). Teardown xoá `rl:*`. Bypass test cũ (`TestMarkLabelPrinted`/batch suite gọi trực tiếp, không HTTP ctx) KHÔNG regress.
+
+| TC (BE) | Kịch bản | Expect | Kỹ thuật |
+|---|---|---|---|
+| `test_label_mark_constant_value` | `from assetcore.api.imm00 import AC_LABEL_MARK_RATE_LIMIT` | `== 10` (hằng RIÊNG tồn tại) | Static (constant-value guard) |
+| `test_label_batch_constant_value` | `from … import AC_LABEL_BATCH_RATE_LIMIT` | `== 20` | Static (constant-value guard) |
+| `test_label_mark_le_regen` | `AC_LABEL_MARK_RATE_LIMIT <= AC_QR_REGEN_RATE_LIMIT` | True (mark cùng họ write-amplify như rotate → ngưỡng thấp) | Static (asymmetry-logic) |
+| `test_label_batch_gt_mark` | `AC_LABEL_BATCH_RATE_LIMIT > AC_LABEL_MARK_RATE_LIMIT` | True (read-only ngưỡng cao hơn) | Static |
+| `test_label_consts_distinct` | 2 hằng KHÔNG tái dùng `AC_QR_RESOLVE`/`AC_QR_REGEN` (giá-trị có thể trùng pdf nhưng tên RIÊNG) | tên hằng tồn tại độc lập | Static (no-reuse) |
+| `test_label_decorator_presence` | `inspect.getsource(mark_label_printed)`/`get_asset_label_data_batch` | chứa `@rate_limit` + tên hằng đúng (`AC_LABEL_MARK_RATE_LIMIT`/`AC_LABEL_BATCH_RATE_LIMIT`); chống tái-gỡ âm thầm | Static (decorator-presence guard) |
+| `test_mark_under_limit_ok` | dội ĐÚNG `AC_LABEL_MARK_RATE_LIMIT` call mark (HTTP ctx, asset thật, asset.print) | tất cả **200** `_ok`; ghi 2×N record/call như cũ | Boundary (≤N) |
+| `test_mark_over_limit_429` | call thứ `AC_LABEL_MARK_RATE_LIMIT+1` mark cùng IP/cmd/60s | `frappe.RateLimitExceededError` (HTTP **429**) | Boundary (>N) |
+| `test_mark_429_no_side_effect` | trước call vượt trần: count ALE `label_printed` + count IMM Audit Trail của asset; gọi call vượt trần | sau 429: **0 ALE `label_printed` MỚI + 0 IMM Audit Trail MỚI** (so trước+sau) | Security (no side-effect — CỐT LÕI) |
+| `test_mark_429_no_leak` | vượt trần với asset thật | exception 429; message KHÔNG chứa `name`/`asset_code`/số-record | Security (no-leak parity) |
+| `test_mark_429_runs_before_rbac` | user KHÔNG `asset.print` (Guest/chỉ-read), dội >N → call vượt trần | **429** (KHÔNG 403) — RL chặn TRƯỚC `rbac.require("asset.print")` | Order (RL→RBAC) |
+| `test_batch_under_limit_ok` | dội ĐÚNG `AC_LABEL_BATCH_RATE_LIMIT` call batch | tất cả **200** `_ok` payload N-item | Boundary (≤N) |
+| `test_batch_over_limit_429` | call thứ `AC_LABEL_BATCH_RATE_LIMIT+1` batch | `RateLimitExceededError` (429); 0 byte payload build | Boundary (>N) |
+| `test_mark_batch_separate_bucket` | dội `AC_LABEL_MARK_RATE_LIMIT` mark (chạm trần mark) → 1 `get_asset_label_data_batch` cùng IP | batch **200** (bucket RIÊNG — mark KHÔNG bóp batch) | EP (per-endpoint isolation) |
+| `test_label_no_request_context_bypasses` | gọi mark/batch TRỰC TIẾP >N lần (không HTTP ctx) | KHÔNG 429 (bypass test/CLI có chủ đích) — suite cũ KHÔNG regress | Negative (bypass) |
+| `test_cap_set_version_unchanged` | sau khi thêm 2 decorator | `CAP_SET_VERSION == "v97.c30c69b8974d"` | Static (regression) |
+
+**⚠️ ĐẢO test cũ `test_write_endpoints_not_rate_limited` (`test_imm00.py:5828`) — BẮT BUỘC:**
+- Phần (a) static: XOÁ `mark_label_printed` + `get_asset_label_data_batch` khỏi danh sách "KHÔNG mang `@rate_limit`" → CHỈ còn `get_asset_label_data` (single) trong danh sách miễn (D18.5); THÊM assert 2 endpoint kia NAY MANG `@rate_limit` + hằng RIÊNG (mirror dòng 5848-5854 đã làm cho rotate).
+- Phần (b) behavior: nhánh `dội >N batch → KHÔNG 429` ĐẢO thành `dội >AC_LABEL_BATCH_RATE_LIMIT → call thứ +1 raise RateLimitExceededError` (hoặc CHUYỂN behavior-branch sang class `TestLabelMarkBatchRateLimit` mới và để `test_write_endpoints_not_rate_limited` chỉ giữ static-guard cho `get_asset_label_data`).
+- Đổi tên/docstring cho khớp (vd `test_only_single_label_endpoint_unthrottled`) để tránh hiểu nhầm về sau.
+
+> **DoD Vòng 14:** `bench --site miyano run-tests test_imm00` GREEN (baseline label-pdf/coerce/mark/batch suite + class mới `TestLabelMarkBatchRateLimit`, RED-first chứng minh `>10 mark / >20 batch` KHÔNG raise TRƯỚC fix → raise SAU); `test_write_endpoints_not_rate_limited` ĐÃ ĐẢO GREEN; **fresh-import (guard Python thuần tier API) — KHÔNG cần reload gunicorn / KHÔNG `bench migrate`** (decorator + hằng trong suốt khi không có HTTP request); `CAP_SET_VERSION` GIỮ `v97.c30c69b8974d`; resolve/scan/rotate/pdf rate-limit cũ KHÔNG đổi hành vi; FE KHÔNG đổi (vue-tsc/vitest baseline GIỮ — 429→RATE_LIMITED+VI ĐÃ CÓ). Grep-gate: `AC_LABEL_MARK_RATE_LIMIT` + `AC_LABEL_BATCH_RATE_LIMIT` mỗi hằng đúng 1 định nghĩa (khối hằng đầu `api/imm00.py`, cạnh `AC_LABEL_PDF_RATE_LIMIT`); KHÔNG literal `10`/`20` rải rác ở handler; `@rate_limit` áp đúng **6 endpoint** (2 resolve `resolve_qr_token`+`get_asset_scan_info` + 1 rotate + 1 pdf + 1 mark + 1 batch); `get_asset_label_data` (single) là endpoint nhãn DUY NHẤT KHÔNG có decorator. Teardown xoá `rl:*`. KHÔNG commit (working tree để user review).
 
 ### III.6.d — Vòng 14 B: Base-URL deep-link QR công khai cấu hình được (BR-00-30) — **NEW**
 
@@ -817,6 +1133,29 @@ File BE: thêm class `TestListAssetsVendorScopeReserved` vào `assetcore/tests/t
 > **DoD Vòng 26 B (RC-LIST-VENDORCLOBBER):** `bench --site miyano run-tests test_imm00` + `bench --site miyano run-tests test_imm00_reserved_prefix` GREEN (baseline + class mới); RED đã prove (clobber → vendor thấy ngoài-scope ĐỎ trước fix); `result ⊆ assigned ∧ result ∩ reserved = ∅`; empty-scope → 0 row; INVARIANT `total == len(items)` cho CẢ Administrator lẫn Vendor Engineer (non-search + search); 2 endpoint depreciation no-regress; 3 helper SSoT KHÔNG rename; `bench migrate` exit 0; cap-set GIỮ `v95.3388ee5629c1` (0 schema/field/DocType/enum/patch delta — fix chỉ ở điểm MERGE trong `list_assets`); FE KHÔNG đổi (BE-only). KHÔNG commit (working tree để user review).
 
 > **DoD Vòng 25 B:** `bench --site miyano run-tests test_imm00` GREEN (baseline + class `TestReservedTestPrefixExclusion`); `TestListAssetsGmdnFilter` + baseline list/count GIỮ XANH; INVARIANT `total == len(items)` đo trên data thật (3 nguồn count == list); 0 false-positive (`Model_X`/`TS-…`/`AC-ASSET-…` hiện đủ); grep-guard 1-SSoT pass; `bench migrate` exit 0 (KHÔNG schema/cap/field/DocType/enum/patch delta — thuần helper + 4 wiring + test); `CAP_SET_VERSION` GIỮ `v95.3388ee5629c1`; FE list/count tự hưởng lợi, KHÔNG đổi component (`vue-tsc` exit 0 + `vitest` GREEN baseline). KHÔNG commit (working tree để user review).
+
+#### III.6.h-SEARCHESCAPE — Vòng 13: Escape LIKE-metachar trong `search` của `list_assets` (ADR-IMM00-SEARCH-ESCAPE / BR-00-44) — **NEW**
+
+File BE: thêm class `TestListAssetsSearchEscape` vào `assetcore/tests/test_imm00_list_assets.py` (cạnh `TestListAssetsGmdnFilter`) HOẶC `tests/test_imm00_reserved_prefix.py` (tái dùng `_SeedMixin`). **RED-first BẮT BUỘC:** trên code hiện tại (`like = f"%{search}%"` trần) — `test_search_underscore_is_literal_not_wildcard` PHẢI ĐỎ (search='_' trả gần-như-mọi-row) TRƯỚC khi thêm `escape_like_term` → GREEN. **Guard Python thuần tier API/service** → fresh-import qua `run-tests`, KHÔNG cần reload gunicorn/migrate. Spec contract: [`ADR-IMM00-SEARCH-ESCAPE.md`](./ADR-IMM00-SEARCH-ESCAPE.md) §6 + [`04 §II.1.13-SEARCHESCAPE`](./04_Backend_Design.md) + [`05 §list_assets search`](./05_API_Specification.md).
+
+> **Seed bắt buộc (để test có ý nghĩa, KHÔNG phụ thuộc data prod):** seed ≥3 asset có metachar LITERAL trong cột searchable + ≥1 không-metachar:
+> - `_SE_underscore_a` (asset_name chứa `_` literal) · `_SE_percent_%a` (chứa `%`) · `_SE_back\slash` (chứa `\`) · `_SE_ventil` (không metachar, control).
+> - Dùng prefix `_` để KHÔNG rò vào list prod (reserved-exclusion §III.6.h ẩn chúng khỏi list user thật) — NHƯNG test escape phải đo qua chính `list_assets` thấy được. Lưu ý: reserved-exclusion ẩn asset_name prefix `_` → seed control hợp lệ KHÔNG prefix `_` (vd `SETEST_ventil` với asset_name không bắt đầu `_`), HOẶC đo escape ở tầng helper `escape_like_term` (unit) + đo INVARIANT count==rows qua `list_assets` trên data sạch. **BE tự chốt:** kết hợp (a) unit-test `escape_like_term` thuần (no DB) cho ngữ nghĩa escape + (b) integration `list_assets` cho INVARIANT/no-throw/no-regress.
+> - Teardown: xoá scratch qua direct DB delete (asset có lifecycle/audit → `delete_doc` bị WR-03 chặn; xoá `AC Lifecycle Event`/`AC Audit Trail Entry` con TRƯỚC, rồi `frappe.db.delete` asset — KHÔNG để leak).
+
+| TC | Đo gì | Kỳ vọng |
+|---|---|---|
+| `test_escape_like_term_unit` | `escape_like_term('_')`=='\\_' · `('%')`=='\\%' · `('\\')`=='\\' (KHÔNG đổi) · `('vent')`=='vent' · `('a_b%c')`=='a\\_b\\%c' | escape ĐÚNG `%`/`_`, KHÔNG đụng `\`, no-op text |
+| `test_search_underscore_is_literal_not_wildcard` (SE-1) | `list_assets(search='_')` | KHÔNG trả toàn bộ; chỉ row có `_` literal trong 4 cột; `total < tổng-tập` |
+| `test_search_percent_is_literal_not_matchall` (SE-2) | `list_assets(search='%')` | KHÔNG match-all; chỉ row có `%` literal |
+| `test_search_backslash_no_error_literal` (SE-3) | `list_assets(search='\\')` | KHÔNG throw/500/SQL-error; khớp row có `\` literal |
+| `test_search_escaped_count_equals_rows` (SE-4) | `list_assets(search='_', page_size=2000)` + non-search | `pagination.total == len(items)` cả 2 path |
+| `test_search_by_gmdn_code_substring` (SE-5) | giữ test cũ + smoke `vent`/`AC-ASSET`/`35304` | match như trước (no-regress) |
+| `test_search_param_is_sqli_safe` (SE-6) | giữ test cũ `x' OR '1'='1` | 0-row + `total==len(items)`, no-throw |
+| `test_escape_like_single_source` (SE-7) | grep `api/imm00.py` | KHÔNG có `.replace("%"`/`.replace("_"` LIKE-escape thủ công NGOÀI helper SSoT |
+| `test_search_many_percent_no_dos_matchall` (SE-8) | `list_assets(search='%%%%%%%%%%')` | `total==len(items)` hữu hạn + KHÔNG match-all |
+
+> **DoD Vòng 13 (SEARCH-ESCAPE):** `bench --site miyano run-tests test_imm00_list_assets` (+ `test_imm00_reserved_prefix` nếu đặt class ở đó) GREEN (baseline + class `TestListAssetsSearchEscape`); RED đã prove (search='_'/'%' match-all ĐỎ trước fix); SE-1..SE-8 pass; INVARIANT `total==len(items)` cho CẢ search & non-search, MỌI persona; `test_search_param_is_sqli_safe` + `test_search_by_gmdn_code_substring` GIỮ XANH; grep-guard 1-SSoT pass; `bench migrate` exit 0 (KHÔNG schema/cap/field/DocType/enum/patch delta — thuần 1 helper + 2-dòng wiring + test); `CAP_SET_VERSION` GIỮ NGUYÊN; FE KHÔNG đổi (BE-only — list/search tự hưởng lợi). Teardown sạch (0 scratch leak). KHÔNG commit (working tree để user review).
 
 ## III.7. E2E browser (Playwright)
 
@@ -1043,7 +1382,7 @@ Mỗi scenario theo template §Phụ lục A. ID `UAT-IMM-00-NN`.
 > Ghi chú audit: Write/Create trên IMM Audit Trail chỉ cấp cho Super Admin nhằm phục vụ `log_audit_event` qua `ignore_permissions`; ở tầng application controller chặn update (BR-00-03). Cần xác nhận perm này không cho user thật sửa record (xem VI.3).
 
 - **Field-level permission**: *(Cần khảo sát — chưa xác minh permlevel ≠ 0 cho field nhạy cảm như cost/funding trong các DocType foundation.)*
-- **User Permission**: filter row theo responsible_technician qua `permission.py::get_ac_asset_permission_query()` (RISK-00-04, NFR-00-07).
+- **User Permission**: row-scope qua `permissions.py::ac_asset_query` (+ `ac_asset_has_permission` IDOR gate) — **ADR-IMM00-LIST-SCOPE (2026-06-08):** CHỈ Vendor Engineer scope `responsible_technician`; KTV nội bộ (Role Profile "Kỹ thuật viên") **read-all**. Count permission-aware → INVARIANT `count==rows` (RISK-00-04, NFR-00-07). Test: INV-1..INV-7 trong ADR (INV-3 chứng minh vendor vẫn isolated sau khi mở KTV read-all).
 
 ## VI.2. API security
 

@@ -370,7 +370,7 @@ def _row_is_breached(row: dict, kind: str, now) -> int:
 
 | Function | Returns | Logic Owner | Notes |
 |---|---|---|---|
-| `report_incident(asset, incident_type, severity, description, *, fault_code, ...)` | `dict {name, status, severity}` | IMM-12 | BR-12-01 Critical→clinical_impact; BR-12-04 Critical→OOS |
+| `report_incident(asset, incident_type, severity, description, *, fault_code, ..., source="manual")` | `dict {name, status, severity}` | IMM-12 | BR-12-01 Critical→clinical_impact; BR-12-04 Critical→OOS; **BR-12-16** emit `incident_reported` lifecycle + provenance `source` (V4 D2) |
 | `acknowledge_incident(name, notes, assigned_to)` | `dict {name, status}` | IMM-12 | Open→Acknowledged (D3); High→OOS |
 | `resolve_incident(name, resolution_notes, root_cause)` | `dict {name, status, rca_created}` | IMM-12 | auto-create RCA for High/Critical |
 | `close_incident(name, verification_notes)` | `dict {name, status, closed_date}` | IMM-12 | BR-12-02 RCA Completed check; restore asset Active |
@@ -393,7 +393,7 @@ def _row_is_breached(row: dict, kind: str, now) -> int:
 
 ### 4.2 Key implementation notes
 
-- `report_incident` signature: `(asset, incident_type, severity, description, *, fault_code, workaround_applied, clinical_impact, patient_affected, patient_impact_description, immediate_action, linked_repair_wo, reported_by)` — returns `dict`, NOT `str`.
+- `report_incident` signature: `(asset, incident_type, severity, description, *, fault_code, workaround_applied, clinical_impact, patient_affected, patient_impact_description, immediate_action, linked_repair_wo, reported_by, source="manual")` — returns `dict`, NOT `str`. **V4 D2:** `source` enum `{"manual","qr-scan"}` (default manual) → provenance trong lifecycle `incident_reported` + audit `change_summary`.
 - DocType name used: `"Incident Report"` (constant `_DT_INCIDENT`).
 - RCA DocType name: `"IMM RCA Record"` (constant `_DT_RCA`). **NOT** `"RCA Record"`.
 - CAPA DocType name: `"IMM CAPA Record"` (constant `_DT_CAPA`).
@@ -416,7 +416,7 @@ Imports from `assetcore.utils.response` (`_ok`, `_err`). Role check via `_has_ro
 
 | Function | Method | Role guard |
 |---|---|---|
-| `report_incident(asset, incident_type, severity, description, fault_code, ...)` | POST | session.user != Guest |
+| `report_incident(asset, incident_type, severity, description, fault_code, ..., source)` | POST | **`rbac.can("corrective.create")`** (V4-GATE D1 — KHÔNG còn chỉ Guest-401) |
 | `cancel_incident(name, reason)` | POST | ROLES_INVESTIGATE |
 | `create_rca(incident_name, rca_method)` | POST | ROLES_INVESTIGATE |
 | `get_rca(name)` | GET | authenticated |
@@ -432,6 +432,26 @@ Imports from `assetcore.utils.response` (`_ok`, `_err`). Role check via `_has_ro
 | `get_incident_stats()` | GET | authenticated | trả service-layer shape (gồm `open_total`) — xem Self-Correction dưới |
 
 > **⚠️ SELF-CORRECTION (BR-12-11) — api-layer `get_incident_stats` divergence:** endpoint `api/imm12.py::get_incident_stats()` hiện re-implement cục bộ với alias chết `"Under Investigation"` + inline open-set tuple `["Open","Under Investigation"]` (đếm 0 trên data thật, vi phạm SoT + CLAUDE.md §15). Core Doc CHỐT: endpoint PHẢI `return handle(svc_stats)` (delegate `services/imm12.py::get_incident_stats`) ⇒ trả CÙNG shape với `get_dashboard().stats` (gồm `open_total`, `total`, severity, `sla_*`). Chi tiết: `05_API §11.6`.
+
+### 5.1 V4-GATE — Cap-gate `report_incident` (BR-12-15) — đóng lỗ leo quyền P1 ✅ CHỐT
+
+> **ADR:** `ADR-IMM12-REPORT-FAILURE.md` D1. **Gap (verify tại source):** route-guard FE (`router/index.ts:450`) + scan-action SSoT (`services/imm00.py:419-420`) ĐỀU gate `corrective.create`, NHƯNG API+svc `report_incident` CHỈ chặn Guest-401 → user `corrective.read`-không-`create` bypass qua curl/REST.
+
+**CHỐT (1 nơi chịu trách nhiệm HTTP = API tier):**
+```python
+# api/imm12.py — đầu report_incident, sau Guest-401, TRƯỚC handle()
+_CAP_REPORT = "corrective.create"   # auto-gen ("Incident Report","create") — SSoT rbac.py
+if not rbac.can(_CAP_REPORT):
+    return _err(_(_MSG_FORBIDDEN), 403)   # "Không có quyền thực hiện hành động này"
+```
+- **KHÔNG dùng `rbac.require(_CAP_REPORT)`** — `require` throw `"Khong du quyen: corrective.create"` ⇒ LEAK raw cap (vi phạm AC1). Dùng `rbac.can` + `_err(_MSG_FORBIDDEN, 403)` (VI sạch).
+- **Parity 3-tier** (cùng cap `corrective.create`): tier-1 route-guard · tier-2 scan-action `report_failure.capability` · tier-3 API gate (THÊM). QA test tương đẳng 3 binding.
+
+| Tier | Vị trí | Cap | Khi thiếu cap |
+|---|---|---|---|
+| 1 Route-guard | `router/index.ts:450` `IncidentCreate` | `corrective.create` | redirect /unauthorized |
+| 2 Scan-action SSoT | `services/imm00.py:419-420` `report_failure` | `corrective.create` | nút "Báo hỏng" disabled + tooltip |
+| 3 API tier (THÊM) | `api/imm12.py::report_incident` | `corrective.create` | **403** VI sạch (chặn curl/REST) |
 
 ---
 
@@ -452,6 +472,23 @@ Imports from `assetcore.utils.response` (`_ok`, `_err`). Role check via `_has_ro
 > **2 audit entry tách bạch (BR-12-05 + BR-12-09):** entry *phát hiện* (set cờ) đã có từ trước; khi escalate bắn notification thì GHI THÊM entry *escalated* — KHÔNG thay thế entry phát hiện. Nếu incident không có recipient nào → chỉ ghi entry phát hiện (không ghi entry escalated, không bắn rỗng).
 
 Tất cả gọi `imm00.log_audit_event()` → SHA-256 hash chain (NĐ98/ISO 13485).
+
+### 6.1 V4-GATE — Canonical lifecycle event `incident_reported` + provenance `source` (BR-12-16) ✅ CHỐT
+
+> **ADR:** `ADR-IMM12-REPORT-FAILURE.md` D2. **Gap (verify tại source):** `_log` (`services/imm12.py:208-221`, `:212`) hiện ghi `event_type="Incident"` **generic** vào `IMM Audit Trail` — KHÔNG phải canonical `incident_reported` mà bảng §6 ở trên ĐÃ ghi (doc↔code drift), và KHÔNG ghi `Asset Lifecycle Event` (vi phạm CLAUDE.md §10).
+
+**Self-correction tên event:** PM gọi AC là `failure_reported`, NHƯNG canonical option của `Asset Lifecycle Event.event_type` (Select) là **`incident_reported`** — `failure_reported` KHÔNG có trong Select (ghi sẽ throw / phải đổi schema). ⇒ **CHỐT dùng `incident_reported`** (đóng đúng intent "không còn chỉ generic 'Incident'" mà KHÔNG đổi schema).
+
+**CHỐT 2 record (KHÔNG trộn 2 cơ chế):**
+
+1. **Lifecycle event (trục §10)** — `report_incident` thành công ⇒ `create_lifecycle_event(event_type="incident_reported", actor, from_status, to_status, root_doctype=_DT_INCIDENT, root_record=doc.name, notes="Báo hỏng ({source_label}) — {severity} — {incident_type}")`.
+   - `root_doctype` BẮT BUỘC kèm `root_record` (nếu không Frappe throw "Root DocType must be set first" → event bị nuốt — pattern IMM-09 `services/imm09.py:493-514`).
+   - `_source_label(source)`: `"qr-scan"`→`"qr-scan"`, else→`"manual"` (SSoT 1 hàm, KHÔNG inline literal).
+2. **Audit trail (hash-chain, GIỮ)** — `_log` VẪN ghi `IMM Audit Trail`; `change_summary` THÊM provenance: `f"Incident reported ({source_label}) — {severity} — {incident_type}"`. GIỮ chain hợp lệ (chỉ đổi text row MỚI, không sửa row cũ). *(Tuỳ BE)* nâng `event_type` audit-row báo hỏng "Incident"→"incident_reported" cho khớp bảng §6.
+
+**`source` (provenance):** enum `{"manual","qr-scan"}`, **default `"manual"`** (mọi đường cũ không truyền → manual, NO regression). source ∉ enum → coi `"manual"` (KHÔNG throw — provenance không phải security gate).
+
+**AC2 PASS khi:** (a) ≥1 `Asset Lifecycle Event` `event_type='incident_reported'` cho asset; (b) `notes` chứa "qr-scan" khi source=qr-scan / "manual" khi mặc định; (c) `verify_audit_chain(asset)['valid']==True` (lifecycle KHÔNG nằm trong chain — `utils/lifecycle.py:97-114`; audit-row mới có hash hợp lệ).
 
 ---
 

@@ -14,6 +14,17 @@ description: >
 
 > Skill này là rulebook bắt buộc khi tạo commit. Không tự suy diễn convention khác.
 
+## Overview
+
+Skill này chuẩn hoá việc tạo git commit cho AssetCore: chia working tree thành **nhiều commit logic nhỏ** (mỗi commit một vấn đề), viết subject theo Conventional Commits (English), rồi **push toàn bộ** lên GitHub. Nguyên tắc cốt lõi: **chỉ commit khi user yêu cầu**; KHÔNG `git add -A` gộp hết; KHÔNG thêm trailer `Co-Authored-By`.
+
+## When to Use
+
+- User nói "commit", "commit code", "commit tiếp", "lưu thay đổi", "git commit", "đẩy code", "push code" — kể cả khi chỉ nói "commit" một từ.
+- Cần chia working tree (nhiều bug fix / feature / refactor / docs) thành commit logic riêng rồi push.
+- Cần subject Conventional Commits chuẩn hoặc cần verify commit không lẫn file của session khác.
+- **KHÔNG dùng khi**: user CHƯA yêu cầu commit (rule cứng #6 — không tự commit sau khi sửa code); hoặc việc là viết/sửa code, test, docs (→ các skill `assetcore-be`/`assetcore-fe`/`assetcore-test`/`assetcore-doc`).
+
 ---
 
 ## Quy tắc CỨNG (không vi phạm)
@@ -51,7 +62,18 @@ description: >
 
 ---
 
-## Quy trình bắt buộc
+## Named principles (git-workflow) — vì sao luật CỨNG là như vậy
+
+> Hút từ agent-skills generic → gắn tên cho luật đã có. Hiểu tên principle = áp đúng, không suy diễn.
+
+- **Atomic commit** — mỗi commit làm ĐÚNG MỘT việc logic, self-contained (đây CHÍNH LÀ rule cứng #1). Subject cần "and" / nhiều mệnh đề = dấu hiệu KHÔNG atomic → tách. Lợi ích: dễ review, dễ revert 1 việc mà không kéo việc khác.
+- **Change sizing ~100 lines** — nhắm ~100 dòng/commit; ~300 dòng chấp nhận cho 1 thay đổi logic; >~1000 dòng PHẢI tách. Commit "90 file một phát" (anti-pattern #1) vi phạm cả atomic LẪN sizing. Diff to → tách theo chủ đề logic (bảng phân nhóm dưới).
+- **Commit-as-save-point** — coi mỗi commit là điểm-lưu (save point): tách nhỏ + commit liền tay = nếu việc sau hỏng, `git reset --hard HEAD`/revert lùi đúng 1 increment, không mất nhiều. Đồng bộ với assetcore-be/import (slice → test → commit).
+- **Trunk-based** — `master` luôn deployable; làm trên feature branch ngắn (vd `feature/hieuc/core-refinement`), merge sớm; KHÔNG branch dài phân kỳ. TUYỆT ĐỐI không force-push master/release. Việc dở chưa muốn lộ → feature flag (`site_config`/setting, xem assetcore-deploy) hơn là ôm branch dài. Atomic + sizing là kỷ luật commit, áp được cho mọi branching model.
+
+---
+
+## Process — quy trình commit (multi-commit + push)
 
 ```bash
 # 1. Xem toàn bộ thay đổi
@@ -231,6 +253,48 @@ hash + subject từng commit + xác nhận `git push` thành công.
    đã yêu cầu commit là ngầm yêu cầu push, KHÔNG hỏi lại.
 9. **Tách commit theo từng file lẻ** — không đi đến cực đoan ngược lại;
    file cùng chủ đề logic vẫn gộp chung một commit.
+
+---
+
+## Common Rationalizations
+
+| Lý do hay viện để skip | Sự thật |
+|---|---|
+| "Gộp hết vào 1 commit cho nhanh" | `git add -A && git commit` một phát cho 90 file = SAI (anti-pattern #1). Phải tách theo chủ đề logic, mỗi commit một vấn đề (rule cứng #1). |
+| "Subject 'feat: add A and fix B and update C' cũng được" | Subject chứa "and"/nhiều mệnh đề = dấu hiệu cần tách (anti-pattern #2). Một commit = một type + một chủ đề. |
+| "Viết subject tiếng Việt cho nhanh" | Subject phải English, imperative (anti-pattern #3 / rule cứng #3). Body mới được tiếng Việt. |
+| "Thêm `Co-Authored-By: Claude` cho minh bạch" | Vi phạm rule cứng #5 (anti-pattern #4). TUYỆT ĐỐI không thêm bất kỳ trailer attribution nào. |
+| "Commit thẳng lên master / tự commit sau khi sửa code" | Chỉ commit khi user yêu cầu (rule cứng #6 / anti-pattern #7). Không tự commit. |
+| "`git add -A` rồi commit cho gọn, kệ WIP session khác" | Working tree có thể chứa WIP của effort/session khác (~50 file notification framework) → commit lẫn = phá việc người khác (rule cứng #7). Stage đúng file bằng đường dẫn tường minh. |
+| "Commit xong là xong, push sau cũng được" | Quên `git push` = vi phạm rule cứng #2 (anti-pattern #8). User yêu cầu commit là ngầm yêu cầu push, KHÔNG hỏi lại. |
+| "Body một dòng cụt cho commit lớn cũng đủ" | Commit lớn phải liệt kê file/nhóm thay đổi (anti-pattern #6). |
+| "Commit 800 dòng 1 phát cho gọn" | Vi phạm change sizing (~100 dòng; >~1000 PHẢI tách) — diff to ẩn bug, revert đau. Tách theo chủ đề logic (Named principles). |
+| "Cứ ôm branch dài, gộp về master sau" | Trunk-based: master luôn deployable, branch ngắn merge sớm; branch dài phân kỳ = nợ. Việc dở dùng feature flag, không ôm branch (Named principles). |
+
+## Red Flags — STOP
+
+- Đang định chạy `git add -A` / `git add .` / `git add -u` (phải stage đường dẫn tường minh).
+- Subject có "and" hoặc nhiều mệnh đề → cần tách commit.
+- Subject viết tiếng Việt, hoặc dùng quá khứ ("added"/"fixed"), hoặc thiếu `type`.
+- Sắp thêm dòng `Co-Authored-By:` / `🤖 Generated with Claude Code`.
+- Đang commit mà user CHƯA yêu cầu commit.
+- Working tree có WIP lạ (từ khoá vùng cấm) mà chưa verify commit không lẫn file lạ.
+- Đã tạo commit nhưng chưa `git push` → flow chưa hoàn tất.
+
+## Verification
+
+Trước khi tuyên bố commit "xong" — phải có BẰNG CHỨNG (không "có vẻ đúng"):
+
+- [ ] Đã đọc `git status` + `git diff` để phân nhóm theo chủ đề logic.
+- [ ] Mỗi commit = 1 vấn đề duy nhất (không "and" trong subject).
+- [ ] `git add <files>` đúng nhóm bằng đường dẫn tường minh (không `add -A` bừa).
+- [ ] Subject: `<type>(<scope>): ` English, imperative, lowercase, no period, ≤72.
+- [ ] Body: bullet theo file/đoạn, giải thích cái gì + tại sao.
+- [ ] KHÔNG có `Co-Authored-By` / `Generated with Claude`.
+- [ ] Khi working tree có WIP lạ: `git show --stat --oneline HEAD | grep -iE '<từ khoá vùng cấm>'` → `clean` (không LEAK).
+- [ ] Lặp cho tất cả nhóm cho đến khi `git status` sạch.
+- [ ] `git push` — đã đẩy toàn bộ commit lên GitHub.
+- [ ] Báo lại danh sách hash + subject (`git log --oneline -<N>`) + xác nhận push OK.
 
 ---
 

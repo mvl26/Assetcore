@@ -1979,6 +1979,218 @@ class TestAssetQRToken(unittest.TestCase):
 
 
 # ──────────────────────────────────────────────────────────────────────────
+# BE-D4 (ADR-IMM00-QR-SCAN-ACTION §D4) — QR-gen COVERAGE proof across MỌI đường
+# tạo asset + read-only baseline + idempotent backfill reproof.
+#
+# 🎯 "QR sinh ở đâu?" — 1 NGUỒN DUY NHẤT: model-layer
+#     ``ac_asset.py::before_insert`` → ``_ensure_qr_token`` (ac_asset.py:50,63,65).
+#   Mọi đường tạo asset gọi ``doc.insert()`` ⇒ Frappe lifecycle fire before_insert
+#   ⇒ token tự sinh. KHÔNG có code QR riêng cho form / import / registration.
+#     (1) form   : api/imm00.py::create_asset → frappe.get_doc(...).insert()
+#     (2) import : api/import_data.py:348-350 new_doc().update().insert()
+#                  (đường import e2e: test_import_asset_identity.TestQrGenCoverageImport)
+#     (3) regist.: services/imm04.py::create_ac_asset → asset.insert() (:598)
+#                  + belt-and-suspenders ensure_asset_qr_token (imm04.py:1010-1011)
+#
+# RED-guard: nếu before_insert/_ensure_qr_token bị gỡ (patch no-op) → cả 3 đường
+# ra token rỗng → root-cause neo vào model hook (KHÔNG rải logic QR ở từng caller).
+# ──────────────────────────────────────────────────────────────────────────
+
+
+class TestQrGenCoverageD4(unittest.TestCase):
+    """BE-D4: chứng minh qr_token != rỗng SAU mỗi đường tạo + baseline + backfill."""
+
+    _URLSAFE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": "Danh mục test QR coverage D4",
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        _purge_category("Danh mục test QR coverage D4")
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self._tok = frappe.generate_hash(length=6).upper()
+        self._saved_form_dict = getattr(frappe.local, "form_dict", None)
+
+    def tearDown(self):
+        frappe.local.form_dict = self._saved_form_dict or frappe._dict()
+
+    # ── (1) FORM path — qua endpoint create_asset thật ──────────────────────
+    def test_qr_token_generated_on_form_create(self):
+        """create_asset (đường HTTP form) → asset.qr_token != rỗng.
+
+        Bổ sung so với test_qr_token_generated_on_insert (dùng
+        _insert_asset_bypass_workflow): test này đi qua ENDPOINT create_asset —
+        đúng path FE gọi.
+        """
+        from assetcore.api.imm00 import create_asset
+
+        code = f"TS-QRFORM-{self._tok}"
+        frappe.local.form_dict = frappe._dict({
+            "cmd": "assetcore.api.imm00.create_asset",
+            "asset_name": f"Máy QR form {self._tok}",
+            "asset_category": self.cat.name,
+            "asset_code": code,
+        })
+        resp = create_asset()
+        self.assertTrue(resp.get("success"), f"create_asset phải OK: {resp}")
+        name = resp["data"]["name"]
+        self.addCleanup(_purge_asset, name)
+
+        token = frappe.db.get_value("AC Asset", name, "qr_token")
+        self.assertTrue(token, "qr_token != rỗng sau form-create endpoint")
+        self.assertGreaterEqual(len(token), 20)
+        self.assertRegex(token, self._URLSAFE)
+
+    # ── (3) REGISTRATION path — create_ac_asset (commissioning) ─────────────
+    def test_qr_token_generated_on_registration(self):
+        """IMM-04/05 commissioning tạo final_asset qua create_ac_asset →
+        final_asset.qr_token != rỗng (assert tại điểm tạo doctype .insert()).
+
+        Đây là đường registration THẬT: services/imm04.py::create_ac_asset gọi
+        ``asset.insert()`` (:598) ⇒ before_insert sinh token.
+        """
+        from assetcore.services.imm04 import create_ac_asset
+
+        # Insert ở Draft để skip Gate G01 (commissioning docs) — create_ac_asset
+        # CHỈ đọc field của doc (asset_description/vendor_serial_no/final_asset),
+        # KHÔNG re-validate workflow_state của phiếu → đường mint asset đúng.
+        comm = frappe.get_doc({
+            "doctype": "Asset Commissioning",
+            "workflow_state": "Draft",
+            "asset_description": f"Máy thở Dräger Evita V500 (reg {self._tok})",
+            "vendor_serial_no": f"SN-REG-{self._tok}",
+        }).insert(ignore_permissions=True, ignore_mandatory=True, ignore_links=True)
+        self.addCleanup(
+            lambda: frappe.db.exists("Asset Commissioning", comm.name)
+            and frappe.delete_doc("Asset Commissioning", comm.name,
+                                  force=True, ignore_permissions=True))
+        frappe.db.commit()
+
+        asset_name = create_ac_asset(comm)
+        self.addCleanup(_purge_asset, asset_name)
+        self.assertTrue(asset_name, "create_ac_asset phải mint AC Asset")
+
+        token = frappe.db.get_value("AC Asset", asset_name, "qr_token")
+        self.assertTrue(token,
+                        "final_asset.qr_token != rỗng sau registration "
+                        "(before_insert qua asset.insert())")
+        self.assertGreaterEqual(len(token), 20)
+        self.assertRegex(token, self._URLSAFE)
+
+    # ── RED-guard — before_insert là NGUỒN DUY NHẤT ─────────────────────────
+    def test_qr_token_before_insert_is_sole_source(self):
+        """Nếu _ensure_qr_token bị no-op (gỡ hook) → form + import đều ra token
+        rỗng ⇒ chứng minh root-cause neo vào model hook, KHÔNG có code QR riêng
+        ở caller. (Patch _ensure_qr_token thành no-op, assert insert ra token rỗng.)
+        """
+        from unittest.mock import patch as _mock_patch
+        from assetcore.assetcore.doctype.ac_asset.ac_asset import ACAsset
+
+        # FORM path với hook bị gỡ → token rỗng
+        with _mock_patch.object(ACAsset, "_ensure_qr_token", lambda self: None):
+            doc = _insert_asset_bypass_workflow({
+                "doctype": "AC Asset",
+                "asset_name": f"Máy no-hook form {self._tok}",
+                "asset_category": self.cat.name,
+                "asset_code": f"TS-NOHOOK-FORM-{self._tok}",
+                "lifecycle_status": "Draft",
+            })
+            self.addCleanup(_purge_asset, doc.name)
+            self.assertFalse(
+                frappe.db.get_value("AC Asset", doc.name, "qr_token"),
+                "gỡ _ensure_qr_token → form-create KHÔNG còn sinh token "
+                "(token KHÔNG sinh ở caller — sole source là before_insert)")
+
+        # IMPORT path (new_doc().update().insert()) với hook bị gỡ → token rỗng
+        with _mock_patch.object(ACAsset, "_ensure_qr_token", lambda self: None):
+            d2 = frappe.new_doc("AC Asset")
+            d2.update({
+                "asset_name": f"Máy no-hook import {self._tok}",
+                "asset_category": self.cat.name,
+                "asset_code": f"TS-NOHOOK-IMP-{self._tok}",
+                "lifecycle_status": "Draft",
+            })
+            d2.insert(ignore_permissions=True)
+            self.addCleanup(_purge_asset, d2.name)
+            self.assertFalse(
+                frappe.db.get_value("AC Asset", d2.name, "qr_token"),
+                "gỡ _ensure_qr_token → import-insert KHÔNG còn sinh token")
+
+        # Sanity: KHÔNG patch → token sinh lại bình thường (hook là nguồn DUY NHẤT)
+        d3 = _insert_asset_bypass_workflow({
+            "doctype": "AC Asset",
+            "asset_name": f"Máy có-hook {self._tok}",
+            "asset_category": self.cat.name,
+            "asset_code": f"TS-HOOK-OK-{self._tok}",
+            "lifecycle_status": "Draft",
+        })
+        self.addCleanup(_purge_asset, d3.name)
+        self.assertTrue(
+            frappe.db.get_value("AC Asset", d3.name, "qr_token"),
+            "không patch → before_insert sinh token (sole source hoạt động)")
+
+    # ── BE-D4-b — read-only baseline count (KHÔNG mutate) ───────────────────
+    def test_backfill_baseline_count_readonly(self):
+        """COUNT(*) AC Asset WHERE qr_token IN ('', NULL) đo được + KHÔNG mutate:
+        count trước == count sau khi chỉ-đọc.
+        """
+        def _missing_count() -> int:
+            return frappe.db.count("AC Asset", {"qr_token": ["in", ["", None]]})
+
+        before = _missing_count()
+        # Chỉ đọc lại — KHÔNG ghi gì. Phải bằng nhau (đo không có side-effect).
+        after = _missing_count()
+        self.assertEqual(before, after,
+                         "đo baseline phải read-only — count không đổi")
+        self.assertGreaterEqual(before, 0)
+
+    # ── BE-D4-c reproof — backfill idempotent 2 lần + KHÔNG emit lần 2 ──────
+    def test_backfill_idempotent_twice(self):
+        """Asset legacy giả-lập token rỗng → ensure_asset_qr_token lần 1 sinh
+        token, lần 2 trả CÙNG token, qr_generated event KHÔNG tăng lần 2.
+        """
+        from assetcore.services.imm00 import ensure_asset_qr_token
+
+        asset = _insert_asset_bypass_workflow({
+            "doctype": "AC Asset",
+            "asset_name": f"Máy legacy {self._tok}",
+            "asset_category": self.cat.name,
+            "asset_code": f"TS-LEGACY-{self._tok}",
+            "lifecycle_status": "Draft",
+        })
+        self.addCleanup(_purge_asset, asset.name)
+        # Giả legacy: xoá token (raw SQL — không qua validate/before hooks)
+        frappe.db.sql("UPDATE `tabAC Asset` SET qr_token=NULL WHERE name=%s",
+                      (asset.name,))
+        frappe.db.commit()
+
+        t1 = ensure_asset_qr_token(asset.name)
+        self.assertTrue(t1, "lần 1: sinh token cho asset legacy")
+        events_after_1 = frappe.db.count(
+            "Asset Lifecycle Event",
+            {"asset": asset.name, "event_type": "qr_generated"})
+
+        t2 = ensure_asset_qr_token(asset.name)
+        self.assertEqual(t1, t2, "lần 2: backfill idempotent — CÙNG token")
+        events_after_2 = frappe.db.count(
+            "Asset Lifecycle Event",
+            {"asset": asset.name, "event_type": "qr_generated"})
+        self.assertEqual(
+            events_after_1, events_after_2,
+            "đã có token → KHÔNG emit qr_generated lần 2 (idempotent)")
+
+
+# ──────────────────────────────────────────────────────────────────────────
 # B (Vòng 17) — SSoT collision-safe qr_token generation (BR-00-31 / FR-00-76..79)
 # 1 helper DUY NHẤT generate_unique_qr_token(exclude) — pre-write check
 # frappe.db.exists + bounded retry _MAX_QR_TOKEN_RETRY + cạn→frappe.ValidationError
@@ -2328,10 +2540,11 @@ class TestAssetCapabilityEnablement(unittest.TestCase):
         self.assertNotEqual(CAP_SET_VERSION, "v89.2df4c16c2bbd",
                             "CAP_SET_VERSION phải đổi sau khi thêm 6 cap asset.* "
                             "(quên bump = FE giữ cap-set rỗng asset.*)")
-        self.assertTrue(CAP_SET_VERSION.startswith("v95."),
-                        f"95 cap sau A2 → version prefix 'v95.' (hiện {CAP_SET_VERSION})")
-        self.assertEqual(len(CAPABILITY_MAP), 95,
-                         "89 + 6 cap asset.* = 95")
+        self.assertTrue(CAP_SET_VERSION.startswith("v97."),
+                        f"97 cap (89 + 6 asset.* + 2 D6 print/rotate) → version "
+                        f"prefix 'v97.' (hiện {CAP_SET_VERSION})")
+        self.assertEqual(len(CAPABILITY_MAP), 97,
+                         "89 + 6 cap asset.* + 2 cap D6 (asset.print/asset.qr.rotate) = 97")
 
 
 class TestResolveQrToken(unittest.TestCase):
@@ -2494,6 +2707,197 @@ class TestResolveQrToken(unittest.TestCase):
 
 
 # ──────────────────────────────────────────────────────────────────────────
+# A2/A6 — Chuẩn hoá whitespace qr_token ở SSoT resolve (FR-00-90/91, BR-00-40,
+# ADR-IMM00-QR-SCAN-ACTION §D8). Token tem nhiệt / deep-link camera có thể kèm
+# khoảng trắng đầu/cuối hoặc trailing newline (artifact encode QR) → phải
+# resolve ĐÚNG (KHÔNG false-404). Chuẩn hoá = strip 2 đầu DUY NHẤT trong service
+# SSoT `resolve_qr_token` (TRƯỚC guard rỗng + query) → `get_asset_scan_info`
+# nhánh token kế thừa qua `_svc_resolve_qr_token` (KHÔNG fork). Token toàn
+# whitespace → sau strip rỗng → guard return None KHÔNG query (chống full-scan,
+# đo query-count=0). RED viết TRƯỚC fix.
+# ──────────────────────────────────────────────────────────────────────────
+
+
+class TestResolveQrTokenWhitespace(unittest.TestCase):
+    """Chuẩn hoá whitespace qr_token ở SSoT resolve (BE-1..BE-5). RED trước fix.
+
+    Strip CHỈ 2 đầu (leading/trailing) — KHÔNG strip giữa (token urlsafe
+    [A-Za-z0-9_-] không bao giờ chứa space giữa; space giữa = token hỏng thật →
+    404). KHÔNG lowercase/transform (token case-sensitive). Sau strip rỗng →
+    None leak-safe KHÔNG query (chống full-scan)."""
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": "Thiết bị Resolve QR Whitespace",
+            "description": "Category cho test chuẩn hoá whitespace qr_token",
+            "is_active": 1,
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        frappe.delete_doc("AC Asset Category", cls.cat.name,
+                          force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self._created: list[str] = []
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+        frappe.db.rollback()
+        for name in self._created:
+            _purge_asset(name)
+        frappe.db.commit()
+
+    def _make_asset(self, suffix=""):
+        import uuid
+        uniq = f"{suffix or '0001'}-{uuid.uuid4().hex[:8]}"
+        doc = _insert_asset_bypass_workflow({
+            "doctype": "AC Asset",
+            "asset_name": f"Máy WS {uniq}",
+            "asset_category": self.cat.name,
+            "manufacturer_sn": f"WS-SN-{uniq}",
+            "asset_code": f"WS-ASSET-{uniq}",
+            "lifecycle_status": "Active",
+        })
+        self._created.append(doc.name)
+        return doc
+
+    def _count_asset_token_queries(self):
+        """Context-manager đếm số lần `frappe.db.get_value` tra theo filter
+        ``{"qr_token": ...}`` trên AC Asset (= lần lookup token thực sự chạm DB).
+
+        Path rỗng-sau-strip PHẢI = 0 (guard return None TRƯỚC query → chống
+        full-scan). Wrap thẳng module service (resolve_qr_token gọi
+        ``frappe.db.get_value`` trực tiếp) → đếm chính xác lần lookup token."""
+        import contextlib
+        counter = {"n": 0}
+        orig = frappe.db.get_value
+
+        def _wrapped(doctype, filters=None, *args, **kwargs):
+            if doctype == "AC Asset" and isinstance(filters, dict) \
+                    and "qr_token" in filters:
+                counter["n"] += 1
+            return orig(doctype, filters, *args, **kwargs)
+
+        @contextlib.contextmanager
+        def _ctx():
+            frappe.db.get_value = _wrapped
+            try:
+                yield counter
+            finally:
+                frappe.db.get_value = orig
+        return _ctx()
+
+    # ── TC-RESOLVE-WS-1 — token kèm khoảng trắng đầu/cuối → resolve ĐÚNG ──────
+    def test_resolve_token_with_surrounding_whitespace_resolves(self):
+        """SERVICE resolve_qr_token(' '+tok+' ') → payload['name']==asset.name
+        (RED trước fix: false-404 do whitespace chưa strip)."""
+        from assetcore.services.imm00 import resolve_qr_token
+        asset = self._make_asset("ws1")
+        payload = resolve_qr_token(f"  {asset.qr_token}  ")
+        self.assertIsNotNone(payload, "token + whitespace 2 đầu PHẢI resolve (KHÔNG false-404)")
+        self.assertEqual(payload["name"], asset.name)
+        self.assertEqual(payload["asset_code"], asset.asset_code)
+
+    # ── TC-RESOLVE-WS-2 — trailing newline (artifact tem nhiệt) → resolve ────
+    def test_resolve_token_with_trailing_newline_resolves(self):
+        """resolve_qr_token(tok+'\\n') (artifact encode QR tem nhiệt) → đúng asset."""
+        from assetcore.services.imm00 import resolve_qr_token
+        asset = self._make_asset("ws2")
+        payload = resolve_qr_token(f"{asset.qr_token}\n")
+        self.assertIsNotNone(payload, "trailing newline PHẢI strip → resolve đúng")
+        self.assertEqual(payload["name"], asset.name)
+        # Cả tab + CRLF (biến thể artifact encode khác) cũng strip đúng.
+        payload2 = resolve_qr_token(f"\t{asset.qr_token}\r\n")
+        self.assertIsNotNone(payload2)
+        self.assertEqual(payload2["name"], asset.name)
+
+    # ── TC-RESOLVE-WS-3 — token TOÀN whitespace → None, query-count=0 ────────
+    def test_resolve_whitespace_only_token_returns_none_no_query(self):
+        """resolve_qr_token('   ')/'\\t'/'\\n' (toàn whitespace) → None; sau strip
+        thành '' → guard return None KHÔNG query (query-count trên AC Asset = 0,
+        chống full-scan — đối xử y hệt token rỗng)."""
+        from assetcore.services.imm00 import resolve_qr_token
+        for ws in ("   ", "\t", "\n", " \t\r\n "):
+            with self._count_asset_token_queries() as c:
+                payload = resolve_qr_token(ws)
+            self.assertIsNone(payload, f"token toàn whitespace {ws!r} → None leak-safe")
+            self.assertEqual(c["n"], 0,
+                             f"token {ws!r} sau strip rỗng → KHÔNG query (chống full-scan)")
+
+    # ── TC-RESOLVE-WS-4 — whitespace + token sai → None leak-safe (no 500) ───
+    def test_resolve_whitespace_plus_unknown_token_returns_none(self):
+        """resolve_qr_token(' khong-ton-tai ') → None (sau strip vẫn không khớp
+        asset nào) — KHÔNG raise/500, leak-safe (KHÔNG phân biệt sai-định-dạng vs
+        không-tồn-tại)."""
+        from assetcore.services.imm00 import resolve_qr_token
+        payload = resolve_qr_token("  khong-ton-tai-zzzzzzzzzzzz  ")
+        self.assertIsNone(payload, "whitespace + token sai → None leak-safe (KHÔNG 500)")
+
+    # ── BE-4 — endpoint API kế thừa chuẩn hoá service (KHÔNG strip ở API tier) ─
+    def test_endpoint_resolve_token_with_whitespace_returns_200(self):
+        """api.resolve_qr_token(' '+tok+' ') → 200 + payload đúng (server tự đúng
+        ĐỘC LẬP, KHÔNG phụ thuộc FE trim — truy về source, CLAUDE.md §5/§20)."""
+        from assetcore.api.imm00 import resolve_qr_token
+        asset = self._make_asset("ep")
+        resp = resolve_qr_token(token=f"  {asset.qr_token}\n")
+        self.assertTrue(resp["success"], "endpoint: token+whitespace → 200")
+        self.assertEqual(resp["data"]["name"], asset.name)
+
+    def test_endpoint_resolve_whitespace_only_returns_404(self):
+        """api.resolve_qr_token('   ') → 404 leak-safe (sau strip rỗng → None)."""
+        from assetcore.api.imm00 import resolve_qr_token, _ERR_ASSET_NOT_FOUND
+        resp = resolve_qr_token(token="   ")
+        self.assertFalse(resp["success"])
+        self.assertEqual(resp["http_status"], 404,
+                         "token toàn whitespace → 404 leak-safe (KHÔNG 500/417)")
+        self.assertEqual(resp["error"], frappe._(_ERR_ASSET_NOT_FOUND),
+                         "message == _ERR_ASSET_NOT_FOUND (KHÔNG leak)")
+
+    # ── TC-SCANINFO-WS-1 — scan-info parity: token+whitespace → đúng asset ───
+    def test_scan_info_token_with_whitespace_parity(self):
+        """get_asset_scan_info(token=' '+tok+' ') → payload màn scan-info ĐÚNG
+        asset (parity HOÀN TOÀN với resolve — chứng minh dùng CHUNG SSoT
+        `_svc_resolve_qr_token`, KHÔNG nhánh chuẩn-hoá riêng)."""
+        from assetcore.api.imm00 import get_asset_scan_info
+        asset = self._make_asset("siws")
+        # Token y hệt resolve nhưng kèm whitespace 2 đầu + trailing newline.
+        resp = get_asset_scan_info(token=f"  {asset.qr_token}\n")
+        self.assertTrue(resp["success"], "scan-info: token+whitespace → 200 (parity resolve)")
+        self.assertEqual(resp["data"]["name"], asset.name,
+                         "scan-info kế thừa strip qua _svc_resolve_qr_token (cùng SSoT)")
+        self.assertEqual(resp["data"]["asset_code"], asset.asset_code)
+
+    # ── TC-SCANINFO-WS-2 — ws-only → 404 no-scan; name KHÔNG bị strip phá ────
+    def test_scan_info_whitespace_only_token_404_and_name_branch_intact(self):
+        """get_asset_scan_info(token='  ') → 404 leak-safe, KHÔNG full-scan
+        (query-count token=0). Nhánh name (asset id NỘI BỘ, KHÔNG phải QR) resolve
+        bình thường — KHÔNG bị chuẩn-hoá token phá."""
+        from assetcore.api.imm00 import get_asset_scan_info, _ERR_ASSET_NOT_FOUND
+        asset = self._make_asset("sinm")
+        # token toàn whitespace → 404 + KHÔNG query token (guard rỗng sau strip).
+        with self._count_asset_token_queries() as c:
+            resp = get_asset_scan_info(token="  ")
+        self.assertFalse(resp["success"])
+        self.assertEqual(resp["http_status"], 404,
+                         "ws-only token → 404 leak-safe (KHÔNG 500/417)")
+        self.assertEqual(resp["error"], frappe._(_ERR_ASSET_NOT_FOUND))
+        self.assertEqual(c["n"], 0,
+                         "ws-only token sau strip rỗng → KHÔNG query (chống full-scan)")
+        # name nội bộ (KHÔNG strip) resolve bình thường → 200 đúng asset.
+        resp_name = get_asset_scan_info(name=asset.name)
+        self.assertTrue(resp_name["success"], "nhánh name resolve bình thường")
+        self.assertEqual(resp_name["data"]["name"], asset.name)
+
+
+# ──────────────────────────────────────────────────────────────────────────
 # A6 — Màn THÔNG TIN thiết bị mobile-first khi quét QR (deep-link landing)
 # Endpoint get_asset_scan_info(token|name): payload mobile cốt lõi (định danh +
 # model + vị trí + lifecycle_status canonical + bảo trì gần nhất + next_pm_date),
@@ -2603,6 +3007,100 @@ class TestAssetScanInfo(unittest.TestCase):
         leaked = self._SENSITIVE_KEYS & set(data.keys())
         self.assertFalse(leaked, f"payload màn quét KHÔNG được chứa field nhạy cảm: {leaked}")
 
+    # ── Vòng 37 (D5 — NĐ98): manufacturer_sn = Số serial NSX trong payload scan ──
+    # KTV xác nhận ĐÚNG thiết bị vật lý trước khi báo hỏng/tạo WO. Đọc field thật
+    # AC Asset.manufacturer_sn trong CÙNG get_value (KHÔNG round-trip), coalesce ''
+    # parity asset_code/asset_name. Test SERVICE build_asset_scan_info trực tiếp.
+    def test_scan_info_includes_manufacturer_sn(self):
+        """build_asset_scan_info trả payload['manufacturer_sn'] == giá trị field thật."""
+        from assetcore.services.imm00 import build_asset_scan_info
+        asset = self._make_asset("sn", manufacturer_sn="QR-SN-XXX")
+        payload = build_asset_scan_info(asset.name)
+        self.assertIsNotNone(payload)
+        self.assertEqual(payload["manufacturer_sn"], "QR-SN-XXX",
+                         "Số serial NSX (D5) phải đúng nguyên văn field thật")
+        self.assertIsInstance(payload["manufacturer_sn"], str,
+                              "manufacturer_sn LUÔN là str (coalesce, KHÔNG None)")
+
+    def test_scan_info_manufacturer_sn_empty_coalesces_to_str(self):
+        """SN None/'' (không set) → payload['manufacturer_sn'] == '' (KHÔNG None/KeyError).
+
+        Parity coalesce asset_code/asset_name (D5). Cả 2 nhánh rỗng (None và '')
+        đều phải coalesce về str rỗng — KHÔNG để None lọt payload (no-leak raw)."""
+        from assetcore.services.imm00 import build_asset_scan_info
+        for tag, empty in (("none", None), ("blank", "")):
+            asset = self._make_asset(f"snempty-{tag}", manufacturer_sn=empty)
+            payload = build_asset_scan_info(asset.name)
+            self.assertIsNotNone(payload)
+            self.assertIn("manufacturer_sn", payload, "KHÔNG KeyError khi SN rỗng")
+            self.assertEqual(payload["manufacturer_sn"], "",
+                             f"SN={tag}({empty!r}) → '' (str rỗng, KHÔNG None)")
+            self.assertIsInstance(payload["manufacturer_sn"], str)
+
+    def test_scan_info_manufacturer_sn_no_sensitive_leak_and_no_regress(self):
+        """manufacturer_sn KHÔNG kéo theo field nhạy cảm mới + asset rỗng-name → None.
+
+        manufacturer_sn là định danh truy xuất hợp lệ (D5 — NĐ98), KHÔNG phải
+        giá/khấu hao/docname. Thêm key này KHÔNG được nở field nhạy cảm; guard
+        asset rỗng-name vẫn trả None (no-regress)."""
+        from assetcore.services.imm00 import build_asset_scan_info
+        asset = self._make_asset("snnoleak", manufacturer_sn="SN-NOLEAK-1",
+                                 gross_purchase_amount=123000000)
+        payload = build_asset_scan_info(asset.name)
+        leaked = self._SENSITIVE_KEYS & set(payload.keys())
+        self.assertFalse(leaked, f"payload KHÔNG được chứa field nhạy cảm: {leaked}")
+        # no-regress guard: rỗng-name → None (KHÔNG query toàn bảng)
+        self.assertIsNone(build_asset_scan_info(""))
+        self.assertIsNone(build_asset_scan_info(None))
+
+    # ── Vòng 38 (risk_classification — phân loại rủi ro Low/Medium/High/Critical) ──
+    # Enum EN của AC Asset (read-only, fetch_from device_model). BE GIỮ raw enum làm
+    # SSoT contract (KHÔNG dịch — FE map sang VI). Đọc field thật trong CÙNG get_value
+    # (KHÔNG round-trip), coalesce '' parity manufacturer_sn/asset_code (Vòng 37).
+    # KHÔNG nhầm với risk_class (A/B/C/D — WHO/NĐ98 letter class).
+    def test_scan_info_includes_risk_classification(self):
+        """build_asset_scan_info trả payload['risk_classification'] == raw enum (KHÔNG dịch)."""
+        from assetcore.services.imm00 import build_asset_scan_info
+        asset = self._make_asset("risk", risk_classification="Critical")
+        payload = build_asset_scan_info(asset.name)
+        self.assertIsNotNone(payload)
+        self.assertEqual(payload["risk_classification"], "Critical",
+                         "risk_classification phải đúng RAW enum field thật (BE KHÔNG dịch sang VI)")
+        self.assertIsInstance(payload["risk_classification"], str,
+                              "risk_classification LUÔN là str (coalesce, KHÔNG None)")
+
+    def test_scan_info_risk_classification_empty_coalesces_to_str(self):
+        """risk_classification None/'' (không set) → '' (KHÔNG None/KeyError).
+
+        Parity coalesce manufacturer_sn/asset_code (Vòng 37). Cả 2 nhánh rỗng
+        (None và '') đều coalesce về str rỗng — KHÔNG để None lọt payload."""
+        from assetcore.services.imm00 import build_asset_scan_info
+        for tag, empty in (("none", None), ("blank", "")):
+            asset = self._make_asset(f"riskempty-{tag}", risk_classification=empty)
+            payload = build_asset_scan_info(asset.name)
+            self.assertIsNotNone(payload)
+            self.assertIn("risk_classification", payload,
+                          "KHÔNG KeyError khi risk_classification rỗng (key luôn hiện diện)")
+            self.assertEqual(payload["risk_classification"], "",
+                             f"risk_classification={tag}({empty!r}) → '' (str rỗng, KHÔNG None)")
+            self.assertIsInstance(payload["risk_classification"], str)
+
+    def test_scan_info_risk_classification_no_sensitive_leak_and_no_regress(self):
+        """risk_classification KHÔNG kéo theo field nhạy cảm mới + asset rỗng-name → None.
+
+        risk_classification là phân loại rủi ro public (read-only enum), KHÔNG phải
+        giá/khấu hao/docname. Thêm key này KHÔNG được nở field nhạy cảm; guard asset
+        rỗng-name vẫn trả None (no-regress). Parity manufacturer_sn (Vòng 37)."""
+        from assetcore.services.imm00 import build_asset_scan_info
+        asset = self._make_asset("risknoleak", risk_classification="High",
+                                 gross_purchase_amount=123000000)
+        payload = build_asset_scan_info(asset.name)
+        leaked = self._SENSITIVE_KEYS & set(payload.keys())
+        self.assertFalse(leaked, f"payload KHÔNG được chứa field nhạy cảm: {leaked}")
+        # no-regress guard: rỗng-name → None (KHÔNG query toàn bảng)
+        self.assertIsNone(build_asset_scan_info(""))
+        self.assertIsNone(build_asset_scan_info(None))
+
     # ── resolve theo name (deep-link /assets/:id/info) ──────────────────────
     def test_scan_info_by_name_returns_payload(self):
         from assetcore.api.imm00 import get_asset_scan_info
@@ -2689,6 +3187,20 @@ class TestAssetScanInfo(unittest.TestCase):
         self.assertEqual(frappe.db.count("Asset Lifecycle Event", {"asset": asset.name}),
                          before_ale, "scan info KHÔNG ghi Asset Lifecycle Event")
 
+    # ── parity helper (Vòng 16): 3 trường ngày scan-info (next_pm_date /
+    #    next_calibration_date / recent_maintenance.date) PHẢI cùng shape str
+    #    'YYYY-MM-DD' (10 ký tự, KHÔNG phần giờ). Ép CÙNG 1 assertion-helper cho cả
+    #    3 → KHOÁ parity contract: nếu recent_maintenance.date lệch shape (datetime
+    #    thô có ':') helper RED GIỐNG HỆT khi next_pm_date lệch.
+    _YMD_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+    def _assert_ymd_date_field(self, value, field):
+        self.assertIsInstance(value, str, f"{field} phải là str (str|None contract)")
+        self.assertEqual(len(value), 10, f"{field} phải đúng 10 ký tự 'YYYY-MM-DD'")
+        self.assertNotIn(":", value, f"{field} KHÔNG được kèm phần giờ 'HH:MM:SS'")
+        self.assertRegex(value, self._YMD_RE,
+                         f"{field} phải khớp regex ^\\d{{4}}-\\d{{2}}-\\d{{2}}$")
+
     # ── recent_maintenance — lấy ĐÚNG sự kiện gần nhất (ORDER BY timestamp DESC) ─
     def test_scan_info_recent_maintenance_picks_latest(self):
         from assetcore.api.imm00 import get_asset_scan_info
@@ -2699,8 +3211,51 @@ class TestAssetScanInfo(unittest.TestCase):
         rm = data["recent_maintenance"]
         self.assertIsNotNone(rm, "asset có ALE bảo trì → recent_maintenance KHÔNG null")
         self.assertEqual(rm["event_type"], "pm_completed")
-        self.assertEqual(str(getdate(rm["date"])), str(getdate(add_days(nowdate(), -3))),
+        # Vòng 16 — assert TRỰC TIẾP str 'YYYY-MM-DD' (KHÔNG bọc getdate() che lệch
+        # shape): date đã chuẩn hoá str|None qua _date_str_or_none, DESC LIMIT 1
+        # KHÔNG đổi → vẫn là sự kiện MỚI NHẤT (−3 ngày).
+        self.assertEqual(rm["date"], str(getdate(add_days(nowdate(), -3))),
                          "recent_maintenance phải là sự kiện MỚI NHẤT (DESC LIMIT 1)")
+
+    def test_scan_info_recent_maintenance_date_is_ymd_str(self):
+        """date của recent_maintenance = chuỗi 'YYYY-MM-DD' (10 ký tự, KHÔNG phần
+        giờ) — KHÔNG còn datetime thô. ALE timestamp CÓ phần giờ 14:32:05."""
+        from assetcore.api.imm00 import get_asset_scan_info
+        from frappe.utils import now_datetime
+        asset = self._make_asset("ymd")
+        ts = add_days(now_datetime(), -3).replace(hour=14, minute=32, second=5)
+        self._add_ale(asset.name, "pm_completed", ts)
+        rm = get_asset_scan_info(token=asset.qr_token)["data"]["recent_maintenance"]
+        self.assertIsNotNone(rm, "có ALE bảo trì → recent_maintenance KHÔNG null")
+        self.assertIsInstance(rm["date"], str, "date phải là str (str|None contract)")
+        self.assertEqual(len(rm["date"]), 10, "date phải đúng 10 ký tự (KHÔNG kèm giờ)")
+        self.assertNotIn(":", rm["date"], "date KHÔNG chứa phần giờ 'HH:MM:SS'")
+        self.assertEqual(rm["date"], str(getdate(ts)),
+                         "date = ngày (getdate) của timestamp record mới nhất")
+        # Anti-false-green: date KHÁC giá trị datetime thô có giờ → CHỨNG MINH phần
+        # giờ ĐÃ bị cắt. Nếu impl quên normalize, str(ts) còn 'HH:MM:SS' → RED.
+        self.assertNotEqual(rm["date"], str(ts),
+                            "date KHÔNG được là datetime thô (phần giờ phải bị cắt)")
+
+    def test_scan_info_recent_maintenance_date_parity_with_pm_dates(self):
+        """3 trường ngày scan-info cùng shape str 'YYYY-MM-DD' — ép CÙNG assertion-
+        helper với next_pm_date/next_calibration_date để KHOÁ parity (FR-00-86)."""
+        from assetcore.api.imm00 import get_asset_scan_info
+        from frappe.utils import now_datetime
+        asset = self._make_asset(
+            "parity",
+            next_pm_date=add_days(nowdate(), 30),
+            next_calibration_date=add_days(nowdate(), 45),
+        )
+        ts = add_days(now_datetime(), -3).replace(hour=9, minute=7, second=41)
+        self._add_ale(asset.name, "pm_completed", ts)
+        data = get_asset_scan_info(token=asset.qr_token)["data"]
+        # CÙNG 1 assertion-helper cho cả 3 → recent_maintenance.date lệch shape
+        # (datetime thô có ':') sẽ RED y hệt khi next_pm_date lệch.
+        self._assert_ymd_date_field(data["next_pm_date"], "next_pm_date")
+        self._assert_ymd_date_field(data["next_calibration_date"], "next_calibration_date")
+        self._assert_ymd_date_field(
+            data["recent_maintenance"]["date"], "recent_maintenance.date")
 
     def test_scan_info_recent_maintenance_null_when_none(self):
         """Asset chưa có sự kiện bảo trì → recent_maintenance null/empty, KHÔNG lỗi."""
@@ -2710,6 +3265,1332 @@ class TestAssetScanInfo(unittest.TestCase):
         self.assertIn("recent_maintenance", data)
         self.assertFalse(data["recent_maintenance"],
                          "không có bảo trì → recent_maintenance falsy (null/empty)")
+
+    # ── Vòng 16 (FR-00-86 parity) — recent_maintenance.date = str|None 'YYYY-MM-DD' ─
+    # Đóng parity contract ngày: 3 field date trên màn scan-info (next_pm_date,
+    # next_calibration_date, recent_maintenance.date) CÙNG dạng str|None qua SSoT
+    # _date_str_or_none — KHÔNG còn 1 field lệch shape (datetime thô kèm giờ).
+    _YMD_RE = r"^\d{4}-\d{2}-\d{2}$"
+
+    def test_scan_info_recent_maintenance_date_is_ymd_str(self):
+        """date PHẢI là str 'YYYY-MM-DD' (10 ký tự, KHÔNG phần giờ 'HH:MM:SS') —
+        KHÔNG còn datetime thô (timestamp Datetime của Asset Lifecycle Event)."""
+        from assetcore.api.imm00 import get_asset_scan_info
+        from frappe.utils import now_datetime, get_datetime
+        asset = self._make_asset("rmdatestr")
+        # timestamp CÓ phần GIỜ rõ ràng (14:32:05) để chứng minh giờ bị cắt.
+        ts_raw = get_datetime(add_days(now_datetime(), -3)).replace(
+            hour=14, minute=32, second=5, microsecond=0)
+        self._add_ale(asset.name, "pm_completed", ts_raw)
+        rm = get_asset_scan_info(token=asset.qr_token)["data"]["recent_maintenance"]
+        self.assertIsNotNone(rm, "asset có ALE bảo trì → recent_maintenance KHÔNG null")
+        self.assertIsInstance(rm["date"], str,
+                              "date PHẢI là str (KHÔNG datetime thô)")
+        self.assertEqual(len(rm["date"]), 10,
+                         "date = 10 ký tự 'YYYY-MM-DD' (KHÔNG kèm phần giờ)")
+        self.assertNotIn(":", rm["date"],
+                         "date KHÔNG chứa ':' (no time component)")
+        self.assertEqual(rm["date"], str(getdate(ts_raw)),
+                         "date == str(getdate(<ts>)) — ngày của record mới nhất")
+
+    def test_scan_info_recent_maintenance_date_parity_with_pm_dates(self):
+        """CÙNG payload: recent_maintenance.date, next_pm_date, next_calibration_date
+        đều khớp regex ^\\d{4}-\\d{2}-\\d{2}$ (CÙNG dạng str 'YYYY-MM-DD' qua SSoT
+        _date_str_or_none). Ép CÙNG 1 assertion-helper với 2 field kia → khoá parity."""
+        from assetcore.api.imm00 import get_asset_scan_info
+        from frappe.utils import now_datetime
+        past = add_days(nowdate(), -1)
+        asset = self._make_asset("rmparity", next_pm_date=past,
+                                 next_calibration_date=past)
+        self._add_ale(asset.name, "pm_completed", add_days(now_datetime(), -3))
+        data = get_asset_scan_info(token=asset.qr_token)["data"]
+
+        def _assert_ymd(field_name, value):
+            self.assertIsInstance(value, str,
+                                  f"{field_name} PHẢI là str (parity str|None)")
+            self.assertRegex(value, self._YMD_RE,
+                             f"{field_name} PHẢI khớp 'YYYY-MM-DD' (FR-00-86 parity)")
+
+        _assert_ymd("next_pm_date", data["next_pm_date"])
+        _assert_ymd("next_calibration_date", data["next_calibration_date"])
+        _assert_ymd("recent_maintenance.date", data["recent_maintenance"]["date"])
+
+    def test_scan_info_recent_maintenance_none_when_no_event(self):
+        """Asset KHÔNG có ALE bảo trì → recent_maintenance is None (giữ nhánh falsy
+        — chuẩn hoá date KHÔNG regress nhánh không-có-sự-kiện)."""
+        from assetcore.api.imm00 import get_asset_scan_info
+        asset = self._make_asset("rmnone")
+        data = get_asset_scan_info(token=asset.qr_token)["data"]
+        self.assertIsNone(data["recent_maintenance"],
+                          "không có ALE bảo trì → recent_maintenance is None")
+
+    def test_scan_info_recent_maintenance_date_strips_time_anti_false_green(self):
+        """Anti-false-green: date != giá trị datetime thô có giờ → CHỨNG MINH phần
+        giờ ĐÃ bị cắt. Nếu impl quên normalize (trả ev['timestamp'] thô), RED."""
+        from assetcore.api.imm00 import get_asset_scan_info
+        from frappe.utils import now_datetime, get_datetime
+        asset = self._make_asset("rmstrip")
+        ts_raw = get_datetime(add_days(now_datetime(), -3)).replace(
+            hour=9, minute=7, second=41, microsecond=0)
+        self._add_ale(asset.name, "pm_completed", ts_raw)
+        rm = get_asset_scan_info(token=asset.qr_token)["data"]["recent_maintenance"]
+        self.assertNotEqual(rm["date"], ts_raw,
+                            "date KHÔNG còn là datetime thô (phần giờ bị cắt)")
+        self.assertNotEqual(str(rm["date"]), str(ts_raw),
+                            "str(date) != str(datetime thô) — đã strip 'HH:MM:SS'")
+        self.assertEqual(rm["date"], str(getdate(ts_raw)))
+
+    # ── Vòng 44 (FR-00 — parity type event_type) — event_type LUÔN str ───────
+    # Đóng parity contract TYPE cho recent_maintenance.event_type: parity với
+    # date (str|None qua _date_str_or_none) và với ''-coalesce
+    # manufacturer_sn/asset_code/risk_classification trong build_asset_scan_info.
+    # ALE column event_type nullable / legacy / drift → row có event_type=None/''
+    # → SSoT service _recent_maintenance_event COALESCE về '' (str), KHÔNG None,
+    # KHÔNG raw object. Khử rò None ra mobile-BE/non-Vue consumer + đúng FE type
+    # RecentMaintenance.event_type: string (imm00.ts:110). RED viết TRƯỚC impl.
+    def test_scan_info_recent_maintenance_event_type_coalesced_when_null(self):
+        """SSoT _recent_maintenance_event: row ALE bảo trì có event_type=None
+        (nullable col / legacy / drift) → recent_maintenance KHÔNG null, event_type
+        coalesce về '' (str), KHÔNG None, KHÔNG raw object. Parity ''-coalesce với
+        manufacturer_sn/asset_code/risk_classification + parity str FE type.
+
+        Filter ``event_type ('in', _MAINTENANCE_EVENT_TYPES)`` KHÔNG đổi → để mô
+        phỏng drift mà row VẪN lọt LIMIT 1, patch ``frappe.get_all`` của service
+        trả đúng 1 row {event_type: None, timestamp}. Đây là defensive contract:
+        dù query trả None ở cột event_type, dict-build coalesce '' (never-None)."""
+        from unittest.mock import patch
+        from assetcore.services import imm00 as svc
+        ts = add_days(nowdate(), -3)
+        with patch.object(svc.frappe, "get_all",
+                          return_value=[{"event_type": None, "timestamp": ts}]):
+            rm = svc._recent_maintenance_event("ASSET-DRIFT")
+        self.assertIsNotNone(rm, "có row ALE bảo trì → recent_maintenance KHÔNG null")
+        self.assertIsInstance(rm["event_type"], str,
+                              "event_type PHẢI là str (never-None contract)")
+        self.assertEqual(rm["event_type"], "",
+                         "event_type=None drift → coalesce '' (KHÔNG None, KHÔNG raw)")
+        # parity: date vẫn str|None qua _date_str_or_none (KHÔNG regress)
+        self.assertEqual(rm["date"], str(getdate(ts)),
+                         "date GIỮ str 'YYYY-MM-DD' (parity contract KHÔNG đổi)")
+
+    def test_scan_info_recent_maintenance_event_type_is_str_type(self):
+        """Anti-false-green: khoá invariant 'event_type KHÔNG bao giờ None khi
+        recent_maintenance != null' ở CẢ happy-path lẫn null/empty-path. Coalesce
+        'or' KHÔNG được nuốt giá trị thật (pm_completed nguyên văn)."""
+        from unittest.mock import patch
+        from assetcore.api.imm00 import get_asset_scan_info
+        from assetcore.services import imm00 as svc
+        # happy-path (E2E qua API): giá trị thật → str nguyên văn, KHÔNG bị nuốt
+        asset_ok = self._make_asset("rmevtstr_ok")
+        self._add_ale(asset_ok.name, "pm_completed", add_days(nowdate(), -2))
+        rm_ok = get_asset_scan_info(
+            token=asset_ok.qr_token)["data"]["recent_maintenance"]
+        self.assertIsNotNone(rm_ok)
+        self.assertIsInstance(rm_ok["event_type"], str,
+                              "happy-path event_type PHẢI là str")
+        self.assertEqual(rm_ok["event_type"], "pm_completed",
+                         "happy-path GIỮ NGUYÊN VĂN (coalesce KHÔNG nuốt giá trị thật)")
+        # null-path & empty-path (unit, drift) → '' str (vẫn str, KHÔNG None)
+        ts = add_days(nowdate(), -2)
+        for drift_value in (None, ""):
+            with patch.object(
+                    svc.frappe, "get_all",
+                    return_value=[{"event_type": drift_value, "timestamp": ts}]):
+                rm_drift = svc._recent_maintenance_event("ASSET-DRIFT")
+            self.assertIsInstance(rm_drift["event_type"], str,
+                                  f"drift {drift_value!r} → event_type PHẢI là str")
+            self.assertEqual(rm_drift["event_type"], "",
+                             f"drift {drift_value!r} → coalesce '' (never-None)")
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Vòng 48 — trạng thái BẢO HÀNH ở payload scan-info (IMM-00 scan-action).
+# 2 KEY MỚI trong build_asset_scan_info:
+#   (a) warranty_expiry_date: str|None 'YYYY-MM-DD' qua _date_str_or_none HIỆN CÓ
+#       (parity next_pm_date/next_calibration_date — rỗng/None → None).
+#   (b) warranty_expired: bool derive SERVER-SIDE qua helper MỚI
+#       _is_warranty_expired(warranty_expiry_date) — STRICT < theo NGÀY server
+#       (no client-clock; hôm-nay CHƯA hết hạn).
+# KHÁC _is_pm_overdue/_is_calibration_overdue: KHÔNG nhận/áp lifecycle_status,
+# KHÔNG có *_EXEMPT — bảo hành là sự kiện HỢP ĐỒNG độc lập lifecycle (thiết bị
+# Out-of-Service/Decommissioned VẪN có thể còn/hết bảo hành). RED viết TRƯỚC impl.
+# ──────────────────────────────────────────────────────────────────────────
+
+
+class TestWarrantyExpiredHelper(unittest.TestCase):
+    """Unit helper _is_warranty_expired(value) -> bool (read-only, no side-effect).
+
+    True ⟺ value KHÔNG rỗng ∧ getdate(value) < getdate(nowdate()) (STRICT <).
+    NULL/rỗng/None/hôm-nay/tương-lai → False. KHÔNG quan tâm lifecycle_status
+    (no-exempt — KHÁC pm/cal overdue). BE-WAR-1..5."""
+
+    def test_be_war_1_past_date_is_expired(self):
+        """BE-WAR-1: ngày quá khứ → True."""
+        from assetcore.services.imm00 import _is_warranty_expired
+        self.assertTrue(_is_warranty_expired("2020-01-01"),
+                        "warranty quá khứ → hết bảo hành (True)")
+
+    def test_be_war_2_today_is_not_expired_strict(self):
+        """BE-WAR-2: hôm nay → False (STRICT <, hôm-nay CHƯA hết hạn)."""
+        from assetcore.services.imm00 import _is_warranty_expired
+        self.assertFalse(_is_warranty_expired(nowdate()),
+                         "hôm nay CHƯA quá hạn (STRICT < theo NGÀY server)")
+
+    def test_be_war_3_future_date_is_not_expired(self):
+        """BE-WAR-3: tương lai → False."""
+        from assetcore.services.imm00 import _is_warranty_expired
+        self.assertFalse(_is_warranty_expired(add_days(nowdate(), 30)),
+                         "warranty tương lai → còn bảo hành (False)")
+
+    def test_be_war_4_none_and_empty_are_not_expired(self):
+        """BE-WAR-4: None / '' → False (không có thông tin ≠ hết hạn)."""
+        from assetcore.services.imm00 import _is_warranty_expired
+        self.assertFalse(_is_warranty_expired(None), "None → False")
+        self.assertFalse(_is_warranty_expired(""), "'' → False")
+
+    def test_be_war_5_no_exempt_independent_of_lifecycle(self):
+        """BE-WAR-5 (no-exempt, KHÁC pm/cal overdue): helper KHÔNG nhận
+        lifecycle_status → thiết bị Out-of-Service/Decommissioned với warranty
+        quá khứ VẪN True (bảo hành độc lập lifecycle).
+
+        Khoá invariant ở MỨC SIGNATURE: helper chỉ nhận 1 đối số (value), KHÔNG
+        có tham số lifecycle_status như _is_pm_overdue/_is_calibration_overdue —
+        chứng minh KHÔNG thể exempt theo trạng thái thiết bị."""
+        import inspect
+        from assetcore.services.imm00 import (
+            _is_warranty_expired, _is_pm_overdue, _is_calibration_overdue,
+        )
+        past = "2020-01-01"
+        # Dù gọi với asset đang ngừng dùng (lifecycle_status không liên quan),
+        # warranty quá khứ vẫn True. _is_pm_overdue CÙNG ngày + status ngừng dùng
+        # → False (exempt) → đối chứng chứng minh 2 cờ KHÁC bản chất.
+        self.assertTrue(_is_warranty_expired(past),
+                        "warranty quá khứ → True bất kể lifecycle (no-exempt)")
+        self.assertFalse(_is_pm_overdue(past, "Out of Service"),
+                         "đối chứng: PM overdue EXEMPT khi Out of Service")
+        self.assertFalse(_is_calibration_overdue(past, "Decommissioned"),
+                         "đối chứng: Calibration overdue EXEMPT khi Decommissioned")
+        # SIGNATURE guard: _is_warranty_expired KHÔNG có param lifecycle_status.
+        sig = inspect.signature(_is_warranty_expired)
+        self.assertEqual(
+            list(sig.parameters), ["value"],
+            "_is_warranty_expired chỉ nhận (value) — KHÔNG lifecycle_status "
+            "(no-exempt, độc lập lifecycle, KHÁC pm/cal overdue)")
+        self.assertIn(
+            "lifecycle_status", inspect.signature(_is_pm_overdue).parameters,
+            "đối chứng: _is_pm_overdue CÓ lifecycle_status (exempt-aware)")
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Vòng 50 — CRASH-SAFE getdate ở 4 hàm xử-lý-ngày của build_asset_scan_info.
+# warranty_expiry_date / next_pm_date / next_calibration_date dị-dạng (legacy
+# import lỏng / canonical drift) KHÔNG còn ném HTTP-500 traceback-leak ở
+# endpoint quét QR — degrade graceful về False / None. getdate('not-a-date')
+# / getdate('2020-13-45') / getdate('2020-99-99') ném frappe.exceptions.
+# ValidationError (KHÔNG phải ValueError — Exception trực tiếp), nên catch
+# PHẢI liệt kê (frappe.exceptions.ValidationError, ValueError, TypeError) —
+# KHÔNG `except Exception:` trần (che lỗi nghiệp vụ khác). 1 record xấu KHÔNG
+# kéo sập cả màn quét QR. Parity FE formatIsoDateLabel ISO-strict (Vòng 18-19).
+# RED viết TRƯỚC impl. BE-WAR-EDGE-1..6.
+# ──────────────────────────────────────────────────────────────────────────
+class TestScanInfoDateHelpersCrashSafe(unittest.TestCase):
+    """Unit: 4 hàm xử-lý-ngày của build_asset_scan_info crash-safe trên chuỗi
+    dị-dạng (legacy/drift). _is_warranty_expired / _is_pm_overdue /
+    _is_calibration_overdue('not-a-date'|'2020-13-45'|'2020-99-99') → False
+    (KHÔNG raise); _date_str_or_none(dị-dạng) → None (KHÔNG raise, KHÔNG leak
+    verbatim). No-regress: giá trị HỢP LỆ (date-obj / ISO / None / '') giữ
+    NGUYÊN hành vi cũ. Source-guard: catch HẸP, KHÔNG `except Exception:` trần.
+    BE-WAR-EDGE-1..3, EDGE-5, EDGE-6."""
+
+    # Chuỗi dị-dạng đại diện: phi-parse hoàn toàn + out-of-range (tháng/ngày).
+    # Cả 3 đều khiến getdate() ném frappe.exceptions.ValidationError (đã verify).
+    _MALFORMED = ("not-a-date", "2020-13-45", "2020-99-99", "garbage")
+
+    # ── BE-WAR-EDGE-1: _is_warranty_expired(dị-dạng) → False (no raise) ───────
+    def test_be_war_edge_1_warranty_malformed_returns_false_no_raise(self):
+        """BE-WAR-EDGE-1: _is_warranty_expired('not-a-date') /
+        _is_warranty_expired('2020-13-45') → False (KHÔNG raise
+        frappe.exceptions.ValidationError). Chuỗi phi-parse = 'không xác định
+        ≠ hết hạn' — no-false-alarm."""
+        from assetcore.services.imm00 import _is_warranty_expired
+        for bad in self._MALFORMED:
+            with self.subTest(value=bad):
+                try:
+                    result = _is_warranty_expired(bad)
+                except Exception as exc:  # noqa: BLE001 — test phải FAIL nếu raise
+                    self.fail(f"_is_warranty_expired({bad!r}) KHÔNG được raise, "
+                              f"đã raise {type(exc).__name__}: {exc}")
+                self.assertIs(result, False,
+                              f"_is_warranty_expired({bad!r}) → False (dị-dạng = "
+                              "không xác định ≠ hết hạn)")
+
+    # ── BE-WAR-EDGE-2: 2 overdue helper(dị-dạng) → False (no raise) ──────────
+    def test_be_war_edge_2_overdue_malformed_returns_false_no_raise(self):
+        """BE-WAR-EDGE-2: _is_pm_overdue('garbage', None) và
+        _is_calibration_overdue('2020-99-99', None) → False (KHÔNG raise) —
+        parity warranty. Date dị-dạng KHÔNG bịa cờ quá hạn."""
+        from assetcore.services.imm00 import (
+            _is_pm_overdue, _is_calibration_overdue,
+        )
+        for helper in (_is_pm_overdue, _is_calibration_overdue):
+            for bad in self._MALFORMED:
+                with self.subTest(helper=helper.__name__, value=bad):
+                    try:
+                        result = helper(bad, None)
+                    except Exception as exc:  # noqa: BLE001
+                        self.fail(f"{helper.__name__}({bad!r}, None) KHÔNG được "
+                                  f"raise, đã raise {type(exc).__name__}: {exc}")
+                    self.assertIs(result, False,
+                                  f"{helper.__name__}({bad!r}, None) → False "
+                                  "(dị-dạng KHÔNG bịa cờ quá hạn)")
+
+    # ── BE-WAR-EDGE-3: _date_str_or_none(dị-dạng) → None (no raise) ──────────
+    def test_be_war_edge_3_date_str_malformed_returns_none_no_raise(self):
+        """BE-WAR-EDGE-3: _date_str_or_none('not-a-date') /
+        _date_str_or_none('2020-13-45') → None (KHÔNG raise, KHÔNG leak
+        verbatim, KHÔNG mis-parse câm). Parity FE formatIsoDateLabel ISO-strict
+        (Vòng 18-19) — nay đối xứng ở BE."""
+        from assetcore.services.imm00 import _date_str_or_none
+        for bad in self._MALFORMED:
+            with self.subTest(value=bad):
+                try:
+                    result = _date_str_or_none(bad)
+                except Exception as exc:  # noqa: BLE001
+                    self.fail(f"_date_str_or_none({bad!r}) KHÔNG được raise, "
+                              f"đã raise {type(exc).__name__}: {exc}")
+                self.assertIsNone(result,
+                                  f"_date_str_or_none({bad!r}) → None (KHÔNG leak "
+                                  "verbatim, KHÔNG crash)")
+
+    # ── BE-WAR-EDGE-5: no-regress giá trị HỢP LỆ giữ NGUYÊN hành vi cũ ───────
+    def test_be_war_edge_5_valid_values_no_regress(self):
+        """BE-WAR-EDGE-5 (no-regress): mọi giá trị HỢP LỆ (datetime.date object,
+        chuỗi ISO 'YYYY-MM-DD', None, '') GIỮ NGUYÊN hành vi cũ.
+        past→True/today→False/future→False/None→False/''→False;
+        _date_str_or_none(date-obj)→'YYYY-MM-DD'. Guard KHÔNG nuốt path hợp lệ."""
+        from datetime import date
+        from assetcore.services.imm00 import (
+            _is_warranty_expired, _is_pm_overdue, _is_calibration_overdue,
+            _date_str_or_none,
+        )
+        # _is_warranty_expired — biên strict < theo NGÀY server.
+        self.assertIs(_is_warranty_expired("2020-01-01"), True, "ISO quá khứ → True")
+        self.assertIs(_is_warranty_expired(nowdate()), False, "hôm nay → False (strict)")
+        self.assertIs(_is_warranty_expired(add_days(nowdate(), 30)), False,
+                      "tương lai → False")
+        self.assertIs(_is_warranty_expired(None), False, "None → False")
+        self.assertIs(_is_warranty_expired(""), False, "'' → False")
+        # date OBJECT (như DB trả) — KHÔNG bị guard nuốt nhầm.
+        self.assertIs(_is_warranty_expired(date(2020, 1, 1)), True,
+                      "date-obj quá khứ → True (no-regress)")
+        # 2 overdue helper — date-obj + ISO hợp lệ vẫn derive đúng.
+        self.assertIs(_is_pm_overdue(add_days(nowdate(), -1), "Active"), True)
+        self.assertIs(_is_pm_overdue(date(2020, 1, 1), "Active"), True,
+                      "date-obj quá khứ → True (no-regress)")
+        self.assertIs(_is_pm_overdue(None, "Active"), False)
+        self.assertIs(_is_calibration_overdue(add_days(nowdate(), 1), "Active"), False)
+        self.assertIs(_is_calibration_overdue(date(2020, 1, 1), "Active"), True,
+                      "date-obj quá khứ → True (no-regress)")
+        # _date_str_or_none — date-obj → 'YYYY-MM-DD'; ISO str round-trip; rỗng → None.
+        self.assertEqual(_date_str_or_none(date(2027, 5, 1)), "2027-05-01",
+                         "date-obj → 'YYYY-MM-DD' (no-regress)")
+        self.assertEqual(_date_str_or_none("2027-05-01"), "2027-05-01",
+                         "ISO str round-trip (no-regress)")
+        self.assertIsNone(_date_str_or_none(None), "None → None")
+        self.assertIsNone(_date_str_or_none(""), "'' → None")
+
+    # ── BE-WAR-EDGE-6: source-guard catch HẸP, KHÔNG `except Exception:` trần ─
+    def test_be_war_edge_6_catch_is_narrow_not_bare_except(self):
+        """BE-WAR-EDGE-6 (no-mask-real-bug): guard CHỈ nuốt lỗi parse-date —
+        source 4 hàm (+ helper SSoT nếu có) PHẢI catch đúng
+        (frappe.exceptions.ValidationError / ValueError / TypeError), KHÔNG
+        `except Exception:` trần / `except:` trần (che lỗi nghiệp vụ khác).
+
+        ValidationError KHÔNG phải subclass ValueError (Exception trực tiếp) →
+        BẮT BUỘC liệt kê tường minh; `except (ValueError, TypeError):` đơn lẻ
+        sẽ KHÔNG bắt → vẫn HTTP-500. Guard này khoá invariant đó."""
+        import inspect
+        from assetcore.services import imm00 as svc
+        from assetcore.services.imm00 import (
+            _is_warranty_expired, _is_pm_overdue, _is_calibration_overdue,
+            _date_str_or_none,
+        )
+        # Gom nguồn 4 hàm + (nếu có) helper SSoT _safe_getdate — bất kỳ try/except
+        # nuốt getdate PHẢI nằm trong tập source này.
+        srcs = [inspect.getsource(f) for f in (
+            _is_warranty_expired, _is_pm_overdue,
+            _is_calibration_overdue, _date_str_or_none,
+        )]
+        if hasattr(svc, "_safe_getdate"):
+            srcs.append(inspect.getsource(svc._safe_getdate))
+        blob = "\n".join(srcs)
+
+        def _strip_to_code(text: str) -> str:
+            # Bóc docstring/string-literal + comment để CHỈ còn CODE thực thi —
+            # tránh false-match khi docstring NHẮC chữ 'except Exception:' (như
+            # các comment giải thích vì sao KHÔNG dùng catch-all). AST-based:
+            # an toàn hơn regex naïve, không tự nhầm chính mình.
+            import ast
+            stripped_lines = []
+            for line in text.splitlines():
+                stripped_lines.append(line.split("#", 1)[0])
+            no_comment = "\n".join(stripped_lines)
+            # Loại mọi string literal (gồm docstring) qua AST: parse từng hàm.
+            try:
+                tree = ast.parse(no_comment)
+            except SyntaxError:
+                # getsource có thể trả nhiều def liền — bọc vào module vẫn parse
+                # được; nếu vẫn fail thì fallback dùng no_comment thô.
+                return no_comment
+            string_spans = set()
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                    if hasattr(node, "lineno") and hasattr(node, "end_lineno"):
+                        for ln in range(node.lineno, (node.end_lineno or node.lineno) + 1):
+                            string_spans.add(ln)
+            kept = []
+            for i, line in enumerate(no_comment.splitlines(), start=1):
+                if i in string_spans:
+                    continue
+                kept.append(line)
+            return "\n".join(kept)
+
+        code = _strip_to_code(blob)
+        # Phải có guard parse-date (try + getdate trong vùng có except).
+        self.assertIn("getdate", code, "4 hàm vẫn dùng getdate (mốc ngày server)")
+        self.assertIn("except", code,
+                      "PHẢI có except bọc getdate (degrade thay vì 500)")
+        # KHÔNG `except Exception:` trần / `except:` trần (catch-all che lỗi khác).
+        self.assertNotRegex(
+            code, r"except\s+Exception\s*[:\(]",
+            "KHÔNG `except Exception:` trần — catch-all che lỗi nghiệp vụ khác "
+            "(no-mask-real-bug). Phải liệt kê parse-date error cụ thể.")
+        self.assertNotRegex(
+            code, r"except\s*:",
+            "KHÔNG `except:` trần (bắt cả BaseException — nuốt KeyboardInterrupt)")
+        # Catch PHẢI liệt kê ValidationError (vì NOT subclass ValueError) +
+        # ValueError + TypeError. Chấp nhận frappe.exceptions.ValidationError
+        # hoặc alias ValidationError.
+        self.assertRegex(
+            code, r"ValidationError",
+            "catch PHẢI liệt kê ValidationError (getdate ném "
+            "frappe.exceptions.ValidationError — NOT subclass ValueError → "
+            "`except (ValueError, TypeError)` đơn lẻ KHÔNG bắt được)")
+        self.assertIn("ValueError", code,
+                      "catch nên liệt kê ValueError (dateutil out-of-range)")
+        self.assertIn("TypeError", code,
+                      "catch nên liệt kê TypeError (kiểu lạ không parse được)")
+
+
+class TestWarrantyInScanInfo(unittest.TestCase):
+    """Integration build_asset_scan_info: 2 key warranty mới đúng kiểu/format +
+    13 key cũ no-regress + KHÔNG leak field tài chính. BE-WAR-6..8."""
+
+    _OLD_KEYS = {
+        "name", "asset_code", "asset_name", "manufacturer_sn",
+        "risk_classification", "lifecycle_status", "device_model_name",
+        "location_name", "next_pm_date", "next_calibration_date",
+        "recent_maintenance", "pm_overdue", "calibration_overdue",
+        "available_actions",
+    }
+    _NEW_KEYS = {"warranty_expiry_date", "warranty_expired"}
+    _SENSITIVE_KEYS = {
+        "gross_purchase_amount", "purchase_cost", "accumulated_depreciation",
+        "depreciation_method", "depreciation_schedule", "warranty_period",
+    }
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": "Thiết bị Warranty (V48)",
+            "description": "Category cho test warranty scan-info",
+            "is_active": 1,
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        frappe.delete_doc("AC Asset Category", cls.cat.name,
+                          force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self._created: list[str] = []
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+        frappe.db.rollback()
+        for name in self._created:
+            _purge_asset(name)
+        frappe.db.commit()
+
+    def _make_asset(self, suffix="", **extra):
+        import uuid
+        uniq = f"{suffix or '0001'}-{uuid.uuid4().hex[:8]}"
+        data = {
+            "doctype": "AC Asset",
+            "asset_name": f"Máy Warranty {uniq}",
+            "asset_category": self.cat.name,
+            "asset_code": f"WAR-ASSET-{uniq}",
+            "lifecycle_status": "Active",
+        }
+        data.update(extra)
+        doc = _insert_asset_bypass_workflow(data)
+        self._created.append(doc.name)
+        return doc
+
+    def test_be_war_6_future_warranty_iso_str_not_expired(self):
+        """BE-WAR-6: warranty_expiry_date=date(2027,5,1) → payload
+        ['warranty_expiry_date']=='2027-05-01' (str ISO, KHÔNG date object/giờ)
+        + ['warranty_expired']==False (tương lai)."""
+        from datetime import date
+        from assetcore.services.imm00 import build_asset_scan_info
+        asset = self._make_asset("future", warranty_expiry_date=date(2027, 5, 1))
+        payload = build_asset_scan_info(asset.name)
+        self.assertIsNotNone(payload)
+        self.assertEqual(payload["warranty_expiry_date"], "2027-05-01",
+                         "warranty_expiry_date = str ISO 'YYYY-MM-DD'")
+        self.assertIsInstance(payload["warranty_expiry_date"], str,
+                              "warranty_expiry_date PHẢI là str (KHÔNG date object)")
+        self.assertNotIn(":", payload["warranty_expiry_date"],
+                         "KHÔNG kèm phần giờ 'HH:MM:SS'")
+        self.assertIs(payload["warranty_expired"], False,
+                      "2027 > hôm nay → còn bảo hành (False)")
+
+    def test_be_war_6b_past_warranty_expired_true(self):
+        """warranty quá khứ trong payload thật → warranty_expired is True."""
+        from datetime import date
+        from assetcore.services.imm00 import build_asset_scan_info
+        asset = self._make_asset("past", warranty_expiry_date=date(2020, 1, 1))
+        payload = build_asset_scan_info(asset.name)
+        self.assertEqual(payload["warranty_expiry_date"], "2020-01-01")
+        self.assertIs(payload["warranty_expired"], True,
+                      "2020 < hôm nay → hết bảo hành (True)")
+
+    def test_be_war_7_empty_warranty_none_and_false(self):
+        """BE-WAR-7: asset warranty rỗng → warranty_expiry_date is None +
+        warranty_expired is False (không có thông tin ≠ hết hạn)."""
+        from assetcore.services.imm00 import build_asset_scan_info
+        asset = self._make_asset("empty")  # KHÔNG set warranty_expiry_date
+        payload = build_asset_scan_info(asset.name)
+        self.assertIsNone(payload["warranty_expiry_date"],
+                          "warranty rỗng → None (parity next_pm_date)")
+        self.assertIs(payload["warranty_expired"], False,
+                      "warranty rỗng → KHÔNG hết hạn (False, no-false-alarm)")
+
+    def test_be_war_8_old_keys_no_regress_and_no_financial_leak(self):
+        """BE-WAR-8: payload GIỮ đủ 13 key cũ (no-regress) + đúng 2 key mới +
+        KHÔNG leak field tài chính/bảo hành nhạy cảm khác."""
+        from datetime import date
+        from assetcore.services.imm00 import build_asset_scan_info
+        asset = self._make_asset(
+            "noregress",
+            next_pm_date=add_days(nowdate(), 30),
+            next_calibration_date=add_days(nowdate(), 45),
+            warranty_expiry_date=date(2027, 5, 1),
+            gross_purchase_amount=999000000,
+        )
+        payload = build_asset_scan_info(asset.name)
+        keys = set(payload.keys())
+        missing = self._OLD_KEYS - keys
+        self.assertFalse(missing, f"13 key cũ PHẢI giữ nguyên, thiếu: {missing}")
+        for k in self._NEW_KEYS:
+            self.assertIn(k, keys, f"key warranty mới PHẢI có: '{k}'")
+        leaked = self._SENSITIVE_KEYS & keys
+        self.assertFalse(leaked,
+                         f"KHÔNG leak field tài chính/nhạy cảm: {leaked}")
+        # Đúng 16 key total (13 cũ + 2 mới + name nằm trong _OLD_KEYS) — KHÔNG
+        # thừa key lạ. _OLD_KEYS đã gồm 'name' → 14 + 2 = 16.
+        self.assertEqual(keys, self._OLD_KEYS | self._NEW_KEYS,
+                         "payload = đúng 14 key cũ (gồm name) + 2 key warranty, "
+                         "KHÔNG thừa/thiếu")
+
+
+class TestScanInfoMalformedDateResilience(unittest.TestCase):
+    """BE-WAR-EDGE-4 (integration, assert-chính) — build_asset_scan_info trên 1
+    AC Asset có warranty_expiry_date / next_pm_date / next_calibration_date là
+    CHUỖI DỊ-DẠNG (legacy/drift/import bẩn) KHÔNG ném exception. Trả payload đầy
+    đủ với cờ tương ứng=False / field ngày=None; 13 field còn lại GIỮ NGUYÊN
+    (degrade gracefully — 1 record xấu KHÔNG kéo sập cả payload, KHÔNG HTTP-500
+    traceback-leak ở endpoint quét QR).
+
+    Date-column DB chặn set garbage thật → MOCK frappe.db.get_value trả row có
+    value bẩn (mô phỏng drift/legacy) trên 1 asset thật → assert resilience ở
+    BIÊN build_asset_scan_info là đủ. RED viết TRƯỚC impl."""
+
+    _ALL_KEYS = {
+        "name", "asset_code", "asset_name", "manufacturer_sn",
+        "risk_classification", "lifecycle_status", "device_model_name",
+        "location_name", "next_pm_date", "next_calibration_date",
+        "recent_maintenance", "pm_overdue", "calibration_overdue",
+        "available_actions", "warranty_expiry_date", "warranty_expired",
+    }
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": "Thiết bị Malformed-Date (V50)",
+            "description": "Category cho test crash-safe getdate scan-info",
+            "is_active": 1,
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        frappe.delete_doc("AC Asset Category", cls.cat.name,
+                          force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self._created: list[str] = []
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+        frappe.db.rollback()
+        for name in self._created:
+            _purge_asset(name)
+        frappe.db.commit()
+
+    def _make_asset(self):
+        import uuid
+        uniq = uuid.uuid4().hex[:8]
+        doc = _insert_asset_bypass_workflow({
+            "doctype": "AC Asset",
+            "asset_name": f"Máy Malformed {uniq}",
+            "asset_category": self.cat.name,
+            "manufacturer_sn": f"MAL-SN-{uniq}",
+            "asset_code": f"MAL-ASSET-{uniq}",
+            "lifecycle_status": "Active",
+        })
+        self._created.append(doc.name)
+        return doc
+
+    def _patched_get_value(self, real_get_value, asset_name, dirty):
+        """Wrap frappe.db.get_value: với CHÍNH asset đang test + cột scan-info,
+        trả row có warranty_expiry_date BẨN (drift). Mọi call khác → real
+        (device_model_name/location_name/recent_maintenance vẫn chạy thật)."""
+        def _side_effect(*args, **kwargs):
+            row = real_get_value(*args, **kwargs)
+            # Chỉ can thiệp row scan-info của ĐÚNG asset (as_dict, có key warranty).
+            if (isinstance(row, dict)
+                    and row.get("name") == asset_name
+                    and "warranty_expiry_date" in row):
+                row = dict(row)
+                row["warranty_expiry_date"] = dirty
+            return row
+        return _side_effect
+
+    def test_be_war_edge_4_malformed_warranty_degrades_no_raise(self):
+        """BE-WAR-EDGE-4 (assert-chính): warranty_expiry_date='not-a-date'
+        (mô phỏng drift) → build_asset_scan_info KHÔNG raise; warranty_expired
+        is False, warranty_expiry_date is None, 13 field còn lại present."""
+        from unittest import mock
+        from assetcore.services.imm00 import build_asset_scan_info
+        asset = self._make_asset()
+        real_gv = frappe.db.get_value
+        side = self._patched_get_value(real_gv, asset.name, "not-a-date")
+        with mock.patch.object(frappe.db, "get_value", side_effect=side):
+            try:
+                payload = build_asset_scan_info(asset.name)
+            except Exception as exc:  # noqa: BLE001
+                self.fail("build_asset_scan_info KHÔNG được raise trên "
+                          "warranty_expiry_date dị-dạng (legacy/drift) — phải "
+                          f"degrade graceful. Đã raise {type(exc).__name__}: {exc}")
+        self.assertIsNotNone(payload, "payload KHÔNG None (asset tồn tại)")
+        self.assertIs(payload["warranty_expired"], False,
+                      "warranty dị-dạng → warranty_expired=False (no-false-alarm)")
+        self.assertIsNone(payload["warranty_expiry_date"],
+                          "warranty dị-dạng → warranty_expiry_date=None (KHÔNG "
+                          "leak verbatim 'not-a-date')")
+        # 13 field còn lại present (degrade gracefully — KHÔNG sập cả payload).
+        present = set(payload.keys())
+        missing = self._ALL_KEYS - present
+        self.assertFalse(missing, f"payload đầy đủ — thiếu field: {missing}")
+        # KHÔNG leak chuỗi bẩn verbatim ở field bảo hành.
+        self.assertNotEqual(payload["warranty_expiry_date"], "not-a-date")
+
+    def test_be_war_edge_4b_malformed_pm_and_cal_degrade_no_raise(self):
+        """BE-WAR-EDGE-4b (parity 3 field ngày): next_pm_date='2020-13-45' +
+        next_calibration_date='2020-99-99' dị-dạng → KHÔNG raise; pm_overdue=
+        False, calibration_overdue=False, 2 field ngày=None; payload đầy đủ."""
+        from unittest import mock
+        from assetcore.services.imm00 import build_asset_scan_info
+        asset = self._make_asset()
+        real_gv = frappe.db.get_value
+
+        def _side_effect(*args, **kwargs):
+            row = real_gv(*args, **kwargs)
+            if (isinstance(row, dict)
+                    and row.get("name") == asset.name
+                    and "next_pm_date" in row):
+                row = dict(row)
+                row["next_pm_date"] = "2020-13-45"
+                row["next_calibration_date"] = "2020-99-99"
+            return row
+
+        with mock.patch.object(frappe.db, "get_value", side_effect=_side_effect):
+            try:
+                payload = build_asset_scan_info(asset.name)
+            except Exception as exc:  # noqa: BLE001
+                self.fail("build_asset_scan_info KHÔNG được raise trên next_pm_date"
+                          f"/next_calibration_date dị-dạng. Raise {type(exc).__name__}: {exc}")
+        self.assertIsNotNone(payload)
+        self.assertIs(payload["pm_overdue"], False,
+                      "next_pm_date dị-dạng → pm_overdue=False (KHÔNG bịa cờ)")
+        self.assertIs(payload["calibration_overdue"], False,
+                      "next_calibration_date dị-dạng → calibration_overdue=False")
+        self.assertIsNone(payload["next_pm_date"], "dị-dạng → None")
+        self.assertIsNone(payload["next_calibration_date"], "dị-dạng → None")
+        missing = self._ALL_KEYS - set(payload.keys())
+        self.assertFalse(missing, f"payload đầy đủ — thiếu field: {missing}")
+
+    def test_be_war_edge_4c_valid_warranty_still_works_under_mock(self):
+        """No-regress control: dưới CÙNG cơ chế mock nhưng inject value HỢP LỆ
+        (date thật quá khứ) → warranty_expired=True + warranty_expiry_date ISO.
+        Chứng minh guard KHÔNG nuốt path hợp lệ (đối chứng EDGE-4)."""
+        from datetime import date
+        from unittest import mock
+        from assetcore.services.imm00 import build_asset_scan_info
+        asset = self._make_asset()
+        real_gv = frappe.db.get_value
+        side = self._patched_get_value(real_gv, asset.name, date(2020, 1, 1))
+        with mock.patch.object(frappe.db, "get_value", side_effect=side):
+            payload = build_asset_scan_info(asset.name)
+        self.assertEqual(payload["warranty_expiry_date"], "2020-01-01",
+                         "value hợp lệ vẫn → ISO str (guard KHÔNG nuốt nhầm)")
+        self.assertIs(payload["warranty_expired"], True,
+                      "value hợp lệ quá khứ vẫn → True (no-regress dưới mock)")
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Vòng 45 — chuẩn hoá whitespace-only của 4 trường định danh chuỗi
+# (asset_code/asset_name/manufacturer_sn/risk_classification) ở SSoT payload
+# scan-info + nhãn QR. '   '/'\n'/'\t' (canonical drift / legacy / mobile-BE
+# copy-paste) coalesce về '' tại BE — khử rò junk-whitespace ra mobile-BE /
+# non-Vue consumer mà FE `.trim()` đang ÂM THẦM gánh. 1 SSoT helper
+# `_str_or_blank(value)`: blank/whitespace-only/None → '', else value.strip()
+# — parity với `_date_str_or_none` (str, never None) + chuẩn hoá qr_token /
+# preset (Vòng 6/31/32: strip 2 đầu, KHÔNG nuốt nội dung giữa-chuỗi).
+# No-regress: asset bình thường trả y hệt; event_type (Vòng 44) + 3 trường
+# ngày (str|None Vòng 11/16) KHÔNG đổi shape. RED viết TRƯỚC impl.
+# ──────────────────────────────────────────────────────────────────────────
+
+
+class TestAssetIdentityWhitespaceStrip(unittest.TestCase):
+    """Vòng 45 — `_str_or_blank` chuẩn hoá 4 trường định danh chuỗi trong
+    build_asset_scan_info + build_asset_label_data[_batch]: whitespace-only/
+    None → '' (str); giá trị thật kèm whitespace 2 đầu → strip (KHÔNG nuốt
+    nội dung). RED viết TRƯỚC impl."""
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": "Thiết bị WS-Strip (V45)",
+            "description": "Category cho test whitespace-strip định danh",
+            "is_active": 1,
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        frappe.delete_doc("AC Asset Category", cls.cat.name,
+                          force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self._created: list[str] = []
+        # Vòng 46 — track IMM Device Model / AC Location fixtures để purge SAU
+        # khi asset đã xoá (FK Link AC Asset → 2 doctype này).
+        self._models: list[str] = []
+        self._locations: list[str] = []
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+        frappe.db.rollback()
+        for name in self._created:
+            _purge_asset(name)
+        # Purge model/location SAU asset (FK an toàn) — Vòng 46.
+        for m in self._models:
+            frappe.delete_doc("IMM Device Model", m,
+                              force=True, ignore_permissions=True)
+        for loc in self._locations:
+            frappe.delete_doc("AC Location", loc,
+                              force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def _make_asset(self, suffix="", **extra):
+        import uuid
+        uniq = f"{suffix or '0001'}-{uuid.uuid4().hex[:8]}"
+        data = {
+            "doctype": "AC Asset",
+            "asset_name": f"Máy WS {uniq}",
+            "asset_category": self.cat.name,
+            "manufacturer_sn": f"WSS-SN-{uniq}",
+            "asset_code": f"WSS-ASSET-{uniq}",
+            "lifecycle_status": "Active",
+        }
+        data.update(extra)
+        doc = _insert_asset_bypass_workflow(data)
+        self._created.append(doc.name)
+        return doc
+
+    def _set_raw(self, name, **vals):
+        """Ghi giá trị THÔ (whitespace-junk) vào DB bỏ qua validate đường form —
+        mô phỏng canonical drift / legacy / import lỏng để kiểm chuẩn hoá BE."""
+        frappe.db.set_value("AC Asset", name, vals, update_modified=False)
+
+    # ── TC-SI-WS-1 — manufacturer_sn='   ' → '' (str, KHÔNG '   ') ───────────
+    def test_si_ws_1_manufacturer_sn_whitespace_only_blank(self):
+        """build_asset_scan_info: manufacturer_sn='   ' → payload '' (str)."""
+        from assetcore.services.imm00 import build_asset_scan_info
+        asset = self._make_asset("si1")
+        self._set_raw(asset.name, manufacturer_sn="   ")
+        payload = build_asset_scan_info(asset.name)
+        self.assertEqual(payload["manufacturer_sn"], "",
+                         "manufacturer_sn whitespace-only → '' (khử junk)")
+        self.assertIsInstance(payload["manufacturer_sn"], str,
+                              "type vẫn str (KHÔNG None)")
+        self.assertNotEqual(payload["manufacturer_sn"], "   ",
+                            "KHÔNG rò '   ' ra non-Vue consumer")
+
+    # ── TC-SI-WS-2 — risk_classification='\t\n' → '' ; 'High' giữ nguyên ─────
+    def test_si_ws_2_risk_classification_whitespace_blank_and_clean_kept(self):
+        """risk_classification='\\t\\n' → '' (parity); 'High' (sạch) giữ nguyên."""
+        from assetcore.services.imm00 import build_asset_scan_info
+        asset = self._make_asset("si2")
+        self._set_raw(asset.name, risk_classification="\t\n")
+        payload = build_asset_scan_info(asset.name)
+        self.assertEqual(payload["risk_classification"], "",
+                         "risk_classification whitespace-only → '' (parity)")
+        self.assertNotIn("\t", payload["risk_classification"])
+        self.assertNotIn("\n", payload["risk_classification"])
+        self.assertIsInstance(payload["risk_classification"], str)
+        # giá trị sạch → giữ nguyên (KHÔNG over-normalize)
+        clean = self._make_asset("si2c", risk_classification="High")
+        p2 = build_asset_scan_info(clean.name)
+        self.assertEqual(p2["risk_classification"], "High",
+                         "giá trị sạch 'High' giữ nguyên (KHÔNG dịch/đổi)")
+
+    # ── TC-SI-WS-3 — ' SN-123 ' → 'SN-123' (strip 2 đầu, KHÔNG nuốt nội dung) ─
+    def test_si_ws_3_canonical_with_surrounding_ws_stripped_not_eaten(self):
+        """manufacturer_sn=' SN-123 ' → 'SN-123' (strip 2 đầu, GIỮ nội dung)."""
+        from assetcore.services.imm00 import build_asset_scan_info
+        asset = self._make_asset("si3")
+        self._set_raw(asset.name, manufacturer_sn=" SN-123 ")
+        payload = build_asset_scan_info(asset.name)
+        self.assertEqual(payload["manufacturer_sn"], "SN-123",
+                         "strip 2 đầu, KHÔNG nuốt nội dung (parity qr_token/preset)")
+
+    # ── TC-SI-WS-4 — asset_name='\n' + asset_code='  ' → cả hai '' ───────────
+    def test_si_ws_4_name_code_whitespace_blank_plus_no_regress(self):
+        """asset_name='\\n' + asset_code='  ' → cả hai '' ; asset bình thường
+        → no-regress (giá trị y hệt)."""
+        from assetcore.services.imm00 import build_asset_scan_info
+        asset = self._make_asset("si4")
+        self._set_raw(asset.name, asset_name="\n", asset_code="  ")
+        payload = build_asset_scan_info(asset.name)
+        self.assertEqual(payload["asset_name"], "",
+                         "asset_name whitespace-only → '' (h1 không nhận junk)")
+        self.assertEqual(payload["asset_code"], "",
+                         "asset_code whitespace-only → '' (định danh không junk)")
+        self.assertIsInstance(payload["asset_name"], str)
+        self.assertIsInstance(payload["asset_code"], str)
+        # no-regress: asset có giá trị thật → trả y hệt
+        normal = self._make_asset("si4n", risk_classification="Medium")
+        np = build_asset_scan_info(normal.name)
+        self.assertEqual(np["asset_code"], normal.asset_code)
+        self.assertEqual(np["asset_name"], normal.asset_name)
+        self.assertEqual(np["manufacturer_sn"], normal.manufacturer_sn)
+        self.assertEqual(np["risk_classification"], "Medium")
+
+    # ── TC-SI-WS-NOREGRESS — event_type (V44) + 3 trường ngày shape KHÔNG đổi ─
+    def test_si_ws_noregress_event_type_and_date_shape_unchanged(self):
+        """Thêm helper KHÔNG đổi shape: event_type (str) + next_pm_date /
+        next_calibration_date / recent_maintenance.date (str|None) giữ nguyên."""
+        from assetcore.services.imm00 import build_asset_scan_info
+        asset = self._make_asset(
+            "sinr",
+            next_pm_date=add_days(nowdate(), 30),
+            next_calibration_date=add_days(nowdate(), 60),
+        )
+        frappe.get_doc({
+            "doctype": "Asset Lifecycle Event",
+            "asset": asset.name, "event_type": "pm_completed",
+            "timestamp": add_days(nowdate(), -5),
+            "actor": "Administrator", "from_status": "", "to_status": "",
+            "root_doctype": "AC Asset", "root_record": asset.name,
+            "notes": "test ALE noregress",
+        }).insert(ignore_permissions=True)
+        payload = build_asset_scan_info(asset.name)
+        # 3 trường ngày: str (có giá trị) — shape str|None KHÔNG đổi
+        self.assertIsInstance(payload["next_pm_date"], str)
+        self.assertEqual(len(payload["next_pm_date"]), 10)
+        self.assertIsInstance(payload["next_calibration_date"], str)
+        rm = payload["recent_maintenance"]
+        self.assertIsNotNone(rm)
+        self.assertIsInstance(rm["event_type"], str, "event_type V44 vẫn str")
+        self.assertEqual(rm["event_type"], "pm_completed")
+        self.assertIsInstance(rm["date"], str)
+        self.assertEqual(len(rm["date"]), 10, "date 'YYYY-MM-DD' shape giữ nguyên")
+        # asset chưa có sự kiện bảo trì → recent_maintenance None (shape KHÔNG đổi)
+        empty = self._make_asset("sinr2")
+        self.assertIsNone(build_asset_scan_info(empty.name)["recent_maintenance"])
+
+    # ── lifecycle_status GIỮ RAW (KHÔNG áp _str_or_blank — FE dịch nhãn) ──────
+    def test_si_ws_lifecycle_status_kept_raw(self):
+        """lifecycle_status KHÔNG bị _str_or_blank đụng — giữ canonical raw để
+        FE dịch (parity quyết định Vòng 38 risk_classification raw enum)."""
+        from assetcore.services.imm00 import build_asset_scan_info
+        asset = self._make_asset("silc")
+        payload = build_asset_scan_info(asset.name)
+        self.assertEqual(payload["lifecycle_status"], "Active",
+                         "lifecycle_status giữ mã canonical raw (FE dịch)")
+
+    # ── TC-LBL-WS-1 — build_asset_label_data: manufacturer_sn='   ' → '' ─────
+    def test_lbl_ws_1_label_data_manufacturer_sn_whitespace_blank(self):
+        """build_asset_label_data: manufacturer_sn='   ' → '' (parity scan-info)."""
+        from assetcore.services.imm00 import build_asset_label_data
+        asset = self._make_asset("lbl1")
+        self._set_raw(asset.name, manufacturer_sn="   ", asset_name="\t ",
+                      asset_code=" \n ")
+        data = build_asset_label_data(asset.name)
+        self.assertEqual(data["manufacturer_sn"], "",
+                         "manufacturer_sn whitespace-only → '' (parity nhãn)")
+        self.assertEqual(data["asset_name"], "",
+                         "asset_name whitespace-only → '' (parity nhãn)")
+        self.assertEqual(data["asset_code"], "",
+                         "asset_code whitespace-only → '' (parity nhãn)")
+        for k in ("manufacturer_sn", "asset_name", "asset_code"):
+            self.assertIsInstance(data[k], str)
+        # qr_url KHÔNG đụng (đã strip tầng render riêng) — vẫn URL hợp lệ
+        self.assertIn("/a/", data["qr_url"])
+
+    # ── TC-LBL-WS-2 — batch: item hợp lệ strip ; item lỗi GIỮ {name, error} ──
+    def test_lbl_ws_2_batch_valid_strips_error_item_unchanged(self):
+        """build_asset_label_data_batch: 1 asset manufacturer_sn=' \\t ' + 1 name
+        không tồn tại → item1 manufacturer_sn=='' ; item2 GIỮ {name, error:
+        'AC-E001'} (KHÔNG nở key)."""
+        from assetcore.services.imm00 import build_asset_label_data_batch
+        a1 = self._make_asset("lblb1")
+        self._set_raw(a1.name, manufacturer_sn=" \t ")
+        missing = "AC-ASSET-NONEXISTENT-WS45"
+        out = build_asset_label_data_batch([a1.name, missing])
+        self.assertEqual(len(out), 2, "giữ index, KHÔNG drop")
+        self.assertEqual(out[0]["name"], a1.name)
+        self.assertEqual(out[0]["manufacturer_sn"], "",
+                         "item hợp lệ: manufacturer_sn whitespace-only → ''")
+        self.assertIsInstance(out[0]["manufacturer_sn"], str)
+        # item lỗi GIỮ NGUYÊN {name, error} — KHÔNG nở key
+        self.assertEqual(out[1]["name"], missing)
+        self.assertEqual(out[1].get("error"), "AC-E001")
+        self.assertEqual(set(out[1].keys()), {"name", "error"},
+                         "item lỗi đúng {name, error} (KHÔNG nở key sau helper)")
+
+    # ── canonical kèm whitespace 2 đầu trên nhãn → strip, KHÔNG nuốt ─────────
+    def test_lbl_ws_canonical_surrounding_ws_stripped(self):
+        """build_asset_label_data: asset_code=' WSS-X ' → 'WSS-X' (strip 2 đầu)."""
+        from assetcore.services.imm00 import build_asset_label_data
+        asset = self._make_asset("lblc")
+        self._set_raw(asset.name, asset_code=" WSS-X ")
+        data = build_asset_label_data(asset.name)
+        self.assertEqual(data["asset_code"], "WSS-X",
+                         "strip 2 đầu, KHÔNG nuốt nội dung (parity scan-info)")
+
+    # ──────────────────────────────────────────────────────────────────────
+    # Vòng 46 — mở rộng parity _str_or_blank sang 2 NHÃN QUAN HỆ
+    # device_model_name (← IMM Device Model.model_name) +
+    # location_name (← AC Location.location_name). 2 field này resolve qua
+    # get_value/IN-map → trước Vòng 46 dùng `(... if ... else '') or ''` raw →
+    # whitespace-only ('   ' / '\n' / '\t') lọt nguyên ra mobile-BE/non-Vue +
+    # tem in. Bọc qua _str_or_blank (parity 4 trường định danh Vòng 45):
+    # whitespace-only/None → '' đã strip 2 đầu; KHÔNG transform giữa-chuỗi.
+    # KHÔNG round-trip DB thêm (chỉ bọc kết quả get_value/map sẵn có). RED
+    # viết TRƯỚC fix (hiện `or ''` chỉ coalesce None→'', để '   ' lọt).
+    # ──────────────────────────────────────────────────────────────────────
+
+    def _make_model_raw(self, suffix: str, raw_model_name: str):
+        """IMM Device Model với model_name THÔ (whitespace-junk) — insert tên
+        hợp lệ rồi set_value bỏ qua validate (mô phỏng canonical drift/legacy/
+        import lỏng để kiểm chuẩn hoá BE). Trả docname."""
+        m = frappe.get_doc({
+            "doctype": "IMM Device Model",
+            "model_name": f"WS46 Model {suffix}",
+            "manufacturer": "WS46 Mfg",
+            "medical_device_class": "Class II",
+            "asset_category": self.cat.name,
+        }).insert(ignore_permissions=True)
+        frappe.db.set_value("IMM Device Model", m.name,
+                            "model_name", raw_model_name, update_modified=False)
+        self._models.append(m.name)
+        return m.name
+
+    def _make_location_raw(self, suffix: str, raw_location_name: str):
+        """AC Location với location_name THÔ (whitespace-junk) — insert tên hợp
+        lệ rồi set_value bỏ qua validate. Trả docname."""
+        loc = frappe.get_doc({
+            "doctype": "AC Location",
+            "location_name": f"WS46 Loc {suffix}",
+            "location_type": "Room",
+        }).insert(ignore_permissions=True)
+        frappe.db.set_value("AC Location", loc.name,
+                            "location_name", raw_location_name, update_modified=False)
+        self._locations.append(loc.name)
+        return loc.name
+
+    # ── TC-WS-MODEL-1 (RED) — model_name='   ' → device_model_name=='' ───────
+    def test_ws_model_1_device_model_name_whitespace_only_blank(self):
+        """build_asset_scan_info: asset gắn IMM Device Model model_name='   '
+        (whitespace-only) → device_model_name=='' (hiện trả '   ')."""
+        from assetcore.services.imm00 import build_asset_scan_info
+        model = self._make_model_raw("m1", "   ")
+        asset = self._make_asset("wsm1", device_model=model)
+        payload = build_asset_scan_info(asset.name)
+        self.assertEqual(payload["device_model_name"], "",
+                         "model_name whitespace-only → '' (khử junk ra mobile-BE)")
+        self.assertIsInstance(payload["device_model_name"], str)
+        self.assertNotEqual(payload["device_model_name"], "   ",
+                            "KHÔNG rò '   ' ra non-Vue consumer/tem")
+
+    # ── TC-WS-LOC-1 (RED) — location_name='\t' → location_name=='' ───────────
+    def test_ws_loc_1_location_name_whitespace_only_blank(self):
+        """build_asset_scan_info: asset gắn AC Location location_name='\\t'
+        (whitespace-only) → location_name=='' (parity model)."""
+        from assetcore.services.imm00 import build_asset_scan_info
+        loc = self._make_location_raw("l1", "\t")
+        asset = self._make_asset("wsl1", location=loc)
+        payload = build_asset_scan_info(asset.name)
+        self.assertEqual(payload["location_name"], "",
+                         "location_name whitespace-only → '' (khử junk)")
+        self.assertIsInstance(payload["location_name"], str)
+        self.assertNotIn("\t", payload["location_name"])
+
+    # ── TC-WS-MODEL-2 — '  Evita V500  ' → 'Evita V500' (strip 2 đầu, GIỮ giữa)
+    def test_ws_model_2_surrounding_ws_stripped_inner_kept(self):
+        """model_name='  Evita V500  ' → device_model_name=='Evita V500' (strip
+        2 đầu). 'ICU - Tầng 3' chứng minh khoảng-trắng-GIỮA giữ nguyên."""
+        from assetcore.services.imm00 import build_asset_scan_info
+        model = self._make_model_raw("m2", "  Evita V500  ")
+        asset = self._make_asset("wsm2", device_model=model)
+        payload = build_asset_scan_info(asset.name)
+        self.assertEqual(payload["device_model_name"], "Evita V500",
+                         "strip 2 đầu, KHÔNG nuốt nội dung (parity Vòng 45)")
+        # location: khoảng-trắng-GIỮA giữ nguyên (KHÔNG over-normalize)
+        loc = self._make_location_raw("l2", "  ICU - Tầng 3  ")
+        a2 = self._make_asset("wsl2", location=loc)
+        p2 = build_asset_scan_info(a2.name)
+        self.assertEqual(p2["location_name"], "ICU - Tầng 3",
+                         "strip 2 đầu GIỮ khoảng-trắng-giữa 'ICU - Tầng 3'")
+
+    # ── TC-WS-LABEL-1 — build_asset_label_data model_name='\n' → '' ──────────
+    def test_ws_label_1_label_data_relation_names_strip(self):
+        """build_asset_label_data: model_name='\\n' → device_model_name=='' ;
+        location_name='   ' → location_name=='' (parity scan-info, mở rộng 2
+        field quan hệ)."""
+        from assetcore.services.imm00 import build_asset_label_data
+        model = self._make_model_raw("lbl1", "\n")
+        loc = self._make_location_raw("lbl1", "   ")
+        asset = self._make_asset("wslbl1", device_model=model, location=loc)
+        data = build_asset_label_data(asset.name)
+        self.assertEqual(data["device_model_name"], "",
+                         "model_name whitespace-only → '' trên tem")
+        self.assertEqual(data["location_name"], "",
+                         "location_name whitespace-only → '' trên tem")
+        for k in ("device_model_name", "location_name"):
+            self.assertIsInstance(data[k], str)
+        self.assertIn("/a/", data["qr_url"])
+
+    # ── TC-WS-BATCH-1 — batch: item hợp lệ strip ; item lỗi GIỮ {name, error} ─
+    def test_ws_batch_1_relation_names_strip_error_item_unchanged(self):
+        """build_asset_label_data_batch: item hợp lệ location_name='   ' → ''
+        ; item lỗi GIỮ NGUYÊN {name, error: 'AC-E001'} (no-regress key)."""
+        from assetcore.services.imm00 import build_asset_label_data_batch
+        model = self._make_model_raw("b1", "  Dräger V500  ")
+        loc = self._make_location_raw("b1", "   ")
+        a1 = self._make_asset("wsbatch1", device_model=model, location=loc)
+        missing = "AC-ASSET-NONEXISTENT-WS46"
+        out = build_asset_label_data_batch([a1.name, missing])
+        self.assertEqual(len(out), 2, "giữ index, KHÔNG drop")
+        self.assertEqual(out[0]["name"], a1.name)
+        self.assertEqual(out[0]["location_name"], "",
+                         "item hợp lệ: location_name whitespace-only → ''")
+        self.assertEqual(out[0]["device_model_name"], "Dräger V500",
+                         "model_name strip 2 đầu (GIỮ khoảng-trắng-giữa)")
+        for k in ("device_model_name", "location_name"):
+            self.assertIsInstance(out[0][k], str)
+        # item lỗi GIỮ NGUYÊN {name, error} — KHÔNG nở key
+        self.assertEqual(out[1]["name"], missing)
+        self.assertEqual(out[1].get("error"), "AC-E001")
+        self.assertEqual(set(out[1].keys()), {"name", "error"},
+                         "item lỗi đúng {name, error} (KHÔNG nở key sau helper)")
+
+    # ── TC-NOREG-1 — gán hợp lệ → giữ nguyên văn cả 3 builder ; unassigned → ''
+    def test_ws_noreg_valid_relation_kept_unassigned_blank_all_builders(self):
+        """model/location gán hợp lệ ('Dräger V500'/'ICU') → giữ nguyên văn cả
+        3 builder ; device_model/location rỗng (unassigned) → '' (skip query,
+        no-regress)."""
+        from assetcore.services.imm00 import (
+            build_asset_scan_info, build_asset_label_data,
+            build_asset_label_data_batch,
+        )
+        model = self._make_model_raw("nr", "Dräger V500")
+        loc = self._make_location_raw("nr", "ICU")
+        asset = self._make_asset("wsnr", device_model=model, location=loc)
+        # 3 builder: giữ nguyên văn
+        si = build_asset_scan_info(asset.name)
+        self.assertEqual(si["device_model_name"], "Dräger V500")
+        self.assertEqual(si["location_name"], "ICU")
+        lbl = build_asset_label_data(asset.name)
+        self.assertEqual(lbl["device_model_name"], "Dräger V500")
+        self.assertEqual(lbl["location_name"], "ICU")
+        batch = build_asset_label_data_batch([asset.name])
+        self.assertEqual(batch[0]["device_model_name"], "Dräger V500")
+        self.assertEqual(batch[0]["location_name"], "ICU")
+        # unassigned (device_model/location rỗng) → '' (skip query, no-regress)
+        bare = self._make_asset("wsbare")
+        sib = build_asset_scan_info(bare.name)
+        self.assertEqual(sib["device_model_name"], "",
+                         "unassigned device_model → '' (skip query no N+1)")
+        self.assertEqual(sib["location_name"], "",
+                         "unassigned location → '' (skip query)")
+        lblb = build_asset_label_data(bare.name)
+        self.assertEqual(lblb["device_model_name"], "")
+        self.assertEqual(lblb["location_name"], "")
+        batchb = build_asset_label_data_batch([bare.name])
+        self.assertEqual(batchb[0]["device_model_name"], "")
+        self.assertEqual(batchb[0]["location_name"], "")
+
+    # ── _str_or_blank SSoT helper — contract unit-level ─────────────────────
+    def test_str_or_blank_helper_contract(self):
+        """_str_or_blank: blank/whitespace-only/None/non-str → '' ; else strip()."""
+        from assetcore.services.imm00 import _str_or_blank
+        self.assertEqual(_str_or_blank(None), "")
+        self.assertEqual(_str_or_blank(""), "")
+        self.assertEqual(_str_or_blank("   "), "")
+        self.assertEqual(_str_or_blank("\t\n "), "")
+        self.assertEqual(_str_or_blank(" SN-123 "), "SN-123")
+        self.assertEqual(_str_or_blank("High"), "High")
+        # non-str (canonical drift / int leak) → '' (str, never None/raw)
+        self.assertEqual(_str_or_blank(123), "")
+        for v in (None, "", "   ", 123, " x "):
+            self.assertIsInstance(_str_or_blank(v), str,
+                                  "LUÔN str (parity _date_str_or_none never-None)")
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# A6 / Vòng 31 — chuẩn hoá whitespace tham số `name` ở get_asset_scan_info.
+# Parity với nhánh token (Vòng 6 — `_svc_resolve_qr_token` đã `.strip()` SSoT):
+# nhánh `name` (api/imm00.py: `elif name and frappe.db.exists(_DT_ASSET, name)`)
+# phải `.strip()` 2 đầu TRƯỚC `frappe.db.exists`. asset hợp lệ kèm leading/
+# trailing whitespace/newline (deep-link /assets/:id/info, copy-paste, mobile-BE)
+# → mở ĐÚNG hồ sơ (200) thay vì 404 GIẢ. CHỈ strip 2 đầu (KHÔNG lowercase/
+# transform giữa-chuỗi — KHÔNG over-normalize, parity quy tắc token). Contract
+# bất biến: shape payload + 3 lớp bảo mật (RBAC 403 / 404 no-leak / IDOR 403) +
+# no-raw-token + read-only no-audit GIỮ NGUYÊN. RED viết TRƯỚC fix.
+# ──────────────────────────────────────────────────────────────────────────
+
+
+class TestAssetScanInfoNameStrip(unittest.TestCase):
+    """Vòng 31 — get_asset_scan_info(name=...) strip whitespace 2 đầu TRƯỚC
+    exists → parity nhánh token. RED viết TRƯỚC impl."""
+
+    _CORE_KEYS = {
+        "name", "asset_code", "asset_name", "device_model_name",
+        "location_name", "lifecycle_status", "recent_maintenance",
+        "next_pm_date",
+    }
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": "Thiết bị Scan NameStrip (V31)",
+            "description": "Category cho test name-strip get_asset_scan_info",
+            "is_active": 1,
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        frappe.delete_doc("AC Asset Category", cls.cat.name,
+                          force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self._created: list[str] = []
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+        frappe.db.rollback()
+        for name in self._created:
+            _purge_asset(name)
+        frappe.db.commit()
+
+    def _make_asset(self, suffix="", **extra):
+        import uuid
+        uniq = f"{suffix or '0001'}-{uuid.uuid4().hex[:8]}"
+        data = {
+            "doctype": "AC Asset",
+            "asset_name": f"Máy NameStrip {uniq}",
+            "asset_category": self.cat.name,
+            "manufacturer_sn": f"NS-SN-{uniq}",
+            "asset_code": f"NS-ASSET-{uniq}",
+            "lifecycle_status": "Active",
+        }
+        data.update(extra)
+        doc = _insert_asset_bypass_workflow(data)
+        self._created.append(doc.name)
+        return doc
+
+    # ── TC-SCAN-NAME-STRIP-01 — name kèm space 2 đầu → 200 payload ĐÚNG ───────
+    def test_name_with_leading_trailing_space_returns_200(self):
+        """name='  <NAME>  ' → HTTP 200, payload['name']==<NAME>, payload đầy đủ.
+        [RED trước fix = 404 vì exists() so chuỗi THÔ kèm khoảng trắng]."""
+        from assetcore.api.imm00 import get_asset_scan_info
+        asset = self._make_asset("space", next_pm_date=add_days(nowdate(), 30))
+        resp = get_asset_scan_info(name=f"  {asset.name}  ")
+        self.assertTrue(resp["success"],
+                        "name hợp lệ kèm space 2 đầu → 200 (parity nhánh token)")
+        data = resp["data"]
+        self.assertEqual(data["name"], asset.name,
+                         "payload['name'] = name asset SẠCH (không kèm whitespace)")
+        self.assertEqual(data["asset_code"], asset.asset_code)
+        for k in self._CORE_KEYS:
+            self.assertIn(k, data, f"payload scan-info PHẢI có '{k}'")
+
+    # ── TC-SCAN-NAME-STRIP-02 — newline/tab 2 đầu → 200 (mọi whitespace) ──────
+    def test_name_with_newline_tab_returns_200(self):
+        """name='<NAME>\\n\\t' → 200. strip() bắt MỌI whitespace 2 đầu (newline/
+        tab), KHÔNG chỉ space (mobile-BE/copy-paste hay kèm '\\n')."""
+        from assetcore.api.imm00 import get_asset_scan_info
+        asset = self._make_asset("nlt")
+        resp = get_asset_scan_info(name=f"\n\t{asset.name}\n\t")
+        self.assertTrue(resp["success"],
+                        "name kèm newline/tab 2 đầu → 200 (strip mọi whitespace)")
+        self.assertEqual(resp["data"]["name"], asset.name)
+
+    # ── TC-SCAN-NAME-STRIP-03 — toàn whitespace → 404 leak-safe, no full-scan ─
+    def test_name_all_whitespace_returns_404_no_full_scan(self):
+        """name='   ' (toàn whitespace) → sau strip = rỗng → 404 _ERR_ASSET_NOT_
+        FOUND leak-safe, KHÔNG query toàn bảng, KHÔNG 500/traceback."""
+        from assetcore.api.imm00 import get_asset_scan_info, _ERR_ASSET_NOT_FOUND
+        # tạo sẵn 1 asset để bảo đảm bảng KHÔNG rỗng — nếu impl full-scan/lỏng
+        # guard, asset này có thể bị resolve nhầm → assertFalse sẽ bắt được.
+        self._make_asset("guard")
+        resp = get_asset_scan_info(name="   ")
+        self.assertFalse(resp["success"], "toàn whitespace → KHÔNG success")
+        self.assertEqual(resp["http_status"], 404,
+                         "toàn whitespace → 404, KHÔNG 500/traceback")
+        self.assertEqual(resp["error"], _ERR_ASSET_NOT_FOUND,
+                         "404 leak-safe — KHÔNG phân biệt 'sai định dạng' vs 'không có'")
+        self.assertFalse((resp.get("data") or {}).get("asset_code"),
+                         "KHÔNG resolve nhầm asset nào (KHÔNG full-scan)")
+
+    # ── TC-SCAN-NAME-STRIP-04 — whitespace GIỮA = hỏng thật → 404 ─────────────
+    def test_name_inner_whitespace_returns_404(self):
+        """name='A 042' (space GIỮA) sau strip 2 đầu VẪN không khớp asset thật →
+        404. CHỈ strip leading/trailing, KHÔNG lowercase/transform giữa-chuỗi
+        (parity quy tắc token Vòng 6 — KHÔNG over-normalize)."""
+        from assetcore.api.imm00 import get_asset_scan_info
+        asset = self._make_asset("inner")
+        # chèn 1 space vào GIỮA name thật → KHÔNG còn là id hợp lệ.
+        mangled = asset.name[:3] + " " + asset.name[3:]
+        resp = get_asset_scan_info(name=mangled)
+        self.assertFalse(resp["success"],
+                         "space GIỮA = id hỏng thật → KHÔNG success")
+        self.assertEqual(resp["http_status"], 404,
+                         "space GIỮA → 404 (KHÔNG transform giữa-chuỗi)")
+
+    # ── TC-SCAN-NAME-STRIP-05 (no-regress) — name SẠCH → 200 payload bất biến ─
+    def test_name_clean_returns_200_payload_unchanged(self):
+        """name='<NAME>' sạch (không whitespace) → 200 payload bất biến — shape
+        + field guard KHÔNG hồi quy sau khi thêm strip()."""
+        from assetcore.api.imm00 import get_asset_scan_info
+        asset = self._make_asset("clean", next_pm_date=add_days(nowdate(), 15))
+        resp = get_asset_scan_info(name=asset.name)
+        self.assertTrue(resp["success"], "name sạch → 200 (no-regress)")
+        data = resp["data"]
+        self.assertEqual(data["name"], asset.name)
+        self.assertEqual(data["asset_code"], asset.asset_code)
+        self.assertEqual(data["lifecycle_status"], "Active",
+                         "BE trả mã canonical (FE dịch SSoT) — KHÔNG nhãn VI thô")
+        for k in self._CORE_KEYS:
+            self.assertIn(k, data, f"payload scan-info PHẢI có '{k}'")
+
+    # ── TC-SCAN-NAME-STRIP-06 (token no-fork) — token kèm space → 200 ─────────
+    def test_token_with_whitespace_no_fork_still_200(self):
+        """token='  <token>  ' → 200. Nhánh token strip ở SERVICE (Vòng 6) KHÔNG
+        bị đụng/double-strip bởi fix nhánh name — parity giữ, KHÔNG lệch."""
+        from assetcore.api.imm00 import get_asset_scan_info
+        asset = self._make_asset("tokfork")
+        resp = get_asset_scan_info(token=f"  {asset.qr_token}\n")
+        self.assertTrue(resp["success"],
+                        "token kèm whitespace → 200 (service strip Vòng 6 nguyên vẹn)")
+        self.assertEqual(resp["data"]["name"], asset.name)
+
+    # ── TC-SCAN-NAME-STRIP-07 (IDOR parity) — vendor ngoài scope + name space →403
+    def test_vendor_out_of_scope_with_whitespace_name_forbidden(self):
+        """vendor ngoài scope, name kèm whitespace → 403. assert_vendor_can_access
+        VẪN chặn SAU strip+exists (resolve được asset → IDOR guard chạy), KHÔNG
+        leak payload. Strip KHÔNG bypass lớp bảo mật."""
+        from assetcore.api.imm00 import get_asset_scan_info
+        asset = self._make_asset("idorns")
+        asset_name = asset.name
+        vendor_email = "vendor_v31_namestrip_idor@example.com"
+        if frappe.db.exists("User", vendor_email):
+            frappe.delete_doc("User", vendor_email, force=True,
+                              ignore_permissions=True)
+        u = frappe.get_doc({
+            "doctype": "User", "email": vendor_email,
+            "first_name": "Vendor V31 NameStrip IDOR", "send_welcome_email": 0,
+        }).insert(ignore_permissions=True)
+        u.add_roles("Vendor Engineer", "Repair User")
+        frappe.db.commit()
+        frappe.set_user(vendor_email)
+        try:
+            resp = get_asset_scan_info(name=f"  {asset_name}  ")
+            self.assertFalse(resp["success"],
+                             "vendor ngoài scope (dù name kèm whitespace) → KHÔNG success")
+            self.assertEqual(resp["http_status"], 403,
+                             "vendor ngoài scope → 403 IDOR (SAU strip+exists)")
+            self.assertNotIn("asset_code", resp.get("data") or {},
+                             "KHÔNG leak payload asset ngoài scope")
+        finally:
+            frappe.set_user("Administrator")
+            if frappe.db.exists("User", vendor_email):
+                frappe.delete_doc("User", vendor_email,
+                                  force=True, ignore_permissions=True)
+            frappe.db.commit()
+
+    # ── TC-SCAN-NAME-STRIP-08 (revert-proof LL-TEST-26) — strip thật sự cần ───
+    def test_strip_is_load_bearing_revert_proof(self):
+        """Revert-proof: chứng minh strip() là LOAD-BEARING. Mô phỏng nhánh name
+        KHÔNG strip (`name THÔ` + exists) → asset hợp lệ kèm whitespace KHÔNG
+        khớp (RED giả lập); CÓ strip → khớp. Nếu ai gỡ .strip() ở impl, TC-01/02
+        sẽ ĐỎ — test này khoá ý nghĩa cụ thể của strip 2 đầu."""
+        from assetcore.api.imm00 import _DT_ASSET
+        asset = self._make_asset("revert")
+        raw = f"  {asset.name}  "
+        # KHÔNG strip → exists THÔ thất bại (đây là hành vi 404-giả đã sửa).
+        self.assertFalse(frappe.db.exists(_DT_ASSET, raw),
+                         "name THÔ kèm whitespace KHÔNG khớp exists → 404 giả nếu quên strip")
+        # CÓ strip → exists khớp (đây là hành vi đúng sau fix).
+        self.assertTrue(frappe.db.exists(_DT_ASSET, raw.strip()),
+                        "name SAU strip 2 đầu khớp exists → resolve đúng asset")
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -2725,12 +4606,15 @@ class TestAssetScanInfoPmOverdue(unittest.TestCase):
     """A6 hardening — derive pm_overdue server-side. FE CHỈ render cờ (KHÔNG so
     ngày client → chống lệch timezone). RED viết TRƯỚC impl."""
 
-    # 8 field hiện có của payload scan-info (regression: KHÔNG thêm/bớt ngoài
-    # đúng 1 field pm_overdue mới).
+    # Field hiện có của payload scan-info (regression: KHÔNG thêm/bớt ngoài
+    # đúng 1 field pm_overdue mới). Vòng 37 (D5 — NĐ98): + manufacturer_sn
+    # (Số serial NSX, định danh truy xuất) vào whitelist field cốt lõi. Vòng 38:
+    # + risk_classification (phân loại rủi ro enum, read-only) vào whitelist —
+    # parity manufacturer_sn (raw enum SSoT, FE dịch VI).
     _EXISTING_KEYS = {
-        "name", "asset_code", "asset_name", "device_model_name",
-        "location_name", "lifecycle_status", "recent_maintenance",
-        "next_pm_date",
+        "name", "asset_code", "asset_name", "manufacturer_sn", "risk_classification",
+        "device_model_name", "location_name", "lifecycle_status",
+        "recent_maintenance", "next_pm_date",
     }
     _SENSITIVE_KEYS = {
         "gross_purchase_amount", "purchase_cost", "accumulated_depreciation",
@@ -2854,10 +4738,75 @@ class TestAssetScanInfoPmOverdue(unittest.TestCase):
         self.assertIsNone(build_asset_scan_info(None),
                           "asset_name None → None (KHÔNG raise)")
 
+    # ── Vòng 11 — next_pm_date là str|None ('YYYY-MM-DD'/None), parity với ────
+    # next_calibration_date (FR-00-86 / 07 §III.6.f-PMDATESTR). Mirror chính xác
+    # test_payload_has_calibration_fields_9_fields_intact (chiều hiệu chuẩn).
+    def test_scan_info_next_pm_date_is_str_or_none(self):
+        from frappe.utils import getdate
+        past = add_days(nowdate(), -1)
+        asset = self._make_asset("pmdatestr", next_pm_date=past)
+        data = self._scan(asset)
+        self.assertIsInstance(
+            data["next_pm_date"], str,
+            "next_pm_date PHẢI là str (KHÔNG còn datetime.date object thô)")
+        self.assertEqual(
+            data["next_pm_date"], getdate(past).strftime("%Y-%m-%d"),
+            "next_pm_date == getdate(...).strftime('%Y-%m-%d') ('YYYY-MM-DD')")
+
+    def test_scan_info_next_pm_date_none_when_null(self):
+        asset = self._make_asset("pmdatenull")  # KHÔNG set next_pm_date
+        data = self._scan(asset)
+        self.assertIsNone(
+            data["next_pm_date"],
+            "next_pm_date rỗng/NULL → None (KHÔNG raise, KHÔNG '')")
+
+    def test_scan_info_next_pm_date_type_parity_with_calibration(self):
+        """Vòng 11 — CHỐT đối xứng: trong CÙNG 1 payload cả next_pm_date lẫn
+        next_calibration_date đều là (str | None) qua _date_str_or_none (KHÔNG
+        còn date object thô ở 1 nhánh). Khoá no-asymmetry (FR-00-86)."""
+        asset = self._make_asset(
+            "pmcalparity",
+            next_pm_date=add_days(nowdate(), -1),
+            next_calibration_date=add_days(nowdate(), -1),
+        )
+        data = self._scan(asset)
+        self.assertIsInstance(
+            data["next_pm_date"], (str, type(None)),
+            "next_pm_date PHẢI là str|None (parity với next_calibration_date)")
+        self.assertIsInstance(
+            data["next_calibration_date"], (str, type(None)),
+            "next_calibration_date PHẢI là str|None (đối xứng next_pm_date)")
+
+    def test_scan_info_pm_overdue_unaffected_by_str_normalize(self):
+        """INVARIANT: cờ pm_overdue derive từ RAW row TRƯỚC normalize string —
+        KHÔNG hồi quy khi next_pm_date đổi sang str|None (Vòng 11)."""
+        from frappe.utils import getdate
+        past = add_days(nowdate(), -1)
+        asset = self._make_asset("pmdateinv", next_pm_date=past)
+        data = self._scan(asset)
+        self.assertIs(data["pm_overdue"], True,
+                      "past+active → pm_overdue=True (derive từ raw, KHÔNG đổi)")
+        self.assertIsInstance(data["next_pm_date"], str)
+        self.assertEqual(data["next_pm_date"],
+                         getdate(past).strftime("%Y-%m-%d"))
+
+    def test_scan_info_payload_shape_unchanged_after_pmdate_str(self):
+        """Field-whitelist KHÔNG đổi — chỉ đổi KIỂU value next_pm_date, KHÔNG
+        thêm/bớt key (9 FR-00-85 + 2 calibration + available_actions)."""
+        asset = self._make_asset("pmdateshape", next_pm_date=add_days(nowdate(), -1))
+        data = self._scan(asset)
+        self.assertEqual(
+            set(data.keys()),
+            self._EXISTING_KEYS | {"pm_overdue"} | self._CALIBRATION_KEYS
+            | self._WARRANTY_KEYS | {"available_actions"},
+            "shape ổn định: KHÔNG thêm/bớt key khi next_pm_date thành str|None")
+
     # ── Regression — giữ ĐÚNG 8 field cũ + pm_overdue + 2 field hiệu chuẩn ────
     # FR-00-86: payload bổ sung next_calibration_date + calibration_overdue (Vòng
     # 28 B) — KHÔNG mất/đổi field cũ. Whitelist mở rộng đúng 2 key calibration.
     _CALIBRATION_KEYS = {"next_calibration_date", "calibration_overdue"}
+    # Vòng 48 — payload bổ sung đúng 2 key warranty (trạng thái BẢO HÀNH).
+    _WARRANTY_KEYS = {"warranty_expiry_date", "warranty_expired"}
 
     def test_scan_info_payload_keeps_8_existing_fields_plus_pm_overdue(self):
         asset = self._make_asset("shape", next_pm_date=add_days(nowdate(), -1))
@@ -2866,8 +4815,10 @@ class TestAssetScanInfoPmOverdue(unittest.TestCase):
             self.assertIn(k, data, f"payload PHẢI giữ field cũ '{k}'")
         self.assertEqual(
             set(data.keys()),
-            self._EXISTING_KEYS | {"pm_overdue"} | self._CALIBRATION_KEYS,
-            "payload = 8 field cũ + pm_overdue + 2 field hiệu chuẩn (KHÔNG dư)",
+            self._EXISTING_KEYS | {"pm_overdue"} | self._CALIBRATION_KEYS
+            | self._WARRANTY_KEYS | {"available_actions"},
+            "payload = 8 field cũ + pm_overdue + 2 field hiệu chuẩn + "
+            "2 field bảo hành + available_actions (R1 §D2 — KHÔNG dư field khác)",
         )
         leaked = self._SENSITIVE_KEYS & set(data.keys())
         self.assertFalse(leaked, f"KHÔNG leak field nhạy cảm: {leaked}")
@@ -2885,6 +4836,196 @@ class TestAssetScanInfoPmOverdue(unittest.TestCase):
                          before_ale, "derive pm_overdue KHÔNG ghi Asset Lifecycle Event")
 
 
+# ──────────────────────────────────────────────────────────────────────────
+# Vòng 48 (A6 — TRẠNG THÁI BẢO HÀNH): build_asset_scan_info bổ sung 2 KEY MỚI
+# warranty_expiry_date (str|None 'YYYY-MM-DD' qua _date_str_or_none, parity
+# next_pm_date/next_calibration_date) + warranty_expired (bool, derive SERVER-
+# SIDE qua helper MỚI _is_warranty_expired). KTV biết "còn/hết bảo hành" TRƯỚC
+# khi báo hỏng/tạo CM (affordance chi phí sửa chữa). KHÁC pm/cal overdue:
+# _is_warranty_expired ĐỘC LẬP lifecycle_status (bảo hành = sự kiện HỢP ĐỒNG —
+# Out-of-Service/Decommissioned VẪN có thể còn/hết bảo hành → KHÔNG exempt).
+# Đọc field thật AC Asset.warranty_expiry_date trong CÙNG get_value (KHÔNG N+1).
+# RED viết TRƯỚC impl.
+# ──────────────────────────────────────────────────────────────────────────
+
+
+class TestAssetScanInfoWarranty(unittest.TestCase):
+    """A6 (Vòng 48) — trạng thái BẢO HÀNH màn quét QR: warranty_expiry_date +
+    warranty_expired. Cờ derive THUẦN từ ngày server (no client-clock). Helper
+    _is_warranty_expired ĐỘC LẬP lifecycle (khác pm/cal overdue). RED trước impl."""
+
+    # 13 KEY CŨ của payload — no-regress khi thêm đúng 2 key warranty mới.
+    _LEGACY_KEYS = {
+        "name", "asset_code", "asset_name", "manufacturer_sn", "risk_classification",
+        "lifecycle_status", "device_model_name", "location_name",
+        "next_pm_date", "next_calibration_date", "recent_maintenance",
+        "pm_overdue", "calibration_overdue", "available_actions",
+    }
+    _SENSITIVE_KEYS = {
+        "gross_purchase_amount", "purchase_cost", "accumulated_depreciation",
+        "depreciation_method", "depreciation_schedule", "current_hash",
+        "previous_hash", "supplier",
+    }
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": "Thiết bị Bảo hành (A6 V48)",
+            "description": "Category cho test warranty scan-info",
+            "is_active": 1,
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        frappe.delete_doc("AC Asset Category", cls.cat.name,
+                          force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self._created: list[str] = []
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+        frappe.db.rollback()
+        for name in self._created:
+            _purge_asset(name)
+        frappe.db.commit()
+
+    def _make_asset(self, suffix="", status="Active", **extra):
+        import uuid
+        uniq = f"{suffix or '0001'}-{uuid.uuid4().hex[:8]}"
+        data = {
+            "doctype": "AC Asset",
+            "asset_name": f"Máy Warranty {uniq}",
+            "asset_category": self.cat.name,
+            "manufacturer_sn": f"WAR-SN-{uniq}",
+            "asset_code": f"WAR-ASSET-{uniq}",
+            "lifecycle_status": status,
+        }
+        data.update(extra)
+        doc = _insert_asset_bypass_workflow(data)
+        self._created.append(doc.name)
+        return doc
+
+    def _scan(self, asset):
+        from assetcore.api.imm00 import get_asset_scan_info
+        return get_asset_scan_info(token=asset.qr_token)["data"]
+
+    # ── BE-WAR-1: quá khứ → True ─────────────────────────────────────────────
+    def test_is_warranty_expired_past_true(self):
+        from assetcore.services.imm00 import _is_warranty_expired
+        self.assertIs(_is_warranty_expired("2020-01-01"), True,
+                      "ngày bảo hành quá khứ → hết bảo hành (True)")
+        self.assertIs(_is_warranty_expired(add_days(nowdate(), -1)), True,
+                      "hôm qua < hôm nay (strict <) → True")
+
+    # ── BE-WAR-2: hôm nay → False (strict <, hôm nay CHƯA hết hạn) ────────────
+    def test_is_warranty_expired_today_false_strict(self):
+        from assetcore.services.imm00 import _is_warranty_expired
+        self.assertIs(_is_warranty_expired(nowdate()), False,
+                      "hôm nay == hạn → CHƯA hết bảo hành (strict <, KHÔNG <=)")
+
+    # ── BE-WAR-3: tương lai → False ──────────────────────────────────────────
+    def test_is_warranty_expired_future_false(self):
+        from assetcore.services.imm00 import _is_warranty_expired
+        self.assertIs(_is_warranty_expired(add_days(nowdate(), 30)), False,
+                      "hạn tương lai → còn bảo hành (False)")
+
+    # ── BE-WAR-4: None / '' → False (KHÔNG raise) ────────────────────────────
+    def test_is_warranty_expired_none_and_blank_false(self):
+        from assetcore.services.imm00 import _is_warranty_expired
+        self.assertIs(_is_warranty_expired(None), False, "None → False")
+        self.assertIs(_is_warranty_expired(""), False, "'' → False")
+
+    # ── BE-WAR-5: NO-EXEMPT — độc lập lifecycle (KHÁC pm/cal overdue) ─────────
+    def test_is_warranty_expired_independent_of_lifecycle(self):
+        """_is_warranty_expired KHÔNG nhận/áp lifecycle_status. Thiết bị
+        Out of Service / Decommissioned với warranty quá khứ → VẪN True
+        (bảo hành = sự kiện HỢP ĐỒNG độc lập lifecycle, KHÔNG có *_EXEMPT
+        như _is_pm_overdue/_is_calibration_overdue)."""
+        from assetcore.services.imm00 import _is_warranty_expired
+        from assetcore.services.shared.constants import AssetStatus
+        past = add_days(nowdate(), -30)
+        # helper KHÔNG nhận status → True bất kể trạng thái:
+        self.assertIs(_is_warranty_expired(past), True)
+        # và qua payload đầy đủ: asset BLOCKED_FOR_WO + warranty quá khứ → warranty_expired True
+        for i, status in enumerate(AssetStatus.BLOCKED_FOR_WO):
+            with self.subTest(status=status):
+                asset = self._make_asset(f"blk{i}", status=status,
+                                         warranty_expiry_date=past)
+                data = self._scan(asset)
+                self.assertIs(data["warranty_expired"], True,
+                              f"status '{status}' (ngừng dùng) NHƯNG warranty quá khứ "
+                              "→ warranty_expired=True (KHÔNG exempt như pm/cal overdue)")
+                # đối chứng: cùng asset, pm_overdue thì BỊ exempt (False) — chứng minh KHÁC
+                self.assertIs(data["pm_overdue"], False,
+                              "đối chứng: pm_overdue exempt khi BLOCKED_FOR_WO (≠ warranty)")
+
+    # ── BE-WAR-6: payload field thật → str ISO + warranty_expired bool ────────
+    def test_scan_info_warranty_future_str_iso_and_not_expired(self):
+        from frappe.utils import getdate
+        asset = self._make_asset("future", warranty_expiry_date="2027-05-01")
+        data = self._scan(asset)
+        self.assertIn("warranty_expiry_date", data, "payload PHẢI có warranty_expiry_date")
+        self.assertIsInstance(data["warranty_expiry_date"], str,
+                              "warranty_expiry_date là str ISO (KHÔNG date object/giờ)")
+        self.assertEqual(data["warranty_expiry_date"], "2027-05-01",
+                         "warranty_expiry_date == 'YYYY-MM-DD' (KHÔNG datetime thô)")
+        # parity _date_str_or_none: không leak phần giờ
+        self.assertEqual(data["warranty_expiry_date"],
+                         getdate("2027-05-01").strftime("%Y-%m-%d"))
+        self.assertIs(data["warranty_expired"], False,
+                      "2027 (tương lai) → còn bảo hành (False)")
+
+    # ── BE-WAR-7: warranty rỗng → None + warranty_expired False ──────────────
+    def test_scan_info_warranty_empty_none_and_not_expired(self):
+        asset = self._make_asset("empty")  # KHÔNG set warranty_expiry_date
+        data = self._scan(asset)
+        self.assertIn("warranty_expiry_date", data, "key luôn hiện diện (KHÔNG KeyError)")
+        self.assertIsNone(data["warranty_expiry_date"],
+                          "warranty rỗng/NULL → None (parity next_pm_date)")
+        self.assertIs(data["warranty_expired"], False,
+                      "warranty NULL → warranty_expired=False (KHÔNG raise)")
+
+    # ── BE-WAR-8: 13 key cũ no-regress + đúng 2 key mới + no-leak ─────────────
+    def test_scan_info_warranty_keys_no_regress_no_sensitive_leak(self):
+        asset = self._make_asset("noregress", warranty_expiry_date="2020-01-01",
+                                 gross_purchase_amount=123_000_000)
+        data = self._scan(asset)
+        # 13 key cũ GIỮ NGUYÊN
+        missing = self._LEGACY_KEYS - set(data.keys())
+        self.assertFalse(missing, f"13 key cũ PHẢI giữ nguyên, thiếu: {missing}")
+        # đúng 2 key warranty mới
+        self.assertIn("warranty_expiry_date", data)
+        self.assertIn("warranty_expired", data)
+        # payload = 13 cũ + 2 mới (KHÔNG dư field khác)
+        self.assertEqual(
+            set(data.keys()), self._LEGACY_KEYS | {"warranty_expiry_date", "warranty_expired"},
+            "payload = 13 key cũ + đúng 2 key warranty mới (KHÔNG dư/thiếu)")
+        # KHÔNG leak field tài chính/nhạy cảm
+        leaked = self._SENSITIVE_KEYS & set(data.keys())
+        self.assertFalse(leaked, f"KHÔNG leak field nhạy cảm: {leaked}")
+        # quá khứ → warranty_expired True (nhánh derive được chạy)
+        self.assertIs(data["warranty_expired"], True)
+
+    # ── No-side-effect — derive warranty KHÔNG ghi audit/lifecycle (A2) ───────
+    def test_scan_info_warranty_no_side_effect(self):
+        asset = self._make_asset("noeffect", warranty_expiry_date="2020-01-01")
+        before_audit = frappe.db.count("IMM Audit Trail", {"asset": asset.name})
+        before_ale = frappe.db.count("Asset Lifecycle Event", {"asset": asset.name})
+        data = self._scan(asset)
+        self.assertIs(data["warranty_expired"], True)
+        self.assertEqual(frappe.db.count("IMM Audit Trail", {"asset": asset.name}),
+                         before_audit, "derive warranty KHÔNG ghi IMM Audit Trail")
+        self.assertEqual(frappe.db.count("Asset Lifecycle Event", {"asset": asset.name}),
+                         before_ale, "derive warranty KHÔNG ghi Asset Lifecycle Event")
+
+
 class TestAssetScanInfoCalibrationOverdue(unittest.TestCase):
     """A6 hardening (FR-00-86 / BR-00-37, Vòng 28 B) — derive calibration_overdue
     server-side. Chiều HIỆU CHUẨN song song với pm_overdue: FE CHỈ render cờ
@@ -2894,12 +5035,14 @@ class TestAssetScanInfoCalibrationOverdue(unittest.TestCase):
     read_only) — ZERO schema delta. KHÔNG mock getdate/nowdate; set ngày THẬT
     quanh nowdate() để đo đúng biên strict ``<``."""
 
-    # 9 field hiện có của payload scan-info SAU khi đã thêm pm_overdue (regression:
-    # 9 field GIỮ NGUYÊN tên + giá trị khi thêm 2 field hiệu chuẩn).
+    # Field hiện có của payload scan-info SAU khi đã thêm pm_overdue (regression:
+    # GIỮ NGUYÊN tên + giá trị khi thêm 2 field hiệu chuẩn). Vòng 37 (D5 — NĐ98):
+    # + manufacturer_sn (Số serial NSX, định danh truy xuất) vào whitelist. Vòng 38:
+    # + risk_classification (phân loại rủi ro enum, read-only) — parity manufacturer_sn.
     _EXISTING_KEYS = {
-        "name", "asset_code", "asset_name", "device_model_name",
-        "location_name", "lifecycle_status", "recent_maintenance",
-        "next_pm_date", "pm_overdue",
+        "name", "asset_code", "asset_name", "manufacturer_sn", "risk_classification",
+        "device_model_name", "location_name", "lifecycle_status",
+        "recent_maintenance", "next_pm_date", "pm_overdue",
     }
 
     @classmethod
@@ -2970,8 +5113,11 @@ class TestAssetScanInfoCalibrationOverdue(unittest.TestCase):
             self.assertIn(k, data, f"payload PHẢI giữ field cũ '{k}'")
         self.assertEqual(
             set(data.keys()),
-            self._EXISTING_KEYS | {"next_calibration_date", "calibration_overdue"},
-            "payload = 9 field cũ + đúng 2 field hiệu chuẩn (KHÔNG dư/thiếu)",
+            self._EXISTING_KEYS | {"next_calibration_date", "calibration_overdue"}
+            | {"warranty_expiry_date", "warranty_expired"}
+            | {"available_actions"},
+            "payload = 9 field cũ + 2 field hiệu chuẩn + 2 field bảo hành + "
+            "available_actions (R1 §D2 — KHÔNG dư/thiếu field khác)",
         )
 
     # ── True ⟺ next_calibration_date quá khứ ∧ status đang dùng ──────────────
@@ -3042,6 +5188,894 @@ class TestAssetScanInfoCalibrationOverdue(unittest.TestCase):
 
 
 # ──────────────────────────────────────────────────────────────────────────
+# R1 QR-SCAN-ACTION (ADR-IMM00-QR-SCAN-ACTION §D2) — màn quét QR emit
+# available_actions = capability ∩ lifecycle derive SERVER-SIDE qua 1 predicate
+# SSoT (_scan_action_specs + _lifecycle_allows). 4 action map 1-1 cap (D1):
+# report_failure→corrective.create, request_pm→pm.create, request_cm→repair.create,
+# request_calibration→calibration.create. Bảng lifecycle×action (D2):
+# Active/Commissioned/Under Maintenance/Under Repair/Calibrating → 4 enabled;
+# Out of Service → CHỈ report_failure+request_cm; Decommissioned → 0; Draft → 0.
+# reason ưu tiên lifecycle > capability. Payload read-only cũ (11 key) GIỮ NGUYÊN.
+# no-raw-token parity GIỮ. RED viết TRƯỚC impl.
+# ──────────────────────────────────────────────────────────────────────────
+class TestScanInfoAvailableActions(unittest.TestCase):
+    """R1 §D2 — available_actions = has_cap ∩ lifecycle_allows (SSoT 1 predicate).
+
+    Administrator có MỌI DocPerm ⇒ rbac.can(*) True cho cả 4 cap → dùng để đo
+    nhánh lifecycle thuần (không nhiễu capability). Test thiếu-cap monkeypatch
+    rbac.can (module attribute service tham chiếu) để ép 1 cap False. KHÔNG mock
+    getdate/nowdate. RED viết TRƯỚC impl."""
+
+    _ACTION_KEYS = {"report_failure", "request_pm", "request_cm",
+                    "request_calibration"}
+    _ROUTES = {"IncidentCreate", "PMWorkOrderCreate", "CMCreate",
+               "CalibrationCreate"}
+    _SHAPE_KEYS = {"key", "label", "route", "enabled", "reason"}
+    # 11 key read-only cũ (contract A6) — regression guard không đổi.
+    _EXISTING_PAYLOAD_KEYS = {
+        "name", "asset_code", "asset_name", "lifecycle_status",
+        "device_model_name", "location_name", "next_pm_date",
+        "next_calibration_date", "recent_maintenance", "pm_overdue",
+        "calibration_overdue",
+    }
+    _REASON_DECOM = "Thiết bị đã thanh lý"
+    _REASON_OOS = ("Thiết bị đang ngừng hoạt động — chỉ cho phép báo hỏng / "
+                   "yêu cầu sửa chữa")
+    _REASON_DRAFT = "Thiết bị chưa đưa vào vận hành"
+    _REASON_NO_CAP = "Bạn không có quyền thực hiện thao tác này"
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": "Thiết bị Scan Actions (R1)",
+            "description": "Category cho test available_actions scan-info",
+            "is_active": 1,
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        frappe.delete_doc("AC Asset Category", cls.cat.name,
+                          force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self._created: list[str] = []
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+        frappe.db.rollback()
+        for name in self._created:
+            _purge_asset(name)
+        frappe.db.commit()
+
+    def _make_asset(self, suffix="", status="Active", **extra):
+        import uuid
+        uniq = f"{suffix or '0001'}-{uuid.uuid4().hex[:8]}"
+        data = {
+            "doctype": "AC Asset",
+            "asset_name": f"Máy ScanAction {uniq}",
+            "asset_category": self.cat.name,
+            "manufacturer_sn": f"SA-SN-{uniq}",
+            "asset_code": f"SA-ASSET-{uniq}",
+            "lifecycle_status": status,
+        }
+        data.update(extra)
+        doc = _insert_asset_bypass_workflow(data)
+        self._created.append(doc.name)
+        return doc
+
+    def _actions(self, asset):
+        from assetcore.services.imm00 import build_asset_scan_info
+        payload = build_asset_scan_info(asset.name)
+        self.assertIn("available_actions", payload,
+                      "payload PHẢI có key available_actions")
+        return {a["key"]: a for a in payload["available_actions"]}
+
+    # ── Active + đủ 4 cap → 4 enabled, reason rỗng ──────────────────────────
+    def test_active_full_cap_4_enabled(self):
+        from assetcore.services.imm00 import _scan_action_specs
+        asset = self._make_asset("active", status="Active")
+        actions = self._actions(asset)
+        self.assertEqual(set(actions), self._ACTION_KEYS,
+                         "đủ 4 action key canonical")
+        specs = {s["key"]: s for s in _scan_action_specs()}
+        for key, a in actions.items():
+            self.assertIs(a["enabled"], True,
+                          f"Active + đủ cap → {key} enabled=True")
+            self.assertEqual(a["reason"], "",
+                             f"enabled=True → reason rỗng ({key})")
+            self.assertEqual(a["label"], specs[key]["label"],
+                             f"label khớp _scan_action_specs ({key})")
+            self.assertEqual(a["route"], specs[key]["route"],
+                             f"route khớp _scan_action_specs ({key})")
+
+    def test_commissioned_full_cap_4_enabled(self):
+        asset = self._make_asset("commi", status="Commissioned")
+        for key, a in self._actions(asset).items():
+            self.assertIs(a["enabled"], True, f"Commissioned → {key} enabled")
+            self.assertEqual(a["reason"], "")
+
+    # ── Decommissioned → 4 disabled, reason 'đã thanh lý' ───────────────────
+    def test_decommissioned_all_disabled(self):
+        asset = self._make_asset("decom", status="Decommissioned")
+        for key, a in self._actions(asset).items():
+            self.assertIs(a["enabled"], False,
+                          f"Decommissioned → {key} enabled=False")
+            self.assertEqual(a["reason"], self._REASON_DECOM,
+                             f"Decommissioned reason ({key})")
+
+    # ── Out of Service → CHỈ report_failure + request_cm enabled ────────────
+    def test_out_of_service_only_report_and_cm(self):
+        asset = self._make_asset("oos", status="Out of Service")
+        actions = self._actions(asset)
+        self.assertIs(actions["report_failure"]["enabled"], True,
+                      "OoS → report_failure enabled")
+        self.assertEqual(actions["report_failure"]["reason"], "")
+        self.assertIs(actions["request_cm"]["enabled"], True,
+                      "OoS → request_cm enabled")
+        self.assertEqual(actions["request_cm"]["reason"], "")
+        for key in ("request_pm", "request_calibration"):
+            self.assertIs(actions[key]["enabled"], False,
+                          f"OoS → {key} disabled")
+            self.assertEqual(actions[key]["reason"], self._REASON_OOS,
+                             f"OoS disabled reason ({key})")
+
+    # ── Draft → 4 disabled 'chưa đưa vào vận hành' ──────────────────────────
+    def test_draft_all_disabled(self):
+        asset = self._make_asset("draft", status="Draft")
+        for key, a in self._actions(asset).items():
+            self.assertIs(a["enabled"], False, f"Draft → {key} disabled")
+            self.assertEqual(a["reason"], self._REASON_DRAFT,
+                             f"Draft reason ({key})")
+
+    # ── Status rỗng/lạ + đủ cap → 4 disabled reason _LIFECYCLE_REASON_UNKNOWN ──
+    # (D9 R1 §IV.18 — bịt lỗ hổng nút disabled-không-lý-do khi lifecycle_status
+    # rỗng ''/mã LẠ ngoài enum AssetStatus + user CÓ capability.) RED trước fix:
+    # code hiện tại trả reason="" khi has_cap=True (rơi cuối _lifecycle_reason).
+    def test_unknown_status_disabled_has_nonempty_reason(self):
+        from assetcore.services.imm00 import _LIFECYCLE_REASON_UNKNOWN
+        for status in ("", "ZzUnknown"):
+            asset = self._make_asset("unk", status="Active")
+            frappe.db.set_value("AC Asset", asset.name, "lifecycle_status",
+                                status, update_modified=False)
+            actions = self._actions(asset)
+            self.assertEqual(set(actions), self._ACTION_KEYS,
+                             f"đủ 4 action key (status={status!r})")
+            for key, a in actions.items():
+                self.assertIs(a["enabled"], False,
+                              f"status rỗng/lạ → {key} disabled (status={status!r})")
+                self.assertNotEqual(a["reason"], "",
+                                    f"disabled ⟹ reason KHÔNG rỗng ({key}, {status!r})")
+                self.assertEqual(a["reason"], _LIFECYCLE_REASON_UNKNOWN,
+                                 f"status rỗng/lạ + đủ cap → reason hằng UNKNOWN "
+                                 f"({key}, status={status!r})")
+
+    # ── Bất biến: status rỗng/lạ → mọi action disabled PHẢI kèm reason != '' ──
+    def test_unknown_status_invariant_no_disabled_empty_reason(self):
+        for status in ("", "GARBAGE"):
+            asset = self._make_asset("inv", status="Active")
+            frappe.db.set_value("AC Asset", asset.name, "lifecycle_status",
+                                status, update_modified=False)
+            for key, a in self._actions(asset).items():
+                if a["enabled"] is False:
+                    self.assertNotEqual(
+                        a["reason"], "",
+                        f"(not enabled) ⟹ reason != '' ({key}, status={status!r})")
+
+    # ── Bất biến TỔNG QUÁT: ∀ status × {có/thiếu cap} disabled ⟹ reason != '' ─
+    # + chống hồi quy: 5 status đã biết reason KHÔNG đổi (byte-for-byte).
+    def test_available_actions_invariant_all_status_disabled_nonempty(self):
+        from assetcore.services import imm00 as svc
+        from assetcore.services.imm00 import _LIFECYCLE_REASON_UNKNOWN
+        known_reason = {
+            "Decommissioned": self._REASON_DECOM,
+            "Draft": self._REASON_DRAFT,
+        }
+        statuses = ["", "GARBAGE", "Active", "Commissioned",
+                    "Decommissioned", "Out of Service", "Draft"]
+        orig_can = svc.rbac.can
+
+        def _no_cap(cap, doc=None):
+            return False
+
+        for status in statuses:
+            for has_cap in (True, False):
+                asset = self._make_asset("allinv", status="Active")
+                frappe.db.set_value("AC Asset", asset.name, "lifecycle_status",
+                                    status, update_modified=False)
+                if not has_cap:
+                    svc.rbac.can = _no_cap
+                try:
+                    actions = self._actions(asset)
+                finally:
+                    svc.rbac.can = orig_can
+                for key, a in actions.items():
+                    if a["enabled"] is False:
+                        self.assertNotEqual(
+                            a["reason"], "",
+                            f"(not enabled) ⟹ reason != '' "
+                            f"(status={status!r}, has_cap={has_cap}, {key})")
+                # Chống hồi quy 5 status đã biết khi ĐỦ cap — reason byte-for-byte.
+                if has_cap and status in known_reason:
+                    for key, a in actions.items():
+                        self.assertEqual(
+                            a["reason"], known_reason[status],
+                            f"reason {status} KHÔNG đổi ({key})")
+                if has_cap and status == "Out of Service":
+                    for key in ("request_pm", "request_calibration"):
+                        self.assertEqual(actions[key]["reason"], self._REASON_OOS,
+                                         f"OoS disabled reason KHÔNG đổi ({key})")
+                # Status rỗng/lạ + đủ cap → reason hằng UNKNOWN (không lẫn cũ).
+                if has_cap and status in ("", "GARBAGE"):
+                    for key, a in actions.items():
+                        self.assertEqual(a["reason"], _LIFECYCLE_REASON_UNKNOWN,
+                                         f"rỗng/lạ + đủ cap → UNKNOWN ({key})")
+
+    def test_under_maintenance_full_cap_4_enabled(self):
+        asset = self._make_asset("um", status="Under Maintenance")
+        for key, a in self._actions(asset).items():
+            self.assertIs(a["enabled"], True, f"Under Maintenance → {key} enabled")
+            self.assertEqual(a["reason"], "")
+
+    def test_calibrating_full_cap_4_enabled(self):
+        asset = self._make_asset("calng", status="Calibrating")
+        for key, a in self._actions(asset).items():
+            self.assertIs(a["enabled"], True, f"Calibrating → {key} enabled")
+            self.assertEqual(a["reason"], "")
+
+    # ── Thiếu cap (Active) → action thiếu cap disabled reason quyền ─────────
+    def test_missing_capability_disabled_with_reason(self):
+        """Active nhưng user THIẾU pm.create (mock rbac.can) → request_pm disabled
+        reason quyền; các action có cap vẫn enabled."""
+        from assetcore.services import imm00 as svc
+        asset = self._make_asset("nocap", status="Active")
+        orig_can = svc.rbac.can
+
+        def _fake_can(cap, doc=None):
+            if cap == "pm.create":
+                return False
+            return orig_can(cap, doc=doc)
+
+        svc.rbac.can = _fake_can
+        try:
+            actions = self._actions(asset)
+        finally:
+            svc.rbac.can = orig_can
+        self.assertIs(actions["request_pm"]["enabled"], False,
+                      "thiếu pm.create → request_pm disabled")
+        self.assertEqual(actions["request_pm"]["reason"], self._REASON_NO_CAP,
+                         "reason thiếu cap")
+        for key in ("report_failure", "request_cm", "request_calibration"):
+            self.assertIs(actions[key]["enabled"], True,
+                          f"{key} có cap + Active → enabled")
+            self.assertEqual(actions[key]["reason"], "")
+
+    # ── Lifecycle > capability: Decommissioned + thiếu cap → reason lifecycle ─
+    def test_lifecycle_reason_priority_over_capability(self):
+        from assetcore.services import imm00 as svc
+        asset = self._make_asset("prio", status="Decommissioned")
+
+        def _fake_can(cap, doc=None):
+            return False  # thiếu TẤT CẢ cap
+
+        orig_can = svc.rbac.can
+        svc.rbac.can = _fake_can
+        try:
+            actions = self._actions(asset)
+        finally:
+            svc.rbac.can = orig_can
+        for key, a in actions.items():
+            self.assertIs(a["enabled"], False, f"{key} disabled")
+            self.assertEqual(a["reason"], self._REASON_DECOM,
+                             f"ưu tiên lifecycle 'đã thanh lý' KHÔNG reason quyền ({key})")
+
+    # ── Shape & keys chính xác ──────────────────────────────────────────────
+    def test_action_shape_and_keys(self):
+        asset = self._make_asset("shape", status="Active")
+        from assetcore.services.imm00 import build_asset_scan_info
+        actions = build_asset_scan_info(asset.name)["available_actions"]
+        self.assertEqual(len(actions), 4, "đúng 4 phần tử")
+        keys_seen = set()
+        for a in actions:
+            self.assertEqual(set(a.keys()), self._SHAPE_KEYS,
+                             f"shape CHÍNH XÁC {self._SHAPE_KEYS}, không thừa: {a}")
+            self.assertIsInstance(a["key"], str)
+            self.assertIsInstance(a["label"], str)
+            self.assertIsInstance(a["route"], str)
+            self.assertIsInstance(a["enabled"], bool)
+            self.assertIsInstance(a["reason"], str)
+            self.assertIn(a["route"], self._ROUTES, "route ∈ tập route-name D1")
+            keys_seen.add(a["key"])
+        self.assertEqual(keys_seen, self._ACTION_KEYS,
+                         "set key = 4 action canonical")
+
+    def test_capability_map_per_action_d1(self):
+        """Mỗi spec map ĐÚNG capability D1 = <domain>.create."""
+        from assetcore.services.imm00 import _scan_action_specs
+        cap_by_key = {s["key"]: s["capability"] for s in _scan_action_specs()}
+        self.assertEqual(cap_by_key, {
+            "report_failure": "corrective.create",
+            "request_pm": "pm.create",
+            "request_cm": "repair.create",
+            "request_calibration": "calibration.create",
+        })
+
+    def test_spec_routes_are_exactly_the_four_fe_allowlist_names(self):
+        """Vòng 20 anti-drift: mọi _SCAN_ACTION_SPECS['route'] ∈ tập 4 route-name
+        cố định mà FE allow-list (SCAN_ACTION_ROUTES) PHẢI mirror.
+
+        Đây là SSoT-level guard (đọc thẳng _scan_action_specs, KHÔNG qua runtime
+        payload/asset/capability): nếu BE tự thêm route mới (route thứ-5 hoặc đổi
+        tên) mà FE chưa kịp đồng bộ allow-list → màn quét QR render nút disabled
+        câm (route lạ → _ROUTE_UNAVAILABLE). Test ĐỎ buộc đồng bộ 2 đầu BE↔FE
+        trong cùng đổi. KHÔNG đụng api/imm00.py runtime (read-only assert)."""
+        from assetcore.services.imm00 import _scan_action_specs
+        spec_routes = {s["route"] for s in _scan_action_specs()}
+        # bao đúng-bằng: không thiếu (4 CTA chuẩn) + không thừa (route lạ chưa map FE).
+        self.assertEqual(spec_routes, self._ROUTES,
+                         "route SSoT BE PHẢI == đúng 4 route-name FE allow-list "
+                         "mirror (IncidentCreate/PMWorkOrderCreate/CMCreate/"
+                         "CalibrationCreate); lệch → đồng bộ FE SCAN_ACTION_ROUTES")
+
+    # ── Regression — 11 key read-only cũ GIỮ NGUYÊN ─────────────────────────
+    def test_existing_payload_unchanged(self):
+        from assetcore.services.imm00 import build_asset_scan_info
+        asset = self._make_asset("regress", status="Active",
+                                 next_pm_date=add_days(nowdate(), 30),
+                                 next_calibration_date=add_days(nowdate(), 30))
+        payload = build_asset_scan_info(asset.name)
+        missing = self._EXISTING_PAYLOAD_KEYS - set(payload.keys())
+        self.assertFalse(missing, f"payload cũ MẤT key: {missing}")
+        self.assertEqual(payload["name"], asset.name)
+        self.assertEqual(payload["asset_code"], asset.asset_code)
+        self.assertEqual(payload["asset_name"], asset.asset_name)
+        self.assertEqual(payload["lifecycle_status"], "Active")
+        self.assertIs(payload["pm_overdue"], False)
+        self.assertIs(payload["calibration_overdue"], False)
+
+    # ── no-raw-token parity — available_actions KHÔNG chứa qr_token ─────────
+    def test_no_raw_token_parity(self):
+        from assetcore.api.imm00 import get_asset_scan_info
+        asset = self._make_asset("notoken", status="Active")
+        data = get_asset_scan_info(token=asset.qr_token)["data"]
+        self.assertNotIn("qr_token", data, "payload tổng KHÔNG leak qr_token")
+        for a in data["available_actions"]:
+            for v in a.values():
+                self.assertNotIn("qr_token", str(v),
+                                 "available_actions item KHÔNG chứa qr_token")
+        # grep toàn payload JSON = 0 occurrence 'qr_token'
+        import json as _json
+        self.assertNotIn("qr_token", _json.dumps(data, default=str),
+                         "grep qr_token trong payload available_actions = 0")
+
+    # ── Status rỗng/lạ → 4 disabled an toàn, KHÔNG KeyError ─────────────────
+    def test_unknown_status_safe_default(self):
+        from assetcore.services.imm00 import (
+            _lifecycle_allows, build_asset_scan_info,
+        )
+        # White-box: status lạ/rỗng → _lifecycle_allows trả False (KHÔNG KeyError).
+        for key in self._ACTION_KEYS:
+            self.assertIs(_lifecycle_allows("", key), False,
+                          f"status rỗng → {key} không cho phép")
+            self.assertIs(_lifecycle_allows("Trạng-thái-lạ", key), False,
+                          f"status lạ → {key} không cho phép")
+        # Black-box qua payload: status rỗng → 4 disabled, KHÔNG crash.
+        asset = self._make_asset("unkstat", status="Active")
+        frappe.db.set_value("AC Asset", asset.name, "lifecycle_status", "",
+                            update_modified=False)
+        payload = build_asset_scan_info(asset.name)
+        actions = {a["key"]: a for a in payload["available_actions"]}
+        self.assertEqual(set(actions), self._ACTION_KEYS)
+        for a in actions.values():
+            self.assertIs(a["enabled"], False,
+                          "status rỗng → mọi action disabled (safe default)")
+            self.assertIsInstance(a["reason"], str)
+            # D9: disabled ⟹ reason KHÔNG rỗng (Administrator = đủ cap → UNKNOWN).
+            self.assertNotEqual(a["reason"], "",
+                                "status rỗng disabled PHẢI kèm reason VI != ''")
+
+    # ── SSoT: Out of Service đọc constants, KHÔNG literal rải rác ───────────
+    def test_no_inline_literal_status_check_in_derive(self):
+        """grep literal-status-check quanh derive available_actions = 0.
+
+        Thân build_asset_scan_info KHÔNG được inline `if status == 'Out of
+        Service'` (hoặc 'Decommissioned'/'Draft'/'Active'); toàn bộ rẽ-nhánh
+        lifecycle dồn vào _lifecycle_allows/_lifecycle_reason (SSoT predicate)."""
+        import inspect
+        from assetcore.services.imm00 import build_asset_scan_info
+        src = inspect.getsource(build_asset_scan_info)
+        for literal in ("'Out of Service'", '"Out of Service"',
+                        "'Decommissioned'", '"Decommissioned"',
+                        "'Draft'", '"Draft"'):
+            self.assertNotIn(literal, src,
+                             f"build_asset_scan_info KHÔNG inline literal {literal} "
+                             "(dùng _lifecycle_allows SSoT)")
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# SSoT overdue (PM + hiệu chuẩn) cho màn ADMIN-DETAIL (get_asset) — Vòng 3 QR.
+# get_asset(name) (api/imm00.py:244) phải trả 2 cờ bool pm_overdue +
+# calibration_overdue derive bằng CHÍNH _is_pm_overdue/_is_calibration_overdue
+# (KHÔNG re-implement so ngày) → 2 màn (quét-QR ↔ admin-detail) CÙNG 1 SSoT
+# server-flag. Parity no-raw-token GIỮ NGUYÊN (payload KHÔNG leak qr_token qua
+# _strip_qr_token). RED viết TRƯỚC impl.
+# ──────────────────────────────────────────────────────────────────────────
+class TestGetAssetOverdueFlags(unittest.TestCase):
+    """get_asset(name) emit pm_overdue + calibration_overdue server-flag (SSoT).
+
+    Đồng bộ với màn quét-QR (build_asset_scan_info) — derive cùng deriver
+    tz-safe + exempt BLOCKED_FOR_WO. FE admin-detail CHỈ render cờ, KHÔNG so
+    ngày client. KHÔNG mock getdate/nowdate; set ngày THẬT quanh nowdate()."""
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": "Thiết bị get_asset Overdue",
+            "description": "Category cho test get_asset overdue flags",
+            "is_active": 1,
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        frappe.delete_doc("AC Asset Category", cls.cat.name,
+                          force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self._created: list[str] = []
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+        frappe.db.rollback()
+        for name in self._created:
+            _purge_asset(name)
+        frappe.db.commit()
+
+    def _make_asset(self, suffix="", status="Active", **extra):
+        import uuid
+        uniq = f"{suffix or '0001'}-{uuid.uuid4().hex[:8]}"
+        data = {
+            "doctype": "AC Asset",
+            "asset_name": f"Máy GAOverdue {uniq}",
+            "asset_category": self.cat.name,
+            "manufacturer_sn": f"GAO-SN-{uniq}",
+            "asset_code": f"GAO-ASSET-{uniq}",
+            "lifecycle_status": status,
+        }
+        data.update(extra)
+        doc = _insert_asset_bypass_workflow(data)
+        self._created.append(doc.name)
+        return doc
+
+    def _get(self, asset):
+        from assetcore.api.imm00 import get_asset
+        return get_asset(asset.name)["data"]
+
+    # ── Nhánh 1: quá khứ + Active → cờ True ───────────────────────────────────
+    def test_get_asset_emits_pm_overdue_true(self):
+        asset = self._make_asset("pm-true", status="Active",
+                                 next_pm_date=add_days(nowdate(), -1))
+        data = self._get(asset)
+        self.assertIn("pm_overdue", data, "payload get_asset PHẢI có pm_overdue")
+        self.assertIs(data["pm_overdue"], True,
+                      "next_pm_date hôm-qua ∧ Active → pm_overdue=True")
+
+    def test_get_asset_emits_calibration_overdue_true(self):
+        asset = self._make_asset("cal-true", status="Active",
+                                 next_calibration_date=add_days(nowdate(), -1))
+        data = self._get(asset)
+        self.assertIn("calibration_overdue", data,
+                      "payload get_asset PHẢI có calibration_overdue")
+        self.assertIs(data["calibration_overdue"], True,
+                      "next_calibration_date quá khứ ∧ Active → True")
+
+    # ── Nhánh 2: tương lai → cả 2 cờ False ────────────────────────────────────
+    def test_get_asset_overdue_false_when_future(self):
+        asset = self._make_asset("future", status="Active",
+                                 next_pm_date=add_days(nowdate(), 7),
+                                 next_calibration_date=add_days(nowdate(), 7))
+        data = self._get(asset)
+        self.assertIs(data["pm_overdue"], False, "PM tương lai → False")
+        self.assertIs(data["calibration_overdue"], False,
+                      "hiệu chuẩn tương lai → False")
+
+    # ── Nhánh 3: NULL → cả 2 cờ False (no KeyError) ───────────────────────────
+    def test_get_asset_overdue_false_when_null(self):
+        asset = self._make_asset("null", status="Active")  # KHÔNG set ngày nào
+        data = self._get(asset)
+        self.assertIn("pm_overdue", data)
+        self.assertIn("calibration_overdue", data)
+        self.assertIs(data["pm_overdue"], False, "next_pm_date None → False")
+        self.assertIs(data["calibration_overdue"], False,
+                      "next_calibration_date None → False")
+
+    # ── Nhánh 4: status BLOCKED_FOR_WO + ngày quá khứ → exempt (False) ─────────
+    def test_get_asset_overdue_exempt_out_of_service(self):
+        asset = self._make_asset("oos", status="Out of Service",
+                                 next_pm_date=add_days(nowdate(), -30),
+                                 next_calibration_date=add_days(nowdate(), -30))
+        data = self._get(asset)
+        self.assertIs(data["calibration_overdue"], False,
+                      "Out of Service ∈ BLOCKED_FOR_WO → calibration_overdue False")
+        self.assertIs(data["pm_overdue"], False,
+                      "Out of Service ∈ BLOCKED_FOR_WO → pm_overdue False")
+
+    # ── Parity no-raw-token GIỮ NGUYÊN sau khi thêm 2 cờ ─────────────────────
+    def test_get_asset_still_strips_qr_token(self):
+        asset = self._make_asset("strip", status="Active",
+                                 next_pm_date=add_days(nowdate(), -1))
+        data = self._get(asset)
+        self.assertTrue(asset.qr_token, "fixture: asset có qr_token")
+        self.assertNotIn("qr_token", data,
+                         "payload get_asset KHÔNG leak qr_token (đi qua _strip_qr_token)")
+        # 2 cờ vẫn có mặt (đảm bảo thêm cờ KHÔNG vô tình undo strip).
+        self.assertIn("pm_overdue", data)
+        self.assertIn("calibration_overdue", data)
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Vòng 34 / scan-action — capability-gate cho get_asset (parity sibling read).
+# get_asset (api/imm00.py:438) phải gọi rbac.require("asset.read") làm CÂU LỆNH
+# ĐẦU TIÊN thân hàm — đối xứng tuyệt đối với get_asset_scan_info:616 +
+# resolve_qr_token:575. RC: frappe.get_doc().as_dict() trên whitelist method
+# KHÔNG tự enforce DocPerm read → user thiếu read AC Asset vẫn đọc trọn doc qua
+# endpoint QR-detail (lỗ hổng). Gate năng-lực chạy TRƯỚC frappe.db.exists →
+# no existence-oracle (thiếu cap → 403 KHÔNG 404). RED viết TRƯỚC impl.
+# ──────────────────────────────────────────────────────────────────────────
+class TestGetAssetRequiresAssetReadCapability(unittest.TestCase):
+    """get_asset gate rbac.require('asset.read') ĐẦU TIÊN (parity scan_info).
+
+    Guest KHÔNG có DocPerm read AC Asset (xem TestAssetCapabilityEnablement::
+    test_can_asset_read_resolves_via_docperm) → rbac.can('asset.read')==False →
+    rbac.require ném frappe.PermissionError (403). Gate chạy TRƯỚC exists →
+    no existence-oracle. Admin có asset.read → hành vi hợp-lệ KHÔNG hồi quy.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": "Thiết bị get_asset CapGate",
+            "description": "Category cho test get_asset capability-gate (V34)",
+            "is_active": 1,
+        }).insert(ignore_permissions=True)
+        # Location seed hermetic → guard enrich location_name (KHÔNG phụ thuộc
+        # real-data có thể bị xoá). asset.location=cls.loc.name → branch enrich chạy.
+        cls.loc = frappe.get_doc({
+            "doctype": "AC Location",
+            "location_name": "CapGate Phòng test (V34)",
+            "location_type": "Room",
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        frappe.delete_doc("AC Location", cls.loc.name,
+                          force=True, ignore_permissions=True)
+        frappe.delete_doc("AC Asset Category", cls.cat.name,
+                          force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self._created: list[str] = []
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+        frappe.db.rollback()
+        for name in self._created:
+            _purge_asset(name)
+        frappe.db.commit()
+
+    def _make_asset(self, suffix="", **extra):
+        import uuid
+        uniq = f"{suffix or '0001'}-{uuid.uuid4().hex[:8]}"
+        data = {
+            "doctype": "AC Asset",
+            "asset_name": f"Máy CapGate {uniq}",
+            "asset_category": self.cat.name,
+            "manufacturer_sn": f"CG-SN-{uniq}",
+            "asset_code": f"CG-ASSET-{uniq}",
+            "lifecycle_status": "Active",
+        }
+        data.update(extra)
+        doc = _insert_asset_bypass_workflow(data)
+        self._created.append(doc.name)
+        return doc
+
+    # ── 403 — user KHÔNG có asset.read → PermissionError (KHÔNG _ok(doc)) ──────
+    def test_get_asset_requires_asset_read_capability(self):
+        """Guest (không DocPerm read AC Asset) get_asset(name hợp lệ) → 403.
+
+        Trước fix: doc rò trọn vẹn qua as_dict(). Sau fix: rbac.require chặn
+        TRƯỚC frappe.get_doc → frappe.PermissionError (HTTP 403), KHÔNG trả _ok.
+        """
+        from assetcore.api.imm00 import get_asset
+        from assetcore.services.shared import rbac
+        asset = self._make_asset("noperm")
+        frappe.set_user("Guest")
+        try:
+            self.assertFalse(rbac.can("asset.read"),
+                             "tiền đề: Guest KHÔNG có asset.read (DocPerm read=0)")
+            with self.assertRaises(frappe.PermissionError):
+                get_asset(name=asset.name)
+        finally:
+            frappe.set_user("Administrator")
+
+    # ── 403 TRƯỚC exists — no existence-oracle (gate chạy trước 404) ──────────
+    def test_get_asset_capability_gate_before_existence(self):
+        """User thiếu asset.read gọi get_asset(name không tồn tại) → 403 KHÔNG 404.
+
+        Gate năng-lực chạy TRƯỚC frappe.db.exists → user thiếu cap KHÔNG dò được
+        tài sản tồn tại hay không (no existence-oracle) — parity thứ tự với
+        resolve_qr_token/get_asset_scan_info.
+        """
+        from assetcore.api.imm00 import get_asset
+        frappe.set_user("Guest")
+        try:
+            with self.assertRaises(frappe.PermissionError):
+                # name KHÔNG tồn tại — nếu gate chạy SAU exists sẽ trả 404
+                # (ServiceError/_err) thay vì PermissionError → fail test này.
+                get_asset(name="AC-ASSET-DOES-NOT-EXIST-0000")
+        finally:
+            frappe.set_user("Administrator")
+
+    # ── 200 — user CÓ asset.read (Administrator) → enrich + cờ, KHÔNG raise ────
+    def test_get_asset_allows_user_with_asset_read(self):
+        """Administrator (có DocPerm read AC Asset) → _ok với enrich + 2 cờ bool.
+
+        Guard chống hồi quy hành vi hợp-lệ: gate KHÔNG chặn user CÓ cap; payload
+        vẫn enrich category_name/location_name + pm_overdue/calibration_overdue.
+        """
+        from assetcore.api.imm00 import get_asset
+        from assetcore.services.shared import rbac
+        # location set → branch enrich location_name chạy (guard hồi quy enrich).
+        asset = self._make_asset("ok", location=self.loc.name)
+        # Administrator (setUp) có asset.read — KHÔNG ném.
+        self.assertTrue(rbac.can("asset.read"),
+                        "tiền đề: Administrator có asset.read")
+        resp = get_asset(name=asset.name)
+        self.assertTrue(resp["success"], "user có asset.read → success (KHÔNG 403)")
+        data = resp["data"]
+        self.assertEqual(data["name"], asset.name)
+        self.assertIn("category_name", data,
+                      "payload PHẢI enrich category_name (KHÔNG hồi quy)")
+        self.assertEqual(data["category_name"], self.cat.category_name,
+                         "category_name enrich đúng giá trị")
+        self.assertIn("location_name", data,
+                      "payload PHẢI enrich location_name (KHÔNG hồi quy)")
+        self.assertEqual(data["location_name"], self.loc.location_name,
+                         "location_name enrich đúng giá trị")
+        self.assertIsInstance(data["pm_overdue"], bool,
+                              "pm_overdue PHẢI là bool server-flag")
+        self.assertIsInstance(data["calibration_overdue"], bool,
+                              "calibration_overdue PHẢI là bool server-flag")
+
+    # ── Parity — cùng user thiếu read → get_asset & scan_info ĐỀU 403 ─────────
+    def test_get_asset_gate_parity_with_scan_info(self):
+        """Đóng asymmetry: Guest → cả get_asset & get_asset_scan_info đều 403.
+
+        Trước fix: get_asset_scan_info chặn (rbac.require), get_asset CHO QUA →
+        đọc trọn doc. Sau fix: cả hai cùng PermissionError (đối xứng tuyệt đối).
+        """
+        from assetcore.api.imm00 import get_asset, get_asset_scan_info
+        asset = self._make_asset("parity")
+        name = asset.name
+        frappe.set_user("Guest")
+        try:
+            with self.assertRaises(frappe.PermissionError):
+                get_asset_scan_info(name=name)
+            with self.assertRaises(frappe.PermissionError):
+                get_asset(name=name)
+        finally:
+            frappe.set_user("Administrator")
+
+    # ── No-raw-token GIỮ NGUYÊN (gate KHÔNG vô tình bỏ _strip_qr_token) ───────
+    def test_get_asset_strip_qr_token_unchanged(self):
+        """User có asset.read → payload KHÔNG chứa key qr_token (ADR-001 §D4).
+
+        Đảm bảo thêm gate KHÔNG vô tình undo _strip_qr_token (no-raw-token parity).
+        """
+        from assetcore.api.imm00 import get_asset
+        asset = self._make_asset("strip")
+        self.assertTrue(asset.qr_token, "fixture: asset có qr_token")
+        data = get_asset(name=asset.name)["data"]
+        self.assertNotIn("qr_token", data,
+                         "payload get_asset KHÔNG leak qr_token (giữ _strip_qr_token)")
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# V35 — get_asset_action_meta: cap-gate rbac.require('asset.read') ĐẦU TIÊN
+# (TRƯỚC frappe.db.exists) → no existence-oracle, parity get_asset/scan_info/
+# resolve_qr_token. Endpoint meta NẠC cho 3 màn QR scan-action (CM/Hiệu chuẩn/
+# PM). RED viết TRƯỚC khi đảo thứ tự gate→exists trong impl.
+# ──────────────────────────────────────────────────────────────────────────
+
+
+class TestGetAssetActionMetaRequiresAssetReadCapability(unittest.TestCase):
+    """get_asset_action_meta gate rbac.require('asset.read') ĐẦU TIÊN.
+
+    Mirror tuyệt đối bộ test get_asset (Vòng 34): Guest KHÔNG có DocPerm read
+    AC Asset → rbac.can('asset.read')==False → rbac.require ném
+    frappe.PermissionError (403). Gate chạy TRƯỚC frappe.db.exists →
+    no existence-oracle (user thiếu cap KHÔNG dò được tài sản tồn tại qua
+    endpoint meta nạc). Administrator có asset.read → hành vi hợp-lệ
+    (đúng 6 key allowlist + enrich) KHÔNG hồi quy. rbac/has_permission KHÔNG
+    monkeypatch — dùng user thật (Guest vs Administrator) + DocPerm thật.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": "Thiết bị action_meta CapGate",
+            "description": "Category cho test get_asset_action_meta cap-gate (V35)",
+            "is_active": 1,
+        }).insert(ignore_permissions=True)
+        # device_model + location seed hermetic → branch enrich
+        # device_model_name/location_name chạy (guard hồi quy enrich).
+        cls.model = frappe.get_doc({
+            "doctype": "IMM Device Model",
+            "model_name": "AMG Dräger Evita V500 (V35)",
+            "manufacturer": "Dräger Medical",
+            "medical_device_class": "Class II",
+            "asset_category": cls.cat.name,
+        }).insert(ignore_permissions=True)
+        cls.loc = frappe.get_doc({
+            "doctype": "AC Location",
+            "location_name": "AMG CapGate Phòng test (V35)",
+            "location_type": "Room",
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        frappe.delete_doc("AC Location", cls.loc.name,
+                          force=True, ignore_permissions=True)
+        frappe.delete_doc("IMM Device Model", cls.model.name,
+                          force=True, ignore_permissions=True)
+        frappe.delete_doc("AC Asset Category", cls.cat.name,
+                          force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self._created: list[str] = []
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+        frappe.db.rollback()
+        for name in self._created:
+            _purge_asset(name)
+        frappe.db.commit()
+
+    def _make_asset(self, suffix="", **extra):
+        import uuid
+        uniq = f"{suffix or '0001'}-{uuid.uuid4().hex[:8]}"
+        data = {
+            "doctype": "AC Asset",
+            "asset_name": f"Máy AMGCapGate {uniq}",
+            "asset_category": self.cat.name,
+            "device_model": self.model.name,
+            "location": self.loc.name,
+            "manufacturer_sn": f"AMG-SN-{uniq}",
+            "asset_code": f"AMG-ASSET-{uniq}",
+            "lifecycle_status": "Active",
+        }
+        data.update(extra)
+        doc = _insert_asset_bypass_workflow(data)
+        self._created.append(doc.name)
+        return doc
+
+    # ── 403 — Guest thiếu asset.read gọi name TỒN TẠI → PermissionError ───────
+    def test_action_meta_requires_asset_read_capability(self):
+        """Guest (không DocPerm read) get_asset_action_meta(name TỒN TẠI) → 403.
+
+        Trước fix: 6 key meta rò qua get_doc().has_permission CHẠY SAU exists.
+        Sau fix: rbac.require chặn ĐẦU TIÊN → frappe.PermissionError (HTTP 403),
+        KHÔNG trả _ok meta.
+        """
+        from assetcore.api.imm00 import get_asset_action_meta
+        from assetcore.services.shared import rbac
+        asset = self._make_asset("noperm")
+        frappe.set_user("Guest")
+        try:
+            self.assertFalse(rbac.can("asset.read"),
+                             "tiền đề: Guest KHÔNG có asset.read (DocPerm read=0)")
+            with self.assertRaises(frappe.PermissionError):
+                get_asset_action_meta(name=asset.name)
+        finally:
+            frappe.set_user("Administrator")
+
+    # ── 403 TRƯỚC exists — no existence-oracle (gate chạy trước 404) ──────────
+    def test_action_meta_capability_gate_before_existence(self):
+        """Guest gọi name KHÔNG tồn tại → 403 KHÔNG _err(404) (no existence-oracle).
+
+        Test phân biệt existence-oracle (mirror
+        test_get_asset_capability_gate_before_existence): TRƯỚC fix exists chạy
+        trước → trả _err(404); SAU fix rbac.require ĐẦU TIÊN → PermissionError.
+        """
+        from assetcore.api.imm00 import get_asset_action_meta
+        frappe.set_user("Guest")
+        try:
+            with self.assertRaises(frappe.PermissionError):
+                # name KHÔNG tồn tại — nếu gate chạy SAU exists sẽ trả _err(404)
+                # thay vì PermissionError → fail test này.
+                get_asset_action_meta(name="AC-ASSET-DOES-NOT-EXIST-0000")
+        finally:
+            frappe.set_user("Administrator")
+
+    # ── 200 — Administrator (có asset.read) → đúng 6 key + enrich, KHÔNG hồi quy ─
+    def test_action_meta_allows_user_with_asset_read(self):
+        """Administrator (có DocPerm read) → _ok đúng 6 key allowlist + enrich.
+
+        Guard chống hồi quy hành vi hợp-lệ: gate KHÔNG chặn user CÓ cap; payload
+        đúng set(_ASSET_ACTION_META_KEYS) + device_model_name/location_name enrich.
+        """
+        from assetcore.api.imm00 import (
+            get_asset_action_meta, _ASSET_ACTION_META_KEYS,
+        )
+        from assetcore.services.shared import rbac
+        asset = self._make_asset("ok")
+        self.assertTrue(rbac.can("asset.read"),
+                        "tiền đề: Administrator có asset.read")
+        resp = get_asset_action_meta(name=asset.name)
+        self.assertTrue(resp["success"],
+                        "user có asset.read → success (KHÔNG 403)")
+        data = resp["data"]
+        self.assertEqual(set(data.keys()), set(_ASSET_ACTION_META_KEYS),
+                         "payload PHẢI đúng 6 key allowlist (KHÔNG hồi quy)")
+        self.assertEqual(data["name"], asset.name)
+        self.assertEqual(data["device_model_name"], self.model.model_name,
+                         "device_model_name enrich đúng giá trị")
+        self.assertEqual(data["location_name"], self.loc.location_name,
+                         "location_name enrich đúng giá trị")
+
+    # ── No-overfetch — KHÔNG rò field tài chính/qr_token (guard regress) ──────
+    def test_action_meta_no_overfetch_financial(self):
+        """payload data KHÔNG chứa key tài chính/nhạy cảm/qr_token.
+
+        Guard chống regress over-fetch song song gate mới (cap-gate KHÔNG được
+        kéo theo nới allowlist).
+        """
+        from assetcore.api.imm00 import get_asset_action_meta
+        asset = self._make_asset("nofin")
+        data = get_asset_action_meta(name=asset.name)["data"]
+        for fld in ("gross_purchase_amount", "accumulated_depreciation",
+                    "current_book_value", "purchase_cost", "salvage_value",
+                    "qr_token"):
+            self.assertNotIn(fld, data,
+                             f"payload meta KHÔNG được leak field nhạy cảm {fld}")
+
+    # ── name rỗng với user CÓ quyền → vẫn _err(404) leak-safe (gate KHÔNG vỡ) ──
+    def test_action_meta_empty_name_still_404_for_privileged(self):
+        """Administrator → get_asset_action_meta(name='') → _err 404 leak-safe.
+
+        Gate cap KHÔNG làm vỡ nhánh 404 hợp-lệ cho user CÓ quyền (Admin qua
+        rbac.require → vào nhánh exists → name rỗng → _err(404)).
+        """
+        from assetcore.api.imm00 import get_asset_action_meta
+        resp = get_asset_action_meta(name="")
+        self.assertFalse(resp["success"], "name rỗng → success False")
+        self.assertEqual(resp["http_status"], 404,
+                         "name rỗng (user có quyền) → 404 leak-safe (KHÔNG 403/500)")
+
+
+# ──────────────────────────────────────────────────────────────────────────
 # A3 — Dữ liệu in nhãn QR + sự kiện in (ADR-001 D3)
 # get_asset_label_data (1) + get_asset_label_data_batch (batch, KHÔNG N+1) +
 # mark_label_printed (POST emit label_printed + audit). RED viết TRƯỚC impl.
@@ -3051,9 +6085,11 @@ class TestAssetScanInfoCalibrationOverdue(unittest.TestCase):
 class TestAssetLabelData(unittest.TestCase):
     """A3 — endpoint dữ liệu in nhãn + sự kiện in (get/batch/mark)."""
 
+    # ADR-IMM00-QR-SCAN-ACTION D5: nhãn QR tách bạch Mã tài sản (asset_code) ↔
+    # Số serial NSX (manufacturer_sn) + Tên tài sản (asset_name) ⇒ 8 key.
     _LABEL_KEYS = {
-        "name", "asset_code", "device_model_name", "location_name",
-        "lifecycle_status", "qr_url",
+        "name", "asset_code", "asset_name", "manufacturer_sn",
+        "device_model_name", "location_name", "lifecycle_status", "qr_url",
     }
     _QR_URL_RE = r"^https?://.+/a/[A-Za-z0-9_-]{20,}$"
 
@@ -3119,9 +6155,17 @@ class TestAssetLabelData(unittest.TestCase):
         self.assertTrue(resp["success"], "asset hợp lệ → success")
         data = resp["data"]
         self.assertEqual(set(data.keys()), self._LABEL_KEYS,
-                         "payload nhãn PHẢI đúng 6 key (không thiếu/thừa)")
+                         "payload nhãn PHẢI đúng 8 key (không thiếu/thừa)")
+        self.assertGreaterEqual(set(data.keys()), self._LABEL_KEYS)
         self.assertEqual(data["name"], asset.name)
         self.assertEqual(data["asset_code"], asset.asset_code)
+        # D5: Số serial NSX + Tên tài sản tách bạch khỏi Mã tài sản.
+        self.assertEqual(data["manufacturer_sn"], asset.manufacturer_sn,
+                         "manufacturer_sn (Số serial NSX) == giá trị asset")
+        self.assertEqual(data["asset_name"], asset.asset_name,
+                         "asset_name (Tên tài sản) == giá trị asset")
+        self.assertNotEqual(data["asset_code"], data["manufacturer_sn"],
+                            "Mã tài sản ≠ Số serial NSX (KHÔNG trộn 2 khái niệm)")
         self.assertEqual(data["lifecycle_status"], "Active")
         self.assertRegex(data["qr_url"], self._QR_URL_RE,
                          "qr_url phải là URL tuyệt đối /a/<token>")
@@ -3175,9 +6219,14 @@ class TestAssetLabelData(unittest.TestCase):
         # thứ tự khớp input
         self.assertEqual([d["name"] for d in data], names,
                          "output theo ĐÚNG thứ tự input")
+        by_name = {a.name: a for a in (a1, a2, a3)}
         for d in data:
             self.assertEqual(set(d.keys()), self._LABEL_KEYS)
             self.assertRegex(d["qr_url"], self._QR_URL_RE)
+            # D5: mỗi item HỢP LỆ chứa manufacturer_sn + asset_name đúng value.
+            src = by_name[d["name"]]
+            self.assertEqual(d["manufacturer_sn"], src.manufacturer_sn)
+            self.assertEqual(d["asset_name"], src.asset_name)
 
     def test_get_asset_label_data_batch_missing_keeps_index(self):
         from assetcore.api.imm00 import get_asset_label_data_batch
@@ -3196,8 +6245,83 @@ class TestAssetLabelData(unittest.TestCase):
                          "missing → entry lỗi rõ ràng AC-E001")
         self.assertNotIn("asset_code", data[1],
                          "entry lỗi KHÔNG leak field khác")
+        # entry lỗi GIỮ NGUYÊN {name, error} — KHÔNG nở key mới.
+        self.assertEqual(set(data[1].keys()), {"name", "error"},
+                         "entry lỗi đúng {name, error} (D5 KHÔNG đổi nhánh lỗi)")
+        self.assertNotIn("manufacturer_sn", data[1])
+        self.assertNotIn("asset_name", data[1])
         self.assertEqual(data[2]["name"], a2.name)
         self.assertNotIn("error", data[2])
+        # item hợp lệ 2 bên chứa 2 key mới đúng value.
+        self.assertEqual(data[0]["manufacturer_sn"], a1.manufacturer_sn)
+        self.assertEqual(data[0]["asset_name"], a1.asset_name)
+        self.assertEqual(data[2]["manufacturer_sn"], a2.manufacturer_sn)
+        self.assertEqual(data[2]["asset_name"], a2.asset_name)
+
+    # ── D5: manufacturer_sn / asset_name rỗng-None → '' (KHÔNG None) ─────────
+    def test_get_asset_label_data_empty_serial_name_coerced_to_blank(self):
+        from assetcore.api.imm00 import get_asset_label_data
+        asset = self._make_asset("blank")
+        # set manufacturer_sn + asset_name về None ở DB (bỏ qua validate đường form)
+        frappe.db.set_value("AC Asset", asset.name,
+                            {"manufacturer_sn": None}, update_modified=False)
+        frappe.db.set_value("AC Asset", asset.name,
+                            {"asset_name": None}, update_modified=False)
+        resp = get_asset_label_data(asset=asset.name)
+        self.assertTrue(resp["success"])
+        data = resp["data"]
+        self.assertEqual(data["manufacturer_sn"], "",
+                         "manufacturer_sn None → '' (KHÔNG None, không vỡ render)")
+        self.assertEqual(data["asset_name"], "",
+                         "asset_name None → '' (KHÔNG None)")
+        self.assertIsNotNone(data["manufacturer_sn"])
+        self.assertIsNotNone(data["asset_name"])
+
+    def test_get_asset_label_data_batch_empty_serial_name_coerced_to_blank(self):
+        from assetcore.api.imm00 import get_asset_label_data_batch
+        asset = self._make_asset("bblank")
+        frappe.db.set_value("AC Asset", asset.name,
+                            {"manufacturer_sn": None, "asset_name": None},
+                            update_modified=False)
+        resp = get_asset_label_data_batch(assets=[asset.name])
+        self.assertTrue(resp["success"])
+        d = resp["data"][0]
+        self.assertEqual(d["manufacturer_sn"], "")
+        self.assertEqual(d["asset_name"], "")
+
+    # ── D5 no-extra-query guard: 2 key mới = cột thêm vào get_value/get_all
+    #    SẴN CÓ, KHÔNG thêm query nào (2 asset cùng device_model) ───────────
+    def test_get_asset_label_data_batch_new_cols_no_extra_query(self):
+        from assetcore.api.imm00 import get_asset_label_data_batch
+        # 2 asset cùng device_model (None ở đây) → batch vẫn gộp; thêm 2 cột
+        # vào fields get_all KHÔNG được sinh query mới.
+        a1 = self._make_asset("nc1")
+        a2 = self._make_asset("nc2")
+        names = [a1.name, a2.name]
+
+        def _count_queries():
+            calls = {"n": 0}
+            orig = frappe.db.sql
+
+            def _wrap(*a, **k):
+                calls["n"] += 1
+                return orig(*a, **k)
+
+            frappe.db.sql = _wrap
+            try:
+                resp = get_asset_label_data_batch(assets=names)
+            finally:
+                frappe.db.sql = orig
+            return calls["n"], resp
+
+        n, resp = _count_queries()
+        data = resp["data"]
+        # 2 key mới có value đúng (cột mở rộng đã trả về row).
+        self.assertEqual(data[0]["manufacturer_sn"], a1.manufacturer_sn)
+        self.assertEqual(data[0]["asset_name"], a1.asset_name)
+        # Cận trên query rộng nhưng chống N+1: 2 asset KHÔNG kéo query/asset.
+        self.assertLess(n, len(names) + 6,
+                        f"thêm 2 cột KHÔNG tăng query/asset (n={n})")
 
     def test_get_asset_label_data_batch_no_n_plus_1_query_count(self):
         """Batch lookup gộp: số query KHÔNG tỉ lệ với số asset (chống N+1)."""
@@ -3520,45 +6644,56 @@ class TestAssetLabelData(unittest.TestCase):
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# A3 / Vòng B — SIẾT RBAC in nhãn QR: asset.read → asset.write (ADR-001 D4)
+# ADR-IMM00-QR-SCAN-ACTION D6 (Accepted→EXECUTED, phương án B) — TÁCH cap in/rotate
 #
-# Least-privilege: 3 endpoint GHI/side-effect (get_asset_label_data,
-# get_asset_label_data_batch, mark_label_printed) gate `asset.write` thay vì
-# `asset.read`. User chỉ-đọc (asset.read NHƯNG KHÔNG asset.write) → 403; user
-# có asset.write → 200. KHÔNG cap mới (CAP_SET_VERSION GIỮ v95.3388ee5629c1).
+# RECONCILE (2026-06-08): trước đây 3 endpoint nhãn + rotate gate `asset.write`,
+# mà write=1 CHỈ Super Admin có → KTV/QL vật tư KHÔNG in/rotate được (self-
+# correction P2). Phương án B TÁCH cap riêng:
+#   - get_asset_label_data / _batch / mark_label_printed → gate `asset.print`
+#     →(AC Asset,"print"). DocPerm print=1 sẵn cho ~MỌI role vận hành ⇒ in được
+#     NGAY (KHÔNG đổi DocPerm). User KHÔNG có print → 403.
+#   - regenerate_asset_qr_token → gate `asset.qr.rotate`→(AC Asset,"write").
+#     Rotate = GHI ⇒ bind "write" (chỉ Super Admin/role được cấp write). print
+#     KHÔNG đủ để rotate.
+# Thêm 2 cap ⇒ CAP_SET_VERSION ĐỔI v95.3388ee5629c1 → v97.c30c69b8974d.
 #
 # KHÔNG test false-green (luật skill): test tạo user THẬT + cấp/không-cấp DocPerm
-# `write` trên AC Asset (qua Role), frappe.set_user(...), rồi gọi endpoint qua
-# layer require("asset.write") → can → frappe.has_permission("AC Asset","write").
-# KHÔNG monkeypatch rbac.require / frappe.has_permission.
+# `print`/`write` trên AC Asset (qua Role/Custom DocPerm), frappe.set_user(...),
+# rồi gọi endpoint qua layer require(...) → can → frappe.has_permission("AC Asset",
+# permtype). KHÔNG monkeypatch rbac.require / frappe.has_permission.
 #
-# DocPerm thực tế (site miyano): chỉ "AssetCore Super Admin" có write=1 trên AC
-# Asset; mọi role "* User" có read=1/write=0 → dùng "Commissioning User" làm
-# user chỉ-đọc, "AssetCore Super Admin" làm user write. IDOR test cần user CÓ
-# write NHƯNG vendor-scope (Vendor Engineer, KHÔNG bypass) → cấp write tạm cho
-# role Vendor Engineer qua Custom DocPerm trong setUp, gỡ ở tearDown.
+# DocPerm thực tế (site miyano, verified 2026-06-08): MỌI role có print=1 trên AC
+# Asset; chỉ "AssetCore Super Admin" có write=1. ⇒ "Commissioning User"
+# (read=1,write=0,print=1) = user CÓ print NHƯNG KHÔNG write → in 200, rotate 403.
+# "AssetCore Super Admin" (write=1,print=1) → in 200 + rotate 200. User KHÔNG
+# print → gỡ print qua Custom DocPerm tạm (hoặc Guest no-cap). IDOR test cần user
+# CÓ print NHƯNG vendor-scope (Vendor Engineer) → cấp print tạm, gỡ ở tearDown.
 # ──────────────────────────────────────────────────────────────────────────
 
 
 class TestLabelWriteCapability(unittest.TestCase):
-    """Vòng B — 3 endpoint in nhãn gate asset.write (least-privilege).
+    """D6 phương án B — in nhãn gate asset.print, rotate gate asset.qr.rotate.
 
-    Phân tách read (đọc) vs write (in/ghi label_printed): user chỉ-đọc bị 403,
-    user write 200. Read-only QR endpoint (resolve_qr_token/get_asset_scan_info/
-    get_asset) GIỮ asset.read. IDOR (assert_vendor_can_access) KHÔNG bị nới.
+    Phân tách quyền IN (`asset.print`, persona vận hành có) vs quyền ROTATE
+    (`asset.qr.rotate`=write, chỉ Super Admin/được cấp). Read-only QR endpoint
+    (resolve_qr_token/get_asset_scan_info/get_asset) GIỮ asset.read. IDOR
+    (assert_vendor_can_access) KHÔNG bị nới.
     """
 
+    # D5 (ADR-IMM00-QR-SCAN-ACTION): nhãn QR + asset_name + manufacturer_sn ⇒ 8 key.
     _LABEL_KEYS = {
-        "name", "asset_code", "device_model_name", "location_name",
-        "lifecycle_status", "qr_url",
+        "name", "asset_code", "asset_name", "manufacturer_sn",
+        "device_model_name", "location_name", "lifecycle_status", "qr_url",
     }
-    # Role chỉ-đọc trên AC Asset (read=1, write=0) — least-privilege user.
-    _READONLY_ROLE = "Commissioning User"
-    # Role có write=1 trên AC Asset (DocPerm thật) — user write hợp lệ.
+    # Role có print=1 NHƯNG write=0 trên AC Asset → user CÓ asset.print NHƯNG
+    # KHÔNG asset.qr.rotate (persona vận hành: KTV/QL vật tư mặc định).
+    _PRINT_ONLY_ROLE = "Commissioning User"
+    # Role có write=1 (⇒ asset.qr.rotate) + print=1 trên AC Asset (DocPerm thật).
     _WRITE_ROLE = "AssetCore Super Admin"
-    _READONLY_USER = "be_b_label_readonly@example.com"
+    _PRINT_USER = "be_b_label_printonly@example.com"
     _WRITE_USER = "be_b_label_write@example.com"
-    _IDOR_USER = "be_b_label_idor_write@example.com"
+    _IDOR_USER = "be_b_label_idor_print@example.com"
+    _NOPRINT_USER = "be_b_label_noprint@example.com"
 
     _CATEGORY_NAME = "Thiết bị RBAC In nhãn (B)"
 
@@ -3575,17 +6710,20 @@ class TestLabelWriteCapability(unittest.TestCase):
         cls.cat = frappe.get_doc({
             "doctype": "AC Asset Category",
             "category_name": cls._CATEGORY_NAME,
-            "description": "Category cho test siết RBAC in nhãn QR",
+            "description": "Category cho test RBAC in/rotate nhãn QR (D6)",
             "is_active": 1,
         }).insert(ignore_permissions=True)
-        cls._readonly = cls._ensure_user(cls._READONLY_USER, [cls._READONLY_ROLE])
+        # User CÓ print (write=0) — persona vận hành: in 200, rotate 403.
+        cls._printer = cls._ensure_user(cls._PRINT_USER, [cls._PRINT_ONLY_ROLE])
+        # User write=1 (⇒ asset.qr.rotate) + print=1 — Super Admin: in + rotate 200.
         cls._writer = cls._ensure_user(cls._WRITE_USER, [cls._WRITE_ROLE])
         frappe.db.commit()
 
     @classmethod
     def tearDownClass(cls):
         frappe.set_user("Administrator")
-        for email in (cls._READONLY_USER, cls._WRITE_USER, cls._IDOR_USER):
+        for email in (cls._PRINT_USER, cls._WRITE_USER,
+                      cls._IDOR_USER, cls._NOPRINT_USER):
             if frappe.db.exists("User", email):
                 frappe.delete_doc("User", email, force=True,
                                   ignore_permissions=True)
@@ -3636,59 +6774,101 @@ class TestLabelWriteCapability(unittest.TestCase):
     def _count_audit(self, asset_name):
         return frappe.db.count("IMM Audit Trail", {"asset": asset_name})
 
-    # ── 403 — user chỉ-đọc (asset.read, NO asset.write) bị chặn ──────────────
-    def test_label_data_read_only_user_403(self):
-        """get_asset_label_data: user asset.read (KHÔNG write) → PermissionError."""
+    # ── D6 phương án B — user CÓ print (write=0) → 200 (KHÔNG còn 403) ────────
+    def test_label_data_print_user_200(self):
+        """get_asset_label_data: user CÓ asset.print NHƯNG KHÔNG write → 200.
+
+        D6 RECONCILE: gate đổi asset.write→asset.print. Persona vận hành (KTV/QL
+        vật tư, DocPerm print=1 write=0) BÂY GIỜ in được (sửa self-correction P2).
+        """
         from assetcore.api.imm00 import get_asset_label_data
-        asset = self._make_asset("ro1")
-        frappe.set_user(self._READONLY_USER)
+        from assetcore.services.shared import rbac
+        asset = self._make_asset("pr1")
+        frappe.set_user(self._PRINT_USER)
         try:
-            # tiền đề: user CÓ asset.read NHƯNG KHÔNG asset.write (least-privilege)
-            from assetcore.services.shared import rbac
-            self.assertTrue(rbac.can("asset.read"),
-                            "tiền đề: user có asset.read")
+            # tiền đề ĐO ĐƯỢC: user CÓ asset.print NHƯNG KHÔNG asset.write/rotate.
+            self.assertTrue(rbac.can("asset.print"),
+                            "tiền đề: user có asset.print (DocPerm print=1)")
             self.assertFalse(rbac.can("asset.write"),
                              "tiền đề: user KHÔNG có asset.write")
+            self.assertFalse(rbac.can("asset.qr.rotate"),
+                             "tiền đề: user KHÔNG có asset.qr.rotate (write=0)")
+            resp = get_asset_label_data(asset=asset.name)
+            self.assertTrue(resp["success"],
+                            "user print (không write) → 200 (KHÔNG 403)")
+            self.assertEqual(set(resp["data"].keys()), self._LABEL_KEYS,
+                             "payload nhãn đúng 8 key")
+        finally:
+            frappe.set_user("Administrator")
+
+    def test_label_batch_print_user_200(self):
+        """get_asset_label_data_batch: user CÓ print (write=0) → 200."""
+        from assetcore.api.imm00 import get_asset_label_data_batch
+        asset = self._make_asset("pr2")
+        frappe.set_user(self._PRINT_USER)
+        try:
+            resp = get_asset_label_data_batch(assets=[asset.name])
+            self.assertTrue(resp["success"], "user print → 200 (KHÔNG 403)")
+        finally:
+            frappe.set_user("Administrator")
+
+    def test_mark_printed_print_user_200(self):
+        """mark_label_printed: user CÓ print (write=0) → 200 + 1 event + 1 audit."""
+        from assetcore.api.imm00 import mark_label_printed
+        asset = self._make_asset("pr3")
+        before_label = self._count_label_events(asset.name)
+        before_audit = self._count_audit(asset.name)
+        frappe.set_user(self._PRINT_USER)
+        try:
+            resp = mark_label_printed(assets=[asset.name])
+            self.assertTrue(resp["success"], "user print → 200 (KHÔNG 403)")
+            self.assertEqual(resp["data"]["event_count"], 1)
+        finally:
+            frappe.set_user("Administrator")
+        self.assertEqual(self._count_label_events(asset.name), before_label + 1,
+                         "user print → ĐÚNG 1 label_printed / asset")
+        self.assertEqual(self._count_audit(asset.name), before_audit + 1,
+                         "user print → ĐÚNG 1 IMM Audit Trail / asset")
+
+    # ── 403 — user KHÔNG có print (Guest no-cap) bị chặn + no side-effect ─────
+    def test_label_data_no_print_user_403(self):
+        """get_asset_label_data: user KHÔNG có asset.print (Guest) → 403 VI sạch."""
+        from assetcore.api.imm00 import get_asset_label_data
+        from assetcore.services.shared import rbac
+        asset = self._make_asset("np1")
+        frappe.set_user("Guest")
+        try:
+            self.assertFalse(rbac.can("asset.print"),
+                             "tiền đề: Guest KHÔNG có asset.print")
             with self.assertRaises(frappe.PermissionError):
                 get_asset_label_data(asset=asset.name)
         finally:
             frappe.set_user("Administrator")
 
-    def test_label_batch_read_only_user_403(self):
-        """get_asset_label_data_batch: user chỉ-đọc → PermissionError (403)."""
-        from assetcore.api.imm00 import get_asset_label_data_batch
-        asset = self._make_asset("ro2")
-        frappe.set_user(self._READONLY_USER)
-        try:
-            with self.assertRaises(frappe.PermissionError):
-                get_asset_label_data_batch(assets=[asset.name])
-        finally:
-            frappe.set_user("Administrator")
+    def test_mark_printed_no_print_user_403_no_side_effect(self):
+        """mark_label_printed: user KHÔNG print → 403 + KHÔNG sinh event/audit.
 
-    def test_mark_printed_read_only_user_403(self):
-        """mark_label_printed: user chỉ-đọc → 403 VÀ KHÔNG sinh event/audit.
-
-        Gate WRITE chạy ĐẦU TIÊN → chặn TRƯỚC mọi side-effect (no label_printed,
+        Gate print chạy ĐẦU TIÊN → chặn TRƯỚC mọi side-effect (no label_printed,
         no IMM Audit Trail) — least-privilege + no-side-effect khi bị chặn.
         """
         from assetcore.api.imm00 import mark_label_printed
-        asset = self._make_asset("ro3")
+        asset = self._make_asset("np2")
         before_label = self._count_label_events(asset.name)
         before_audit = self._count_audit(asset.name)
-        frappe.set_user(self._READONLY_USER)
+        frappe.set_user("Guest")
         try:
             with self.assertRaises(frappe.PermissionError):
                 mark_label_printed(assets=[asset.name])
         finally:
             frappe.set_user("Administrator")
         self.assertEqual(self._count_label_events(asset.name), before_label,
-                         "user chỉ-đọc bị chặn → KHÔNG sinh label_printed")
+                         "user không-print bị chặn → KHÔNG sinh label_printed")
         self.assertEqual(self._count_audit(asset.name), before_audit,
-                         "user chỉ-đọc bị chặn → KHÔNG ghi IMM Audit Trail")
+                         "user không-print bị chặn → KHÔNG ghi IMM Audit Trail")
 
-    # ── 200 — user có asset.write qua được gate ──────────────────────────────
+    # ── 200 — user có asset.write (Super Admin) qua được gate print ───────────
     def test_label_data_write_user_200(self):
-        """get_asset_label_data: user asset.write → 200 + payload đủ 6 key."""
+        """get_asset_label_data: Super Admin (print=1+write=1) → 200 + 8 key."""
         from assetcore.api.imm00 import get_asset_label_data
         asset = self._make_asset("w1")
         frappe.set_user(self._WRITE_USER)
@@ -3696,7 +6876,7 @@ class TestLabelWriteCapability(unittest.TestCase):
             resp = get_asset_label_data(asset=asset.name)
             self.assertTrue(resp["success"], "user write → success")
             self.assertEqual(set(resp["data"].keys()), self._LABEL_KEYS,
-                             "payload nhãn đúng 6 key")
+                             "payload nhãn đúng 8 key")
         finally:
             frappe.set_user("Administrator")
 
@@ -3731,7 +6911,7 @@ class TestLabelWriteCapability(unittest.TestCase):
         )
         asset = self._make_asset("rd")
         token = asset.qr_token
-        frappe.set_user(self._READONLY_USER)
+        frappe.set_user(self._PRINT_USER)
         try:
             r1 = resolve_qr_token(token=token)
             self.assertTrue(r1["success"],
@@ -3745,31 +6925,27 @@ class TestLabelWriteCapability(unittest.TestCase):
         finally:
             frappe.set_user("Administrator")
 
-    # ── IDOR — user CÓ write nhưng vendor ngoài scope → 403 (KHÔNG nới IDOR) ──
-    def test_label_idor_unchanged_after_write_gate(self):
-        """user asset.write + Vendor Engineer ngoài scope → 403 IDOR.
+    # ── IDOR — user CÓ print nhưng vendor ngoài scope → 403 (KHÔNG nới IDOR) ──
+    def test_label_idor_unchanged_after_print_gate(self):
+        """user asset.print + Vendor Engineer ngoài scope → 403 IDOR.
 
-        Siết gate read→write KHÔNG được nới IDOR: assert_vendor_can_access vẫn
-        chặn user CÓ write nhưng asset NGOÀI WO được giao. Cấp write tạm cho
-        role Vendor Engineer (Custom DocPerm) để user qua gate WRITE rồi đập IDOR.
+        Đổi gate write→print KHÔNG được nới IDOR: assert_vendor_can_access vẫn
+        chặn user CÓ print nhưng asset NGOÀI WO được giao. Vendor Engineer đã có
+        print=1 (DocPerm chuẩn) → qua gate PRINT mà KHÔNG cần grant tạm; IDOR
+        đập SAU gate. (D6 phương án B — print mở rộng persona NHƯNG IDOR bất biến.)
         """
-        from frappe.permissions import add_permission, update_permission_property
         from assetcore.api.imm00 import get_asset_label_data, mark_label_printed
         from assetcore.services.shared import rbac
-        asset = self._make_asset("idorw")
+        asset = self._make_asset("idorp")
         name = asset.name
-        role = "Vendor Engineer"
         u = self._ensure_user(self._IDOR_USER, ["Vendor Engineer", "Repair User"])
-        # Cấp write tạm cho Vendor Engineer trên AC Asset (data, KHÔNG cap mới).
-        add_permission("AC Asset", role, 0)
-        update_permission_property("AC Asset", role, 0, "write", 1)
         frappe.clear_cache()
         frappe.db.commit()
         try:
             frappe.set_user(self._IDOR_USER)
-            # tiền đề: user CÓ asset.write (qua gate WRITE) NHƯNG vendor-scope.
-            self.assertTrue(rbac.can("asset.write"),
-                            "tiền đề: user IDOR có asset.write (qua gate)")
+            # tiền đề: user CÓ asset.print (qua gate PRINT) NHƯNG vendor-scope.
+            self.assertTrue(rbac.can("asset.print"),
+                            "tiền đề: user IDOR có asset.print (qua gate)")
             resp = get_asset_label_data(asset=name)
             self.assertFalse(resp["success"], "vendor ngoài scope → KHÔNG success")
             self.assertEqual(resp["http_status"], 403,
@@ -3782,12 +6958,6 @@ class TestLabelWriteCapability(unittest.TestCase):
                              "mark_label_printed IDOR → 403 (KHÔNG nới IDOR)")
         finally:
             frappe.set_user("Administrator")
-            cp = frappe.db.get_value(
-                "Custom DocPerm",
-                {"parent": "AC Asset", "role": role, "permlevel": 0}, "name")
-            if cp:
-                frappe.delete_doc("Custom DocPerm", cp, force=True,
-                                  ignore_permissions=True)
             frappe.clear_cache()
             rbac.invalidate_capabilities(self._IDOR_USER)
             if frappe.db.exists("User", self._IDOR_USER):
@@ -3795,23 +6965,33 @@ class TestLabelWriteCapability(unittest.TestCase):
                                   ignore_permissions=True)
             frappe.db.commit()
 
-    # ── No-churn guard — cap-set version KHÔNG đổi (KHÔNG thêm cap) ───────────
-    def test_cap_set_version_unchanged(self):
-        """Siết read→write dùng cap CÓ SẴN → CAP_SET_VERSION GIỮ v95.3388ee5629c1.
+    # ── Version guard — thêm 2 cap (D6) → CAP_SET_VERSION ĐỔI + cap mới có ─────
+    def test_cap_set_version_changed_after_split_caps(self):
+        """D6 phương án B: thêm asset.print + asset.qr.rotate → version ĐỔI.
 
-        White-box no-churn: asset.write ∈ CAPABILITY_MAP; KHÔNG có asset.print_label
-        (cap mới đã BỎ khỏi roadmap) → FE auth.ts::CAP_SET_VERSION KHÔNG cần bump.
+        White-box: CAP_SET_VERSION KHÔNG còn v95.3388ee5629c1 (giá trị cũ) → đổi
+        v97.c30c69b8974d (97 cap). FE auth.ts::CAP_SET_VERSION PHẢI bump khớp →
+        isCapCacheStale tự bỏ persisted-caps cũ. 2 cap mới bind đúng permtype.
+        KHÔNG còn asset.print_label (tên cũ trong roadmap đã đổi đúng theo ADR).
         """
         from assetcore.services.shared.rbac import CAP_SET_VERSION, CAPABILITY_MAP
-        self.assertEqual(CAP_SET_VERSION, "v95.3388ee5629c1",
-                         "siết read→write KHÔNG thêm cap → version GIỮ NGUYÊN "
-                         "(KHÔNG churn FE auth.ts CAP_SET_VERSION)")
+        self.assertNotEqual(CAP_SET_VERSION, "v95.3388ee5629c1",
+                            "thêm 2 cap (D6) → CAP_SET_VERSION PHẢI đổi giá trị cũ")
+        self.assertEqual(CAP_SET_VERSION, "v97.c30c69b8974d",
+                         "97 cap sau D6 → version v97.c30c69b8974d "
+                         "(khớp FE auth.ts CAP_SET_VERSION)")
+        self.assertIn("asset.print", CAPABILITY_MAP,
+                      "asset.print (D6 phương án B) phải có trong CAPABILITY_MAP")
+        self.assertEqual(CAPABILITY_MAP["asset.print"], ("AC Asset", "print"),
+                         "asset.print bind ('AC Asset','print') — DocPerm print")
+        self.assertIn("asset.qr.rotate", CAPABILITY_MAP,
+                      "asset.qr.rotate (D6 phương án B) phải có trong CAPABILITY_MAP")
+        self.assertEqual(CAPABILITY_MAP["asset.qr.rotate"], ("AC Asset", "write"),
+                         "asset.qr.rotate bind ('AC Asset','write') — rotate=GHI")
         self.assertIn("asset.write", CAPABILITY_MAP,
-                      "asset.write phải có sẵn (qua _DOMAIN_PRIMARY['Asset'])")
-        self.assertEqual(CAPABILITY_MAP["asset.write"], ("AC Asset", "write"),
-                         "asset.write bind ('AC Asset','write')")
+                      "asset.write GIỮ (qua _DOMAIN_PRIMARY['Asset'])")
         self.assertNotIn("asset.print_label", CAPABILITY_MAP,
-                         "KHÔNG thêm cap mới asset.print_label (đã BỎ khỏi roadmap)")
+                         "tên cũ asset.print_label KHÔNG dùng (ADR chốt asset.print)")
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -4035,10 +7215,57 @@ class TestQrWhitelistHttpLayer(unittest.TestCase):
                 f"{fn_name}({param}) annotation '{ann}' là Union-chứa-None → "
                 f"coercion pydantic kích hoạt → 417 prod. Đổi sang `str` (default '').")
 
+    # ── 417-GUARD — print_asset_labels_pdf QUA HTTP (JSON-string + list) ─────
+    def test_print_labels_pdf_http_no_417_json_string(self):
+        """ADR-LABEL-PDF §D1 — endpoint sinh PDF QUA HTTP coercion KHÔNG 417.
+
+        Real HTTP: ``assets`` đến dưới dạng JSON-string (frappe.form_dict).
+        param ``assets`` (KHÔNG annotation — đồng nhất get_asset_label_data_batch)
+        → coercion KHÔNG reject (KHÁC `str` annotation vốn reject native list ở
+        test-context). Trả PDF qua frappe.local.response (KHÔNG raise FrappeTypeError).
+        """
+        import json
+        from assetcore.api.imm00 import print_asset_labels_pdf
+        asset = self._make_asset("pdfhttp")
+        frappe.local.response = frappe._dict()
+        env, exc = self._http_call(
+            print_asset_labels_pdf, assets=json.dumps([asset.name]),
+            preset="tem-60x100")
+        self.assertIsNone(
+            exc, f"print_asset_labels_pdf QUA HTTP KHÔNG được raise (417): {exc!r}")
+        self.assertEqual(frappe.local.response.get("type"), "pdf",
+                         "QUA HTTP JSON-string → set response PDF (KHÔNG 417)")
+        self.assertTrue(bytes(frappe.local.response.get("filecontent"))
+                        .startswith(b"%PDF-"))
+
+    def test_print_labels_pdf_param_not_none_union_annotation(self):
+        """RC GUARD: print_asset_labels_pdf KHÔNG mang annotation Union-chứa-None
+        (chống 417 prod) — đồng nhất guard QR GET. ``assets`` bare (no-coercion)."""
+        import inspect
+        import types as _types
+        from assetcore.api import imm00 as _api
+
+        def _is_none_union(ann) -> bool:
+            import typing
+            if isinstance(ann, _types.UnionType):
+                return type(None) in ann.__args__
+            if typing.get_origin(ann) is typing.Union:
+                return type(None) in typing.get_args(ann)
+            return False
+
+        raw = inspect.unwrap(_api.print_asset_labels_pdf)
+        for param in ("assets", "preset"):
+            ann = raw.__annotations__.get(param, inspect._empty)
+            self.assertFalse(
+                _is_none_union(ann),
+                f"print_asset_labels_pdf({param}) annotation '{ann}' Union-chứa-None "
+                f"→ coercion 417 prod.")
+
 
 # ──────────────────────────────────────────────────────────────────────────
 # B (hardening) — Regenerate (rotate) QR token cấp AC Asset
-# Endpoint regenerate_asset_qr_token(asset): gate asset.write (403 read-only) →
+# Endpoint regenerate_asset_qr_token(asset): gate asset.qr.rotate →(AC Asset,
+# "write") (D6 phương án B — tách cap rotate; 403 khi user chỉ print/read) →
 # token MỚI != cũ (enumeration-safe, overwrite, update_modified=False) → token
 # CŨ KHÔNG còn resolve → 1 ALE 'qr_regenerated' + 1 IMM Audit Trail (KHÔNG log
 # token thô) → IDOR-safe (assert_vendor_can_access) → 404 leak-safe. RED viết TRƯỚC.
@@ -4046,11 +7273,11 @@ class TestQrWhitelistHttpLayer(unittest.TestCase):
 
 
 class TestRegenerateQrToken(unittest.TestCase):
-    """B — rotate qr_token: vô hiệu hoá token bị lộ + cấp token mới (RED-first)."""
+    """D6/B — rotate qr_token gate asset.qr.rotate (=write): print KHÔNG đủ."""
 
-    # Role chỉ-đọc trên AC Asset (read=1, write=0) — least-privilege user.
+    # Role print=1 write=0 → CÓ asset.print NHƯNG KHÔNG asset.qr.rotate.
     _READONLY_ROLE = "Commissioning User"
-    # Role có write=1 trên AC Asset (DocPerm thật) — user write hợp lệ.
+    # Role có write=1 (⇒ asset.qr.rotate) trên AC Asset (DocPerm thật).
     _WRITE_ROLE = "AssetCore Super Admin"
     _READONLY_USER = "be_b_regen_readonly@example.com"
     _WRITE_USER = "be_b_regen_write@example.com"
@@ -4186,24 +7413,29 @@ class TestRegenerateQrToken(unittest.TestCase):
             frappe.db.get_value("AC Asset", asset.name, "qr_token"), old,
             "Guest bị chặn → qr_token KHÔNG đổi")
 
-    def test_regenerate_read_only_user_403(self):
-        """User asset.read NHƯNG KHÔNG asset.write → PermissionError, KHÔNG rotate."""
+    def test_regenerate_print_only_user_403(self):
+        """User CÓ asset.print NHƯNG KHÔNG asset.qr.rotate → 403, KHÔNG rotate.
+
+        D6 phương án B: rotate gate asset.qr.rotate(=write). Persona vận hành CÓ
+        print (in nhãn được) NHƯNG KHÔNG rotate được — least-privilege chính xác.
+        """
         from assetcore.api.imm00 import regenerate_asset_qr_token
         from assetcore.services.shared import rbac
         asset = self._make_asset("ro")
         old = asset.qr_token
         frappe.set_user(self._READONLY_USER)
         try:
-            self.assertTrue(rbac.can("asset.read"), "tiền đề: có asset.read")
-            self.assertFalse(rbac.can("asset.write"),
-                             "tiền đề: KHÔNG có asset.write")
+            self.assertTrue(rbac.can("asset.print"),
+                            "tiền đề: user CÓ asset.print (in nhãn được)")
+            self.assertFalse(rbac.can("asset.qr.rotate"),
+                             "tiền đề: user KHÔNG có asset.qr.rotate (write=0)")
             with self.assertRaises(frappe.PermissionError):
                 regenerate_asset_qr_token(asset=asset.name)
         finally:
             frappe.set_user("Administrator")
         self.assertEqual(
             frappe.db.get_value("AC Asset", asset.name, "qr_token"), old,
-            "user chỉ-đọc bị chặn → qr_token KHÔNG đổi (no side-effect)")
+            "user chỉ-print bị chặn → qr_token KHÔNG đổi (no side-effect)")
 
     # ── Token CŨ KHÔNG còn resolve; token MỚI resolve đúng asset ────────────
     def test_old_token_unresolvable_new_token_resolves(self):
@@ -4261,7 +7493,7 @@ class TestRegenerateQrToken(unittest.TestCase):
 
     # ── 403 IDOR — vendor rotate asset ngoài scope → chặn, leak-safe ────────
     def test_regenerate_vendor_out_of_scope_forbidden_no_leak(self):
-        """user CÓ asset.write + Vendor Engineer ngoài scope → 403 IDOR, KHÔNG rotate."""
+        """user CÓ asset.qr.rotate + Vendor Engineer ngoài scope → 403 IDOR."""
         from frappe.permissions import add_permission, update_permission_property
         from assetcore.api.imm00 import regenerate_asset_qr_token
         from assetcore.services.shared import rbac
@@ -4269,16 +7501,17 @@ class TestRegenerateQrToken(unittest.TestCase):
         old = asset.qr_token
         role = "Vendor Engineer"
         u = self._ensure_user(self._IDOR_USER, ["Vendor Engineer", "Repair User"])
-        # Cấp write tạm cho Vendor Engineer trên AC Asset (data, KHÔNG cap mới)
-        # → user QUA gate WRITE rồi đập IDOR (assert_vendor_can_access).
+        # Cấp write tạm cho Vendor Engineer trên AC Asset (data) → asset.qr.rotate
+        # (bind write) resolve TRUE → user QUA gate ROTATE rồi đập IDOR
+        # (assert_vendor_can_access). KHÔNG hardcode role, cấp qua DocPerm.
         add_permission("AC Asset", role, 0)
         update_permission_property("AC Asset", role, 0, "write", 1)
         frappe.clear_cache()
         frappe.db.commit()
         try:
             frappe.set_user(self._IDOR_USER)
-            self.assertTrue(rbac.can("asset.write"),
-                            "tiền đề: user IDOR có asset.write (qua gate)")
+            self.assertTrue(rbac.can("asset.qr.rotate"),
+                            "tiền đề: user IDOR có asset.qr.rotate (qua gate)")
             resp = regenerate_asset_qr_token(asset=asset.name)
             self.assertFalse(resp["success"], "vendor ngoài scope → KHÔNG success")
             self.assertEqual(resp["http_status"], 403,
@@ -4367,14 +7600,14 @@ class TestRegenerateQrToken(unittest.TestCase):
         self.assertEqual(before, after,
                          "rotate qr_token dùng update_modified=False (KHÔNG bump)")
 
-    # ── No-churn guard — CAP_SET_VERSION KHÔNG đổi (KHÔNG thêm cap) ─────────
-    def test_cap_set_version_unchanged(self):
-        """rotate dùng asset.write CÓ SẴN → CAP_SET_VERSION GIỮ v95.3388ee5629c1."""
+    # ── Version guard — rotate cap tách riêng (D6) → version ĐỔI ────────────
+    def test_rotate_cap_in_map_and_version_changed(self):
+        """D6: rotate gate asset.qr.rotate→(AC Asset,write); CAP_SET_VERSION ĐỔI."""
         from assetcore.services.shared.rbac import CAP_SET_VERSION, CAPABILITY_MAP
-        self.assertEqual(CAP_SET_VERSION, "v95.3388ee5629c1",
-                         "rotate KHÔNG thêm cap → version GIỮ NGUYÊN (no FE churn)")
-        self.assertIn("asset.write", CAPABILITY_MAP,
-                      "asset.write có sẵn (qua _DOMAIN_PRIMARY['Asset'])")
+        self.assertEqual(CAP_SET_VERSION, "v97.c30c69b8974d",
+                         "thêm asset.print + asset.qr.rotate → version v97.c30c69b8974d")
+        self.assertEqual(CAPABILITY_MAP.get("asset.qr.rotate"), ("AC Asset", "write"),
+                         "asset.qr.rotate bind ('AC Asset','write') — rotate=GHI")
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -4635,27 +7868,42 @@ class TestQrResolveRateLimit(unittest.TestCase):
         finally:
             frappe.local.request = had_req
 
-    # ── GUARD: nhóm GHI in-nhãn KHÔNG bị rate-limit (chống over-scope) ─────
-    def test_write_endpoints_not_rate_limited(self):
-        """get_asset_label_data[_batch] / mark_label_printed dội >N lần với user
-        asset.write → vẫn 200, KHÔNG 429. Chống chặn nhầm in-nhãn-hàng-loạt
-        (least-surprise, ADR-001 D4). LƯU Ý (Vòng 27 B / BR-00-38): rotate
-        ``regenerate_asset_qr_token`` ĐÃ TÁCH RA — NAY CÓ @rate_limit (hằng/bucket
-        RIÊNG, ngưỡng THẤP hơn) → KHÔNG còn trong danh sách 'không throttle'."""
+    # ── GUARD: TOÀN BỘ họ endpoint nhãn QR NAY throttled (Vòng 36 — đóng lỗ cuối) ──
+    # ⚠️ ĐẢO Vòng 36 (BR-00-51 / FR-00-102 / 05 §I.7c): danh sách miễn rate-limit ĐÃ
+    # CẠN — get_asset_label_data (single) là endpoint nhãn DUY NHẤT còn hở trước Vòng
+    # 36 NAY MANG @rate_limit (hằng+bucket RIÊNG). Lý do throttle dù read-mostly:
+    # mint side-effect — token-less asset → ensure_asset_qr_token (idempotent) emit
+    # qr_generated (ALE+audit) ⇒ hammer = write-amplification. Hành vi >N→429 kiểm ở
+    # TestLabelDataRateLimit. mark/batch (Vòng 14) + rotate (Vòng 27 B) + pdf + 2
+    # resolve cũng throttled. Static decorator-presence guard — chống tái-gỡ âm thầm.
+    def test_all_label_endpoints_throttled(self):
+        """TOÀN BỘ họ endpoint nhãn QR (single + batch + mark + rotate) MANG
+        @rate_limit (hằng/bucket RIÊNG). Static decorator-presence guard."""
         import inspect
-        from assetcore.api.imm00 import (
-            get_asset_label_data_batch, AC_QR_RESOLVE_RATE_LIMIT as N)
-
-        # (a) Tĩnh: 3 endpoint in-nhãn KHÔNG mang decorator rate_limit (rotate ĐÃ
-        #     tách — có @rate_limit RIÊNG, kiểm ở TestQrRegenerateRateLimit).
         from assetcore.api import imm00 as _api
-        for fn_name in ("get_asset_label_data", "get_asset_label_data_batch",
-                        "mark_label_printed"):
-            src = inspect.getsource(getattr(_api, fn_name))
-            self.assertNotIn(
-                "@rate_limit", src,
-                f"{fn_name} KHÔNG được mang @rate_limit (in-nhãn low-volume admin)")
-        # rotate NAY CÓ @rate_limit (Vòng 27 B) — chứng minh quyết định đã đảo.
+
+        # (a) single NAY MANG @rate_limit + hằng RIÊNG (Vòng 36 — đóng lỗ cuối).
+        single_src = inspect.getsource(getattr(_api, "get_asset_label_data"))
+        self.assertIn(
+            "@rate_limit", single_src,
+            "get_asset_label_data (single) PHẢI mang @rate_limit (Vòng 36 / BR-00-51)")
+        self.assertIn(
+            "AC_LABEL_DATA_RATE_LIMIT", single_src,
+            "single dùng hằng RIÊNG AC_LABEL_DATA_RATE_LIMIT (KHÔNG chung batch/pdf)")
+
+        # (b) mark + batch NAY MANG @rate_limit + hằng RIÊNG (Vòng 14 — đảo).
+        mark_src = inspect.getsource(getattr(_api, "mark_label_printed"))
+        self.assertIn("@rate_limit", mark_src,
+                      "mark_label_printed PHẢI mang @rate_limit (Vòng 14 / BR-00-45)")
+        self.assertIn("AC_LABEL_MARK_RATE_LIMIT", mark_src,
+                      "mark dùng hằng RIÊNG AC_LABEL_MARK_RATE_LIMIT")
+        batch_src = inspect.getsource(getattr(_api, "get_asset_label_data_batch"))
+        self.assertIn("@rate_limit", batch_src,
+                      "get_asset_label_data_batch PHẢI mang @rate_limit (BR-00-46)")
+        self.assertIn("AC_LABEL_BATCH_RATE_LIMIT", batch_src,
+                      "batch dùng hằng RIÊNG AC_LABEL_BATCH_RATE_LIMIT")
+
+        # (c) rotate NAY CÓ @rate_limit (Vòng 27 B) — chứng minh quyết định đã đảo.
         regen_src = inspect.getsource(getattr(_api, "regenerate_asset_qr_token"))
         self.assertIn(
             "@rate_limit", regen_src,
@@ -4664,26 +7912,13 @@ class TestQrResolveRateLimit(unittest.TestCase):
             "AC_QR_REGEN_RATE_LIMIT", regen_src,
             "rotate dùng hằng RIÊNG AC_QR_REGEN_RATE_LIMIT (KHÔNG chung resolve)")
 
-        # (b) Hành vi: dội >N call get_asset_label_data_batch QUA HTTP với admin
-        #     (asset.write) → KHÔNG 429 (mỗi call 200, list rỗng-ok).
-        asset = self._make_asset("nolimit")
-        cmd = "assetcore.api.imm00.get_asset_label_data_batch"
-        for i in range(N + 3):
-            env, exc = self._http_call(
-                get_asset_label_data_batch, cmd, assets=[asset.name])
-            self.assertNotIsInstance(
-                exc, (frappe.RateLimitExceededError, frappe.TooManyRequestsError),
-                f"get_asset_label_data_batch call #{i+1} KHÔNG được 429")
-            self.assertIsNone(exc, f"call #{i+1} KHÔNG raise: {exc!r}")
-            self.assertTrue(env["success"])
-
     # ── Regression — CAP_SET_VERSION KHÔNG đổi (rate-limit KHÔNG thêm cap) ──
     def test_cap_set_version_unchanged(self):
         from assetcore.services.shared.rbac import CAP_SET_VERSION
         self.assertEqual(
-            CAP_SET_VERSION, "v95.3388ee5629c1",
-            "thêm @rate_limit (decorator) KHÔNG đổi CAPABILITY_MAP → "
-            "CAP_SET_VERSION GIỮ v95.3388ee5629c1 (no FE auth.ts churn)")
+            CAP_SET_VERSION, "v97.c30c69b8974d",
+            "@rate_limit (decorator) KHÔNG đổi CAPABILITY_MAP; giá trị hiện hành "
+            "v97.c30c69b8974d (sau D6 tách asset.print/asset.qr.rotate)")
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -4975,9 +8210,741 @@ class TestQrRegenerateRateLimit(unittest.TestCase):
     def test_regen_cap_set_version_unchanged(self):
         from assetcore.services.shared.rbac import CAP_SET_VERSION
         self.assertEqual(
-            CAP_SET_VERSION, "v95.3388ee5629c1",
-            "thêm @rate_limit lên rotate KHÔNG đổi CAPABILITY_MAP → "
-            "CAP_SET_VERSION GIỮ v95.3388ee5629c1")
+            CAP_SET_VERSION, "v97.c30c69b8974d",
+            "@rate_limit lên rotate KHÔNG đổi CAPABILITY_MAP; giá trị hiện hành "
+            "v97.c30c69b8974d (sau D6 tách asset.print/asset.qr.rotate)")
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Vòng 14 (BR-00-45/46 / FR-00-96/97 — Self-Correction, mirror rotate) — Rate-limit
+# 2 endpoint nhãn còn hở: mark_label_printed (POST — GHI write-audit-amplification
+# 2×N record/call = N ALE `label_printed` + N IMM Audit Trail) +
+# get_asset_label_data_batch (GET — đọc N asset/call). @rate_limit bucket+hằng RIÊNG
+# (cache key gồm cmd → counter TÁCH BIỆT resolve(30)/scan(30)/regen(10)/pdf(20)).
+# 429 NGOÀI/TRƯỚC rbac.require("asset.print") ⇒ mark vượt → 0 ALE + 0 audit (no
+# side-effect); batch vượt → 0 byte payload. no-leak parity 404/403.
+#   AC_LABEL_MARK_RATE_LIMIT  = 10  (≤ AC_QR_REGEN_RATE_LIMIT — cùng họ write-amplify)
+#   AC_LABEL_BATCH_RATE_LIMIT = 20  (read-only → CAO hơn mark, song song pdf=20)
+# Hạ tầng test = mô phỏng HTTP context (frappe.local.request truthy + request_ip
+# per-test-uniq + form_dict.cmd) + dọn `rl:*` ở teardown. CLI/test bypass:
+# `if not frappe.request: return fn` → suite cũ GREEN. Spec: 05 §I.7c / 02 BR-00-45/46
+# / 04 §II.1.8e-LABELRL / 07 §III.6.i-LABELRL / ADR-IMM00-LABEL-PDF §D18. RED-first.
+# ──────────────────────────────────────────────────────────────────────────
+
+
+class TestLabelMarkBatchRateLimit(unittest.TestCase):
+    """Vòng 14 — @rate_limit trên mark_label_printed + get_asset_label_data_batch.
+
+    RED-first: trước khi gắn decorator, dội >10 mark / >20 batch KHÔNG raise 429.
+    Tái dùng pattern _http_call/_drain/IP-uniq/teardown `rl:` (mirror rotate).
+    """
+
+    _CMD_MARK = "assetcore.api.imm00.mark_label_printed"
+    _CMD_BATCH = "assetcore.api.imm00.get_asset_label_data_batch"
+    _ALE_LABEL = "label_printed"  # Asset Lifecycle Event.event_type
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": "Thiết bị LabelRL QR (Vòng 14)",
+            "description": "Category cho test rate-limit nhãn mark/batch",
+            "is_active": 1,
+        }).insert(ignore_permissions=True)
+        # order test dùng Guest (KHÔNG asset.print) để chứng minh RL chặn TRƯỚC
+        # rbac.require — role vận hành ĐỀU có DocPerm print=1 (ADR D6) nên KHÔNG
+        # dùng được. KHÔNG cần seed user riêng.
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        frappe.delete_doc("AC Asset Category", cls.cat.name,
+                          force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self._created: list[str] = []
+        import uuid
+        self._ip = f"10.{uuid.uuid4().int % 250 + 1}.{uuid.uuid4().int % 250 + 1}." \
+                   f"{uuid.uuid4().int % 250 + 1}"
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+        # Dọn MỌI cache key rate-limit do test sinh ra (tránh rò trần sang test khác).
+        try:
+            frappe.cache.delete_keys("rl:")
+        except Exception:
+            pass
+        frappe.db.rollback()
+        for name in self._created:
+            _purge_asset(name)
+        frappe.db.commit()
+
+    def _make_asset(self, suffix=""):
+        import uuid
+        uniq = f"{suffix or '0001'}-{uuid.uuid4().hex[:8]}"
+        doc = _insert_asset_bypass_workflow({
+            "doctype": "AC Asset",
+            "asset_name": f"Máy LabelRL {uniq}",
+            "asset_category": self.cat.name,
+            "manufacturer_sn": f"LBRL-SN-{uniq}",
+            "asset_code": f"LBRL-ASSET-{uniq}",
+            "lifecycle_status": "Active",
+        })
+        self._created.append(doc.name)
+        return doc
+
+    def _http_call(self, fn, cmd, **params):
+        """Gọi endpoint @rate_limit QUA HTTP context (limiter ĐƯỢC kích hoạt).
+
+        Mô phỏng đúng điều kiện ``rate_limit`` wrapper cần: ``frappe.local.request``
+        truthy, ``frappe.local.request_ip`` (ip_based), ``frappe.form_dict.cmd``
+        (cache key ``rl:{cmd}:{ip}``). Trả (envelope, exception).
+        """
+        class _Req:
+            method = "POST"
+            host = "miyano"
+            headers: dict = {}
+        had_req = getattr(frappe.local, "request", None)
+        had_ip = getattr(frappe.local, "request_ip", None)
+        had_cmd = frappe.form_dict.get("cmd")
+        frappe.local.request = _Req()
+        frappe.local.request_ip = self._ip
+        frappe.form_dict.cmd = cmd
+        try:
+            try:
+                return fn(**params), None
+            except Exception as e:  # noqa: BLE001 — phân loại http_status_code
+                return None, e
+        finally:
+            frappe.local.request = had_req
+            frappe.local.request_ip = had_ip
+            if had_cmd is None:
+                frappe.form_dict.pop("cmd", None)
+            else:
+                frappe.form_dict.cmd = had_cmd
+
+    def _drain(self, fn, cmd, n, **params):
+        """Dội ``n`` call hợp lệ (≤ trần) — trả exception cuối cùng (None nếu OK)."""
+        last_exc = None
+        for _ in range(n):
+            _, last_exc = self._http_call(fn, cmd, **params)
+        return last_exc
+
+    def _count_side_effects(self, asset_name):
+        """COUNT (ALE label_printed, IMM Audit Trail) của asset — đo trước+sau 429."""
+        ale = frappe.db.count(
+            "Asset Lifecycle Event",
+            {"asset": asset_name, "event_type": self._ALE_LABEL})
+        audit = frappe.db.count("IMM Audit Trail", {"asset": asset_name})
+        return ale, audit
+
+    # ── Hằng RIÊNG tồn tại + đúng ngưỡng BA chốt (constant-value guard) ──────
+    def test_label_mark_constant_value(self):
+        from assetcore.api.imm00 import AC_LABEL_MARK_RATE_LIMIT
+        self.assertEqual(
+            AC_LABEL_MARK_RATE_LIMIT, 10,
+            "ngưỡng BA chốt mark = 10 req/60s/IP (BR-00-45, write-audit-amplification)")
+
+    def test_label_batch_constant_value(self):
+        from assetcore.api.imm00 import AC_LABEL_BATCH_RATE_LIMIT
+        self.assertEqual(
+            AC_LABEL_BATCH_RATE_LIMIT, 20,
+            "ngưỡng BA chốt batch = 20 req/60s/IP (BR-00-46, read-only)")
+
+    def test_label_mark_le_regen(self):
+        from assetcore.api.imm00 import (
+            AC_LABEL_MARK_RATE_LIMIT, AC_QR_REGEN_RATE_LIMIT)
+        self.assertLessEqual(
+            AC_LABEL_MARK_RATE_LIMIT, AC_QR_REGEN_RATE_LIMIT,
+            "mark cùng họ write-amplify như rotate → ngưỡng ≤ regen (BR-00-45)")
+
+    def test_label_batch_gt_mark(self):
+        from assetcore.api.imm00 import (
+            AC_LABEL_BATCH_RATE_LIMIT, AC_LABEL_MARK_RATE_LIMIT)
+        self.assertGreater(
+            AC_LABEL_BATCH_RATE_LIMIT, AC_LABEL_MARK_RATE_LIMIT,
+            "batch read-only → ngưỡng CAO hơn mark write-amplify (BR-00-46)")
+
+    def test_label_consts_distinct(self):
+        """2 hằng nhãn RIÊNG — KHÔNG tái dùng resolve/regen (giá-trị batch trùng
+        pdf=20 nhưng TÊN độc lập — tách biệt ngữ nghĩa)."""
+        from assetcore.api.imm00 import (
+            AC_LABEL_MARK_RATE_LIMIT, AC_LABEL_BATCH_RATE_LIMIT,
+            AC_QR_RESOLVE_RATE_LIMIT)
+        self.assertNotEqual(
+            AC_LABEL_MARK_RATE_LIMIT, AC_QR_RESOLVE_RATE_LIMIT,
+            "mark KHÔNG tái dùng ngưỡng resolve")
+        self.assertNotEqual(
+            AC_LABEL_BATCH_RATE_LIMIT, AC_QR_RESOLVE_RATE_LIMIT,
+            "batch KHÔNG tái dùng ngưỡng resolve")
+
+    # ── Decorator-presence guard (chống tái-gỡ âm thầm) ─────────────────────
+    def test_label_decorator_presence(self):
+        import inspect
+        from assetcore.api import imm00 as _api
+        mark_src = inspect.getsource(getattr(_api, "mark_label_printed"))
+        self.assertIn("@rate_limit", mark_src,
+                      "mark_label_printed PHẢI mang @rate_limit (BR-00-45)")
+        self.assertIn("AC_LABEL_MARK_RATE_LIMIT", mark_src,
+                      "mark dùng hằng RIÊNG AC_LABEL_MARK_RATE_LIMIT")
+        batch_src = inspect.getsource(getattr(_api, "get_asset_label_data_batch"))
+        self.assertIn("@rate_limit", batch_src,
+                      "get_asset_label_data_batch PHẢI mang @rate_limit (BR-00-46)")
+        self.assertIn("AC_LABEL_BATCH_RATE_LIMIT", batch_src,
+                      "batch dùng hằng RIÊNG AC_LABEL_BATCH_RATE_LIMIT")
+
+    # ── mark: ≤N call → 200 + ghi 2×N record/call (happy-path bất biến) ─────
+    def test_mark_under_limit_ok(self):
+        from assetcore.api.imm00 import (
+            mark_label_printed, AC_LABEL_MARK_RATE_LIMIT as N)
+        asset = self._make_asset("markunder")
+        cmd = self._CMD_MARK
+        for i in range(N):
+            env, exc = self._http_call(
+                mark_label_printed, cmd, assets=[asset.name])
+            self.assertIsNone(exc, f"mark call #{i+1} (≤N) KHÔNG throttle: {exc!r}")
+            self.assertTrue(env["success"], f"mark call #{i+1} ≤N → 200")
+
+    # ── mark: call N+1 → 429, KHÔNG trả envelope ────────────────────────────
+    def test_mark_over_limit_429(self):
+        from assetcore.api.imm00 import (
+            mark_label_printed, AC_LABEL_MARK_RATE_LIMIT as N)
+        asset = self._make_asset("markover")
+        cmd = self._CMD_MARK
+        first_exc = self._drain(mark_label_printed, cmd, N, assets=[asset.name])
+        self.assertIsNone(first_exc,
+                          f"{N} call mark đầu trong window KHÔNG throttle: {first_exc!r}")
+        env, exc = self._http_call(mark_label_printed, cmd, assets=[asset.name])
+        self.assertIsNotNone(exc, f"mark call thứ {N+1} PHẢI raise 429 (vượt trần)")
+        self.assertIsInstance(
+            exc, (frappe.RateLimitExceededError, frappe.TooManyRequestsError),
+            f"vượt trần → 429 (RateLimitExceededError), KHÔNG {type(exc).__name__}")
+        self.assertEqual(getattr(exc, "http_status_code", None), 429,
+                         "exception map HTTP 429")
+        self.assertIsNone(env, "429 KHÔNG trả envelope (no payload built)")
+
+    # ── mark: 429 → 0 ALE label_printed + 0 IMM Audit Trail MỚI (CỐT LÕI) ───
+    def test_mark_429_no_side_effect(self):
+        from assetcore.api.imm00 import (
+            mark_label_printed, AC_LABEL_MARK_RATE_LIMIT as N)
+        asset = self._make_asset("noside")
+        cmd = self._CMD_MARK
+        # Vắt kiệt trần (N call hợp lệ — mỗi call ghi 2 record; đo SAU N).
+        self._drain(mark_label_printed, cmd, N, assets=[asset.name])
+        ale_before, audit_before = self._count_side_effects(asset.name)
+        # call N+1 → 429 (chặn TRƯỚC thân hàm ⇒ KHÔNG chạm _svc_mark_label_printed).
+        env, exc = self._http_call(mark_label_printed, cmd, assets=[asset.name])
+        self.assertIsInstance(
+            exc, (frappe.RateLimitExceededError, frappe.TooManyRequestsError),
+            "call mark vượt trần PHẢI 429")
+        self.assertIsNone(env, "429 KHÔNG trả envelope")
+        ale_after, audit_after = self._count_side_effects(asset.name)
+        self.assertEqual(ale_after, ale_before,
+                         "429 → 0 ALE label_printed MỚI (no side-effect)")
+        self.assertEqual(audit_after, audit_before,
+                         "429 → 0 IMM Audit Trail MỚI (no side-effect)")
+
+    # ── mark: 429 no-leak (KHÔNG name/asset_code/số-record) ─────────────────
+    def test_mark_429_no_leak(self):
+        from assetcore.api.imm00 import (
+            mark_label_printed, AC_LABEL_MARK_RATE_LIMIT as N)
+        asset = self._make_asset("noleak")
+        cmd = self._CMD_MARK
+        self._drain(mark_label_printed, cmd, N, assets=[asset.name])
+        _, exc = self._http_call(mark_label_printed, cmd, assets=[asset.name])
+        self.assertIsNotNone(exc, "call mark vượt trần PHẢI raise 429")
+        msg = str(getattr(exc, "message", "") or "") + str(exc)
+        for leak in (asset.name, asset.asset_code, asset.manufacturer_sn):
+            self.assertNotIn(leak, msg,
+                             "429 message KHÔNG leak name/asset_code/serial")
+
+    # ── mark: 429 chạy TRƯỚC rbac.require("asset.print") ────────────────────
+    def test_mark_429_runs_before_rbac(self):
+        """User KHÔNG asset.print (Guest), dội >N → call vượt trần → 429
+        (KHÔNG 403). Decorator @rate_limit bọc NGOÀI thân → counter+throw TRƯỚC
+        rbac.require("asset.print"). Đồng nhất precedent resolve/rotate.
+
+        Dùng Guest (KHÔNG print) — `Commissioning User`/role vận hành ĐỀU có
+        DocPerm print=1 (ADR D6: asset.print mở cho ~mọi role) nên KHÔNG dùng
+        để chứng minh thiếu-print được."""
+        from assetcore.api.imm00 import (
+            mark_label_printed, AC_LABEL_MARK_RATE_LIMIT as N)
+        from assetcore.services.shared import rbac
+        asset = self._make_asset("order")
+        cmd = self._CMD_MARK
+        frappe.set_user("Guest")
+        try:
+            self.assertFalse(rbac.can("asset.print"),
+                             "tiền đề: Guest KHÔNG có asset.print")
+            # ≤N: user chỉ-đọc → PermissionError (403) — RBAC chạy SAU RL khi chưa trần.
+            _, exc_under = self._http_call(
+                mark_label_printed, cmd, assets=[asset.name])
+            self.assertIsInstance(
+                exc_under, frappe.PermissionError,
+                "≤N + thiếu asset.print → 403 (RBAC sau RL khi chưa trần)")
+            # Dội cho vượt trần (counter tăng kể cả khi thân raise 403).
+            for _ in range(N):
+                self._http_call(mark_label_printed, cmd, assets=[asset.name])
+            _, exc_over = self._http_call(
+                mark_label_printed, cmd, assets=[asset.name])
+            self.assertIsInstance(
+                exc_over,
+                (frappe.RateLimitExceededError, frappe.TooManyRequestsError),
+                f"vượt trần → 429 TRƯỚC PermissionError, KHÔNG {type(exc_over).__name__}")
+        finally:
+            frappe.set_user("Administrator")
+
+    # ── batch: ≤N call → 200 payload N-item (happy-path bất biến) ───────────
+    def test_batch_under_limit_ok(self):
+        from assetcore.api.imm00 import (
+            get_asset_label_data_batch, AC_LABEL_BATCH_RATE_LIMIT as N)
+        asset = self._make_asset("batchunder")
+        cmd = self._CMD_BATCH
+        for i in range(N):
+            env, exc = self._http_call(
+                get_asset_label_data_batch, cmd, assets=[asset.name])
+            self.assertIsNone(exc, f"batch call #{i+1} (≤N) KHÔNG throttle: {exc!r}")
+            self.assertTrue(env["success"], f"batch call #{i+1} ≤N → 200")
+
+    # ── batch: call N+1 → 429, 0 byte payload build ─────────────────────────
+    def test_batch_over_limit_429(self):
+        from assetcore.api.imm00 import (
+            get_asset_label_data_batch, AC_LABEL_BATCH_RATE_LIMIT as N)
+        asset = self._make_asset("batchover")
+        cmd = self._CMD_BATCH
+        first_exc = self._drain(
+            get_asset_label_data_batch, cmd, N, assets=[asset.name])
+        self.assertIsNone(first_exc,
+                          f"{N} call batch đầu KHÔNG throttle: {first_exc!r}")
+        env, exc = self._http_call(
+            get_asset_label_data_batch, cmd, assets=[asset.name])
+        self.assertIsNotNone(exc, f"batch call thứ {N+1} PHẢI raise 429")
+        self.assertIsInstance(
+            exc, (frappe.RateLimitExceededError, frappe.TooManyRequestsError),
+            f"vượt trần → 429, KHÔNG {type(exc).__name__}")
+        self.assertEqual(getattr(exc, "http_status_code", None), 429)
+        self.assertIsNone(env, "429 KHÔNG trả payload (build_asset_label_data_batch KHÔNG chạy)")
+
+    # ── mark / batch = 2 bucket RIÊNG (cache key gồm cmd) ───────────────────
+    def test_mark_batch_separate_bucket(self):
+        """Vắt kiệt bucket mark (chạm trần) KHÔNG làm batch bị 429 ở call đầu
+        (bucket riêng theo cmd) — chống chặn nhầm cross-endpoint."""
+        from assetcore.api.imm00 import (
+            mark_label_printed, get_asset_label_data_batch,
+            AC_LABEL_MARK_RATE_LIMIT as NM)
+        asset = self._make_asset("twobucket")
+        # vắt kiệt bucket mark (N+1 → 429 ở mark).
+        self._drain(mark_label_printed, self._CMD_MARK, NM + 1, assets=[asset.name])
+        # batch bucket RIÊNG → call đầu vẫn 200 (KHÔNG kế thừa counter mark).
+        env, exc = self._http_call(
+            get_asset_label_data_batch, self._CMD_BATCH, assets=[asset.name])
+        self.assertIsNone(exc, f"batch bucket riêng → call đầu KHÔNG 429: {exc!r}")
+        self.assertTrue(env["success"], "batch vẫn 200 trong cùng cửa sổ")
+
+    # ── Bypass test/CLI có chủ đích — gọi TRỰC TIẾP (no frappe.request) ─────
+    def test_label_no_request_context_bypasses(self):
+        """Gọi mark/batch TRỰC TIẾP >N lần (KHÔNG set frappe.local.request) →
+        KHÔNG 429 (wrapper `if not frappe.request: return fn`). Đảm bảo suite cũ
+        (TestMarkLabelPrinted/batch — gọi trực tiếp) KHÔNG regress."""
+        from assetcore.api.imm00 import (
+            mark_label_printed, get_asset_label_data_batch,
+            AC_LABEL_MARK_RATE_LIMIT as NM, AC_LABEL_BATCH_RATE_LIMIT as NB)
+        asset = self._make_asset("bypass")
+        had_req = getattr(frappe.local, "request", None)
+        frappe.local.request = None
+        try:
+            for _ in range(NM + 5):
+                resp = mark_label_printed(assets=[asset.name])
+                self.assertTrue(resp["success"],
+                                "mark trực tiếp (no request) → KHÔNG bao giờ 429")
+            for _ in range(NB + 5):
+                resp = get_asset_label_data_batch(assets=[asset.name])
+                self.assertTrue(resp["success"],
+                                "batch trực tiếp (no request) → KHÔNG bao giờ 429")
+        finally:
+            frappe.local.request = had_req
+
+    # ── Regression — CAP_SET_VERSION KHÔNG đổi (decorator KHÔNG thêm cap) ───
+    def test_cap_set_version_unchanged(self):
+        from assetcore.services.shared.rbac import CAP_SET_VERSION
+        self.assertEqual(
+            CAP_SET_VERSION, "v97.c30c69b8974d",
+            "@rate_limit lên mark/batch KHÔNG đổi CAPABILITY_MAP; giá trị hiện "
+            "hành v97.c30c69b8974d (sau D6 tách asset.print/asset.qr.rotate)")
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Vòng 36 (BR-00-51 / FR-00-102 — đóng lỗ hổng CUỐI họ endpoint nhãn QR) — Rate-limit
+# endpoint ĐỌC SINGLE `get_asset_label_data` (preview nhãn 1 asset). @rate_limit(
+# limit=AC_LABEL_DATA_RATE_LIMIT=20, seconds=60, ip_based=True) bọc NGOÀI thân hàm →
+# 429 (RateLimitExceededError) TRƯỚC rbac.require("asset.print") ⇒ vượt ngưỡng = 0
+# byte payload build + 0 mint-token side-effect (ensure_asset_qr_token KHÔNG chạy →
+# 0 qr_generated ALE/audit). Hằng + bucket RIÊNG (KHÔNG chung batch=20/pdf=20; cache
+# key gồm cmd → counter TÁCH BIỆT). Lý do throttle dù read-mostly: token-less asset →
+# ensure_asset_qr_token (idempotent) GHI token + emit qr_generated → hammer KHÔNG giới
+# hạn = write-amplification mint-token (bơm phồng audit-chain NĐ98). Thứ tự gate sau
+# decorator GIỮ NGUYÊN: 429 → 403(rbac asset.print) → 404(asset rỗng/∄ leak-safe) →
+# 403(IDOR assert_vendor_can_access) → 200(_ok build_asset_label_data). Hạ tầng test =
+# mô phỏng HTTP context (frappe.local.request truthy + request_ip per-test-uniq +
+# form_dict.cmd) + dọn `rl:*` ở teardown. Spec: 05 §I.7c / 02 BR-00-51 / 07. RED-first.
+# ──────────────────────────────────────────────────────────────────────────
+
+
+class TestLabelDataRateLimit(unittest.TestCase):
+    """Vòng 36 — @rate_limit trên get_asset_label_data (single, bucket+hằng RIÊNG).
+
+    RED-first: trước khi gắn decorator, dội >20 single KHÔNG raise 429.
+    Tái dùng pattern _http_call/_drain/IP-uniq/teardown `rl:` (mirror batch).
+    """
+
+    _CMD_SINGLE = "assetcore.api.imm00.get_asset_label_data"
+    _CMD_BATCH = "assetcore.api.imm00.get_asset_label_data_batch"
+    _ALE_QR_GEN = "qr_generated"  # Asset Lifecycle Event.event_type (mint side-effect)
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": "Thiết bị LabelDataRL QR (Vòng 36)",
+            "description": "Category cho test rate-limit single get_asset_label_data",
+            "is_active": 1,
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        frappe.delete_doc("AC Asset Category", cls.cat.name,
+                          force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self._created: list[str] = []
+        import uuid
+        self._ip = f"10.{uuid.uuid4().int % 250 + 1}.{uuid.uuid4().int % 250 + 1}." \
+                   f"{uuid.uuid4().int % 250 + 1}"
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+        # Dọn MỌI cache key rate-limit do test sinh ra (tránh rò trần sang test khác).
+        try:
+            frappe.cache.delete_keys("rl:")
+        except Exception:
+            pass
+        frappe.db.rollback()
+        for name in self._created:
+            _purge_asset(name)
+        frappe.db.commit()
+
+    def _make_asset(self, suffix=""):
+        import uuid
+        uniq = f"{suffix or '0001'}-{uuid.uuid4().hex[:8]}"
+        doc = _insert_asset_bypass_workflow({
+            "doctype": "AC Asset",
+            "asset_name": f"Máy LabelDataRL {uniq}",
+            "asset_category": self.cat.name,
+            "manufacturer_sn": f"LDRL-SN-{uniq}",
+            "asset_code": f"LDRL-ASSET-{uniq}",
+            "lifecycle_status": "Active",
+        })
+        self._created.append(doc.name)
+        return doc
+
+    def _http_call(self, fn, cmd, **params):
+        """Gọi endpoint @rate_limit QUA HTTP context (limiter ĐƯỢC kích hoạt).
+
+        Mô phỏng đúng điều kiện ``rate_limit`` wrapper cần: ``frappe.local.request``
+        truthy, ``frappe.local.request_ip`` (ip_based), ``frappe.form_dict.cmd``
+        (cache key ``rl:{cmd}:{ip}``). Trả (envelope, exception).
+        """
+        class _Req:
+            method = "GET"
+            host = "miyano"
+            headers: dict = {}
+        had_req = getattr(frappe.local, "request", None)
+        had_ip = getattr(frappe.local, "request_ip", None)
+        had_cmd = frappe.form_dict.get("cmd")
+        frappe.local.request = _Req()
+        frappe.local.request_ip = self._ip
+        frappe.form_dict.cmd = cmd
+        try:
+            try:
+                return fn(**params), None
+            except Exception as e:  # noqa: BLE001 — phân loại http_status_code
+                return None, e
+        finally:
+            frappe.local.request = had_req
+            frappe.local.request_ip = had_ip
+            if had_cmd is None:
+                frappe.form_dict.pop("cmd", None)
+            else:
+                frappe.form_dict.cmd = had_cmd
+
+    def _drain(self, fn, cmd, n, **params):
+        """Dội ``n`` call hợp lệ (≤ trần) — trả exception cuối cùng (None nếu OK)."""
+        last_exc = None
+        for _ in range(n):
+            _, last_exc = self._http_call(fn, cmd, **params)
+        return last_exc
+
+    # ── Hằng RIÊNG tồn tại + đúng ngưỡng BA chốt (constant-value guard) ──────
+    def test_label_data_rate_limit_constant_value(self):
+        from assetcore.api.imm00 import AC_LABEL_DATA_RATE_LIMIT
+        self.assertEqual(
+            AC_LABEL_DATA_RATE_LIMIT, 20,
+            "ngưỡng BA chốt single = 20 req/60s/IP (BR-00-51, read-mostly preview)")
+
+    def test_label_data_const_distinct_identifier(self):
+        """AC_LABEL_DATA_RATE_LIMIT là ĐỊNH-DANH RIÊNG — KHÔNG alias batch/pdf/mark/
+        resolve/regen (giá-trị trùng batch=pdf=20 nhưng TÊN độc lập — tách ngữ-nghĩa).
+        Chứng minh tách-định-danh: source decorator dùng đúng tên hằng single, KHÔNG
+        tham chiếu hằng khác."""
+        import inspect
+        from assetcore.api import imm00 as _api
+        # (a) hằng tồn tại & = 20.
+        self.assertTrue(hasattr(_api, "AC_LABEL_DATA_RATE_LIMIT"),
+                        "AC_LABEL_DATA_RATE_LIMIT PHẢI được khai báo RIÊNG")
+        self.assertEqual(_api.AC_LABEL_DATA_RATE_LIMIT, 20)
+        # (b) decorator single dùng ĐÚNG hằng single, KHÔNG tái dùng định-danh khác.
+        single_src = inspect.getsource(getattr(_api, "get_asset_label_data"))
+        self.assertIn("AC_LABEL_DATA_RATE_LIMIT", single_src,
+                      "decorator single PHẢI dùng AC_LABEL_DATA_RATE_LIMIT")
+        for other in ("AC_LABEL_BATCH_RATE_LIMIT", "AC_LABEL_MARK_RATE_LIMIT",
+                      "AC_LABEL_PDF_RATE_LIMIT", "AC_QR_RESOLVE_RATE_LIMIT",
+                      "AC_QR_REGEN_RATE_LIMIT"):
+            self.assertNotIn(
+                f"limit={other}", single_src,
+                f"single KHÔNG tái dùng định-danh hằng khác ({other})")
+
+    # ── Decorator-presence guard (chống tái-gỡ âm thầm) ─────────────────────
+    def test_get_asset_label_data_has_rate_limit_decorator(self):
+        """introspect: get_asset_label_data có wrapper rate_limit (parity batch/mark)."""
+        import inspect
+        from assetcore.api import imm00 as _api
+        single_src = inspect.getsource(getattr(_api, "get_asset_label_data"))
+        self.assertIn("@rate_limit", single_src,
+                      "get_asset_label_data PHẢI mang @rate_limit (Vòng 36 / BR-00-51)")
+        self.assertIn("AC_LABEL_DATA_RATE_LIMIT", single_src,
+                      "single dùng hằng RIÊNG AC_LABEL_DATA_RATE_LIMIT")
+        # decorator đặt GIỮA @frappe.whitelist() và def (bọc NGOÀI thân → 429 TRƯỚC rbac).
+        wl_pos = single_src.find("@frappe.whitelist()")
+        rl_pos = single_src.find("@rate_limit")
+        def_pos = single_src.find("def get_asset_label_data")
+        self.assertTrue(
+            0 <= wl_pos < rl_pos < def_pos,
+            "@rate_limit PHẢI nằm GIỮA @frappe.whitelist() và def (bọc ngoài thân)")
+        # wrapper thực sự bọc handler (introspect __wrapped__ — closure rate_limit).
+        self.assertIsNot(
+            inspect.unwrap(getattr(_api, "get_asset_label_data")),
+            getattr(_api, "get_asset_label_data"),
+            "handler PHẢI bị wrap (rate_limit closure) — __wrapped__ tồn tại")
+
+    # ── single: ≤N call → 200 + mint idempotent CHẠY (token-less → qr_url≠rỗng) ──
+    def test_label_data_under_limit_ok(self):
+        """user CÓ asset.print + asset token-less → 200, qr_url≠rỗng (mint idempotent
+        VẪN chạy dưới ngưỡng); request đầu KHÔNG bị 429."""
+        from assetcore.api.imm00 import (
+            get_asset_label_data, AC_LABEL_DATA_RATE_LIMIT as N)
+        asset = self._make_asset("under")
+        # Token-less: xoá qr_token để ép nhánh mint (ensure_asset_qr_token) chạy.
+        frappe.db.set_value("AC Asset", asset.name,
+                            {"qr_token": None}, update_modified=False)
+        cmd = self._CMD_SINGLE
+        # request đầu — KHÔNG 429, mint side-effect chạy → token sinh ra.
+        env, exc = self._http_call(get_asset_label_data, cmd, asset=asset.name)
+        self.assertIsNone(exc, f"request đầu (≤N) KHÔNG throttle: {exc!r}")
+        self.assertTrue(env["success"], "asset token-less ≤N → 200")
+        self.assertIn("qr_url", env["data"])
+        self.assertTrue(env["data"]["qr_url"], "qr_url KHÔNG rỗng (mint idempotent)")
+        self.assertIn("/a/", env["data"]["qr_url"],
+                      "qr_url chứa deep-link /a/<token> (mint đã sinh token)")
+        # token đã GHI vào DB (mint side-effect chạy dưới ngưỡng).
+        self.assertTrue(
+            frappe.db.get_value("AC Asset", asset.name, "qr_token"),
+            "ensure_asset_qr_token đã mint token cho asset token-less (dưới ngưỡng)")
+        # các call còn lại trong window (≤N) cũng KHÔNG 429.
+        for i in range(N - 1):
+            env_i, exc_i = self._http_call(get_asset_label_data, cmd, asset=asset.name)
+            self.assertIsNone(exc_i, f"single call #{i+2} (≤N) KHÔNG throttle: {exc_i!r}")
+            self.assertTrue(env_i["success"], f"single call #{i+2} ≤N → 200")
+
+    # ── single: call N+1 → 429, 0 byte payload + 0 mint side-effect ─────────
+    def test_label_data_over_limit_429_no_side_effect(self):
+        from assetcore.api.imm00 import (
+            get_asset_label_data, AC_LABEL_DATA_RATE_LIMIT as N)
+        asset = self._make_asset("over")
+        # token-less để chứng minh 429 → KHÔNG mint (0 qr_generated MỚI).
+        frappe.db.set_value("AC Asset", asset.name,
+                            {"qr_token": None}, update_modified=False)
+        cmd = self._CMD_SINGLE
+        first_exc = self._drain(get_asset_label_data, cmd, N, asset=asset.name)
+        self.assertIsNone(first_exc,
+                          f"{N} call single đầu KHÔNG throttle: {first_exc!r}")
+        # Đo qr_generated TRƯỚC call vượt trần (mint đã xảy ra ở call đầu — idempotent).
+        qrgen_before = frappe.db.count(
+            "Asset Lifecycle Event",
+            {"asset": asset.name, "event_type": self._ALE_QR_GEN})
+        env, exc = self._http_call(get_asset_label_data, cmd, asset=asset.name)
+        self.assertIsNotNone(exc, f"single call thứ {N+1} PHẢI raise 429 (vượt trần)")
+        self.assertIsInstance(
+            exc, (frappe.RateLimitExceededError, frappe.TooManyRequestsError),
+            f"vượt trần → 429, KHÔNG {type(exc).__name__}")
+        self.assertEqual(getattr(exc, "http_status_code", None), 429)
+        self.assertIsNone(env, "429 KHÔNG trả payload (build_asset_label_data KHÔNG chạy)")
+        qrgen_after = frappe.db.count(
+            "Asset Lifecycle Event",
+            {"asset": asset.name, "event_type": self._ALE_QR_GEN})
+        self.assertEqual(qrgen_after, qrgen_before,
+                         "429 → 0 qr_generated MỚI (mint-token side-effect KHÔNG chạy)")
+
+    # ── single / batch = 2 bucket RIÊNG (cache key gồm cmd) ─────────────────
+    def test_label_data_bucket_isolated_from_batch(self):
+        """Vắt kiệt bucket single (chạm trần >N → 429 ở single) KHÔNG đẩy counter
+        batch lên 429 ở call đầu (bucket riêng theo cmd) — chống chặn nhầm cross-
+        endpoint (1 endpoint vượt ngưỡng KHÔNG khoá endpoint khác)."""
+        from assetcore.api.imm00 import (
+            get_asset_label_data, get_asset_label_data_batch,
+            AC_LABEL_DATA_RATE_LIMIT as NS)
+        asset = self._make_asset("isobucket")
+        # vắt kiệt bucket single (N+2 → vượt trần ở single).
+        self._drain(get_asset_label_data, self._CMD_SINGLE, NS + 2, asset=asset.name)
+        # batch bucket RIÊNG → call đầu vẫn 200 (KHÔNG kế thừa counter single).
+        env, exc = self._http_call(
+            get_asset_label_data_batch, self._CMD_BATCH, assets=[asset.name])
+        self.assertIsNone(exc, f"batch bucket riêng → call đầu KHÔNG 429: {exc!r}")
+        self.assertTrue(env["success"], "batch vẫn 200 trong cùng cửa sổ (counter tách)")
+
+    # ── single → batch KHÔNG bị throttle (single hammer KHÔNG khoá batch) ───
+    def test_label_data_over_limit_does_not_lock_batch(self):
+        """Sau khi single đã 429, batch (cmd khác) vẫn phục vụ N call đầu — kiểm
+        bất biến tách-bucket bền hơn 1 call."""
+        from assetcore.api.imm00 import (
+            get_asset_label_data, get_asset_label_data_batch,
+            AC_LABEL_DATA_RATE_LIMIT as NS)
+        asset = self._make_asset("nolock")
+        self._drain(get_asset_label_data, self._CMD_SINGLE, NS + 2, asset=asset.name)
+        # single bây giờ đã vượt trần.
+        _, exc_s = self._http_call(get_asset_label_data, self._CMD_SINGLE, asset=asset.name)
+        self.assertIsInstance(
+            exc_s, (frappe.RateLimitExceededError, frappe.TooManyRequestsError),
+            "tiền đề: single đã vượt trần (429)")
+        # batch vẫn phục vụ vài call đầu (≤ trần batch=20) KHÔNG 429.
+        for i in range(3):
+            env_b, exc_b = self._http_call(
+                get_asset_label_data_batch, self._CMD_BATCH, assets=[asset.name])
+            self.assertIsNone(exc_b, f"batch call #{i+1} KHÔNG bị khoá bởi single: {exc_b!r}")
+            self.assertTrue(env_b["success"])
+
+    # ── Gate-order giữ nguyên dưới ngưỡng: 403(rbac)/404/403(IDOR) ──────────
+    def test_label_data_gate_order_unchanged_no_print_403(self):
+        """thiếu asset.print (Guest) DƯỚI ngưỡng → 403 (KHÔNG 200, KHÔNG 429).
+        Decorator KHÔNG nuốt RBAC khi chưa trần — gate-order GIỮ NGUYÊN."""
+        from assetcore.api.imm00 import get_asset_label_data
+        from assetcore.services.shared import rbac
+        asset = self._make_asset("noprint")
+        cmd = self._CMD_SINGLE
+        frappe.set_user("Guest")
+        try:
+            self.assertFalse(rbac.can("asset.print"),
+                             "tiền đề: Guest KHÔNG có asset.print")
+            _, exc = self._http_call(get_asset_label_data, cmd, asset=asset.name)
+            self.assertIsInstance(
+                exc, frappe.PermissionError,
+                f"≤N + thiếu asset.print → 403, KHÔNG {type(exc).__name__}")
+        finally:
+            frappe.set_user("Administrator")
+
+    def test_label_data_gate_order_unchanged_missing_404(self):
+        """asset rỗng/∄ DƯỚI ngưỡng → 404 leak-safe (KHÔNG 200, KHÔNG 500)."""
+        from assetcore.api.imm00 import get_asset_label_data
+        cmd = self._CMD_SINGLE
+        # (a) asset ∄
+        env, exc = self._http_call(
+            get_asset_label_data, cmd, asset="AC-ASSET-NONEXISTENT-LDRL-ZZZ")
+        self.assertIsNone(exc, f"asset ∄ KHÔNG raise (404 leak-safe): {exc!r}")
+        self.assertFalse(env["success"])
+        self.assertEqual(env["http_status"], 404, "asset ∄ → 404")
+        # (b) asset rỗng
+        env2, exc2 = self._http_call(get_asset_label_data, cmd, asset="")
+        self.assertIsNone(exc2, f"asset rỗng KHÔNG raise: {exc2!r}")
+        self.assertFalse(env2["success"])
+        self.assertEqual(env2["http_status"], 404, "asset rỗng → 404")
+
+    # ── single: 429 chạy TRƯỚC rbac.require("asset.print") ──────────────────
+    def test_label_data_429_runs_before_rbac(self):
+        """User KHÔNG asset.print (Guest), dội >N → call vượt trần → 429 (KHÔNG
+        403). Decorator @rate_limit bọc NGOÀI thân → counter+throw TRƯỚC
+        rbac.require("asset.print"). Đồng nhất precedent batch/mark/rotate."""
+        from assetcore.api.imm00 import (
+            get_asset_label_data, AC_LABEL_DATA_RATE_LIMIT as N)
+        from assetcore.services.shared import rbac
+        asset = self._make_asset("order")
+        cmd = self._CMD_SINGLE
+        frappe.set_user("Guest")
+        try:
+            self.assertFalse(rbac.can("asset.print"),
+                             "tiền đề: Guest KHÔNG có asset.print")
+            # ≤N: thiếu print → 403 (RBAC sau RL khi chưa trần).
+            _, exc_under = self._http_call(get_asset_label_data, cmd, asset=asset.name)
+            self.assertIsInstance(
+                exc_under, frappe.PermissionError,
+                "≤N + thiếu asset.print → 403 (RBAC sau RL khi chưa trần)")
+            # Dội cho vượt trần (counter tăng kể cả khi thân raise 403).
+            for _ in range(N):
+                self._http_call(get_asset_label_data, cmd, asset=asset.name)
+            _, exc_over = self._http_call(get_asset_label_data, cmd, asset=asset.name)
+            self.assertIsInstance(
+                exc_over,
+                (frappe.RateLimitExceededError, frappe.TooManyRequestsError),
+                f"vượt trần → 429 TRƯỚC PermissionError, KHÔNG {type(exc_over).__name__}")
+        finally:
+            frappe.set_user("Administrator")
+
+    # ── single: 429 no-leak (KHÔNG name/asset_code/serial) ──────────────────
+    def test_label_data_429_no_leak(self):
+        from assetcore.api.imm00 import (
+            get_asset_label_data, AC_LABEL_DATA_RATE_LIMIT as N)
+        asset = self._make_asset("noleak")
+        cmd = self._CMD_SINGLE
+        self._drain(get_asset_label_data, cmd, N, asset=asset.name)
+        _, exc = self._http_call(get_asset_label_data, cmd, asset=asset.name)
+        self.assertIsNotNone(exc, "call single vượt trần PHẢI raise 429")
+        msg = str(getattr(exc, "message", "") or "") + str(exc)
+        for leak in (asset.name, asset.asset_code, asset.manufacturer_sn):
+            self.assertNotIn(leak, msg,
+                             "429 message KHÔNG leak name/asset_code/serial")
+
+    # ── Bypass test/CLI có chủ đích — gọi TRỰC TIẾP (no frappe.request) ─────
+    def test_label_data_no_request_context_bypasses(self):
+        """Gọi single TRỰC TIẾP >N lần (KHÔNG set frappe.local.request) → KHÔNG 429
+        (wrapper `if not frappe.request: return fn`). Đảm bảo suite cũ
+        (TestGetAssetLabelData — gọi trực tiếp) KHÔNG regress."""
+        from assetcore.api.imm00 import (
+            get_asset_label_data, AC_LABEL_DATA_RATE_LIMIT as N)
+        asset = self._make_asset("bypass")
+        had_req = getattr(frappe.local, "request", None)
+        frappe.local.request = None
+        try:
+            for _ in range(N + 5):
+                resp = get_asset_label_data(asset=asset.name)
+                self.assertTrue(resp["success"],
+                                "single trực tiếp (no request) → KHÔNG bao giờ 429")
+        finally:
+            frappe.local.request = had_req
+
+    # ── Regression — CAP_SET_VERSION KHÔNG đổi (decorator KHÔNG thêm cap) ───
+    def test_cap_set_version_unchanged(self):
+        from assetcore.services.shared.rbac import CAP_SET_VERSION
+        self.assertEqual(
+            CAP_SET_VERSION, "v97.c30c69b8974d",
+            "@rate_limit lên single KHÔNG đổi CAPABILITY_MAP; giá trị hiện hành "
+            "v97.c30c69b8974d (sau D6 tách asset.print/asset.qr.rotate)")
 
 
 # ─── B (hardening) — base-URL công khai cấu hình được cho deep-link QR ─────────
@@ -5134,12 +9101,12 @@ class TestQrBaseUrl(unittest.TestCase):
                 _purge_asset(n)
             frappe.db.commit()
 
-    # (9) regression: cap-set version vẫn v95.3388ee5629c1 (KHÔNG cap change).
+    # (9) regression: cap-set version hiện hành v97.c30c69b8974d (sau D6).
     def test_cap_set_version_unchanged(self):
         from assetcore.services.shared.rbac import CAP_SET_VERSION
         self.assertEqual(
-            CAP_SET_VERSION, "v95.3388ee5629c1",
-            "base-URL deep-link là logic dựng URL — KHÔNG thêm cap/field/DocType")
+            CAP_SET_VERSION, "v97.c30c69b8974d",
+            "base-URL deep-link là logic dựng URL — KHÔNG thêm cap (D6 mới đổi version)")
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -5151,7 +9118,8 @@ class TestQrBaseUrl(unittest.TestCase):
 # get_asset_timeline, get_asset_kpi, list_assets đều KHÔNG có qr_token/token.
 # Deep-link vẫn dùng qua qr_url (build_asset_label_data server-side, A3/A4).
 # Test-case RED viết TRƯỚC fix (test_get_asset_no_raw_qr_token fail vì as_dict
-# leak). KHÔNG cap/field/DocType/enum mới → CAP_SET_VERSION GIỮ v95.3388ee5629c1.
+# leak). KHÔNG cap/field/DocType/enum mới ở vòng này (CAP_SET_VERSION hiện hành
+# v97.c30c69b8974d — D6 tách asset.print/asset.qr.rotate mới đổi version).
 # ──────────────────────────────────────────────────────────────────────────
 class TestGetAssetNoRawQrToken(unittest.TestCase):
     """B — no-raw-token parity MỌI đường đọc AC Asset (ADR-001 D4 rule 9)."""
@@ -5432,8 +9400,3140 @@ class TestGetAssetNoRawQrToken(unittest.TestCase):
         """strip qr_token = logic API-response — KHÔNG cap/field/DocType/enum."""
         from assetcore.services.shared.rbac import CAP_SET_VERSION
         self.assertEqual(
-            CAP_SET_VERSION, "v95.3388ee5629c1",
-            "no-raw-token strip KHÔNG thêm cap → CAP_SET_VERSION GIỮ nguyên")
+            CAP_SET_VERSION, "v97.c30c69b8974d",
+            "no-raw-token strip KHÔNG thêm cap; giá trị hiện hành v97.c30c69b8974d (sau D6)")
+
+
+class TestGetAssetIdentityPayload(unittest.TestCase):
+    """[V1-E] BE guard — get_asset PHẢI trả CẢ 2 key định danh: asset_code
+    ('Mã tài sản' = PK) VÀ manufacturer_sn ('Số serial NSX' = field nghiệp vụ).
+
+    CONTEXT (ADR-IMM00-ASSETCODE §D1/D4): màn AssetDetailView (FE) hiển thị 2 hàng
+    TÁCH BẠCH 'Mã tài sản' (asset_code, fallback name) và 'Số serial NSX'
+    (manufacturer_sn). FE chỉ render — KHÔNG derive. ⇒ Contract đọc-asset PHẢI luôn
+    surface 2 key NÀY, nếu không UI rớt trường định danh (regression im lặng).
+
+    Guard = KEY-PRESENCE (không phụ thuộc GIÁ TRỊ): chống regress nếu ai đó sửa
+    fields-list / _strip_qr_token / as_dict làm rớt 1 trong 2 key. get_asset trả full
+    doc via _strip_qr_token(frappe.get_doc(...).as_dict()) (api/imm00.py L294) ⇒ kỳ
+    vọng GREEN ngay (no-op BE — chỉ khoá contract). Đỏ ⇒ root-cause bổ sung key.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": "Thiết bị Định danh (V1-E)",
+            "description": "Category cho test identity-payload get_asset",
+            "is_active": 1,
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        frappe.delete_doc("AC Asset Category", cls.cat.name,
+                          force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self._created: list[str] = []
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+        frappe.db.rollback()
+        for name in self._created:
+            _purge_asset(name)
+        frappe.db.commit()
+
+    def _make_asset(self, *, with_serial=True):
+        import uuid
+        uniq = uuid.uuid4().hex[:8]
+        data = {
+            "doctype": "AC Asset",
+            "asset_name": f"Máy Định danh {uniq}",
+            "asset_category": self.cat.name,
+            "asset_code": f"IDP-ASSET-{uniq}",
+            "lifecycle_status": "Active",
+        }
+        if with_serial:
+            data["manufacturer_sn"] = f"IDP-SN-{uniq}"
+        doc = _insert_asset_bypass_workflow(data)
+        self._created.append(doc.name)
+        return doc
+
+    def test_get_asset_payload_has_identity_keys(self):
+        """KEY-PRESENCE: payload chứa CẢ 'asset_code' VÀ 'manufacturer_sn'."""
+        from assetcore.api.imm00 import get_asset
+        asset = self._make_asset(with_serial=True)
+        resp = get_asset(name=asset.name)
+        self.assertTrue(resp["success"], "asset tồn tại → success")
+        data = resp["data"]
+        self.assertIn("asset_code", data,
+                      "get_asset PHẢI trả key 'asset_code' (Mã tài sản — ADR D4)")
+        self.assertIn("manufacturer_sn", data,
+                      "get_asset PHẢI trả key 'manufacturer_sn' (Số serial NSX — ADR D4)")
+        # value-parity (định danh không bị clobber/đổi qua tầng API)
+        self.assertEqual(data["asset_code"], asset.asset_code)
+        self.assertEqual(data["manufacturer_sn"], asset.manufacturer_sn)
+
+    def test_identity_keys_present_even_when_serial_empty(self):
+        """Key-presence ĐỘC LẬP giá trị: serial rỗng → key VẪN có mặt (value rỗng),
+        KHÔNG bị as_dict bỏ key ⇒ FE luôn render hàng 'Số serial NSX' (fallback '—')."""
+        from assetcore.api.imm00 import get_asset
+        asset = self._make_asset(with_serial=False)
+        data = get_asset(name=asset.name)["data"]
+        self.assertIn("asset_code", data)
+        self.assertIn("manufacturer_sn", data,
+                      "key 'manufacturer_sn' PHẢI có mặt kể cả khi giá trị rỗng")
+        # asset_code == name (invariant D5) → fallback FE an toàn
+        self.assertEqual(data["asset_code"], asset.name)
+
+
+_AC_ASSET_NAME_RE = re.compile(r"^AC-ASSET-\d{4}-\d{5}$")
+
+
+class TestACAssetCodeNaming(unittest.TestCase):
+    """QA-1..5 — định danh tài sản: autoname 2 nhánh + asset_code DB-unique/immutable
+    + manufacturer_sn app-unique/mutable.
+
+    Phủ ĐỦ acceptance V1-GATE asset-code (ADR-IMM00-ASSETCODE D1–D5):
+      - QA-1 autoname 2 nhánh (trống→series ^AC-ASSET-\\d{4}-\\d{5}$ & asset_code==name;
+        nhập 'TS-LAB-001'→name=='TS-LAB-001' & asset_code=='TS-LAB-001').
+      - QA-2 asset_code DB-unique + IMMUTABLE sau tạo (đổi rồi save → throw).
+      - QA-3 manufacturer_sn app-unique nhưng MUTABLE (đổi sang giá trị mới → OK).
+      - QA-4 KHÔNG default-theo-serial (manufacturer_sn có, asset_code trống →
+        auto-gen series, KHÔNG copy serial).
+      - QA-5 invariant asset_code==name cho CẢ 2 nhánh tạo.
+      - Pattern reject (khoảng trắng / ký tự lạ) + whitespace trim.
+
+    Tự dọn fixture qua addCleanup(_purge_asset) ⇒ chạy lặp 2 lần vẫn GREEN, no leak,
+    no real-data collision (mọi mã test mang prefix run-token duy nhất).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": "Thiết bị chẩn đoán hình ảnh — Định danh test",
+        }).insert(ignore_permissions=True)
+
+    @classmethod
+    def tearDownClass(cls):
+        _purge_category("Thiết bị chẩn đoán hình ảnh — Định danh test")
+
+    def setUp(self):
+        # Run-token duy nhất / phương thức test → mọi asset_code & serial test
+        # KHÔNG đụng data thật và KHÔNG đụng nhau khi chạy lặp.
+        self._tok = frappe.generate_hash(length=6).upper()
+
+    def _new_asset(self, **overrides):
+        """Tạo AC Asset tối thiểu qua đường chuẩn (KHÔNG bypass autoname/validate).
+
+        addCleanup ⇒ tự purge dù test pass/fail. lifecycle_status để mặc định
+        (Draft) — autoname/validate chạy đầy đủ như production create flow.
+        """
+        data = {
+            "doctype": "AC Asset",
+            "asset_name": f"Asset định danh {self._tok}",
+            "asset_category": self.cat.name,
+        }
+        data.update(overrides)
+        doc = frappe.get_doc(data).insert(ignore_permissions=True)
+        self.addCleanup(_purge_asset, doc.name)
+        return doc
+
+    # ── QA-1 (a) autoname blank → series ──────────────────────────────────────
+    def test_autoname_blank_generates_series(self):
+        asset = self._new_asset()  # KHÔNG truyền asset_code
+        self.assertRegex(
+            asset.name, _AC_ASSET_NAME_RE,
+            "asset_code trống → name phải khớp ^AC-ASSET-\\d{4}-\\d{5}$",
+        )
+        self.assertEqual(asset.asset_code, asset.name,
+                         "QA-1a: asset_code phải == name sau auto-gen")
+
+    # ── QA-1 (b) autoname supplied → name == code ─────────────────────────────
+    def test_autoname_supplied_used_as_name(self):
+        code = f"TS-LAB-{self._tok}"
+        asset = self._new_asset(asset_code=code)
+        self.assertEqual(asset.name, code, "QA-1b: name phải == asset_code đã nhập")
+        self.assertEqual(asset.asset_code, code,
+                         "QA-1b: asset_code giữ nguyên giá trị nhập")
+
+    # ── QA-2 asset_code DB-unique (collision) ─────────────────────────────────
+    def test_asset_code_db_unique_collision_throws(self):
+        code = f"TS-DUP-{self._tok}"
+        self._new_asset(asset_code=code)
+        with self.assertRaises((frappe.DuplicateEntryError, frappe.ValidationError)):
+            self._new_asset(asset_code=code)
+
+    # ── QA-2 asset_code IMMUTABLE sau tạo ─────────────────────────────────────
+    def test_asset_code_immutable_after_create(self):
+        asset = self._new_asset(asset_code=f"TS-IMM-{self._tok}")
+        asset.asset_code = f"TS-IMM2-{self._tok}"
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            asset.save(ignore_permissions=True)
+        self.assertIn("không thể thay đổi", str(ctx.exception),
+                      "throw phải nói rõ asset_code immutable")
+
+    # ── QA-3 manufacturer_sn app-unique (collision) ──────────────────────────
+    def test_manufacturer_sn_app_unique_collision_throws(self):
+        serial = f"SN-DUP-{self._tok}"
+        asset_a = self._new_asset(manufacturer_sn=serial)
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            self._new_asset(manufacturer_sn=serial)
+        msg = str(ctx.exception)
+        # ADR-IMM00-ASSETCODE D4: nhãn VI 'Số serial NSX', KHÔNG lead-EN 'Serial number'.
+        self.assertIn("Số serial NSX", msg,
+                      "throw phải dùng nhãn VI 'Số serial NSX' (ADR D4) — parity import_validators")
+        self.assertNotIn("Serial number", msg,
+                         "KHÔNG còn lead-EN 'Serial number' trong message dup-serial")
+        # No-leak định danh chéo: KHÔNG nhúng asset_code/name (PK) của tài sản KHÁC.
+        self.assertNotIn(asset_a.name, msg,
+                         "message KHÔNG được lộ PK (name/asset_code) của asset thứ nhất")
+        # Serial chính chủ (giá trị user vừa nhập) vẫn hiện để người dùng nhận biết.
+        self.assertIn(serial, msg,
+                      "message phải chứa chính giá trị serial người dùng vừa nhập")
+
+    # ── QA-3 manufacturer_sn MUTABLE (đổi sang giá trị mới → OK) ──────────────
+    def test_manufacturer_sn_mutable_ok(self):
+        asset = self._new_asset(manufacturer_sn=f"SN-OLD-{self._tok}")
+        new_serial = f"SN-NEW-{self._tok}"
+        asset.manufacturer_sn = new_serial
+        asset.save(ignore_permissions=True)  # KHÔNG throw
+        asset.reload()
+        self.assertEqual(asset.manufacturer_sn, new_serial,
+                         "QA-3: manufacturer_sn mutable — đổi giá trị mới phải lưu được")
+
+    # ── QA-4 KHÔNG default-theo-serial ───────────────────────────────────────
+    def test_blank_code_not_defaulted_from_serial(self):
+        serial = f"SN-XYZ-{self._tok}"
+        asset = self._new_asset(manufacturer_sn=serial)  # asset_code TRỐNG
+        self.assertRegex(
+            asset.asset_code, _AC_ASSET_NAME_RE,
+            "QA-4: asset_code trống → auto-gen series, KHÔNG copy serial",
+        )
+        self.assertNotEqual(asset.asset_code, serial,
+                            "QA-4: asset_code KHÔNG được lấy từ manufacturer_sn")
+        self.assertEqual(asset.asset_code, asset.name)
+
+    # ── QA-5 invariant asset_code == name cho CẢ 2 nhánh ─────────────────────
+    def test_invariant_asset_code_equals_name_both_branches(self):
+        blank = self._new_asset()
+        self.assertEqual(blank.asset_code, blank.name,
+                         "QA-5 nhánh trống: asset_code == name")
+        supplied = self._new_asset(asset_code=f"TS-INV-{self._tok}")
+        self.assertEqual(supplied.asset_code, supplied.name,
+                         "QA-5 nhánh nhập: asset_code == name")
+
+    # ── Pattern reject (khoảng trắng / ký tự lạ) ─────────────────────────────
+    def test_asset_code_pattern_reject(self):
+        for bad in (f"TS {self._tok}", f"TS#{self._tok}"):
+            with self.subTest(bad=bad):
+                with self.assertRaises(frappe.ValidationError) as ctx:
+                    self._new_asset(asset_code=bad)
+                self.assertIn("Mã tài sản chỉ được chứa", str(ctx.exception))
+
+    # ── Whitespace trim ──────────────────────────────────────────────────────
+    def test_asset_code_whitespace_trimmed(self):
+        code = f"TS-WS-{self._tok}"
+        asset = self._new_asset(asset_code=f"  {code}  ")
+        self.assertEqual(asset.name, code,
+                         "asset_code có khoảng trắng đầu/cuối → trim trước khi làm name")
+        self.assertEqual(asset.asset_code, code)
+
+
+class TestCreateAssetEndpoint(unittest.TestCase):
+    """V1-B — api.imm00.create_asset (endpoint-level, đường HTTP create thực).
+
+    Phủ 2 P1 (eval 2026-06-08):
+      - B1: dup asset_code trên INSERT → 422 + VI 'đã tồn tại', KHÔNG 409 raw
+        'DuplicateEntryError'/'Duplicate entry'/key 'PRIMARY'. Friendly check fire
+        TRƯỚC khi chạm DB PRIMARY. Lần 2 fail → KHÔNG để row rác.
+      - B2: thiếu Danh mục (asset_category) → 422 + nhãn VI 'Danh mục', KHÔNG lộ
+        dev-string '[AC Asset' / 'asset_category' raw / 'MandatoryError'.
+    + regression: blank code auto-gen series; explicit code verbatim; immutable
+      vẫn chặn ở nhánh update.
+
+    setUp dùng run-token duy nhất ⇒ chạy lặp GREEN, no real-data collision; mọi
+    asset tạo qua endpoint được addCleanup(_purge_asset).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": "Danh mục test create_asset endpoint",
+        }).insert(ignore_permissions=True)
+
+    @classmethod
+    def tearDownClass(cls):
+        _purge_category("Danh mục test create_asset endpoint")
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self._tok = frappe.generate_hash(length=6).upper()
+        self._saved_form_dict = getattr(frappe.local, "form_dict", None)
+
+    def tearDown(self):
+        frappe.local.form_dict = self._saved_form_dict or frappe._dict()
+
+    def _call_create(self, **fields) -> dict:
+        """Gọi create_asset như HTTP layer: nạp form_dict rồi invoke endpoint."""
+        from assetcore.api.imm00 import create_asset
+        payload = {"cmd": "assetcore.api.imm00.create_asset"}
+        payload.update(fields)
+        frappe.local.form_dict = frappe._dict(payload)
+        resp = create_asset()
+        if resp.get("success") and resp.get("data", {}).get("name"):
+            self.addCleanup(_purge_asset, resp["data"]["name"])
+        return resp
+
+    @staticmethod
+    def _blob(resp: dict) -> str:
+        """Toàn bộ message + envelope → chuỗi để assert no-raw-leak."""
+        return str(resp)
+
+    # ── B1: dup asset_code trên INSERT → VI 422, KHÔNG raw 409 ────────────────
+    def test_create_asset_dup_asset_code_on_insert_returns_vi_422(self):
+        code = f"TS-LAB-{self._tok}"
+        first = self._call_create(asset_name=f"Asset A {self._tok}",
+                                   asset_category=self.cat.name, asset_code=code)
+        self.assertTrue(first.get("success"), f"lần 1 phải tạo OK: {first}")
+
+        second = self._call_create(asset_name=f"Asset B {self._tok}",
+                                    asset_category=self.cat.name, asset_code=code)
+        self.assertFalse(second.get("success"), "lần 2 (trùng code) phải fail")
+        self.assertEqual(second.get("http_status"), 422,
+                         f"dup asset_code phải trả 422, nhận: {second}")
+        self.assertIn("đã tồn tại", second.get("error", ""),
+                      "message phải là VI thân thiện 'đã tồn tại'")
+        blob = self._blob(second)
+        for leak in ("DuplicateEntry", "Duplicate entry", "PRIMARY", "MandatoryError"):
+            self.assertNotIn(leak, blob, f"KHÔNG được lộ raw dev-string '{leak}'")
+
+    def test_create_asset_dup_asset_code_no_orphan_row(self):
+        code = f"TS-ORP-{self._tok}"
+        self._call_create(asset_name=f"Asset orp {self._tok}",
+                          asset_category=self.cat.name, asset_code=code)
+        self._call_create(asset_name=f"Asset orp2 {self._tok}",
+                          asset_category=self.cat.name, asset_code=code)
+        self.assertEqual(
+            frappe.db.count("AC Asset", {"asset_code": code}), 1,
+            "lần 2 fail KHÔNG được tạo row rác — vẫn đúng 1 asset mang code này",
+        )
+
+    # ── B2: thiếu Danh mục → VI 422, KHÔNG lộ dev-string ──────────────────────
+    def test_create_asset_missing_category_returns_vi_422(self):
+        resp = self._call_create(asset_name=f"Asset no-cat {self._tok}")
+        self.assertFalse(resp.get("success"), "thiếu category phải fail")
+        self.assertEqual(resp.get("http_status"), 422,
+                         f"thiếu category phải 422, nhận: {resp}")
+        self.assertIn("Danh mục", resp.get("error", ""),
+                      "message phải chứa nhãn VI 'Danh mục'")
+        blob = self._blob(resp)
+        for leak in ("[AC Asset", "MandatoryError", "AC-ASSET-2026"):
+            self.assertNotIn(leak, blob, f"KHÔNG lộ dev-string '{leak}'")
+        # 'asset_code'/'asset_category' raw fieldname KHÔNG được nằm trong message VI
+        self.assertNotIn("asset_category", resp.get("error", ""),
+                         "message VI KHÔNG được chứa raw fieldname")
+
+    def test_create_asset_missing_name_returns_vi_422(self):
+        resp = self._call_create(asset_category=self.cat.name)
+        self.assertFalse(resp.get("success"))
+        self.assertEqual(resp.get("http_status"), 422)
+        self.assertIn("Tên tài sản", resp.get("error", ""),
+                      "thiếu asset_name → nhãn VI 'Tên tài sản'")
+        self.assertNotIn("MandatoryError", self._blob(resp))
+
+    # ── Regression: auto-gen + verbatim + immutable ───────────────────────────
+    def test_create_asset_blank_code_autogen_unchanged(self):
+        resp = self._call_create(asset_name=f"Asset autogen {self._tok}",
+                                  asset_category=self.cat.name)  # asset_code TRỐNG
+        self.assertTrue(resp.get("success"), f"auto-gen phải OK: {resp}")
+        name = resp["data"]["name"]
+        self.assertRegex(name, _AC_ASSET_NAME_RE,
+                         "asset_code trống → name khớp ^AC-ASSET-\\d{4}-\\d{5}$")
+        self.assertEqual(frappe.db.get_value("AC Asset", name, "asset_code"), name,
+                         "asset_code == name sau auto-gen")
+
+    def test_create_asset_explicit_code_verbatim(self):
+        code = f"TS-NEW-{self._tok}"
+        resp = self._call_create(asset_name=f"Asset verbatim {self._tok}",
+                                  asset_category=self.cat.name, asset_code=code)
+        self.assertTrue(resp.get("success"), f"explicit code phải OK: {resp}")
+        self.assertEqual(resp["data"]["name"], code,
+                         "asset_code hợp lệ → dùng verbatim làm name")
+
+    def test_validate_unique_asset_code_update_immutable_still_blocks(self):
+        code = f"TS-UPD-{self._tok}"
+        resp = self._call_create(asset_name=f"Asset upd {self._tok}",
+                                  asset_category=self.cat.name, asset_code=code)
+        self.assertTrue(resp.get("success"))
+        doc = frappe.get_doc("AC Asset", resp["data"]["name"])
+        doc.asset_code = f"TS-UPD2-{self._tok}"
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            doc.save(ignore_permissions=True)
+        self.assertIn("không thể thay đổi", str(ctx.exception),
+                      "đổi asset_code trên doc đã tồn tại vẫn throw VI immutable")
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# ADR-IMM00-LABEL-PDF (V1) — pipeline sinh PDF nhãn QR đúng khổ tem 60×100mm.
+# TDD RED viết TRƯỚC impl. 11 case map D1–D8:
+#  (1) service render → bytes %PDF-; (2) options dict 60×100mm+margin0+portrait;
+#  (3) N asset → N trang (HTML N block + N-1 page-break); (4) QR encode qr_url,
+#  HTML KHÔNG chứa qr_token thô; (5) cap-403 no-print → KHÔNG PDF/DB;
+#  (6) IDOR vendor ngoài scope → 403 toàn call; (7) >200 → 413 SAU rbac no-leak;
+#  (8) list rỗng → 422; (9) asset∄ trong batch → ô lỗi an toàn KHÔNG vỡ;
+#  (10) render KHÔNG ghi label_printed; (11) preset lạ → 422 + field thiếu OK.
+# ──────────────────────────────────────────────────────────────────────────
+
+
+class TestLabelPdfPipeline(unittest.TestCase):
+    """V1 — endpoint+service sinh PDF nhãn QR khổ tem nhiệt 60×100mm (ADR-LABEL-PDF)."""
+
+    _CATEGORY_NAME = "Thiết bị PDF Nhãn (LABEL-PDF V1)"
+    # Role có print=1 (DocPerm) NHƯNG vendor-scope → qua gate PRINT, đập IDOR sau.
+    _IDOR_USER = "be_labelpdf_idor@example.com"
+    # Role KHÔNG có print=1 trên AC Asset → thiếu cap asset.print → 403.
+    _NOPRINT_USER = "be_labelpdf_noprint@example.com"
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        _orphan = frappe.db.get_value(
+            "AC Asset Category", {"category_name": cls._CATEGORY_NAME}, "name")
+        if _orphan:
+            frappe.delete_doc("AC Asset Category", _orphan, force=True,
+                              ignore_permissions=True)
+        cls.cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": cls._CATEGORY_NAME,
+            "description": "Category cho test pipeline PDF nhãn QR",
+            "is_active": 1,
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        for email in (cls._IDOR_USER, cls._NOPRINT_USER):
+            if frappe.db.exists("User", email):
+                frappe.delete_doc("User", email, force=True,
+                                  ignore_permissions=True)
+        frappe.delete_doc("AC Asset Category", cls.cat.name,
+                          force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self._created: list[str] = []
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+        frappe.db.rollback()
+        for name in self._created:
+            _purge_asset(name)
+        frappe.db.commit()
+
+    @staticmethod
+    def _ensure_user(email, roles):
+        if frappe.db.exists("User", email):
+            frappe.delete_doc("User", email, force=True, ignore_permissions=True)
+        u = frappe.get_doc({
+            "doctype": "User", "email": email,
+            "first_name": email.split("@")[0], "send_welcome_email": 0,
+        }).insert(ignore_permissions=True)
+        u.add_roles(*roles)
+        return u
+
+    def _make_asset(self, suffix="", **overrides):
+        import uuid
+        uniq = f"{suffix or '0001'}-{uuid.uuid4().hex[:8]}"
+        data = {
+            "doctype": "AC Asset",
+            "asset_name": f"Máy PDF Nhãn {uniq}",
+            "asset_category": self.cat.name,
+            "manufacturer_sn": f"PDF-SN-{uniq}",
+            "asset_code": f"PDF-ASSET-{uniq}",
+            "lifecycle_status": "Active",
+        }
+        data.update(overrides)
+        doc = _insert_asset_bypass_workflow(data)
+        self._created.append(doc.name)
+        return doc
+
+    def _count_label_events(self, asset_name):
+        return frappe.db.count("Asset Lifecycle Event",
+                               {"asset": asset_name, "event_type": "label_printed"})
+
+    # ── (1) D1 — service render trả bytes bắt đầu magic %PDF- ────────────────
+    def test_render_returns_pdf_magic_header(self):
+        from assetcore.services.imm00 import render_asset_labels_pdf
+        asset = self._make_asset("pdf1")
+        pdf = render_asset_labels_pdf([asset.name], "tem-60x100")
+        self.assertIsInstance(pdf, (bytes, bytearray),
+                              "render_asset_labels_pdf trả bytes")
+        self.assertTrue(bytes(pdf).startswith(b"%PDF-"),
+                        "PDF bytes PHẢI bắt đầu magic header %PDF-")
+
+    def test_endpoint_returns_pdf_via_response(self):
+        """D1 — endpoint set frappe.local.response PDF (KHÔNG _ok JSON dict)."""
+        from assetcore.api.imm00 import print_asset_labels_pdf
+        import base64
+        asset = self._make_asset("ep1")
+        frappe.local.response = frappe._dict()
+        ret = print_asset_labels_pdf(assets=[asset.name], preset="tem-60x100")
+        # thành công → KHÔNG trả JSON envelope (return None / không success-dict)
+        self.assertFalse(isinstance(ret, dict) and ret.get("success") is True,
+                         "thành công KHÔNG trả JSON success-dict (trả PDF qua response)")
+        self.assertEqual(frappe.local.response.get("type"), "pdf",
+                         "response.type = 'pdf' (Frappe set application/pdf)")
+        content = frappe.local.response.get("filecontent")
+        self.assertTrue(bytes(content).startswith(b"%PDF-"),
+                        "response.filecontent là PDF bytes magic %PDF-")
+        # parity với 'base64 decode bắt đầu %PDF-' (FE có thể base64 từ filecontent)
+        self.assertTrue(base64.b64decode(base64.b64encode(bytes(content)))
+                        .startswith(b"%PDF-"))
+
+    # ── (2) D5 — options dict đúng khổ tem 60×100mm + margin0 + portrait ─────
+    def test_pdf_options_page_size_60x100(self):
+        from assetcore.services.imm00 import _label_pdf_options
+        opt = _label_pdf_options("tem-60x100")
+        self.assertEqual(opt.get("page-width"), "60mm", "page-width 60mm")
+        self.assertEqual(opt.get("page-height"), "100mm", "page-height 100mm")
+        for m in ("margin-top", "margin-right", "margin-bottom", "margin-left"):
+            self.assertEqual(opt.get(m), "0mm",
+                             f"{m} = '0mm' (chuỗi truthy chống default 15mm)")
+        self.assertEqual(opt.get("orientation"), "Portrait", "khổ DỌC")
+        # F6 trap: margin KHÔNG được là 0/'' (falsy → default 15mm)
+        self.assertNotIn(0, [opt.get(m) for m in
+                             ("margin-top", "margin-right", "margin-bottom", "margin-left")])
+
+    # ── (3) D2 — N asset → N trang: HTML N block + N-1 page-break ────────────
+    def test_one_page_per_asset(self):
+        from assetcore.services.imm00 import (
+            _label_html, build_asset_label_data_batch)
+        names = [self._make_asset(f"pg{i}").name for i in range(3)]
+        items = build_asset_label_data_batch(names)
+        html = _label_html(items, "tem-60x100")
+        # đếm block = số div mang class 'label' (prefix khớp cả 'label' & 'label brk')
+        self.assertEqual(html.count('<div class="label'), 3,
+                         "3 asset → 3 block .label (mỗi asset 1 trang)")
+        # break = số block mang class 'brk' = N-1 (block cuối KHÔNG break)
+        self.assertEqual(html.count('class="label brk"'), 2,
+                         "3 block → 2 page-break (block cuối KHÔNG break, KHÔNG trang trắng)")
+
+    def test_one_page_per_asset_single(self):
+        from assetcore.services.imm00 import (
+            _label_html, build_asset_label_data_batch)
+        names = [self._make_asset("single").name]
+        html = _label_html(build_asset_label_data_batch(names), "tem-60x100")
+        self.assertEqual(html.count('<div class="label'), 1)
+        self.assertEqual(html.count('class="label brk"'), 0,
+                         "1 asset → 0 break applied (1 trang)")
+
+    # ── (3-bis) §D16 — ĐẾM TRANG PDF THẬT (pypdf) chống BUG-LABEL-1 ──────────
+    def test_pdf_real_page_count_no_blank_overflow(self):
+        """RED-guard BUG-LABEL-1 (blank-overflow): đếm TRANG PDF THẬT bằng pypdf,
+        KHÔNG chỉ đếm HTML block. .label height==page-height làm wkhtmltopdf đẻ
+        trang TRẮNG đuôi (1 asset → 2 trang PDF) — test_one_page_per_asset cũ chỉ
+        đếm HTML block nên FALSE-GREEN. Fix = .label height = height_mm−1mm
+        (content < page). Test này khoá invariant 'N asset = N trang PDF THẬT'."""
+        import io
+        from pypdf import PdfReader
+        from assetcore.services.imm00 import render_asset_labels_pdf
+        a1 = self._make_asset("rpc1")
+        pdf1 = render_asset_labels_pdf([a1.name], "tem-60x100")
+        pages1 = len(PdfReader(io.BytesIO(bytes(pdf1))).pages)
+        self.assertEqual(pages1, 1,
+                         f"1 asset PHẢI = 1 trang PDF THẬT (KHÔNG blank-overflow); got {pages1}")
+        names = [self._make_asset(f"rpc{i}").name for i in range(2, 5)]
+        pdf3 = render_asset_labels_pdf(names, "tem-60x100")
+        pages3 = len(PdfReader(io.BytesIO(bytes(pdf3))).pages)
+        self.assertEqual(pages3, 3,
+                         f"3 asset PHẢI = 3 trang PDF THẬT (KHÔNG xen trang trắng); got {pages3}")
+
+    # ── (3-ter) §D16 — 3 preset PDF đều 1 trang/asset + ĐÚNG kích thước khổ ──
+    def test_all_presets_one_real_page_and_correct_mediabox(self):
+        """F1-FIX: 3 preset PDF (60×100/70×40/50×30) đều render-được, mỗi asset =
+        1 trang PDF THẬT (KHÔNG blank), và MediaBox = ĐÚNG khổ mm (chống xoay/lệch
+        khổ). 1mm = 2.8346pt."""
+        import io
+        from pypdf import PdfReader
+        from assetcore.services.imm00 import render_asset_labels_pdf, _LABEL_PRESETS
+        MM_TO_PT = 2.834645669
+        a = self._make_asset("multi")
+        for preset, spec in _LABEL_PRESETS.items():
+            pdf = render_asset_labels_pdf([a.name], preset)
+            self.assertTrue(bytes(pdf).startswith(b"%PDF-"),
+                            f"preset {preset} → PDF magic %PDF-")
+            reader = PdfReader(io.BytesIO(bytes(pdf)))
+            self.assertEqual(len(reader.pages), 1,
+                             f"preset {preset}: 1 asset = 1 trang THẬT (KHÔNG blank)")
+            box = reader.pages[0].mediabox
+            self.assertAlmostEqual(
+                float(box.width), spec["width_mm"] * MM_TO_PT, delta=3,
+                msg=f"{preset} MediaBox width ≈ {spec['width_mm']}mm (KHÔNG xoay)")
+            self.assertAlmostEqual(
+                float(box.height), spec["height_mm"] * MM_TO_PT, delta=3,
+                msg=f"{preset} MediaBox height ≈ {spec['height_mm']}mm (KHÔNG xoay)")
+
+    def test_pdf_options_dimensions_per_preset(self):
+        """§D16 — _label_pdf_options trả ĐÚNG page-width/height cho cả 3 preset."""
+        from assetcore.services.imm00 import _label_pdf_options
+        cases = {"tem-60x100": ("60mm", "100mm"),
+                 "tem-70x40": ("70mm", "40mm"),
+                 "tem-50x30": ("50mm", "30mm")}
+        for preset, (w, h) in cases.items():
+            opt = _label_pdf_options(preset)
+            self.assertEqual(opt.get("page-width"), w, f"{preset} page-width {w}")
+            self.assertEqual(opt.get("page-height"), h, f"{preset} page-height {h}")
+            for m in ("margin-top", "margin-right", "margin-bottom", "margin-left"):
+                self.assertEqual(opt.get(m), "0mm", f"{preset} {m}=0mm")
+
+    # ── (4) D4 — QR encode qr_url (deep-link), HTML KHÔNG chứa qr_token thô ──
+    def test_qr_encodes_qr_url_not_raw_token(self):
+        from assetcore.services.imm00 import (
+            _label_html, build_asset_label_data_batch)
+        asset = self._make_asset("qr1")
+        raw_token = frappe.db.get_value("AC Asset", asset.name, "qr_token")
+        self.assertTrue(raw_token, "tiền đề: asset có qr_token")
+        items = build_asset_label_data_batch([asset.name])
+        qr_url = items[0]["qr_url"]
+        html = _label_html(items, "tem-60x100")
+        self.assertIn(qr_url, html,
+                      "HTML chứa qr_url (deep-link /a/<token>) — encode đúng nguồn")
+        self.assertIn("/a/", qr_url, "qr_url là deep-link /a/<token>")
+        self.assertIn(raw_token, qr_url,
+                      "tiền đề: token là path-segment của qr_url deep-link /a/<token>")
+        # No-raw-token parity: token CHỈ được phép xuất hiện NHƯ path-segment của
+        # qr_url deep-link (enumeration-safe), KHÔNG bao giờ dưới dạng raw-token
+        # độc lập / URL desk. Strip MỌI lần xuất hiện qr_url → token KHÔNG còn ở đâu.
+        html_wo_url = html.replace(qr_url, "")
+        self.assertNotIn(raw_token, html_wo_url,
+                         "qr_token THÔ KHÔNG xuất hiện ngoài qr_url (no-raw-token parity)")
+        # token thô KHÔNG được nằm dưới dạng URL desk
+        self.assertNotIn("/app/", html, "KHÔNG URL desk /app/ trên tem")
+        # SVG QR inline có mặt (server-side render)
+        self.assertIn("<svg", html, "QR SVG inline nhúng thẳng HTML")
+
+    # ── (5) D6 — user thiếu asset.print → 403, KHÔNG PDF, KHÔNG đụng DB ──────
+    def test_cap_403_no_pdf_no_db(self):
+        from assetcore.api.imm00 import print_asset_labels_pdf
+        from assetcore.services.shared import rbac
+        asset = self._make_asset("cap1")
+        u = self._ensure_user(self._NOPRINT_USER, ["Guest"])
+        frappe.clear_cache()
+        frappe.db.commit()
+        before = self._count_label_events(asset.name)
+        frappe.local.response = frappe._dict()
+        try:
+            frappe.set_user(self._NOPRINT_USER)
+            self.assertFalse(rbac.can("asset.print"),
+                             "tiền đề: user KHÔNG có asset.print")
+            with self.assertRaises(frappe.PermissionError):
+                print_asset_labels_pdf(assets=[asset.name], preset="tem-60x100")
+        finally:
+            frappe.set_user("Administrator")
+            frappe.clear_cache()
+            rbac.invalidate_capabilities(self._NOPRINT_USER)
+        self.assertNotEqual(frappe.local.response.get("type"), "pdf",
+                            "thiếu cap → KHÔNG set response PDF")
+        self.assertEqual(self._count_label_events(asset.name), before,
+                         "thiếu cap → KHÔNG đụng DB (0 label_printed)")
+
+    # ── (6) D6 — IDOR vendor ngoài scope → 403 toàn call, KHÔNG PDF ─────────
+    def test_idor_vendor_403_whole_call(self):
+        from assetcore.api.imm00 import print_asset_labels_pdf
+        from assetcore.services.shared import rbac
+        asset = self._make_asset("idor1")
+        u = self._ensure_user(self._IDOR_USER, ["Vendor Engineer", "Repair User"])
+        frappe.clear_cache()
+        frappe.db.commit()
+        frappe.local.response = frappe._dict()
+        try:
+            frappe.set_user(self._IDOR_USER)
+            self.assertTrue(rbac.can("asset.print"),
+                            "tiền đề: user IDOR CÓ asset.print (qua gate)")
+            resp = print_asset_labels_pdf(assets=[asset.name], preset="tem-60x100")
+            self.assertIsInstance(resp, dict, "IDOR → Error envelope (KHÔNG PDF)")
+            self.assertFalse(resp.get("success"), "vendor ngoài scope → KHÔNG success")
+            self.assertEqual(resp.get("http_status"), 403,
+                             "IDOR → 403 TOÀN call (no partial PDF)")
+            self.assertNotEqual(frappe.local.response.get("type"), "pdf",
+                                "IDOR → KHÔNG set response PDF")
+        finally:
+            frappe.set_user("Administrator")
+            frappe.clear_cache()
+            rbac.invalidate_capabilities(self._IDOR_USER)
+
+    # ── (7) D6 — batch > 200 → 413 SAU rbac, message KHÔNG leak asset name ──
+    def test_batch_over_cap_413(self):
+        from assetcore.api.imm00 import print_asset_labels_pdf
+        from assetcore.services.imm00 import _MAX_LABEL_BATCH
+        asset = self._make_asset("over1")
+        # >200 names: 1 thật + 200 fake (Admin qua rbac → tới batch-cap check).
+        names = [asset.name] + [f"FAKE-{i}" for i in range(_MAX_LABEL_BATCH)]
+        self.assertGreater(len(names), _MAX_LABEL_BATCH)
+        frappe.local.response = frappe._dict()
+        resp = print_asset_labels_pdf(assets=names, preset="tem-60x100")
+        self.assertIsInstance(resp, dict, "vượt cap → Error envelope")
+        self.assertFalse(resp.get("success"))
+        self.assertEqual(resp.get("http_status"), 413, "vượt batch cap → 413 bucket riêng")
+        self.assertNotIn(asset.name, resp.get("error", ""),
+                         "message 413 KHÔNG leak asset name")
+        self.assertNotEqual(frappe.local.response.get("type"), "pdf",
+                            "vượt cap → KHÔNG sinh PDF")
+
+    # ── (8) D7 — list rỗng → 422, KHÔNG PDF ────────────────────────────────
+    def test_empty_list_422(self):
+        from assetcore.api.imm00 import print_asset_labels_pdf
+        frappe.local.response = frappe._dict()
+        resp = print_asset_labels_pdf(assets=[], preset="tem-60x100")
+        self.assertIsInstance(resp, dict, "list rỗng → Error envelope")
+        self.assertFalse(resp.get("success"))
+        self.assertEqual(resp.get("http_status"), 422, "list rỗng → 422 (BA chốt D7)")
+        self.assertNotEqual(frappe.local.response.get("type"), "pdf")
+
+    # ── (9) D7 — asset∄ trong batch → ô lỗi an toàn trong PDF, KHÔNG vỡ ─────
+    def test_nonexistent_asset_renders_error_cell_no_crash(self):
+        from assetcore.services.imm00 import (
+            render_asset_labels_pdf, _label_html, build_asset_label_data_batch)
+        asset = self._make_asset("mix1")
+        names = [asset.name, "KHONG-TON-TAI-XYZ"]
+        items = build_asset_label_data_batch(names)
+        # batch trả ô lỗi AC-E001 cho name∄ (no drop) — pipeline KHÔNG raise.
+        html = _label_html(items, "tem-60x100")
+        self.assertEqual(html.count('<div class="label'), 2,
+                         "mix valid+invalid → 2 block (asset∄ vẫn 1 trang)")
+        pdf = render_asset_labels_pdf(names, "tem-60x100")
+        self.assertTrue(bytes(pdf).startswith(b"%PDF-"),
+                        "asset∄ trong batch → PDF vẫn render (KHÔNG vỡ, KHÔNG 500)")
+        # leak-safe: chỉ echo name client đã gửi
+        self.assertIn("KHONG-TON-TAI-XYZ", html)
+
+    def test_endpoint_mix_valid_invalid_returns_pdf(self):
+        """D7 — endpoint (Admin) mix valid+invalid → PDF (KHÔNG 404 all-or-nothing)."""
+        from assetcore.api.imm00 import print_asset_labels_pdf
+        asset = self._make_asset("mix2")
+        frappe.local.response = frappe._dict()
+        ret = print_asset_labels_pdf(
+            assets=[asset.name, "KHONG-TON-TAI-ABC"], preset="tem-60x100")
+        self.assertFalse(isinstance(ret, dict) and ret.get("success") is False,
+                         "asset∄ KHÔNG làm vỡ thành Error envelope (ô lỗi trong PDF)")
+        self.assertEqual(frappe.local.response.get("type"), "pdf")
+        self.assertTrue(bytes(frappe.local.response.get("filecontent"))
+                        .startswith(b"%PDF-"))
+
+    # ── (10) D8 — render PDF KHÔNG ghi label_printed (audit-on-cancel guard) ─
+    def test_render_pdf_does_not_emit_label_printed(self):
+        from assetcore.api.imm00 import print_asset_labels_pdf
+        asset = self._make_asset("audit1")
+        before = self._count_label_events(asset.name)
+        frappe.local.response = frappe._dict()
+        print_asset_labels_pdf(assets=[asset.name], preset="tem-60x100")
+        self.assertEqual(self._count_label_events(asset.name), before,
+                         "render PDF = preview ≠ in → KHÔNG ghi label_printed (D8)")
+
+    # ── (11) preset lạ → 422 ; asset thiếu field → PDF vẫn render ───────────
+    def test_invalid_preset_422(self):
+        from assetcore.api.imm00 import print_asset_labels_pdf
+        asset = self._make_asset("preset1")
+        frappe.local.response = frappe._dict()
+        resp = print_asset_labels_pdf(assets=[asset.name], preset="khong-co-preset")
+        self.assertIsInstance(resp, dict)
+        self.assertFalse(resp.get("success"))
+        self.assertEqual(resp.get("http_status"), 422, "preset lạ → 422")
+
+    # ── (11-bis) Vòng 32 §D6 — preset hợp lệ BỌC whitespace/newline → STRIP 2 đầu
+    #            TRƯỚC gate whitelist → render ĐÚNG khổ (parity token Vòng 6 / name
+    #            Vòng 31). KHÔNG _err(422) giả. Đo PDF THẬT bằng pypdf (MediaBox).
+    _MM_TO_PT = 2.834645669
+
+    def test_print_labels_pdf_preset_whitespace_wrapped_renders_correct_size(self):
+        """AC-1: preset=' tem-60x100 ' (leading/trailing space) → strip 2 đầu TRƯỚC
+        gate whitelist → response.type=='pdf', 1 trang PDF THẬT, MediaBox 60×100mm
+        (pypdf, point-tolerance như test_all_presets_…). KHÔNG _err(422) giả."""
+        import io
+        from pypdf import PdfReader
+        from assetcore.api.imm00 import print_asset_labels_pdf
+        asset = self._make_asset("wswrap")
+        frappe.local.response = frappe._dict()
+        ret = print_asset_labels_pdf(assets=[asset.name], preset=" tem-60x100 ")
+        # KHÔNG rơi nhánh _err(422) — preset hợp lệ kèm whitespace vẫn render
+        self.assertFalse(
+            isinstance(ret, dict) and ret.get("success") is False,
+            "preset hợp lệ kèm whitespace KHÔNG được _err(422) (strip TRƯỚC gate)")
+        self.assertEqual(frappe.local.response.get("type"), "pdf",
+                         "render PDF (KHÔNG 422 giả)")
+        content = frappe.local.response.get("filecontent")
+        self.assertTrue(bytes(content).startswith(b"%PDF-"), "PDF magic %PDF-")
+        reader = PdfReader(io.BytesIO(bytes(content)))
+        self.assertEqual(len(reader.pages), 1, "1 asset = 1 trang PDF THẬT")
+        box = reader.pages[0].mediabox
+        self.assertAlmostEqual(float(box.width), 60 * self._MM_TO_PT, delta=3,
+                               msg="MediaBox width ≈ 60mm (đúng khổ tem-60x100)")
+        self.assertAlmostEqual(float(box.height), 100 * self._MM_TO_PT, delta=3,
+                               msg="MediaBox height ≈ 100mm (đúng khổ tem-60x100)")
+
+    def test_print_labels_pdf_preset_newline_tab_all_three_presets(self):
+        """AC-2: áp cho CẢ 3 preset whitelist — tab/newline bọc 2 đầu vẫn render
+        đúng khổ tương ứng (pypdf MediaBox). Parity 3 preset."""
+        import io
+        from pypdf import PdfReader
+        from assetcore.api.imm00 import print_asset_labels_pdf
+        cases = {
+            " tem-60x100 ": (60, 100),
+            "\ttem-70x40\n": (70, 40),
+            " tem-50x30 ": (50, 30),
+        }
+        for raw, (w_mm, h_mm) in cases.items():
+            asset = self._make_asset(f"ws3-{w_mm}x{h_mm}")
+            frappe.local.response = frappe._dict()
+            ret = print_asset_labels_pdf(assets=[asset.name], preset=raw)
+            self.assertFalse(
+                isinstance(ret, dict) and ret.get("success") is False,
+                f"preset {raw!r} (đã-strip hợp lệ) KHÔNG được _err(422)")
+            self.assertEqual(frappe.local.response.get("type"), "pdf",
+                             f"preset {raw!r} → render PDF")
+            content = frappe.local.response.get("filecontent")
+            reader = PdfReader(io.BytesIO(bytes(content)))
+            self.assertEqual(len(reader.pages), 1, f"{raw!r}: 1 trang THẬT")
+            box = reader.pages[0].mediabox
+            self.assertAlmostEqual(
+                float(box.width), w_mm * self._MM_TO_PT, delta=3,
+                msg=f"{raw!r} MediaBox width ≈ {w_mm}mm")
+            self.assertAlmostEqual(
+                float(box.height), h_mm * self._MM_TO_PT, delta=3,
+                msg=f"{raw!r} MediaBox height ≈ {h_mm}mm")
+
+    def test_print_labels_pdf_preset_internal_space_still_422(self):
+        """AC-3 (no-over-normalize): CHỈ strip 2 đầu — KHÔNG lowercase/transform
+        GIỮA chuỗi. 'tem 60x100' (space GIỮA), 'tem-99x99' (lạ), 'TEM-60X100'
+        (case khác) → KHÔNG ∈ whitelist → GIỮ _err 422 + 'Khổ tem không hợp lệ.'.
+        Whitelist KHÔNG bị nới."""
+        from assetcore.api.imm00 import print_asset_labels_pdf, _ERR_LABEL_PRESET
+        asset = self._make_asset("internal")
+        for bad in ("tem 60x100", "tem-99x99", "TEM-60X100"):
+            frappe.local.response = frappe._dict()
+            resp = print_asset_labels_pdf(assets=[asset.name], preset=bad)
+            self.assertIsInstance(resp, dict, f"{bad!r}: Error envelope dict")
+            self.assertFalse(resp.get("success"), f"{bad!r}: success=false")
+            self.assertEqual(resp.get("http_status"), 422,
+                             f"{bad!r}: preset lạ/space-giữa/case → 422")
+            self.assertEqual(resp.get("error"), _ERR_LABEL_PRESET,
+                             f"{bad!r}: message == 'Khổ tem không hợp lệ.'")
+            self.assertNotEqual(frappe.local.response.get("type"), "pdf",
+                                f"{bad!r}: KHÔNG render PDF")
+
+    def test_print_labels_pdf_preset_blank_after_strip_falls_to_resolver(self):
+        """AC-4 (parity empty-path): preset rỗng-sau-strip ('   '/'\\n') → coi như
+        not preset → rơi nhánh _resolve_label_preset() (site_config → DEFAULT
+        'tem-60x100'), KHÔNG 422, KHÔNG raise. Mock frappe.conf KHÔNG set key →
+        DEFAULT_LABEL_PRESET → render khổ 60×100mm."""
+        import io
+        from unittest.mock import patch
+        from pypdf import PdfReader
+        from assetcore.api import imm00 as _api
+        from assetcore.services import imm00 as _svc
+        for blank in ("   ", "\n", "\t  \n"):
+            asset = self._make_asset("blankstrip")
+            frappe.local.response = frappe._dict()
+            # site_config KHÔNG set assetcore_label_preset → resolver → DEFAULT
+            with patch.object(_svc.frappe, "conf", _svc.frappe._dict()):
+                ret = _api.print_asset_labels_pdf(assets=[asset.name], preset=blank)
+            self.assertFalse(
+                isinstance(ret, dict) and ret.get("success") is False,
+                f"preset {blank!r} (rỗng-sau-strip) → resolver, KHÔNG 422")
+            self.assertEqual(frappe.local.response.get("type"), "pdf",
+                             f"{blank!r}: render PDF khổ DEFAULT")
+            content = frappe.local.response.get("filecontent")
+            reader = PdfReader(io.BytesIO(bytes(content)))
+            self.assertEqual(len(reader.pages), 1, f"{blank!r}: 1 trang THẬT")
+            box = reader.pages[0].mediabox
+            self.assertAlmostEqual(
+                float(box.width), 60 * self._MM_TO_PT, delta=3,
+                msg=f"{blank!r} → DEFAULT khổ 60mm")
+            self.assertAlmostEqual(
+                float(box.height), 100 * self._MM_TO_PT, delta=3,
+                msg=f"{blank!r} → DEFAULT khổ 100mm")
+
+    def test_print_labels_pdf_preset_nonstr_safe(self):
+        """AC-4 (parity): preset non-str (0/None qua coercion) → isinstance guard →
+        '' → nhánh resolver, KHÔNG raise/500, render DEFAULT 60×100mm."""
+        import io
+        from unittest.mock import patch
+        from pypdf import PdfReader
+        from assetcore.api import imm00 as _api
+        from assetcore.services import imm00 as _svc
+        for nonstr in (0, None):
+            asset = self._make_asset("nonstr")
+            frappe.local.response = frappe._dict()
+            raised = None
+            try:
+                with patch.object(_svc.frappe, "conf", _svc.frappe._dict()):
+                    ret = _api.print_asset_labels_pdf(
+                        assets=[asset.name], preset=nonstr)
+            except Exception as e:  # noqa: BLE001 — chứng minh KHÔNG raise
+                raised = e
+                ret = None
+            self.assertIsNone(raised,
+                              f"preset={nonstr!r} non-str KHÔNG raise (got {raised!r})")
+            self.assertFalse(
+                isinstance(ret, dict) and ret.get("success") is False,
+                f"preset={nonstr!r} → resolver, KHÔNG 422/500")
+            self.assertEqual(frappe.local.response.get("type"), "pdf",
+                             f"preset={nonstr!r} → render PDF DEFAULT")
+            content = frappe.local.response.get("filecontent")
+            reader = PdfReader(io.BytesIO(bytes(content)))
+            box = reader.pages[0].mediabox
+            self.assertAlmostEqual(float(box.width), 60 * self._MM_TO_PT, delta=3)
+            self.assertAlmostEqual(float(box.height), 100 * self._MM_TO_PT, delta=3)
+
+    # ── (12) §D16 hardening — render lỗi runtime → _err VI sạch, KHÔNG 500/traceback
+    def test_render_failure_returns_vi_error_no_traceback(self):
+        """pdfkit/wkhtmltopdf raise runtime → endpoint trả Error envelope VI
+        (HTTP-200, http_status 500) KHÔNG raise/leak traceback (DONE-gate). Chống
+        lỗi 'Không thể tạo PDF nhãn' biến thành 500-traceback ở môi trường live."""
+        from unittest.mock import patch
+        from assetcore.api import imm00 as _api
+        asset = self._make_asset("renderfail")
+        frappe.local.response = frappe._dict()
+        with patch.object(_api, "_svc_render_asset_labels_pdf",
+                          side_effect=OSError("wkhtmltopdf exploded")):
+            resp = _api.print_asset_labels_pdf(
+                assets=[asset.name], preset="tem-60x100")
+        self.assertIsInstance(resp, dict, "render lỗi → Error envelope dict, KHÔNG raise")
+        self.assertFalse(resp.get("success"))
+        self.assertEqual(resp.get("http_status"), 500, "render lỗi → 500 trong envelope")
+        self.assertIn("PDF", resp.get("error", ""), "message VI nhắc PDF")
+        self.assertNotIn("Traceback", str(resp), "KHÔNG leak traceback ra client")
+        self.assertNotEqual(frappe.local.response.get("type"), "pdf",
+                            "render lỗi → KHÔNG set response.type=pdf")
+        self.assertNotEqual(frappe.local.response.get("type"), "pdf")
+
+    def test_missing_field_renders_blank_no_crash(self):
+        from assetcore.services.imm00 import (
+            render_asset_labels_pdf, build_asset_label_data_batch, _label_html)
+        # asset KHÔNG có manufacturer_sn / device_model → field '' fallback.
+        asset = self._make_asset("nofield", manufacturer_sn="")
+        items = build_asset_label_data_batch([asset.name])
+        self.assertEqual(items[0]["manufacturer_sn"], "",
+                         "field rỗng coerced về '' (no None)")
+        html = _label_html(items, "tem-60x100")
+        self.assertIn('class="label"', html, "block vẫn render dù thiếu field")
+        pdf = render_asset_labels_pdf([asset.name], "tem-60x100")
+        self.assertTrue(bytes(pdf).startswith(b"%PDF-"),
+                        "thiếu field → PDF magic %PDF còn đúng (KHÔNG vỡ)")
+
+    # ── D3 — nhãn render đủ 5 field LABEL SPEC D5 (no EN status-leak) ───────
+    def test_label_html_contains_5_fields_and_vi_labels(self):
+        from assetcore.services.imm00 import (
+            _label_html, build_asset_label_data_batch, _lifecycle_vi)
+        import uuid
+        mfr = f"NSX Test PDF {uuid.uuid4().hex[:8]}"
+        # self-healing: purge orphan model leaked bởi aborted prior run (UNIQUE
+        # model_name+manufacturer) — KHÔNG phụ thuộc DB sạch.
+        _orphan = frappe.db.get_value(
+            "IMM Device Model", {"model_name": "Model Nhãn PDF Test"}, "name")
+        if _orphan:
+            for _a in frappe.get_all(
+                    "AC Asset", filters={"device_model": _orphan}, pluck="name"):
+                _purge_asset(_a)
+            frappe.delete_doc("IMM Device Model", _orphan, force=True,
+                              ignore_permissions=True)
+        model = frappe.get_doc({
+            "doctype": "IMM Device Model",
+            "model_name": "Model Nhãn PDF Test",
+            "manufacturer": mfr,
+            "asset_category": self.cat.name,
+        }).insert(ignore_permissions=True)
+        try:
+            asset = self._make_asset("d5", device_model=model.name,
+                                     lifecycle_status="Under Maintenance")
+            items = build_asset_label_data_batch([asset.name])
+            html = _label_html(items, "tem-60x100")
+            # 5 nhãn-VI cố định (QR là field 1, không nhãn chữ) — V3 thêm 'Trạng thái'
+            for vi in ("Model", "Số serial NSX", "Tên tài sản", "Mã tài sản",
+                       "Trạng thái"):
+                self.assertIn(vi, html, f"thiếu nhãn VI '{vi}' (LABEL SPEC D5/D3)")
+            # giá trị 5 field có mặt
+            self.assertIn(items[0]["asset_code"], html)
+            self.assertIn(items[0]["asset_name"], html)
+            self.assertIn(items[0]["manufacturer_sn"], html)
+            self.assertIn("Model Nhãn PDF Test", html)
+            # V3 §D3: field thứ 5 lifecycle_status dịch VI render TRÊN tem (bắt buộc)
+            self.assertEqual(_lifecycle_vi("Under Maintenance"), "Đang bảo trì",
+                             "lifecycle_status dịch VI (SSoT labels.ts)")
+            self.assertIn("Đang bảo trì", html,
+                          "V3 §D3: giá trị VI lifecycle_status render trên tem")
+            self.assertNotIn("Under Maintenance", html,
+                             "mã EN status thô KHÔNG lọt tem (no EN-leak)")
+        finally:
+            # purge asset TRƯỚC khi xoá model (model.on_trash chặn xoá khi còn
+            # asset tham chiếu — LinkExistsError). asset đã trong self._created
+            # nhưng tearDown chạy SAU finally → purge tường minh ở đây.
+            for n in list(self._created):
+                _purge_asset(n)
+                self._created.remove(n)
+            frappe.delete_doc("IMM Device Model", model.name,
+                              force=True, ignore_permissions=True)
+
+
+class TestLabelPdfEmptyQrUrlSafeCell(unittest.TestCase):
+    """Vòng 30 — empty/whitespace ``qr_url`` ở tem PDF in → Ô-LỖI AN TOÀN
+    (parity AC-E001 + FE ``AssetQrLabel.vue:73``), chặn junk-QR rỗng dán lên thiết bị.
+
+    BUG (drift / contract-violation BR-00-28): nhánh non-error của ``_label_block``
+    gọi ``_qr_svg_inline(qr_url)`` NGAY mà KHÔNG guard ``qr_url`` rỗng/whitespace.
+    ``pyqrcode.create('')``/``create('   ')`` KHÔNG raise — nó encode 1 QR RÁC vô
+    nghĩa + nhúng ``data-qr-url=""`` rỗng. Tem khách quét = junk-QR. ``build_asset_
+    label_data(_batch)`` luôn build qr_url qua ``_build_qr_url`` (KHÔNG bao giờ rỗng),
+    NHƯNG drift/manual-inject/contract-violation có thể đưa item ``{qr_url:''}``
+    (non-error) vào render-tier → cần guard PHÒNG-THỦ ở chính ``_label_block``.
+
+    FIX (render-tier, chỉ ``_label_block``): SAU nhánh ``error`` thêm guard
+    ``_qr = (item.get('qr_url') or '').strip(); if not _qr: return <ô-lỗi-an-toàn>``
+    dùng CÙNG shape/class ``label-error`` nhánh AC-E001 (KHÔNG <svg> QR, KHÔNG
+    ``data-qr-url`` rỗng) với nhãn VI SSoT 'Không tạo được mã QR'. Chỉ khi qua guard
+    mới gọi ``_qr_svg_inline``. Invariant N→N trang GIỮ NGUYÊN (1 asset xấu KHÔNG
+    giết batch). Đo ở TẦNG PDF THẬT bằng pypdf (KHÔNG đếm HTML block).
+    """
+
+    _CATEGORY_NAME = "Thiết bị PDF Nhãn QrRỗng (LABEL-PDF QREMPTY)"
+    _ERR_QR_VI = "Không tạo được mã QR"   # SSoT nhãn-lỗi qr_url rỗng (parity FE :124)
+    _ERR_ASSET_VI = "Không tìm thấy tài sản"  # nhánh AC-E001 (KHÁC nhánh qr rỗng)
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        _orphan = frappe.db.get_value(
+            "AC Asset Category", {"category_name": cls._CATEGORY_NAME}, "name")
+        if _orphan:
+            frappe.delete_doc("AC Asset Category", _orphan, force=True,
+                              ignore_permissions=True)
+        cls.cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": cls._CATEGORY_NAME,
+            "description": "Category cho test ô-lỗi-an-toàn qr_url rỗng tầng PDF",
+            "is_active": 1,
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        frappe.delete_doc("AC Asset Category", cls.cat.name,
+                          force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self._created: list[str] = []
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+        frappe.db.rollback()
+        for name in self._created:
+            _purge_asset(name)
+        frappe.db.commit()
+
+    def _make_asset(self, suffix="", **overrides):
+        import uuid
+        uniq = f"{suffix or '0001'}-{uuid.uuid4().hex[:8]}"
+        data = {
+            "doctype": "AC Asset",
+            "asset_name": f"Máy PDF QrRỗng {uniq}",
+            "asset_category": self.cat.name,
+            "manufacturer_sn": f"QREMPTY-SN-{uniq}",
+            "asset_code": f"QREMPTY-ASSET-{uniq}",
+            "lifecycle_status": "Active",
+        }
+        data.update(overrides)
+        doc = _insert_asset_bypass_workflow(data)
+        self._created.append(doc.name)
+        return doc
+
+    @staticmethod
+    def _render_pdf_from_items(items, preset):
+        """Render PDF THẬT từ items HAND-CRAFTED (mirror render_asset_labels_pdf
+        NHƯNG bỏ qua build_asset_label_data_batch → cho phép inject item dị thường
+        {qr_url:''} mà pipeline-build hợp lệ KHÔNG bao giờ tạo). KHÔNG đụng prod."""
+        import pdfkit
+        from assetcore.services.imm00 import _label_html, _label_pdf_options
+        html = _label_html(items, preset)
+        options = _label_pdf_options(preset)
+        pdf = pdfkit.from_string(html, False, options=options)
+        return pdf if isinstance(pdf, (bytes, bytearray)) else bytes(pdf)
+
+    @staticmethod
+    def _page_text(pdf_bytes):
+        """Trả (reader, text_chuẩn-hoá). pypdf extract_text chèn \\t/\\n GIỮA glyph
+        (ngắt từ tuỳ layout) → gộp MỌI khoảng-trắng về 1 space để assert chuỗi VI
+        liền mạch ('Không tạo được mã QR') KHÔNG false-fail vì tách-từ của pypdf."""
+        import io
+        import re
+        from pypdf import PdfReader
+        reader = PdfReader(io.BytesIO(bytes(pdf_bytes)))
+        raw = "".join(p.extract_text() or "" for p in reader.pages)
+        return reader, re.sub(r"\s+", " ", raw)
+
+    # ── TC1 — no-regress baseline: item hợp lệ → 1 trang + QR <svg> + data-qr-url ─
+    def test_tc1_valid_item_renders_qr_svg_one_page(self):
+        from assetcore.services.imm00 import (
+            render_asset_labels_pdf, _label_html, build_asset_label_data_batch)
+        asset = self._make_asset("tc1")
+        items = build_asset_label_data_batch([asset.name])
+        qr_url = items[0]["qr_url"]
+        self.assertTrue(qr_url and qr_url.strip(), "tiền đề: qr_url hợp lệ KHÔNG rỗng")
+        html = _label_html(items, "tem-60x100")
+        self.assertIn("<svg", html, "item hợp lệ → QR SVG render")
+        self.assertIn(f'data-qr-url="{qr_url}"', html,
+                      "item hợp lệ → data-qr-url = qr_url đúng (auditable)")
+        import io
+        from pypdf import PdfReader
+        pdf = render_asset_labels_pdf([asset.name], "tem-60x100")
+        self.assertEqual(len(PdfReader(io.BytesIO(bytes(pdf))).pages), 1,
+                         "1 asset hợp lệ = 1 trang PDF THẬT")
+
+    # ── TC2 (assert-chính) — non-error {qr_url:''} → ô-lỗi-an-toàn, 0 QR, 0 raise ─
+    def test_tc2_empty_qr_url_renders_safe_error_cell_no_qr(self):
+        from assetcore.services.imm00 import _label_block, _label_html
+        item = {"name": "DRIFT-EMPTY-001", "asset_code": "DRIFT-EMPTY-001",
+                "asset_name": "X", "qr_url": ""}
+        # service-tier: KHÔNG raise, KHÔNG <svg>, KHÔNG data-qr-url rỗng.
+        block = _label_block(item, "tem-60x100", is_last=True)
+        self.assertNotIn("<svg", block,
+                         "qr_url rỗng → KHÔNG encode QR (no junk-QR)")
+        self.assertNotIn('data-qr-url=""', block,
+                         "qr_url rỗng → KHÔNG nhúng data-qr-url rỗng")
+        self.assertNotIn("data-qr-url", block,
+                         "ô-lỗi-an-toàn KHÔNG mang data-qr-url")
+        self.assertIn("label-error", block,
+                      "tái dùng shape/class label-error nhánh AC-E001")
+        self.assertIn(self._ERR_QR_VI, block,
+                      "ô-lỗi mang nhãn VI 'Không tạo được mã QR' (no EN-leak)")
+        # PDF THẬT: 1 trang, KHÔNG <svg> QR cho ô đó, text trang chứa nhãn-lỗi VI.
+        pdf = self._render_pdf_from_items([item], "tem-60x100")
+        reader, text = self._page_text(pdf)
+        self.assertEqual(len(reader.pages), 1,
+                         "1 item (qr rỗng) = 1 trang PDF THẬT (no blank-overflow)")
+        self.assertNotIn(b"<svg", bytes(pdf),
+                         "PDF bytes KHÔNG chứa <svg> QR cho ô qr_url rỗng")
+        self.assertIn(self._ERR_QR_VI, text,
+                      "trang PDF chứa text VI 'Không tạo được mã QR'")
+
+    # ── TC3 — whitespace qr_url → .strip() rỗng → CÙNG ô-lỗi-an-toàn TC2 ────────
+    def test_tc3_whitespace_qr_url_same_safe_error_cell(self):
+        from assetcore.services.imm00 import _label_block
+        item = {"name": "DRIFT-WS-001", "asset_code": "DRIFT-WS-001",
+                "qr_url": "   "}
+        block = _label_block(item, "tem-60x100", is_last=True)
+        self.assertNotIn("<svg", block,
+                         "qr_url whitespace → KHÔNG encode whitespace thành QR")
+        self.assertNotIn("data-qr-url", block,
+                         "whitespace → ô-lỗi-an-toàn KHÔNG data-qr-url")
+        self.assertIn("label-error", block)
+        self.assertIn(self._ERR_QR_VI, block,
+                      "whitespace .strip() rỗng → CÙNG nhãn-lỗi VI TC2")
+
+    # ── TC4 — invariant N→N + mix: [ok, qr-rỗng, AC-E001, ok] → 4 trang, 2 nhánh lỗi
+    def test_tc4_mixed_batch_n_to_n_distinct_error_branches(self):
+        from assetcore.services.imm00 import build_asset_label_data
+        a1 = self._make_asset("tc4a")
+        a2 = self._make_asset("tc4b")
+        ok1 = build_asset_label_data(a1.name)
+        ok2 = build_asset_label_data(a2.name)
+        empty_item = {"name": "DRIFT-EMPTY-MIX", "asset_code": "DRIFT-EMPTY-MIX",
+                      "qr_url": ""}
+        err_item = {"name": "KHONG-TON-TAI-MIX", "error": "AC-E001"}
+        items = [ok1, empty_item, err_item, ok2]
+        pdf = self._render_pdf_from_items(items, "tem-60x100")
+        reader, text = self._page_text(pdf)
+        self.assertEqual(len(reader.pages), 4,
+                         "[ok, qr-rỗng, error, ok] → 4 trang (1 xấu KHÔNG giết batch)")
+        # 2 nhánh lỗi KHÁC NHAU, KHÔNG nhầm.
+        self.assertIn(self._ERR_QR_VI, text,
+                      "asset qr-rỗng = nhánh 'Không tạo được mã QR'")
+        self.assertIn(self._ERR_ASSET_VI, text,
+                      "asset∄ = nhánh AC-E001 'Không tìm thấy tài sản'")
+        # 2 asset ok VẪN có QR (ít nhất 2 <svg> trong HTML nguồn).
+        from assetcore.services.imm00 import _label_html
+        html = _label_html(items, "tem-60x100")
+        self.assertGreaterEqual(html.count("<svg"), 2,
+                                "2 asset ok VẪN render QR (chỉ 1 ô rỗng + 1 ô error mất QR)")
+
+    # ── TC5 — MediaBox mỗi preset đúng khổ mm KỂ CẢ khi có ô-lỗi-qr ─────────────
+    def test_tc5_mediabox_correct_per_preset_with_empty_qr_cell(self):
+        from assetcore.services.imm00 import _LABEL_PRESETS
+        MM_TO_PT = 2.834645669
+        empty_item = {"name": "DRIFT-EMPTY-MB", "asset_code": "DRIFT-EMPTY-MB",
+                      "qr_url": ""}
+        for preset, spec in _LABEL_PRESETS.items():
+            pdf = self._render_pdf_from_items([empty_item], preset)
+            reader, _ = self._page_text(pdf)
+            self.assertEqual(len(reader.pages), 1,
+                             f"{preset}: ô-lỗi-qr = 1 trang (khổ KHÔNG lệch vì nhánh lỗi)")
+            box = reader.pages[0].mediabox
+            self.assertAlmostEqual(
+                float(box.width), spec["width_mm"] * MM_TO_PT, delta=3,
+                msg=f"{preset} MediaBox width ≈ {spec['width_mm']}mm (ô-lỗi KHÔNG lệch khổ)")
+            self.assertAlmostEqual(
+                float(box.height), spec["height_mm"] * MM_TO_PT, delta=3,
+                msg=f"{preset} MediaBox height ≈ {spec['height_mm']}mm (ô-lỗi KHÔNG lệch khổ)")
+
+    # ── TC6 (no-junk-encode guard) — qr_url rỗng → _label_block KHÔNG gọi pyqrcode
+    def test_tc6_no_qr_encode_called_when_qr_url_empty(self):
+        from unittest.mock import patch
+        from assetcore.services import imm00 as _svc
+        empty_item = {"name": "DRIFT-EMPTY-SPY", "asset_code": "DRIFT-EMPTY-SPY",
+                      "qr_url": ""}
+        ws_item = {"name": "DRIFT-WS-SPY", "asset_code": "DRIFT-WS-SPY",
+                   "qr_url": "  \t  "}
+        with patch.object(_svc, "_qr_svg_inline",
+                          side_effect=AssertionError(
+                              "_qr_svg_inline KHÔNG được gọi khi qr_url rỗng/whitespace")
+                          ) as spy:
+            _svc._label_block(empty_item, "tem-60x100", is_last=True)
+            _svc._label_block(ws_item, "tem-70x40", is_last=True)
+            spy.assert_not_called()
+
+
+class TestLabelPdfNoRawTokenAtPdfLevel(unittest.TestCase):
+    """No-raw-token parity ở TẦNG PDF THẬT (pypdf) — REGRESSION GUARD (ADR §D4).
+
+    `test_qr_encodes_qr_url_not_raw_token` (TestLabelPdfPipeline) CHỈ assert ở
+    HTML source: token thô KHÔNG xuất hiện ngoài qr_url. Đó là false-green gap với
+    constraint 'QR encode qr_url KHÔNG raw token — parity MỌI đường', vì tem khách
+    cầm/quét là **PDF in THẬT**, không phải HTML. Class này đóng gap đó: render
+    PDF THẬT bằng ``render_asset_labels_pdf`` rồi assert (a) ``token.encode() not
+    in bytes(pdf)`` (bytes thô) VÀ (b) ``token not in extract_text`` (pypdf), trên
+    MỌI preset + CẢ batch + nhánh ô-lỗi (AC-E001 echo name).
+
+    INVARIANT: raw ``qr_token`` (đọc từ DB) — và full ``qr_url`` / deep-link prefix
+    ``/a/`` — chỉ tồn tại trong QR VECTOR (camera-scan), KHÔNG enumerate được dưới
+    dạng plain-text từ file PDF. FUNCTIONAL GIỮ NGUYÊN: QR vẫn encode đúng qr_url
+    deep-link (verify ở tầng HTML/SVG — KHÔNG hồi quy khả năng quét).
+
+    KHÔNG sửa logic production: probe live đã chứng minh output hiện tại sạch
+    (token 22 ký tự KHÔNG có trong pdf_bytes/extract_text; ``/a/`` KHÔNG trong
+    text). Đây là REGRESSION GUARD — nếu cố tình inject raw token plaintext vào
+    output (vd bỏ ``_strip``/đổi ``data-qr-url`` thành text hiển thị) → TC-1/2/3/5
+    PHẢI FAIL (TC-PDF-NORAW-6 RED-first proof, chạy thủ công khi review).
+
+    Đếm trang dùng ``PdfReader(...).pages`` (chống false-green BUG-LABEL-1 —
+    KHÔNG đếm HTML block).
+    """
+
+    _CATEGORY_NAME = "Thiết bị PDF Nhãn NoRaw (LABEL-PDF NORAW)"
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        _orphan = frappe.db.get_value(
+            "AC Asset Category", {"category_name": cls._CATEGORY_NAME}, "name")
+        if _orphan:
+            frappe.delete_doc("AC Asset Category", _orphan, force=True,
+                              ignore_permissions=True)
+        cls.cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": cls._CATEGORY_NAME,
+            "description": "Category cho test no-raw-token tầng PDF thật",
+            "is_active": 1,
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        frappe.delete_doc("AC Asset Category", cls.cat.name,
+                          force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self._created: list[str] = []
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+        frappe.db.rollback()
+        for name in self._created:
+            _purge_asset(name)
+        frappe.db.commit()
+
+    def _make_asset(self, suffix="", **overrides):
+        import uuid
+        uniq = f"{suffix or '0001'}-{uuid.uuid4().hex[:8]}"
+        data = {
+            "doctype": "AC Asset",
+            "asset_name": f"Máy NoRaw {uniq}",
+            "asset_category": self.cat.name,
+            "manufacturer_sn": f"NORAW-SN-{uniq}",
+            "asset_code": f"NORAW-ASSET-{uniq}",
+            "lifecycle_status": "Active",
+        }
+        data.update(overrides)
+        doc = _insert_asset_bypass_workflow(data)
+        self._created.append(doc.name)
+        return doc
+
+    @staticmethod
+    def _pdf_text(pdf_bytes) -> str:
+        """Text trích xuất bằng pypdf (analog quét file PDF nhãn đã in)."""
+        import io
+        from pypdf import PdfReader
+        reader = PdfReader(io.BytesIO(bytes(pdf_bytes)))
+        return "".join(p.extract_text() or "" for p in reader.pages)
+
+    def _raw_token(self, asset_name) -> str:
+        token = frappe.db.get_value("AC Asset", asset_name, "qr_token")
+        self.assertTrue(token, "tiền đề: asset có qr_token trong DB")
+        return token
+
+    # ── TC-PDF-NORAW-1 — mọi preset: token thô KHÔNG ở bytes/text PDF ────────
+    def test_no_raw_token_in_pdf_bytes_and_text_all_presets(self):
+        """TC-PDF-NORAW-1: với MỖI preset trong _LABEL_PRESETS, render 1 asset có
+        qr_token → assert `token.encode() not in bytes(pdf)` VÀ `token not in
+        extract_text`. RED-guard: inject token plaintext vào block → FAIL."""
+        from assetcore.services.imm00 import (
+            render_asset_labels_pdf, _LABEL_PRESETS)
+        a = self._make_asset("p1")
+        token = self._raw_token(a.name)
+        for preset in _LABEL_PRESETS:
+            pdf = bytes(render_asset_labels_pdf([a.name], preset))
+            self.assertTrue(pdf.startswith(b"%PDF-"),
+                            f"preset {preset} → PDF magic %PDF-")
+            self.assertNotIn(
+                token.encode(), pdf,
+                f"[{preset}] raw qr_token KHÔNG ở BYTES thô PDF (no-raw-token)")
+            text = self._pdf_text(pdf)
+            self.assertNotIn(
+                token, text,
+                f"[{preset}] raw qr_token KHÔNG ở TEXT trích pypdf (chỉ ở QR vector)")
+
+    # ── TC-PDF-NORAW-2 — batch: KHÔNG token nào leak + N→N trang THẬT ────────
+    def test_no_raw_token_in_batch_pdf_and_page_count(self):
+        """TC-PDF-NORAW-2: render lô 3 asset (token khác nhau) → assert KHÔNG
+        token nào trong bytes/text của PDF lô; số trang == 3 (PdfReader.pages —
+        đồng thời chốt N→N trang, chống false-green BUG-LABEL-1)."""
+        import io
+        from pypdf import PdfReader
+        from assetcore.services.imm00 import render_asset_labels_pdf
+        assets = [self._make_asset(f"b{i}") for i in range(3)]
+        names = [a.name for a in assets]
+        tokens = [self._raw_token(n) for n in names]
+        self.assertEqual(len(set(tokens)), 3, "tiền đề: 3 token PHẢI khác nhau")
+        for preset in ("tem-60x100", "tem-70x40", "tem-50x30"):
+            pdf = bytes(render_asset_labels_pdf(names, preset))
+            text = self._pdf_text(pdf)
+            for n, token in zip(names, tokens):
+                self.assertNotIn(
+                    token.encode(), pdf,
+                    f"[{preset}] token của {n} KHÔNG ở bytes lô")
+                self.assertNotIn(
+                    token, text,
+                    f"[{preset}] token của {n} KHÔNG ở text lô")
+        # chốt N→N trang trên preset mặc định (PdfReader.pages — KHÔNG đếm block)
+        pdf = bytes(render_asset_labels_pdf(names, "tem-60x100"))
+        pages = len(PdfReader(io.BytesIO(pdf)).pages)
+        self.assertEqual(pages, 3,
+                         f"3 asset = 3 trang PDF THẬT (no blank-overflow); got {pages}")
+
+    # ── TC-PDF-NORAW-3 — deep-link (/a/ + full qr_url) KHÔNG ở TEXT PDF ──────
+    def test_deep_link_not_in_extracted_text(self):
+        """TC-PDF-NORAW-3: assert `/a/` và full qr_url của asset KHÔNG xuất hiện
+        trong extracted_text (deep-link chỉ ở QR vector, không plain-text) — token
+        CHỈ camera-scan được, KHÔNG enumerate từ file PDF."""
+        from assetcore.services.imm00 import (
+            render_asset_labels_pdf, build_asset_label_data_batch, _LABEL_PRESETS)
+        a = self._make_asset("dl1")
+        qr_url = build_asset_label_data_batch([a.name])[0]["qr_url"]
+        self.assertIn("/a/", qr_url, "tiền đề: qr_url là deep-link /a/<token>")
+        for preset in _LABEL_PRESETS:
+            text = self._pdf_text(render_asset_labels_pdf([a.name], preset))
+            self.assertNotIn(
+                qr_url, text,
+                f"[{preset}] full qr_url KHÔNG ở text PDF (chỉ trong QR vector)")
+            self.assertNotIn(
+                "/a/", text,
+                f"[{preset}] deep-link prefix '/a/' KHÔNG ở text PDF")
+
+    # ── TC-PDF-NORAW-4 — FUNCTIONAL GIỮ: HTML/SVG vẫn encode qr_url + /a/ ────
+    def test_functional_qr_url_preserved_in_html_svg(self):
+        """TC-PDF-NORAW-4: cùng asset, assert `_label_html([item],preset)` VẪN
+        chứa qr_url + '/a/' + QR SVG (encode đúng nguồn) — chứng minh KHÔNG hồi
+        quy khả năng quét, chỉ siết leak TEXT ở tầng PDF."""
+        from assetcore.services.imm00 import (
+            _label_html, build_asset_label_data_batch)
+        a = self._make_asset("fn1")
+        items = build_asset_label_data_batch([a.name])
+        qr_url = items[0]["qr_url"]
+        html = _label_html(items, "tem-60x100")
+        self.assertIn(qr_url, html,
+                      "HTML VẪN chứa qr_url (encode đúng nguồn — không hồi quy quét)")
+        self.assertIn("/a/", html, "HTML chứa deep-link prefix /a/")
+        self.assertIn("<svg", html, "QR SVG inline nhúng thẳng HTML (server-side)")
+
+    # ── TC-PDF-NORAW-5 — mix valid + name∄ (AC-E001 echo): KHÔNG leak token ──
+    def test_error_cell_mix_no_token_leak(self):
+        """TC-PDF-NORAW-5: lô gồm 1 asset hợp lệ + 1 name∄ (AC-E001 echo) → PDF ra
+        (mix valid/invalid) + assert token của asset hợp lệ KHÔNG leak bytes/text;
+        ô lỗi KHÔNG chứa token/`/a/` (echo name client gửi, KHÔNG QR)."""
+        import io
+        from pypdf import PdfReader
+        from assetcore.services.imm00 import (
+            render_asset_labels_pdf, build_asset_label_data_batch)
+        a = self._make_asset("mix1")
+        token = self._raw_token(a.name)
+        missing = "NORAW-ASSET-DOES-NOT-EXIST-9999"
+        names = [a.name, missing]
+        # tiền đề: batch trả ô lỗi AC-E001 đúng index cho name∄ (KHÔNG drop)
+        batch = build_asset_label_data_batch(names)
+        self.assertEqual(batch[1].get("error"), "AC-E001",
+                         "tiền đề: name∄ → {error:'AC-E001'} (echo name)")
+        for preset in ("tem-60x100", "tem-70x40", "tem-50x30"):
+            pdf = bytes(render_asset_labels_pdf(names, preset))
+            self.assertTrue(pdf.startswith(b"%PDF-"),
+                            f"[{preset}] mix valid/invalid VẪN ra PDF (KHÔNG vỡ)")
+            text = self._pdf_text(pdf)
+            self.assertNotIn(
+                token.encode(), pdf,
+                f"[{preset}] token asset hợp lệ KHÔNG leak bytes (ô lỗi cùng lô)")
+            self.assertNotIn(
+                token, text,
+                f"[{preset}] token asset hợp lệ KHÔNG leak text (ô lỗi cùng lô)")
+            self.assertNotIn(
+                "/a/", text,
+                f"[{preset}] ô lỗi KHÔNG QR/deep-link; valid-cell deep-link chỉ ở vector")
+        # mix = 2 trang THẬT (valid + error-cell đều 1 trang — giữ N→N trang)
+        pdf = bytes(render_asset_labels_pdf(names, "tem-60x100"))
+        pages = len(PdfReader(io.BytesIO(pdf)).pages)
+        self.assertEqual(pages, 2,
+                         f"mix valid+error = 2 trang PDF THẬT; got {pages}")
+
+
+class TestLabelPdfStatusViPresenceAware(unittest.TestCase):
+    """Vòng 41 — dòng "Trạng thái" trên TEM IN PDF: bịt '—' CÂM + presence-aware.
+
+    BUG (parity Vòng 22 scan-view): asset có ``lifecycle_status`` RỖNG ('') hoặc
+    MÃ LẠ/DRIFT/LEGACY ngoài 8 mã canonical → ``_lifecycle_vi`` cũ trả '' →
+    ``_label_block`` rớt vào ``{val or "—"}`` → in '—' CÂM (presence-blind: KHÔNG
+    phân biệt "không có data" với render lỗi). Fix = ``_lifecycle_vi`` rỗng/lạ →
+    'Chưa rõ' (nhãn VI an toàn, no-EN-leak). Verify ở TẦNG PDF THẬT bằng
+    ``pypdf.PdfReader.extract_text()`` (KHÔNG đếm HTML block — chống false-green).
+
+    INVARIANT giữ nguyên: N asset = N trang (PdfReader.pages == N) + MediaBox =
+    đúng khổ mm của preset; dòng Trạng thái đổi KHÔNG làm tràn trang. 8 mã
+    canonical GIỮ nhãn VI cũ (no-regress). empty vs unknown CÙNG render 'Chưa rõ'
+    (an-toàn-thống-nhất). KHÔNG còn bất kỳ status nào in '—' câm trên dòng status.
+
+    KHÔNG đụng QR encode/qr_url/token/rotate/resolve/scan-action — chỉ tầng render
+    nhãn dòng status.
+    """
+
+    _CATEGORY_NAME = "Thiết bị PDF Status VI (LABEL-PDF V41)"
+    _UNKNOWN_VI = "Chưa rõ"
+    # Mã canonical → nhãn VI cũ (no-regress) — SSoT _LIFECYCLE_VI services/imm00.
+    _CANONICAL_VI = {
+        "Active": "Đang hoạt động",
+        "Out of Service": "Ngừng sử dụng",
+        "Decommissioned": "Đã thanh lý",
+        "Commissioned": "Đã đưa vào sử dụng",
+        "Under Maintenance": "Đang bảo trì",
+    }
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        _orphan = frappe.db.get_value(
+            "AC Asset Category", {"category_name": cls._CATEGORY_NAME}, "name")
+        if _orphan:
+            frappe.delete_doc("AC Asset Category", _orphan, force=True,
+                              ignore_permissions=True)
+        cls.cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": cls._CATEGORY_NAME,
+            "description": "Category cho test status VI presence-aware trên tem PDF",
+            "is_active": 1,
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        frappe.delete_doc("AC Asset Category", cls.cat.name,
+                          force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self._created: list[str] = []
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+        frappe.db.rollback()
+        for name in self._created:
+            _purge_asset(name)
+        frappe.db.commit()
+
+    def _make_asset(self, suffix="", *, status="Active"):
+        """Insert asset rồi GHI THẲNG DB lifecycle_status (bypass Select-validate).
+
+        ``lifecycle_status`` là Select reqd với 8 option canonical → KHÔNG thể
+        insert '' hay mã drift qua DocType. Insert 'Active' (hợp lệ) rồi
+        ``frappe.db.set_value`` ghi raw '' / 'RANDOM_DRIFT_XYZ' để mô phỏng
+        rỗng/drift trong DB — render đọc raw qua build_asset_label_data_batch.
+        """
+        import uuid
+        uniq = f"{suffix or '0001'}-{uuid.uuid4().hex[:8]}"
+        doc = _insert_asset_bypass_workflow({
+            "doctype": "AC Asset",
+            "asset_name": f"Máy Status VI {uniq}",
+            "asset_category": self.cat.name,
+            "manufacturer_sn": f"SVI-SN-{uniq}",
+            "asset_code": f"SVI-ASSET-{uniq}",
+            "lifecycle_status": "Active",
+        })
+        self._created.append(doc.name)
+        if status != "Active":
+            # Ghi raw value (kể cả '' / mã drift) — bypass Select option validate.
+            frappe.db.set_value("AC Asset", doc.name, "lifecycle_status", status,
+                                update_modified=False)
+            frappe.db.commit()
+        return doc
+
+    @staticmethod
+    def _norm(text: str) -> str:
+        """Chuẩn-hoá whitespace text trích pypdf → 1 dấu cách.
+
+        pypdf chèn '\\t'/'\\n' GIỮA glyph khi label hẹp (60mm) wrap chữ ('Chưa rõ'
+        → 'Chưa\\trõ'). Substring-match thô sẽ false-fail. Gom MỌI whitespace
+        (space/tab/newline) thành 1 space để so khớp NHÃN HIỂN THỊ THẬT, KHÔNG so
+        layout-wrap. KHÔNG ảnh hưởng no-leak (raw code không có whitespace nội bộ).
+        """
+        import re
+        return re.sub(r"\s+", " ", text or "")
+
+    @classmethod
+    def _page_text(cls, pdf_bytes, idx=0) -> str:
+        import io
+        from pypdf import PdfReader
+        reader = PdfReader(io.BytesIO(bytes(pdf_bytes)))
+        return cls._norm(reader.pages[idx].extract_text() or "")
+
+    @classmethod
+    def _status_segment(cls, pdf_bytes, idx=0) -> str:
+        """Chỉ đoạn SAU 'Trạng thái:' trên trang — để check '—' đúng dòng status.
+
+        'Model: —' (model rỗng) hợp lệ có '—' ở trang → KHÔNG được tính là lỗi
+        dòng status. Cô lập đoạn từ nhãn 'Trạng thái' đến hết trang."""
+        text = cls._page_text(pdf_bytes, idx)
+        marker = "Trạng thái:"
+        i = text.find(marker)
+        return text[i + len(marker):] if i >= 0 else ""
+
+    @classmethod
+    def _all_text(cls, pdf_bytes) -> str:
+        import io
+        from pypdf import PdfReader
+        reader = PdfReader(io.BytesIO(bytes(pdf_bytes)))
+        return cls._norm("".join(p.extract_text() or "" for p in reader.pages))
+
+    @staticmethod
+    def _num_pages(pdf_bytes) -> int:
+        import io
+        from pypdf import PdfReader
+        return len(PdfReader(io.BytesIO(bytes(pdf_bytes))).pages)
+
+    # ── (1) lifecycle_status RỖNG ('') → 'Chưa rõ', KHÔNG '—' câm ────────────
+    def test_empty_status_renders_chua_ro_not_em_dash(self):
+        """Asset lifecycle_status='' (rỗng) → extract_text trang chứa 'Chưa rõ',
+        KHÔNG có '—' ở dòng status; MediaBox 60×100; pages==1."""
+        from assetcore.services.imm00 import render_asset_labels_pdf, _LABEL_PRESETS
+        MM_TO_PT = 2.834645669
+        a = self._make_asset("empty", status="")
+        pdf = render_asset_labels_pdf([a.name], "tem-60x100")
+        self.assertEqual(self._num_pages(pdf), 1, "1 asset = 1 trang PDF THẬT")
+        text = self._page_text(pdf, 0)
+        self.assertIn(self._UNKNOWN_VI, text,
+                      "status rỗng → nhãn an toàn 'Chưa rõ' trên tem (presence-aware)")
+        self.assertNotIn("—", self._status_segment(pdf, 0),
+                         "status rỗng KHÔNG còn in '—' CÂM trên dòng status")
+        # MediaBox đúng khổ preset (no-regress khổ tem 60×100).
+        import io
+        from pypdf import PdfReader
+        box = PdfReader(io.BytesIO(bytes(pdf))).pages[0].mediabox
+        spec = _LABEL_PRESETS["tem-60x100"]
+        self.assertAlmostEqual(float(box.width), spec["width_mm"] * MM_TO_PT, delta=3)
+        self.assertAlmostEqual(float(box.height), spec["height_mm"] * MM_TO_PT, delta=3)
+
+    # ── (2) MÃ LẠ/DRIFT → 'Chưa rõ', TUYỆT ĐỐI KHÔNG leak raw code ───────────
+    def test_drift_status_renders_chua_ro_no_raw_en_leak(self):
+        """Asset lifecycle_status='RANDOM_DRIFT_XYZ' → extract_text chứa 'Chưa rõ'
+        và TUYỆT ĐỐI KHÔNG chứa 'RANDOM_DRIFT_XYZ' (no-raw-EN-leak trên tem)."""
+        from assetcore.services.imm00 import render_asset_labels_pdf
+        drift = "RANDOM_DRIFT_XYZ"
+        a = self._make_asset("drift", status=drift)
+        pdf = render_asset_labels_pdf([a.name], "tem-60x100")
+        text = self._page_text(pdf, 0)
+        self.assertIn(self._UNKNOWN_VI, text,
+                      "mã lạ → 'Chưa rõ' (an toàn, presence-aware)")
+        self.assertNotIn(drift, text,
+                         "mã drift TUYỆT ĐỐI KHÔNG leak raw EN ra extract_text tem")
+        # bytes thô PDF cũng KHÔNG được chứa raw code (defense-in-depth).
+        self.assertNotIn(drift.encode(), bytes(pdf),
+                         "mã drift KHÔNG ở BYTES thô PDF (no-raw-EN-leak)")
+
+    def test_drift_case_wrong_and_legacy_codes_all_chua_ro(self):
+        """Mã sai-case ('active') + legacy ('Retired') ngoài 8 canonical → 'Chưa
+        rõ', KHÔNG leak chính mã đó (parity empty vs unknown CÙNG nhãn)."""
+        from assetcore.services.imm00 import render_asset_labels_pdf
+        # suffix dùng INDEX (KHÔNG nhúng `bad` vào asset_code/name → tránh false
+        # leak-fail khi `bad` là token thường như 'active').
+        for i, bad in enumerate(("active", "Retired", "RANDOM_DRIFT")):
+            a = self._make_asset(f"bad{i}", status=bad)
+            pdf = render_asset_labels_pdf([a.name], "tem-60x100")
+            text = self._page_text(pdf, 0)
+            seg = self._status_segment(pdf, 0)
+            self.assertIn(self._UNKNOWN_VI, text, f"'{bad}' → 'Chưa rõ'")
+            self.assertNotIn(bad, seg, f"'{bad}' KHÔNG leak raw ra dòng status")
+            self.assertNotIn("—", seg, f"'{bad}' KHÔNG in '—' câm dòng status")
+
+    # ── (3) 8 mã canonical GIỮ nhãn VI cũ (no-regress) ──────────────────────
+    def test_canonical_codes_keep_vi_label_no_regress(self):
+        """Active→'Đang hoạt động'; Out of Service→'Ngừng sử dụng';
+        Decommissioned→'Đã thanh lý'… (extract_text)."""
+        from assetcore.services.imm00 import render_asset_labels_pdf
+        # suffix INDEX (KHÔNG nhúng `code` vào asset_code → tránh false leak-fail).
+        for i, (code, vi) in enumerate(self._CANONICAL_VI.items()):
+            a = self._make_asset(f"canon{i}", status=code)
+            pdf = render_asset_labels_pdf([a.name], "tem-60x100")
+            text = self._page_text(pdf, 0)
+            seg = self._status_segment(pdf, 0)
+            self.assertIn(vi, text, f"'{code}' → nhãn VI '{vi}' (no-regress)")
+            self.assertNotIn(self._UNKNOWN_VI, text,
+                             f"'{code}' hợp lệ KHÔNG bị rớt thành 'Chưa rõ'")
+            self.assertNotIn(code, seg, f"'{code}' raw KHÔNG leak EN ra dòng status")
+
+    # ── (4) batch N=3 mixed (hợp lệ + rỗng + drift) → N→N + nhãn đúng từng trang ─
+    def test_batch_mixed_status_pages_and_per_page_labels(self):
+        """Batch N=3 (Active + '' + drift): PdfReader.pages==3 (giữ N→N), mỗi trang
+        status đúng nhãn tương ứng, KHÔNG trang nào in '—' ở dòng status."""
+        from assetcore.services.imm00 import render_asset_labels_pdf
+        a_ok = self._make_asset("mix-ok", status="Active")
+        a_empty = self._make_asset("mix-empty", status="")
+        a_drift = self._make_asset("mix-drift", status="WEIRD_DRIFT_999")
+        names = [a_ok.name, a_empty.name, a_drift.name]
+        pdf = render_asset_labels_pdf(names, "tem-60x100")
+        self.assertEqual(self._num_pages(pdf), 3,
+                         "3 asset = 3 trang PDF THẬT (invariant N→N giữ)")
+        t0 = self._page_text(pdf, 0)
+        t1 = self._page_text(pdf, 1)
+        t2 = self._page_text(pdf, 2)
+        self.assertIn("Đang hoạt động", t0, "trang 0 (Active) → nhãn VI canonical")
+        self.assertIn(self._UNKNOWN_VI, t1, "trang 1 (rỗng) → 'Chưa rõ'")
+        self.assertIn(self._UNKNOWN_VI, t2, "trang 2 (drift) → 'Chưa rõ'")
+        self.assertNotIn("WEIRD_DRIFT_999", t2, "drift KHÔNG leak raw ra tem")
+        # '—' check CÔ LẬP đoạn dòng status mỗi trang (Model rỗng có '—' hợp lệ).
+        for i in range(3):
+            self.assertNotIn("—", self._status_segment(pdf, i),
+                             f"trang {i} KHÔNG in '—' câm dòng status")
+
+    # ── (5) parity preset BẤT KỲ có 'status' trong fields (KHÔNG chỉ 60×100) ──
+    def test_empty_status_chua_ro_on_every_preset_with_status_field(self):
+        """Mọi preset có field 'status' (60×100 + bất kỳ preset nào fields chứa
+        'status') → asset rỗng render 'Chưa rõ', KHÔNG '—'; pages==1; khổ đúng."""
+        from assetcore.services.imm00 import render_asset_labels_pdf, _LABEL_PRESETS
+        MM_TO_PT = 2.834645669
+        a = self._make_asset("preset-empty", status="")
+        presets_with_status = [
+            k for k, v in _LABEL_PRESETS.items() if "status" in v.get("fields", [])
+        ]
+        self.assertIn("tem-60x100", presets_with_status,
+                      "tiền đề: 60×100 có field 'status'")
+        for preset in presets_with_status:
+            pdf = render_asset_labels_pdf([a.name], preset)
+            self.assertEqual(self._num_pages(pdf), 1,
+                             f"[{preset}] 1 asset = 1 trang THẬT")
+            text = self._page_text(pdf, 0)
+            self.assertIn(self._UNKNOWN_VI, text,
+                          f"[{preset}] status rỗng → 'Chưa rõ'")
+            self.assertNotIn("—", self._status_segment(pdf, 0),
+                             f"[{preset}] KHÔNG '—' câm dòng status")
+            import io
+            from pypdf import PdfReader
+            box = PdfReader(io.BytesIO(bytes(pdf))).pages[0].mediabox
+            spec = _LABEL_PRESETS[preset]
+            self.assertAlmostEqual(float(box.width), spec["width_mm"] * MM_TO_PT,
+                                   delta=3, msg=f"[{preset}] MediaBox width đúng khổ")
+            self.assertAlmostEqual(float(box.height), spec["height_mm"] * MM_TO_PT,
+                                   delta=3, msg=f"[{preset}] MediaBox height đúng khổ")
+
+    # ── (6) UNIT — _lifecycle_vi SSoT (no-EN-leak, presence-aware) ──────────
+    def test_unit_lifecycle_vi_ssot(self):
+        """_lifecycle_vi('')=='Chưa rõ', _lifecycle_vi('NopeCode')=='Chưa rõ',
+        _lifecycle_vi('Active')=='Đang hoạt động' (SSoT, no-EN-leak)."""
+        from assetcore.services.imm00 import _lifecycle_vi
+        self.assertEqual(_lifecycle_vi(""), self._UNKNOWN_VI,
+                         "rỗng → 'Chưa rõ' (KHÔNG '')")
+        self.assertEqual(_lifecycle_vi("NopeCode"), self._UNKNOWN_VI,
+                         "mã lạ → 'Chưa rõ' (KHÔNG raw code)")
+        self.assertEqual(_lifecycle_vi(None), self._UNKNOWN_VI,
+                         "None → 'Chưa rõ' (guard rỗng)")
+        self.assertEqual(_lifecycle_vi("Active"), "Đang hoạt động",
+                         "Active → nhãn VI canonical (no-regress)")
+        self.assertEqual(_lifecycle_vi("Out of Service"), "Ngừng sử dụng")
+        self.assertEqual(_lifecycle_vi("Decommissioned"), "Đã thanh lý")
+        # no-EN-leak: KHÔNG mã lạ nào trả về chính nó.
+        for bad in ("Retired", "RANDOM_DRIFT", "active", "PENDING_X"):
+            self.assertEqual(_lifecycle_vi(bad), self._UNKNOWN_VI,
+                             f"'{bad}' → 'Chưa rõ' (no-EN-leak SSoT)")
+            self.assertNotEqual(_lifecycle_vi(bad), bad)
+
+
+class TestLabelPresetResolverV3(unittest.TestCase):
+    """V3 POLISH (ADR-LABEL-PDF §D14): resolver site_config `assetcore_label_preset`.
+
+    Hợp-lệ-hoá 1 chỗ (mirror `_qr_base_url`): conf hợp-lệ → preset đó; conf
+    vắng/rỗng/sai-kiểu/không-whitelist → fallback `DEFAULT_LABEL_PRESET` + warn
+    log ĐÚNG 1 lần, KHÔNG raise. explicit client preset > site_config > code-default;
+    preset client lạ → 422 GIỮ NGUYÊN (resolver KHÔNG nới whitelist).
+    """
+
+    _CATEGORY_NAME = "Thiết bị Preset Resolver (LABEL-PDF V3)"
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        _orphan = frappe.db.get_value(
+            "AC Asset Category", {"category_name": cls._CATEGORY_NAME}, "name")
+        if _orphan:
+            frappe.delete_doc("AC Asset Category", _orphan, force=True,
+                              ignore_permissions=True)
+        cls.cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": cls._CATEGORY_NAME,
+            "description": "Category cho test resolver preset V3",
+            "is_active": 1,
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        frappe.delete_doc("AC Asset Category", cls.cat.name,
+                          force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self._created: list[str] = []
+        # cô lập state config + cờ warn module-level giữa các test (KHÔNG để rò).
+        from assetcore.services import imm00 as _svc
+        self._conf_had = _svc._LABEL_PRESET_CONF_KEY in frappe.conf
+        self._conf_prev = frappe.conf.get(_svc._LABEL_PRESET_CONF_KEY)
+        _svc._label_preset_warned = False
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+        from assetcore.services import imm00 as _svc
+        # khôi phục conf về trạng thái trước test (KHÔNG rò sang test khác).
+        if self._conf_had:
+            frappe.conf[_svc._LABEL_PRESET_CONF_KEY] = self._conf_prev
+        else:
+            frappe.conf.pop(_svc._LABEL_PRESET_CONF_KEY, None)
+        _svc._label_preset_warned = False
+        frappe.db.rollback()
+        for name in self._created:
+            _purge_asset(name)
+        frappe.db.commit()
+
+    def _set_conf(self, value):
+        from assetcore.services import imm00 as _svc
+        frappe.conf[_svc._LABEL_PRESET_CONF_KEY] = value
+
+    def _clear_conf(self):
+        from assetcore.services import imm00 as _svc
+        frappe.conf.pop(_svc._LABEL_PRESET_CONF_KEY, None)
+
+    def _make_asset(self, suffix="", **overrides):
+        import uuid
+        uniq = f"{suffix or '0001'}-{uuid.uuid4().hex[:8]}"
+        data = {
+            "doctype": "AC Asset",
+            "asset_name": f"Máy Preset {uniq}",
+            "asset_category": self.cat.name,
+            "manufacturer_sn": f"PRESET-SN-{uniq}",
+            "asset_code": f"PRESET-ASSET-{uniq}",
+            "lifecycle_status": "Active",
+        }
+        data.update(overrides)
+        doc = _insert_asset_bypass_workflow(data)
+        self._created.append(doc.name)
+        return doc
+
+    # ── [BE TDD] resolver hợp lệ: conf ∈ whitelist → trả conf ────────────────
+    def test_resolve_preset_valid_conf(self):
+        from assetcore.services.imm00 import _resolve_label_preset
+        self._set_conf("tem-60x100")
+        self.assertEqual(_resolve_label_preset(), "tem-60x100",
+                         "conf hợp lệ ∈ _LABEL_PRESETS → trả đúng conf")
+
+    def test_resolve_preset_valid_conf_endpoint_no_preset_pdf(self):
+        """conf hợp lệ + endpoint KHÔNG truyền preset → PDF (response.type=pdf)."""
+        from assetcore.api.imm00 import print_asset_labels_pdf
+        self._set_conf("tem-60x100")
+        asset = self._make_asset("rconf1")
+        frappe.local.response = frappe._dict()
+        print_asset_labels_pdf(assets=[asset.name])
+        self.assertEqual(frappe.local.response.get("type"), "pdf",
+                         "conf hợp lệ + no-preset → PDF khổ conf")
+        self.assertTrue(bytes(frappe.local.response.get("filecontent"))
+                        .startswith(b"%PDF-"))
+
+    # ── [BE TDD] resolver fallback: vắng / '' / 123 / không-whitelist ────────
+    def test_resolve_preset_missing_or_invalid_falls_back(self):
+        from assetcore.services.imm00 import (
+            _resolve_label_preset, DEFAULT_LABEL_PRESET)
+        from assetcore.services import imm00 as _svc
+        # (a) conf VẮNG → DEFAULT, KHÔNG warn (vắng là hợp lệ).
+        self._clear_conf()
+        _svc._label_preset_warned = False
+        self.assertEqual(_resolve_label_preset(), DEFAULT_LABEL_PRESET)
+        self.assertFalse(_svc._label_preset_warned,
+                         "conf vắng → KHÔNG warn (vắng là hợp lệ)")
+        # (b) conf '' rỗng → DEFAULT (rỗng coi như vắng — falsy, KHÔNG warn).
+        self._set_conf("")
+        _svc._label_preset_warned = False
+        self.assertEqual(_resolve_label_preset(), DEFAULT_LABEL_PRESET)
+        # (c) conf 123 (sai kiểu) → DEFAULT, KHÔNG raise.
+        self._set_conf(123)
+        _svc._label_preset_warned = False
+        self.assertEqual(_resolve_label_preset(), DEFAULT_LABEL_PRESET,
+                         "conf sai kiểu → DEFAULT (KHÔNG raise)")
+        # (d) conf 'khong-whitelist' → DEFAULT + warn.
+        self._set_conf("khong-whitelist")
+        _svc._label_preset_warned = False
+        self.assertEqual(_resolve_label_preset(), DEFAULT_LABEL_PRESET,
+                         "conf không-whitelist → fallback DEFAULT")
+
+    def test_resolve_preset_warns_exactly_once(self):
+        """conf sai-whitelist → warn ĐÚNG 1 lần (gọi 2× → log 1×)."""
+        from assetcore.services.imm00 import _resolve_label_preset
+        from assetcore.services import imm00 as _svc
+        from unittest.mock import patch
+        self._set_conf("rac-config-sai")
+        _svc._label_preset_warned = False
+        with patch.object(frappe, "logger") as mock_logger:
+            warn = mock_logger.return_value.warning
+            _resolve_label_preset()
+            _resolve_label_preset()
+            self.assertEqual(warn.call_count, 1,
+                             "config sai → warning ĐÚNG 1 lần (cờ module-level)")
+        self.assertTrue(_svc._label_preset_warned, "cờ warn set True sau lần đầu")
+
+    def test_resolve_preset_invalid_conf_renders_pdf_no_raise(self):
+        """conf=123 / 'rác' + endpoint no-preset → render PDF OK, KHÔNG 500."""
+        from assetcore.api.imm00 import print_asset_labels_pdf
+        asset = self._make_asset("rbad1")
+        for bad in (123, "rac-khong-whitelist"):
+            self._set_conf(bad)
+            from assetcore.services import imm00 as _svc
+            _svc._label_preset_warned = False
+            frappe.local.response = frappe._dict()
+            ret = print_asset_labels_pdf(assets=[asset.name])
+            self.assertFalse(isinstance(ret, dict) and ret.get("success") is False,
+                             f"conf={bad!r} → KHÔNG Error envelope (fallback 60×100)")
+            self.assertEqual(frappe.local.response.get("type"), "pdf",
+                             f"conf={bad!r} → PDF vẫn ra (fallback, KHÔNG 500)")
+            self.assertTrue(bytes(frappe.local.response.get("filecontent"))
+                            .startswith(b"%PDF-"))
+
+    # ── [BE TDD] explicit client preset THẮNG config + lạ → 422 GIỮ NGUYÊN ───
+    def test_endpoint_explicit_preset_wins_over_conf(self):
+        from assetcore.api.imm00 import print_asset_labels_pdf
+        from assetcore.services.imm00 import _resolve_label_preset
+        # conf set 1 preset hợp lệ; client truyền tường minh preset hợp lệ →
+        # client THẮNG (resolver chỉ áp khi caller bỏ trống). Hiện whitelist chỉ
+        # có 1 preset PDF → dùng cùng giá trị nhưng chứng minh nhánh explicit
+        # KHÔNG đi qua resolver (resolver trả conf, explicit bỏ qua resolver).
+        self._set_conf("tem-60x100")
+        self.assertEqual(_resolve_label_preset(), "tem-60x100")
+        asset = self._make_asset("exp1")
+        frappe.local.response = frappe._dict()
+        print_asset_labels_pdf(assets=[asset.name], preset="tem-60x100")
+        self.assertEqual(frappe.local.response.get("type"), "pdf",
+                         "client truyền preset hợp lệ → PDF (explicit thắng)")
+        # client truyền preset LẠ → 422 GIỮ NGUYÊN (resolver KHÔNG nới whitelist)
+        frappe.local.response = frappe._dict()
+        resp = print_asset_labels_pdf(assets=[asset.name], preset="xyz-lung-tung")
+        self.assertIsInstance(resp, dict, "preset lạ tường minh → Error envelope")
+        self.assertFalse(resp.get("success"))
+        self.assertEqual(resp.get("http_status"), 422,
+                         "preset client lạ → 422 GIỮ NGUYÊN (KHÔNG nới whitelist)")
+        self.assertNotEqual(frappe.local.response.get("type"), "pdf")
+
+    # ── [BE TDD] no-preset dùng conf default; conf vắng → 60×100 fallback ────
+    def test_endpoint_no_preset_uses_conf_default(self):
+        from assetcore.api.imm00 import print_asset_labels_pdf
+        asset = self._make_asset("nopre1")
+        # (a) conf set → PDF đúng preset conf.
+        self._set_conf("tem-60x100")
+        frappe.local.response = frappe._dict()
+        print_asset_labels_pdf(assets=[asset.name])
+        self.assertEqual(frappe.local.response.get("type"), "pdf",
+                         "no-preset + conf set → PDF preset conf")
+        # (b) conf VẮNG → PDF fallback 60×100 (DEFAULT_LABEL_PRESET).
+        self._clear_conf()
+        frappe.local.response = frappe._dict()
+        print_asset_labels_pdf(assets=[asset.name])
+        self.assertEqual(frappe.local.response.get("type"), "pdf",
+                         "no-preset + conf vắng → PDF fallback 60×100mm")
+        self.assertTrue(bytes(frappe.local.response.get("filecontent"))
+                        .startswith(b"%PDF-"))
+
+
+class TestLabelStatusViV3(unittest.TestCase):
+    """V3 POLISH (ADR-LABEL-PDF §D3/§D13): field thứ 5 lifecycle_status dịch VI.
+
+    Nhãn 'Trạng thái:' + giá trị VI; mã EN canonical KHÔNG lọt tem (grep=0);
+    Block lỗi (asset∄) KHÔNG có status.
+
+    VÒNG 41 (label-pdf em-dash câm fix): mã lạ/rỗng KHÔNG còn '—' câm mà → nhãn
+    SSoT VI 'Chưa rõ' (presence-aware, no-EN-leak). Assertion cũ (_lifecycle_vi
+    rỗng/lạ == '') ĐÃ THAY bằng == 'Chưa rõ' bên dưới. Bộ assert pypdf đầy đủ ở
+    TestLabelStatusViUnknownVi41.
+    """
+
+    _CATEGORY_NAME = "Thiết bị Status VI (LABEL-PDF V3)"
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        _orphan = frappe.db.get_value(
+            "AC Asset Category", {"category_name": cls._CATEGORY_NAME}, "name")
+        if _orphan:
+            frappe.delete_doc("AC Asset Category", _orphan, force=True,
+                              ignore_permissions=True)
+        cls.cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": cls._CATEGORY_NAME,
+            "description": "Category cho test status VI V3",
+            "is_active": 1,
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        frappe.delete_doc("AC Asset Category", cls.cat.name,
+                          force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self._created: list[str] = []
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+        frappe.db.rollback()
+        for name in self._created:
+            _purge_asset(name)
+        frappe.db.commit()
+
+    def _make_asset(self, suffix="", **overrides):
+        import uuid
+        uniq = f"{suffix or '0001'}-{uuid.uuid4().hex[:8]}"
+        data = {
+            "doctype": "AC Asset",
+            "asset_name": f"Máy Status {uniq}",
+            "asset_category": self.cat.name,
+            "manufacturer_sn": f"STAT-SN-{uniq}",
+            "asset_code": f"STAT-ASSET-{uniq}",
+            "lifecycle_status": "Active",
+        }
+        data.update(overrides)
+        doc = _insert_asset_bypass_workflow(data)
+        self._created.append(doc.name)
+        return doc
+
+    # ── [BE TDD] HTML render status VI + nhãn 'Trạng thái' + no EN-leak ──────
+    def test_label_html_renders_lifecycle_status_vi(self):
+        from assetcore.services.imm00 import (
+            _label_html, build_asset_label_data_batch)
+        # (a) Under Maintenance → 'Đang bảo trì'; EN canonical KHÔNG lọt tem.
+        a = self._make_asset("um1", lifecycle_status="Under Maintenance")
+        html = _label_html(build_asset_label_data_batch([a.name]), "tem-60x100")
+        self.assertIn("Trạng thái", html, "nhãn-VI cố định 'Trạng thái' có mặt")
+        self.assertIn("Đang bảo trì", html, "giá trị VI dịch đúng")
+        self.assertNotIn("Under Maintenance", html,
+                         "mã EN canonical thô KHÔNG lọt tem (no EN-leak)")
+        # (b) Active → 'Đang hoạt động'; 'Active' EN KHÔNG lọt tem.
+        b = self._make_asset("act1", lifecycle_status="Active")
+        html2 = _label_html(build_asset_label_data_batch([b.name]), "tem-60x100")
+        self.assertIn("Đang hoạt động", html2, "Active → 'Đang hoạt động'")
+        # 'Active' chỉ kiểm trong ngữ cảnh status — đảm bảo mã EN status không lọt.
+        # (HTML có thể chứa 'active' trong CSS? KHÔNG — CSS chỉ class .status. Assert thô.)
+        self.assertNotIn("Active", html2,
+                         "mã EN 'Active' thô KHÔNG lọt tem (no EN-leak)")
+
+    # ── [BE TDD] status mã lạ/rỗng → 'Chưa rõ' (Vòng 41 — no em-dash câm) ─────
+    def test_label_status_unknown_no_crash(self):
+        from assetcore.services.imm00 import (
+            _label_html, build_asset_label_data_batch,
+            render_asset_labels_pdf, _lifecycle_vi)
+        # (a) status rỗng → _lifecycle_vi('') == 'Chưa rõ' → render 'Chưa rõ',
+        # KHÔNG 'None', KHÔNG '—' câm. lifecycle_status mandatory → insert hợp lệ
+        # rồi set rỗng qua DB (mô phỏng data cũ/migration thiếu status).
+        a = self._make_asset("empty1")
+        frappe.db.set_value("AC Asset", a.name, "lifecycle_status", "",
+                            update_modified=False)
+        items = build_asset_label_data_batch([a.name])
+        html = _label_html(items, "tem-60x100")
+        self.assertIn("Trạng thái", html, "dòng status vẫn render khi rỗng")
+        self.assertIn("Chưa rõ", html, "status rỗng → nhãn VI 'Chưa rõ' (no em-dash câm)")
+        self.assertNotIn("None", html, "KHÔNG render chuỗi 'None'")
+        self.assertEqual(_lifecycle_vi(""), "Chưa rõ",
+                         "_lifecycle_vi('') == 'Chưa rõ' (Vòng 41 SSoT)")
+        self.assertEqual(_lifecycle_vi("FooBarLa"), "Chưa rõ",
+                         "mã lạ → 'Chưa rõ' (KHÔNG leak, KHÔNG None, KHÔNG '—')")
+        # PDF magic %PDF còn đúng (KHÔNG crash khi status rỗng).
+        pdf = render_asset_labels_pdf([a.name], "tem-60x100")
+        self.assertTrue(bytes(pdf).startswith(b"%PDF-"),
+                        "status rỗng → PDF magic %PDF còn đúng (KHÔNG raise)")
+
+    def test_error_block_has_no_status_line(self):
+        """Block lỗi (asset∄) KHÔNG thêm dòng status (chỉ echo name + not-found)."""
+        from assetcore.services.imm00 import (
+            _label_html, build_asset_label_data_batch)
+        a = self._make_asset("mixstat")
+        items = build_asset_label_data_batch([a.name, "KHONG-TON-TAI-STAT"])
+        html = _label_html(items, "tem-60x100")
+        # đúng 1 dòng status (cho asset hợp lệ), KHÔNG cho block lỗi.
+        self.assertEqual(html.count('class="line status"'), 1,
+                         "chỉ block hợp lệ có dòng status (block lỗi KHÔNG)")
+
+
+# ── VÒNG 41 — TEM IN PDF: dòng 'Trạng thái' status rỗng/lạ → 'Chưa rõ' (no em-dash
+#    câm), no-EN-leak — verify ở TẦNG PDF THẬT (pypdf extract_text), KHÔNG đếm HTML.
+#    Parity FE AssetQrLabel.vue (translateStatus-safe → 'Chưa rõ'). Đo extract_text
+#    (analog quét tem khách in) — chống false-green của assert HTML-source thuần.
+class TestLabelStatusViUnknownVi41(unittest.TestCase):
+    """VÒNG 41: bịt em-dash-câm + presence-aware nhãn VI cho dòng 'Trạng thái' trên
+    TEM IN PDF. status rỗng/lạ/drift → 'Chưa rõ' (SSoT VI, KHÔNG '—', KHÔNG leak mã
+    EN thô). 8 mã canonical GIỮ nhãn cũ (no-regress). Bất biến PDF (N→N trang +
+    MediaBox khổ mm) GIỮ. Đo bằng PdfReader.extract_text() (KHÔNG HTML block).
+    """
+
+    _CATEGORY_NAME = "Thiết bị Status Vi41 (LABEL-PDF V41)"
+    _MM_TO_PT = 2.834645669
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        _orphan = frappe.db.get_value(
+            "AC Asset Category", {"category_name": cls._CATEGORY_NAME}, "name")
+        if _orphan:
+            frappe.delete_doc("AC Asset Category", _orphan, force=True,
+                              ignore_permissions=True)
+        cls.cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": cls._CATEGORY_NAME,
+            "description": "Category cho test status VI Vòng 41",
+            "is_active": 1,
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        frappe.delete_doc("AC Asset Category", cls.cat.name,
+                          force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self._created: list[str] = []
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+        frappe.db.rollback()
+        for name in self._created:
+            _purge_asset(name)
+        frappe.db.commit()
+
+    def _make_asset(self, suffix="", **overrides):
+        import uuid
+        uniq = f"{suffix or '0001'}-{uuid.uuid4().hex[:8]}"
+        data = {
+            "doctype": "AC Asset",
+            "asset_name": f"Máy V41 {uniq}",
+            "asset_category": self.cat.name,
+            "manufacturer_sn": f"V41-SN-{uniq}",
+            "asset_code": f"V41-ASSET-{uniq}",
+            "lifecycle_status": "Active",
+        }
+        data.update(overrides)
+        doc = _insert_asset_bypass_workflow(data)
+        self._created.append(doc.name)
+        return doc
+
+    def _set_status_raw(self, name: str, status: str) -> None:
+        # lifecycle_status mandatory → insert hợp lệ rồi set rỗng/drift qua DB
+        # (mô phỏng data cũ/migration/drift ngoài 8 mã canonical).
+        frappe.db.set_value("AC Asset", name, "lifecycle_status", status,
+                            update_modified=False)
+
+    def _pdf_text_pages(self, names):
+        """Trả (reader, [text_chuẩn-hoá per-page]). pypdf extract_text chèn \\t/\\n
+        GIỮA glyph → bỏ whitespace để so chuỗi VI liền mạch ('Chưa rõ') KHÔNG
+        false-fail vì tách-từ. Đây là TẦNG PDF THẬT (analog quét tem in)."""
+        import io
+        from pypdf import PdfReader
+        from assetcore.services.imm00 import render_asset_labels_pdf
+        pdf = render_asset_labels_pdf(names, "tem-60x100")
+        reader = PdfReader(io.BytesIO(bytes(pdf)))
+        norm = ["".join(p.extract_text().split()) for p in reader.pages]
+        return reader, norm
+
+    @staticmethod
+    def _status_segment(page_text: str) -> str:
+        """Trích GIÁ TRỊ dòng 'Trạng thái' từ text trang (đã chuẩn-hoá). Layout
+        tem-60x100 (fields=[code,name,model,sn,status]) → 'status' là field CUỐI →
+        giá trị = phần sau marker 'Trạngthái:'. Cho phép SCOPE assert '—' câm CHỈ ở
+        dòng status — GIỮ '—' cho field khác (code/name/model/sn) out-of-scope V41
+        (vd model rỗng vẫn '—' hợp lệ). Marker = nhãn VI cố định (no em-dash)."""
+        marker = "Trạngthái:"
+        idx = page_text.find(marker)
+        return page_text[idx + len(marker):] if idx >= 0 else ""
+
+    # ── unit SSoT — _lifecycle_vi (no-EN-leak, presence-aware) ──────────────
+    def test_unit_lifecycle_vi_ssot(self):
+        from assetcore.services.imm00 import _lifecycle_vi, _LIFECYCLE_VI_UNKNOWN
+        self.assertEqual(_LIFECYCLE_VI_UNKNOWN, "Chưa rõ",
+                         "hằng SSoT VI cho mã rỗng/lạ == 'Chưa rõ'")
+        self.assertEqual(_lifecycle_vi(""), "Chưa rõ", "rỗng → 'Chưa rõ'")
+        self.assertEqual(_lifecycle_vi("NopeCode"), "Chưa rõ", "mã lạ → 'Chưa rõ'")
+        self.assertEqual(_lifecycle_vi("Active"), "Đang hoạt động",
+                         "mã canonical GIỮ nhãn cũ (no-regress)")
+        # no-EN-leak: mã lạ KHÔNG bao giờ trả raw code.
+        self.assertNotIn("NopeCode", _lifecycle_vi("NopeCode"))
+        # presence-aware: KHÔNG bao giờ trả chuỗi rỗng (luôn truthy → no '—' câm).
+        for s in ("", "NopeCode", "RANDOM_DRIFT", "active"):
+            self.assertTrue(_lifecycle_vi(s), f"_lifecycle_vi({s!r}) phải truthy")
+
+    # ── PDF THẬT — status rỗng ('') → extract_text chứa 'Chưa rõ', KHÔNG '—' ──
+    def test_pdf_empty_status_shows_chua_ro_no_emdash(self):
+        a = self._make_asset("empty")
+        self._set_status_raw(a.name, "")
+        reader, pages = self._pdf_text_pages([a.name])
+        self.assertEqual(len(reader.pages), 1, "1 asset = 1 trang PDF THẬT")
+        seg = self._status_segment(pages[0])
+        self.assertTrue(seg.startswith("Chưarõ"),
+                        "status rỗng → dòng 'Trạng thái' = 'Chưa rõ' (extract_text)")
+        # KHÔNG '—' câm Ở DÒNG STATUS (scope status-segment — GIỮ '—' cho field khác
+        # như model rỗng, out-of-scope V41). Em-dash U+2014 KHÔNG ở giá trị status.
+        self.assertNotIn("—", seg,
+                         "KHÔNG còn '—' câm Ở DÒNG STATUS khi status rỗng")
+        # MediaBox đúng khổ 60×100mm (no-regress khổ tem).
+        box = reader.pages[0].mediabox
+        self.assertAlmostEqual(float(box.width), 60 * self._MM_TO_PT, delta=3)
+        self.assertAlmostEqual(float(box.height), 100 * self._MM_TO_PT, delta=3)
+
+    # ── PDF THẬT — mã DRIFT/lạ → 'Chưa rõ' + TUYỆT ĐỐI KHÔNG leak raw code ────
+    def test_pdf_drift_status_no_raw_en_leak(self):
+        a = self._make_asset("drift")
+        self._set_status_raw(a.name, "RANDOM_DRIFT_XYZ")
+        reader, pages = self._pdf_text_pages([a.name])
+        self.assertEqual(len(reader.pages), 1)
+        self.assertIn("Chưarõ", pages[0], "mã lạ → 'Chưa rõ' trên tem in")
+        # No-raw-EN-leak ở TẦNG PDF THẬT: chuỗi drift KHÔNG xuất hiện ở extract_text.
+        joined = "".join(pages)
+        self.assertNotIn("RANDOM_DRIFT_XYZ", joined,
+                         "mã lạ KHÔNG leak raw code ra tem (extract_text)")
+        self.assertNotIn("RANDOM", joined, "không leak phần mã drift")
+        self.assertNotIn("—", self._status_segment(pages[0]),
+                         "KHÔNG '—' câm Ở DÒNG STATUS cho mã lạ")
+
+    # ── PDF THẬT — 8 mã canonical GIỮ nhãn VI cũ (no-regress) ────────────────
+    def test_pdf_canonical_status_no_regress(self):
+        cases = {
+            "Active": "Đanghoạtđộng",
+            "Out of Service": "Ngừngsửdụng",
+            "Decommissioned": "Đãthanhlý",
+        }
+        for raw, vi in cases.items():
+            # suffix sạch (asset_code chỉ chấp chữ/số/._-/) — bỏ space của mã có
+            # khoảng trắng ('Out of Service') → KHÔNG vi phạm regex asset_code.
+            safe = "".join(c for c in raw if c.isalnum())[:8]
+            a = self._make_asset(f"canon-{safe}")
+            self._set_status_raw(a.name, raw)
+            reader, pages = self._pdf_text_pages([a.name])
+            seg = self._status_segment(pages[0])
+            self.assertTrue(seg.startswith(vi),
+                            f"{raw} → dòng 'Trạng thái' = '{vi}' (no-regress)")
+            # mã EN canonical KHÔNG leak Ở DÒNG STATUS (scope status-segment —
+            # asset_code/suffix có thể chứa mã, out-of-scope; chỉ status line tính).
+            self.assertNotIn(raw.replace(" ", ""), seg,
+                             f"mã EN '{raw}' KHÔNG leak ra DÒNG STATUS")
+            self.assertNotIn("Chưarõ", seg,
+                             f"{raw} là mã hợp lệ → DÒNG STATUS KHÔNG 'Chưa rõ'")
+
+    # ── PDF THẬT — batch N=3 mixed (hợp lệ + rỗng + drift): N→N trang giữ ─────
+    def test_pdf_batch_mixed_status_invariant_n_pages(self):
+        ok = self._make_asset("mix-ok", lifecycle_status="Active")
+        empty = self._make_asset("mix-empty")
+        self._set_status_raw(empty.name, "")
+        drift = self._make_asset("mix-drift")
+        self._set_status_raw(drift.name, "WeirdDrift")
+        reader, pages = self._pdf_text_pages([ok.name, empty.name, drift.name])
+        # invariant N→N: PdfReader.pages == 3 (KHÔNG đếm HTML block).
+        self.assertEqual(len(reader.pages), 3,
+                         "3 asset mixed → 3 trang PDF THẬT (invariant N→N giữ)")
+        joined = "".join(pages)
+        # mỗi nhãn render đúng: 1 'Đang hoạt động' (ok) + 2 'Chưa rõ' (empty+drift).
+        self.assertIn("Đanghoạtđộng", joined, "asset hợp lệ → nhãn VI canonical")
+        self.assertEqual(joined.count("Chưarõ"), 2,
+                         "đúng 2 nhãn 'Chưa rõ' (rỗng + drift), KHÔNG nhiều/ít hơn")
+        # KHÔNG trang nào in '—' Ở DÒNG STATUS (scope status-segment — '—' field
+        # khác như model rỗng là out-of-scope V41).
+        for i, txt in enumerate(pages):
+            self.assertNotIn("—", self._status_segment(txt),
+                             f"trang {i} KHÔNG '—' câm Ở DÒNG STATUS")
+        self.assertNotIn("WeirdDrift", joined, "drift KHÔNG leak raw code")
+
+
+class TestImm00Imm04QrNoConflictV3(unittest.TestCase):
+    """V3 POLISH (ADR-LABEL-PDF §D15): IMM-00 label PDF ↔ IMM-04 commissioning.
+
+    CÙNG token `/a/<token>` qua `ensure_asset_qr_token`+`_build_qr_url`; in PDF
+    IMM-00 KHÔNG rotate token IMM-04 dùng (no side-effect chéo).
+    """
+
+    _CATEGORY_NAME = "Thiết bị No-Conflict QR (LABEL-PDF V3)"
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        _orphan = frappe.db.get_value(
+            "AC Asset Category", {"category_name": cls._CATEGORY_NAME}, "name")
+        if _orphan:
+            frappe.delete_doc("AC Asset Category", _orphan, force=True,
+                              ignore_permissions=True)
+        cls.cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": cls._CATEGORY_NAME,
+            "description": "Category cho test no-conflict QR V3",
+            "is_active": 1,
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        frappe.delete_doc("AC Asset Category", cls.cat.name,
+                          force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self._created: list[str] = []
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+        frappe.db.rollback()
+        for name in self._created:
+            _purge_asset(name)
+        frappe.db.commit()
+
+    def _make_asset(self, suffix=""):
+        import uuid
+        uniq = f"{suffix or '0001'}-{uuid.uuid4().hex[:8]}"
+        doc = _insert_asset_bypass_workflow({
+            "doctype": "AC Asset",
+            "asset_name": f"Máy NoConflict {uniq}",
+            "asset_category": self.cat.name,
+            "manufacturer_sn": f"NC-SN-{uniq}",
+            "asset_code": f"NC-ASSET-{uniq}",
+            "lifecycle_status": "Active",
+        })
+        self._created.append(doc.name)
+        return doc
+
+    def test_imm00_qr_url_is_deep_link_a_token(self):
+        """IMM-00 build_asset_label_data → qr_url = /a/<token> (CÙNG SSoT)."""
+        from assetcore.services.imm00 import (
+            build_asset_label_data, ensure_asset_qr_token, _build_qr_url)
+        asset = self._make_asset("dl1")
+        token = ensure_asset_qr_token(asset.name)
+        expected = _build_qr_url(token)
+        data = build_asset_label_data(asset.name)
+        self.assertEqual(data["qr_url"], expected,
+                         "IMM-00 qr_url == _build_qr_url(ensure_asset_qr_token) — CÙNG SSoT")
+        self.assertIn("/a/", data["qr_url"], "deep-link /a/<token>")
+        self.assertIn(token, data["qr_url"], "token là path-segment qr_url")
+
+    def test_print_pdf_does_not_rotate_token(self):
+        """in PDF IMM-00 KHÔNG rotate qr_token (token trước == sau — no side-effect)."""
+        from assetcore.api.imm00 import print_asset_labels_pdf
+        from assetcore.services.imm00 import ensure_asset_qr_token
+        asset = self._make_asset("norot1")
+        token_before = ensure_asset_qr_token(asset.name)
+        frappe.db.commit()
+        frappe.local.response = frappe._dict()
+        print_asset_labels_pdf(assets=[asset.name])
+        self.assertEqual(frappe.local.response.get("type"), "pdf")
+        token_after = frappe.db.get_value("AC Asset", asset.name, "qr_token")
+        self.assertEqual(token_before, token_after,
+                         "in PDF KHÔNG rotate token (no side-effect chéo IMM-04)")
+
+    def test_imm00_imm04_same_helper_same_token(self):
+        """IMM-00 build_asset_label_data['qr_url'] dùng CÙNG helper như IMM-04.
+
+        IMM-04 generate_qr_label lazy-import ensure_asset_qr_token+_build_qr_url
+        từ IMM-00 (services/imm04.py:1010-1012). Chứng minh CÙNG token: gọi cả 2
+        helper trên cùng asset → CÙNG /a/<token> (ensure idempotent — không rotate).
+        """
+        from assetcore.services.imm00 import (
+            build_asset_label_data, ensure_asset_qr_token, _build_qr_url)
+        asset = self._make_asset("conv1")
+        # đường IMM-00 (asset label)
+        imm00_url = build_asset_label_data(asset.name)["qr_url"]
+        # đường IMM-04 reuse (CÙNG helper, mô phỏng generate_qr_label sau release)
+        imm04_token = ensure_asset_qr_token(asset.name)
+        imm04_url = _build_qr_url(imm04_token)
+        self.assertEqual(imm00_url, imm04_url,
+                         "IMM-00 ↔ IMM-04 CÙNG /a/<token> (ensure idempotent, no rotate)")
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Vòng 5 — LIST-SCOPE: page_size upper-cap (ADR-IMM00-LIST-SCOPE)
+# ──────────────────────────────────────────────────────────────────────────
+# BUG (factory round 5): 11 list-endpoint imm00 parse `page_size = int(page_size)`
+# rồi truyền THẲNG `limit_page_length=page_size` vào frappe.get_list KHÔNG cap.
+# `paginate()` CHỈ clamp metadata [1,100] (utils/pagination.py:8) → metadata
+# divergent với limit query thật → invariant `len(items) <= pagination.page_size`
+# VỠ + truy vấn vô giới hạn (DoS/perf). Sibling imm01/02/03/04 đã cap.
+#
+# FIX (SSoT, BA chốt ADR-IMM00-LIST-SCOPE): tái dùng clamp đã-có của paginate() —
+# DÙNG `pag["page_size"]` (đã min(max(x,1),100)) làm limit_page_length. KHÔNG rải
+# literal 100 ở 11 handler. RED viết TRƯỚC fix.
+#
+# TC-PAGESZ-01..07. Frappe-first, logic-level (bench run-tests fresh-import) —
+# KHÔNG cần USER reload gunicorn (STALE-WORKER gate AC5).
+# ──────────────────────────────────────────────────────────────────────────
+class TestListScopePageSizeCap(unittest.TestCase):
+    """Vòng 5 — page_size cap 100 cho MỌI list-endpoint imm00 (parity imm01/02/03)."""
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": "Thiết bị Page-Size-Cap (V5)",
+            "description": "Category cho test list-scope page_size cap",
+            "is_active": 1,
+        }).insert(ignore_permissions=True)
+        cls.loc = frappe.get_doc({
+            "doctype": "AC Location",
+            "location_name": "PSC Phòng Kiểm thử — Tầng 5",
+            "location_type": "Room",
+        }).insert(ignore_permissions=True)
+        # 1 asset thật → đủ cho list_assets + các endpoint cần `asset`/`name`
+        # (get_asset_timeline, list_lifecycle_events) có arg hợp lệ.
+        import uuid
+        uniq = uuid.uuid4().hex[:8]
+        cls.asset = _insert_asset_bypass_workflow({
+            "doctype": "AC Asset",
+            "asset_name": f"Máy PageSizeCap {uniq}",
+            "asset_category": cls.cat.name,
+            "location": cls.loc.name,
+            "manufacturer_sn": f"PSC-SN-{uniq}",
+            "asset_code": f"PSC-ASSET-{uniq}",
+            "lifecycle_status": "Active",
+        })
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        _purge_asset(cls.asset.name)
+        frappe.delete_doc("AC Location", cls.loc.name,
+                          force=True, ignore_permissions=True)
+        frappe.delete_doc("AC Asset Category", cls.cat.name,
+                          force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+
+    def _spy_get_list_limits(self, fn, **kwargs):
+        """Gọi `fn(**kwargs)` trong khi SPY mọi `limit_page_length` thực sự truyền
+        vào frappe.get_list. Trả (resp, [limit_page_length...]).
+
+        Deterministic-RED: chứng minh limit query đã-cap KHÔNG phụ thuộc DB có
+        >100 row hay không (test DB fresh-import có thể ít row → len(items)<=100
+        đúng-trivially; spy bắt ĐÚNG giá trị limit_page_length truyền xuống SQL)."""
+        import frappe as _frappe
+        captured: list = []
+        orig = _frappe.get_list
+
+        def _spy(*a, **kw):
+            if "limit_page_length" in kw:
+                captured.append(kw["limit_page_length"])
+            return orig(*a, **kw)
+
+        _frappe.get_list = _spy
+        try:
+            resp = fn(**kwargs)
+        finally:
+            _frappe.get_list = orig
+        return resp, captured
+
+    # 11 list-endpoint imm00 (đề mục AC2) → (callable, kwargs cố-định-arg-bắt-buộc).
+    # Endpoint cần `asset`/`name` được cấp asset thật; còn lại arg-optional.
+    def _endpoints(self):
+        from assetcore.api import imm00 as api
+        return [
+            ("list_assets",            api.list_assets,            {}),
+            ("get_asset_timeline",     api.get_asset_timeline,     {"name": self.asset.name}),
+            ("list_lifecycle_events",  api.list_lifecycle_events,  {"asset": self.asset.name}),
+            ("list_suppliers",         api.list_suppliers,         {}),
+            ("list_device_models",     api.list_device_models,     {}),
+            ("list_audit_trail",       api.list_audit_trail,       {}),
+            ("list_capas",             api.list_capas,             {}),
+            ("list_overdue_capas",     api.list_overdue_capas,     {}),
+            ("list_incidents",         api.list_incidents,         {}),
+            ("list_transfers",         api.list_transfers,         {}),
+            ("list_service_contracts", api.list_service_contracts, {}),
+        ]
+
+    # ── TC-PAGESZ-01 (RED trước fix) — list_assets page_size khổng lồ ───────
+    def test_pagesz_01_list_assets_huge_page_size_capped(self):
+        """`list_assets(page_size=100000)` → len(items) <= 100 VÀ
+        pagination.page_size == 100 (metadata == limit thực, hết divergence).
+
+        RED trước fix: limit_page_length=page_size thô → items vượt 100 (nếu DB
+        đủ row) + pagination.page_size==100 ⇒ len(items) > pagination.page_size.
+        """
+        from assetcore.api.imm00 import list_assets
+        resp, limits = self._spy_get_list_limits(list_assets, page=1, page_size=100000)
+        self.assertTrue(resp["success"])
+        data = resp["data"]
+        self.assertEqual(data["pagination"]["page_size"], 100,
+                         "page_size metadata phải clamp về 100")
+        # DETERMINISTIC-RED: limit_page_length thực truyền vào SQL <= 100
+        # (trước fix = 100000 thô → FAIL bất kể DB ít/nhiều row).
+        self.assertTrue(limits, "list_assets phải gọi frappe.get_list (spy bắt được)")
+        for lim in limits:
+            self.assertLessEqual(lim, 100,
+                                 f"limit_page_length truyền vào SQL={lim} > 100 "
+                                 "(query vô giới hạn — DoS/perf, invariant VỠ)")
+        self.assertLessEqual(len(data["items"]), 100,
+                             "items KHÔNG được vượt 100 (limit query đã cap)")
+        # Invariant cốt lõi: len(items) <= pagination.page_size (hết divergence).
+        self.assertLessEqual(len(data["items"]), data["pagination"]["page_size"],
+                             "len(items) <= pagination.page_size (invariant VỠ trước fix)")
+
+    # ── TC-PAGESZ-02 — biên dưới page_size<=0/âm clamp >=1 ─────────────────
+    def test_pagesz_02_list_assets_zero_and_negative_clamped(self):
+        """page_size=0 và =-5 → clamp >=1, KHÔNG trả 0 row do limit=0."""
+        from assetcore.api.imm00 import list_assets
+        for bad in (0, -5):
+            resp = list_assets(page=1, page_size=bad)
+            self.assertTrue(resp["success"], f"page_size={bad} vẫn success")
+            pag = resp["data"]["pagination"]
+            self.assertGreaterEqual(pag["page_size"], 1,
+                                    f"page_size={bad} → clamp >=1 (KHÔNG 0/âm)")
+            # có ít nhất 1 asset (fixture) ⇒ limit>=1 → trả >=1 row (KHÔNG 0 do limit=0)
+            self.assertGreaterEqual(len(resp["data"]["items"]), 1,
+                                    f"page_size={bad}: limit>=1 → KHÔNG trả 0 row sai")
+
+    # ── TC-PAGESZ-03 — page_size hợp lệ giữ NGUYÊN (no regress trang nhỏ) ───
+    def test_pagesz_03_list_assets_valid_page_size_preserved(self):
+        """page_size=50 (<=100) → giữ nguyên 50, KHÔNG regress trang nhỏ."""
+        from assetcore.api.imm00 import list_assets
+        resp = list_assets(page=1, page_size=50)
+        self.assertTrue(resp["success"])
+        pag = resp["data"]["pagination"]
+        self.assertEqual(pag["page_size"], 50, "page_size hợp lệ giữ nguyên 50")
+        self.assertLessEqual(len(resp["data"]["items"]), 50,
+                             "items <= 50 (limit đúng trang nhỏ)")
+
+    # ── TC-PAGESZ-04 (parity loop) — MỌI endpoint clamp về 100 ─────────────
+    def test_pagesz_04_all_endpoints_cap_page_size(self):
+        """11 list-endpoint imm00: page_size=99999 →
+        pagination.page_size==100 VÀ len(items)<=100 (data-driven)."""
+        for fn_name, fn, kwargs in self._endpoints():
+            with self.subTest(endpoint=fn_name):
+                resp, limits = self._spy_get_list_limits(
+                    fn, page=1, page_size=99999, **kwargs)
+                self.assertTrue(resp["success"],
+                                f"{fn_name} page_size=99999 vẫn success")
+                pag = resp["data"]["pagination"]
+                self.assertEqual(pag["page_size"], 100,
+                                 f"{fn_name}: page_size metadata clamp về 100")
+                # DETERMINISTIC-RED: limit_page_length thực <= 100 (trước fix=99999).
+                self.assertTrue(limits,
+                                f"{fn_name} phải gọi frappe.get_list (spy bắt được)")
+                for lim in limits:
+                    self.assertLessEqual(lim, 100,
+                                         f"{fn_name}: limit_page_length={lim} > 100 "
+                                         "(query vô giới hạn)")
+                self.assertLessEqual(len(resp["data"]["items"]), 100,
+                                     f"{fn_name}: items KHÔNG vượt 100 (limit cap)")
+                self.assertLessEqual(len(resp["data"]["items"]), pag["page_size"],
+                                     f"{fn_name}: len(items) <= pagination.page_size")
+
+    # ── TC-PAGESZ-05 (invariant count==drill) — list_assets total bất biến ─
+    def test_pagesz_05_list_assets_total_invariant_under_cap(self):
+        """page_size lớn KHÔNG phá count: pagination.total == count_with_or
+        (permission-aware) — fix CHỈ clamp limit, KHÔNG đụng filters/vendor-scope."""
+        from assetcore.api.imm00 import list_assets, _DT_ASSET
+        from assetcore.services.shared.filters import count_with_or
+        from assetcore.services.shared.scope import apply_vendor_scope
+        # Tái dựng predicate Y HỆT list_assets (Admin scope: reserved-exclusion qua
+        # compose_reserved_into) để so total. import lazy để khớp SSoT handler.
+        from assetcore.api.imm00 import compose_reserved_into
+        filters = apply_vendor_scope({}, _DT_ASSET)
+        filters = compose_reserved_into(filters, _DT_ASSET)
+        expected_total = count_with_or(_DT_ASSET, filters, None)
+        resp = list_assets(page=1, page_size=100000)
+        self.assertTrue(resp["success"])
+        self.assertEqual(resp["data"]["pagination"]["total"], expected_total,
+                         "page_size lớn KHÔNG được đổi total (count==drill giữ)")
+
+    # ── TC-PAGESZ-06 (SSoT no-literal) — cap định nghĩa 1 nơi ──────────────
+    def test_pagesz_06_no_scattered_raw_page_size_limit(self):
+        """grep source imm00.py — KHÔNG còn anti-pattern
+        `limit_page_length=page_size` (giá trị thô chưa-cap). MỌI list-endpoint
+        phải dùng giá trị đã-clamp (pag['page_size']) ⇒ cap định nghĩa ĐÚNG 1 nơi
+        (utils/pagination.paginate). Chống copy-paste literal 100 rải 11 lần."""
+        import inspect
+        from assetcore.api import imm00 as api
+        src = inspect.getsource(api)
+        # anti-pattern thô: limit_page_length nhận thẳng `page_size` (chưa clamp)
+        raw_hits = re.findall(r"limit_page_length\s*=\s*page_size\b", src)
+        self.assertEqual(len(raw_hits), 0,
+                         "KHÔNG endpoint nào được dùng limit_page_length=page_size "
+                         "thô (chưa cap) — phải dùng pag['page_size'] đã clamp")
+        # SSoT: clamp [1,100] CHỈ ở paginate (1 literal 100), KHÔNG rải ở imm00 handler
+        cap_literals = re.findall(r"min\(\s*(?:int\()?page_size[^)]*,\s*100\s*\)", src)
+        self.assertEqual(len(cap_literals), 0,
+                         "KHÔNG được inline min(page_size,100) ở imm00.py — cap là "
+                         "SSoT tại utils/pagination.paginate (không literal lặp)")
+
+    # ── TC-PAGESZ-07 (regression no-leak) — list_assets vẫn không leak token ─
+    def test_pagesz_07_list_assets_no_qr_token_under_cap(self):
+        """Fix KHÔNG thêm field select → page_size lớn vẫn KHÔNG leak qr_token."""
+        from assetcore.api.imm00 import list_assets
+        resp = list_assets(page=1, page_size=100000)
+        self.assertTrue(resp["success"])
+        for it in resp["data"]["items"]:
+            self.assertNotIn("qr_token", it,
+                             "list_assets item KHÔNG chứa qr_token (no-leak giữ)")
+            self.assertNotIn("token", it,
+                             "list_assets item KHÔNG chứa key 'token' thô")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# IMM-00 / label-pdf — COERCE an toàn tham số `assets` ở 3 endpoint nhãn QR
+# (Vòng 10). RED-first: trước fix, `frappe.parse_json(assets)` TRẦN raise
+# JSONDecodeError/TypeError → HTTP-500/traceback-leak HOẶC duyệt KÝ TỰ
+# (scalar-string → len()/iter trên char). Sau fix: 1 SSoT helper
+# `_coerce_asset_names` → luôn list[str] hợp lệ; malformed → [] → empty-path
+# (PDF/batch→422, mark→404/empty no-side-effect). KHÔNG 500, KHÔNG leak.
+# Ref LL-BE-42 (no-500/no-traceback) · anti-pattern #16/#17 (count==rows /
+# in-handler HTTP-200 Error).
+# ══════════════════════════════════════════════════════════════════════════
+class TestLabelAssetsCoerce(unittest.TestCase):
+    """Coerce SSoT cho `assets` ở 3 endpoint nhãn QR — malformed KHÔNG còn 500/leak."""
+
+    _CATEGORY_NAME = "Thiết bị Coerce Nhãn (LABEL-COERCE V10)"
+    _NOPRINT_USER = "be_labelcoerce_noprint@example.com"
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        _orphan = frappe.db.get_value(
+            "AC Asset Category", {"category_name": cls._CATEGORY_NAME}, "name")
+        if _orphan:
+            frappe.delete_doc("AC Asset Category", _orphan, force=True,
+                              ignore_permissions=True)
+        cls.cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": cls._CATEGORY_NAME,
+            "description": "Category cho test coerce assets nhãn QR",
+            "is_active": 1,
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        if frappe.db.exists("User", cls._NOPRINT_USER):
+            frappe.delete_doc("User", cls._NOPRINT_USER, force=True,
+                              ignore_permissions=True)
+        frappe.delete_doc("AC Asset Category", cls.cat.name,
+                          force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self._created: list[str] = []
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+        frappe.db.rollback()
+        for name in self._created:
+            _purge_asset(name)
+        frappe.db.commit()
+
+    @staticmethod
+    def _ensure_user(email, roles):
+        if frappe.db.exists("User", email):
+            frappe.delete_doc("User", email, force=True, ignore_permissions=True)
+        u = frappe.get_doc({
+            "doctype": "User", "email": email,
+            "first_name": email.split("@")[0], "send_welcome_email": 0,
+        }).insert(ignore_permissions=True)
+        u.add_roles(*roles)
+        return u
+
+    def _make_asset(self, suffix=""):
+        import uuid
+        uniq = f"{suffix or '0001'}-{uuid.uuid4().hex[:8]}"
+        doc = _insert_asset_bypass_workflow({
+            "doctype": "AC Asset",
+            "asset_name": f"Máy Coerce Nhãn {uniq}",
+            "asset_category": self.cat.name,
+            "manufacturer_sn": f"COE-SN-{uniq}",
+            "asset_code": f"COE-ASSET-{uniq}",
+            "lifecycle_status": "Active",
+        })
+        self._created.append(doc.name)
+        return doc
+
+    def _count_label_events(self, asset_name):
+        return frappe.db.count("Asset Lifecycle Event",
+                               {"asset": asset_name, "event_type": "label_printed"})
+
+    def _reset_response(self):
+        frappe.local.response = frappe._dict()
+
+    # Malformed-string inputs gây JSONDecodeError khi parse_json TRẦN (RED).
+    _BARE_STRINGS = ["AC-2026-00001", "", "   ", "not-json"]
+
+    @staticmethod
+    def _assert_clean_err(tc, resp, http, label=""):
+        """Error envelope HTTP-200 VI sạch: success=false + đúng http_status +
+        KHÔNG leak traceback/JSONDecodeError trong message."""
+        tc.assertIsInstance(resp, dict, f"{label}: phải trả Error envelope (dict)")
+        tc.assertFalse(resp.get("success"), f"{label}: success=false")
+        tc.assertEqual(resp.get("http_status"), http,
+                       f"{label}: http_status={http}")
+        msg = resp.get("error", "") or ""
+        tc.assertNotIn("Traceback", msg, f"{label}: KHÔNG leak Traceback")
+        tc.assertNotIn("JSONDecodeError", msg, f"{label}: KHÔNG leak JSONDecodeError")
+        tc.assertNotIn("Expecting value", msg, f"{label}: KHÔNG leak JSON parse text")
+        tc.assertNotIn("line 1 column", msg, f"{label}: KHÔNG leak JSON position")
+
+    # ── TC-COERCE-1 (RED-first) — bare code string → 422 empty, KHÔNG 500 ────
+    def test_coerce_1_pdf_bare_code_string_422_no_jsondecode(self):
+        """print_asset_labels_pdf(assets='AC-2026-00001') (mã thô, KHÔNG ngoặc) →
+        _err VALIDATION + _ERR_LABEL_EMPTY + http 422; KHÔNG raise JSONDecodeError,
+        KHÔNG traceback. RED trước fix (parse_json trần raise → 500)."""
+        from assetcore.api.imm00 import print_asset_labels_pdf, _ERR_LABEL_EMPTY
+        self._reset_response()
+        raised = None
+        try:
+            resp = print_asset_labels_pdf(assets="AC-2026-00001", preset="tem-60x100")
+        except Exception as e:  # noqa: BLE001 — chứng minh KHÔNG raise sau fix
+            raised = e
+            resp = None
+        self.assertIsNone(raised,
+                          f"bare-code string KHÔNG được raise (got {raised!r})")
+        self._assert_clean_err(self, resp, 422, "PDF bare-code")
+        self.assertEqual(resp.get("error"), _ERR_LABEL_EMPTY,
+                         "bare-code coerce→[] → _ERR_LABEL_EMPTY (nhánh empty 422 sẵn có)")
+        # `code` = bucket map từ HTTP 422 qua _HTTP_TO_CODE (giữ nguyên envelope sẵn
+        # có: _err(_ERR_LABEL_EMPTY, 422) → 'BUSINESS_RULE'). KHÔNG over-specify —
+        # chốt là http_status 422 + message VI sạch + KHÔNG leak.
+        self.assertIn(resp.get("code"), ("BUSINESS_RULE", "VALIDATION"),
+                      "422 → bucket lỗi nghiệp vụ (KHÔNG INTERNAL/500)")
+        self.assertNotEqual(frappe.local.response.get("type"), "pdf",
+                            "malformed → KHÔNG sinh PDF")
+
+    # ── TC-COERCE-2 — 4 input rỗng/space/garbage trên CẢ 3 endpoint ─────────
+    def test_coerce_2_all_three_endpoints_empty_space_garbage(self):
+        from assetcore.api.imm00 import (
+            print_asset_labels_pdf, get_asset_label_data_batch, mark_label_printed,
+            _ERR_LABEL_EMPTY)
+        for bad in self._BARE_STRINGS:
+            # PDF → 422 empty, KHÔNG 500
+            self._reset_response()
+            resp = print_asset_labels_pdf(assets=bad, preset="tem-60x100")
+            self._assert_clean_err(self, resp, 422, f"PDF {bad!r}")
+            self.assertEqual(resp.get("error"), _ERR_LABEL_EMPTY)
+            self.assertNotEqual(frappe.local.response.get("type"), "pdf")
+            # batch (read-only) → batch RỖNG hợp lệ (_ok success), KHÔNG 500
+            resp = get_asset_label_data_batch(assets=bad)
+            self.assertIsInstance(resp, dict, f"batch {bad!r}: dict")
+            self.assertTrue(resp.get("success"),
+                            f"batch {bad!r}: malformed→[] → batch rỗng hợp lệ (no-500)")
+            self.assertEqual(resp.get("data"), [],
+                             f"batch {bad!r}: data rỗng (0 entry)")
+            # mark → 404/empty no-side-effect (KHÔNG ghi ALE/audit)
+            a = self._make_asset("mk")
+            before_ale = frappe.db.count("Asset Lifecycle Event",
+                                         {"event_type": "label_printed"})
+            before_audit = frappe.db.count("IMM Audit Trail")
+            resp = mark_label_printed(assets=bad)
+            self.assertIsInstance(resp, dict, f"mark {bad!r}: dict")
+            # mark malformed→[] → 404/empty no-side-effect: chấp nhận 404 HOẶC
+            # empty-success (result rỗng) — INVARIANT binding là KHÔNG ghi gì +
+            # KHÔNG 500/leak. KHÔNG over-specify success flag.
+            self.assertNotEqual(resp.get("http_status"), 500,
+                                f"mark {bad!r}: KHÔNG HTTP-500")
+            self.assertNotIn("Traceback", resp.get("error", "") or "", f"mark {bad!r}")
+            self.assertNotIn("JSONDecodeError", resp.get("error", "") or "", f"mark {bad!r}")
+            self.assertNotIn("Expecting value", resp.get("error", "") or "", f"mark {bad!r}")
+            self.assertEqual(
+                frappe.db.count("Asset Lifecycle Event",
+                                {"event_type": "label_printed"}), before_ale,
+                f"mark {bad!r}: KHÔNG tạo ALE label_printed")
+            self.assertEqual(frappe.db.count("IMM Audit Trail"), before_audit,
+                             f"mark {bad!r}: KHÔNG tạo IMM Audit Trail")
+
+    # ── TC-COERCE-3 — JSON-scalar-string KHÔNG duyệt từng KÝ TỰ ──────────────
+    def test_coerce_3_json_scalar_string_no_char_walk(self):
+        """assets='"AC-1"' (JSON-scalar-string) → coerce→[] (KHÔNG biến str thành
+        list ký tự). Spy frappe.db.exists: KHÔNG được gọi với 'A'/'C'/'-'/'1'.
+        PDF → 422 empty, KHÔNG render 4 ô lỗi."""
+        from unittest.mock import patch
+        import assetcore.api.imm00 as api
+        from assetcore.api.imm00 import _ERR_LABEL_EMPTY
+        self._reset_response()
+        seen_args = []
+        real_exists = api.frappe.db.exists
+
+        def spy_exists(*a, **k):
+            seen_args.append((a, k))
+            return real_exists(*a, **k)
+
+        with patch.object(api.frappe.db, "exists", side_effect=spy_exists):
+            resp = api.print_asset_labels_pdf(assets='"AC-1"', preset="tem-60x100")
+        # KHÔNG có call exists nào với 1-ký-tự lẻ (char-walk dấu hiệu)
+        single_chars = {"A", "C", "-", "1"}
+        for a, k in seen_args:
+            for val in list(a) + list(k.values()):
+                self.assertNotIn(
+                    val, single_chars,
+                    f"frappe.db.exists bị gọi với ký tự lẻ {val!r} (char-walk!)")
+        self._assert_clean_err(self, resp, 422, "PDF scalar-string")
+        self.assertEqual(resp.get("error"), _ERR_LABEL_EMPTY,
+                         "scalar-string coerce→[] → _ERR_LABEL_EMPTY (KHÔNG ô lỗi)")
+        self.assertNotEqual(frappe.local.response.get("type"), "pdf")
+
+    # ── TC-COERCE-4 — JSON-number / JSON-object → no-TypeError, _err 422 ─────
+    def test_coerce_4_json_number_and_object_no_typeerror(self):
+        from assetcore.api.imm00 import (
+            print_asset_labels_pdf, get_asset_label_data_batch, mark_label_printed,
+            _ERR_LABEL_EMPTY)
+        for bad in ("123", '{"a":1}'):
+            self._reset_response()
+            resp = print_asset_labels_pdf(assets=bad, preset="tem-60x100")
+            self._assert_clean_err(self, resp, 422, f"PDF {bad!r}")
+            self.assertEqual(resp.get("error"), _ERR_LABEL_EMPTY)
+            self.assertNotEqual(frappe.local.response.get("type"), "pdf")
+            # batch read-only → batch rỗng hợp lệ, no-500/no-TypeError
+            resp = get_asset_label_data_batch(assets=bad)
+            self.assertTrue(resp.get("success"), f"batch {bad!r}: no-TypeError")
+            self.assertEqual(resp.get("data"), [], f"batch {bad!r}: data rỗng")
+            # mark → 404/empty no-side-effect (KHÔNG 500/TypeError/leak)
+            resp = mark_label_printed(assets=bad)
+            self.assertIsInstance(resp, dict, f"mark {bad!r}: dict")
+            self.assertNotEqual(resp.get("http_status"), 500,
+                                f"mark {bad!r}: KHÔNG HTTP-500/TypeError")
+            self.assertNotIn("Traceback", resp.get("error", "") or "", f"mark {bad!r}")
+
+    # ── TC-COERCE-5 (HAPPY no-regression) — list thật & JSON-array-string ────
+    def test_coerce_5_happy_list_and_json_array_string_parity(self):
+        """assets=['AC-A','AC-B'] và assets='["AC-A","AC-B"]' → hành vi GIỮ NGUYÊN:
+        PDF ra %PDF + đúng số trang (pypdf); batch 2 entry đúng thứ tự; mark ghi N
+        event. Byte-for-byte parity với baseline."""
+        import io
+        import json
+        from pypdf import PdfReader
+        from assetcore.api.imm00 import (
+            print_asset_labels_pdf, get_asset_label_data_batch, mark_label_printed)
+        a1 = self._make_asset("hpyA")
+        a2 = self._make_asset("hpyB")
+        list_input = [a1.name, a2.name]
+        json_input = json.dumps([a1.name, a2.name])
+
+        for label, inp in (("list", list_input), ("json-str", json_input)):
+            # PDF: %PDF + 2 trang THẬT
+            self._reset_response()
+            print_asset_labels_pdf(assets=inp, preset="tem-60x100")
+            self.assertEqual(frappe.local.response.get("type"), "pdf",
+                             f"{label}: happy path → PDF")
+            content = bytes(frappe.local.response.get("filecontent"))
+            self.assertTrue(content.startswith(b"%PDF-"), f"{label}: magic %PDF-")
+            self.assertEqual(len(PdfReader(io.BytesIO(content)).pages), 2,
+                             f"{label}: 2 asset → 2 trang PDF THẬT (pypdf)")
+            # batch: 2 entry ĐÚNG thứ tự
+            resp = get_asset_label_data_batch(assets=inp)
+            self.assertTrue(resp.get("success"), f"{label}: batch success")
+            data = resp.get("data")
+            self.assertEqual(len(data), 2, f"{label}: 2 entry")
+            self.assertEqual(data[0].get("name"), a1.name,
+                             f"{label}: thứ tự[0]==a1")
+            self.assertEqual(data[1].get("name"), a2.name,
+                             f"{label}: thứ tự[1]==a2")
+
+        # mark: ghi đúng N event (2 asset) cho cả 2 dạng input
+        for label, inp in (("list", list_input), ("json-str", json_input)):
+            b1 = self._count_label_events(a1.name)
+            b2 = self._count_label_events(a2.name)
+            resp = mark_label_printed(assets=inp)
+            self.assertTrue(resp.get("success"), f"{label}: mark success")
+            self.assertEqual(self._count_label_events(a1.name), b1 + 1,
+                             f"{label}: a1 +1 event")
+            self.assertEqual(self._count_label_events(a2.name), b2 + 1,
+                             f"{label}: a2 +1 event")
+
+    # ── TC-COERCE-6 — list lẫn non-str/empty: chỉ str hợp lệ lọt IDOR/render ─
+    def test_coerce_6_list_filters_non_str_and_empty(self):
+        """assets=[1,'AC-A',None,''] → CHỈ 'AC-A' lọt vào exists. Spy
+        frappe.db.exists KHÔNG được gọi với 1/None/'' (chỉ 'AC-A')."""
+        from unittest.mock import patch
+        import assetcore.api.imm00 as api
+        a = self._make_asset("flt")
+        self._reset_response()
+        seen = []
+        real_exists = api.frappe.db.exists
+
+        def spy_exists(dt, name, *a2, **k):
+            seen.append(name)
+            return real_exists(dt, name, *a2, **k)
+
+        with patch.object(api.frappe.db, "exists", side_effect=spy_exists):
+            api.print_asset_labels_pdf(
+                assets=[1, a.name, None, ""], preset="tem-60x100")
+        # exists chỉ thấy 'AC-A' (asset thật); KHÔNG thấy 1/None/'' lọt qua filter
+        self.assertIn(a.name, seen, "asset hợp lệ phải qua exists")
+        for bad in (1, None, ""):
+            self.assertNotIn(bad, seen,
+                             f"phần tử non-str/empty {bad!r} KHÔNG được đẩy vào exists")
+        # render thành công (1 asset hợp lệ) → PDF
+        self.assertEqual(frappe.local.response.get("type"), "pdf",
+                         "1 phần tử hợp lệ → vẫn render PDF")
+
+    # ── TC-COERCE-7 (gate-order) — thiếu cap + bare-code → 403 TRƯỚC coerce ──
+    def test_coerce_7_rbac_runs_before_coerce(self):
+        """user KHÔNG có cap asset.print + assets='AC-bad' → vẫn PermissionError
+        (403) TRƯỚC coerce/empty (rbac.require chạy đầu) — coerce KHÔNG nuốt 403
+        thành 422, KHÔNG rò giới hạn cho khách chưa-auth."""
+        from assetcore.api.imm00 import print_asset_labels_pdf
+        from assetcore.services.shared import rbac
+        u = self._ensure_user(self._NOPRINT_USER, ["Guest"])
+        frappe.clear_cache()
+        frappe.db.commit()
+        self._reset_response()
+        try:
+            frappe.set_user(self._NOPRINT_USER)
+            self.assertFalse(rbac.can("asset.print"),
+                             "tiền đề: user KHÔNG có asset.print")
+            with self.assertRaises(frappe.PermissionError):
+                print_asset_labels_pdf(assets="AC-bad", preset="tem-60x100")
+        finally:
+            frappe.set_user("Administrator")
+            frappe.clear_cache()
+            rbac.invalidate_capabilities(self._NOPRINT_USER)
+        self.assertNotEqual(frappe.local.response.get("type"), "pdf",
+                            "thiếu cap → KHÔNG render dù coerce")
+
+    # ── TC-COERCE-8 (SSoT) — 1 helper, KHÔNG parse_json(assets) trần ─────────
+    def test_coerce_8_single_ssot_helper_no_bare_parse_json(self):
+        """grep api/imm00.py: KHÔNG còn `frappe.parse_json(assets)` trần; cả 3
+        endpoint gọi `_coerce_asset_names`; helper định nghĩa ĐÚNG 1 lần."""
+        import inspect
+        from assetcore.api import imm00 as api
+        src = inspect.getsource(api)
+        # KHÔNG còn handler-pattern TRẦN cũ `frappe.parse_json(assets) if isinstance`
+        # (ternary KHÔNG try/except — chính là dòng gây JSONDecodeError/500 trước fix).
+        bare_handler = re.findall(
+            r"frappe\.parse_json\(\s*assets\s*\)\s+if\s+isinstance", src)
+        self.assertEqual(len(bare_handler), 0,
+                         "KHÔNG được còn `frappe.parse_json(assets) if isinstance` "
+                         "trần ở handler (phải qua _coerce_asset_names có try/except)")
+        # CHỈ còn DUY NHẤT 1 `frappe.parse_json(assets)` — nằm TRONG _coerce_asset_names
+        # (bọc try/except ValueError/TypeError → KHÔNG raise).
+        all_parse = re.findall(r"frappe\.parse_json\(\s*assets\s*\)", src)
+        self.assertEqual(len(all_parse), 1,
+                         "frappe.parse_json(assets) chỉ xuất hiện 1 lần (trong helper "
+                         "_coerce_asset_names bọc try/except), KHÔNG rải ở 3 handler")
+        # helper định nghĩa đúng 1 lần
+        self.assertEqual(len(re.findall(r"def _coerce_asset_names\(", src)), 1,
+                         "_coerce_asset_names định nghĩa ĐÚNG 1 lần (SSoT)")
+        # parse_json trong helper PHẢI bọc try/except (no-raise contract)
+        helper_src = inspect.getsource(api._coerce_asset_names)
+        self.assertIn("try:", helper_src, "helper bọc parse_json trong try/except")
+        self.assertIn("except", helper_src, "helper bắt JSONDecodeError/TypeError → []")
+        # 3 endpoint cùng tham chiếu helper
+        self.assertGreaterEqual(
+            len(re.findall(r"_coerce_asset_names\(\s*assets\s*\)", src)), 3,
+            "cả 3 endpoint (batch/mark/pdf) phải gọi _coerce_asset_names(assets)")
+        # helper callable + luôn trả list[str]
+        from assetcore.api.imm00 import _coerce_asset_names
+        for inp, expect in (
+            (["AC-1", "AC-2"], ["AC-1", "AC-2"]),
+            ('["AC-1"]', ["AC-1"]),
+            ('"AC-1"', []),            # scalar-string → []
+            ("AC-2026-00001", []),     # bare code → []
+            ("", []), ("   ", []), ("not-json", []),
+            ("123", []), ('{"a":1}', []),
+            ([1, "AC-X", None, ""], ["AC-X"]),
+            (None, []),
+        ):
+            out = _coerce_asset_names(inp)
+            self.assertIsInstance(out, list, f"{inp!r}: trả list")
+            self.assertTrue(all(isinstance(x, str) and x for x in out),
+                            f"{inp!r}: mọi phần tử là str non-empty")
+            self.assertEqual(out, expect, f"{inp!r} → {expect!r}")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Vòng 15 — DEDUP within-call ở SSoT `_coerce_asset_names` (IMM-00 / label-pdf)
+# RC: assets chứa name LẶP trong 1 call ([a1,a1,a1]) → mark ghi N× event/audit
+# trùng (audit chain phình), PDF in N trang trùng, batch trả N entry trùng, cap
+# đo TRÊN list-thô (vượt 200 dù <200 unique). Fix: dedup giữ-thứ-tự TRONG helper
+# (within-call) → 1 chỗ áp cho cả 3 endpoint. BẤT BIẾN cross-call GIỮ NGUYÊN
+# (2 call riêng [a1] → 2 event — dedup KHÔNG xuyên-call).
+# Ref: anti-pattern khuếch-đại ghi-audit/PDF · pypdf đếm TRANG THẬT (LL-TEST-26).
+# ══════════════════════════════════════════════════════════════════════════
+class TestLabelAssetsDedup(unittest.TestCase):
+    """Dedup within-call ở `_coerce_asset_names` — chặn khuếch đại audit/PDF/batch."""
+
+    _CATEGORY_NAME = "Thiết bị Dedup Nhãn (LABEL-DEDUP V15)"
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        _orphan = frappe.db.get_value(
+            "AC Asset Category", {"category_name": cls._CATEGORY_NAME}, "name")
+        if _orphan:
+            frappe.delete_doc("AC Asset Category", _orphan, force=True,
+                              ignore_permissions=True)
+        cls.cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": cls._CATEGORY_NAME,
+            "description": "Category cho test dedup assets nhãn QR",
+            "is_active": 1,
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        # cleanup theo field category_name (autoname CAT-#### — LL-TEST-23)
+        real = frappe.db.get_value(
+            "AC Asset Category", {"category_name": cls._CATEGORY_NAME}, "name")
+        if real:
+            frappe.delete_doc("AC Asset Category", real,
+                              force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self._created: list[str] = []
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+        frappe.db.rollback()
+        for name in self._created:
+            _purge_asset(name)
+        frappe.db.commit()
+
+    def _make_asset(self, suffix=""):
+        import uuid
+        uniq = f"{suffix or '0001'}-{uuid.uuid4().hex[:8]}"
+        doc = _insert_asset_bypass_workflow({
+            "doctype": "AC Asset",
+            "asset_name": f"Máy Dedup Nhãn {uniq}",
+            "asset_category": self.cat.name,
+            "manufacturer_sn": f"DED-SN-{uniq}",
+            "asset_code": f"DED-ASSET-{uniq}",
+            "lifecycle_status": "Active",
+        })
+        self._created.append(doc.name)
+        return doc
+
+    def _count_label_events(self, asset_name):
+        return frappe.db.count(
+            "Asset Lifecycle Event",
+            {"asset": asset_name, "event_type": "label_printed"})
+
+    def _count_audit(self, asset_name):
+        return frappe.db.count("IMM Audit Trail", {"asset": asset_name})
+
+    def _reset_response(self):
+        frappe.local.response = frappe._dict()
+
+    # ── TC-DEDUP-1 — helper trả unique GIỮ thứ tự xuất hiện đầu ──────────────
+    def test_dedup_1_helper_unique_preserves_first_seen_order(self):
+        """_coerce_asset_names dedup TRONG-call, giữ thứ tự xuất hiện đầu, bỏ trùng sau."""
+        from assetcore.api.imm00 import _coerce_asset_names
+        # spec acceptance: ['AC-1','AC-1','AC-2','AC-1'] -> ['AC-1','AC-2']
+        self.assertEqual(
+            _coerce_asset_names(["AC-1", "AC-1", "AC-2", "AC-1"]),
+            ["AC-1", "AC-2"],
+            "giữ thứ tự xuất hiện đầu, bỏ mọi lần lặp sau")
+        # multi-dup mixed thứ tự
+        self.assertEqual(
+            _coerce_asset_names(["AC-3", "AC-1", "AC-3", "AC-2", "AC-1", "AC-2"]),
+            ["AC-3", "AC-1", "AC-2"],
+            "dedup mixed giữ first-seen order")
+        # JSON-array-string cũng dedup (qua cùng helper)
+        self.assertEqual(
+            _coerce_asset_names('["AC-1","AC-2","AC-1"]'),
+            ["AC-1", "AC-2"],
+            "JSON-array-string dedup qua cùng SSoT")
+        # phần tử non-str/empty bị loại TRƯỚC khi dedup; không trùng → giữ nguyên
+        self.assertEqual(
+            _coerce_asset_names([1, "AC-X", None, "", "AC-X"]),
+            ["AC-X"],
+            "loại non-str/empty + dedup → 1 phần tử")
+        # no-dup → không đổi (idempotent với list đã unique)
+        self.assertEqual(
+            _coerce_asset_names(["AC-A", "AC-B", "AC-C"]),
+            ["AC-A", "AC-B", "AC-C"],
+            "list đã unique → giữ nguyên")
+
+    # ── TC-DEDUP-2 — mark([a1,a1,a1]) 1 call → ĐÚNG 1 event + 1 audit ────────
+    def test_dedup_2_mark_label_printed_dups_one_call_one_event(self):
+        """1 call mark_label_printed([a1,a1,a1]) → 1 ALE label_printed + 1 IMM Audit
+        Trail cho a1 (event_count=1), KHÔNG 3 (chặn khuếch đại ghi-audit)."""
+        from assetcore.api.imm00 import mark_label_printed
+        a1 = self._make_asset("d2")
+        ev_before = self._count_label_events(a1.name)
+        au_before = self._count_audit(a1.name)
+        resp = mark_label_printed(assets=[a1.name, a1.name, a1.name])
+        self.assertTrue(resp["success"], "dup-in-call hợp lệ → success")
+        self.assertEqual(resp["data"]["event_count"], 1,
+                         "dedup within-call → event_count=1 (KHÔNG 3)")
+        self.assertEqual(resp["data"]["printed"], [a1.name],
+                         "printed = list đã dedup (1 phần tử)")
+        self.assertEqual(self._count_label_events(a1.name), ev_before + 1,
+                         "ĐÚNG 1 ALE label_printed (KHÔNG 3)")
+        self.assertEqual(self._count_audit(a1.name), au_before + 1,
+                         "ĐÚNG 1 IMM Audit Trail (KHÔNG 3)")
+
+    # ── TC-DEDUP-3 — ANTI-REGRESS cross-call: 2 call riêng → 2 event ─────────
+    def test_dedup_3_cross_call_still_two_events_no_false_green(self):
+        """Dedup CHỈ trong-call: 2 call RIÊNG mark_label_printed([a1]) → 2 event
+        (bất biến cross-call GIỮ NGUYÊN — KHÔNG xuyên-call dedup)."""
+        from assetcore.api.imm00 import mark_label_printed
+        a1 = self._make_asset("d3")
+        ev_before = self._count_label_events(a1.name)
+        au_before = self._count_audit(a1.name)
+        mark_label_printed(assets=[a1.name])
+        mark_label_printed(assets=[a1.name])
+        self.assertEqual(self._count_label_events(a1.name), ev_before + 2,
+                         "2 call riêng = 2 event (dedup KHÔNG xuyên-call)")
+        self.assertEqual(self._count_audit(a1.name), au_before + 2,
+                         "2 call riêng = 2 audit (cross-call invariant)")
+
+    # ── TC-DEDUP-4 — PDF([a1,a1]) → 1 TRANG THẬT (pypdf) + MediaBox đúng khổ ─
+    def test_dedup_4_pdf_dups_one_real_page(self):
+        """print_asset_labels_pdf([a1,a1]) → PDF ĐÚNG 1 trang (pypdf PdfReader.pages
+        ==1), MediaBox đúng khổ mm — KHÔNG 2 trang trùng (LL-TEST-26: đếm TRANG THẬT)."""
+        import io
+        from pypdf import PdfReader
+        from assetcore.api.imm00 import print_asset_labels_pdf
+        a1 = self._make_asset("d4")
+        self._reset_response()
+        print_asset_labels_pdf(assets=[a1.name, a1.name], preset="tem-60x100")
+        self.assertEqual(frappe.local.response.get("type"), "pdf",
+                         "dup hợp lệ → render PDF")
+        content = bytes(frappe.local.response.get("filecontent"))
+        self.assertTrue(content.startswith(b"%PDF-"), "magic %PDF-")
+        reader = PdfReader(io.BytesIO(content))
+        self.assertEqual(len(reader.pages), 1,
+                         "[a1,a1] dedup → ĐÚNG 1 trang PDF THẬT (KHÔNG 2 trang trùng)")
+        # MediaBox đúng khổ 60×100mm (1mm = 72/25.4 pt) — chống xoay/lệch
+        mb = reader.pages[0].mediabox
+        pt = 72.0 / 25.4
+        self.assertAlmostEqual(float(mb.width), 60 * pt, delta=2,
+                               msg="MediaBox width ≈ 60mm (KHÔNG xoay)")
+        self.assertAlmostEqual(float(mb.height), 100 * pt, delta=2,
+                               msg="MediaBox height ≈ 100mm (KHÔNG xoay)")
+
+    # ── TC-DEDUP-5 — batch([a1,a1]) → 1 phần tử ─────────────────────────────
+    def test_dedup_5_batch_dups_one_entry(self):
+        """get_asset_label_data_batch([a1,a1]) → 1 phần tử (KHÔNG 2 entry trùng)."""
+        from assetcore.api.imm00 import get_asset_label_data_batch
+        a1 = self._make_asset("d5")
+        resp = get_asset_label_data_batch(assets=[a1.name, a1.name])
+        self.assertTrue(resp["success"], "dup hợp lệ → success")
+        data = resp["data"]
+        self.assertEqual(len(data), 1, "[a1,a1] dedup → 1 phần tử (KHÔNG 2)")
+        self.assertEqual(data[0]["name"], a1.name, "phần tử duy nhất là a1")
+
+    # ── TC-DEDUP-6 — cap đo TRÊN list đã dedup ──────────────────────────────
+    def _cap(self):
+        from assetcore.services import imm00 as _svc
+        return _svc._MAX_LABEL_BATCH
+
+    def test_dedup_6a_cap_measured_on_unique_201_unique_413(self):
+        """201 unique name → 413 (cap đo trên list đã dedup, vẫn 413 khi >200 unique)."""
+        from assetcore.api.imm00 import get_asset_label_data_batch
+        from assetcore.services.imm00 import _ERR_BATCH_TOO_LARGE
+        cap = self._cap()
+        # cap+1 tên giả UNIQUE (cap chặn TRƯỚC exists → tên giả vô hại)
+        names = [f"AC-ASSET-DED-UNIQ-{i:04d}" for i in range(cap + 1)]
+        self.assertEqual(len(set(names)), cap + 1, "tiền đề: cap+1 unique")
+        resp = get_asset_label_data_batch(assets=names)
+        self.assertFalse(resp["success"], ">cap unique → KHÔNG success")
+        self.assertEqual(resp["http_status"], 413,
+                         ">200 unique → 413 (cap đo trên unique)")
+        self.assertEqual(resp["error"], _ERR_BATCH_TOO_LARGE)
+
+    def test_dedup_6b_cap_passes_when_dups_collapse_under_cap(self):
+        """300 phần tử nhưng <200 UNIQUE → qua cap (KHÔNG 413) vì cap đo trên dedup.
+
+        a1+a2 lặp 150 lần mỗi cái = 300 phần tử thô → dedup còn 2 unique → batch
+        trả 2 entry, KHÔNG 413 (cap đo SAU dedup, KHÔNG trên list-thô)."""
+        from assetcore.api.imm00 import get_asset_label_data_batch
+        a1 = self._make_asset("d6b1")
+        a2 = self._make_asset("d6b2")
+        raw = ([a1.name, a2.name] * 150)  # 300 phần tử thô, 2 unique
+        self.assertEqual(len(raw), 300, "tiền đề: 300 phần tử thô")
+        self.assertLess(len(set(raw)), self._cap(), "tiền đề: <200 unique")
+        resp = get_asset_label_data_batch(assets=raw)
+        self.assertTrue(resp["success"],
+                        "300 thô / 2 unique → qua cap (KHÔNG 413)")
+        data = resp["data"]
+        self.assertEqual(len(data), 2, "dedup → 2 entry (KHÔNG 300)")
+        self.assertEqual([d["name"] for d in data], [a1.name, a2.name],
+                         "giữ thứ tự first-seen sau dedup")
+
+    # ── TC-DEDUP-7 — malformed assets → [] GIỮ (no-500/no-traceback, LL-BE-42) ─
+    def test_dedup_7_malformed_still_empty_no_500(self):
+        """Malformed input → [] giữ nguyên (dedup KHÔNG phá hợp đồng no-500 cũ)."""
+        from assetcore.api.imm00 import _coerce_asset_names
+        for bad in ("AC-2026-00001", "", "   ", "not-json", "123",
+                    '{"a":1}', '"AC-1"', "true", None, 123, {"a": 1}, True):
+            out = _coerce_asset_names(bad)
+            self.assertEqual(out, [], f"{bad!r}: malformed → [] (no-500/no-traceback)")
+            self.assertIsInstance(out, list, f"{bad!r}: luôn list")
 
 
 def run_all():

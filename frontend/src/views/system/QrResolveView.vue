@@ -56,8 +56,16 @@ async function resolve(): Promise<void> {
   }
 }
 
+// 'Quét lại mã QR' → mở QRScan ở đường quét bình thường (KHÔNG query) — camera
+// chạy, ô nhập tay KHÔNG bị cướp focus.
 function goScan(): void {
   router.replace({ name: 'QRScan' })
+}
+// 'Nhập mã thủ công' → mở QRScan với mode=manual để focus NGAY ô nhập tay
+// (#qr-code-input) cho user camera-hỏng gõ mã được ngay. ĐÍCH KHÁC goScan —
+// KHÔNG còn hai nút trùng handler/đích (Vòng 12).
+function goManualEntry(): void {
+  router.replace({ name: 'QRScan', query: { mode: 'manual' } })
 }
 function goHome(): void {
   router.replace({ name: 'Dashboard' })
@@ -113,7 +121,7 @@ onMounted(resolve)
 
       <div class="flex flex-col gap-2">
         <button class="btn-primary w-full" @click="goScan">Quét lại mã QR</button>
-        <button class="btn-secondary w-full" @click="goScan">Nhập mã thủ công</button>
+        <button class="btn-secondary w-full" @click="goManualEntry">Nhập mã thủ công</button>
         <button class="btn-ghost w-full text-sm" @click="goHome">Về trang chủ</button>
       </div>
     </div>

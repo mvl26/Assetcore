@@ -214,23 +214,61 @@ export function docStatusClass(v: number) { return DOC_STATUS_CLASS[v] ?? 'bg-gr
 // ─── AC Asset lifecycle ───────────────────────────────────────────────────────
 export const LIFECYCLE_STATUS_LABEL: Record<string, string> = {
   // Đồng bộ wording với formatters.translateStatus + AssetListView (chống drift).
-  'Commissioned':    'Đã đưa vào sử dụng',
-  'Active':          'Đang hoạt động',
-  'Under Repair':    'Đang sửa chữa',
-  'Calibrating':     'Đang hiệu chuẩn',
-  'Out of Service':  'Ngừng hoạt động',
-  'Decommissioned':  'Đã thanh lý',
+  // Phủ ĐỦ 7 mã canonical BE phát cho AC Asset.lifecycle_status (ADR-001):
+  // Active / Commissioned / Under Maintenance / Under Repair / Calibrating /
+  // Out of Service / Decommissioned — không mã nào rơi fallback raw-EN trên màn quét QR.
+  'Commissioned':       'Đã đưa vào sử dụng',
+  'Active':             'Đang hoạt động',
+  'Under Maintenance':  'Đang bảo trì',   // khớp formatters.STATUS_MAP:96 (single wording)
+  'Under Repair':       'Đang sửa chữa',
+  'Calibrating':        'Đang hiệu chuẩn',
+  'Out of Service':     'Ngừng hoạt động',
+  'Decommissioned':     'Đã thanh lý',
 }
 export const LIFECYCLE_STATUS_CLASS: Record<string, string> = {
-  'Commissioned':    'bg-indigo-100 text-indigo-800',
-  'Active':          'bg-green-100 text-green-800',
-  'Under Repair':    'bg-orange-100 text-orange-800',
-  'Calibrating':     'bg-cyan-100 text-cyan-800',
-  'Out of Service':  'bg-red-100 text-red-800',
-  'Decommissioned':  'bg-gray-200 text-gray-500',
+  'Commissioned':       'bg-indigo-100 text-indigo-800',
+  'Active':             'bg-green-100 text-green-800',
+  'Under Maintenance':  'bg-orange-100 text-orange-800',   // cam — đồng bộ COLOR_ORANGE (formatters STATUS_COLORS:399) & 'Under Repair'
+  'Under Repair':       'bg-orange-100 text-orange-800',
+  'Calibrating':        'bg-cyan-100 text-cyan-800',
+  'Out of Service':     'bg-red-100 text-red-800',
+  'Decommissioned':     'bg-gray-200 text-gray-500',
 }
-export function lifecycleStatusLabel(v: string) { return LIFECYCLE_STATUS_LABEL[v] ?? v }
+// Nhãn VI fallback an toàn cho lifecycle_status KHÔNG thuộc 7 mã canonical HOẶC
+// rỗng/null/undefined. CONTRACT no-EN/raw-code-leak: BE phát mã legacy/drift
+// ('In Use'/'Retired'/'active') hoặc rỗng (services/imm00.py:317/597 `or ""`,
+// đối xứng BR-00-41) → status pill màn quét QR KHÔNG bao giờ rò mã English/code
+// thô hay box trống. Wording phải đồng bộ với BE `_lifecycle_vi` (chống drift
+// tương lai); class fallback gray trung tính của lifecycleStatusClass parity với
+// nhãn này (FR-00-93 + BR-00-42 · 06 §status-pill-safe II.3e-PILLNOLEAK).
+export const LIFECYCLE_STATUS_UNKNOWN_LABEL = 'Không xác định'
+// Fallback an toàn no-EN/raw-code/empty leak: mã ∉ 7 canonical HOẶC rỗng/null/
+// undefined → 'Không xác định' (KHÔNG `?? v` trả mã thô). Dùng `||` (KHÔNG `??`)
+// để `''` BE phát cho legacy asset cũng rơi fallback, không hiện pill box trống.
+export function lifecycleStatusLabel(v: string) { return LIFECYCLE_STATUS_LABEL[v] || LIFECYCLE_STATUS_UNKNOWN_LABEL }
 export function lifecycleStatusClass(v: string) { return LIFECYCLE_STATUS_CLASS[v] ?? 'bg-gray-100 text-gray-600' }
+
+// ─── Hành động màn quét QR (R1 — ADR-IMM00-QR-SCAN-ACTION §D1) ────────────────
+// SSoT nhãn VI cho 4 CTA màn quét QR (AssetScanInfoView). Key = action.key BE
+// emit trong available_actions (build_asset_scan_info → _scan_action_specs). FE
+// render nhãn TỪ map này (KHÔNG hardcode nhãn trong .vue) — no-drift parity với
+// label BE (_SCAN_ACTION_SPECS imm00.py: 'Báo hỏng'/'Yêu cầu bảo trì'/
+// 'Yêu cầu sửa chữa'/'Hiệu chuẩn'). BE vẫn là nguồn enabled/reason/route; map
+// này CHỈ là nhãn hiển thị, khoá wording VI một chỗ.
+export const SCAN_ACTION_LABELS: Record<string, string> = {
+  report_failure:      'Báo hỏng',
+  request_pm:          'Yêu cầu bảo trì',
+  request_cm:          'Yêu cầu sửa chữa',
+  request_calibration: 'Hiệu chuẩn',
+}
+// Nhãn VI fallback an toàn cho action key LẠ/drift (BE thêm action mới chưa map ở
+// FE — vd 'request_inspection'). no-raw-key-leak (parity vòng 8/17): KHÔNG `?? key`
+// (rò mã thô lên màn quét QR / aria-label). Wording trung tính — KHÔNG khẳng định
+// loại thao tác chưa biết. Bất biến: scanActionLabel KHÔNG bao giờ trả lại key thô.
+export const SCAN_ACTION_FALLBACK_LABEL = 'Thao tác khác'
+export function scanActionLabel(key: string) {
+  return SCAN_ACTION_LABELS[key] ?? SCAN_ACTION_FALLBACK_LABEL
+}
 
 // ─── Số ĐK lưu hành Bộ Y tế — drill NĐ98 (BR-00-17) ───────────────────────────
 // SSoT nhãn tiếng Việt cho 2 bucket byt_status. KHÔNG hardcode chuỗi rải rác
@@ -305,6 +343,40 @@ export const INCIDENT_SEVERITY_CLASS: Record<string, string> = {
 }
 export function incidentSeverityLabel(v: string) { return INCIDENT_SEVERITY_LABEL[v] ?? v }
 export function incidentSeverityClass(v: string) { return INCIDENT_SEVERITY_CLASS[v] ?? 'bg-gray-100 text-gray-600' }
+
+// ─── Risk classification (AC Asset.risk_classification — Low/Medium/High/Critical) ──
+// SSoT nhãn VI cho enum EN 'Low/Medium/High/Critical' của AC Asset (read-only,
+// fetch_from device_model). BE GIỮ raw enum làm SSoT contract (KHÔNG dịch) → FE map
+// sang VI tại đây. KHÔNG nhầm với risk_class (A/B/C/D — WHO/NĐ98 letter class của
+// asset_commissioning/asset_repair) — đó là field KHÁC.
+//
+// riskClassificationLabel(v): giá trị NGOÀI 4 enum (drift/legacy) → nhãn VI an toàn
+// 'Khác' (KHÔNG leak chuỗi EN thô). Trường hợp RỖNG ('' / whitespace / null) caller
+// XỬ LÝ TRƯỚC → 'Chưa phân loại' (helper này CHỈ map giá trị ĐÃ-CÓ-MẶT; rỗng đi tới
+// 'Khác' nếu lọt vào đây, nhưng caller chuẩn không truyền rỗng).
+export const RISK_CLASSIFICATION_LABEL: Record<string, string> = {
+  'Low':      'Thấp',
+  'Medium':   'Trung bình',
+  'High':     'Cao',
+  'Critical': 'Nghiêm trọng',
+}
+export function riskClassificationLabel(v: string) { return RISK_CLASSIFICATION_LABEL[v] ?? 'Khác' }
+
+// ─── Phân loại rủi ro CAO (urgency) — SSoT tập enum high-risk (vòng 47) ───────
+// Tập con enum risk_classification được coi là "rủi ro cao" → mang affordance
+// cảnh báo trực quan ở UI (vd dòng 'Phân loại rủi ro' màn quét QR). Derive THUẦN
+// presentation bằng enum-equality trên giá trị server đã .trim() — KHÔNG so
+// client-clock, KHÔNG nghiệp vụ FE (parity nguyên tắc overdue SSoT vòng 21).
+// Khoá literal 'High'/'Critical' MỘT chỗ — KHÔNG rải rác trong .vue (parity
+// SSoT RISK_CLASSIFICATION_LABEL). NHÃN hiển thị vẫn qua RISK_CLASSIFICATION_LABEL
+// (riskText 'Cao'/'Nghiêm trọng') — tập này CHỈ phân loại urgency, KHÔNG render.
+export const HIGH_RISK_CLASSIFICATIONS: ReadonlySet<string> = new Set(['High', 'Critical'])
+// isHighRiskClassification(v): enum-equality sau .trim() (defensive whitespace từ
+// payload stale/drift). rỗng / null / undefined / ngoài-4-enum (Low/Medium hoặc
+// drift) → false (no false-alarm). CHỈ 'High'/'Critical' (đã trim) → true.
+export function isHighRiskClassification(v?: string | null): boolean {
+  return HIGH_RISK_CLASSIFICATIONS.has((v ?? '').trim())
+}
 
 // ─── Vi phạm SLA sự cố (IMM-12, BR-12-09) ─────────────────────────────────────
 // Khớp field BE Incident Report.response_breached / resolution_breached (0|1).

@@ -18,7 +18,7 @@ vi.mock('@/api/helpers', () => ({
 
 import {
   getAssetLabelData, getAssetLabelDataBatch, markLabelPrinted,
-  regenerateAssetQrToken,
+  regenerateAssetQrToken, listAssets,
 } from './imm00'
 
 const BASE = '/api/method/assetcore.api.imm00'
@@ -107,5 +107,26 @@ describe('imm00 API client — QR label (A4 naming contract)', () => {
     // Trả qr_url MỚI passthrough (KHÔNG wrap) — FE chỉ cần qr_url để refresh nhãn.
     expect(out.qr_url).toBe('http://miyano/a/NEW_tok_xyz789')
     expect(out.name).toBe('AC-ASSET-2026-00042')
+  })
+
+  // ── Vòng 33: list-scope page/page_size coercion (FE guard, KHÔNG sửa logic FE) ─
+  // AssetListView LUÔN gửi page/page_size là number → bug thuần server-side. Guard
+  // này CHỈ khẳng định client listAssets() KHÔNG vỡ khi BE coerce input bất thường
+  // và trả envelope 200 hợp lệ {pagination.page=1, items:[]}. frappeGet đã unwrap
+  // envelope Frappe (LL-BE-50) → listAssets resolve thẳng PaginatedResponse.
+  it('listAssets() resolve KHÔNG throw khi BE trả envelope 200 với pagination.page=1 (input phi-số coerced server-side)', async () => {
+    getSpy.mockResolvedValue({
+      pagination: { page: 1, page_size: 20, total: 0, total_pages: 0, offset: 0 },
+      items: [],
+    })
+    // Dù FE luôn gửi number, mô phỏng trường hợp BE đã fall-back coercion → page=1.
+    const out = await listAssets({ page: 1, page_size: 20 })
+    expect(getSpy).toHaveBeenCalledWith(
+      `${BASE}.list_assets`, { page: 1, page_size: 20 },
+    )
+    // Envelope hợp lệ → items rỗng (KHÔNG throw, KHÔNG undefined).
+    expect(out.items).toEqual([])
+    expect(out.pagination.page).toBe(1)
+    expect(out.pagination.page_size).toBe(20)
   })
 })

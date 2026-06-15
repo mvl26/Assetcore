@@ -96,6 +96,12 @@ export interface AcAsset extends AcAssetListItem {
   notes?: string
   authorized_technicians?: AcAuthorizedTechnician[]
   spare_parts?: ImmDeviceSparePart[]
+  // SSoT overdue (server-flag) — get_asset derive bằng CHÍNH deriver tz-safe của
+  // BE (exempt Out of Service / Decommissioned). FE CHỈ render cờ cho ô
+  // next_pm_date / next_calibration_date — TUYỆT ĐỐI KHÔNG so ngày bằng client
+  // clock (tz-drift). Cùng kết luận overdue với màn quét-QR (AssetScanInfo).
+  pm_overdue?: boolean
+  calibration_overdue?: boolean
 }
 
 export interface AcAuthorizedTechnician {

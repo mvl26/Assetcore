@@ -5,7 +5,15 @@ import {
   capaWorkflowLabel,
   CAPA_WORKFLOW_LABEL,
   historyStateLabel,
+  lifecycleStatusLabel,
+  lifecycleStatusClass,
+  LIFECYCLE_STATUS_LABEL,
+  LIFECYCLE_STATUS_UNKNOWN_LABEL,
+  SCAN_ACTION_LABELS,
+  SCAN_ACTION_FALLBACK_LABEL,
+  scanActionLabel,
 } from './labels'
+import { translateStatus } from '@/utils/formatters'
 
 // Regression VÒNG 14: WorkflowStepper trên CalibrationDetailView dùng
 // `calibrationStatusLabel` làm labelFor. Bug gốc: hàm này trỏ vào map
@@ -183,5 +191,210 @@ describe('assetCalibrationBadge — AC Asset.calibration_status SSoT (no raw-EN 
   it('class luôn có giá trị (kể cả unknown) — badge không vỡ', () => {
     expect(calibrationStatusClass('Not Required')).toBeTruthy()
     expect(calibrationStatusClass('')).toBe('bg-gray-100 text-gray-600')
+  })
+})
+
+// ─── IMM-00 lifecycle status SSoT — màn quét QR (AssetScanInfoView) ───────────
+// BE phát 7 mã canonical cho AC Asset.lifecycle_status (ADR-001 — đúng thiết kế).
+// LIFECYCLE_STATUS_LABEL/CLASS (SSoT) PHẢI phủ ĐỦ cả 7, nếu không status pill
+// rơi vào fallback raw-EN (?? v) / gray (bg-gray-100). Bug gốc: THIẾU
+// 'Under Maintenance' → pill hiện 'Under Maintenance' + nền xám trên màn quét QR.
+describe('lifecycleStatus SSoT — phủ đủ 7 mã canonical BE (no raw-EN / no gray-fallback)', () => {
+  const CANONICAL = [
+    'Active',
+    'Commissioned',
+    'Under Maintenance',
+    'Under Repair',
+    'Calibrating',
+    'Out of Service',
+    'Decommissioned',
+  ] as const
+
+  it('LIFECYCLE_STATUS_LABEL phủ đủ 7 mã canonical (không mã nào thiếu)', () => {
+    for (const code of CANONICAL) {
+      expect(LIFECYCLE_STATUS_LABEL, `thiếu key "${code}"`).toHaveProperty(code)
+    }
+  })
+
+  it("lifecycleStatusLabel('Under Maintenance') === 'Đang bảo trì'", () => {
+    expect(lifecycleStatusLabel('Under Maintenance')).toBe('Đang bảo trì')
+  })
+
+  it("lifecycleStatusClass('Under Maintenance') === 'bg-orange-100 text-orange-800' (cam, KHÔNG gray)", () => {
+    expect(lifecycleStatusClass('Under Maintenance')).toBe('bg-orange-100 text-orange-800')
+    // KHÔNG rơi fallback xám.
+    expect(lifecycleStatusClass('Under Maintenance')).not.toBe('bg-gray-100 text-gray-600')
+  })
+
+  it('với MỌI mã canonical: lifecycleStatusLabel(code) KHÔNG trả về chính code (không leak raw-EN qua fallback)', () => {
+    for (const code of CANONICAL) {
+      expect(lifecycleStatusLabel(code), `leak raw-EN cho "${code}"`).not.toBe(code)
+    }
+  })
+
+  it('với MỌI mã canonical: lifecycleStatusClass(code) KHÔNG rơi gray-fallback', () => {
+    for (const code of CANONICAL) {
+      expect(lifecycleStatusClass(code), `gray-fallback cho "${code}"`).not.toBe('bg-gray-100 text-gray-600')
+    }
+  })
+
+  // wording-drift guard: cùng 1 mã KHÔNG được có 2 chuỗi VI khác nhau giữa
+  // LIFECYCLE_STATUS_LABEL (constants/labels.ts) và STATUS_MAP/translateStatus
+  // (utils/formatters.ts). Single wording cho toàn app.
+  it('wording-drift guard: LIFECYCLE_STATUS_LABEL khớp translateStatus cho MỌI mã canonical', () => {
+    for (const code of CANONICAL) {
+      expect(LIFECYCLE_STATUS_LABEL[code], `drift wording cho "${code}"`).toBe(translateStatus(code))
+    }
+  })
+
+  it("'Under Maintenance' cụ thể: label === translateStatus('Under Maintenance') === 'Đang bảo trì'", () => {
+    expect(LIFECYCLE_STATUS_LABEL['Under Maintenance']).toBe(translateStatus('Under Maintenance'))
+    expect(translateStatus('Under Maintenance')).toBe('Đang bảo trì')
+  })
+
+  // regression: 6 mã còn lại giữ NGUYÊN label + class (không đổi hành vi).
+  it('regression: 6 mã cũ giữ nguyên label + class', () => {
+    const FROZEN: Record<string, { label: string; cls: string }> = {
+      'Active':         { label: 'Đang hoạt động',      cls: 'bg-green-100 text-green-800' },
+      'Commissioned':   { label: 'Đã đưa vào sử dụng',  cls: 'bg-indigo-100 text-indigo-800' },
+      'Under Repair':   { label: 'Đang sửa chữa',       cls: 'bg-orange-100 text-orange-800' },
+      'Calibrating':    { label: 'Đang hiệu chuẩn',     cls: 'bg-cyan-100 text-cyan-800' },
+      'Out of Service': { label: 'Ngừng hoạt động',     cls: 'bg-red-100 text-red-800' },
+      'Decommissioned': { label: 'Đã thanh lý',         cls: 'bg-gray-200 text-gray-500' },
+    }
+    for (const [code, exp] of Object.entries(FROZEN)) {
+      expect(lifecycleStatusLabel(code), `label đổi cho "${code}"`).toBe(exp.label)
+      expect(lifecycleStatusClass(code), `class đổi cho "${code}"`).toBe(exp.cls)
+    }
+  })
+})
+
+// ─── IMM-00 vòng 8 — status-pill no-EN/raw-code/empty leak (FE-6) ─────────────
+// BE phát mã legacy/drift HOẶC rỗng cho AC Asset.lifecycle_status (services/imm00.py
+// :317/597 `or ""` — đối xứng BR-00-41). Bug gốc: lifecycleStatusLabel fallback
+// `?? v` trả mã thô → leak EN ('In Use'/'Retired'/'active') hoặc box trống ('')
+// lên status pill màn quét QR. FE-6: fallback an toàn = LIFECYCLE_STATUS_UNKNOWN_LABEL
+// ('Không xác định'). 7 mã canonical giữ nguyên byte-for-byte. lifecycleStatusClass
+// giữ fallback gray trung tính — đồng bộ với label fallback.
+//   • RED-first: với `?? v` cũ, lifecycleStatusLabel('In Use') === 'In Use' (raw)
+//     ∧ lifecycleStatusLabel('') === '' (rỗng) → 2 case dưới FAIL trước fix.
+describe('lifecycleStatusLabel — no-EN/raw-code/empty leak fallback (vòng 8 FE-6)', () => {
+  // Mã legacy/drift KHÔNG thuộc 7 mã canonical → nhãn VI fallback an toàn.
+  const NON_CANONICAL = ['In Use', 'Retired', 'active', 'ACTIVE', 'Foo', 'LegacyUnknown', 'GARBAGE']
+
+  it("hằng LIFECYCLE_STATUS_UNKNOWN_LABEL === 'Không xác định' (nhãn VI, non-empty)", () => {
+    expect(LIFECYCLE_STATUS_UNKNOWN_LABEL).toBe('Không xác định')
+    expect(LIFECYCLE_STATUS_UNKNOWN_LABEL.length).toBeGreaterThan(0)
+  })
+
+  it("mã legacy/drift ('In Use'/'Retired'/'active'/...) → 'Không xác định' (KHÔNG trả raw code)", () => {
+    for (const code of NON_CANONICAL) {
+      const label = lifecycleStatusLabel(code)
+      // KHÔNG trả về chính mã thô.
+      expect(label, `leak raw cho "${code}"`).not.toBe(code)
+      // Phải là nhãn VI fallback an toàn.
+      expect(label).toBe(LIFECYCLE_STATUS_UNKNOWN_LABEL)
+    }
+  })
+
+  it("'In Use' cụ thể: lifecycleStatusLabel('In Use') !== 'In Use' ∧ === nhãn VI fallback", () => {
+    expect(lifecycleStatusLabel('In Use')).not.toBe('In Use')
+    expect(lifecycleStatusLabel('In Use')).toBe('Không xác định')
+  })
+
+  it("nhãn fallback KHÔNG chứa ký tự ASCII Latin a-z (chỉ chữ VI có dấu + space)", () => {
+    // 'Không xác định' — kiểm tra KHÔNG lọt token mã English thô (≥2 ký tự Latin liền).
+    // 'x' trong 'xác' là Latin đơn nhưng đây là chữ VI; canh chuỗi mã English
+    // ≥2 ký tự ASCII a-z liền nhau là dấu hiệu leak code.
+    for (const code of [...NON_CANONICAL, '']) {
+      const label = lifecycleStatusLabel(code)
+      // Không chứa mã English gốc.
+      expect(label).not.toMatch(/In Use|Retired|active|ACTIVE|Foo|LegacyUnknown|GARBAGE/)
+    }
+  })
+
+  it("'' (BE phát rỗng cho legacy asset) → nhãn VI fallback non-empty (pill KHÔNG box trống)", () => {
+    const label = lifecycleStatusLabel('')
+    expect(label).toBe(LIFECYCLE_STATUS_UNKNOWN_LABEL)
+    expect(label.length).toBeGreaterThan(0)
+    // KHÔNG rỗng.
+    expect(label).not.toBe('')
+  })
+
+  it('null/undefined (defensive) → nhãn VI fallback non-empty', () => {
+    expect(lifecycleStatusLabel(null as unknown as string)).toBe(LIFECYCLE_STATUS_UNKNOWN_LABEL)
+    expect(lifecycleStatusLabel(undefined as unknown as string)).toBe(LIFECYCLE_STATUS_UNKNOWN_LABEL)
+  })
+
+  it('7 mã canonical giữ nhãn VI cũ byte-for-byte (0 regression sau fix fallback)', () => {
+    const CANON: Record<string, string> = {
+      'Active':            'Đang hoạt động',
+      'Commissioned':      'Đã đưa vào sử dụng',
+      'Under Maintenance': 'Đang bảo trì',
+      'Under Repair':      'Đang sửa chữa',
+      'Calibrating':       'Đang hiệu chuẩn',
+      'Out of Service':    'Ngừng hoạt động',
+      'Decommissioned':    'Đã thanh lý',
+    }
+    for (const [code, label] of Object.entries(CANON)) {
+      expect(lifecycleStatusLabel(code), `regression nhãn "${code}"`).toBe(label)
+    }
+  })
+
+  it("lifecycleStatusClass mã lạ/rỗng → 'bg-gray-100 text-gray-600' trung tính (parity với label fallback)", () => {
+    for (const code of [...NON_CANONICAL, '']) {
+      expect(lifecycleStatusClass(code), `class lạ cho "${code}"`).toBe('bg-gray-100 text-gray-600')
+    }
+  })
+
+  it('canonical giữ class cũ — KHÔNG rơi gray fallback', () => {
+    expect(lifecycleStatusClass('Active')).toBe('bg-green-100 text-green-800')
+    expect(lifecycleStatusClass('Out of Service')).toBe('bg-red-100 text-red-800')
+    expect(lifecycleStatusClass('Decommissioned')).toBe('bg-gray-200 text-gray-500')
+  })
+})
+
+// ─── SCAN_ACTION_LABELS (R1 — ADR-IMM00-QR-SCAN-ACTION §D1) ───────────────────
+// SSoT nhãn VI cho 4 CTA màn quét QR. AssetScanInfoView render nhãn TỪ map này
+// (KHÔNG hardcode trong .vue). Map PHẢI phủ đủ 4 key BE phát trong
+// available_actions + wording VI khớp D1 (no-drift parity với label BE trong
+// _SCAN_ACTION_SPECS imm00.py).
+describe('SCAN_ACTION_LABELS — SSoT nhãn 4 CTA màn quét QR (D1, no-drift parity BE)', () => {
+  // Mirror CHÍNH XÁC label BE `_SCAN_ACTION_SPECS` (services/imm00.py:418-427).
+  // Đây là bản sao kiểm-tra ĐỘC LẬP (KHÔNG import từ labels.ts) để bắt drift nếu
+  // ai đó đổi nhãn FE lệch wording D1.
+  const D1_BE_LABELS: Record<string, string> = {
+    report_failure:      'Báo hỏng',
+    request_pm:          'Yêu cầu bảo trì',
+    request_cm:          'Yêu cầu sửa chữa',
+    request_calibration: 'Hiệu chuẩn',
+  }
+
+  it('phủ đủ 4 key + wording VI đúng D1', () => {
+    expect(Object.keys(SCAN_ACTION_LABELS).sort()).toEqual(
+      Object.keys(D1_BE_LABELS).sort(),
+    )
+    for (const [key, label] of Object.entries(D1_BE_LABELS)) {
+      expect(SCAN_ACTION_LABELS[key], `nhãn lệch D1 cho "${key}"`).toBe(label)
+    }
+  })
+
+  it('no-drift parity: scanActionLabel khớp label BE cho MỌI key', () => {
+    for (const [key, label] of Object.entries(D1_BE_LABELS)) {
+      expect(scanActionLabel(key), `drift wording cho "${key}"`).toBe(label)
+    }
+  })
+
+  // Vòng 20 (no-raw-key-leak, parity vòng 8/17): key LẠ/drift (BE thêm action mới
+  // chưa map ở FE — vd 'request_inspection') → KHÔNG trả nguyên key (rò mã thô lên
+  // màn quét QR / aria-label). Fallback VI an toàn SCAN_ACTION_FALLBACK_LABEL.
+  it('scanActionLabel fallback key lạ → nhãn VI an toàn (KHÔNG leak raw key)', () => {
+    expect(SCAN_ACTION_FALLBACK_LABEL).toBe('Thao tác khác')
+    for (const RAW of ['khong_ton_tai', 'request_inspection', 'SOME_BOGUS_KEY']) {
+      expect(scanActionLabel(RAW), `leak raw key ${RAW}`).toBe(SCAN_ACTION_FALLBACK_LABEL)
+      expect(scanActionLabel(RAW)).not.toContain(RAW)
+    }
+    // 4 key chuẩn KHÔNG rơi fallback.
+    expect(scanActionLabel('report_failure')).toBe('Báo hỏng')
   })
 })

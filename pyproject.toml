@@ -1,0 +1,30 @@
+[project]
+name = "assetcore"
+authors = [
+    { name = "miyano" },
+]
+description = "AssetCore — Medical Equipment Lifecycle Management (HTM) on Frappe/ERPNext"
+requires-python = ">=3.10,<3.15"
+readme = "README.md"
+dynamic = ["version"]
+dependencies = [
+    # ── KHÔNG pin lib BE ở đây ─────────────────────────────────────────────
+    # AssetCore là một Frappe app: Frappe (và mọi lib BE — requests, pdfkit,
+    # openpyxl, redis, pydantic, cryptography, PyYAML...) do `bench` cài & quản
+    # lý qua apps/frappe/pyproject.toml (SSoT). Pin lại ở đây sẽ chọi resolver
+    # của site bench. App chỉ import trực tiếp `frappe` + `yaml` (PyYAML) — cả
+    # hai đều do Frappe cung cấp sẵn.
+    #
+    # Ràng buộc PHIÊN BẢN FRAMEWORK khai báo ở [tool.bench.frappe-dependencies]
+    # bên dưới — đó là cơ chế chống "framework quá cũ / hết hỗ trợ": bench đọc &
+    # cảnh báo khi frappe nằm ngoài range. Nâng frappe = nâng cả lib BE.
+]
+
+[build-system]
+requires = ["flit_core >=3.4,<4"]
+build-backend = "flit_core.buildapi"
+
+# Phiên bản framework tương thích — bench đọc khi cài/cập nhật app & cảnh báo drift.
+# Mở rộng range khi đã test app trên major Frappe mới (vd ">=16.0.0,<17.0.0").
+[tool.bench.frappe-dependencies]
+frappe = ">=15.0.0,<16.0.0"

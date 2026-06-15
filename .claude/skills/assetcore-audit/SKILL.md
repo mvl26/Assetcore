@@ -13,16 +13,37 @@ description: >
 ---
 # AssetCore Audit — Module Readiness & Security
 
-Skill này bao 2 nhiệm vụ: **Module Audit** (production-readiness) + **Security Review**.
+## Overview
+
+Skill này **chỉ verify, không implement** — bao 2 nhiệm vụ: **Module Audit** (production-readiness toàn module) + **Security Review** (RBAC, injection, vendor isolation, audit trail integrity). Nguyên tắc cốt lõi: chạy regression sweep TRƯỚC, mọi gap đều có severity + verdict, và **single fail = audit overall FAIL**.
+
+## When to Use
+
+- "audit module" / "IMM-XX sẵn sàng chưa" / "thiếu gì" / "module gap analysis" / "release checklist".
+- Trước: tag release (`v3.x.y`), promote Wave-Planned → Wave-Live, cut deployment ticket, đóng sprint deliver IMM-XX.
+- "security review" / "phân quyền sai" / "vendor không được thấy data" / "SQL injection" / "rò rỉ data" / "compliance".
+- "data có sạch không" → Data Hygiene sweep trước deploy.
+- **KHÔNG dùng khi**: cần *implement* fix (→ `assetcore-be` / `assetcore-fe` / `assetcore-test` / `assetcore-deploy`); chỉ viết/chạy test thuần (→ `assetcore-test`); còn ở mức ý tưởng chưa chốt module (→ `assetcore-plan` / `assetcore-doc`). Skill này tìm gap → giao sang skill thực thi.
+
+## Process — audit production-readiness + security IMM-XX (verify-only, gap→giao skill)
+
+Quy trình từng bước (spine — chi tiết ở mục dưới; nguyên tắc: sweep TRƯỚC, mọi gap có severity, single fail = overall FAIL):
+1. **Recurring Bug Sweep (chạy ĐẦU)** — GATE-1..4 (English enum / raw code / raw email / test data DB); <100% clean = không được Pass → §🛑 Phần 0 — Recurring Bug Regression Sweep
+2. **UI Completeness invariants** — UC-1..UC-5 (Create button, detail+workflow actions, asset tabs, `*_name`, naming series) → §NGUYÊN TẮC BẤT BIẾN — UI Completeness
+3. **Module Audit 8-pillar** — DocType→Service→Repo→API→Workflow→FE→Tests→Docs/Audit (+Phần 4–9 mở rộng), mỗi pillar PASS/FAIL + gap → §Phần 1 — Module Audit (8-pillar checklist)
+4. **Security Review (OWASP→Frappe)** — service gate/DocPerm/whitelist hygiene/injection/vendor isolation/audit integrity → §Phần 2 — Security Review
+5. **Data Hygiene pre-release** — DH-1..DH-4 (test record · orphan FK · empty required · docstatus↔workflow_state) đều = 0 → §Phần 3 — Data Hygiene Audit (pre-release MUST-CHECK)
+6. **Áp Engineering-judgment** — doubt-driven (CLAIM→…→STOP) / 5-step triage / five-axis / Chesterton's Fence cho mọi claim+refactor+lỗi → §Engineering-judgment principles
+7. **Report + Verification** — severity 🔴/🟠/🟡/🟢 đúng format, verdict rule (single fail = NOT READY), gap giao skill thực thi → §Verification
 
 ---
 
 ## 🛑 Phần 0 — Recurring Bug Regression Sweep (chạy ĐẦU mọi audit)
 
-5 phiên test 2026-05-15..26 vẫn để cùng pattern leak vào prod. Trước khi mở 8-pillar checklist, chạy `CONVENTIONS.md` §0 GATE-1..4 và liệt kê output trong audit report. Bất kỳ pattern nào < 100% clean = audit verdict không được Pass.
+5 phiên test 2026-05-15..26 vẫn để cùng pattern leak vào prod. Trước khi mở 8-pillar checklist, chạy GATE-1..4 (bên dưới) và liệt kê output trong audit report. Bất kỳ pattern nào < 100% clean = audit verdict không được Pass.
 
 ```bash
-# Quick smoke (full version: CONVENTIONS.md §0)
+# Quick smoke
 cd /home/miyano/frappe-bench/apps/assetcore
 echo "== English enum leak (GATE-1) =="
 grep -rnE "\{\{\s*(row|item|doc)\.(status|workflow_state|frequency|severity)\s*\}\}" \
@@ -56,9 +77,9 @@ Verdict: PASS chỉ khi cả 4 = 0.
 
 ---
 
-## Phần 1 — Module Audit (8-pillar checklist)
-
 ## NGUYÊN TẮC BẤT BIẾN — UI Completeness
+
+Năm invariant dưới đây áp dụng cho MỌI module FE — vi phạm = gap không tha thứ.
 
 ### UC-1: Mọi module PHẢI có Create button
 
@@ -110,223 +131,11 @@ DocType có naming series phải:
 
 ---
 
-### Mục đích
+## Phần 1 — Module Audit (8-pillar checklist)
 
-Dùng trước:
+8 pillar verify từng lớp production-readiness — DocType → Service → Repo → API → Workflow → FE → Tests → Docs/Audit. Mỗi pillar là PASS/FAIL với gap cụ thể.
 
-- Tag release (`v3.x.y`)
-- Promote module Wave-Planned → Wave-Live
-- Cut deployment ticket
-- Đóng sprint deliver IMM-XX
-
-Skill này **chỉ verify** — không implement. Khi phát hiện gap, chuyển sang `assetcore-be`, `assetcore-fe`, `assetcore-test`, `assetcore-deploy`.
-
-### 8 pillars audit
-
-#### Pillar 1 — DocType schema
-
-- [ ] `module: "AssetCore"` set
-- [ ] `autoname` dùng prefix có ý nghĩa
-- [ ] `track_changes: 1`
-- [ ] Status fields: `read_only: 1` + `no_copy: 1`
-- [ ] Timestamp fields: `read_only: 1` + `no_copy: 1`
-- [ ] DocPerm đủ 2+ operational roles
-- [ ] Không có field service dùng nhưng không có trong JSON
-
-```bash
-# Verify fields tồn tại
-grep -n "doc\." services/immXX.py | grep -v "frappe\|get_doc\|db\." | head -20
-```
-
-#### Pillar 2 — Service layer
-
-- [ ] 3-tier tách đúng (không có business logic trong API, không có HTTP trong service)
-- [ ] Mọi mutating function có permission check ở đầu
-- [ ] `require_role(...)` dùng constant từ `Roles`, không hardcode
-- [ ] Không có `except: pass` hay `except Exception: pass`
-- [ ] Không gọi `frappe.db.*` trực tiếp từ service (đi qua repo)
-
-```bash
-# Tìm bare except
-grep -n "except:" services/immXX.py | grep -v "ServiceError\|Exception as\|frappe"
-# Tìm direct DB calls trong service
-grep -n "frappe\.db\." services/immXX.py | grep -v "set_value\|commit"
-```
-
-#### Pillar 3 — Repository
-
-- [ ] `<Name>Repo(BaseRepository)` tồn tại
-- [ ] Không có raw SQL trừ khi thực sự cần join phức tạp
-- [ ] Import từ `assetcore/repositories/__init__.py`, không trực tiếp từ `_repo.py`
-
-#### Pillar 4 — API layer
-
-- [ ] Tất cả endpoints có `@frappe.whitelist()`
-- [ ] Mutating endpoints có `methods=["POST"]`
-- [ ] Function names khớp với `docs/imm-XX/05_API_Specification.md`
-- [ ] Không có business logic trong API handlers
-- [ ] Pagination params cast: `int(page)`, `int(page_size)`
-- [ ] **Display name enrichment**: mọi `list_*` endpoint có Link field hiển thị → phải gọi `_enrich(items, field, doctype, display_field)` để thêm `*_name`; mọi `get_*` detail endpoint phải enrich tương tự (không chỉ list)
-
-```bash
-# Verify whitelist endpoints
-grep -n "@frappe.whitelist" api/immXX.py
-# Compare với spec
-grep "endpoint\|POST\|GET" docs/imm-XX/05_API_Specification.md | head -20
-# Tìm get_* endpoint thiếu enrich (trả frappe.get_doc().as_dict() nhưng có Link field user-visible)
-grep -n "frappe.get_doc.*as_dict\|get_doc.*as_dict" api/immXX.py
-```
-
-#### Pillar 5 — Workflow
-
-- [ ] Workflow JSON tồn tại trong `assetcore/assetcore/workflow/imm_XX_<name>_workflow.json`
-- [ ] `name == workflow_name` trong JSON
-- [ ] `is_active: 1` set
-- [ ] docstatus transitions valid (`0→0`, `0→1`, `1→1`, `1→2` only)
-- [ ] Workflow trong `hooks.py` fixtures — đủ CẢ 3 lists (Workflow + State + Action)
-- [ ] `EXPECTED_WORKFLOWS` updated trong `tests/test_workflows.py`
-
-```bash
-# Verify 3 fixture lists — workflow name trong từng list phải match JSON
-grep -A20 '"dt": "Workflow"' assetcore/hooks.py
-grep -A50 '"dt": "Workflow State"' assetcore/hooks.py
-grep -A30 '"dt": "Workflow Action Master"' assetcore/hooks.py
-
-# Đếm states + transitions từ workflow JSON (không đoán)
-python3 -c "import json; d=json.load(open('assetcore/assetcore/workflow/imm_XX_<name>_workflow.json')); print('states:', len(d['states']), 'transitions:', len(d['transitions']))"
-
-# Verify tất cả state names trong hooks.py Workflow State list
-python3 -c "import json; d=json.load(open('assetcore/assetcore/workflow/imm_XX_<name>_workflow.json')); [print(s['state']) for s in d['states']]"
-```
-
-#### Pillar 6 — FE (Frontend)
-
-- [ ] `api/immXX.ts` — all functions typed `Promise<T>`, không `Promise<ApiResponse<T>>`
-- [ ] `stores/immXX.ts` — Pinia setup syntax; không re-export API namespace
-- [ ] Views: tri-branch `v-if="loading"` / `v-else-if="error"` / `v-else`
-- [ ] `catch (e: unknown)` + `e instanceof Error ? e.message : String(e)` — không `catch (e: any)`
-- [ ] Routes đúng trong `router/index.ts` với `meta.moduleId`
-- [ ] Launcher tile `disabled: false` + route tồn tại
-
-**FE Display Quality (bắt buộc kiểm tra):**
-
-- [ ] **Display names, không phải system codes**: mọi trường Link hiển thị cho user phải dùng human-readable name, không phải DocType id:
-
-  - Supplier/Vendor: dùng `supplier_name || supplier`, không phải `SUP-2026-XXXXX`
-  - Asset: dùng `asset_name || asset`, không phải `ACC-ASS-2026-XXXXX`
-  - User: dùng `full_name || user`, không phải `email@domain`
-  - BE phải enrich `*_name` vào response; FE dùng pattern `x.xxx_name || x.xxx`
-- [ ] **Status values FE = BE constants**: grep `_STATUS_*` trong service layer, verify mọi `STATUS_COLOR`, `STATUS_LABEL`, `allowed_transitions.includes(...)`, `canXxx computed` dùng ĐÚNG string đó
-
-  - Lỗi hay gặp: FE dùng `"Under Investigation"` nhưng BE constant là `"In Progress"` → tất cả workflow buttons ẩn
-- [ ] **`allowed_transitions.includes()` dùng exact BE string**: lấy từ `_VALID_TRANSITIONS` dict, không đặt tên thân thiện
-- [ ] **Select options FE = DocType JSON options**: grep DocType JSON field `options`, so với `<select>` options trong form — mismatch gây validation error
-- [ ] **`useFormDraft` cache**: sau khi fix options, test với fresh browser session hoặc clear localStorage — draft cache giữ giá trị cũ không hợp lệ
-- [ ] **Sidebar không che content**: test viewport ≥ 1280px; sidebar fixed z-40 intercept clicks ở viewport nhỏ
-- [ ] **Role gating KHÔNG dùng `ROLES_*` constants** (deprecated, LL-FE-12):
-
-  ```bash
-  grep -rn "hasAnyRole.*ROLES_\|from '@/constants/roles' import.*ROLES_" frontend/src/views/
-  # Match = 0 (trừ admin/role-picker pages)
-  ```
-
-  Mọi gate UI phải qua `useCapabilities().can('<domain>.<ptype>')`.
-- [ ] **Workflow TRANSITIONS map cover ALL states** (LL-FE-10):
-
-  ```bash
-  states_be=$(grep -cE "^\s+_STATUS_\w+\s*=" assetcore/services/<module>.py)
-  states_fe=$(grep -cE "'\w[\w ]*':\s*\[" frontend/src/views/<domain>/<X>DetailView.vue)
-  # states_fe phải = states_be - terminal_count
-  ```
-- [ ] **TypeScript union sync BE states** (LL-FE-11): mỗi `_STATUS_*` ở service phải xuất hiện trong `export type XxxStatus = ...` ở `types/<module>.ts`.
-- [ ] **Form Link fields dùng SmartSelect, không text** (LL-FE-9):
-
-  ```bash
-  # List Link fields trong DocType
-  grep -B1 -A3 '"Link"' assetcore/assetcore/doctype/<dt>/<dt>.json | grep fieldname
-  # Cho mỗi field name trên, kiểm tra trong form view:
-  grep -E "<input.*v-model=\"form\.<field>\"" frontend/src/views/<domain>/*.vue
-  # = 0 match (phải là SmartSelect)
-  ```
-- [ ] **List page có hành động khả thi** (LL-FE-13): list không có create button → phải có ít nhất 1 navigate/import/bulk action button. Empty state phải actionable.
-- [ ] **KHÔNG dùng `window.confirm/alert/prompt`** (LL-FE-14):
-
-  ```bash
-  grep -rn "window\.confirm\|\bconfirm(\|\balert(\|\bprompt(" frontend/src/views/
-  # = 0 match — dùng <BaseModal>
-  ```
-- [ ] **Rich-text field render qua sanitizeHtml** (LL-FE-15):
-
-  ```bash
-  grep -rn 'v-html=' frontend/src/views/ | grep -v sanitizeHtml
-  # = 0 match
-  ```
-- [ ] **Delete button chỉ ở Draft state** (LL-FE-16): mọi `@click="doDelete"` phải có `v-if` check `workflow_state === 'Draft'`. Sau Draft dùng Cancel/Close.
-- [ ] **Dashboard KPI khớp list filter** (LL-FE-17): click KPI → navigate list với cùng filter, count phải match.
-- [ ] **BE user-initiated service có UI button** (LL-FE-18): mỗi `run_*/generate_*/scan_*/trigger_*` endpoint phải có button FE gọi được.
-- [ ] **Test data KHÔNG leak production** (LL-FE-19):
-
-  ```bash
-  bench --site miyano mariadb -e "SELECT name FROM \`tabIMM Training Program\` WHERE name LIKE '\\_Test%' OR name LIKE 'TEST-%';"
-  # = 0 rows
-  ```
-- [ ] **Computed field render đúng** (LL-FE-20): row hiển thị "—" trong cột có thể compute từ source data → bug.
-
-**UI Completeness (bắt buộc audit):**
-
-- [ ] **List page có Create button**: không có → 🟠 HIGH gap
-- [ ] **Detail page có workflow buttons**: mỗi non-terminal state phải có ≥ 1 action button → không có → 🔴 CRITICAL (user bị kẹt)
-- [ ] **KPI/stats tabs có data thực**: nếu có work orders nhưng uptime = 0/null → 🟠 HIGH (KPI service broken)
-- [ ] **Audit trail tab hiển thị events**: empty khi có actions → 🟠 HIGH
-- [ ] **Tabs không empty giả**: tất cả tabs phải fetch từ API, không hardcode empty
-
-**Procurement Plans — kiểm tra thêm:**
-
-- [ ] `/procurement-plans` list page có Create button → tạo plan mới được
-- [ ] Detail page `/procurement-plans/:id` có đủ: tổng ngân sách, tỷ lệ sử dụng (allocated/budget), danh sách NR đã gắn vào plan
-- [ ] Tỷ lệ sử dụng không hiển thị 0% khi đã có NR gắn vào plan — nếu 0% → kiểm tra BE roll-up logic
-- [ ] Workflow buttons đúng state: Draft → Submit → Approve → Active → Close
-
-**Asset Detail — kiểm tra thêm:**
-
-- [ ] Tab Thông tin: tất cả fields điền đầy đủ, vendor hiển thị tên công ty (không mã SUP-XXXX)
-- [ ] Tab Khấu hao: hiển thị schedule nếu purchase_price ≠ 0; hiển thị "Chưa có dữ liệu" nếu chưa nhập giá
-- [ ] Tab Lịch sử: ít nhất 1 lifecycle event sau khi asset được tạo/cài đặt
-- [ ] Tab KPI: uptime%, MTBF, MTTR hiển thị số liệu hoặc "Chưa đủ dữ liệu để tính" — không để trống hoàn toàn
-- [ ] Widget Ngừng máy: hiển thị "0 sự kiện ngừng máy" nếu chưa có downtime log (không blank, không error)
-- [ ] Audit Trail tab: có ít nhất 1 entry từ lúc tạo asset — empty hoàn toàn → 🟠 HIGH
-
-```bash
-cd frontend && npx tsc --noEmit 2>&1 | head -30
-# Grep để verify status strings:
-grep -n "_STATUS_\|STATUS_COLOR\|STATUS_LABEL\|allowed_transitions" services/immXX.py views/immXX/*.vue
-```
-
-#### Pillar 7 — Tests
-
-- [ ] `test_immXX.py` tồn tại
-- [ ] Mỗi BR-XX-NN có ≥ 1 happy + 1 negative test
-- [ ] Workflow smoke test pass
-- [ ] Tests chạy được trên fresh site
-
-```bash
-bench --site miyano run-tests --module assetcore.tests.test_immXX
-bench --site miyano run-tests --module assetcore.tests.test_workflows
-```
-
-#### Pillar 8 — Docs & Audit trail
-
-- [ ] `docs/imm-XX/` có đủ 9 files (README + 02→09)
-- [ ] `07_Testing_QA.md` có bảng UAT scenarios
-- [ ] Mọi state transition gọi `log_audit_event(...)` — không bypass
-- [ ] Không có module-local `_log_audit` hay `_create_lifecycle_event` (phải dùng canonical)
-
-**Realistic data check (dùng trong UAT, không chỉ unit test):**
-
-- [ ] Test data dùng tên thiết bị y tế thực, không phải "_Test", "sample"
-- [ ] Work orders có complete fields: asset, technician, description thực tế
-- [ ] KPI/stats được generate từ data thực (không mock 0)
-- [ ] Audit trail có events thực sau khi tạo/sửa/chuyển trạng thái
+> 📋 **Heavy reference — checklist đầy đủ từng pillar (Pillar 1 DocType … Pillar 8 Docs & Audit trail) + các pillar mở rộng (Phần 4 Hook Chain · Phần 5 Whitelist Gate · Phần 6 Audit Trail UI · Phần 7 KPI Scope · Phần 8 Auto-Default · Phần 9 verdict update) + bảng "Khi nào dùng skill nào tiếp theo":** đọc [`references/module-audit-pillars.md`](references/module-audit-pillars.md). Chạy từng pillar TRƯỚC khi chốt verdict.
 
 ### Severity grading
 
@@ -361,88 +170,9 @@ Action items: [list với owner]
 
 ## Phần 2 — Security Review
 
-### Threat model
+Threat model + layered security checklist (service gate → DocPerm → whitelist hygiene → audit integrity → injection → vendor isolation).
 
-1. **Privilege escalation** — Technician trigger admin-only action
-2. **Vendor data leakage** — Hospital A thấy data Hospital B
-3. **Audit trail tampering** — backdating hoặc xóa lifecycle record
-4. **Session hijacking** — CSRF, stale token
-5. **Injection** — SQL via raw `frappe.db.sql`, XSS in descriptions
-6. **Mass exfiltration** — unbounded list endpoint dump toàn bộ table
-
-### Security checklist
-
-#### Layer 1 — Service permission gate
-
-```python
-from assetcore.services.shared.permissions import require_role
-from assetcore.services.shared.constants import Roles
-
-def assign_technician(name: str, *, technician: str):
-    require_role(Roles.CAN_CREATE_WO, "Không đủ quyền giao việc")
-    # ...
-```
-
-- [ ] Mọi mutating service function có `require_role(...)` ở đầu
-- [ ] Roles từ `Roles` constant, không hardcode string
-- [ ] Permission check TRƯỚC khi đọc record (không để data leak qua error message)
-
-#### Layer 2 — DocPerm (defense in depth)
-
-```bash
-# Verify permissions trong JSON
-grep -A10 '"permissions"' assetcore/assetcore/doctype/<name>/<name>.json
-```
-
-- [ ] `delete: 0` cho mọi role trên audit trail DocTypes
-- [ ] Không có `System Manager` trong non-admin DocType permissions
-- [ ] `read: 1` tối thiểu cho operational roles
-
-#### Whitelist hygiene
-
-```bash
-# Tìm endpoints thiếu permission gate
-grep -B2 "@frappe.whitelist" api/immXX.py | grep -v "require_role\|#"
-```
-
-- [ ] Mọi POST endpoint có `methods=["POST"]`
-- [ ] Mọi endpoint đọc data nhạy cảm có `require_role` hoặc filter theo `frappe.session.user`
-- [ ] Pagination params bounded: `min(int(page_size), 200)` — không cho dump unlimited
-
-#### Audit trail integrity
-
-```bash
-# Tìm bypass (insert trực tiếp thay vì log_audit_event)
-grep -rn "doctype.*IMM Audit Trail" assetcore/ | grep -v "log_audit_event\|test_"
-```
-
-- [ ] Không có code insert `IMM Audit Trail` trực tiếp
-- [ ] Không có `frappe.delete_doc("IMM Audit Trail", ...)` ngoài test teardown
-- [ ] `delete: 0` trong DocPerm cho `IMM Audit Trail`
-
-#### Input validation & Injection
-
-```bash
-# Tìm raw SQL với string interpolation
-grep -n "frappe\.db\.sql" assetcore/ -r | grep -v "?.*%s\|:%(.*)" | grep "%\|format\|f\""
-```
-
-- [ ] Raw SQL dùng parameterized queries (`%s`, không f-string)
-- [ ] User-entered text không render as HTML (escape hoặc dùng Jinja `{{ value | e }}`)
-- [ ] File upload qua `@frappe.whitelist(methods=["POST"])` với MIME type check
-
-#### Vendor isolation (multi-tenant)
-
-```python
-# Mọi list query phải filter theo tenant
-filters["hospital_site"] = frappe.local.site
-# Hoặc check ownership:
-if doc.created_by_hospital != frappe.local.site:
-    frappe.throw("Không có quyền truy cập")
-```
-
-- [ ] Mọi `list_*` endpoint filter theo `hospital_site` hoặc user scope
-- [ ] Vendor Engineer không thấy data của hospital khác
+> 🔒 **Heavy reference — threat model (6 mối) + checklist từng layer:** đọc [`references/security-audit.md`](references/security-audit.md). Bổ sung: whitelist permission gate (S-9..S-11) ở [`references/module-audit-pillars.md`](references/module-audit-pillars.md) Phần 5.
 
 ### Security report format
 
@@ -456,21 +186,17 @@ Verdict: SECURE / NEEDS FIX
 
 ---
 
-## Khi nào dùng skill nào tiếp theo
+## Phần 3 — Data Hygiene Audit (pre-release MUST-CHECK)
 
-| Audit phát hiện                  | Skill tiếp          |
-| ---------------------------------- | -------------------- |
-| BE layer gap (service, repo, API)  | `assetcore-be`     |
-| FE layer gap (views, store, types) | `assetcore-fe`     |
-| Test missing                       | `assetcore-test`   |
-| Deployment issue                   | `assetcore-deploy` |
-| Doc gap                            | `assetcore-doc`    |
+Áp dụng trước mỗi release tag, deploy lên staging/prod, hoặc khi user nói "data có sạch không". DH-1 zero test records · DH-2 zero orphan FK · DH-3 zero empty required field · DH-4 docstatus ↔ workflow_state coherent — tất cả phải = 0.
+
+> 🧹 **Heavy reference — DH-1..DH-4 (SQL/Python scan đầy đủ) + bảng audit verdict + cross-reference (bảng E mở rộng):** đọc [`references/data-hygiene-audit.md`](references/data-hygiene-audit.md).
 
 ---
 
 ## Lessons Learned — audit checklist mở rộng (BẮT BUỘC ĐỌC khi audit)
 
-> ⚠️ Các regression class **A–L**, **LL-AUDIT-1..7** (backend/FE/UI checks, anti-false-positive,
+> ⚠️ Các regression class **A–L**, **LL-AUDIT-1..21** (backend/FE/UI checks, anti-false-positive,
 > DocType cross-ref, derived field, dangling FK, slug-in-display, hydration, ROLES stub,
 > permission-denied UI, label sync, raw-code leak…) đã chuyển sang
 > [`references/lessons-learned.md`](references/lessons-learned.md).
@@ -478,339 +204,116 @@ Verdict: SECURE / NEEDS FIX
 > **BẮT BUỘC: `Read references/lessons-learned.md` TRƯỚC KHI chốt verdict audit/security.**
 > Bỏ qua = bỏ sót bug đã biết hoặc log false-positive.
 
-## Phần 3 — Data Hygiene Audit (pre-release MUST-CHECK)
+---
 
-Áp dụng trước mỗi release tag, deploy lên staging/prod, hoặc khi user nói "data có sạch không".
+## Common Rationalizations
 
-### DH-1: 0 record chứa pattern test trong production-bound site
+| Lý do hay viện để skip | Sự thật |
+|---|---|
+| "Module trông ổn rồi, bỏ qua Phần 0 sweep cho nhanh" | 5 phiên test để cùng pattern leak vào prod. Sweep GATE-1..4 chạy ĐẦU mọi audit; <100% clean = verdict không được Pass. |
+| "Pillar nhỏ fail thôi, vẫn cho Pass overall" | Single fail = audit overall FAIL. Hook chain (Pillar 9) Critical = release block per CLAUDE.md §10/§12. |
+| "Tự sửa luôn cho gọn" | Skill này CHỈ verify. Implement = giao `assetcore-be/fe/test/deploy`. Sửa tại chỗ = bỏ qua TDD + audit trail (CLAUDE.md §17). |
+| "Grep ra match là bug, log Critical luôn" | Có false-positive (vd `_name` companion, admin/role-picker page). Đọc `references/lessons-learned.md` anti-FP TRƯỚC khi chốt — log FP = mất uy tín audit. |
+| "Tab Lịch sử trống chắc tại ít data" | Thường là hook chain thiếu `triggered_record` / DetailView thiếu AuditTrailTab (RC-05). Chạy Pillar 6 FE-9/FE-10 + Pillar 9 Check 9.4 trước khi kết luận. |
+| "Endpoint có @whitelist là an toàn" | FE ẩn nút nhưng BE thiếu `rbac.require()` = privilege escalation (AUTH-02). Mọi mutating whitelist phải có server-side gate (S-9). |
+| "Data hygiene để lúc deploy lo" | Test record / orphan FK / empty required field leak vào prod-bound site = corruption. DH-1..4 phải = 0 TRƯỚC release tag. |
+| "KPI hiển thị số là được" | Counter mâu thuẫn giữa 2 page do scope không nêu rõ (RC-09/10). KPI tile phải có scope qualifier + pass scope qua route query (FE-11/12). |
+| "Dev bảo đã fix rồi, tin được" | Doubt-driven: mọi claim "đã xong/đã đúng" là giả thuyết. CLAIM→EXTRACT→DOUBT→RECONCILE→STOP — verify @source (file:line / test output / DB row) bằng fresh context trước khi chốt Pass. |
+| "Field/guard này trông thừa, gỡ cho gọn" | Chesterton's Fence: đừng gỡ thứ chưa hiểu vì sao có (git blame / Lifecycle Event / ADR trước). Refactor phải behavior-preserving + test xanh trước+sau. |
+| "Gặp lỗi thì bọc try/except cho qua" | Stop-the-line: dừng, không workaround mù. Chạy 5-step triage reproduce→localize→reduce→fix→guard, sửa root cause ở tầng đúng. |
 
-```bash
-bench --site <site> mariadb -e "
-SELECT 'AC Asset' AS dt, COUNT(*) FROM \`tabAC Asset\`
-  WHERE LOWER(name) LIKE '%test%' OR LOWER(asset_name) LIKE '%test%'
-UNION ALL SELECT 'AC Warehouse', COUNT(*) FROM \`tabAC Warehouse\`
-  WHERE LOWER(name) LIKE '%test%' OR LOWER(warehouse_name) LIKE '%test%'
-UNION ALL SELECT 'AC Spare Part', COUNT(*) FROM \`tabAC Spare Part\`
-  WHERE LOWER(name) LIKE '%test%' OR LOWER(part_name) LIKE '%test%'
-UNION ALL SELECT 'IMM Training Session', COUNT(*) FROM \`tabIMM Training Session\`
-  WHERE training_program LIKE '\\_TEST-%'
-UNION ALL SELECT 'IMM Training Program', COUNT(*) FROM \`tabIMM Training Program\`
-  WHERE name LIKE '\\_TEST-%' OR LOWER(program_name) LIKE '%test%'
-UNION ALL SELECT 'IMM CAPA Record', COUNT(*) FROM \`tabIMM CAPA Record\`
-  WHERE LOWER(_comments) LIKE '%test%' OR LOWER(_comments) LIKE '%_test%';"
-```
+## Red Flags — STOP
 
-Tất cả phải = 0. Nếu > 0 → `assetcore-deploy` Phần 3 cleanup checklist.
+- Bỏ qua Phần 0 sweep; hoặc GATE-1..4 còn finding mà vẫn chốt Pass.
+- Verdict Pass khi có ≥ 1 Pillar fail (single fail = overall FAIL).
+- Audit "tự sửa" thay vì giao skill thực thi — skill này chỉ verify.
+- Chốt verdict mà chưa `Read references/lessons-learned.md` (bỏ sót regression class / log false-positive).
+- List page không có Create button (🟠); non-terminal state thiếu action button → user kẹt (🔴).
+- Link field hiển thị system code (`SUP-2026-XXXXX`, `ACC-ASS-…`, `email@domain`) thay vì `*_name`.
+- Mutating `@frappe.whitelist` thiếu `rbac.require`/`has_any_role`/`frappe.only_for` (privilege escalation).
+- Insert/delete `IMM Audit Trail` trực tiếp; `delete: 1` trên audit-trail DocPerm.
+- Raw `frappe.db.sql` với f-string/format (injection); list endpoint không cap `page_size` (mass exfiltration).
+- Test record / orphan FK / empty required field trên site prod-bound (DH-1..4 ≠ 0).
+- Completion service (`complete_*`/`submit_*`/`_finalize_*`) terminal nhưng không chain cross-module call.
+- Chốt Pass dựa trên claim ("đã fix"/"test xanh") mà chưa verify @source (vi phạm doubt-driven STOP).
+- Gỡ guard/field/code chưa truy được "vì sao có" (vi phạm Chesterton's Fence); refactor làm đổi hành vi mà không có test trước+sau.
+- Workaround lỗi bằng try/except trống / hardcode bypass thay vì 5-step triage (vi phạm stop-the-line).
 
-### DH-2: 0 orphan FK reference
+## Verification
 
-Sau cleanup, masters bị xoá có thể để lại dependents trỏ NULL:
+Trước khi chốt verdict — phải có BẰNG CHỨNG (output thực, không "có vẻ ổn"):
 
-```sql
-SELECT 'ALE orphan asset' AS chk, COUNT(*) FROM `tabAsset Lifecycle Event`
-WHERE asset IS NOT NULL AND asset != '' AND asset NOT IN (SELECT name FROM (SELECT name FROM `tabAC Asset`) x)
-UNION ALL SELECT 'Audit Trail orphan asset', COUNT(*) FROM `tabIMM Audit Trail`
-WHERE asset IS NOT NULL AND asset != '' AND asset NOT IN (SELECT name FROM (SELECT name FROM `tabAC Asset`) x)
-UNION ALL SELECT 'Spare Stock orphan part', COUNT(*) FROM `tabAC Spare Part Stock`
-WHERE spare_part IS NOT NULL AND spare_part != '' AND spare_part NOT IN (SELECT name FROM (SELECT name FROM `tabAC Spare Part`) x)
-UNION ALL SELECT 'Asset orphan category', COUNT(*) FROM `tabAC Asset`
-WHERE asset_category IS NOT NULL AND asset_category != '' AND asset_category NOT IN (SELECT name FROM (SELECT name FROM `tabAC Asset Category`) x);
-```
-
-Tất cả phải = 0.
-
-### DH-3: 0 record vi phạm required-field constraint
-
-```python
-# assetcore/_scan_incomplete.py
-import frappe
-
-def run():
-    modules = frappe.get_all("Module Def", filters={"app_name": "assetcore"}, pluck="name")
-    doctypes = [d.name for d in frappe.get_all("DocType",
-                filters={"module": ["in", modules]},
-                fields=["name", "istable", "issingle"])
-                if not d.istable and not d.issingle]
-    skip = {"naming_series", "amended_from"}
-    for dt in doctypes:
-        meta = frappe.get_meta(dt)
-        reqd = [f.fieldname for f in meta.fields
-                if f.reqd == 1 and f.fieldname not in skip
-                and frappe.db.has_column(dt, f.fieldname)
-                and f.fieldtype not in ("Table", "Table MultiSelect",
-                                         "Section Break", "Column Break", "HTML")]
-        for f in reqd:
-            cnt = frappe.db.sql(
-                f"SELECT COUNT(*) FROM `tab{dt}` WHERE `{f}` IS NULL OR `{f}` = ''"
-            )[0][0]
-            if cnt:
-                print(f"  {dt}.{f}: {cnt} empty")
-```
-
-```bash
-bench --site <site> execute assetcore._scan_incomplete.run
-```
-
-Pre-release: phải = 0 cho field reqd=1.
-
-### DH-4: 0 record có docstatus mismatch với workflow_state
-
-```sql
--- Submitted nhưng còn ở Draft, Cancelled mà chưa Cancel
-SELECT name, docstatus, workflow_state
-FROM `tabAsset Repair`
-WHERE (docstatus = 1 AND workflow_state IN ('Draft', 'Open'))
-   OR (docstatus = 2 AND workflow_state NOT IN ('Cancelled'));
-```
-
-### Audit verdict — thêm row Data Hygiene
-
-| Item                                       | Check            | Tool              |
-| ------------------------------------------ | ---------------- | ----------------- |
-| DH-1: zero test records                    | DH-1 SQL above   | `bench mariadb` |
-| DH-2: zero orphan FK                       | DH-2 SQL above   | `bench mariadb` |
-| DH-3: zero empty required fields           | DH-3 Python scan | `bench execute` |
-| DH-4: docstatus ↔ workflow_state coherent | DH-4 SQL above   | `bench mariadb` |
-
-### Cross-reference (mở rộng bảng E)
-
-| Pattern phát hiện                        | Skill fix                                 | Reference         |
-| ------------------------------------------ | ----------------------------------------- | ----------------- |
-| `Unknown column 1054` raw SQL            | `assetcore-be`                          | LL-BE-22          |
-| `not enough arguments for format string` | `assetcore-be`                          | LL-BE-21          |
-| Xoá nhầm > scope dự kiến (LIKE bug)    | `assetcore-be` + `assetcore-deploy`   | LL-BE-21, Phần 3 |
-| Test data tích luỹ trong DB              | `assetcore-test` + `assetcore-deploy` | R-9 + Phần 3     |
-| Orphan FK sau cleanup                      | `assetcore-deploy`                      | Phần 3 step 5    |
-| `bench restore` blocked (no root pw)     | `assetcore-deploy`                      | Phần 3 "Restore" |
-| Empty required field trên real data       | `assetcore-be` LL-BE-9                  | Completion gate   |
-
-Reference: `CONVENTIONS.md §32, §33`; `assetcore-deploy` Phần 3; `assetcore-test` R-9, R-10.
+- [ ] Phần 0 sweep GATE-1..4 đã chạy + liệt kê output trong report; cả 4 = 0 mới được Pass.
+- [ ] Đã `Read references/lessons-learned.md` (regression class A–L, LL-AUDIT-1..21) — không bỏ sót, không log false-positive.
+- [ ] 8 pillar (+ Phần 4–9 mở rộng) đã chạy từng check trong `references/module-audit-pillars.md`; mỗi pillar có verdict PASS/FAIL + gap cụ thể.
+- [ ] UC-1..UC-5 verify trên FE thực (Create button, detail+workflow buttons, asset tabs, `*_name`, naming series).
+- [ ] Security: mọi mutating service/whitelist có gate (Layer 1 + S-9); injection/vendor-isolation/audit-integrity clean (`references/security-audit.md`).
+- [ ] Data Hygiene DH-1..DH-4 = 0 (test record · orphan FK · empty required · docstatus↔workflow_state) — `references/data-hygiene-audit.md`.
+- [ ] Severity gắn đúng (🔴/🟠/🟡/🟢); report theo đúng Audit/Security format.
+- [ ] Doubt-driven: mọi claim "đã xong/đã đúng" đã reconcile bằng output thực (file:line / test / DB / snapshot) với fresh context — chưa verify được thì verdict giữ FAIL.
+- [ ] Code review (nếu có) đi qua five-axis (correctness/design/complexity/tests/naming); diff >~100 dòng hoặc trộn concern = đề nghị tách (change sizing).
+- [ ] Refactor (nếu có) tuân Chesterton's Fence + Rule of 500 + behavior-preserving (test xanh trước+sau).
+- [ ] Lỗi phát hiện được xử theo 5-step triage (reproduce→localize→reduce→fix→guard), stop-the-line — không workaround mù.
+- [ ] **Verdict rule:** mọi Pillar PASS → ✅ PRODUCTION-READY. Single fail (đặc biệt Pillar 9 Critical) → ❌ NOT READY + action items có owner. Gap = giao skill thực thi (`assetcore-be/fe/test/deploy/doc`).
 
 ---
 
-## Phần 4 — Lifecycle Hook Chain Audit (2026-05-27 — root: G2 Test Plan)
+## Engineering-judgment principles (named — áp khi audit/refactor/debug)
 
-**Bug pattern recurring 5/11 trong G2:** RCA→CAPA, RCA→Incident, ACC→Asset, Asset→Cal Schedule, Asset→nextPM/nextCal — không wire.
+Nguồn provenance: `.claude/agent-skills/` (gitignored, local-only) → principle phải sống ở đây. Terse map, tailor Frappe/HTM. KHÔNG lặp chi tiết security (đã ở `references/security-audit.md`).
 
-### Pillar 9: Cross-Module Trigger Wiring
+### Doubt-driven review (adversarial fresh-context)
 
-Audit mọi service `_finalize_*` / `complete_*` / `submit_*` trong `services/imm<XX>.py`:
+Mọi claim "đã xong / đã đúng / đã fix" là **giả thuyết chưa được chứng minh** — nghi ngờ trước, verify @source sau (khớp văn hoá verify-before-trust của dự án). Vòng:
 
-#### Check 9.1: Doc chain trong `04_Backend_Design.md`
+**CLAIM → EXTRACT → DOUBT → RECONCILE → STOP**
 
-```bash
-for module in 04 05 08 09 11 12 16; do
-  f="docs/imm-${module}/04_Backend_Design.md"
-  echo "=== imm-$module ==="
-  grep -A5 "Cross-Module Triggers\|Side effect\|Trigger:" "$f" 2>/dev/null || echo "  ❌ Section missing"
-done
-```
+| Bước | Làm gì (Frappe/HTM) |
+|---|---|
+| CLAIM | Liệt kê mọi khẳng định: "endpoint có gate", "FE đã ẩn nút", "test xanh", "data sạch". |
+| EXTRACT | Rút claim atomic + chỉ ra nguồn-sự-thật phải đọc (file:line, `bench run-tests` output, DB row, snapshot Playwright). |
+| DOUBT | Đọc với **fresh context** — đừng tin commit message / PR title / comment; tự hỏi "nếu sai thì sai ở đâu". Vd: `@frappe.whitelist` có ≠ có `rbac.require` (AUTH-02). |
+| RECONCILE | Đối chiếu claim ↔ bằng chứng thực. Lệch = gap có severity. |
+| STOP | Chỉ chốt Pass khi mọi claim đã reconcile bằng output thực; chưa verify được = giữ verdict FAIL, không "có vẻ ổn". |
 
-Verdict: mọi module có completion service → phải có §Cross-Module Triggers documented.
+### 5-step triage khi gặp lỗi (debugging-and-error-recovery)
 
-#### Check 9.2: Service complete/submit có chain call (không silent end)
+**reproduce → localize → reduce → fix → guard** — gặp lỗi thì **stop-the-line** (dừng, KHÔNG workaround mù / nuốt exception).
 
-```bash
-for f in assetcore/services/imm*.py; do
-  python3 -c "
-import ast
-tree = ast.parse(open('$f').read())
-for n in ast.walk(tree):
-    if isinstance(n, ast.FunctionDef) and n.name.startswith(('complete_','submit_','_finalize_','finalize_')):
-        body = ast.unparse(n)
-        if 'from assetcore.services.imm' not in body and 'log_audit_event' in body:
-            print('$f::' + n.name + ' — terminal transition nhưng KHÔNG chain call cross-module')
-"
-done
-```
+| Bước | Frappe/HTM |
+|---|---|
+| reproduce | Tái hiện ổn định (request thật / `bench run-tests <case>` / Playwright). Không repro được = chưa hiểu. |
+| localize | Khoanh tầng 3-tier: API → service → repo. Đọc Error Log + traceback, đừng đoán. |
+| reduce | Thu nhỏ về case nhỏ nhất còn lỗi (1 doc, 1 transition). |
+| fix | Sửa đúng root cause ở tầng đúng (logic ở service, KHÔNG patch controller). |
+| guard | Thêm test/regression chặn tái phát (Beyonce Rule) — giao `assetcore-test`. |
 
-Verdict: mỗi `complete_*` cross-check spec — chain thiếu = 🔴 Critical (RC-03/04/06/07/11 pattern).
+Khi audit phát hiện lỗi: **stop-the-line** = không nuốt vào try/except trống, không hardcode bypass; log gap + giao skill thực thi.
 
-#### Check 9.3: Service B downstream phải idempotent
+### Five-axis review + change sizing (code-review-and-quality)
 
-```bash
-grep -B2 -A10 "^def create_from_\|^def create_.*_from_" assetcore/services/imm*.py \
-  | grep -B5 "frappe\.get_doc\|insert\(" \
-  | grep -L "frappe\.db\.exists\|existing"
-# Mỗi match → service B không idempotent → call lần 2 sẽ tạo duplicate
-```
+Mọi review code đi qua 5 trục (map severity §1):
 
-#### Check 9.4: Audit `triggered_record` field
+| Trục | Hỏi gì |
+|---|---|
+| Correctness | Đúng nghiệp vụ + edge (null/empty/race)? → 🔴/🟠 |
+| Design | Đúng 3-tier, không leak logic lên controller/FE? → 🟠 |
+| Complexity | Có chỗ đơn giản hơn? Nhánh thừa? → 🟡 |
+| Tests | Có test phủ path mới + regression guard? → 🟠 |
+| Naming/readability | Naming theo domain (CLAUDE.md §15), đọc-hiểu được? → 🟢 |
 
-```bash
-grep -rn "log_audit_event\|log_lifecycle_event" assetcore/services/imm*.py \
-  | grep -v "triggered_record\|trigger_doc\|source_a"
-# Mỗi audit log trong chain context phải có triggered_record link
-```
+**Change sizing ~100 lines**: review/commit nhỏ, một vấn đề/lần — diff >~100 dòng hoặc trộn nhiều concern = mùi, đề nghị tách (giao `assetcore-commit`).
 
-#### Check 9.5: Test coverage cho hook chain
+### Refactor an toàn (code-simplification)
 
-```bash
-for f in assetcore/tests/test_imm*.py; do
-  grep -L "creates_\|hook chain\|triggers_" "$f" && echo "$f missing chain test"
-done
-```
+- **Chesterton's Fence**: đừng gỡ code/guard/field chưa hiểu **vì sao nó có** — truy lịch sử (git blame / Lifecycle Event / ADR) trước. Vd: null-guard RCA orphan (IMM-12) trông thừa nhưng chặn crash thật.
+- **Rule of 500**: file/service/component > ~500 dòng = mùi quá-tải-trách-nhiệm → cân nhắc tách (KHÔNG ép — đo trước).
+- **Behavior-preserving**: refactor KHÔNG đổi hành vi quan sát được; phải có test xanh trước+sau làm bằng chứng (giao `assetcore-test`).
 
-Reference: `CONVENTIONS.md §40`, `assetcore-be` LL-BE-23.
+### Security principles (chỉ NÊU TÊN — chi tiết ở `references/security-audit.md`)
 
----
-
-## Phần 5 — Whitelist Permission Gate Audit (extends Pillar 8 Security)
-
-**Bug pattern P1 chưa fix (AUTH-02):** FE ẩn nút nhưng BE whitelist endpoint không có `rbac.require()` → privilege escalation.
-
-### Check S-9: Mọi mutating whitelist có server-side gate
-
-```bash
-cd /home/miyano/frappe-bench/apps/assetcore
-for f in assetcore/api/imm*.py assetcore/api/*.py; do
-  python3 -c "
-import ast
-src = open('$f').read()
-tree = ast.parse(src)
-for n in ast.walk(tree):
-    if isinstance(n, ast.FunctionDef) and any('whitelist' in ast.unparse(d) for d in n.decorator_list):
-        # Bỏ qua endpoint có 'list_' / 'get_' / 'count_' prefix (read-only)
-        if n.name.startswith(('list_','get_','count_','search_','export_')):
-            continue
-        body = ast.unparse(n)
-        if 'rbac.require' not in body and 'has_any_role' not in body and 'frappe.only_for' not in body:
-            print('$f::' + n.name + ' — missing server-side gate (POST/mutating)')
-" 2>/dev/null
-done
-```
-
-Mỗi match = 🔴 P1 security finding. Verdict: 100% mutating endpoints có gate.
-
-### Check S-10: Capability strings BE↔FE khớp 1-1
-
-```bash
-# Liệt kê capability strings ở BE
-grep -rn "rbac\.require(" assetcore/api/ assetcore/services/ | grep -oE '"[a-z]+\.[a-z_]+"' | sort -u > /tmp/be_caps.txt
-
-# Liệt kê ở FE
-grep -rn "can(" frontend/src/views/ frontend/src/components/ | grep -oE "'[a-z]+\.[a-z_]+'" | tr "'" '"' | sort -u > /tmp/fe_caps.txt
-
-diff /tmp/be_caps.txt /tmp/fe_caps.txt
-# Lines only BE → FE thiếu capability check (UI mở quá rộng)
-# Lines only FE → FE check capability BE không khai báo (silent allow, hoặc typo)
-```
-
-### Check S-11: Test coverage cho permission gate
-
-```bash
-for f in assetcore/tests/test_imm*.py; do
-  count=$(grep -c "FORBIDDEN\|test.*reject.*role\|test.*permission" "$f")
-  [ "$count" -lt 2 ] && echo "$f: only $count permission tests (need ≥2)"
-done
-```
-
-Reference: `CONVENTIONS.md §41`, `assetcore-be` LL-BE-24, `docs/res/reports/AssetCore_Test_Plan_NextRound_1_Analysis.md` AUTH-02.
-
----
-
-## Phần 6 — Audit Trail UI Visibility Check (extends Pillar 6 FE)
-
-**Bug RC-05:** Tab "Lịch sử phiếu" trống mặc dù BE đã log.
-
-### Check FE-9: Mọi DetailView có AuditTrailTab
-
-```bash
-for f in frontend/src/views/**/[A-Z]*DetailView.vue; do
-  if ! grep -q "AuditTrailTab\|Lịch sử" "$f"; then
-    echo "🟡 GAP: $f — không có tab Lịch sử"
-  fi
-done
-```
-
-### Check FE-10: Empty state có warning prompt user báo dev
-
-```bash
-grep -rn "AuditTrailTab\|history.*empty\|events\.length" frontend/src/views/ \
-  | grep -L "báo dev\|chưa có sự kiện"
-# Empty silent = không phát hiện được hook chain thiếu
-```
-
-### Check BE Cross-Reference: Hook chain có audit log
-
-Nếu Pillar 9 Check 9.4 fail → tab Lịch sử sẽ trống ngay khi hook chain wire xong. Phải fix cả 2 chỗ.
-
-Reference: `CONVENTIONS.md §42`, `assetcore-fe` LL-FE-28.
-
----
-
-## Phần 7 — KPI Scope Audit (extends Pillar 6 FE)
-
-**Bug RC-09, RC-10:** KPI counter mâu thuẫn giữa 2 page do scope không nêu rõ.
-
-### Check FE-11: KPI tile labels có scope qualifier
-
-```bash
-grep -rnE "<KpiTile[^>]*label=\"[^\"]+\"" frontend/src/views/ frontend/src/components/ \
-  | grep -v "toàn hệ thống\|của tôi\|tôi phụ trách\|khoa\|quá hạn\|7 ngày\|tháng này\|hôm nay\|tuần này"
-# Mỗi match → review thêm scope hoặc xác nhận unambiguous (vd "Tổng số tài sản")
-```
-
-### Check FE-12: Click KPI có pass scope qua route query
-
-```bash
-grep -rn "router.push" frontend/src/views/**/Dashboard*.vue frontend/src/components/**/Kpi*.vue \
-  | grep -v "scope:\|query:"
-# Mỗi tile clickable → query param phải đính scope khớp tile filter
-```
-
-Reference: `CONVENTIONS.md §43`, `assetcore-fe` LL-FE-29.
-
----
-
-## Phần 8 — Auto-Default Field Audit (extends Pillar 1 DocType)
-
-**Bug RC-02:** Field critical nhưng không default → user quên nhập → break downstream.
-
-### Check BE-15: Field critical có default-by-condition trong before_save
-
-```bash
-# Tìm field downstream service đọc (vd asset.depreciation_method)
-grep -rn "asset\.\|doc\." assetcore/services/imm*.py | grep -oE "\.(depreciation_method|calibration_interval_months|warranty_months|sla_priority|severity)" | sort -u
-
-# Kiểm tra controller có before_save default
-for dt_folder in assetcore/assetcore/doctype/ac_asset; do
-  py_file="$dt_folder/$(basename $dt_folder).py"
-  grep -A3 "def before_save" "$py_file" | grep -E "depreciation_method|calibration_interval" || \
-    echo "🟡 $py_file: critical field không default ở before_save"
-done
-```
-
-### Check BE-16: Required-when-condition validation
-
-```bash
-grep -B2 -A5 "def validate" assetcore/assetcore/doctype/*/*.py \
-  | grep -B5 "frappe\.throw\|raise ValidationError" \
-  | grep -v "^--"
-# Critical asset/incident DocType phải có conditional required check (vd "tick HC nhưng thiếu chu kỳ")
-```
-
-Reference: `CONVENTIONS.md §44`, `assetcore-be` LL-BE-25, `docs/res/reports/AssetCore_Test_Plan_NextRound_1_Analysis.md` RC-02.
-
----
-
-## Phần 9 — Verdict update (audit report format)
-
-Mở rộng bảng audit verdict (`Audit report format`):
-
-| Item                    | Check                                                     | Reference  |
-| ----------------------- | --------------------------------------------------------- | ---------- |
-| Pillar 1 DocType        | Pillar 1 + Phần 8 (BE-15, BE-16)                         | §44       |
-| Pillar 2 Service        | Pillar 2 + Phần 4 (Check 9.1-9.5)                        | §40       |
-| Pillar 6 FE             | Pillar 6 + Phần 6 (FE-9, FE-10) + Phần 7 (FE-11, FE-12) | §42, §43 |
-| Pillar 8 Security       | Pillar 8 + Phần 5 (S-9, S-10, S-11)                      | §41       |
-| Pillar 9 Hook Chain     | Phần 4 toàn bộ                                         | §40       |
-| Phần 0 Recurring Sweep | GATE-1..4 (CONVENTIONS §0)                               | §0        |
-| Phần 3 Data Hygiene    | DH-1..4                                                   | §32, §33 |
-
-**Verdict rule:** mọi Pillar phải PASS — single fail = audit overall FAIL. Hook chain (Pillar 9) Critical = release block per CLAUDE.md §10/§12.
-
-Reference: `docs/res/reports/AssetCore_Test_Plan_NextRound_1_Analysis.md` toàn bộ.
+- **OWASP Top 10 → Frappe map**: injection → `frappe.db.sql` **param hoá** (không f-string/format); broken access control → DocPerm + `@frappe.whitelist` gate + `permission_query_conditions` (vendor isolation); CSRF → token mặc định Frappe (đừng tắt cho mutating); secrets → site_config, không hardcode/không log.
+- **Three-tier boundary**: API **validate** input → service **logic** nghiệp vụ → repo **data**; mỗi tầng tin tầng-ngoài đã lọc nhưng vẫn enforce phần của mình. Chi tiết threat model + S-checklist: `references/security-audit.md`.
 
 ---
 

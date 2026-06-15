@@ -1,15 +1,19 @@
 <script setup lang="ts">
 // Copyright (c) 2026, AssetCore Team — Ad-hoc PM Work Order Create
 import { ref, computed, onMounted, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { createAdhocPMWorkOrder } from '@/api/imm08'
 import { checkAssetComplianceStatus, type ComplianceGateResult } from '@/api/imm16'
+import { getAssetActionMeta } from '@/api/imm00'
+// frappeGet vẫn cần cho loadSchedules (imm08.list_pm_schedules) + watch checklist
+// (frappe.client.get PM Template) → GIỮ import; CHỈ asset-meta migrate sang getAssetActionMeta.
 import { frappeGet } from '@/api/helpers'
 import { translateStatus } from '@/utils/formatters'
 import SmartSelect from '@/components/common/SmartSelect.vue'
 import DateInput from '@/components/common/DateInput.vue'
 import { useFormDraft } from '@/composables/useFormDraft'
 import { useApi } from '@/composables/useApi'
+import { useCapabilities } from '@/composables/useCapabilities'
 
 interface ScheduleRow {
   name: string
@@ -26,18 +30,28 @@ interface ChecklistItem {
   is_critical?: number
 }
 
+// Panel meta thiết bị — derive từ meta NẠC (getAssetActionMeta perm-aware, 6 field,
+// KHÔNG full-doc tài chính). Hiển thị display-name (device_model_name /
+// location_name), KHÔNG raw Link id (DM-.../LOC-...).
 interface AssetMeta {
-  device_model?: string
+  device_model_name?: string
   asset_name?: string
   lifecycle_status?: string
-  location?: string
+  location_name?: string
 }
 
 const router = useRouter()
+const route = useRoute()
 const api = useApi()
+const { can } = useCapabilities()
+
+// Deep-link từ màn quét QR (D3): query hằng = {asset, source}. Field nội bộ PM = asset_ref.
+// Provenance: chỉ 'qr-scan' mới coi là quét QR; mọi giá trị khác (kể cả thiếu) → manual.
+const querySource = route.query.source === 'qr-scan' ? 'qr-scan' : 'manual'
+const queryAsset = (route.query.asset as string) || ''
 
 const form = ref({
-  asset_ref: '',
+  asset_ref: queryAsset,
   pm_schedule: '',
   due_date: '',
   assigned_to: '',
@@ -45,7 +59,15 @@ const form = ref({
   technician_notes: '',
 })
 
+// Khoá ô Thiết bị KHI và CHỈ KHI đến từ quét QR + có asset prefill. Tạo thủ công
+// (manual / không source) → editable như cũ (no regression).
+const lockedFromScan = computed(() => querySource === 'qr-scan' && !!queryAsset)
+
 const { clear: clearDraft } = useFormDraft('pm-work-order-create', form)
+
+// Ưu tiên asset từ query khi deep-link từ màn quét QR — tránh draft cũ trong
+// localStorage che mất thiết bị vừa xác định.
+if (queryAsset) form.value.asset_ref = queryAsset
 
 const schedules = ref<ScheduleRow[]>([])
 const selectedSchedule = computed(() =>
@@ -70,6 +92,28 @@ const canSubmit = computed(() =>
   && complianceGate.value?.blocked !== true,
 )
 
+// Nhãn thiết bị hiển thị trong empty-state — ưu tiên tên đọc được, fallback mã đã
+// khoá từ QR để KTV biết đang nói về thiết bị nào (KHÔNG để rỗng).
+const assetDisplay = computed(
+  () => assetMeta.value?.asset_name || form.value.asset_ref || '',
+)
+
+// Empty-state CHỈ hiện khi đã chọn/khoá asset VÀ load xong VÀ thực sự 0 schedule.
+// Không flash khi đang tải (loadingSchedules=true → hiện trạng thái tải).
+const showScheduleEmpty = computed(
+  () =>
+    !!form.value.asset_ref
+    && !loadingSchedules.value
+    && schedules.value.length === 0,
+)
+
+// CTA tạo lịch PM chỉ render khi có quyền pm.write (capability, KHÔNG hardcode role).
+const canCreateSchedule = computed(() => can('pm.write'))
+
+function goCreateSchedule() {
+  router.push('/pm/schedules')
+}
+
 // ── Asset metadata + pre-flight compliance gate
 async function loadAssetMeta() {
   if (!form.value.asset_ref) {
@@ -78,17 +122,28 @@ async function loadAssetMeta() {
     schedules.value = []
     return
   }
-  // allSettled: a 403/error on the gate must NOT blank the asset panel — both
-  // requests are independent and fail-safe (gate → null, banner stays hidden).
+  // allSettled: meta + compliance gate độc lập, fail-safe. Nạp meta qua
+  // getAssetActionMeta (api/imm00) — endpoint NẠC perm-aware (IDOR guard + DocPerm
+  // read ở BE), CHỈ 6 field meta → KHÔNG over-fetch giá mua/khấu hao/giá trị sổ sách
+  // qua đường QR scan-action. KHÔNG dùng frappe.client.get_value (LL-FE-40) → hết RÒ
+  // mã thô Model/Vị trí + hết filters dị dạng kiểu BUG-META-1 (417-risk).
+  // Lỗi meta (403 vendor-IDOR / 404 / network) → assetMeta=null: panel ẩn, KHÔNG
+  // vỡ trang, KHÔNG leak raw exception/email/qr_token. Gate lỗi → banner ẩn (độc lập).
   const [metaRes, gateRes] = await Promise.allSettled([
-    frappeGet<AssetMeta>('/api/method/frappe.client.get_value', {
-      doctype: 'AC Asset',
-      filters: form.value.asset_ref,
-      fieldname: JSON.stringify(['device_model', 'asset_name', 'lifecycle_status', 'location']),
-    }),
+    getAssetActionMeta(form.value.asset_ref),
     checkAssetComplianceStatus(form.value.asset_ref),
   ])
-  assetMeta.value = metaRes.status === 'fulfilled' ? (metaRes.value ?? null) : null
+  if (metaRes.status === 'fulfilled' && metaRes.value) {
+    const a = metaRes.value
+    assetMeta.value = {
+      asset_name: a.asset_name,
+      device_model_name: a.device_model_name,
+      lifecycle_status: a.lifecycle_status,
+      location_name: a.location_name,
+    }
+  } else {
+    assetMeta.value = null
+  }
   complianceGate.value = gateRes.status === 'fulfilled' ? (gateRes.value ?? null) : null
   await loadSchedules()
 }
@@ -156,6 +211,8 @@ onMounted(() => {
   if (!form.value.due_date) {
     form.value.due_date = new Date().toISOString().split('T')[0]
   }
+  // Prefill từ deep-link QR: nạp panel meta + schedules + compliance gate ngay.
+  if (form.value.asset_ref) loadAssetMeta()
 })
 </script>
 
@@ -179,14 +236,24 @@ onMounted(() => {
       <div>
         <label class="block text-sm font-medium text-slate-700 mb-1">
           Thiết bị <span class="text-red-500">*</span>
+          <span
+            v-if="lockedFromScan"
+            role="status"
+            aria-live="polite"
+            class="ml-2 inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700 align-middle"
+          >
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" /></svg>
+            Tạo từ quét QR
+          </span>
         </label>
-        <SmartSelect v-model="form.asset_ref" doctype="AC Asset" placeholder="Chọn thiết bị..." />
+        <SmartSelect v-model="form.asset_ref" doctype="AC Asset" :disabled="lockedFromScan" placeholder="Chọn thiết bị..." />
+        <p v-if="lockedFromScan" class="text-xs text-slate-500 mt-1">Thiết bị đã được xác định từ mã QR — không thể thay đổi.</p>
         <div v-if="assetMeta" class="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-          <div class="bg-slate-50 rounded px-2 py-1.5"><span class="text-slate-500">Tên:</span> <b>{{ assetMeta.asset_name || '—' }}</b></div>
-          <div class="bg-slate-50 rounded px-2 py-1.5"><span class="text-slate-500">Model:</span> {{ assetMeta.device_model || '—' }}</div>
-          <div class="bg-slate-50 rounded px-2 py-1.5"><span class="text-slate-500">Vị trí:</span> {{ assetMeta.location || '—' }}</div>
+          <div class="bg-slate-50 rounded px-2 py-1.5"><span class="text-slate-500">Tên:</span> <b>{{ assetMeta.asset_name || 'Chưa có tên' }}</b></div>
+          <div class="bg-slate-50 rounded px-2 py-1.5"><span class="text-slate-500">Model:</span> {{ assetMeta.device_model_name || 'Chưa gán' }}</div>
+          <div class="bg-slate-50 rounded px-2 py-1.5"><span class="text-slate-500">Vị trí:</span> {{ assetMeta.location_name || 'Chưa gán' }}</div>
           <div :class="['rounded px-2 py-1.5', assetMeta.lifecycle_status === 'Decommissioned' ? 'bg-red-50 text-red-700' : 'bg-slate-50']">
-            <span class="text-slate-500">Trạng thái:</span> <b>{{ assetMeta.lifecycle_status || '—' }}</b>
+            <span class="text-slate-500">Trạng thái:</span> <b>{{ assetMeta.lifecycle_status ? translateStatus(assetMeta.lifecycle_status) : 'Chưa xác định' }}</b>
           </div>
         </div>
         <div v-if="assetMeta?.lifecycle_status === 'Decommissioned'" class="mt-2 alert-error text-sm">
@@ -230,9 +297,43 @@ onMounted(() => {
             {{ s.pm_type }} — mỗi {{ s.pm_interval_days ?? '?' }} ngày ({{ s.name }})
           </option>
         </select>
-        <p v-if="form.asset_ref && !loadingSchedules && !schedules.length" class="text-xs text-orange-600 mt-1">
-          Thiết bị này chưa có PM Schedule Active. Tạo lịch trước tại mục PM Schedule.
-        </p>
+        <!-- Empty-state có cấu trúc (BUG-PM-2): thiết bị chưa có lịch PM Active.
+             Hiện khi đã khoá/chọn asset + load xong + 0 schedule (KHÔNG flash lúc tải).
+             Nêu rõ TÊN thiết bị + lối thoát điều hướng (gate pm.write). -->
+        <div
+          v-if="showScheduleEmpty"
+          data-test="pm-schedule-empty"
+          role="status"
+          aria-live="polite"
+          class="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+        >
+          <p class="font-semibold">
+            <template v-if="lockedFromScan">
+              Thiết bị <b>{{ assetDisplay }}</b> (quét từ mã QR) chưa có lịch bảo trì
+              định kỳ đang hoạt động.
+            </template>
+            <template v-else>
+              Thiết bị <b>{{ assetDisplay }}</b> chưa có lịch bảo trì định kỳ đang
+              hoạt động.
+            </template>
+          </p>
+          <p class="mt-1 text-xs text-amber-700">
+            Cần có ít nhất một lịch bảo trì để tạo phiếu cho thiết bị này.
+          </p>
+          <button
+            v-if="canCreateSchedule"
+            data-test="pm-schedule-create-cta"
+            type="button"
+            class="mt-2.5 inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-xs font-medium text-white hover:bg-blue-700 transition-colors min-h-[40px]"
+            @click="goCreateSchedule"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
+            Tạo lịch bảo trì
+          </button>
+          <p v-else class="mt-2 text-xs text-amber-700">
+            Liên hệ quản lý vật tư để tạo lịch PM cho thiết bị này.
+          </p>
+        </div>
         <div v-if="selectedSchedule" class="mt-2 bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-800 grid grid-cols-1 sm:grid-cols-2 gap-2">
           <div><span class="text-blue-600">Loại:</span> <b>{{ selectedSchedule.pm_type }}</b></div>
           <div><span class="text-blue-600">Chu kỳ:</span> <b>{{ selectedSchedule.pm_interval_days }} ngày</b></div>
@@ -303,6 +404,22 @@ onMounted(() => {
       >
         {{ saving ? 'Đang tạo...' : 'Tạo phiếu bảo trì' }}
       </button>
+
+      <!-- Lý do nút bị khoá: phải chọn Lịch bảo trì (BE hard-require pm_schedule).
+           Khi 0 schedule → trỏ tới empty-state phía trên (lối thoát Tạo lịch). -->
+      <p
+        v-if="form.asset_ref && !form.pm_schedule"
+        data-test="submit-guidance"
+        class="-mt-2 text-center text-xs text-slate-500"
+      >
+        <template v-if="showScheduleEmpty">
+          Chưa thể tạo phiếu — thiết bị chưa có lịch bảo trì (xem hướng dẫn ở mục
+          “Lịch bảo trì” phía trên).
+        </template>
+        <template v-else>
+          Cần chọn “Lịch bảo trì” để tạo phiếu.
+        </template>
+      </p>
     </div>
   </div>
 </template>

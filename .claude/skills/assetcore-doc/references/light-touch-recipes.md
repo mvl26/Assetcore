@@ -82,7 +82,7 @@ Khi rà soát 1 module đã có docs, làm theo recipe của file đó. Mỗi re
 - §IV Hooks: liệt kê doc_events / scheduler_events?
 
 **Bổ sung an toàn:**
-- Nếu thiếu §II 3-tier note → thêm 1 đoạn refer `CONVENTIONS.md §2`
+- Nếu thiếu §II 3-tier note → thêm 1 đoạn mô tả split repository/service (refer `assetcore-be` skill)
 - Nếu thiếu §IV scheduler → ghi "*Không có scheduler hook*" hoặc liệt kê thật
 
 **Không đụng:** DocType field list nếu code đã build (đó là source of truth — chỉ verify, không tự ý thêm field).
@@ -97,7 +97,7 @@ Khi rà soát 1 module đã có docs, làm theo recipe của file đó. Mỗi re
 - Có §ErrorCode liệt kê code dùng trong module?
 
 **Bổ sung an toàn:**
-- Thêm §0 Envelope nếu thiếu (copy từ `CONVENTIONS.md §3`)
+- Thêm §0 Envelope nếu thiếu (envelope contract chuẩn — refer `assetcore-be` skill)
 - Cross-link tới `services/shared/constants.py` cho ErrorCode
 
 **Không đụng:** Tên endpoint, request/response shape — phải match code thật.
@@ -126,10 +126,10 @@ Khi rà soát 1 module đã có docs, làm theo recipe của file đó. Mỗi re
 - Test plan: unit / integration / e2e split?
 - UAT script (≥3 kịch bản)?
 - Security check (role × action matrix)?
-- Code quality (coverage target từ CONVENTIONS §6)?
+- Code quality (coverage target)?
 
 **Bổ sung an toàn:**
-- Coverage target: >50 LOC service = 70%+ (từ CONVENTIONS §6)
+- Coverage target: >50 LOC service = 70%+
 - Permission gate test note
 
 **Không đụng:** UAT scenario chi tiết (thuộc về QA/BA).

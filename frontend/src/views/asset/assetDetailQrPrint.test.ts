@@ -1,11 +1,12 @@
-// Copyright (c) 2026, AssetCore Team — AssetDetailView in nhãn QR 1 tài sản (A4/V5, TDD)
+// Copyright (c) 2026, AssetCore Team — AssetDetailView in nhãn QR PDF 60×100mm (TDD)
 //
-// RED-prove (task A4):
-//   • bấm 'In nhãn QR' → getAssetLabelData(id) gọi ĐÚNG 1 lần (preview).
-//   • preview mở mà CHƯA bấm 'In' → markLabelPrinted KHÔNG gọi (preview ≠ ghi event).
-//   • bấm 'In' → window.print gọi + markLabelPrinted([id]) gọi ĐÚNG 1 lần.
+// Luồng PDF (ADR-IMM00-LABEL-PDF — phương án A): nút 'In nhãn QR' → openPdfLabelPrint
+// → printAssetLabelsPdf([id]) ĐÚNG 1 lần (KHÔNG window.print legacy) → preview modal
+// embed PDF Blob → iframe.print(). markLabelPrinted([id]) CHỈ gọi qua 'Đã in xong' /
+// onafterprint — KHÔNG gọi khi chỉ mở-rồi-huỷ. Gate can('asset.print').
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
+import { ref } from 'vue'
 
 // ── Mock router ────────────────────────────────────────────────────────────────
 vi.mock('vue-router', () => ({
@@ -25,9 +26,8 @@ vi.mock('@/stores/imm00', () => ({
   }),
 }))
 vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ user: 'tester' }) }))
-// B (siết RBAC): nút 'In nhãn QR' gate asset.WRITE (in = side-effect, KHÔNG read-only).
-// `canCaps` set ngoài test để giả lập user write / user chỉ-đọc.
-const canCaps = new Set<string>(['asset.write'])
+// D6: nút 'In nhãn QR' gate asset.PRINT. canCaps set ngoài test để giả lập persona.
+const canCaps = new Set<string>(['asset.print'])
 vi.mock('@/composables/useCapabilities', () => ({
   useCapabilities: () => ({
     can: (c: string | readonly string[]) =>
@@ -38,136 +38,158 @@ vi.mock('@/composables/useNotify', () => ({ useNotify: () => ({ fromError: vi.fn
 vi.mock('@/composables/useToast', () => ({ useToast: () => ({ show: vi.fn() }) }))
 
 // ── Spy API ──────────────────────────────────────────────────────────────────────
-const getLabelSpy = vi.fn()
+const printPdfSpy = vi.fn()
 const markPrintedSpy = vi.fn().mockResolvedValue({ printed: ['AC-ASSET-2026-00042'], event_count: 1 })
 vi.mock('@/api/imm00', () => ({
   getAssetTimeline: vi.fn().mockResolvedValue({ items: [] }),
   getAssetKpi: vi.fn().mockResolvedValue(null),
   verifyChain: vi.fn().mockResolvedValue(null),
   deleteAsset: vi.fn(),
-  getAssetLabelData: (id: string) => getLabelSpy(id),
+  getAssetLabelData: vi.fn().mockResolvedValue(null),
   markLabelPrinted: (assets: string[]) => markPrintedSpy(assets),
+  printAssetLabelsPdf: (names: string[], preset?: string) => printPdfSpy(names, preset),
+  // SSoT preset khổ tem (selector 3-preset Vòng 4) — view import ở module-level.
+  LABEL_PDF_PRESETS: [
+    { key: 'tem-60x100', label: 'Tem 60×100mm' },
+    { key: 'tem-70x40', label: 'Tem 70×40mm' },
+    { key: 'tem-50x30', label: 'Tem 50×30mm' },
+  ],
+  LABEL_PDF_PRESET: 'tem-60x100',
+  labelPdfPresetLabel: (preset: string) =>
+    ({ 'tem-60x100': 'Tem 60×100mm', 'tem-70x40': 'Tem 70×40mm', 'tem-50x30': 'Tem 50×30mm' } as Record<string, string>)[preset] ?? '',
 }))
 vi.mock('@/api/imm04', () => ({ getCommissioningOrigin: vi.fn().mockResolvedValue(null) }))
 vi.mock('@/api/imm14', () => ({ createDecommission: vi.fn(), approveDecommission: vi.fn() }))
 vi.mock('@/api/errors', () => ({ toApiError: (e: unknown) => e }))
 vi.mock('qrcode', () => ({ default: { toDataURL: vi.fn().mockResolvedValue('data:image/png;base64,QR==') } }))
 
+// ── Mock composable usePdfLabelPrint ────────────────────────────────────────────
+// printLabels(names, opts) → giả lập tải PDF thành công (set previewUrl), GIỮ
+// opts.onAfterPrint để test trigger onafterprint thủ công.
+const printLabelsSpy = vi.fn()
+const revokeSpy = vi.fn()
+const previewUrl = ref<string | null>(null)
+const printing = ref(false)
+const pdfError = ref<unknown>(null)
+let capturedOnAfterPrint: ((names: string[]) => void | Promise<void>) | undefined
+vi.mock('@/composables/usePdfLabelPrint', () => ({
+  usePdfLabelPrint: () => ({
+    printLabels: (names: string[], opts: { onAfterPrint?: (n: string[]) => void } = {}) => {
+      capturedOnAfterPrint = opts.onAfterPrint
+      previewUrl.value = 'blob:mock-pdf'
+      return printLabelsSpy(names, opts)
+    },
+    previewUrl, printing, error: pdfError, revoke: revokeSpy,
+  }),
+}))
+
 import AssetDetailView from './AssetDetailView.vue'
 
-const VALID_LABEL = {
-  name: 'AC-ASSET-2026-00042', asset_code: 'A-042',
-  device_model_name: 'Dräger V500', location_name: 'ICU',
-  lifecycle_status: 'Active', qr_url: 'http://miyano/a/tok42',
-}
-
-const stubs = {
-  // BaseModal teleports to <body>; teleport:true render inline → wrapper queries reach it.
-  PageHeader: true, teleport: true, SmartSelect: true,
-  AssetDowntimeWidget: true, AssetDepreciationSchedule: true,
-}
+const stubs = { PageHeader: true, teleport: true, SmartSelect: true,
+  AssetDowntimeWidget: true, AssetDepreciationSchedule: true, BaseModal: false }
 
 function findByText(w: ReturnType<typeof mount>, txt: string) {
   return w.findAll('button').find(b => b.text().includes(txt))
 }
 
-describe('AssetDetailView — in nhãn QR 1 tài sản (A4)', () => {
+describe('AssetDetailView — in nhãn QR PDF 60×100mm', () => {
   beforeEach(() => {
-    getLabelSpy.mockReset().mockResolvedValue(VALID_LABEL)
-    markPrintedSpy.mockClear()
-    vi.spyOn(window, 'print').mockImplementation(() => {})
-    // mặc định: user CÓ asset.write (write user) cho happy-path bên dưới.
+    printPdfSpy.mockReset().mockResolvedValue(new Blob(['%PDF'], { type: 'application/pdf' }))
+    printLabelsSpy.mockReset().mockResolvedValue(new Blob(['%PDF'], { type: 'application/pdf' }))
+    markPrintedSpy.mockClear().mockResolvedValue({ printed: ['AC-ASSET-2026-00042'], event_count: 1 })
+    revokeSpy.mockClear()
+    previewUrl.value = null
+    printing.value = false
+    pdfError.value = null
+    capturedOnAfterPrint = undefined
     canCaps.clear()
-    canCaps.add('asset.write')
+    canCaps.add('asset.print')
   })
 
-  it("B — user CHỈ-ĐỌC (asset.read, KHÔNG asset.write) → nút 'In nhãn QR' KHÔNG render", async () => {
+  it("user KHÔNG có asset.print → nút 'In nhãn QR' KHÔNG render", async () => {
     canCaps.clear()
-    canCaps.add('asset.read') // chỉ đọc, KHÔNG write
+    canCaps.add('asset.read')
     const w = mount(AssetDetailView, { props: { id: 'AC-ASSET-2026-00042' }, global: { stubs } })
     await flushPromises()
     expect(findByText(w, 'In nhãn QR')).toBeFalsy()
   })
 
-  it("B — user CÓ asset.write → nút 'In nhãn QR' render", async () => {
-    canCaps.clear()
-    canCaps.add('asset.write')
+  it("user CÓ asset.print → nút 'In nhãn QR' render", async () => {
     const w = mount(AssetDetailView, { props: { id: 'AC-ASSET-2026-00042' }, global: { stubs } })
     await flushPromises()
     expect(findByText(w, 'In nhãn QR')).toBeTruthy()
   })
 
-  it("bấm 'In nhãn QR' → getAssetLabelData(id) gọi ĐÚNG 1 lần; markLabelPrinted CHƯA gọi", async () => {
+  it("bấm 'In nhãn QR' → printLabels([id]) ĐÚNG 1 lần; markLabelPrinted CHƯA gọi (mở ≠ in)", async () => {
     const w = mount(AssetDetailView, { props: { id: 'AC-ASSET-2026-00042' }, global: { stubs } })
     await flushPromises()
-    const btn = findByText(w, 'In nhãn QR')
-    expect(btn).toBeTruthy()
-    await btn!.trigger('click')
+    await findByText(w, 'In nhãn QR')!.trigger('click')
     await flushPromises()
-    expect(getLabelSpy).toHaveBeenCalledTimes(1)
-    expect(getLabelSpy).toHaveBeenCalledWith('AC-ASSET-2026-00042')
-    // Preview-only — CHƯA ghi event.
+    expect(printLabelsSpy).toHaveBeenCalledTimes(1)
+    expect(printLabelsSpy.mock.calls[0][0]).toEqual(['AC-ASSET-2026-00042'])
+    // Mở-rồi-chưa-in → KHÔNG ghi audit.
     expect(markPrintedSpy).not.toHaveBeenCalled()
   })
 
-  it("bấm 'In' (xác nhận) → window.print + markLabelPrinted([id]) ĐÚNG 1 lần", async () => {
+  it("bấm 'Đã in xong' → markLabelPrinted([id]) ĐÚNG 1 lần", async () => {
     const w = mount(AssetDetailView, { props: { id: 'AC-ASSET-2026-00042' }, global: { stubs } })
     await flushPromises()
     await findByText(w, 'In nhãn QR')!.trigger('click')
     await flushPromises()
-    const printBtn = findByText(w, 'In tem')
-    expect(printBtn).toBeTruthy()
-    await printBtn!.trigger('click')
+    const doneBtn = w.find('[data-testid="btn-pdf-printed"]')
+    expect(doneBtn.exists()).toBe(true)
+    await doneBtn.trigger('click')
     await flushPromises()
-    expect(window.print).toHaveBeenCalled()
     expect(markPrintedSpy).toHaveBeenCalledTimes(1)
     expect(markPrintedSpy).toHaveBeenCalledWith(['AC-ASSET-2026-00042'])
   })
 
-  // ── B (print fidelity): selector khổ tem trong modal in-1-tem ───────────────
-  it("modal có selector khổ tem (A4 / 50×30 / 70×40); mặc định A4 → KHÔNG ép @page", async () => {
+  it("onafterprint → markLabelPrinted([id]) (đường bổ trợ); KHÔNG double-ghi với 'Đã in xong'", async () => {
     const w = mount(AssetDetailView, { props: { id: 'AC-ASSET-2026-00042' }, global: { stubs } })
     await flushPromises()
     await findByText(w, 'In nhãn QR')!.trigger('click')
     await flushPromises()
-    const sel = w.find('select[aria-label="Chọn khổ tem in nhãn"]')
-    expect(sel.exists()).toBe(true)
-    expect(sel.findAll('option').map(o => o.text())).toEqual(
-      ['A4 nhiều-nhãn', 'Tem 50×30mm', 'Tem 70×40mm'],
-    )
-    // Mặc định A4 → KHÔNG inject @page tem.
-    expect(w.find('[data-testid="label-page-rule"]').exists()).toBe(false)
-  })
-
-  it("modal chọn 'tem-50x30' → @page size '50mm 30mm' + sheet 1-tem; In tem vẫn markLabelPrinted 1 lần", async () => {
-    const w = mount(AssetDetailView, { props: { id: 'AC-ASSET-2026-00042' }, global: { stubs } })
+    // Trigger onafterprint do view truyền vào composable.
+    expect(capturedOnAfterPrint).toBeTruthy()
+    await capturedOnAfterPrint!(['AC-ASSET-2026-00042'])
     await flushPromises()
-    await findByText(w, 'In nhãn QR')!.trigger('click')
-    await flushPromises()
-    const sel = w.find('select[aria-label="Chọn khổ tem in nhãn"]')
-    await sel.setValue('tem-50x30')
-    await flushPromises()
-    const pageRule = w.find('[data-testid="label-page-rule"]')
-    expect(pageRule.exists()).toBe(true)
-    expect(pageRule.text()).toContain('size: 50mm 30mm')
-    expect(w.find('.qr-label-sheet--tem-50x30').exists()).toBe(true)
-    // In tem vẫn ghi event đúng 1 lần sau window.print (regression).
-    await findByText(w, 'In tem')!.trigger('click')
-    await flushPromises()
-    expect(window.print).toHaveBeenCalled()
     expect(markPrintedSpy).toHaveBeenCalledTimes(1)
-    expect(markPrintedSpy).toHaveBeenCalledWith(['AC-ASSET-2026-00042'])
+    // 'Đã in xong' sau đó → KHÔNG double-ghi (idempotent labelMarked).
+    const doneBtn = w.find('[data-testid="btn-pdf-printed"]')
+    await doneBtn.trigger('click')
+    await flushPromises()
+    expect(markPrintedSpy).toHaveBeenCalledTimes(1)
   })
 
-  it("modal chọn 'tem-70x40' → @page size '70mm 40mm'", async () => {
+  it("đóng modal (huỷ) → revoke gọi + KHÔNG ghi audit", async () => {
     const w = mount(AssetDetailView, { props: { id: 'AC-ASSET-2026-00042' }, global: { stubs } })
     await flushPromises()
     await findByText(w, 'In nhãn QR')!.trigger('click')
     await flushPromises()
-    await w.find('select[aria-label="Chọn khổ tem in nhãn"]').setValue('tem-70x40')
+    const closeBtn = w.findAll('button').find(b => b.text().trim() === 'Đóng')
+    expect(closeBtn).toBeTruthy()
+    await closeBtn!.trigger('click')
     await flushPromises()
-    const pageRule = w.find('[data-testid="label-page-rule"]')
-    expect(pageRule.exists()).toBe(true)
-    expect(pageRule.text()).toContain('size: 70mm 40mm')
+    expect(revokeSpy).toHaveBeenCalled()
+    expect(markPrintedSpy).not.toHaveBeenCalled()
+  })
+
+  it("preview modal embed CHÍNH PDF Blob URL (iframe src=previewUrl)", async () => {
+    const w = mount(AssetDetailView, { props: { id: 'AC-ASSET-2026-00042' }, global: { stubs } })
+    await flushPromises()
+    await findByText(w, 'In nhãn QR')!.trigger('click')
+    await flushPromises()
+    const iframe = w.find('[data-testid="pdf-preview-iframe"]')
+    expect(iframe.exists()).toBe(true)
+    expect(iframe.attributes('src')).toBe('blob:mock-pdf')
+  })
+
+  it("KHÔNG dùng window.print legacy cho đường PDF", async () => {
+    const printSpy = vi.spyOn(window, 'print').mockImplementation(() => {})
+    const w = mount(AssetDetailView, { props: { id: 'AC-ASSET-2026-00042' }, global: { stubs } })
+    await flushPromises()
+    await findByText(w, 'In nhãn QR')!.trigger('click')
+    await flushPromises()
+    expect(printSpy).not.toHaveBeenCalled()
   })
 })

@@ -7,6 +7,30 @@ description: Build or extend an AssetCore frontend feature using Vue 3 + TypeScr
 
 You are extending the Vue 3 SPA at `/home/miyano/frappe-bench/apps/assetcore/frontend/`. The app talks to the Frappe backend via the `frappeGet` / `frappePost` helpers and uses a strict 4-layer architecture.
 
+## Overview
+
+Skill này xây/mở rộng FE feature trên Vue 3 + TypeScript + Pinia + Vue Router + TailwindCSS + TanStack Query. Nguyên tắc cốt lõi: **kiến trúc 4-layer nghiêm ngặt** (views → composables/stores → api → axios), **không leak mã hệ thống ra UI** (hiển thị display name, status qua label map), và **mọi tương tác có phản hồi** qua notification pipeline.
+
+## When to Use
+
+- Thêm view / list / detail page / form / modal cho module IMM-XX.
+- Tạo Pinia store, composable, API client, dashboard widget, sidebar/launcher entry, workflow buttons.
+- Wire FE với BE (typed API client mirror BE endpoint), filter table, pagination, autosave form.
+- Bất cứ khi nào đụng thư mục `frontend/` hoặc nói về Vue components.
+- **KHÔNG dùng khi**: chỉ đụng backend / endpoint / DocType / workflow / service (→ `assetcore-be`), chỉ viết/chạy test (→ `assetcore-test`), hoặc còn ở mức ý tưởng chưa chốt module (→ `assetcore-plan` / `assetcore-doc`).
+
+## Process — build/extend FE feature (4-layer, render-verified)
+
+Quy trình từng bước (spine — chi tiết ở mục dưới):
+1. **Mental model 4 layers** — views → composables/stores → api → axios; hard rules + display rules → §Mental model — 4 layers
+2. **File layout + Naming NO-EXCEPTIONS** — `api/immXX.ts`·`stores/immXX.ts` IMM-coded, `views/<domain>/` domain-named → §File layout, §Naming convention — NO EXCEPTIONS
+3. **Templates** — scaffold API client / Store / View / Form (TanStack Query) → §Templates (API client · Store · View · Forms · TanStack Query)
+4. **useApi + Routing + Permissions** — `api.run` toast/loading/field-error; lazy route + `meta.roles`; 3-layer perms → §useApi pattern (memorize this), §Routing, §Permissions — three layers, pick the right one
+5. **Notification pipeline** — success/error qua `useNotify`, 1 toast/modal; KHÔNG `toast.error("literal")` nghiệp vụ → §🔔 Notification pipeline (BẮT BUỘC — mọi tương tác có phản hồi)
+6. **UI quality** — WCAG 2.1 AA + design system (token Tailwind) + component architecture (container↔presentational) → §Engineering principles — UI quality (named, tailor Vue 3 + Tailwind)
+7. **PRE-DONE GREP GATE** — chạy GATE-1..5 + manual GATE-6a/6b/6c/6d trên view vừa sửa; output ≠ 0 → fix → §🛑 PRE-DONE GREP GATE (chạy TRƯỚC khi nói DONE)
+8. **Verification** — RENDER thật trong browser (happy + ≥1 error path), không chỉ vitest/structural → §Verification
+
 ## Mental model — 4 layers
 
 ```
@@ -109,197 +133,15 @@ The codebase uses **two layers with different naming systems**. Mixing them crea
 - `views/` is the "presentation" layer — URL paths are domain-named (`/cm/work-orders`, not `/imm09/work-orders`), so folders match URLs for readability.
 - New modules MUST use domain folder names. If a clean domain noun doesn't exist, propose one in this table before creating the folder.
 
-## API client template
+## Templates (API client · Store · View · Forms · TanStack Query)
 
-```ts
-// src/api/immXX.ts
-import { frappeGet, frappePost } from './helpers'
+> Heavy reference: see [references/fe-templates.md](references/fe-templates.md).
 
-export interface XThing {
-  name: string
-  asset_ref: string
-  status: 'Open' | 'In Progress' | 'Completed'
-  // ...
-}
-
-export interface XListResponse {
-  data: XThing[]
-  pagination: { page: number; page_size: number; total: number; total_pages: number }
-}
-
-// ✅ Return type is Promise<T>, never Promise<ApiResponse<T>>
-// frappeGet/frappePost already unwrap the Frappe envelope — wrapping again
-// causes cascade `as unknown as` casts in stores and views.
-export function listXThings(filters: Record<string, unknown> = {}, page = 1, pageSize = 20)
-  : Promise<XListResponse> {
-  return frappeGet('assetcore.api.immXX.list_x_things', {
-    filters: JSON.stringify(filters), page, page_size: pageSize,
-  })
-}
-
-export function createXThing(payload: Partial<XThing>): Promise<{ name: string }> {
-  return frappePost('assetcore.api.immXX.create_x_thing', payload)
-}
-
-// ✅ Direct return — no redundant `const res = await ...; return res`
-export function getXThing(name: string): Promise<XThing> {
-  return frappeGet('assetcore.api.immXX.get_x_thing', { name })
-}
-```
-
-**Conventions:**
-- Always pass dict/list params as `JSON.stringify(...)` — BE expects strings and parses them.
-- Endpoint path mirrors BE: `assetcore.api.<module>.<function_name>` (snake_case).
-- Status values are unioned string literals — keep them in sync with BE's `XStatus` class.
-- Read endpoints → `frappeGet`. Mutating → `frappePost` (BE must declare `methods=["POST"]`).
-
-## Store template (Pinia setup syntax)
-
-```ts
-// src/stores/immXX.ts
-import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
-import { listXThings, getXThing, createXThing, type XThing } from '@/api/immXX'
-
-export const useImmXXStore = defineStore('immXX', () => {
-  // state
-  const items = ref<XThing[]>([])
-  const current = ref<XThing | null>(null)
-  const loading = ref(false)
-  const error = ref<string | null>(null)
-  const pagination = ref({ page: 1, total: 0, total_pages: 0, page_size: 20 })
-
-  // getters
-  const openItems = computed(() => items.value.filter(i => i.status === 'Open'))
-
-  // actions
-  async function fetchItems(filters = {}, page = 1) {
-    loading.value = true; error.value = null
-    try {
-      const res = await listXThings(filters, page)
-      items.value = res.data
-      pagination.value = res.pagination
-    } catch (e: unknown) {
-      // Never `catch (e: any)` — use unknown + instanceof guard
-      error.value = e instanceof Error ? e.message : String(e)
-    } finally {
-      loading.value = false
-    }
-  }
-
-  return { items, current, loading, error, pagination, openItems, fetchItems }
-})
-```
-
-**Conventions:**
-- Use the Pinia "setup" syntax (function returning refs/computed/actions). Don't use `state/getters/actions` object form — codebase is uniform on setup syntax.
-- Store name is camelCase (`'immXX'`, `'imm09'`). Hook name is `useImmXXStore`.
-- Don't `import { useToast }` inside stores — toasts belong in views via `useApi`. Stores set `error` and let views surface it.
-- Mutating actions should re-fetch the affected record after success so the store stays consistent (`await fetchWorkOrder(name)`).
-
-## View template
-
-```vue
-<!-- src/views/immXX/RepairListView.vue -->
-<script setup lang="ts">
-import { onMounted, reactive } from 'vue'
-import { storeToRefs } from 'pinia'
-import { useRouter } from 'vue-router'
-import { useImmXXStore } from '@/stores/immXX'
-import { useApi } from '@/composables/useApi'
-import { usePermissions } from '@/composables/usePermissions'
-
-const store = useImmXXStore()
-const { items, loading, pagination } = storeToRefs(store)
-const api = useApi()
-const router = useRouter()
-const perms = usePermissions()
-
-const filters = reactive({ status: '', priority: '' })
-
-async function load(page = 1) {
-  await api.run(() => store.fetchItems(filters, page), { silentSuccess: true })
-}
-
-onMounted(() => load())
-</script>
-
-<template>
-  <div class="p-6">
-    <header class="flex items-center justify-between mb-4">
-      <h1 class="text-xl font-semibold">Lệnh sửa chữa</h1>
-      <button v-if="perms.canCreateWO"
-              class="px-3 py-2 rounded bg-emerald-600 text-white"
-              @click="router.push({ name: 'imm09-create' })">
-        Tạo mới
-      </button>
-    </header>
-
-    <!-- filters -->
-    <div class="flex gap-2 mb-4">
-      <select v-model="filters.status" @change="load(1)" class="border rounded px-2 py-1">
-        <option value="">Tất cả trạng thái</option>
-        <option value="Open">Mở</option>
-        <option value="In Progress">Đang xử lý</option>
-      </select>
-    </div>
-
-    <!-- loading state -->
-    <div v-if="loading" class="py-8 text-center text-neutral-400">Đang tải…</div>
-
-    <!-- error state — must always be present alongside loading -->
-    <div v-else-if="error"
-         class="rounded border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700 flex items-center gap-3">
-      <span class="flex-1">{{ error }}</span>
-      <button class="text-sm underline" @click="load()">Thử lại</button>
-    </div>
-
-    <!-- data -->
-    <table v-else class="w-full text-sm">…</table>
-  </div>
-</template>
-```
-
-**Conventions:**
-- `<script setup lang="ts">` — never the Options API.
-- Use `storeToRefs` so destructured store state stays reactive.
-- Wrap user actions in `api.run(...)` — gets toast + loading + field-error free.
-- Tailwind classes inline. Avoid SCSS modules. Brand: `emerald-600` for primary, `neutral-*` for surfaces.
-- All UI strings in Vietnamese (project default). Use `vue-i18n` keys when adding new locales.
-
-## 🔔 Notification pipeline (BẮT BUỘC — mọi tương tác có phản hồi)
-
-> Contract đầy đủ BE↔FE: [`../assetcore-be/references/notification-contract.md`](../assetcore-be/references/notification-contract.md).
-> Quy tắc: success/error đều qua `useNotify` → 1 toast/modal duy nhất. KHÔNG `toast.error("literal")` cho nghiệp vụ, KHÔNG để action thành công mà user không nhận phản hồi.
-
-**Store** (`stores/immXX.ts`) — giữ ApiError đã hydrate:
-```ts
-import { ApiError, toApiError } from '@/api/errors'
-const lastApiError = ref<ApiError | null>(null)
-function _captureError(e: unknown): void {
-  const err = toApiError(e); lastApiError.value = err; error.value = err.message
-}
-async function submit(id: string) {
-  try { return await apiSubmit(id) }
-  catch (e: unknown) { _captureError(e); return null }   // mọi action: catch → _captureError → null
-}
-return { /* ... */ lastApiError, _captureError, submit }
-```
-
-**View** (`views/.../XDetailView.vue`):
-```ts
-import { useNotify } from '@/composables/useNotify'
-import { MSG } from '@/i18n/messages'
-const notify = useNotify()
-
-const ok = await store.submit(props.id)
-if (ok) notify.show({ code: MSG.IMM11_SUBMIT_SUCCESS, ctx: { name: props.id } })
-else    notify.fromError(store.lastApiError)
-```
-- Success → `notify.show({ code: MSG.*, ctx })` (CRUD generic: `MSG.UI_SAVE_SUCCESS` + `ctx.entity`).
-- Fail → `notify.fromError(store.lastApiError)` — render title + action_hint + severity từ registry; `critical` → modal.
-- FE-only pre-check (vd thiếu file) → cũng `notify.show({ code: MSG.* })`, KHÔNG `toast.warning("literal")`.
-- Thêm mã mới? BE sửa `messages.py` + chạy `scripts/gen_fe_messages.py` để regen `i18n/messages.ts`. FE KHÔNG tự sửa `messages.ts`.
+Copy-paste scaffolds for `api/immXX.ts`, `stores/immXX.ts`, the List/Detail view, `useFormDraft` autosave, and Vue Query. Key reminders that live here too:
+- API function return type is `Promise<T>`, never `Promise<ApiResponse<T>>` — `frappeGet`/`frappePost` already unwrap.
+- Pass dict/list params as `JSON.stringify(...)`; endpoint path mirrors BE `assetcore.api.<module>.<fn>`.
+- Pinia "setup" syntax only; store sets `error`, views surface it (no `useToast` inside stores).
+- Reserve Pinia for client-owned state; use Vue Query for server-owned read-heavy lists.
 
 ## useApi pattern (memorize this)
 
@@ -386,25 +228,45 @@ The directive removes the element from the DOM if the user lacks the role — it
 
 **Note on the `usePermissions` composable:** an older composable at `composables/usePermissions.ts` exposes a thinner subset (`isAdmin`, `isQA`, `canApproveRelease`). New code should prefer `useAuthStore()` directly — it has more accurate IMM role helpers and stays in sync with the role constants. The composable is kept for the few legacy components still using it.
 
-## TanStack Query (for read-heavy lists)
+## 🔔 Notification pipeline (BẮT BUỘC — mọi tương tác có phản hồi)
 
-Vue Query is configured globally in `src/main.ts` with `staleTime: 5min` and `gcTime: 10min` — use those defaults unless you have a reason to override. When a list is queried from many places and benefits from background refresh / stale-while-revalidate, prefer Vue Query over a Pinia action:
+> Contract đầy đủ BE↔FE: [`../assetcore-be/references/notification-contract.md`](../assetcore-be/references/notification-contract.md).
+> Quy tắc: success/error đều qua `useNotify` → 1 toast/modal duy nhất. KHÔNG `toast.error("literal")` cho nghiệp vụ, KHÔNG để action thành công mà user không nhận phản hồi.
 
+**Store** (`stores/immXX.ts`) — giữ ApiError đã hydrate:
 ```ts
-import { useQuery } from '@tanstack/vue-query'
-
-const { data, isLoading, refetch } = useQuery({
-  queryKey: ['imm09', 'list', filters],
-  queryFn: () => listXThings(unref(filters)),
-  // staleTime: 30_000,  // override only if needed
-})
+import { ApiError, toApiError } from '@/api/errors'
+const lastApiError = ref<ApiError | null>(null)
+function _captureError(e: unknown): void {
+  const err = toApiError(e); lastApiError.value = err; error.value = err.message
+}
+async function submit(id: string) {
+  try { return await apiSubmit(id) }
+  catch (e: unknown) { _captureError(e); return null }   // mọi action: catch → _captureError → null
+}
+return { /* ... */ lastApiError, _captureError, submit }
 ```
 
-Reserve Pinia for client-owned state (auth, current selection, draft form). Use Vue Query for server-owned state. Auth store uses `pinia-plugin-persistedstate` to keep the user across reloads — your modules typically don't need persistence.
+**View** (`views/.../XDetailView.vue`):
+```ts
+import { useNotify } from '@/composables/useNotify'
+import { MSG } from '@/i18n/messages'
+const notify = useNotify()
 
-## Forms with autosave
+const ok = await store.submit(props.id)
+if (ok) notify.show({ code: MSG.IMM11_SUBMIT_SUCCESS, ctx: { name: props.id } })
+else    notify.fromError(store.lastApiError)
+```
+- Success → `notify.show({ code: MSG.*, ctx })` (CRUD generic: `MSG.UI_SAVE_SUCCESS` + `ctx.entity`).
+- Fail → `notify.fromError(store.lastApiError)` — render title + action_hint + severity từ registry; `critical` → modal.
+- FE-only pre-check (vd thiếu file) → cũng `notify.show({ code: MSG.* })`, KHÔNG `toast.warning("literal")`.
+- Thêm mã mới? BE sửa `messages.py` + chạy `scripts/gen_fe_messages.py` để regen `i18n/messages.ts`. FE KHÔNG tự sửa `messages.ts`.
 
-Use `useFormDraft` for any multi-step or long form (saves to localStorage). See `src/composables/useFormDraft.ts`.
+## Build sequence & UI Completeness
+
+> Heavy reference: see [references/fe-build-sequence.md](references/fe-build-sequence.md).
+
+The exact file-path build order for a new IMM module on FE (verify BE endpoint names FIRST — BLOCKING), the full **List page / Detail page checklists**, the **UI Completeness Rules**, the canonical **Workflow button pattern**, and the API-function naming convention all live there. Read it before scaffolding a module and before claiming Done.
 
 ## Common pitfalls
 
@@ -430,7 +292,7 @@ Use `useFormDraft` for any multi-step or long form (saves to localStorage). See 
 
 ## 🛑 PRE-DONE GREP GATE (chạy TRƯỚC khi nói DONE)
 
-5 phiên test 2026-05-15..26 leak lại cùng pattern dù LL-FE-3/6/13 đã có. Bắt buộc chạy 3 grep gate dưới đây trên view/component bạn vừa sửa. **Output ≠ 0 → fix, không skip.**
+5 phiên test 2026-05-15..26 leak lại cùng pattern dù LL-FE-3/6/13 đã có. Bắt buộc chạy các grep gate dưới đây (GATE-1..5 + manual GATE-6a/6b) trên view/component bạn vừa sửa. **Output ≠ 0 → fix, không skip.**
 
 ```bash
 cd /home/miyano/frappe-bench/apps/assetcore
@@ -449,13 +311,26 @@ grep -rnE "row\.(asset|model|vendor|warehouse|department|technician|assigned_to|
 # GATE-3: Hardcoded English status strings trong code (không phải template)
 grep -rnE "['\"](Locked|Evaluated|Contract Signed|Scheduled|Weekly|Minor|Open|In Progress)['\"]" \
   frontend/src/views/<your-domain>/ | grep -v "STATUS_LABEL\|// "
+
+# GATE-4: Raw frappe.client.* call leak (→ LL-FE-40). Output PHẢI = 0.
+# Mọi lookup phải qua endpoint AssetCore whitelisted permission-aware — KHÔNG frappe.client.get_value/get_list/get.
+grep -rnE "frappe\.client\.(get_value|get_list|get)" frontend/src/{views,composables,stores}
+
+# GATE-5: Promise.all ref-prefetch (→ LL-FE-45). Review MỖI match.
+# prefetch ref/lookup PHỤ phải đổi Promise.allSettled (giữ Promise.all chỉ khi mọi nhánh bắt buộc thành công).
+# Mục tiêu: 1×403 KHÔNG blank cả trang.
+grep -rn 'Promise.all(' frontend/src/{stores,composables}
 ```
 
-Kèm 2 manual check không tự động được:
+**GATE-1/GATE-2 scope (BẮT BUỘC mở rộng — KHÔNG chỉ ListView):** chạy GATE-1 (EN-enum) + GATE-2 (raw-code) thêm trên **DetailView + dashboard card** (`{{ ...status }}` trong `KpiCard`/donut), không chỉ ListView. Bug Wave2 IMM-12-A (dashboard cards 'Open'/'In Progress') + IMM-11-B (Cal detail 'Scheduled' dù list đã 'Đã lên lịch') lọt vì detail+card quên áp map dù list đúng. Bồi thêm key thiếu vào audit-list LL-FE-30: `Under Maintenance`→'Đang bảo trì', `Scheduled`→'Đã lên lịch', `Locked`, `Evaluated`, `Contract Signed`, `Weekly`, `Minor`.
+
+Kèm 4 manual check không tự động được:
 - DetailView có **TRANSITIONS_BY_STATE đầy đủ initial state** (Draft/Open/Planned)? Count entries trong map phải = số state non-terminal trong workflow JSON.
 - ListView có **ít nhất 1 action button** (Tạo / Import / Navigate)? Empty state actionable?
-
-Reference: §0 + §13–§24 trong [CONVENTIONS.md](../CONVENTIONS.md).
+- **GATE-6a — qr-scan prefill parity** (→ LL-FE-43): mỗi create-view có qr-scan prefill (`?asset=<id>&source=qr-scan`) chạy parity test 4 view (PM/Incident/CM/Cal) → locked SmartSelect text == asset code (KHÔNG rỗng).
+- **GATE-6b — form 0-state** (→ LL-FE-44): mỗi form có required-dropdown dựa list endpoint chạy test-case `total:0` → có banner + ≥1 lối thoát actionable, KHÔNG chỉ disabled.
+- **GATE-6c — control mới (dropdown/toggle/radio)** (→ LL-FE-47): test **param phát đi (body/query/store) == UI-selection** (chọn option B → spy nhận B), chống dead-control — KHÔNG để giá trị hardcode ở call-site, KHÔNG chỉ assert "render đủ N option".
+- **GATE-6d — output in/khổ cố định** (→ LL-FE-48): verify bằng RENDER ẢNH thật (pdftoppm/screenshot → đọc bằng mắt), KHÔNG chỉ DOM-assert text-trong-DOM (`overflow:hidden` cắt chữ âm thầm mà DOM-test vẫn PASS).
 
 ## Critical anti-patterns (từ bugs thực tế — KHÔNG lặp lại)
 
@@ -481,6 +356,56 @@ FE `constants/roles.ts` có thể thiếu roles mới thêm vào BE (`PLANNING`,
 ### 🚫 Lỗi #4: Store thiếu nhưng view vẫn chạy (silent undefined)
 Một số modules chỉ có API client mà không có dedicated Pinia store — views dùng composable inline hoặc `useMasterDataStore`. **Check trước**: nếu module có ≥3 views hoặc shared state giữa views, cần store riêng. Nếu không, document rõ "module X dùng `useMasterDataStore`".
 
+## Common Rationalizations
+
+| Lý do hay viện để skip | Sự thật |
+|---|---|
+| "API trả gì cũng được, cast `as unknown as T` cho nhanh" | Sai return type (`Promise<ApiResponse<T>>`) là root-cause #1 của cascade cast. Type `Promise<T>` ngay ở API layer — `frappeGet`/`frappePost` đã unwrap. |
+| "Đặt tên endpoint FE theo trí nhớ, BE chắc cũng vậy" | FE gọi `list_programs` còn BE expose `list_training_programs` = 100% call 404 (Lỗi #2). Grep `@frappe.whitelist` verify TRƯỚC khi build. |
+| "Roles mới chắc đã có trong roles.ts rồi" | BE thêm role mà FE chưa mirror → permission denial âm thầm / route không vào được (Lỗi #3, LL-FE-22). Sync `constants.py::Roles` → `roles.ts`. |
+| "Module này dùng chung store cũng được, khỏi tạo store riêng" | ≥3 views / shared state mà không có store riêng = silent undefined (Lỗi #4). Tạo store hoặc document rõ dùng `useMasterDataStore`. |
+| "Cell hiện `WO-RP-...`/email cũng đọc được mà" | Leak mã hệ thống ra UI; hiển thị `asset_name`/`full_name`. Thiếu `_name` companion → **fix BE** thêm field, KHÔNG fallback `x_name || x` lâu dài. |
+| "`{{ row.status }}` raw cho nhanh, sửa sau" | English-enum leak (GATE-1). Mọi status/frequency/severity qua label map; áp cả DetailView + dashboard card, không chỉ ListView. |
+| "Lookup nhanh bằng `frappe.client.get_value`" | Bypass permission-aware endpoint (GATE-4 / LL-FE-40) — output PHẢI = 0. Dùng endpoint AssetCore whitelisted. |
+| "Render structural/vitest xanh là UI xong" | UI "xong" = RENDER THẬT chứng minh (LL-FE-46); `overflow:hidden` cắt chữ mà DOM-test vẫn PASS (GATE-6d/LL-FE-48). Verify bằng ảnh thật. |
+| "Toast `error('literal')` cho lỗi nghiệp vụ là đủ" | Vi phạm notification contract — success/error đều qua `useNotify`. KHÔNG để action thành công mà user không nhận phản hồi. |
+| "Icon button khỏi `aria-label`, ai cũng hiểu cái bút là Sửa" | Vi phạm **WCAG 2.1 AA** — screen-reader đọc rỗng; icon-only PHẢI có `aria-label`. Status chỉ-bằng-màu cũng fail (mù màu) → `StatusBadge` luôn kèm label chữ. |
+| "Dựng hết view + mọi nút trước cho nhanh, wire BE sau" | Trái **thin vertical slice** (`incremental-implementation`): 1 api→store→1 view chạy thật rồi mới mở rộng. Build-hết-trước = lỗi dồn, không biết lát nào sai. |
+
+## Red Flags — STOP
+
+- API function typed `Promise<ApiResponse<T>>` (phải `Promise<T>`); param typed `object` (phải `Record<string, unknown>`).
+- `catch (e: any)` trong store (phải `catch (e: unknown)` + `instanceof Error` guard).
+- Store re-export `api` namespace trong return object (leak transport layer ra views).
+- View gọi axios trực tiếp / `store.api.xxx()` — vi phạm 4-layer.
+- `{{ row.status }}` / status / severity / frequency raw không qua label map (GATE-1).
+- Cell hiển thị `name` (mã `WO-RP-*`/`SUP-*`/`ACC-ASS-*`) hoặc email thay vì `_name`/`full_name` (GATE-2).
+- `frappe.client.get_value|get_list|get` ở FE (GATE-4 / LL-FE-40) — output phải = 0.
+- View thiếu tri-branch `v-if="loading"` / `v-else-if="error"` / `v-else` → lỗi bị nuốt, user thấy empty.
+- `TRANSITIONS_BY_STATE` thiếu state có outgoing transition (kể cả Draft/Open/Planned) → user kẹt.
+- List page không có action button; Detail page read-only hoàn toàn dù chưa Closed/Cancelled.
+- `Promise.all` cho prefetch ref/lookup PHỤ (1×403 blank cả trang — phải `Promise.allSettled`, GATE-5/LL-FE-45).
+- Workflow action label / status key FE không khớp EXACT BE (tiếng Việt có dấu) → 422.
+- Tuyên bố "xong" chỉ dựa vitest/structural mà không RENDER ẢNH thật (LL-FE-46/48).
+- Icon-only button thiếu `aria-label`; `focus:outline-none` không kèm focus ring; status chỉ phân biệt bằng màu (vi phạm **WCAG 2.1 AA** — xem Engineering principles).
+- Hex thô / `style="padding:13px"` / đổi primary sang indigo-purple thay vì token Tailwind (`emerald-600`/`neutral-*`) — phá **design system**.
+
+## Verification
+
+Trước khi khai báo FE "xong" — phải có BẰNG CHỨNG (không "có vẻ đúng"). Checklist đầy đủ List/Detail page ở [references/fe-build-sequence.md](references/fe-build-sequence.md):
+- [ ] `cd frontend && npm run typecheck && npm run lint` xanh (`vue-tsc --noEmit`) — paste output.
+- [ ] PRE-DONE GREP GATE-1..5 chạy trên view/component vừa sửa, mọi output đã xử lý (GATE-4 = 0).
+- [ ] GATE-1/GATE-2 chạy thêm trên **DetailView + dashboard card**, không chỉ ListView.
+- [ ] Manual GATE-6a (qr-scan prefill parity) / 6b (form 0-state) / 6c (control không dead) / 6d (render ảnh thật khổ cố định) đã chạy.
+- [ ] List page: có nút "Tạo mới", row click → detail đúng URL, filter cập nhật table, pagination, empty-state CTA, loading + error banner.
+- [ ] Detail page: đủ fields, workflow buttons đúng state, nút "Quay lại" + "Sửa", tabs (KPI/Audit) có data thật (không 0/empty giả).
+- [ ] `TRANSITIONS_BY_STATE` count = số state non-terminal trong workflow JSON (đếm từ JSON, không đoán).
+- [ ] Mỗi `frappeGet/frappePost` đối chiếu khớp tên function trong `assetcore/api/immXX.py`; roles mới đã sync vào `constants/roles.ts`.
+- [ ] success/error đều qua `useNotify` (notification pipeline) — không `toast.error("literal")` nghiệp vụ.
+- [ ] **WCAG 2.1 AA**: Tab qua được mọi action; icon button có `aria-label`; focus ring nhìn thấy; status có label chữ (không chỉ màu); empty/loading/error tri-branch (xem Engineering principles).
+- [ ] UI verify bằng RENDER THẬT trong browser (happy path + ≥1 BE error path), không chỉ vitest/structural (LL-FE-46).
+- [ ] Đã đọc `references/lessons-learned.md` (LL-FE-*) trước khi viết — không tái phạm.
+
 ## Where to look for live examples
 
 - `src/api/imm09.ts`, `src/stores/imm09.ts`, `src/views/cm/` — full IMM-09 vertical (Corrective Maintenance)
@@ -498,130 +423,15 @@ Một số modules chỉ có API client mà không có dedicated Pinia store —
 - `src/stores/auth.ts` — auth + role helpers (canCreate, canApprove, etc.)
 - `src/main.ts` — app bootstrap (Pinia + persisted state, Vue Query defaults, i18n, error handlers)
 
-## UI Completeness — bắt buộc trước khi khai báo Done
-
-Mọi module page phải đáp ứng checklist này. **Thiếu một mục = module chưa xong.**
-
-### List page checklist
-- [ ] Có nút **"Tạo mới"** (hoặc "Tạo kế hoạch", "Tạo WO", tùy ngữ cảnh) — click → vào form tạo hoặc modal
-- [ ] Click row → navigate đúng detail URL (`:id` hoặc `:name` match route param)
-- [ ] Filter → table cập nhật (không chỉ hiển thị danh sách tĩnh)
-- [ ] Pagination hoạt động nếu có nhiều records
-- [ ] Empty state có CTA rõ ràng, không chỉ "Không có dữ liệu"
-- [ ] Loading skeleton hoặc spinner khi đang fetch
-- [ ] Error banner + retry button khi API lỗi
-
-### Detail page checklist
-- [ ] Hiển thị đủ fields — không section nào toàn "—" nếu data tồn tại
-- [ ] Workflow action buttons đúng theo state:
-  - Draft/Pending: nút chuyển sang state tiếp theo
-  - Final state (Closed/Cancelled/Expired): không có nút transition, chỉ read-only
-  - Button disabled + tooltip nếu precondition chưa đủ (không âm thầm ẩn)
-- [ ] Nút **"← Quay lại"** về list page
-- [ ] Nút **"Chỉnh sửa"** nếu record có thể edit ở trạng thái hiện tại
-- [ ] Tabs có dữ liệu (KPI, Audit trail, Timeline) — không empty state giả vì thiếu seed data
-- [ ] **Stats tabs (KPI, Uptime, MTBF, Khấu hao)**: phải có work order data + lifecycle events trước khi claim pass. Số liệu luôn 0 dù có WO = bug.
-
-### Lỗi phổ biến cần kiểm tra ngay
-| Symptom | Root cause | Fix |
-|---|---|---|
-| List page không có "Tạo mới" | Button bị quên hoặc wrapped trong permission guard sai | Thêm button; check `v-if` / `v-permission` |
-| Click row vào detail → 404 | Route param `id` nhưng link dùng `record.name` (đúng, cần verify naming) hoặc ngược lại | Kiểm tra router `:id` vs link `:to` pattern |
-| Tab "KPI"/"Audit" empty dù đã click | Data chưa được seed (work orders, lifecycle events) | Seed data trước khi test, không khai báo tab pass khi chưa có data |
-| Workflow button không hiện | State constant FE ≠ BE (vd FE check `=== 'draft'` nhưng BE trả `'Draft'`) | Grep BE service `_STATUS_*` constants và sync FE |
-| Stats luôn = 0 | API endpoint không aggregate đúng, hoặc FE không gọi đúng API | Kiểm tra BE service function tính KPI có join đúng table không |
-
-## Build sequence for a new IMM module on FE (exact file paths)
-
-**Tạo các files theo thứ tự này:**
-```
-frontend/src/api/immXX.ts          ← 1. API client
-frontend/src/stores/immXX.ts       ← 2. Pinia store
-frontend/src/views/<domain>/       ← 3. View folder (domain-named, không phải immXX/)
-    ListView.vue
-    DetailView.vue
-    components/
-```
-
-1. **Verify BE endpoint names trước tiên** (BLOCKING — không skip):
-   ```bash
-   grep "@frappe.whitelist" -A1 assetcore/api/immXX.py | grep "def " | awk '{print $2}' | cut -d'(' -f1
-   ```
-   Đây là danh sách path FE phải gọi (`assetcore.api.immXX.<name>`). Đối chiếu với `docs/imm-XX/05_API_Specification.md`. Nếu BE và spec lệch → fix BE trước.
-
-1b. **Verify role constants**: Check `assetcore/services/shared/constants.py::Roles` xem có role mới nào. Sync vào `frontend/src/constants/roles.ts` nếu chưa có.
-2. Define TypeScript interfaces in `src/api/<module>.ts` mirroring BE response shape (status union, datetime as `string | null`).
-3. Implement endpoint functions using `frappeGet`/`frappePost` (path = `assetcore.api.<module>.<fn>`).
-4. Build Pinia store with state + actions. Re-fetch after every mutation so cache stays consistent.
-5. Build views: list → detail → form. Each wraps actions in `api.run(...)`. Reuse `BaseModal`, `BasePagination`, `StatusBadge`, `ListFilterBar`, `LinkSearch` from `components/common/` instead of rebuilding.
-6. Add routes to the matching numbered section in `src/router/index.ts`. Use `meta.roles = ROLES_X_MANAGE` from `@/constants/roles`. Lazy-import every view.
-7. Add nav entries via `composables/useSidebar.ts`.
-8. Add role constants/groups to `@/constants/roles.ts` if BE introduced new ones — keep BE/FE in sync.
-9. `cd frontend && npm run typecheck && npm run lint` before claiming done (`vue-tsc --noEmit` catches most regressions).
-9b. **Verify endpoint connectivity**: Với mỗi `frappeGet/frappePost` trong `api/immXX.ts`, grep tên function trong `assetcore/api/immXX.py` để confirm khớp. Không để API mismatch lọt vào PR.
-10. `npm run dev` (with `bench start` running for `/api/method` proxy) and exercise happy path + at least one BE error path in the browser.
-
----
-
-## UI Completeness Rules (bắt buộc)
-
-Mọi module FE PHẢI có đủ:
-
-### List page
-- **Create button**: nút "Tạo [entity]" hoặc "+ Thêm mới" ở PageHeader `#actions` slot → navigate đến create form
-- **Row clickable**: `@click="router.push('/path/' + row.name)"` → detail page
-- **Empty state CTA**: nút "Tạo [entity] đầu tiên" khi list rỗng
-
-### Detail page
-- **Back button**: nút ← quay lại list
-- **Workflow action buttons**: computed `canXxx` based trên `status` + `allowed_transitions`; nút hiện đúng state
-  - Pattern: `v-if="canApprove"` → gọi action → reload data → toast
-  - Không để page ở trạng thái "read-only hoàn toàn" trừ khi document đã Closed/Cancelled
-- **Edit functionality**: nếu Draft → có inline edit hoặc nút "Sửa"
-- **Tabs có data**: KPI tab phải hiện số liệu thực (uptime, MTBF, MTTR từ API); Audit Trail tab fetch và hiện events; không hard-code empty state
-
-### Workflow button pattern chuẩn
-
-```vue
-<div class="flex gap-2 mt-4">
-  <button v-if="canApprove" class="btn-primary" @click="doApprove">
-    Phê duyệt
-  </button>
-  <button v-if="canActivate" class="btn-primary" @click="doActivate">
-    Kích hoạt
-  </button>
-  <button v-if="canClose" class="btn-outline" @click="doClose">
-    Đóng
-  </button>
-</div>
-
-<script setup>
-const canApprove = computed(() => form.value.workflow_state === 'Draft')
-const canActivate = computed(() => form.value.workflow_state === 'Approved')
-const canClose = computed(() => form.value.workflow_state === 'Active')
-
-async function doApprove() {
-  await api.run(() => approvePlan(form.value.name))
-  await loadData()
-}
-</script>
-```
-
-### API function naming convention
-- `create[Entity]` — POST tạo mới
-- `approve[Entity]` / `activate[Entity]` / `close[Entity]` — workflow transitions
-- `set[Field]` — update single field
-- `remove[Child]From[Parent]` — xóa child row
-
----
+> Reusable component patterns (modal, confirm dialog, status badge, pagination, table, responsive mobile-first, loading+error tri-branch, form field with inline error): see [references/component-patterns.md](references/component-patterns.md).
 
 ## Cross-skill conventions
 
-Read [`/.claude/skills/CONVENTIONS.md`](../CONVENTIONS.md) for project-wide rules. Especially relevant to this skill:
+Project-wide rules especially relevant to this skill:
 
-- §3. Error Handling — FE error codes mirror BE `ErrorCode` enum; sync via `frontend/src/api/errors.ts`
-- §8. Vietnamese vs English — labels VN, code EN
-- §9. Wave-aware — IMM-09 is the BE reference; mirror its FE patterns
+- Error Handling — FE error codes mirror BE `ErrorCode` enum; sync via `frontend/src/api/errors.ts`
+- Vietnamese vs English — labels VN, code EN
+- Wave-aware — IMM-09 is the BE reference; mirror its FE patterns
 
 ### Module-specific gotchas
 - `useWorkflow` composable is the canonical workflow-aware form pattern
@@ -642,7 +452,49 @@ Read [`/.claude/skills/CONVENTIONS.md`](../CONVENTIONS.md) for project-wide rule
 
 ---
 
-## 🔗 Session context — bàn giao phiên (assetcore-session)
+## Engineering principles — UI quality (named, tailor Vue 3 + Tailwind)
+
+> Absorb 2 principle generic vào FE AssetCore. Hiệu năng FE (lazy route, TanStack cache,
+> virtual list, **Core Web Vitals**) là principle riêng → thuộc skill **assetcore-perf**,
+> KHÔNG lặp ở đây — khi đụng LCP/INP/bundle/virtual-list, dùng `assetcore-perf`.
+
+### `frontend-ui-engineering` (production-quality UI)
+
+Mọi view/list/detail/form AssetCore phải đạt 3 trục — không phải "AI look":
+
+**1. WCAG 2.1 AA accessibility** (bắt buộc mỗi component tương tác):
+- **Keyboard nav**: action click được phải Tab tới + Enter/Space được. Dùng `<button>`/`<a>` thật, KHÔNG `<div @click>` (mất focus). Modal (`BaseModal`) phải trap focus + Esc đóng + trả focus về trigger.
+- **Focus ring**: KHÔNG `focus:outline-none` trần — luôn kèm `focus-visible:ring-2 focus-visible:ring-emerald-500`.
+- **aria-label cho icon button**: nút chỉ có icon (sửa/xoá/QR/đóng) phải `aria-label="Sửa work order"` (KHÔNG để screen-reader đọc rỗng).
+- **Contrast ≥ 4.5:1** text thường (3:1 text lớn); status KHÔNG chỉ bằng màu — `StatusBadge` phải có **label chữ** kèm màu (mù màu vẫn đọc được).
+- **Empty / loading / error state**: tri-branch `v-if="loading"` (SkeletonLoader) / `v-else-if="error"` (banner + retry) / `v-else` (data hoặc empty-state có CTA). Trùng GATE tri-branch — đây là lý do AA của nó.
+
+```vue
+<!-- ✅ icon button có aria-label + focus ring -->
+<button :aria-label="`Sửa ${row.asset_name}`"
+        class="focus-visible:ring-2 focus-visible:ring-emerald-500 rounded p-1.5"
+        @click="edit(row)"><PencilIcon class="h-4 w-4" /></button>
+```
+
+**2. Design system** (token Tailwind nhất quán, không tự chế giá trị):
+- Màu **semantic qua config**: `emerald-600` primary, `neutral-*` surface (xem `tailwind.config.js`) — KHÔNG hex thô, KHÔNG đổi sang indigo/purple "cho đẹp" (AI default).
+- Spacing trên scale Tailwind (`p-3 gap-2`), KHÔNG `style="padding:13px"`. Border-radius nhất quán (đừng `rounded-2xl` mọi nơi).
+- Component nhất quán: tái dùng `StatusBadge`/`BaseModal`/`BasePagination`/`PageHeader`/`ListFilterBar` từ `components/common/` thay vì dựng lại (trùng "Where to look").
+
+**3. Component architecture** (tách container ↔ presentational, props rõ, 1 mục đích):
+- **Container** = ListView/DetailView: gọi store/composable, giữ loading/error, KHÔNG nhồi markup row phức tạp.
+- **Presentational** = card/row/badge trong `components/<domain>/`: nhận `props` typed (KHÔNG `any`), `emit` event ra ngoài, KHÔNG tự fetch — "dumb", tái dùng được.
+- 1 component = 1 mục đích; > ~200 dòng → tách. Ưu tiên composition (`<PageHeader><slot/>`) hơn 1 component nuốt 15 prop config.
+
+```vue
+<!-- Container giữ data, Presentational chỉ render -->
+<WorkOrderTable :rows="store.items" :loading="store.loading"
+                @row-click="goDetail" @edit="edit" />
+```
+
+### `incremental-implementation` (thin vertical slice)
+
+Build FE module theo **lát dọc mỏng**: `api/immXX.ts` (1 endpoint) → `stores/immXX.ts` (1 action) → 1 view (vd ListView) → chạy/verify → mới sang lát kế (DetailView, form). KHÔNG dựng toàn bộ UI (mọi view + mọi nút) rồi mới wire BE — mỗi lát phải chạy thật end-to-end trước khi mở rộng (trùng tinh thần Build sequence).
 
 - **Trước khi xử lý/sửa BẤT KỲ việc gì:** chạy `.claude/scripts/session-log.sh show` (đọc STATE + file phiên mới nhất (curated; cần truy gốc chi tiết → đọc mục 🪞 Mirror của file phiên) — "đang dở ở đâu"; dữ liệu trong `.claude/contexts/` — gitignored; file phiên ở `sessions/<ngày>/`). Main session: hook tự nạp mỗi prompt + tự **mirror TOÀN BỘ lượt** (prompt+phản hồi+tool) vào file phiên qua hook `Stop`; subagent phải TỰ chạy lệnh này.
 - **Sau MỖI việc đáng kể (đụng file/quyết định):** invoke **`assetcore-session`** checkpoint NGAY: `STATE.md`(ghi đè) + bồi **semantic** vào file phiên (`session-log.sh current` → path; **KHÔNG còn LOG.md**). Hook `Stop` đã mirror nguyên văn → bạn CHỈ cần tóm Làm/Quyết-định/Để-lại. KHÔNG đợi cuối phiên (ngắt giữa chừng = mất).

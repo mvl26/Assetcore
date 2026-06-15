@@ -172,10 +172,14 @@ _REF_DATA_CONFIG: dict[str, dict] = {
         "export_labels": {
             "name": _LABEL_SYSTEM_CODE,
             "asset_name": "Tên tài sản",
-            "asset_code": "Mã tài sản (nội bộ)",
+            # ADR-IMM00-ASSETCODE D4: nhãn chuẩn = "Mã tài sản" (PK định danh,
+            # để trống = tự sinh). KHÔNG đổi key field — chỉ nhãn VI hiển thị.
+            "asset_code": "Mã tài sản",
             "asset_category": "Danh mục tài sản",
             "device_model": "Model thiết bị",
-            "manufacturer_sn": "Số serial (NSX)",
+            # ADR-IMM00-ASSETCODE D4: nhãn chuẩn = "Số serial NSX" (field nghiệp
+            # vụ riêng, KHÁC Mã tài sản). Khớp AssetCreateView/AssetEditView.
+            "manufacturer_sn": "Số serial NSX",
             "udi_code": "Mã UDI",
             "byt_reg_no": "Số ĐKLH Bộ Y tế",
             "byt_reg_expiry": "Hết hạn ĐKLH",

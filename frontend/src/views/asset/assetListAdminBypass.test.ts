@@ -92,10 +92,18 @@ describe('AssetListView — admin-bypass batch-print (B parity, chuỗi thật)'
     expect(w.find('input[type="checkbox"]').exists()).toBe(false)
   })
 
-  it('non-admin có asset.write → nút In hàng loạt HIỆN (regression thuần-cap)', async () => {
-    seedAuth(['Data Manager'], { 'asset.write': true })
+  it('D6 — non-admin có asset.print → nút In hàng loạt HIỆN (regression thuần-cap)', async () => {
+    seedAuth(['Data Manager'], { 'asset.print': true })
     const w = mount(AssetListView, { global: { stubs } })
     await flushPromises()
     expect(batchBtn(w)).toBeTruthy()
+  })
+
+  it('D6 — non-admin chỉ asset.write (KHÔNG print, KHÔNG admin) → nút In hàng loạt ẨN', async () => {
+    // Gate đổi write→print: user có write nhưng KHÔNG print → KHÔNG in được.
+    seedAuth(['Data Manager'], { 'asset.write': true })
+    const w = mount(AssetListView, { global: { stubs } })
+    await flushPromises()
+    expect(batchBtn(w)).toBeFalsy()
   })
 })

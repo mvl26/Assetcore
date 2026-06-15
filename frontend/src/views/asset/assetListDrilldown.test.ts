@@ -30,11 +30,11 @@ vi.mock('@/stores/imm00', () => ({
 vi.mock('@/composables/useImportWizard', () => ({
   useImportWizard: () => ({ open: vi.fn(), doExport: vi.fn() }),
 }))
-// B (siết RBAC): AssetListView dùng useCapabilities (gate nút in nhãn = asset.write).
-// Test drilldown không quan tâm gate in → giả lập user CÓ asset.write.
+// D6 (ADR-IMM00-QR-SCAN-ACTION, phương án B): AssetListView gate nút in nhãn =
+// asset.print. Test drilldown không quan tâm gate in → giả lập user CÓ asset.print.
 vi.mock('@/composables/useCapabilities', () => ({
   useCapabilities: () => ({ can: (c: string | readonly string[]) =>
-    Array.isArray(c) ? c.includes('asset.write') : c === 'asset.write' }),
+    Array.isArray(c) ? c.includes('asset.print') : c === 'asset.print' }),
 }))
 
 import AssetListView from './AssetListView.vue'

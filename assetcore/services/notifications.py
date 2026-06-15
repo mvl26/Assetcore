@@ -409,6 +409,109 @@ def _dispatch(users: list[str], subject: str, message: str, doc) -> None:
                 recipients=[user], subject=subject, message=email_html, **ref_kwargs
             )
 
+    # Kênh 3 — Push FCM (EPIC-D / D6). 1 điểm fan-out phủ cả 7 event — KHÔNG sửa
+    # call-site. Fail-safe BẮT BUỘC: try/except bọc TOÀN BỘ push (pattern
+    # _safe_sendmail) — FCM lỗi/raise/creds-thiếu KHÔNG vỡ kênh 1 in-app + kênh 2
+    # email (bất biến §1.3). Tái dùng `users` (đã dedupe :377) + document_type/name.
+    _dispatch_push(users, subject, message, document_type, document_name, doc)
+
+
+# ─── Kênh 3 — Push FCM (EPIC-D / D6) ─────────────────────────────────────────────
+
+
+def _push_event_route(doc) -> tuple[str, str, str]:
+    """Suy ra (event, deeplink, priority) từ `doc.doctype` — §5.5 (BA chốt D6).
+
+    Chữ-ký `_dispatch` CHỈ thấy `doc` (KHÔNG thấy mã E#); bất biến "1 điểm fan-out,
+    KHÔNG sửa 7 call-site" cấm thêm tham số `event`. Vậy suy `(event, deeplink)` từ
+    `doc.doctype` qua bảng map thuần — đủ E3 MVP, fallback an toàn cho doctype khác.
+
+    Map (EPIC-D §5.4/§5.5):
+      - Incident Report  → incident_created → assetcore://incident/<name> → high
+      - Asset Repair     → repair_assigned  → assetcore://wo/cm/<name>    → high
+      - PM Work Order    → pm_assignment    → assetcore://wo/pm/<name>    → normal
+      - AC Asset         → calibration_due  → assetcore://asset/<name>    → normal
+      - (khác / name rỗng) → notification   → "" (bỏ deeplink)            → normal
+
+    Returns:
+        (event, deeplink, priority). `deeplink` rỗng "" ⇒ caller BỎ key khỏi `data`
+        (APK mở inbox mặc định). KHÔNG raise (total-function fail-safe §1.3).
+    """
+    doctype = getattr(doc, "doctype", None)
+    name = getattr(doc, "name", None)
+
+    _ROUTES: dict[str, tuple[str, str, str]] = {
+        "Incident Report": ("incident_created", "assetcore://incident/{name}", "high"),
+        "Asset Repair": ("repair_assigned", "assetcore://wo/cm/{name}", "high"),
+        "PM Work Order": ("pm_assignment", "assetcore://wo/pm/{name}", "normal"),
+        "AC Asset": ("calibration_due", "assetcore://asset/{name}", "normal"),
+    }
+    route = _ROUTES.get(doctype or "")
+    if not route or not name:
+        # Fallback an toàn: doctype không khớp HOẶC name rỗng → bỏ deeplink.
+        return "notification", "", "normal"
+    event, deeplink_tpl, priority = route
+    return event, deeplink_tpl.format(name=name), priority
+
+
+def _dispatch_push(
+    users: list[str],
+    subject: str,
+    message: str,
+    document_type: str | None,
+    document_name: str | None,
+    doc,
+) -> None:
+    """Kênh 3 — gửi push FCM tới MỌI device-token enabled=1 của từng recipient.
+
+    Fail-safe BẮT BUỘC (§1.3): toàn bộ thân bọc try/except + log_error — push lỗi/
+    raise/creds-thiếu KHÔNG được vỡ kênh 1 in-app + kênh 2 email (đã chạy xong trước
+    khi gọi hàm này). Per user → tra `AC Mobile Device Token` enabled=1 → mỗi token
+    gọi `send_fcm_message`. User KHÔNG có token enabled=1 → skip im lặng. Creds chưa
+    set (D3) → `send_fcm_message` trả None no-op → push skip, in-app/email VẪN gửi.
+
+    Payload (§5.3): title=subject strip-HTML, body=message strip-HTML cắt ≤1000,
+    data={doctype, name, event, deeplink} dựng từ `_push_event_route(doc)` (§5.5).
+
+    Args:
+        users: recipient list ĐÃ dedupe (tái dùng :377).
+        subject/message: nội dung gốc (sẽ strip-HTML).
+        document_type/document_name: routing keys (:381-382).
+        doc: nguồn suy `event`/`deeplink` theo doctype.
+    """
+    try:
+        from frappe.utils import strip_html
+
+        from assetcore.utils.fcm import send_fcm_message
+
+        title = strip_html(subject or "")
+        body = strip_html(message or "")[:1000]
+        event, deeplink, priority = _push_event_route(doc)
+
+        data: dict[str, str] = {"event": event}
+        if document_type:
+            data["doctype"] = document_type
+        if document_name:
+            data["name"] = document_name
+        if deeplink:
+            data["deeplink"] = deeplink
+        if priority and priority != "high":
+            # `_build_message` mặc định priority='high'; chỉ truyền hint khi hạ.
+            data["_priority"] = priority
+
+        for user in users:
+            tokens = frappe.get_all(
+                "AC Mobile Device Token",
+                filters={"user": user, "enabled": 1},
+                pluck="fcm_token",
+            )
+            for token in tokens:
+                if token:
+                    send_fcm_message(token, title=title, body=body, data=data)
+    except Exception:
+        # Fail-safe: push KHÔNG được làm vỡ kênh 1/2. Log full traceback (LL-BE-20).
+        frappe.log_error(frappe.get_traceback(), "Notification _dispatch_push (FCM)")
+
 
 # ─── E1: notify_assignment ───────────────────────────────────────────────────────
 

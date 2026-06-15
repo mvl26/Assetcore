@@ -4,13 +4,11 @@ description: >
   Dùng để ghi lại NỘI DUNG phiên chat (yêu cầu user + việc đã làm + quyết định + đang dở)
   vào file md local (MỖI PHIÊN 1 FILE) và bàn giao CONTEXT giữa các phiên làm việc AssetCore.
   BẮT BUỘC đọc context TRƯỚC KHI xử lý tiếp bất kỳ yêu cầu nào trong/nối phiên. Dùng khi user nói
-  "lưu context", "ghi lại phiên chat", "nội dung phiên", "bàn giao", "handoff", "tiếp tục
-  phiên trước", "xử lý tiếp", "phiên trước làm gì", "đang dở ở đâu", "checkpoint",
-  "session context", "STATE.md", "file phiên", "where did we leave off", hoặc khi MỞ ĐẦU /
-  TIẾP TỤC / xử lý BẤT KỲ yêu cầu nào (đọc trước), và checkpoint NGAY sau mỗi việc đáng
-  kể (đụng file/quyết định) — KHÔNG đợi cuối phiên. Context CHỈ LƯU LOCAL — KHÔNG commit
-  git/GitHub. KÍCH HOẠT khi factory/loop nhiều vòng cần bàn giao. KHÔNG dùng cho fact bền
-  vững (đó là memory/).
+  "lưu context", "bàn giao", "handoff", "tiếp tục phiên trước", "đang dở ở đâu", "checkpoint",
+  "session context", "STATE.md", hoặc khi MỞ ĐẦU / TIẾP TỤC / xử lý BẤT KỲ yêu cầu nào
+  (đọc trước), và checkpoint NGAY sau mỗi việc đáng kể (đụng file/quyết định) — KHÔNG đợi
+  cuối phiên. Context CHỈ LƯU LOCAL — KHÔNG commit git/GitHub. KÍCH HOẠT khi factory/loop
+  nhiều vòng cần bàn giao. KHÔNG dùng cho fact bền vững (đó là memory/).
 ---
 
 # AssetCore — Session Context (bàn giao giữa phiên)
@@ -31,6 +29,33 @@ Giữ **nội dung + context phiên** liền mạch: ghi lại phiên chat (yêu
 
 > **Session state ≠ durable fact.** Trạng-thái-tạm → `.claude/contexts/`; fact-bền-vững-dùng-lại-nhiều-phiên → `memory/`. Trộn hai thứ = hỏng cả hai.
 
+## Named principle — context engineering / context packing
+
+Skill này là hiện thực cụ thể của **context engineering**: nạp **đúng thông tin, đúng lúc** (**right information at the right time**) cho phiên/agent sau. Context là đòn bẩy lớn nhất cho chất lượng output — quá ít → model bịa/quên yêu cầu gốc; quá nhiều (nhồi cả mirror khổng lồ mỗi prompt) → loãng, mất focus.
+
+- **Context packing có chủ đích** — không đổ hết: `show`/`SessionStart` chỉ inject phần **curated** (STATE 5-mục + 🎯 + raw + tiến trình semantic), **CẮT trước mục 🪞 Mirror** (mirror có thể vài MB → đọc on-demand khi cần truy gốc). Đây chính là "selective include" thay vì "brain dump cả 5000 dòng".
+- **Right information at the right time** — phân tầng context theo độ bền: `memory/`+CLAUDE.md (luôn nạp) → STATE.md (chuyển-tiếp xuyên phiên, đọc TRƯỚC) → file phiên curated (yêu cầu đang dở) → 🪞 Mirror (verbatim, chỉ khi cần gốc). Nạp tầng đúng cho việc đang làm, không nhồi tầng thừa.
+- Hệ quả: 3 luật cốt lõi (ghi nội dung phiên · đọc+ghi theo từng yêu cầu · chỉ-local) + 4 lớp chống-compact ở dưới chính là cơ chế giữ "đúng thông tin đúng lúc" sống sót qua compact/ngắt phiên.
+
+## When to Use
+
+- ✅ **Trước khi xử lý/sửa bất kỳ việc gì**: đọc `STATE.md` + file phiên gần nhất (hook tự nạp — §Tự động; thiếu thì `show` tay).
+- ✅ **Sau MỖI việc đáng kể** (đụng file/quyết định) + cuối phiên → checkpoint `STATE.md` + file phiên (KHÔNG đợi cuối phiên).
+- ✅ **Factory/loop nhiều vòng**: mỗi vòng đọc STATE đầu vòng, ghi cuối vòng (bàn giao vòng→vòng).
+- ❌ **Fact bền vững** (preference user, lesson tái dùng, scope module, URL) → `memory/` (xem MEMORY.md), KHÔNG vào đây.
+- ❌ **Tài liệu nghiệp vụ module** → `docs/imm-XX/` (skill `assetcore-doc`).
+- ❌ **Trạng thái runtime/secret/log** → KHÔNG ghi bất cứ đâu (CLAUDE.md §21).
+
+## Process — đọc trước, checkpoint theo từng yêu cầu
+
+Quy trình từng bước (spine — chi tiết ở mục dưới):
+1. **READ protocol đầu phiên/tiếp phiên** — đọc `STATE.md` + file phiên gần nhất TRƯỚC khi xử lý; verify-before-trust → §READ protocol
+2. **Làm việc** — xử lý yêu cầu (đụng file / quyết định / đổi trạng thái nghiệp vụ)
+3. **WRITE checkpoint theo TỪNG yêu cầu** — ghi NGAY sau mỗi việc đáng kể, KHÔNG đợi cuối phiên → §WRITE protocol
+4. **Ghi STATE.md + file-phiên** — STATE GHI ĐÈ (5 mục chuyển-tiếp); bồi 🎯 + Tiến trình semantic vào file phiên → §STATE.md schema, §File-phiên schema
+5. **Phân loại ranh giới với memory/** — state-tạm → `.claude/contexts/`; fact bền vững → `memory/`, không trộn → §Ranh giới với memory/
+6. **Verification** — đã đọc trước, checkpoint đủ, STATE đè không append, không commit context → §Verification
+
 ## Chống compaction (anti-amnesia trong phiên DÀI) — vì sao có skill này
 
 Phiên dài bị **compact** → model dễ MẤT nội dung/yêu cầu gốc. Hệ thống chống bằng **4 lớp** (đã xác minh hành vi hook Claude Code):
@@ -42,15 +67,6 @@ Phiên dài bị **compact** → model dễ MẤT nội dung/yêu cầu gốc. H
 
 > PreCompact KHÔNG dùng: stdout của nó KHÔNG vào context (chỉ side-effect) → vô dụng cho recovery; capture đã do `on-prompt` + `mirror` lo.
 > **Stop hook stdout KHÔNG vào context** (chỉ side-effect ghi file) → mirror không làm bẩn context Claude; chỉ để truy gốc on-demand (đọc thẳng file phiên).
-
-## When to use / NOT
-
-- ✅ **Trước khi xử lý/sửa bất kỳ việc gì**: đọc `STATE.md` + file phiên gần nhất (hook tự nạp — §Tự động; thiếu thì `show` tay).
-- ✅ **Sau MỖI việc đáng kể** (đụng file/quyết định) + cuối phiên → checkpoint `STATE.md` + file phiên (KHÔNG đợi cuối phiên).
-- ✅ **Factory/loop nhiều vòng**: mỗi vòng đọc STATE đầu vòng, ghi cuối vòng (bàn giao vòng→vòng).
-- ❌ **Fact bền vững** (preference user, lesson tái dùng, scope module, URL) → `memory/` (xem MEMORY.md), KHÔNG vào đây.
-- ❌ **Tài liệu nghiệp vụ module** → `docs/imm-XX/` (skill `assetcore-doc`).
-- ❌ **Trạng thái runtime/secret/log** → KHÔNG ghi bất cứ đâu (CLAUDE.md §21).
 
 ## File layout — path CỐ ĐỊNH (không bịa path khác)
 
@@ -104,11 +120,11 @@ updated: 2026-06-03
 branch: feature/hieuc/core-refinement
 ---
 # AssetCore — Session STATE (cây gậy bàn giao xuyên phiên)
-## 🔴 Blockers / chờ user duyệt      ← đọc đầu tiên; destructive/approval
-## 🟡 Open threads (việc đang dở)     ← mỗi item kèm next step
-## ▶️ Next step                       ← mở phiên sau làm gì TRƯỚC
-## 🧠 Decisions chờ promote lên memory/
-## 📝 Working-tree note               ← nhóm thay đổi chưa commit (không liệt kê 60 file)
+### 🔴 Blockers / chờ user duyệt      ← đọc đầu tiên; destructive/approval
+### 🟡 Open threads (việc đang dở)     ← mỗi item kèm next step
+### ▶️ Next step                       ← mở phiên sau làm gì TRƯỚC
+### 🧠 Decisions chờ promote lên memory/
+### 📝 Working-tree note               ← nhóm thay đổi chưa commit (không liệt kê 60 file)
 ```
 
 ## File-phiên schema (`sessions/<YYYY-MM-DD>/<HHMM>_<sid8>.md` — 1 phiên 1 file)
@@ -121,10 +137,10 @@ started: 2026-06-03 09:10
 branch: feature/hieuc/core-refinement
 ---
 # Phiên 2026-06-03 09:10 — <tiêu đề 1 dòng, Claude điền>
-## 🎯 Mục tiêu phiên (yêu cầu gốc)          ← Claude pin sau prompt đầu (anti-compact)
-## Yêu cầu (raw — máy ghi tự động)          ← hook append `- [HH:MM] <prompt>`, để nguyên
-## Tiến trình (semantic — Claude bồi)       ← Làm / Quyết định / Để lại
-## 🪞 Mirror (toàn bộ lượt — máy ghi)        ← hook Stop chép nguyên prompt+phản hồi+tool, để nguyên
+### 🎯 Mục tiêu phiên (yêu cầu gốc)          ← Claude pin sau prompt đầu (anti-compact)
+### Yêu cầu (raw — máy ghi tự động)          ← hook append `- [HH:MM] <prompt>`, để nguyên
+### Tiến trình (semantic — Claude bồi)       ← Làm / Quyết định / Để lại
+### 🪞 Mirror (toàn bộ lượt — máy ghi)        ← hook Stop chép nguyên prompt+phản hồi+tool, để nguyên
 ```
 
 > 🪞 Mirror do hook `Stop` ghi tự động — **ĐỪNG sửa tay**. `show`/đầu phiên CHỈ inject phần curated (cắt trước mục Mirror); muốn truy gốc đầy đủ thì ĐỌC THẲNG file phiên (`session-log.sh current` → path).
@@ -160,6 +176,21 @@ Quy tắc 1 câu: **Sẽ-hết-khi-việc-xong → `.claude/contexts/`. Đúng-m
 - `sessions/<ngày>/` tích theo NGÀY → archive cả folder-ngày cũ (vài tháng) sang `archive/`. ⚠️ File phiên giờ có 🪞 Mirror nên có thể LỚN (KB→MB tuỳ phiên) — đây là đánh đổi để "ghi y hệt"; archive sớm nếu nặng. (`MIRROR_RESULT_MAX`/`MIRROR_INPUT_MAX` chỉnh độ truncate; `MIRROR_THINKING=1` chép cả thinking = lớn hơn nhiều.)
 - KHÔNG commit `.claude/contexts/` vào git (gitignored trong repo — ephemeral, local-only). `.cursors/` cũng nằm trong `.claude/contexts/` → gitignored.
 
+## Common Rationalizations
+
+| Lý do hay viện để skip | Sự thật |
+|---|---|
+| "Để cuối phiên ghi context 1 thể cho gọn" | Phiên có thể NGẮT/COMPACT bất cứ lúc nào; ghi-lazy = mất hết → phiên sau quên, sửa trùng/sai. Checkpoint NGAY sau MỖI việc đáng kể (WRITE protocol, cadence cứng). |
+| "Việc nhỏ / tôi nhớ rồi nên khỏi đọc context" | R2 luật cứng: không đọc = không hành động, KHÔNG ngoại lệ. "Việc nhỏ", "nhớ rồi", "user nói luôn việc mới" đều KHÔNG miễn. Đọc `STATE.md` + file phiên gần nhất TRƯỚC. |
+| "User nói việc mới rồi, đọc context cũ làm gì" | Việc mới vẫn nối phiên đang diễn — bỏ qua context = lặp lỗi/đụng việc đang dở của phiên trước. Vẫn đọc TRƯỚC. |
+| "Vừa bị compact xong, cứ tiếp theo trí nhớ trong context" | Context vừa bị NÉN, dễ mất gốc. Đọc lại STATE + 🎯 + yêu cầu raw của file phiên (hook `SessionStart` matcher `compact` tự nạp; thiếu thì `show` tay). |
+| "Fact này hữu ích lâu dài, ghi luôn vào file phiên / STATE cho tiện" | Sai kho — fact bền vững (preference, lesson, nguyên tắc) thuộc `memory/`. Trộn state-tạm vào memory hoặc nhồi durable vào session = hỏng cả hai. Tra Bảng ranh giới. |
+| "Ghi 'đang dở X' vào memory/ cho khỏi mất" | State-tạm-sẽ-hết → `.claude/contexts/STATE.md`, KHÔNG memory. Quy tắc 1 câu: Sẽ-hết-khi-việc-xong → contexts; Đúng-mãi-về-sau → memory. |
+| "STATE đang có sẵn, append thêm dòng cho nhanh" | STATE là GHI ĐÈ (current truth); append = phình rác, mất tác dụng. Nội dung tích luỹ thuộc FILE PHIÊN. |
+| "Đọc STATE thấy 'code đã X' rồi, tin luôn" | STATE là ảnh chụp lúc ghi, có thể lỗi thời. Verify-before-trust bằng `git status`/grep TRƯỚC khi hành động. |
+| "Tạo file handoff riêng / đặt tên path khác cho dễ nhớ" | Phá vỡ discovery. CHỈ `STATE.md` chung + 1 file/phiên trong `sessions/<ngày>/` (hook tạo, khóa `session_id`). Lấy path bằng `session-log.sh current` — KHÔNG bịa path. |
+| "Context tiện thì cứ commit/push cho phiên máy khác xài" | R3 — context CHỈ local, gitignored (`.claude/contexts/`), KHÔNG bao giờ lên GitHub. KHÔNG `git add -f`. |
+
 ## Red Flags — STOP
 
 | Dấu hiệu | Sự thật |
@@ -179,6 +210,17 @@ Quy tắc 1 câu: **Sẽ-hết-khi-việc-xong → `.claude/contexts/`. Đúng-m
 | Cố inject cả Mirror vào context mỗi phiên | `show` cố ý CẮT trước mục Mirror (mirror có thể vài MB). Mirror để đọc on-demand, không nhồi vào mỗi prompt |
 | Định commit/push `.claude/contexts/` | R3 — context CHỈ local, không bao giờ lên GitHub |
 | "Để cuối phiên ghi 1 thể cho gọn" | Ghi-lazy = ngắt giữa chừng mất hết. Checkpoint sau MỖI việc đáng kể |
+
+## Verification
+
+Tiêu chí thoát — mỗi ô phải kiểm-được (không "có vẻ ổn"):
+- [ ] **ĐỌC trước khi hành động**: đã đọc `STATE.md` + file phiên gần nhất TRƯỚC khi xử lý/sửa bất kỳ yêu cầu nào (hook `SessionStart`/`UserPromptSubmit` tự nạp; agent con / phiên cũ → chạy `./.claude/scripts/session-log.sh show`). R2 — không ngoại lệ.
+- [ ] **Checkpoint sau MỖI việc đáng kể** (đụng file / quyết định / đổi trạng thái nghiệp vụ) — KHÔNG đợi cuối phiên.
+- [ ] **`STATE.md` GHI ĐÈ** thành current truth (không append): item DONE-đã-commit bỏ khỏi Open threads; item dở/chờ-duyệt giữ ở 🟡/🔴 kèm next concrete step; `updated:`=hôm nay, `branch:`=branch hiện tại; tóm working-tree theo nhóm (không liệt kê 60 file).
+- [ ] **Bồi semantic vào FILE PHIÊN** (path qua `session-log.sh current`): pin `## 🎯 Mục tiêu phiên` sau prompt đầu + `## Tiến trình (semantic)` ghi Làm / Quyết định / Để lại cho từng yêu cầu (giữ "Yêu cầu" theo ý user). KHÔNG sửa tay mục `## 🪞 Mirror` / "Yêu cầu (raw)".
+- [ ] **Ranh giới memory ⇄ session tôn trọng**: state-tạm-sẽ-hết → `.claude/contexts/`; fact-bền-vững → `memory/` (đã promote qua "🧠 Decisions chờ promote" nếu có). Không trộn.
+- [ ] **Verify-before-trust**: không tin STATE mù quáng — đã `git status`/grep xác minh trước khi hành động trên giả định "code đã X".
+- [ ] **Không commit context**: `git check-ignore .claude/contexts/STATE.md` khớp `.gitignore`; `git status` KHÔNG hiện gì trong `.claude/contexts/` (R3 — local-only).
 
 ## Common mistakes
 

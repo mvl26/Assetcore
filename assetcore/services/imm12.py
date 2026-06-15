@@ -182,6 +182,21 @@ _RCA_DUE_CHRONIC = 14
 
 _ORDER_REPORTED_AT = "reported_at desc"
 
+# V4-GATE BÁO-HỎNG (ADR-IMM12-REPORT-FAILURE D2): canonical lifecycle event +
+# provenance source. `incident_reported` là option HỢP LỆ của Select
+# Asset Lifecycle Event.event_type (verified) — KHÔNG dùng 'failure_reported'
+# (KHÔNG có trong Select → throw schema). `source` enum {manual, qr-scan},
+# default 'manual'; giá trị lạ → coerce 'manual' (provenance KHÔNG phải security gate).
+_EVENT_INCIDENT_REPORTED = "incident_reported"
+_SOURCE_QR_SCAN = "qr-scan"
+_SOURCE_MANUAL = "manual"
+_VALID_SOURCES = frozenset({_SOURCE_MANUAL, _SOURCE_QR_SCAN})
+
+
+def _source_label(source: str) -> str:
+    """SSoT provenance label — chỉ 'qr-scan' hợp lệ thì giữ, mọi giá trị khác → 'manual'."""
+    return _SOURCE_QR_SCAN if source == _SOURCE_QR_SCAN else _SOURCE_MANUAL
+
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -332,13 +347,21 @@ def report_incident(
     immediate_action: str = "",
     linked_repair_wo: str = "",
     reported_by: str = "",
+    source: str = _SOURCE_MANUAL,
 ) -> dict:
-    """Tạo Incident Report. BR-12-01: Critical → clinical_impact bắt buộc."""
+    """Tạo Incident Report. BR-12-01: Critical → clinical_impact bắt buộc.
+
+    D2 (ADR-IMM12-REPORT-FAILURE): sau insert emit canonical lifecycle event
+    `incident_reported` (trục §10) + provenance `source` (qr-scan|manual) trong
+    notes(lifecycle)/change_summary(audit). source lạ → coerce 'manual'.
+    """
     if severity == _SEV_CRITICAL and not clinical_impact.strip():
         nthrow(MSG.IMM12_CLINICAL_IMPACT_REQUIRED)
     if not frappe.db.exists(_DT_ASSET, asset):
         nthrow(MSG.IMM12_ASSET_NOT_FOUND, asset=asset)
 
+    source_label = _source_label(source)
+    asset_status_before = frappe.db.get_value(_DT_ASSET, asset, "lifecycle_status") or ""
     actor = reported_by or frappe.session.user
     doc = frappe.new_doc(_DT_INCIDENT)
     doc.asset = asset
@@ -371,8 +394,46 @@ def report_incident(
         _try_transition_asset(asset, _ASSET_OUT_OF_SERVICE, doc.name, actor)
 
     frappe.db.commit()
-    _log(doc.name, asset, f"Incident reported — {severity} — {incident_type}", "", _STATUS_OPEN)
+    # D2: provenance trong audit change_summary (hash-chain GIỮ — chỉ đổi text row mới).
+    _log(doc.name, asset,
+         f"Incident reported ({source_label}) — {severity} — {incident_type}",
+         "", _STATUS_OPEN)
+    # D2: canonical lifecycle event 'incident_reported' (trục §10) — root_doctype BẮT
+    # BUỘC kèm root_record (Dynamic Link) nếu không event bị nuốt. Wrap try/except —
+    # lifecycle là side-effect audit, KHÔNG fail report. from→to status = trạng thái
+    # asset trước/sau report (Critical → Out of Service do BR-12-04).
+    _emit_incident_reported_event(
+        asset=asset, incident_name=doc.name, actor=actor,
+        from_status=asset_status_before, severity=severity,
+        incident_type=incident_type, source_label=source_label,
+    )
     return {"name": doc.name, "status": doc.status, "severity": severity}
+
+
+def _emit_incident_reported_event(
+    *, asset: str, incident_name: str, actor: str, from_status: str,
+    severity: str, incident_type: str, source_label: str,
+) -> None:
+    """D2: ghi Asset Lifecycle Event canonical `incident_reported` + provenance source.
+
+    root_doctype=_DT_INCIDENT BẮT BUỘC cùng root_record (Dynamic Link) — pattern
+    IMM-09 _log_lifecycle_event (F10). to_status = trạng thái asset SAU report (đọc
+    lại live: Critical → Out of Service do BR-12-04). Side-effect — KHÔNG fail report.
+    """
+    try:
+        to_status = frappe.db.get_value(_DT_ASSET, asset, "lifecycle_status") or from_status
+        svc00.create_lifecycle_event(
+            asset=asset,
+            event_type=_EVENT_INCIDENT_REPORTED,
+            actor=actor,
+            from_status=from_status,
+            to_status=to_status,
+            root_doctype=_DT_INCIDENT,
+            root_record=incident_name,
+            notes=f"Báo hỏng ({source_label}) — {severity} — {incident_type}",
+        )
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "IMM-12 incident_reported lifecycle event")
 
 
 def acknowledge_incident(name: str, notes: str = "", assigned_to: str = "") -> dict:

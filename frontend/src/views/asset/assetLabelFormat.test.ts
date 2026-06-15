@@ -8,8 +8,11 @@
 //   • AssetQrLabel: prop qrSize/khổ tem → QR + field scale (tem KHÔNG dùng 120px cố định).
 //   • Regression: error-bucket VI cố định + markLabelPrinted chỉ name hợp lệ vẫn nguyên.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { mount, flushPromises } from '@vue/test-utils'
+import { mount, flushPromises, config } from '@vue/test-utils'
 import { ref } from 'vue'
+
+// BaseModal teleports tới <body>; render inline để wrapper.find reach modal PDF.
+config.global.stubs = { teleport: true }
 
 // ── AssetLabelPrintView (batch) ───────────────────────────────────────────────
 const routeQuery = ref<Record<string, string | string[]>>({ names: 'A1,A2,A3' })
@@ -20,12 +23,38 @@ vi.mock('vue-router', () => ({
 }))
 const getBatchSpy = vi.fn()
 const markPrintedSpy = vi.fn().mockResolvedValue({ printed: [], event_count: 0 })
+const printPdfSpy = vi.fn()
 vi.mock('@/api/imm00', () => ({
   getAssetLabelDataBatch: (names: string[]) => getBatchSpy(names),
   getAssetLabelData: vi.fn(),
   markLabelPrinted: (assets: string[]) => markPrintedSpy(assets),
+  printAssetLabelsPdf: (names: string[], preset?: string) => printPdfSpy(names, preset),
+  // SSoT preset khổ tem — AssetLabelPrintView import ở module-level.
+  LABEL_PDF_PRESETS: [
+    { key: 'tem-60x100', label: 'Tem 60×100mm' },
+    { key: 'tem-70x40', label: 'Tem 70×40mm' },
+    { key: 'tem-50x30', label: 'Tem 50×30mm' },
+  ],
+  LABEL_PDF_PRESET: 'tem-60x100',
+  labelPdfPresetLabel: (p: string) =>
+    ({ 'tem-60x100': 'Tem 60×100mm', 'tem-70x40': 'Tem 70×40mm', 'tem-50x30': 'Tem 50×30mm' } as Record<string, string>)[p] ?? '',
 }))
 vi.mock('qrcode', () => ({ default: { toDataURL: vi.fn().mockResolvedValue('data:image/png;base64,QR==') } }))
+
+// Mock composable usePdfLabelPrint (DRY iframe in PDF) — giả lập tải Blob OK.
+const printLabelsSpy = vi.fn()
+const pdfPreviewUrl = ref<string | null>(null)
+const pdfPrinting = ref(false)
+const pdfErrorRef = ref<unknown>(null)
+vi.mock('@/composables/usePdfLabelPrint', () => ({
+  usePdfLabelPrint: () => ({
+    printLabels: (names: string[], opts: { onAfterPrint?: (n: string[]) => void } = {}) => {
+      pdfPreviewUrl.value = 'blob:mock-pdf'
+      return printLabelsSpy(names, opts)
+    },
+    previewUrl: pdfPreviewUrl, printing: pdfPrinting, error: pdfErrorRef, revoke: vi.fn(),
+  }),
+}))
 
 import AssetLabelPrintView from './AssetLabelPrintView.vue'
 import AssetQrLabel from '@/components/asset/AssetQrLabel.vue'
@@ -46,27 +75,29 @@ describe('AssetLabelPrintView — selector khổ tem (batch)', () => {
   beforeEach(() => {
     getBatchSpy.mockReset().mockResolvedValue([lbl('A1'), lbl('A2'), lbl('A3')])
     markPrintedSpy.mockClear()
+    printPdfSpy.mockReset().mockResolvedValue(new Blob(['%PDF'], { type: 'application/pdf' }))
+    printLabelsSpy.mockReset().mockResolvedValue(new Blob(['%PDF'], { type: 'application/pdf' }))
+    pdfPreviewUrl.value = null
+    pdfPrinting.value = false
+    pdfErrorRef.value = null
     pushSpy.mockClear()
     routeQuery.value = { names: 'A1,A2,A3' }
     vi.spyOn(window, 'print').mockImplementation(() => {})
   })
 
-  it("có selector khổ tem với 3 lựa chọn (A4 / 50×30 / 70×40)", async () => {
+  it("có selector khổ tem = 3 preset PDF SSoT (60×100 / 70×40 / 50×30)", async () => {
     const w = mount(AssetLabelPrintView)
     await flushPromises()
     const sel = w.find('select[aria-label="Chọn khổ tem in nhãn"]')
     expect(sel.exists()).toBe(true)
-    const opts = sel.findAll('option').map(o => o.text())
-    expect(opts).toEqual(['A4 nhiều-nhãn', 'Tem 50×30mm', 'Tem 70×40mm'])
-  })
-
-  it("mặc định = A4 nhiều-nhãn → KHÔNG ép @page tem (data-testid label-page-rule không render)", async () => {
-    const w = mount(AssetLabelPrintView)
-    await flushPromises()
-    // sheet mang class A4 (lưới 2 cột giữ nguyên ở print CSS).
-    expect(w.find('.qr-label-sheet--a4-multi').exists()).toBe(true)
-    // KHÔNG có style @page tem nào được inject.
-    expect(w.find('[data-testid="label-page-rule"]').exists()).toBe(false)
+    const opts = sel.findAll('option')
+    // SSoT LABEL_PDF_PRESETS — value khớp key BE, nhãn VI.
+    expect(opts.map(o => o.attributes('value'))).toEqual(['tem-60x100', 'tem-70x40', 'tem-50x30'])
+    expect(opts.map(o => o.text())).toEqual(['Tem 60×100mm', 'Tem 70×40mm', 'Tem 50×30mm'])
+    // Default = tem-60x100 (parity AssetDetailView).
+    expect((sel.element as HTMLSelectElement).value).toBe('tem-60x100')
+    // Badge tĩnh phản ánh khổ mặc định.
+    expect(w.find('[data-testid="label-preset-badge"]').text()).toContain('Tem 60×100mm')
   })
 
   it("chọn 'tem-50x30' → @page size '50mm 30mm' được inject + sheet 1-nhãn class", async () => {
@@ -90,14 +121,17 @@ describe('AssetLabelPrintView — selector khổ tem (batch)', () => {
     expect(w.find('.qr-label-sheet--tem-70x40').exists()).toBe(true)
   })
 
-  it("đổi tem → A4 lại → @page tem bị gỡ (giữ lưới A4 mặc định)", async () => {
+  it("đổi khổ tem (50×30 → 70×40) → @page size + sheet class cập nhật theo preset đang chọn", async () => {
     const w = mount(AssetLabelPrintView)
     await flushPromises()
     await selectFormat(w, 'tem-50x30')
-    expect(w.find('[data-testid="label-page-rule"]').exists()).toBe(true)
-    await selectFormat(w, 'a4-multi')
-    expect(w.find('[data-testid="label-page-rule"]').exists()).toBe(false)
-    expect(w.find('.qr-label-sheet--a4-multi').exists()).toBe(true)
+    expect(w.find('[data-testid="label-page-rule"]').text()).toContain('size: 50mm 30mm')
+    expect(w.find('.qr-label-sheet--tem-50x30').exists()).toBe(true)
+    // Đổi sang 70×40 → @page + sheet class theo khổ mới (không còn ép cứng khổ cũ).
+    await selectFormat(w, 'tem-70x40')
+    expect(w.find('[data-testid="label-page-rule"]').text()).toContain('size: 70mm 40mm')
+    expect(w.find('.qr-label-sheet--tem-70x40').exists()).toBe(true)
+    expect(w.find('.qr-label-sheet--tem-50x30').exists()).toBe(false)
   })
 
   it("tem vật lý → AssetQrLabel nhận format + qrSize từ SSoT (KHÔNG 120px cố định)", async () => {
@@ -110,7 +144,7 @@ describe('AssetLabelPrintView — selector khổ tem (batch)', () => {
     expect(labels[0].props('qrSize')).toBe(getLabelFormat('tem-70x40').qrSizePx)
   })
 
-  it("Regression: chọn tem rồi In tất cả → markLabelPrinted chỉ name hợp lệ (không đổi)", async () => {
+  it("Regression: chọn tem rồi In tất cả → printLabels 1 lần name hợp lệ; 'Đã in xong' → markLabelPrinted name hợp lệ", async () => {
     getBatchSpy.mockResolvedValue([lbl('A1'), { name: 'BAD', error: 'AC-E001' }, lbl('A3')])
     const w = mount(AssetLabelPrintView)
     await flushPromises()
@@ -118,9 +152,14 @@ describe('AssetLabelPrintView — selector khổ tem (batch)', () => {
     const printBtn = w.findAll('button').find(b => b.text().includes('In tất cả'))
     await printBtn!.trigger('click')
     await flushPromises()
-    expect(window.print).toHaveBeenCalled()
+    // Luồng PDF: printLabels 1 lần với CHỈ name hợp lệ (loại AC-E001).
+    expect(printLabelsSpy).toHaveBeenCalledTimes(1)
+    expect(printLabelsSpy.mock.calls[0][0]).toEqual(['A1', 'A3'])
+    // Ghi audit qua 'Đã in xong' — chỉ name hợp lệ.
+    await w.find('[data-testid="btn-pdf-printed"]').trigger('click')
+    await flushPromises()
     expect(markPrintedSpy).toHaveBeenCalledWith(['A1', 'A3'])
-    // Ô lỗi VI vẫn render.
+    // Ô lỗi VI vẫn render (preview grid trên màn hình giữ nguyên).
     expect(w.text()).toContain('Không tìm thấy thiết bị')
   })
 })

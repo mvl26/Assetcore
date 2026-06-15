@@ -1,7 +1,7 @@
 // Copyright (c) 2026, AssetCore Team — AssetDetailView rotate QR token (B hardening, TDD)
 //
 // RED-prove (task B):
-//   • user asset.write → nút 'Sinh lại mã QR' render; user chỉ-đọc → KHÔNG render.
+//   • user asset.qr.rotate → nút 'Sinh lại mã QR' render; user chỉ-đọc/chỉ-print → KHÔNG render.
 //   • click nút → mở BaseModal cảnh báo (KHÔNG window.confirm); xác nhận →
 //     regenerateAssetQrToken + refetch asset + toast VI; huỷ → API KHÔNG gọi.
 //   • on-error (403/404) → notify VI role=alert, KHÔNG white-screen, KHÔNG leak EN/raw-code.
@@ -28,8 +28,9 @@ vi.mock('@/stores/imm00', () => ({
 }))
 vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ user: 'tester' }) }))
 
-// B: nút 'Sinh lại mã QR' gate asset.WRITE (rotate = side-effect ghi, KHÔNG read-only).
-const canCaps = new Set<string>(['asset.write'])
+// D6 (ADR-IMM00-QR-SCAN-ACTION, phương án B): nút 'Sinh lại mã QR' gate
+// asset.QR.ROTATE (rotate = GHI; KHÔNG asset.print). print KHÔNG đủ để rotate.
+const canCaps = new Set<string>(['asset.qr.rotate'])
 vi.mock('@/composables/useCapabilities', () => ({
   useCapabilities: () => ({
     can: (c: string | readonly string[]) =>
@@ -57,6 +58,16 @@ vi.mock('@/api/imm00', () => ({
   getAssetLabelData: vi.fn().mockResolvedValue({}),
   markLabelPrinted: vi.fn(),
   regenerateAssetQrToken: (asset: string) => regenerateSpy(asset),
+  printAssetLabelsPdf: vi.fn(),
+  // SSoT preset khổ tem (selector 3-preset Vòng 4) — view import ở module-level.
+  LABEL_PDF_PRESETS: [
+    { key: 'tem-60x100', label: 'Tem 60×100mm' },
+    { key: 'tem-70x40', label: 'Tem 70×40mm' },
+    { key: 'tem-50x30', label: 'Tem 50×30mm' },
+  ],
+  LABEL_PDF_PRESET: 'tem-60x100',
+  labelPdfPresetLabel: (p: string) =>
+    ({ 'tem-60x100': 'Tem 60×100mm', 'tem-70x40': 'Tem 70×40mm', 'tem-50x30': 'Tem 50×30mm' } as Record<string, string>)[p] ?? '',
 }))
 vi.mock('@/api/imm04', () => ({ getCommissioningOrigin: vi.fn().mockResolvedValue(null) }))
 vi.mock('@/api/imm14', () => ({ createDecommission: vi.fn(), approveDecommission: vi.fn() }))
@@ -92,10 +103,10 @@ describe('AssetDetailView — rotate QR token (B)', () => {
     toastSuccessSpy.mockClear()
     toastShowSpy.mockClear()
     canCaps.clear()
-    canCaps.add('asset.write')
+    canCaps.add('asset.qr.rotate')
   })
 
-  it("user CHỈ-ĐỌC (asset.read, KHÔNG write) → nút 'Sinh lại mã QR' KHÔNG render", async () => {
+  it("user CHỈ-ĐỌC (asset.read, KHÔNG rotate) → nút 'Sinh lại mã QR' KHÔNG render", async () => {
     canCaps.clear()
     canCaps.add('asset.read')
     const w = mount(AssetDetailView, { props: { id: 'AC-ASSET-2026-00042' }, global: { stubs } })
@@ -103,7 +114,16 @@ describe('AssetDetailView — rotate QR token (B)', () => {
     expect(findByText(w, 'Sinh lại mã QR')).toBeFalsy()
   })
 
-  it("user CÓ asset.write → nút 'Sinh lại mã QR' render", async () => {
+  it("D6 — user CHỈ có asset.print (KHÔNG rotate) → nút 'Sinh lại mã QR' KHÔNG render", async () => {
+    // Tách quyền: persona vận hành in được NHƯNG KHÔNG rotate được (least-privilege).
+    canCaps.clear()
+    canCaps.add('asset.print')
+    const w = mount(AssetDetailView, { props: { id: 'AC-ASSET-2026-00042' }, global: { stubs } })
+    await flushPromises()
+    expect(findByText(w, 'Sinh lại mã QR')).toBeFalsy()
+  })
+
+  it("user CÓ asset.qr.rotate → nút 'Sinh lại mã QR' render", async () => {
     const w = mount(AssetDetailView, { props: { id: 'AC-ASSET-2026-00042' }, global: { stubs } })
     await flushPromises()
     expect(findByText(w, 'Sinh lại mã QR')).toBeTruthy()

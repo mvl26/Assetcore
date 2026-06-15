@@ -346,14 +346,27 @@ const LIFECYCLE_EVENT_MAP: Record<string, string> = {
   depreciation_stopped:         'Dừng khấu hao',
 }
 
+// Nhãn an toàn cho event_type KHÔNG thuộc LIFECYCLE_EVENT_MAP (mã legacy/drift/
+// lạ — vd 'pm_aborted', 'restored_v2', 'SOME_DRIFT'). KHÔNG bao giờ trả raw code:
+// consumer là MÀN HÌNH QUÉT QR (AssetScanInfoView.vue:229, recent_maintenance.
+// event_type) + DÒNG THỜI GIAN (AssetDetailView.vue:816) — cả 2 đi qua SSoT này
+// (KHÔNG fork helper riêng cho scan-info). Hard-constraint no-leak: nếu fallback
+// trả nguyên `v` thì mã English/snake_case rò ra UI → vi phạm. 'Khác' là nhãn
+// VI cố định, an toàn cho mọi mã chưa biết.
+const UNKNOWN_LIFECYCLE_EVENT_LABEL = 'Khác'
+
 /**
  * Trả nhãn Tiếng Việt cho 1 loại sự kiện vòng đời (Asset Lifecycle Event.event_type).
- * - null / '' / undefined → '—'
- * - key lạ → trả nguyên `v` (không crash, không bịa nhãn).
+ * - null / '' / undefined → '—' (giữ nguyên hành vi rỗng).
+ * - key đã biết → nhãn VI tương ứng trong LIFECYCLE_EVENT_MAP.
+ * - key lạ (legacy/drift/không thuộc map) → UNKNOWN_LIFECYCLE_EVENT_LABEL ('Khác').
+ *   KHÔNG trả nguyên `v` — chống raw-code leak ở màn quét QR & dòng thời gian.
+ * Bất biến đo được: với mọi input string không thuộc map, kết quả KHÔNG chứa '_'
+ * và KHÔNG bằng chính `v` (no-leak qua mọi đường).
  */
 export function translateLifecycleEvent(v?: string | null): string {
   if (!v) return '—'
-  return LIFECYCLE_EVENT_MAP[v] ?? v
+  return LIFECYCLE_EVENT_MAP[v] ?? UNKNOWN_LIFECYCLE_EVENT_LABEL
 }
 
 // ─── Status color (Tailwind classes) ────────────────────────────────────────

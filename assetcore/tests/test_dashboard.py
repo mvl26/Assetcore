@@ -465,14 +465,18 @@ class TestPersonaDashboard(unittest.TestCase):
             self.assertIn("tone", k)
             self.assertIn(k["tone"], valid_tones)
 
-    def test_d_be_7_none_persona_no_type_error(self):
-        """LL-BE-1: persona=None (param vắng/null từ query) KHÔNG được raise
-        FrappeTypeError → HTTP 417. Phải trả payload rỗng an toàn như Core Doc
-        FE_Persona_Dashboards.md §3 ('KHÔNG raise — FE shell tối thiểu').
+    def test_d_be_7_empty_persona_no_type_error(self):
+        """D-PRECOND OpenAPI (ADR-IMM00-OPENAPI #8): persona đổi `str|None` → `str=""`.
 
-        Gọi QUA wrapper validate_argument_types(apply_condition=True) để mô phỏng
-        đúng request-context — đây chính là layer raise 417 mà gọi Python trực
-        tiếp KHÔNG chạm tới.
+        Param VẮNG từ query → Frappe inject default `""` (KHÔNG `None`). Chuỗi rỗng
+        `""` khớp `str` → validate_argument_types KHÔNG raise FrappeTypeError (HTTP 417)
+        và endpoint trả payload rỗng an toàn (Core Doc FE_Persona_Dashboards.md §3
+        'KHÔNG raise — FE shell tối thiểu'). `""` ≡ None-cũ về mặt hành vi
+        (`(persona or "")` normalize giống hệt).
+
+        Gọi QUA wrapper validate_argument_types(apply_condition=True) — đúng
+        request-context (layer raise 417). `persona=""` mô phỏng param vắng thực tế
+        trên HTTP (KHÔNG còn truyền literal None — không phải cách HTTP gửi query param).
         """
         from frappe.utils.typing_validations import validate_argument_types
         from assetcore.api.dashboard import get_persona_dashboard
@@ -480,8 +484,8 @@ class TestPersonaDashboard(unittest.TestCase):
         wrapped = validate_argument_types(
             get_persona_dashboard, apply_condition=lambda: True
         )
-        # persona=None: trước fix → FrappeTypeError (HTTP 417). Sau fix → safe empty.
-        resp = wrapped(persona=None)
+        # persona="" (default khi param vắng): khớp str → KHÔNG 417, safe empty.
+        resp = wrapped(persona="")
         self.assertTrue(resp.get("success"), f"endpoint failed: {resp}")
         self.assertEqual(resp["data"]["kpis"], [])
         self.assertEqual(resp["data"]["sections"], {})
@@ -1268,6 +1272,340 @@ class TestPMDueSoonConvergence(unittest.TestCase):
         sot_count = frappe.db.count("PM Work Order", due_soon_filter(win))
         self.assertEqual(kpi, sot_count,
                          "pm_due_next7 PHẢI == _count(due_soon_filter(today+7)) (1 SoT)")
+
+# ─── TC-DASH-PERM: Dashboard KPI count permission-aware (count == drill) ───────
+
+
+class TestDashboardPermissionAwareCount(FrappeTestCase):
+    """P1 (QA BE-PERF AUDIT 2026-06-10): dashboard KPI count BROKEN cho persona
+    scoped (Vendor Engineer). Root-cause: api/dashboard.py:_count dùng
+    ``frappe.db.count`` → KHÔNG áp ``permission_query_conditions`` hook, trong khi
+    drill list (``count_with_or`` → ``frappe.get_list``) ÁP. ⟹ card "Tổng N" toàn
+    viện nhưng drill chỉ ra subset persona → count != drill + lỗ leak aggregate.
+
+    Fix (USER 2026-06-09): _count tách 2 nhánh —
+      (a) doctype KHÔNG có hook → ``frappe.db.count`` (rẻ, đúng).
+      (b) 5 doctype CÓ hook (AC Asset / PM Work Order / Incident Report /
+          Asset Repair / Asset Commissioning) → đếm permission-aware qua
+          ``frappe.get_list(limit_page_length=0)`` dưới ``frappe.session.user``
+          (KHÔNG ``ignore_permissions``).
+
+    INVARIANT (D3): get_overview() count == số dòng persona thấy khi drill list
+    tương ứng, cho MỌI persona. Vendor < Admin; Vendor count == len(get_list
+    cùng filter dưới session Vendor). Vendor isolation GIỮ NGUYÊN; internal
+    technician + auditor = read-all KHÔNG đổi.
+
+    Run: bench --site miyano run-tests --module assetcore.tests.test_dashboard
+    """
+
+    _VENDOR_EMAIL = "vendor_dashperm@example.com"
+    _OTHER_EMAIL = "other_tech_dashperm@example.com"
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        frappe.set_user("Administrator")
+        cls.cat = _ensure_category("_TestCatDashPerm")
+
+        # Vendor Engineer (NGOÀI viện) — isolation persona. Vendor + baseline desk
+        # role (AC Asset DocPerm read) → ac_asset_query routes to vendor-scope
+        # branch (responsible_technician = vendor). Mirrors test_imm00_list_scope.
+        cls.vendor_user = _ensure_dash_user(
+            cls._VENDOR_EMAIL, "Vendor DashPerm",
+            "Vendor Engineer", "AssetCore System User",
+        )
+        cls.other_user = _ensure_dash_user(
+            cls._OTHER_EMAIL, "Other DashPerm", "Repair User",
+        )
+
+        # 1 asset của vendor (responsible_technician = vendor) + 1 của internal.
+        # ⚠️ asset_name KHÔNG prefix '_' và name KHÔNG prefix 'SI-' → KHÔNG bị
+        # reserved_prefix_filter loại (nếu loại, mọi count==0 → test vô nghĩa).
+        # Dùng prefix 'ZDashPerm' (counted) để phân biệt với junk (_/SI- = reserved).
+        cls.vendor_asset = _insert_dash_asset({
+            "doctype": "AC Asset",
+            "asset_name": "ZDashPerm Vendor Asset",
+            "asset_category": cls.cat,
+            "lifecycle_status": "Active",
+            "responsible_technician": cls.vendor_user,
+            "manufacturer_sn": f"DP-SN-V-{int(time.time()*1000)%1000000}",
+        }).name
+        cls.internal_asset = _insert_dash_asset({
+            "doctype": "AC Asset",
+            "asset_name": "ZDashPerm Internal Asset",
+            "asset_category": cls.cat,
+            "lifecycle_status": "Active",
+            "responsible_technician": cls.other_user,
+            "manufacturer_sn": f"DP-SN-I-{int(time.time()*1000)%1000000}",
+        }).name
+        cls._assets = [cls.vendor_asset, cls.internal_asset]
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        from assetcore.tests._asset_cleanup import purge_asset, purge_category_by_name
+        frappe.set_user("Administrator")
+        for a in getattr(cls, "_assets", []):
+            try:
+                purge_asset(a)
+            except Exception:
+                pass
+        purge_category_by_name("_TestCatDashPerm")
+        for email in (cls._VENDOR_EMAIL, cls._OTHER_EMAIL):
+            if frappe.db.exists("User", email):
+                frappe.delete_doc("User", email, force=True, ignore_permissions=True)
+        frappe.db.commit()
+        super().tearDownClass()
+
+    def _overview(self) -> dict:
+        from assetcore.api.dashboard import get_overview
+        resp = get_overview()
+        self.assertTrue(resp.get("success"), f"get_overview failed: {resp}")
+        return resp["data"]
+
+    # ── TC-DASH-PERM-01: count permission-aware (RED trước fix) ──────────────
+    def test_tc_dash_perm_01_assets_total_scoped_by_persona(self):
+        """Vendor session → assets.total == 1 (chỉ asset của vendor), KHÔNG 2.
+        Admin session → assets.total >= 2 (read-all). Chứng minh count
+        permission-aware (RED trước fix: vendor cũng thấy 2)."""
+        frappe.set_user(self.vendor_user)
+        try:
+            vendor_total = self._overview()["assets"]["total"]
+            # Vendor chỉ phụ trách vendor_asset → CHỈ thấy 1 asset (của mình).
+            self.assertEqual(
+                vendor_total, 1,
+                "Vendor dashboard assets.total phải == 1 (asset của vendor) — "
+                "KHÔNG đếm asset toàn viện (count permission-aware)",
+            )
+        finally:
+            frappe.set_user("Administrator")
+
+        admin_total = self._overview()["assets"]["total"]
+        self.assertGreaterEqual(
+            admin_total, 2,
+            "Admin read-all phải thấy >= 2 asset (vendor + internal)",
+        )
+        self.assertLess(
+            vendor_total, admin_total,
+            "INVARIANT: Vendor count < Admin count (isolation giữ, no leak)",
+        )
+
+    # ── TC-DASH-PERM-02: INVARIANT count == drill (5 hooked doctypes) ────────
+    def test_tc_dash_perm_02_count_equals_drill_under_vendor(self):
+        """Dưới session Vendor: mỗi KPI count == số dòng drill (get_list cùng
+        filter, permission-aware) cho cả 5 doctype CÓ hook. get_list dưới session
+        Vendor áp CÙNG permission_query_conditions + DocPerm như drill → count ==
+        drill. Persona thiếu DocPerm read trên doctype → get_list raise
+        PermissionError → drill = 0 == KPI (count==drill==0, KHÔNG leak)."""
+        from assetcore.services.imm00 import reserved_prefix_filter
+        from assetcore.services.imm09 import open_repair_filter
+        from assetcore.services.imm12 import open_incident_filter
+
+        def _drill(doctype, filters):
+            """Đếm permission-aware như _count nhánh (b) — catch PermissionError
+            (persona không có DocPerm read) → 0 (== drill list rỗng)."""
+            try:
+                return len(frappe.get_list(
+                    doctype, filters=filters, fields=["name"], limit_page_length=0))
+            except Exception:
+                return 0
+
+        frappe.set_user(self.vendor_user)
+        try:
+            ov = self._overview()
+            _rsv = reserved_prefix_filter()
+
+            cases = [
+                ("AC Asset", _rsv, ov["assets"]["total"]),
+                ("PM Work Order",
+                 {"status": ["not in", ["Completed", "Cancelled"]]},
+                 ov["pm"]["open"]),
+                ("Incident Report", open_incident_filter(), ov["incidents"]["open"]),
+                ("Asset Repair", open_repair_filter(), ov["cm"]["open"]),
+                ("Asset Commissioning",
+                 {"workflow_state": ["not in", ["Clinical_Release", "Return_To_Vendor"]],
+                  "docstatus": ["!=", 2]},
+                 ov["commissioning"]["pending"]),
+            ]
+            for doctype, filters, kpi in cases:
+                self.assertEqual(
+                    kpi, _drill(doctype, filters),
+                    f"{doctype}: KPI count != drill (vendor session)")
+            # Sanity: AC Asset vendor scope = đúng 1 (asset của vendor) → count==1.
+            self.assertEqual(ov["assets"]["total"], 1,
+                             "vendor AC Asset count phải == 1 (chỉ asset của vendor)")
+        finally:
+            frappe.set_user("Administrator")
+
+    # ── TC-DASH-PERM-03: non-hooked doctypes still use db.count ──────────────
+    def test_tc_dash_perm_03_non_hooked_doctype_not_scoped(self):
+        """Doctype KHÔNG có permission_query_conditions hook (User / Has Role /
+        Asset Document / IMM CAPA Record / IMM Needs Request) VẪN dùng
+        frappe.db.count → count Vendor == count Admin (KHÔNG bị scope nhầm).
+        Verify nhánh (a) hoạt động qua admin-persona builder counts."""
+        from assetcore.api.dashboard import _count
+        from assetcore.permissions import (
+            ac_asset_query, incident_report_query, asset_repair_query,
+            pm_work_order_query, asset_commissioning_query,
+        )
+        # Đối với non-hooked doctype, _count == frappe.db.count dù session nào.
+        for dt in ("User", "Has Role", "Asset Document", "IMM CAPA Record",
+                   "IMM Needs Request"):
+            frappe.set_user("Administrator")
+            admin_c = _count(dt)
+            frappe.set_user(self.vendor_user)
+            try:
+                vendor_c = _count(dt)
+            finally:
+                frappe.set_user("Administrator")
+            db_c = frappe.db.count(dt)
+            self.assertEqual(admin_c, db_c,
+                             f"{dt}: non-hooked _count phải == frappe.db.count")
+            self.assertEqual(vendor_c, db_c,
+                             f"{dt}: non-hooked _count KHÔNG được scope theo persona")
+
+    # ── TC-DASH-PERM-04: reserved-prefix loại rác qua path mới ───────────────
+    def test_tc_dash_perm_04_reserved_prefix_excluded(self):
+        """Seed asset rác _Test_X / SI-Y → get_overview().assets.total dưới Admin
+        KHÔNG đếm chúng (predicate _rsv GIỮ qua path permission-aware mới)."""
+        junk = []
+        try:
+            # reserved_asset_names predicate: asset_name LIKE '_%' OR name (PK)
+            # LIKE 'SI-%'. AC Asset autoname (AC-ASSET-.YYYY.-.####) OVERRIDE explicit
+            # `name` ngay cả khi flags.in_install → muốn PK 'SI-*' phải rename sau insert.
+            uniq = int(time.time() * 1000) % 1000000
+            # (a) reserved qua asset_name prefix '_'.
+            d1 = _insert_dash_asset({
+                "doctype": "AC Asset",
+                "asset_name": "_TestDashPerm Junk Underscore",
+                "asset_category": self.cat,
+                "lifecycle_status": "Active",
+                "manufacturer_sn": f"DP-JUNK-1-{uniq}",
+            })
+            junk.append(d1.name)
+            # (b) reserved qua name (PK) prefix 'SI-' — rename PK sau insert.
+            d2 = _insert_dash_asset({
+                "doctype": "AC Asset",
+                "asset_name": "DashPerm Junk SI Prefix",
+                "asset_category": self.cat,
+                "lifecycle_status": "Active",
+                "manufacturer_sn": f"DP-JUNK-2-{uniq}",
+            })
+            si_name = f"SI-DASHPERM-{uniq}"
+            from frappe.model.rename_doc import rename_doc as _rename_doc
+            _rename_doc("AC Asset", d2.name, si_name,
+                        force=True, ignore_permissions=True, validate=False)
+            junk.append(si_name)
+            frappe.db.commit()
+
+            frappe.set_user("Administrator")
+            ov = self._overview()
+            # Asset rác KHÔNG được nằm trong drill (cùng predicate _rsv).
+            from assetcore.services.imm00 import reserved_prefix_filter
+            drill_names = {r["name"] for r in frappe.get_list(
+                "AC Asset", filters=reserved_prefix_filter(),
+                fields=["name"], limit_page_length=0)}
+            for j in junk:
+                self.assertNotIn(j, drill_names,
+                                 f"asset rác {j} phải bị loại khỏi drill (_rsv)")
+            self.assertEqual(ov["assets"]["total"], len(drill_names),
+                             "assets.total == drill (_rsv giữ qua path mới)")
+        finally:
+            from assetcore.tests._asset_cleanup import purge_asset
+            frappe.set_user("Administrator")
+            for j in junk:
+                try:
+                    purge_asset(j)
+                except Exception:
+                    pass
+            frappe.db.commit()
+
+    # ── TC-DASH-PERM-05: internal tech + auditor = read-all == Admin ─────────
+    def test_tc_dash_perm_05_internal_and_auditor_read_all(self):
+        """Internal Technician + Auditor → assets.total == Admin (read-all,
+        KHÔNG bị thu hẹp nhầm như Vendor). Xác nhận ac_asset_query trả '' cho 2
+        persona này được tôn trọng trên path đếm KPI."""
+        from assetcore.permissions import ac_asset_query
+        internal = _ensure_dash_user(
+            "ktv_internal_dashperm@example.com", "KTV DashPerm",
+            "PM User", "Repair User", "Calibration User", "Corrective User",
+        )
+        auditor = _ensure_dash_user(
+            "auditor_dashperm@example.com", "Auditor DashPerm", "AssetCore Auditor")
+        frappe.db.commit()
+        try:
+            frappe.set_user("Administrator")
+            admin_total = self._overview()["assets"]["total"]
+
+            # Predicate phải rỗng (read-all) cho cả hai persona.
+            self.assertEqual(ac_asset_query(internal), "",
+                             "KTV nội bộ → predicate rỗng (read-all)")
+            self.assertEqual(ac_asset_query(auditor), "",
+                             "Auditor → predicate rỗng (read-all)")
+
+            frappe.set_user(internal)
+            internal_total = self._overview()["assets"]["total"]
+            frappe.set_user(auditor)
+            auditor_total = self._overview()["assets"]["total"]
+            frappe.set_user("Administrator")
+
+            self.assertEqual(internal_total, admin_total,
+                             "Internal tech read-all → count == Admin")
+            self.assertEqual(auditor_total, admin_total,
+                             "Auditor read-all → count == Admin")
+        finally:
+            frappe.set_user("Administrator")
+            for email in ("ktv_internal_dashperm@example.com",
+                          "auditor_dashperm@example.com"):
+                if frappe.db.exists("User", email):
+                    frappe.delete_doc("User", email, force=True, ignore_permissions=True)
+            frappe.db.commit()
+
+    # ── Guard: _count branches on the hook-set (SSoT, no hardcode drift) ─────
+    def test_tc_dash_perm_06_scoped_set_derived_from_hooks_py(self):
+        """SSoT guard: _perm_scoped_doctypes() = giao(candidate dashboard, hook-set
+        hooks.py). frappe.get_hooks trả MERGED set (gồm core Frappe doctype) nên ta
+        assert (a) 5 AssetCore doctype CÓ mặt trong hook-set và (b)
+        _perm_scoped_doctypes() == đúng 5 đó. Nếu ai gỡ hook 1 doctype trong
+        hooks.py → assert fail → buộc đồng bộ (chống drift hardcode)."""
+        expected = {"AC Asset", "PM Work Order", "Incident Report",
+                    "Asset Repair", "Asset Commissioning"}
+        hooked = set(frappe.get_hooks("permission_query_conditions").keys())
+        # (a) cả 5 doctype AssetCore PHẢI có permission_query_conditions hook.
+        self.assertTrue(
+            expected <= hooked,
+            f"hooks.py thiếu permission_query_conditions cho: {expected - hooked}",
+        )
+        # (b) helper SSoT giao đúng 5 (không nhiều hơn, không ít hơn).
+        from assetcore.api import dashboard as dash_mod
+        scoped = dash_mod._perm_scoped_doctypes()
+        self.assertEqual(scoped, expected,
+                         "_perm_scoped_doctypes() phải == 5 doctype hooked AssetCore (SSoT)")
+
+
+def _ensure_dash_user(email: str, first_name: str, *roles: str) -> str:
+    if frappe.db.exists("User", email):
+        frappe.delete_doc("User", email, force=True, ignore_permissions=True)
+    u = frappe.get_doc({
+        "doctype": "User",
+        "email": email,
+        "first_name": first_name,
+        "send_welcome_email": 0,
+        "enabled": 1,
+    }).insert(ignore_permissions=True)
+    if roles:
+        u.add_roles(*roles)
+    return u.name
+
+
+def _insert_dash_asset(data: dict):
+    """Insert AC Asset bypassing the lifecycle workflow (test fixture)."""
+    prev = frappe.flags.in_install
+    frappe.flags.in_install = "frappe"
+    try:
+        return frappe.get_doc(data).insert(ignore_permissions=True)
+    finally:
+        frappe.flags.in_install = prev
 
 
 if __name__ == "__main__":  # pragma: no cover

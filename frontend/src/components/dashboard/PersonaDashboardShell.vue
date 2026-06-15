@@ -28,8 +28,9 @@ const emit = defineEmits<{ (e: 'retry'): void }>()
       <button class="text-sm font-medium underline hover:no-underline" @click="emit('retry')">Thử lại</button>
     </div>
 
-    <!-- KPI row: skeleton khi loading (không số 0 giả) -->
-    <div class="mb-7 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <!-- KPI row: skeleton khi loading (không số 0 giả).
+         F7 — bước tablet md:grid-cols-3 → 768-1023px KHÔNG phí khoảng trắng / KHÔNG vỡ. -->
+    <div class="mb-7 grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
       <template v-if="loading && !kpis.length">
         <div
           v-for="i in 4"

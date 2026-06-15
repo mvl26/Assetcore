@@ -1,7 +1,7 @@
 // TDD — IMM-16 CAPA effectiveness_check i18n (NĐ98/QMS): SSoT nhãn VI + màu compliance.
 // Guard chống recurrence pattern A (English enum leak): mọi option BE phải có key trong STATUS_MAP.
 import { describe, it, expect } from 'vitest'
-import { translateStatus, getStatusColor, translateFrequency, translatePmType, translateDepreciationMethod } from './formatters'
+import { translateStatus, getStatusColor, translateFrequency, translatePmType, translateDepreciationMethod, translateLifecycleEvent } from './formatters'
 
 const COLOR_GREEN  = 'bg-emerald-100 text-emerald-800 border border-emerald-200'
 const COLOR_YELLOW = 'bg-yellow-100 text-yellow-800 border border-yellow-200'
@@ -285,5 +285,97 @@ describe('Guard anti-recurrence (pattern A i18n leak): mọi option khấu hao c
     for (const opt of DEPR_METHOD_OPTIONS) {
       expect(translateDepreciationMethod(opt)).not.toMatch(leak)
     }
+  })
+})
+
+// ─── TDD IMM-00 vòng 17 — translateLifecycleEvent no-leak fallback ──────────────
+// HARD-CONSTRAINT (no-leak): màn quét QR (AssetScanInfoView:229) +
+// timeline (AssetDetailView:816) render recent_maintenance.event_type / event.event_type
+// QUA translateLifecycleEvent. Mã LẠ (drift/legacy/enum mới chưa map) TUYỆT ĐỐI
+// KHÔNG được rò raw-code/English ra UI → nhánh unknown phải trả nhãn VI an toàn 'Khác',
+// KHÔNG trả nguyên input. Nhãn ĐÃ BIẾT giữ nguyên (regression-safe).
+const SAFE_UNKNOWN_LABEL = 'Khác'
+
+// 5 mã canonical bảo trì khớp BE services/imm00.py::_MAINTENANCE_EVENT_TYPES → nhãn VI cũ.
+const MAINTENANCE_EVENT_VI: Record<string, string> = {
+  pm_completed:        'Hoàn tất bảo trì',
+  repair_completed:    'Hoàn tất sửa chữa',
+  calibration_passed:  'Hiệu chuẩn đạt',
+  pm_started:          'Bắt đầu bảo trì',
+  calibration_started: 'Bắt đầu hiệu chuẩn',
+}
+
+// Snapshot 18 key→label của LIFECYCLE_EVENT_MAP (chống đổi nhầm nhãn đã biết).
+const LIFECYCLE_VI_SNAPSHOT: Record<string, string> = {
+  commissioned:                 'Đưa vào sử dụng',
+  activated:                    'Kích hoạt',
+  restored:                     'Khôi phục hoạt động',
+  out_of_service:               'Ngừng hoạt động',
+  pm_started:                   'Bắt đầu bảo trì',
+  pm_completed:                 'Hoàn tất bảo trì',
+  repair_opened:                'Mở phiếu sửa chữa',
+  repair_completed:             'Hoàn tất sửa chữa',
+  calibration_started:          'Bắt đầu hiệu chuẩn',
+  calibration_passed:           'Hiệu chuẩn đạt',
+  calibration_failed:           'Hiệu chuẩn không đạt',
+  incident_reported:            'Ghi nhận sự cố',
+  decommissioned:               'Thanh lý',
+  transferred:                  'Luân chuyển',
+  registered:                   'Đăng ký thiết bị',
+  depreciated:                  'Trích khấu hao',
+  depreciation_rules_inherited: 'Kế thừa quy tắc khấu hao',
+  depreciation_stopped:         'Dừng khấu hao',
+}
+
+const UNKNOWN_DRIFT_CODES = [
+  'pm_aborted', 'SOME_DRIFT', 'restored_v2', 'khong_co_trong_enum',
+  'PM_COMPLETED', 'qr_generated', 'label_printed', 'State Change', 'unknown',
+]
+
+describe('translateLifecycleEvent — 5 mã bảo trì BE giữ nhãn VI cũ', () => {
+  for (const [code, label] of Object.entries(MAINTENANCE_EVENT_VI)) {
+    it(`'${code}' → '${label}'`, () => {
+      expect(translateLifecycleEvent(code)).toBe(label)
+    })
+  }
+})
+
+describe('translateLifecycleEvent — mã lạ KHÔNG rò raw-code, trả nhãn an toàn', () => {
+  it("'pm_aborted'/'SOME_DRIFT'/'restored_v2' → 'Khác' (≠ input)", () => {
+    for (const code of ['pm_aborted', 'SOME_DRIFT', 'restored_v2']) {
+      expect(translateLifecycleEvent(code)).not.toBe(code)
+      expect(translateLifecycleEvent(code)).toBe(SAFE_UNKNOWN_LABEL)
+    }
+  })
+})
+
+describe('translateLifecycleEvent — invariant no-leak với mọi mã lạ', () => {
+  it("không kết quả nào chứa '_' và không kết quả nào bằng input", () => {
+    for (const code of UNKNOWN_DRIFT_CODES) {
+      const out = translateLifecycleEvent(code)
+      expect(out, `rò '_' qua "${code}" → "${out}"`).not.toContain('_')
+      expect(out, `rò chính input "${code}"`).not.toBe(code)
+    }
+  })
+})
+
+describe('translateLifecycleEvent — regression 18 key map giữ nguyên nhãn', () => {
+  for (const [code, label] of Object.entries(LIFECYCLE_VI_SNAPSHOT)) {
+    it(`'${code}' → '${label}'`, () => {
+      expect(translateLifecycleEvent(code)).toBe(label)
+    })
+  }
+  it('toàn bộ nhãn đã biết KHÔNG chứa snake_case EN', () => {
+    for (const code of Object.keys(LIFECYCLE_VI_SNAPSHOT)) {
+      expect(/[a-z]_[a-z]/.test(translateLifecycleEvent(code)), `nhãn còn snake_case: ${code}`).toBe(false)
+    }
+  })
+})
+
+describe('translateLifecycleEvent — rỗng giữ nguyên hành vi', () => {
+  it("null / '' / undefined → '—'", () => {
+    expect(translateLifecycleEvent(null)).toBe('—')
+    expect(translateLifecycleEvent('')).toBe('—')
+    expect(translateLifecycleEvent(undefined)).toBe('—')
   })
 })

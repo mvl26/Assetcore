@@ -6,6 +6,8 @@
 // KHÔNG wrap thêm ApiResponse<T>.
 
 import { frappeGet, frappePost } from './helpers'
+import api from './axios'
+import { ApiError, ErrorCode, httpStatusToCode, type ErrorCodeType } from './errors'
 import type {
   AcAsset, AcAssetListItem, AcSupplier, AcLocation, AcDepartment,
   AcAssetCategory, ImmDeviceModel, ImmSlaPolicy, ImmAuditTrail,
@@ -23,6 +25,34 @@ export function listAssets(params: AssetListParams = {}): Promise<PaginatedRespo
 
 export function getAsset(name: string): Promise<AcAsset> {
   return frappeGet(`${BASE}.get_asset`, { name })
+}
+
+// ─── Asset action meta (panel NẠC — màn tạo WO: CM / Hiệu chuẩn / PM) ───────────
+// Payload least-privilege (NĐ98 data-minimization) cho panel meta thiết bị 5-dòng.
+// CHỈ 6 field — KHÔNG kế thừa AcAsset (full doc rò gross_purchase_amount /
+// accumulated_depreciation / current_book_value / purchase_cost / salvage_value /
+// qr_token / audit-chain). Đóng over-fetch tài chính ở đường QR scan-action: 3 màn
+// tạo WO gọi getAssetActionMeta THAY getAsset cho panel. `name` là khóa nội bộ; FE
+// render asset_name / device_model_name / location_name / lifecycle_status /
+// risk_classification. Mirror BE `assetcore.api.imm00.get_asset_action_meta` 1-1.
+export interface AssetActionMeta {
+  name: string
+  asset_name?: string
+  device_model_name?: string
+  lifecycle_status?: string
+  risk_classification?: string
+  location_name?: string
+}
+
+/**
+ * Nạp meta NẠC cho panel thiết bị ở màn tạo WO (CM/Hiệu chuẩn/PM).
+ * Mirror BE `assetcore.api.imm00.get_asset_action_meta` (naming contract — path =
+ * tên function BE). Cùng 3 lớp bảo mật như getAsset: 404 (name rỗng/không tồn tại)
+ * / 403 (vendor-IDOR / thiếu DocPerm read) → ApiError; caller bắt → assetMeta=null
+ * (panel ẩn, KHÔNG vỡ trang, KHÔNG leak raw exc/email/qr_token).
+ */
+export function getAssetActionMeta(name: string): Promise<AssetActionMeta> {
+  return frappeGet(`${BASE}.get_asset_action_meta`, { name })
 }
 
 export function createAsset(data: Partial<AcAsset>): Promise<{ name: string }> {
@@ -80,10 +110,40 @@ export interface RecentMaintenance {
   event_type: string
   date: string | null
 }
+// R1 QR-SCAN-ACTION (ADR-IMM00-QR-SCAN-ACTION §D2) — 1 phần tử của available_actions.
+// Mirror CHÍNH XÁC shape BE `_build_available_actions` (services/imm00.py): derive
+// SERVER-SIDE = has_cap ∩ lifecycle_allows. FE CHỈ render (KHÔNG hardcode action,
+// KHÔNG tự tính enabled/reason).
+//   • key     — định danh action (report_failure | request_pm | request_cm |
+//               request_calibration). FE dịch nhãn VI qua SCAN_ACTION_LABELS (SSoT).
+//   • label   — nhãn VI BE phát (fallback khi key chưa có trong SSoT FE).
+//   • route   — TÊN route (vue-router name), KHÔNG path thô. FE dựng URL qua
+//               router.resolve({ name, query }) — KHÔNG ghép query-string thủ công,
+//               KHÔNG kèm qr_token.
+//   • enabled — true ⟺ có quyền ∧ lifecycle cho phép. false → nút disabled + reason.
+//   • reason  — chuỗi VI giải thích vì sao disabled (CHỈ khi enabled=false). Ưu tiên
+//               lifecycle > capability (BE đã quyết — FE chỉ render).
+export interface ScanAction {
+  key: string
+  label: string
+  route: string
+  enabled: boolean
+  reason: string
+}
 export interface AssetScanInfo {
   name: string
   asset_code: string
   asset_name: string
+  // D5 (ADR-IMM00-QR-SCAN-ACTION — NĐ98): Số serial NSX = định danh truy xuất hợp
+  // lệ. BE coalesce '' khi rỗng (parity asset_code/asset_name — KHÔNG None). KTV
+  // xác nhận ĐÚNG thiết bị vật lý trước khi báo hỏng/tạo WO.
+  manufacturer_sn: string
+  // Vòng 38 (risk_classification — phân loại rủi ro): enum EN AC Asset
+  // 'Low/Medium/High/Critical' (read-only, fetch_from device_model). BE GIỮ raw
+  // enum làm SSoT (KHÔNG dịch); FE map sang VI qua riskClassificationLabel +
+  // nhãn 'Chưa phân loại' khi rỗng. BE coalesce '' khi rỗng (parity manufacturer_sn
+  // — KHÔNG None). KHÔNG nhầm với risk_class (A/B/C/D — WHO/NĐ98 letter class).
+  risk_classification: string
   device_model_name: string
   location_name: string
   lifecycle_status: string
@@ -98,6 +158,19 @@ export interface AssetScanInfo {
   // KHÔNG so next_calibration_date với client clock. true ⟺ next_calibration_date
   // quá khứ ∧ thiết bị còn dùng (∉ Out of Service/Decommissioned).
   calibration_overdue: boolean
+  // Vòng 48 (trạng thái BẢO HÀNH): warranty_expiry_date = str|None 'YYYY-MM-DD'
+  // (qua _date_str_or_none — parity next_pm_date/next_calibration_date; rỗng/None →
+  // null). KTV biết "còn/hết bảo hành" TRƯỚC khi báo hỏng/tạo CM (affordance chi
+  // phí sửa chữa). FE map nhãn VI presence-aware (KHÔNG leak datetime thô/phi-ISO).
+  warranty_expiry_date: string | null
+  // Cờ HẾT BẢO HÀNH derive SERVER-SIDE (timezone-safe) qua _is_warranty_expired —
+  // STRICT < ngày server, KHÔNG client clock. ĐỘC LẬP lifecycle (KHÁC pm/cal
+  // overdue: bảo hành = sự kiện HỢP ĐỒNG — Out-of-Service/Decommissioned VẪN có
+  // thể còn/hết bảo hành). true ⟺ warranty_expiry_date quá khứ. FE CHỈ render cờ.
+  warranty_expired: boolean
+  // R1 QR-SCAN-ACTION (D2) — 4 CTA màn quét derive SERVER-SIDE. FE v-for render
+  // MỌI phần tử (kể cả enabled=false → nút disabled + reason; KHÔNG ẩn nút chết).
+  available_actions: ScanAction[]
 }
 
 /**
@@ -112,12 +185,16 @@ export function getAssetScanInfo(params: { token?: string; name?: string }): Pro
 }
 
 // ─── QR label print (A4 — ADR-001 D3) ──────────────────────────────────────────
-// Payload nhãn QR cấp tài sản (6 field). Khớp 1-1 với service BE
+// Payload nhãn QR cấp tài sản (8 field). Khớp 1-1 với service BE
 // build_asset_label_data — qr_url là chuỗi tuyệt đối /a/<token>, FE encode TRỰC
 // TIẾP vào QR ảnh (KHÔNG tự build URL, KHÔNG mã hoá chuỗi tag commissioning).
+// ADR-IMM00-QR-SCAN-ACTION D5: tách bạch Mã tài sản (asset_code) ↔ Số serial NSX
+// (manufacturer_sn) + Tên tài sản (asset_name) — định danh truy xuất NĐ98 trên tem.
 export interface AssetLabelData {
   name: string
   asset_code: string
+  asset_name: string
+  manufacturer_sn: string
   device_model_name: string
   location_name: string
   lifecycle_status: string
@@ -140,6 +217,7 @@ export function isBatchLabelError(item: BatchLabelItem): item is BatchLabelError
 /**
  * Lấy dữ liệu in nhãn QR cho 1 asset (READ-ONLY — KHÔNG ghi label_printed).
  * Mirror BE `assetcore.api.imm00.get_asset_label_data` (naming contract).
+ * Gate asset.print ở BE (D6 phương án B) → user không có quyền in nhận 403.
  */
 export function getAssetLabelData(asset: string): Promise<AssetLabelData> {
   return frappeGet(`${BASE}.get_asset_label_data`, { asset })
@@ -165,11 +243,112 @@ export function markLabelPrinted(assets: string[]): Promise<{ printed: string[];
   return frappePost(`${BASE}.mark_label_printed`, { assets })
 }
 
+// ─── QR label PDF — đa khổ tem (ADR-IMM00-LABEL-PDF — phương án A) ───────────────
+// Khổ tem SSoT (mirror BE services/imm00.py:_LABEL_PRESETS + DEFAULT_LABEL_PRESET).
+// Server render HTML → PDF ĐÚNG khổ tem nhiệt đã chọn (MỖI nhãn = 1 trang), FE tải
+// Blob → iframe ẩn → iframe.print() → ra ĐÚNG khổ (KHÔNG còn @page CSS giả-lập sai-khổ).
+//
+// Whitelist 3 preset PDF hợp lệ — KEY KHỚP CHÍNH XÁC (phân biệt hoa thường) với BE
+// `_LABEL_PRESETS`. preset ngoài 3 key này → BE trả 422 (FE chặn trước qua dropdown).
+// 'tem-60x100' là MẶC ĐỊNH (USER có máy in tem 6×10cm portrait).
+export const LABEL_PDF_PRESETS = [
+  { key: 'tem-60x100', label: 'Tem 60×100mm' },
+  { key: 'tem-70x40', label: 'Tem 70×40mm' },
+  { key: 'tem-50x30', label: 'Tem 50×30mm' },
+] as const
+
+export type LabelPdfPreset = (typeof LABEL_PDF_PRESETS)[number]['key']
+
+/** Preset PDF mặc định = 'tem-60x100' (mirror BE DEFAULT_LABEL_PRESET). */
+export const LABEL_PDF_PRESET: LabelPdfPreset = 'tem-60x100'
+
+/** Nhãn VI của 1 preset PDF (fallback rỗng nếu key lạ). */
+export function labelPdfPresetLabel(preset: string): string {
+  return LABEL_PDF_PRESETS.find((p) => p.key === preset)?.label ?? ''
+}
+
+// Shape error envelope BE phát trên HTTP-200 (Frappe whitelist bọc dưới `message`).
+// print_asset_labels_pdf trả: THÀNH CÔNG = Content-Type application/pdf (bytes);
+// LỖI nghiệp vụ (cap-403/preset-422/empty-422/batch-413/IDOR-403) = _err JSON
+// HTTP-200 → KHÔNG đưa Blob-JSON cho iframe (tránh in JSON thô ra giấy).
+interface PdfErrorEnvelope {
+  success?: boolean
+  error?: string
+  code?: string
+  http_status?: number
+  fields?: Record<string, string>
+}
+
+// Đọc text từ Blob — ưu tiên Blob.text() (browser + jsdom mới); fallback FileReader
+// (jsdom cũ KHÔNG có Blob.text()). Đảm bảo error-envelope parse được ở mọi env.
+async function blobText(blob: Blob): Promise<string> {
+  if (typeof blob.text === 'function') return blob.text()
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result ?? ''))
+    reader.onerror = () => reject(reader.error)
+    reader.readAsText(blob)
+  })
+}
+
+/**
+ * Sinh PDF nhãn QR khổ tem nhiệt (đa khổ — `preset`) cho `assets` (mỗi asset = 1
+ * trang). Mirror BE `assetcore.api.imm00.print_asset_labels_pdf` (naming contract —
+ * path = tên function BE). Gửi `assets` dạng JSON-string (BE parse_json — parity
+ * getAssetLabelDataBatch) + `preset` (1 trong 3 key whitelist LABEL_PDF_PRESETS;
+ * mặc định 'tem-60x100'). preset NGOÀI whitelist → BE trả 422.
+ *
+ * Dùng axios `api` TRỰC TIẾP (KHÔNG frappeGet/frappePost — chúng unwrap JSON
+ * envelope, làm hỏng Blob nhị phân). Giữ withCredentials + CSRF (interceptor
+ * request đính `X-Frappe-CSRF-Token`). responseType:'blob'.
+ *
+ * BE trả 2 dạng trên HTTP-200:
+ *   (a) THÀNH CÔNG = Content-Type application/pdf → resolve Blob.
+ *   (b) LỖI nghiệp vụ = Error JSON envelope (application/json, success:false,
+ *       code/http_status) → đọc blob.text() → JSON.parse → ném ApiError (message
+ *       VI từ envelope). KHÔNG resolve Blob-JSON (tránh iframe in ra JSON thô).
+ */
+export async function printAssetLabelsPdf(
+  assets: string[],
+  preset: LabelPdfPreset = LABEL_PDF_PRESET,
+): Promise<Blob> {
+  const response = await api.post<Blob>(
+    `${BASE}.print_asset_labels_pdf`,
+    { assets: JSON.stringify(assets), preset },
+    { responseType: 'blob' },
+  )
+  const blob = response.data
+  const contentType = String(response.headers['content-type'] ?? '').toLowerCase()
+
+  // THÀNH CÔNG: Content-Type application/pdf → trả Blob nguyên vẹn cho iframe.
+  if (contentType.includes('application/pdf')) return blob
+
+  // LỖI nghiệp vụ (HTTP-200 + JSON envelope): đọc text → parse → ApiError VI.
+  // Frappe bọc return value whitelist dưới `message`; _err shape {success,error,code,http_status}.
+  const text = await blobText(blob)
+  let env: PdfErrorEnvelope = {}
+  try {
+    const parsed = JSON.parse(text) as { message?: PdfErrorEnvelope } & PdfErrorEnvelope
+    env = (parsed.message ?? parsed) as PdfErrorEnvelope
+  } catch {
+    // Không parse được JSON → lỗi không xác định (KHÔNG echo raw text → tránh leak EN).
+    throw new ApiError('Không thể tạo PDF nhãn QR. Vui lòng thử lại.', ErrorCode.UNKNOWN, 0)
+  }
+  const httpStatus = typeof env.http_status === 'number' ? env.http_status : 0
+  const code: ErrorCodeType = (env.code as ErrorCodeType | undefined)
+    ?? (httpStatus ? httpStatusToCode(httpStatus) : ErrorCode.UNKNOWN)
+  throw new ApiError(
+    env.error || 'Không thể tạo PDF nhãn QR. Vui lòng thử lại.',
+    { code, httpStatus, fields: env.fields },
+  )
+}
+
 // ─── QR token rotate (B — hardening) ────────────────────────────────────────────
 // Cấp lại (rotate) qr_token bị lộ: vô hiệu hoá MỌI nhãn QR đã in (token cũ KHÔNG
-// còn resolve) + cấp token mới. KHÁC getAssetLabelData (read-only): đây là thao
-// tác GHI (gate asset.write ở BE). Trả qr_url MỚI để refresh nhãn/print —
-// KHÔNG surface token thô (ADR-001 §D4 rule 9: no-raw-token, FE chỉ cần qr_url).
+// còn resolve) + cấp token mới. KHÁC getAssetLabelData (gate asset.print): đây là
+// thao tác GHI → gate asset.qr.rotate ở BE (D6 phương án B — tách cap rotate khỏi
+// in). Trả qr_url MỚI để refresh nhãn/print — KHÔNG surface token thô (ADR-001
+// §D4 rule 9: no-raw-token, FE chỉ cần qr_url).
 export interface RegenerateQrResult {
   name: string
   qr_url: string
@@ -178,8 +357,8 @@ export interface RegenerateQrResult {
 /**
  * Cấp lại (rotate) mã QR cho 1 asset — vô hiệu hoá nhãn cũ + token mới (POST).
  * Mirror BE `assetcore.api.imm00.regenerate_asset_qr_token` (naming contract).
- * Gate asset.write ở BE → user chỉ-đọc nhận 403; vendor ngoài scope 403 (IDOR);
- * asset không tồn tại 404 → ApiError, view bắt và notify VI (KHÔNG white-screen).
+ * Gate asset.qr.rotate ở BE → user chỉ print/đọc nhận 403; vendor ngoài scope 403
+ * (IDOR); asset không tồn tại 404 → ApiError, view bắt và notify VI (KHÔNG white-screen).
  */
 export function regenerateAssetQrToken(asset: string): Promise<RegenerateQrResult> {
   return frappePost(`${BASE}.regenerate_asset_qr_token`, { asset })

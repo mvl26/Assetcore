@@ -112,6 +112,21 @@ CAPABILITY_MAP.update({
     "decommission.read":    ("Asset Decommission", "read"),
     "decommission.create":  ("Asset Decommission", "create"),
     "decommission.approve": ("Asset Decommission", "submit"),
+    # ADR-IMM00-QR-SCAN-ACTION D6 (Accepted → EXECUTED, phương án B): TÁCH cap
+    # riêng cho IN nhãn QR + ROTATE token thay vì gate `asset.write` (chỉ Super
+    # Admin có write=1 trên AC Asset → KTV/QL vật tư KHÔNG in/rotate được —
+    # self-correction P2). Least-privilege CHÍNH XÁC theo permtype DocPerm:
+    #  - `asset.print`     → (AC Asset, "print"): in/re-print nhãn. Grounding
+    #    verified (2026-06-08): AC Asset DocPerm print=1 cho ~MỌI role (KTV/QL vật
+    #    tư/* User) → `asset.print` resolve TRUE NGAY, KHÔNG cần đổi DocPerm.
+    #  - `asset.qr.rotate` → (AC Asset, "write"): sinh lại token = thao tác GHI
+    #    (vô hiệu nhãn cũ + đổi định danh phụ) ⇒ bind permtype "write". Hiện chỉ
+    #    Super Admin (write=1); QL vật tư cấp thêm write/grant qua DocPerm (config
+    #    /app, KHÔNG deploy code). KHÔNG hardcode role-name (chống RBAC dead-gate).
+    # Thêm 2 cap → CAP_SET_VERSION ĐỔI (v95→v97) → FE auto-invalidate persisted-
+    # caps stale (lesson IMM-14) + after_migrate invalidate_capabilities() self-heal.
+    "asset.print":          ("AC Asset", "print"),
+    "asset.qr.rotate":      ("AC Asset", "write"),
 })
 
 

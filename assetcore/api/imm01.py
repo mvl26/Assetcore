@@ -281,8 +281,8 @@ def _score_needs_request(name: str, scoring_rows: str) -> dict:
 
 @frappe.whitelist(methods=["POST"])
 def submit_budget_estimate(name: str, budget_lines: str = "[]",
-                            funding_source: str | None = None,
-                            funding_evidence: str | None = None) -> dict:
+                            funding_source: str = "",
+                            funding_evidence: str = "") -> dict:
     return _handle(_submit_budget_estimate, name, budget_lines, funding_source, funding_evidence)
 
 
@@ -540,7 +540,7 @@ def _roll_into_plan(plan_year: int, plan_period: str, needs_requests: str) -> di
 # ─── Demand forecast & dashboard ──────────────────────────────────────────────
 
 @frappe.whitelist()
-def get_demand_forecast(forecast_year: int, device_category: str | None = None) -> dict:
+def get_demand_forecast(forecast_year: int, device_category: str = "") -> dict:
     return _handle(_get_demand_forecast, int(forecast_year), device_category)
 
 
@@ -556,10 +556,11 @@ def _get_demand_forecast(forecast_year: int, device_category: str | None) -> dic
 
 
 @frappe.whitelist()
-def dashboard_kpis(period: str | None = None) -> dict:
+def dashboard_kpis(period: str = "") -> dict:
     """KPI tổng hợp IMM-01 (6 chỉ số mục 10 Module Overview).
 
     period: 'YYYY-Qx' (placeholder; v0.1 trả tổng hợp toàn bộ active).
+    `period=""` ≡ None-cũ (kỳ mặc định — placeholder không lọc theo period).
     """
     return _handle(_dashboard_kpis, period)
 

@@ -1,0 +1,36 @@
+{
+  "$schema": "./node_modules/@openapitools/openapi-generator-cli/config.schema.json",
+  "spaces": 2,
+  "generator-cli": {
+    "version": "7.23.0",
+    "generators": {
+      "mobile-dart": {
+        "generatorName": "dart-dio",
+        "inputSpec": "docs/mobile/openapi/assetcore-mobile.openapi.yaml",
+        "output": "#{cwd}/build/codegen/dart",
+        "additionalProperties": {
+          "pubName": "assetcore_mobile_api",
+          "pubLibrary": "assetcore_mobile_api.api"
+        }
+      },
+      "mobile-kotlin": {
+        "generatorName": "kotlin",
+        "inputSpec": "docs/mobile/openapi/assetcore-mobile.openapi.yaml",
+        "output": "#{cwd}/build/codegen/kotlin",
+        "additionalProperties": {
+          "packageName": "vn.medcons.assetcore.mobile.api",
+          "library": "jvm-retrofit2"
+        }
+      },
+      "mobile-typescript": {
+        "generatorName": "typescript-axios",
+        "inputSpec": "docs/mobile/openapi/assetcore-mobile.openapi.yaml",
+        "output": "#{cwd}/build/codegen/typescript",
+        "additionalProperties": {
+          "npmName": "@assetcore/mobile-api",
+          "supportsES6": true
+        }
+      }
+    }
+  }
+}

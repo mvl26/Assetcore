@@ -83,6 +83,16 @@ vi.mock('@/api/imm00', () => ({
   getAssetLabelData: vi.fn().mockResolvedValue({}),
   markLabelPrinted: vi.fn(),
   regenerateAssetQrToken: vi.fn(),
+  printAssetLabelsPdf: vi.fn(),
+  // SSoT preset khổ tem (selector 3-preset Vòng 4) — view import ở module-level.
+  LABEL_PDF_PRESETS: [
+    { key: 'tem-60x100', label: 'Tem 60×100mm' },
+    { key: 'tem-70x40', label: 'Tem 70×40mm' },
+    { key: 'tem-50x30', label: 'Tem 50×30mm' },
+  ],
+  LABEL_PDF_PRESET: 'tem-60x100',
+  labelPdfPresetLabel: (preset: string) =>
+    ({ 'tem-60x100': 'Tem 60×100mm', 'tem-70x40': 'Tem 70×40mm', 'tem-50x30': 'Tem 50×30mm' } as Record<string, string>)[preset] ?? '',
 }))
 vi.mock('@/api/imm04', () => ({ getCommissioningOrigin: vi.fn().mockResolvedValue(null) }))
 vi.mock('@/api/imm14', () => ({ createDecommission: vi.fn(), approveDecommission: vi.fn() }))
@@ -142,5 +152,71 @@ describe('AssetDetailView — no-raw-token regression (B)', () => {
     const w = mount(AssetDetailView, { props: { id: 'AC-ASSET-2026-00042' }, global: { stubs } })
     await flushPromises()
     expect(w.html()).not.toContain('qr_token')
+  })
+
+  // [V1-E] Smoke: payload no-token VẪN render đúng nhãn VI serial (không EN leak).
+  // Coverage chi tiết ở describe "định danh card …" bên dưới (cùng file → self-contained).
+  it('card "Thông tin HTM" dùng nhãn VI "Số serial NSX" — KHÔNG leak EN "Serial No"', async () => {
+    const w = mount(AssetDetailView, { props: { id: 'AC-ASSET-2026-00042' }, global: { stubs } })
+    await flushPromises()
+    const text = w.text()
+    expect(text).toContain('Số serial NSX')
+    expect(text).not.toContain('Serial No')
+  })
+})
+
+// ── [V1-E] Đồng bộ định danh trên card "Thông tin HTM" (ADR-IMM00-ASSETCODE §D1/D4) ──
+// FE-TDD RED→GREEN. asset_code="Mã tài sản"(PK) ≠ manufacturer_sn="Số serial NSX".
+// Màn read PHẢI tách bạch 2 hàng + nhãn VI SSoT; KHÔNG leak EN "Serial No". Coverage
+// đặt CÙNG file (không phụ thuộc file chuyên-biệt có thể vắng) → đảm bảo regression-lock.
+async function mountIdentity(patch: Partial<typeof currentAsset> = {}) {
+  Object.assign(currentAsset, patch)
+  const w = mount(AssetDetailView, { props: { id: 'AC-ASSET-2026-00042' }, global: { stubs } })
+  await flushPromises()
+  return w
+}
+
+describe('AssetDetailView — định danh card "Thông tin HTM" [ADR-IMM00-ASSETCODE D4 / V1-E]', () => {
+  beforeEach(() => {
+    // Reset 2 field định danh về giá trị "đầy đủ" trước mỗi case (case edit chúng).
+    currentAsset.asset_code = 'AC-VENT-0042'
+    currentAsset.manufacturer_sn = 'SN-DRG-998877'
+  })
+
+  it('hiển thị nhãn "Số serial NSX" + giá trị serial, KHÔNG còn EN "Serial No"', async () => {
+    const w = await mountIdentity({ asset_code: 'TS-2025-USG-001', manufacturer_sn: 'SN-ABC-999' })
+    const text = w.text()
+    expect(text).toContain('Số serial NSX')
+    expect(text).toContain('SN-ABC-999')
+    expect(text).not.toContain('Serial No')
+    expect(w.html()).not.toContain('Serial No')
+  })
+
+  it('render hàng "Mã tài sản" bind asset_code, TÁCH bạch khỏi hàng serial (dt/dd riêng)', async () => {
+    const w = await mountIdentity({ asset_code: 'TS-2025-USG-001', manufacturer_sn: 'SN-ABC-999' })
+    const text = w.text()
+    expect(text).toContain('Mã tài sản')
+    expect(text).toContain('TS-2025-USG-001')
+    const dts = w.findAll('dt').map((d) => d.text())
+    expect(dts).toContain('Mã tài sản')
+    expect(dts).toContain('Số serial NSX')
+    expect(dts.filter((t) => t === 'Mã tài sản')).toHaveLength(1)
+    expect(dts.filter((t) => t === 'Số serial NSX')).toHaveLength(1)
+  })
+
+  it('edge: asset_code rỗng (legacy) → hàng "Mã tài sản" fallback hiển thị name', async () => {
+    const w = await mountIdentity({ asset_code: '', manufacturer_sn: 'SN-ABC-999' })
+    const dts = w.findAll('dt').map((d) => d.text())
+    expect(dts).toContain('Mã tài sản')
+    expect(w.text()).toContain('AC-ASSET-2026-00042') // fallback name (invariant asset_code==name)
+  })
+
+  it('edge: manufacturer_sn rỗng → "Số serial NSX" hiển thị "—" (KHÔNG "undefined")', async () => {
+    const w = await mountIdentity({ manufacturer_sn: '' })
+    const snRow = w.findAll('dt').find((d) => d.text() === 'Số serial NSX')
+    expect(snRow).toBeTruthy()
+    const dd = snRow!.element.parentElement?.querySelector('dd')
+    expect(dd?.textContent?.trim()).toBe('—')
+    expect(w.text()).not.toContain('undefined')
   })
 })

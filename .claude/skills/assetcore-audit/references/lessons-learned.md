@@ -479,3 +479,111 @@ Cross-ref: LL-AUDIT-3 (envelope success:false), `assetcore-be` whitelist hygiene
 
 Cross-ref: [[LL-BE-37]] [[LL-BE-38]] [[LL-BE-39]] [[LL-BE-40]], [[LL-FE-36]] [[LL-FE-37]] [[LL-FE-38]], LL-AUDIT-8 (≥4 accounts), Core Doc `FE_Persona_Navigation.md §7.bis–7.septies`.
 
+---
+
+## Lessons Learned 2026-06-10 — Audit guardrails (HARD-STOP boundary + factory mechanics + contract-surface)
+
+### LL-AUDIT-12: No-auto-commit / no-auto-reload / no-auto-migrate = HARD-STOP của USER — audit chỉ ĐỌC + sửa file
+
+**Triệu chứng→nguyên nhân:** audit/fix "tiện tay" `git commit` hoặc `bench restart`/reload gunicorn rồi kết luận "fix đã live HTTP" → sai. Site chạy gunicorn `--preload` (import đông cứng lúc boot) → code mới ở `api/*.py`/`services/*.py` CHỈ live ở fresh import (`bench execute`/`run-tests`) tới khi USER reload; live HTTP báo 417 AttributeError trên code mới.
+
+**Rule (audit kiểm được):**
+1. Khi chạy audit/fix: TUYỆT ĐỐI KHÔNG `git commit/push/merge/reset`, KHÔNG `bench restart`/reload gunicorn/`supervisorctl`, KHÔNG `bench migrate`, KHÔNG drop/reset DB — quyền USER. Để working tree UNCOMMITTED cho user review; việc cần reload/migrate → ghi vào `open_issues`, KHÔNG tự làm.
+2. Verdict audit KHÔNG được kết luận "fix đã live HTTP" khi mới sửa `api/*.py`/`services/*.py` (preload staleness). Phân biệt: `bench execute`/`run-tests` = fresh import (đã live) vs live HTTP = đợi USER reload.
+3. Mobile-BE / DocType mới (OAuth Client, device-token, cap-set mới) thêm điều kiện USER: `bench migrate` + set `site_config` (`allow_cors` list-origin KHÔNG wildcard+credentials, OAuth Client, FCM, public HTTPS host) + bust cap-cache trước go-live.
+
+Cross-ref: LL-AUDIT-13 (tidy trước chốt verdict), `memory/` feedback_no_auto_commit + gunicorn_preload_staleness + mobile_backend_initiative.
+
+### LL-AUDIT-13: Tidy artifacts là PHẦN BẮT BUỘC của "audit xong" — dọn rác trước khi chốt verdict
+
+**Triệu chứng→nguyên nhân:** sau audit/eval/factory-run có sinh artifact (ảnh Playwright root + `.playwright-mcp/*`, scratch `_scan_junk*`/`_cleanup_junk*`), để lọt untracked junk ở repo ROOT → commit-risk (R-11), `git status` bẩn.
+
+**Rule (audit kiểm được):**
+1. Bước CUỐI của "làm xong" CHẠY `bash .claude/scripts/tidy-eval-artifacts.sh` (idempotent; `--dry` xem trước) — gom ảnh root + `.playwright-mcp/*` → `.playwright/eval/` (gitignored) + xoá scratch `_scan_junk*`/`_cleanup_junk*`/`*.py.tmp.*`/`*.py.orig`/`check_cols.py` + MCP `page-*.yml`/`*.log`.
+2. Verdict audit KHÔNG được Pass khi `git status` còn untracked junk ở repo ROOT (R-11 commit-risk).
+3. KHÔNG nhầm asset thật với rác: swagger-ui favicon (`assetcore/public/swagger-ui/*.png`), `frontend/`/docs img trong subdir = GIỮ. Script CHỈ đụng file UNTRACKED (guard `git ls-files`).
+
+Cross-ref: LL-AUDIT-12, `memory/` feedback_tidy_eval_artifacts; gitStatus untracked `_scan_junk*.py`/`_cleanup_junk.py` ở root.
+
+### LL-AUDIT-14: RBAC dead-gate (literal không tồn tại) — gate bằng role-name string drift → cổng đóng âm thầm HTTP-200
+
+**Triệu chứng→nguyên nhân:** gate quyền bằng role-name literal cũ (`{"IMM ..."}`, `_ROLES_*`, `_SUBMIT_ROLES`, `_STAGE_ROLE`, `has_role(...)`, `role_profile_name=`) đã DRIFT sau chuyển sang Role Profile architecture → role 'IMM Workshop Lead/Operations Manager/Biomed Technician/QA Officer/Storekeeper/Auditor' KHÔNG còn trong Role table → gate luôn đóng kể cả Super Admin, fail âm thầm HTTP-200 (KHÔNG raise). Class KHÁC LL-AUDIT-11 (4-tầng coherence) — đây là literal-không-tồn-tại fail-silent.
+
+**Audit grep + rule (kiểm được):**
+```bash
+grep -rnE '\{"IMM [^"]+"\}|_ROLES_\w+|_SUBMIT_ROLES|_STAGE_ROLE|has_role\(|role_profile_name *=' \
+  assetcore/api/*.py assetcore/services/*.py
+# Mỗi role-name string → cross-check tồn tại trong Role table; drift = 🔴 P1 dead-gate
+```
+1. Mỗi role-name literal PHẢI cross-check tồn tại trong Role table (`frappe.db.exists("Role", "<name>")`).
+2. Fix = gate bằng CAPABILITY (DocPerm thật qua `rbac.require`/`frappe.has_permission`) KHÔNG role-name literal; notify-role qua SSoT `services/shared/notify_roles.py`.
+3. Verdict yêu cầu guard test (kiểu `test_notify_roles_contract.py`) assert mọi notify/gate-role tồn tại trong Role table + 0 dead-literal.
+
+Cross-ref: LL-AUDIT-11 (4-tầng coherence — khác class), `factory_rounds_1_25` ANTI-PATTERN P1; hit thực: `api/imm12.py` `_ROLES_INVESTIGATE/_ROLES_CLOSE`, `services/imm04.py` `_SUBMIT_ROLES/_STAGE_ROLE`, `tasks.py`, `inventory.py`, `imm00.py`.
+
+### LL-AUDIT-15: In-handler error 404/409/422 đến TRÊN HTTP-200 — audit đọc BODY `http_status`/`code`, KHÔNG tin status-line
+
+**Triệu chứng→nguyên nhân:** error nghiệp vụ (404/409/422) sinh qua `_err(msg,code)`/`nthrow`→`handle()` KHÔNG set `frappe.local.response.http_status_code` → HTTP-line = 200, giá trị thật chỉ trong body JSON `http_status`/`code`. Audit dừng ở status-line → bỏ sót lỗi.
+
+**Rule (audit kiểm được):**
+1. Audit MỌI "lỗi server/forbidden/not found" phải đọc response BODY (`bench execute` reproduce + đọc envelope), KHÔNG dừng ở status-line.
+2. SSoT của code = `messages.py` field `http_status` (vd `IMM11_ASSET_BLOCKED`=409 `CAL-008`, KHÔNG 422 — đừng tin task text).
+3. OpenAPI/codegen contract: response khai dưới key `'404'`/`'409'` MÂU THUẪN runtime (thực tế 200) → flag P1, đề xuất `'200' = oneOf [<Created>, Error]` + discriminator `success`.
+4. Phân biệt 2 loại 403: **dispatcher-403** (guest/no-token, HTTP-line 403 thật, `FrappeRawError`/`exc_type=PermissionError` → client RE-AUTH) vs **in-handler cap-403** (bearer hợp lệ thiếu cap, `_err(...,403)` → HTTP-200 + Error envelope `code:FORBIDDEN` → SHOW-MESSAGE không re-auth).
+
+Cross-ref: mở rộng LL-AUDIT-3 (envelope success:false); `memory/` mobile_be_openapi_contract_gotchas; STATE G-REQBODY (`imm12.py:96` in-handler cap-403 vs `__init__.py:876` dispatcher-403; `imm12.py:91-92` `_err(401)`=dead-code over HTTP).
+
+### LL-AUDIT-16: Factory N-vòng = Workflow run-copy — args bị harness STRINGIFY → hardcode + verify ngay sau launch
+
+**Triệu chứng→nguyên nhân:** chạy audit/factory liên tục N vòng bằng `@assetcore-software-factory (agent)` đơn lẻ → subagent single-shot + KHÔNG spawn được subagent nên chỉ chạy inline 1 lượt rồi dừng ("chạy có tý"). Hơn nữa harness STRINGIFY object `args` → script nhận string, `A.rounds`/`A.mode`/`A.focus`=undefined → FALL-BACK lặng về default (3 vòng/improve) dù truyền `{rounds:10,mode:'audit'}`.
+
+**Rule (kiểm được):**
+1. Chạy N vòng PHẢI qua `Workflow({name:'assetcore-factory', args:{rounds,mode,focus}})` (master loop dispatch agent con đúng agentType), KHÔNG gọi agent đơn lẻ.
+2. Khi cần CHẮC scope/rounds/focus: edit script run-copy (`workflows/scripts/assetcore-factory-wf_*.js` in ở tool result) hardcode ROUNDS/MODE/FOCUS rồi relaunch KHÔNG truyền args (run-copy KHÔNG bị classifier chặn; config gốc bị chặn).
+3. VERIFY NGAY sau launch (đừng đợi ~50-68 phút): đọc `subagents/workflows/wf_*/agent-*.jsonl` grep `[PM] Vòng N/M` xác nhận đúng rounds+focus; sai → `TaskStop` + sửa + relaunch.
+
+Cross-ref: LL-AUDIT-17 (fan-out agentType pitfall); `memory/` factory_workflow_20260601.
+
+### LL-AUDIT-17: Investigate fan-out — `assetcore-audit` là SKILL không phải agentType; dùng agentType HỢP LỆ + ĐỌC `<failures>`
+
+**Triệu chứng→nguyên nhân:** `agent(..., {agentType: 'assetcore-audit'})` SAI — `assetcore-audit` là SKILL (gọi qua Skill tool), KHÔNG trong registry agentType → mỗi `agent()` trong `parallel()` ném `agent type ... not found` → trả `null` → `.filter(Boolean)` nuốt hết → `investigation_areas:0` âm thầm (workflow VẪN chạy vòng → kết quả KHÔNG rỗng → dễ tưởng đã điều tra).
+
+**Rule (kiểm được):**
+1. agentType HỢP LỆ chỉ: `assetcore-ba`, `assetcore-be-dev`, `assetcore-fe-dev`, `assetcore-pm`, `assetcore-qa`, `assetcore-software-factory`, `assetcore-user` (+ `general-purpose`/`Explore`).
+2. Fan-out investigation dùng `agentType:'assetcore-qa'`/`'Explore'`/`'general-purpose'` + PREPEND `Invoke skill **assetcore-audit**` vào prompt.
+3. Sau MỖI launch workflow ĐỌC `<failures>` trong task-notification (KHÔNG chỉ `result`) để bắt loại fail âm thầm này.
+
+Cross-ref: LL-AUDIT-16 (factory run-copy); `memory/` factory_investigate_agenttype_pitfall + mobile_backend_initiative (fan-out dùng `assetcore-be-dev`).
+
+### LL-AUDIT-18: Escalation gate — đổi role/role_profile/enabled phải gate admin TUYỆT ĐỐI, nhánh self-edit KHÔNG bypass `_assert_admin`
+
+**Triệu chứng→nguyên nhân:** endpoint sửa user có nhánh self-bypass (`if target==actor:` / `if session.user != user:` bỏ qua admin-check) → đổi-role = CẤP QUYỀN nhưng self-edit lọt. Nguy hiểm gấp đôi khi `_save_user` dùng `ignore_permissions` (DocPerm KHÔNG chặn): user thường POST `user=self, roles=["AssetCore Super Admin"]` tự leo Super Admin, hoặc `assign_role_profile` self-assign 'Quản trị viên IT' để Frappe core clear+replace roles thành bộ admin.
+
+**Audit grep + rule (kiểm được):**
+```bash
+grep -nE 'target *== *actor|session\.user *!= *user|self-edit' assetcore/api/user.py
+# Mỗi hit verify có _assert_admin KHÔNG bị skip
+```
+1. Đổi-mật-khẩu = self-service hợp lệ; đổi-role/role-profile/enabled = CẤP QUYỀN → BẮT BUỘC `data.admin`/`_assert_admin()` kể cả self-edit, KHÔNG nhánh bypass.
+2. Verdict yêu cầu regression test `test_rbac.py::TestRolePrivilegeEscalation` (SEC-RBAC-1..5).
+
+Cross-ref: bổ trợ LL-AUDIT-11 tầng 4 (escalation gate); `memory/` role_security_audit_20260601 (SEC-RBAC-1 `update_user_roles` self-edit bypass→Super Admin; SEC-RBAC-2 `assign_role_profile` self-assign; `_save_user` `ignore_permissions`).
+
+### LL-AUDIT-19: Factory gate-churn — khi epic hết task [AUTO] thì ADVANCE/STOP, KHÔNG re-verify gate đã GREEN lặp lại (2026-06-12)
+
+**Triệu chứng→nguyên nhân:** factory-run50 đốt ~5 vòng làm "D-GATE re-verify @source #1..#5" — re-confirm CÙNG 1 gate đã GREEN vì task còn lại của epic toàn `[HARD-STOP USER]`. PM không phát hiện "0 task AUTO mở" → chọn lại đề mục biến-thể "re-verify" thay vì advance epic. Cùng họ: nhiều vòng "reconcile count-drift" cuối run = lợi nhuận giảm dần (N vòng > lượng AUTO thực có).
+
+**Rule (kiểm được):** PM mỗi vòng kiểm "epic hiện còn task [AUTO] CHƯA làm không?" — nếu 0 → ADVANCE sang epic kế (theo dependency) HOẶC tuyên bố exit-gate + STOP, KHÔNG sinh đề mục "re-verify gate đã đóng". Re-verify 1 LẦN sau khi đóng là đủ; lần 2+ trên cùng gate-GREEN = churn. Khi toàn bộ task còn lại = HARD-STOP USER → factory KHÔNG còn việc → báo cáo + dừng (đừng chạy nốt vòng "cho đủ N"). Cross-ref: LL-AUDIT-16 (Workflow N-vòng); session run50.
+
+### LL-AUDIT-20: Doc count-drift — số literal trong prose (test/path count) drift theo source; thêm self-verify meta-guard, đừng tin số (2026-06-12)
+
+**Triệu chứng→nguyên nhân:** docset SSoT ghi số literal (vd "test_mobile_oas 106 OK", "16-path", "190 OK") → code lớn lên, số THẬT đổi (141 OK) → prose stale, nhiều vòng factory phải "reconcile count 75/80/85/89...". Đếm bằng tay trong doc = nguồn drift bất tận.
+
+**Rule (kiểm được):** số đo đếm-được (test count, path count, $ref count) trong doc = CHỈ DẪN; thêm **self-verify meta-guard test** re-count @source + assert khớp doc HOẶC tránh hardcode số trong prose (dùng "xem test output"). Cross-ref: D4 re-verify @source; LL-AUDIT-16; session run50 F-C3/F-B6 count-self-verify.
+
+### LL-AUDIT-21: Verify-before-trust qua run song song/trước — ĐỌC source trước khi redo, code có thể đã tiến (2026-06-12)
+
+**Triệu chứng→nguyên nhân:** run song song (apidocs factory) đã typed vài STUB + đóng P1-discriminator (Decision B) trong khi run khác vẫn coi là "chưa làm" → redo/mâu thuẫn. Factory report cũng từng nói "files_changed: none" trong khi BA đã ghi yaml (chỉ aggregate file của BE).
+
+**Rule (kiểm được):** trước khi PM chọn / BE sửa 1 task: ĐỌC source + yaml + checklist HIỆN TẠI (KHÔNG tin STATE/đề-mục cũ tuyệt đối) → bỏ qua phần đã DONE, chỉ làm phần còn thiếu. Verdict/report phải verify TRÊN ĐĨA (git status + grep), KHÔNG chỉ tin return của agent. Cross-ref: LL-AUDIT-20; session run50 verify-before-trust.
+

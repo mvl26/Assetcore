@@ -46,10 +46,21 @@ _MSG_FORBIDDEN = "Không có quyền thực hiện hành động này"
 # (write = triage/work/resolve/RCA; submit = close). Cùng pattern IMM-09.
 _CAP_INVESTIGATE = "incident.acknowledge"  # → ("Incident Report", "write")
 _CAP_CLOSE = "incident.close"              # → ("Incident Report", "submit")
+# V4-GATE BÁO-HỎNG (ADR-IMM12-REPORT-FAILURE D1): gate report_incident bằng CÙNG cap
+# 'corrective.create' với route-guard FE (router/index.ts:450 IncidentCreate) +
+# scan-action SSoT (services/imm00.py _SCAN_ACTION_SPECS report_failure) → parity
+# 3-tier, đóng lỗ leo quyền P1 (user corrective.read-only KHÔNG tạo được Incident).
+# DÙNG rbac.can + _err(_MSG_FORBIDDEN,403) — KHÔNG rbac.require (require leak raw cap
+# 'corrective.create' vào message, vi phạm AC1 no-leak — rbac.py:156-162).
+_CAP_REPORT = "corrective.create"          # → ("Incident Report", "create")
 
 
 def _can_investigate() -> bool:
     return rbac.can(_CAP_INVESTIGATE)
+
+
+def _can_report() -> bool:
+    return rbac.can(_CAP_REPORT)
 
 
 def _can_close() -> bool:
@@ -69,10 +80,20 @@ def report_incident(
     patient_impact_description: str = "",
     immediate_action: str = "",
     linked_repair_wo: str = "",
+    source: str = "manual",
 ):
-    """POST /api/method/assetcore.api.imm12.report_incident"""
+    """POST /api/method/assetcore.api.imm12.report_incident
+
+    `source` (ADR-IMM12-REPORT-FAILURE D2): provenance nguồn báo hỏng — 'qr-scan'
+    khi đến từ màn quét QR, 'manual' (mặc định) khi tạo thủ công. str='manual'
+    (KHÔNG str|None → tránh HTTP 417 pydantic-coercion).
+    """
     if frappe.session.user == "Guest":
         return _err(_(_MSG_UNAUTHENTICATED), 401)
+    # D1: cap-gate 'corrective.create' (parity 3-tier) TRƯỚC handle — đóng đường
+    # curl/REST bypass. KHÔNG leak raw cap (rbac.can + _MSG_FORBIDDEN VI hằng số).
+    if not _can_report():
+        return _err(_(_MSG_FORBIDDEN), 403)
     return handle(
         svc_report,
         asset=asset, incident_type=incident_type, severity=severity,
@@ -81,6 +102,7 @@ def report_incident(
         patient_affected=int(patient_affected),
         patient_impact_description=patient_impact_description,
         immediate_action=immediate_action, linked_repair_wo=linked_repair_wo,
+        source=source,
     )
 
 
