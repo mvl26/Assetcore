@@ -1,0 +1,45 @@
+# Dependabot — tự động mở PR cập nhật dependency để TRÁNH LIB BỊ ROT/HẾT HỖ TRỢ
+# theo thời gian. Xem chính sách & cadence: docs/dependency-management.md
+#
+# Nhánh đích = default branch của repo (master). Group minor/patch vào 1 PR;
+# major tách PR riêng (cần review breaking-change trước khi merge).
+version: 2
+updates:
+  # ── Frontend (Vue 3 + Vite) — bề mặt dependency THẬT của app ────────────────
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    versioning-strategy: increase          # bump cả range trong package.json
+    labels: ["dependencies", "frontend"]
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+    groups:
+      # Gom toàn bộ minor/patch vào 1 PR/tuần → ít noise, dễ merge sau khi CI xanh.
+      fe-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+      # Major tách PR riêng theo từng package (không group) để review kỹ.
+    ignore:
+      # @types/node GHIM theo major của Node runtime (hiện Node 22) — KHÔNG nhảy
+      # 25 kẻo lệch runtime. Nâng tay khi đổi Node engine. (docs §Exceptions)
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+
+  # ── Backend (Python) — forward-compat ──────────────────────────────────────
+  # LƯU Ý: dependency BE của AssetCore = Frappe-managed (pyproject [project]
+  # .dependencies để trống; lib BE đến từ apps/frappe). Phiên bản FRAMEWORK
+  # quản ở pyproject [tool.bench.frappe-dependencies] + nâng qua `bench` — KHÔNG
+  # phải Dependabot. Block này chỉ kích hoạt nếu sau này app khai báo lib Python
+  # trực tiếp trong pyproject.
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "backend"]
+    commit-message:
+      prefix: "chore(deps)"
