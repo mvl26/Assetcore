@@ -264,19 +264,40 @@ def _seed_lifecycle_events(asset_name: str) -> None:
 
 
 def _seed_procurement_plan() -> None:
-    """Ensure at least one draft procurement plan with items exists."""
+    """Ensure at least one draft procurement plan exists.
+
+    Proposal-first: tạo plan KÈM các đề xuất (Needs Request) đã duyệt qua API
+    (create_procurement_plan nay chặn tạo plan rỗng). Nếu chưa có NR Approved
+    nào → dựng skeleton plan trực tiếp để seed không gãy.
+    """
     if frappe.db.count("IMM Procurement Plan", {"workflow_state": "Draft"}) > 0:
         print("  ⏭ Draft procurement plan already exists")
         return
 
-    from assetcore.api.imm01 import _create_procurement_plan
-    result = _create_procurement_plan(
-        plan_year=frappe.utils.getdate(nowdate()).year,
-        plan_period="Annual",
-        budget_envelope=5_000_000_000,
+    year = frappe.utils.getdate(nowdate()).year
+    approved = frappe.get_all(
+        "IMM Needs Request",
+        filters={"docstatus": 1, "workflow_state": "Approved"},
+        pluck="name", limit=5,
     )
+    if approved:
+        import json
+        from assetcore.api.imm01 import _create_procurement_plan
+        name = _create_procurement_plan(
+            plan_year=year, plan_period="Annual",
+            budget_envelope=5_000_000_000,
+            needs_requests=json.dumps(approved),
+        )["name"]
+    else:
+        doc = frappe.new_doc("IMM Procurement Plan")
+        doc.plan_year = year
+        doc.plan_period = "Annual"
+        doc.budget_envelope = 5_000_000_000
+        doc.insert(ignore_permissions=True)
+        name = doc.name
+        print("  ⚠ Chưa có Needs Request Approved → skeleton plan rỗng (direct insert)")
     frappe.db.commit()
-    print(f"  ✅ Created draft procurement plan: {result['name']}")
+    print(f"  ✅ Created draft procurement plan: {name}")
 
 
 def run() -> None:
