@@ -4,6 +4,7 @@
 import { ref, onMounted } from 'vue'
 import { listVendorProfiles, type VendorProfileListItem } from '@/api/imm03'
 import PageHeader from '@/components/common/PageHeader.vue'
+import { avlStatusLabel } from '@/constants/labels'
 
 const items = ref<VendorProfileListItem[]>([])
 const total = ref(0)
@@ -62,17 +63,17 @@ onMounted(load)
   <div class="page-container animate-fade-in">
     <PageHeader
       title="Hồ sơ Nhà cung cấp"
-      :subtitle="`Tổng ${total} nhà cung cấp — đánh giá AVL, audit, chứng chỉ.`"
+      :subtitle="`Tổng ${total} nhà cung cấp — đánh giá AVL, kiểm tra, chứng chỉ.`"
     />
 
     <div class="card mb-4 flex flex-wrap items-center gap-2">
       <select v-model="filters.avl_status" class="form-select text-sm" @change="load">
-        <option value="">Tất cả AVL Status</option>
-        <option>Approved</option>
-        <option>Conditional</option>
-        <option>Suspended</option>
-        <option>Expired</option>
-        <option>Not Applicable</option>
+        <option value="">Tất cả trạng thái AVL</option>
+        <option value="Approved">Đã duyệt</option>
+        <option value="Conditional">Có điều kiện</option>
+        <option value="Suspended">Tạm đình chỉ</option>
+        <option value="Expired">Hết hạn</option>
+        <option value="Not Applicable">Không áp dụng</option>
       </select>
       <input v-model="filters.device_category" class="form-input text-sm max-w-[220px]" placeholder="Nhóm thiết bị..." @change="load" />
       <input
@@ -80,7 +81,7 @@ v-model.number="filters.min_score" type="number" min="0" max="5" step="0.1"
              class="form-input text-sm max-w-[160px]" placeholder="Điểm tối thiểu" @change="load" />
       <label class="flex items-center gap-1.5 text-sm text-slate-600">
         <input v-model="filters.audit_overdue" type="checkbox" @change="load" />
-        Chỉ vendor quá hạn audit
+        Chỉ nhà cung cấp quá hạn kiểm tra
       </label>
     </div>
 
@@ -102,7 +103,7 @@ v-model.number="filters.min_score" type="number" min="0" max="5" step="0.1"
             <div class="flex items-center justify-between mb-2">
               <span class="font-mono text-sm font-semibold text-brand-700">{{ v.name }}</span>
               <span :class="['px-2.5 py-0.5 rounded-full text-xs font-medium border', statusBgClass(v.imm_avl_status)]">
-                {{ v.imm_avl_status || '—' }}
+                {{ avlStatusLabel(v.imm_avl_status) }}
               </span>
             </div>
             <p class="text-sm font-medium text-slate-900 truncate">{{ v.supplier_name || v.name }}</p>
@@ -123,11 +124,11 @@ v-model.number="filters.min_score" type="number" min="0" max="5" step="0.1"
             <thead>
               <tr>
                 <th>Tên Nhà cung cấp</th>
-                <th>AVL Status</th>
+                <th>Trạng thái AVL</th>
                 <th>Nhóm thiết bị (AVL)</th>
                 <th class="num">Điểm</th>
-                <th>Audit gần nhất</th>
-                <th>Audit kế tiếp</th>
+                <th>Kiểm tra gần nhất</th>
+                <th>Kiểm tra kế tiếp</th>
                 <th class="num">Chứng chỉ</th>
                 <th class="num">Sắp hết hạn</th>
               </tr>
@@ -145,7 +146,7 @@ v-model.number="filters.min_score" type="number" min="0" max="5" step="0.1"
                 </td>
                 <td>
                   <span :class="['inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border', statusBgClass(v.imm_avl_status)]">
-                    {{ v.imm_avl_status || '—' }}
+                    {{ avlStatusLabel(v.imm_avl_status) }}
                   </span>
                 </td>
                 <td>{{ v.imm_avl_categories || '—' }}</td>

@@ -16,6 +16,7 @@ import {
   priorityBadge, formatVnd,
 } from '@/utils/wave2Labels'
 import PageHeader from '@/components/common/PageHeader.vue'
+import CurrencyInput from '@/components/common/CurrencyInput.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import BaseModal from '@/components/common/BaseModal.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
@@ -387,7 +388,7 @@ watch(currentDoc, (doc) => {
       <div class="card space-y-3">
         <h3 class="card-title">Thông tin thiết bị</h3>
         <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm">
-          <dt class="text-neutral-500">Model thiết bị</dt>
+          <dt class="text-neutral-500">Mẫu thiết bị</dt>
           <dd class="font-medium">{{ (currentDoc as any).device_model_name || currentDoc.device_model_ref || '—' }}</dd>
           <dt class="text-neutral-500">Danh mục</dt>
           <dd>{{ (currentDoc as any).device_category_name || (currentDoc as any).asset_category_name || currentDoc.device_category || '—' }}</dd>
@@ -438,7 +439,7 @@ watch(currentDoc, (doc) => {
       <div v-if="!canScore && currentDoc.workflow_state !== 'Prioritized'"
            class="mb-4 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-700">
         <strong>Lưu ý:</strong>
-        Chỉ QA Officer có thể chấm điểm khi phiếu ở trạng thái
+        Chỉ cán bộ QA có thể chấm điểm khi phiếu ở trạng thái
         <strong>{{ stateLabel('Reviewing') }}</strong>.
         Trạng thái hiện tại: <strong>{{ stateLabel(currentDoc.workflow_state) }}</strong>.
       </div>
@@ -551,7 +552,7 @@ watch(currentDoc, (doc) => {
       <div v-if="!canEditBudget && !['Budgeted','Pending Approval','Approved'].includes(currentDoc.workflow_state ?? '')"
            class="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-700">
         <strong>Lưu ý:</strong>
-        Ops Manager có thể lập dự toán khi phiếu ở trạng thái
+        Quản lý vận hành có thể lập dự toán khi phiếu ở trạng thái
         <strong>{{ stateLabel('Prioritized') }}</strong>.
         Trạng thái hiện tại: <strong>{{ stateLabel(currentDoc.workflow_state) }}</strong>.
       </div>
@@ -605,7 +606,7 @@ watch(currentDoc, (doc) => {
                   <template v-else>{{ r.qty ?? 1 }}</template>
                 </td>
                 <td class="td text-right">
-                  <input v-if="budgetEditMode" v-model.number="r.unit_cost" type="number" min="0"
+                  <CurrencyInput v-if="budgetEditMode" v-model="r.unit_cost" aria-label="Đơn giá"
                          class="w-24 text-right border border-neutral-300 rounded px-1 py-0.5 text-sm" />
                   <template v-else>{{ formatVnd(r.unit_cost) }}</template>
                 </td>
@@ -657,7 +658,7 @@ watch(currentDoc, (doc) => {
                   <template v-else>{{ lineTypeLabel(r.line_type) }}</template>
                 </td>
                 <td class="td text-right font-medium">
-                  <input v-if="budgetEditMode" v-model.number="r.unit_cost" type="number" min="0"
+                  <CurrencyInput v-if="budgetEditMode" v-model="r.unit_cost" aria-label="Đơn giá"
                          class="w-24 text-right border border-neutral-300 rounded px-1 py-0.5 text-sm" />
                   <template v-else>{{ formatVnd(r.unit_cost) }}</template>
                 </td>
@@ -801,7 +802,7 @@ watch(currentDoc, (doc) => {
       </p>
 
       <div v-if="!plans.length" class="text-center py-8 text-neutral-400 text-sm">
-        Không có kế hoạch nào ở trạng thái Draft hoặc Approved.
+        Không có kế hoạch nào ở trạng thái Nháp hoặc Đã duyệt.
       </div>
 
       <div v-else class="space-y-2">

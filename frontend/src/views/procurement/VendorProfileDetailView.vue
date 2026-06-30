@@ -4,6 +4,7 @@
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getVendorProfile, addVendorCert } from '@/api/imm03'
+import { avlStatusLabel } from '@/constants/labels'
 
 interface VendorCert {
   cert_type: string; cert_number: string; issued_by?: string
@@ -93,7 +94,7 @@ onMounted(load)
           <h1>{{ profile.supplier_name || profile.name }}</h1>
           <div class="muted">
             {{ profile.name }}
-            <span v-if="profile.imm_avl_status" class="ml-2">· AVL {{ profile.imm_avl_status }}</span>
+            <span v-if="profile.imm_avl_status" class="ml-2">· AVL {{ avlStatusLabel(profile.imm_avl_status) }}</span>
             <span v-if="profile.imm_overall_score" class="ml-2">· Điểm {{ Number(profile.imm_overall_score).toFixed(2) }}</span>
           </div>
         </div>
@@ -117,12 +118,12 @@ onMounted(load)
           </dl>
         </div>
         <div class="card">
-          <h3>AVL & Audit</h3>
+          <h3>AVL & Kiểm tra</h3>
           <dl>
-            <dt>AVL Status:</dt><dd>{{ profile.imm_avl_status || '—' }}</dd>
-            <dt>AVL Categories:</dt><dd>{{ profile.imm_avl_categories || '—' }}</dd>
-            <dt>Audit gần nhất:</dt><dd>{{ profile.imm_last_audit_date || '—' }}</dd>
-            <dt>Audit kế tiếp:</dt><dd>{{ profile.imm_next_audit_date || '—' }}</dd>
+            <dt>Trạng thái AVL:</dt><dd>{{ avlStatusLabel(profile.imm_avl_status) }}</dd>
+            <dt>Nhóm AVL:</dt><dd>{{ profile.imm_avl_categories || '—' }}</dd>
+            <dt>Kiểm tra gần nhất:</dt><dd>{{ profile.imm_last_audit_date || '—' }}</dd>
+            <dt>Kiểm tra kế tiếp:</dt><dd>{{ profile.imm_next_audit_date || '—' }}</dd>
           </dl>
         </div>
       </div>
@@ -178,7 +179,7 @@ onMounted(load)
       </div>
 
       <div class="card">
-        <h3>Scorecard History</h3>
+        <h3>Lịch sử bảng điểm</h3>
         <table class="data-table">
           <thead>
             <tr><th>Quý</th><th class="num">Điểm tổng</th></tr>
@@ -189,7 +190,7 @@ onMounted(load)
               <td class="num">{{ Number(s.overall_score || 0).toFixed(2) }}</td>
             </tr>
             <tr v-if="!(profile.scorecard_history || []).length">
-              <td colspan="2" class="muted text-center">Chưa có scorecard.</td>
+              <td colspan="2" class="muted text-center">Chưa có bảng điểm.</td>
             </tr>
           </tbody>
         </table>

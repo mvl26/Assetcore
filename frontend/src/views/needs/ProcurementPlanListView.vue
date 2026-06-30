@@ -2,13 +2,14 @@
 // Copyright (c) 2026, AssetCore Team
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useImm01Store } from '@/stores/imm01'
-import type { ProcurementPlanState } from '@/types/imm01'
+import type { ProcurementPlanState, NeedsRequestListItem } from '@/types/imm01'
 import { stateLabel, formatVnd } from '@/utils/wave2Labels'
-import { createProcurementPlan } from '@/api/imm01'
+import { createProcurementPlan, listNeedsRequests } from '@/api/imm01'
 import { useRouter } from 'vue-router'
 import ListFilterBar, { type FilterChip } from '@/components/common/ListFilterBar.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
+import CurrencyInput from '@/components/common/CurrencyInput.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import KpiCard from '@/components/common/KpiCard.vue'
 import { useCapabilities } from '@/composables/useCapabilities'
@@ -31,11 +32,44 @@ const PLAN_PERIODS_LABELS = { Q1: 'Quý 1', Q2: 'Quý 2', Q3: 'Quý 3', Q4: 'Qu�
 
 const createError = ref<string | null>(null)
 
+// Proposal-first: kế hoạch tạo bằng cách CHỌN ≥1 đề xuất (Needs Request đã
+// duyệt) — KHÔNG tạo kế hoạch rỗng (khớp BE create_procurement_plan).
+const candidateNeeds = ref<NeedsRequestListItem[]>([])
+const selectedNrIds = ref(new Set<string>())
+const loadingNeeds = ref(false)
+
+async function openCreateModal() {
+  showCreateModal.value = true
+  createError.value = null
+  selectedNrIds.value = new Set()
+  loadingNeeds.value = true
+  try {
+    const res = await listNeedsRequests({ workflow_state: 'Approved' }, 1, 100)
+    candidateNeeds.value = res.items
+  } catch (e: unknown) {
+    createError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    loadingNeeds.value = false
+  }
+}
+
+function toggleNrSelect(id: string) {
+  if (selectedNrIds.value.has(id)) selectedNrIds.value.delete(id)
+  else selectedNrIds.value.add(id)
+}
+
 async function submitCreate() {
+  if (selectedNrIds.value.size === 0) {
+    createError.value = 'Cần chọn ít nhất một đề xuất (Phiếu đề xuất đã duyệt) để tạo kế hoạch.'
+    return
+  }
   creating.value = true
   createError.value = null
   try {
-    const res = await createProcurementPlan(createForm.plan_year, createForm.plan_period, createForm.budget_envelope)
+    const res = await createProcurementPlan(
+      createForm.plan_year, createForm.plan_period, createForm.budget_envelope,
+      Array.from(selectedNrIds.value),
+    )
     showCreateModal.value = false
     await store.fetchPlans()
     router.push(`/procurement-plans/${res.name}`)
@@ -117,7 +151,7 @@ onMounted(() => store.fetchPlans())
     <PageHeader title="Kế hoạch mua sắm" :subtitle="`Tổng ${store.plans.length} kế hoạch — gom đề xuất đã duyệt theo quý/năm.`">
       <template #actions>
         <FilterToggleButton v-model="showFilters" :count="activeChips.length" />
-        <button v-if="canCreatePlan" class="btn-primary text-sm" @click="showCreateModal = true">+ Tạo kế hoạch</button>
+        <button v-if="canCreatePlan" class="btn-primary text-sm" @click="openCreateModal()">+ Tạo kế hoạch</button>
       </template>
     </PageHeader>
 
@@ -268,7 +302,7 @@ onMounted(() => store.fetchPlans())
         <button
           v-else-if="canCreatePlan"
           class="btn-primary text-sm mt-3"
-          @click="showCreateModal = true"
+          @click="openCreateModal()"
         >
           + Tạo kế hoạch đầu tiên
         </button>
@@ -278,28 +312,64 @@ onMounted(() => store.fetchPlans())
 
   <!-- Create Plan Modal -->
   <div v-if="showCreateModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40" @click.self="showCreateModal = false">
-    <div class="bg-white rounded-xl shadow-xl p-6 w-full max-w-md space-y-4">
+    <div class="bg-white rounded-xl shadow-xl p-6 w-full max-w-xl space-y-4">
       <h3 class="text-base font-semibold text-slate-800">Tạo kế hoạch mua sắm mới</h3>
+      <p class="text-xs text-slate-500">Chọn các đề xuất (Phiếu đề xuất đã duyệt) để gom vào kế hoạch, rồi tạo.</p>
       <div class="space-y-3">
         <div v-if="createError" class="text-xs text-red-600 bg-red-50 border border-red-200 rounded p-2">{{ createError }}</div>
-        <div>
-          <label class="text-xs font-medium text-slate-600 block mb-1">Năm kế hoạch *</label>
-          <input v-model.number="createForm.plan_year" type="number" min="2020" max="2100" class="form-input w-full" />
-        </div>
-        <div>
-          <label class="text-xs font-medium text-slate-600 block mb-1">Kỳ kế hoạch *</label>
-          <select v-model="createForm.plan_period" class="form-select w-full">
-            <option v-for="(label, key) in PLAN_PERIODS_LABELS" :key="key" :value="key">{{ label }}</option>
-          </select>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="text-xs font-medium text-slate-600 block mb-1">Năm kế hoạch *</label>
+            <input v-model.number="createForm.plan_year" type="number" min="2020" max="2100" class="form-input w-full" />
+          </div>
+          <div>
+            <label class="text-xs font-medium text-slate-600 block mb-1">Kỳ kế hoạch *</label>
+            <select v-model="createForm.plan_period" class="form-select w-full">
+              <option v-for="(label, key) in PLAN_PERIODS_LABELS" :key="key" :value="key">{{ label }}</option>
+            </select>
+          </div>
         </div>
         <div>
           <label class="text-xs font-medium text-slate-600 block mb-1">Ngân sách phê duyệt (VNĐ)</label>
-          <input v-model.number="createForm.budget_envelope" type="number" min="0" step="1000000" class="form-input w-full" placeholder="0" />
+          <CurrencyInput v-model="createForm.budget_envelope" aria-label="Tổng ngân sách" class="form-input w-full" placeholder="0" />
+        </div>
+        <div>
+          <label class="text-xs font-medium text-slate-600 block mb-1">
+            Đề xuất đưa vào kế hoạch * <span class="text-slate-400">(chọn ≥1)</span>
+          </label>
+          <div v-if="loadingNeeds" class="text-xs text-slate-500 py-2">Đang tải đề xuất đã duyệt...</div>
+          <div v-else-if="!candidateNeeds.length" class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
+            Chưa có đề xuất nào ở trạng thái "Đã duyệt" để đưa vào kế hoạch. Hãy duyệt đề xuất trước khi tạo kế hoạch.
+          </div>
+          <div v-else class="max-h-56 overflow-y-auto border border-slate-200 rounded">
+            <table class="data-table text-xs">
+              <thead>
+                <tr><th></th><th>Mã đề xuất</th><th>Khoa</th><th class="num">Điểm</th><th class="num">CAPEX</th></tr>
+              </thead>
+              <tbody>
+                <tr v-for="n in candidateNeeds" :key="n.name">
+                  <td>
+                    <input
+                      type="checkbox"
+                      :checked="selectedNrIds.has(n.name)"
+                      :aria-label="`Chọn đề xuất ${n.name}`"
+                      @change="toggleNrSelect(n.name)"
+                    />
+                  </td>
+                  <td class="font-mono">{{ n.name }}</td>
+                  <td>{{ n.department_name || n.requesting_department }}</td>
+                  <td class="num">{{ (n.weighted_score || 0).toFixed(2) }}</td>
+                  <td class="num">{{ formatVnd(n.total_capex || 0) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p v-if="candidateNeeds.length" class="text-[11px] text-slate-500 mt-1">Đã chọn {{ selectedNrIds.size }} đề xuất.</p>
         </div>
       </div>
       <div class="flex justify-end gap-2 pt-2">
         <button class="btn-ghost text-sm" @click="showCreateModal = false">Hủy</button>
-        <button class="btn-primary text-sm" :disabled="creating" @click="submitCreate">
+        <button class="btn-primary text-sm" :disabled="creating || selectedNrIds.size === 0" @click="submitCreate">
           {{ creating ? 'Đang tạo...' : 'Tạo kế hoạch' }}
         </button>
       </div>

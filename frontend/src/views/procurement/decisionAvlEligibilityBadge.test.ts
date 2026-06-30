@@ -156,8 +156,9 @@ describe('IMM-03 DecisionDetailView — VR-03-05 surface qua notification-contra
     const selects = wrapper.findAll('select')
     const winnerSelect = selects[0]
     await winnerSelect.setValue('S-STALE')
-    const priceInput = wrapper.find('input[type="number"]')
-    await priceInput.setValue(100000000)
+    // awarded_price giờ là <CurrencyInput> (type=text, nhóm hàng nghìn) → tìm theo aria-label
+    const priceInput = wrapper.find('input[aria-label="Giá trúng thầu"]')
+    await priceInput.setValue('100000000')
     const fundingSelect = selects.find(s => s.findAll('option').some(o => o.text() === 'NSNN'))
     await fundingSelect!.setValue('NSNN')
     const emailInput = wrapper.find('input[type="email"]')
