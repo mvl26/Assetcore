@@ -6,6 +6,7 @@ import {
 } from '@/api/imm00'
 import { translateStatus, getStatusColor, formatDate, translatePmType } from '@/utils/formatters'
 import SmartSelect from '@/components/common/SmartSelect.vue'
+import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
 import DateInput from '@/components/common/DateInput.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
@@ -389,9 +390,9 @@ onMounted(load)
           </div>
           <div class="col-span-2">
             <label class="block text-sm font-medium text-slate-700 mb-1">Kỹ thuật viên phụ trách</label>
-            <SmartSelect
+            <ApproverSelect
               v-model="(form.responsible_technician as string)"
-              doctype="User"
+              context="pm"
               placeholder="Tìm theo tên / email..."
             />
           </div>

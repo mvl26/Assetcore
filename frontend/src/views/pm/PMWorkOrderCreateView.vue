@@ -9,8 +9,10 @@ import { getAssetActionMeta } from '@/api/imm00'
 // (frappe.client.get PM Template) → GIỮ import; CHỈ asset-meta migrate sang getAssetActionMeta.
 import { frappeGet } from '@/api/helpers'
 import { translateStatus } from '@/utils/formatters'
+import { pmTypeLabel } from '@/constants/labels'
 import SmartSelect from '@/components/common/SmartSelect.vue'
 import DateInput from '@/components/common/DateInput.vue'
+import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
 import { useFormDraft } from '@/composables/useFormDraft'
 import { useApi } from '@/composables/useApi'
 import { useCapabilities } from '@/composables/useCapabilities'
@@ -250,7 +252,7 @@ onMounted(() => {
         <p v-if="lockedFromScan" class="text-xs text-slate-500 mt-1">Thiết bị đã được xác định từ mã QR — không thể thay đổi.</p>
         <div v-if="assetMeta" class="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
           <div class="bg-slate-50 rounded px-2 py-1.5"><span class="text-slate-500">Tên:</span> <b>{{ assetMeta.asset_name || 'Chưa có tên' }}</b></div>
-          <div class="bg-slate-50 rounded px-2 py-1.5"><span class="text-slate-500">Model:</span> {{ assetMeta.device_model_name || 'Chưa gán' }}</div>
+          <div class="bg-slate-50 rounded px-2 py-1.5"><span class="text-slate-500">Mẫu máy:</span> {{ assetMeta.device_model_name || 'Chưa gán' }}</div>
           <div class="bg-slate-50 rounded px-2 py-1.5"><span class="text-slate-500">Vị trí:</span> {{ assetMeta.location_name || 'Chưa gán' }}</div>
           <div :class="['rounded px-2 py-1.5', assetMeta.lifecycle_status === 'Decommissioned' ? 'bg-red-50 text-red-700' : 'bg-slate-50']">
             <span class="text-slate-500">Trạng thái:</span> <b>{{ assetMeta.lifecycle_status ? translateStatus(assetMeta.lifecycle_status) : 'Chưa xác định' }}</b>
@@ -294,7 +296,7 @@ onMounted(() => {
         >
           <option value="">{{ loadingSchedules ? 'Đang tải...' : '-- Chọn lịch PM --' }}</option>
           <option v-for="s in schedules" :key="s.name" :value="s.name">
-            {{ s.pm_type }} — mỗi {{ s.pm_interval_days ?? '?' }} ngày ({{ s.name }})
+            {{ pmTypeLabel(s.pm_type) }} — mỗi {{ s.pm_interval_days ?? '?' }} ngày ({{ s.name }})
           </option>
         </select>
         <!-- Empty-state có cấu trúc (BUG-PM-2): thiết bị chưa có lịch PM Active.
@@ -335,7 +337,7 @@ onMounted(() => {
           </p>
         </div>
         <div v-if="selectedSchedule" class="mt-2 bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-800 grid grid-cols-1 sm:grid-cols-2 gap-2">
-          <div><span class="text-blue-600">Loại:</span> <b>{{ selectedSchedule.pm_type }}</b></div>
+          <div><span class="text-blue-600">Loại:</span> <b>{{ pmTypeLabel(selectedSchedule.pm_type) }}</b></div>
           <div><span class="text-blue-600">Chu kỳ:</span> <b>{{ selectedSchedule.pm_interval_days }} ngày</b></div>
           <div><span class="text-blue-600">Ước lượng:</span> <b>{{ selectedSchedule.estimated_minutes ?? '—' }} phút</b></div>
           <div><span class="text-blue-600">Lần tới:</span> <b>{{ selectedSchedule.next_due_date || '—' }}</b></div>
@@ -355,10 +357,10 @@ onMounted(() => {
               <span class="font-medium">{{ it.parameter }}</span>
               <span class="text-slate-400 ml-2">→ {{ it.expected }}</span>
             </div>
-            <span v-if="it.is_critical" class="text-xs bg-red-100 text-red-700 rounded px-2 py-0.5">CRITICAL</span>
+            <span v-if="it.is_critical" class="text-xs bg-red-100 text-red-700 rounded px-2 py-0.5">TRỌNG YẾU</span>
           </li>
         </ul>
-        <p v-if="checklistPreview.length" class="text-xs text-slate-500 mt-1">{{ checklistPreview.length }} mục — kỹ thuật viên sẽ điền kết quả khi In Progress.</p>
+        <p v-if="checklistPreview.length" class="text-xs text-slate-500 mt-1">{{ checklistPreview.length }} mục — kỹ thuật viên sẽ điền kết quả khi đang thực hiện.</p>
       </div>
 
       <!-- Due Date -->
@@ -369,14 +371,14 @@ onMounted(() => {
         <DateInput v-model="form.due_date" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
       </div>
 
-      <!-- Assigned To -->
+      <!-- Assigned To — picker user AssetCore ĐỦ NĂNG LỰC bảo trì (PM Manager/User
+           + admin), lọc server-side theo capability thay free-text email. -->
       <div>
-        <label class="block text-sm font-medium text-slate-700 mb-1">Giao cho kỹ thuật viên (email)</label>
-        <input
+        <ApproverSelect
           v-model="form.assigned_to"
-          type="email"
-          placeholder="ktv@hospital.vn"
-          class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+          context="pm"
+          label="Giao cho kỹ thuật viên"
+          placeholder="Tìm KTV theo tên hoặc email..."
         />
       </div>
 

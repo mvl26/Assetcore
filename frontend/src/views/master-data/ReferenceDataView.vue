@@ -18,6 +18,7 @@ import type { ImportPreviewResult, ImportResult, ImportStep, ImportMode, RefData
 import { translateDepreciationMethod } from '@/utils/formatters'
 import api from '@/api/axios'
 import SmartSelect from '@/components/common/SmartSelect.vue'
+import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
 const toast = useToast()
 
 type Tab = 'location' | 'department' | 'category'
@@ -309,7 +310,7 @@ async function _uploadAndPreview(file: File) {
     uploadedFileName.value = file.name
     await runPreview()
   } catch (e: unknown) {
-    importErr.value = e instanceof Error ? e.message : 'Lỗi upload file'
+    importErr.value = e instanceof Error ? e.message : 'Lỗi tải file lên'
   } finally {
     uploading.value = false
   }
@@ -337,7 +338,7 @@ async function runImport() {
     )
     importStep.value = 'result'
   } catch (e: unknown) {
-    importErr.value = e instanceof Error ? e.message : 'Lỗi import'
+    importErr.value = e instanceof Error ? e.message : 'Lỗi nhập'
   } finally {
     importLoading.value = false
   }
@@ -407,7 +408,7 @@ const canImport = computed(() => {
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
               d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
           </svg>
-          Import
+          Nhập Excel
         </button>
         <button class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium" @click="openCreate">
           + Thêm {{ tabLabel }}
@@ -436,7 +437,7 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Tên vị trí</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Khu vực lâm sàng</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Vị trí cha</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Is Group</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Là nhóm</th>
             <th class="px-4 py-3 text-right"></th>
           </tr>
           <tr v-else-if="tab === 'department'">
@@ -449,7 +450,7 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
           <tr v-else>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Mã danh mục</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Tên danh mục</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">GMDN Code</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Mã GMDN</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Phương pháp KH</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Số tháng KH</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Bảo trì (ngày)</th>
@@ -487,7 +488,7 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
               <td class="px-4 py-3 text-gray-500">
                 <span v-if="r.total_depreciation_months">
                   {{ r.total_depreciation_months }} tháng
-                  <span class="text-gray-400">({{ (Number(r.total_depreciation_months) / 12).toFixed(1) }}y)</span>
+                  <span class="text-gray-400">({{ (Number(r.total_depreciation_months) / 12).toFixed(1) }} năm)</span>
                 </span>
                 <span v-else>—</span>
               </td>
@@ -540,7 +541,7 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
               <label class="block text-sm font-medium text-gray-700 mb-1">Khu vực lâm sàng</label>
               <select v-model="form.clinical_area_type" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
                 <option value="">— Chọn —</option>
-                <option value="ICU">ICU</option>
+                <option value="ICU">Hồi sức tích cực (ICU)</option>
                 <option value="OR">Phòng mổ (OR)</option>
                 <option value="Lab">Xét nghiệm (Lab)</option>
                 <option value="Imaging">Chẩn đoán hình ảnh</option>
@@ -560,9 +561,9 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
             </div>
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">Người phụ trách</label>
-              <SmartSelect
+              <ApproverSelect
                 v-model="form.dept_head as string"
-                doctype="User"
+                context="user"
                 placeholder="Chọn người dùng..."
               />
             </div>
@@ -575,7 +576,7 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
               </label>
               <input
                 v-model="form.contact_phone"
-                placeholder="Tự điền từ mobile_no, có thể sửa"
+                placeholder="Tự điền từ số di động, có thể sửa"
                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
               />
             </div>
@@ -588,7 +589,7 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
             <input v-model="form.power_backup_available" type="checkbox" :true-value="1" :false-value="0" /> Có nguồn điện dự phòng
           </label>
           <label class="flex items-center gap-2 text-sm">
-            <input v-model="form.is_group" type="checkbox" :true-value="1" :false-value="0" /> Là nhóm (tree group)
+            <input v-model="form.is_group" type="checkbox" :true-value="1" :false-value="0" /> Là nhóm (nhóm phân cấp)
           </label>
         </div>
 
@@ -622,7 +623,7 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
             </div>
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">Trưởng khoa</label>
-              <SmartSelect v-model="form.dept_head as string" doctype="User" placeholder="Chọn người dùng..." />
+              <ApproverSelect v-model="form.dept_head as string" context="user" placeholder="Chọn người dùng..." />
             </div>
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">Điện thoại</label>
@@ -634,7 +635,7 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
             </div>
           </div>
           <label class="flex items-center gap-2 text-sm">
-            <input v-model="form.is_group" type="checkbox" :true-value="1" :false-value="0" /> Là nhóm (tree group)
+            <input v-model="form.is_group" type="checkbox" :true-value="1" :false-value="0" /> Là nhóm (nhóm phân cấp)
           </label>
           <label class="flex items-center gap-2 text-sm">
             <input v-model="form.is_active" type="checkbox" :true-value="1" :false-value="0" /> Đang hoạt động
@@ -672,11 +673,11 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
           <div class="pt-3 border-t border-gray-200">
             <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
               Mã GMDN
-              <span class="text-[10px] font-normal text-blue-500 ml-1">(nguồn kế thừa → Model thiết bị → Tài sản)</span>
+              <span class="text-[10px] font-normal text-blue-500 ml-1">(nguồn kế thừa → Mẫu thiết bị → Tài sản)</span>
             </p>
             <div class="grid grid-cols-2 gap-3">
               <div>
-                <label class="block text-xs text-gray-600 mb-1">GMDN Code</label>
+                <label class="block text-xs text-gray-600 mb-1">Mã GMDN</label>
                 <input
                   v-model="form.gmdn_code"
                   placeholder="VD: 35943"
@@ -685,7 +686,7 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
                 <p class="text-[10px] text-gray-400 mt-1">5–6 chữ số theo chuẩn GMDN</p>
               </div>
               <div>
-                <label class="block text-xs text-gray-600 mb-1">GMDN Term (tên danh mục)</label>
+                <label class="block text-xs text-gray-600 mb-1">Thuật ngữ GMDN (tên danh mục)</label>
                 <input
                   v-model="form.gmdn_term"
                   placeholder="VD: Infusion pump, general-purpose"
@@ -728,7 +729,7 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
           <!-- Khấu hao -->
           <div class="pt-3 border-t border-gray-200">
             <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-              Luật khấu hao <span class="text-[10px] font-normal text-gray-400">(áp dụng cho mọi Asset thuộc danh mục)</span>
+              Luật khấu hao <span class="text-[10px] font-normal text-gray-400">(áp dụng cho mọi tài sản thuộc danh mục)</span>
             </p>
             <div class="grid grid-cols-2 gap-3">
               <div>
@@ -816,9 +817,9 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
         <!-- Header -->
         <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200">
           <div>
-            <h2 class="text-base font-semibold text-gray-800">Import {{ tabLabel }}</h2>
+            <h2 class="text-base font-semibold text-gray-800">Nhập {{ tabLabel }}</h2>
             <p class="text-xs text-gray-500 mt-0.5">
-              {{ importStep === 'upload' ? 'Tải file Excel / CSV lên' : importStep === 'preview' ? 'Kiểm tra dữ liệu trước khi import' : 'Kết quả import' }}
+              {{ importStep === 'upload' ? 'Tải file Excel / CSV lên' : importStep === 'preview' ? 'Kiểm tra dữ liệu trước khi nhập' : 'Kết quả nhập' }}
             </p>
           </div>
           <button class="text-gray-400 hover:text-gray-600 p-1" @click="closeImport">
@@ -830,7 +831,7 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
 
         <!-- Step indicator -->
         <div class="flex gap-0 border-b border-gray-100">
-          <div v-for="(label, idx) in ['1. Upload', '2. Kiểm tra', '3. Kết quả']" :key="idx"
+          <div v-for="(label, idx) in ['1. Tải lên', '2. Kiểm tra', '3. Kết quả']" :key="idx"
             :class="['flex-1 text-center py-2 text-xs font-medium',
               (importStep === 'upload' && idx === 0) || (importStep === 'preview' && idx === 1) || (importStep === 'result' && idx === 2)
                 ? 'text-blue-600 border-b-2 border-blue-600 -mb-px'
@@ -849,14 +850,14 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
           <template v-if="importStep === 'upload'">
             <div class="flex items-center justify-between">
               <p class="text-sm text-gray-600">
-                Tải template, điền dữ liệu rồi upload lại:
+                Tải biểu mẫu, điền dữ liệu rồi tải lên lại:
               </p>
               <button class="text-xs text-blue-600 hover:underline flex items-center gap-1" @click="doDownloadTemplate">
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                     d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                 </svg>
-                Tải template Excel
+                Tải biểu mẫu Excel
               </button>
             </div>
 
@@ -920,7 +921,7 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
               <svg class="w-4 h-4 shrink-0" fill="currentColor" viewBox="0 0 20 20">
                 <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
               </svg>
-              Dữ liệu hợp lệ, sẵn sàng import.
+              Dữ liệu hợp lệ, sẵn sàng nhập.
             </div>
 
             <!-- Preview table -->
@@ -1020,10 +1021,10 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
               >
                 <div v-if="importLoading" class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                 {{ importLoading
-                    ? 'Đang import...'
+                    ? 'Đang nhập...'
                     : importMode === 'skip_invalid'
-                      ? `Import ${previewData.totalRows - totalSkip} dòng (bỏ qua ${totalSkip}) ▶`
-                      : 'Bắt đầu Import ▶' }}
+                      ? `Nhập ${previewData.totalRows - totalSkip} dòng (bỏ qua ${totalSkip}) ▶`
+                      : 'Bắt đầu nhập ▶' }}
               </button>
             </div>
           </template>
@@ -1037,7 +1038,7 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
                 {{ importResult.success }} / {{ importResult.total }}
               </p>
               <p class="text-sm text-gray-600">
-                dòng import thành công
+                dòng nhập thành công
                 <span v-if="importResult.failed"> — <span class="text-red-600 font-medium">{{ importResult.failed }} lỗi</span></span>
                 <span v-if="importResult.skipped"> — <span class="text-amber-700 font-medium">{{ importResult.skipped }} bỏ qua</span></span>
               </p>
@@ -1086,7 +1087,7 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
                 class="text-xs text-gray-500 hover:text-gray-700 underline"
                 @click="importStep = 'upload'"
               >
-                ← Import lô khác
+                ← Nhập lô khác
               </button>
               <button class="ml-auto px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700" @click="closeImport">
                 Đóng

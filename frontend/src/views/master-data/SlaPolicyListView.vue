@@ -7,7 +7,7 @@ import {
 } from '@/api/imm00'
 import type { ImmSlaPolicy, Priority, RiskClass } from '@/types/imm00'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
-import SmartSelect from '@/components/common/SmartSelect.vue'
+import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
 import { useMasterDataStore } from '@/stores/masterData'
 import { formatDate, isCheckOn } from '@/utils/formatters'
 import PageHeader from '@/components/common/PageHeader.vue'
@@ -424,9 +424,9 @@ onMounted(load)
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">Người xử lý L1</label>
-              <SmartSelect
-                :model-value="(form.escalation_l1_user as string | undefined)"
-                doctype="User"
+              <ApproverSelect
+                :model-value="(form.escalation_l1_user as string) || ''"
+                context="user"
                 placeholder="Chọn người xử lý L1..."
                 @update:model-value="(v: string) => form.escalation_l1_user = v"
               />
@@ -437,9 +437,9 @@ onMounted(load)
             </div>
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">Người xử lý L2</label>
-              <SmartSelect
-                :model-value="(form.escalation_l2_user as string | undefined)"
-                doctype="User"
+              <ApproverSelect
+                :model-value="(form.escalation_l2_user as string) || ''"
+                context="user"
                 placeholder="Chọn người xử lý L2..."
                 @update:model-value="(v: string) => form.escalation_l2_user = v"
               />

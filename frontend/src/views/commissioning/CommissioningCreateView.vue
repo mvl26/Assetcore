@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import DateInput from '@/components/common/DateInput.vue'
+import CurrencyInput from '@/components/common/CurrencyInput.vue'
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useCommissioningStore, fetchPoDetails, fetchDeviceModelDetails } from '@/stores/imm04'
 import { useFormDraft } from '@/composables/useFormDraft'
 import SmartSelect from '@/components/common/SmartSelect.vue'
+import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
 import LinkInfoCard from '@/components/common/LinkInfoCard.vue'
 import type { DeviceModelDetails } from '@/types/imm04'
 import type { MasterItem } from '@/stores/masterData'
@@ -75,11 +77,11 @@ type RequiredField = 'po_reference' | 'master_item' | 'vendor' | 'clinical_dept'
 
 const FIELD_LABELS: Record<RequiredField, string> = {
   po_reference:               'Lệnh mua hàng (PO)',
-  master_item:                'Model Thiết bị',
+  master_item:                'Mẫu thiết bị',
   vendor:                     'Nhà cung cấp',
   clinical_dept:              'Khoa / Phòng nhận',
   expected_installation_date: 'Ngày hẹn lắp đặt',
-  vendor_serial_no:           'Serial Number Hãng',
+  vendor_serial_no:           'Số serial Hãng',
 }
 
 const fieldErrors = ref<Partial<Record<RequiredField, string>>>({})
@@ -290,7 +292,7 @@ stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
 
           <!-- Master Item — IMM Device Model -->
           <div class="form-group md:col-span-2">
-            <p class="form-label">Model Thiết bị <span class="text-red-500">*</span></p>
+            <p class="form-label">Mẫu thiết bị <span class="text-red-500">*</span></p>
             <SmartSelect
               v-model="form.master_item"
               doctype="IMM Device Model"
@@ -303,10 +305,10 @@ stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
             <p v-if="fieldErrors.master_item" class="mt-1 text-xs text-red-500">{{ fieldErrors.master_item }}</p>
             <LinkInfoCard
               v-if="deviceModelInfo"
-              title="Chi tiết Model thiết bị — tự động điền phân loại rủi ro, lịch bảo trì và hiệu chuẩn"
+              title="Chi tiết mẫu thiết bị — tự động điền phân loại rủi ro, lịch bảo trì và hiệu chuẩn"
               variant="info"
               :fields="[
-                { label: 'Model', value: deviceModelInfo.model_name },
+                { label: 'Mẫu máy', value: deviceModelInfo.model_name },
                 { label: 'Hãng sản xuất', value: deviceModelInfo.manufacturer },
                 { label: 'Phân loại WHO', value: deviceModelInfo.medical_device_class, type: 'badge' },
                 { label: 'Mức rủi ro', value: deviceModelInfo.risk_classification, type: 'badge' },
@@ -367,7 +369,7 @@ stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
 
           <!-- Serial Number -->
           <div class="form-group">
-            <label for="vendor_serial_no" class="form-label">Serial Number Hãng <span class="text-red-500">*</span></label>
+            <label for="vendor_serial_no" class="form-label">Số serial Hãng <span class="text-red-500">*</span></label>
             <input
               id="vendor_serial_no"
               v-model="form.vendor_serial_no"
@@ -390,9 +392,9 @@ stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                 :style="`background: ${riskColor}18; color: ${riskColor}; border: 1px solid ${riskColor}40`"
               >
                 <span class="w-2 h-2 rounded-full" :style="`background: ${riskColor}`" />
-                Class {{ form.risk_class }}
+                Loại {{ form.risk_class }}
               </span>
-              <span v-else class="text-sm text-slate-400 italic">Tự động điền khi chọn Model</span>
+              <span v-else class="text-sm text-slate-400 italic">Tự động điền khi chọn mẫu máy</span>
             </div>
           </div>
 
@@ -425,7 +427,7 @@ stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
 
           <!-- Delivery note / Packing list -->
           <div class="form-group">
-            <label for="delivery_note_no" class="form-label">Số Phiếu Giao Hàng / Packing List</label>
+            <label for="delivery_note_no" class="form-label">Số Phiếu Giao Hàng / Phiếu đóng gói</label>
             <input
               id="delivery_note_no"
               v-model="form.delivery_note_no"
@@ -438,13 +440,12 @@ stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
           <!-- Purchase price -->
           <div class="form-group">
             <label for="purchase_price" class="form-label">Giá trị Mua sắm (VNĐ)</label>
-            <input
+            <CurrencyInput
               id="purchase_price"
-              v-model.number="form.purchase_price"
-              type="number"
-              min="0"
+              v-model="form.purchase_price"
               class="form-input"
               placeholder="0"
+              aria-label="Giá trị Mua sắm (VNĐ)"
             />
             <p class="mt-1 text-[11px] text-slate-400">Theo PO / hợp đồng</p>
           </div>
@@ -470,9 +471,9 @@ stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
           <!-- Commissioned by -->
           <div class="form-group">
             <p class="form-label">Kỹ thuật viên thực hiện lắp đặt</p>
-            <SmartSelect
+            <ApproverSelect
               v-model="form.commissioned_by"
-              doctype="User"
+              context="commissioning"
               placeholder="Chọn kỹ thuật viên..."
             />
           </div>
@@ -480,9 +481,9 @@ stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
           <!-- Received by — kho vận -->
           <div class="form-group">
             <p class="form-label">Người tiếp nhận (Kho vận)</p>
-            <SmartSelect
+            <ApproverSelect
               v-model="form.received_by"
-              doctype="User"
+              context="user"
               placeholder="Nhân viên kho vận xác nhận hàng..."
             />
           </div>
@@ -490,9 +491,9 @@ stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
           <!-- Dept head acceptance — trưởng khoa -->
           <div class="form-group">
             <p class="form-label">Trưởng khoa tiếp nhận</p>
-            <SmartSelect
+            <ApproverSelect
               v-model="form.dept_head_acceptance"
-              doctype="User"
+              context="user"
               placeholder="Trưởng khoa ký biên bản..."
             />
           </div>
@@ -517,7 +518,7 @@ stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
               </svg>
             </div>
             <span class="text-sm text-slate-700">Thiết bị phát bức xạ / tia X</span>
-            <span class="text-xs px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-medium">Radiation</span>
+            <span class="text-xs px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-medium">Bức xạ</span>
           </label>
 
           <label for="doa_incident" class="flex items-center gap-2.5 cursor-pointer group">
@@ -536,7 +537,7 @@ stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                 <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
               </svg>
             </div>
-            <span class="text-sm text-slate-700">Sự cố DOA (Dead-on-Arrival)</span>
+            <span class="text-sm text-slate-700">Sự cố hỏng khi nhận (DOA)</span>
             <span class="text-xs px-1.5 py-0.5 rounded bg-red-100 text-red-700 font-medium">DOA</span>
           </label>
         </div>
@@ -614,7 +615,7 @@ stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                   <span
                     class="inline-block w-2 h-2 rounded-full"
                     :class="row.is_critical ? 'bg-red-500' : 'bg-slate-300'"
-                    :title="row.is_critical ? 'Critical' : 'Non-critical'"
+                    :title="row.is_critical ? 'Quan trọng' : 'Không quan trọng'"
                   />
                 </td>
                 <td class="table-cell text-slate-500 text-xs">{{ row.measurement_type }}</td>

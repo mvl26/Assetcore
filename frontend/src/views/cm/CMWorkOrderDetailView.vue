@@ -5,6 +5,7 @@ import { useRouter } from 'vue-router'
 import { useNotify } from '@/composables/useNotify'
 import { MSG } from '@/i18n/messages'
 import { cmStatusLabel, cmStatusClass, priorityLabel, priorityClass, rootCauseLabel, repairTypeLabel, resultLabel, lifecycleStatusLabel, lifecycleStatusClass } from '@/constants/labels'
+import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
 
 const props = defineProps<{ id: string }>()
 const store = useImm09Store()
@@ -215,8 +216,8 @@ async function doConfirmInspection() {
             </div>
             <div v-if="wo.department_name"><span class="text-slate-500">Khoa:</span> <span class="font-medium">{{ wo.department_name }}</span></div>
             <div v-if="wo.location_name"><span class="text-slate-500">Vị trí:</span> <span class="font-medium">{{ wo.location_name }}</span></div>
-            <div><span class="text-slate-500">Serial:</span> <span class="font-mono text-xs">{{ wo.serial_no || '—' }}</span></div>
-            <div><span class="text-slate-500">Risk Class:</span> <span class="font-medium">{{ wo.risk_class }}</span></div>
+            <div><span class="text-slate-500">Số serial:</span> <span class="font-mono text-xs">{{ wo.serial_no || '—' }}</span></div>
+            <div><span class="text-slate-500">Phân loại rủi ro:</span> <span class="font-medium">{{ wo.risk_class }}</span></div>
             <div><span class="text-slate-500">Loại SC:</span> <span class="font-medium">{{ repairTypeLabel(wo.repair_type) }}</span></div>
             <div>
               <span class="text-slate-500">Ưu tiên:</span>
@@ -230,7 +231,7 @@ async function doConfirmInspection() {
               v-if="wo.incident_report"
               :to="`/incidents/${wo.incident_report}`"
               class="text-xs bg-purple-100 text-purple-700 hover:bg-purple-200 px-2 py-1 rounded-full transition-colors"
-              title="Mở Incident Report nguồn"
+              title="Mở báo cáo sự cố nguồn"
             >
 Sự cố {{ wo.incident_report }} →
 </router-link>
@@ -347,7 +348,7 @@ Phiếu bảo trì {{ wo.source_pm_wo }} →
           <template v-if="['Completed', 'Cannot Repair', 'Cancelled'].includes(wo.status)">
             <div class="flex items-center justify-between mb-2">
               <span class="text-xs text-slate-500">Thời gian sửa chữa (TTR)</span>
-              <span class="text-xs text-slate-500">SLA target</span>
+              <span class="text-xs text-slate-500">Mục tiêu SLA</span>
             </div>
             <div class="flex items-center justify-between mb-3">
               <span :class="['text-xl font-bold font-mono', wo.sla_breached ? 'text-red-600' : 'text-emerald-600']">
@@ -387,7 +388,7 @@ Phiếu bảo trì {{ wo.source_pm_wo }} →
               </div>
             </div>
             <div class="flex items-center justify-between mt-3 text-xs text-slate-500">
-              <span>SLA target</span>
+              <span>Mục tiêu SLA</span>
               <span class="font-mono font-semibold text-slate-700">{{ wo.sla_target_hours ?? '—' }}h</span>
             </div>
           </template>
@@ -554,8 +555,15 @@ Không thể sửa chữa
         <h3 class="font-bold text-lg mb-4">Phân công kỹ thuật viên</h3>
         <div class="space-y-3 mb-5">
           <div>
-            <label for="assign-email" class="block text-sm text-slate-600 mb-1">Email kỹ thuật viên *</label>
-            <input id="assign-email" v-model="assignEmail" type="email" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" placeholder="ktv@hospital.vn" />
+            <!-- Picker user AssetCore ĐỦ NĂNG LỰC sửa chữa (Repair Manager/User + admin),
+                 lọc server-side theo capability — thay free-text email tránh gán nhầm. -->
+            <ApproverSelect
+              v-model="assignEmail"
+              context="repair"
+              label="Kỹ thuật viên"
+              required
+              placeholder="Tìm KTV theo tên hoặc email..."
+            />
           </div>
           <div>
             <label for="assign-priority" class="block text-sm text-slate-600 mb-1">Ưu tiên</label>

@@ -5,6 +5,7 @@ import { useRouter } from 'vue-router'
 import { listWarehouses, createWarehouse, updateWarehouse, deleteWarehouse } from '@/api/inventory'
 import type { Warehouse } from '@/types/inventory'
 import SmartSelect from '@/components/common/SmartSelect.vue'
+import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
@@ -293,7 +294,7 @@ id="wh-code" v-model="form.warehouse_code" type="text" class="form-input w-full"
               </div>
               <div>
                 <label for="wh-manager" class="form-label">Người phụ trách</label>
-                <SmartSelect id="wh-manager" v-model="form.manager" doctype="User" placeholder="Chọn user..." />
+                <ApproverSelect id="wh-manager" v-model="form.manager" context="user" placeholder="Chọn người dùng..." />
               </div>
               <div class="flex items-center gap-3 pt-6">
                 <input

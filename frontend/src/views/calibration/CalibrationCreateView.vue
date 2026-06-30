@@ -5,8 +5,9 @@ import { useRouter, useRoute } from 'vue-router'
 import { createCalibration, listCalibrationSchedules, type CalibrationSchedule } from '@/api/imm11'
 import { getAssetActionMeta } from '@/api/imm00'
 import { frappeGet } from '@/api/helpers'
-import { lifecycleStatusLabel, riskClassificationLabel } from '@/constants/labels'
+import { lifecycleStatusLabel, riskClassificationLabel, calibrationTypeLabel } from '@/constants/labels'
 import SmartSelect from '@/components/common/SmartSelect.vue'
+import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
 import DateInput from '@/components/common/DateInput.vue'
 import { useFormDraft } from '@/composables/useFormDraft'
 import { useApi } from '@/composables/useApi'
@@ -245,7 +246,7 @@ onMounted(() => {
               <dd class="inline font-bold">{{ assetMeta.asset_name || 'Chưa có tên' }}</dd>
             </div>
             <div data-test="scan-cal-meta-model" class="bg-slate-50 rounded px-2 py-1.5">
-              <dt class="inline text-slate-500">Model:</dt>
+              <dt class="inline text-slate-500">Mẫu máy:</dt>
               <dd class="inline">{{ assetMeta.device_model_name || 'Chưa gán' }}</dd>
             </div>
             <div data-test="scan-cal-meta-location" class="bg-slate-50 rounded px-2 py-1.5">
@@ -290,7 +291,7 @@ onMounted(() => {
             <div>
               <div class="font-mono text-[11px]">{{ s.name }}</div>
               <div class="text-slate-500">
-                {{ s.calibration_type }} · {{ s.interval_days }} ngày · Lần tới: <b>{{ s.next_due_date || '—' }}</b>
+                {{ calibrationTypeLabel(s.calibration_type) }} · {{ s.interval_days }} ngày · Lần tới: <b>{{ s.next_due_date || '—' }}</b>
               </div>
             </div>
             <svg v-if="form.calibration_schedule === s.name" class="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
@@ -301,7 +302,7 @@ onMounted(() => {
         </div>
         <SmartSelect v-model="form.calibration_schedule" doctype="IMM Calibration Schedule" placeholder="Tìm lịch khác..." />
         <div v-if="scheduleMeta" class="mt-2 bg-brand-50 border border-brand-200 rounded-lg p-3 text-xs text-brand-800 grid grid-cols-1 sm:grid-cols-3 gap-2">
-          <div><span class="text-brand-600">Loại:</span> <b>{{ scheduleMeta.calibration_type }}</b></div>
+          <div><span class="text-brand-600">Loại:</span> <b>{{ calibrationTypeLabel(scheduleMeta.calibration_type) }}</b></div>
           <div><span class="text-brand-600">Chu kỳ:</span> <b>{{ scheduleMeta.interval_days }} ngày</b></div>
           <div><span class="text-brand-600">Lần tới:</span> <b>{{ scheduleMeta.next_due_date || '—' }}</b></div>
         </div>
@@ -322,7 +323,7 @@ onMounted(() => {
         </div>
         <div>
           <label class="form-label">Kỹ thuật viên <span class="text-red-500">*</span></label>
-          <SmartSelect v-model="form.technician" doctype="User" placeholder="Tìm người dùng..." />
+          <ApproverSelect v-model="form.technician" context="calibration" placeholder="Tìm kỹ thuật viên..." />
         </div>
         <div class="flex items-center gap-2">
           <input id="recal" v-model="form.is_recalibration" type="checkbox" :true-value="1" :false-value="0" class="h-4 w-4 text-blue-600 rounded" />
@@ -332,7 +333,7 @@ onMounted(() => {
 
       <!-- External Lab section -->
       <div v-if="isExternal" class="border-l-4 border-purple-300 pl-4 space-y-3 bg-purple-50/30 py-3">
-        <h3 class="font-semibold text-sm text-purple-800">Thông tin Lab External</h3>
+        <h3 class="font-semibold text-sm text-purple-800">Thông tin Lab bên ngoài</h3>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label class="form-label">Lab hiệu chuẩn <span class="text-red-500">*</span></label>
@@ -347,19 +348,19 @@ onMounted(() => {
 
       <!-- In-House section -->
       <div v-if="isInHouse" class="border-l-4 border-emerald-300 pl-4 space-y-3 bg-emerald-50/30 py-3">
-        <h3 class="font-semibold text-sm text-emerald-800">Thông tin In-House</h3>
+        <h3 class="font-semibold text-sm text-emerald-800">Thông tin nội bộ</h3>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label class="form-label">Serial chuẩn đo lường <span class="text-red-500">*</span></label>
+            <label class="form-label">Số serial chuẩn đo lường <span class="text-red-500">*</span></label>
             <input v-model="form.reference_standard_serial" class="form-input w-full" placeholder="VD: STD-2026-001" />
           </div>
           <div>
-            <label class="form-label">Traceability ref <span class="text-red-500">*</span></label>
+            <label class="form-label">Tham chiếu liên kết chuẩn <span class="text-red-500">*</span></label>
             <input v-model="form.traceability_reference" class="form-input w-full" placeholder="VD: NIST-12345" />
           </div>
         </div>
         <p class="text-xs text-emerald-700">
-          Cần liên kết tới chuẩn đã được công nhận để đảm bảo traceability theo ISO 17025.
+          Cần liên kết tới chuẩn đã được công nhận để đảm bảo liên kết chuẩn theo ISO 17025.
         </p>
       </div>
 

@@ -8,6 +8,7 @@ import {
   updateDocumentRequest, deleteDocumentRequest, type DocumentRequest,
 } from '@/api/imm00'
 import SmartSelect from '@/components/common/SmartSelect.vue'
+import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
@@ -331,8 +332,8 @@ onMounted(load)
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">Nhóm</label>
             <select v-model="form.doc_category" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-              <option>Legal</option><option>Technical</option><option>Certification</option>
-              <option>Training</option><option>QA</option>
+              <option value="Legal">Pháp lý</option><option value="Technical">Kỹ thuật</option><option value="Certification">Kiểm định</option>
+              <option value="Training">Đào tạo</option><option value="QA">Chất lượng</option>
             </select>
           </div>
           <div>
@@ -346,7 +347,7 @@ onMounted(load)
           </div>
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">Giao cho</label>
-            <SmartSelect v-model="form.assigned_to as string" doctype="User" placeholder="Chọn người dùng..." />
+            <ApproverSelect v-model="form.assigned_to as string" context="user" placeholder="Chọn người dùng..." />
           </div>
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">Hạn xử lý <span class="text-red-500">*</span></label>
