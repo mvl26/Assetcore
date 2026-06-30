@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Báo cáo Rà soát Phần mềm AssetCore — 17/06/2026</title>
+<style>
+  :root{
+    --navy:#15294d; --navy2:#1e3a66; --accent:#2563eb; --line:#dfe5ee;
+    --cao:#c0392b; --tb:#d68910; --thap:#2e86c1; --good:#1e8449;
+    --bug:#8e44ad; --logic:#b9770e; --caitien:#117a65; --bg:#f5f7fb;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:#1f2733;font-family:Arial,"Segoe UI",Helvetica,sans-serif;line-height:1.6;font-size:15px}
+  .wrap{max-width:1180px;margin:0 auto;padding:0 22px 80px}
+  header.main{background:linear-gradient(135deg,var(--navy),var(--navy2));color:#fff;padding:34px 22px;margin-bottom:0}
+  header.main .inner{max-width:1180px;margin:0 auto}
+  header.main h1{margin:0 0 6px;font-size:26px;letter-spacing:.2px}
+  header.main p{margin:2px 0;color:#cdd9ee;font-size:14px}
+  .meta-grid{display:flex;flex-wrap:wrap;gap:10px;margin-top:16px}
+  .meta-grid div{background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.18);border-radius:8px;padding:8px 14px;font-size:13px;color:#eaf1ff}
+  .meta-grid b{color:#fff}
+  h2{color:var(--navy);border-bottom:3px solid var(--navy);padding-bottom:8px;margin-top:46px;font-size:21px}
+  h3{color:var(--navy2);margin-top:30px;font-size:17px}
+  h4{color:var(--navy2);margin:18px 0 6px;font-size:15px}
+  p{margin:8px 0}
+  a{color:var(--accent)}
+  table{border-collapse:collapse;width:100%;margin:14px 0;background:#fff;box-shadow:0 1px 3px rgba(20,41,77,.08);font-size:13.5px}
+  th{background:var(--navy);color:#fff;text-align:left;padding:9px 11px;font-weight:600;vertical-align:top}
+  td{padding:8px 11px;border-bottom:1px solid var(--line);vertical-align:top}
+  tbody tr:nth-child(even){background:#eef3fa}
+  tbody tr:hover{background:#e2ebf8}
+  .badge{display:inline-block;padding:2px 9px;border-radius:11px;color:#fff;font-size:11.5px;font-weight:700;white-space:nowrap}
+  .b-cao{background:var(--cao)} .b-tb{background:var(--tb)} .b-thap{background:var(--thap)}
+  .b-bug{background:var(--bug)} .b-logic{background:var(--logic)} .b-caitien{background:var(--caitien)} .b-good{background:var(--good)}
+  .kpi{display:flex;flex-wrap:wrap;gap:14px;margin:18px 0}
+  .kpi .card{flex:1 1 150px;background:#fff;border:1px solid var(--line);border-left:5px solid var(--navy);border-radius:9px;padding:14px 16px;box-shadow:0 1px 3px rgba(20,41,77,.06)}
+  .kpi .card .n{font-size:30px;font-weight:800;color:var(--navy);line-height:1}
+  .kpi .card .l{font-size:12.5px;color:#5b6470;margin-top:5px}
+  .kpi .card.cao{border-left-color:var(--cao)} .kpi .card.cao .n{color:var(--cao)}
+  .kpi .card.tb{border-left-color:var(--tb)} .kpi .card.tb .n{color:var(--tb)}
+  .kpi .card.thap{border-left-color:var(--thap)} .kpi .card.thap .n{color:var(--thap)}
+  .kpi .card.good{border-left-color:var(--good)} .kpi .card.good .n{color:var(--good)}
+  .finding{background:#fff;border:1px solid var(--line);border-radius:10px;padding:0;margin:22px 0;overflow:hidden;box-shadow:0 1px 4px rgba(20,41,77,.07)}
+  .finding .fh{background:#eaf0f9;border-bottom:1px solid var(--line);padding:12px 18px;display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+  .finding .fh .id{font-weight:800;color:var(--navy);font-size:15px}
+  .finding .fh .ti{font-weight:700;color:#1f2733;flex:1 1 320px}
+  .finding .fb{padding:6px 18px 16px}
+  .finding .fb table{box-shadow:none;margin:12px 0}
+  .finding .fb th{width:185px;background:#3a4a66}
+  .evi{background:#fdf6ec;border:1px solid #f0d9b5;border-left:4px solid var(--tb);border-radius:7px;padding:10px 14px;margin:10px 0;font-size:13px}
+  .evi code{background:#2d3748;color:#f7fafc;padding:1px 6px;border-radius:4px;font-size:12.5px}
+  .fix{background:#eafaf1;border:1px solid #b7e1c9;border-left:4px solid var(--good);border-radius:7px;padding:10px 14px;margin:10px 0;font-size:13.5px}
+  .note{background:#eaf2fb;border:1px solid #c4dbf3;border-left:4px solid var(--accent);border-radius:7px;padding:12px 16px;margin:16px 0}
+  ul.tight{margin:6px 0;padding-left:22px} ul.tight li{margin:4px 0}
+  .toc{background:#fff;border:1px solid var(--line);border-radius:9px;padding:14px 20px;margin:18px 0}
+  .toc a{display:inline-block;margin:3px 14px 3px 0;font-size:13.5px}
+  .legend span{margin-right:14px;font-size:12.5px}
+  .small{font-size:12.5px;color:#5b6470}
+  .group-row td{background:var(--navy2);color:#fff;font-weight:700}
+  code.url{font-size:12px;color:#1a4ea0;background:#eef3fb;padding:1px 5px;border-radius:4px;word-break:break-all}
+  .roadmap{display:flex;flex-wrap:wrap;gap:16px;margin:16px 0}
+  .roadmap .ph{flex:1 1 260px;background:#fff;border:1px solid var(--line);border-radius:10px;padding:0;overflow:hidden;box-shadow:0 1px 3px rgba(20,41,77,.07)}
+  .roadmap .ph h4{margin:0;padding:11px 15px;color:#fff;font-size:14px}
+  .roadmap .ph.p1 h4{background:var(--cao)} .roadmap .ph.p2 h4{background:var(--tb)} .roadmap .ph.p3 h4{background:var(--thap)}
+  .roadmap .ph ul{margin:0;padding:12px 15px 14px 30px} .roadmap .ph li{margin:6px 0;font-size:13px}
+  footer{margin-top:50px;padding-top:18px;border-top:1px solid var(--line);color:#5b6470;font-size:12.5px}
+  @media print{body{background:#fff}.finding,.kpi .card,table{box-shadow:none}}
+</style>
+</head>
+<body>
+<header class="main">
+  <div class="inner">
+    <h1>Báo cáo Rà soát Phần mềm AssetCore — Quản lý Vòng đời Tài sản</h1>
+    <p>Kiểm thử trực tiếp dưới vai trò QA / BA / Lập trình viên · Phát hiện Bug · Lỗi logic nghiệp vụ · Đề xuất cải tiến</p>
+    <div class="meta-grid">
+      <div><b>Hệ thống:</b> AssetCore v0.0.3</div>
+      <div><b>URL:</b> hgn09g5nd0g.sn.mynetname.net/assetcore</div>
+      <div><b>Tài khoản test:</b> Administrator (hieu.cv1@miyano.com.vn)</div>
+      <div><b>Ngày kiểm thử:</b> 16–17/06/2026</div>
+      <div><b>Phương pháp:</b> Test trực tiếp, tạo dữ liệu thật, nhập biên</div>
+      <div><b>Trạng thái dự án:</b> Giai đoạn test</div>
+    </div>
+  </div>
+</header>
+<div class="wrap">
+
+<div class="note">
+  <b>Tóm tắt điều hành.</b> AssetCore là phần mềm quản lý vòng đời thiết bị y tế được kiến trúc khá bài bản theo định hướng ISO 13485 (RBAC theo module, KPI/compliance, audit trail, chuỗi kế thừa GMDN). Tuy nhiên ở thời điểm rà soát, <b>toàn bộ dữ liệu nền (master data) gần như trống</b> và <b>cơ chế phản hồi lỗi khi lưu chưa nhất quán</b>: một số form từ chối dữ liệu sai một cách <b>im lặng (không thông báo, không lưu)</b>, gây rủi ro cao trước go-live. Ngoài ra mô-đun <b>Khấu hao</b> có lỗi tính toán giá trị còn lại và treo UI khi sinh lịch. Báo cáo ghi nhận <b>19 phát hiện</b> kèm bước tái hiện chi tiết và <b>10 điểm tốt</b> nên giữ &amp; nhân rộng.</div>
+
+<div class="note" style="border-left-color:var(--tb);background:#fdf6ec;border-color:#f0d9b5">
+  <b>Lưu ý về ảnh chụp màn hình.</b> Môi trường kiểm thử hiện tại <b>không cho phép lưu ảnh chụp từ trình duyệt ra file</b> để nhúng base64 vào báo cáo. Theo đúng yêu cầu, mỗi lỗi vì vậy được trình bày bằng <b>bằng chứng dạng văn bản trích nguyên giá trị/thông báo quan sát + mã bản ghi vừa tạo</b>, kèm một <b>“Checklist ảnh cần chụp”</b> (Module + Màn hình + URL + tên file gợi ý) ở Phụ lục B để đội ngũ bổ sung ảnh khi cần. Mọi giá trị trích dẫn đều lấy trực tiếp từ phần mềm trong phiên test.</div>
+
+<!-- ============ 1. TỔNG QUAN ============ -->
+<h2 id="tongquan">1. Tổng quan</h2>
+
+<div class="kpi">
+  <div class="card"><div class="n">19</div><div class="l">Tổng số phát hiện</div></div>
+  <div class="card cao"><div class="n">7</div><div class="l">Mức Cao</div></div>
+  <div class="card tb"><div class="n">8</div><div class="l">Mức Trung bình</div></div>
+  <div class="card thap"><div class="n">4</div><div class="l">Mức Thấp</div></div>
+  <div class="card good"><div class="n">10</div><div class="l">Điểm tốt ghi nhận</div></div>
+</div>
+
+<div class="kpi">
+  <div class="card" style="border-left-color:var(--bug)"><div class="n" style="color:var(--bug)">5</div><div class="l">Bug (sai/không chạy)</div></div>
+  <div class="card" style="border-left-color:var(--logic)"><div class="n" style="color:var(--logic)">7</div><div class="l">Lỗi logic nghiệp vụ</div></div>
+  <div class="card" style="border-left-color:var(--caitien)"><div class="n" style="color:var(--caitien)">7</div><div class="l">Khó dùng / Cải tiến</div></div>
+  <div class="card"><div class="n">~58</div><div class="l">Màn hình đã lập bản đồ</div></div>
+  <div class="card"><div class="n">12</div><div class="l">Màn hình test trực tiếp sâu</div></div>
+</div>
+
+<p class="small legend"><b>Chú giải:</b>
+  <span><span class="badge b-cao">Cao</span> chặn rủi ro/nghiệp vụ</span>
+  <span><span class="badge b-tb">Trung bình</span> cần xử lý</span>
+  <span><span class="badge b-thap">Thấp</span> hoàn thiện</span>
+  &nbsp;|&nbsp;
+  <span><span class="badge b-bug">Bug</span></span>
+  <span><span class="badge b-logic">Logic</span></span>
+  <span><span class="badge b-caitien">Cải tiến</span></span>
+  &nbsp;|&nbsp;
+  <span>✔ Đã tái hiện trực tiếp · ◑ Nghi ngờ theo quan sát · ? Cần làm rõ</span>
+</p>
+
+<h3>1.1 Phạm vi rà soát (bản đồ module thực tế của AssetCore)</h3>
+<p>Danh sách dưới đây lấy trực tiếp từ thanh điều hướng và định tuyến (router) của phần mềm — <b>không suy đoán theo SupplyCore</b>. Trạng thái dữ liệu ghi nhận tại thời điểm test.</p>
+
+<table>
+<thead><tr><th style="width:30px">#</th><th>Module / Màn hình</th><th>Đường dẫn (URL path)</th><th>Trạng thái dữ liệu</th><th>Mức rà soát</th></tr></thead>
+<tbody>
+<tr class="group-row"><td colspan="5">HỆ THỐNG</td></tr>
+<tr><td>1</td><td>Dashboard tổng quan</td><td><code class="url">/dashboard</code></td><td>14 user · 4 vendor engineer</td><td>Xem + đối chiếu</td></tr>
+<tr><td>2</td><td>Người dùng (IMM)</td><td><code class="url">/user-profiles</code></td><td>13 người dùng</td><td>Xem danh sách</td></tr>
+<tr><td>3</td><td>Dữ liệu tham chiếu (Vị trí / Khoa-Phòng / Danh mục)</td><td><code class="url">/reference-data</code></td><td>0 / 0 / 0 → đã tạo 1 Danh mục test</td><td>Tạo + test</td></tr>
+<tr><td>4</td><td>Phê duyệt chờ</td><td><code class="url">/approvals/pending</code></td><td>0</td><td>Định tuyến</td></tr>
+<tr class="group-row"><td colspan="5">TÀI SẢN &amp; ĐỐI TÁC</td></tr>
+<tr><td>5</td><td>Danh sách thiết bị</td><td><code class="url">/assets</code> · <code class="url">/assets/new</code></td><td>0 → đã tạo 1 TS test</td><td><b>Test sâu</b></td></tr>
+<tr><td>6</td><td>Khấu hao tài sản</td><td><code class="url">/depreciation</code></td><td>1 TS (có lỗi tính)</td><td><b>Test sâu</b></td></tr>
+<tr><td>7</td><td>Quét mã QR</td><td><code class="url">/qr-scan</code></td><td>—</td><td>Định tuyến</td></tr>
+<tr><td>8</td><td>Model thiết bị</td><td><code class="url">/device-models</code></td><td>0</td><td>Xem + form</td></tr>
+<tr><td>9</td><td>Nhà cung cấp</td><td><code class="url">/suppliers</code> · <code class="url">/suppliers/new</code></td><td>0 → đã tạo 1 NCC test</td><td><b>Test sâu</b></td></tr>
+<tr><td>10</td><td>Hợp đồng dịch vụ</td><td><code class="url">/service-contracts</code></td><td>0</td><td>Xem danh sách</td></tr>
+<tr><td>11</td><td>Chính sách SLA</td><td><code class="url">/sla-policies</code></td><td>0</td><td>Định tuyến</td></tr>
+<tr class="group-row"><td colspan="5">NHU CẦU &amp; DỰ TOÁN</td></tr>
+<tr><td>12</td><td>Đề xuất nhu cầu</td><td><code class="url">/needs-requests</code></td><td>0</td><td>Định tuyến</td></tr>
+<tr><td>13</td><td>Kế hoạch mua sắm</td><td><code class="url">/procurement-plans</code></td><td>0</td><td>Định tuyến</td></tr>
+<tr class="group-row"><td colspan="5">THÔNG SỐ KỸ THUẬT</td></tr>
+<tr><td>14</td><td>Hồ sơ kỹ thuật</td><td><code class="url">/tech-specs</code></td><td>0</td><td>Định tuyến</td></tr>
+<tr class="group-row"><td colspan="5">ĐÁNH GIÁ NCC &amp; MUA SẮM</td></tr>
+<tr><td>15</td><td>Hồ sơ Nhà cung cấp</td><td><code class="url">/vendor-profiles</code></td><td>0</td><td>Định tuyến</td></tr>
+<tr><td>16</td><td>Đánh giá Nhà cung cấp</td><td><code class="url">/vendor-evaluations</code></td><td>0</td><td>Định tuyến</td></tr>
+<tr><td>17</td><td>Danh mục NCC được duyệt</td><td><code class="url">/approved-vendors</code></td><td>0</td><td>Định tuyến</td></tr>
+<tr><td>18</td><td>Quyết định mua sắm</td><td><code class="url">/procurement-decisions</code></td><td>0</td><td>Định tuyến</td></tr>
+<tr><td>19</td><td>Đơn hàng mua</td><td><code class="url">/purchases</code></td><td>0</td><td>Xem danh sách</td></tr>
+<tr class="group-row"><td colspan="5">LẮP ĐẶT &amp; NGHIỆM THU</td></tr>
+<tr><td>20</td><td>Tiếp nhận thiết bị (Phiếu nghiệm thu IMM-04)</td><td><code class="url">/commissioning</code></td><td>0</td><td>Xem + KPI</td></tr>
+<tr class="group-row"><td colspan="5">ĐĂNG KÝ &amp; HỒ SƠ</td></tr>
+<tr><td>21</td><td>Kho tài liệu</td><td><code class="url">/documents</code></td><td>0</td><td>Định tuyến</td></tr>
+<tr><td>22</td><td>Yêu cầu hồ sơ</td><td><code class="url">/documents/requests</code></td><td>0</td><td>Định tuyến</td></tr>
+<tr class="group-row"><td colspan="5">ĐÀO TẠO NGƯỜI DÙNG (IMM-06)</td></tr>
+<tr><td>23</td><td>Tổng quan đào tạo</td><td><code class="url">/imm06/dashboard</code></td><td>—</td><td>Định tuyến</td></tr>
+<tr><td>24</td><td>Chương trình đào tạo</td><td><code class="url">/imm06/programs</code></td><td>0</td><td>Định tuyến</td></tr>
+<tr><td>25</td><td>Buổi đào tạo</td><td><code class="url">/imm06/sessions</code></td><td>0</td><td>Định tuyến</td></tr>
+<tr><td>26</td><td>Năng lực</td><td><code class="url">/imm06/competencies</code></td><td>0</td><td>Định tuyến</td></tr>
+<tr class="group-row"><td colspan="5">BẢO TRÌ ĐỊNH KỲ — PM (IMM-08)</td></tr>
+<tr><td>27</td><td>Tổng quan bảo trì</td><td><code class="url">/pm/dashboard</code></td><td>—</td><td>Định tuyến</td></tr>
+<tr><td>28</td><td>Lệnh bảo trì</td><td><code class="url">/pm/work-orders</code></td><td>0</td><td>Xem + KPI</td></tr>
+<tr><td>29</td><td>Lịch bảo trì</td><td><code class="url">/pm/calendar</code></td><td>—</td><td>Định tuyến</td></tr>
+<tr><td>30</td><td>Kế hoạch bảo trì</td><td><code class="url">/pm/schedules</code></td><td>0</td><td>Định tuyến</td></tr>
+<tr><td>31</td><td>Mẫu bảng kiểm</td><td><code class="url">/pm/templates</code></td><td>0</td><td>Định tuyến</td></tr>
+<tr class="group-row"><td colspan="5">SỬA CHỮA — CM (IMM-09)</td></tr>
+<tr><td>32</td><td>Tổng quan sửa chữa</td><td><code class="url">/cm/dashboard</code></td><td>—</td><td>Định tuyến</td></tr>
+<tr><td>33</td><td>Lệnh sửa chữa</td><td><code class="url">/cm/work-orders</code></td><td>0</td><td>Xem + KPI</td></tr>
+<tr><td>34</td><td>Yêu cầu cập nhật firmware</td><td><code class="url">/cm/firmware</code></td><td>0</td><td>Định tuyến</td></tr>
+<tr><td>35</td><td>Thời gian sửa chữa trung bình (MTTR)</td><td><code class="url">/cm/mttr</code></td><td>—</td><td>Định tuyến</td></tr>
+<tr class="group-row"><td colspan="5">HIỆU NĂNG &amp; HIỆU CHUẨN (IMM-11)</td></tr>
+<tr><td>36</td><td>Tổng quan hiệu chuẩn</td><td><code class="url">/calibration/dashboard</code></td><td>—</td><td>Định tuyến</td></tr>
+<tr><td>37</td><td>Phiếu hiệu chuẩn</td><td><code class="url">/calibration</code></td><td>0</td><td>Xem + KPI</td></tr>
+<tr><td>38</td><td>Lịch hiệu chuẩn</td><td><code class="url">/calibration/schedules</code></td><td>—</td><td>Định tuyến</td></tr>
+<tr class="group-row"><td colspan="5">SỰ CỐ &amp; RCA (IMM-12)</td></tr>
+<tr><td>39</td><td>Tổng quan sự cố</td><td><code class="url">/incidents/dashboard</code></td><td>—</td><td>Định tuyến</td></tr>
+<tr><td>40</td><td>Danh sách sự cố · Báo sự cố</td><td><code class="url">/incidents/list</code> · <code class="url">/incidents/new</code></td><td>0</td><td><b>Test form</b></td></tr>
+<tr class="group-row"><td colspan="5">ĐIỀU CHUYỂN THIẾT BỊ</td></tr>
+<tr><td>41</td><td>Phiếu điều chuyển</td><td><code class="url">/asset-transfers</code> · <code class="url">/asset-transfers/new</code></td><td>0</td><td><b>Test form</b></td></tr>
+<tr class="group-row"><td colspan="5">TỒN KHO PHỤ TÙNG</td></tr>
+<tr><td>42</td><td>Tổng quan kho</td><td><code class="url">/inventory</code></td><td>—</td><td>Định tuyến</td></tr>
+<tr><td>43</td><td>Tồn kho</td><td><code class="url">/stock</code></td><td>0</td><td>Định tuyến</td></tr>
+<tr><td>44</td><td>Phụ tùng</td><td><code class="url">/spare-parts</code></td><td>0</td><td>Định tuyến</td></tr>
+<tr><td>45</td><td>Phiếu kho</td><td><code class="url">/stock-movements</code></td><td>0</td><td>Định tuyến</td></tr>
+<tr><td>46</td><td>Kho hàng</td><td><code class="url">/warehouses</code></td><td>0</td><td>Định tuyến</td></tr>
+<tr><td>47</td><td>Đơn vị tính</td><td><code class="url">/inventory/uom</code></td><td>0</td><td>Định tuyến</td></tr>
+<tr><td>48</td><td>Dự báo phụ tùng</td><td><code class="url">/inventory/forecasts</code></td><td>—</td><td>Định tuyến</td></tr>
+<tr><td>49</td><td>Watchlist</td><td><code class="url">/inventory/watchlist</code></td><td>0</td><td>Định tuyến</td></tr>
+<tr class="group-row"><td colspan="5">THEO DÕI TUÂN THỦ (QMS)</td></tr>
+<tr><td>50</td><td>Quy tắc tuân thủ</td><td><code class="url">/compliance/rules</code></td><td>—</td><td>Định tuyến</td></tr>
+<tr><td>51</td><td>Phát hiện</td><td><code class="url">/compliance/findings</code></td><td>—</td><td>Định tuyến</td></tr>
+<tr><td>52</td><td>Kiểm toán nội bộ</td><td><code class="url">/compliance/audits</code></td><td>—</td><td>Định tuyến</td></tr>
+<tr><td>53</td><td>Bảng điểm</td><td><code class="url">/compliance/scorecard</code></td><td>—</td><td>Định tuyến</td></tr>
+<tr><td>54</td><td>Soát xét quản lý</td><td><code class="url">/compliance/mr</code></td><td>—</td><td>Định tuyến</td></tr>
+<tr><td>55</td><td>Bản đồ nhiệt</td><td><code class="url">/compliance/heatmap</code></td><td>—</td><td>Định tuyến</td></tr>
+<tr><td>56</td><td>CAPA</td><td><code class="url">/capas</code></td><td>—</td><td>Định tuyến</td></tr>
+<tr><td>57</td><td>Nhật ký kiểm toán</td><td><code class="url">/audit-trail</code></td><td>—</td><td>Định tuyến</td></tr>
+</tbody>
+</table>
+<p class="small">“Định tuyến” = đã xác nhận route tồn tại và tải được (không 404), danh sách trống do chưa có dữ liệu; chưa đào sâu form do phụ thuộc master data. “Test sâu/Test form” = đã thao tác tạo/nhập biên/submit thực tế.</p>
+
+<!-- ============ 2. BẢNG TÓM TẮT ============ -->
+<h2 id="tomtat">2. Bảng tóm tắt phát hiện</h2>
+<table>
+<thead><tr><th style="width:46px">ID</th><th>Module</th><th>Mô tả ngắn</th><th style="width:90px">Loại</th><th style="width:90px">Mức độ</th><th style="width:60px">Xác minh</th></tr></thead>
+<tbody>
+<tr><td><a href="#f01">L-01</a></td><td>Nhà cung cấp</td><td>Lưu thất bại <b>im lặng</b> khi email sai định dạng + khoảng ngày hợp đồng đảo ngược (không thông báo, không lưu)</td><td><span class="badge b-bug">Bug</span></td><td><span class="badge b-cao">Cao</span></td><td>✔</td></tr>
+<tr><td><a href="#f02">L-02</a></td><td>Thiết bị</td><td>Lưu thất bại <b>im lặng</b> khi ngày mua tương lai / ngày BH hết hạn &lt; ngày mua</td><td><span class="badge b-bug">Bug</span></td><td><span class="badge b-cao">Cao</span></td><td>✔</td></tr>
+<tr><td><a href="#f03">L-03</a></td><td>Khấu hao</td><td>Nút “Sinh lịch khấu hao” treo UI &gt;60s, không sinh được lịch</td><td><span class="badge b-bug">Bug</span></td><td><span class="badge b-cao">Cao</span></td><td>✔</td></tr>
+<tr><td><a href="#f04">L-04</a></td><td>Khấu hao</td><td>“Giá trị còn lại” = 0 ₫ dù khấu hao lũy kế = 0 và nguyên giá = 5.000.000 ₫ (phải = 5.000.000 ₫)</td><td><span class="badge b-bug">Bug</span></td><td><span class="badge b-cao">Cao</span></td><td>✔</td></tr>
+<tr><td><a href="#f05">L-05</a></td><td>Khấu hao</td><td>Tài sản mới (0% KH, chưa có lịch) bị gắn cờ “Hết khấu hao” (1 hết KH)</td><td><span class="badge b-logic">Logic</span></td><td><span class="badge b-cao">Cao</span></td><td>✔</td></tr>
+<tr><td><a href="#f06">L-06</a></td><td>Khấu hao</td><td>Ngày bắt đầu KH = ngày tạo bản ghi (2026-06-16) thay vì theo ngày mua (01/01/2024)</td><td><span class="badge b-logic">Logic</span></td><td><span class="badge b-tb">TB</span></td><td>✔</td></tr>
+<tr><td><a href="#f07">L-07</a></td><td>Thiết bị / Danh mục</td><td>Lịch khấu hao không tự sinh dù Danh mục đã cấu hình luật KH; hiển thị “0/0 kỳ”</td><td><span class="badge b-logic">Logic</span></td><td><span class="badge b-tb">TB</span></td><td>✔</td></tr>
+<tr><td><a href="#f08">L-08</a></td><td>Thiết bị</td><td>Checkbox “Yêu cầu PM / hiệu chuẩn” không auto theo cấu hình mặc định của Danh mục</td><td><span class="badge b-logic">Logic</span></td><td><span class="badge b-tb">TB</span></td><td>◑</td></tr>
+<tr><td><a href="#f09">L-09</a></td><td>Nhà cung cấp</td><td>Không kiểm tra định dạng email (chấp nhận chuỗi không có “@”) — không cảnh báo</td><td><span class="badge b-logic">Logic</span></td><td><span class="badge b-tb">TB</span></td><td>✔</td></tr>
+<tr><td><a href="#f10">L-10</a></td><td>Toàn hệ thống</td><td>Phản hồi lỗi <b>không nhất quán</b>: Sự cố/Điều chuyển có banner lỗi; NCC/Thiết bị im lặng</td><td><span class="badge b-caitien">Cải tiến</span></td><td><span class="badge b-cao">Cao</span></td><td>✔</td></tr>
+<tr><td><a href="#f11">L-11</a></td><td>Đánh số chứng từ</td><td>Mã không liên tục: NCC đầu tiên = AC-SUP-2026-<b>0002</b>; Danh mục đầu tiên = CAT-<b>0003</b> (lần lưu lỗi vẫn cấp số)</td><td><span class="badge b-logic">Logic</span></td><td><span class="badge b-tb">TB</span></td><td>◑</td></tr>
+<tr><td><a href="#f12">L-12</a></td><td>Form (NCC, Thiết bị)</td><td>Form không reset sau lưu lỗi/điều hướng → dữ liệu nhập dở bị giữ, nối chuỗi giá trị</td><td><span class="badge b-bug">Bug</span></td><td><span class="badge b-tb">TB</span></td><td>✔</td></tr>
+<tr><td><a href="#f13">L-13</a></td><td>Người dùng / Dashboard</td><td>Lệch số: Dashboard “14 người dùng” vs danh sách “13 người dùng”</td><td><span class="badge b-logic">Logic</span></td><td><span class="badge b-thap">Thấp</span></td><td>◑</td></tr>
+<tr><td><a href="#f14">L-14</a></td><td>Toàn hệ thống</td><td>UI trộn lẫn tiếng Anh: “Incident Report”, “Fault Code”, “workaround”, “MTTR”, “CAPA”, “Watchlist”…</td><td><span class="badge b-caitien">Cải tiến</span></td><td><span class="badge b-tb">TB</span></td><td>✔</td></tr>
+<tr><td><a href="#f15">L-15</a></td><td>Điều hướng / Layout</td><td>Sidebar tự thu gọn thất thường (full → icon/hamburger) khi thao tác/đổi zoom</td><td><span class="badge b-caitien">Cải tiến</span></td><td><span class="badge b-tb">TB</span></td><td>✔</td></tr>
+<tr><td><a href="#f16">L-16</a></td><td>Khấu hao (thẻ KPI)</td><td>Tiền rút gọn “5 tr” trên thẻ vs “5.000.000 ₫” ở bảng — không nhất quán</td><td><span class="badge b-caitien">Cải tiến</span></td><td><span class="badge b-thap">Thấp</span></td><td>✔</td></tr>
+<tr><td><a href="#f17">L-17</a></td><td>Khấu hao (bảng)</td><td>Ngày hiển thị yyyy-mm-dd (2026-06-16) khác dd/mm/yyyy của toàn hệ thống</td><td><span class="badge b-caitien">Cải tiến</span></td><td><span class="badge b-thap">Thấp</span></td><td>✔</td></tr>
+<tr><td><a href="#f18">L-18</a></td><td>Master data / nhiều form</td><td>Master data trống chặn dây chuyền; Danh mục bắt buộc nhưng không có lối “tạo nhanh” inline</td><td><span class="badge b-caitien">Cải tiến</span></td><td><span class="badge b-cao">Cao</span></td><td>✔</td></tr>
+<tr><td><a href="#f19">L-19</a></td><td>Báo sự cố</td><td>Thiếu trường “thời điểm xảy ra sự cố” (chỉ có mô tả)</td><td><span class="badge b-caitien">Cải tiến</span></td><td><span class="badge b-thap">Thấp</span></td><td>◑</td></tr>
+</tbody>
+</table>
+
+<!-- ============ 3. CHI TIẾT ============ -->
+<h2 id="chitiet">3. Phần mô tả chi tiết</h2>
+<p>Mỗi lỗi nêu đủ: Module/Màn hình + URL → Trường/Nút → Bước tái hiện + dữ liệu nhập → Hành vi hiện tại vs mong đợi → Bằng chứng → Đề xuất sửa cho DEV/AI.</p>
+
+<!-- L-01 -->
+<div class="finding" id="f01">
+  <div class="fh"><span class="id">L-01</span><span class="ti">Lưu thất bại im lặng khi nhập dữ liệu sai quy tắc nghiệp vụ (Nhà cung cấp)</span><span class="badge b-bug">Bug</span><span class="badge b-cao">Cao</span></div>
+  <div class="fb">
+    <table>
+      <tr><th>Module / Màn hình</th><td>Nhà cung cấp → Thêm nhà cung cấp · <code class="url">/assetcore/suppliers/new</code></td></tr>
+      <tr><th>Trường / Nút</th><td>“Email liên hệ”, “Hợp đồng từ”, “Hợp đồng đến”, nút <b>“Tạo mới”</b></td></tr>
+      <tr><th>Bước tái hiện</th><td>1) Tên NCC = <code>TEST QA NCC Bien</code>. 2) Email liên hệ = <code>abc-khong-hop-le</code> (không có “@”). 3) Hợp đồng từ = <code>01/01/2030</code>, Hợp đồng đến = <code>01/01/2020</code> (đảo ngược). 4) Bấm “Tạo mới”.</td></tr>
+      <tr><th>Hành vi hiện tại</th><td>Trang đứng yên, <b>không có bất kỳ thông báo lỗi nào</b>, NCC <b>không được tạo</b> (quay lại danh sách vẫn “Tổng 0 nhà cung cấp”).</td></tr>
+      <tr><th>Hành vi mong đợi</th><td>Hiển thị thông báo lỗi rõ ràng tại từng trường: email sai định dạng; “Hợp đồng đến” phải ≥ “Hợp đồng từ”. Con trỏ nhảy tới trường lỗi.</td></tr>
+    </table>
+    <div class="evi"><b>Bằng chứng:</b> Sau khi sửa dữ liệu hợp lệ (email <code>ncc.test@medcons.vn</code>, xóa 2 ngày đảo ngược) thì lưu thành công, tạo bản ghi <code>AC-SUP-2026-0002</code> “TEST QA NCC Hop Le 01”. ⇒ Form có thể lưu, nhưng <b>từ chối dữ liệu sai một cách im lặng</b>. Xác minh: ✔ tái hiện trực tiếp.</div>
+    <div class="fix"><b>Đề xuất sửa (DEV/AI):</b> Bắt lỗi validate ở cả client &amp; server; trả message cụ thể và render vào form (toast + inline). Thêm rule: <code>contract_end &ge; contract_start</code>, regex email. Không để promise reject “rơi” mà không bắt (tránh “lưu thất bại im lặng”).</div>
+  </div>
+</div>
+
+<!-- L-02 -->
+<div class="finding" id="f02">
+  <div class="fh"><span class="id">L-02</span><span class="ti">Lưu thất bại im lặng khi ngày phi lý (Thêm thiết bị)</span><span class="badge b-bug">Bug</span><span class="badge b-cao">Cao</span></div>
+  <div class="fb">
+    <table>
+      <tr><th>Module / Màn hình</th><td>Danh sách thiết bị → Thêm thiết bị mới · <code class="url">/assetcore/assets/new</code></td></tr>
+      <tr><th>Trường / Nút</th><td>“Giá mua (VND)”, “Ngày mua”, “Ngày bảo hành hết hạn”, nút <b>“Lưu thiết bị”</b></td></tr>
+      <tr><th>Bước tái hiện</th><td>1) Tên = <code>TEST QA Máy X-quang biên-01</code>, Danh mục = (đã chọn). 2) Giá mua = <code>-5000</code> → bấm Lưu: bị chặn client-side (con trỏ nhảy về ô Giá mua, native min). 3) Sửa Giá mua = <code>5000000</code>, Ngày mua = <code>01/01/2030</code> (tương lai), Ngày BH hết hạn = <code>01/01/2020</code> (&lt; ngày mua) → bấm Lưu.</td></tr>
+      <tr><th>Hành vi hiện tại</th><td>Bước 3: <b>không thông báo, không lưu</b> (danh sách vẫn “Tổng 0 thiết bị”). Chỉ khi sửa ngày hợp lệ (mua 01/01/2024, BH 01/01/2027) mới lưu được → tạo <code>AC-ASSET-2026-00001</code>.</td></tr>
+      <tr><th>Hành vi mong đợi</th><td>Chặn kèm thông báo: “Ngày mua không được ở tương lai”; “Ngày BH hết hạn phải ≥ ngày mua”. (Giá mua âm đã được chặn — tốt, nhưng nên kèm message thay vì chỉ focus.)</td></tr>
+    </table>
+    <div class="evi"><b>Bằng chứng:</b> Bản ghi hợp lệ <code>AC-ASSET-2026-00001</code> được tạo thành công ⇒ form hoạt động; lỗi nằm ở việc <b>từ chối logic ngày mà không phản hồi</b>. Xác minh: ✔.</div>
+    <div class="fix"><b>Đề xuất sửa:</b> Thêm validate ngày (mua ≤ hôm nay; BH hết hạn ≥ mua; commissioning ≥ mua) + thông báo. Hiển thị message cho cả lỗi server. Với Giá mua âm: bổ sung thông báo “Giá mua phải ≥ 0”.</div>
+  </div>
+</div>
+
+<!-- L-03 -->
+<div class="finding" id="f03">
+  <div class="fh"><span class="id">L-03</span><span class="ti">“Sinh lịch khấu hao” treo giao diện, không tạo được lịch</span><span class="badge b-bug">Bug</span><span class="badge b-cao">Cao</span></div>
+  <div class="fb">
+    <table>
+      <tr><th>Module / Màn hình</th><td>Chi tiết thiết bị → tab “Khấu hao” · <code class="url">/assetcore/assets/AC-ASSET-2026-00001</code></td></tr>
+      <tr><th>Trường / Nút</th><td>Nút <b>“Sinh lịch khấu hao”</b></td></tr>
+      <tr><th>Bước tái hiện</th><td>1) Mở tài sản <code>AC-ASSET-2026-00001</code> (nguyên giá 5.000.000 ₫, danh mục cấu hình 60 tháng/đường thẳng). 2) Tab “Khấu hao” → “Chưa có lịch khấu hao”. 3) Bấm “Sinh lịch khấu hao”.</td></tr>
+      <tr><th>Hành vi hiện tại</th><td>Trang <b>đơ &gt; 60 giây</b> (renderer không phản hồi click/chụp màn hình — main thread bị khóa). Sau khi điều hướng lại: <b>vẫn “Chưa có lịch khấu hao”</b> (không sinh được). Bấm lần 2 → đơ ngay lập tức (tái hiện).</td></tr>
+      <tr><th>Hành vi mong đợi</th><td>Sinh lịch trong &lt;1–2s (hoặc xử lý nền có spinner), tạo 60 kỳ khấu hao, không khóa UI.</td></tr>
+    </table>
+    <div class="evi"><b>Bằng chứng:</b> 2 lần thao tác đều khóa UI; thao tác chuột/đọc trang trả lỗi “renderer may be frozen”. Lịch khấu hao không xuất hiện. Xác minh: ✔ tái hiện 2 lần.</div>
+    <div class="fix"><b>Đề xuất sửa:</b> Kiểm tra vòng lặp sinh kỳ (khả năng vòng lặp vô hạn / chia cho 0 khi tham số kỳ chưa hợp lệ). Chuyển sang xử lý bất đồng bộ + spinner; giới hạn/timeout; bắt lỗi và báo người dùng.</div>
+  </div>
+</div>
+
+<!-- L-04 -->
+<div class="finding" id="f04">
+  <div class="fh"><span class="id">L-04</span><span class="ti">Sai tính “Giá trị còn lại” khấu hao (hiển thị 0 ₫ thay vì nguyên giá)</span><span class="badge b-bug">Bug</span><span class="badge b-cao">Cao</span></div>
+  <div class="fb">
+    <table>
+      <tr><th>Module / Màn hình</th><td>Khấu hao tài sản · <code class="url">/assetcore/depreciation</code></td></tr>
+      <tr><th>Trường / Bảng</th><td>Thẻ “Giá trị còn lại”; khối “Tiến độ khấu hao tổng thể” (Còn lại); cột “Còn lại” trong bảng thiết bị</td></tr>
+      <tr><th>Bước tái hiện</th><td>Có 1 tài sản nguyên giá 5.000.000 ₫, chưa khấu hao kỳ nào (lũy kế = 0). Mở màn Khấu hao tài sản.</td></tr>
+      <tr><th>Hành vi hiện tại</th><td>Thẻ “Giá trị còn lại” = <b>0 ₫</b> nhưng chú thích “<b>100.0% giá trị</b>”; “Khấu hao lũy kế” = 0 ₫ (0%). Khối tiến độ: Nguyên giá 5 tr · Đã khấu hao 0 ₫ · <b>Còn lại 0 ₫</b>. Bảng: Nguyên giá 5.000.000 ₫ · Lũy kế KH 0 ₫ · <b>Còn lại 0 ₫</b>.</td></tr>
+      <tr><th>Hành vi mong đợi</th><td>Giá trị còn lại = Nguyên giá − Lũy kế KH = 5.000.000 − 0 = <b>5.000.000 ₫</b> (đúng 100%).</td></tr>
+    </table>
+    <div class="evi"><b>Bằng chứng (trích nguyên màn hình):</b> “Giá trị còn lại <code>0 ₫</code> · 100.0% giá trị”; bảng dòng <code>AC-ASSET-2026-00001 · Đường thẳng · 5.000.000 ₫ · 0 ₫ · 0 ₫</code>. Mâu thuẫn nội tại (0 ₫ nhưng 100%). Xác minh: ✔.</div>
+    <div class="fix"><b>Đề xuất sửa:</b> Khi chưa sinh lịch/chưa khấu hao kỳ nào, “Giá trị còn lại” phải = nguyên giá. Rà công thức net book value, tránh mặc định 0 khi thiếu bản ghi lịch khấu hao. Liên quan trực tiếp L-03/L-05.</div>
+  </div>
+</div>
+
+<!-- L-05 -->
+<div class="finding" id="f05">
+  <div class="fh"><span class="id">L-05</span><span class="ti">Tài sản mới bị gắn cờ “Hết khấu hao” dù chưa khấu hao</span><span class="badge b-logic">Logic</span><span class="badge b-cao">Cao</span></div>
+  <div class="fb">
+    <table>
+      <tr><th>Module / Màn hình</th><td>Khấu hao tài sản · <code class="url">/assetcore/depreciation</code></td></tr>
+      <tr><th>Trường</th><td>Thẻ “Trạng thái cấu hình”</td></tr>
+      <tr><th>Bước tái hiện</th><td>Tài sản mới <code>AC-ASSET-2026-00001</code> (0% KH, chưa có lịch). Mở màn Khấu hao.</td></tr>
+      <tr><th>Hành vi hiện tại</th><td>“Trạng thái cấu hình: <b>1/1</b> · 0 chưa cấu hình · <b>1 hết KH</b>”. Tài sản bị tính là “hết khấu hao”.</td></tr>
+      <tr><th>Hành vi mong đợi</th><td>Tài sản mới phải ở trạng thái “đang khấu hao / chưa bắt đầu”, không phải “hết khấu hao”.</td></tr>
+    </table>
+    <div class="evi"><b>Bằng chứng:</b> trích thẻ “Trạng thái cấu hình 1/1 · 0 chưa cấu hình · 1 hết KH”. Xác minh: ✔. (Cùng gốc với L-03/L-04 — thiếu lịch khấu hao khiến hệ thống suy luận sai trạng thái.)</div>
+    <div class="fix"><b>Đề xuất sửa:</b> Phân biệt rõ trạng thái: “chưa sinh lịch”, “đang khấu hao”, “hết khấu hao” (chỉ khi lũy kế đạt nguyên giá − giá trị thu hồi). Không gắn “hết KH” khi lũy kế = 0.</div>
+  </div>
+</div>
+
+<!-- L-06 -->
+<div class="finding" id="f06">
+  <div class="fh"><span class="id">L-06</span><span class="ti">Ngày bắt đầu khấu hao lấy theo ngày tạo, không theo ngày mua</span><span class="badge b-logic">Logic</span><span class="badge b-tb">TB</span></div>
+  <div class="fb">
+    <table>
+      <tr><th>Module / Màn hình</th><td>Khấu hao tài sản (bảng thiết bị) · <code class="url">/assetcore/depreciation</code></td></tr>
+      <tr><th>Trường</th><td>Cột “Bắt đầu KH”</td></tr>
+      <tr><th>Bước tái hiện</th><td>Tài sản tạo ngày 16/06/2026 với “Ngày mua” = 01/01/2024.</td></tr>
+      <tr><th>Hành vi hiện tại</th><td>“Bắt đầu KH” = <code>2026-06-16</code> (ngày tạo bản ghi).</td></tr>
+      <tr><th>Hành vi mong đợi</th><td>Bắt đầu KH suy ra từ Ngày mua / Ngày commissioning (vd 01/01/2024) hoặc cho phép cấu hình, không mặc định ngày tạo.</td></tr>
+    </table>
+    <div class="evi"><b>Bằng chứng:</b> dòng bảng “… 2026-06-16 · 60 tháng · Hàng tháng · 5.000.000 ₫”. Xác minh: ✔.</div>
+    <div class="fix"><b>Đề xuất sửa:</b> Quy tắc bắt đầu KH = ngày mua (hoặc commissioning) theo chuẩn kế toán; cho phép override. Cảnh báo nếu thiếu ngày mua.</div>
+  </div>
+</div>
+
+<!-- L-07 -->
+<div class="finding" id="f07">
+  <div class="fh"><span class="id">L-07</span><span class="ti">Lịch khấu hao không tự sinh dù Danh mục đã cấu hình luật KH</span><span class="badge b-logic">Logic</span><span class="badge b-tb">TB</span></div>
+  <div class="fb">
+    <table>
+      <tr><th>Module / Màn hình</th><td>Chi tiết thiết bị (tab Khấu hao) &amp; màn Khấu hao</td></tr>
+      <tr><th>Bước tái hiện</th><td>Danh mục <code>CAT-0003</code> đã cấu hình: Đường thẳng · 60 tháng · Hàng tháng · thu hồi 0%. Tạo tài sản thuộc danh mục này.</td></tr>
+      <tr><th>Hành vi hiện tại</th><td>Tab Khấu hao: “Chưa có lịch khấu hao”. Bảng hiển thị tiến độ “<b>0/0 kỳ</b>” (mẫu số = 0).</td></tr>
+      <tr><th>Hành vi mong đợi</th><td>Tự sinh lịch 60 kỳ khi tạo tài sản (hoặc nêu rõ cần bấm sinh); tiến độ phải là “0/60 kỳ”.</td></tr>
+    </table>
+    <div class="evi"><b>Bằng chứng:</b> tab Khấu hao “Chưa có lịch khấu hao cho tài sản này”; bảng “0/0 kỳ”. Xác minh: ✔. (Phụ thuộc L-03 đang treo.)</div>
+    <div class="fix"><b>Đề xuất sửa:</b> Hook tạo tài sản → sinh lịch theo luật Danh mục (idempotent). Hiển thị mẫu số đúng (tổng kỳ theo cấu hình).</div>
+  </div>
+</div>
+
+<!-- L-08 -->
+<div class="finding" id="f08">
+  <div class="fh"><span class="id">L-08</span><span class="ti">Checkbox PM/Hiệu chuẩn không auto theo mặc định của Danh mục</span><span class="badge b-logic">Logic</span><span class="badge b-tb">TB</span></div>
+  <div class="fb">
+    <table>
+      <tr><th>Module / Màn hình</th><td>Thêm thiết bị · <code class="url">/assetcore/assets/new</code> (khối “Lịch bảo trì &amp; Hiệu chuẩn”)</td></tr>
+      <tr><th>Bước tái hiện</th><td>Danh mục <code>CAT-0003</code> bật “Mặc định yêu cầu PM” (180 ngày). Tạo tài sản thuộc danh mục này.</td></tr>
+      <tr><th>Hành vi hiện tại</th><td>Trên form thiết bị, 2 checkbox “Yêu cầu bảo trì định kỳ” / “Yêu cầu hiệu chuẩn” <b>để trống</b>, không tự tick theo mặc định Danh mục.</td></tr>
+      <tr><th>Hành vi mong đợi</th><td>Khi chọn Danh mục có “Mặc định yêu cầu PM”, các checkbox auto-tick (vẫn cho sửa) — đúng tinh thần auto-fill.</td></tr>
+    </table>
+    <div class="evi"><b>Bằng chứng:</b> Danh mục cấu hình PM mặc định = bật; form thiết bị checkbox trống. Xác minh: ◑ (cần xác nhận liệu kế thừa có chạy ở phía server sau khi lưu).</div>
+    <div class="fix"><b>Đề xuất sửa:</b> onChange Danh mục → set giá trị mặc định PM/hiệu chuẩn vào form (cho phép override).</div>
+  </div>
+</div>
+
+<!-- L-09 -->
+<div class="finding" id="f09">
+  <div class="fh"><span class="id">L-09</span><span class="ti">Không kiểm tra định dạng email Nhà cung cấp</span><span class="badge b-logic">Logic</span><span class="badge b-tb">TB</span></div>
+  <div class="fb">
+    <table>
+      <tr><th>Module / Màn hình</th><td>Nhà cung cấp → Thêm · <code class="url">/assetcore/suppliers/new</code></td></tr>
+      <tr><th>Trường</th><td>“Email liên hệ”</td></tr>
+      <tr><th>Bước tái hiện</th><td>Nhập email <code>abc-khong-hop-le</code> (không có “@”) và bấm Tạo mới.</td></tr>
+      <tr><th>Hành vi hiện tại</th><td>Không có cảnh báo định dạng email (gộp chung với lưu im lặng L-01).</td></tr>
+      <tr><th>Hành vi mong đợi</th><td>Báo “Email không hợp lệ” ngay tại trường.</td></tr>
+    </table>
+    <div class="fix"><b>Đề xuất sửa:</b> Thêm validate email (HTML5 type=email + regex server). Áp dụng nhất quán cho mọi trường email (NCC, người dùng, hồ sơ).</div>
+  </div>
+</div>
+
+<!-- L-10 -->
+<div class="finding" id="f10">
+  <div class="fh"><span class="id">L-10</span><span class="ti">Phản hồi lỗi không nhất quán giữa các form</span><span class="badge b-caitien">Cải tiến</span><span class="badge b-cao">Cao</span></div>
+  <div class="fb">
+    <table>
+      <tr><th>Phạm vi</th><td>Toàn hệ thống (so sánh chéo các form)</td></tr>
+      <tr><th>Bước tái hiện</th><td>Submit rỗng/sai trên 4 form: Báo sự cố (<code class="url">/incidents/new</code>), Điều chuyển (<code class="url">/asset-transfers/new</code>), Nhà cung cấp (<code class="url">/suppliers/new</code>), Thiết bị (<code class="url">/assets/new</code>).</td></tr>
+      <tr><th>Hành vi hiện tại</th><td>Sự cố &amp; Điều chuyển: hiện banner đỏ “<b>Vui lòng điền đầy đủ … (*)</b>” ✔ rõ ràng. NCC &amp; Thiết bị: <b>thất bại im lặng</b> với lỗi nghiệp vụ (L-01/L-02).</td></tr>
+      <tr><th>Hành vi mong đợi</th><td>Chuẩn hóa 1 cơ chế thông báo lỗi (banner + inline) cho mọi form tạo/sửa.</td></tr>
+    </table>
+    <div class="evi"><b>Bằng chứng:</b> banner “Vui lòng điền đầy đủ các trường bắt buộc (*).” xuất hiện ở form Sự cố và Điều chuyển; không xuất hiện ở NCC/Thiết bị khi lỗi nghiệp vụ. Xác minh: ✔.</div>
+    <div class="fix"><b>Đề xuất sửa:</b> Tách 1 component “FormError” dùng chung; mọi submit map lỗi (client + server) về component này. Bổ sung test e2e cho thông báo lỗi.</div>
+  </div>
+</div>
+
+<!-- L-11 -->
+<div class="finding" id="f11">
+  <div class="fh"><span class="id">L-11</span><span class="ti">Mã chứng từ không liên tục (gap khi lưu lỗi)</span><span class="badge b-logic">Logic</span><span class="badge b-tb">TB</span></div>
+  <div class="fb">
+    <table>
+      <tr><th>Module</th><td>Nhà cung cấp, Danh mục tài sản (naming series)</td></tr>
+      <tr><th>Bước tái hiện</th><td>Lần lưu NCC đầu bị thất bại im lặng (L-01); lần lưu hợp lệ kế tiếp ⇒ mã <code>AC-SUP-2026-0002</code> (không phải 0001). Danh mục đầu tiên tạo được = <code>CAT-0003</code>.</td></tr>
+      <tr><th>Hành vi hiện tại</th><td>Số thứ tự bị “nhảy cóc” do lần thao tác lỗi vẫn tiêu thụ số sequence.</td></tr>
+      <tr><th>Hành vi mong đợi</th><td>Số chứng từ liên tục; chỉ cấp số khi lưu thành công (hoặc chấp nhận gap có kiểm soát + tài liệu hóa rõ).</td></tr>
+    </table>
+    <div class="evi"><b>Bằng chứng:</b> bản ghi hợp lệ đầu tiên = AC-SUP-2026-0002; danh mục đầu tiên = CAT-0003. Xác minh: ◑ (cần xác nhận chính sách series gốc — có thể đã seed sẵn vài số).</div>
+    <div class="fix"><b>Đề xuất sửa:</b> Cấp số sau khi commit thành công; hoặc dùng series cho phép gap nhưng nêu rõ trong tài liệu nghiệp vụ để tránh hiểu nhầm “mất chứng từ”.</div>
+  </div>
+</div>
+
+<!-- L-12 -->
+<div class="finding" id="f12">
+  <div class="fh"><span class="id">L-12</span><span class="ti">Form không reset sau lưu lỗi/điều hướng (giữ dữ liệu nhập dở)</span><span class="badge b-bug">Bug</span><span class="badge b-tb">TB</span></div>
+  <div class="fb">
+    <table>
+      <tr><th>Module</th><td>Nhà cung cấp, Thiết bị (form Thêm mới)</td></tr>
+      <tr><th>Bước tái hiện</th><td>NCC: sau lần lưu lỗi, bấm “Thêm nhà cung cấp” mở lại form → các ô vẫn còn dữ liệu cũ; gõ tiếp bị nối chuỗi: Tên = <code>TEST QA NCC BienTEST QA NCC Hop Le 01</code>, Email = <code>abc-khong-hop-lencc.test@medcons.vn</code>. Thiết bị: mở lại <code>/assets/new</code> vẫn còn “TEST QA Máy X-quang biên-01”, giá -5000, ngày cũ.</td></tr>
+      <tr><th>Hành vi hiện tại</th><td>Dữ liệu nhập dở được giữ (draft) kể cả khi vào trang tạo mới → dễ tạo bản ghi lỗi/nhập trùng.</td></tr>
+      <tr><th>Hành vi mong đợi</th><td>“Thêm mới” phải mở form trắng; nếu có cơ chế lưu nháp thì phải hiển thị rõ và có nút “Xóa nháp”.</td></tr>
+    </table>
+    <div class="evi"><b>Bằng chứng:</b> giá trị nối chuỗi quan sát trực tiếp trên 2 form. Xác minh: ✔.</div>
+    <div class="fix"><b>Đề xuất sửa:</b> Reset state khi mở route “/new”; nếu giữ draft chủ đích, thêm chỉ báo “Bản nháp” + nút xóa.</div>
+  </div>
+</div>
+
+<!-- L-13 -->
+<div class="finding" id="f13">
+  <div class="fh"><span class="id">L-13</span><span class="ti">Lệch số người dùng giữa Dashboard và danh sách</span><span class="badge b-logic">Logic</span><span class="badge b-thap">Thấp</span></div>
+  <div class="fb">
+    <table>
+      <tr><th>Module</th><td>Dashboard (<code class="url">/dashboard</code>) vs Người dùng (<code class="url">/user-profiles</code>)</td></tr>
+      <tr><th>Hành vi hiện tại</th><td>Dashboard: “Tổng người dùng <b>14</b> · 0 vô hiệu · 0 chờ duyệt”. Màn Người dùng: “Tổng <b>13</b> người dùng” (đếm được 13 dòng).</td></tr>
+      <tr><th>Hành vi mong đợi</th><td>Hai nơi cùng nguồn đếm; thống nhất cách tính (gồm/không gồm Administrator, tài khoản hệ thống…).</td></tr>
+    </table>
+    <div class="evi"><b>Xác minh:</b> ◑ — cần xác nhận tiêu chí đếm (vô hiệu/ẩn).</div>
+    <div class="fix"><b>Đề xuất sửa:</b> Dùng cùng query/aggregation cho KPI và danh sách; định nghĩa rõ tiêu chí “tổng người dùng”.</div>
+  </div>
+</div>
+
+<!-- L-14 -->
+<div class="finding" id="f14">
+  <div class="fh"><span class="id">L-14</span><span class="ti">UI trộn lẫn tiếng Anh trong giao diện tiếng Việt</span><span class="badge b-caitien">Cải tiến</span><span class="badge b-tb">TB</span></div>
+  <div class="fb">
+    <table>
+      <tr><th>Phạm vi</th><td>Nhiều màn: Sự cố, Sửa chữa, Hiệu chuẩn, Tồn kho, Tuân thủ…</td></tr>
+      <tr><th>Hành vi hiện tại</th><td>Tiêu đề/nhãn lẫn tiếng Anh: “Tạo <b>Incident Report</b>”, “<b>Fault Code</b>”, “đã áp dụng <b>workaround</b> tạm thời”, “<b>commissioning</b>”, “<b>MTTR</b>”, “<b>Pass rate</b>”, “<b>Chronic</b>”, “<b>Watchlist</b>”, “<b>CAPA</b>”.</td></tr>
+      <tr><th>Hành vi mong đợi</th><td>Việt hóa nhất quán (giữ thuật ngữ Anh trong ngoặc khi cần chuẩn ngành).</td></tr>
+    </table>
+    <div class="fix"><b>Đề xuất sửa:</b> Rà i18n toàn bộ; chuẩn hóa từ điển thuật ngữ VN–EN; tránh trộn 2 ngôn ngữ trong cùng nhãn/nút.</div>
+  </div>
+</div>
+
+<!-- L-15 -->
+<div class="finding" id="f15">
+  <div class="fh"><span class="id">L-15</span><span class="ti">Sidebar tự thu gọn thất thường</span><span class="badge b-caitien">Cải tiến</span><span class="badge b-tb">TB</span></div>
+  <div class="fb">
+    <table>
+      <tr><th>Phạm vi</th><td>Khung điều hướng trái (toàn hệ thống)</td></tr>
+      <tr><th>Hành vi hiện tại</th><td>Trong phiên test, sidebar nhiều lần tự chuyển giữa chế độ đầy đủ (có nhãn) và chế độ icon/hamburger khi thao tác hoặc thay đổi mức zoom, gây mất phương hướng khi đang điều hướng theo menu.</td></tr>
+      <tr><th>Hành vi mong đợi</th><td>Layout ổn định theo breakpoint rõ ràng; trạng thái thu gọn/mở do người dùng chủ động và được ghi nhớ.</td></tr>
+    </table>
+    <div class="evi"><b>Xác minh:</b> ✔ quan sát lặp lại nhiều lần. (Một phần có thể liên quan đến mức zoom trình duyệt — cần kiểm thử lại trên nhiều độ phân giải.)</div>
+    <div class="fix"><b>Đề xuất sửa:</b> Cố định breakpoint responsive; lưu trạng thái sidebar (localStorage); tránh re-render làm reset trạng thái menu.</div>
+  </div>
+</div>
+
+<!-- L-16 -->
+<div class="finding" id="f16">
+  <div class="fh"><span class="id">L-16</span><span class="ti">Định dạng tiền rút gọn không nhất quán</span><span class="badge b-caitien">Cải tiến</span><span class="badge b-thap">Thấp</span></div>
+  <div class="fb">
+    <table>
+      <tr><th>Module</th><td>Khấu hao tài sản (thẻ KPI) · <code class="url">/assetcore/depreciation</code></td></tr>
+      <tr><th>Hành vi hiện tại</th><td>Thẻ KPI hiển thị “<b>5 tr</b>” trong khi bảng hiển thị “<b>5.000.000 ₫</b>”. Hai cách hiển thị tiền khác nhau trong cùng màn.</td></tr>
+      <tr><th>Hành vi mong đợi</th><td>Thống nhất tiền tệ có phân tách hàng nghìn + đơn vị ₫ (hoặc rút gọn nhất quán có tooltip giá trị đầy đủ).</td></tr>
+    </table>
+    <div class="fix"><b>Đề xuất sửa:</b> Hàm format tiền dùng chung; nếu rút gọn “tr/tỷ” thì kèm tooltip giá trị đầy đủ.</div>
+  </div>
+</div>
+
+<!-- L-17 -->
+<div class="finding" id="f17">
+  <div class="fh"><span class="id">L-17</span><span class="ti">Định dạng ngày không nhất quán (yyyy-mm-dd vs dd/mm/yyyy)</span><span class="badge b-caitien">Cải tiến</span><span class="badge b-thap">Thấp</span></div>
+  <div class="fb">
+    <table>
+      <tr><th>Module</th><td>Khấu hao (bảng) vs phần còn lại của hệ thống</td></tr>
+      <tr><th>Hành vi hiện tại</th><td>Bảng khấu hao hiển thị “<code>2026-06-16</code>” (yyyy-mm-dd), trong khi form/khác dùng <code>dd/mm/yyyy</code>.</td></tr>
+      <tr><th>Hành vi mong đợi</th><td>Thống nhất <code>dd/mm/yyyy</code> toàn hệ thống.</td></tr>
+    </table>
+    <div class="fix"><b>Đề xuất sửa:</b> Chuẩn hóa formatter ngày (locale vi-VN) cho mọi nơi hiển thị.</div>
+  </div>
+</div>
+
+<!-- L-18 -->
+<div class="finding" id="f18">
+  <div class="fh"><span class="id">L-18</span><span class="ti">Master data trống chặn dây chuyền; thiếu “tạo nhanh” inline</span><span class="badge b-caitien">Cải tiến</span><span class="badge b-cao">Cao</span></div>
+  <div class="fb">
+    <table>
+      <tr><th>Phạm vi</th><td>Dữ liệu nền &amp; mọi form phụ thuộc (Thiết bị, Điều chuyển, Nghiệm thu…)</td></tr>
+      <tr><th>Hành vi hiện tại</th><td>Tại thời điểm test: 0 Danh mục, 0 Vị trí, 0 Khoa/Phòng, 0 NCC, 0 Model, 0 Thiết bị. Form Thêm thiết bị: Danh mục là <b>bắt buộc</b> nhưng dropdown hiện “Chưa có dữ liệu AC Asset Category” và <b>không có lối “+ tạo nhanh”</b> ngay trong form → người dùng phải rời sang “Dữ liệu tham chiếu”. Tương tự, Điều chuyển bắt buộc “Vị trí mới” nhưng chưa có vị trí nào.</td></tr>
+      <tr><th>Hành vi mong đợi</th><td>Trước go-live cần seed master data (danh mục, vị trí, khoa/phòng, đơn vị tính…); bổ sung nút “+ tạo nhanh” inline trong dropdown bắt buộc.</td></tr>
+    </table>
+    <div class="evi"><b>Bằng chứng:</b> dropdown Danh mục “Chưa có dữ liệu AC Asset Category”; phải tự tạo Danh mục <code>CAT-0003</code> ở màn Dữ liệu tham chiếu mới tạo được tài sản. Xác minh: ✔.</div>
+    <div class="fix"><b>Đề xuất sửa:</b> Bộ dữ liệu mẫu/seed khi triển khai; thêm “Quick create” inline (như Frappe link field) cho Danh mục/Vị trí/Khoa-Phòng/NCC/Model.</div>
+  </div>
+</div>
+
+<!-- L-19 -->
+<div class="finding" id="f19">
+  <div class="fh"><span class="id">L-19</span><span class="ti">Thiếu trường “thời điểm xảy ra sự cố” trên form Báo sự cố</span><span class="badge b-caitien">Cải tiến</span><span class="badge b-thap">Thấp</span></div>
+  <div class="fb">
+    <table>
+      <tr><th>Module</th><td>Báo sự cố · <code class="url">/assetcore/incidents/new</code></td></tr>
+      <tr><th>Hành vi hiện tại</th><td>Form có: Thiết bị*, Loại sự cố*, Mức độ*, Mô tả*, Mã lỗi, workaround, Hành động khắc phục ngay, cờ “Có ảnh hưởng đến bệnh nhân”. <b>Không có trường thời điểm xảy ra</b> (chỉ ngầm = thời điểm tạo phiếu).</td></tr>
+      <tr><th>Hành vi mong đợi</th><td>Cho nhập “Thời điểm xảy ra” (datetime) phục vụ tính MTTR/MTBF &amp; truy vết chronic chính xác.</td></tr>
+    </table>
+    <div class="evi"><b>Xác minh:</b> ◑ — cần xác nhận liệu thời điểm có được nhập ở bước sau quy trình.</div>
+    <div class="fix"><b>Đề xuất sửa:</b> Thêm trường “Thời điểm phát hiện/xảy ra” (mặc định = hiện tại, cho sửa) để mốc thời gian KPI chính xác.</div>
+  </div>
+</div>
+
+<!-- ============ ĐIỂM TỐT ============ -->
+<h2 id="diemtot">Điểm tốt — nên giữ &amp; nhân rộng</h2>
+<table>
+<thead><tr><th style="width:46px">#</th><th>Hạng mục</th><th>Mô tả</th></tr></thead>
+<tbody>
+<tr><td>G1</td><td><span class="badge b-good">Tốt</span> Auto-sinh mã tài sản</td><td>“Mã tài sản” để trống → hệ thống tự sinh; có chú thích “nhập = dùng làm mã định danh, <b>không sửa được sau khi tạo</b>”.</td></tr>
+<tr><td>G2</td><td><span class="badge b-good">Tốt</span> Tránh nhầm serial</td><td>Ghi chú rõ “Số serial NSX … <b>KHÔNG phải mã định danh tài sản</b>” — giảm sai sót nghiệp vụ.</td></tr>
+<tr><td>G3</td><td><span class="badge b-good">Tốt</span> Kế thừa GMDN</td><td>Chuỗi kế thừa “Danh mục → Model thiết bị → Tài sản” có chú thích trực quan.</td></tr>
+<tr><td>G4</td><td><span class="badge b-good">Tốt</span> RBAC theo module</td><td>Phân quyền chi tiết theo từng module (Quản lý / Người dùng) — phù hợp ISO 13485.</td></tr>
+<tr><td>G5</td><td><span class="badge b-good">Tốt</span> Trang chi tiết tài sản mạnh</td><td>Chuyển trạng thái, hành động vòng đời (Hồ sơ/Bảo trì/Sửa chữa/Hiệu chuẩn/Luân chuyển/Báo sự cố/Giải nhiệm), tab KPI &amp; Audit Trail, thống kê downtime.</td></tr>
+<tr><td>G6</td><td><span class="badge b-good">Tốt</span> KPI/compliance tiles</td><td>Các module vận hành có chỉ số: SLA, MTTR, pass rate, quá hạn, chronic, “tạm giữ lâm sàng” — định hướng đo lường tốt.</td></tr>
+<tr><td>G7</td><td><span class="badge b-good">Tốt</span> Trang 404 thân thiện</td><td>URL sai hiển thị 404 gọn kèm “← Quay lại / Về Dashboard”.</td></tr>
+<tr><td>G8</td><td><span class="badge b-good">Tốt</span> Dropdown hiển thị Tên</td><td>Dropdown/cột tham chiếu hiển thị TÊN là chính (Danh mục, Tài sản) — đúng nguyên tắc UX.</td></tr>
+<tr><td>G9</td><td><span class="badge b-good">Tốt</span> Form Sự cố theo y tế</td><td>Có cờ “Có ảnh hưởng đến bệnh nhân” + Fault Code phục vụ phát hiện chronic (≥3 sự cố cùng mã/90 ngày).</td></tr>
+<tr><td>G10</td><td><span class="badge b-good">Tốt</span> Danh mục cấu hình sâu</td><td>Danh mục có luật khấu hao + PM/hiệu chuẩn mặc định + cờ “Chứa nguồn bức xạ”.</td></tr>
+</tbody>
+</table>
+
+<!-- ============ 4. ROADMAP ============ -->
+<h2 id="roadmap">4. Đề xuất &amp; Roadmap ưu tiên xử lý</h2>
+<div class="roadmap">
+  <div class="ph p1">
+    <h4>Đợt 1 — Chặn rủi ro nghiệp vụ trước go-live</h4>
+    <ul>
+      <li><b>L-01, L-02, L-10:</b> Sửa “lưu thất bại im lặng” → thông báo lỗi rõ ràng cho mọi form (chuẩn hóa cơ chế).</li>
+      <li><b>L-03:</b> Sửa treo UI khi “Sinh lịch khấu hao” (nghi vòng lặp/chia 0; chuyển async + timeout).</li>
+      <li><b>L-04, L-05:</b> Sửa công thức “Giá trị còn lại” và trạng thái “Hết khấu hao”.</li>
+      <li><b>L-18:</b> Seed master data + “tạo nhanh” inline cho dropdown bắt buộc.</li>
+    </ul>
+  </div>
+  <div class="ph p2">
+    <h4>Đợt 2 — Hợp lý hóa quy trình</h4>
+    <ul>
+      <li><b>L-06, L-07:</b> Chuẩn hóa ngày bắt đầu KH + tự sinh lịch theo luật Danh mục.</li>
+      <li><b>L-08:</b> Auto-fill PM/hiệu chuẩn theo Danh mục.</li>
+      <li><b>L-09:</b> Validate email nhất quán.</li>
+      <li><b>L-11, L-12:</b> Số chứng từ liên tục; reset form khi mở “new”.</li>
+      <li><b>L-19:</b> Thêm thời điểm xảy ra sự cố.</li>
+    </ul>
+  </div>
+  <div class="ph p3">
+    <h4>Đợt 3 — Trải nghiệm &amp; dữ liệu</h4>
+    <ul>
+      <li><b>L-14:</b> Việt hóa nhất quán (từ điển thuật ngữ).</li>
+      <li><b>L-15:</b> Ổn định layout sidebar (breakpoint + ghi nhớ trạng thái).</li>
+      <li><b>L-16, L-17:</b> Thống nhất định dạng tiền &amp; ngày.</li>
+      <li><b>L-13:</b> Đồng bộ cách đếm KPI vs danh sách.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="note"><b>Khuyến nghị kiểm thử bổ sung (chưa thực hiện do master data trống/giới hạn phiên):</b> Sau khi seed dữ liệu, cần test sâu các luồng còn lại theo bộ mẫu lỗi A–Q: (i) Nghiệm thu/Tiếp nhận (khóa thông tin gốc, người nghiệm thu = người đăng nhập), (ii) Điều chuyển vượt trạng thái khả dụng (tài sản đã thanh lý/hỏng), (iii) Lệnh PM/CM/Hiệu chuẩn (logic ngày, người thực hiện), (iv) Kho phụ tùng (xuất vượt tồn), (v) Quy trình duyệt (gửi duyệt → trạng thái trung gian), (vi) Import Excel hàng loạt, (vii) Phân quyền &amp; race-condition khi tải màn quản trị.</div>
+
+<!-- ============ PHỤ LỤC ============ -->
+<h2 id="phuluc">Phụ lục</h2>
+
+<h3>A. Dữ liệu test đã tạo trong phiên (cần dọn nếu muốn môi trường sạch)</h3>
+<table>
+<thead><tr><th>Loại</th><th>Mã bản ghi</th><th>Tên</th><th>Ghi chú</th></tr></thead>
+<tbody>
+<tr><td>Nhà cung cấp</td><td>AC-SUP-2026-0002</td><td>TEST QA NCC Hop Le 01</td><td>Email ncc.test@medcons.vn · dùng kiểm thử L-01/L-11</td></tr>
+<tr><td>Danh mục tài sản</td><td>CAT-0003</td><td>TEST Thiet bi chan doan hinh anh</td><td>Đường thẳng 60 tháng · PM 180 ngày · dùng tạo tài sản</td></tr>
+<tr><td>Thiết bị</td><td>AC-ASSET-2026-00001</td><td>TEST QA Máy X-quang biên-01</td><td>Nguyên giá 5.000.000 ₫ · dùng kiểm thử khấu hao L-03→L-07</td></tr>
+</tbody>
+</table>
+
+<h3>B. Checklist ảnh cần chụp (bổ sung vào báo cáo)</h3>
+<p class="small">Do môi trường không lưu được ảnh ra file, đề nghị chụp các màn sau (mở đúng URL, đăng nhập Administrator) và đặt tên file tương ứng để gắn vào mục chi tiết:</p>
+<table>
+<thead><tr><th style="width:60px">Gắn vào</th><th>Module / Màn hình</th><th>URL</th><th>Tên file gợi ý</th></tr></thead>
+<tbody>
+<tr><td>L-01</td><td>NCC – form sau khi bấm Tạo mới với email sai + ngày đảo</td><td><code class="url">/suppliers/new</code></td><td>L01_suppliers_silent_fail.png</td></tr>
+<tr><td>L-02</td><td>Thiết bị – form với giá -5000 / ngày phi lý</td><td><code class="url">/assets/new</code></td><td>L02_asset_date_silent_fail.png</td></tr>
+<tr><td>L-03</td><td>Tab Khấu hao – nút “Sinh lịch khấu hao” &amp; trạng thái treo</td><td><code class="url">/assets/AC-ASSET-2026-00001</code></td><td>L03_depreciation_generate_hang.png</td></tr>
+<tr><td>L-04/05</td><td>Khấu hao – thẻ “Giá trị còn lại 0 ₫ / 100%” &amp; “1 hết KH”</td><td><code class="url">/depreciation</code></td><td>L04_residual_value_bug.png</td></tr>
+<tr><td>L-06/07</td><td>Khấu hao – bảng “Bắt đầu KH 2026-06-16 · 0/0 kỳ”</td><td><code class="url">/depreciation</code></td><td>L06_dep_start_date.png</td></tr>
+<tr><td>L-10</td><td>Sự cố/Điều chuyển – banner “Vui lòng điền đầy đủ…”</td><td><code class="url">/incidents/new</code>, <code class="url">/asset-transfers/new</code></td><td>L10_validation_banner.png</td></tr>
+<tr><td>L-11</td><td>NCC – danh sách hiển thị mã AC-SUP-2026-0002</td><td><code class="url">/suppliers</code></td><td>L11_supplier_code_gap.png</td></tr>
+<tr><td>L-13</td><td>Dashboard “14” vs Người dùng “13”</td><td><code class="url">/dashboard</code>, <code class="url">/user-profiles</code></td><td>L13_user_count_mismatch.png</td></tr>
+<tr><td>L-14</td><td>Form Báo sự cố (nhãn tiếng Anh)</td><td><code class="url">/incidents/new</code></td><td>L14_mixed_language.png</td></tr>
+<tr><td>L-18</td><td>Dropdown Danh mục “Chưa có dữ liệu AC Asset Category”</td><td><code class="url">/assets/new</code></td><td>L18_master_data_empty.png</td></tr>
+</tbody>
+</table>
+
+<h3>C. Phương pháp &amp; phạm vi xác minh</h3>
+<ul class="tight">
+<li>Kiểm thử trực tiếp trên môi trường thật, tài khoản Administrator (quyền rộng), được phép tạo/sửa/xóa.</li>
+<li>Lập bản đồ ~58 màn hình từ điều hướng &amp; router thực tế (không suy đoán theo SupplyCore).</li>
+<li>Test sâu (tạo dữ liệu thật + nhập biên: số âm, ngày phi lý, email sai, bỏ trống bắt buộc) trên: Nhà cung cấp, Danh mục, Thiết bị, Khấu hao, Sự cố, Điều chuyển.</li>
+<li>Phân biệt rõ: ✔ đã tái hiện trực tiếp · ◑ nghi ngờ theo quan sát (cần xác nhận thêm).</li>
+<li>Hạn chế: nhiều luồng giao dịch không test sâu được do master/giao dịch trống &amp; một số thời điểm renderer treo; đã nêu ở mục “kiểm thử bổ sung”.</li>
+</ul>
+
+<footer>
+  <p><b>Báo cáo Rà soát AssetCore v0.0.3</b> — lập ngày 17/06/2026 · Phạm vi: 19 phát hiện (7 Cao · 8 TB · 4 Thấp) + 10 điểm tốt · ~58 màn hình đã lập bản đồ.</p>
+  <p>Tài liệu phục vụ DEV / AI DEV / AI BA định vị &amp; xử lý lỗi. Mọi giá trị trích dẫn lấy trực tiếp từ phần mềm trong phiên kiểm thử 16–17/06/2026.</p>
+</footer>
+
+</div>
+</body>
+</html>
