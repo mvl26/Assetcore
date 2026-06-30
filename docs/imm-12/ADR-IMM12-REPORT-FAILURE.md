@@ -11,7 +11,7 @@
 
 > ADR này là **quyết định cuối** cho slice "báo hỏng từ quét QR". Mọi spec ở `docs/imm-12/04_Backend_Design.md`, `05_API_Specification.md`, `06_Frontend_Design.md`, `07_Testing_QA.md` và task BE/FE/QA Vòng 4 phải nhất quán với ADR này. Khi mâu thuẫn → ADR thắng.
 >
-> **Bản chất GATE:** đây là gate PHÂN TÍCH — Vòng 4-PHÂN-TÍCH KHÔNG đụng code (`.py`/`.vue`/`.ts`). Chỉ chốt cap-gate SSoT + canonical event + provenance + UX field-lock để BE/FE/QA thực thi mà KHÔNG phải hỏi lại. Mỗi task xuống dòng map được tới đúng 1 quyết định D1–D4.
+> **Bản chất GATE:** đây là gate PHÂN TÍCH — Vòng 4-PHÂN-TÍCH KHÔNG đụng code (`.py`/`.vue`/`.ts`). Chỉ chốt cap-gate SSoT + canonical event + provenance + UX field-lock để BE/FE/QA thực thi mà KHÔNG phải hỏi lại. Mỗi task xuống dòng map được tới đúng 1 quyết định D1–D5 (**D5** = G1/CR-16 báo hỏng F2, contract-only, bổ sung factory Vòng 2/5 2026-06-27 — wire `occurred_datetime` vào yaml).
 
 ---
 
@@ -162,6 +162,31 @@ if not rbac.can(_CAP_REPORT):
 
 ---
 
+### D5 — G1/CR-16: wire `occurred_datetime` vào contract `ReportIncidentRequest` (báo hỏng F2 · contract-only · handler ĐÃ LIVE)
+
+> **Bổ sung sau (2026-06-27, factory Vòng 2/5 improve).** D5 KHÔNG supersede D1–D4 — đóng drift **handler↔yaml** còn sót: handler đã nhận `occurred_datetime` nhưng OpenAPI contract chưa khai ⇒ mobile codegen không sinh field.
+
+**Quyết định (1 dòng):** THÊM prop `occurred_datetime: { type: string }` (**KHÔNG** `format: date-time`) vào `schemas/ReportIncidentRequest.properties` trong `docs/mobile/openapi/assetcore-mobile.openapi.yaml`; `required` GIỮ EXACT 4 (`occurred_datetime` optional). Chỉ sửa **CONTRACT + guard test** — KHÔNG đụng `api/imm12.py`/`services/imm12.py` (đã wire) ⇒ KHÔNG reload gunicorn (LL-DEPLOY-07).
+
+**FACTS @source (verify phiên này — KHÔNG phỏng đoán):**
+- Handler nhận field: `api/imm12.py:83` `occurred_datetime: str = ""` → truyền svc `api/imm12.py:106`.
+- Semantics svc: `services/imm12.py:350` (sig) · `:376-380` parse `get_datetime` + future-guard `nthrow(MSG.IMM12_OCCURRED_DATETIME_FUTURE)` `:378-379` · `:382` rỗng → fallback `doc.reported_at`.
+- Message: `utils/messages.py:161` (catalog) + `:801` mapping → `http_status=422`, severity `warning`.
+- DocType field: `incident_report.json` `occurred_datetime` (`Datetime`).
+
+**Alternatives (loại + lý do):**
+- `format: date-time` → **LOẠI**: codegen ép RFC-3339 ISO-`T`, lệch wire-format Frappe space-separated `yyyy-MM-dd HH:mm:ss` (`get_datetime` `services/imm12.py:377`) ⇒ client serialize sai / validator reject.
+- Đưa `occurred_datetime` vào `required[]` → **LOẠI**: handler default `=""` (optional); ép required phá NO-regression + lệch live signature (13c đỏ).
+- Thêm status-code mới cho future-guard → **LOẠI**: `422` đã declare (`Unprocessable422` §8.3 G-REQBODY); future-guard là nguồn 422 thứ-2 trên cùng path, KHÔNG status mới.
+
+**Consequences (hệ quả + đánh đổi):**
+- Mobile-dev sinh được model có `occurred_datetime` ⇒ gửi đúng "thời điểm sự cố thực sự xảy ra" (≠ thời điểm báo).
+- KHÔNG path mới (43 GIỮ) · KHÔNG verb-flip (baseline `d12/d15/d17` 234/254 GIỮ) · response surface 200/401/403/404/422 BẤT BIẾN.
+- Guard reverse-drift mới (TC-MOB-OAS-13g parity `inspect.signature`) ⇒ chống contract khai field handler KHÔNG nhận.
+- Test count: `_EXPECTED_TEST_COUNT` 407→408 · `_GUARD_SUITE_EXPECTED[test_mobile_oas]` +1 · `_MOBILE_OAS_TOTAL` 576→577.
+
+---
+
 ## Bàn giao Core Doc — task Vòng 4 map tới đúng 1 quyết định
 
 > Gate code: ADR chốt → BE/FE/QA thực thi. KHÔNG đụng `.py/.vue/.ts` ở Vòng-4-PHÂN-TÍCH.
@@ -175,6 +200,7 @@ if not rbac.can(_CAP_REPORT):
 | **QA-1** | D1 | Test parity 3-tier: user `corrective.read` không `.create` → API `report_incident` 403, message KHÔNG chứa `'corrective.create'` raw; user có `.create` → 200 + Incident tạo. Assert 3 binding (route-guard / scan-action spec / API gate) CÙNG cap `corrective.create`. |
 | **QA-2** | D2 | Test sau report thành công: ≥1 `Asset Lifecycle Event` `event_type='incident_reported'`; `source='qr-scan'`→notes chứa "qr-scan", default→"manual"; `verify_audit_chain(asset)['valid']==True`. |
 | **QA-3** | D3 | `IncidentCreateView.test.ts` (MỚI): `?asset=X&source=qr-scan`→SmartSelect disabled + payload `source='qr-scan'`; no-source→SmartSelect editable + `source='manual'`. |
+| **BE-3 (F2)** | **D5** | **Contract-only.** `docs/mobile/openapi/assetcore-mobile.openapi.yaml`: THÊM `ReportIncidentRequest.properties.occurred_datetime` (`type:string`, KHÔNG `format`, description nêu wire-format + fallback + future→422); `required` GIỮ EXACT 4. `tests/test_mobile_oas.py`: +TC-MOB-OAS-13g (prop+type+no-format+∉required+parity `inspect.signature`), `_EXPECTED_TEST_COUNT` 407→408. `tests/test_mobile_docset.py`: `_GUARD_SUITE_EXPECTED[test_mobile_oas]` +1 & `_MOBILE_OAS_TOTAL` 576→577. KHÔNG đụng `api/imm12.py`/`services/imm12.py` (đã LIVE) ⇒ KHÔNG reload; verify bằng `bench --site miyano run-tests --module assetcore.tests.test_mobile_oas` + `test_mobile_docset`, KHÔNG curl-live (LL-DEPLOY-07). |
 
 ---
 

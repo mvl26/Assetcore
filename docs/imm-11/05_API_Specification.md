@@ -7,8 +7,8 @@
 | Owner | BE Lead |
 | Base URL | `/api/method/assetcore.api.imm11.<function>` |
 | Auth | Frappe session HOẶC `Authorization: token <key>:<secret>` |
-| Cập nhật | 2026-05-27 |
-| Trạng thái | ✅ Live — `assetcore/api/imm11.py` deployed (18 endpoint) |
+| Cập nhật | 2026-06-16 (mobile-contract binding `submitCalibration` — write-action COMPLETION/TERMINAL) |
+| Trạng thái | ✅ Live — `assetcore/api/imm11.py` deployed (18 endpoint); mobile-contract path `listCalibrations` (read) + `submitCalibration` (write-action) = §0.1 |
 
 ---
 
@@ -23,7 +23,7 @@
 | 3 | `assetcore.api.imm11.create_calibration_schedule` | POST | Tạo Schedule mới | Workshop Lead | ✗ | US-11-01 |
 | 4 | `assetcore.api.imm11.update_calibration_schedule` | POST | Patch Schedule fields | Workshop Lead | ✓ | US-11-01 |
 | 5 | `assetcore.api.imm11.delete_calibration_schedule` | POST | Xóa Schedule (nếu chưa có Submitted) | Workshop Lead | ✗ | US-11-01 |
-| 6 | `assetcore.api.imm11.list_calibrations` | GET | List IMM Asset Calibration + pagination | All | ✓ | US-11-07 |
+| 6 | `assetcore.api.imm11.list_calibrations` | GET | List IMM Asset Calibration + pagination (+ `mine=1` self-scope `technician` — tab "Phiếu hiệu chuẩn của tôi" MVP-5d) | All | ✓ | US-11-07 |
 | 7 | `assetcore.api.imm11.get_calibration` | GET | Chi tiết 1 Calibration | All | ✓ | US-11-07 |
 | 8 | `assetcore.api.imm11.create_calibration` | POST | Tạo Calibration WO | Workshop Lead, Technician | ✗ | US-11-02 |
 | 9 | `assetcore.api.imm11.update_calibration` | POST | Update fields (allowed list) | Technician | ✓ | US-11-02 |
@@ -36,6 +36,184 @@
 | 16 | `assetcore.api.imm11.receive_certificate` | POST | External: → In Progress (cert received) | Technician | ✓ | US-11-03 |
 | 17 | `assetcore.api.imm11.cancel_calibration` | POST | Hủy phiếu chưa submit | Workshop Lead | ✗ | US-11-08 |
 | 18 | `assetcore.api.imm11.get_due_calibrations` | GET | Thiết bị due ≤ N ngày (filter `AC Asset.next_calibration_date` = MIN-lịch, BR-11-13 → asset multi-schedule KHÔNG rớt) | All | ✓ | US-11-01, AC-11-21 |
+
+---
+
+## 0.1. Mobile Contract Binding (Mobile-BE — tab Calibration MVP-flow-5)
+
+> **Ranh giới**: endpoint dùng chung 1 handler `imm11.list_calibrations` cho cả web-FE (mục #6) và mobile-BE. Contract codegen-ready cho mobile được mô tả ở SSoT riêng `docs/mobile/openapi/assetcore-mobile.openapi.yaml` (3.0.3, 22 path). Mục này là **cross-link** — KHÔNG nhân đôi schema, mọi sửa field phải đồng bộ 2 nơi.
+
+| Mục | Giá trị |
+|---|---|
+| Mobile operationId | `listCalibrations` (path 47/47) |
+| HTTP method / path | `GET /api/method/assetcore.api.imm11.list_calibrations` |
+| Cap đọc | `calibration.read` (DocPerm) + `apply_vendor_scope("Calibration Record")` (vendor-isolation cột `asset`). **Calibration Record KHÔNG có `permission_query_conditions` riêng** (khác PM/CM `pm_work_order_query`/`asset_repair_query` — `hooks.py:388`). **Invariant count==rows** giữ vì `CalibrationRepo.list` (`BaseRepository`) đếm `count_with_or` + lấy `get_all` trên CÙNG `filters` dict. |
+| Params | `filters` (JSON-string, default `'{}'`, reuse `WorkOrderFilters` — handler nhận `filters: str` không discrete) · **`mine` (int `0\|1`, default `0`, REUSE `WorkOrderMine` — `mine=1` self-scope `technician == session.user`, tab "Phiếu hiệu chuẩn của tôi" MVP-5d; xem BR-11-LISTMINE + ADR-MOBILE-019)** · `Page`/`PageSize` (`$ref`, default 1/20). **0 param required ngoài chuẩn.** Signature: `(filters, mine, page, page_size)` — `mine` chèn GIỮA filters↔page (mirror imm08/imm09). |
+| Response 200 | `oneOf [CalibrationListEnvelope, Error]` Ở TẦNG response-content-schema của response-component `CalibrationList` (mirror 4 list path C7, route-by-VALUE `body.success`, **0 discriminator**) |
+| Status codes | 200 / 401 (bearer hết hạn = dispatcher) / 403 (dual: dispatcher guest/no-token + in-handler cap thiếu quyền). Lỗi nghiệp vụ (malformed `filters`) = **in-handler HTTP-200 + Error envelope** — `imm11.py:72-75` đã `parse_json` trong `try/except → _err(...)` (KHÔNG raise→4xx; KHÔNG cần dời như imm09 C7). |
+
+**`CalibrationListItem` — field-disjoint (C3-split, ĐÚNG 15 field `svc.list_calibrations` trả, imm11.py:937-976):**
+
+| # | Field | type | Ghi chú (SSoT = `imm_asset_calibration.json` DocType) |
+|---|---|---|---|
+| 1 | `name` | string (**required**) | PK naming-series. CAL-xxxx |
+| 2 | `asset` | string | Link `AC Asset` |
+| 3 | `device_model` | string | Link `IMM Device Model` |
+| 4 | `calibration_type` | string enum `[External, In-House]` | Select |
+| 5 | `status` | string enum `[Scheduled, Sent to Lab, In Progress, Certificate Received, Passed, Failed, Conditionally Passed, Cancelled]` | Select (8 canonical) |
+| 6 | `scheduled_date` | string `format:date` | order_by `scheduled_date desc` |
+| 7 | `actual_date` | string `format:date` `nullable:true` | |
+| 8 | `technician` | string | Link `User` |
+| 9 | `overall_result` | string enum `['', Passed, Failed, Conditionally Passed]` | Select (rỗng = chưa có) |
+| 10 | `next_calibration_date` | string `format:date` `nullable:true` | |
+| 11 | `lab_supplier` | string | Link `AC Supplier` |
+| 12 | `is_recalibration` | **integer enum `[0, 1]`** | **Check** fieldtype → int 0/1 (KHÔNG `boolean` — Open#1 int-vs-bool sweep) |
+| 13 | `asset_name` | string | enrich `AC Asset.asset_name` |
+| 14 | `lab_name` | string | enrich `AC Supplier.supplier_name` |
+| 15 | `technician_name` | string | enrich `User.full_name` |
+
+- **Always**: `additionalProperties:false` (closed) ở cả `CalibrationListEnvelope` (`required[success,data]`, `success.enum[true]`) lẫn `CalibrationListItem`; chỉ `name` required, field khác optional.
+- **Never**: KHÔNG nhồi field financial (`gross_purchase_amount`/`accumulated_depreciation`/`current_book_value`) — `list_calibrations` vốn KHÔNG trả (né sẵn LL-BE-57 mobile-meta-no-financial); KHÔNG ép chung WO/Incident list-item; KHÔNG thêm Check field thứ 2 (chỉ `is_recalibration` là Check → đúng 1 prop integer-enum).
+
+**ADR-IMM11-MOB-01 — `is_recalibration` = `integer enum[0,1]`, KHÔNG `boolean`:**
+- *Context*: Frappe `Check` fieldtype emit `0`/`1` (int) qua REST, không phải JSON `true`/`false`.
+- *Decision*: khai `type:integer enum:[0,1]` cho mọi Check field ra wire (sweep Open#1 toàn contract).
+- *Consequences*: codegen sinh `int?` thay `bool?` → deser KHÔNG fail; client so `== 1`.
+- *Alternatives bác*: `type:boolean` → codegen `bool` deser-fail trên payload `1` (int); coerce `bool()` ở handler → đụng `services/*.py` (vi phạm ranh giới CHỈ-yaml round này).
+
+> **BR-11-LISTMINE (self-scope opt-in — tab "Phiếu hiệu chuẩn của tôi" MVP-5d):** `mine` là **filter ứng-dụng**, KHÔNG phải hàng-rào-bảo-mật — read-gating GIỮ DocPerm `calibration.read` + `apply_vendor_scope("Calibration Record")` (`scope.py:117` → cột `asset`, chỉ role `Vendor Engineer`). Inject `f["technician"] = frappe.session.user` ở API-layer **SAU** `apply_vendor_scope`, **TRƯỚC** `handle(svc.list_calibrations)` (mirror `api/imm08.py::list_pm_work_orders` / `api/imm09.py::list_repair_work_orders`). **KHÁC PM/CM: cột scope = `technician`** (Link `User`, reqd — `imm_asset_calibration.json:131`), KHÔNG `assigned_to` (Calibration Record không có cột này). Invariant **count==rows**: `count_with_or` + `get_all` (`BaseRepository.list` `base.py:65-71`) dùng CÙNG `filters` dict (đã có `technician`) ⇒ `pagination.total == len(data.data)`; Calibration Record KHÔNG có `permission_query_conditions` riêng ⇒ KHÔNG có nhánh count/rows lệch nhau. `mine=0`/absent ⇒ `filters` BYTE-IDENTICAL baseline (web-FE `CalibrationListView` KHÔNG đổi — phiếu giao KTV khác VẪN hiện cho Calibration Manager/QA). `mine=1` AND với mọi key trong `filters` (vd `{"status":"Scheduled"}` → phiếu hiệu chuẩn của tôi đang chờ). Quyết định thiết kế: `04_Backend_Design.md §3.x ADR-IMM11-LISTMINE` + mobile `ADR-MOBILE-019` (đóng-nốt quartet phiếu-của-tôi sau PM/CM/Incident). REUSE component `WorkOrderMine` (0 component mới); path-count mobile GIỮ 47.
+
+### 0.1.2. Write-action binding — `submitCalibration` (COMPLETION/TERMINAL, MVP-flow-5)
+
+> **Bối cảnh (dead-end đóng)**: KTV mở `getCalibration` detail xem 1 phiếu hiệu chuẩn nhưng **KHÔNG có endpoint hoàn thành hiệu chuẩn** trên mobile contract → MVP-flow-5 cụt. `submitCalibration` là **thành viên THỨ BA** của họ completion-action mobile (sau `submitPmResult` IMM-08 + `closeWorkOrder` IMM-09) — mắt xích còn THIẾU của chuỗi `createCalibration → … → submitCalibration`. Đây là cross-link tới SSoT `docs/mobile/openapi/assetcore-mobile.openapi.yaml` (3.0.3, hiện **30 path → +1 = 31** sau round này) — **KHÔNG nhân đôi schema**; mọi sửa field đồng bộ 2 nơi.
+
+| Mục | Giá trị |
+|---|---|
+| Mobile operationId | `submitCalibration` (path 31/31, mới) |
+| HTTP method / path | `POST /api/method/assetcore.api.imm11.submit_calibration` — **CHỈ key `post`** (write-action: mutate `docstatus 0 → 1`, KHÔNG idempotent, KHÔNG GET) |
+| Handler | `api/imm11.py:115` `submit_calibration(name)` → `rbac.require("calibration.submit")` (`api/imm11.py:116`) → `handle(svc.submit_calibration, name)` |
+| Cap | `calibration.submit` (in-handler `rbac.require` @`api/imm11.py:116`) |
+| Lifecycle | COMPLETION/TERMINAL — `docstatus 0 → 1`; controller `on_submit` → `handle_calibration_pass` / `handle_calibration_fail`; `status → Passed / Failed / Conditionally Passed` (xem §10) |
+| requestBody | `application/json` `$ref SubmitCalibrationRequest` — **closed `{name string}` REQUIRED, `additionalProperties:false`, 0 optional** — khớp signature `submit_calibration(name)` @`services/imm11.py:1047` (chỉ 1 positional, 0 default) |
+| Response 200 | `oneOf [SubmitCalibrationEnvelope, Error]` Ở TẦNG response-content-schema (route-by-VALUE `body.success`, **0 discriminator** — pattern C6/C7, mirror `closeWorkOrder`/`submitPmResult`); cả 2 nhánh `additionalProperties:false` + disjoint required-set |
+| Status codes | 200 / 401 (`Unauthorized401` — bearer hết-hạn/invalid → HTTP-401 THẬT) / 403 **SINGLE-SHAPE** `Forbidden` |
+
+**`SubmitCalibrationResponse` — RIÊNG, closed 4-key (GROUNDED return @`services/imm11.py:1054-1059`):**
+
+| # | Field | type | Ghi chú (SSoT = `imm_asset_calibration.json` DocType) |
+|---|---|---|---|
+| 1 | `name` | string (**required**) | PK echo input (`doc.name` @`services/imm11.py:1055`). CAL-YYYY-##### |
+| 2 | `status` | string enum `[Scheduled, Sent to Lab, In Progress, Certificate Received, Passed, Failed, Conditionally Passed, Cancelled]` (**required**) | `doc.status` @`:1056`. Select 8-canonical 1:1 `imm_asset_calibration.json`. Sau submit-bình-thường = `Passed`/`Failed`/`Conditionally Passed` (controller on_submit) nhưng enum khai ĐỦ 8 để codegen sinh đúng máy-trạng-thái |
+| 3 | `overall_result` | string enum `['', Passed, Failed, Conditionally Passed]` (**required**) | `doc.overall_result` @`:1057`. Select 4-value (rỗng `''` = chưa kết luận). Field RIÊNG của Calibration — KHÔNG có ở Pm/Repair/Incident response |
+| 4 | `next_calibration_date` | string `nullable:true` (**required**) | `str(doc.next_calibration_date or "")` @`:1058` → date-string `YYYY-MM-DD` HOẶC `""` (rỗng) khi chưa có. `nullable:true` (không `format:date` cứng vì wire có thể là chuỗi rỗng) |
+
+- **Always**: `additionalProperties:false` (closed) ở cả `SubmitCalibrationEnvelope` (`required[success,data]`, `success.enum[true]`, `data = $ref SubmitCalibrationResponse`) lẫn `SubmitCalibrationResponse` (4-key đều `required` — service luôn trả đủ 4 key @`:1054-1059`); `SubmitCalibrationRequest` `required[name]` đúng 1 prop.
+- **Always**: path vào `_MVP_BUSINESS_PATHS` **VÀ** `_MVP_ACTION_ENVELOPE` (map `→ #/components/schemas/SubmitCalibrationEnvelope`) ⇒ 401/403 symmetry set **tự +1** (test so SET, KHÔNG literal).
+- **Never**: KHÔNG reuse `PmSubmitResultResponse` / `CloseWorkOrderResponse` / `Resolve/IncidentActionResponse` — **C3-split cross-domain** (field-set `{name,status,overall_result,next_calibration_date}` ≠ mọi action khác; `overall_result` là field Calibration-riêng). KHÔNG thêm optional vào request (signature 0 default). KHÔNG nhồi `mttr_hours`/`is_late`/`rca_created` (không thuộc return Calibration).
+- **Never**: KHÔNG để `status` lọt vào request body (server-derived qua controller on_submit — client KHÔNG set).
+
+**403 = SINGLE-SHAPE `Forbidden` (KHÁC `reportIncident` DUAL-403):**
+- *dispatcher-403* (guest/no-token) trip TRƯỚC `handle()` → HTTP-403 THẬT (`FrappeRawError`) ⇒ slot `403` = `$ref #/components/responses/Forbidden`.
+- *in-handler cap-403* (`rbac.require("calibration.submit")` @`api/imm11.py:116` thiếu quyền) → lỗi nghiệp vụ **HTTP-200 + Error envelope** (in-handler, route theo `body.success`/`body.http_status`) ⇒ đã **PHỦ bởi nhánh `Error` trong 200-oneOf**, KHÔNG nhân đôi shape ở slot 403. Mirror `closeWorkOrder`/`startRepair`/`startWork` (single-shape) — **KHÔNG** dùng dual-403 như `reportIncident`.
+- *Lỗi nghiệp vụ in-handler* khác (NOT_FOUND `IMM11_CAL_NOT_FOUND` @`services/imm11.py:1050` khi WO∄; `IMM11_ALREADY_SUBMITTED` @`:1052` khi `docstatus==1`) cũng ARRIVE HTTP-200 + `Error` body → gom vào nhánh `Error` 200-oneOf (KHÔNG raise→4xx).
+
+#### ADR-IMM11-MOB-02 — `SubmitCalibrationResponse` RIÊNG (C3-split), KHÔNG reuse Pm/Repair/Incident ActionResponse
+
+- **Status**: Accepted
+- **Date**: 2026-06-16
+- **Context**: `submitCalibration` là completion-action thứ 3 (sau `submitPmResult`, `closeWorkOrder`). Cám dỗ "gộp 1 `ActionResponse {name,status}` chung" cho mọi completion-action để đỡ schema. NHƯNG return THẬT @`services/imm11.py:1054-1059` trả **4-key** gồm `overall_result` (Select 4-value Calibration-riêng) + `next_calibration_date` (nullable date-string) — KHÔNG có ở Pm (`new_status`+`is_late`+`next_pm_date`+`cm_wo_created`) hay Repair (`mttr_hours`+`sla_breached`).
+- **Decision**: tách `SubmitCalibrationResponse` + `SubmitCalibrationEnvelope` RIÊNG, closed 4-key, ground 1:1 return-shape. requestBody `SubmitCalibrationRequest` closed `{name}`-only.
+- **Alternatives bác**: (a) reuse 1 `ActionResponse {name,status}` chung → mất `overall_result`/`next_calibration_date` (under-specify, codegen client KHÔNG đọc được kết luận hiệu chuẩn → KTV không thấy Pass/Fail); (b) `oneOf` chung cho cả 3 action → required-set không disjoint, route-by-value mơ hồ.
+- **Consequences**: +1 schema-pair (`SubmitCalibrationResponse`/`SubmitCalibrationEnvelope`) + path 31; test `TestMobileSubmitCalibrationContract` guard C3-split (assert response field-set ≠ Pm/Repair/Incident). Nhất quán với ADR-MOBILE-007 (close/submit action RIÊNG-schema) + `C3-split` family. **0 đụng** `api/imm11.py` + `services/imm11.py` (handler + cap-gate + return-shape đã sẵn @source) ⇒ KHÔNG reload gunicorn / migrate / commit.
+
+> **Acceptance contract (chock cho BE/Test — Bước 4)**: YAML `30 → 31` path / `31` operationId (`submitCalibration` mới, unique camelCase, 0 dangling `$ref`). Test `assetcore.tests.test_mobile_oas` XANH; `_EXPECTED_TEST_COUNT 265 → 274` (+9 TC `TestMobileSubmitCalibrationContract a..i`, gồm live-signature parity TC-i `inspect.signature(imm11.submit_calibration) == {name}`). `test_mobile_docset` re-run THẬT (KHÔNG tin doc — phiên trước có 1 FAIL orphan ADR). Working-tree để USER review.
+
+### 0.1.3. Read-detail binding — `getCalibration.allowed_transitions[]` (server-driven CTA, MVP-flow-5 detail)
+
+> **Bối cảnh (ASYMMETRY R3 ĐÓNG KÍN)**: KTV mở `getCalibration` detail → cần biết "từ status hiện tại được phép chuyển sang state nào" để render nút workflow. 3 `*Detail` kia đã emit `allowed_transitions[]` (`IncidentDetail` R3 + `PmWorkOrderDetail` R21 + `RepairWorkOrderDetail` R22); `CalibrationDetail` là `*Detail` **THỨ TƯ và CUỐI** còn THIẾU ⇒ vòng này đóng kín ASYMMETRY R3: **cả 4/4 `*Detail` đều emit `allowed_transitions[]`**. Cross-link SSoT `docs/mobile/openapi/assetcore-mobile.openapi.yaml` (`CalibrationDetail` line ~3607) — KHÔNG nhân đôi schema.
+
+| Mục | Giá trị |
+|---|---|
+| Mobile operationId | `getCalibration` (GET, KHÔNG path mới — `33` path GIỮ NGUYÊN) |
+| HTTP method / path | `GET /api/method/assetcore.api.imm11.get_calibration` (handler `api/imm11.py:81` — vendor IDOR guard `assert_vendor_can_access` + `handle(svc.get_calibration, name)`, **KHÔNG đổi**) |
+| Cap đọc | `calibration.read` (qua vendor guard) |
+| Delta contract | `CalibrationDetail` (line ~3607) thêm property `allowed_transitions: {type: array, items: {type: string}}` — **NOT trong `required`** (`required` GIỮ `[name]`, không bắt buộc), `additionalProperties:true` GIỮ. Mirror `IncidentDetail`/`PmWorkOrderDetail`/`RepairWorkOrderDetail`. |
+| Status codes | 200 / 401 (bearer hết hạn = dispatcher) / 403 (dual: dispatcher guest/no-token + in-handler cap thiếu quyền). Lỗi nghiệp vụ (NOT_FOUND) = **in-handler HTTP-200 + Error envelope** (`get_calibration` → `nthrow(MSG.IMM11_CAL_NOT_FOUND)` → handle → 200+Error). |
+
+**`allowed_transitions[]` — codomain (SSoT = `services/imm11.py:_CAL_VALID_TRANSITIONS`, GROUNDED `imm_11_calibration_workflow.json` edge-by-edge):**
+
+| status hiện tại | allowed_transitions[] | Ghi chú |
+|---|---|---|
+| `Scheduled` | `[In Progress, Sent to Lab, Cancelled]` | bắt đầu / gửi lab / hủy |
+| `In Progress` | `[Passed, Failed, Conditionally Passed, Cancelled]` | kết luận in-house / hủy |
+| `Sent to Lab` | `[Certificate Received]` | nhận chứng chỉ |
+| `Certificate Received` | `[Passed, Failed, Conditionally Passed]` | phê duyệt theo chứng chỉ |
+| `Failed` | `[Conditionally Passed]` | CAPA hoàn tất → có điều kiện |
+| `Passed` | `[]` | terminal (docstatus=1) |
+| `Conditionally Passed` | `[]` | terminal (docstatus=1) |
+| `Cancelled` | `[]` | terminal (docstatus=2) |
+
+- **Always**: emit key LUÔN có (kể cả `[]`); phần tử ⊆ `CalibrationResult` enum (8 canonical); FE render CTA theo list (KHÔNG hardcode `status→button` client-side = dead-gate). Items KHÔNG enum-bound cứng trong yaml (né drift; codomain-check ở guard test phía service).
+- **Never**: ❌ đổi signature `get_calibration(name)` · ❌ đổi handler `api/imm11.py:81` · ❌ đưa `allowed_transitions` vào `required` · ❌ string-literal key trong map (dùng `CalibrationResult.*`).
+
+> ⚠️ **Data-quality (workflow JSON)**: `imm_11_calibration_workflow.json` có **13 dòng `transitions[]`** = **12 cạnh unique** (`Failed → Conditionally Passed` lặp 2 lần — dòng thừa, không đổi semantics). Guard SSoT-divergence so map↔workflow **theo SET (tự dedup)** ⇒ map (12 cạnh) khớp; assertion count thô giữ `len(transitions)==13`. Chi tiết + ADR-IMM11-04 ở `04_Backend_Design.md §3 / §3.1`.
+
+> **Acceptance contract (chock cho BE/Test — Bước 4)**: (1) `services/imm11.py` thêm `_CAL_VALID_TRANSITIONS` (dict keyed `CalibrationResult.*`) + `get_calibration` emit `data["allowed_transitions"]=_CAL_VALID_TRANSITIONS.get(doc.status,[])` (mirror imm09.py R22 / imm08.py R21) — KHÔNG đổi signature, KHÔNG đổi `api/imm11.py:81`. (2) YAML `CalibrationDetail` (line ~3607) thêm `allowed_transitions: array<string>`, NOT-required, AP:true GIỮ — `33` path GIỮ (KHÔNG path mới), `33` opId unique camelCase, 0 dangling `$ref`, `safe_load` OK. (3) Guard XANH @source: `test_mobile_oas` `_EXPECTED_TEST_COUNT 304 → 310` (+6 TC `TestMobileCalibrationAllowedTransitionsContract a..f`); `test_imm11` `TestCalibrationAllowedTransitions` (+2 BE unit TC: codomain⊆enum + map==workflow JSON edges theo SET + live `get_calibration` emit Scheduled/In Progress/Passed-terminal); `test_mobile_docset` `_GUARD_SUITE_SUM 447 → 453` + `_MOBILE_OAS_TOTAL 473 → 479` + `cal_allowed_transitions_delta=6` trong `test_09` baseline. `test_imm08`/`test_imm09`/`test_imm12` untouched GREEN (R21/R22/R3 không regress). (4) ASYMMETRY R3 đóng kín: `grep allowed_transitions` trong `CalibrationDetail` block = PRESENT (trước = 0). Live HTTP cần reload gunicorn (`--preload`) — guard in-process KHÔNG cần (HARD-STOP user). Working-tree để USER review.
+
+### 0.1.4. Write-action binding — `addMeasurement` (MEASUREMENT-ENTRY, mắt-xích-GIỮA MVP-flow-5)
+
+> **Bối cảnh (dead-end GIỮA đóng)**: KTV mở `getCalibration` detail (`Scheduled`/`In Progress`) cần **ghi N điểm-đo** (`parameter_name`/`nominal_value`/`tolerance ±`/`measured_value`) vào child table `measurements` TRƯỚC khi `submitCalibration` chốt verdict. Mắt-xích-GIỮA `addMeasurement` còn THIẾU ⇒ chuỗi `createCalibration → … → submitCalibration` cụt ở giữa, `submitCalibration` tính `overall_result` trên measurement-set **RỖNG**. Cross-link SSoT `docs/mobile/openapi/assetcore-mobile.openapi.yaml` (3.0.3, hiện **42 path → +1 = 43** sau round này) + [`docs/mobile/ADR-MOBILE-011.md`](../mobile/ADR-MOBILE-011.md) + [`04-api-contract.md §8.24`](../mobile/04-api-contract.md) — **KHÔNG nhân đôi schema**; mọi sửa field đồng bộ 2 nơi.
+
+| Mục | Giá trị |
+|---|---|
+| Mobile operationId | `addMeasurement` (path 43/43, mới), tag `calibration` |
+| HTTP method / path | `POST /api/method/assetcore.api.imm11.add_measurement` — **CHỈ key `post` SAU flip** (write-action: append child-row, **KHÔNG idempotent** — N call = N row, KHÔNG GET) |
+| Handler | `api/imm11.py:121` `add_measurement(name, parameter_name, unit, nominal_value, tolerance_positive, tolerance_negative, measured_value=None)` → `rbac.require("calibration.write")` (`api/imm11.py:124`) → `handle(svc.add_measurement, name, **kwargs)` (`:125-132`) |
+| **⚡ VERB-FLIP-THIS-ROUND** | decorator `api/imm11.py:120` flip **bare `@frappe.whitelist()` → `@frappe.whitelist(methods=['POST'])`** — ĐÚNG **1 dòng** (`git diff api/imm11.py` = 1 dòng decorator; signature/body/cap UNCHANGED). Đóng **verb-parity gap R33 BỎ SÓT** (R33 đã flip `create_calibration`/`submit_calibration`/`submit_pm_result`, SÓT `add_measurement`). Sau flip POST-only ⇒ KHÔNG verb-divergence ⇒ `_PARITY_VERB_ALLOWLIST` GIỮ `set()` |
+| Cap | `calibration.write` (in-handler `rbac.require` @`api/imm11.py:124`) |
+| Lifecycle | MEASUREMENT-ENTRY — append 1 row vào `measurements` (`services/imm11.py:1115-1122`) + `CalibrationRepo.save` (`:1123`); **KHÔNG đổi `docstatus`** (giữ draft 0; pre-condition `docstatus==0`) |
+| requestBody | content **oneOf** `application/json` + `application/x-www-form-urlencoded` (Frappe RPC `form_dict`) `$ref AddMeasurementRequest` — `required:true` (component); path-level `$ref`-ONLY (G-OAS-403-DISAMBIG) |
+| Response 200 | `oneOf [AddMeasurementEnvelope, Error]` Ở TẦNG response-content-schema (route-by-VALUE `body.success`, **0 discriminator** — pattern C6/C7); cả 2 nhánh `additionalProperties:false` + disjoint required-set |
+| Status codes | 200 / 401 (`Unauthorized401` bearer hết-hạn/invalid → HTTP-401 THẬT) / 403 **SINGLE-SHAPE** `Forbidden` |
+
+**`AddMeasurementRequest` — closed, required EXACT 6 + optional `measured_value` (GROUNDED signature @`api/imm11.py:121-123` + svc @`services/imm11.py:1107-1109`):**
+
+| # | Field | type | Required? | Ghi chú |
+|---|---|---|---|---|
+| 1 | `name` | string | ✓ required | PK phiếu Calibration (positional) |
+| 2 | `parameter_name` | string | ✓ required | Tên tham-số đo (vd "Nhiệt độ") |
+| 3 | `unit` | string | ✓ required | Đơn-vị (vd "°C") |
+| 4 | `nominal_value` | number | ✓ required | Giá-trị danh-định |
+| 5 | `tolerance_positive` | number | ✓ required | Dung-sai dương (+) |
+| 6 | `tolerance_negative` | number | ✓ required | Dung-sai âm (−) |
+| 7 | `measured_value` | number `nullable:true` | optional | Giá-trị đo thực-tế — `measured_value: float = None` @`api/imm11.py:123` (KTV có thể ghi tham-số trước, đo sau) |
+
+**`AddMeasurementResponse` — RIÊNG, closed EXACT 2-key (GROUNDED return @`services/imm11.py:1124`):**
+
+| # | Field | type | Ghi chú |
+|---|---|---|---|
+| 1 | `name` | string (**required**) | PK echo input (`doc.name`). CAL-YYYY-##### |
+| 2 | `measurement_count` | **integer** (**required**) | `len(doc.measurements)` — số row child-table SAU append. **GENUINE integer count** (có thể >1 — N điểm-đo), **KHÔNG `enum[0,1]`** (không phải Check-field; precedent `updated`/`requestSpareParts` ADR-MOBILE-010). Client hiển thị "đã ghi N điểm-đo" |
+
+- **Always**: `additionalProperties:false` (closed) ở cả `AddMeasurementEnvelope` (`required[success,data]`, `success.enum[true]`, `data = $ref AddMeasurementResponse`) lẫn `AddMeasurementResponse` (2-key đều `required`) lẫn `AddMeasurementRequest`; request `required` EXACT 6, `measured_value` optional.
+- **Always**: path vào `_MVP_BUSINESS_PATHS` **VÀ** `_MVP_ACTION_ENVELOPE` (map `→ #/components/schemas/AddMeasurementEnvelope`) ⇒ 401/403 symmetry set **tự +1** (test so SET).
+- **Never**: KHÔNG reuse `SubmitCalibrationResponse` 4-key / `*ActionResponse` 2-key `{name,status}` — **C3-split** (field-set `{name,measurement_count}` ≠ mọi action khác; `add_measurement` KHÔNG trả `status`/`overall_result`). KHÔNG khai `measurement_count` là `integer enum[0,1]` (số đếm thật, >1 hợp lệ). KHÔNG đưa `measured_value` vào `required`. KHÔNG bịa status-line 404/409 (xem dưới).
+
+**403 = SINGLE-SHAPE `Forbidden` (KHÁC `reportIncident` DUAL-403):**
+- *dispatcher-403* (guest/no-token) trip TRƯỚC `handle()` → HTTP-403 THẬT (`FrappeRawError`) ⇒ slot `403` = `$ref #/components/responses/Forbidden`.
+- *in-handler cap-403* (`rbac.require("calibration.write")` @`api/imm11.py:124` thiếu quyền) → lỗi nghiệp vụ **HTTP-200 + Error envelope** ⇒ đã **PHỦ bởi nhánh `Error` trong 200-oneOf**, KHÔNG nhân đôi shape ở slot 403. Mirror `submitCalibration`/`startRepair` — **KHÔNG** dual-403.
+- *Lỗi nghiệp vụ in-handler*: phiếu∄ `IMM11_CAL_NOT_FOUND` @`services/imm11.py:1112` (→ `code=NOT_FOUND http_status=404`) + đã-submit `IMM11_ALREADY_SUBMITTED` khi `docstatus==1` @`services/imm11.py:1114` (→ `code=CONFLICT http_status=409`) ARRIVE HTTP-200 + `Error` body (quirk §5, KHÔNG status-line) → gom vào nhánh `Error` 200-oneOf; route `body.http_status` ∈ bounded enum `{400,401,403,404,409,413,422,429,500}` (R11, **enum ĐÃ ⊇ {404,409} KHÔNG đổi**).
+
+#### ADR-IMM11-MOB-03 — `addMeasurement` VERB-FLIP-THIS-ROUND + `AddMeasurementResponse` RIÊNG 2-key (`measurement_count` GENUINE integer)
+
+- **Status**: Accepted
+- **Date**: 2026-06-27
+- **Context**: `addMeasurement` là mắt-xích-GIỮA calibration-detail còn THIẾU. Handler `add_measurement` `api/imm11.py:120` còn bare `@frappe.whitelist()` (nhận GET) — **verb-parity gap R33 BỎ SÓT** (R33 đã flip 3 write-action khác + làm rỗng `_PARITY_VERB_ALLOWLIST`). Return THẬT 2-key `{name, measurement_count}` (`services/imm11.py:1124`).
+- **Decision**: (1) flip decorator `api/imm11.py:120` bare→`methods=['POST']` **NGAY** (1 dòng, KHÔNG backlog như §8.15 từng làm) ⇒ contract POST khớp source ⇒ KHÔNG verb-divergence ⇒ `_PARITY_VERB_ALLOWLIST` GIỮ `set()`. (2) `AddMeasurementResponse`/`AddMeasurementEnvelope` RIÊNG closed 2-key, `measurement_count` = `type:integer` THUẦN (số đếm thật). requestBody `AddMeasurementRequest` closed required-EXACT-6 + optional `measured_value` nullable, content oneOf json+form.
+- **Alternatives bác**: (a) reuse `SubmitCalibrationResponse`/`*ActionResponse` → DROP `measurement_count` hoặc bịa `status` không có trong return; (b) `measurement_count` `enum[0,1]` → sai-deser khi N≥2; (c) đẩy verb-flip→backlog + tái-mở `_PARITY_VERB_ALLOWLIST` → đi ngược R33 closure (flip 1 dòng rẻ hơn track backlog).
+- **Consequences**: +1 schema-pair (`AddMeasurementResponse`/`AddMeasurementEnvelope`) + 1 request-schema + 1 requestBody-component + path 43. **⚠️ ĐỤNG 1 dòng `api/imm11.py:120`** (verb-flip) ⇒ shift runtime get/post stat (get 235→234 / post 253→254) → **re-baseline @source** `test_oas_d12`/`d17` (KHÔNG tin tuyệt đối số acceptance). Nhất quán ADR-MOBILE-011 + C3-split family. Sau flip cần USER reload gunicorn `--preload` (LIVE reject GET 405) — guard in-process KHÔNG cần. KHÔNG migrate/commit (HARD-STOP USER).
+
+> **Acceptance contract (chốt cho BE/Test — Bước 4)**: (1) flip `api/imm11.py:120` bare→`@frappe.whitelist(methods=['POST'])` (ĐÚNG 1 dòng; signature/body/`rbac.require('calibration.write')` UNCHANGED). (2) YAML `42 → 43` path / `43` operationId (`addMeasurement` mới, unique camelCase, tag `calibration`, 0 dangling `$ref`, `info.version` GIỮ `0.1.0-skeleton`, `safe_load` OK). (3) Guard XANH @source (`bench --site miyano run-tests`): `test_mobile_oas` `_EXPECTED_TEST_COUNT` **bump từ 397** (+ `TestMobileAddMeasurementContract a..j`, gồm TC-i live-signature parity 7-param + TC-j git-diff-1-dòng + `_PARITY_VERB_ALLOWLIST`==set()); re-baseline `test_oas_d12` (`_BASELINE_GET 235→234`) + `test_oas_d17` (`get_count 235→234`/`post_count 253→254`) + re-verify ALL 13 `test_oas_*`; `test_mobile_docset` (9, reconcile `_GUARD_SUITE_SUM`/`_MOBILE_OAS_TOTAL`/`_GUARD_SUITE_EXPECTED`) + `test_mobile_security_gate` (no-regress) + `test_imm11` (no-regress). (4) RED-before/GREEN-after chứng minh cho MỌI TC mới. Live HTTP cần USER reload (`--preload`) — KHÔNG curl-verify LIVE (LL-DEPLOY-07). Working-tree để USER review.
 
 ---
 

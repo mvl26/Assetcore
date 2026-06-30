@@ -149,6 +149,26 @@ File fixture: `assetcore/workflow/imm_08_pm_work_order_workflow.json` (optional 
 | In Progress / Overdue | Pending–Device Busy | Hoãn lịch | PM Manager | `reschedule_pm` |
 | Any (Open/In Progress) | Cancelled | Hủy | PM Manager | `on_cancel` |
 
+**SSoT trạng-thái-kế-hợp-lệ — `_PM_VALID_TRANSITIONS` (server-driven CTA):**
+
+`services/imm08.py:_PM_VALID_TRANSITIONS: dict[str, list[str]]` = map tập-trung GROUNDED chính xác `assetcore/assetcore/workflow/imm_08_pm_workflow.json` (7 state / 13 transition). `get_work_order(name)` emit `allowed_transitions = _PM_VALID_TRANSITIONS.get(wo.status, [])` vào detail dict → màn detail (web + mobile) render nút workflow **theo server**.
+
+| Status hiện tại | `allowed_transitions[]` |
+|---|---|
+| `Open` | `In Progress`, `Overdue`, `Cancelled` |
+| `Overdue` | `In Progress`, `Cancelled` |
+| `In Progress` | `Completed`, `Halted–Major Failure`, `Pending–Device Busy`, `Cancelled` |
+| `Pending–Device Busy` | `In Progress`, `Cancelled` |
+| `Halted–Major Failure` | `In Progress`, `Cancelled` |
+| `Completed` (terminal, docstatus=1) | `[]` |
+| `Cancelled` (terminal) | `[]` |
+
+> **ADR-IMM08-CTA — Server-driven CTA cho màn PM-detail (2026-06-16).**
+> - **Context:** Trước round này CHỈ `IncidentDetail` (IMM-12, R3) emit `allowed_transitions[]`; `PmWorkOrderDetail`/Repair/Calibration KHÔNG → màn detail BUỘC hardcode `status → button` phía client (anti-pattern lifecycle/RBAC **dead-gate**, memory `factory_rounds_1_25`): client tự suy CTA, dễ lệch khi workflow đổi.
+> - **Decision:** Bồi map tập-trung `_PM_VALID_TRANSITIONS` (1 SSoT) + emit `allowed_transitions[]` ở `get_work_order` — MIRROR pattern `imm12._VALID_TRANSITIONS` + `get_incident_detail` (R3). Schema mobile `array<string>` **KHÔNG enum-bound cứng** (né drift khi workflow đổi); codomain-check ở guard **phía service** (KHÔNG schema-enum).
+> - **Consequences:** Client (web + codegen mobile) render CTA theo server → đổi workflow chỉ sửa 1 nơi (map + workflow JSON, guard SSoT-divergence chặn lệch). KHÔNG đụng workflow-engine / submit / start logic; handler signature `getPmWorkOrder` 0 đổi; KHÔNG path mới.
+> - **Alternatives:** (a) giữ client-side state-gate — REJECTED (dead-gate, drift). (b) enum-bound `allowed_transitions.items` ở schema — REJECTED (schema phải sửa mỗi lần workflow đổi → drift-risk; codomain đã check ở guard service). (c) trả full transition-object {action,role} — DEFERRED (MVP chỉ cần next-state cho CTA; role-gate đã ở dispatcher/cap).
+
 **Controller hooks:**
 
 ```python
@@ -503,6 +523,8 @@ def _handle(fn, *args, **kwargs) -> dict:
         frappe.log_error(frappe.get_traceback(), "IMM-08 API Error")
         return _err("Lỗi hệ thống. Vui lòng thử lại.", "INTERNAL")
 ```
+
+> **⚡ Verb-flip `assign_technician` (Mobile-BE binding — ADR-IMM08-MOB-01 / ADR-MOBILE-012):** code-sketch trên đã khai `@frappe.whitelist(methods=["POST"])` cho `assign_technician` (đúng doc-intent có sẵn) NHƯNG **source thật `api/imm08.py:46` vẫn còn bare `@frappe.whitelist()`** (nhận GET) — **verb-parity gap R33 BỎ SÓT** (R33 đã flip `submit_pm_result` `imm08.py:54` + 3 write-action imm11, SÓT `assign_technician`; sibling imm08 của `add_measurement` imm11 — ADR-MOBILE-011). `assign_technician` là **write-action DISPATCH** (status Open/Overdue→In Progress + asset→Under Maintenance, KHÔNG idempotent ⇒ POST đúng-semantics). **Hành động (BE Bước 4):** flip ĐÚNG 1 dòng decorator `api/imm08.py:46` bare→`@frappe.whitelist(methods=['POST'])` (signature/body/`rbac.require('pm.write')` `:49` UNCHANGED) ⇒ source khớp doc + mobile-contract POST ⇒ `_PARITY_VERB_ALLOWLIST` GIỮ `set()`. Mobile contract đầy đủ: [`05_API_Specification.md §0.1.1`](./05_API_Specification.md) + [`docs/mobile/04-api-contract.md §8.25`](../mobile/04-api-contract.md) + [`docs/mobile/ADR-MOBILE-012.md`](../mobile/ADR-MOBILE-012.md). Sau flip cần USER reload gunicorn `--preload` (LIVE reject GET 405) — HARD-STOP USER, KHÔNG curl-verify LIVE (LL-DEPLOY-07).
 
 ---
 

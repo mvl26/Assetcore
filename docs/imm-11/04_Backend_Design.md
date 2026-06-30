@@ -120,6 +120,66 @@ Actual transitions (from `imm_11_calibration_workflow.json`):
 | Certificate Received | Conditionally Passed | Phê duyệt có điều kiện | Workshop Lead / QA | — |
 | Failed | Conditionally Passed | CAPA hoàn tất - chuyển có điều kiện | QA Officer | CAPA Closed + recal Pass |
 
+> ⚠️ **Data-quality note (workflow JSON):** `imm_11_calibration_workflow.json` chứa **13 dòng `transitions[]`** nhưng chỉ **12 cạnh duy nhất (unique edges)** — cạnh `Failed → Conditionally Passed` bị **lặp 2 lần** (cùng `state`/`next_state`/`action` "CAPA hoàn tất - chuyển có điều kiện", index 11 + 12). Bảng §3 ở trên (12 dòng) là **đúng theo ngữ nghĩa** (12 cạnh unique). Đây là dòng thừa trong JSON nguồn — KHÔNG đổi semantics state-machine. Guard test (xem §3.1) so map BE với codomain JSON **theo SET (tự dedup)** ⇒ không lệch; assertion đếm thô giữ `len(transitions)==13` (count thật JSON), CÓ ghi chú "13 thô = 12 unique". *(Cần khảo sát: có nên dọn dòng lặp trong JSON ở round riêng — ngoài scope vòng này vì sẽ chạm migration/fixture; flag `[ROADMAP]`.)*
+
+### 3.1 `_CAL_VALID_TRANSITIONS` — server-driven CTA map (allowed_transitions[])
+
+**Mục đích:** `get_calibration(name)` emit thêm key `allowed_transitions: list[str]` để client (mobile `getCalibration`) render nút workflow màn calibration-detail **theo SERVER**, KHÔNG hardcode `status → button` ở client (anti-pattern dead-gate / RBAC-drift). Đây là thành viên **THỨ TƯ và CUỐI** của họ `allowed_transitions[]` — sau `IncidentDetail` (imm12.py:778, R3) + `PmWorkOrderDetail` (imm08.py:651, R21) + `RepairWorkOrderDetail` (imm09.py:773, R22) — **ĐÓNG KÍN ASYMMETRY R3**: cả 4 `*Detail` đều emit `allowed_transitions[]`.
+
+**Map (keyed BẰNG `CalibrationResult.*` constants — KHÔNG string literal):**
+
+```python
+# assetcore/services/imm11.py  (mirror imm09.py:83 R22 / imm08.py:80 R21)
+# Keyed BẰNG CalibrationResult.* (services/shared/constants.py:112) — KHÔNG literal.
+# Codomain GROUNDED edge-by-edge imm_11_calibration_workflow.json transitions[]
+# (8 state / 13 transition thô = 12 unique edge). Terminal Passed/Conditionally
+# Passed/Cancelled → [] (0 outgoing). Guard test chốt SSoT-divergence (map↔workflow
+# theo SET) + codomain ⊆ CalibrationResult enum (chống typo/drift).
+_CAL_VALID_TRANSITIONS: dict[str, list[str]] = {
+    CalibrationResult.SCHEDULED: [
+        CalibrationResult.IN_PROGRESS,
+        CalibrationResult.SENT_TO_LAB,
+        CalibrationResult.CANCELLED,
+    ],
+    CalibrationResult.IN_PROGRESS: [
+        CalibrationResult.PASSED,
+        CalibrationResult.FAILED,
+        CalibrationResult.COND_PASSED,
+        CalibrationResult.CANCELLED,
+    ],
+    CalibrationResult.SENT_TO_LAB: [CalibrationResult.CERT_RECEIVED],
+    CalibrationResult.CERT_RECEIVED: [
+        CalibrationResult.PASSED,
+        CalibrationResult.FAILED,
+        CalibrationResult.COND_PASSED,
+    ],
+    CalibrationResult.FAILED: [CalibrationResult.COND_PASSED],
+    CalibrationResult.PASSED: [],          # terminal (docstatus=1)
+    CalibrationResult.COND_PASSED: [],     # terminal (docstatus=1)
+    CalibrationResult.CANCELLED: [],       # terminal (docstatus=2)
+}
+```
+
+**Emit (mirror R21/R22):**
+
+```python
+# services/imm11.py:get_calibration — thêm 1 key vào dict return (KHÔNG đổi signature)
+data["allowed_transitions"] = _CAL_VALID_TRANSITIONS.get(doc.status, [])
+return data
+```
+
+**Boundaries:**
+- **Always:** key `allowed_transitions` LUÔN emit (kể cả `[]` khi terminal); keyed bằng `CalibrationResult.*`; codomain ⊆ `CalibrationResult` enum; FE render CTA theo list này (KHÔNG suy diễn client-side).
+- **Never:** ❌ đổi signature `get_calibration(name)` · ❌ đổi handler `api/imm11.py:81` (vendor IDOR guard `assert_vendor_can_access` + `handle(svc.get_calibration, name)` GIỮ nguyên — field mới chảy qua envelope tự động) · ❌ đưa `allowed_transitions` vào `required` của contract · ❌ string-literal key · ❌ enum-bound cứng `items` trong yaml (né drift).
+
+#### ADR-IMM11-04: `allowed_transitions[]` server-driven CTA cho getCalibration
+
+- **Status:** Accepted — 2026-06-16 (đóng kín ASYMMETRY R3; mirror ADR R3/R21/R22 của Incident/PM/Repair)
+- **Context:** Mobile `getCalibration` detail cần biết "từ status hiện tại được phép chuyển sang state nào" để render nút workflow. 3 *Detail kia (Incident/PM/Repair) đã emit `allowed_transitions[]`; CalibrationDetail là *Detail DUY NHẤT còn THIẾU ⇒ ASYMMETRY. Client KHÔNG được hardcode `status→button` (dead-gate: workflow đổi → FE lệch âm thầm).
+- **Decision:** Thêm map module-level `_CAL_VALID_TRANSITIONS` (dict keyed `CalibrationResult.*`) + emit `data["allowed_transitions"]` trong `get_calibration` (chỉ thêm 1 key vào dict return). KHÔNG đổi signature/handler. Contract `CalibrationDetail` thêm property `allowed_transitions: array<string>`, NOT-required, `additionalProperties:true` GIỮ.
+- **Alternatives:** (a) FE hardcode `status→button` — LOẠI: dead-gate, drift khi workflow đổi. (b) Endpoint riêng `getCalibrationTransitions` — LOẠI: thừa round-trip; allowed_transitions là thuộc tính của chính doc-detail (mirror 3 *Detail kia). (c) enum-bound cứng `items.enum` trong yaml — LOẠI: drift khi workflow thêm state; codomain-check để ở guard test phía service (`test_imm11`).
+- **Consequences:** (+) 4/4 *Detail đối xứng, FE render CTA thống nhất 1 pattern. (+) Guard test SSoT-divergence (map↔workflow JSON theo SET) bắt drift sớm. (−) Workflow JSON có 1 cạnh lặp (`Failed→Conditionally Passed` ×2) ⇒ guard so theo SET (tự dedup), count thô giữ 13 — phải ghi chú rõ (xem note §3). (−) Live HTTP cần reload gunicorn (`--preload`) để key mới hiện — guard in-process KHÔNG cần (HARD-STOP user).
+
 **Controller hooks (delegate-only):**
 
 ```python
@@ -162,7 +222,7 @@ Actual transitions (from `imm_11_calibration_workflow.json`):
 | `update_schedule(name, patch)` | str, dict | `{name}` | Patch allowed fields only |
 | `delete_schedule(name)` | str | `{name, deleted}` | Blocked if submitted calibrations exist |
 | `list_calibrations(filters, page, page_size)` | dict, int, int | `{data, pagination}` | None |
-| `get_calibration(name)` | str | dict | None |
+| `get_calibration(name)` | str | dict | + key `allowed_transitions: list[str]` = `_CAL_VALID_TRANSITIONS.get(doc.status, [])` (server-driven CTA, §3.1). KHÔNG đổi signature `get_calibration(name)`; KHÔNG đổi handler `api/imm11.py:81`. |
 | `create_calibration(asset, calibration_type, scheduled_date, technician, ...)` | kwargs | `{name, status}` | Insert `IMM Asset Calibration` |
 | `update_calibration(name, patch)` | str, dict | `{name, status}` | Asset → Calibrating when status in (In Progress, Sent To Lab) |
 | `submit_calibration(name)` | str | `{name, status, overall_result, next_calibration_date}` | Triggers controller on_submit → Pass/Fail handlers |
@@ -530,7 +590,7 @@ Idempotency guard in `create_due_calibration_wos`: checks `CalibrationRepo.exist
 | `create_calibration_schedule(asset, calibration_type, interval_days, preferred_lab, next_due_date)` | POST | Create schedule |
 | `update_calibration_schedule(name, **kwargs)` | POST | Update schedule fields |
 | `delete_calibration_schedule(name)` | POST | Delete (if no submitted cals) |
-| `list_calibrations(filters, page, page_size)` | GET | List calibrations with pagination |
+| `list_calibrations(filters, mine, page, page_size)` | GET | List calibrations with pagination (+ `mine=1` self-scope `technician` — §5.1) |
 | `get_calibration(name)` | GET | Single calibration detail |
 | `create_calibration(asset, calibration_type, scheduled_date, technician, ...)` | POST | Create calibration WO |
 | `update_calibration(name, **kwargs)` | POST | Update allowed fields |
@@ -545,6 +605,39 @@ Idempotency guard in `create_due_calibration_wos`: checks `CalibrationRepo.exist
 | `get_due_calibrations(days, limit)` | GET | Assets due ≤ N days |
 
 > **Pattern:** All responses via `_ok(data)` / `_err(msg, code)` from `assetcore.utils.helpers`. HTTP always 200. Service raise `ServiceError(ErrorCode.X, "msg tiếng Việt")` caught by `_handle()`.
+
+> ⚡ **VERB-FLIP `add_measurement` (R34 — ADR-IMM11-MOB-03 / ADR-MOBILE-011, xem `05_API_Specification.md §0.1.4`):** cột Method = **POST** ở trên là verb-INTENT (write-action: append child-row, KHÔNG idempotent). Decorator THẬT `api/imm11.py:120` hiện **bare `@frappe.whitelist()`** (nhận cả GET — verb-parity gap R33 BỎ SÓT). **Fix R34 = flip ĐÚNG 1 dòng** `api/imm11.py:120` → `@frappe.whitelist(methods=['POST'])` (signature `:121-123` + body `:124-132` + `rbac.require('calibration.write')` `:124` UNCHANGED; `git diff api/imm11.py` = 1 dòng decorator). Mirror `create_calibration` `:89` / `submit_calibration` `:114` (đã flip @R33). Sau flip POST-only ⇒ `_PARITY_VERB_ALLOWLIST` GIỮ `set()`. Cần USER reload gunicorn `--preload` để LIVE reject GET(405) — guard in-process KHÔNG cần (HARD-STOP USER).
+
+---
+
+### 5.1 Mobile-BE contract — `listCalibrations` self-scope `mine` (đóng-nốt quartet phiếu-của-tôi: tab "Phiếu hiệu chuẩn của tôi" MVP-5d)
+
+**Vấn đề gốc (contract nói dối — đối-xứng A2 known-gap):** OpenAPI `listCalibrations` summary `[MVP-5d] Hiệu chuẩn của tôi` ĐÃ hứa semantics "của tôi", NHƯNG `list_calibrations(filters, page, page_size)` (`api/imm11.py:71`) **KHÔNG có cơ chế** scope theo `technician` — chỉ `parse_json(filters)` (`:72-75`, in-try/except → `_err` Error-trên-HTTP-200) + `apply_vendor_scope("Calibration Record")` (`:76`) rồi `handle(svc.list_calibrations, …)` (`:77`). ⇒ tab trả **mọi** Calibration Record mà quyền đọc cho phép (kể cả phiếu giao KTV khác), KHÔNG self-scope. Đối-xứng PM (ADR-MOBILE-016) / CM (ADR-MOBILE-017) / Incident (ADR-MOBILE-015) — đây là **mắt-xích THỨ TƯ đóng-nốt quartet** phiếu-của-tôi của MyWorkOrdersView.
+
+**5-câu-hỏi domain:** (stage HTM) Operation/Maintenance — calibration/performance; (NĐ98) traceability hiệu chuẩn gắn ĐÚNG KTV thực hiện (chứng chỉ truy được người chịu trách nhiệm); (stakeholder) KTV field-tech mobile + Calibration Manager/QA web; (lifecycle event) calibration tạo với `technician` reqd (`services/imm11.py:1052`); (hậu quả nếu data sai) tab hiển thị phiếu người khác → KTV nhầm việc, nhưng **KHÔNG leak quyền** vì read-gating GIỮ DocPerm — `mine` chỉ là filter hiển thị.
+
+| Khía cạnh | Quyết định | Evidence |
+|---|---|---|
+| Param | `mine: int = 0` (`0\|1`), chèn GIỮA `filters`↔`page` (mirror `imm08.py:29` / `imm09.py:22`); inject @api SAU `apply_vendor_scope("Calibration Record")`, TRƯỚC `handle(svc.list_calibrations)` | `api/imm11.py:71,76-77` |
+| Injection | `if int(mine or 0): f["technician"] = frappe.session.user` — **cột `technician`** (KHÁC PM/CM `assigned_to`) | `imm_asset_calibration.json:131` (Link `User`, reqd) |
+| count==rows | `count_with_or` + `get_all` (`BaseRepository.list base.py:65-71`) dùng CÙNG `filters` dict (đã có `technician`); list_calibrations KHÔNG truyền `or_filters` ⇒ `count_with_or`=`frappe.db.count` thuần. Calibration Record **KHÔNG có** `permission_query_conditions` riêng ⇒ KHÔNG có nhánh count/rows lệch | `repositories/base.py:48-76`, `hooks.py:388` |
+| Backward-compat | `mine=0`/absent ⇒ `filters` BYTE-IDENTICAL baseline (web-FE `CalibrationListView` KHÔNG đổi) | — |
+| Contract | OpenAPI REUSE `components/parameters/WorkOrderMine` (R38) — **0 component mới**; param-set `{WorkOrderFilters,Page,PageSize}`→+`WorkOrderMine`=4; path-count GIỮ 47 | `docs/mobile/openapi/assetcore-mobile.openapi.yaml`, `docs/mobile/ADR-MOBILE-019.md` |
+
+**Boundaries:**
+
+| | |
+|---|---|
+| **Always** | `mine` ANDed với mọi key trong `filters` JSON-blob (vd `{"status":"Scheduled"}`, `{"calibration_type":"External"}`). Inject `technician=session.user` @api SAU `apply_vendor_scope`. count==rows giữ (cùng filters dict). `mine=0`/absent = baseline byte-identical. REUSE `WorkOrderMine` (KHÔNG component mới). Signature LIVE `['filters','mine','page','page_size']`. |
+| **Never** | KHÔNG inject `assigned_to` (Calibration Record không có cột này — PHẢI `technician`). KHÔNG tạo component `CalibrationMine` (shape trùng `WorkOrderMine`). KHÔNG thêm endpoint `list_my_calibrations` (+path). KHÔNG auto-scope qua `permission_query_conditions` (Calibration hiện KHÔNG có; thêm sẽ vỡ view Manager/QA). KHÔNG coi `mine` là security-boundary (read-gating vẫn DocPerm `calibration.read` + `apply_vendor_scope`). KHÔNG đụng `services/imm11.py`/`repositories/`. |
+
+**ADR-IMM11-LISTMINE — `listCalibrations` self-scope qua param opt-in `mine` (REUSE `WorkOrderMine`, inject cột `technician` @api SAU `apply_vendor_scope`)**
+
+- **Status:** Accepted · **Date:** 2026-06-29 · đối-xứng ADR-MOBILE-016/017 (PM/CM) — xem mobile `docs/mobile/ADR-MOBILE-019.md`.
+- **Context:** `list_calibrations` summary hứa "của tôi" nhưng không có cơ chế scope `technician` (claim suông). Tab "Phiếu hiệu chuẩn của tôi" (MVP-5d) cần self-scope. `WorkOrderMine` đã tồn tại từ R38 (PM) — cùng shape int 0|1. CAL filters là JSON-blob `parse_json` @api (như PM/CM, KHÁC imm12 discrete).
+- **Decision:** REUSE `WorkOrderMine` + `$ref` vào `listCalibrations.parameters` + generalize description (PM/CM→PM/CM/CAL, ghi rõ cột scope khác theo list); `api/imm11.py` thêm `mine: int = 0` GIỮA filters↔page + `if int(mine or 0): f["technician"]=frappe.session.user` SAU `apply_vendor_scope`. KHÔNG đụng service/repo.
+- **Alternatives (rejected):** (a) inject `assigned_to` mirror PM/CM — SAI source (Calibration Record không có cột `assigned_to`, KTV = `technician`); (b) endpoint riêng — +path, nhân đôi enrich (asset_name/lab_name/technician_name); (c) component `CalibrationMine` mới — shape trùng `WorkOrderMine`, vỡ "0 component mới"; (d) `permission_query_conditions` auto-scope — Calibration hiện không có, thêm sẽ vỡ view Manager/QA cần thấy tất cả; (e) seed @service — CAL filters parse @api, inject @api blast-radius nhỏ hơn.
+- **Consequences:** contract trung thực; `mine=0` backward-compat đo được; count==rows giữ; path-count 47 + 0 component mới ⇒ `generate_spec` get/post/total UNCHANGED (`test_oas_d12/d15/d17` re-verify, KHÔNG re-baseline). **Quartet phiếu-của-tôi ĐÓNG TRỌN** (Incident/PM/CM/Calibration). Ghi rõ tiền-lệ "1 component `WorkOrderMine`, cột scope per-op khác" — param shape là contract, column-mapping (`assigned_to`/`technician`/`reported_by`) là chuyện @api-handler. `mine` = filter ứng-dụng KHÔNG-phải-security-boundary.
 
 ---
 

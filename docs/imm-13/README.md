@@ -46,6 +46,7 @@
 - **WHO HTM**: [`../WHO/WHO - Decommissioning medical devices.md`](../WHO/WHO%20-%20Decommissioning%20medical%20devices.md) — §3.1 Implementation, §3.2 Risk auditing, §3.6 Removal of patient data, §3.8 Inventory system.
 - **GMDN / NĐ98**: [`../gmdn/`](../gmdn/) — phân loại A/B/C/D ảnh hưởng yêu cầu xử lý dữ liệu bệnh nhân và hồ sơ pháp lý khi stand-down.
 - **Module nguồn dữ liệu vào IMM-13**: IMM-09 (sửa chữa kết luận `cannot_repair`), IMM-11 (calibration `out_of_tolerance` không khắc phục được), IMM-08 (PM phát hiện end-of-life), IMM-12 (incident gây ngừng vĩnh viễn).
+- **Điều chuyển LIVE (Asset Transfer @ imm00)** ⚠️: cơ-chế điều-chuyển ĐANG chạy nằm ở `assetcore.api.imm00.*` trên DocType `Asset Transfer` (`AT-.YYYY.-.####`), **KHÁC** luồng RAS `imm13.*` Đợt-3 chưa-scaffold. Read-surface (`listTransfers`/`getTransfer`) đã wire mobile contract — xem [05 §7](./05_API_Specification.md) + ADR [`../mobile/ADR-MOBILE-021.md`](../mobile/ADR-MOBILE-021.md).
 - **Skill build BE**: [`.claude/skills/assetcore-be-module/SKILL.md`](../../.claude/skills/assetcore-be-module/SKILL.md).
 - **Skill build FE**: [`.claude/skills/assetcore-fe-module/SKILL.md`](../../.claude/skills/assetcore-fe-module/SKILL.md).
 

@@ -61,7 +61,7 @@ User không có Role hợp lệ → HTTP 403 + `CM-010`.
 
 | # | Function | Method | Permission | Mô tả |
 |---|---|---|---|---|
-| 3.1 | `list_repair_work_orders` | GET | Tất cả có đăng nhập | Danh sách WO + filter + phân trang |
+| 3.1 | `list_repair_work_orders` | GET | Tất cả có đăng nhập | Danh sách WO + filter + phân trang (+ `mine=1` self-scope `assigned_to` — tab "Phiếu CM của tôi" MVP-5b) |
 | 3.2 | `get_repair_work_order` | GET | Tất cả có đăng nhập | Chi tiết WO + asset_info enriched |
 | 3.3 | `create_repair_work_order` | POST | Workshop Manager / CMMS Admin | Tạo WO mới |
 | 3.4 | `assign_technician` | POST | Workshop Manager | Phân công Kỹ thuật viên |
@@ -86,7 +86,7 @@ User không có Role hợp lệ → HTTP 403 + `CM-010`.
 | `create_repair_work_order` | `@frappe.whitelist()` | Workshop Manager, CMMS Admin |
 | `assign_technician` | `@frappe.whitelist()` | Workshop Manager |
 | `submit_diagnosis` | `@frappe.whitelist()` | KTV HTM, Workshop Manager |
-| `request_spare_parts` | `@frappe.whitelist()` | KTV HTM, Workshop Manager, Kho vật tư |
+| `request_spare_parts` | `@frappe.whitelist(methods=["POST"])` | KTV HTM, Workshop Manager, Kho vật tư |
 | `start_repair` | `@frappe.whitelist(methods=["POST"])` | KTV HTM, Workshop Manager |
 | `close_work_order` | `@frappe.whitelist()` | KTV HTM, Workshop Manager, CMMS Admin |
 | `get_repair_kpis` | `@frappe.whitelist()` | PTP Khối 2, Workshop Manager, CMMS Admin |
@@ -111,8 +111,11 @@ User không có Role hợp lệ → HTTP 403 + `CM-010`.
 | Param | Kiểu | Bắt buộc | Mô tả |
 |---|---|---|---|
 | `filters` | JSON string | Không | Filter Frappe-style: exact, `["in",[...]]`, `[">=",val]`, `["like","%x%"]` |
+| `mine` | int (`0\|1`) | Không | **`mine=1`** → self-scope `assigned_to == session.user` (tab "Phiếu CM của tôi" — MyWorkOrdersView, MVP-5b). AND với mọi key trong `filters`. **`mine=0`/absent (mặc định 0)** = hành vi cũ BYTE-IDENTICAL (permission-aware — web-FE `RepairWorkOrderListView` KHÔNG đổi). Xem `04_Backend_Design.md §3.6` ADR-IMM09-LISTMINE + mobile ADR-MOBILE-017. |
 | `page` | int | Không | Trang hiện tại (mặc định 1) |
 | `page_size` | int | Không | Kích thước trang (mặc định 20) |
+
+> **BR-09-LISTMINE (self-scope opt-in):** `mine` là **filter ứng-dụng**, KHÔNG phải hàng-rào-bảo-mật — read-gating GIỮ DocPerm `repair.read` + `permission_query_conditions` `asset_repair_query` (`permissions.py:115`) + `apply_vendor_scope`. Inject `f["assigned_to"]=frappe.session.user` ở API-layer **SAU** `apply_vendor_scope`, **TRƯỚC** `handle(svc.list_work_orders)` (mirror `api/imm08.py::list_pm_work_orders`). Invariant **count==rows**: `count_with_or` + `get_all` (`BaseRepository.list`) dùng CÙNG `filters` dict (đã có `assigned_to`) ⇒ `pagination.total == len(data.data)`. Với KTV thì `asset_repair_query` đã tự scope `assigned_to` (mine thừa nhưng vô hại — AND idempotent); với senior/QA (`asset_repair_query` trả `""` → thấy tất cả) thì `mine=1` thu hẹp về "của tôi" = use-case chính của tab.
 
 **Ví dụ request:**
 
@@ -219,10 +222,23 @@ curl -G "https://acme.local/api/method/assetcore.api.imm09.list_repair_work_orde
       "manufacturer_sn": "DRG-2024-001234",
       "department": "ICU-01",
       "location": "LOC-A3"
-    }
+    },
+    "allowed_transitions": ["Pending Inspection", "Cannot Repair", "Cancelled"]
   }
 }
 ```
+
+**`allowed_transitions[]` (server-driven CTA — mirror Incident R3 / PM R21):** danh sách **trạng-thái-kế hợp lệ** từ `status` hiện tại (ở ví dụ trên `status="In Repair"` → `[Pending Inspection, Cannot Repair, Cancelled]`). FE render nút workflow trên màn repair-detail **theo field này** — KHÔNG hardcode `status → button`. SSoT = `_REPAIR_VALID_TRANSITIONS` (`services/imm09.py`), grounded edge-by-edge `imm_09_repair_workflow.json` (9 state / 15 transition). Terminal `Completed`/`Cannot Repair`/`Cancelled` → `[]` (read-only, không nút). Field **optional** (emit-luôn nhưng KHÔNG trong `required`); client cũ bỏ qua an toàn. Chi tiết map + ADR-IMM09-CTA: xem `04_Backend_Design.md §3.1`.
+
+| `status` | `allowed_transitions[]` |
+|---|---|
+| Open | `[Assigned, Cancelled]` |
+| Assigned | `[Diagnosing, Cancelled]` |
+| Diagnosing | `[In Repair, Pending Parts, Cancelled]` |
+| Pending Parts | `[In Repair, Cancelled]` |
+| In Repair | `[Pending Inspection, Cannot Repair, Cancelled]` |
+| Pending Inspection | `[Completed, In Repair, Cancelled]` |
+| Completed / Cannot Repair / Cancelled | `[]` (terminal) |
 
 **Lỗi:** `CM-011` (404) nếu WO không tồn tại.
 
@@ -288,6 +304,8 @@ curl -G "https://acme.local/api/method/assetcore.api.imm09.list_repair_work_orde
 | `CM-001` | Thiếu cả `incident_report` và `source_pm_wo` |
 | `CM-002` | Asset đã có WO active |
 | `CM-009` | `asset_ref` không tồn tại |
+| `CM-014` | `incident_report` truyền non-empty nhưng không tồn tại (R26, `code='VALIDATION_ERROR'` http 422). FK rỗng = standalone OK. |
+| `CM-015` | `source_pm_wo` truyền non-empty nhưng không tồn tại (R26, `code='VALIDATION_ERROR'` http 422). FK rỗng = standalone OK. |
 
 ---
 
@@ -317,9 +335,11 @@ curl -G "https://acme.local/api/method/assetcore.api.imm09.list_repair_work_orde
 
 **Side-effects:**
 - Chỉ thực hiện khi `status = "Open"`.
-- Set `assigned_to`, `assigned_by = frappe.session.user`, `assigned_datetime = now()`, `status = "Assigned"`.
+- **Dispatch-validation gate (R25):** `technician` PHẢI thoả 3 điều kiện AND — (1) tồn tại trong DocType `User`, (2) `enabled == 1`, (3) repair-capable (`frappe.has_permission("Asset Repair", "write", user=technician)` — capability, KHÔNG so tên role). Gate chạy TRƯỚC khi set/save.
+- Nếu hợp lệ: Set `assigned_to`, `assigned_by = frappe.session.user`, `assigned_datetime = now()`, `status = "Assigned"`.
+- Nếu KHÔNG hợp lệ: KHÔNG mutate (`assigned_to` giữ nguyên, `status` GIỮ `Open`).
 
-**Response 200:**
+**Response 200 (thành công):**
 
 ```json
 {
@@ -332,7 +352,22 @@ curl -G "https://acme.local/api/method/assetcore.api.imm09.list_repair_work_orde
 }
 ```
 
-**Lỗi:** `CM-012` (422) nếu status không phải `"Open"`.
+**Response 200 (technician không hợp lệ — Error-on-HTTP-200):**
+
+```json
+{
+  "success": false,
+  "error": "Không thể giao việc cho 'khong-ton-tai@nope.invalid' — tài khoản không tồn tại, đã bị khoá, hoặc không có quyền sửa chữa.",
+  "code": "VALIDATION_ERROR",
+  "http_status": 422
+}
+```
+
+**Lỗi:**
+- `IMM09-BAD-STATE` (`code=BAD_STATE`, 409) nếu status không phải `"Open"`.
+- `IMM09-INVALID-TECHNICIAN` (`code=VALIDATION_ERROR`, 422) nếu technician không tồn tại / disabled / không có quyền sửa chữa (R25 dispatch-validation gate).
+
+> **Mobile-BE contract:** path tương ứng có trong `docs/mobile/openapi/assetcore-mobile.openapi.yaml` (opId `assignTechnician`) — response 3-key `{name,status,assigned_to}` qua `AssignTechnicianEnvelope` RIÊNG (KHÔNG reuse `RepairActionEnvelope` 2-key). Lỗi nghiệp vụ (gồm `IMM09-INVALID-TECHNICIAN`) đến HTTP-200 + nhánh `Error` của `200 = oneOf [AssignTechnicianEnvelope, Error]` (KHÔNG schema mới). Quyết định thiết kế: ADR-IMM09-ASSIGN (DISPATCH) + ADR-IMM09-VALIDATE-TECH (validation gate) — file `04_Backend_Design.md` §3.2/§3.3.
 
 ---
 
@@ -361,11 +396,12 @@ curl -G "https://acme.local/api/method/assetcore.api.imm09.list_repair_work_orde
 ```
 
 **Side-effects:**
-- Chỉ thực hiện khi `status IN ("Assigned", "Diagnosing")`.
-- Set `diagnosis_notes`, `root_cause_category`.
-- Nếu `needs_parts = 1` → `status = "Pending Parts"` **+ `enter_parts_hold(doc)`: stamp `parts_hold_started = now()` (BR-09-10, INV-CM-HOLD-2) + ALE `parts_hold_started`** (SLA bắt đầu tạm dừng).
-- Nếu `needs_parts = 0` → `status = "In Repair"`.
-- Sinh ALE `event_type = "diagnosis_submitted"`.
+- Chỉ thực hiện khi `status IN ("Assigned", "Diagnosing")` — sai trạng thái → `IMM09_BAD_STATE` (`http_status 409`/`code CONFLICT`, `services/imm09.py:935`); WO không tồn tại → `IMM09_NOT_FOUND` (`http_status 404`/`code NOT_FOUND`). Cả 2 là **lỗi-nghiệp-vụ trên HTTP-200 + Error envelope** (route theo `body.http_status`).
+- Set `diagnosis_notes` (`services/imm09.py:937` — chỉ field này; **KHÔNG** set `root_cause_category` ở action này).
+- Nếu `needs_parts = 1` → `status = "Pending Parts"` **+ `enter_parts_hold(doc)`: stamp `parts_hold_started = now()` (BR-09-10, INV-CM-HOLD-2) + ALE `parts_hold_started`** (SLA bắt đầu tạm dừng, `services/imm09.py:941-942`).
+- Nếu `needs_parts = 0` → `status = "In Repair"` (`services/imm09.py:938`).
+- Sinh ALE `event_type = "diagnosis_submitted"` (`services/imm09.py:945`).
+- Service trả EXACT `{name, status}` (`services/imm09.py:950`) — Mobile-BE contract REUSE `RepairActionEnvelope`/`RepairActionResponse` (mirror `startRepair`; xem [`docs/mobile/04-api-contract.md §8.11-bis`](../mobile/04-api-contract.md)).
 
 **Response 200:**
 
@@ -379,7 +415,7 @@ curl -G "https://acme.local/api/method/assetcore.api.imm09.list_repair_work_orde
 }
 ```
 
-**Lỗi:** `CM-012` nếu status không hợp lệ cho transition.
+**Lỗi:** `CM-012` (status không hợp lệ cho transition) ⇒ MSG `IMM09_BAD_STATE` (`http_status 409`/`code CONFLICT`, `utils/messages.py:641-646`); WO không tồn tại ⇒ `IMM09_NOT_FOUND` (`http_status 404`/`code NOT_FOUND`). Lỗi-nghiệp-vụ = **in-handler HTTP-200 + Error envelope** (KHÔNG raise→HTTP-4xx).
 
 ---
 
@@ -406,8 +442,9 @@ curl -G "https://acme.local/api/method/assetcore.api.imm09.list_repair_work_orde
 ```
 
 **Side-effects:**
-- Cập nhật `stock_entry_ref` trên các row `spare_parts_used` khớp `item_code`.
+- Cập nhật `stock_entry_ref` trên các row `spare_parts_used` khớp `item_code` (đếm `updated`).
 - Nếu `status = "Pending Parts"` → **`exit_parts_hold(doc, until=now())`: cộng `parts_hold_hours += (now − parts_hold_started)`, reset `parts_hold_started=null` (BR-09-10, INV-CM-HOLD-2/3) + ALE `parts_hold_resumed`** (SLA tiếp tục chạy) → chuyển sang `"In Repair"`.
+- **Gate-2 IMM-09 → IMM-15 (cross-module, non-blocking):** tạo `IMM Spare Allocation` trạng thái `Requested` để spare-part truy về kho (`services/imm09.py:991-1016`, lazy-import `imm15.create_allocation` — Pattern B). CHỈ tạo khi có item (`spare_part`/`item_code`) **và** tìm được `warehouse` từ `AC Spare Part Stock`. Bọc `try/except` → thất bại chỉ `frappe.log_error`, KHÔNG vỡ action. `allocation` = name allocation mới (hoặc `null`).
 
 > Lưu ý: Endpoint chỉ gắn chứng từ, không tạo spare part row mới. Các row phải được thêm qua FE form trước.
 
@@ -419,10 +456,17 @@ curl -G "https://acme.local/api/method/assetcore.api.imm09.list_repair_work_orde
   "data": {
     "name": "WO-CM-2026-00042",
     "status": "In Repair",
-    "updated": 1
+    "updated": 1,
+    "allocation": "ALLOC-2026-00017"
   }
 }
 ```
+
+**Trường trả về (EXACT 4-key, grounded `services/imm09.py:1018-1019`):** `name` (string), `status` (RepairStatus 9-state — `In Repair` nếu rời `Pending Parts`, ngược lại giữ nguyên), `updated` (integer — số row gắn được `stock_entry_ref`), `allocation` (string|null — name `IMM Spare Allocation` Gate-2, `null` nếu không tạo).
+
+**Lỗi:** WO không tồn tại ⇒ `IMM09_NOT_FOUND` (`code=NOT_FOUND`, `http_status=404`, `services/imm09.py:976`) — lỗi-nghiệp-vụ = **in-handler HTTP-200 + Error envelope** (KHÔNG raise→HTTP-4xx).
+
+> 📱 **Cross-ref Mobile-BE contract (repair spare-parts sub-flow):** endpoint này được surface trong OpenAPI mobile [`docs/mobile/openapi/assetcore-mobile.openapi.yaml`](../mobile/openapi/assetcore-mobile.openapi.yaml) tại path `/api/method/assetcore.api.imm09.request_spare_parts` (opId **`requestSpareParts`**, **POST-only `@frappe.whitelist(methods=["POST"])` `api/imm09.py:77` SẴN @source — CLEAN POST, KHÔNG verb-divergence/backlog**). 200 = `oneOf [RequestSparePartsEnvelope, Error]` (route-by-VALUE `body.success`, 0 discriminator); `data` = **`RequestSparePartsResponse`** closed 4-key `{name, status, updated, allocation}` (`required[name,status]`; `updated` integer; `allocation` string|null nullable). **⚠️ Schema RIÊNG — KHÔNG reuse `RepairActionResponse` 2-key `{name,status}`** dù cùng domain repair: service trả thêm `updated` + `allocation` (4-key) ⇒ C3-split field-disjoint (Self-Correction: forward-reservation §8.11 contract-doc ghi reuse cho `request_spare_parts` SAI — service THẬT 4-key). **Dual-rbac**: cap-gate `repair.write` (`api/imm09.py:79`) + service `repair.create` (`services/imm09.py:973`) — đều in-handler cap-403 (phủ bởi nhánh Error 200-oneOf). Slot `{200,401,403}`; 403 SINGLE-SHAPE dispatcher-403. `IMM09_NOT_FOUND` (404) arrive HTTP-200 + Error. Chi tiết hợp đồng + ADR: [`docs/mobile/04-api-contract.md §8.23`](../mobile/04-api-contract.md) + [`ADR-MOBILE-010.md`](../mobile/ADR-MOBILE-010.md) + `04_Backend_Design.md §3.5`.
 
 ---
 
@@ -457,7 +501,7 @@ curl -G "https://acme.local/api/method/assetcore.api.imm09.list_repair_work_orde
 }
 ```
 
-**Lỗi:** `CM-012` nếu status không hợp lệ cho transition.
+**Lỗi:** `CM-012` (status không hợp lệ cho transition) ⇒ MSG `IMM09_BAD_STATE` (`http_status 409`/`code CONFLICT`, `utils/messages.py:641-646`); WO không tồn tại ⇒ `IMM09_NOT_FOUND` (`http_status 404`/`code NOT_FOUND`). Lỗi-nghiệp-vụ = **in-handler HTTP-200 + Error envelope** (KHÔNG raise→HTTP-4xx).
 
 ---
 
@@ -596,11 +640,13 @@ curl -G "https://acme.local/api/method/assetcore.api.imm09.list_repair_work_orde
 
 **Errors:**
 
-| Code | Mô tả |
-|---|---|
-| `NOT_FOUND` | WO không tồn tại |
-| `BAD_STATE` | WO không ở trạng thái "Pending Inspection" |
-| `FORBIDDEN` | Không có quyền `CAN_APPROVE_DEP` |
+| Code | HTTP | Mô tả |
+|---|---|---|
+| `NOT_FOUND` | 404 | WO không tồn tại (`IMM09_NOT_FOUND` `services/imm09.py:1101`; `messages.py:639`) |
+| `BAD_STATE` | 409 | WO không ở trạng thái "Pending Inspection" (`IMM09_BAD_STATE` `services/imm09.py:1102`; `messages.py:646` — xung-đột TRẠNG THÁI, KHÔNG 422) |
+| `FORBIDDEN` | 403 | Không có quyền `repair.submit` (cap-gate `rbac.require` `api/imm09.py:105`) |
+
+> 📱 **Cross-ref Mobile-BE contract (flow-5 acceptance):** endpoint này được surface trong OpenAPI mobile [`docs/mobile/openapi/assetcore-mobile.openapi.yaml`](../mobile/openapi/assetcore-mobile.openapi.yaml) tại path `/api/method/assetcore.api.imm09.confirm_inspection` (opId **`confirmInspection`**, POST-only). Đây là **action TERMINAL-THẬT** đóng dead-end CUỐI chuỗi repair: `closeWorkOrder` chỉ đưa WO về `Pending Inspection` (NON-terminal); `getRepairWorkOrder.allowed_transitions[]` surface CTA `Completed` nhưng KHÔNG có endpoint để thực thi → `confirmInspection` lấp. 200 = `oneOf [ConfirmInspectionEnvelope, Error]` (route-by-VALUE `body.success`, 0 discriminator); `data` = **`ConfirmInspectionResponse`** closed 4-key `{name, status, mttr_hours, sla_breached}` (`required[name,status]`), `status.enum=[Completed]` (single-value INVARIANT), `sla_breached` integer enum[0,1] (KHÔNG boolean). **Schema RIÊNG, KHÔNG reuse `CloseWorkOrderResponse`** dù shape trùng — C3-split cross-action vì `status` 1-value `[Completed]` ≠ 2-value `[Pending Inspection, Cannot Repair]`. Cap-gate `repair.submit` (phê-duyệt-chất-lượng) **KHÁC `repair.create`** (KTV). 2 lỗi nghiệp vụ in-handler (`IMM09_NOT_FOUND` 404 + `IMM09_BAD_STATE` 409) arrive **HTTP-200 + Error envelope** (quirk §5, KHÔNG status-line). Chi tiết hợp đồng + ADR: [`docs/mobile/04-api-contract.md §8.20`](../mobile/04-api-contract.md) + [`ADR-MOBILE-009.md`](../mobile/ADR-MOBILE-009.md).
 
 ---
 
@@ -714,7 +760,9 @@ curl -G "https://acme.local/api/method/assetcore.api.imm09.list_repair_work_orde
 }
 ```
 
-> **Ghi chú:** Source là `tabIMM Device Spare Part`, tìm theo `part_name` LIKE hoặc `manufacturer_part_no` LIKE. FE `CMPartsView.vue` gọi qua `searchSpareParts()` từ `@/api/imm09`.
+> **Ghi chú:** Source là `tabIMM Device Spare Part`, tìm theo `part_name` LIKE hoặc `manufacturer_part_no` LIKE. FE `CMPartsView.vue` gọi qua `searchSpareParts()` từ `@/api/imm09`. Query `< 2` ký tự → trả `[]` rỗng (guard `services/imm09.py:1224`). Số dòng cap bởi `limit` (SQL `LIMIT`, KHÔNG pagination).
+
+> 📱 **Cross-ref Mobile-BE contract (repair spare-parts sub-flow):** endpoint này được surface trong OpenAPI mobile [`docs/mobile/openapi/assetcore-mobile.openapi.yaml`](../mobile/openapi/assetcore-mobile.openapi.yaml) tại path `/api/method/assetcore.api.imm09.search_spare_parts` (opId **`searchSpareParts`**, **GET** — bare `@frappe.whitelist()` `api/imm09.py:123` nhận GET, read-only picker cho repair-detail). 200 = `oneOf [SearchSparePartsEnvelope, Error]` (route-by-VALUE `body.success`, 0 discriminator); `data` = **array `<SearchSparePartItem>` RAW** (KHÔNG pagination — `_ok(list)` wrap, cap bởi `limit`; mirror `getAssetIncidentHistory` no-pagination NHƯNG data là list trần, KHÁC `{asset,items}`). `[]` rỗng hợp lệ (query<2 hoặc không match — **KHÔNG 404**). `SearchSparePartItem` `additionalProperties:false` EXACT 10 prop `{item_code, item_name, manufacturer_part_no, qty, uom, unit_cost, total_cost, stock_entry_ref, notes, idx}` (`required[item_code]`) grounded `services/imm09.py:1237-1246` — **0 boolean/Check field** ⇒ 0 prop `integer enum[0,1]` (không int-vs-bool trap; `qty`/`idx` integer, `unit_cost`/`total_cost` number). **Slot `{200,401}` — KHÔNG 403**: handler api-level **KHÔNG `rbac.require`** (`api/imm09.py:123-125` chỉ `handle(svc.search_spare_parts, ...)`) ⇒ không in-handler cap-403; Guest → dispatcher-401/403 (read-only picker). Chi tiết hợp đồng + ADR: [`docs/mobile/04-api-contract.md §8.22`](../mobile/04-api-contract.md) + [`ADR-MOBILE-010.md`](../mobile/ADR-MOBILE-010.md) + `04_Backend_Design.md §3.5`.
 
 ---
 
@@ -779,6 +827,8 @@ curl -G "https://acme.local/api/method/assetcore.api.imm09.list_repair_work_orde
 | `CM-011` | 404 | warning | `IMM09_NOT_FOUND` | — | WO `name` không tồn tại |
 | `CM-012` | 422 | warning | `IMM09_BAD_STATE` | — | Transition status không hợp lệ |
 | `CM-013` | 400 | warning | `IMM09_DEPT_HEAD_REQUIRED` | — | Thiếu `dept_head_name` khi close mode Completed |
+| `CM-014` | 422 | warning | `IMM09_INCIDENT_REPORT_NOT_FOUND` | BR-09-CREATE-FK | `incident_report` truyền non-empty nhưng Incident Report không tồn tại (R26, gate `create_work_order`; `code='VALIDATION_ERROR'` override). FK rỗng → standalone hợp lệ (KHÔNG lỗi). |
+| `CM-015` | 422 | warning | `IMM09_SOURCE_PM_WO_NOT_FOUND` | BR-09-CREATE-FK | `source_pm_wo` truyền non-empty nhưng PM Work Order không tồn tại (R26, gate `create_work_order`; `code='VALIDATION_ERROR'` override). FK rỗng → standalone hợp lệ (KHÔNG lỗi). |
 | _(success)_ | 200 | success | `IMM09_CREATE_SUCCESS` | — | Tạo WO thành công (envelope `_ok`, không phải lỗi) |
 
 **Quy tắc severity (chốt cho sprint này):**
@@ -1101,6 +1151,10 @@ Lỗi (`_err`, hydrate từ registry qua `api_handler.handle()`):
 | `IMM09_CHECKLIST_FAILED` | `IMM09-CHECKLIST-FAILED` | warning | 422 | Có mục kiểm tra chưa đạt | Mục kiểm tra #{idx} '{test_description}' chưa Pass — không thể hoàn thành. | Khắc phục và đánh giá lại mục kiểm tra này trước khi hoàn thành. |
 | `IMM09_ASSET_NOT_FOUND` | `IMM09-ASSET-NOT-FOUND` | warning | 404 | Không tìm thấy thiết bị | Không tìm thấy thiết bị: {asset}. | Kiểm tra lại mã thiết bị trong danh mục tài sản. |
 | `IMM09_DEPT_HEAD_REQUIRED` | `IMM09-DEPT-HEAD-REQUIRED` | warning | 400 | Thiếu người nghiệm thu | Cần nhập tên trưởng khoa/phòng nghiệm thu khi đóng lệnh hoàn thành. | Nhập tên người nghiệm thu rồi thử lại. |
+| `IMM09_INCIDENT_REPORT_NOT_FOUND` | `IMM09-INCIDENT-REPORT-NOT-FOUND` | warning | 422 | Không tìm thấy báo cáo sự cố | Không tìm thấy báo cáo sự cố nguồn: {incident_report}. | Chọn báo cáo sự cố từ danh sách, hoặc để trống nếu tạo phiếu sửa chữa độc lập. |
+| `IMM09_SOURCE_PM_WO_NOT_FOUND` | `IMM09-SOURCE-PM-WO-NOT-FOUND` | warning | 422 | Không tìm thấy lệnh bảo trì nguồn | Không tìm thấy lệnh bảo trì định kỳ nguồn: {source_pm_wo}. | Chọn lệnh bảo trì từ danh sách, hoặc để trống nếu tạo phiếu sửa chữa độc lập. |
+
+> **R26 (create_work_order FK gate):** 2 mã trên thêm cho referential-integrity gate 2 optional Link FK. Service gọi `nthrow(..., error_code=ErrorCode.VALIDATION_ERROR)` ⇒ envelope `code='VALIDATION_ERROR'` (KHÔNG `BUSINESS_RULE` mặc-định-422) + `http_status=422`. Xem ADR-IMM09-CREATE-FK (04 §3.4).
 
 > Lưu ý content: tuân `messages.py` §quy chuẩn — Chủ thể + Hậu quả + Hành động,
 > không từ kỹ thuật, không đổ lỗi user. Sau khi thêm vào `messages.py`, chạy

@@ -468,6 +468,10 @@ URL pattern: `POST|GET /api/method/assetcore.api.imm00.<function>`
 
 ---
 
+> **Cross-ref Mobile-BE — `get_user_context` (session bootstrap who-am-I, FLOW-1):** Endpoint `api/layout.py:get_user_context()` (`@frappe.whitelist(allow_guest=True)`, GET 0-param) trả identity session hiện tại (13 field: `user`, `full_name`, `roles`, `imm_roles`, `role_profile_name`, `department`, `is_profile_completed`, `has_employee_link`, …) cho **app home mobile persona-aware + flow-gating** (sau login, KHÔNG còn hardcode "Đã đăng nhập"). LIVE whitelisted — KHÔNG đụng `.py`. Contract đầy đủ (envelope `UserContextEnvelope` / `UserContextData`, 200=`oneOf[UserContextEnvelope,Error]` closed-schema C7, slot `{200,401}` do `allow_guest=True` ⇒ Guest vào handler → in-handler `_err` 401, KHÔNG dispatcher-403; 2 cờ `is_profile_completed`/`has_employee_link` = `integer enum[0,1]` né int-vs-bool codegen trap) đặc tả tại **mobile-contract** [`docs/mobile/04-api-contract.md` §8.19](../mobile/04-api-contract.md) + [`docs/mobile/openapi/assetcore-mobile.openapi.yaml`](../mobile/openapi/assetcore-mobile.openapi.yaml) (`operationId: getUserContext`) + ADR-MOBILE-008 (allow_guest exempt 401/403 symmetry). Web SPA `frontend/` dùng cùng endpoint qua auth-store (login-page session-check) — **One-Version Rule**: 1 contract phục vụ cả web + mobile.
+
+---
+
 ### `get_asset_scan_info` — Thông tin thiết bị mobile-first khi quét QR (ADR-001 A6 / V7) — **NEW**
 
 | Method | GET |
@@ -1541,6 +1545,19 @@ Base path: `assetcore.api.notifications.<function>`. Envelope chuẩn `{success,
 ```
 
 > In-app (chuông) dùng API Frappe core sẵn có (`frappe.desk.doctype.notification_log.notification_log.get_notification_logs`, mark-as-read) — KHÔNG cần endpoint AssetCore riêng. Badge chuông là component desk/SPA Frappe core.
+
+> **Cross-ref Mobile-BE — `mark_notification_as_read` (read-receipt, FLOW-6):** App mobile KHÔNG dùng được desk/SPA Frappe-core bell — cần endpoint REST riêng. AssetCore đã có sẵn cặp:
+> - `api/layout.py:list_notifications()` (`@frappe.whitelist`, GET, paginated `{page, page_size, only_unread}`) — tab chuông + lịch-sử thông-báo (đã-đọc + chưa-đọc). Mobile contract `operationId: listNotifications` (xem `04-api-contract.md` + OpenAPI).
+> - `api/layout.py:mark_notification_as_read(name)` (`@frappe.whitelist(methods=['POST'])`, POST) — **WRITE-action ĐẦU TIÊN trên domain Notification Log**: user tap/mở 1 thông-báo (tab chuông hoặc push deep-link flow-6) → set `read=1`. Ownership-guarded (`for_user == session.user` @`layout.py:111-113`); người khác → in-handler cap-403 (Error envelope HTTP-200). Notification∄ → 404 (Error envelope HTTP-200). LIVE whitelisted — **KHÔNG đụng `.py`**.
+> - `api/layout.py:mark_all_as_read()` (`@frappe.whitelist(methods=['POST'])`, POST, **0-PARAM**) — **BULK read-receipt** (ĐÓNG NỐT notification-center action-set tab "Thông báo" › nút "Đánh dấu tất cả đã đọc", sau single ở trên): set `read=1` cho MỌI Notification Log chưa-đọc của chính user (`UPDATE … WHERE for_user=session.user AND read=0` @`layout.py:127-131`). Trả `_ok({updated_rows: affected})` @`:134` (`affected = ROW_COUNT()` @`:132`). Scope SQL `WHERE for_user=session.user` ⇒ **KHÔNG lookup-by-name** ⇒ **KHÔNG 404/409**. Guest @`:124-125` → in-handler 401 (Error envelope HTTP-200). LIVE whitelisted — **KHÔNG đụng `.py`**. Mobile contract `operationId: markAllAsRead`.
+>
+> Contract đầy đủ tại **mobile-contract** [`docs/mobile/openapi/assetcore-mobile.openapi.yaml`](../mobile/openapi/assetcore-mobile.openapi.yaml) (`operationId: markNotificationAsRead`, POST-only) + [`docs/mobile/04-api-contract.md`](../mobile/04-api-contract.md) + **ADR-IMM00-OPENAPI §FLOW-6 read-receipt**:
+> - `requestBody` closed `{name}` (oneOf `application/json` + `application/x-www-form-urlencoded` — Frappe RPC `form_dict`); `200 = oneOf[MarkNotificationReadEnvelope, Error]` closed-schema route-by-VALUE `body.success` (0 discriminator); slot `{200,401,403}` (404 đến trên HTTP-200 qua `Error.http_status` enum chứa 404).
+> - **`MarkNotificationReadResponse` EXACT 2 prop `{name, read}`** — `read = integer enum[0,1]` (mirror `NotificationListItem.read` SSoT int-vs-bool, KHÔNG boolean → né strict-codegen Dart/Kotlin deser crash). **KHÔNG có field `status`**: Notification Log KHÔNG có `workflow_state` ⇒ KHÔNG reuse mọi `*ActionResponse` lifecycle (đều mang `status`/domain-field) = **C3-split cross-domain**.
+>
+> **Cross-ref Mobile-BE — `mark_all_as_read` (BULK read-receipt, FLOW-6, Vòng 40):** Contract `operationId: markAllAsRead` tại [`docs/mobile/openapi/assetcore-mobile.openapi.yaml`](../mobile/openapi/assetcore-mobile.openapi.yaml) (POST-only, **KHÔNG requestBody** — `mark_all_as_read()` 0-param @`layout.py:121` ⇒ codegen no-arg POST) + **[`docs/mobile/ADR-MOBILE-018.md`](../mobile/ADR-MOBILE-018.md)** + **ADR-IMM00-OPENAPI §D-OAS-MARKALLREAD**:
+> - `200 = oneOf[MarkAllReadEnvelope, Error]` closed-schema route-by-VALUE `body.success` (0 discriminator); slot `{200,401,403}` SINGLE-SHAPE `Forbidden` (guest/no-token dispatcher PermissionError HTTP-403; in-handler guest @`:124-125` → 401 đến trên HTTP-200) — **KHÔNG 404/409** (scope SQL `WHERE for_user=session.user`, no lookup-by-name).
+> - **`MarkAllReadResponse` EXACT 1 prop `{updated_rows}`** — `updated_rows = integer` **GENUINE count (0..N)** GROUNDED `_ok({updated_rows: affected})` @`layout.py:134` (`affected = ROW_COUNT()` @`:132`); **KHÔNG enum[0,1]** (phân biệt với `read` int-enum của `NotificationListItem`/`MarkNotificationReadResponse` = cờ Check 2-giá-trị; mirror `AddMeasurementResponse.measurement_count`). **KHÔNG field `status`** (C3-split cross-domain ≠ mọi `*ActionResponse` lẫn `MarkNotificationReadResponse`).
 
 > **Vòng 3 — E3 (Incident created) & E4 (Calibration due): KHÔNG có API endpoint AssetCore mới.** E3 là hook `Incident Report.after_insert`; E4 chạy trong scheduler `imm11.check_calibration_expiry` (daily). Cả hai chỉ phát Notification Log + email — tiêu thụ qua đúng API chuông Frappe core ở trên. FE KHÔNG cần client mới cho 2 event này (badge chuông hiện hữu đã hiển thị).
 
