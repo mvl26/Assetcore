@@ -11,8 +11,30 @@ class ACSupplier(Document):
     def validate(self) -> None:
         """Validate contract dates, uniqueness, and HTM certification rules."""
         self._validate_supplier_code_unique()
+        self._validate_emails()
         self._validate_contract_dates()
         self._warn_calibration_lab_iso()
+
+    def _validate_emails(self) -> None:
+        """BR-SUP-03 (L-01/L-09): email_id / technical_email phải đúng định dạng.
+
+        Các field này khai báo ``options: Email`` nên framework Frappe sẽ tự
+        validate và ``frappe.throw`` message English ('… is not a valid Email
+        Address'). Controller ``validate()`` chạy TRƯỚC framework ``_validate()``
+        (document.py: ``run_before_save_methods`` → ``_validate``) nên chặn sớm
+        tại đây để trả message tiếng Việt thân thiện.
+        """
+        from frappe.utils import validate_email_address
+
+        for fieldname, label in (
+            ("email_id", "Email"),
+            ("technical_email", "Email kỹ thuật"),
+        ):
+            value = (self.get(fieldname) or "").strip()
+            if value and not validate_email_address(value):
+                frappe.throw(
+                    _("{0} không hợp lệ: '{1}'").format(label, value)
+                )
 
     def _validate_supplier_code_unique(self) -> None:
         """BR-SUP-01: supplier_code UNIQUE if provided."""

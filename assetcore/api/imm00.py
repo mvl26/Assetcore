@@ -3250,6 +3250,9 @@ def get_depreciation_stats():
                     "total_depreciation_months": months,
                     "residual_value": residual,
                     "current_book_value": book,
+                    # accumulated PHẢI truyền: effective_book_value (SoT) phân biệt
+                    # asset mới (book=0,accum=0→gross) vs đã KH hết (book=0,accum>0→0).
+                    "accumulated_depreciation": accum,
                 }):
                     totals["fully_depreciated"] += 1
                 m = method

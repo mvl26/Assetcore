@@ -68,6 +68,22 @@ class InvalidAssetTransition(Exception):
     """Raised khi transition không nằm trong _VALID_ASSET_TRANSITIONS."""
 
 
+def is_valid_asset_transition(from_status: str, to_status: str) -> bool:
+    """True nếu chuyển ``from_status`` → ``to_status`` hợp lệ theo state machine
+    (SSoT ``_VALID_ASSET_TRANSITIONS``).
+
+    Helper THUẦN (KHÔNG đọc DB) phản chiếu guard của ``transition_asset_status``:
+    ``from_status`` rỗng (asset mới, chưa vào lifecycle) hoặc ``== to_status``
+    (no-op) ⇒ True. Dùng cho precondition gate fail-fast ở service tier (vd tạo
+    phiếu sửa chữa) để raise lỗi nghiệp vụ SẠCH (nthrow → 422) THAY VÌ để
+    ``transition_asset_status`` ném ``InvalidAssetTransition`` uncaught → HTTP 500.
+    """
+    from_status = from_status or ""
+    if not from_status or from_status == to_status:
+        return True
+    return to_status in _VALID_ASSET_TRANSITIONS.get(from_status, set())
+
+
 # ────────────────────────────────────────────
 # Audit + Lifecycle (re-export from utils)
 # ────────────────────────────────────────────
@@ -2494,10 +2510,10 @@ _TRANSFER_STATUS_CANCELLED = "Cancelled"
 def create_transfer_request(data: dict) -> dict:
     """Tạo phiếu yêu cầu luân chuyển thiết bị (status = Pending Approval).
 
-    data: asset, transfer_type, to_location, reason
-          [to_department, to_custodian, expected_return_date, notes]
+    data: asset, transfer_type, to_department, reason
+          [to_location, to_custodian, expected_return_date, notes]
     """
-    required = ("asset", "transfer_type", "to_location", "reason")
+    required = ("asset", "transfer_type", "to_department", "reason")
     missing = [f for f in required if not data.get(f)]
     if missing:
         frappe.throw(_("Thiếu trường bắt buộc: {0}").format(", ".join(missing)))
@@ -2518,8 +2534,8 @@ def create_transfer_request(data: dict) -> dict:
     doc.from_location  = prev.get("location")
     doc.from_department= prev.get("department")
     doc.from_custodian = prev.get("custodian")
-    doc.to_location    = data["to_location"]
-    doc.to_department  = data.get("to_department")
+    doc.to_location    = data.get("to_location")
+    doc.to_department  = data["to_department"]
     doc.to_custodian   = data.get("to_custodian")
     doc.expected_return_date = data.get("expected_return_date")
     doc.reason         = data["reason"]
@@ -2532,7 +2548,7 @@ def create_transfer_request(data: dict) -> dict:
         asset=asset_name, event_type="Transfer",
         actor=frappe.session.user,
         ref_doctype=_DT_TRANSFER, ref_name=doc.name,
-        change_summary=f"Yêu cầu luân chuyển đến {data['to_location']}",
+        change_summary=f"Yêu cầu luân chuyển đến phòng ban {data['to_department']}",
     )
     frappe.db.commit()
     return {"name": doc.name, "status": doc.status}
@@ -2702,20 +2718,29 @@ def transfer_asset(
     transfer_doc: str | None = None,
     actor: str | None = None,
 ) -> None:
-    """Cập nhật vị trí / phòng ban / phụ trách AC Asset và ghi audit trail."""
+    """Cập nhật vị trí / phòng ban / phụ trách AC Asset và ghi audit trail.
+
+    Chỉ ghi đè field đích khi phiếu có giá trị mới — field để trống (vd vị trí mới
+    là tùy chọn) sẽ giữ nguyên giá trị hiện tại, không xóa trắng dữ liệu thiết bị.
+    """
     prev = frappe.db.get_value(
         _DOCTYPE_ASSET, asset_name,
         ["location", "department", "custodian"], as_dict=True,
     ) or {}
-    frappe.db.set_value(_DOCTYPE_ASSET, asset_name, {
-        "location": to_location,
-        "department": to_department,
-        "custodian": to_custodian,
-    })
+    updates = {}
+    if to_location:
+        updates["location"] = to_location
+    if to_department:
+        updates["department"] = to_department
+    if to_custodian:
+        updates["custodian"] = to_custodian
+    if updates:
+        frappe.db.set_value(_DOCTYPE_ASSET, asset_name, updates)
     summary = (
-        f"Luân chuyển: vị trí {prev.get('location')} → {to_location}"
-        + (f", phòng ban {prev.get('department')} → {to_department}" if to_department else "")
-        + (f", phụ trách {prev.get('custodian')} → {to_custodian}" if to_custodian else "")
+        "Luân chuyển:"
+        + (f" vị trí {prev.get('location')} → {to_location}" if to_location else "")
+        + (f" phòng ban {prev.get('department')} → {to_department}" if to_department else "")
+        + (f" phụ trách {prev.get('custodian')} → {to_custodian}" if to_custodian else "")
     )
     create_lifecycle_event(
         asset=asset_name,

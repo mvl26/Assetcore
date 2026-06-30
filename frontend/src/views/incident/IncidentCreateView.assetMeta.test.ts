@@ -183,7 +183,7 @@ describe('IncidentCreateView — panel ngữ-cảnh-thiết-bị NẠC qua getAs
     expect(t).not.toContain('undefined')
     expect(t).not.toContain('null')
     // Trang vẫn còn (heading + ô Thiết bị khoá tồn tại).
-    expect(t).toContain('Tạo Incident Report')
+    expect(t).toContain('Tạo phiếu sự cố')
     expect(t).toContain('Tạo từ quét QR')
 
     // Form vẫn submit được dù panel ẩn — fail-safe KHÔNG chặn báo hỏng.

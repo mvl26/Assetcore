@@ -117,10 +117,15 @@ class ACAsset(Document):
         # Default frequency = Monthly so generate_schedule() không skip.
         if gross > 0 and not (self.depreciation_frequency or "").strip():
             self.depreciation_frequency = "Monthly"
-        # Default start date = ngày vào sử dụng / commission / today (last resort).
+        # Default start date (L-06): ngày vào sử dụng / commission / mua / today.
+        # purchase_date đứng trước nowdate() để asset chỉ có ngày mua không bị
+        # lấy ngày tạo bản ghi làm mốc khấu hao (audit L-06).
         if gross > 0 and not self.depreciation_start_date:
             self.depreciation_start_date = (
-                self.in_service_date or self.commissioning_date or nowdate()
+                self.in_service_date
+                or self.commissioning_date
+                or self.purchase_date
+                or nowdate()
             )
 
     def _apply_default_depreciation_method(self) -> None:
@@ -159,10 +164,22 @@ class ACAsset(Document):
         self._validate_unique_asset_code()
         self._validate_unique_manufacturer_sn()
         self._validate_lifecycle_status_guard()
+        self._validate_purchase_amount()
         self._validate_dates()
         self._validate_insurance_dates()
         self._compute_next_pm_date()
         self._compute_next_calibration_date()
+
+    def _validate_purchase_amount(self) -> None:
+        """VR-00-06 (L-02): nguyên giá mua (gross_purchase_amount) không được âm.
+
+        Field Currency không có ``non_negative`` nên BE vốn chấp nhận giá trị âm
+        (audit L-02). Chặn tại controller — đối xứng guard client-side ở FE.
+        """
+        if self.gross_purchase_amount is not None and float(
+            self.gross_purchase_amount
+        ) < 0:
+            frappe.throw(_("Nguyên giá mua không được âm (VR-00-06)."))
 
     def on_update(self) -> None:
         """Nếu lifecycle_status được đổi qua Frappe Workflow Action,

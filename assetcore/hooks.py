@@ -260,6 +260,8 @@ doc_events = {
             "assetcore.services.imm08.create_pm_schedule_from_asset",
             # RC-07: auto Calibration Schedule khi tạo asset với is_calibration_required=1
             "assetcore.services.imm11.create_calibration_schedule_from_asset",
+            # L-07: auto sinh lịch khấu hao khi tạo asset đã cấu hình (gated + best-effort)
+            "assetcore.services.depreciation.generate_schedule_on_insert",
         ],
         "on_update": "assetcore.services.imm15.flag_obsolete_on_decommission",
     },
