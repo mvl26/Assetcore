@@ -133,7 +133,57 @@ _HTTP_VERBS = ("get", "post", "put", "delete", "patch", "head", "options", "trac
 #   'TẮT allow_error_traceback System Setting=0' doc-presence drift-guard — item+evidence
 #   `response.py:60-65` + negation 'KHÔNG ... developer_mode' nguyên-văn ở 08 §4 ∩ ADR-004
 #   Consequences + 10 §6.2 reload `--preload`/rate-limit-header note + RED-before string-mutate) ⇒ 141.
-_EXPECTED_TEST_COUNT = 141
+# C-LISTREAD-SCHED (open-thread #4): +8 TC class `TestMobileListPmSchedulesContract` (bồi path
+#   listPmSchedules — createPmWorkOrder.pm_schedule form-feed; param DISCRETE asset_ref/status;
+#   element PmScheduleListItem field-disjoint C3-split; int-vs-bool trap né; enum Select-canonical;
+#   LIVE-introspect signature) ⇒ 149. Count guard 16→17 path/operationId đồng-bộ (test 01/02/03 + 29b).
+# INT-vs-BOOL retype (open-thread #1): +4 TC trong class `TestMobileListItemTyped`
+#   (test_8_raw_check_props_are_integer_enum01 / test_already_int_derived_flags_unchanged /
+#   test_genuine_bool_flags_stay_boolean / test_no_stray_boolean_in_listitems) — chốt 8 raw
+#   Frappe-Check list-item props → type:integer enum[0,1] (chống strict-codegen Dart/Kotlin deser
+#   CRASH 'int is not subtype of bool'); GIỮ 2 derived Python-bool (is_sla_breached/sla_paused)
+#   = boolean. KHÔNG thêm path (GIỮ 17). ⇒ 149+4 = 153.
+# C6-DETAIL (open-thread #4b): +7 TC class `TestMobileGetDetailContract` (30a..30g — 4 GET-detail
+#   path getPmWorkOrder/getRepairWorkOrder/getIncident/getCalibration: path/opId/business +
+#   name-query-param + envelope-closed/payload-open + field-disjoint + Check→int01-sweep + grounding
+#   spot-check + status-set). 200-oneOf phủ qua _READ_PATH_ENVELOPE (TC-24) + C5 (TC-23) tự áp.
+#   17→21 path/operationId (test 01/02/03 + 25a + 29b). ⇒ 153+7 = 160.
+# C7 — list-path P1 closure (open-thread #5): +7 TC class `TestMobileListEnvelopeOneOf` (31a..31g —
+#   4 list 200 response-component content.schema = oneOf [<ListEnvelope>, Error] closed-schema
+#   route-by-VALUE body.success, 0 discriminator; sweep parity 4/4 list path; negative inject +
+#   control). KHÔNG thêm path (GIỮ 21); `_codegen_dry_introspect` list-branch cập-nhật theo oneOf
+#   (TC-23 GIỮ xanh). ⇒ 160+7 = 167.
+# C-LISTREAD-CAL — listCalibrations (open-thread #4c): +7 TC class `TestMobileListCalibrationsContract`
+#   (cal_a..cal_g — path/opId/MVP + param REUSE WorkOrderFilters + 200-oneOf [Env,Error] 0-discriminator
+#   + envelope/Error closed-disjoint + item field-set ĐÚNG 15 (SET ==) + is_recalibration integer
+#   enum[0,1] no-boolean/no-financial/Select-enum canonical + negative-inject + structural parse_json-in-try
+#   @imm11 + LIVE signature). path 21→22; `_MVP_LIST_ENVELOPE` 4→5 ⇒ C7 sweep (31e) + C5 precond (23a)
+#   tự lên (data-driven). ⇒ 167+7 = 174.
+# C-LISTREAD-ASSET — listAssets (open-thread #4c): +7 TC class `TestMobileListAssetsContract`
+#   (asset_a..asset_g — path/opId/MVP + envelope-rows-key-items mirror IncidentListEnvelope + item
+#   field-disjoint ĐÚNG 20 {14 base+6 enrich} + 3 financial EXCLUDED (LL-BE-57 mobile-meta no-financial)
+#   + no-boolean/lifecycle_status-string + 7 param DISCRETE (KHÔNG WorkOrderFilters) + 200-oneOf
+#   [Env,Error] 0-discriminator closed-disjoint + LIVE signature parity). path 22→23; `_MVP_LIST_ENVELOPE`
+#   5→6 ⇒ C7 sweep (31e) + C5 precond (23a) tự lên (data-driven). ⇒ 174+7 = 181.
+# C-ASCAN-PARITY (AssetScanInfo contract-drift closure): +8 TC class
+#   `TestMobileAssetScanInfoFieldParity` (ascanparity_a..h) — bồi 4 BE-emit field
+#   (manufacturer_sn/risk_classification/warranty_expiry_date/warranty_expired) vào schema closed +
+#   forward parity-sweep service-keys ⊆ schema. KHÔNG path mới (chỉ schema property). ⇒ 181+8 = 189.
+# FLOW6-PUSH (2026-06-15): +8 TC class `TestMobilePushMessageDataContract` (pushdata_a..h) — bồi
+#   schema `PushMessageData` (flow-6 FCM data-payload) closed 4-key string khớp _build_message
+#   @fcm.py:94-98 + event-enum 5 giá trị _ROUTES @notifications.py:444-447,451 + deeplink 5-template
+#   + no-android-priority + component-only-not-in-path (23/23 GIỮ) + negative-inject RED-before.
+#   COMPONENT-ONLY (FCM transport ngoài HTTP) → _RESERVED_ORPHANS. KHÔNG path mới. ⇒ 189+8 = 197.
+# C8-ACTION submitCalibration: +9 TC class `TestMobileSubmitCalibrationContract` (a..i) — bồi path POST
+#   imm11.submit_calibration (opId submitCalibration, 30→31 path) action lifecycle COMPLETION Calibration
+#   Record (docstatus 0→1, status→Passed/Failed/Conditionally Passed). request closed {name} single positional
+#   @api/imm11.py:115; response RIÊNG SubmitCalibrationResponse closed 4-key {name,status,overall_result,
+#   next_calibration_date} @services/imm11.py:1054-1059 (status enum 8-value + overall_result enum 4-value '' /
+#   Passed/Failed/Conditionally Passed + next_calibration_date nullable) — KHÔNG reuse Pm/Repair/IncidentAction
+#   Response (C3-split). 200=oneOf[SubmitCalibrationEnvelope,Error] route-by-VALUE 0-discriminator. ⚠️ DIVERGENCE
+#   method-verb (bare @whitelist nhận GET ↔ contract POST) → _PARITY_VERB_ALLOWLIST 2→3 (25c #3 + 25f exact-set).
+#   incl. live-signature parity TC-i. ⇒ 265+9 = 274.
+_EXPECTED_TEST_COUNT = 502  # ASSET-PM-HISTORY-WIRE (IMM-08 FLOW-2 2026-06-29): +10 TC class TestMobileGetAssetPmHistoryContract (a..j — getAssetPmHistory GET-read lịch-sử BẢO-TRÌ PM của asset, tab "Lịch sử bảo trì" màn hồ-sơ flow-2; ĐÓNG quartet device-profile read-history sau incident(R28)+timeline(R32)+repair(R42). MIRROR getAssetRepairHistory NHƯNG 3 KHÁC-BIỆT: (1) AssetPmHistoryItem EXACT 10 prop {name,pm_work_order,pm_type,completion_date,technician,overall_result,is_late,days_late,next_pm_date,summary} grounded PMTaskLogRepo.list @services/imm08.py:1015-1017 (KHÔNG 9); (2) overall_result = string enum [Pass, Pass with Minor Issues, Fail] (Select bounded @pm_task_log.json — repair 0 Select-enum); (3) 2 integer field is_late (Check 0/1) + days_late (Int) → integer KHÔNG boolean/enum[0,1] (né int-vs-bool trap Open#1; repair 1 Check sla_breached). dates completion_date/next_pm_date (Date) → string KHÔNG format:date-time. 200 = SINGLE-shape AssetPmHistoryEnvelope handler @api/imm08.py:125 handle(svc.get_asset_history) svc 0 raise ServiceError ⇒ handle LUÔN _ok 0 nhánh _err ⇒ KHÔNG oneOf [Env,Error] (mirror getAssetRepairHistory/listTransfers, KHÁC incident oneOf); +1 path 52→53 GET-only bare @whitelist @api/imm08.py:124 + 2 query param asset_ref (required string no-default) + limit (optional integer default 10 minimum 1) live-sig parity inspect.signature(imm08.get_asset_pm_history)=={asset_ref,limit} (⚠️ limit default 10 INT KHÁC repair "10" str); KHÔNG page/page_size; history[] RỖNG hợp lệ asset chưa-PM KHÔNG 404; slot {200,401,403} guest dispatcher-403 (bare @whitelist no-allow_guest); ∈ _MVP_BUSINESS_PATHS + _MVP_SINGLE_LIST_ENVELOPE symmetry +1; CONTRACT-ONLY git diff api/imm08.py + services/imm08.py phần get_asset_pm_history/get_asset_history TRỐNG ⇒ KHÔNG reload/migrate ([AUTO] thật, KHÔNG HARD-STOP USER); test_oas_d12/d15/d17 UNCHANGED pure mobile-yaml; ADR-MOBILE-023). (492→502)  # PREV ASSET-REPAIR-HISTORY-WIRE (IMM-09 vòng-2 2026-06-29): +9 TC class TestMobileGetAssetRepairHistoryContract (a..i — getAssetRepairHistory GET-read lịch-sử SỬA-CHỮA của asset, tab "Lịch sử sửa chữa" màn hồ-sơ flow-2; LẤP dead-end: getAssetScanInfo + getAssetIncidentHistory (sự-cố) + getAssetTimeline (vòng-đời) NHƯNG KHÔNG có endpoint lịch-sử SỬA-CHỮA CM. MIRROR getAssetIncidentHistory NHƯNG: rows-key `history` (KHÔNG items) + asset-key `asset_ref` (KHÔNG asset) — KHỚP svc {asset_ref, history} @services/imm09.py:1220; 200 = SINGLE-shape AssetRepairHistoryEnvelope (handler @api/imm09.py:127 handle(svc.get_asset_history), svc 0 raise ServiceError ⇒ handle LUÔN _ok, 0 nhánh _err ⇒ KHÔNG oneOf [Env,Error]; mirror listTransfers/pingSession, KHÁC incident oneOf); +1 path 51→52 GET-only bare @whitelist @api/imm09.py:126 + 2 query param asset_ref (required string) + limit (optional integer default 10) live-sig parity inspect.signature(imm09.get_asset_repair_history)=={asset_ref,limit}; AssetRepairHistoryItem closed additionalProperties:false EXACT 9 prop {name,repair_type,priority,open_datetime,completion_datetime,mttr_hours,sla_breached,root_cause_category,repair_summary} required[name] grounded RepairRepo.list fields @services/imm09.py:1215-1216; KHÔNG int-bool-trap: sla_breached type:integer (Check 0/1 KHÔNG boolean/enum[0,1]) + mttr_hours number + open/completion_datetime string KHÔNG format:date-time; history[] RỖNG hợp lệ asset chưa sửa KHÔNG 404; slot {200,401,403} guest dispatcher-403 (bare @whitelist no-allow_guest mirror listTransfers/searchSpareParts); ∈ _MVP_BUSINESS_PATHS symmetry +1; CONTRACT-ONLY git diff api/imm09.py + services/imm09.py phần get_asset_repair_history/get_asset_history TRỐNG ⇒ KHÔNG reload/migrate ([AUTO] thật, KHÔNG HARD-STOP USER); test_oas_d12/d15/d17 UNCHANGED pure mobile-yaml; ADR-MOBILE-022). (483→492)  # PREV TRANSFER-READ-WIRE (IMM-13 Đợt-2 2026-06-29): +16 TC class TestMobileTransferReadContract (a..p — 2 GET-read điều chuyển listTransfers/getTransfer; path 49→51 + opId 49→51; CONTRACT-ONLY 6 endpoint điều chuyển ĐÃ LIVE @api/imm00.py list_transfers:2048/get_transfer:2081, git diff imm00.py+services/imm00.py EMPTY ⇒ KHÔNG reload; 4 schema TransferListItem(17 field closed)/TransferListEnvelope(single-shape items-key)/TransferDetail(as_dict mở)/TransferDetailEnvelope(closed, 200-oneOf [Detail,Error] 404→HTTP-200 quirk) + 2 param TransferAsset/TransferStatus reuse; status enum 5 @asset_transfer.json; 0 bool-trap; ∈ _MVP_BUSINESS_PATHS symmetry +2; ADR-MOBILE-021). (467→483)  # SESSION-PROBE (2026-06-29): +9 TC class TestMobilePingSessionContract (a..i — pingSession GET session-probe CSRF warm-up + app-resume who-am-I-lite; ĐÓNG NỐT cặp session-lifecycle còn lại sau notification quartet R38-R41; cookie-sid mobile app CẦN cho app-resume check + tiền-đề MỌI POST (Frappe set csrf_token cookie qua response); endpoint LIVE @api/layout.py:237 NHƯNG THIẾU contract; +1 path 48→49 GET-ONLY 0-param @whitelist allow_guest=True @layout.py:237; KHÔNG requestBody (signature ping_session() 0-arg) + live-sig parity inspect.signature(layout.ping_session)=={}; ⚠️ 200 = SINGLE schema PingSessionEnvelope (success:true) — KHÔNG oneOf [Env,Error]: handler @layout.py:237-258 LUÔN _ok, 0 nhánh _err in-handler ⇒ KHÔNG Error branch trên HTTP-200 (KHÁC getUserContext có guest-guard _err 401@:206-207 ⇒ {200,401}); PingSessionData closed (additionalProperties:false) required EXACT 3 {user:string, authenticated GENUINE type:boolean = user!='Guest'@:256 KHÔNG int-enum trap mirror is_late PmSubmitResultResponse, csrf_token:string có-thể-'' fallback@:249-253}; response slot == {200} EXACTLY — KHÔNG 401 (allow_guest ∧ KHÔNG in-handler guest-guard), KHÔNG 403 (allow_guest⇒0 dispatcher cap-403), KHÔNG 429 (0 @rate_limit); ∈ _ALLOW_GUEST_PATHS (exempt symmetry như getUserContext) NHƯNG slot {200} (phân biệt getUserContext {200,401}) ∧ ∉ _MVP_BUSINESS_PATHS; CONTRACT-ONLY git diff api/layout.py + services/layout.py (không tồn tại — layout API-only) TRỐNG ⇒ KHÔNG reload/migrate ([AUTO] thật, KHÔNG HARD-STOP USER); test_oas_generator/d12/d15/d17 UNCHANGED (pure mobile-yaml). (458→467)  # PREV NOTIF-UNREAD-FEED (2026-06-29): +9 TC class TestMobileGetUnreadNotificationsContract (a..i — getUnreadNotifications GET unread-feed {count,items}; ĐÓNG NỐT notification-center READ quartet sau listNotifications/markNotificationAsRead/markAllAsRead; powering unread-badge + tab "Thông báo" GỌI 13× top-usage NHƯNG THIẾU contract; +1 path 47→48 GET-only bare @whitelist @api/layout.py:47; INLINE oneOf [UnreadNotificationListEnvelope,Error] ∈ _MVP_READ_ENVELOPE (read-path mirror searchSpareParts, KHÔNG response-component, KHÔNG _MVP_LIST_ENVELOPE giữ len==8); UnreadNotificationListEnvelope closed data required[count,items] {count GENUINE integer minimum 0 NOT enum[0,1] mirror updated_rows R40/measurement_count R34, items[] $ref REUSE NotificationListItem ĐỒNG $ref NotificationListEnvelope ⇒ 0 schema-item mới} KHÔNG pagination (KHÁC NotificationListEnvelope — handler @layout.py:66-69 {count,items} KHÔNG paginate()); param NotifLimit query integer default 20 minimum 1 maximum 100 khớp clamp max(1,min(int(limit),100)) @layout.py:55; slot {200,401,403} 401 Unauthorized401 + 403 Forbidden SINGLE-SHAPE (bare @whitelist no-allow_guest guest dispatcher-403) KHÔNG 404/409 scope for_user=session.user; ∈ _MVP_BUSINESS_PATHS symmetry +1 (test so SET); C5 union 40→41; live-sig parity inspect.signature(layout.get_unread_notifications)=={limit}; CONTRACT-ONLY git diff api/layout.py + services/layout.py TRỐNG ⇒ KHÔNG reload/migrate ([AUTO] thật, KHÔNG HARD-STOP); pure-yaml). (449→458)  # PREV R41 CAL-MINE-CAL (2026-06-29): +2 TC TestMobileListReadContract (test_list_calibrations_param_set_includes_workordermine + test_calibrations_workordermine_live_sig — quartet "phiếu-của-tôi" ĐÓNG NỐT sau PM R38/CM R39/Incident: listCalibrations +param WorkOrderMine tab "Phiếu hiệu chuẩn của tôi" MVP-5d, mine=1 → technician==session.user REUSE component R38 (1 component, 3 $ref ⇒ 0 schema-component); PARAM-ONLY KHÔNG path mới 47-path GIỮ; _LIST_PARAM_EXPECT[listCalibrations]+WorkOrderMine + _LIST_LIVE_FN[listCalibrations]+mine + _LIST_CALIBRATION_PARAM_REFS+WorkOrderMine; ĐỘNG api/imm11.py:71 (+param mine:int=0 + 1 nhánh if int(mine) inject f['technician']=frappe.session.user SAU apply_vendor_scope); count==rows giữ count_with_or+get_all CÙNG filters dict; +BE-unit test_imm11 TestCalibrationListMineScope 4 TC. (447→449)  # PREV R40 MARK-ALL-READ (2026-06-29): +8 TC class TestMobileMarkAllReadContract (a..g+i — markAllAsRead POST BULK read-receipt: set read=1 cho MỌI Notification Log chưa-đọc của user; ĐÓNG NỐT notification-center action-set sau markNotificationAsRead single FLOW-6. CONTRACT-ONLY (BE LIVE @layout.py:120-134, git diff api/services/layout TRỐNG ⇒ KHÔNG reload/migrate); +1 path 46→47 markAllAsRead POST-only @layout.py:120 CLEAN-POST; 0-PARAM mark_all_as_read() @:121 ⇒ KHÔNG requestBody (codegen no-arg POST) + live-sig parity inspect.signature(layout.mark_all_as_read)=={}; MarkAllReadResponse RIÊNG EXACT 1-prop {updated_rows} required[updated_rows] updated_rows=GENUINE integer count 0..N KHÔNG enum[0,1] (KHÁC read int-enum của NotificationListItem/MarkNotificationReadResponse; mirror AddMeasurementResponse.measurement_count R34 ROW_COUNT() @:132) KHÔNG field status — Notification Log KHÔNG workflow_state ⇒ C3-split cross-domain KHÔNG reuse mọi *ActionResponse lẫn MarkNotificationReadResponse; 200-oneOf [MarkAllReadEnvelope, Error] closed route-by-VALUE 0-discr; slot {200,401,403} SINGLE-SHAPE Forbidden (guest/no-token dispatcher PermissionError HTTP-403; in-handler guest @:124-125 → 401 ARRIVE HTTP-200 Error) KHÔNG 404/409 (scope SQL WHERE for_user=session.user no lookup-by-name); ∈ _MVP_BUSINESS_PATHS symmetry +1; clean POST ∉ _PARITY_VERB_ALLOWLIST; ADR-MOBILE-018 + §D-OAS-MARKALLREAD; pure-yaml KHÔNG đụng .py). (439→447)  # PREV R39 CM-MINE-CM (2026-06-29): +2 TC TestMobileListReadContract (test_list_repair_param_set_includes_workordermine + test_repair_workordermine_shape — A2-symmetry CUỐI ĐÓNG đối-xứng cho CM: listRepairWorkOrders +WorkOrderMine tab "Phiếu CM của tôi" MVP-5b; REUSE component R38 KHÔNG tạo mới ⇒ 0 schema-component, param-only KHÔNG path mới ⇒ 46-path GIỮ; _LIST_PARAM_EXPECT[listRepair]+WorkOrderMine + _LIST_LIVE_FN[listRepair]+mine; ADR-MOBILE-017). (437→439)  # PREV R38 PM-MINE-PM (2026-06-28): +2 TC TestMobileListReadContract (test_list_pm_param_set_includes_workordermine + test_workordermine_param_shape — A2 closure ĐỐI XỨNG WorkOrderMine tab "Phiếu PM của tôi" MVP-5a; param-only KHÔNG path mới ⇒ 46-path GIỮ; _LIST_PARAM_EXPECT[listPm]+WorkOrderMine + _LIST_LIVE_FN[listPm]+mine). (435→437)  # PREV R37 PM-RESCHEDULE (2026-06-28): +9 TC class TestMobileReschedulePmContract (a..i — reschedulePm POST RESCHEDULE PM-detail: thiết bị đang dùng → hoãn lịch → Pending–Device Busy + đổi due_date + ghi lý do bắt buộc; ĐÓNG NỐT action-set PMWorkOrderDetailView (đóng nút "Hoãn lịch (thiết bị bận)" — mắt-xích CUỐI, 0 nút dead-end). 🟢 ATOMIC-THIS-ROUND (ADR-MOBILE-014): handler @api/imm08.py:86 ĐÃ methods=['POST'] + signature reschedule_pm(name,new_date,reason) ĐÃ khớp service reschedule(name,*,new_date,reason) @services/imm08.py:807 ⇒ KHÔNG verb-flip + KHÔNG signature-fix + KHÔNG đụng api/service → PURE-YAML+test; generate_spec get/post UNCHANGED ⇒ d12/d15/d17 RE-VERIFY (KHÔNG re-baseline); ReschedulePmResponse RIÊNG closed 4-key {name,old_date,new_date,status} shape date-pair DUY NHẤT status=PMStatus 'Pending–Device Busy' en-dash U+2013 @services/imm08.py:50,817,823; requestBody INLINE json-only $ref ReschedulePmRequest required EXACT [name,new_date,reason] reason.minLength:5 mirror guard :808 new_date.format:date; 200 oneOf [ReschedulePmEnvelope,Error] closed route-by-VALUE 0-discr; slot {200,401,403} Error.http_status ⊇ {404,422}; +1 path 45→46 ĐÓNG NỐT). (426→435)  # PREV R36 PM→CM ESCALATION (2026-06-28): +9 TC class TestMobileReportMajorFailureContract (a..i — reportMajorFailure POST escalation PM-detail: PM hỏng nặng → Halted–Major Failure + asset Out of Service + CM WO khẩn; VERB-FLIP-THIS-ROUND bare @whitelist @api/imm08.py:74 → methods=['POST'] (write KHÔNG idempotent) + 🐞 SIGNATURE-FIX DROP failed_item_indexes (handler cũ truyền vào service signature (pm_wo_name,*,failure_description) KHÔNG nhận ⇒ TypeError→HTTP-500; align handler↔service); ReportMajorFailureResponse RIÊNG closed 4-key {pm_wo,new_status,cm_wo_created,asset_status} new_status=PMStatus 'Halted–Major Failure' @services/imm08.py:794 asset_status 'Out of Service' :796; requestBody INLINE json-only $ref ReportMajorFailureRequest required EXACT [pm_wo_name,failure_description]; 200 oneOf [ReportMajorFailureEnvelope,Error] closed route-by-VALUE 0-discr; slot {200,401,403} Error.http_status ⊇ {404}; +1 path 44→45 ĐỘNG api/imm08.py:74-83 → d12/d15/d17 get 233→232 / post 255→256 RE-VERIFY @source). (417→426)  # PREV R35 PM-DISPATCH (2026-06-28): +9 TC class TestMobileAssignPmTechnicianContract (a..i — assignPmTechnician POST mắt-xích-GIỮA PM-detail: createPmWorkOrder→[assignPmTechnician]→submitPmResult; VERB-FLIP-THIS-ROUND bare @whitelist @api/imm08.py:46 → methods=['POST'] đóng verb-parity gap R33 BỎ SÓT ⇒ POST-only @source KHÔNG vào _PARITY_VERB_ALLOWLIST (GIỮ set()); AssignPmTechnicianResponse RIÊNG 3-key {name,status,assigned_to} status=PMStatus 'In Progress' @services/imm08.py:679 C3-split ≠ repair 'Assigned'; requestBody INLINE json-only $ref AssignPmTechnicianRequest required EXACT [name,technician] + scheduled_date optional nullable; 200 oneOf [AssignPmTechnicianEnvelope,Error] closed route-by-VALUE 0-discr; slot {200,401,403} Error.http_status ⊇ {404,409,422}; +1 path 43→44 ĐỘNG 1 dòng decorator imm08.py:46 → d12/d17 get 234→233 / post 254→255). (408→417)  # PREV R35 OCCURRED-DATETIME (2026-06-27): +1 TC test_mob_oas_13g_occurred_datetime_present_optional — wire occurred_datetime OPTIONAL field vào ReportIncidentRequest.properties (báo hỏng F2 G1/CR-16; type:string KHÔNG format:date-time Frappe wire 'yyyy-MM-dd HH:mm:ss'; ∉ required ⇒ 13c required-EXACT-4 GREEN; handler-parity inspect.signature(report_incident) folded-in chống drift-đảo). CONTRACT-ONLY KHÔNG path/verb mới ⇒ 43-path GIỮ + d12/d17 234/254 baseline KHÔNG đổi + KHÔNG đụng api/services imm12 (handler đã wire). (407→408)  # PREV R34 ADD-MEASUREMENT (2026-06-27): +10 TC class TestMobileAddMeasurementContract (a..j — addMeasurement POST mắt-xích-GIỮA calibration-detail: ghi điểm-đo trước submit; VERB-FLIP-THIS-ROUND bare @whitelist @api/imm11.py:120 → methods=['POST'] đóng verb-parity gap R33 BỎ SÓT ⇒ POST-only @source KHÔNG vào _PARITY_VERB_ALLOWLIST; AddMeasurementResponse RIÊNG 2-key {name,measurement_count} measurement_count GENUINE integer KHÔNG enum[0,1] @services/imm11.py:1124; requestBody $ref AddMeasurementBody oneOf json+form required EXACT 6 + measured_value optional nullable; 200 oneOf [AddMeasurementEnvelope,Error] closed route-by-VALUE 0-discr; slot {200,401,403} Error.http_status ⊇ {404,409}; +1 path 42→43 ĐỘNG 1 dòng decorator imm11.py:120). (397→407)  # PREV R34 REPAIR SPARE-PARTS sub-flow (2026-06-27): +19 TC = TestMobileSearchSparePartsContract (10: a yaml-count-42 / b get-only+opid+tag+mvp / c live-sig query+limit / d 200-oneOf closed 0-discr / e data RAW array (KHÔNG pagination) / f item EXACT 10-prop grounded svc no-bool / g slot {200,401,403} SOURCE-FAITHFUL (bare @whitelist no-allow_guest → guest dispatcher-403, KHÁC task {200,401}) / h GET-ok-at-source anti-false-green / i mvp+read-envelope+symmetry no-dangling / j PURE-YAML imm09 spare-parts handler untouched) + TestMobileRequestSparePartsContract (9: a post-only+opid+tag+mvp / b POST-only-AT-SOURCE registry=={POST} (ĐÃ methods=['POST'], KHÔNG flip) + ∉_PARITY_VERB_ALLOWLIST / c requestBody oneOf json+form required{name,parts}+parts-item{item_code req} / d 200-oneOf closed / e data EXACT {name,status,updated,allocation} allocation-nullable status-RepairStatus-enum / f live-sig {name,parts} / g slot {200,401,403} Error.http_status⊇404 / h mvp+action-envelope+symmetry no-dangling / i PURE-YAML decorator-not-flipped). DEVIATION grounded @source: request_spare_parts ĐÃ POST-only (live registry) → NO flip, d12/d15/d17 235/253 GIỮ; searchSpareParts {200,401,403} faithful. (378→397)  # PREV VERB-PARITY CLOSURE: +6 TC TestMobileWriteActionMethodEnforced (25g: parity-empty + submit_pm_result/create_calibration/submit_calibration POST-only-at-source + full-sweep + anti-false-green helper) — đóng verb-divergence 3 write-action (methods=['POST'] @imm08.py:54/imm11.py:89/imm11.py:114); _PARITY_VERB_ALLOWLIST→set(); 25c/25f re-baseline POST-parity 0-exception; 3 TC-a (submitpm/17a/submitcal) nâng POST-ONLY-at-source (372→378)  # PREV FLOW-2 getAssetTimeline: +10 TC TestMobileGetAssetTimelineContract a..j (GET-read dòng-thời-gian vòng-đời asset DocType 'Asset Lifecycle Event' imm00.py:1127; tab Lịch sử màn hồ-sơ sau quét QR; 3 param name/page=1/page_size=50 LIVE-parity; 200 oneOf[AssetTimelineEnvelope,Error] 0-discr; data.required[pagination,items] CÓ pagination KHÁC R28; AssetTimelineEvent EXACT 7-prop {name,event_type,actor,from_status,to_status,timestamp,notes} grounded imm00.py:1137 0-bool; slot {200,401,403} asset∄ 404→HTTP-200 nhánh Error; C3-split ≠ AssetIncidentHistoryItem ≠ AssetListItem; PURE-YAML git-diff imm00.py EMPTY) (362→372)  # PREV FLOW-6 markNotificationAsRead: +8 TC (354→362)  # PREV FLOW-5 confirmInspection: +8 TC (346→354)  # PREV FLOW-1 getUserContext: +9 TC (337→346)
 
 # camelCase verbNoun: bắt đầu chữ thường, không gạch dưới/space, không kết thúc số dính.
 _CAMEL_RE = re.compile(r"^[a-z][a-zA-Z0-9]*$")
@@ -155,9 +205,130 @@ _EXPECTED = {
     "/api/method/assetcore.api.imm08.create_pm_work_order": ("post", "createPmWorkOrder"),
     "/api/method/assetcore.api.imm09.create_repair_work_order": ("post", "createRepairWorkOrder"),
     "/api/method/assetcore.api.imm11.create_calibration": ("post", "createCalibration"),
+    # C8-ACTION — acknowledgeIncident (POST-action ĐẦU TIÊN: Open→Acknowledged). acknowledge_incident
+    #   → acknowledgeIncident (dotted-path tail §8.1 convention).
+    "/api/method/assetcore.api.imm12.acknowledge_incident": ("post", "acknowledgeIncident"),
+    # C8-ACTION — startRepair (POST-action ĐẦU TIÊN cho Asset Repair: →In Repair). start_repair
+    #   → startRepair (dotted-path tail §8.1 convention). repair.write @api/imm09.py:73.
+    "/api/method/assetcore.api.imm09.start_repair": ("post", "startRepair"),
+    # C8-ACTION — submitDiagnosis (POST-action MẮT-XÍCH-GIỮA cho Asset Repair: Assigned/Diagnosing →
+    #   In Repair | Pending Parts; lấp dead-end CTA giữa assignTechnician và startRepair/closeWorkOrder).
+    #   submit_diagnosis → submitDiagnosis (dotted-path tail §8.1). repair.write @api/imm09.py:65.
+    "/api/method/assetcore.api.imm09.submit_diagnosis": ("post", "submitDiagnosis"),
+    # C8-ACTION — assignTechnician (POST-action DISPATCH cho Asset Repair: Open→Assigned; lấp HỐ
+    #   create→start). assign_technician → assignTechnician (dotted-path tail §8.1). repair.write @api/imm09.py:59.
+    "/api/method/assetcore.api.imm09.assign_technician": ("post", "assignTechnician"),
+    # C8-ACTION — startWork (POST-action THỨ HAI cho Incident: Acknowledged→In Progress). start_work
+    #   → startWork (dotted-path tail §8.1 convention). corrective.investigate @api/imm12.py:252.
+    "/api/method/assetcore.api.imm12.start_work": ("post", "startWork"),
+    # C8-ACTION — resolveIncident (POST-action THỨ BA cho Incident: In Progress→Resolved). resolve_incident
+    #   → resolveIncident (dotted-path tail §8.1). corrective.investigate @api/imm12.py:264-265.
+    "/api/method/assetcore.api.imm12.resolve_incident": ("post", "resolveIncident"),
+    # C8-ACTION-PM — submitPmResult (POST-action ĐẦU TIÊN cho PM WO: Assigned/In Progress→Completed).
+    #   submit_pm_result → submitPmResult (dotted-path tail §8.1). pm.submit @api/imm08.py:58.
+    #   ⚠️ Contract khai POST (write-action); BE @api/imm08.py:54 bare @whitelist (nhận GET) = DIVERGENCE
+    #   (xem allowlist 25c + ADR-MOBILE-007). _EXPECTED verb=post = contract-intent, KHÔNG runtime-verb.
+    "/api/method/assetcore.api.imm08.submit_pm_result": ("post", "submitPmResult"),
+    # C8-ACTION — closeWorkOrder (POST-action TERMINAL cho Asset Repair: In Repair → Pending Inspection
+    #   HOẶC Cannot Repair). close_work_order → closeWorkOrder (dotted-path tail §8.1). repair.submit
+    #   @api/imm09.py:90. POST-only @api/imm09.py:84 (methods=['POST'] — KHÁC submit_pm_result bare).
+    "/api/method/assetcore.api.imm09.close_work_order": ("post", "closeWorkOrder"),
+    # C8-ACTION — confirmInspection (POST-action TERMINAL-THẬT cho Repair WO: Pending Inspection →
+    #   Completed, docstatus 0→1; đóng dead-end CUỐI sau closeWorkOrder→Pending Inspection). confirm_inspection
+    #   → confirmInspection (dotted-path tail §8.1). repair.submit @api/imm09.py:105 (QA/trưởng-khoa duyệt).
+    #   ✅ clean POST @whitelist(methods=['POST']) @api/imm09.py:103 ⇒ KHÔNG verb-divergence.
+    "/api/method/assetcore.api.imm09.confirm_inspection": ("post", "confirmInspection"),
+    # C8-ACTION — submitCalibration (POST-action COMPLETION cho Calibration Record: docstatus 0→1 →
+    #   Passed/Failed/Conditionally Passed). submit_calibration → submitCalibration (dotted-path tail §8.1).
+    #   calibration.submit @api/imm11.py:116. ⚠️ BE bare @whitelist @api/imm11.py:114 (nhận GET) ↔ contract
+    #   POST → _PARITY_VERB_ALLOWLIST (verb-divergence, backlog HARD-STOP thêm methods=['POST']).
+    "/api/method/assetcore.api.imm11.submit_calibration": ("post", "submitCalibration"),
+    # R34 ADD-MEASUREMENT — addMeasurement (POST mắt-xích-GIỮA calibration-detail: ghi N điểm-đo vào
+    #   child table `measurements` TRƯỚC submit). add_measurement → addMeasurement (dotted-path tail §8.1).
+    #   VERB-FLIP-THIS-ROUND (ADR-MOBILE-011): bare @whitelist @api/imm11.py:120 → methods=['POST'] ⇒
+    #   POST-only @source, KHÔNG verb-divergence, KHÔNG vào _PARITY_VERB_ALLOWLIST. calibration.write @:124.
+    "/api/method/assetcore.api.imm11.add_measurement": ("post", "addMeasurement"),
+    # R35 PM-DISPATCH — assignPmTechnician (POST mắt-xích-GIỮA PM-detail: phân công KTV cho PM WO
+    #   Open/Overdue → In Progress + asset→Under Maintenance). dotted-tail `assign_technician` TRÙNG repair
+    #   imm09 ⇒ opId UNIQUE `assignPmTechnician` (EXCEPTION tail→camel mặc-định 'assignTechnician'; KHÁC
+    #   repair để codegen 2 client-method KHÔNG đụng). VERB-FLIP-THIS-ROUND (ADR-MOBILE-012): bare @whitelist
+    #   @api/imm08.py:46 → methods=['POST'] ⇒ POST-only @source, KHÔNG verb-divergence, KHÔNG vào
+    #   _PARITY_VERB_ALLOWLIST. pm.write @api/imm08.py:49.
+    "/api/method/assetcore.api.imm08.assign_technician": ("post", "assignPmTechnician"),
+    # R36 PM→CM ESCALATION — reportMajorFailure (POST-action ESCALATION PM-detail: PM hỏng nặng → Halted–Major
+    #   Failure + asset Out of Service + CM WO khẩn). report_major_failure → reportMajorFailure (default
+    #   tail→camel §8.1). VERB-FLIP-THIS-ROUND (ADR-MOBILE-013): bare @whitelist @api/imm08.py:74 →
+    #   methods=['POST'] + SIGNATURE-FIX (DROP failed_item_indexes) ⇒ POST-only, KHÔNG vào _PARITY_VERB_ALLOWLIST.
+    "/api/method/assetcore.api.imm08.report_major_failure": ("post", "reportMajorFailure"),
+    # R37 PM-RESCHEDULE — reschedulePm (POST-action RESCHEDULE PM-detail: thiết bị đang dùng → hoãn lịch →
+    #   Pending–Device Busy + đổi due_date + ghi lý do). reschedule_pm → reschedulePm (default tail→camel §8.1).
+    #   🟢 ATOMIC-THIS-ROUND (ADR-MOBILE-014): handler @api/imm08.py:86 ĐÃ methods=['POST'] + signature ĐÃ khớp
+    #   service ⇒ KHÔNG verb-flip + KHÔNG signature-fix ⇒ POST-only @source, KHÔNG vào _PARITY_VERB_ALLOWLIST.
+    "/api/method/assetcore.api.imm08.reschedule_pm": ("post", "reschedulePm"),
+    # C8-ACTION — closeIncident (POST-action TERMINAL cho Incident: Resolved → Closed; đóng mắt xích
+    #   CUỐI report→ack→start→resolve→close). close_incident → closeIncident (dotted-path tail §8.1).
+    #   incident.close @api/imm12.py:277. ✅ clean POST: decorator @whitelist(methods=['POST']) SẴN
+    #   @api/imm12.py:270 ⇒ KHÔNG verb-divergence (KHÔNG vào _PARITY_VERB_ALLOWLIST).
+    "/api/method/assetcore.api.imm12.close_incident": ("post", "closeIncident"),
     "/api/method/assetcore.api.imm08.list_pm_work_orders": ("get", "listPmWorkOrders"),
+    "/api/method/assetcore.api.imm08.list_pm_schedules": ("get", "listPmSchedules"),
     "/api/method/assetcore.api.imm09.list_repair_work_orders": ("get", "listRepairWorkOrders"),
     "/api/method/assetcore.api.imm12.list_incidents": ("get", "listIncidents"),
+    # FLOW-2 DEVICE-PROFILE — getAssetIncidentHistory (lịch-sử sự-cố của 1 asset, màn hồ-sơ sau quét QR).
+    #   get_asset_incident_history → getAssetIncidentHistory (dotted-path tail §8.1). GET-only @api/imm12.py:172.
+    "/api/method/assetcore.api.imm12.get_asset_incident_history": ("get", "getAssetIncidentHistory"),
+    # FLOW-2 DEVICE-PROFILE — getAssetTimeline (dòng-thời-gian vòng-đời của 1 asset, tab Lịch sử màn hồ-sơ sau quét QR).
+    #   get_asset_timeline → getAssetTimeline (dotted-path tail §8.1). GET-only @api/imm00.py:1126.
+    "/api/method/assetcore.api.imm00.get_asset_timeline": ("get", "getAssetTimeline"),
+    # FLOW-2 DEVICE-PROFILE (R42 IMM-09) — getAssetRepairHistory (lịch-sử SỬA-CHỮA CM của 1 asset, tab
+    #   "Lịch sử sửa chữa" màn hồ-sơ sau quét QR). get_asset_repair_history → getAssetRepairHistory
+    #   (dotted-path tail §8.1). GET-only @api/imm09.py:126 (bare @whitelist). MIRROR getAssetIncidentHistory
+    #   NHƯNG rows-key `history`/asset-key `asset_ref` + 200 SINGLE-shape (mirror listTransfers).
+    "/api/method/assetcore.api.imm09.get_asset_repair_history": ("get", "getAssetRepairHistory"),
+    # FLOW-2 DEVICE-PROFILE (ASSET-PM-HISTORY-WIRE IMM-08) — getAssetPmHistory (lịch-sử BẢO-TRÌ PM
+    #   của 1 asset, tab "Lịch sử bảo trì" màn hồ-sơ sau quét QR). get_asset_pm_history →
+    #   getAssetPmHistory (dotted-path tail §8.1). GET-only @api/imm08.py:124 (bare @whitelist).
+    #   MIRROR getAssetRepairHistory: rows-key `history`/asset-key `asset_ref` + 200 SINGLE-shape;
+    #   3 KHÁC-BIỆT (10-prop, overall_result enum, is_late+days_late integer) — ADR-MOBILE-023.
+    "/api/method/assetcore.api.imm08.get_asset_pm_history": ("get", "getAssetPmHistory"),
+    # R34 REPAIR SPARE-PARTS — searchSpareParts (GET autocomplete tra-cứu phụ-tùng, màn repair-detail).
+    #   search_spare_parts → searchSpareParts (dotted-path tail §8.1). GET-only @api/imm09.py:123 (bare).
+    "/api/method/assetcore.api.imm09.search_spare_parts": ("get", "searchSpareParts"),
+    # R34 REPAIR SPARE-PARTS — requestSpareParts (POST-action cấp phụ-tùng cho WO). request_spare_parts →
+    #   requestSpareParts (dotted-path tail §8.1). POST-only @api/imm09.py:77 (methods=['POST'] — VERIFIED).
+    "/api/method/assetcore.api.imm09.request_spare_parts": ("post", "requestSpareParts"),
+    # FLOW-1 BOOTSTRAP — getUserContext (session who-am-I, màn home sau login). allow_guest=True
+    #   ⇒ slot {200,401} (KHÔNG 403); get_user_context → getUserContext (§8.1). GET-only @api/layout.py:188.
+    "/api/method/assetcore.api.layout.get_user_context": ("get", "getUserContext"),
+    # SESSION-PROBE — pingSession (session-lifecycle): CSRF warm-up + app-resume who-am-I-lite.
+    #   allow_guest=True + LUÔN _ok (0 _err) ⇒ slot {200} ONLY (KHÔNG 401/403); ping_session →
+    #   pingSession (§8.1). GET-only @api/layout.py:237. ∈ _ALLOW_GUEST_PATHS, ∉ _MVP_BUSINESS_PATHS.
+    "/api/method/assetcore.api.layout.ping_session": ("get", "pingSession"),
+    "/api/method/assetcore.api.imm11.list_calibrations": ("get", "listCalibrations"),
+    # C-LISTREAD-ASSET — listAssets (open-thread #4c): tra-cứu thiết bị MVP-flow-5.
+    "/api/method/assetcore.api.imm00.list_assets": ("get", "listAssets"),
+    # C-LISTREAD-USERS — listUsers (open-thread #4 closure): technician/assignee picker.
+    "/api/method/assetcore.api.user.list_users": ("get", "listUsers"),
+    # C-LISTREAD-NOTIF — listNotifications: in-app notification list (chuông, tab Notifications mobile).
+    "/api/method/assetcore.api.layout.list_notifications": ("get", "listNotifications"),
+    # FLOW-6 READ-RECEIPT — markNotificationAsRead: WRITE-action set read=1 (mark_notification_as_read→markNotificationAsRead, dotted-path tail §8.1).
+    "/api/method/assetcore.api.layout.mark_notification_as_read": ("post", "markNotificationAsRead"),
+    # FLOW-6 MARK-ALL-READ — markAllAsRead: BULK read-receipt (set read=1 cho MỌI Notification Log chưa-đọc của user; mark_all_as_read→markAllAsRead, dotted-path tail §8.1).
+    "/api/method/assetcore.api.layout.mark_all_as_read": ("post", "markAllAsRead"),
+    # NOTIF-UNREAD-FEED — getUnreadNotifications: GET unread-feed {count, items[]} (badge chưa-đọc +
+    #   tab "Thông báo"; ĐÓNG NỐT notification-center READ quartet sau listNotifications +
+    #   markNotificationAsRead + markAllAsRead). get_unread_notifications → getUnreadNotifications
+    #   (dotted-path tail §8.1). GET-only @api/layout.py:47 (bare @whitelist nhận GET).
+    "/api/method/assetcore.api.layout.get_unread_notifications": ("get", "getUnreadNotifications"),
+    # TRANSFER-READ-WIRE (IMM-13 Đợt-2) — 2 GET-read điều chuyển (list_transfers→listTransfers,
+    #   get_transfer→getTransfer; dotted-path tail §8.1). Surfaced qua api/imm00.
+    "/api/method/assetcore.api.imm00.list_transfers": ("get", "listTransfers"),
+    "/api/method/assetcore.api.imm00.get_transfer": ("get", "getTransfer"),
+    # C6-DETAIL — 4 GET-detail (5a-5d): get_X→getX dotted-path tail (§8.1 convention).
+    "/api/method/assetcore.api.imm08.get_pm_work_order": ("get", "getPmWorkOrder"),
+    "/api/method/assetcore.api.imm09.get_repair_work_order": ("get", "getRepairWorkOrder"),
+    "/api/method/assetcore.api.imm12.get_incident": ("get", "getIncident"),
+    "/api/method/assetcore.api.imm11.get_calibration": ("get", "getCalibration"),
     "/api/method/assetcore.api.mobile.v1.register_device_token": ("post", "registerDeviceToken"),
     "/api/method/assetcore.api.mobile.v1.unregister_device_token": ("post", "unregisterDeviceToken"),
 }
@@ -173,6 +344,684 @@ _DEVICE_TOKEN_FROZEN = {
 #   trong _STUB_PATHS (guard STUB-07 KHÔNG áp). VẪN giữ 200→Stub + 401 + 403 (chỉ THÊM
 #   requestBody vòng này). Guard requestBody = TC-MOB-OAS-13 (class TestMobileReportIncidentBody).
 _REPORT_INCIDENT_PATH = "/api/method/assetcore.api.imm12.report_incident"
+
+# C8-ACTION — acknowledgeIncident (POST-action lifecycle ĐẦU TIÊN: Open→Acknowledged). POST-only,
+#   requestBody INLINE (application/json $ref AcknowledgeIncidentRequest) — KHÔNG component (1 schema,
+#   KHÔNG cần x-www-form like create). 200 = oneOf [IncidentActionEnvelope, Error] route-by-VALUE C6/C7.
+#   403 = SINGLE-SHAPE Forbidden (dispatcher-403; in-handler cap-403 phủ bởi nhánh Error 200-oneOf) —
+#   KHÁC reportIncident DUAL-403. Vào _MVP_BUSINESS_PATHS ⇒ 401/403 symmetry tự +1 (test so SET).
+#   Guard riêng = TC-MOB-OAS-32 (class TestMobileAcknowledgeIncidentContract).
+_ACK_INCIDENT_PATH = "/api/method/assetcore.api.imm12.acknowledge_incident"
+# C8-ACTION schema refs (route-by-VALUE C6/C7 pattern — mirror reportIncident 200-oneOf).
+_ACK_REQUEST_SCHEMA = "AcknowledgeIncidentRequest"
+_ACK_ENVELOPE_SCHEMA = "IncidentActionEnvelope"
+_ACK_ACTION_RESPONSE_SCHEMA = "IncidentActionResponse"
+_ACK_ENVELOPE_SCHEMA_REF = "#/components/schemas/IncidentActionEnvelope"
+_FORBIDDEN_RESP_REF = "#/components/responses/Forbidden"
+_UNAUTHORIZED401_RESP_REF = "#/components/responses/Unauthorized401"
+# svc_acknowledge return {"name","status"} @services/imm12.py:469 — closed data payload.
+_ACK_DATA_KEYS = {"name", "status"}
+# AcknowledgeIncidentRequest — name REQUIRED (positional @imm12.py:234); notes/assigned_to optional.
+_ACK_REQUEST_REQUIRED = ["name"]
+_ACK_REQUEST_PROPS = {"name", "notes", "assigned_to"}
+# status enum = Select-canonical @incident_report.json (7 state; post-ack value = "Acknowledged").
+_INCIDENT_STATUS_ENUM = ["Open", "Acknowledged", "In Progress", "Resolved", "RCA Required", "Closed", "Cancelled"]
+
+# C8-ACTION (start_repair) — POST-action lifecycle ĐẦU TIÊN cho Asset Repair (Assigned/Diagnosing/
+#   Pending Parts → In Repair). Nối tiếp pattern acknowledgeIncident (route-by-VALUE body.success).
+#   POST-only @api/imm09.py:71; opId startRepair (dotted-path tail §8.1). Vào _MVP_BUSINESS_PATHS ⇒
+#   401/403 symmetry set tự +1 (test so SET). Guard riêng = TestMobileStartRepairContract.
+_START_REPAIR_PATH = "/api/method/assetcore.api.imm09.start_repair"
+_START_REPAIR_REQUEST_SCHEMA = "StartRepairRequest"
+_START_REPAIR_ENVELOPE_SCHEMA = "RepairActionEnvelope"
+_START_REPAIR_ACTION_RESPONSE_SCHEMA = "RepairActionResponse"
+_START_REPAIR_ENVELOPE_SCHEMA_REF = "#/components/schemas/RepairActionEnvelope"
+# svc.start_repair return {"name","status"} @services/imm09.py:847 — closed data payload.
+_START_REPAIR_DATA_KEYS = {"name", "status"}
+# StartRepairRequest — CHỈ name REQUIRED (positional @api/imm09.py:72; signature start_repair(name)
+#   đúng 1 param, 0 optional) ⇒ props == required == {name}.
+_START_REPAIR_REQUEST_REQUIRED = ["name"]
+_START_REPAIR_REQUEST_PROPS = {"name"}
+# status enum = RepairStatus-canonical @services/imm09.py:30-39 (9 state; post-start value = "In Repair").
+_REPAIR_STATUS_ENUM = [
+    "Open", "Assigned", "Diagnosing", "Pending Parts", "In Repair",
+    "Pending Inspection", "Completed", "Cannot Repair", "Cancelled",
+]
+
+# C8-ACTION (submit_diagnosis) — POST-action lifecycle MẮT-XÍCH-GIỮA cho Asset Repair (Assigned/Diagnosing
+#   → In Repair | Pending Parts). LẤP dead-end CTA GIỮA assignTechnician (Open→Assigned) và startRepair/
+#   closeWorkOrder. POST-only @api/imm09.py:63; opId submitDiagnosis (dotted-path tail §8.1). Vào
+#   _MVP_BUSINESS_PATHS ⇒ 401/403 symmetry set tự +1 (test so SET). Guard riêng = TestMobileSubmitDiagnosisContract.
+_SUBMIT_DIAGNOSIS_PATH = "/api/method/assetcore.api.imm09.submit_diagnosis"
+_SUBMIT_DIAGNOSIS_REQUEST_SCHEMA = "SubmitDiagnosisRequest"
+# REUSE RepairActionEnvelope/RepairActionResponse {name,status} — service trả EXACT {name,status}
+#   @services/imm09.py:950 (return {"name": name, "status": doc.status}). KHÔNG sinh response-schema mới
+#   (mirror startRepair — cùng domain repair, data đồng-dạng {name,status}).
+_SUBMIT_DIAGNOSIS_ENVELOPE_SCHEMA = _START_REPAIR_ENVELOPE_SCHEMA            # "RepairActionEnvelope"
+_SUBMIT_DIAGNOSIS_ACTION_RESPONSE_SCHEMA = _START_REPAIR_ACTION_RESPONSE_SCHEMA  # "RepairActionResponse"
+_SUBMIT_DIAGNOSIS_ENVELOPE_SCHEMA_REF = _START_REPAIR_ENVELOPE_SCHEMA_REF    # "#/components/schemas/RepairActionEnvelope"
+# svc.submit_diagnosis return {"name","status"} @services/imm09.py:950 — closed 2-key data payload
+#   (status = "Pending Parts" nếu needs_parts=1, else "In Repair").
+_SUBMIT_DIAGNOSIS_DATA_KEYS = {"name", "status"}
+# SubmitDiagnosisRequest — name + diagnosis_notes REQUIRED (positional no-default @api/imm09.py:64);
+#   needs_parts optional (default 0). 2-required (KHÁC StartRepairRequest 1-required {name}).
+_SUBMIT_DIAGNOSIS_REQUEST_REQUIRED = ["name", "diagnosis_notes"]
+_SUBMIT_DIAGNOSIS_REQUEST_PROPS = {"name", "diagnosis_notes", "needs_parts"}
+
+# FLOW-2 DEVICE-PROFILE (get_asset_incident_history) — GET read lịch-sử sự-cố của 1 asset (màn hồ-sơ
+#   sau quét QR). LẤP dead-end: getAssetScanInfo trả profile + available_actions NHƯNG KHÔNG có endpoint
+#   liệt-kê lịch-sử sự-cố của asset đó. GET-only @api/imm12.py:172-173; opId getAssetIncidentHistory
+#   (dotted-path tail §8.1). Vào _MVP_BUSINESS_PATHS ⇒ 401/403 symmetry set tự +1 (test so SET).
+#   Guard riêng = TestMobileGetAssetIncidentHistoryContract. KHÁC listIncidents: KHÔNG pagination
+#   (svc chỉ limit cap, default 10 @services/imm12.py:834-843) + element CHỈ 9 field (KHÔNG 28 enrich).
+_ASSET_INCIDENT_HISTORY_PATH = "/api/method/assetcore.api.imm12.get_asset_incident_history"
+_ASSET_INCIDENT_HISTORY_ENVELOPE_SCHEMA = "AssetIncidentHistoryEnvelope"
+_ASSET_INCIDENT_HISTORY_ENVELOPE_SCHEMA_REF = "#/components/schemas/AssetIncidentHistoryEnvelope"
+_ASSET_INCIDENT_HISTORY_ITEM_SCHEMA = "AssetIncidentHistoryItem"
+_ASSET_INCIDENT_HISTORY_ITEM_SCHEMA_REF = "#/components/schemas/AssetIncidentHistoryItem"
+# EXACT 9 prop = frappe.get_all fields @services/imm12.py:838-839 (GROUNDED). 0 Check/boolean field
+#   (incident_type/severity/status=Select, reported_at=Datetime, closed_date=Date, fault_code=Data,
+#   linked_capa/rca_record=Link) ⇒ né int-vs-bool trap (Open#1). KHÁC IncidentListItem (28 field +
+#   rca_required/chronic_failure_flag/patient_affected Check→int).
+_ASSET_INCIDENT_HISTORY_ITEM_PROPS = {
+    "name", "incident_type", "severity", "status", "reported_at",
+    "fault_code", "closed_date", "linked_capa", "rca_record",
+}
+_ASSET_INCIDENT_HISTORY_ITEM_REQUIRED = ["name"]   # PK; còn lại optional (Link/Date có thể ""/null).
+# svc return {asset, items} @services/imm12.py:843 → handle()/_ok wrap {success:true, data:{asset,items}}.
+#   data.required = [asset, items] — KHÔNG pagination (KHÁC IncidentListEnvelope.data.required[pagination,items]).
+_ASSET_INCIDENT_HISTORY_DATA_REQUIRED = ["asset", "items"]
+
+# FLOW-2 DEVICE-PROFILE (get_asset_repair_history, R42 IMM-09) — GET read lịch-sử SỬA-CHỮA (CM) của 1
+#   asset (tab "Lịch sử sửa chữa" màn hồ-sơ sau quét QR). MIRROR getAssetIncidentHistory NHƯNG:
+#   (1) rows-key `history` (KHÔNG items) + asset-key `asset_ref` (KHÔNG asset) — KHỚP svc return
+#   {asset_ref, history} @services/imm09.py:1220; (2) 200 = SINGLE-shape AssetRepairHistoryEnvelope
+#   (handler @api/imm09.py:127 = handle(svc.get_asset_history) — svc 0 raise ServiceError ⇒ handle LUÔN
+#   _ok, 0 nhánh _err in-handler ⇒ KHÔNG oneOf [Env,Error]; mirror listTransfers/pingSession, KHÁC
+#   incident oneOf). GET-only @api/imm09.py:126-128; opId getAssetRepairHistory (dotted-path tail §8.1).
+#   Vào _MVP_BUSINESS_PATHS ⇒ 401/403 symmetry set tự +1. Guard riêng = TestMobileGetAssetRepairHistoryContract.
+_ASSET_REPAIR_HISTORY_PATH = "/api/method/assetcore.api.imm09.get_asset_repair_history"
+_ASSET_REPAIR_HISTORY_ENVELOPE_SCHEMA = "AssetRepairHistoryEnvelope"
+_ASSET_REPAIR_HISTORY_ENVELOPE_SCHEMA_REF = "#/components/schemas/AssetRepairHistoryEnvelope"
+_ASSET_REPAIR_HISTORY_ITEM_SCHEMA = "AssetRepairHistoryItem"
+_ASSET_REPAIR_HISTORY_ITEM_SCHEMA_REF = "#/components/schemas/AssetRepairHistoryItem"
+# EXACT 9 prop = RepairRepo.list fields @services/imm09.py:1215-1216 (GROUNDED, docstatus=1). KHÁC
+#   AssetIncidentHistoryItem 9-field: DocType Asset Repair ≠ Incident Report, field-set KHÁC. ⚠️ CÓ
+#   1 Check field: sla_breached → type:integer (Check 0/1, KHÔNG boolean/enum[0,1] — né int-vs-bool
+#   trap Open#1); mttr_hours = Float → number; open/completion_datetime = Datetime wire string KHÔNG
+#   format:date-time (Frappe naive 'yyyy-MM-dd HH:mm:ss', mirror occurred_datetime R35).
+_ASSET_REPAIR_HISTORY_ITEM_PROPS = {
+    "name", "repair_type", "priority", "open_datetime", "completion_datetime",
+    "mttr_hours", "sla_breached", "root_cause_category", "repair_summary",
+}
+_ASSET_REPAIR_HISTORY_ITEM_REQUIRED = ["name"]   # PK; còn lại optional.
+# svc return {asset_ref, history} @services/imm09.py:1220 → handle()/_ok wrap {success:true,
+#   data:{asset_ref, history}}. data.required = [asset_ref, history] — rows-key `history` + asset-key
+#   `asset_ref` (KHÁC AssetIncidentHistoryEnvelope.data.required[asset, items]). KHÔNG pagination.
+_ASSET_REPAIR_HISTORY_DATA_REQUIRED = ["asset_ref", "history"]
+
+# FLOW-2 DEVICE-PROFILE (get_asset_pm_history, ASSET-PM-HISTORY-WIRE IMM-08) — GET read lịch-sử
+#   BẢO-TRÌ ĐỊNH-KỲ (PM) của 1 asset (tab "Lịch sử bảo trì" màn hồ-sơ sau quét QR). MIRROR
+#   getAssetRepairHistory: (1) rows-key `history` + asset-key `asset_ref` — KHỚP svc return
+#   {asset_ref, history} @services/imm08.py:1021; (2) 200 = SINGLE-shape AssetPmHistoryEnvelope
+#   (handler @api/imm08.py:125 = handle(svc.get_asset_history) — svc 0 raise ServiceError ⇒ handle
+#   LUÔN _ok, 0 nhánh _err in-handler ⇒ KHÔNG oneOf [Env,Error]; mirror getAssetRepairHistory/
+#   listTransfers, KHÁC incident oneOf). GET-only @api/imm08.py:124-126; opId getAssetPmHistory
+#   (dotted-path tail §8.1). Vào _MVP_BUSINESS_PATHS ⇒ 401/403 symmetry set tự +1.
+#   Guard riêng = TestMobileGetAssetPmHistoryContract.
+_ASSET_PM_HISTORY_PATH = "/api/method/assetcore.api.imm08.get_asset_pm_history"
+_ASSET_PM_HISTORY_ENVELOPE_SCHEMA = "AssetPmHistoryEnvelope"
+_ASSET_PM_HISTORY_ENVELOPE_SCHEMA_REF = "#/components/schemas/AssetPmHistoryEnvelope"
+_ASSET_PM_HISTORY_ITEM_SCHEMA = "AssetPmHistoryItem"
+_ASSET_PM_HISTORY_ITEM_SCHEMA_REF = "#/components/schemas/AssetPmHistoryItem"
+# EXACT 10 prop = PMTaskLogRepo.list fields @services/imm08.py:1015-1017 (GROUNDED). KHÁC
+#   AssetRepairHistoryItem 9-field: DocType PM Task Log ≠ Asset Repair, field-set KHÁC. ⚠️ 3
+#   KHÁC-BIỆT có-chủ-đích vs repair: (1) 10 prop (KHÔNG 9); (2) overall_result = string enum
+#   [Pass, Pass with Minor Issues, Fail] (Select bounded @pm_task_log.json — repair 0 Select-enum);
+#   (3) 2 Check/Int field → integer: is_late (Check 0/1) + days_late (Int) — KHÔNG boolean/enum[0,1]
+#   (né int-vs-bool trap Open#1; repair 1 Check sla_breached). completion_date/next_pm_date = Date
+#   wire string KHÔNG format:date-time (Frappe Date 'yyyy-MM-dd' — date-trap).
+_ASSET_PM_HISTORY_ITEM_PROPS = {
+    "name", "pm_work_order", "pm_type", "completion_date", "technician",
+    "overall_result", "is_late", "days_late", "next_pm_date", "summary",
+}
+_ASSET_PM_HISTORY_ITEM_REQUIRED = ["name"]   # PK; còn lại optional.
+# overall_result = Select bounded @pm_task_log.json options "Pass\nPass with Minor Issues\nFail".
+_ASSET_PM_HISTORY_OVERALL_RESULT_ENUM = ["Pass", "Pass with Minor Issues", "Fail"]
+# svc return {asset_ref, history} @services/imm08.py:1021 → handle()/_ok wrap {success:true,
+#   data:{asset_ref, history}}. data.required = [asset_ref, history] — rows-key `history` + asset-key
+#   `asset_ref` (mirror AssetRepairHistoryEnvelope, KHÁC incident [asset, items]). KHÔNG pagination.
+_ASSET_PM_HISTORY_DATA_REQUIRED = ["asset_ref", "history"]
+
+# FLOW-2 DEVICE-PROFILE (get_asset_timeline) — tab "Lịch sử" màn hồ-sơ-thiết-bị sau quét QR. Dòng
+#   thời gian vòng-đời (lifecycle-event audit-trail trục — CLAUDE.md §10). GET-read @api/imm00.py:1127
+#   get_asset_timeline(name, page=1, page_size=50) → frappe.get_list 'Asset Lifecycle Event'
+#   (imm00.py:242 _DT_LIFECYCLE_EVENT — KHÁC R28 đọc Incident Report). return _ok({pagination, items})
+#   — CÓ pagination (paginate @imm00.py:1133 — KHÁC R28 chỉ limit cap). 404 in-handler khi asset∄.
+_ASSET_TIMELINE_PATH = "/api/method/assetcore.api.imm00.get_asset_timeline"
+_ASSET_TIMELINE_ENVELOPE_SCHEMA = "AssetTimelineEnvelope"
+_ASSET_TIMELINE_ENVELOPE_SCHEMA_REF = "#/components/schemas/AssetTimelineEnvelope"
+_ASSET_TIMELINE_EVENT_SCHEMA = "AssetTimelineEvent"
+_ASSET_TIMELINE_EVENT_SCHEMA_REF = "#/components/schemas/AssetTimelineEvent"
+# EXACT 7 prop = frappe.get_list fields @api/imm00.py:1137 (GROUNDED). 0 Check/boolean field
+#   (event_type/from_status/to_status=Select/Data, actor=Link, timestamp=Datetime, notes=Text,
+#   name=PK) ⇒ né int-vs-bool trap (Open#1). KHÁC AssetIncidentHistoryItem (9 field, DocType Incident
+#   Report) ≠ AssetListItem (AC Asset) — C3-split khác DocType/field-set/domain.
+_ASSET_TIMELINE_EVENT_PROPS = {
+    "name", "event_type", "actor", "from_status",
+    "to_status", "timestamp", "notes",
+}
+_ASSET_TIMELINE_EVENT_REQUIRED = ["name"]   # PK; còn lại optional (Link/Select/Text có thể ""/null).
+# svc return {pagination, items} @api/imm00.py:1142 → handle()/_ok wrap {success:true, data:{pagination,items}}.
+#   data.required = [pagination, items] — CÓ pagination (KHÁC AssetIncidentHistoryEnvelope.data.required[asset,items]).
+_ASSET_TIMELINE_DATA_REQUIRED = ["items", "pagination"]
+
+# REPAIR SPARE-PARTS sub-flow (R34) — searchSpareParts (GET autocomplete) + requestSpareParts (POST).
+#   Đóng action-set màn repair-detail (getRepairWorkOrder): KTV đang sửa (a) TRA phụ-tùng theo tên/MPN
+#   rồi (b) YÊU CẦU cấp phụ-tùng cho WO.
+# ── searchSpareParts — GET-read. bare @whitelist @api/imm09.py:123 (GET-ok, KHÔNG allow_guest → guest
+#   dispatcher-403; KHÔNG rbac.require @api-level — read permission-aware qua handle). data = RAW
+#   array<SearchSparePartItem> (KHÔNG pagination — svc trả list[dict] @services/imm09.py:1237). ∈
+#   _MVP_BUSINESS_PATHS (mirror getAssetIncidentHistory/listNotifications — bare @whitelist no-allow_guest
+#   ⇒ {200,401,403}). ⚠️ DEVIATION-NOTE vs task ({200,401}): SOURCE-FAITHFUL = {200,401,403} vì guest hứng
+#   dispatcher-403 (PermissionError, is_whitelisted __init__.py:876) — y hệt getAssetIncidentHistory/listNotifications.
+_SEARCH_SPARE_PARTS_PATH = "/api/method/assetcore.api.imm09.search_spare_parts"
+_SEARCH_SPARE_PARTS_ENVELOPE_SCHEMA = "SearchSparePartsEnvelope"
+_SEARCH_SPARE_PARTS_ENVELOPE_SCHEMA_REF = "#/components/schemas/SearchSparePartsEnvelope"
+_SEARCH_SPARE_PART_ITEM_SCHEMA = "SearchSparePartItem"
+_SEARCH_SPARE_PART_ITEM_SCHEMA_REF = "#/components/schemas/SearchSparePartItem"
+# EXACT 10 prop = svc.search_spare_parts row literal @services/imm09.py:1238-1245 (GROUNDED). 0 boolean/Check
+#   (qty/idx=integer, unit_cost/total_cost=number, rest=string) ⇒ né int-vs-bool trap. MỌI row đủ 10 key
+#   (literal dict vô-điều-kiện) ⇒ required = đủ 10.
+_SEARCH_SPARE_PART_ITEM_PROPS = {
+    "item_code", "item_name", "manufacturer_part_no", "qty", "uom",
+    "unit_cost", "total_cost", "stock_entry_ref", "notes", "idx",
+}
+_SEARCH_SPARE_PART_ITEM_REQUIRED = sorted(_SEARCH_SPARE_PART_ITEM_PROPS)
+# 2 numeric-but-not-bool field (qty/idx=integer); 2 number (unit_cost/total_cost). KHÔNG field nào boolean.
+_SEARCH_SPARE_PART_ITEM_INTEGER_FIELDS = {"qty", "idx"}
+_SEARCH_SPARE_PART_ITEM_NUMBER_FIELDS = {"unit_cost", "total_cost"}
+
+# ── requestSpareParts — POST-action cấp phụ-tùng. POST-only @api/imm09.py:77
+#   (@frappe.whitelist(methods=['POST']) — VERIFIED live registry methods=['POST'], KHÔNG cần flip ⇒
+#   PURE-YAML). rbac.require repair.write @api:79 + repair.create svc:973 ⇒ {200,401,403}. data =
+#   {name,status,updated,allocation} @services/imm09.py:1018 (allocation nullable). 404 MSG.IMM09_NOT_FOUND
+#   in-handler khi WO∄ (services/imm09.py:975-976) → Error trên HTTP-200.
+_REQUEST_SPARE_PARTS_PATH = "/api/method/assetcore.api.imm09.request_spare_parts"
+_REQUEST_SPARE_PARTS_ENVELOPE_SCHEMA = "RequestSparePartsEnvelope"
+_REQUEST_SPARE_PARTS_ENVELOPE_SCHEMA_REF = "#/components/schemas/RequestSparePartsEnvelope"
+_REQUEST_SPARE_PARTS_DATA_SCHEMA = "RequestSparePartsData"
+_REQUEST_SPARE_PARTS_DATA_SCHEMA_REF = "#/components/schemas/RequestSparePartsData"
+# svc return {name,status,updated,allocation} @services/imm09.py:1018 — 4-key closed; allocation nullable
+#   (string name AC Spare Part Allocation HOẶC null). updated=integer (count). status=RepairStatus enum.
+_REQUEST_SPARE_PARTS_DATA_PROPS = {"name", "status", "updated", "allocation"}
+_REQUEST_SPARE_PARTS_DATA_REQUIRED = sorted(_REQUEST_SPARE_PARTS_DATA_PROPS)
+# requestBody — name + parts REQUIRED; parts item props {item_code(req), stock_entry_ref?, spare_part?, qty?}.
+_REQUEST_SPARE_PARTS_REQUEST_REQUIRED = ["name", "parts"]
+_REQUEST_SPARE_PARTS_PARTS_ITEM_PROPS = {"item_code", "stock_entry_ref", "spare_part", "qty"}
+_REQUEST_SPARE_PARTS_PARTS_ITEM_REQUIRED = ["item_code"]
+
+# FLOW-1 BOOTSTRAP (get_user_context) — POST-LOGIN WHO-AM-I (session bootstrap). App home sau login
+#   hardcode "Đã đăng nhập" KHÔNG identity. GET-only 0-param @api/layout.py:188 get_user_context()
+#   (allow_guest=True); opId getUserContext (dotted-path tail §8.1). ⚠️ allow_guest ⇒ KHÔNG dispatcher-403
+#   (Guest VÀO handler → in-handler _err 401 @:206-207) ⇒ response slot {200,401} ONLY (KHÔNG 403).
+#   ⇒ KHÔNG vào _MVP_BUSINESS_PATHS (sẽ ép 403 symmetry); thay vào _ALLOW_GUEST_PATHS (exempt 401/403
+#   symmetry như _AUTH_PATHS/openid_profile). Guard riêng = TestMobileGetUserContextContract.
+_USER_CONTEXT_PATH = "/api/method/assetcore.api.layout.get_user_context"
+_USER_CONTEXT_ENVELOPE_SCHEMA = "UserContextEnvelope"
+_USER_CONTEXT_ENVELOPE_SCHEMA_REF = "#/components/schemas/UserContextEnvelope"
+_USER_CONTEXT_DATA_SCHEMA = "UserContextData"
+_USER_CONTEXT_DATA_SCHEMA_REF = "#/components/schemas/UserContextData"
+# EXACT 13 prop = _ok payload @layout.py:220-234 (GROUNDED). chỉ `user` REQUIRED (luôn có khi 200 =
+#   frappe.session.user); rest nullable (graceful-degradation: AC custom-field/Employee có thể vắng).
+_USER_CONTEXT_DATA_PROPS = {
+    "user", "full_name", "user_image", "phone", "role_profile_name",
+    "roles", "imm_roles", "designation", "hr_docname", "department",
+    "department_name", "is_profile_completed", "has_employee_link",
+}
+_USER_CONTEXT_DATA_REQUIRED = ["user"]
+# INT-VS-BOOL TRAP (Open#1): 2 flag BE emit Python bool() NHƯNG contract = integer enum[0,1] (codegen
+#   strict-deser int-or-bool nhất quán; mirror IncidentListItem Check→int). Guard chống regress type:boolean.
+_USER_CONTEXT_INT_BOOL_FIELDS = {"is_profile_completed", "has_employee_link"}
+# 2 array<string> = frappe.get_roles list (layout.py:226-227). KHÔNG enum cứng (role-set động).
+_USER_CONTEXT_ARRAY_STRING_FIELDS = {"roles", "imm_roles"}
+
+# SESSION-PROBE (R-SESSION-PROBE) — pingSession: CSRF warm-up + app-resume who-am-I-lite. GET-only
+#   0-param @api/layout.py:237 ping_session() (allow_guest=True); opId pingSession (dotted-path tail
+#   §8.1). ⚠️ KHÁC getUserContext {200,401}: handler @layout.py:237-258 LUÔN _ok (0 nhánh _err
+#   in-handler) + allow_guest ∧ KHÔNG guest-guard ⇒ response slot {200} ONLY (KHÔNG 401/403/429).
+#   ⇒ 200 = SINGLE schema PingSessionEnvelope (KHÔNG oneOf [Env, Error] — 0 Error branch trên HTTP-200).
+#   ∈ _ALLOW_GUEST_PATHS (exempt 401/403 symmetry) NHƯNG slot {200} (KHÁC getUserContext {200,401});
+#   ∉ _MVP_BUSINESS_PATHS. Guard riêng = TestMobilePingSessionContract.
+_PING_SESSION_PATH = "/api/method/assetcore.api.layout.ping_session"
+_PING_SESSION_ENVELOPE_SCHEMA = "PingSessionEnvelope"
+_PING_SESSION_ENVELOPE_SCHEMA_REF = "#/components/schemas/PingSessionEnvelope"
+_PING_SESSION_DATA_SCHEMA = "PingSessionData"
+_PING_SESSION_DATA_SCHEMA_REF = "#/components/schemas/PingSessionData"
+# EXACT 3 prop = _ok payload @layout.py:254-258 (GROUNDED). TẤT CẢ required (handler emit cả 3
+#   UNCONDITIONAL — user/authenticated/csrf_token, KHÔNG graceful-degradation).
+_PING_SESSION_DATA_PROPS = {"user", "authenticated", "csrf_token"}
+_PING_SESSION_DATA_REQUIRED = ["authenticated", "csrf_token", "user"]
+
+# C8-ACTION (start_work) — POST-action lifecycle THỨ HAI cho Incident (Acknowledged → In Progress).
+#   NỐI TIẾP acknowledgeIncident (cùng domain IMM-12, cùng cap corrective.investigate) — màn
+#   incident-detail (getIncident) tiến tiếp flow xử lý sau khi tiếp nhận. POST-only @api/imm12.py:245;
+#   opId startWork (dotted-path tail §8.1). Vào _MVP_BUSINESS_PATHS ⇒ 401/403 symmetry set tự +1 (test
+#   so SET). Guard riêng = TestMobileStartWorkContract.
+_START_WORK_PATH = "/api/method/assetcore.api.imm12.start_work"
+_START_WORK_REQUEST_SCHEMA = "StartWorkRequest"
+# REUSE IncidentActionEnvelope/IncidentActionResponse (cùng domain IMM-12, data={name,status},
+#   status="In Progress" ∈ enum 7-state có sẵn) ⇒ KHÔNG sinh envelope/response schema mới (KHÁC
+#   startRepair vốn có RepairActionEnvelope/RepairActionResponse riêng — incident-domain reuse).
+_START_WORK_ENVELOPE_SCHEMA = _ACK_ENVELOPE_SCHEMA            # "IncidentActionEnvelope"
+_START_WORK_ACTION_RESPONSE_SCHEMA = _ACK_ACTION_RESPONSE_SCHEMA  # "IncidentActionResponse"
+_START_WORK_ENVELOPE_SCHEMA_REF = _ACK_ENVELOPE_SCHEMA_REF    # "#/components/schemas/IncidentActionEnvelope"
+# svc_start_work return {"name","status"} @services/imm12.py:491 — closed data payload (status="In Progress").
+_START_WORK_DATA_KEYS = {"name", "status"}
+# StartWorkRequest — name REQUIRED (positional @api/imm12.py:246); notes optional (default "").
+#   KHÁC AcknowledgeIncidentRequest: KHÔNG có assigned_to (start_work auto-gán server-side @imm12.py:483).
+_START_WORK_REQUEST_REQUIRED = ["name"]
+_START_WORK_REQUEST_PROPS = {"name", "notes"}
+
+# C8-ACTION (resolve_incident) — POST-action lifecycle THỨ BA cho Incident (In Progress → Resolved).
+#   NỐI TIẾP acknowledgeIncident + startWork (cùng domain IMM-12, cùng cap corrective.investigate) — màn
+#   incident-detail (getIncident) ĐÓNG VÒNG xử lý sau khi đã In Progress. POST-only @api/imm12.py:257;
+#   opId resolveIncident (dotted-path tail §8.1). Vào _MVP_BUSINESS_PATHS ⇒ 401/403 symmetry set tự +1
+#   (test so SET). Guard riêng = TestMobileResolveIncidentContract.
+_RESOLVE_INCIDENT_PATH = "/api/method/assetcore.api.imm12.resolve_incident"
+_RESOLVE_INCIDENT_REQUEST_SCHEMA = "ResolveIncidentRequest"
+# SCHEMA RIÊNG (KHÔNG reuse IncidentActionEnvelope/IncidentActionResponse): service trả thêm field thứ
+#   ba `rca_created` (RCA auto-create High/Critical @services/imm12.py:530) ⇒ data ≠ {name,status} 2-key.
+_RESOLVE_INCIDENT_ENVELOPE_SCHEMA = "ResolveIncidentEnvelope"
+_RESOLVE_INCIDENT_RESPONSE_SCHEMA = "ResolveIncidentResponse"
+_RESOLVE_INCIDENT_ENVELOPE_SCHEMA_REF = "#/components/schemas/ResolveIncidentEnvelope"
+# svc_resolve return {"name","status","rca_created"} @services/imm12.py:530 — closed 3-key data payload
+#   (status="Resolved"; rca_created = RCA name string HOẶC null nullable @:519).
+_RESOLVE_INCIDENT_DATA_KEYS = {"name", "status", "rca_created"}
+# ResolveIncidentRequest — name + resolution_notes REQUIRED (positional no-default @api/imm12.py:258);
+#   root_cause optional (default ""). 2-required (KHÁC StartWorkRequest 1-required).
+_RESOLVE_INCIDENT_REQUEST_REQUIRED = ["name", "resolution_notes"]
+_RESOLVE_INCIDENT_REQUEST_PROPS = {"name", "resolution_notes", "root_cause"}
+
+# C8-ACTION (close_incident) — POST-action lifecycle TERMINAL cho Incident (Resolved → Closed).
+#   Mắt xích CUỐI chuỗi report→ack→start→resolve→close (cùng domain IMM-12). getIncident detail ĐÓNG
+#   VÒNG vòng-đời incident. POST-ONLY @api/imm12.py:270 (clean POST, decorator methods=['POST'] SẴN —
+#   KHÔNG verb-divergence, KHÁC submitPmResult/submitCalibration bare-whitelist). opId closeIncident
+#   (dotted-path tail §8.1). Vào _MVP_BUSINESS_PATHS ⇒ 401/403 symmetry set tự +1 (test so SET).
+#   Guard riêng = TestMobileCloseIncidentContract.
+_CLOSE_INCIDENT_PATH = "/api/method/assetcore.api.imm12.close_incident"
+_CLOSE_INCIDENT_REQUEST_SCHEMA = "CloseIncidentRequest"
+# SCHEMA RIÊNG (KHÔNG reuse IncidentActionResponse 2-key NÊN KHÔNG reuse ResolveIncidentResponse 3-key):
+#   service trả field thứ ba `closed_date` (ngày đóng, today() UNCONDITIONAL @services/imm12.py:555) —
+#   closed_date ≠ rca_created của resolve ⇒ C3-split field-disjoint.
+_CLOSE_INCIDENT_ENVELOPE_SCHEMA = "CloseIncidentEnvelope"
+_CLOSE_INCIDENT_RESPONSE_SCHEMA = "CloseIncidentResponse"
+_CLOSE_INCIDENT_ENVELOPE_SCHEMA_REF = "#/components/schemas/CloseIncidentEnvelope"
+# svc_close return {"name","status","closed_date"} @services/imm12.py:569 — closed 3-key data payload
+#   (status="Closed"; closed_date = today() string format date, NON-nullable — KHÁC resolve rca_created nullable).
+_CLOSE_INCIDENT_DATA_KEYS = {"name", "status", "closed_date"}
+# CloseIncidentRequest — name REQUIRED (positional no-default @api/imm12.py:271);
+#   verification_notes optional (default ""). 1-required (mirror StartWorkRequest 1-required).
+_CLOSE_INCIDENT_REQUEST_REQUIRED = ["name"]
+_CLOSE_INCIDENT_REQUEST_PROPS = {"name", "verification_notes"}
+
+# C8-ACTION-PM (submit_pm_result) — POST-action lifecycle ĐẦU TIÊN cho PM Work Order
+#   (Assigned/In Progress → Completed, sinh pm_completed event @services/imm08.py:679,686). ĐÓNG dead-end
+#   flow-5 (KTV mở getPmWorkOrder detail nhưng KHÔNG hoàn thành được PM). KHÁC action incident/repair:
+#   (1) mang child-array checklist_results[] (nested PmChecklistResultInput) thay vì single name; (2) response
+#   5-field PM-riêng. Domain PM ⇒ PmSubmitResultEnvelope/PmSubmitResultResponse RIÊNG (C3-split: new_status
+#   ≠ field `status`, +3 field PM-riêng is_late/next_pm_date/cm_wo_created). ⚠️ DIVERGENCE: BE @api/imm08.py:54
+#   bare @frappe.whitelist() (KHÔNG methods=['POST']) ⇒ runtime NHẬN cả GET. Contract khai POST (RPC-write,
+#   không idempotent). FIX = thêm methods=['POST'] @api/imm08.py:54 → BACKLOG HARD-STOP (kèm reload), KHÔNG
+#   sửa .py round này. Test guard KHÔNG assert path POST-ONLY-vì-source (assert path POST tồn-tại + chữ-ký
+#   THẬT inspect.signature, anti-false-green claim≠source). Vào _MVP_BUSINESS_PATHS ⇒ symmetry +1. Guard
+#   riêng = TestMobileSubmitPmResultContract.
+_SUBMIT_PM_RESULT_PATH = "/api/method/assetcore.api.imm08.submit_pm_result"
+_SUBMIT_PM_RESULT_REQUEST_SCHEMA = "SubmitPmResultRequest"
+_SUBMIT_PM_CHECKLIST_INPUT_SCHEMA = "PmChecklistResultInput"
+# SCHEMA RIÊNG (KHÔNG reuse Repair/IncidentActionEnvelope): service trả 5-key {name,new_status,is_late,
+#   next_pm_date,cm_wo_created} @services/imm08.py:705-711 ⇒ data ≠ {name,status} 2-key + new_status≠status.
+_SUBMIT_PM_RESULT_ENVELOPE_SCHEMA = "PmSubmitResultEnvelope"
+_SUBMIT_PM_RESULT_RESPONSE_SCHEMA = "PmSubmitResultResponse"
+_SUBMIT_PM_RESULT_ENVELOPE_SCHEMA_REF = "#/components/schemas/PmSubmitResultEnvelope"
+# svc.submit_result return {name,new_status,is_late,next_pm_date,cm_wo_created} @services/imm08.py:705-711 —
+#   closed 5-key data payload (new_status="Completed" imm08.py:671,707; is_late genuine bool() :707;
+#   cm_wo_created nullable :710; next_pm_date date-string :709).
+_SUBMIT_PM_RESULT_DATA_KEYS = {"name", "new_status", "is_late", "next_pm_date", "cm_wo_created"}
+# SubmitPmResultRequest — name REQUIRED (positional @api/imm08.py:55); 5 optional default khớp signature
+#   submit_pm_result(name, checklist_results='[]', overall_result='Pass', technician_notes='',
+#   pm_sticker_attached=0, duration_minutes=0). 1-required (KHÁC ResolveIncidentRequest 2-required).
+_SUBMIT_PM_RESULT_REQUEST_REQUIRED = ["name"]
+_SUBMIT_PM_RESULT_REQUEST_PROPS = {
+    "name", "checklist_results", "overall_result", "technician_notes",
+    "pm_sticker_attached", "duration_minutes",
+}
+# PmChecklistResultInput (nested item) — idx REQUIRED (result_map key @services/imm08.py:659); result/
+#   measured_value(nullable)/notes optional @imm08.py:662-664.
+_SUBMIT_PM_CHECKLIST_INPUT_REQUIRED = ["idx"]
+_SUBMIT_PM_CHECKLIST_INPUT_PROPS = {"idx", "result", "measured_value", "notes"}
+# new_status enum = PMStatus-canonical 1:1 @pm_work_order.json Select (@services/imm08.py:43-50; 7 state;
+#   post-submit value = "Completed").
+_PM_STATUS_ENUM = [
+    "Open", "In Progress", "Pending–Device Busy", "Overdue",
+    "Completed", "Halted–Major Failure", "Cancelled",
+]
+
+# C8-ACTION (close_work_order) — POST-action lifecycle TERMINAL cho Asset Repair (In Repair →
+#   Pending Inspection HOẶC Cannot Repair). ĐÓNG dead-end SAU startRepair: KTV bắt đầu sửa nhưng
+#   KHÔNG có endpoint hoàn thành. KHÁC mọi action đã làm: 2 child-array RIÊNG (checklist_results[]
+#   shape KHÁC PM — test_description≠description — + spare_parts[]) + dept_head_name conditional-required
+#   (CM-013: bắt buộc khi hoàn thành @services/imm09.py:929) + nhánh cannot_repair (status='Cannot
+#   Repair' @services/imm09.py:1005). POST-only @api/imm09.py:84 (@frappe.whitelist(methods=['POST'])).
+#   opId closeWorkOrder (dotted-path tail §8.1). Vào _MVP_BUSINESS_PATHS ⇒ 401/403 symmetry set tự +1
+#   (test so SET). Guard riêng = TestMobileCloseWorkOrderContract.
+_CLOSE_WORK_ORDER_PATH = "/api/method/assetcore.api.imm09.close_work_order"
+_CLOSE_WORK_ORDER_REQUEST_SCHEMA = "CloseWorkOrderRequest"
+_CLOSE_WORK_ORDER_CHECKLIST_INPUT_SCHEMA = "CloseWorkOrderChecklistInput"
+# SCHEMA RIÊNG (KHÔNG reuse RepairActionResponse {name,status} — start_repair): close trả 4-key
+#   {name,status,mttr_hours,sla_breached} @services/imm09.py:956-961 (happy) + status enum gồm CẢ
+#   'Pending Inspection' (happy @:946,958) VÀ 'Cannot Repair' (_mark_cannot_repair @:1005,1015).
+_CLOSE_WORK_ORDER_ENVELOPE_SCHEMA = "CloseWorkOrderEnvelope"
+_CLOSE_WORK_ORDER_RESPONSE_SCHEMA = "CloseWorkOrderResponse"
+_CLOSE_WORK_ORDER_ENVELOPE_SCHEMA_REF = "#/components/schemas/CloseWorkOrderEnvelope"
+# svc.close_work_order happy return {name,status,mttr_hours,sla_breached} @services/imm09.py:956-961;
+#   cannot_repair branch (_mark_cannot_repair @:1015) trả {name,status,asset_status} — KHÔNG mttr/sla ⇒
+#   contract closed 4-key {name,status,mttr_hours,sla_breached} với mttr_hours/sla_breached nullable.
+_CLOSE_WORK_ORDER_DATA_KEYS = {"name", "status", "mttr_hours", "sla_breached"}
+# CloseWorkOrderRequest — source no-default-set = 4 positional @api/imm09.py:85-86 (name, repair_summary,
+#   root_cause_category, dept_head_name); 6 optional có default @api/imm09.py:86-89 (checklist_results,
+#   spare_parts, firmware_updated, firmware_change_request, cannot_repair, cannot_repair_reason).
+#   ⮕ contract schema-required = 3 (KHÔNG gồm dept_head_name — xem divergence dưới).
+#   ⚠️ dept_head_name @api/imm09.py:86 = param thứ 4 positional KHÔNG default ở signature (no-default-set
+#   THẬT @source = 4) NHƯNG contract schema-required CHỈ 3 (KHÔNG gồm dept_head_name): BA-decision
+#   conditional-required (CM-013 @services/imm09.py:929 — bắt buộc RUNTIME khi cannot_repair=0; cannot_repair=1
+#   KHÔNG cần ⇒ KHÔNG ép schema-required, nếu ép sẽ chặn client gửi cannot_repair=1 không có dept_head_name).
+#   ⇒ contract.required ⊊ no-default-set; chênh = exactly {dept_head_name} (documented divergence, closewo_i
+#   parity assert chính xác chênh này). YAML CloseWorkOrderRequest.required = 3 (mirror hằng này).
+_CLOSE_WORK_ORDER_REQUEST_REQUIRED = ["name", "repair_summary", "root_cause_category"]
+_CLOSE_WORK_ORDER_REQUEST_PROPS = {
+    "name", "repair_summary", "root_cause_category", "dept_head_name",
+    "checklist_results", "spare_parts", "firmware_updated",
+    "firmware_change_request", "cannot_repair", "cannot_repair_reason",
+}
+# CloseWorkOrderChecklistInput (nested item) — GROUNDED _apply_checklist @services/imm09.py:1019-1040:
+#   match row theo idx (@:1036); ghi test_description/result/measured_value/notes (@:1028-1031). KHÔNG
+#   reuse PmChecklistResultInput — field-name KHÁC (test_description ≠ PM `description`). idx REQUIRED
+#   (match-key); test_description/result/measured_value(nullable)/notes optional.
+_CLOSE_WORK_ORDER_CHECKLIST_INPUT_REQUIRED = ["idx"]
+_CLOSE_WORK_ORDER_CHECKLIST_INPUT_PROPS = {
+    "idx", "test_description", "result", "measured_value", "notes",
+}
+# close_work_order status enum = endpoint-NÀY-trả (đúng 2 giá trị, KHÔNG full 9-state): 'Pending Inspection'
+#   (happy @services/imm09.py:958) + 'Cannot Repair' (nhánh cannot_repair _mark_cannot_repair @:1005,1015).
+#   CẢ 2 ∈ RepairStatus-canonical @asset_repair.json. Schema CloseWorkOrderResponse.status.enum = 2-state
+#   (codegen sinh máy-trạng-thái đúng 2 nhánh return THẬT — KHÔNG nhồi 9-state không-bao-giờ-trả).
+_CLOSE_WORK_ORDER_POST_STATUS = {"Pending Inspection", "Cannot Repair"}
+
+# C8-ACTION (confirm_inspection) — POST-action lifecycle TERMINAL-THẬT cho Asset Repair WO
+#   (Pending Inspection → Completed, docstatus 0→1). ĐÓNG dead-end CUỐI chuỗi repair: closeWorkOrder
+#   (R17) chỉ đưa WO về 'Pending Inspection' (NON-terminal) — getRepairWorkOrder.allowed_transitions[]
+#   (R22) ĐÃ surface CTA 'Completed' NHƯNG chưa có endpoint thực thi. confirm_inspection lấp đúng chỗ đó.
+#   SOURCE-CHARACTERIZED @api/imm09.py:103-107 `def confirm_inspection(name)` + rbac.require('repair.submit')
+#   (QA/trưởng-khoa duyệt — KHÁC repair.create của KTV ⇒ gate phê-duyệt-chất-lượng RIÊNG). POST-only
+#   @api/imm09.py:103 (@frappe.whitelist(methods=['POST']) — clean POST, KHÔNG verb-divergence ⇒ TC-a
+#   CÓ THỂ assert POST-ONLY, KHÁC submitCalibration bare-whitelist).
+#   service return EXACT 4-key {name, status=RepairStatus.COMPLETED, mttr_hours, sla_breached}
+#   @services/imm09.py:1114-1119. doc.submit() → on_submit → complete_repair() (MTTR/SLA, Asset→Active,
+#   hook recalibration IMM-11). status INVARIANT = 'Completed' (single-value — TERMINAL, KHÁC
+#   closeWorkOrder 2-value {Pending Inspection, Cannot Repair}). opId confirmInspection (dotted-path tail
+#   §8.1). Vào _MVP_BUSINESS_PATHS ⇒ 401/403 symmetry set tự +1 (test so SET). Guard riêng =
+#   TestMobileConfirmInspectionContract.
+# ⚠️ C3-SPLIT cross-ACTION (ADR-MOBILE-009): ConfirmInspectionResponse shape-TRÙNG CloseWorkOrderResponse
+#   {name,status,mttr_hours,sla_breached} NHƯNG status enum-domain DISJOINT (Completed ∉ {Pending
+#   Inspection, Cannot Repair}) + cap KHÁC (repair.submit vẫn nhưng semantics nghiệm-thu vs đóng-phiếu) ⇒
+#   schema RIÊNG, KHÔNG reuse (precedent ResolveIncidentResponse/CloseIncidentResponse field-disjoint split).
+_CONFIRM_INSPECTION_PATH = "/api/method/assetcore.api.imm09.confirm_inspection"
+_CONFIRM_INSPECTION_REQUEST_SCHEMA = "ConfirmInspectionRequest"
+_CONFIRM_INSPECTION_ENVELOPE_SCHEMA = "ConfirmInspectionEnvelope"
+_CONFIRM_INSPECTION_RESPONSE_SCHEMA = "ConfirmInspectionResponse"
+_CONFIRM_INSPECTION_ENVELOPE_SCHEMA_REF = "#/components/schemas/ConfirmInspectionEnvelope"
+# ConfirmInspectionRequest = closed 1-field {name} (signature confirm_inspection(name) @api/imm09.py:104 —
+#   0 optional param) mirror StartRepairRequest single-field. content oneOf json+form (Frappe RPC form_dict).
+_CONFIRM_INSPECTION_REQUEST_REQUIRED = ["name"]
+_CONFIRM_INSPECTION_REQUEST_PROPS = {"name"}
+_CONFIRM_INSPECTION_BODY_MEDIA_TYPES = {"application/json", "application/x-www-form-urlencoded"}
+# service return EXACT 4-key @services/imm09.py:1114-1119 {name, status, mttr_hours, sla_breached}.
+#   status INVARIANT = RepairStatus.COMPLETED = 'Completed' (single-value enum — TERMINAL nghiệm-thu).
+#   mttr_hours = Float (number nullable) @asset_repair.json; sla_breached = Check (integer enum[0,1],
+#   KHÔNG boolean) @asset_repair.json — server-flag set bởi complete_repair() khi submit.
+_CONFIRM_INSPECTION_DATA_KEYS = {"name", "status", "mttr_hours", "sla_breached"}
+_CONFIRM_INSPECTION_STATUS_ENUM = ["Completed"]  # RepairStatus.COMPLETED @services/imm09.py:38 (single-value)
+
+# FLOW-6 READ-RECEIPT (mark_notification_as_read) — WRITE-action ĐẦU TIÊN trên domain Notification Log.
+#   Đóng dead-end của listNotifications (R20): tab chuông + push deep-link (flow-6) CHỈ-ĐỌC danh-sách
+#   (read-only), KHÔNG có endpoint đánh-dấu 1 thông-báo đã-đọc khi user tap/mở. BE LIVE @layout.py:102-117
+#   (@frappe.whitelist(methods=['POST']) — CLEAN POST ⇒ TC-a assert POST-ONLY; ownership-guard
+#   for_user==session.user @:111-113; trả _ok({name, read:1}) @:117).
+#   ⚠️ C3-SPLIT cross-domain: response RIÊNG 2-key {name, read} — Notification Log KHÔNG có workflow_state
+#   ⇒ KHÔNG field `status` ⇒ KHÔNG reuse mọi *ActionResponse trước (đều mang status/domain-field như
+#   {name,status} / {name,status,...}). read = integer enum[0,1] (KHÔNG boolean — Open#1 int-vs-bool SSoT,
+#   mirror NotificationListItem.read; guard ép type==integer && enum==[0,1] chống codegen Dart/Kotlin
+#   sinh bool → strict deser CRASH). requestBody closed {name} (signature mark_notification_as_read(name)
+#   — 0 optional). opId markNotificationAsRead (dotted-path tail §8.1). Vào _MVP_BUSINESS_PATHS ⇒ 401/403
+#   symmetry set tự +1 (test so SET). Guard riêng = TestMobileMarkNotificationReadContract.
+_MARK_NOTIF_READ_PATH = "/api/method/assetcore.api.layout.mark_notification_as_read"
+_MARK_NOTIF_READ_REQUEST_SCHEMA = "MarkNotificationReadRequest"
+_MARK_NOTIF_READ_ENVELOPE_SCHEMA = "MarkNotificationReadEnvelope"
+_MARK_NOTIF_READ_RESPONSE_SCHEMA = "MarkNotificationReadResponse"
+_MARK_NOTIF_READ_ENVELOPE_SCHEMA_REF = "#/components/schemas/MarkNotificationReadEnvelope"
+_MARK_NOTIF_READ_BODY_MEDIA_TYPES = {"application/json", "application/x-www-form-urlencoded"}
+# Request = closed 1-field {name} (signature mark_notification_as_read(name) @layout.py:103 — 0 optional).
+_MARK_NOTIF_READ_REQUEST_REQUIRED = ["name"]
+_MARK_NOTIF_READ_REQUEST_PROPS = {"name"}
+# service return EXACT 2-key {name, read} @layout.py:117 _ok({"name":name, "read":1}). KHÔNG status
+#   (Notification Log không workflow). read = integer enum[0,1] (Check-fieldtype Notification Log.read).
+_MARK_NOTIF_READ_DATA_KEYS = {"name", "read"}
+_MARK_NOTIF_READ_READ_ENUM = [0, 1]
+
+# FLOW-6 MARK-ALL-READ (mark_all_as_read) — BULK read-receipt, ĐÓNG NỐT notification-center action-set
+#   (tab "Thông báo" › nút "Đánh dấu tất cả đã đọc", sau markNotificationAsRead single). BE LIVE
+#   @layout.py:120-134 (@frappe.whitelist(methods=['POST']) — CLEAN POST). 0-PARAM mark_all_as_read()
+#   @:121 ⇒ KHÔNG requestBody (codegen no-arg POST). SQL UPDATE WHERE for_user=session.user AND read=0
+#   @:127-131 ⇒ KHÔNG lookup-by-name ⇒ KHÔNG 404/409. _ok({updated_rows: affected}) @:134.
+#   ⚠️ C3-SPLIT cross-domain: response RIÊNG 1-key {updated_rows} — Notification Log KHÔNG workflow_state
+#   ⇒ KHÔNG field `status` ⇒ KHÔNG reuse mọi *ActionResponse lẫn MarkNotificationReadResponse {name,read}.
+#   ⚠️ updated_rows = GENUINE integer count (0..N) KHÔNG enum[0,1] (KHÁC read int-enum của
+#   NotificationListItem/MarkNotificationReadResponse = cờ Check; mirror AddMeasurementResponse.measurement_count
+#   R34 — ĐẾM thật ROW_COUNT() @:132). opId markAllAsRead (dotted-tail §8.1). Vào _MVP_BUSINESS_PATHS ⇒
+#   401/403 symmetry set tự +1 (test so SET). Guard riêng = TestMobileMarkAllReadContract.
+_MARK_ALL_READ_PATH = "/api/method/assetcore.api.layout.mark_all_as_read"
+_MARK_ALL_READ_ENVELOPE_SCHEMA = "MarkAllReadEnvelope"
+_MARK_ALL_READ_RESPONSE_SCHEMA = "MarkAllReadResponse"
+_MARK_ALL_READ_ENVELOPE_SCHEMA_REF = "#/components/schemas/MarkAllReadEnvelope"
+# service return EXACT 1-key {updated_rows} @layout.py:134 _ok({"updated_rows": affected}). KHÔNG status
+#   (Notification Log không workflow). updated_rows = GENUINE integer count (KHÔNG enum[0,1]).
+_MARK_ALL_READ_DATA_KEYS = {"updated_rows"}
+
+# C8-ACTION (assign_technician) — POST-action lifecycle DISPATCH cho Asset Repair (Open → Assigned).
+#   LẤP HỐ create→start: chuỗi createRepairWorkOrder → [assignTechnician] → startRepair (giao WO cho KTV
+#   hiện trường). KHÁC mọi action đã làm: (1) requestBody 2-required {name,technician} + optional priority
+#   (technician = đích tiêu thụ listUsers R23-picker) — KHÁC startRepair đơn-{name}; (2) response RIÊNG
+#   3-key {name,status,assigned_to} ⇒ AssignTechnicianEnvelope/AssignTechnicianResponse RIÊNG (service trả
+#   thêm assigned_to @services/imm09.py:848 ⇒ KHÔNG reuse RepairActionEnvelope 2-key {name,status}).
+#   POST-only @api/imm09.py:57 (@frappe.whitelist(methods=['POST'])). opId assignTechnician (dotted-path
+#   tail §8.1). Vào _MVP_BUSINESS_PATHS ⇒ 401/403 symmetry set tự +1 (test so SET). Guard riêng =
+#   TestMobileAssignTechnicianContract.
+_ASSIGN_TECH_PATH = "/api/method/assetcore.api.imm09.assign_technician"
+_ASSIGN_TECH_REQUEST_SCHEMA = "AssignTechnicianRequest"
+# SCHEMA RIÊNG (KHÔNG reuse RepairActionEnvelope/RepairActionResponse {name,status} — start_repair):
+#   service trả field thứ ba `assigned_to` (echo technician đã gán @services/imm09.py:848) ⇒ data 3-key ≠ 2-key.
+_ASSIGN_TECH_ENVELOPE_SCHEMA = "AssignTechnicianEnvelope"
+_ASSIGN_TECH_RESPONSE_SCHEMA = "AssignTechnicianResponse"
+_ASSIGN_TECH_ENVELOPE_SCHEMA_REF = "#/components/schemas/AssignTechnicianEnvelope"
+# svc.assign_technician return {name,status,assigned_to} @services/imm09.py:848 — closed 3-key data payload
+#   (status="Assigned"; assigned_to = technician echo).
+_ASSIGN_TECH_DATA_KEYS = {"name", "status", "assigned_to"}
+# AssignTechnicianRequest — name + technician REQUIRED (2 positional no-default @api/imm09.py:58);
+#   priority optional (default ""). 2-required (mirror ResolveIncidentRequest 2-required, KHÁC StartRepair 1).
+_ASSIGN_TECH_REQUEST_REQUIRED = ["name", "technician"]
+_ASSIGN_TECH_REQUEST_PROPS = {"name", "technician", "priority"}
+
+# C8-ACTION (submit_calibration) — POST-action lifecycle COMPLETION/TERMINAL cho Calibration Record
+#   (docstatus 0→1, status→Passed/Failed/Conditionally Passed). ĐÓNG dead-end tab Calibration MVP-flow-5:
+#   KTV mở getCalibration detail nhưng KHÔNG có endpoint hoàn thành hiệu chuẩn. Thành viên THỨ BA của họ
+#   completion-action (sau submitPmResult + closeWorkOrder). KHÁC mọi action đã làm: response RIÊNG 4-key
+#   {name,status,overall_result,next_calibration_date} (overall_result Select 4-value + next_calibration_date
+#   date-string-or-empty nullable) ⇒ SubmitCalibrationResponse RIÊNG, KHÔNG reuse Pm/Repair/IncidentAction
+#   Response (C3-split cross-domain). requestBody CHỈ {name} (signature submit_calibration(name) — 0 optional).
+#   ⚠️ DIVERGENCE method-verb: BE @api/imm11.py:114 bare @frappe.whitelist() (KHÔNG methods=['POST'], nhận
+#   GET) ↔ contract khai POST (write-action mutate docstatus 0→1, không idempotent). TC-a assert path POST
+#   TỒN-TẠI + opId (KHÔNG assert POST-ONLY-vì-source — anti-false-green; fix = backlog HARD-STOP). Vào
+#   _PARITY_VERB_ALLOWLIST (mirror create_calibration + submit_pm_result).
+_SUBMIT_CAL_PATH = "/api/method/assetcore.api.imm11.submit_calibration"
+_SUBMIT_CAL_REQUEST_SCHEMA = "SubmitCalibrationRequest"
+# SCHEMA RIÊNG (KHÔNG reuse Pm/Repair/IncidentActionEnvelope): service trả 4-key {name,status,overall_result,
+#   next_calibration_date} @services/imm11.py:1054-1059 ⇒ cross-domain C3-split.
+_SUBMIT_CAL_ENVELOPE_SCHEMA = "SubmitCalibrationEnvelope"
+_SUBMIT_CAL_RESPONSE_SCHEMA = "SubmitCalibrationResponse"
+_SUBMIT_CAL_ENVELOPE_SCHEMA_REF = "#/components/schemas/SubmitCalibrationEnvelope"
+# svc.submit_calibration return {name,status,overall_result,next_calibration_date} @services/imm11.py:1054-1059
+#   (status=doc.status, overall_result=doc.overall_result, next_calibration_date=str(doc.next_calibration_date
+#   or "")) — closed 4-key data payload.
+_SUBMIT_CAL_DATA_KEYS = {"name", "status", "overall_result", "next_calibration_date"}
+# SubmitCalibrationRequest — CHỈ name REQUIRED (positional @api/imm11.py:115; signature submit_calibration(name)
+#   đúng 1 param, 0 optional) ⇒ props == required == {name}.
+_SUBMIT_CAL_REQUEST_REQUIRED = ["name"]
+_SUBMIT_CAL_REQUEST_PROPS = {"name"}
+# status enum = Select imm_asset_calibration.json (8-value — KTV xem trạng thái nào sau submit; doc.status
+#   @services/imm11.py:1056 trả full lifecycle). overall_result enum = Select imm_asset_calibration.json
+#   (4-value gồm '' rỗng — overall_result chưa chấm khi cancel/edge). next_calibration_date nullable
+#   (str(... or "") @:1058 ⇒ rỗng khi chưa có lịch tái).
+_SUBMIT_CAL_STATUS_ENUM = [
+    "Scheduled", "Sent to Lab", "In Progress", "Certificate Received",
+    "Passed", "Failed", "Conditionally Passed", "Cancelled",
+]
+_SUBMIT_CAL_OVERALL_RESULT_ENUM = ["", "Passed", "Failed", "Conditionally Passed"]
+
+# R34 ADD-MEASUREMENT (add_measurement) — POST mắt-xích-GIỮA chuỗi calibration-detail:
+#   createCalibration (§8.6) → addMeasurement (×N — ghi điểm-đo vào child table `measurements`) →
+#   submitCalibration (§8.15 — tính overall_result trên measurement-set THẬT). Service THẬT
+#   add_measurement(name, *, parameter_name, unit, nominal_value, tolerance_positive,
+#   tolerance_negative, measured_value=None) @services/imm11.py:1107: append 1 row rồi save; return
+#   2-key {name, measurement_count=len(doc.measurements)} @services/imm11.py:1124. 404 IMM11_CAL_NOT_FOUND
+#   @:1112 + 409 IMM11_ALREADY_SUBMITTED (docstatus==1) @:1114 → Error-on-HTTP-200 (KHÔNG status-line).
+#   ⚠️ VERB-FLIP-THIS-ROUND (ADR-MOBILE-011): handler @api/imm11.py:120 bare @frappe.whitelist() (nhận GET)
+#   → flip @frappe.whitelist(methods=['POST']) NGAY (verb-parity gap R33 BỎ SÓT) ⇒ POST-only @source ⇒
+#   KHÔNG verb-divergence ⇒ _PARITY_VERB_ALLOWLIST GIỮ set() (KHÔNG vào allowlist).
+_ADD_MEASUREMENT_PATH = "/api/method/assetcore.api.imm11.add_measurement"
+_ADD_MEASUREMENT_BODY_REF = "#/components/requestBodies/AddMeasurementBody"
+# SCHEMA RIÊNG (KHÔNG reuse Submit/Pm/Repair/IncidentActionResponse): service trả 2-key
+#   {name, measurement_count} @services/imm11.py:1124 ⇒ field-set RIÊNG.
+_ADD_MEASUREMENT_REQUEST_SCHEMA = "AddMeasurementRequest"
+_ADD_MEASUREMENT_RESPONSE_SCHEMA = "AddMeasurementResponse"
+_ADD_MEASUREMENT_ENVELOPE_SCHEMA = "AddMeasurementEnvelope"
+_ADD_MEASUREMENT_ENVELOPE_SCHEMA_REF = "#/components/schemas/AddMeasurementEnvelope"
+# requestBody — required EXACT 6 (6 tham số KHÔNG default @api/imm11.py:121-122) + optional
+#   measured_value (measured_value: float = None @api/imm11.py:123). string×3 / number×4.
+_ADD_MEASUREMENT_REQUEST_REQUIRED = [
+    "name", "parameter_name", "unit", "nominal_value",
+    "tolerance_positive", "tolerance_negative",
+]
+_ADD_MEASUREMENT_REQUEST_PROPS = {
+    "name", "parameter_name", "unit", "nominal_value",
+    "tolerance_positive", "tolerance_negative", "measured_value",
+}
+_ADD_MEASUREMENT_STRING_PROPS = {"name", "parameter_name", "unit"}
+_ADD_MEASUREMENT_NUMBER_PROPS = {
+    "nominal_value", "tolerance_positive", "tolerance_negative", "measured_value",
+}
+# svc.add_measurement return {name, measurement_count=len(doc.measurements)} @services/imm11.py:1124
+#   — measurement_count = GENUINE integer count (số row child-table sau append, có thể >1),
+#   KHÔNG enum[0,1] (precedent `updated`/requestSpareParts ADR-MOBILE-010 §2). 0 boolean prop.
+_ADD_MEASUREMENT_DATA_KEYS = {"name", "measurement_count"}
+# live signature params (introspect @api/imm11.py:121-123) — 7-param == request props.
+_ADD_MEASUREMENT_SIG_PARAMS = {
+    "name", "parameter_name", "unit", "nominal_value",
+    "tolerance_positive", "tolerance_negative", "measured_value",
+}
+
+# R35 PM-DISPATCH (assign_technician imm08) — POST mắt-xích-GIỮA chuỗi PM-detail:
+#   createPmWorkOrder → [assignPmTechnician] → submitPmResult (§8.14). Workshop Head mở getPmWorkOrder
+#   detail (Open/Overdue) phân công 1 KTV (+scheduled_date optional). Service THẬT
+#   assign_technician(name, *, technician, scheduled_date=None) @services/imm08.py:656: pre-condition
+#   status ∈ {Open, Overdue} (else 409 IMM08_BAD_STATE :661); 404 IMM08_WO_NOT_FOUND phiếu∄ :659;
+#   422 VALIDATION asset|schedule đã xóa :662-671; set assigned_to + status=PMStatus.IN_PROGRESS :676 →
+#   PMWorkOrderRepo.save :677 → _transition_asset(asset, UNDER_MAINTENANCE, wo) :678 (asset → 'Under
+#   Maintenance' + SINH Lifecycle Event audit BR-08); return 3-key {name,status,assigned_to} :679.
+#   ⚠️ VERB-FLIP-THIS-ROUND (ADR-MOBILE-012, sibling add_measurement): handler @api/imm08.py:46 flip bare
+#   @frappe.whitelist() → methods=['POST'] (verb-parity gap R33 BỎ SÓT) ⇒ POST-only @source ⇒ KHÔNG
+#   verb-divergence ⇒ _PARITY_VERB_ALLOWLIST GIỮ set(). opId assignPmTechnician (UNIQUE — KHÁC repair
+#   assignTechnician). Vào _MVP_BUSINESS_PATHS ⇒ 401/403 symmetry set tự +1.
+_ASSIGN_PM_TECH_PATH = "/api/method/assetcore.api.imm08.assign_technician"
+# SCHEMA RIÊNG (C3-split — KHÔNG reuse repair AssignTechnician*): status-domain DISJOINT (PM post-assign
+#   = 'In Progress' ≠ repair 'Assigned'); response 3-key grounded @services/imm08.py:679.
+_ASSIGN_PM_TECH_REQUEST_SCHEMA = "AssignPmTechnicianRequest"
+_ASSIGN_PM_TECH_RESPONSE_SCHEMA = "AssignPmTechnicianResponse"
+_ASSIGN_PM_TECH_ENVELOPE_SCHEMA = "AssignPmTechnicianEnvelope"
+_ASSIGN_PM_TECH_ENVELOPE_SCHEMA_REF = "#/components/schemas/AssignPmTechnicianEnvelope"
+# svc.assign_technician return {name,status,assigned_to} @services/imm08.py:679 — closed 3-key data payload
+#   (status=PMStatus.IN_PROGRESS 'In Progress'; assigned_to = technician echo).
+_ASSIGN_PM_TECH_DATA_KEYS = {"name", "status", "assigned_to"}
+# AssignPmTechnicianRequest — name + technician REQUIRED (2 positional no-default @api/imm08.py:47);
+#   scheduled_date optional (default None @signature → contract nullable, NOT required).
+_ASSIGN_PM_TECH_REQUEST_REQUIRED = ["name", "technician"]
+_ASSIGN_PM_TECH_REQUEST_PROPS = {"name", "technician", "scheduled_date"}
+# live signature params (introspect @api/imm08.py:47) — 3-param == request props.
+_ASSIGN_PM_TECH_SIG_PARAMS = {"name", "technician", "scheduled_date"}
+
+# R36 PM→CM ESCALATION (report_major_failure imm08) — POST-action ESCALATION cho PM Work Order:
+#   PM phát hiện hỏng nặng → dừng PM (status=PMStatus.HALTED_MAJOR :749) + asset → Out of Service
+#   (_transition_asset :750 SINH Lifecycle Event) + tạo CM WO khẩn (RepairRepo.create Emergency :752-759)
+#   + Incident IMM-12 (:778-790) + email (:761-777). Service THẬT report_major_failure(pm_wo_name, *,
+#   failure_description) @services/imm08.py:744: 404 IMM08_WO_NOT_FOUND phiếu∄ :747; return 4-key
+#   {pm_wo,new_status,cm_wo_created,asset_status} :792-797. Đóng nút "Báo lỗi nghiêm trọng (→ CM)" PM-detail.
+#   ⚠️ VERB-FLIP-THIS-ROUND (ADR-MOBILE-013): handler @api/imm08.py:74 bare @frappe.whitelist() → methods=
+#   ['POST'] (write KHÔNG idempotent). 🐞 SIGNATURE-FIX: handler cũ truyền failed_item_indexes= vào service
+#   (signature KHÔNG nhận) ⇒ TypeError→HTTP-500; DROP field ở handler + request. opId reportMajorFailure
+#   (UNIQUE — default tail→camel). Vào _MVP_BUSINESS_PATHS ⇒ 401/403 symmetry set tự +1.
+_REPORT_MAJOR_FAILURE_PATH = "/api/method/assetcore.api.imm08.report_major_failure"
+# SCHEMA RIÊNG — shape cross-module duy nhất (pm_wo + cm_wo_created + asset_status); response 4-key
+#   grounded @services/imm08.py:792-797 (new_status=PMStatus.HALTED_MAJOR 'Halted–Major Failure').
+_REPORT_MAJOR_FAILURE_REQUEST_SCHEMA = "ReportMajorFailureRequest"
+_REPORT_MAJOR_FAILURE_RESPONSE_SCHEMA = "ReportMajorFailureResponse"
+_REPORT_MAJOR_FAILURE_ENVELOPE_SCHEMA = "ReportMajorFailureEnvelope"
+_REPORT_MAJOR_FAILURE_ENVELOPE_SCHEMA_REF = "#/components/schemas/ReportMajorFailureEnvelope"
+_REPORT_MAJOR_FAILURE_DATA_KEYS = {"pm_wo", "new_status", "cm_wo_created", "asset_status"}
+# ReportMajorFailureRequest — pm_wo_name + failure_description REQUIRED (2 positional no-default
+#   @api/imm08.py:74 SAU SIGNATURE-FIX). DROP failed_item_indexes (service KHÔNG nhận).
+_REPORT_MAJOR_FAILURE_REQUEST_REQUIRED = ["pm_wo_name", "failure_description"]
+_REPORT_MAJOR_FAILURE_REQUEST_PROPS = {"pm_wo_name", "failure_description"}
+# live signature params (introspect @api/imm08.py:74 SAU fix) — 2-param == request props (DROP failed_item_indexes).
+_REPORT_MAJOR_FAILURE_SIG_PARAMS = {"pm_wo_name", "failure_description"}
+
+# R37 PM-RESCHEDULE (reschedule_pm imm08) — POST-action RESCHEDULE cho PM Work Order: thiết bị đang dùng
+#   (cấp cứu/ca mổ) đúng ngày PM → hoãn lịch + ghi lý do bắt buộc. Service THẬT reschedule(name, *, new_date,
+#   reason) @services/imm08.py:807: guard len(reason.strip()) < 5 → ServiceError VALIDATION :808-810 (→422);
+#   WO∄ → nthrow IMM08_WO_NOT_FOUND :813 (→404); old_date=str(wo.due_date) :815; wo.due_date=new_date :816;
+#   wo.status=PMStatus.PENDING_BUSY :817; append technician_notes :818; nếu In Progress → _transition_asset
+#   (asset, Active, wo) :821-822 (asset khôi phục 'Active' + SINH Lifecycle Event audit); return 4-key
+#   {name,old_date,new_date,status} :823. ĐÓNG NỐT action-set PMWorkOrderDetailView (đóng nút "Hoãn lịch
+#   (thiết bị bận)" — mắt-xích CUỐI, 0 nút dead-end).
+#   🟢 ATOMIC-THIS-ROUND (ADR-MOBILE-014): handler @api/imm08.py:86 ĐÃ @frappe.whitelist(methods=['POST']) +
+#   signature reschedule_pm(name, new_date, reason) :87 ĐÃ khớp service ⇒ KHÔNG verb-flip + KHÔNG signature-fix
+#   + KHÔNG đụng api/service ⇒ PURE-YAML+test. opId reschedulePm (UNIQUE — default tail→camel). Cap riêng
+#   pm.reschedule (rbac.require @api/imm08.py:88 — KHÁC sibling pm.write). Vào _MVP_BUSINESS_PATHS ⇒ symmetry +1.
+_RESCHEDULE_PM_PATH = "/api/method/assetcore.api.imm08.reschedule_pm"
+# SCHEMA RIÊNG — shape date-pair DUY NHẤT (old_date + new_date); response 4-key grounded @services/imm08.py:823
+#   (status=PMStatus.PENDING_BUSY 'Pending–Device Busy' en-dash U+2013).
+_RESCHEDULE_PM_REQUEST_SCHEMA = "ReschedulePmRequest"
+_RESCHEDULE_PM_RESPONSE_SCHEMA = "ReschedulePmResponse"
+_RESCHEDULE_PM_ENVELOPE_SCHEMA = "ReschedulePmEnvelope"
+_RESCHEDULE_PM_ENVELOPE_SCHEMA_REF = "#/components/schemas/ReschedulePmEnvelope"
+_RESCHEDULE_PM_DATA_KEYS = {"name", "old_date", "new_date", "status"}
+# ReschedulePmRequest — name + new_date + reason REQUIRED (3 positional no-default @api/imm08.py:87).
+#   reason.minLength:5 MIRROR guard service len(reason.strip()) < 5 @services/imm08.py:808; new_date.format:date.
+_RESCHEDULE_PM_REQUEST_REQUIRED = ["name", "new_date", "reason"]
+_RESCHEDULE_PM_REQUEST_PROPS = {"name", "new_date", "reason"}
+# live signature params (introspect @api/imm08.py:87) — 3-param == request props.
+_RESCHEDULE_PM_SIG_PARAMS = {"name", "new_date", "reason"}
+# status sau hoãn = PMStatus.PENDING_BUSY 'Pending–Device Busy' (en-dash U+2013 @services/imm08.py:50,817).
+_RESCHEDULE_PM_STATUS_EXAMPLE = "Pending–Device Busy"
 
 # C-REQBODY-CREATEREPAIR — createRepairWorkOrder (path Phase-C THỨ HAI rời STUB). Có requestBody
 #   THẬT ($ref requestBodies/CreateRepairWorkOrderBody → schemas/CreateRepairWorkOrderRequest) ⇒
@@ -194,6 +1043,105 @@ _LIST_PM_PATH = "/api/method/assetcore.api.imm08.list_pm_work_orders"
 _LIST_REPAIR_PATH = "/api/method/assetcore.api.imm09.list_repair_work_orders"
 _LIST_INCIDENT_PATH = "/api/method/assetcore.api.imm12.list_incidents"
 _LIST_PATHS = {_LIST_PM_PATH, _LIST_REPAIR_PATH, _LIST_INCIDENT_PATH}
+
+# C-LISTREAD-CAL (open-thread #4c) — listCalibrations (path MVP — tab Calibration MVP-flow-5 list).
+#   BE sẵn imm11.list_calibrations:71 (filters JSON-string/page/page_size; parse_json-in-try/except →
+#   _err Error-trên-HTTP-200 ĐÃ có @imm11.py:72-75 — KHÁC imm09 round 4, KHÔNG cần dời .py). Cap đọc =
+#   calibration.read + vendor-scope 'Calibration Record'. Param reuse WorkOrderFilters (JSON-string)
+#   như list_pm/list_repair — KHÔNG discrete. Vào _MVP_BUSINESS_PATHS ⇒ 401∧403 symmetry tự lên (test
+#   so SET). Element CalibrationListItem field-disjoint (C3-split). Guard riêng =
+#   TestMobileListCalibrationsContract.
+_LIST_CALIBRATION_PATH = "/api/method/assetcore.api.imm11.list_calibrations"
+
+# C-LISTREAD-ASSET (open-thread #4c) — listAssets (tra-cứu thiết bị MVP-flow-5). BE sẵn
+#   imm00.list_assets:309 (bare @whitelist nhận GET; return _ok({pagination,items}) @:450 — rows-key
+#   `items` mirror IncidentListEnvelope; cap đọc asset.read mirror getAsset:458; 0 Check field; 3
+#   financial @:433 EXCLUDED khỏi contract LL-BE-57). KHÁC list_pm/list_repair/list_cal: 7 param
+#   DISCRETE query-string (KHÔNG JSON `filters`) mirror listPmSchedules. Vào _MVP_BUSINESS_PATHS ⇒
+#   401∧403 symmetry tự lên (test so SET). Guard riêng = TestMobileListAssetsContract.
+_LIST_ASSETS_PATH = "/api/method/assetcore.api.imm00.list_assets"
+
+# C-LISTREAD-SCHED — listPmSchedules (path MVP THỨ 17). BE sẵn imm08.list_pm_schedules:122 (bare
+#   @whitelist; cap đọc pm.read). Lý do bồi: createPmWorkOrder requestBody required pm_schedule
+#   (imm08.py:788) ⇒ form CỤT nếu client KHÔNG có API list PM Schedule. KHÁC 3 list path: param
+#   asset_ref/status DISCRETE (KHÔNG JSON `filters`). Vào _MVP_BUSINESS_PATHS ⇒ 401∧403 symmetry
+#   13==13 (test so SET). Element PmScheduleListItem field-disjoint (C3-split). Guard riêng =
+#   TestMobileListPmSchedulesContract.
+_LIST_SCHEDULE_PATH = "/api/method/assetcore.api.imm08.list_pm_schedules"
+
+# C-LISTREAD-USERS (open-thread #4 closure — technician/assignee picker). BE sẵn
+#   assetcore.api.user.list_users:268 (bare @whitelist nhận GET). Lý do bồi: createCalibration.technician
+#   (imm11) + assign_technician.technician cần API liệt-kê User để picker không CỤT required-field.
+#   6 param DISCRETE query-string (KHÔNG JSON `filters`): search/department/role/approval_status (string
+#   optional default'') + is_active (integer enum[0,1] optional) + Page/PageSize $ref. role.enum =
+#   _IMM_ROLES canonical (import từ source, KHÔNG bịa). rows-key `data.items[]` (mirror
+#   AssetListEnvelope/IncidentListEnvelope — handler _ok({items,pagination}) @user.py:367). Element
+#   UserListItem field-disjoint (10 emit field; enabled+is_active integer enum[0,1] — User.enabled
+#   Check-fieldtype; imm_roles[] object array {name,label,group}; 0 financial; KHÔNG leak
+#   password/api_secret/raw role child-table). Vào _MVP_BUSINESS_PATHS ⇒ 401∧403 symmetry tự lên (test
+#   so SET, KHÔNG literal). Guard riêng = TestMobileListUsersContract.
+_LIST_USERS_PATH = "/api/method/assetcore.api.user.list_users"
+
+# C-LISTREAD-NOTIF — listNotifications (in-app notification list, tab Notifications mobile — đóng gap
+#   đọc-lịch-sử của flow-6 push: push giao 1 deep-link, tab cần list ĐẦY ĐỦ đã-đọc + chưa-đọc). BE sẵn
+#   assetcore.api.layout.list_notifications:72 (bare @whitelist nhận GET; trả _ok({pagination, items})
+#   @layout.py:96-99 — pagination QUA paginate() utils/pagination.py:14 → 5-key WITH offset). KHÁC
+#   listUsers (build inline 4-key no-offset): listNotifications mirror IncidentListEnvelope/AssetListEnvelope
+#   ($ref Pagination 5-key) vì handler GỌI paginate(). 3 param DISCRETE query-string (KHÔNG JSON filters):
+#   page/page_size (int $ref Page/PageSize) + only_unread (integer enum[0,1] default 0 — only_unread=1 lọc
+#   read=0). rows-key `data.items[]` (mirror IncidentListEnvelope, KHÔNG data.data[]). Element
+#   NotificationListItem = ĐÚNG 9 emit field _serialize_notification @layout.py:33-43. Vào
+#   _MVP_BUSINESS_PATHS ⇒ 401∧403 symmetry tự lên (test so SET). Guard riêng = TestMobileListNotificationsContract.
+_LIST_NOTIFICATIONS_PATH = "/api/method/assetcore.api.layout.list_notifications"
+
+# NOTIF-UNREAD-FEED — getUnreadNotifications (GET unread-feed {count, items[]}; powering unread-badge +
+#   tab "Thông báo"; mobile app GỌI 13× top-usage). ĐÓNG NỐT notification-center READ quartet sau
+#   listNotifications + markNotificationAsRead + markAllAsRead. BE LIVE @api/layout.py:47
+#   (bare @whitelist nhận GET; trả _ok({count, items}) @layout.py:66-69 — KHÔNG paginate()). KHÁC
+#   listNotifications: {count, items} KHÔNG có `pagination` key (≠ paginate()). count = GENUINE integer
+#   minimum 0 (≠ NotificationListItem.read int-enum[0,1]; mirror updated_rows R40 / measurement_count R34).
+#   200 = INLINE oneOf [UnreadNotificationListEnvelope, Error] (read-path mirror searchSpareParts —
+#   ∈ _MVP_READ_ENVELOPE, KHÔNG response-component, KHÔNG _MVP_LIST_ENVELOPE). items $ref REUSE
+#   NotificationListItem (0 schema-component item mới, ĐỒNG $ref với NotificationListEnvelope). param
+#   NotifLimit (query integer default 20 min 1 max 100 — khớp server clamp max(1,min(int(limit),100))
+#   @layout.py:55). Vào _MVP_BUSINESS_PATHS ⇒ 401∧403 symmetry tự lên (test so SET). Guard riêng =
+#   TestMobileGetUnreadNotificationsContract.
+_GET_UNREAD_NOTIF_PATH = "/api/method/assetcore.api.layout.get_unread_notifications"
+_UNREAD_NOTIF_ENVELOPE_SCHEMA_REF = "#/components/schemas/UnreadNotificationListEnvelope"
+_NOTIF_LIMIT_PARAM_REF = "#/components/parameters/NotifLimit"
+_UNREAD_NOTIF_PARAM_REFS = {_NOTIF_LIMIT_PARAM_REF}
+
+# TRANSFER-READ-WIRE (IMM-13 Đợt-2) — 2 GET-read điều chuyển (asset transfer). BE sẵn LIVE:
+#   imm00.list_transfers:2048 (asset/status/page/page_size) + imm00.get_transfer:2081 (name).
+#   listTransfers 200 = SINGLE TransferListEnvelope (handler 0 try/except + 0 _err in-handler ⇒
+#   KHÔNG oneOf Error; mirror pingSession single-shape, KHÁC listIncidents/listAssets oneOf).
+#   getTransfer 200 = oneOf [TransferDetailEnvelope, Error] (404 _err imm00.py:2083 → HTTP-200 quirk).
+#   Cả 2 ∈ _MVP_BUSINESS_PATHS ⇒ 401∧403 symmetry tự lên (test so SET). CONTRACT-ONLY (git diff
+#   api/imm00.py + services/imm00.py transfer region EMPTY). ADR-MOBILE-021.
+_LIST_TRANSFERS_PATH = "/api/method/assetcore.api.imm00.list_transfers"
+_GET_TRANSFER_PATH = "/api/method/assetcore.api.imm00.get_transfer"
+_TRANSFER_LIST_ENVELOPE_SCHEMA_REF = "#/components/schemas/TransferListEnvelope"
+_TRANSFER_LIST_ITEM_SCHEMA_REF = "#/components/schemas/TransferListItem"
+_TRANSFER_DETAIL_ENVELOPE_SCHEMA_REF = "#/components/schemas/TransferDetailEnvelope"
+_TRANSFER_DETAIL_SCHEMA_REF = "#/components/schemas/TransferDetail"
+
+# C6-DETAIL — 4 GET-detail path (màn detail MVP-flow-5 + push deep-link flow-6). BE sẵn:
+#   imm08.get_pm_work_order:38 / imm09.get_repair_work_order:28 / imm12.get_incident:220 /
+#   imm11.get_calibration:81. Mỗi GET 1 query-param `name` (required string) + bearer (global). 200 =
+#   oneOf [<Detail>Envelope | Error] CLOSED-SCHEMA route-by-VALUE body.success (Decision-B C6, mirror
+#   getAsset). 4 *Detail FIELD-DISJOINT (C3-split analog) GROUNDED svc.get_* @source. Vào
+#   _MVP_BUSINESS_PATHS ⇒ 401∧403 symmetry tự lên (test so SET, KHÔNG literal). Guard riêng =
+#   TestMobileGetDetailContract (+ reuse _READ_PATH_ENVELOPE / _MVP_READ_ENVELOPE).
+_GET_PM_WO_PATH = "/api/method/assetcore.api.imm08.get_pm_work_order"
+_GET_REPAIR_WO_PATH = "/api/method/assetcore.api.imm09.get_repair_work_order"
+_GET_INCIDENT_PATH = "/api/method/assetcore.api.imm12.get_incident"
+_GET_CALIBRATION_PATH = "/api/method/assetcore.api.imm11.get_calibration"
+_DETAIL_READ_PATHS = {
+    _GET_PM_WO_PATH: "#/components/schemas/PmWorkOrderDetailEnvelope",
+    _GET_REPAIR_WO_PATH: "#/components/schemas/RepairWorkOrderDetailEnvelope",
+    _GET_INCIDENT_PATH: "#/components/schemas/IncidentDetailEnvelope",
+    _GET_CALIBRATION_PATH: "#/components/schemas/CalibrationDetailEnvelope",
+}
 
 # R4 §8.7 — TYPED reads/create (rời _STUB_PATHS vòng này, GROUNDED chữ-ký service THẬT):
 #   resolveQrToken (imm00.py:303) / getAssetScanInfo (imm00.py:567) / getAsset (imm00.py:288) →
@@ -235,6 +1183,38 @@ _MVP_BUSINESS_PATHS = (
     _TYPED_READ_PATHS
     | {_CREATE_PM_PATH, _REPORT_INCIDENT_PATH, _REPAIR_CREATE_PATH, _CAL_CREATE_PATH}
     | _LIST_PATHS
+    | {_LIST_SCHEDULE_PATH}  # C-LISTREAD-SCHED — 17th MVP path ⇒ 401/403 symmetry 12→13
+    | {_LIST_CALIBRATION_PATH}  # C-LISTREAD-CAL — listCalibrations ⇒ symmetry 13→14 (test so SET)
+    | {_LIST_ASSETS_PATH}  # C-LISTREAD-ASSET — listAssets ⇒ symmetry 18→19 (test so SET)
+    | {_LIST_USERS_PATH}  # C-LISTREAD-USERS — listUsers ⇒ symmetry 19→20 (test so SET)
+    | set(_DETAIL_READ_PATHS)  # C6-DETAIL — 4 GET-detail (5a-5d) ⇒ symmetry 14→18 (test so SET)
+    | {_ACK_INCIDENT_PATH}  # C8-ACTION — acknowledgeIncident POST-action ⇒ symmetry +1 (test so SET)
+    | {_START_REPAIR_PATH}  # C8-ACTION — startRepair POST-action (repair lifecycle) ⇒ symmetry +1 (test so SET)
+    | {_SUBMIT_DIAGNOSIS_PATH}  # C8-ACTION — submitDiagnosis POST-action MẮT-XÍCH-GIỮA (repair lifecycle: Assigned/Diagnosing→In Repair|Pending Parts; lấp dead-end giữa assign và start/close) ⇒ symmetry +1 (test so SET)
+    | {_ASSIGN_TECH_PATH}  # C8-ACTION — assignTechnician POST-action DISPATCH (repair lifecycle: Open→Assigned; lấp HỐ create→start) ⇒ symmetry +1 (test so SET)
+    | {_START_WORK_PATH}  # C8-ACTION — startWork POST-action THỨ HAI (incident lifecycle) ⇒ symmetry +1 (test so SET)
+    | {_RESOLVE_INCIDENT_PATH}  # C8-ACTION — resolveIncident POST-action THỨ BA (incident lifecycle) ⇒ symmetry +1 (test so SET)
+    | {_SUBMIT_PM_RESULT_PATH}  # C8-ACTION-PM — submitPmResult POST-action ĐẦU TIÊN (PM WO lifecycle) ⇒ symmetry +1 (test so SET)
+    | {_CLOSE_WORK_ORDER_PATH}  # C8-ACTION — closeWorkOrder POST-action TERMINAL (repair lifecycle: In Repair→Pending Inspection/Cannot Repair) ⇒ symmetry +1 (test so SET)
+    | {_SUBMIT_CAL_PATH}  # C8-ACTION — submitCalibration POST-action COMPLETION (calibration lifecycle: docstatus 0→1, status→Passed/Failed/Conditionally Passed) ⇒ symmetry +1 (test so SET)
+    | {_CLOSE_INCIDENT_PATH}  # C8-ACTION — closeIncident POST-action TERMINAL (incident lifecycle: Resolved→Closed; đóng mắt xích CUỐI report→ack→start→resolve→close) ⇒ symmetry +1 (test so SET)
+    | {_LIST_NOTIFICATIONS_PATH}  # C-LISTREAD-NOTIF — listNotifications (in-app notification list, tab Notifications; bare @whitelist nhận GET, guest→dispatcher-403/401-expired) ⇒ symmetry +1 (test so SET)
+    | {_ASSET_INCIDENT_HISTORY_PATH}  # FLOW-2 DEVICE-PROFILE — getAssetIncidentHistory GET-read (lịch-sử sự-cố của asset, màn hồ-sơ sau quét QR; lấp dead-end sau getAssetScanInfo) ⇒ symmetry +1 (test so SET)
+    | {_CONFIRM_INSPECTION_PATH}  # C8-ACTION — confirmInspection POST-action TERMINAL-THẬT (repair lifecycle: Pending Inspection→Completed, docstatus 0→1; đóng dead-end CUỐI sau closeWorkOrder→Pending Inspection; cap repair.submit QA-duyệt) ⇒ symmetry +1 (test so SET)
+    | {_MARK_NOTIF_READ_PATH}  # FLOW-6 READ-RECEIPT — markNotificationAsRead POST-action WRITE ĐẦU TIÊN trên Notification Log (set read=1; đóng dead-end listNotifications read-only — tab chuông/push deep-link KHÔNG có mark-read; response RIÊNG 2-key {name,read} C3-split cross-domain, KHÔNG status) ⇒ symmetry +1 (test so SET)
+    | {_ASSET_TIMELINE_PATH}  # FLOW-2 DEVICE-PROFILE — getAssetTimeline GET-read (dòng-thời-gian vòng-đời/lifecycle-event của asset, tab Lịch sử màn hồ-sơ sau quét QR; CÓ pagination KHÁC R28 limit-cap; DocType Asset Lifecycle Event KHÁC Incident Report) ⇒ symmetry +1 (test so SET)
+    | {_SEARCH_SPARE_PARTS_PATH}  # R34 REPAIR SPARE-PARTS — searchSpareParts GET-read (tra-cứu phụ-tùng autocomplete màn repair-detail; bare @whitelist no-allow_guest → guest dispatcher-403 ⇒ {200,401,403} mirror getAssetIncidentHistory; SOURCE-FAITHFUL, KHÔNG {200,401} như task) ⇒ symmetry +1 (test so SET)
+    | {_REQUEST_SPARE_PARTS_PATH}  # R34 REPAIR SPARE-PARTS — requestSpareParts POST-action (cấp phụ-tùng cho WO; POST-only methods=['POST'] VERIFIED; rbac repair.write/create ⇒ {200,401,403}) ⇒ symmetry +1 (test so SET)
+    | {_ADD_MEASUREMENT_PATH}  # R34 ADD-MEASUREMENT — addMeasurement POST-action (ghi điểm-đo calibration-detail; VERB-FLIP-THIS-ROUND bare→methods=['POST'] @api/imm11.py:120; cap calibration.write ⇒ {200,401,403}) ⇒ symmetry +1 (test so SET)
+    | {_ASSIGN_PM_TECH_PATH}  # R35 PM-DISPATCH — assignPmTechnician POST-action DISPATCH (PM-detail: Open/Overdue→In Progress + asset→Under Maintenance; VERB-FLIP-THIS-ROUND bare→methods=['POST'] @api/imm08.py:46; cap pm.write ⇒ {200,401,403}) ⇒ symmetry +1 (test so SET)
+    | {_REPORT_MAJOR_FAILURE_PATH}  # R36 PM→CM ESCALATION — reportMajorFailure POST-action ESCALATION (PM-detail: hỏng nặng → Halted–Major Failure + asset Out of Service + CM WO khẩn; VERB-FLIP-THIS-ROUND bare→methods=['POST'] + SIGNATURE-FIX DROP failed_item_indexes @api/imm08.py:74; cap pm.write ⇒ {200,401,403}) ⇒ symmetry +1 (test so SET)
+    | {_RESCHEDULE_PM_PATH}  # R37 PM-RESCHEDULE — reschedulePm POST-action RESCHEDULE (PM-detail: thiết bị đang dùng → hoãn lịch → Pending–Device Busy; ĐÓNG NỐT action-set; ATOMIC-THIS-ROUND ĐÃ methods=['POST'] @api/imm08.py:86 KHÔNG verb-flip; cap pm.reschedule ⇒ {200,401,403}) ⇒ symmetry +1 (test so SET)
+    | {_MARK_ALL_READ_PATH}  # R40 MARK-ALL-READ — markAllAsRead POST-action BULK read-receipt (set read=1 cho MỌI Notification Log chưa-đọc của user; ĐÓNG NỐT notification-center action-set sau markNotificationAsRead single; 0-PARAM KHÔNG requestBody; scope SQL WHERE for_user=session.user KHÔNG 404/409; response RIÊNG 1-key {updated_rows} GENUINE integer KHÔNG enum[0,1] C3-split cross-domain KHÔNG status; CONTRACT-ONLY BE LIVE @layout.py:120-134) ⇒ symmetry +1 (test so SET)
+    | {_GET_UNREAD_NOTIF_PATH}  # NOTIF-UNREAD-FEED — getUnreadNotifications GET-read unread-feed {count,items} (badge chưa-đọc + tab "Thông báo"; ĐÓNG NỐT notification-center READ quartet sau listNotifications/markNotificationAsRead/markAllAsRead; bare @whitelist nhận GET → guest dispatcher-403/bearer-expired 401; INLINE oneOf ∈ _MVP_READ_ENVELOPE; count GENUINE integer ≠ read int-enum; items $ref REUSE NotificationListItem; scope for_user=session.user KHÔNG 404; CONTRACT-ONLY BE LIVE @layout.py:47-69) ⇒ symmetry +1 (test so SET)
+    | {_LIST_TRANSFERS_PATH}  # TRANSFER-READ-WIRE (IMM-13 Đợt-2) — listTransfers GET-read danh-sách điều chuyển (200 SINGLE TransferListEnvelope, handler 0 try/except + 0 _err ⇒ KHÔNG oneOf Error; rows-key data.items[] + pagination; 2 filter DISCRETE asset/status; slot {200,401,403} 403 Forbidden SINGLE-SHAPE bare @whitelist guest dispatcher-403; CONTRACT-ONLY BE LIVE @imm00.py:2048-2078) ⇒ symmetry +1 (test so SET)
+    | {_GET_TRANSFER_PATH}  # TRANSFER-READ-WIRE (IMM-13 Đợt-2) — getTransfer GET-read chi-tiết điều chuyển (200 oneOf [TransferDetailEnvelope, Error] closed route-by-VALUE 0-discr; 404 _err @imm00.py:2083 → HTTP-200 quirk Error.http_status ⊇ {404}; slot {200,401,403}; CONTRACT-ONLY BE LIVE @imm00.py:2081-2085) ⇒ symmetry +1 (test so SET)
+    | {_ASSET_REPAIR_HISTORY_PATH}  # FLOW-2 DEVICE-PROFILE (R42 IMM-09) — getAssetRepairHistory GET-read (lịch-sử SỬA-CHỮA CM của asset, tab "Lịch sử sửa chữa" màn hồ-sơ sau quét QR; 200 SINGLE AssetRepairHistoryEnvelope handler 0 _err mirror listTransfers KHÁC incident oneOf; rows-key data.history[]/asset-key asset_ref KHÁC incident items/asset; bare @whitelist no-allow_guest → guest dispatcher-403 ⇒ {200,401,403}; CONTRACT-ONLY BE LIVE @api/imm09.py:127) ⇒ symmetry +1 (test so SET)
+    | {_ASSET_PM_HISTORY_PATH}  # FLOW-2 DEVICE-PROFILE (ASSET-PM-HISTORY-WIRE IMM-08) — getAssetPmHistory GET-read (lịch-sử BẢO-TRÌ PM của asset, tab "Lịch sử bảo trì" màn hồ-sơ sau quét QR; ĐÓNG quartet sau incident+timeline+repair; 200 SINGLE AssetPmHistoryEnvelope handler 0 _err mirror getAssetRepairHistory/listTransfers KHÁC incident oneOf; rows-key data.history[]/asset-key asset_ref; AssetPmHistoryItem 10-prop overall_result enum is_late+days_late integer; bare @whitelist no-allow_guest → guest dispatcher-403 ⇒ {200,401,403}; CONTRACT-ONLY BE LIVE @api/imm08.py:125) ⇒ symmetry +1 (test so SET)
 )
 
 # A13 — ERROR-RESPONSE coverage (failure-mode prose → contract máy-đọc).
@@ -270,6 +1250,21 @@ _AUTH_PATHS = {
 }
 # C4 — userinfo/whoami path (OIDC). Bearer-gated nhưng auth-flow Frappe-core (KHÔNG MVP-business).
 _USERINFO_PATH = "/api/method/frappe.integrations.oauth2.openid_profile"
+
+# FLOW-1 BOOTSTRAP (R29) — allow_guest=True AssetCore-handler exempt khỏi 401/403 MVP-business symmetry.
+#   getUserContext (@layout.py:188 allow_guest=True): Guest VÀO handler → in-handler _err 401 (:206-207)
+#   ⇒ response slot {200,401} ONLY (KHÔNG dispatcher cap-403, KHÔNG business-403). KHÁC 12 path
+#   MVP-business (@whitelist bearer-gated → dispatcher-403 guest/no-token). MIRROR openid_profile RAW
+#   {200,401} nhưng là AssetCore-handler (KHÔNG Frappe-core oauth) ⇒ set RIÊNG (KHÔNG nhồi _AUTH_PATHS).
+#   Loại khỏi tập symmetry (test_mob_oas_12: filter `p not in (_AUTH_PATHS | _ALLOW_GUEST_PATHS)`) để
+#   401/403 MVP-business GIỮ đối-xứng. ADR-MOBILE-008 (04 §5e). Khi bồi allow_guest path kế → THÊM vào đây.
+_ALLOW_GUEST_PATHS = {
+    _USER_CONTEXT_PATH,
+    # SESSION-PROBE — pingSession (@layout.py:237 allow_guest=True): handler LUÔN _ok (0 _err) ⇒ slot
+    #   {200} ONLY (KHÁC getUserContext {200,401} — ping KHÔNG in-handler guest-guard). Vào đây để exempt
+    #   401/403 MVP-business symmetry (mirror getUserContext) NHƯNG slot {200} (test pingSession assert riêng).
+    _PING_SESSION_PATH,
+}
 
 # 3 path có @rate_limit THẬT @source → 429: resolve_qr_token (imm00.py:311) +
 #   get_asset_scan_info (imm00.py:354) + register_device_token (mobile/v1/device_token.py:62,
@@ -385,6 +1380,12 @@ _SEVERITY_ENUM = ["Low", "Medium", "High", "Critical"]            # @incident_re
 _INCIDENT_TYPE_ENUM = ["Failure", "Safety Event", "Near Miss", "Malfunction"]  # @incident_report.json
 # `source` (provenance qr-scan/manual) KHÔNG được lọt vào body — server gán (anti-leak).
 _REPORT_INCIDENT_FORBIDDEN_PROP = "source"
+# R35 (G1/CR-16) — occurred_datetime: thời điểm sự cố THỰC SỰ xảy ra (có thể TRƯỚC lúc báo).
+#   OPTIONAL (∉ required[]; live default `=""` @api/imm12.py:83). type:string KHÔNG format:date-time
+#   vì Frappe wire space-separated 'yyyy-MM-dd HH:mm:ss' (get_datetime @services/imm12.py:376) — KHÔNG
+#   ISO-8601 'T'. Rỗng → fallback reported_at (imm12.py:382); tương lai → 422 IMM12_OCCURRED_DATETIME_FUTURE.
+_OCCURRED_DATETIME_PROP = "occurred_datetime"
+_OCCURRED_DATETIME_WIRE_FMT = "yyyy-MM-dd HH:mm:ss"  # Frappe Datetime wire (space, KHÔNG 'T')
 
 # ── G-REQBODY — đóng 4 contract-gap codegen report_incident (TC-MOB-OAS-13/15) ──
 #   (gap-1) ReportIncidentBody.content = oneOf 2 media-type (json + form-urlencoded) CÙNG 1 $ref.
@@ -495,23 +1496,46 @@ _CAL_CREATE_STATUS_SET = ["200", "401", "403"]
 _PAGE_REF = "#/components/parameters/Page"
 _PAGE_SIZE_REF = "#/components/parameters/PageSize"
 _WO_FILTERS_REF = "#/components/parameters/WorkOrderFilters"
+# C-LISTREAD-MINE-PM (A2 closure ĐỐI XỨNG / ADR-MOBILE-016) — tab "Phiếu PM của tôi"
+#   MVP-5a. mirror IncidentMine (int 0|1, né int-vs-bool trap Open#1).
+_WORKORDER_MINE_REF = "#/components/parameters/WorkOrderMine"
+# TRANSFER-READ-WIRE (IMM-13 Đợt-2) — 2 param DISCRETE cho listTransfers (mirror IncidentAsset/Status).
+_TRANSFER_ASSET_REF = "#/components/parameters/TransferAsset"
+_TRANSFER_STATUS_REF = "#/components/parameters/TransferStatus"
 _PM_WO_LIST_RESP_REF = "#/components/responses/PmWorkOrderList"
 _REPAIR_WO_LIST_RESP_REF = "#/components/responses/RepairWorkOrderList"
 _INCIDENT_LIST_RESP_REF = "#/components/responses/IncidentList"
 _PM_WO_LIST_SCHEMA_REF = "#/components/schemas/PmWorkOrderListEnvelope"
 _REPAIR_WO_LIST_SCHEMA_REF = "#/components/schemas/RepairWorkOrderListEnvelope"
 _INCIDENT_LIST_SCHEMA_REF = "#/components/schemas/IncidentListEnvelope"
+# C-LISTREAD-CAL (open-thread #4c) — response/envelope/item refs cho listCalibrations.
+_CALIBRATION_LIST_RESP_REF = "#/components/responses/CalibrationList"
+_CALIBRATION_LIST_SCHEMA_REF = "#/components/schemas/CalibrationListEnvelope"
+_CALIBRATION_LIST_ITEM_REF = "#/components/schemas/CalibrationListItem"
 _INCIDENT_PARAM_REFS = [
     "#/components/parameters/IncidentStatus",
     "#/components/parameters/IncidentSeverity",
     "#/components/parameters/IncidentAsset",
     "#/components/parameters/IncidentOpen",
+    # C-LISTREAD-MINE (A2 closure / ADR-MOBILE-015) — tab "Báo hỏng của tôi" MVP-5c.
+    "#/components/parameters/IncidentMine",
 ]
 # Bộ param query MONG ĐỢI cho từng list path (KHỚP signature LIVE introspect).
 _LIST_PARAM_EXPECT = {
-    _LIST_PM_PATH: {_WO_FILTERS_REF, _PAGE_REF, _PAGE_SIZE_REF},
-    _LIST_REPAIR_PATH: {_WO_FILTERS_REF, _PAGE_REF, _PAGE_SIZE_REF},
+    # C-LISTREAD-MINE-PM (ADR-MOBILE-016): listPmWorkOrders +WorkOrderMine (tab "Phiếu PM
+    #   của tôi" MVP-5a). C-LISTREAD-MINE-CM (ADR-MOBILE-017, A2-symmetry CUỐI): listRepair
+    #   WorkOrders +WorkOrderMine (tab "Phiếu CM của tôi" MVP-5b) — REUSE CÙNG component R38
+    #   (1 component, 2 $ref ⇒ 0 schema-component mới).
+    _LIST_PM_PATH: {_WO_FILTERS_REF, _WORKORDER_MINE_REF, _PAGE_REF, _PAGE_SIZE_REF},
+    _LIST_REPAIR_PATH: {_WO_FILTERS_REF, _WORKORDER_MINE_REF, _PAGE_REF, _PAGE_SIZE_REF},
+    # C-LISTREAD-MINE-CAL (ADR-MOBILE, quartet "phiếu-của-tôi" ĐÓNG NỐT): listCalibrations
+    #   +WorkOrderMine (tab "Phiếu hiệu chuẩn của tôi" MVP-5d) — REUSE CÙNG component R38
+    #   (1 component, 3 $ref ⇒ 0 schema-component mới). mine=1 → technician==session.user.
+    _LIST_CALIBRATION_PATH: {_WO_FILTERS_REF, _WORKORDER_MINE_REF, _PAGE_REF, _PAGE_SIZE_REF},
     _LIST_INCIDENT_PATH: set(_INCIDENT_PARAM_REFS) | {_PAGE_REF, _PAGE_SIZE_REF},
+    # TRANSFER-READ-WIRE (IMM-13 Đợt-2) — listTransfers params DISCRETE {asset,status,page,page_size}
+    #   (KHỚP signature imm00.list_transfers @api/imm00.py:2048). 4 $ref (KHÔNG WorkOrderFilters blob).
+    _LIST_TRANSFERS_PATH: {_TRANSFER_ASSET_REF, _TRANSFER_STATUS_REF, _PAGE_REF, _PAGE_SIZE_REF},
 }
 # 200-response MONG ĐỢI (C3-split: mỗi endpoint trỏ response RIÊNG → element RIÊNG).
 _LIST_RESP_EXPECT = {
@@ -521,10 +1545,19 @@ _LIST_RESP_EXPECT = {
 }
 # Tên hàm whitelist LIVE (introspect signature — page/page_size có THẬT).
 _LIST_LIVE_FN = {
-    _LIST_PM_PATH: ("assetcore.api.imm08", "list_pm_work_orders", {"filters", "page", "page_size"}),
-    _LIST_REPAIR_PATH: ("assetcore.api.imm09", "list_repair_work_orders", {"filters", "page", "page_size"}),
+    _LIST_PM_PATH: ("assetcore.api.imm08", "list_pm_work_orders",
+                    {"filters", "mine", "page", "page_size"}),
+    _LIST_REPAIR_PATH: ("assetcore.api.imm09", "list_repair_work_orders",
+                        {"filters", "mine", "page", "page_size"}),
+    # C-LISTREAD-MINE-CAL — live-sig imm11.list_calibrations PHẢI chứa `mine` (giữa filters↔page).
+    _LIST_CALIBRATION_PATH: ("assetcore.api.imm11", "list_calibrations",
+                             {"filters", "mine", "page", "page_size"}),
     _LIST_INCIDENT_PATH: ("assetcore.api.imm12", "list_incidents",
-                          {"status", "severity", "asset", "open", "page", "page_size"}),
+                          {"status", "severity", "asset", "open", "mine", "page", "page_size"}),
+    # TRANSFER-READ-WIRE (IMM-13 Đợt-2) — live-sig parity imm00.list_transfers PHẢI =={asset,status,
+    #   page,page_size} (4 param discrete, KHÔNG filters/mine). KHỚP @api/imm00.py:2048.
+    _LIST_TRANSFERS_PATH: ("assetcore.api.imm00", "list_transfers",
+                           {"asset", "status", "page", "page_size"}),
 }
 
 # ─── C3-split — 2 list-ELEMENT schema FIELD-DISJOINT (Pm/RepairWorkOrderListItem) — TC-MOB-OAS-21 ───
@@ -578,6 +1611,51 @@ _INCIDENT_LIST_ITEM_FIELDS = {
     "is_response_breached", "is_resolution_breached",
 }
 
+# ── INT-vs-BOOL contract (open-thread #1) — codegen-deser correctness ─────────────────────────
+#   RULE: field gốc Frappe `Check` fieldtype → wire emit int 0/1 (Frappe Check = IntegerField) ⇒
+#   contract PHẢI khai `type: integer` + `enum: [0,1]` (KHÔNG `type: boolean`; strict-codegen
+#   Dart/Kotlin deser `int 0/1` vào `bool?` ⇒ "int is not subtype of bool" CRASH). Ngược lại,
+#   field DERIVED bằng Python `bool(...)`/so-sánh trong service ⇒ JSON true/false THẬT ⇒ GIỮ
+#   `type: boolean`. Cùng trap tác giả ĐÚNG ở is_response/is_resolution_breached (yaml:890-901)
+#   nhưng MISS ở 8 raw Check props. Grounded @source (fieldtype="Check", READ-ONLY 2026-06-15):
+#     is_late                pm_work_order.json   (Check)  → integer enum[0,1]
+#     sla_breached           asset_repair.json    (Check)  → integer enum[0,1]
+#     is_repeat_failure      asset_repair.json    (Check)  → integer enum[0,1]
+#     rca_required           incident_report.json (Check)  → integer enum[0,1]
+#     chronic_failure_flag   incident_report.json (Check)  → integer enum[0,1]
+#     patient_affected       incident_report.json (Check)  → integer enum[0,1]
+#     response_breached      incident_report.json (Check)  → integer enum[0,1]
+#     resolution_breached    incident_report.json (Check)  → integer enum[0,1]
+#   (schema, prop) → 8 raw Check list-item props phải `integer` enum[0,1].
+_RAW_CHECK_LISTITEM_PROPS: dict[str, list[str]] = {
+    "PmWorkOrderListItem": ["is_late"],
+    "RepairWorkOrderListItem": ["sla_breached", "is_repeat_failure"],
+    "IncidentListItem": [
+        "rca_required", "chronic_failure_flag", "patient_affected",
+        "response_breached", "resolution_breached",
+    ],
+}
+# 2 derived-LIVE flags Ở IncidentListItem đã ĐÚNG (integer enum[0,1] @yaml:890-901) — regress-guard.
+_ALREADY_INT_DERIVED_PROPS: dict[str, list[str]] = {
+    "IncidentListItem": ["is_response_breached", "is_resolution_breached"],
+}
+# 2 field DERIVED bằng Python bool THẬT @imm09 ⇒ JSON true/false ⇒ PHẢI GIỮ boolean (KHÔNG over-retype):
+#   is_sla_breached = bool(r.get("sla_breached")) or _row_is_live_overdue(r,now)  (services/imm09.py:299)
+#   sla_paused      = (r.get("status") == RepairStatus.PENDING_PARTS)             (services/imm09.py:695)
+_GENUINE_BOOL_LISTITEM_PROPS: dict[str, list[str]] = {
+    "RepairWorkOrderListItem": ["is_sla_breached", "sla_paused"],
+}
+# SWEEP-SET — 4 *ListItem schema phải quét cho regression "type:boolean lén lút".
+_ALL_LISTITEM_SCHEMAS = (
+    "PmWorkOrderListItem", "PmScheduleListItem",
+    "RepairWorkOrderListItem", "IncidentListItem",
+)
+# Tập DUY NHẤT các prop *ListItem được phép còn `type: boolean` = đúng 2 derived Python-bool.
+_ALLOWED_BOOLEAN_LISTITEM_PROPS = {
+    ("RepairWorkOrderListItem", "is_sla_breached"),
+    ("RepairWorkOrderListItem", "sla_paused"),
+}
+
 
 # A12/A13 — Allow-list RESERVED 10 orphan-component hợp lệ (defined-không-`$ref`'d).
 #   PHẢN CHIẾU 1:1 bảng RESERVED tại docs/mobile/04-api-contract.md §8.2 (SSoT).
@@ -623,6 +1701,12 @@ _RESERVED_ORPHANS = {
     #   forward-reserve (negative-injection guard 23d/24e inject ref này vào deepcopy để chứng RED-before;
     #   gỡ component = phá precondition test). Vào allow-list (đồng bộ 04 §8.2). Orphan: +1.
     "#/components/responses/Stub",                  # D4: device-token typed → Stub HẾT ref → forward-reserve
+    # FLOW6-PUSH (2026-06-15): PushMessageData = FCM data-payload (transport NGOÀI HTTP REST).
+    #   flow-6 push đi qua FCM HTTP v1 (message.data), KHÔNG qua bất kỳ path AssetCore nào ⇒
+    #   component-only forward-reserve (codegen mobile sinh model parse RemoteMessage.data). KHÔNG
+    #   wire vào path = ĐÚNG-BẢN-CHẤT (KHÔNG dead-surface lén). GROUNDED utils/fcm.py:94-98 +
+    #   services/notifications.py:443-454 + docs/mobile/06-push-fcm.md §4.1a. Đồng bộ 04 §8.2.
+    "#/components/schemas/PushMessageData",         # flow-6 FCM data-payload (transport ngoài HTTP)
     "#/components/securitySchemes/OAuth2",         # FALSE-orphan (top-level security:)
 }
 
@@ -808,10 +1892,10 @@ class TestMobileOASLint(unittest.TestCase):
         info = spec.get("info") or {}
         self.assertEqual(info.get("title"), "AssetCore Mobile API")
         self.assertEqual(info.get("version"), "0.1.0-skeleton")
-        self.assertEqual(len(spec.get("paths") or {}), 16, "Phải đúng 16 path mobile MVP (C4: +openid_profile)")
+        self.assertEqual(len(spec.get("paths") or {}), 53, "Phải đúng 52 path mobile MVP (R-NOTIF-UNREAD +getUnreadNotifications)")
 
     def test_mob_oas_02_all_paths_have_operation_id(self):
-        """16/16 path-operation CÓ operationId — 0 None (C4: +getUserInfo)."""
+        """46/46 path-operation CÓ operationId — 0 None (reschedulePm: +imm08.reschedule_pm)."""
         missing = [
             f"{verb.upper()} {path}"
             for path, verb, op in _iter_operations(self.spec)
@@ -819,15 +1903,15 @@ class TestMobileOASLint(unittest.TestCase):
         ]
         self.assertEqual(missing, [], f"Path thiếu operationId: {missing}")
         ids = [op["operationId"] for _, _, op in _iter_operations(self.spec)]
-        self.assertEqual(len(ids), 16, "Phải đúng 16 operationId (C4: +getUserInfo)")
+        self.assertEqual(len(ids), 53, "Phải đúng 52 operationId (R-NOTIF-UNREAD +getUnreadNotifications)")
 
     def test_mob_oas_03_operation_id_unique(self):
-        """operationId DUY NHẤT toàn file: len(set)==len(list)==16 (C4: +getUserInfo)."""
+        """operationId DUY NHẤT toàn file: len(set)==len(list)==47 (R40 +markAllAsRead)."""
         ids = [op["operationId"] for _, _, op in _iter_operations(self.spec)]
         dupes = sorted({x for x in ids if ids.count(x) > 1})
         self.assertEqual(dupes, [], f"operationId trùng: {dupes}")
         self.assertEqual(len(ids), len(set(ids)))
-        self.assertEqual(len(set(ids)), 16)
+        self.assertEqual(len(set(ids)), 53)
 
     def test_mob_oas_04_operation_id_camel_case(self):
         """Mọi operationId khớp regex camelCase verbNoun (^[a-z][a-zA-Z0-9]*$)."""
@@ -1217,21 +2301,25 @@ class TestMobileOASLint(unittest.TestCase):
         # ĐỐI XỨNG: tập path-403 == tập path-401 (12==12). 403 ngoài _PATHS_REQUIRE_403 = bịa.
         #   C4: LOẠI _AUTH_PATHS (oauth2.* flow Frappe-core) khỏi tập symmetry — openid_profile
         #   declare 401 (bearer-gated) nhưng auth-flow RAW (KHÔNG 403-Forbidden MVP) ⇒ 12==12 GIỮ.
+        #   R29: LOẠI _ALLOW_GUEST_PATHS (getUserContext allow_guest=True) — declare 401 in-handler
+        #   guest-guard NHƯNG KHÔNG dispatcher-403 (allow_guest) ⇒ slot {200,401} only; exempt symmetry
+        #   như openid_profile (ADR-MOBILE-008) để 401/403 MVP-business GIỮ đối-xứng (KHÔNG bịa 403).
+        _SYMMETRY_EXEMPT = _AUTH_PATHS | _ALLOW_GUEST_PATHS
         paths_with_403 = sorted(
             path for path, op in ops.items()
-            if "403" in (op.get("responses") or {}) and path not in _AUTH_PATHS
+            if "403" in (op.get("responses") or {}) and path not in _SYMMETRY_EXEMPT
         )
         self.assertEqual(
             paths_with_403, sorted(_PATHS_REQUIRE_403),
-            f"Tập path declare 403 (trừ auth-flow) phải == 12 path MVP (đối xứng 401): {paths_with_403}",
+            f"Tập path declare 403 (trừ auth-flow + allow_guest) phải == path MVP (đối xứng 401): {paths_with_403}",
         )
         paths_with_401 = {
             path for path, op in ops.items()
-            if "401" in (op.get("responses") or {}) and path not in _AUTH_PATHS
+            if "401" in (op.get("responses") or {}) and path not in _SYMMETRY_EXEMPT
         }
         self.assertEqual(
             paths_with_401, set(_PATHS_REQUIRE_403),
-            "Tập path declare 401 phải == tập path declare 403 (12==12 đối xứng A16).",
+            "Tập path declare 401 (trừ auth + allow_guest) phải == tập path declare 403 (đối xứng A16).",
         )
 
         # (b) 3 response pre-handler trỏ FrappeRawError (KHÔNG Error envelope).
@@ -1632,6 +2720,74 @@ class TestMobileReportIncidentBody(unittest.TestCase):
             f"ReportIncidentCreatedEnvelope.data PHẢI $ref ReportIncidentResponse, got {data_ref}",
         )
 
+    def test_mob_oas_13g_occurred_datetime_present_optional(self):
+        """(R35 / G1 / CR-16) occurred_datetime = field OPTIONAL trong ReportIncidentRequest +
+        handler-parity (đóng drift contract↔handler 2 chiều).
+
+        Báo hỏng F2 cho phép khai thời điểm sự cố THỰC SỰ xảy ra (có thể TRƯỚC lúc báo). Đóng băng
+        hợp đồng thành guard:
+          (a) ReportIncidentRequest.properties CÓ occurred_datetime, type=='string'.
+          (b) KHÔNG format:date-time — Frappe wire 'yyyy-MM-dd HH:mm:ss' (space, KHÔNG ISO 'T');
+              ép format:date-time → codegen sinh parser ISO → reject wire-value @services/imm12.py:376.
+          (c) OPTIONAL — occurred_datetime ∉ required[]; required GIỮ EXACT 4 (live default `=""`
+              @api/imm12.py:83 ⇒ guard 13c GREEN). Rỗng→fallback reported_at; tương lai→422.
+          (d) description nêu wire-format 'yyyy-MM-dd HH:mm:ss' (codegen-hint chống gửi ISO-T).
+          (e) HANDLER-PARITY (anti-drift-ĐẢO): inspect.signature(imm12.report_incident) CÓ param
+              occurred_datetime ⇒ MỌI property của ReportIncidentRequest ⊆ live-handler-params
+              (contract KHÔNG khai field handler không nhận — kwargs sẽ TypeError @handle()).
+        SSoT: services/imm12.py:376-382 + api/imm12.py:83 + messages.IMM12_OCCURRED_DATETIME_FUTURE.
+        """
+        sch = ((self.spec.get("components") or {}).get("schemas") or {}).get("ReportIncidentRequest") or {}
+        self.assertTrue(sch, "Thiếu schema ReportIncidentRequest.")
+        props = sch.get("properties") or {}
+        # (a) present + type string.
+        self.assertIn(
+            _OCCURRED_DATETIME_PROP, props,
+            "ReportIncidentRequest.properties PHẢI CÓ occurred_datetime (R35 G1/CR-16 báo hỏng F2).",
+        )
+        od = props.get(_OCCURRED_DATETIME_PROP) or {}
+        self.assertEqual(
+            od.get("type"), "string",
+            "occurred_datetime PHẢI type:string (Frappe Datetime wire as string).",
+        )
+        # (b) KHÔNG format:date-time (Frappe wire space-separated, KHÔNG ISO-8601 'T').
+        self.assertNotEqual(
+            od.get("format"), "date-time",
+            "occurred_datetime KHÔNG ĐƯỢC format:date-time — Frappe wire 'yyyy-MM-dd HH:mm:ss' "
+            "(space) KHÔNG ISO 'T'; format:date-time → codegen ISO-parser reject wire-value.",
+        )
+        # (c) OPTIONAL — ∉ required[]; required GIỮ EXACT 4 (regression-lock cùng 13c).
+        required = sch.get("required") or []
+        self.assertNotIn(
+            _OCCURRED_DATETIME_PROP, required,
+            "occurred_datetime PHẢI OPTIONAL (∉ required[]) — live default `=\"\"` @api/imm12.py:83.",
+        )
+        self.assertEqual(
+            sorted(required), sorted(_REPORT_INCIDENT_REQUIRED),
+            f"required PHẢI GIỮ EXACT {_REPORT_INCIDENT_REQUIRED} (occurred_datetime KHÔNG lọt required).",
+        )
+        # (d) description nêu wire-format (codegen-hint chống gửi ISO-T).
+        self.assertIn(
+            _OCCURRED_DATETIME_WIRE_FMT, (od.get("description") or ""),
+            f"occurred_datetime.description PHẢI nêu wire-format '{_OCCURRED_DATETIME_WIRE_FMT}' "
+            "(hint Frappe space-separated, KHÔNG ISO-T).",
+        )
+        # (e) HANDLER-PARITY — yaml-prop ⊆ live-handler-params (chống contract khai field handler
+        #   KHÔNG nhận → handle(**kwargs) TypeError). report_incident phải CÓ param occurred_datetime.
+        from assetcore.api import imm12  # lazy — tránh import-time vòng phụ thuộc.
+        fn = getattr(imm12, "report_incident", None)
+        self.assertIsNotNone(fn, "Thiếu hàm whitelist LIVE: imm12.report_incident.")
+        live_params = set(inspect.signature(fn).parameters.keys())
+        self.assertIn(
+            _OCCURRED_DATETIME_PROP, live_params,
+            "imm12.report_incident PHẢI CÓ param occurred_datetime (handler đã wire @api/imm12.py:83).",
+        )
+        self.assertTrue(
+            set(props.keys()) <= live_params,
+            f"DRIFT-ĐẢO: yaml-prop {sorted(set(props.keys()) - live_params)} KHÔNG ∈ live-handler-params "
+            f"{sorted(live_params)} — contract khai field handler KHÔNG nhận.",
+        )
+
 
 class TestMobileCreateRepairBody(unittest.TestCase):
     """TC-MOB-OAS-16 — C-REQBODY-CREATEREPAIR: requestBody + response THẬT cho
@@ -1871,11 +3027,22 @@ class TestMobileCreateCalibrationBody(unittest.TestCase):
         return ((self.spec.get("paths") or {}).get(_CAL_CREATE_PATH) or {}).get("post") or {}
 
     def test_mob_oas_17a_path_has_required_request_body_ref(self):
-        """(a) create_calibration.post requestBody = $ref-ONLY CreateCalibrationBody (no `required` sibling).
+        """(a) create_calibration POST-ONLY-ENFORCED-AT-SOURCE + requestBody = $ref-ONLY CreateCalibrationBody.
 
+        VERB-PARITY CLOSURE: BE @api/imm11.py:89 ĐÃ siết @frappe.whitelist(methods=['POST']) ⇒ runtime
+        POST-only (GET từ chối). Nâng TC-a → assert POST-ONLY @source (introspect registry — gate THẬT).
         G-OAS-403-DISAMBIG (P1): `required:true` GỠ khỏi path-level (OAS 3.0.3 bỏ qua sibling cạnh
         `$ref`); required GIỮ trong component (17b). Xem TC-MOB-OAS-19c.
         """
+        item = ((self.spec.get("paths") or {}).get(_CAL_CREATE_PATH)) or {}
+        self.assertIn("post", item, "create_calibration PHẢI khai verb POST (mutating-create).")
+        self.assertNotIn("get", item, "create_calibration KHÔNG được khai GET (mutating — POST-only).")
+        # POST-ONLY-ENFORCED-AT-SOURCE (registry introspect — KHÔNG chỉ yaml `post:`).
+        _assert_post_only_at_source(self, _CAL_CREATE_PATH)
+        self.assertNotIn(
+            _CAL_CREATE_PATH, _PARITY_VERB_ALLOWLIST,
+            "create_calibration ∉ _PARITY_VERB_ALLOWLIST (verb-divergence ĐÃ đóng, allowlist RỖNG).",
+        )
         op = self._create_op()
         self.assertEqual(op.get("operationId"), "createCalibration", "operationId FROZEN")
         rb = op.get("requestBody") or {}
@@ -2525,6 +3692,15 @@ class TestMobileListReadContract(unittest.TestCase):
         self.assertEqual(osch.get("type"), "integer", "open type=integer (0|1).")
         self.assertEqual(osch.get("default"), 0, "open default=0.")
         self.assertEqual(osch.get("enum"), [0, 1], "open enum=[0,1].")
+        # C-LISTREAD-MINE (A2 closure / ADR-MOBILE-015): IncidentMine mirror IncidentOpen
+        #   (int default 0 enum [0,1] — né int-vs-bool trap) — tab "Báo hỏng của tôi" MVP-5c.
+        mine = self._resolve("#/components/parameters/IncidentMine") or {}
+        self.assertEqual(mine.get("name"), "mine", "mine param name=mine.")
+        self.assertEqual(mine.get("in"), "query", "mine in=query.")
+        msch = mine.get("schema") or {}
+        self.assertEqual(msch.get("type"), "integer", "mine type=integer (0|1).")
+        self.assertEqual(msch.get("default"), 0, "mine default=0.")
+        self.assertEqual(msch.get("enum"), [0, 1], "mine enum=[0,1].")
         for ref in ("#/components/parameters/IncidentStatus",
                     "#/components/parameters/IncidentSeverity",
                     "#/components/parameters/IncidentAsset"):
@@ -2614,6 +3790,1942 @@ class TestMobileListReadContract(unittest.TestCase):
                     must, live_args,
                     f"{modname}.{fnname} PHẢI có param `{must}` LIVE (pagination contract).",
                 )
+
+    # ── C-LISTREAD-MINE-PM (A2 closure ĐỐI XỨNG / ADR-MOBILE-016) — tab "Phiếu PM của tôi" ──
+    #   MVP-5a: listPmWorkOrders +WorkOrderMine. mine=1 → assigned_to==session.user. RED-before:
+    #   ĐỎ tới khi BA bồi WorkOrderMine vào yaml + $ref listPmWorkOrders (+ live-sig mine @api).
+    def test_list_pm_param_set_includes_workordermine(self):
+        """listPmWorkOrders param-set PHẢI có WorkOrderMine ($ref NGAY ⇒ no-orphan).
+
+        Param-set {WorkOrderFilters,Page,PageSize} → +WorkOrderMine. Path-count GIỮ 46
+        (thêm param ≠ thêm path). _LIST_PARAM_EXPECT[listPmWorkOrders] chứa WorkOrderMine.
+        """
+        self.assertIn(
+            _WORKORDER_MINE_REF, _LIST_PARAM_EXPECT[_LIST_PM_PATH],
+            "_LIST_PARAM_EXPECT[listPmWorkOrders] PHẢI gồm WorkOrderMine (A2 closure ĐỐI XỨNG).",
+        )
+        op = self._op(_LIST_PM_PATH)
+        got = self._param_refs(op)
+        self.assertIn(
+            _WORKORDER_MINE_REF, got,
+            f"listPmWorkOrders.parameters PHẢI $ref WorkOrderMine. got={sorted(got)}",
+        )
+        # Path-count GIỮ 46 (thêm param ≠ thêm path).
+        self.assertEqual(
+            len(self.spec.get("paths") or {}), 53,
+            "path-count PHẢI 52 (R-NOTIF-UNREAD + TRANSFER-READ-WIRE) — WorkOrderMine là param, KHÔNG path mới.",
+        )
+        # WorkOrderMine được $ref ⇒ KHÔNG orphan (resolve về node tồn tại).
+        self.assertIsNotNone(
+            self._resolve(_WORKORDER_MINE_REF),
+            "WorkOrderMine PHẢI resolve (defined + $ref'd ⇒ no-orphan, no-dangling).",
+        )
+
+    def test_workordermine_param_shape(self):
+        """WorkOrderMine shape MIRROR IncidentMine: name=mine/in=query/integer/default 0/enum [0,1].
+
+        Int (KHÔNG boolean) né int-vs-bool trap Open#1 (Dart/Kotlin codegen crash).
+        """
+        mine = self._resolve(_WORKORDER_MINE_REF) or {}
+        self.assertEqual(mine.get("name"), "mine", "WorkOrderMine name=mine.")
+        self.assertEqual(mine.get("in"), "query", "WorkOrderMine in=query.")
+        self.assertEqual(mine.get("required"), False, "WorkOrderMine required=false.")
+        msch = mine.get("schema") or {}
+        self.assertEqual(msch.get("type"), "integer", "WorkOrderMine type=integer (0|1, KHÔNG boolean).")
+        self.assertEqual(msch.get("default"), 0, "WorkOrderMine default=0.")
+        self.assertEqual(msch.get("enum"), [0, 1], "WorkOrderMine enum=[0,1] (mirror IncidentMine).")
+
+    # ── C-LISTREAD-MINE-CM (A2-symmetry CUỐI / ADR-MOBILE-017) — tab "Phiếu CM của tôi" ──
+    #   MVP-5b: listRepairWorkOrders +WorkOrderMine (REUSE component R38). mine=1 →
+    #   assigned_to==session.user. RED-before: 14b ĐỎ (yaml ĐÃ $ref WorkOrderMine nhưng
+    #   _LIST_PARAM_EXPECT[repair] còn 3) + 14g ĐỎ (live-sig imm09 thiếu `mine`).
+    def test_list_repair_param_set_includes_workordermine(self):
+        """listRepairWorkOrders param-set PHẢI có WorkOrderMine ($ref NGAY ⇒ no-orphan).
+
+        Param-set {WorkOrderFilters,Page,PageSize} → +WorkOrderMine (REUSE component R38,
+        KHÔNG tạo mới). Path-count GIỮ 46 (thêm param ≠ thêm path).
+        _LIST_PARAM_EXPECT[listRepairWorkOrders] chứa WorkOrderMine.
+        """
+        self.assertIn(
+            _WORKORDER_MINE_REF, _LIST_PARAM_EXPECT[_LIST_REPAIR_PATH],
+            "_LIST_PARAM_EXPECT[listRepairWorkOrders] PHẢI gồm WorkOrderMine (A2-symmetry CUỐI).",
+        )
+        op = self._op(_LIST_REPAIR_PATH)
+        got = self._param_refs(op)
+        self.assertIn(
+            _WORKORDER_MINE_REF, got,
+            f"listRepairWorkOrders.parameters PHẢI $ref WorkOrderMine. got={sorted(got)}",
+        )
+        # Path-count GIỮ 46 (thêm param ≠ thêm path).
+        self.assertEqual(
+            len(self.spec.get("paths") or {}), 53,
+            "path-count PHẢI 52 (R-NOTIF-UNREAD + TRANSFER-READ-WIRE) — WorkOrderMine là param, KHÔNG path mới.",
+        )
+        # WorkOrderMine được $ref ⇒ KHÔNG orphan (resolve về node tồn tại).
+        self.assertIsNotNone(
+            self._resolve(_WORKORDER_MINE_REF),
+            "WorkOrderMine PHẢI resolve (defined + $ref'd ⇒ no-orphan, no-dangling).",
+        )
+
+    def test_repair_workordermine_shape(self):
+        """listRepairWorkOrders DÙNG CHUNG WorkOrderMine với listPmWorkOrders (1 component,
+        2 $ref ⇒ 0 schema-component mới) + shape mirror IncidentMine: name=mine/in=query/
+        integer/default 0/enum [0,1] (int KHÔNG boolean — né int-vs-bool trap Open#1).
+        """
+        # REUSE: CM $ref CHÍNH component PM dùng ($ref string identical) — KHÔNG fork component.
+        self.assertIn(
+            _WORKORDER_MINE_REF, self._param_refs(self._op(_LIST_REPAIR_PATH)),
+            "listRepairWorkOrders PHẢI $ref WorkOrderMine.",
+        )
+        self.assertIn(
+            _WORKORDER_MINE_REF, self._param_refs(self._op(_LIST_PM_PATH)),
+            "WorkOrderMine DÙNG CHUNG cả listPm + listRepair (1 component, 2 $ref).",
+        )
+        mine = self._resolve(_WORKORDER_MINE_REF) or {}
+        self.assertEqual(mine.get("name"), "mine", "WorkOrderMine name=mine.")
+        self.assertEqual(mine.get("in"), "query", "WorkOrderMine in=query.")
+        self.assertEqual(mine.get("required"), False, "WorkOrderMine required=false.")
+        msch = mine.get("schema") or {}
+        self.assertEqual(msch.get("type"), "integer", "WorkOrderMine type=integer (0|1, KHÔNG boolean).")
+        self.assertEqual(msch.get("default"), 0, "WorkOrderMine default=0.")
+        self.assertEqual(msch.get("enum"), [0, 1], "WorkOrderMine enum=[0,1] (mirror IncidentMine).")
+
+    # C-LISTREAD-MINE-CAL (ADR-MOBILE, quartet "phiếu-của-tôi" ĐÓNG NỐT sau PM/CM/Incident) —
+    #   MVP-5d: listCalibrations +WorkOrderMine (REUSE component R38). mine=1 →
+    #   technician==session.user. RED-before: 14b ĐỎ (yaml ĐÃ $ref WorkOrderMine nhưng
+    #   _LIST_PARAM_EXPECT[calibration] còn 3) + 14g ĐỎ (live-sig imm11 thiếu `mine`).
+    def test_list_calibrations_param_set_includes_workordermine(self):
+        """listCalibrations param-set PHẢI có WorkOrderMine ($ref NGAY ⇒ no-orphan).
+
+        Param-set {WorkOrderFilters,WorkOrderMine,Page,PageSize} (REUSE component R38,
+        1 component / 3 $ref). Path-count GIỮ 47 (thêm param ≠ thêm path).
+        _LIST_PARAM_EXPECT[listCalibrations] chứa WorkOrderMine.
+        """
+        self.assertIn(
+            _WORKORDER_MINE_REF, _LIST_PARAM_EXPECT[_LIST_CALIBRATION_PATH],
+            "_LIST_PARAM_EXPECT[listCalibrations] PHẢI gồm WorkOrderMine (quartet ĐÓNG NỐT).",
+        )
+        got = self._param_refs(self._op(_LIST_CALIBRATION_PATH))
+        self.assertIn(
+            _WORKORDER_MINE_REF, got,
+            f"listCalibrations.parameters PHẢI $ref WorkOrderMine. got={sorted(got)}",
+        )
+        self.assertEqual(
+            len((self.spec.get("paths") or {})), 53,
+            "path-count PHẢI 52 (R-NOTIF-UNREAD + TRANSFER-READ-WIRE) — WorkOrderMine là param, KHÔNG path mới.",
+        )
+        # WorkOrderMine được $ref ⇒ KHÔNG orphan (resolve về node tồn tại).
+        self.assertIsNotNone(
+            self._resolve(_WORKORDER_MINE_REF),
+            "WorkOrderMine PHẢI resolve (defined + $ref'd ⇒ no-orphan, no-dangling).",
+        )
+
+    def test_calibrations_workordermine_live_sig(self):
+        """LIVE-SIG: inspect.signature(imm11.list_calibrations) CHỨA `mine` (giữa filters↔page).
+
+        yaml param KHÔNG bịa — hàm whitelist thật PHẢI có `mine` (anti false-green: contract
+        khai WorkOrderMine nhưng handler không nhận ⇒ codegen gửi param bị bỏ qua câm).
+        """
+        import importlib
+        import inspect
+        fn = getattr(importlib.import_module("assetcore.api.imm11"), "list_calibrations")
+        live = set(inspect.signature(fn).parameters)
+        self.assertEqual(
+            live, {"filters", "mine", "page", "page_size"},
+            f"imm11.list_calibrations live-sig LỆCH. got={sorted(live)}",
+        )
+        # listCalibrations DÙNG CHUNG WorkOrderMine với listPm + listRepair (1 component, 3 $ref).
+        self.assertIn(
+            _WORKORDER_MINE_REF, self._param_refs(self._op(_LIST_PM_PATH)),
+            "WorkOrderMine DÙNG CHUNG listPm.",
+        )
+        self.assertIn(
+            _WORKORDER_MINE_REF, self._param_refs(self._op(_LIST_REPAIR_PATH)),
+            "WorkOrderMine DÙNG CHUNG listRepair.",
+        )
+
+
+# ── C-LISTREAD-SCHED — guard listPmSchedules SSoT refs (mirror C-LISTREAD nhưng param DISCRETE) ──
+_LIST_SCHEDULE_PARAM_REFS = {
+    "#/components/parameters/ScheduleAssetRef",
+    "#/components/parameters/ScheduleStatus",
+    "#/components/parameters/Page",
+    "#/components/parameters/PageSize",
+}
+_PM_SCHEDULE_LIST_RESP_REF = "#/components/responses/PmScheduleList"
+_PM_SCHEDULE_LIST_SCHEMA_REF = "#/components/schemas/PmScheduleListEnvelope"
+_PM_SCHEDULE_LIST_ITEM_REF = "#/components/schemas/PmScheduleListItem"
+# Field-set GROUNDED @source svc.list_schedules (imm08.py:993-1001 repo fields + enrich asset_name).
+#   KHÔNG bịa — mở file, tìm symbol def list_schedules.
+_PM_SCHEDULE_ITEM_FIELDS = {
+    "name", "asset_ref", "asset_name", "pm_type", "status", "pm_interval_days",
+    "checklist_template", "responsible_technician", "last_pm_date", "next_due_date",
+    "alert_days_before",
+}
+# Enum SSoT @pm_schedule.json (Select options) — KHÔNG bịa, đọc DocType meta.
+_PM_SCHEDULE_STATUS_ENUM = ["Active", "Paused", "Suspended"]
+_PM_SCHEDULE_PM_TYPE_ENUM = ["Quarterly", "Semi-Annual", "Annual", "Ad-hoc"]
+
+# C-LISTREAD-CAL (open-thread #4c) — helper constants cho TestMobileListCalibrationsContract.
+#   Param REUSE WorkOrderFilters (JSON-string) như list_pm/list_repair (handler nhận filters str)
+#   — KHÔNG discrete (KHÁC listPmSchedules dùng asset_ref/status discrete).
+_LIST_CALIBRATION_PARAM_REFS = {
+    "#/components/parameters/WorkOrderFilters",
+    # C-LISTREAD-MINE-CAL (quartet "phiếu-của-tôi" ĐÓNG NỐT) — REUSE WorkOrderMine R38
+    #   (tab "Phiếu hiệu chuẩn của tôi" MVP-5d; mine=1 → technician==session.user).
+    "#/components/parameters/WorkOrderMine",
+    "#/components/parameters/Page",
+    "#/components/parameters/PageSize",
+}
+# Field-set GROUNDED @source services/imm11.py:940-942 (repo fields=[…12]) + imm11.py:972-974
+#   (3 enrich asset_name/lab_name/technician_name). ĐÚNG 15 field. KHÔNG bịa — mở file, tìm symbol.
+_CALIBRATION_ITEM_FIELDS = {
+    "name", "asset", "device_model", "calibration_type", "status", "scheduled_date",
+    "actual_date", "technician", "overall_result", "next_calibration_date", "lab_supplier",
+    "is_recalibration", "asset_name", "lab_name", "technician_name",
+}
+# Enum SSoT @IMM Asset Calibration DocType (Select options) — KHÔNG bịa, đọc DocType meta.
+_CALIBRATION_TYPE_ENUM = ["External", "In-House"]
+_CALIBRATION_STATUS_ENUM = [
+    "Scheduled", "Sent to Lab", "In Progress", "Certificate Received",
+    "Passed", "Failed", "Conditionally Passed", "Cancelled",
+]
+_CALIBRATION_OVERALL_RESULT_ENUM = ["", "Passed", "Failed", "Conditionally Passed"]
+# Financial-key sweep (LL-BE-57 mobile-meta no-financial) — list_calibrations KHÔNG trả 3 key này.
+_FINANCIAL_KEYS = {"gross_purchase_amount", "accumulated_depreciation", "current_book_value"}
+
+# ── C-LISTREAD-ASSET — guard listAssets SSoT refs (mirror C-LISTREAD-SCHED: 7 param DISCRETE
+#   query-string, KHÔNG WorkOrderFilters JSON-blob; KHÁC list_calibrations/list_pm/list_repair).
+#   BE sẵn imm00.list_assets:309 (bare @whitelist nhận GET; cap đọc asset.read mirror getAsset:458).
+#   _LIST_ASSETS_PATH định nghĩa SỚM (gần _LIST_CALIBRATION_PATH) để _MVP_BUSINESS_PATHS tham chiếu được.
+_ASSET_LIST_RESP_REF = "#/components/responses/AssetList"
+_ASSET_LIST_SCHEMA_REF = "#/components/schemas/AssetListEnvelope"
+_ASSET_LIST_ITEM_REF = "#/components/schemas/AssetListItem"
+# 7 param DISCRETE (optional string default'') + Page/PageSize REUSE $ref (mirror listPmSchedules,
+#   KHÔNG JSON filters). 7 discrete = lifecycle_status/department/location/asset_category/search/
+#   gmdn_code/byt_status (imm00.list_assets signature @:313-319).
+_LIST_ASSETS_PARAM_REFS = {
+    "#/components/parameters/AssetLifecycleStatus",
+    "#/components/parameters/AssetDept",
+    "#/components/parameters/AssetLocation",
+    "#/components/parameters/AssetCategory",
+    "#/components/parameters/AssetSearch",
+    "#/components/parameters/AssetGmdnCode",
+    "#/components/parameters/AssetBytStatus",
+    "#/components/parameters/Page",
+    "#/components/parameters/PageSize",
+}
+# Field-set GROUNDED @source imm00.list_assets: 14 base @:427-434 MINUS 3 financial (EXCLUDED LL-BE-57)
+#   + 6 enrich @:444-449. KHÔNG bịa — mở file, đọc `fields=[...]` + 6 _enrich(out_field=...) call.
+#   3 financial (gross_purchase_amount/accumulated_depreciation/current_book_value) handler CÓ trả
+#   @:433 NHƯNG CỐ Ý loại khỏi contract (KTV mobile không cần giá — mobile-meta no-financial).
+_ASSET_ITEM_FIELDS = {
+    # 14 base (17 handler fields TRỪ 3 financial)
+    "name", "asset_name", "asset_code", "lifecycle_status", "asset_category",
+    "location", "department", "responsible_technician", "supplier", "device_model",
+    "next_pm_date", "next_calibration_date", "byt_reg_expiry", "gmdn_code",
+    # 6 enrich (out_field @:444-449)
+    "category_name", "department_name", "location_name", "supplier_name",
+    "device_model_name", "responsible_technician_name",
+}
+# 17 raw handler fields (incl 3 financial) — dùng cho live-signature parity guard (item ⊆ handler base).
+_ASSET_HANDLER_BASE_FIELDS = _ASSET_ITEM_FIELDS - {
+    "category_name", "department_name", "location_name", "supplier_name",
+    "device_model_name", "responsible_technician_name",
+} | _FINANCIAL_KEYS
+_ASSET_ENRICH_FIELDS = {
+    "category_name", "department_name", "location_name", "supplier_name",
+    "device_model_name", "responsible_technician_name",
+}
+
+
+class TestMobileListAssetsContract(unittest.TestCase):
+    """C-LISTREAD-ASSET — listAssets contract (open-thread #4c STATE — tra-cứu thiết bị MVP-flow-5).
+
+    Lý do bồi: màn tra-cứu thiết bị mobile cần API list AC Asset (filter + phân trang). BE sẵn
+    imm00.list_assets:309 (bare @whitelist nhận GET; cap đọc asset.read mirror getAsset). Guard chốt
+    (mirror TestMobileListPmSchedulesContract — 7 param DISCRETE query-string, KHÔNG JSON `filters`;
+    rows-key `data.items[]` mirror IncidentListEnvelope — KHÁC PmSchedule `data.data[]`):
+      (a) path TỒN TẠI + GET + opId listAssets; vào _MVP_BUSINESS_PATHS (RỜI _STUB_PATHS) ⇒ 401∧403
+          symmetry tự lên (test so SET, KHÔNG literal).
+      (b) AssetListEnvelope: additionalProperties:false, required[success,data], success enum[true];
+          data.items[] (rows-key=items, KHÔNG data) trỏ $ref AssetListItem; data.pagination $ref Pagination.
+      (c) AssetListItem field-disjoint = ĐÚNG 20 field {14 base + 6 enrich}; 3 financial
+          (gross_purchase_amount/accumulated_depreciation/current_book_value) VẮNG MẶT (LL-BE-57 guard —
+          RED nếu ai thêm financial); `name` REQUIRED; additionalProperties:false.
+      (d) AssetItem no-boolean sweep: 0 prop type:boolean (int-vs-bool Open#1 — KHÔNG Check field);
+          lifecycle_status type:string KHÔNG enum cứng (Select nhiều giá trị, để string mô tả).
+      (e) param = 7 discrete optional string default'' + Page/PageSize $ref; KHÔNG WorkOrderFilters.
+      (f) response 200 = oneOf [AssetListEnvelope, Error]: ĐÚNG 2 nhánh, 0 discriminator, cả 2
+          additionalProperties:false, success enum disjoint [true]/[false] (route-by-VALUE C7);
+          401 Unauthorized401, 403 Forbidden.
+      (g) live-signature parity: AssetListItem field-set ⊆ field handler imm00.list_assets THỰC trả
+          (introspect signature 7 discrete param + grounded fields-list @source) — KHÔNG bịa field.
+    SSoT: ../04-api-contract.md §6.2/§6.3 + imm00.py:309 list_assets + imm00.py:450 _ok({pagination,items}).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.spec = _load_spec() if _MOBILE_YAML.exists() else None
+
+    def setUp(self):
+        if self.spec is None:
+            self.skipTest("Thiếu yaml mobile spec.")
+
+    def _op(self):
+        return ((self.spec.get("paths") or {}).get(_LIST_ASSETS_PATH) or {}).get("get") or {}
+
+    def _resolve(self, ref):
+        if not ref or not ref.startswith("#/"):
+            return None
+        cur = self.spec
+        for raw in ref[2:].split("/"):
+            part = raw.replace("~1", "/").replace("~0", "~")
+            if isinstance(cur, dict) and part in cur:
+                cur = cur[part]
+            else:
+                return None
+        return cur
+
+    def _schema(self, name):
+        return ((self.spec.get("components") or {}).get("schemas") or {}).get(name) or {}
+
+    def _comp_schema(self):
+        comp = _resolve_response_component(self.spec, _ASSET_LIST_RESP_REF)
+        return (((comp.get("content") or {}).get("application/json") or {}).get("schema") or {})
+
+    def test_mob_oas_asset_a_path_get_opid_mvp(self):
+        """(a) path TỒN TẠI + GET + opId listAssets; vào _MVP_BUSINESS_PATHS; RỜI _STUB_PATHS."""
+        paths = self.spec.get("paths") or {}
+        self.assertIn(_LIST_ASSETS_PATH, paths, "Thiếu path list_assets (C-LISTREAD-ASSET).")
+        item = paths[_LIST_ASSETS_PATH]
+        self.assertEqual(sorted(item.keys()), ["get"], "list_assets CHỈ verb GET (bare @whitelist nhận GET).")
+        self.assertEqual(self._op().get("operationId"), "listAssets", "opId = listAssets.")
+        self.assertIn(_LIST_ASSETS_PATH, _MVP_BUSINESS_PATHS, "Phải vào _MVP_BUSINESS_PATHS (401/403 symmetry).")
+        self.assertNotIn(_LIST_ASSETS_PATH, _STUB_PATHS, "Phải RỜI _STUB_PATHS (typed list-envelope).")
+
+    def test_mob_oas_asset_b_envelope_rows_key_items(self):
+        """(b) AssetListEnvelope closed; required[success,data]; success enum[true]; rows-key
+        `data.items[]` (mirror IncidentListEnvelope — KHÔNG data.data[]) trỏ AssetListItem; pagination."""
+        env = self._schema("AssetListEnvelope")
+        self.assertTrue(env, "Thiếu schema AssetListEnvelope.")
+        self.assertIs(env.get("additionalProperties"), False, "AssetListEnvelope closed (additionalProperties:false).")
+        self.assertEqual(sorted(env.get("required") or []), ["data", "success"], "required = [success,data].")
+        self.assertEqual(
+            ((env.get("properties") or {}).get("success") or {}).get("enum"), [True],
+            "AssetListEnvelope.success.enum PHẢI [true] (nhánh thành công).",
+        )
+        env_data = ((env.get("properties") or {}).get("data") or {})
+        env_props = env_data.get("properties") or {}
+        # rows-key = `items` (mirror IncidentListEnvelope), KHÔNG `data` (KHÁC Pm/RepairWorkOrder/PmSchedule).
+        self.assertIn("items", env_props, "AssetListEnvelope rows-key PHẢI `items` (mirror IncidentListEnvelope).")
+        self.assertNotIn("data", env_props, "AssetListEnvelope KHÔNG dùng rows-key `data` (handler trả items @:450).")
+        self.assertEqual(env_props["items"].get("type"), "array", "rows = array.")
+        self.assertEqual(
+            env_props["items"].get("items", {}).get("$ref"), _ASSET_LIST_ITEM_REF,
+            "items PHẢI $ref AssetListItem RIÊNG.",
+        )
+        self.assertEqual(
+            (env_props.get("pagination") or {}).get("$ref"), "#/components/schemas/Pagination",
+            "AssetListEnvelope dùng CHUNG Pagination.",
+        )
+        self.assertEqual(sorted(env_data.get("required") or []), ["items", "pagination"])
+
+    def test_mob_oas_asset_c_item_field_disjoint_no_financial(self):
+        """(c) AssetListItem field-set == _ASSET_ITEM_FIELDS (ĐÚNG 20 = 14 base + 6 enrich); name
+        required; đóng; 3 financial VẮNG MẶT (LL-BE-57 mobile-meta no-financial — RED nếu thêm)."""
+        item = self._schema("AssetListItem")
+        self.assertTrue(item, "Thiếu schema AssetListItem.")
+        props = set((item.get("properties") or {}).keys())
+        self.assertEqual(
+            props, _ASSET_ITEM_FIELDS,
+            f"AssetListItem field-set LỆCH source imm00.list_assets: "
+            f"thừa={sorted(props - _ASSET_ITEM_FIELDS)} thiếu={sorted(_ASSET_ITEM_FIELDS - props)}",
+        )
+        self.assertEqual(len(props), 20, "PHẢI ĐÚNG 20 field (14 base + 6 enrich; 3 financial EXCLUDED).")
+        self.assertEqual(item.get("required"), ["name"], "CHỈ `name` REQUIRED (Option A closed-schema).")
+        self.assertIs(item.get("additionalProperties"), False, "additionalProperties:false (đóng).")
+        # LL-BE-57 guard: 3 financial VẮNG MẶT dù handler imm00.py:433 CÓ trả (KTV mobile không cần giá).
+        fin = props & _FINANCIAL_KEYS
+        self.assertEqual(
+            fin, set(),
+            f"AssetListItem KHÔNG được mang financial key (LL-BE-57 mobile-meta no-financial): {fin}. "
+            f"Handler imm00.py:433 CÓ trả 3 key này NHƯNG CỐ Ý loại khỏi contract mobile.",
+        )
+
+    def test_mob_oas_asset_d_no_boolean_lifecycle_string(self):
+        """(d) Open#1 int-vs-bool: 0 prop type:boolean (KHÔNG Check field → né int-vs-bool trap);
+        lifecycle_status type:string KHÔNG enum cứng (Select nhiều giá trị, để string mô tả)."""
+        item = self._schema("AssetListItem")
+        props = item.get("properties") or {}
+        bool_props = [k for k, v in props.items() if v.get("type") == "boolean"]
+        self.assertEqual(
+            bool_props, [],
+            f"AssetListItem KHÔNG được có prop type:boolean (int-vs-bool Open#1): {bool_props}. "
+            f"imm00.list_assets 0 Check field → KHÔNG int-vs-bool trap.",
+        )
+        ls = props.get("lifecycle_status") or {}
+        self.assertEqual(ls.get("type"), "string", "lifecycle_status PHẢI type:string.")
+        self.assertNotIn(
+            "enum", ls,
+            "lifecycle_status KHÔNG enum cứng — Select có nhiều giá trị, để string mô tả (tránh codegen "
+            "vỡ khi DocType thêm trạng thái mới).",
+        )
+
+    def test_mob_oas_asset_e_params_discrete_no_filters(self):
+        """(e) param query = 7 discrete optional string default'' + Page/PageSize $ref; KHÔNG
+        WorkOrderFilters JSON-blob (mirror listPmSchedules discrete, KHÁC list_pm/list_repair/list_cal)."""
+        got = {p.get("$ref") for p in (self._op().get("parameters") or []) if p.get("$ref")}
+        self.assertEqual(
+            got, _LIST_ASSETS_PARAM_REFS,
+            f"param query LỆCH. expected={sorted(_LIST_ASSETS_PARAM_REFS)} got={sorted(got)}",
+        )
+        self.assertNotIn(
+            "#/components/parameters/WorkOrderFilters", got,
+            "listAssets KHÔNG dùng WorkOrderFilters JSON-blob (7 param DISCRETE — imm00.py:313-319).",
+        )
+        # 7 discrete param = string optional default'' (lifecycle_status/department/location/
+        #   asset_category/search/gmdn_code/byt_status). KHÔNG required ngoài chuẩn.
+        discrete = (
+            "AssetLifecycleStatus", "AssetDept", "AssetLocation", "AssetCategory",
+            "AssetSearch", "AssetGmdnCode", "AssetBytStatus",
+        )
+        for pname in discrete:
+            p = self._resolve(f"#/components/parameters/{pname}") or {}
+            self.assertEqual(p.get("in"), "query", f"{pname} in=query.")
+            self.assertFalse(p.get("required", False), f"{pname} optional.")
+            sch = p.get("schema") or {}
+            self.assertEqual(sch.get("type"), "string", f"{pname} type=string.")
+            self.assertEqual(sch.get("default"), "", f"{pname} default='' (vắng = không lọc).")
+
+    def test_mob_oas_asset_f_response_oneof_no_discriminator(self):
+        """(f) 200 = oneOf [AssetListEnvelope, Error]: ĐÚNG 2 nhánh, 0 discriminator, cả 2 closed,
+        success enum disjoint [true]/[false] (route-by-VALUE C7); 401 Unauthorized401, 403 Forbidden."""
+        op = self._op()
+        resp = op.get("responses") or {}
+        self.assertEqual(
+            (resp.get("200") or {}).get("$ref"), _ASSET_LIST_RESP_REF,
+            "200 phải trỏ AssetList (response-component C7).",
+        )
+        self.assertEqual((resp.get("401") or {}).get("$ref"), "#/components/responses/Unauthorized401", "401 GIỮ Unauthorized401.")
+        self.assertEqual((resp.get("403") or {}).get("$ref"), "#/components/responses/Forbidden", "403 GIỮ Forbidden.")
+        self.assertNotIn("requestBody", op, "listAssets là GET — KHÔNG requestBody.")
+        self.assertEqual(sorted(resp.keys()), ["200", "401", "403"], "status set = [200,401,403].")
+        comp_sch = self._comp_schema()
+        self.assertNotIn("$ref", comp_sch, "200 content.schema KHÔNG single $ref — PHẢI oneOf [Env, Error] (C7).")
+        one_of = comp_sch.get("oneOf") or []
+        refs = [b.get("$ref") for b in one_of if isinstance(b, dict)]
+        self.assertEqual(len(one_of), 2, f"oneOf PHẢI ĐÚNG 2 nhánh [AssetListEnvelope, Error]: {refs}")
+        self.assertIn(_ASSET_LIST_SCHEMA_REF, refs, f"oneOf thiếu nhánh Env: {refs}")
+        self.assertIn(_ERROR_SCHEMA_REF, refs, f"oneOf thiếu nhánh Error: {refs}")
+        self.assertNotIn(
+            "discriminator", comp_sch,
+            "KHÔNG discriminator — Decision-B closed-schema route-by-VALUE body.success (success boolean illegal).",
+        )
+        # cả 2 nhánh closed + success.enum đối lập (cơ chế phân biệt KHÔNG discriminator).
+        env = self._schema("AssetListEnvelope")
+        err = self._schema("Error")
+        self.assertIs(env.get("additionalProperties"), False, "AssetListEnvelope closed.")
+        self.assertIs(err.get("additionalProperties"), False, "Error closed.")
+        self.assertEqual(((env.get("properties") or {}).get("success") or {}).get("enum"), [True], "Env.success [true].")
+        self.assertEqual(((err.get("properties") or {}).get("success") or {}).get("enum"), [False], "Error.success [false].")
+        self.assertEqual(
+            set(env.get("required") or []) & set(err.get("required") or []), {"success"},
+            "Env vs Error required CHỈ giao 'success' (route-by-VALUE).",
+        )
+
+    def test_mob_oas_asset_g_field_subset_live_signature(self):
+        """(g) live-signature parity: AssetListItem field-set ⊆ handler imm00.list_assets THỰC trả
+        (7 discrete param có thật trong signature; 20 contract field ⊆ 17 base ∪ 6 enrich @source) —
+        KHÔNG bịa field. 3 financial nằm trong handler-base nhưng CỐ Ý EXCLUDED (LL-BE-57)."""
+        # LIVE introspect — 7 discrete + page/page_size CÓ THẬT trong signature whitelist.
+        fn = getattr(importlib.import_module("assetcore.api.imm00"), "list_assets", None)
+        self.assertIsNotNone(fn, "Thiếu hàm whitelist LIVE: assetcore.api.imm00.list_assets")
+        live_args = set(inspect.signature(fn).parameters.keys())
+        for must in ("lifecycle_status", "department", "location", "asset_category", "search",
+                     "gmdn_code", "byt_status", "page", "page_size"):
+            self.assertIn(must, live_args, f"imm00.list_assets signature LIVE thiếu param `{must}` (yaml KHÔNG bịa).")
+        # field-set parity: 20 contract field ⊆ (17 handler base ∪ 6 enrich). KHÔNG bịa field ngoài source.
+        item = self._schema("AssetListItem")
+        contract_fields = set((item.get("properties") or {}).keys())
+        source_universe = _ASSET_HANDLER_BASE_FIELDS | _ASSET_ENRICH_FIELDS
+        self.assertTrue(
+            contract_fields <= source_universe,
+            f"AssetListItem field BỊA (không thuộc handler base/enrich): {sorted(contract_fields - source_universe)}",
+        )
+        # 3 financial CÓ trong handler-base (chứng cứ chúng tồn tại @source) nhưng EXCLUDED khỏi contract.
+        self.assertTrue(
+            _FINANCIAL_KEYS <= _ASSET_HANDLER_BASE_FIELDS,
+            "control: 3 financial PHẢI thuộc handler-base @source (imm00.py:433) — nếu không, premise sai.",
+        )
+        self.assertEqual(
+            contract_fields & _FINANCIAL_KEYS, set(),
+            "3 financial EXCLUDED khỏi AssetListItem dù @source có (LL-BE-57 — guard kép vs asset_c).",
+        )
+
+
+# ── C-LISTREAD-USERS — guard listUsers SSoT refs (technician/assignee picker, open-thread #4 closure).
+#   BE sẵn assetcore.api.user.list_users:268 (bare @whitelist nhận GET). 6 param DISCRETE query-string
+#   (KHÔNG WorkOrderFilters JSON-blob; mirror listPmSchedules/listAssets): search/department/role/
+#   approval_status string optional default'' + is_active integer enum[0,1] optional + Page/PageSize.
+#   rows-key `data.items[]` (mirror AssetListEnvelope/IncidentListEnvelope — handler _ok({items,pagination})
+#   @user.py:367, KHÁC Pm/Repair `data.data[]`).
+_USERS_LIST_RESP_REF = "#/components/responses/UserList"
+_USERS_LIST_SCHEMA_REF = "#/components/schemas/UserListEnvelope"
+_USERS_LIST_ITEM_REF = "#/components/schemas/UserListItem"
+# 4 discrete string param + is_active(int enum[0,1]) + Page/PageSize REUSE $ref. Grounded @source
+#   user.list_users signature: search/department/role/is_active/approval_status/page/page_size.
+_LIST_USERS_PARAM_REFS = {
+    "#/components/parameters/UserSearch",
+    "#/components/parameters/UserDepartment",
+    "#/components/parameters/UserRole",
+    "#/components/parameters/UserApprovalStatus",
+    "#/components/parameters/UserIsActive",
+    "#/components/parameters/Page",
+    "#/components/parameters/PageSize",
+}
+# Field-set GROUNDED @source user.list_users emit (re-verify @user.py:300-374): contract = 10 emit field
+#   (name/full_name/email/enabled/user_image/role_profile_name/department_name/is_active/
+#   imm_approval_status/imm_roles). Handler dict CŨNG chứa raw `ac_department` (Link id) NHƯNG CỐ Ý
+#   EXCLUDED khỏi contract (mirror AssetListItem drop raw id — `department_name` carries readable value;
+#   mobile-meta no raw internal id). 0 financial (list_users vốn không trả). KHÔNG password/api_secret.
+_USER_ITEM_FIELDS = {
+    "name", "full_name", "email", "enabled", "user_image", "role_profile_name",
+    "department_name", "is_active", "imm_approval_status", "imm_roles",
+}
+# Raw handler-dict universe (incl ac_department) — dùng cho parity guard (contract ⊆ handler emit).
+_USER_HANDLER_EMIT_FIELDS = _USER_ITEM_FIELDS | {"ac_department"}
+# Sensitive key MUST NOT leak (defense-in-depth — list_users vốn KHÔNG trả, guard chống regression).
+_USER_FORBIDDEN_KEYS = {"password", "api_secret", "api_key", "roles", "new_password"}
+# Check-fieldtype field (User.enabled) → contract integer enum[0,1] (Open#1 int-vs-bool sweep — KHÔNG
+#   type:boolean, chống strict-codegen Dart/Kotlin deser CRASH). is_active = alias enabled @user.py:355.
+_USER_INT_ENUM_FIELDS = {"enabled", "is_active"}
+
+_NOTIF_LIST_RESP_REF = "#/components/responses/NotificationList"
+_NOTIF_LIST_SCHEMA_REF = "#/components/schemas/NotificationListEnvelope"
+_NOTIF_LIST_ITEM_REF = "#/components/schemas/NotificationListItem"
+# 3 param DISCRETE: Page/PageSize REUSE $ref (int) + NotifOnlyUnread (integer enum[0,1] default 0).
+#   Grounded @source list_notifications signature: page/page_size/only_unread (layout.py:72).
+_LIST_NOTIFICATIONS_PARAM_REFS = {
+    "#/components/parameters/Page",
+    "#/components/parameters/PageSize",
+    "#/components/parameters/NotifOnlyUnread",
+}
+# Field-set GROUNDED @source _serialize_notification emit (re-verify @layout.py:33-43): ĐÚNG 9 emit field.
+#   read = int(row.get("read") or 0) @:41 → contract integer enum[0,1] (KHÔNG boolean). 3 nullable Link
+#   (from_user/document_type/document_name) — Notification Log optional. content = email_content.strip().
+_NOTIF_ITEM_FIELDS = {
+    "name", "subject", "content", "document_type", "document_name",
+    "type", "from_user", "read", "creation",
+}
+# read = Check fieldtype @Notification Log → int(...) @:41 → contract integer enum[0,1] (Open#1 int-vs-bool
+#   sweep — KHÔNG type:boolean, chống strict-codegen Dart/Kotlin deser CRASH).
+_NOTIF_INT_ENUM_FIELDS = {"read"}
+# 3 field nullable (Notification Log optional Link/sender) — emit None khi vắng.
+_NOTIF_NULLABLE_FIELDS = {"from_user", "document_type", "document_name"}
+
+
+class TestMobileListUsersContract(unittest.TestCase):
+    """C-LISTREAD-USERS — listUsers contract (open-thread #4 closure — technician/assignee picker).
+
+    Lý do bồi: createCalibration.technician (imm11) + assign_technician.technician cần API liệt-kê User
+    để picker không CỤT required-field. BE sẵn assetcore.api.user.list_users:268 (bare @whitelist nhận
+    GET; trả _ok({items, pagination}) @user.py:367). Guard chốt (mirror TestMobileListAssetsContract —
+    rows-key `data.items[]`; 6 param DISCRETE query-string, KHÔNG JSON `filters`):
+      (a) path TỒN TẠI + GET + opId listUsers; vào _MVP_BUSINESS_PATHS ⇒ 401∧403 symmetry tự lên
+          (test so SET, KHÔNG literal); path/opId count 23→24, unique camelCase, 0 dangling $ref.
+      (b) 6 param DISCRETE khớp signature user.list_users: search/department/role/approval_status string
+          optional default''; is_active integer enum[0,1] optional; Page/PageSize $ref. KHÔNG JSON `filters`.
+      (c) role.enum == _IMM_ROLES set (import từ assetcore.api.user — KHÔNG literal bịa); negative: enum
+          KHÔNG chứa role rác.
+      (d) UserListItem props == 10 emit field (field-disjoint); additionalProperties:false; 0 financial;
+          KHÔNG leak password/api_secret/raw role child-table.
+      (e) enabled + is_active = type:integer enum[0,1] (User.enabled Check-fieldtype — Open#1 int-vs-bool
+          guard chống strict-codegen deser CRASH); sweep UserListItem 0 stray boolean.
+      (f) UserListEnvelope rows-key = data.items[] (mirror AssetListEnvelope, KHÔNG data.data[]);
+          pagination{page,page_size,total,total_pages} present.
+      (g) 200 = oneOf [UserListEnvelope, Error]: ĐÚNG 2 nhánh, cả 2 additionalProperties:false, success
+          enum disjoint [true]/[false], 0 discriminator (route-by-VALUE body.success C7); negative-inject
+          3rd branch ⇒ fail.
+      (h) listUsers ∈ _MVP_BUSINESS_PATHS ⇒ 401 Unauthorized401 + 403 Forbidden symmetry set (so SET,
+          KHÔNG literal — đối xứng |401-set| == |403-set|).
+    SSoT: ../04-api-contract.md §6 + user.py:268 list_users + user.py:367 _ok({items,pagination}) +
+    assetcore.services.shared.constants.Roles.ALL (= _IMM_ROLES).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.spec = _load_spec() if _MOBILE_YAML.exists() else None
+
+    def setUp(self):
+        if self.spec is None:
+            self.skipTest("Thiếu yaml mobile spec.")
+
+    def _op(self):
+        return ((self.spec.get("paths") or {}).get(_LIST_USERS_PATH) or {}).get("get") or {}
+
+    def _resolve(self, ref):
+        if not ref or not ref.startswith("#/"):
+            return None
+        cur = self.spec
+        for raw in ref[2:].split("/"):
+            part = raw.replace("~1", "/").replace("~0", "~")
+            if isinstance(cur, dict) and part in cur:
+                cur = cur[part]
+            else:
+                return None
+        return cur
+
+    def _schema(self, name):
+        return ((self.spec.get("components") or {}).get("schemas") or {}).get(name) or {}
+
+    def _comp_schema(self):
+        comp = _resolve_response_component(self.spec, _USERS_LIST_RESP_REF)
+        return (((comp.get("content") or {}).get("application/json") or {}).get("schema") or {})
+
+    def test_path_present(self):
+        """(a) path /api/method/assetcore.api.user.list_users TỒN TẠI + GET + opId listUsers;
+        path/opId count 24, unique camelCase, 0 dangling $ref; vào _MVP_BUSINESS_PATHS."""
+        paths = self.spec.get("paths") or {}
+        self.assertIn(_LIST_USERS_PATH, paths, "Thiếu path list_users (C-LISTREAD-USERS).")
+        item = paths[_LIST_USERS_PATH]
+        self.assertEqual(sorted(item.keys()), ["get"], "list_users CHỈ verb GET (bare @whitelist nhận GET).")
+        self.assertEqual(self._op().get("operationId"), "listUsers", "opId = listUsers.")
+        self.assertIn(_LIST_USERS_PATH, _MVP_BUSINESS_PATHS, "Phải vào _MVP_BUSINESS_PATHS (401/403 symmetry).")
+        # path/opId count = 39 (38 + markNotificationAsRead FLOW-6 read-receipt); unique camelCase.
+        self.assertEqual(len(paths), 53, "path-count PHẢI 52 (R-NOTIF-UNREAD +getUnreadNotifications).")
+        ids = [op["operationId"] for _, _, op in _iter_operations(self.spec)]
+        self.assertEqual(len(ids), 53, "operationId count PHẢI 52.")
+        self.assertEqual(len(set(ids)), 53, "operationId DUY NHẤT (len(set)==52).")
+        for oid in ids:
+            self.assertRegex(oid, _CAMEL_RE, f"operationId KHÔNG camelCase: {oid}")
+        # 0 dangling $ref toàn spec (codegen-precondition).
+        dangling = sorted({r for r in _collect_refs(self.spec) if not _resolve_pointer(r, self.spec)})
+        self.assertEqual(dangling, [], f"0 dangling $ref — codegen vỡ nếu có: {dangling}")
+
+    def test_params_discrete_grounded(self):
+        """(b) 6 param DISCRETE khớp signature user.list_users: search/department/role/approval_status
+        string optional default''; is_active integer enum[0,1] optional; Page/PageSize $ref. KHÔNG JSON filters."""
+        got = {p.get("$ref") for p in (self._op().get("parameters") or []) if p.get("$ref")}
+        self.assertEqual(
+            got, _LIST_USERS_PARAM_REFS,
+            f"param query LỆCH. expected={sorted(_LIST_USERS_PARAM_REFS)} got={sorted(got)}",
+        )
+        self.assertNotIn(
+            "#/components/parameters/WorkOrderFilters", got,
+            "listUsers KHÔNG dùng WorkOrderFilters JSON-blob (6 param DISCRETE — user.py:269-275).",
+        )
+        # 4 discrete string param = string optional default''.
+        for pname in ("UserSearch", "UserDepartment", "UserRole", "UserApprovalStatus"):
+            p = self._resolve(f"#/components/parameters/{pname}") or {}
+            self.assertEqual(p.get("in"), "query", f"{pname} in=query.")
+            self.assertFalse(p.get("required", False), f"{pname} optional.")
+            sch = p.get("schema") or {}
+            self.assertEqual(sch.get("type"), "string", f"{pname} type=string.")
+            self.assertEqual(sch.get("default"), "", f"{pname} default='' (vắng = không lọc).")
+        # is_active = integer enum[0,1] optional (Open#1 int-vs-bool — KHÔNG boolean).
+        ia = self._resolve("#/components/parameters/UserIsActive") or {}
+        self.assertEqual(ia.get("in"), "query", "UserIsActive in=query.")
+        self.assertFalse(ia.get("required", False), "UserIsActive optional.")
+        ia_sch = ia.get("schema") or {}
+        self.assertEqual(ia_sch.get("type"), "integer", "UserIsActive type=integer (KHÔNG boolean).")
+        self.assertEqual(ia_sch.get("enum"), [0, 1], "UserIsActive enum=[0,1].")
+        # LIVE signature parity — 6 param CÓ THẬT trong signature whitelist (KHÔNG bịa).
+        fn = getattr(importlib.import_module("assetcore.api.user"), "list_users", None)
+        self.assertIsNotNone(fn, "Thiếu hàm whitelist LIVE: assetcore.api.user.list_users")
+        live_args = set(inspect.signature(fn).parameters.keys())
+        for must in ("search", "department", "role", "is_active", "approval_status", "page", "page_size"):
+            self.assertIn(must, live_args, f"user.list_users signature LIVE thiếu param `{must}` (yaml KHÔNG bịa).")
+
+    def test_role_enum_matches_source(self):
+        """(c) role.enum == _IMM_ROLES set (import từ assetcore.api.user — KHÔNG literal bịa);
+        negative: enum KHÔNG chứa role rác ngoài canonical set."""
+        src_roles = set(getattr(importlib.import_module("assetcore.api.user"), "_IMM_ROLES"))
+        self.assertTrue(src_roles, "_IMM_ROLES source rỗng — premise sai.")
+        role_param = self._resolve("#/components/parameters/UserRole") or {}
+        enum = (role_param.get("schema") or {}).get("enum") or []
+        self.assertEqual(
+            set(enum), src_roles,
+            f"UserRole.enum LỆCH _IMM_ROLES @source: thừa={sorted(set(enum) - src_roles)} "
+            f"thiếu={sorted(src_roles - set(enum))}",
+        )
+        self.assertEqual(len(enum), len(src_roles), "enum KHÔNG trùng-lặp (== |_IMM_ROLES|).")
+        # negative: KHÔNG role rác (vd 'System Manager' Frappe-core, không thuộc IMM canonical).
+        self.assertNotIn("System Manager", enum, "enum KHÔNG chứa role rác ngoài _IMM_ROLES canonical.")
+
+    def test_userlistitem_field_disjoint_and_no_financial(self):
+        """(d) UserListItem props == 10 emit field; additionalProperties:false; name required; 0 financial;
+        KHÔNG leak password/api_secret/raw role child-table (ac_department raw id CŨNG excluded)."""
+        item = self._schema("UserListItem")
+        self.assertTrue(item, "Thiếu schema UserListItem.")
+        props = set((item.get("properties") or {}).keys())
+        self.assertEqual(
+            props, _USER_ITEM_FIELDS,
+            f"UserListItem field-set LỆCH source user.list_users emit: "
+            f"thừa={sorted(props - _USER_ITEM_FIELDS)} thiếu={sorted(_USER_ITEM_FIELDS - props)}",
+        )
+        self.assertEqual(len(props), 10, "PHẢI ĐÚNG 10 emit field.")
+        self.assertEqual(item.get("required"), ["name"], "CHỈ `name` REQUIRED (closed-schema picker).")
+        self.assertIs(item.get("additionalProperties"), False, "additionalProperties:false (đóng).")
+        # 0 financial (list_users vốn không trả — LL-BE-57 mobile-meta no-financial, guard regression).
+        fin = props & _FINANCIAL_KEYS
+        self.assertEqual(fin, set(), f"UserListItem KHÔNG được mang financial key (LL-BE-57): {fin}.")
+        # KHÔNG leak sensitive — password/api_secret/api_key/raw `roles` child-table.
+        leaked = props & _USER_FORBIDDEN_KEYS
+        self.assertEqual(
+            leaked, set(),
+            f"UserListItem LEAK sensitive key {leaked} — KHÔNG password/api_secret/api_key/raw role child-table "
+            f"(picker chỉ cần imm_roles[] object array đã sanitize).",
+        )
+        # ac_department raw Link id EXCLUDED (mirror AssetListItem drop raw id — department_name carries value).
+        self.assertNotIn(
+            "ac_department", props,
+            "ac_department (raw Link id) CỐ Ý EXCLUDED — `department_name` mang giá trị readable "
+            "(mobile-meta no raw internal id, mirror AssetListItem).",
+        )
+        # imm_roles = object array {name,label,group} (KHÔNG raw role child-table thô).
+        imm_roles = (item.get("properties") or {}).get("imm_roles") or {}
+        self.assertEqual(imm_roles.get("type"), "array", "imm_roles PHẢI array.")
+        roles_el = imm_roles.get("items") or {}
+        self.assertEqual(roles_el.get("type"), "object", "imm_roles element PHẢI object {name,label,group}.")
+        el_props = set((roles_el.get("properties") or {}).keys())
+        self.assertEqual(
+            el_props, {"name", "label", "group"},
+            f"imm_roles element props PHẢI {{name,label,group}} (khớp ROLE_METADATA emit @user.py:359-364): {el_props}",
+        )
+
+    def test_userlistitem_field_subset_live_signature(self):
+        """(d') live-signature parity: UserListItem field-set ⊆ handler user.list_users THỰC emit (10
+        contract ⊆ 11 handler-dict-key incl ac_department) — KHÔNG bịa field ngoài source."""
+        item = self._schema("UserListItem")
+        contract_fields = set((item.get("properties") or {}).keys())
+        self.assertTrue(
+            contract_fields <= _USER_HANDLER_EMIT_FIELDS,
+            f"UserListItem field BỊA (không thuộc handler emit): {sorted(contract_fields - _USER_HANDLER_EMIT_FIELDS)}",
+        )
+        # control: ac_department PHẢI thuộc handler emit @source (chứng cứ nó tồn tại) nhưng excluded.
+        self.assertIn(
+            "ac_department", _USER_HANDLER_EMIT_FIELDS,
+            "control: ac_department PHẢI thuộc handler-emit @source (user.py) — nếu không, premise sai.",
+        )
+        self.assertNotIn("ac_department", contract_fields, "ac_department EXCLUDED khỏi contract.")
+
+    def test_enabled_isactive_int_enum_not_bool(self):
+        """(e) enabled + is_active = type:integer enum[0,1] (User.enabled Check-fieldtype — Open#1
+        int-vs-bool guard chống strict-codegen deser CRASH); sweep UserListItem 0 stray boolean."""
+        item = self._schema("UserListItem")
+        props = item.get("properties") or {}
+        for f in _USER_INT_ENUM_FIELDS:
+            fp = props.get(f) or {}
+            self.assertEqual(fp.get("type"), "integer", f"{f} PHẢI type:integer (User.enabled Check → 0|1, KHÔNG boolean).")
+            self.assertEqual(fp.get("enum"), [0, 1], f"{f} enum=[0,1].")
+        # sweep — 0 prop type:boolean toàn item (Open#1 — strict-codegen Dart/Kotlin crash trên bool↔int mismatch).
+        bool_props = [k for k, v in props.items() if v.get("type") == "boolean"]
+        self.assertEqual(
+            bool_props, [],
+            f"UserListItem KHÔNG được có prop type:boolean (Open#1 int-vs-bool): {bool_props}. "
+            f"enabled/is_active = Check-fieldtype → integer enum[0,1].",
+        )
+
+    def test_rows_key_items_not_data(self):
+        """(f) UserListEnvelope rows-key = data.items[] (mirror AssetListEnvelope, KHÔNG data.data[]);
+        closed; required[success,data]; success enum[true]; pagination = DEDICATED UserListPagination
+        4-key {page,page_size,total,total_pages} KHÔNG `offset` (ADR-MOBILE-005, total_pages floor-1)."""
+        env = self._schema("UserListEnvelope")
+        self.assertTrue(env, "Thiếu schema UserListEnvelope.")
+        self.assertIs(env.get("additionalProperties"), False, "UserListEnvelope closed (additionalProperties:false).")
+        self.assertEqual(sorted(env.get("required") or []), ["data", "success"], "required = [success,data].")
+        self.assertEqual(
+            ((env.get("properties") or {}).get("success") or {}).get("enum"), [True],
+            "UserListEnvelope.success.enum PHẢI [true] (nhánh thành công).",
+        )
+        env_data = ((env.get("properties") or {}).get("data") or {})
+        env_props = env_data.get("properties") or {}
+        self.assertIn("items", env_props, "UserListEnvelope rows-key PHẢI `items` (mirror AssetListEnvelope).")
+        self.assertNotIn("data", env_props, "UserListEnvelope KHÔNG dùng rows-key `data` (handler trả items @:367).")
+        self.assertEqual(env_props["items"].get("type"), "array", "rows = array.")
+        self.assertEqual(
+            env_props["items"].get("items", {}).get("$ref"), _USERS_LIST_ITEM_REF,
+            "items PHẢI $ref UserListItem RIÊNG.",
+        )
+        # pagination = DEDICATED UserListPagination (KHÔNG $ref Pagination 5-key — ADR-MOBILE-005).
+        self.assertEqual(
+            (env_props.get("pagination") or {}).get("$ref"), "#/components/schemas/UserListPagination",
+            "UserListEnvelope.pagination PHẢI $ref UserListPagination (dedicated 4-key — ADR-MOBILE-005, "
+            "KHÔNG Pagination 5-key vì user.list_users KHÔNG emit `offset`).",
+        )
+        self.assertEqual(sorted(env_data.get("required") or []), ["items", "pagination"])
+        # UserListPagination = closed 4-key {page,page_size,total,total_pages} KHÔNG `offset`.
+        pg = self._schema("UserListPagination")
+        self.assertTrue(pg, "Thiếu schema UserListPagination (dedicated 4-key — ADR-MOBILE-005).")
+        self.assertIs(pg.get("additionalProperties"), False, "UserListPagination closed (additionalProperties:false).")
+        pg_props = set((pg.get("properties") or {}).keys())
+        self.assertEqual(
+            pg_props, {"page", "page_size", "total", "total_pages"},
+            f"UserListPagination PHẢI ĐÚNG 4-key {{page,page_size,total,total_pages}}: {sorted(pg_props)}",
+        )
+        self.assertNotIn(
+            "offset", pg_props,
+            "UserListPagination KHÔNG được có `offset` — user.list_users KHÔNG emit (ADR-MOBILE-005; "
+            "strict-codegen sinh model required offset → deser CRASH trên body 4-key).",
+        )
+        self.assertEqual(
+            sorted(pg.get("required") or []), ["page", "page_size", "total", "total_pages"],
+            "UserListPagination required = 4-key (KHÔNG offset).",
+        )
+        # total_pages floor-1 (minimum:1 — KHÁC Pagination chung =0 khi total=0, user.py:372 max(1,...)).
+        self.assertEqual(
+            (pg.get("properties") or {}).get("total_pages", {}).get("minimum"), 1,
+            "UserListPagination.total_pages PHẢI minimum:1 (floor-1 max(1,ceil) user.py:372).",
+        )
+
+    def test_200_oneof_envelope_error_closed(self):
+        """(g) 200 = oneOf [UserListEnvelope, Error]: ĐÚNG 2 nhánh, 0 discriminator, cả 2
+        additionalProperties:false, success enum disjoint [true]/[false] (route-by-VALUE C7);
+        negative-inject 3rd branch ⇒ phải fail; 401 Unauthorized401, 403 Forbidden."""
+        op = self._op()
+        resp = op.get("responses") or {}
+        self.assertEqual(
+            (resp.get("200") or {}).get("$ref"), _USERS_LIST_RESP_REF,
+            "200 phải trỏ UserList (response-component C7).",
+        )
+        self.assertEqual((resp.get("401") or {}).get("$ref"), "#/components/responses/Unauthorized401", "401 GIỮ Unauthorized401.")
+        self.assertEqual((resp.get("403") or {}).get("$ref"), "#/components/responses/Forbidden", "403 GIỮ Forbidden.")
+        self.assertNotIn("requestBody", op, "listUsers là GET — KHÔNG requestBody.")
+        self.assertEqual(sorted(resp.keys()), ["200", "401", "403"], "status set = [200,401,403].")
+        comp_sch = self._comp_schema()
+        self.assertNotIn("$ref", comp_sch, "200 content.schema KHÔNG single $ref — PHẢI oneOf [Env, Error] (C7).")
+        one_of = comp_sch.get("oneOf") or []
+        refs = [b.get("$ref") for b in one_of if isinstance(b, dict)]
+        self.assertEqual(len(one_of), 2, f"oneOf PHẢI ĐÚNG 2 nhánh [UserListEnvelope, Error]: {refs}")
+        self.assertIn(_USERS_LIST_SCHEMA_REF, refs, f"oneOf thiếu nhánh Env: {refs}")
+        self.assertIn(_ERROR_SCHEMA_REF, refs, f"oneOf thiếu nhánh Error: {refs}")
+        self.assertNotIn(
+            "discriminator", comp_sch,
+            "KHÔNG discriminator — Decision-B closed-schema route-by-VALUE body.success (success boolean illegal).",
+        )
+        # cả 2 nhánh closed + success.enum đối lập (cơ chế phân biệt KHÔNG discriminator).
+        env = self._schema("UserListEnvelope")
+        err = self._schema("Error")
+        self.assertIs(env.get("additionalProperties"), False, "UserListEnvelope closed.")
+        self.assertIs(err.get("additionalProperties"), False, "Error closed.")
+        self.assertEqual(((env.get("properties") or {}).get("success") or {}).get("enum"), [True], "Env.success [true].")
+        self.assertEqual(((err.get("properties") or {}).get("success") or {}).get("enum"), [False], "Error.success [false].")
+        self.assertEqual(
+            set(env.get("required") or []) & set(err.get("required") or []), {"success"},
+            "Env vs Error required CHỈ giao 'success' (route-by-VALUE).",
+        )
+        # negative-inject 3rd branch ⇒ guard PHẢI flag (chứng minh test phân biệt 2-branch-exact).
+        injected = copy.deepcopy(comp_sch)
+        injected["oneOf"].append({"$ref": "#/components/schemas/Pagination"})
+        self.assertNotEqual(
+            len(injected.get("oneOf") or []), 2,
+            "control: inject 3rd branch ⇒ len != 2 (guard 2-branch-exact phân biệt được).",
+        )
+
+    def test_mvp_path_401_403_symmetry(self):
+        """(h) listUsers ∈ _MVP_BUSINESS_PATHS ⇒ 401 Unauthorized401 + 403 Forbidden symmetry set
+        (so SET, KHÔNG literal — |path-401-set| == |path-403-set|, đối xứng tự lên khi thêm path)."""
+        self.assertIn(_LIST_USERS_PATH, _PATHS_REQUIRE_401, "listUsers PHẢI ∈ _PATHS_REQUIRE_401.")
+        self.assertIn(_LIST_USERS_PATH, _PATHS_REQUIRE_403, "listUsers PHẢI ∈ _PATHS_REQUIRE_403.")
+        ops = {path: op for path, _, op in _iter_operations(self.spec)}
+        self.assertEqual(
+            ((ops.get(_LIST_USERS_PATH) or {}).get("responses") or {}).get("401", {}).get("$ref"),
+            "#/components/responses/Unauthorized401",
+            "listUsers 401 PHẢI Unauthorized401.",
+        )
+        self.assertEqual(
+            ((ops.get(_LIST_USERS_PATH) or {}).get("responses") or {}).get("403", {}).get("$ref"),
+            "#/components/responses/Forbidden",
+            "listUsers 403 PHẢI Forbidden.",
+        )
+        # symmetry SET: tập path declare 401 (trừ auth-flow) == tập declare 403 == _PATHS_REQUIRE_403.
+        paths_with_401 = {
+            p for p, op in ops.items()
+            if "401" in (op.get("responses") or {}) and p not in (_AUTH_PATHS | _ALLOW_GUEST_PATHS)
+        }
+        paths_with_403 = {
+            p for p, op in ops.items()
+            if "403" in (op.get("responses") or {}) and p not in (_AUTH_PATHS | _ALLOW_GUEST_PATHS)
+        }
+        self.assertEqual(
+            len(paths_with_401), len(paths_with_403),
+            f"401-set ({len(paths_with_401)}) ≠ 403-set ({len(paths_with_403)}) — symmetry vỡ (so SET).",
+        )
+        self.assertIn(_LIST_USERS_PATH, paths_with_401, "listUsers ∈ 401-set THẬT @spec.")
+        self.assertIn(_LIST_USERS_PATH, paths_with_403, "listUsers ∈ 403-set THẬT @spec.")
+
+
+class TestMobileListNotificationsContract(unittest.TestCase):
+    """C-LISTREAD-NOTIF — listNotifications contract (in-app notification list, tab Notifications mobile).
+
+    Lý do bồi: đóng gap đọc-lịch-sử của flow-6 push — push (FCM) giao 1 deep-link/event đơn lẻ, nhưng
+    tab Notifications cần API liệt-kê ĐẦY ĐỦ thông báo đã-đọc + chưa-đọc (chuông). BE sẵn
+    assetcore.api.layout.list_notifications:72 (bare @whitelist nhận GET; trả _ok({pagination, items})
+    @layout.py:96-99). KHÁC 19 đề mục mobile-BE đã làm: 20 đề mục trước = push payload (PushMessageData)
+    + device-token register; CHƯA ai bồi in-app notification LIST từ api/layout.py.
+
+    Guard chốt (mirror TestMobileListUsersContract — rows-key `data.items[]`; param DISCRETE, KHÔNG JSON
+    `filters`; NHƯNG pagination = $ref Pagination 5-key vì handler GỌI paginate() — KHÁC listUsers inline
+    4-key no-offset):
+      (a) path /api/method/assetcore.api.layout.list_notifications TỒN TẠI + GET-only + opId
+          listNotifications; vào _MVP_BUSINESS_PATHS ⇒ 401∧403 symmetry tự lên; path/opId count 32→33,
+          unique camelCase, 0 dangling $ref.
+      (b) NotificationListItem props == ĐÚNG 9 field set-equal _serialize_notification @layout.py:33-43
+          (name/subject/content/document_type/document_name/type/from_user/read/creation);
+          additionalProperties:false; CHỈ `name` required.
+      (c) read = type:integer enum[0,1] (int(row.get('read')) @:41 — KHÔNG boolean); sweep 0 stray boolean.
+      (d) from_user/document_type/document_name nullable:true (Notification Log optional Link/sender).
+      (e) NotificationListEnvelope rows-key = data.items[] (mirror IncidentListEnvelope, KHÔNG data.data[]);
+          closed; pagination = $ref Pagination (5-key WITH offset — handler GỌI paginate() @:87, KHÁC
+          listUsers UserListPagination 4-key); KHÔNG strip offset (mirror IncidentListEnvelope @source).
+      (f) 200 = oneOf [NotificationListEnvelope, Error]: ĐÚNG 2 nhánh, 0 discriminator, cả 2
+          additionalProperties:false, success enum disjoint [true]/[false] (route-by-VALUE body.success C7);
+          negative-inject 3rd branch ⇒ fail; 401 Unauthorized401, 403 Forbidden.
+      (g) 3 param DISCRETE present: Page/PageSize $ref (int) + NotifOnlyUnread (integer enum[0,1] default 0).
+          KHÔNG JSON WorkOrderFilters. LIVE signature parity: page/page_size/only_unread CÓ THẬT @source.
+      (h) listNotifications ∈ _MVP_BUSINESS_PATHS ⇒ 401∧403 symmetry set (so SET, KHÔNG literal).
+      (i) LIVE-sig parity: inspect.signature(layout.list_notifications) == {page,page_size,only_unread}
+          (yaml KHÔNG bịa param ngoài source).
+    SSoT: ../04-api-contract.md §6 + layout.py:72 list_notifications + layout.py:33-43 _serialize_notification
+    + utils/pagination.py:14 paginate (5-key WITH offset).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.spec = _load_spec() if _MOBILE_YAML.exists() else None
+
+    def setUp(self):
+        if self.spec is None:
+            self.skipTest("Thiếu yaml mobile spec.")
+
+    def _op(self):
+        return ((self.spec.get("paths") or {}).get(_LIST_NOTIFICATIONS_PATH) or {}).get("get") or {}
+
+    def _resolve(self, ref):
+        if not ref or not ref.startswith("#/"):
+            return None
+        cur = self.spec
+        for raw in ref[2:].split("/"):
+            part = raw.replace("~1", "/").replace("~0", "~")
+            if isinstance(cur, dict) and part in cur:
+                cur = cur[part]
+            else:
+                return None
+        return cur
+
+    def _schema(self, name):
+        return ((self.spec.get("components") or {}).get("schemas") or {}).get(name) or {}
+
+    def _comp_schema(self):
+        comp = _resolve_response_component(self.spec, _NOTIF_LIST_RESP_REF)
+        return (((comp.get("content") or {}).get("application/json") or {}).get("schema") or {})
+
+    def test_path_present(self):
+        """(a) path list_notifications TỒN TẠI + GET-only + opId listNotifications; path/opId count 33,
+        unique camelCase, 0 dangling $ref; vào _MVP_BUSINESS_PATHS."""
+        paths = self.spec.get("paths") or {}
+        self.assertIn(_LIST_NOTIFICATIONS_PATH, paths, "Thiếu path list_notifications (C-LISTREAD-NOTIF).")
+        item = paths[_LIST_NOTIFICATIONS_PATH]
+        self.assertEqual(sorted(item.keys()), ["get"], "list_notifications CHỈ verb GET (bare @whitelist nhận GET).")
+        self.assertEqual(self._op().get("operationId"), "listNotifications", "opId = listNotifications.")
+        self.assertIn(_LIST_NOTIFICATIONS_PATH, _MVP_BUSINESS_PATHS, "Phải vào _MVP_BUSINESS_PATHS (401/403 symmetry).")
+        # path/opId count = 39 (38 + markNotificationAsRead FLOW-6 read-receipt); unique camelCase.
+        self.assertEqual(len(paths), 53, "path-count PHẢI 52 (R-NOTIF-UNREAD +getUnreadNotifications).")
+        ids = [op["operationId"] for _, _, op in _iter_operations(self.spec)]
+        self.assertEqual(len(ids), 53, "operationId count PHẢI 52.")
+        self.assertEqual(len(set(ids)), 53, "operationId DUY NHẤT (len(set)==52).")
+        for oid in ids:
+            self.assertRegex(oid, _CAMEL_RE, f"operationId KHÔNG camelCase: {oid}")
+        # 0 dangling $ref toàn spec (codegen-precondition).
+        dangling = sorted({r for r in _collect_refs(self.spec) if not _resolve_pointer(r, self.spec)})
+        self.assertEqual(dangling, [], f"0 dangling $ref — codegen vỡ nếu có: {dangling}")
+
+    def test_notificationlistitem_field_set_equal(self):
+        """(b) NotificationListItem props == ĐÚNG 9 field set-equal _serialize_notification @layout.py:33-43;
+        additionalProperties:false; CHỈ `name` required."""
+        item = self._schema("NotificationListItem")
+        self.assertTrue(item, "Thiếu schema NotificationListItem.")
+        props = set((item.get("properties") or {}).keys())
+        self.assertEqual(
+            props, _NOTIF_ITEM_FIELDS,
+            f"NotificationListItem field-set LỆCH source _serialize_notification emit: "
+            f"thừa={sorted(props - _NOTIF_ITEM_FIELDS)} thiếu={sorted(_NOTIF_ITEM_FIELDS - props)}",
+        )
+        self.assertEqual(len(props), 9, "PHẢI ĐÚNG 9 emit field (_serialize_notification @layout.py:33-43).")
+        self.assertEqual(item.get("required"), ["name"], "CHỈ `name` REQUIRED (closed-schema).")
+        self.assertIs(item.get("additionalProperties"), False, "additionalProperties:false (đóng).")
+        # LIVE parity — 9 field == đúng key set của _serialize_notification @source (KHÔNG bịa). Build sample
+        #   row có MỌI _NOTIF_FIELDS rồi gọi _serialize_notification → key-set THẬT phải == contract.
+        mod = importlib.import_module("assetcore.api.layout")
+        serialize = getattr(mod, "_serialize_notification", None)
+        self.assertIsNotNone(serialize, "Thiếu _serialize_notification LIVE @layout.py.")
+        sample = {f: None for f in getattr(mod, "_NOTIF_FIELDS")}
+        emitted = set(serialize(sample).keys())
+        self.assertEqual(
+            emitted, _NOTIF_ITEM_FIELDS,
+            f"_serialize_notification LIVE emit {sorted(emitted)} ≠ contract {sorted(_NOTIF_ITEM_FIELDS)} "
+            f"(yaml KHÔNG bịa field).",
+        )
+
+    def test_read_int_enum_not_bool(self):
+        """(c) read = type:integer enum[0,1] (int(row.get('read')) @layout.py:41 — KHÔNG boolean);
+        sweep NotificationListItem 0 stray boolean (Open#1 int-vs-bool — strict-codegen Dart/Kotlin crash)."""
+        item = self._schema("NotificationListItem")
+        props = item.get("properties") or {}
+        for f in _NOTIF_INT_ENUM_FIELDS:
+            fp = props.get(f) or {}
+            self.assertEqual(fp.get("type"), "integer", f"{f} PHẢI type:integer (int(row.get('read')) @:41, KHÔNG boolean).")
+            self.assertEqual(fp.get("enum"), [0, 1], f"{f} enum=[0,1].")
+        bool_props = [k for k, v in props.items() if v.get("type") == "boolean"]
+        self.assertEqual(
+            bool_props, [],
+            f"NotificationListItem KHÔNG được có prop type:boolean (Open#1 int-vs-bool): {bool_props}. "
+            f"read = int(...) @layout.py:41 → integer enum[0,1].",
+        )
+
+    def test_nullable_fields(self):
+        """(d) from_user/document_type/document_name nullable:true (Notification Log optional Link/sender —
+        emit None khi vắng); name/subject/content/type/read/creation KHÔNG nullable."""
+        item = self._schema("NotificationListItem")
+        props = item.get("properties") or {}
+        for f in _NOTIF_NULLABLE_FIELDS:
+            self.assertIs(
+                (props.get(f) or {}).get("nullable"), True,
+                f"{f} PHẢI nullable:true (Notification Log optional → emit None).",
+            )
+        # control: name/read KHÔNG nullable (PK + int luôn có giá trị).
+        self.assertNotEqual((props.get("name") or {}).get("nullable"), True, "name KHÔNG nullable (PK).")
+        self.assertNotEqual((props.get("read") or {}).get("nullable"), True, "read KHÔNG nullable (int luôn 0|1).")
+
+    def test_rows_key_items_with_offset_pagination(self):
+        """(e) NotificationListEnvelope rows-key = data.items[] (mirror IncidentListEnvelope, KHÔNG
+        data.data[]); closed; required[success,data]; success enum[true]; pagination = $ref Pagination
+        5-key WITH offset (handler GỌI paginate() @layout.py:87 — KHÁC listUsers UserListPagination 4-key)."""
+        env = self._schema("NotificationListEnvelope")
+        self.assertTrue(env, "Thiếu schema NotificationListEnvelope.")
+        self.assertIs(env.get("additionalProperties"), False, "NotificationListEnvelope closed (additionalProperties:false).")
+        self.assertEqual(sorted(env.get("required") or []), ["data", "success"], "required = [success,data].")
+        self.assertEqual(
+            ((env.get("properties") or {}).get("success") or {}).get("enum"), [True],
+            "NotificationListEnvelope.success.enum PHẢI [true] (nhánh thành công).",
+        )
+        env_data = ((env.get("properties") or {}).get("data") or {})
+        env_props = env_data.get("properties") or {}
+        self.assertIn("items", env_props, "rows-key PHẢI `items` (mirror IncidentListEnvelope).")
+        self.assertNotIn("data", env_props, "KHÔNG dùng rows-key `data` (handler trả items @layout.py:98).")
+        self.assertEqual(env_props["items"].get("type"), "array", "rows = array.")
+        self.assertEqual(
+            env_props["items"].get("items", {}).get("$ref"), _NOTIF_LIST_ITEM_REF,
+            "items PHẢI $ref NotificationListItem RIÊNG.",
+        )
+        # pagination = $ref Pagination 5-key WITH offset (mirror IncidentListEnvelope — handler GỌI
+        #   paginate() @layout.py:87 → 5-key {page,page_size,total,total_pages,offset}). KHÁC listUsers.
+        self.assertEqual(
+            (env_props.get("pagination") or {}).get("$ref"), "#/components/schemas/Pagination",
+            "NotificationListEnvelope.pagination PHẢI $ref Pagination (5-key WITH offset — handler GỌI "
+            "paginate() @layout.py:87, mirror IncidentListEnvelope; KHÔNG strip offset vì runtime EMIT).",
+        )
+        self.assertEqual(sorted(env_data.get("required") or []), ["items", "pagination"])
+        # control: Pagination 5-key CÓ offset (chứng cứ KHÔNG strip — runtime paginate() emit @pagination.py:30).
+        pg = self._schema("Pagination")
+        pg_props = set((pg.get("properties") or {}).keys())
+        self.assertIn(
+            "offset", pg_props,
+            "Pagination (shared) PHẢI có `offset` — list_notifications GỌI paginate() emit 5-key. "
+            "Strip offset = ADR-MOBILE-005 trap NGƯỢC (runtime emit nhưng schema thiếu → deser OK closed "
+            "schema chỉ nếu additionalProperties; NHƯNG Pagination NON-closed nên dư-field bỏ qua). Mirror "
+            "IncidentListEnvelope = giữ 5-key khớp runtime.",
+        )
+
+    def test_200_oneof_envelope_error_closed(self):
+        """(f) 200 = oneOf [NotificationListEnvelope, Error]: ĐÚNG 2 nhánh, 0 discriminator, cả 2
+        additionalProperties:false, success enum disjoint [true]/[false] (route-by-VALUE C7);
+        negative-inject 3rd branch ⇒ fail; 401 Unauthorized401, 403 Forbidden; status set [200,401,403]."""
+        op = self._op()
+        resp = op.get("responses") or {}
+        self.assertEqual(
+            (resp.get("200") or {}).get("$ref"), _NOTIF_LIST_RESP_REF,
+            "200 phải trỏ NotificationList (response-component C7).",
+        )
+        self.assertEqual((resp.get("401") or {}).get("$ref"), "#/components/responses/Unauthorized401", "401 GIỮ Unauthorized401.")
+        self.assertEqual((resp.get("403") or {}).get("$ref"), "#/components/responses/Forbidden", "403 GIỮ Forbidden.")
+        self.assertNotIn("requestBody", op, "listNotifications là GET — KHÔNG requestBody.")
+        self.assertEqual(sorted(resp.keys()), ["200", "401", "403"], "status set = [200,401,403].")
+        comp_sch = self._comp_schema()
+        self.assertNotIn("$ref", comp_sch, "200 content.schema KHÔNG single $ref — PHẢI oneOf [Env, Error] (C7).")
+        one_of = comp_sch.get("oneOf") or []
+        refs = [b.get("$ref") for b in one_of if isinstance(b, dict)]
+        self.assertEqual(len(one_of), 2, f"oneOf PHẢI ĐÚNG 2 nhánh [NotificationListEnvelope, Error]: {refs}")
+        self.assertIn(_NOTIF_LIST_SCHEMA_REF, refs, f"oneOf thiếu nhánh Env: {refs}")
+        self.assertIn(_ERROR_SCHEMA_REF, refs, f"oneOf thiếu nhánh Error: {refs}")
+        self.assertNotIn(
+            "discriminator", comp_sch,
+            "KHÔNG discriminator — Decision-B closed-schema route-by-VALUE body.success (success boolean illegal).",
+        )
+        env = self._schema("NotificationListEnvelope")
+        err = self._schema("Error")
+        self.assertIs(env.get("additionalProperties"), False, "NotificationListEnvelope closed.")
+        self.assertIs(err.get("additionalProperties"), False, "Error closed.")
+        self.assertEqual(((env.get("properties") or {}).get("success") or {}).get("enum"), [True], "Env.success [true].")
+        self.assertEqual(((err.get("properties") or {}).get("success") or {}).get("enum"), [False], "Error.success [false].")
+        self.assertEqual(
+            set(env.get("required") or []) & set(err.get("required") or []), {"success"},
+            "Env vs Error required CHỈ giao 'success' (route-by-VALUE).",
+        )
+        injected = copy.deepcopy(comp_sch)
+        injected["oneOf"].append({"$ref": "#/components/schemas/Pagination"})
+        self.assertNotEqual(
+            len(injected.get("oneOf") or []), 2,
+            "control: inject 3rd branch ⇒ len != 2 (guard 2-branch-exact phân biệt được).",
+        )
+
+    def test_params_discrete_grounded(self):
+        """(g) 3 param DISCRETE present: Page/PageSize $ref (int) + NotifOnlyUnread (integer enum[0,1]
+        default 0). KHÔNG JSON WorkOrderFilters. LIVE signature parity page/page_size/only_unread."""
+        got = {p.get("$ref") for p in (self._op().get("parameters") or []) if p.get("$ref")}
+        self.assertEqual(
+            got, _LIST_NOTIFICATIONS_PARAM_REFS,
+            f"param query LỆCH. expected={sorted(_LIST_NOTIFICATIONS_PARAM_REFS)} got={sorted(got)}",
+        )
+        self.assertNotIn(
+            "#/components/parameters/WorkOrderFilters", got,
+            "listNotifications KHÔNG dùng WorkOrderFilters JSON-blob (3 param DISCRETE — layout.py:72).",
+        )
+        # only_unread = integer enum[0,1] default 0 (only_unread=1 lọc read=0 @layout.py:83-84).
+        ou = self._resolve("#/components/parameters/NotifOnlyUnread") or {}
+        self.assertEqual(ou.get("name"), "only_unread", "param name = only_unread (khớp signature).")
+        self.assertEqual(ou.get("in"), "query", "NotifOnlyUnread in=query.")
+        self.assertFalse(ou.get("required", False), "NotifOnlyUnread optional.")
+        ou_sch = ou.get("schema") or {}
+        self.assertEqual(ou_sch.get("type"), "integer", "NotifOnlyUnread type=integer (KHÔNG boolean — Open#1).")
+        self.assertEqual(ou_sch.get("enum"), [0, 1], "NotifOnlyUnread enum=[0,1].")
+        self.assertEqual(ou_sch.get("default"), 0, "NotifOnlyUnread default=0 (mặc định bao gồm cả đã đọc @layout.py:72).")
+
+    def test_live_signature_parity(self):
+        """(i) LIVE-sig parity: inspect.signature(layout.list_notifications) == {page,page_size,only_unread}
+        (yaml KHÔNG bịa param ngoài source — chống drift contract vs handler)."""
+        fn = getattr(importlib.import_module("assetcore.api.layout"), "list_notifications", None)
+        self.assertIsNotNone(fn, "Thiếu hàm whitelist LIVE: assetcore.api.layout.list_notifications")
+        live_args = set(inspect.signature(fn).parameters.keys())
+        self.assertEqual(
+            live_args, {"page", "page_size", "only_unread"},
+            f"list_notifications signature LIVE = {sorted(live_args)} ≠ {{page,page_size,only_unread}} "
+            f"(yaml param PHẢI khớp source).",
+        )
+
+    def test_mvp_path_401_403_symmetry(self):
+        """(h) listNotifications ∈ _MVP_BUSINESS_PATHS ⇒ 401 Unauthorized401 + 403 Forbidden symmetry
+        set (so SET, KHÔNG literal — |path-401-set| == |path-403-set|)."""
+        self.assertIn(_LIST_NOTIFICATIONS_PATH, _PATHS_REQUIRE_401, "listNotifications PHẢI ∈ _PATHS_REQUIRE_401.")
+        self.assertIn(_LIST_NOTIFICATIONS_PATH, _PATHS_REQUIRE_403, "listNotifications PHẢI ∈ _PATHS_REQUIRE_403.")
+        ops = {path: op for path, _, op in _iter_operations(self.spec)}
+        self.assertEqual(
+            ((ops.get(_LIST_NOTIFICATIONS_PATH) or {}).get("responses") or {}).get("401", {}).get("$ref"),
+            "#/components/responses/Unauthorized401",
+            "listNotifications 401 PHẢI Unauthorized401.",
+        )
+        self.assertEqual(
+            ((ops.get(_LIST_NOTIFICATIONS_PATH) or {}).get("responses") or {}).get("403", {}).get("$ref"),
+            "#/components/responses/Forbidden",
+            "listNotifications 403 PHẢI Forbidden.",
+        )
+        paths_with_401 = {
+            p for p, op in ops.items()
+            if "401" in (op.get("responses") or {}) and p not in (_AUTH_PATHS | _ALLOW_GUEST_PATHS)
+        }
+        paths_with_403 = {
+            p for p, op in ops.items()
+            if "403" in (op.get("responses") or {}) and p not in (_AUTH_PATHS | _ALLOW_GUEST_PATHS)
+        }
+        self.assertEqual(
+            len(paths_with_401), len(paths_with_403),
+            f"401-set ({len(paths_with_401)}) ≠ 403-set ({len(paths_with_403)}) — symmetry vỡ (so SET).",
+        )
+        self.assertIn(_LIST_NOTIFICATIONS_PATH, paths_with_401, "listNotifications ∈ 401-set THẬT @spec.")
+        self.assertIn(_LIST_NOTIFICATIONS_PATH, paths_with_403, "listNotifications ∈ 403-set THẬT @spec.")
+
+
+class TestMobileGetUnreadNotificationsContract(unittest.TestCase):
+    """NOTIF-UNREAD-FEED — getUnreadNotifications contract (GET unread-feed {count, items[]}).
+
+    Lý do bồi: ĐÓNG NỐT notification-center READ quartet (sau listNotifications + markNotificationAsRead +
+    markAllAsRead). Endpoint powering unread-badge + tab "Thông báo" mà mobile app GỌI 13× (top-usage)
+    NHƯNG đang THIẾU trong contract. BE LIVE @api/layout.py:47 (bare @whitelist nhận GET; trả
+    _ok({count, items}) @layout.py:66-69 — KHÔNG paginate()). CONTRACT-ONLY: git diff api/layout.py +
+    services/layout.py EMPTY ⇒ KHÔNG reload gunicorn / KHÔNG migrate ([AUTO] thật, KHÔNG HARD-STOP USER).
+
+    Guard chốt (mirror searchSpareParts/getAssetIncidentHistory — INLINE oneOf read-path ∈ _MVP_READ_ENVELOPE,
+    KHÔNG response-component; KHÁC listNotifications {pagination,items} — đây {count,items} KHÔNG paginate):
+      (a) path TỒN TẠI + GET-only + opId getUnreadNotifications; vào _MVP_BUSINESS_PATHS ⇒ 401∧403
+          symmetry tự lên; path/opId count 52, unique camelCase, 0 dangling $ref.
+      (b) summary chứa '[MVP]'; tag = notification (mirror listNotifications/markNotificationAsRead).
+      (c) 200 = INLINE oneOf [UnreadNotificationListEnvelope, Error]: ĐÚNG 2 nhánh, 0 discriminator,
+          KHÔNG single $ref response-component (read-path mirror searchSpareParts), cả 2 closed,
+          success enum disjoint [true]/[false] (route-by-VALUE body.success C7).
+      (d) UnreadNotificationListEnvelope closed; required[success,data]; success enum[true]; data
+          required[count,items]; data KHÔNG có key `pagination` (KHÁC NotificationListEnvelope — handler
+          @layout.py:66-69 {count,items} KHÔNG paginate()).
+      (e) count = type:integer minimum 0 GENUINE count (NOT enum[0,1] — mirror updated_rows R40 /
+          measurement_count R34; KHÔNG nhầm với NotificationListItem.read int-enum[0,1]).
+      (f) items = array; items.items.$ref == NotificationListItem (REUSE — ĐỒNG $ref với
+          NotificationListEnvelope; 0 schema-component item mới).
+      (g) param = ĐÚNG {NotifLimit}; NotifLimit query integer default 20 minimum 1 maximum 100
+          (khớp server clamp max(1, min(int(limit),100)) @layout.py:55).
+      (h) responses slot == {200,401,403}; 401 Unauthorized401; 403 Forbidden (SINGLE-SHAPE — bare
+          @whitelist no-allow_guest → guest dispatcher-403; bearer-expired in-handler 401 @layout.py:53-54
+          dead-code over HTTP nhưng declare cho parity mirror listNotifications). KHÔNG requestBody.
+          KHÔNG 404/409 (scope for_user=session.user, no lookup-by-name). ∈ _PATHS_REQUIRE_401∧403; symmetry SET.
+      (i) LIVE-sig parity: inspect.signature(layout.get_unread_notifications) == {limit} (yaml KHÔNG bịa
+          param ngoài source) + CONTRACT-ONLY: handler bare @whitelist nhận GET @source.
+    SSoT: ../04-api-contract.md §6 + layout.py:47 get_unread_notifications + layout.py:33-43 _serialize_notification.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.spec = _load_spec() if _MOBILE_YAML.exists() else None
+
+    def setUp(self):
+        if self.spec is None:
+            self.skipTest("Thiếu yaml mobile spec.")
+
+    def _op(self):
+        return ((self.spec.get("paths") or {}).get(_GET_UNREAD_NOTIF_PATH) or {}).get("get") or {}
+
+    def _resolve(self, ref):
+        if not ref or not ref.startswith("#/"):
+            return None
+        cur = self.spec
+        for raw in ref[2:].split("/"):
+            part = raw.replace("~1", "/").replace("~0", "~")
+            if isinstance(cur, dict) and part in cur:
+                cur = cur[part]
+            else:
+                return None
+        return cur
+
+    def _schema(self, name):
+        return ((self.spec.get("components") or {}).get("schemas") or {}).get(name) or {}
+
+    def _200_inline(self):
+        return _200_schema(self._op().get("responses") or {})
+
+    def test_path_present(self):
+        """(a) path TỒN TẠI + GET-only + opId getUnreadNotifications; path/opId count 52, unique
+        camelCase, 0 dangling $ref; vào _MVP_BUSINESS_PATHS."""
+        paths = self.spec.get("paths") or {}
+        self.assertIn(_GET_UNREAD_NOTIF_PATH, paths, "Thiếu path get_unread_notifications (NOTIF-UNREAD-FEED).")
+        item = paths[_GET_UNREAD_NOTIF_PATH]
+        self.assertEqual(sorted(item.keys()), ["get"], "get_unread_notifications CHỈ verb GET (bare @whitelist nhận GET).")
+        self.assertEqual(self._op().get("operationId"), "getUnreadNotifications", "opId = getUnreadNotifications.")
+        self.assertIn(_GET_UNREAD_NOTIF_PATH, _MVP_BUSINESS_PATHS, "Phải vào _MVP_BUSINESS_PATHS (401/403 symmetry).")
+        self.assertEqual(len(paths), 53, "path-count PHẢI 52 (NOTIF-UNREAD-FEED +getUnreadNotifications).")
+        ids = [op["operationId"] for _, _, op in _iter_operations(self.spec)]
+        self.assertEqual(len(ids), 53, "operationId count PHẢI 52.")
+        self.assertEqual(len(set(ids)), 53, "operationId DUY NHẤT (len(set)==52).")
+        for oid in ids:
+            self.assertRegex(oid, _CAMEL_RE, f"operationId KHÔNG camelCase: {oid}")
+        dangling = sorted({r for r in _collect_refs(self.spec) if not _resolve_pointer(r, self.spec)})
+        self.assertEqual(dangling, [], f"0 dangling $ref — codegen vỡ nếu có: {dangling}")
+
+    def test_summary_mvp_tag_notification(self):
+        """(b) summary chứa '[MVP]'; tag = notification (mirror listNotifications/markNotificationAsRead)."""
+        op = self._op()
+        self.assertIn("[MVP]", op.get("summary") or "", "summary getUnreadNotifications PHẢI chứa '[MVP]'.")
+        self.assertEqual(op.get("tags"), ["notification"], "tag PHẢI [notification] (notification-center domain).")
+
+    def test_200_inline_oneof_env_error_closed(self):
+        """(c) 200 = INLINE oneOf [UnreadNotificationListEnvelope, Error]: ĐÚNG 2 nhánh, 0 discriminator,
+        KHÔNG single $ref response-component (read-path mirror searchSpareParts), cả 2 closed, success
+        enum disjoint [true]/[false]."""
+        op = self._op()
+        resp = op.get("responses") or {}
+        self.assertNotIn(
+            "$ref", (resp.get("200") or {}),
+            "200 KHÔNG được single $ref response-component — PHẢI inline oneOf [Env, Error] (read-path §5c).",
+        )
+        schema200 = self._200_inline()
+        self.assertNotIn("$ref", schema200, "200 content.schema KHÔNG single $ref — PHẢI oneOf [Env, Error].")
+        one_of = schema200.get("oneOf") or []
+        refs = [b.get("$ref") for b in one_of if isinstance(b, dict)]
+        self.assertEqual(len(one_of), 2, f"oneOf PHẢI ĐÚNG 2 nhánh [UnreadNotificationListEnvelope, Error]: {refs}")
+        self.assertIn(_UNREAD_NOTIF_ENVELOPE_SCHEMA_REF, refs, f"oneOf thiếu nhánh Env: {refs}")
+        self.assertIn(_ERROR_SCHEMA_REF, refs, f"oneOf thiếu nhánh Error: {refs}")
+        self.assertNotIn(
+            "discriminator", schema200,
+            "KHÔNG discriminator — Decision-B closed-schema route-by-VALUE body.success (success boolean illegal).",
+        )
+        env = self._schema("UnreadNotificationListEnvelope")
+        err = self._schema("Error")
+        self.assertIs(env.get("additionalProperties"), False, "UnreadNotificationListEnvelope closed.")
+        self.assertIs(err.get("additionalProperties"), False, "Error closed.")
+        self.assertEqual(((env.get("properties") or {}).get("success") or {}).get("enum"), [True], "Env.success [true].")
+        self.assertEqual(((err.get("properties") or {}).get("success") or {}).get("enum"), [False], "Error.success [false].")
+        self.assertEqual(
+            set(env.get("required") or []) & set(err.get("required") or []), {"success"},
+            "Env vs Error required CHỈ giao 'success' (route-by-VALUE).",
+        )
+
+    def test_envelope_count_items_no_pagination(self):
+        """(d) UnreadNotificationListEnvelope closed; required[success,data]; success enum[true]; data
+        required[count,items]; data KHÔNG có key `pagination` (KHÁC NotificationListEnvelope — handler
+        @layout.py:66-69 trả {count,items} KHÔNG paginate())."""
+        env = self._schema("UnreadNotificationListEnvelope")
+        self.assertTrue(env, "Thiếu schema UnreadNotificationListEnvelope.")
+        self.assertIs(env.get("additionalProperties"), False, "Envelope closed (additionalProperties:false).")
+        self.assertEqual(sorted(env.get("required") or []), ["data", "success"], "required = [success,data].")
+        self.assertEqual(
+            ((env.get("properties") or {}).get("success") or {}).get("enum"), [True],
+            "success.enum PHẢI [true] (nhánh thành công).",
+        )
+        env_data = ((env.get("properties") or {}).get("data") or {})
+        env_props = env_data.get("properties") or {}
+        self.assertEqual(sorted(env_data.get("required") or []), ["count", "items"], "data.required = [count,items].")
+        self.assertIn("count", env_props, "data PHẢI có key `count`.")
+        self.assertIn("items", env_props, "data PHẢI có key `items`.")
+        self.assertNotIn(
+            "pagination", env_props,
+            "data KHÔNG được có key `pagination` — getUnreadNotifications trả {count,items} @layout.py:66-69 "
+            "(KHÔNG paginate(), KHÁC NotificationListEnvelope).",
+        )
+
+    def test_count_genuine_integer_not_enum(self):
+        """(e) count = type:integer minimum 0 GENUINE count (NOT enum[0,1] — mirror updated_rows R40 /
+        measurement_count R34; KHÔNG nhầm với NotificationListItem.read int-enum[0,1] @layout.py:41)."""
+        env = self._schema("UnreadNotificationListEnvelope")
+        count = ((env.get("properties") or {}).get("data") or {}).get("properties", {}).get("count") or {}
+        self.assertEqual(count.get("type"), "integer", "count PHẢI type:integer (total_unread = db.count @layout.py:67).")
+        self.assertEqual(count.get("minimum"), 0, "count minimum 0 (GENUINE count ≥0).")
+        self.assertNotIn(
+            "enum", count,
+            "count KHÔNG được có enum — GENUINE integer count 0..N (KHÁC NotificationListItem.read int-enum[0,1]; "
+            "mirror updated_rows R40 / measurement_count R34).",
+        )
+
+    def test_items_reuse_notification_list_item(self):
+        """(f) items = array; items.items.$ref == NotificationListItem (REUSE — ĐỒNG $ref với
+        NotificationListEnvelope; 0 schema-component item mới)."""
+        env = self._schema("UnreadNotificationListEnvelope")
+        items = ((env.get("properties") or {}).get("data") or {}).get("properties", {}).get("items") or {}
+        self.assertEqual(items.get("type"), "array", "items = array.")
+        self.assertEqual(
+            (items.get("items") or {}).get("$ref"), _NOTIF_LIST_ITEM_REF,
+            "items.items PHẢI $ref NotificationListItem (REUSE — 0 schema-component item mới).",
+        )
+        # ĐỒNG $ref với NotificationListEnvelope (cùng element-schema notification-center).
+        nl_env = self._schema("NotificationListEnvelope")
+        nl_items = ((nl_env.get("properties") or {}).get("data") or {}).get("properties", {}).get("items") or {}
+        self.assertEqual(
+            (nl_items.get("items") or {}).get("$ref"), _NOTIF_LIST_ITEM_REF,
+            "control: NotificationListEnvelope.items cũng $ref NotificationListItem (ĐỒNG element-schema).",
+        )
+
+    def test_param_notif_limit(self):
+        """(g) param = ĐÚNG {NotifLimit}; NotifLimit query integer default 20 minimum 1 maximum 100
+        (khớp server clamp max(1, min(int(limit),100)) @layout.py:55)."""
+        got = {p.get("$ref") for p in (self._op().get("parameters") or []) if p.get("$ref")}
+        self.assertEqual(
+            got, _UNREAD_NOTIF_PARAM_REFS,
+            f"param query LỆCH. expected={sorted(_UNREAD_NOTIF_PARAM_REFS)} got={sorted(got)}",
+        )
+        self.assertNotIn(
+            "#/components/parameters/Page", got,
+            "getUnreadNotifications KHÔNG paginate (chỉ limit-clamp) — KHÔNG Page/PageSize @layout.py:55.",
+        )
+        nl = self._resolve(_NOTIF_LIMIT_PARAM_REF) or {}
+        self.assertEqual(nl.get("name"), "limit", "param name = limit (khớp signature get_unread_notifications(limit)).")
+        self.assertEqual(nl.get("in"), "query", "NotifLimit in=query.")
+        self.assertFalse(nl.get("required", False), "NotifLimit optional (default 20).")
+        nl_sch = nl.get("schema") or {}
+        self.assertEqual(nl_sch.get("type"), "integer", "NotifLimit type=integer.")
+        self.assertEqual(nl_sch.get("default"), 20, "NotifLimit default=20 (signature limit:int=20 @layout.py:47).")
+        self.assertEqual(nl_sch.get("minimum"), 1, "NotifLimit minimum=1 (clamp max(1,...) @layout.py:55).")
+        self.assertEqual(nl_sch.get("maximum"), 100, "NotifLimit maximum=100 (clamp min(...,100) @layout.py:55).")
+
+    def test_status_slot_401_403_symmetry(self):
+        """(h) responses slot == {200,401,403}; 401 Unauthorized401; 403 Forbidden; KHÔNG requestBody;
+        KHÔNG 404/409 (scope for_user=session.user); ∈ _PATHS_REQUIRE_401∧403; symmetry SET."""
+        op = self._op()
+        resp = op.get("responses") or {}
+        self.assertEqual(sorted(resp.keys()), ["200", "401", "403"], "status set = [200,401,403] (KHÔNG 404/409).")
+        self.assertEqual((resp.get("401") or {}).get("$ref"), "#/components/responses/Unauthorized401", "401 Unauthorized401.")
+        self.assertEqual((resp.get("403") or {}).get("$ref"), "#/components/responses/Forbidden", "403 Forbidden (SINGLE-SHAPE dispatcher-403).")
+        self.assertNotIn("requestBody", op, "getUnreadNotifications là GET — KHÔNG requestBody.")
+        self.assertIn(_GET_UNREAD_NOTIF_PATH, _PATHS_REQUIRE_401, "PHẢI ∈ _PATHS_REQUIRE_401.")
+        self.assertIn(_GET_UNREAD_NOTIF_PATH, _PATHS_REQUIRE_403, "PHẢI ∈ _PATHS_REQUIRE_403.")
+        ops = {path: op for path, _, op in _iter_operations(self.spec)}
+        paths_with_401 = {
+            p for p, o in ops.items()
+            if "401" in (o.get("responses") or {}) and p not in (_AUTH_PATHS | _ALLOW_GUEST_PATHS)
+        }
+        paths_with_403 = {
+            p for p, o in ops.items()
+            if "403" in (o.get("responses") or {}) and p not in (_AUTH_PATHS | _ALLOW_GUEST_PATHS)
+        }
+        self.assertEqual(
+            len(paths_with_401), len(paths_with_403),
+            f"401-set ({len(paths_with_401)}) ≠ 403-set ({len(paths_with_403)}) — symmetry vỡ (so SET).",
+        )
+        self.assertIn(_GET_UNREAD_NOTIF_PATH, paths_with_401, "getUnreadNotifications ∈ 401-set THẬT @spec.")
+        self.assertIn(_GET_UNREAD_NOTIF_PATH, paths_with_403, "getUnreadNotifications ∈ 403-set THẬT @spec.")
+
+    def test_live_signature_parity_contract_only(self):
+        """(i) LIVE-sig parity: inspect.signature(layout.get_unread_notifications) == {limit} (yaml KHÔNG
+        bịa param ngoài source) + CONTRACT-ONLY: handler bare @whitelist nhận GET @source (endpoint LIVE)."""
+        fn = getattr(importlib.import_module("assetcore.api.layout"), "get_unread_notifications", None)
+        self.assertIsNotNone(fn, "Thiếu hàm whitelist LIVE: assetcore.api.layout.get_unread_notifications")
+        live_args = set(inspect.signature(fn).parameters.keys())
+        self.assertEqual(
+            live_args, {"limit"},
+            f"get_unread_notifications signature LIVE = {sorted(live_args)} ≠ {{limit}} (yaml param PHẢI khớp source).",
+        )
+
+
+def _body_http_status_set() -> set:
+    """Tập distinct value mà BE phát ở body.http_status — DERIVE @utils/response.py runtime.
+
+    KHÔNG hardcode 9 literal: import _HTTP_FOR_CODE + _HTTP_TO_CODE rồi tính.
+    union(_HTTP_FOR_CODE.values()) ∪ keys(_HTTP_TO_CODE) = candidate-set thô (gồm 417).
+    LOẠI 417: 417 chỉ là KEY của _HTTP_TO_CODE (legacy-int reverse-map) trỏ ErrorCode.BUSINESS_RULE,
+    nhưng body.http_status luôn resolve qua _HTTP_FOR_CODE[BUSINESS_RULE]=422 (response.py:131) ⇒
+    417 KHÔNG bao giờ surface ở body.http_status. Body-set THẬT = _HTTP_FOR_CODE.values() đã đủ
+    (mọi http_status body-side phát ra đều đi qua _HTTP_FOR_CODE). Ta tính từ source để khi BE
+    thêm/bớt status tương lai mà yaml KHÔNG cập nhật ⇒ guard ĐỎ.
+    """
+    resp = importlib.import_module("assetcore.utils.response")
+    for_code = getattr(resp, "_HTTP_FOR_CODE")
+    to_code = getattr(resp, "_HTTP_TO_CODE")
+    # candidate raw (gồm 417 từ keys _HTTP_TO_CODE) — chứng minh ta đã thấy 417 rồi chủ động loại.
+    candidate = set(for_code.values()) | set(to_code.keys())
+    # Body-side = chỉ những value mà _err PHÁT vào body (response.py:131 resolve qua _HTTP_FOR_CODE).
+    body_set = set(for_code.values())
+    # 417 ∈ candidate nhưng ∉ body_set — invariant chứng minh logic loại-417 đúng.
+    return body_set, candidate
+
+
+class TestMobileErrorHttpStatusEnumBounded(unittest.TestCase):
+    """ERR-HTTPSTATUS-ENUM — constrain Error.http_status thành integer enum bounded.
+
+    Lý do: schema components.schemas.Error.code ĐÃ typed-enum 15-value, nhưng http_status còn
+    free integer ⇒ route-by-VALUE asymmetry — codegen mobile KHÔNG sinh exhaustive switch trên
+    http_status. Đóng asymmetry: bound http_status = đúng tập distinct value BE phát ở body.
+
+    SSoT = utils/response.py (DERIVE runtime, KHÔNG hardcode 9 literal):
+      body-set = set(_HTTP_FOR_CODE.values()) = {400,401,403,404,409,413,422,429,500} (9 value).
+      candidate = body-set ∪ keys(_HTTP_TO_CODE) = +417 (10 value) — 417 chỉ là KEY reverse-map
+      trỏ BUSINESS_RULE, body resolve qua _HTTP_FOR_CODE[BUSINESS_RULE]=422 (response.py:131) ⇒
+      417 KHÔNG surface body.http_status → enum body LOẠI 417.
+
+    Guard (RED-before/GREEN-after PROVEN qua deepcopy in-memory):
+      (a) enum TỒN TẠI + == body-set DERIVE @source (sorted, 9 integer); GIỮ type:integer + example:403.
+      (b) 417 ∈ candidate NHƯNG ∉ enum (chứng minh loại-417 đúng-lý-do, không phải quên).
+      (c) mọi value enum là int (KHÔNG string '403'); mọi code-bucket _HTTP_FOR_CODE map vào enum.
+      (d) RED-before: xoá 1 phần tử enum (deepcopy) ⇒ so-với-source RAISE; control thật ⇒ PASS.
+      (e) RED-before: thêm 417 vào enum (deepcopy) ⇒ RAISE (enum KHÔNG được rộng hơn body-set).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.spec = _load_spec() if _MOBILE_YAML.exists() else None
+
+    def setUp(self):
+        if self.spec is None:
+            self.skipTest("Thiếu yaml mobile spec.")
+
+    def _http_status_schema(self):
+        err = (((self.spec.get("components") or {}).get("schemas") or {}).get("Error") or {})
+        return ((err.get("properties") or {}).get("http_status") or {})
+
+    def test_enum_equals_source_body_set(self):
+        """(a) Error.http_status.enum == body-set DERIVE @utils/response.py; type:integer + example:403 GIỮ."""
+        body_set, _ = _body_http_status_set()
+        self.assertTrue(body_set, "body-set source rỗng — premise sai.")
+        sch = self._http_status_schema()
+        self.assertTrue(sch, "Thiếu property Error.http_status.")
+        self.assertEqual(sch.get("type"), "integer", "http_status GIỮ type:integer.")
+        enum = sch.get("enum")
+        self.assertIsNotNone(enum, "http_status PHẢI có key `enum` (đóng route-by-VALUE asymmetry).")
+        self.assertEqual(
+            set(enum), body_set,
+            f"http_status.enum LỆCH body-set @utils/response.py: "
+            f"thừa={sorted(set(enum) - body_set)} thiếu={sorted(body_set - set(enum))}. "
+            f"BE thêm/bớt status mà yaml chưa cập → guard ĐỎ (đúng ý đồ).",
+        )
+        self.assertEqual(enum, sorted(enum), "enum PHẢI sorted (ổn định diff codegen).")
+        self.assertEqual(len(enum), len(set(enum)), "enum KHÔNG trùng-lặp.")
+        self.assertEqual(sch.get("example"), 403, "GIỮ example:403.")
+        self.assertIn("description", sch, "GIỮ description hiện hữu.")
+
+    def test_417_excluded_with_reason(self):
+        """(b) 417 ∈ candidate (key _HTTP_TO_CODE) NHƯNG ∉ enum — loại đúng-lý-do (BUSINESS_RULE→422)."""
+        body_set, candidate = _body_http_status_set()
+        resp = importlib.import_module("assetcore.utils.response")
+        # Tiền đề source: 417 LÀ key _HTTP_TO_CODE (nếu BE đổi, premise đổi → guard bắt buộc cập).
+        self.assertIn(417, resp._HTTP_TO_CODE, "Premise: 417 là key _HTTP_TO_CODE @source.")
+        self.assertEqual(
+            resp._HTTP_TO_CODE[417], resp.ErrorCode.BUSINESS_RULE,
+            "417 map ra BUSINESS_RULE (legacy reverse-map).",
+        )
+        self.assertEqual(
+            resp._HTTP_FOR_CODE[resp.ErrorCode.BUSINESS_RULE], 422,
+            "BUSINESS_RULE resolve body.http_status = 422 (response.py:131) ⇒ 417 không surface.",
+        )
+        self.assertIn(417, candidate, "417 PHẢI ∈ candidate-set thô (đã thấy).")
+        self.assertNotIn(417, body_set, "417 ∉ body-set (chủ động loại, không phải quên).")
+        enum = self._http_status_schema().get("enum") or []
+        self.assertNotIn(417, enum, "http_status.enum KHÔNG chứa 417 (body không bao giờ phát).")
+
+    def test_all_int_and_every_code_bucket_maps_in(self):
+        """(c) mọi value enum là int (KHÔNG string); mọi value _HTTP_FOR_CODE map vào enum (đủ phủ code-bucket)."""
+        enum = self._http_status_schema().get("enum") or []
+        for v in enum:
+            self.assertIsInstance(v, int, f"enum value PHẢI int (KHÔNG string): {v!r}")
+            self.assertNotIsInstance(v, bool, f"enum value KHÔNG được bool: {v!r}")
+        resp = importlib.import_module("assetcore.utils.response")
+        for code_bucket, http in resp._HTTP_FOR_CODE.items():
+            self.assertIn(
+                http, enum,
+                f"http_status {http} (code {code_bucket}) ∉ enum — codegen switch sót nhánh.",
+            )
+
+    def test_red_before_drop_element_raises(self):
+        """(d) RED-before: xoá 1 phần tử enum (deepcopy in-memory) ⇒ so-với-source RAISE; control thật PASS."""
+        body_set, _ = _body_http_status_set()
+        mutated = copy.deepcopy(self.spec)
+        m_enum = mutated["components"]["schemas"]["Error"]["properties"]["http_status"]["enum"]
+        dropped = m_enum.pop()  # bỏ 1 phần tử
+        self.assertNotEqual(
+            set(m_enum), body_set,
+            f"Spec đột-biến (bỏ {dropped}) PHẢI ≠ body-set ⇒ chứng RED-before.",
+        )
+        # control: spec THẬT vẫn khớp (GREEN-after).
+        real_enum = self._http_status_schema().get("enum") or []
+        self.assertEqual(set(real_enum), body_set, "Control: spec THẬT khớp body-set (GREEN-after).")
+
+    def test_red_before_inject_417_raises(self):
+        """(e) RED-before: thêm 417 vào enum (deepcopy) ⇒ ≠ body-set (enum không được rộng hơn body)."""
+        body_set, _ = _body_http_status_set()
+        mutated = copy.deepcopy(self.spec)
+        m_enum = mutated["components"]["schemas"]["Error"]["properties"]["http_status"]["enum"]
+        m_enum.append(417)
+        self.assertNotEqual(
+            set(m_enum), body_set,
+            "Spec đột-biến (thêm 417) PHẢI ≠ body-set ⇒ enum không được rộng hơn body-set.",
+        )
+        real_enum = self._http_status_schema().get("enum") or []
+        self.assertEqual(set(real_enum), body_set, "Control: spec THẬT khớp body-set (GREEN-after).")
+
+
+class TestMobileListPmSchedulesContract(unittest.TestCase):
+    """C-LISTREAD-SCHED — listPmSchedules contract (open-thread #4 STATE — form createPmWorkOrder).
+
+    Lý do bồi: createPmWorkOrder requestBody required `pm_schedule` (imm08.py:788) NHƯNG client
+    KHÔNG có API list PM Schedule (Active, khớp asset) ⇒ form CỤT. BE sẵn imm08.list_pm_schedules:122
+    (bare @whitelist; cap đọc pm.read). Guard chốt (mirror TestMobileListReadContract nhưng param
+    DISCRETE asset_ref/status — KHÔNG JSON `filters`):
+      (a) path TỒN TẠI + GET + opId listPmSchedules; vào _MVP_BUSINESS_PATHS; RỜI _STUB_PATHS.
+      (b) param query = ScheduleAssetRef+ScheduleStatus+Page+PageSize đúng $ref (KHÔNG WorkOrderFilters).
+      (c) ScheduleAssetRef/ScheduleStatus = string optional; status enum [Active,Paused,Suspended]
+          (pm_schedule.json); Page/PageSize tái dùng (đã guard ở 14c). KHÔNG requestBody (GET).
+      (d) 200 trỏ PmScheduleList → PmScheduleListEnvelope rows-key `data.data[]` (mirror PmWorkOrderList)
+          + dùng CHUNG Pagination; 401/403 GIỮ (Unauthorized401/Forbidden); status-set = [200,401,403].
+      (e) element PmScheduleListItem field-disjoint (C3-split): field-set == _PM_SCHEDULE_ITEM_FIELDS
+          (CHỈ field svc.list_schedules); `name` REQUIRED duy nhất; additionalProperties:false (đóng);
+          KHÔNG ép chung PmWorkOrderListItem (∩ field PM-only như wo_type/due_date/is_late = ∅).
+      (f) INT-VS-BOOL trap (Open#1): KHÔNG prop nào type:boolean (pm_interval_days/alert_days_before =
+          Int fieldtype THẬT @pm_schedule.json, KHÔNG Check) — strict-codegen Dart/Kotlin KHÔNG crash.
+      (g) pm_type/status khai enum 1:1 Select options @pm_schedule.json (KHÔNG bịa giá trị).
+      (h) LIVE introspect: asset_ref/status/page/page_size CÓ THẬT trong signature whitelist
+          imm08.list_pm_schedules (yaml KHÔNG bịa param so với hàm thật @source).
+    SSoT: ../04-api-contract.md §6.2 + ADR-MOBILE-001 (g) + imm08.py:122 + imm08.py:984 list_schedules.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.spec = _load_spec() if _MOBILE_YAML.exists() else None
+
+    def _op(self):
+        return ((self.spec.get("paths") or {}).get(_LIST_SCHEDULE_PATH) or {}).get("get") or {}
+
+    def _resolve(self, ref):
+        if not ref or not ref.startswith("#/"):
+            return None
+        cur = self.spec
+        for raw in ref[2:].split("/"):
+            part = raw.replace("~1", "/").replace("~0", "~")
+            if isinstance(cur, dict) and part in cur:
+                cur = cur[part]
+            else:
+                return None
+        return cur
+
+    def _schema(self, name):
+        return ((self.spec.get("components") or {}).get("schemas") or {}).get(name) or {}
+
+    def test_mob_oas_sched_a_path_get_opid_mvp(self):
+        """(a) path TỒN TẠI + GET + opId listPmSchedules; vào _MVP_BUSINESS_PATHS; RỜI _STUB_PATHS."""
+        paths = self.spec.get("paths") or {}
+        self.assertIn(_LIST_SCHEDULE_PATH, paths, "Thiếu path list_pm_schedules (C-LISTREAD-SCHED).")
+        item = paths[_LIST_SCHEDULE_PATH]
+        self.assertEqual(sorted(item.keys()), ["get"], "list_pm_schedules CHỈ verb GET.")
+        self.assertEqual(self._op().get("operationId"), "listPmSchedules", "opId = listPmSchedules.")
+        self.assertIn(_LIST_SCHEDULE_PATH, _MVP_BUSINESS_PATHS, "Phải vào _MVP_BUSINESS_PATHS (401/403 symmetry).")
+        self.assertNotIn(_LIST_SCHEDULE_PATH, _STUB_PATHS, "Phải RỜI _STUB_PATHS (typed list-envelope).")
+
+    def test_mob_oas_sched_b_param_refs_discrete(self):
+        """(b) param query = ScheduleAssetRef+ScheduleStatus+Page+PageSize (DISCRETE, KHÔNG filters)."""
+        got = {p.get("$ref") for p in (self._op().get("parameters") or []) if p.get("$ref")}
+        self.assertEqual(
+            got, _LIST_SCHEDULE_PARAM_REFS,
+            f"param query LỆCH. expected={sorted(_LIST_SCHEDULE_PARAM_REFS)} got={sorted(got)}",
+        )
+        self.assertNotIn(
+            "#/components/parameters/WorkOrderFilters", got,
+            "listPmSchedules KHÔNG dùng WorkOrderFilters (param DISCRETE asset_ref/status — imm08.py:122).",
+        )
+
+    def test_mob_oas_sched_c_filter_params_shape(self):
+        """(c) ScheduleAssetRef/ScheduleStatus = string optional; status enum khớp DocType."""
+        ar = self._resolve("#/components/parameters/ScheduleAssetRef") or {}
+        self.assertEqual(ar.get("name"), "asset_ref")
+        self.assertEqual(ar.get("in"), "query")
+        self.assertFalse(ar.get("required", False), "asset_ref optional.")
+        self.assertEqual((ar.get("schema") or {}).get("type"), "string", "asset_ref type=string.")
+        st = self._resolve("#/components/parameters/ScheduleStatus") or {}
+        self.assertEqual(st.get("name"), "status")
+        self.assertFalse(st.get("required", False), "status optional.")
+        ssch = st.get("schema") or {}
+        self.assertEqual(ssch.get("type"), "string", "status type=string.")
+        self.assertEqual(
+            ssch.get("enum"), _PM_SCHEDULE_STATUS_ENUM,
+            "status enum PHẢI = [Active,Paused,Suspended] (Select pm_schedule.json).",
+        )
+
+    def test_mob_oas_sched_d_responses_envelope(self):
+        """(d) 200→PmScheduleList→PmScheduleListEnvelope rows-key data.data[]; 401/403 GIỮ; KHÔNG body."""
+        op = self._op()
+        resp = op.get("responses") or {}
+        self.assertEqual(
+            (resp.get("200") or {}).get("$ref"), _PM_SCHEDULE_LIST_RESP_REF,
+            "200 phải trỏ PmScheduleList (mirror PmWorkOrderList — §6.2).",
+        )
+        self.assertEqual(
+            (resp.get("401") or {}).get("$ref"), "#/components/responses/Unauthorized401",
+            "401 GIỮ Unauthorized401.",
+        )
+        self.assertEqual(
+            (resp.get("403") or {}).get("$ref"), "#/components/responses/Forbidden",
+            "403 GIỮ Forbidden (mirror list path khác).",
+        )
+        self.assertNotIn("requestBody", op, "listPmSchedules là GET — KHÔNG requestBody.")
+        self.assertEqual(sorted(resp.keys()), ["200", "401", "403"], "status set = [200,401,403].")
+        # envelope rows-key `data.data[]` (mirror PmWorkOrderListEnvelope) + CHUNG Pagination.
+        env = self._resolve(_PM_SCHEDULE_LIST_SCHEMA_REF) or {}
+        env_data = ((env.get("properties") or {}).get("data") or {})
+        env_props = env_data.get("properties") or {}
+        self.assertIn("data", env_props, "PmScheduleListEnvelope rows-key PHẢI `data` (mirror imm08 WO).")
+        self.assertEqual(env_props["data"].get("type"), "array", "rows = array.")
+        self.assertEqual(
+            env_props["data"].get("items", {}).get("$ref"), _PM_SCHEDULE_LIST_ITEM_REF,
+            "items PHẢI $ref PmScheduleListItem RIÊNG.",
+        )
+        self.assertEqual(
+            (env_props.get("pagination") or {}).get("$ref"), "#/components/schemas/Pagination",
+            "PmScheduleListEnvelope dùng CHUNG Pagination.",
+        )
+        self.assertEqual(sorted(env_data.get("required") or []), ["data", "pagination"])
+
+    def test_mob_oas_sched_e_item_field_disjoint_grounded(self):
+        """(e) PmScheduleListItem field-set == _PM_SCHEDULE_ITEM_FIELDS; name required; đóng; disjoint."""
+        item = self._schema("PmScheduleListItem")
+        self.assertTrue(item, "Thiếu schema PmScheduleListItem (C3-split).")
+        props = set((item.get("properties") or {}).keys())
+        self.assertEqual(
+            props, _PM_SCHEDULE_ITEM_FIELDS,
+            f"PmScheduleListItem field-set LỆCH source svc.list_schedules: "
+            f"thừa={sorted(props - _PM_SCHEDULE_ITEM_FIELDS)} thiếu={sorted(_PM_SCHEDULE_ITEM_FIELDS - props)}",
+        )
+        self.assertEqual(item.get("required"), ["name"], "CHỈ `name` REQUIRED (Option A closed-schema).")
+        self.assertIs(item.get("additionalProperties"), False, "additionalProperties:false (đóng).")
+        # field-disjoint: KHÔNG mang field PM-only của PmWorkOrderListItem (chứng cứ KHÔNG ép chung).
+        pm_only = {"wo_type", "due_date", "supervisor", "supervisor_name", "is_late",
+                   "overall_result", "completion_date", "source_pm_wo"}
+        leaked = props & pm_only
+        self.assertEqual(
+            leaked, set(),
+            f"PmScheduleListItem KHÔNG được mang field PM-WorkOrder-only (KHÔNG ép chung): {leaked}",
+        )
+
+    def test_mob_oas_sched_f_no_boolean_prop_int_vs_bool_trap(self):
+        """(f) Open#1 int-vs-bool: KHÔNG prop nào type:boolean (Int fieldtype THẬT, KHÔNG Check)."""
+        item = self._schema("PmScheduleListItem")
+        bool_props = [k for k, v in (item.get("properties") or {}).items() if v.get("type") == "boolean"]
+        self.assertEqual(
+            bool_props, [],
+            f"PmScheduleListItem KHÔNG được có prop type:boolean (int-vs-bool trap Open#1): {bool_props}. "
+            f"pm_interval_days/alert_days_before = Int fieldtype @pm_schedule.json ⇒ integer.",
+        )
+        # 2 Int field PHẢI khai integer (không bỏ sót thành string/number).
+        for f in ("pm_interval_days", "alert_days_before"):
+            self.assertEqual(
+                ((item.get("properties") or {}).get(f) or {}).get("type"), "integer",
+                f"{f} PHẢI type:integer (Int fieldtype @pm_schedule.json).",
+            )
+
+    def test_mob_oas_sched_g_select_enums_canonical(self):
+        """(g) pm_type/status enum 1:1 Select options @pm_schedule.json (KHÔNG bịa giá trị)."""
+        props = (self._schema("PmScheduleListItem").get("properties") or {})
+        self.assertEqual(
+            (props.get("pm_type") or {}).get("enum"), _PM_SCHEDULE_PM_TYPE_ENUM,
+            "pm_type enum PHẢI = [Quarterly,Semi-Annual,Annual,Ad-hoc] (pm_schedule.json).",
+        )
+        self.assertEqual(
+            (props.get("status") or {}).get("enum"), _PM_SCHEDULE_STATUS_ENUM,
+            "status enum PHẢI = [Active,Paused,Suspended] (pm_schedule.json).",
+        )
+
+    def test_mob_oas_sched_h_params_match_live_signature(self):
+        """(h) LIVE introspect — asset_ref/status/page/page_size CÓ THẬT trong signature whitelist."""
+        mod = importlib.import_module("assetcore.api.imm08")
+        fn = getattr(mod, "list_pm_schedules", None)
+        self.assertIsNotNone(fn, "Thiếu hàm whitelist LIVE: assetcore.api.imm08.list_pm_schedules")
+        live_args = set(inspect.signature(fn).parameters.keys())
+        for must in ("asset_ref", "status", "page", "page_size"):
+            self.assertIn(
+                must, live_args,
+                f"imm08.list_pm_schedules signature LIVE thiếu param `{must}` (yaml KHÔNG bịa).",
+            )
+
+
+class TestMobileListCalibrationsContract(unittest.TestCase):
+    """C-LISTREAD-CAL (open-thread #4c STATE — tab Calibration MVP-flow-5 list+detail).
+
+    Lý do bồi: tab Calibration cần API list (12 base + 3 enrich field). BE sẵn
+    imm11.list_calibrations:71 (filters JSON-string/page/page_size; parse_json-in-try/except →
+    _err Error-trên-HTTP-200 ĐÃ có @imm11.py:72-75 — KHÁC imm09 round 4, KHÔNG cần dời .py). Cap đọc
+    = calibration.read + vendor-scope 'Calibration Record'. Guard chốt (mirror C7 list-path; param
+    REUSE WorkOrderFilters — KHÔNG discrete như listPmSchedules):
+      (a) path TỒN TẠI + GET + opId listCalibrations; vào _MVP_BUSINESS_PATHS; RỜI _STUB_PATHS.
+      (b) param query = WorkOrderFilters+Page+PageSize ($ref, REUSE — KHÔNG discrete asset_ref/status).
+      (c) 200 → CalibrationList response-component content.schema = oneOf ĐÚNG 2 nhánh
+          [CalibrationListEnvelope, Error]; 0 discriminator key (Decision-B route-by-VALUE body.success);
+          401/403 GIỮ; status-set = [200,401,403]; KHÔNG requestBody (GET).
+      (d) CalibrationListEnvelope additionalProperties:false (closed) + success.enum [true] +
+          required {success,data}; Error nhánh closed + success.enum [false] + required disjoint →
+          route-by-VALUE (∩ required = {success}).
+      (e) CalibrationListItem field-set == _CALIBRATION_ITEM_FIELDS (ĐÚNG 15, SET ==, KHÔNG subset);
+          CHỈ `name` REQUIRED; additionalProperties:false (đóng); field-disjoint vs WO/Incident item
+          (KHÔNG mang asset_ref/repair_type/severity/incident_type — KHÔNG ép chung C3-split).
+      (f) is_recalibration = integer enum[0,1] (Check fieldtype @DocType — Open#1, KHÔNG boolean);
+          no-boolean sweep toàn item; no-financial sweep (∩ _FINANCIAL_KEYS = ∅ — LL-BE-57);
+          ĐÚNG 1 prop integer-enum (KHÔNG Check field nào khác lọt — capa_closed/calibration_sticker_attached
+          KHÔNG nằm trong svc fields); calibration_type/status/overall_result = string enum canonical.
+      (g) negative-inject control (đổi 1 field item → field-set assert RED) + structural guard
+          parse_json-in-try @imm11.list_calibrations (Error-trên-HTTP-200, KHÔNG raise-500 — đã sẵn,
+          KHÁC imm09 round 4) + LIVE introspect signature (filters/page/page_size CÓ THẬT).
+    SSoT: ../04-api-contract.md §6.2 + ADR-MOBILE-001 (g) + imm11.py:71 + services/imm11.py:937
+    list_calibrations + IMM Asset Calibration DocType (is_recalibration=Check; 3 Select-options).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.spec = _load_spec() if _MOBILE_YAML.exists() else None
+
+    def setUp(self):
+        if self.spec is None:
+            self.skipTest("Thiếu yaml mobile spec.")
+
+    def _op(self):
+        return ((self.spec.get("paths") or {}).get(_LIST_CALIBRATION_PATH) or {}).get("get") or {}
+
+    def _resolve(self, ref):
+        if not ref or not ref.startswith("#/"):
+            return None
+        cur = self.spec
+        for raw in ref[2:].split("/"):
+            part = raw.replace("~1", "/").replace("~0", "~")
+            if isinstance(cur, dict) and part in cur:
+                cur = cur[part]
+            else:
+                return None
+        return cur
+
+    def _schema(self, name):
+        return ((self.spec.get("components") or {}).get("schemas") or {}).get(name) or {}
+
+    def _comp_schema(self):
+        comp = _resolve_response_component(self.spec, _CALIBRATION_LIST_RESP_REF)
+        return (((comp.get("content") or {}).get("application/json") or {}).get("schema") or {})
+
+    def test_mob_oas_cal_a_path_get_opid_mvp(self):
+        """(a) path TỒN TẠI + GET + opId listCalibrations; vào _MVP_BUSINESS_PATHS; RỜI _STUB_PATHS."""
+        paths = self.spec.get("paths") or {}
+        self.assertIn(_LIST_CALIBRATION_PATH, paths, "Thiếu path list_calibrations (C-LISTREAD-CAL).")
+        item = paths[_LIST_CALIBRATION_PATH]
+        self.assertEqual(sorted(item.keys()), ["get"], "list_calibrations CHỈ verb GET.")
+        self.assertEqual(self._op().get("operationId"), "listCalibrations", "opId = listCalibrations.")
+        self.assertIn(_LIST_CALIBRATION_PATH, _MVP_BUSINESS_PATHS, "Phải vào _MVP_BUSINESS_PATHS (401/403 symmetry).")
+        self.assertNotIn(_LIST_CALIBRATION_PATH, _STUB_PATHS, "Phải RỜI _STUB_PATHS (typed list-envelope).")
+
+    def test_mob_oas_cal_b_param_refs_reuse_filters(self):
+        """(b) param query = WorkOrderFilters+Page+PageSize (REUSE $ref — KHÔNG discrete asset_ref/status)."""
+        got = {p.get("$ref") for p in (self._op().get("parameters") or []) if p.get("$ref")}
+        self.assertEqual(
+            got, _LIST_CALIBRATION_PARAM_REFS,
+            f"param query LỆCH. expected={sorted(_LIST_CALIBRATION_PARAM_REFS)} got={sorted(got)}",
+        )
+        self.assertIn(
+            "#/components/parameters/WorkOrderFilters", got,
+            "listCalibrations REUSE WorkOrderFilters (filters JSON-string — imm11.py:71 nhận filters str).",
+        )
+        for discrete in ("ScheduleAssetRef", "ScheduleStatus", "IncidentStatus"):
+            self.assertNotIn(
+                f"#/components/parameters/{discrete}", got,
+                f"listCalibrations KHÔNG dùng param discrete {discrete} (handler nhận filters str).",
+            )
+
+    def test_mob_oas_cal_c_responses_oneof_no_discriminator(self):
+        """(c) 200→CalibrationList content.schema = oneOf [Env, Error] 0-discriminator; 401/403 GIỮ; no body."""
+        op = self._op()
+        resp = op.get("responses") or {}
+        self.assertEqual(
+            (resp.get("200") or {}).get("$ref"), _CALIBRATION_LIST_RESP_REF,
+            "200 phải trỏ CalibrationList (mirror C7 list path — §6.2).",
+        )
+        self.assertEqual(
+            (resp.get("401") or {}).get("$ref"), "#/components/responses/Unauthorized401", "401 GIỮ Unauthorized401.",
+        )
+        self.assertEqual(
+            (resp.get("403") or {}).get("$ref"), "#/components/responses/Forbidden", "403 GIỮ Forbidden.",
+        )
+        self.assertNotIn("requestBody", op, "listCalibrations là GET — KHÔNG requestBody.")
+        self.assertEqual(sorted(resp.keys()), ["200", "401", "403"], "status set = [200,401,403].")
+        comp_sch = self._comp_schema()
+        self.assertNotIn("$ref", comp_sch, "200 content.schema KHÔNG single $ref — PHẢI oneOf [Env, Error] (C7).")
+        one_of = comp_sch.get("oneOf") or []
+        refs = [b.get("$ref") for b in one_of if isinstance(b, dict)]
+        self.assertEqual(len(one_of), 2, f"oneOf PHẢI ĐÚNG 2 nhánh [CalibrationListEnvelope, Error]: {refs}")
+        self.assertIn(_CALIBRATION_LIST_SCHEMA_REF, refs, f"oneOf thiếu nhánh Env: {refs}")
+        self.assertIn(_ERROR_SCHEMA_REF, refs, f"oneOf thiếu nhánh Error (in-handler malformed-filters HTTP-200): {refs}")
+        self.assertNotIn(
+            "discriminator", comp_sch,
+            "KHÔNG discriminator — Decision-B closed-schema route-by-VALUE body.success.",
+        )
+
+    def test_mob_oas_cal_d_envelope_error_closed_disjoint(self):
+        """(d) CalibrationListEnvelope + Error closed (additionalProperties:false) + success.enum đối lập
+        + required disjoint → route-by-VALUE body.success (∩ required = {success})."""
+        env = self._schema("CalibrationListEnvelope")
+        self.assertTrue(env, "Thiếu schema CalibrationListEnvelope (C7).")
+        self.assertIs(env.get("additionalProperties"), False, "CalibrationListEnvelope closed (additionalProperties:false).")
+        self.assertEqual(
+            ((env.get("properties") or {}).get("success") or {}).get("enum"), [True],
+            "CalibrationListEnvelope.success.enum PHẢI [true].",
+        )
+        env_req = set(env.get("required") or [])
+        self.assertEqual(env_req, {"success", "data"}, "Env.required = {success,data}.")
+        # envelope rows-key `data.data[]` + CHUNG Pagination + items $ref CalibrationListItem RIÊNG.
+        env_data = ((env.get("properties") or {}).get("data") or {})
+        env_props = env_data.get("properties") or {}
+        self.assertEqual(env_props.get("data", {}).get("type"), "array", "rows = array dưới key `data`.")
+        self.assertEqual(
+            env_props.get("data", {}).get("items", {}).get("$ref"), _CALIBRATION_LIST_ITEM_REF,
+            "items PHẢI $ref CalibrationListItem RIÊNG (C3-split).",
+        )
+        self.assertEqual(
+            (env_props.get("pagination") or {}).get("$ref"), "#/components/schemas/Pagination",
+            "CalibrationListEnvelope dùng CHUNG Pagination.",
+        )
+        self.assertEqual(sorted(env_data.get("required") or []), ["data", "pagination"])
+        # Error nhánh closed + disjoint.
+        err = self._schema("Error")
+        self.assertIs(err.get("additionalProperties"), False, "Error closed (additionalProperties:false).")
+        self.assertEqual(
+            ((err.get("properties") or {}).get("success") or {}).get("enum"), [False], "Error.success.enum [false].",
+        )
+        err_req = set(err.get("required") or [])
+        self.assertEqual(
+            env_req & err_req, {"success"},
+            "Env vs Error required CHỈ giao 'success' (route-by-VALUE, KHÔNG discriminator).",
+        )
+
+    def test_mob_oas_cal_e_item_field_disjoint_grounded(self):
+        """(e) CalibrationListItem field-set == _CALIBRATION_ITEM_FIELDS (SET ==, KHÔNG subset); name
+        required; đóng; field-disjoint vs WO/Incident item (C3-split — KHÔNG ép chung)."""
+        item = self._schema("CalibrationListItem")
+        self.assertTrue(item, "Thiếu schema CalibrationListItem (C3-split).")
+        props = set((item.get("properties") or {}).keys())
+        self.assertEqual(
+            props, _CALIBRATION_ITEM_FIELDS,
+            f"CalibrationListItem field-set LỆCH source svc.list_calibrations: "
+            f"thừa={sorted(props - _CALIBRATION_ITEM_FIELDS)} thiếu={sorted(_CALIBRATION_ITEM_FIELDS - props)}",
+        )
+        self.assertEqual(len(props), 15, "PHẢI ĐÚNG 15 field (12 base + 3 enrich).")
+        self.assertEqual(item.get("required"), ["name"], "CHỈ `name` REQUIRED (closed-schema).")
+        self.assertIs(item.get("additionalProperties"), False, "additionalProperties:false (đóng).")
+        # field-disjoint: KHÔNG mang field WO/Incident-only (chứng cứ KHÔNG ép chung C3-split).
+        foreign = {"asset_ref", "repair_type", "priority", "sla_breached", "incident_type",
+                   "severity", "fault_code", "reported_by", "pm_type", "due_date"}
+        leaked = props & foreign
+        self.assertEqual(leaked, set(), f"CalibrationListItem KHÔNG được mang field WO/Incident-only: {leaked}")
+
+    def test_mob_oas_cal_f_typing_int_bool_financial_enum(self):
+        """(f) is_recalibration integer enum[0,1] (Check, Open#1 — KHÔNG boolean); no-boolean sweep;
+        no-financial sweep (LL-BE-57); ĐÚNG 1 prop integer-enum; 3 Select string-enum canonical."""
+        item = self._schema("CalibrationListItem")
+        props = item.get("properties") or {}
+        # is_recalibration = integer enum[0,1] (KHÔNG boolean — Dart/Kotlin codegen no-crash).
+        ir = props.get("is_recalibration") or {}
+        self.assertEqual(ir.get("type"), "integer", "is_recalibration PHẢI type:integer (Check fieldtype @DocType).")
+        self.assertEqual(ir.get("enum"), [0, 1], "is_recalibration enum PHẢI [0,1] (Open#1 int-vs-bool, KHÔNG boolean).")
+        # no-boolean sweep toàn item.
+        bool_props = [k for k, v in props.items() if v.get("type") == "boolean"]
+        self.assertEqual(bool_props, [], f"CalibrationListItem KHÔNG được có prop type:boolean (Open#1): {bool_props}")
+        # ĐÚNG 1 prop integer-enum[0,1] (KHÔNG Check field nào khác lọt — capa_closed/calibration_sticker_attached
+        #   KHÔNG nằm trong svc.list_calibrations fields).
+        intenum = [k for k, v in props.items() if v.get("type") == "integer" and v.get("enum") == [0, 1]]
+        self.assertEqual(intenum, ["is_recalibration"], f"PHẢI ĐÚNG 1 prop integer-enum[0,1]: {intenum}")
+        # no-financial sweep (LL-BE-57 mobile-meta no-financial — list_calibrations KHÔNG trả).
+        fin = set(props.keys()) & _FINANCIAL_KEYS
+        self.assertEqual(fin, set(), f"CalibrationListItem KHÔNG được mang financial key (LL-BE-57): {fin}")
+        # 3 Select = string enum canonical theo DocType options.
+        self.assertEqual((props.get("calibration_type") or {}).get("type"), "string", "calibration_type type=string.")
+        self.assertEqual(
+            (props.get("calibration_type") or {}).get("enum"), _CALIBRATION_TYPE_ENUM,
+            "calibration_type enum PHẢI [External,In-House] (Select @DocType).",
+        )
+        self.assertEqual(
+            (props.get("status") or {}).get("enum"), _CALIBRATION_STATUS_ENUM,
+            "status enum PHẢI khớp Select-options @DocType (Scheduled…Cancelled).",
+        )
+        self.assertEqual(
+            (props.get("overall_result") or {}).get("enum"), _CALIBRATION_OVERALL_RESULT_ENUM,
+            "overall_result enum PHẢI ['',Passed,Failed,Conditionally Passed] (Select @DocType).",
+        )
+
+    def test_mob_oas_cal_g_negative_inject_structural_live(self):
+        """(g) negative-inject control (đổi 1 field → field-set assert RED) + structural parse_json-in-try
+        @imm11 (Error-trên-HTTP-200, KHÔNG raise-500 — đã sẵn, KHÁC imm09 round 4) + LIVE signature."""
+        # negative-inject: mutate IN-MEMORY copy field-set → assert phát hiện (KHÔNG ghi yaml).
+        mutated = set(_CALIBRATION_ITEM_FIELDS)
+        mutated.discard("is_recalibration")
+        mutated.add("is_recal")  # field bịa
+        self.assertNotEqual(
+            mutated, _CALIBRATION_ITEM_FIELDS,
+            "control: đổi 1 field PHẢI làm set khác → guard (e) bắt được drift.",
+        )
+        # structural guard @imm11.list_calibrations — parse_json BÊN TRONG try/except → _err
+        #   (Error-trên-HTTP-200, KHÔNG raise-500). Re-verify @source (KHÁC imm09 round 4 phải dời).
+        src = inspect.getsource(importlib.import_module("assetcore.api.imm11").list_calibrations)
+        self.assertIn("parse_json", src, "imm11.list_calibrations PHẢI gọi parse_json (filters).")
+        self.assertIn("try:", src, "imm11.list_calibrations parse_json PHẢI trong try/except (Error-trên-HTTP-200).")
+        self.assertIn("_err", src, "imm11.list_calibrations except PHẢI trả _err (KHÔNG raise-500 — đã sẵn @source).")
+        # LIVE introspect signature — filters/page/page_size CÓ THẬT (yaml KHÔNG bịa param).
+        fn = getattr(importlib.import_module("assetcore.api.imm11"), "list_calibrations", None)
+        self.assertIsNotNone(fn, "Thiếu hàm whitelist LIVE: assetcore.api.imm11.list_calibrations")
+        live_args = set(inspect.signature(fn).parameters.keys())
+        for must in ("filters", "page", "page_size"):
+            self.assertIn(must, live_args, f"imm11.list_calibrations signature LIVE thiếu param `{must}`.")
 
 
 def _satisfies_required(sample: dict, required: set) -> bool:
@@ -2903,6 +6015,381 @@ class TestMobileTypedReads(unittest.TestCase):
         )
 
 
+# ── TC-MOB-OAS-AscanParity — AssetScanInfo contract-drift closure (4 BE-emit field) ───────────
+#   DRIFT-CLOSED: services/imm00.build_asset_scan_info (return dict imm00.py:764-840) emit 4 field
+#   manufacturer_sn / risk_classification / warranty_expiry_date / warranty_expired mà schema
+#   AssetScanInfo (yaml:1846+, additionalProperties:false) TRƯỚC vòng KHÔNG khai → strict codegen
+#   client (Dart/Kotlin/TS) drop/crash 4 field wire-thật. Đóng drift: 4/4 declared, parity 100%.
+#   TYPE @source (verify field helper + AC Asset doctype):
+#     manufacturer_sn      = Data + _str_or_blank → string (KHÔNG nullable, default '').
+#     risk_classification  = Select(Low/Medium/High/Critical) + _str_or_blank → string RAW-EN,
+#                            KHÔNG enum-cứng (BE coalesce '' khi rỗng — enum cứng reject '';
+#                            mirror lifecycle_status, FE map nhãn VI). description liệt kê canonical.
+#     warranty_expiry_date = Date + _date_str_or_none → string format:date nullable:true
+#                            (parity next_pm_date/next_calibration_date — NGOÀI required).
+#     warranty_expired     = _is_warranty_expired → Python bool → boolean (server-flag SSoT parity
+#                            pm_overdue/calibration_overdue; KHÔNG integer enum[0,1] vì trả bool THẬT).
+#   CLOSED-SCHEMA GIỮ additionalProperties:false (KHÔNG nới). required ⊇ {manufacturer_sn,
+#   risk_classification, warranty_expired} (luôn emit, non-null); warranty_expiry_date NGOÀI required.
+#   NO-FINANCIAL (LL-BE-57): 4 field KHÔNG nhạy cảm (serial NSX NĐ98 / phân loại rủi ro / hợp đồng
+#   bảo hành — KHÔNG giá mua/khấu hao/book-value). SSoT: ../completion/EPIC-C-api-contract.md.
+class TestMobileAssetScanInfoFieldParity(unittest.TestCase):
+    """AssetScanInfo parity — 4 field BE emit (build_asset_scan_info) PHẢI khai trong schema closed.
+
+    Raw-text/spec introspection (KHÔNG đụng api/services .py). RED-before (4 field thiếu) →
+    GREEN-after (yaml bồi 4 field type đúng @source). + forward-guard parity-sweep chống drift
+    tương lai (set(schema.properties) ⊇ set(service-return-keys)).
+    """
+
+    # 4 financial-key KHÔNG được lọt (LL-BE-57 mobile-meta no-financial sweep).
+    _SCAN_FINANCIAL_KEYS = {"gross_purchase_amount", "accumulated_depreciation", "current_book_value"}
+
+    @classmethod
+    def setUpClass(cls):
+        cls.spec = _load_spec() if _MOBILE_YAML.exists() else None
+
+    def _scan_info(self) -> dict:
+        return ((self.spec.get("components") or {}).get("schemas") or {}).get("AssetScanInfo") or {}
+
+    def _props(self) -> dict:
+        return self._scan_info().get("properties") or {}
+
+    def test_mob_oas_ascanparity_a_4_new_fields_present(self):
+        """[anti-false-green] schema.AssetScanInfo.properties ⊇ 4 field BE emit (drift-closed).
+
+        RED TRƯỚC fix (4 field thiếu — chứng minh drift THẬT tồn tại) → GREEN SAU bồi yaml.
+        """
+        props = set(self._props().keys())
+        expected = {"manufacturer_sn", "risk_classification", "warranty_expiry_date", "warranty_expired"}
+        missing = expected - props
+        self.assertFalse(
+            missing,
+            f"DRIFT: AssetScanInfo schema THIẾU {missing} — build_asset_scan_info (imm00.py:764-840) "
+            f"EMIT 4 field này nhưng schema closed (additionalProperties:false) chưa khai → strict "
+            f"codegen client drop/crash field wire-thật. Bồi vào yaml:1846+ properties.",
+        )
+
+    def test_mob_oas_ascanparity_b_manufacturer_sn_string(self):
+        """manufacturer_sn = string (Data + _str_or_blank → KHÔNG nullable, default '')."""
+        f = self._props().get("manufacturer_sn") or {}
+        self.assertEqual(f.get("type"), "string", "manufacturer_sn PHẢI string (Data + _str_or_blank).")
+        self.assertNotEqual(
+            f.get("nullable"), True,
+            "manufacturer_sn KHÔNG nullable — _str_or_blank LUÔN trả str ('' khi rỗng, KHÔNG None).",
+        )
+
+    def test_mob_oas_ascanparity_c_risk_classification_string_not_hard_enum(self):
+        """risk_classification = string + KHÔNG key 'enum' (BE coalesce '' → enum cứng reject '').
+
+        Mirror lifecycle_status: BE GIỮ RAW-EN làm SSoT contract, FE map nhãn VI. enum cứng
+        [Low,Medium,High,Critical] sẽ REJECT '' mà _str_or_blank trả khi rỗng → drift. description
+        PHẢI liệt kê canonical Low/Medium/High/Critical (FE map nhãn VI).
+        """
+        f = self._props().get("risk_classification") or {}
+        self.assertEqual(f.get("type"), "string", "risk_classification PHẢI string (Select + _str_or_blank).")
+        self.assertNotIn(
+            "enum", f,
+            "risk_classification KHÔNG được enum-cứng — BE coalesce '' khi rỗng (mirror "
+            "lifecycle_status); enum cứng reject '' → drift. Liệt kê canonical Ở description, KHÔNG enum.",
+        )
+        desc = f.get("description") or ""
+        for canon in ("Low", "Medium", "High", "Critical"):
+            self.assertIn(
+                canon, desc,
+                f"risk_classification.description PHẢI liệt kê canonical '{canon}' (FE map nhãn VI).",
+            )
+
+    def test_mob_oas_ascanparity_d_warranty_expiry_date_date_nullable(self):
+        """warranty_expiry_date = string format:date nullable:true (parity next_pm_date)."""
+        f = self._props().get("warranty_expiry_date") or {}
+        self.assertEqual(f.get("type"), "string", "warranty_expiry_date PHẢI string (_date_str_or_none).")
+        self.assertEqual(f.get("format"), "date", "warranty_expiry_date PHẢI format:date (parity next_pm_date).")
+        self.assertEqual(
+            f.get("nullable"), True,
+            "warranty_expiry_date PHẢI nullable:true — _date_str_or_none trả None khi rỗng/None.",
+        )
+
+    def test_mob_oas_ascanparity_e_warranty_expired_boolean_serverflag(self):
+        """warranty_expired = boolean (server-flag parity pm_overdue/calibration_overdue).
+
+        KHÔNG integer enum[0,1]: _is_warranty_expired trả Python bool THẬT (KHÔNG Check-fieldtype
+        as_dict 0/1). FE CHỈ render cờ — KHÔNG so ngày client.
+        """
+        f = self._props().get("warranty_expired") or {}
+        self.assertEqual(
+            f.get("type"), "boolean",
+            "warranty_expired PHẢI boolean (server-flag SSoT, _is_warranty_expired trả bool THẬT — "
+            "KHÔNG integer enum[0,1] vì KHÔNG Check-fieldtype).",
+        )
+
+    def test_mob_oas_ascanparity_f_closed_schema_unchanged_required_set(self):
+        """additionalProperties:false GIỮ (KHÔNG nới); required ⊇ {3 non-null}; warranty_expiry_date NGOÀI."""
+        info = self._scan_info()
+        self.assertEqual(
+            info.get("additionalProperties"), False,
+            "AssetScanInfo PHẢI GIỮ additionalProperties:false (closed-schema KHÔNG nới khi bồi field).",
+        )
+        required = set(info.get("required") or [])
+        must_require = {"manufacturer_sn", "risk_classification", "warranty_expired"}
+        self.assertTrue(
+            must_require <= required,
+            f"required PHẢI ⊇ {must_require} (luôn emit, non-null) — thiếu {must_require - required}.",
+        )
+        self.assertNotIn(
+            "warranty_expiry_date", required,
+            "warranty_expiry_date PHẢI NGOÀI required (nullable — parity next_pm_date/next_calibration_date).",
+        )
+
+    def test_mob_oas_ascanparity_g_no_financial_leak(self):
+        """4 field mới KHÔNG ∈ financial-key (LL-BE-57 mobile-meta no-financial sweep)."""
+        props = set(self._props().keys())
+        leaked = props & self._SCAN_FINANCIAL_KEYS
+        self.assertFalse(
+            leaked,
+            f"AssetScanInfo KHÔNG được mang financial key (LL-BE-57): {leaked}. 4 field mới = serial "
+            f"NSX (NĐ98) / phân loại rủi ro / bảo hành — KHÔNG giá mua/khấu hao/book-value.",
+        )
+
+    def test_mob_oas_ascanparity_h_schema_covers_all_service_keys(self):
+        """[forward-guard] KHÔNG còn key build_asset_scan_info emit mà schema THIẾU (chống drift A2).
+
+        Khoá-set service-return-keys @source build_asset_scan_info (imm00.py:764-840) GROUNDED.
+        set(schema.properties) ⊇ set(service-return-keys) — guard tương lai khi BE thêm field.
+        """
+        # GROUNDED service-return-keys @source imm00.build_asset_scan_info (return dict :764-840).
+        service_keys = {
+            "name", "asset_code", "asset_name", "manufacturer_sn", "risk_classification",
+            "lifecycle_status", "device_model_name", "location_name",
+            "next_pm_date", "next_calibration_date", "recent_maintenance",
+            "pm_overdue", "calibration_overdue",
+            "warranty_expiry_date", "warranty_expired", "available_actions",
+        }
+        props = set(self._props().keys())
+        not_declared = service_keys - props
+        self.assertFalse(
+            not_declared,
+            f"PARITY-SWEEP: build_asset_scan_info EMIT {not_declared} nhưng schema AssetScanInfo "
+            f"closed THIẾU → strict codegen drop/crash. Bồi field thiếu vào yaml (additionalProperties:false).",
+        )
+
+
+# ── FLOW6-PUSH — PushMessageData contract (flow-6 FCM data-payload, transport NGOÀI HTTP) ──────────
+#   ĐÓNG contract-gap push-payload: schema `PushMessageData` PHẢI khớp 1:1 với `data` map mà
+#   `_build_message` emit @utils/fcm.py:94-98 (đúng 4 key string) + enum `event` = 5 giá trị
+#   `_push_event_route` @services/notifications.py:443-454 `_ROUTES` + fallback `:451`. COMPONENT-ONLY
+#   (push đi qua FCM HTTP v1, KHÔNG qua path REST AssetCore) ⇒ KHÔNG referenced bởi HTTP path,
+#   nằm trong _RESERVED_ORPHANS (forward-reserve). Raw-text/spec introspection (KHÔNG đụng .py).
+#   8 TC a..h: present/closed · 4-key-exact (no-thừa/no-thiếu) · event-enum-5-exact · deeplink-5-template ·
+#   no-android-priority-key · component-only-not-in-path · all-4-required · negative-inject RED-before.
+class TestMobilePushMessageDataContract(unittest.TestCase):
+    """flow-6 push data-payload (PushMessageData) khớp BE emit @fcm.py:94-98 + notifications.py:443-454.
+
+    SSoT prose: ../../../docs/mobile/06-push-fcm.md §4.1/§4.1a/§4.2 (Self-Correction 2026-06-15 —
+    drift approval_pending/escalation gỡ; live `_ROUTES` chỉ 5 event). Codegen mobile sinh model
+    PushMessageData parse FCM RemoteMessage.data → route deep-link. `android.priority` KHÔNG ∈ payload
+    (là message.android.priority, server-only). RED-before (schema thiếu) → GREEN-after (yaml bồi).
+    """
+
+    # 4 key BE emit @utils/fcm.py:94-98 _build_message data_payload (map<string,string>).
+    _EMIT_KEYS = {"doctype", "name", "event", "deeplink"}
+    # 5 giá trị event @services/notifications.py:444-447 _ROUTES + fallback :451.
+    _EVENT_ENUM = ["incident_created", "repair_assigned", "pm_assignment", "calibration_due", "notification"]
+    # 5 deeplink template SSoT (4 map + '' fallback) @notifications.py:444-447 + return :452.
+    _DEEPLINK_TEMPLATES = (
+        "assetcore://incident/<name>",
+        "assetcore://wo/cm/<name>",
+        "assetcore://wo/pm/<name>",
+        "assetcore://asset/<name>",
+    )
+
+    @classmethod
+    def setUpClass(cls):
+        cls.spec = _load_spec() if _MOBILE_YAML.exists() else None
+        cls.raw = _MOBILE_YAML.read_text(encoding="utf-8") if _MOBILE_YAML.exists() else ""
+
+    def _schema(self) -> dict:
+        return ((self.spec.get("components") or {}).get("schemas") or {}).get("PushMessageData") or {}
+
+    def _props(self) -> dict:
+        return self._schema().get("properties") or {}
+
+    def test_mob_oas_pushdata_a_schema_present_and_closed(self):
+        """[anti-false-green] schema PushMessageData tồn tại + closed (additionalProperties:false).
+
+        RED TRƯỚC fix (schema chưa khai) → GREEN SAU bồi yaml. Closed-schema = codegen sinh model
+        strict KHÔNG nuốt key lạ (KHÔNG discriminator-object → schema phẳng 4 string).
+        """
+        sch = self._schema()
+        self.assertTrue(
+            sch, "PushMessageData CHƯA khai trong components.schemas — flow-6 push data-payload contract-gap "
+            "(BE emit @fcm.py:94-98 nhưng codegen không có model parse RemoteMessage.data). Bồi vào yaml.",
+        )
+        self.assertEqual(
+            sch.get("type"), "object", "PushMessageData PHẢI type:object (FCM data map<string,string>).",
+        )
+        self.assertEqual(
+            sch.get("additionalProperties"), False,
+            "PushMessageData PHẢI additionalProperties:false (closed — đúng 4 key BE emit, KHÔNG nới).",
+        )
+        # 0 discriminator (schema phẳng — KHÔNG oneOf/discriminator).
+        self.assertNotIn("discriminator", sch, "PushMessageData KHÔNG discriminator (schema phẳng 4 string).")
+        self.assertNotIn("oneOf", sch, "PushMessageData KHÔNG oneOf (schema phẳng, KHÔNG closed-disjoint envelope).")
+
+    def test_mob_oas_pushdata_b_exactly_4_keys_no_more_no_less(self):
+        """properties = ĐÚNG 4 key {doctype,name,event,deeplink} — KHÔNG thừa/thiếu (khớp fcm.py:94-98).
+
+        Thừa key → codegen sinh field BE KHÔNG bao giờ emit (dead). Thiếu key → client drop field
+        wire-thật. Set-equality CHẶT (==) chống cả 2 chiều drift.
+        """
+        props = set(self._props().keys())
+        self.assertEqual(
+            props, self._EMIT_KEYS,
+            f"PushMessageData.properties PHẢI = ĐÚNG 4 key {sorted(self._EMIT_KEYS)} (map _build_message "
+            f"data_payload fcm.py:94-98). Thừa={sorted(props - self._EMIT_KEYS)} Thiếu={sorted(self._EMIT_KEYS - props)}.",
+        )
+
+    def test_mob_oas_pushdata_c_all_4_props_string(self):
+        """4 prop ĐỀU type:string (FCM data map<string,string> — fcm.py ÉP str mọi value :95-98)."""
+        props = self._props()
+        for key in sorted(self._EMIT_KEYS):
+            f = props.get(key) or {}
+            self.assertEqual(
+                f.get("type"), "string",
+                f"PushMessageData.{key} PHẢI string — FCM data map<string,string>, _build_message ÉP str "
+                f"(fcm.py:95-98). KHÔNG integer/boolean/object.",
+            )
+
+    def test_mob_oas_pushdata_d_event_enum_exactly_5_values(self):
+        """event = string enum ĐÚNG 5 giá trị `_ROUTES` emit + fallback (notifications.py:444-447,451).
+
+        KHÔNG thêm giá trị bịa (vd approval_pending/escalation = drift đã gỡ §4.1a), KHÔNG bỏ fallback
+        'notification'. Set-equality CHẶT.
+        """
+        f = self._props().get("event") or {}
+        self.assertEqual(f.get("type"), "string", "event PHẢI string.")
+        enum = f.get("enum")
+        self.assertIsInstance(enum, list, "event PHẢI có key 'enum' (closed — 5 giá trị _ROUTES).")
+        self.assertEqual(
+            set(enum), set(self._EVENT_ENUM),
+            f"event.enum PHẢI = ĐÚNG 5 giá trị {self._EVENT_ENUM} (_ROUTES notifications.py:444-447 + "
+            f"fallback :451). Thừa={sorted(set(enum) - set(self._EVENT_ENUM))} "
+            f"Thiếu={sorted(set(self._EVENT_ENUM) - set(enum))}. KHÔNG bịa value, KHÔNG bỏ 'notification'.",
+        )
+        self.assertIn(
+            "notification", enum,
+            "event.enum PHẢI giữ fallback 'notification' (doctype ngoài 4 map / name rỗng → :451).",
+        )
+
+    def test_mob_oas_pushdata_e_deeplink_description_has_5_templates(self):
+        """deeplink.description chứa 5 template SSoT (4 map + '' fallback) khớp _ROUTES + return :452.
+
+        KHÔNG enum-cứng deeplink (giá trị có `<name>` substitution + '' fallback → enum reject runtime
+        value). 5 template liệt kê Ở description (mirror risk_classification canonical-in-description).
+        """
+        f = self._props().get("deeplink") or {}
+        self.assertEqual(f.get("type"), "string", "deeplink PHẢI string.")
+        self.assertNotIn(
+            "enum", f,
+            "deeplink KHÔNG enum-cứng — value có `<name>` substitution + '' fallback; enum reject runtime "
+            "value. Liệt kê 5 template Ở description.",
+        )
+        desc = f.get("description") or ""
+        for tpl in self._DEEPLINK_TEMPLATES:
+            self.assertIn(
+                tpl, desc,
+                f"deeplink.description PHẢI chứa template SSoT '{tpl}' (_ROUTES notifications.py:444-447).",
+            )
+        # fallback '' (rỗng) PHẢI được mô tả (notifications.py:451 return '').
+        self.assertTrue(
+            ('""' in desc) or ("rỗng" in desc) or ("''" in desc),
+            "deeplink.description PHẢI mô tả fallback '' rỗng (notifications.py:451 — APK mở inbox).",
+        )
+
+    def test_mob_oas_pushdata_f_no_android_priority_key(self):
+        """`android.priority` (high/normal) KHÔNG ∈ PushMessageData (là message.android.priority server-only).
+
+        priority đặt qua key NỘI BỘ `_priority` (fcm.py:89), BỊ LOẠI khỏi data_payload (fcm.py:94-98
+        chỉ giữ 4 routing key), set vào message.android.priority (fcm.py:109) — KHÔNG phải data-key
+        client đọc. Chống lẫn priority vào data-payload.
+        """
+        props = set(self._props().keys())
+        for forbidden in ("priority", "_priority", "android", "android.priority"):
+            self.assertNotIn(
+                forbidden, props,
+                f"PushMessageData KHÔNG được mang key '{forbidden}' — priority là message.android.priority "
+                f"(fcm.py:109 server-only), `_priority` BỊ LOẠI khỏi data (fcm.py:94-98). KHÔNG data-key.",
+            )
+
+    def test_mob_oas_pushdata_g_component_only_not_in_any_http_path(self):
+        """PushMessageData = component-only: KHÔNG $ref'd bởi BẤT KỲ HTTP path nào (flow-6 = FCM transport).
+
+        Push đi qua FCM HTTP v1 (message.data), KHÔNG qua REST AssetCore ⇒ schema KHÔNG xuất hiện
+        trong paths.* (đúng-bản-chất, KHÔNG dead-surface). path/opId count (=len(_EXPECTED)) GIỮ NGUYÊN
+        (PushMessageData KHÔNG thêm path). Walk RAW paths-block tìm $ref PushMessageData = 0.
+        """
+        # (a) KHÔNG path nào $ref PushMessageData (introspect paths object đã parse).
+        paths = (self.spec or {}).get("paths") or {}
+        ref_token = "#/components/schemas/PushMessageData"
+
+        def _walk_refs(node):
+            found = []
+            if isinstance(node, dict):
+                for k, v in node.items():
+                    if k == "$ref" and v == ref_token:
+                        found.append(v)
+                    else:
+                        found.extend(_walk_refs(v))
+            elif isinstance(node, list):
+                for it in node:
+                    found.extend(_walk_refs(it))
+            return found
+
+        in_paths = _walk_refs(paths)
+        self.assertEqual(
+            in_paths, [],
+            "PushMessageData KHÔNG được $ref'd bởi HTTP path — flow-6 push = FCM transport NGOÀI REST "
+            f"(component-only forward-reserve). Tìm thấy ref trong paths: {in_paths}.",
+        )
+        # (b) path/opId count GIỮ (PushMessageData KHÔNG thêm path — đối chiếu _EXPECTED SSoT động).
+        self.assertEqual(
+            len(paths), len(_EXPECTED),
+            f"path-count PHẢI GIỮ {len(_EXPECTED)} (PushMessageData component-only KHÔNG thêm path). "
+            f"Thực tế {len(paths)}.",
+        )
+        op_ids = []
+        for _p, item in paths.items():
+            for _verb, op in (item or {}).items():
+                if isinstance(op, dict) and "operationId" in op:
+                    op_ids.append(op["operationId"])
+        self.assertEqual(
+            len(op_ids), len(set(op_ids)), f"operationId PHẢI unique (KHÔNG dup): {op_ids}",
+        )
+        self.assertEqual(len(op_ids), len(_EXPECTED), f"opId-count PHẢI GIỮ {len(_EXPECTED)}.")
+
+    def test_mob_oas_pushdata_h_all_4_required_and_negative_inject_red(self):
+        """4 key ĐỀU required (_build_message LUÔN emit cả 4, "" khi rỗng) + negative-inject RED-before.
+
+        (a) required = ĐÚNG 4 key (fcm.py:94-98 emit cả 4 không điều kiện — default "").
+        (b) anti-false-green: gỡ 1 key khỏi BẢN SAO props → checker b PHẢI flag (chứng detector THẬT).
+        """
+        # (a) required = 4 key.
+        required = set(self._schema().get("required") or [])
+        self.assertEqual(
+            required, self._EMIT_KEYS,
+            f"PushMessageData.required PHẢI = ĐÚNG 4 key (fcm.py:94-98 LUÔN emit cả 4, default ''). "
+            f"Thực tế {sorted(required)}.",
+        )
+        # (b) negative-inject: deepcopy props bỏ 'event' → set-equality checker (b-logic) PHẢI fail.
+        import copy
+        mutated = copy.deepcopy(self._props())
+        mutated.pop("event", None)
+        self.assertNotEqual(
+            set(mutated.keys()), self._EMIT_KEYS,
+            "Negative-inject: bỏ 'event' khỏi props PHẢI khiến set != 4-key (chứng checker b KHÔNG "
+            "pass-suông). Nếu vẫn ==, checker giả (false-green).",
+        )
+
+
 # ── TC-MOB-OAS-24 — C6: read-path P1 closure (200 = oneOf [<ReadEnvelope>, Error]) ────────────
 #   ĐÓNG read-path analog của create-path P1 (in-handler-error-on-HTTP-200): 3 GET read
 #   (resolveQrToken / getAssetScanInfo / getAsset) — in-handler 404 (_err …,404) + vendor-IDOR-403
@@ -2915,6 +6402,11 @@ _READ_PATH_ENVELOPE = {
     "/api/method/assetcore.api.imm00.resolve_qr_token": "#/components/schemas/QrResolveEnvelope",
     "/api/method/assetcore.api.imm00.get_asset_scan_info": "#/components/schemas/AssetScanInfoEnvelope",
     "/api/method/assetcore.api.imm00.get_asset": "#/components/schemas/AssetDetailEnvelope",
+    # C6-DETAIL — 4 GET-detail (5a-5d): 200 = oneOf [<DetailEnvelope>, Error] closed-schema (C6).
+    _GET_PM_WO_PATH: "#/components/schemas/PmWorkOrderDetailEnvelope",
+    _GET_REPAIR_WO_PATH: "#/components/schemas/RepairWorkOrderDetailEnvelope",
+    _GET_INCIDENT_PATH: "#/components/schemas/IncidentDetailEnvelope",
+    _GET_CALIBRATION_PATH: "#/components/schemas/CalibrationDetailEnvelope",
 }
 
 
@@ -3087,6 +6579,943 @@ class TestMobileRead200OneOfClosed(unittest.TestCase):
             resp = clean["paths"][path]["get"]["responses"]
             # KHÔNG raise = read sạch pass guard (control cho 24e).
             _assert_200_oneof_closed_distinct(self, resp, env_ref, path)
+
+
+# ── TC-MOB-OAS-31 — C7: 4 list 200 = oneOf [<ListEnvelope>, Error] (list-path P1 closure, open#5) ──
+#   listPmWorkOrders/listRepairWorkOrders/listIncidents + listPmSchedules. KHÁC C6 read/detail (oneOf
+#   INLINE ở path-level): 4 list path trỏ response-COMPONENT (#/components/responses/<X>List) → oneOf
+#   nằm Ở TẦNG response-content-schema CỦA COMPONENT (KHÔNG nhồi vào trong envelope). Resolve component
+#   trước rồi assert oneOf. LÝ DO (list-path P1): in-handler error arrive HTTP-200+Error body —
+#   imm08.list_pm_work_orders parse_json malformed → ServiceError(INVALID_PARAMS) caught
+#   (imm08.py:30-32) → HTTP-200+Error{INVALID_PARAMS}; imm09 SAU FIX (parse_json dời vào handle) cùng
+#   hành vi. TRƯỚC C7: 200 = single $ref <ListEnvelope> ⇒ codegen KHÔNG deser-branch Error → list-envelope
+#   deser-crash gặp Error body (dead-deser câm). Decision-B closed-schema route-by-VALUE body.success,
+#   0 discriminator. Mirror TC-24 (read) nhưng resolve-component thay vì inline.
+_LIST_RESP_ENVELOPE = {
+    _PM_WO_LIST_RESP_REF: _PM_WO_LIST_SCHEMA_REF,
+    _REPAIR_WO_LIST_RESP_REF: _REPAIR_WO_LIST_SCHEMA_REF,
+    _INCIDENT_LIST_RESP_REF: _INCIDENT_LIST_SCHEMA_REF,
+    _PM_SCHEDULE_LIST_RESP_REF: _PM_SCHEDULE_LIST_SCHEMA_REF,
+    _CALIBRATION_LIST_RESP_REF: _CALIBRATION_LIST_SCHEMA_REF,
+    _ASSET_LIST_RESP_REF: _ASSET_LIST_SCHEMA_REF,
+}
+
+
+class TestMobileListEnvelopeOneOf(unittest.TestCase):
+    """TC-MOB-OAS-31 — C7 (open-thread #5): 4 list-200 response-component content.schema = oneOf
+    [<ListEnvelope>, Error] CLOSED-SCHEMA + disjoint required-set, KHÔNG discriminator (Decision-B),
+    KHÔNG dangling. 4 list path NHẤT QUÁN (KHÔNG bỏ sót listPmSchedules như C6-GET đã sót list).
+
+    LÝ DO (list-path P1 closure): malformed `filters` của list path → Error-trên-HTTP-200 (imm08 caught
+    in-handle; imm09 SAU FIX). TRƯỚC C7, 200 = single $ref <ListEnvelope> ⇒ codegen KHÔNG deser-branch
+    Error → gặp Error body = deser-crash câm. Sau C7: oneOf 2 nhánh máy-phân-biệt bằng closed-schema
+    (additionalProperties:false trên CẢ <ListEnvelope> + Error) + disjoint required-set
+    ([success,data] vs [success,error,code,http_status]) — KHÔNG cần discriminator boolean. oneOf nằm
+    Ở TẦNG response-content-schema (KHÔNG nhồi vào trong envelope) — mirror AssetDetailEnvelope.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.spec = _load_spec() if _MOBILE_YAML.exists() else None
+
+    def setUp(self):
+        if self.spec is None:
+            self.skipTest("Thiếu yaml mobile spec.")
+
+    def _comp_schema(self, resp_ref):
+        comp = _resolve_response_component(self.spec, resp_ref)
+        return (((comp.get("content") or {}).get("application/json") or {}).get("schema") or {})
+
+    def test_mob_oas_31a_each_list_resp_is_oneof_envelope_error(self):
+        """(1) MỖI 4 list response-component content.schema = oneOf ĐÚNG 2 nhánh [<ListEnvelope>,
+        Error] (KHÔNG single $ref envelope, KHÔNG discriminator) — list-path P1 closure mirror C6."""
+        for resp_ref, env_ref in _LIST_RESP_ENVELOPE.items():
+            comp_sch = self._comp_schema(resp_ref)
+            self.assertNotIn(
+                "$ref", comp_sch,
+                f"{resp_ref} content.schema KHÔNG được single $ref <ListEnvelope> — PHẢI oneOf [Env, Error].",
+            )
+            one_of = comp_sch.get("oneOf") or []
+            refs = [b.get("$ref") for b in one_of if isinstance(b, dict)]
+            self.assertEqual(
+                len(one_of), 2,
+                f"{resp_ref} content.schema PHẢI oneOf ĐÚNG 2 nhánh [<ListEnvelope>, Error]: {refs}",
+            )
+            self.assertIn(env_ref, refs, f"{resp_ref} oneOf thiếu nhánh Env {env_ref}: {refs}")
+            self.assertIn(
+                _ERROR_SCHEMA_REF, refs,
+                f"{resp_ref} oneOf thiếu nhánh Error {_ERROR_SCHEMA_REF} (in-handler malformed-filters "
+                f"arrive HTTP-200): {refs}",
+            )
+
+    def test_mob_oas_31b_no_discriminator_on_list_oneof(self):
+        """(2) 0 discriminator key trên 4 list response oneOf (success boolean → discriminator OAS 3.x
+        illegal; route theo GIÁ TRỊ body.success — Decision-B)."""
+        for resp_ref in _LIST_RESP_ENVELOPE:
+            comp_sch = self._comp_schema(resp_ref)
+            self.assertNotIn(
+                "discriminator", comp_sch,
+                f"{resp_ref} KHÔNG được có discriminator — Decision-B closed-schema route-by-VALUE "
+                "body.success (success boolean → discriminator illegal).",
+            )
+
+    def test_mob_oas_31c_list_envelope_and_error_closed_disjoint(self):
+        """(3) CẢ 4 <ListEnvelope> + Error additionalProperties:false (closed) + disjoint required-set
+        + success.enum đối lập — cơ chế máy-phân-biệt 2 nhánh oneOf KHÔNG discriminator."""
+        schemas = (self.spec.get("components") or {}).get("schemas") or {}
+        err = schemas.get("Error") or {}
+        self.assertEqual(
+            err.get("additionalProperties"), False,
+            "Error.additionalProperties PHẢI = false (closed → loại-trừ nhánh ListEnvelope).",
+        )
+        err_req = set(err.get("required") or [])
+        self.assertEqual(
+            err_req, {"success", "error", "code", "http_status"},
+            "Error.required PHẢI {success,error,code,http_status} (disjoint vs ListEnvelope [success,data]).",
+        )
+        self.assertEqual(
+            ((err.get("properties") or {}).get("success") or {}).get("enum"), [False],
+            "Error.success.enum PHẢI [false].",
+        )
+        for env_ref in _LIST_RESP_ENVELOPE.values():
+            env_name = env_ref.split("/")[-1]
+            env = schemas.get(env_name) or {}
+            self.assertTrue(env, f"Thiếu schema {env_name} (C7).")
+            self.assertEqual(
+                env.get("additionalProperties"), False,
+                f"{env_name}.additionalProperties PHẢI false (closed → distinct vs Error). ĐÓNG ở "
+                "ENVELOPE; element-item schema GIỮ closed riêng, KHÔNG ảnh hưởng disjoint.",
+            )
+            self.assertEqual(
+                ((env.get("properties") or {}).get("success") or {}).get("enum"), [True],
+                f"{env_name}.success.enum PHẢI [true] (nhánh thành công).",
+            )
+            env_req = set(env.get("required") or [])
+            self.assertEqual(
+                env_req, {"success", "data"},
+                f"{env_name}.required PHẢI {{success,data}} (disjoint vs Error).",
+            )
+            self.assertEqual(
+                env_req & err_req, {"success"},
+                f"{env_name} vs Error required-set CHỈ giao 'success' — phần còn lại disjoint.",
+            )
+
+    def test_mob_oas_31d_list_oneof_branches_resolve_no_dangling(self):
+        """(4) CẢ 2 nhánh oneOf của 4 list resolve về schema TỒN TẠI (0 dangling) — codegen
+        precondition (dangling → generator crash)."""
+        for resp_ref, env_ref in _LIST_RESP_ENVELOPE.items():
+            comp_sch = self._comp_schema(resp_ref)
+            for b in (comp_sch.get("oneOf") or []):
+                ref = b.get("$ref") if isinstance(b, dict) else None
+                self.assertTrue(ref, f"{resp_ref} oneOf nhánh KHÔNG phải $ref: {b}")
+                self.assertTrue(
+                    _resolve_pointer(ref, self.spec),
+                    f"{resp_ref} oneOf $ref {ref} DANGLING (codegen crash).",
+                )
+
+    def test_mob_oas_31e_parity_all_four_list_paths_have_error_branch(self):
+        """(5 / sweep parity) ĐÚNG 4/4 list path (qua _MVP_LIST_ENVELOPE) trỏ response-component có
+        nhánh Error trong 200-oneOf — KHÔNG path nào bị bỏ sót (anti-regress C6-GET-đã-sót-list)."""
+        covered = []
+        for p, env_ref in _MVP_LIST_ENVELOPE.items():
+            op = ((self.spec.get("paths") or {}).get(p) or {}).get("get") or {}
+            resp_ref = ((op.get("responses") or {}).get("200") or {}).get("$ref")
+            comp_sch = self._comp_schema(resp_ref)
+            refs = [b.get("$ref") for b in (comp_sch.get("oneOf") or []) if isinstance(b, dict)]
+            if env_ref in refs and _ERROR_SCHEMA_REF in refs:
+                covered.append(p)
+        self.assertEqual(
+            sorted(covered), sorted(_MVP_LIST_ENVELOPE.keys()),
+            f"PHẢI 4/4 list path có 200-oneOf [Env, Error]; covered={sorted(covered)}.",
+        )
+        self.assertEqual(len(_MVP_LIST_ENVELOPE), 8, "Phải đúng 8 list path MVP (3 Phase-C + listPmSchedules + listCalibrations + listAssets + listUsers + listNotifications).")
+
+    def test_mob_oas_31f_negative_inject_single_envelope_list_goes_red(self):
+        """(6 / anti-false-green) Inject 1 list response-component → single-envelope (bỏ oneOf + nhánh
+        Error, trạng-thái TRƯỚC C7) ⇒ guard 31a PHẢI raise. Chứng minh guard bắt list-path regress."""
+        resp_ref = _PM_WO_LIST_RESP_REF
+        env_ref = _LIST_RESP_ENVELOPE[resp_ref]
+        mutated = copy.deepcopy(self.spec)
+        comp_name = resp_ref.split("/")[-1]
+        # Revert C7 → single-envelope (pre-C7): content.schema = single $ref <ListEnvelope>, KHÔNG oneOf.
+        mutated["components"]["responses"][comp_name]["content"]["application/json"]["schema"] = {
+            "$ref": env_ref
+        }
+        comp = mutated["components"]["responses"][comp_name]
+        comp_sch = (((comp.get("content") or {}).get("application/json") or {}).get("schema") or {})
+        with self.assertRaises(
+            AssertionError,
+            msg="Guard 31a KHÔNG bắt list response bị revert về single-envelope (mất nhánh Error) "
+            "→ guard false-green (pass-suông).",
+        ):
+            # Mirror logic 31a trên schema đã inject.
+            self.assertNotIn(
+                "$ref", comp_sch,
+                f"{resp_ref} content.schema KHÔNG được single $ref — PHẢI oneOf [Env, Error].",
+            )
+
+    def test_mob_oas_31g_control_clean_list_stays_green(self):
+        """(6-control) List SẠCH (deepcopy KHÔNG inject) ⇒ 31a-logic KHÔNG raise — chứng minh 31f ĐỎ
+        do inject (guard không luôn-đỏ)."""
+        for resp_ref, env_ref in _LIST_RESP_ENVELOPE.items():
+            clean = copy.deepcopy(self.spec)
+            comp = clean["components"]["responses"][resp_ref.split("/")[-1]]
+            comp_sch = (((comp.get("content") or {}).get("application/json") or {}).get("schema") or {})
+            one_of = comp_sch.get("oneOf") or []
+            refs = [b.get("$ref") for b in one_of if isinstance(b, dict)]
+            self.assertEqual(len(one_of), 2, f"{resp_ref} control: oneOf 2 nhánh.")
+            self.assertIn(env_ref, refs)
+            self.assertIn(_ERROR_SCHEMA_REF, refs)
+
+
+# ── TC-MOB-OAS-30 — C6-DETAIL: 4 GET-detail (5a-5d) contract (màn detail flow-5 + push flow-6) ──
+#   getPmWorkOrder/getRepairWorkOrder/getIncident/getCalibration. Mỗi GET 1 query-param `name`
+#   (required string) + bearer (global). 200 = oneOf [<Detail>Envelope | Error] CLOSED-SCHEMA
+#   route-by-VALUE body.success (Decision-B C6). 4 *Detail FIELD-DISJOINT (named schema RIÊNG) GROUNDED
+#   svc.get_* @source. Check-fieldtype prop → integer enum[0,1] (Open#1 sweep) TRỪ imm08 explicit
+#   bool()-coerce (pm_sticker_attached/is_late) = boolean (derived Python-bool, imm08.py:616-617).
+#   200-oneOf đã phủ ở TC-24 (qua _READ_PATH_ENVELOPE); C5 typed phủ ở TC-23; symmetry 401/403 phủ ở
+#   TC-10/12 (qua _MVP_BUSINESS_PATHS). TC-30 = guard ĐẶC-THÙ detail (param/schema-shape/grounding/disjoint).
+_DETAIL_OPID = {
+    _GET_PM_WO_PATH: "getPmWorkOrder",
+    _GET_REPAIR_WO_PATH: "getRepairWorkOrder",
+    _GET_INCIDENT_PATH: "getIncident",
+    _GET_CALIBRATION_PATH: "getCalibration",
+}
+_DETAIL_ENVELOPE_NAMES = (
+    "PmWorkOrderDetailEnvelope", "RepairWorkOrderDetailEnvelope",
+    "IncidentDetailEnvelope", "CalibrationDetailEnvelope",
+)
+_DETAIL_PAYLOAD_NAMES = (
+    "PmWorkOrderDetail", "RepairWorkOrderDetail", "IncidentDetail", "CalibrationDetail",
+)
+# Check-fieldtype props (qua as_dict raw int) PHẢI integer enum[0,1] — re-verify @DocType JSON.
+#   asset_repair.json: sla_breached/is_repeat_failure/firmware_updated/is_warranty_claim.
+#   incident_report.json: requires_rca/patient_affected/reported_to_byt/workaround_applied/
+#     rca_required/chronic_failure_flag/response_breached/resolution_breached.
+#   imm_asset_calibration.json: is_recalibration/capa_closed/calibration_sticker_attached.
+_DETAIL_INT01_PROPS = {
+    "RepairWorkOrderDetail": {
+        "sla_breached", "is_repeat_failure", "firmware_updated", "is_warranty_claim"},
+    "IncidentDetail": {
+        "requires_rca", "patient_affected", "reported_to_byt", "workaround_applied",
+        "rca_required", "chronic_failure_flag", "response_breached", "resolution_breached"},
+    "CalibrationDetail": {
+        "is_recalibration", "capa_closed", "calibration_sticker_attached"},
+}
+# imm08 get_work_order DICT tường minh bool()-coerce (imm08.py:616-617) → GIỮ boolean (KHÔNG int01).
+_DETAIL_GENUINE_BOOL_PROPS = {"PmWorkOrderDetail": {"pm_sticker_attached", "is_late"}}
+# Spot-check grounding (KHÔNG bịa) — field CỐT LÕI @source PHẢI có; key đặc-trưng phân biệt domain.
+_DETAIL_MUST_HAVE = {
+    "PmWorkOrderDetail": {"name", "asset_ref", "pm_type", "checklist_results", "supervisor_name"},
+    "RepairWorkOrderDetail": {"name", "asset_ref", "repair_type", "mttr_hours", "asset_info"},
+    "IncidentDetail": {"name", "asset", "severity", "allowed_transitions", "rca"},
+    "CalibrationDetail": {"name", "asset", "calibration_type", "certificate_number", "technician_name"},
+}
+# Key đặc-trưng KHÔNG được lọt domain khác (field-disjoint chứng cứ — mirror 21d).
+_DETAIL_FORBIDDEN = {
+    "PmWorkOrderDetail": {"repair_type", "severity", "calibration_type", "asset"},  # PM dùng asset_ref
+    "RepairWorkOrderDetail": {"pm_type", "severity", "calibration_type"},
+    "IncidentDetail": {"pm_type", "repair_type", "calibration_type", "asset_ref"},  # Incident dùng asset
+    "CalibrationDetail": {"pm_type", "repair_type", "severity", "asset_ref"},        # Cal dùng asset
+}
+
+
+class TestMobileGetDetailContract(unittest.TestCase):
+    """TC-MOB-OAS-30 — C6-DETAIL: 4 GET-detail path contract (open-thread #4b STATE).
+
+    BE sẵn @source: imm08.get_pm_work_order:38 / imm09.get_repair_work_order:28 / imm12.get_incident:220
+    / imm11.get_calibration:81. Bồi để màn detail MVP-flow-5 + push deep-link flow-6 KHÔNG cụt.
+    Guard:
+      (a) 4 path TỒN TẠI + GET + opId đúng (camelCase) + vào _MVP_BUSINESS_PATHS (401/403 symmetry).
+      (b) Mỗi path có ĐÚNG 1 query-param `name` required string (KHÔNG path-param — /api/method
+          KHÔNG có template {name}; in:query đúng OAS 3.0.3).
+      (c) 4 *DetailEnvelope CLOSED (additionalProperties:false) + success.enum[true] + required
+          [success,data]; 4 *Detail OPEN (additionalProperties:true, mirror AssetDetail §3.2).
+      (d) FIELD-DISJOINT: 4 *Detail là named schema RIÊNG; key đặc-trưng domain KHÔNG lọt sang nhau.
+      (e) Check-fieldtype props (qua as_dict raw int) typed integer enum[0,1] — KHÔNG boolean (Open#1);
+          imm08 explicit bool()-coerce GIỮ boolean (derived); KHÔNG stray boolean Check-name khác.
+      (f) Grounding spot-check: field CỐT LÕI @source PHẢI có (KHÔNG bịa); nested rca/checklist/asset_info.
+    SSoT: ../04-api-contract.md §6.4 + ../13-be-completion-roadmap.md §3.4 + EPIC-C.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.spec = _load_spec() if _MOBILE_YAML.exists() else None
+
+    def setUp(self):
+        if self.spec is None:
+            self.skipTest("Thiếu yaml mobile spec.")
+
+    def _schema(self, name):
+        return ((self.spec.get("components") or {}).get("schemas") or {}).get(name) or {}
+
+    def test_mob_oas_30a_paths_exist_get_opid_business(self):
+        """(a) 4 path TỒN TẠI + GET + opId đúng + vào _MVP_BUSINESS_PATHS."""
+        paths = self.spec.get("paths") or {}
+        for path, opid in _DETAIL_OPID.items():
+            self.assertIn(path, paths, f"Thiếu GET-detail path {path} (C6-DETAIL).")
+            get = (paths[path] or {}).get("get") or {}
+            self.assertTrue(get, f"{path} PHẢI có verb GET.")
+            self.assertEqual(get.get("operationId"), opid, f"{path} opId PHẢI = {opid}.")
+            self.assertIn(
+                path, _MVP_BUSINESS_PATHS,
+                f"{path} PHẢI vào _MVP_BUSINESS_PATHS (401/403 symmetry tự lên).")
+            self.assertNotIn(path, _STUB_PATHS, f"{path} PHẢI typed — KHÔNG _STUB_PATHS.")
+
+    def test_mob_oas_30b_name_query_param_required_string(self):
+        """(b) Mỗi path có ĐÚNG 1 query-param `name` required string (in:query, KHÔNG path)."""
+        paths = self.spec.get("paths") or {}
+        for path in _DETAIL_OPID:
+            get = (paths[path] or {}).get("get") or {}
+            params = get.get("parameters") or []
+            named = [p for p in params if isinstance(p, dict) and p.get("name") == "name"]
+            self.assertEqual(len(named), 1, f"{path} PHẢI có ĐÚNG 1 param `name`, got {len(params)} param.")
+            p = named[0]
+            self.assertEqual(p.get("in"), "query", f"{path} param `name` PHẢI in:query (KHÔNG path — RPC no-template).")
+            self.assertTrue(p.get("required") is True, f"{path} param `name` PHẢI required:true.")
+            self.assertEqual(
+                (p.get("schema") or {}).get("type"), "string",
+                f"{path} param `name` PHẢI schema type:string.")
+
+    def test_mob_oas_30c_envelopes_closed_payloads_open(self):
+        """(c) 4 *DetailEnvelope CLOSED + success.enum[true] + required[success,data]; 4 *Detail OPEN."""
+        for env_name in _DETAIL_ENVELOPE_NAMES:
+            env = self._schema(env_name)
+            self.assertTrue(env, f"Thiếu schema {env_name} (C6-DETAIL).")
+            self.assertEqual(
+                env.get("additionalProperties"), False,
+                f"{env_name} PHẢI additionalProperties:false (CLOSED → disjoint vs Error).")
+            self.assertEqual(
+                ((env.get("properties") or {}).get("success") or {}).get("enum"), [True],
+                f"{env_name}.success.enum PHẢI [true] (nhánh thành công route-by-VALUE).")
+            self.assertEqual(
+                set(env.get("required") or []), {"success", "data"},
+                f"{env_name}.required PHẢI {{success,data}} (disjoint vs Error).")
+            self.assertNotIn("discriminator", env, f"{env_name} KHÔNG discriminator (Decision-B).")
+        for pl_name in _DETAIL_PAYLOAD_NAMES:
+            pl = self._schema(pl_name)
+            self.assertTrue(pl, f"Thiếu schema {pl_name} (C6-DETAIL).")
+            self.assertEqual(
+                pl.get("additionalProperties"), True,
+                f"{pl_name} PHẢI additionalProperties:true (as_dict surface field doctype — §3.2).")
+            self.assertEqual(
+                pl.get("required") or [], ["name"],
+                f"{pl_name}.required PHẢI = ['name'] (PK; field khác optional).")
+
+    def test_mob_oas_30d_payloads_field_disjoint_named_schemas(self):
+        """(d) 4 *Detail là named schema RIÊNG (KHÔNG share ref) + key đặc-trưng domain KHÔNG lọt sang."""
+        # Envelope.data trỏ Detail RIÊNG (per-endpoint, KHÔNG chung 1 ref).
+        data_refs = []
+        for env_name, pl_name in zip(_DETAIL_ENVELOPE_NAMES, _DETAIL_PAYLOAD_NAMES):
+            env = self._schema(env_name)
+            ref = ((env.get("properties") or {}).get("data") or {}).get("$ref")
+            self.assertEqual(
+                ref, f"#/components/schemas/{pl_name}",
+                f"{env_name}.data PHẢI $ref {pl_name} RIÊNG.")
+            data_refs.append(ref)
+        self.assertEqual(len(set(data_refs)), 4, "4 *Detail PHẢI là 4 ref KHÁC NHAU (field-disjoint).")
+        # key đặc-trưng domain KHÔNG lọt sang Detail khác (mirror 21d disjoint chứng cứ).
+        for pl_name, forbidden in _DETAIL_FORBIDDEN.items():
+            props = set((self._schema(pl_name).get("properties") or {}).keys())
+            leaked = forbidden & props
+            self.assertEqual(
+                leaked, set(),
+                f"{pl_name} chứa key đặc-trưng domain khác {sorted(leaked)} (KHÔNG field-disjoint).")
+
+    def test_mob_oas_30e_check_props_int01_not_boolean(self):
+        """(e) Check-fieldtype props (as_dict raw int) typed integer enum[0,1] — KHÔNG boolean (Open#1).
+        imm08 explicit bool()-coerce GIỮ boolean (derived). KHÔNG stray boolean ngoài whitelist."""
+        for pl_name, int01 in _DETAIL_INT01_PROPS.items():
+            props = (self._schema(pl_name).get("properties") or {})
+            for fld in int01:
+                p = props.get(fld) or {}
+                self.assertEqual(
+                    p.get("type"), "integer",
+                    f"{pl_name}.{fld} PHẢI integer (Check fieldtype as_dict raw int — Open#1, KHÔNG boolean).")
+                self.assertEqual(
+                    p.get("enum"), [0, 1],
+                    f"{pl_name}.{fld} PHẢI enum[0,1] (Check → 0|1).")
+        # imm08 derived-bool GIỮ boolean (KHÔNG ép int01).
+        pm_props = (self._schema("PmWorkOrderDetail").get("properties") or {})
+        for fld in _DETAIL_GENUINE_BOOL_PROPS["PmWorkOrderDetail"]:
+            self.assertEqual(
+                (pm_props.get(fld) or {}).get("type"), "boolean",
+                f"PmWorkOrderDetail.{fld} PHẢI boolean (imm08.py:616-617 bool()-coerce derived).")
+        # Sweep: KHÔNG schema *Detail nào có boolean NGOÀI whitelist derived (chống stray Check→bool).
+        allowed_bool = set()
+        for s in _DETAIL_GENUINE_BOOL_PROPS.values():
+            allowed_bool |= s
+        for pl_name in _DETAIL_PAYLOAD_NAMES:
+            props = (self._schema(pl_name).get("properties") or {})
+            for fld, spec in props.items():
+                if isinstance(spec, dict) and spec.get("type") == "boolean":
+                    self.assertIn(
+                        fld, allowed_bool,
+                        f"{pl_name}.{fld} type:boolean NGOÀI whitelist derived — Check-field PHẢI int01 (Open#1).")
+
+    def test_mob_oas_30f_grounding_spot_check_no_invention(self):
+        """(f) Grounding spot-check: field CỐT LÕI @source PHẢI có (KHÔNG bịa); nested shape đúng."""
+        for pl_name, must in _DETAIL_MUST_HAVE.items():
+            props = set((self._schema(pl_name).get("properties") or {}).keys())
+            missing = must - props
+            self.assertEqual(
+                missing, set(),
+                f"{pl_name} THIẾU field CỐT LÕI @source {sorted(missing)} (grounding).")
+        # IncidentDetail.allowed_transitions = array string; rca = nested object required[name,status].
+        inc = (self._schema("IncidentDetail").get("properties") or {})
+        self.assertEqual(
+            (inc.get("allowed_transitions") or {}).get("type"), "array",
+            "IncidentDetail.allowed_transitions PHẢI array (imm12.py:778).")
+        rca = inc.get("rca") or {}
+        self.assertEqual(set(rca.get("required") or []), {"name", "status"},
+                         "IncidentDetail.rca.required PHẢI {name,status} (imm12.py:782-788).")
+        # PmWorkOrderDetail.checklist_results = array $ref PmChecklistResultItem (nested child).
+        pm = (self._schema("PmWorkOrderDetail").get("properties") or {})
+        cl = pm.get("checklist_results") or {}
+        self.assertEqual(cl.get("type"), "array", "PmWorkOrderDetail.checklist_results PHẢI array.")
+        self.assertEqual(
+            (cl.get("items") or {}).get("$ref"), "#/components/schemas/PmChecklistResultItem",
+            "checklist_results[] PHẢI $ref PmChecklistResultItem (imm08.py:583-596).")
+        self.assertTrue(
+            _resolve_pointer("#/components/schemas/PmChecklistResultItem", self.spec),
+            "PmChecklistResultItem dangling.")
+        # RepairWorkOrderDetail.asset_info = nested object (imm09.py:705-711).
+        rp = (self._schema("RepairWorkOrderDetail").get("properties") or {})
+        self.assertEqual(
+            (rp.get("asset_info") or {}).get("type"), "object",
+            "RepairWorkOrderDetail.asset_info PHẢI object nested (imm09.py:711).")
+
+    def test_mob_oas_30g_status_set_pre_handler(self):
+        """(g) status-set 4 detail = [200,401,403] (read-only, KHÔNG 429 như imm00 read; in-handler
+        404/IDOR-403 + imm12 guest-401 KHÔNG status-line key — arrive HTTP-200 nhánh Error)."""
+        paths = self.spec.get("paths") or {}
+        for path in _DETAIL_OPID:
+            resp = ((paths[path] or {}).get("get") or {}).get("responses") or {}
+            self.assertEqual(
+                sorted(resp.keys()), ["200", "401", "403"],
+                f"{path} status-set PHẢI [200,401,403]: {sorted(resp.keys())}")
+            self.assertNotIn(
+                "404", resp,
+                f"{path}: '404' KHÔNG status-line key — in-handler 404 arrive HTTP-200+Error (route body.http_status).")
+
+
+# ── PM-DETAIL allowed_transitions (server-driven CTA) — close ASYMMETRY R3 ──────
+#   Trước round này CHỈ IncidentDetail emit allowed_transitions[] (imm12.py:778, R3);
+#   3 detail khác (PM/Repair/Calibration) KHÔNG → màn detail PHẢI hardcode status→button
+#   (anti-pattern RBAC/lifecycle dead-gate, memory factory_rounds_1_25). Round này bồi
+#   PmWorkOrderDetail.allowed_transitions[] + map SSoT _PM_VALID_TRANSITIONS (imm08.py).
+_PM_WORKFLOW_JSON = (
+    _REPO_ROOT / "assetcore" / "assetcore" / "workflow" / "imm_08_pm_workflow.json"
+)
+
+
+def _pm_workflow_codomain() -> dict[str, set[str]]:
+    """Derive {state: set(next_state)} từ imm_08_pm_workflow.json (SSoT workflow).
+
+    Đọc khối `transitions[]` (mỗi item {state, next_state, ...}) + thêm key cho MỌI
+    state khai trong `states[]` (terminal Completed/Cancelled không có transition ra
+    ⇒ codomain = set() rỗng). Dùng để so map BE `_PM_VALID_TRANSITIONS` (chống drift).
+    """
+    data = json.loads(_PM_WORKFLOW_JSON.read_text(encoding="utf-8"))
+    codomain: dict[str, set[str]] = {s["state"]: set() for s in data.get("states", [])}
+    for t in data.get("transitions", []):
+        codomain.setdefault(t["state"], set()).add(t["next_state"])
+    return codomain
+
+
+_REPAIR_WORKFLOW_JSON = (
+    _REPO_ROOT / "assetcore" / "assetcore" / "workflow" / "imm_09_repair_workflow.json"
+)
+
+
+def _repair_workflow_codomain() -> dict[str, set[str]]:
+    """Derive {state: set(next_state)} từ imm_09_repair_workflow.json (SSoT workflow).
+
+    Đọc khối `transitions[]` (mỗi item {state, next_state, ...}) + thêm key cho MỌI
+    state khai trong `states[]` (terminal Completed/Cannot Repair/Cancelled không có
+    transition ra ⇒ codomain = set() rỗng). Dùng để so map BE `_REPAIR_VALID_TRANSITIONS`
+    (chống drift). Mirror `_pm_workflow_codomain` (R21).
+    """
+    data = json.loads(_REPAIR_WORKFLOW_JSON.read_text(encoding="utf-8"))
+    codomain: dict[str, set[str]] = {s["state"]: set() for s in data.get("states", [])}
+    for t in data.get("transitions", []):
+        codomain.setdefault(t["state"], set()).add(t["next_state"])
+    return codomain
+
+
+_CAL_WORKFLOW_JSON = (
+    _REPO_ROOT / "assetcore" / "assetcore" / "workflow" / "imm_11_calibration_workflow.json"
+)
+
+
+def _cal_workflow_codomain() -> dict[str, set[str]]:
+    """Derive {state: set(next_state)} từ imm_11_calibration_workflow.json (SSoT workflow).
+
+    Đọc khối `transitions[]` (mỗi item {state, next_state, ...}) + thêm key cho MỌI
+    state khai trong `states[]` (terminal Passed/Conditionally Passed/Cancelled không có
+    transition ra ⇒ codomain = set() rỗng). Dùng để so map BE `_CAL_VALID_TRANSITIONS`
+    (chống drift). Mirror `_repair_workflow_codomain` (R22) — so theo SET tự dedup dòng lặp
+    `Failed→Conditionally Passed` (13 transition raw = 12 cạnh unique).
+    """
+    data = json.loads(_CAL_WORKFLOW_JSON.read_text(encoding="utf-8"))
+    codomain: dict[str, set[str]] = {s["state"]: set() for s in data.get("states", [])}
+    for t in data.get("transitions", []):
+        codomain.setdefault(t["state"], set()).add(t["next_state"])
+    return codomain
+
+
+class TestMobilePmAllowedTransitionsContract(unittest.TestCase):
+    """TC-MOB-OAS-PMTRANS — ASYMMETRY ĐÓNG: PmWorkOrderDetail emit `allowed_transitions[]`.
+
+    Server-driven CTA (mirror getIncident R3) — màn PM-detail render nút workflow theo
+    server, KHÔNG hardcode status→button (anti-pattern dead-gate). Guard chốt:
+      (a) PmWorkOrderDetail.allowed_transitions PHẢI type:array items:{type:string}
+          (mirror-shape IncidentDetail; KHÔNG enum-bound cứng — né drift workflow).
+      (b) KHÔNG thêm vào required (emit-luôn nhưng required GIỮ ['name'] đồng nhất R3);
+          additionalProperties:true GIỮ NGUYÊN (as_dict/dict surface).
+      (c) PARITY codomain-check (chống typo state): MỌI giá trị _PM_VALID_TRANSITIONS
+          sinh ra ∈ PMStatus enum (imm08.py:43); MỌI key ∈ PMStatus enum.
+      (d) SSoT-divergence guard: _PM_VALID_TRANSITIONS == codomain `next_state` trong
+          imm_08_pm_workflow.json (7 state / 13 transition) — map BE KHÔNG lệch workflow.
+      (e) Terminal Completed/Cancelled → [] (rỗng) — KHÔNG transition ra.
+      (f) LIVE emit parity: get_work_order source emit key `allowed_transitions`
+          = _PM_VALID_TRANSITIONS.get(status, []) (grounded, KHÔNG bịa key).
+    SSoT: imm08.py _PM_VALID_TRANSITIONS + imm_08_pm_workflow.json + IncidentDetail R3.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.spec = _load_spec() if _MOBILE_YAML.exists() else None
+
+    def setUp(self):
+        if self.spec is None:
+            self.skipTest("Thiếu yaml mobile spec.")
+
+    def _schema(self, name):
+        return ((self.spec.get("components") or {}).get("schemas") or {}).get(name) or {}
+
+    def test_pmtrans_a_array_string_mirror_shape(self):
+        """(a) PmWorkOrderDetail.allowed_transitions = array<string> mirror IncidentDetail."""
+        pm = (self._schema("PmWorkOrderDetail").get("properties") or {})
+        at = pm.get("allowed_transitions") or {}
+        self.assertEqual(
+            at.get("type"), "array",
+            "PmWorkOrderDetail.allowed_transitions PHẢI array (server-driven CTA, imm08.py).")
+        self.assertEqual(
+            (at.get("items") or {}).get("type"), "string",
+            "allowed_transitions[] PHẢI items type:string (mã trạng thái canonical).")
+        # KHÔNG enum-bound cứng ở schema (né drift khi workflow đổi — codomain check ở guard service).
+        self.assertNotIn(
+            "enum", (at.get("items") or {}),
+            "allowed_transitions.items KHÔNG enum-bound cứng (né drift; codomain check phía service).")
+        # mirror-shape parity với IncidentDetail (cả 2 array string, KHÔNG enum).
+        inc = (self._schema("IncidentDetail").get("properties") or {}).get("allowed_transitions") or {}
+        self.assertEqual(
+            (at.get("type"), (at.get("items") or {}).get("type")),
+            (inc.get("type"), (inc.get("items") or {}).get("type")),
+            "allowed_transitions PHẢI mirror-shape IncidentDetail (array<string>).")
+
+    def test_pmtrans_b_not_in_required_open_schema_kept(self):
+        """(b) allowed_transitions emit-luôn nhưng KHÔNG vào required; required GIỮ ['name']; AP:true."""
+        pl = self._schema("PmWorkOrderDetail")
+        self.assertEqual(
+            pl.get("required") or [], ["name"],
+            "PmWorkOrderDetail.required PHẢI GIỮ ['name'] (đồng nhất IncidentDetail R3 — KHÔNG thêm field).")
+        self.assertNotIn(
+            "allowed_transitions", pl.get("required") or [],
+            "allowed_transitions KHÔNG vào required (emit-luôn ≠ contract-required).")
+        self.assertEqual(
+            pl.get("additionalProperties"), True,
+            "PmWorkOrderDetail.additionalProperties PHẢI GIỮ true (dict/as_dict surface §3.2).")
+
+    def test_pmtrans_c_codomain_subset_pmstatus_enum(self):
+        """(c) PARITY: mọi key + value-state của _PM_VALID_TRANSITIONS ∈ PMStatus enum (chống typo)."""
+        from assetcore.services.imm08 import PMStatus, _PM_VALID_TRANSITIONS  # lazy
+        enum = {
+            getattr(PMStatus, a) for a in dir(PMStatus)
+            if not a.startswith("_") and isinstance(getattr(PMStatus, a), str)
+        }
+        for state, nexts in _PM_VALID_TRANSITIONS.items():
+            self.assertIn(
+                state, enum, f"key-state '{state}' KHÔNG ∈ PMStatus enum (typo? bịa state?).")
+            for nx in nexts:
+                self.assertIn(
+                    nx, enum,
+                    f"_PM_VALID_TRANSITIONS['{state}'] chứa '{nx}' KHÔNG ∈ PMStatus enum (typo state).")
+
+    def test_pmtrans_d_map_matches_workflow_json_no_drift(self):
+        """(d) SSoT-divergence guard: _PM_VALID_TRANSITIONS == codomain imm_08_pm_workflow.json."""
+        from assetcore.services.imm08 import _PM_VALID_TRANSITIONS  # lazy
+        self.assertTrue(_PM_WORKFLOW_JSON.exists(), f"Thiếu workflow JSON: {_PM_WORKFLOW_JSON}.")
+        wf = _pm_workflow_codomain()
+        # 7 state khai trong workflow (states[]) PHẢI khớp key-set map BE.
+        self.assertEqual(
+            set(_PM_VALID_TRANSITIONS.keys()), set(wf.keys()),
+            "Key-set _PM_VALID_TRANSITIONS PHẢI == states[] imm_08_pm_workflow.json (7 state).")
+        for state, wf_nexts in wf.items():
+            self.assertEqual(
+                set(_PM_VALID_TRANSITIONS[state]), wf_nexts,
+                f"DRIFT state '{state}': map BE {sorted(_PM_VALID_TRANSITIONS[state])} ≠ "
+                f"workflow next_state {sorted(wf_nexts)} (SSoT-divergence — map↔workflow lệch).")
+        # 13 transition tổng (sanity-count workflow JSON).
+        data = json.loads(_PM_WORKFLOW_JSON.read_text(encoding="utf-8"))
+        self.assertEqual(
+            len(data.get("transitions", [])), 13,
+            "imm_08_pm_workflow.json PHẢI 13 transition (grounding count).")
+        self.assertEqual(
+            len(data.get("states", [])), 7,
+            "imm_08_pm_workflow.json PHẢI 7 state (grounding count).")
+
+    def test_pmtrans_e_terminal_empty(self):
+        """(e) Terminal Completed/Cancelled → [] rỗng (KHÔNG transition ra)."""
+        from assetcore.services.imm08 import PMStatus, _PM_VALID_TRANSITIONS  # lazy
+        self.assertEqual(
+            _PM_VALID_TRANSITIONS.get(PMStatus.COMPLETED), [],
+            "Completed (terminal doc_status=1) PHẢI [] rỗng.")
+        self.assertEqual(
+            _PM_VALID_TRANSITIONS.get(PMStatus.CANCELLED), [],
+            "Cancelled (terminal) PHẢI [] rỗng.")
+
+    def test_pmtrans_f_live_emit_grounded(self):
+        """(f) LIVE emit parity: get_work_order source emit key `allowed_transitions` từ map (KHÔNG bịa).
+
+        AST-grounding (KHÔNG cần DB seed — assertion DB-backed ở test_imm08.py): dict-literal
+        return của get_work_order CHỨA key 'allowed_transitions' VÀ tham chiếu _PM_VALID_TRANSITIONS.
+        """
+        import inspect as _inspect
+        from assetcore.services import imm08  # lazy
+        src = _inspect.getsource(imm08.get_work_order)
+        self.assertIn(
+            '"allowed_transitions"', src,
+            "get_work_order PHẢI emit key 'allowed_transitions' (server-driven CTA mirror imm12).")
+        self.assertIn(
+            "_PM_VALID_TRANSITIONS.get(", src,
+            "get_work_order PHẢI lấy allowed_transitions từ _PM_VALID_TRANSITIONS.get(status,[]) (SSoT, KHÔNG bịa).")
+
+
+class TestMobileRepairAllowedTransitionsContract(unittest.TestCase):
+    """TC-MOB-OAS-REPAIRTRANS — ASYMMETRY R3 NỬA-REPAIR ĐÓNG: RepairWorkOrderDetail
+    emit `allowed_transitions[]`.
+
+    Server-driven CTA (mirror getIncident R3 + getPmWorkOrder R21) — màn repair-detail
+    render nút workflow theo SERVER, KHÔNG hardcode status→button (anti-pattern dead-gate).
+    Đây là thành viên THỨ BA có allowed_transitions[] (sau Incident + PM). Guard chốt:
+      (a) RepairWorkOrderDetail.allowed_transitions PHẢI type:array items:{type:string}
+          (mirror-shape IncidentDetail/PmWorkOrderDetail; KHÔNG enum-bound cứng — né drift).
+      (b) KHÔNG thêm vào required (emit-luôn nhưng required GIỮ ['name'] đồng nhất R3/R21);
+          additionalProperties:true GIỮ NGUYÊN (as_dict surface §3.2).
+      (c) PARITY codomain-check (chống typo): MỌI key + value-state của
+          _REPAIR_VALID_TRANSITIONS ∈ RepairStatus enum (imm09.py:30).
+      (d) SSoT-divergence guard: _REPAIR_VALID_TRANSITIONS == codomain `next_state` trong
+          imm_09_repair_workflow.json (9 state / 15 transition) edge-by-edge — map KHÔNG lệch.
+      (e) Terminal Completed/Cannot Repair/Cancelled → [] (rỗng) — KHÔNG transition ra.
+      (f) LIVE emit parity: get_work_order source emit key `allowed_transitions`
+          = _REPAIR_VALID_TRANSITIONS.get(status, []) (grounded, KHÔNG bịa key).
+    SSoT: imm09.py _REPAIR_VALID_TRANSITIONS + imm_09_repair_workflow.json + IncidentDetail R3
+    + PmWorkOrderDetail R21.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.spec = _load_spec() if _MOBILE_YAML.exists() else None
+
+    def setUp(self):
+        if self.spec is None:
+            self.skipTest("Thiếu yaml mobile spec.")
+
+    def _schema(self, name):
+        return ((self.spec.get("components") or {}).get("schemas") or {}).get(name) or {}
+
+    def test_repairtrans_a_array_string_mirror_shape(self):
+        """(a) RepairWorkOrderDetail.allowed_transitions = array<string> mirror Incident/PM."""
+        rp = (self._schema("RepairWorkOrderDetail").get("properties") or {})
+        at = rp.get("allowed_transitions") or {}
+        self.assertEqual(
+            at.get("type"), "array",
+            "RepairWorkOrderDetail.allowed_transitions PHẢI array (server-driven CTA, imm09.py).")
+        self.assertEqual(
+            (at.get("items") or {}).get("type"), "string",
+            "allowed_transitions[] PHẢI items type:string (mã trạng thái canonical).")
+        # KHÔNG enum-bound cứng ở schema (né drift khi workflow đổi — codomain check ở guard service).
+        self.assertNotIn(
+            "enum", (at.get("items") or {}),
+            "allowed_transitions.items KHÔNG enum-bound cứng (né drift; codomain check phía service).")
+        # mirror-shape parity với IncidentDetail + PmWorkOrderDetail (cả 3 array string, KHÔNG enum).
+        inc = (self._schema("IncidentDetail").get("properties") or {}).get("allowed_transitions") or {}
+        pm = (self._schema("PmWorkOrderDetail").get("properties") or {}).get("allowed_transitions") or {}
+        self.assertEqual(
+            (at.get("type"), (at.get("items") or {}).get("type")),
+            (inc.get("type"), (inc.get("items") or {}).get("type")),
+            "allowed_transitions PHẢI mirror-shape IncidentDetail (array<string>).")
+        self.assertEqual(
+            (at.get("type"), (at.get("items") or {}).get("type")),
+            (pm.get("type"), (pm.get("items") or {}).get("type")),
+            "allowed_transitions PHẢI mirror-shape PmWorkOrderDetail (array<string>).")
+
+    def test_repairtrans_b_not_in_required_open_schema_kept(self):
+        """(b) allowed_transitions emit-luôn nhưng KHÔNG vào required; required GIỮ ['name']; AP:true."""
+        pl = self._schema("RepairWorkOrderDetail")
+        self.assertEqual(
+            pl.get("required") or [], ["name"],
+            "RepairWorkOrderDetail.required PHẢI GIỮ ['name'] (đồng nhất Incident R3/PM R21).")
+        self.assertNotIn(
+            "allowed_transitions", pl.get("required") or [],
+            "allowed_transitions KHÔNG vào required (emit-luôn ≠ contract-required).")
+        self.assertEqual(
+            pl.get("additionalProperties"), True,
+            "RepairWorkOrderDetail.additionalProperties PHẢI GIỮ true (as_dict surface §3.2).")
+
+    def test_repairtrans_c_codomain_subset_repairstatus_enum(self):
+        """(c) PARITY: mọi key + value-state của _REPAIR_VALID_TRANSITIONS ∈ RepairStatus enum."""
+        from assetcore.services.imm09 import RepairStatus, _REPAIR_VALID_TRANSITIONS  # lazy
+        enum = {
+            getattr(RepairStatus, a) for a in dir(RepairStatus)
+            if not a.startswith("_") and isinstance(getattr(RepairStatus, a), str)
+        }
+        for state, nexts in _REPAIR_VALID_TRANSITIONS.items():
+            self.assertIn(
+                state, enum, f"key-state '{state}' KHÔNG ∈ RepairStatus enum (typo? bịa state?).")
+            for nx in nexts:
+                self.assertIn(
+                    nx, enum,
+                    f"_REPAIR_VALID_TRANSITIONS['{state}'] chứa '{nx}' KHÔNG ∈ RepairStatus enum (typo).")
+
+    def test_repairtrans_d_map_matches_workflow_json_no_drift(self):
+        """(d) SSoT-divergence guard: _REPAIR_VALID_TRANSITIONS == codomain imm_09_repair_workflow.json."""
+        from assetcore.services.imm09 import _REPAIR_VALID_TRANSITIONS  # lazy
+        self.assertTrue(
+            _REPAIR_WORKFLOW_JSON.exists(), f"Thiếu workflow JSON: {_REPAIR_WORKFLOW_JSON}.")
+        wf = _repair_workflow_codomain()
+        # 9 state khai trong workflow (states[]) PHẢI khớp key-set map BE.
+        self.assertEqual(
+            set(_REPAIR_VALID_TRANSITIONS.keys()), set(wf.keys()),
+            "Key-set _REPAIR_VALID_TRANSITIONS PHẢI == states[] imm_09_repair_workflow.json (9 state).")
+        for state, wf_nexts in wf.items():
+            self.assertEqual(
+                set(_REPAIR_VALID_TRANSITIONS[state]), wf_nexts,
+                f"DRIFT state '{state}': map BE {sorted(_REPAIR_VALID_TRANSITIONS[state])} ≠ "
+                f"workflow next_state {sorted(wf_nexts)} (SSoT-divergence — map↔workflow lệch).")
+        # 15 transition / 9 state tổng (sanity-count workflow JSON).
+        data = json.loads(_REPAIR_WORKFLOW_JSON.read_text(encoding="utf-8"))
+        self.assertEqual(
+            len(data.get("transitions", [])), 15,
+            "imm_09_repair_workflow.json PHẢI 15 transition (grounding count).")
+        self.assertEqual(
+            len(data.get("states", [])), 9,
+            "imm_09_repair_workflow.json PHẢI 9 state (grounding count).")
+
+    def test_repairtrans_e_terminal_empty(self):
+        """(e) Terminal Completed/Cannot Repair/Cancelled → [] rỗng (KHÔNG transition ra)."""
+        from assetcore.services.imm09 import RepairStatus, _REPAIR_VALID_TRANSITIONS  # lazy
+        self.assertEqual(
+            _REPAIR_VALID_TRANSITIONS.get(RepairStatus.COMPLETED), [],
+            "Completed (terminal doc_status=1) PHẢI [] rỗng.")
+        self.assertEqual(
+            _REPAIR_VALID_TRANSITIONS.get(RepairStatus.CANNOT_REPAIR), [],
+            "Cannot Repair (terminal doc_status=1) PHẢI [] rỗng.")
+        self.assertEqual(
+            _REPAIR_VALID_TRANSITIONS.get(RepairStatus.CANCELLED), [],
+            "Cancelled (terminal) PHẢI [] rỗng.")
+
+    def test_repairtrans_f_live_emit_grounded(self):
+        """(f) LIVE emit parity: get_work_order source emit key `allowed_transitions` từ map (KHÔNG bịa).
+
+        AST-grounding (KHÔNG cần DB seed — assertion DB-backed ở test_imm09.py): source
+        get_work_order CHỨA key 'allowed_transitions' VÀ tham chiếu _REPAIR_VALID_TRANSITIONS.
+        """
+        import inspect as _inspect
+        from assetcore.services import imm09  # lazy
+        src = _inspect.getsource(imm09.get_work_order)
+        self.assertIn(
+            '"allowed_transitions"', src,
+            "get_work_order PHẢI emit key 'allowed_transitions' (server-driven CTA mirror imm12/imm08).")
+        self.assertIn(
+            "_REPAIR_VALID_TRANSITIONS.get(", src,
+            "get_work_order PHẢI lấy allowed_transitions từ _REPAIR_VALID_TRANSITIONS.get(status,[]) (SSoT).")
+
+
+class TestMobileCalibrationAllowedTransitionsContract(unittest.TestCase):
+    """TC-MOB-OAS-CALTRANS — ASYMMETRY R3 ĐÓNG KÍN: CalibrationDetail emit `allowed_transitions[]`.
+
+    Server-driven CTA (mirror getIncident R3 + getPmWorkOrder R21 + getRepairWorkOrder R22) —
+    màn calibration-detail render nút workflow theo SERVER, KHÔNG hardcode status→button
+    (anti-pattern dead-gate). Đây là thành viên THỨ TƯ & CUỐI có allowed_transitions[] (sau
+    Incident + PM + Repair → 4/4 *Detail emit). Guard chốt:
+      (a) CalibrationDetail.allowed_transitions PHẢI type:array items:{type:string} (mirror-shape
+          Incident/Pm/RepairWorkOrderDetail; KHÔNG enum-bound cứng — né drift).
+      (b) KHÔNG thêm vào required (emit-luôn nhưng required GIỮ ['name']); additionalProperties:
+          true GIỮ NGUYÊN (as_dict surface §3.2).
+      (c) additionalProperties:true GIỮ + PARITY codomain-check (chống typo): MỌI key + value-state
+          của _CAL_VALID_TRANSITIONS ∈ CalibrationResult enum (constants.py:112) + SSoT-divergence
+          _CAL_VALID_TRANSITIONS == codomain imm_11_calibration_workflow.json theo SET (12 cạnh
+          unique, 13 transition raw — dòng `Failed→Conditionally Passed` LẶP 2 lần tự dedup).
+      (d) mirror-shape: allowed_transitions của CalibrationDetail == shape của IncidentDetail/
+          PmWorkOrderDetail/RepairWorkOrderDetail (array<string>, KHÔNG enum-bound cứng).
+      (e) YAML health: safe_load OK, 33 path GIỮ (0 path mới), 33 opId unique camelCase, 0 dangling
+          $ref + terminal Passed/Conditionally Passed/Cancelled → [] + LIVE emit AST grounding
+          (get_calibration source emit key từ _CAL_VALID_TRANSITIONS.get — KHÔNG bịa).
+      (f) meta-guard: _EXPECTED_TEST_COUNT == số test-method THẬT (304→310), self-verify PASS.
+    SSoT: imm11.py _CAL_VALID_TRANSITIONS + imm_11_calibration_workflow.json + IncidentDetail R3
+    + PmWorkOrderDetail R21 + RepairWorkOrderDetail R22.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.spec = _load_spec() if _MOBILE_YAML.exists() else None
+
+    def setUp(self):
+        if self.spec is None:
+            self.skipTest("Thiếu yaml mobile spec.")
+
+    def _schema(self, name):
+        return ((self.spec.get("components") or {}).get("schemas") or {}).get(name) or {}
+
+    def test_caltrans_a_array_string_present(self):
+        """(a) CalibrationDetail.allowed_transitions PRESENT = array<string>."""
+        cp = (self._schema("CalibrationDetail").get("properties") or {})
+        at = cp.get("allowed_transitions") or {}
+        self.assertTrue(
+            at, "CalibrationDetail.allowed_transitions PHẢI PRESENT (ASYMMETRY R3 đóng kín).")
+        self.assertEqual(
+            at.get("type"), "array",
+            "CalibrationDetail.allowed_transitions PHẢI array (server-driven CTA, imm11.py).")
+        self.assertEqual(
+            (at.get("items") or {}).get("type"), "string",
+            "allowed_transitions[] PHẢI items type:string (mã trạng thái canonical).")
+        self.assertNotIn(
+            "enum", (at.get("items") or {}),
+            "allowed_transitions.items KHÔNG enum-bound cứng (né drift; codomain-check phía service).")
+
+    def test_caltrans_b_not_in_required(self):
+        """(b) allowed_transitions emit-luôn nhưng KHÔNG vào required; required GIỮ ['name']."""
+        pl = self._schema("CalibrationDetail")
+        self.assertEqual(
+            pl.get("required") or [], ["name"],
+            "CalibrationDetail.required PHẢI GIỮ ['name'] (đồng nhất Incident/PM/Repair).")
+        self.assertNotIn(
+            "allowed_transitions", pl.get("required") or [],
+            "allowed_transitions KHÔNG vào required (emit-luôn ≠ contract-required).")
+
+    def test_caltrans_c_additional_props_kept_and_codomain_subset(self):
+        """(c) additionalProperties:true GIỮ + codomain ⊆ CalibrationResult enum + map==workflow SET."""
+        pl = self._schema("CalibrationDetail")
+        self.assertEqual(
+            pl.get("additionalProperties"), True,
+            "CalibrationDetail.additionalProperties PHẢI GIỮ true (as_dict surface §3.2).")
+        from assetcore.services.imm11 import _CAL_VALID_TRANSITIONS  # lazy
+        from assetcore.services.shared import CalibrationResult  # lazy
+        enum = {
+            getattr(CalibrationResult, a) for a in dir(CalibrationResult)
+            if not a.startswith("_") and isinstance(getattr(CalibrationResult, a), str)
+        }
+        for state, nexts in _CAL_VALID_TRANSITIONS.items():
+            self.assertIn(
+                state, enum, f"key-state '{state}' KHÔNG ∈ CalibrationResult enum (typo? bịa state?).")
+            for nx in nexts:
+                self.assertIn(
+                    nx, enum,
+                    f"_CAL_VALID_TRANSITIONS['{state}'] chứa '{nx}' KHÔNG ∈ CalibrationResult enum.")
+        # SSoT-divergence: map == codomain imm_11_calibration_workflow.json theo SET (dedup dòng lặp).
+        self.assertTrue(
+            _CAL_WORKFLOW_JSON.exists(), f"Thiếu workflow JSON: {_CAL_WORKFLOW_JSON}.")
+        wf = _cal_workflow_codomain()
+        self.assertEqual(
+            set(_CAL_VALID_TRANSITIONS.keys()), set(wf.keys()),
+            "Key-set _CAL_VALID_TRANSITIONS PHẢI == states[] imm_11_calibration_workflow.json (8 state).")
+        for state, wf_nexts in wf.items():
+            self.assertEqual(
+                set(_CAL_VALID_TRANSITIONS[state]), wf_nexts,
+                f"DRIFT state '{state}': map BE {sorted(_CAL_VALID_TRANSITIONS[state])} ≠ "
+                f"workflow next_state {sorted(wf_nexts)} (SSoT-divergence map↔workflow lệch).")
+        data = json.loads(_CAL_WORKFLOW_JSON.read_text(encoding="utf-8"))
+        self.assertEqual(
+            len(data.get("transitions", [])), 13,
+            "imm_11_calibration_workflow.json PHẢI 13 transition raw (12 cạnh unique — dòng lặp).")
+        self.assertEqual(
+            len(data.get("states", [])), 8,
+            "imm_11_calibration_workflow.json PHẢI 8 state (grounding count).")
+
+    def test_caltrans_d_mirror_shape_three_details(self):
+        """(d) mirror-shape: allowed_transitions == shape của Incident/Pm/RepairWorkOrderDetail."""
+        cal = (self._schema("CalibrationDetail").get("properties") or {}).get("allowed_transitions") or {}
+        inc = (self._schema("IncidentDetail").get("properties") or {}).get("allowed_transitions") or {}
+        pm = (self._schema("PmWorkOrderDetail").get("properties") or {}).get("allowed_transitions") or {}
+        rp = (self._schema("RepairWorkOrderDetail").get("properties") or {}).get("allowed_transitions") or {}
+        cal_shape = (cal.get("type"), (cal.get("items") or {}).get("type"))
+        self.assertEqual(
+            cal_shape, (inc.get("type"), (inc.get("items") or {}).get("type")),
+            "allowed_transitions PHẢI mirror-shape IncidentDetail (array<string>).")
+        self.assertEqual(
+            cal_shape, (pm.get("type"), (pm.get("items") or {}).get("type")),
+            "allowed_transitions PHẢI mirror-shape PmWorkOrderDetail (array<string>).")
+        self.assertEqual(
+            cal_shape, (rp.get("type"), (rp.get("items") or {}).get("type")),
+            "allowed_transitions PHẢI mirror-shape RepairWorkOrderDetail (array<string>).")
+
+    def test_caltrans_e_yaml_health_terminal_and_live_emit(self):
+        """(e) YAML health (40 path/opId/0-dangling) + terminal [] + LIVE emit AST grounding."""
+        # 40 path tổng (getAssetTimeline bồi path mới ở round sau markNotificationAsRead).
+        self.assertEqual(
+            len(self.spec.get("paths") or {}), 53,
+            "Phải 52 path mobile MVP (R-NOTIF-UNREAD + TRANSFER-READ-WIRE).")
+        # 47 opId unique camelCase verbNoun.
+        ops = []
+        for _p, item in (self.spec.get("paths") or {}).items():
+            for _m, op in (item or {}).items():
+                if isinstance(op, dict) and op.get("operationId"):
+                    ops.append(op["operationId"])
+        self.assertEqual(len(ops), 53, "Phải 52 operationId (1/path).")
+        self.assertEqual(len(set(ops)), 53, "operationId PHẢI unique (52 distinct).")
+        cc = re.compile(r"^[a-z][a-zA-Z0-9]*$")
+        bad = [o for o in ops if not cc.match(o)]
+        self.assertEqual(bad, [], f"operationId KHÔNG camelCase: {bad}.")
+        # 0 dangling $ref toàn spec.
+        refs = _collect_refs(self.spec)
+        dangling = sorted({r for r in refs if not _resolve_pointer(r, self.spec)})
+        self.assertEqual(dangling, [], f"$ref dangling (codegen crash): {dangling}.")
+        # Terminal Passed/Conditionally Passed/Cancelled → [] (rỗng).
+        from assetcore.services.imm11 import _CAL_VALID_TRANSITIONS  # lazy
+        from assetcore.services.shared import CalibrationResult  # lazy
+        self.assertEqual(
+            _CAL_VALID_TRANSITIONS.get(CalibrationResult.PASSED), [],
+            "Passed (terminal doc_status=1) PHẢI [] rỗng.")
+        self.assertEqual(
+            _CAL_VALID_TRANSITIONS.get(CalibrationResult.COND_PASSED), [],
+            "Conditionally Passed (terminal doc_status=1) PHẢI [] rỗng.")
+        self.assertEqual(
+            _CAL_VALID_TRANSITIONS.get(CalibrationResult.CANCELLED), [],
+            "Cancelled (terminal) PHẢI [] rỗng.")
+        # LIVE emit parity (AST grounding — DB-backed assertion ở test_imm11.py).
+        import inspect as _inspect
+        from assetcore.services import imm11  # lazy
+        src = _inspect.getsource(imm11.get_calibration)
+        self.assertIn(
+            '"allowed_transitions"', src,
+            "get_calibration PHẢI emit key 'allowed_transitions' (server-driven CTA mirror R3/R21/R22).")
+        self.assertIn(
+            "_CAL_VALID_TRANSITIONS.get(", src,
+            "get_calibration PHẢI lấy allowed_transitions từ _CAL_VALID_TRANSITIONS.get(status,[]) (SSoT).")
+
+    def test_caltrans_f_meta_guard_expected_count(self):
+        """(f) meta-guard: _EXPECTED_TEST_COUNT == số test-method THẬT của module (304→310).
+
+        Dùng CHUNG `_discover_test_methods()` (SSoT introspection của
+        TestMobileOasCountSelfVerify) → count khớp 1:1 `Ran N tests`. Tự-thấy chính TC này
+        trong tập discover (chống introspection-rỗng giả-GREEN).
+        """
+        discovered = _discover_test_methods()
+        actual = len(discovered)
+        self.assertGreater(actual, 100, "Introspection trả < 100 test-method — filter hỏng.")
+        self.assertIn(
+            "TestMobileCalibrationAllowedTransitionsContract.test_caltrans_f_meta_guard_expected_count",
+            set(discovered),
+            "Meta-guard caltrans-f KHÔNG tự-thấy trong tập introspect → phạm-vi sai.")
+        self.assertEqual(
+            actual, _EXPECTED_TEST_COUNT,
+            f"COUNT-DRIFT: introspect {actual} test-method NHƯNG _EXPECTED_TEST_COUNT="
+            f"{_EXPECTED_TEST_COUNT}. Nếu CỐ Ý thêm/bớt TC → cập NHẬT _EXPECTED_TEST_COUNT (line ~186) "
+            f"+ đồng-bộ count docs/mobile + test_mobile_docset baseline.")
 
 
 class TestMobileListItemTyped(unittest.TestCase):
@@ -3333,6 +7762,82 @@ class TestMobileListItemTyped(unittest.TestCase):
         dangling = sorted({r for r in _collect_refs(self.spec) if not _resolve_pointer(r, self.spec)})
         self.assertEqual(dangling, [], f"$ref dangling sau C3-split (codegen crash): {dangling}")
 
+    # ── INT-vs-BOOL list-item typing (open-thread #1) — codegen-deser correctness ───────────────
+    #   RED-first: 8 raw Check props HIỆN `type:boolean` → wire emit int 0/1 (Check fieldtype) →
+    #   strict-codegen Dart/Kotlin CRASH ('int is not subtype of bool'). Retype → integer enum[0,1].
+    def test_8_raw_check_props_are_integer_enum01(self):
+        """8 raw Frappe-Check list-item props PHẢI `type:integer` + `enum:[0,1]` (KHÔNG boolean).
+
+        Check fieldtype → wire emit int 0/1 → contract phải integer enum[0,1] (mirror
+        is_response/is_resolution_breached @yaml:890-901). RED-before: 8 prop hiện boolean → fail.
+        """
+        for sname, props in _RAW_CHECK_LISTITEM_PROPS.items():
+            sch_props = self._schema(sname).get("properties") or {}
+            for prop in props:
+                self.assertIn(
+                    prop, sch_props,
+                    f"{sname}.{prop} biến mất — chữ-ký list-item lệch @source.")
+                p = sch_props[prop]
+                self.assertEqual(
+                    p.get("type"), "integer",
+                    f"{sname}.{prop}: Frappe-Check field → wire int 0/1 → PHẢI type:integer "
+                    f"(KHÔNG boolean — strict-codegen Dart/Kotlin deser CRASH). got type={p.get('type')!r}",
+                )
+                self.assertEqual(
+                    p.get("enum"), [0, 1],
+                    f"{sname}.{prop}: Check field PHẢI enum:[0,1] (mirror is_response_breached). "
+                    f"got enum={p.get('enum')!r}",
+                )
+
+    def test_already_int_derived_flags_unchanged(self):
+        """Regress-guard: 2 derived-LIVE flags @IncidentListItem (đã ĐÚNG @yaml:890-901) vẫn
+        integer enum[0,1] — tránh ai đó vô tình hồi-quy chúng về boolean khi sửa hàng loạt."""
+        for sname, props in _ALREADY_INT_DERIVED_PROPS.items():
+            sch_props = self._schema(sname).get("properties") or {}
+            for prop in props:
+                p = sch_props.get(prop) or {}
+                self.assertEqual(
+                    p.get("type"), "integer",
+                    f"{sname}.{prop} (derived 0|1) PHẢI GIỮ type:integer. got={p.get('type')!r}")
+                self.assertEqual(
+                    p.get("enum"), [0, 1],
+                    f"{sname}.{prop} (derived 0|1) PHẢI GIỮ enum:[0,1]. got={p.get('enum')!r}")
+
+    def test_genuine_bool_flags_stay_boolean(self):
+        """Anti-over-retype: 2 field DERIVED bằng Python bool THẬT @imm09 (is_sla_breached:299,
+        sla_paused:695) PHẢI GIỮ `type:boolean` (emit JSON true/false). KHÔNG retype về integer."""
+        for sname, props in _GENUINE_BOOL_LISTITEM_PROPS.items():
+            sch_props = self._schema(sname).get("properties") or {}
+            for prop in props:
+                p = sch_props.get(prop) or {}
+                self.assertEqual(
+                    p.get("type"), "boolean",
+                    f"{sname}.{prop} = Python-derived bool (imm09) → JSON true/false → PHẢI GIỮ "
+                    f"type:boolean (KHÔNG over-retype về integer). got={p.get('type')!r}")
+                self.assertNotIn(
+                    "enum", p,
+                    f"{sname}.{prop} là boolean THẬT — KHÔNG được gắn enum:[0,1].")
+
+    def test_no_stray_boolean_in_listitems(self):
+        """Sweep 4 *ListItem (PM/Schedule/CM/Incident): tập (schema,prop) còn `type:boolean` PHẢI
+        = ĐÚNG {is_sla_breached, sla_paused}. Bắt regression khi thêm Check field mới mà quên
+        retype → integer enum[0,1] (field mới sẽ lọt vào set boolean → ≠ allowlist → RED)."""
+        found_boolean: set[tuple[str, str]] = set()
+        for sname in _ALL_LISTITEM_SCHEMAS:
+            sch_props = self._schema(sname).get("properties") or {}
+            for prop, body in sch_props.items():
+                if isinstance(body, dict) and body.get("type") == "boolean":
+                    found_boolean.add((sname, prop))
+        self.assertEqual(
+            found_boolean, _ALLOWED_BOOLEAN_LISTITEM_PROPS,
+            "STRAY-BOOLEAN: list-item props còn type:boolean PHẢI = đúng 2 derived Python-bool "
+            f"{sorted(_ALLOWED_BOOLEAN_LISTITEM_PROPS)}. "
+            f"Thừa (Check field quên retype → integer enum[0,1]?): "
+            f"{sorted(found_boolean - _ALLOWED_BOOLEAN_LISTITEM_PROPS)} ; "
+            f"Thiếu (derived-bool bị over-retype?): "
+            f"{sorted(_ALLOWED_BOOLEAN_LISTITEM_PROPS - found_boolean)}",
+        )
+
 
 class TestMobileUserInfo(unittest.TestCase):
     """TC-MOB-OAS-22 — C4: OIDC userinfo/whoami path (openid_profile) + OidcUserInfo schema.
@@ -3463,6 +7968,35 @@ _MVP_READ_ENVELOPE = {
     "/api/method/assetcore.api.imm00.resolve_qr_token": "#/components/schemas/QrResolveEnvelope",
     "/api/method/assetcore.api.imm00.get_asset_scan_info": "#/components/schemas/AssetScanInfoEnvelope",
     "/api/method/assetcore.api.imm00.get_asset": "#/components/schemas/AssetDetailEnvelope",
+    # C6-DETAIL — 4 GET-detail (5a-5d). 200 = oneOf [<DetailEnvelope>, Error] (C6 read-path).
+    _GET_PM_WO_PATH: "#/components/schemas/PmWorkOrderDetailEnvelope",
+    _GET_REPAIR_WO_PATH: "#/components/schemas/RepairWorkOrderDetailEnvelope",
+    _GET_INCIDENT_PATH: "#/components/schemas/IncidentDetailEnvelope",
+    _GET_CALIBRATION_PATH: "#/components/schemas/CalibrationDetailEnvelope",
+    # FLOW-2 DEVICE-PROFILE — getAssetIncidentHistory: GET-read 200 = INLINE oneOf
+    #   [AssetIncidentHistoryEnvelope, Error] (KHÔNG response-component, mirror getAssetScanInfo §5c) ⇒
+    #   thuộc _MVP_READ_ENVELOPE (sweep 7066 dùng _200_schema inline), KHÔNG _MVP_LIST_ENVELOPE
+    #   (sweep 7082 cần response-component $ref). list-shaped data NHƯNG inline read-path structure.
+    _ASSET_INCIDENT_HISTORY_PATH: _ASSET_INCIDENT_HISTORY_ENVELOPE_SCHEMA_REF,
+    # FLOW-2 DEVICE-PROFILE — getAssetTimeline: GET-read 200 = INLINE oneOf [AssetTimelineEnvelope,
+    #   Error] (KHÔNG response-component, mirror getAssetIncidentHistory) ⇒ thuộc _MVP_READ_ENVELOPE
+    #   (sweep dùng _200_schema inline), KHÔNG _MVP_LIST_ENVELOPE. list-shaped data CÓ pagination NHƯNG
+    #   inline read-path structure (KHÁC list endpoint dùng response-component $ref).
+    _ASSET_TIMELINE_PATH: _ASSET_TIMELINE_ENVELOPE_SCHEMA_REF,
+    # R34 REPAIR SPARE-PARTS — searchSpareParts: GET-read 200 = INLINE oneOf [SearchSparePartsEnvelope,
+    #   Error] (KHÔNG response-component, mirror getAssetIncidentHistory/getAssetTimeline §5c) ⇒ thuộc
+    #   _MVP_READ_ENVELOPE. data = RAW array (KHÔNG {items}/{pagination}) — svc trả list[dict] trực-tiếp.
+    _SEARCH_SPARE_PARTS_PATH: _SEARCH_SPARE_PARTS_ENVELOPE_SCHEMA_REF,
+    # NOTIF-UNREAD-FEED — getUnreadNotifications: GET-read 200 = INLINE oneOf [UnreadNotificationListEnvelope,
+    #   Error] (KHÔNG response-component, mirror searchSpareParts/getAssetIncidentHistory §5c) ⇒ thuộc
+    #   _MVP_READ_ENVELOPE (sweep 7755 dùng _200_schema inline), KHÔNG _MVP_LIST_ENVELOPE (giữ len==8).
+    #   data = {count GENUINE integer min 0, items[] $ref NotificationListItem REUSE} — KHÔNG pagination
+    #   (≠ NotificationListEnvelope: handler @layout.py:66-69 trả {count,items} KHÔNG paginate()).
+    _GET_UNREAD_NOTIF_PATH: _UNREAD_NOTIF_ENVELOPE_SCHEMA_REF,
+    # TRANSFER-READ-WIRE — getTransfer: GET-read 200 = INLINE oneOf [TransferDetailEnvelope, Error]
+    #   (mirror getIncident/getCalibration detail-read §5c; get_transfer 404 _err@imm00.py:2084 →
+    #   HTTP-200 nhánh Error route-by body.success) ⇒ ∈ _MVP_READ_ENVELOPE. TransferDetail mở (as_dict).
+    _GET_TRANSFER_PATH: "#/components/schemas/TransferDetailEnvelope",
 }
 # create RPC (4) → 200 oneOf [<CreatedEnvelope>, Error] — mỗi path có CreatedEnvelope riêng.
 _MVP_CREATE_ENVELOPE = {
@@ -3471,12 +8005,114 @@ _MVP_CREATE_ENVELOPE = {
     _REPAIR_CREATE_PATH: "#/components/schemas/CreateRepairWorkOrderCreatedEnvelope",
     _CAL_CREATE_PATH: "#/components/schemas/CreateCalibrationCreatedEnvelope",
 }
-# list (3) → 200 = response-component $ref; component.content.schema = $ref *Envelope (typed).
-#   C3-split: PM/CM trỏ envelope RIÊNG (field-disjoint element-schema) — KHÔNG còn UNION chung.
+# list (4) → 200 = response-component $ref; component.content.schema = $ref *Envelope (typed).
+#   C3-split: PM/CM/Schedule trỏ envelope RIÊNG (field-disjoint element-schema) — KHÔNG còn UNION chung.
+#   C-LISTREAD-SCHED: +listPmSchedules → PmScheduleListEnvelope (4th typed list-read).
 _MVP_LIST_ENVELOPE = {
     _LIST_PM_PATH: "#/components/schemas/PmWorkOrderListEnvelope",
     _LIST_REPAIR_PATH: "#/components/schemas/RepairWorkOrderListEnvelope",
     _LIST_INCIDENT_PATH: "#/components/schemas/IncidentListEnvelope",
+    _LIST_SCHEDULE_PATH: "#/components/schemas/PmScheduleListEnvelope",
+    _LIST_CALIBRATION_PATH: "#/components/schemas/CalibrationListEnvelope",
+    _LIST_ASSETS_PATH: "#/components/schemas/AssetListEnvelope",
+    _LIST_USERS_PATH: "#/components/schemas/UserListEnvelope",
+    _LIST_NOTIFICATIONS_PATH: "#/components/schemas/NotificationListEnvelope",
+}
+# TRANSFER-READ-WIRE — single-shape list-read (IMM-13). listTransfers 200 = $ref TransferListEnvelope
+#   DIRECT (handler list_transfers KHÔNG try/except + 0 nhánh _err in-handler ⇒ KHÔNG oneOf [Env, Error];
+#   mirror pingSession single-shape NHƯNG là MVP-business). Bucket RIÊNG: KHÔNG _MVP_LIST_ENVELOPE (đó là
+#   response-component + oneOf, giữ len==8) ∧ KHÔNG _MVP_READ_ENVELOPE (đó là inline oneOf). Sweep typed
+#   (23c): 200 schema.$ref == env_ref (KHÔNG oneOf/Error). Vào c5_paths ⇒ c5 == _MVP_BUSINESS_PATHS.
+_MVP_SINGLE_LIST_ENVELOPE = {
+    _LIST_TRANSFERS_PATH: "#/components/schemas/TransferListEnvelope",
+    # ASSET-REPAIR-HISTORY-WIRE (R42 IMM-09) — getAssetRepairHistory SINGLE-shape list-read: 200 =
+    #   $ref AssetRepairHistoryEnvelope DIRECT (KHÔNG oneOf, KHÔNG Error: handler 0 _err, svc 0
+    #   ServiceError ⇒ handle LUÔN _ok — mirror listTransfers). rows-key data.history[] + asset-key
+    #   asset_ref (KHÁC incident items/asset). Vào c5_paths ⇒ c5 == _MVP_BUSINESS_PATHS.
+    _ASSET_REPAIR_HISTORY_PATH: "#/components/schemas/AssetRepairHistoryEnvelope",
+    # ASSET-PM-HISTORY-WIRE (IMM-08) — getAssetPmHistory SINGLE-shape list-read: 200 =
+    #   $ref AssetPmHistoryEnvelope DIRECT (KHÔNG oneOf, KHÔNG Error: handler 0 _err, svc 0
+    #   ServiceError ⇒ handle LUÔN _ok — mirror getAssetRepairHistory/listTransfers). rows-key
+    #   data.history[] + asset-key asset_ref. Vào c5_paths ⇒ c5 == _MVP_BUSINESS_PATHS.
+    _ASSET_PM_HISTORY_PATH: "#/components/schemas/AssetPmHistoryEnvelope",
+}
+# C8-ACTION — POST-action RPC (transition-on-existing) → 200 oneOf [<ActionEnvelope>, Error].
+#   acknowledgeIncident = action ĐẦU TIÊN incident (Open→Acknowledged). startRepair = action ĐẦU TIÊN
+#   repair (Assigned/Diagnosing/Pending Parts → In Repair). RepairActionEnvelope RIÊNG (KHÔNG tái dùng
+#   IncidentActionEnvelope — C3-split cross-domain: repair-enum 9-state ≠ incident-enum 7-state). KHÁC
+#   create (tạo mới) / list / read.
+_MVP_ACTION_ENVELOPE = {
+    _ACK_INCIDENT_PATH: _ACK_ENVELOPE_SCHEMA_REF,
+    _START_REPAIR_PATH: _START_REPAIR_ENVELOPE_SCHEMA_REF,
+    # C8-ACTION — submitDiagnosis REUSE RepairActionEnvelope (cùng domain repair, data EXACT {name,status}
+    #   @services/imm09.py:950 — KHÔNG schema mới, mirror startRepair; MẮT-XÍCH-GIỮA Assigned/Diagnosing→
+    #   In Repair | Pending Parts, lấp dead-end giữa assignTechnician và startRepair/closeWorkOrder).
+    _SUBMIT_DIAGNOSIS_PATH: _SUBMIT_DIAGNOSIS_ENVELOPE_SCHEMA_REF,
+    # C8-ACTION — assignTechnician envelope RIÊNG (AssignTechnicianEnvelope, data 3-key {name,status,
+    #   assigned_to} — KHÔNG reuse RepairActionEnvelope 2-key vì assign trả thêm assigned_to
+    #   @services/imm09.py:848; DISPATCH Open→Assigned, lấp HỐ create→start).
+    _ASSIGN_TECH_PATH: _ASSIGN_TECH_ENVELOPE_SCHEMA_REF,
+    # C8-ACTION — startWork REUSE IncidentActionEnvelope (cùng domain IMM-12 — KHÔNG schema mới).
+    _START_WORK_PATH: _START_WORK_ENVELOPE_SCHEMA_REF,
+    # C8-ACTION — resolveIncident envelope RIÊNG (ResolveIncidentEnvelope, data 3-key {name,status,rca_created}
+    #   — KHÔNG reuse IncidentActionEnvelope vì service trả thêm rca_created @services/imm12.py:530).
+    _RESOLVE_INCIDENT_PATH: _RESOLVE_INCIDENT_ENVELOPE_SCHEMA_REF,
+    # C8-ACTION-PM — submitPmResult envelope RIÊNG (PmSubmitResultEnvelope, data 5-key {name,new_status,
+    #   is_late,next_pm_date,cm_wo_created} — KHÔNG reuse Repair/IncidentActionEnvelope: new_status≠status
+    #   +3 field PM-riêng; nested checklist_results[] ở request @services/imm08.py:705-711).
+    _SUBMIT_PM_RESULT_PATH: _SUBMIT_PM_RESULT_ENVELOPE_SCHEMA_REF,
+    # C8-ACTION — closeWorkOrder envelope RIÊNG (CloseWorkOrderEnvelope, data 4-key {name,status,
+    #   mttr_hours,sla_breached} — KHÔNG reuse RepairActionEnvelope vì close trả thêm mttr_hours/sla_breached
+    #   @services/imm09.py:956-961; status enum gồm CẢ Pending Inspection + Cannot Repair).
+    _CLOSE_WORK_ORDER_PATH: _CLOSE_WORK_ORDER_ENVELOPE_SCHEMA_REF,
+    # C8-ACTION — submitCalibration envelope RIÊNG (SubmitCalibrationEnvelope, data 4-key {name,status,
+    #   overall_result,next_calibration_date} — KHÔNG reuse Pm/Repair/IncidentActionEnvelope cross-domain:
+    #   overall_result + next_calibration_date là field calibration-riêng @services/imm11.py:1054-1059).
+    _SUBMIT_CAL_PATH: _SUBMIT_CAL_ENVELOPE_SCHEMA_REF,
+    # C8-ACTION — closeIncident envelope RIÊNG (CloseIncidentEnvelope, data 3-key {name,status,closed_date}
+    #   — KHÔNG reuse IncidentActionEnvelope vì service trả thêm closed_date @services/imm12.py:569; NÊN
+    #   KHÔNG reuse ResolveIncidentEnvelope vì closed_date ≠ rca_created — C3-split field-disjoint).
+    _CLOSE_INCIDENT_PATH: _CLOSE_INCIDENT_ENVELOPE_SCHEMA_REF,
+    # C8-ACTION — confirmInspection envelope RIÊNG (ConfirmInspectionEnvelope, data 4-key {name,status,
+    #   mttr_hours,sla_breached} — shape-TRÙNG CloseWorkOrderResponse NHƯNG status enum-domain DISJOINT
+    #   ['Completed'] ∉ {Pending Inspection, Cannot Repair} ⇒ C3-split cross-ACTION ADR-MOBILE-009, KHÔNG
+    #   merge; return @services/imm09.py:1114-1119; TERMINAL-THẬT Pending Inspection→Completed docstatus 0→1).
+    _CONFIRM_INSPECTION_PATH: _CONFIRM_INSPECTION_ENVELOPE_SCHEMA_REF,
+    # FLOW-6 READ-RECEIPT — markNotificationAsRead envelope RIÊNG (MarkNotificationReadEnvelope, data 2-key
+    #   {name,read} — KHÔNG reuse mọi *ActionResponse: Notification Log KHÔNG workflow_state ⇒ KHÔNG field
+    #   status; C3-split cross-domain; return @layout.py:117 _ok({name, read:1}); WRITE ĐẦU TIÊN domain Notif).
+    _MARK_NOTIF_READ_PATH: _MARK_NOTIF_READ_ENVELOPE_SCHEMA_REF,
+    # R34 REPAIR SPARE-PARTS — requestSpareParts envelope RIÊNG (RequestSparePartsEnvelope, data 4-key
+    #   {name,status,updated,allocation} — KHÔNG reuse RepairActionEnvelope 2-key {name,status} vì request
+    #   trả thêm updated (int) + allocation (nullable string); C3-split field-disjoint; return
+    #   @services/imm09.py:1018). POST-action cấp phụ-tùng cho WO sửa chữa.
+    _REQUEST_SPARE_PARTS_PATH: _REQUEST_SPARE_PARTS_ENVELOPE_SCHEMA_REF,
+    # R34 ADD-MEASUREMENT — addMeasurement envelope RIÊNG (AddMeasurementEnvelope, data 2-key
+    #   {name,measurement_count} — KHÔNG reuse mọi *ActionResponse: measurement_count = GENUINE integer
+    #   count len(doc.measurements) @services/imm11.py:1124, C3-split field-disjoint). POST mắt-xích-GIỮA
+    #   calibration-detail (ghi điểm-đo trước submit).
+    _ADD_MEASUREMENT_PATH: _ADD_MEASUREMENT_ENVELOPE_SCHEMA_REF,
+    # R35 PM-DISPATCH — assignPmTechnician envelope RIÊNG (AssignPmTechnicianEnvelope, data 3-key
+    #   {name,status,assigned_to} — KHÔNG reuse repair AssignTechnicianEnvelope: status-domain DISJOINT
+    #   PM 'In Progress' ≠ repair 'Assigned' (C3-split cross-domain); return @services/imm08.py:679;
+    #   DISPATCH Open/Overdue→In Progress + asset→Under Maintenance, lấp dead-end nút 'Phân công' PM-detail).
+    _ASSIGN_PM_TECH_PATH: _ASSIGN_PM_TECH_ENVELOPE_SCHEMA_REF,
+    # R36 PM→CM ESCALATION — reportMajorFailure envelope RIÊNG (ReportMajorFailureEnvelope, data 4-key
+    #   {pm_wo,new_status,cm_wo_created,asset_status} — shape cross-module duy nhất, KHÔNG reuse mọi
+    #   *ActionResponse; return @services/imm08.py:792-797; new_status=PMStatus 'Halted–Major Failure',
+    #   asset_status 'Out of Service'; lấp dead-end nút 'Báo lỗi nghiêm trọng (→ CM)' PM-detail).
+    _REPORT_MAJOR_FAILURE_PATH: _REPORT_MAJOR_FAILURE_ENVELOPE_SCHEMA_REF,
+    # R37 PM-RESCHEDULE — reschedulePm envelope RIÊNG (ReschedulePmEnvelope, data 4-key {name,old_date,
+    #   new_date,status} — shape date-pair DUY NHẤT, KHÔNG reuse mọi *ActionResponse; return
+    #   @services/imm08.py:823; status=PMStatus 'Pending–Device Busy' en-dash; ĐÓNG NỐT action-set
+    #   PMWorkOrderDetailView — đóng nút 'Hoãn lịch (thiết bị bận)').
+    _RESCHEDULE_PM_PATH: _RESCHEDULE_PM_ENVELOPE_SCHEMA_REF,
+    # R40 MARK-ALL-READ — markAllAsRead envelope RIÊNG (MarkAllReadEnvelope, data 1-key {updated_rows}
+    #   GENUINE integer count 0..N — KHÔNG reuse mọi *ActionResponse lẫn MarkNotificationReadEnvelope:
+    #   Notification Log KHÔNG workflow_state ⇒ KHÔNG status; updated_rows = ROW_COUNT() @layout.py:132
+    #   KHÔNG enum[0,1] (KHÁC read cờ Check); C3-split cross-domain; return @layout.py:134
+    #   _ok({updated_rows: affected}); BULK read-receipt ĐÓNG NỐT notification-center action-set).
+    _MARK_ALL_READ_PATH: _MARK_ALL_READ_ENVELOPE_SCHEMA_REF,
 }
 
 
@@ -3502,6 +8138,7 @@ def _codegen_dry_introspect(spec: dict) -> dict:
     """
     mvp_paths = (
         set(_MVP_READ_ENVELOPE) | set(_MVP_CREATE_ENVELOPE) | set(_MVP_LIST_ENVELOPE)
+        | set(_MVP_SINGLE_LIST_ENVELOPE)
     )
 
     # (a) Stub trên path MVP.
@@ -3538,15 +8175,28 @@ def _codegen_dry_introspect(spec: dict) -> dict:
         refs = [b.get("$ref") for b in (sch.get("oneOf") or []) if isinstance(b, dict)]
         if created_ref not in refs or _ERROR_SCHEMA_REF not in refs:
             untyped_mvp.append(f"{p} (create: oneOf={refs}, want [{created_ref}, Error])")
+    # C7 (open-thread #5) — 4 list 200 NAY = response-component có content.schema = oneOf
+    #   [<ListEnvelope>, Error] (KHÔNG còn single $ref <ListEnvelope>). TYPED ⟺ comp.schema.oneOf chứa
+    #   CẢ <ListEnvelope> VÀ Error (mirror read/create-branch). Single-branch (mất Error) / generic
+    #   {type:object} / Stub ⇒ untyped (giữ anti-false-green list-path P1 closure).
     for p, env_ref in _MVP_LIST_ENVELOPE.items():
         _, op = _mvp_path_verb(spec, p)
         r200 = (op.get("responses") or {}).get("200") or {}
         comp = _resolve_response_component(spec, r200.get("$ref"))
         comp_sch = (((comp.get("content") or {}).get("application/json") or {}).get("schema") or {})
-        if comp_sch.get("$ref") != env_ref or "type" in comp_sch:
+        refs = [b.get("$ref") for b in (comp_sch.get("oneOf") or []) if isinstance(b, dict)]
+        if env_ref not in refs or _ERROR_SCHEMA_REF not in refs:
             untyped_mvp.append(
-                f"{p} (list: resp.$ref={r200.get('$ref')}, comp.schema.$ref={comp_sch.get('$ref')}, want {env_ref})"
+                f"{p} (list: resp.$ref={r200.get('$ref')}, comp.schema.oneOf={refs}, "
+                f"want [{env_ref}, Error])"
             )
+    # TRANSFER-READ-WIRE — single-shape list-read: 200 = $ref <ListEnvelope> DIRECT (KHÔNG oneOf,
+    #   KHÔNG Error: handler list_transfers 0 try/except ⇒ 0 in-handler _err). TYPED ⟺ schema.$ref==env_ref.
+    for p, env_ref in _MVP_SINGLE_LIST_ENVELOPE.items():
+        _, op = _mvp_path_verb(spec, p)
+        sch = _200_schema(op.get("responses") or {})
+        if sch.get("$ref") != env_ref:
+            untyped_mvp.append(f"{p} (single-list: schema.$ref={sch.get('$ref')}, want {env_ref})")
 
     return {"stub_on_mvp": stub_on_mvp, "dangling": dangling, "untyped_mvp": untyped_mvp}
 
@@ -3568,13 +8218,40 @@ class TestMobileCodegenDryDoD(unittest.TestCase):
             self.skipTest("Thiếu yaml mobile spec.")
 
     def test_mob_oas_23a_mvp_path_set_is_ten_business(self):
-        """(precond) Tập MVP-business = ĐÚNG 10 path (3 read + 4 create + 3 list) == _MVP_BUSINESS_PATHS.
-        2 device-token KHÔNG nằm trong tập C5 (BE-PENDING EPIC-D → GIỮ Stub hợp lệ)."""
-        c5_paths = set(_MVP_READ_ENVELOPE) | set(_MVP_CREATE_ENVELOPE) | set(_MVP_LIST_ENVELOPE)
-        self.assertEqual(len(c5_paths), 10, f"C5 phải bao ĐÚNG 10 path MVP, got {len(c5_paths)}.")
+        """(precond) Tập MVP-business = ĐÚNG 30 path (8 read [7 + getAssetIncidentHistory device-profile] + 4 create + 8 list + 8 action) == _MVP_BUSINESS_PATHS.
+        C-LISTREAD-SCHED: 10→11 (+listPmSchedules). C6-DETAIL: 11→15 (+4 GET-detail read).
+        C-LISTREAD-CAL: 15→16 (+listCalibrations). C-LISTREAD-ASSET: 16→17 (+listAssets).
+        C-LISTREAD-USERS: 17→18 (+listUsers). C8-ACTION: 18→19 (+acknowledgeIncident POST-action).
+        C8-ACTION: 19→20 (+startRepair POST-action repair). C8-ACTION: 20→21 (+startWork POST-action incident).
+        C8-ACTION: 21→22 (+resolveIncident POST-action incident THỨ BA).
+        C8-ACTION-PM: 22→23 (+submitPmResult POST-action PM WO ĐẦU TIÊN — nested checklist[] + response 5-field).
+        C8-ACTION: 23→24 (+closeWorkOrder POST-action TERMINAL Repair WO — 2 child-array + response 4-field).
+        C8-ACTION: 24→25 (+submitCalibration POST-action COMPLETION Calibration Record — single name + response 4-field calibration-riêng).
+        C8-ACTION: 25→26 (+closeIncident POST-action TERMINAL Incident — Resolved→Closed; response 3-field {name,status,closed_date}, đóng mắt xích CUỐI).
+        C-LISTREAD-NOTIF: 26→27 (+listNotifications — in-app notification list, tab Notifications; đóng gap đọc-lịch-sử flow-6 push).
+        C8-ACTION: 27→28 (+assignTechnician POST-action DISPATCH repair: Open→Assigned; lấp HỐ create→start; response RIÊNG 3-field {name,status,assigned_to}).
+        C8-ACTION: 28→29 (+submitDiagnosis POST-action MẮT-XÍCH-GIỮA repair: Assigned/Diagnosing→In Repair|Pending Parts; lấp dead-end giữa assign và start/close; REUSE RepairActionEnvelope/RepairActionResponse {name,status}).
+        FLOW-2 DEVICE-PROFILE: 29→30 (+getAssetIncidentHistory GET-read lịch-sử sự-cố của asset, màn hồ-sơ sau quét QR; lấp dead-end sau getAssetScanInfo; ∈ _MVP_READ_ENVELOPE — inline oneOf KHÔNG response-component, envelope KHÔNG pagination).
+        C8-ACTION: 30→31 (+confirmInspection POST-action TERMINAL-THẬT repair: Pending Inspection→Completed docstatus 0→1; cap repair.submit; ∈ _MVP_ACTION_ENVELOPE — ConfirmInspectionEnvelope RIÊNG C3-split ≠ CloseWorkOrderResponse ADR-MOBILE-009).
+        FLOW-6 READ-RECEIPT: 31→32 (+markNotificationAsRead POST-action WRITE ĐẦU TIÊN trên Notification Log: set read=1; đóng dead-end listNotifications read-only — tab chuông/push deep-link KHÔNG có mark-read; ∈ _MVP_ACTION_ENVELOPE — MarkNotificationReadEnvelope RIÊNG 2-key {name,read} C3-split cross-domain, KHÔNG status vì Notification Log không workflow_state).
+        FLOW-2 DEVICE-PROFILE: 32→33 (+getAssetTimeline GET-read dòng-thời-gian vòng-đời asset, tab Lịch sử màn hồ-sơ sau quét QR; ∈ _MVP_READ_ENVELOPE — inline oneOf KHÔNG response-component, envelope CÓ pagination KHÁC getAssetIncidentHistory; DocType Asset Lifecycle Event KHÁC Incident Report).
+        R34 REPAIR SPARE-PARTS: 33→34 (+searchSpareParts GET-read tra-cứu phụ-tùng autocomplete màn repair-detail; ∈ _MVP_READ_ENVELOPE — inline oneOf, data = RAW array KHÔNG pagination/wrapper).
+        R34 REPAIR SPARE-PARTS: 34→35 (+requestSpareParts POST-action cấp phụ-tùng cho WO; ∈ _MVP_ACTION_ENVELOPE — RequestSparePartsEnvelope RIÊNG 4-key {name,status,updated,allocation}).
+        R34 ADD-MEASUREMENT: 35→36 (+addMeasurement POST-action ghi điểm-đo calibration-detail mắt-xích-GIỮA; ∈ _MVP_ACTION_ENVELOPE — AddMeasurementEnvelope RIÊNG 2-key {name,measurement_count} measurement_count GENUINE integer).
+        R35 PM-DISPATCH: 36→37 (+assignPmTechnician POST-action DISPATCH PM-detail: Open/Overdue→In Progress + asset→Under Maintenance; ∈ _MVP_ACTION_ENVELOPE — AssignPmTechnicianEnvelope RIÊNG 3-key {name,status,assigned_to} status=PMStatus 'In Progress' C3-split ≠ repair 'Assigned').
+        R36 PM→CM ESCALATION: 37→38 (+reportMajorFailure POST-action ESCALATION PM-detail: hỏng nặng → Halted–Major Failure + asset Out of Service + CM WO khẩn; ∈ _MVP_ACTION_ENVELOPE — ReportMajorFailureEnvelope RIÊNG 4-key {pm_wo,new_status,cm_wo_created,asset_status} cross-module; VERB-FLIP + SIGNATURE-FIX DROP failed_item_indexes).
+        R37 PM-RESCHEDULE: 38→39 (+reschedulePm POST-action RESCHEDULE PM-detail: thiết bị đang dùng → hoãn lịch → Pending–Device Busy + đổi due_date + ghi lý do; ĐÓNG NỐT action-set PMWorkOrderDetailView 0 nút dead-end; ∈ _MVP_ACTION_ENVELOPE — ReschedulePmEnvelope RIÊNG 4-key {name,old_date,new_date,status} shape date-pair DUY NHẤT status=PMStatus 'Pending–Device Busy'; 🟢 ATOMIC ĐÃ methods=['POST'] KHÔNG verb-flip).
+        R40 MARK-ALL-READ: 39→40 (+markAllAsRead POST-action BULK read-receipt: set read=1 cho MỌI Notification Log chưa-đọc của user; ĐÓNG NỐT notification-center action-set sau markNotificationAsRead single; ∈ _MVP_ACTION_ENVELOPE — MarkAllReadEnvelope RIÊNG 1-key {updated_rows} GENUINE integer KHÔNG enum[0,1] C3-split cross-domain KHÔNG status; 0-PARAM KHÔNG requestBody; CONTRACT-ONLY BE LIVE @layout.py:120-134).
+        2 device-token KHÔNG nằm trong tập C5 (EPIC-D)."""
+        c5_paths = (
+            set(_MVP_READ_ENVELOPE) | set(_MVP_CREATE_ENVELOPE)
+            | set(_MVP_LIST_ENVELOPE) | set(_MVP_ACTION_ENVELOPE)
+            | set(_MVP_SINGLE_LIST_ENVELOPE)
+        )
+        self.assertEqual(len(c5_paths), 45, f"C5 phải bao ĐÚNG 45 path MVP (ASSET-PM-HISTORY-WIRE: +getAssetPmHistory single-shape _MVP_SINGLE_LIST_ENVELOPE), got {len(c5_paths)}.")
         self.assertEqual(
             c5_paths, set(_MVP_BUSINESS_PATHS),
-            "Tập C5 PHẢI == _MVP_BUSINESS_PATHS (3 typed read + createPm + report/repair/cal + 3 list).",
+            "Tập C5 PHẢI == _MVP_BUSINESS_PATHS (3 typed read + 4 GET-detail + 2 device-profile read [getAssetIncidentHistory + getAssetTimeline] + searchSpareParts + getUnreadNotifications + createPm + report/repair/cal + 8 list + 10 action [+confirmInspection +markNotificationAsRead]).",
         )
         for dt in _DEVICE_TOKEN_FROZEN:
             self.assertNotIn(dt, c5_paths, f"device-token {dt} KHÔNG được nằm trong tập C5 (EPIC-D).")
@@ -3732,10 +8409,63 @@ class TestMobileCodegenDryDoD(unittest.TestCase):
 # Auth passthrough (oauth2.*) = Frappe-core, KHÔNG sinh trong runtime AssetCore-introspect spec
 #   theo cách 1-1 dotted-tail (path frappe.* không thuộc _iter_api_modules AssetCore). Loại khỏi
 #   parity-set (như _AUTH_PATHS loại khỏi 401/403 symmetry). 2 device-token = mobile.v1.* handler
-#   chưa tồn tại @source (EPIC-D) ⇒ KHÔNG có runtime path. ⇒ parity-set = ĐÚNG 10 mobile-business.
+#   chưa tồn tại @source (EPIC-D) ⇒ KHÔNG có runtime path. ⇒ parity-set = ĐÚNG 21 mobile-business
+#   (C-LISTREAD-USERS: +listUsers; C8-ACTION: +acknowledgeIncident — imm12.acknowledge_incident LIVE
+#   @runtime POST; C8-ACTION: +startRepair — imm09.start_repair LIVE @runtime POST; C8-ACTION:
+#   +startWork — imm12.start_work LIVE @runtime POST, verify _openapi.generate_spec).
 _PARITY_BUSINESS_PATHS = set(_MVP_BUSINESS_PATHS)
-# create_calibration: verb allowlist (runtime GET do thiếu methods=["POST"] — backlog Phase-F).
-_PARITY_VERB_ALLOWLIST = {"/api/method/assetcore.api.imm11.create_calibration"}
+# Verb-allowlist = tập path POST được MIỄN verb-parity (yaml POST ↔ runtime GET vì BE bare @whitelist
+#   thiếu methods=["POST"]). VERB-PARITY CLOSURE (2026-06-27): cả 3 divergence ĐÃ ĐÓNG @source —
+#   USER siết @frappe.whitelist(methods=["POST"]) cho submit_pm_result @api/imm08.py:54 +
+#   create_calibration @api/imm11.py:89 + submit_calibration @api/imm11.py:114 ⇒ runtime suy verb=POST
+#   khớp YAML POST. ⇒ KHÔNG còn ngoại lệ verb-parity ⇒ allowlist = RỖNG (set()). Mọi path POST trong
+#   yaml giờ PHẢI khớp verb runtime POST-only (25c sweep 0-exception; 25f khoá allowlist == set() chống
+#   tái-mở; class TestMobileWriteActionMethodEnforced introspect registry @source POST-only/GET-rejected).
+#   Thêm BẤT KỲ path vào đây = che giấu verb-drift thật của path đó (25c bỏ qua) ⇒ 25f RED buộc review.
+_PARITY_VERB_ALLOWLIST: set[str] = set()
+
+
+def _dotted_of(path: str) -> str:
+    """Path OpenAPI `/api/method/<dotted>` → dotted-path Python (registry-key resolvable)."""
+    return path.replace("/api/method/", "", 1)
+
+
+def _allowed_http_methods_for(dotted: str) -> set[str]:
+    """Tập HTTP-verb cho phép của 1 whitelist handler — introspect REGISTRY runtime Frappe
+    (`frappe.allowed_http_methods_for_whitelisted_func`), KHÔNG đọc yaml. Đây là gate THẬT
+    dispatcher dùng để chặn verb sai (handler.py).
+
+      • bare `@frappe.whitelist()`            → {'GET','POST','PUT','DELETE'} (NHẬN GET).
+      • `@frappe.whitelist(methods=["POST"])` → {'POST'} (POST-only, GET bị từ chối 405).
+
+    Raise AssertionError nếu dotted KHÔNG resolve / KHÔNG whitelisted (caller xử lý fail tường minh).
+    SSoT cơ chế: frappe/__init__.py:836-857 (allowed_http_methods_for_whitelisted_func[fn]=methods)."""
+    import frappe  # lazy — cần frappe init (bench run-tests có sẵn).
+
+    fn = frappe.get_attr(dotted)  # import side-effect: đăng ký @whitelist nếu chưa.
+    if fn not in frappe.whitelisted:
+        raise AssertionError(f"`{dotted}` resolve nhưng KHÔNG whitelisted (not in frappe.whitelisted).")
+    return set(frappe.allowed_http_methods_for_whitelisted_func.get(fn) or [])
+
+
+def _assert_post_only_at_source(testcase: unittest.TestCase, path: str) -> None:
+    """Assert handler sau `path` POST-ONLY @source: cho phép POST + TỪ CHỐI GET (verb-gate THẬT,
+    introspect registry — KHÔNG chỉ assert yaml khai `post`). POST-only ⟺ allowed == {'POST'}."""
+    dotted = _dotted_of(path)
+    allowed = _allowed_http_methods_for(dotted)
+    testcase.assertIn(
+        "POST", allowed,
+        f"{dotted} PHẢI cho phép POST (write-action). allowed={sorted(allowed)}.",
+    )
+    testcase.assertNotIn(
+        "GET", allowed,
+        f"{dotted} PHẢI TỪ CHỐI GET (write-action không idempotent — bare @whitelist nhận GET = "
+        f"verb-divergence). Cần @frappe.whitelist(methods=['POST']). allowed={sorted(allowed)}.",
+    )
+    testcase.assertEqual(
+        allowed, {"POST"},
+        f"{dotted} PHẢI POST-ONLY (allowed == {{'POST'}}), got {sorted(allowed)}.",
+    )
 
 
 def _security_class(op: dict) -> str:
@@ -3783,8 +8513,10 @@ class TestMobileSpecParityRuntime(unittest.TestCase):
             self.skipTest("Thiếu yaml mobile spec hoặc không sinh được runtime spec.")
 
     def test_mob_oas_25a_runtime_and_yaml_versions_and_scale(self):
-        """(precond) Runtime = OAS 3.1.0 + nhiều path (full surface, ≥400); YAML = 3.0.3 + 16 path.
-        Khẳng-định 2 spec phân-vai THẬT tồn tại (KHÔNG hợp nhất) — tiền-đề F-C2."""
+        """(precond) Runtime = OAS 3.1.0 + nhiều path (full surface, ≥400); YAML = 3.0.3 + 24 path.
+        C-LISTREAD-SCHED: 16→17 (+listPmSchedules). C6-DETAIL: 17→21 (+4 GET-detail).
+        C-LISTREAD-CAL: 21→22 (+listCalibrations). C-LISTREAD-ASSET: 22→23 (+listAssets).
+        C-LISTREAD-USERS: 23→24 (+listUsers). Khẳng-định 2 spec phân-vai THẬT (KHÔNG hợp nhất)."""
         self.assertEqual(self.runtime.get("openapi"), "3.1.0", "Runtime spec PHẢI là OAS 3.1.0.")
         self.assertGreaterEqual(
             len(self.runtime.get("paths") or {}), 400,
@@ -3792,12 +8524,12 @@ class TestMobileSpecParityRuntime(unittest.TestCase):
         )
         self.assertEqual(self.spec.get("openapi"), "3.0.3", "YAML mobile PHẢI là OAS 3.0.3 (codegen).")
         self.assertEqual(
-            len(self.spec.get("paths") or {}), 16,
-            "YAML mobile PHẢI GIỮ 16 path (4 auth + 10 business + 2 device-token STUB).",
+            len(self.spec.get("paths") or {}), 53,
+            "YAML mobile PHẢI 52 path (R-NOTIF-UNREAD + TRANSFER-READ-WIRE listTransfers/getTransfer; CONTRACT-ONLY BE LIVE @imm00.py:2048/2081).",
         )
 
     def test_mob_oas_25b_business_paths_exist_in_runtime_same_tail(self):
-        """(Guard) MỌI mobile-business path (10) PHẢI TỒN TẠI trong runtime spec với CÙNG
+        """(Guard) MỌI mobile-business path (33) PHẢI TỒN TẠI trong runtime spec với CÙNG
         dotted-path-tail (= chính path /api/method/<dotted>). Path YAML KHÔNG có trong runtime
         → RED (drift câm: thêm/đổi path bên YAML mà runtime không serve)."""
         runtime_paths = set((self.runtime.get("paths") or {}).keys())
@@ -3808,16 +8540,18 @@ class TestMobileSpecParityRuntime(unittest.TestCase):
             f"khai path runtime không serve): {missing}",
         )
         # Đối-chứng: 2 device-token + 4 auth passthrough KHÔNG nằm trong parity-set (loại đúng).
-        self.assertEqual(len(_PARITY_BUSINESS_PATHS), 10, "parity-set PHẢI = ĐÚNG 10 mobile-business.")
+        self.assertEqual(len(_PARITY_BUSINESS_PATHS), 45, "parity-set PHẢI = ĐÚNG 45 mobile-business (ASSET-PM-HISTORY-WIRE: +getAssetPmHistory GET-read lịch-sử bảo trì PM).")
         for dt in _DEVICE_TOKEN_FROZEN:
             self.assertNotIn(dt, _PARITY_BUSINESS_PATHS, f"device-token {dt} loại khỏi parity (EPIC-D).")
         for ap in _AUTH_PATHS:
             self.assertNotIn(ap, _PARITY_BUSINESS_PATHS, f"auth passthrough {ap} loại khỏi parity (Frappe-core).")
 
-    def test_mob_oas_25c_verb_parity_with_calibration_allowlist(self):
-        """(Guard) verb YAML == verb runtime cho mỗi mobile-business path, TRỪ create_calibration
-        (allowlist — runtime GET do thiếu methods=["POST"] imm11.py:89, backlog Phase-F). Verb
-        lệch ngoài allowlist → RED (chống drift verb câm)."""
+    def test_mob_oas_25c_verb_parity_zero_exception(self):
+        """(Guard) verb YAML == verb runtime cho MỌI mobile-business path — 0 NGOẠI LỆ.
+
+        VERB-PARITY CLOSURE (2026-06-27): `_PARITY_VERB_ALLOWLIST` == set() ⇒ KHÔNG path nào được
+        miễn verb-check. 3 divergence cũ (submit_pm_result/create_calibration/submit_calibration) ĐÃ
+        fix @source methods=["POST"] ⇒ runtime verb=POST khớp YAML. Verb lệch BẤT KỲ → RED."""
         mismatches = []
         for p in sorted(_PARITY_BUSINESS_PATHS):
             yv, _ = _path_verb_op(self.spec, p)
@@ -3828,21 +8562,24 @@ class TestMobileSpecParityRuntime(unittest.TestCase):
                 mismatches.append(f"{p}: yaml={yv} runtime={rv}")
         self.assertEqual(
             mismatches, [],
-            "verb YAML ≠ verb runtime (ngoài allowlist create_calibration) — drift verb câm: "
+            "verb YAML ≠ verb runtime — drift verb câm (allowlist RỖNG, 0 ngoại lệ): "
             f"{mismatches}",
         )
-        # KNOWN-DIVERGENCE: create_calibration THẬT lệch (yaml POST vs runtime GET) — khẳng-định
-        #   allowlist KHÔNG rỗng-nghĩa (nếu source được fix methods=["POST"] thì 2 verb khớp → có
-        #   thể gỡ allowlist; tới lúc đó assert này nhắc backlog Phase-F còn mở).
-        cal = "/api/method/assetcore.api.imm11.create_calibration"
-        yv, _ = _path_verb_op(self.spec, cal)
-        rv, _ = _path_verb_op(self.runtime, cal)
-        self.assertEqual(yv, "post", "YAML create_calibration PHẢI khai POST (mutating-create).")
-        self.assertEqual(
-            rv, "get",
-            "Runtime create_calibration KỲ VỌNG GET (thiếu methods=[POST] imm11.py:89). Nếu nay = "
-            "POST ⇒ source ĐÃ fix → gỡ _PARITY_VERB_ALLOWLIST + đóng backlog Phase-F (cập nhật ADR k).",
-        )
+        # CLOSURE-ASSERT: 3 write-action TRƯỚC đây divergence (yaml POST ↔ runtime GET) NAY khớp POST
+        #   2-bên (source siết methods=["POST"]). Nếu runtime trở lại GET ⇒ ai đó revert decorator → RED.
+        for cal in (
+            "/api/method/assetcore.api.imm11.create_calibration",
+            "/api/method/assetcore.api.imm08.submit_pm_result",
+            "/api/method/assetcore.api.imm11.submit_calibration",
+        ):
+            yv, _ = _path_verb_op(self.spec, cal)
+            rv, _ = _path_verb_op(self.runtime, cal)
+            self.assertEqual(yv, "post", f"YAML {cal} PHẢI khai POST (write-action không idempotent).")
+            self.assertEqual(
+                rv, "post",
+                f"Runtime {cal} PHẢI POST (decorator methods=['POST'] đã siết). Nếu = GET ⇒ decorator "
+                "bị revert về bare @whitelist → verb-divergence tái xuất.",
+            )
 
     def test_mob_oas_25d_security_class_parity(self):
         """(Guard) security-class YAML == runtime cho mỗi mobile-business path: authed (bearer/cap)
@@ -3913,65 +8650,158 @@ class TestMobileSpecParityRuntime(unittest.TestCase):
                 f"Runtime sạch: security-class {p} phải khớp YAML (control GREEN).",
             )
 
-    # ── TC-MOB-OAS-25f (drift-guard hardening) — chống ALLOWLIST-CREEP cho verb-allowlist ─────
-    #   VÌ SAO: 25c bỏ qua verb-mismatch cho MỌI path nằm trong `_PARITY_VERB_ALLOWLIST`. Nếu ai
-    #   đó âm thầm THÊM path lạ vào allowlist → 25c sẽ MASK real verb-drift của path đó (drift câm
-    #   cấp-2: guard tự bị vô-hiệu hoá qua allowlist). Guard này KHOÁ allowlist về đúng cardinality
-    #   1 + exact-set {create_calibration} → mọi path-thêm-vào allowlist ⇒ suite RED, buộc review.
-    #
-    #   BACKLOG Phase-F item #3 (SSoT — đóng khi source fix): create_calibration @ api/imm11.py:90
-    #   hiện THIẾU methods=["POST"] ⇒ runtime suy verb=GET ≠ YAML POST ⇒ allowlist phải CHỨA path
-    #   này (1 phần-tử). Khi USER fix decorator (HARD-STOP: đụng api/*.py + reload gunicorn
-    #   --preload + re-verify 25c) → 2 verb khớp → allowlist NÊN RỖNG. Lúc đó:
-    #     • assert exact-set dưới đây sẽ RED → BÁO HIỆU phải GỠ _PARITY_VERB_ALLOWLIST (về set())
-    #       và sửa cardinality-guard này thành `== 0`, đồng thời ĐÓNG ADR-MOBILE-001 (k) backlog
-    #       Phase-F item #3.
-    #   ⇒ cardinality-guard vừa chống creep (thêm), vừa NHẮC dọn (khi divergence thật biến mất).
-    def test_mob_oas_25f_verb_allowlist_cardinality_locked(self):
-        """(Guard drift-hardening) `_PARITY_VERB_ALLOWLIST` PHẢI khoá cứng = ĐÚNG 1 phần-tử và
-        BẰNG exact-set {create_calibration} — chống allowlist-creep câm (thêm path lạ vào allowlist
-        để 25c bỏ qua verb-drift thật của nó). Anti-false-green: mutate BẢN SAO in-memory thêm 1
-        path giả → cardinality + exact-set check RED; allowlist gốc → GREEN (control).
+    # ── TC-MOB-OAS-25f (drift-guard hardening) — KHOÁ verb-allowlist == set() (chống tái-mở) ──────
+    #   VÌ SAO: 25c bỏ qua verb-mismatch cho MỌI path nằm trong `_PARITY_VERB_ALLOWLIST`. Nếu ai đó
+    #   âm thầm THÊM path lạ vào allowlist → 25c sẽ MASK real verb-drift của path đó (drift câm cấp-2:
+    #   guard tự bị vô-hiệu hoá qua allowlist). VERB-PARITY CLOSURE (2026-06-27): cả 3 divergence cũ ĐÃ
+    #   ĐÓNG @source (methods=["POST"] cho submit_pm_result + create_calibration + submit_calibration) ⇒
+    #   allowlist = set() RỖNG. Guard này KHOÁ allowlist về RỖNG → bất kỳ path thêm vào = allowlist-creep
+    #   ⇒ suite RED, buộc review (KHÔNG được tái-mở exemption verb-parity mà không sửa source cho đúng).
+    def test_mob_oas_25f_verb_allowlist_locked_empty(self):
+        """(Guard drift-hardening) `_PARITY_VERB_ALLOWLIST` PHẢI khoá cứng == set() (RỖNG, 0 phần-tử) —
+        chống allowlist-creep câm (thêm path lạ vào allowlist để 25c bỏ qua verb-drift thật của nó).
 
-        BACKLOG Phase-F item #3 (ADR-MOBILE-001 k): khi USER fix create_calibration thêm
-        methods=["POST"] @api/imm11.py:90 (HARD-STOP — reload gunicorn --preload + re-verify 25c)
-        → runtime verb=POST khớp YAML → allowlist NÊN rỗng. Lúc đó exact-set assert này RED → NHẮC
-        gỡ _PARITY_VERB_ALLOWLIST (về set()) + chuyển cardinality-guard về `== 0` + đóng backlog.
-        """
-        _CAL = "/api/method/assetcore.api.imm11.create_calibration"
+        VERB-PARITY CLOSURE: 3 write-action (submit_pm_result @api/imm08.py:54, create_calibration
+        @api/imm11.py:89, submit_calibration @api/imm11.py:114) ĐÃ siết @frappe.whitelist(methods=["POST"])
+        ⇒ runtime verb=POST khớp YAML ⇒ KHÔNG còn divergence ⇒ allowlist RỖNG. Thêm BẤT KỲ path vào đây
+        ⇒ 25c sẽ mask verb-drift thật của path đó ⇒ guard này RED.
 
-        # (positive / lock) cardinality == 1 + exact-set == {create_calibration}.
+        Anti-false-green: mutate BẢN SAO in-memory thêm 1 path giả → empty-check PHẢI RED; allowlist gốc
+        (RỖNG) → GREEN (control, guard không luôn-đỏ)."""
+        # (positive / lock) allowlist PHẢI RỖNG — 0 ngoại lệ verb-parity.
         self.assertEqual(
-            len(_PARITY_VERB_ALLOWLIST), 1,
-            "Verb-allowlist PHẢI = ĐÚNG 1 phần-tử (chỉ create_calibration — backlog Phase-F item "
-            f"#3). cardinality≠1 = allowlist-creep HOẶC source đã fix (xem docstring): {sorted(_PARITY_VERB_ALLOWLIST)}",
-        )
-        self.assertEqual(
-            _PARITY_VERB_ALLOWLIST, {_CAL},
-            "Verb-allowlist PHẢI = exact-set {create_calibration}. Path khác xuất hiện = allowlist-"
-            "creep câm (mask verb-drift thật của path đó trong 25c) — review + gỡ: "
+            _PARITY_VERB_ALLOWLIST, set(),
+            "Verb-allowlist PHẢI == set() (RỖNG). Path xuất hiện = allowlist-creep câm (mask verb-drift "
+            f"thật của path đó trong 25c) HOẶC source bị revert về bare @whitelist — review + sửa source: "
             f"{sorted(_PARITY_VERB_ALLOWLIST)}",
         )
+        self.assertEqual(
+            len(_PARITY_VERB_ALLOWLIST), 0,
+            f"Verb-allowlist cardinality PHẢI == 0 (verb-parity closure). got {len(_PARITY_VERB_ALLOWLIST)}.",
+        )
 
-        # (anti-false-green / RED-before) CHỨNG MINH guard THẬT bắt creep: deepcopy allowlist (KHÔNG
-        #   đụng hằng module) + thêm 1 path giả → cả cardinality lẫn exact-set check PHẢI RED.
+        # (anti-false-green / RED-before) CHỨNG MINH guard THẬT bắt creep: deepcopy allowlist (KHÔNG đụng
+        #   hằng module) + thêm 1 path giả → empty-check PHẢI RED.
         crept = copy.deepcopy(_PARITY_VERB_ALLOWLIST)
         crept.add("/api/method/assetcore.api.imm99.fake_creep")
         self.assertNotEqual(
-            len(crept), 1,
-            "Cardinality-guard false-green: thêm path giả mà len vẫn ==1 → guard không bắt creep.",
-        )
-        self.assertNotEqual(
-            crept, {_CAL},
-            "Exact-set guard false-green: thêm path giả mà set vẫn == {create_calibration} → "
-            "guard không bắt creep.",
+            crept, set(),
+            "Empty-guard false-green: thêm path giả mà set vẫn == set() → guard không bắt creep.",
         )
 
-        # (control / GREEN-after) allowlist GỐC (sau khi đã chứng minh negative) vẫn đúng exact-set.
+        # (control / GREEN-after) allowlist GỐC (sau khi đã chứng minh negative) vẫn RỖNG.
         self.assertEqual(
-            _PARITY_VERB_ALLOWLIST, {_CAL},
-            "Control: allowlist GỐC (không mutate) PHẢI giữ exact-set {create_calibration} — guard "
-            "không luôn-đỏ.",
+            _PARITY_VERB_ALLOWLIST, set(),
+            "Control: allowlist GỐC (không mutate) PHẢI giữ set() — guard không luôn-đỏ.",
+        )
+
+
+# ── TC-MOB-OAS-25g (VERB-PARITY CLOSURE) — write-action POST-ONLY enforced @source ──────────────
+#   Đóng verb-divergence Mobile-BE: introspect REGISTRY runtime (frappe.allowed_http_methods_for_
+#   whitelisted_func) — gate THẬT dispatcher dùng — KHÔNG chỉ đọc yaml `post:`. Sau khi USER siết
+#   @frappe.whitelist(methods=["POST"]) cho 3 handler, MỌI path POST trong yaml (thuộc AssetCore) PHẢI
+#   POST-ONLY @source (cho phép POST, từ chối GET). 2 path oauth2 = Frappe-core passthrough (KHÔNG
+#   thuộc AssetCore, KHÔNG đổi được) ⇒ loại STRUCTURAL (như _AUTH_PATHS loại khỏi 401/403 symmetry),
+#   KHÔNG phải exemption verb-parity. SSoT cơ chế: frappe/__init__.py:836-857.
+class TestMobileWriteActionMethodEnforced(unittest.TestCase):
+    """TC-MOB-OAS-25g — VERB-PARITY CLOSURE: 3 write-action POST-ONLY @source + sweep toàn-bộ POST path.
+
+    Introspect runtime registry (KHÔNG HTTP, KHÔNG reload — bench run-tests import source @disk tươi).
+    RED-before (bare @whitelist nhận GET) → GREEN-after (methods=["POST"]). Đóng:
+      • submit_pm_result   @api/imm08.py:54  (PM WO completion — write, không idempotent).
+      • create_calibration @api/imm11.py:89  (mutating-create Calibration Record).
+      • submit_calibration @api/imm11.py:114 (docstatus 0→1 — completion, không idempotent).
+    SSoT: api/imm08.py + api/imm11.py + docs/mobile/openapi/assetcore-mobile.openapi.yaml (path POST).
+    """
+
+    _PM = "/api/method/assetcore.api.imm08.submit_pm_result"
+    _CAL = "/api/method/assetcore.api.imm11.create_calibration"
+    _SC = "/api/method/assetcore.api.imm11.submit_calibration"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.spec = _load_spec() if _MOBILE_YAML.exists() else None
+
+    def test_mob_oas_25g_parity_verb_allowlist_is_empty(self):
+        """(TC-PARITY-EMPTY) `_PARITY_VERB_ALLOWLIST` == set() — KHÔNG path POST nào được miễn
+        verb-parity. RED khi allowlist còn 3 path divergence; GREEN sau khi source fix + empty allowlist.
+        Canonical assert (KHÔNG phụ thuộc runtime-spec — luôn chạy, KHÔNG skip)."""
+        self.assertEqual(
+            _PARITY_VERB_ALLOWLIST, set(),
+            "Verb-parity ĐÃ đóng: allowlist PHẢI RỖNG (set()). Còn phần-tử = source CHƯA fix hết HOẶC "
+            f"allowlist-creep: {sorted(_PARITY_VERB_ALLOWLIST)}",
+        )
+
+    def test_mob_oas_25g_submit_pm_result_post_only(self):
+        """(TC-METHOD-08) imm08.submit_pm_result POST-ONLY @source (allowed == {'POST'}, GET bị từ chối).
+        RED trên source bare @whitelist (nhận GET); GREEN sau @frappe.whitelist(methods=['POST']) @imm08.py:54."""
+        _assert_post_only_at_source(self, self._PM)
+
+    def test_mob_oas_25g_create_calibration_post_only(self):
+        """(TC-METHOD-11A) imm11.create_calibration POST-ONLY @source (allowed == {'POST'}, GET từ chối).
+        RED trên source bare; GREEN sau @frappe.whitelist(methods=['POST']) @imm11.py:89."""
+        _assert_post_only_at_source(self, self._CAL)
+
+    def test_mob_oas_25g_submit_calibration_post_only(self):
+        """(TC-METHOD-11B) imm11.submit_calibration POST-ONLY @source (allowed == {'POST'}, GET từ chối).
+        RED trên source bare; GREEN sau @frappe.whitelist(methods=['POST']) @imm11.py:114."""
+        _assert_post_only_at_source(self, self._SC)
+
+    def test_mob_oas_25g_all_yaml_post_paths_post_only_sweep(self):
+        """(TC-FULL-SWEEP) MỌI path yaml khai `post:` thuộc AssetCore → resolve dotted → hàm THẬT →
+        assert @whitelist cho phép POST và TỪ CHỐI GET. 0 ngoại lệ (allowlist RỖNG).
+
+        Scope: path POST có dotted bắt-đầu `assetcore.` (handler BE ta sở-hữu). 2 path oauth2 Frappe-core
+        (get_token/revoke_token ∈ _AUTH_PATHS) loại STRUCTURAL (passthrough, KHÔNG đổi được) — đây KHÔNG
+        phải verb-exemption mà là ranh-giới scope (mirror _AUTH_PATHS loại khỏi 401/403 symmetry)."""
+        if self.spec is None:
+            self.skipTest("Thiếu yaml mobile spec.")
+        paths = self.spec.get("paths") or {}
+        post_paths = sorted(p for p, item in paths.items() if isinstance(item, dict) and "post" in item)
+        # Phân vùng: AssetCore-owned (sweep POST-only) vs Frappe-core passthrough (loại structural).
+        owned = [p for p in post_paths if _dotted_of(p).startswith("assetcore.")]
+        passthrough = [p for p in post_paths if not _dotted_of(p).startswith("assetcore.")]
+        # Khẳng-định scope: passthrough CHỈ là oauth2 Frappe-core (∈ _AUTH_PATHS) — KHÔNG path AssetCore
+        #   nào bị lọt vào nhánh loại-trừ (chống che giấu divergence qua "không phải assetcore").
+        for p in passthrough:
+            self.assertIn(
+                p, _AUTH_PATHS,
+                f"Path POST ngoài-AssetCore {p} PHẢI ∈ _AUTH_PATHS (oauth2 Frappe-core passthrough). "
+                "Path lạ = lỗ hổng scope (loại verb-check sai).",
+            )
+        self.assertGreaterEqual(
+            len(owned), 16,
+            f"Sweep PHẢI phủ ≥16 path POST AssetCore (16 business + 2 device-token). got {len(owned)}.",
+        )
+        # SWEEP: từng path AssetCore-owned PHẢI POST-ONLY @source (allowed == {'POST'}).
+        offenders = []
+        for p in owned:
+            allowed = _allowed_http_methods_for(_dotted_of(p))
+            if allowed != {"POST"}:
+                offenders.append(f"{_dotted_of(p)}: allowed={sorted(allowed)}")
+        self.assertEqual(
+            offenders, [],
+            "Path POST AssetCore KHÔNG POST-only @source (bare @whitelist nhận GET = verb-divergence — "
+            f"cần methods=['POST']): {offenders}",
+        )
+
+    def test_mob_oas_25g_sweep_helper_distinguishes_bare_vs_post_only(self):
+        """(anti-false-green) CHỨNG MINH `_allowed_http_methods_for` đọc REGISTRY THẬT, KHÔNG trả {'POST'}
+        suông: handler bare Frappe-core (oauth2.get_token) PHẢI nhận GET (≠ POST-only); handler clean
+        AssetCore (imm09.start_repair) PHẢI POST-only. Nếu helper luôn-{'POST'} → 2 assert này RED."""
+        bare = _allowed_http_methods_for("frappe.integrations.oauth2.get_token")
+        self.assertIn(
+            "GET", bare,
+            "Control bare handler (oauth2.get_token) PHẢI nhận GET — helper đọc registry THẬT, KHÔNG suông.",
+        )
+        self.assertNotEqual(
+            bare, {"POST"},
+            "Bare handler KHÔNG được coi là POST-only (helper false-green nếu == {'POST'}).",
+        )
+        clean = _allowed_http_methods_for("assetcore.api.imm09.start_repair")
+        self.assertEqual(
+            clean, {"POST"},
+            "Control clean handler (imm09.start_repair methods=['POST']) PHẢI POST-only — helper không luôn-đỏ.",
         )
 
 
@@ -4519,8 +9349,30 @@ class TestMobileRoadmapStateReconciled(unittest.TestCase):
         )
 
     def test_mob_oas_29b_roadmap_16_path_claim_matches_spec(self):
-        """(b) claim '16 path/16 operationId' trong roadmap khớp len(spec.paths) THẬT @working-tree —
-        chống claim count drift khỏi yaml (vd quên cập sau khi thêm path)."""
+        """(b) claim '29 path/29 operationId' trong roadmap khớp len(spec.paths) THẬT @working-tree —
+        chống claim count drift khỏi yaml (vd quên cập sau khi thêm path).
+
+        C-LISTREAD-SCHED: 16→17 (+listPmSchedules). C6-DETAIL: 17→21 (+4 GET-detail — open-thread #4b STATE).
+        C-LISTREAD-CAL: 21→22 (+listCalibrations — open-thread #4c STATE).
+        C-LISTREAD-ASSET: 22→23 (+listAssets — open-thread #4c STATE).
+        C-LISTREAD-USERS: 23→24 (+listUsers — open-thread #4 closure).
+        C8-ACTION: 24→25 (+acknowledgeIncident — POST-action lifecycle ĐẦU TIÊN incident).
+        C8-ACTION: 25→26 (+startRepair — POST-action lifecycle ĐẦU TIÊN repair).
+        C8-ACTION: 26→27 (+startWork — POST-action lifecycle THỨ HAI incident).
+        C8-ACTION: 27→28 (+resolveIncident — POST-action lifecycle THỨ BA incident).
+        C8-ACTION-PM: 28→29 (+submitPmResult — POST-action lifecycle ĐẦU TIÊN PM WO).
+        C8-ACTION: 29→30 (+closeWorkOrder — POST-action lifecycle TERMINAL repair: In Repair→Pending Inspection/Cannot Repair).
+        C8-ACTION: 30→31 (+submitCalibration — POST-action lifecycle COMPLETION calibration: docstatus 0→1, status→Passed/Failed/Conditionally Passed).
+        C8-ACTION: 31→32 (+closeIncident — POST-action lifecycle TERMINAL incident: Resolved→Closed; đóng mắt xích CUỐI report→ack→start→resolve→close).
+        C-LISTREAD-NOTIF: 32→33 (+listNotifications — in-app notification list, tab Notifications mobile; đóng gap đọc-lịch-sử flow-6 push).
+        C8-ACTION: 33→34 (+assignTechnician — POST-action lifecycle DISPATCH repair: Open→Assigned; lấp HỐ create→start, giao WO cho KTV; response RIÊNG 3-key {name,status,assigned_to}).
+        C8-ACTION: 34→35 (+submitDiagnosis — POST-action lifecycle MẮT-XÍCH-GIỮA repair: Assigned/Diagnosing→In Repair|Pending Parts; lấp dead-end giữa assign và start/close; REUSE RepairActionEnvelope/RepairActionResponse {name,status}).
+        FLOW-2: 35→36 (+getAssetIncidentHistory — GET-read lịch-sử sự-cố của asset, màn hồ-sơ sau quét QR; lấp dead-end sau getAssetScanInfo; envelope KHÔNG pagination + item EXACT 9 field).
+        FLOW-1: 36→37 (+getUserContext — GET-read session who-am-I, màn home sau login; allow_guest=True slot {200,401} KHÔNG 403; envelope data EXACT 13 field + 2 flag int-vs-bool; lấp hardcode "Đã đăng nhập" KHÔNG identity).
+        FLOW-5: 37→38 (+confirmInspection — POST-action TERMINAL-THẬT repair: Pending Inspection→Completed docstatus 0→1; cap repair.submit QA-duyệt; đóng dead-end CUỐI sau closeWorkOrder→Pending Inspection; ConfirmInspectionResponse EXACT 4-prop {name,status,mttr_hours,sla_breached} status.enum=['Completed'] single-value; C3-split ≠ CloseWorkOrderResponse ADR-MOBILE-009).
+        FLOW-6: 38→39 (+markNotificationAsRead — POST-action WRITE ĐẦU TIÊN trên Notification Log: set read=1; đóng dead-end listNotifications read-only — tab chuông/push deep-link KHÔNG có mark-read; ownership-guard for_user==session.user; MarkNotificationReadResponse EXACT 2-prop {name,read} read int enum[0,1] KHÔNG status — C3-split cross-domain ≠ mọi *ActionResponse; Notification∄ 404→HTTP-200 nhánh Error).
+        FLOW-2: 39→40 (+getAssetTimeline — GET-read dòng-thời-gian vòng-đời asset (lifecycle-event audit-trail trục CLAUDE.md §10), tab Lịch sử màn hồ-sơ sau quét QR; DocType Asset Lifecycle Event KHÁC R28 Incident Report; CÓ pagination KHÁC R28 limit-cap; AssetTimelineEvent EXACT 7 prop {name,event_type,actor,from_status,to_status,timestamp,notes} grounded imm00.py:1137, 0 boolean prop; asset∄ 404→HTTP-200 nhánh Error).
+        """
         self.assertTrue(self.roadmap_exists, f"Thiếu roadmap: {_ROADMAP_MD}")
         self.assertIsNotNone(self.spec, f"Thiếu/lỗi yaml: {_MOBILE_YAML}")
         actual_paths = len(self.spec.get("paths", {}))
@@ -4530,13 +9382,13 @@ class TestMobileRoadmapStateReconciled(unittest.TestCase):
             for verb, op in p.items()
             if verb in _HTTP_VERBS and isinstance(op, dict) and "operationId" in op
         ]
-        # source THẬT = 16/16; nếu yaml đổi, sửa CẢ yaml + roadmap claim (drift = RED).
-        self.assertEqual(actual_paths, 16, f"yaml paths THẬT={actual_paths} ≠ 16 (claim roadmap §3.1).")
-        self.assertEqual(len(op_ids), 16, f"yaml operationId THẬT={len(op_ids)} ≠ 16.")
-        # roadmap PHẢI khẳng định đúng con-số THẬT (KHÔNG để 15 cũ — đã phủ ở 29a, đây assert positive).
+        # source THẬT = 40/40; nếu yaml đổi, sửa CẢ yaml + roadmap claim (drift = RED).
+        self.assertEqual(actual_paths, 53, f"yaml paths THẬT={actual_paths} ≠ 52 (claim roadmap §3.1).")
+        self.assertEqual(len(op_ids), 53, f"yaml operationId THẬT={len(op_ids)} ≠ 52.")
+        # roadmap PHẢI khẳng định đúng con-số THẬT (KHÔNG để 16/17/22/23/24/25/26/27/28/29/30/31/32/34/35/36/37/38/39/43/45 cũ — đã phủ ở 29a, đây assert positive).
         self.assertRegex(
-            self.raw, r"16 path",
-            "roadmap §3.1 KHÔNG khẳng-định '16 path' — claim count phải khớp len(spec.paths)=16 THẬT.",
+            self.raw, r"53 path",
+            "roadmap §3.1 KHÔNG khẳng-định '52 path' — claim count phải khớp len(spec.paths)=52 THẬT.",
         )
 
     def test_mob_oas_29c_stub_paths_ref_by_symbol_not_absolute_line(self):
@@ -5029,6 +9881,6640 @@ class TestMobileTracebackHardeningDocGuard(unittest.TestCase):
         # (f) control RE-confirm — text THẬT vẫn GREEN sau mutate (mutate KHÔNG đụng bản gốc).
         _assert_traceback_hardening_invariant(
             self, self.region_08_4, self.region_adr_cons, self.region_10_62
+        )
+
+
+class TestMobileAcknowledgeIncidentContract(unittest.TestCase):
+    """TC-MOB-OAS-32 (C8-ACTION) — acknowledgeIncident: POST-action lifecycle ĐẦU TIÊN (Open→Acknowledged).
+
+    Đóng băng hợp đồng POST-action route-by-VALUE (mở đường màn incident-detail thoát dead-end
+    read-only) thành guard chạy được:
+      (a) path TỒN TẠI, POST-ONLY (CHỈ key 'post' — khớp @whitelist(methods=['POST']) imm12.py:233),
+          opId acknowledgeIncident; vào _MVP_BUSINESS_PATHS (401/403 symmetry set tự +1); count
+          26 path/opId unique camelCase; 0 dangling $ref.
+      (b) requestBody required:true, content application/json $ref AcknowledgeIncidentRequest (INLINE,
+          KHÔNG component — KHÔNG x-www-form như create). KHÔNG $ref-with-sibling (19b).
+      (c) AcknowledgeIncidentRequest = closed (additionalProperties:false), props EXACT {name,notes,
+          assigned_to}, required EXACT [name] (positional bắt buộc @imm12.py:234; notes/assigned_to
+          default '' ⇒ optional); 3 prop type string; notes/assigned_to có default ''.
+      (d) 200 = oneOf [IncidentActionEnvelope, Error] Ở TẦNG response-content-schema (route-by-VALUE
+          body.success, C6/C7); KHÔNG discriminator. 2 branch closed (additionalProperties:false),
+          success enum disjoint [true]/[false] (loại trừ máy-đọc).
+      (e) IncidentActionEnvelope closed {success enum[true], data $ref IncidentActionResponse};
+          IncidentActionResponse closed, props EXACT {name,status} (khớp svc_acknowledge return
+          @services/imm12.py:469), required [name,status]; status enum = Select-canonical 7-state.
+      (f) 403 = SINGLE-SHAPE $ref Forbidden (dispatcher-403; in-handler cap-403 imm12.py:241 phủ bởi
+          nhánh Error 200-oneOf) — KHÁC reportIncident DUAL-403 ReportIncidentForbidden.
+      (g) 401 = $ref Unauthorized401; KHÔNG bịa nhánh 200-Error riêng (đã phủ bởi oneOf Error);
+          KHÔNG có status-line key 404/409/422 (in-handler arrive HTTP-200, route theo body.http_status).
+      (h) acknowledgeIncident ∈ _PATHS_REQUIRE_401 ∧ _PATHS_REQUIRE_403 (symmetry set, so SET KHÔNG
+          literal); negative — name KHÔNG được optional, severity KHÔNG lọt body (action-on-existing).
+    SSoT: ../04-api-contract.md §10 (ADR-MOBILE-006) + imm12.py:233-241 + services/imm12.py:451,469 +
+    incident_report.json.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.spec = _load_spec() if _MOBILE_YAML.exists() else None
+
+    def _op(self):
+        return ((self.spec.get("paths") or {}).get(_ACK_INCIDENT_PATH) or {}).get("post") or {}
+
+    def _schemas(self):
+        return (self.spec.get("components") or {}).get("schemas") or {}
+
+    def test_mob_oas_ack_a_path_post_only_in_mvp(self):
+        """(a) path TỒN TẠI, POST-ONLY, opId acknowledgeIncident, ∈ _MVP_BUSINESS_PATHS; count 27 unique."""
+        paths = self.spec.get("paths") or {}
+        self.assertIn(_ACK_INCIDENT_PATH, paths, "Thiếu path acknowledge_incident (C8-ACTION).")
+        item = paths[_ACK_INCIDENT_PATH]
+        self.assertEqual(
+            sorted(item.keys()), ["post"],
+            "acknowledge_incident PHẢI POST-ONLY (chỉ key 'post', khớp @whitelist(methods=['POST']) imm12.py:233).",
+        )
+        self.assertEqual(self._op().get("operationId"), "acknowledgeIncident", "opId = acknowledgeIncident.")
+        self.assertIn(_ACK_INCIDENT_PATH, _MVP_BUSINESS_PATHS, "Phải vào _MVP_BUSINESS_PATHS (401/403 symmetry).")
+        ids = [op["operationId"] for _, _, op in _iter_operations(self.spec)]
+        self.assertEqual(len(paths), 53, "path-count PHẢI 52 (R-NOTIF-UNREAD +getUnreadNotifications).")
+        self.assertEqual(len(ids), 53, "operationId count PHẢI 52.")
+        self.assertEqual(len(set(ids)), 53, "operationId DUY NHẤT (len(set)==52).")
+        for oid in ids:
+            self.assertRegex(oid, _CAMEL_RE, f"operationId KHÔNG camelCase: {oid}")
+
+    def test_mob_oas_ack_b_request_body_inline_json_ref(self):
+        """(b) requestBody required:true + content application/json $ref AcknowledgeIncidentRequest (INLINE)."""
+        rb = self._op().get("requestBody") or {}
+        self.assertTrue(rb, "acknowledge PHẢI có requestBody.")
+        self.assertEqual(rb.get("required"), True, "requestBody.required PHẢI true (name positional bắt buộc).")
+        content = rb.get("content") or {}
+        self.assertIn("application/json", content, "requestBody PHẢI có application/json.")
+        # INLINE (KHÔNG component): KHÔNG x-www-form-urlencoded (action 1-schema, không như create body).
+        self.assertNotIn("application/x-www-form-urlencoded", content, "Action body INLINE json-only (KHÔNG form).")
+        schema_ref = ((content.get("application/json") or {}).get("schema") or {}).get("$ref")
+        self.assertEqual(
+            schema_ref, f"#/components/schemas/{_ACK_REQUEST_SCHEMA}",
+            f"application/json.schema PHẢI $ref {_ACK_REQUEST_SCHEMA}, got {schema_ref}",
+        )
+
+    def test_mob_oas_ack_c_request_schema_closed_required_exact(self):
+        """(c) AcknowledgeIncidentRequest closed; props EXACT {name,notes,assigned_to}; required EXACT [name]."""
+        sch = self._schemas().get(_ACK_REQUEST_SCHEMA) or {}
+        self.assertTrue(sch, f"Thiếu schema {_ACK_REQUEST_SCHEMA}.")
+        self.assertEqual(sch.get("additionalProperties"), False, "AcknowledgeIncidentRequest PHẢI closed (additionalProperties:false).")
+        props = sch.get("properties") or {}
+        self.assertEqual(set(props.keys()), _ACK_REQUEST_PROPS, f"props PHẢI EXACT {_ACK_REQUEST_PROPS}.")
+        self.assertEqual(
+            sorted(sch.get("required") or []), sorted(_ACK_REQUEST_REQUIRED),
+            f"required PHẢI EXACT {_ACK_REQUEST_REQUIRED} (name positional @imm12.py:234; notes/assigned_to default '').",
+        )
+        for f in ("name", "notes", "assigned_to"):
+            self.assertEqual((props.get(f) or {}).get("type"), "string", f"{f} PHẢI type string.")
+        # notes/assigned_to optional ⇒ có default '' (signature default).
+        for f in ("notes", "assigned_to"):
+            self.assertEqual((props.get(f) or {}).get("default"), "", f"{f} PHẢI default '' (khớp signature default).")
+
+    def test_mob_oas_ack_d_200_oneof_route_by_value(self):
+        """(d) 200 = oneOf [IncidentActionEnvelope, Error] ở response-content-schema (route-by-VALUE, 0 discriminator)."""
+        resp200 = ((self._op().get("responses") or {}).get("200") or {})
+        schema = (((resp200.get("content") or {}).get("application/json") or {}).get("schema") or {})
+        self.assertNotIn("discriminator", schema, "200 KHÔNG discriminator (route-by-VALUE body.success, §5c).")
+        one_of = schema.get("oneOf") or []
+        refs = {m.get("$ref") for m in one_of if isinstance(m, dict)}
+        self.assertEqual(
+            refs, {_ACK_ENVELOPE_SCHEMA_REF, "#/components/schemas/Error"},
+            f"200.oneOf PHẢI = [IncidentActionEnvelope, Error]: {sorted(refs)}",
+        )
+        schemas = self._schemas()
+        env = schemas.get(_ACK_ENVELOPE_SCHEMA) or {}
+        err = schemas.get("Error") or {}
+        self.assertEqual(env.get("additionalProperties"), False, "IncidentActionEnvelope PHẢI closed.")
+        self.assertEqual(err.get("additionalProperties"), False, "Error PHẢI closed (§5c).")
+        # success enum disjoint [true]/[false] — loại trừ máy-đọc.
+        env_succ = ((env.get("properties") or {}).get("success") or {}).get("enum")
+        err_succ = ((err.get("properties") or {}).get("success") or {}).get("enum")
+        self.assertEqual(env_succ, [True], "IncidentActionEnvelope.success.enum PHẢI [true].")
+        self.assertEqual(err_succ, [False], "Error.success.enum PHẢI [false] (disjoint).")
+
+    def test_mob_oas_ack_e_envelope_and_data_grounded(self):
+        """(e) IncidentActionEnvelope {success,data}; IncidentActionResponse closed {name,status} grounded imm12.py:469."""
+        schemas = self._schemas()
+        env = schemas.get(_ACK_ENVELOPE_SCHEMA) or {}
+        self.assertEqual(sorted(env.get("required") or []), ["data", "success"], "Envelope required PHẢI [success,data].")
+        data_ref = ((env.get("properties") or {}).get("data") or {}).get("$ref")
+        self.assertEqual(
+            data_ref, f"#/components/schemas/{_ACK_ACTION_RESPONSE_SCHEMA}",
+            f"Envelope.data PHẢI $ref {_ACK_ACTION_RESPONSE_SCHEMA}, got {data_ref}",
+        )
+        resp = schemas.get(_ACK_ACTION_RESPONSE_SCHEMA) or {}
+        self.assertTrue(resp, f"Thiếu schema {_ACK_ACTION_RESPONSE_SCHEMA}.")
+        self.assertEqual(resp.get("additionalProperties"), False, "IncidentActionResponse PHẢI closed (svc trả đúng 2 key).")
+        props = resp.get("properties") or {}
+        self.assertEqual(set(props.keys()), _ACK_DATA_KEYS, f"data props PHẢI EXACT {_ACK_DATA_KEYS} (imm12.py:469).")
+        self.assertEqual(sorted(resp.get("required") or []), sorted(_ACK_DATA_KEYS), "data required PHẢI [name,status].")
+        self.assertEqual((props.get("name") or {}).get("type"), "string", "data.name PHẢI string.")
+        self.assertEqual((props.get("status") or {}).get("type"), "string", "data.status PHẢI string.")
+        self.assertEqual(
+            (props.get("status") or {}).get("enum"), _INCIDENT_STATUS_ENUM,
+            "data.status.enum PHẢI Select-canonical 7-state @incident_report.json (post-ack='Acknowledged').",
+        )
+
+    def test_mob_oas_ack_f_403_single_shape_forbidden(self):
+        """(f) 403 = SINGLE-SHAPE Forbidden (dispatcher-403) — KHÁC reportIncident DUAL-403."""
+        resp403 = ((self._op().get("responses") or {}).get("403") or {})
+        self.assertEqual(
+            resp403.get("$ref"), _FORBIDDEN_RESP_REF,
+            f"403 PHẢI $ref Forbidden (SINGLE-SHAPE; in-handler cap-403 phủ bởi 200-oneOf Error), got {resp403.get('$ref')}",
+        )
+        # khác reportIncident (dual-shape ReportIncidentForbidden) — chứng minh KHÔNG dùng dual ở action.
+        self.assertNotEqual(
+            resp403.get("$ref"), _REPORT_INCIDENT_FORBIDDEN_RESP_REF,
+            "acknowledge 403 KHÔNG được dùng ReportIncidentForbidden (đó là DUAL-403 của report_incident).",
+        )
+
+    def test_mob_oas_ack_g_401_and_no_business_status_line(self):
+        """(g) 401 = Unauthorized401; KHÔNG status-line key 404/409/422 (in-handler arrive HTTP-200)."""
+        resps = (self._op().get("responses") or {})
+        self.assertEqual(
+            (resps.get("401") or {}).get("$ref"), _UNAUTHORIZED401_RESP_REF,
+            "401 PHẢI $ref Unauthorized401.",
+        )
+        # response slot CHỈ {200,401,403} — KHÔNG bịa 404/409/422 status-line (lỗi nghiệp vụ HTTP-200 Error).
+        self.assertEqual(
+            sorted(resps.keys()), ["200", "401", "403"],
+            f"response slot PHẢI CHỈ {{200,401,403}} (lỗi nghiệp vụ HTTP-200+Error, KHÔNG status-line): {sorted(resps.keys())}",
+        )
+
+    def test_mob_oas_ack_h_symmetry_set_and_no_dangling(self):
+        """(h) acknowledgeIncident ∈ _PATHS_REQUIRE_401 ∧ _PATHS_REQUIRE_403 (so SET); 0 dangling $ref."""
+        self.assertIn(_ACK_INCIDENT_PATH, _PATHS_REQUIRE_401, "acknowledge PHẢI ∈ _PATHS_REQUIRE_401.")
+        self.assertIn(_ACK_INCIDENT_PATH, _PATHS_REQUIRE_403, "acknowledge PHẢI ∈ _PATHS_REQUIRE_403.")
+        # symmetry SET: tập declare 401 (trừ auth-flow) == tập declare 403 == _PATHS_REQUIRE_403.
+        ops = {path: op for path, _, op in _iter_operations(self.spec)}
+        with_401 = {p for p, op in ops.items() if "401" in (op.get("responses") or {}) and p not in (_AUTH_PATHS | _ALLOW_GUEST_PATHS)}
+        with_403 = {p for p, op in ops.items() if "403" in (op.get("responses") or {}) and p not in (_AUTH_PATHS | _ALLOW_GUEST_PATHS)}
+        self.assertEqual(with_401, set(_PATHS_REQUIRE_403), "Tập 401 (trừ auth) == _PATHS_REQUIRE_403 (symmetry).")
+        self.assertEqual(with_403, set(_PATHS_REQUIRE_403), "Tập 403 (trừ auth) == _PATHS_REQUIRE_403 (symmetry).")
+        # 0 dangling $ref toàn spec (codegen-precondition).
+        dangling = sorted({r for r in _collect_refs(self.spec) if not _resolve_pointer(r, self.spec)})
+        self.assertEqual(dangling, [], f"PHẢI 0 dangling $ref sau bồi acknowledgeIncident: {dangling}")
+        # negative — name KHÔNG optional; severity KHÔNG lọt request body (action-on-existing, KHÔNG create).
+        req_props = ((self._schemas().get(_ACK_REQUEST_SCHEMA) or {}).get("properties") or {})
+        self.assertIn("name", ((self._schemas().get(_ACK_REQUEST_SCHEMA) or {}).get("required") or []),
+                      "name PHẢI required (KHÔNG optional).")
+        self.assertNotIn("severity", req_props, "severity KHÔNG lọt acknowledge body (action-on-existing, KHÔNG create).")
+
+    def test_mob_oas_ack_i_request_body_matches_live_signature(self):
+        """(i) LIVE introspect-parity — contract requestBody KHỚP 1:1 chữ-ký THẬT
+        inspect.signature(imm12.acknowledge_incident) (chống drift contract↔source).
+
+        Source @api/imm12.py:234 `def acknowledge_incident(name, notes='', assigned_to='')`:
+          • params LIVE == {name, notes, assigned_to} (KHÔNG thừa/thiếu).
+          • name KHÔNG default (positional bắt buộc) ⇒ contract required==[name].
+          • notes/assigned_to default '' ⇒ contract optional default ''.
+        """
+        from assetcore.api import imm12  # lazy — tránh import-time vòng phụ thuộc.
+        fn = getattr(imm12, "acknowledge_incident", None)
+        self.assertIsNotNone(fn, "Thiếu hàm whitelist LIVE: imm12.acknowledge_incident.")
+        sig = inspect.signature(fn)
+        params = sig.parameters
+        # params LIVE == 3 field contract (set-equal, KHÔNG thừa/thiếu).
+        self.assertEqual(
+            set(params.keys()), _ACK_REQUEST_PROPS,
+            f"signature LIVE PHẢI EXACT {_ACK_REQUEST_PROPS}, got {sorted(params.keys())}.",
+        )
+        # name KHÔNG default ⇒ required; notes/assigned_to default '' ⇒ optional.
+        self.assertIs(
+            params["name"].default, inspect.Parameter.empty,
+            "param `name` PHẢI KHÔNG default (positional bắt buộc) ⇒ contract required==[name].",
+        )
+        for f in ("notes", "assigned_to"):
+            self.assertEqual(
+                params[f].default, "",
+                f"param `{f}` PHẢI default '' (khớp contract optional default '').",
+            )
+        # cross-check contract↔source: required-set source-derived == contract required-set.
+        live_required = {n for n, p in params.items() if p.default is inspect.Parameter.empty}
+        self.assertEqual(
+            live_required, set(_ACK_REQUEST_REQUIRED),
+            f"required-set source-derived {sorted(live_required)} PHẢI == contract required "
+            f"{sorted(_ACK_REQUEST_REQUIRED)} (chống drift).",
+        )
+
+
+class TestMobileStartRepairContract(unittest.TestCase):
+    """C8-ACTION — startRepair: POST-action lifecycle ĐẦU TIÊN cho Asset Repair
+    (Assigned/Diagnosing/Pending Parts → In Repair).
+
+    Nối tiếp pattern acknowledgeIncident (route-by-VALUE body.success) cho domain repair — mở đường
+    màn repair-detail (getRepairWorkOrder) thoát dead-end read-only. Guard chạy được:
+      (a) path TỒN TẠI, POST-ONLY (CHỈ key 'post' — khớp @whitelist(methods=['POST']) api/imm09.py:71-72),
+          opId startRepair; vào _MVP_BUSINESS_PATHS (401/403 symmetry set tự +1); count 27 path/opId
+          unique camelCase; 0 dangling $ref.
+      (b) requestBody required:true, content application/json $ref StartRepairRequest (INLINE,
+          KHÔNG component — KHÔNG x-www-form như create). KHÔNG oneOf json+form (đơn-field action,
+          mirror AcknowledgeIncidentRequest).
+      (c) StartRepairRequest = closed (additionalProperties:false), props EXACT {name}, required EXACT
+          [name] (positional bắt buộc @api/imm09.py:72 — start_repair(name), 0 optional); name type string.
+      (d) 200 = oneOf [RepairActionEnvelope, Error] Ở TẦNG response-content-schema (route-by-VALUE
+          body.success, C6/C7); KHÔNG discriminator. 2 branch closed (additionalProperties:false),
+          success enum disjoint [true]/[false] (loại trừ máy-đọc).
+      (e) RepairActionEnvelope closed {success enum[true], data $ref RepairActionResponse};
+          RepairActionResponse closed, props EXACT {name,status} (khớp svc.start_repair return
+          @services/imm09.py:847), required [name,status]; status enum = RepairStatus-canonical 9-state
+          (KHÔNG cross-domain IncidentActionResponse — C3-split field-disjoint).
+      (f) 403 = SINGLE-SHAPE $ref Forbidden (dispatcher-403; in-handler cap-403 repair.write
+          api/imm09.py:73 phủ bởi nhánh Error 200-oneOf) — KHÁC reportIncident DUAL-403 ReportIncidentForbidden.
+      (g) 401 = $ref Unauthorized401; KHÔNG bịa nhánh 200-Error riêng (đã phủ bởi oneOf Error);
+          KHÔNG có status-line key 404/409/422 (in-handler arrive HTTP-200, route theo body.http_status).
+      (h) startRepair ∈ _PATHS_REQUIRE_401 ∧ _PATHS_REQUIRE_403 (symmetry set, so SET KHÔNG literal);
+          negative — name KHÔNG được optional; status/diagnosis_notes KHÔNG lọt body (action ĐƠN field).
+      (i) LIVE introspect-parity — contract requestBody KHỚP 1:1 chữ-ký THẬT
+          inspect.signature(imm09.start_repair)=={name} (name no-default), chống drift contract↔source.
+    SSoT: ../04-api-contract.md (ADR-MOBILE-006) + api/imm09.py:71-74 + services/imm09.py:831,847 +
+    asset_repair.json (RepairStatus @services/imm09.py:30-39).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.spec = _load_spec() if _MOBILE_YAML.exists() else None
+
+    def _op(self):
+        return ((self.spec.get("paths") or {}).get(_START_REPAIR_PATH) or {}).get("post") or {}
+
+    def _schemas(self):
+        return (self.spec.get("components") or {}).get("schemas") or {}
+
+    def test_mob_oas_startrepair_a_path_post_only_in_mvp(self):
+        """(a) path TỒN TẠI, POST-ONLY, opId startRepair, ∈ _MVP_BUSINESS_PATHS; count 27 unique."""
+        paths = self.spec.get("paths") or {}
+        self.assertIn(_START_REPAIR_PATH, paths, "Thiếu path start_repair (C8-ACTION).")
+        item = paths[_START_REPAIR_PATH]
+        self.assertEqual(
+            sorted(item.keys()), ["post"],
+            "start_repair PHẢI POST-ONLY (chỉ key 'post', khớp @whitelist(methods=['POST']) api/imm09.py:71-72).",
+        )
+        self.assertEqual(self._op().get("operationId"), "startRepair", "opId = startRepair.")
+        self.assertIn(_START_REPAIR_PATH, _MVP_BUSINESS_PATHS, "Phải vào _MVP_BUSINESS_PATHS (401/403 symmetry).")
+        ids = [op["operationId"] for _, _, op in _iter_operations(self.spec)]
+        self.assertEqual(len(paths), 53, "path-count PHẢI 52 (R-NOTIF-UNREAD +getUnreadNotifications).")
+        self.assertEqual(len(ids), 53, "operationId count PHẢI 52.")
+        self.assertEqual(len(set(ids)), 53, "operationId DUY NHẤT (len(set)==52).")
+        for oid in ids:
+            self.assertRegex(oid, _CAMEL_RE, f"operationId KHÔNG camelCase: {oid}")
+
+    def test_mob_oas_startrepair_b_request_body_inline_json_ref(self):
+        """(b) requestBody required:true + content application/json $ref StartRepairRequest (INLINE, json-only)."""
+        rb = self._op().get("requestBody") or {}
+        self.assertTrue(rb, "start_repair PHẢI có requestBody.")
+        self.assertEqual(rb.get("required"), True, "requestBody.required PHẢI true (name positional bắt buộc).")
+        content = rb.get("content") or {}
+        self.assertIn("application/json", content, "requestBody PHẢI có application/json.")
+        # INLINE đơn-field action: KHÔNG x-www-form-urlencoded (mirror AcknowledgeIncidentRequest, KHÔNG create-triad).
+        self.assertNotIn("application/x-www-form-urlencoded", content, "Action body INLINE json-only (KHÔNG form).")
+        schema_ref = ((content.get("application/json") or {}).get("schema") or {}).get("$ref")
+        self.assertEqual(
+            schema_ref, f"#/components/schemas/{_START_REPAIR_REQUEST_SCHEMA}",
+            f"application/json.schema PHẢI $ref {_START_REPAIR_REQUEST_SCHEMA}, got {schema_ref}",
+        )
+
+    def test_mob_oas_startrepair_c_request_schema_closed_single_name(self):
+        """(c) StartRepairRequest closed; props EXACT {name}; required EXACT [name] (0 optional param)."""
+        sch = self._schemas().get(_START_REPAIR_REQUEST_SCHEMA) or {}
+        self.assertTrue(sch, f"Thiếu schema {_START_REPAIR_REQUEST_SCHEMA}.")
+        self.assertEqual(sch.get("additionalProperties"), False, "StartRepairRequest PHẢI closed (additionalProperties:false).")
+        props = sch.get("properties") or {}
+        self.assertEqual(set(props.keys()), _START_REPAIR_REQUEST_PROPS, f"props PHẢI EXACT {_START_REPAIR_REQUEST_PROPS}.")
+        self.assertEqual(
+            sorted(sch.get("required") or []), sorted(_START_REPAIR_REQUEST_REQUIRED),
+            f"required PHẢI EXACT {_START_REPAIR_REQUEST_REQUIRED} (name positional @api/imm09.py:72; 0 optional).",
+        )
+        self.assertEqual((props.get("name") or {}).get("type"), "string", "name PHẢI type string.")
+
+    def test_mob_oas_startrepair_d_200_oneof_route_by_value(self):
+        """(d) 200 = oneOf [RepairActionEnvelope, Error] ở response-content-schema (route-by-VALUE, 0 discriminator)."""
+        resp200 = ((self._op().get("responses") or {}).get("200") or {})
+        schema = (((resp200.get("content") or {}).get("application/json") or {}).get("schema") or {})
+        self.assertNotIn("discriminator", schema, "200 KHÔNG discriminator (route-by-VALUE body.success, §5c).")
+        one_of = schema.get("oneOf") or []
+        refs = {m.get("$ref") for m in one_of if isinstance(m, dict)}
+        self.assertEqual(
+            refs, {_START_REPAIR_ENVELOPE_SCHEMA_REF, "#/components/schemas/Error"},
+            f"200.oneOf PHẢI = [RepairActionEnvelope, Error]: {sorted(refs)}",
+        )
+        schemas = self._schemas()
+        env = schemas.get(_START_REPAIR_ENVELOPE_SCHEMA) or {}
+        err = schemas.get("Error") or {}
+        self.assertEqual(env.get("additionalProperties"), False, "RepairActionEnvelope PHẢI closed.")
+        self.assertEqual(err.get("additionalProperties"), False, "Error PHẢI closed (§5c).")
+        env_succ = ((env.get("properties") or {}).get("success") or {}).get("enum")
+        err_succ = ((err.get("properties") or {}).get("success") or {}).get("enum")
+        self.assertEqual(env_succ, [True], "RepairActionEnvelope.success.enum PHẢI [true].")
+        self.assertEqual(err_succ, [False], "Error.success.enum PHẢI [false] (disjoint).")
+
+    def test_mob_oas_startrepair_e_envelope_and_data_grounded(self):
+        """(e) RepairActionEnvelope {success,data}; RepairActionResponse closed {name,status} grounded imm09.py:847."""
+        schemas = self._schemas()
+        env = schemas.get(_START_REPAIR_ENVELOPE_SCHEMA) or {}
+        self.assertEqual(sorted(env.get("required") or []), ["data", "success"], "Envelope required PHẢI [success,data].")
+        data_ref = ((env.get("properties") or {}).get("data") or {}).get("$ref")
+        self.assertEqual(
+            data_ref, f"#/components/schemas/{_START_REPAIR_ACTION_RESPONSE_SCHEMA}",
+            f"Envelope.data PHẢI $ref {_START_REPAIR_ACTION_RESPONSE_SCHEMA}, got {data_ref}",
+        )
+        resp = schemas.get(_START_REPAIR_ACTION_RESPONSE_SCHEMA) or {}
+        self.assertTrue(resp, f"Thiếu schema {_START_REPAIR_ACTION_RESPONSE_SCHEMA}.")
+        self.assertEqual(resp.get("additionalProperties"), False, "RepairActionResponse PHẢI closed (svc trả đúng 2 key).")
+        props = resp.get("properties") or {}
+        self.assertEqual(set(props.keys()), _START_REPAIR_DATA_KEYS, f"data props PHẢI EXACT {_START_REPAIR_DATA_KEYS} (imm09.py:847).")
+        self.assertEqual(sorted(resp.get("required") or []), sorted(_START_REPAIR_DATA_KEYS), "data required PHẢI [name,status].")
+        self.assertEqual((props.get("name") or {}).get("type"), "string", "data.name PHẢI string.")
+        self.assertEqual((props.get("status") or {}).get("type"), "string", "data.status PHẢI string.")
+        self.assertEqual(
+            (props.get("status") or {}).get("enum"), _REPAIR_STATUS_ENUM,
+            "data.status.enum PHẢI RepairStatus-canonical 9-state @services/imm09.py:30-39 (post-start='In Repair').",
+        )
+        # cross-domain disjoint: RepairActionResponse KHÔNG được trùng object IncidentActionResponse (C3-split).
+        self.assertNotEqual(
+            _START_REPAIR_ACTION_RESPONSE_SCHEMA, _ACK_ACTION_RESPONSE_SCHEMA,
+            "RepairActionResponse PHẢI là schema RIÊNG (field-disjoint, KHÔNG tái dùng IncidentActionResponse).",
+        )
+        self.assertNotEqual(
+            resp.get("properties", {}).get("status", {}).get("enum"), _INCIDENT_STATUS_ENUM,
+            "status enum repair (9-state) PHẢI KHÁC incident (7-state) — chứng minh cross-domain disjoint.",
+        )
+
+    def test_mob_oas_startrepair_f_403_single_shape_forbidden(self):
+        """(f) 403 = SINGLE-SHAPE Forbidden (dispatcher-403) — KHÁC reportIncident DUAL-403."""
+        resp403 = ((self._op().get("responses") or {}).get("403") or {})
+        self.assertEqual(
+            resp403.get("$ref"), _FORBIDDEN_RESP_REF,
+            f"403 PHẢI $ref Forbidden (SINGLE-SHAPE; in-handler cap-403 repair.write phủ bởi 200-oneOf Error), "
+            f"got {resp403.get('$ref')}",
+        )
+        self.assertNotEqual(
+            resp403.get("$ref"), _REPORT_INCIDENT_FORBIDDEN_RESP_REF,
+            "startRepair 403 KHÔNG được dùng ReportIncidentForbidden (đó là DUAL-403 của report_incident).",
+        )
+
+    def test_mob_oas_startrepair_g_401_and_no_business_status_line(self):
+        """(g) 401 = Unauthorized401; KHÔNG status-line key 404/409/422 (in-handler arrive HTTP-200)."""
+        resps = (self._op().get("responses") or {})
+        self.assertEqual(
+            (resps.get("401") or {}).get("$ref"), _UNAUTHORIZED401_RESP_REF,
+            "401 PHẢI $ref Unauthorized401.",
+        )
+        self.assertEqual(
+            sorted(resps.keys()), ["200", "401", "403"],
+            f"response slot PHẢI CHỈ {{200,401,403}} (lỗi nghiệp vụ HTTP-200+Error, KHÔNG status-line): {sorted(resps.keys())}",
+        )
+
+    def test_mob_oas_startrepair_h_symmetry_set_and_no_dangling(self):
+        """(h) startRepair ∈ _PATHS_REQUIRE_401 ∧ _PATHS_REQUIRE_403 (so SET); 0 dangling $ref."""
+        self.assertIn(_START_REPAIR_PATH, _PATHS_REQUIRE_401, "startRepair PHẢI ∈ _PATHS_REQUIRE_401.")
+        self.assertIn(_START_REPAIR_PATH, _PATHS_REQUIRE_403, "startRepair PHẢI ∈ _PATHS_REQUIRE_403.")
+        ops = {path: op for path, _, op in _iter_operations(self.spec)}
+        with_401 = {p for p, op in ops.items() if "401" in (op.get("responses") or {}) and p not in (_AUTH_PATHS | _ALLOW_GUEST_PATHS)}
+        with_403 = {p for p, op in ops.items() if "403" in (op.get("responses") or {}) and p not in (_AUTH_PATHS | _ALLOW_GUEST_PATHS)}
+        self.assertEqual(with_401, set(_PATHS_REQUIRE_403), "Tập 401 (trừ auth) == _PATHS_REQUIRE_403 (symmetry).")
+        self.assertEqual(with_403, set(_PATHS_REQUIRE_403), "Tập 403 (trừ auth) == _PATHS_REQUIRE_403 (symmetry).")
+        dangling = sorted({r for r in _collect_refs(self.spec) if not _resolve_pointer(r, self.spec)})
+        self.assertEqual(dangling, [], f"PHẢI 0 dangling $ref sau bồi startRepair: {dangling}")
+        # negative — name PHẢI required; status/diagnosis_notes KHÔNG lọt body (action ĐƠN field, KHÔNG create/diagnose).
+        req_schema = self._schemas().get(_START_REPAIR_REQUEST_SCHEMA) or {}
+        req_props = req_schema.get("properties") or {}
+        self.assertIn("name", (req_schema.get("required") or []), "name PHẢI required (KHÔNG optional).")
+        self.assertNotIn("status", req_props, "status KHÔNG lọt start_repair body (server-derived 'In Repair').")
+        self.assertNotIn("diagnosis_notes", req_props, "diagnosis_notes KHÔNG lọt start_repair body (đó là submit_diagnosis).")
+
+    def test_mob_oas_startrepair_i_request_body_matches_live_signature(self):
+        """(i) LIVE introspect-parity — contract requestBody KHỚP 1:1 chữ-ký THẬT
+        inspect.signature(imm09.start_repair) (chống drift contract↔source).
+
+        Source @api/imm09.py:72 `def start_repair(name)`:
+          • params LIVE == {name} (KHÔNG thừa/thiếu — đơn-field action).
+          • name KHÔNG default (positional bắt buộc) ⇒ contract required==[name], 0 optional.
+        """
+        from assetcore.api import imm09  # lazy — tránh import-time vòng phụ thuộc.
+        fn = getattr(imm09, "start_repair", None)
+        self.assertIsNotNone(fn, "Thiếu hàm whitelist LIVE: imm09.start_repair.")
+        sig = inspect.signature(fn)
+        params = sig.parameters
+        # params LIVE == 1 field contract (set-equal, KHÔNG thừa/thiếu).
+        self.assertEqual(
+            set(params.keys()), _START_REPAIR_REQUEST_PROPS,
+            f"signature LIVE PHẢI EXACT {_START_REPAIR_REQUEST_PROPS}, got {sorted(params.keys())}.",
+        )
+        # name KHÔNG default ⇒ required; 0 param optional.
+        self.assertIs(
+            params["name"].default, inspect.Parameter.empty,
+            "param `name` PHẢI KHÔNG default (positional bắt buộc) ⇒ contract required==[name].",
+        )
+        live_required = {n for n, p in params.items() if p.default is inspect.Parameter.empty}
+        self.assertEqual(
+            live_required, set(_START_REPAIR_REQUEST_REQUIRED),
+            f"required-set source-derived {sorted(live_required)} PHẢI == contract required "
+            f"{sorted(_START_REPAIR_REQUEST_REQUIRED)} (chống drift).",
+        )
+
+
+class TestMobileSubmitDiagnosisContract(unittest.TestCase):
+    """C8-ACTION — submitDiagnosis: POST-action lifecycle MẮT-XÍCH-GIỮA cho Asset Repair
+    (Assigned/Diagnosing → In Repair | Pending Parts).
+
+    LẤP dead-end CTA GIỮA assignTechnician (Open→Assigned) và startRepair/closeWorkOrder — KTV mở
+    repair-detail đã Assigned → nộp kết quả chẩn đoán → rẽ nhánh theo needs_parts. Guard chạy được:
+      (a) path TỒN TẠI, POST-ONLY (CHỈ key 'post' — khớp @whitelist(methods=['POST']) api/imm09.py:63-64),
+          opId submitDiagnosis; vào _MVP_BUSINESS_PATHS (401/403 symmetry set tự +1); count 35 path/opId
+          unique camelCase; 0 dangling $ref.
+      (b) requestBody required:true, content application/json $ref SubmitDiagnosisRequest (INLINE,
+          json-only — KHÔNG x-www-form). KHÔNG oneOf json+form (action đơn-record, mirror StartRepairRequest).
+      (c) SubmitDiagnosisRequest = closed (additionalProperties:false), props EXACT
+          {name,diagnosis_notes,needs_parts}, required EXACT [name,diagnosis_notes] (positional no-default
+          @api/imm09.py:64; needs_parts default 0 ⇒ optional). needs_parts = type:integer enum[0,1] default 0
+          (KHÔNG boolean — handler ép int(needs_parts) api/imm09.py:68; INT-vs-BOOL Open#4 cho REQUEST body).
+      (d) 200 = oneOf [RepairActionEnvelope, Error] Ở TẦNG response-content-schema (route-by-VALUE
+          body.success, C6/C7); KHÔNG discriminator. 2 branch closed (additionalProperties:false),
+          success enum disjoint [true]/[false].
+      (e) REUSE RepairActionEnvelope/RepairActionResponse (service trả EXACT {name,status}
+          @services/imm09.py:950) — KHÔNG sinh response-schema mới (mirror startRepair). RepairActionEnvelope
+          {success enum[true], data $ref RepairActionResponse}; RepairActionResponse closed, props EXACT
+          {name,status}, required [name,status]; status enum = RepairStatus-canonical 9-state.
+      (f) 403 = SINGLE-SHAPE $ref Forbidden (dispatcher-403; in-handler cap-403 repair.write api/imm09.py:65
+          phủ bởi nhánh Error 200-oneOf) — KHÁC reportIncident DUAL-403 ReportIncidentForbidden.
+      (g) 401 = $ref Unauthorized401; response slot CHỈ {200,401,403} — KHÔNG status-line 404/409/422
+          (lỗi nghiệp vụ IMM09_BAD_STATE 409/CONFLICT + IMM09_NOT_FOUND 404/NOT_FOUND arrive HTTP-200,
+          route theo body.http_status). Error.code/http_status biểu-diễn-được trong Error đóng sẵn (bounded).
+      (h) submitDiagnosis ∈ _PATHS_REQUIRE_401 ∧ _PATHS_REQUIRE_403 (symmetry set, so SET); 0 dangling $ref;
+          negative — name+diagnosis_notes required; status KHÔNG lọt body (server-derived).
+      (i) LIVE introspect-parity — contract requestBody KHỚP 1:1 chữ-ký THẬT
+          inspect.signature(imm09.submit_diagnosis)=={name,diagnosis_notes,needs_parts}
+          (name+diagnosis_notes no-default, needs_parts default 0), chống drift contract↔source.
+    SSoT: ../04-api-contract.md §8.11-bis (ADR-MOBILE-006) + api/imm09.py:63-68 + services/imm09.py:929,938,950 +
+    asset_repair.json (RepairStatus @services/imm09.py:30-39) + utils/messages.py:634-646 (IMM09_NOT_FOUND 404 /
+    IMM09_BAD_STATE 409) + utils/notify.py:37-46 (_HTTP_TO_BUCKET).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.spec = _load_spec() if _MOBILE_YAML.exists() else None
+
+    def _op(self):
+        return ((self.spec.get("paths") or {}).get(_SUBMIT_DIAGNOSIS_PATH) or {}).get("post") or {}
+
+    def _schemas(self):
+        return (self.spec.get("components") or {}).get("schemas") or {}
+
+    def test_mob_oas_submitdiag_a_path_post_only_in_mvp(self):
+        """(a) path TỒN TẠI, POST-ONLY, opId submitDiagnosis, ∈ _MVP_BUSINESS_PATHS; count 35 unique."""
+        paths = self.spec.get("paths") or {}
+        self.assertIn(_SUBMIT_DIAGNOSIS_PATH, paths, "Thiếu path submit_diagnosis (C8-ACTION).")
+        item = paths[_SUBMIT_DIAGNOSIS_PATH]
+        self.assertEqual(
+            sorted(item.keys()), ["post"],
+            "submit_diagnosis PHẢI POST-ONLY (chỉ key 'post', khớp @whitelist(methods=['POST']) api/imm09.py:63-64).",
+        )
+        self.assertEqual(self._op().get("operationId"), "submitDiagnosis", "opId = submitDiagnosis.")
+        self.assertIn(_SUBMIT_DIAGNOSIS_PATH, _MVP_BUSINESS_PATHS, "Phải vào _MVP_BUSINESS_PATHS (401/403 symmetry).")
+        ids = [op["operationId"] for _, _, op in _iter_operations(self.spec)]
+        self.assertEqual(len(paths), 53, "path-count PHẢI 52 (R-NOTIF-UNREAD +getUnreadNotifications).")
+        self.assertEqual(len(ids), 53, "operationId count PHẢI 52.")
+        self.assertEqual(len(set(ids)), 53, "operationId DUY NHẤT (len(set)==52).")
+        for oid in ids:
+            self.assertRegex(oid, _CAMEL_RE, f"operationId KHÔNG camelCase: {oid}")
+
+    def test_mob_oas_submitdiag_b_request_body_inline_json_ref(self):
+        """(b) requestBody required:true + content application/json $ref SubmitDiagnosisRequest (INLINE, json-only)."""
+        rb = self._op().get("requestBody") or {}
+        self.assertTrue(rb, "submit_diagnosis PHẢI có requestBody.")
+        self.assertEqual(rb.get("required"), True, "requestBody.required PHẢI true (name+diagnosis_notes positional bắt buộc).")
+        content = rb.get("content") or {}
+        self.assertIn("application/json", content, "requestBody PHẢI có application/json.")
+        self.assertNotIn("application/x-www-form-urlencoded", content, "Action body INLINE json-only (KHÔNG form).")
+        schema_ref = ((content.get("application/json") or {}).get("schema") or {}).get("$ref")
+        self.assertEqual(
+            schema_ref, f"#/components/schemas/{_SUBMIT_DIAGNOSIS_REQUEST_SCHEMA}",
+            f"application/json.schema PHẢI $ref {_SUBMIT_DIAGNOSIS_REQUEST_SCHEMA}, got {schema_ref}",
+        )
+
+    def test_mob_oas_submitdiag_c_request_schema_closed_props_required(self):
+        """(c) SubmitDiagnosisRequest closed; props EXACT {name,diagnosis_notes,needs_parts};
+        required EXACT [name,diagnosis_notes]; needs_parts integer enum[0,1] default 0 (KHÔNG boolean)."""
+        sch = self._schemas().get(_SUBMIT_DIAGNOSIS_REQUEST_SCHEMA) or {}
+        self.assertTrue(sch, f"Thiếu schema {_SUBMIT_DIAGNOSIS_REQUEST_SCHEMA}.")
+        self.assertEqual(sch.get("additionalProperties"), False, "SubmitDiagnosisRequest PHẢI closed (additionalProperties:false).")
+        props = sch.get("properties") or {}
+        self.assertEqual(set(props.keys()), _SUBMIT_DIAGNOSIS_REQUEST_PROPS, f"props PHẢI EXACT {_SUBMIT_DIAGNOSIS_REQUEST_PROPS}.")
+        self.assertEqual(
+            sorted(sch.get("required") or []), sorted(_SUBMIT_DIAGNOSIS_REQUEST_REQUIRED),
+            f"required PHẢI EXACT {_SUBMIT_DIAGNOSIS_REQUEST_REQUIRED} (name+diagnosis_notes positional @api/imm09.py:64; needs_parts default 0).",
+        )
+        self.assertEqual((props.get("name") or {}).get("type"), "string", "name PHẢI type string.")
+        self.assertEqual((props.get("diagnosis_notes") or {}).get("type"), "string", "diagnosis_notes PHẢI type string.")
+        np = props.get("needs_parts") or {}
+        self.assertEqual(np.get("type"), "integer", "needs_parts PHẢI type integer (KHÔNG boolean — handler ép int api/imm09.py:68).")
+        self.assertEqual(np.get("enum"), [0, 1], "needs_parts.enum PHẢI [0,1] (INT-vs-BOOL Open#4 cho REQUEST body).")
+        self.assertEqual(np.get("default"), 0, "needs_parts.default PHẢI 0 (signature @api/imm09.py:64).")
+        self.assertNotEqual(np.get("type"), "boolean", "needs_parts TUYỆT ĐỐI KHÔNG boolean.")
+
+    def test_mob_oas_submitdiag_d_200_oneof_route_by_value(self):
+        """(d) 200 = oneOf [RepairActionEnvelope, Error] ở response-content-schema (route-by-VALUE, 0 discriminator)."""
+        resp200 = ((self._op().get("responses") or {}).get("200") or {})
+        schema = (((resp200.get("content") or {}).get("application/json") or {}).get("schema") or {})
+        self.assertNotIn("discriminator", schema, "200 KHÔNG discriminator (route-by-VALUE body.success, §5c).")
+        one_of = schema.get("oneOf") or []
+        refs = {m.get("$ref") for m in one_of if isinstance(m, dict)}
+        self.assertEqual(
+            refs, {_SUBMIT_DIAGNOSIS_ENVELOPE_SCHEMA_REF, "#/components/schemas/Error"},
+            f"200.oneOf PHẢI = [RepairActionEnvelope, Error]: {sorted(refs)}",
+        )
+        schemas = self._schemas()
+        env = schemas.get(_SUBMIT_DIAGNOSIS_ENVELOPE_SCHEMA) or {}
+        err = schemas.get("Error") or {}
+        self.assertEqual(env.get("additionalProperties"), False, "RepairActionEnvelope PHẢI closed.")
+        self.assertEqual(err.get("additionalProperties"), False, "Error PHẢI closed (§5c).")
+        env_succ = ((env.get("properties") or {}).get("success") or {}).get("enum")
+        err_succ = ((err.get("properties") or {}).get("success") or {}).get("enum")
+        self.assertEqual(env_succ, [True], "RepairActionEnvelope.success.enum PHẢI [true].")
+        self.assertEqual(err_succ, [False], "Error.success.enum PHẢI [false] (disjoint).")
+
+    def test_mob_oas_submitdiag_e_reuse_repair_action_envelope(self):
+        """(e) REUSE RepairActionEnvelope/RepairActionResponse (KHÔNG schema response mới);
+        RepairActionResponse closed {name,status} grounded svc.submit_diagnosis return @imm09.py:950."""
+        schemas = self._schemas()
+        # REUSE — KHÔNG sinh schema response RIÊNG cho submit_diagnosis (mirror startRepair).
+        self.assertEqual(
+            _SUBMIT_DIAGNOSIS_ENVELOPE_SCHEMA, _START_REPAIR_ENVELOPE_SCHEMA,
+            "submitDiagnosis PHẢI REUSE RepairActionEnvelope (KHÔNG sinh envelope schema mới).",
+        )
+        self.assertEqual(
+            _SUBMIT_DIAGNOSIS_ACTION_RESPONSE_SCHEMA, _START_REPAIR_ACTION_RESPONSE_SCHEMA,
+            "submitDiagnosis PHẢI REUSE RepairActionResponse (service trả EXACT {name,status} @imm09.py:950).",
+        )
+        self.assertNotIn(
+            "SubmitDiagnosisResponse", schemas,
+            "KHÔNG được sinh SubmitDiagnosisResponse — REUSE RepairActionResponse (service trả {name,status}).",
+        )
+        self.assertNotIn(
+            "SubmitDiagnosisEnvelope", schemas,
+            "KHÔNG được sinh SubmitDiagnosisEnvelope — REUSE RepairActionEnvelope.",
+        )
+        env = schemas.get(_SUBMIT_DIAGNOSIS_ENVELOPE_SCHEMA) or {}
+        self.assertEqual(sorted(env.get("required") or []), ["data", "success"], "Envelope required PHẢI [success,data].")
+        data_ref = ((env.get("properties") or {}).get("data") or {}).get("$ref")
+        self.assertEqual(
+            data_ref, f"#/components/schemas/{_SUBMIT_DIAGNOSIS_ACTION_RESPONSE_SCHEMA}",
+            f"Envelope.data PHẢI $ref {_SUBMIT_DIAGNOSIS_ACTION_RESPONSE_SCHEMA}, got {data_ref}",
+        )
+        resp = schemas.get(_SUBMIT_DIAGNOSIS_ACTION_RESPONSE_SCHEMA) or {}
+        self.assertTrue(resp, f"Thiếu schema {_SUBMIT_DIAGNOSIS_ACTION_RESPONSE_SCHEMA}.")
+        self.assertEqual(resp.get("additionalProperties"), False, "RepairActionResponse PHẢI closed (svc trả đúng 2 key).")
+        props = resp.get("properties") or {}
+        self.assertEqual(set(props.keys()), _SUBMIT_DIAGNOSIS_DATA_KEYS, f"data props PHẢI EXACT {_SUBMIT_DIAGNOSIS_DATA_KEYS} (imm09.py:950).")
+        self.assertEqual(sorted(resp.get("required") or []), sorted(_SUBMIT_DIAGNOSIS_DATA_KEYS), "data required PHẢI [name,status].")
+        self.assertEqual(
+            (props.get("status") or {}).get("enum"), _REPAIR_STATUS_ENUM,
+            "data.status.enum PHẢI RepairStatus-canonical 9-state (post-diagnosis = 'Pending Parts' | 'In Repair').",
+        )
+
+    def test_mob_oas_submitdiag_f_403_single_shape_forbidden(self):
+        """(f) 403 = SINGLE-SHAPE Forbidden (dispatcher-403) — KHÁC reportIncident DUAL-403."""
+        resp403 = ((self._op().get("responses") or {}).get("403") or {})
+        self.assertEqual(
+            resp403.get("$ref"), _FORBIDDEN_RESP_REF,
+            f"403 PHẢI $ref Forbidden (SINGLE-SHAPE; in-handler cap-403 repair.write phủ bởi 200-oneOf Error), "
+            f"got {resp403.get('$ref')}",
+        )
+        self.assertNotEqual(
+            resp403.get("$ref"), _REPORT_INCIDENT_FORBIDDEN_RESP_REF,
+            "submitDiagnosis 403 KHÔNG được dùng ReportIncidentForbidden (đó là DUAL-403 của report_incident).",
+        )
+
+    def test_mob_oas_submitdiag_g_401_and_error_branch_bounded(self):
+        """(g) 401 = Unauthorized401; response slot CHỈ {200,401,403}; Error.code/http_status bounded
+        (IMM09_BAD_STATE 409/CONFLICT + IMM09_NOT_FOUND 404/NOT_FOUND arrive HTTP-200, biểu-diễn-được)."""
+        resps = (self._op().get("responses") or {})
+        self.assertEqual(
+            (resps.get("401") or {}).get("$ref"), _UNAUTHORIZED401_RESP_REF,
+            "401 PHẢI $ref Unauthorized401.",
+        )
+        self.assertEqual(
+            sorted(resps.keys()), ["200", "401", "403"],
+            f"response slot PHẢI CHỈ {{200,401,403}} (lỗi nghiệp vụ HTTP-200+Error, KHÔNG status-line): {sorted(resps.keys())}",
+        )
+        # Error-on-HTTP-200 nhánh: code/http_status của BAD_STATE(409/CONFLICT)+NOT_FOUND(404/NOT_FOUND)
+        #   PHẢI biểu-diễn-được trong Error đóng sẵn (bounded enum) — KHÔNG cần mở schema.
+        err = self._schemas().get("Error") or {}
+        code_enum = ((err.get("properties") or {}).get("code") or {}).get("enum") or []
+        status_enum = ((err.get("properties") or {}).get("http_status") or {}).get("enum") or []
+        for code in ("CONFLICT", "NOT_FOUND"):
+            self.assertIn(code, code_enum, f"Error.code enum PHẢI chứa {code} (in-handler error submit_diagnosis).")
+        for st in (409, 404):
+            self.assertIn(st, status_enum, f"Error.http_status enum PHẢI chứa {st} (bounded R11).")
+
+    def test_mob_oas_submitdiag_h_symmetry_set_and_no_dangling(self):
+        """(h) submitDiagnosis ∈ _PATHS_REQUIRE_401 ∧ _PATHS_REQUIRE_403 (so SET); 0 dangling $ref."""
+        self.assertIn(_SUBMIT_DIAGNOSIS_PATH, _PATHS_REQUIRE_401, "submitDiagnosis PHẢI ∈ _PATHS_REQUIRE_401.")
+        self.assertIn(_SUBMIT_DIAGNOSIS_PATH, _PATHS_REQUIRE_403, "submitDiagnosis PHẢI ∈ _PATHS_REQUIRE_403.")
+        ops = {path: op for path, _, op in _iter_operations(self.spec)}
+        with_401 = {p for p, op in ops.items() if "401" in (op.get("responses") or {}) and p not in (_AUTH_PATHS | _ALLOW_GUEST_PATHS)}
+        with_403 = {p for p, op in ops.items() if "403" in (op.get("responses") or {}) and p not in (_AUTH_PATHS | _ALLOW_GUEST_PATHS)}
+        self.assertEqual(with_401, set(_PATHS_REQUIRE_403), "Tập 401 (trừ auth) == _PATHS_REQUIRE_403 (symmetry).")
+        self.assertEqual(with_403, set(_PATHS_REQUIRE_403), "Tập 403 (trừ auth) == _PATHS_REQUIRE_403 (symmetry).")
+        dangling = sorted({r for r in _collect_refs(self.spec) if not _resolve_pointer(r, self.spec)})
+        self.assertEqual(dangling, [], f"PHẢI 0 dangling $ref sau bồi submitDiagnosis: {dangling}")
+        # negative — name+diagnosis_notes PHẢI required; status KHÔNG lọt body (server-derived).
+        req_schema = self._schemas().get(_SUBMIT_DIAGNOSIS_REQUEST_SCHEMA) or {}
+        req_props = req_schema.get("properties") or {}
+        for f in ("name", "diagnosis_notes"):
+            self.assertIn(f, (req_schema.get("required") or []), f"{f} PHẢI required (KHÔNG optional).")
+        self.assertNotIn("status", req_props, "status KHÔNG lọt submit_diagnosis body (server-derived Pending Parts | In Repair).")
+
+    def test_mob_oas_submitdiag_i_request_body_matches_live_signature(self):
+        """(i) LIVE introspect-parity — contract requestBody KHỚP 1:1 chữ-ký THẬT
+        inspect.signature(imm09.submit_diagnosis) (chống drift contract↔source).
+
+        Source @api/imm09.py:64 `def submit_diagnosis(name, diagnosis_notes, needs_parts=0)`:
+          • params LIVE == {name,diagnosis_notes,needs_parts} (KHÔNG thừa/thiếu).
+          • name+diagnosis_notes KHÔNG default (positional bắt buộc) ⇒ contract required==[name,diagnosis_notes];
+            needs_parts default 0 ⇒ optional.
+        """
+        from assetcore.api import imm09  # lazy — tránh import-time vòng phụ thuộc.
+        fn = getattr(imm09, "submit_diagnosis", None)
+        self.assertIsNotNone(fn, "Thiếu hàm whitelist LIVE: imm09.submit_diagnosis.")
+        sig = inspect.signature(fn)
+        params = sig.parameters
+        self.assertEqual(
+            set(params.keys()), _SUBMIT_DIAGNOSIS_REQUEST_PROPS,
+            f"signature LIVE PHẢI EXACT {_SUBMIT_DIAGNOSIS_REQUEST_PROPS}, got {sorted(params.keys())}.",
+        )
+        for f in ("name", "diagnosis_notes"):
+            self.assertIs(
+                params[f].default, inspect.Parameter.empty,
+                f"param `{f}` PHẢI KHÔNG default (positional bắt buộc) ⇒ contract required.",
+            )
+        self.assertEqual(params["needs_parts"].default, 0, "param `needs_parts` PHẢI default 0 ⇒ optional.")
+        live_required = {n for n, p in params.items() if p.default is inspect.Parameter.empty}
+        self.assertEqual(
+            live_required, set(_SUBMIT_DIAGNOSIS_REQUEST_REQUIRED),
+            f"required-set source-derived {sorted(live_required)} PHẢI == contract required "
+            f"{sorted(_SUBMIT_DIAGNOSIS_REQUEST_REQUIRED)} (chống drift).",
+        )
+
+
+class TestMobileGetAssetIncidentHistoryContract(unittest.TestCase):
+    """FLOW-2 DEVICE-PROFILE — getAssetIncidentHistory: GET-read lịch-sử sự-cố của 1 asset
+    (màn hồ-sơ-thiết-bị sau quét QR).
+
+    LẤP dead-end: getAssetScanInfo trả profile + available_actions của asset NHƯNG KHÔNG có endpoint
+    liệt-kê lịch-sử sự-cố của asset đó (KTV quét QR → "máy này từng hỏng gì?"). KHÁC listIncidents
+    ("của tôi", paginate, 28 enrich-field): KHÔNG pagination (svc chỉ limit cap default 10) + element
+    CHỈ 9 field grounded frappe.get_all. Guard chạy được:
+      (a) path TỒN TẠI, GET-ONLY (CHỈ key 'get' — bare @whitelist nhận GET api/imm12.py:172),
+          opId getAssetIncidentHistory; vào _MVP_BUSINESS_PATHS (401/403 symmetry set tự +1); count 36
+          path/opId unique camelCase; 0 dangling $ref.
+      (b) 2 query param: asset (required, string) + limit (optional, integer, default 10) — KHỚP
+          signature api/imm12.py:173 get_asset_incident_history(asset, limit=10). KHÔNG requestBody (GET).
+      (c) 200 = oneOf [AssetIncidentHistoryEnvelope, Error] Ở TẦNG response-content-schema (route-by-VALUE
+          body.success, C7 read-path); KHÔNG discriminator. 2 branch closed (additionalProperties:false),
+          success enum disjoint [true]/[false].
+      (d) AssetIncidentHistoryEnvelope closed (additionalProperties:false), required[success,data],
+          success enum[true]; data = object closed required[asset,items] (KHÔNG pagination — KHÁC
+          IncidentListEnvelope.data.required[pagination,items]); items = array $ref AssetIncidentHistoryItem.
+      (e) AssetIncidentHistoryItem closed (additionalProperties:false), props EXACT 9 = {name,incident_type,
+          severity,status,reported_at,fault_code,closed_date,linked_capa,rca_record} (GROUNDED
+          frappe.get_all fields @services/imm12.py:838-839); required tối thiểu [name].
+      (f) 0 boolean/Check field trong 9 prop (incident_type/severity/status=Select, reported_at=Datetime,
+          closed_date=Date, fault_code=Data, linked_capa/rca_record=Link) ⇒ int-vs-bool trap né sẵn
+          (Open#1) — KHÁC IncidentListItem có rca_required/chronic_failure_flag/patient_affected Check→int.
+      (g) 401 = $ref Unauthorized401 (handler guard frappe.session.user=='Guest'→_err 401 api/imm12.py:175-176;
+          SINGLE-SHAPE component, uniform 36-path convention, mirror listIncidents); response slot CHỈ
+          {200,401,403} — KHÔNG status-line 404 (asset∄ → items[] RỖNG, KHÔNG 404). cap-gate = incident
+          read (handle→svc permission-aware) → thiếu quyền = cap-403 Error-trên-HTTP-200.
+      (h) getAssetIncidentHistory ∈ _PATHS_REQUIRE_401 ∧ _PATHS_REQUIRE_403 (symmetry set, so SET);
+          0 dangling $ref; 403 = SINGLE-SHAPE Forbidden (dispatcher-403; KHÔNG ReportIncidentForbidden DUAL).
+      (i) LIVE introspect-parity — contract query-param KHỚP 1:1 chữ-ký THẬT
+          inspect.signature(imm12.get_asset_incident_history)=={asset,limit} (asset no-default, limit
+          default 10), chống drift contract↔source.
+    SSoT: ../04-api-contract.md (FLOW-2 device-profile) + api/imm12.py:172-177 + services/imm12.py:834-843
+    (frappe.get_all Incident Report fields 9 + return {asset,items} KHÔNG pagination) + incident_report.json.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.spec = _load_spec() if _MOBILE_YAML.exists() else None
+
+    def _op(self):
+        return ((self.spec.get("paths") or {}).get(_ASSET_INCIDENT_HISTORY_PATH) or {}).get("get") or {}
+
+    def _schemas(self):
+        return (self.spec.get("components") or {}).get("schemas") or {}
+
+    def test_mob_oas_assethist_a_path_get_only_in_mvp(self):
+        """(a) path TỒN TẠI, GET-ONLY, opId getAssetIncidentHistory, ∈ _MVP_BUSINESS_PATHS; count 36 unique."""
+        paths = self.spec.get("paths") or {}
+        self.assertIn(_ASSET_INCIDENT_HISTORY_PATH, paths, "Thiếu path get_asset_incident_history (FLOW-2).")
+        item = paths[_ASSET_INCIDENT_HISTORY_PATH]
+        self.assertEqual(
+            sorted(item.keys()), ["get"],
+            "get_asset_incident_history PHẢI GET-ONLY (chỉ key 'get', bare @whitelist api/imm12.py:172).",
+        )
+        self.assertEqual(self._op().get("operationId"), "getAssetIncidentHistory", "opId = getAssetIncidentHistory.")
+        self.assertIn(_ASSET_INCIDENT_HISTORY_PATH, _MVP_BUSINESS_PATHS, "Phải vào _MVP_BUSINESS_PATHS (401/403 symmetry).")
+        ids = [op["operationId"] for _, _, op in _iter_operations(self.spec)]
+        self.assertEqual(len(paths), 53, "path-count PHẢI 52 (R-NOTIF-UNREAD +getUnreadNotifications).")
+        self.assertEqual(len(ids), 53, "operationId count PHẢI 52.")
+        self.assertEqual(len(set(ids)), 53, "operationId DUY NHẤT (len(set)==52).")
+        for oid in ids:
+            self.assertRegex(oid, _CAMEL_RE, f"operationId KHÔNG camelCase: {oid}")
+
+    def test_mob_oas_assethist_b_query_params_asset_required_limit_optional(self):
+        """(b) 2 query param: asset (required, string) + limit (optional, integer, default 10);
+        KHÔNG requestBody (GET). KHỚP signature api/imm12.py:173 (asset, limit=10)."""
+        op = self._op()
+        self.assertNotIn("requestBody", op, "GET get_asset_incident_history KHÔNG được có requestBody.")
+        params = {p.get("name"): p for p in (op.get("parameters") or []) if isinstance(p, dict)}
+        self.assertEqual(set(params.keys()), {"asset", "limit"}, f"PHẢI EXACT 2 query param {{asset,limit}}: {sorted(params.keys())}.")
+        a = params["asset"]
+        self.assertEqual(a.get("in"), "query", "asset PHẢI in:query.")
+        self.assertTrue(a.get("required"), "asset PHẢI required:true (positional no-default @api/imm12.py:173).")
+        self.assertEqual((a.get("schema") or {}).get("type"), "string", "asset PHẢI type string.")
+        lim = params["limit"]
+        self.assertEqual(lim.get("in"), "query", "limit PHẢI in:query.")
+        self.assertFalse(lim.get("required"), "limit PHẢI optional (default 10 @api/imm12.py:173).")
+        self.assertEqual((lim.get("schema") or {}).get("type"), "integer", "limit PHẢI type integer (KHÔNG string — handler ép int api/imm12.py:177).")
+        self.assertEqual((lim.get("schema") or {}).get("default"), 10, "limit.default PHẢI 10 (signature @api/imm12.py:173).")
+
+    def test_mob_oas_assethist_c_200_oneof_route_by_value(self):
+        """(c) 200 = oneOf [AssetIncidentHistoryEnvelope, Error] route-by-VALUE body.success (0 discriminator)."""
+        resp200 = ((self._op().get("responses") or {}).get("200") or {})
+        schema = (((resp200.get("content") or {}).get("application/json") or {}).get("schema") or {})
+        self.assertNotIn("discriminator", schema, "200 KHÔNG discriminator (route-by-VALUE body.success, C7).")
+        one_of = schema.get("oneOf") or []
+        refs = {m.get("$ref") for m in one_of if isinstance(m, dict)}
+        self.assertEqual(
+            refs, {_ASSET_INCIDENT_HISTORY_ENVELOPE_SCHEMA_REF, "#/components/schemas/Error"},
+            f"200.oneOf PHẢI = [AssetIncidentHistoryEnvelope, Error]: {sorted(refs)}",
+        )
+        schemas = self._schemas()
+        env = schemas.get(_ASSET_INCIDENT_HISTORY_ENVELOPE_SCHEMA) or {}
+        err = schemas.get("Error") or {}
+        self.assertEqual(env.get("additionalProperties"), False, "AssetIncidentHistoryEnvelope PHẢI closed.")
+        self.assertEqual(err.get("additionalProperties"), False, "Error PHẢI closed (§5c).")
+        env_succ = ((env.get("properties") or {}).get("success") or {}).get("enum")
+        err_succ = ((err.get("properties") or {}).get("success") or {}).get("enum")
+        self.assertEqual(env_succ, [True], "AssetIncidentHistoryEnvelope.success.enum PHẢI [true].")
+        self.assertEqual(err_succ, [False], "Error.success.enum PHẢI [false] (disjoint).")
+
+    def test_mob_oas_assethist_d_envelope_closed_data_no_pagination(self):
+        """(d) Envelope closed required[success,data]; data closed required[asset,items] KHÔNG pagination;
+        items = array $ref AssetIncidentHistoryItem."""
+        env = self._schemas().get(_ASSET_INCIDENT_HISTORY_ENVELOPE_SCHEMA) or {}
+        self.assertTrue(env, f"Thiếu schema {_ASSET_INCIDENT_HISTORY_ENVELOPE_SCHEMA}.")
+        self.assertEqual(sorted(env.get("required") or []), ["data", "success"], "Envelope required PHẢI [success,data].")
+        data = (env.get("properties") or {}).get("data") or {}
+        self.assertEqual(data.get("additionalProperties"), False, "data PHẢI closed (additionalProperties:false).")
+        self.assertEqual(
+            sorted(data.get("required") or []), sorted(_ASSET_INCIDENT_HISTORY_DATA_REQUIRED),
+            f"data.required PHẢI EXACT {_ASSET_INCIDENT_HISTORY_DATA_REQUIRED} (KHÔNG pagination — svc trả {{asset,items}} @imm12.py:843).",
+        )
+        self.assertNotIn(
+            "pagination", data.get("properties") or {},
+            "data KHÔNG được có pagination (svc chỉ limit cap, KHÁC IncidentListEnvelope).",
+        )
+        items = (data.get("properties") or {}).get("items") or {}
+        self.assertEqual(items.get("type"), "array", "data.items PHẢI array.")
+        self.assertEqual(
+            (items.get("items") or {}).get("$ref"), _ASSET_INCIDENT_HISTORY_ITEM_SCHEMA_REF,
+            "items[] PHẢI $ref AssetIncidentHistoryItem.",
+        )
+        self.assertEqual(
+            ((data.get("properties") or {}).get("asset") or {}).get("type"), "string",
+            "data.asset PHẢI string (echo mã thiết bị @imm12.py:843).",
+        )
+
+    def test_mob_oas_assethist_e_item_closed_exact_9_props(self):
+        """(e) AssetIncidentHistoryItem closed; props EXACT 9 (GROUNDED frappe.get_all fields imm12.py:838-839);
+        required tối thiểu [name]."""
+        item = self._schemas().get(_ASSET_INCIDENT_HISTORY_ITEM_SCHEMA) or {}
+        self.assertTrue(item, f"Thiếu schema {_ASSET_INCIDENT_HISTORY_ITEM_SCHEMA}.")
+        self.assertEqual(item.get("additionalProperties"), False, "AssetIncidentHistoryItem PHẢI closed.")
+        props = item.get("properties") or {}
+        self.assertEqual(
+            set(props.keys()), _ASSET_INCIDENT_HISTORY_ITEM_PROPS,
+            f"props PHẢI EXACT 9 {_ASSET_INCIDENT_HISTORY_ITEM_PROPS} (frappe.get_all @imm12.py:838-839): {sorted(props.keys())}.",
+        )
+        self.assertEqual(len(props), 9, "PHẢI đúng 9 prop (KHÁC IncidentListItem 28-field).")
+        self.assertEqual(
+            sorted(item.get("required") or []), sorted(_ASSET_INCIDENT_HISTORY_ITEM_REQUIRED),
+            f"required PHẢI tối thiểu {_ASSET_INCIDENT_HISTORY_ITEM_REQUIRED} (PK; còn lại optional).",
+        )
+
+    def test_mob_oas_assethist_f_no_boolean_no_int_bool_trap(self):
+        """(f) 0 boolean/Check field trong 9 prop ⇒ int-vs-bool trap né sẵn (Open#1).
+        9 field: 3 Select + 1 Datetime + 1 Date + 1 Data + 2 Link ⇒ string/date-time/date, KHÔNG int-flag."""
+        props = (self._schemas().get(_ASSET_INCIDENT_HISTORY_ITEM_SCHEMA) or {}).get("properties") or {}
+        for pname, pdef in props.items():
+            self.assertNotEqual(
+                pdef.get("type"), "boolean",
+                f"{pname} KHÔNG được boolean (0 Check field — né int-vs-bool trap).",
+            )
+            self.assertNotEqual(
+                pdef.get("enum"), [0, 1],
+                f"{pname} KHÔNG được integer enum[0,1] (0 Check field trong 9 — KHÁC IncidentListItem).",
+            )
+        # type SPOT-CHECK grounded DocType fieldtype (incident_report.json).
+        self.assertEqual((props.get("status") or {}).get("type"), "string", "status (Select) PHẢI string.")
+        self.assertEqual((props.get("reported_at") or {}).get("format"), "date-time", "reported_at (Datetime) PHẢI format date-time.")
+        self.assertEqual((props.get("closed_date") or {}).get("format"), "date", "closed_date (Date) PHẢI format date.")
+
+    def test_mob_oas_assethist_g_401_and_response_slots(self):
+        """(g) 401 = Unauthorized401 (handler guard Guest→_err 401 imm12.py:175-176); response slot CHỈ
+        {200,401,403} — KHÔNG status-line 404 (asset∄ → items[] RỖNG, KHÔNG 404)."""
+        resps = (self._op().get("responses") or {})
+        self.assertEqual(
+            (resps.get("401") or {}).get("$ref"), _UNAUTHORIZED401_RESP_REF,
+            "401 PHẢI $ref Unauthorized401 (SINGLE-SHAPE, uniform convention; mirror listIncidents).",
+        )
+        self.assertEqual(
+            sorted(resps.keys()), ["200", "401", "403"],
+            f"response slot PHẢI CHỈ {{200,401,403}} (asset∄ → items[] RỖNG KHÔNG 404; cap-403 HTTP-200+Error): {sorted(resps.keys())}",
+        )
+
+    def test_mob_oas_assethist_h_403_single_shape_symmetry_no_dangling(self):
+        """(h) 403 = SINGLE-SHAPE Forbidden; ∈ _PATHS_REQUIRE_401 ∧ _PATHS_REQUIRE_403 (so SET); 0 dangling."""
+        resp403 = ((self._op().get("responses") or {}).get("403") or {})
+        self.assertEqual(
+            resp403.get("$ref"), _FORBIDDEN_RESP_REF,
+            f"403 PHẢI $ref Forbidden (SINGLE-SHAPE), got {resp403.get('$ref')}",
+        )
+        self.assertNotEqual(
+            resp403.get("$ref"), _REPORT_INCIDENT_FORBIDDEN_RESP_REF,
+            "getAssetIncidentHistory 403 KHÔNG được dùng ReportIncidentForbidden (DUAL-403 của report_incident).",
+        )
+        self.assertIn(_ASSET_INCIDENT_HISTORY_PATH, _PATHS_REQUIRE_401, "PHẢI ∈ _PATHS_REQUIRE_401.")
+        self.assertIn(_ASSET_INCIDENT_HISTORY_PATH, _PATHS_REQUIRE_403, "PHẢI ∈ _PATHS_REQUIRE_403.")
+        ops = {path: op for path, _, op in _iter_operations(self.spec)}
+        with_401 = {p for p, op in ops.items() if "401" in (op.get("responses") or {}) and p not in (_AUTH_PATHS | _ALLOW_GUEST_PATHS)}
+        with_403 = {p for p, op in ops.items() if "403" in (op.get("responses") or {}) and p not in (_AUTH_PATHS | _ALLOW_GUEST_PATHS)}
+        self.assertEqual(with_401, set(_PATHS_REQUIRE_403), "Tập 401 (trừ auth) == _PATHS_REQUIRE_403 (symmetry).")
+        self.assertEqual(with_403, set(_PATHS_REQUIRE_403), "Tập 403 (trừ auth) == _PATHS_REQUIRE_403 (symmetry).")
+        dangling = sorted({r for r in _collect_refs(self.spec) if not _resolve_pointer(r, self.spec)})
+        self.assertEqual(dangling, [], f"PHẢI 0 dangling $ref sau bồi getAssetIncidentHistory: {dangling}")
+
+    def test_mob_oas_assethist_i_params_match_live_signature(self):
+        """(i) LIVE introspect-parity — contract query-param KHỚP 1:1 chữ-ký THẬT
+        inspect.signature(imm12.get_asset_incident_history) (chống drift contract↔source).
+
+        Source @api/imm12.py:173 `def get_asset_incident_history(asset, limit=10)`:
+          • params LIVE == {asset, limit} (KHÔNG thừa/thiếu).
+          • asset KHÔNG default (positional bắt buộc) ⇒ contract asset.required==true;
+            limit default 10 ⇒ optional + schema.default==10.
+        """
+        from assetcore.api import imm12  # lazy — tránh import-time vòng phụ thuộc.
+        fn = getattr(imm12, "get_asset_incident_history", None)
+        self.assertIsNotNone(fn, "Thiếu hàm whitelist LIVE: imm12.get_asset_incident_history.")
+        sig = inspect.signature(fn)
+        params = sig.parameters
+        self.assertEqual(
+            set(params.keys()), {"asset", "limit"},
+            f"signature LIVE PHẢI EXACT {{asset,limit}}, got {sorted(params.keys())}.",
+        )
+        self.assertIs(
+            params["asset"].default, inspect.Parameter.empty,
+            "param `asset` PHẢI KHÔNG default (positional bắt buộc) ⇒ contract required.",
+        )
+        self.assertEqual(params["limit"].default, 10, "param `limit` PHẢI default 10 ⇒ optional + schema.default 10.")
+
+
+class TestMobileGetAssetRepairHistoryContract(unittest.TestCase):
+    """FLOW-2 DEVICE-PROFILE (R42 IMM-09) — getAssetRepairHistory: GET-read lịch-sử SỬA-CHỮA (CM)
+    của 1 asset (tab "Lịch sử sửa chữa" màn hồ-sơ-thiết-bị sau quét QR).
+
+    LẤP dead-end: getAssetScanInfo trả profile + getAssetIncidentHistory (sự-cố) + getAssetTimeline
+    (vòng-đời) NHƯNG KHÔNG có endpoint liệt-kê lịch-sử SỬA-CHỮA CM của asset (KTV quét QR → "máy này
+    từng sửa gì, MTTR bao lâu, có vi phạm SLA?"). MIRROR getAssetIncidentHistory NHƯNG 3 KHÁC-BIỆT
+    có-chủ-đích (ADR-MOBILE-022):
+      • rows-key `history` (KHÔNG `items`) + asset-key `asset_ref` (KHÔNG `asset`) — KHỚP svc return
+        {asset_ref, history} @services/imm09.py:1220 (KHÁC incident {asset, items}).
+      • 200 = SINGLE-shape AssetRepairHistoryEnvelope (KHÔNG oneOf [Env, Error]): handler
+        @api/imm09.py:127 = handle(svc.get_asset_history); svc 0 raise ServiceError ⇒ handle LUÔN _ok,
+        0 nhánh _err in-handler ⇒ KHÔNG Error branch trên HTTP-200 (mirror listTransfers/pingSession,
+        KHÁC getAssetIncidentHistory oneOf).
+      • 1 Check field sla_breached → integer (Frappe Check 0/1, KHÔNG boolean) — incident có 0 Check.
+    Guard chạy được:
+      (a) path TỒN TẠI, GET-ONLY (CHỈ key 'get' — bare @whitelist nhận GET api/imm09.py:126),
+          opId getAssetRepairHistory; ∈ _MVP_BUSINESS_PATHS (401/403 symmetry set tự +1); count 52
+          path/opId unique camelCase; 0 dangling $ref.
+      (b) 2 query param: asset_ref (required, string) + limit (optional, integer, default 10) — KHỚP
+          signature api/imm09.py:127 get_asset_repair_history(asset_ref, limit="10"). KHÔNG requestBody (GET).
+      (c) 200 = SINGLE schema $ref AssetRepairHistoryEnvelope (KHÔNG oneOf, KHÔNG discriminator) —
+          handler 0 _err ⇒ KHÔNG Error branch (mirror listTransfers). Envelope closed
+          (additionalProperties:false), success enum[true].
+      (d) AssetRepairHistoryEnvelope closed, required[success,data], success enum[true]; data = object
+          closed required[asset_ref,history] (KHÔNG pagination — svc chỉ limit cap default 10); history
+          = array $ref AssetRepairHistoryItem; data.asset_ref string (echo mã thiết bị @imm09.py:1220).
+      (e) AssetRepairHistoryItem closed (additionalProperties:false), props EXACT 9 = {name,repair_type,
+          priority,open_datetime,completion_datetime,mttr_hours,sla_breached,root_cause_category,
+          repair_summary} (GROUNDED RepairRepo.list fields @services/imm09.py:1215-1216); required[name].
+      (f) KHÔNG int-vs-bool trap: sla_breached = integer (Check 0/1, KHÔNG boolean/enum[0,1]); mttr_hours
+          = number; open_datetime/completion_datetime = string KHÔNG format:date-time (Frappe naive
+          datetime wire 'yyyy-MM-dd HH:mm:ss').
+      (g) 401 = $ref Unauthorized401 (bearer hết hạn → refresh/re-auth); response slot CHỈ {200,401,403}
+          — KHÔNG status-line 404 (asset∄ → history[] RỖNG, KHÔNG 404).
+      (h) 403 = SINGLE-SHAPE Forbidden (dispatcher-403 guest/no-token: bare @whitelist KHÔNG allow_guest
+          @api/imm09.py:126; KHÔNG ReportIncidentForbidden DUAL); ∈ _PATHS_REQUIRE_401 ∧ _PATHS_REQUIRE_403
+          (so SET); 0 dangling $ref.
+      (i) LIVE introspect-parity — contract query-param KHỚP 1:1 chữ-ký THẬT
+          inspect.signature(imm09.get_asset_repair_history)=={asset_ref,limit} (asset_ref no-default,
+          limit default "10" str — handler ép int(limit) @api/imm09.py:128), chống drift contract↔source.
+    SSoT: ../04-api-contract.md (FLOW-2 device-profile repair-history) + ADR-MOBILE-022 +
+    api/imm09.py:126-128 + services/imm09.py:1212-1220 (RepairRepo.list 9 fields docstatus=1 +
+    return {asset_ref,history} KHÔNG pagination) + asset_repair.json.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.spec = _load_spec() if _MOBILE_YAML.exists() else None
+
+    def _op(self):
+        return ((self.spec.get("paths") or {}).get(_ASSET_REPAIR_HISTORY_PATH) or {}).get("get") or {}
+
+    def _schemas(self):
+        return (self.spec.get("components") or {}).get("schemas") or {}
+
+    def test_mob_oas_repairhist_a_path_get_only_in_mvp(self):
+        """(a) path TỒN TẠI, GET-ONLY, opId getAssetRepairHistory, ∈ _MVP_BUSINESS_PATHS; count 52 unique."""
+        paths = self.spec.get("paths") or {}
+        self.assertIn(_ASSET_REPAIR_HISTORY_PATH, paths, "Thiếu path get_asset_repair_history (FLOW-2 R42).")
+        item = paths[_ASSET_REPAIR_HISTORY_PATH]
+        self.assertEqual(
+            sorted(item.keys()), ["get"],
+            "get_asset_repair_history PHẢI GET-ONLY (chỉ key 'get', bare @whitelist api/imm09.py:126).",
+        )
+        self.assertEqual(self._op().get("operationId"), "getAssetRepairHistory", "opId = getAssetRepairHistory.")
+        self.assertIn(_ASSET_REPAIR_HISTORY_PATH, _MVP_BUSINESS_PATHS, "Phải vào _MVP_BUSINESS_PATHS (401/403 symmetry).")
+        ids = [op["operationId"] for _, _, op in _iter_operations(self.spec)]
+        self.assertEqual(len(paths), 53, "path-count PHẢI 52 (R42 +getAssetRepairHistory).")
+        self.assertEqual(len(ids), 53, "operationId count PHẢI 52.")
+        self.assertEqual(len(set(ids)), 53, "operationId DUY NHẤT (len(set)==52).")
+        for oid in ids:
+            self.assertRegex(oid, _CAMEL_RE, f"operationId KHÔNG camelCase: {oid}")
+
+    def test_mob_oas_repairhist_b_query_params_asset_ref_required_limit_optional(self):
+        """(b) 2 query param: asset_ref (required, string) + limit (optional, integer, default 10);
+        KHÔNG requestBody (GET). KHỚP signature api/imm09.py:127 (asset_ref, limit='10').
+        ⚠️ param tên `asset_ref` (KHÔNG `asset` — KHÁC getAssetIncidentHistory)."""
+        op = self._op()
+        self.assertNotIn("requestBody", op, "GET get_asset_repair_history KHÔNG được có requestBody.")
+        params = {p.get("name"): p for p in (op.get("parameters") or []) if isinstance(p, dict)}
+        self.assertEqual(
+            set(params.keys()), {"asset_ref", "limit"},
+            f"PHẢI EXACT 2 query param {{asset_ref,limit}} (KHÔNG `asset` — KHÁC incident): {sorted(params.keys())}.",
+        )
+        a = params["asset_ref"]
+        self.assertEqual(a.get("in"), "query", "asset_ref PHẢI in:query.")
+        self.assertTrue(a.get("required"), "asset_ref PHẢI required:true (positional no-default @api/imm09.py:127).")
+        self.assertEqual((a.get("schema") or {}).get("type"), "string", "asset_ref PHẢI type string.")
+        lim = params["limit"]
+        self.assertEqual(lim.get("in"), "query", "limit PHẢI in:query.")
+        self.assertFalse(lim.get("required"), "limit PHẢI optional (default '10' @api/imm09.py:127).")
+        self.assertEqual((lim.get("schema") or {}).get("type"), "integer", "limit PHẢI type integer (handler ép int @api/imm09.py:128).")
+        self.assertEqual((lim.get("schema") or {}).get("default"), 10, "limit.default PHẢI 10 (wire intent; signature @api/imm09.py:127).")
+
+    def test_mob_oas_repairhist_c_200_single_shape_envelope(self):
+        """(c) 200 = SINGLE schema $ref AssetRepairHistoryEnvelope (KHÔNG oneOf, KHÔNG discriminator) —
+        handler @api/imm09.py:127 handle(svc.get_asset_history), svc 0 raise ServiceError ⇒ LUÔN _ok,
+        0 nhánh _err ⇒ KHÔNG Error branch (mirror listTransfers/pingSession, KHÁC incident oneOf)."""
+        resp200 = ((self._op().get("responses") or {}).get("200") or {})
+        schema = (((resp200.get("content") or {}).get("application/json") or {}).get("schema") or {})
+        self.assertNotIn("oneOf", schema, "200 PHẢI SINGLE-shape (KHÔNG oneOf — handler 0 _err, mirror listTransfers).")
+        self.assertNotIn("discriminator", schema, "200 KHÔNG discriminator (single-shape).")
+        self.assertEqual(
+            schema.get("$ref"), _ASSET_REPAIR_HISTORY_ENVELOPE_SCHEMA_REF,
+            f"200 PHẢI $ref AssetRepairHistoryEnvelope (single-shape), got {schema.get('$ref')}.",
+        )
+        env = self._schemas().get(_ASSET_REPAIR_HISTORY_ENVELOPE_SCHEMA) or {}
+        self.assertEqual(env.get("additionalProperties"), False, "AssetRepairHistoryEnvelope PHẢI closed.")
+        env_succ = ((env.get("properties") or {}).get("success") or {}).get("enum")
+        self.assertEqual(env_succ, [True], "AssetRepairHistoryEnvelope.success.enum PHẢI [true].")
+
+    def test_mob_oas_repairhist_d_envelope_closed_data_history_no_pagination(self):
+        """(d) Envelope closed required[success,data]; data closed required[asset_ref,history] KHÔNG
+        pagination; history = array $ref AssetRepairHistoryItem; data.asset_ref string (rows-key
+        `history` + asset-key `asset_ref` — KHÁC incident items/asset)."""
+        env = self._schemas().get(_ASSET_REPAIR_HISTORY_ENVELOPE_SCHEMA) or {}
+        self.assertTrue(env, f"Thiếu schema {_ASSET_REPAIR_HISTORY_ENVELOPE_SCHEMA}.")
+        self.assertEqual(sorted(env.get("required") or []), ["data", "success"], "Envelope required PHẢI [success,data].")
+        data = (env.get("properties") or {}).get("data") or {}
+        self.assertEqual(data.get("additionalProperties"), False, "data PHẢI closed (additionalProperties:false).")
+        self.assertEqual(
+            sorted(data.get("required") or []), sorted(_ASSET_REPAIR_HISTORY_DATA_REQUIRED),
+            f"data.required PHẢI EXACT {_ASSET_REPAIR_HISTORY_DATA_REQUIRED} (rows-key history + asset-key asset_ref @imm09.py:1220).",
+        )
+        self.assertNotIn(
+            "pagination", data.get("properties") or {},
+            "data KHÔNG được có pagination (svc chỉ limit cap, mirror AssetIncidentHistoryEnvelope).",
+        )
+        self.assertNotIn(
+            "items", data.get("properties") or {},
+            "data KHÔNG được có `items` (rows-key = `history` — KHÁC getAssetIncidentHistory).",
+        )
+        history = (data.get("properties") or {}).get("history") or {}
+        self.assertEqual(history.get("type"), "array", "data.history PHẢI array.")
+        self.assertEqual(
+            (history.get("items") or {}).get("$ref"), _ASSET_REPAIR_HISTORY_ITEM_SCHEMA_REF,
+            "history[] PHẢI $ref AssetRepairHistoryItem.",
+        )
+        self.assertEqual(
+            ((data.get("properties") or {}).get("asset_ref") or {}).get("type"), "string",
+            "data.asset_ref PHẢI string (echo mã thiết bị @imm09.py:1220; asset-key = asset_ref KHÁC incident asset).",
+        )
+
+    def test_mob_oas_repairhist_e_item_closed_exact_9_props(self):
+        """(e) AssetRepairHistoryItem closed; props EXACT 9 (GROUNDED RepairRepo.list fields
+        imm09.py:1215-1216); required tối thiểu [name]."""
+        item = self._schemas().get(_ASSET_REPAIR_HISTORY_ITEM_SCHEMA) or {}
+        self.assertTrue(item, f"Thiếu schema {_ASSET_REPAIR_HISTORY_ITEM_SCHEMA}.")
+        self.assertEqual(item.get("additionalProperties"), False, "AssetRepairHistoryItem PHẢI closed.")
+        props = item.get("properties") or {}
+        self.assertEqual(
+            set(props.keys()), _ASSET_REPAIR_HISTORY_ITEM_PROPS,
+            f"props PHẢI EXACT 9 {_ASSET_REPAIR_HISTORY_ITEM_PROPS} (RepairRepo.list @imm09.py:1215-1216): {sorted(props.keys())}.",
+        )
+        self.assertEqual(len(props), 9, "PHẢI đúng 9 prop.")
+        self.assertEqual(
+            sorted(item.get("required") or []), sorted(_ASSET_REPAIR_HISTORY_ITEM_REQUIRED),
+            f"required PHẢI tối thiểu {_ASSET_REPAIR_HISTORY_ITEM_REQUIRED} (PK; còn lại optional).",
+        )
+
+    def test_mob_oas_repairhist_f_int_vs_bool_trap_avoided(self):
+        """(f) KHÔNG int-vs-bool trap: sla_breached = integer (Check 0/1, KHÔNG boolean/enum[0,1]);
+        mttr_hours = number; open_datetime/completion_datetime = string KHÔNG format:date-time."""
+        props = (self._schemas().get(_ASSET_REPAIR_HISTORY_ITEM_SCHEMA) or {}).get("properties") or {}
+        for pname, pdef in props.items():
+            self.assertNotEqual(
+                pdef.get("type"), "boolean",
+                f"{pname} KHÔNG được boolean (Frappe Check wire 0/1 — né int-vs-bool trap Open#1).",
+            )
+            self.assertNotEqual(
+                pdef.get("enum"), [0, 1],
+                f"{pname} KHÔNG được integer enum[0,1] (sla_breached = GENUINE Check int, KHÔNG enum-bound).",
+            )
+        sla = props.get("sla_breached") or {}
+        self.assertEqual(sla.get("type"), "integer", "sla_breached (Check 0/1) PHẢI type integer (KHÔNG boolean).")
+        self.assertEqual((props.get("mttr_hours") or {}).get("type"), "number", "mttr_hours (Float) PHẢI type number.")
+        for dt in ("open_datetime", "completion_datetime"):
+            d = props.get(dt) or {}
+            self.assertEqual(d.get("type"), "string", f"{dt} (Datetime) PHẢI type string.")
+            self.assertNotEqual(
+                d.get("format"), "date-time",
+                f"{dt} KHÔNG được format:date-time (Frappe naive datetime wire 'yyyy-MM-dd HH:mm:ss').",
+            )
+
+    def test_mob_oas_repairhist_g_401_and_response_slots(self):
+        """(g) 401 = Unauthorized401 (bearer hết hạn); response slot CHỈ {200,401,403} — KHÔNG
+        status-line 404 (asset∄ → history[] RỖNG, KHÔNG 404)."""
+        resps = (self._op().get("responses") or {})
+        self.assertEqual(
+            (resps.get("401") or {}).get("$ref"), _UNAUTHORIZED401_RESP_REF,
+            "401 PHẢI $ref Unauthorized401 (SINGLE-SHAPE, uniform convention).",
+        )
+        self.assertEqual(
+            sorted(resps.keys()), ["200", "401", "403"],
+            f"response slot PHẢI CHỈ {{200,401,403}} (asset∄ → history[] RỖNG KHÔNG 404): {sorted(resps.keys())}",
+        )
+
+    def test_mob_oas_repairhist_h_403_single_shape_symmetry_no_dangling(self):
+        """(h) 403 = SINGLE-SHAPE Forbidden (dispatcher-403 bare @whitelist no-allow_guest); ∈
+        _PATHS_REQUIRE_401 ∧ _PATHS_REQUIRE_403 (so SET); 0 dangling."""
+        resp403 = ((self._op().get("responses") or {}).get("403") or {})
+        self.assertEqual(
+            resp403.get("$ref"), _FORBIDDEN_RESP_REF,
+            f"403 PHẢI $ref Forbidden (SINGLE-SHAPE dispatcher-403), got {resp403.get('$ref')}",
+        )
+        self.assertNotEqual(
+            resp403.get("$ref"), _REPORT_INCIDENT_FORBIDDEN_RESP_REF,
+            "getAssetRepairHistory 403 KHÔNG được dùng ReportIncidentForbidden (DUAL-403 của report_incident).",
+        )
+        self.assertIn(_ASSET_REPAIR_HISTORY_PATH, _PATHS_REQUIRE_401, "PHẢI ∈ _PATHS_REQUIRE_401.")
+        self.assertIn(_ASSET_REPAIR_HISTORY_PATH, _PATHS_REQUIRE_403, "PHẢI ∈ _PATHS_REQUIRE_403.")
+        dangling = sorted({r for r in _collect_refs(self.spec) if not _resolve_pointer(r, self.spec)})
+        self.assertEqual(dangling, [], f"PHẢI 0 dangling $ref sau bồi getAssetRepairHistory: {dangling}")
+
+    def test_mob_oas_repairhist_i_params_match_live_signature(self):
+        """(i) LIVE introspect-parity — contract query-param KHỚP 1:1 chữ-ký THẬT
+        inspect.signature(imm09.get_asset_repair_history) (chống drift contract↔source).
+
+        Source @api/imm09.py:127 `def get_asset_repair_history(asset_ref: str, limit: str = "10")`:
+          • params LIVE == {asset_ref, limit} (KHÔNG thừa/thiếu; tên `asset_ref` KHÁC incident `asset`).
+          • asset_ref KHÔNG default (positional bắt buộc) ⇒ contract asset_ref.required==true;
+            limit default "10" str (handler ép int(limit) @:128) ⇒ optional + schema.default==10 (wire intent).
+        """
+        from assetcore.api import imm09  # lazy — tránh import-time vòng phụ thuộc.
+        fn = getattr(imm09, "get_asset_repair_history", None)
+        self.assertIsNotNone(fn, "Thiếu hàm whitelist LIVE: imm09.get_asset_repair_history.")
+        sig = inspect.signature(fn)
+        params = sig.parameters
+        self.assertEqual(
+            set(params.keys()), {"asset_ref", "limit"},
+            f"signature LIVE PHẢI EXACT {{asset_ref,limit}}, got {sorted(params.keys())}.",
+        )
+        self.assertIs(
+            params["asset_ref"].default, inspect.Parameter.empty,
+            "param `asset_ref` PHẢI KHÔNG default (positional bắt buộc) ⇒ contract required.",
+        )
+        self.assertEqual(
+            params["limit"].default, "10",
+            "param `limit` PHẢI default '10' (str — handler ép int(limit) @:128) ⇒ optional + schema.default 10.",
+        )
+
+
+class TestMobileGetAssetPmHistoryContract(unittest.TestCase):
+    """FLOW-2 DEVICE-PROFILE (ASSET-PM-HISTORY-WIRE IMM-08) — getAssetPmHistory: GET-read lịch-sử
+    BẢO-TRÌ ĐỊNH-KỲ (PM) của 1 asset (tab "Lịch sử bảo trì" màn hồ-sơ-thiết-bị sau quét QR).
+
+    ĐÓNG quartet device-profile read-history: getAssetScanInfo (profile) + getAssetIncidentHistory
+    (sự-cố R28) + getAssetTimeline (vòng-đời R32) + getAssetRepairHistory (CM R42) NHƯNG còn THIẾU
+    lịch-sử BẢO-TRÌ PM của asset (KTV quét QR → "máy này PM lần cuối khi nào, Pass/Fail, trễ hạn
+    không, lần PM tới?"). MIRROR getAssetRepairHistory NHƯNG 3 KHÁC-BIỆT có-chủ-đích (ADR-MOBILE-023):
+      • AssetPmHistoryItem EXACT 10 prop (KHÔNG 9) GROUNDED PMTaskLogRepo.list @services/imm08.py:1015-1017.
+      • overall_result = string enum [Pass, Pass with Minor Issues, Fail] (Select bounded @pm_task_log.json
+        — repair có 0 Select-enum).
+      • 2 integer field is_late (Check 0/1) + days_late (Int) — KHÔNG boolean (repair có 1 Check sla_breached).
+    GIỐNG repair: rows-key `history` + asset-key `asset_ref` (svc {asset_ref, history} @:1021) + 200
+    SINGLE-shape AssetPmHistoryEnvelope (handler @api/imm08.py:125 = handle(svc.get_asset_history);
+    svc 0 raise ServiceError ⇒ handle LUÔN _ok, 0 nhánh _err ⇒ KHÔNG oneOf [Env, Error]; mirror
+    getAssetRepairHistory/listTransfers, KHÁC incident oneOf) + dates string no-date-time + slot
+    {200,401,403} (bare @whitelist no-allow_guest → guest dispatcher-403).
+    Guard chạy được (a..j):
+      (a) path TỒN TẠI, GET-ONLY, opId getAssetPmHistory; ∈ _MVP_BUSINESS_PATHS; count 53 unique camelCase.
+      (b) 2 query param asset_ref (required, string, no-default) + limit (optional, integer, default 10,
+          minimum 1); KHÔNG page/page_size; KHÔNG requestBody (GET); + live-sig parity
+          inspect.signature(imm08.get_asset_pm_history)=={asset_ref,limit} (⚠️ limit default 10 INT,
+          KHÁC repair "10" str).
+      (c) responses keys EXACTLY {200,401,403} — KHÔNG 404; 200 = $ref AssetPmHistoryEnvelope SINGLE
+          (KHÔNG oneOf, KHÔNG discriminator); 401 = Unauthorized401; 403 = Forbidden SINGLE-SHAPE.
+      (d) Envelope closed required[success,data], success enum[true]; data closed required[asset_ref,
+          history] KHÔNG pagination KHÔNG items-key; history = array $ref AssetPmHistoryItem; asset_ref string.
+      (e) AssetPmHistoryItem closed; props EXACT 10; required[name].
+      (f) int-vs-bool trap: is_late = integer AND days_late = integer (KHÔNG boolean/enum[0,1]).
+      (g) date-trap: completion_date = string AND next_pm_date = string; CẢ 2 KHÔNG format:date-time.
+      (h) overall_result = string enum [Pass, Pass with Minor Issues, Fail] (Select @pm_task_log.json).
+      (i) no-orphan: AssetPmHistoryEnvelope + AssetPmHistoryItem đều ĐƯỢC $ref tới VÀ định nghĩa; 0
+          component mồ côi mới; 0 dangling $ref.
+      (j) backward-compat / frozen-set: 52 operationId cũ vẫn hiện diện (set(ids)-{getAssetPmHistory}==52);
+          reuse Unauthorized401/Forbidden (KHÔNG nhân bản component PmHistory-riêng).
+    SSoT: ../04-api-contract.md (FLOW-2 device-profile pm-history) + ADR-MOBILE-023 +
+    api/imm08.py:124-126 + services/imm08.py:1012-1021 (PMTaskLogRepo.list 10 fields KHÔNG docstatus +
+    return {asset_ref,history} KHÔNG pagination) + pm_task_log.json.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.spec = _load_spec() if _MOBILE_YAML.exists() else None
+
+    def _op(self):
+        return ((self.spec.get("paths") or {}).get(_ASSET_PM_HISTORY_PATH) or {}).get("get") or {}
+
+    def _schemas(self):
+        return (self.spec.get("components") or {}).get("schemas") or {}
+
+    def test_mob_oas_pmhist_a_path_get_only_in_mvp(self):
+        """(a) path TỒN TẠI, GET-ONLY, opId getAssetPmHistory, ∈ _MVP_BUSINESS_PATHS; count 53 unique."""
+        paths = self.spec.get("paths") or {}
+        self.assertIn(_ASSET_PM_HISTORY_PATH, paths, "Thiếu path get_asset_pm_history (FLOW-2 ASSET-PM-HISTORY-WIRE).")
+        item = paths[_ASSET_PM_HISTORY_PATH]
+        self.assertEqual(
+            sorted(item.keys()), ["get"],
+            "get_asset_pm_history PHẢI GET-ONLY (chỉ key 'get', bare @whitelist api/imm08.py:124).",
+        )
+        self.assertEqual(self._op().get("operationId"), "getAssetPmHistory", "opId = getAssetPmHistory.")
+        self.assertIn(_ASSET_PM_HISTORY_PATH, _MVP_BUSINESS_PATHS, "Phải vào _MVP_BUSINESS_PATHS (401/403 symmetry).")
+        ids = [op["operationId"] for _, _, op in _iter_operations(self.spec)]
+        self.assertEqual(len(paths), 53, "path-count PHẢI 53 (ASSET-PM-HISTORY-WIRE +getAssetPmHistory).")
+        self.assertEqual(len(ids), 53, "operationId count PHẢI 53.")
+        self.assertEqual(len(set(ids)), 53, "operationId DUY NHẤT (len(set)==53).")
+        for oid in ids:
+            self.assertRegex(oid, _CAMEL_RE, f"operationId KHÔNG camelCase: {oid}")
+
+    def test_mob_oas_pmhist_b_query_params_and_live_sig(self):
+        """(b) 2 query param asset_ref (required string no-default) + limit (optional integer default 10
+        minimum 1); KHÔNG page/page_size; KHÔNG requestBody (GET); + live-sig parity
+        inspect.signature(imm08.get_asset_pm_history)=={asset_ref,limit} (⚠️ limit default 10 INT)."""
+        op = self._op()
+        self.assertNotIn("requestBody", op, "GET get_asset_pm_history KHÔNG được có requestBody.")
+        params = {p.get("name"): p for p in (op.get("parameters") or []) if isinstance(p, dict)}
+        self.assertEqual(
+            set(params.keys()), {"asset_ref", "limit"},
+            f"PHẢI EXACT 2 query param {{asset_ref,limit}} (KHÔNG page/page_size): {sorted(params.keys())}.",
+        )
+        a = params["asset_ref"]
+        self.assertEqual(a.get("in"), "query", "asset_ref PHẢI in:query.")
+        self.assertTrue(a.get("required"), "asset_ref PHẢI required:true (positional no-default @api/imm08.py:125).")
+        self.assertEqual((a.get("schema") or {}).get("type"), "string", "asset_ref PHẢI type string.")
+        self.assertNotIn("default", a.get("schema") or {}, "asset_ref schema KHÔNG được có default (positional bắt buộc).")
+        lim = params["limit"]
+        self.assertEqual(lim.get("in"), "query", "limit PHẢI in:query.")
+        self.assertFalse(lim.get("required"), "limit PHẢI optional (default 10 @api/imm08.py:125).")
+        lim_schema = lim.get("schema") or {}
+        self.assertEqual(lim_schema.get("type"), "integer", "limit PHẢI type integer (signature int @api/imm08.py:125).")
+        self.assertEqual(lim_schema.get("default"), 10, "limit.default PHẢI 10.")
+        self.assertEqual(lim_schema.get("minimum"), 1, "limit.minimum PHẢI 1.")
+        # live-sig parity — chống drift contract↔source.
+        from assetcore.api import imm08  # lazy — tránh import-time vòng phụ thuộc.
+        fn = getattr(imm08, "get_asset_pm_history", None)
+        self.assertIsNotNone(fn, "Thiếu hàm whitelist LIVE: imm08.get_asset_pm_history.")
+        sig = inspect.signature(fn)
+        self.assertEqual(
+            set(sig.parameters.keys()), {"asset_ref", "limit"},
+            f"signature LIVE PHẢI EXACT {{asset_ref,limit}}, got {sorted(sig.parameters.keys())}.",
+        )
+        self.assertIs(
+            sig.parameters["asset_ref"].default, inspect.Parameter.empty,
+            "param `asset_ref` PHẢI KHÔNG default (positional bắt buộc) ⇒ contract required.",
+        )
+        self.assertEqual(
+            sig.parameters["limit"].default, 10,
+            "param `limit` PHẢI default 10 (INT — KHÁC repair '10' str; signature @api/imm08.py:125).",
+        )
+
+    def test_mob_oas_pmhist_c_response_slots_200_single_401_403(self):
+        """(c) responses keys EXACTLY {200,401,403} — KHÔNG 404 (history[] rỗng hợp lệ); 200 = $ref
+        AssetPmHistoryEnvelope SINGLE (KHÔNG oneOf/discriminator); 401 Unauthorized401; 403 Forbidden
+        SINGLE-SHAPE (KHÔNG ReportIncidentForbidden); ∈ _PATHS_REQUIRE_401 ∧ _PATHS_REQUIRE_403."""
+        resps = (self._op().get("responses") or {})
+        self.assertEqual(
+            sorted(resps.keys()), ["200", "401", "403"],
+            f"response slot PHẢI CHỈ {{200,401,403}} (asset∄ → history[] RỖNG KHÔNG 404): {sorted(resps.keys())}",
+        )
+        schema = ((((resps.get("200") or {}).get("content") or {}).get("application/json") or {}).get("schema") or {})
+        self.assertNotIn("oneOf", schema, "200 PHẢI SINGLE-shape (KHÔNG oneOf — handler 0 _err, mirror getAssetRepairHistory).")
+        self.assertNotIn("discriminator", schema, "200 KHÔNG discriminator (single-shape).")
+        self.assertEqual(
+            schema.get("$ref"), _ASSET_PM_HISTORY_ENVELOPE_SCHEMA_REF,
+            f"200 PHẢI $ref AssetPmHistoryEnvelope (single-shape), got {schema.get('$ref')}.",
+        )
+        self.assertEqual(
+            (resps.get("401") or {}).get("$ref"), _UNAUTHORIZED401_RESP_REF,
+            "401 PHẢI $ref Unauthorized401 (SINGLE-SHAPE, uniform convention).",
+        )
+        resp403 = resps.get("403") or {}
+        self.assertEqual(
+            resp403.get("$ref"), _FORBIDDEN_RESP_REF,
+            f"403 PHẢI $ref Forbidden (SINGLE-SHAPE dispatcher-403), got {resp403.get('$ref')}",
+        )
+        self.assertNotEqual(
+            resp403.get("$ref"), _REPORT_INCIDENT_FORBIDDEN_RESP_REF,
+            "getAssetPmHistory 403 KHÔNG được dùng ReportIncidentForbidden (DUAL-403 của report_incident).",
+        )
+        self.assertIn(_ASSET_PM_HISTORY_PATH, _PATHS_REQUIRE_401, "PHẢI ∈ _PATHS_REQUIRE_401.")
+        self.assertIn(_ASSET_PM_HISTORY_PATH, _PATHS_REQUIRE_403, "PHẢI ∈ _PATHS_REQUIRE_403.")
+
+    def test_mob_oas_pmhist_d_envelope_closed_data_history_no_pagination(self):
+        """(d) Envelope closed required[success,data] success enum[true]; data closed required[asset_ref,
+        history] KHÔNG pagination KHÔNG items-key; history = array $ref AssetPmHistoryItem; asset_ref string."""
+        env = self._schemas().get(_ASSET_PM_HISTORY_ENVELOPE_SCHEMA) or {}
+        self.assertTrue(env, f"Thiếu schema {_ASSET_PM_HISTORY_ENVELOPE_SCHEMA}.")
+        self.assertEqual(env.get("additionalProperties"), False, "AssetPmHistoryEnvelope PHẢI closed.")
+        self.assertEqual(sorted(env.get("required") or []), ["data", "success"], "Envelope required PHẢI [success,data].")
+        self.assertEqual(
+            ((env.get("properties") or {}).get("success") or {}).get("enum"), [True],
+            "AssetPmHistoryEnvelope.success.enum PHẢI [true].",
+        )
+        data = (env.get("properties") or {}).get("data") or {}
+        self.assertEqual(data.get("additionalProperties"), False, "data PHẢI closed (additionalProperties:false).")
+        self.assertEqual(
+            sorted(data.get("required") or []), sorted(_ASSET_PM_HISTORY_DATA_REQUIRED),
+            f"data.required PHẢI EXACT {_ASSET_PM_HISTORY_DATA_REQUIRED} (rows-key history + asset-key asset_ref @imm08.py:1021).",
+        )
+        self.assertNotIn("pagination", data.get("properties") or {}, "data KHÔNG được có pagination (svc chỉ limit cap).")
+        self.assertNotIn("items", data.get("properties") or {}, "data KHÔNG được có `items` (rows-key = `history`).")
+        history = (data.get("properties") or {}).get("history") or {}
+        self.assertEqual(history.get("type"), "array", "data.history PHẢI array.")
+        self.assertEqual(
+            (history.get("items") or {}).get("$ref"), _ASSET_PM_HISTORY_ITEM_SCHEMA_REF,
+            "history[] PHẢI $ref AssetPmHistoryItem.",
+        )
+        self.assertEqual(
+            ((data.get("properties") or {}).get("asset_ref") or {}).get("type"), "string",
+            "data.asset_ref PHẢI string (echo mã thiết bị @imm08.py:1021).",
+        )
+
+    def test_mob_oas_pmhist_e_item_closed_exact_10_props(self):
+        """(e) AssetPmHistoryItem closed; props EXACT 10 (GROUNDED PMTaskLogRepo.list fields
+        imm08.py:1015-1017); required tối thiểu [name]."""
+        item = self._schemas().get(_ASSET_PM_HISTORY_ITEM_SCHEMA) or {}
+        self.assertTrue(item, f"Thiếu schema {_ASSET_PM_HISTORY_ITEM_SCHEMA}.")
+        self.assertEqual(item.get("additionalProperties"), False, "AssetPmHistoryItem PHẢI closed.")
+        props = item.get("properties") or {}
+        self.assertEqual(
+            set(props.keys()), _ASSET_PM_HISTORY_ITEM_PROPS,
+            f"props PHẢI EXACT 10 {_ASSET_PM_HISTORY_ITEM_PROPS} (PMTaskLogRepo.list @imm08.py:1015-1017): {sorted(props.keys())}.",
+        )
+        self.assertEqual(len(props), 10, "PHẢI đúng 10 prop.")
+        self.assertEqual(
+            sorted(item.get("required") or []), sorted(_ASSET_PM_HISTORY_ITEM_REQUIRED),
+            f"required PHẢI tối thiểu {_ASSET_PM_HISTORY_ITEM_REQUIRED} (PK; còn lại optional).",
+        )
+
+    def test_mob_oas_pmhist_f_int_vs_bool_trap_avoided(self):
+        """(f) int-vs-bool trap: is_late = integer (Check 0/1) AND days_late = integer (Int) — KHÔNG
+        boolean/enum[0,1] (né int-vs-bool trap Open#1, mirror repair sla_breached)."""
+        props = (self._schemas().get(_ASSET_PM_HISTORY_ITEM_SCHEMA) or {}).get("properties") or {}
+        for pname, pdef in props.items():
+            self.assertNotEqual(
+                pdef.get("type"), "boolean",
+                f"{pname} KHÔNG được boolean (Frappe Check wire 0/1 — né int-vs-bool trap Open#1).",
+            )
+            self.assertNotEqual(
+                pdef.get("enum"), [0, 1],
+                f"{pname} KHÔNG được integer enum[0,1] (is_late/days_late = GENUINE int, KHÔNG enum-bound).",
+            )
+        self.assertEqual(
+            (props.get("is_late") or {}).get("type"), "integer",
+            "is_late (Check 0/1) PHẢI type integer (KHÔNG boolean).",
+        )
+        self.assertEqual(
+            (props.get("days_late") or {}).get("type"), "integer",
+            "days_late (Int) PHẢI type integer.",
+        )
+
+    def test_mob_oas_pmhist_g_date_trap_avoided(self):
+        """(g) date-trap: completion_date = string AND next_pm_date = string; CẢ 2 KHÔNG
+        format:date-time (Frappe Date wire 'yyyy-MM-dd', KHÔNG datetime/ISO-offset)."""
+        props = (self._schemas().get(_ASSET_PM_HISTORY_ITEM_SCHEMA) or {}).get("properties") or {}
+        for dt in ("completion_date", "next_pm_date"):
+            d = props.get(dt) or {}
+            self.assertEqual(d.get("type"), "string", f"{dt} (Date) PHẢI type string.")
+            self.assertNotEqual(
+                d.get("format"), "date-time",
+                f"{dt} KHÔNG được format:date-time (Frappe Date wire 'yyyy-MM-dd' — date-trap).",
+            )
+
+    def test_mob_oas_pmhist_h_overall_result_enum(self):
+        """(h) overall_result = string enum [Pass, Pass with Minor Issues, Fail] (Select bounded
+        @pm_task_log.json options 'Pass\\nPass with Minor Issues\\nFail' — repair có 0 Select-enum)."""
+        props = (self._schemas().get(_ASSET_PM_HISTORY_ITEM_SCHEMA) or {}).get("properties") or {}
+        orr = props.get("overall_result") or {}
+        self.assertEqual(orr.get("type"), "string", "overall_result PHẢI type string.")
+        self.assertEqual(
+            orr.get("enum"), _ASSET_PM_HISTORY_OVERALL_RESULT_ENUM,
+            f"overall_result.enum PHẢI {_ASSET_PM_HISTORY_OVERALL_RESULT_ENUM} (Select @pm_task_log.json), got {orr.get('enum')}.",
+        )
+
+    def test_mob_oas_pmhist_i_no_orphan_schemas(self):
+        """(i) no-orphan: AssetPmHistoryEnvelope + AssetPmHistoryItem đều ĐƯỢC $ref tới VÀ định nghĩa;
+        0 component mồ côi mới; 0 dangling $ref sau bồi getAssetPmHistory."""
+        schemas = self._schemas()
+        self.assertIn(_ASSET_PM_HISTORY_ENVELOPE_SCHEMA, schemas, "AssetPmHistoryEnvelope PHẢI được định nghĩa.")
+        self.assertIn(_ASSET_PM_HISTORY_ITEM_SCHEMA, schemas, "AssetPmHistoryItem PHẢI được định nghĩa.")
+        refs = _collect_refs(self.spec)
+        self.assertIn(_ASSET_PM_HISTORY_ENVELOPE_SCHEMA_REF, refs, "AssetPmHistoryEnvelope PHẢI ĐƯỢC $ref tới (200).")
+        self.assertIn(_ASSET_PM_HISTORY_ITEM_SCHEMA_REF, refs, "AssetPmHistoryItem PHẢI ĐƯỢC $ref tới (history[]).")
+        dangling = sorted({r for r in refs if not _resolve_pointer(r, self.spec)})
+        self.assertEqual(dangling, [], f"PHẢI 0 dangling $ref sau bồi getAssetPmHistory: {dangling}")
+
+    def test_mob_oas_pmhist_j_backward_compat_frozen_and_reuse(self):
+        """(j) backward-compat / frozen-set: 52 operationId cũ vẫn hiện diện
+        (set(ids)-{getAssetPmHistory}==52); sentinel prior opId GIỮ; reuse Unauthorized401/Forbidden
+        (KHÔNG nhân bản component PmHistory-riêng)."""
+        ids = [op["operationId"] for _, _, op in _iter_operations(self.spec)]
+        self.assertIn("getAssetPmHistory", ids, "opId mới getAssetPmHistory PHẢI hiện diện.")
+        self.assertEqual(
+            len(set(ids) - {"getAssetPmHistory"}), 52,
+            "Backward-compat: opId-set TRỪ {getAssetPmHistory} == 52 cũ (chỉ +1, 0 đổi/xoá).",
+        )
+        for sentinel in ("getAssetRepairHistory", "listTransfers", "getUserContext",
+                         "createPmWorkOrder", "getAssetIncidentHistory", "getAssetTimeline"):
+            self.assertIn(sentinel, ids, f"opId cũ {sentinel} PHẢI vẫn hiện diện (frozen-set).")
+        # reuse error components — KHÔNG tạo component Forbidden/Unauthorized PmHistory-riêng.
+        resps = (self.spec.get("components") or {}).get("responses") or {}
+        for bad in ("AssetPmHistoryForbidden", "AssetPmHistoryUnauthorized401",
+                    "PmHistoryForbidden", "PmHistoryUnauthorized401"):
+            self.assertNotIn(bad, resps, f"KHÔNG được nhân bản response component {bad} (reuse Forbidden/Unauthorized401).")
+
+
+class TestMobileGetAssetTimelineContract(unittest.TestCase):
+    """FLOW-2 DEVICE-PROFILE — getAssetTimeline: GET-read dòng-thời-gian vòng-đời của 1 asset
+    (tab "Lịch sử" màn hồ-sơ-thiết-bị sau quét QR).
+
+    Surface lifecycle-event audit-trail trục (CLAUDE.md §10: installed/commissioned/pm_completed/
+    repaired/retired). KHÁC getAssetIncidentHistory (R28): đọc DocType 'Asset Lifecycle Event'
+    (imm00.py:242 _DT_LIFECYCLE_EVENT) KHÁC Incident Report; CÓ pagination (paginate(total,page,
+    page_size) @imm00.py:1133) KHÁC R28 chỉ limit cap; 404 in-handler khi asset∄. Guard:
+      (a) yaml safe_load OK; path-count 40 (39→40); operationId-count 40 unique camelCase (0 dup).
+      (b) path TỒN TẠI, GET-ONLY (CHỈ key 'get' — bare @whitelist nhận GET api/imm00.py:1126),
+          opId getAssetTimeline; tag asset.
+      (c) 3 query param: name (required, string) + page (optional, integer, default 1) + page_size
+          (optional, integer, default 50) — KHỚP signature imm00.py:1127 get_asset_timeline(name,
+          page=1, page_size=50). KHÔNG requestBody (GET). LIVE introspect-parity.
+      (d) 200 = oneOf [AssetTimelineEnvelope, Error] Ở TẦNG response-content-schema (route-by-VALUE
+          body.success, C7 read-path); KHÔNG discriminator. 2 branch closed (additionalProperties:false),
+          success enum disjoint [true]/[false].
+      (e) AssetTimelineEnvelope closed, required[success,data]; data closed required[pagination,items]
+          (CÓ pagination — KHÁC AssetIncidentHistoryEnvelope.data.required[asset,items]); pagination =
+          $ref Pagination; items = array $ref AssetTimelineEvent.
+      (f) AssetTimelineEvent closed, props EXACT 7 = {name,event_type,actor,from_status,to_status,
+          timestamp,notes} (GROUNDED frappe.get_list fields @api/imm00.py:1137); required tối thiểu
+          [name]; 0 boolean/integer-enum[0,1] prop (int-vs-bool guard Open#1).
+      (g) response slot CHỈ {200,401,403}; 401 = $ref Unauthorized401; 403 = $ref Forbidden;
+          Error.http_status enum ⊇ {404} (asset-not-found in-handler 404 @imm00.py:1129-1130).
+      (h) disjointness — AssetTimelineEvent props KHÁC AssetIncidentHistoryItem (R28) ∧ KHÁC
+          AssetListItem (C3-split khác DocType/field-set/domain); 0 dangling $ref toàn yaml.
+      (i) ∈ _MVP_BUSINESS_PATHS ∧ _PATHS_REQUIRE_401 ∧ _PATHS_REQUIRE_403 (symmetry set, so SET).
+      (j) PURE-YAML invariant — git diff --numstat assetcore/api/imm00.py == EMPTY (handler LIVE untouched).
+    SSoT: ../04-api-contract.md (FLOW-2 device-profile) + api/imm00.py:1126-1142 (frappe.get_list
+    'Asset Lifecycle Event' fields 7 + return _ok({pagination,items})) + asset_lifecycle_event.json.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.spec = _load_spec() if _MOBILE_YAML.exists() else None
+
+    def _op(self):
+        return ((self.spec.get("paths") or {}).get(_ASSET_TIMELINE_PATH) or {}).get("get") or {}
+
+    def _schemas(self):
+        return (self.spec.get("components") or {}).get("schemas") or {}
+
+    def test_mob_oas_assettimeline_a_yaml_loads_path_opid_count_40(self):
+        """(a) yaml safe_load OK; path-count == 40 (39→40); operationId-count == 40 unique camelCase."""
+        self.assertIsNotNone(self.spec, f"yaml KHÔNG load được: {_MOBILE_YAML}")
+        paths = self.spec.get("paths") or {}
+        ids = [op["operationId"] for _, _, op in _iter_operations(self.spec)]
+        self.assertEqual(len(paths), 53, "path-count PHẢI 52 (R-NOTIF-UNREAD +getUnreadNotifications).")
+        self.assertEqual(len(ids), 53, "operationId count PHẢI 52.")
+        self.assertEqual(len(set(ids)), 53, "operationId DUY NHẤT (len(set)==52, 0 dup).")
+        for oid in ids:
+            self.assertRegex(oid, _CAMEL_RE, f"operationId KHÔNG camelCase: {oid}")
+
+    def test_mob_oas_assettimeline_b_path_get_only_opid_tag(self):
+        """(b) path TỒN TẠI, GET-ONLY (chỉ key 'get', KHÔNG 'post'), opId getAssetTimeline, tag asset."""
+        paths = self.spec.get("paths") or {}
+        self.assertIn(_ASSET_TIMELINE_PATH, paths, "Thiếu path get_asset_timeline (FLOW-2).")
+        item = paths[_ASSET_TIMELINE_PATH]
+        self.assertEqual(
+            sorted(item.keys()), ["get"],
+            "get_asset_timeline PHẢI GET-ONLY (chỉ key 'get', bare @whitelist api/imm00.py:1126).",
+        )
+        self.assertNotIn("post", item, "get_asset_timeline KHÔNG được có 'post' (GET-read).")
+        self.assertEqual(self._op().get("operationId"), "getAssetTimeline", "opId = getAssetTimeline.")
+        self.assertEqual(self._op().get("tags"), ["asset"], "tag PHẢI [asset].")
+
+    def test_mob_oas_assettimeline_c_query_params_match_live_signature(self):
+        """(c) 3 query param: name (required, string) + page (optional, integer, default 1) + page_size
+        (optional, integer, default 50); KHÔNG requestBody. LIVE introspect-parity vs imm00.py:1127."""
+        op = self._op()
+        self.assertNotIn("requestBody", op, "GET get_asset_timeline KHÔNG được có requestBody.")
+        params = {p.get("name"): p for p in (op.get("parameters") or []) if isinstance(p, dict)}
+        self.assertEqual(
+            set(params.keys()), {"name", "page", "page_size"},
+            f"PHẢI EXACT 3 query param {{name,page,page_size}}: {sorted(params.keys())}.",
+        )
+        nm = params["name"]
+        self.assertEqual(nm.get("in"), "query", "name PHẢI in:query.")
+        self.assertTrue(nm.get("required"), "name PHẢI required:true (positional no-default @imm00.py:1127).")
+        self.assertEqual((nm.get("schema") or {}).get("type"), "string", "name PHẢI type string.")
+        pg = params["page"]
+        self.assertEqual(pg.get("in"), "query", "page PHẢI in:query.")
+        self.assertFalse(pg.get("required"), "page PHẢI optional (default 1 @imm00.py:1127).")
+        self.assertEqual((pg.get("schema") or {}).get("type"), "integer", "page PHẢI type integer (handler ép int @imm00.py:1131).")
+        self.assertEqual((pg.get("schema") or {}).get("default"), 1, "page.default PHẢI 1 (signature @imm00.py:1127).")
+        ps = params["page_size"]
+        self.assertEqual(ps.get("in"), "query", "page_size PHẢI in:query.")
+        self.assertFalse(ps.get("required"), "page_size PHẢI optional (default 50 @imm00.py:1127).")
+        self.assertEqual((ps.get("schema") or {}).get("type"), "integer", "page_size PHẢI type integer.")
+        self.assertEqual((ps.get("schema") or {}).get("default"), 50, "page_size.default PHẢI 50 (signature @imm00.py:1127).")
+        # LIVE introspect-parity — chống drift contract↔source.
+        from assetcore.api import imm00  # lazy — tránh import-time vòng phụ thuộc.
+        fn = getattr(imm00, "get_asset_timeline", None)
+        self.assertIsNotNone(fn, "Thiếu hàm whitelist LIVE: imm00.get_asset_timeline.")
+        sig = inspect.signature(fn)
+        sp = sig.parameters
+        self.assertEqual(
+            set(sp.keys()), {"name", "page", "page_size"},
+            f"signature LIVE PHẢI EXACT {{name,page,page_size}}, got {sorted(sp.keys())}.",
+        )
+        self.assertIs(
+            sp["name"].default, inspect.Parameter.empty,
+            "param `name` PHẢI KHÔNG default (positional bắt buộc) ⇒ contract required.",
+        )
+        self.assertEqual(sp["page"].default, 1, "param `page` PHẢI default 1 ⇒ optional + schema.default 1.")
+        self.assertEqual(sp["page_size"].default, 50, "param `page_size` PHẢI default 50 ⇒ optional + schema.default 50.")
+
+    def test_mob_oas_assettimeline_d_200_oneof_route_by_value(self):
+        """(d) 200 = oneOf [AssetTimelineEnvelope, Error] route-by-VALUE body.success (0 discriminator)."""
+        resp200 = ((self._op().get("responses") or {}).get("200") or {})
+        schema = (((resp200.get("content") or {}).get("application/json") or {}).get("schema") or {})
+        self.assertNotIn("discriminator", schema, "200 KHÔNG discriminator (route-by-VALUE body.success, C7).")
+        one_of = schema.get("oneOf") or []
+        self.assertEqual(len(one_of), 2, "200.oneOf PHẢI đúng 2 nhánh [Envelope, Error].")
+        refs = {m.get("$ref") for m in one_of if isinstance(m, dict)}
+        self.assertEqual(
+            refs, {_ASSET_TIMELINE_ENVELOPE_SCHEMA_REF, "#/components/schemas/Error"},
+            f"200.oneOf PHẢI = [AssetTimelineEnvelope, Error]: {sorted(refs)}",
+        )
+        schemas = self._schemas()
+        env = schemas.get(_ASSET_TIMELINE_ENVELOPE_SCHEMA) or {}
+        err = schemas.get("Error") or {}
+        self.assertEqual(env.get("additionalProperties"), False, "AssetTimelineEnvelope PHẢI closed.")
+        self.assertEqual(err.get("additionalProperties"), False, "Error PHẢI closed (§5c).")
+        env_succ = ((env.get("properties") or {}).get("success") or {}).get("enum")
+        err_succ = ((err.get("properties") or {}).get("success") or {}).get("enum")
+        self.assertEqual(env_succ, [True], "AssetTimelineEnvelope.success.enum PHẢI [true].")
+        self.assertEqual(err_succ, [False], "Error.success.enum PHẢI [false] (disjoint).")
+
+    def test_mob_oas_assettimeline_e_envelope_closed_data_has_pagination(self):
+        """(e) Envelope closed required[success,data]; data closed required[pagination,items] (CÓ
+        pagination — KHÁC R28); pagination = $ref Pagination; items = array $ref AssetTimelineEvent."""
+        env = self._schemas().get(_ASSET_TIMELINE_ENVELOPE_SCHEMA) or {}
+        self.assertTrue(env, f"Thiếu schema {_ASSET_TIMELINE_ENVELOPE_SCHEMA}.")
+        self.assertEqual(env.get("additionalProperties"), False, "Envelope PHẢI closed.")
+        self.assertEqual(sorted(env.get("required") or []), ["data", "success"], "Envelope required PHẢI [success,data].")
+        data = (env.get("properties") or {}).get("data") or {}
+        self.assertEqual(data.get("additionalProperties"), False, "data PHẢI closed (additionalProperties:false).")
+        self.assertEqual(
+            sorted(data.get("required") or []), sorted(_ASSET_TIMELINE_DATA_REQUIRED),
+            f"data.required PHẢI EXACT {_ASSET_TIMELINE_DATA_REQUIRED} (CÓ pagination — svc trả {{pagination,items}} @imm00.py:1142).",
+        )
+        self.assertIn(
+            "pagination", data.get("properties") or {},
+            "data PHẢI có pagination (paginate @imm00.py:1133 — KHÁC AssetIncidentHistoryEnvelope).",
+        )
+        self.assertEqual(
+            ((data.get("properties") or {}).get("pagination") or {}).get("$ref"),
+            "#/components/schemas/Pagination",
+            "data.pagination PHẢI $ref Pagination (chuẩn §6).",
+        )
+        items = (data.get("properties") or {}).get("items") or {}
+        self.assertEqual(items.get("type"), "array", "data.items PHẢI array.")
+        self.assertEqual(
+            (items.get("items") or {}).get("$ref"), _ASSET_TIMELINE_EVENT_SCHEMA_REF,
+            "items[] PHẢI $ref AssetTimelineEvent.",
+        )
+
+    def test_mob_oas_assettimeline_f_item_closed_exact_7_props_no_bool(self):
+        """(f) AssetTimelineEvent closed; props EXACT 7 (GROUNDED frappe.get_list fields imm00.py:1137);
+        required tối thiểu [name]; 0 boolean/int-enum[0,1] prop (int-vs-bool guard Open#1)."""
+        item = self._schemas().get(_ASSET_TIMELINE_EVENT_SCHEMA) or {}
+        self.assertTrue(item, f"Thiếu schema {_ASSET_TIMELINE_EVENT_SCHEMA}.")
+        self.assertEqual(item.get("additionalProperties"), False, "AssetTimelineEvent PHẢI closed.")
+        props = item.get("properties") or {}
+        self.assertEqual(
+            set(props.keys()), _ASSET_TIMELINE_EVENT_PROPS,
+            f"props PHẢI EXACT 7 {_ASSET_TIMELINE_EVENT_PROPS} (frappe.get_list @imm00.py:1137): {sorted(props.keys())}.",
+        )
+        self.assertEqual(len(props), 7, "PHẢI đúng 7 prop (0 thừa/thiếu).")
+        self.assertEqual(
+            sorted(item.get("required") or []), sorted(_ASSET_TIMELINE_EVENT_REQUIRED),
+            f"required PHẢI tối thiểu {_ASSET_TIMELINE_EVENT_REQUIRED} (PK; còn lại optional).",
+        )
+        for pname, pdef in props.items():
+            self.assertNotEqual(
+                pdef.get("type"), "boolean",
+                f"{pname} KHÔNG được boolean (0 Check field — né int-vs-bool trap Open#1).",
+            )
+            self.assertNotEqual(
+                pdef.get("enum"), [0, 1],
+                f"{pname} KHÔNG được integer enum[0,1] (0 Check field trong 7).",
+            )
+        # type SPOT-CHECK grounded DocType fieldtype (asset_lifecycle_event.json).
+        self.assertEqual((props.get("timestamp") or {}).get("format"), "date-time", "timestamp (Datetime) PHẢI format date-time.")
+        self.assertEqual((props.get("event_type") or {}).get("type"), "string", "event_type (Select) PHẢI string.")
+
+    def test_mob_oas_assettimeline_g_response_slots_401_403_error_404(self):
+        """(g) response slot CHỈ {200,401,403}; 401 = Unauthorized401; 403 = Forbidden;
+        Error.http_status enum ⊇ {404} (asset-not-found in-handler 404 @imm00.py:1129-1130)."""
+        resps = (self._op().get("responses") or {})
+        self.assertEqual(
+            sorted(resps.keys()), ["200", "401", "403"],
+            f"response slot PHẢI CHỈ {{200,401,403}} (asset∄ 404 trên HTTP-200 nhánh Error, KHÔNG status-line): {sorted(resps.keys())}",
+        )
+        self.assertEqual(
+            (resps.get("401") or {}).get("$ref"), _UNAUTHORIZED401_RESP_REF,
+            "401 PHẢI $ref Unauthorized401 (SINGLE-SHAPE, uniform convention; mirror getAssetIncidentHistory).",
+        )
+        self.assertEqual(
+            (resps.get("403") or {}).get("$ref"), _FORBIDDEN_RESP_REF,
+            "403 PHẢI $ref Forbidden (SINGLE-SHAPE).",
+        )
+        # Error.http_status enum PHẢI chứa 404 (asset∄ in-handler _err 404 @imm00.py:1129-1130).
+        err = self._schemas().get("Error") or {}
+        hs_enum = ((err.get("properties") or {}).get("http_status") or {}).get("enum") or []
+        self.assertIn(404, hs_enum, f"Error.http_status enum PHẢI ⊇ {{404}} (asset-not-found in-handler): {hs_enum}.")
+
+    def test_mob_oas_assettimeline_h_disjointness_no_dangling(self):
+        """(h) disjointness — AssetTimelineEvent props KHÁC AssetIncidentHistoryItem (R28) ∧ KHÁC
+        AssetListItem (C3-split khác DocType/field-set/domain); 0 dangling $ref toàn yaml."""
+        schemas = self._schemas()
+        tl_props = set((schemas.get(_ASSET_TIMELINE_EVENT_SCHEMA) or {}).get("properties") or {})
+        inc_props = set((schemas.get(_ASSET_INCIDENT_HISTORY_ITEM_SCHEMA) or {}).get("properties") or {})
+        lst_props = set((schemas.get("AssetListItem") or {}).get("properties") or {})
+        self.assertNotEqual(
+            tl_props, inc_props,
+            "AssetTimelineEvent KHÔNG được = AssetIncidentHistoryItem (R28 — khác DocType Incident Report).",
+        )
+        self.assertNotEqual(
+            tl_props, lst_props,
+            "AssetTimelineEvent KHÔNG được = AssetListItem (khác DocType AC Asset).",
+        )
+        # phải có field-set RIÊNG (event_type/from_status/to_status/timestamp = lifecycle-event domain).
+        self.assertIn("event_type", tl_props, "AssetTimelineEvent PHẢI có event_type (lifecycle-event domain).")
+        self.assertNotIn("event_type", inc_props, "AssetIncidentHistoryItem KHÔNG có event_type (incident domain).")
+        dangling = sorted({r for r in _collect_refs(self.spec) if not _resolve_pointer(r, self.spec)})
+        self.assertEqual(dangling, [], f"PHẢI 0 dangling $ref sau bồi getAssetTimeline: {dangling}")
+
+    def test_mob_oas_assettimeline_i_in_mvp_business_symmetry(self):
+        """(i) ∈ _MVP_BUSINESS_PATHS ∧ _PATHS_REQUIRE_401 ∧ _PATHS_REQUIRE_403 (symmetry set, so SET)."""
+        self.assertIn(_ASSET_TIMELINE_PATH, _MVP_BUSINESS_PATHS, "PHẢI ∈ _MVP_BUSINESS_PATHS (401/403 symmetry).")
+        self.assertIn(_ASSET_TIMELINE_PATH, _PATHS_REQUIRE_401, "PHẢI ∈ _PATHS_REQUIRE_401.")
+        self.assertIn(_ASSET_TIMELINE_PATH, _PATHS_REQUIRE_403, "PHẢI ∈ _PATHS_REQUIRE_403.")
+        ops = {path: op for path, _, op in _iter_operations(self.spec)}
+        with_401 = {p for p, op in ops.items() if "401" in (op.get("responses") or {}) and p not in (_AUTH_PATHS | _ALLOW_GUEST_PATHS)}
+        with_403 = {p for p, op in ops.items() if "403" in (op.get("responses") or {}) and p not in (_AUTH_PATHS | _ALLOW_GUEST_PATHS)}
+        self.assertEqual(with_401, set(_PATHS_REQUIRE_403), "Tập 401 (trừ auth) == _PATHS_REQUIRE_403 (symmetry).")
+        self.assertEqual(with_403, set(_PATHS_REQUIRE_403), "Tập 403 (trừ auth) == _PATHS_REQUIRE_403 (symmetry).")
+
+    def test_mob_oas_assettimeline_j_pure_yaml_handler_untouched(self):
+        """(j) PURE-YAML invariant — git diff --numstat assetcore/api/imm00.py == EMPTY (handler LIVE
+        untouched; chỉ bồi yaml + test + roadmap doc, KHÔNG đụng .py/reload/migrate)."""
+        import subprocess
+        repo = str(_REPO_ROOT)
+        out = subprocess.run(
+            ["git", "-C", repo, "diff", "--numstat", "--", "assetcore/api/imm00.py"],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(out.returncode, 0, f"git diff lỗi: {out.stderr}")
+        self.assertEqual(
+            out.stdout.strip(), "",
+            f"PURE-YAML VI PHẠM — assetcore/api/imm00.py BỊ SỬA (handler LIVE phải untouched): {out.stdout!r}",
+        )
+
+
+class TestMobileSearchSparePartsContract(unittest.TestCase):
+    """R34 REPAIR SPARE-PARTS — searchSpareParts: GET-read tra-cứu phụ-tùng (autocomplete màn repair-detail).
+
+    Đóng action-set repair-detail: KTV đang sửa TRA phụ-tùng theo tên/manufacturer_part_no trước khi
+    requestSpareParts. KHÁC getAssetTimeline/getAssetIncidentHistory: data = RAW array (svc trả list[dict]
+    trực-tiếp @services/imm09.py:1237 → handle()/_ok(list)), KHÔNG bọc {items}/{pagination}. Guard:
+      (a) yaml safe_load OK; path-count 42; operationId-count 42 unique camelCase (0 dup).
+      (b) path TỒN TẠI, GET-ONLY (CHỈ key 'get' — bare @whitelist api/imm09.py:123), opId searchSpareParts;
+          tag work-order; ∈ _MVP_BUSINESS_PATHS.
+      (c) 2 query param: query (required, string) + limit (optional, integer, default 10) — KHỚP signature
+          imm09.py:124 search_spare_parts(query='', limit='10'). KHÔNG requestBody (GET). LIVE introspect-parity.
+      (d) 200 = oneOf [SearchSparePartsEnvelope, Error] route-by-VALUE body.success (C7 read-path); KHÔNG
+          discriminator. 2 branch closed (additionalProperties:false), success enum disjoint [true]/[false].
+      (e) SearchSparePartsEnvelope closed required[success,data]; data = RAW array (type:array, items =
+          $ref SearchSparePartItem) — KHÔNG pagination/asset/items wrapper (svc trả list trực-tiếp).
+      (f) SearchSparePartItem closed; props EXACT 10 = {item_code,item_name,manufacturer_part_no,qty,uom,
+          unit_cost,total_cost,stock_entry_ref,notes,idx} (GROUNDED row-literal @services/imm09.py:1238-1245);
+          required đủ 10 (mọi row có đủ key); 0 boolean prop (qty/idx=integer, unit_cost/total_cost=number).
+      (g) response slot {200,401,403}; 401 = Unauthorized401; 403 = Forbidden. SOURCE-FAITHFUL có 403
+          (bare @whitelist no-allow_guest → guest dispatcher-403 — mirror getAssetIncidentHistory/listNotifications;
+          DEVIATION-NOTE vs task {200,401}).
+      (h) GET-ok-at-source — registry _allowed_http_methods_for(search_spare_parts) ⊇ {GET} (bare-all chấp
+          nhận GET); KHÔNG POST-only (read idempotent). anti-false-green vs control POST-only handler.
+      (i) ∈ _MVP_BUSINESS_PATHS ∧ _PATHS_REQUIRE_401 ∧ _PATHS_REQUIRE_403 (symmetry set, so SET); ∈
+          _MVP_READ_ENVELOPE. 0 dangling $ref.
+      (j) PURE-YAML invariant — git diff assetcore/api/imm09.py KHÔNG đụng spare-parts handler/decorator
+          (0 dòng +/- chứa search_spare_parts/request_spare_parts/@frappe.whitelist) ⇒ KHÔNG flip, faithful.
+    SSoT: ../04-api-contract.md + api/imm09.py:123-125 + services/imm09.py:1223-1248 (SQL LIKE IMM Device
+    Spare Part → list[dict] 10-field).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.spec = _load_spec() if _MOBILE_YAML.exists() else None
+
+    def _op(self):
+        return ((self.spec.get("paths") or {}).get(_SEARCH_SPARE_PARTS_PATH) or {}).get("get") or {}
+
+    def _schemas(self):
+        return (self.spec.get("components") or {}).get("schemas") or {}
+
+    def test_mob_oas_searchspare_a_yaml_loads_path_opid_count_42(self):
+        """(a) yaml safe_load OK; path-count == 42; operationId-count == 42 unique camelCase (0 dup)."""
+        self.assertIsNotNone(self.spec, f"yaml KHÔNG load được: {_MOBILE_YAML}")
+        paths = self.spec.get("paths") or {}
+        ids = [op["operationId"] for _, _, op in _iter_operations(self.spec)]
+        self.assertEqual(len(paths), 53, "path-count PHẢI 52 (R-NOTIF-UNREAD +getUnreadNotifications).")
+        self.assertEqual(len(ids), 53, "operationId count PHẢI 52.")
+        self.assertEqual(len(set(ids)), 53, "operationId DUY NHẤT (len(set)==52, 0 dup).")
+        for oid in ids:
+            self.assertRegex(oid, _CAMEL_RE, f"operationId KHÔNG camelCase: {oid}")
+
+    def test_mob_oas_searchspare_b_path_get_only_opid_tag_mvp(self):
+        """(b) path TỒN TẠI, GET-ONLY (chỉ key 'get'), opId searchSpareParts, tag work-order, ∈ MVP-business."""
+        paths = self.spec.get("paths") or {}
+        self.assertIn(_SEARCH_SPARE_PARTS_PATH, paths, "Thiếu path search_spare_parts (R34).")
+        item = paths[_SEARCH_SPARE_PARTS_PATH]
+        self.assertEqual(sorted(item.keys()), ["get"], "search_spare_parts PHẢI GET-ONLY (bare @whitelist GET-read).")
+        self.assertNotIn("post", item, "search_spare_parts KHÔNG được có 'post'.")
+        self.assertEqual(self._op().get("operationId"), "searchSpareParts", "opId = searchSpareParts.")
+        self.assertEqual(self._op().get("tags"), ["work-order"], "tag PHẢI [work-order].")
+        self.assertIn(_SEARCH_SPARE_PARTS_PATH, _MVP_BUSINESS_PATHS, "PHẢI ∈ _MVP_BUSINESS_PATHS (401/403 symmetry).")
+
+    def test_mob_oas_searchspare_c_query_params_match_live_signature(self):
+        """(c) 2 query param: query (required, string) + limit (optional, integer, default 10); KHÔNG
+        requestBody. LIVE introspect-parity vs imm09.py:124 search_spare_parts(query='', limit='10')."""
+        op = self._op()
+        self.assertNotIn("requestBody", op, "GET search_spare_parts KHÔNG được có requestBody.")
+        params = {p.get("name"): p for p in (op.get("parameters") or []) if isinstance(p, dict)}
+        self.assertEqual(
+            set(params.keys()), {"query", "limit"},
+            f"PHẢI EXACT 2 query param {{query,limit}}: {sorted(params.keys())}.",
+        )
+        q = params["query"]
+        self.assertEqual(q.get("in"), "query", "query PHẢI in:query.")
+        self.assertTrue(q.get("required"), "query PHẢI required:true (UX autocomplete; <2 ký-tự → []).")
+        self.assertEqual((q.get("schema") or {}).get("type"), "string", "query PHẢI type string.")
+        lim = params["limit"]
+        self.assertEqual(lim.get("in"), "query", "limit PHẢI in:query.")
+        self.assertFalse(lim.get("required"), "limit PHẢI optional (default 10 @imm09.py:124).")
+        self.assertEqual((lim.get("schema") or {}).get("type"), "integer", "limit PHẢI type integer (handler ép int @imm09.py:125).")
+        self.assertEqual((lim.get("schema") or {}).get("default"), 10, "limit.default PHẢI 10 (signature @imm09.py:124).")
+        # LIVE introspect-parity — chống drift contract↔source.
+        from assetcore.api import imm09  # lazy.
+        fn = getattr(imm09, "search_spare_parts", None)
+        self.assertIsNotNone(fn, "Thiếu hàm whitelist LIVE: imm09.search_spare_parts.")
+        sig = inspect.signature(fn)
+        sp = sig.parameters
+        self.assertEqual(
+            set(sp.keys()), {"query", "limit"},
+            f"signature LIVE PHẢI EXACT {{query,limit}}, got {sorted(sp.keys())}.",
+        )
+        self.assertEqual(sp["query"].default, "", "param `query` default '' @imm09.py:124 (required cho UX autocomplete).")
+        self.assertEqual(sp["limit"].default, "10", "param `limit` default '10' @imm09.py:124 ⇒ optional + schema.default 10.")
+
+    def test_mob_oas_searchspare_d_200_oneof_route_by_value(self):
+        """(d) 200 = oneOf [SearchSparePartsEnvelope, Error] route-by-VALUE body.success (0 discriminator)."""
+        resp200 = ((self._op().get("responses") or {}).get("200") or {})
+        schema = (((resp200.get("content") or {}).get("application/json") or {}).get("schema") or {})
+        self.assertNotIn("discriminator", schema, "200 KHÔNG discriminator (route-by-VALUE body.success, C7).")
+        one_of = schema.get("oneOf") or []
+        self.assertEqual(len(one_of), 2, "200.oneOf PHẢI đúng 2 nhánh [Envelope, Error].")
+        refs = {m.get("$ref") for m in one_of if isinstance(m, dict)}
+        self.assertEqual(
+            refs, {_SEARCH_SPARE_PARTS_ENVELOPE_SCHEMA_REF, "#/components/schemas/Error"},
+            f"200.oneOf PHẢI = [SearchSparePartsEnvelope, Error]: {sorted(refs)}",
+        )
+        schemas = self._schemas()
+        env = schemas.get(_SEARCH_SPARE_PARTS_ENVELOPE_SCHEMA) or {}
+        err = schemas.get("Error") or {}
+        self.assertEqual(env.get("additionalProperties"), False, "SearchSparePartsEnvelope PHẢI closed.")
+        self.assertEqual(err.get("additionalProperties"), False, "Error PHẢI closed (§5c).")
+        env_succ = ((env.get("properties") or {}).get("success") or {}).get("enum")
+        err_succ = ((err.get("properties") or {}).get("success") or {}).get("enum")
+        self.assertEqual(env_succ, [True], "SearchSparePartsEnvelope.success.enum PHẢI [true].")
+        self.assertEqual(err_succ, [False], "Error.success.enum PHẢI [false] (disjoint).")
+
+    def test_mob_oas_searchspare_e_envelope_data_is_raw_array(self):
+        """(e) Envelope closed required[success,data]; data = RAW array (type:array, items=$ref
+        SearchSparePartItem) — KHÔNG pagination/items wrapper (svc trả list trực-tiếp @imm09.py:1237)."""
+        env = self._schemas().get(_SEARCH_SPARE_PARTS_ENVELOPE_SCHEMA) or {}
+        self.assertTrue(env, f"Thiếu schema {_SEARCH_SPARE_PARTS_ENVELOPE_SCHEMA}.")
+        self.assertEqual(env.get("additionalProperties"), False, "Envelope PHẢI closed.")
+        self.assertEqual(sorted(env.get("required") or []), ["data", "success"], "Envelope required PHẢI [success,data].")
+        data = (env.get("properties") or {}).get("data") or {}
+        self.assertEqual(data.get("type"), "array", "data PHẢI type:array (RAW list — svc trả list[dict] trực-tiếp).")
+        self.assertNotIn("properties", data, "data KHÔNG được là object (KHÔNG {items}/{pagination} wrapper).")
+        self.assertEqual(
+            (data.get("items") or {}).get("$ref"), _SEARCH_SPARE_PART_ITEM_SCHEMA_REF,
+            "data.items[] PHẢI $ref SearchSparePartItem.",
+        )
+
+    def test_mob_oas_searchspare_f_item_closed_exact_10_props_no_bool(self):
+        """(f) SearchSparePartItem closed; props EXACT 10 (GROUNDED svc row-literal imm09.py:1238-1245);
+        required đủ 10; 0 boolean prop (qty/idx=integer, unit_cost/total_cost=number; anti-false-green)."""
+        item = self._schemas().get(_SEARCH_SPARE_PART_ITEM_SCHEMA) or {}
+        self.assertTrue(item, f"Thiếu schema {_SEARCH_SPARE_PART_ITEM_SCHEMA}.")
+        self.assertEqual(item.get("additionalProperties"), False, "SearchSparePartItem PHẢI closed.")
+        props = item.get("properties") or {}
+        self.assertEqual(
+            set(props.keys()), _SEARCH_SPARE_PART_ITEM_PROPS,
+            f"props PHẢI EXACT 10 {_SEARCH_SPARE_PART_ITEM_PROPS} (svc row @imm09.py:1238-1245): {sorted(props.keys())}.",
+        )
+        self.assertEqual(len(props), 10, "PHẢI đúng 10 prop (0 thừa/thiếu — anti-false-green claim≠source).")
+        self.assertEqual(
+            sorted(item.get("required") or []), _SEARCH_SPARE_PART_ITEM_REQUIRED,
+            f"required PHẢI đủ 10 (mọi row svc có đủ key — literal dict): {sorted(item.get('required') or [])}.",
+        )
+        for pname, pdef in props.items():
+            self.assertNotEqual(
+                pdef.get("type"), "boolean",
+                f"{pname} KHÔNG được boolean (0 Check field — né int-vs-bool trap Open#1).",
+            )
+        # type discipline grounded svc literal (imm09.py:1242-1245).
+        for f in _SEARCH_SPARE_PART_ITEM_INTEGER_FIELDS:
+            self.assertEqual((props.get(f) or {}).get("type"), "integer", f"{f} PHẢI integer (svc emit int).")
+        for f in _SEARCH_SPARE_PART_ITEM_NUMBER_FIELDS:
+            self.assertEqual((props.get(f) or {}).get("type"), "number", f"{f} PHẢI number (svc emit float).")
+
+    def test_mob_oas_searchspare_g_response_slots_200_401_403(self):
+        """(g) response slot {200,401,403}; 401 = Unauthorized401; 403 = Forbidden. SOURCE-FAITHFUL
+        có 403 (bare @whitelist no-allow_guest → guest dispatcher-403; DEVIATION-NOTE vs task {200,401})."""
+        resps = (self._op().get("responses") or {})
+        self.assertEqual(
+            sorted(resps.keys()), ["200", "401", "403"],
+            f"response slot PHẢI {{200,401,403}} (mirror getAssetIncidentHistory/listNotifications — bare "
+            f"@whitelist no-allow_guest → guest dispatcher-403): {sorted(resps.keys())}",
+        )
+        self.assertEqual((resps.get("401") or {}).get("$ref"), _UNAUTHORIZED401_RESP_REF, "401 PHẢI $ref Unauthorized401.")
+        self.assertEqual((resps.get("403") or {}).get("$ref"), _FORBIDDEN_RESP_REF, "403 PHẢI $ref Forbidden.")
+
+    def test_mob_oas_searchspare_h_get_ok_at_source(self):
+        """(h) GET-ok-at-source — registry _allowed_http_methods_for(search_spare_parts) ⊇ {GET} (bare-all
+        chấp nhận GET, read idempotent); KHÔNG POST-only. anti-false-green vs control POST-only handler."""
+        allowed = _allowed_http_methods_for("assetcore.api.imm09.search_spare_parts")
+        self.assertIn("GET", allowed, f"search_spare_parts PHẢI nhận GET (bare @whitelist, read). allowed={sorted(allowed)}.")
+        self.assertNotEqual(allowed, {"POST"}, "search_spare_parts KHÔNG được POST-only (read idempotent GET).")
+        # anti-false-green: control POST-only handler (request_spare_parts) PHẢI == {POST} ⇒ helper đọc registry THẬT.
+        control = _allowed_http_methods_for("assetcore.api.imm09.request_spare_parts")
+        self.assertEqual(control, {"POST"}, "Control request_spare_parts PHẢI POST-only — helper đọc registry THẬT, KHÔNG suông.")
+
+    def test_mob_oas_searchspare_i_in_mvp_business_symmetry_no_dangling(self):
+        """(i) ∈ _MVP_BUSINESS_PATHS ∧ _PATHS_REQUIRE_401 ∧ _PATHS_REQUIRE_403 ∧ _MVP_READ_ENVELOPE; 0 dangling."""
+        self.assertIn(_SEARCH_SPARE_PARTS_PATH, _MVP_BUSINESS_PATHS, "PHẢI ∈ _MVP_BUSINESS_PATHS.")
+        self.assertIn(_SEARCH_SPARE_PARTS_PATH, _PATHS_REQUIRE_401, "PHẢI ∈ _PATHS_REQUIRE_401.")
+        self.assertIn(_SEARCH_SPARE_PARTS_PATH, _PATHS_REQUIRE_403, "PHẢI ∈ _PATHS_REQUIRE_403.")
+        self.assertIn(_SEARCH_SPARE_PARTS_PATH, _MVP_READ_ENVELOPE, "PHẢI ∈ _MVP_READ_ENVELOPE (read-path 200-oneOf).")
+        dangling = sorted({r for r in _collect_refs(self.spec) if not _resolve_pointer(r, self.spec)})
+        self.assertEqual(dangling, [], f"PHẢI 0 dangling $ref sau bồi searchSpareParts: {dangling}")
+
+    def test_mob_oas_searchspare_j_pure_yaml_handler_untouched(self):
+        """(j) PURE-YAML — git diff assetcore/api/imm09.py KHÔNG đụng spare-parts handler/decorator
+        (0 dòng +/- chứa search_spare_parts/request_spare_parts/@frappe.whitelist) ⇒ KHÔNG flip (request
+        ĐÃ POST-only @source), faithful. imm09.py CÓ diff pre-existing (list_repair_work_orders) ⇒ KHÔNG
+        assert EMPTY (KHÁC imm00.py R32)."""
+        import subprocess
+        repo = str(_REPO_ROOT)
+        out = subprocess.run(
+            ["git", "-C", repo, "diff", "--", "assetcore/api/imm09.py"],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(out.returncode, 0, f"git diff lỗi: {out.stderr}")
+        changed = [
+            ln for ln in out.stdout.splitlines()
+            if ln[:1] in ("+", "-") and not ln.startswith(("+++", "---"))
+        ]
+        offenders = [
+            ln for ln in changed
+            if "search_spare_parts" in ln or "request_spare_parts" in ln or "@frappe.whitelist" in ln
+        ]
+        self.assertEqual(
+            offenders, [],
+            "PURE-YAML VI PHẠM — git diff imm09.py ĐỤNG spare-parts handler/decorator (round này phải "
+            f"0 đụng .py — request_spare_parts ĐÃ methods=['POST'] @source, KHÔNG cần flip): {offenders}",
+        )
+
+
+class TestMobileRequestSparePartsContract(unittest.TestCase):
+    """R34 REPAIR SPARE-PARTS — requestSpareParts: POST-action cấp phụ-tùng cho WO sửa chữa.
+
+    Đóng action-set repair-detail: sau searchSpareParts (tra-cứu), KTV YÊU CẦU cấp phụ-tùng → gán
+    stock_entry_ref + Pending Parts→In Repair + tạo AC Spare Part Allocation (Gate IMM-09→IMM-15). Guard:
+      (a) path TỒN TẠI, POST-ONLY (CHỈ key 'post'), opId requestSpareParts, tag work-order, ∈ MVP-business.
+      (b) POST-ONLY-ENFORCED-AT-SOURCE — registry _allowed_http_methods_for(request_spare_parts) == {POST}
+          (VERIFIED @source @frappe.whitelist(methods=['POST']) imm09.py:77 — KHÔNG cần flip, ĐÃ POST-only).
+          ∉ _PARITY_VERB_ALLOWLIST (allowlist RỖNG).
+      (c) requestBody required:true, content oneOf application/json + x-www-form-urlencoded; schema (cả 2
+          media-type) closed required{name,parts}; parts = array; parts item props ⊇ {item_code} required,
+          {stock_entry_ref,spare_part,qty} optional. Frappe RPC form_dict (04 §4/§9).
+      (d) 200 = oneOf [RequestSparePartsEnvelope, Error] route-by-VALUE body.success (0 discriminator);
+          2 branch closed, success enum disjoint [true]/[false].
+      (e) RequestSparePartsData closed; props EXACT {name,status,updated,allocation} (GROUNDED svc return
+          @services/imm09.py:1018); updated=integer; allocation nullable (string|null); status enum =
+          RepairStatus 9-state; required đủ 4.
+      (f) live-sig parity inspect.signature(request_spare_parts) == {name,parts} (name no-default required).
+      (g) response slot {200,401,403}; 401 = Unauthorized401; 403 = Forbidden; Error.http_status enum ⊇
+          {404} (WO∄ MSG.IMM09_NOT_FOUND in-handler @services/imm09.py:975-976 → HTTP-200 nhánh Error).
+      (h) ∈ _MVP_BUSINESS_PATHS ∧ _PATHS_REQUIRE_401 ∧ _PATHS_REQUIRE_403 ∧ _MVP_ACTION_ENVELOPE; 0 dangling.
+      (i) PURE-YAML — git diff imm09.py KHÔNG flip decorator request_spare_parts (đã POST-only @source).
+    SSoT: ../04-api-contract.md + api/imm09.py:77-81 + services/imm09.py:972-1019 (set stock_entry_ref +
+    Gate IMM-09→IMM-15 allocation → return {name,status,updated,allocation}).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.spec = _load_spec() if _MOBILE_YAML.exists() else None
+
+    def _op(self):
+        return ((self.spec.get("paths") or {}).get(_REQUEST_SPARE_PARTS_PATH) or {}).get("post") or {}
+
+    def _schemas(self):
+        return (self.spec.get("components") or {}).get("schemas") or {}
+
+    def test_mob_oas_reqspare_a_path_post_only_opid_tag_mvp(self):
+        """(a) path TỒN TẠI, POST-ONLY (chỉ key 'post'), opId requestSpareParts, tag work-order, ∈ MVP-business; count 42."""
+        paths = self.spec.get("paths") or {}
+        self.assertIn(_REQUEST_SPARE_PARTS_PATH, paths, "Thiếu path request_spare_parts (R34).")
+        item = paths[_REQUEST_SPARE_PARTS_PATH]
+        self.assertEqual(sorted(item.keys()), ["post"], "request_spare_parts PHẢI POST-ONLY (chỉ key 'post').")
+        self.assertNotIn("get", item, "request_spare_parts KHÔNG được có 'get' (write-action không idempotent).")
+        self.assertEqual(self._op().get("operationId"), "requestSpareParts", "opId = requestSpareParts.")
+        self.assertEqual(self._op().get("tags"), ["work-order"], "tag PHẢI [work-order].")
+        self.assertIn(_REQUEST_SPARE_PARTS_PATH, _MVP_BUSINESS_PATHS, "PHẢI ∈ _MVP_BUSINESS_PATHS (401/403 symmetry).")
+        ids = [op["operationId"] for _, _, op in _iter_operations(self.spec)]
+        self.assertEqual(len(ids), 53, "operationId count PHẢI 52.")
+
+    def test_mob_oas_reqspare_b_post_only_enforced_at_source(self):
+        """(b) POST-ONLY-ENFORCED-AT-SOURCE — registry allowed == {POST} (VERIFIED @frappe.whitelist(methods=
+        ['POST']) imm09.py:77 — ĐÃ POST-only, KHÔNG cần flip); ∉ _PARITY_VERB_ALLOWLIST (allowlist RỖNG)."""
+        _assert_post_only_at_source(self, _REQUEST_SPARE_PARTS_PATH)
+        self.assertNotIn(
+            _REQUEST_SPARE_PARTS_PATH, _PARITY_VERB_ALLOWLIST,
+            "request_spare_parts ∉ _PARITY_VERB_ALLOWLIST (KHÔNG verb-divergence — ĐÃ POST-only @source).",
+        )
+
+    def test_mob_oas_reqspare_c_requestbody_oneof_json_form_required_name_parts(self):
+        """(c) requestBody required:true; content oneOf application/json + x-www-form-urlencoded; schema
+        (cả 2) closed required{name,parts}; parts=array; item props ⊇ {item_code} required."""
+        op = self._op()
+        rb = op.get("requestBody") or {}
+        self.assertTrue(rb, "request_spare_parts PHẢI có requestBody.")
+        self.assertTrue(rb.get("required"), "requestBody PHẢI required:true.")
+        content = rb.get("content") or {}
+        self.assertEqual(
+            sorted(content.keys()), ["application/json", "application/x-www-form-urlencoded"],
+            f"content PHẢI oneOf json + x-www-form-urlencoded (Frappe RPC form_dict): {sorted(content.keys())}.",
+        )
+        for mt, mdef in content.items():
+            schema = mdef.get("schema") or {}
+            self.assertEqual(
+                sorted(schema.get("required") or []), sorted(_REQUEST_SPARE_PARTS_REQUEST_REQUIRED),
+                f"[{mt}] schema.required PHẢI {_REQUEST_SPARE_PARTS_REQUEST_REQUIRED}: {sorted(schema.get('required') or [])}.",
+            )
+            props = schema.get("properties") or {}
+            self.assertEqual((props.get("name") or {}).get("type"), "string", f"[{mt}] name PHẢI string.")
+            parts = props.get("parts") or {}
+            self.assertEqual(parts.get("type"), "array", f"[{mt}] parts PHẢI array.")
+            pitem = parts.get("items") or {}
+            iprops = set(pitem.get("properties") or {})
+            self.assertEqual(
+                iprops, _REQUEST_SPARE_PARTS_PARTS_ITEM_PROPS,
+                f"[{mt}] parts item props PHẢI {_REQUEST_SPARE_PARTS_PARTS_ITEM_PROPS}: {sorted(iprops)}.",
+            )
+            self.assertEqual(
+                sorted(pitem.get("required") or []), _REQUEST_SPARE_PARTS_PARTS_ITEM_REQUIRED,
+                f"[{mt}] parts item required PHẢI [item_code] (match row.item_code @imm09.py:980).",
+            )
+
+    def test_mob_oas_reqspare_d_200_oneof_route_by_value(self):
+        """(d) 200 = oneOf [RequestSparePartsEnvelope, Error] route-by-VALUE body.success (0 discriminator)."""
+        resp200 = ((self._op().get("responses") or {}).get("200") or {})
+        schema = (((resp200.get("content") or {}).get("application/json") or {}).get("schema") or {})
+        self.assertNotIn("discriminator", schema, "200 KHÔNG discriminator (route-by-VALUE body.success, §5c).")
+        one_of = schema.get("oneOf") or []
+        self.assertEqual(len(one_of), 2, "200.oneOf PHẢI đúng 2 nhánh [Envelope, Error].")
+        refs = {m.get("$ref") for m in one_of if isinstance(m, dict)}
+        self.assertEqual(
+            refs, {_REQUEST_SPARE_PARTS_ENVELOPE_SCHEMA_REF, "#/components/schemas/Error"},
+            f"200.oneOf PHẢI = [RequestSparePartsEnvelope, Error]: {sorted(refs)}",
+        )
+        schemas = self._schemas()
+        env = schemas.get(_REQUEST_SPARE_PARTS_ENVELOPE_SCHEMA) or {}
+        err = schemas.get("Error") or {}
+        self.assertEqual(env.get("additionalProperties"), False, "RequestSparePartsEnvelope PHẢI closed.")
+        self.assertEqual(err.get("additionalProperties"), False, "Error PHẢI closed (§5c).")
+        self.assertEqual(((env.get("properties") or {}).get("success") or {}).get("enum"), [True], "Envelope.success.enum [true].")
+        self.assertEqual(((err.get("properties") or {}).get("success") or {}).get("enum"), [False], "Error.success.enum [false].")
+        self.assertEqual(sorted(env.get("required") or []), ["data", "success"], "Envelope required PHẢI [success,data].")
+        self.assertEqual(
+            ((env.get("properties") or {}).get("data") or {}).get("$ref"), _REQUEST_SPARE_PARTS_DATA_SCHEMA_REF,
+            "Envelope.data PHẢI $ref RequestSparePartsData.",
+        )
+
+    def test_mob_oas_reqspare_e_data_exact_props_allocation_nullable_status_enum(self):
+        """(e) RequestSparePartsData closed; props EXACT {name,status,updated,allocation} (GROUNDED svc
+        return @imm09.py:1018); updated=integer; allocation nullable; status enum = RepairStatus 9-state."""
+        data = self._schemas().get(_REQUEST_SPARE_PARTS_DATA_SCHEMA) or {}
+        self.assertTrue(data, f"Thiếu schema {_REQUEST_SPARE_PARTS_DATA_SCHEMA}.")
+        self.assertEqual(data.get("additionalProperties"), False, "RequestSparePartsData PHẢI closed.")
+        props = data.get("properties") or {}
+        self.assertEqual(
+            set(props.keys()), _REQUEST_SPARE_PARTS_DATA_PROPS,
+            f"props PHẢI EXACT {_REQUEST_SPARE_PARTS_DATA_PROPS} (svc return @imm09.py:1018): {sorted(props.keys())}.",
+        )
+        self.assertEqual(
+            sorted(data.get("required") or []), _REQUEST_SPARE_PARTS_DATA_REQUIRED,
+            "required PHẢI đủ 4 (svc return mọi key — literal dict).",
+        )
+        self.assertEqual((props.get("name") or {}).get("type"), "string", "name PHẢI string.")
+        self.assertEqual((props.get("updated") or {}).get("type"), "integer", "updated PHẢI integer (count dòng set @imm09.py:977-982).")
+        alloc = props.get("allocation") or {}
+        self.assertEqual(alloc.get("type"), "string", "allocation PHẢI type string.")
+        self.assertTrue(alloc.get("nullable"), "allocation PHẢI nullable:true (null nếu KHÔNG tạo allocation @imm09.py:992,1013-1016).")
+        self.assertEqual(
+            (props.get("status") or {}).get("enum"), _REPAIR_STATUS_ENUM,
+            "status.enum PHẢI RepairStatus 9-state canonical (services/imm09.py:30-39).",
+        )
+
+    def test_mob_oas_reqspare_f_body_match_live_signature(self):
+        """(f) live-sig parity — inspect.signature(request_spare_parts) == {name,parts} (name no-default
+        required, parts default '[]'); chống drift contract↔source."""
+        from assetcore.api import imm09  # lazy.
+        fn = getattr(imm09, "request_spare_parts", None)
+        self.assertIsNotNone(fn, "Thiếu hàm whitelist LIVE: imm09.request_spare_parts.")
+        sp = inspect.signature(fn).parameters
+        self.assertEqual(
+            set(sp.keys()), {"name", "parts"},
+            f"signature LIVE PHẢI EXACT {{name,parts}}, got {sorted(sp.keys())}.",
+        )
+        self.assertIs(
+            sp["name"].default, inspect.Parameter.empty,
+            "param `name` PHẢI KHÔNG default (positional bắt buộc) ⇒ contract required.",
+        )
+        self.assertEqual(sp["parts"].default, "[]", "param `parts` default '[]' (JSON-string → parse_json @imm09.py:80).")
+
+    def test_mob_oas_reqspare_g_response_slots_200_401_403_error_404(self):
+        """(g) response slot {200,401,403}; 401 = Unauthorized401; 403 = Forbidden; Error.http_status
+        enum ⊇ {404} (WO∄ MSG.IMM09_NOT_FOUND in-handler @imm09.py:975-976 → HTTP-200 nhánh Error)."""
+        resps = (self._op().get("responses") or {})
+        self.assertEqual(
+            sorted(resps.keys()), ["200", "401", "403"],
+            f"response slot PHẢI {{200,401,403}} (404 WO∄ trên HTTP-200 nhánh Error, KHÔNG status-line): {sorted(resps.keys())}",
+        )
+        self.assertEqual((resps.get("401") or {}).get("$ref"), _UNAUTHORIZED401_RESP_REF, "401 PHẢI $ref Unauthorized401.")
+        self.assertEqual((resps.get("403") or {}).get("$ref"), _FORBIDDEN_RESP_REF, "403 PHẢI $ref Forbidden (rbac repair.write/create dispatcher-403).")
+        err = self._schemas().get("Error") or {}
+        hs_enum = ((err.get("properties") or {}).get("http_status") or {}).get("enum") or []
+        self.assertIn(404, hs_enum, f"Error.http_status enum PHẢI ⊇ {{404}} (WO∄ MSG.IMM09_NOT_FOUND): {hs_enum}.")
+
+    def test_mob_oas_reqspare_h_in_mvp_business_symmetry_action_envelope(self):
+        """(h) ∈ _MVP_BUSINESS_PATHS ∧ _PATHS_REQUIRE_401 ∧ _PATHS_REQUIRE_403 ∧ _MVP_ACTION_ENVELOPE; 0 dangling."""
+        self.assertIn(_REQUEST_SPARE_PARTS_PATH, _MVP_BUSINESS_PATHS, "PHẢI ∈ _MVP_BUSINESS_PATHS.")
+        self.assertIn(_REQUEST_SPARE_PARTS_PATH, _PATHS_REQUIRE_401, "PHẢI ∈ _PATHS_REQUIRE_401.")
+        self.assertIn(_REQUEST_SPARE_PARTS_PATH, _PATHS_REQUIRE_403, "PHẢI ∈ _PATHS_REQUIRE_403.")
+        self.assertIn(_REQUEST_SPARE_PARTS_PATH, _MVP_ACTION_ENVELOPE, "PHẢI ∈ _MVP_ACTION_ENVELOPE (POST-action 200-oneOf).")
+        dangling = sorted({r for r in _collect_refs(self.spec) if not _resolve_pointer(r, self.spec)})
+        self.assertEqual(dangling, [], f"PHẢI 0 dangling $ref sau bồi requestSpareParts: {dangling}")
+
+    def test_mob_oas_reqspare_i_pure_yaml_decorator_not_flipped(self):
+        """(i) PURE-YAML — git diff imm09.py KHÔNG flip decorator request_spare_parts (đã POST-only @source;
+        round này 0 đụng .py — premise 'flip bare→POST' của task SAI, request ĐÃ methods=['POST'])."""
+        import subprocess
+        repo = str(_REPO_ROOT)
+        out = subprocess.run(
+            ["git", "-C", repo, "diff", "--", "assetcore/api/imm09.py"],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(out.returncode, 0, f"git diff lỗi: {out.stderr}")
+        changed = [
+            ln for ln in out.stdout.splitlines()
+            if ln[:1] in ("+", "-") and not ln.startswith(("+++", "---"))
+        ]
+        offenders = [ln for ln in changed if "request_spare_parts" in ln or "@frappe.whitelist" in ln]
+        self.assertEqual(
+            offenders, [],
+            f"PURE-YAML VI PHẠM — git diff imm09.py flip/đụng request_spare_parts decorator: {offenders}",
+        )
+
+
+class TestMobileGetUserContextContract(unittest.TestCase):
+    """FLOW-1 BOOTSTRAP — getUserContext: GET-read session who-am-I (persona-aware home + flow-gating).
+
+    LẤP dead-end: app home sau login hardcode "Đã đăng nhập" KHÔNG identity (session chỉ {email,fullName}
+    parse login-resp). Endpoint LIVE @layout.py:188 (allow_guest=True) trả roles/department/persona/
+    profile-completeness. ⚠️ allow_guest ⇒ KHÔNG dispatcher-403 → response slot {200,401} ONLY (mirror
+    openid_profile RAW {200,401}, exempt 401/403 MVP-business symmetry — ADR-MOBILE-008). Guard chạy được:
+      (a) path TỒN TẠI, GET-ONLY (CHỈ key 'get' — @whitelist allow_guest layout.py:188), opId
+          getUserContext; ∈ _ALLOW_GUEST_PATHS (KHÔNG _MVP_BUSINESS_PATHS); count 37 path/opId unique
+          camelCase; 0 dangling $ref.
+      (b) 0 param + KHÔNG requestBody — signature get_user_context() (0 positional/optional @layout.py:188).
+      (c) 200 = oneOf [UserContextEnvelope, Error] route-by-VALUE body.success (C7 read-path); KHÔNG
+          discriminator. 2 branch closed (additionalProperties:false), success enum disjoint [true]/[false].
+      (d) UserContextEnvelope closed required[success,data] success enum[true]; data = $ref UserContextData.
+      (e) UserContextData closed (additionalProperties:false), props EXACT 13 = {user,full_name,user_image,
+          phone,role_profile_name,roles,imm_roles,designation,hr_docname,department,department_name,
+          is_profile_completed,has_employee_link} (GROUNDED _ok payload @layout.py:220-234); required
+          tối thiểu [user] (luôn có khi 200; rest nullable graceful-degradation).
+      (f) INT-VS-BOOL TRAP — is_profile_completed + has_employee_link = integer enum[0,1] (KHÔNG
+          type:boolean) — BE emit bool() Python NHƯNG codegen strict-deser cần int-or-bool nhất quán
+          (Open#1, mirror IncidentListItem Check→int). roles/imm_roles = array items.type:string
+          (frappe.get_roles list, KHÔNG enum cứng). 6 string-nullable field (user_image/phone/designation/
+          hr_docname/department/department_name).
+      (g) 401 = $ref Unauthorized401 (handler guard frappe.session.user=='Guest'→_err 401 layout.py:206-207;
+          SINGLE-SHAPE component, uniform 37-path convention, mirror listIncidents/getAssetIncidentHistory);
+          response slot CHỈ {200,401} — KHÔNG 403 (allow_guest ⇒ KHÔNG dispatcher cap-403).
+      (h) allow_guest exempt symmetry — getUserContext ∈ _ALLOW_GUEST_PATHS; NOT ∈ _MVP_BUSINESS_PATHS /
+          _PATHS_REQUIRE_403 (KHÔNG ép 403); 401/403 MVP-business symmetry GIỮ đối-xứng (test so SET với
+          filter exempt allow_guest). 0 dangling $ref.
+      (i) LIVE introspect-parity — contract 0-param KHỚP 1:1 chữ-ký THẬT
+          inspect.signature(layout.get_user_context)=={} (0 positional/optional), chống drift contract↔source.
+    SSoT: ../04-api-contract.md (FLOW-1 bootstrap §8.19 + §5e ADR-MOBILE-008) + api/layout.py:187-234
+    (allow_guest=True + _ok payload 13-field + guest-guard _err 401).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.spec = _load_spec() if _MOBILE_YAML.exists() else None
+
+    def _op(self):
+        return ((self.spec.get("paths") or {}).get(_USER_CONTEXT_PATH) or {}).get("get") or {}
+
+    def _schemas(self):
+        return (self.spec.get("components") or {}).get("schemas") or {}
+
+    def test_mob_oas_userctx_a_path_get_only_allow_guest(self):
+        """(a) path TỒN TẠI, GET-ONLY, opId getUserContext, ∈ _ALLOW_GUEST_PATHS (KHÔNG _MVP_BUSINESS_PATHS);
+        count 37 unique camelCase."""
+        paths = self.spec.get("paths") or {}
+        self.assertIn(_USER_CONTEXT_PATH, paths, "Thiếu path get_user_context (FLOW-1 bootstrap).")
+        item = paths[_USER_CONTEXT_PATH]
+        self.assertEqual(
+            sorted(item.keys()), ["get"],
+            "get_user_context PHẢI GET-ONLY (chỉ key 'get', @whitelist allow_guest layout.py:188).",
+        )
+        self.assertEqual(self._op().get("operationId"), "getUserContext", "opId = getUserContext.")
+        self.assertIn(_USER_CONTEXT_PATH, _ALLOW_GUEST_PATHS, "Phải ∈ _ALLOW_GUEST_PATHS (exempt symmetry).")
+        self.assertNotIn(
+            _USER_CONTEXT_PATH, _MVP_BUSINESS_PATHS,
+            "getUserContext KHÔNG được ∈ _MVP_BUSINESS_PATHS (allow_guest ⇒ KHÔNG 403, sẽ vỡ symmetry).",
+        )
+        ids = [op["operationId"] for _, _, op in _iter_operations(self.spec)]
+        self.assertEqual(len(paths), 53, "path-count PHẢI 52 (R-NOTIF-UNREAD +getUnreadNotifications).")
+        self.assertEqual(len(ids), 53, "operationId count PHẢI 52.")
+        self.assertEqual(len(set(ids)), 53, "operationId DUY NHẤT (len(set)==52).")
+        for oid in ids:
+            self.assertRegex(oid, _CAMEL_RE, f"operationId KHÔNG camelCase: {oid}")
+
+    def test_mob_oas_userctx_b_zero_params_no_request_body(self):
+        """(b) 0 param + KHÔNG requestBody — signature get_user_context() (0 positional/optional @layout.py:188)."""
+        op = self._op()
+        self.assertNotIn("requestBody", op, "GET get_user_context KHÔNG được có requestBody.")
+        params = op.get("parameters") or []
+        self.assertEqual(params, [], f"PHẢI 0 param (signature get_user_context() 0-arg @layout.py:188): {params}.")
+
+    def test_mob_oas_userctx_c_200_oneof_route_by_value(self):
+        """(c) 200 = oneOf [UserContextEnvelope, Error] route-by-VALUE body.success (0 discriminator)."""
+        resp200 = ((self._op().get("responses") or {}).get("200") or {})
+        schema = (((resp200.get("content") or {}).get("application/json") or {}).get("schema") or {})
+        self.assertNotIn("discriminator", schema, "200 KHÔNG discriminator (route-by-VALUE body.success, C7).")
+        one_of = schema.get("oneOf") or []
+        refs = {m.get("$ref") for m in one_of if isinstance(m, dict)}
+        self.assertEqual(
+            refs, {_USER_CONTEXT_ENVELOPE_SCHEMA_REF, "#/components/schemas/Error"},
+            f"200.oneOf PHẢI = [UserContextEnvelope, Error]: {sorted(refs)}",
+        )
+        schemas = self._schemas()
+        env = schemas.get(_USER_CONTEXT_ENVELOPE_SCHEMA) or {}
+        err = schemas.get("Error") or {}
+        self.assertEqual(env.get("additionalProperties"), False, "UserContextEnvelope PHẢI closed.")
+        self.assertEqual(err.get("additionalProperties"), False, "Error PHẢI closed (§5c).")
+        env_succ = ((env.get("properties") or {}).get("success") or {}).get("enum")
+        err_succ = ((err.get("properties") or {}).get("success") or {}).get("enum")
+        self.assertEqual(env_succ, [True], "UserContextEnvelope.success.enum PHẢI [true].")
+        self.assertEqual(err_succ, [False], "Error.success.enum PHẢI [false] (disjoint).")
+
+    def test_mob_oas_userctx_d_envelope_closed_data_ref(self):
+        """(d) Envelope closed required[success,data] success enum[true]; data = $ref UserContextData."""
+        env = self._schemas().get(_USER_CONTEXT_ENVELOPE_SCHEMA) or {}
+        self.assertTrue(env, f"Thiếu schema {_USER_CONTEXT_ENVELOPE_SCHEMA}.")
+        self.assertEqual(sorted(env.get("required") or []), ["data", "success"], "Envelope required PHẢI [success,data].")
+        data = (env.get("properties") or {}).get("data") or {}
+        self.assertEqual(
+            data.get("$ref"), _USER_CONTEXT_DATA_SCHEMA_REF,
+            "data PHẢI $ref UserContextData (object, KHÔNG inline).",
+        )
+
+    def test_mob_oas_userctx_e_data_closed_exact_13_props(self):
+        """(e) UserContextData closed; props EXACT 13 (GROUNDED _ok payload layout.py:220-234);
+        required tối thiểu [user]."""
+        data = self._schemas().get(_USER_CONTEXT_DATA_SCHEMA) or {}
+        self.assertTrue(data, f"Thiếu schema {_USER_CONTEXT_DATA_SCHEMA}.")
+        self.assertEqual(data.get("additionalProperties"), False, "UserContextData PHẢI closed.")
+        props = data.get("properties") or {}
+        self.assertEqual(
+            set(props.keys()), _USER_CONTEXT_DATA_PROPS,
+            f"props PHẢI EXACT 13 {_USER_CONTEXT_DATA_PROPS} (_ok payload @layout.py:220-234): {sorted(props.keys())}.",
+        )
+        self.assertEqual(len(props), 13, "PHẢI đúng 13 prop (GROUNDED _ok @layout.py:220-234).")
+        self.assertEqual(
+            sorted(data.get("required") or []), sorted(_USER_CONTEXT_DATA_REQUIRED),
+            f"required PHẢI tối thiểu {_USER_CONTEXT_DATA_REQUIRED} (user luôn có; rest nullable graceful-degradation).",
+        )
+
+    def test_mob_oas_userctx_f_int_vs_bool_trap_and_arrays(self):
+        """(f) INT-VS-BOOL TRAP — 2 flag = integer enum[0,1] (KHÔNG type:boolean; Open#1). roles/imm_roles =
+        array items.type:string. 6 string-nullable field. Chống regress codegen strict-deser drift."""
+        props = (self._schemas().get(_USER_CONTEXT_DATA_SCHEMA) or {}).get("properties") or {}
+        # 2 flag PHẢI integer enum[0,1] — KHÔNG boolean (BE emit bool() NHƯNG contract int-or-bool nhất quán).
+        for f in _USER_CONTEXT_INT_BOOL_FIELDS:
+            pdef = props.get(f) or {}
+            self.assertEqual(
+                pdef.get("type"), "integer",
+                f"{f} PHẢI integer (INT-VS-BOOL TRAP — KHÔNG type:boolean dù BE emit bool, Open#1).",
+            )
+            self.assertEqual(
+                pdef.get("enum"), [0, 1],
+                f"{f} PHẢI enum [0,1] (codegen strict-deser int-or-bool nhất quán).",
+            )
+            self.assertNotEqual(pdef.get("type"), "boolean", f"{f} KHÔNG được type:boolean (drift int-vs-bool).")
+        # roles/imm_roles = array items.type:string (frappe.get_roles list @layout.py:226-227).
+        for f in _USER_CONTEXT_ARRAY_STRING_FIELDS:
+            pdef = props.get(f) or {}
+            self.assertEqual(pdef.get("type"), "array", f"{f} PHẢI array (frappe.get_roles list).")
+            self.assertEqual((pdef.get("items") or {}).get("type"), "string", f"{f} items PHẢI type:string.")
+        # user = string (PK session — luôn có).
+        self.assertEqual((props.get("user") or {}).get("type"), "string", "user PHẢI string (frappe.session.user).")
+        # 6 string-nullable field grounded layout.py (db.get_value có thể trả null).
+        for f in ("user_image", "phone", "designation", "hr_docname", "department", "department_name"):
+            pdef = props.get(f) or {}
+            self.assertEqual(pdef.get("type"), "string", f"{f} PHẢI string.")
+            self.assertTrue(pdef.get("nullable"), f"{f} PHẢI nullable:true (graceful-degradation null).")
+
+    def test_mob_oas_userctx_g_401_and_response_slots(self):
+        """(g) 401 = Unauthorized401 (handler guard Guest→_err 401 layout.py:206-207); response slot CHỈ
+        {200,401} — KHÔNG 403 (allow_guest ⇒ KHÔNG dispatcher cap-403)."""
+        resps = (self._op().get("responses") or {})
+        self.assertEqual(
+            (resps.get("401") or {}).get("$ref"), _UNAUTHORIZED401_RESP_REF,
+            "401 PHẢI $ref Unauthorized401 (SINGLE-SHAPE, uniform convention; mirror listIncidents).",
+        )
+        self.assertEqual(
+            sorted(resps.keys()), ["200", "401"],
+            f"response slot PHẢI CHỈ {{200,401}} (allow_guest ⇒ KHÔNG 403 dispatcher cap-gate): {sorted(resps.keys())}",
+        )
+        self.assertNotIn("403", resps, "getUserContext KHÔNG được có 403 (allow_guest=True, KHÔNG cap-gate).")
+
+    def test_mob_oas_userctx_h_allow_guest_exempt_symmetry_no_dangling(self):
+        """(h) allow_guest exempt — ∈ _ALLOW_GUEST_PATHS, NOT ∈ _PATHS_REQUIRE_403; 401/403 MVP-business
+        symmetry GIỮ (so SET với filter exempt allow_guest); 0 dangling $ref."""
+        self.assertIn(_USER_CONTEXT_PATH, _ALLOW_GUEST_PATHS, "PHẢI ∈ _ALLOW_GUEST_PATHS.")
+        self.assertNotIn(
+            _USER_CONTEXT_PATH, _PATHS_REQUIRE_403,
+            "getUserContext KHÔNG được ∈ _PATHS_REQUIRE_403 (allow_guest ⇒ KHÔNG 403).",
+        )
+        ops = {path: op for path, _, op in _iter_operations(self.spec)}
+        _exempt = _AUTH_PATHS | _ALLOW_GUEST_PATHS
+        with_401 = {p for p, op in ops.items() if "401" in (op.get("responses") or {}) and p not in _exempt}
+        with_403 = {p for p, op in ops.items() if "403" in (op.get("responses") or {}) and p not in _exempt}
+        self.assertEqual(with_401, set(_PATHS_REQUIRE_403), "Tập 401 (trừ auth+allow_guest) == _PATHS_REQUIRE_403.")
+        self.assertEqual(with_403, set(_PATHS_REQUIRE_403), "Tập 403 (trừ auth+allow_guest) == _PATHS_REQUIRE_403.")
+        # getUserContext THẬT có 401 nhưng KHÔNG 403 ⇒ chính nó nằm NGOÀI with_401/with_403 (vì exempt).
+        self.assertNotIn(_USER_CONTEXT_PATH, with_401, "getUserContext PHẢI bị filter exempt khỏi with_401.")
+        dangling = sorted({r for r in _collect_refs(self.spec) if not _resolve_pointer(r, self.spec)})
+        self.assertEqual(dangling, [], f"PHẢI 0 dangling $ref sau bồi getUserContext: {dangling}")
+
+    def test_mob_oas_userctx_i_zero_param_match_live_signature(self):
+        """(i) LIVE introspect-parity — contract 0-param KHỚP 1:1 chữ-ký THẬT
+        inspect.signature(layout.get_user_context) (chống drift contract↔source).
+
+        Source @api/layout.py:188 `def get_user_context()`: 0 positional/optional ⇒ contract 0 param.
+        """
+        from assetcore.api import layout  # lazy — tránh import-time vòng phụ thuộc.
+        fn = getattr(layout, "get_user_context", None)
+        self.assertIsNotNone(fn, "Thiếu hàm whitelist LIVE: layout.get_user_context.")
+        sig = inspect.signature(fn)
+        params = sig.parameters
+        self.assertEqual(
+            set(params.keys()), set(),
+            f"signature LIVE PHẢI 0 param (get_user_context() @layout.py:188), got {sorted(params.keys())}.",
+        )
+
+
+class TestMobilePingSessionContract(unittest.TestCase):
+    """SESSION-PROBE — pingSession: GET-read session-probe (CSRF warm-up + app-resume who-am-I-lite).
+
+    ĐÓNG NỐT cặp session-lifecycle còn lại sau notification quartet (R38-R41). Cookie-sid mobile app
+    (auth reconciliation mới nhất) CẦN endpoint nhẹ để (1) app-resume check + (2) warm-up csrf_token
+    cookie — tiền-đề MỌI POST (Frappe set csrf_token cookie qua response). Endpoint LIVE @layout.py:237
+    (allow_guest=True) NHƯNG THIẾU contract.
+
+    ⚠️ KHÁC getUserContext {200,401}: handler @layout.py:237-258 LUÔN _ok (0 nhánh _err in-handler) +
+    allow_guest ∧ KHÔNG in-handler guest-guard ⇒ response slot {200} ONLY ⇒ 200 = SINGLE schema
+    PingSessionEnvelope (KHÔNG oneOf [Env, Error] — 0 Error branch trên HTTP-200). Guard chạy được:
+      (a) path TỒN TẠI, GET-ONLY (CHỈ key 'get' — @whitelist allow_guest layout.py:237), opId
+          pingSession; ∈ _ALLOW_GUEST_PATHS (KHÔNG _MVP_BUSINESS_PATHS); count 52 path/opId unique
+          camelCase; 0 dangling $ref.
+      (b) 0 param + KHÔNG requestBody — signature ping_session() (0 positional/optional @layout.py:237).
+      (c) 200 = SINGLE schema $ref PingSessionEnvelope (KHÔNG oneOf, KHÔNG Error branch, KHÔNG
+          discriminator) — handler LUÔN _ok @:254, 0 nhánh _err in-handler ⇒ KHÔNG Error-on-HTTP-200.
+      (d) PingSessionEnvelope closed required[success,data] success enum[true]; data = $ref PingSessionData.
+      (e) PingSessionData closed (additionalProperties:false), props EXACT 3 = {user, authenticated,
+          csrf_token} (GROUNDED _ok payload @layout.py:254-258); required EXACT cả 3 (handler emit
+          UNCONDITIONAL — KHÔNG graceful-degradation như getUserContext).
+      (f) GENUINE-BOOL — authenticated = type:boolean (KHÔNG integer, KHÔNG enum): user!='Guest' @:256
+          là Python bool THẬT (KHÁC getUserContext is_profile_completed/has_employee_link int-enum trap
+          Open#1; mirror is_late PmSubmitResultResponse). user = string; csrf_token = string KHÔNG
+          nullable (fallback '' @:249-253, KHÔNG null).
+      (g) response slot == {200} EXACTLY — KHÔNG 401 (allow_guest ∧ KHÔNG in-handler guest-guard;
+          KHÁC getUserContext có guest-guard _err 401 @:206-207 ⇒ {200,401}), KHÔNG 403 (allow_guest ⇒
+          0 dispatcher cap-403), KHÔNG 429 (0 @rate_limit).
+      (h) allow_guest exempt — ∈ _ALLOW_GUEST_PATHS; NOT ∈ _MVP_BUSINESS_PATHS / _PATHS_REQUIRE_401 /
+          _PATHS_REQUIRE_403; 401/403 MVP-business symmetry GIỮ đối-xứng (so SET với filter exempt
+          allow_guest). 0 dangling $ref.
+      (i) LIVE introspect-parity — contract 0-param KHỚP 1:1 chữ-ký THẬT
+          inspect.signature(layout.ping_session)=={} (0 positional/optional), chống drift contract↔source.
+    SSoT: ../13-be-completion-roadmap.md §3.1 (SESSION-PROBE narrative) + ADR-MOBILE-008 (allow_guest
+    exempt symmetry — reuse) + api/layout.py:237-258 (allow_guest=True + _ok payload 3-field LUÔN,
+    0 guest-guard ⇒ slot {200} only).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.spec = _load_spec() if _MOBILE_YAML.exists() else None
+
+    def _op(self):
+        return ((self.spec.get("paths") or {}).get(_PING_SESSION_PATH) or {}).get("get") or {}
+
+    def _schemas(self):
+        return (self.spec.get("components") or {}).get("schemas") or {}
+
+    def test_mob_oas_ping_a_path_get_only_allow_guest(self):
+        """(a) path TỒN TẠI, GET-ONLY, opId pingSession, ∈ _ALLOW_GUEST_PATHS (KHÔNG _MVP_BUSINESS_PATHS);
+        count 52 unique camelCase."""
+        paths = self.spec.get("paths") or {}
+        self.assertIn(_PING_SESSION_PATH, paths, "Thiếu path ping_session (SESSION-PROBE).")
+        item = paths[_PING_SESSION_PATH]
+        self.assertEqual(
+            sorted(item.keys()), ["get"],
+            "ping_session PHẢI GET-ONLY (chỉ key 'get', @whitelist allow_guest layout.py:237).",
+        )
+        self.assertEqual(self._op().get("operationId"), "pingSession", "opId = pingSession.")
+        self.assertIn(_PING_SESSION_PATH, _ALLOW_GUEST_PATHS, "Phải ∈ _ALLOW_GUEST_PATHS (exempt symmetry).")
+        self.assertNotIn(
+            _PING_SESSION_PATH, _MVP_BUSINESS_PATHS,
+            "pingSession KHÔNG được ∈ _MVP_BUSINESS_PATHS (allow_guest ⇒ KHÔNG 403, sẽ vỡ symmetry).",
+        )
+        ids = [op["operationId"] for _, _, op in _iter_operations(self.spec)]
+        self.assertEqual(len(paths), 53, "path-count PHẢI 52 (R-SESSION-PROBE +pingSession).")
+        self.assertEqual(len(ids), 53, "operationId count PHẢI 52.")
+        self.assertEqual(len(set(ids)), 53, "operationId DUY NHẤT (len(set)==52).")
+        for oid in ids:
+            self.assertRegex(oid, _CAMEL_RE, f"operationId KHÔNG camelCase: {oid}")
+
+    def test_mob_oas_ping_b_zero_params_no_request_body(self):
+        """(b) 0 param + KHÔNG requestBody — signature ping_session() (0 positional/optional @layout.py:237)."""
+        op = self._op()
+        self.assertNotIn("requestBody", op, "GET ping_session KHÔNG được có requestBody.")
+        params = op.get("parameters") or []
+        self.assertEqual(params, [], f"PHẢI 0 param (signature ping_session() 0-arg @layout.py:237): {params}.")
+
+    def test_mob_oas_ping_c_200_single_schema_no_oneof(self):
+        """(c) 200 = SINGLE schema $ref PingSessionEnvelope — KHÔNG oneOf, KHÔNG Error branch, KHÔNG
+        discriminator (handler LUÔN _ok @:254, 0 nhánh _err ⇒ KHÔNG Error-on-HTTP-200)."""
+        resp200 = ((self._op().get("responses") or {}).get("200") or {})
+        schema = (((resp200.get("content") or {}).get("application/json") or {}).get("schema") or {})
+        self.assertEqual(
+            schema.get("$ref"), _PING_SESSION_ENVELOPE_SCHEMA_REF,
+            f"200 PHẢI SINGLE $ref PingSessionEnvelope (handler LUÔN _ok, 0 _err): {schema}",
+        )
+        self.assertNotIn(
+            "oneOf", schema,
+            "200 KHÔNG được oneOf — handler 0 nhánh _err in-handler ⇒ KHÔNG Error branch trên HTTP-200.",
+        )
+        self.assertNotIn("discriminator", schema, "200 KHÔNG discriminator (single-schema).")
+        # KHÔNG nhánh Error trong 200 (đối lập getUserContext oneOf [Env, Error]).
+        self.assertNotIn(
+            "#/components/schemas/Error", str(schema),
+            "200 KHÔNG được tham chiếu Error (LUÔN _ok @layout.py:254 — 0 Error-on-HTTP-200).",
+        )
+
+    def test_mob_oas_ping_d_envelope_closed_data_ref(self):
+        """(d) PingSessionEnvelope closed required[success,data] success enum[true]; data = $ref PingSessionData."""
+        env = self._schemas().get(_PING_SESSION_ENVELOPE_SCHEMA) or {}
+        self.assertTrue(env, f"Thiếu schema {_PING_SESSION_ENVELOPE_SCHEMA}.")
+        self.assertEqual(env.get("additionalProperties"), False, "PingSessionEnvelope PHẢI closed.")
+        self.assertEqual(sorted(env.get("required") or []), ["data", "success"], "Envelope required PHẢI [success,data].")
+        succ = ((env.get("properties") or {}).get("success") or {}).get("enum")
+        self.assertEqual(succ, [True], "PingSessionEnvelope.success.enum PHẢI [true].")
+        data = (env.get("properties") or {}).get("data") or {}
+        self.assertEqual(
+            data.get("$ref"), _PING_SESSION_DATA_SCHEMA_REF,
+            "data PHẢI $ref PingSessionData (object, KHÔNG inline).",
+        )
+
+    def test_mob_oas_ping_e_data_closed_exact_3_props(self):
+        """(e) PingSessionData closed; props EXACT 3 (GROUNDED _ok payload layout.py:254-258);
+        required EXACT cả 3 (handler emit UNCONDITIONAL — KHÔNG graceful-degradation)."""
+        data = self._schemas().get(_PING_SESSION_DATA_SCHEMA) or {}
+        self.assertTrue(data, f"Thiếu schema {_PING_SESSION_DATA_SCHEMA}.")
+        self.assertEqual(data.get("additionalProperties"), False, "PingSessionData PHẢI closed.")
+        props = data.get("properties") or {}
+        self.assertEqual(
+            set(props.keys()), _PING_SESSION_DATA_PROPS,
+            f"props PHẢI EXACT 3 {_PING_SESSION_DATA_PROPS} (_ok payload @layout.py:254-258): {sorted(props.keys())}.",
+        )
+        self.assertEqual(len(props), 3, "PHẢI đúng 3 prop (GROUNDED _ok @layout.py:254-258).")
+        self.assertEqual(
+            sorted(data.get("required") or []), sorted(_PING_SESSION_DATA_REQUIRED),
+            f"required PHẢI EXACT {_PING_SESSION_DATA_REQUIRED} (handler emit cả 3 UNCONDITIONAL).",
+        )
+
+    def test_mob_oas_ping_f_authenticated_genuine_boolean(self):
+        """(f) GENUINE-BOOL — authenticated = type:boolean (KHÔNG integer/enum): user!='Guest' @:256 Python
+        bool THẬT (KHÁC getUserContext int-enum trap; mirror is_late). user/csrf_token = string non-nullable."""
+        props = (self._schemas().get(_PING_SESSION_DATA_SCHEMA) or {}).get("properties") or {}
+        auth = props.get("authenticated") or {}
+        self.assertEqual(
+            auth.get("type"), "boolean",
+            "authenticated PHẢI GENUINE type:boolean (user!='Guest' @:256 — KHÔNG int-enum trap như getUserContext).",
+        )
+        self.assertNotIn(
+            "enum", auth,
+            "authenticated KHÔNG được có enum (genuine bool — KHÁC is_profile_completed/has_employee_link enum[0,1]).",
+        )
+        self.assertNotEqual(auth.get("type"), "integer", "authenticated KHÔNG được integer (drift int-vs-bool).")
+        # user = string PK session (luôn có; 'Guest' nếu chưa login).
+        self.assertEqual((props.get("user") or {}).get("type"), "string", "user PHẢI string (frappe.session.user).")
+        # csrf_token = string KHÔNG nullable (fallback '' @:249-253, KHÔNG null).
+        csrf = props.get("csrf_token") or {}
+        self.assertEqual(csrf.get("type"), "string", "csrf_token PHẢI string.")
+        self.assertFalse(csrf.get("nullable"), "csrf_token KHÔNG nullable (fallback '' @:249-253, KHÔNG null).")
+
+    def test_mob_oas_ping_g_response_slot_only_200(self):
+        """(g) response slot == {200} EXACTLY — KHÔNG 401 (allow_guest ∧ KHÔNG guest-guard; KHÁC
+        getUserContext {200,401}), KHÔNG 403 (allow_guest ⇒ 0 cap-403), KHÔNG 429 (0 @rate_limit)."""
+        resps = (self._op().get("responses") or {})
+        self.assertEqual(
+            sorted(resps.keys()), ["200"],
+            f"response slot PHẢI CHỈ {{200}} (LUÔN _ok + allow_guest + 0 guest-guard): {sorted(resps.keys())}",
+        )
+        self.assertNotIn("401", resps, "pingSession KHÔNG 401 (KHÁC getUserContext — KHÔNG in-handler guest-guard).")
+        self.assertNotIn("403", resps, "pingSession KHÔNG 403 (allow_guest=True, KHÔNG cap-gate).")
+        self.assertNotIn("429", resps, "pingSession KHÔNG 429 (0 @rate_limit @source).")
+
+    def test_mob_oas_ping_h_allow_guest_exempt_symmetry_no_dangling(self):
+        """(h) allow_guest exempt — ∈ _ALLOW_GUEST_PATHS, NOT ∈ _PATHS_REQUIRE_401/_PATHS_REQUIRE_403;
+        401/403 MVP-business symmetry GIỮ (so SET với filter exempt allow_guest); 0 dangling $ref."""
+        self.assertIn(_PING_SESSION_PATH, _ALLOW_GUEST_PATHS, "PHẢI ∈ _ALLOW_GUEST_PATHS.")
+        self.assertNotIn(
+            _PING_SESSION_PATH, _PATHS_REQUIRE_401,
+            "pingSession KHÔNG được ∈ _PATHS_REQUIRE_401 (slot {200} only — KHÔNG 401).",
+        )
+        self.assertNotIn(
+            _PING_SESSION_PATH, _PATHS_REQUIRE_403,
+            "pingSession KHÔNG được ∈ _PATHS_REQUIRE_403 (allow_guest ⇒ KHÔNG 403).",
+        )
+        ops = {path: op for path, _, op in _iter_operations(self.spec)}
+        _exempt = _AUTH_PATHS | _ALLOW_GUEST_PATHS
+        with_401 = {p for p, op in ops.items() if "401" in (op.get("responses") or {}) and p not in _exempt}
+        with_403 = {p for p, op in ops.items() if "403" in (op.get("responses") or {}) and p not in _exempt}
+        self.assertEqual(with_401, set(_PATHS_REQUIRE_403), "Tập 401 (trừ auth+allow_guest) == _PATHS_REQUIRE_403.")
+        self.assertEqual(with_403, set(_PATHS_REQUIRE_403), "Tập 403 (trừ auth+allow_guest) == _PATHS_REQUIRE_403.")
+        # pingSession KHÔNG có 401 lẫn 403 ⇒ chính nó nằm NGOÀI with_401/with_403 (slot {200} only).
+        self.assertNotIn(_PING_SESSION_PATH, with_401, "pingSession KHÔNG xuất hiện trong with_401 (slot {200}).")
+        self.assertNotIn(_PING_SESSION_PATH, with_403, "pingSession KHÔNG xuất hiện trong with_403 (slot {200}).")
+        dangling = sorted({r for r in _collect_refs(self.spec) if not _resolve_pointer(r, self.spec)})
+        self.assertEqual(dangling, [], f"PHẢI 0 dangling $ref sau bồi pingSession: {dangling}")
+
+    def test_mob_oas_ping_i_zero_param_match_live_signature(self):
+        """(i) LIVE introspect-parity — contract 0-param KHỚP 1:1 chữ-ký THẬT
+        inspect.signature(layout.ping_session) (chống drift contract↔source).
+
+        Source @api/layout.py:237 `def ping_session()`: 0 positional/optional ⇒ contract 0 param.
+        """
+        from assetcore.api import layout  # lazy — tránh import-time vòng phụ thuộc.
+        fn = getattr(layout, "ping_session", None)
+        self.assertIsNotNone(fn, "Thiếu hàm whitelist LIVE: layout.ping_session.")
+        sig = inspect.signature(fn)
+        params = sig.parameters
+        self.assertEqual(
+            set(params.keys()), set(),
+            f"signature LIVE PHẢI 0 param (ping_session() @layout.py:237), got {sorted(params.keys())}.",
+        )
+
+
+class TestMobileAssignTechnicianContract(unittest.TestCase):
+    """C8-ACTION — assignTechnician: POST-action lifecycle DISPATCH cho Asset Repair
+    (Open → Assigned).
+
+    LẤP HỐ create→start: chuỗi createRepairWorkOrder → [assignTechnician] → startRepair (giao WO cho KTV
+    hiện trường). KHÁC startRepair (đơn-{name}): (1) requestBody 2-required {name,technician} + optional
+    priority (technician = đích tiêu thụ listUsers R23-picker); (2) response RIÊNG 3-key
+    {name,status,assigned_to} ⇒ AssignTechnicianEnvelope/AssignTechnicianResponse RIÊNG (service trả thêm
+    assigned_to @services/imm09.py:848 ⇒ KHÔNG reuse RepairActionEnvelope 2-key). Guard chạy được:
+      (a) path TỒN TẠI, POST-ONLY (CHỈ key 'post' — khớp @whitelist(methods=['POST']) api/imm09.py:57-58),
+          opId assignTechnician; vào _MVP_BUSINESS_PATHS (401/403 symmetry set tự +1); count 34 path/opId
+          unique camelCase; 0 dangling $ref.
+      (b) requestBody required:true, content application/json $ref AssignTechnicianRequest (INLINE,
+          KHÔNG x-www-form như create). KHÔNG oneOf json+form (action đơn-record, mirror StartWorkRequest).
+      (c) AssignTechnicianRequest = closed (additionalProperties:false), props EXACT {name,technician,
+          priority}, required EXACT [name,technician] (2 positional no-default @api/imm09.py:58; priority
+          optional default ''); name/technician/priority type string; priority có default ''.
+      (d) 200 = oneOf [AssignTechnicianEnvelope, Error] Ở TẦNG response-content-schema (route-by-VALUE
+          body.success, C6/C7); KHÔNG discriminator. 2 branch closed (additionalProperties:false),
+          success enum disjoint [true]/[false] (loại trừ máy-đọc).
+      (e) AssignTechnicianEnvelope closed {success enum[true], data $ref AssignTechnicianResponse};
+          AssignTechnicianResponse closed, props EXACT {name,status,assigned_to} (khớp svc.assign_technician
+          return @services/imm09.py:848), required [name,status,assigned_to]; status enum =
+          RepairStatus-canonical 9-state (RIÊNG — KHÔNG reuse RepairActionResponse 2-key: assign trả thêm
+          assigned_to, C3-split field-disjoint vs start_repair).
+      (f) 403 = SINGLE-SHAPE $ref Forbidden (dispatcher-403; in-handler cap-403 repair.write
+          api/imm09.py:59 phủ bởi nhánh Error 200-oneOf) — KHÁC reportIncident DUAL-403 ReportIncidentForbidden.
+      (g) 401 = $ref Unauthorized401; response slot CHỈ {200,401,403} (lỗi nghiệp vụ HTTP-200+Error,
+          KHÔNG status-line key 404/409/422 — route theo body.http_status).
+      (h) assignTechnician ∈ _PATHS_REQUIRE_401 ∧ _PATHS_REQUIRE_403 (symmetry set, so SET KHÔNG literal);
+          negative — priority KHÔNG required; status/assigned_to KHÔNG lọt body (server-derived); 0 dangling.
+      (i) LIVE introspect-parity — contract requestBody KHỚP 1:1 chữ-ký THẬT
+          inspect.signature(imm09.assign_technician)=={name,technician,priority} (name/technician no-default,
+          priority default ''), chống drift contract↔source.
+    SSoT: docs/imm-09/04_Backend_Design.md §3.2 (ADR-IMM09-ASSIGN) + api/imm09.py:57-60 +
+    services/imm09.py:833,848 + asset_repair.json (RepairStatus @services/imm09.py:30-39).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.spec = _load_spec() if _MOBILE_YAML.exists() else None
+
+    def _op(self):
+        return ((self.spec.get("paths") or {}).get(_ASSIGN_TECH_PATH) or {}).get("post") or {}
+
+    def _schemas(self):
+        return (self.spec.get("components") or {}).get("schemas") or {}
+
+    def test_mob_oas_assigntech_a_path_post_only_in_mvp(self):
+        """(a) path TỒN TẠI, POST-ONLY, opId assignTechnician, ∈ _MVP_BUSINESS_PATHS; count 34 unique."""
+        paths = self.spec.get("paths") or {}
+        self.assertIn(_ASSIGN_TECH_PATH, paths, "Thiếu path assign_technician (C8-ACTION DISPATCH).")
+        item = paths[_ASSIGN_TECH_PATH]
+        self.assertEqual(
+            sorted(item.keys()), ["post"],
+            "assign_technician PHẢI POST-ONLY (chỉ key 'post', khớp @whitelist(methods=['POST']) api/imm09.py:57-58).",
+        )
+        self.assertEqual(self._op().get("operationId"), "assignTechnician", "opId = assignTechnician.")
+        self.assertIn(_ASSIGN_TECH_PATH, _MVP_BUSINESS_PATHS, "Phải vào _MVP_BUSINESS_PATHS (401/403 symmetry).")
+        ids = [op["operationId"] for _, _, op in _iter_operations(self.spec)]
+        self.assertEqual(len(paths), 53, "path-count PHẢI 52 (R-NOTIF-UNREAD +getUnreadNotifications).")
+        self.assertEqual(len(ids), 53, "operationId count PHẢI 52.")
+        self.assertEqual(len(set(ids)), 53, "operationId DUY NHẤT (len(set)==52).")
+        for oid in ids:
+            self.assertRegex(oid, _CAMEL_RE, f"operationId KHÔNG camelCase: {oid}")
+
+    def test_mob_oas_assigntech_b_request_body_inline_json_ref(self):
+        """(b) requestBody required:true + content application/json $ref AssignTechnicianRequest (INLINE, json-only)."""
+        rb = self._op().get("requestBody") or {}
+        self.assertTrue(rb, "assign_technician PHẢI có requestBody.")
+        self.assertEqual(rb.get("required"), True, "requestBody.required PHẢI true (name+technician positional bắt buộc).")
+        content = rb.get("content") or {}
+        self.assertIn("application/json", content, "requestBody PHẢI có application/json.")
+        # INLINE action: KHÔNG x-www-form-urlencoded (mirror StartWorkRequest, KHÔNG create-triad).
+        self.assertNotIn("application/x-www-form-urlencoded", content, "Action body INLINE json-only (KHÔNG form).")
+        schema_ref = ((content.get("application/json") or {}).get("schema") or {}).get("$ref")
+        self.assertEqual(
+            schema_ref, f"#/components/schemas/{_ASSIGN_TECH_REQUEST_SCHEMA}",
+            f"application/json.schema PHẢI $ref {_ASSIGN_TECH_REQUEST_SCHEMA}, got {schema_ref}",
+        )
+
+    def test_mob_oas_assigntech_c_request_schema_closed_two_required(self):
+        """(c) AssignTechnicianRequest closed; props EXACT {name,technician,priority}; required EXACT [name,technician]."""
+        sch = self._schemas().get(_ASSIGN_TECH_REQUEST_SCHEMA) or {}
+        self.assertTrue(sch, f"Thiếu schema {_ASSIGN_TECH_REQUEST_SCHEMA}.")
+        self.assertEqual(sch.get("additionalProperties"), False, "AssignTechnicianRequest PHẢI closed (additionalProperties:false).")
+        props = sch.get("properties") or {}
+        self.assertEqual(set(props.keys()), _ASSIGN_TECH_REQUEST_PROPS, f"props PHẢI EXACT {_ASSIGN_TECH_REQUEST_PROPS}.")
+        self.assertEqual(
+            sorted(sch.get("required") or []), sorted(_ASSIGN_TECH_REQUEST_REQUIRED),
+            f"required PHẢI EXACT {_ASSIGN_TECH_REQUEST_REQUIRED} (name+technician positional @api/imm09.py:58; priority optional).",
+        )
+        self.assertEqual((props.get("name") or {}).get("type"), "string", "name PHẢI type string.")
+        self.assertEqual((props.get("technician") or {}).get("type"), "string", "technician PHẢI type string.")
+        self.assertEqual((props.get("priority") or {}).get("type"), "string", "priority PHẢI type string.")
+        # priority optional → có default '' (codegen sinh nullable/default, KHÔNG ép gửi).
+        self.assertEqual((props.get("priority") or {}).get("default"), "", "priority PHẢI default '' (optional @signature).")
+
+    def test_mob_oas_assigntech_d_200_oneof_route_by_value(self):
+        """(d) 200 = oneOf [AssignTechnicianEnvelope, Error] ở response-content-schema (route-by-VALUE, 0 discriminator)."""
+        resp200 = ((self._op().get("responses") or {}).get("200") or {})
+        schema = (((resp200.get("content") or {}).get("application/json") or {}).get("schema") or {})
+        self.assertNotIn("discriminator", schema, "200 KHÔNG discriminator (route-by-VALUE body.success, §5c).")
+        one_of = schema.get("oneOf") or []
+        refs = {m.get("$ref") for m in one_of if isinstance(m, dict)}
+        self.assertEqual(
+            refs, {_ASSIGN_TECH_ENVELOPE_SCHEMA_REF, "#/components/schemas/Error"},
+            f"200.oneOf PHẢI = [AssignTechnicianEnvelope, Error]: {sorted(refs)}",
+        )
+        schemas = self._schemas()
+        env = schemas.get(_ASSIGN_TECH_ENVELOPE_SCHEMA) or {}
+        err = schemas.get("Error") or {}
+        self.assertEqual(env.get("additionalProperties"), False, "AssignTechnicianEnvelope PHẢI closed.")
+        self.assertEqual(err.get("additionalProperties"), False, "Error PHẢI closed (§5c).")
+        env_succ = ((env.get("properties") or {}).get("success") or {}).get("enum")
+        err_succ = ((err.get("properties") or {}).get("success") or {}).get("enum")
+        self.assertEqual(env_succ, [True], "AssignTechnicianEnvelope.success.enum PHẢI [true].")
+        self.assertEqual(err_succ, [False], "Error.success.enum PHẢI [false] (disjoint).")
+
+    def test_mob_oas_assigntech_e_envelope_and_data_grounded(self):
+        """(e) AssignTechnicianEnvelope {success,data}; AssignTechnicianResponse closed {name,status,assigned_to} grounded imm09.py:848."""
+        schemas = self._schemas()
+        env = schemas.get(_ASSIGN_TECH_ENVELOPE_SCHEMA) or {}
+        self.assertEqual(sorted(env.get("required") or []), ["data", "success"], "Envelope required PHẢI [success,data].")
+        data_ref = ((env.get("properties") or {}).get("data") or {}).get("$ref")
+        self.assertEqual(
+            data_ref, f"#/components/schemas/{_ASSIGN_TECH_RESPONSE_SCHEMA}",
+            f"Envelope.data PHẢI $ref {_ASSIGN_TECH_RESPONSE_SCHEMA}, got {data_ref}",
+        )
+        resp = schemas.get(_ASSIGN_TECH_RESPONSE_SCHEMA) or {}
+        self.assertTrue(resp, f"Thiếu schema {_ASSIGN_TECH_RESPONSE_SCHEMA}.")
+        self.assertEqual(resp.get("additionalProperties"), False, "AssignTechnicianResponse PHẢI closed (svc trả đúng 3 key).")
+        props = resp.get("properties") or {}
+        self.assertEqual(set(props.keys()), _ASSIGN_TECH_DATA_KEYS, f"data props PHẢI EXACT {_ASSIGN_TECH_DATA_KEYS} (imm09.py:848).")
+        self.assertEqual(sorted(resp.get("required") or []), sorted(_ASSIGN_TECH_DATA_KEYS), "data required PHẢI [name,status,assigned_to].")
+        self.assertEqual((props.get("name") or {}).get("type"), "string", "data.name PHẢI string.")
+        self.assertEqual((props.get("status") or {}).get("type"), "string", "data.status PHẢI string.")
+        self.assertEqual((props.get("assigned_to") or {}).get("type"), "string", "data.assigned_to PHẢI string.")
+        self.assertEqual(
+            (props.get("status") or {}).get("enum"), _REPAIR_STATUS_ENUM,
+            "data.status.enum PHẢI RepairStatus-canonical 9-state @services/imm09.py:30-39 (post-assign='Assigned').",
+        )
+        # RIÊNG: AssignTechnicianResponse KHÔNG được trùng RepairActionResponse (assign trả thêm assigned_to, C3-split).
+        self.assertNotEqual(
+            _ASSIGN_TECH_RESPONSE_SCHEMA, _START_REPAIR_ACTION_RESPONSE_SCHEMA,
+            "AssignTechnicianResponse PHẢI là schema RIÊNG (3-key, KHÔNG tái dùng RepairActionResponse 2-key).",
+        )
+        rar = schemas.get(_START_REPAIR_ACTION_RESPONSE_SCHEMA) or {}
+        self.assertNotEqual(
+            set((rar.get("properties") or {}).keys()), _ASSIGN_TECH_DATA_KEYS,
+            "data 3-key {name,status,assigned_to} PHẢI KHÁC RepairActionResponse 2-key {name,status} — chứng minh RIÊNG.",
+        )
+
+    def test_mob_oas_assigntech_f_403_single_shape_forbidden(self):
+        """(f) 403 = SINGLE-SHAPE Forbidden (dispatcher-403) — KHÁC reportIncident DUAL-403."""
+        resp403 = ((self._op().get("responses") or {}).get("403") or {})
+        self.assertEqual(
+            resp403.get("$ref"), _FORBIDDEN_RESP_REF,
+            f"403 PHẢI $ref Forbidden (SINGLE-SHAPE; in-handler cap-403 repair.write phủ bởi 200-oneOf Error), "
+            f"got {resp403.get('$ref')}",
+        )
+        self.assertNotEqual(
+            resp403.get("$ref"), _REPORT_INCIDENT_FORBIDDEN_RESP_REF,
+            "assignTechnician 403 KHÔNG được dùng ReportIncidentForbidden (đó là DUAL-403 của report_incident).",
+        )
+
+    def test_mob_oas_assigntech_g_401_and_no_business_status_line(self):
+        """(g) 401 = Unauthorized401; response slot CHỈ {200,401,403} (lỗi nghiệp vụ HTTP-200+Error)."""
+        resps = (self._op().get("responses") or {})
+        self.assertEqual(
+            (resps.get("401") or {}).get("$ref"), _UNAUTHORIZED401_RESP_REF,
+            "401 PHẢI $ref Unauthorized401.",
+        )
+        self.assertEqual(
+            sorted(resps.keys()), ["200", "401", "403"],
+            f"response slot PHẢI CHỈ {{200,401,403}} (lỗi nghiệp vụ HTTP-200+Error, KHÔNG status-line): {sorted(resps.keys())}",
+        )
+
+    def test_mob_oas_assigntech_h_symmetry_set_and_no_dangling(self):
+        """(h) assignTechnician ∈ _PATHS_REQUIRE_401 ∧ _PATHS_REQUIRE_403 (so SET); 0 dangling $ref."""
+        self.assertIn(_ASSIGN_TECH_PATH, _PATHS_REQUIRE_401, "assignTechnician PHẢI ∈ _PATHS_REQUIRE_401.")
+        self.assertIn(_ASSIGN_TECH_PATH, _PATHS_REQUIRE_403, "assignTechnician PHẢI ∈ _PATHS_REQUIRE_403.")
+        ops = {path: op for path, _, op in _iter_operations(self.spec)}
+        with_401 = {p for p, op in ops.items() if "401" in (op.get("responses") or {}) and p not in (_AUTH_PATHS | _ALLOW_GUEST_PATHS)}
+        with_403 = {p for p, op in ops.items() if "403" in (op.get("responses") or {}) and p not in (_AUTH_PATHS | _ALLOW_GUEST_PATHS)}
+        self.assertEqual(with_401, set(_PATHS_REQUIRE_403), "Tập 401 (trừ auth) == _PATHS_REQUIRE_403 (symmetry).")
+        self.assertEqual(with_403, set(_PATHS_REQUIRE_403), "Tập 403 (trừ auth) == _PATHS_REQUIRE_403 (symmetry).")
+        dangling = sorted({r for r in _collect_refs(self.spec) if not _resolve_pointer(r, self.spec)})
+        self.assertEqual(dangling, [], f"PHẢI 0 dangling $ref sau bồi assignTechnician: {dangling}")
+        # negative — priority KHÔNG required; status/assigned_to KHÔNG lọt body (server-derived).
+        req_schema = self._schemas().get(_ASSIGN_TECH_REQUEST_SCHEMA) or {}
+        req_props = req_schema.get("properties") or {}
+        self.assertNotIn("priority", (req_schema.get("required") or []), "priority KHÔNG được required (signature có default '').")
+        self.assertNotIn("status", req_props, "status KHÔNG lọt assign_technician body (server-derived 'Assigned').")
+        self.assertNotIn("assigned_to", req_props, "assigned_to KHÔNG lọt body (server echo từ technician input).")
+
+    def test_mob_oas_assigntech_i_request_body_matches_live_signature(self):
+        """(i) LIVE introspect-parity — contract requestBody KHỚP 1:1 chữ-ký THẬT
+        inspect.signature(imm09.assign_technician) (chống drift contract↔source).
+
+        Source @api/imm09.py:58 `def assign_technician(name, technician, priority='')`:
+          • params LIVE == {name,technician,priority} (KHÔNG thừa/thiếu).
+          • name+technician KHÔNG default (positional bắt buộc) ⇒ contract required==[name,technician];
+            priority có default '' ⇒ optional.
+        """
+        from assetcore.api import imm09  # lazy — tránh import-time vòng phụ thuộc.
+        fn = getattr(imm09, "assign_technician", None)
+        self.assertIsNotNone(fn, "Thiếu hàm whitelist LIVE: imm09.assign_technician.")
+        sig = inspect.signature(fn)
+        params = sig.parameters
+        # params LIVE == 3 field contract (set-equal, KHÔNG thừa/thiếu).
+        self.assertEqual(
+            set(params.keys()), _ASSIGN_TECH_REQUEST_PROPS,
+            f"signature LIVE PHẢI EXACT {_ASSIGN_TECH_REQUEST_PROPS}, got {sorted(params.keys())}.",
+        )
+        # name+technician KHÔNG default ⇒ required; priority có default ''.
+        self.assertIs(
+            params["name"].default, inspect.Parameter.empty,
+            "param `name` PHẢI KHÔNG default (positional bắt buộc) ⇒ contract required.",
+        )
+        self.assertIs(
+            params["technician"].default, inspect.Parameter.empty,
+            "param `technician` PHẢI KHÔNG default (positional bắt buộc) ⇒ contract required.",
+        )
+        self.assertEqual(
+            params["priority"].default, "",
+            "param `priority` PHẢI default '' (optional) ⇒ contract KHÔNG required.",
+        )
+        live_required = {n for n, p in params.items() if p.default is inspect.Parameter.empty}
+        self.assertEqual(
+            live_required, set(_ASSIGN_TECH_REQUEST_REQUIRED),
+            f"required-set source-derived {sorted(live_required)} PHẢI == contract required "
+            f"{sorted(_ASSIGN_TECH_REQUEST_REQUIRED)} (chống drift).",
+        )
+
+
+class TestMobileStartWorkContract(unittest.TestCase):
+    """C8-ACTION — startWork: POST-action lifecycle THỨ HAI cho Incident
+    (Acknowledged → In Progress).
+
+    NỐI TIẾP acknowledgeIncident (route-by-VALUE body.success) cùng domain IMM-12 — màn incident-detail
+    (getIncident) tiến tiếp flow xử lý SAU khi tiếp nhận. REUSE IncidentActionEnvelope/
+    IncidentActionResponse (status="In Progress" ∈ enum 7-state có sẵn) ⇒ KHÔNG sinh schema mới
+    (KHÁC startRepair vốn có RepairActionEnvelope/RepairActionResponse riêng). Guard chạy được:
+      (a) path TỒN TẠI, POST-ONLY (CHỈ key 'post' — khớp @whitelist(methods=['POST']) api/imm12.py:245-246),
+          opId startWork; vào _MVP_BUSINESS_PATHS (401/403 symmetry set tự +1); count 27 path/opId
+          unique camelCase; 0 dangling $ref.
+      (b) requestBody required:true, content application/json $ref StartWorkRequest (INLINE,
+          KHÔNG x-www-form như create). KHÔNG oneOf json+form (action đơn-record, mirror
+          AcknowledgeIncidentRequest).
+      (c) StartWorkRequest = closed (additionalProperties:false), props EXACT {name,notes},
+          required EXACT [name] (positional bắt buộc @api/imm12.py:246; notes default ""); name/notes
+          type string; KHÔNG có assigned_to (KHÁC AcknowledgeIncidentRequest — server auto-gán).
+      (d) 200 = oneOf [IncidentActionEnvelope, Error] Ở TẦNG response-content-schema (route-by-VALUE
+          body.success, C6/C7); KHÔNG discriminator. 2 branch closed (additionalProperties:false),
+          success enum disjoint [true]/[false] (loại trừ máy-đọc).
+      (e) REUSE IncidentActionEnvelope {success enum[true], data $ref IncidentActionResponse};
+          IncidentActionResponse closed, props EXACT {name,status} (khớp svc_start_work return
+          @services/imm12.py:491), required [name,status]; status enum = incident 7-state, "In Progress"
+          ∈ enum. KHÔNG sinh envelope/response schema mới (cùng object acknowledgeIncident dùng).
+      (f) 403 = SINGLE-SHAPE $ref Forbidden (dispatcher-403; in-handler cap-403 corrective.investigate
+          api/imm12.py:252 phủ bởi nhánh Error 200-oneOf) — KHÁC reportIncident DUAL-403 ReportIncidentForbidden;
+          mirror acknowledgeIncident.
+      (g) 401 = $ref Unauthorized401; KHÔNG bịa nhánh 200-Error riêng (đã phủ bởi oneOf Error);
+          KHÔNG có status-line key 404/409/422 (in-handler arrive HTTP-200, route theo body.http_status).
+      (h) startWork ∈ _PATHS_REQUIRE_401 ∧ _PATHS_REQUIRE_403 (symmetry set, so SET KHÔNG literal);
+          negative — name KHÔNG được optional; assigned_to/status KHÔNG lọt body (KHÁC acknowledge;
+          status server-derived "In Progress").
+      (i) LIVE introspect-parity — contract requestBody KHỚP 1:1 chữ-ký THẬT
+          inspect.signature(imm12.start_work)=={name,notes} (name no-default, notes default ""),
+          chống drift contract↔source.
+    SSoT: ../04-api-contract.md (ADR-MOBILE-006 §8.10/§8.12) + api/imm12.py:245-253 +
+    services/imm12.py:470,483,486,491 + incident_report.json (Select 7-state).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.spec = _load_spec() if _MOBILE_YAML.exists() else None
+
+    def _op(self):
+        return ((self.spec.get("paths") or {}).get(_START_WORK_PATH) or {}).get("post") or {}
+
+    def _schemas(self):
+        return (self.spec.get("components") or {}).get("schemas") or {}
+
+    def test_mob_oas_startwork_a_path_post_only_in_mvp(self):
+        """(a) path TỒN TẠI, POST-ONLY, opId startWork, ∈ _MVP_BUSINESS_PATHS; count 27 unique."""
+        paths = self.spec.get("paths") or {}
+        self.assertIn(_START_WORK_PATH, paths, "Thiếu path start_work (C8-ACTION).")
+        item = paths[_START_WORK_PATH]
+        self.assertEqual(
+            sorted(item.keys()), ["post"],
+            "start_work PHẢI POST-ONLY (chỉ key 'post', khớp @whitelist(methods=['POST']) api/imm12.py:245-246).",
+        )
+        self.assertEqual(self._op().get("operationId"), "startWork", "opId = startWork.")
+        self.assertIn(_START_WORK_PATH, _MVP_BUSINESS_PATHS, "Phải vào _MVP_BUSINESS_PATHS (401/403 symmetry).")
+        ids = [op["operationId"] for _, _, op in _iter_operations(self.spec)]
+        self.assertEqual(len(paths), 53, "path-count PHẢI 52 (R-NOTIF-UNREAD +getUnreadNotifications).")
+        self.assertEqual(len(ids), 53, "operationId count PHẢI 52.")
+        self.assertEqual(len(set(ids)), 53, "operationId DUY NHẤT (len(set)==52).")
+        for oid in ids:
+            self.assertRegex(oid, _CAMEL_RE, f"operationId KHÔNG camelCase: {oid}")
+
+    def test_mob_oas_startwork_b_request_body_inline_json_ref(self):
+        """(b) requestBody required:true + content application/json $ref StartWorkRequest (INLINE, json-only)."""
+        rb = self._op().get("requestBody") or {}
+        self.assertTrue(rb, "start_work PHẢI có requestBody.")
+        self.assertEqual(rb.get("required"), True, "requestBody.required PHẢI true (name positional bắt buộc).")
+        content = rb.get("content") or {}
+        self.assertIn("application/json", content, "requestBody PHẢI có application/json.")
+        # INLINE đơn-record action: KHÔNG x-www-form-urlencoded (mirror AcknowledgeIncidentRequest, KHÔNG create-triad).
+        self.assertNotIn("application/x-www-form-urlencoded", content, "Action body INLINE json-only (KHÔNG form).")
+        schema_ref = ((content.get("application/json") or {}).get("schema") or {}).get("$ref")
+        self.assertEqual(
+            schema_ref, f"#/components/schemas/{_START_WORK_REQUEST_SCHEMA}",
+            f"application/json.schema PHẢI $ref {_START_WORK_REQUEST_SCHEMA}, got {schema_ref}",
+        )
+
+    def test_mob_oas_startwork_c_request_schema_closed_name_notes(self):
+        """(c) StartWorkRequest closed; props EXACT {name,notes}; required EXACT [name]; KHÔNG assigned_to."""
+        sch = self._schemas().get(_START_WORK_REQUEST_SCHEMA) or {}
+        self.assertTrue(sch, f"Thiếu schema {_START_WORK_REQUEST_SCHEMA}.")
+        self.assertEqual(sch.get("additionalProperties"), False, "StartWorkRequest PHẢI closed (additionalProperties:false).")
+        props = sch.get("properties") or {}
+        self.assertEqual(set(props.keys()), _START_WORK_REQUEST_PROPS, f"props PHẢI EXACT {_START_WORK_REQUEST_PROPS}.")
+        self.assertEqual(
+            sorted(sch.get("required") or []), sorted(_START_WORK_REQUEST_REQUIRED),
+            f"required PHẢI EXACT {_START_WORK_REQUEST_REQUIRED} (name positional @api/imm12.py:246; notes default '').",
+        )
+        self.assertEqual((props.get("name") or {}).get("type"), "string", "name PHẢI type string.")
+        self.assertEqual((props.get("notes") or {}).get("type"), "string", "notes PHẢI type string.")
+        # KHÁC AcknowledgeIncidentRequest: KHÔNG có assigned_to (start_work auto-gán server-side @imm12.py:483).
+        self.assertNotIn("assigned_to", props, "start_work body KHÔNG có assigned_to (server auto-gán session.user).")
+
+    def test_mob_oas_startwork_d_200_oneof_route_by_value(self):
+        """(d) 200 = oneOf [IncidentActionEnvelope, Error] ở response-content-schema (route-by-VALUE, 0 discriminator)."""
+        resp200 = ((self._op().get("responses") or {}).get("200") or {})
+        schema = (((resp200.get("content") or {}).get("application/json") or {}).get("schema") or {})
+        self.assertNotIn("discriminator", schema, "200 KHÔNG discriminator (route-by-VALUE body.success, §5c).")
+        one_of = schema.get("oneOf") or []
+        refs = {m.get("$ref") for m in one_of if isinstance(m, dict)}
+        self.assertEqual(
+            refs, {_START_WORK_ENVELOPE_SCHEMA_REF, "#/components/schemas/Error"},
+            f"200.oneOf PHẢI = [IncidentActionEnvelope, Error]: {sorted(refs)}",
+        )
+        schemas = self._schemas()
+        env = schemas.get(_START_WORK_ENVELOPE_SCHEMA) or {}
+        err = schemas.get("Error") or {}
+        self.assertEqual(env.get("additionalProperties"), False, "IncidentActionEnvelope PHẢI closed.")
+        self.assertEqual(err.get("additionalProperties"), False, "Error PHẢI closed (§5c).")
+        env_succ = ((env.get("properties") or {}).get("success") or {}).get("enum")
+        err_succ = ((err.get("properties") or {}).get("success") or {}).get("enum")
+        self.assertEqual(env_succ, [True], "IncidentActionEnvelope.success.enum PHẢI [true].")
+        self.assertEqual(err_succ, [False], "Error.success.enum PHẢI [false] (disjoint).")
+
+    def test_mob_oas_startwork_e_envelope_and_data_reused_grounded(self):
+        """(e) REUSE IncidentActionEnvelope {success,data}; IncidentActionResponse closed {name,status}
+        grounded svc_start_work return @services/imm12.py:491 (status="In Progress" ∈ enum 7-state)."""
+        schemas = self._schemas()
+        env = schemas.get(_START_WORK_ENVELOPE_SCHEMA) or {}
+        self.assertEqual(sorted(env.get("required") or []), ["data", "success"], "Envelope required PHẢI [success,data].")
+        data_ref = ((env.get("properties") or {}).get("data") or {}).get("$ref")
+        self.assertEqual(
+            data_ref, f"#/components/schemas/{_START_WORK_ACTION_RESPONSE_SCHEMA}",
+            f"Envelope.data PHẢI $ref {_START_WORK_ACTION_RESPONSE_SCHEMA}, got {data_ref}",
+        )
+        resp = schemas.get(_START_WORK_ACTION_RESPONSE_SCHEMA) or {}
+        self.assertTrue(resp, f"Thiếu schema {_START_WORK_ACTION_RESPONSE_SCHEMA}.")
+        self.assertEqual(resp.get("additionalProperties"), False, "IncidentActionResponse PHẢI closed (svc trả đúng 2 key).")
+        props = resp.get("properties") or {}
+        self.assertEqual(set(props.keys()), _START_WORK_DATA_KEYS, f"data props PHẢI EXACT {_START_WORK_DATA_KEYS} (imm12.py:491).")
+        self.assertEqual(sorted(resp.get("required") or []), sorted(_START_WORK_DATA_KEYS), "data required PHẢI [name,status].")
+        self.assertEqual((props.get("name") or {}).get("type"), "string", "data.name PHẢI string.")
+        self.assertEqual((props.get("status") or {}).get("type"), "string", "data.status PHẢI string.")
+        # status enum = incident 7-state (Select-canonical) — "In Progress" ∈ enum (post-start value).
+        self.assertEqual(
+            (props.get("status") or {}).get("enum"), _INCIDENT_STATUS_ENUM,
+            "data.status.enum PHẢI incident 7-state @incident_report.json (post-start='In Progress').",
+        )
+        self.assertIn(
+            "In Progress", (props.get("status") or {}).get("enum") or [],
+            "'In Progress' (svc_start_work return @services/imm12.py:491 _STATUS_INVESTIGATING) PHẢI ∈ status enum.",
+        )
+        # REUSE — startWork PHẢI dùng CÙNG object acknowledgeIncident (KHÔNG sinh schema mới, cùng domain IMM-12).
+        self.assertEqual(
+            _START_WORK_ENVELOPE_SCHEMA, _ACK_ENVELOPE_SCHEMA,
+            "startWork PHẢI REUSE IncidentActionEnvelope (cùng acknowledgeIncident — KHÔNG schema mới).",
+        )
+        self.assertEqual(
+            _START_WORK_ACTION_RESPONSE_SCHEMA, _ACK_ACTION_RESPONSE_SCHEMA,
+            "startWork PHẢI REUSE IncidentActionResponse (cùng acknowledgeIncident — KHÔNG schema mới).",
+        )
+
+    def test_mob_oas_startwork_f_403_single_shape_forbidden(self):
+        """(f) 403 = SINGLE-SHAPE Forbidden (dispatcher-403) — KHÁC reportIncident DUAL-403; mirror acknowledgeIncident."""
+        resp403 = ((self._op().get("responses") or {}).get("403") or {})
+        self.assertEqual(
+            resp403.get("$ref"), _FORBIDDEN_RESP_REF,
+            f"403 PHẢI $ref Forbidden (SINGLE-SHAPE; in-handler cap-403 corrective.investigate phủ bởi 200-oneOf Error), "
+            f"got {resp403.get('$ref')}",
+        )
+        self.assertNotEqual(
+            resp403.get("$ref"), _REPORT_INCIDENT_FORBIDDEN_RESP_REF,
+            "startWork 403 KHÔNG được dùng ReportIncidentForbidden (đó là DUAL-403 của report_incident).",
+        )
+
+    def test_mob_oas_startwork_g_401_and_no_business_status_line(self):
+        """(g) 401 = Unauthorized401; KHÔNG status-line key 404/409/422 (in-handler arrive HTTP-200)."""
+        resps = (self._op().get("responses") or {})
+        self.assertEqual(
+            (resps.get("401") or {}).get("$ref"), _UNAUTHORIZED401_RESP_REF,
+            "401 PHẢI $ref Unauthorized401.",
+        )
+        self.assertEqual(
+            sorted(resps.keys()), ["200", "401", "403"],
+            f"response slot PHẢI CHỈ {{200,401,403}} (lỗi nghiệp vụ HTTP-200+Error, KHÔNG status-line): {sorted(resps.keys())}",
+        )
+
+    def test_mob_oas_startwork_h_symmetry_set_and_no_dangling(self):
+        """(h) startWork ∈ _PATHS_REQUIRE_401 ∧ _PATHS_REQUIRE_403 (so SET); 0 dangling $ref."""
+        self.assertIn(_START_WORK_PATH, _PATHS_REQUIRE_401, "startWork PHẢI ∈ _PATHS_REQUIRE_401.")
+        self.assertIn(_START_WORK_PATH, _PATHS_REQUIRE_403, "startWork PHẢI ∈ _PATHS_REQUIRE_403.")
+        ops = {path: op for path, _, op in _iter_operations(self.spec)}
+        with_401 = {p for p, op in ops.items() if "401" in (op.get("responses") or {}) and p not in (_AUTH_PATHS | _ALLOW_GUEST_PATHS)}
+        with_403 = {p for p, op in ops.items() if "403" in (op.get("responses") or {}) and p not in (_AUTH_PATHS | _ALLOW_GUEST_PATHS)}
+        self.assertEqual(with_401, set(_PATHS_REQUIRE_403), "Tập 401 (trừ auth) == _PATHS_REQUIRE_403 (symmetry).")
+        self.assertEqual(with_403, set(_PATHS_REQUIRE_403), "Tập 403 (trừ auth) == _PATHS_REQUIRE_403 (symmetry).")
+        dangling = sorted({r for r in _collect_refs(self.spec) if not _resolve_pointer(r, self.spec)})
+        self.assertEqual(dangling, [], f"PHẢI 0 dangling $ref sau bồi startWork: {dangling}")
+        # negative — name PHẢI required; assigned_to/status KHÔNG lọt body (KHÁC acknowledge; status server-derived).
+        req_schema = self._schemas().get(_START_WORK_REQUEST_SCHEMA) or {}
+        req_props = req_schema.get("properties") or {}
+        self.assertIn("name", (req_schema.get("required") or []), "name PHẢI required (KHÔNG optional).")
+        self.assertNotIn("assigned_to", req_props, "assigned_to KHÔNG lọt start_work body (KHÁC acknowledge; server auto-gán).")
+        self.assertNotIn("status", req_props, "status KHÔNG lọt start_work body (server-derived 'In Progress').")
+
+    def test_mob_oas_startwork_i_request_body_matches_live_signature(self):
+        """(i) LIVE introspect-parity — contract requestBody KHỚP 1:1 chữ-ký THẬT
+        inspect.signature(imm12.start_work) (chống drift contract↔source).
+
+        Source @api/imm12.py:246 `def start_work(name: str, notes: str = "")`:
+          • params LIVE == {name,notes} (KHÔNG thừa/thiếu — KHÔNG có assigned_to như acknowledge).
+          • name KHÔNG default (positional bắt buộc) ⇒ contract required==[name]; notes default "" ⇒ optional.
+        """
+        from assetcore.api import imm12  # lazy — tránh import-time vòng phụ thuộc.
+        fn = getattr(imm12, "start_work", None)
+        self.assertIsNotNone(fn, "Thiếu hàm whitelist LIVE: imm12.start_work.")
+        sig = inspect.signature(fn)
+        params = sig.parameters
+        # params LIVE == 2 field contract (set-equal, KHÔNG thừa/thiếu — KHÔNG assigned_to).
+        self.assertEqual(
+            set(params.keys()), _START_WORK_REQUEST_PROPS,
+            f"signature LIVE PHẢI EXACT {_START_WORK_REQUEST_PROPS}, got {sorted(params.keys())}.",
+        )
+        self.assertNotIn(
+            "assigned_to", params,
+            "imm12.start_work KHÔNG được có param assigned_to (KHÁC acknowledge_incident — server auto-gán).",
+        )
+        # name KHÔNG default ⇒ required; notes default "" ⇒ optional.
+        self.assertIs(
+            params["name"].default, inspect.Parameter.empty,
+            "param `name` PHẢI KHÔNG default (positional bắt buộc) ⇒ contract required==[name].",
+        )
+        self.assertEqual(
+            params["notes"].default, "",
+            "param `notes` PHẢI default '' (optional) ⇒ contract KHÔNG required notes.",
+        )
+        live_required = {n for n, p in params.items() if p.default is inspect.Parameter.empty}
+        self.assertEqual(
+            live_required, set(_START_WORK_REQUEST_REQUIRED),
+            f"required-set source-derived {sorted(live_required)} PHẢI == contract required "
+            f"{sorted(_START_WORK_REQUEST_REQUIRED)} (chống drift).",
+        )
+
+
+class TestMobileResolveIncidentContract(unittest.TestCase):
+    """C8-ACTION — resolveIncident: POST-action lifecycle THỨ BA cho Incident
+    (In Progress → Resolved).
+
+    NỐI TIẾP acknowledgeIncident + startWork (route-by-VALUE body.success) cùng domain IMM-12 — màn
+    incident-detail (getIncident) ĐÓNG VÒNG xử lý sau khi đã In Progress. **KHÔNG reuse
+    IncidentActionEnvelope/IncidentActionResponse** {name,status}: service trả thêm field thứ ba
+    `rca_created` (RCA auto-create High/Critical @services/imm12.py:530) ⇒ sinh ResolveIncidentEnvelope/
+    ResolveIncidentResponse RIÊNG closed {name,status,rca_created}. Guard chạy được:
+      (a) path TỒN TẠI, POST-ONLY (CHỈ key 'post' — khớp @whitelist(methods=['POST']) api/imm12.py:257-258),
+          opId resolveIncident; vào _MVP_BUSINESS_PATHS (401/403 symmetry set tự +1); count 29 path/opId
+          (sau C8-ACTION-PM submitPmResult) unique camelCase; 0 dangling $ref.
+      (b) requestBody required:true, content application/json $ref ResolveIncidentRequest (INLINE,
+          KHÔNG x-www-form). KHÔNG oneOf json+form (action đơn-record, mirror StartWorkRequest).
+      (c) ResolveIncidentRequest = closed (additionalProperties:false), props EXACT {name,resolution_notes,
+          root_cause}, required EXACT [name,resolution_notes] (2 positional no-default @api/imm12.py:258;
+          root_cause default ""); 3 prop type string; KHÔNG có status/rca_created lọt body (server-derived).
+      (d) 200 = oneOf [ResolveIncidentEnvelope, Error] Ở TẦNG response-content-schema (route-by-VALUE
+          body.success, C6/C7); KHÔNG discriminator. 2 branch closed (additionalProperties:false),
+          success enum disjoint [true]/[false] (loại trừ máy-đọc).
+      (e) ResolveIncidentEnvelope {success enum[true], data $ref ResolveIncidentResponse} closed;
+          ResolveIncidentResponse closed, props EXACT {name,status,rca_created} (khớp svc_resolve return
+          @services/imm12.py:530), required [name,status,rca_created]; status enum = incident 7-state,
+          "Resolved" ∈ enum; rca_created type string + nullable:true (RCA name HOẶC null @:519).
+          **KHÔNG reuse** IncidentActionEnvelope/IncidentActionResponse (schema RIÊNG — data 3-key ≠ 2-key).
+      (f) 403 = SINGLE-SHAPE $ref Forbidden (dispatcher-403; in-handler cap-403 corrective.investigate
+          api/imm12.py:264-265 phủ bởi nhánh Error 200-oneOf) — KHÁC reportIncident DUAL-403; mirror
+          acknowledgeIncident/startWork.
+      (g) 401 = $ref Unauthorized401; response slot CHỈ {200,401,403} (in-handler arrive HTTP-200,
+          route theo body.http_status — KHÔNG status-line 404/409/422).
+      (h) resolveIncident ∈ _PATHS_REQUIRE_401 ∧ _PATHS_REQUIRE_403 (symmetry set, so SET KHÔNG literal);
+          negative — name/resolution_notes KHÔNG được optional; status/rca_created KHÔNG lọt body.
+      (i) LIVE introspect-parity — contract requestBody KHỚP 1:1 chữ-ký THẬT
+          inspect.signature(imm12.resolve_incident)=={name,resolution_notes,root_cause}
+          (name+resolution_notes no-default, root_cause default ""), chống drift contract↔source.
+    SSoT: ../04-api-contract.md (ADR-MOBILE-006 §8.10/§8.13) + api/imm12.py:257-266 +
+    services/imm12.py:494,498,519,530 + incident_report.json (Select 7-state).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.spec = _load_spec() if _MOBILE_YAML.exists() else None
+
+    def _op(self):
+        return ((self.spec.get("paths") or {}).get(_RESOLVE_INCIDENT_PATH) or {}).get("post") or {}
+
+    def _schemas(self):
+        return (self.spec.get("components") or {}).get("schemas") or {}
+
+    def test_mob_oas_resolve_a_path_post_only_in_mvp(self):
+        """(a) path TỒN TẠI, POST-ONLY, opId resolveIncident, ∈ _MVP_BUSINESS_PATHS; count 28 unique."""
+        paths = self.spec.get("paths") or {}
+        self.assertIn(_RESOLVE_INCIDENT_PATH, paths, "Thiếu path resolve_incident (C8-ACTION).")
+        item = paths[_RESOLVE_INCIDENT_PATH]
+        self.assertEqual(
+            sorted(item.keys()), ["post"],
+            "resolve_incident PHẢI POST-ONLY (chỉ key 'post', khớp @whitelist(methods=['POST']) api/imm12.py:257-258).",
+        )
+        self.assertEqual(self._op().get("operationId"), "resolveIncident", "opId = resolveIncident.")
+        self.assertIn(_RESOLVE_INCIDENT_PATH, _MVP_BUSINESS_PATHS, "Phải vào _MVP_BUSINESS_PATHS (401/403 symmetry).")
+        ids = [op["operationId"] for _, _, op in _iter_operations(self.spec)]
+        self.assertEqual(len(paths), 53, "path-count PHẢI 52 (R-NOTIF-UNREAD +getUnreadNotifications).")
+        self.assertEqual(len(ids), 53, "operationId count PHẢI 52.")
+        self.assertEqual(len(set(ids)), 53, "operationId DUY NHẤT (len(set)==52).")
+        for oid in ids:
+            self.assertRegex(oid, _CAMEL_RE, f"operationId KHÔNG camelCase: {oid}")
+
+    def test_mob_oas_resolve_b_request_body_inline_json_ref(self):
+        """(b) requestBody required:true + content application/json $ref ResolveIncidentRequest (INLINE, json-only)."""
+        rb = self._op().get("requestBody") or {}
+        self.assertTrue(rb, "resolve_incident PHẢI có requestBody.")
+        self.assertEqual(rb.get("required"), True, "requestBody.required PHẢI true (name+resolution_notes positional bắt buộc).")
+        content = rb.get("content") or {}
+        self.assertIn("application/json", content, "requestBody PHẢI có application/json.")
+        self.assertNotIn("application/x-www-form-urlencoded", content, "Action body INLINE json-only (KHÔNG form).")
+        schema_ref = ((content.get("application/json") or {}).get("schema") or {}).get("$ref")
+        self.assertEqual(
+            schema_ref, f"#/components/schemas/{_RESOLVE_INCIDENT_REQUEST_SCHEMA}",
+            f"application/json.schema PHẢI $ref {_RESOLVE_INCIDENT_REQUEST_SCHEMA}, got {schema_ref}",
+        )
+
+    def test_mob_oas_resolve_c_request_schema_closed_two_required(self):
+        """(c) ResolveIncidentRequest closed; props EXACT {name,resolution_notes,root_cause};
+        required EXACT [name,resolution_notes] (2 positional no-default); root_cause optional."""
+        sch = self._schemas().get(_RESOLVE_INCIDENT_REQUEST_SCHEMA) or {}
+        self.assertTrue(sch, f"Thiếu schema {_RESOLVE_INCIDENT_REQUEST_SCHEMA}.")
+        self.assertEqual(sch.get("additionalProperties"), False, "ResolveIncidentRequest PHẢI closed (additionalProperties:false).")
+        props = sch.get("properties") or {}
+        self.assertEqual(set(props.keys()), _RESOLVE_INCIDENT_REQUEST_PROPS, f"props PHẢI EXACT {_RESOLVE_INCIDENT_REQUEST_PROPS}.")
+        self.assertEqual(
+            sorted(sch.get("required") or []), sorted(_RESOLVE_INCIDENT_REQUEST_REQUIRED),
+            f"required PHẢI EXACT {_RESOLVE_INCIDENT_REQUEST_REQUIRED} (name+resolution_notes no-default @api/imm12.py:258; root_cause default '').",
+        )
+        self.assertEqual((props.get("name") or {}).get("type"), "string", "name PHẢI type string.")
+        self.assertEqual((props.get("resolution_notes") or {}).get("type"), "string", "resolution_notes PHẢI type string.")
+        self.assertEqual((props.get("root_cause") or {}).get("type"), "string", "root_cause PHẢI type string.")
+        # root_cause optional (KHÔNG trong required-set) — default "" @signature.
+        self.assertNotIn("root_cause", (sch.get("required") or []), "root_cause KHÔNG required (default '' @api/imm12.py:258).")
+
+    def test_mob_oas_resolve_d_200_oneof_route_by_value(self):
+        """(d) 200 = oneOf [ResolveIncidentEnvelope, Error] ở response-content-schema (route-by-VALUE, 0 discriminator)."""
+        resp200 = ((self._op().get("responses") or {}).get("200") or {})
+        schema = (((resp200.get("content") or {}).get("application/json") or {}).get("schema") or {})
+        self.assertNotIn("discriminator", schema, "200 KHÔNG discriminator (route-by-VALUE body.success, §5c).")
+        one_of = schema.get("oneOf") or []
+        refs = {m.get("$ref") for m in one_of if isinstance(m, dict)}
+        self.assertEqual(
+            refs, {_RESOLVE_INCIDENT_ENVELOPE_SCHEMA_REF, "#/components/schemas/Error"},
+            f"200.oneOf PHẢI = [ResolveIncidentEnvelope, Error]: {sorted(refs)}",
+        )
+        schemas = self._schemas()
+        env = schemas.get(_RESOLVE_INCIDENT_ENVELOPE_SCHEMA) or {}
+        err = schemas.get("Error") or {}
+        self.assertEqual(env.get("additionalProperties"), False, "ResolveIncidentEnvelope PHẢI closed.")
+        self.assertEqual(err.get("additionalProperties"), False, "Error PHẢI closed (§5c).")
+        env_succ = ((env.get("properties") or {}).get("success") or {}).get("enum")
+        err_succ = ((err.get("properties") or {}).get("success") or {}).get("enum")
+        self.assertEqual(env_succ, [True], "ResolveIncidentEnvelope.success.enum PHẢI [true].")
+        self.assertEqual(err_succ, [False], "Error.success.enum PHẢI [false] (disjoint).")
+
+    def test_mob_oas_resolve_e_envelope_and_data_dedicated_grounded(self):
+        """(e) ResolveIncidentEnvelope {success,data}; ResolveIncidentResponse closed {name,status,rca_created}
+        grounded svc_resolve return @services/imm12.py:530 (status="Resolved"; rca_created nullable).
+        SCHEMA RIÊNG — KHÔNG reuse IncidentActionEnvelope/IncidentActionResponse (data 3-key ≠ 2-key)."""
+        schemas = self._schemas()
+        env = schemas.get(_RESOLVE_INCIDENT_ENVELOPE_SCHEMA) or {}
+        self.assertTrue(env, f"Thiếu schema {_RESOLVE_INCIDENT_ENVELOPE_SCHEMA}.")
+        self.assertEqual(sorted(env.get("required") or []), ["data", "success"], "Envelope required PHẢI [success,data].")
+        data_ref = ((env.get("properties") or {}).get("data") or {}).get("$ref")
+        self.assertEqual(
+            data_ref, f"#/components/schemas/{_RESOLVE_INCIDENT_RESPONSE_SCHEMA}",
+            f"Envelope.data PHẢI $ref {_RESOLVE_INCIDENT_RESPONSE_SCHEMA}, got {data_ref}",
+        )
+        resp = schemas.get(_RESOLVE_INCIDENT_RESPONSE_SCHEMA) or {}
+        self.assertTrue(resp, f"Thiếu schema {_RESOLVE_INCIDENT_RESPONSE_SCHEMA}.")
+        self.assertEqual(resp.get("additionalProperties"), False, "ResolveIncidentResponse PHẢI closed (svc trả đúng 3 key).")
+        props = resp.get("properties") or {}
+        self.assertEqual(set(props.keys()), _RESOLVE_INCIDENT_DATA_KEYS, f"data props PHẢI EXACT {_RESOLVE_INCIDENT_DATA_KEYS} (imm12.py:530).")
+        self.assertEqual(sorted(resp.get("required") or []), sorted(_RESOLVE_INCIDENT_DATA_KEYS), "data required PHẢI [name,status,rca_created].")
+        self.assertEqual((props.get("name") or {}).get("type"), "string", "data.name PHẢI string.")
+        self.assertEqual((props.get("status") or {}).get("type"), "string", "data.status PHẢI string.")
+        # status enum = incident 7-state (Select-canonical) — "Resolved" ∈ enum (post-resolve value).
+        self.assertEqual(
+            (props.get("status") or {}).get("enum"), _INCIDENT_STATUS_ENUM,
+            "data.status.enum PHẢI incident 7-state @incident_report.json (post-resolve='Resolved').",
+        )
+        self.assertIn(
+            "Resolved", (props.get("status") or {}).get("enum") or [],
+            "'Resolved' (svc_resolve return @services/imm12.py:530 _STATUS_RESOLVED) PHẢI ∈ status enum.",
+        )
+        # rca_created = string + nullable:true (RCA name HOẶC null @services/imm12.py:519-530).
+        rca = props.get("rca_created") or {}
+        self.assertEqual(rca.get("type"), "string", "data.rca_created PHẢI type string.")
+        self.assertIs(rca.get("nullable"), True, "data.rca_created PHẢI nullable:true (null khi không tạo RCA @imm12.py:519).")
+        # KHÔNG reuse — ResolveIncident* PHẢI là object RIÊNG (KHÁC IncidentActionEnvelope/Response 2-key).
+        self.assertNotEqual(
+            _RESOLVE_INCIDENT_ENVELOPE_SCHEMA, _ACK_ENVELOPE_SCHEMA,
+            "resolveIncident PHẢI dùng ResolveIncidentEnvelope RIÊNG (KHÔNG reuse IncidentActionEnvelope — data 3-key).",
+        )
+        self.assertNotEqual(
+            _RESOLVE_INCIDENT_RESPONSE_SCHEMA, _ACK_ACTION_RESPONSE_SCHEMA,
+            "resolveIncident PHẢI dùng ResolveIncidentResponse RIÊNG (KHÔNG reuse IncidentActionResponse — +rca_created).",
+        )
+
+    def test_mob_oas_resolve_f_403_single_shape_forbidden(self):
+        """(f) 403 = SINGLE-SHAPE Forbidden (dispatcher-403) — KHÁC reportIncident DUAL-403; mirror acknowledge/startWork."""
+        resp403 = ((self._op().get("responses") or {}).get("403") or {})
+        self.assertEqual(
+            resp403.get("$ref"), _FORBIDDEN_RESP_REF,
+            f"403 PHẢI $ref Forbidden (SINGLE-SHAPE; in-handler cap-403 corrective.investigate phủ bởi 200-oneOf Error), "
+            f"got {resp403.get('$ref')}",
+        )
+        self.assertNotEqual(
+            resp403.get("$ref"), _REPORT_INCIDENT_FORBIDDEN_RESP_REF,
+            "resolveIncident 403 KHÔNG được dùng ReportIncidentForbidden (đó là DUAL-403 của report_incident).",
+        )
+
+    def test_mob_oas_resolve_g_401_and_no_business_status_line(self):
+        """(g) 401 = Unauthorized401; KHÔNG status-line key 404/409/422 (in-handler arrive HTTP-200)."""
+        resps = (self._op().get("responses") or {})
+        self.assertEqual(
+            (resps.get("401") or {}).get("$ref"), _UNAUTHORIZED401_RESP_REF,
+            "401 PHẢI $ref Unauthorized401.",
+        )
+        self.assertEqual(
+            sorted(resps.keys()), ["200", "401", "403"],
+            f"response slot PHẢI CHỈ {{200,401,403}} (lỗi nghiệp vụ HTTP-200+Error, KHÔNG status-line): {sorted(resps.keys())}",
+        )
+
+    def test_mob_oas_resolve_h_symmetry_set_and_no_dangling(self):
+        """(h) resolveIncident ∈ _PATHS_REQUIRE_401 ∧ _PATHS_REQUIRE_403 (so SET); 0 dangling $ref."""
+        self.assertIn(_RESOLVE_INCIDENT_PATH, _PATHS_REQUIRE_401, "resolveIncident PHẢI ∈ _PATHS_REQUIRE_401.")
+        self.assertIn(_RESOLVE_INCIDENT_PATH, _PATHS_REQUIRE_403, "resolveIncident PHẢI ∈ _PATHS_REQUIRE_403.")
+        ops = {path: op for path, _, op in _iter_operations(self.spec)}
+        with_401 = {p for p, op in ops.items() if "401" in (op.get("responses") or {}) and p not in (_AUTH_PATHS | _ALLOW_GUEST_PATHS)}
+        with_403 = {p for p, op in ops.items() if "403" in (op.get("responses") or {}) and p not in (_AUTH_PATHS | _ALLOW_GUEST_PATHS)}
+        self.assertEqual(with_401, set(_PATHS_REQUIRE_403), "Tập 401 (trừ auth) == _PATHS_REQUIRE_403 (symmetry).")
+        self.assertEqual(with_403, set(_PATHS_REQUIRE_403), "Tập 403 (trừ auth) == _PATHS_REQUIRE_403 (symmetry).")
+        dangling = sorted({r for r in _collect_refs(self.spec) if not _resolve_pointer(r, self.spec)})
+        self.assertEqual(dangling, [], f"PHẢI 0 dangling $ref sau bồi resolveIncident: {dangling}")
+        # negative — name/resolution_notes PHẢI required; status/rca_created KHÔNG lọt body (server-derived).
+        req_schema = self._schemas().get(_RESOLVE_INCIDENT_REQUEST_SCHEMA) or {}
+        req_props = req_schema.get("properties") or {}
+        self.assertIn("name", (req_schema.get("required") or []), "name PHẢI required (KHÔNG optional).")
+        self.assertIn("resolution_notes", (req_schema.get("required") or []), "resolution_notes PHẢI required (positional no-default).")
+        self.assertNotIn("status", req_props, "status KHÔNG lọt resolve body (server-derived 'Resolved').")
+        self.assertNotIn("rca_created", req_props, "rca_created KHÔNG lọt resolve body (server-derived output-only).")
+
+    def test_mob_oas_resolve_i_request_body_matches_live_signature(self):
+        """(i) LIVE introspect-parity — contract requestBody KHỚP 1:1 chữ-ký THẬT
+        inspect.signature(imm12.resolve_incident) (chống drift contract↔source).
+
+        Source @api/imm12.py:258 `def resolve_incident(name, resolution_notes, root_cause="")`:
+          • params LIVE == {name,resolution_notes,root_cause}.
+          • name+resolution_notes KHÔNG default (positional bắt buộc) ⇒ contract required==[name,resolution_notes];
+            root_cause default "" ⇒ optional.
+        """
+        from assetcore.api import imm12  # lazy — tránh import-time vòng phụ thuộc.
+        fn = getattr(imm12, "resolve_incident", None)
+        self.assertIsNotNone(fn, "Thiếu hàm whitelist LIVE: imm12.resolve_incident.")
+        sig = inspect.signature(fn)
+        params = sig.parameters
+        self.assertEqual(
+            set(params.keys()), _RESOLVE_INCIDENT_REQUEST_PROPS,
+            f"signature LIVE PHẢI EXACT {_RESOLVE_INCIDENT_REQUEST_PROPS}, got {sorted(params.keys())}.",
+        )
+        self.assertIs(
+            params["name"].default, inspect.Parameter.empty,
+            "param `name` PHẢI KHÔNG default (positional bắt buộc).",
+        )
+        self.assertIs(
+            params["resolution_notes"].default, inspect.Parameter.empty,
+            "param `resolution_notes` PHẢI KHÔNG default (positional bắt buộc) ⇒ contract required.",
+        )
+        self.assertEqual(
+            params["root_cause"].default, "",
+            "param `root_cause` PHẢI default '' (optional) ⇒ contract KHÔNG required root_cause.",
+        )
+        live_required = {n for n, p in params.items() if p.default is inspect.Parameter.empty}
+        self.assertEqual(
+            live_required, set(_RESOLVE_INCIDENT_REQUEST_REQUIRED),
+            f"required-set source-derived {sorted(live_required)} PHẢI == contract required "
+            f"{sorted(_RESOLVE_INCIDENT_REQUEST_REQUIRED)} (chống drift).",
+        )
+
+
+class TestMobileCloseIncidentContract(unittest.TestCase):
+    """C8-ACTION — closeIncident: POST-action lifecycle TERMINAL cho Incident
+    (Resolved → Closed).
+
+    ĐÓNG mắt xích CUỐI chuỗi report→ack→start→resolve→close (cùng domain IMM-12) — màn incident-detail
+    (getIncident) đóng HOÀN TOÀN vòng-đời sau khi đã Resolved. **KHÔNG reuse IncidentActionResponse**
+    {name,status} (service trả thêm field thứ ba `closed_date`) **NÊN KHÔNG reuse ResolveIncidentResponse**
+    {name,status,rca_created}: `closed_date` ≠ `rca_created` (C3-split field-disjoint) ⇒ sinh
+    CloseIncidentEnvelope/CloseIncidentResponse RIÊNG closed {name,status,closed_date}. Guard chạy được:
+      (a) path TỒN TẠI, POST-ONLY (CHỈ key 'post' — khớp @whitelist(methods=['POST']) api/imm12.py:270-271,
+          clean POST KHÔNG verb-divergence), opId closeIncident; vào _MVP_BUSINESS_PATHS (401/403 symmetry
+          set tự +1); count 32 path/opId unique camelCase; 0 dangling $ref.
+      (b) requestBody required:true, content application/json $ref CloseIncidentRequest (INLINE,
+          KHÔNG x-www-form). KHÔNG oneOf json+form (action đơn-record, mirror StartWorkRequest).
+      (c) CloseIncidentRequest = closed (additionalProperties:false), props EXACT {name,verification_notes},
+          required EXACT [name] (1 positional no-default @api/imm12.py:271; verification_notes default '');
+          2 prop type string; KHÔNG có status/closed_date lọt body (server-derived).
+      (d) 200 = oneOf [CloseIncidentEnvelope, Error] Ở TẦNG response-content-schema (route-by-VALUE
+          body.success, C6/C7); KHÔNG discriminator. 2 branch closed (additionalProperties:false),
+          success enum disjoint [true]/[false] (loại trừ máy-đọc).
+      (e) CloseIncidentEnvelope {success enum[true], data $ref CloseIncidentResponse} closed;
+          CloseIncidentResponse closed, props EXACT {name,status,closed_date} (khớp svc_close return
+          @services/imm12.py:569), required [name,status,closed_date]; status enum = incident 7-state,
+          "Closed" ∈ enum; closed_date type string + format date + KHÔNG nullable (today() set UNCONDITIONAL
+          @:555 — KHÁC resolve rca_created nullable). **KHÔNG reuse** IncidentActionEnvelope/Response NÊN
+          KHÔNG reuse ResolveIncidentEnvelope/Response (closed_date ≠ rca_created — C3-split field-disjoint).
+      (f) 403 = SINGLE-SHAPE $ref Forbidden (dispatcher-403; in-handler cap-403 incident.close _can_close
+          api/imm12.py:277 phủ bởi nhánh Error 200-oneOf) — KHÁC reportIncident DUAL-403; mirror
+          acknowledgeIncident/startWork/resolveIncident.
+      (g) 401 = $ref Unauthorized401; response slot CHỈ {200,401,403} (in-handler arrive HTTP-200,
+          route theo body.http_status — KHÔNG status-line 404/409/422).
+      (h) closeIncident ∈ _PATHS_REQUIRE_401 ∧ _PATHS_REQUIRE_403 (symmetry set, so SET KHÔNG literal);
+          negative — name KHÔNG được optional; status/closed_date KHÔNG lọt body.
+      (i) LIVE introspect-parity — contract requestBody KHỚP 1:1 chữ-ký THẬT
+          inspect.signature(imm12.close_incident)=={name,verification_notes}
+          (name no-default, verification_notes default ''), chống drift contract↔source.
+    SSoT: ../04-api-contract.md (§8.16) + api/imm12.py:270-279 + services/imm12.py:533,555,569 +
+    incident_report.json (Select 7-state).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.spec = _load_spec() if _MOBILE_YAML.exists() else None
+
+    def _op(self):
+        return ((self.spec.get("paths") or {}).get(_CLOSE_INCIDENT_PATH) or {}).get("post") or {}
+
+    def _schemas(self):
+        return (self.spec.get("components") or {}).get("schemas") or {}
+
+    def test_mob_oas_close_a_path_post_only_in_mvp(self):
+        """(a) path TỒN TẠI, POST-ONLY (clean POST), opId closeIncident, ∈ _MVP_BUSINESS_PATHS; count 32 unique."""
+        paths = self.spec.get("paths") or {}
+        self.assertIn(_CLOSE_INCIDENT_PATH, paths, "Thiếu path close_incident (C8-ACTION TERMINAL).")
+        item = paths[_CLOSE_INCIDENT_PATH]
+        self.assertEqual(
+            sorted(item.keys()), ["post"],
+            "close_incident PHẢI POST-ONLY (chỉ key 'post', khớp @whitelist(methods=['POST']) api/imm12.py:270-271).",
+        )
+        self.assertEqual(self._op().get("operationId"), "closeIncident", "opId = closeIncident.")
+        self.assertIn(_CLOSE_INCIDENT_PATH, _MVP_BUSINESS_PATHS, "Phải vào _MVP_BUSINESS_PATHS (401/403 symmetry).")
+        ids = [op["operationId"] for _, _, op in _iter_operations(self.spec)]
+        self.assertEqual(len(paths), 53, "path-count PHẢI 52 (R-NOTIF-UNREAD +getUnreadNotifications).")
+        self.assertEqual(len(ids), 53, "operationId count PHẢI 52.")
+        self.assertEqual(len(set(ids)), 53, "operationId DUY NHẤT (len(set)==52).")
+        for oid in ids:
+            self.assertRegex(oid, _CAMEL_RE, f"operationId KHÔNG camelCase: {oid}")
+
+    def test_mob_oas_close_b_request_body_inline_json_ref(self):
+        """(b) requestBody required:true + content application/json $ref CloseIncidentRequest (INLINE, json-only)."""
+        rb = self._op().get("requestBody") or {}
+        self.assertTrue(rb, "close_incident PHẢI có requestBody.")
+        self.assertEqual(rb.get("required"), True, "requestBody.required PHẢI true (name positional bắt buộc).")
+        content = rb.get("content") or {}
+        self.assertIn("application/json", content, "requestBody PHẢI có application/json.")
+        self.assertNotIn("application/x-www-form-urlencoded", content, "Action body INLINE json-only (KHÔNG form).")
+        schema_ref = ((content.get("application/json") or {}).get("schema") or {}).get("$ref")
+        self.assertEqual(
+            schema_ref, f"#/components/schemas/{_CLOSE_INCIDENT_REQUEST_SCHEMA}",
+            f"application/json.schema PHẢI $ref {_CLOSE_INCIDENT_REQUEST_SCHEMA}, got {schema_ref}",
+        )
+
+    def test_mob_oas_close_c_request_schema_closed_one_required(self):
+        """(c) CloseIncidentRequest closed; props EXACT {name,verification_notes};
+        required EXACT [name] (1 positional no-default); verification_notes optional."""
+        sch = self._schemas().get(_CLOSE_INCIDENT_REQUEST_SCHEMA) or {}
+        self.assertTrue(sch, f"Thiếu schema {_CLOSE_INCIDENT_REQUEST_SCHEMA}.")
+        self.assertEqual(sch.get("additionalProperties"), False, "CloseIncidentRequest PHẢI closed (additionalProperties:false).")
+        props = sch.get("properties") or {}
+        self.assertEqual(set(props.keys()), _CLOSE_INCIDENT_REQUEST_PROPS, f"props PHẢI EXACT {_CLOSE_INCIDENT_REQUEST_PROPS}.")
+        self.assertEqual(
+            sorted(sch.get("required") or []), sorted(_CLOSE_INCIDENT_REQUEST_REQUIRED),
+            f"required PHẢI EXACT {_CLOSE_INCIDENT_REQUEST_REQUIRED} (name no-default @api/imm12.py:271; verification_notes default '').",
+        )
+        self.assertEqual((props.get("name") or {}).get("type"), "string", "name PHẢI type string.")
+        self.assertEqual((props.get("verification_notes") or {}).get("type"), "string", "verification_notes PHẢI type string.")
+        # verification_notes optional (KHÔNG trong required-set) — default "" @signature.
+        self.assertNotIn("verification_notes", (sch.get("required") or []), "verification_notes KHÔNG required (default '' @api/imm12.py:271).")
+
+    def test_mob_oas_close_d_200_oneof_route_by_value(self):
+        """(d) 200 = oneOf [CloseIncidentEnvelope, Error] ở response-content-schema (route-by-VALUE, 0 discriminator)."""
+        resp200 = ((self._op().get("responses") or {}).get("200") or {})
+        schema = (((resp200.get("content") or {}).get("application/json") or {}).get("schema") or {})
+        self.assertNotIn("discriminator", schema, "200 KHÔNG discriminator (route-by-VALUE body.success, §5c).")
+        one_of = schema.get("oneOf") or []
+        refs = {m.get("$ref") for m in one_of if isinstance(m, dict)}
+        self.assertEqual(
+            refs, {_CLOSE_INCIDENT_ENVELOPE_SCHEMA_REF, "#/components/schemas/Error"},
+            f"200.oneOf PHẢI = [CloseIncidentEnvelope, Error]: {sorted(refs)}",
+        )
+        schemas = self._schemas()
+        env = schemas.get(_CLOSE_INCIDENT_ENVELOPE_SCHEMA) or {}
+        err = schemas.get("Error") or {}
+        self.assertEqual(env.get("additionalProperties"), False, "CloseIncidentEnvelope PHẢI closed.")
+        self.assertEqual(err.get("additionalProperties"), False, "Error PHẢI closed (§5c).")
+        env_succ = ((env.get("properties") or {}).get("success") or {}).get("enum")
+        err_succ = ((err.get("properties") or {}).get("success") or {}).get("enum")
+        self.assertEqual(env_succ, [True], "CloseIncidentEnvelope.success.enum PHẢI [true].")
+        self.assertEqual(err_succ, [False], "Error.success.enum PHẢI [false] (disjoint).")
+
+    def test_mob_oas_close_e_envelope_and_data_dedicated_grounded(self):
+        """(e) CloseIncidentEnvelope {success,data}; CloseIncidentResponse closed {name,status,closed_date}
+        grounded svc_close return @services/imm12.py:569 (status="Closed"; closed_date format date NON-nullable).
+        SCHEMA RIÊNG — KHÔNG reuse IncidentActionResponse NÊN KHÔNG reuse ResolveIncidentResponse
+        (closed_date ≠ rca_created — C3-split field-disjoint)."""
+        schemas = self._schemas()
+        env = schemas.get(_CLOSE_INCIDENT_ENVELOPE_SCHEMA) or {}
+        self.assertTrue(env, f"Thiếu schema {_CLOSE_INCIDENT_ENVELOPE_SCHEMA}.")
+        self.assertEqual(sorted(env.get("required") or []), ["data", "success"], "Envelope required PHẢI [success,data].")
+        data_ref = ((env.get("properties") or {}).get("data") or {}).get("$ref")
+        self.assertEqual(
+            data_ref, f"#/components/schemas/{_CLOSE_INCIDENT_RESPONSE_SCHEMA}",
+            f"Envelope.data PHẢI $ref {_CLOSE_INCIDENT_RESPONSE_SCHEMA}, got {data_ref}",
+        )
+        resp = schemas.get(_CLOSE_INCIDENT_RESPONSE_SCHEMA) or {}
+        self.assertTrue(resp, f"Thiếu schema {_CLOSE_INCIDENT_RESPONSE_SCHEMA}.")
+        self.assertEqual(resp.get("additionalProperties"), False, "CloseIncidentResponse PHẢI closed (svc trả đúng 3 key).")
+        props = resp.get("properties") or {}
+        self.assertEqual(set(props.keys()), _CLOSE_INCIDENT_DATA_KEYS, f"data props PHẢI EXACT {_CLOSE_INCIDENT_DATA_KEYS} (imm12.py:569).")
+        self.assertEqual(sorted(resp.get("required") or []), sorted(_CLOSE_INCIDENT_DATA_KEYS), "data required PHẢI [name,status,closed_date].")
+        self.assertEqual((props.get("name") or {}).get("type"), "string", "data.name PHẢI string.")
+        self.assertEqual((props.get("status") or {}).get("type"), "string", "data.status PHẢI string.")
+        # status enum = incident 7-state (Select-canonical) — "Closed" ∈ enum (post-close value).
+        self.assertEqual(
+            (props.get("status") or {}).get("enum"), _INCIDENT_STATUS_ENUM,
+            "data.status.enum PHẢI incident 7-state @incident_report.json (post-close='Closed').",
+        )
+        self.assertIn(
+            "Closed", (props.get("status") or {}).get("enum") or [],
+            "'Closed' (svc_close return @services/imm12.py:569 _STATUS_CLOSED) PHẢI ∈ status enum.",
+        )
+        # closed_date = string + format date + KHÔNG nullable (today() UNCONDITIONAL @services/imm12.py:555).
+        cd = props.get("closed_date") or {}
+        self.assertEqual(cd.get("type"), "string", "data.closed_date PHẢI type string.")
+        self.assertEqual(cd.get("format"), "date", "data.closed_date PHẢI format date.")
+        self.assertNotIn("nullable", cd, "data.closed_date KHÔNG nullable (today() set UNCONDITIONAL @imm12.py:555 — KHÁC resolve rca_created).")
+        # KHÔNG reuse — CloseIncident* PHẢI là object RIÊNG (KHÁC IncidentActionEnvelope/Response 2-key
+        #   NÊN KHÁC ResolveIncidentEnvelope/Response 3-key — closed_date ≠ rca_created, C3-split field-disjoint).
+        self.assertNotEqual(
+            _CLOSE_INCIDENT_ENVELOPE_SCHEMA, _ACK_ENVELOPE_SCHEMA,
+            "closeIncident PHẢI dùng CloseIncidentEnvelope RIÊNG (KHÔNG reuse IncidentActionEnvelope — data 3-key).",
+        )
+        self.assertNotEqual(
+            _CLOSE_INCIDENT_RESPONSE_SCHEMA, _ACK_ACTION_RESPONSE_SCHEMA,
+            "closeIncident PHẢI dùng CloseIncidentResponse RIÊNG (KHÔNG reuse IncidentActionResponse — +closed_date).",
+        )
+        self.assertNotEqual(
+            _CLOSE_INCIDENT_RESPONSE_SCHEMA, _RESOLVE_INCIDENT_RESPONSE_SCHEMA,
+            "closeIncident PHẢI dùng CloseIncidentResponse RIÊNG (KHÔNG reuse ResolveIncidentResponse — closed_date ≠ rca_created, C3-split).",
+        )
+        # data-keys field-disjoint THẬT giữa close vs resolve (closed_date ≠ rca_created).
+        self.assertNotEqual(
+            _CLOSE_INCIDENT_DATA_KEYS, _RESOLVE_INCIDENT_DATA_KEYS,
+            "close data-keys {name,status,closed_date} PHẢI ≠ resolve {name,status,rca_created} (field-disjoint C3-split).",
+        )
+
+    def test_mob_oas_close_f_403_single_shape_forbidden(self):
+        """(f) 403 = SINGLE-SHAPE Forbidden (dispatcher-403) — KHÁC reportIncident DUAL-403; mirror resolve."""
+        resp403 = ((self._op().get("responses") or {}).get("403") or {})
+        self.assertEqual(
+            resp403.get("$ref"), _FORBIDDEN_RESP_REF,
+            f"403 PHẢI $ref Forbidden (SINGLE-SHAPE; in-handler cap-403 incident.close phủ bởi 200-oneOf Error), "
+            f"got {resp403.get('$ref')}",
+        )
+        self.assertNotEqual(
+            resp403.get("$ref"), _REPORT_INCIDENT_FORBIDDEN_RESP_REF,
+            "closeIncident 403 KHÔNG được dùng ReportIncidentForbidden (đó là DUAL-403 của report_incident).",
+        )
+
+    def test_mob_oas_close_g_401_and_no_business_status_line(self):
+        """(g) 401 = Unauthorized401; KHÔNG status-line key 404/409/422 (in-handler arrive HTTP-200)."""
+        resps = (self._op().get("responses") or {})
+        self.assertEqual(
+            (resps.get("401") or {}).get("$ref"), _UNAUTHORIZED401_RESP_REF,
+            "401 PHẢI $ref Unauthorized401.",
+        )
+        self.assertEqual(
+            sorted(resps.keys()), ["200", "401", "403"],
+            f"response slot PHẢI CHỈ {{200,401,403}} (lỗi nghiệp vụ HTTP-200+Error, KHÔNG status-line): {sorted(resps.keys())}",
+        )
+
+    def test_mob_oas_close_h_symmetry_set_and_no_dangling(self):
+        """(h) closeIncident ∈ _PATHS_REQUIRE_401 ∧ _PATHS_REQUIRE_403 (so SET); 0 dangling $ref."""
+        self.assertIn(_CLOSE_INCIDENT_PATH, _PATHS_REQUIRE_401, "closeIncident PHẢI ∈ _PATHS_REQUIRE_401.")
+        self.assertIn(_CLOSE_INCIDENT_PATH, _PATHS_REQUIRE_403, "closeIncident PHẢI ∈ _PATHS_REQUIRE_403.")
+        ops = {path: op for path, _, op in _iter_operations(self.spec)}
+        with_401 = {p for p, op in ops.items() if "401" in (op.get("responses") or {}) and p not in (_AUTH_PATHS | _ALLOW_GUEST_PATHS)}
+        with_403 = {p for p, op in ops.items() if "403" in (op.get("responses") or {}) and p not in (_AUTH_PATHS | _ALLOW_GUEST_PATHS)}
+        self.assertEqual(with_401, set(_PATHS_REQUIRE_403), "Tập 401 (trừ auth) == _PATHS_REQUIRE_403 (symmetry).")
+        self.assertEqual(with_403, set(_PATHS_REQUIRE_403), "Tập 403 (trừ auth) == _PATHS_REQUIRE_403 (symmetry).")
+        dangling = sorted({r for r in _collect_refs(self.spec) if not _resolve_pointer(r, self.spec)})
+        self.assertEqual(dangling, [], f"PHẢI 0 dangling $ref sau bồi closeIncident: {dangling}")
+        # negative — name PHẢI required; status/closed_date KHÔNG lọt body (server-derived).
+        req_schema = self._schemas().get(_CLOSE_INCIDENT_REQUEST_SCHEMA) or {}
+        req_props = req_schema.get("properties") or {}
+        self.assertIn("name", (req_schema.get("required") or []), "name PHẢI required (KHÔNG optional).")
+        self.assertNotIn("status", req_props, "status KHÔNG lọt close body (server-derived 'Closed').")
+        self.assertNotIn("closed_date", req_props, "closed_date KHÔNG lọt close body (server-derived output-only).")
+
+    def test_mob_oas_close_i_request_body_matches_live_signature(self):
+        """(i) LIVE introspect-parity — contract requestBody KHỚP 1:1 chữ-ký THẬT
+        inspect.signature(imm12.close_incident) (chống drift contract↔source).
+
+        Source @api/imm12.py:271 `def close_incident(name, verification_notes="")`:
+          • params LIVE == {name,verification_notes}.
+          • name KHÔNG default (positional bắt buộc) ⇒ contract required==[name];
+            verification_notes default "" ⇒ optional.
+        """
+        from assetcore.api import imm12  # lazy — tránh import-time vòng phụ thuộc.
+        fn = getattr(imm12, "close_incident", None)
+        self.assertIsNotNone(fn, "Thiếu hàm whitelist LIVE: imm12.close_incident.")
+        sig = inspect.signature(fn)
+        params = sig.parameters
+        self.assertEqual(
+            set(params.keys()), _CLOSE_INCIDENT_REQUEST_PROPS,
+            f"signature LIVE PHẢI EXACT {_CLOSE_INCIDENT_REQUEST_PROPS}, got {sorted(params.keys())}.",
+        )
+        self.assertIs(
+            params["name"].default, inspect.Parameter.empty,
+            "param `name` PHẢI KHÔNG default (positional bắt buộc) ⇒ contract required.",
+        )
+        self.assertEqual(
+            params["verification_notes"].default, "",
+            "param `verification_notes` PHẢI default '' (optional) ⇒ contract KHÔNG required verification_notes.",
+        )
+        live_required = {n for n, p in params.items() if p.default is inspect.Parameter.empty}
+        self.assertEqual(
+            live_required, set(_CLOSE_INCIDENT_REQUEST_REQUIRED),
+            f"required-set source-derived {sorted(live_required)} PHẢI == contract required "
+            f"{sorted(_CLOSE_INCIDENT_REQUEST_REQUIRED)} (chống drift).",
+        )
+
+
+class TestMobileSubmitPmResultContract(unittest.TestCase):
+    """C8-ACTION-PM — submitPmResult: POST-action lifecycle ĐẦU TIÊN cho PM Work Order
+    (Assigned/In Progress → Completed, sinh pm_completed event).
+
+    ĐÓNG dead-end flow-5: KTV mở getPmWorkOrder detail nhưng KHÔNG có endpoint hoàn thành PM. KHÁC action
+    incident/repair (acknowledge/startRepair/startWork/resolve): (1) mang child-array checklist_results[]
+    (nested PmChecklistResultInput) thay vì single name; (2) response 5-field PM-riêng. Domain PM ⇒
+    PmSubmitResultEnvelope/PmSubmitResultResponse RIÊNG (C3-split cross-domain: new_status≠field `status`,
+    +3 field PM-riêng is_late/next_pm_date/cm_wo_created — KHÔNG reuse Repair/IncidentActionResponse).
+
+    ✅ VERB-PARITY CLOSURE (2026-06-27): BE @api/imm08.py:54 ĐÃ siết @frappe.whitelist(methods=['POST']) ⇒
+    runtime POST-only (GET bị dispatcher từ chối 405). Guard (a) NAY assert POST-ONLY-ENFORCED-AT-SOURCE
+    (introspect registry — gate THẬT, KHÔNG chỉ yaml `post:`). submit_pm_result ∉ _PARITY_VERB_ALLOWLIST
+    (RỖNG). TC-i live-signature parity assert chữ-ký THẬT (độc lập methods).
+
+    Guard chạy được:
+      (a) path TỒN TẠI, POST-ONLY-ENFORCED-AT-SOURCE (allowed=={'POST'}), opId submitPmResult; vào
+          _MVP_BUSINESS_PATHS (401/403 symmetry set tự +1); count 40 path/opId unique camelCase; 0 dangling
+          $ref; submit_pm_result ∉ _PARITY_VERB_ALLOWLIST.
+      (b) requestBody required:true, content application/json $ref SubmitPmResultRequest (INLINE,
+          KHÔNG x-www-form như create). checklist_results = nested array<PmChecklistResultInput>.
+      (c) SubmitPmResultRequest = closed (additionalProperties:false), props EXACT {name,checklist_results,
+          overall_result,technician_notes,pm_sticker_attached,duration_minutes}, required EXACT [name]
+          (positional bắt buộc @api/imm08.py:55; 5 optional có default). name string; checklist_results
+          array items $ref PmChecklistResultInput default []; pm_sticker_attached integer enum[0,1];
+          duration_minutes integer.
+      (d) PmChecklistResultInput = closed, props EXACT {idx,result,measured_value,notes}, required EXACT
+          [idx] (result_map key @services/imm08.py:659); idx integer; measured_value nullable (string).
+      (e) 200 = oneOf [PmSubmitResultEnvelope, Error] Ở TẦNG response-content-schema (route-by-VALUE
+          body.success, C6/C7); KHÔNG discriminator. 2 branch closed, success enum disjoint [true]/[false].
+      (f) PmSubmitResultEnvelope closed {success enum[true], data $ref PmSubmitResultResponse};
+          PmSubmitResultResponse closed, props EXACT {name,new_status,is_late,next_pm_date,cm_wo_created}
+          (khớp svc.submit_result return @services/imm08.py:705-711), required đủ 5; new_status string +
+          enum PMStatus-canonical 7-state; is_late GENUINE boolean (bool() @:707); next_pm_date string
+          format date; cm_wo_created string nullable (Corrective WO auto-spawn khi Fail @:710);
+          SCHEMA RIÊNG (KHÔNG cross-domain Repair/IncidentActionResponse — C3-split + new_status≠status).
+      (g) 403 = SINGLE-SHAPE $ref Forbidden (dispatcher-403; in-handler cap-403 pm.submit @api/imm08.py:58
+          phủ bởi nhánh Error 200-oneOf) — KHÁC reportIncident DUAL-403. 401 = $ref Unauthorized401;
+          response slot CHỈ {200,401,403} (lỗi nghiệp vụ HTTP-200+Error, KHÔNG status-line key).
+      (h) submitPmResult ∈ _PATHS_REQUIRE_401 ∧ _PATHS_REQUIRE_403 (so SET KHÔNG literal); 0 dangling;
+          negative — name PHẢI required; status/new_status KHÔNG lọt body (server-derived 'Completed').
+      (i) LIVE introspect-parity — contract requestBody KHỚP 1:1 chữ-ký THẬT
+          inspect.signature(imm08.submit_pm_result)=={name,checklist_results,overall_result,
+          technician_notes,pm_sticker_attached,duration_minutes} (name no-default + 5 default), chống drift.
+    SSoT: ../04-api-contract.md (ADR-MOBILE-007 §8.14) + api/imm08.py:54-66 + services/imm08.py:655,671,
+    705-711 + pm_work_order.json (PMStatus Select @services/imm08.py:43-50).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.spec = _load_spec() if _MOBILE_YAML.exists() else None
+
+    def _op(self):
+        return ((self.spec.get("paths") or {}).get(_SUBMIT_PM_RESULT_PATH) or {}).get("post") or {}
+
+    def _schemas(self):
+        return (self.spec.get("components") or {}).get("schemas") or {}
+
+    def test_mob_oas_submitpm_a_path_post_only_at_source(self):
+        """(a) path TỒN TẠI, POST-ONLY-ENFORCED-AT-SOURCE, opId submitPmResult, ∈ _MVP_BUSINESS_PATHS; count 40 unique.
+
+        VERB-PARITY CLOSURE: BE @api/imm08.py:54 ĐÃ siết @frappe.whitelist(methods=['POST']) ⇒ runtime
+        POST-only (GET bị từ chối). Nâng từ chỉ-assert-path-POST-tồn-tại → assert POST-ONLY @source
+        (introspect registry — gate THẬT dispatcher). submit_pm_result ∉ _PARITY_VERB_ALLOWLIST (RỖNG).
+        """
+        paths = self.spec.get("paths") or {}
+        self.assertIn(_SUBMIT_PM_RESULT_PATH, paths, "Thiếu path submit_pm_result (C8-ACTION-PM).")
+        item = paths[_SUBMIT_PM_RESULT_PATH]
+        self.assertIn("post", item, "submit_pm_result PHẢI khai verb POST (write-action RPC).")
+        self.assertNotIn("get", item, "submit_pm_result KHÔNG được khai GET (write-action — POST-only).")
+        self.assertEqual(self._op().get("operationId"), "submitPmResult", "opId = submitPmResult.")
+        # POST-ONLY-ENFORCED-AT-SOURCE (registry introspect — KHÔNG chỉ yaml `post:`).
+        _assert_post_only_at_source(self, _SUBMIT_PM_RESULT_PATH)
+        self.assertNotIn(
+            _SUBMIT_PM_RESULT_PATH, _PARITY_VERB_ALLOWLIST,
+            "submit_pm_result ∉ _PARITY_VERB_ALLOWLIST (verb-divergence ĐÃ đóng, allowlist RỖNG).",
+        )
+        self.assertIn(_SUBMIT_PM_RESULT_PATH, _MVP_BUSINESS_PATHS, "Phải vào _MVP_BUSINESS_PATHS (401/403 symmetry).")
+        ids = [op["operationId"] for _, _, op in _iter_operations(self.spec)]
+        self.assertEqual(len(paths), 53, "path-count PHẢI 52 (R-NOTIF-UNREAD +getUnreadNotifications).")
+        self.assertEqual(len(ids), 53, "operationId count PHẢI 52.")
+        self.assertEqual(len(set(ids)), 53, "operationId DUY NHẤT (len(set)==52).")
+        for oid in ids:
+            self.assertRegex(oid, _CAMEL_RE, f"operationId KHÔNG camelCase: {oid}")
+
+    def test_mob_oas_submitpm_b_request_body_inline_json_ref(self):
+        """(b) requestBody required:true + content application/json $ref SubmitPmResultRequest (INLINE, json)."""
+        rb = self._op().get("requestBody") or {}
+        self.assertTrue(rb, "submit_pm_result PHẢI có requestBody.")
+        self.assertEqual(rb.get("required"), True, "requestBody.required PHẢI true (name positional bắt buộc).")
+        content = rb.get("content") or {}
+        self.assertIn("application/json", content, "requestBody PHẢI có application/json.")
+        # INLINE action: KHÔNG x-www-form-urlencoded (KHÁC create-triad; nested checklist gửi JSON-array).
+        self.assertNotIn("application/x-www-form-urlencoded", content, "Action body INLINE json-only (KHÔNG form).")
+        schema_ref = ((content.get("application/json") or {}).get("schema") or {}).get("$ref")
+        self.assertEqual(
+            schema_ref, f"#/components/schemas/{_SUBMIT_PM_RESULT_REQUEST_SCHEMA}",
+            f"application/json.schema PHẢI $ref {_SUBMIT_PM_RESULT_REQUEST_SCHEMA}, got {schema_ref}",
+        )
+
+    def test_mob_oas_submitpm_c_request_schema_closed_grounded(self):
+        """(c) SubmitPmResultRequest closed; props EXACT (6); required EXACT [name]; checklist_results nested array."""
+        sch = self._schemas().get(_SUBMIT_PM_RESULT_REQUEST_SCHEMA) or {}
+        self.assertTrue(sch, f"Thiếu schema {_SUBMIT_PM_RESULT_REQUEST_SCHEMA}.")
+        self.assertEqual(sch.get("additionalProperties"), False, "SubmitPmResultRequest PHẢI closed.")
+        props = sch.get("properties") or {}
+        self.assertEqual(
+            set(props.keys()), _SUBMIT_PM_RESULT_REQUEST_PROPS,
+            f"props PHẢI EXACT {_SUBMIT_PM_RESULT_REQUEST_PROPS}, got {sorted(props.keys())}.",
+        )
+        self.assertEqual(
+            sorted(sch.get("required") or []), sorted(_SUBMIT_PM_RESULT_REQUEST_REQUIRED),
+            f"required PHẢI EXACT {_SUBMIT_PM_RESULT_REQUEST_REQUIRED} (name positional @api/imm08.py:55; 5 optional).",
+        )
+        self.assertEqual((props.get("name") or {}).get("type"), "string", "name PHẢI type string.")
+        # checklist_results = nested array<PmChecklistResultInput> (KHÁC action đơn-field).
+        cr = props.get("checklist_results") or {}
+        self.assertEqual(cr.get("type"), "array", "checklist_results PHẢI type array (nested child).")
+        self.assertEqual(
+            (cr.get("items") or {}).get("$ref"), f"#/components/schemas/{_SUBMIT_PM_CHECKLIST_INPUT_SCHEMA}",
+            f"checklist_results.items PHẢI $ref {_SUBMIT_PM_CHECKLIST_INPUT_SCHEMA} (nested item).",
+        )
+        # pm_sticker_attached = integer enum[0,1] (Check int() coerce @api/imm08.py:64 — KHÁC is_late genuine bool).
+        psa = props.get("pm_sticker_attached") or {}
+        self.assertEqual(psa.get("type"), "integer", "pm_sticker_attached PHẢI integer (Check int-coerce, KHÔNG boolean).")
+        self.assertEqual(psa.get("enum"), [0, 1], "pm_sticker_attached.enum PHẢI [0,1].")
+        self.assertEqual((props.get("duration_minutes") or {}).get("type"), "integer", "duration_minutes PHẢI integer.")
+        self.assertEqual((props.get("overall_result") or {}).get("type"), "string", "overall_result PHẢI string.")
+
+    def test_mob_oas_submitpm_d_checklist_item_schema_closed_grounded(self):
+        """(d) PmChecklistResultInput closed; props EXACT {idx,result,measured_value,notes}; required [idx]."""
+        sch = self._schemas().get(_SUBMIT_PM_CHECKLIST_INPUT_SCHEMA) or {}
+        self.assertTrue(sch, f"Thiếu schema {_SUBMIT_PM_CHECKLIST_INPUT_SCHEMA}.")
+        self.assertEqual(sch.get("additionalProperties"), False, "PmChecklistResultInput PHẢI closed.")
+        props = sch.get("properties") or {}
+        self.assertEqual(
+            set(props.keys()), _SUBMIT_PM_CHECKLIST_INPUT_PROPS,
+            f"checklist-item props PHẢI EXACT {_SUBMIT_PM_CHECKLIST_INPUT_PROPS} (result_map @services/imm08.py:659-664).",
+        )
+        self.assertEqual(
+            sorted(sch.get("required") or []), sorted(_SUBMIT_PM_CHECKLIST_INPUT_REQUIRED),
+            f"checklist-item required PHẢI EXACT {_SUBMIT_PM_CHECKLIST_INPUT_REQUIRED} (idx = result_map key @:659).",
+        )
+        self.assertEqual((props.get("idx") or {}).get("type"), "integer", "idx PHẢI integer (result_map key).")
+        # measured_value nullable (string thô đo được — có thể null khi pass-định-tính @services/imm08.py:663).
+        mv = props.get("measured_value") or {}
+        self.assertEqual(mv.get("type"), "string", "measured_value PHẢI string.")
+        self.assertEqual(mv.get("nullable"), True, "measured_value PHẢI nullable (định-tính không số đo).")
+
+    def test_mob_oas_submitpm_e_200_oneof_route_by_value(self):
+        """(e) 200 = oneOf [PmSubmitResultEnvelope, Error] ở response-content-schema (route-by-VALUE, 0 discriminator)."""
+        resp200 = ((self._op().get("responses") or {}).get("200") or {})
+        schema = (((resp200.get("content") or {}).get("application/json") or {}).get("schema") or {})
+        self.assertNotIn("discriminator", schema, "200 KHÔNG discriminator (route-by-VALUE body.success, §5c).")
+        one_of = schema.get("oneOf") or []
+        refs = {m.get("$ref") for m in one_of if isinstance(m, dict)}
+        self.assertEqual(
+            refs, {_SUBMIT_PM_RESULT_ENVELOPE_SCHEMA_REF, "#/components/schemas/Error"},
+            f"200.oneOf PHẢI = [PmSubmitResultEnvelope, Error]: {sorted(refs)}",
+        )
+        schemas = self._schemas()
+        env = schemas.get(_SUBMIT_PM_RESULT_ENVELOPE_SCHEMA) or {}
+        err = schemas.get("Error") or {}
+        self.assertEqual(env.get("additionalProperties"), False, "PmSubmitResultEnvelope PHẢI closed.")
+        self.assertEqual(err.get("additionalProperties"), False, "Error PHẢI closed (§5c).")
+        env_succ = ((env.get("properties") or {}).get("success") or {}).get("enum")
+        err_succ = ((err.get("properties") or {}).get("success") or {}).get("enum")
+        self.assertEqual(env_succ, [True], "PmSubmitResultEnvelope.success.enum PHẢI [true].")
+        self.assertEqual(err_succ, [False], "Error.success.enum PHẢI [false] (disjoint).")
+
+    def test_mob_oas_submitpm_f_envelope_and_data_grounded(self):
+        """(f) PmSubmitResultEnvelope {success,data}; PmSubmitResultResponse closed 5-key grounded imm08.py:705-711."""
+        schemas = self._schemas()
+        env = schemas.get(_SUBMIT_PM_RESULT_ENVELOPE_SCHEMA) or {}
+        self.assertEqual(sorted(env.get("required") or []), ["data", "success"], "Envelope required PHẢI [success,data].")
+        data_ref = ((env.get("properties") or {}).get("data") or {}).get("$ref")
+        self.assertEqual(
+            data_ref, f"#/components/schemas/{_SUBMIT_PM_RESULT_RESPONSE_SCHEMA}",
+            f"Envelope.data PHẢI $ref {_SUBMIT_PM_RESULT_RESPONSE_SCHEMA}, got {data_ref}",
+        )
+        resp = schemas.get(_SUBMIT_PM_RESULT_RESPONSE_SCHEMA) or {}
+        self.assertTrue(resp, f"Thiếu schema {_SUBMIT_PM_RESULT_RESPONSE_SCHEMA}.")
+        self.assertEqual(resp.get("additionalProperties"), False, "PmSubmitResultResponse PHẢI closed (svc trả đúng 5 key).")
+        props = resp.get("properties") or {}
+        self.assertEqual(
+            set(props.keys()), _SUBMIT_PM_RESULT_DATA_KEYS,
+            f"data props PHẢI EXACT {_SUBMIT_PM_RESULT_DATA_KEYS} (imm08.py:705-711).",
+        )
+        self.assertEqual(
+            sorted(resp.get("required") or []), sorted(_SUBMIT_PM_RESULT_DATA_KEYS),
+            "data required PHẢI đủ 5 {name,new_status,is_late,next_pm_date,cm_wo_created}.",
+        )
+        self.assertEqual((props.get("name") or {}).get("type"), "string", "data.name PHẢI string.")
+        # new_status = string + enum PMStatus-canonical 7-state (KHÁC field-name `status` của Repair/Incident).
+        ns = props.get("new_status") or {}
+        self.assertEqual(ns.get("type"), "string", "data.new_status PHẢI string.")
+        self.assertEqual(
+            ns.get("enum"), _PM_STATUS_ENUM,
+            "data.new_status.enum PHẢI PMStatus-canonical 7-state 1:1 pm_work_order.json (@services/imm08.py:43-50).",
+        )
+        # is_late = GENUINE boolean (bool() @services/imm08.py:707) — KHÁC pm_sticker_attached (request int).
+        self.assertEqual((props.get("is_late") or {}).get("type"), "boolean", "data.is_late PHẢI boolean (bool()-coerce @:707).")
+        # next_pm_date = string format date.
+        npd = props.get("next_pm_date") or {}
+        self.assertEqual(npd.get("type"), "string", "data.next_pm_date PHẢI string.")
+        self.assertEqual(npd.get("format"), "date", "data.next_pm_date PHẢI format date (str(next_pm_date) @:709).")
+        # cm_wo_created = string nullable (Corrective WO auto-spawn khi Fail HOẶC null @:710).
+        cmw = props.get("cm_wo_created") or {}
+        self.assertEqual(cmw.get("type"), "string", "data.cm_wo_created PHẢI string.")
+        self.assertEqual(cmw.get("nullable"), True, "data.cm_wo_created PHẢI nullable (None khi PM Pass @:710).")
+        # SCHEMA RIÊNG — KHÔNG trùng object Repair/IncidentActionResponse (C3-split + new_status≠status).
+        self.assertNotEqual(
+            _SUBMIT_PM_RESULT_RESPONSE_SCHEMA, _START_REPAIR_ACTION_RESPONSE_SCHEMA,
+            "PmSubmitResultResponse PHẢI là schema RIÊNG (KHÔNG reuse RepairActionResponse — C3-split).",
+        )
+        self.assertNotIn(
+            "status", props,
+            "data PHẢI dùng field `new_status` (KHÔNG `status` như Repair/Incident — C3-split cross-domain).",
+        )
+
+    def test_mob_oas_submitpm_g_403_single_shape_and_slots(self):
+        """(g) 403 = SINGLE-SHAPE Forbidden (≠ reportIncident DUAL-403); 401 Unauthorized401; slot {200,401,403}."""
+        resps = (self._op().get("responses") or {})
+        resp403 = (resps.get("403") or {})
+        self.assertEqual(
+            resp403.get("$ref"), _FORBIDDEN_RESP_REF,
+            f"403 PHẢI $ref Forbidden (SINGLE-SHAPE; in-handler cap-403 pm.submit phủ bởi 200-oneOf Error), "
+            f"got {resp403.get('$ref')}",
+        )
+        self.assertNotEqual(
+            resp403.get("$ref"), _REPORT_INCIDENT_FORBIDDEN_RESP_REF,
+            "submitPmResult 403 KHÔNG được dùng ReportIncidentForbidden (đó là DUAL-403 của report_incident).",
+        )
+        self.assertEqual(
+            (resps.get("401") or {}).get("$ref"), _UNAUTHORIZED401_RESP_REF,
+            "401 PHẢI $ref Unauthorized401.",
+        )
+        self.assertEqual(
+            sorted(resps.keys()), ["200", "401", "403"],
+            f"response slot PHẢI CHỈ {{200,401,403}} (lỗi nghiệp vụ HTTP-200+Error): {sorted(resps.keys())}",
+        )
+
+    def test_mob_oas_submitpm_h_symmetry_set_and_no_dangling(self):
+        """(h) submitPmResult ∈ _PATHS_REQUIRE_401 ∧ _PATHS_REQUIRE_403 (so SET); 0 dangling $ref."""
+        self.assertIn(_SUBMIT_PM_RESULT_PATH, _PATHS_REQUIRE_401, "submitPmResult PHẢI ∈ _PATHS_REQUIRE_401.")
+        self.assertIn(_SUBMIT_PM_RESULT_PATH, _PATHS_REQUIRE_403, "submitPmResult PHẢI ∈ _PATHS_REQUIRE_403.")
+        ops = {path: op for path, _, op in _iter_operations(self.spec)}
+        with_401 = {p for p, op in ops.items() if "401" in (op.get("responses") or {}) and p not in (_AUTH_PATHS | _ALLOW_GUEST_PATHS)}
+        with_403 = {p for p, op in ops.items() if "403" in (op.get("responses") or {}) and p not in (_AUTH_PATHS | _ALLOW_GUEST_PATHS)}
+        self.assertEqual(with_401, set(_PATHS_REQUIRE_403), "Tập 401 (trừ auth) == _PATHS_REQUIRE_403 (symmetry).")
+        self.assertEqual(with_403, set(_PATHS_REQUIRE_403), "Tập 403 (trừ auth) == _PATHS_REQUIRE_403 (symmetry).")
+        dangling = sorted({r for r in _collect_refs(self.spec) if not _resolve_pointer(r, self.spec)})
+        self.assertEqual(dangling, [], f"PHẢI 0 dangling $ref sau bồi submitPmResult: {dangling}")
+        # negative — name PHẢI required; status/new_status KHÔNG lọt body (server-derived 'Completed').
+        req_schema = self._schemas().get(_SUBMIT_PM_RESULT_REQUEST_SCHEMA) or {}
+        req_props = req_schema.get("properties") or {}
+        self.assertIn("name", (req_schema.get("required") or []), "name PHẢI required (KHÔNG optional).")
+        self.assertNotIn("status", req_props, "status KHÔNG lọt submit_pm_result body (server-derived).")
+        self.assertNotIn("new_status", req_props, "new_status KHÔNG lọt body (server-derived 'Completed').")
+
+    def test_mob_oas_submitpm_i_request_body_matches_live_signature(self):
+        """(i) LIVE introspect-parity — contract requestBody KHỚP 1:1 chữ-ký THẬT
+        inspect.signature(imm08.submit_pm_result) (chống drift contract↔source).
+
+        Source @api/imm08.py:55 `def submit_pm_result(name, checklist_results='[]', overall_result='Pass',
+        technician_notes='', pm_sticker_attached=0, duration_minutes=0)`:
+          • params LIVE == {name,checklist_results,overall_result,technician_notes,pm_sticker_attached,
+            duration_minutes} (set-equal, KHÔNG thừa/thiếu).
+          • CHỈ name KHÔNG default (positional bắt buộc) ⇒ contract required==[name], 5 optional.
+        ⚠️ KHÔNG assert methods=['POST'] — divergence BE bare @whitelist (backlog HARD-STOP); signature
+        introspect độc lập với methods.
+        """
+        from assetcore.api import imm08  # lazy — tránh import-time vòng phụ thuộc.
+        fn = getattr(imm08, "submit_pm_result", None)
+        self.assertIsNotNone(fn, "Thiếu hàm whitelist LIVE: imm08.submit_pm_result.")
+        sig = inspect.signature(fn)
+        params = sig.parameters
+        # params LIVE == 6 field contract (set-equal, KHÔNG thừa/thiếu).
+        self.assertEqual(
+            set(params.keys()), _SUBMIT_PM_RESULT_REQUEST_PROPS,
+            f"signature LIVE PHẢI EXACT {_SUBMIT_PM_RESULT_REQUEST_PROPS}, got {sorted(params.keys())}.",
+        )
+        # CHỈ name KHÔNG default ⇒ required; 5 param optional.
+        self.assertIs(
+            params["name"].default, inspect.Parameter.empty,
+            "param `name` PHẢI KHÔNG default (positional bắt buộc) ⇒ contract required==[name].",
+        )
+        live_required = {n for n, p in params.items() if p.default is inspect.Parameter.empty}
+        self.assertEqual(
+            live_required, set(_SUBMIT_PM_RESULT_REQUEST_REQUIRED),
+            f"required-set source-derived {sorted(live_required)} PHẢI == contract required "
+            f"{sorted(_SUBMIT_PM_RESULT_REQUEST_REQUIRED)} (chống drift).",
+        )
+
+
+class TestMobileCloseWorkOrderContract(unittest.TestCase):
+    """C8-ACTION — closeWorkOrder: POST-action lifecycle TERMINAL cho Repair Work Order
+    (In Repair → Pending Inspection | Cannot Repair).
+
+    ĐÓNG dead-end sau startRepair: KTV bắt đầu sửa (→ In Repair) nhưng KHÔNG có endpoint hoàn thành.
+    KHÁC mọi action đã làm:
+      (1) 2 child-array RIÊNG trong request — checklist_results[] (CloseWorkOrderChecklistInput, field-name
+          `test_description` ≠ PM `description`) + spare_parts[] (loose object passthrough _apply_spare_parts).
+      (2) dept_head_name conditional-required ở SERVICE (CM-013 @services/imm09.py:929 khi cannot_repair=0)
+          — KHÔNG ép schema-required (cannot_repair=1 không cần người nghiệm thu).
+      (3) nhánh cannot_repair=1 trả status="Cannot Repair" (_mark_cannot_repair @services/imm09.py:1005) ⇒
+          status enum gồm CẢ "Pending Inspection" (happy @:958) VÀ "Cannot Repair".
+    Response RIÊNG {name,status,mttr_hours,sla_breached} (CloseWorkOrderResponse closed 4-key) — KHÔNG reuse
+    RepairActionResponse {name,status} (close trả thêm mttr_hours/sla_breached @:956-961).
+    POST-only @api/imm09.py:84 (VERIFIED @frappe.whitelist(methods=['POST'])) — KHÁC submit_pm_result bare
+    @whitelist ⇒ TC-a CÓ THỂ assert POST-ONLY.
+
+    Guard chạy được (a..i):
+      (a) path POST TỒN TẠI + opId closeWorkOrder + POST-ONLY (chỉ key 'post', KHÔNG 'get' — VERIFIED
+          methods=['POST']); ∈ _MVP_BUSINESS_PATHS; count 30 path/opId unique camelCase.
+      (b) requestBody required:true, application/json $ref CloseWorkOrderRequest, additionalProperties:false,
+          required EXACT {name,repair_summary,root_cause_category} (3 no-default @api/imm09.py:85).
+      (c) CloseWorkOrderRequest có đủ 7 optional prop (dept_head_name,checklist_results,spare_parts,
+          firmware_updated,firmware_change_request,cannot_repair,cannot_repair_reason); firmware_updated +
+          cannot_repair = integer enum[0,1] (KHÔNG boolean — chống strict-codegen deser crash).
+      (d) checklist_results items=$ref CloseWorkOrderChecklistInput closed; field-set EXACT
+          {idx,test_description,result,measured_value,notes} (≠ PmChecklistResultInput — test_description ≠
+          description); measured_value nullable.
+      (e) 200 = oneOf [CloseWorkOrderEnvelope, Error], cả 2 additionalProperties:false, 0 discriminator;
+          success.enum disjoint ([true]/[false]) — route-by-VALUE.
+      (f) CloseWorkOrderResponse closed {name,status,mttr_hours,sla_breached}; status.enum ==
+          {Pending Inspection, Cannot Repair} (CẢ 2 nhánh return @source); mttr_hours + sla_breached nullable.
+      (g) closeWorkOrder ∈ _MVP_BUSINESS_PATHS ⇒ 401 (Unauthorized401) + 403 SINGLE-SHAPE Forbidden (KHÔNG
+          DUAL-403 như reportIncident); response slot CHỈ {200,401,403}.
+      (h) 0 dangling $ref sau bồi path/schema; orphan-schema ⊆ _RESERVED_ORPHANS (tái dùng guard chung).
+      (i) LIVE introspect-parity — inspect.signature(imm09.close_work_order).parameters EXACT 10-field;
+          name/repair_summary/root_cause_category no-default; 7 còn lại có default — RED nếu BE đổi chữ-ký.
+    SSoT: ../04-api-contract.md (ADR-MOBILE-007 §8.14) + api/imm09.py:84-99 + services/imm09.py:900-961
+    (happy) + :1000-1016 (_mark_cannot_repair) + :1019-1040 (_apply_checklist) + asset_repair.json.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.spec = _load_spec() if _MOBILE_YAML.exists() else None
+
+    def _op(self):
+        return ((self.spec.get("paths") or {}).get(_CLOSE_WORK_ORDER_PATH) or {}).get("post") or {}
+
+    def _schemas(self):
+        return (self.spec.get("components") or {}).get("schemas") or {}
+
+    def test_mob_oas_closewo_a_path_post_only_in_mvp(self):
+        """(a) path TỒN TẠI, POST-ONLY (chỉ 'post', KHÔNG 'get'), opId closeWorkOrder, ∈ _MVP_BUSINESS_PATHS; count 30 unique.
+
+        VERIFIED methods=['POST'] @api/imm09.py:84 ⇒ POST-ONLY assert HỢP LỆ (KHÁC submit_pm_result bare
+        @whitelist — KHÔNG ép POST-ONLY-vì-source).
+        """
+        paths = self.spec.get("paths") or {}
+        self.assertIn(_CLOSE_WORK_ORDER_PATH, paths, "Thiếu path close_work_order (C8-ACTION).")
+        item = paths[_CLOSE_WORK_ORDER_PATH]
+        self.assertIn("post", item, "close_work_order PHẢI khai verb POST (write-action RPC).")
+        self.assertNotIn(
+            "get", item,
+            "close_work_order PHẢI POST-ONLY (KHÔNG 'get') — VERIFIED methods=['POST'] @api/imm09.py:84.",
+        )
+        self.assertEqual(self._op().get("operationId"), "closeWorkOrder", "opId = closeWorkOrder.")
+        self.assertIn(_CLOSE_WORK_ORDER_PATH, _MVP_BUSINESS_PATHS, "Phải vào _MVP_BUSINESS_PATHS (401/403 symmetry).")
+        ids = [op["operationId"] for _, _, op in _iter_operations(self.spec)]
+        self.assertEqual(len(paths), 53, "path-count PHẢI 52 (R-NOTIF-UNREAD +getUnreadNotifications).")
+        self.assertEqual(len(ids), 53, "operationId count PHẢI 52.")
+        self.assertEqual(len(set(ids)), 53, "operationId DUY NHẤT (len(set)==52).")
+        for oid in ids:
+            self.assertRegex(oid, _CAMEL_RE, f"operationId KHÔNG camelCase: {oid}")
+
+    def test_mob_oas_closewo_b_request_body_inline_json_required3(self):
+        """(b) requestBody required:true + application/json $ref CloseWorkOrderRequest; closed; required EXACT 3 no-default."""
+        rb = self._op().get("requestBody") or {}
+        self.assertTrue(rb, "close_work_order PHẢI có requestBody.")
+        self.assertEqual(rb.get("required"), True, "requestBody.required PHẢI true (3 positional bắt buộc).")
+        content = rb.get("content") or {}
+        self.assertIn("application/json", content, "requestBody PHẢI có application/json.")
+        self.assertNotIn("application/x-www-form-urlencoded", content, "Action body INLINE json-only (KHÔNG form).")
+        schema_ref = ((content.get("application/json") or {}).get("schema") or {}).get("$ref")
+        self.assertEqual(
+            schema_ref, f"#/components/schemas/{_CLOSE_WORK_ORDER_REQUEST_SCHEMA}",
+            f"application/json.schema PHẢI $ref {_CLOSE_WORK_ORDER_REQUEST_SCHEMA}, got {schema_ref}",
+        )
+        sch = self._schemas().get(_CLOSE_WORK_ORDER_REQUEST_SCHEMA) or {}
+        self.assertEqual(sch.get("additionalProperties"), False, "CloseWorkOrderRequest PHẢI closed.")
+        self.assertEqual(
+            sorted(sch.get("required") or []), sorted(_CLOSE_WORK_ORDER_REQUEST_REQUIRED),
+            f"required PHẢI EXACT {_CLOSE_WORK_ORDER_REQUEST_REQUIRED} (3 no-default @api/imm09.py:85; "
+            "dept_head_name conditional-required ở SERVICE KHÔNG ép schema-required).",
+        )
+
+    def test_mob_oas_closewo_c_request_optional_props_and_int_enum(self):
+        """(c) CloseWorkOrderRequest có đủ 7 optional prop; firmware_updated+cannot_repair = integer enum[0,1] (KHÔNG boolean)."""
+        sch = self._schemas().get(_CLOSE_WORK_ORDER_REQUEST_SCHEMA) or {}
+        props = sch.get("properties") or {}
+        self.assertEqual(
+            set(props.keys()), _CLOSE_WORK_ORDER_REQUEST_PROPS,
+            f"props PHẢI EXACT 10-field {_CLOSE_WORK_ORDER_REQUEST_PROPS}, got {sorted(props.keys())}.",
+        )
+        optional = set(props.keys()) - set(_CLOSE_WORK_ORDER_REQUEST_REQUIRED)
+        self.assertEqual(
+            optional,
+            {"dept_head_name", "checklist_results", "spare_parts", "firmware_updated",
+             "firmware_change_request", "cannot_repair", "cannot_repair_reason"},
+            "PHẢI đúng 7 optional prop khớp default signature @api/imm09.py:86-89.",
+        )
+        # firmware_updated + cannot_repair = integer enum[0,1] (Check int-coerce @api/imm09.py:87,88 — KHÔNG boolean).
+        for fld in ("firmware_updated", "cannot_repair"):
+            p = props.get(fld) or {}
+            self.assertEqual(p.get("type"), "integer", f"{fld} PHẢI integer (int-coerce, KHÔNG boolean → chống codegen crash).")
+            self.assertEqual(p.get("enum"), [0, 1], f"{fld}.enum PHẢI [0,1].")
+        # dept_head_name string optional (default '') — conditional-required ở service (CM-013).
+        self.assertEqual((props.get("dept_head_name") or {}).get("type"), "string", "dept_head_name PHẢI string.")
+        self.assertNotIn(
+            "dept_head_name", (sch.get("required") or []),
+            "dept_head_name KHÔNG schema-required (conditional-required ở SERVICE CM-013 — cannot_repair=1 không cần).",
+        )
+        # spare_parts = array loose object passthrough (_apply_spare_parts @services/imm09.py:1042).
+        sp = props.get("spare_parts") or {}
+        self.assertEqual(sp.get("type"), "array", "spare_parts PHẢI type array.")
+        self.assertEqual((sp.get("items") or {}).get("type"), "object", "spare_parts.items PHẢI object (loose passthrough).")
+
+    def test_mob_oas_closewo_d_checklist_item_schema_closed_grounded(self):
+        """(d) checklist_results items=$ref CloseWorkOrderChecklistInput closed; field-set EXACT {idx,test_description,result,measured_value,notes} (≠ PM)."""
+        sch = self._schemas().get(_CLOSE_WORK_ORDER_REQUEST_SCHEMA) or {}
+        cr = (sch.get("properties") or {}).get("checklist_results") or {}
+        self.assertEqual(cr.get("type"), "array", "checklist_results PHẢI type array (nested child).")
+        self.assertEqual(
+            (cr.get("items") or {}).get("$ref"),
+            f"#/components/schemas/{_CLOSE_WORK_ORDER_CHECKLIST_INPUT_SCHEMA}",
+            f"checklist_results.items PHẢI $ref {_CLOSE_WORK_ORDER_CHECKLIST_INPUT_SCHEMA} (nested item RIÊNG).",
+        )
+        item = self._schemas().get(_CLOSE_WORK_ORDER_CHECKLIST_INPUT_SCHEMA) or {}
+        self.assertTrue(item, f"Thiếu schema {_CLOSE_WORK_ORDER_CHECKLIST_INPUT_SCHEMA}.")
+        self.assertEqual(item.get("additionalProperties"), False, "CloseWorkOrderChecklistInput PHẢI closed.")
+        iprops = item.get("properties") or {}
+        self.assertEqual(
+            set(iprops.keys()), _CLOSE_WORK_ORDER_CHECKLIST_INPUT_PROPS,
+            f"checklist-item props PHẢI EXACT {_CLOSE_WORK_ORDER_CHECKLIST_INPUT_PROPS} (_apply_checklist @services/imm09.py:1019-1040).",
+        )
+        self.assertEqual(
+            sorted(item.get("required") or []), sorted(_CLOSE_WORK_ORDER_CHECKLIST_INPUT_REQUIRED),
+            f"checklist-item required PHẢI EXACT {_CLOSE_WORK_ORDER_CHECKLIST_INPUT_REQUIRED} (idx = match-key @:1036).",
+        )
+        self.assertEqual((iprops.get("idx") or {}).get("type"), "integer", "idx PHẢI integer (match-key).")
+        # KHÁC PM: field-name test_description (KHÔNG description) — anti-reuse PmChecklistResultInput.
+        self.assertIn("test_description", iprops, "PHẢI có field `test_description` (Repair child-field, KHÁC PM `description`).")
+        self.assertNotIn("description", iprops, "KHÔNG được dùng `description` (đó là PmChecklistResultInput — C3-split field-name).")
+        self.assertNotEqual(
+            _CLOSE_WORK_ORDER_CHECKLIST_INPUT_SCHEMA, _SUBMIT_PM_CHECKLIST_INPUT_SCHEMA,
+            "CloseWorkOrderChecklistInput PHẢI schema RIÊNG (KHÔNG reuse PmChecklistResultInput).",
+        )
+        mv = iprops.get("measured_value") or {}
+        self.assertEqual(mv.get("type"), "string", "measured_value PHẢI string.")
+        self.assertEqual(mv.get("nullable"), True, "measured_value PHẢI nullable (định-tính không số đo).")
+
+    def test_mob_oas_closewo_e_200_oneof_route_by_value(self):
+        """(e) 200 = oneOf [CloseWorkOrderEnvelope, Error], cả 2 closed, 0 discriminator; success.enum disjoint [true]/[false]."""
+        resp200 = ((self._op().get("responses") or {}).get("200") or {})
+        schema = (((resp200.get("content") or {}).get("application/json") or {}).get("schema") or {})
+        self.assertNotIn("discriminator", schema, "200 KHÔNG discriminator (route-by-VALUE body.success, §5c).")
+        one_of = schema.get("oneOf") or []
+        refs = {m.get("$ref") for m in one_of if isinstance(m, dict)}
+        self.assertEqual(
+            refs, {_CLOSE_WORK_ORDER_ENVELOPE_SCHEMA_REF, "#/components/schemas/Error"},
+            f"200.oneOf PHẢI = [CloseWorkOrderEnvelope, Error]: {sorted(refs)}",
+        )
+        schemas = self._schemas()
+        env = schemas.get(_CLOSE_WORK_ORDER_ENVELOPE_SCHEMA) or {}
+        err = schemas.get("Error") or {}
+        self.assertEqual(env.get("additionalProperties"), False, "CloseWorkOrderEnvelope PHẢI closed.")
+        self.assertEqual(err.get("additionalProperties"), False, "Error PHẢI closed (§5c).")
+        env_succ = ((env.get("properties") or {}).get("success") or {}).get("enum")
+        err_succ = ((err.get("properties") or {}).get("success") or {}).get("enum")
+        self.assertEqual(env_succ, [True], "CloseWorkOrderEnvelope.success.enum PHẢI [true].")
+        self.assertEqual(err_succ, [False], "Error.success.enum PHẢI [false] (disjoint route-by-VALUE).")
+
+    def test_mob_oas_closewo_f_envelope_and_data_grounded(self):
+        """(f) CloseWorkOrderEnvelope {success,data}; CloseWorkOrderResponse closed {name,status,mttr_hours,sla_breached}; status enum 2 nhánh; mttr/sla nullable."""
+        schemas = self._schemas()
+        env = schemas.get(_CLOSE_WORK_ORDER_ENVELOPE_SCHEMA) or {}
+        self.assertEqual(sorted(env.get("required") or []), ["data", "success"], "Envelope required PHẢI [success,data].")
+        data_ref = ((env.get("properties") or {}).get("data") or {}).get("$ref")
+        self.assertEqual(
+            data_ref, f"#/components/schemas/{_CLOSE_WORK_ORDER_RESPONSE_SCHEMA}",
+            f"Envelope.data PHẢI $ref {_CLOSE_WORK_ORDER_RESPONSE_SCHEMA}, got {data_ref}",
+        )
+        resp = schemas.get(_CLOSE_WORK_ORDER_RESPONSE_SCHEMA) or {}
+        self.assertTrue(resp, f"Thiếu schema {_CLOSE_WORK_ORDER_RESPONSE_SCHEMA}.")
+        self.assertEqual(resp.get("additionalProperties"), False, "CloseWorkOrderResponse PHẢI closed (4-key).")
+        props = resp.get("properties") or {}
+        self.assertEqual(
+            set(props.keys()), _CLOSE_WORK_ORDER_DATA_KEYS,
+            f"data props PHẢI EXACT {_CLOSE_WORK_ORDER_DATA_KEYS} (services/imm09.py:956-961).",
+        )
+        self.assertEqual(
+            sorted(resp.get("required") or []), sorted(_CLOSE_WORK_ORDER_DATA_KEYS),
+            "data required PHẢI đủ 4 {name,status,mttr_hours,sla_breached}.",
+        )
+        self.assertEqual((props.get("name") or {}).get("type"), "string", "data.name PHẢI string.")
+        # status enum gồm CẢ 2 nhánh: Pending Inspection (happy @:958) + Cannot Repair (cannot_repair @:1005,1015).
+        st = props.get("status") or {}
+        self.assertEqual(st.get("type"), "string", "data.status PHẢI string.")
+        self.assertEqual(
+            set(st.get("enum") or []), _CLOSE_WORK_ORDER_POST_STATUS,
+            "data.status.enum PHẢI gồm CẢ {Pending Inspection, Cannot Repair} (2 nhánh return @source).",
+        )
+        # mttr_hours = number nullable (NULL khi nhánh cannot_repair @:1015 KHÔNG trả field này).
+        mttr = props.get("mttr_hours") or {}
+        self.assertEqual(mttr.get("type"), "number", "data.mttr_hours PHẢI number.")
+        self.assertEqual(mttr.get("nullable"), True, "data.mttr_hours PHẢI nullable (cannot_repair branch KHÔNG có).")
+        # sla_breached = integer enum[0,1] nullable (Check; KHÔNG boolean).
+        slab = props.get("sla_breached") or {}
+        self.assertEqual(slab.get("type"), "integer", "data.sla_breached PHẢI integer (Check, KHÔNG boolean).")
+        self.assertEqual(slab.get("enum"), [0, 1], "data.sla_breached.enum PHẢI [0,1].")
+        self.assertEqual(slab.get("nullable"), True, "data.sla_breached PHẢI nullable (cannot_repair branch KHÔNG có).")
+        # SCHEMA RIÊNG — KHÔNG reuse RepairActionResponse (close trả thêm mttr_hours/sla_breached).
+        self.assertNotEqual(
+            _CLOSE_WORK_ORDER_RESPONSE_SCHEMA, _START_REPAIR_ACTION_RESPONSE_SCHEMA,
+            "CloseWorkOrderResponse PHẢI schema RIÊNG (KHÔNG reuse RepairActionResponse {name,status}).",
+        )
+
+    def test_mob_oas_closewo_g_403_single_shape_and_slots(self):
+        """(g) 403 = SINGLE-SHAPE Forbidden (≠ reportIncident DUAL-403); 401 Unauthorized401; slot {200,401,403}."""
+        resps = (self._op().get("responses") or {})
+        resp403 = (resps.get("403") or {})
+        self.assertEqual(
+            resp403.get("$ref"), _FORBIDDEN_RESP_REF,
+            f"403 PHẢI $ref Forbidden (SINGLE-SHAPE; in-handler cap-403 repair.submit phủ bởi 200-oneOf Error), "
+            f"got {resp403.get('$ref')}",
+        )
+        self.assertNotEqual(
+            resp403.get("$ref"), _REPORT_INCIDENT_FORBIDDEN_RESP_REF,
+            "closeWorkOrder 403 KHÔNG được dùng ReportIncidentForbidden (đó là DUAL-403 của report_incident).",
+        )
+        self.assertEqual(
+            (resps.get("401") or {}).get("$ref"), _UNAUTHORIZED401_RESP_REF,
+            "401 PHẢI $ref Unauthorized401.",
+        )
+        self.assertEqual(
+            sorted(resps.keys()), ["200", "401", "403"],
+            f"response slot PHẢI CHỈ {{200,401,403}} (lỗi nghiệp vụ HTTP-200+Error): {sorted(resps.keys())}",
+        )
+
+    def test_mob_oas_closewo_h_symmetry_set_and_no_dangling(self):
+        """(h) closeWorkOrder ∈ _PATHS_REQUIRE_401 ∧ _PATHS_REQUIRE_403 (so SET); 0 dangling $ref; orphan ⊆ _RESERVED_ORPHANS."""
+        self.assertIn(_CLOSE_WORK_ORDER_PATH, _PATHS_REQUIRE_401, "closeWorkOrder PHẢI ∈ _PATHS_REQUIRE_401.")
+        self.assertIn(_CLOSE_WORK_ORDER_PATH, _PATHS_REQUIRE_403, "closeWorkOrder PHẢI ∈ _PATHS_REQUIRE_403.")
+        ops = {path: op for path, _, op in _iter_operations(self.spec)}
+        with_401 = {p for p, op in ops.items() if "401" in (op.get("responses") or {}) and p not in (_AUTH_PATHS | _ALLOW_GUEST_PATHS)}
+        with_403 = {p for p, op in ops.items() if "403" in (op.get("responses") or {}) and p not in (_AUTH_PATHS | _ALLOW_GUEST_PATHS)}
+        self.assertEqual(with_401, set(_PATHS_REQUIRE_403), "Tập 401 (trừ auth) == _PATHS_REQUIRE_403 (symmetry).")
+        self.assertEqual(with_403, set(_PATHS_REQUIRE_403), "Tập 403 (trừ auth) == _PATHS_REQUIRE_403 (symmetry).")
+        dangling = sorted({r for r in _collect_refs(self.spec) if not _resolve_pointer(r, self.spec)})
+        self.assertEqual(dangling, [], f"PHẢI 0 dangling $ref sau bồi closeWorkOrder: {dangling}")
+        # negative — name PHẢI required; status KHÔNG lọt request body (server-derived transition).
+        req_schema = self._schemas().get(_CLOSE_WORK_ORDER_REQUEST_SCHEMA) or {}
+        req_props = req_schema.get("properties") or {}
+        self.assertIn("name", (req_schema.get("required") or []), "name PHẢI required.")
+        self.assertNotIn("status", req_props, "status KHÔNG lọt close_work_order body (server-derived transition).")
+
+    def test_mob_oas_closewo_i_request_body_matches_live_signature(self):
+        """(i) LIVE introspect-parity — contract requestBody KHỚP chữ-ký THẬT
+        inspect.signature(imm09.close_work_order) (chống drift contract↔source).
+
+        Source @api/imm09.py:85-89 `def close_work_order(name, repair_summary, root_cause_category,
+        dept_head_name, checklist_results='[]', spare_parts='[]', firmware_updated=0,
+        firmware_change_request='', cannot_repair=0, cannot_repair_reason='')`:
+          • params LIVE == 10-field (set-equal, KHÔNG thừa/thiếu).
+          • no-default-set THẬT = {name, repair_summary, root_cause_category, dept_head_name} (4 positional
+            — dept_head_name CŨNG no-default ở signature). 6 còn lại có default.
+          • ⚠️ Contract schema-required = 3 (KHÔNG gồm dept_head_name): BA-decision conditional-required
+            (CM-013 @services/imm09.py:929 — chỉ bắt buộc RUNTIME khi cannot_repair=0; cannot_repair=1 KHÔNG
+            cần ⇒ KHÔNG ép schema-required). ⇒ contract.required ⊊ no-default-set; phần CHÊNH = exactly
+            {dept_head_name} (documented divergence, KHÔNG drift ngầm). RED nếu BE đổi chữ-ký (thêm/bớt param
+            HOẶC đổi no-default-set ≠ 4-field source THẬT).
+        """
+        from assetcore.api import imm09  # lazy — tránh import-time vòng phụ thuộc.
+        fn = getattr(imm09, "close_work_order", None)
+        self.assertIsNotNone(fn, "Thiếu hàm whitelist LIVE: imm09.close_work_order.")
+        sig = inspect.signature(fn)
+        params = sig.parameters
+        self.assertEqual(
+            set(params.keys()), _CLOSE_WORK_ORDER_REQUEST_PROPS,
+            f"signature LIVE PHẢI EXACT 10-field {_CLOSE_WORK_ORDER_REQUEST_PROPS}, got {sorted(params.keys())}.",
+        )
+        # 3 BA-schema-required PHẢI no-default ở source (điều kiện cần để required hợp lệ).
+        for req in _CLOSE_WORK_ORDER_REQUEST_REQUIRED:
+            self.assertIs(
+                params[req].default, inspect.Parameter.empty,
+                f"param `{req}` PHẢI KHÔNG default (positional bắt buộc) ⇒ contract required.",
+            )
+        # no-default-set THẬT @source = 4 (gồm dept_head_name). Anti-drift: pin chính xác 4-field.
+        live_no_default = {n for n, p in params.items() if p.default is inspect.Parameter.empty}
+        self.assertEqual(
+            live_no_default,
+            {"name", "repair_summary", "root_cause_category", "dept_head_name"},
+            f"no-default-set source-derived PHẢI == {{name,repair_summary,root_cause_category,dept_head_name}} "
+            f"(4 positional @api/imm09.py:85-86), got {sorted(live_no_default)} (drift = RED).",
+        )
+        # Contract schema-required = no-default-set TRỪ dept_head_name (conditional-required CM-013).
+        #   Phần chênh PHẢI = exactly {dept_head_name} — documented divergence, KHÔNG drift ngầm.
+        self.assertEqual(
+            live_no_default - set(_CLOSE_WORK_ORDER_REQUEST_REQUIRED),
+            {"dept_head_name"},
+            "Chênh no-default-set vs contract.required PHẢI = exactly {dept_head_name} (conditional-required "
+            "CM-013 — KHÔNG ép schema-required vì cannot_repair=1 không cần). Nếu BE thêm/bớt no-default ≠ "
+            "set này ⇒ RED (drift).",
+        )
+
+
+class TestMobileSubmitCalibrationContract(unittest.TestCase):
+    """C8-ACTION — submitCalibration: POST-action lifecycle COMPLETION/TERMINAL cho Calibration Record
+    (docstatus 0→1, status→Passed/Failed/Conditionally Passed).
+
+    ĐÓNG dead-end tab Calibration MVP-flow-5: KTV mở getCalibration detail nhưng KHÔNG có endpoint hoàn
+    thành hiệu chuẩn. Thành viên THỨ BA của họ completion-action (sau submitPmResult + closeWorkOrder).
+    KHÁC mọi action đã làm: response RIÊNG 4-key {name,status,overall_result,next_calibration_date}
+    (overall_result Select 4-value ''/Passed/Failed/Conditionally Passed + next_calibration_date
+    date-string-or-empty nullable) ⇒ SubmitCalibrationResponse RIÊNG, KHÔNG reuse Pm/Repair/Incident
+    ActionResponse (C3-split cross-domain). requestBody CHỈ {name} (signature submit_calibration(name) —
+    0 optional param) mirror StartRepairRequest single-field.
+
+    ✅ VERB-PARITY CLOSURE (2026-06-27): BE @api/imm11.py:114 ĐÃ siết @frappe.whitelist(methods=['POST']) ⇒
+    runtime POST-only (GET bị dispatcher từ chối 405). Guard (a) NAY assert POST-ONLY-ENFORCED-AT-SOURCE
+    (introspect registry — gate THẬT). submit_calibration ∉ _PARITY_VERB_ALLOWLIST (RỖNG). TC-i live-
+    signature parity assert chữ-ký THẬT (độc lập methods).
+
+    Guard chạy được (a..i):
+      (a) path TỒN TẠI, POST-ONLY-ENFORCED-AT-SOURCE (allowed=={'POST'}), opId submitCalibration; vào
+          _MVP_BUSINESS_PATHS (401/403 symmetry set tự +1); count 40 path/opId unique camelCase;
+          submit_calibration ∉ _PARITY_VERB_ALLOWLIST.
+      (b) requestBody required:true, content application/json $ref SubmitCalibrationRequest (INLINE, json-only,
+          KHÔNG x-www-form). SubmitCalibrationRequest = closed, props EXACT {name}, required EXACT [name].
+      (c) 200 = oneOf [SubmitCalibrationEnvelope, Error] Ở TẦNG response-content-schema (route-by-VALUE
+          body.success, C6/C7); KHÔNG discriminator. 2 branch closed, success enum disjoint [true]/[false].
+      (d) SubmitCalibrationEnvelope closed {success enum[true], data $ref SubmitCalibrationResponse}.
+      (e) SubmitCalibrationResponse closed, props EXACT {name,status,overall_result,next_calibration_date}
+          (khớp svc.submit_calibration return @services/imm11.py:1054-1059), required đủ 4; SCHEMA RIÊNG
+          (KHÔNG reuse Pm/Repair/IncidentActionResponse — C3-split cross-domain).
+      (f) status.enum == 8-value Select imm_asset_calibration.json [Scheduled,Sent to Lab,In Progress,
+          Certificate Received,Passed,Failed,Conditionally Passed,Cancelled]; overall_result.enum ==
+          ['',Passed,Failed,Conditionally Passed] (4-value khớp doctype); next_calibration_date nullable.
+      (g) 401 = $ref Unauthorized401; 403 = SINGLE-SHAPE $ref Forbidden (dispatcher-403; in-handler cap-403
+          calibration.submit @api/imm11.py:116 phủ bởi nhánh Error 200-oneOf) — KHÁC reportIncident DUAL-403.
+          response slot CHỈ {200,401,403} (lỗi nghiệp vụ HTTP-200+Error, KHÔNG status-line key).
+      (h) submitCalibration ∈ _PATHS_REQUIRE_401 ∧ _PATHS_REQUIRE_403 (so SET); 0 dangling $ref; negative —
+          name PHẢI required; status/overall_result KHÔNG lọt body (server-derived completion).
+      (i) LIVE introspect-parity — contract requestBody KHỚP 1:1 chữ-ký THẬT
+          inspect.signature(imm11.submit_calibration)=={name} (name no-default); submit_calibration ∉
+          _PARITY_VERB_ALLOWLIST (verb-divergence ĐÃ đóng — POST-only @source). Chống drift contract↔source.
+    SSoT: ../04-api-contract.md (ADR submitCalibration §8.x) + api/imm11.py:114-117 + services/imm11.py:
+    1047-1059 + imm_asset_calibration.json (status + overall_result Select).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.spec = _load_spec() if _MOBILE_YAML.exists() else None
+
+    def _op(self):
+        return ((self.spec.get("paths") or {}).get(_SUBMIT_CAL_PATH) or {}).get("post") or {}
+
+    def _schemas(self):
+        return (self.spec.get("components") or {}).get("schemas") or {}
+
+    def test_mob_oas_submitcal_a_path_post_only_at_source(self):
+        """(a) path TỒN TẠI, POST-ONLY-ENFORCED-AT-SOURCE, opId submitCalibration, ∈ _MVP_BUSINESS_PATHS; count 40 unique.
+
+        VERB-PARITY CLOSURE: BE @api/imm11.py:114 ĐÃ siết @frappe.whitelist(methods=['POST']) ⇒ runtime
+        POST-only (GET bị từ chối). Nâng từ chỉ-assert-path-POST-tồn-tại → assert POST-ONLY @source
+        (introspect registry — gate THẬT dispatcher). submit_calibration ∉ _PARITY_VERB_ALLOWLIST (RỖNG).
+        """
+        paths = self.spec.get("paths") or {}
+        self.assertIn(_SUBMIT_CAL_PATH, paths, "Thiếu path submit_calibration (C8-ACTION).")
+        item = paths[_SUBMIT_CAL_PATH]
+        self.assertIn("post", item, "submit_calibration PHẢI khai verb POST (write-action mutate docstatus 0→1).")
+        self.assertNotIn("get", item, "submit_calibration KHÔNG được khai GET (write-action — POST-only).")
+        self.assertEqual(self._op().get("operationId"), "submitCalibration", "opId = submitCalibration.")
+        # POST-ONLY-ENFORCED-AT-SOURCE (registry introspect — KHÔNG chỉ yaml `post:`).
+        _assert_post_only_at_source(self, _SUBMIT_CAL_PATH)
+        self.assertNotIn(
+            _SUBMIT_CAL_PATH, _PARITY_VERB_ALLOWLIST,
+            "submit_calibration ∉ _PARITY_VERB_ALLOWLIST (verb-divergence ĐÃ đóng, allowlist RỖNG).",
+        )
+        self.assertIn(_SUBMIT_CAL_PATH, _MVP_BUSINESS_PATHS, "Phải vào _MVP_BUSINESS_PATHS (401/403 symmetry).")
+        ids = [op["operationId"] for _, _, op in _iter_operations(self.spec)]
+        self.assertEqual(len(paths), 53, "path-count PHẢI 52 (R-NOTIF-UNREAD +getUnreadNotifications).")
+        self.assertEqual(len(ids), 53, "operationId count PHẢI 52.")
+        self.assertEqual(len(set(ids)), 53, "operationId DUY NHẤT (len(set)==52).")
+        for oid in ids:
+            self.assertRegex(oid, _CAMEL_RE, f"operationId KHÔNG camelCase: {oid}")
+
+    def test_mob_oas_submitcal_b_request_body_closed_single_name(self):
+        """(b) requestBody required:true + application/json $ref SubmitCalibrationRequest; closed; props {name}; required [name]."""
+        rb = self._op().get("requestBody") or {}
+        self.assertTrue(rb, "submit_calibration PHẢI có requestBody.")
+        self.assertEqual(rb.get("required"), True, "requestBody.required PHẢI true (name positional bắt buộc).")
+        content = rb.get("content") or {}
+        self.assertIn("application/json", content, "requestBody PHẢI có application/json.")
+        self.assertNotIn("application/x-www-form-urlencoded", content, "Action body INLINE json-only (KHÔNG form).")
+        schema_ref = ((content.get("application/json") or {}).get("schema") or {}).get("$ref")
+        self.assertEqual(
+            schema_ref, f"#/components/schemas/{_SUBMIT_CAL_REQUEST_SCHEMA}",
+            f"application/json.schema PHẢI $ref {_SUBMIT_CAL_REQUEST_SCHEMA}, got {schema_ref}",
+        )
+        sch = self._schemas().get(_SUBMIT_CAL_REQUEST_SCHEMA) or {}
+        self.assertTrue(sch, f"Thiếu schema {_SUBMIT_CAL_REQUEST_SCHEMA}.")
+        self.assertEqual(sch.get("additionalProperties"), False, "SubmitCalibrationRequest PHẢI closed (additionalProperties:false).")
+        props = sch.get("properties") or {}
+        self.assertEqual(set(props.keys()), _SUBMIT_CAL_REQUEST_PROPS, f"props PHẢI EXACT {_SUBMIT_CAL_REQUEST_PROPS}.")
+        self.assertEqual(
+            sorted(sch.get("required") or []), sorted(_SUBMIT_CAL_REQUEST_REQUIRED),
+            f"required PHẢI EXACT {_SUBMIT_CAL_REQUEST_REQUIRED} (name positional @api/imm11.py:115; 0 optional).",
+        )
+        self.assertEqual((props.get("name") or {}).get("type"), "string", "name PHẢI type string.")
+
+    def test_mob_oas_submitcal_c_200_oneof_route_by_value(self):
+        """(c) 200 = oneOf [SubmitCalibrationEnvelope, Error] ở response-content-schema (route-by-VALUE, 0 discriminator)."""
+        resp200 = ((self._op().get("responses") or {}).get("200") or {})
+        schema = (((resp200.get("content") or {}).get("application/json") or {}).get("schema") or {})
+        self.assertNotIn("discriminator", schema, "200 KHÔNG discriminator (route-by-VALUE body.success, §5c).")
+        one_of = schema.get("oneOf") or []
+        refs = {m.get("$ref") for m in one_of if isinstance(m, dict)}
+        self.assertEqual(
+            refs, {_SUBMIT_CAL_ENVELOPE_SCHEMA_REF, "#/components/schemas/Error"},
+            f"200.oneOf PHẢI = [SubmitCalibrationEnvelope, Error]: {sorted(refs)}",
+        )
+        schemas = self._schemas()
+        env = schemas.get(_SUBMIT_CAL_ENVELOPE_SCHEMA) or {}
+        err = schemas.get("Error") or {}
+        self.assertEqual(env.get("additionalProperties"), False, "SubmitCalibrationEnvelope PHẢI closed.")
+        self.assertEqual(err.get("additionalProperties"), False, "Error PHẢI closed (§5c).")
+        env_succ = ((env.get("properties") or {}).get("success") or {}).get("enum")
+        err_succ = ((err.get("properties") or {}).get("success") or {}).get("enum")
+        self.assertEqual(env_succ, [True], "SubmitCalibrationEnvelope.success.enum PHẢI [true].")
+        self.assertEqual(err_succ, [False], "Error.success.enum PHẢI [false] (disjoint route-by-VALUE).")
+
+    def test_mob_oas_submitcal_d_envelope_closed_data_ref(self):
+        """(d) SubmitCalibrationEnvelope closed {success enum[true], data $ref SubmitCalibrationResponse}; required [success,data]."""
+        env = self._schemas().get(_SUBMIT_CAL_ENVELOPE_SCHEMA) or {}
+        self.assertTrue(env, f"Thiếu schema {_SUBMIT_CAL_ENVELOPE_SCHEMA}.")
+        self.assertEqual(env.get("additionalProperties"), False, "SubmitCalibrationEnvelope PHẢI closed.")
+        self.assertEqual(sorted(env.get("required") or []), ["data", "success"], "Envelope required PHẢI [success,data].")
+        data_ref = ((env.get("properties") or {}).get("data") or {}).get("$ref")
+        self.assertEqual(
+            data_ref, f"#/components/schemas/{_SUBMIT_CAL_RESPONSE_SCHEMA}",
+            f"Envelope.data PHẢI $ref {_SUBMIT_CAL_RESPONSE_SCHEMA}, got {data_ref}",
+        )
+
+    def test_mob_oas_submitcal_e_response_closed_grounded_separate(self):
+        """(e) SubmitCalibrationResponse closed; props EXACT {name,status,overall_result,next_calibration_date} (4-key, imm11.py:1054-1059); SCHEMA RIÊNG."""
+        resp = self._schemas().get(_SUBMIT_CAL_RESPONSE_SCHEMA) or {}
+        self.assertTrue(resp, f"Thiếu schema {_SUBMIT_CAL_RESPONSE_SCHEMA}.")
+        self.assertEqual(resp.get("additionalProperties"), False, "SubmitCalibrationResponse PHẢI closed (4-key).")
+        props = resp.get("properties") or {}
+        self.assertEqual(
+            set(props.keys()), _SUBMIT_CAL_DATA_KEYS,
+            f"data props PHẢI EXACT {_SUBMIT_CAL_DATA_KEYS} (services/imm11.py:1054-1059), got {sorted(props.keys())}.",
+        )
+        self.assertEqual(
+            sorted(resp.get("required") or []), sorted(_SUBMIT_CAL_DATA_KEYS),
+            "data required PHẢI đủ 4 {name,status,overall_result,next_calibration_date}.",
+        )
+        # SCHEMA RIÊNG — KHÔNG reuse Pm/Repair/IncidentActionResponse (C3-split cross-domain).
+        self.assertNotEqual(
+            _SUBMIT_CAL_RESPONSE_SCHEMA, _START_REPAIR_ACTION_RESPONSE_SCHEMA,
+            "SubmitCalibrationResponse PHẢI schema RIÊNG (KHÔNG reuse RepairActionResponse).",
+        )
+        self.assertNotEqual(
+            _SUBMIT_CAL_RESPONSE_SCHEMA, _SUBMIT_PM_RESULT_RESPONSE_SCHEMA,
+            "SubmitCalibrationResponse PHẢI schema RIÊNG (KHÔNG reuse PmSubmitResultResponse).",
+        )
+
+    def test_mob_oas_submitcal_f_enum_grounded_doctype(self):
+        """(f) status.enum == 8-value Select + overall_result.enum == ['',Passed,Failed,Conditionally Passed] (4-value); next_calibration_date nullable."""
+        props = (self._schemas().get(_SUBMIT_CAL_RESPONSE_SCHEMA) or {}).get("properties") or {}
+        self.assertEqual((props.get("name") or {}).get("type"), "string", "data.name PHẢI string.")
+        st = props.get("status") or {}
+        self.assertEqual(st.get("type"), "string", "data.status PHẢI string.")
+        self.assertEqual(
+            st.get("enum"), _SUBMIT_CAL_STATUS_ENUM,
+            f"data.status.enum PHẢI 8-value Select imm_asset_calibration.json {_SUBMIT_CAL_STATUS_ENUM}, got {st.get('enum')}.",
+        )
+        ovr = props.get("overall_result") or {}
+        self.assertEqual(ovr.get("type"), "string", "data.overall_result PHẢI string.")
+        self.assertEqual(
+            ovr.get("enum"), _SUBMIT_CAL_OVERALL_RESULT_ENUM,
+            f"data.overall_result.enum PHẢI 4-value ['',Passed,Failed,Conditionally Passed] (khớp doctype, gồm '' rỗng), got {ovr.get('enum')}.",
+        )
+        ncd = props.get("next_calibration_date") or {}
+        self.assertEqual(ncd.get("type"), "string", "data.next_calibration_date PHẢI string (str(... or '') @services/imm11.py:1058).")
+        self.assertEqual(
+            ncd.get("nullable"), True,
+            "data.next_calibration_date PHẢI nullable (rỗng khi chưa có lịch tái @services/imm11.py:1058).",
+        )
+
+    def test_mob_oas_submitcal_g_403_single_shape_and_slots(self):
+        """(g) 403 = SINGLE-SHAPE Forbidden (≠ reportIncident DUAL-403); 401 Unauthorized401; slot {200,401,403}."""
+        resps = (self._op().get("responses") or {})
+        resp403 = (resps.get("403") or {})
+        self.assertEqual(
+            resp403.get("$ref"), _FORBIDDEN_RESP_REF,
+            f"403 PHẢI $ref Forbidden (SINGLE-SHAPE; in-handler cap-403 calibration.submit @api/imm11.py:116 "
+            f"phủ bởi 200-oneOf Error), got {resp403.get('$ref')}",
+        )
+        self.assertNotEqual(
+            resp403.get("$ref"), _REPORT_INCIDENT_FORBIDDEN_RESP_REF,
+            "submitCalibration 403 KHÔNG được dùng ReportIncidentForbidden (đó là DUAL-403 của report_incident).",
+        )
+        self.assertEqual(
+            (resps.get("401") or {}).get("$ref"), _UNAUTHORIZED401_RESP_REF,
+            "401 PHẢI $ref Unauthorized401.",
+        )
+        self.assertEqual(
+            sorted(resps.keys()), ["200", "401", "403"],
+            f"response slot PHẢI CHỈ {{200,401,403}} (lỗi nghiệp vụ HTTP-200+Error): {sorted(resps.keys())}",
+        )
+
+    def test_mob_oas_submitcal_h_symmetry_set_and_no_dangling(self):
+        """(h) submitCalibration ∈ _PATHS_REQUIRE_401 ∧ _PATHS_REQUIRE_403 (so SET); 0 dangling $ref; negative name-required."""
+        self.assertIn(_SUBMIT_CAL_PATH, _PATHS_REQUIRE_401, "submitCalibration PHẢI ∈ _PATHS_REQUIRE_401.")
+        self.assertIn(_SUBMIT_CAL_PATH, _PATHS_REQUIRE_403, "submitCalibration PHẢI ∈ _PATHS_REQUIRE_403.")
+        ops = {path: op for path, _, op in _iter_operations(self.spec)}
+        with_401 = {p for p, op in ops.items() if "401" in (op.get("responses") or {}) and p not in (_AUTH_PATHS | _ALLOW_GUEST_PATHS)}
+        with_403 = {p for p, op in ops.items() if "403" in (op.get("responses") or {}) and p not in (_AUTH_PATHS | _ALLOW_GUEST_PATHS)}
+        self.assertEqual(with_401, set(_PATHS_REQUIRE_403), "Tập 401 (trừ auth) == _PATHS_REQUIRE_403 (symmetry).")
+        self.assertEqual(with_403, set(_PATHS_REQUIRE_403), "Tập 403 (trừ auth) == _PATHS_REQUIRE_403 (symmetry).")
+        dangling = sorted({r for r in _collect_refs(self.spec) if not _resolve_pointer(r, self.spec)})
+        self.assertEqual(dangling, [], f"PHẢI 0 dangling $ref sau bồi submitCalibration: {dangling}")
+        # negative — name PHẢI required; status/overall_result KHÔNG lọt body (server-derived completion).
+        req_schema = self._schemas().get(_SUBMIT_CAL_REQUEST_SCHEMA) or {}
+        req_props = req_schema.get("properties") or {}
+        self.assertIn("name", (req_schema.get("required") or []), "name PHẢI required.")
+        self.assertNotIn("status", req_props, "status KHÔNG lọt submit_calibration body (server-derived completion).")
+        self.assertNotIn("overall_result", req_props, "overall_result KHÔNG lọt submit_calibration body (server-derived).")
+
+    def test_mob_oas_submitcal_i_request_body_matches_live_signature(self):
+        """(i) LIVE introspect-parity — contract requestBody KHỚP 1:1 chữ-ký THẬT
+        inspect.signature(imm11.submit_calibration) (chống drift contract↔source).
+
+        Source @api/imm11.py:115 `def submit_calibration(name)`:
+          • params LIVE == {name} (KHÔNG thừa/thiếu — đơn-field action).
+          • name KHÔNG default (positional bắt buộc) ⇒ contract required==[name], 0 optional.
+        VERB-PARITY CLOSURE: submit_calibration ∉ _PARITY_VERB_ALLOWLIST (RỖNG) — decorator ĐÃ siết
+        @frappe.whitelist(methods=['POST']) @api/imm11.py:114 ⇒ POST-only @source.
+        """
+        from assetcore.api import imm11  # lazy — tránh import-time vòng phụ thuộc.
+        fn = getattr(imm11, "submit_calibration", None)
+        self.assertIsNotNone(fn, "Thiếu hàm whitelist LIVE: imm11.submit_calibration.")
+        sig = inspect.signature(fn)
+        params = sig.parameters
+        self.assertEqual(
+            set(params.keys()), _SUBMIT_CAL_REQUEST_PROPS,
+            f"signature LIVE PHẢI EXACT {_SUBMIT_CAL_REQUEST_PROPS}, got {sorted(params.keys())}.",
+        )
+        self.assertIs(
+            params["name"].default, inspect.Parameter.empty,
+            "param `name` PHẢI KHÔNG default (positional bắt buộc) ⇒ contract required==[name].",
+        )
+        # verb-parity closure: submit_calibration ∉ _PARITY_VERB_ALLOWLIST (POST-only @source).
+        self.assertNotIn(
+            _SUBMIT_CAL_PATH, _PARITY_VERB_ALLOWLIST,
+            "submit_calibration ∉ _PARITY_VERB_ALLOWLIST (verb-divergence ĐÃ đóng — methods=['POST'] @source).",
+        )
+
+
+class TestMobileAddMeasurementContract(unittest.TestCase):
+    """R34 ADD-MEASUREMENT — addMeasurement: POST mắt-xích-GIỮA chuỗi calibration-detail
+    (ghi N điểm-đo vào child table `measurements` TRƯỚC khi chốt).
+
+    Chuỗi: createCalibration (§8.6) → addMeasurement (×N — vòng này bồi) → submitCalibration (§8.15).
+    KTV mở getCalibration detail (Scheduled/In Progress) nhập điểm-đo; thiếu path này ⇒ submitCalibration
+    tính overall_result trên measurement-set RỖNG. Service THẬT add_measurement(name, *, parameter_name,
+    unit, nominal_value, tolerance_positive, tolerance_negative, measured_value=None) @services/imm11.py:1107
+    → append 1 row + save, return 2-key {name, measurement_count=len(doc.measurements)} @:1124.
+
+    ⚠️ VERB-FLIP-THIS-ROUND (ADR-MOBILE-011): handler @api/imm11.py:120 bare @frappe.whitelist() (nhận GET)
+    → flip @frappe.whitelist(methods=['POST']) NGAY (verb-parity gap R33 BỎ SÓT) ⇒ POST-only @source ⇒
+    KHÔNG verb-divergence ⇒ _PARITY_VERB_ALLOWLIST GIỮ set() (KHÔNG vào allowlist). KHÁC §8.15 (submitCalibration
+    từng đẩy flip backlog — nay đã CLOSED R33). AddMeasurementResponse RIÊNG 2-key {name,measurement_count};
+    measurement_count = GENUINE integer count (số row, có thể >1), KHÔNG enum[0,1] (precedent `updated`
+    ADR-MOBILE-010). requestBody $ref AddMeasurementBody oneOf json+form (Frappe RPC form_dict).
+
+    Guard chạy được (a..j):
+      (a) path TỒN TẠI, POST-ONLY (chỉ key 'post'), opId addMeasurement, tag calibration; ∈ _MVP_BUSINESS_PATHS
+          (401/403 symmetry set tự +1); count 46 path/opId unique camelCase; ∉ _PARITY_VERB_ALLOWLIST.
+      (b) POST-ONLY-ENFORCED-AT-SOURCE — allowed_http_methods_for_whitelisted_func(add_measurement)=={POST}
+          SAU flip (registry introspect — gate THẬT); ∉ _PARITY_VERB_ALLOWLIST.
+      (c) requestBody = $ref-ONLY AddMeasurementBody (G-OAS-403-DISAMBIG, KHÔNG sibling); component required:true
+          + content oneOf [json, x-www-form-urlencoded] CÙNG $ref AddMeasurementRequest; AddMeasurementRequest
+          closed required EXACT 6 [name,parameter_name,unit,nominal_value,tolerance_positive,tolerance_negative]
+          + optional measured_value (number, nullable); string×3 / number×4.
+      (d) 200 = oneOf [AddMeasurementEnvelope, Error] ở response-content-schema (route-by-VALUE body.success,
+          C6/C7); KHÔNG discriminator; 2 branch closed, success enum disjoint [true]/[false].
+      (e) AddMeasurementResponse closed (additionalProperties:false) props EXACT 2 {name:string,
+          measurement_count:integer} required[name,measurement_count] (GROUNDED svc return @:1124); SCHEMA RIÊNG.
+      (f) live-sig parity — inspect.signature(imm11.add_measurement) params == AddMeasurementRequest props (7);
+          6 no-default (required) + measured_value default None (optional); chống drift contract↔source.
+      (g) slot {200,401,403}; 401 Unauthorized401; 403 SINGLE-SHAPE Forbidden (in-handler cap-403
+          calibration.write phủ bởi nhánh Error 200-oneOf); Error.http_status enum ⊇ {404,409}
+          (IMM11_CAL_NOT_FOUND @:1112 / IMM11_ALREADY_SUBMITTED docstatus==1 @:1114 → HTTP-200 nhánh Error).
+      (h) anti-false-green — RED nếu decorator add_measurement còn bare (nhận GET); GREEN chỉ khi POST-ONLY
+          at-source (GET TỪ CHỐI). Phân-biệt claim-yaml ↔ source-THẬT.
+      (i) full verb-parity sweep yaml↔runtime zero-exception VẪN GREEN sau khi thêm addMeasurement
+          (_PARITY_VERB_ALLOWLIST == set()); ∈ symmetry sets; 0 dangling $ref.
+      (j) source-diff invariant — git diff api/imm11.py = ĐÚNG 1 dòng decorator flip (bare→methods=['POST']),
+          KHÔNG drift signature/body/cap.
+    SSoT: ../04-api-contract.md §8.24 + ADR-MOBILE-011 + api/imm11.py:120-132 + services/imm11.py:1107-1124.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.spec = _load_spec() if _MOBILE_YAML.exists() else None
+
+    def _op(self):
+        return ((self.spec.get("paths") or {}).get(_ADD_MEASUREMENT_PATH) or {}).get("post") or {}
+
+    def _schemas(self):
+        return (self.spec.get("components") or {}).get("schemas") or {}
+
+    def _request_body_component(self):
+        """Resolve requestBody $ref → components/requestBodies/AddMeasurementBody (đảm bảo $ref-ONLY)."""
+        rb = self._op().get("requestBody") or {}
+        ref = rb.get("$ref")
+        self.assertEqual(
+            ref, _ADD_MEASUREMENT_BODY_REF,
+            f"requestBody PHẢI $ref {_ADD_MEASUREMENT_BODY_REF} (G-OAS-403-DISAMBIG), got {ref}.",
+        )
+        self.assertEqual(
+            sorted(rb.keys()), ["$ref"],
+            f"requestBody PHẢI $ref-ONLY (KHÔNG sibling cạnh $ref — OAS 3.0.3 bỏ qua): {sorted(rb.keys())}.",
+        )
+        name = ref.split("/")[-1]
+        comp = ((self.spec.get("components") or {}).get("requestBodies") or {}).get(name) or {}
+        self.assertTrue(comp, f"Thiếu requestBodies component {name}.")
+        return comp
+
+    def test_mob_oas_addmeas_a_path_post_only_opid_tag_mvp(self):
+        """(a) path TỒN TẠI, POST-ONLY (chỉ 'post', KHÔNG 'get'), opId addMeasurement, tag calibration,
+        ∈ _MVP_BUSINESS_PATHS; count 46 unique camelCase; ∉ _PARITY_VERB_ALLOWLIST."""
+        paths = self.spec.get("paths") or {}
+        self.assertIn(_ADD_MEASUREMENT_PATH, paths, "Thiếu path add_measurement (R34 ADD-MEASUREMENT).")
+        item = paths[_ADD_MEASUREMENT_PATH]
+        self.assertIn("post", item, "add_measurement PHẢI khai verb POST (write-action append child-row, KHÔNG idempotent).")
+        self.assertNotIn("get", item, "add_measurement KHÔNG được khai GET (write-action — POST-only sau flip).")
+        op = self._op()
+        self.assertEqual(op.get("operationId"), "addMeasurement", "opId = addMeasurement.")
+        self.assertEqual(op.get("tags"), ["calibration"], "tag PHẢI [calibration].")
+        self.assertNotIn(
+            _ADD_MEASUREMENT_PATH, _PARITY_VERB_ALLOWLIST,
+            "add_measurement ∉ _PARITY_VERB_ALLOWLIST (flip-this-round POST-only @source, allowlist RỖNG).",
+        )
+        self.assertIn(_ADD_MEASUREMENT_PATH, _MVP_BUSINESS_PATHS, "Phải vào _MVP_BUSINESS_PATHS (401/403 symmetry).")
+        ids = [op2["operationId"] for _, _, op2 in _iter_operations(self.spec)]
+        self.assertEqual(len(paths), 53, "path-count PHẢI 52 (R-NOTIF-UNREAD +getUnreadNotifications).")
+        self.assertEqual(len(ids), 53, "operationId count PHẢI 52.")
+        self.assertEqual(len(set(ids)), 53, "operationId DUY NHẤT (len(set)==52).")
+        for oid in ids:
+            self.assertRegex(oid, _CAMEL_RE, f"operationId KHÔNG camelCase: {oid}")
+
+    def test_mob_oas_addmeas_b_post_only_at_source(self):
+        """(b) POST-ONLY-ENFORCED-AT-SOURCE — registry allowed == {'POST'} SAU flip; ∉ _PARITY_VERB_ALLOWLIST."""
+        _assert_post_only_at_source(self, _ADD_MEASUREMENT_PATH)
+        self.assertNotIn(
+            _ADD_MEASUREMENT_PATH, _PARITY_VERB_ALLOWLIST,
+            "add_measurement ∉ _PARITY_VERB_ALLOWLIST (POST-only @source sau flip — KHÔNG vào allowlist).",
+        )
+        self.assertEqual(_PARITY_VERB_ALLOWLIST, set(), "_PARITY_VERB_ALLOWLIST PHẢI GIỮ set() (verb-parity closure).")
+
+    def test_mob_oas_addmeas_c_request_body_oneof_json_form_required_exact_6(self):
+        """(c) requestBody $ref-ONLY AddMeasurementBody; component required:true + content oneOf [json,
+        x-www-form-urlencoded] CÙNG $ref AddMeasurementRequest; AddMeasurementRequest closed, required EXACT 6,
+        props EXACT 7, measured_value optional+nullable number; string×3 / number×4."""
+        comp = self._request_body_component()
+        self.assertEqual(comp.get("required"), True, "AddMeasurementBody.required PHẢI true (đặt trong component).")
+        content = comp.get("content") or {}
+        self.assertEqual(
+            sorted(content.keys()), ["application/json", "application/x-www-form-urlencoded"],
+            f"content PHẢI oneOf json + x-www-form-urlencoded (Frappe RPC form_dict): {sorted(content.keys())}.",
+        )
+        for mt, mdef in content.items():
+            ref = ((mdef.get("schema") or {}).get("$ref"))
+            self.assertEqual(
+                ref, f"#/components/schemas/{_ADD_MEASUREMENT_REQUEST_SCHEMA}",
+                f"[{mt}] schema PHẢI $ref {_ADD_MEASUREMENT_REQUEST_SCHEMA}, got {ref}.",
+            )
+        sch = self._schemas().get(_ADD_MEASUREMENT_REQUEST_SCHEMA) or {}
+        self.assertTrue(sch, f"Thiếu schema {_ADD_MEASUREMENT_REQUEST_SCHEMA}.")
+        self.assertEqual(sch.get("additionalProperties"), False, "AddMeasurementRequest PHẢI closed (additionalProperties:false).")
+        props = sch.get("properties") or {}
+        self.assertEqual(set(props.keys()), _ADD_MEASUREMENT_REQUEST_PROPS, f"props PHẢI EXACT {_ADD_MEASUREMENT_REQUEST_PROPS}.")
+        self.assertEqual(
+            sorted(sch.get("required") or []), sorted(_ADD_MEASUREMENT_REQUEST_REQUIRED),
+            f"required PHẢI EXACT 6 {_ADD_MEASUREMENT_REQUEST_REQUIRED} (6 tham số KHÔNG default @api/imm11.py:121-122).",
+        )
+        self.assertNotIn(
+            "measured_value", sch.get("required") or [],
+            "measured_value KHÔNG required (default=None @api/imm11.py:123 — KTV ghi tham-số trước, đo sau).",
+        )
+        for p in _ADD_MEASUREMENT_STRING_PROPS:
+            self.assertEqual((props.get(p) or {}).get("type"), "string", f"{p} PHẢI type string.")
+        for p in _ADD_MEASUREMENT_NUMBER_PROPS:
+            self.assertEqual((props.get(p) or {}).get("type"), "number", f"{p} PHẢI type number.")
+        mv = props.get("measured_value") or {}
+        self.assertEqual(mv.get("nullable"), True, "measured_value PHẢI nullable:true (float=None @api/imm11.py:123).")
+
+    def test_mob_oas_addmeas_d_200_oneof_route_by_value(self):
+        """(d) 200 = oneOf [AddMeasurementEnvelope, Error] route-by-VALUE body.success (0 discriminator);
+        2 branch closed, success enum disjoint [true]/[false]."""
+        resp200 = ((self._op().get("responses") or {}).get("200") or {})
+        schema = (((resp200.get("content") or {}).get("application/json") or {}).get("schema") or {})
+        self.assertNotIn("discriminator", schema, "200 KHÔNG discriminator (route-by-VALUE body.success, §5c).")
+        one_of = schema.get("oneOf") or []
+        self.assertEqual(len(one_of), 2, "200.oneOf PHẢI đúng 2 nhánh [Envelope, Error].")
+        refs = {m.get("$ref") for m in one_of if isinstance(m, dict)}
+        self.assertEqual(
+            refs, {_ADD_MEASUREMENT_ENVELOPE_SCHEMA_REF, "#/components/schemas/Error"},
+            f"200.oneOf PHẢI = [AddMeasurementEnvelope, Error]: {sorted(refs)}",
+        )
+        schemas = self._schemas()
+        env = schemas.get(_ADD_MEASUREMENT_ENVELOPE_SCHEMA) or {}
+        err = schemas.get("Error") or {}
+        self.assertEqual(env.get("additionalProperties"), False, "AddMeasurementEnvelope PHẢI closed.")
+        self.assertEqual(err.get("additionalProperties"), False, "Error PHẢI closed (§5c).")
+        self.assertEqual(((env.get("properties") or {}).get("success") or {}).get("enum"), [True], "Envelope.success.enum [true].")
+        self.assertEqual(((err.get("properties") or {}).get("success") or {}).get("enum"), [False], "Error.success.enum [false].")
+        self.assertEqual(sorted(env.get("required") or []), ["data", "success"], "Envelope required PHẢI [success,data].")
+        self.assertEqual(
+            ((env.get("properties") or {}).get("data") or {}).get("$ref"),
+            f"#/components/schemas/{_ADD_MEASUREMENT_RESPONSE_SCHEMA}",
+            "Envelope.data PHẢI $ref AddMeasurementResponse.",
+        )
+
+    def test_mob_oas_addmeas_e_response_closed_2key_grounded_separate(self):
+        """(e) AddMeasurementResponse closed; props EXACT 2 {name:string, measurement_count:integer}
+        (GROUNDED svc return @services/imm11.py:1124); required[name,measurement_count]; SCHEMA RIÊNG;
+        measurement_count GENUINE integer KHÔNG enum[0,1]; 0 boolean prop."""
+        resp = self._schemas().get(_ADD_MEASUREMENT_RESPONSE_SCHEMA) or {}
+        self.assertTrue(resp, f"Thiếu schema {_ADD_MEASUREMENT_RESPONSE_SCHEMA}.")
+        self.assertEqual(resp.get("additionalProperties"), False, "AddMeasurementResponse PHẢI closed (2-key).")
+        props = resp.get("properties") or {}
+        self.assertEqual(
+            set(props.keys()), _ADD_MEASUREMENT_DATA_KEYS,
+            f"data props PHẢI EXACT {_ADD_MEASUREMENT_DATA_KEYS} (svc return @services/imm11.py:1124), got {sorted(props.keys())}.",
+        )
+        self.assertEqual(
+            sorted(resp.get("required") or []), sorted(_ADD_MEASUREMENT_DATA_KEYS),
+            "data required PHẢI đủ 2 {name,measurement_count} (cả 2 luôn trả — literal dict).",
+        )
+        self.assertEqual((props.get("name") or {}).get("type"), "string", "data.name PHẢI string.")
+        mc = props.get("measurement_count") or {}
+        self.assertEqual(mc.get("type"), "integer", "data.measurement_count PHẢI integer (len(doc.measurements) @:1124).")
+        # GENUINE integer count — KHÔNG enum[0,1] (số row, có thể >1) + KHÔNG boolean.
+        self.assertNotIn("enum", mc, "measurement_count KHÔNG enum (GENUINE count, có thể >1 — KHÔNG Check-field enum[0,1]).")
+        for pname, pdef in props.items():
+            self.assertNotEqual(
+                pdef.get("type"), "boolean",
+                f"AddMeasurementResponse.{pname} KHÔNG được type:boolean (0 Check-field; codegen int-vs-bool trap).",
+            )
+        # SCHEMA RIÊNG — KHÔNG reuse Submit/Repair/IncidentActionResponse (C3-split field-disjoint).
+        self.assertNotEqual(_ADD_MEASUREMENT_RESPONSE_SCHEMA, _SUBMIT_CAL_RESPONSE_SCHEMA, "PHẢI schema RIÊNG (KHÔNG reuse SubmitCalibrationResponse).")
+        self.assertNotEqual(_ADD_MEASUREMENT_RESPONSE_SCHEMA, _START_REPAIR_ACTION_RESPONSE_SCHEMA, "PHẢI schema RIÊNG (KHÔNG reuse RepairActionResponse).")
+
+    def test_mob_oas_addmeas_f_body_matches_live_signature(self):
+        """(f) live-sig parity — inspect.signature(imm11.add_measurement) params == AddMeasurementRequest props
+        (7-param); 6 no-default (required) + measured_value default None (optional). Chống drift contract↔source."""
+        from assetcore.api import imm11  # lazy.
+        fn = getattr(imm11, "add_measurement", None)
+        self.assertIsNotNone(fn, "Thiếu hàm whitelist LIVE: imm11.add_measurement.")
+        params = inspect.signature(fn).parameters
+        self.assertEqual(
+            set(params.keys()), _ADD_MEASUREMENT_SIG_PARAMS,
+            f"signature LIVE PHẢI EXACT {_ADD_MEASUREMENT_SIG_PARAMS}, got {sorted(params.keys())}.",
+        )
+        # contract props == live params (no thừa/thiếu).
+        sch_props = set((self._schemas().get(_ADD_MEASUREMENT_REQUEST_SCHEMA) or {}).get("properties") or {})
+        self.assertEqual(
+            sch_props, set(params.keys()),
+            f"AddMeasurementRequest props PHẢI KHỚP 1:1 live signature: props={sorted(sch_props)} sig={sorted(params.keys())}.",
+        )
+        for p in _ADD_MEASUREMENT_REQUEST_REQUIRED:
+            self.assertIs(
+                params[p].default, inspect.Parameter.empty,
+                f"param `{p}` PHẢI KHÔNG default (required) ⇒ contract required.",
+            )
+        self.assertIsNone(
+            params["measured_value"].default,
+            "param `measured_value` default PHẢI None (optional nullable @api/imm11.py:123).",
+        )
+
+    def test_mob_oas_addmeas_g_response_slots_200_401_403_error_404_409(self):
+        """(g) slot {200,401,403}; 401 Unauthorized401; 403 SINGLE-SHAPE Forbidden; Error.http_status enum
+        ⊇ {404,409} (IMM11_CAL_NOT_FOUND @:1112 / IMM11_ALREADY_SUBMITTED docstatus==1 @:1114 → HTTP-200 Error)."""
+        resps = (self._op().get("responses") or {})
+        self.assertEqual(
+            sorted(resps.keys()), ["200", "401", "403"],
+            f"response slot PHẢI CHỈ {{200,401,403}} (404/409 in-handler trên HTTP-200 nhánh Error): {sorted(resps.keys())}",
+        )
+        self.assertEqual((resps.get("401") or {}).get("$ref"), _UNAUTHORIZED401_RESP_REF, "401 PHẢI $ref Unauthorized401.")
+        resp403 = (resps.get("403") or {})
+        self.assertEqual(
+            resp403.get("$ref"), _FORBIDDEN_RESP_REF,
+            f"403 PHẢI $ref Forbidden SINGLE-SHAPE (in-handler cap-403 calibration.write @api/imm11.py:124 phủ bởi 200-oneOf Error), got {resp403.get('$ref')}.",
+        )
+        self.assertNotEqual(
+            resp403.get("$ref"), _REPORT_INCIDENT_FORBIDDEN_RESP_REF,
+            "addMeasurement 403 KHÔNG dùng ReportIncidentForbidden (đó là DUAL-403 của report_incident).",
+        )
+        err = self._schemas().get("Error") or {}
+        hs_enum = ((err.get("properties") or {}).get("http_status") or {}).get("enum") or []
+        self.assertIn(404, hs_enum, f"Error.http_status enum PHẢI ⊇ {{404}} (IMM11_CAL_NOT_FOUND @:1112): {hs_enum}.")
+        self.assertIn(409, hs_enum, f"Error.http_status enum PHẢI ⊇ {{409}} (IMM11_ALREADY_SUBMITTED @:1114): {hs_enum}.")
+
+    def test_mob_oas_addmeas_h_anti_false_green_get_rejected_at_source(self):
+        """(h) anti-false-green — RED nếu decorator add_measurement còn bare (nhận GET); GREEN chỉ khi
+        POST-ONLY at-source (GET TỪ CHỐI). Phân-biệt claim-yaml-POST ↔ source-THẬT (KHÔNG pass-suông yaml)."""
+        dotted = "assetcore.api.imm11.add_measurement"
+        allowed = _allowed_http_methods_for(dotted)
+        self.assertNotIn(
+            "GET", allowed,
+            "ANTI-FALSE-GREEN: add_measurement còn nhận GET ⇒ decorator VẪN bare @frappe.whitelist() "
+            f"(verb-flip CHƯA làm @api/imm11.py:120). Cần @frappe.whitelist(methods=['POST']). allowed={sorted(allowed)}.",
+        )
+        self.assertEqual(allowed, {"POST"}, f"add_measurement PHẢI POST-ONLY at-source (== {{'POST'}}), got {sorted(allowed)}.")
+
+    def test_mob_oas_addmeas_i_full_verb_parity_sweep_still_green(self):
+        """(i) full verb-parity sweep yaml↔runtime zero-exception VẪN GREEN sau khi thêm addMeasurement;
+        _PARITY_VERB_ALLOWLIST == set(); ∈ symmetry sets; 0 dangling $ref."""
+        from assetcore.api import openapi  # lazy — runtime spec introspect registry.
+        runtime = openapi.generate_spec()
+        mismatches = []
+        for p in sorted(_MVP_BUSINESS_PATHS):
+            yv, _ = _path_verb_op(self.spec, p)
+            rv, _ = _path_verb_op(runtime, p)
+            if rv is None:
+                continue
+            if yv != rv and p not in _PARITY_VERB_ALLOWLIST:
+                mismatches.append(f"{p}: yaml={yv} runtime={rv}")
+        self.assertEqual(mismatches, [], f"verb YAML ≠ runtime (allowlist RỖNG, 0 ngoại lệ): {mismatches}")
+        # addMeasurement cụ-thể: yaml POST == runtime POST (decorator flip @source ĐÃ làm).
+        yv, _ = _path_verb_op(self.spec, _ADD_MEASUREMENT_PATH)
+        rv, _ = _path_verb_op(runtime, _ADD_MEASUREMENT_PATH)
+        self.assertEqual(yv, "post", "YAML addMeasurement PHẢI POST.")
+        self.assertEqual(
+            rv, "post",
+            "Runtime addMeasurement PHẢI POST (decorator methods=['POST'] đã siết). GET ⇒ decorator revert bare.",
+        )
+        self.assertEqual(_PARITY_VERB_ALLOWLIST, set(), "_PARITY_VERB_ALLOWLIST PHẢI GIỮ set() (add_measurement POST-only @source).")
+        self.assertIn(_ADD_MEASUREMENT_PATH, _PATHS_REQUIRE_401, "addMeasurement PHẢI ∈ _PATHS_REQUIRE_401.")
+        self.assertIn(_ADD_MEASUREMENT_PATH, _PATHS_REQUIRE_403, "addMeasurement PHẢI ∈ _PATHS_REQUIRE_403.")
+        self.assertIn(_ADD_MEASUREMENT_PATH, _MVP_ACTION_ENVELOPE, "addMeasurement PHẢI ∈ _MVP_ACTION_ENVELOPE.")
+        dangling = sorted({r for r in _collect_refs(self.spec) if not _resolve_pointer(r, self.spec)})
+        self.assertEqual(dangling, [], f"PHẢI 0 dangling $ref sau bồi addMeasurement: {dangling}")
+
+    def test_mob_oas_addmeas_j_source_diff_invariant_decorator_only_no_body_drift(self):
+        """(j) source-diff invariant — git diff api/imm11.py = decorator flips (bare @frappe.whitelist()
+        → methods=["POST"]) BALANCED + CHỈ-1 nhóm thay đổi non-decorator ALLOWLISTED (R41 CAL-MINE
+        list_calibrations +param mine). ZERO drift signature/body NGOÀI 2 nhóm này.
+
+        ⚠️ DEVIATION grounded @working-tree: R33 VERB-PARITY CLOSURE flip create_calibration (:89) +
+        submit_calibration (:114) là UNCOMMITTED carry-over (HEAD vẫn bare; HARD-STOP user no-commit) ⇒
+        `git diff api/imm11.py` hiện 3 flip decorator (R33×2 + R34 add_measurement×1). R41 CAL-MINE-CAL
+        THÊM 1 thay đổi non-decorator HỢP-LỆ: list_calibrations chèn `mine: int = 0` (giữa filters↔page)
+        + nhánh `if int(mine or 0): f['technician']=frappe.session.user` SAU apply_vendor_scope + comment
+        block → ALLOWLIST (KHÔNG drift bừa). Invariant load-bearing = 'decorator flips balanced +
+        non-decorator drift CHỈ thuộc allowlist CAL-MINE'."""
+        import subprocess
+        repo = str(_REPO_ROOT)
+        out = subprocess.run(
+            ["git", "-C", repo, "diff", "--", "assetcore/api/imm11.py"],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(out.returncode, 0, f"git diff lỗi: {out.stderr}")
+        changed = [
+            ln for ln in out.stdout.splitlines()
+            if ln[:1] in ("+", "-") and not ln.startswith(("+++", "---"))
+        ]
+        # ── ALLOWLIST R41 CAL-MINE — list_calibrations +param mine (non-decorator HỢP-LỆ). ──
+        _CAL_MINE_ALLOW = {
+            'def list_calibrations(filters: str = "{}", page: int = 1, page_size: int = 20) -> dict:',
+            'def list_calibrations(filters: str = "{}", mine: int = 0,',
+            'page: int = 1, page_size: int = 20) -> dict:',
+            'if int(mine or 0):',
+            'f["technician"] = frappe.session.user',
+        }
+
+        def _is_cal_mine(ln: str) -> bool:
+            s = ln[1:].strip()
+            return s.startswith("#") or s in _CAL_MINE_ALLOW
+
+        deco = [ln for ln in changed if "@frappe.whitelist" in ln]
+        non_deco = [ln for ln in changed if "@frappe.whitelist" not in ln]
+        # Dòng non-decorator PHẢI thuộc allowlist R41 CAL-MINE — KHÔNG drift body/signature bừa.
+        for ln in non_deco:
+            self.assertTrue(
+                _is_cal_mine(ln),
+                f"git diff đụng dòng KHÔNG-decorator NGOÀI allowlist R41 CAL-MINE — drift body/signature?: {ln}",
+            )
+        removed_deco = [ln for ln in deco if ln.startswith("-")]
+        added_deco = [ln for ln in deco if ln.startswith("+")]
+        # removed PHẢI là bare @frappe.whitelist(); added PHẢI là methods=["POST"]/['POST'].
+        for ln in removed_deco:
+            self.assertEqual(
+                ln[1:].strip(), "@frappe.whitelist()",
+                f"dòng removed PHẢI là bare @frappe.whitelist(): {ln}",
+            )
+        for ln in added_deco:
+            self.assertTrue(
+                ("methods=['POST']" in ln or 'methods=["POST"]' in ln),
+                f"dòng added PHẢI là @frappe.whitelist(methods=['POST']): {ln}",
+            )
+        # balanced flips (mỗi removed-bare ↦ 1 added-POST).
+        self.assertEqual(len(removed_deco), len(added_deco), f"removed/added decorator PHẢI cân (flip 1-1): {len(removed_deco)} vs {len(added_deco)}.")
+        # ≥1 flip (add_measurement R34 + R33 carry-over): net delta POST từ các flip này.
+        self.assertGreaterEqual(len(added_deco), 1, "PHẢI có ≥1 decorator flip (add_measurement round + carry-over).")
+        # ZERO drift signature/body/cap (token nghiệp vụ KHÔNG xuất hiện ở dòng đổi).
+        for ln in changed:
+            for tok in ("def add_measurement", "rbac.require", "parameter_name", "measurement_count", "return ", "doc.append"):
+                self.assertNotIn(
+                    tok, ln,
+                    f"git diff đụng signature/body (token '{tok}') — PHẢI CHỈ flip decorator: {ln}",
+                )
+
+
+class TestMobileAssignPmTechnicianContract(unittest.TestCase):
+    """R35 PM-DISPATCH — assignPmTechnician: POST-action lifecycle DISPATCH cho PM Work Order
+    (Open/Overdue → In Progress + asset → Under Maintenance).
+
+    MẮT-XÍCH-GIỮA chuỗi PM-detail: createPmWorkOrder → [assignPmTechnician] → submitPmResult (§8.14).
+    Workshop Head mở getPmWorkOrder detail (Open/Overdue) phân công 1 KTV (+scheduled_date optional) ⇒
+    WO → 'In Progress' + asset → 'Under Maintenance' (SINH Lifecycle Event audit). Thiếu path này ⇒ nút
+    'Phân công' trên PMWorkOrderDetailView dead-end (phải làm web-FE). PARITY repair assignTechnician
+    (Open→Assigned). Service THẬT assign_technician(name, *, technician, scheduled_date=None)
+    @services/imm08.py:656 → return 3-key {name, status, assigned_to} @:679.
+
+    ⚠️ VERB-FLIP-THIS-ROUND (ADR-MOBILE-012, sibling add_measurement R34): handler @api/imm08.py:46 bare
+    @frappe.whitelist() (nhận GET) → flip @frappe.whitelist(methods=['POST']) NGAY (verb-parity gap R33 BỎ
+    SÓT) ⇒ POST-only @source ⇒ KHÔNG verb-divergence ⇒ _PARITY_VERB_ALLOWLIST GIỮ set() (KHÔNG vào allowlist).
+    AssignPmTechnicianResponse RIÊNG 3-key {name,status,assigned_to}; status = PMStatus-canonical 7-state
+    (post-assign='In Progress' @services/imm08.py:676), DISJOINT repair-domain 'Assigned' (C3-split cross-domain
+    — KHÔNG reuse repair AssignTechnician*). requestBody INLINE json-only (mirror repair assignTechnician).
+
+    Guard chạy được (a..i):
+      (a) path TỒN TẠI, POST-ONLY (chỉ key 'post'), opId assignPmTechnician (UNIQUE ≠ repair assignTechnician),
+          tag work-order, MVP-4 summary; ∈ _MVP_BUSINESS_PATHS (401/403 symmetry set tự +1); count 44
+          path/opId unique camelCase; ∉ _PARITY_VERB_ALLOWLIST.
+      (b) POST-ONLY-ENFORCED-AT-SOURCE — allowed_http_methods_for_whitelisted_func(assign_technician)=={POST}
+          SAU flip (registry introspect — gate THẬT); anti-false-green GET TỪ CHỐI; ∉ _PARITY_VERB_ALLOWLIST.
+      (c) requestBody INLINE application/json $ref AssignPmTechnicianRequest (KHÔNG component/form); schema
+          closed (additionalProperties:false), props EXACT {name,technician,scheduled_date}, required EXACT
+          [name,technician] (2 positional no-default @api/imm08.py:47); scheduled_date optional+nullable
+          (default None); 3 prop string; live-sig parity folded-in (chống drift-đảo).
+      (d) 200 = oneOf [AssignPmTechnicianEnvelope, Error] route-by-VALUE body.success (0 discriminator); 2
+          branch closed (additionalProperties:false), success enum disjoint [true]/[false].
+      (e) AssignPmTechnicianResponse closed props EXACT 3 {name,status,assigned_to} (GROUNDED svc return
+          @services/imm08.py:679); required[name,status,assigned_to]; status.enum == _PM_STATUS_ENUM (7-state,
+          post-assign='In Progress'); 0 boolean prop; SCHEMA RIÊNG.
+      (f) Error.http_status enum ⊇ {404,409,422} (IMM08_WO_NOT_FOUND :659→404 / IMM08_BAD_STATE :661→409 /
+          VALIDATION asset|schedule xóa :662-671→422 → HTTP-200 nhánh Error route-by-VALUE).
+      (g) slot {200,401,403}; 401 Unauthorized401; 403 SINGLE-SHAPE Forbidden (in-handler cap-403 pm.write
+          @api/imm08.py:49 phủ bởi nhánh Error 200-oneOf) ≠ reportIncident DUAL-403.
+      (h) C3-split — AssignPmTechnician* schema-name ≠ repair AssignTechnician* (cross-domain disjoint, status
+          enum-domain khác); ∈ symmetry sets (_PATHS_REQUIRE_401/403, _MVP_ACTION_ENVELOPE); 0 dangling $ref;
+          negative scheduled_date KHÔNG required; status/assigned_to KHÔNG lọt body (server-derived).
+      (i) meta self-count — _discover_test_methods() == _EXPECTED_TEST_COUNT (drift = RED); 9 assignpm method
+          ∈ discovered (this round bồi đủ); chống count-drift quên cập SSoT.
+    SSoT: ../04-api-contract.md §8.25 + ADR-MOBILE-012 + docs/imm-08/05 §0.1.1 + api/imm08.py:46-51 +
+    services/imm08.py:656,676,678,679 + pm_work_order.json (PMStatus @services/imm08.py:43-50).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.spec = _load_spec() if _MOBILE_YAML.exists() else None
+
+    def _op(self):
+        return ((self.spec.get("paths") or {}).get(_ASSIGN_PM_TECH_PATH) or {}).get("post") or {}
+
+    def _schemas(self):
+        return (self.spec.get("components") or {}).get("schemas") or {}
+
+    def test_mob_oas_assignpm_a_path_post_only_opid_tag_mvp(self):
+        """(a) path TỒN TẠI, POST-ONLY, opId assignPmTechnician (UNIQUE ≠ repair), tag work-order, MVP-4
+        summary, ∈ _MVP_BUSINESS_PATHS; count 44 unique camelCase; ∉ _PARITY_VERB_ALLOWLIST."""
+        paths = self.spec.get("paths") or {}
+        self.assertIn(_ASSIGN_PM_TECH_PATH, paths, "Thiếu path assign_technician PM (R35 PM-DISPATCH).")
+        item = paths[_ASSIGN_PM_TECH_PATH]
+        self.assertEqual(
+            sorted(item.keys()), ["post"],
+            "assign_technician PM PHẢI POST-ONLY (chỉ key 'post', khớp @whitelist(methods=['POST']) api/imm08.py:46).",
+        )
+        op = self._op()
+        self.assertEqual(op.get("operationId"), "assignPmTechnician", "opId = assignPmTechnician (UNIQUE).")
+        # UNIQUE — KHÁC repair assignTechnician (cùng dotted-tail assign_technician nhưng opId KHÁC).
+        self.assertNotEqual(op.get("operationId"), "assignTechnician", "opId PHẢI KHÁC repair assignTechnician.")
+        self.assertEqual(op.get("tags"), ["work-order"], "tag PHẢI [work-order].")
+        self.assertIn("[MVP-4]", op.get("summary") or "", "summary PHẢI mang nhãn [MVP-4] PM dispatch.")
+        self.assertNotIn(
+            _ASSIGN_PM_TECH_PATH, _PARITY_VERB_ALLOWLIST,
+            "assign_technician PM ∉ _PARITY_VERB_ALLOWLIST (flip-this-round POST-only @source, allowlist RỖNG).",
+        )
+        self.assertIn(_ASSIGN_PM_TECH_PATH, _MVP_BUSINESS_PATHS, "Phải vào _MVP_BUSINESS_PATHS (401/403 symmetry).")
+        ids = [op2["operationId"] for _, _, op2 in _iter_operations(self.spec)]
+        self.assertEqual(len(paths), 53, "path-count PHẢI 52 (R-NOTIF-UNREAD +getUnreadNotifications).")
+        self.assertEqual(len(ids), 53, "operationId count PHẢI 52.")
+        self.assertEqual(len(set(ids)), 53, "operationId DUY NHẤT (len(set)==52).")
+        for oid in ids:
+            self.assertRegex(oid, _CAMEL_RE, f"operationId KHÔNG camelCase: {oid}")
+
+    def test_mob_oas_assignpm_b_post_only_at_source(self):
+        """(b) POST-ONLY-ENFORCED-AT-SOURCE — registry allowed == {'POST'} SAU flip; anti-false-green GET
+        TỪ CHỐI; ∉ _PARITY_VERB_ALLOWLIST (verb-parity closure GIỮ set())."""
+        _assert_post_only_at_source(self, _ASSIGN_PM_TECH_PATH)
+        # anti-false-green — RED nếu decorator còn bare (nhận GET); GREEN chỉ khi POST-ONLY at-source.
+        dotted = "assetcore.api.imm08.assign_technician"
+        allowed = _allowed_http_methods_for(dotted)
+        self.assertNotIn(
+            "GET", allowed,
+            "ANTI-FALSE-GREEN: assign_technician còn nhận GET ⇒ decorator VẪN bare @frappe.whitelist() "
+            f"(verb-flip CHƯA làm @api/imm08.py:46). Cần @frappe.whitelist(methods=['POST']). allowed={sorted(allowed)}.",
+        )
+        self.assertEqual(allowed, {"POST"}, f"assign_technician PHẢI POST-ONLY at-source (== {{'POST'}}), got {sorted(allowed)}.")
+        self.assertNotIn(
+            _ASSIGN_PM_TECH_PATH, _PARITY_VERB_ALLOWLIST,
+            "assign_technician PM ∉ _PARITY_VERB_ALLOWLIST (POST-only @source sau flip — KHÔNG vào allowlist).",
+        )
+        self.assertEqual(_PARITY_VERB_ALLOWLIST, set(), "_PARITY_VERB_ALLOWLIST PHẢI GIỮ set() (verb-parity closure).")
+
+    def test_mob_oas_assignpm_c_request_inline_closed_two_required_live_sig(self):
+        """(c) requestBody INLINE application/json $ref AssignPmTechnicianRequest (KHÔNG form); schema closed,
+        props EXACT {name,technician,scheduled_date}, required EXACT [name,technician]; scheduled_date
+        optional+nullable; live-sig parity folded-in (chống drift-đảo)."""
+        rb = self._op().get("requestBody") or {}
+        self.assertTrue(rb, "assign_technician PM PHẢI có requestBody.")
+        self.assertEqual(rb.get("required"), True, "requestBody.required PHẢI true (name+technician positional bắt buộc).")
+        content = rb.get("content") or {}
+        self.assertIn("application/json", content, "requestBody PHẢI có application/json.")
+        # INLINE action: KHÔNG x-www-form-urlencoded (mirror repair AssignTechnicianRequest, KHÔNG create-triad).
+        self.assertNotIn("application/x-www-form-urlencoded", content, "Action body INLINE json-only (KHÔNG form).")
+        schema_ref = ((content.get("application/json") or {}).get("schema") or {}).get("$ref")
+        self.assertEqual(
+            schema_ref, f"#/components/schemas/{_ASSIGN_PM_TECH_REQUEST_SCHEMA}",
+            f"application/json.schema PHẢI $ref {_ASSIGN_PM_TECH_REQUEST_SCHEMA}, got {schema_ref}",
+        )
+        sch = self._schemas().get(_ASSIGN_PM_TECH_REQUEST_SCHEMA) or {}
+        self.assertTrue(sch, f"Thiếu schema {_ASSIGN_PM_TECH_REQUEST_SCHEMA}.")
+        self.assertEqual(sch.get("additionalProperties"), False, "AssignPmTechnicianRequest PHẢI closed (additionalProperties:false).")
+        props = sch.get("properties") or {}
+        self.assertEqual(set(props.keys()), _ASSIGN_PM_TECH_REQUEST_PROPS, f"props PHẢI EXACT {_ASSIGN_PM_TECH_REQUEST_PROPS}.")
+        self.assertEqual(
+            sorted(sch.get("required") or []), sorted(_ASSIGN_PM_TECH_REQUEST_REQUIRED),
+            f"required PHẢI EXACT {_ASSIGN_PM_TECH_REQUEST_REQUIRED} (name+technician positional @api/imm08.py:47; scheduled_date optional).",
+        )
+        self.assertEqual((props.get("name") or {}).get("type"), "string", "name PHẢI type string.")
+        self.assertEqual((props.get("technician") or {}).get("type"), "string", "technician PHẢI type string.")
+        self.assertEqual((props.get("scheduled_date") or {}).get("type"), "string", "scheduled_date PHẢI type string.")
+        self.assertEqual(
+            (props.get("scheduled_date") or {}).get("nullable"), True,
+            "scheduled_date PHẢI nullable:true (default None @api/imm08.py:47 — KHÔNG ép gửi).",
+        )
+        self.assertNotIn("scheduled_date", sch.get("required") or [], "scheduled_date KHÔNG required (default None @signature).")
+        # live-sig parity folded-in — inspect.signature(imm08.assign_technician) == request props (chống drift-đảo).
+        from assetcore.api import imm08  # lazy.
+        fn = getattr(imm08, "assign_technician", None)
+        self.assertIsNotNone(fn, "Thiếu hàm whitelist LIVE: imm08.assign_technician.")
+        params = inspect.signature(fn).parameters
+        self.assertEqual(
+            set(params.keys()), _ASSIGN_PM_TECH_SIG_PARAMS,
+            f"signature LIVE PHẢI EXACT {_ASSIGN_PM_TECH_SIG_PARAMS}, got {sorted(params.keys())}.",
+        )
+        self.assertEqual(
+            set(props.keys()), set(params.keys()),
+            f"AssignPmTechnicianRequest props PHẢI KHỚP 1:1 live signature: props={sorted(props)} sig={sorted(params.keys())}.",
+        )
+        for p in _ASSIGN_PM_TECH_REQUEST_REQUIRED:
+            self.assertIs(
+                params[p].default, inspect.Parameter.empty,
+                f"param `{p}` PHẢI KHÔNG default (positional bắt buộc) ⇒ contract required.",
+            )
+        self.assertIsNone(
+            params["scheduled_date"].default,
+            "param `scheduled_date` default PHẢI None (optional nullable @api/imm08.py:47).",
+        )
+
+    def test_mob_oas_assignpm_d_200_oneof_route_by_value(self):
+        """(d) 200 = oneOf [AssignPmTechnicianEnvelope, Error] route-by-VALUE body.success (0 discriminator);
+        2 branch closed, success enum disjoint [true]/[false]."""
+        resp200 = ((self._op().get("responses") or {}).get("200") or {})
+        schema = (((resp200.get("content") or {}).get("application/json") or {}).get("schema") or {})
+        self.assertNotIn("discriminator", schema, "200 KHÔNG discriminator (route-by-VALUE body.success, §5c).")
+        one_of = schema.get("oneOf") or []
+        self.assertEqual(len(one_of), 2, "200.oneOf PHẢI đúng 2 nhánh [Envelope, Error].")
+        refs = {m.get("$ref") for m in one_of if isinstance(m, dict)}
+        self.assertEqual(
+            refs, {_ASSIGN_PM_TECH_ENVELOPE_SCHEMA_REF, "#/components/schemas/Error"},
+            f"200.oneOf PHẢI = [AssignPmTechnicianEnvelope, Error]: {sorted(refs)}",
+        )
+        schemas = self._schemas()
+        env = schemas.get(_ASSIGN_PM_TECH_ENVELOPE_SCHEMA) or {}
+        err = schemas.get("Error") or {}
+        self.assertEqual(env.get("additionalProperties"), False, "AssignPmTechnicianEnvelope PHẢI closed.")
+        self.assertEqual(err.get("additionalProperties"), False, "Error PHẢI closed (§5c).")
+        self.assertEqual(((env.get("properties") or {}).get("success") or {}).get("enum"), [True], "Envelope.success.enum [true].")
+        self.assertEqual(((err.get("properties") or {}).get("success") or {}).get("enum"), [False], "Error.success.enum [false].")
+        self.assertEqual(sorted(env.get("required") or []), ["data", "success"], "Envelope required PHẢI [success,data].")
+        self.assertEqual(
+            ((env.get("properties") or {}).get("data") or {}).get("$ref"),
+            f"#/components/schemas/{_ASSIGN_PM_TECH_RESPONSE_SCHEMA}",
+            "Envelope.data PHẢI $ref AssignPmTechnicianResponse.",
+        )
+
+    def test_mob_oas_assignpm_e_response_closed_3key_grounded_pmstatus(self):
+        """(e) AssignPmTechnicianResponse closed props EXACT 3 {name,status,assigned_to} (GROUNDED svc return
+        @services/imm08.py:679); required all 3; status.enum == _PM_STATUS_ENUM (7-state, post-assign='In
+        Progress'); 0 boolean prop; SCHEMA RIÊNG."""
+        resp = self._schemas().get(_ASSIGN_PM_TECH_RESPONSE_SCHEMA) or {}
+        self.assertTrue(resp, f"Thiếu schema {_ASSIGN_PM_TECH_RESPONSE_SCHEMA}.")
+        self.assertEqual(resp.get("additionalProperties"), False, "AssignPmTechnicianResponse PHẢI closed (svc trả đúng 3 key).")
+        props = resp.get("properties") or {}
+        self.assertEqual(
+            set(props.keys()), _ASSIGN_PM_TECH_DATA_KEYS,
+            f"data props PHẢI EXACT {_ASSIGN_PM_TECH_DATA_KEYS} (svc return @services/imm08.py:679), got {sorted(props.keys())}.",
+        )
+        self.assertEqual(
+            sorted(resp.get("required") or []), sorted(_ASSIGN_PM_TECH_DATA_KEYS),
+            "data required PHẢI đủ 3 {name,status,assigned_to} (cả 3 luôn trả — literal dict).",
+        )
+        self.assertEqual((props.get("name") or {}).get("type"), "string", "data.name PHẢI string.")
+        self.assertEqual((props.get("status") or {}).get("type"), "string", "data.status PHẢI string.")
+        self.assertEqual((props.get("assigned_to") or {}).get("type"), "string", "data.assigned_to PHẢI string.")
+        self.assertEqual(
+            (props.get("status") or {}).get("enum"), _PM_STATUS_ENUM,
+            "data.status.enum PHẢI PMStatus-canonical 7-state @services/imm08.py:43-50 (post-assign='In Progress').",
+        )
+        self.assertIn(
+            "In Progress", (props.get("status") or {}).get("enum") or [],
+            "status enum PHẢI chứa 'In Progress' (PMStatus.IN_PROGRESS post-assign @services/imm08.py:676).",
+        )
+        # GENUINE string-only — 0 boolean prop (codegen int-vs-bool trap).
+        for pname, pdef in props.items():
+            self.assertNotEqual(
+                pdef.get("type"), "boolean",
+                f"AssignPmTechnicianResponse.{pname} KHÔNG được type:boolean (0 Check-field; codegen int-vs-bool trap).",
+            )
+
+    def test_mob_oas_assignpm_f_error_slot_404_409_422(self):
+        """(f) Error.http_status enum ⊇ {404,409,422} (IMM08_WO_NOT_FOUND :659→404 / IMM08_BAD_STATE :661→409 /
+        VALIDATION asset|schedule xóa :662-671→422 → HTTP-200 nhánh Error route-by-VALUE)."""
+        err = self._schemas().get("Error") or {}
+        hs_enum = ((err.get("properties") or {}).get("http_status") or {}).get("enum") or []
+        for code in (404, 409, 422):
+            self.assertIn(
+                code, hs_enum,
+                f"Error.http_status enum PHẢI ⊇ {{{code}}} (lỗi nghiệp vụ assign_technician PM in-handler trên HTTP-200): {hs_enum}.",
+            )
+
+    def test_mob_oas_assignpm_g_response_slots_200_401_403(self):
+        """(g) slot {200,401,403}; 401 Unauthorized401; 403 SINGLE-SHAPE Forbidden (in-handler cap-403
+        pm.write @api/imm08.py:49 phủ bởi nhánh Error 200-oneOf) ≠ reportIncident DUAL-403."""
+        resps = (self._op().get("responses") or {})
+        self.assertEqual(
+            sorted(resps.keys()), ["200", "401", "403"],
+            f"response slot PHẢI CHỈ {{200,401,403}} (404/409/422 in-handler trên HTTP-200 nhánh Error): {sorted(resps.keys())}",
+        )
+        self.assertEqual((resps.get("401") or {}).get("$ref"), _UNAUTHORIZED401_RESP_REF, "401 PHẢI $ref Unauthorized401.")
+        resp403 = (resps.get("403") or {})
+        self.assertEqual(
+            resp403.get("$ref"), _FORBIDDEN_RESP_REF,
+            f"403 PHẢI $ref Forbidden SINGLE-SHAPE (in-handler cap-403 pm.write @api/imm08.py:49 phủ bởi 200-oneOf Error), got {resp403.get('$ref')}.",
+        )
+        self.assertNotEqual(
+            resp403.get("$ref"), _REPORT_INCIDENT_FORBIDDEN_RESP_REF,
+            "assignPmTechnician 403 KHÔNG dùng ReportIncidentForbidden (đó là DUAL-403 của report_incident).",
+        )
+
+    def test_mob_oas_assignpm_h_c3_split_and_symmetry_no_dangling(self):
+        """(h) C3-split — AssignPmTechnician* ≠ repair AssignTechnician* (cross-domain disjoint, status
+        enum-domain khác); ∈ symmetry sets; 0 dangling $ref; negative props server-derived."""
+        # SCHEMA RIÊNG — tên schema PM KHÁC repair (C3-split cross-domain).
+        self.assertNotEqual(_ASSIGN_PM_TECH_REQUEST_SCHEMA, _ASSIGN_TECH_REQUEST_SCHEMA, "Request schema PHẢI RIÊNG ≠ repair.")
+        self.assertNotEqual(_ASSIGN_PM_TECH_RESPONSE_SCHEMA, _ASSIGN_TECH_RESPONSE_SCHEMA, "Response schema PHẢI RIÊNG ≠ repair.")
+        self.assertNotEqual(_ASSIGN_PM_TECH_ENVELOPE_SCHEMA, _ASSIGN_TECH_ENVELOPE_SCHEMA, "Envelope schema PHẢI RIÊNG ≠ repair.")
+        schemas = self._schemas()
+        # KHÔNG $ref tới repair AssignTechnician* trong path/schema PM (cross-domain disjoint).
+        pm_env = schemas.get(_ASSIGN_PM_TECH_ENVELOPE_SCHEMA) or {}
+        pm_resp = schemas.get(_ASSIGN_PM_TECH_RESPONSE_SCHEMA) or {}
+        env_data_ref = ((pm_env.get("properties") or {}).get("data") or {}).get("$ref") or ""
+        self.assertNotIn("AssignTechnician", env_data_ref, "PM Envelope.data KHÔNG $ref repair AssignTechnician*.")
+        self.assertEqual(env_data_ref, f"#/components/schemas/{_ASSIGN_PM_TECH_RESPONSE_SCHEMA}", "PM Envelope.data PHẢI $ref AssignPmTechnicianResponse.")
+        # status enum-domain DISJOINT: PM post-assign 'In Progress' ∉ repair status (repair có 'Assigned' KHÔNG 'In Progress' giống nghĩa).
+        pm_status_enum = ((pm_resp.get("properties") or {}).get("status") or {}).get("enum") or []
+        repair_resp = schemas.get(_ASSIGN_TECH_RESPONSE_SCHEMA) or {}
+        repair_status_enum = ((repair_resp.get("properties") or {}).get("status") or {}).get("enum") or []
+        self.assertNotEqual(
+            pm_status_enum, repair_status_enum,
+            "PM status enum (PMStatus 7-state) PHẢI KHÁC repair status enum (RepairStatus 9-state) — C3-split.",
+        )
+        # ∈ symmetry sets + action-envelope map.
+        self.assertIn(_ASSIGN_PM_TECH_PATH, _PATHS_REQUIRE_401, "assignPmTechnician PHẢI ∈ _PATHS_REQUIRE_401.")
+        self.assertIn(_ASSIGN_PM_TECH_PATH, _PATHS_REQUIRE_403, "assignPmTechnician PHẢI ∈ _PATHS_REQUIRE_403.")
+        self.assertIn(_ASSIGN_PM_TECH_PATH, _MVP_ACTION_ENVELOPE, "assignPmTechnician PHẢI ∈ _MVP_ACTION_ENVELOPE.")
+        ops = {path: op for path, _, op in _iter_operations(self.spec)}
+        with_401 = {p for p, op in ops.items() if "401" in (op.get("responses") or {}) and p not in (_AUTH_PATHS | _ALLOW_GUEST_PATHS)}
+        with_403 = {p for p, op in ops.items() if "403" in (op.get("responses") or {}) and p not in (_AUTH_PATHS | _ALLOW_GUEST_PATHS)}
+        self.assertEqual(with_401, set(_PATHS_REQUIRE_403), "Tập 401 (trừ auth) == _PATHS_REQUIRE_403 (symmetry).")
+        self.assertEqual(with_403, set(_PATHS_REQUIRE_403), "Tập 403 (trừ auth) == _PATHS_REQUIRE_403 (symmetry).")
+        dangling = sorted({r for r in _collect_refs(self.spec) if not _resolve_pointer(r, self.spec)})
+        self.assertEqual(dangling, [], f"PHẢI 0 dangling $ref sau bồi assignPmTechnician: {dangling}")
+        # negative — scheduled_date KHÔNG required; status/assigned_to KHÔNG lọt request body (server-derived).
+        req_schema = schemas.get(_ASSIGN_PM_TECH_REQUEST_SCHEMA) or {}
+        req_props = req_schema.get("properties") or {}
+        self.assertNotIn("scheduled_date", (req_schema.get("required") or []), "scheduled_date KHÔNG được required (default None).")
+        self.assertNotIn("status", req_props, "status KHÔNG lọt assign_technician PM body (server-derived 'In Progress').")
+        self.assertNotIn("assigned_to", req_props, "assigned_to KHÔNG lọt body (server echo từ technician input).")
+
+    def test_mob_oas_assignpm_i_meta_self_count(self):
+        """(i) meta self-count — _discover_test_methods() == _EXPECTED_TEST_COUNT (drift = RED); 9 assignpm
+        method ∈ discovered (round này bồi đủ). Chống count-drift quên cập SSoT (line ~186)."""
+        discovered = set(_discover_test_methods())
+        actual = len(discovered)
+        self.assertGreater(actual, 100, "Introspection trả < 100 test-method — filter hỏng.")
+        # 9 assignpm method (a..i) PHẢI có mặt trong tập discover (round này bồi đủ).
+        for letter in "abcdefghi":
+            present = any(
+                m.startswith("TestMobileAssignPmTechnicianContract.test_mob_oas_assignpm_" + letter)
+                for m in discovered
+            )
+            self.assertTrue(present, f"Thiếu TC assignpm_{letter} trong tập discover (round này PHẢI có a..i).")
+        # chính meta self-count NẰM TRONG tập discover (phạm-vi đúng).
+        self.assertIn(
+            "TestMobileAssignPmTechnicianContract.test_mob_oas_assignpm_i_meta_self_count",
+            discovered,
+            "Meta self-count KHÔNG tự-thấy trong tập introspect → _discover sai phạm-vi.",
+        )
+        self.assertEqual(
+            actual, _EXPECTED_TEST_COUNT,
+            f"COUNT-DRIFT: introspect {actual} test-method NHƯNG _EXPECTED_TEST_COUNT={_EXPECTED_TEST_COUNT}. "
+            f"Bồi assignPmTechnician (+9 a..i) ⇒ cập _EXPECTED_TEST_COUNT (line ~186) + _GUARD_SUITE_EXPECTED "
+            f"['test_mobile_oas.py'] + _MOBILE_OAS_TOTAL trong test_mobile_docset.",
+        )
+
+
+class TestMobileReportMajorFailureContract(unittest.TestCase):
+    """R36 PM→CM ESCALATION — reportMajorFailure: POST-action lifecycle ESCALATION cho PM Work Order
+    (→ Halted–Major Failure + asset → Out of Service + tạo CM WO khẩn + Incident IMM-12 + email).
+
+    Đóng nút 'Báo lỗi nghiêm trọng (→ CM)' trên PMWorkOrderDetailView (major-failure-section). KTV/Workshop
+    Head phát hiện hỏng nặng trong PM → leo thang ngay tại màn (KHÔNG quay web). Service THẬT
+    report_major_failure(pm_wo_name, *, failure_description) @services/imm08.py:744: 404 IMM08_WO_NOT_FOUND
+    phiếu∄ :747; set status=PMStatus.HALTED_MAJOR :749; _transition_asset(asset, OUT_OF_SERVICE, wo) :750
+    (asset → 'Out of Service' + SINH Lifecycle Event audit); RepairRepo.create Emergency CM WO :752-759;
+    return 4-key {pm_wo,new_status,cm_wo_created,asset_status} :792-797.
+
+    ⚠️ VERB-FLIP-THIS-ROUND (ADR-MOBILE-013): handler @api/imm08.py:74 bare @frappe.whitelist() (nhận GET)
+    → flip @frappe.whitelist(methods=['POST']) NGAY (write KHÔNG idempotent: mỗi call tạo 1 CM WO + asset OOS)
+    ⇒ POST-only @source ⇒ KHÔNG verb-divergence ⇒ _PARITY_VERB_ALLOWLIST GIỮ set().
+    🐞 SIGNATURE-FIX: handler cũ nhận failed_item_indexes, parse + truyền `failed_item_indexes=` vào
+    svc.report_major_failure — service signature (pm_wo_name, *, failure_description) KHÔNG nhận ⇒
+    TypeError → HTTP-500 mỗi call (RED-before). DROP field ở handler (param+parse+pass) + request-contract.
+    ReportMajorFailureResponse RIÊNG closed 4-key (shape cross-module duy nhất); new_status = PMStatus-canonical
+    7-state (post-escalate='Halted–Major Failure' @:794), asset_status='Out of Service' @:796.
+
+    Guard chạy được (a..i):
+      (a) path TỒN TẠI, POST-ONLY (chỉ key 'post'), opId reportMajorFailure (UNIQUE camelCase), tag work-order,
+          MVP-4 summary; ∈ _MVP_BUSINESS_PATHS; count 46 path/opId unique camelCase; ∉ _PARITY_VERB_ALLOWLIST.
+      (b) POST-ONLY-ENFORCED-AT-SOURCE — allowed_http_methods_for_whitelisted_func(report_major_failure)=={POST}
+          SAU flip (registry introspect — gate THẬT); anti-false-green GET TỪ CHỐI; _PARITY_VERB_ALLOWLIST==set().
+      (c) requestBody INLINE application/json $ref ReportMajorFailureRequest (KHÔNG component/form); schema
+          closed (additionalProperties:false), props EXACT {pm_wo_name,failure_description}, required EXACT cả 2
+          (2 positional no-default @api/imm08.py:74 SAU fix); 2 prop string; live-sig parity == 2-param;
+          🐞 SIGNATURE-FIX anti-regression — failed_item_indexes ∉ props ∧ ∉ live signature (DROPPED).
+      (d) 200 = oneOf [ReportMajorFailureEnvelope, Error] route-by-VALUE body.success (0 discriminator); 2
+          branch closed, success enum disjoint [true]/[false].
+      (e) ReportMajorFailureResponse closed props EXACT 4 {pm_wo,new_status,cm_wo_created,asset_status} (GROUNDED
+          svc return @services/imm08.py:792-797); required cả 4; new_status.enum == _PM_STATUS_ENUM (7-state,
+          example 'Halted–Major Failure'); asset_status example 'Out of Service'; 0 boolean prop.
+      (f) Error.http_status enum ⊇ {404} (IMM08_WO_NOT_FOUND :747→404 → HTTP-200 nhánh Error route-by-VALUE).
+      (g) slot {200,401,403}; 401 Unauthorized401; 403 SINGLE-SHAPE Forbidden (in-handler cap-403 pm.write
+          @api/imm08.py:77 phủ bởi nhánh Error 200-oneOf) ≠ reportIncident DUAL-403.
+      (h) RIÊNG envelope (ReportMajorFailureEnvelope) + ∈ symmetry sets (_PATHS_REQUIRE_401/403,
+          _MVP_ACTION_ENVELOPE); 0 dangling $ref; negative — server-derived fields (new_status/cm_wo_created/
+          asset_status) ∉ request body + failed_item_indexes ∉ request (SIGNATURE-FIX).
+      (i) meta self-count — _discover_test_methods() == _EXPECTED_TEST_COUNT (drift = RED); 9 reportmajor method
+          ∈ discovered; chống count-drift quên cập SSoT.
+    SSoT: ../04-api-contract.md + ADR-MOBILE-013 + docs/imm-08/05 §0.1.2 + §5 + api/imm08.py:74-83 +
+    services/imm08.py:744,749,750,792-797 + pm_work_order.json (PMStatus @services/imm08.py:43-50).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.spec = _load_spec() if _MOBILE_YAML.exists() else None
+
+    def _op(self):
+        return ((self.spec.get("paths") or {}).get(_REPORT_MAJOR_FAILURE_PATH) or {}).get("post") or {}
+
+    def _schemas(self):
+        return (self.spec.get("components") or {}).get("schemas") or {}
+
+    def test_mob_oas_reportmajor_a_path_post_only_opid_tag_mvp(self):
+        """(a) path TỒN TẠI, POST-ONLY, opId reportMajorFailure (UNIQUE), tag work-order, MVP-4 summary,
+        ∈ _MVP_BUSINESS_PATHS; count 46 unique camelCase; ∉ _PARITY_VERB_ALLOWLIST."""
+        paths = self.spec.get("paths") or {}
+        self.assertIn(_REPORT_MAJOR_FAILURE_PATH, paths, "Thiếu path report_major_failure (R36 PM→CM ESCALATION).")
+        item = paths[_REPORT_MAJOR_FAILURE_PATH]
+        self.assertEqual(
+            sorted(item.keys()), ["post"],
+            "report_major_failure PHẢI POST-ONLY (chỉ key 'post', khớp @whitelist(methods=['POST']) api/imm08.py:74).",
+        )
+        op = self._op()
+        self.assertEqual(op.get("operationId"), "reportMajorFailure", "opId = reportMajorFailure (UNIQUE).")
+        self.assertEqual(op.get("tags"), ["work-order"], "tag PHẢI [work-order].")
+        self.assertIn("[MVP-4]", op.get("summary") or "", "summary PHẢI mang nhãn [MVP-4].")
+        self.assertNotIn(
+            _REPORT_MAJOR_FAILURE_PATH, _PARITY_VERB_ALLOWLIST,
+            "report_major_failure ∉ _PARITY_VERB_ALLOWLIST (flip-this-round POST-only @source, allowlist RỖNG).",
+        )
+        self.assertIn(_REPORT_MAJOR_FAILURE_PATH, _MVP_BUSINESS_PATHS, "Phải vào _MVP_BUSINESS_PATHS (401/403 symmetry).")
+        ids = [op2["operationId"] for _, _, op2 in _iter_operations(self.spec)]
+        self.assertEqual(len(paths), 53, "path-count PHẢI 52 (R-NOTIF-UNREAD +getUnreadNotifications).")
+        self.assertEqual(len(ids), 53, "operationId count PHẢI 52.")
+        self.assertEqual(len(set(ids)), 53, "operationId DUY NHẤT (len(set)==52).")
+        for oid in ids:
+            self.assertRegex(oid, _CAMEL_RE, f"operationId KHÔNG camelCase: {oid}")
+
+    def test_mob_oas_reportmajor_b_post_only_at_source(self):
+        """(b) POST-ONLY-ENFORCED-AT-SOURCE — registry allowed == {'POST'} SAU flip; anti-false-green GET
+        TỪ CHỐI; _PARITY_VERB_ALLOWLIST GIỮ set()."""
+        _assert_post_only_at_source(self, _REPORT_MAJOR_FAILURE_PATH)
+        dotted = "assetcore.api.imm08.report_major_failure"
+        allowed = _allowed_http_methods_for(dotted)
+        self.assertNotIn(
+            "GET", allowed,
+            "ANTI-FALSE-GREEN: report_major_failure còn nhận GET ⇒ decorator VẪN bare @frappe.whitelist() "
+            f"(verb-flip CHƯA làm @api/imm08.py:74). Cần @frappe.whitelist(methods=['POST']). allowed={sorted(allowed)}.",
+        )
+        self.assertEqual(allowed, {"POST"}, f"report_major_failure PHẢI POST-ONLY at-source (== {{'POST'}}), got {sorted(allowed)}.")
+        self.assertEqual(_PARITY_VERB_ALLOWLIST, set(), "_PARITY_VERB_ALLOWLIST PHẢI GIỮ set() (verb-parity closure).")
+
+    def test_mob_oas_reportmajor_c_request_inline_closed_two_required_sigfix(self):
+        """(c) requestBody INLINE application/json $ref ReportMajorFailureRequest (KHÔNG form); schema closed,
+        props EXACT {pm_wo_name,failure_description}, required EXACT cả 2; live-sig parity == 2-param;
+        🐞 SIGNATURE-FIX anti-regression — failed_item_indexes ∉ props ∧ ∉ live signature."""
+        rb = self._op().get("requestBody") or {}
+        self.assertTrue(rb, "report_major_failure PHẢI có requestBody.")
+        self.assertEqual(rb.get("required"), True, "requestBody.required PHẢI true (2 positional bắt buộc).")
+        content = rb.get("content") or {}
+        self.assertIn("application/json", content, "requestBody PHẢI có application/json.")
+        self.assertNotIn("application/x-www-form-urlencoded", content, "Action body INLINE json-only (KHÔNG form).")
+        schema_ref = ((content.get("application/json") or {}).get("schema") or {}).get("$ref")
+        self.assertEqual(
+            schema_ref, f"#/components/schemas/{_REPORT_MAJOR_FAILURE_REQUEST_SCHEMA}",
+            f"application/json.schema PHẢI $ref {_REPORT_MAJOR_FAILURE_REQUEST_SCHEMA}, got {schema_ref}",
+        )
+        sch = self._schemas().get(_REPORT_MAJOR_FAILURE_REQUEST_SCHEMA) or {}
+        self.assertTrue(sch, f"Thiếu schema {_REPORT_MAJOR_FAILURE_REQUEST_SCHEMA}.")
+        self.assertEqual(sch.get("additionalProperties"), False, "ReportMajorFailureRequest PHẢI closed (additionalProperties:false).")
+        props = sch.get("properties") or {}
+        self.assertEqual(set(props.keys()), _REPORT_MAJOR_FAILURE_REQUEST_PROPS, f"props PHẢI EXACT {_REPORT_MAJOR_FAILURE_REQUEST_PROPS}.")
+        self.assertEqual(
+            sorted(sch.get("required") or []), sorted(_REPORT_MAJOR_FAILURE_REQUEST_REQUIRED),
+            f"required PHẢI EXACT {_REPORT_MAJOR_FAILURE_REQUEST_REQUIRED} (2 positional @api/imm08.py:74 SAU fix).",
+        )
+        self.assertEqual((props.get("pm_wo_name") or {}).get("type"), "string", "pm_wo_name PHẢI type string.")
+        self.assertEqual((props.get("failure_description") or {}).get("type"), "string", "failure_description PHẢI type string.")
+        # 🐞 SIGNATURE-FIX anti-regression — failed_item_indexes DROPPED khỏi request (service KHÔNG nhận).
+        self.assertNotIn(
+            "failed_item_indexes", props,
+            "SIGNATURE-FIX: failed_item_indexes PHẢI bị DROP khỏi ReportMajorFailureRequest "
+            "(service signature (pm_wo_name,*,failure_description) KHÔNG nhận — handler cũ pass-through ⇒ TypeError→500).",
+        )
+        # live-sig parity folded-in — inspect.signature(imm08.report_major_failure) == request props (chống drift-đảo).
+        from assetcore.api import imm08  # lazy.
+        fn = getattr(imm08, "report_major_failure", None)
+        self.assertIsNotNone(fn, "Thiếu hàm whitelist LIVE: imm08.report_major_failure.")
+        params = inspect.signature(fn).parameters
+        self.assertEqual(
+            set(params.keys()), _REPORT_MAJOR_FAILURE_SIG_PARAMS,
+            f"signature LIVE PHẢI EXACT {_REPORT_MAJOR_FAILURE_SIG_PARAMS} (DROP failed_item_indexes), got {sorted(params.keys())}.",
+        )
+        self.assertNotIn(
+            "failed_item_indexes", params,
+            "SIGNATURE-FIX: handler LIVE report_major_failure PHẢI KHÔNG còn param failed_item_indexes "
+            "(align service signature — nếu còn ⇒ handler vẫn truyền vào service ⇒ TypeError→HTTP-500).",
+        )
+        self.assertEqual(
+            set(props.keys()), set(params.keys()),
+            f"ReportMajorFailureRequest props PHẢI KHỚP 1:1 live signature: props={sorted(props)} sig={sorted(params.keys())}.",
+        )
+        for p in _REPORT_MAJOR_FAILURE_REQUEST_REQUIRED:
+            self.assertIs(
+                params[p].default, inspect.Parameter.empty,
+                f"param `{p}` PHẢI KHÔNG default (positional bắt buộc) ⇒ contract required.",
+            )
+
+    def test_mob_oas_reportmajor_d_200_oneof_route_by_value(self):
+        """(d) 200 = oneOf [ReportMajorFailureEnvelope, Error] route-by-VALUE body.success (0 discriminator);
+        2 branch closed, success enum disjoint [true]/[false]."""
+        resp200 = ((self._op().get("responses") or {}).get("200") or {})
+        schema = (((resp200.get("content") or {}).get("application/json") or {}).get("schema") or {})
+        self.assertNotIn("discriminator", schema, "200 KHÔNG discriminator (route-by-VALUE body.success, §5c).")
+        one_of = schema.get("oneOf") or []
+        self.assertEqual(len(one_of), 2, "200.oneOf PHẢI đúng 2 nhánh [Envelope, Error].")
+        refs = {m.get("$ref") for m in one_of if isinstance(m, dict)}
+        self.assertEqual(
+            refs, {_REPORT_MAJOR_FAILURE_ENVELOPE_SCHEMA_REF, "#/components/schemas/Error"},
+            f"200.oneOf PHẢI = [ReportMajorFailureEnvelope, Error]: {sorted(refs)}",
+        )
+        schemas = self._schemas()
+        env = schemas.get(_REPORT_MAJOR_FAILURE_ENVELOPE_SCHEMA) or {}
+        err = schemas.get("Error") or {}
+        self.assertEqual(env.get("additionalProperties"), False, "ReportMajorFailureEnvelope PHẢI closed.")
+        self.assertEqual(err.get("additionalProperties"), False, "Error PHẢI closed (§5c).")
+        self.assertEqual(((env.get("properties") or {}).get("success") or {}).get("enum"), [True], "Envelope.success.enum [true].")
+        self.assertEqual(((err.get("properties") or {}).get("success") or {}).get("enum"), [False], "Error.success.enum [false].")
+        self.assertEqual(sorted(env.get("required") or []), ["data", "success"], "Envelope required PHẢI [success,data].")
+        self.assertEqual(
+            ((env.get("properties") or {}).get("data") or {}).get("$ref"),
+            f"#/components/schemas/{_REPORT_MAJOR_FAILURE_RESPONSE_SCHEMA}",
+            "Envelope.data PHẢI $ref ReportMajorFailureResponse.",
+        )
+
+    def test_mob_oas_reportmajor_e_response_closed_4key_grounded_pmstatus(self):
+        """(e) ReportMajorFailureResponse closed props EXACT 4 {pm_wo,new_status,cm_wo_created,asset_status}
+        (GROUNDED svc return @services/imm08.py:792-797); required cả 4; new_status.enum == _PM_STATUS_ENUM
+        (example 'Halted–Major Failure'); asset_status example 'Out of Service'; 0 boolean prop."""
+        resp = self._schemas().get(_REPORT_MAJOR_FAILURE_RESPONSE_SCHEMA) or {}
+        self.assertTrue(resp, f"Thiếu schema {_REPORT_MAJOR_FAILURE_RESPONSE_SCHEMA}.")
+        self.assertEqual(resp.get("additionalProperties"), False, "ReportMajorFailureResponse PHẢI closed (svc trả đúng 4 key).")
+        props = resp.get("properties") or {}
+        self.assertEqual(
+            set(props.keys()), _REPORT_MAJOR_FAILURE_DATA_KEYS,
+            f"data props PHẢI EXACT {_REPORT_MAJOR_FAILURE_DATA_KEYS} (svc return @services/imm08.py:792-797), got {sorted(props.keys())}.",
+        )
+        self.assertEqual(
+            sorted(resp.get("required") or []), sorted(_REPORT_MAJOR_FAILURE_DATA_KEYS),
+            "data required PHẢI đủ 4 {pm_wo,new_status,cm_wo_created,asset_status} (cả 4 luôn trả — literal dict).",
+        )
+        for key in _REPORT_MAJOR_FAILURE_DATA_KEYS:
+            self.assertEqual((props.get(key) or {}).get("type"), "string", f"data.{key} PHẢI string.")
+        self.assertEqual(
+            (props.get("new_status") or {}).get("enum"), _PM_STATUS_ENUM,
+            "data.new_status.enum PHẢI PMStatus-canonical 7-state @services/imm08.py:43-50.",
+        )
+        self.assertEqual(
+            (props.get("new_status") or {}).get("example"), "Halted–Major Failure",
+            "data.new_status.example PHẢI 'Halted–Major Failure' (PMStatus.HALTED_MAJOR @services/imm08.py:49,794 — en-dash byte-khớp).",
+        )
+        self.assertEqual(
+            (props.get("asset_status") or {}).get("example"), "Out of Service",
+            "data.asset_status.example PHẢI 'Out of Service' (AssetStatus.OUT_OF_SERVICE @services/imm08.py:796).",
+        )
+        for pname, pdef in props.items():
+            self.assertNotEqual(
+                pdef.get("type"), "boolean",
+                f"ReportMajorFailureResponse.{pname} KHÔNG được type:boolean (0 Check-field; codegen int-vs-bool trap).",
+            )
+
+    def test_mob_oas_reportmajor_f_error_slot_404(self):
+        """(f) Error.http_status enum ⊇ {404} (IMM08_WO_NOT_FOUND :747→404 → HTTP-200 nhánh Error
+        route-by-VALUE). KHÁC assignPmTechnician (404/409/422): report_major_failure CHỈ guard 404."""
+        err = self._schemas().get("Error") or {}
+        hs_enum = ((err.get("properties") or {}).get("http_status") or {}).get("enum") or []
+        self.assertIn(
+            404, hs_enum,
+            f"Error.http_status enum PHẢI ⊇ {{404}} (IMM08_WO_NOT_FOUND in-handler trên HTTP-200): {hs_enum}.",
+        )
+
+    def test_mob_oas_reportmajor_g_response_slots_200_401_403(self):
+        """(g) slot {200,401,403}; 401 Unauthorized401; 403 SINGLE-SHAPE Forbidden (in-handler cap-403
+        pm.write @api/imm08.py:77 phủ bởi nhánh Error 200-oneOf) ≠ reportIncident DUAL-403."""
+        resps = (self._op().get("responses") or {})
+        self.assertEqual(
+            sorted(resps.keys()), ["200", "401", "403"],
+            f"response slot PHẢI CHỈ {{200,401,403}} (404 in-handler trên HTTP-200 nhánh Error): {sorted(resps.keys())}",
+        )
+        self.assertEqual((resps.get("401") or {}).get("$ref"), _UNAUTHORIZED401_RESP_REF, "401 PHẢI $ref Unauthorized401.")
+        resp403 = (resps.get("403") or {})
+        self.assertEqual(
+            resp403.get("$ref"), _FORBIDDEN_RESP_REF,
+            f"403 PHẢI $ref Forbidden SINGLE-SHAPE (in-handler cap-403 pm.write @api/imm08.py:77 phủ bởi 200-oneOf Error), got {resp403.get('$ref')}.",
+        )
+        self.assertNotEqual(
+            resp403.get("$ref"), _REPORT_INCIDENT_FORBIDDEN_RESP_REF,
+            "reportMajorFailure 403 KHÔNG dùng ReportIncidentForbidden (đó là DUAL-403 của report_incident).",
+        )
+
+    def test_mob_oas_reportmajor_h_riêng_envelope_symmetry_no_dangling(self):
+        """(h) RIÊNG envelope + ∈ symmetry sets; 0 dangling $ref; negative — server-derived fields +
+        failed_item_indexes ∉ request body."""
+        schemas = self._schemas()
+        env = schemas.get(_REPORT_MAJOR_FAILURE_ENVELOPE_SCHEMA) or {}
+        env_data_ref = ((env.get("properties") or {}).get("data") or {}).get("$ref") or ""
+        self.assertEqual(
+            env_data_ref, f"#/components/schemas/{_REPORT_MAJOR_FAILURE_RESPONSE_SCHEMA}",
+            "Envelope.data PHẢI $ref ReportMajorFailureResponse (RIÊNG — KHÔNG reuse action envelope khác).",
+        )
+        self.assertIn(_REPORT_MAJOR_FAILURE_PATH, _PATHS_REQUIRE_401, "reportMajorFailure PHẢI ∈ _PATHS_REQUIRE_401.")
+        self.assertIn(_REPORT_MAJOR_FAILURE_PATH, _PATHS_REQUIRE_403, "reportMajorFailure PHẢI ∈ _PATHS_REQUIRE_403.")
+        self.assertIn(_REPORT_MAJOR_FAILURE_PATH, _MVP_ACTION_ENVELOPE, "reportMajorFailure PHẢI ∈ _MVP_ACTION_ENVELOPE.")
+        ops = {path: op for path, _, op in _iter_operations(self.spec)}
+        with_401 = {p for p, op in ops.items() if "401" in (op.get("responses") or {}) and p not in (_AUTH_PATHS | _ALLOW_GUEST_PATHS)}
+        with_403 = {p for p, op in ops.items() if "403" in (op.get("responses") or {}) and p not in (_AUTH_PATHS | _ALLOW_GUEST_PATHS)}
+        self.assertEqual(with_401, set(_PATHS_REQUIRE_403), "Tập 401 (trừ auth) == _PATHS_REQUIRE_403 (symmetry).")
+        self.assertEqual(with_403, set(_PATHS_REQUIRE_403), "Tập 403 (trừ auth) == _PATHS_REQUIRE_403 (symmetry).")
+        dangling = sorted({r for r in _collect_refs(self.spec) if not _resolve_pointer(r, self.spec)})
+        self.assertEqual(dangling, [], f"PHẢI 0 dangling $ref sau bồi reportMajorFailure: {dangling}")
+        # negative — server-derived fields + failed_item_indexes KHÔNG lọt request body.
+        req_schema = schemas.get(_REPORT_MAJOR_FAILURE_REQUEST_SCHEMA) or {}
+        req_props = req_schema.get("properties") or {}
+        for derived in ("new_status", "cm_wo_created", "asset_status"):
+            self.assertNotIn(derived, req_props, f"{derived} KHÔNG lọt request body (server-derived @services/imm08.py:792-797).")
+        self.assertNotIn("failed_item_indexes", req_props, "failed_item_indexes ∉ request (SIGNATURE-FIX — service KHÔNG nhận).")
+
+    def test_mob_oas_reportmajor_i_meta_self_count(self):
+        """(i) meta self-count — _discover_test_methods() == _EXPECTED_TEST_COUNT (drift = RED); 9 reportmajor
+        method ∈ discovered (round này bồi đủ). Chống count-drift quên cập SSoT (line ~186)."""
+        discovered = set(_discover_test_methods())
+        actual = len(discovered)
+        self.assertGreater(actual, 100, "Introspection trả < 100 test-method — filter hỏng.")
+        for letter in "abcdefghi":
+            present = any(
+                m.startswith("TestMobileReportMajorFailureContract.test_mob_oas_reportmajor_" + letter)
+                for m in discovered
+            )
+            self.assertTrue(present, f"Thiếu TC reportmajor_{letter} trong tập discover (round này PHẢI có a..i).")
+        self.assertIn(
+            "TestMobileReportMajorFailureContract.test_mob_oas_reportmajor_i_meta_self_count",
+            discovered,
+            "Meta self-count KHÔNG tự-thấy trong tập introspect → _discover sai phạm-vi.",
+        )
+        self.assertEqual(
+            actual, _EXPECTED_TEST_COUNT,
+            f"COUNT-DRIFT: introspect {actual} test-method NHƯNG _EXPECTED_TEST_COUNT={_EXPECTED_TEST_COUNT}. "
+            f"Bồi reportMajorFailure (+9 a..i) ⇒ cập _EXPECTED_TEST_COUNT (line ~186) + _GUARD_SUITE_EXPECTED "
+            f"['test_mobile_oas.py'] + _MOBILE_OAS_TOTAL trong test_mobile_docset.",
+        )
+
+
+class TestMobileReschedulePmContract(unittest.TestCase):
+    """R37 PM-RESCHEDULE — reschedulePm: POST-action lifecycle RESCHEDULE cho PM Work Order
+    (→ Pending–Device Busy + đổi due_date + ghi lý do bắt buộc).
+
+    ĐÓNG NỐT action-set PMWorkOrderDetailView: đóng nút "Hoãn lịch (thiết bị bận)" — mắt-xích CUỐI (sau
+    assignPmTechnician §0.1.1 + reportMajorFailure §0.1.2), action-set {createPmWorkOrder → assignPmTechnician
+    → submitPmResult → reportMajorFailure → reschedulePm} ĐẦY ĐỦ, 0 nút dead-end. Workshop Head/KTV mở
+    getPmWorkOrder thấy thiết bị đang dùng (cấp cứu/ca mổ) đúng ngày PM → hoãn lịch + ghi lý do ngay tại màn
+    (KHÔNG quay web). KHÁC assignPmTechnician (DISPATCH cùng-domain) / reportMajorFailure (ESCALATION
+    cross-module): đây là RESCHEDULE cùng-domain PM (status → Pending–Device Busy). Service THẬT
+    reschedule(name, *, new_date, reason) @services/imm08.py:807: guard len(reason.strip()) < 5 → VALIDATION
+    :808-810 (→422); WO∄ → IMM08_WO_NOT_FOUND :813 (→404); old_date=str(wo.due_date) :815; wo.due_date=new_date
+    :816; wo.status=PMStatus.PENDING_BUSY :817; nếu In Progress → _transition_asset(asset, Active, wo) :821-822;
+    return 4-key {name,old_date,new_date,status} :823.
+
+    🟢 ATOMIC-THIS-ROUND (ADR-MOBILE-014): handler @api/imm08.py:86 ĐÃ @frappe.whitelist(methods=['POST']) +
+    signature reschedule_pm(name, new_date, reason) :87 ĐÃ khớp service reschedule(name, *, new_date, reason)
+    :807 ⇒ KHÔNG verb-flip + KHÔNG signature-fix + KHÔNG đụng api/service 1 dòng → PURE-YAML+test ⇒ generate_spec
+    get/post UNCHANGED ⇒ test_oas_d12/d15/d17 RE-VERIFY (KHÔNG re-baseline). _PARITY_VERB_ALLOWLIST GIỮ set().
+    ReschedulePmResponse RIÊNG closed 4-key (shape date-pair DUY NHẤT old_date/new_date); status = PMStatus-
+    canonical 7-state (post-reschedule='Pending–Device Busy' @:50,817 en-dash U+2013).
+
+    Guard chạy được (a..i):
+      (a) path TỒN TẠI, POST-ONLY (chỉ key 'post'), opId reschedulePm (UNIQUE camelCase), tag work-order,
+          MVP-4 summary; ∈ _MVP_BUSINESS_PATHS; count 46 path/opId unique camelCase; ∉ _PARITY_VERB_ALLOWLIST.
+      (b) operationId 'reschedulePm' xuất hiện ĐÚNG 1 lần (UNIQUE toàn spec).
+      (c) POST-ONLY-ENFORCED-AT-SOURCE — allowed_http_methods_for_whitelisted_func(reschedule_pm)=={POST}
+          (registry introspect — gate THẬT, ATOMIC ĐÃ POST); anti-false-green GET TỪ CHỐI; _PARITY_VERB_ALLOWLIST==set().
+      (d) requestBody INLINE application/json $ref ReschedulePmRequest (KHÔNG component/form); schema closed
+          (additionalProperties:false), props EXACT {name,new_date,reason}, required EXACT cả 3; reason.minLength==5
+          (mirror guard service len(reason.strip()) < 5 @:808); new_date.format=='date'; live-sig parity == 3-param.
+      (e) ReschedulePmResponse closed props EXACT 4 {name,old_date,new_date,status} (GROUNDED svc return
+          @services/imm08.py:823); required cả 4; status.enum == _PM_STATUS_ENUM (7-state); 0 boolean prop.
+      (f) status.example BYTE-MATCH 'Pending–Device Busy' — en-dash U+2013 (ord 0x2013, KHÔNG hyphen-minus U+002D).
+      (g) 200 = oneOf [ReschedulePmEnvelope, Error] route-by-VALUE body.success (0 discriminator); 2 branch
+          closed, success enum disjoint [true]/[false]; Error.http_status enum ⊇ {404,422}.
+      (h) slot {200,401,403}; 401 Unauthorized401; 403 SINGLE-SHAPE Forbidden (in-handler cap-403 pm.reschedule
+          @api/imm08.py:88 phủ bởi nhánh Error 200-oneOf) ≠ reportIncident DUAL-403; security bearer parity
+          assignPmTechnician/reportMajorFailure (global, KHÔNG per-op override); ∈ symmetry sets; 0 dangling $ref.
+      (i) meta self-count — _discover_test_methods() == _EXPECTED_TEST_COUNT (drift = RED).
+    SSoT: ../04-api-contract.md + ADR-MOBILE-014 + docs/imm-08/05 §0.1.3 + api/imm08.py:86-89 +
+    services/imm08.py:807,817,823 + pm_work_order.json (PMStatus @services/imm08.py:43-50).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.spec = _load_spec() if _MOBILE_YAML.exists() else None
+
+    def _op(self):
+        return ((self.spec.get("paths") or {}).get(_RESCHEDULE_PM_PATH) or {}).get("post") or {}
+
+    def _schemas(self):
+        return (self.spec.get("components") or {}).get("schemas") or {}
+
+    def test_mob_oas_reschedulepm_a_path_present_post_only_opid_tag_mvp(self):
+        """(a) [test_path_present] path TỒN TẠI, POST-ONLY, opId reschedulePm (UNIQUE), tag work-order, MVP-4
+        summary, ∈ _MVP_BUSINESS_PATHS; total paths == 46 unique camelCase; ∉ _PARITY_VERB_ALLOWLIST."""
+        paths = self.spec.get("paths") or {}
+        self.assertIn(_RESCHEDULE_PM_PATH, paths, "Thiếu path reschedule_pm (R37 PM-RESCHEDULE — ĐÓNG NỐT action-set).")
+        item = paths[_RESCHEDULE_PM_PATH]
+        self.assertEqual(
+            sorted(item.keys()), ["post"],
+            "reschedule_pm PHẢI POST-ONLY (chỉ key 'post', khớp @whitelist(methods=['POST']) api/imm08.py:86).",
+        )
+        op = self._op()
+        self.assertEqual(op.get("operationId"), "reschedulePm", "opId = reschedulePm (UNIQUE).")
+        self.assertEqual(op.get("tags"), ["work-order"], "tag PHẢI [work-order].")
+        self.assertIn("[MVP-4]", op.get("summary") or "", "summary PHẢI mang nhãn [MVP-4].")
+        self.assertNotIn(
+            _RESCHEDULE_PM_PATH, _PARITY_VERB_ALLOWLIST,
+            "reschedule_pm ∉ _PARITY_VERB_ALLOWLIST (ATOMIC ĐÃ POST-only @source, allowlist RỖNG).",
+        )
+        self.assertIn(_RESCHEDULE_PM_PATH, _MVP_BUSINESS_PATHS, "Phải vào _MVP_BUSINESS_PATHS (401/403 symmetry).")
+        ids = [op2["operationId"] for _, _, op2 in _iter_operations(self.spec)]
+        self.assertEqual(len(paths), 53, "path-count PHẢI 52 (R-NOTIF-UNREAD +getUnreadNotifications — đóng nốt notification-center READ quartet).")
+        self.assertEqual(len(ids), 53, "operationId count PHẢI 52.")
+        self.assertEqual(len(set(ids)), 53, "operationId DUY NHẤT (len(set)==52).")
+        for oid in ids:
+            self.assertRegex(oid, _CAMEL_RE, f"operationId KHÔNG camelCase: {oid}")
+
+    def test_mob_oas_reschedulepm_b_operation_id_unique(self):
+        """(b) [test_operation_id_unique] operationId 'reschedulePm' xuất hiện ĐÚNG 1 lần (UNIQUE toàn spec)."""
+        ids = [op["operationId"] for _, _, op in _iter_operations(self.spec)]
+        self.assertEqual(
+            ids.count("reschedulePm"), 1,
+            f"operationId 'reschedulePm' PHẢI xuất hiện ĐÚNG 1 lần (UNIQUE), got {ids.count('reschedulePm')}.",
+        )
+        self.assertEqual(len(ids), len(set(ids)), "Toàn spec operationId PHẢI UNIQUE (0 trùng).")
+
+    def test_mob_oas_reschedulepm_c_post_only_at_source(self):
+        """(c) [test_post_only] POST-ONLY-ENFORCED-AT-SOURCE — registry allowed == {'POST'} (ATOMIC ĐÃ POST,
+        KHÔNG verb-flip); anti-false-green GET TỪ CHỐI; _PARITY_VERB_ALLOWLIST GIỮ set() @source generate_spec."""
+        _assert_post_only_at_source(self, _RESCHEDULE_PM_PATH)
+        dotted = "assetcore.api.imm08.reschedule_pm"
+        allowed = _allowed_http_methods_for(dotted)
+        self.assertNotIn(
+            "GET", allowed,
+            "ANTI-FALSE-GREEN: reschedule_pm nhận GET ⇒ decorator KHÔNG còn methods=['POST'] "
+            f"(@api/imm08.py:86). allowed={sorted(allowed)}.",
+        )
+        self.assertEqual(allowed, {"POST"}, f"reschedule_pm PHẢI POST-ONLY at-source (== {{'POST'}}), got {sorted(allowed)}.")
+        self.assertEqual(_PARITY_VERB_ALLOWLIST, set(), "_PARITY_VERB_ALLOWLIST PHẢI GIỮ set() (ATOMIC KHÔNG verb-divergence).")
+
+    def test_mob_oas_reschedulepm_d_request_inline_closed_three_required_minlen5(self):
+        """(d) [test_request_required_set] requestBody INLINE application/json $ref ReschedulePmRequest (KHÔNG
+        form); schema closed, props EXACT {name,new_date,reason}, required EXACT cả 3, reason.minLength==5,
+        new_date.format=='date'; live-sig parity == 3-param."""
+        rb = self._op().get("requestBody") or {}
+        self.assertTrue(rb, "reschedule_pm PHẢI có requestBody.")
+        self.assertEqual(rb.get("required"), True, "requestBody.required PHẢI true (3 positional bắt buộc).")
+        content = rb.get("content") or {}
+        self.assertIn("application/json", content, "requestBody PHẢI có application/json.")
+        self.assertNotIn("application/x-www-form-urlencoded", content, "Action body INLINE json-only (KHÔNG form).")
+        schema_ref = ((content.get("application/json") or {}).get("schema") or {}).get("$ref")
+        self.assertEqual(
+            schema_ref, f"#/components/schemas/{_RESCHEDULE_PM_REQUEST_SCHEMA}",
+            f"application/json.schema PHẢI $ref {_RESCHEDULE_PM_REQUEST_SCHEMA}, got {schema_ref}",
+        )
+        sch = self._schemas().get(_RESCHEDULE_PM_REQUEST_SCHEMA) or {}
+        self.assertTrue(sch, f"Thiếu schema {_RESCHEDULE_PM_REQUEST_SCHEMA}.")
+        self.assertEqual(sch.get("additionalProperties"), False, "ReschedulePmRequest PHẢI closed (additionalProperties:false).")
+        props = sch.get("properties") or {}
+        self.assertEqual(set(props.keys()), _RESCHEDULE_PM_REQUEST_PROPS, f"props PHẢI EXACT {_RESCHEDULE_PM_REQUEST_PROPS}.")
+        self.assertEqual(
+            sorted(sch.get("required") or []), sorted(_RESCHEDULE_PM_REQUEST_REQUIRED),
+            f"required PHẢI EXACT {_RESCHEDULE_PM_REQUEST_REQUIRED} (3 positional @api/imm08.py:87).",
+        )
+        self.assertEqual((props.get("name") or {}).get("type"), "string", "name PHẢI type string.")
+        self.assertEqual((props.get("new_date") or {}).get("type"), "string", "new_date PHẢI type string.")
+        self.assertEqual((props.get("reason") or {}).get("type"), "string", "reason PHẢI type string.")
+        # reason.minLength == 5 MIRROR guard service len(reason.strip()) < 5 @services/imm08.py:808.
+        self.assertEqual(
+            (props.get("reason") or {}).get("minLength"), 5,
+            "reason.minLength PHẢI == 5 (MIRROR guard service len(reason.strip()) < 5 @services/imm08.py:808).",
+        )
+        # new_date.format == 'date' ⇒ codegen sinh kiểu Date (YYYY-MM-DD → wo.due_date :816).
+        self.assertEqual(
+            (props.get("new_date") or {}).get("format"), "date",
+            "new_date.format PHẢI == 'date' (YYYY-MM-DD → wo.due_date @services/imm08.py:816).",
+        )
+        # live-sig parity folded-in — inspect.signature(imm08.reschedule_pm) == request props.
+        from assetcore.api import imm08  # lazy.
+        fn = getattr(imm08, "reschedule_pm", None)
+        self.assertIsNotNone(fn, "Thiếu hàm whitelist LIVE: imm08.reschedule_pm.")
+        params = inspect.signature(fn).parameters
+        self.assertEqual(
+            set(params.keys()), _RESCHEDULE_PM_SIG_PARAMS,
+            f"signature LIVE PHẢI EXACT {_RESCHEDULE_PM_SIG_PARAMS}, got {sorted(params.keys())}.",
+        )
+        self.assertEqual(
+            set(props.keys()), set(params.keys()),
+            f"ReschedulePmRequest props PHẢI KHỚP 1:1 live signature: props={sorted(props)} sig={sorted(params.keys())}.",
+        )
+        for p in _RESCHEDULE_PM_REQUEST_REQUIRED:
+            self.assertIs(
+                params[p].default, inspect.Parameter.empty,
+                f"param `{p}` PHẢI KHÔNG default (positional bắt buộc) ⇒ contract required.",
+            )
+
+    def test_mob_oas_reschedulepm_e_response_closed_4key_grounded_pmstatus(self):
+        """(e) [test_response_4key] ReschedulePmResponse closed props EXACT 4 {name,old_date,new_date,status}
+        (GROUNDED svc return @services/imm08.py:823); required cả 4; status.enum == _PM_STATUS_ENUM; 0 boolean."""
+        resp = self._schemas().get(_RESCHEDULE_PM_RESPONSE_SCHEMA) or {}
+        self.assertTrue(resp, f"Thiếu schema {_RESCHEDULE_PM_RESPONSE_SCHEMA}.")
+        self.assertEqual(resp.get("additionalProperties"), False, "ReschedulePmResponse PHẢI closed (svc trả đúng 4 key).")
+        props = resp.get("properties") or {}
+        self.assertEqual(
+            set(props.keys()), _RESCHEDULE_PM_DATA_KEYS,
+            f"data props PHẢI EXACT {_RESCHEDULE_PM_DATA_KEYS} (svc return @services/imm08.py:823), got {sorted(props.keys())}.",
+        )
+        self.assertEqual(
+            sorted(resp.get("required") or []), sorted(_RESCHEDULE_PM_DATA_KEYS),
+            "data required PHẢI đủ 4 {name,old_date,new_date,status} (cả 4 luôn trả — literal dict).",
+        )
+        for key in _RESCHEDULE_PM_DATA_KEYS:
+            self.assertEqual((props.get(key) or {}).get("type"), "string", f"data.{key} PHẢI string.")
+        self.assertEqual(
+            (props.get("status") or {}).get("enum"), _PM_STATUS_ENUM,
+            "data.status.enum PHẢI PMStatus-canonical 7-state @services/imm08.py:43-50.",
+        )
+        for pname, pdef in props.items():
+            self.assertNotEqual(
+                pdef.get("type"), "boolean",
+                f"ReschedulePmResponse.{pname} KHÔNG được type:boolean (0 Check-field; codegen int-vs-bool trap).",
+            )
+
+    def test_mob_oas_reschedulepm_f_status_endash_bytematch(self):
+        """(f) [test_status_endash_bytematch] status.example BYTE-MATCH 'Pending–Device Busy' — en-dash U+2013
+        (ord 0x2013, KHÔNG hyphen-minus U+002D) đúng PMStatus.PENDING_BUSY @services/imm08.py:50."""
+        props = (self._schemas().get(_RESCHEDULE_PM_RESPONSE_SCHEMA) or {}).get("properties") or {}
+        example = (props.get("status") or {}).get("example")
+        self.assertEqual(
+            example, _RESCHEDULE_PM_STATUS_EXAMPLE,
+            "data.status.example PHẢI 'Pending–Device Busy' (PMStatus.PENDING_BUSY @services/imm08.py:50,817 — en-dash byte-khớp).",
+        )
+        # BYTE-MATCH en-dash U+2013 — ký tự non-ASCII DUY NHẤT phải là U+2013, KHÔNG hyphen-minus U+002D.
+        non_ascii = [c for c in example if ord(c) > 0x7F]
+        self.assertEqual(
+            [hex(ord(c)) for c in non_ascii], ["0x2013"],
+            f"status.example PHẢI chứa en-dash U+2013 DUY NHẤT, got {[hex(ord(c)) for c in non_ascii]} "
+            "(KHÔNG hyphen-minus U+002D — copy byte-khớp PMStatus.PENDING_BUSY @services/imm08.py:50).",
+        )
+        self.assertNotIn("-", example, "status.example KHÔNG được chứa hyphen-minus U+002D (phải en-dash U+2013).")
+
+    def test_mob_oas_reschedulepm_g_200_oneof_no_discriminator_error_404_422(self):
+        """(g) [test_oneof_no_discriminator] 200 = oneOf [ReschedulePmEnvelope, Error] route-by-VALUE
+        body.success (0 discriminator); 2 branch closed, success enum disjoint; Error.http_status ⊇ {404,422}."""
+        resp200 = ((self._op().get("responses") or {}).get("200") or {})
+        schema = (((resp200.get("content") or {}).get("application/json") or {}).get("schema") or {})
+        self.assertNotIn("discriminator", schema, "200 KHÔNG discriminator (route-by-VALUE body.success, §5c).")
+        one_of = schema.get("oneOf") or []
+        self.assertEqual(len(one_of), 2, "200.oneOf PHẢI đúng 2 nhánh [Envelope, Error].")
+        refs = {m.get("$ref") for m in one_of if isinstance(m, dict)}
+        self.assertEqual(
+            refs, {_RESCHEDULE_PM_ENVELOPE_SCHEMA_REF, "#/components/schemas/Error"},
+            f"200.oneOf PHẢI = [ReschedulePmEnvelope, Error]: {sorted(refs)}",
+        )
+        schemas = self._schemas()
+        env = schemas.get(_RESCHEDULE_PM_ENVELOPE_SCHEMA) or {}
+        err = schemas.get("Error") or {}
+        self.assertEqual(env.get("additionalProperties"), False, "ReschedulePmEnvelope PHẢI closed.")
+        self.assertEqual(err.get("additionalProperties"), False, "Error PHẢI closed (§5c).")
+        self.assertEqual(((env.get("properties") or {}).get("success") or {}).get("enum"), [True], "Envelope.success.enum [true].")
+        self.assertEqual(((err.get("properties") or {}).get("success") or {}).get("enum"), [False], "Error.success.enum [false].")
+        self.assertEqual(sorted(env.get("required") or []), ["data", "success"], "Envelope required PHẢI [success,data].")
+        self.assertEqual(
+            ((env.get("properties") or {}).get("data") or {}).get("$ref"),
+            f"#/components/schemas/{_RESCHEDULE_PM_RESPONSE_SCHEMA}",
+            "Envelope.data PHẢI $ref ReschedulePmResponse.",
+        )
+        # Error.http_status enum ⊇ {404,422} — VALIDATION reason<5 :808→422 + IMM08_WO_NOT_FOUND :813→404 (in-handler HTTP-200).
+        hs_enum = ((err.get("properties") or {}).get("http_status") or {}).get("enum") or []
+        for code in (404, 422):
+            self.assertIn(
+                code, hs_enum,
+                f"Error.http_status enum PHẢI ⊇ {{{code}}} (reschedule_pm lỗi nghiệp vụ in-handler trên HTTP-200): {hs_enum}.",
+            )
+
+    def test_mob_oas_reschedulepm_h_security_slot_200_401_403(self):
+        """(h) [test_security_slot] slot {200,401,403}; 401 Unauthorized401; 403 SINGLE-SHAPE Forbidden
+        (in-handler cap-403 pm.reschedule @api/imm08.py:88 phủ bởi nhánh Error 200-oneOf) ≠ reportIncident
+        DUAL-403; security bearer parity assignPmTechnician/reportMajorFailure; ∈ symmetry sets; 0 dangling."""
+        op = self._op()
+        resps = (op.get("responses") or {})
+        slots = set(resps.keys())
+        self.assertTrue(
+            {"200", "401", "403"} <= slots,
+            f"response slot PHẢI ⊇ {{200,401,403}} (parity assignPmTechnician/reportMajorFailure): {sorted(slots)}",
+        )
+        self.assertEqual(
+            sorted(slots), ["200", "401", "403"],
+            f"response slot PHẢI CHỈ {{200,401,403}} (404/422 in-handler trên HTTP-200 nhánh Error): {sorted(slots)}",
+        )
+        self.assertEqual((resps.get("401") or {}).get("$ref"), _UNAUTHORIZED401_RESP_REF, "401 PHẢI $ref Unauthorized401.")
+        resp403 = (resps.get("403") or {})
+        self.assertEqual(
+            resp403.get("$ref"), _FORBIDDEN_RESP_REF,
+            f"403 PHẢI $ref Forbidden SINGLE-SHAPE (in-handler cap-403 pm.reschedule @api/imm08.py:88 phủ bởi 200-oneOf Error), got {resp403.get('$ref')}.",
+        )
+        self.assertNotEqual(
+            resp403.get("$ref"), _REPORT_INCIDENT_FORBIDDEN_RESP_REF,
+            "reschedulePm 403 KHÔNG dùng ReportIncidentForbidden (đó là DUAL-403 của report_incident).",
+        )
+        # security bearer parity — reschedulePm KHÔNG per-op security override (dùng global), GIỐNG
+        #   assignPmTechnician/reportMajorFailure (cùng bearer model).
+        paths = self.spec.get("paths") or {}
+        rmf_op = ((paths.get(_REPORT_MAJOR_FAILURE_PATH) or {}).get("post") or {})
+        apt_op = ((paths.get(_ASSIGN_PM_TECH_PATH) or {}).get("post") or {})
+        self.assertEqual(
+            op.get("security"), rmf_op.get("security"),
+            "reschedulePm security PHẢI parity reportMajorFailure (cùng bearer model, KHÔNG per-op override).",
+        )
+        self.assertEqual(
+            op.get("security"), apt_op.get("security"),
+            "reschedulePm security PHẢI parity assignPmTechnician (cùng bearer model).",
+        )
+        # RIÊNG envelope + ∈ symmetry sets + action-envelope map.
+        env_data_ref = ((self._schemas().get(_RESCHEDULE_PM_ENVELOPE_SCHEMA) or {}).get("properties") or {}).get("data", {}).get("$ref") or ""
+        self.assertEqual(
+            env_data_ref, f"#/components/schemas/{_RESCHEDULE_PM_RESPONSE_SCHEMA}",
+            "Envelope.data PHẢI $ref ReschedulePmResponse (RIÊNG — KHÔNG reuse action envelope khác).",
+        )
+        self.assertIn(_RESCHEDULE_PM_PATH, _PATHS_REQUIRE_401, "reschedulePm PHẢI ∈ _PATHS_REQUIRE_401.")
+        self.assertIn(_RESCHEDULE_PM_PATH, _PATHS_REQUIRE_403, "reschedulePm PHẢI ∈ _PATHS_REQUIRE_403.")
+        self.assertIn(_RESCHEDULE_PM_PATH, _MVP_ACTION_ENVELOPE, "reschedulePm PHẢI ∈ _MVP_ACTION_ENVELOPE.")
+        ops = {path: o for path, _, o in _iter_operations(self.spec)}
+        with_401 = {p for p, o in ops.items() if "401" in (o.get("responses") or {}) and p not in (_AUTH_PATHS | _ALLOW_GUEST_PATHS)}
+        with_403 = {p for p, o in ops.items() if "403" in (o.get("responses") or {}) and p not in (_AUTH_PATHS | _ALLOW_GUEST_PATHS)}
+        self.assertEqual(with_401, set(_PATHS_REQUIRE_403), "Tập 401 (trừ auth) == _PATHS_REQUIRE_403 (symmetry).")
+        self.assertEqual(with_403, set(_PATHS_REQUIRE_403), "Tập 403 (trừ auth) == _PATHS_REQUIRE_403 (symmetry).")
+        dangling = sorted({r for r in _collect_refs(self.spec) if not _resolve_pointer(r, self.spec)})
+        self.assertEqual(dangling, [], f"PHẢI 0 dangling $ref sau bồi reschedulePm: {dangling}")
+        # negative — server-derived old_date/status KHÔNG lọt request body.
+        req_props = (self._schemas().get(_RESCHEDULE_PM_REQUEST_SCHEMA) or {}).get("properties") or {}
+        self.assertNotIn("old_date", req_props, "old_date KHÔNG lọt request body (server-derived str(wo.due_date) @services/imm08.py:815).")
+        self.assertNotIn("status", req_props, "status KHÔNG lọt request body (server-derived 'Pending–Device Busy' @services/imm08.py:817).")
+
+    def test_mob_oas_reschedulepm_i_meta_self_count(self):
+        """(i) meta self-count — _discover_test_methods() == _EXPECTED_TEST_COUNT (drift = RED); 9 reschedulepm
+        method ∈ discovered (round này bồi đủ). Chống count-drift quên cập SSoT (line ~186)."""
+        discovered = set(_discover_test_methods())
+        actual = len(discovered)
+        self.assertGreater(actual, 100, "Introspection trả < 100 test-method — filter hỏng.")
+        for letter in "abcdefghi":
+            present = any(
+                m.startswith("TestMobileReschedulePmContract.test_mob_oas_reschedulepm_" + letter)
+                for m in discovered
+            )
+            self.assertTrue(present, f"Thiếu TC reschedulepm_{letter} trong tập discover (round này PHẢI có a..i).")
+        self.assertIn(
+            "TestMobileReschedulePmContract.test_mob_oas_reschedulepm_i_meta_self_count",
+            discovered,
+            "Meta self-count KHÔNG tự-thấy trong tập introspect → _discover sai phạm-vi.",
+        )
+        self.assertEqual(
+            actual, _EXPECTED_TEST_COUNT,
+            f"COUNT-DRIFT: introspect {actual} test-method NHƯNG _EXPECTED_TEST_COUNT={_EXPECTED_TEST_COUNT}. "
+            f"Bồi reschedulePm (+9 a..i) ⇒ cập _EXPECTED_TEST_COUNT (line ~186) + _GUARD_SUITE_EXPECTED "
+            f"['test_mobile_oas.py'] + _MOBILE_OAS_TOTAL trong test_mobile_docset.",
+        )
+
+
+class TestMobileConfirmInspectionContract(unittest.TestCase):
+    """C8-ACTION — confirmInspection: POST-action lifecycle TERMINAL-THẬT cho Asset Repair WO
+    (Pending Inspection → Completed, docstatus 0→1).
+
+    ĐÓNG dead-end CUỐI chuỗi repair: closeWorkOrder (R17) chỉ đưa WO về 'Pending Inspection'
+    (NON-terminal) — getRepairWorkOrder.allowed_transitions[] (R22) ĐÃ surface CTA 'Completed' NHƯNG
+    KHÔNG có endpoint thực thi. confirm_inspection lấp đúng chỗ đó: QA / trưởng-khoa nghiệm thu sau sửa
+    chữa → doc.submit() → on_submit → complete_repair() (tính MTTR/SLA, Asset→Active, hook recalibration
+    IMM-11), status → 'Completed' INVARIANT.
+
+    KHÁC closeWorkOrder (cùng domain, shape-TRÙNG {name,status,mttr_hours,sla_breached}):
+      (1) status enum-domain DISJOINT — ConfirmInspectionResponse.status = ['Completed'] (single-value
+          TERMINAL) ∉ CloseWorkOrderResponse.status {Pending Inspection, Cannot Repair}.
+      (2) cap repair.submit (QA/trưởng-khoa nghiệm-thu) — semantics phê-duyệt-chất-lượng cuối, KHÁC
+          create (KTV).
+      ⇒ ConfirmInspectionResponse schema RIÊNG (KHÔNG merge CloseWorkOrderResponse) — C3-split
+      cross-ACTION (ADR-MOBILE-009; precedent ResolveIncidentResponse/CloseIncidentResponse field-disjoint).
+    POST-only @api/imm09.py:103 (VERIFIED @frappe.whitelist(methods=['POST'])) — clean POST, KHÔNG
+    verb-divergence ⇒ TC-a assert POST-ONLY (KHÁC submitCalibration bare @whitelist).
+
+    Guard chạy được (a..g + i):
+      (a) path POST TỒN TẠI + opId confirmInspection + POST-ONLY (chỉ key 'post', KHÔNG 'get' — VERIFIED
+          methods=['POST']); ∈ _MVP_BUSINESS_PATHS; count 40 path/opId unique camelCase.
+      (b) requestBody required:true; content oneOf application/json + application/x-www-form-urlencoded
+          (CÙNG $ref ConfirmInspectionRequest — Frappe RPC form_dict, 04 §4/§9); ConfirmInspectionRequest
+          closed, props EXACT {name}, required EXACT [name] (1 no-default @api/imm09.py:104).
+      (c) 200 = oneOf [ConfirmInspectionEnvelope, Error], cả 2 closed, 0 discriminator; success.enum
+          disjoint ([true]/[false]) — route-by-VALUE body.success (§5c).
+      (d) ConfirmInspectionResponse closed {name,status,mttr_hours,sla_breached} (EXACT 4-prop), required
+          [name,status]; status.enum == ['Completed'] (single-value TERMINAL); sla_breached integer
+          enum[0,1] (KHÔNG boolean); mttr_hours number nullable.
+      (e) response slot CHỈ {200,401,403}; 401 = Unauthorized401; 403 = SINGLE-SHAPE Forbidden (KHÔNG
+          DUAL-403; in-handler cap-403 repair.submit phủ bởi nhánh Error 200-oneOf). KHÔNG 404/409
+          status-line key (IMM09_NOT_FOUND 404 / IMM09_BAD_STATE 409 ARRIVE HTTP-200 nhánh Error).
+      (f) 0 dangling $ref toàn spec sau bồi path/schema; Error schema REUSE (KHÔNG định nghĩa mới);
+          ConfirmInspectionResponse ≠ CloseWorkOrderResponse (2 schema RIÊNG, KHÔNG merge).
+      (g) parity @source — ConfirmInspectionResponse field-set ⊆ keys return-dict
+          @services/imm09.py:1114-1119 {name,status,mttr_hours,sla_breached}; status.enum giá-trị ==
+          RepairStatus.COMPLETED='Completed'.
+      (i) LIVE introspect-parity — inspect.signature(imm09.confirm_inspection)=={name} (name no-default);
+          clean POST (KHÔNG ∈ _PARITY_VERB_ALLOWLIST). Chống drift contract↔source.
+    SSoT: ../04-api-contract.md (§8.20 + ADR-MOBILE-009) + api/imm09.py:103-107 +
+    services/imm09.py:1086-1119 + asset_repair.json (mttr_hours Float / sla_breached Check).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.spec = _load_spec() if _MOBILE_YAML.exists() else None
+
+    def _op(self):
+        return ((self.spec.get("paths") or {}).get(_CONFIRM_INSPECTION_PATH) or {}).get("post") or {}
+
+    def _schemas(self):
+        return (self.spec.get("components") or {}).get("schemas") or {}
+
+    def test_mob_oas_confirminspection_a_path_post_only_in_mvp(self):
+        """(a) path TỒN TẠI, POST-ONLY (chỉ 'post', KHÔNG 'get'), opId confirmInspection, ∈ _MVP_BUSINESS_PATHS; count 38 unique.
+
+        VERIFIED methods=['POST'] @api/imm09.py:103 ⇒ POST-ONLY assert HỢP LỆ (clean POST, KHÔNG
+        verb-divergence — KHÁC submitCalibration bare @whitelist).
+        """
+        paths = self.spec.get("paths") or {}
+        self.assertIn(_CONFIRM_INSPECTION_PATH, paths, "Thiếu path confirm_inspection (C8-ACTION TERMINAL-THẬT).")
+        item = paths[_CONFIRM_INSPECTION_PATH]
+        self.assertIn("post", item, "confirm_inspection PHẢI khai verb POST (write-action RPC, docstatus 0→1).")
+        self.assertNotIn(
+            "get", item,
+            "confirm_inspection PHẢI POST-ONLY (KHÔNG 'get') — VERIFIED methods=['POST'] @api/imm09.py:103.",
+        )
+        self.assertEqual(self._op().get("operationId"), "confirmInspection", "opId = confirmInspection.")
+        self.assertIn(_CONFIRM_INSPECTION_PATH, _MVP_BUSINESS_PATHS, "Phải vào _MVP_BUSINESS_PATHS (401/403 symmetry).")
+        ids = [op["operationId"] for _, _, op in _iter_operations(self.spec)]
+        self.assertEqual(len(paths), 53, "path-count PHẢI 52 (R-NOTIF-UNREAD +getUnreadNotifications).")
+        self.assertEqual(len(ids), 53, "operationId count PHẢI 52.")
+        self.assertEqual(len(set(ids)), 53, "operationId DUY NHẤT (len(set)==52).")
+        for oid in ids:
+            self.assertRegex(oid, _CAMEL_RE, f"operationId KHÔNG camelCase: {oid}")
+
+    def test_mob_oas_confirminspection_b_request_body_oneof_json_form_required1(self):
+        """(b) requestBody required:true; content json+x-www-form (CÙNG $ref); ConfirmInspectionRequest closed, props {name}, required [name]."""
+        rb = self._op().get("requestBody") or {}
+        self.assertTrue(rb, "confirm_inspection PHẢI có requestBody.")
+        self.assertEqual(rb.get("required"), True, "requestBody.required PHẢI true (name positional bắt buộc).")
+        content = rb.get("content") or {}
+        self.assertEqual(
+            set(content.keys()), _CONFIRM_INSPECTION_BODY_MEDIA_TYPES,
+            f"requestBody.content PHẢI = {sorted(_CONFIRM_INSPECTION_BODY_MEDIA_TYPES)} (Frappe RPC form_dict — "
+            f"codegen JSON-only → field RỖNG, 04 §4/§9): got {sorted(content.keys())}.",
+        )
+        ref = f"#/components/schemas/{_CONFIRM_INSPECTION_REQUEST_SCHEMA}"
+        for mt in _CONFIRM_INSPECTION_BODY_MEDIA_TYPES:
+            got = ((content.get(mt) or {}).get("schema") or {}).get("$ref")
+            self.assertEqual(got, ref, f"content[{mt}].schema PHẢI $ref {ref} (CÙNG $ref cả 2 media-type), got {got}.")
+        sch = self._schemas().get(_CONFIRM_INSPECTION_REQUEST_SCHEMA) or {}
+        self.assertTrue(sch, f"Thiếu schema {_CONFIRM_INSPECTION_REQUEST_SCHEMA}.")
+        self.assertEqual(sch.get("additionalProperties"), False, "ConfirmInspectionRequest PHẢI closed.")
+        self.assertEqual(
+            set((sch.get("properties") or {}).keys()), _CONFIRM_INSPECTION_REQUEST_PROPS,
+            f"props PHẢI EXACT 1-field {_CONFIRM_INSPECTION_REQUEST_PROPS} (signature confirm_inspection(name)).",
+        )
+        self.assertEqual(
+            sorted(sch.get("required") or []), sorted(_CONFIRM_INSPECTION_REQUEST_REQUIRED),
+            f"required PHẢI EXACT {_CONFIRM_INSPECTION_REQUEST_REQUIRED} (name no-default @api/imm09.py:104).",
+        )
+        self.assertEqual(
+            ((sch.get("properties") or {}).get("name") or {}).get("type"), "string",
+            "name PHẢI type:string.",
+        )
+
+    def test_mob_oas_confirminspection_c_200_oneof_route_by_value(self):
+        """(c) 200 = oneOf [ConfirmInspectionEnvelope, Error], cả 2 closed, 0 discriminator; success.enum disjoint [true]/[false]."""
+        resp200 = ((self._op().get("responses") or {}).get("200") or {})
+        schema = (((resp200.get("content") or {}).get("application/json") or {}).get("schema") or {})
+        self.assertNotIn("discriminator", schema, "200 KHÔNG discriminator (route-by-VALUE body.success, §5c).")
+        one_of = schema.get("oneOf") or []
+        refs = {m.get("$ref") for m in one_of if isinstance(m, dict)}
+        self.assertEqual(
+            refs, {_CONFIRM_INSPECTION_ENVELOPE_SCHEMA_REF, "#/components/schemas/Error"},
+            f"200.oneOf PHẢI = [ConfirmInspectionEnvelope, Error]: {sorted(refs)}",
+        )
+        schemas = self._schemas()
+        env = schemas.get(_CONFIRM_INSPECTION_ENVELOPE_SCHEMA) or {}
+        err = schemas.get("Error") or {}
+        self.assertEqual(env.get("additionalProperties"), False, "ConfirmInspectionEnvelope PHẢI closed.")
+        self.assertEqual(err.get("additionalProperties"), False, "Error PHẢI closed (§5c).")
+        env_succ = ((env.get("properties") or {}).get("success") or {}).get("enum")
+        err_succ = ((err.get("properties") or {}).get("success") or {}).get("enum")
+        self.assertEqual(env_succ, [True], "ConfirmInspectionEnvelope.success.enum PHẢI [true].")
+        self.assertEqual(err_succ, [False], "Error.success.enum PHẢI [false] (disjoint route-by-VALUE).")
+
+    def test_mob_oas_confirminspection_d_envelope_and_data_grounded(self):
+        """(d) Envelope {success,data}; ConfirmInspectionResponse closed EXACT 4-prop, required [name,status]; status enum ['Completed']; sla_breached int enum[0,1]; mttr_hours number nullable."""
+        schemas = self._schemas()
+        env = schemas.get(_CONFIRM_INSPECTION_ENVELOPE_SCHEMA) or {}
+        self.assertTrue(env, f"Thiếu schema {_CONFIRM_INSPECTION_ENVELOPE_SCHEMA}.")
+        self.assertEqual(sorted(env.get("required") or []), ["data", "success"], "Envelope required PHẢI [success,data].")
+        data_ref = ((env.get("properties") or {}).get("data") or {}).get("$ref")
+        self.assertEqual(
+            data_ref, f"#/components/schemas/{_CONFIRM_INSPECTION_RESPONSE_SCHEMA}",
+            f"Envelope.data PHẢI $ref {_CONFIRM_INSPECTION_RESPONSE_SCHEMA}, got {data_ref}",
+        )
+        resp = schemas.get(_CONFIRM_INSPECTION_RESPONSE_SCHEMA) or {}
+        self.assertTrue(resp, f"Thiếu schema {_CONFIRM_INSPECTION_RESPONSE_SCHEMA}.")
+        self.assertEqual(resp.get("additionalProperties"), False, "ConfirmInspectionResponse PHẢI closed (4-key).")
+        props = resp.get("properties") or {}
+        self.assertEqual(
+            set(props.keys()), _CONFIRM_INSPECTION_DATA_KEYS,
+            f"data props PHẢI EXACT 4 {_CONFIRM_INSPECTION_DATA_KEYS} (services/imm09.py:1114-1119), got {sorted(props.keys())}.",
+        )
+        self.assertEqual(
+            sorted(resp.get("required") or []), ["name", "status"],
+            "data required PHẢI EXACT [name,status] (2 luôn-có; mttr_hours/sla_breached server-flag).",
+        )
+        self.assertEqual((props.get("name") or {}).get("type"), "string", "data.name PHẢI string.")
+        # status INVARIANT = 'Completed' (single-value enum — TERMINAL nghiệm-thu).
+        st = props.get("status") or {}
+        self.assertEqual(st.get("type"), "string", "data.status PHẢI string.")
+        self.assertEqual(
+            st.get("enum"), _CONFIRM_INSPECTION_STATUS_ENUM,
+            "data.status.enum PHẢI == ['Completed'] (single-value — RepairStatus.COMPLETED, TERMINAL).",
+        )
+        # mttr_hours = number nullable (Float @asset_repair.json).
+        mttr = props.get("mttr_hours") or {}
+        self.assertEqual(mttr.get("type"), "number", "data.mttr_hours PHẢI number (Float).")
+        self.assertEqual(mttr.get("nullable"), True, "data.mttr_hours PHẢI nullable.")
+        # sla_breached = integer enum[0,1] (Check server-flag; KHÔNG boolean → chống codegen crash).
+        slab = props.get("sla_breached") or {}
+        self.assertEqual(slab.get("type"), "integer", "data.sla_breached PHẢI integer (Check, KHÔNG boolean).")
+        self.assertEqual(slab.get("enum"), [0, 1], "data.sla_breached.enum PHẢI [0,1].")
+
+    def test_mob_oas_confirminspection_e_403_single_shape_and_slots(self):
+        """(e) response slot CHỈ {200,401,403}; 401 Unauthorized401; 403 SINGLE-SHAPE Forbidden; KHÔNG 404/409 status-line (in-handler error→HTTP-200 nhánh Error)."""
+        resps = (self._op().get("responses") or {})
+        self.assertEqual(
+            sorted(resps.keys()), ["200", "401", "403"],
+            f"response slot PHẢI CHỈ {{200,401,403}} (IMM09_NOT_FOUND 404 / IMM09_BAD_STATE 409 ARRIVE "
+            f"HTTP-200 nhánh Error, KHÔNG status-line key): {sorted(resps.keys())}",
+        )
+        self.assertEqual(
+            (resps.get("401") or {}).get("$ref"), _UNAUTHORIZED401_RESP_REF,
+            "401 PHẢI $ref Unauthorized401.",
+        )
+        resp403 = (resps.get("403") or {})
+        self.assertEqual(
+            resp403.get("$ref"), _FORBIDDEN_RESP_REF,
+            f"403 PHẢI $ref Forbidden (SINGLE-SHAPE; in-handler cap-403 repair.submit phủ bởi 200-oneOf Error), "
+            f"got {resp403.get('$ref')}",
+        )
+        self.assertNotEqual(
+            resp403.get("$ref"), _REPORT_INCIDENT_FORBIDDEN_RESP_REF,
+            "confirmInspection 403 KHÔNG được dùng ReportIncidentForbidden (đó là DUAL-403 của report_incident).",
+        )
+
+    def test_mob_oas_confirminspection_f_no_dangling_error_reuse_schema_split(self):
+        """(f) 0 dangling $ref sau bồi; Error REUSE (KHÔNG schema mới); ConfirmInspectionResponse ≠ CloseWorkOrderResponse."""
+        dangling = sorted({r for r in _collect_refs(self.spec) if not _resolve_pointer(r, self.spec)})
+        self.assertEqual(dangling, [], f"PHẢI 0 dangling $ref sau bồi confirmInspection: {dangling}")
+        # Error REUSE — nhánh Error của 200-oneOf trỏ schema Error đã có (KHÔNG sinh Error mới).
+        self.assertIn("Error", self._schemas(), "Error schema PHẢI tồn tại (REUSE, KHÔNG định nghĩa mới).")
+        # C3-split — ConfirmInspectionResponse PHẢI schema RIÊNG (KHÔNG merge CloseWorkOrderResponse).
+        self.assertNotEqual(
+            _CONFIRM_INSPECTION_RESPONSE_SCHEMA, _CLOSE_WORK_ORDER_RESPONSE_SCHEMA,
+            "ConfirmInspectionResponse PHẢI schema RIÊNG (status enum-domain disjoint: Completed ∉ "
+            "{Pending Inspection, Cannot Repair} — ADR-MOBILE-009 C3-split cross-ACTION).",
+        )
+        self.assertIn(
+            _CONFIRM_INSPECTION_RESPONSE_SCHEMA, self._schemas(),
+            "ConfirmInspectionResponse PHẢI tồn tại (RIÊNG).",
+        )
+        # negative — name PHẢI required; status KHÔNG lọt request body (server-derived transition).
+        req_schema = self._schemas().get(_CONFIRM_INSPECTION_REQUEST_SCHEMA) or {}
+        self.assertIn("name", (req_schema.get("required") or []), "name PHẢI required.")
+        self.assertNotIn(
+            "status", (req_schema.get("properties") or {}),
+            "status KHÔNG lọt confirm_inspection body (server-derived → Completed).",
+        )
+
+    def test_mob_oas_confirminspection_g_parity_at_source(self):
+        """(g) parity @source — ConfirmInspectionResponse field-set ⊆ return-dict keys; status.enum == RepairStatus.COMPLETED='Completed'."""
+        from assetcore.services.imm09 import RepairStatus  # lazy — tránh import-time vòng phụ thuộc.
+        resp = self._schemas().get(_CONFIRM_INSPECTION_RESPONSE_SCHEMA) or {}
+        props = set((resp.get("properties") or {}).keys())
+        # return-dict THẬT @services/imm09.py:1114-1119 = {name,status,mttr_hours,sla_breached}.
+        source_keys = {"name", "status", "mttr_hours", "sla_breached"}
+        self.assertTrue(
+            props <= source_keys,
+            f"ConfirmInspectionResponse props {sorted(props)} PHẢI ⊆ return-dict @services/imm09.py:1114-1119 "
+            f"{sorted(source_keys)} (KHÔNG nhồi field source KHÔNG trả).",
+        )
+        self.assertEqual(props, source_keys, "Field-set PHẢI khớp EXACT return-dict 4-key (KHÔNG thiếu).")
+        st_enum = ((resp.get("properties") or {}).get("status") or {}).get("enum")
+        self.assertEqual(
+            st_enum, [RepairStatus.COMPLETED],
+            f"status.enum PHẢI == [RepairStatus.COMPLETED]={[RepairStatus.COMPLETED]} (single-value @source).",
+        )
+        self.assertEqual(RepairStatus.COMPLETED, "Completed", "RepairStatus.COMPLETED PHẢI == 'Completed' (anchor).")
+
+    def test_mob_oas_confirminspection_i_request_body_matches_live_signature(self):
+        """(i) LIVE introspect-parity — contract requestBody KHỚP 1:1 chữ-ký THẬT
+        inspect.signature(imm09.confirm_inspection) == {name} (name no-default). Clean POST (KHÔNG ∈
+        _PARITY_VERB_ALLOWLIST — @frappe.whitelist(methods=['POST']) @api/imm09.py:103). Chống drift
+        contract↔source.
+        """
+        from assetcore.api import imm09  # lazy — tránh import-time vòng phụ thuộc.
+        fn = getattr(imm09, "confirm_inspection", None)
+        self.assertIsNotNone(fn, "Thiếu hàm whitelist LIVE: imm09.confirm_inspection.")
+        sig = inspect.signature(fn)
+        params = sig.parameters
+        self.assertEqual(
+            set(params.keys()), _CONFIRM_INSPECTION_REQUEST_PROPS,
+            f"signature LIVE PHẢI EXACT {_CONFIRM_INSPECTION_REQUEST_PROPS}, got {sorted(params.keys())}.",
+        )
+        self.assertIs(
+            params["name"].default, inspect.Parameter.empty,
+            "param `name` PHẢI KHÔNG default (positional bắt buộc) ⇒ contract required==[name].",
+        )
+        # clean POST (methods=['POST'] @api/imm09.py:103) ⇒ KHÔNG ∈ _PARITY_VERB_ALLOWLIST (KHÁC submit_calibration).
+        self.assertNotIn(
+            _CONFIRM_INSPECTION_PATH, _PARITY_VERB_ALLOWLIST,
+            "confirm_inspection clean POST (methods=['POST']) ⇒ KHÔNG được nằm trong _PARITY_VERB_ALLOWLIST "
+            "(đó là danh-sách verb-divergence bare-whitelist).",
+        )
+
+
+class TestMobileMarkNotificationReadContract(unittest.TestCase):
+    """FLOW-6 READ-RECEIPT — markNotificationAsRead: WRITE-action ĐẦU TIÊN trên domain Notification Log.
+
+    ĐÓNG dead-end của listNotifications (R20): tab chuông + push deep-link (flow-6) CHỈ-ĐỌC danh-sách
+    (read-only) — KHÔNG có endpoint đánh-dấu 1 thông-báo đã-đọc khi user tap/mở. mark_notification_as_read
+    lấp đúng chỗ đó: user mở 1 thông-báo → set read=1 (ownership-guarded for_user==session.user).
+
+    KHÁC 19 lifecycle-action R12-30 (mutate WO/Incident/Calibration có workflow_state):
+      markNotificationAsRead mutate Notification Log — KHÔNG có workflow_state ⇒ response KHÔNG field
+      `status` ⇒ MarkNotificationReadResponse 2-key {name,read} RIÊNG, KHÔNG reuse mọi *ActionResponse
+      trước (đều mang status/domain-field) — C3-split cross-domain.
+    POST-only @api/layout.py:102 (VERIFIED @frappe.whitelist(methods=['POST'])) — clean POST, KHÔNG
+    verb-divergence ⇒ TC-a assert POST-ONLY (KHÔNG state-mutation qua GET/CSRF).
+
+    Guard chạy được (a..g + i):
+      (a) path POST TỒN TẠI + opId markNotificationAsRead + POST-ONLY (chỉ key 'post', KHÔNG 'get' —
+          VERIFIED methods=['POST']); ∈ _MVP_BUSINESS_PATHS; count 40 path/opId unique camelCase.
+      (b) requestBody required:true; content oneOf application/json + application/x-www-form-urlencoded
+          (CÙNG $ref MarkNotificationReadRequest — Frappe RPC form_dict); Request closed, props EXACT
+          {name}, required EXACT [name] (1 no-default @api/layout.py:103).
+      (c) 200 = oneOf [MarkNotificationReadEnvelope, Error], cả 2 closed, 0 discriminator; success.enum
+          disjoint ([true]/[false]) — route-by-VALUE body.success (§5c).
+      (d) Envelope {success,data}; MarkNotificationReadResponse closed EXACT 2-prop {name,read}, required
+          [name,read]; read integer enum[0,1] (KHÔNG boolean); KHÔNG có prop status.
+      (e) response slot CHỈ {200,401,403}; 401 = Unauthorized401; 403 = SINGLE-SHAPE Forbidden (KHÔNG
+          DUAL-403; in-handler cap-403 owner phủ bởi nhánh Error 200-oneOf). KHÔNG 404 status-line key
+          (Notification∄ 404 ARRIVE HTTP-200 nhánh Error qua Error.http_status enum chứa 404).
+      (f) 0 dangling $ref toàn spec sau bồi; Error schema REUSE (KHÔNG định nghĩa mới);
+          MarkNotificationReadResponse ≠ mọi *ActionResponse (object-identity distinct — KHÔNG status prop).
+      (g) parity @source — MarkNotificationReadResponse field-set == keys return-dict @api/layout.py:117
+          {name, read}; read enum[0,1] integer-typed (mirror NotificationListItem.read).
+      (i) LIVE introspect-parity — inspect.signature(layout.mark_notification_as_read)=={name} (name
+          no-default); clean POST (KHÔNG ∈ _PARITY_VERB_ALLOWLIST). Chống drift contract↔source.
+    SSoT: ../04-api-contract.md + ../../imm-00/ADR-IMM00-OPENAPI.md (FLOW-6 read-receipt) +
+    api/layout.py:102-117 (Notification Log.read Check-fieldtype).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.spec = _load_spec() if _MOBILE_YAML.exists() else None
+
+    def _op(self):
+        return ((self.spec.get("paths") or {}).get(_MARK_NOTIF_READ_PATH) or {}).get("post") or {}
+
+    def _schemas(self):
+        return (self.spec.get("components") or {}).get("schemas") or {}
+
+    def test_mob_oas_marknotifread_a_path_post_only_in_mvp(self):
+        """(a) path TỒN TẠI, POST-ONLY (chỉ 'post', KHÔNG 'get'), opId markNotificationAsRead, ∈ _MVP_BUSINESS_PATHS; count 39 unique.
+
+        VERIFIED methods=['POST'] @api/layout.py:102 ⇒ POST-ONLY assert HỢP LỆ (clean POST, KHÔNG
+        state-mutation qua GET/CSRF).
+        """
+        paths = self.spec.get("paths") or {}
+        self.assertIn(_MARK_NOTIF_READ_PATH, paths, "Thiếu path mark_notification_as_read (FLOW-6 read-receipt).")
+        item = paths[_MARK_NOTIF_READ_PATH]
+        self.assertIn("post", item, "mark_notification_as_read PHẢI khai verb POST (write-action RPC, read 0→1).")
+        self.assertNotIn(
+            "get", item,
+            "mark_notification_as_read PHẢI POST-ONLY (KHÔNG 'get') — VERIFIED methods=['POST'] @api/layout.py:102.",
+        )
+        self.assertEqual(self._op().get("operationId"), "markNotificationAsRead", "opId = markNotificationAsRead.")
+        self.assertIn(_MARK_NOTIF_READ_PATH, _MVP_BUSINESS_PATHS, "Phải vào _MVP_BUSINESS_PATHS (401/403 symmetry).")
+        ids = [op["operationId"] for _, _, op in _iter_operations(self.spec)]
+        self.assertEqual(len(paths), 53, "path-count PHẢI 52 (R-NOTIF-UNREAD +getUnreadNotifications).")
+        self.assertEqual(len(ids), 53, "operationId count PHẢI 52.")
+        self.assertEqual(len(set(ids)), 53, "operationId DUY NHẤT (len(set)==52).")
+        for oid in ids:
+            self.assertRegex(oid, _CAMEL_RE, f"operationId KHÔNG camelCase: {oid}")
+
+    def test_mob_oas_marknotifread_b_request_body_oneof_json_form_required1(self):
+        """(b) requestBody required:true; content json+x-www-form (CÙNG $ref); Request closed, props {name}, required [name]."""
+        rb = self._op().get("requestBody") or {}
+        self.assertTrue(rb, "mark_notification_as_read PHẢI có requestBody.")
+        self.assertEqual(rb.get("required"), True, "requestBody.required PHẢI true (name positional bắt buộc).")
+        content = rb.get("content") or {}
+        self.assertEqual(
+            set(content.keys()), _MARK_NOTIF_READ_BODY_MEDIA_TYPES,
+            f"requestBody.content PHẢI = {sorted(_MARK_NOTIF_READ_BODY_MEDIA_TYPES)} (Frappe RPC form_dict — "
+            f"codegen JSON-only → field RỖNG, 04 §4/§9): got {sorted(content.keys())}.",
+        )
+        ref = f"#/components/schemas/{_MARK_NOTIF_READ_REQUEST_SCHEMA}"
+        for mt in _MARK_NOTIF_READ_BODY_MEDIA_TYPES:
+            got = ((content.get(mt) or {}).get("schema") or {}).get("$ref")
+            self.assertEqual(got, ref, f"content[{mt}].schema PHẢI $ref {ref} (CÙNG $ref cả 2 media-type), got {got}.")
+        sch = self._schemas().get(_MARK_NOTIF_READ_REQUEST_SCHEMA) or {}
+        self.assertTrue(sch, f"Thiếu schema {_MARK_NOTIF_READ_REQUEST_SCHEMA}.")
+        self.assertEqual(sch.get("additionalProperties"), False, "MarkNotificationReadRequest PHẢI closed.")
+        self.assertEqual(
+            set((sch.get("properties") or {}).keys()), _MARK_NOTIF_READ_REQUEST_PROPS,
+            f"props PHẢI EXACT 1-field {_MARK_NOTIF_READ_REQUEST_PROPS} (signature mark_notification_as_read(name)).",
+        )
+        self.assertEqual(
+            sorted(sch.get("required") or []), sorted(_MARK_NOTIF_READ_REQUEST_REQUIRED),
+            f"required PHẢI EXACT {_MARK_NOTIF_READ_REQUEST_REQUIRED} (name no-default @api/layout.py:103).",
+        )
+        self.assertEqual(
+            ((sch.get("properties") or {}).get("name") or {}).get("type"), "string",
+            "name PHẢI type:string.",
+        )
+
+    def test_mob_oas_marknotifread_c_200_oneof_route_by_value(self):
+        """(c) 200 = oneOf [MarkNotificationReadEnvelope, Error], cả 2 closed, 0 discriminator; success.enum disjoint [true]/[false]."""
+        resp200 = ((self._op().get("responses") or {}).get("200") or {})
+        schema = (((resp200.get("content") or {}).get("application/json") or {}).get("schema") or {})
+        self.assertNotIn("discriminator", schema, "200 KHÔNG discriminator (route-by-VALUE body.success, §5c).")
+        one_of = schema.get("oneOf") or []
+        refs = {m.get("$ref") for m in one_of if isinstance(m, dict)}
+        self.assertEqual(
+            refs, {_MARK_NOTIF_READ_ENVELOPE_SCHEMA_REF, "#/components/schemas/Error"},
+            f"200.oneOf PHẢI = [MarkNotificationReadEnvelope, Error]: {sorted(refs)}",
+        )
+        schemas = self._schemas()
+        env = schemas.get(_MARK_NOTIF_READ_ENVELOPE_SCHEMA) or {}
+        err = schemas.get("Error") or {}
+        self.assertEqual(env.get("additionalProperties"), False, "MarkNotificationReadEnvelope PHẢI closed.")
+        self.assertEqual(err.get("additionalProperties"), False, "Error PHẢI closed (§5c).")
+        env_succ = ((env.get("properties") or {}).get("success") or {}).get("enum")
+        err_succ = ((err.get("properties") or {}).get("success") or {}).get("enum")
+        self.assertEqual(env_succ, [True], "MarkNotificationReadEnvelope.success.enum PHẢI [true].")
+        self.assertEqual(err_succ, [False], "Error.success.enum PHẢI [false] (disjoint route-by-VALUE).")
+
+    def test_mob_oas_marknotifread_d_envelope_and_data_grounded(self):
+        """(d) Envelope {success,data}; MarkNotificationReadResponse closed EXACT 2-prop {name,read}, required [name,read]; read integer enum[0,1]; KHÔNG prop status."""
+        schemas = self._schemas()
+        env = schemas.get(_MARK_NOTIF_READ_ENVELOPE_SCHEMA) or {}
+        self.assertTrue(env, f"Thiếu schema {_MARK_NOTIF_READ_ENVELOPE_SCHEMA}.")
+        self.assertEqual(sorted(env.get("required") or []), ["data", "success"], "Envelope required PHẢI [success,data].")
+        data_ref = ((env.get("properties") or {}).get("data") or {}).get("$ref")
+        self.assertEqual(
+            data_ref, f"#/components/schemas/{_MARK_NOTIF_READ_RESPONSE_SCHEMA}",
+            f"Envelope.data PHẢI $ref {_MARK_NOTIF_READ_RESPONSE_SCHEMA}, got {data_ref}",
+        )
+        resp = schemas.get(_MARK_NOTIF_READ_RESPONSE_SCHEMA) or {}
+        self.assertTrue(resp, f"Thiếu schema {_MARK_NOTIF_READ_RESPONSE_SCHEMA}.")
+        self.assertEqual(resp.get("additionalProperties"), False, "MarkNotificationReadResponse PHẢI closed (2-key).")
+        props = resp.get("properties") or {}
+        self.assertEqual(
+            set(props.keys()), _MARK_NOTIF_READ_DATA_KEYS,
+            f"data props PHẢI EXACT 2 {_MARK_NOTIF_READ_DATA_KEYS} (layout.py:117 _ok({{name,read}})), got {sorted(props.keys())}.",
+        )
+        self.assertEqual(
+            sorted(resp.get("required") or []), ["name", "read"],
+            "data required PHẢI EXACT [name,read] (cả 2 luôn-có @layout.py:117).",
+        )
+        self.assertEqual((props.get("name") or {}).get("type"), "string", "data.name PHẢI string.")
+        # read = integer enum[0,1] (Check-fieldtype; KHÔNG boolean → chống codegen Dart/Kotlin deser crash).
+        rd = props.get("read") or {}
+        self.assertEqual(rd.get("type"), "integer", "data.read PHẢI integer (Check, KHÔNG boolean — Open#1 int-vs-bool SSoT).")
+        self.assertEqual(rd.get("enum"), _MARK_NOTIF_READ_READ_ENUM, "data.read.enum PHẢI [0,1].")
+        # KHÔNG có prop status (Notification Log KHÔNG có workflow_state — C3-split cross-domain).
+        self.assertNotIn(
+            "status", props,
+            "MarkNotificationReadResponse KHÔNG được có prop `status` (Notification Log không workflow_state — "
+            "KHÔNG reuse *ActionResponse mang status/domain-field; C3-split cross-domain).",
+        )
+
+    def test_mob_oas_marknotifread_e_403_single_shape_and_slots(self):
+        """(e) response slot CHỈ {200,401,403}; 401 Unauthorized401; 403 SINGLE-SHAPE Forbidden; KHÔNG 404 status-line (Notification∄ 404→HTTP-200 nhánh Error)."""
+        resps = (self._op().get("responses") or {})
+        self.assertEqual(
+            sorted(resps.keys()), ["200", "401", "403"],
+            f"response slot PHẢI CHỈ {{200,401,403}} (Notification∄ 404 ARRIVE HTTP-200 nhánh Error qua "
+            f"Error.http_status enum chứa 404, KHÔNG status-line key): {sorted(resps.keys())}",
+        )
+        self.assertEqual(
+            (resps.get("401") or {}).get("$ref"), _UNAUTHORIZED401_RESP_REF,
+            "401 PHẢI $ref Unauthorized401.",
+        )
+        resp403 = (resps.get("403") or {})
+        self.assertEqual(
+            resp403.get("$ref"), _FORBIDDEN_RESP_REF,
+            f"403 PHẢI $ref Forbidden (SINGLE-SHAPE; in-handler cap-403 owner-guard phủ bởi 200-oneOf Error), "
+            f"got {resp403.get('$ref')}",
+        )
+        self.assertNotEqual(
+            resp403.get("$ref"), _REPORT_INCIDENT_FORBIDDEN_RESP_REF,
+            "markNotificationAsRead 403 KHÔNG được dùng ReportIncidentForbidden (đó là DUAL-403 của report_incident).",
+        )
+        # 404-slot-line KHÔNG được khai (in-handler 404 đến trên HTTP-200 body, KHÔNG status-line — quirk §5).
+        self.assertNotIn(
+            "404", resps,
+            "KHÔNG được khai slot 404 status-line (Notification∄ 404 @layout.py:108-109 đến trên HTTP-200 "
+            "qua Error body route-by http_status — Error.http_status enum đã bounded chứa 404).",
+        )
+
+    def test_mob_oas_marknotifread_f_no_dangling_error_reuse_no_action_reuse(self):
+        """(f) 0 dangling $ref sau bồi; Error REUSE (KHÔNG schema mới); MarkNotificationReadResponse ≠ mọi *ActionResponse (object-identity distinct, KHÔNG status)."""
+        dangling = sorted({r for r in _collect_refs(self.spec) if not _resolve_pointer(r, self.spec)})
+        self.assertEqual(dangling, [], f"PHẢI 0 dangling $ref sau bồi markNotificationAsRead: {dangling}")
+        # Error REUSE — nhánh Error của 200-oneOf trỏ schema Error đã có (KHÔNG sinh Error mới).
+        self.assertIn("Error", self._schemas(), "Error schema PHẢI tồn tại (REUSE, KHÔNG định nghĩa mới).")
+        # C3-split cross-domain — MarkNotificationReadResponse PHẢI schema RIÊNG (KHÔNG merge *ActionResponse).
+        schemas = self._schemas()
+        self.assertIn(
+            _MARK_NOTIF_READ_RESPONSE_SCHEMA, schemas,
+            "MarkNotificationReadResponse PHẢI tồn tại (RIÊNG).",
+        )
+        # object-identity distinct — KHÔNG được trùng tên / merge với CloseWorkOrder/ConfirmInspection/
+        #   Pm/Repair/Incident ActionResponse (đều mang status/domain-field; Notif response KHÔNG status).
+        for other in (
+            _CLOSE_WORK_ORDER_RESPONSE_SCHEMA, _CONFIRM_INSPECTION_RESPONSE_SCHEMA,
+            _ASSIGN_TECH_RESPONSE_SCHEMA, _SUBMIT_CAL_RESPONSE_SCHEMA,
+        ):
+            self.assertNotEqual(
+                _MARK_NOTIF_READ_RESPONSE_SCHEMA, other,
+                f"MarkNotificationReadResponse PHẢI schema RIÊNG (KHÔNG merge {other} — Notification Log "
+                "KHÔNG workflow_state ⇒ KHÔNG status; C3-split cross-domain).",
+            )
+            other_sch = schemas.get(other) or {}
+            self.assertIn(
+                "status", (other_sch.get("properties") or {}),
+                f"control: {other} PHẢI có prop status (chứng minh Notif-response KHÁC — KHÔNG status).",
+            )
+        # negative — name PHẢI required; status/read KHÔNG được lọt request body (server-derived).
+        req_schema = schemas.get(_MARK_NOTIF_READ_REQUEST_SCHEMA) or {}
+        self.assertIn("name", (req_schema.get("required") or []), "name PHẢI required.")
+        for forbidden in ("status", "read"):
+            self.assertNotIn(
+                forbidden, (req_schema.get("properties") or {}),
+                f"`{forbidden}` KHÔNG lọt mark_notification_as_read body (server set read=1, KHÔNG status).",
+            )
+
+    def test_mob_oas_marknotifread_g_parity_at_source(self):
+        """(g) parity @source — MarkNotificationReadResponse field-set == return-dict keys @layout.py:117 {name,read}; read integer enum[0,1]; KHÔNG status."""
+        resp = self._schemas().get(_MARK_NOTIF_READ_RESPONSE_SCHEMA) or {}
+        props = set((resp.get("properties") or {}).keys())
+        # return-dict THẬT @api/layout.py:117 = _ok({"name":name, "read":1}) ⇒ {name, read}.
+        source_keys = {"name", "read"}
+        self.assertEqual(
+            props, source_keys,
+            f"MarkNotificationReadResponse props {sorted(props)} PHẢI == return-dict @api/layout.py:117 "
+            f"{sorted(source_keys)} (KHÔNG nhồi/thiếu field; đặc biệt KHÔNG status).",
+        )
+        rd = (resp.get("properties") or {}).get("read") or {}
+        self.assertEqual(rd.get("type"), "integer", "read PHẢI integer (mirror NotificationListItem.read SSoT int-vs-bool).")
+        self.assertEqual(rd.get("enum"), [0, 1], "read.enum PHẢI [0,1] (handler set read=1 sau mark; schema biểu-diễn cả 2).")
+
+    def test_mob_oas_marknotifread_i_request_body_matches_live_signature(self):
+        """(i) LIVE introspect-parity — contract requestBody KHỚP 1:1 chữ-ký THẬT
+        inspect.signature(layout.mark_notification_as_read) == {name} (name no-default). Clean POST
+        (KHÔNG ∈ _PARITY_VERB_ALLOWLIST — @frappe.whitelist(methods=['POST']) @api/layout.py:102). Chống
+        drift contract↔source.
+        """
+        from assetcore.api import layout  # lazy — tránh import-time vòng phụ thuộc.
+        fn = getattr(layout, "mark_notification_as_read", None)
+        self.assertIsNotNone(fn, "Thiếu hàm whitelist LIVE: layout.mark_notification_as_read.")
+        sig = inspect.signature(fn)
+        params = sig.parameters
+        self.assertEqual(
+            set(params.keys()), _MARK_NOTIF_READ_REQUEST_PROPS,
+            f"signature LIVE PHẢI EXACT {_MARK_NOTIF_READ_REQUEST_PROPS}, got {sorted(params.keys())}.",
+        )
+        self.assertIs(
+            params["name"].default, inspect.Parameter.empty,
+            "param `name` PHẢI KHÔNG default (positional bắt buộc) ⇒ contract required==[name].",
+        )
+        # clean POST (methods=['POST'] @api/layout.py:102) ⇒ KHÔNG ∈ _PARITY_VERB_ALLOWLIST.
+        self.assertNotIn(
+            _MARK_NOTIF_READ_PATH, _PARITY_VERB_ALLOWLIST,
+            "mark_notification_as_read clean POST (methods=['POST']) ⇒ KHÔNG được nằm trong "
+            "_PARITY_VERB_ALLOWLIST (đó là danh-sách verb-divergence bare-whitelist).",
+        )
+
+
+class TestMobileMarkAllReadContract(unittest.TestCase):
+    """FLOW-6 MARK-ALL-READ — markAllAsRead: BULK read-receipt, ĐÓNG NỐT notification-center action-set.
+
+    Sau markNotificationAsRead (single read khi user tap 1 thông-báo, §D-OAS-MARKNOTIFREAD), tab "Thông
+    báo" cần nút "Đánh dấu tất cả đã đọc" — thao-tác BULK set read=1 cho MỌI Notification Log chưa-đọc của
+    chính user (UPDATE WHERE for_user=session.user AND read=0 @layout.py:127-131). Đây là mắt-xích CUỐI.
+
+    3 điểm KHÁC markNotificationAsRead (grounded @source):
+      (1) 0-PARAM mark_all_as_read() @:121 ⇒ KHÔNG requestBody (codegen no-arg POST) — vs closed {name}.
+      (2) data 1-key {updated_rows} integer GENUINE count (0..N) KHÔNG enum[0,1] — vs read int-enum[0,1].
+      (3) KHÔNG 404/409 (scope SQL WHERE for_user=session.user, no lookup-by-name) — vs 404 Notification∄.
+    GIỐNG: C3-split cross-domain (Notification Log KHÔNG workflow_state ⇒ KHÔNG `status` ⇒ schema RIÊNG,
+    KHÔNG reuse mọi *ActionResponse lẫn MarkNotificationReadResponse); clean POST @:120 ∉ allowlist.
+
+    Guard (a..g + i):
+      (a) path POST TỒN TẠI + opId markAllAsRead + POST-ONLY (chỉ 'post'); ∈ _MVP_BUSINESS_PATHS; count 47.
+      (b) KHÔNG requestBody (0-param @layout.py:121 ⇒ codegen no-arg POST).
+      (c) 200 = oneOf [MarkAllReadEnvelope, Error], cả 2 closed, 0 discriminator; success.enum disjoint.
+      (d) Envelope {success,data}; MarkAllReadResponse closed EXACT 1-prop {updated_rows} required
+          [updated_rows]; updated_rows integer KHÔNG enum (GENUINE count); KHÔNG prop status/name/read.
+      (e) response slot CHỈ {200,401,403}; 401 Unauthorized401; 403 SINGLE-SHAPE Forbidden; KHÔNG 404/409.
+      (f) 0 dangling $ref; Error REUSE; MarkAllReadResponse ≠ mọi *ActionResponse + ≠ MarkNotificationReadResponse.
+      (g) parity @source — field-set == {updated_rows} @layout.py:134; updated_rows integer WITHOUT enum.
+      (i) LIVE introspect-parity — inspect.signature(layout.mark_all_as_read)=={} (0-param); ∉ allowlist.
+    SSoT: ../04-api-contract.md + ../../imm-00/ADR-IMM00-OPENAPI.md §D-OAS-MARKALLREAD + ADR-MOBILE-018 +
+    api/layout.py:120-134.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.spec = _load_spec() if _MOBILE_YAML.exists() else None
+
+    def _op(self):
+        return ((self.spec.get("paths") or {}).get(_MARK_ALL_READ_PATH) or {}).get("post") or {}
+
+    def _schemas(self):
+        return (self.spec.get("components") or {}).get("schemas") or {}
+
+    def test_mob_oas_markallread_a_path_post_only_in_mvp(self):
+        """(a) path TỒN TẠI, POST-ONLY (chỉ 'post'), opId markAllAsRead, ∈ _MVP_BUSINESS_PATHS; count 47 unique camelCase."""
+        paths = self.spec.get("paths") or {}
+        self.assertIn(_MARK_ALL_READ_PATH, paths, "Thiếu path mark_all_as_read (FLOW-6 mark-all-read).")
+        item = paths[_MARK_ALL_READ_PATH]
+        self.assertIn("post", item, "mark_all_as_read PHẢI khai verb POST (write-action RPC, bulk read 0→1).")
+        self.assertNotIn(
+            "get", item,
+            "mark_all_as_read PHẢI POST-ONLY (KHÔNG 'get') — VERIFIED methods=['POST'] @api/layout.py:120.",
+        )
+        self.assertEqual(self._op().get("operationId"), "markAllAsRead", "opId = markAllAsRead.")
+        self.assertIn(_MARK_ALL_READ_PATH, _MVP_BUSINESS_PATHS, "Phải vào _MVP_BUSINESS_PATHS (401/403 symmetry).")
+        ids = [op["operationId"] for _, _, op in _iter_operations(self.spec)]
+        self.assertEqual(len(paths), 53, "path-count PHẢI 52 (R-NOTIF-UNREAD +getUnreadNotifications).")
+        self.assertEqual(len(ids), 53, "operationId count PHẢI 52.")
+        self.assertEqual(len(set(ids)), 53, "operationId DUY NHẤT (len(set)==52).")
+        for oid in ids:
+            self.assertRegex(oid, _CAMEL_RE, f"operationId KHÔNG camelCase: {oid}")
+
+    def test_mob_oas_markallread_b_no_request_body_zero_param(self):
+        """(b) KHÔNG requestBody — mark_all_as_read() 0-param @layout.py:121 ⇒ codegen sinh no-arg POST."""
+        op = self._op()
+        self.assertNotIn(
+            "requestBody", op,
+            "mark_all_as_read PHẢI KHÔNG có requestBody (0-param @api/layout.py:121 ⇒ codegen no-arg POST). "
+            "Khai requestBody = field rác + sai live-sig parity inspect.signature=={}.",
+        )
+
+    def test_mob_oas_markallread_c_200_oneof_route_by_value(self):
+        """(c) 200 = oneOf [MarkAllReadEnvelope, Error], cả 2 closed, 0 discriminator; success.enum disjoint [true]/[false]."""
+        resp200 = ((self._op().get("responses") or {}).get("200") or {})
+        schema = (((resp200.get("content") or {}).get("application/json") or {}).get("schema") or {})
+        self.assertNotIn("discriminator", schema, "200 KHÔNG discriminator (route-by-VALUE body.success, §5c).")
+        one_of = schema.get("oneOf") or []
+        refs = {m.get("$ref") for m in one_of if isinstance(m, dict)}
+        self.assertEqual(
+            refs, {_MARK_ALL_READ_ENVELOPE_SCHEMA_REF, "#/components/schemas/Error"},
+            f"200.oneOf PHẢI = [MarkAllReadEnvelope, Error]: {sorted(refs)}",
+        )
+        schemas = self._schemas()
+        env = schemas.get(_MARK_ALL_READ_ENVELOPE_SCHEMA) or {}
+        err = schemas.get("Error") or {}
+        self.assertEqual(env.get("additionalProperties"), False, "MarkAllReadEnvelope PHẢI closed.")
+        self.assertEqual(err.get("additionalProperties"), False, "Error PHẢI closed (§5c).")
+        env_succ = ((env.get("properties") or {}).get("success") or {}).get("enum")
+        err_succ = ((err.get("properties") or {}).get("success") or {}).get("enum")
+        self.assertEqual(env_succ, [True], "MarkAllReadEnvelope.success.enum PHẢI [true].")
+        self.assertEqual(err_succ, [False], "Error.success.enum PHẢI [false] (disjoint route-by-VALUE).")
+
+    def test_mob_oas_markallread_d_envelope_and_data_grounded(self):
+        """(d) Envelope {success,data}; MarkAllReadResponse closed EXACT 1-prop {updated_rows}; updated_rows integer KHÔNG enum (GENUINE count); KHÔNG status/name/read."""
+        schemas = self._schemas()
+        env = schemas.get(_MARK_ALL_READ_ENVELOPE_SCHEMA) or {}
+        self.assertTrue(env, f"Thiếu schema {_MARK_ALL_READ_ENVELOPE_SCHEMA}.")
+        self.assertEqual(sorted(env.get("required") or []), ["data", "success"], "Envelope required PHẢI [success,data].")
+        data_ref = ((env.get("properties") or {}).get("data") or {}).get("$ref")
+        self.assertEqual(
+            data_ref, f"#/components/schemas/{_MARK_ALL_READ_RESPONSE_SCHEMA}",
+            f"Envelope.data PHẢI $ref {_MARK_ALL_READ_RESPONSE_SCHEMA}, got {data_ref}",
+        )
+        resp = schemas.get(_MARK_ALL_READ_RESPONSE_SCHEMA) or {}
+        self.assertTrue(resp, f"Thiếu schema {_MARK_ALL_READ_RESPONSE_SCHEMA}.")
+        self.assertEqual(resp.get("additionalProperties"), False, "MarkAllReadResponse PHẢI closed (1-key).")
+        props = resp.get("properties") or {}
+        self.assertEqual(
+            set(props.keys()), _MARK_ALL_READ_DATA_KEYS,
+            f"data props PHẢI EXACT 1 {_MARK_ALL_READ_DATA_KEYS} (layout.py:134 _ok({{updated_rows}})), got {sorted(props.keys())}.",
+        )
+        self.assertEqual(
+            sorted(resp.get("required") or []), ["updated_rows"],
+            "data required PHẢI EXACT [updated_rows] (luôn-có @layout.py:134).",
+        )
+        # updated_rows = GENUINE integer count (0..N) — KHÔNG enum[0,1] (phân biệt với read int-enum).
+        ur = props.get("updated_rows") or {}
+        self.assertEqual(ur.get("type"), "integer", "data.updated_rows PHẢI integer (ROW_COUNT() @layout.py:132).")
+        self.assertNotIn(
+            "enum", ur,
+            "data.updated_rows KHÔNG được có enum — GENUINE count 0..N (ROW_COUNT()), KHÁC read int-enum[0,1] "
+            "của NotificationListItem/MarkNotificationReadResponse (cờ Check 2-giá-trị). enum cắt cụt giá-trị ≥2.",
+        )
+        # KHÔNG có prop status (C3-split) lẫn name/read (KHÔNG reuse MarkNotificationReadResponse).
+        for forbidden in ("status", "name", "read"):
+            self.assertNotIn(
+                forbidden, props,
+                f"MarkAllReadResponse KHÔNG được có prop `{forbidden}` (1-key {{updated_rows}} only; "
+                "KHÔNG status — C3-split; KHÔNG name/read — KHÔNG reuse MarkNotificationReadResponse).",
+            )
+
+    def test_mob_oas_markallread_e_403_single_shape_and_slots(self):
+        """(e) response slot CHỈ {200,401,403}; 401 Unauthorized401; 403 SINGLE-SHAPE Forbidden; KHÔNG 404/409 (scope SQL no lookup-by-name)."""
+        resps = (self._op().get("responses") or {})
+        self.assertEqual(
+            sorted(resps.keys()), ["200", "401", "403"],
+            f"response slot PHẢI CHỈ {{200,401,403}} (scope SQL WHERE for_user=session.user no lookup-by-name "
+            f"⇒ KHÔNG 404/409; in-handler guest 401 ARRIVE HTTP-200 nhánh Error): {sorted(resps.keys())}",
+        )
+        self.assertEqual(
+            (resps.get("401") or {}).get("$ref"), _UNAUTHORIZED401_RESP_REF,
+            "401 PHẢI $ref Unauthorized401.",
+        )
+        resp403 = (resps.get("403") or {})
+        self.assertEqual(
+            resp403.get("$ref"), _FORBIDDEN_RESP_REF,
+            f"403 PHẢI $ref Forbidden (SINGLE-SHAPE; guest/no-token dispatcher PermissionError HTTP-403; "
+            f"KHÔNG cap-403 owner-guard — bulk update no ownership lookup), got {resp403.get('$ref')}",
+        )
+        self.assertNotEqual(
+            resp403.get("$ref"), _REPORT_INCIDENT_FORBIDDEN_RESP_REF,
+            "markAllAsRead 403 KHÔNG được dùng ReportIncidentForbidden (đó là DUAL-403 của report_incident).",
+        )
+        for forbidden_slot in ("404", "409"):
+            self.assertNotIn(
+                forbidden_slot, resps,
+                f"KHÔNG được khai slot {forbidden_slot} (mark_all_as_read scope SQL WHERE for_user=session.user "
+                "@layout.py:127-131 — KHÔNG lookup-by-name ⇒ KHÔNG đường-đi 404/409).",
+            )
+
+    def test_mob_oas_markallread_f_no_dangling_error_reuse_no_action_reuse(self):
+        """(f) 0 dangling $ref sau bồi; Error REUSE; MarkAllReadResponse ≠ mọi *ActionResponse + ≠ MarkNotificationReadResponse."""
+        dangling = sorted({r for r in _collect_refs(self.spec) if not _resolve_pointer(r, self.spec)})
+        self.assertEqual(dangling, [], f"PHẢI 0 dangling $ref sau bồi markAllAsRead: {dangling}")
+        schemas = self._schemas()
+        self.assertIn("Error", schemas, "Error schema PHẢI tồn tại (REUSE, KHÔNG định nghĩa mới).")
+        self.assertIn(_MARK_ALL_READ_RESPONSE_SCHEMA, schemas, "MarkAllReadResponse PHẢI tồn tại (RIÊNG).")
+        # object-identity distinct — KHÔNG merge với *ActionResponse (mang status) lẫn MarkNotificationReadResponse ({name,read}).
+        for other in (
+            _CLOSE_WORK_ORDER_RESPONSE_SCHEMA, _CONFIRM_INSPECTION_RESPONSE_SCHEMA,
+            _ASSIGN_TECH_RESPONSE_SCHEMA, _SUBMIT_CAL_RESPONSE_SCHEMA,
+        ):
+            self.assertNotEqual(
+                _MARK_ALL_READ_RESPONSE_SCHEMA, other,
+                f"MarkAllReadResponse PHẢI schema RIÊNG (KHÔNG merge {other} — Notification Log KHÔNG "
+                "workflow_state ⇒ KHÔNG status; C3-split cross-domain).",
+            )
+            other_sch = schemas.get(other) or {}
+            self.assertIn(
+                "status", (other_sch.get("properties") or {}),
+                f"control: {other} PHẢI có prop status (chứng minh MarkAllRead KHÁC — KHÔNG status).",
+            )
+        # KHÔNG reuse MarkNotificationReadResponse — field-set THẬT khác ({updated_rows} vs {name,read}).
+        notif = schemas.get(_MARK_NOTIF_READ_RESPONSE_SCHEMA) or {}
+        self.assertNotEqual(
+            set((notif.get("properties") or {}).keys()),
+            set(((schemas.get(_MARK_ALL_READ_RESPONSE_SCHEMA) or {}).get("properties") or {}).keys()),
+            "MarkAllReadResponse {updated_rows} PHẢI KHÁC field-set MarkNotificationReadResponse {name,read} "
+            "(bulk đếm vs single echo — KHÔNG reuse cross-action cùng domain).",
+        )
+
+    def test_mob_oas_markallread_g_parity_at_source(self):
+        """(g) parity @source — MarkAllReadResponse field-set == return-dict keys @layout.py:134 {updated_rows}; updated_rows integer WITHOUT enum (GENUINE count)."""
+        resp = self._schemas().get(_MARK_ALL_READ_RESPONSE_SCHEMA) or {}
+        props = set((resp.get("properties") or {}).keys())
+        # return-dict THẬT @api/layout.py:134 = _ok({"updated_rows": affected}) ⇒ {updated_rows}.
+        source_keys = {"updated_rows"}
+        self.assertEqual(
+            props, source_keys,
+            f"MarkAllReadResponse props {sorted(props)} PHẢI == return-dict @api/layout.py:134 "
+            f"{sorted(source_keys)} (KHÔNG nhồi/thiếu field; đặc biệt KHÔNG status/name/read).",
+        )
+        ur = (resp.get("properties") or {}).get("updated_rows") or {}
+        self.assertEqual(ur.get("type"), "integer", "updated_rows PHẢI integer (affected = ROW_COUNT() @:132).")
+        self.assertNotIn("enum", ur, "updated_rows KHÔNG enum — GENUINE count 0..N (mirror measurement_count R34).")
+
+    def test_mob_oas_markallread_i_zero_param_matches_live_signature(self):
+        """(i) LIVE introspect-parity — inspect.signature(layout.mark_all_as_read)=={} (0-param) ⇒ contract 0 requestBody.
+        Clean POST (methods=['POST'] @api/layout.py:120) ⇒ KHÔNG ∈ _PARITY_VERB_ALLOWLIST. Chống drift contract↔source.
+        """
+        from assetcore.api import layout  # lazy — tránh import-time vòng phụ thuộc.
+        fn = getattr(layout, "mark_all_as_read", None)
+        self.assertIsNotNone(fn, "Thiếu hàm whitelist LIVE: layout.mark_all_as_read.")
+        sig = inspect.signature(fn)
+        self.assertEqual(
+            set(sig.parameters.keys()), set(),
+            f"signature LIVE PHẢI 0-param (mark_all_as_read()), got {sorted(sig.parameters.keys())} "
+            "⇒ contract KHÔNG requestBody (codegen no-arg POST).",
+        )
+        self.assertNotIn(
+            _MARK_ALL_READ_PATH, _PARITY_VERB_ALLOWLIST,
+            "mark_all_as_read clean POST (methods=['POST']) ⇒ KHÔNG được nằm trong "
+            "_PARITY_VERB_ALLOWLIST (đó là danh-sách verb-divergence bare-whitelist).",
+        )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TRANSFER-READ-WIRE (IMM-13 Đợt-2) — contract guard cho 2 GET-read điều chuyển.
+#   listTransfers (SINGLE-shape TransferListEnvelope, items-key) + getTransfer
+#   (200-oneOf [TransferDetailEnvelope, Error] route-by-VALUE 0-discriminator).
+#   Grounded @source: api/imm00.py def list_transfers:2048 / get_transfer:2081 +
+#   Asset Transfer doctype (asset_transfer.json). CONTRACT-ONLY (6 endpoint LIVE).
+# ─────────────────────────────────────────────────────────────────────────────
+_TRANSFER_LIST_ITEM_FIELDS = {
+    "name", "asset", "transfer_date", "transfer_type", "status",
+    "from_location", "to_location", "from_department", "to_department",
+    "from_custodian", "to_custodian", "reason", "approved_by", "approval_date",
+    "received_by", "received_date", "asset_name",
+}  # 17 — grounded imm00.py:2062-2076 (16 repo) + asset_name enrich (loop :2071-2076)
+_TRANSFER_STATUS_ENUM = ["Pending Approval", "Approved", "Rejected", "Received", "Cancelled"]  # asset_transfer.json
+_TRANSFER_LIST_ITEM_REF = "#/components/schemas/TransferListItem"
+_TRANSFER_LIST_ENV_REF = "#/components/schemas/TransferListEnvelope"
+_TRANSFER_DETAIL_ENV_REF = "#/components/schemas/TransferDetailEnvelope"
+
+
+class TestMobileTransferReadContract(unittest.TestCase):
+    """TRANSFER-READ-WIRE (IMM-13 Đợt-2) — bồi 2 GET-read điều chuyển vào mobile contract.
+
+    CONTRACT-ONLY: 6 endpoint điều chuyển ĐÃ LIVE @api/imm00.py (list_transfers:2048 /
+    get_transfer:2081 + 4 write). Round chỉ bồi 2 path READ + 4 schema + 2 param vào
+    assetcore-mobile.openapi.yaml — KHÔNG đụng api/services .py ⇒ KHÔNG reload worker.
+    Source-grounded (re-verify theo symbol, KHÔNG tin số dòng): list_transfers signature
+    {asset,status,page,page_size} + return _ok({pagination,items}) KHÔNG try/except (single
+    shape); get_transfer signature {name} + return _ok(doc.as_dict()) + 404 _err quirk.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.spec = _load_spec()
+
+    # ── helpers ───────────────────────────────────────────────────────────────
+    def _op(self, path, verb="get"):
+        return (self.spec["paths"].get(path) or {}).get(verb) or {}
+
+    def _param_components(self, op):
+        """Trả list (component dict) cho mọi param — resolve $ref về components.parameters.<X>."""
+        comps = (self.spec.get("components") or {}).get("parameters") or {}
+        out = []
+        for p in op.get("parameters") or []:
+            if isinstance(p, dict) and "$ref" in p:
+                out.append(comps.get(p["$ref"].split("/")[-1]) or {})
+            else:
+                out.append(p or {})
+        return out
+
+    def _param_names(self, op):
+        return {c.get("name") for c in self._param_components(op)}
+
+    def _schema(self, name):
+        return ((self.spec.get("components") or {}).get("schemas") or {}).get(name) or {}
+
+    # ── listTransfers ─────────────────────────────────────────────────────────
+    def test_transfer_a_listtransfers_path_get_only_opid(self):
+        item = self.spec["paths"].get(_LIST_TRANSFERS_PATH)
+        self.assertIsNotNone(item, f"Thiếu path {_LIST_TRANSFERS_PATH}")
+        verbs = {v for v in item if v in _HTTP_VERBS}
+        self.assertEqual(verbs, {"get"}, f"listTransfers PHẢI GET-only, got {verbs}")
+        op = self._op(_LIST_TRANSFERS_PATH)
+        self.assertEqual(op.get("operationId"), "listTransfers", "operationId PHẢI listTransfers.")
+        self.assertTrue(op.get("tags"), "listTransfers PHẢI có tags.")
+        self.assertIn(
+            _LIST_TRANSFERS_PATH, _MVP_BUSINESS_PATHS,
+            "listTransfers (bare @whitelist no-allow_guest → guest dispatcher-403) PHẢI ∈ "
+            "_MVP_BUSINESS_PATHS để 401/403 symmetry tự lên (test so SET).",
+        )
+
+    def test_transfer_b_listtransfers_params_exact(self):
+        op = self._op(_LIST_TRANSFERS_PATH)
+        self.assertEqual(
+            self._param_names(op), {"asset", "status", "page", "page_size"},
+            "listTransfers param-set PHẢI khớp signature list_transfers(asset,status,page,page_size).",
+        )
+        for c in self._param_components(op):
+            self.assertEqual(c.get("in"), "query", f"param {c.get('name')} PHẢI in:query (GET discrete).")
+        names_types = {c.get("name"): c.get("schema", {}).get("type") for c in self._param_components(op)}
+        self.assertEqual(names_types.get("asset"), "string", "asset = query string.")
+        self.assertEqual(names_types.get("status"), "string", "status = query string.")
+        self.assertEqual(names_types.get("page"), "integer", "page = query integer (Page $ref).")
+        self.assertEqual(names_types.get("page_size"), "integer", "page_size = query integer (PageSize $ref).")
+
+    def test_transfer_c_listtransfers_live_sig_parity(self):
+        """anti-false-green: live signature == contract param-set ⇒ CONTRACT-ONLY (handler đã LIVE)."""
+        from assetcore.api import imm00
+        sig = inspect.signature(imm00.list_transfers)
+        self.assertEqual(
+            set(sig.parameters.keys()), {"asset", "status", "page", "page_size"},
+            "live signature imm00.list_transfers PHẢI == {asset,status,page,page_size} "
+            "(param parity — KHÔNG sửa .py, contract bám source).",
+        )
+
+    def test_transfer_d_listtransfers_200_single_shape(self):
+        """listTransfers 200 = SINGLE $ref TransferListEnvelope (handler 0-_err ⇒ KHÔNG oneOf Error)."""
+        op = self._op(_LIST_TRANSFERS_PATH)
+        schema200 = _200_schema(op.get("responses") or {})
+        self.assertEqual(
+            schema200.get("$ref"), _TRANSFER_LIST_ENV_REF,
+            "listTransfers 200 PHẢI SINGLE $ref TransferListEnvelope (handler list_transfers KHÔNG "
+            "try/except + 0 nhánh _err in-handler ⇒ KHÔNG oneOf [Env, Error]).",
+        )
+        self.assertNotIn("oneOf", schema200, "listTransfers 200 KHÔNG được oneOf (single-shape).")
+
+    def test_transfer_e_listtransfers_envelope_shape(self):
+        """TransferListEnvelope closed, success enum[true], data.{pagination,items}, items=TransferListItem."""
+        env = self._schema("TransferListEnvelope")
+        self.assertFalse(env.get("additionalProperties", True), "TransferListEnvelope PHẢI additionalProperties:false.")
+        self.assertEqual(set(env.get("required") or []), {"success", "data"}, "required [success,data].")
+        self.assertEqual(env["properties"]["success"].get("enum"), [True], "success enum [true].")
+        data = env["properties"]["data"]
+        self.assertEqual(set(data.get("required") or []), {"pagination", "items"}, "data.required [pagination,items].")
+        self.assertEqual(
+            data["properties"]["pagination"].get("$ref"), "#/components/schemas/Pagination",
+            "pagination = $ref Pagination.",
+        )
+        self.assertEqual(
+            data["properties"]["items"]["items"].get("$ref"), _TRANSFER_LIST_ITEM_REF,
+            "items[] = $ref TransferListItem (rows-key items, KHÔNG data.data[]).",
+        )
+
+    def test_transfer_f_listtransfers_slot_401_403(self):
+        op = self._op(_LIST_TRANSFERS_PATH)
+        self.assertEqual(
+            set((op.get("responses") or {}).keys()), {"200", "401", "403"},
+            "listTransfers response slot PHẢI {200,401,403}.",
+        )
+        self.assertEqual(
+            op["responses"]["401"].get("$ref"), "#/components/responses/Unauthorized401",
+            "401 = Unauthorized401 (bearer hết hạn).",
+        )
+        self.assertEqual(
+            op["responses"]["403"].get("$ref"), "#/components/responses/Forbidden",
+            "403 = Forbidden SINGLE-SHAPE FrappeRawError (bare @whitelist KHÔNG allow_guest → guest "
+            "dispatcher-403), KHÔNG ReportIncidentForbidden dual-shape.",
+        )
+
+    # ── getTransfer ───────────────────────────────────────────────────────────
+    def test_transfer_g_gettransfer_path_get_only_opid(self):
+        item = self.spec["paths"].get(_GET_TRANSFER_PATH)
+        self.assertIsNotNone(item, f"Thiếu path {_GET_TRANSFER_PATH}")
+        verbs = {v for v in item if v in _HTTP_VERBS}
+        self.assertEqual(verbs, {"get"}, f"getTransfer PHẢI GET-only, got {verbs}")
+        op = self._op(_GET_TRANSFER_PATH)
+        self.assertEqual(op.get("operationId"), "getTransfer", "operationId PHẢI getTransfer.")
+        self.assertTrue(op.get("tags"), "getTransfer PHẢI có tags.")
+        self.assertIn(_GET_TRANSFER_PATH, _MVP_BUSINESS_PATHS, "getTransfer PHẢI ∈ _MVP_BUSINESS_PATHS.")
+
+    def test_transfer_h_gettransfer_param_name_required(self):
+        op = self._op(_GET_TRANSFER_PATH)
+        comps = self._param_components(op)
+        self.assertEqual(len(comps), 1, "getTransfer PHẢI ĐÚNG 1 param (name).")
+        name_p = comps[0]
+        self.assertEqual(name_p.get("name"), "name", "param = name.")
+        self.assertEqual(name_p.get("in"), "query", "name in:query.")
+        self.assertTrue(name_p.get("required"), "name PHẢI required:true.")
+        self.assertEqual(name_p.get("schema", {}).get("type"), "string", "name = string.")
+
+    def test_transfer_i_gettransfer_live_sig_parity(self):
+        from assetcore.api import imm00
+        sig = inspect.signature(imm00.get_transfer)
+        self.assertEqual(
+            set(sig.parameters.keys()), {"name"},
+            "live signature imm00.get_transfer PHẢI == {name} (param parity, CONTRACT-ONLY).",
+        )
+
+    def test_transfer_j_gettransfer_200_oneof_closed(self):
+        """getTransfer 200 = oneOf [TransferDetailEnvelope, Error] closed route-by-VALUE 0-discriminator."""
+        op = self._op(_GET_TRANSFER_PATH)
+        _assert_200_oneof_closed_distinct(self, op.get("responses") or {}, _TRANSFER_DETAIL_ENV_REF, "getTransfer")
+        # TransferDetailEnvelope = closed envelope disjoint vs Error (route-by body.success).
+        env = self._schema("TransferDetailEnvelope")
+        self.assertFalse(env.get("additionalProperties", True), "TransferDetailEnvelope PHẢI additionalProperties:false.")
+        self.assertEqual(set(env.get("required") or []), {"success", "data"}, "required [success,data].")
+        self.assertEqual(env["properties"]["success"].get("enum"), [True], "success enum [true].")
+        self.assertEqual(
+            env["properties"]["data"].get("$ref"), "#/components/schemas/TransferDetail",
+            "TransferDetailEnvelope.data = $ref TransferDetail (doc.as_dict() superset).",
+        )
+        # Error.http_status enum ⊇ {404} (get_transfer 404 _err@imm00.py:2084 → Error HTTP-200 quirk).
+        http_enum = self._schema("Error")["properties"]["http_status"].get("enum") or []
+        self.assertIn(404, http_enum, "Error.http_status enum PHẢI ⊇ {404} (getTransfer not-found quirk).")
+
+    def test_transfer_k_gettransfer_slot_401_403(self):
+        op = self._op(_GET_TRANSFER_PATH)
+        self.assertEqual(
+            set((op.get("responses") or {}).keys()), {"200", "401", "403"},
+            "getTransfer response slot PHẢI {200,401,403}.",
+        )
+        self.assertEqual(op["responses"]["401"].get("$ref"), "#/components/responses/Unauthorized401")
+        self.assertEqual(op["responses"]["403"].get("$ref"), "#/components/responses/Forbidden")
+
+    # ── TransferListItem (closed, 17 field) ──────────────────────────────────
+    def test_transfer_l_listitem_fields_exact_closed(self):
+        item = self._schema("TransferListItem")
+        self.assertFalse(item.get("additionalProperties", True), "TransferListItem PHẢI additionalProperties:false.")
+        self.assertEqual(
+            set(item.get("properties") or {}), _TRANSFER_LIST_ITEM_FIELDS,
+            "TransferListItem field-set PHẢI EXACT 17 (grounded imm00.py:2062-2076 + asset_name).",
+        )
+        self.assertEqual(set(item.get("required") or []), {"name"}, "Chỉ name REQUIRED (PK).")
+
+    def test_transfer_m_listitem_status_enum_no_bool_trap(self):
+        item = self._schema("TransferListItem")
+        props = item["properties"]
+        self.assertEqual(
+            props["status"].get("enum"), _TRANSFER_STATUS_ENUM,
+            "status enum PHẢI = 5 Asset Transfer Select [Pending Approval,Approved,Rejected,Received,Cancelled].",
+        )
+        # 0 bool-trap — KHÔNG property nào type:boolean; date-field = string format:date.
+        for fname, fdef in props.items():
+            self.assertNotEqual(fdef.get("type"), "boolean", f"{fname} KHÔNG được type:boolean (bool-trap).")
+        for d in ("transfer_date", "approval_date", "received_date"):
+            self.assertEqual(props[d].get("type"), "string", f"{d} PHẢI string (KHÔNG bool).")
+            self.assertEqual(props[d].get("format"), "date", f"{d} format:date.")
+
+    # ── TransferDetail superset + no-orphan + count/backward-compat ───────────
+    def test_transfer_n_detail_superset_of_listitem(self):
+        """TransferDetail (as_dict) = closed-envelope superset business-field của TransferListItem."""
+        detail = self._schema("TransferDetail")
+        self.assertTrue(detail.get("additionalProperties"), "TransferDetail PHẢI additionalProperties:true (as_dict surface).")
+        self.assertEqual(set(detail.get("required") or []), {"name"}, "TransferDetail required [name].")
+        dprops = set(detail.get("properties") or {})
+        # superset của TransferListItem business-field (TRỪ asset_name enrich-only, KHÔNG trong as_dict).
+        biz = _TRANSFER_LIST_ITEM_FIELDS - {"asset_name"}
+        missing = biz - dprops
+        self.assertEqual(missing, set(), f"TransferDetail PHẢI superset business-field của TransferListItem; thiếu {missing}.")
+        # status enum giữ 5-state (grounded asset_transfer.json).
+        self.assertEqual(detail["properties"]["status"].get("enum"), _TRANSFER_STATUS_ENUM, "TransferDetail.status enum 5.")
+
+    def test_transfer_o_no_orphan_new_components(self):
+        """3 component closed + TransferDetail đều ĐƯỢC $ref (no-orphan); reuse error-resp đã defined."""
+        refs = set(_collect_refs(self.spec))
+        for r in (_TRANSFER_LIST_ITEM_REF, _TRANSFER_LIST_ENV_REF, _TRANSFER_DETAIL_ENV_REF,
+                  "#/components/schemas/TransferDetail"):
+            self.assertIn(r, refs, f"Component {r} PHẢI ĐƯỢC $ref (no-orphan).")
+            self.assertTrue(_resolve_pointer(r, self.spec), f"{r} PHẢI resolve (0 dangling).")
+        # reuse error/response component đã defined (referenced ở đâu đó trong spec).
+        #   (NotFound404 = RESERVED orphan — getTransfer 404 đến qua nhánh Error HTTP-200, KHÔNG
+        #   404 status-line ⇒ KHÔNG $ref NotFound404; phủ bởi test_mob_oas_10 reserved-allow-list.)
+        for r in ("#/components/responses/Unauthorized401", "#/components/responses/Forbidden",
+                  "#/components/schemas/Error"):
+            self.assertIn(r, refs, f"{r} PHẢI referenced (reuse, no-orphan).")
+
+    def test_transfer_p_count_and_backward_compat(self):
+        """path/opId count == 52 ∧ opId-set diff so baseline == {listTransfers,getTransfer} EXACT."""
+        paths = self.spec.get("paths") or {}
+        self.assertEqual(len(paths), 53, "path-count PHẢI 52 (TRANSFER-READ-WIRE +list/get_transfer).")
+        ids = [op["operationId"] for _, _, op in _iter_operations(self.spec)]
+        self.assertEqual(len(ids), 53, "operationId count PHẢI 52.")
+        self.assertEqual(len(set(ids)), 53, "operationId DUY NHẤT (len(set)==52, 0 dup).")
+        new = {"listTransfers", "getTransfer"}
+        self.assertTrue(new <= set(ids), "2 opId mới PHẢI hiện diện.")
+        self.assertEqual(
+            len(set(ids) - new), 51,
+            "Backward-compat: opId-set TRỪ {listTransfers,getTransfer} == 50 cũ (chỉ +2, 0 đổi/xoá).",
         )
 
 

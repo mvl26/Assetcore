@@ -132,7 +132,16 @@ _CORS_WILDCARD_RECOMMEND_RE = re.compile(r"""allow_cors:[ \t]+['"]\*['"]""")
 #   GUARD-6/8). Source @source frappe/utils/data.py get_url (:1599) host_name (:1605) + fallback
 #   protocol+site (:1631) + doc-invariant 08 §5.1(f) / 10 §3·§6.2·§6.3 / EPIC-G §3.3·§8 R4.
 #   Meta-guard test_sec_10 đếm THẬT = 52 → SSoT=52.
-_EXPECTED_SECURITY_GATE_TEST_COUNT = 52
+# NOTE(G-A9): +3 TC GUARD-7 (mở-rộng EPIC-G acceptance coverage) = 55. Đóng coverage-hole:
+#   GUARD-7 trước CHỈ machine-check 08 §5(d) + 10 §6.2 note 2, KHÔNG check chính EPIC-G G3/G4
+#   acceptance-row → drift 'unconditional 429 chứa Retry-After/X-RateLimit-*' (self-contradiction
+#   §3.3 knob/§6 T1/R5) lọt. 3 method test_sec_07_*: epicg_g3_acceptance_row_conf_gated ·
+#   epicg_g4_acceptance_row_conf_gated · red_before_flip_epicg_precond_is_red. Mỗi G3/G4 assert
+#   precondition 'CHỈ KHI `conf.rate_limit`/nginx limit_req' + negation 'KHÔNG do @rate_limit
+#   decorator một mình' (source: rate_limiter.py:162-166 throw-path KHÔNG gọi RateLimiter.headers();
+#   chỉ conf.rate_limit middleware :82-92 / nginx limit_req emit header). Meta-guard test_sec_10
+#   đếm THẬT = 55 → SSoT=55.
+_EXPECTED_SECURITY_GATE_TEST_COUNT = 55
 
 
 def _read(path: Path) -> str:
@@ -796,6 +805,16 @@ class TestSecGateRateLimitHeaderDoc(unittest.TestCase):
     _KNOWN_CLAUSE_RE = re.compile(
         r"CHỈ phát khi\s*`?conf\.rate_limit`?", re.IGNORECASE
     )
+    # EPIC-G acceptance-row precondition (G3 line ~166 + G4 line ~190): header conf-gated.
+    # EPIC-G dùng phrasing 'CHỈ KHI `conf.rate_limit`/nginx `limit_req` set' (KHÁC 08/10 'CHỈ phát khi').
+    # Tolerant: 'CHỈ' + (tùy) 'phát ' + 'khi' + (tùy backtick) 'conf.rate_limit'.
+    _EPICG_PRECOND_RE = re.compile(
+        r"CHỈ\s+(?:phát\s+)?khi\s*`?conf\.rate_limit`?", re.IGNORECASE
+    )
+    # Negation 'KHÔNG do `@rate_limit` decorator một mình' — đóng claim SAI cũ (decorator-một-mình emit).
+    _EPICG_NEG_DECORATOR_RE = re.compile(
+        r"KHÔNG\s+do\s+`?@rate_limit`?\s+decorator\s+một\s+mình", re.IGNORECASE
+    )
 
     @classmethod
     def setUpClass(cls):
@@ -807,6 +826,7 @@ class TestSecGateRateLimitHeaderDoc(unittest.TestCase):
         cls.headers_src = inspect.getsource(_rl.RateLimiter.headers)
         cls.text_08 = _read(_DOC_08)
         cls.text_10 = _read(_DOC_10)
+        cls.text_epicg = _read(_EPIC_G)
 
     @staticmethod
     def _section(text: str, start_marker: str, end_marker: str | None) -> str:
@@ -985,6 +1005,84 @@ class TestSecGateRateLimitHeaderDoc(unittest.TestCase):
         note2 = self._section(sect_10, "**Rate-limit header (429):**", "### 6.3")
         self.assertRegex(note2, self._KNOWN_CLAUSE_RE)
         self.assertIn("body-only no-header", note2)
+
+    # ── (5) EPIC-G acceptance-row coverage (G-A9, đóng coverage-hole drift đã lọt) ──
+    def test_sec_07_epicg_g3_acceptance_row_conf_gated(self):
+        """EPIC-G G3 acceptance-row (429-header) PHẢI mang precondition 'CHỈ KHI conf.rate_limit/
+        nginx limit_req set' + negation 'KHÔNG do @rate_limit decorator một mình' (raw-text).
+
+        Đóng coverage-hole: GUARD-7 (1)-(4) chỉ machine-check 08 §5(d) + 10 §6.2 — KHÔNG check
+        chính EPIC-G acceptance, để drift 'unconditional 429 chứa Retry-After/X-RateLimit-*' lọt
+        (self-contradiction với §3.3 knob / §6 T1 / R5). Quét khối G3 ('### G3' → '### G4')."""
+        sect = self._section(
+            self.text_epicg, "### G3 — Tắt", "### G4 — Security gate"
+        )
+        self.assertTrue(sect, "EPIC-G: KHÔNG tìm thấy section G3 ('### G3 — Tắt').")
+        self.assertIn(
+            "Retry-After", sect, "EPIC-G G3 acceptance PHẢI nhắc header 'Retry-After'."
+        )
+        self.assertIn(
+            "X-RateLimit-*", sect, "EPIC-G G3 acceptance PHẢI nhắc 'X-RateLimit-*'."
+        )
+        self.assertRegex(
+            sect,
+            self._EPICG_PRECOND_RE,
+            "EPIC-G G3 acceptance (429-header) PHẢI có precondition 'CHỈ KHI `conf.rate_limit`' "
+            "(header conf-gated — KHÔNG unconditional). Drift = self-contradiction §3.3/§6/R5.",
+        )
+        self.assertRegex(
+            sect,
+            self._EPICG_NEG_DECORATOR_RE,
+            "EPIC-G G3 acceptance PHẢI có negation 'KHÔNG do `@rate_limit` decorator một mình' "
+            "(decorator throw-path :162-166 KHÔNG gọi RateLimiter.headers()).",
+        )
+
+    def test_sec_07_epicg_g4_acceptance_row_conf_gated(self):
+        """EPIC-G G4 acceptance sub-condition (d) PHẢI mang precondition 'CHỈ KHI conf.rate_limit/
+        nginx limit_req set' + negation 'KHÔNG do @rate_limit decorator một mình' (raw-text).
+
+        Quét khối G4 ('### G4 — Security gate' → '## 5.')."""
+        sect = self._section(
+            self.text_epicg, "### G4 — Security gate", "## 5."
+        )
+        self.assertTrue(sect, "EPIC-G: KHÔNG tìm thấy section G4 ('### G4 — Security gate').")
+        self.assertIn(
+            "Retry-After", sect, "EPIC-G G4(d) PHẢI nhắc header 'Retry-After'."
+        )
+        self.assertRegex(
+            sect,
+            self._EPICG_PRECOND_RE,
+            "EPIC-G G4(d) PHẢI có precondition 'CHỈ KHI `conf.rate_limit`' (header conf-gated).",
+        )
+        self.assertRegex(
+            sect,
+            self._EPICG_NEG_DECORATOR_RE,
+            "EPIC-G G4(d) PHẢI có negation 'KHÔNG do `@rate_limit` decorator một mình'.",
+        )
+
+    def test_sec_07_red_before_flip_epicg_precond_is_red(self):
+        """RED-before/GREEN-after THẬT (EPIC-G doc-side): control = G3+G4 acceptance THẬT pass
+        precondition; flip 'CHỈ KHI `conf.rate_limit`'→'LUÔN' (mất conf-gate caveat → quay lại claim
+        SAI unconditional) → detector RED. Chứng minh guard bắt re-introduce drift (anti false-green).
+        Đóng đúng self-contradiction lịch-sử (G3:165/G4:190 từng claim unconditional)."""
+        g3 = self._section(self.text_epicg, "### G3 — Tắt", "### G4 — Security gate")
+        g4 = self._section(self.text_epicg, "### G4 — Security gate", "## 5.")
+        # GREEN: cả 2 section THẬT có precondition.
+        self.assertRegex(g3, self._EPICG_PRECOND_RE, "Control: EPIC-G G3 THẬT phải có precondition.")
+        self.assertRegex(g4, self._EPICG_PRECOND_RE, "Control: EPIC-G G4 THẬT phải có precondition.")
+        # RED-before: flip precondition phrasing trên bản-sao → mất conf-gate caveat.
+        flipped_g3 = self._EPICG_PRECOND_RE.sub("LUÔN-CÓ-HEADER", g3)
+        flipped_g4 = self._EPICG_PRECOND_RE.sub("LUÔN-CÓ-HEADER", g4)
+        self.assertNotRegex(
+            flipped_g3,
+            self._EPICG_PRECOND_RE,
+            "RED-before: flip EPIC-G G3 precondition→'LUÔN' PHẢI bị guard bắt (anti-false-green).",
+        )
+        self.assertNotRegex(
+            flipped_g4,
+            self._EPICG_PRECOND_RE,
+            "RED-before: flip EPIC-G G4 precondition→'LUÔN' PHẢI bị guard bắt (anti-false-green).",
+        )
 
 
 class TestSecGateAuditActorNd98Doc(unittest.TestCase):
