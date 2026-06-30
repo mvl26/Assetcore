@@ -55,11 +55,12 @@
   {
    "fieldname": "upgrade_eta",
    "fieldtype": "Date",
-   "label": "ETA upgrade"
+   "label": "Dự kiến nâng cấp"
   },
   {
    "fieldname": "upgrade_cost_estimate",
    "fieldtype": "Currency",
+   "length": 28,
    "label": "Chi phí ước tính"
   },
   {

@@ -59,6 +59,7 @@
   {
    "fieldname": "unit_cost",
    "fieldtype": "Currency",
+   "length": 28,
    "label": "Đơn giá",
    "fetch_from": "spare_part.unit_cost",
    "in_list_view": 1,
@@ -68,6 +69,7 @@
   {
    "fieldname": "total_cost",
    "fieldtype": "Currency",
+   "length": 28,
    "label": "Thành tiền",
    "read_only": 1,
    "in_list_view": 1,
@@ -76,7 +78,7 @@
   {
    "fieldname": "serial_no",
    "fieldtype": "Data",
-   "label": "Serial"
+   "label": "Số serial"
   },
   {
    "fieldname": "notes",
@@ -96,7 +98,7 @@
   {
    "fieldname": "stock_qty",
    "fieldtype": "Float",
-   "label": "SL (theo stock UOM)",
+   "label": "SL (theo ĐVT kho)",
    "read_only": 1,
    "precision": "3",
    "in_list_view": 0,

@@ -37,7 +37,7 @@
   {
    "fieldname": "policy_name",
    "fieldtype": "Data",
-   "label": "Policy Name",
+   "label": "Tên chính sách",
    "reqd": 1,
    "unique": 1,
    "in_list_view": 1
@@ -45,7 +45,7 @@
   {
    "fieldname": "priority",
    "fieldtype": "Select",
-   "label": "Priority",
+   "label": "Mức ưu tiên",
    "options": "P1\nP2\nP3\nP4",
    "reqd": 1,
    "search_index": 1,
@@ -58,7 +58,7 @@
   {
    "fieldname": "risk_class",
    "fieldtype": "Select",
-   "label": "Risk Class",
+   "label": "Hạng rủi ro",
    "options": "\nLow\nMedium\nHigh\nCritical",
    "search_index": 1,
    "in_list_view": 1
@@ -66,43 +66,43 @@
   {
    "fieldname": "is_default",
    "fieldtype": "Check",
-   "label": "Is Default for Priority"
+   "label": "Mặc định theo mức ưu tiên"
   },
   {
    "fieldname": "section_times",
    "fieldtype": "Section Break",
-   "label": "SLA Times"
+   "label": "Mốc thời gian SLA"
   },
   {
    "fieldname": "response_time_minutes",
    "fieldtype": "Int",
-   "label": "Response Time (minutes)",
+   "label": "Thời gian phản hồi (phút)",
    "reqd": 1,
    "in_list_view": 1
   },
   {
    "fieldname": "resolution_time_hours",
    "fieldtype": "Int",
-   "label": "Resolution Time (hours)",
+   "label": "Thời gian xử lý (giờ)",
    "reqd": 1,
    "in_list_view": 1
   },
   {
    "fieldname": "section_escalation",
    "fieldtype": "Section Break",
-   "label": "Escalation"
+   "label": "Leo thang"
   },
   {
    "fieldname": "escalation_l1_user",
    "fieldtype": "Link",
-   "label": "Escalation L1 User",
+   "label": "Người leo thang cấp 1",
    "options": "User",
    "description": "User được leo thang khi quá hạn L1"
   },
   {
    "fieldname": "escalation_l1_hours",
    "fieldtype": "Int",
-   "label": "Escalation L1 (hours)"
+   "label": "Leo thang cấp 1 (giờ)"
   },
   {
    "fieldname": "column_break_escalation",
@@ -111,29 +111,29 @@
   {
    "fieldname": "escalation_l2_user",
    "fieldtype": "Link",
-   "label": "Escalation L2 User",
+   "label": "Người leo thang cấp 2",
    "options": "User",
    "description": "User được leo thang khi quá hạn L2"
   },
   {
    "fieldname": "escalation_l2_hours",
    "fieldtype": "Int",
-   "label": "Escalation L2 (hours)"
+   "label": "Leo thang cấp 2 (giờ)"
   },
   {
    "fieldname": "section_validity",
    "fieldtype": "Section Break",
-   "label": "Validity"
+   "label": "Hiệu lực"
   },
   {
    "fieldname": "effective_date",
    "fieldtype": "Date",
-   "label": "Effective Date"
+   "label": "Ngày hiệu lực"
   },
   {
    "fieldname": "expiry_date",
    "fieldtype": "Date",
-   "label": "Expiry Date"
+   "label": "Ngày hết hạn"
   },
   {
    "fieldname": "column_break_validity",
@@ -142,7 +142,7 @@
   {
    "fieldname": "is_active",
    "fieldtype": "Check",
-   "label": "Is Active",
+   "label": "Đang hoạt động",
    "default": "1"
   }
  ],

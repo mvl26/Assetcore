@@ -39,7 +39,7 @@
    "fieldname": "supplier",
    "fieldtype": "Link",
    "options": "AC Supplier",
-   "label": "Vendor",
+   "label": "Nhà cung cấp",
    "reqd": 1,
    "in_list_view": 1
   },
@@ -65,7 +65,7 @@
   {
    "fieldname": "auditors",
    "fieldtype": "Small Text",
-   "label": "Auditor(s)"
+   "label": "Đánh giá viên"
   },
   {
    "fieldname": "section_results",
@@ -91,18 +91,18 @@
   {
    "fieldname": "follow_up_date",
    "fieldtype": "Date",
-   "label": "Follow-up date"
+   "label": "Ngày theo dõi tiếp"
   },
   {
    "fieldname": "section_findings",
    "fieldtype": "Section Break",
-   "label": "Findings"
+   "label": "Kết quả ghi nhận"
   },
   {
    "fieldname": "findings",
    "fieldtype": "Table",
    "options": "Audit Finding",
-   "label": "Findings"
+   "label": "Kết quả ghi nhận"
   },
   {
    "fieldname": "amended_from",

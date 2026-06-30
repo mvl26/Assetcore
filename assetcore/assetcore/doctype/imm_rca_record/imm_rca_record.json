@@ -53,7 +53,7 @@
   {
    "fieldname": "incident_report",
    "fieldtype": "Link",
-   "label": "Incident Report",
+   "label": "Báo cáo sự cố",
    "options": "Incident Report",
    "search_index": 1,
    "in_list_view": 1
@@ -61,7 +61,7 @@
   {
    "fieldname": "asset",
    "fieldtype": "Link",
-   "label": "Asset",
+   "label": "Tài sản",
    "options": "AC Asset",
    "search_index": 1,
    "in_list_view": 1
@@ -73,7 +73,7 @@
   {
    "fieldname": "status",
    "fieldtype": "Select",
-   "label": "Status",
+   "label": "Trạng thái",
    "options": "RCA Required\nRCA In Progress\nCompleted\nCancelled",
    "reqd": 1,
    "default": "RCA Required",
@@ -140,7 +140,7 @@
   {
    "fieldname": "five_why_steps",
    "fieldtype": "Table",
-   "label": "5-Why Steps",
+   "label": "Các bước 5-Why",
    "options": "IMM RCA Five Why Step"
   },
   {

@@ -70,7 +70,7 @@
   {
    "fieldname": "device_model",
    "fieldtype": "Link",
-   "label": "Device Model",
+   "label": "Mẫu thiết bị",
    "options": "IMM Device Model",
    "reqd": 1,
    "in_list_view": 1,
@@ -200,7 +200,7 @@
   {
    "fieldname": "revoke_capa_ref",
    "fieldtype": "Link",
-   "label": "CAPA reference",
+   "label": "Tham chiếu CAPA",
    "options": "IMM CAPA Record"
   },
   {

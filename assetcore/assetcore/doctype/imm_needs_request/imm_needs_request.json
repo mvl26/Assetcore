@@ -299,13 +299,13 @@
    "fieldname": "procurement_plan",
    "fieldtype": "Link",
    "options": "IMM Procurement Plan",
-   "label": "Procurement Plan",
+   "label": "Kế hoạch mua sắm",
    "read_only": 1
   },
   {
    "fieldname": "tech_spec_ref",
    "fieldtype": "Data",
-   "label": "Tech Spec Reference",
+   "label": "Tham chiếu hồ sơ kỹ thuật",
    "description": "Đặt lại sau khi IMM-02 generate; placeholder vì IMM-02 DocType chưa tạo."
   },
   {

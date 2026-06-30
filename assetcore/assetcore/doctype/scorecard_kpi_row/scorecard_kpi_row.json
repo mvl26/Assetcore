@@ -30,7 +30,7 @@
   {
    "fieldname": "raw_value",
    "fieldtype": "Float",
-   "label": "Raw value"
+   "label": "Giá trị thô"
   },
   {
    "fieldname": "column_break_1",

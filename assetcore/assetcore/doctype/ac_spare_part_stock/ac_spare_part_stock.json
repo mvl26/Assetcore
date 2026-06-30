@@ -25,7 +25,7 @@
   {
    "fieldname": "stock_key",
    "fieldtype": "Data",
-   "label": "Key",
+   "label": "Khóa",
    "hidden": 1,
    "read_only": 1,
    "unique": 1,

@@ -99,6 +99,7 @@
   {
    "fieldname": "penalty_amount",
    "fieldtype": "Currency",
+   "length": 28,
    "label": "Giá trị Bồi thường Hãng",
    "permlevel": 1,
    "description": "Chỉ Ban Lãnh đạo có thể xem và điền."

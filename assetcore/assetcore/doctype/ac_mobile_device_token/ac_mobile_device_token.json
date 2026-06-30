@@ -18,7 +18,7 @@
   {
    "fieldname": "user",
    "fieldtype": "Link",
-   "label": "User",
+   "label": "Người dùng",
    "options": "User",
    "reqd": 1,
    "in_list_view": 1,
@@ -36,7 +36,7 @@
   {
    "fieldname": "platform",
    "fieldtype": "Select",
-   "label": "Platform",
+   "label": "Nền tảng",
    "options": "android\nios",
    "reqd": 1,
    "in_list_view": 1,
@@ -45,24 +45,24 @@
   {
    "fieldname": "device_label",
    "fieldtype": "Data",
-   "label": "Device Label"
+   "label": "Nhãn thiết bị"
   },
   {
    "fieldname": "app_version",
    "fieldtype": "Data",
-   "label": "App Version"
+   "label": "Phiên bản ứng dụng"
   },
   {
    "fieldname": "last_seen",
    "fieldtype": "Datetime",
-   "label": "Last Seen",
+   "label": "Lần cuối hoạt động",
    "read_only": 1,
    "no_copy": 1
   },
   {
    "fieldname": "enabled",
    "fieldtype": "Check",
-   "label": "Enabled",
+   "label": "Đang bật",
    "default": "1",
    "reqd": 1,
    "in_list_view": 1

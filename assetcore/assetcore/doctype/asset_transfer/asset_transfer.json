@@ -136,14 +136,14 @@
    "fieldname": "to_location",
    "fieldtype": "Link",
    "label": "Vị trí mới",
-   "options": "AC Location",
-   "reqd": 1
+   "options": "AC Location"
   },
   {
    "fieldname": "to_department",
    "fieldtype": "Link",
    "label": "Phòng ban mới",
-   "options": "AC Department"
+   "options": "AC Department",
+   "reqd": 1
   },
   {
    "fieldname": "column_break_to",

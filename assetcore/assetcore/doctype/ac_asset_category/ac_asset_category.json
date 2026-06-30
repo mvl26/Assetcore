@@ -33,14 +33,14 @@
    "fieldname": "category_name",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Category Name",
+   "label": "Tên nhóm",
    "reqd": 1,
    "unique": 1
   },
   {
    "fieldname": "category_code",
    "fieldtype": "Data",
-   "label": "Category Code",
+   "label": "Mã nhóm",
    "unique": 1,
    "set_only_once": 1,
    "in_list_view": 1,
@@ -49,24 +49,24 @@
   {
    "fieldname": "description",
    "fieldtype": "Small Text",
-   "label": "Description"
+   "label": "Mô tả"
   },
   {
    "fieldname": "section_pm",
    "fieldtype": "Section Break",
-   "label": "PM / Calibration Defaults"
+   "label": "Mặc định PM / Hiệu chuẩn"
   },
   {
    "default": "0",
    "fieldname": "default_pm_required",
    "fieldtype": "Check",
-   "label": "Default PM Required"
+   "label": "Bắt buộc bảo trì (mặc định)"
   },
   {
    "depends_on": "eval:doc.default_pm_required",
    "fieldname": "default_pm_interval_days",
    "fieldtype": "Int",
-   "label": "Default PM Interval (days)",
+   "label": "Chu kỳ bảo trì mặc định (ngày)",
    "mandatory_depends_on": "eval:doc.default_pm_required"
   },
   {
@@ -77,13 +77,13 @@
    "default": "0",
    "fieldname": "default_calibration_required",
    "fieldtype": "Check",
-   "label": "Default Calibration Required"
+   "label": "Bắt buộc hiệu chuẩn (mặc định)"
   },
   {
    "depends_on": "eval:doc.default_calibration_required",
    "fieldname": "default_calibration_interval_days",
    "fieldtype": "Int",
-   "label": "Default Calibration Interval (days)",
+   "label": "Chu kỳ hiệu chuẩn mặc định (ngày)",
    "mandatory_depends_on": "eval:doc.default_calibration_required"
   },
   {
@@ -128,14 +128,14 @@
   {
    "fieldname": "gmdn_code",
    "fieldtype": "Data",
-   "label": "GMDN Code",
+   "label": "Mã GMDN",
    "unique": 1,
    "description": "Mã GMDN của danh mục thiết bị — kế thừa xuống Model và Asset"
   },
   {
    "fieldname": "gmdn_term",
    "fieldtype": "Data",
-   "label": "GMDN Term",
+   "label": "Thuật ngữ GMDN",
    "description": "Tên thuật ngữ GMDN tương ứng"
   },
   {
@@ -146,13 +146,13 @@
    "default": "0",
    "fieldname": "has_radiation",
    "fieldtype": "Check",
-   "label": "Has Radiation"
+   "label": "Có bức xạ"
   },
   {
    "default": "1",
    "fieldname": "is_active",
    "fieldtype": "Check",
-   "label": "Is Active"
+   "label": "Đang hoạt động"
   }
  ],
  "links": [],

@@ -77,6 +77,7 @@
   {
    "fieldname": "unit_cost",
    "fieldtype": "Currency",
+   "length": 28,
    "label": "Đơn giá",
    "fetch_from": "spare_part.unit_cost",
    "in_list_view": 1,
@@ -85,6 +86,7 @@
   {
    "fieldname": "total_cost",
    "fieldtype": "Currency",
+   "length": 28,
    "label": "Thành tiền",
    "read_only": 1,
    "in_list_view": 1,

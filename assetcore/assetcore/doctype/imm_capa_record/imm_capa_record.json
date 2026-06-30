@@ -66,14 +66,14 @@
   {
    "fieldname": "capa_number",
    "fieldtype": "Data",
-   "label": "CAPA Number",
+   "label": "Số CAPA",
    "read_only": 1,
    "in_list_view": 1
   },
   {
    "fieldname": "asset",
    "fieldtype": "Link",
-   "label": "Asset",
+   "label": "Tài sản",
    "options": "AC Asset",
    "reqd": 0,
    "search_index": 1,
@@ -86,7 +86,7 @@
   {
    "fieldname": "severity",
    "fieldtype": "Select",
-   "label": "Severity",
+   "label": "Mức nghiêm trọng",
    "options": "Minor\nMajor\nCritical",
    "reqd": 1,
    "search_index": 1,
@@ -95,7 +95,7 @@
   {
    "fieldname": "status",
    "fieldtype": "Select",
-   "label": "Status",
+   "label": "Trạng thái",
    "options": "Open\nIn Progress\nPending Verification\nClosed\nOverdue",
    "reqd": 1,
    "default": "Open",
@@ -113,19 +113,19 @@
   {
    "fieldname": "section_source",
    "fieldtype": "Section Break",
-   "label": "Source"
+   "label": "Nguồn"
   },
   {
    "fieldname": "source_type",
    "fieldtype": "Select",
-   "label": "Source Type",
+   "label": "Loại nguồn",
    "options": "Incident Report\nNon-Conformance\nComplaint\nPM Work Order\nIMM Asset Calibration\nAsset Repair\nIMM Compliance Finding\nCycle Count Variance\nCritical Stock Breach",
    "reqd": 1
   },
   {
    "fieldname": "source_ref",
    "fieldtype": "Dynamic Link",
-   "label": "Source Reference",
+   "label": "Tham chiếu nguồn",
    "options": "source_type"
   },
   {
@@ -135,7 +135,7 @@
   {
    "fieldname": "linked_incident",
    "fieldtype": "Link",
-   "label": "Linked Incident",
+   "label": "Sự cố liên kết",
    "options": "Incident Report"
   },
   {
@@ -146,33 +146,33 @@
   {
    "fieldname": "description",
    "fieldtype": "Text Editor",
-   "label": "Description",
+   "label": "Mô tả",
    "reqd": 1
   },
   {
    "fieldname": "root_cause",
    "fieldtype": "Text Editor",
-   "label": "Root Cause Analysis"
+   "label": "Phân tích nguyên nhân gốc"
   },
   {
    "fieldname": "corrective_action",
    "fieldtype": "Text Editor",
-   "label": "Corrective Action"
+   "label": "Hành động khắc phục"
   },
   {
    "fieldname": "preventive_action",
    "fieldtype": "Text Editor",
-   "label": "Preventive Action"
+   "label": "Hành động phòng ngừa"
   },
   {
    "fieldname": "section_assign",
    "fieldtype": "Section Break",
-   "label": "Assignment & Dates"
+   "label": "Phân công & Mốc thời gian"
   },
   {
    "fieldname": "responsible",
    "fieldtype": "Link",
-   "label": "Responsible",
+   "label": "Người phụ trách",
    "options": "User",
    "reqd": 1,
    "search_index": 1
@@ -180,7 +180,7 @@
   {
    "fieldname": "opened_date",
    "fieldtype": "Date",
-   "label": "Opened Date",
+   "label": "Ngày mở",
    "reqd": 1,
    "default": "Today"
   },
@@ -191,51 +191,51 @@
   {
    "fieldname": "due_date",
    "fieldtype": "Date",
-   "label": "Due Date",
+   "label": "Ngày đến hạn",
    "reqd": 1
   },
   {
    "fieldname": "closed_date",
    "fieldtype": "Date",
-   "label": "Closed Date",
+   "label": "Ngày đóng",
    "read_only": 1
   },
   {
    "fieldname": "section_lookback",
    "fieldtype": "Section Break",
-   "label": "Lookback Assessment"
+   "label": "Đánh giá rà soát hồi cứu"
   },
   {
    "fieldname": "lookback_required",
    "fieldtype": "Check",
-   "label": "Lookback Required",
+   "label": "Cần rà soát hồi cứu",
    "default": "0"
   },
   {
    "fieldname": "lookback_status",
    "fieldtype": "Select",
-   "label": "Lookback Status",
+   "label": "Trạng thái rà soát hồi cứu",
    "options": "\nIn Progress\nCleared\nCompleted"
   },
   {
    "fieldname": "lookback_assets",
    "fieldtype": "Small Text",
-   "label": "Affected Assets (Lookback)"
+   "label": "Tài sản ảnh hưởng (rà soát hồi cứu)"
   },
   {
    "fieldname": "section_verify",
    "fieldtype": "Section Break",
-   "label": "Verification"
+   "label": "Xác minh"
   },
   {
    "fieldname": "verification_notes",
    "fieldtype": "Text",
-   "label": "Verification Notes"
+   "label": "Ghi chú xác minh"
   },
   {
    "fieldname": "effectiveness_check",
    "fieldtype": "Select",
-   "label": "Effectiveness Check",
+   "label": "Kiểm tra hiệu quả",
    "options": "\nEffective\nPartially Effective\nNot Effective"
   },
   {
@@ -251,30 +251,30 @@
   {
    "fieldname": "notes",
    "fieldtype": "Text",
-   "label": "Notes"
+   "label": "Ghi chú"
   },
   {
    "fieldname": "imm_effectiveness_evidence",
    "fieldtype": "Data",
-   "label": "Effectiveness Evidence",
+   "label": "Bằng chứng hiệu quả",
    "description": "Link hoặc mô tả bằng chứng kiểm tra hiệu quả"
   },
   {
    "fieldname": "section_imm16",
    "fieldtype": "Section Break",
-   "label": "IMM-16 Compliance Integration",
+   "label": "Tích hợp tuân thủ IMM-16",
    "collapsible": 1
   },
   {
    "fieldname": "imm_compliance_finding_ref",
    "fieldtype": "Link",
-   "label": "Compliance Finding",
+   "label": "Phát hiện tuân thủ",
    "options": "IMM Compliance Finding"
   },
   {
    "fieldname": "imm_risk_level",
    "fieldtype": "Select",
-   "label": "Risk Level",
+   "label": "Mức rủi ro",
    "options": "\nLow\nMedium\nHigh\nCritical",
    "default": ""
   },
@@ -285,13 +285,13 @@
   {
    "fieldname": "imm_root_cause_method",
    "fieldtype": "Select",
-   "label": "Root Cause Method",
+   "label": "Phương pháp phân tích nguyên nhân gốc",
    "options": "\n5-Why\nFishbone\nFault Tree\nPareto\nOther"
   },
   {
    "fieldname": "imm_reopen_count",
    "fieldtype": "Int",
-   "label": "Reopen Count",
+   "label": "Số lần mở lại",
    "default": "0",
    "read_only": 1
   },

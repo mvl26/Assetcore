@@ -36,7 +36,7 @@
   {
    "fieldname": "manufacturer_part_no",
    "fieldtype": "Data",
-   "label": "Part No (Manufacturer)"
+   "label": "Mã phụ tùng (hãng SX)"
   },
   {
    "fieldname": "qty",
@@ -57,6 +57,7 @@
   {
    "fieldname": "unit_cost",
    "fieldtype": "Currency",
+   "length": 28,
    "label": "Đơn giá",
    "reqd": 1,
    "in_list_view": 1
@@ -64,6 +65,7 @@
   {
    "fieldname": "total_cost",
    "fieldtype": "Currency",
+   "length": 28,
    "label": "Thành tiền",
    "read_only": 1
   },

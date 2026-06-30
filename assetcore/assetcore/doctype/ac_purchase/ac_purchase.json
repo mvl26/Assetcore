@@ -138,6 +138,7 @@
   {
    "fieldname": "total_value",
    "fieldtype": "Currency",
+   "length": 28,
    "label": "Tổng giá trị",
    "read_only": 1
   },

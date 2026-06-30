@@ -49,7 +49,7 @@
    "fieldname": "capa_owner",
    "fieldtype": "Link",
    "options": "User",
-   "label": "Owner"
+   "label": "Người phụ trách"
   },
   {
    "fieldname": "capa_due",

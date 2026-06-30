@@ -21,7 +21,7 @@
   {
    "fieldname": "seq",
    "fieldtype": "Int",
-   "label": "Seq",
+   "label": "Thứ tự",
    "in_list_view": 1,
    "read_only": 1
   },

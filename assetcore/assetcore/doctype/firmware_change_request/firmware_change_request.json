@@ -27,7 +27,7 @@
   {
    "fieldname": "asset_ref",
    "fieldtype": "Link",
-   "label": "Asset",
+   "label": "Tài sản",
    "options": "AC Asset",
    "reqd": 1,
    "in_list_view": 1
@@ -35,36 +35,36 @@
   {
    "fieldname": "asset_repair_wo",
    "fieldtype": "Link",
-   "label": "Asset Repair WO",
+   "label": "Lệnh sửa chữa tài sản",
    "options": "Asset Repair"
   },
   {
    "fieldname": "version_before",
    "fieldtype": "Data",
-   "label": "Version Before",
+   "label": "Phiên bản trước",
    "reqd": 1
   },
   {
    "fieldname": "version_after",
    "fieldtype": "Data",
-   "label": "Version After",
+   "label": "Phiên bản sau",
    "reqd": 1
   },
   {
    "fieldname": "change_notes",
    "fieldtype": "Text",
-   "label": "Change Notes",
+   "label": "Ghi chú thay đổi",
    "reqd": 1
   },
   {
    "fieldname": "source_reference",
    "fieldtype": "Data",
-   "label": "Source Reference"
+   "label": "Tham chiếu nguồn"
   },
   {
    "fieldname": "status",
    "fieldtype": "Select",
-   "label": "Status",
+   "label": "Trạng thái",
    "options": "Draft\nPending Approval\nApproved\nApplied\nRollback Required\nRolled Back",
    "default": "Draft",
    "in_list_view": 1
@@ -72,25 +72,25 @@
   {
    "fieldname": "approved_by",
    "fieldtype": "Link",
-   "label": "Approved By",
+   "label": "Người phê duyệt",
    "options": "User"
   },
   {
    "fieldname": "approved_datetime",
    "fieldtype": "Datetime",
-   "label": "Approved Datetime",
+   "label": "Thời điểm phê duyệt",
    "read_only": 1
   },
   {
    "fieldname": "applied_datetime",
    "fieldtype": "Datetime",
-   "label": "Applied Datetime",
+   "label": "Thời điểm áp dụng",
    "read_only": 1
   },
   {
    "fieldname": "rollback_reason",
    "fieldtype": "Text",
-   "label": "Rollback Reason"
+   "label": "Lý do hoàn tác"
   }
  ],
  "modified": "2026-04-17 09:00:00.000000",

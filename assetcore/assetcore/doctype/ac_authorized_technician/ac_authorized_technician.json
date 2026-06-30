@@ -18,7 +18,7 @@
   {
    "fieldname": "tech_name",
    "fieldtype": "Data",
-   "label": "Technician Name",
+   "label": "Tên kỹ thuật viên",
    "reqd": 1,
    "in_list_view": 1,
    "columns": 2
@@ -26,14 +26,14 @@
   {
    "fieldname": "certification_no",
    "fieldtype": "Data",
-   "label": "Certification No",
+   "label": "Số chứng nhận",
    "in_list_view": 1,
    "columns": 2
   },
   {
    "fieldname": "valid_until",
    "fieldtype": "Date",
-   "label": "Valid Until",
+   "label": "Hiệu lực đến",
    "in_list_view": 1,
    "columns": 1,
    "search_index": 1
@@ -41,7 +41,7 @@
   {
    "fieldname": "phone",
    "fieldtype": "Data",
-   "label": "Phone",
+   "label": "Điện thoại",
    "columns": 1
   },
   {
@@ -54,7 +54,7 @@
   {
    "fieldname": "authorized_for_models",
    "fieldtype": "Small Text",
-   "label": "Authorized For Models",
+   "label": "Ủy quyền cho mẫu máy",
    "columns": 2
   }
  ],

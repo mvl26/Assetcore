@@ -31,7 +31,7 @@
   {
    "fieldname": "device_class",
    "fieldtype": "Data",
-   "label": "Device Class",
+   "label": "Phân loại thiết bị",
    "in_list_view": 1
   },
   {
@@ -55,7 +55,7 @@
   {
    "fieldname": "gap_count",
    "fieldtype": "Int",
-   "label": "Gap",
+   "label": "Chênh lệch",
    "in_list_view": 1
   },
   {

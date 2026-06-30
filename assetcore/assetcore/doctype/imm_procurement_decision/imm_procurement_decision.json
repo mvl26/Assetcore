@@ -53,7 +53,7 @@
    "fieldname": "spec_ref",
    "fieldtype": "Link",
    "options": "IMM Tech Spec",
-   "label": "Tech Spec",
+   "label": "Hồ sơ kỹ thuật",
    "reqd": 1,
    "in_list_view": 1
   },
@@ -61,7 +61,7 @@
    "fieldname": "evaluation_ref",
    "fieldtype": "Link",
    "options": "IMM Vendor Evaluation",
-   "label": "Evaluation",
+   "label": "Đánh giá",
    "reqd": 1
   },
   {
@@ -82,12 +82,12 @@
    "fieldname": "plan_ref",
    "fieldtype": "Link",
    "options": "IMM Procurement Plan",
-   "label": "Plan"
+   "label": "Kế hoạch"
   },
   {
    "fieldname": "plan_line",
    "fieldtype": "Data",
-   "label": "Plan line"
+   "label": "Dòng kế hoạch"
   },
   {
    "fieldname": "section_method",
@@ -124,6 +124,7 @@
   {
    "fieldname": "awarded_price",
    "fieldtype": "Currency",
+   "length": 28,
    "label": "Giá trúng thầu",
    "in_list_view": 1,
    "permlevel": 1
@@ -207,7 +208,7 @@
    "fieldname": "ac_purchase_ref",
    "fieldtype": "Link",
    "options": "AC Purchase",
-   "label": "AC Purchase",
+   "label": "Đơn mua hàng",
    "read_only": 1,
    "allow_on_submit": 1
   },

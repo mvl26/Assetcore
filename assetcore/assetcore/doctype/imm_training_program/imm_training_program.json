@@ -68,14 +68,14 @@
   {
    "fieldname": "target_device_model",
    "fieldtype": "Link",
-   "label": "Device Model",
+   "label": "Mẫu thiết bị",
    "options": "IMM Device Model",
    "in_list_view": 1
   },
   {
    "fieldname": "target_device_category",
    "fieldtype": "Link",
-   "label": "Device Category",
+   "label": "Nhóm thiết bị",
    "options": "AC Asset Category"
   },
   {
@@ -156,7 +156,7 @@
   {
    "fieldname": "qms_doc_ref",
    "fieldtype": "Link",
-   "label": "QMS Doc Ref",
+   "label": "Tham chiếu tài liệu QMS",
    "options": "Asset Document"
   },
   {

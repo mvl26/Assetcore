@@ -122,13 +122,14 @@
   {
    "fieldname": "variance_value",
    "fieldtype": "Currency",
+   "length": 28,
    "label": "Giá trị lệch",
    "read_only": 1
   },
   {
    "fieldname": "posted_movement_ref",
    "fieldtype": "Link",
-   "label": "AC Stock Movement (Adjustment)",
+   "label": "Điều chuyển kho (Điều chỉnh)",
    "options": "AC Stock Movement",
    "read_only": 1
   },

@@ -13,7 +13,7 @@
   {
    "fieldname": "why_number",
    "fieldtype": "Int",
-   "label": "Why #",
+   "label": "Số thứ tự Why",
    "in_list_view": 1,
    "columns": 1
   },

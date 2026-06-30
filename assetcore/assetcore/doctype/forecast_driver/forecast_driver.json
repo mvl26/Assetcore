@@ -14,7 +14,7 @@
   {
    "fieldname": "driver_type",
    "fieldtype": "Select",
-   "label": "Driver",
+   "label": "Yếu tố dự báo",
    "in_list_view": 1,
    "reqd": 1,
    "options": "replacement\nutilization_growth\nservice_expansion\ncompliance\nstrategic"
