@@ -184,6 +184,9 @@ export interface ReportIncidentPayload {
   patient_impact_description?: string
   immediate_action?: string
   linked_repair_wo?: string
+  /** L-19: thời điểm sự cố THỰC SỰ xảy ra (có thể trước lúc báo). Rỗng → BE
+   *  fallback = reported_at (now); ở tương lai → BE chặn (IMM12_OCCURRED_DATETIME_FUTURE). */
+  occurred_datetime?: string
   /** Nguồn gốc báo sự cố — provenance audit (mirror BE contract):
    *  'qr-scan' khi điều hướng từ màn quét QR, 'manual' (mặc định) khi tạo thủ công. */
   source?: 'manual' | 'qr-scan'

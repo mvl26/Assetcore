@@ -80,6 +80,7 @@ def report_incident(
     patient_impact_description: str = "",
     immediate_action: str = "",
     linked_repair_wo: str = "",
+    occurred_datetime: str = "",
     source: str = "manual",
 ):
     """POST /api/method/assetcore.api.imm12.report_incident
@@ -102,6 +103,7 @@ def report_incident(
         patient_affected=int(patient_affected),
         patient_impact_description=patient_impact_description,
         immediate_action=immediate_action, linked_repair_wo=linked_repair_wo,
+        occurred_datetime=occurred_datetime,
         source=source,
     )
 
@@ -199,6 +201,7 @@ def list_incidents(
     severity: str = "",
     asset: str = "",
     open: int = 0,
+    mine: int = 0,
     page: int = 1,
     page_size: int = 20,
 ):
@@ -206,13 +209,16 @@ def list_incidents(
 
     `open=1` áp SoT open_incident_filter() (incident đang mở) cho drill-down từ
     dashboard donut/card → count == số dòng list. `status` đơn lẻ ưu tiên hơn open.
+    `mine=1` scope reported_by == session.user (tab "Báo hỏng của tôi" MVP-5c —
+    ADR-IMM12-05 / ADR-MOBILE-015); mine=0/absent = list permission-aware UNCHANGED
+    (web-FE IncidentListView KHÔNG đổi). Forward int — session resolve ở service-layer.
     """
     if frappe.session.user == "Guest":
         return _err(_(_MSG_UNAUTHENTICATED), 401)
     return handle(
         svc_list,
         status=status, severity=severity, asset=asset, open=int(open or 0),
-        page=int(page), page_size=int(page_size),
+        mine=int(mine or 0), page=int(page), page_size=int(page_size),
     )
 
 

@@ -68,12 +68,21 @@ def delete_calibration_schedule(name: str) -> dict:
 # ─── 2. Calibration Work Orders ───────────────────────────────────────────────
 
 @frappe.whitelist()
-def list_calibrations(filters: str = "{}", page: int = 1, page_size: int = 20) -> dict:
+def list_calibrations(filters: str = "{}", mine: int = 0,
+                      page: int = 1, page_size: int = 20) -> dict:
+    # C-LISTREAD-MINE-CAL (quartet "phiếu-của-tôi" ĐÓNG NỐT sau PM/CM/Incident): tab "Phiếu hiệu
+    #   chuẩn của tôi" (MVP-5d) truyền mine=1 → scope technician == session.user (calibration
+    #   assignee — KHÔNG assigned_to; mirror IncidentMine dùng reported_by, mỗi domain field RIÊNG).
+    #   Inject SAU apply_vendor_scope (vendor-scope vẫn áp trước). mine=0/absent ⇒ filters
+    #   byte-identical baseline (web-FE list_calibrations KHÔNG đổi). count==rows giữ: count_with_or
+    #   + get_all dùng CÙNG filters dict (đã có technician). Mirror imm08.py:28 / imm09.py:22.
     try:
         f = parse_json(filters, default={}, field_name="filters")
     except ServiceError as e:
         return _err(e.message, e.code, http_status=e.http_status)
     f = apply_vendor_scope(f, "Calibration Record")
+    if int(mine or 0):
+        f["technician"] = frappe.session.user
     return handle(svc.list_calibrations, f, page=int(page), page_size=int(page_size))
 
 
@@ -86,7 +95,7 @@ def get_calibration(name: str) -> dict:
     return handle(svc.get_calibration, name)
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def create_calibration(asset: str, calibration_type: str, scheduled_date: str,
                         technician: str, calibration_schedule: str = None,
                         lab_supplier: str = None, is_recalibration: int = 0,
@@ -111,13 +120,13 @@ def update_calibration(name: str, **kwargs) -> dict:
     return handle(svc.update_calibration, name, kwargs)
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def submit_calibration(name: str) -> dict:
     rbac.require("calibration.submit")
     return handle(svc.submit_calibration, name)
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def add_measurement(name: str, parameter_name: str, unit: str, nominal_value: float,
                      tolerance_positive: float, tolerance_negative: float,
                      measured_value: float = None) -> dict:

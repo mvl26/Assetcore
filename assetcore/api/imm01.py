@@ -415,18 +415,35 @@ def _get_procurement_plan(name: str) -> dict:
 
 
 @frappe.whitelist(methods=["POST"])
-def create_procurement_plan(plan_year: int, plan_period: str, budget_envelope: float = 0) -> dict:
+def create_procurement_plan(plan_year: int, plan_period: str, budget_envelope: float = 0,
+                            needs_requests: str = "[]") -> dict:
     rbac.require(_CAP_PLAN_CREATE)  # LL-BE-24: chốt chặn BE, không tin FE hide
-    return _handle(_create_procurement_plan, int(plan_year), plan_period, float(budget_envelope))
+    return _handle(_create_procurement_plan, int(plan_year), plan_period,
+                   float(budget_envelope), needs_requests)
 
 
-def _create_procurement_plan(plan_year: int, plan_period: str, budget_envelope: float) -> dict:
+def _create_procurement_plan(plan_year: int, plan_period: str, budget_envelope: float,
+                             needs_requests: str = "[]") -> dict:
     if not plan_period:
         raise ServiceError(ErrorCode.INVALID_PARAMS, _("plan_period không được rỗng"))
+    # Proposal-first (QĐ nghiệp vụ): kế hoạch mua sắm PHẢI được tạo TỪ ≥1 đề xuất
+    # (Needs Request đã duyệt) — chọn đề xuất rồi tạo, KHÔNG tạo kế hoạch rỗng rồi
+    # thêm sau. Chặn ngay tại BE (SSoT). Tạo KÈM dòng trong 1 thao tác ⇒ kế hoạch
+    # không bao giờ tồn tại ở trạng thái rỗng-có-thể-duyệt.
+    nrs = [n for n in _parse_json(needs_requests, default=[]) if n]
+    if not nrs:
+        raise ServiceError(
+            ErrorCode.VALIDATION,
+            _("Cần chọn ít nhất một đề xuất (Phiếu đề xuất đã duyệt) để tạo "
+              "kế hoạch mua sắm."),
+        )
     doc = frappe.new_doc(_DT_PP)
     doc.plan_year = plan_year
     doc.plan_period = plan_period
     doc.budget_envelope = budget_envelope
+    # Validate + append dòng đề xuất (raise BUSINESS_RULE nếu NR chưa Approved)
+    # TRƯỚC insert ⇒ fail-fast, không tạo plan rác.
+    svc.append_approved_nr_lines(doc, nrs)
     doc.insert(ignore_permissions=True)
     return {"name": doc.name}
 
@@ -454,6 +471,26 @@ def approve_plan(name: str) -> dict:
     return _handle(_approve_plan, name)
 
 
+def _save_plan_workflow_transition(doc, *, action_label: str, role_hint: str) -> None:
+    """Save doc sau khi đổi ``workflow_state`` cho một transition kế hoạch mua sắm.
+
+    Cả approve / activate / close đều set ``workflow_state`` trực tiếp rồi
+    ``save()`` ⇒ đều vướng cùng cổng role của Frappe ``validate_workflow``: nếu
+    user không có vai trò được phép transition, Frappe ném ``WorkflowPermissionError``
+    (kèm HTML <strong>) → ``_handle`` cũ trả nguyên chuỗi thô. Helper này đổi nó
+    thành ServiceError(FORBIDDEN/403) VI sạch, KHÔNG leak '<strong>'. DRY 1 chỗ.
+    """
+    from frappe.model.workflow import WorkflowPermissionError
+    try:
+        doc.save(ignore_permissions=True)
+    except WorkflowPermissionError:
+        raise ServiceError(
+            ErrorCode.FORBIDDEN,
+            _("Bạn không có quyền {0} kế hoạch mua sắm. Cần vai trò {1}.")
+            .format(action_label, role_hint),
+        )
+
+
 def _approve_plan(name: str) -> dict:
     doc = frappe.get_doc(_DT_PP, name)
     if doc.workflow_state != "Draft":
@@ -462,10 +499,23 @@ def _approve_plan(name: str) -> dict:
             _("Chỉ kế hoạch Draft mới Phê duyệt được (hiện: {0})")
             .format(doc.workflow_state),
         )
+    # Guard nghiệp vụ: kế hoạch PHẢI có ≥1 đề xuất (Phiếu đề xuất / Needs Request
+    # đã đưa vào plan_items) trước khi phê duyệt. Luồng đúng = đề xuất duyệt trước
+    # → đưa vào kế hoạch → mới phê duyệt; KHÔNG duyệt kế hoạch rỗng. Fail-fast
+    # TRƯỚC khi đổi workflow_state ⇒ thông báo VI sạch thay vì để Frappe ném raw
+    # "Workflow State transition not allowed from Draft to Approved".
+    if not doc.plan_items:
+        raise ServiceError(
+            ErrorCode.VALIDATION,
+            _("Kế hoạch chưa có đề xuất nào. Hãy đưa ít nhất một đề xuất "
+              "(Phiếu đề xuất đã duyệt) vào kế hoạch trước khi phê duyệt."),
+        )
     doc.workflow_state = "Approved"
     doc.approved_by = frappe.session.user
     doc.approved_date = frappe.utils.today()
-    doc.save(ignore_permissions=True)
+    _save_plan_workflow_transition(
+        doc, action_label="phê duyệt",
+        role_hint="Quản lý Mua sắm hoặc Quản lý Nghiệm thu")
     return doc.as_dict()
 
 
@@ -483,7 +533,9 @@ def _activate_plan(name: str) -> dict:
             .format(doc.workflow_state),
         )
     doc.workflow_state = "Active"
-    doc.save(ignore_permissions=True)
+    _save_plan_workflow_transition(
+        doc, action_label="kích hoạt",
+        role_hint="Quản lý Nhu cầu (Needs Manager)")
     return doc.as_dict()
 
 
@@ -501,7 +553,9 @@ def _close_plan(name: str) -> dict:
             .format(doc.workflow_state),
         )
     doc.workflow_state = "Closed"
-    doc.save(ignore_permissions=True)
+    _save_plan_workflow_transition(
+        doc, action_label="đóng",
+        role_hint="Quản lý Nghiệm thu (Commissioning Manager)")
     return doc.as_dict()
 
 

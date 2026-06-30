@@ -365,3 +365,252 @@ class TestCreateProcurementPlanGate(unittest.TestCase):
             frappe.db.count("IMM Procurement Plan"), before,
             "Gate phải short-circuit TRƯỚC khi insert — không được tạo doc",
         )
+
+
+class TestApprovePlanGuard(unittest.TestCase):
+    """Bug PP-26-00010: duyệt kế hoạch mua sắm RỖNG (0 đề xuất) ném raw Frappe
+    'Workflow State transition not allowed from <strong>Draft</strong> to
+    <strong>Approved</strong>'.
+
+    Luồng đúng: đề xuất (Needs Request) duyệt trước → đưa vào kế hoạch → mới
+    phê duyệt kế hoạch. Yêu cầu BE-guard slice:
+      (1) chặn duyệt kế hoạch RỖNG bằng thông báo VI sạch (VALIDATION) —
+          fail-fast TRƯỚC khi đổi workflow_state (kế hoạch giữ Draft);
+      (2) người dùng KHÔNG đủ vai trò duyệt (không phải Procurement/
+          Commissioning Manager) → thông báo VI sạch (FORBIDDEN);
+    cả 2 KHÔNG để raw HTML '<strong>' / 'transition not allowed' của Frappe lọt ra.
+    """
+
+    DT = "IMM Procurement Plan"
+
+    @classmethod
+    def setUpClass(cls):
+        import frappe
+        frappe.set_user("Administrator")
+
+    def tearDown(self):
+        import frappe
+        frappe.set_user("Administrator")
+
+    def _make_plan(self, year, period="Q1", budget=1_000_000):
+        # Dựng kế hoạch RỖNG trực tiếp (bypass API). Sau khi create_procurement_plan
+        # bắt buộc ≥1 đề xuất, không thể tạo plan rỗng qua API — nhưng approve-guard
+        # vẫn phải phòng thủ với plan rỗng (legacy / đã gỡ hết đề xuất), nên fixture
+        # dựng thẳng doc để test đúng nhánh đó.
+        import frappe
+        doc = frappe.new_doc(self.DT)
+        doc.plan_year = year
+        doc.plan_period = period
+        doc.budget_envelope = float(budget)
+        doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+        self.addCleanup(self._purge_plan, doc.name)
+        return doc.name
+
+    def _purge_plan(self, name):
+        import frappe
+        frappe.set_user("Administrator")
+        if frappe.db.exists(self.DT, name):
+            frappe.delete_doc(self.DT, name, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def _make_nr(self, year):
+        """NR Draft tối thiểu (ignore_links → bỏ qua AC Department/Category) chỉ
+        để plan_items.needs_request có link HỢP LỆ (vượt link-validation lúc
+        _approve_plan save)."""
+        import frappe
+        nr = frappe.new_doc("IMM Needs Request")
+        nr.request_date = frappe.utils.today()
+        nr.request_type = "New"
+        nr.requesting_department = "_TEST-PP-DEPT"
+        nr.device_category = "_TEST-PP-CAT"
+        nr.quantity = 1
+        nr.target_year = year
+        nr.clinical_justification = "Test NR cho approve-plan guard — đủ ký tự."
+        nr.flags.ignore_links = True
+        nr.insert(ignore_permissions=True)
+        frappe.db.commit()
+        self.addCleanup(
+            lambda: frappe.delete_doc(
+                "IMM Needs Request", nr.name, force=True, ignore_permissions=True))
+        return nr.name
+
+    def _ensure_user(self, email, roles):
+        import frappe
+        if not frappe.db.exists("User", email):
+            frappe.get_doc({
+                "doctype": "User", "email": email,
+                "first_name": email.split("@")[0],
+                "send_welcome_email": 0, "enabled": 1,
+            }).insert(ignore_permissions=True)
+        doc = frappe.get_doc("User", email)
+        existing = {r.role for r in doc.get("roles", [])}
+        for r in roles:
+            if r not in existing:
+                doc.append("roles", {"role": r})
+        doc.save(ignore_permissions=True)
+        frappe.db.commit()
+        from assetcore.services.shared import rbac as _rbac
+        if hasattr(_rbac, "invalidate_capabilities"):
+            _rbac.invalidate_capabilities(email)
+        return email
+
+    def test_approve_empty_plan_blocked_clean_validation(self):
+        import frappe
+        from assetcore.api import imm01 as api
+        name = self._make_plan(2097)
+        with self.assertRaises(ServiceError) as cm:
+            api._approve_plan(name)
+        self.assertEqual(cm.exception.code, ErrorCode.VALIDATION)
+        msg = (cm.exception.message or "").lower()
+        self.assertNotIn("<strong>", msg)
+        self.assertNotIn("transition not allowed", msg)
+        # Fail-fast: kế hoạch KHÔNG bị duyệt rỗng — vẫn Draft.
+        self.assertEqual(frappe.db.get_value(self.DT, name, "workflow_state"), "Draft")
+
+    def test_approve_nonempty_plan_wrong_role_clean_forbidden(self):
+        import frappe
+        from assetcore.api import imm01 as api
+        name = self._make_plan(2096)
+        nr = self._make_nr(2096)
+        # Thêm 1 đề xuất → vượt guard rỗng. State giữ Draft (Draft→Draft, không
+        # transition) nên Administrator save OK; link needs_request HỢP LỆ (NR thật).
+        plan = frappe.get_doc(self.DT, name)
+        plan.append("plan_items", {"needs_request": nr, "allocated_budget": 100})
+        plan.save(ignore_permissions=True)
+        frappe.db.commit()
+        # User đọc/sửa được plan (Needs Manager) nhưng KHÔNG có vai trò duyệt
+        # (Procurement/Commissioning Manager) → Frappe ném WorkflowPermissionError.
+        usr = self._ensure_user("pp_needsmgr@test.local", ["Needs Manager"])
+        frappe.set_user(usr)
+        try:
+            with self.assertRaises(ServiceError) as cm:
+                api._approve_plan(name)
+        finally:
+            frappe.set_user("Administrator")
+        self.assertEqual(cm.exception.code, ErrorCode.FORBIDDEN)
+        self.assertNotIn("<strong>", (cm.exception.message or "").lower())
+        self.assertEqual(frappe.db.get_value(self.DT, name, "workflow_state"), "Draft")
+
+    def test_activate_wrong_role_clean_forbidden(self):
+        """Kích hoạt (Approved→Active) bởi user KHÔNG có vai trò duyệt (Needs
+        Manager) → ServiceError(FORBIDDEN) SẠCH, KHÔNG raw WorkflowPermissionError."""
+        import frappe
+        from assetcore.api import imm01 as api
+        name = self._make_plan(2092)
+        frappe.db.set_value(self.DT, name, "workflow_state", "Approved")
+        frappe.db.commit()
+        usr = self._ensure_user("pp_needsuser@test.local", ["Needs User"])
+        frappe.set_user(usr)
+        try:
+            with self.assertRaises(ServiceError) as cm:
+                api._activate_plan(name)
+        finally:
+            frappe.set_user("Administrator")
+        self.assertEqual(cm.exception.code, ErrorCode.FORBIDDEN)
+        self.assertNotIn("<strong>", (cm.exception.message or "").lower())
+
+    def test_close_wrong_role_clean_forbidden(self):
+        """Đóng (Active→Closed) bởi user KHÔNG có vai trò (Commissioning Manager)
+        → ServiceError(FORBIDDEN) SẠCH, KHÔNG raw WorkflowPermissionError."""
+        import frappe
+        from assetcore.api import imm01 as api
+        name = self._make_plan(2091)
+        frappe.db.set_value(self.DT, name, "workflow_state", "Active")
+        frappe.db.commit()
+        usr = self._ensure_user("pp_needsuser@test.local", ["Needs User"])
+        frappe.set_user(usr)
+        try:
+            with self.assertRaises(ServiceError) as cm:
+                api._close_plan(name)
+        finally:
+            frappe.set_user("Administrator")
+        self.assertEqual(cm.exception.code, ErrorCode.FORBIDDEN)
+        self.assertNotIn("<strong>", (cm.exception.message or "").lower())
+
+
+class TestCreatePlanRequiresProposals(unittest.TestCase):
+    """Proposal-first (QĐ USER): create_procurement_plan PHẢI có ≥1 đề xuất
+    (Needs Request đã Approved) và tạo kèm dòng trong MỘT thao tác — không bao
+    giờ tồn tại kế hoạch RỖNG. NR chưa Approved → chặn (BUSINESS_RULE). Luồng
+    đúng = đề xuất duyệt trước → chọn đề xuất rồi tạo kế hoạch."""
+
+    DT = "IMM Procurement Plan"
+    NR = "IMM Needs Request"
+
+    @classmethod
+    def setUpClass(cls):
+        import frappe
+        frappe.set_user("Administrator")
+
+    def _make_nr(self, year, *, approved: bool):
+        import frappe
+        nr = frappe.new_doc(self.NR)
+        nr.request_date = frappe.utils.today()
+        nr.request_type = "New"
+        nr.requesting_department = "_TEST-PP-DEPT"
+        nr.device_category = "_TEST-PP-CAT"
+        nr.quantity = 1
+        nr.target_year = year
+        nr.clinical_justification = "Test NR cho create-plan — đủ ký tự mô tả."
+        nr.flags.ignore_links = True
+        nr.insert(ignore_permissions=True)
+        if approved:
+            # Đánh dấu Approved cho fixture (bypass workflow) — append-rule chỉ đọc
+            # docstatus + workflow_state qua get_doc.
+            frappe.db.set_value(self.NR, nr.name, {"docstatus": 1,
+                                                   "workflow_state": "Approved"})
+        frappe.db.commit()
+        self.addCleanup(self._purge_nr, nr.name)
+        return nr.name
+
+    def _purge_nr(self, name):
+        import frappe
+        frappe.set_user("Administrator")
+        if frappe.db.exists(self.NR, name):
+            # docstatus=1 (fixture Approved) không xoá trực tiếp được → hạ về 0.
+            frappe.db.set_value(self.NR, name, "docstatus", 0)
+            frappe.delete_doc(self.NR, name, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def _purge_plan(self, name):
+        import frappe
+        frappe.set_user("Administrator")
+        if frappe.db.exists(self.DT, name):
+            frappe.delete_doc(self.DT, name, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def test_create_without_proposals_blocked_validation(self):
+        import frappe
+        from assetcore.api import imm01 as api
+        before = frappe.db.count(self.DT)
+        with self.assertRaises(ServiceError) as cm:
+            api._create_procurement_plan(2095, "Q1", 1_000_000, "[]")
+        self.assertEqual(cm.exception.code, ErrorCode.VALIDATION)
+        self.assertNotIn("<strong>", (cm.exception.message or "").lower())
+        self.assertEqual(frappe.db.count(self.DT), before,
+                         "Không được tạo kế hoạch RỖNG (no đề xuất)")
+
+    def test_create_with_unapproved_nr_blocked_business_rule(self):
+        import frappe
+        import json
+        from assetcore.api import imm01 as api
+        nr = self._make_nr(2094, approved=False)
+        before = frappe.db.count(self.DT)
+        with self.assertRaises(ServiceError) as cm:
+            api._create_procurement_plan(2094, "Q1", 1_000_000, json.dumps([nr]))
+        self.assertEqual(cm.exception.code, ErrorCode.BUSINESS_RULE)
+        self.assertEqual(frappe.db.count(self.DT), before,
+                         "NR chưa Approved → không tạo plan")
+
+    def test_create_with_approved_nr_builds_plan_with_line(self):
+        import frappe
+        import json
+        from assetcore.api import imm01 as api
+        nr = self._make_nr(2093, approved=True)
+        res = api._create_procurement_plan(2093, "Q1", 1_000_000, json.dumps([nr]))
+        self.addCleanup(self._purge_plan, res["name"])
+        plan = frappe.get_doc(self.DT, res["name"])
+        self.assertEqual(len(plan.plan_items), 1, "Plan phải được tạo KÈM 1 dòng đề xuất")
+        self.assertEqual(plan.plan_items[0].needs_request, nr)
+        self.assertEqual(plan.workflow_state, "Draft")

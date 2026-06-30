@@ -434,9 +434,25 @@ def roll_into_plan(plan_year: int, plan_period: str, needs_requests: Iterable[st
         plan.plan_period = plan_period
         plan.budget_envelope = 0  # Caller phải set trước khi submit
 
+    append_approved_nr_lines(plan, needs_requests)
+    plan.save(ignore_permissions=True)
+    return plan.name
+
+
+def append_approved_nr_lines(plan: Document, needs_requests: Iterable[str]) -> int:
+    """Append `plan_items` cho mỗi Needs Request ĐÃ DUYỆT — SSoT cho luật
+    "chỉ đề xuất (NR) Approved mới vào kế hoạch mua sắm".
+
+    Dùng chung bởi `roll_into_plan` (đưa NR vào plan có sẵn) và
+    `api.imm01._create_procurement_plan` (tạo plan KÈM đề xuất, proposal-first).
+    Bỏ qua NR đã có trong plan (idempotent). Raise ServiceError(BUSINESS_RULE)
+    nếu BẤT KỲ NR nào chưa Approved (docstatus=1 + workflow_state="Approved").
+    KHÔNG tự save — caller quyết định thời điểm insert/save. Trả số dòng đã thêm.
+    """
     existing = {it.needs_request for it in (plan.plan_items or [])}
+    added = 0
     for nr_name in needs_requests:
-        if nr_name in existing:
+        if not nr_name or nr_name in existing:
             continue
         nr = frappe.get_doc(_DT_NR, nr_name)
         if nr.docstatus != 1 or nr.workflow_state != "Approved":
@@ -451,8 +467,9 @@ def roll_into_plan(plan_year: int, plan_period: str, needs_requests: Iterable[st
             "allocated_budget": nr.tco_5y or 0,
             "status":          "Pending Spec",
         })
-    plan.save(ignore_permissions=True)
-    return plan.name
+        existing.add(nr_name)
+        added += 1
+    return added
 
 
 # ─── Demand Forecast (scheduler) ──────────────────────────────────────────────

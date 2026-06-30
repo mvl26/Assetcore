@@ -141,6 +141,20 @@ class MSG:
     IMM09_CHECKLIST_FAILED = "IMM09-CHECKLIST-FAILED"
     IMM09_ASSET_NOT_FOUND = "IMM09-ASSET-NOT-FOUND"
     IMM09_DEPT_HEAD_REQUIRED = "IMM09-DEPT-HEAD-REQUIRED"
+    # R25 dispatch-validation gate (assign_technician): technician không hợp lệ
+    # (User không tồn tại / disabled / không có role repair-capable). Chặn ghi
+    # dữ liệu rác qua ignore_links=True. Xem ADR-IMM09-VALIDATE-TECH (docs/imm-09/04 §3.3).
+    IMM09_INVALID_TECHNICIAN = "IMM09-INVALID-TECHNICIAN"
+    # R26 referential-integrity gate (create_work_order): 2 optional Link FK
+    # (incident_report → Incident Report, source_pm_wo → PM Work Order) truyền
+    # non-empty nhưng record không tồn tại. ignore_links=True bypass FK Frappe →
+    # phải validate tường minh. Xem ADR-IMM09-CREATE-FK (docs/imm-09/04 §3.4).
+    IMM09_INCIDENT_REPORT_NOT_FOUND = "IMM09-INCIDENT-REPORT-NOT-FOUND"
+    IMM09_SOURCE_PM_WO_NOT_FOUND = "IMM09-SOURCE-PM-WO-NOT-FOUND"
+    # Lifecycle precondition gate (create_work_order): asset KHÔNG ở trạng thái
+    # cho phép chuyển sang Under Repair (vd Draft — chưa vận hành). Defense-in-depth
+    # service-tier; chặn raw InvalidAssetTransition (state machine) bubble → HTTP 500.
+    IMM09_ASSET_NOT_REPAIRABLE = "IMM09-ASSET-NOT-REPAIRABLE"
 
     # ── IMM-12 Incident / Corrective / RCA ──────────────────────────────────────
     # Sprint chuẩn hoá thông báo 2026-05-29 vòng 2 — docs/imm-12 §11.2
@@ -148,6 +162,7 @@ class MSG:
     IMM12_RCA_NOT_FOUND = "IMM12-RCA-NOT-FOUND"
     IMM12_ASSET_NOT_FOUND = "IMM12-ASSET-NOT-FOUND"
     IMM12_CLINICAL_IMPACT_REQUIRED = "IMM12-CLINICAL-IMPACT-REQUIRED"
+    IMM12_OCCURRED_DATETIME_FUTURE = "IMM12-OCCURRED-DATETIME-FUTURE"
     IMM12_RESOLUTION_NOTES_REQUIRED = "IMM12-RESOLUTION-NOTES-REQUIRED"
     IMM12_CANCEL_REASON_REQUIRED = "IMM12-CANCEL-REASON-REQUIRED"
     IMM12_RCA_ROOT_CAUSE_REQUIRED = "IMM12-RCA-ROOT-CAUSE-REQUIRED"
@@ -727,6 +742,46 @@ MESSAGES: dict[str, MessageEntry] = {
         "severity": "warning",
         "http_status": 400,
     },
+    # R25 dispatch-validation gate — chặn giao việc cho kỹ thuật viên không hợp lệ
+    # (User không tồn tại / disabled / không có quyền sửa chữa). http_status=422 (đầu
+    # vào không hợp lệ — field-level). Service gọi nthrow(..., error_code=VALIDATION_ERROR)
+    # ⇒ envelope code='VALIDATION_ERROR' + http_status=422. Xem ADR-IMM09-VALIDATE-TECH.
+    MSG.IMM09_INVALID_TECHNICIAN: {
+        "title": "Kỹ thuật viên không hợp lệ",
+        "template": "Không thể giao việc cho '{technician}' — tài khoản không tồn tại, đã bị khoá, hoặc không có quyền sửa chữa.",
+        "action_hint": "Chọn kỹ thuật viên từ danh sách gợi ý (tài khoản đang hoạt động + có quyền sửa chữa).",
+        "severity": "warning",
+        "http_status": 422,
+    },
+    # R26 referential-integrity gate (create_work_order) — chặn ghi 2 optional Link
+    # FK rác qua ignore_links=True. http_status=422 (đầu vào không hợp lệ — field-level).
+    # Service gọi nthrow(..., error_code=VALIDATION_ERROR) ⇒ envelope code='VALIDATION_ERROR'
+    # + http_status=422. Xem ADR-IMM09-CREATE-FK (docs/imm-09/04 §3.4).
+    MSG.IMM09_INCIDENT_REPORT_NOT_FOUND: {
+        "title": "Không tìm thấy báo cáo sự cố",
+        "template": "Không tìm thấy báo cáo sự cố nguồn: {incident_report}.",
+        "action_hint": "Chọn báo cáo sự cố từ danh sách, hoặc để trống nếu tạo phiếu sửa chữa độc lập.",
+        "severity": "warning",
+        "http_status": 422,
+    },
+    MSG.IMM09_SOURCE_PM_WO_NOT_FOUND: {
+        "title": "Không tìm thấy lệnh bảo trì nguồn",
+        "template": "Không tìm thấy lệnh bảo trì định kỳ nguồn: {source_pm_wo}.",
+        "action_hint": "Chọn lệnh bảo trì từ danh sách, hoặc để trống nếu tạo phiếu sửa chữa độc lập.",
+        "severity": "warning",
+        "http_status": 422,
+    },
+    # Lifecycle precondition gate (create_work_order) — asset KHÔNG ở trạng thái cho
+    # phép chuyển sang Under Repair (vd Draft — chưa vận hành). Service gọi
+    # nthrow(..., error_code=VALIDATION_ERROR) ⇒ envelope code='VALIDATION_ERROR' +
+    # http_status=422. {status} là nhãn VI (_lifecycle_vi) — no EN-leak.
+    MSG.IMM09_ASSET_NOT_REPAIRABLE: {
+        "title": "Thiết bị chưa thể sửa chữa",
+        "template": "Không thể tạo phiếu sửa chữa cho thiết bị {asset} ở trạng thái '{status}'. Thiết bị phải đang vận hành (Đang hoạt động / Đang bảo trì) hoặc Ngừng sử dụng.",
+        "action_hint": "Đưa thiết bị vào vận hành (nghiệm thu) trước, hoặc chọn thiết bị đang hoạt động.",
+        "severity": "warning",
+        "http_status": 422,
+    },
 
     # ── IMM-12 Incident / Corrective / RCA ─────────────────────────────────────
     # Sprint chuẩn hoá thông báo 2026-05-29 vòng 2 — đồng bộ docs/imm-12 §11.2
@@ -756,6 +811,13 @@ MESSAGES: dict[str, MessageEntry] = {
         "template": "Sự cố mức Critical bắt buộc mô tả tác động lâm sàng.",
         "action_hint": "Nhập tác động lâm sàng trước khi báo cáo sự cố nghiêm trọng.",
         "severity": "critical",
+        "http_status": 422,
+    },
+    MSG.IMM12_OCCURRED_DATETIME_FUTURE: {
+        "title": "Thời điểm xảy ra không hợp lệ",
+        "template": "Thời điểm xảy ra sự cố không được ở tương lai.",
+        "action_hint": "Chọn lại thời điểm bằng hoặc trước thời điểm hiện tại.",
+        "severity": "warning",
         "http_status": 422,
     },
     MSG.IMM12_RESOLUTION_NOTES_REQUIRED: {

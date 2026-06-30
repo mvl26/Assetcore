@@ -18,6 +18,7 @@ from assetcore.repositories.pm_repo import (
 )
 from assetcore.repositories.repair_repo import RepairRepo
 from assetcore.services.shared import AssetStatus, ErrorCode, ServiceError
+from assetcore.services.shared.errors import validation
 from assetcore.utils.helpers import _get_role_emails, _safe_sendmail
 from assetcore.utils.messages import MSG
 from assetcore.utils.notify import nthrow, nthrow_in_hook
@@ -62,6 +63,35 @@ OVERDUE_SOURCE_STATES = frozenset({
 })
 # Backward-compat alias (tên cũ dạng tuple — giữ cho callers hiện hữu).
 OVERDUE_SOURCE_STATUSES = tuple(OVERDUE_SOURCE_STATES)
+
+
+# ─── State machine (server-driven CTA) ─────────────────────────────────────────
+# SSoT trạng-thái-kế-hợp-lệ cho PM Work Order — GROUNDED CHÍNH XÁC
+# assetcore/assetcore/workflow/imm_08_pm_workflow.json (7 state / 13 transition).
+# Mỗi value = tập next_state hợp lệ từ key-state (đọc thẳng từ field `next_state`
+# của khối `transitions` trong workflow JSON). get_work_order emit field này vào
+# detail dict → màn PM-detail mobile RENDER nút workflow theo server (server-driven
+# CTA) THAY VÌ hardcode status→button phía client (anti-pattern RBAC/lifecycle
+# dead-gate — memory factory_rounds_1_25). MIRROR imm12._VALID_TRANSITIONS (R3).
+#
+# Terminal Completed (doc_status=1) / Cancelled → [] (rỗng): KHÔNG transition ra.
+# KHÔNG bịa state ngoài enum PMStatus + workflow JSON. Parity-guard (test) chốt:
+#   (1) mọi giá trị sinh ra ∈ PMStatus enum (chống typo state);
+#   (2) map == next_state trong imm_08_pm_workflow.json (chống drift map↔workflow).
+_PM_VALID_TRANSITIONS: dict[str, list[str]] = {
+    PMStatus.OPEN: [PMStatus.IN_PROGRESS, PMStatus.OVERDUE, PMStatus.CANCELLED],
+    PMStatus.OVERDUE: [PMStatus.IN_PROGRESS, PMStatus.CANCELLED],
+    PMStatus.IN_PROGRESS: [
+        PMStatus.COMPLETED,
+        PMStatus.HALTED_MAJOR,
+        PMStatus.PENDING_BUSY,
+        PMStatus.CANCELLED,
+    ],
+    PMStatus.PENDING_BUSY: [PMStatus.IN_PROGRESS, PMStatus.CANCELLED],
+    PMStatus.HALTED_MAJOR: [PMStatus.IN_PROGRESS, PMStatus.CANCELLED],
+    PMStatus.COMPLETED: [],
+    PMStatus.CANCELLED: [],
+}
 
 
 def is_pm_overdue(status: str, due_date, ref_date=None) -> bool:
@@ -617,6 +647,9 @@ def get_work_order(name: str) -> dict:
         "is_late": bool(wo.is_late),
         "duration_minutes": wo.duration_minutes,
         "source_pm_wo": wo.source_pm_wo,
+        # Server-driven CTA (mirror imm12.get_incident_detail:778) — màn PM-detail
+        # render nút workflow theo tập này, KHÔNG hardcode status→button client-side.
+        "allowed_transitions": _PM_VALID_TRANSITIONS.get(wo.status, []),
         "checklist_results": checklist,
     }
 
@@ -720,7 +753,14 @@ def report_major_failure(pm_wo_name: str, *, failure_description: str) -> dict:
     cm_wo = RepairRepo.create({
         "asset_ref": wo.asset_ref,
         "source_pm_wo": pm_wo_name,
-        "repair_type": "Emergency",
+        # Asset Repair.failure_description = mandatory (asset_repair.json reqd:1) — BẮT BUỘC set,
+        # KHÔNG chỉ nhét vào technician_notes (nếu thiếu → MandatoryError khi insert ⇒ escalation 500).
+        # Mirror imm09.create_repair_work_order:840 (failure_description là field gốc của CM WO).
+        "failure_description": failure_description,
+        # repair_type ∈ {Corrective, Breakdown, Warranty Repair} (asset_repair.json) — "Emergency" KHÔNG
+        # hợp lệ (Select-validation → ValidationError). Lỗi nặng giữa PM = "Breakdown" (hỏng đột xuất);
+        # độ-khẩn nằm ở priority="Emergency" (∈ {Normal, Urgent, Emergency}).
+        "repair_type": "Breakdown",
         "priority": "Emergency",
         "status": "Open",
         "technician_notes": f"[MAJOR FAILURE từ PM] {failure_description}",
@@ -767,8 +807,10 @@ def report_major_failure(pm_wo_name: str, *, failure_description: str) -> dict:
 
 def reschedule(name: str, *, new_date: str, reason: str) -> dict:
     if not reason or len(reason.strip()) < 5:
-        raise ServiceError(ErrorCode.VALIDATION,
-                           "Lý do hoãn lịch là bắt buộc (tối thiểu 5 ký tự)")
+        # RECONCILED (ADR-MOBILE-014 / spec §0.1.3): helper validation() → http_status=422
+        # theo canonical SSoT _HTTP_FOR_CODE[ErrorCode.VALIDATION]=422 (utils/response.py:61).
+        # ATOMIC: chỉ endpoint này dùng validation()=422; KHÔNG đổi default ServiceError.__init__.
+        raise validation("Lý do hoãn lịch là bắt buộc (tối thiểu 5 ký tự)")
     wo = PMWorkOrderRepo.get(name)
     if not wo:
         nthrow(MSG.IMM08_WO_NOT_FOUND, name=name)

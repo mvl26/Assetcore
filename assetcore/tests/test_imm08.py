@@ -4,6 +4,7 @@ Run: bench --site miyano run-tests --module assetcore.tests.test_imm08
 """
 from __future__ import annotations
 
+import json
 import unittest
 
 import frappe
@@ -393,6 +394,116 @@ class TestPMWorkOrder(unittest.TestCase):
             frappe.delete_doc("PM Work Order", res["name"], force=True, ignore_permissions=True)
 
 
+class TestPMAllowedTransitions(unittest.TestCase):
+    """Server-driven CTA (mirror imm12 R3): get_work_order emit `allowed_transitions[]`.
+
+    ASYMMETRY ĐÓNG — màn PM-detail mobile render nút workflow theo server, KHÔNG hardcode
+    status→button (anti-pattern dead-gate). Assert:
+      (1) map _PM_VALID_TRANSITIONS GROUNDED imm_08_pm_workflow.json (codomain ⊆ PMStatus enum);
+      (2) get_work_order(name) CHỨA key `allowed_transitions` == _PM_VALID_TRANSITIONS[status]
+          cho ≥3 status (Open / In Progress / Completed-terminal-rỗng) — set_values flip status
+          để exercise các nhánh (KHÔNG drive full workflow-engine).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.cat = _ensure_cat()
+        cls.asset = _make_asset("-trans")
+        tmpl = _make_template(cls.cat)
+        cls.template_name = tmpl["name"]
+        sched = _make_schedule(cls.asset.name, cls.template_name)
+        cls.schedule_name = sched["name"]
+
+    @classmethod
+    def tearDownClass(cls):
+        for wo in frappe.get_all(
+            "PM Work Order", filters={"asset_ref": cls.asset.name}, fields=["name"]
+        ):
+            frappe.delete_doc("PM Work Order", wo.name, force=True, ignore_permissions=True)
+        frappe.delete_doc("PM Schedule", cls.schedule_name, force=True, ignore_permissions=True)
+        frappe.delete_doc(
+            "PM Checklist Template", cls.template_name, force=True, ignore_permissions=True
+        )
+        purge_asset(cls.asset.name)
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+
+    def test_map_codomain_subset_pmstatus_grounded(self):
+        """(1) Mọi key + value-state ∈ PMStatus enum + khớp workflow JSON codomain (chống typo/drift)."""
+        import json
+        from pathlib import Path
+        from assetcore.services.imm08 import PMStatus, _PM_VALID_TRANSITIONS
+
+        enum = {
+            getattr(PMStatus, a) for a in dir(PMStatus)
+            if not a.startswith("_") and isinstance(getattr(PMStatus, a), str)
+        }
+        for state, nexts in _PM_VALID_TRANSITIONS.items():
+            self.assertIn(state, enum, f"key-state '{state}' KHÔNG ∈ PMStatus enum.")
+            for nx in nexts:
+                self.assertIn(nx, enum, f"next '{nx}' (từ '{state}') KHÔNG ∈ PMStatus enum.")
+        # SSoT-divergence: map == codomain imm_08_pm_workflow.json (7 state / 13 transition).
+        wf_path = (
+            Path(frappe.get_app_path("assetcore"))
+            / "assetcore" / "workflow" / "imm_08_pm_workflow.json"
+        )
+        data = json.loads(wf_path.read_text(encoding="utf-8"))
+        codomain = {s["state"]: set() for s in data["states"]}
+        for t in data["transitions"]:
+            codomain.setdefault(t["state"], set()).add(t["next_state"])
+        self.assertEqual(
+            set(_PM_VALID_TRANSITIONS.keys()), set(codomain.keys()),
+            "Key-set map BE PHẢI == states[] workflow JSON.")
+        for state, wf_nexts in codomain.items():
+            self.assertEqual(
+                set(_PM_VALID_TRANSITIONS[state]), wf_nexts,
+                f"DRIFT '{state}': map {sorted(_PM_VALID_TRANSITIONS[state])} ≠ workflow {sorted(wf_nexts)}.")
+
+    def test_get_work_order_emits_allowed_transitions_per_status(self):
+        """(2) get_work_order CHỨA allowed_transitions == map[status] cho ≥3 status."""
+        from assetcore.services.imm08 import (
+            PMStatus, _PM_VALID_TRANSITIONS, get_work_order,
+        )
+        from assetcore.repositories.pm_repo import PMWorkOrderRepo
+
+        res = create_adhoc_work_order({
+            "asset_ref": self.asset.name,
+            "pm_schedule": self.schedule_name,
+            "due_date": add_days(nowdate(), 7),
+            "assigned_to": "Administrator",
+        })
+        frappe.db.commit()
+        name = res["name"]
+        try:
+            # Open (as created) → key present + đúng codomain (3 next).
+            detail = get_work_order(name)
+            self.assertIn(
+                "allowed_transitions", detail,
+                "get_work_order PHẢI emit key 'allowed_transitions' (server-driven CTA).")
+            self.assertEqual(
+                detail["allowed_transitions"], _PM_VALID_TRANSITIONS[PMStatus.OPEN],
+                "Open → [In Progress, Overdue, Cancelled].")
+
+            # In Progress → 4 next (flip status trực tiếp; KHÔNG drive workflow-engine).
+            PMWorkOrderRepo.set_values(name, {"status": PMStatus.IN_PROGRESS})
+            frappe.db.commit()
+            self.assertEqual(
+                get_work_order(name)["allowed_transitions"],
+                _PM_VALID_TRANSITIONS[PMStatus.IN_PROGRESS],
+                "In Progress → [Completed, Halted–Major Failure, Pending–Device Busy, Cancelled].")
+
+            # Completed (terminal) → [] rỗng.
+            PMWorkOrderRepo.set_values(name, {"status": PMStatus.COMPLETED})
+            frappe.db.commit()
+            self.assertEqual(
+                get_work_order(name)["allowed_transitions"], [],
+                "Completed (terminal) → [] rỗng (KHÔNG transition ra).")
+        finally:
+            frappe.delete_doc("PM Work Order", name, force=True, ignore_permissions=True)
+
+
 class TestPMBackfillAndSupervisor(unittest.TestCase):
     """Slide 08c — backfill PM Schedule cho asset có next_pm_date; slide 22 — supervisor."""
 
@@ -499,6 +610,154 @@ class TestPMBackfillAndSupervisor(unittest.TestCase):
             frappe.delete_doc(
                 "PM Work Order", wo.name, force=True, ignore_permissions=True
             )
+
+
+class TestPMListMineScope(unittest.TestCase):
+    """C-LISTREAD-MINE-PM (ADR-MOBILE-016) — api/imm08.list_pm_work_orders mine=1 scope
+    assigned_to == session.user cho tab 'Phiếu PM của tôi' (MyWorkOrdersView, MVP-5a).
+
+    Đối-xứng IncidentMine (báo hỏng của tôi). Inject @api-layer SAU apply_vendor_scope.
+    INVARIANT: count==rows giữ vì count_with_or + get_all dùng CÙNG filters dict (đã có
+    assigned_to). FENCE: mine=0/absent ⇒ filters byte-identical baseline (WO user khác VẪN hiện).
+    """
+
+    OTHER_USER = "_test_imm08_mine_other@example.com"
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.cat = _ensure_cat("_TestCatIMM08Mine")
+        cls.asset = _make_asset("-mine")
+        cls.asset.asset_category = cls.cat
+        cls.asset.save(ignore_permissions=True)
+        tmpl = _make_template(cls.cat)
+        cls.template_name = tmpl["name"]
+        cls.schedule_name = _make_schedule(cls.asset.name, cls.template_name)["name"]
+        # assigned_to là Link User → user "khác" PHẢI tồn tại thật để insert WO hợp lệ.
+        if not frappe.db.exists("User", cls.OTHER_USER):
+            frappe.get_doc({
+                "doctype": "User",
+                "email": cls.OTHER_USER,
+                "first_name": "IMM08 Mine Other",
+                "send_welcome_email": 0,
+            }).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        for wo in frappe.get_all(
+            "PM Work Order", filters={"asset_ref": cls.asset.name}, fields=["name"]
+        ):
+            frappe.delete_doc("PM Work Order", wo.name, force=True, ignore_permissions=True)
+        for sc in frappe.get_all(
+            "PM Schedule", filters={"asset_ref": cls.asset.name}, fields=["name"]
+        ):
+            frappe.delete_doc("PM Schedule", sc.name, force=True, ignore_permissions=True)
+        frappe.delete_doc(
+            "PM Checklist Template", cls.template_name, force=True, ignore_permissions=True
+        )
+        purge_asset(cls.asset.name)
+        if frappe.db.exists("User", cls.OTHER_USER):
+            frappe.delete_doc("User", cls.OTHER_USER, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        # Mỗi test tự dựng WO — purge giữa các test để count==rows deterministic.
+        for wo in frappe.get_all(
+            "PM Work Order", filters={"asset_ref": self.asset.name}, fields=["name"]
+        ):
+            frappe.delete_doc("PM Work Order", wo.name, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def _make_wo(self, assigned_to: str, status: str | None = None) -> str:
+        wo = frappe.get_doc({
+            "doctype": "PM Work Order",
+            "asset_ref": self.asset.name,
+            "pm_schedule": self.schedule_name,
+            "pm_type": "Quarterly",
+            "wo_type": "Preventive",
+            "status": "Open",
+            "due_date": add_days(nowdate(), 7),
+            "assigned_to": assigned_to,
+        })
+        wo.insert(ignore_permissions=True)
+        if status and status != "Open":
+            # set sau insert (bypass controller) — chỉ cần giá trị cột cho filter test.
+            frappe.db.set_value("PM Work Order", wo.name, "status", status)
+        frappe.db.commit()
+        return wo.name
+
+    def _list(self, *, mine: int | None = None, extra: dict | None = None) -> dict:
+        from assetcore.api.imm08 import list_pm_work_orders
+        f = {"asset_ref": self.asset.name}
+        if extra:
+            f.update(extra)
+        kwargs = {"filters": json.dumps(f), "page": 1, "page_size": 100}
+        if mine is not None:
+            kwargs["mine"] = mine
+        env = list_pm_work_orders(**kwargs)
+        self.assertTrue(env.get("success"), f"envelope KHÔNG success: {env}")
+        return env["data"]
+
+    def test_list_pm_mine_scopes_assigned_to_session_user(self):
+        """mine=1 → CHỈ PM WO assigned_to == frappe.session.user (Administrator)."""
+        mine_wo = self._make_wo("Administrator")
+        other_wo = self._make_wo(self.OTHER_USER)
+        data = self._list(mine=1)
+        names = {r["name"] for r in data["data"]}
+        self.assertIn(mine_wo, names, "WO của session.user PHẢI hiện khi mine=1.")
+        self.assertNotIn(other_wo, names, "WO của user khác PHẢI bị loại khi mine=1.")
+        for r in data["data"]:
+            self.assertEqual(
+                r["assigned_to"], "Administrator",
+                "mine=1 ⇒ MỌI row assigned_to == session.user.",
+            )
+
+    def test_list_pm_mine_zero_fence_other_users_visible(self):
+        """FENCE blast-radius: mine=0/absent ⇒ WO assigned user khác VẪN hiện
+        (filters byte-identical baseline — backward-compat tuyệt đối)."""
+        mine_wo = self._make_wo("Administrator")
+        other_wo = self._make_wo(self.OTHER_USER)
+        # mine=0 explicit.
+        names0 = {r["name"] for r in self._list(mine=0)["data"]}
+        self.assertIn(mine_wo, names0)
+        self.assertIn(other_wo, names0, "mine=0 ⇒ WO user khác VẪN hiện (fence).")
+        # mine absent — phải GIỐNG hệt mine=0 (default 0).
+        names_absent = {r["name"] for r in self._list()["data"]}
+        self.assertEqual(
+            names0, names_absent,
+            "mine absent PHẢI == mine=0 (default 0 — web-FE PMWorkOrderListView KHÔNG regress).",
+        )
+
+    def test_list_pm_mine_ands_with_status_filter(self):
+        """mine=1 + filters status ⇒ AND (chỉ WO của tôi + đúng status)."""
+        my_open = self._make_wo("Administrator", status="Open")
+        my_overdue = self._make_wo("Administrator", status="Overdue")
+        other_open = self._make_wo(self.OTHER_USER, status="Open")
+        data = self._list(mine=1, extra={"status": "Open"})
+        names = {r["name"] for r in data["data"]}
+        self.assertEqual(
+            names, {my_open},
+            "mine=1 AND status=Open ⇒ CHỈ my_open (loại my_overdue=status sai, other_open=user khác).",
+        )
+        self.assertNotIn(my_overdue, names)
+        self.assertNotIn(other_open, names)
+
+    def test_list_pm_mine_count_equals_rows(self):
+        """INVARIANT count==rows: mine=1 ⇒ pagination.total == len(data.data)
+        (count_with_or + get_all CÙNG filters dict đã có assigned_to)."""
+        for _ in range(3):
+            self._make_wo("Administrator")
+        for _ in range(2):
+            self._make_wo(self.OTHER_USER)
+        data = self._list(mine=1)
+        self.assertEqual(
+            data["pagination"]["total"], len(data["data"]),
+            "mine=1 ⇒ pagination.total PHẢI == len(rows) (count-vs-rows drift guard).",
+        )
+        self.assertEqual(data["pagination"]["total"], 3, "CHỈ 3 WO của session.user.")
 
 
 class TestPMCompletionGate(unittest.TestCase):
@@ -703,6 +962,236 @@ class TestNotificationContract(unittest.TestCase):
             assign_technician(wo_name, technician="Administrator")
         # bucket .code suy từ http_status 409 (CONFLICT); contract dựa message_code.
         self.assertEqual(cm.exception.message_code, "IMM08-BAD-STATE")
+
+    def test_assign_open_wo_transitions_in_progress_and_audits_under_maintenance(self):
+        """R35 PM-DISPATCH BE-unit (assignPmTechnician): assign Open WO → status In Progress +
+        assigned_to set + asset → Under Maintenance + SINH Lifecycle Event audit (BR-08 traceability).
+
+        Verify side-effect THẬT (KHÔNG chỉ return): WO persisted In Progress, asset.lifecycle_status
+        = Under Maintenance, ≥1 row Asset Lifecycle Event to_status='Under Maintenance' (audit trail
+        trục CLAUDE.md §10). Đây là transition mà contract assignPmTechnician phơi cho mobile."""
+        from assetcore.services.imm08 import assign_technician, PMStatus
+        from assetcore.services.shared import AssetStatus
+        wo_name = self._make_wo()
+        # Shared cls.asset có thể bị test khác để lại 'Under Maintenance' ⇒ transition_asset_status
+        # no-op (prev==to → KHÔNG sinh event). Reset về Active (test-setup, bypass event) để verify
+        # transition + audit của CHÍNH assign này.
+        frappe.db.set_value("AC Asset", self.asset.name, "lifecycle_status", AssetStatus.ACTIVE)
+        frappe.db.commit()
+        before = frappe.db.count("Asset Lifecycle Event", {"asset": self.asset.name})
+        res = assign_technician(wo_name, technician="Administrator")
+        frappe.db.commit()
+        # return shape = closed 3-key {name,status,assigned_to} (grounded services/imm08.py:679).
+        self.assertEqual(set(res.keys()), {"name", "status", "assigned_to"})
+        self.assertEqual(res["name"], wo_name)
+        self.assertEqual(res["status"], PMStatus.IN_PROGRESS)
+        self.assertEqual(res["assigned_to"], "Administrator")
+        # WO persisted: status In Progress + assigned_to set.
+        wo = frappe.get_doc("PM Work Order", wo_name)
+        self.assertEqual(wo.status, PMStatus.IN_PROGRESS)
+        self.assertEqual(wo.assigned_to, "Administrator")
+        self.assertEqual(wo.assigned_by, frappe.session.user)
+        # asset → Under Maintenance (transition_asset_status @services/imm08.py:678).
+        self.assertEqual(
+            frappe.db.get_value("AC Asset", self.asset.name, "lifecycle_status"),
+            AssetStatus.UNDER_MAINTENANCE,
+        )
+        # SINH Lifecycle Event audit — side-effect THẬT (chống false-green).
+        after = frappe.db.count("Asset Lifecycle Event", {"asset": self.asset.name})
+        self.assertGreater(after, before, "assign PHẢI sinh ≥1 Lifecycle Event audit (BR-08 traceability).")
+        evt = frappe.get_all(
+            "Asset Lifecycle Event",
+            filters={"asset": self.asset.name, "to_status": AssetStatus.UNDER_MAINTENANCE},
+            fields=["name", "root_record"], order_by="creation desc", limit=1,
+        )
+        self.assertTrue(evt, "PHẢI có Lifecycle Event to_status='Under Maintenance' cho asset sau assign.")
+        self.assertEqual(evt[0]["root_record"], wo_name, "Lifecycle Event PHẢI trỏ root_record = PM WO (traceability).")
+
+    def test_assign_missing_wo_has_message_code(self):
+        """R35 PM-DISPATCH BE-unit: assign WO không tồn tại → IMM08_WO_NOT_FOUND (404 bucket)."""
+        from assetcore.services.imm08 import assign_technician
+        with self.assertRaises(ServiceError) as cm:
+            assign_technician("PM-WO-DOES-NOT-EXIST", technician="Administrator")
+        self.assertEqual(cm.exception.code, ErrorCode.NOT_FOUND)
+        self.assertEqual(cm.exception.message_code, "IMM08-WO-NOT-FOUND")
+
+    def test_report_major_failure_api_handler_returns_4key_envelope(self):
+        """R36 PM→CM ESCALATION BE-unit (reportMajorFailure SIGNATURE-FIX): gọi API HANDLER
+        api.imm08.report_major_failure → 200 success envelope, data closed 4-key
+        {pm_wo,new_status,cm_wo_created,asset_status} (services/imm08.py:792-797).
+
+        RED-before: handler cũ parse + truyền `failed_item_indexes=` vào service
+        report_major_failure(pm_wo_name, *, failure_description) — signature KHÔNG nhận ⇒ TypeError;
+        handle() KHÔNG bắt non-ServiceError (api_handler.py:43-46) ⇒ bubble → HTTP-500 mỗi call.
+        GREEN-after DROP field: trả envelope đúng. Gọi HANDLER (KHÔNG service) để bắt bug tầng-API
+        — service-only test KHÔNG phơi mismatch. Verify side-effect THẬT: PM WO Halted + asset OOS
+        + CM WO khẩn (Asset Repair source_pm_wo) tồn tại."""
+        from assetcore.api.imm08 import report_major_failure as api_report_major_failure
+        from assetcore.services.imm08 import PMStatus
+        from assetcore.services.shared import AssetStatus
+        wo_name = self._make_wo()
+        cm_wo = None
+        try:
+            res = api_report_major_failure(
+                pm_wo_name=wo_name,
+                failure_description="Compressor không khởi động — điện áp 0V",
+            )
+            frappe.db.commit()
+            # success envelope (handle wrap _ok) — KHÔNG TypeError/500 (signature-fix).
+            self.assertTrue(res.get("success"), f"PHẢI success envelope (signature-fix), got {res}.")
+            data = res.get("data") or {}
+            self.assertEqual(
+                set(data.keys()), {"pm_wo", "new_status", "cm_wo_created", "asset_status"},
+                f"data PHẢI closed 4-key (services/imm08.py:792-797), got {sorted(data.keys())}.",
+            )
+            self.assertEqual(data["pm_wo"], wo_name)
+            self.assertEqual(data["new_status"], PMStatus.HALTED_MAJOR)
+            self.assertEqual(data["asset_status"], AssetStatus.OUT_OF_SERVICE)
+            cm_wo = data["cm_wo_created"]
+            self.assertTrue(cm_wo, "cm_wo_created PHẢI có (CM WO khẩn tạo).")
+            # side-effect THẬT (chống false-green): PM WO Halted + asset OOS + CM WO (Asset Repair) tồn tại.
+            self.assertEqual(frappe.db.get_value("PM Work Order", wo_name, "status"), PMStatus.HALTED_MAJOR)
+            self.assertEqual(
+                frappe.db.get_value("AC Asset", self.asset.name, "lifecycle_status"),
+                AssetStatus.OUT_OF_SERVICE,
+            )
+            self.assertTrue(frappe.db.exists("Asset Repair", cm_wo), "CM WO (Asset Repair) PHẢI tồn tại.")
+            self.assertEqual(frappe.db.get_value("Asset Repair", cm_wo, "source_pm_wo"), wo_name)
+        finally:
+            # cleanup CM WO + Incident sinh ra (chống leak; asset/PM-WO do tearDownClass purge).
+            if cm_wo and frappe.db.exists("Asset Repair", cm_wo):
+                for inc in frappe.get_all("Incident Report", filters={"linked_repair_wo": cm_wo}, pluck="name"):
+                    frappe.delete_doc("Incident Report", inc, force=True, ignore_permissions=True)
+                d = frappe.get_doc("Asset Repair", cm_wo)
+                if d.docstatus == 1:
+                    d.cancel()
+                frappe.delete_doc("Asset Repair", cm_wo, force=True, ignore_permissions=True)
+            frappe.db.commit()
+
+    def test_report_major_failure_missing_wo_404_envelope(self):
+        """R36 BE-unit: handler report_major_failure WO∄ → Error envelope success=False code NOT_FOUND
+        http_status 404 (handle bắt ServiceError từ nthrow IMM08_WO_NOT_FOUND @services/imm08.py:747).
+        Khẳng định 404 đến qua HTTP-200 + Error body (KHÔNG raise) — khớp slot {200,401,403} contract."""
+        from assetcore.api.imm08 import report_major_failure as api_report_major_failure
+        res = api_report_major_failure(
+            pm_wo_name="PM-WO-DOES-NOT-EXIST",
+            failure_description="x",
+        )
+        self.assertFalse(res.get("success"), f"WO∄ PHẢI Error envelope, got {res}.")
+        self.assertEqual(res.get("code"), "NOT_FOUND")
+        self.assertEqual(res.get("http_status"), 404)
+        self.assertEqual(res.get("message_code"), "IMM08-WO-NOT-FOUND")
+
+    def test_reschedule_api_handler_happy_4key_envelope_restores_active(self):
+        """R37 PM-RESCHEDULE BE-unit (reschedulePm happy-path): gọi API HANDLER api.imm08.reschedule_pm →
+        200 success envelope, data closed 4-key {name,old_date,new_date,status} (services/imm08.py:823),
+        status = PMStatus.PENDING_BUSY ('Pending–Device Busy' en-dash U+2013), VÀ asset khôi phục Active khi
+        WO đang In Progress (was_in_progress → _transition_asset Active @services/imm08.py:821-822).
+
+        Gọi HANDLER (KHÔNG service-only) để bắt bug tầng-API (signature parity name/new_date/reason). Verify
+        side-effect THẬT (chống false-green): WO persisted Pending–Device Busy + due_date đổi + asset Active."""
+        from assetcore.api.imm08 import reschedule_pm as api_reschedule_pm
+        from assetcore.services.imm08 import assign_technician, PMStatus
+        from assetcore.services.shared import AssetStatus
+        # Shared cls.asset có thể bị test khác (report_major_failure) để lại 'Out of Service' ⇒ create_adhoc
+        # _work_order reject BR-00-05. Reset về Active (test-setup, bypass event) để self-contained.
+        frappe.db.set_value("AC Asset", self.asset.name, "lifecycle_status", AssetStatus.ACTIVE)
+        frappe.db.commit()
+        wo_name = self._make_wo()
+        # Đưa WO về In Progress (Open→In Progress + asset→Under Maintenance) để verify nhánh restore-Active.
+        assign_technician(wo_name, technician="Administrator")
+        frappe.db.commit()
+        self.assertEqual(
+            frappe.db.get_value("AC Asset", self.asset.name, "lifecycle_status"),
+            AssetStatus.UNDER_MAINTENANCE,
+            "PRECONDITION: assign PHẢI đặt asset → Under Maintenance trước khi reschedule.",
+        )
+        old_due = str(frappe.db.get_value("PM Work Order", wo_name, "due_date"))
+        new_due = str(add_days(nowdate(), 14))
+        res = api_reschedule_pm(
+            name=wo_name,
+            new_date=new_due,
+            reason="Thiết bị đang dùng cho ca cấp cứu, dời sang tuần sau",
+        )
+        frappe.db.commit()
+        # success envelope (handle wrap _ok).
+        self.assertTrue(res.get("success"), f"PHẢI success envelope, got {res}.")
+        data = res.get("data") or {}
+        self.assertEqual(
+            set(data.keys()), {"name", "old_date", "new_date", "status"},
+            f"data PHẢI closed 4-key {{name,old_date,new_date,status}} (services/imm08.py:823), got {sorted(data.keys())}.",
+        )
+        self.assertEqual(data["name"], wo_name)
+        self.assertEqual(data["old_date"], old_due)
+        self.assertEqual(data["new_date"], new_due)
+        self.assertEqual(data["status"], PMStatus.PENDING_BUSY)
+        # BYTE-MATCH en-dash U+2013 (KHÔNG hyphen-minus U+002D) — copy byte-khớp PMStatus.PENDING_BUSY :50.
+        non_ascii = [c for c in data["status"] if ord(c) > 0x7F]
+        self.assertEqual(
+            [hex(ord(c)) for c in non_ascii], ["0x2013"],
+            f"status PHẢI chứa en-dash U+2013 DUY NHẤT (PMStatus.PENDING_BUSY :50), got {[hex(ord(c)) for c in non_ascii]}.",
+        )
+        # side-effect THẬT: WO Pending–Device Busy + due_date đổi + asset khôi phục Active.
+        self.assertEqual(frappe.db.get_value("PM Work Order", wo_name, "status"), PMStatus.PENDING_BUSY)
+        self.assertEqual(str(frappe.db.get_value("PM Work Order", wo_name, "due_date")), new_due)
+        self.assertEqual(
+            frappe.db.get_value("AC Asset", self.asset.name, "lifecycle_status"),
+            AssetStatus.ACTIVE,
+            "asset PHẢI khôi phục 'Active' khi WO đang In Progress lúc hoãn (services/imm08.py:821-822).",
+        )
+
+    def test_reschedule_reason_too_short_validation_422_envelope(self):
+        """R37 PM-RESCHEDULE BE-unit: reason < 5 ký tự → ServiceError VALIDATION (guard
+        len(reason.strip()) < 5 @services/imm08.py:808) → Error envelope success=False code VALIDATION.
+        Guard chạy TRƯỚC khi lookup WO → KHÔNG cần WO hợp lệ. Lỗi đến qua HTTP-200 + Error body (KHÔNG raise)."""
+        from assetcore.api.imm08 import reschedule_pm as api_reschedule_pm
+        from assetcore.services.shared import ErrorCode
+        res = api_reschedule_pm(name="PM-WO-ANY", new_date=str(add_days(nowdate(), 7)), reason="x")
+        self.assertFalse(res.get("success"), f"reason<5 PHẢI Error envelope, got {res}.")
+        self.assertEqual(res.get("code"), ErrorCode.VALIDATION, "code PHẢI VALIDATION (guard reason<5 @services/imm08.py:808).")
+        # http_status @source = 422: reschedule dùng helper validation() (errors.py:62 http_status=422)
+        #   @services/imm08.py:809; handle() → _err(http_status=e.http_status)=422 (api_handler.py:69).
+        #   RECONCILED (ADR-MOBILE-014 + spec §0.1.3): BE=422 theo canonical SSoT _HTTP_FOR_CODE
+        #   [ErrorCode.VALIDATION]=422 (utils/response.py:61, 'input không hợp lệ field-level') — KHÁC
+        #   VALIDATION_ERROR→400 (parse error :62). DRIFT 400-vs-422 ĐÃ ĐÓNG. Atomic blast-radius=1 endpoint:
+        #   default ServiceError.__init__ GIỮ 400 (errors.py:36) — xem test_other_validation_endpoint_stays_400.
+        self.assertEqual(
+            res.get("http_status"), 422,
+            "reason<5 → VALIDATION http_status @source = 422 (validation() helper errors.py:62, canonical "
+            "_HTTP_FOR_CODE[VALIDATION]=422 utils/response.py:61). RECONCILED vs spec §0.1.3/ADR-MOBILE-014.",
+        )
+
+    def test_other_validation_endpoint_stays_400(self):
+        """R37b ATOMIC-FENCE: chứng minh fix reschedule (validation()=422) CHỈ chạm nhánh reason<5 —
+        KHÔNG đổi default ServiceError.__init__ (errors.py:36). create_adhoc_work_order thiếu trường bắt
+        buộc raise ServiceError(ErrorCode.VALIDATION, ...) TRỰC TIẾP (services/imm08.py:830) → giữ default
+        http_status=400. Blast-radius = 1 endpoint (reschedule), các VALIDATION raise trực tiếp khác GIỮ 400."""
+        from assetcore.services.imm08 import create_adhoc_work_order as svc_create_adhoc
+        from assetcore.services.shared import ErrorCode
+        with self.assertRaises(ServiceError) as cm:
+            svc_create_adhoc({"asset_ref": self.asset.name})  # thiếu pm_schedule + due_date
+        self.assertEqual(cm.exception.code, ErrorCode.VALIDATION)
+        self.assertEqual(
+            cm.exception.http_status, 400,
+            "create_adhoc VALIDATION raise trực tiếp PHẢI GIỮ default 400 (ServiceError.__init__ errors.py:36 "
+            "KHÔNG đổi) — chứng minh fix reschedule→422 blast-radius=1 endpoint.",
+        )
+
+    def test_reschedule_missing_wo_404_envelope(self):
+        """R37 PM-RESCHEDULE BE-unit: WO∄ (reason hợp lệ ≥5 để qua guard) → Error envelope success=False
+        code NOT_FOUND http_status 404 (nthrow IMM08_WO_NOT_FOUND @services/imm08.py:813). 404 đến qua
+        HTTP-200 + Error body — khớp slot {200,401,403} contract."""
+        from assetcore.api.imm08 import reschedule_pm as api_reschedule_pm
+        from assetcore.services.shared import ErrorCode
+        res = api_reschedule_pm(
+            name="PM-WO-DOES-NOT-EXIST",
+            new_date=str(add_days(nowdate(), 7)),
+            reason="Thiết bị đang dùng cho ca mổ",
+        )
+        self.assertFalse(res.get("success"), f"WO∄ PHẢI Error envelope, got {res}.")
+        self.assertEqual(res.get("code"), ErrorCode.NOT_FOUND)
+        self.assertEqual(res.get("http_status"), 404)
+        self.assertEqual(res.get("message_code"), "IMM08-WO-NOT-FOUND")
 
     def test_already_submitted_has_message_code(self):
         from assetcore.services.imm08 import submit_result

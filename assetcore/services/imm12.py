@@ -26,7 +26,7 @@ Business Rules:
 from __future__ import annotations
 
 import frappe
-from frappe.utils import add_days, now_datetime, nowdate, today
+from frappe.utils import add_days, get_datetime, now_datetime, nowdate, today
 
 from assetcore.repositories.repair_repo import IncidentRepo, RCARepo
 from assetcore.services import imm00 as svc00
@@ -308,7 +308,8 @@ def _enrich_asset_names(rows: list) -> None:
 
 
 def _build_incident_filters(
-    status: str, severity: str, asset: str, open_only: bool = False
+    status: str, severity: str, asset: str, open_only: bool = False,
+    reported_by: str = "",
 ) -> dict:
     """Build filter dict cho list_incidents.
 
@@ -316,12 +317,20 @@ def _build_incident_filters(
     count card/donut == số dòng list. `status` đơn lẻ ƯU TIÊN hơn `open`
     (mutually-exclusive): nếu user chọn status cụ thể (vd Cancelled) thì bỏ qua
     open-set → status filter hoạt động độc lập.
+
+    `reported_by` (BR-12-14 / ADR-IMM12-05 / ADR-MOBILE-015 — tab "Báo hỏng của
+    tôi" MVP-5c): khi non-empty → seed extra["reported_by"] **TRƯỚC** khi rẽ nhánh
+    ⇒ AND vào CẢ 3 nhánh (kể cả `status` return-sớm). mine=0/absent truyền
+    reported_by="" ⇒ filters BYTE-IDENTICAL hành vi cũ (backward-compat web-FE).
     """
     extra: dict = {}
     if severity:
         extra["severity"] = severity
     if asset:
         extra["asset"] = asset
+    # mine self-scope: seed TRƯỚC nhánh status return-sớm ⇒ phủ cả 3 nhánh.
+    if reported_by:
+        extra["reported_by"] = reported_by
     # status đơn lẻ ưu tiên hơn open (mutually-exclusive).
     if status:
         extra["status"] = status
@@ -347,6 +356,7 @@ def report_incident(
     immediate_action: str = "",
     linked_repair_wo: str = "",
     reported_by: str = "",
+    occurred_datetime: str = "",
     source: str = _SOURCE_MANUAL,
 ) -> dict:
     """Tạo Incident Report. BR-12-01: Critical → clinical_impact bắt buộc.
@@ -370,6 +380,15 @@ def report_incident(
     doc.description = description
     doc.reported_by = actor
     doc.reported_at = now_datetime()
+    # G1 (BR-FIX-12 / DM-FIX-03): occurred_datetime = thời điểm sự cố THỰC SỰ xảy ra
+    # (có thể TRƯỚC lúc báo). Bắt buộc không ở tương lai; rỗng → fallback reported_at.
+    if occurred_datetime:
+        occurred_dt = get_datetime(occurred_datetime)
+        if occurred_dt and occurred_dt > now_datetime():
+            nthrow(MSG.IMM12_OCCURRED_DATETIME_FUTURE)
+        doc.occurred_datetime = occurred_dt
+    else:
+        doc.occurred_datetime = doc.reported_at
     doc.status = _STATUS_OPEN
     if fault_code:
         doc.fault_code = fault_code
@@ -738,10 +757,17 @@ def list_incidents(
     severity: str = "",
     asset: str = "",
     open: int = 0,
+    mine: int = 0,
     page: int = 1,
     page_size: int = 20,
 ) -> dict:
-    filters = _build_incident_filters(status, severity, asset, open_only=bool(int(open or 0)))
+    # mine=1 (tab "Báo hỏng của tôi" MVP-5c) → resolve session ở service-layer rồi
+    # seed reported_by vào CÙNG filters dict (count==rows giữ). mine=0/absent → "".
+    reported_by = frappe.session.user if int(mine or 0) else ""
+    filters = _build_incident_filters(
+        status, severity, asset, open_only=bool(int(open or 0)),
+        reported_by=reported_by,
+    )
     total = frappe.db.count(_DT_INCIDENT, filters=filters)
     offset = (page - 1) * page_size
     rows = frappe.get_all(

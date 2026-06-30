@@ -109,8 +109,13 @@ export function rollIntoPlan(plan_year: number, plan_period: string, needs_reque
   })
 }
 
-export function createProcurementPlan(plan_year: number, plan_period: string, budget_envelope: number): Promise<{ name: string }> {
-  return frappePost(`${BASE}.create_procurement_plan`, { plan_year, plan_period, budget_envelope })
+export function createProcurementPlan(
+  plan_year: number, plan_period: string, budget_envelope: number,
+  needs_requests: string[],
+): Promise<{ name: string }> {
+  return frappePost(`${BASE}.create_procurement_plan`, {
+    plan_year, plan_period, budget_envelope, needs_requests: JSON.stringify(needs_requests),
+  })
 }
 
 export function approvePlan(name: string): Promise<{ name: string; workflow_state: string }> {

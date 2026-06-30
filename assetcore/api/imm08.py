@@ -25,12 +25,20 @@ def _form_dict(*strip: str) -> dict:
 # ─── PM Work Orders ───────────────────────────────────────────────────────────
 
 @frappe.whitelist()
-def list_pm_work_orders(filters: str = "{}", page: int = 1, page_size: int = 20) -> dict:
+def list_pm_work_orders(filters: str = "{}", mine: int = 0,
+                        page: int = 1, page_size: int = 20) -> dict:
+    # C-LISTREAD-MINE-PM (A2 closure ĐỐI XỨNG / ADR-MOBILE-016): tab "Phiếu PM của tôi"
+    #   (MyWorkOrdersView, MVP-5a) truyền mine=1 → scope assigned_to == session.user. Inject
+    #   SAU apply_vendor_scope (vendor-scope vẫn áp trước). mine=0/absent ⇒ filters
+    #   byte-identical baseline (web-FE PMWorkOrderListView KHÔNG đổi). count==rows giữ:
+    #   count_with_or + get_all dùng CÙNG filters dict (đã có assigned_to). Mirror IncidentMine.
     try:
         f = parse_json(filters, field_name="filters")
     except ServiceError as e:
         return _service_error_to_envelope(e)
     f = apply_vendor_scope(f, "PM Work Order")
+    if int(mine or 0):
+        f["assigned_to"] = frappe.session.user
     return handle(svc.list_work_orders, f, page=int(page), page_size=int(page_size))
 
 
@@ -43,15 +51,17 @@ def get_pm_work_order(name: str) -> dict:
     return handle(svc.get_work_order, name)
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def assign_technician(name: str, technician: str, scheduled_date: str = None) -> dict:
     # AUTH-02 — block FE-bypass: only PM writers can re-assign.
+    # VERB-FLIP (R35 PM-dispatch / ADR-MOBILE-012): write-action DISPATCH (Open/Overdue→In
+    # Progress + asset→Under Maintenance, KHÔNG idempotent) ⇒ POST-only (sibling add_measurement).
     rbac.require("pm.write")
     return handle(svc.assign_technician, name,
                    technician=technician, scheduled_date=scheduled_date)
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def submit_pm_result(name: str, checklist_results: str = "[]",
                       overall_result: str = "Pass", technician_notes: str = "",
                       pm_sticker_attached: int = 0, duration_minutes: int = 0) -> dict:
@@ -69,16 +79,16 @@ def submit_pm_result(name: str, checklist_results: str = "[]",
     )
 
 
-@frappe.whitelist()
-def report_major_failure(pm_wo_name: str, failure_description: str,
-                          failed_item_indexes: str = "[]") -> dict:
+@frappe.whitelist(methods=["POST"])
+def report_major_failure(pm_wo_name: str, failure_description: str) -> dict:
+    # VERB-FLIP (R36 PM→CM escalation / ADR-MOBILE-013): write KHÔNG idempotent — mỗi call tạo 1 CM WO khẩn +
+    # đặt asset Out of Service + Incident IMM-12 + email ⇒ POST-only (sibling assign_technician/add_measurement).
+    # SIGNATURE-FIX: DROP failed_item_indexes — service report_major_failure(pm_wo_name, *, failure_description)
+    # services/imm08.py:744 KHÔNG nhận field này; handler cũ parse + pass-through `failed_item_indexes=` ⇒
+    # TypeError → HTTP-500 mỗi call. Align handler↔service signature (service+CoreDoc§200+web-FE đều bỏ qua).
     rbac.require("pm.write")
-    try:
-        failed = parse_json(failed_item_indexes, field_name="failed_item_indexes", default=[])
-    except ServiceError as e:
-        return _service_error_to_envelope(e)
     return handle(svc.report_major_failure, pm_wo_name,
-                   failure_description=failure_description, failed_item_indexes=failed)
+                   failure_description=failure_description)
 
 
 @frappe.whitelist(methods=["POST"])

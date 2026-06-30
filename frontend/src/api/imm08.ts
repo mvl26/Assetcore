@@ -124,11 +124,22 @@ export async function submitPMResult(payload: {
   )
 }
 
+// Envelope khớp BE ReportMajorFailureResponse (services/imm08.py report_major_failure) —
+// 4-key EXACT. `new_status` là PMStatus kỹ-thuật ('Halted–Major Failure') → KHÔNG render thô;
+// view re-fetch WO rồi map qua STATUS_LABEL. Giữ ở type cho parity contract (FE từng đọc 3-key).
+export interface ReportMajorFailureResult {
+  pm_wo: string
+  new_status: PMWorkOrder['status']
+  cm_wo_created: string
+  asset_status: string
+}
+
 export function reportMajorFailure(
   pmWoName: string,
   failureDescription: string,
-): Promise<{ pm_wo: string; cm_wo_created: string; asset_status: string }> {
-  return frappePost<{ pm_wo: string; cm_wo_created: string; asset_status: string }>(
+): Promise<ReportMajorFailureResult> {
+  // BE đã VERB-FLIP @frappe.whitelist(methods=["POST"]) — frappePost giữ tương thích (GET sẽ 405).
+  return frappePost<ReportMajorFailureResult>(
     `${BASE}.report_major_failure`,
     { pm_wo_name: pmWoName, failure_description: failureDescription },
   )
