@@ -129,16 +129,16 @@ onMounted(load)
         </div>
 
         <div class="kpi-card p-4" :style="`--kpi-color: ${data.kpis.oot_pct < 5 ? '#059669' : '#dc2626'}`">
-          <p class="text-xs text-slate-400 mb-1">Out-of-Tolerance</p>
+          <p class="text-xs text-slate-400 mb-1">Ngoài dung sai</p>
           <p
             class="text-3xl font-bold font-display tabular-nums"
             :style="`color: ${data.kpis.oot_pct < 5 ? '#059669' : '#dc2626'}`"
           >{{ data.kpis.oot_pct }}%</p>
-          <p class="text-xs text-slate-500 mt-4">{{ data.kpis.oot_count }}/{{ data.kpis.measurements_total || 0 }} tham số Fail</p>
+          <p class="text-xs text-slate-500 mt-4">{{ data.kpis.oot_count }}/{{ data.kpis.measurements_total || 0 }} tham số không đạt</p>
         </div>
 
         <div class="kpi-card p-4" :style="`--kpi-color: ${data.kpis.capa_open > 0 ? '#ea580c' : '#059669'}`">
-          <p class="text-xs text-slate-400 mb-1">CAPA Open</p>
+          <p class="text-xs text-slate-400 mb-1">CAPA đang mở</p>
           <p
             class="text-3xl font-bold font-display tabular-nums"
             :style="`color: ${data.kpis.capa_open > 0 ? '#ea580c' : '#059669'}`"
@@ -148,9 +148,9 @@ onMounted(load)
         </div>
 
         <div class="kpi-card p-4" style="--kpi-color: #2563eb">
-          <p class="text-xs text-slate-400 mb-1">Avg Days → Cert</p>
+          <p class="text-xs text-slate-400 mb-1">Số ngày TB → Chứng nhận</p>
           <p class="text-3xl font-bold font-display tabular-nums text-brand-600">{{ data.kpis.avg_days_to_cert }}</p>
-          <p class="text-xs text-slate-500 mt-4">gửi → nhận (external)</p>
+          <p class="text-xs text-slate-500 mt-4">gửi → nhận (bên ngoài)</p>
         </div>
       </div>
 
@@ -285,13 +285,13 @@ v-if="c.lookback_status === 'In Progress' || c.lookback_status === 'Pending'"
                       Rà soát lại: {{ translateStatus(c.lookback_status) }}
                     </span>
                     <span class="text-xs text-slate-500">
-                      Due {{ formatDate(c.due_date) }}
+                      Hạn {{ formatDate(c.due_date) }}
                     </span>
                   </div>
                 </div>
               </div>
               <button class="btn-ghost text-xs shrink-0" @click.stop="router.push(`/capas/${c.name}`)">
-                QA Review →
+                QA xem xét →
               </button>
             </div>
           </div>

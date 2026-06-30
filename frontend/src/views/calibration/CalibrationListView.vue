@@ -195,7 +195,7 @@ onMounted(() => { load(); loadKpis() })
         <p class="text-2xl font-bold font-display tabular-nums text-red-600">{{ kpis.failed }}</p>
       </div>
       <div class="kpi-card p-4 text-center" style="--kpi-color: #2563eb">
-        <p class="text-xs text-slate-400 mb-1">Pass rate</p>
+        <p class="text-xs text-slate-400 mb-1">Tỷ lệ đạt</p>
         <p class="text-2xl font-bold font-display tabular-nums text-brand-600">{{ kpis.pass_rate_pct }}%</p>
       </div>
       <div class="kpi-card p-4 text-center" style="--kpi-color: #dc2626">
