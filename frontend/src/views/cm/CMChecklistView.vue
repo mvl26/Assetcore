@@ -124,7 +124,7 @@ async function handleComplete() {
       <div class="card">
         <div class="flex items-center justify-between mb-2">
           <span class="text-sm font-semibold text-slate-700">Tiến độ nghiệm thu</span>
-          <span class="text-sm font-medium text-slate-600">{{ passCount }} / {{ totalCount }} mục Pass</span>
+          <span class="text-sm font-medium text-slate-600">{{ passCount }} / {{ totalCount }} mục Đạt</span>
         </div>
         <div class="h-3 bg-slate-100 rounded-full overflow-hidden">
           <div

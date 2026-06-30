@@ -78,7 +78,7 @@ function formatHours(h: number): string {
         <p class="text-3xl font-bold text-blue-600">
           {{ formatHours(report.mttr_avg) }}<span class="text-base font-normal text-slate-400 ml-0.5">h</span>
         </p>
-        <p class="text-xs text-slate-400 mt-1">Mục tiêu: ≤ 24h (Class III)</p>
+        <p class="text-xs text-slate-400 mt-1">Mục tiêu: ≤ 24h (Loại III)</p>
       </div>
       <div class="kpi-card p-5" style="--kpi-color: #059669; animation-delay: 60ms">
         <p class="text-xs font-medium text-slate-500 mb-1">Tỷ lệ sửa đúng lần đầu</p>
@@ -93,7 +93,7 @@ function formatHours(h: number): string {
         </div>
       </div>
       <div class="kpi-card p-5" style="--kpi-color: #d97706; animation-delay: 120ms">
-        <p class="text-xs font-medium text-slate-500 mb-1">Backlog WO</p>
+        <p class="text-xs font-medium text-slate-500 mb-1">Phiếu tồn đọng</p>
         <p class="text-3xl font-bold text-amber-600">{{ report.backlog_count }}</p>
         <p class="text-xs text-slate-400 mt-1">phiếu chưa đóng</p>
       </div>
@@ -117,7 +117,7 @@ function formatHours(h: number): string {
         </div>
 
         <div v-if="!report.mttr_trend?.length" class="text-center text-slate-400 text-sm py-10">
-          Chưa có dữ liệu trend
+          Chưa có dữ liệu xu hướng
         </div>
         <div v-else class="flex items-end gap-3 h-40">
           <div
@@ -140,14 +140,14 @@ function formatHours(h: number): string {
           </div>
         </div>
         <!-- SLA reference line note -->
-        <p class="text-xs text-slate-400 mt-3">SLA target Class III: 24h</p>
+        <p class="text-xs text-slate-400 mt-3">Mục tiêu SLA (Loại III): 24h</p>
       </div>
 
       <!-- Backlog by dept (col-span-2) -->
       <div class="md:col-span-2 card animate-slide-up" style="animation-delay: 260ms">
-        <h3 class="text-sm font-semibold text-slate-800 mb-5">Backlog theo Khoa/Phòng</h3>
+        <h3 class="text-sm font-semibold text-slate-800 mb-5">Tồn đọng theo Khoa/Phòng</h3>
         <div v-if="!report.backlog_by_dept?.length" class="text-center text-slate-400 text-sm py-10">
-          Không có backlog
+          Không có tồn đọng
         </div>
         <div v-else class="space-y-3">
           <div

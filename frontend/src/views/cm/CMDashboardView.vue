@@ -6,6 +6,7 @@ import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import { getMttrReport } from '@/api/imm09'
+import { priorityLabel } from '@/constants/labels'
 
 const store  = useImm09Store()
 const router = useRouter()
@@ -139,7 +140,7 @@ const woStatusMap: Record<string, string> = {
       <div
 class="kpi-card p-5"
            :style="`--kpi-color: ${slaColor(kpis.sla_compliance_pct)}`">
-        <p class="text-xs font-medium text-slate-500 mb-2">SLA Compliance</p>
+        <p class="text-xs font-medium text-slate-500 mb-2">Tuân thủ SLA</p>
         <p class="text-3xl font-bold" :style="`color: ${slaColor(kpis.sla_compliance_pct)}`">
           {{ kpis.sla_compliance_pct }}%
         </p>
@@ -257,7 +258,7 @@ v-else-if="!store.workOrders.length"
                 <span
                   class="text-[11px] font-medium px-2 py-0.5 rounded-full"
                   :style="priorityStyle(wo.priority)"
-                >{{ wo.priority }}</span>
+                >{{ priorityLabel(wo.priority) }}</span>
                 <StatusBadge :state="woStatusMap[wo.status] ?? wo.status" size="xs" />
               </div>
             </div>
