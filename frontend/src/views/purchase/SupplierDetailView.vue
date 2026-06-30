@@ -145,7 +145,7 @@ onMounted(load)
           <div><span class="text-gray-500">Di động:</span>
             <span class="ml-2 text-gray-800">{{ supplier.mobile_no || '—' }}</span>
           </div>
-          <div><span class="text-gray-500">Website:</span>
+          <div><span class="text-gray-500">Trang web:</span>
             <a v-if="supplier.website" :href="supplier.website" target="_blank" rel="noopener" class="ml-2 text-blue-600 hover:underline">{{ supplier.website }}</a>
             <span v-else class="ml-2 text-gray-400">—</span>
           </div>
