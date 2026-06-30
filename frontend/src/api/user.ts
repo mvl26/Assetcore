@@ -149,3 +149,19 @@ export const assignRoleProfile = (user: string, role_profile: string) =>
 
 export const listFrappeUsers = (search: string = '', limit = 30) =>
   frappeGet<FrappeUserItem[]>(`${BASE}.list_frappe_users`, { search, limit })
+
+/** User AssetCore đủ năng lực cho 1 ngữ cảnh phân công (picker KTV…). */
+export interface AssignableUserItem {
+  name: string
+  full_name: string
+  email: string
+  user_image?: string | null
+}
+
+/**
+ * Liệt kê user AssetCore (có base role) ĐỦ NĂNG LỰC cho `context` phân công.
+ * `context` = khoá allowlist BE (vd "repair"); BE lọc theo capability/DocPerm
+ * (mirror _is_repair_capable) → chỉ hiện người hợp lệ để chọn.
+ */
+export const listAssignableUsers = (context: string, search = '', limit = 20) =>
+  frappeGet<AssignableUserItem[]>(`${BASE}.list_assignable_users`, { context, search, limit })

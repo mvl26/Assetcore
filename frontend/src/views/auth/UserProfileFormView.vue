@@ -12,7 +12,7 @@ import {
 import type {
   IMMUser, CreateUserPayload, ImmRoleOption, RoleProfileOption,
 } from '@/api/user'
-import { ROLE_GROUP_LABEL, type RoleGroup } from '@/constants/roles'
+import { ROLE_GROUP_LABEL, BASE_ROLE, type RoleGroup } from '@/constants/roles'
 import { personaForRoleProfile } from '@/constants/personas'
 import { useFormDraft } from '@/composables/useFormDraft'
 
@@ -156,21 +156,28 @@ const editRoles = ref<Array<{ role: string }>>([])
 const editFields = ref({ full_name: '', phone: '', ac_department: '' })
 
 // ── Role helpers ───────────────────────────────────────────────────────────
+/** Base role bắt buộc — luôn checked + KHÔNG gỡ được trên UI (BE re-inject). */
+function isBaseRole(roleName: string): boolean {
+  return roleName === BASE_ROLE
+}
+
 function hasRole(roleName: string): boolean {
-  return editRoles.value.some(r => r.role === roleName)
+  return isBaseRole(roleName) || editRoles.value.some(r => r.role === roleName)
 }
 
 function hasNewRole(roleName: string): boolean {
-  return (newUser.value.imm_roles ?? []).some(r => r.role === roleName)
+  return isBaseRole(roleName) || (newUser.value.imm_roles ?? []).some(r => r.role === roleName)
 }
 
 function toggleRole(roleName: string) {
+  if (isBaseRole(roleName)) return  // base role bắt buộc — không gỡ
   const idx = editRoles.value.findIndex(r => r.role === roleName)
   if (idx >= 0) editRoles.value.splice(idx, 1)
   else editRoles.value.push({ role: roleName })
 }
 
 function toggleNewRole(roleName: string) {
+  if (isBaseRole(roleName)) return  // base role bắt buộc — không gỡ
   const roles = newUser.value.imm_roles ?? []
   const idx = roles.findIndex(r => r.role === roleName)
   if (idx >= 0) roles.splice(idx, 1)
@@ -354,7 +361,7 @@ id="new-last-name" v-model="newUser.last_name" type="text" placeholder="A"
           <div>
             <label for="new-password" class="block text-xs font-medium text-gray-600 mb-1">Mật khẩu ban đầu</label>
             <input
-id="new-password" v-model="newUser.password" type="password" placeholder="Tối thiểu 10 ký tự (để trống = auto-generate)"
+id="new-password" v-model="newUser.password" type="password" placeholder="Tối thiểu 10 ký tự (để trống = tự sinh)"
               minlength="10" autocomplete="new-password"
               class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
             <div class="mt-1.5 text-[11px] text-gray-500 leading-snug space-y-0.5">
@@ -395,13 +402,17 @@ id="new-phone" v-model="newUser.phone" type="text" placeholder="0901234567"
           <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
             <label
               v-for="role in bucket.items" :key="role.name"
-              class="flex items-start gap-2.5 cursor-pointer rounded-lg border px-3 py-2.5 text-sm transition-colors"
-              :class="hasNewRole(role.name) ? 'border-blue-400 bg-blue-50' : 'border-gray-200 hover:bg-gray-50'"
+              class="flex items-start gap-2.5 rounded-lg border px-3 py-2.5 text-sm transition-colors"
+              :class="[
+                hasNewRole(role.name) ? 'border-blue-400 bg-blue-50' : 'border-gray-200 hover:bg-gray-50',
+                isBaseRole(role.name) ? 'cursor-not-allowed opacity-90' : 'cursor-pointer',
+              ]"
             >
-              <input type="checkbox" :checked="hasNewRole(role.name)" class="rounded mt-0.5 shrink-0" @change="toggleNewRole(role.name)" />
+              <input type="checkbox" :checked="hasNewRole(role.name)" :disabled="isBaseRole(role.name)" class="rounded mt-0.5 shrink-0" @change="toggleNewRole(role.name)" />
               <div class="min-w-0 flex-1">
                 <div class="font-medium" :class="hasNewRole(role.name) ? 'text-blue-700' : 'text-gray-800'">
                   {{ role.label }}
+                  <span v-if="isBaseRole(role.name)" class="ml-1 text-[10px] font-semibold text-blue-600 uppercase">(bắt buộc)</span>
                 </div>
                 <p class="text-[11px] text-gray-500 mt-0.5 leading-tight">{{ role.description }}</p>
               </div>
@@ -548,17 +559,18 @@ id="edit-phone" v-model="editFields.phone" type="text" placeholder="0901234567"
                 class="flex items-start gap-2.5 rounded-lg border px-3 py-2.5 text-sm transition-colors"
                 :class="[
                   hasRole(role.name) ? 'border-blue-400 bg-blue-50' : 'border-gray-200 hover:bg-gray-50',
-                  roleProfileLocked ? 'cursor-not-allowed' : 'cursor-pointer',
+                  (roleProfileLocked || isBaseRole(role.name)) ? 'cursor-not-allowed' : 'cursor-pointer',
                 ]"
               >
                 <input
-                  type="checkbox" :checked="hasRole(role.name)" :disabled="roleProfileLocked"
+                  type="checkbox" :checked="hasRole(role.name)" :disabled="roleProfileLocked || isBaseRole(role.name)"
                   class="rounded mt-0.5 shrink-0 disabled:cursor-not-allowed"
                   @change="toggleRole(role.name)"
                 />
                 <div class="min-w-0 flex-1">
                   <div class="font-medium" :class="hasRole(role.name) ? 'text-blue-700' : 'text-gray-800'">
                     {{ role.label }}
+                    <span v-if="isBaseRole(role.name)" class="ml-1 text-[10px] font-semibold text-blue-600 uppercase">(bắt buộc)</span>
                   </div>
                   <p class="text-[11px] text-gray-500 mt-0.5 leading-tight">{{ role.description }}</p>
                 </div>
