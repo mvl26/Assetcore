@@ -1,7 +1,7 @@
 // TDD — IMM-16 CAPA effectiveness_check i18n (NĐ98/QMS): SSoT nhãn VI + màu compliance.
 // Guard chống recurrence pattern A (English enum leak): mọi option BE phải có key trong STATUS_MAP.
 import { describe, it, expect } from 'vitest'
-import { translateStatus, getStatusColor, translateFrequency, translatePmType, translateDepreciationMethod, translateLifecycleEvent } from './formatters'
+import { translateStatus, getStatusColor, translateFrequency, translatePmType, translateDepreciationMethod, translateLifecycleEvent, formatCurrency, formatCurrencyShort } from './formatters'
 
 const COLOR_GREEN  = 'bg-emerald-100 text-emerald-800 border border-emerald-200'
 const COLOR_YELLOW = 'bg-yellow-100 text-yellow-800 border border-yellow-200'
@@ -377,5 +377,31 @@ describe('translateLifecycleEvent — rỗng giữ nguyên hành vi', () => {
     expect(translateLifecycleEvent(null)).toBe('—')
     expect(translateLifecycleEvent('')).toBe('—')
     expect(translateLifecycleEvent(undefined)).toBe('—')
+  })
+})
+
+// ─── L-16 (audit BaoCao_RaSoat_17062026) — SSoT compact-currency tr/tỷ ──────
+// Trước: DepreciationView + InventoryDashboardView mỗi nơi tự định nghĩa
+// `vndShort` (trùng lặp). Gom về 1 hàm thuần (testable) — hành vi PHẢI khớp
+// inline cũ: '—' cho null · "x.x tỷ" (≥1e9) · "x tr" (≥1e6) · full VND khác.
+describe('formatCurrencyShort — L-16 SSoT compact VND (tr/tỷ)', () => {
+  it('≥ 1 tỷ → "x.x tỷ" (1 chữ số thập phân)', () => {
+    expect(formatCurrencyShort(2_500_000_000)).toBe('2.5 tỷ')
+    expect(formatCurrencyShort(1_000_000_000)).toBe('1.0 tỷ')
+  })
+  it('≥ 1 triệu (< tỷ) → "x tr" (làm tròn nguyên)', () => {
+    expect(formatCurrencyShort(5_000_000)).toBe('5 tr')
+    expect(formatCurrencyShort(1_000_000)).toBe('1 tr')
+  })
+  it('< 1 triệu → full VND, đồng bộ formatCurrency (không phụ thuộc ICU symbol)', () => {
+    expect(formatCurrencyShort(500_000)).toBe(formatCurrency(500_000))
+    expect(formatCurrencyShort(0)).toBe(formatCurrency(0))
+  })
+  it('null/undefined → "—" (giữ hành vi inline cũ)', () => {
+    expect(formatCurrencyShort(null)).toBe('—')
+    expect(formatCurrencyShort(undefined)).toBe('—')
+  })
+  it('số âm vẫn rút gọn theo độ lớn |v|', () => {
+    expect(formatCurrencyShort(-1_500_000_000)).toBe('-1.5 tỷ')
   })
 })

@@ -20,9 +20,13 @@ vi.mock('vue-router', () => ({
 
 const createAssetSpy = vi.fn().mockResolvedValue({ name: 'AC-ASSET-2026-00001' })
 const getDeviceModelSpy = vi.fn().mockResolvedValue(null)
+const createAssetCategorySpy = vi.fn().mockResolvedValue({ name: 'AC-CAT-NEW-01' })
+const getAssetCategorySpy = vi.fn().mockResolvedValue(null)
 vi.mock('@/api/imm00', () => ({
   createAsset: (data: Record<string, unknown>) => createAssetSpy(data),
   getDeviceModel: (n: string) => getDeviceModelSpy(n),
+  createAssetCategory: (d: Record<string, unknown>) => createAssetCategorySpy(d),
+  getAssetCategory: (n: string) => getAssetCategorySpy(n),
 }))
 
 // useFormDraft: no-op draft (không persist localStorage trong test).
@@ -31,6 +35,7 @@ vi.mock('@/composables/useFormDraft', () => ({
 }))
 
 import AssetCreateView from './AssetCreateView.vue'
+import SmartSelect from '@/components/common/SmartSelect.vue'
 
 const stubs = {
   PageHeader: true,
@@ -196,5 +201,28 @@ describe('AssetCreateView — B2 Danh mục bắt buộc + surface lỗi 422 VI'
     expect(text).not.toContain('[AC Asset')
     expect(text).not.toContain('MandatoryError')
     expect(text).not.toContain('asset_category')
+  })
+})
+
+describe('AssetCreateView — quick-create danh mục [L-18a]', () => {
+  beforeEach(() => {
+    createAssetCategorySpy.mockClear()
+    getAssetCategorySpy.mockClear()
+  })
+
+  it('SmartSelect danh mục bật allow-create', () => {
+    const w = mountView()
+    const catSelect = w.findAllComponents(SmartSelect)[0]
+    expect(catSelect.props('allowCreate')).toBe(true)
+  })
+
+  it('@create → gọi createAssetCategory (trim) + tự chọn danh mục mới', async () => {
+    const w = mountView()
+    const catSelect = w.findAllComponents(SmartSelect)[0]
+    catSelect.vm.$emit('create', '  Máy thở  ')
+    await flushPromises()
+    expect(createAssetCategorySpy).toHaveBeenCalledWith({ category_name: 'Máy thở' })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((w.vm as any).form.asset_category).toBe('AC-CAT-NEW-01')
   })
 })
