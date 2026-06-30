@@ -1002,3 +1002,55 @@ Cross-ref: LL-FE-48 (verify render thật khổ in), LL-FE-46 (xanh structural �
 **Rule kiểm được:** với output in (PDF/tem/khổ cố định) verify bằng RENDER ra ảnh (pdftoppm/screenshot → đọc ảnh bằng mắt), KHÔNG tin assertion text-trong-DOM. Khổ nhỏ: in VALUE-only (bỏ tiền tố nhãn) + `nowrap` + `text-overflow:ellipsis` + font/QR thu theo khổ (KHÔNG wrap→cắt dọc); QR giữ ≥18mm để còn quét được.
 
 Cross-ref: LL-FE-47 (dead control khổ tem), LL-FE-46 (render thật chứng minh), LL-TEST (assert artifact render thật, không assert template); session 2026-06-11 F1.
+
+### LL-FE-49: Gom helper trùng về SSoT — import-alias để KHÔNG churn template + `vue-tsc` bắt helper chết; banner/guard dùng SSoT (2026-06-29)
+
+**Triệu chứng→nguyên nhân:** audit L-16/L-10. (a) 2 view (DepreciationView + InventoryDashboardView) mỗi nơi tự định nghĩa `vndShort` y hệt → audit yêu cầu 1 formatter SSoT. (b) 4 form (AssetCreate/Incident/AssetTransfer/Supplier) mỗi nơi render `<div>` lỗi style KHÁC nhau (`alert-error` vs tailwind ad-hoc).
+
+**Rule (kiểm được):**
+1. **Gom helper trùng** vào `utils/formatters.ts` (hàm thuần, có test) — hành vi PHẢI khớp inline cũ (vd `formatCurrencyShort`: '—' cho null · "x.x tỷ"/"x tr" · full VND fallback). Để **giảm churn template**, import-alias `import { formatCurrencyShort as vndShort } from '@/utils/formatters'` rồi XOÁ hàm local (template gọi `vndShort(...)` y nguyên).
+2. **Sau khi xoá helper local, dependency của nó có thể thành DEAD** → `vue-tsc --noEmit` báo `TS6133 'vnd' declared but never read`. ⇒ LUÔN chạy full `vue-tsc` sau refactor SSoT (đếm-usage tay không đủ: `grep -c "vnd("` gồm cả định nghĩa) → xoá helper chết.
+3. **Component dùng chung** (vd `FormError.vue`) build trên CLASS SSoT sẵn có (`.alert-error`, dùng ở 30+ view) + `role="alert"`; **margin do call-site quyết định** (fallthrough `class="mb-4"`) để 1 component hợp cả parent `space-y-*` lẫn standalone → giữ spacing từng nơi. Adopt vào CÁC form được audit nêu, KHÔNG mass-migrate (scope discipline).
+4. **Client validation = mirror BE guard** (UX), BE vẫn authoritative: reuse `utils/formValidation` (vd `notFutureError`) + component sẵn có (`DateTimeInput`); rỗng = hợp lệ (BE fallback).
+
+Cross-ref: component-patterns.md (SmartSelect allow-create/@create wire vào endpoint `create_*` sẵn có); LL-BE-65 (reuse endpoint, no new OAS); session audit 2026-06-29.
+
+### LL-FE-52: Việt-hoá display-layer — enum-binding KHÔNG chỉ `status` + bare-option value-injection (2026-06-29)
+
+**Bối cảnh:** sweep Việt-hoá toàn FE ("sửa hết tiếng Anh trên UI"). Chiến lược DUY NHẤT an toàn = **chỉ dịch lớp hiển thị**: GIỮ NGUYÊN value enum / `workflow_state` / `fieldname` / `<option value>` (đổi value = vỡ data + workflow + buộc migrate); dịch qua label fn FE + doctype `label` ([[LL-BE-66]]) + `messages.py`.
+
+**3 cạm bẫy + cách đúng (kiểm được):**
+1. **Enum-binding leak KHÔNG chỉ `status`:** `{{ x.transfer_type|pm_type|wo_type|overall_result|calibration_type|medical_device_class|reference_type|avl_status|nc_type|lifecycle_status|priority|event_type|measurement_type }}` render thô tiếng Anh y hệt status. GATE-1 cũ (chỉ status|frequency|severity) BỎ SÓT 17 leak → đã bồi field-list + prefix-bất-kỳ (SKILL §GATE-1). Wrap qua label fn ở `constants/labels.ts` (SSoT); enum chưa có map → THÊM map + helper TẠI `labels.ts`, KHÔNG hardcode/dup local.
+2. **Bare `<option>EN</option>` (value==text):** muốn dịch text PHẢI thêm `value="<EN gốc>"` TRƯỚC (khớp EXACT DocType Select `options`), rồi đổi text sang VI. Bỏ bước này → `v-model` submit tiếng Việt → 422 / filter vỡ. (SKILL §GATE-7.)
+3. **Hàm logic trả `'Pass'/'Fail'` (vd `computeResult`) dùng để SO SÁNH — KHÔNG đổi return**; chỉ wrap nhãn ở template. Filter free-text khớp value EN → placeholder hint trung tính, ĐỪNG ví dụ tiếng Việt (user gõ VI không khớp value EN đã lưu).
+
+**DRIFT bonus:** đối chiếu tập `<option value>` FE vs DocType `options` BE — lệch = bug (FE `audit_type` [Internal/External/Surveillance] ≠ BE [Internal/Self-assessment]) → flag BA, KHÔNG tự sửa trong sweep dịch.
+
+Cross-ref: SKILL §GATE-1/§GATE-7; LL-FE-2/3/30 (label map sync BE EXACT); [[LL-BE-66]] (doctype label); `assetcore-test` (full vitest sau sweep — test assert chuỗi hiển thị, không chỉ colocated); session 2026-06-29 Việt-hoá UI.
+
+### LL-FE-51: Workflow *Detail view phải render nút theo BE `allowed_transitions` (server-driven CTA) — KHÔNG hardcode `status === 'X'` (2026-06-29)
+
+**Triệu chứng→nguyên nhân:** màn chi tiết phiếu workflow lộ "quá nhiều nút / luồng không rõ" — nút của 2 nhánh nghiệp vụ khác nhau hiện cùng lúc + nút submit/nhập-liệu hiện ở trạng thái chưa được phép. RED 2026-06-29: `CalibrationDetailView` gate nút bằng `form.value.status === 'Scheduled'` (hardcode client) → phiếu External ở *Đã lên lịch* hiện đồng thời "Bắt đầu hiệu chuẩn" (In-House) + "Gửi phòng hiệu chuẩn" (External) + "Gửi duyệt"(disabled+tooltip) + bảng nhập tham số đo — dù state machine BE KHÔNG cho submit từ Scheduled. BE đã expose SSoT `allowed_transitions = _CAL_VALID_TRANSITIONS.get(status, [])` (imm11.py) ĐÚNG để FE bám theo nhưng view chưa dùng.
+
+**Rule (kiểm được — GATE-8):** 4 *Detail view workflow (Incident imm12 R3 · PM imm08 R21 · CM/Repair imm09 R22 · Calibration imm11) BE đều emit `allowed_transitions`. FE PHẢI:
+1. `const allowedTransitions = computed(() => form.value.allowed_transitions ?? [])` + khai field vào interface API.
+2. Mỗi nút workflow: `canXxx = capability && allowedTransitions.includes('<NextState>')` (mirror `IncidentDetailView`) — KHÔNG `form.value.status === 'X'`. Chuỗi `includes()` = EXACT enum BE (LL-FE/SKILL §allowed_transitions check).
+3. Tách pha nhập-liệu: `canEnterResults = capability && !isSubmitted && RESULT_STATES.some(s => allowedTransitions.includes(s))` → bảng nhập đo + "Gửi duyệt" CHỈ hiện ở pha có result-transition (In Progress / Cert Received), KHÔNG ở Scheduled/Sent-to-Lab. `!isSubmitted` bắt buộc (phiếu Failed sau submit vẫn còn allowed=[Conditionally Passed] → đừng nhầm là còn nhập được).
+4. Test mount-component vitest mọi (status × type) → assert đúng bộ nút (mẫu `calibrationButtonGating.test.ts`, 7 case, RED-proven bằng `git stash push -- <view>.vue`).
+
+**Gate (output AT phải >0 cho CẢ 4):**
+```bash
+for v in IncidentDetailView PMWorkOrderDetailView CMWorkOrderDetailView CalibrationDetailView; do
+  f=$(find frontend/src/views -name "$v.vue"); echo "AT=$(grep -cE 'allowed_transitions|allowedTransitions' "$f")  $v"; done
+```
+Hiện trạng 2026-06-29: Incident=7, Calibration=7 (đã wired); **PMWorkOrderDetailView=0, CMWorkOrderDetailView=0 (12 status-literal) VẪN hardcode** → backlog migrate sang allowed_transitions.
+
+Cross-ref: SKILL §GATE-8; `_CAL_VALID_TRANSITIONS`/`_VALID_TRANSITIONS` (BE service); memory `overdue_server_flag_ssot` (cùng nguyên tắc SSoT server, FE không tự suy state).
+
+### LL-FE-50: Doc tổng-hợp = TẠO bằng CHỌN ≥1 child ĐÃ-DUYỆT, KHÔNG tạo-rỗng-rồi-thêm (2026-06-29)
+
+**Triệu chứng→nguyên nhân:** Kế hoạch mua sắm tạo rỗng trước rồi mới thêm đề xuất → cho phép tồn tại plan RỖNG → duyệt plan rỗng = lỗi workflow (LL-BE-62) + sai nghiệp vụ (kế hoạch phải GOM các đề xuất ĐÃ DUYỆT). Modal create cũ chỉ year/period/budget, không chọn nguồn.
+
+**Rule (kiểm được):** doc tổng-hợp (Procurement Plan ← Needs Request approved; allocation ← lines…) → modal create PHẢI: (1) `openCreateModal()` fetch candidate ĐÃ DUYỆT (`listNeedsRequests({workflow_state:'Approved'},1,100)`), (2) bảng checkbox chọn + đếm "Đã chọn N", (3) submit `:disabled="selected.size===0"` (gate ≥1), (4) gọi `create*(..., Array.from(selectedIds))` truyền MẢNG id. KHÔNG tạo-rỗng-rồi-thêm. DONE-gate: component test — 0 chọn→submit disabled + KHÔNG gọi API; ≥1 chọn→spy nhận đúng mảng id (LL-FE-47 param == lựa chọn); render-verify browser: modal nạp candidate + gate disabled↔enabled.
+
+Cross-ref: LL-FE-47 (control không dead — param == lựa chọn), BE LL-BE-62 (precondition ≥1 line TRƯỚC workflow); `views/needs/ProcurementPlanListView.vue` proposal-first modal; session 2026-06-29.

@@ -165,3 +165,29 @@ Bug đã gặp 2026-06-01 (verify banner login G5): sau phiên dev server (Vite)
 (a)+(b) đúng mà (c) chỉ sai trên dev-server đã HMR nhiều lần = dev-server churn (v-model desync / instance churn), KHÔNG phải FE bug. Thêm `@frappe.whitelist()` mới → reload gunicorn trước (xem rule 4 / LL-QA-8 / LL-BE-16) để loại trừ `AttributeError` phantom.
 
 Cross-ref: `assetcore-be` LL-BE-16 (werkzeug reload không tin cậy), LL-FE-27 (bench execute trước khi sửa FE), memory/gunicorn_preload_staleness.md; bug 2026-06-01 verify banner login G5 (cùng section trên).
+
+### LL-QA-16: Render-verify màn GATED bằng phiên SAI-role → CẤP-TẠM capability rồi REVERT (KHÔNG bịa login) (2026-06-29)
+
+Triệu chứng → verify luồng tạo Kế hoạch mua sắm nhưng profile Playwright bền đang đăng nhập user role-SAI (KTV, không Needs) → `/procurement-plans` redirect `/unauthorized` "Không đủ quyền"; không biết password persona Needs để login lại.
+
+Rule (kiểm được) — recipe cấp-tạm + REVERT (CẦN USER đồng ý vì là đổi quyền):
+1. **Biết user phiên:** `browser_evaluate` đọc localStorage `assetcore.session` → `.user.name` + `.user.roles`. Route guard AssetCore gate bằng `meta.requiredCapabilities` (vd `needs.read`) đối chiếu cache `assetcore.capabilities`, KHÔNG raw role.
+2. **BE — cấp role KHÔNG qua `User.save()`:** `User.save()` RE-SYNC roles về `role_profile` (persona architecture) → `add_roles()` BỊ STRIP ngay khi save. Cấp role sống-sót = raw `INSERT INTO \`tabHas Role\`(name,...,parent,parentfield='roles',parenttype='User',role)` + `frappe.db.commit()` + `frappe.clear_cache()`. Verify `frappe.has_permission(<DocType>,'read',user=...)`=True.
+3. **FE — mở khoá route/nút KHÔNG re-login:** patch localStorage `assetcore.capabilities` set cap cần (`needs.read/create=true`) + push role vào `assetcore.session.user.roles`; reload → guard pass.
+4. **REVERT BẮT BUỘC cả 2 phía:** `frappe.db.delete("Has Role",{parent,role})` + `clear_cache()`; khôi phục localStorage caps=false + gỡ role; reload → XÁC NHẬN màn về `/unauthorized`. Báo cáo nêu rõ "đã cấp-tạm + đã revert".
+5. KHÔNG dùng `Administrator` thay persona (bypass mọi gate = false-green, LL-QA-10). KHÔNG bịa/paste password vào chat.
+
+Phụ — `bench --site X console` qua STDIN: câu lệnh 1-DÒNG (`a; b; c`) CHẠY; KHỐI THỤT-ĐẦU-DÒNG (`try:`/`if:` đa dòng) IM LẶNG KHÔNG chạy trong IPython piped → dùng statement 1-dòng semicolon + `grep` marker để verify.
+
+Cross-ref: LL-QA-10 (không Admin thay persona / không bịa login), LL-QA-17 (profile-lock), LL-BE-63 (worker stale nuốt kwargs); memory `role_profile_persona_architecture` (role_profile re-sync) + `role_security_audit_20260601` + `gunicorn_preload_staleness`; session 2026-06-29 procurement render-verify.
+
+### LL-QA-17: Playwright MCP profile BỀN — lock kẹt + self-kill `pkill` + phiên-sai-user (2026-06-29)
+
+Triệu chứng → (a) `browser_navigate`/`browser_snapshot` lỗi "Browser is already in use for .../mcp-chrome-<hash>, use --isolated" — chrome MỒ-CÔI phiên trước GIỮ lock profile. (b) `pkill -f "mcp-chrome-<hash>"` GIẾT luôn chính câu bash đang chạy (command-line chứa pattern) → self-SIGTERM exit 144, lock-file chưa dọn. (c) profile bền giữ phiên đăng nhập của user CUỐI dùng → có thể sai role.
+
+Rule (kiểm được):
+1. Lock kẹt → kill chrome mồ-côi của profile + xoá `Singleton*`: tham chiếu hash QUA BIẾN shell (`PROF=mcp-chrome-<hash>; pkill -f "$PROF"`) để command-text KHÔNG chứa literal pattern (tránh self-kill), HOẶC `pgrep`→kill theo PID; rồi `rm -f .../$PROF/Singleton*`; retry navigate 1 lần.
+2. Đừng giả định đã login đúng: sau navigate, `browser_snapshot` kiểm URL có `/unauthorized` + đọc `assetcore.session` để biết user/role thật TRƯỚC khi thao tác (→ LL-QA-16).
+3. MCP fail >2 recovery → fallback static audit / báo USER (LL-QA-10 rule 3).
+
+Cross-ref: LL-QA-9 (artifact eval sweep), LL-QA-10 (MCP unstable fallback), LL-QA-16 (verify gated screen); session 2026-06-29.

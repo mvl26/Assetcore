@@ -638,3 +638,13 @@ Triệu chứng→nguyên nhân: 2026-06-11 — lỗi user "Không thể tạo P
 3. Chỉ USER `bench restart` + `clear-cache` mới mở khoá (HARD-STOP — BE/QA KHÔNG tự reload/restart/migrate). Sau USER reload mới chạy Playwright/HTTP live rồi đổi verdict.
 
 Reference: LL-TEST-25 (`--preload` đông cứng import), `memory/gunicorn_preload_staleness.md`, session 2026-06-11.
+
+### LL-TEST-30: Đa-phiên chạy test trên CÙNG site DB → full BE suite ĐỎ là NHIỄM BẨN, KHÔNG phải regression (2026-06-29)
+
+**Triệu chứng→nguyên nhân:** audit session — full `bench run-tests --app assetcore` báo 11 fail + 21 error, dễ kết luận "tôi làm hỏng". Thực tế nhiều phiên `/build auto` chạy test ĐỒNG THỜI trên cùng site `miyano` → fixtures `_Test*` rò rỉ (commit qua savepoint) → va chạm. Bằng chứng: `test_gmdn_cascade` setUp đỏ NGAY CẢ KHI chạy ĐỘC LẬP tại `ac_asset_category.py _validate_gmdn_unique` (GMDN-unique collision với category `_Test` leak) — không phải code mới. Triệu-chứng nhiễm: `tearDownClass` errors hàng loạt (capa/imm00_smoke/imm16), count-invariant fail (reserved_prefix, byt_expiry), gmdn-unique collision.
+
+**Rule (kiểm được):** khi nghi đa-phiên (xem `[[multi_session_concurrency]]`):
+1. **FE vitest = tín hiệu TIN CẬY** (isolated, không đụng DB) → dùng làm gate chính; full BE suite trên shared DB KHÔNG tin được pass/fail tổng.
+2. **Cô lập trước khi quy lỗi**: chạy LẠI module nghi ngờ một mình (`run-tests --module X`); vẫn đỏ ở `setUp`/unique-collision/teardown ⇒ NHIỄM BẨN (leaked fixture), KHÔNG phải bug của bạn. TUYỆT ĐỐI không "sửa cho xanh" cái không phải lỗi mình.
+3. **Việc của bạn vẫn phải xanh KHI chạy isolated** — verify từng module mình đụng chạy riêng (xanh) thay vì tin con số tổng nhiễm bẩn.
+4. Clean BE verification THẬT chỉ khả thi khi **1 phiên duy nhất** + DB đã purge leak → đề xuất user consolidate rồi chạy 1 lần sạch. Cross-ref: LL-TEST-15 (fixture leak), LL-BE-15 (no shared-reuse fixture), `[[multi_session_concurrency]]`; session audit 2026-06-29.

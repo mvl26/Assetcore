@@ -30,7 +30,7 @@ Mọi module IMM mới đều cần cả 3. Nguyên tắc cốt lõi: **API mỏ
 ## Process — build BE module IMM-XX theo 3-tier (DocType→repo→service→api→test)
 
 Quy trình từng bước (spine — chi tiết ở mục dưới; giữ nguyên ranh giới §Kiến trúc 3-tier: API mỏng → Service nghiệp vụ → Repo chạm DB):
-1. **Đọc Core Doc + Lessons Learned** — `docs/imm-XX/02+05`, chốt BR-XX-NN/tên endpoint; đọc LL-BE-1..58 trước khi viết → §Lessons Learned
+1. **Đọc Core Doc + Lessons Learned** — `docs/imm-XX/02+05`, chốt BR-XX-NN/tên endpoint; đọc LL-BE-1..63 trước khi viết → §Lessons Learned
 2. **DocType schema** — folder + JSON template, naming series, status/timestamp `read_only+no_copy`, tra catalog tránh đoán tên → §DocType schema
 3. **Workflow state machine + 3-list fixtures** — states/transitions, docstatus rule, update CẢ 3 list (Workflow + State + Action Master) cùng commit → §Workflow state machine
 4. **Repository (Tier 3)** — `<Name>Repo(BaseRepository)`, DB chỉ qua repo, custom method khi cần raw SQL → §Tier 3 — Repository
@@ -83,6 +83,8 @@ Quy trình từng bước (spine — chi tiết ở mục dưới; giữ nguyên
 15. **"Chuông trống / không nhận thông báo" → vá engine ngay**: thường là DATA (actor tự gán cho chính mình → self-notify chặn đúng), KHÔNG phải bug. Chạy decision tree (count record → actor≠recipient? → test `_dispatch` → FE query đúng `api/layout` không) TRƯỚC khi đụng code. Xem LL-BE-34.
 16. **List endpoint count≠rows / page_size không cap**: triệu chứng = persona row-scoped thấy `pagination.total` 1430 nhưng chỉ drill được ít row → nguyên nhân `frappe.db.count`/`get_all` BỎ `permission_query_conditions` còn rows áp query persona. RULE kiểm-được: (a) `pagination.total` qua `count_with_or`/`len(get_list(limit_page_length=0))` DƯỚI session user — KHÔNG `frappe.db.count`/`get_all`; (b) `page_size = max(1, min(int(page_size), 100))` cap 2 đầu MỌI list endpoint; (c) probe dưới persona row-scoped assert `total==len(items)`. Xem LL-BE-42/43/47; `api/imm15.py:62`, `api/inventory.py:36`.
 17. **Error envelope leak raw exc / branch theo status-line / mutating thiếu cap-gate**: triệu chứng = client thấy traceback nội bộ, hoặc `{ref}` lộ record hiện hữu trên lỗi dup, hoặc @whitelist mutating gate bằng role-name không tồn tại (silent bypass). RULE kiểm-được: (a) catch-all `except Exception` → `log_error(get_traceback())` + message HẰNG, KHÔNG `_err(str(e))` (leak nội bộ); (b) lỗi nghiệp vụ 404/409/422 trả TRÊN HTTP-200 → client/test branch theo `envelope.http_status`/`code`, KHÔNG HTTP status-line; phân biệt dispatcher-403 (re-auth) vs in-handler cap-403 (show-message); (c) mọi mutating @whitelist có `rbac.require`/`has_any_role` capability-SSoT đầu body, KHÔNG gate role-name; (d) message dup-định-danh KHÔNG leak record hiện hữu. Xem LL-BE-44/45/46/49; `references/notification-contract.md`.
+
+18. **Field "chọn người" lấy nguồn sai / không qua context allowlist**: triệu chứng = picker phân công/mô-tả-người kéo TOÀN BỘ Frappe user (FE `SmartSelect doctype="User"` hoặc endpoint trả `frappe.get_all("User")` thô) → lộ user ngoài hệ thống + user chọn người mà BE sẽ từ chối. RULE: mọi danh sách người PHẢI qua `api/user.py::list_assignable_users(context,...)` — nguồn = base-role holder ("user AssetCore" = giữ `AssetCore System User`, trừ Admin/Guest). `context="user"` = mọi holder (field mô-tả-người: giám sát/thủ kho/trưởng khoa/leo thang SLA); context capability trong `_ASSIGNABLE_CONTEXTS` = lọc thêm `frappe.has_permission(doctype, ptype)` (mirror `_is_repair_capable`, KHÔNG so role-name). Thêm field người mới = thêm 1 entry vào `_ASSIGNABLE_CONTEXTS` (allowlist nhận TÊN context, KHÔNG nhận doctype thô từ client → anti-probe), context lạ → 400. Xem memory `user-source-base-role-pattern`; skill `assetcore-fe` Display rules + GATE-7.
 
 ---
 
@@ -405,7 +407,7 @@ transition_asset_status(asset_ref, AssetStatus.ACTIVE, root_record=wo_name)
 
 ## Lessons Learned — bug patterns production (BẮT BUỘC ĐỌC)
 
-> ⚠️ quy tắc **LL-BE-1..58** (always-apply, KHÔNG optional) đã chuyển sang
+> ⚠️ quy tắc **LL-BE-1..63** (always-apply, KHÔNG optional) đã chuyển sang
 > [`references/lessons-learned.md`](references/lessons-learned.md) — whitelist GET param,
 > enrich Link field, DocType schema sync, workflow action labels, gate validators,
 > audit trail localize, fixture-leak, null-guard dangling FK, slug-in-display,
@@ -465,7 +467,7 @@ Trước khi khai báo BE "xong" — phải có BẰNG CHỨNG (không "có vẻ
 - [ ] Slice nhỏ: từng entrypoint test xanh + commit riêng; param/feature mới safe-default; quyết định Frappe v15 đã cite (context7) hoặc flag UNVERIFIED.
 - [ ] Workflow fixtures: cập nhật CẢ 3 list (Workflow + State + Action Master) trong cùng commit.
 - [ ] Scheduler/event fn đã wire `hooks.py` (`scheduler_events`/`doc_events`) — verify `bench execute frappe.get_hooks`.
-- [ ] Đã đọc `references/lessons-learned.md` (LL-BE-1..58) trước khi viết — không tái phạm.
+- [ ] Đã đọc `references/lessons-learned.md` (LL-BE-1..63) trước khi viết — không tái phạm.
 
 ---
 

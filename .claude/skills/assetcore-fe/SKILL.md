@@ -57,7 +57,8 @@ src/api/axios.ts              ← CSRF + auth interceptor
 **Display rules (UI/UX — không hiện mã hệ thống với user):**
 - **Tên nhà cung cấp**: hiển thị `supplier_name` (tên đọc được), KHÔNG phải `name` (mã `SUP-2026-XXXXX`). Luôn request thêm `supplier_name` trong API response.
 - **Tên thiết bị**: hiển thị `asset_name` hoặc device_model — KHÔNG phải `name` (mã `ACC-ASS-*`). Bên dưới mã nhỏ hơn làm sub-text là OK.
-- **Người dùng**: hiển thị `full_name`, KHÔNG phải `email` hay system user ID — trừ sub-text phụ.
+- **Người dùng (hiển thị)**: `full_name`, KHÔNG phải `email` hay system user ID — trừ sub-text phụ.
+- **Người dùng (CHỌN — mọi picker phân công / mô-tả-người)**: BẮT BUỘC `<ApproverSelect context="...">` (`components/commissioning/ApproverSelect.vue` → `api/user.ts::listAssignableUsers` → BE `list_assignable_users`). **TUYỆT ĐỐI KHÔNG `SmartSelect doctype="User"`** cho field chọn người — nó kéo TOÀN BỘ Frappe user, bỏ qua định danh "user AssetCore" (base role `AssetCore System User`) → lộ người ngoài hệ thống + chọn nhầm người mà BE từ chối. Đây **KHÔNG phải "fallback đơn giản hơn" — nó SAI**. Chọn `context`: field cần **năng lực thao tác** (KTV sửa/PM/hiệu chuẩn/sự cố/lắp đặt) → context capability (`repair`/`pm`/`calibration`/`incident`/`commissioning`); field **chỉ mô-tả-người** (giám sát, thủ kho, trưởng khoa, người nhận, leo thang SLA) → `context="user"` (mọi user AssetCore, KHÔNG lọc năng lực). `role="..."` CHỈ khi cần đúng 1 Frappe role (hiếm). Cần context mới → thêm ở BE `_ASSIGNABLE_CONTEXTS` (xem `assetcore-be` anti-pattern #18). ApproverSelect: `modelValue` nhận `string|undefined|null`, có prop `id` cho `<label for>`.
 - **Trạng thái**: dùng `STATUS_LABEL` map để dịch — mọi status key trong map PHẢI khớp **chính xác** với constant trong BE service (`_STATUS_*`). Không tự đặt tên "thân thiện" cho status key.
 - **Select options trong form**: options `<select>` PHẢI khớp chính xác với `options` trong DocType JSON field. Không dùng nhãn tiếng Việt làm value — value là string kỹ thuật, label mới là tiếng Việt.
 - **Risk class mapping**: AC Asset dùng `"Low/Medium/High/Critical"`. Khi truyền sang DocType khác có schema khác (vd Asset Repair dùng `"Class I/II/III"`), PHẢI có mapping layer trong service BE — FE không tự map.
@@ -292,16 +293,20 @@ The exact file-path build order for a new IMM module on FE (verify BE endpoint n
 
 ## 🛑 PRE-DONE GREP GATE (chạy TRƯỚC khi nói DONE)
 
-5 phiên test 2026-05-15..26 leak lại cùng pattern dù LL-FE-3/6/13 đã có. Bắt buộc chạy các grep gate dưới đây (GATE-1..5 + manual GATE-6a/6b) trên view/component bạn vừa sửa. **Output ≠ 0 → fix, không skip.**
+5 phiên test 2026-05-15..26 leak lại cùng pattern dù LL-FE-3/6/13 đã có. Bắt buộc chạy các grep gate dưới đây (GATE-1..5,7 + manual GATE-6a/6b) trên view/component bạn vừa sửa. **Output ≠ 0 → fix, không skip.**
 
 ```bash
 cd /home/miyano/frappe-bench/apps/assetcore
 
-# GATE-1: English enum leak. Mọi {{ row.status }} / {{ doc.frequency }} / severity
-# phải đi qua label map (STATUS_LABEL / FREQ_LABEL / SEVERITY_LABEL).
-grep -rnE "\{\{\s*(row|item|doc|d)\.(status|workflow_state|frequency|severity)\s*\}\}" \
+# GATE-1: English enum leak. Mọi {{ x.<enum> }} phải đi qua label fn (constants/labels.ts).
+# KHÔNG CHỈ status — mọi field enum render thô đều leak. GATE-1 cũ (chỉ status|frequency|
+# severity + prefix row|item|doc|d) BỎ SÓT 17 leak (session 2026-06-29): transfer_type,
+# pm_type, wo_type, overall_result, calibration_type, medical_device_class, reference_type,
+# avl_status, nc_type, lifecycle_status, priority, audit_type, event_type, measurement_type.
+# Prefix object BẤT KỲ (wo./m./form./nc./selectedEvent./a./...), KHÔNG chỉ row/doc.
+grep -rnE "\{\{\s*[A-Za-z_][A-Za-z0-9_.]*\.(status|workflow_state|frequency|severity|transfer_type|pm_type|wo_type|overall_result|calibration_type|medical_device_class|reference_type|imm_avl_status|avl_status|nc_type|lifecycle_status|priority|audit_type|event_type|measurement_type|category|scope|pass_fail)\s*\}\}" \
   frontend/src/views/<your-domain>/ \
-  | grep -v "STATUS_LABEL\|FREQ_LABEL\|SEVERITY_LABEL\|statusLabel\|labelFor"
+  | grep -vE "Label\(|labelFor|formatStatus|translateStatus|tLabel"
 
 # GATE-2: Raw code/email leak. row.technician/owner/vendor/model/asset/warehouse
 # phải có `_name` / `_full_name` companion từ BE và FE phải dùng `x_name || x`.
@@ -320,6 +325,19 @@ grep -rnE "frappe\.client\.(get_value|get_list|get)" frontend/src/{views,composa
 # prefetch ref/lookup PHỤ phải đổi Promise.allSettled (giữ Promise.all chỉ khi mọi nhánh bắt buộc thành công).
 # Mục tiêu: 1×403 KHÔNG blank cả trang.
 grep -rn 'Promise.all(' frontend/src/{stores,composables}
+
+# GATE-7: Bare <option> tiếng Anh (value==text) trong <select> bound enum (→ LL-FE-49).
+# Việt-hoá text BARE option PHẢI thêm value="<EN gốc>" (khớp EXACT DocType Select `options`)
+# TRƯỚC, nếu không form submit tiếng Việt → 422 / filter vỡ. Review mỗi match:
+grep -rnE "<option>[^<]*[A-Za-zÀ-ỹ]{3}" frontend/src/views/<your-domain>/
+# + đối chiếu tập <option value="X"> FE vs DocType field Select `options` BE — DRIFT = bug
+#   (vd FE audit_type [Internal/External/Surveillance] ≠ BE [Internal/Self-assessment]).
+
+# GATE-7: User-picker phải là ApproverSelect, KHÔNG `SmartSelect doctype="User"`
+# (→ user-source-base-role rule: chọn người = user AssetCore, KHÔNG toàn bộ Frappe
+# user). Output PHẢI = 0. Mỗi match → đổi sang
+# <ApproverSelect context="user|repair|pm|calibration|incident|commissioning">.
+grep -rnE 'doctype="User"' frontend/src/views/
 ```
 
 **GATE-1/GATE-2 scope (BẮT BUỘC mở rộng — KHÔNG chỉ ListView):** chạy GATE-1 (EN-enum) + GATE-2 (raw-code) thêm trên **DetailView + dashboard card** (`{{ ...status }}` trong `KpiCard`/donut), không chỉ ListView. Bug Wave2 IMM-12-A (dashboard cards 'Open'/'In Progress') + IMM-11-B (Cal detail 'Scheduled' dù list đã 'Đã lên lịch') lọt vì detail+card quên áp map dù list đúng. Bồi thêm key thiếu vào audit-list LL-FE-30: `Under Maintenance`→'Đang bảo trì', `Scheduled`→'Đã lên lịch', `Locked`, `Evaluated`, `Contract Signed`, `Weekly`, `Minor`.
@@ -331,6 +349,12 @@ Kèm 4 manual check không tự động được:
 - **GATE-6b — form 0-state** (→ LL-FE-44): mỗi form có required-dropdown dựa list endpoint chạy test-case `total:0` → có banner + ≥1 lối thoát actionable, KHÔNG chỉ disabled.
 - **GATE-6c — control mới (dropdown/toggle/radio)** (→ LL-FE-47): test **param phát đi (body/query/store) == UI-selection** (chọn option B → spy nhận B), chống dead-control — KHÔNG để giá trị hardcode ở call-site, KHÔNG chỉ assert "render đủ N option".
 - **GATE-6d — output in/khổ cố định** (→ LL-FE-48): verify bằng RENDER ẢNH thật (pdftoppm/screenshot → đọc bằng mắt), KHÔNG chỉ DOM-assert text-trong-DOM (`overflow:hidden` cắt chữ âm thầm mà DOM-test vẫn PASS).
+- **GATE-8 — workflow *Detail view render nút theo BE `allowed_transitions` (server-driven CTA), KHÔNG hardcode `status === 'X'`** (→ LL-FE-51). BE emit `allowed_transitions = _VALID_TRANSITIONS.get(status, [])` cho 4 *Detail (Incident imm12 R3 · PM imm08 R21 · CM/Repair imm09 R22 · Calibration imm11). FE gate `canXxx = capability && allowedTransitions.includes('<NextState>')` (mirror `IncidentDetailView`) — KHÔNG `form.value.status === 'X'` (hardcode = trộn luồng + lộ nút sai pha). Với 4 view này nguồn là SERVER, mạnh hơn map client "TRANSITIONS_BY_STATE" ở trên. Gate kiểm-được (AT phải >0 cho CẢ 4):
+  ```bash
+  for v in IncidentDetailView PMWorkOrderDetailView CMWorkOrderDetailView CalibrationDetailView; do
+    f=$(find frontend/src/views -name "$v.vue"); echo "AT=$(grep -cE 'allowed_transitions|allowedTransitions' "$f")  $v"; done
+  ```
+  RED 2026-06-29: `CalibrationDetailView` hardcode `status === 'Scheduled'` → lộ "Gửi duyệt"(disabled+tooltip) + bảng nhập tham số đo ngay ở Scheduled, trộn In-House↔External; đã fix bằng `allowedTransitions` (AT=7) + tách `canEnterResults` (chỉ pha có result-transition). Gate còn lòi **PMWorkOrderDetailView (AT=0) + CMWorkOrderDetailView (AT=0, 12 status-literal) VẪN hardcode** dù BE đã emit → backlog migrate.
 
 ## Critical anti-patterns (từ bugs thực tế — KHÔNG lặp lại)
 
@@ -403,7 +427,7 @@ Trước khi khai báo FE "xong" — phải có BẰNG CHỨNG (không "có vẻ
 - [ ] Mỗi `frappeGet/frappePost` đối chiếu khớp tên function trong `assetcore/api/immXX.py`; roles mới đã sync vào `constants/roles.ts`.
 - [ ] success/error đều qua `useNotify` (notification pipeline) — không `toast.error("literal")` nghiệp vụ.
 - [ ] **WCAG 2.1 AA**: Tab qua được mọi action; icon button có `aria-label`; focus ring nhìn thấy; status có label chữ (không chỉ màu); empty/loading/error tri-branch (xem Engineering principles).
-- [ ] UI verify bằng RENDER THẬT trong browser (happy path + ≥1 BE error path), không chỉ vitest/structural (LL-FE-46).
+- [ ] UI verify bằng RENDER THẬT trong browser (happy path + ≥1 BE error path), không chỉ vitest/structural (LL-FE-46); màn GATED bằng phiên sai-role → cấp-tạm capability rồi REVERT (playwright-patterns LL-QA-16/17, LL-BE-63).
 - [ ] Đã đọc `references/lessons-learned.md` (LL-FE-*) trước khi viết — không tái phạm.
 
 ## Where to look for live examples

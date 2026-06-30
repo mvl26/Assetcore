@@ -1,4 +1,4 @@
-# assetcore-be — Lessons Learned (LL-BE-1..54)
+# assetcore-be — Lessons Learned (LL-BE-1..65)
 
 > Bug patterns production đã gặp — **always-apply rules**, KHÔNG phải tham khảo tùy chọn.
 > `SKILL.md` trỏ tới file này; ĐỌC TRƯỚC khi viết/sửa service · API · DocType · workflow.
@@ -1244,3 +1244,69 @@ Cross-ref: LL-BE-49 (rbac gate cap-SSoT), vendor-isolation/data-minimization; me
 **Rule (kiểm được):** TRA DocType `.json` (field `fieldname` THẬT + `Select.options` THẬT) TRƯỚC khi derive logic theo enum. Gate 'high-risk' phải chốt theo domain NÀO + SSoT mapping/ADR — KHÔNG suy diễn giá trị từ domain khác. DONE-gate: mọi logic phụ thuộc enum rủi ro → cite `field + doctype` nguồn ngay tại chỗ; nếu cross-domain (map A/B/C/D ↔ Low/Med/High/Critical) → BẮT BUỘC ADR + mapping table, KHÔNG hardcode set ký tự.
 
 Cross-ref: LL-BE-49 verify field type/enum trước derive; doctype-catalog.md (tên verbatim); ADR dual-track status/workflow_state; session run50 risk-enum confusion.
+
+### LL-BE-59: Tiền = `Currency` (KHÔNG Int/Long Int); nâng trần Currency bằng field `length`, KHÔNG raw-ALTER (2026-06-29)
+
+**Triệu chứng→nguyên nhân:** field tiền để `Int` (→ MariaDB `int(11)`) ⇒ "Out of range value" khi > 2,147,483,647 (~2.1 tỷ). "Sửa" bằng `Long Int` (→ `bigint`) SAI cho tiền: số nguyên, KHÔNG lưu thập phân đồng, bỏ qua currency precision/round/format. Đúng = `Currency` → `decimal(21,9)` (an toàn ~1 nghìn tỷ = 12 chữ số phần nguyên). MISCONCEPTION đã xác nhận (baseline fresh-agent): tưởng width `21` cố định, chỉ field `precision` chỉnh được (mà `precision` chỉ đổi 9 chữ số THẬP PHÂN, không nâng phần nguyên) ⇒ đẻ ra hack thừa raw `ALTER TABLE ... MODIFY decimal(30,9)` + re-assert ở `after_migrate` hook để chống schema-sync revert.
+
+**Rule (kiểm được):**
+- (a) MỌI field TIỀN = `Currency` (KHÔNG `Int`/`Long Int`; `Float` chỉ cho đại lượng đo, không cho tiền). Kiểm: schema-guard quét DocType JSON, FAIL nếu money field `fieldtype ∈ {Int, Long Int}`.
+- (b) Nâng trần Currency > ~1 nghìn tỷ: ĐẶT thuộc tính **`length`** của field trong DocType JSON. `Currency`/`Float`/`Percent` ∈ `CONFIGURABLE_DECIMAL_TYPES` (`frappe/database/schema.py`) ⇒ Frappe sinh cột `decimal(length, precision)` NATIVE (vd `"length": 28` → `decimal(28,9)` ≈ 10¹⁹). Đây là cơ chế CHÍNH THỐNG, BỀN với schema-sync (meta-derived type CHÍNH là `decimal(length,9)` ⇒ migrate sau KHÔNG revert) — KHÔNG raw-ALTER, KHÔNG `after_migrate` hook, KHÔNG monkeypatch `db.type_map`. `precision` chỉ đổi số chữ số thập phân, KHÔNG nâng trần phần nguyên.
+- (c) Đổi `length` chỉ vào DB sau `bench migrate` (ALTER widening — an toàn, không mất dữ liệu); chưa migrate = JSON đi trước DB (bình thường, không phải bug). DONE-gate: test xác minh `from frappe.database.schema import get_definition; get_definition('Currency', precision=9, length=N) == f'decimal({N},9)'`.
+
+Cross-ref: LL-BE-58 (verify field-type THẬT trước khi derive); `docs/imm-05/04_Backend_Design.md §2.4.1`; tests `frontend/.. n/a` → BE `assetcore/tests/test_depreciation_large_value.py` (schema-guard money≠Int + `get_definition` mapping); session 2026-06-29 money-overflow (premise sai "int→long long").
+
+### LL-BE-64: OAS/stats "baseline guard" ĐỎ ≠ bug — phân loại regen vs file-must-not-change (2026-06-29)
+
+**Triệu chứng→nguyên nhân:** audit-fix session — `test_oas_d10_07_path_count_488`, `test_oas_d12_05/05b`, `test_oas_d16_07`, `test_oas_d17_06` ĐỎ + `test_mob_oas_assettimeline…_untouched` ĐỎ. KHÔNG do code sai: (a) một phiên khác thêm **1 endpoint `@frappe.whitelist()` mới** (`user.py:list_assignable_users`) — bare-whitelist → OAS emit là **GET** → `total_endpoints` 488→489, `get_count` 232→233, `error_responses_typed_count` 488→489 (post/guest/json giữ nguyên) → mọi snapshot-baseline frozen trip; (b) sửa hợp lệ 3 dòng trong `api/imm00.py` (L-04/05) làm **guard "git diff phải rỗng"** (`assettimeline…untouched`) đỏ.
+
+**Rule (kiểm được):** OAS baseline-guard đỏ → TRIAGE, đừng "sửa cho xanh" mù:
+1. **Baseline-regen** (count/stats lệch vì THÊM endpoint hợp lệ / đổi stats hợp lệ): xác minh delta khớp đúng số endpoint mới (bare `@frappe.whitelist()`=GET, `methods=["POST"]`=POST → bump `total`+`typed`+verb count tương ứng) rồi cập nhật baseline. CHỈ regen nếu endpoint THẬT-SỰ-nên-public-OAS; nếu nên internal/POST/excluded → fix DECORATOR, không phải baseline.
+2. **File-must-not-change guard** (assert `git diff --numstat <file>` == "") đỏ vì 1 sửa hợp-lệ → nới/đồng bộ guard, KHÔNG yếu hoá để "qua".
+3. **KHÔNG sửa guard/baseline của phiên/owner khác giữa chừng** — flag cho owner (đổi 488→489 thuộc phiên tạo endpoint, không phải phiên audit). Cross-ref: LL-BE-58 (verify nguồn trước), LL-TEST-30 (đa-phiên nhiễu tín hiệu), `[[multi_session_concurrency]]`; session audit 2026-06-29.
+
+### LL-BE-65: Frappe seed/patch bundle — reuse endpoint sẵn có · importlib cho patch số · idempotent seed-if-exists (2026-06-29)
+
+**Triệu chứng→nguyên nhân:** L-18 (master-data seed + quick-create). 3 cạm bẫy gặp & cách đúng:
+1. **Đừng tạo endpoint mới khi đã có** — `create_asset_category/location/department/uom` (imm00.py/inventory.py) + FE `createAssetCategory` (imm00.ts) ĐÃ tồn tại → wire SmartSelect `:allow-create`/`@create` vào endpoint cũ ⇒ KHÔNG bump OAS (tránh LL-BE-64) + `doc.insert()` tự enforce create-permission. Grep `def create_*`/`createX` TRƯỚC khi viết endpoint.
+2. **Patch module tên bắt-đầu-bằng-số** (`010_seed_master_data`) KHÔNG `import` được bằng statement (SyntaxError) → trong TEST dùng `importlib.import_module("assetcore.patches.v3_2.010_seed_master_data")` rồi lấy `._seed`. (Frappe load patch qua string path nên FILE đặt tên số vẫn chạy migrate.)
+3. **Seed patch phải IDEMPOTENT + no-clobber**: `if frappe.db.exists(dt, {id_field: val}): continue` rồi `frappe.new_doc().insert(ignore_permissions=True)`; commit 1 lần cuối. Nội dung seed = STARTER editable (domain do BA chốt), KHÔNG clobber bản ghi khách. Đăng ký `patches.txt`; **USER chạy `bench migrate`** (HARD-STOP no-migrate) → test idempotency bằng UOM throwaway (`_TestSeedUOM-<tag>`) chạy ĐỘC LẬP, không cần migrate.
+
+**Rule (kiểm được):** master-data quick-create ⇒ reuse `create_*` endpoint sẵn có (grep trước). Seed ⇒ patch idempotent skip-if-exists + register patches.txt + test isolated (importlib cho module số) + KHÔNG migrate (user). Cross-ref: LL-BE-64 (no new OAS), `assetcore-deploy` (no-migrate HARD-STOP); session audit 2026-06-29.
+
+### LL-BE-61: Action KÉO asset lifecycle transition → GATE `is_valid_asset_transition()`+`nthrow` TRƯỚC `doc.insert()` (2026-06-29)
+
+**Triệu chứng→nguyên nhân:** `/cm/create` (IMM-09 tạo phiếu sửa chữa) → HTTP-500 "Lỗi máy chủ nội bộ", traceback `InvalidAssetTransition: Không thể chuyển 'AC-ASSET-...' từ 'Draft' → 'Under Repair'`. `create_work_order` đụng asset ở state KHÔNG cho phép transition → `transition_asset_status` raise `InvalidAssetTransition` (ValueError thuần, KHÔNG ServiceError) BUNG khỏi `handle()` → 500 + leak traceback thay vì 422 message sạch.
+
+**Rule (kiểm được):** service tạo doc/đổi-state mà kéo theo asset lifecycle transition phải kiểm `is_valid_asset_transition(current_status, target)` + `nthrow(MSG.*, error_code=ErrorCode.VALIDATION_ERROR, ...)` **TRƯỚC** `doc.insert()`/transition — nhớ query thêm `lifecycle_status` của asset vào data lấy về. KHÔNG để `InvalidAssetTransition`/ValueError domain bung tới dispatcher. DONE-gate: +test API-tier `create_*` cho asset state-sai → assert envelope Error VI (http_status 422) + KHÔNG 500 + `'Traceback' not in body`; +test helper `is_valid_asset_transition` matrix repairable/non-repairable.
+
+Cross-ref: §Lifecycle & Audit trail; LL-BE-56 (no-500/no-traceback-leak), LL-BE-45 (in-handler error HTTP-200); `services/imm00.py` `_VALID_ASSET_TRANSITIONS`/`is_valid_asset_transition`/`_lifecycle_vi`, `MSG.IMM09_ASSET_NOT_REPAIRABLE`; session 2026-06-29 CM-create 500.
+
+### LL-BE-62: `validate_workflow` chạy MỖI `save()` doctype-có-Workflow — `ignore_permissions=True` KHÔNG bypass (2026-06-29)
+
+**Triệu chứng→nguyên nhân:** duyệt kế hoạch mua sắm rỗng → "Workflow State transition not allowed from <strong>Draft</strong> to <strong>Approved</strong>" (HTML thô leak ra UI). `_approve_plan` set `workflow_state` rồi `doc.save(ignore_permissions=True)` — tưởng `ignore_permissions` bỏ qua workflow check. SAI: Frappe gọi `validate_workflow()` trên MỌI save của doctype-có-Workflow; CHỈ `frappe.flags.in_install` skip. User thiếu role của transition → `WorkflowPermissionError(ValidationError)` bung → message HTML thô.
+
+**Rule (kiểm được):** transition workflow qua `doc.save()` phải bọc `try: doc.save(ignore_permissions=True) except WorkflowPermissionError: raise ServiceError(ErrorCode.FORBIDDEN, _("Bạn không có quyền {action} ... Cần vai trò {role_hint}."))`. Precondition nghiệp vụ (vd plan rỗng → cần ≥1 line) guard bằng `ServiceError(VALIDATION)` **TRƯỚC** khi save, không để workflow engine phát message thô. `ignore_permissions=True` chỉ bỏ DocPerm, KHÔNG bỏ workflow-transition-role. DONE-gate: +test wrong-role→FORBIDDEN (không 500/HTML), +test precondition (empty)→VALIDATION trước cả khi chạm workflow.
+
+Cross-ref: §Workflow state machine; LL-BE-45 (in-handler error envelope), `handle()` catch `frappe.ValidationError`→VALIDATION; `frappe/model/workflow.py:validate_workflow`, `document.py` save→validate_workflow; `api/imm01.py` `_save_plan_workflow_transition`; session 2026-06-29 procurement approve.
+
+### LL-BE-63: Frappe LỌC kwargs lạ theo signature (`get_newargs`) → worker `--preload` STALE "nuốt" param mới = false-success (2026-06-29)
+
+**Triệu chứng→nguyên nhân:** sau khi thêm param `needs_requests` vào `create_procurement_plan`, render-verify POST kèm `needs_requests` NHƯNG gunicorn `--preload` chưa reload (worker còn signature CŨ 3-param). `frappe.call`→`get_newargs` LỌC kwargs về đúng signature hàm → `needs_requests` bị DROP IM LẶNG → worker cũ tạo plan RỖNG (hành vi cũ) + trả 200 "thành công" → tưởng feature mới chạy, thực ra chạy code cũ + tạo data rác.
+
+**Rule (kiểm được):** verify endpoint vừa ĐỔI SIGNATURE qua HTTP/Playwright mà worker chưa chắc reload → KHÔNG tin "submit thành công" (Frappe nuốt kwargs lạ → chạy hành vi cũ, không báo lỗi). Verify (a) FE behavior (gate/render) + (b) network payload THẬT chứa param mới (`browser_network_requests`); chỉ verify hành vi-mới end-to-end SAU khi reload worker (`bench execute <module>.<fn>` chạy được signature mới TRƯỚC). KHÔNG submit-mutate-data lên worker stale (tạo rác + kết luận sai).
+
+Cross-ref: [[gunicorn_preload_staleness]] cluster, LL-BE-16 (reload không tin cậy), `playwright-patterns.md` LL-QA-16/17; session 2026-06-29 procurement render-verify.
+
+### LL-BE-66: Việt-hoá nhãn DocType — chỉ `label`, GIỮ field hệ thống, áp lúc migrate (2026-06-29)
+
+**Bối cảnh:** sweep Việt-hoá doctype (369 nhãn / 61 file). FE AssetCore là app Vue riêng → `label` DocType chủ yếu hiện ở **Frappe Desk (admin)**, không phải UI end-user; vẫn nên đồng bộ tiếng Việt.
+
+**Rule (kiểm được):**
+1. **CHỈ sửa giá trị khóa `"label"`** — TUYỆT ĐỐI KHÔNG đụng `options` (value enum/link → đổi = vỡ data+workflow), `fieldname`, `fieldtype`, `default`, `depends_on`, `permlevel`. Edit IN-PLACE từng dòng `"label": "..."`; KHÔNG parse-rồi-dump lại cả file (đổi format → diff khổng lồ + nuốt thay đổi thread khác).
+2. **GIỮ NGUYÊN field hệ thống Frappe**: `Series`, `Naming Series`, `Amended From`, `Workflow State`, `Is Group`, `Old Parent`, `lft/rgt`. Acronym trong nhãn GIỮ, dịch chữ Anh quanh nó (`GMDN Code`→`Mã GMDN`, `Tax ID`→`Mã số thuế`, `QR Code`→`Mã QR`).
+3. **Nhất quán**: cùng 1 nhãn EN → cùng 1 bản dịch ở mọi file (lập glossary trước, áp đồng loạt).
+4. **Áp lúc `bench migrate`** (HARD-STOP no-migrate → USER chạy lúc deploy); sửa JSON KHÔNG tự vào DB/Desk tới khi migrate. `messages.py` = SSoT thông báo → regen `messages.ts` qua `scripts/gen_fe_messages.py`, KHÔNG sửa tay `messages.ts`.
+5. **Verify**: `json.load` mọi file đã sửa (parse OK) + `git diff` chỉ chạm `"label"` (không lẫn `options`/`fieldname`). Không BE test nào assert display label (chỉ `meta.has_field` column) → label-only an toàn với test.
+
+Cross-ref: [[LL-FE-52]] (FE display-layer, value giữ nguyên); SKILL §"no kebab/snake trong field user nhìn"; `assetcore-deploy` no-migrate HARD-STOP; session 2026-06-29 Việt-hoá UI.

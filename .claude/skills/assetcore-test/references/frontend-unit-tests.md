@@ -23,7 +23,9 @@ Config: `frontend/vitest.config.ts` (env jsdom, `@vitejs/plugin-vue` để mount
    - component nhỏ render theo props (KpiCard, WorkflowStepper) — mount + assert text.
 3. **vitest KHÔNG thay Playwright** — full user journey + workflow buttons + permission gate vẫn test ở Phần 2.
 4. **DoD FE**: `npm run test` + `npm run typecheck` + `npm run build` đều exit 0 TRƯỚC khi mark Done (cùng với Playwright eval). Lint: 0 lỗi MỚI (lỗi pre-existing repo-wide không tính).
+5. **Sau sweep đổi chuỗi HIỂN THỊ hàng loạt** (Việt-hoá / rename label / đổi text nút) → chạy **`vitest run` TOÀN BỘ**, KHÔNG chỉ test colocate. Test ở file TÊN KHÁC vẫn assert chuỗi hiển thị (vd `IncidentCreateView.assetMeta.test.ts` assert text nút mà `IncidentCreateView.test.ts` không có) → grep-colocate bỏ sót, chỉ full-suite mới bắt. Khi sửa: test assert chuỗi HIỂN THỊ → cập nhật sang bản mới; test assert **VALUE enum/payload** (contract, vd `pass_fail: 'Pass'`) → KHÔNG đổi.
 
 ## Anti-pattern
 - Mark FE Done chỉ vì build pass mà bỏ vitest cho logic mới → bug enum/mapping lọt (đã gặp nhiều lần — xem LL-FE-3/8/30).
 - Test mapping bằng cách hardcode lại dict trong test (tautology) → phải assert giá trị khớp **nguồn BE thật** (enum DocType / `rbac.CAPABILITY_MAP`).
+- Sau khi đổi nhiều chuỗi hiển thị, chỉ chạy test colocate ("đã quét test cùng thư mục, không vỡ") → MISS test ở file tên khác assert chuỗi đó (session 2026-06-29 Việt-hoá UI). Luôn full `vitest run`.
