@@ -53,10 +53,10 @@ async function saveUom() {
   } catch (e: unknown) { showToast((e as Error).message || 'Lỗi lưu', true) }
 }
 async function removeUom(name: string) {
-  if (!confirm(`Xóa đơn vị "${name}"?\nNếu đang được dùng sẽ chỉ deactivate.`)) return
+  if (!confirm(`Xóa đơn vị "${name}"?\nNếu đang được dùng sẽ chỉ ngừng sử dụng.`)) return
   try {
     const res = await deleteUom(name)
-    showToast(res.soft_deleted ? `Đã deactivate — ${res.reason}` : 'Đã xóa')
+    showToast(res.soft_deleted ? `Đã ngừng sử dụng — ${res.reason}` : 'Đã xóa')
     await loadUoms()
   } catch (e: unknown) { showToast((e as Error).message || 'Lỗi xóa', true) }
 }
@@ -66,7 +66,7 @@ async function doSeed() {
     const res = await seedAcUoms()
     showToast(`Đã tạo ${res.count} UOM mới`)
     await loadUoms()
-  } catch (e: unknown) { showToast((e as Error).message || 'Lỗi seed', true) }
+  } catch (e: unknown) { showToast((e as Error).message || 'Lỗi tạo đơn vị chuẩn', true) }
 }
 
 // ─── Tab 2: Parts & UOM ──────────────────────────────────────────────────────
@@ -108,7 +108,7 @@ async function savePartUom() {
 }
 
 async function doBulkAssign() {
-  if (!defaultUomForBulk.value) { showToast('Chọn UOM default', true); return }
+  if (!defaultUomForBulk.value) { showToast('Chọn UOM mặc định', true); return }
   if (!confirm(`Gán "${defaultUomForBulk.value}" cho ${partsMissing.value.length} phụ tùng thiếu đơn vị tính?`)) return
   try {
     const res = await bulkAssignDefaultUom(defaultUomForBulk.value)
@@ -233,7 +233,7 @@ v-model="uomSearch" type="text" placeholder="Tìm đơn vị tính..."
               <td class="px-4 py-2 text-center">{{ u.must_be_whole_number ? '✓' : '—' }}</td>
               <td class="px-4 py-2 text-center">
                 <span v-if="u.is_active" class="text-emerald-600">✓</span>
-                <span v-else class="text-slate-400">off</span>
+                <span v-else class="text-slate-400">tắt</span>
               </td>
               <td class="px-4 py-2 text-right text-xs">
                 <span v-if="u.use_count" class="font-semibold text-slate-700">{{ u.use_count }}</span>
@@ -362,7 +362,7 @@ v-for="p in parts" :key="p.name"
         <select id="conv-part" v-model="convPart" class="form-input w-full" @change="loadConvForPart">
           <option value="">— Chọn —</option>
           <option v-for="p in parts" :key="p.name" :value="p.name">
-            {{ p.part_name }} ({{ p.part_code || p.name }}) — stock: {{ p.stock_uom || '??' }}
+            {{ p.part_name }} ({{ p.part_code || p.name }}) — đơn vị tồn: {{ p.stock_uom || '??' }}
           </option>
         </select>
       </div>

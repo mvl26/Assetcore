@@ -193,7 +193,7 @@ onMounted(load)
             <p class="font-medium" :class="capa.due_date && new Date(capa.due_date) < new Date() && !isClosed ? 'text-red-600' : ''">{{ formatDate(capa.due_date) }}</p>
           </div>
           <div>
-            <p class="t-eyebrow mb-1">Mức rủi ro / Reopen</p>
+            <p class="t-eyebrow mb-1">Mức rủi ro / Mở lại</p>
             <p class="font-medium">{{ capa.imm_risk_level ? translateStatus(capa.imm_risk_level) : '—' }} · {{ capa.imm_reopen_count ?? 0 }} lần</p>
           </div>
         </div>

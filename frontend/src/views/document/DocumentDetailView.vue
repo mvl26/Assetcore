@@ -334,7 +334,7 @@ async function handleReject(): Promise<void> {
             class="px-4 py-2 border border-blue-300 text-blue-600 text-sm rounded-lg hover:bg-blue-50 transition-colors"
             @click="showUploadNewVersion = true"
           >
-            Upload phiên bản mới
+            Tải lên phiên bản mới
           </button>
           <!-- Lưu trữ (Active "Lưu trữ" / Draft "Hủy bỏ" → Archived) — NĐ98 -->
           <button
@@ -565,7 +565,7 @@ async function handleReject(): Promise<void> {
         @click.self="showUploadNewVersion = false"
       >
         <div class="bg-white rounded-xl shadow-lg p-6 w-full max-w-md mx-4">
-          <h3 class="text-base font-semibold text-gray-800 mb-2">Upload phiên bản mới</h3>
+          <h3 class="text-base font-semibold text-gray-800 mb-2">Tải lên phiên bản mới</h3>
           <p class="text-sm text-gray-500 mb-4">
             Bạn sẽ được chuyển sang form tạo tài liệu mới với thông tin thiết bị và loại tài liệu được điền sẵn.
           </p>

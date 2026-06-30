@@ -6,7 +6,7 @@ import DateInput from '@/components/common/DateInput.vue'
 import { onMounted, computed, ref } from 'vue'
 import { useImm08Store } from '@/stores/imm08'
 import { useRouter } from 'vue-router'
-import { pmStatusLabel, pmStatusClass, resultLabel as _resultLabel } from '@/constants/labels'
+import { pmStatusLabel, pmStatusClass, resultLabel as _resultLabel, pmTypeLabel, woTypeLabel, overallResultLabel } from '@/constants/labels'
 import { useAuthStore } from '@/stores/auth'
 import { ROLES_PM_EXECUTE, ROLES_PM_MANAGE } from '@/constants/roles'
 const notify = useNotify()
@@ -236,11 +236,11 @@ async function handleStart() {
             <span class="text-slate-500">Đến hạn:</span>
             <span :class="wo.is_late ? 'font-semibold text-red-600 ml-1' : 'font-medium ml-1'">{{ wo.due_date }}</span>
           </div>
-          <div><span class="text-slate-500">Loại bảo trì:</span> <span class="font-medium ml-1">{{ wo.pm_type }}</span></div>
+          <div><span class="text-slate-500">Loại bảo trì:</span> <span class="font-medium ml-1">{{ pmTypeLabel(wo.pm_type) }}</span></div>
           <div><span class="text-slate-500">Kỹ thuật viên:</span> <span class="font-medium ml-1">{{ wo.assigned_to_name || wo.assigned_to || '—' }}</span></div>
           <div><span class="text-slate-500">Người giám sát:</span> <span class="font-medium ml-1">{{ wo.supervisor_name || wo.supervisor || '—' }}</span></div>
           <div><span class="text-slate-500">Mức rủi ro:</span> <span class="font-medium ml-1">{{ wo.risk_class }}</span></div>
-          <div><span class="text-slate-500">Loại phiếu:</span> <span class="font-medium ml-1">{{ wo.wo_type }}</span></div>
+          <div><span class="text-slate-500">Loại phiếu:</span> <span class="font-medium ml-1">{{ woTypeLabel(wo.wo_type) }}</span></div>
         </div>
       </div>
 
@@ -363,7 +363,7 @@ async function handleStart() {
           </div>
           <div class="flex items-center gap-3">
             <input id="sticker" v-model="stickerAttached" type="checkbox" class="w-4 h-4 accent-brand-600" />
-            <label for="sticker" class="text-sm text-slate-700">Đã gắn sticker bảo trì</label>
+            <label for="sticker" class="text-sm text-slate-700">Đã gắn tem bảo trì</label>
           </div>
           <div class="flex items-center gap-3">
             <label for="duration-min" class="text-sm text-slate-600 w-40">Thời gian thực hiện:</label>
@@ -398,7 +398,7 @@ async function handleStart() {
       <div v-if="wo.status === 'Completed'" class="alert-success">
         <div>
           <div class="font-semibold mb-0.5">Bảo trì đã hoàn thành</div>
-          <div class="text-sm">Kết quả: {{ wo.overall_result }} · Ngày: {{ wo.completion_date }}</div>
+          <div class="text-sm">Kết quả: {{ overallResultLabel(wo.overall_result) }} · Ngày: {{ wo.completion_date }}</div>
         </div>
       </div>
     </template>

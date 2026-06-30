@@ -12,7 +12,7 @@ import {
   type ListAssetsDepreciationParams,
   type ComputeAllDepreciationResult,
 } from '@/api/imm00'
-import { translateFrequency, translateDepreciationMethod } from '@/utils/formatters'
+import { translateFrequency, translateDepreciationMethod, formatDate, formatCurrencyShort as vndShort } from '@/utils/formatters'
 
 // Virtual filter token cho "Hết khấu hao" — KHÔNG phải lifecycle_status. Route
 // sang `depreciation_filter` (BE áp SoT is_fully_depreciated). Nhãn VI hiển thị
@@ -119,7 +119,7 @@ async function computeOne(name: string) {
   computing.value = name
   try {
     await computeDepreciation(name)
-    showToast('Đã cập nhật khấu hao theo schedule', true)
+    showToast('Đã cập nhật khấu hao theo lịch', true)
     await Promise.all([loadStats(), loadList()])
   } catch (e: unknown) {
     showToast((e as Error).message || 'Lỗi tính khấu hao', false)
@@ -139,7 +139,7 @@ async function confirmComputeAll() {
     const res = await computeAllDepreciation()
     computeAllResult.value = res
     showToast(
-      `Kế thừa luật ${res.inherited} TS · Sinh ${res.generated} schedule · ` +
+      `Kế thừa luật ${res.inherited} TS · Sinh ${res.generated} lịch · ` +
       `Chạy ${res.executed_rows} kỳ · Cập nhật ${res.updated_assets} TS`,
       true,
     )
@@ -174,12 +174,7 @@ function vnd(v?: number) {
   if (v == null) return '—'
   return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 }).format(v)
 }
-function vndShort(v?: number) {
-  if (v == null) return '—'
-  if (Math.abs(v) >= 1e9) return (v / 1e9).toFixed(1) + ' tỷ'
-  if (Math.abs(v) >= 1e6) return (v / 1e6).toFixed(0) + ' tr'
-  return vnd(v)
-}
+// L-16: vndShort gom về SSoT `formatCurrencyShort` (utils/formatters) — import aliased ở trên.
 
 function pctBar(pct?: number) { return Math.min(100, pct || 0) }
 function pctColor(pct?: number) {
@@ -412,7 +407,7 @@ onMounted(() => Promise.all([loadStats(), loadList()]))
                 <span v-else class="text-xs text-slate-400">Chưa cấu hình</span>
               </td>
               <td class="px-4 py-3 text-xs text-slate-500 hidden md:table-cell">
-                {{ a.depreciation_start_date || a.in_service_date || '—' }}
+                {{ formatDate(a.depreciation_start_date || a.in_service_date) }}
               </td>
               <td class="px-4 py-3 text-xs text-slate-500 hidden lg:table-cell">
                 <template v-if="a.total_depreciation_months">

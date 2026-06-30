@@ -216,7 +216,7 @@ onMounted(load)
               <span class="text-blue-500 font-mono">GMDN</span>
               <b>{{ selectedCategory.gmdn_code }}</b>
               <span v-if="selectedCategory.gmdn_term" class="text-blue-600">— {{ selectedCategory.gmdn_term }}</span>
-              <span class="ml-1 px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 text-[10px]">tự điền vào ô GMDN Code</span>
+              <span class="ml-1 px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 text-[10px]">tự điền vào ô Mã GMDN</span>
             </div>
             <div class="flex flex-wrap gap-x-3 gap-y-0.5">
               <span v-if="selectedCategory.default_depreciation_method">
@@ -267,7 +267,7 @@ onMounted(load)
           </select>
         </div>
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">GMDN Code</label>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Mã GMDN</label>
           <input v-model="form.gmdn_code" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
         </div>
       </div>
@@ -284,11 +284,11 @@ onMounted(load)
         </label>
         <div v-if="form.is_pm_required" class="grid grid-cols-1 sm:grid-cols-2 gap-4 pl-6">
           <div>
-            <label class="block text-xs font-medium text-gray-700 mb-1">PM Interval (ngày)</label>
+            <label class="block text-xs font-medium text-gray-700 mb-1">Chu kỳ bảo trì (ngày)</label>
             <input v-model.number="form.pm_interval_days" type="number" min="0" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
           </div>
           <div>
-            <label class="block text-xs font-medium text-gray-700 mb-1">PM Alert trước (ngày)</label>
+            <label class="block text-xs font-medium text-gray-700 mb-1">Cảnh báo bảo trì trước (ngày)</label>
             <input v-model.number="form.pm_alert_days" type="number" min="0" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
           </div>
         </div>
@@ -301,7 +301,7 @@ onMounted(load)
             <input v-model.number="form.calibration_interval_days" type="number" min="0" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
           </div>
           <div>
-            <label class="block text-xs font-medium text-gray-700 mb-1">Alert hiệu chuẩn trước (ngày)</label>
+            <label class="block text-xs font-medium text-gray-700 mb-1">Cảnh báo hiệu chuẩn trước (ngày)</label>
             <input v-model.number="form.calibration_alert_days" type="number" min="0" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
           </div>
         </div>
@@ -323,7 +323,7 @@ type="button"
                       title="Bấm để xem kích thước đầy đủ"
                       @click="openImagePreview">
                 <img
-:src="form.model_image as string" alt="model preview"
+:src="form.model_image as string" alt="Ảnh xem trước"
                      class="w-full h-full object-cover" />
               </button>
               <div class="flex-1 min-w-0 space-y-1.5">
@@ -438,7 +438,7 @@ v-model.number="form.weight_kg" type="number" min="0" step="0.1"
           <label class="block text-sm font-medium text-gray-700 mb-1">Thông số kỹ thuật đầy đủ</label>
           <textarea
 v-model="form.specifications" rows="4"
-                    placeholder="Công suất, điện áp, tần số, yêu cầu môi trường, accessory…"
+                    placeholder="Công suất, điện áp, tần số, yêu cầu môi trường, phụ kiện…"
                     class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"></textarea>
         </div>
       </div>
@@ -464,7 +464,7 @@ v-if="showImagePreview && form.model_image"
          @keydown.esc="closeImagePreview">
       <div class="relative max-w-5xl max-h-[90vh] flex flex-col items-center" @click.stop>
         <img
-:src="form.model_image as string" alt="model preview"
+:src="form.model_image as string" alt="Ảnh xem trước"
              class="max-w-full max-h-[80vh] object-contain rounded-lg shadow-2xl bg-white" />
         <div class="mt-3 flex items-center gap-3 text-white text-sm">
           <span class="font-medium">{{ fileNameFromUrl(form.model_image as string) }}</span>

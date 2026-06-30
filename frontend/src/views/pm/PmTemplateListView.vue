@@ -197,7 +197,7 @@ onMounted(load)
       :show="showFilters"
       :chips="activeChips"
       v-model:search="filters.search"
-      search-placeholder="Tìm theo mã, tên template, version..."
+      search-placeholder="Tìm theo mã, tên template, phiên bản..."
       @reset="resetFilters"
       @clear-chip="clearChip"
     >
@@ -270,7 +270,7 @@ onMounted(load)
             <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Tên template</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Danh mục tài sản</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Loại PM</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Version</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Phiên bản</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Hiệu lực</th>
             <th class="px-4 py-3 text-right"></th>
           </tr>
@@ -362,8 +362,8 @@ onMounted(load)
                 <option>Pass/Fail</option><option>Numeric</option><option>Text</option>
               </select>
               <input v-model="it.unit" placeholder="Đơn vị" class="col-span-1 border border-slate-300 rounded px-2 py-1.5 text-sm" />
-              <input v-model.number="it.expected_min" type="number" placeholder="Min" class="col-span-1 border border-slate-300 rounded px-2 py-1.5 text-sm" />
-              <input v-model.number="it.expected_max" type="number" placeholder="Max" class="col-span-1 border border-slate-300 rounded px-2 py-1.5 text-sm" />
+              <input v-model.number="it.expected_min" type="number" placeholder="Tối thiểu" class="col-span-1 border border-slate-300 rounded px-2 py-1.5 text-sm" />
+              <input v-model.number="it.expected_max" type="number" placeholder="Tối đa" class="col-span-1 border border-slate-300 rounded px-2 py-1.5 text-sm" />
               <label class="col-span-2 flex items-center gap-1 text-xs text-slate-600">
                 <input v-model="it.is_critical" type="checkbox" /> Trọng yếu
               </label>

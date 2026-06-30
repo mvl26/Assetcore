@@ -414,7 +414,7 @@ Xem đơn hàng →
           </div>
         </div>
         <div>
-          <label class="form-label">Model Thiết bị</label>
+          <label class="form-label">Mẫu thiết bị</label>
           <SmartSelect
             v-if="!isReadonly"
             :model-value="doc.master_item || ''"
@@ -496,9 +496,9 @@ Xem đơn hàng →
           disabled
         >
           <option value="">-- Chưa có --</option>
-          <option value="Pass">Pass</option>
-          <option value="Fail">Fail</option>
-          <option value="Conditional">Conditional</option>
+          <option value="Pass">Đạt</option>
+          <option value="Fail">Không đạt</option>
+          <option value="Conditional">Có điều kiện</option>
         </select>
         <small class="form-hint text-gray-500">Được tính tự động từ kết quả kiểm tra an toàn</small>
       </div>
@@ -507,13 +507,13 @@ Xem đơn hàng →
 
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div>
-          <label class="form-label">Serial Number Hãng (NSX)</label>
+          <label class="form-label">Số serial Hãng (NSX)</label>
           <input
             type="text"
             :value="doc.vendor_serial_no || ''"
             class="form-input font-mono"
             :readonly="isReadonly"
-            placeholder="Nhập serial number của nhà sản xuất..."
+            placeholder="Nhập số serial của nhà sản xuất..."
             @change="trackChange('vendor_serial_no', ($event.target as HTMLInputElement).value)"
           />
         </div>
@@ -533,7 +533,7 @@ Xem đơn hàng →
             <button
               v-if="doc.internal_tag_qr"
               class="btn-secondary px-3"
-              title="Xem QR Label"
+              title="Xem nhãn QR"
               @click="activeTab = 'output'"
             >
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

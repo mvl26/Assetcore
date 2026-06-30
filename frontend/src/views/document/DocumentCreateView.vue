@@ -394,7 +394,7 @@ function goBack() {
         <button class="btn btn-outline" :disabled="saving" @click="goBack">Hủy</button>
         <button class="btn btn-primary" :disabled="saving" @click="handleSubmit">
           <span v-if="saving">Đang lưu...</span>
-          <span v-else>Lưu tài liệu (Draft)</span>
+          <span v-else>Lưu tài liệu (Bản nháp)</span>
         </button>
       </div>
     </div>

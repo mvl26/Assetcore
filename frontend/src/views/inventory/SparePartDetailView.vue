@@ -7,6 +7,7 @@ import type { SparePart, StockRow, StockMovement } from '@/types/inventory'
 import { getPartPurchases } from '@/api/purchase'
 import type { PartPurchaseRow } from '@/api/purchase'
 import SmartSelect from '@/components/common/SmartSelect.vue'
+import CurrencyInput from '@/components/common/CurrencyInput.vue'
 import UomConverter from '@/components/common/UomConverter.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 
@@ -344,7 +345,7 @@ v-if="showEdit" class="fixed inset-0 z-50 flex items-center justify-center bg-bl
               </div>
               <div>
                 <label for="edit-unit-cost" class="form-label">Đơn giá (VNĐ)</label>
-                <input id="edit-unit-cost" v-model.number="form.unit_cost" type="number" min="0" class="form-input w-full" />
+                <CurrencyInput id="edit-unit-cost" v-model="form.unit_cost" aria-label="Đơn giá" class="form-input w-full" />
               </div>
               <div>
                 <label for="edit-min-stock" class="form-label">Tồn tối thiểu</label>

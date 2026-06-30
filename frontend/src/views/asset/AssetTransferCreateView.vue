@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import DateInput from '@/components/common/DateInput.vue'
+import FormError from '@/components/common/FormError.vue'
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { frappePost } from '@/api/helpers'
@@ -37,12 +38,12 @@ const BASE = '/api/method/assetcore.api.imm00'
 const isLoan = computed(() => form.value.transfer_type === 'Loan')
 
 async function submit() {
-  if (!form.value.asset || !form.value.transfer_type || !form.value.to_location || !form.value.reason) {
+  if (!form.value.asset || !form.value.transfer_type || !form.value.to_department || !form.value.reason) {
     error.value = 'Vui lòng điền đầy đủ các trường bắt buộc (*).'
     return
   }
   if (isLoan.value && !form.value.expected_return_date) {
-    error.value = 'Ngày trả dự kiến bắt buộc khi loại chuyển giao là Loan.'
+    error.value = 'Ngày trả dự kiến bắt buộc khi loại chuyển giao là Mượn.'
     return
   }
   saving.value = true
@@ -52,7 +53,7 @@ async function submit() {
     clearDraft()
     router.push('/asset-transfers')
   } catch (e: unknown) {
-    error.value = (e as Error).message || 'Lỗi khi tạo Asset Transfer'
+    error.value = (e as Error).message || 'Lỗi khi tạo phiếu điều chuyển thiết bị'
   }
   saving.value = false
 }
@@ -67,7 +68,7 @@ async function submit() {
     </div>
 
     <div class="bg-white rounded-xl border border-gray-200 p-6 space-y-5">
-      <div v-if="error" class="text-red-600 text-sm bg-red-50 px-3 py-2 rounded-lg">{{ error }}</div>
+      <FormError :message="error" />
 
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
@@ -98,12 +99,12 @@ async function submit() {
         <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Đến</p>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Vị trí mới <span class="text-red-500">*</span></label>
-            <SmartSelect v-model="form.to_location" doctype="AC Location" placeholder="Tìm vị trí..." />
+            <label class="block text-sm font-medium text-gray-700 mb-1">Phòng ban mới <span class="text-red-500">*</span></label>
+            <SmartSelect v-model="form.to_department" doctype="AC Department" placeholder="Tìm phòng ban..." />
           </div>
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Phòng ban mới</label>
-            <SmartSelect v-model="form.to_department" doctype="AC Department" placeholder="Tìm phòng ban..." />
+            <label class="block text-sm font-medium text-gray-700 mb-1">Vị trí mới</label>
+            <SmartSelect v-model="form.to_location" doctype="AC Location" placeholder="Tìm vị trí..." />
           </div>
         </div>
       </div>

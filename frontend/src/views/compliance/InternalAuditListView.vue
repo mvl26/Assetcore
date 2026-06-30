@@ -119,7 +119,7 @@ onMounted(() => load(1))
         </div>
         <div class="form-group">
           <label class="form-label">Loại</label>
-          <input v-model="filterType" class="form-input" placeholder="VD: Internal, External..." @keyup.enter="load(1)" />
+          <input v-model="filterType" class="form-input" placeholder="Tìm theo loại đánh giá..." @keyup.enter="load(1)" />
         </div>
       </template>
     </ListFilterBar>
@@ -205,9 +205,9 @@ onMounted(() => load(1))
         <div class="form-group">
           <label class="form-label">Loại *</label>
           <select v-model="form.audit_type" class="form-select">
-            <option value="Internal">Internal</option>
-            <option value="External">External</option>
-            <option value="Surveillance">Surveillance</option>
+            <option value="Internal">Nội bộ</option>
+            <option value="External">Bên ngoài</option>
+            <option value="Surveillance">Giám sát</option>
           </select>
         </div>
         <div class="form-group">
@@ -219,7 +219,7 @@ onMounted(() => load(1))
           <input v-model="form.planned_end" type="date" class="form-input" />
         </div>
         <div class="form-group col-span-2">
-          <label class="form-label">Trưởng đoàn (User email)</label>
+          <label class="form-label">Trưởng đoàn (email người dùng)</label>
           <input v-model="form.lead_auditor" class="form-input" placeholder="user@hospital.vn" />
         </div>
       </div>

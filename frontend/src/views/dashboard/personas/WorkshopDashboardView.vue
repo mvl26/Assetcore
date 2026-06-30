@@ -31,7 +31,7 @@ const compCols: ListColumn[] = [
 <template>
   <PersonaDashboardShell
     title="Bảng điều khiển — Trưởng xưởng kỹ thuật"
-    subtitle="Phân công công việc · PM/CM/Calibration · Năng lực KTV"
+    subtitle="Phân công công việc · PM/CM/Hiệu chuẩn · Năng lực KTV"
     :kpis="kpis"
     :loading="isLoading"
     :error="error ? String(error.message ?? error) : null"

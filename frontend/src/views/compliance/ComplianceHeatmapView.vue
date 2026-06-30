@@ -95,7 +95,7 @@ onMounted(load)
       <table v-else class="min-w-full border-separate" style="border-spacing: 4px">
         <thead>
           <tr>
-            <th class="text-left t-eyebrow px-2 py-2 sticky left-0 bg-white">Module</th>
+            <th class="text-left t-eyebrow px-2 py-2 sticky left-0 bg-white">Phân hệ</th>
             <th
               v-for="dept in heatmap.departments" :key="dept"
               class="text-xs font-medium text-slate-600 px-2 py-2 whitespace-nowrap"

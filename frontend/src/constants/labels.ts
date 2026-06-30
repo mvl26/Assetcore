@@ -615,6 +615,72 @@ export function resultClass(v: string)    { return RESULT_CLASS[v]     ?? 'bg-gr
 export function repairTypeLabel(v: string){ return REPAIR_TYPE_LABEL[v]?? v }
 export function rootCauseLabel(v: string) { return ROOT_CAUSE_LABEL[v] ?? v }
 
+// ═══ Enum hiển thị thô → nhãn VI (wiring binding; value gốc giữ nguyên) ═══════
+// Kết quả tổng thể PM / hiệu chuẩn / đánh giá — gộp mọi biến thể value BE phát.
+export const OVERALL_RESULT_LABEL: Record<string, string> = {
+  'Pass': 'Đạt',
+  'Passed': 'Đạt',
+  'Pass with Minor Issues': 'Đạt (lỗi nhỏ)',
+  'Conditional': 'Có điều kiện',
+  'Conditionally Passed': 'Đạt có điều kiện',
+  'Fail': 'Không đạt',
+  'Failed': 'Không đạt',
+}
+export function overallResultLabel(v?: string | null) { return v ? (OVERALL_RESULT_LABEL[v] ?? v) : '—' }
+
+// Loại PM (pm_schedule / pm_work_order.pm_type).
+export const PM_TYPE_LABEL: Record<string, string> = {
+  'Quarterly': 'Hàng quý',
+  'Semi-Annual': 'Nửa năm',
+  'Annual': 'Hàng năm',
+  'Ad-hoc': 'Đột xuất',
+}
+export function pmTypeLabel(v?: string | null) { return v ? (PM_TYPE_LABEL[v] ?? v) : '—' }
+
+// Loại lệnh công việc PM (pm_work_order.wo_type).
+export const WO_TYPE_LABEL: Record<string, string> = {
+  'Preventive': 'Bảo trì định kỳ (PM)',
+  'Corrective': 'Sửa chữa (CM)',
+}
+export function woTypeLabel(v?: string | null) { return v ? (WO_TYPE_LABEL[v] ?? v) : '—' }
+
+// Hình thức hiệu chuẩn (imm_asset_calibration.calibration_type).
+export const CALIBRATION_TYPE_LABEL: Record<string, string> = {
+  'External': 'Bên ngoài',
+  'In-House': 'Nội bộ',
+}
+export function calibrationTypeLabel(v?: string | null) { return v ? (CALIBRATION_TYPE_LABEL[v] ?? v) : '—' }
+
+// Trạng thái AVL nhà cung cấp (imm_avl_status).
+export const AVL_STATUS_LABEL: Record<string, string> = {
+  'Approved': 'Đã duyệt',
+  'Conditional': 'Có điều kiện',
+  'Suspended': 'Tạm đình chỉ',
+  'Expired': 'Hết hạn',
+  'Not Applicable': 'Không áp dụng',
+}
+export function avlStatusLabel(v?: string | null) { return v ? (AVL_STATUS_LABEL[v] ?? v) : '—' }
+
+// Loại bản ghi nguồn phiếu điều chuyển kho (ac_stock_movement.reference_type = tên doctype).
+export const STOCK_REFERENCE_TYPE_LABEL: Record<string, string> = {
+  'Asset Repair': 'Phiếu sửa chữa',
+  'PM Work Order': 'Lệnh bảo trì (PM)',
+  'AC Purchase': 'Đơn mua hàng',
+  'Manual': 'Thủ công',
+}
+export function stockReferenceTypeLabel(v?: string | null) { return v ? (STOCK_REFERENCE_TYPE_LABEL[v] ?? v) : '—' }
+
+// Loại không phù hợp QA (asset_qa_non_conformance.nc_type) — KHÁC NC_TYPE_LABELS (IMM-04).
+export const QA_NC_TYPE_LABEL: Record<string, string> = {
+  'DOA': 'Hỏng khi nhận (DOA)',
+  'Missing': 'Thiếu hàng',
+  'Crash': 'Hư hỏng vật lý',
+  'Technical': 'Lỗi kỹ thuật',
+  'Documentation': 'Thiếu hồ sơ',
+  'Other': 'Khác',
+}
+export function qaNcTypeLabel(v?: string | null) { return v ? (QA_NC_TYPE_LABEL[v] ?? v) : '—' }
+
 // ─── Generic helpers (must stay after all maps) ───────────────────────────────
 export function formatStatus(v: string | undefined | null): string {
   if (!v) return '—'

@@ -6,6 +6,7 @@ import { useRouter } from 'vue-router'
 import { getInventoryOverview } from '@/api/inventory'
 import type { InventoryOverview } from '@/types/inventory'
 import PageHeader from '@/components/common/PageHeader.vue'
+import { formatCurrencyShort as vndShort } from '@/utils/formatters'
 
 const router = useRouter()
 const overview = ref<InventoryOverview | null>(null)
@@ -17,16 +18,7 @@ async function load() {
   finally { loading.value = false }
 }
 
-function vnd(v?: number) {
-  if (v == null) return '—'
-  return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 }).format(v)
-}
-function vndShort(v?: number) {
-  if (v == null) return '—'
-  if (Math.abs(v) >= 1e9) return (v / 1e9).toFixed(1) + ' tỷ'
-  if (Math.abs(v) >= 1e6) return (v / 1e6).toFixed(0) + ' tr'
-  return vnd(v)
-}
+// L-16: tiền tệ rút gọn dùng SSoT `formatCurrencyShort` (import aliased `vndShort` ở trên).
 
 const MOVEMENT_LABELS: Record<string, string> = {
   Receipt: 'Nhập', Issue: 'Xuất', Transfer: 'Chuyển', Adjustment: 'Điều chỉnh',

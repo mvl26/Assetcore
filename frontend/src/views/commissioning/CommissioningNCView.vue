@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 import { useCommissioningStore } from '@/stores/imm04'
 import PageHeader from '@/components/common/PageHeader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
+import { qaNcTypeLabel } from '@/constants/labels'
 
 const route = useRoute()
 const store = useCommissioningStore()
@@ -93,7 +94,7 @@ onMounted(loadNCs)
       :breadcrumb="[
         { label: 'IMM-04 · Tiếp nhận', to: '/commissioning' },
         { label: commissioningId, to: `/commissioning/${commissioningId}` },
-        { label: 'Non-Conformance' },
+        { label: 'Không phù hợp' },
       ]"
     >
       <template #actions>
@@ -111,7 +112,7 @@ onMounted(loadNCs)
       <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
       </svg>
-      Còn <strong class="mx-1">{{ openCount }}</strong> NC chưa đóng — thiết bị không thể Release.
+      Còn <strong class="mx-1">{{ openCount }}</strong> NC chưa đóng — thiết bị không thể phát hành.
     </div>
 
     <!-- Create form -->
@@ -281,7 +282,7 @@ onMounted(loadNCs)
               <StatusBadge :state="nc.severity" />
               <StatusBadge :state="nc.resolution_status" />
               <span class="text-xs text-slate-400 bg-slate-50 px-2 py-0.5 rounded">
-                {{ nc.nc_type }}
+                {{ qaNcTypeLabel(nc.nc_type) }}
               </span>
             </div>
             <p class="text-sm text-gray-800">{{ nc.description }}</p>

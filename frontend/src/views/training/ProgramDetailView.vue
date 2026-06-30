@@ -250,7 +250,7 @@ onMounted(load)
               class="form-input w-full"
               placeholder="Mã Asset Document (VD: ADOC-2026-00012)"
             />
-            <p class="text-xs text-slate-400 mt-1">Link đến Asset Document. Để trống nếu chưa gắn.</p>
+            <p class="text-xs text-slate-400 mt-1">Liên kết đến Asset Document. Để trống nếu chưa gắn.</p>
           </div>
           <div class="sm:col-span-2">
             <label class="form-label">Yêu cầu giảng viên</label>

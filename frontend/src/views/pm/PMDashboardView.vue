@@ -146,7 +146,7 @@ type="button"
 
     <!-- Trend chart -->
     <div class="card mb-6 animate-slide-up" style="animation-delay: 200ms">
-      <h3 class="text-sm font-semibold text-slate-800 mb-5">Xu hướng Compliance 6 tháng</h3>
+      <h3 class="text-sm font-semibold text-slate-800 mb-5">Xu hướng tuân thủ 6 tháng</h3>
       <div class="flex items-end gap-2" style="height: 96px">
         <div
           v-for="t in trend"

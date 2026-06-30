@@ -5,6 +5,7 @@ import { useImm08Store } from '@/stores/imm08'
 import { useRouter } from 'vue-router'
 import type { PMCalendarEvent } from '@/api/imm08'
 import { formatAssetDisplay, translateStatus } from '@/utils/formatters'
+import { pmStatusLabel } from '@/constants/labels'
 
 const store = useImm08Store()
 const router = useRouter()
@@ -383,7 +384,7 @@ v-if="formatAssetDisplay(selectedEvent.asset_name, selectedEvent.asset_ref).hasB
           <div>
             <p class="text-xs text-slate-400 mb-1.5">Trạng thái</p>
             <span :class="['px-2.5 py-1 rounded-full text-xs font-medium', statusBadgeClass(selectedEvent.status)]">
-              {{ selectedEvent.status }}
+              {{ pmStatusLabel(selectedEvent.status) }}
             </span>
           </div>
         </div>

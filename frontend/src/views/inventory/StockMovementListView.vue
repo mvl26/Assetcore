@@ -8,6 +8,7 @@ import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
+import { stockReferenceTypeLabel } from '@/constants/labels'
 
 const router = useRouter()
 const rows = ref<StockMovement[]>([])
@@ -247,7 +248,7 @@ onMounted(load)
                 </td>
                 <td class="px-4 py-3 text-right text-sm text-slate-700 hidden md:table-cell">{{ vnd(m.total_value) }}</td>
                 <td class="px-4 py-3 text-xs text-slate-500 hidden lg:table-cell">
-                  <span v-if="m.reference_type">{{ m.reference_type }}</span>
+                  <span v-if="m.reference_type">{{ stockReferenceTypeLabel(m.reference_type) }}</span>
                   <span v-if="m.reference_name" class="text-slate-400">· {{ m.reference_name }}</span>
                   <span v-if="!m.reference_type" class="text-slate-300">—</span>
                 </td>

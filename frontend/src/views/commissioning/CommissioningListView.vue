@@ -49,8 +49,8 @@ const activeChips = computed<Chip[]>(() => {
     const s = WORKFLOW_STATES.find(x => x.value === filters.value.workflow_state)
     chips.push({ key: 'workflow_state', label: s?.label ?? filters.value.workflow_state })
   }
-  if (filters.value.vendor_serial_no?.trim()) chips.push({ key: 'vendor_serial_no', label: `Serial: ${filters.value.vendor_serial_no.trim()}` })
-  if (filters.value.master_item?.trim()) chips.push({ key: 'master_item', label: `Model: ${filters.value.master_item.trim()}` })
+  if (filters.value.vendor_serial_no?.trim()) chips.push({ key: 'vendor_serial_no', label: `Số serial: ${filters.value.vendor_serial_no.trim()}` })
+  if (filters.value.master_item?.trim()) chips.push({ key: 'master_item', label: `Mẫu thiết bị: ${filters.value.master_item.trim()}` })
   if (filters.value.clinical_dept?.trim()) chips.push({ key: 'clinical_dept', label: `Khoa: ${filters.value.clinical_dept.trim()}` })
   // BR-04-10: chip ảo "Quá hạn" cho cờ overdue (drill từ KPI card). Nhãn VI, không leak raw EN.
   if (filters.value.overdue) chips.push({ key: 'overdue', label: 'Quá hạn' })
@@ -162,11 +162,11 @@ watch(() => route.query.workflow_state, (val) => {
           </select>
         </div>
         <div class="form-group">
-          <label class="form-label">Serial Number</label>
-          <input v-model="filters.vendor_serial_no" class="form-input font-mono" placeholder="Nhập Serial..." @keyup.enter="applyFilters" />
+          <label class="form-label">Số serial</label>
+          <input v-model="filters.vendor_serial_no" class="form-input font-mono" placeholder="Nhập số serial..." @keyup.enter="applyFilters" />
         </div>
         <div class="form-group">
-          <label class="form-label">Model Thiết bị</label>
+          <label class="form-label">Mẫu thiết bị</label>
           <input v-model="filters.master_item" class="form-input" placeholder="Tên model..." @keyup.enter="applyFilters" />
         </div>
         <div class="form-group">
@@ -239,10 +239,10 @@ stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
           <thead>
             <tr>
               <th class="table-header">Phiếu</th>
-              <th class="table-header">Model Thiết bị</th>
+              <th class="table-header">Mẫu thiết bị</th>
               <th class="table-header">Nhà cung cấp</th>
               <th class="table-header">Khoa nhận</th>
-              <th class="table-header">Serial NSX</th>
+              <th class="table-header">Số serial NSX</th>
               <th class="table-header">Ngày hẹn</th>
               <th class="table-header">Trạng thái</th>
               <th class="table-header">Tài sản</th>

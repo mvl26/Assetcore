@@ -11,6 +11,7 @@ import BasePagination from '@/components/common/BasePagination.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import WorkOrderKpiStrip, { type WoKpiItem } from '@/components/common/WorkOrderKpiStrip.vue'
 import { useCapabilities } from '@/composables/useCapabilities'
+import { pmTypeLabel } from '@/constants/labels'
 
 const store = useImm08Store()
 const router = useRouter()
@@ -92,7 +93,7 @@ const kpiItems = computed<WoKpiItem[]>(() => {
     { label: 'Tổng lịch tháng', value: s.total_scheduled, color: 'primary' },
     { label: 'Quá hạn trong tháng', value: s.overdue_in_month, color: 'warning', trend: s.overdue_in_month > 0 ? 'Cần xử lý' : 'Đúng tiến độ' },
     { label: 'Quá hạn (toàn hệ thống)', value: s.overdue, color: 'danger', trend: s.overdue > 0 ? 'Cần escalate' : 'Đúng tiến độ' },
-    { label: 'Hoàn tất đúng hạn', value: s.completed_on_time, color: 'success', trend: `Compliance ${compliance}` },
+    { label: 'Hoàn tất đúng hạn', value: s.completed_on_time, color: 'success', trend: `Tuân thủ ${compliance}` },
     { label: 'Trễ trung bình', value: `${s.avg_days_late} ngày`, color: 'warning' },
   ]
 })
@@ -275,7 +276,7 @@ function quickFilter(_key: 'status', value: string) {
           </div>
           <p class="text-sm font-medium text-slate-900 truncate">{{ formatAssetDisplay(wo.asset_name, wo.asset_ref).main }}</p>
           <div class="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
-            <span v-if="wo.pm_type">{{ wo.pm_type }}</span>
+            <span v-if="wo.pm_type">{{ pmTypeLabel(wo.pm_type) }}</span>
             <span class="text-slate-300">·</span>
             <span :class="wo.is_late ? 'text-red-600 font-semibold' : ''">{{ wo.due_date || '—' }}</span>
             <span v-if="wo.is_late" class="text-red-500">Quá hạn</span>
@@ -319,7 +320,7 @@ function quickFilter(_key: 'status', value: string) {
                   {{ formatAssetDisplay(wo.asset_name, wo.asset_ref).sub }}
                 </div>
               </td>
-              <td class="table-cell text-slate-600">{{ wo.pm_type || '—' }}</td>
+              <td class="table-cell text-slate-600">{{ pmTypeLabel(wo.pm_type) }}</td>
               <td class="table-cell">
                 <span :class="wo.is_late ? 'text-red-600 font-semibold' : 'text-slate-600'">
                   {{ wo.due_date || '—' }}

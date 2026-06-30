@@ -202,7 +202,7 @@ onMounted(load)
         </svg>
         <div>
           <p class="font-medium">Bạn không có quyền duyệt/thu hồi/tái chứng nhận năng lực.</p>
-          <p class="text-xs mt-0.5">Liên hệ quản trị để cấp role Training Manager.</p>
+          <p class="text-xs mt-0.5">Liên hệ quản trị để cấp vai trò Training Manager.</p>
         </div>
       </div>
 
@@ -265,7 +265,7 @@ onMounted(load)
           </svg>
           <div>
             <p class="font-medium">Chưa có điểm đánh giá.</p>
-            <p class="mt-0.5">Điểm lý thuyết / thực hành được nhập trên <strong>Buổi đào tạo</strong> khi hoàn thành (trạng thái In Progress → Completed). Khi học viên đạt, hệ thống tự sinh hồ sơ năng lực với điểm tương ứng.</p>
+            <p class="mt-0.5">Điểm lý thuyết / thực hành được nhập trên <strong>Buổi đào tạo</strong> khi hoàn thành (trạng thái Đang diễn ra → Hoàn thành). Khi học viên đạt, hệ thống tự sinh hồ sơ năng lực với điểm tương ứng.</p>
           </div>
         </div>
         <div class="grid grid-cols-2 md:grid-cols-3 gap-5 text-sm">

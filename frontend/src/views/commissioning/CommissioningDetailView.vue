@@ -408,7 +408,7 @@ class="text-xs font-semibold text-amber-600 hover:text-amber-800 transition-colo
         :class="activeTab === 'nc' ? 'text-brand-600' : 'text-slate-500 hover:text-slate-700'"
         @click="router.push(`/commissioning/${id}/nc`)"
       >
-        Non Conformance
+        Không phù hợp
         <span
           v-if="store.openNcCount > 0"
           class="inline-flex items-center justify-center w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold"

@@ -220,11 +220,11 @@ onMounted(load)
     </template>
 
     <!-- Confirm Modal -->
-    <BaseModal v-if="showConfirm" title="Xác nhận Non-Conformance" size="md" @close="showConfirm = false">
+    <BaseModal v-if="showConfirm" title="Xác nhận không phù hợp (NC)" size="md" @close="showConfirm = false">
       <div class="space-y-3">
         <p class="text-sm text-slate-600">Xác nhận phát hiện này là một NC cần được CAPA xử lý.</p>
         <div class="form-group">
-          <label class="form-label">Ghi chú reviewer</label>
+          <label class="form-label">Ghi chú người đánh giá</label>
           <textarea v-model="reviewerNote" rows="4" class="form-input" placeholder="Mô tả ngữ cảnh xác nhận..." />
         </div>
       </div>
@@ -235,7 +235,7 @@ onMounted(load)
     </BaseModal>
 
     <!-- False Positive Modal -->
-    <BaseModal v-if="showFP" title="Đánh dấu False Positive" size="md" @close="showFP = false">
+    <BaseModal v-if="showFP" title="Đánh dấu sai" size="md" @close="showFP = false">
       <div class="space-y-3">
         <div class="form-group">
           <label class="form-label">Lý do (≥ 10 ký tự) *</label>
@@ -249,7 +249,7 @@ onMounted(load)
     </BaseModal>
 
     <!-- Waive Modal -->
-    <BaseModal v-if="showWaive" title="Miễn áp dụng (Waive)" size="lg" @close="showWaive = false">
+    <BaseModal v-if="showWaive" title="Miễn áp dụng" size="lg" @close="showWaive = false">
       <div class="space-y-3">
         <p class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
           Chỉ vai trò có quyền (BR-16-06) mới được waive. Hành động này được ghi vào audit trail.
@@ -266,12 +266,12 @@ onMounted(load)
         <div class="form-group">
           <label class="form-label">Ngày hết hiệu lực *</label>
           <input v-model="waiveExpiry" type="date" class="form-input" />
-          <p class="text-xs text-slate-400 mt-1">Sau ngày này, phát hiện sẽ tự động re-open.</p>
+          <p class="text-xs text-slate-400 mt-1">Sau ngày này, phát hiện sẽ tự động mở lại.</p>
         </div>
       </div>
       <template #footer>
         <button class="btn-ghost" @click="showWaive = false">Huỷ</button>
-        <button class="btn-primary" :disabled="api.loading.value" @click="doWaive">Xác nhận Waive</button>
+        <button class="btn-primary" :disabled="api.loading.value" @click="doWaive">Xác nhận miễn áp dụng</button>
       </template>
     </BaseModal>
 

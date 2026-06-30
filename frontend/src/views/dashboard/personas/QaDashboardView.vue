@@ -28,7 +28,7 @@ const findingCols: ListColumn[] = [
   { key: 'status', label: 'Trạng thái', type: 'status' },
 ]
 const auditCols: ListColumn[] = [
-  { key: 'audit_code', label: 'Mã audit' },
+  { key: 'audit_code', label: 'Mã kiểm toán' },
   { key: 'audit_type', label: 'Loại' },
   { key: 'lead_auditor', label: 'Chủ trì', nameKey: 'lead_auditor_name' },
   { key: 'status', label: 'Trạng thái', type: 'status' },
@@ -38,7 +38,7 @@ const auditCols: ListColumn[] = [
 <template>
   <PersonaDashboardShell
     title="Bảng điều khiển — Cán bộ QA / Kiểm toán"
-    subtitle="Sự cố · RCA · CAPA · Audit · Tuân thủ"
+    subtitle="Sự cố · RCA · CAPA · Kiểm toán · Tuân thủ"
     :kpis="kpis"
     :loading="isLoading"
     :error="error ? String(error.message ?? error) : null"
@@ -48,6 +48,6 @@ const auditCols: ListColumn[] = [
       <ListCard title="CAPA cần xử lý" :columns="capaCols" :rows="capaTodo" :row-to="drill.capa" />
       <ListCard title="Vi phạm tuân thủ" :columns="findingCols" :rows="complianceFindings" :row-to="drill.incident" />
     </div>
-    <ListCard title="Audit nội bộ" :columns="auditCols" :rows="internalAudits" :row-to="drill.audit" />
+    <ListCard title="Kiểm toán nội bộ" :columns="auditCols" :rows="internalAudits" :row-to="drill.audit" />
   </PersonaDashboardShell>
 </template>

@@ -227,7 +227,7 @@ onMounted(load)
     </BaseModal>
 
     <!-- New version modal -->
-    <BaseModal v-if="showVersion" title="Tạo phiên bản mới (change control)" size="lg" @close="showVersion = false">
+    <BaseModal v-if="showVersion" title="Tạo phiên bản mới (kiểm soát thay đổi)" size="lg" @close="showVersion = false">
       <div class="space-y-3">
         <p class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
           VR-11: thay đổi ngưỡng hoặc mức độ sẽ tăng số phiên bản và yêu cầu tóm tắt thay đổi.

@@ -62,9 +62,9 @@ async function loadHistory(page = 1) {
 
 async function publish() {
   if (!current.value) return
-  if (!confirm(`Publish scorecard ${current.value.name}? Sau publish sẽ immutable (VR-09).`)) return
+  if (!confirm(`Công bố bảng điểm ${current.value.name}? Sau khi công bố sẽ không thể chỉnh sửa (VR-09).`)) return
   const res = await api.run(() => store.actionPublishScorecard(current.value!.name), {
-    successMessage: 'Đã publish scorecard',
+    successMessage: 'Đã công bố bảng điểm',
   })
   if (res) await loadCurrent()
 }
@@ -107,14 +107,14 @@ onMounted(() => { loadLatest(); loadHistory() })
   <div class="page-container animate-fade-in space-y-5">
     <PageHeader
       title="Bảng điểm tuân thủ"
-      subtitle="IMM-16 · Theo dõi tuân thủ — Compliance Scorecard theo kỳ"
+      subtitle="IMM-16 · Theo dõi tuân thủ — Bảng điểm tuân thủ theo kỳ"
       :breadcrumb="[{ label: 'IMM-16 · Theo dõi tuân thủ' }, { label: 'Bảng điểm' }]"
     >
       <template #actions>
         <div class="flex items-center gap-2">
           <select v-model="scope" class="form-select text-sm" @change="loadCurrent(); loadHistory()">
-            <option value="Hospital">Hospital</option>
-            <option value="Department">Department</option>
+            <option value="Hospital">Bệnh viện</option>
+            <option value="Department">Khoa/Phòng</option>
           </select>
           <input v-model.number="selectedYear" type="number" class="form-input text-sm w-24" min="2020" max="2100" />
           <select v-model.number="selectedMonth" class="form-select text-sm">
@@ -211,7 +211,7 @@ onMounted(() => { loadLatest(); loadHistory() })
             v-if="current.pending_count != null"
             class="inline-flex items-center px-2.5 py-0.5 rounded-full font-medium bg-amber-50 text-amber-700 border border-amber-100"
             data-testid="pending-badge"
-            title="Finding chưa phân định (Mở + Đang xem xét) — KHÔNG tính vào điểm tuân thủ"
+            title="Phát hiện chưa phân định (Mở + Đang xem xét) — KHÔNG tính vào điểm tuân thủ"
           >
             Đang xét: {{ current.pending_count }}
           </span>

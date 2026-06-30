@@ -239,7 +239,7 @@ class="text-xs mt-1"
                 <thead class="bg-slate-50 border-b border-slate-200">
                   <tr>
                     <th class="text-left px-4 py-2 font-semibold text-slate-600 text-xs">Thiết bị</th>
-                    <th class="text-left px-4 py-2 font-semibold text-slate-600 text-xs">Fault Code</th>
+                    <th class="text-left px-4 py-2 font-semibold text-slate-600 text-xs">Mã lỗi</th>
                     <th class="text-center px-4 py-2 font-semibold text-slate-600 text-xs">Số lần</th>
                     <th class="text-left px-4 py-2 font-semibold text-slate-600 text-xs">Lần gần nhất</th>
                   </tr>
