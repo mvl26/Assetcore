@@ -473,8 +473,16 @@ class TestOasD16Invariant(unittest.TestCase):
         stats = spec["x-assetcore-stats"]
         self.assertEqual(stats["total_endpoints"], 488)
         self.assertEqual(stats["total_endpoints"], len(spec["paths"]))
-        self.assertEqual(stats["get_count"], 238)
-        self.assertEqual(stats["post_count"], 250)
+        # 2026-06-27 VERB-PARITY CLOSURE: get 238→235 / post 250→253 (3 write-action bare @whitelist
+        #   siết methods=["POST"] @imm08.py:54/imm11.py:89/114 ⇒ verb-flip GET→POST; total GIỮ 488).
+        # 2026-06-27 R34 ADD-MEASUREMENT: get 235→234 / post 253→254 (add_measurement @imm11.py:120
+        #   bare→methods=["POST"] ⇒ verb-flip GET→POST; total GIỮ 488). RE-VERIFY @source generate_spec.
+        # 2026-06-28 R35 PM-DISPATCH: get 234→233 / post 254→255 (assign_technician @imm08.py:46
+        #   bare→methods=["POST"] ⇒ verb-flip GET→POST; total GIỮ 488). RE-VERIFY @source generate_spec.
+        # 2026-06-28 R36 PM→CM ESCALATION: get 233→232 / post 255→256 (report_major_failure @imm08.py:74
+        #   bare→methods=["POST"] + SIGNATURE-FIX ⇒ verb-flip GET→POST; total GIỮ 488). RE-VERIFY @source generate_spec.
+        self.assertEqual(stats["get_count"], 232)
+        self.assertEqual(stats["post_count"], 256)
         self.assertEqual(stats["get_count"] + stats["post_count"], stats["total_endpoints"])
         self.assertEqual(stats["guest_count"], 5)
         # D6-IMM09-ENRICH: enriched_count derive ĐỘNG (KHÔNG magic 161) — D15/D16
@@ -486,7 +494,7 @@ class TestOasD16Invariant(unittest.TestCase):
         )
         self.assertEqual(stats["enriched_count"], expected_enriched)
         self.assertEqual(stats["error_responses_typed_count"], 488)
-        self.assertEqual(stats["json_param_count"], 64)
+        self.assertEqual(stats["json_param_count"], 63)  # R36 DROP report_major_failure.failed_item_indexes (JSON-string param)
         self.assertTrue(stats["cap_set_version"], "cap_set_version non-empty.")
         self.assertTrue(stats["generated_app_version"], "generated_app_version non-empty.")
 

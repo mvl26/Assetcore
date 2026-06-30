@@ -35,14 +35,32 @@ from assetcore.utils.response import ErrorCode, _HTTP_FOR_CODE
 # 2026-06-12 re-baseline 487→488 / get 237→238: working tree thêm endpoint thứ 488
 # `imm00.get_asset_action_meta` (GET, panel META NẠC cho 3 màn tạo WO — KHÔNG-parse-param,
 # 6-key NẠC, RBAC/vendor-isolation intact; NĐ98 data-min). Delta = đúng 1 GET, POST giữ 250.
+# 2026-06-27 VERB-PARITY CLOSURE re-baseline get 238→235 / post 250→253 (total GIỮ 488): 3 write-action
+# bare @whitelist (submit_pm_result @imm08.py:54, create_calibration @imm11.py:89, submit_calibration
+# @imm11.py:114) siết @frappe.whitelist(methods=["POST"]) ⇒ runtime _http_method_for GET→POST cho 3 ⇒
+# get_count −3, post_count +3 (verb-flip observable trong x-assetcore-stats — Hyrum). 0 endpoint thêm/bớt.
+# 2026-06-27 R34 ADD-MEASUREMENT re-baseline get 235→234 / post 253→254 (total GIỮ 488): write-action thứ-4
+# bare @whitelist (add_measurement @imm11.py:120 — verb-parity gap R33 BỎ SÓT) siết
+# @frappe.whitelist(methods=["POST"]) ⇒ runtime _http_method_for GET→POST cho 1 ⇒ get_count −1, post_count
+# +1. RE-VERIFY @source (generate_spec SAU flip): get=234 post=254 (KHÔNG tin số học — đếm @source). 0 endpoint thêm/bớt.
+# 2026-06-28 R35 PM-DISPATCH re-baseline get 234→233 / post 254→255 (total GIỮ 488): write-action thứ-5
+# bare @whitelist (assign_technician @imm08.py:46 — verb-parity gap R33 BỎ SÓT, sibling add_measurement) siết
+# @frappe.whitelist(methods=["POST"]) ⇒ runtime _http_method_for GET→POST cho 1 ⇒ get_count −1, post_count
+# +1. RE-VERIFY @source (generate_spec SAU flip): get=233 post=255 (KHÔNG tin số học — đếm @source). 0 endpoint thêm/bớt.
+# 2026-06-28 R36 PM→CM ESCALATION re-baseline get 233→232 / post 255→256 (total GIỮ 488): write-action thứ-6
+# bare @whitelist (report_major_failure @imm08.py:74 — verb-parity gap còn sót + SIGNATURE-FIX DROP
+# failed_item_indexes) siết @frappe.whitelist(methods=["POST"]) ⇒ runtime _http_method_for GET→POST cho 1 ⇒
+# get_count −1, post_count +1. RE-VERIFY @source (generate_spec SAU flip): get=232 post=256 (KHÔNG tin số học — đếm @source). 0 endpoint thêm/bớt.
 _BASELINE_TOTAL = 488
-_BASELINE_GET = 238
-_BASELINE_POST = 250
+_BASELINE_GET = 232
+_BASELINE_POST = 256
 _BASELINE_GUEST = 5
 # enriched_count derive ĐỘNG (D6-IMM09-ENRICH: KHÔNG còn magic 161 cho 3-module). D12
 # (error-surface) KHÔNG đụng enrich → vẫn KHỚP số op enrich đếm qua helper SSoT.
 # 2026-06-11 re-baseline 63→64: print_asset_labels_pdf(assets=…) list-param = json param thứ 64.
-_BASELINE_JSON_PARAM = 64
+# 2026-06-28 R36 re-baseline 64→63: SIGNATURE-FIX DROP report_major_failure.failed_item_indexes
+# (JSON-string param @api/imm08.py cũ) ⇒ json_param_count −1. RE-VERIFY @source generate_spec.
+_BASELINE_JSON_PARAM = 63
 
 _ERR_ENVELOPE_REF = "#/components/schemas/ErrorEnvelope"
 _PREFIX = "/api/method/assetcore.api."
@@ -285,8 +303,8 @@ class TestOasD12ErrorSurface(unittest.TestCase):
 
         stats = self.spec["x-assetcore-stats"]
         self.assertEqual(stats["total_endpoints"], _BASELINE_TOTAL, "total GIỮ 488.")
-        self.assertEqual(stats["get_count"], _BASELINE_GET, "get GIỮ 238.")
-        self.assertEqual(stats["post_count"], _BASELINE_POST, "post GIỮ 250.")
+        self.assertEqual(stats["get_count"], _BASELINE_GET, "get 232 (verb-parity closure −3 + R34 add_measurement −1 + R35 assign_technician −1 + R36 report_major_failure −1).")
+        self.assertEqual(stats["post_count"], _BASELINE_POST, "post 256 (verb-parity closure +3 + R34 add_measurement +1 + R35 assign_technician +1 + R36 report_major_failure +1).")
         self.assertEqual(stats["guest_count"], _BASELINE_GUEST, "guest GIỮ 5.")
         expected_enriched = sum(
             1
@@ -297,7 +315,7 @@ class TestOasD12ErrorSurface(unittest.TestCase):
             stats["enriched_count"], expected_enriched,
             "enriched_count == số op enrich đếm động (D12 không đụng enrich, KHÔNG magic).",
         )
-        self.assertEqual(stats["json_param_count"], _BASELINE_JSON_PARAM, "json_param GIỮ 64.")
+        self.assertEqual(stats["json_param_count"], _BASELINE_JSON_PARAM, "json_param 63 (R36 DROP failed_item_indexes JSON-string param).")
         self.assertEqual(stats["cap_set_version"], rbac.CAP_SET_VERSION, "cap_set_version KHÔNG đổi.")
 
     # ── TC-OAS-D12-06 — 0 dangling $ref + openapi 3.1 + key-order ────────────
