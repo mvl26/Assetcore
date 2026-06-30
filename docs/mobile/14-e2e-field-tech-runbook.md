@@ -365,8 +365,9 @@ curl -sS "$HOST/api/method/assetcore.api.imm08.list_pm_work_orders?page=1&page_s
 # CM của tôi — rows-key data.data[]
 curl -sS "$HOST/api/method/assetcore.api.imm09.list_repair_work_orders?page=1&page_size=20" \
   -H "Authorization: Bearer $ACCESS_TOKEN"
-# Báo hỏng của tôi — rows-key data.items[] (scope reported_by); filter status/severity/asset/open
-curl -sS "$HOST/api/method/assetcore.api.imm12.list_incidents?open=1&page=1&page_size=20" \
+# Báo hỏng của tôi — rows-key data.items[]; mine=1 scope reported_by==session.user (param
+#   IncidentMine, ADR-MOBILE-015); AND filter status/severity/asset/open. count==len(items).
+curl -sS "$HOST/api/method/assetcore.api.imm12.list_incidents?mine=1&open=1&page=1&page_size=20" \
   -H "Authorization: Bearer $ACCESS_TOKEN"
 ```
 
