@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Copyright (c) 2026, AssetCore Team
 import { ref, reactive, onMounted, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useImm01Store } from '@/stores/imm01'
 import { useRefDataStore } from '@/stores/imm00'
 import type { NeedsRequestFilters, RequestType, NeedsRequestState, PriorityClass } from '@/types/imm01'
@@ -17,6 +17,7 @@ import KpiCard from '@/components/common/KpiCard.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 
 const router = useRouter()
+const route  = useRoute()
 const store  = useImm01Store()
 const refData = useRefDataStore()
 
@@ -34,12 +35,14 @@ const filters = reactive<{
   priority_class: PriorityClass | ''
   requesting_department: string
   search: string
+  overdue: boolean
 }>({
   workflow_state: '',
   request_type: '',
   priority_class: '',
   requesting_department: '',
   search: '',
+  overdue: false,
 })
 
 const totalPages    = computed(() => Math.max(1, Math.ceil(store.total / store.pageSize)))
@@ -47,6 +50,8 @@ const totalApproved = computed(() => store.kpis?.by_state?.['Approved'] ?? 0)
 
 const activeChips = computed<FilterChip[]>(() => {
   const chips: FilterChip[] = []
+  if (filters.overdue)
+    chips.push({ key: 'overdue', label: 'Chỉ phiếu quá hạn (> 30 ngày)' })
   if (filters.workflow_state)
     chips.push({ key: 'workflow_state', label: stateLabel(filters.workflow_state) })
   if (filters.request_type)
@@ -64,6 +69,9 @@ const activeChips = computed<FilterChip[]>(() => {
 
 function buildPayload(): NeedsRequestFilters & { search?: string } {
   const f: NeedsRequestFilters & { search?: string } = {}
+  // Overdue là filter SSoT server-side: BE tự áp state ∈ {Submitted,Reviewing} + tuổi
+  // > 30 ngày → KHÔNG kèm workflow_state để tránh xung đột predicate.
+  if (filters.overdue) f.overdue = 1
   if (filters.workflow_state) f.workflow_state = filters.workflow_state
   if (filters.request_type) f.request_type = filters.request_type
   if (filters.priority_class) f.priority_class = filters.priority_class
@@ -74,7 +82,8 @@ function buildPayload(): NeedsRequestFilters & { search?: string } {
 
 function applyFilters() { store.fetchNeedsRequests(buildPayload(), 1, store.pageSize) }
 function clearChip(key: string) {
-  ;(filters as Record<string, string>)[key] = ''
+  if (key === 'overdue') filters.overdue = false
+  else (filters as Record<string, string | boolean>)[key] = ''
   applyFilters()
 }
 function resetFilters() {
@@ -83,12 +92,18 @@ function resetFilters() {
   filters.priority_class = ''
   filters.requesting_department = ''
   filters.search = ''
+  filters.overdue = false
   store.fetchNeedsRequests({}, 1, store.pageSize)
+}
+/** KPI "Phiếu tồn quá 30 ngày" bấm được → bật/tắt lọc overdue (SSoT server). */
+function toggleOverdue() {
+  filters.overdue = !filters.overdue
+  applyFilters()
 }
 function quickFilter(key: keyof typeof filters, value: string) {
   if (!value) return
-  if ((filters as Record<string, string>)[key] === value) return
-  ;(filters as Record<string, string>)[key] = value
+  if ((filters as Record<string, string | boolean>)[key] === value) return
+  ;(filters as Record<string, string | boolean>)[key] = value
   showFilters.value = false
   applyFilters()
 }
@@ -98,7 +113,14 @@ function goDetail(n: string) { router.push({ name: 'NeedsRequestDetail', params:
 function goPage(p: number)   { store.fetchNeedsRequests(buildPayload(), p, store.pageSize) }
 
 onMounted(() => {
-  store.fetchNeedsRequests()
+  // Deep-link từ thông báo escalation "phiếu nhu cầu quá hạn" (?overdue=1) → mở sẵn
+  // danh sách đã lọc phiếu quá hạn (điểm đến hành động cho Needs Manager).
+  if (route.query.overdue === '1' || route.query.overdue === 'true') {
+    filters.overdue = true
+    store.fetchNeedsRequests(buildPayload(), 1, store.pageSize)
+  } else {
+    store.fetchNeedsRequests()
+  }
   store.fetchKpis()
   refData.fetchAll()
 })
@@ -156,6 +178,14 @@ onMounted(() => {
         :label="'Phiếu tồn quá 30 ngày'"
         :value="store.kpis.backlog_over_30d"
         :color="store.kpis.backlog_over_30d > 0 ? 'warning' : 'neutral'"
+        role="button"
+        tabindex="0"
+        class="cursor-pointer transition-shadow"
+        :class="filters.overdue ? 'ring-2 ring-amber-400 rounded-xl' : 'hover:ring-1 hover:ring-amber-200 rounded-xl'"
+        :title="filters.overdue ? 'Bỏ lọc phiếu quá hạn' : 'Bấm để lọc chỉ phiếu quá hạn (> 30 ngày, Đã gửi/Đang rà soát)'"
+        @click="toggleOverdue"
+        @keydown.enter="toggleOverdue"
+        @keydown.space.prevent="toggleOverdue"
       />
       <KpiCard
         :label="'Tỷ lệ qua kiểm tra ban đầu'"
@@ -221,6 +251,8 @@ onMounted(() => {
               <span v-if="nr.department_name || nr.requesting_department">· {{ nr.department_name || nr.requesting_department }}</span>
               <span v-if="nr.priority_class">· {{ priorityBadge(nr.priority_class) }}</span>
               <span v-if="nr.tco_5y">· {{ formatVnd(nr.tco_5y) }}</span>
+              <span v-if="nr.is_overdue" class="nr-age-overdue">· Quá hạn {{ nr.age_days }} ngày ⚠</span>
+              <span v-else-if="nr.age_days != null">· {{ nr.age_days }} ngày</span>
             </div>
           </div>
           <div v-if="store.needsRequests.length === 0" class="py-12 text-center text-slate-400">
@@ -241,6 +273,7 @@ onMounted(() => {
                 <th class="table-header">Mức ưu tiên</th>
                 <th class="table-header text-right">Tổng chi phí 5 năm</th>
                 <th class="table-header">Trạng thái</th>
+                <th class="table-header text-right">Số ngày treo</th>
               </tr>
             </thead>
             <tbody>
@@ -248,7 +281,7 @@ onMounted(() => {
                 v-for="(nr, idx) in store.needsRequests"
                 :key="nr.name"
                 class="table-row animate-fade-in"
-                :class="[`stagger-${Math.min(idx + 1, 8)}`]"
+                :class="[`stagger-${Math.min(idx + 1, 8)}`, { 'nr-overdue-row': nr.is_overdue }]"
                 @click="goDetail(nr.name)"
               >
                 <td class="table-cell">
@@ -295,6 +328,16 @@ onMounted(() => {
                     <StatusBadge :state="nr.workflow_state" />
                   </button>
                 </td>
+                <td class="table-cell text-right">
+                  <span
+                    v-if="nr.age_days != null"
+                    :class="nr.is_overdue ? 'nr-age-overdue' : 'text-slate-500'"
+                    :title="nr.is_overdue ? 'Quá hạn xử lý (treo > 30 ngày ở Đã gửi/Đang rà soát)' : ''"
+                  >
+                    {{ nr.age_days }} ngày<span v-if="nr.is_overdue" aria-hidden="true"> ⚠</span>
+                  </span>
+                  <span v-else class="text-slate-400">—</span>
+                </td>
               </tr>
             </tbody>
           </table>
@@ -332,6 +375,11 @@ v-if="activeChips.length > 0" class="mt-3 text-xs text-brand-600 hover:text-bran
 .priority-P2 { background: #fffbeb; color: #a16207; }
 .priority-P3 { background: #eff6ff; color: #1d4ed8; }
 .priority-P4 { background: #f1f5f9; color: #475569; }
+
+/* Phiếu quá hạn (> 30 ngày ở Đã gửi/Đang rà soát) — cảnh báo trực quan */
+.nr-overdue-row { background: #fffbeb; }
+.nr-overdue-row:hover { background: #fef3c7; }
+.nr-age-overdue { color: #b45309; font-weight: 600; }
 </style>
 
 <style>

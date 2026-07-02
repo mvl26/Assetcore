@@ -278,6 +278,46 @@ doc_events = {
     "Calibration Record": {
         "on_submit": "assetcore.services.imm16.eval_imm11_realtime",
     },
+    # ─── Notification Framework E8 (generic transition notifier) ────────────
+    # Các luồng workflow governance/approval chuyển state qua apply_workflow/
+    # doc.submit() nhưng TRƯỚC ĐÂY không có listener → "trình duyệt/phê duyệt xong
+    # không ai nhận thông báo". E8 báo (1) người xử lý bước kế + (2) người tạo phiếu
+    # (kết quả). `on_update` cũng chạy trong submit() nên KHÔNG wire on_submit song
+    # song (tránh double). KHÔNG wire cho PM Work Order/Asset Repair/Incident Report
+    # (đã có E1/E2/E3/E5) hay AC Asset (lifecycle vận hành, quá nhiều transition).
+    "IMM Needs Request": {
+        "on_update": "assetcore.services.notifications.notify_workflow_transition",
+    },
+    "IMM Procurement Plan": {
+        "on_update": "assetcore.services.notifications.notify_workflow_transition",
+    },
+    "IMM Tech Spec": {
+        "on_update": "assetcore.services.notifications.notify_workflow_transition",
+    },
+    "IMM Procurement Decision": {
+        "on_update": "assetcore.services.notifications.notify_workflow_transition",
+    },
+    "IMM AVL Entry": {
+        "on_update": "assetcore.services.notifications.notify_workflow_transition",
+    },
+    "IMM Vendor Evaluation": {
+        "on_update": "assetcore.services.notifications.notify_workflow_transition",
+    },
+    "IMM CAPA Record": {
+        "on_update": "assetcore.services.notifications.notify_workflow_transition",
+    },
+    "IMM Compliance Finding": {
+        "on_update": "assetcore.services.notifications.notify_workflow_transition",
+    },
+    "IMM Internal Audit": {
+        "on_update": "assetcore.services.notifications.notify_workflow_transition",
+    },
+    "IMM Management Review": {
+        "on_update": "assetcore.services.notifications.notify_workflow_transition",
+    },
+    "IMM RCA Record": {
+        "on_update": "assetcore.services.notifications.notify_workflow_transition",
+    },
 }
 
 # ──────────────────────────────────────────────

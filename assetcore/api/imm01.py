@@ -15,6 +15,7 @@ import json
 
 import frappe
 from frappe import _
+from frappe.utils import add_days, date_diff, today
 
 from assetcore.services import imm01 as svc
 from assetcore.services.shared import ErrorCode, ServiceError
@@ -68,16 +69,35 @@ def list_needs_requests(filters: str = "{}", page: int = 1, page_size: int = 20,
     return _handle(_list_needs_requests, filters, int(page), int(page_size), order_by)
 
 
+# SSoT overdue NR: phải KHỚP predicate scheduler `check_pending_request_overdue`
+# (services/imm01.py) + KPI `backlog_over_30d` (`_dashboard_kpis`) → count KPI = số
+# dòng khi lọc overdue (bấm KPI hiện đúng tập). Overdue = phiếu treo quá hạn ở state
+# tiếp nhận/rà soát; suy từ server-clock (memory overdue_server_flag_ssot — KHÔNG so
+# ngày ở client). Đổi ở đây thì đổi đồng bộ 3 nơi.
+_NR_OVERDUE_STATES = ("Submitted", "Reviewing")
+_NR_OVERDUE_DAYS = 30
+
+
 def _list_needs_requests(filters: str, page: int, page_size: int, order_by: str) -> dict:
-    """Trả list Needs Request kèm display names (BE-DC-01-01).
+    """Trả list Needs Request kèm display names (BE-DC-01-01) + cờ overdue server-side.
 
     Data contract: mọi Link field phải kèm display name trong cùng response.
     - `requesting_department` (AC Department) → `department_name`
     - `device_model_ref` (IMM Device Model) → `device_model_name`
     - `replacement_for_asset` (AC Asset) → `target_asset_name`
     - `owner` (User) → `requester_name`
+
+    Filter `overdue` (truthy): chỉ trả phiếu treo quá hạn (SSoT — khớp KPI
+    `backlog_over_30d`): docstatus=0, state ∈ {Submitted, Reviewing}, request_date treo
+    > 30 ngày. Cutoff tính bằng server-clock (`add_days(today(), -_NR_OVERDUE_DAYS)`).
     """
     f = _parse_json(filters)
+    # Overdue là filter phái sinh (không phải field) → pop trước, áp predicate SSoT.
+    overdue = bool(f.pop("overdue", 0))
+    if overdue:
+        f["docstatus"] = 0
+        f["workflow_state"] = ["in", list(_NR_OVERDUE_STATES)]
+        f["request_date"] = ["<", add_days(today(), -_NR_OVERDUE_DAYS)]
     # FE search: "mã phiếu hoặc tên model". `device_model_ref` chỉ chứa mã
     # link → muốn match `model_name` phải resolve qua link_search.
     f, or_filters = pop_search(
@@ -97,8 +117,29 @@ def _list_needs_requests(filters: str, page: int, page_size: int, order_by: str)
         order_by=order_by, start=start, page_length=page_size,
     )
     _enrich_needs_display_names(items)
+    _enrich_needs_overdue(items)
     total = count_with_or(_DT_NR, f or None, or_filters)
     return {"items": items, "total": total, "page": page, "page_size": page_size}
+
+
+def _enrich_needs_overdue(items: list[dict]) -> None:
+    """Mutates in-place: thêm `age_days` (tuổi phiếu kể từ request_date) + `is_overdue`
+    (cờ SSoT). Cả hai suy từ server-clock (`today()`), FE CHỈ render — KHÔNG so ngày ở
+    client (memory overdue_server_flag_ssot). `is_overdue` = state ∈ {Submitted,
+    Reviewing} và age > _NR_OVERDUE_DAYS → khớp KPI/scheduler.
+    """
+    if not items:
+        return
+    today_str = today()
+    for it in items:
+        rd = it.get("request_date")
+        age = date_diff(today_str, rd) if rd else None
+        it["age_days"] = age
+        it["is_overdue"] = bool(
+            age is not None
+            and age > _NR_OVERDUE_DAYS
+            and it.get("workflow_state") in _NR_OVERDUE_STATES
+        )
 
 
 def _enrich_needs_display_names(items: list[dict]) -> None:
@@ -378,9 +419,41 @@ def get_procurement_plan(name: str) -> dict:
     return _handle(_get_procurement_plan, name)
 
 
+def _plan_allowed_transition_actions(doc) -> list[str]:
+    """Danh sách workflow ACTION mà user HIỆN TẠI được phép trên kế hoạch mua sắm.
+
+    Tính bằng `frappe.model.workflow.get_transitions` trên _DT_PP (IMM Procurement
+    Plan) — đã lọc theo state hiện tại + role của user gọi. Dedupe theo action
+    (get_transitions trả 1 row / action×role match). KHÔNG dùng lại
+    `_get_allowed_transitions` (hardcode _DT_NR / Needs Request).
+
+    FE (ProcurementPlanDetailView) gate nút Phê duyệt/Kích hoạt/Đóng theo list này
+    (server-driven) → chống "nút hiện rồi bấm mới báo không có quyền".
+    """
+    from frappe.model.workflow import get_transitions
+
+    # `get_transitions` gọi doc.check_permission("read") + có thể ném WorkflowStateError.
+    # Đây là trường PHỤ TRỢ cho payload chi tiết: user không đủ quyền đọc (chỉ base
+    # role AssetCore System User) → trả [] (0 nút) thay vì làm VỠ cả payload
+    # get_procurement_plan bằng 403/500. Giữ endpoint bền vững (Hyrum's Law) — CTA
+    # gating degrade graceful, KHÔNG nuốt lỗi ghi/DB (get_transitions read-only).
+    try:
+        transitions = get_transitions(doc) or []
+    except Exception:
+        return []
+    actions: list[str] = []
+    for t in transitions:
+        action = t.get("action")
+        if action and action not in actions:
+            actions.append(action)
+    return actions
+
+
 def _get_procurement_plan(name: str) -> dict:
     doc = frappe.get_doc(_DT_PP, name)
     payload = doc.as_dict()
+    # Server-driven CTA gating (GATE-8 / LL-FE-51): action user hiện tại được phép.
+    payload["allowed_transitions"] = _plan_allowed_transition_actions(doc)
     # BUG-004: plan_items chỉ chứa link tới NR — FE cần department_name + tco_5y
     # để hiển thị bảng "Danh sách Needs Request đã gom". Bulk-fetch để tránh N+1.
     items = payload.get("plan_items") or []

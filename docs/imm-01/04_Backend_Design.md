@@ -249,8 +249,18 @@ Function `_rollup_budget(doc)`:
 | Function | Tần suất | Logic |
 |---|---|---|
 | `generate_demand_forecast()` | Monthly | Tạo `IMM Demand Forecast` skeleton cho mỗi AC Asset Category (placeholder — wire với IMM-07/IMM-13 sau) |
-| `check_pending_request_overdue()` | Daily | NR ở Submitted/Reviewing > 30 ngày → log (email TODO) |
+| `check_pending_request_overdue()` | Daily | NR ở Submitted/Reviewing (docstatus=0) > 30 ngày → gọi `notifications.notify_needs_overdue(rows)` (E7): escalation **digest** in-app + email tới role `Needs Manager` (SSoT `notify_roles.NEEDS_STALE_ESCALATION`). Giữ early-return `if not rows` (0 phiếu → 0 thông báo). Xem ADR-IMM-01-01 + BR-01-11. |
 | `budget_envelope_alert()` | Weekly | Plan vượt 80% envelope → log warning |
+
+**Notification helpers (E7 — trong `services/notifications.py`, framework IMM-00):**
+
+| Function | Signature | Vai trò |
+|---|---|---|
+| `notify_needs_overdue` | `(overdue_rows: list[dict]) -> None` | Entry E7 do `check_pending_request_overdue` gọi. Resolve recipient qua `_needs_stale_recipients()`; dựng subject + message digest (tổng số phiếu + breakdown theo `requesting_department`, tiếng Việt đầy đủ); lọc recipient đã nhận digest hôm nay (`_needs_digest_already_sent`); `_dispatch` cho phần còn lại. 0 phiếu → không được gọi (early-return ở scheduler); 0 recipient → log warning, không dispatch. |
+| `_needs_stale_recipients` | `() -> list[str]` | Union `get_users_with_role(r)` cho mọi `r ∈ notify_roles.NEEDS_STALE_ESCALATION`; loại Administrator + rỗng + dedupe. Rỗng → `frappe.logger("imm01").warning(...)` (anti dead-gate) + trả `[]`. |
+| `_needs_digest_already_sent` | `(user: str) -> bool` | True nếu đã có Notification Log `for_user=user` + subject chứa marker NR-quá-hạn + `DATE(creation)=CURDATE()` (dedup 1 digest/recipient/ngày, Frappe-first — pattern `_warning_already_sent`). |
+
+> **SSoT `notify_roles`**: thêm `NEEDS_STALE_ESCALATION: list[str] = ["Needs Manager"]` (map persona *PTP Khối 1 / Quản lý Nhu cầu* → role thật) và cộng vào `ALL_NOTIFY_ROLES` để guard `test_notify_roles_exist` phủ. KHÔNG literal role-name ở call-site.
 
 ---
 
@@ -323,7 +333,7 @@ Có **2 workflow** trong `assetcore/assetcore/workflow/`:
 
 | Job | File | Tần suất | Mô tả | Recipient |
 |---|---|---|---|---|
-| `check_pending_request_overdue` | `assetcore/services/imm01.py` | Daily | NR ở Submitted/Reviewing > 30 ngày → log (email TODO) | PTP Khối 1, KH-TC Officer |
+| `check_pending_request_overdue` | `assetcore/services/imm01.py` | Daily | NR ở Submitted/Reviewing > 30 ngày → escalation digest in-app + email (E7 `notify_needs_overdue`), idempotent 1/recipient/ngày | **Needs Manager** (SSoT `notify_roles.NEEDS_STALE_ESCALATION`) |
 | `budget_envelope_alert` | `assetcore/services/imm01.py` | Weekly | Plan vượt 80% envelope → log warning | PTP Khối 1, TCKT Head |
 | `generate_demand_forecast` | `assetcore/services/imm01.py` | Monthly | Tạo `IMM Demand Forecast` skeleton / device_category (wire IMM-07/13 sau) | KH-TC Officer |
 

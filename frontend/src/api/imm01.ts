@@ -99,7 +99,12 @@ export function listProcurementPlans(filters: Record<string, unknown> = {}, page
   })
 }
 
-export function getProcurementPlan(name: string): Promise<Record<string, unknown>> {
+export interface ProcurementPlanDetail extends Record<string, unknown> {
+  /** Action workflow user hiện tại được phép (server-driven CTA gating, GATE-8). */
+  allowed_transitions?: string[]
+}
+
+export function getProcurementPlan(name: string): Promise<ProcurementPlanDetail> {
   return frappeGet(`${BASE}.get_procurement_plan`, { name })
 }
 

@@ -507,7 +507,17 @@ def generate_demand_forecast() -> None:
 # ─── Scheduler — overdue & envelope alerts ────────────────────────────────────
 
 def check_pending_request_overdue() -> None:
-    """Daily — phiếu Submitted/Reviewing > 30d → email PTP Khối 1 (placeholder)."""
+    """Daily — NR ở Submitted/Reviewing (docstatus=0) treo > 30 ngày kể từ
+    `request_date` → escalation **digest** in-app (Notification Log) + email tới
+    role SSoT `notify_roles.NEEDS_STALE_ESCALATION` (= "Needs Manager").
+
+    Giữ early-return sạch: 0 phiếu quá hạn → 0 thông báo. Ủy thác dispatch cho
+    `notifications.notify_needs_overdue` (E7) — resolve recipient qua SSoT, idempotent
+    1 digest/người/ngày, 0 recipient → log cảnh báo KHÔNG raise.
+
+    Spec: docs/imm-01/02_Analysis_Design.md BR-01-11 + ADR-IMM-01-01 (thay block
+    log-only cũ — biến thể dead-gate: tín hiệu có nhưng không tới người xử lý).
+    """
     rows = frappe.db.sql(
         f"""SELECT name, requesting_department, request_date
             FROM `tab{_DT_NR}`
@@ -518,8 +528,10 @@ def check_pending_request_overdue() -> None:
     )
     if not rows:
         return
-    # TODO: gửi email cho IMM Department Head + IMM Planning Officer
-    frappe.logger("imm01").info(f"IMM-01 overdue: {len(rows)} phiếu")
+    # Lazy-import: tránh circular import lúc bench start (notifications import các
+    # service khác ở module-level).
+    from assetcore.services import notifications
+    notifications.notify_needs_overdue(rows)
 
 
 def budget_envelope_alert() -> None:
