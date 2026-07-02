@@ -271,7 +271,7 @@ async function submit() {
 
       <!-- Section: Nhận dạng HTM -->
       <div class="card p-5">
-        <h2 class="text-sm font-semibold text-slate-700 mb-4 pb-2 border-b border-slate-100">Nhận dạng HTM / Pháp lý</h2>
+        <h2 class="text-sm font-semibold text-slate-700 mb-4 pb-2 border-b border-slate-100">Nhận dạng thiết bị y tế / Pháp lý</h2>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <!-- D1/D4: Số serial NSX = field nghiệp vụ riêng, KHÔNG phải mã định danh tài sản -->
           <div>

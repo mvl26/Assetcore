@@ -101,7 +101,7 @@ const GATES: Gate[] = [
   { key: 'g02_facility',  label: 'Cơ sở hạ tầng',          description: 'Đã xác nhận cơ sở hạ tầng đạt yêu cầu',      na: false },
   { key: 'g03_baseline',  label: 'An toàn điện',            description: '100% thông số Pass / N/A',                    na: false },
   { key: 'g04_radiation', label: 'Phóng xạ / Giấy phép',   description: 'Có giấy phép Bộ Y tế (N/A nếu không phải phóng xạ)', na: true },
-  { key: 'g05_nc',        label: 'Không có NC mở',         description: 'Không có phiếu NC đang mở',                  na: false },
+  { key: 'g05_nc',        label: 'Không có sự không phù hợp mở',         description: 'Không có phiếu không phù hợp đang mở',                  na: false },
   { key: 'g06_approver',  label: 'Người phê duyệt BGĐ',    description: 'Đã chỉ định người phê duyệt',                na: false },
 ]
 
@@ -141,7 +141,7 @@ function actionLabel(action: string): string {
     'Bắt đầu lắp đặt':             'Bắt đầu lắp đặt',
     'Báo cáo sự cố':               'Báo cáo sự cố',
     'Lắp đặt hoàn thành':          'Lắp đặt hoàn thành',
-    'Báo cáo DOA':                 'Báo cáo DOA',
+    'Báo cáo DOA':                 'Báo cáo hỏng khi nhận',
     'Bắt đầu kiểm tra':            'Bắt đầu kiểm tra',
     'Phê duyệt phát hành':         'Phê duyệt phát hành',
     'Giữ lâm sàng':                'Giữ lâm sàng',
@@ -359,7 +359,7 @@ const uniqueTransitions = computed(() => {
           v-if="showQaOfficer"
           :model-value="doc.qa_officer"
           role="IMM QA Officer"
-          label="Nhân viên QA"
+          label="Nhân viên đảm bảo chất lượng"
           placeholder="Tìm theo tên hoặc email..."
           @update:model-value="emit('update-field', 'qa_officer', $event)"
         />

@@ -94,7 +94,7 @@ onMounted(load)
           <h1>{{ profile.supplier_name || profile.name }}</h1>
           <div class="muted">
             {{ profile.name }}
-            <span v-if="profile.imm_avl_status" class="ml-2">· AVL {{ avlStatusLabel(profile.imm_avl_status) }}</span>
+            <span v-if="profile.imm_avl_status" class="ml-2">· Duyệt nhà cung cấp {{ avlStatusLabel(profile.imm_avl_status) }}</span>
             <span v-if="profile.imm_overall_score" class="ml-2">· Điểm {{ Number(profile.imm_overall_score).toFixed(2) }}</span>
           </div>
         </div>
@@ -118,10 +118,10 @@ onMounted(load)
           </dl>
         </div>
         <div class="card">
-          <h3>AVL & Kiểm tra</h3>
+          <h3>Duyệt nhà cung cấp & Kiểm tra</h3>
           <dl>
-            <dt>Trạng thái AVL:</dt><dd>{{ avlStatusLabel(profile.imm_avl_status) }}</dd>
-            <dt>Nhóm AVL:</dt><dd>{{ profile.imm_avl_categories || '—' }}</dd>
+            <dt>Trạng thái duyệt nhà cung cấp:</dt><dd>{{ avlStatusLabel(profile.imm_avl_status) }}</dd>
+            <dt>Nhóm nhà cung cấp:</dt><dd>{{ profile.imm_avl_categories || '—' }}</dd>
             <dt>Kiểm tra gần nhất:</dt><dd>{{ profile.imm_last_audit_date || '—' }}</dd>
             <dt>Kiểm tra kế tiếp:</dt><dd>{{ profile.imm_next_audit_date || '—' }}</dd>
           </dl>
@@ -158,10 +158,10 @@ onMounted(load)
       </div>
 
       <div class="card">
-        <h3>Lịch sử AVL</h3>
+        <h3>Lịch sử duyệt nhà cung cấp</h3>
         <table class="data-table">
           <thead>
-            <tr><th>Mã AVL</th><th>Nhóm thiết bị</th><th>Trạng thái</th><th>Hiệu lực từ</th><th>Hiệu lực đến</th></tr>
+            <tr><th>Mã duyệt nhà cung cấp</th><th>Nhóm thiết bị</th><th>Trạng thái</th><th>Hiệu lực từ</th><th>Hiệu lực đến</th></tr>
           </thead>
           <tbody>
             <tr v-for="a in (profile.avl_entries || [])" :key="a.name">
@@ -172,7 +172,7 @@ onMounted(load)
               <td>{{ a.valid_to || '—' }}</td>
             </tr>
             <tr v-if="!(profile.avl_entries || []).length">
-              <td colspan="5" class="muted text-center">Chưa có AVL.</td>
+              <td colspan="5" class="muted text-center">Chưa có bản duyệt nhà cung cấp nào.</td>
             </tr>
           </tbody>
         </table>

@@ -160,7 +160,7 @@
     <div class="action-bar">
       <button v-for="action in availableActions" :key="action"
               class="btn btn-outline" @click="doTransition(action)">
-        {{ action }}
+        {{ actionLabel(action) }}
       </button>
     </div>
   </div>
@@ -202,6 +202,15 @@ const TRANSITIONS_BY_STATE: Record<string, string[]> = {
   'Negotiation':       ['Đề xuất trúng thầu'],
   'Award Recommended': ['Trình BGĐ'],
   'Contract Signed':   ['Phát hành PO'],
+}
+
+// Nhãn hiển thị cho nút workflow. Value gửi BE giữ NGUYÊN ('Phát hành PO' là action trong
+// Workflow DocType — đổi sẽ phải migrate + khớp lại BE); ở đây chỉ việt-hoá chữ hiển thị.
+const ACTION_LABELS: Record<string, string> = {
+  'Phát hành PO': 'Phát hành đơn mua hàng',
+}
+function actionLabel(action: string): string {
+  return ACTION_LABELS[action] ?? action
 }
 
 const evalCandidates = ref<VendorEvalCandidate[]>([])

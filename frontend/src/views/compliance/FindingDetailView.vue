@@ -98,7 +98,7 @@ const linkRef = ref('')
 async function doLinkCapa() {
   if (!finding.value || !linkRef.value) return
   const res = await api.run(() => store.actionLinkToCapa(finding.value!.name, linkRef.value), {
-    successMessage: 'Đã liên kết CAPA',
+    successMessage: 'Đã liên kết hành động khắc phục/phòng ngừa',
   })
   if (res) { showLinkCapa.value = false; linkRef.value = ''; await load() }
 }
@@ -110,7 +110,7 @@ async function doCreateCapa() {
   if (!finding.value) return
   const res = await api.run(
     () => store.actionCreateCapaFromFinding(finding.value!.name, capaPayload.value),
-    { successMessage: 'Đã tạo CAPA từ phát hiện' },
+    { successMessage: 'Đã tạo hành động khắc phục/phòng ngừa từ phát hiện' },
   )
   if (res) { showCreateCapa.value = false; await load() }
 }
@@ -134,11 +134,11 @@ onMounted(load)
         ]"
       >
         <template #actions>
-          <button v-if="canConfirm" class="btn-primary text-sm" @click="showConfirm = true">Xác nhận NC</button>
+          <button v-if="canConfirm" class="btn-primary text-sm" @click="showConfirm = true">Xác nhận sự không phù hợp</button>
           <button v-if="canConfirm" class="btn-secondary text-sm" @click="showFP = true">Đánh dấu sai</button>
           <button v-if="canWaive" class="btn-ghost text-sm" @click="showWaive = true">Miễn áp dụng</button>
-          <button v-if="canCreateCapa" class="btn-primary text-sm" @click="showCreateCapa = true">Tạo CAPA</button>
-          <button v-if="finding.status === 'Confirmed NC' && !finding.capa_ref" class="btn-secondary text-sm" @click="showLinkCapa = true">Liên kết CAPA</button>
+          <button v-if="canCreateCapa" class="btn-primary text-sm" @click="showCreateCapa = true">Tạo hành động khắc phục/phòng ngừa</button>
+          <button v-if="finding.status === 'Confirmed NC' && !finding.capa_ref" class="btn-secondary text-sm" @click="showLinkCapa = true">Liên kết hành động khắc phục/phòng ngừa</button>
         </template>
       </PageHeader>
 
@@ -196,7 +196,7 @@ onMounted(load)
         </div>
 
         <div class="pt-4 border-t border-slate-100">
-          <p class="t-eyebrow mb-1.5">CAPA liên kết</p>
+          <p class="t-eyebrow mb-1.5">Hành động khắc phục/phòng ngừa liên kết</p>
           <button
             v-if="finding.capa_ref"
             class="font-mono text-sm text-brand-700 font-semibold hover:underline"
@@ -205,12 +205,12 @@ onMounted(load)
             {{ finding.capa_ref }}
           </button>
           <div v-else class="flex items-center gap-3">
-            <span class="text-sm text-slate-400">Chưa có CAPA</span>
+            <span class="text-sm text-slate-400">Chưa có hành động khắc phục/phòng ngừa</span>
             <button
               v-if="canCreateCapa"
               class="btn-secondary text-xs"
               @click="showCreateCapa = true"
-            >Tạo CAPA</button>
+            >Tạo hành động khắc phục/phòng ngừa</button>
           </div>
         </div>
       </div>
@@ -220,9 +220,9 @@ onMounted(load)
     </template>
 
     <!-- Confirm Modal -->
-    <BaseModal v-if="showConfirm" title="Xác nhận không phù hợp (NC)" size="md" @close="showConfirm = false">
+    <BaseModal v-if="showConfirm" title="Xác nhận không phù hợp" size="md" @close="showConfirm = false">
       <div class="space-y-3">
-        <p class="text-sm text-slate-600">Xác nhận phát hiện này là một NC cần được CAPA xử lý.</p>
+        <p class="text-sm text-slate-600">Xác nhận phát hiện này là một sự không phù hợp cần được hành động khắc phục/phòng ngừa xử lý.</p>
         <div class="form-group">
           <label class="form-label">Ghi chú người đánh giá</label>
           <textarea v-model="reviewerNote" rows="4" class="form-input" placeholder="Mô tả ngữ cảnh xác nhận..." />
@@ -230,7 +230,7 @@ onMounted(load)
       </div>
       <template #footer>
         <button class="btn-ghost" @click="showConfirm = false">Huỷ</button>
-        <button class="btn-primary" :disabled="api.loading.value" @click="doConfirm">Xác nhận NC</button>
+        <button class="btn-primary" :disabled="api.loading.value" @click="doConfirm">Xác nhận sự không phù hợp</button>
       </template>
     </BaseModal>
 
@@ -276,9 +276,9 @@ onMounted(load)
     </BaseModal>
 
     <!-- Link CAPA Modal -->
-    <BaseModal v-if="showLinkCapa" title="Liên kết CAPA" size="md" @close="showLinkCapa = false">
+    <BaseModal v-if="showLinkCapa" title="Liên kết hành động khắc phục/phòng ngừa" size="md" @close="showLinkCapa = false">
       <div class="form-group">
-        <label class="form-label">Mã CAPA *</label>
+        <label class="form-label">Mã hành động khắc phục/phòng ngừa *</label>
         <input v-model="linkRef" class="form-input" placeholder="CAPA-2026-00001" />
       </div>
       <template #footer>
@@ -288,7 +288,7 @@ onMounted(load)
     </BaseModal>
 
     <!-- Create CAPA Modal -->
-    <BaseModal v-if="showCreateCapa" title="Tạo CAPA từ phát hiện" size="md" @close="showCreateCapa = false">
+    <BaseModal v-if="showCreateCapa" title="Tạo hành động khắc phục/phòng ngừa từ phát hiện" size="md" @close="showCreateCapa = false">
       <div class="space-y-3">
         <div class="form-group">
           <label class="form-label">Mức rủi ro</label>
@@ -304,7 +304,7 @@ onMounted(load)
           <select v-model="capaPayload.imm_root_cause_method" class="form-select">
             <option value="5-Why">5-Why</option>
             <option value="Fishbone">Fishbone</option>
-            <option value="FTA">FTA</option>
+            <option value="FTA">Phân tích cây lỗi</option>
             <option value="Pareto">Pareto</option>
           </select>
         </div>
@@ -315,7 +315,7 @@ onMounted(load)
       </div>
       <template #footer>
         <button class="btn-ghost" @click="showCreateCapa = false">Huỷ</button>
-        <button class="btn-primary" :disabled="api.loading.value" @click="doCreateCapa">Tạo CAPA</button>
+        <button class="btn-primary" :disabled="api.loading.value" @click="doCreateCapa">Tạo hành động khắc phục/phòng ngừa</button>
       </template>
     </BaseModal>
   </div>

@@ -272,7 +272,7 @@ onMounted(() => {
       <!-- Source (tùy chọn — BR-09-01 đã nới) -->
       <div>
         <h2 class="font-semibold text-slate-700 mb-1">Nguồn sửa chữa <span class="text-xs text-slate-400 font-normal">(tùy chọn)</span></h2>
-        <p class="text-xs text-slate-500 mb-3">Nếu có Sự cố/PM, điền để tự điền sẵn thiết bị, mức độ, mô tả. Có thể bỏ trống (sửa chữa độc lập).</p>
+        <p class="text-xs text-slate-500 mb-3">Nếu có Sự cố/bảo trì định kỳ, điền để tự điền sẵn thiết bị, mức độ, mô tả. Có thể bỏ trống (sửa chữa độc lập).</p>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label class="block text-sm text-slate-600 mb-1">Báo cáo sự cố</label>
@@ -380,7 +380,7 @@ onMounted(() => {
           Thiết bị đã thanh lý — không thể tạo phiếu sửa chữa.
         </div>
         <div v-if="isHighRisk" class="mt-2 alert-warning text-sm">
-          Mức rủi ro {{ riskClassDisplay }} — bắt buộc QA phê duyệt khi đóng phiếu.
+          Mức rủi ro {{ riskClassDisplay }} — bắt buộc đảm bảo chất lượng phê duyệt khi đóng phiếu.
         </div>
       </div>
 
@@ -403,7 +403,7 @@ onMounted(() => {
           </select>
         </div>
         <div>
-          <label class="block text-sm text-slate-600 mb-1">SLA (giờ)</label>
+          <label class="block text-sm text-slate-600 mb-1">Cam kết mức dịch vụ (giờ)</label>
           <div class="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm font-semibold">
             {{ slaTarget }}h
           </div>
@@ -411,7 +411,7 @@ onMounted(() => {
       </div>
 
       <div v-if="form.priority === 'Emergency'" class="alert-error text-sm">
-        Phiếu mức <strong>Khẩn cấp</strong>. Trưởng xưởng sẽ được thông báo realtime, SLA chỉ {{ slaTarget }} giờ.
+        Phiếu mức <strong>Khẩn cấp</strong>. Trưởng xưởng sẽ được thông báo realtime, cam kết dịch vụ chỉ {{ slaTarget }} giờ.
       </div>
 
       <!-- Description -->

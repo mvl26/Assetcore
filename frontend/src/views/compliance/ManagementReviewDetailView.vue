@@ -209,11 +209,11 @@ onMounted(load)
       <div class="card p-5 grid grid-cols-1 md:grid-cols-2 gap-5 text-sm">
         <div><p class="t-eyebrow mb-1">Tóm tắt đầu vào</p><p class="text-slate-700 whitespace-pre-line">{{ mr.inputs_summary || '—' }}</p></div>
         <div><p class="t-eyebrow mb-1">Tóm tắt kiểm toán</p><p class="text-slate-700 whitespace-pre-line">{{ mr.audit_summary || '—' }}</p></div>
-        <div><p class="t-eyebrow mb-1">Tóm tắt CAPA</p><p class="text-slate-700 whitespace-pre-line">{{ mr.capa_summary || '—' }}</p></div>
-        <div><p class="t-eyebrow mb-1">Hiệu quả CAPA</p><p class="text-slate-700 whitespace-pre-line">{{ mr.capa_effectiveness || '—' }}</p></div>
+        <div><p class="t-eyebrow mb-1">Tóm tắt hành động khắc phục/phòng ngừa</p><p class="text-slate-700 whitespace-pre-line">{{ mr.capa_summary || '—' }}</p></div>
+        <div><p class="t-eyebrow mb-1">Hiệu quả hành động khắc phục/phòng ngừa</p><p class="text-slate-700 whitespace-pre-line">{{ mr.capa_effectiveness || '—' }}</p></div>
         <div><p class="t-eyebrow mb-1">Tuân thủ đào tạo</p><p class="text-slate-700 whitespace-pre-line">{{ mr.training_compliance || '—' }}</p></div>
         <div><p class="t-eyebrow mb-1">Xem xét rủi ro</p><p class="text-slate-700 whitespace-pre-line">{{ mr.risk_review || '—' }}</p></div>
-        <div class="md:col-span-2"><p class="t-eyebrow mb-1">Thay đổi QMS đã quyết định</p><p class="text-slate-700 whitespace-pre-line">{{ mr.qms_changes_decided || '—' }}</p></div>
+        <div class="md:col-span-2"><p class="t-eyebrow mb-1">Thay đổi hệ thống quản lý chất lượng đã quyết định</p><p class="text-slate-700 whitespace-pre-line">{{ mr.qms_changes_decided || '—' }}</p></div>
       </div>
 
       <!-- Attendees -->
@@ -266,9 +266,9 @@ onMounted(load)
         </div>
         <div class="form-group"><label class="form-label">Tóm tắt đầu vào</label><textarea v-model="editForm.inputs_summary" rows="2" class="form-input" /></div>
         <div class="form-group"><label class="form-label">Tóm tắt kiểm toán</label><textarea v-model="editForm.audit_summary" rows="2" class="form-input" /></div>
-        <div class="form-group"><label class="form-label">Tóm tắt CAPA</label><textarea v-model="editForm.capa_summary" rows="2" class="form-input" /></div>
+        <div class="form-group"><label class="form-label">Tóm tắt hành động khắc phục/phòng ngừa</label><textarea v-model="editForm.capa_summary" rows="2" class="form-input" /></div>
         <div class="form-group"><label class="form-label">Xem xét rủi ro</label><textarea v-model="editForm.risk_review" rows="2" class="form-input" /></div>
-        <div class="form-group"><label class="form-label">Thay đổi QMS đã quyết định</label><textarea v-model="editForm.qms_changes_decided" rows="2" class="form-input" /></div>
+        <div class="form-group"><label class="form-label">Thay đổi hệ thống quản lý chất lượng đã quyết định</label><textarea v-model="editForm.qms_changes_decided" rows="2" class="form-input" /></div>
 
         <div>
           <div class="flex items-center justify-between mb-2">

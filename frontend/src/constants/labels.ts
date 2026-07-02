@@ -382,8 +382,8 @@ export function isHighRiskClassification(v?: string | null): boolean {
 // Khớp field BE Incident Report.response_breached / resolution_breached (0|1).
 // SSoT cho nhãn tiếng Việt — KHÔNG hardcode trong component, KHÔNG leak "breached".
 export const SLA_BREACH_LABEL = {
-  response:   'Vi phạm SLA tiếp nhận',
-  resolution: 'Vi phạm SLA xử lý',
+  response:   'Vi phạm cam kết mức dịch vụ tiếp nhận',
+  resolution: 'Vi phạm cam kết mức dịch vụ xử lý',
 } as const
 export const SLA_BREACH_BADGE_CLASS = 'bg-red-100 text-red-700 ring-1 ring-red-200'
 
@@ -401,7 +401,7 @@ export const INCIDENT_STATUS_LABEL: Record<string, string> = {
   'Open':         'Mới mở',
   'Acknowledged': 'Đã tiếp nhận',
   'In Progress':  'Đang điều tra',
-  'RCA Required': 'Cần RCA',
+  'RCA Required': 'Cần phân tích nguyên nhân gốc',
   'Resolved':     'Đã giải quyết',
   'Closed':       'Đã đóng',
   'Cancelled':    'Đã hủy',
@@ -589,7 +589,7 @@ export const REPAIR_TYPE_LABEL: Record<string, string> = {
   'Preventive':  'Phòng ngừa',
   'Emergency':   'Sửa chữa khẩn cấp',
   'Breakdown':   'Hỏng hóc',
-  'DOA':         'Hỏng khi nhận (DOA)',
+  'DOA':         'Hỏng khi nhận',
 }
 
 // ─── Root Cause ───────────────────────────────────────────────────────────────
@@ -639,8 +639,8 @@ export function pmTypeLabel(v?: string | null) { return v ? (PM_TYPE_LABEL[v] ??
 
 // Loại lệnh công việc PM (pm_work_order.wo_type).
 export const WO_TYPE_LABEL: Record<string, string> = {
-  'Preventive': 'Bảo trì định kỳ (PM)',
-  'Corrective': 'Sửa chữa (CM)',
+  'Preventive': 'Bảo trì định kỳ',
+  'Corrective': 'Sửa chữa',
 }
 export function woTypeLabel(v?: string | null) { return v ? (WO_TYPE_LABEL[v] ?? v) : '—' }
 
@@ -664,7 +664,7 @@ export function avlStatusLabel(v?: string | null) { return v ? (AVL_STATUS_LABEL
 // Loại bản ghi nguồn phiếu điều chuyển kho (ac_stock_movement.reference_type = tên doctype).
 export const STOCK_REFERENCE_TYPE_LABEL: Record<string, string> = {
   'Asset Repair': 'Phiếu sửa chữa',
-  'PM Work Order': 'Lệnh bảo trì (PM)',
+  'PM Work Order': 'Lệnh bảo trì',
   'AC Purchase': 'Đơn mua hàng',
   'Manual': 'Thủ công',
 }
@@ -672,7 +672,7 @@ export function stockReferenceTypeLabel(v?: string | null) { return v ? (STOCK_R
 
 // Loại không phù hợp QA (asset_qa_non_conformance.nc_type) — KHÁC NC_TYPE_LABELS (IMM-04).
 export const QA_NC_TYPE_LABEL: Record<string, string> = {
-  'DOA': 'Hỏng khi nhận (DOA)',
+  'DOA': 'Hỏng khi nhận',
   'Missing': 'Thiếu hàng',
   'Crash': 'Hư hỏng vật lý',
   'Technical': 'Lỗi kỹ thuật',

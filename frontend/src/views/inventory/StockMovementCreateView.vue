@@ -385,7 +385,7 @@ function vnd(v?: number) {
           <select id="sm-ref-type" v-model="referenceType" class="form-select w-full">
             <option value="">— Không —</option>
             <option value="Asset Repair">Sửa chữa (Asset Repair)</option>
-            <option value="PM Work Order">Bảo trì / Hiệu chuẩn (PM Work Order)</option>
+            <option value="PM Work Order">Bảo trì / Hiệu chuẩn</option>
             <option value="AC Purchase">Mua hàng (Purchase)</option>
             <option value="Manual">Thủ công (Manual)</option>
           </select>
@@ -398,7 +398,7 @@ function vnd(v?: number) {
 id="sm-ref-name" type="text" class="form-input w-full font-mono"
                  :value="refLabel"
                  :placeholder="referenceType === 'Asset Repair' ? 'Click để xem danh sách hoặc gõ để lọc...'
-                              : referenceType === 'AC Purchase' ? 'Click để xem PO có phụ tùng hoặc gõ để lọc...'
+                              : referenceType === 'AC Purchase' ? 'Click để xem lệnh mua hàng có phụ tùng hoặc gõ để lọc...'
                               : 'Click để xem lệnh bảo trì hoặc gõ để lọc...'"
                  @focus="onRefFocus()"
                  @input="onRefSearch(($event.target as HTMLInputElement).value)"

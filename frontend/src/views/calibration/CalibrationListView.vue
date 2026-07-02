@@ -40,7 +40,7 @@ const CAL_RESULTS = [
 
 const CAL_STATUSES = [
   { value: 'Scheduled',            label: 'Đã lên lịch' },
-  { value: 'Sent to Lab',          label: 'Đã gửi phòng HC' },
+  { value: 'Sent to Lab',          label: 'Đã gửi phòng hiệu chuẩn' },
   { value: 'In Progress',          label: 'Đang thực hiện' },
   { value: 'Certificate Received', label: 'Đã nhận chứng nhận' },
   { value: 'Passed',               label: 'Đạt' },
@@ -64,7 +64,7 @@ const activeChips = computed<Chip[]>(() => {
     const r = CAL_RESULTS.find(x => x.value === filterResult.value)
     chips.push({ key: 'result', label: r?.label ?? filterResult.value })
   }
-  if (assetFilter.value) chips.push({ key: 'asset', label: `TB: ${assetFilter.value}` })
+  if (assetFilter.value) chips.push({ key: 'asset', label: `Thiết bị: ${assetFilter.value}` })
   return chips
 })
 const activeFilterCount = computed(() => activeChips.value.length)

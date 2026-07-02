@@ -275,7 +275,7 @@ onMounted(load)
             <select id="sm-edit-ref-type" v-model="referenceType" class="form-select w-full">
               <option value="">— Không —</option>
               <option value="Asset Repair">Sửa chữa (Asset Repair)</option>
-              <option value="PM Work Order">Bảo trì / Hiệu chuẩn (PM Work Order)</option>
+              <option value="PM Work Order">Bảo trì / Hiệu chuẩn</option>
               <option value="AC Purchase">Mua hàng (Purchase)</option>
               <option value="Manual">Thủ công (Manual)</option>
             </select>

@@ -211,10 +211,10 @@ function vnd(v?: number) {
 
     <div class="mb-6">
       <p class="text-xs text-slate-500 mt-1">
-        PO có thể chứa <b>thiết bị y tế</b> (→ phiếu tiếp nhận) <b>hoặc</b> <b>phụ tùng</b> (→ phiếu nhập kho) — không bắt buộc cả hai.
+        Lệnh mua hàng có thể chứa <b>thiết bị y tế</b> (→ phiếu tiếp nhận) <b>hoặc</b> <b>phụ tùng</b> (→ phiếu nhập kho) — không bắt buộc cả hai.
       </p>
       <p class="text-[11px] text-slate-400 mt-0.5 italic">
-        Phân công khoa/phòng ban cho từng máy được thực hiện ở bước tạo hồ sơ thiết bị, không cần khai trên PO.
+        Phân công khoa/phòng ban cho từng máy được thực hiện ở bước tạo hồ sơ thiết bị, không cần khai trên lệnh mua hàng.
       </p>
     </div>
 
@@ -369,7 +369,7 @@ class="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded transition-co
       <div class="flex items-center justify-between mb-4 pb-2 border-b border-slate-100">
         <div>
           <h2 class="text-sm font-semibold text-slate-700">Phụ tùng</h2>
-          <p class="text-[11px] text-slate-400 mt-0.5">Nhập kho qua phiếu nhập kho sau khi duyệt PO.</p>
+          <p class="text-[11px] text-slate-400 mt-0.5">Nhập kho qua phiếu nhập kho sau khi duyệt lệnh mua hàng.</p>
         </div>
         <button class="btn-secondary text-xs" @click="addRow">+ Thêm phụ tùng</button>
       </div>

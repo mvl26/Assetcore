@@ -225,7 +225,7 @@ onMounted(() => {
             <option value="">-- Chọn --</option>
             <option v-for="s in SEVERITIES" :key="s" :value="s">{{ incidentSeverityLabel(s) }}</option>
           </select>
-          <p v-if="form.severity === 'Critical'" class="text-xs text-red-600 mt-1">Mức Nghiêm trọng sẽ tự động đưa thiết bị về Ngừng sử dụng và bắt buộc lập RCA trước khi đóng.</p>
+          <p v-if="form.severity === 'Critical'" class="text-xs text-red-600 mt-1">Mức Nghiêm trọng sẽ tự động đưa thiết bị về Ngừng sử dụng và bắt buộc lập phân tích nguyên nhân gốc trước khi đóng.</p>
         </div>
       </div>
 

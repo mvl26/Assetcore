@@ -140,7 +140,7 @@ async function save() {
   const l1h = Number(form.value.escalation_l1_hours) || 0
   const l2h = Number(form.value.escalation_l2_hours) || 0
   if (l1h && l2h && l1h > l2h) {
-    err.value = 'Thời gian leo thang L1 phải nhỏ hơn hoặc bằng L2.'
+    err.value = 'Thời gian leo thang cấp 1 phải nhỏ hơn hoặc bằng cấp 2.'
     return
   }
   try {
@@ -153,7 +153,7 @@ async function save() {
 
 async function remove(name: string, ev?: Event) {
   ev?.stopPropagation()
-  if (!confirm(`Xóa chính sách SLA "${name}"?`)) return
+  if (!confirm(`Xóa chính sách cam kết mức dịch vụ "${name}"?`)) return
   try {
     await deleteSlaPolicy(name)
     showDetail.value = false
@@ -169,7 +169,7 @@ onMounted(load)
 <template>
   <div class="page-container animate-fade-in">
     <PageHeader
-      title="Chính sách SLA"
+      title="Chính sách cam kết mức dịch vụ"
       :subtitle="`Tổng ${policies.length} chính sách`"
     >
       <template #actions>
@@ -232,7 +232,7 @@ onMounted(load)
         <SkeletonLoader v-for="i in 4" :key="i" class="h-10 mb-3" />
       </div>
       <div v-else-if="filteredPolicies.length === 0" class="flex flex-col items-center justify-center py-16 text-slate-400 text-sm">
-        <p>{{ activeFilterCount > 0 ? 'Không có chính sách nào phù hợp.' : 'Chưa có chính sách SLA.' }}</p>
+        <p>{{ activeFilterCount > 0 ? 'Không có chính sách nào phù hợp.' : 'Chưa có chính sách cam kết mức dịch vụ.' }}</p>
         <button v-if="activeFilterCount > 0" class="mt-3 text-xs text-blue-500 hover:text-blue-700 underline" @click="resetFilters">
           Xóa bộ lọc để xem tất cả
         </button>
@@ -358,12 +358,12 @@ onMounted(load)
         <div v-if="detail.escalation_l1_user || detail.escalation_l2_user" class="border-t pt-3 space-y-1.5">
           <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide">Người leo thang xử lý</p>
           <p v-if="detail.escalation_l1_user" class="text-sm">
-            <span class="text-slate-500">L1 (sau {{ detail.escalation_l1_hours }}h):</span>
+            <span class="text-slate-500">Cấp 1 (sau {{ detail.escalation_l1_hours }}h):</span>
             <span class="ml-2 text-slate-800">{{ userLabel(detail.escalation_l1_user) }}</span>
             <span class="ml-1 text-xs text-slate-400 font-mono">({{ detail.escalation_l1_user }})</span>
           </p>
           <p v-if="detail.escalation_l2_user" class="text-sm">
-            <span class="text-slate-500">L2 (sau {{ detail.escalation_l2_hours }}h):</span>
+            <span class="text-slate-500">Cấp 2 (sau {{ detail.escalation_l2_hours }}h):</span>
             <span class="ml-2 text-slate-800">{{ userLabel(detail.escalation_l2_user) }}</span>
             <span class="ml-1 text-xs text-slate-400 font-mono">({{ detail.escalation_l2_user }})</span>
           </p>
@@ -380,7 +380,7 @@ onMounted(load)
     <!-- Create/edit modal -->
     <div v-if="showForm" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="showForm = false">
       <div class="bg-white rounded-xl p-6 w-[560px] max-w-full space-y-4 max-h-[90vh] overflow-y-auto">
-        <h2 class="text-lg font-semibold">{{ editingName ? 'Sửa' : 'Thêm' }} chính sách SLA</h2>
+        <h2 class="text-lg font-semibold">{{ editingName ? 'Sửa' : 'Thêm' }} chính sách cam kết mức dịch vụ</h2>
         <div v-if="err" class="bg-red-50 text-red-700 text-sm p-3 rounded">{{ err }}</div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -423,29 +423,29 @@ onMounted(load)
           <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Người leo thang xử lý</p>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Người xử lý L1</label>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Người xử lý cấp 1</label>
               <ApproverSelect
                 :model-value="(form.escalation_l1_user as string) || ''"
                 context="user"
-                placeholder="Chọn người xử lý L1..."
+                placeholder="Chọn người xử lý cấp 1..."
                 @update:model-value="(v: string) => form.escalation_l1_user = v"
               />
             </div>
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">L1 sau (giờ)</label>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Cấp 1 sau (giờ)</label>
               <input v-model.number="form.escalation_l1_hours" type="number" min="0" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
             </div>
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Người xử lý L2</label>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Người xử lý cấp 2</label>
               <ApproverSelect
                 :model-value="(form.escalation_l2_user as string) || ''"
                 context="user"
-                placeholder="Chọn người xử lý L2..."
+                placeholder="Chọn người xử lý cấp 2..."
                 @update:model-value="(v: string) => form.escalation_l2_user = v"
               />
             </div>
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">L2 sau (giờ)</label>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Cấp 2 sau (giờ)</label>
               <input v-model.number="form.escalation_l2_hours" type="number" min="0" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
             </div>
           </div>

@@ -368,8 +368,8 @@ const showQaOfficer = computed(() => isHighRisk.value)
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
       </svg>
       <div>
-        <p class="text-sm font-semibold text-red-800">Sự cố DOA đã được báo cáo</p>
-        <p class="text-xs text-red-700 mt-0.5">Thiết bị này đã có Phiếu NC DOA. Vui lòng xử lý trước khi tiếp tục.</p>
+        <p class="text-sm font-semibold text-red-800">Sự cố hỏng khi nhận đã được báo cáo</p>
+        <p class="text-xs text-red-700 mt-0.5">Thiết bị này đã có Phiếu không phù hợp hỏng khi nhận. Vui lòng xử lý trước khi tiếp tục.</p>
       </div>
     </div>
 
@@ -624,7 +624,7 @@ Xem đơn hàng →
         </label>
         <label class="flex items-center gap-2 cursor-default">
           <input type="checkbox" :checked="Boolean(doc.doa_incident)" disabled class="rounded text-red-600" />
-          <span class="text-sm text-gray-700">Sự cố DOA</span>
+          <span class="text-sm text-gray-700">Sự cố hỏng khi nhận</span>
         </label>
         <label class="flex items-center gap-2 cursor-pointer">
           <input
@@ -643,7 +643,7 @@ Xem đơn hàng →
         <ApproverSelect
           :model-value="doc.qa_officer || ''"
           role="IMM QA Officer"
-          label="Nhân viên QA"
+          label="Nhân viên đảm bảo chất lượng"
           placeholder="Tìm theo tên hoặc email..."
           :required="true"
           :disabled="isReadonly"

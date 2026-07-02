@@ -446,8 +446,8 @@ onMounted(load)
                 <th class="table-header">Khoa/Phòng</th>
                 <th class="table-header">Vai trò</th>
                 <th class="table-header text-right">Điểm chuyên cần (%)</th>
-                <th class="table-header text-right">Điểm LT</th>
-                <th class="table-header text-right">Điểm TH</th>
+                <th class="table-header text-right">Điểm lý thuyết</th>
+                <th class="table-header text-right">Điểm thực hành</th>
                 <th class="table-header">Kết quả</th>
                 <th class="table-header">Cần thi lại</th>
                 <th v-if="canManage" class="table-header text-right">Thao tác</th>

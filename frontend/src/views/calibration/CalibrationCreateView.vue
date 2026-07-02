@@ -327,7 +327,7 @@ onMounted(() => {
         </div>
         <div class="flex items-center gap-2">
           <input id="recal" v-model="form.is_recalibration" type="checkbox" :true-value="1" :false-value="0" class="h-4 w-4 text-blue-600 rounded" />
-          <label for="recal" class="text-sm text-slate-700">Là tái hiệu chuẩn sau CAPA</label>
+          <label for="recal" class="text-sm text-slate-700">Là tái hiệu chuẩn sau hành động khắc phục/phòng ngừa</label>
         </div>
       </div>
 

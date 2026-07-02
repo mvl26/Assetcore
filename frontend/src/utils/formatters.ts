@@ -63,8 +63,8 @@ const STATUS_MAP: Record<string, string> = {
   // nhãn cũng đúng. KHÔNG thêm 'Open'/'In Progress' ở đây (domain CAPA/priority
   // dùng 'Đang mở'/'Đang thực hiện') → list incident render qua incidentStatusLabel.
   Acknowledged:   'Đã tiếp nhận',
-  'RCA Required': 'Cần RCA',
-  RCA_Required:   'Cần RCA',
+  'RCA Required': 'Cần phân tích nguyên nhân gốc',
+  RCA_Required:   'Cần phân tích nguyên nhân gốc',
 
   // ── IMM-01 Needs Request workflow states ──────────────────────────
   Reviewing:   'Đang rà soát',
@@ -146,8 +146,8 @@ const STATUS_MAP: Record<string, string> = {
   // IMM-16 Compliance findings/audits
   'Under Review':    'Đang xem xét',
   Under_Review:      'Đang xem xét',
-  'Confirmed NC':    'Đã xác nhận NC',
-  Confirmed_NC:      'Đã xác nhận NC',
+  'Confirmed NC':    'Đã xác nhận sự không phù hợp',
+  Confirmed_NC:      'Đã xác nhận sự không phù hợp',
   'False Positive':  'Cảnh báo nhầm',
   False_Positive:    'Cảnh báo nhầm',
   Resolved:          'Đã khắc phục',

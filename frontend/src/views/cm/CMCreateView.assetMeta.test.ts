@@ -213,7 +213,7 @@ describe('CMCreateView — panel meta qua getAssetActionMeta (NẠC perm-aware)'
   // ── AC4: isHighRisk derive từ ĐÚNG enum risk_classification ∈ {High, Critical}
   // (KHÔNG 'C'/'D' — đó là risk_class field KHÁC). Banner QA-phê-duyệt + style cam
   // HIỆN khi High/Critical; ẨN khi Low/Medium/''/drift/legacy 'C'. ──
-  const QA_BANNER = 'bắt buộc QA phê duyệt'
+  const QA_BANNER = 'bắt buộc đảm bảo chất lượng phê duyệt'
   const HIGH_RISK_CASES = ['High', 'Critical']
   const LOW_RISK_CASES = ['Low', 'Medium', '', 'C', 'Xyz']
 
@@ -378,7 +378,7 @@ describe('CMCreateView — panel meta qua getAssetActionMeta (NẠC perm-aware)'
       await flushPromises()
       const risk = w.find('[data-test="scan-cm-meta-risk"]')
       expect(risk.classes().some(c => c.includes('orange'))).toBe(true)
-      expect(w.text()).toContain('bắt buộc QA phê duyệt')
+      expect(w.text()).toContain('bắt buộc đảm bảo chất lượng phê duyệt')
       w.unmount()
     }
   })

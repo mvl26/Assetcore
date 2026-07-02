@@ -111,7 +111,7 @@ const woStatusMap: Record<string, string> = {
   <div class="page-container animate-fade-in">
     <PageHeader
       title="Tổng quan Sửa chữa"
-      subtitle="Theo dõi lệnh sửa chữa, MTTR, SLA và vật tư"
+      subtitle="Theo dõi lệnh sửa chữa, thời gian sửa chữa trung bình, cam kết dịch vụ và vật tư"
     >
       <template #actions>
         <button class="btn-secondary" @click="router.push('/cm/work-orders')">Danh sách phiếu</button>
@@ -140,7 +140,7 @@ const woStatusMap: Record<string, string> = {
       <div
 class="kpi-card p-5"
            :style="`--kpi-color: ${slaColor(kpis.sla_compliance_pct)}`">
-        <p class="text-xs font-medium text-slate-500 mb-2">Tuân thủ SLA</p>
+        <p class="text-xs font-medium text-slate-500 mb-2">Tuân thủ cam kết dịch vụ</p>
         <p class="text-3xl font-bold" :style="`color: ${slaColor(kpis.sla_compliance_pct)}`">
           {{ kpis.sla_compliance_pct }}%
         </p>
@@ -163,7 +163,7 @@ class="h-full rounded-full"
     <!-- 6-month MTTR + SLA trend -->
     <div class="card mb-6 animate-slide-up" style="animation-delay: 150ms">
       <div class="flex items-center justify-between mb-4">
-        <h3 class="text-sm font-semibold text-slate-800">Xu hướng MTTR & SLA — 6 tháng</h3>
+        <h3 class="text-sm font-semibold text-slate-800">Xu hướng thời gian sửa chữa trung bình & cam kết dịch vụ — 6 tháng</h3>
         <span class="text-xs text-slate-400">{{ loadingTrend ? 'Đang tải…' : '' }}</span>
       </div>
       <div v-if="loadingTrend && !trend.length" class="text-center text-sm text-slate-400 py-6">Đang tải...</div>
@@ -178,7 +178,7 @@ class="h-full rounded-full"
               <div
                 class="rounded-t-md transition-all"
                 :style="`height: ${(p.mttr / maxMttr) * 100}%; min-height:4px; background: linear-gradient(180deg, #3b82f6, #2563eb);`"
-                :title="`${p.month}: MTTR ${p.mttr}h, ${p.total} phiếu, SLA ${p.sla_pct}%`"
+                :title="`${p.month}: thời gian sửa chữa trung bình ${p.mttr}h, ${p.total} phiếu, cam kết dịch vụ ${p.sla_pct}%`"
               />
             </div>
             <div class="text-[11px] text-slate-500 mt-1">{{ p.month }}</div>
@@ -186,7 +186,7 @@ class="h-full rounded-full"
               class="text-[10px] font-medium tabular-nums"
               :style="`color: ${slaColor(p.sla_pct)}`"
             >
-              SLA {{ p.sla_pct }}%
+              cam kết dịch vụ {{ p.sla_pct }}%
             </div>
             <div class="text-[10px] text-slate-400">{{ p.total }} phiếu</div>
           </div>
@@ -273,7 +273,7 @@ v-else-if="!store.workOrders.length"
               <span
                 class="text-[10px] font-semibold shrink-0 tabular-nums"
                 :style="`color:${slaBarColor(slaPercent(wo))}`"
-              >{{ slaPercent(wo) }}% SLA</span>
+              >{{ slaPercent(wo) }}% cam kết dịch vụ</span>
             </div>
           </div>
         </div>

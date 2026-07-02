@@ -40,7 +40,7 @@ const filterAsset = ref<string>((route.query.asset as string) || '')
 const STATUSES: { value: FindingStatus; label: string }[] = [
   { value: 'Open', label: 'Mở' },
   { value: 'Under Review', label: 'Đang xem xét' },
-  { value: 'Confirmed NC', label: 'Đã xác nhận NC' },
+  { value: 'Confirmed NC', label: 'Đã xác nhận sự không phù hợp' },
   { value: 'False Positive', label: 'Sai' },
   { value: 'Waived', label: 'Đã miễn' },
   { value: 'Resolved', label: 'Đã giải quyết' },
@@ -200,7 +200,7 @@ onMounted(() => load(1))
               <th class="table-header">Thiết bị</th>
               <th class="table-header">Mức độ</th>
               <th class="table-header">Trạng thái</th>
-              <th class="table-header">CAPA</th>
+              <th class="table-header">Hành động khắc phục/phòng ngừa</th>
               <th class="table-header">Phát hiện ngày</th>
             </tr>
           </thead>

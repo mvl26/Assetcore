@@ -76,7 +76,7 @@ describe('IMM-12 incident status SSoT canonical (round-20)', () => {
     Open: 'Mới mở',
     Acknowledged: 'Đã tiếp nhận',
     'In Progress': 'Đang điều tra',
-    'RCA Required': 'Cần RCA',
+    'RCA Required': 'Cần phân tích nguyên nhân gốc',
     Resolved: 'Đã giải quyết',
     Closed: 'Đã đóng',
     Cancelled: 'Đã hủy',

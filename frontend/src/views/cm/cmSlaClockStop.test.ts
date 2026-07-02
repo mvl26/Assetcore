@@ -7,7 +7,7 @@
 // FE chỉ trình bày — KHÔNG tự tính lại. Test này PIN 3 nửa contract FE:
 //
 //  (A) Detail view ở status 'Pending Parts' → render badge VI
-//      'Chờ phụ tùng — SLA tạm dừng' với role=alert + aria-live (giải thích đồng
+//      'Chờ phụ tùng — cam kết dịch vụ tạm dừng' với role=alert + aria-live (giải thích đồng
 //      hồ đang dừng), KHÔNG hiện live-timer/progress chạy gây hiểu nhầm trễ SLA.
 //      RED-prove: gỡ nhánh `isOnPartsHold` ⇒ badge biến mất ⇒ test FAIL.
 //
@@ -103,7 +103,7 @@ async function mountDetail() {
   return w
 }
 
-describe('IMM-09 BR-09-10 — badge "Chờ phụ tùng — SLA tạm dừng" (detail view)', () => {
+describe('IMM-09 BR-09-10 — badge "Chờ phụ tùng — cam kết dịch vụ tạm dừng" (detail view)', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     fetchWorkOrder.mockClear()
@@ -115,7 +115,7 @@ describe('IMM-09 BR-09-10 — badge "Chờ phụ tùng — SLA tạm dừng" (de
     const w = await mountDetail()
     const banner = w.find('[data-testid="parts-hold-banner"]')
     expect(banner.exists()).toBe(true)
-    expect(banner.text()).toContain('Chờ phụ tùng — SLA tạm dừng')
+    expect(banner.text()).toContain('Chờ phụ tùng — cam kết dịch vụ tạm dừng')
     // a11y: thông báo trạng thái cho screen-reader.
     expect(banner.attributes('role')).toBe('alert')
     expect(banner.attributes('aria-live')).toBe('polite')
@@ -202,6 +202,6 @@ describe('IMM-09 BR-09-10 — no-leak-EN (Pending Parts không lộ tiếng Anh/
     expect(text).not.toMatch(/parts hold/i)
     expect(text).not.toMatch(/clock[- ]?stop/i)
     // Badge VI phải có mặt (đối chứng tích cực).
-    expect(text).toContain('Chờ phụ tùng — SLA tạm dừng')
+    expect(text).toContain('Chờ phụ tùng — cam kết dịch vụ tạm dừng')
   })
 })

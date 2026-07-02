@@ -62,7 +62,7 @@ const DOMAIN_LABEL: Record<string, string> = {
   Calibration: 'Hiệu chuẩn',
   Corrective: 'Bảo trì khắc phục',
   Inventory: 'Tồn kho phụ tùng',
-  Compliance: 'Tuân thủ / QMS',
+  Compliance: 'Tuân thủ / Hệ thống quản lý chất lượng',
 }
 
 /** Nhãn tiếng Việt cho mã phân hệ (group). Fallback: trả mã gốc nếu chưa map. */
@@ -78,7 +78,7 @@ const SYSTEM_INFO: RoleInfo[] = [
   { name: 'AssetCore Auditor', label: 'Kiểm toán viên', group: 'System', rank: 5,
     description: 'Chỉ đọc toàn bộ + nhật ký truy vết' },
   { name: 'Vendor Engineer', label: 'KTV nhà cung cấp', group: 'System', rank: 5,
-    description: 'Bên thứ ba, cô lập theo Lệnh CV/Tài sản' },
+    description: 'Bên thứ ba, cô lập theo Lệnh công việc/Tài sản' },
 ]
 
 const DOMAIN_INFO: RoleInfo[] = DOMAINS.flatMap((d) => ([

@@ -76,7 +76,7 @@ function drillOverdueGlobal() {
             <line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" />
             <line x1="3" y1="10" x2="21" y2="10" />
           </svg>
-          Lịch PM
+          Lịch bảo trì định kỳ
         </button>
         <button class="btn-primary" @click="router.push('/pm/work-orders')">Danh sách phiếu</button>
       </template>
@@ -94,7 +94,7 @@ data-testid="pm-kpi-compliance"
         <p class="text-xs font-medium text-slate-500">Tỷ lệ tuân thủ</p>
         <p
 class="text-4xl font-bold leading-none"
-           :title="kpis.compliance_rate_pct == null ? 'Chưa có lịch PM trong tháng' : undefined"
+           :title="kpis.compliance_rate_pct == null ? 'Chưa có lịch bảo trì định kỳ trong tháng' : undefined"
            :style="`color: ${complianceColor(kpis.compliance_rate_pct)}`">
           {{ formatPercent(kpis.compliance_rate_pct) }}
         </p>
@@ -177,7 +177,7 @@ Chưa có dữ liệu
         <div class="flex items-center gap-2.5 px-5 py-4 border-b border-slate-100">
           <span class="w-2 h-2 rounded-full bg-red-500 animate-pulse-subtle" />
           <h3 class="text-sm font-semibold text-slate-800">
-            Quá hạn PM
+            Quá hạn bảo trì định kỳ
             <span class="ml-1 text-xs font-normal text-red-500">({{ overdueWOs.length }})</span>
           </h3>
         </div>
@@ -222,7 +222,7 @@ v-else-if="overdueWOs.length === 0"
         <div
 v-if="upcomingWOs.length === 0"
              class="px-5 py-10 text-center text-sm text-slate-400">
-          Không có PM sắp đến hạn
+          Không có bảo trì định kỳ sắp đến hạn
         </div>
         <div v-else class="divide-y divide-slate-100">
           <div

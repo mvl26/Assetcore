@@ -76,7 +76,7 @@ const baselines = ref([
 type RequiredField = 'po_reference' | 'master_item' | 'vendor' | 'clinical_dept' | 'expected_installation_date' | 'vendor_serial_no'
 
 const FIELD_LABELS: Record<RequiredField, string> = {
-  po_reference:               'Lệnh mua hàng (PO)',
+  po_reference:               'Lệnh mua hàng',
   master_item:                'Mẫu thiết bị',
   vendor:                     'Nhà cung cấp',
   clinical_dept:              'Khoa / Phòng nhận',
@@ -137,7 +137,7 @@ async function lookupPO(poName: string) {
     }
   } else {
     poInfo.value = null
-    submitError.value = 'Không tìm thấy PO'
+    submitError.value = 'Không tìm thấy lệnh mua hàng'
   }
 }
 
@@ -241,7 +241,7 @@ stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
         <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
 <!-- PO Reference -->
           <div class="form-group">
-            <p class="form-label">Lệnh mua hàng (PO) <span class="text-red-500">*</span></p>
+            <p class="form-label">Lệnh mua hàng <span class="text-red-500">*</span></p>
             <SmartSelect
               v-model="form.po_reference"
               doctype="AC Purchase"
@@ -271,7 +271,7 @@ stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
             <SmartSelect
               v-model="form.vendor"
               doctype="AC Supplier"
-              placeholder="Tự điền khi chọn PO (nếu có)"
+              placeholder="Tự điền khi chọn lệnh mua hàng (nếu có)"
               :has-error="!!fieldErrors.vendor"
               @select="onVendorSelect"
               @clear="onClearVendor"
@@ -447,7 +447,7 @@ stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
               placeholder="0"
               aria-label="Giá trị Mua sắm (VNĐ)"
             />
-            <p class="mt-1 text-[11px] text-slate-400">Theo PO / hợp đồng</p>
+            <p class="mt-1 text-[11px] text-slate-400">Theo lệnh mua hàng / hợp đồng</p>
           </div>
 
           <!-- Warranty expiry -->
@@ -537,8 +537,8 @@ stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                 <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
               </svg>
             </div>
-            <span class="text-sm text-slate-700">Sự cố hỏng khi nhận (DOA)</span>
-            <span class="text-xs px-1.5 py-0.5 rounded bg-red-100 text-red-700 font-medium">DOA</span>
+            <span class="text-sm text-slate-700">Sự cố hỏng khi nhận</span>
+            <span class="text-xs px-1.5 py-0.5 rounded bg-red-100 text-red-700 font-medium">Hỏng khi nhận</span>
           </label>
         </div>
       </div>

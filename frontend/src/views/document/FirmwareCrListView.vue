@@ -164,7 +164,7 @@ async function save() {
 }
 
 async function remove(name: string) {
-  if (!confirm(`Xóa FCR "${name}"?`)) return
+  if (!confirm(`Xóa yêu cầu thay đổi firmware "${name}"?`)) return
   try { await deleteFirmwareCr(name); await load() }
   catch (e: unknown) { toast.error(e instanceof Error ? e.message : 'Không thể xóa') }
 }
@@ -375,7 +375,7 @@ onMounted(load)
                 <input
                   v-model="woQuery"
                   class="form-input font-mono"
-                  placeholder="Tìm mã WO..."
+                  placeholder="Tìm mã lệnh công việc..."
                   autocomplete="off"
                   @input="onWoInput"
                   @blur="closeWoDropdown"

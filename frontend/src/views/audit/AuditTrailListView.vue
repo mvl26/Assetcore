@@ -47,7 +47,7 @@ function closeDetail() { selectedTrail.value = null }
 // Single source of truth — value/label/color đứng cùng nhau, tránh drift khi thêm event type mới.
 const EVENT_TYPES: { value: string; label: string; color: string }[] = [
   { value: 'State Change',  label: 'Đổi trạng thái', color: 'bg-blue-100 text-blue-700' },
-  { value: 'CAPA',          label: 'CAPA',           color: 'bg-orange-100 text-orange-700' },
+  { value: 'CAPA',          label: 'Hành động khắc phục/phòng ngừa',           color: 'bg-orange-100 text-orange-700' },
   { value: 'Maintenance',   label: 'Bảo trì',        color: 'bg-yellow-100 text-yellow-700' },
   { value: 'Calibration',   label: 'Hiệu chuẩn',     color: 'bg-purple-100 text-purple-700' },
   { value: 'Document',      label: 'Hồ sơ',          color: 'bg-indigo-100 text-indigo-700' },

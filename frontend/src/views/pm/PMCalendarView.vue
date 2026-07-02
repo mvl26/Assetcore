@@ -376,7 +376,7 @@ v-if="formatAssetDisplay(selectedEvent.asset_name, selectedEvent.asset_ref).hasB
 
           <!-- PM Type -->
           <div>
-            <p class="text-xs text-slate-400 mb-0.5">Loại PM</p>
+            <p class="text-xs text-slate-400 mb-0.5">Loại bảo trì định kỳ</p>
             <p class="text-slate-700">{{ selectedEvent.pm_type }}</p>
           </div>
 
@@ -416,7 +416,7 @@ v-if="formatAssetDisplay(selectedEvent.asset_name, selectedEvent.asset_ref).hasB
     >
       <div v-if="showReschedule" class="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]" @click.self="showReschedule = false">
         <div class="bg-white rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl">
-          <h3 class="font-bold text-lg text-slate-900 mb-4">Hoãn lịch PM</h3>
+          <h3 class="font-bold text-lg text-slate-900 mb-4">Hoãn lịch bảo trì định kỳ</h3>
           <div class="space-y-4">
             <div>
               <label for="reschedule-date" class="block text-sm text-slate-600 mb-1">Ngày mới <span class="text-red-500">*</span></label>

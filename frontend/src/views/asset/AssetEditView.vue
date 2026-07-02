@@ -172,7 +172,7 @@ onMounted(load)
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div class="flex items-center gap-3">
             <input id="pm_check" v-model="form.is_pm_required" type="checkbox" :true-value="1" :false-value="0" class="h-4 w-4 text-blue-600 rounded" />
-            <label for="pm_check" class="text-sm text-slate-700">Yêu cầu bảo trì định kỳ (PM)</label>
+            <label for="pm_check" class="text-sm text-slate-700">Yêu cầu bảo trì định kỳ</label>
           </div>
           <div v-if="form.is_pm_required">
             <label class="form-label">Chu kỳ bảo trì (ngày)</label>

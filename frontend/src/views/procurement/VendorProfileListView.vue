@@ -63,12 +63,12 @@ onMounted(load)
   <div class="page-container animate-fade-in">
     <PageHeader
       title="Hồ sơ Nhà cung cấp"
-      :subtitle="`Tổng ${total} nhà cung cấp — đánh giá AVL, kiểm tra, chứng chỉ.`"
+      :subtitle="`Tổng ${total} nhà cung cấp — đánh giá & duyệt nhà cung cấp, kiểm tra, chứng chỉ.`"
     />
 
     <div class="card mb-4 flex flex-wrap items-center gap-2">
       <select v-model="filters.avl_status" class="form-select text-sm" @change="load">
-        <option value="">Tất cả trạng thái AVL</option>
+        <option value="">Tất cả trạng thái duyệt</option>
         <option value="Approved">Đã duyệt</option>
         <option value="Conditional">Có điều kiện</option>
         <option value="Suspended">Tạm đình chỉ</option>
@@ -124,8 +124,8 @@ v-model.number="filters.min_score" type="number" min="0" max="5" step="0.1"
             <thead>
               <tr>
                 <th>Tên Nhà cung cấp</th>
-                <th>Trạng thái AVL</th>
-                <th>Nhóm thiết bị (AVL)</th>
+                <th>Trạng thái duyệt nhà cung cấp</th>
+                <th>Nhóm thiết bị</th>
                 <th class="num">Điểm</th>
                 <th>Kiểm tra gần nhất</th>
                 <th>Kiểm tra kế tiếp</th>

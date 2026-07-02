@@ -112,7 +112,7 @@ function formatHours(h: number): string {
           <h3 class="text-sm font-semibold text-slate-800">Biến động thời gian sửa chữa TB — 6 tháng gần nhất</h3>
           <div class="flex items-center gap-2 text-xs text-slate-400">
             <span class="inline-block w-3 h-0.5 bg-blue-500"></span> Thời gian sửa chữa TB
-            <span class="inline-block w-3 h-0.5 bg-red-400 border-dashed ml-2"></span> SLA 24h
+            <span class="inline-block w-3 h-0.5 bg-red-400 border-dashed ml-2"></span> Cam kết dịch vụ 24h
           </div>
         </div>
 
@@ -140,7 +140,7 @@ function formatHours(h: number): string {
           </div>
         </div>
         <!-- SLA reference line note -->
-        <p class="text-xs text-slate-400 mt-3">Mục tiêu SLA (Loại III): 24h</p>
+        <p class="text-xs text-slate-400 mt-3">Mục tiêu cam kết mức dịch vụ (Loại III): 24h</p>
       </div>
 
       <!-- Backlog by dept (col-span-2) -->

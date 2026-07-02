@@ -36,7 +36,7 @@ async function load() {
     preventiveAction.value = res.preventive_action_summary || ''
     rcaNotes.value = res.rca_notes || ''
   } catch (e: unknown) {
-    err.value = e instanceof Error ? e.message : 'Không tải được RCA'
+    err.value = e instanceof Error ? e.message : 'Không tải được phân tích nguyên nhân gốc'
   } finally { loading.value = false }
 }
 
@@ -60,7 +60,7 @@ async function submit() {
     })
     await load()
   } catch (e: unknown) {
-    err.value = e instanceof Error ? e.message : 'Lỗi khi gửi RCA'
+    err.value = e instanceof Error ? e.message : 'Lỗi khi gửi phân tích nguyên nhân gốc'
   } finally { saving.value = false }
 }
 
@@ -149,7 +149,7 @@ id="rca-notes" v-model="rcaNotes" :disabled="isCompleted" rows="2"
       </div>
 
       <div v-if="rca.linked_capa" class="p-6 flex items-center gap-2 text-sm">
-        <span class="text-slate-500">CAPA liên kết:</span>
+        <span class="text-slate-500">Hành động khắc phục/phòng ngừa liên kết:</span>
         <button class="text-purple-600 hover:underline font-mono" @click="router.push(`/capas/${rca.linked_capa}`)">{{ rca.linked_capa }}</button>
       </div>
 
@@ -158,11 +158,11 @@ id="rca-notes" v-model="rcaNotes" :disabled="isCompleted" rows="2"
 :disabled="saving || !rootCause.trim() || !correctiveAction.trim()"
           class="btn-primary"
           @click="submit">
-          {{ saving ? 'Đang gửi...' : 'Gửi RCA và tạo CAPA' }}
+          {{ saving ? 'Đang gửi...' : 'Gửi phân tích nguyên nhân gốc và tạo hành động khắc phục/phòng ngừa' }}
         </button>
       </div>
       <div v-else class="alert-success">
-        RCA đã hoàn thành {{ rca.completed_date ? `(${rca.completed_date})` : '' }}
+        Phân tích nguyên nhân gốc đã hoàn thành {{ rca.completed_date ? `(${rca.completed_date})` : '' }}
       </div>
     </div>
   </div>

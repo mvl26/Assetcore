@@ -116,7 +116,7 @@ export function infraDomainLabel(d?: string): string {
   return ({
     'Electrical':   'Hệ thống điện',
     'Medical Gas':  'Khí y tế',
-    'Network/IT':   'Mạng & CNTT',
+    'Network/IT':   'Mạng & Công nghệ thông tin',
     'HIS-PACS-LIS': 'HIS / PACS / LIS',
     'HVAC':         'Điều hòa thông gió',
     'Space-Layout': 'Không gian – mặt bằng',
@@ -182,7 +182,7 @@ export const EVAL_TIE_BANNER = 'Hòa điểm — cần quyết định thủ cô
 /** Gợi ý cho người dùng ở form Quyết định khi nguồn Evaluation còn hòa chưa giải quyết. */
 export const EVAL_TIE_DECISION_HINT =
   'Hồ sơ đánh giá đang HÒA điểm ở vị trí cao nhất — hệ thống không tự gợi ý trúng thầu. '
-  + 'Vui lòng chọn nhà cung cấp trúng thầu kèm lý do; hệ thống vẫn kiểm tra AVL còn hiệu lực.'
+  + 'Vui lòng chọn nhà cung cấp trúng thầu kèm lý do; hệ thống vẫn kiểm tra danh mục nhà cung cấp được duyệt còn hiệu lực.'
 
 /** Tách CSV `tied_candidates` (BE trả) thành mảng supplier đã trim, bỏ rỗng. */
 export function parseTiedCandidates(csv?: string | null): string[] {

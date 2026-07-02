@@ -259,7 +259,7 @@ onMounted(() => {
           </div>
         </div>
         <div v-if="assetMeta?.lifecycle_status === 'Decommissioned'" class="mt-2 alert-error text-sm">
-          Thiết bị đã thanh lý — không thể tạo phiếu PM.
+          Thiết bị đã thanh lý — không thể tạo phiếu bảo trì định kỳ.
         </div>
 
         <!-- Pre-flight compliance gate banner (BR-16-09) — cảnh báo SỚM trước
@@ -271,7 +271,7 @@ onMounted(() => {
           class="mt-3 alert-warning text-sm"
         >
           <p class="font-semibold">
-            Thiết bị đang bị chặn tạo lệnh do CAPA tuân thủ chưa đóng
+            Thiết bị đang bị chặn tạo lệnh do hành động khắc phục/phòng ngừa tuân thủ chưa đóng
           </p>
           <ul class="mt-1.5 list-disc list-inside space-y-0.5">
             <li v-for="r in complianceGate.reasons" :key="r.ref">
@@ -279,7 +279,7 @@ onMounted(() => {
             </li>
           </ul>
           <p class="mt-1.5 text-xs">
-            Hãy đóng các CAPA nghiêm trọng nêu trên trước khi tạo phiếu bảo trì.
+            Hãy đóng các hành động khắc phục/phòng ngừa nghiêm trọng nêu trên trước khi tạo phiếu bảo trì.
           </p>
         </div>
       </div>
@@ -294,7 +294,7 @@ onMounted(() => {
           :disabled="!form.asset_ref || loadingSchedules"
           class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-slate-50 disabled:text-slate-400"
         >
-          <option value="">{{ loadingSchedules ? 'Đang tải...' : '-- Chọn lịch PM --' }}</option>
+          <option value="">{{ loadingSchedules ? 'Đang tải...' : '-- Chọn lịch bảo trì định kỳ --' }}</option>
           <option v-for="s in schedules" :key="s.name" :value="s.name">
             {{ pmTypeLabel(s.pm_type) }} — mỗi {{ s.pm_interval_days ?? '?' }} ngày ({{ s.name }})
           </option>
@@ -333,7 +333,7 @@ onMounted(() => {
             Tạo lịch bảo trì
           </button>
           <p v-else class="mt-2 text-xs text-amber-700">
-            Liên hệ quản lý vật tư để tạo lịch PM cho thiết bị này.
+            Liên hệ quản lý vật tư để tạo lịch bảo trì định kỳ cho thiết bị này.
           </p>
         </div>
         <div v-if="selectedSchedule" class="mt-2 bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-800 grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -349,7 +349,7 @@ onMounted(() => {
         <label class="block text-sm font-medium text-slate-700 mb-1">Checklist (xem trước)</label>
         <div v-if="loadingChecklist" class="text-xs text-slate-500">Đang tải checklist...</div>
         <div v-else-if="!checklistPreview.length" class="text-xs text-slate-400 italic">
-          PM Schedule này không gắn template checklist (kỹ thuật viên sẽ ghi nhận tự do trên phiếu).
+          Lịch bảo trì định kỳ này không gắn template checklist (kỹ thuật viên sẽ ghi nhận tự do trên phiếu).
         </div>
         <ul v-else class="border border-slate-200 rounded-lg divide-y text-sm max-h-56 overflow-y-auto">
           <li v-for="(it, i) in checklistPreview" :key="i" class="px-3 py-2 flex justify-between items-center">
@@ -382,10 +382,15 @@ onMounted(() => {
         />
       </div>
 
-      <!-- Supervisor -->
+      <!-- Supervisor — picker user AssetCore (field mô-tả-người giám sát, không lọc năng lực)
+           thay free-text/toàn-bộ-Frappe-user. -->
       <div>
-        <label class="block text-sm font-medium text-slate-700 mb-1">Người giám sát</label>
-        <SmartSelect v-model="form.supervisor" doctype="User" placeholder="Chọn người giám sát..." />
+        <ApproverSelect
+          v-model="form.supervisor"
+          context="user"
+          label="Người giám sát"
+          placeholder="Tìm người giám sát theo tên hoặc email..."
+        />
       </div>
 
       <!-- Notes -->
@@ -394,7 +399,7 @@ onMounted(() => {
         <textarea
           v-model="form.technician_notes"
           rows="2"
-          placeholder="Lý do tạo WO ngoài lịch..."
+          placeholder="Lý do tạo lệnh công việc ngoài lịch..."
           class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
         />
       </div>

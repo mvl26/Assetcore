@@ -244,7 +244,7 @@ const IMPORT_NOTICE = [
               <th class="table-header">Loại</th>
               <th class="table-header">Bắt đầu</th>
               <th class="table-header">Hết hạn</th>
-              <th class="table-header">SLA (giờ)</th>
+              <th class="table-header">Cam kết mức dịch vụ (giờ)</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100">

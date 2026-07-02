@@ -98,7 +98,7 @@ onMounted(load)
       <!-- Summary -->
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <div class="kpi-card p-4" style="--kpi-color: #2563eb">
-          <p class="t-eyebrow mb-2">Số SKU</p>
+          <p class="t-eyebrow mb-2">Số mã hàng</p>
           <p class="t-metric tabular-nums">{{ wh.stock_count || wh.stock_items.length }}</p>
         </div>
         <div class="kpi-card p-4" style="--kpi-color: #059669">

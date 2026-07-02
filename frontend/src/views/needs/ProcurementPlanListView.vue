@@ -165,7 +165,7 @@ onMounted(() => store.fetchPlans())
       />
       <KpiCard label="Tổng ngân sách" :value="formatVnd(planKpis.totalBudget)" color="info" />
       <KpiCard
-        label="Tỷ lệ sử dụng TB"
+        label="Tỷ lệ sử dụng thiết bị"
         :value="`${planKpis.avgUtilization.toFixed(1)}%`"
         :color="planKpis.avgUtilization >= 80 ? 'warning' : 'primary'"
       />
@@ -344,7 +344,7 @@ onMounted(() => store.fetchPlans())
           <div v-else class="max-h-56 overflow-y-auto border border-slate-200 rounded">
             <table class="data-table text-xs">
               <thead>
-                <tr><th></th><th>Mã đề xuất</th><th>Khoa</th><th class="num">Điểm</th><th class="num">CAPEX</th></tr>
+                <tr><th></th><th>Mã đề xuất</th><th>Khoa</th><th class="num">Điểm</th><th class="num">Đầu tư mua sắm</th></tr>
               </thead>
               <tbody>
                 <tr v-for="n in candidateNeeds" :key="n.name">

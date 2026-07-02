@@ -46,7 +46,7 @@ async function createNC(): Promise<void> {
     newNC.value = { nc_type: 'Other', severity: 'Minor', description: '' }
     await loadNCs()
   } else {
-    error.value = store.error ?? 'Lỗi khi tạo NC'
+    error.value = store.error ?? 'Lỗi khi tạo sự không phù hợp'
   }
 }
 
@@ -75,7 +75,7 @@ async function confirmCloseNC(): Promise<void> {
     closingNcName.value = null
     await loadNCs()
   } else {
-    error.value = store.error ?? 'Lỗi khi đóng NC'
+    error.value = store.error ?? 'Lỗi khi đóng sự không phù hợp'
   }
 }
 
@@ -87,7 +87,7 @@ onMounted(loadNCs)
 <template>
   <div class="page-container animate-fade-in">
     <PageHeader
-      title="Sự không phù hợp (NC)"
+      title="Sự không phù hợp"
       :subtitle="`Phiếu ${commissioningId}`"
       :back-to="`/commissioning/${commissioningId}`"
       back-label="← Phiếu lắp đặt"
@@ -99,7 +99,7 @@ onMounted(loadNCs)
     >
       <template #actions>
         <button class="btn-primary text-sm" @click="showCreateForm = !showCreateForm">
-          + Báo cáo NC
+          + Báo cáo sự không phù hợp
         </button>
       </template>
     </PageHeader>
@@ -112,7 +112,7 @@ onMounted(loadNCs)
       <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
       </svg>
-      Còn <strong class="mx-1">{{ openCount }}</strong> NC chưa đóng — thiết bị không thể phát hành.
+      Còn <strong class="mx-1">{{ openCount }}</strong> sự không phù hợp chưa đóng — thiết bị không thể phát hành.
     </div>
 
     <!-- Create form -->
@@ -125,7 +125,7 @@ onMounted(loadNCs)
       </h2>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
         <div>
-          <label for="nc-type" class="block text-xs font-medium text-gray-700 mb-1">Loại NC</label>
+          <label for="nc-type" class="block text-xs font-medium text-gray-700 mb-1">Loại không phù hợp</label>
           <select
             id="nc-type"
             v-model="newNC.nc_type"
@@ -170,7 +170,7 @@ onMounted(loadNCs)
           :disabled="store.loading"
           @click="createNC"
         >
-          {{ store.loading ? 'Đang tạo...' : 'Tạo NC' }}
+          {{ store.loading ? 'Đang tạo...' : 'Tạo sự không phù hợp' }}
         </button>
         <button
           class="px-4 py-2 border border-gray-300 text-gray-600 text-sm rounded-lg hover:bg-gray-50 transition-colors"
@@ -187,7 +187,7 @@ onMounted(loadNCs)
       class="bg-white rounded-xl shadow-sm border border-green-200 p-6 mb-4"
     >
       <h2 class="text-sm font-semibold text-green-900 uppercase tracking-wide mb-4">
-        Đóng NC — <span class="font-mono normal-case">{{ closingNcName }}</span>
+        Đóng sự không phù hợp — <span class="font-mono normal-case">{{ closingNcName }}</span>
       </h2>
       <div class="space-y-3 mb-4">
         <div>
@@ -220,7 +220,7 @@ onMounted(loadNCs)
           class="px-4 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors"
           @click="confirmCloseNC"
         >
-          Xác nhận đóng NC
+          Xác nhận đóng sự không phù hợp
         </button>
         <button
           class="px-4 py-2 border border-gray-300 text-gray-600 text-sm rounded-lg hover:bg-gray-50 transition-colors"
@@ -264,7 +264,7 @@ onMounted(loadNCs)
       >
         <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
       </svg>
-      <p class="text-gray-700 font-medium">Không có NC nào</p>
+      <p class="text-gray-700 font-medium">Không có sự không phù hợp nào</p>
       <p class="text-gray-400 text-sm mt-1">Thiết bị chưa ghi nhận sự cố nào</p>
     </div>
 
@@ -302,7 +302,7 @@ onMounted(loadNCs)
             class="shrink-0 px-3 py-1.5 text-xs font-medium bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
             @click="openCloseDialog(nc.name)"
           >
-            Đóng NC
+            Đóng sự không phù hợp
           </button>
         </div>
       </div>

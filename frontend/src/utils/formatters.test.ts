@@ -119,18 +119,18 @@ describe('translateStatus — CAPA severity SSoT (TDD-1b, chống LL-FE-30 drift
 const INCIDENT_STATUS_MISSING = ['Acknowledged', 'RCA Required'] as const
 const INCIDENT_STATUS_MAP_EXPECTED: Record<string, string> = {
   Acknowledged: 'Đã tiếp nhận',   // khớp INCIDENT_STATUS_LABEL
-  'RCA Required': 'Cần RCA',       // khớp INCIDENT_STATUS_LABEL
+  'RCA Required': 'Cần phân tích nguyên nhân gốc',       // khớp INCIDENT_STATUS_LABEL
 }
 
 describe('translateStatus — IMM-12 incident status STATUS_MAP (TDD round-20)', () => {
   it("translateStatus('Acknowledged') === 'Đã tiếp nhận' (thêm map mới)", () => {
     expect(translateStatus('Acknowledged')).toBe('Đã tiếp nhận')
   })
-  it("translateStatus('RCA Required') === 'Cần RCA' (thêm map mới)", () => {
-    expect(translateStatus('RCA Required')).toBe('Cần RCA')
+  it("translateStatus('RCA Required') === 'Cần phân tích nguyên nhân gốc' (thêm map mới)", () => {
+    expect(translateStatus('RCA Required')).toBe('Cần phân tích nguyên nhân gốc')
   })
-  it("alias underscore 'RCA_Required' === 'Cần RCA'", () => {
-    expect(translateStatus('RCA_Required')).toBe('Cần RCA')
+  it("alias underscore 'RCA_Required' === 'Cần phân tích nguyên nhân gốc'", () => {
+    expect(translateStatus('RCA_Required')).toBe('Cần phân tích nguyên nhân gốc')
   })
   it('nhãn STATUS_MAP khớp INCIDENT_STATUS_LABEL (1 SSoT, không drift)', () => {
     for (const code of INCIDENT_STATUS_MISSING) {

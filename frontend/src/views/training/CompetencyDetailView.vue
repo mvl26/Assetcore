@@ -321,7 +321,7 @@ onMounted(load)
           ></textarea>
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">Số CAPA liên quan (nếu có)</label>
+          <label class="block text-sm font-medium mb-1">Số hành động khắc phục/phòng ngừa liên quan (nếu có)</label>
           <input v-model="revokeCapa" type="text" class="form-input w-full text-sm" placeholder="CAPA-XXXX" />
         </div>
         <div class="flex justify-end gap-2">

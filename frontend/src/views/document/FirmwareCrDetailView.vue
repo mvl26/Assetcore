@@ -72,7 +72,7 @@ onMounted(load)
       :title="fcr ? `Cập nhật Firmware — ${fcr.asset_name || fcr.asset_ref}` : (props.id ?? 'Yêu cầu cập nhật firmware')"
       :subtitle="fcr ? fcr.name : 'Yêu cầu cập nhật firmware'"
       :back-to="'/cm/firmware'"
-      back-label="← Danh sách FCR"
+      back-label="← Danh sách yêu cầu thay đổi firmware"
       :breadcrumb="[
         { label: 'IMM-09 · Sửa chữa', to: '/cm/dashboard' },
         { label: 'Firmware', to: '/cm/firmware' },

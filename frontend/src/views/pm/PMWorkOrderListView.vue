@@ -204,14 +204,14 @@ function quickFilter(_key: 'status', value: string) {
       <svg class="w-4 h-4 shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
       </svg>
-      <span>Danh sách phiếu đến hạn trong 7 ngày tới (tính từ hôm nay) — không gồm PM quá hạn (xem thẻ "PM quá hạn").</span>
+      <span>Danh sách phiếu đến hạn trong 7 ngày tới (tính từ hôm nay) — không gồm bảo trì định kỳ quá hạn (xem thẻ "Bảo trì định kỳ quá hạn").</span>
     </div>
 
     <ListFilterBar
       :show="showFilters"
       :chips="activeChips"
       v-model:search="search"
-      search-placeholder="Tìm theo mã WO, tên thiết bị..."
+      search-placeholder="Tìm theo mã lệnh công việc, tên thiết bị..."
       @reset="resetFilters"
       @clear-chip="clearChip"
       @apply="applyFilters"
@@ -292,9 +292,9 @@ function quickFilter(_key: 'status', value: string) {
         <table class="min-w-full divide-y divide-slate-100">
           <thead>
             <tr>
-              <th class="table-header">Mã WO</th>
+              <th class="table-header">Mã lệnh công việc</th>
               <th class="table-header">Thiết bị</th>
-              <th class="table-header">Loại PM</th>
+              <th class="table-header">Loại bảo trì định kỳ</th>
               <th class="table-header">Đến hạn</th>
               <th class="table-header">Kỹ thuật viên</th>
               <th class="table-header">Trạng thái</th>

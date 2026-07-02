@@ -156,7 +156,7 @@ async function doCreateRca() {
   try {
     const res = await createRca(name.value, '5-Why')
     if (res?.name) router.push(`/rca/${res.name}`)
-  } catch (e: unknown) { err.value = e instanceof Error ? e.message : 'Không thể tạo RCA' }
+  } catch (e: unknown) { err.value = e instanceof Error ? e.message : 'Không thể tạo phân tích nguyên nhân gốc' }
   finally { rcaCreating.value = false }
 }
 
@@ -270,7 +270,7 @@ Xóa
     <!-- SLA + NĐ98 banner khi ảnh hưởng bệnh nhân -->
     <div v-if="!loading && form.patient_affected" class="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-800 space-y-1">
       <div><strong>Ảnh hưởng bệnh nhân:</strong> {{ form.patient_impact_description || 'Có ảnh hưởng (chưa mô tả chi tiết)' }}</div>
-      <div v-if="form.linked_repair_wo">Đã sinh lệnh sửa chữa (CM): <strong>{{ form.linked_repair_wo }}</strong> — thiết bị chuyển Ngừng sử dụng.</div>
+      <div v-if="form.linked_repair_wo">Đã sinh lệnh sửa chữa: <strong>{{ form.linked_repair_wo }}</strong> — thiết bị chuyển Ngừng sử dụng.</div>
       <div class="text-red-700"><strong>Cảnh báo NĐ98:</strong> Sự cố ảnh hưởng bệnh nhân — cần báo cáo Bộ Y tế trong 48h nếu xác định lỗi sản phẩm.</div>
     </div>
 
@@ -341,12 +341,12 @@ Xóa
       <!-- RCA section -->
       <div v-if="form.rca_required === 1 || form.rca_record" class="p-6 space-y-3">
         <div class="flex items-center justify-between">
-          <div class="text-sm font-semibold text-slate-700">Phân tích nguyên nhân gốc (RCA)</div>
+          <div class="text-sm font-semibold text-slate-700">Phân tích nguyên nhân gốc</div>
           <button
 v-if="needsRca" :disabled="rcaCreating"
             class="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg text-xs font-medium"
             @click="doCreateRca">
-            {{ rcaCreating ? 'Đang tạo...' : 'Tạo RCA' }}
+            {{ rcaCreating ? 'Đang tạo...' : 'Tạo phân tích nguyên nhân gốc' }}
           </button>
         </div>
         <div v-if="form.rca" class="bg-indigo-50 border border-indigo-200 rounded-lg p-3">
@@ -362,7 +362,7 @@ v-if="needsRca" :disabled="rcaCreating"
           </div>
         </div>
         <div v-else-if="needsRca" class="text-xs text-amber-700 bg-amber-50 p-3 rounded">
-          Sự cố mức {{ incidentSeverityLabel(form.severity ?? '') }} yêu cầu RCA trước khi đóng giải quyết.
+          Sự cố mức {{ incidentSeverityLabel(form.severity ?? '') }} yêu cầu phân tích nguyên nhân gốc trước khi đóng giải quyết.
         </div>
       </div>
 
@@ -378,7 +378,7 @@ v-if="needsRca" :disabled="rcaCreating"
       <!-- Links -->
       <div v-if="form.linked_repair_wo || form.linked_capa" class="p-6 flex gap-4 flex-wrap">
         <div v-if="form.linked_capa">
-          <div class="text-xs text-slate-500 mb-0.5">Liên kết CAPA</div>
+          <div class="text-xs text-slate-500 mb-0.5">Liên kết hành động khắc phục/phòng ngừa</div>
           <button class="text-sm text-purple-600 hover:underline font-mono" @click="router.push(`/capas/${form.linked_capa}`)">
             {{ form.linked_capa }}
           </button>
@@ -444,7 +444,7 @@ v-if="needsRca" :disabled="rcaCreating"
           <textarea id="root-cause" v-model="rootCause" rows="2" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400" placeholder="5-Why / Fishbone..."></textarea>
         </div>
         <p v-if="form.severity === 'High' || form.severity === 'Critical'" class="text-xs text-amber-700 bg-amber-50 p-2 rounded">
-          Mức độ {{ incidentSeverityLabel(form.severity ?? '') }} — CAPA sẽ tự động tạo sau khi đóng giải quyết.
+          Mức độ {{ incidentSeverityLabel(form.severity ?? '') }} — Hành động khắc phục/phòng ngừa sẽ tự động tạo sau khi đóng giải quyết.
         </p>
         <div class="flex justify-end gap-2">
           <button class="px-4 py-2 text-sm border border-slate-300 rounded-lg" @click="showResolveModal = false">Hủy</button>

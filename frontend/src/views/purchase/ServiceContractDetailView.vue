@@ -218,7 +218,7 @@ onMounted(load)
             </p>
           </div>
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">SLA phản hồi (giờ)</label>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Cam kết mức dịch vụ phản hồi (giờ)</label>
             <input
               v-if="editing"
               v-model.number="contract.sla_response_hours"

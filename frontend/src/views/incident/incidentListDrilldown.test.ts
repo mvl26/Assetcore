@@ -176,11 +176,11 @@ describe('IncidentListView — nhãn status/severity SSoT (round-20)', () => {
     expect(w.text()).not.toMatch(/\bAcknowledged\b/)
   })
 
-  it("status='RCA Required' → DOM hiển thị 'Cần RCA', KHÔNG 'RCA Required'", async () => {
+  it("status='RCA Required' → DOM hiển thị 'Cần phân tích nguyên nhân gốc', KHÔNG 'RCA Required'", async () => {
     storeIncidents.value = [row({ status: 'RCA Required' })]
     const w = mountTracked(IncidentListView, { global: { stubs: labelStubs } })
     await flushPromises()
-    expect(w.text()).toContain('Cần RCA')
+    expect(w.text()).toContain('Cần phân tích nguyên nhân gốc')
     expect(w.text()).not.toMatch(/\bRCA Required\b/)
   })
 

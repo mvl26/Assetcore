@@ -16,7 +16,7 @@ const complianceFindings = computed(() => sectionRows(sec.value, 'compliance_fin
 const internalAudits = computed(() => sectionRows(sec.value, 'internal_audits'))
 
 const capaCols: ListColumn[] = [
-  { key: 'name', label: 'Mã CAPA', type: 'link' },
+  { key: 'name', label: 'Mã hành động khắc phục/phòng ngừa', type: 'link' },
   { key: 'source_ref', label: 'Nguồn' },
   { key: 'severity', label: 'Mức độ', type: 'severity' },
   { key: 'status', label: 'Trạng thái', type: 'status' },
@@ -37,15 +37,15 @@ const auditCols: ListColumn[] = [
 
 <template>
   <PersonaDashboardShell
-    title="Bảng điều khiển — Cán bộ QA / Kiểm toán"
-    subtitle="Sự cố · RCA · CAPA · Kiểm toán · Tuân thủ"
+    title="Bảng điều khiển — Cán bộ đảm bảo chất lượng / Kiểm toán"
+    subtitle="Sự cố · phân tích nguyên nhân gốc · hành động khắc phục/phòng ngừa · Kiểm toán · Tuân thủ"
     :kpis="kpis"
     :loading="isLoading"
     :error="error ? String(error.message ?? error) : null"
     @retry="refetch"
   >
     <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
-      <ListCard title="CAPA cần xử lý" :columns="capaCols" :rows="capaTodo" :row-to="drill.capa" />
+      <ListCard title="Hành động khắc phục/phòng ngừa cần xử lý" :columns="capaCols" :rows="capaTodo" :row-to="drill.capa" />
       <ListCard title="Vi phạm tuân thủ" :columns="findingCols" :rows="complianceFindings" :row-to="drill.incident" />
     </div>
     <ListCard title="Kiểm toán nội bộ" :columns="auditCols" :rows="internalAudits" :row-to="drill.audit" />

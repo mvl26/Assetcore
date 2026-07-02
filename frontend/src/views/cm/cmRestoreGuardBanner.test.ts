@@ -11,6 +11,7 @@
 //   hold-note ẩn); restore ⇒ GREEN.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
+import { setActivePinia, createPinia } from 'pinia'
 import { resetRouteMock } from '@/test/vueRouterMock'
 
 // Shared full-shape router mock (ROOT-CAUSE test-isolation fix — xem
@@ -21,6 +22,13 @@ const showSpy = vi.fn()
 const fromErrorSpy = vi.fn()
 vi.mock('@/composables/useNotify', () => ({
   useNotify: () => ({ show: showSpy, fromError: fromErrorSpy }),
+}))
+
+// CMWorkOrderDetailView nay gate CTA server-driven qua useCapabilities (GATE-8 /
+// LL-FE-51). Test này chỉ kiểm badge/hold-note lifecycle (không phải CTA) → mock để
+// KHÔNG chạm auth store thật (tránh cần active pinia + cách ly khỏi RBAC).
+vi.mock('@/composables/useCapabilities', () => ({
+  useCapabilities: () => ({ can: () => false }),
 }))
 
 // Store mock có currentWO mutable để mỗi test set 1 ngữ cảnh lifecycle.
@@ -95,6 +103,12 @@ async function mountWith(wo: AssetRepair) {
 }
 
 beforeEach(() => {
+  // Active Pinia bắt buộc: CMWorkOrderDetailView nay gọi useCapabilities()→useAuthStore()
+  // ở setup (GATE-8/LL-FE-51 CTA server-driven). Dù file đã mock useCapabilities, trong
+  // full-suite run mock có thể bị registry-race giữa các file CM (xem vueRouterMock.ts) →
+  // impl thật lọt vào → useAuthStore cần active Pinia. setActivePinia = fallback an toàn:
+  // store rỗng ⇒ can()===false (khớp ý định mock), test không phụ thuộc thứ tự file.
+  setActivePinia(createPinia())
   resetRouteMock(); showSpy.mockClear(); fromErrorSpy.mockClear()
   storeState.currentWO = null; storeState.loading = false; storeState.error = null
 })

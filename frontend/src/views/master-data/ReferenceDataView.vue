@@ -541,9 +541,9 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
               <label class="block text-sm font-medium text-gray-700 mb-1">Khu vực lâm sàng</label>
               <select v-model="form.clinical_area_type" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
                 <option value="">— Chọn —</option>
-                <option value="ICU">Hồi sức tích cực (ICU)</option>
-                <option value="OR">Phòng mổ (OR)</option>
-                <option value="Lab">Xét nghiệm (Lab)</option>
+                <option value="ICU">Hồi sức tích cực</option>
+                <option value="OR">Phòng mổ</option>
+                <option value="Lab">Xét nghiệm</option>
                 <option value="Imaging">Chẩn đoán hình ảnh</option>
                 <option value="General Ward">Khoa thường</option>
                 <option value="Storage">Kho</option>
@@ -699,16 +699,16 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
 
           <!-- PM / Hiệu chuẩn -->
           <div class="pt-3 border-t border-gray-200">
-            <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">PM & Hiệu chuẩn mặc định</p>
+            <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Bảo trì định kỳ & Hiệu chuẩn mặc định</p>
             <div class="grid grid-cols-2 gap-3">
               <div>
                 <label class="flex items-center gap-2 text-sm mb-2">
-                  <input v-model="form.default_pm_required" type="checkbox" :true-value="1" :false-value="0" /> Mặc định yêu cầu PM
+                  <input v-model="form.default_pm_required" type="checkbox" :true-value="1" :false-value="0" /> Mặc định yêu cầu bảo trì định kỳ
                 </label>
                 <input
                   v-model.number="form.default_pm_interval_days" type="number" min="0"
                   :disabled="form.default_pm_required !== 1"
-                  placeholder="Chu kỳ PM (ngày)"
+                  placeholder="Chu kỳ bảo trì định kỳ (ngày)"
                   class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed"
                 />
               </div>

@@ -407,7 +407,7 @@ defineExpose({ clearChip, activeChips, toggleSelect, selectedNames, clearSelecti
             </span>
             <span v-if="asset.department_name || asset.department" class="text-slate-300">·</span>
             <span>{{ asset.department_name || asset.department }}</span>
-            <span v-if="isPmOverdue(asset.next_pm_date)" class="text-red-600 font-semibold">PM quá hạn</span>
+            <span v-if="isPmOverdue(asset.next_pm_date)" class="text-red-600 font-semibold">Bảo trì định kỳ quá hạn</span>
           </div>
         </div>
         <div v-if="store.assets.length === 0" class="py-12 text-center text-slate-400">

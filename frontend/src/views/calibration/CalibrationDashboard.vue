@@ -138,7 +138,7 @@ onMounted(load)
         </div>
 
         <div class="kpi-card p-4" :style="`--kpi-color: ${data.kpis.capa_open > 0 ? '#ea580c' : '#059669'}`">
-          <p class="text-xs text-slate-400 mb-1">CAPA đang mở</p>
+          <p class="text-xs text-slate-400 mb-1">Hành động khắc phục/phòng ngừa đang mở</p>
           <p
             class="text-3xl font-bold font-display tabular-nums"
             :style="`color: ${data.kpis.capa_open > 0 ? '#ea580c' : '#059669'}`"
@@ -252,14 +252,14 @@ class="btn-ghost text-xs py-1 px-2.5 border border-yellow-300"
       <!-- CAPA Open -->
       <div class="card overflow-hidden">
         <div class="flex items-center justify-between px-5 py-3 bg-slate-50 border-b">
-          <h2 class="text-base font-semibold text-slate-800">CAPA Đang Mở</h2>
+          <h2 class="text-base font-semibold text-slate-800">Hành động khắc phục/phòng ngừa đang mở</h2>
           <button class="text-sm text-blue-600 hover:text-blue-700" @click="router.push('/capas')">
             Xem tất cả →
           </button>
         </div>
         <div class="p-5">
           <div v-if="!data.capa_open_list.length" class="text-sm text-slate-400 italic">
-            Không có CAPA đang mở từ Calibration.
+            Không có hành động khắc phục/phòng ngừa đang mở từ Calibration.
           </div>
           <div v-else class="space-y-2">
             <div
@@ -291,7 +291,7 @@ v-if="c.lookback_status === 'In Progress' || c.lookback_status === 'Pending'"
                 </div>
               </div>
               <button class="btn-ghost text-xs shrink-0" @click.stop="router.push(`/capas/${c.name}`)">
-                QA xem xét →
+                Đảm bảo chất lượng xem xét →
               </button>
             </div>
           </div>

@@ -220,7 +220,7 @@
           </div>
           <table class="data-table small">
             <thead>
-              <tr><th>KPI</th><th class="num">Điểm</th><th class="num">Trọng số</th><th class="num">Điểm trọng số</th></tr>
+              <tr><th>Chỉ số hiệu suất</th><th class="num">Điểm</th><th class="num">Trọng số</th><th class="num">Điểm trọng số</th></tr>
             </thead>
             <tbody>
               <tr v-for="(r, i) in (scorecard.kpi_rows || [])" :key="i">
@@ -230,7 +230,7 @@
                 <td class="num">{{ r.weighted }}</td>
               </tr>
               <tr v-if="!(scorecard.kpi_rows || []).length">
-                <td colspan="4" class="muted text-center">Không có dòng KPI.</td>
+                <td colspan="4" class="muted text-center">Không có dòng chỉ số hiệu suất.</td>
               </tr>
             </tbody>
           </table>

@@ -180,11 +180,11 @@ onMounted(() => { loadLatest(); loadHistory() })
             </p>
           </div>
           <div class="kpi-card p-4" style="--kpi-color: #2563eb">
-            <p class="t-eyebrow mb-2">CAPA đang mở</p>
+            <p class="t-eyebrow mb-2">Hành động khắc phục/phòng ngừa đang mở</p>
             <p class="t-metric tabular-nums text-brand-600">{{ current.capa_open_count }}</p>
           </div>
           <div class="kpi-card p-4" style="--kpi-color: #dc2626">
-            <p class="t-eyebrow mb-2">CAPA quá hạn</p>
+            <p class="t-eyebrow mb-2">Hành động khắc phục/phòng ngừa quá hạn</p>
             <p class="t-metric tabular-nums text-red-600">{{ current.capa_overdue_count }}</p>
           </div>
           <div class="kpi-card p-4" style="--kpi-color: #475569">
@@ -234,8 +234,8 @@ onMounted(() => { loadLatest(); loadHistory() })
               <th class="table-header">Phạm vi</th>
               <th class="table-header">Điểm %</th>
               <th class="table-header">Δ vs trước</th>
-              <th class="table-header">CAPA mở</th>
-              <th class="table-header">CAPA quá hạn</th>
+              <th class="table-header">Hành động khắc phục/phòng ngừa mở</th>
+              <th class="table-header">Hành động khắc phục/phòng ngừa quá hạn</th>
               <th class="table-header">Trạng thái</th>
             </tr>
           </thead>

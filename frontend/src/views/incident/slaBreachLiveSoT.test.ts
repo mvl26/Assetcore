@@ -1,4 +1,4 @@
-// TDD — IMM-12 BR-12-13: KPI/badge "Vi phạm SLA tiếp nhận/xử lý" theo SoT LIVE.
+// TDD — IMM-12 BR-12-13: KPI/badge "Vi phạm cam kết mức dịch vụ tiếp nhận/xử lý" theo SoT LIVE.
 // Badge per-row đọc field DERIVED is_response_breached / is_resolution_breached (BE
 // _row_is_breached = cờ-thô OR đang-mở-quá-hạn) thay cờ thô response_breached/
 // resolution_breached → hiện cho incident đang-quá-hạn-mở kể cả khi cờ DB còn 0
@@ -75,7 +75,7 @@ describe('IncidentListView — SLA badge theo field derived live (BR-12-13)', ()
     listStats.value = null
   })
 
-  it('TC-SLA-FE-01: is_resolution_breached=1 dù resolution_breached(thô)=0 → vẫn render "Vi phạm SLA xử lý"', async () => {
+  it('TC-SLA-FE-01: is_resolution_breached=1 dù resolution_breached(thô)=0 → vẫn render "Vi phạm cam kết mức dịch vụ xử lý"', async () => {
     listIncidents.value = [{
       name: 'IR-2026-0101', asset: 'AC-ASSET-2026-0001', asset_name: 'Máy thở',
       severity: 'High', status: 'In Progress', incident_type: 'Failure',
@@ -91,7 +91,7 @@ describe('IncidentListView — SLA badge theo field derived live (BR-12-13)', ()
     expect(w.text()).not.toContain(SLA_BREACH_LABEL.response)
   })
 
-  it('TC-SLA-FE-02: is_response_breached=1 dù response_breached(thô)=0 → render "Vi phạm SLA tiếp nhận"', async () => {
+  it('TC-SLA-FE-02: is_response_breached=1 dù response_breached(thô)=0 → render "Vi phạm cam kết mức dịch vụ tiếp nhận"', async () => {
     listIncidents.value = [{
       name: 'IR-2026-0102', asset: 'AC-ASSET-2026-0002', asset_name: 'Bơm tiêm',
       severity: 'Medium', status: 'Open', incident_type: 'Failure',
@@ -169,7 +169,7 @@ describe('IMM12DashboardView — tile SLA live + badge active_incidents derived 
     fetchDashboardSpy.mockClear()
   })
 
-  it('TC-SLA-FE-06: tile bind stats.sla_resolution_breached (live=2) — giữ nhãn VI "Vi phạm SLA xử lý"', async () => {
+  it('TC-SLA-FE-06: tile bind stats.sla_resolution_breached (live=2) — giữ nhãn VI "Vi phạm cam kết mức dịch vụ xử lý"', async () => {
     dashboard.value = {
       stats: baseStats({ sla_response_breached: 1, sla_resolution_breached: 2 }),
       active_incidents: [], open_rcas: [], chronic_failures: [],
@@ -177,10 +177,10 @@ describe('IMM12DashboardView — tile SLA live + badge active_incidents derived 
     const w = mountTracked(IMM12DashboardView, { global: { stubs: dashStubs } })
     await flushPromises()
     const cards = w.findAll('.kpi-card')
-    const resCard = cards.find(c => c.text().includes('Vi phạm SLA xử lý'))
-    const respCard = cards.find(c => c.text().includes('Vi phạm SLA tiếp nhận'))
-    expect(resCard, 'phải có tile "Vi phạm SLA xử lý"').toBeTruthy()
-    expect(respCard, 'phải có tile "Vi phạm SLA tiếp nhận"').toBeTruthy()
+    const resCard = cards.find(c => c.text().includes('Vi phạm cam kết mức dịch vụ xử lý'))
+    const respCard = cards.find(c => c.text().includes('Vi phạm cam kết mức dịch vụ tiếp nhận'))
+    expect(resCard, 'phải có tile "Vi phạm cam kết mức dịch vụ xử lý"').toBeTruthy()
+    expect(respCard, 'phải có tile "Vi phạm cam kết mức dịch vụ tiếp nhận"').toBeTruthy()
     expect(resCard!.text()).toContain('2')
     expect(respCard!.text()).toContain('1')
     // Nhãn VI giữ nguyên, không leak English.
@@ -211,7 +211,7 @@ describe('IMM12DashboardView — tile SLA live + badge active_incidents derived 
     }
     const w = mountTracked(IMM12DashboardView, { global: { stubs: dashStubs } })
     await flushPromises()
-    const respCard = w.findAll('.kpi-card').find(c => c.text().includes('Vi phạm SLA tiếp nhận'))
+    const respCard = w.findAll('.kpi-card').find(c => c.text().includes('Vi phạm cam kết mức dịch vụ tiếp nhận'))
     expect(respCard!.text()).toContain('0')
   })
 })
