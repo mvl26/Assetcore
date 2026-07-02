@@ -72,6 +72,7 @@ Run: bench --site miyano run-tests --module assetcore.tests.test_mobile_oas
 from __future__ import annotations
 
 import re
+import ast
 import copy
 import importlib
 import inspect
@@ -11294,6 +11295,26 @@ class TestMobileGetAssetPmHistoryContract(unittest.TestCase):
             self.assertNotIn(bad, resps, f"KHÔNG được nhân bản response component {bad} (reuse Forbidden/Unauthorized401).")
 
 
+def _extract_named_function_source(source: str, func_name: str):
+    """Trích source-segment của TOP-LEVEL function `func_name` từ text `source`, BAO gồm cả
+    decorator_list (vd @frappe.whitelist). Trả (str|None); None ⇒ không tìm thấy hàm (hoặc source
+    KHÔNG parse được → SyntaxError). Dùng line-based slice (KHÔNG ast.get_source_segment, vì cái đó
+    bỏ decorator) → so-sánh byte-identical thân hàm + decorator giữa 2 phiên bản (HEAD ↔ working).
+    Guard scoped THEO TÊN hàm — chỉ khoá get_asset_timeline bất biến; edit vô-can khác trong cùng
+    file (vd get_depreciation_by_category +132) KHÔNG trip."""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return None
+    lines = source.splitlines()
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == func_name:
+            start = node.decorator_list[0].lineno if node.decorator_list else node.lineno
+            end = node.end_lineno
+            return "\n".join(lines[start - 1:end])
+    return None
+
+
 class TestMobileGetAssetTimelineContract(unittest.TestCase):
     """FLOW-2 DEVICE-PROFILE — getAssetTimeline: GET-read dòng-thời-gian vòng-đời của 1 asset
     (tab "Lịch sử" màn hồ-sơ-thiết-bị sau quét QR).
@@ -11322,7 +11343,9 @@ class TestMobileGetAssetTimelineContract(unittest.TestCase):
       (h) disjointness — AssetTimelineEvent props KHÁC AssetIncidentHistoryItem (R28) ∧ KHÁC
           AssetListItem (C3-split khác DocType/field-set/domain); 0 dangling $ref toàn yaml.
       (i) ∈ _MVP_BUSINESS_PATHS ∧ _PATHS_REQUIRE_401 ∧ _PATHS_REQUIRE_403 (symmetry set, so SET).
-      (j) PURE-YAML invariant — git diff --numstat assetcore/api/imm00.py == EMPTY (handler LIVE untouched).
+      (j) SCOPED-HANDLER invariant — source AST hàm get_asset_timeline (gồm @frappe.whitelist) bất biến
+          HEAD ↔ working của imm00.py; edit vô-can khác trong file (vd get_depreciation_by_category)
+          ĐƯỢC PHÉP (KHÔNG whole-file numstat==EMPTY: false-couple unrelated edit làm đỏ oan).
     SSoT: ../04-api-contract.md (FLOW-2 device-profile) + api/imm00.py:1126-1142 (frappe.get_list
     'Asset Lifecycle Event' fields 7 + return _ok({pagination,items})) + asset_lifecycle_event.json.
     """
@@ -11536,18 +11559,42 @@ class TestMobileGetAssetTimelineContract(unittest.TestCase):
         self.assertEqual(with_403, set(_PATHS_REQUIRE_403), "Tập 403 (trừ auth) == _PATHS_REQUIRE_403 (symmetry).")
 
     def test_mob_oas_assettimeline_j_pure_yaml_handler_untouched(self):
-        """(j) PURE-YAML invariant — git diff --numstat assetcore/api/imm00.py == EMPTY (handler LIVE
-        untouched; chỉ bồi yaml + test + roadmap doc, KHÔNG đụng .py/reload/migrate)."""
+        """(j) SCOPED-HANDLER invariant — source AST của hàm `get_asset_timeline` (gồm @frappe.whitelist)
+        BẤT BIẾN giữa HEAD ↔ working-tree của assetcore/api/imm00.py. PASS ⇔ thân hàm + decorator
+        byte-identical. Edit vô-can KHÁC trong cùng file (vd get_depreciation_by_category +132 dòng) ĐƯỢC
+        PHÉP — KHÔNG dùng whole-file numstat==EMPTY (false-coupling: unrelated edit làm đỏ oan). Guard
+        token-precise THEO TÊN hàm (KHÔNG ban @frappe.whitelist toàn cục — hàm khác vừa thêm decorator sẽ
+        false-fail). Anti-false-green: chèn 1 dòng vào thân get_asset_timeline → FAIL; revert → PASS."""
         import subprocess
         repo = str(_REPO_ROOT)
-        out = subprocess.run(
-            ["git", "-C", repo, "diff", "--numstat", "--", "assetcore/api/imm00.py"],
+        rel = "assetcore/api/imm00.py"
+        head = subprocess.run(
+            ["git", "-C", repo, "show", f"HEAD:{rel}"],
             capture_output=True, text=True,
         )
-        self.assertEqual(out.returncode, 0, f"git diff lỗi: {out.stderr}")
+        # Edge: HEAD chưa có file (untracked / HEAD thiếu) → git-show returncode≠0 → fail có lý do rõ,
+        # KHÔNG crash git-show (returncode 128, stderr 'exists on disk, but not in HEAD' / 'does not exist').
+        if head.returncode != 0:
+            self.fail(
+                f"git show HEAD:{rel} lỗi (file untracked / chưa commit vào HEAD?) — guard scoped vô nghĩa: "
+                f"{head.stderr.strip()}"
+            )
+        work_path = _REPO_ROOT / rel
+        self.assertTrue(work_path.exists(), f"working-tree {rel} KHÔNG tồn tại.")
+        head_fn = _extract_named_function_source(head.stdout, "get_asset_timeline")
+        work_fn = _extract_named_function_source(work_path.read_text(encoding="utf-8"), "get_asset_timeline")
+        self.assertIsNotNone(
+            head_fn,
+            "HEAD:imm00.py KHÔNG có hàm get_asset_timeline (chưa commit handler?) — guard scoped vô nghĩa.",
+        )
+        self.assertIsNotNone(
+            work_fn,
+            "working imm00.py KHÔNG có hàm get_asset_timeline (bị xoá/đổi tên?) — handler LIVE biến mất.",
+        )
         self.assertEqual(
-            out.stdout.strip(), "",
-            f"PURE-YAML VI PHẠM — assetcore/api/imm00.py BỊ SỬA (handler LIVE phải untouched): {out.stdout!r}",
+            work_fn, head_fn,
+            "SCOPED-HANDLER VI PHẠM — source hàm get_asset_timeline (gồm @frappe.whitelist) BỊ SỬA giữa "
+            "HEAD ↔ working. Edit vô-can khác trong imm00.py ĐƯỢC PHÉP; NHƯNG handler này phải bất biến.",
         )
 
 
@@ -14504,17 +14551,21 @@ class TestMobileAddMeasurementContract(unittest.TestCase):
         self.assertEqual(dangling, [], f"PHẢI 0 dangling $ref sau bồi addMeasurement: {dangling}")
 
     def test_mob_oas_addmeas_j_source_diff_invariant_decorator_only_no_body_drift(self):
-        """(j) source-diff invariant — git diff api/imm11.py = decorator flips (bare @frappe.whitelist()
-        → methods=["POST"]) BALANCED + CHỈ-1 nhóm thay đổi non-decorator ALLOWLISTED (R41 CAL-MINE
-        list_calibrations +param mine). ZERO drift signature/body NGOÀI 2 nhóm này.
+        """(j) source-diff invariant — NẾU api/imm11.py có thay đổi working-tree, chúng PHẢI CHỈ là
+        decorator flips (bare @frappe.whitelist() → methods=["POST"]) BALANCED + non-decorator drift
+        THUỘC allowlist R41 CAL-MINE (list_calibrations +param `mine`). ZERO drift signature/body NGOÀI
+        2 nhóm này.
 
-        ⚠️ DEVIATION grounded @working-tree: R33 VERB-PARITY CLOSURE flip create_calibration (:89) +
-        submit_calibration (:114) là UNCOMMITTED carry-over (HEAD vẫn bare; HARD-STOP user no-commit) ⇒
-        `git diff api/imm11.py` hiện 3 flip decorator (R33×2 + R34 add_measurement×1). R41 CAL-MINE-CAL
-        THÊM 1 thay đổi non-decorator HỢP-LỆ: list_calibrations chèn `mine: int = 0` (giữa filters↔page)
-        + nhánh `if int(mine or 0): f['technician']=frappe.session.user` SAU apply_vendor_scope + comment
-        block → ALLOWLIST (KHÔNG drift bừa). Invariant load-bearing = 'decorator flips balanced +
-        non-decorator drift CHỈ thuộc allowlist CAL-MINE'."""
+        ⚠️ ROOT-CAUSE REDESIGN (stale git-diff guard — LL: guard-trên-git-diff = anti-pattern): bản cũ
+        assert `git diff` CHỨA ≥1 flip, premise UNCOMMITTED carry-over. Sau khi verb-flip
+        create_calibration/submit_calibration/add_measurement ĐÃ COMMIT (bea3d47), working-tree imm11.py
+        SẠCH ⇒ diff RỖNG ⇒ assert-≥1-flip FAIL âm-tính-giả (guard bám state transient, KHÔNG phải
+        source-truth). Đã re-anchor invariant POST-only lên SOURCE (registry runtime
+        `_allowed_http_methods_for`, durable — cùng SSoT test (h)/(i)) + hạ diff-portion xuống DRIFT-GUARD
+        (vacuous khi committed, vẫn chặn body-drift khi working-tree bẩn). Invariant load-bearing GIỮ NGUYÊN
+        = 'nếu-có-diff thì CHỈ flip balanced + CAL-MINE allowlist; add_measurement POST-only @source'.
+        [BA]/[DESIGN] note: guard bám `git diff` mất hiệu lực NGAY khi commit → chỉ hợp cho in-progress
+        working-tree, KHÔNG thay source-truth."""
         import subprocess
         repo = str(_REPO_ROOT)
         out = subprocess.run(
@@ -14560,10 +14611,15 @@ class TestMobileAddMeasurementContract(unittest.TestCase):
                 ("methods=['POST']" in ln or 'methods=["POST"]' in ln),
                 f"dòng added PHẢI là @frappe.whitelist(methods=['POST']): {ln}",
             )
-        # balanced flips (mỗi removed-bare ↦ 1 added-POST).
+        # balanced flips (mỗi removed-bare ↦ 1 added-POST) — 0==0 khi committed (diff rỗng), vẫn cân khi bẩn.
         self.assertEqual(len(removed_deco), len(added_deco), f"removed/added decorator PHẢI cân (flip 1-1): {len(removed_deco)} vs {len(added_deco)}.")
-        # ≥1 flip (add_measurement R34 + R33 carry-over): net delta POST từ các flip này.
-        self.assertGreaterEqual(len(added_deco), 1, "PHẢI có ≥1 decorator flip (add_measurement round + carry-over).")
+        # ── SOURCE-TRUTH (durable — THAY assert-diff-≥1-flip cũ bị stale khi committed): add_measurement
+        #    POST-only @registry runtime. ĐÚNG dù flip committed (diff rỗng) hay uncommitted (diff có flip). ──
+        allowed = _allowed_http_methods_for("assetcore.api.imm11.add_measurement")
+        self.assertEqual(
+            allowed, {"POST"},
+            f"add_measurement PHẢI POST-only @source (decorator methods=['POST']), got {sorted(allowed)}.",
+        )
         # ZERO drift signature/body/cap (token nghiệp vụ KHÔNG xuất hiện ở dòng đổi).
         for ln in changed:
             for tok in ("def add_measurement", "rbac.require", "parameter_name", "measurement_count", "return ", "doc.append"):
