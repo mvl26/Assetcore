@@ -17,7 +17,7 @@ markdown chỉ tồn-tại-trong-repo, KHÔNG web-served @8000). D16 SỬA:
     `...→tags→x-assetcore-stats` LIỀN. Lý do: link chết tệ hơn không link — Swagger UI render
     sạch (KHÔNG fabricate URL relative/404). `generate_spec()` KHÔNG raise ở cả 2 nhánh.
   - **Fail-safe** (T6 D16): `_doc_base` bọc `_app_meta_hook` (fail-safe → None khi hook vắng/
-    rỗng/exception) → OMIT (KHÔNG raise, KHÔNG fabricate). 488 endpoint sinh đủ ở cả 2 nhánh.
+    rỗng/exception) → OMIT (KHÔNG raise, KHÔNG fabricate). 492 endpoint sinh đủ ở cả 2 nhánh.
   - **No-hardcode** (T7 D16): vùng build externalDocs KHÔNG literal scheme://host/'miyano'/
     `get_url`; `_doc_base` reference `app_docs_url`. Mutation `get_url` KHÔNG đổi externalDocs
     (doc-base TÁCH khỏi API-base — chứng minh không leak get_url).
@@ -471,7 +471,11 @@ class TestOasD16Invariant(unittest.TestCase):
 
     def _assert_stats(self, spec):
         stats = spec["x-assetcore-stats"]
-        self.assertEqual(stats["total_endpoints"], 488)
+        # 2026-07-01 RE-BASELINE-FIX 488→492 / get 232→236 / typed 488→492 / json_param 63→64:
+        #   979d736 RE-BASELINE SÓT (user.list_assignable_users #489 chỉ vào D15/D17 verb-split, total
+        #   GIỮ 488 → off-by-1 RED âm thầm) + 3 web GET mới (get_depreciation_by_category /
+        #   list_decommissions / get_cycle_count). RE-VERIFY @source generate_spec.
+        self.assertEqual(stats["total_endpoints"], 492)
         self.assertEqual(stats["total_endpoints"], len(spec["paths"]))
         # 2026-06-27 VERB-PARITY CLOSURE: get 238→235 / post 250→253 (3 write-action bare @whitelist
         #   siết methods=["POST"] @imm08.py:54/imm11.py:89/114 ⇒ verb-flip GET→POST; total GIỮ 488).
@@ -481,7 +485,7 @@ class TestOasD16Invariant(unittest.TestCase):
         #   bare→methods=["POST"] ⇒ verb-flip GET→POST; total GIỮ 488). RE-VERIFY @source generate_spec.
         # 2026-06-28 R36 PM→CM ESCALATION: get 233→232 / post 255→256 (report_major_failure @imm08.py:74
         #   bare→methods=["POST"] + SIGNATURE-FIX ⇒ verb-flip GET→POST; total GIỮ 488). RE-VERIFY @source generate_spec.
-        self.assertEqual(stats["get_count"], 232)
+        self.assertEqual(stats["get_count"], 236)
         self.assertEqual(stats["post_count"], 256)
         self.assertEqual(stats["get_count"] + stats["post_count"], stats["total_endpoints"])
         self.assertEqual(stats["guest_count"], 5)
@@ -493,13 +497,13 @@ class TestOasD16Invariant(unittest.TestCase):
             if ovr.enrich_meta_for(p.replace("/api/method/assetcore.api.", "", 1)) is not None
         )
         self.assertEqual(stats["enriched_count"], expected_enriched)
-        self.assertEqual(stats["error_responses_typed_count"], 488)
-        self.assertEqual(stats["json_param_count"], 63)  # R36 DROP report_major_failure.failed_item_indexes (JSON-string param)
+        self.assertEqual(stats["error_responses_typed_count"], 492)
+        self.assertEqual(stats["json_param_count"], 64)  # +imm14.list_decommissions.filters (parse_json JSON-string param)
         self.assertTrue(stats["cap_set_version"], "cap_set_version non-empty.")
         self.assertTrue(stats["generated_app_version"], "generated_app_version non-empty.")
 
     def test_d16_07_stats_unchanged_both_branches(self):
-        """x-assetcore-stats (488/238/250/5/<enriched-động>/488/64) BẤT BIẾN ở cả omit LẪN config-base."""
+        """x-assetcore-stats (492/236/256/5/<enriched-động>/492/64) BẤT BIẾN ở cả omit LẪN config-base."""
         self._assert_stats(self.spec_omit)
         self._assert_stats(self.spec_cfg)
 

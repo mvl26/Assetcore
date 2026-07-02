@@ -294,14 +294,18 @@ class TestOasD17Invariant(unittest.TestCase):
         #   @imm08.py:46 bare→methods=["POST"] ⇒ verb-flip GET→POST; total/guest GIỮ). RE-VERIFY @source.
         # 2026-06-28 R36 PM→CM ESCALATION: get 233→232 / post 255→256 (write-action thứ-6 report_major_failure
         #   @imm08.py:74 bare→methods=["POST"] + SIGNATURE-FIX ⇒ verb-flip GET→POST; total/guest GIỮ). RE-VERIFY @source.
+        # 2026-07-01 RE-BASELINE-FIX total 488→492 / get 232→236 / typed 488→492 / json_param 63→64:
+        #   commit 979d736 RE-BASELINE SÓT (message "488→489" cho user.list_assignable_users chỉ vào
+        #   D15/D17 verb-split, total GIỮ 488 ⇒ off-by-1 RED âm thầm) + 3 web GET mới (get_depreciation_by_category
+        #   / list_decommissions / get_cycle_count) + json_param +1 (list_decommissions.filters). RE-VERIFY @source.
         baseline = {
-            "total_endpoints": 488,
-            "get_count": 232,
+            "total_endpoints": 492,
+            "get_count": 236,
             "post_count": 256,
             "guest_count": 5,
             "enriched_count": expected_enriched,
-            "error_responses_typed_count": 488,
-            "json_param_count": 63,  # R36 DROP report_major_failure.failed_item_indexes (JSON-string param)
+            "error_responses_typed_count": 492,
+            "json_param_count": 64,  # +imm14.list_decommissions.filters (parse_json JSON-string param)
         }
         for key, val in baseline.items():
             self.assertEqual(
