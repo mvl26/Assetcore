@@ -58,6 +58,15 @@ export interface AssetRepair {
   total_parts_cost: number
   spare_parts_used: SparePartRow[]
   repair_checklist: RepairChecklistRow[]
+  /**
+   * SSoT server-driven CTA (GATE-8 / LL-FE-51): danh sách trạng thái-đích hợp lệ
+   * kế tiếp mà BE cho phép, do `get_repair_work_order` emit =
+   * `_REPAIR_VALID_TRANSITIONS.get(status, [])` (imm09.py:778). FE gate nút workflow
+   * bằng `capability && allowed_transitions.includes('<đích>')` — KHÔNG tự suy diễn
+   * theo `status === 'X'`. Terminal (Completed/Cannot Repair/Cancelled) → []. Optional
+   * (forward-compat: trước khi BE enrich → undefined → 0 nút CTA, KHÔNG vỡ).
+   */
+  allowed_transitions?: string[]
 }
 
 /**

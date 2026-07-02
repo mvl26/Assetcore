@@ -26,6 +26,15 @@ export interface PMWorkOrder {
   duration_minutes: number | null
   source_pm_wo: string | null
   checklist_results: ChecklistResult[]
+  /**
+   * SSoT server-driven CTA (GATE-8 / LL-FE-51): danh sách trạng thái-đích hợp lệ
+   * kế tiếp mà BE cho phép, do `get_pm_work_order` emit =
+   * `_PM_VALID_TRANSITIONS.get(status, [])` (imm08.py:652). FE gate nút workflow bằng
+   * `capability && allowed_transitions.includes('<đích>')` — KHÔNG tự suy diễn theo
+   * `status === 'X'`. Chuỗi đích khớp EXACT PMStatus (en-dash: 'Halted–Major Failure',
+   * 'Pending–Device Busy'). Terminal (Completed/Cancelled) → []. Optional (forward-compat).
+   */
+  allowed_transitions?: string[]
 }
 
 export interface ChecklistResult {

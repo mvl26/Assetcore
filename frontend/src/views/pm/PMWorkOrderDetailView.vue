@@ -7,18 +7,22 @@ import { onMounted, computed, ref } from 'vue'
 import { useImm08Store } from '@/stores/imm08'
 import { useRouter } from 'vue-router'
 import { pmStatusLabel, pmStatusClass, resultLabel as _resultLabel, pmTypeLabel, woTypeLabel, overallResultLabel } from '@/constants/labels'
-import { useAuthStore } from '@/stores/auth'
-import { ROLES_PM_EXECUTE, ROLES_PM_MANAGE } from '@/constants/roles'
+import { useCapabilities } from '@/composables/useCapabilities'
 const notify = useNotify()
 const toast = useToast()
 
 const props = defineProps<{ id: string }>()
 const store = useImm08Store()
 const router = useRouter()
-const auth = useAuthStore()
+const { can } = useCapabilities()
 
-const canExecutePM = computed(() => auth.hasAnyRole(ROLES_PM_EXECUTE))
-const canManagePM = computed(() => auth.hasAnyRole(ROLES_PM_MANAGE))
+// Capability gate khớp EXACT rbac.require BE (api/imm08.py): bắt đầu/báo lỗi lớn =
+// pm.write; hoàn thành (submit_pm_result) = pm.submit; hoãn lịch (reschedule_pm) =
+// pm.reschedule. KHÔNG dùng hasAnyRole(ROLES_PM_*) — các hằng này = [] (LL-FE-22) →
+// hasAnyRole([]) LUÔN false ⇒ nút chết âm thầm.
+const canExecutePM = computed(() => can('pm.write'))
+const canSubmitPM = computed(() => can('pm.submit'))
+const canManagePM = computed(() => can('pm.reschedule'))
 
 const showMajorModal = ref(false)
 const showSubmitModal = ref(false)
@@ -36,6 +40,13 @@ onMounted(() => store.fetchWorkOrder(props.id))
 
 const wo = computed(() => store.currentWO)
 
+// ─── SSoT server-driven CTA (GATE-8 / LL-FE-51 · mirror IncidentDetailView) ──────
+// allowed_transitions do get_pm_work_order emit = _PM_VALID_TRANSITIONS.get(status, [])
+// (imm08.py:652). Nút workflow gate theo (capability && includes('<đích>')) — KHÔNG
+// hardcode `wo.status === 'X'`. Chuỗi đích khớp EXACT PMStatus (en-dash:
+// 'Halted–Major Failure' / 'Pending–Device Busy'). Terminal (Completed/Cancelled) → [].
+const allowedTransitions = computed<string[]>(() => wo.value?.allowed_transitions ?? [])
+
 // Chỉ đếm mục đã có kết quả (Đạt/Không đạt/N/A) là "đã hoàn thành" (IMM-08-A).
 const filledCount = computed(() => store.ratedCount)
 const totalCount = computed(() => wo.value?.checklist_results.length ?? 0)
@@ -45,7 +56,7 @@ const progressPct = computed(() =>
 
 // Lý do không thể hoàn thành (FE mirror của gate BE BR-08-08/09/10).
 const completionBlockReason = computed(() => {
-  if (!canExecutePM.value) return 'Bạn không có quyền hoàn thành bảo trì'
+  if (!canSubmitPM.value) return 'Bạn không có quyền hoàn thành bảo trì'
   if (!store.checklistComplete) return 'Phải chấm kết quả cho tất cả mục checklist trước khi hoàn thành'
   if (durationMin.value <= 0) return 'Thời gian thực hiện phải lớn hơn 0 phút'
   if (!stickerAttached.value) return 'Phải xác nhận đã gắn tem bảo trì'
@@ -53,6 +64,27 @@ const completionBlockReason = computed(() => {
   return ''
 })
 const canSubmit = computed(() => completionBlockReason.value === '')
+
+// ─── CTA gate theo allowed_transitions (KHÔNG hardcode status) ──────────────────
+// Báo lỗi nghiêm trọng: In Progress → Halted–Major Failure. Chỉ render khi BE cho phép.
+const canReportMajor = computed(() =>
+  canExecutePM.value && allowedTransitions.value.includes('Halted–Major Failure'),
+)
+// "Hoàn thành bảo trì" render khi BE cho phép chuyển 'Completed' + chưa có lỗi lớn;
+// điều kiện checklist/quyền/tem/thời-lượng (canSubmit) chi phối trạng thái disabled + tooltip.
+const canCompleteRender = computed(() =>
+  allowedTransitions.value.includes('Completed') && !store.hasMajorFailure,
+)
+// Hoãn lịch (pm.reschedule) trong banner quá hạn: BE cho phép quay lại In Progress.
+const canReschedule = computed(() =>
+  canManagePM.value &&
+  (allowedTransitions.value.includes('In Progress') || allowedTransitions.value.includes('Pending–Device Busy')),
+)
+// Tiếp tục bảo trì (resume — thao tác thực hiện, pm.write) trong banner quá hạn.
+const canResume = computed(() =>
+  canExecutePM.value &&
+  (allowedTransitions.value.includes('In Progress') || allowedTransitions.value.includes('Pending–Device Busy')),
+)
 
 const isOverdue = computed(() => wo.value?.status === 'Overdue')
 
@@ -133,8 +165,10 @@ function openRescheduleModal() {
 
 const startError = ref('')
 const starting = ref(false)
+// Bắt đầu bảo trì (→ In Progress): gate theo allowed_transitions BE + guard assigned_to
+// (KHÔNG hardcode status === 'Open'|'Overdue'). Cần capability pm.write (BE assign_technician).
 const canStart = computed(() =>
-  !!wo.value && (wo.value.status === 'Open' || wo.value.status === 'Overdue') && !!wo.value.assigned_to,
+  !!wo.value && canExecutePM.value && allowedTransitions.value.includes('In Progress') && !!wo.value.assigned_to,
 )
 
 async function handleStart() {
@@ -148,7 +182,7 @@ async function handleStart() {
     await store.fetchWorkOrder(props.id)
   } else {
     notify.fromError(store.lastApiError)
-    startError.value = store.error || 'Không thể bắt đầu PM'
+    startError.value = store.error || 'Không thể bắt đầu bảo trì định kỳ'
   }
 }
 </script>
@@ -218,8 +252,8 @@ async function handleStart() {
             </div>
           </div>
           <div class="flex gap-2 shrink-0">
-            <button v-if="canManagePM" class="btn-secondary !py-1.5 !text-xs" @click="openRescheduleModal">Hoãn lịch</button>
-            <button class="btn-danger !py-1.5 !text-xs" @click="store.fetchWorkOrder(props.id)">Tiếp tục bảo trì</button>
+            <button v-if="canReschedule" data-testid="cta-reschedule" class="btn-secondary !py-1.5 !text-xs" @click="openRescheduleModal">Hoãn lịch</button>
+            <button v-if="canResume" data-testid="cta-resume" class="btn-danger !py-1.5 !text-xs" @click="store.fetchWorkOrder(props.id)">Tiếp tục bảo trì</button>
           </div>
         </div>
       </Transition>
@@ -251,7 +285,7 @@ async function handleStart() {
           <div class="text-xs text-blue-700 mt-0.5">Bấm "Bắt đầu bảo trì" để chuyển phiếu sang <strong>Đang thực hiện</strong> và đặt thiết bị về <strong>Đang sửa chữa</strong>.</div>
           <div v-if="startError" class="text-xs text-red-600 mt-1">{{ startError }}</div>
         </div>
-        <button :disabled="starting" class="btn-primary !py-2 !text-sm whitespace-nowrap ml-auto" @click="handleStart">
+        <button :disabled="starting" data-testid="cta-start" class="btn-primary !py-2 !text-sm whitespace-nowrap ml-auto" @click="handleStart">
           {{ starting ? 'Đang bắt đầu...' : 'Bắt đầu bảo trì' }}
         </button>
       </div>
@@ -373,14 +407,16 @@ async function handleStart() {
         </div>
       </div>
 
-      <!-- Action Buttons -->
-      <div v-if="wo.status !== 'Completed' && wo.status !== 'Cancelled'" class="flex justify-between items-center">
-        <button class="btn-danger" @click="showMajorModal = true; majorFailureDesc = ''; majorFailureError = ''">
+      <!-- Action Buttons — server-driven CTA: gate theo (capability && allowed_transitions
+           BE), KHÔNG hardcode wo.status === 'X' (GATE-8 / LL-FE-51). -->
+      <div v-if="canReportMajor || canCompleteRender" class="flex justify-between items-center">
+        <button v-if="canReportMajor" data-testid="cta-major" class="btn-danger" @click="showMajorModal = true; majorFailureDesc = ''; majorFailureError = ''">
           Báo lỗi nghiêm trọng
         </button>
 
-        <div v-if="!store.hasMajorFailure" class="relative group">
+        <div v-if="canCompleteRender" class="relative group ml-auto">
           <button
+            data-testid="cta-complete"
             :disabled="!canSubmit || submitting"
             class="btn-success"
             @click="canSubmit && !submitting ? showSubmitModal = true : undefined"

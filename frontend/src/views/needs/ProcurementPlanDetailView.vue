@@ -4,6 +4,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getProcurementPlan, rollIntoPlan, listNeedsRequests, approvePlan, activatePlan, closePlan, setBudgetEnvelope, removeFromPlan } from '@/api/imm01'
+import type { ProcurementPlanDetail } from '@/api/imm01'
 import { formatVnd, stateLabel, stateSlug } from '@/utils/wave2Labels'
 import type { NeedsRequestListItem } from '@/types/imm01'
 import CurrencyInput from '@/components/common/CurrencyInput.vue'
@@ -12,7 +13,7 @@ const route = useRoute()
 const router = useRouter()
 const props = defineProps<{ id?: string }>()
 
-const plan = ref<Record<string, unknown> | null>(null)
+const plan = ref<ProcurementPlanDetail | null>(null)
 const loading = ref(false)
 const error = ref<string | null>(null)
 const showRollModal = ref(false)
@@ -25,6 +26,13 @@ const budgetInput = ref(0)
 const removingNr = ref<string | null>(null)
 
 const planItems = computed<Record<string, unknown>[]>(() => (plan.value?.plan_items as Record<string, unknown>[]) || [])
+
+// Server-driven CTA gating (GATE-8 / LL-FE-51): nút chuyển-trạng-thái chỉ hiện khi
+// BE xác nhận user hiện tại được phép action đó (allowed_transitions). KHÔNG gate theo
+// workflow_state literal — tránh "nút hiện rồi bấm mới báo Bạn không có quyền".
+function canDo(action: string): boolean {
+  return (plan.value?.allowed_transitions ?? []).includes(action)
+}
 
 // Guard against double-click race that triggered the previous "browser freeze"
 // (native confirm() blocks the event loop indefinitely when CDP can't accept
@@ -161,17 +169,17 @@ onMounted(loadPlan)
             Đưa đề xuất vào kế hoạch
           </button>
           <button class="btn btn-primary" :disabled="actioning"
-                  v-if="plan.workflow_state === 'Draft'"
+                  v-if="canDo('Phê duyệt kế hoạch')" data-testid="cta-approve"
                   @click="requestAction(approvePlan, 'Phê duyệt kế hoạch này?')">
             {{ actioning ? 'Đang xử lý...' : 'Phê duyệt' }}
           </button>
           <button class="btn btn-primary" :disabled="actioning"
-                  v-if="plan.workflow_state === 'Approved'"
+                  v-if="canDo('Kích hoạt')" data-testid="cta-activate"
                   @click="requestAction(activatePlan, 'Kích hoạt kế hoạch? Kế hoạch sẽ chuyển sang trạng thái Đang hiệu lực.')">
             {{ actioning ? 'Đang xử lý...' : 'Kích hoạt' }}
           </button>
           <button class="btn btn-outline btn-danger" :disabled="actioning"
-                  v-if="['Approved', 'Active'].includes(plan.workflow_state as string)"
+                  v-if="canDo('Đóng kỳ kế hoạch')" data-testid="cta-close"
                   @click="requestAction(closePlan, 'Đóng kế hoạch? Hành động không thể hoàn tác.')">
             {{ actioning ? 'Đang xử lý...' : 'Đóng kế hoạch' }}
           </button>
@@ -218,8 +226,8 @@ onMounted(loadPlan)
               <th>Mã đề xuất</th>
               <th>Khoa</th>
               <th class="num">Điểm ưu tiên</th>
-              <th class="num">CAPEX dự kiến</th>
-              <th class="num">TCO 5 năm</th>
+              <th class="num">Đầu tư mua sắm dự kiến</th>
+              <th class="num">Tổng chi phí sở hữu 5 năm</th>
               <th v-if="plan.workflow_state === 'Draft'"></th>
             </tr>
           </thead>
@@ -273,7 +281,7 @@ onMounted(loadPlan)
                 <th>Mã đề xuất</th>
                 <th>Khoa</th>
                 <th class="num">Điểm</th>
-                <th class="num">CAPEX</th>
+                <th class="num">Đầu tư mua sắm</th>
               </tr>
             </thead>
             <tbody>
