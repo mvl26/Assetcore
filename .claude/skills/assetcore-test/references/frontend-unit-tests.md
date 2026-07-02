@@ -24,6 +24,7 @@ Config: `frontend/vitest.config.ts` (env jsdom, `@vitejs/plugin-vue` để mount
 3. **vitest KHÔNG thay Playwright** — full user journey + workflow buttons + permission gate vẫn test ở Phần 2.
 4. **DoD FE**: `npm run test` + `npm run typecheck` + `npm run build` đều exit 0 TRƯỚC khi mark Done (cùng với Playwright eval). Lint: 0 lỗi MỚI (lỗi pre-existing repo-wide không tính).
 5. **Sau sweep đổi chuỗi HIỂN THỊ hàng loạt** (Việt-hoá / rename label / đổi text nút) → chạy **`vitest run` TOÀN BỘ**, KHÔNG chỉ test colocate. Test ở file TÊN KHÁC vẫn assert chuỗi hiển thị (vd `IncidentCreateView.assetMeta.test.ts` assert text nút mà `IncidentCreateView.test.ts` không có) → grep-colocate bỏ sót, chỉ full-suite mới bắt. Khi sửa: test assert chuỗi HIỂN THỊ → cập nhật sang bản mới; test assert **VALUE enum/payload** (contract, vd `pass_fail: 'Pass'`) → KHÔNG đổi.
+   - **Trước khi khai Done: `grep` literal CŨ toàn repo (kể cả `*.test.ts`).** Đổi 1 nhãn **SSoT status/label** (không phải chuỗi tự do) nổ radius rộng: `RCA Required`→"Cần phân tích nguyên nhân gốc" + `SLA`→"cam kết dịch vụ" (2026-07-01) vỡ **≥5 file test ở module KHÁC** (`constants/incidentLabels.test.ts` · `utils/formatters.test.ts` · `views/incident/incidentListDrilldown.test.ts`·`slaBreachLiveSoT.test.ts` · `views/cm/cmSlaClockStop.test.ts`·`cmSlaBreachedDivergence.test.ts`). Cross-ref `assetcore-fe` [[LL-FE-53]].
 
 ## Anti-pattern
 - Mark FE Done chỉ vì build pass mà bỏ vitest cho logic mới → bug enum/mapping lọt (đã gặp nhiều lần — xem LL-FE-3/8/30).

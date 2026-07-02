@@ -356,6 +356,20 @@ Kèm 4 manual check không tự động được:
   ```
   RED 2026-06-29: `CalibrationDetailView` hardcode `status === 'Scheduled'` → lộ "Gửi duyệt"(disabled+tooltip) + bảng nhập tham số đo ngay ở Scheduled, trộn In-House↔External; đã fix bằng `allowedTransitions` (AT=7) + tách `canEnterResults` (chỉ pha có result-transition). Gate còn lòi **PMWorkOrderDetailView (AT=0) + CMWorkOrderDetailView (AT=0, 12 status-literal) VẪN hardcode** dù BE đã emit → backlog migrate.
 
+## ✍️ UI copy — chính sách viết tắt (keep/translate) — [[LL-FE-53]]
+
+Mọi chuỗi HIỂN THỊ end-user PHẢI viết **đầy đủ tiếng Việt**. USER đã chốt (2026-07-01) → **KHÔNG cần AskUserQuestion lại**:
+
+- **DỊCH (spell out)** acronym tiếng Anh: `CAPEX`→"Đầu tư mua sắm" · `OPEX`→"Chi phí vận hành" · `TCO`→"Tổng chi phí sở hữu" · `SLA`→"cam kết mức dịch vụ" · `KPI`→"chỉ số hiệu suất" · `MTTR/TTR`→"thời gian sửa chữa trung bình" · `CAPA`→"hành động khắc phục/phòng ngừa" · `RCA`→"phân tích nguyên nhân gốc" · `AVL`→"danh sách nhà cung cấp được duyệt" · `QMS`→"hệ thống quản lý chất lượng" · `WO`→"lệnh công việc" · `PO`→"đơn mua hàng" · `DOA`→"hỏng khi nhận" · `NC`→"sự không phù hợp" · `HTM`→"thiết bị y tế" · `SKU`→"mã hàng" · `FCR`→"yêu cầu thay đổi firmware" · `FTA`→"phân tích cây lỗi" · `PM`→"bảo trì định kỳ" · `CM`→"sửa chữa" · `QA`→"đảm bảo chất lượng" · `L1/L2`→"cấp 1/cấp 2". (glossary đầy đủ: [[LL-FE-53]].)
+- **GIỮ NGUYÊN**: (a) VI-common `QR`·`PIN`·`BHYT`·`NSNN`·`BGĐ`·`VD`·`NSX`·`KH`·`KTV`·`NCC`·`BH`·`STT`·`TTBYT`·`BYT`·`VT-TTBYT`(tên phòng ban); (b) tiền tệ `VND`; (c) chuẩn/danh từ riêng `ISO`/`GMDN`/`WHO`/`NIST`/`VILAS` + tên phương pháp (5-Why/Fishbone/Pareto) + ký hiệu `N/A`; (d) value/enum/key/`workflow_state`/fieldname/doctype-name/ID-mask/module-code (`IMM`/`AC`); (e) đuôi file. → chỉ đổi lớp hiển thị, GIỮ value ([[LL-FE-52]]).
+
+**3 bẫy (chi tiết [[LL-FE-53]]):**
+1. **Cùng token, khác nghĩa theo NGỮ CẢNH** — `TB`="thiết bị" (glossary) NHƯNG `TB`="trung bình" ở metric (`"thời gian sửa TB"` bind `mttr_hours`); `PM`/`QA` có thể là KEY label-map / value (text đã VI). LUÔN đọc DATA bind trước khi thay — áp glossary mù = sai nghĩa.
+2. **Scope KHÔNG chỉ `views/`+`components/`** — text còn render từ `constants/*.ts` (label map: đổi RHS VALUE, GIỮ KEY + role-name BE), `utils/*Labels.ts`, `i18n/messages.ts` (GENERATED — sửa `messages.py` + `python scripts/gen_fe_messages.py`, KHÔNG sửa tay). Liệt kê ĐỦ nguồn render TRƯỚC sweep.
+3. **Nhãn hành động workflow** (vd "Phát hành PO") — GIỮ value gửi BE, chỉ thêm `ACTION_LABELS` hiển thị FE-only; đổi chuỗi transition = vỡ workflow + buộc migrate.
+
+**Sau sweep chuỗi:** grep literal CŨ toàn repo (kể cả `*.test.ts`) — 1 nhãn SSoT đổi vỡ ≥5 file test ở module KHÁC (RCA/SLA 2026-07-01); full `vue-tsc --noEmit` + full `vitest run` (KHÔNG chỉ colocated — `assetcore-test`).
+
 ## Critical anti-patterns (từ bugs thực tế — KHÔNG lặp lại)
 
 ### ✅ Pattern chuẩn: BASE URL trong API client
@@ -390,6 +404,8 @@ Một số modules chỉ có API client mà không có dedicated Pinia store —
 | "Module này dùng chung store cũng được, khỏi tạo store riêng" | ≥3 views / shared state mà không có store riêng = silent undefined (Lỗi #4). Tạo store hoặc document rõ dùng `useMasterDataStore`. |
 | "Cell hiện `WO-RP-...`/email cũng đọc được mà" | Leak mã hệ thống ra UI; hiển thị `asset_name`/`full_name`. Thiếu `_name` companion → **fix BE** thêm field, KHÔNG fallback `x_name || x` lâu dài. |
 | "`{{ row.status }}` raw cho nhanh, sửa sau" | English-enum leak (GATE-1). Mọi status/frequency/severity qua label map; áp cả DetailView + dashboard card, không chỉ ListView. |
+| "Cứ dịch hết mọi acronym cho đồng bộ" | Cùng token khác nghĩa theo ngữ cảnh (`TB`=thiết bị vs trung bình; `PM`/`QA` có thể là KEY/value/tên Role Profile BE). Đọc DATA bind + GIỮ value/enum/key/i18n-generated. Policy keep/translate + glossary: §UI copy / [[LL-FE-53]]. |
+| "Sửa chuỗi hiển thị rồi, test cùng thư mục xanh là xong" | 1 nhãn SSoT (RCA/SLA) đổi vỡ ≥5 file test ở module KHÁC (incident/cm/utils/constants). Grep literal CŨ toàn repo + full `vitest run`, KHÔNG chỉ colocated (LL-FE-53). |
 | "Lookup nhanh bằng `frappe.client.get_value`" | Bypass permission-aware endpoint (GATE-4 / LL-FE-40) — output PHẢI = 0. Dùng endpoint AssetCore whitelisted. |
 | "Render structural/vitest xanh là UI xong" | UI "xong" = RENDER THẬT chứng minh (LL-FE-46); `overflow:hidden` cắt chữ mà DOM-test vẫn PASS (GATE-6d/LL-FE-48). Verify bằng ảnh thật. |
 | "Toast `error('literal')` cho lỗi nghiệp vụ là đủ" | Vi phạm notification contract — success/error đều qua `useNotify`. KHÔNG để action thành công mà user không nhận phản hồi. |
