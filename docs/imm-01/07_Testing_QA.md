@@ -187,7 +187,7 @@ File hiện có: `assetcore/tests/test_imm01.py` (≈ 322 LOC). Mỗi test class
 | `TestGateG04` | ⬜ Planned | `_validate_gate_g04()` | EP | hiện soft — wire khi cross-doc envelope rollup |
 | `TestRollIntoPlan` | ⬜ Planned | `roll_into_plan()` | Use Case | tạo plan, append, reject non-Approved (cần DB) |
 | `TestDemandForecast` | ⬜ Planned | `generate_demand_forecast()` | Use Case | skeleton record per category (cần DB) |
-| `TestOverdueCheck` | ⬜ Planned | `check_pending_request_overdue()` | Use Case | 30d+ NR → log (cần DB) |
+| `TestNeedsOverdueEscalation` | ⬜ Planned (E7 — BR-01-11) | `check_pending_request_overdue()` → `notify_needs_overdue()` | Use Case | Cần DB. Assert: (a) `get_users_with_role("Needs Manager") ≥ 1` (anti dead-gate); (b) ≥1 NR quá hạn → ≥1 Notification Log cho recipient; (c) 0 NR quá hạn → 0 Notification Log; (d) chạy scheduler 2 lần/ngày → KHÔNG double (dedup); (e) 0 recipient → KHÔNG raise. KHÔNG hồi quy `test_notifications`. |
 
 Test sử dụng `SimpleNamespace` (không DB) — chạy ms-level, an toàn offline. Trích pattern thực tế:
 
@@ -439,6 +439,11 @@ Bug list: `Issue ID · Severity (Blocker/Major/Minor/Trivial) · Mô tả · Fix
 | Needs User | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | 0 |
 | AssetCore Auditor | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | 0 |
 | AssetCore System User | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | 0 |
+| AssetCore Super Admin | ✅ | ✅ | — | — | — | — | — | **1** |
+| Needs Manager | ✅ | ✅ | — | — | — | — | — | **1** |
+| AssetCore Auditor | ✅ | ❌ | — | — | — | — | — | **1** |
+
+> permlevel-1 = các field tài chính/phê duyệt (`section_funding`). Không có DocPerm permlevel-1 nào → Frappe strip field khi `save()` với mọi user (trừ Administrator).
 
 **DocPerm matrix — `IMM Procurement Plan`** (đọc từ `imm_procurement_plan.json`):
 
@@ -450,7 +455,7 @@ Bug list: `Issue ID · Severity (Blocker/Major/Minor/Trivial) · Mô tả · Fix
 | AssetCore Auditor | ✅ | ❌ | ❌ | ❌ | ❌ |
 | AssetCore System User | ✅ | ❌ | ❌ | ❌ | ❌ |
 
-**Field-level permission** (`permlevel = 1` trên `IMM Needs Request` — section `section_funding`): `funding_source`, `funding_evidence`, `board_approver`, `approval_date`, `rejection_reason`. Cần role write permlevel-1 riêng để sửa (planned — *Cần khảo sát DocPerm permlevel-1 trong JSON*; hiện chỉ section_funding đặt permlevel 1).
+**Field-level permission** (`permlevel = 1` trên `IMM Needs Request` — section `section_funding`): `funding_source`, `funding_evidence`, `board_approver`, `approval_date`, `rejection_reason`. ✅ **Implemented** — DocPerm permlevel-1 đã có trong JSON: `AssetCore Super Admin` (read+write), `Needs Manager` (read+write), `AssetCore Auditor` (read-only). Các role thấp (`Needs User`) KHÔNG có permlevel-1 → không thấy/sửa field tài chính (đúng yêu cầu Confidential). ⚠️ Trước khi có DocPerm này, `doc.save()` **âm thầm strip** field permlevel-1 với mọi user (trừ Administrator) → `funding_source` không lưu được → G05 chặn Submit (bug đã sửa).
 
 **User Permission / row-level**: ⚠️ **Gap thực tế** — `IMM Needs Request` KHÔNG có trong `permission_query_conditions` (`hooks.py` chỉ wire AC Asset, Incident Report, Asset Repair, PM Work Order, Asset Commissioning). Hiện DocPerm cấp module-wide; chưa filter NR theo `requesting_department`. Roadmap snippet:
 
@@ -508,7 +513,7 @@ Cấm commit `.env`/credential. `site_config.json` không lên git. External tok
 |---|---|---|---|
 | Workflow transition | INFO | IMM Audit Trail | — |
 | Gate fail (G01..G05) | WARN | Frappe error log | — |
-| `check_pending_request_overdue` 30d+ | INFO | scheduler log | ✅ email PTP |
+| `check_pending_request_overdue` 30d+ | INFO | scheduler log | ✅ escalation digest (in-app + email) tới `Needs Manager` (E7); 0 recipient → WARN, không raise |
 | `budget_envelope_alert` vượt envelope | WARN | scheduler log | ✅ alert |
 
 PII / token KHÔNG vào log.
