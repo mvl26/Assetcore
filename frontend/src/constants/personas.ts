@@ -69,7 +69,7 @@ export const PERSONAS: readonly Persona[] = [
     modules: [
       'system', 'master',
       'imm01', 'imm02', 'imm03', 'imm04', 'imm05', 'imm06',
-      'imm08', 'imm09', 'imm11', 'imm12', 'imm13', 'imm15', 'imm16',
+      'imm08', 'imm09', 'imm11', 'imm12', 'imm13', 'imm14', 'imm15', 'imm16',
     ],
     rank: 100,
     roleProfile: 'Quản trị viên IT',
@@ -81,7 +81,7 @@ export const PERSONAS: readonly Persona[] = [
     inferenceRoles: [
       'Commissioning Manager', 'Needs Manager', 'Procurement Manager', 'Spec Manager',
     ],
-    modules: ['master', 'imm01', 'imm02', 'imm03', 'imm04', 'system'],
+    modules: ['master', 'imm01', 'imm02', 'imm03', 'imm04', 'imm14', 'system'],
     rank: 70,
     roleProfile: 'Trưởng phòng VT-TTBYT',
   },
@@ -98,10 +98,10 @@ export const PERSONAS: readonly Persona[] = [
   },
   {
     code: 'qa',
-    label: 'Cán bộ QA / Kiểm toán',
+    label: 'Cán bộ đảm bảo chất lượng / Kiểm toán',
     color: '#DC2626',
     inferenceRoles: ['Compliance Manager', 'Compliance User', 'AssetCore Auditor'],
-    modules: ['imm16', 'system'],
+    modules: ['imm14', 'imm16', 'system'],
     rank: 50,
     roleProfile: 'Cán bộ QA / Kiểm toán',
   },

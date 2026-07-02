@@ -580,6 +580,20 @@ const routes: RouteRecordRaw[] = [
     props: true,
     meta: { requiresAuth: true, title: 'Chi tiết Chuyển giao' },
   },
+
+  // ─── IMM-14 — Giải nhiệm thiết bị (End-of-Life) ────────────────────────────
+  // Danh sách "Biên bản giải nhiệm" (Asset Decommission) — read-only, tra cứu/
+  // báo cáo (WHO HTM §3.8 / NĐ98). Tạo/duyệt hồ sơ ở AssetDetailView (modal).
+  {
+    path: '/decommissions',
+    name: 'DecommissionList',
+    component: () => import('@/views/eol/DecommissionListView.vue'),
+    meta: {
+      requiresAuth: true,
+      title: 'Biên bản giải nhiệm — AssetCore',
+      requiredCapabilities: ['decommission.read'],
+    },
+  },
   {
     path: '/service-contracts',
     name: 'ServiceContractList',
@@ -690,6 +704,25 @@ const routes: RouteRecordRaw[] = [
     name: 'CriticalSpareWatchlist',
     component: () => import('@/views/inventory/WatchlistView.vue'),
     meta: { requiresAuth: true, title: 'Danh sách phụ tùng trọng yếu', moduleId: 'imm15', requiredCapabilities: ['inventory.write'] },
+  },
+  {
+    path: '/inventory/cycle-counts',
+    name: 'CycleCountList',
+    component: () => import('@/views/inventory/CycleCountListView.vue'),
+    meta: { requiresAuth: true, title: 'Kiểm kê tồn kho', moduleId: 'imm15', requiredCapabilities: ['inventory.read'] },
+  },
+  {
+    path: '/inventory/cycle-counts/new',
+    name: 'CycleCountCreate',
+    component: () => import('@/views/inventory/CycleCountCreateView.vue'),
+    meta: { requiresAuth: true, title: 'Tạo phiếu kiểm kê', moduleId: 'imm15', requiredCapabilities: ['inventory.write'] },
+  },
+  {
+    path: '/inventory/cycle-counts/:name',
+    name: 'CycleCountDetail',
+    component: () => import('@/views/inventory/CycleCountDetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chi tiết phiếu kiểm kê', moduleId: 'imm15', requiredCapabilities: ['inventory.read'] },
   },
   {
     path: '/approvals/pending',
@@ -998,8 +1031,9 @@ const MODULE_RULES: Array<[RegExp, string]> = [
   [/^\/stock/,                 'imm15'],
   [/^\/spare-parts/,           'imm15'],
   [/^\/warehouses/,            'imm15'],
-  // Khối 4 — Kết thúc vòng đời (IMM-13/14 chưa build → tạm gắn transfer vào IMM-15)
-  [/^\/asset-transfers/,       'imm15'],
+  // Khối 4 — Kết thúc vòng đời
+  [/^\/decommissions/,         'imm14'],   // IMM-14 Giải nhiệm thiết bị
+  [/^\/asset-transfers/,       'imm15'],   // transfer tạm gắn IMM-15 (IMM-13 chưa build)
   // Master data
   [/^\/depreciation/,          'master'],
   [/^\/assets/,                'master'],

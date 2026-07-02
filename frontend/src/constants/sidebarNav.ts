@@ -103,7 +103,7 @@ export const MODULE_NAV: Record<string, ModuleNav> = {
     ],
   },
   imm08: {
-    code: 'IMM-08', title: 'Bảo trì định kỳ (PM)', icon: 'wrench',
+    code: 'IMM-08', title: 'Bảo trì định kỳ', icon: 'wrench',
     items: [
       { label: 'Tổng quan bảo trì', path: '/pm/dashboard',   icon: 'chart',    cap: 'pm.read' },
       { label: 'Lệnh bảo trì',      path: '/pm/work-orders', icon: 'wrench',   cap: 'pm.read' },
@@ -113,7 +113,7 @@ export const MODULE_NAV: Record<string, ModuleNav> = {
     ],
   },
   imm09: {
-    code: 'IMM-09', title: 'Sửa chữa (CM)', icon: 'tool',
+    code: 'IMM-09', title: 'Sửa chữa', icon: 'tool',
     items: [
       { label: 'Tổng quan sửa chữa',            path: '/cm/dashboard',   icon: 'chart',    cap: 'repair.read' },
       { label: 'Lệnh sửa chữa',                 path: '/cm/work-orders', icon: 'tool',     cap: 'repair.read' },
@@ -130,7 +130,7 @@ export const MODULE_NAV: Record<string, ModuleNav> = {
     ],
   },
   imm12: {
-    code: 'IMM-12', title: 'Sự cố & RCA', icon: 'alert',
+    code: 'IMM-12', title: 'Sự cố & Phân tích nguyên nhân gốc', icon: 'alert',
     items: [
       { label: 'Tổng quan sự cố', path: '/incidents/dashboard', icon: 'chart', cap: 'corrective.read' },
       { label: 'Danh sách sự cố', path: '/incidents/list',      icon: 'alert', cap: 'corrective.read' },
@@ -144,7 +144,9 @@ export const MODULE_NAV: Record<string, ModuleNav> = {
   },
   imm14: {
     code: 'IMM-14', title: 'Giải nhiệm thiết bị', icon: 'trending',
-    items: [],
+    items: [
+      { label: 'Biên bản giải nhiệm', path: '/decommissions', icon: 'trending', cap: 'decommission.read' },
+    ],
   },
   imm15: {
     code: 'IMM-15', title: 'Tồn kho phụ tùng', icon: 'box',
@@ -153,6 +155,7 @@ export const MODULE_NAV: Record<string, ModuleNav> = {
       { label: 'Tồn kho',              path: '/stock',               icon: 'box',       cap: 'inventory.read' },
       { label: 'Phụ tùng',             path: '/spare-parts',         icon: 'cog',       cap: 'inventory.read' },
       { label: 'Phiếu kho',            path: '/stock-movements',     icon: 'arrows',    cap: 'inventory.read' },
+      { label: 'Kiểm kê tồn kho',      path: '/inventory/cycle-counts', icon: 'clipboard', cap: 'inventory.read' },
       { label: 'Kho hàng',             path: '/warehouses',          icon: 'warehouse', cap: 'inventory.read' },
       { label: 'Đơn vị tính',          path: '/inventory/uom',       icon: 'uom',       cap: 'inventory.write' },
       { label: 'Dự báo phụ tùng',      path: '/inventory/forecasts', icon: 'chart',     cap: 'inventory.write' },
@@ -169,7 +172,7 @@ export const MODULE_NAV: Record<string, ModuleNav> = {
       { label: 'Bảng điểm',         path: '/compliance/scorecard', icon: 'chart',    cap: 'compliance.read' },
       { label: 'Soát xét quản lý',  path: '/compliance/mr',        icon: 'log',      cap: 'compliance.write' },
       { label: 'Bản đồ nhiệt',      path: '/compliance/heatmap',   icon: 'grid',     cap: 'compliance.read' },
-      { label: 'CAPA',              path: '/capas',                icon: 'shield',   cap: 'capa.close' },
+      { label: 'Hành động khắc phục/phòng ngừa', path: '/capas',   icon: 'shield',   cap: 'capa.close' },
       { label: 'Nhật ký kiểm toán', path: '/audit-trail',          icon: 'database', cap: 'audit.read' },
     ],
   },
@@ -182,7 +185,7 @@ export const MODULE_NAV: Record<string, ModuleNav> = {
       { label: 'Model thiết bị',     path: '/device-models',     icon: 'template', cap: 'data.read' },
       { label: 'Nhà cung cấp',       path: '/suppliers',         icon: 'building', cap: 'data.read' },
       { label: 'Hợp đồng dịch vụ',   path: '/service-contracts', icon: 'contract', cap: 'data.read' },
-      { label: 'Chính sách SLA',     path: '/sla-policies',      icon: 'clock',    cap: 'data.admin' },
+      { label: 'Chính sách cam kết mức dịch vụ', path: '/sla-policies', icon: 'clock', cap: 'data.admin' },
     ],
   },
   system: {
