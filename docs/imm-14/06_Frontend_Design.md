@@ -231,4 +231,90 @@ Trường nhập (nhãn VI):
 
 `imm14.btn.decommission`, `imm14.modal.title`, `imm14.field.disposal_method`, `imm14.field.patient_data_sanitized`, `imm14.field.reason`, `imm14.field.responsible`, `imm14.toast.success`, `imm14.confirm.type_name` — tất cả VI.
 
-*Hết file 06. §11 là CHỐT cho MVP vòng 2. Wireframe / sitemap đầy đủ §1–§10 giữ làm Đợt 3.*
+---
+
+## 12. Wave 2 Vòng 2 — Danh sách "Biên bản giải nhiệm" (`/decommissions`) — CHỐT
+
+> **Delta (2026-07-02).** Vòng 2 chỉ có write-path (§11, nút trên asset detail) → IMM-14 **vô hình** (sidebar `items: []`). §12 thêm 1 màn danh sách read-only + route + sidebar để tra cứu/báo cáo. KHÔNG closure detail view (row-click → asset — ADR-IMM14-LIST-02).
+
+### 12.1. Vị trí (file thật)
+
+- **View (NEW):** `frontend/src/views/decommission/DecommissionListView.vue`.
+- **Route (NEW):** `frontend/src/router/index.ts` — `path: '/decommissions'`, `name: 'DecommissionList'`, `component: DecommissionListView`, `meta: { requiresAuth: true, title: 'Biên bản giải nhiệm', moduleId: 'imm14', requiredCapabilities: ['decommission.read'] }`.
+- **API client (EXTEND):** `frontend/src/api/imm14.ts` — thêm `listDecommissions(filters, page, pageSize)` + type `DecommissionListRow` + `ListResp<T>` (mirror `api/imm16.ts`).
+- **Sidebar (EDIT):** `frontend/src/constants/sidebarNav.ts` — `imm14.items` từ `[]` → 1 item.
+- **Test (NEW):** `frontend/src/views/decommission/DecommissionList.render.test.ts` (mirror `views/inventory/cycleCountList.render.test.ts`).
+
+### 12.2. FE API client (thêm vào `api/imm14.ts`)
+
+```typescript
+// DecommissionState HIỆN là 'Draft' | 'Approved' → PHẢI thêm 'Cancelled' cho list (khớp Select DocType).
+export type DecommissionState = 'Draft' | 'Approved' | 'Cancelled'
+
+export interface DecommissionListRow {
+  name: string
+  asset: string
+  asset_name_snapshot: string
+  risk_classification_snapshot: string
+  workflow_state: DecommissionState
+  disposal_method: DisposalMethod
+  decommissioned_on: string | null
+  responsible: string          // email — KHÔNG render ra UI (chỉ khoá kỹ thuật)
+  responsible_name: string | null  // full name — render cột "Người chịu trách nhiệm"
+}
+
+export interface ListResp<T> { data: T[]; pagination: { page: number; page_size: number; total: number; total_pages: number } }
+
+export const listDecommissions = (
+  filters: Record<string, unknown> = {}, page = 1, pageSize = 20,
+) => frappeGet<ListResp<DecommissionListRow>>(`${BASE}.list_decommissions`, {
+  filters: JSON.stringify(filters), page, page_size: pageSize,
+})
+```
+
+### 12.3. Bảng — cột (nhãn VI 100%)
+
+| Cột | Field | Render |
+|---|---|---|
+| Số hồ sơ | `name` | text (DECOM-YYYY-####). KHÔNG link tới closure detail (ADR-IMM14-LIST-02). |
+| Thiết bị | `asset_name_snapshot` (fallback `asset`) | text; cả row click-được → `/assets/:asset`. |
+| Phương thức xử lý | `disposal_method` | enum value render **as-is** (SSoT enum, exempt dịch theo LL-FE-53): Huỷ / Điều chuyển/Donation / Bán/Trade-in / Lưu trữ. |
+| Trạng thái | `workflow_state` | `StatusBadge` map VI: **Draft→Bản nháp · Approved→Đã duyệt · Cancelled→Đã huỷ**. KHÔNG leak raw EN. |
+| Ngày giải nhiệm | `decommissioned_on` | format `dd/MM/yyyy` (dùng formatter hiện có); NULL (Draft) → "—". |
+| Người chịu trách nhiệm | `responsible_name` | tên đầy đủ; NULL → "—". **KHÔNG render `responsible` (email)** — BR-14-W2-11. |
+
+- **Phân loại rủi ro** (`risk_classification_snapshot`) có sẵn trong row — tùy chọn hiển thị badge phụ (không bắt buộc ở acceptance).
+
+### 12.4. Filter bar (đo được)
+
+- **Trạng thái** (Select): Tất cả / Bản nháp (Draft) / Đã duyệt (Approved) / Đã huỷ (Cancelled) → gửi `filters.workflow_state`.
+- **Phương thức xử lý** (Select): Tất cả / 4 enum value → gửi `filters.disposal_method`.
+- (Tùy chọn) **Thiết bị**: ô lọc theo `asset` → `filters.asset`. Acceptance yêu cầu filter theo trạng thái + phương thức là bắt buộc; `asset` optional ở UI nhưng endpoint hỗ trợ.
+- Đổi filter → refetch (TanStack key `['imm14','decommissions','list', filters, page]`); reset về page 1.
+
+### 12.5. UX states
+
+- **Empty-state:** khi `data.length === 0` — "Chưa có biên bản giải nhiệm nào." (VI). KHÔNG trắng tinh.
+- **Loading / error:** skeleton + toast lỗi (map `code` → message VI; KHÔNG "Lỗi hệ thống"). Thiếu `decommission.read` → router guard chặn trước (requiredCapabilities) → không tới màn; nếu lọt (race) BE trả 403 → toast + điều hướng.
+- **Pagination:** dùng `pagination.total` / `total_pages` từ envelope (component phân trang hiện có). **Invariant FE:** `data.length ≤ pagination.page_size`.
+- **Row-click:** `router.push('/assets/' + row.asset)` (ADR-IMM14-LIST-02).
+
+### 12.6. Sidebar (`constants/sidebarNav.ts`)
+
+```typescript
+imm14: {
+  code: 'IMM-14', title: 'Giải nhiệm thiết bị', icon: 'trending',
+  items: [
+    { label: 'Biên bản giải nhiệm', path: '/decommissions', icon: 'trending', cap: 'decommission.read' },
+  ],
+},
+```
+
+→ module IMM-14 hết vô hình (mirror cách imm13 có 1 item "Phiếu điều chuyển").
+
+### 12.7. Render test (mirror `cycleCountList.render.test.ts`)
+
+- Mock `listDecommissions` trả 3 row (mỗi workflow_state 1 trạng thái + đủ 4 disposal_method mẫu, `responsible_name` set, `responsible` email set).
+- Assert: (a) 3 dòng render; (b) badge VI **Bản nháp/Đã duyệt/Đã huỷ** xuất hiện, KHÔNG có 'Draft'/'Approved'/'Cancelled' raw EN trong DOM; (c) cột người render `responsible_name`, **KHÔNG** xuất hiện chuỗi email `responsible` trong DOM (anti-leak); (d) empty-state hiện khi mock trả `data:[]`; (e) click row gọi `router.push('/assets/<asset>')`.
+
+*Hết file 06. §11 (entrypoint asset-detail) + §12 (danh sách /decommissions) là CHỐT cho vòng 2. Wireframe / sitemap đầy đủ §1–§10 giữ làm Đợt 3.*

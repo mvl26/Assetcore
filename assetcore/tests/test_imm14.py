@@ -387,5 +387,155 @@ class TestDecommissionRbacGate(_BaseIMM14):
             frappe.set_user("Administrator")
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# TC-IMM14-LIST — list_decommissions (read-only, permission-scoped) — TDD RED trước
+# ─────────────────────────────────────────────────────────────────────────────
+class TestListDecommissions(_BaseIMM14):
+    """Danh sách "Biên bản giải nhiệm" (WHO HTM §3.8 / NĐ98).
+
+    Acceptance:
+      - envelope {data:[...], pagination:{page,page_size,total,...}} (mirror imm16).
+      - row: name, asset, asset_name_snapshot, risk_classification_snapshot,
+        workflow_state, disposal_method, decommissioned_on, responsible +
+        responsible_name (full_name, KHÔNG rò email).
+      - filter đo được: workflow_state / disposal_method / asset.
+      - RBAC: đi qua DocPerm Asset Decommission (KHÔNG ignore_permissions) —
+        user thiếu decommission.read → PermissionError hoặc tập rỗng theo scope.
+    """
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+        for email in getattr(self, "_extra_users", []):
+            try:
+                frappe.delete_doc("User", email, force=True, ignore_permissions=True)
+            except Exception:  # noqa: BLE001
+                pass
+        frappe.db.commit()
+        super().tearDown()
+
+    def _mk_user(self, email: str, roles: list[str],
+                 *, first_name: str = "", last_name: str = "") -> str:
+        if frappe.db.exists("User", email):
+            frappe.delete_doc("User", email, force=True, ignore_permissions=True)
+        u = frappe.get_doc({
+            "doctype": "User", "email": email,
+            "first_name": first_name or email.split("@")[0],
+            "last_name": last_name or "",
+            "send_welcome_email": 0, "user_type": "System User",
+        }).insert(ignore_permissions=True)
+        for r in roles:
+            u.append("roles", {"role": r})
+        u.flags.ignore_permissions = True
+        u.save()
+        frappe.db.commit()
+        from assetcore.services.shared import rbac as _rbac
+        _rbac.invalidate_capabilities(email)
+        self._extra_users = getattr(self, "_extra_users", [])
+        self._extra_users.append(email)
+        return email
+
+    def _approved_record(self, suffix: str, *, disposal: str = "Huỷ",
+                         responsible: str = "Administrator") -> tuple[str, str]:
+        """Tạo + duyệt 1 hồ sơ giải nhiệm → (asset, record). risk Low (no sanitize gate)."""
+        from assetcore.services import imm14
+        asset = self._make_asset(suffix, lifecycle="Active", risk="Low")
+        rec = self._make_record(asset, disposal=disposal, sanitized=True,
+                                responsible=responsible)
+        imm14.approve_decommission(rec)
+        frappe.db.commit()
+        return asset, rec
+
+    def _names(self, res: dict) -> list[str]:
+        return [r["name"] for r in res["data"]]
+
+    # ── envelope + Approved record ───────────────────────────────────────────
+    def test_list_decommissions_returns_approved_record(self):
+        from assetcore.services import imm14
+        asset, rec = self._approved_record("list-approved")
+        res = imm14.list_decommissions({})
+        # envelope shape
+        self.assertIn("data", res)
+        self.assertIn("pagination", res)
+        for key in ("page", "page_size", "total"):
+            self.assertIn(key, res["pagination"])
+        # record present + fields
+        row = next((r for r in res["data"] if r["name"] == rec), None)
+        self.assertIsNotNone(row, f"record {rec} phải có trong danh sách")
+        self.assertEqual(row["workflow_state"], "Approved")
+        self.assertTrue(row["asset_name_snapshot"])
+        self.assertEqual(row["asset"], asset)
+        self.assertIn("disposal_method", row)
+        self.assertIn("decommissioned_on", row)
+        self.assertIn("responsible_name", row)
+
+    # ── filter workflow_state ────────────────────────────────────────────────
+    def test_list_decommissions_filter_by_state(self):
+        from assetcore.services import imm14
+        # Draft (chưa duyệt)
+        draft_asset = self._make_asset("list-draft", lifecycle="Active", risk="Low")
+        draft_rec = self._make_record(draft_asset, sanitized=True)
+        # Approved
+        _, appr_rec = self._approved_record("list-appr-state")
+
+        res_appr = imm14.list_decommissions({"workflow_state": "Approved"})
+        self.assertIn(appr_rec, self._names(res_appr))
+        self.assertNotIn(draft_rec, self._names(res_appr))
+
+        res_draft = imm14.list_decommissions({"workflow_state": "Draft"})
+        self.assertIn(draft_rec, self._names(res_draft))
+        self.assertNotIn(appr_rec, self._names(res_draft))
+
+    # ── filter disposal_method ───────────────────────────────────────────────
+    def test_list_decommissions_filter_by_disposal_method(self):
+        from assetcore.services import imm14
+        _, rec_huy = self._approved_record("list-huy", disposal="Huỷ")
+        _, rec_ban = self._approved_record("list-ban", disposal="Bán/Trade-in")
+
+        res = imm14.list_decommissions({"disposal_method": "Bán/Trade-in"})
+        names = self._names(res)
+        self.assertIn(rec_ban, names)
+        self.assertNotIn(rec_huy, names)
+        # mọi row trả về đều đúng phương thức đã lọc
+        for r in res["data"]:
+            self.assertEqual(r["disposal_method"], "Bán/Trade-in")
+
+    # ── RBAC: user thiếu decommission.read → PermissionError / tập rỗng ───────
+    def test_list_decommissions_respects_rbac(self):
+        from assetcore.api import imm14 as api14
+        from assetcore.services import imm14 as svc14
+        _, rec = self._approved_record("list-rbac")
+        noperm = self._mk_user("_test_imm14_list_noperm@assetcore.test", ["PM User"])
+        try:
+            frappe.set_user(noperm)
+            # (1) API layer gate rbac.require('decommission.read') → PermissionError.
+            with self.assertRaises(frappe.PermissionError):
+                api14.list_decommissions(filters="{}")
+            # (2) Service layer qua frappe.get_list (DocPerm) → KHÔNG rò hồ sơ ngoài
+            #     quyền: hoặc PermissionError, hoặc tập rỗng (record người khác vắng mặt).
+            try:
+                res = svc14.list_decommissions({})
+                self.assertNotIn(rec, self._names(res))
+            except frappe.PermissionError:
+                pass
+        finally:
+            frappe.set_user("Administrator")
+
+    # ── responsible_name = full_name (KHÔNG rò email) ────────────────────────
+    def test_list_decommissions_responsible_enriched_not_email(self):
+        from assetcore.services import imm14
+        resp = self._mk_user(
+            "_test_imm14_resp@assetcore.test", ["Commissioning Manager"],
+            first_name="Nguyễn Văn", last_name="Trách Nhiệm")
+        _, rec = self._approved_record("list-resp", responsible=resp)
+        res = imm14.list_decommissions({})
+        row = next((r for r in res["data"] if r["name"] == rec), None)
+        self.assertIsNotNone(row)
+        self.assertEqual(row["responsible"], resp)  # raw id = email
+        self.assertEqual(row["responsible_name"], "Nguyễn Văn Trách Nhiệm")
+        # KHÔNG rò email + khác raw responsible id (LL-FE-53 / user_source policy)
+        self.assertNotIn("@", row["responsible_name"] or "")
+        self.assertNotEqual(row["responsible_name"], row["responsible"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -19,10 +19,12 @@ from __future__ import annotations
 
 import frappe
 
-from assetcore.utils.api_handler import handle
+from assetcore.utils.api_handler import handle, parse_json
+from assetcore.utils.api_handler import _service_error_to_envelope
 from assetcore.utils.response import _err
 from assetcore.utils.response import ErrorCode
 from assetcore.services.shared import rbac
+from assetcore.services.shared import ServiceError
 from assetcore.services import imm14 as svc
 
 _CAP_CREATE = "decommission.create"   # → ("Asset Decommission", "create")
@@ -77,3 +79,24 @@ def get_decommission(name: str):
     """Đọc chi tiết hồ sơ giải nhiệm (enrich asset_name, responsible_name, lifecycle)."""
     rbac.require(_CAP_READ)
     return handle(svc.get_decommission, name)
+
+
+@frappe.whitelist()
+def list_decommissions(filters: str = "{}", page: int = 1, page_size: int = 20):
+    """Danh sách "Biên bản giải nhiệm" (Asset Decommission) — read-only, RBAC-scoped.
+
+    Naming contract BE↔FE: FE gọi ``assetcore.api.imm14.list_decommissions``.
+
+    RBAC: ``rbac.require('decommission.read')`` chặn cứng ở BE (user thiếu quyền →
+    PermissionError 403). Service dùng ``frappe.get_list`` (áp DocPerm Asset
+    Decommission) → KHÔNG ignore_permissions, KHÔNG rò hồ sơ ngoài scope.
+
+    ``filters`` (JSON): whitelist workflow_state / disposal_method / asset. Malformed
+    → ServiceError(INVALID_PARAMS) chuyển thành Error-trên-HTTP-200 (KHÔNG raise→500).
+    """
+    rbac.require(_CAP_READ)
+    try:
+        f = parse_json(filters, default={}, field_name="filters")
+    except ServiceError as e:
+        return _service_error_to_envelope(e)
+    return handle(svc.list_decommissions, f, page=int(page), page_size=int(page_size))
