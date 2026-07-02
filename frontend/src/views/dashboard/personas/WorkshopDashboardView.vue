@@ -15,7 +15,7 @@ const woToAssign = computed(() => sectionRows(sec.value, 'wo_to_assign'))
 const techCompetency = computed(() => sectionRows(sec.value, 'tech_competency'))
 
 const woCols: ListColumn[] = [
-  { key: 'name', label: 'Mã WO', type: 'link' },
+  { key: 'name', label: 'Mã lệnh công việc', type: 'link' },
   { key: 'asset_ref', label: 'Thiết bị', nameKey: 'asset_name' },
   { key: 'pm_type', label: 'Loại' },
   { key: 'status', label: 'Trạng thái', type: 'status' },
@@ -31,7 +31,7 @@ const compCols: ListColumn[] = [
 <template>
   <PersonaDashboardShell
     title="Bảng điều khiển — Trưởng xưởng kỹ thuật"
-    subtitle="Phân công công việc · PM/CM/Calibration · Năng lực KTV"
+    subtitle="Phân công công việc · bảo trì định kỳ/sửa chữa/Hiệu chuẩn · Năng lực KTV"
     :kpis="kpis"
     :loading="isLoading"
     :error="error ? String(error.message ?? error) : null"

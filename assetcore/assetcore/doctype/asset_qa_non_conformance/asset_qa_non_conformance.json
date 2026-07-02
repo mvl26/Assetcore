@@ -99,6 +99,7 @@
   {
    "fieldname": "penalty_amount",
    "fieldtype": "Currency",
+   "length": 28,
    "label": "Giá trị Bồi thường Hãng",
    "permlevel": 1,
    "description": "Chỉ Ban Lãnh đạo có thể xem và điền."
@@ -185,6 +186,23 @@
    "print": 1,
    "email": 0,
    "share": 0
+  },
+  {
+   "role": "AssetCore Super Admin",
+   "permlevel": 1,
+   "read": 1,
+   "write": 1
+  },
+  {
+   "role": "Corrective Manager",
+   "permlevel": 1,
+   "read": 1,
+   "write": 1
+  },
+  {
+   "role": "AssetCore Auditor",
+   "permlevel": 1,
+   "read": 1
   }
  ],
  "sort_field": "modified",

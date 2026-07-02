@@ -4,6 +4,7 @@ import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getTransferFull, updateTransfer, approveTransfer } from '@/api/imm00'
 import { frappePost } from '@/api/helpers'
+import { transferTypeLabel } from '@/constants/labels'
 
 const route  = useRoute()
 const router = useRouter()
@@ -115,7 +116,7 @@ onMounted(load)
       <div>
         <p class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-1">Phiếu Luân chuyển</p>
         <h1 class="text-xl font-semibold text-gray-800">{{ name }}</h1>
-        <p class="text-xs text-gray-500 mt-1">{{ form.transfer_type }} · {{ form.transfer_date }}</p>
+        <p class="text-xs text-gray-500 mt-1">{{ transferTypeLabel(form.transfer_type as string) }} · {{ form.transfer_date }}</p>
       </div>
       <div class="flex flex-wrap items-center gap-3">
         <span v-if="status" class="text-xs font-semibold px-2.5 py-1 rounded-full" :class="STATUS_COLOR[status]">
@@ -153,7 +154,7 @@ onMounted(load)
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">Loại chuyển giao</label>
             <select v-model="form.transfer_type" :disabled="!isEditable" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm disabled:bg-gray-50">
-              <option>Internal</option><option>Loan</option><option>External</option><option>Return</option>
+              <option value="Internal">Nội bộ</option><option value="Loan">Cho mượn</option><option value="External">Bên ngoài</option><option value="Return">Hoàn trả</option>
             </select>
           </div>
           <div>

@@ -37,7 +37,7 @@
    "fieldname": "spec_ref",
    "fieldtype": "Link",
    "options": "IMM Tech Spec",
-   "label": "Tech Spec",
+   "label": "Hồ sơ kỹ thuật",
    "reqd": 1,
    "in_list_view": 1
   },
@@ -65,7 +65,7 @@
   {
    "fieldname": "recommended_candidate",
    "fieldtype": "Data",
-   "label": "Recommended",
+   "label": "Đề xuất",
    "read_only": 1,
    "in_list_view": 1
   },
@@ -77,19 +77,19 @@
   {
    "fieldname": "weighting_scheme",
    "fieldtype": "JSON",
-   "label": "Weighting (price/spec/support/brand %)",
+   "label": "Trọng số (giá/kỹ thuật/hỗ trợ/thương hiệu %)",
    "default": "{\"price\":30,\"spec\":40,\"support\":20,\"brand\":10}"
   },
   {
    "fieldname": "section_cands",
    "fieldtype": "Section Break",
-   "label": "Candidates"
+   "label": "Danh sách ứng viên"
   },
   {
    "fieldname": "candidates",
    "fieldtype": "Table",
    "options": "Benchmark Candidate",
-   "label": "Candidates"
+   "label": "Danh sách ứng viên"
   },
   {
    "fieldname": "amended_from",

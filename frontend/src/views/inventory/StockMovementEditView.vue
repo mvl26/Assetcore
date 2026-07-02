@@ -6,6 +6,7 @@ import { getStockMovement, updateStockMovement, searchParts, searchReferenceDocs
 import type { RefDoc } from '@/api/inventory'
 import type { MovementType, StockMovementItem, SparePart } from '@/types/inventory'
 import SmartSelect from '@/components/common/SmartSelect.vue'
+import CurrencyInput from '@/components/common/CurrencyInput.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 
 const props = defineProps<{ name: string }>()
@@ -196,7 +197,7 @@ async function save() {
     error.value = 'Phải có ít nhất 1 dòng với phụ tùng và số lượng'; return
   }
   if ((referenceType.value === 'Manual' || movementType.value === 'Adjustment') && !notes.value.trim()) {
-    error.value = 'Phiếu Manual / Điều chỉnh bắt buộc phải có Ghi chú (lý do)'; return
+    error.value = 'Phiếu thủ công / Điều chỉnh bắt buộc phải có Ghi chú (lý do)'; return
   }
   if (needsRefSearch.value && !referenceName.value) {
     error.value = 'Phải chọn chứng từ nguồn từ danh sách'; return
@@ -274,7 +275,7 @@ onMounted(load)
             <select id="sm-edit-ref-type" v-model="referenceType" class="form-select w-full">
               <option value="">— Không —</option>
               <option value="Asset Repair">Sửa chữa (Asset Repair)</option>
-              <option value="PM Work Order">Bảo trì / Hiệu chuẩn (PM Work Order)</option>
+              <option value="PM Work Order">Bảo trì / Hiệu chuẩn</option>
               <option value="AC Purchase">Mua hàng (Purchase)</option>
               <option value="Manual">Thủ công (Manual)</option>
             </select>
@@ -436,8 +437,8 @@ v-model.number="row.qty" type="number" :min="movementType === 'Adjustment' ? und
             <!-- Unit cost -->
             <div class="col-span-4 md:col-span-2">
               <label class="text-[10px] text-slate-500 mb-1 block">Đơn giá</label>
-              <input
-v-model.number="row.unit_cost" type="number" min="0" step="1000"
+              <CurrencyInput
+                v-model="row.unit_cost" aria-label="Đơn giá"
                      class="form-input w-full text-sm" />
             </div>
 

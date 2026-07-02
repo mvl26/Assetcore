@@ -126,6 +126,18 @@ Persona có **`corrective.read` nhưng KHÔNG `corrective.create`** (read-only t
 - **Capability cần:** `asset.read`.
 - **Output:** hồ sơ đầy đủ (định danh, model, risk class, lifecycle, location, cờ `pm_overdue`/`calibration_overdue`).
 
+### Bước 2c — Tab lịch sử thiết bị (read-history quartet, feature MVP #2 mở rộng)
+
+- **Hành động KTV:** từ màn hồ sơ thiết bị → chuyển tab "Lịch sử" để xem máy này từng có sự-cố / sửa-chữa / bảo-trì gì.
+- **Màn app:** `AssetDetailView` các tab read-only (mới→cũ, ≤`limit`).
+- **Endpoint BE (tái dùng, GET read-only, permission-aware — KHÔNG audit):**
+  - Tab **"Sự cố"** → `assetcore.api.imm12.get_asset_incident_history` (`getAssetIncidentHistory` — Incident Report).
+  - Tab **"Vòng đời"** → `assetcore.api.imm00.get_asset_timeline` (`getAssetTimeline` — Asset Lifecycle Event, trục audit-trail CLAUDE.md §10).
+  - Tab **"Lịch sử sửa chữa"** → `assetcore.api.imm09.get_asset_repair_history` (`getAssetRepairHistory` — Asset Repair CM; rows-key `history`/asset-key `asset_ref`, 200 SINGLE-shape).
+  - Tab **"Lịch sử bảo trì"** → `assetcore.api.imm08.get_asset_pm_history` (`getAssetPmHistory` — PM Task Log; "PM lần cuối khi nào, Pass/Fail, trễ hạn không, lần PM tới?"). 2 param `asset_ref` (required, no-default) + `limit` (int default 10, minimum 1). 200 = SINGLE `AssetPmHistoryEnvelope` `{success, data:{asset_ref, history[]}}`; `AssetPmHistoryItem` 10 field `{name,pm_work_order,pm_type,completion_date,technician,overall_result,is_late,days_late,next_pm_date,summary}` — `overall_result` enum `[Pass, Pass with Minor Issues, Fail]`, `is_late`/`days_late` integer (KHÔNG boolean), dates string no-`date-time`. ADR-MOBILE-023. **🟢 CONTRACT-ONLY** (endpoint LIVE `imm08.get_asset_pm_history:124` — KHÔNG reload/migrate). **ĐÓNG quartet** device-profile read-history (sự-cố + vòng-đời + CM + PM).
+- **Capability cần:** `asset.read` (read-only persona OK — KHÔNG audit, `history[]` rỗng nếu chưa từng PM, KHÔNG 404).
+- **Output:** danh sách lịch-sử theo tab (mới→cũ), powering tab "Lịch sử" màn hồ-sơ-thiết-bị flow-2.
+
 ### Bước 3 — Triage & Báo hỏng (feature MVP #3)
 
 - **Hành động KTV:** phát hiện sự cố → từ scan-info bấm "Báo hỏng" → form prefill `asset` (khoá, badge "Tạo từ quét QR") → nhập mô tả/mức độ → gửi.
@@ -153,12 +165,23 @@ Persona có **`corrective.read` nhưng KHÔNG `corrective.create`** (read-only t
 - **Endpoint BE (tái dùng, permission-aware, scope `reported_by`/`assigned_to`):**
   - PM: `assetcore.api.imm08.list_pm_work_orders` (`imm08.py:28`) · Cap: `pm.read`.
   - CM: `assetcore.api.imm09.list_repair_work_orders` (`imm09.py:21`) · Cap: `repair.read`.
-  - Báo hỏng: `assetcore.api.imm12.list_incidents` (`imm12.py:197`) · Cap: `corrective.read`.
+  - Báo hỏng: `assetcore.api.imm12.list_incidents` (`imm12.py:197`) · Cap: `corrective.read` · tab "Báo hỏng của tôi" truyền **`mine=1`** → scope `reported_by==session.user` (param `IncidentMine`; [ADR-MOBILE-015](./ADR-MOBILE-015.md)).
   - Hiệu chuẩn (nếu hiển thị): `assetcore.api.imm11.list_calibrations` (`imm11.py:71`) · Cap: `calibration.read`.
 - **Capability cần:** `pm.read` / `repair.read` / `corrective.read` / `calibration.read` (KTV có đủ §1.2).
 - **Output:** danh sách phiếu (pagination contract `04-api-contract §6`) — `total` permission-aware == Σ items; lặp trang tới `page > total_pages`.
 
 > **Bao phủ 5 feature MVP:** (1) Bước 1 login · (2) Bước 2/2b quét QR→hồ sơ · (3) Bước 3 báo hỏng · (4) Bước 4a/4b/4c yêu cầu PM/CM/Cal · (5) Bước 5 phiếu-của-tôi. ✅ Đủ. (Feature #6 push = Phase E, ngoài hành trình MVP này.)
+
+### Bước 5b — Theo dõi điều chuyển / nhận bàn giao (IMM-13 · Đợt-2, READ-only)
+
+- **Hành động KTV:** mở tab "Điều chuyển" → xem các phiếu luân chuyển thiết bị (Asset Transfer) liên quan (lọc theo `asset`/`status`), mở chi tiết 1 phiếu để **nhận bàn giao** (xem `from→to` vị trí/phòng/người phụ trách + lý do + trạng thái duyệt/nhận).
+- **Màn app:** `TransferListView` (filter `asset`/`status` + pagination) → `TransferDetailView` (`getTransfer`).
+- **Endpoint BE (READ, permission-aware):**
+  - List: `assetcore.api.imm00.list_transfers` (`imm00.py:2048`) — 200 SINGLE `TransferListEnvelope` rows-key `data.items[]` (KHÔNG `oneOf` — handler 0 `try/except`).
+  - Detail: `assetcore.api.imm00.get_transfer` (`imm00.py:2081`) — 200 `oneOf [TransferDetailEnvelope | Error]` (404→HTTP-200 nhánh Error).
+- **Output:** danh sách/chi tiết phiếu điều chuyển (`status` ∈ `[Pending Approval, Approved, Rejected, Received, Cancelled]`). slot `{200,401,403}`.
+
+> **Đợt-2 (READ-only):** chỉ surface READ (theo dõi + nhận bàn giao); 4 write điều chuyển (tạo/duyệt/từ chối/nhận) đã LIVE @BE nhưng wire mobile ở đợt sau. **CONTRACT-ONLY** (6 endpoint LIVE @`imm00.py`, `git diff` api/imm00.py + services/imm00.py = TRỐNG ⇒ KHÔNG reload). Guard `TestMobileTransferReadContract` (16 TC). [ADR-MOBILE-021](./ADR-MOBILE-021.md).
 
 ---
 
@@ -178,17 +201,22 @@ Persona có **`corrective.read` nhưng KHÔNG `corrective.create`** (read-only t
 | `PMWorkOrderCreateView` | `assetcore.api.imm08.create_pm_work_order` | `imm08.py:91` | POST | `pm.create` |
 | `PMWorkOrderCreateView` › chọn lịch | `assetcore.api.imm08.list_pm_schedules` | `imm08.py:122` | GET | `pm.read` |
 | `MyWorkOrdersView` › PM | `assetcore.api.imm08.list_pm_work_orders` | `imm08.py:28` | GET | `pm.read` |
+| `PMWorkOrderDetailView` › Phân công | `assetcore.api.imm08.assign_technician` | `imm08.py:47` | POST¹ | `pm.write` |
 | `CMCreateView` | `assetcore.api.imm09.create_repair_work_order` | `imm09.py:36` | POST | `repair.create` |
 | `MyWorkOrdersView` › CM | `assetcore.api.imm09.list_repair_work_orders` | `imm09.py:21` | GET | `repair.read` |
 | `CalibrationCreateView` | `assetcore.api.imm11.create_calibration` | `imm11.py:90` | POST | `calibration.create` |
 | `MyWorkOrdersView` › Cal | `assetcore.api.imm11.list_calibrations` | `imm11.py:71` | GET | `calibration.read` |
+| `AppResume` / `SessionGuard` (CSRF warm-up) | `assetcore.api.layout.ping_session` | `layout.py:238` | GET | — (`allow_guest=True` — free; KHÔNG cap, slot {200}-only) |
 
 > **Verify command (acceptance grep):**
 > `grep -n "^def resolve_qr_token\|^def get_asset_scan_info\|^def get_asset\|^def list_assets" assetcore/api/imm00.py` → 312/355/271/159 ✓
 > `grep -n "^def report_incident\|^def list_incidents" assetcore/api/imm12.py` → 71/197 ✓
-> `grep -n "^def create_pm_work_order\|^def list_pm_work_orders\|^def list_pm_schedules" assetcore/api/imm08.py` → 91/28/122 ✓
+> `grep -n "^def create_pm_work_order\|^def list_pm_work_orders\|^def list_pm_schedules\|^def assign_technician" assetcore/api/imm08.py` → 91/28/122/47 ✓
 > `grep -n "^def create_repair_work_order\|^def list_repair_work_orders" assetcore/api/imm09.py` → 36/21 ✓
 > `grep -n "^def create_calibration\|^def list_calibrations" assetcore/api/imm11.py` → 90/71 ✓
+> `grep -n "^def ping_session" assetcore/api/layout.py` → 238 ✓ (`@frappe.whitelist(allow_guest=True)` :237; LUÔN `_ok` → slot {200}-only, CSRF warm-up + app-resume who-am-I-lite)
+>
+> ¹ `assign_technician` `api/imm08.py:46` hiện bare `@frappe.whitelist()` (nhận GET) — **VERB-FLIP-THIS-ROUND** sang `methods=['POST']` (đóng verb-parity gap R33 BỎ SÓT; write-action DISPATCH KHÔNG idempotent). Mobile contract: `assignPmTechnician` (path 44) — [`04-api-contract.md §8.25`](./04-api-contract.md) / [`ADR-MOBILE-012.md`](./ADR-MOBILE-012.md) / [`docs/imm-08/05_API_Specification.md §0.1.1`](../imm-08/05_API_Specification.md).
 
 ---
 

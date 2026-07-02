@@ -36,14 +36,14 @@
   {
    "fieldname": "department_name",
    "fieldtype": "Data",
-   "label": "Department Name",
+   "label": "Tên khoa/phòng",
    "reqd": 1,
    "in_list_view": 1
   },
   {
    "fieldname": "department_code",
    "fieldtype": "Data",
-   "label": "Department Code",
+   "label": "Mã khoa/phòng",
    "unique": 1,
    "set_only_once": 1,
    "description": "Mã khoa. Nếu nhập tay → ghi đè naming series và dùng làm mã định danh. Nếu để trống → hệ thống tự sinh. Sau khi tạo không thể thay đổi.",
@@ -52,7 +52,7 @@
   {
    "fieldname": "parent_department",
    "fieldtype": "Link",
-   "label": "Parent Department",
+   "label": "Khoa/Phòng cấp trên",
    "options": "AC Department"
   },
   {
@@ -99,13 +99,13 @@
   {
    "fieldname": "dept_head",
    "fieldtype": "Link",
-   "label": "Department Head",
+   "label": "Trưởng khoa/phòng",
    "options": "User"
   },
   {
    "fieldname": "phone",
    "fieldtype": "Data",
-   "label": "Phone"
+   "label": "Điện thoại"
   },
   {
    "fieldname": "column_break_contact",
@@ -120,7 +120,7 @@
   {
    "fieldname": "is_active",
    "fieldtype": "Check",
-   "label": "Is Active",
+   "label": "Đang hoạt động",
    "default": "1"
   }
  ],

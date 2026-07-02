@@ -59,6 +59,7 @@
   {
    "fieldname": "variance_value",
    "fieldtype": "Currency",
+   "length": 28,
    "label": "Chênh lệch giá trị",
    "read_only": 1
   },
@@ -77,7 +78,7 @@
   {
    "fieldname": "capa_ref",
    "fieldtype": "Link",
-   "label": "IMM CAPA",
+   "label": "CAPA",
    "options": "IMM CAPA"
   },
   {

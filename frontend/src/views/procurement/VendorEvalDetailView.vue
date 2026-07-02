@@ -38,7 +38,7 @@
         <strong>⚖ {{ EVAL_TIE_BANNER }}</strong>
         <p>
           Có {{ tiedSuppliers.length }} nhà cung cấp đồng hạng nhất — hệ thống KHÔNG tự gợi ý
-          trúng thầu. Người chấm cần áp tiêu chí phân định (tiebreak) có hồ sơ.
+          trúng thầu. Người chấm cần áp tiêu chí phân định có hồ sơ.
         </p>
         <ul class="tie-list">
           <li v-for="s in tiedSuppliers" :key="s.supplier">{{ s.label }}</li>
@@ -195,7 +195,7 @@
     <!-- Thẻ: Scorecard (FE-03-02) -->
     <section v-show="tab === 'scorecard'" class="tab-content">
       <div class="card">
-        <h3>Scorecard Nhà cung cấp</h3>
+        <h3>Bảng điểm nhà cung cấp</h3>
         <div class="card-head">
           <label>Nhà cung cấp:
             <select v-model="scorecardSupplier">
@@ -220,7 +220,7 @@
           </div>
           <table class="data-table small">
             <thead>
-              <tr><th>KPI</th><th class="num">Điểm</th><th class="num">Trọng số</th><th class="num">Weighted</th></tr>
+              <tr><th>Chỉ số hiệu suất</th><th class="num">Điểm</th><th class="num">Trọng số</th><th class="num">Điểm trọng số</th></tr>
             </thead>
             <tbody>
               <tr v-for="(r, i) in (scorecard.kpi_rows || [])" :key="i">
@@ -230,7 +230,7 @@
                 <td class="num">{{ r.weighted }}</td>
               </tr>
               <tr v-if="!(scorecard.kpi_rows || []).length">
-                <td colspan="4" class="muted text-center">Không có dòng KPI.</td>
+                <td colspan="4" class="muted text-center">Không có dòng chỉ số hiệu suất.</td>
               </tr>
             </tbody>
           </table>
@@ -299,7 +299,7 @@
             <input v-model="newQuote.quotation_validity" type="date" />
           </label>
           <label>Giá (đồng) <span class="req">*</span>
-            <input v-model.number="newQuote.price" type="number" />
+            <CurrencyInput v-model="newQuote.price" aria-label="Giá báo giá" class="form-input w-full" />
           </label>
           <label>Điều khoản thanh toán
             <input v-model="newQuote.payment_terms" type="text"
@@ -330,6 +330,7 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useImm03Store } from '@/stores/imm03'
+import CurrencyInput from '@/components/common/CurrencyInput.vue'
 import {
   scoreEvaluation, addCandidate, submitQuotations, transitionEvalWorkflow,
   getVendorScorecard, listVendorProfiles,
@@ -349,7 +350,7 @@ type TabId = 'candidates' | 'scoring' | 'scorecard'
 const TABS: { id: TabId; label: string }[] = [
   { id: 'candidates', label: '1. Ứng viên & Báo giá' },
   { id: 'scoring',    label: '2. Chấm điểm' },
-  { id: 'scorecard',  label: '3. Scorecard Nhà cung cấp' },
+  { id: 'scorecard',  label: '3. Bảng điểm nhà cung cấp' },
 ]
 const tab = ref<TabId>('candidates')
 

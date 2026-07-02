@@ -325,6 +325,83 @@ class TestACAsset(unittest.TestCase):
             _purge_asset(asset.name)
 
 
+class TestCreateTransferRequiredFields(unittest.TestCase):
+    """Asset Transfer requiredness contract: to_department mandatory, to_location optional.
+
+    Business rule (phiếu điều chuyển): "Phòng ban mới" (to_department) là bắt buộc,
+    "Vị trí mới" (to_location) có thể nhập hoặc không.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": "Bơm tiêm điện (Transfer-Req test)",
+            "default_pm_interval_days": 30,
+        }).insert(ignore_permissions=True)
+        cls.dept_from = frappe.get_doc({
+            "doctype": "AC Department",
+            "department_name": "Khoa Nội (Transfer-Req nguồn)",
+        }).insert(ignore_permissions=True)
+        cls.dept_to = frappe.get_doc({
+            "doctype": "AC Department",
+            "department_name": "Khoa Ngoại (Transfer-Req đích)",
+        }).insert(ignore_permissions=True)
+        cls.loc_from = frappe.get_doc({
+            "doctype": "AC Location",
+            "location_name": "Phòng 101 (Transfer-Req nguồn)",
+            "location_type": "Room",
+        }).insert(ignore_permissions=True)
+        cls.asset = _insert_asset_bypass_workflow({
+            "doctype": "AC Asset",
+            "asset_name": "Terumo TE-SS830 (Transfer-Req)",
+            "asset_category": cls.cat.name,
+            "department": cls.dept_from.name,
+            "location": cls.loc_from.name,
+            "lifecycle_status": "Commissioned",
+        })
+
+    @classmethod
+    def tearDownClass(cls):
+        _purge_asset(cls.asset.name)
+        for dt, name in [
+            ("AC Location", cls.loc_from.name),
+            ("AC Department", cls.dept_from.name),
+            ("AC Department", cls.dept_to.name),
+            ("AC Asset Category", cls.cat.name),
+        ]:
+            frappe.delete_doc(dt, name, force=True, ignore_permissions=True)
+
+    def _base_payload(self):
+        return {
+            "asset": self.asset.name,
+            "transfer_type": "Internal",
+            "reason": "Điều chuyển phục vụ nhu cầu khoa",
+        }
+
+    def test_to_department_is_required(self):
+        from assetcore.services.imm00 import create_transfer_request
+        payload = self._base_payload()
+        payload["to_location"] = self.loc_from.name  # location present, department omitted
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            create_transfer_request(payload)
+        self.assertIn("to_department", str(ctx.exception))
+
+    def test_to_location_is_optional(self):
+        from assetcore.services.imm00 import create_transfer_request
+        payload = self._base_payload()
+        payload["to_department"] = self.dept_to.name  # department present, location omitted
+        result = create_transfer_request(payload)
+        try:
+            self.assertTrue(frappe.db.exists("Asset Transfer", result["name"]))
+            doc = frappe.get_doc("Asset Transfer", result["name"])
+            self.assertEqual(doc.to_department, self.dept_to.name)
+            self.assertFalse(doc.to_location)
+        finally:
+            frappe.delete_doc("Asset Transfer", result["name"],
+                              force=True, ignore_permissions=True)
+
+
 def _insert_asset_bypass_workflow(data: dict):
     """Insert AC Asset bypassing workflow validation (for test fixtures)."""
     prev = frappe.flags.in_install
@@ -871,7 +948,12 @@ class TestUserRoleManagement(unittest.TestCase):
         frappe.db.commit()
 
         self.assertTrue(result.get("success"), f"update_user_info failed: {result}")
-        self.assertEqual(self._db_roles(), ["Compliance Manager", "PM Manager"])
+        # Base role `AssetCore System User` là invariant bắt buộc — luôn có mặt
+        # bên cạnh các role payload (không gỡ qua UI). Xem _ensure_base_role.
+        self.assertEqual(
+            self._db_roles(),
+            ["AssetCore System User", "Compliance Manager", "PM Manager"],
+        )
 
     def test_update_user_roles_clears_old_roles(self):
         """Gán roles mới phải XÓA các IMM role cũ không nằm trong payload."""
@@ -889,19 +971,20 @@ class TestUserRoleManagement(unittest.TestCase):
         })
         update_user_info()
         frappe.db.commit()
+        # Base role `AssetCore System User` luôn được giữ (invariant) cùng 3 role seed.
         self.assertEqual(
             self._db_roles(),
-            ["Document Manager", "Inventory Manager", "PM User"],
+            ["AssetCore System User", "Document Manager", "Inventory Manager", "PM User"],
         )
 
-        # Replace: chỉ giữ 1
+        # Replace: chỉ giữ 1 domain role — các role cũ bị xóa, nhưng base role giữ nguyên.
         frappe.local.form_dict = frappe._dict({
             "user": self.TEST_EMAIL,
             "imm_roles": json.dumps([{"role": "Corrective User"}]),
         })
         update_user_info()
         frappe.db.commit()
-        self.assertEqual(self._db_roles(), ["Corrective User"])
+        self.assertEqual(self._db_roles(), ["AssetCore System User", "Corrective User"])
 
     def test_non_admin_cannot_set_roles(self):
         """Non-admin user phải bị reject 403 khi gọi update_user_info."""
@@ -1695,8 +1778,13 @@ class TestDecommissionCancelsDepreciation(unittest.TestCase):
             frappe.db.count("IMM Audit Trail", {"asset": asset}), 1)
 
     def test_tc04b_no_event_when_zero_pending(self):
-        # Asset KHÔNG có schedule (0 kỳ Pending) → decommission KHÔNG sinh event thừa.
+        # 0 kỳ Pending → decommission KHÔNG sinh event thừa.
+        # L-07: asset cấu hình nay tự sinh lịch ở after_insert ⇒ xoá schedule vừa
+        # sinh để dựng đúng trạng thái "không còn kỳ Pending" (mô phỏng asset đã
+        # khấu hao hết / lịch đã đóng) trước khi decommission.
         asset = self._make_asset("tc04b")
+        frappe.db.delete(_DEC_DT_SCHED, {"parent": asset, "parenttype": "AC Asset"})
+        frappe.db.commit()
         self.assertEqual(self._count_status(asset, "Pending"), 0)
         self._decommission(asset)
         self.assertEqual(

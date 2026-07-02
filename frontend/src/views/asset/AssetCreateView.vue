@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import DateInput from '@/components/common/DateInput.vue'
+import FormError from '@/components/common/FormError.vue'
+import CurrencyInput from '@/components/common/CurrencyInput.vue'
 // Copyright (c) 2026, AssetCore Team
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { createAsset, getDeviceModel } from '@/api/imm00'
+import { createAsset, getDeviceModel, getAssetCategory, createAssetCategory } from '@/api/imm00'
 import SmartSelect from '@/components/common/SmartSelect.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import { useFormDraft } from '@/composables/useFormDraft'
+import { notFutureError, dateOrderError, nonNegativeError, firstError } from '@/utils/formValidation'
 import type { AcAsset } from '@/types/imm00'
 
 const router = useRouter()
@@ -49,7 +52,7 @@ watch(() => form.value.device_model, async (modelName) => {
 })
 
 // BR-00-FE-01: đổi danh mục → reset model + PM/Cal
-function onCategoryChange() {
+async function onCategoryChange() {
   // Chọn/đổi danh mục → xoá lỗi inline reqd (nếu trước đó submit thiếu).
   if (form.value.asset_category) categoryError.value = ''
   form.value.device_model = ''
@@ -59,6 +62,36 @@ function onCategoryChange() {
   form.value.calibration_interval_days = undefined
   form.value.medical_device_class = undefined
   form.value.gmdn_code = ''
+  // L-08: kế thừa default PM/Hiệu chuẩn từ Danh mục làm baseline (default_*).
+  // Chọn Device Model sau đó sẽ GHI ĐÈ (model cụ thể hơn — watch ở trên).
+  if (!form.value.asset_category) return
+  try {
+    const cat = await getAssetCategory(form.value.asset_category)
+    if (!cat || form.value.asset_category !== cat.name) return
+    form.value.is_pm_required = cat.default_pm_required ?? 0
+    form.value.pm_interval_days = cat.default_pm_interval_days ?? undefined
+    form.value.is_calibration_required = cat.default_calibration_required ?? 0
+    form.value.calibration_interval_days = cat.default_calibration_interval_days ?? undefined
+  } catch {
+    // silent — user có thể tự tick
+  }
+}
+
+// L-18a: tạo nhanh danh mục ngay trên form (SmartSelect allow-create) qua endpoint
+// create_asset_category sẵn có. Tạo xong → tự chọn danh mục mới + onCategoryChange
+// (kế thừa default PM/Hiệu chuẩn). Lỗi (vd thiếu quyền create) → banner FormError.
+async function onCreateCategory(name: string) {
+  const clean = name?.trim()
+  if (!clean) return
+  try {
+    const res = await createAssetCategory({ category_name: clean })
+    if (res?.name) {
+      form.value.asset_category = res.name
+      await onCategoryChange()
+    }
+  } catch (e: unknown) {
+    error.value = e instanceof Error ? e.message : 'Không tạo được danh mục mới'
+  }
 }
 
 // D4 (ADR-IMM00-ASSETCODE): pattern parity với BE _ASSET_CODE_PATTERN ở ac_asset.py.
@@ -90,6 +123,17 @@ async function submit() {
     error.value = assetCodeError.value
     return
   }
+  // L-02: guard ngày/giá phía client (VI) — parity BE _validate_dates +
+  // _validate_purchase_amount (VR-00-04/05/06). BE vẫn là guard quyền lực.
+  const ve = firstError(
+    notFutureError(form.value.purchase_date, 'Ngày mua không được ở tương lai (VR-00-04).'),
+    dateOrderError(
+      form.value.purchase_date, form.value.warranty_expiry_date,
+      'Ngày hết hạn bảo hành phải >= ngày mua (VR-00-05).',
+    ),
+    nonNegativeError(form.value.gross_purchase_amount, 'Giá mua không được âm (VR-00-06).'),
+  )
+  if (ve) { error.value = ve; return }
   // Trim asset_code: '  TS-001  ' → 'TS-001' (parity test_asset_code_whitespace_trimmed).
   const trimmedCode = form.value.asset_code?.trim()
   if (trimmedCode) form.value.asset_code = trimmedCode
@@ -104,6 +148,9 @@ async function submit() {
     else error.value = 'Không thể lưu thiết bị. Vui lòng kiểm tra lại thông tin.'
   } catch (e: unknown) {
     error.value = e instanceof Error ? e.message : String(e)
+    // L-12: lần lưu thất bại KHÔNG giữ lại draft (tránh tái-áp dữ liệu lỗi ở
+    // lần mở /new sau). Form trong RAM vẫn giữ để user sửa & thử lại.
+    clearDraft()
   } finally {
     saving.value = false
   }
@@ -122,7 +169,7 @@ async function submit() {
       ]"
     />
 
-    <div v-if="error" class="alert-error mb-4">{{ error }}</div>
+    <FormError :message="error" class="mb-4" />
 
     <form class="space-y-5" @submit.prevent="submit">
       <!-- Section: Thông tin cơ bản -->
@@ -158,8 +205,10 @@ async function submit() {
               v-model="form.asset_category"
               doctype="AC Asset Category"
               placeholder="Tìm danh mục..."
+              :allow-create="true"
               @select="onCategoryChange"
               @clear="onCategoryChange"
+              @create="onCreateCategory"
             />
             <p v-if="categoryError" class="mt-1 text-xs text-red-600" role="alert">{{ categoryError }}</p>
           </div>
@@ -207,14 +256,14 @@ async function submit() {
           </div>
           <div>
             <label class="form-label">Giá mua (VND)</label>
-            <input v-model.number="form.gross_purchase_amount" type="number" min="0" class="form-input w-full" />
+            <CurrencyInput v-model="form.gross_purchase_amount" aria-label="Giá mua (VND)" class="form-input w-full" />
           </div>
           <div>
             <label class="form-label">Ngày bảo hành hết hạn</label>
             <DateInput v-model="form.warranty_expiry_date" class="form-input w-full" />
           </div>
           <div>
-            <label class="form-label">Ngày commissioning</label>
+            <label class="form-label">Ngày nghiệm thu</label>
             <DateInput v-model="form.commissioning_date" class="form-input w-full" />
           </div>
         </div>
@@ -222,7 +271,7 @@ async function submit() {
 
       <!-- Section: Nhận dạng HTM -->
       <div class="card p-5">
-        <h2 class="text-sm font-semibold text-slate-700 mb-4 pb-2 border-b border-slate-100">Nhận dạng HTM / Pháp lý</h2>
+        <h2 class="text-sm font-semibold text-slate-700 mb-4 pb-2 border-b border-slate-100">Nhận dạng thiết bị y tế / Pháp lý</h2>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <!-- D1/D4: Số serial NSX = field nghiệp vụ riêng, KHÔNG phải mã định danh tài sản -->
           <div>
@@ -233,12 +282,12 @@ async function submit() {
             </p>
           </div>
           <div>
-            <label class="form-label">UDI Code</label>
+            <label class="form-label">Mã UDI</label>
             <input v-model="form.udi_code" type="text" class="form-input w-full font-mono" />
           </div>
           <div>
             <label class="form-label">
-              GMDN Code
+              Mã GMDN
               <span v-if="form.device_model" class="ml-1 text-[10px] font-normal text-blue-500">(tự điền từ model)</span>
             </label>
             <input v-model="form.gmdn_code" type="text" class="form-input w-full" placeholder="Kế thừa từ Model thiết bị" />

@@ -167,7 +167,7 @@ onMounted(renderQr)
         <dd class="font-mono">{{ valid.manufacturer_sn || '—' }}</dd>
       </div>
       <div class="qr-label__row qr-label__row--secondary">
-        <dt>Model</dt>
+        <dt>Mẫu máy</dt>
         <dd>{{ valid.device_model_name || '—' }}</dd>
       </div>
       <div class="qr-label__row qr-label__row--secondary">

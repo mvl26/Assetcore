@@ -5,11 +5,14 @@ import { useRouter } from 'vue-router'
 import { useNotify } from '@/composables/useNotify'
 import { MSG } from '@/i18n/messages'
 import { cmStatusLabel, cmStatusClass, priorityLabel, priorityClass, rootCauseLabel, repairTypeLabel, resultLabel, lifecycleStatusLabel, lifecycleStatusClass } from '@/constants/labels'
+import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
+import { useCapabilities } from '@/composables/useCapabilities'
 
 const props = defineProps<{ id: string }>()
 const store = useImm09Store()
 const router = useRouter()
 const notify = useNotify()
+const { can } = useCapabilities()
 
 /** Sau mỗi action store: success → toast chuẩn; fail → notify.fromError(ApiError đã hydrate). */
 function notifyResult(ok: boolean, successCode: string, ctx: Record<string, unknown> = {}): void {
@@ -61,6 +64,52 @@ function startTimer() {
 }
 
 const wo = computed(() => store.currentWO)
+
+// ─── SSoT server-driven CTA (GATE-8 / LL-FE-51 · mirror IncidentDetailView R3 +
+// CalibrationDetailView) ──────────────────────────────────────────────────────
+// Mọi nút chuyển-trạng-thái gate theo `allowed_transitions` do BE emit
+// (_REPAIR_VALID_TRANSITIONS trong imm09.py) — KHÔNG hardcode `wo.status === 'X'`
+// (hardcode = trộn luồng + lộ nút sai pha; đây chính là bug divergence RED của nút
+// "Không thể sửa chữa" trước đây render ở MỌI state non-terminal). Mỗi canXxx =
+// (capability && allowedTransitions.includes('<trạng-thái-đích>')). Capability khớp
+// EXACT rbac.require BE: assign/diagnose/parts/complete-nav/cannot-repair =
+// repair.create; xác nhận nghiệm thu (dept-head/QA) = repair.submit. Terminal
+// (Completed/Cannot Repair/Cancelled) → allowed=[] → 0 nút CTA (chỉ còn nhãn tĩnh).
+const allowedTransitions = computed<string[]>(() => wo.value?.allowed_transitions ?? [])
+const canExecuteRepair = computed(() => can('repair.create'))
+const canApproveRepair = computed(() => can('repair.submit'))
+
+const canAssign = computed(() => canExecuteRepair.value && allowedTransitions.value.includes('Assigned'))
+// Trang chẩn đoán khả dụng khi BE cho phép VÀO pha chẩn đoán: Assigned→'Diagnosing'
+// hoặc đang Diagnosing (BE cho phép rời sang 'Pending Parts'). KHÔNG hiện ở Pending
+// Inspection — allowed ở đó có 'In Repair' nhưng là đường TRẢ VỀ (nghiệm thu-fail),
+// không phải chẩn đoán → dùng dấu hiệu riêng 'Diagnosing'/'Pending Parts'.
+const canDiagnose = computed(() =>
+  canExecuteRepair.value &&
+  (allowedTransitions.value.includes('Diagnosing') ||
+    allowedTransitions.value.includes('Pending Parts')),
+)
+// "Bắt đầu" (Assigned→Diagnosing) vs "Cập nhật" (Diagnosing→…).
+const diagnoseLabel = computed(() =>
+  allowedTransitions.value.includes('Diagnosing') ? 'Bắt đầu chẩn đoán' : 'Cập nhật chẩn đoán',
+)
+// Quản lý vật tư khả dụng khi BE cho phép VÀO 'In Repair' (từ Diagnosing / Pending
+// Parts) — TRỪ pha Pending Inspection (nhận diện bằng có 'Completed' trong allowed)
+// nơi hành động chính là nghiệm thu, không phải cấp vật tư.
+const canManageParts = computed(() =>
+  canExecuteRepair.value &&
+  allowedTransitions.value.includes('In Repair') &&
+  !allowedTransitions.value.includes('Completed'),
+)
+const canCompleteRepair = computed(() => canExecuteRepair.value && allowedTransitions.value.includes('Pending Inspection'))
+const canConfirmInspection = computed(() => canApproveRepair.value && allowedTransitions.value.includes('Completed'))
+const canCannotRepair = computed(() => canExecuteRepair.value && allowedTransitions.value.includes('Cannot Repair'))
+
+const isTerminal = computed(() => ['Completed', 'Cannot Repair', 'Cancelled'].includes(wo.value?.status ?? ''))
+const hasAnyCta = computed(() =>
+  canAssign.value || canDiagnose.value || canManageParts.value ||
+  canCompleteRepair.value || canConfirmInspection.value || canCannotRepair.value,
+)
 
 // ─── Trạng thái vòng đời THỰC của thiết bị (BR-09-09 / INV-09-RESTORE-1) ───────
 // Bind theo `asset_info.lifecycle_status` THẬT từ response — KHÔNG hardcode 'Active'.
@@ -170,7 +219,7 @@ async function doConfirmInspection() {
           <span class="font-mono text-lg font-bold text-slate-900">{{ wo?.name }}</span>
           <span v-if="wo" :class="['px-2.5 py-1 rounded-full text-xs font-semibold', cmStatusClass(wo.status)]">{{ cmStatusLabel(wo.status) }}</span>
           <span v-if="wo?.is_repeat_failure" class="px-2 py-0.5 rounded-full text-xs bg-amber-100 text-amber-700 font-medium">Tái hỏng</span>
-          <span v-if="wo?.sla_breached" class="px-2 py-0.5 rounded-full text-xs bg-red-100 text-red-700 font-semibold">SLA vi phạm</span>
+          <span v-if="wo?.sla_breached" class="px-2 py-0.5 rounded-full text-xs bg-red-100 text-red-700 font-semibold">Cam kết dịch vụ vi phạm</span>
           <!-- Trạng thái vòng đời THỰC của thiết bị (BR-09-09) — bind giá trị thật, không hardcode -->
           <span
             v-if="assetLifecycleStatus"
@@ -215,9 +264,9 @@ async function doConfirmInspection() {
             </div>
             <div v-if="wo.department_name"><span class="text-slate-500">Khoa:</span> <span class="font-medium">{{ wo.department_name }}</span></div>
             <div v-if="wo.location_name"><span class="text-slate-500">Vị trí:</span> <span class="font-medium">{{ wo.location_name }}</span></div>
-            <div><span class="text-slate-500">Serial:</span> <span class="font-mono text-xs">{{ wo.serial_no || '—' }}</span></div>
-            <div><span class="text-slate-500">Risk Class:</span> <span class="font-medium">{{ wo.risk_class }}</span></div>
-            <div><span class="text-slate-500">Loại SC:</span> <span class="font-medium">{{ repairTypeLabel(wo.repair_type) }}</span></div>
+            <div><span class="text-slate-500">Số serial:</span> <span class="font-mono text-xs">{{ wo.serial_no || '—' }}</span></div>
+            <div><span class="text-slate-500">Phân loại rủi ro:</span> <span class="font-medium">{{ wo.risk_class }}</span></div>
+            <div><span class="text-slate-500">Loại sửa chữa:</span> <span class="font-medium">{{ repairTypeLabel(wo.repair_type) }}</span></div>
             <div>
               <span class="text-slate-500">Ưu tiên:</span>
               <span :class="['ml-1 px-1.5 py-0.5 rounded text-xs font-medium', priorityClass(wo.priority)]">{{ priorityLabel(wo.priority) }}</span>
@@ -230,7 +279,7 @@ async function doConfirmInspection() {
               v-if="wo.incident_report"
               :to="`/incidents/${wo.incident_report}`"
               class="text-xs bg-purple-100 text-purple-700 hover:bg-purple-200 px-2 py-1 rounded-full transition-colors"
-              title="Mở Incident Report nguồn"
+              title="Mở báo cáo sự cố nguồn"
             >
 Sự cố {{ wo.incident_report }} →
 </router-link>
@@ -341,13 +390,13 @@ Phiếu bảo trì {{ wo.source_pm_wo }} →
       <div class="md:col-span-2 space-y-4">
         <!-- SLA Indicator -->
         <div class="bg-white rounded-xl shadow-sm border p-5">
-          <h2 class="font-semibold text-slate-700 mb-3 text-sm">Chỉ số SLA</h2>
+          <h2 class="font-semibold text-slate-700 mb-3 text-sm">Chỉ số cam kết dịch vụ</h2>
 
           <!-- WO đã đóng: kết quả cuối, không có timer/progress -->
           <template v-if="['Completed', 'Cannot Repair', 'Cancelled'].includes(wo.status)">
             <div class="flex items-center justify-between mb-2">
-              <span class="text-xs text-slate-500">Thời gian sửa chữa (TTR)</span>
-              <span class="text-xs text-slate-500">SLA target</span>
+              <span class="text-xs text-slate-500">Thời gian sửa chữa</span>
+              <span class="text-xs text-slate-500">Mục tiêu cam kết mức dịch vụ</span>
             </div>
             <div class="flex items-center justify-between mb-3">
               <span :class="['text-xl font-bold font-mono', wo.sla_breached ? 'text-red-600' : 'text-emerald-600']">
@@ -359,7 +408,7 @@ Phiếu bảo trì {{ wo.source_pm_wo }} →
             <div class="flex items-center justify-center gap-2 py-2 rounded-lg"
                  :class="wo.sla_breached ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'">
               <span class="text-base font-semibold">
-                {{ wo.sla_breached ? '✗ Vi phạm SLA' : '✓ Đạt SLA' }}
+                {{ wo.sla_breached ? '✗ Vi phạm cam kết dịch vụ' : '✓ Đạt cam kết dịch vụ' }}
               </span>
             </div>
             <div v-if="wo.status !== 'Completed'" class="text-xs text-center text-slate-400 mt-2">
@@ -379,15 +428,15 @@ Phiếu bảo trì {{ wo.source_pm_wo }} →
                 <path stroke-linecap="round" stroke-linejoin="round" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
               <div>
-                <p class="text-sm font-semibold">Chờ phụ tùng — SLA tạm dừng</p>
+                <p class="text-sm font-semibold">Chờ phụ tùng — cam kết dịch vụ tạm dừng</p>
                 <p class="text-xs mt-0.5 text-amber-700">
-                  Đồng hồ SLA/MTTR đang dừng trong thời gian chờ phụ tùng hết kho;
+                  Đồng hồ cam kết dịch vụ/thời gian sửa chữa trung bình đang dừng trong thời gian chờ phụ tùng hết kho;
                   khoảng này không tính vào thời gian sửa chữa.
                 </p>
               </div>
             </div>
             <div class="flex items-center justify-between mt-3 text-xs text-slate-500">
-              <span>SLA target</span>
+              <span>Mục tiêu cam kết mức dịch vụ</span>
               <span class="font-mono font-semibold text-slate-700">{{ wo.sla_target_hours ?? '—' }}h</span>
             </div>
           </template>
@@ -395,7 +444,7 @@ Phiếu bảo trì {{ wo.source_pm_wo }} →
           <!-- WO active: timer + progress bar -->
           <template v-else>
             <div class="flex items-center justify-between mb-1">
-              <span class="text-xs text-slate-500">Đã trôi: {{ (elapsed / 3600).toFixed(1) }}h / {{ wo.sla_target_hours || '—' }}h SLA</span>
+              <span class="text-xs text-slate-500">Đã trôi: {{ (elapsed / 3600).toFixed(1) }}h / {{ wo.sla_target_hours || '—' }}h cam kết dịch vụ</span>
               <span :class="['text-xs font-semibold', slaTextColor]">{{ slaPercent }}%</span>
             </div>
             <div class="h-3 bg-slate-100 rounded-full overflow-hidden mb-2">
@@ -426,7 +475,7 @@ Phiếu bảo trì {{ wo.source_pm_wo }} →
               <span class="text-slate-700">{{ wo.completion_datetime?.slice(0,16) }}</span>
             </div>
             <div v-if="wo.mttr_hours" class="flex justify-between">
-              <span class="text-slate-500">Thời gian sửa chữa (TTR):</span>
+              <span class="text-slate-500">Thời gian sửa chữa:</span>
               <span :class="['font-semibold', wo.sla_breached ? 'text-red-600' : 'text-green-600']">{{ wo.mttr_hours }}h</span>
             </div>
           </div>
@@ -447,84 +496,87 @@ Phiếu bảo trì {{ wo.source_pm_wo }} →
         <div class="bg-white rounded-xl shadow-sm border p-5">
           <h2 class="font-semibold text-slate-700 mb-3 text-sm">Thao tác</h2>
           <div class="space-y-2">
-            <!-- Open → Assign (modal) -->
-            <template v-if="wo.status === 'Open'">
-              <button
-class="w-full px-4 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
-                @click="showAssignModal = true">
-Phân công kỹ thuật viên
-</button>
-            </template>
+            <!-- Server-driven CTA: mỗi nút render theo (capability && allowed_transitions
+                 BE) — KHÔNG gate bằng wo.status === 'X' (GATE-8 / LL-FE-51). -->
 
-            <!-- Assigned → navigate /diagnose -->
-            <template v-if="wo.status === 'Assigned'">
-              <button
-class="w-full px-4 py-2.5 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 transition-colors"
-                @click="navigateDiagnose">
-Bắt đầu chẩn đoán
-</button>
-            </template>
+            <!-- → Assigned: phân công KTV (modal) -->
+            <button
+              v-if="canAssign"
+              data-testid="cta-assign"
+              class="w-full px-4 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 focus-visible:ring-2 focus-visible:ring-blue-500 transition-colors"
+              @click="showAssignModal = true">
+              Phân công kỹ thuật viên
+            </button>
 
-            <!-- Diagnosing → navigate /diagnose -->
-            <template v-if="wo.status === 'Diagnosing'">
-              <button
-class="w-full px-4 py-2.5 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 transition-colors"
-                @click="navigateDiagnose">
-Cập nhật chẩn đoán
-</button>
-            </template>
+            <!-- → Diagnosing / In Repair / Pending Parts: trang chẩn đoán -->
+            <button
+              v-if="canDiagnose"
+              data-testid="cta-diagnose"
+              class="w-full px-4 py-2.5 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 focus-visible:ring-2 focus-visible:ring-purple-500 transition-colors"
+              @click="navigateDiagnose">
+              {{ diagnoseLabel }}
+            </button>
 
-            <!-- Pending Parts → navigate /parts -->
-            <template v-if="wo.status === 'Pending Parts'">
-              <button
-class="w-full px-4 py-2.5 bg-orange-600 text-white rounded-lg text-sm font-medium hover:bg-orange-700 transition-colors"
-                @click="navigateParts">
-Quản lý vật tư
-</button>
-            </template>
+            <!-- → In Repair: quản lý vật tư -->
+            <button
+              v-if="canManageParts"
+              data-testid="cta-parts"
+              class="w-full px-4 py-2.5 bg-orange-600 text-white rounded-lg text-sm font-medium hover:bg-orange-700 focus-visible:ring-2 focus-visible:ring-orange-500 transition-colors"
+              @click="navigateParts">
+              Quản lý vật tư
+            </button>
 
-            <!-- In Repair → navigate /parts + /checklist -->
-            <template v-if="wo.status === 'In Repair'">
-              <button
-class="w-full px-4 py-2.5 bg-orange-600 text-white rounded-lg text-sm font-medium hover:bg-orange-700 transition-colors"
-                @click="navigateParts">
-Quản lý vật tư
-</button>
-              <button
-class="w-full px-4 py-2.5 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-colors"
-                @click="navigateChecklist">
-Hoàn thành sửa chữa
-</button>
-            </template>
+            <!-- → Pending Inspection: hoàn thành sửa chữa (trang checklist) -->
+            <button
+              v-if="canCompleteRepair"
+              data-testid="cta-complete"
+              class="w-full px-4 py-2.5 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 focus-visible:ring-2 focus-visible:ring-green-500 transition-colors"
+              @click="navigateChecklist">
+              Hoàn thành sửa chữa
+            </button>
 
-            <!-- Pending Inspection → xác nhận nghiệm thu (QA / trưởng khoa) -->
-            <template v-if="wo.status === 'Pending Inspection'">
+            <!-- → Completed: xác nhận nghiệm thu (QA / trưởng khoa = repair.submit) -->
+            <template v-if="canConfirmInspection">
               <button
-                class="w-full px-4 py-2.5 bg-cyan-600 text-white rounded-lg text-sm font-medium hover:bg-cyan-700 disabled:opacity-50 transition-colors"
+                data-testid="cta-confirm-inspection"
+                class="w-full px-4 py-2.5 bg-cyan-600 text-white rounded-lg text-sm font-medium hover:bg-cyan-700 focus-visible:ring-2 focus-visible:ring-cyan-500 disabled:opacity-50 transition-colors"
                 :disabled="submitting"
                 @click="doConfirmInspection">
                 {{ submitting ? 'Đang xử lý...' : 'Xác nhận nghiệm thu — Hoàn thành' }}
               </button>
               <p class="text-[11px] text-center text-slate-400 mt-1">
-                Yêu cầu quyền phê duyệt cấp khoa/QA. Sau bước này MTTR & SLA được chốt.
+                Yêu cầu quyền phê duyệt cấp khoa/đảm bảo chất lượng. Sau bước này thời gian sửa chữa trung bình & cam kết dịch vụ được chốt.
               </p>
             </template>
 
-            <!-- Cannot Repair button for non-terminal statuses -->
-            <template v-if="!['Completed','Cannot Repair','Cancelled'].includes(wo.status)">
-              <button
-class="w-full px-4 py-2.5 border border-red-300 text-red-600 rounded-lg text-sm font-medium hover:bg-red-50 transition-colors"
-                @click="showCannotRepairModal = true">
-Không thể sửa chữa
-</button>
-            </template>
+            <!-- → Cannot Repair: chỉ render khi BE cho phép chuyển 'Cannot Repair'
+                 (theo _REPAIR_VALID_TRANSITIONS: chỉ In Repair). KHÔNG render ở
+                 Open/Assigned/Diagnosing/Pending Parts (BE cấm) — đây là fix divergence RED. -->
+            <button
+              v-if="canCannotRepair"
+              data-testid="cta-cannot-repair"
+              class="w-full px-4 py-2.5 border border-red-300 text-red-600 rounded-lg text-sm font-medium hover:bg-red-50 focus-visible:ring-2 focus-visible:ring-red-400 transition-colors"
+              @click="showCannotRepairModal = true">
+              Không thể sửa chữa
+            </button>
 
-            <!-- Terminal states -->
+            <!-- Nhãn trạng thái terminal (hiển thị TĨNH — KHÔNG phải CTA) -->
             <div v-if="wo.status === 'Completed'" class="text-center py-2 text-emerald-600 font-semibold text-sm">
               Đã hoàn thành
             </div>
             <div v-if="wo.status === 'Cannot Repair'" class="text-center py-2 text-red-600 font-semibold text-sm">
               Không thể sửa chữa
+            </div>
+            <div v-if="wo.status === 'Cancelled'" class="text-center py-2 text-slate-500 font-semibold text-sm">
+              Đã huỷ
+            </div>
+
+            <!-- Non-terminal nhưng không có CTA khả dụng (thiếu quyền) — LL-FE-23/26 -->
+            <div
+              v-if="!hasAnyCta && !isTerminal"
+              class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2"
+            >
+              Không có hành động khả dụng cho vai trò hiện tại. Liên hệ quản trị để cấp quyền sửa chữa phù hợp.
             </div>
           </div>
         </div>
@@ -554,8 +606,15 @@ Không thể sửa chữa
         <h3 class="font-bold text-lg mb-4">Phân công kỹ thuật viên</h3>
         <div class="space-y-3 mb-5">
           <div>
-            <label for="assign-email" class="block text-sm text-slate-600 mb-1">Email kỹ thuật viên *</label>
-            <input id="assign-email" v-model="assignEmail" type="email" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" placeholder="ktv@hospital.vn" />
+            <!-- Picker user AssetCore ĐỦ NĂNG LỰC sửa chữa (Repair Manager/User + admin),
+                 lọc server-side theo capability — thay free-text email tránh gán nhầm. -->
+            <ApproverSelect
+              v-model="assignEmail"
+              context="repair"
+              label="Kỹ thuật viên"
+              required
+              placeholder="Tìm KTV theo tên hoặc email..."
+            />
           </div>
           <div>
             <label for="assign-priority" class="block text-sm text-slate-600 mb-1">Ưu tiên</label>

@@ -20,7 +20,7 @@
 |---|---|---|---|---|---|
 | 1 | `assetcore.api.imm12.report_incident` | POST | Tạo Incident Report | **`corrective.create`** (V4 D1) | US-12-01 |
 | 2 | `assetcore.api.imm12.get_incident` | GET | Chi tiết 1 IR (calls `get_incident_detail`) | authenticated | US-12-07 |
-| 3 | `assetcore.api.imm12.list_incidents` | GET | List IR với filter + pagination | authenticated | US-12-07 |
+| 3 | `assetcore.api.imm12.list_incidents` | GET | List IR với filter (`status`/`severity`/`asset`/`open`/**`mine`**) + pagination. `mine=1` scope `reported_by==session.user` (tab "Báo hỏng của tôi" MVP-5c — §2 #3 "list_incidents — filter mine" + ADR-IMM12-05) | authenticated | US-12-07 |
 | 4 | `assetcore.api.imm12.acknowledge_incident` | POST | Open → Acknowledged (hoặc → In Progress) | ROLES_INVESTIGATE | US-12-02 |
 | 5 | `assetcore.api.imm12.resolve_incident` | POST | In Progress → Resolved + auto RCA cho High/Critical | ROLES_INVESTIGATE | US-12-02 |
 | 6 | `assetcore.api.imm12.close_incident` | POST | Resolved → Closed (validate RCA Completed) | ROLES_CLOSE | US-12-02 |
@@ -31,7 +31,9 @@
 | 11 | `assetcore.api.imm12.get_chronic_failures` | GET | Danh sách asset chronic (≥3/90d) | authenticated | US-12-04 |
 | 12 | `assetcore.api.imm12.get_dashboard` | GET | Dashboard: stats + active + rcas + chronic | authenticated | US-12-05 |
 | 13 | `assetcore.api.imm12.get_incident_stats` | GET | KPI counts per status+severity | authenticated | US-12-05 |
-| 14 | `assetcore.api.imm12.get_asset_incident_history` | GET | Incident history của 1 asset | authenticated | US-12-07 |
+| 14 | `assetcore.api.imm12.get_asset_incident_history` | GET | Incident history của 1 asset (`asset` required + `limit` default 10) → `{asset, items[]}` (9-field/dòng `name,incident_type,severity,status,reported_at,fault_code,closed_date,linked_capa,rca_record` @`services/imm12.py:838-843`; KHÔNG pagination) | authenticated | US-12-07 |
+
+> 📱 **Mobile-BE contract (FLOW-2 device-profile):** endpoint #14 đã bồi vào `docs/mobile/openapi/assetcore-mobile.openapi.yaml` (opId `getAssetIncidentHistory`, 200 = oneOf `[AssetIncidentHistoryEnvelope, Error]` closed-schema route-by-VALUE `body.success`; envelope `data.required=[asset,items]` **KHÔNG pagination** — KHÁC `IncidentListEnvelope`; element `AssetIncidentHistoryItem` EXACT 9 prop, 0 Check field ⇒ né int-vs-bool trap). Lấp dead-end màn hồ-sơ-thiết-bị sau `getAssetScanInfo`. Spec đầy đủ: [`docs/mobile/04-api-contract.md §8.18`](../mobile/04-api-contract.md).
 
 ---
 
@@ -145,9 +147,12 @@ FE đọc `response.data.data` (axios + Frappe lớp ngoài đã wrap).
   "patient_impact_description": "",
   "immediate_action": "",
   "linked_repair_wo": "",
+  "occurred_datetime": "2026-06-27 08:15:00", // optional — G1/CR-16: thời điểm sự cố THỰC SỰ xảy ra (Frappe wire "yyyy-MM-dd HH:mm:ss", KHÔNG ISO-T); rỗng → fallback reported_at; tương lai → 422
   "source": "qr-scan"                        // V4 D2: provenance enum {manual,qr-scan}; mặc định "manual" nếu thiếu/lạ
 }
 ```
+
+> 📱 **Mobile-BE contract (G1/CR-16 — báo hỏng F2, contract-only):** `occurred_datetime` ĐÃ wire vào `ReportIncidentRequest.properties` của `docs/mobile/openapi/assetcore-mobile.openapi.yaml` (`type: string`, **KHÔNG** `format: date-time` — Frappe đọc datetime space-separated `yyyy-MM-dd HH:mm:ss` qua `get_datetime` `services/imm12.py:377`, KHÔNG ISO-8601 `T`). **Optional** (`api/imm12.py:83` default `=""`) ⇒ KHÔNG vào `required[]` (giữ EXACT 4 = `[asset,incident_type,severity,description]`). Rỗng → server fallback `reported_at` (`services/imm12.py:382`); KHÔNG tương lai → 422 `IMM12_OCCURRED_DATETIME_FUTURE` (`services/imm12.py:378-379`; `utils/messages.py:801` `http_status=422`). Spec đầy đủ + test contract (TC-MOB-OAS-13g parity + count bump): [`docs/mobile/04-api-contract.md §8.3a`](../mobile/04-api-contract.md) · ADR D5 [`ADR-IMM12-REPORT-FAILURE.md`](./ADR-IMM12-REPORT-FAILURE.md).
 
 **Response success:**
 ```jsonc
@@ -171,6 +176,7 @@ FE đọc `response.data.data` (axios + Frappe lớp ngoài đã wrap).
 | 401 | `UNAUTHENTICATED` | — | Guest (chưa đăng nhập) |
 | **403** | `PERMISSION` | `FORBIDDEN` | **V4 D1:** authenticated thiếu `corrective.create` — message "Không có quyền thực hiện hành động này" (KHÔNG chứa raw cap `corrective.create`) |
 | 422 | `BUSINESS_RULE` | `BUSINESS_RULE_VIOLATION` | Critical + không có clinical_impact (BR-12-01) |
+| 422 | `IMM12-OCCURRED-DATETIME-FUTURE` | `BUSINESS_RULE_VIOLATION` | **G1/CR-16:** `occurred_datetime` ở tương lai (`services/imm12.py:378-379`; `messages.py:801`) — nguồn 422 thứ 2 trên path, KHÔNG status mới |
 | 422 | `VALIDATION` | `VALIDATION_ERROR` | Thiếu required fields |
 | 404 | `NOT_FOUND` | `NOT_FOUND` | Asset không tồn tại |
 
@@ -375,6 +381,39 @@ curl -X POST 'https://hospital.assetcore.vn/api/method/assetcore.api.imm12.submi
 > **DELTA per-row enrich (BR-12-13):** `list_incidents().items[]` + `get_dashboard().active_incidents[]` MỖI row thêm `is_response_breached` / `is_resolution_breached` (`0|1`) — derive LIVE cùng predicate `sla_breach_filter` trên từng row (in-Python, KHÔNG query thêm). FE đọc field **derived** `is_*_breached` (KHÔNG cờ thô) ⇒ **badge live == tile**. Cờ thô `response_breached`/`resolution_breached` GIỮ trong payload (backward-compat). `list_incidents` field list THÊM `response_due_at`, `resolution_due_at` (đã có `acknowledged_at`+cờ+status); `active_incidents` THÊM `response_due_at`, `resolution_due_at`, `acknowledged_at`. `get_incident_detail` giữ expose cờ thô cho trang chi tiết (badge detail có thể tiếp tục đọc cờ — out-of-scope vòng này).
 
 Use `get_incident_stats()` endpoint for per-status KPI counts (incl. `open_total` SoT card-count, BR-12-11) — endpoint delegates the service-layer function, returning the same `stats` shape embedded in `get_dashboard`.
+
+---
+
+### 3. list_incidents — filter `mine` (tab "Báo hỏng của tôi", MVP-5c) ✅ SPEC (BE Bước-4)
+
+> **Mục tiêu (A2 known-gap closure):** màn mobile `MyWorkOrdersView` › tab **"Báo hỏng của tôi"** cần CHỈ incident do chính KTV tạo. Contract mobile (`docs/mobile/openapi/…listIncidents`) TRƯỚC vòng này CLAIM "scope reported_by" nhưng `list_incidents` KHÔNG có cơ chế ⇒ **claim suông** (contract nói dối). Vòng này wire param `mine` để contract TRUNG THỰC.
+
+**Param mới:** `mine` (int `0|1`, default `0`, `in:query`) — bổ sung vào `list_incidents(status, severity, asset, open, page, page_size)` → `list_incidents(status, severity, asset, open, mine, page, page_size)`.
+
+| `mine` | Hành vi | Filter áp |
+|---|---|---|
+| `0` / absent | **UNCHANGED** (backward-compat) — list permission-aware như cũ; web-FE `IncidentListView` KHÔNG đổi | KHÔNG seed `reported_by` |
+| `1` | **Scope reported_by** — chỉ incident `reported_by == frappe.session.user` | `extra["reported_by"] = frappe.session.user` |
+
+**BR-12-14 (mine self-scope — application filter, KHÔNG phải security boundary):**
+- `mine=1` áp filter `reported_by == frappe.session.user` (giải quyết session ở **service-layer**, KHÔNG ở API — API chỉ forward int).
+- **AND với mọi filter khác KỂ CẢ nhánh status return-sớm:** `_build_incident_filters` seed `extra["reported_by"]` **TRƯỚC** quyết định nhánh ⇒ cả 3 nhánh (`if status: return extra` · `if open_only: return open_incident_filter(extra)` · `return extra`) đều mang `reported_by`. Ví dụ: `mine=1&open=1` = incident của tôi đang mở (`reported_by` ∧ `open_incident_filter()` cùng AND); `mine=1&status=Cancelled` = incident của tôi đã huỷ (status branch return-sớm vẫn có `reported_by`).
+- **INVARIANT count==rows (INV-12-LIST):** `frappe.db.count(_DT_INCIDENT, filters)` + `frappe.get_all(_DT_INCIDENT, filters)` dùng **CÙNG** `filters` dict đã có `reported_by` ⇒ `pagination.total == len(items)` khi `mine=1`. KHÔNG đếm trên dict khác (chống count-vs-rows drift — memory `asset_list_count_drill_technician`).
+- **Blast-radius fence ĐO ĐƯỢC:** `mine=0`/absent ⇒ `filters` BYTE-IDENTICAL với trước vòng này (1 nhánh điều kiện `if mine:` duy nhất). Test fence: incident của reporter khác VẪN xuất hiện khi `mine=0` (chứng minh `reported_by` không bị áp ngầm).
+- **Quyền (2 lớp 403 — DONE-gate spec-contract):** `list_incidents` chỉ dispatcher-403 (Guest → 401 in-handler `_err`, guard `api/imm12.py:212` **UNCHANGED**); KHÔNG thêm in-handler cap-403. Read-gating GIỮ qua DocPerm/permission_query "Incident Report" (`corrective.read`). `mine=1` là filter **opt-in** chồng LÊN scope quyền (không thay quyền): KTV `corrective.read` gọi `mine=1` → 200 + chỉ incident của mình ⇒ **KHÔNG leak** incident của reporter khác (vì `reported_by` tường minh, không phụ thuộc get_all bỏ qua permission_query).
+
+**Boundaries (Always / Never):**
+- **Always:** seed `reported_by` ở `_build_incident_filters` TRƯỚC mọi `return` (phủ nhánh status); giải quyết `frappe.session.user` ở service-layer; `mine` int `0|1` (mirror `open` — né int-vs-bool trap); contract OpenAPI + cơ-chế khớp nhau.
+- **Never:** áp `reported_by` khi `mine=0` (vỡ backward-compat web-FE); đếm `total` trên filters dict khác `get_all` (vỡ count==rows); thêm endpoint mới `list_my_incidents` (+1 path — vỡ "path count UNCHANGED"); auto-scope mọi read theo `reported_by` qua permission_query (vỡ view manager/QA cần thấy TẤT CẢ).
+
+### ADR-IMM12-05: Opt-in `mine` query-param vs endpoint riêng vs permission auto-scope
+- **Status**: Accepted · **Date**: 2026-06-28 · đồng-bộ [`ADR-MOBILE-015`](../mobile/ADR-MOBILE-015.md)
+- **Context**: tab "Báo hỏng của tôi" (MVP-5c) cần self-scope `reported_by`, NHƯNG web-FE `IncidentListView` (manager/QA) cần thấy mọi incident; contract đã claim "scope reported_by" mà thiếu cơ chế; ràng buộc "path count UNCHANGED" + "count==rows".
+- **Decision**: thêm **1 query-param opt-in `mine`** (default 0 = cũ; 1 = filter `reported_by==session.user`) ANDed vào CÙNG `filters` dict.
+- **Alternatives**: (A) endpoint riêng `list_my_incidents` → +1 path (vỡ ràng buộc) + nhân đôi pagination/enrich/contract surface → loại. (B) auto-scope mọi read theo `reported_by` qua `permission_query_conditions` → vỡ view manager/QA + đổi security-semantics + count-vs-rows cho persona không-self → loại.
+- **Consequences**: blast-radius = 1 nhánh `if mine:` + 1 param; backward-compat tuyệt đối; codegen mobile sinh client truyền `mine=1` cho tab; KHÔNG migration DB. Đánh đổi: `mine` là filter ứng-dụng (KHÔNG phải hàng-rào-bảo-mật) — bảo mật read VẪN do DocPerm/permission_query đảm trách.
+
+> **DELTA vòng này (so với bản trước):** (1) catalog row #3 + signature thêm param `mine`; (2) BR-12-14 + ADR-IMM12-05 mới; (3) đồng bộ contract mobile (OpenAPI `IncidentMine`, `04-api-contract §6.1/§8.4`, ADR-MOBILE-015). **BE Bước-4 delta** (KHÔNG thuộc file doc này): `services/imm12.py` (`_build_incident_filters(..., reported_by="")` seed + `list_incidents(..., mine=0)` resolve session), `api/imm12.py` (`list_incidents(..., mine: int = 0)` forward — guard:212 UNCHANGED), tests (`test_imm12` mine-filter+fence, `test_mobile_oas` IncidentMine param).
 
 ---
 

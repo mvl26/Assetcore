@@ -5,13 +5,13 @@ import { useRoute, useRouter } from 'vue-router'
 import { getIncident, acknowledgeIncident, startWork, resolveIncident, closeIncident, cancelIncident, createRca } from '@/api/imm12'
 import { deleteIncident } from '@/api/imm00'
 import type { IncidentDetail } from '@/api/imm12'
-import SmartSelect from '@/components/common/SmartSelect.vue'
+import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
 import WorkflowStepper from '@/components/common/WorkflowStepper.vue'
 import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/stores/auth'
 import { useCapabilities } from '@/composables/useCapabilities'
 import { sanitizeHtml } from '@/utils/sanitizeHtml'
-import { incidentStatusLabel, incidentStatusClass, incidentSeverityLabel, incidentSeverityClass, incidentTypeLabel } from '@/constants/labels'
+import { incidentStatusLabel, incidentStatusClass, incidentSeverityLabel, incidentSeverityClass, incidentTypeLabel, rcaStatusLabel } from '@/constants/labels'
 
 // Stepper tuyến chính (D3): 6 node — RCA Required là nhánh, render khi đang ở đó.
 const INCIDENT_STEPS = ['Open', 'Acknowledged', 'In Progress', 'Resolved', 'Closed']
@@ -56,7 +56,7 @@ async function load() {
   try {
     form.value = await getIncident(name.value)
   } catch (e: unknown) {
-    err.value = e instanceof Error ? e.message : 'Không tải được Incident Report'
+    err.value = e instanceof Error ? e.message : 'Không tải được phiếu sự cố'
   } finally { loading.value = false }
 }
 
@@ -104,10 +104,10 @@ async function doResolve() {
     await resolveIncident(name.value, resolveNotes.value, rootCause.value)
     showResolveModal.value = false
     resolveNotes.value = ''; rootCause.value = ''
-    toast.success('Đã đánh dấu Incident là đã giải quyết')
+    toast.success('Đã đánh dấu sự cố là đã giải quyết')
     await load()
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : 'Lỗi khi resolve'
+    const msg = e instanceof Error ? e.message : 'Lỗi khi giải quyết'
     err.value = msg
     toast.error(msg)
   } finally { actionLoading.value = false }
@@ -120,10 +120,10 @@ async function doClose() {
     await closeIncident(name.value, verifyNotes.value)
     showCloseModal.value = false
     verifyNotes.value = ''
-    toast.success('Đã đóng Incident')
+    toast.success('Đã đóng sự cố')
     await load()
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : 'Lỗi khi close'
+    const msg = e instanceof Error ? e.message : 'Lỗi khi đóng'
     err.value = msg
     toast.error(msg)
   } finally { actionLoading.value = false }
@@ -141,7 +141,7 @@ async function doCancel() {
     await cancelIncident(name.value, cancelReason.value)
     showCancelModal.value = false
     cancelReason.value = ''
-    toast.success('Đã hủy Incident')
+    toast.success('Đã hủy sự cố')
     await load()
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Lỗi khi hủy'
@@ -156,7 +156,7 @@ async function doCreateRca() {
   try {
     const res = await createRca(name.value, '5-Why')
     if (res?.name) router.push(`/rca/${res.name}`)
-  } catch (e: unknown) { err.value = e instanceof Error ? e.message : 'Không thể tạo RCA' }
+  } catch (e: unknown) { err.value = e instanceof Error ? e.message : 'Không thể tạo phân tích nguyên nhân gốc' }
   finally { rcaCreating.value = false }
 }
 
@@ -245,13 +245,13 @@ v-if="canResolve"
 v-if="canClose"
           class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
           @click="showCloseModal = true">
-          Đóng Incident
+          Đóng sự cố
         </button>
         <button
 v-if="canCancel"
           class="bg-slate-500 hover:bg-slate-600 text-white px-4 py-2 rounded-lg text-sm font-medium"
           @click="showCancelModal = true">
-          Hủy (False alarm)
+          Hủy (báo nhầm)
         </button>
         <button
 v-if="canDelete"
@@ -270,7 +270,7 @@ Xóa
     <!-- SLA + NĐ98 banner khi ảnh hưởng bệnh nhân -->
     <div v-if="!loading && form.patient_affected" class="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-800 space-y-1">
       <div><strong>Ảnh hưởng bệnh nhân:</strong> {{ form.patient_impact_description || 'Có ảnh hưởng (chưa mô tả chi tiết)' }}</div>
-      <div v-if="form.linked_repair_wo">Đã sinh lệnh sửa chữa (CM): <strong>{{ form.linked_repair_wo }}</strong> — thiết bị chuyển Ngừng sử dụng.</div>
+      <div v-if="form.linked_repair_wo">Đã sinh lệnh sửa chữa: <strong>{{ form.linked_repair_wo }}</strong> — thiết bị chuyển Ngừng sử dụng.</div>
       <div class="text-red-700"><strong>Cảnh báo NĐ98:</strong> Sự cố ảnh hưởng bệnh nhân — cần báo cáo Bộ Y tế trong 48h nếu xác định lỗi sản phẩm.</div>
     </div>
 
@@ -341,28 +341,28 @@ Xóa
       <!-- RCA section -->
       <div v-if="form.rca_required === 1 || form.rca_record" class="p-6 space-y-3">
         <div class="flex items-center justify-between">
-          <div class="text-sm font-semibold text-slate-700">Root Cause Analysis (RCA)</div>
+          <div class="text-sm font-semibold text-slate-700">Phân tích nguyên nhân gốc</div>
           <button
 v-if="needsRca" :disabled="rcaCreating"
             class="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg text-xs font-medium"
             @click="doCreateRca">
-            {{ rcaCreating ? 'Đang tạo...' : 'Tạo RCA' }}
+            {{ rcaCreating ? 'Đang tạo...' : 'Tạo phân tích nguyên nhân gốc' }}
           </button>
         </div>
         <div v-if="form.rca" class="bg-indigo-50 border border-indigo-200 rounded-lg p-3">
           <div class="flex items-center justify-between">
             <div>
               <button class="text-sm font-mono text-indigo-700 hover:underline" @click="router.push(`/rca/${form.rca.name}`)">{{ form.rca.name }}</button>
-              <span class="ml-2 text-xs px-2 py-0.5 rounded bg-white border">{{ form.rca.status }}</span>
+              <span class="ml-2 text-xs px-2 py-0.5 rounded bg-white border">{{ rcaStatusLabel(form.rca.status) }}</span>
             </div>
           </div>
           <div v-if="form.rca.root_cause" class="text-xs text-slate-700 mt-2">
-            <span class="text-slate-500">Root cause:</span>
+            <span class="text-slate-500">Nguyên nhân gốc:</span>
             <span class="rich-text" v-html="sanitizeHtml(form.rca.root_cause)" />
           </div>
         </div>
         <div v-else-if="needsRca" class="text-xs text-amber-700 bg-amber-50 p-3 rounded">
-          Sự cố mức {{ incidentSeverityLabel(form.severity ?? '') }} yêu cầu RCA trước khi đóng giải quyết.
+          Sự cố mức {{ incidentSeverityLabel(form.severity ?? '') }} yêu cầu phân tích nguyên nhân gốc trước khi đóng giải quyết.
         </div>
       </div>
 
@@ -378,13 +378,13 @@ v-if="needsRca" :disabled="rcaCreating"
       <!-- Links -->
       <div v-if="form.linked_repair_wo || form.linked_capa" class="p-6 flex gap-4 flex-wrap">
         <div v-if="form.linked_capa">
-          <div class="text-xs text-slate-500 mb-0.5">Liên kết CAPA</div>
+          <div class="text-xs text-slate-500 mb-0.5">Liên kết hành động khắc phục/phòng ngừa</div>
           <button class="text-sm text-purple-600 hover:underline font-mono" @click="router.push(`/capas/${form.linked_capa}`)">
             {{ form.linked_capa }}
           </button>
         </div>
         <div v-if="form.linked_repair_wo">
-          <div class="text-xs text-slate-500 mb-0.5">Liên kết Repair WO</div>
+          <div class="text-xs text-slate-500 mb-0.5">Liên kết lệnh sửa chữa</div>
           <button class="text-sm text-blue-600 hover:underline font-mono" @click="router.push(`/cm/work-orders/${form.linked_repair_wo}`)">
             {{ form.linked_repair_wo }}
           </button>
@@ -401,8 +401,8 @@ v-if="needsRca" :disabled="rcaCreating"
           <textarea id="ack-notes" v-model="ackNotes" rows="3" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400" placeholder="Mô tả bước tiếp theo, tình hình hiện tại..."></textarea>
         </div>
         <div>
-          <label class="block text-sm font-medium text-slate-700 mb-1">Giao cho (User)</label>
-          <SmartSelect v-model="ackAssignedTo" doctype="User" placeholder="Tìm user theo tên / email..." />
+          <label class="block text-sm font-medium text-slate-700 mb-1">Giao cho (người dùng)</label>
+          <ApproverSelect v-model="ackAssignedTo" context="incident" placeholder="Tìm user theo tên / email..." />
           <p class="text-[11px] text-slate-400 mt-1">Tùy chọn — nếu chọn, hệ thống sẽ gửi email thông báo cho user này.</p>
         </div>
         <div class="flex justify-end gap-2">
@@ -444,7 +444,7 @@ v-if="needsRca" :disabled="rcaCreating"
           <textarea id="root-cause" v-model="rootCause" rows="2" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400" placeholder="5-Why / Fishbone..."></textarea>
         </div>
         <p v-if="form.severity === 'High' || form.severity === 'Critical'" class="text-xs text-amber-700 bg-amber-50 p-2 rounded">
-          Mức độ {{ incidentSeverityLabel(form.severity ?? '') }} — CAPA sẽ tự động tạo sau khi đóng giải quyết.
+          Mức độ {{ incidentSeverityLabel(form.severity ?? '') }} — Hành động khắc phục/phòng ngừa sẽ tự động tạo sau khi đóng giải quyết.
         </p>
         <div class="flex justify-end gap-2">
           <button class="px-4 py-2 text-sm border border-slate-300 rounded-lg" @click="showResolveModal = false">Hủy</button>
@@ -458,7 +458,7 @@ v-if="needsRca" :disabled="rcaCreating"
     <!-- Cancel modal -->
     <div v-if="showCancelModal" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
       <div class="bg-white rounded-xl p-6 w-full max-w-md space-y-4 shadow-xl">
-        <h2 class="font-semibold text-slate-800">Hủy Incident (False Alarm)</h2>
+        <h2 class="font-semibold text-slate-800">Hủy sự cố (báo nhầm)</h2>
         <div>
           <label for="cancel-reason" class="block text-sm font-medium text-slate-700 mb-1">Lý do hủy <span class="text-red-500">*</span></label>
           <textarea id="cancel-reason" v-model="cancelReason" rows="3" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400" placeholder="Lý do (vd: báo cáo nhầm, không phải sự cố...)"></textarea>
@@ -475,7 +475,7 @@ v-if="needsRca" :disabled="rcaCreating"
     <!-- Close modal -->
     <div v-if="showCloseModal" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
       <div class="bg-white rounded-xl p-6 w-full max-w-md space-y-4 shadow-xl">
-        <h2 class="font-semibold text-slate-800">Đóng Incident Report</h2>
+        <h2 class="font-semibold text-slate-800">Đóng phiếu sự cố</h2>
         <div>
           <label for="verify-notes" class="block text-sm font-medium text-slate-700 mb-1">Ghi chú xác minh (tùy chọn)</label>
           <textarea id="verify-notes" v-model="verifyNotes" rows="3" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" placeholder="Đã xác minh kết quả xử lý, không tái phát..."></textarea>
@@ -483,7 +483,7 @@ v-if="needsRca" :disabled="rcaCreating"
         <div class="flex justify-end gap-2">
           <button class="px-4 py-2 text-sm border border-slate-300 rounded-lg" @click="showCloseModal = false">Hủy</button>
           <button :disabled="actionLoading" class="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50" @click="doClose">
-            {{ actionLoading ? 'Đang đóng...' : 'Đóng Incident' }}
+            {{ actionLoading ? 'Đang đóng...' : 'Đóng sự cố' }}
           </button>
         </div>
       </div>

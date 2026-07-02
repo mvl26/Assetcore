@@ -5,6 +5,7 @@ import { frappeGet, frappePost } from '@/api/helpers'
 import type { ServiceContract } from '@/types/imm00'
 import PageHeader from '@/components/common/PageHeader.vue'
 import SmartSelect from '@/components/common/SmartSelect.vue'
+import CurrencyInput from '@/components/common/CurrencyInput.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -203,10 +204,10 @@ onMounted(load)
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">Giá trị HĐ</label>
-            <input
+            <CurrencyInput
               v-if="editing"
-              v-model.number="contract.contract_value"
-              type="number" min="0"
+              v-model="contract.contract_value"
+              aria-label="Giá trị HĐ"
               class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
             />
             <p v-else class="text-sm font-semibold text-emerald-700 bg-gray-50 px-3 py-2 rounded-lg">
@@ -217,7 +218,7 @@ onMounted(load)
             </p>
           </div>
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">SLA phản hồi (giờ)</label>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Cam kết mức dịch vụ phản hồi (giờ)</label>
             <input
               v-if="editing"
               v-model.number="contract.sla_response_hours"

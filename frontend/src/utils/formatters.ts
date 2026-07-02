@@ -63,8 +63,8 @@ const STATUS_MAP: Record<string, string> = {
   // nhãn cũng đúng. KHÔNG thêm 'Open'/'In Progress' ở đây (domain CAPA/priority
   // dùng 'Đang mở'/'Đang thực hiện') → list incident render qua incidentStatusLabel.
   Acknowledged:   'Đã tiếp nhận',
-  'RCA Required': 'Cần RCA',
-  RCA_Required:   'Cần RCA',
+  'RCA Required': 'Cần phân tích nguyên nhân gốc',
+  RCA_Required:   'Cần phân tích nguyên nhân gốc',
 
   // ── IMM-01 Needs Request workflow states ──────────────────────────
   Reviewing:   'Đang rà soát',
@@ -146,8 +146,8 @@ const STATUS_MAP: Record<string, string> = {
   // IMM-16 Compliance findings/audits
   'Under Review':    'Đang xem xét',
   Under_Review:      'Đang xem xét',
-  'Confirmed NC':    'Đã xác nhận NC',
-  Confirmed_NC:      'Đã xác nhận NC',
+  'Confirmed NC':    'Đã xác nhận sự không phù hợp',
+  Confirmed_NC:      'Đã xác nhận sự không phù hợp',
   'False Positive':  'Cảnh báo nhầm',
   False_Positive:    'Cảnh báo nhầm',
   Resolved:          'Đã khắc phục',
@@ -553,6 +553,60 @@ export function formatCurrency(v?: number | null): string {
   return new Intl.NumberFormat('vi-VN', {
     style: 'currency', currency: 'VND', maximumFractionDigits: 0,
   }).format(v)
+}
+
+/**
+ * L-16 — SSoT money rút gọn cho dashboard/bảng (DepreciationView,
+ * InventoryDashboardView). Gom inline `vndShort` trùng lặp về 1 chỗ.
+ *  - null/undefined → '—'
+ *  - |v| ≥ 1 tỷ      → "x.x tỷ"
+ *  - |v| ≥ 1 triệu   → "x tr"
+ *  - còn lại         → full VND (đồng bộ formatCurrency).
+ */
+export function formatCurrencyShort(v?: number | null): string {
+  if (v == null) return '—'
+  if (Math.abs(v) >= 1e9) return (v / 1e9).toFixed(1) + ' tỷ'
+  if (Math.abs(v) >= 1e6) return (v / 1e6).toFixed(0) + ' tr'
+  return new Intl.NumberFormat('vi-VN', {
+    style: 'currency', currency: 'VND', maximumFractionDigits: 0,
+  }).format(v)
+}
+
+// ─── Money INPUT grouping (dấu phân nhóm hàng nghìn — kiểu Việt Nam) ──────────
+// Dùng bởi CurrencyInput.vue / useThousandsInput: hiển thị số tiền có dấu phân
+// nhóm hàng nghìn KIỂU VIỆT NAM (dấu chấm: 1.000.000) ngay khi user gõ, nhưng
+// v-model giữ number SẠCH để submit thẳng cho BE (Currency). Tách 2 hàm THUẦN
+// (testable, không phụ thuộc Vue) khỏi component.
+//
+// Nhóm thủ công bằng `_THOUSAND_SEP` (KHÔNG dùng Intl locale) để output TẤT
+// ĐỊNH, không lệ thuộc ICU môi trường (Intl 'vi-VN' có thể fallback ',' nếu
+// thiếu ICU). Đổi sang dấu phẩy chỉ cần sửa 1 hằng số này.
+const _THOUSAND_SEP = '.'
+const _GROUP_RE = /\B(?=(\d{3})+(?!\d))/g
+
+/**
+ * Số/chuỗi → chuỗi đã nhóm hàng nghìn (KHÔNG ký hiệu ₫). Chỉ phần nguyên (VND).
+ * - null / undefined / '' → '' (ô trống).
+ * - chuỗi có sẵn nhóm/ký hiệu → chuẩn hoá lại (bỏ ký tự không-số rồi nhóm).
+ * - không parse được → ''.
+ */
+export function formatThousands(v: number | string | null | undefined): string {
+  if (v === null || v === undefined || v === '') return ''
+  const n = typeof v === 'number' ? v : parseThousands(v)
+  if (n === null || Number.isNaN(n)) return ''
+  return Math.trunc(Math.abs(n)).toString().replace(_GROUP_RE, _THOUSAND_SEP)
+}
+
+/**
+ * Chuỗi đã nhóm ("1.234.567" / "1.234.567 ₫") → number nguyên SẠCH.
+ * - Bỏ MỌI ký tự không phải chữ số (dấu chấm phân nhóm, khoảng trắng, ₫).
+ * - rỗng / không có chữ số / null → null (phân biệt "để trống" với số 0).
+ */
+export function parseThousands(s: string | number | null | undefined): number | null {
+  if (s === null || s === undefined) return null
+  const digits = String(s).replace(/\D/g, '')
+  if (digits === '') return null
+  return Number(digits)
 }
 
 /**

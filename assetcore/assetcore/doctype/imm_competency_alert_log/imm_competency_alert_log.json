@@ -23,7 +23,7 @@
   {
    "fieldname": "competency",
    "fieldtype": "Link",
-   "label": "Competency",
+   "label": "Năng lực",
    "options": "IMM User Competency",
    "search_index": 1
   },

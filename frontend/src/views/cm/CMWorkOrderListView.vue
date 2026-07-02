@@ -52,7 +52,7 @@ const PRIORITIES = REPAIR_PRIORITY_OPTIONS
 interface Chip { key: 'status' | 'priority' | 'asset' | 'search' | 'slaBreached' | 'repeatFailure' | 'open'; label: string }
 const activeChips = computed<Chip[]>(() => {
   const chips: Chip[] = []
-  if (slaBreached.value) chips.push({ key: 'slaBreached', label: 'Vi phạm SLA' })
+  if (slaBreached.value) chips.push({ key: 'slaBreached', label: 'Vi phạm cam kết dịch vụ' })
   if (repeatFailure.value) chips.push({ key: 'repeatFailure', label: 'Lỗi lặp lại' })
   // open chip chỉ hiện khi KHÔNG có status đơn lẻ (status ưu tiên hơn).
   if (openFilter.value && !statusFilter.value) chips.push({ key: 'open', label: 'Đang mở' })
@@ -133,7 +133,7 @@ const kpiItems = computed<WoKpiItem[]>(() => {
   return [
     { label: 'Đang mở', value: k.open_wos, color: 'info', trend: 'Chờ xử lý' },
     { label: 'Hoàn tất tháng', value: k.total_completed, color: 'success' },
-    { label: 'MTTR trung bình', value: `${k.mttr_avg_hours}h`, color: 'primary', trend: `SLA ${k.sla_compliance_pct}%` },
+    { label: 'Thời gian sửa chữa trung bình', value: `${k.mttr_avg_hours}h`, color: 'primary', trend: `cam kết dịch vụ ${k.sla_compliance_pct}%` },
     { label: 'Tái hỏng', value: k.repeat_failure_count, color: 'warning', trend: k.repeat_failure_count > 0 ? 'Cần theo dõi' : 'Ổn định' },
   ]
 })
@@ -260,7 +260,7 @@ const filteredWOs = computed(() => {
           <!-- BR-09-07 LIVE: badge "SLA vi phạm" theo live-truth (is_sla_breached) ưu tiên,
                fallback cờ thô (sla_breached) — kill undercount cửa-sổ-trễ-scheduler. -->
           <div v-if="(wo.is_sla_breached ?? wo.sla_breached) || wo.is_repeat_failure" class="flex gap-2 mt-1">
-            <span v-if="wo.is_sla_breached ?? wo.sla_breached" class="text-[10px] text-red-600 font-medium">SLA vi phạm</span>
+            <span v-if="wo.is_sla_breached ?? wo.sla_breached" class="text-[10px] text-red-600 font-medium">Cam kết dịch vụ vi phạm</span>
             <span v-if="wo.is_repeat_failure" class="text-[10px] text-amber-700">Tái hỏng</span>
           </div>
         </div>
@@ -301,7 +301,7 @@ const filteredWOs = computed(() => {
               <td class="table-cell">
                 <div class="font-mono text-sm font-semibold text-brand-700">{{ wo.name }}</div>
                 <!-- BR-09-07 LIVE: live-truth (is_sla_breached) ưu tiên, fallback cờ thô. -->
-                <div v-if="wo.is_sla_breached ?? wo.sla_breached" class="text-xs text-red-600 font-medium mt-0.5">SLA vi phạm</div>
+                <div v-if="wo.is_sla_breached ?? wo.sla_breached" class="text-xs text-red-600 font-medium mt-0.5">Cam kết dịch vụ vi phạm</div>
                 <div v-if="wo.is_repeat_failure" class="text-xs text-amber-700 mt-0.5">Tái hỏng</div>
               </td>
               <td class="table-cell">

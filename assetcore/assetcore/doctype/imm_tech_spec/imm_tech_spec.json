@@ -102,19 +102,19 @@
    "fieldname": "source_plan",
    "fieldtype": "Link",
    "options": "IMM Procurement Plan",
-   "label": "Plan",
+   "label": "Kế hoạch",
    "reqd": 1
   },
   {
    "fieldname": "source_plan_line",
    "fieldtype": "Data",
-   "label": "Plan line"
+   "label": "Dòng kế hoạch"
   },
   {
    "fieldname": "source_needs_request",
    "fieldtype": "Link",
    "options": "IMM Needs Request",
-   "label": "Needs Request",
+   "label": "Đề xuất nhu cầu",
    "reqd": 1
   },
   {
@@ -126,7 +126,7 @@
    "fieldname": "device_model_ref",
    "fieldtype": "Link",
    "options": "IMM Device Model",
-   "label": "Model",
+   "label": "Mẫu máy",
    "reqd": 1,
    "in_list_view": 1
   },
@@ -152,7 +152,7 @@
   {
    "fieldname": "spec_template_ref",
    "fieldtype": "Data",
-   "label": "Spec Template (placeholder)"
+   "label": "Mẫu hồ sơ kỹ thuật (tạm)"
   },
   {
    "fieldname": "section_requirements",
@@ -176,7 +176,7 @@
    "fieldname": "requirements",
    "fieldtype": "Table",
    "options": "Tech Spec Requirement",
-   "label": "Requirements"
+   "label": "Yêu cầu"
   },
   {
    "fieldname": "documents",
@@ -187,13 +187,13 @@
   {
    "fieldname": "section_benchmark",
    "fieldtype": "Section Break",
-   "label": "Benchmark"
+   "label": "Đối sánh"
   },
   {
    "fieldname": "benchmark_ref",
    "fieldtype": "Link",
    "options": "IMM Market Benchmark",
-   "label": "Market Benchmark"
+   "label": "Đối sánh thị trường"
   },
   {
    "fieldname": "candidate_count",
@@ -223,20 +223,20 @@
   {
    "fieldname": "section_lockin",
    "fieldtype": "Section Break",
-   "label": "Lock-in Risk",
+   "label": "Rủi ro lệ thuộc",
    "permlevel": 1
   },
   {
    "fieldname": "lock_in_risk_ref",
    "fieldtype": "Link",
    "options": "IMM Lock-in Risk Assessment",
-   "label": "Lock-in Assessment",
+   "label": "Đánh giá lệ thuộc",
    "permlevel": 1
   },
   {
    "fieldname": "lock_in_score",
    "fieldtype": "Float",
-   "label": "Score (0-5)",
+   "label": "Điểm (0-5)",
    "read_only": 1,
    "precision": "4",
    "permlevel": 1,
@@ -245,13 +245,13 @@
   {
    "fieldname": "mitigation_plan",
    "fieldtype": "Long Text",
-   "label": "Mitigation plan",
+   "label": "Kế hoạch giảm thiểu",
    "permlevel": 1
   },
   {
    "fieldname": "mitigation_evidence",
    "fieldtype": "Attach",
-   "label": "Mitigation evidence",
+   "label": "Bằng chứng giảm thiểu",
    "permlevel": 1
   },
   {
@@ -352,6 +352,23 @@
    "print": 1,
    "email": 0,
    "share": 0
+  },
+  {
+   "role": "AssetCore Super Admin",
+   "permlevel": 1,
+   "read": 1,
+   "write": 1
+  },
+  {
+   "role": "Spec Manager",
+   "permlevel": 1,
+   "read": 1,
+   "write": 1
+  },
+  {
+   "role": "AssetCore Auditor",
+   "permlevel": 1,
+   "read": 1
   }
  ],
  "sort_field": "modified",

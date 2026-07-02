@@ -15,7 +15,7 @@
   {
    "fieldname": "incident_report",
    "fieldtype": "Link",
-   "label": "Incident Report",
+   "label": "Báo cáo sự cố",
    "options": "Incident Report",
    "reqd": 1,
    "in_list_view": 1
@@ -27,7 +27,7 @@
   {
    "fieldname": "reported_at",
    "fieldtype": "Datetime",
-   "label": "Reported At",
+   "label": "Thời điểm báo cáo",
    "read_only": 1,
    "fetch_from": "incident_report.reported_at",
    "in_list_view": 1
@@ -35,7 +35,7 @@
   {
    "fieldname": "severity",
    "fieldtype": "Data",
-   "label": "Severity",
+   "label": "Mức nghiêm trọng",
    "read_only": 1,
    "fetch_from": "incident_report.severity",
    "in_list_view": 1

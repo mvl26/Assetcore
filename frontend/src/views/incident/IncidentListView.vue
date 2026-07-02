@@ -91,7 +91,7 @@ const STATUSES = [
   { value: 'Open', label: 'Mới mở' },
   { value: 'Acknowledged', label: 'Đã tiếp nhận' },
   { value: 'In Progress', label: 'Đang điều tra' },
-  { value: 'RCA Required', label: 'Cần RCA' },
+  { value: 'RCA Required', label: 'Cần phân tích nguyên nhân gốc' },
   { value: 'Resolved', label: 'Đã giải quyết' },
   { value: 'Closed', label: 'Đã đóng' },
   { value: 'Cancelled', label: 'Đã hủy' },

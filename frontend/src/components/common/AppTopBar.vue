@@ -6,7 +6,7 @@ import { useSidebar } from '@/composables/useSidebar'
 import {
   getUnreadNotifications, listNotifications,
   markNotificationAsRead, markAllAsRead,
-  getUserContext, logoutUser, resolveNotificationRoute,
+  getUserContext, logoutUser, resolveNotificationRoute, docTypeLabel,
   type NotificationItem, type UserContext,
 } from '@/api/layout'
 import { sanitizeHtml } from '@/utils/sanitizeHtml'
@@ -340,7 +340,7 @@ v-if="item.content"
                     <span
 v-if="item.document_type"
                           class="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">
-                      {{ item.document_type }}
+                      {{ docTypeLabel(item.document_type) }}
                     </span>
                     <span class="text-[10px] text-slate-400">{{ formatRelative(item.creation) }}</span>
                   </div>

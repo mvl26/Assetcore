@@ -299,7 +299,7 @@ watch(() => route.query.state, () => {
                 <th>Nhà cung cấp trúng thầu</th>
                 <th class="num">Giá trúng thầu</th>
                 <th class="num">So với ngân sách</th>
-                <th>Đơn hàng đã mint</th>
+                <th>Đơn hàng đã tạo</th>
                 <th>Trạng thái</th>
               </tr>
             </thead>

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import DateInput from '@/components/common/DateInput.vue'
+import FormError from '@/components/common/FormError.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -8,6 +9,7 @@ import type { AcSupplier } from '@/types/imm00'
 import { listPurchases } from '@/api/purchase'
 import type { Purchase } from '@/api/purchase'
 import { useFormDraft } from '@/composables/useFormDraft'
+import { emailError, dateOrderError, firstError } from '@/utils/formValidation'
 
 const route = useRoute()
 const router = useRouter()
@@ -69,6 +71,17 @@ const STATUS_CLASS: Record<string, string> = {
 }
 
 async function save() {
+  // L-01/L-09: chặn sớm phía client (VI) thay vì để BE trả lỗi sau round-trip.
+  // BE controller vẫn là guard quyền lực (defense in depth) — đây chỉ là UX.
+  const ve = firstError(
+    emailError(form.value.email_id, 'Email liên hệ'),
+    dateOrderError(
+      form.value.contract_start, form.value.contract_end,
+      'Ngày kết thúc hợp đồng phải >= ngày bắt đầu',
+    ),
+  )
+  if (ve) { err.value = ve; return }
+
   saving.value = true; err.value = ''
   try {
     if (isEdit.value && name.value) {
@@ -80,7 +93,12 @@ async function save() {
       clearDraft()
       router.push('/suppliers')
     }
-  } catch (e: unknown) { err.value = (e as Error).message || 'Lỗi lưu' }
+  } catch (e: unknown) {
+    err.value = (e as Error).message || 'Lỗi lưu'
+    // L-12: lần lưu thất bại KHÔNG giữ lại draft (tránh tái-áp dữ liệu lỗi /
+    // nối chuỗi ở lần mở /new sau). Form trong RAM vẫn giữ để user sửa & thử lại.
+    clearDraft()
+  }
   finally { saving.value = false }
 }
 
@@ -112,7 +130,7 @@ onMounted(load)
       </template>
     </PageHeader>
 
-    <div v-if="err" class="bg-red-50 text-red-700 p-3 rounded-lg text-sm">{{ err }}</div>
+    <FormError :message="err" />
 
     <div v-if="loading" class="text-center text-gray-400 py-12">Đang tải...</div>
     <template v-else>
@@ -148,7 +166,7 @@ onMounted(load)
           <input v-model="form.mobile_no" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
         </div>
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Website</label>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Trang web</label>
           <input v-model="form.website" type="url" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
         </div>
         <div class="col-span-2">

@@ -189,13 +189,13 @@ onMounted(load)
       <div class="card p-5 space-y-4">
         <div class="flex flex-wrap items-center gap-2">
           <StatusBadge :state="mr.status" />
-          <span class="text-xs text-slate-400">Cập nhật vòng đời: Draft → Held → Minutes Approved → Closed</span>
+          <span class="text-xs text-slate-400">Cập nhật vòng đời: Bản nháp → Đã họp → Biên bản đã duyệt → Đã đóng</span>
         </div>
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
           <div><p class="t-eyebrow mb-1">Quý</p><p class="text-slate-700">{{ mr.quarter }}</p></div>
           <div><p class="t-eyebrow mb-1">Ngày họp</p><p class="text-slate-700">{{ formatDate(mr.review_date) }}</p></div>
           <div><p class="t-eyebrow mb-1">Chủ tọa</p><p class="text-slate-700">{{ mr.chair_name || mr.chair || '—' }}</p></div>
-          <div><p class="t-eyebrow mb-1">Scorecard</p><p class="text-slate-700">{{ scorecardText() }}</p></div>
+          <div><p class="t-eyebrow mb-1">Bảng điểm</p><p class="text-slate-700">{{ scorecardText() }}</p></div>
           <div><p class="t-eyebrow mb-1">Họp tiếp theo</p><p class="text-slate-700">{{ formatDate(mr.next_review_date) }}</p></div>
           <div class="sm:col-span-2 lg:col-span-3">
             <p class="t-eyebrow mb-1">Biên bản</p>
@@ -208,12 +208,12 @@ onMounted(load)
       <!-- Summaries -->
       <div class="card p-5 grid grid-cols-1 md:grid-cols-2 gap-5 text-sm">
         <div><p class="t-eyebrow mb-1">Tóm tắt đầu vào</p><p class="text-slate-700 whitespace-pre-line">{{ mr.inputs_summary || '—' }}</p></div>
-        <div><p class="t-eyebrow mb-1">Tóm tắt audit</p><p class="text-slate-700 whitespace-pre-line">{{ mr.audit_summary || '—' }}</p></div>
-        <div><p class="t-eyebrow mb-1">Tóm tắt CAPA</p><p class="text-slate-700 whitespace-pre-line">{{ mr.capa_summary || '—' }}</p></div>
-        <div><p class="t-eyebrow mb-1">Hiệu quả CAPA</p><p class="text-slate-700 whitespace-pre-line">{{ mr.capa_effectiveness || '—' }}</p></div>
+        <div><p class="t-eyebrow mb-1">Tóm tắt kiểm toán</p><p class="text-slate-700 whitespace-pre-line">{{ mr.audit_summary || '—' }}</p></div>
+        <div><p class="t-eyebrow mb-1">Tóm tắt hành động khắc phục/phòng ngừa</p><p class="text-slate-700 whitespace-pre-line">{{ mr.capa_summary || '—' }}</p></div>
+        <div><p class="t-eyebrow mb-1">Hiệu quả hành động khắc phục/phòng ngừa</p><p class="text-slate-700 whitespace-pre-line">{{ mr.capa_effectiveness || '—' }}</p></div>
         <div><p class="t-eyebrow mb-1">Tuân thủ đào tạo</p><p class="text-slate-700 whitespace-pre-line">{{ mr.training_compliance || '—' }}</p></div>
         <div><p class="t-eyebrow mb-1">Xem xét rủi ro</p><p class="text-slate-700 whitespace-pre-line">{{ mr.risk_review || '—' }}</p></div>
-        <div class="md:col-span-2"><p class="t-eyebrow mb-1">Thay đổi QMS đã quyết định</p><p class="text-slate-700 whitespace-pre-line">{{ mr.qms_changes_decided || '—' }}</p></div>
+        <div class="md:col-span-2"><p class="t-eyebrow mb-1">Thay đổi hệ thống quản lý chất lượng đã quyết định</p><p class="text-slate-700 whitespace-pre-line">{{ mr.qms_changes_decided || '—' }}</p></div>
       </div>
 
       <!-- Attendees -->
@@ -259,16 +259,16 @@ onMounted(load)
       <div class="space-y-3">
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div class="form-group"><label class="form-label">Ngày họp</label><input v-model="editForm.review_date" type="date" class="form-input" /></div>
-          <div class="form-group"><label class="form-label">Chủ tọa (User)</label><input v-model="editForm.chair" class="form-input" /></div>
-          <div class="form-group"><label class="form-label">Scorecard ref</label><input v-model="editForm.scorecard_ref" class="form-input" placeholder="SCR-2026-..." /></div>
+          <div class="form-group"><label class="form-label">Chủ tọa (người dùng)</label><input v-model="editForm.chair" class="form-input" /></div>
+          <div class="form-group"><label class="form-label">Tham chiếu bảng điểm</label><input v-model="editForm.scorecard_ref" class="form-input" placeholder="SCR-2026-..." /></div>
           <div class="form-group"><label class="form-label">Họp tiếp theo</label><input v-model="editForm.next_review_date" type="date" class="form-input" /></div>
           <div class="form-group sm:col-span-2"><label class="form-label">URL biên bản</label><input v-model="editForm.minutes_doc" class="form-input" placeholder="https://..." /></div>
         </div>
         <div class="form-group"><label class="form-label">Tóm tắt đầu vào</label><textarea v-model="editForm.inputs_summary" rows="2" class="form-input" /></div>
-        <div class="form-group"><label class="form-label">Tóm tắt audit</label><textarea v-model="editForm.audit_summary" rows="2" class="form-input" /></div>
-        <div class="form-group"><label class="form-label">Tóm tắt CAPA</label><textarea v-model="editForm.capa_summary" rows="2" class="form-input" /></div>
+        <div class="form-group"><label class="form-label">Tóm tắt kiểm toán</label><textarea v-model="editForm.audit_summary" rows="2" class="form-input" /></div>
+        <div class="form-group"><label class="form-label">Tóm tắt hành động khắc phục/phòng ngừa</label><textarea v-model="editForm.capa_summary" rows="2" class="form-input" /></div>
         <div class="form-group"><label class="form-label">Xem xét rủi ro</label><textarea v-model="editForm.risk_review" rows="2" class="form-input" /></div>
-        <div class="form-group"><label class="form-label">Thay đổi QMS đã quyết định</label><textarea v-model="editForm.qms_changes_decided" rows="2" class="form-input" /></div>
+        <div class="form-group"><label class="form-label">Thay đổi hệ thống quản lý chất lượng đã quyết định</label><textarea v-model="editForm.qms_changes_decided" rows="2" class="form-input" /></div>
 
         <div>
           <div class="flex items-center justify-between mb-2">
@@ -306,7 +306,7 @@ onMounted(load)
     <BaseModal v-if="showClose" title="Đóng & xuất biên bản" size="xl" @close="showClose = false">
       <div class="space-y-4">
         <div class="form-group">
-          <label class="form-label">URL biên bản (minutes) *</label>
+          <label class="form-label">URL biên bản *</label>
           <input v-model="closeMinutes" class="form-input" placeholder="https://..." />
         </div>
         <div>

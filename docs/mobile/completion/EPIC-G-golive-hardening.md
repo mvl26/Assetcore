@@ -36,8 +36,9 @@ bảo mật prod, để 6-flow field-tech MVP **reachable + an toàn** từ ngo�
 ### 1.3 Mục tiêu kiểm-được (DoD TỔNG EPIC-G)
 **HTTPS reachable ngoài** · **security gate PASS:** (a) no traceback/SQL leak ở 401/403/429;
 (b) CORS no-wildcard (hoặc CORS OFF nếu thuần native); (c) no token-leak trong response/log;
-(d) rate-limit headers (`Retry-After`/`X-RateLimit-*`) phát ra ở 429. Mỗi điều kiện gắn lệnh
-verify ở `G4`.
+(d) rate-limit headers (`Retry-After`/`X-RateLimit-*`) phát ra ở 429 **CHỈ KHI `conf.rate_limit`/nginx
+`limit_req` set** (KHÔNG do `@rate_limit` decorator một mình — xem §3.3 knob `rate_limit`, G3/G4(d)).
+Mỗi điều kiện gắn lệnh verify ở `G4`.
 
 ---
 
@@ -162,7 +163,7 @@ ngoài cho OAuth2). [BA] bồi đặc tả + evidence vào `08 §4` / ADR-004 Co
 - **Acceptance:**
   - `bench --site <site> execute frappe.utils.response.is_traceback_allowed` trả `False` trên prod/staging (gate đóng).
   - Response lỗi raw KHÔNG chứa traceback: `curl -s https://<host>/api/method/<auth-required-method>` (guest) → body KHÔNG có `"exc"`/`Traceback (most recent call last)` (chỉ `exc_type`/message ngắn).
-  - 429 có header: gọi vượt ngưỡng `@rate_limit` (vd resolve QR) → response 429 chứa `Retry-After` + `X-RateLimit-*` (verify `curl -sI`).
+  - 429 có header **CHỈ KHI `conf.rate_limit`/nginx `limit_req` set** (HARD-STOP USER): gọi vượt ngưỡng `@rate_limit` (vd resolve QR) → response 429 chứa `Retry-After` + `X-RateLimit-*` (verify `curl -sI`). **KHÔNG do `@rate_limit` decorator một mình** — decorator throw-path `frappe.throw(..., RateLimitExceededError)` (`rate_limiter.py:162-166`) KHÔNG gọi `RateLimiter.headers()`; chỉ middleware `conf.rate_limit` (`rate_limiter.apply` → `RateLimiter.headers()` `:82-92`) HOẶC nginx `limit_req` mới emit header. Thiếu `conf.rate_limit` ⇒ 429 trần body-only (status-line 429 ĐÚNG nhờ `RateLimitExceededError(ValidationError).http_status_code=429` @`exceptions.py:128-130`, nhưng KHÔNG header) — khớp §3.3 knob `rate_limit`, §6 T1, R5.
   - Doc check: `grep -n "allow_error_traceback" docs/mobile/08-security-compliance.md` trả item mới (evidence `response.py:60-65`).
 - **Owner:** USER (System Setting + rate_limit/nginx) · [BA] (đặc tả + evidence).
 - **Tag:** `[HARD-STOP USER]` cho System Setting + conf/nginx · `[AUTO]` cho phần đặc tả 08/ADR-004/10.
@@ -187,7 +188,7 @@ curl trên public host.
   - (a) no-traceback: `curl -s https://<host>/api/method/<auth-method>` (guest) body KHÔNG có `Traceback`.
   - (b) CORS: `grep -c '\*' <(python3 -c "import json;print(json.load(open('sites/<site>/site_config.json')).get('allow_cors'))")` == 0 (no-wildcard) HOẶC `allow_cors=None` (native OFF).
   - (c) no token-leak: response 200 envelope của `getAsset`/`getAssetScanInfo` KHÔNG chứa `qr_token` (đã `_strip_qr_token` — imm00.py:307; cross-ref EPIC-C getAsset stub).
-  - (d) 429 header: vượt ngưỡng `@rate_limit` → `Retry-After` present.
+  - (d) 429 header: vượt ngưỡng `@rate_limit` → `Retry-After` + `X-RateLimit-*` present **CHỈ KHI `conf.rate_limit`/nginx `limit_req` set** (HARD-STOP USER) — header do middleware `conf.rate_limit` (`RateLimiter.headers()` `rate_limiter.py:82-92`)/nginx `limit_req` phát, **KHÔNG do `@rate_limit` decorator một mình** (throw-path `:162-166` KHÔNG gọi `RateLimiter.headers()`). Thiếu `conf.rate_limit` ⇒ 429 body-only no-header (status-line 429 vẫn ĐÚNG). Xem §3.3 knob `rate_limit`, R5.
   - CI-guard: `grep -rn "REPLACE-WITH-PUBLIC-HOST\|0.1.0-skeleton" docs/mobile/openapi/assetcore-mobile.openapi.yaml` — nếu build gắn cờ prod thì gate FAIL khi còn placeholder.
 - **Owner:** [QA] (chạy gate + smoke) · [BE] (test guard) · [BA] (đặc tả Acceptance 08/10).
 - **Tag:** `[AUTO]` cho test guard + đặc tả + smoke command (introspection/local) · phần curl public-host cần G2 live nên **[HARD-STOP USER]** cho lần chạy THẬT trên cloud.
@@ -226,7 +227,12 @@ EPIC-B (OAuth Client) + EPIC-D (device-token) — KHÔNG khai trong EPIC-G. Knob
   ở 401/403/429 raw. `_err()` (utils/response.py) KHÔNG bao giờ leak stack (body chỉ
   `code`+`http_status`+message VI) — đã đúng cho in-handler; gate G3 phủ nhánh dispatcher raw.
 - **Rate-limit (T1):** `conf.rate_limit` / nginx `limit_req` cho OAuth2.* + `@rate_limit`
-  decorator phát `Retry-After` (G3/G4) — ADR-004 §a (tầng ngoài, KHÔNG sửa core).
+  decorator. Header `Retry-After`/`X-RateLimit-*` (G3/G4) do **middleware `conf.rate_limit`**
+  (`rate_limiter.apply`→`RateLimiter.headers()` `:82-92`) HOẶC **nginx `limit_req`** phát —
+  **KHÔNG do `@rate_limit` decorator một mình** (throw-path `frappe.throw(...,
+  RateLimitExceededError)` `:162-166` KHÔNG gọi `RateLimiter.headers()`; status-line 429 vẫn
+  ĐÚNG nhờ `RateLimitExceededError(ValidationError).http_status_code=429` @`exceptions.py:128-130`,
+  chỉ HEADER mới conditional). ADR-004 §a (tầng ngoài, KHÔNG sửa core).
 - **NĐ98 / Audit:** action-từ-mobile xuất hiện ở audit-chain với actor = KTV thật (bearer token
   mang đúng `frappe.session.user`); chuỗi audit hiện hữu, KHÔNG thêm field/đường audit cho
   mobile (ADR-004 §d / `08 §2`). Verify `verify_audit_chain` pass (`08 §4 verify`).

@@ -35,7 +35,7 @@ async function approve() {
 }
 
 async function markDeployed() {
-  if (!fcr.value || !confirm('Xác nhận đã deploy firmware?')) return
+  if (!fcr.value || !confirm('Xác nhận đã triển khai firmware?')) return
   saving.value = true; err.value = ''
   try {
     await updateFirmwareCr(fcr.value.name, { status: 'Applied' })
@@ -48,7 +48,7 @@ async function markDeployed() {
 const workflowSteps = [
   { key: 'Draft', label: 'Nháp' },
   { key: 'Approved', label: 'Phê duyệt' },
-  { key: 'Applied', label: 'Đã deploy' },
+  { key: 'Applied', label: 'Đã triển khai' },
 ]
 
 const currentStepIdx = computed(() => {
@@ -72,7 +72,7 @@ onMounted(load)
       :title="fcr ? `Cập nhật Firmware — ${fcr.asset_name || fcr.asset_ref}` : (props.id ?? 'Yêu cầu cập nhật firmware')"
       :subtitle="fcr ? fcr.name : 'Yêu cầu cập nhật firmware'"
       :back-to="'/cm/firmware'"
-      back-label="← Danh sách FCR"
+      back-label="← Danh sách yêu cầu thay đổi firmware"
       :breadcrumb="[
         { label: 'IMM-09 · Sửa chữa', to: '/cm/dashboard' },
         { label: 'Firmware', to: '/cm/firmware' },
@@ -201,7 +201,7 @@ Quay lại
           class="btn-primary text-sm"
           @click="markDeployed"
         >
-          {{ saving ? 'Đang xử lý…' : 'Đã deploy' }}
+          {{ saving ? 'Đang xử lý…' : 'Đã triển khai' }}
         </button>
       </div>
     </template>

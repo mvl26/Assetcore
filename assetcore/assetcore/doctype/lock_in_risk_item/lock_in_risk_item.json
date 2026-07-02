@@ -58,7 +58,7 @@
   {
    "fieldname": "mitigation",
    "fieldtype": "Small Text",
-   "label": "Mitigation"
+   "label": "Biện pháp giảm thiểu"
   }
  ],
  "istable": 1,

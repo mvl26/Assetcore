@@ -170,22 +170,33 @@ def is_configured_for_depreciation(asset_row: dict) -> bool:
 def effective_book_value(asset_row: dict) -> float:
     """SoT DUY NHẤT — đọc giá trị còn lại (book value) của asset (BR-05-13).
 
-    INVARIANT phân biệt None vs 0.0 (fix falsy-zero bug):
-      - current_book_value IS NONE (chưa từng chạy KH) ⇒ fallback = gross.
-      - current_book_value đã set — KỂ CẢ 0.0 (asset đã KH hết, residual=0) ⇒
-        dùng giá trị THẬT (verbatim), KHÔNG về gross.
+    INVARIANT phân biệt 3 trạng thái (fix falsy-zero bug + L-04 fresh-asset):
+      - current_book_value IS NONE (chưa từng set) ⇒ fallback = gross.
+      - current_book_value == 0.0 NHƯNG accumulated_depreciation == 0 (asset MỚI:
+        Frappe lưu Currency NOT NULL default 0.0 lúc INSERT — không phân biệt được
+        với None) ⇒ chưa khấu hao kỳ nào ⇒ book thực = gross. SỬA lỗi L-04
+        "Giá trị còn lại 0₫" cho tài sản mới.
+      - current_book_value đã set với accumulated>0 (asset đang/đã KH) ⇒ dùng giá
+        trị THẬT verbatim — KỂ CẢ 0.0 (đã KH hết, residual=0) ⇒ KHÔNG về gross.
 
     Idiom cũ ``float(current_book_value or gross)`` SAI: `0.0 or gross` → gross
-    vì 0.0 falsy — không phân biệt None (chưa set) với 0.0 (đã set, hợp lệ).
+    vì 0.0 falsy — không phân biệt None với 0.0. Nhưng `raw is None` đơn thuần CŨNG
+    sai cho asset mới (DB lưu 0.0, không None) ⇒ phải xét accumulated_depreciation.
     3 consumer BE (compute_depreciation / _depr_enrich_row /
-    get_depreciation_stats) PHẢI gọi chung helper này, KHÔNG inline `or gross`.
+    get_depreciation_stats) PHẢI gọi chung helper này, KHÔNG inline `or gross`;
+    row truyền vào PHẢI có accumulated_depreciation để phân biệt mới vs KH-hết.
 
     Pure — không đụng DB. Đặt cạnh ``is_fully_depreciated`` (cùng cụm SoT đọc
     book) để tránh drift.
     """
     raw = asset_row.get("current_book_value")
     gross = flt(asset_row.get("gross_purchase_amount") or 0)
-    return gross if raw is None else flt(raw)
+    if raw is None:
+        return gross
+    book = flt(raw)
+    if book == 0.0 and flt(asset_row.get("accumulated_depreciation") or 0) <= 0:
+        return gross
+    return book
 
 
 def is_fully_depreciated(asset_row: dict) -> bool:
@@ -203,10 +214,12 @@ def is_fully_depreciated(asset_row: dict) -> bool:
     """
     if not is_configured_for_depreciation(asset_row):
         return False
-    gross = flt(asset_row.get("gross_purchase_amount") or 0)
     residual = flt(asset_row.get("residual_value") or 0)
-    raw_book = asset_row.get("current_book_value")
-    book = flt(raw_book) if raw_book is not None else gross
+    # Route book qua SoT effective_book_value (KHÔNG inline lại fallback) ⇒ asset
+    # MỚI (current_book_value=0.0, accumulated=0) trả gross ⇒ gross>residual+tol ⇒
+    # KHÔNG bị gắn cờ "hết khấu hao" (sửa L-05). Asset đã KH hết (accumulated>0,
+    # book chạm sàn) ⇒ book thật ⇒ vẫn True.
+    book = effective_book_value(asset_row)
     return book <= residual + _FULLY_DEPRECIATED_TOLERANCE
 
 
@@ -384,6 +397,29 @@ def generate_schedule(asset_name: str, *, force: bool = False) -> dict:
         "method": method,
         "frequency": frequency,
     }
+
+
+def generate_schedule_on_insert(asset_doc, method: str | None = None) -> None:
+    """Hook AC Asset after_insert (L-07): tự sinh lịch khấu hao khi tạo tài sản
+    ĐÃ cấu hình quy tắc khấu hao — bỏ "0/0 kỳ" + không bắt user bấm 'Sinh lịch'.
+
+    Mirror create_pm_schedule_from_asset / create_calibration_schedule_from_asset:
+      - ``method`` param: tương thích chữ ký doc-event Frappe ``(doc, method)``.
+      - GATE: chỉ chạy khi is_configured_for_depreciation (method ∧ gross>0 ∧
+        months>0) ⇒ asset chưa cấu hình KHÔNG sinh lịch trống.
+      - Idempotent: generate_schedule(force=False) tự skip nếu đã có schedule.
+      - BEST-EFFORT: nuốt mọi lỗi (log) → KHÔNG để việc sinh lịch vỡ thao tác
+        tạo asset (đối xứng nguyên tắc RC-01 'không treo/không chặn create').
+    """
+    if not is_configured_for_depreciation(asset_doc.as_dict()):
+        return
+    try:
+        generate_schedule(asset_doc.name, force=False)
+    except Exception:
+        frappe.log_error(
+            title="IMM-05 auto depreciation schedule (after_insert)",
+            message=frappe.get_traceback(),
+        )
 
 
 # ─── Cron: Execute due periods ───────────────────────────────────────────────

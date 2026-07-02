@@ -130,3 +130,45 @@ describe('IncidentCreateView — source propagation vào payload [AC3 / FE-2]', 
     expect(ss.props('disabled')).toBe(false)
   })
 })
+
+describe('IncidentCreateView — occurred_datetime [L-19]', () => {
+  beforeEach(() => {
+    routeQuery = {}
+    reportIncidentSpy.mockClear()
+    pushSpy.mockClear()
+  })
+
+  it('truyền occurred_datetime vào payload khi user nhập', async () => {
+    routeQuery = { asset: 'AC-ASSET-2026-00042' }
+    const w = mountView()
+    await fillRequired(w)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(w.vm as any).form.occurred_datetime = '2026-06-01 08:30:00'
+    await w.find('button[class*="bg-blue-600"]').trigger('click')
+    await flushPromises()
+    const payload = reportIncidentSpy.mock.calls[0][0] as Record<string, unknown>
+    expect(payload.occurred_datetime).toBe('2026-06-01 08:30:00')
+  })
+
+  it('để trống occurred_datetime → payload rỗng (BE fallback = reported_at)', async () => {
+    routeQuery = { asset: 'AC-ASSET-2026-00042' }
+    const w = mountView()
+    await fillRequired(w)
+    await w.find('button[class*="bg-blue-600"]').trigger('click')
+    await flushPromises()
+    const payload = reportIncidentSpy.mock.calls[0][0] as Record<string, unknown>
+    expect((payload.occurred_datetime as string) ?? '').toBe('')
+  })
+
+  it('chặn client khi occurred_datetime ở tương lai (mirror BE guard)', async () => {
+    routeQuery = { asset: 'AC-ASSET-2026-00042' }
+    const w = mountView()
+    await fillRequired(w)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(w.vm as any).form.occurred_datetime = '2099-01-01 00:00:00'
+    await w.find('button[class*="bg-blue-600"]').trigger('click')
+    await flushPromises()
+    expect(reportIncidentSpy).not.toHaveBeenCalled()
+    expect(w.text()).toContain('tương lai')
+  })
+})

@@ -32,7 +32,7 @@
   {
    "fieldname": "section_core",
    "fieldtype": "Section Break",
-   "label": "Core"
+   "label": "Thông tin cốt lõi"
   },
   {
    "fieldname": "naming_series",
@@ -44,7 +44,7 @@
   {
    "fieldname": "asset",
    "fieldtype": "Link",
-   "label": "Asset",
+   "label": "Tài sản",
    "options": "AC Asset",
    "reqd": 0,
    "search_index": 1,
@@ -55,7 +55,7 @@
   {
    "fieldname": "event_type",
    "fieldtype": "Select",
-   "label": "Event Type",
+   "label": "Loại sự kiện",
    "options": "State Change\nCAPA\nMaintenance\nCalibration\nDocument\nIncident\nAudit\nSystem\nTransfer",
    "reqd": 1,
    "in_list_view": 1,
@@ -69,7 +69,7 @@
   {
    "fieldname": "timestamp",
    "fieldtype": "Datetime",
-   "label": "Timestamp",
+   "label": "Thời điểm",
    "reqd": 1,
    "in_list_view": 1,
    "read_only": 1,
@@ -78,7 +78,7 @@
   {
    "fieldname": "actor",
    "fieldtype": "Link",
-   "label": "Actor",
+   "label": "Người thực hiện",
    "options": "User",
    "reqd": 1,
    "search_index": 1,
@@ -88,19 +88,19 @@
   {
    "fieldname": "section_ref",
    "fieldtype": "Section Break",
-   "label": "Source Reference"
+   "label": "Tham chiếu nguồn"
   },
   {
    "fieldname": "ref_doctype",
    "fieldtype": "Data",
-   "label": "Ref DocType",
+   "label": "DocType tham chiếu",
    "read_only": 1,
    "no_copy": 1
   },
   {
    "fieldname": "ref_name",
    "fieldtype": "Data",
-   "label": "Ref Name",
+   "label": "Tên tham chiếu",
    "read_only": 1,
    "no_copy": 1
   },
@@ -111,40 +111,40 @@
   {
    "fieldname": "from_status",
    "fieldtype": "Data",
-   "label": "From Status",
+   "label": "Trạng thái trước",
    "read_only": 1,
    "no_copy": 1
   },
   {
    "fieldname": "to_status",
    "fieldtype": "Data",
-   "label": "To Status",
+   "label": "Trạng thái sau",
    "read_only": 1,
    "no_copy": 1
   },
   {
    "fieldname": "section_details",
    "fieldtype": "Section Break",
-   "label": "Details"
+   "label": "Chi tiết"
   },
   {
    "fieldname": "change_summary",
    "fieldtype": "Text",
-   "label": "Change Summary",
+   "label": "Tóm tắt thay đổi",
    "read_only": 1,
    "no_copy": 1
   },
   {
    "fieldname": "ip_address",
    "fieldtype": "Data",
-   "label": "IP Address",
+   "label": "Địa chỉ IP",
    "read_only": 1,
    "no_copy": 1
   },
   {
    "fieldname": "section_hash",
    "fieldtype": "Section Break",
-   "label": "Hash Chain (SHA-256)"
+   "label": "Chuỗi hash (SHA-256)"
   },
   {
    "fieldname": "hash_sha256",
@@ -158,7 +158,7 @@
   {
    "fieldname": "prev_hash",
    "fieldtype": "Data",
-   "label": "Prev Hash",
+   "label": "Hash trước",
    "read_only": 1,
    "length": 64,
    "no_copy": 1

@@ -4,14 +4,16 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getProcurementPlan, rollIntoPlan, listNeedsRequests, approvePlan, activatePlan, closePlan, setBudgetEnvelope, removeFromPlan } from '@/api/imm01'
+import type { ProcurementPlanDetail } from '@/api/imm01'
 import { formatVnd, stateLabel, stateSlug } from '@/utils/wave2Labels'
 import type { NeedsRequestListItem } from '@/types/imm01'
+import CurrencyInput from '@/components/common/CurrencyInput.vue'
 
 const route = useRoute()
 const router = useRouter()
 const props = defineProps<{ id?: string }>()
 
-const plan = ref<Record<string, unknown> | null>(null)
+const plan = ref<ProcurementPlanDetail | null>(null)
 const loading = ref(false)
 const error = ref<string | null>(null)
 const showRollModal = ref(false)
@@ -24,6 +26,13 @@ const budgetInput = ref(0)
 const removingNr = ref<string | null>(null)
 
 const planItems = computed<Record<string, unknown>[]>(() => (plan.value?.plan_items as Record<string, unknown>[]) || [])
+
+// Server-driven CTA gating (GATE-8 / LL-FE-51): nút chuyển-trạng-thái chỉ hiện khi
+// BE xác nhận user hiện tại được phép action đó (allowed_transitions). KHÔNG gate theo
+// workflow_state literal — tránh "nút hiện rồi bấm mới báo Bạn không có quyền".
+function canDo(action: string): boolean {
+  return (plan.value?.allowed_transitions ?? []).includes(action)
+}
 
 // Guard against double-click race that triggered the previous "browser freeze"
 // (native confirm() blocks the event loop indefinitely when CDP can't accept
@@ -157,20 +166,20 @@ onMounted(loadPlan)
           <button class="btn btn-outline" @click="router.back()">← Quay lại</button>
           <button class="btn btn-outline" @click="openRollModal"
                   v-if="plan.workflow_state === 'Draft'">
-            Đưa NR vào kế hoạch
+            Đưa đề xuất vào kế hoạch
           </button>
           <button class="btn btn-primary" :disabled="actioning"
-                  v-if="plan.workflow_state === 'Draft'"
+                  v-if="canDo('Phê duyệt kế hoạch')" data-testid="cta-approve"
                   @click="requestAction(approvePlan, 'Phê duyệt kế hoạch này?')">
             {{ actioning ? 'Đang xử lý...' : 'Phê duyệt' }}
           </button>
           <button class="btn btn-primary" :disabled="actioning"
-                  v-if="plan.workflow_state === 'Approved'"
-                  @click="requestAction(activatePlan, 'Kích hoạt kế hoạch? Kế hoạch sẽ chuyển sang trạng thái Active.')">
+                  v-if="canDo('Kích hoạt')" data-testid="cta-activate"
+                  @click="requestAction(activatePlan, 'Kích hoạt kế hoạch? Kế hoạch sẽ chuyển sang trạng thái Đang hiệu lực.')">
             {{ actioning ? 'Đang xử lý...' : 'Kích hoạt' }}
           </button>
           <button class="btn btn-outline btn-danger" :disabled="actioning"
-                  v-if="['Approved', 'Active'].includes(plan.workflow_state as string)"
+                  v-if="canDo('Đóng kỳ kế hoạch')" data-testid="cta-close"
                   @click="requestAction(closePlan, 'Đóng kế hoạch? Hành động không thể hoàn tác.')">
             {{ actioning ? 'Đang xử lý...' : 'Đóng kế hoạch' }}
           </button>
@@ -187,7 +196,7 @@ onMounted(loadPlan)
             </button>
           </div>
           <div v-if="editingBudget" class="mt-1 flex gap-2 items-center">
-            <input v-model.number="budgetInput" type="number" min="0" step="1000000"
+            <CurrencyInput v-model="budgetInput" aria-label="Ngân sách"
                    class="w-full border border-gray-300 rounded px-2 py-1 text-sm" />
             <button class="text-xs bg-blue-600 text-white px-2 py-1 rounded" :disabled="actioning" @click="saveBudget">Lưu</button>
             <button class="text-xs px-2 py-1 rounded border" @click="editingBudget = false">Hủy</button>
@@ -208,17 +217,17 @@ onMounted(loadPlan)
         <div class="flex items-center justify-between mb-2">
           <h3 style="margin:0">Danh sách Đề nghị nhu cầu đã gom</h3>
           <button v-if="plan.workflow_state === 'Draft'" class="btn btn-outline text-sm" @click="openRollModal">
-            + Thêm NR
+            + Thêm đề xuất
           </button>
         </div>
         <table v-if="planItems.length" class="data-table">
           <thead>
             <tr>
-              <th>Mã NR</th>
+              <th>Mã đề xuất</th>
               <th>Khoa</th>
               <th class="num">Điểm ưu tiên</th>
-              <th class="num">CAPEX dự kiến</th>
-              <th class="num">TCO 5y</th>
+              <th class="num">Đầu tư mua sắm dự kiến</th>
+              <th class="num">Tổng chi phí sở hữu 5 năm</th>
               <th v-if="plan.workflow_state === 'Draft'"></th>
             </tr>
           </thead>
@@ -240,7 +249,7 @@ onMounted(loadPlan)
           </tbody>
         </table>
         <div v-else class="muted text-center" style="padding:1.5rem">
-          Chưa có Needs Request nào — nhấn "+ Thêm NR" để gom đề xuất đã duyệt vào kế hoạch.
+          Chưa có đề xuất nào — nhấn "+ Thêm đề xuất" để gom đề xuất đã duyệt vào kế hoạch.
         </div>
       </div>
     </div>
@@ -262,17 +271,17 @@ onMounted(loadPlan)
     <!-- Roll-into-plan modal -->
     <div v-if="showRollModal" class="modal-backdrop" @click.self="showRollModal = false">
       <div class="modal">
-        <h3>Đưa Needs Request vào kế hoạch {{ plan?.name }}</h3>
-        <div v-if="!candidateNeeds.length" class="muted">Không có Needs Request "Approved" để gom.</div>
+        <h3>Đưa đề xuất vào kế hoạch {{ plan?.name }}</h3>
+        <div v-if="!candidateNeeds.length" class="muted">Không có đề xuất "Đã duyệt" để gom.</div>
         <div v-else class="modal-body">
           <table class="data-table">
             <thead>
               <tr>
                 <th></th>
-                <th>Mã NR</th>
+                <th>Mã đề xuất</th>
                 <th>Khoa</th>
                 <th class="num">Điểm</th>
-                <th class="num">CAPEX</th>
+                <th class="num">Đầu tư mua sắm</th>
               </tr>
             </thead>
             <tbody>

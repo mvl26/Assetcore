@@ -100,7 +100,7 @@
    "fieldname": "asset_name",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Asset Name",
+   "label": "Tên tài sản",
    "reqd": 1
   },
   {
@@ -115,13 +115,13 @@
    "fieldname": "asset_code",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Asset Code",
+   "label": "Mã tài sản",
    "unique": 1
   },
   {
    "fieldname": "asset_category",
    "fieldtype": "Link",
-   "label": "Asset Category",
+   "label": "Nhóm tài sản",
    "options": "AC Asset Category",
    "reqd": 1,
    "search_index": 1
@@ -129,7 +129,7 @@
   {
    "fieldname": "item_code",
    "fieldtype": "Data",
-   "label": "Item Code"
+   "label": "Mã vật tư"
   },
   {
    "fieldname": "column_break_basic",
@@ -138,13 +138,13 @@
   {
    "fieldname": "image",
    "fieldtype": "Attach Image",
-   "label": "Image"
+   "label": "Ảnh"
   },
   {
    "default": "Submitted",
    "fieldname": "status",
    "fieldtype": "Select",
-   "label": "Status",
+   "label": "Trạng thái",
    "no_copy": 1,
    "options": "Submitted\nActive\nOut of Service\nDecommissioned\nUnder Repair\nCalibrating",
    "read_only": 1,
@@ -159,14 +159,14 @@
   {
    "fieldname": "location",
    "fieldtype": "Link",
-   "label": "Location",
+   "label": "Vị trí",
    "options": "AC Location",
    "search_index": 1
   },
   {
    "fieldname": "department",
    "fieldtype": "Link",
-   "label": "Department",
+   "label": "Khoa/Phòng",
    "options": "AC Department",
    "search_index": 1
   },
@@ -177,13 +177,13 @@
   {
    "fieldname": "custodian",
    "fieldtype": "Link",
-   "label": "Custodian",
+   "label": "Người quản lý tài sản",
    "options": "User"
   },
   {
    "fieldname": "responsible_technician",
    "fieldtype": "Link",
-   "label": "Responsible Technician",
+   "label": "Kỹ thuật viên phụ trách",
    "options": "User",
    "search_index": 1
   },
@@ -195,13 +195,13 @@
   {
    "fieldname": "supplier",
    "fieldtype": "Link",
-   "label": "Supplier",
+   "label": "Nhà cung cấp",
    "options": "AC Supplier"
   },
   {
    "fieldname": "purchase_date",
    "fieldtype": "Date",
-   "label": "Purchase Date"
+   "label": "Ngày mua"
   },
   {
    "fieldname": "column_break_purchase",
@@ -210,12 +210,13 @@
   {
    "fieldname": "gross_purchase_amount",
    "fieldtype": "Currency",
-   "label": "Gross Purchase Amount"
+   "length": 28,
+   "label": "Nguyên giá mua"
   },
   {
    "fieldname": "warranty_expiry_date",
    "fieldtype": "Date",
-   "label": "Warranty Expiry Date"
+   "label": "Ngày hết hạn bảo hành"
   },
   {
    "fieldname": "section_depreciation",
@@ -245,11 +246,13 @@
   {
    "fieldname": "residual_value",
    "fieldtype": "Currency",
+   "length": 28,
    "label": "Giá trị thu hồi"
   },
   {
    "fieldname": "accumulated_depreciation",
    "fieldtype": "Currency",
+   "length": 28,
    "label": "Khấu hao lũy kế",
    "no_copy": 1,
    "read_only": 1
@@ -257,6 +260,7 @@
   {
    "fieldname": "current_book_value",
    "fieldtype": "Currency",
+   "length": 28,
    "label": "Giá trị còn lại",
    "no_copy": 1,
    "read_only": 1
@@ -269,7 +273,7 @@
   {
    "fieldname": "device_model",
    "fieldtype": "Link",
-   "label": "Device Model",
+   "label": "Mẫu thiết bị",
    "options": "IMM Device Model",
    "search_index": 1
   },
@@ -277,14 +281,14 @@
    "fetch_from": "device_model.medical_device_class",
    "fieldname": "medical_device_class",
    "fieldtype": "Select",
-   "label": "Medical Device Class",
+   "label": "Phân loại TBYT",
    "options": "\nClass I\nClass II\nClass III"
   },
   {
    "fetch_from": "device_model.risk_classification",
    "fieldname": "risk_classification",
    "fieldtype": "Select",
-   "label": "Risk Classification",
+   "label": "Phân loại rủi ro",
    "options": "\nLow\nMedium\nHigh\nCritical",
    "read_only": 1
   },
@@ -295,13 +299,13 @@
   {
    "fieldname": "manufacturer_sn",
    "fieldtype": "Data",
-   "label": "Manufacturer SN",
+   "label": "Số serial hãng sản xuất",
    "search_index": 1
   },
   {
    "fieldname": "udi_code",
    "fieldtype": "Data",
-   "label": "UDI Code",
+   "label": "Mã UDI",
    "search_index": 1
   },
   {
@@ -319,7 +323,7 @@
    "fetch_from": "device_model.gmdn_code",
    "fieldname": "gmdn_code",
    "fieldtype": "Data",
-   "label": "GMDN Code"
+   "label": "Mã GMDN"
   },
   {
    "fieldname": "section_byt",
@@ -329,7 +333,7 @@
   {
    "fieldname": "byt_reg_no",
    "fieldtype": "Data",
-   "label": "BYT Registration No",
+   "label": "Số đăng ký BYT",
    "search_index": 1
   },
   {
@@ -339,7 +343,7 @@
   {
    "fieldname": "byt_reg_expiry",
    "fieldtype": "Date",
-   "label": "BYT Registration Expiry",
+   "label": "Hết hạn đăng ký BYT",
    "search_index": 1
   },
   {
@@ -351,7 +355,7 @@
    "default": "Draft",
    "fieldname": "lifecycle_status",
    "fieldtype": "Select",
-   "label": "Lifecycle Status",
+   "label": "Trạng thái vòng đời",
    "no_copy": 1,
    "options": "Draft\nCommissioned\nActive\nUnder Maintenance\nUnder Repair\nCalibrating\nOut of Service\nDecommissioned",
    "read_only": 1,
@@ -361,7 +365,7 @@
   {
    "fieldname": "commissioning_date",
    "fieldtype": "Date",
-   "label": "Commissioning Date"
+   "label": "Ngày nghiệm thu"
   },
   {
    "fieldname": "column_break_lifecycle",
@@ -370,13 +374,13 @@
   {
    "fieldname": "commissioning_ref",
    "fieldtype": "Link",
-   "label": "Commissioning Reference",
+   "label": "Tham chiếu nghiệm thu",
    "options": "Asset Commissioning"
   },
   {
    "fieldname": "calibration_status",
    "fieldtype": "Select",
-   "label": "Calibration Status",
+   "label": "Trạng thái hiệu chuẩn",
    "no_copy": 1,
    "options": "\nNot Required\nOn Schedule\nDue Soon\nOverdue\nCalibration Failed",
    "read_only": 1
@@ -391,13 +395,13 @@
    "fetch_from": "device_model.is_pm_required",
    "fieldname": "is_pm_required",
    "fieldtype": "Check",
-   "label": "Is PM Required"
+   "label": "Bắt buộc bảo trì"
   },
   {
    "fetch_from": "device_model.pm_interval_days",
    "fieldname": "pm_interval_days",
    "fieldtype": "Int",
-   "label": "PM Interval (days)",
+   "label": "Chu kỳ bảo trì (ngày)",
    "mandatory_depends_on": "eval:doc.is_pm_required"
   },
   {
@@ -407,14 +411,14 @@
   {
    "fieldname": "last_pm_date",
    "fieldtype": "Date",
-   "label": "Last PM Date",
+   "label": "Ngày PM gần nhất",
    "no_copy": 1,
    "read_only": 1
   },
   {
    "fieldname": "next_pm_date",
    "fieldtype": "Date",
-   "label": "Next PM Date",
+   "label": "Ngày PM tiếp theo",
    "no_copy": 1,
    "read_only": 1,
    "search_index": 1
@@ -429,13 +433,13 @@
    "fetch_from": "device_model.is_calibration_required",
    "fieldname": "is_calibration_required",
    "fieldtype": "Check",
-   "label": "Is Calibration Required"
+   "label": "Bắt buộc hiệu chuẩn"
   },
   {
    "fetch_from": "device_model.calibration_interval_days",
    "fieldname": "calibration_interval_days",
    "fieldtype": "Int",
-   "label": "Calibration Interval (days)",
+   "label": "Chu kỳ hiệu chuẩn (ngày)",
    "mandatory_depends_on": "eval:doc.is_calibration_required"
   },
   {
@@ -445,14 +449,14 @@
   {
    "fieldname": "last_calibration_date",
    "fieldtype": "Date",
-   "label": "Last Calibration Date",
+   "label": "Ngày hiệu chuẩn gần nhất",
    "no_copy": 1,
    "read_only": 1
   },
   {
    "fieldname": "next_calibration_date",
    "fieldtype": "Date",
-   "label": "Next Calibration Date",
+   "label": "Ngày hiệu chuẩn tiếp theo",
    "no_copy": 1,
    "read_only": 1,
    "search_index": 1
@@ -480,6 +484,7 @@
   {
    "fieldname": "insured_value",
    "fieldtype": "Currency",
+   "length": 28,
    "label": "Giá trị bảo hiểm"
   },
   {
@@ -501,7 +506,7 @@
   {
    "fieldname": "notes",
    "fieldtype": "Text Editor",
-   "label": "Notes"
+   "label": "Ghi chú"
   },
   {
    "fieldname": "amended_from",

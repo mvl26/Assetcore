@@ -156,4 +156,54 @@ Theo `services/shared/constants.py:ErrorCode`. Các code dùng trong module:
 
 ---
 
-*(File này là **interface contract** — khi BE scaffold xong, cập nhật shape JSON schema cụ thể vào §2, ErrorCode chính thức vào §3, và đánh dấu trạng thái "Live" trong [README](./README.md).)*
+---
+
+## §7 — Mobile Read Surface (Đợt-2) — **Asset Transfer (LIVE @ imm00)**
+
+> ⚠️ **Phân-biệt namespace (quan trọng — chống nhầm):** §1–§6 ở trên đặc-tả luồng **Reassignment (RAS-...)** Đợt-3 *chưa scaffold* (`assetcore.api.imm13.*`). Tuy nhiên cơ-chế điều-chuyển **ĐANG LIVE** lại nằm ở **`assetcore.api.imm00.*`** trên DocType **`Asset Transfer`** (naming `AT-.YYYY.-.####`), KHÔNG phải `imm13.reassignment`. §7 này đặc-tả 2 endpoint **READ LIVE** đã wire vào **mobile contract** (`docs/mobile/openapi/assetcore-mobile.openapi.yaml`) — quyết định kiến-trúc: [`ADR-MOBILE-021`](../mobile/ADR-MOBILE-021.md).
+
+**Boundaries (lens spec):**
+- **Always:** trỏ path THẬT `assetcore.api.imm00.list_transfers`/`get_transfer` (LIVE @`api/imm00.py:2047-2085`); enum `status`/`transfer_type` lấy SSoT từ `asset_transfer.json` (KHÔNG bịa); read-only ⇒ KHÔNG sinh Lifecycle Event (event sinh ở mutation `approve`/`receive`).
+- **Never:** gộp 2 endpoint này vào namespace `imm13.*` (path không tồn tại → 404 runtime); khai `listTransfers` 200 là `oneOf [Env, Error]` (handler KHÔNG `try/except` ⇒ 0 nhánh `_err`); khai `TransferDetail` closed (`as_dict()` mang field meta Frappe → validate-fail).
+
+### §7.1 — DocType `Asset Transfer` (nguồn dữ liệu)
+
+| Mục | Giá-trị (verify `asset_transfer.json`) |
+|---|---|
+| Naming | `AT-.YYYY.-.####` |
+| `is_submittable` | 0 (KHÔNG docstatus-flow) · `track_changes` 1 |
+| `status` (Select, read_only, default `Pending Approval`) | `Pending Approval` · `Approved` · `Rejected` · `Received` · `Cancelled` (`:89`) |
+| `transfer_type` (Select) | `Internal` · `Loan` · `External` · `Return` (`:77`) |
+
+### §7.2 — Endpoint READ (đã wire mobile)
+
+| # | Method | Path (Frappe whitelist) | opId (mobile) | Auth | 200 shape | Slot |
+|---|---|---|---|---|---|---|
+| R1 | GET | `assetcore.api.imm00.list_transfers` | `listTransfers` | bare `@whitelist` (session) | **SINGLE** `TransferListEnvelope` | `{200,401,403}` |
+| R2 | GET | `assetcore.api.imm00.get_transfer` | `getTransfer` | bare `@whitelist` (session) | **oneOf** `[TransferDetailEnvelope, Error]` | `{200,401,403}` |
+
+**R1 `list_transfers`** (`api/imm00.py:2047-2077`)
+- **Input** (4 param DISCRETE query-string): `asset?` (str — Link AC Asset) · `status?` (str — ∈ enum §7.1) · `page?` (int, default 1) · `page_size?` (int, default 20).
+- **Output** `_ok({"pagination": <Pagination 5-key>, "items": [<TransferListItem>]})` — rows-key `data.items[]` (mirror IncidentListEnvelope). `order_by transfer_date desc`.
+- **SINGLE-shape** (KHÔNG `oneOf Error`): handler KHÔNG `try/except` ⇒ 0 nhánh `_err` in-handler; malformed `page` → 500 NGOÀI 3-shape.
+- **`TransferListItem`** closed (`additionalProperties:false`), `required [name]`, **17 field** GROUNDED `fields=[...]`@`:2062-2065` + `asset_name` enrich@`:2070-2076`: `name, asset, asset_name, transfer_date(date), transfer_type(enum), status(enum), from_location, to_location, from_department, to_department, from_custodian, to_custodian, reason, approved_by, approval_date(date), received_by, received_date(date)`. **0 boolean** → 0 int-enum trap.
+
+**R2 `get_transfer`** (`api/imm00.py:2080-2085`)
+- **Input**: `name` (str, query, **required**).
+- **Output**: `404 _err(IMM transfer NOT_FOUND)` @`:2084` (Error trên **HTTP-200** quirk) **hoặc** `_ok(doc.as_dict())` @`:2085`.
+- **oneOf** `[TransferDetailEnvelope, Error]` closed route-by-VALUE `body.success` (Decision-B 0-discriminator). `Error.http_status ⊇ {404}`.
+- **`TransferDetail`** **OPEN** (`additionalProperties:true`) = `doc.as_dict()` — superset-by-property của `TransferListItem` + field detail-only (`naming_series, expected_return_date, notes, rejected_by, rejection_reason, handover_notes, amended_from`) + field meta Frappe qua `additionalProperties`. `required [name]`. (Envelope đóng; Detail mở — mirror `IncidentDetail` §3.2.)
+
+### §7.3 — Slot 401/403 (DONE-gate spec-contract)
+
+Cả 2 bare `@whitelist` (KHÔNG `allow_guest`, KHÔNG `methods=['POST']`):
+- **401** = `Unauthorized401` (FrappeRawError, bearer hết-hạn → session=Guest, status-line THẬT) → app refresh/re-auth.
+- **403** = `Forbidden` SINGLE-SHAPE (FrappeRawError, **dispatcher-403** guest/no-token — KHÔNG có nhánh in-handler cap-403 ở 2 read này) → app re-auth.
+- **Lỗi nghiệp-vụ** (R2 404) = **in-handler HTTP-200 + Error envelope** (KHÔNG raise→4xx).
+- **INV count==rows**: `list_transfers` `db.count(filters)` @`:2057` == `len(get_list(filters))` @`:2059` (cùng `filters` dict; Asset Transfer KHÔNG có `permission_query_conditions` riêng).
+
+*(Đặc-tả write-action điều-chuyển — `approveTransfer`/`rejectTransfer`/`receiveTransfer` POST @`imm00.py:2543/2552/2561`, LIVE — là **[ROADMAP]** vòng kế: ADR-MOBILE-021 §BACKLOG.)*
+
+---
+
+*(File này là **interface contract** — §1–§6 = RAS Đợt-3 skeleton (cập nhật shape khi BE scaffold); §7 = Asset Transfer read-surface LIVE đã wire mobile. Trạng-thái "Live" của từng phần đánh dấu trong [README](./README.md).)*

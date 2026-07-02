@@ -120,7 +120,7 @@ const fields = computed(() => {
     ['Tần suất đánh giá', translateFrequency(r.evaluation_frequency)],
     ['Nguồn dữ liệu', `${r.data_source_doctype || '—'}${r.data_source_field ? ' · ' + r.data_source_field : ''}`],
     ['Vai trò sở hữu', r.owner_role || '—'],
-    ['Tham chiếu QMS', r.qms_doc_ref || '—'],
+    ['Tham chiếu hệ thống quản lý chất lượng', r.qms_doc_ref || '—'],
     ['Tham chiếu pháp lý', r.regulatory_reference || '—'],
     ['Ngày hiệu lực', fmtDate(r.effective_date)],
   ] as [string, string | undefined][]
@@ -215,7 +215,7 @@ onMounted(load)
           <input v-model="editForm.regulatory_reference" class="form-input" />
         </div>
         <div class="form-group">
-          <label class="form-label">Tham chiếu QMS</label>
+          <label class="form-label">Tham chiếu hệ thống quản lý chất lượng</label>
           <input v-model="editForm.qms_doc_ref" class="form-input" />
         </div>
         <p class="text-xs text-slate-400">Đổi ngưỡng/mức độ → dùng "Tạo phiên bản mới" để kiểm soát thay đổi (VR-11).</p>
@@ -227,7 +227,7 @@ onMounted(load)
     </BaseModal>
 
     <!-- New version modal -->
-    <BaseModal v-if="showVersion" title="Tạo phiên bản mới (change control)" size="lg" @close="showVersion = false">
+    <BaseModal v-if="showVersion" title="Tạo phiên bản mới (kiểm soát thay đổi)" size="lg" @close="showVersion = false">
       <div class="space-y-3">
         <p class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
           VR-11: thay đổi ngưỡng hoặc mức độ sẽ tăng số phiên bản và yêu cầu tóm tắt thay đổi.

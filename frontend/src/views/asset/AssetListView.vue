@@ -207,7 +207,7 @@ const IMPORT_NOTICE = [
   '<strong>Mã tài sản</strong> phải duy nhất, chỉ gồm chữ, số và các ký tự . _ - / (không khoảng trắng, không dấu) — để trống nếu muốn hệ thống tự sinh.',
   // V1-D: phân biệt rõ với Số serial NSX để user không nhập serial vào ô mã.
   '<strong>Số serial NSX</strong> là số serial của nhà sản xuất (khác Mã tài sản) — không bắt buộc, nhưng nếu nhập phải duy nhất.',
-  'Mặc định trạng thái vòng đời = <strong>Draft</strong> nếu bỏ trống.',
+  'Mặc định trạng thái vòng đời = <strong>Nháp</strong> nếu bỏ trống.',
 ]
 
 // ── A4: chọn nhiều + in nhãn QR hàng loạt ───────────────────────────────────────
@@ -303,7 +303,7 @@ defineExpose({ clearChip, activeChips, toggleSelect, selectedNames, clearSelecti
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
               d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
           </svg>
-          Import
+          Nhập Excel
         </button>
         <button class="btn-primary" @click="router.push('/assets/new')">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -352,7 +352,7 @@ defineExpose({ clearChip, activeChips, toggleSelect, selectedNames, clearSelecti
           </select>
         </div>
         <div class="form-group">
-          <label class="form-label">GMDN Code</label>
+          <label class="form-label">Mã GMDN</label>
           <select v-model="filters.gmdn_code" class="form-select" @change="applyFilters">
             <option value="">Tất cả mã GMDN</option>
             <option v-for="g in gmdnOptions" :key="g.value" :value="g.value">{{ g.label }}</option>
@@ -407,7 +407,7 @@ defineExpose({ clearChip, activeChips, toggleSelect, selectedNames, clearSelecti
             </span>
             <span v-if="asset.department_name || asset.department" class="text-slate-300">·</span>
             <span>{{ asset.department_name || asset.department }}</span>
-            <span v-if="isPmOverdue(asset.next_pm_date)" class="text-red-600 font-semibold">PM quá hạn</span>
+            <span v-if="isPmOverdue(asset.next_pm_date)" class="text-red-600 font-semibold">Bảo trì định kỳ quá hạn</span>
           </div>
         </div>
         <div v-if="store.assets.length === 0" class="py-12 text-center text-slate-400">
@@ -533,7 +533,7 @@ defineExpose({ clearChip, activeChips, toggleSelect, selectedNames, clearSelecti
 
     <ImportWizardModal
       :ctx="importWizard"
-      title="Import Thiết bị"
+      title="Nhập Thiết bị"
       unit="tài sản"
       :notice="IMPORT_NOTICE"
       :preview-columns="7"

@@ -936,6 +936,28 @@ class TestStateIsEscalation(unittest.TestCase):
             "In Progress (doc_status=0, type=Success) KHÔNG phải escalation",
         )
 
+    def test_controlled_by_approver_discriminator_admin_override_safe(self):
+        """TC-NTF-30b: chốt chặn admin-override — escalation/approval chỉ đúng khi
+        allow_edit của state thuộc role phê duyệt (role vận hành KHÔNG còn sửa được).
+
+        Regression: sau backfill_workflow_admin (memory workflow_admin_override_rbac)
+        role quản trị có transition ở gần như mọi state; discriminator phải dựa
+        State.allow_edit (State-level) chứ KHÔNG chỉ dựa transition-role, nếu không
+        state vận hành "In Progress" bị nhận nhầm là escalation/cần-duyệt (3 test đỏ).
+        """
+        from assetcore.services.notifications import _state_controlled_by_approver
+
+        # In Progress: allow_edit = PM User (vận hành còn sửa) → KHÔNG chờ quản trị.
+        self.assertFalse(
+            _state_controlled_by_approver(_PM_DT, "In Progress"),
+            "In Progress do role vận hành (PM User) sửa → không controlled_by_approver",
+        )
+        # Halted–Major Failure: allow_edit = System Manager → đã chuyển quyền quản trị.
+        self.assertTrue(
+            _state_controlled_by_approver(_PM_DT, _PM_ESCALATION_STATE),
+            "Halted–Major Failure do role quản trị (System Manager) sửa → controlled_by_approver",
+        )
+
 
 class TestResolveEscalationRecipients(unittest.TestCase):
     """TC-NTF-31: recipient = union(role quản trị có lối ra rời escalation-state) +
@@ -1247,3 +1269,123 @@ class TestRunSlaBreachScan(unittest.TestCase):
         emitted = self._run([bad, good])
         self.assertEqual(emitted, [("breach", "WO-GOOD")],
                          "WO lỗi bị skip; WO hợp lệ sau vẫn được xử lý")
+
+
+# ─── E8: notify_workflow_transition (generic governance transition notifier) ─────
+#
+# Audit 2026-07-02: 19/22 doctype workflow không bắn thông báo khi chuyển state
+# (NR "Trình BGĐ"/"Phê duyệt" không ai nhận). E8 = listener generic báo (1) người xử
+# lý bước kế + (2) người tạo (kết quả). Test dùng workflow THẬT IMM-01 Needs Workflow.
+
+_WF_NEXT_ACTOR = "_test_wf_pm@example.com"   # giữ role Procurement Manager
+_WF_OWNER = "_test_wf_owner@example.com"
+_WF_ACTOR = "_test_wf_actor@example.com"
+_WF_NR_DT = "IMM Needs Request"
+
+
+class TestNotifyWorkflowTransition(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        _ensure_user(_WF_OWNER)
+        _ensure_user(_WF_ACTOR)
+        # Procurement Manager = role 'allowed' của transition rời 'Pending Approval'
+        # (Phê duyệt/Bác) trong IMM-01 Needs Workflow → "người xử lý bước kế" của state đó.
+        _ensure_user_with_role(_WF_NEXT_ACTOR, "Procurement Manager")
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+
+    @staticmethod
+    def _capture():
+        calls: list = []
+
+        def fake(users, subject, message, doc):
+            calls.append({"users": list(users), "subject": subject})
+
+        return calls, fake
+
+    def _doc(self, state, prev, owner=_WF_OWNER, docstatus=0, has_before=True):
+        before = (
+            _FakeDoc(doctype=_WF_NR_DT, name="NR-WF-TEST", workflow_state=prev, owner=owner)
+            if has_before else None
+        )
+        return _FakeDoc(
+            doctype=_WF_NR_DT, name="NR-WF-TEST", workflow_state=state,
+            owner=owner, docstatus=docstatus, _before=before,
+        )
+
+    def test_next_actor_notified_on_enter_pending_approval(self):
+        """TC-NTF-42: Budgeted→Pending Approval → báo role duyệt (Procurement Manager)."""
+        from assetcore.services.notifications import notify_workflow_transition
+
+        frappe.set_user(_WF_ACTOR)
+        calls, fake = self._capture()
+        with patch("assetcore.services.notifications._dispatch", side_effect=fake):
+            notify_workflow_transition(self._doc("Pending Approval", "Budgeted"))
+        na = [c for c in calls if c["subject"].startswith("Cần xử lý")]
+        self.assertTrue(na, "phải báo người xử lý bước kế")
+        self.assertIn(_WF_NEXT_ACTOR, na[0]["users"])
+
+    def test_owner_notified_on_approved_finalize(self):
+        """TC-NTF-43: Pending Approval→Approved (finalize) → người tạo nhận 'được duyệt'."""
+        from assetcore.services.notifications import notify_workflow_transition
+
+        frappe.set_user(_WF_NEXT_ACTOR)  # PM duyệt (khác owner)
+        calls, fake = self._capture()
+        with patch("assetcore.services.notifications._dispatch", side_effect=fake):
+            notify_workflow_transition(self._doc("Approved", "Pending Approval"))
+        owner_calls = [c for c in calls if _WF_OWNER in c["users"]]
+        self.assertTrue(owner_calls, "người tạo phải nhận kết quả duyệt")
+        self.assertIn("được duyệt", owner_calls[0]["subject"])
+
+    def test_owner_notified_on_rejected_finalize(self):
+        """TC-NTF-44: →Rejected → người tạo nhận 'không được duyệt'."""
+        from assetcore.services.notifications import notify_workflow_transition
+
+        frappe.set_user(_WF_NEXT_ACTOR)
+        calls, fake = self._capture()
+        with patch("assetcore.services.notifications._dispatch", side_effect=fake):
+            notify_workflow_transition(self._doc("Rejected", "Pending Approval"))
+        owner_calls = [c for c in calls if _WF_OWNER in c["users"]]
+        self.assertTrue(owner_calls)
+        self.assertIn("không được duyệt", owner_calls[0]["subject"])
+
+    def test_no_dispatch_when_state_unchanged(self):
+        """TC-NTF-45: workflow_state không đổi → no-op (idempotent)."""
+        from assetcore.services.notifications import notify_workflow_transition
+
+        frappe.set_user(_WF_ACTOR)
+        calls, fake = self._capture()
+        with patch("assetcore.services.notifications._dispatch", side_effect=fake):
+            notify_workflow_transition(self._doc("Budgeted", "Budgeted"))
+        self.assertEqual(calls, [])
+
+    def test_no_dispatch_on_create(self):
+        """TC-NTF-46: tạo mới (before None) → no-op (creator tự biết)."""
+        from assetcore.services.notifications import notify_workflow_transition
+
+        frappe.set_user(_WF_ACTOR)
+        calls, fake = self._capture()
+        with patch("assetcore.services.notifications._dispatch", side_effect=fake):
+            notify_workflow_transition(self._doc("Draft", None, has_before=False))
+        self.assertEqual(calls, [])
+
+    def test_cancelled_doc_noop(self):
+        """TC-NTF-47: docstatus=2 (cancelled) → no-op, không crash."""
+        from assetcore.services.notifications import notify_workflow_transition
+
+        frappe.set_user(_WF_ACTOR)
+        calls, fake = self._capture()
+        with patch("assetcore.services.notifications._dispatch", side_effect=fake):
+            notify_workflow_transition(self._doc("Rejected", "Pending Approval", docstatus=2))
+        self.assertEqual(calls, [])
+
+    def test_owner_as_actor_not_self_notified_at_finalize(self):
+        """TC-NTF-48: owner tự finalize → KHÔNG tự báo (Approved terminal → 0 dispatch)."""
+        from assetcore.services.notifications import notify_workflow_transition
+
+        frappe.set_user(_WF_OWNER)
+        calls, fake = self._capture()
+        with patch("assetcore.services.notifications._dispatch", side_effect=fake):
+            notify_workflow_transition(self._doc("Approved", "Pending Approval", owner=_WF_OWNER))
+        self.assertEqual(calls, [], "owner==actor + state terminal → không dispatch")

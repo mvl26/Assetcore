@@ -144,6 +144,15 @@ def list_cycle_counts(filters: str = "{}", page: int = 1,
     return _handle(svc.list_cycle_counts, f, page=int(page), page_size=int(page_size))
 
 
+@frappe.whitelist()
+def get_cycle_count(name: str = "") -> dict:
+    """§3.6 GET get_cycle_count — header + item lines + allowed_transitions.
+
+    Not-found → 404 envelope (KHÔNG 500) via _handle → ServiceError(NOT_FOUND).
+    """
+    return _handle(svc.get_cycle_count, name)
+
+
 @frappe.whitelist(methods=["POST"])
 def create_cycle_count(warehouse: str, spare_parts: str = "[]",
                        items: str = "[]",

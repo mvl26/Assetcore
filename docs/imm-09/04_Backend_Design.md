@@ -167,6 +167,280 @@ class AssetRepair(Document):
         svc.complete_repair(self)  # MTTR, sla_breached, asset restore guarded (BR-09-09), ALE
 ```
 
+### 3.1 Server-driven CTA — `allowed_transitions[]` (SSoT, mirror Incident R3 / PM R21)
+
+`get_work_order` (màn repair-detail mobile/web) emit thêm key `allowed_transitions: list[str]` = **các trạng-thái-kế hợp lệ** từ `status` hiện tại. Client render nút workflow trên màn detail **theo SERVER** — KHÔNG hardcode `status → button` phía client (anti-pattern *dead-gate / RBAC-drift*: khi workflow đổi mà FE quên đồng bộ → nút sai/cụt).
+
+Đây là thành viên **THỨ BA** có `allowed_transitions[]` (sau `IncidentDetail` — imm12.py:778, R3; `PmWorkOrderDetail` — imm08.py:651, R21), đóng **NỬA Repair** của ASYMMETRY R3. (Nửa Calibration — `imm_11_calibration_workflow.json` state-machine riêng — round riêng sau, cùng pattern.)
+
+**SSoT = map tập trung `_REPAIR_VALID_TRANSITIONS` (`services/imm09.py`)**, keyed bằng `RepairStatus.*` constants (KHÔNG literal), codomain GROUNDED **edge-by-edge** `imm_09_repair_workflow.json` (9 state / 15 transition):
+
+```python
+_REPAIR_VALID_TRANSITIONS: dict[str, list[str]] = {
+    RepairStatus.OPEN:               [RepairStatus.ASSIGNED, RepairStatus.CANCELLED],
+    RepairStatus.ASSIGNED:           [RepairStatus.DIAGNOSING, RepairStatus.CANCELLED],
+    RepairStatus.DIAGNOSING:         [RepairStatus.IN_REPAIR, RepairStatus.PENDING_PARTS, RepairStatus.CANCELLED],
+    RepairStatus.PENDING_PARTS:      [RepairStatus.IN_REPAIR, RepairStatus.CANCELLED],
+    RepairStatus.IN_REPAIR:          [RepairStatus.PENDING_INSPECTION, RepairStatus.CANNOT_REPAIR, RepairStatus.CANCELLED],
+    RepairStatus.PENDING_INSPECTION: [RepairStatus.COMPLETED, RepairStatus.IN_REPAIR, RepairStatus.CANCELLED],
+    RepairStatus.COMPLETED:          [],   # terminal (doc_status=1)
+    RepairStatus.CANNOT_REPAIR:      [],   # terminal (doc_status=1)
+    RepairStatus.CANCELLED:          [],   # terminal
+}
+```
+
+Emit (mirror imm12.py:778 / imm08.py:651) — **0 đổi signature handler** `getRepairWorkOrder` (vẫn `handle(svc.get_work_order, name)`); field mới chảy qua envelope tự động:
+
+```python
+# services/imm09.py::get_work_order — ngay trước `return data`
+data["allowed_transitions"] = _REPAIR_VALID_TRANSITIONS.get(doc.status, [])
+```
+
+**Boundaries (Always / Never):**
+
+| | |
+|---|---|
+| **Always** | Keyed bằng `RepairStatus.*` constants. Codomain == `imm_09_repair_workflow.json` edge-by-edge (guard SSoT-divergence). Terminal `Completed`/`Cannot Repair`/`Cancelled` → `[]`. Emit qua `_REPAIR_VALID_TRANSITIONS.get(doc.status, [])` (default `[]` an toàn cho status lạ). |
+| **Never** | KHÔNG literal status trong map. KHÔNG enum-bound cứng ở schema YAML (né drift). KHÔNG đưa `allowed_transitions` vào `required`. KHÔNG để FE hardcode `status → button` (server-drive). KHÔNG đổi signature handler / không gọi workflow-engine để derive (map thuần). |
+
+**ADR-IMM09-CTA — server-driven `allowed_transitions[]` cho repair-detail**
+
+- **Context:** màn repair-detail cần biết nút workflow nào được phép từ `status` hiện tại. Nếu FE tự suy (`status → button`) thì mỗi lần workflow đổi phải sửa 2 nơi (BE + FE) → drift, nút cụt/sai, lỗi RBAC dead-gate. Incident (R3) và PM (R21) đã giải bằng map server-driven; Repair còn thiếu ⇒ ASYMMETRY.
+- **Decision:** thêm map tập trung `_REPAIR_VALID_TRANSITIONS` (SSoT, grounded workflow JSON edge-by-edge), emit `allowed_transitions[]` trong `get_work_order`. Schema YAML khai `array<string>` **KHÔNG enum-bound** + **NOT-required** (mirror IncidentDetail/PmWorkOrderDetail), `additionalProperties:true` giữ nguyên.
+- **Consequences:** FE render CTA hoàn toàn theo server (1 nguồn sự thật); thêm/bớt transition chỉ sửa workflow JSON + map (guard test bắt drift ngay). Field optional → client cũ bỏ qua an toàn (backward-compatible). Không enum-bound ⇒ thêm state mới không phá contract.
+- **Alternatives (rejected):** (a) FE hardcode `status→button` — drift 2 nơi, dead-gate; (b) schema enum-bound `items.enum=[...9 state]` — drift mỗi lần đổi workflow, phá codegen; (c) derive qua Frappe workflow-engine runtime — nặng + phụ thuộc Workflow record (IMM-09 không dùng Workflow record, enforce qua controller/guard).
+
+### 3.2 Mobile-BE contract — `assignTechnician` (DISPATCH: Open → Assigned)
+
+Endpoint `assign_technician` đã có sẵn ở BE (`api/imm09.py:58`, whitelisted POST) và web SPA (§3.4 file 05). Round này bồi **path tương ứng vào contract mobile** `docs/mobile/openapi/assetcore-mobile.openapi.yaml` để app field-tech lấp **HỐ create→start**: chuỗi `createRepairWorkOrder → [THIẾU giao việc] → startRepair` chưa có endpoint giao WO cho KTV hiện trường. `assignTechnician` là **action lifecycle DISPATCH** đầu chuỗi vận hành repair (`Open → Assigned`).
+
+**Grounding @source (verify-before-claim):**
+
+| Mục | Giá trị | Evidence |
+|---|---|---|
+| Handler | `assign_technician(name, technician, priority="")` | `api/imm09.py:58` |
+| Cap-gate | `rbac.require("repair.write")` | `api/imm09.py:59` |
+| Service return | `{name, status=RepairStatus.ASSIGNED, assigned_to=technician}` (3-key) | `services/imm09.py:848` |
+| Status gate | chỉ khi `status == "Open"` → nếu khác raise `IMM09_BAD_STATE` | `services/imm09.py:842` |
+
+**Khác mọi C8-ACTION đã làm — đây là điểm thiết kế cần ADR:**
+
+- **Response 3-key** `{name, status, assigned_to}` ⇒ **KHÔNG reuse** `RepairActionEnvelope`/`RepairActionResponse` (2-key `{name,status}` của `start_repair`). Service trả thêm `assigned_to` (echo technician đã gán) ⇒ schema RIÊNG (precedent: `CloseWorkOrderEnvelope` 4-key, `ResolveIncidentEnvelope` 3-key — C3-split field-disjoint).
+- **requestBody 2-required** `[name, technician]` + 1 optional `priority` ⇒ KHÁC mọi C8-ACTION đơn-`{name}` trước đó (startRepair/acknowledgeIncident). `technician` (positional `api/imm09.py:58`) chính là **đích tiêu thụ của `listUsers`** (R23 picker KTV).
+
+**Boundaries (Always / Never):**
+
+| | |
+|---|---|
+| **Always** | `AssignTechnicianResponse` props EXACT `{name,status,assigned_to}` (grounded `services/imm09.py:848`), `additionalProperties:false`, `required=[name,status,assigned_to]`. `status` enum = RepairStatus-canonical 9-state (mô tả literal `Assigned`). requestBody `required=[name,technician]` (cả 2 positional no-default), `priority` optional `default ''`. 200 = `oneOf [AssignTechnicianEnvelope, Error]` route-by-VALUE `body.success` (closed-schema, 0 discriminator). Path vào `_MVP_BUSINESS_PATHS` ⇒ 401/403 symmetry tự cân (test so SET). |
+| **Never** | KHÔNG reuse `RepairActionEnvelope` (2-key ≠ 3-key). KHÔNG đưa `priority` vào `required`. KHÔNG thêm `name` vào body-exclude (name **BẮT BUỘC** — positional thứ nhất). KHÔNG dùng discriminator (`success` boolean illegal §5c). KHÔNG status-line key 404/409/422 (lỗi nghiệp vụ in-handler arrive HTTP-200 + Error body). KHÔNG sửa `api/imm09.py`/`services/imm09.py` (PURE-YAML round). |
+
+**ADR-IMM09-ASSIGN — mobile contract `assignTechnician` (response RIÊNG 3-key, KHÔNG reuse 2-key envelope)**
+
+- **Status:** Accepted · **Date:** 2026-06-16
+- **Context:** chuỗi vận hành repair trên mobile field-tech có HỐ `create → [?] → start`: thiếu endpoint giao WO cho KTV. BE `assign_technician` đã sẵn (whitelisted POST `api/imm09.py:58`) nhưng chưa có path mobile-contract. Service trả 3-key (thêm `assigned_to` so với `start_repair` 2-key) ⇒ không thể tái dùng `RepairActionEnvelope`. requestBody cũng khác mọi action đơn-`{name}` (cần `technician` positional + `priority` optional).
+- **Decision:** thêm ĐÚNG 1 path `POST /api/method/assetcore.api.imm09.assign_technician` opId `assignTechnician`; schema RIÊNG `AssignTechnicianRequest` (required `[name,technician]` + optional `priority`, `additionalProperties:false`) + `AssignTechnicianEnvelope`(`success:true`, `data=AssignTechnicianResponse {name,status,assigned_to}`); 200 = `oneOf [AssignTechnicianEnvelope, Error]` route-by-VALUE `body.success` (closed-schema, 0 discriminator — pattern C8-ACTION). 403 SINGLE-SHAPE dispatcher-403 (in-handler cap-403 `repair.write` đã phủ bởi nhánh Error 200-oneOf — mirror startRepair/acknowledgeIncident). PURE-YAML + guard test, KHÔNG đụng `.py`.
+- **Consequences:** mobile lấp được hố create→start; `listUsers` (R23) có đích tiêu thụ rõ (`technician` field). Path/opId 33→34. Codegen sinh client `assignTechnician(name,technician,priority?)` typed. `assigned_to` echo cho client cập nhật UI ngay không cần re-fetch.
+- **Alternatives (rejected):** (a) reuse `RepairActionEnvelope` 2-key — DROP `assigned_to`, client phải re-fetch để biết ai được gán → thừa round-trip + lệch source; (b) đưa `priority` vào required — chặn client không muốn override priority (signature có default `''`); (c) gộp `assignTechnician` vào `startRepair` — sai lifecycle (DISPATCH ≠ START, 2 transition khác nhau `Open→Assigned` vs `Assigned/...→In Repair`).
+
+### 3.3 Dispatch-validation gate — `assign_technician` (R25: chặn mis-dispatch / dữ liệu rác)
+
+**Vấn đề gốc (R24 USER-eval CRITICAL):** `services/imm09.py:840` set `doc.assigned_to = technician` rồi `doc.flags.ignore_links = True` (`:846`) → bỏ qua referential-integrity của Frappe (Link field `assigned_to` → DocType `User`). Hệ quả: email bịa `khong-ton-tai@nope.invalid` vẫn POST 200 `success:true status=Assigned` — WO bị giao vào **hư vô**, KTV không bao giờ nhận việc, SLA chạy oan, audit-trail sai. `listUsers` picker (R23) ở FE lane là *tiện ích* (UX), KHÔNG phải **validation-boundary** — client tự gõ / app khác / replay request đều bypass được. Boundary đúng = **server-side gate** trước khi save.
+
+**Hậu quả nếu data sai (5-câu-hỏi domain):** mis-dispatch là lỗi vận hành nghiêm trọng — thiết bị y tế hỏng không được sửa đúng người, vi phạm traceability (CLAUDE.md §5 "mọi nghiệp vụ phải có record" + audit-trail đúng actor). Lifecycle event `repair_assigned` ghi `assigned_to` rác → toàn chuỗi downstream (diagnosis/start/complete) treo.
+
+**Grounding @source (verify-before-claim):**
+
+| Mục | Giá trị | Evidence |
+|---|---|---|
+| Set không kiểm | `doc.assigned_to = technician` (0 validation) | `services/imm09.py:840` |
+| Bypass FK | `doc.flags.ignore_links = True` | `services/imm09.py:846` |
+| Cap-gate (đã có) | `rbac.require("repair.write")` (dispatcher quyền **người gọi**, KHÔNG validate **người được gán**) | `api/imm09.py:59` |
+| Repair-capability binding | `repair.*` → DocPerm trên DocType `Asset Repair` (KHÔNG hardcode role-name) | `services/shared/rbac.py:37,71,91` |
+| Repair domain roles (SSoT catalog) | `Repair Manager` / `Repair User` (Domain), + Super Admin bao trùm | `services/shared/constants.py:25-35` |
+
+**Định nghĩa "technician hợp lệ" (3 điều kiện AND — gate TRƯỚC khi save):**
+
+1. **Tồn tại:** `frappe.db.exists("User", technician)` truthy. (User là DocType; `technician` = `User.name` = email.)
+2. **Enabled:** `User.enabled == 1`. (User bị khoá KHÔNG được giao việc.)
+3. **Repair-capable:** user có quyền ghi trên DocType `Asset Repair` — kiểm bằng **capability**, KHÔNG so tên role (chống anti-pattern *RBAC dead-gate*, memory `factory_rounds_1_25`). Implement: `rbac.can("repair.write", user=technician)` hoặc tương đương `frappe.has_permission("Asset Repair", "write", user=technician)`. Cap `repair.write` đã bind `(Asset Repair, "write")` ở `rbac.py:91` ⇒ bất kỳ user có DocPerm write trên Asset Repair (Repair Manager/User + Super Admin) đều pass; user chỉ có vai khác (vd Auditor) → fail. **Boundary so khớp:** capability dùng để gate = đúng cap mà **người được gán** sẽ cần để thao tác (diagnose/start/complete repair) → đảm bảo người nhận việc thực sự thao tác được.
+
+> **⚠️ Implementation note (BE):**
+> - `rbac.can(cap)` mặc định resolve theo `frappe.session.user`. Để kiểm **target user**, BE phải gọi `frappe.has_permission("Asset Repair", "write", user=technician)` (truyền `user=`), KHÔNG dùng `rbac.can` (không nhận `user=`). Đặt helper `_is_repair_capable(technician)` trong `services/imm09.py` để giữ 1 SoT. KHÔNG bỏ cache-by-session làm sai kết quả.
+> - `error_code=ErrorCode.VALIDATION_ERROR` cần import: `services/imm09.py` HIỆN CHƯA import `ErrorCode` → BE thêm `from assetcore.utils.response import ErrorCode` (đầu file, cạnh import `nthrow`). `MSG.IMM09_INVALID_TECHNICIAN` đã có constant + registry entry (`utils/messages.py`, http_status=422) — KHÔNG cần thêm.
+> - Sau khi thêm MSG mới, chạy `python scripts/gen_fe_messages.py` để regen `frontend/src/i18n/messages.ts` (quy trình `utils/messages.py` docstring §"Quy trình thêm mã mới"). Đây là FE-message generator, KHÔNG đụng mobile contract.
+
+**Vị trí gate trong `assign_technician` (services/imm09.py:833-848):** chèn SAU `RBAC.require` + status-gate (`status == OPEN`), TRƯỚC `doc.assigned_to = technician`. Thứ tự: not-found WO (`IMM09_NOT_FOUND`) → bad-state (`IMM09_BAD_STATE`) → **invalid-technician (`IMM09_INVALID_TECHNICIAN`)** → set + save. Khi gate fail: `nthrow(...)` raise TRƯỚC mọi mutation ⇒ `doc` KHÔNG save, `assigned_to` KHÔNG đổi, `status` GIỮ `Open` (invariant: fail-fast, no partial write).
+
+**Error contract (DONE-gate spec-contract — Error-on-HTTP-200, KHÔNG raise→4xx):**
+
+```text
+nthrow(MSG.IMM09_INVALID_TECHNICIAN,
+       error_code=ErrorCode.VALIDATION_ERROR,   # override bucket
+       technician=technician)
+```
+
+→ envelope (in-handler, qua `handle()`, HTTP-200 status-line): `{success:false, error:<render template>, code:'VALIDATION_ERROR', http_status:422}`.
+
+- `http_status:422` ← registry entry `MSG.IMM09_INVALID_TECHNICIAN["http_status"]=422` (`nthrow` lấy `entry["http_status"]` trực tiếp, `utils/notify.py:84`).
+- `code:'VALIDATION_ERROR'` ← **override bắt buộc** `error_code=ErrorCode.VALIDATION_ERROR` (`utils/notify.py:80,82`). KHÔNG override → `_bucket_for` default map `422 → BUSINESS_RULE` (`utils/notify.py:24,53`) ⇒ sẽ ra `code='BUSINESS_RULE'` (SAI acceptance). Xem ADR-IMM09-VALIDATE-TECH lý do chọn cặp `VALIDATION_ERROR×422`.
+- Cả `code='VALIDATION_ERROR'` (yaml `Error.code` enum line 565) và `http_status=422` (yaml `Error.http_status` enum line 597) ĐỀU ∈ bounded-enum đã chốt (R11) ⇒ valid against `#/components/schemas/Error`, **KHÔNG schema mới**. Nhánh Error này đã được phủ bởi `200 = oneOf [AssignTechnicianEnvelope, Error]` (§3.2, yaml line 5347-5349) — đây là **lý do KHÔNG đụng contract path/schema** round này (chỉ bồi mô tả Error-case prose).
+
+**Boundaries (Always / Never):**
+
+| | |
+|---|---|
+| **Always** | Gate 3-điều-kiện AND chạy SERVER-SIDE trước mọi mutation. Kiểm repair-capability bằng `frappe.has_permission("Asset Repair","write",user=technician)` (capability, KHÔNG so tên role). Fail → `nthrow(MSG.IMM09_INVALID_TECHNICIAN, error_code=ErrorCode.VALIDATION_ERROR, technician=...)` ⇒ `code='VALIDATION_ERROR'` + `http_status=422`, `assigned_to` GIỮ nguyên, `status` GIỮ `Open`. Happy-path (technician hợp lệ) KHÔNG đổi hành vi R24 (regression-safe). |
+| **Never** | KHÔNG hardcode list role-name `["Repair Manager","Repair User",...]` để check (RBAC dead-gate — role đổi tên/thêm vai → gate fail âm thầm). KHÔNG raise→HTTP-4xx (lỗi nghiệp vụ = in-handler HTTP-200 + Error envelope). KHÔNG dùng `code='VALIDATION'` (422 nhưng acceptance chốt `VALIDATION_ERROR`) hay `code='BUSINESS_RULE'` (default 422 nếu quên override). KHÔNG thêm schema mới vào yaml (nhánh Error đã có). KHÔNG bỏ `error_code` override (ra BUSINESS_RULE sai). KHÔNG validate ở FE-only (picker R23 ≠ boundary). KHÔNG xoá `ignore_links=True` (giữ — nhiều Link khác trong doc; gate phủ đúng `assigned_to`). |
+
+**ADR-IMM09-VALIDATE-TECH — server-side technician-validation gate (capability-based, Error code `VALIDATION_ERROR`×422)**
+
+- **Status:** Accepted · **Date:** 2026-06-16
+- **Context:** `assign_technician` set `assigned_to` + `ignore_links=True` không kiểm input ⇒ email bịa POST 200 success, mis-dispatch vào hư vô (R24 USER-eval CRITICAL). 24 vòng mobile-BE trước CHỈ shape contract/read-path/action-passthrough — chưa vòng nào thêm **server-side input-validation gate** chống ghi dữ liệu rác. `ignore_links=True` cố ý bypass FK Frappe (perf + nhiều Link), KHÔNG thể chỉ tháo cờ. Acceptance chốt envelope `code:'VALIDATION_ERROR' + http_status:422` — nhưng SSoT `response.py:_HTTP_FOR_CODE[VALIDATION_ERROR]=400` và `notify.py:_HTTP_TO_BUCKET[422]=BUSINESS_RULE` ⇒ cặp `VALIDATION_ERROR×422` KHÔNG phải default-pairing của 1 trong 2 map.
+- **Decision:** (1) Thêm gate 3-điều-kiện AND (tồn-tại + enabled + repair-capable) trong `services/imm09.py:assign_technician`, TRƯỚC set/save, raise `nthrow(MSG.IMM09_INVALID_TECHNICIAN, error_code=ErrorCode.VALIDATION_ERROR, technician=...)`. (2) Kiểm repair-capability bằng **capability/DocPerm** (`has_permission("Asset Repair","write",user=technician)`), KHÔNG so tên role. (3) Envelope dùng registry `http_status=422` (input không hợp lệ — field-level, NĐ98/audit: "đúng người mới thao tác") + **override** `error_code=VALIDATION_ERROR` (acceptance + UX: FE route nhánh validation, không phải nhánh business-rule/state). Cả 2 ∈ bounded-enum R11 ⇒ valid `Error` schema, KHÔNG schema mới.
+- **Alternatives (rejected):** (a) **tháo `ignore_links=True`** để Frappe tự validate FK — vỡ các Link khác trong doc (asset_ref, incident_report...) + raise `LinkValidationError`→HTTP-417/500 (KHÔNG Error-on-200), lệch contract; (b) **hardcode role-name list** kiểm `technician` có role ∈ {"Repair Manager","Repair User"} — anti-pattern RBAC dead-gate (đổi tên role/thêm vai → gate fail âm thầm, memory `factory_rounds_1_25` P1); (c) **`code='BUSINESS_RULE'`** (default khi quên override, http 422) — đúng http nhưng FE phân nhánh UX sai (đây là input-validation, không phải vi phạm workflow-state); (d) **`code='VALIDATION'`** (422 "tự nhiên" theo `_HTTP_FOR_CODE`) — đúng http + đúng họ nhưng acceptance chốt `VALIDATION_ERROR`; (e) **validate FE-only qua `listUsers` picker** (R23) — picker là UX tiện, client tự gõ / app khác / replay bypass → KHÔNG phải boundary.
+- **Consequences:** mis-dispatch bị chặn tại boundary đúng (server). `listUsers` picker (R23) trở thành *first-line UX* khớp gate (cùng tập user enabled + repair-capable) — FE lane sẽ filter `role`/`is_active` để picker chỉ hiện user pass gate ⇒ user hợp lệ không bao giờ chạm Error. Thêm 1 MSG (`IMM09_INVALID_TECHNICIAN`) + 1 helper `_is_repair_capable`. KHÔNG đổi contract yaml schema/path (nhánh Error đã có). Cặp `VALIDATION_ERROR×422` là **ngoại lệ có chủ đích** so default-map → ghi rõ ADR để 6 tháng sau không "sửa cho khớp _HTTP_FOR_CODE". Regression-safe: happy-path R24 (technician hợp lệ) KHÔNG đổi.
+
+---
+
+### 3.4 Referential-integrity gate — `create_work_order` 2 optional Link FK (R26: chặn ghi FK rác)
+
+**Vấn đề gốc (R26):** `services/imm09.py:805-822` build `frappe.get_doc({...})` với `incident_report` + `source_pm_wo` lấy nguyên giá trị caller truyền, rồi `doc.flags.ignore_links = True` (`:821`) → `doc.insert(ignore_permissions=True)` (`:822`). `ignore_links=True` bỏ qua referential-integrity của Frappe cho MỌI Link field trong doc — gồm 2 optional Link `incident_report` (→ DocType `Incident Report`) và `source_pm_wo` (→ DocType `PM Work Order`). Hệ quả: caller truyền non-empty bịa (`incident_report='INC-khong-ton-tai'`) vẫn POST 200 `success:true status=Open` — WO được tạo với FK trỏ vào **record không tồn tại**, phá traceability nguồn-gốc (WO không truy được về Incident/PM thực). Đối xứng hệt R25 `assign_technician`/`assigned_to`: cùng cờ `ignore_links=True`, cùng họ "Link rác qua bypass FK".
+
+**Phân biệt với R25 (boundary scope):** R25 phủ `assigned_to` (User-FK). R26 phủ 2 FK nguồn-gốc `incident_report` + `source_pm_wo`. `asset_ref` (Link → Asset) ĐÃ được validate sẵn `services/imm09.py:790-791` (`IMM09_ASSET_NOT_FOUND`, http 404) — **NGOÀI scope R26, KHÔNG đụng**. R26 chỉ thêm gate cho 2 FK optional CHƯA validate.
+
+**Hậu quả nếu data sai (5-câu-hỏi domain):** WO sửa chữa (CM) ở stage *Maintenance* (WHO HTM) phải truy được về sự kiện kích hoạt — Incident Report (lỗi vận hành) hoặc PM Work Order (phát hiện khi bảo trì định kỳ). FK rác phá audit-trail nguồn (CLAUDE.md §5 "mọi nghiệp vụ phải có record" + §10 lifecycle event `root_record`). Báo cáo CAPA/RCA (IMM-12) downstream truy ngược `incident_report` rác → treo. NĐ98/audit: chuỗi nguyên-nhân→hành-động phải nối được record thật.
+
+**Grounding @source (verify-before-claim):**
+
+| Mục | Giá trị | Evidence |
+|---|---|---|
+| Set FK không kiểm | `"incident_report": incident_report, "source_pm_wo": source_pm_wo` (0 validation) | `services/imm09.py:814-815` |
+| Bypass FK | `doc.flags.ignore_links = True` | `services/imm09.py:821` |
+| Insert | `doc.insert(ignore_permissions=True)` | `services/imm09.py:822` |
+| `asset_ref` đã validate (ngoài scope) | `if not asset_data: nthrow(MSG.IMM09_ASSET_NOT_FOUND, ...)` | `services/imm09.py:790-791` |
+| Open-WO guard (đứng trước gate mới) | `if open_wo: nthrow(MSG.IMM09_ASSET_HAS_OPEN_WO, ...)` | `services/imm09.py:797-798` |
+| FK target DocType | `incident_report` → `Incident Report`; `source_pm_wo` → `PM Work Order` | `asset_repair.json:104-115` (Link, reqd=None) |
+| Standalone hợp lệ (slide 24b) | cả 2 FK rỗng `""` → tạo WO standalone, KHÔNG validate | doc §I.5 / `services/imm09.py:575` |
+
+**Định nghĩa "FK hợp lệ" (per-FK, validate chỉ khi non-empty — fail-fast):**
+
+1. **incident_report:** nếu `incident_report` non-empty (truthy) → BẮT BUỘC `frappe.db.exists("Incident Report", incident_report)` truthy; fail → `nthrow(MSG.IMM09_INCIDENT_REPORT_NOT_FOUND, error_code=ErrorCode.VALIDATION_ERROR, incident_report=incident_report)`.
+2. **source_pm_wo:** nếu `source_pm_wo` non-empty (truthy) → BẮT BUỘC `frappe.db.exists("PM Work Order", source_pm_wo)` truthy; fail → `nthrow(MSG.IMM09_SOURCE_PM_WO_NOT_FOUND, error_code=ErrorCode.VALIDATION_ERROR, source_pm_wo=source_pm_wo)`.
+3. **Empty = skip (standalone, slide 24b):** `incident_report=''` AND `source_pm_wo=''` → KHÔNG validate, KHÔNG raise → happy-path standalone GIỮ nguyên (R-pre regression-safe). Đây là lý do dùng `if incident_report:` / `if source_pm_wo:` (chỉ gate non-empty), KHÔNG gate vô điều kiện.
+
+> **⚠️ Implementation note (BE):**
+> - Helper gợi ý: `_assert_valid_create_fks(incident_report, source_pm_wo)` trong `services/imm09.py` (1 SoT cho gate), hoặc inline 2 `if`-block. Dùng `frappe.db.exists(doctype, name)` (rẻ, index `name`), KHÔNG `get_doc` (load thừa).
+> - `ErrorCode` đã được import sẵn `services/imm09.py:26` (R25 đã thêm) — KHÔNG cần thêm import.
+> - 2 MSG mới `IMM09_INCIDENT_REPORT_NOT_FOUND` + `IMM09_SOURCE_PM_WO_NOT_FOUND` đã có constant + registry entry (`utils/messages.py`, http_status=422) — sau khi BE/test xong, chạy `python scripts/gen_fe_messages.py` regen `frontend/src/i18n/messages.ts`.
+
+**Vị trí gate trong `create_work_order` (services/imm09.py:787-822):** chèn SAU `asset_ref`-validate (`:790-791`, `IMM09_ASSET_NOT_FOUND`) + open-WO-guard (`:793-798`, `IMM09_ASSET_HAS_OPEN_WO`), TRƯỚC `frappe.get_doc({...})` (`:805`). Thứ tự: rbac → asset-not-found → open-WO → **incident_report∄ (`IMM09_INCIDENT_REPORT_NOT_FOUND`) → source_pm_wo∄ (`IMM09_SOURCE_PM_WO_NOT_FOUND`)** → get_doc/insert. Khi gate fail: `nthrow(...)` raise TRƯỚC `get_doc`/`insert`/`transition_asset_status`/`commit` ⇒ doc KHÔNG insert, KHÔNG partial-write, KHÔNG commit (invariant `frappe.db.exists("Asset Repair", {asset_ref})` không thêm WO mới). `asset_ref`-validate đứng trước gate này GIỮ nguyên (ngoài scope).
+
+**Error contract (DONE-gate spec-contract — Error-on-HTTP-200, KHÔNG raise→4xx):**
+
+```text
+nthrow(MSG.IMM09_INCIDENT_REPORT_NOT_FOUND,
+       error_code=ErrorCode.VALIDATION_ERROR,   # override bucket
+       incident_report=incident_report)
+# (source_pm_wo tương tự với MSG.IMM09_SOURCE_PM_WO_NOT_FOUND + source_pm_wo=...)
+```
+
+→ envelope (in-handler, qua `handle()`, HTTP-200 status-line): `{success:false, error:<render template>, code:'VALIDATION_ERROR', http_status:422}`.
+
+- `http_status:422` ← registry entry `["http_status"]=422` cho cả 2 MSG.
+- `code:'VALIDATION_ERROR'` ← **override bắt buộc** `error_code=ErrorCode.VALIDATION_ERROR`. KHÔNG override → default-map `422 → BUSINESS_RULE` ⇒ `code='BUSINESS_RULE'` (SAI acceptance). Cùng cặp `VALIDATION_ERROR×422` của R25 — xem ADR-IMM09-CREATE-FK.
+- Cả `code='VALIDATION_ERROR'` (yaml `Error.code` enum) và `http_status=422` (yaml `Error.http_status` enum) ĐỀU ∈ bounded-enum đã chốt (R11) ⇒ valid against `#/components/schemas/Error`, **KHÔNG schema mới**. Nhánh Error này đã được phủ bởi `200 = oneOf [CreateRepairWorkOrderCreatedEnvelope, Error]` (yaml line 5789-5791) — đây là **lý do KHÔNG đụng contract path/schema** round này (chỉ bồi mô tả Error-case prose vào 200.description, §05/yaml).
+
+**Boundaries (Always / Never):**
+
+| | |
+|---|---|
+| **Always** | Validate per-FK CHỈ khi non-empty (`if incident_report:` / `if source_pm_wo:`) bằng `frappe.db.exists(<target DocType>, <value>)`, SERVER-SIDE, TRƯỚC `get_doc`/`insert`. Thứ tự: sau asset_ref-validate + open-WO-guard, TRƯỚC get_doc. Fail → `nthrow(MSG.IMM09_INCIDENT_REPORT_NOT_FOUND` / `IMM09_SOURCE_PM_WO_NOT_FOUND, error_code=ErrorCode.VALIDATION_ERROR, ...)` ⇒ `code='VALIDATION_ERROR'` + `http_status=422`, doc KHÔNG insert, KHÔNG commit (no partial-write). Cả 2 FK rỗng (standalone slide 24b) → PASS, tạo WO `status=Open` như cũ (regression-safe R-pre). 2 FK tồn-tại thật → PASS, ghi đúng giá trị. |
+| **Never** | KHÔNG validate vô điều kiện (FK rỗng PHẢI pass — standalone hợp lệ; gate rỗng = regress happy-path). KHÔNG raise→HTTP-4xx (lỗi nghiệp vụ = in-handler HTTP-200 + Error envelope). KHÔNG dùng `code='VALIDATION'` hay `code='BUSINESS_RULE'`. KHÔNG thêm schema mới vào yaml (nhánh Error đã có). KHÔNG bỏ `error_code` override. KHÔNG xoá `ignore_links=True` (giữ — nhiều Link khác; gate phủ đúng 2 FK). KHÔNG đụng `asset_ref`-validate (`IMM09_ASSET_NOT_FOUND`, đã có — ngoài scope). KHÔNG đổi path/opId count contract (giữ 34/34). |
+
+**ADR-IMM09-CREATE-FK — referential-integrity gate cho 2 optional Link FK trong `create_work_order` (capability-agnostic, Error code `VALIDATION_ERROR`×422)**
+
+- **Status:** Accepted · **Date:** 2026-06-16
+- **Context:** `create_work_order` build doc với `incident_report` + `source_pm_wo` từ caller rồi `ignore_links=True` + insert — không kiểm 2 FK optional. Caller truyền non-empty bịa ⇒ WO tạo với FK trỏ record-không-tồn-tại, phá traceability nguồn-gốc (R26). Đối xứng R25 (`assigned_to`) nhưng phủ 2 FK nguồn (Incident Report / PM Work Order). `ignore_links=True` cố ý bypass FK Frappe (nhiều Link trong doc + perf) — KHÔNG thể chỉ tháo cờ. Slide 24b chốt standalone hợp lệ (cả 2 FK rỗng) ⇒ gate PHẢI conditional (chỉ non-empty), KHÔNG vô điều kiện. `asset_ref` đã validate sẵn (`IMM09_ASSET_NOT_FOUND` http-404) — ngoài scope.
+- **Decision:** (1) Thêm per-FK existence gate (chỉ khi non-empty) trong `create_work_order`, SAU asset_ref-validate + open-WO-guard, TRƯỚC `get_doc`/insert — `frappe.db.exists("Incident Report", incident_report)` / `frappe.db.exists("PM Work Order", source_pm_wo)`. (2) Fail → `nthrow(<MSG>, error_code=ErrorCode.VALIDATION_ERROR, <fk>=...)`. (3) Envelope dùng registry `http_status=422` (input không hợp lệ — field-level) + **override** `error_code=VALIDATION_ERROR` (đồng nhất R25, FE route nhánh validation). Cả 2 ∈ bounded-enum R11 ⇒ valid `Error`, KHÔNG schema mới.
+- **Alternatives (rejected):** (a) **tháo `ignore_links=True`** để Frappe tự validate FK — vỡ các Link khác (asset_ref...) + raise `LinkValidationError`→HTTP-417/500 (KHÔNG Error-on-200), lệch contract; (b) **validate vô điều kiện** (kể cả FK rỗng) — regress standalone slide 24b (`''` không phải record → exists=False → raise oan), vỡ happy-path; (c) **`code='BUSINESS_RULE'`** (default 422 nếu quên override) — đúng http nhưng FE phân nhánh UX sai (đây input-validation); (d) **`code='VALIDATION'`** (422 tự nhiên) — acceptance + đồng nhất R25 chốt `VALIDATION_ERROR`; (e) **dùng `IMM09_ASSET_NOT_FOUND` chung cho cả 3 FK** — message mơ hồ (user không biết FK nào sai), và `asset_ref` http-404 ≠ 422 của 2 FK optional → 2 MSG riêng rõ ràng hơn; (f) **validate FE-only qua picker** (Incident/PM dropdown) — picker là UX, client tự gõ / app khác / replay bypass → KHÔNG phải boundary.
+- **Consequences:** FK rác bị chặn tại boundary đúng (server). Thêm 2 MSG (`IMM09_INCIDENT_REPORT_NOT_FOUND` + `IMM09_SOURCE_PM_WO_NOT_FOUND`) + gate inline/helper. KHÔNG đổi contract yaml schema/path (nhánh Error đã có, 34/34 giữ). Cặp `VALIDATION_ERROR×422` đồng nhất ADR-IMM09-VALIDATE-TECH (R25) — ngoại lệ chủ đích vs default-map, ghi ADR để không "sửa cho khớp _HTTP_FOR_CODE". Regression-safe: standalone (slide 24b) + happy-path 2-FK-tồn-tại KHÔNG đổi. Pattern này nên nhân ra mọi service dùng `ignore_links=True` với Link optional CHƯA validate (xem §3.3 R25 cho `assigned_to`).
+
+---
+
+### 3.5 Mobile-BE contract — repair spare-parts sub-flow (`searchSpareParts` GET + `requestSpareParts` POST)
+
+Bồi **2 path** vào contract mobile `docs/mobile/openapi/assetcore-mobile.openapi.yaml` để app field-tech lấp **sub-flow vật-tư** trên màn repair-detail: KTV đang sửa WO (`Pending Parts`/`In Repair`) cần (1) **tìm vật tư** (`searchSpareParts`, picker) rồi (2) **gắn phiếu xuất kho** vào dòng vật tư (`requestSpareParts`). Cặp này nối tiếp `submitDiagnosis(needs_parts=1)` (§8.11-bis, → `Pending Parts`) → spare-parts → `startRepair`/`closeWorkOrder`. Acceptance: YAML path/opId 40→42 (`searchSpareParts` + `requestSpareParts` UNIQUE camelCase), `info.version` GIỮ `0.1.0-skeleton`, 0 dangling `$ref`.
+
+**Grounding @source (verify-before-claim):**
+
+| Mục | Giá trị | Evidence |
+|---|---|---|
+| Handler search | `search_spare_parts(query="", limit="10")` — bare `@frappe.whitelist()` (GET), **KHÔNG `rbac.require`** | `api/imm09.py:123-125` |
+| Service search return | `list[dict]` RAW (cap SQL `LIMIT`); query `<2` ký tự → `[]` | `services/imm09.py:1223-1248` |
+| Search item shape | EXACT 10-key `{item_code, item_name, manufacturer_part_no, qty, uom, unit_cost, total_cost, stock_entry_ref, notes, idx}` | `services/imm09.py:1237-1246` |
+| Handler request | `request_spare_parts(name, parts="[]")` — **`@frappe.whitelist(methods=["POST"])` SẴN @source** (HEAD-committed, KHÔNG cần flip) | `api/imm09.py:77-81` |
+| Request cap | api-level `rbac.require("repair.write")` (`:79`) + service-level `rbac.require("repair.create")` (`:973`) | `api/imm09.py:79`, `services/imm09.py:973` |
+| Service request return | EXACT 4-key `{name, status, updated, allocation}` (`allocation` str\|None — Gate-2 IMM-15) | `services/imm09.py:1018-1019` |
+| Request 404 | WO∄ → `nthrow(MSG.IMM09_NOT_FOUND)` (in-handler 404 trên HTTP-200) | `services/imm09.py:976` |
+
+**Self-Correction (2 điểm — bug thiết kế gốc, sửa Core Doc TRƯỚC):**
+
+1. **`requestSpareParts` KHÔNG reuse `RepairActionResponse` 2-key.** Contract-doc §8.11 (`docs/mobile/04-api-contract.md`) forward-reserve `RepairActionResponse {name,status}` để "tái dùng cho `assign_technician`/`submit_diagnosis`/`request_spare_parts`". Đúng cho `submit_diagnosis` (2-key) nhưng **SAI cho `request_spare_parts`**: service THẬT trả **4-key** `{name,status,updated,allocation}` (`services/imm09.py:1018-1019`). ⇒ Phải sinh schema RIÊNG `RequestSparePartsResponse` (C3-split field-disjoint — precedent `ResolveIncidentResponse` 3-key thêm `rca_created`). `assign_technician` cũng đã RIÊNG 3-key (§3.2). Forward-reservation chỉ đúng cho action 2-key thuần.
+2. **Premise "flip bare→`methods=['POST']`" đã STALE.** Acceptance ghi flip `request_spare_parts` bare→POST, nhưng `git show HEAD:assetcore/api/imm09.py` cho thấy decorator **đã là `@frappe.whitelist(methods=["POST"])`** (committed vòng trước). ⇒ `requestSpareParts` là **CLEAN POST** (mirror `closeIncident` §8.16), KHÔNG verb-divergence, KHÔNG vào `_PARITY_VERB_ALLOWLIST` (giữ `set()` rỗng). BE step PURE-YAML cho **cả 2** endpoint (search bare GET untouched; request đã POST-only untouched) — `git diff api/imm09.py` cho 2 hàm này = empty.
+
+**Boundaries (Always / Never):**
+
+| | |
+|---|---|
+| **Always** | `searchSpareParts` GET, `data` = **array `<SearchSparePartItem>` RAW** (KHÔNG `{...,items}`/pagination — `_ok(list)` `api/imm09.py:125`), item `additionalProperties:false` EXACT 10-key `required[item_code]`. Slot `{200,401}` — KHÔNG 403 (api-level no `rbac.require`). `requestSpareParts` POST, `data` = `RequestSparePartsResponse` `additionalProperties:false` 4-key `required[name,status]`; `status` enum RepairStatus 9-state; `updated` integer; `allocation` `type:string nullable:true`. requestBody `oneOf[application/json, x-www-form-urlencoded]` (Frappe `form_dict`) `required[name,parts]`, `parts` item props `{item_code, stock_entry_ref?, spare_part?, qty?}`. Cả 2: 200 = `oneOf[<Envelope>, Error]` route-by-VALUE `body.success` (0 discriminator, closed). |
+| **Never** | KHÔNG reuse `RepairActionResponse` cho `requestSpareParts` (4-key ≠ 2-key — Self-Correction #1). KHÔNG thêm pagination cho `searchSpareParts` (svc trả list trần). KHÔNG khai 403 cho `searchSpareParts` (no api-level cap-gate). KHÔNG bịa status-line key 404 (WO∄ arrive HTTP-200 + Error, route `body.http_status`). KHÔNG dùng discriminator (`success` boolean illegal §5c). KHÔNG flip/đụng `api/imm09.py` (request đã POST-only; search bare GET — PURE-YAML). KHÔNG thêm entry `_PARITY_VERB_ALLOWLIST` (request CLEAN POST). KHÔNG đổi `info.version` (giữ `0.1.0-skeleton`). |
+
+**ADR-IMM09-SPARE-SEARCH — `searchSpareParts` GET RAW-list, no-pagination, slot `{200,401}` no-403**
+
+- **Status:** Accepted · **Date:** 2026-06-27
+- **Context:** màn repair-detail mobile cần picker tìm vật-tư trước khi gắn phiếu xuất kho. BE `search_spare_parts` đã sẵn (bare `@frappe.whitelist()` GET `api/imm09.py:123`), trả `list[dict]` RAW cap bởi SQL `LIMIT` (KHÔNG paginate `services/imm09.py:1223-1248`), KHÔNG `rbac.require` ở api-level (read-only picker — quyền đọc đủ).
+- **Decision:** thêm 1 path `GET …search_spare_parts` opId `searchSpareParts`; `data` = array `<SearchSparePartItem>` RAW (envelope `SearchSparePartsEnvelope` closed `required[success,data]`, `data` là list trần KHÔNG `{...,items}`); item EXACT 10-key `required[item_code]`. 200 = `oneOf[SearchSparePartsEnvelope, Error]` route-by-VALUE. Slot `{200,401}` — **KHÔNG 403** (no api-level cap-gate). `[]` rỗng hợp lệ (query<2 / no-match — KHÔNG 404).
+- **Alternatives (rejected):** (a) bọc data trong `{query, items}` như `getAssetIncidentHistory {asset,items}` — svc THẬT trả list trần, thêm wrapper = lệch source + drift codegen; (b) thêm pagination `{page,page_size,total}` — svc không paginate (chỉ `limit` cap), bịa total → sai; (c) khai slot 403 — handler KHÔNG `rbac.require` ⇒ không có in-handler cap-403, khai 403 = phantom (mirror `getUserContext` §8.19 no-403); (d) đưa vào `_MVP_BUSINESS_PATHS` (ép 401∧403 symmetry) — vỡ vì no-403 (giống `getUserContext`).
+- **Consequences:** mobile có picker vật-tư typed; client đọc list trần cap bởi `limit`. Path/opId 40→41. `searchSpareParts` ∉ `_MVP_BUSINESS_PATHS` (read-only no-cap-gate path) — typed-200 oneOf phủ bởi guard riêng. 0 đụng `.py` (PURE-YAML).
+
+**ADR-IMM09-REQUEST-PARTS — `requestSpareParts` POST, `RequestSparePartsResponse` RIÊNG 4-key (KHÔNG reuse 2-key), CLEAN POST**
+
+- **Status:** Accepted · **Date:** 2026-06-27
+- **Context:** sau khi tìm vật-tư, KTV gắn `stock_entry_ref` vào dòng `spare_parts_used` của WO. BE `request_spare_parts` đã sẵn **POST-only @source** (`@frappe.whitelist(methods=["POST"])` `api/imm09.py:77`, HEAD-committed). Service trả **4-key** `{name,status,updated,allocation}` (`services/imm09.py:1018-1019`) — `updated` (số row gắn được) + `allocation` (name `IMM Spare Allocation` Gate-2 IMM-15, str\|None). KHÁC giả định forward-reservation §8.11 (reuse `RepairActionResponse` 2-key cho `request_spare_parts`).
+- **Decision:** thêm 1 path `POST …request_spare_parts` opId `requestSpareParts`; schema RIÊNG `RequestSparePartsRequest` (`required[name,parts]`, `parts` item `{item_code, stock_entry_ref?, spare_part?, qty?}`, content `oneOf[json, x-www-form]`) + `RequestSparePartsEnvelope`(`data=RequestSparePartsResponse {name,status,updated,allocation}` closed `required[name,status]`, `allocation` nullable). 200 = `oneOf[RequestSparePartsEnvelope, Error]` route-by-VALUE. Slot `{200,401,403}`; 403 SINGLE-SHAPE dispatcher-403 (in-handler cap-403 `repair.write`+`repair.create` phủ bởi nhánh Error). `IMM09_NOT_FOUND` (404) arrive HTTP-200 + Error.
+- **Alternatives (rejected):** (a) **reuse `RepairActionResponse` 2-key** — DROP `updated`+`allocation`, client mất tín hiệu "đã gắn mấy dòng" + "allocation Gate-2 nào tạo" → thừa re-fetch + lệch source (Self-Correction #1); (b) **flip decorator bare→POST round này** — đã POST-only @source (Self-Correction #2), flip = no-op + vi phạm PURE-YAML; (c) **vào `_PARITY_VERB_ALLOWLIST`** — chỉ dành cho bare-`@whitelist` write-action chờ fix (submit_pm_result/submit_calibration §8.14/§8.15); `request_spare_parts` đã CLEAN POST ⇒ KHÔNG cần allowlist (giữ `set()` rỗng); (d) **khai status-line 404** — lỗi nghiệp vụ in-handler arrive HTTP-200 + Error (route `body.http_status`), KHÔNG status-line.
+- **Consequences:** mobile đóng sub-flow vật-tư; `searchSpareParts` (picker) có đích tiêu thụ. Path/opId 41→42. `requestSpareParts` ∈ `_MVP_BUSINESS_PATHS` (cap-gated write-action) ⇒ 401∧403 symmetry tự cân. Codegen sinh `requestSpareParts(name,parts)` typed + `RequestSparePartsResponse` đọc `updated`/`allocation`. CLEAN POST — KHÔNG verb-divergence (mirror `closeIncident` §8.16), 0 ADR-fix-backlog. 0 đụng `.py` (PURE-YAML — request đã POST-only). Sau USER reload gunicorn `--preload` → LIVE reject GET(405) cho `request_spare_parts`; trước reload stale worker còn nhận GET — KHÔNG curl-verify LIVE (LL-DEPLOY-07).
+
+### 3.6 Mobile-BE contract — `listRepairWorkOrders` self-scope `mine` (A2-symmetry CUỐI: tab "Phiếu CM của tôi" MVP-5b)
+
+**Vấn đề gốc (A2 known-gap — contract nói dối):** OpenAPI `listRepairWorkOrders` (summary `[MVP-5b] Phiếu CM của tôi`) description CLAIM **"Scope theo user"**, NHƯNG `list_repair_work_orders(filters, page, page_size)` (`api/imm09.py:21`) **KHÔNG có cơ chế** scope `assigned_to` — chỉ `parse_json(filters)` + `apply_vendor_scope("Asset Repair")` rồi `handle(svc.list_work_orders, …)`. ⇒ tab "Phiếu CM của tôi" trả **mọi** CM WO mà quyền đọc cho phép (với senior/QA `asset_repair_query` trả `""` → thấy hết, kể cả WO gán người khác), KHÔNG self-scope. Đối-xứng hệt R38 PM (ADR-MOBILE-016) — đây là **mắt-xích CUỐI** đóng đối-xứng A2 self-scope cho 3 list-read MyWorkOrdersView (Incident `reported_by` ADR-015 / PM `assigned_to` ADR-016 / **CM `assigned_to` ADR-017**).
+
+**5-câu-hỏi domain:** (stage HTM) Operation/Maintenance — corrective; (NĐ98) traceability nghiệp vụ sửa-chữa gắn đúng KTV; (stakeholder) KTV field-tech mobile + senior/QA web; (lifecycle event) repair_assigned đã ghi `assigned_to` (`services/imm09.py:449`); (hậu quả nếu data sai) tab hiển thị WO người khác → KTV nhầm việc, nhưng **không leak quyền** vì read-gating GIỮ DocPerm — `mine` chỉ là filter hiển thị.
+
+| Khía cạnh | Quyết định | Evidence |
+|---|---|---|
+| Param | `mine: int = 0` (`0\|1`), inject @api SAU `apply_vendor_scope("Asset Repair")`, TRƯỚC `handle(svc.list_work_orders)` | `api/imm09.py:21,29-30` (mirror `api/imm08.py:28,33-34`) |
+| Injection | `if int(mine or 0): f["assigned_to"] = frappe.session.user` | mirror `list_pm_work_orders` |
+| count==rows | `count_with_or` + `get_all` CÙNG `filters` dict (đã có `assigned_to`) + CÙNG `permission_query_conditions` | `repositories/base.py:65-71`, `permissions.py:115 asset_repair_query` |
+| Backward-compat | `mine=0`/absent ⇒ `filters` BYTE-IDENTICAL baseline (web-FE `RepairWorkOrderListView` KHÔNG đổi) | — |
+| Contract | OpenAPI REUSE `components/parameters/WorkOrderMine` (R38) — **0 component mới**; param-set `{WorkOrderFilters,Page,PageSize}`→+`WorkOrderMine`=4; path-count GIỮ 46 | `docs/mobile/openapi/assetcore-mobile.openapi.yaml` |
+
+**Boundaries:**
+
+| | |
+|---|---|
+| **Always** | `mine` ANDed với mọi key trong `filters` JSON-blob (kể cả virtual `open` → `open_repair_filter`, `sla_breached`). Inject `assigned_to=session.user` @api SAU `apply_vendor_scope`. count==rows giữ (cùng filters dict). `mine=0`/absent = baseline byte-identical. REUSE `WorkOrderMine` (KHÔNG component mới). |
+| **Never** | KHÔNG tạo component `RepairWorkOrderMine` (shape trùng `WorkOrderMine`). KHÔNG thêm endpoint `list_my_repair_work_orders` (+path). KHÔNG auto-scope qua `permission_query_conditions` (vỡ view senior/QA cần thấy tất cả). KHÔNG seed @service (CM filters JSON-blob @api như PM). KHÔNG coi `mine` là security-boundary (read-gating vẫn DocPerm `repair.read`+`asset_repair_query`). KHÔNG đụng `services/imm09.py`/`repositories/`. |
+
+**ADR-IMM09-LISTMINE — `listRepairWorkOrders` self-scope qua param opt-in `mine` (REUSE `WorkOrderMine`, inject @api SAU `apply_vendor_scope`)**
+
+- **Status:** Accepted · **Date:** 2026-06-29 · đối-xứng ADR-MOBILE-016 (PM) — xem mobile `docs/mobile/ADR-MOBILE-017.md`.
+- **Context:** `list_repair_work_orders` claim "Scope theo user" nhưng không có cơ chế `assigned_to` (claim suông). Tab "Phiếu CM của tôi" (MVP-5b) cần self-scope. `WorkOrderMine` đã tồn tại từ R38 (PM) — cùng field `assigned_to`, cùng int 0|1. CM filters là JSON-blob `parse_json` @api (như PM, KHÁC imm12 discrete param).
+- **Decision:** REUSE `WorkOrderMine` + `$ref` vào `listRepairWorkOrders.parameters` + sửa description; `api/imm09.py` thêm `mine: int = 0` + `if int(mine or 0): f["assigned_to"]=frappe.session.user` SAU `apply_vendor_scope`. KHÔNG đụng service/repo.
+- **Alternatives (rejected):** (a) endpoint riêng — +path, nhân đôi enrich/SLA-derive; (b) component `RepairWorkOrderMine` mới — shape trùng `WorkOrderMine`, vỡ "0 component mới"; (c) `permission_query_conditions` auto-scope — vỡ view senior/QA (`asset_repair_query` trả `""` để thấy tất cả); (d) seed @service — CM filters parse @api, inject @api blast-radius nhỏ hơn.
+- **Consequences:** contract trung thực; `mine=0` backward-compat đo được; count==rows giữ; path-count 46 + 0 component mới ⇒ `generate_spec` get=232/post=256/total=488 UNCHANGED (`test_oas_d12/d15/d17` re-verify, KHÔNG re-baseline). Đóng TRỌN đối-xứng A2 (Incident/PM/CM). `mine` = filter ứng-dụng KHÔNG-phải-security-boundary.
+
 ---
 
 ## 4. Service Layer
@@ -200,6 +474,9 @@ File: `assetcore/services/imm09.py`
 | `check_repair_sla_breach()` | — | None | **BR-09-10:** elapsed = `repair_elapsed_hours(wo, now())` (clock-stop, trừ hold đang chạy nếu Pending Parts) thay `(now−open)` thô; set sla_breached qua `is_sla_breached`; publish realtime. INV-CM-HOLD-6 (card==scheduler==stamp). |
 | `check_repair_overdue()` | — | None | email Workshop Manager |
 | `update_asset_mttr_avg()` | — | None | **BẤT BIẾN** (BR-09-10 không đụng): roll-up AVG(`mttr_hours`) 12 tháng. Vì `mttr_hours` đã là clock-stop tại nguồn (`complete_repair`), avg tự động phản ánh đúng — KHÔNG sửa hàm này. |
+| `_is_repair_capable(technician)` | str | bool | **MỚI (R25, BR-09-DISPATCH):** SoT 1-chỗ cho "user được phép nhận giao việc sửa chữa". `= frappe.has_permission("Asset Repair", "write", user=technician)` (capability/DocPerm, KHÔNG so tên role — chống RBAC dead-gate). KHÔNG dùng `rbac.can` (resolve theo session, không nhận `user=`). |
+| `assign_technician(name, *, technician, priority='')` | str, str, str | dict `{name, status, assigned_to}` | **SỬA (R25, BR-09-DISPATCH):** thêm dispatch-validation gate TRƯỚC set/save (sau status-gate Open). Gate 3-AND: `frappe.db.exists("User", technician)` ∧ `User.enabled==1` ∧ `_is_repair_capable(technician)`. Fail bất kỳ điều kiện → `nthrow(MSG.IMM09_INVALID_TECHNICIAN, error_code=ErrorCode.VALIDATION_ERROR, technician=technician)` (envelope `code='VALIDATION_ERROR'` + `http_status=422`) — raise TRƯỚC mutation ⇒ `assigned_to` GIỮ nguyên, `status` GIỮ Open (fail-fast, no partial write). Happy-path KHÔNG đổi (regression-safe R24). Xem ADR-IMM09-VALIDATE-TECH (§3.3). |
+| `create_work_order(*, asset_ref, repair_type, priority, failure_description, incident_report='', source_pm_wo='', fault_image='')` | str × N | dict `{name, status, sla_target_hours}` | **SỬA (R26, BR-09-CREATE-FK):** thêm referential-integrity gate cho 2 optional Link FK, SAU `asset_ref`-validate (`IMM09_ASSET_NOT_FOUND`) + open-WO-guard (`IMM09_ASSET_HAS_OPEN_WO`), TRƯỚC `get_doc`/insert. Per-FK, CHỈ khi non-empty: `incident_report` truthy → `frappe.db.exists("Incident Report", incident_report)` (fail → `nthrow(MSG.IMM09_INCIDENT_REPORT_NOT_FOUND, error_code=ErrorCode.VALIDATION_ERROR, incident_report=...)`); `source_pm_wo` truthy → `frappe.db.exists("PM Work Order", source_pm_wo)` (fail → `nthrow(MSG.IMM09_SOURCE_PM_WO_NOT_FOUND, error_code=ErrorCode.VALIDATION_ERROR, source_pm_wo=...)`). Envelope `code='VALIDATION_ERROR'` + `http_status=422`. Raise TRƯỚC `get_doc`/insert/commit ⇒ doc KHÔNG insert, no partial-write. Cả 2 FK rỗng (standalone slide 24b) → PASS như cũ (regression-safe R-pre). `asset_ref`-validate GIỮ nguyên (ngoài scope). Xem ADR-IMM09-CREATE-FK (§3.4). |
 
 ### SLA Matrix
 

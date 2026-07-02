@@ -10,6 +10,7 @@ import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
+import { medicalDeviceClassLabel } from '@/constants/labels'
 
 const router = useRouter()
 const toast = useToast()
@@ -150,7 +151,7 @@ const IMPORT_NOTICE = [
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
               d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
           </svg>
-          Import
+          Nhập Excel
         </button>
         <button class="btn-primary" @click="router.push('/device-models/new')">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -224,7 +225,7 @@ const IMPORT_NOTICE = [
               <span
                 v-if="m.medical_device_class"
                 :class="['text-xs px-2 py-0.5 rounded-full font-medium', CLASS_COLOR[m.medical_device_class] || 'bg-gray-100 text-gray-600']"
-              >{{ m.medical_device_class }}</span>
+              >{{ medicalDeviceClassLabel(m.medical_device_class) }}</span>
             </div>
             <p class="text-sm font-medium text-slate-900 truncate">{{ m.model_name }}</p>
             <div class="flex flex-wrap gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
@@ -286,7 +287,7 @@ const IMPORT_NOTICE = [
                   :class="['text-xs px-2 py-1 rounded-full font-medium transition-all hover:ring-2 hover:ring-offset-1 hover:ring-current/50', CLASS_COLOR[m.medical_device_class] || 'bg-gray-100 text-gray-600']"
                   :title="`Lọc: ${CLASS_LABEL[m.medical_device_class] || m.medical_device_class}`"
                   @click.stop="quickFilter('medical_device_class', m.medical_device_class!)"
-                >{{ m.medical_device_class }}</button>
+                >{{ medicalDeviceClassLabel(m.medical_device_class) }}</button>
                 <span v-else class="text-slate-400">—</span>
               </td>
               <td class="px-4 py-3 text-slate-500 font-mono text-xs">{{ m.gmdn_code || '—' }}</td>
@@ -309,7 +310,7 @@ const IMPORT_NOTICE = [
       </div>
     </div>
 
-    <ImportWizardModal :ctx="importWizard" title="Import Model thiết bị" unit="model" :notice="IMPORT_NOTICE" />
+    <ImportWizardModal :ctx="importWizard" title="Nhập Model thiết bị" unit="model" :notice="IMPORT_NOTICE" />
 
     <!-- Lightbox preview -->
     <div

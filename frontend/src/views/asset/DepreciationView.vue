@@ -5,6 +5,7 @@ import { ref, computed, onMounted } from 'vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import BaseModal from '@/components/common/BaseModal.vue'
 import AssetDepreciationSchedule from '@/components/asset/AssetDepreciationSchedule.vue'
+import DepreciationByCategoryPanel from '@/components/asset/DepreciationByCategoryPanel.vue'
 import {
   listAssetsDepreciation, getDepreciationStats,
   computeDepreciation, computeAllDepreciation,
@@ -12,7 +13,7 @@ import {
   type ListAssetsDepreciationParams,
   type ComputeAllDepreciationResult,
 } from '@/api/imm00'
-import { translateFrequency, translateDepreciationMethod } from '@/utils/formatters'
+import { translateFrequency, translateDepreciationMethod, formatDate, formatCurrencyShort as vndShort } from '@/utils/formatters'
 
 // Virtual filter token cho "Hết khấu hao" — KHÔNG phải lifecycle_status. Route
 // sang `depreciation_filter` (BE áp SoT is_fully_depreciated). Nhãn VI hiển thị
@@ -21,6 +22,9 @@ const FULLY_DEPRECIATED = 'fully_depreciated'
 const DEPR_FILTER_LABEL = 'Hết khấu hao'
 
 // ─── State ────────────────────────────────────────────────────────────────────
+// Chế độ xem hub khấu hao: 'asset' = danh sách theo thiết bị (mặc định);
+// 'category' = quản lý tập trung theo Danh mục tài sản (panel gom + biểu đồ).
+const viewMode     = ref<'asset' | 'category'>('asset')
 const stats        = ref<DepreciationStats | null>(null)
 const rows         = ref<AssetDepreciationRow[]>([])
 const total        = ref(0)
@@ -119,7 +123,7 @@ async function computeOne(name: string) {
   computing.value = name
   try {
     await computeDepreciation(name)
-    showToast('Đã cập nhật khấu hao theo schedule', true)
+    showToast('Đã cập nhật khấu hao theo lịch', true)
     await Promise.all([loadStats(), loadList()])
   } catch (e: unknown) {
     showToast((e as Error).message || 'Lỗi tính khấu hao', false)
@@ -139,7 +143,7 @@ async function confirmComputeAll() {
     const res = await computeAllDepreciation()
     computeAllResult.value = res
     showToast(
-      `Kế thừa luật ${res.inherited} TS · Sinh ${res.generated} schedule · ` +
+      `Kế thừa luật ${res.inherited} TS · Sinh ${res.generated} lịch · ` +
       `Chạy ${res.executed_rows} kỳ · Cập nhật ${res.updated_assets} TS`,
       true,
     )
@@ -164,6 +168,16 @@ async function onScheduleUpdated() {
   await Promise.all([loadStats(), loadList()])
 }
 
+// ─── Category panel ─────────────────────────────────────────────────────────
+// Drill từ panel "Theo danh mục": về mode thiết bị + lọc theo Danh mục (category_id
+// = docname AC Asset Category → BE list_assets_depreciation lọc asset_category chuẩn).
+async function onCategoryDrill(payload: { categoryId: string; category: string }) {
+  viewMode.value = 'asset'
+  categoryFilter.value = payload.categoryId
+  page.value = 1
+  await loadList()
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function showToast(msg: string, ok: boolean) {
   toast.value = msg; toastOk.value = ok
@@ -174,12 +188,7 @@ function vnd(v?: number) {
   if (v == null) return '—'
   return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 }).format(v)
 }
-function vndShort(v?: number) {
-  if (v == null) return '—'
-  if (Math.abs(v) >= 1e9) return (v / 1e9).toFixed(1) + ' tỷ'
-  if (Math.abs(v) >= 1e6) return (v / 1e6).toFixed(0) + ' tr'
-  return vnd(v)
-}
+// L-16: vndShort gom về SSoT `formatCurrencyShort` (utils/formatters) — import aliased ở trên.
 
 function pctBar(pct?: number) { return Math.min(100, pct || 0) }
 function pctColor(pct?: number) {
@@ -225,6 +234,25 @@ onMounted(() => Promise.all([loadStats(), loadList()]))
       </div>
     </Transition>
 
+    <!-- Chuyển chế độ xem hub khấu hao: theo thiết bị / quản lý theo danh mục -->
+    <div class="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 mb-6">
+      <button
+        type="button"
+        data-testid="depr-viewmode-asset"
+        :class="['px-4 py-1.5 text-sm font-medium rounded-md transition-colors', viewMode === 'asset' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900']"
+        @click="viewMode = 'asset'">
+        Theo thiết bị
+      </button>
+      <button
+        type="button"
+        data-testid="depr-viewmode-category"
+        :class="['px-4 py-1.5 text-sm font-medium rounded-md transition-colors', viewMode === 'category' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900']"
+        @click="viewMode = 'category'">
+        Theo danh mục
+      </button>
+    </div>
+
+    <template v-if="viewMode === 'asset'">
     <!-- KPI -->
     <div v-if="statsLoading && !stats" class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
       <div v-for="i in 4" :key="i" class="card p-5 h-24 animate-pulse bg-slate-100" />
@@ -412,7 +440,7 @@ onMounted(() => Promise.all([loadStats(), loadList()]))
                 <span v-else class="text-xs text-slate-400">Chưa cấu hình</span>
               </td>
               <td class="px-4 py-3 text-xs text-slate-500 hidden md:table-cell">
-                {{ a.depreciation_start_date || a.in_service_date || '—' }}
+                {{ formatDate(a.depreciation_start_date || a.in_service_date) }}
               </td>
               <td class="px-4 py-3 text-xs text-slate-500 hidden lg:table-cell">
                 <template v-if="a.total_depreciation_months">
@@ -476,6 +504,14 @@ onMounted(() => Promise.all([loadStats(), loadList()]))
         </div>
       </div>
     </div>
+    </template>
+
+    <!-- Quản lý khấu hao tập trung theo Danh mục tài sản -->
+    <DepreciationByCategoryPanel
+      v-else
+      @drill="onCategoryDrill"
+      @applied="loadStats"
+    />
 
     <!-- Schedule modal — reuse shared component (real per-period rows) -->
     <Transition name="fade">

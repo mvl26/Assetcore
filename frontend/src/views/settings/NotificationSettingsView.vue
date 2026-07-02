@@ -127,13 +127,13 @@ function toggleEmail() {
         Tỷ lệ email gửi thành công và tỷ lệ người dùng tắt nhận email.
       </p>
 
-      <div v-if="kpiLoading" class="py-6 text-center text-neutral-400">Đang tải KPI…</div>
+      <div v-if="kpiLoading" class="py-6 text-center text-neutral-400">Đang tải chỉ số hiệu suất…</div>
 
       <div
         v-else-if="kpiError"
         class="rounded border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700"
       >
-        Không tải được KPI thông báo.
+        Không tải được chỉ số hiệu suất thông báo.
       </div>
 
       <div v-else-if="kpi" class="grid grid-cols-1 sm:grid-cols-2 gap-4">

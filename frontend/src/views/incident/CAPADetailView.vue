@@ -58,7 +58,7 @@ async function load() {
   try {
     capa.value = await store.fetchCapaDetail(name)
   } catch (e) {
-    loadError.value = e instanceof Error ? e.message : 'Không tải được CAPA'
+    loadError.value = e instanceof Error ? e.message : 'Không tải được hành động khắc phục/phòng ngừa'
   } finally {
     loading.value = false
   }
@@ -90,7 +90,7 @@ function openEdit() {
 async function saveEdit() {
   const res = await api.run(
     () => store.actionUpdateCapaFields(name, { ...editForm.value }),
-    { successMessage: 'Đã lưu nội dung CAPA' },
+    { successMessage: 'Đã lưu nội dung hành động khắc phục/phòng ngừa' },
   )
   if (res) { showEdit.value = false; refreshAll() }
 }
@@ -148,11 +148,11 @@ onMounted(load)
   <div class="page-container animate-fade-in space-y-5">
     <div class="flex items-center gap-3">
       <button class="text-slate-500 hover:text-slate-700 text-sm" @click="router.push('/capas')">← Quay lại</button>
-      <h1 class="text-xl font-semibold text-slate-800">Chi tiết CAPA</h1>
+      <h1 class="text-xl font-semibold text-slate-800">Chi tiết hành động khắc phục/phòng ngừa</h1>
     </div>
 
     <div v-if="loading" class="p-6"><SkeletonLoader variant="form" :rows="6" /></div>
-    <div v-else-if="!capa" class="text-center text-red-500 py-12">{{ loadError || 'Không tìm thấy CAPA' }}</div>
+    <div v-else-if="!capa" class="text-center text-red-500 py-12">{{ loadError || 'Không tìm thấy hành động khắc phục/phòng ngừa' }}</div>
 
     <template v-else>
       <!-- Header -->
@@ -193,7 +193,7 @@ onMounted(load)
             <p class="font-medium" :class="capa.due_date && new Date(capa.due_date) < new Date() && !isClosed ? 'text-red-600' : ''">{{ formatDate(capa.due_date) }}</p>
           </div>
           <div>
-            <p class="t-eyebrow mb-1">Mức rủi ro / Reopen</p>
+            <p class="t-eyebrow mb-1">Mức rủi ro / Mở lại</p>
             <p class="font-medium">{{ capa.imm_risk_level ? translateStatus(capa.imm_risk_level) : '—' }} · {{ capa.imm_reopen_count ?? 0 }} lần</p>
           </div>
         </div>
@@ -225,10 +225,10 @@ onMounted(load)
           @click="startTransition(t)"
         >{{ t.label }}</button>
         <template v-if="isVerification">
-          <button class="btn-primary text-sm" :disabled="api.loading.value" @click="effResult = 'Effective'; showEffectiveness = true">Đóng CAPA</button>
+          <button class="btn-primary text-sm" :disabled="api.loading.value" @click="effResult = 'Effective'; showEffectiveness = true">Đóng hành động khắc phục/phòng ngừa</button>
           <button class="btn-ghost text-sm" :disabled="api.loading.value" @click="effResult = 'Not Effective'; showEffectiveness = true">Mở lại do chưa hiệu quả</button>
         </template>
-        <span v-if="isClosed" class="text-sm text-green-700 bg-green-50 border border-green-200 rounded px-3 py-1">CAPA đã đóng — {{ formatDate(capa.closed_date) }}</span>
+        <span v-if="isClosed" class="text-sm text-green-700 bg-green-50 border border-green-200 rounded px-3 py-1">Hành động khắc phục/phòng ngừa đã đóng — {{ formatDate(capa.closed_date) }}</span>
       </div>
 
       <!-- QMS content -->
@@ -266,7 +266,7 @@ onMounted(load)
     </template>
 
     <!-- Edit modal -->
-    <BaseModal v-if="showEdit" title="Sửa nội dung CAPA" size="lg" @close="showEdit = false">
+    <BaseModal v-if="showEdit" title="Sửa nội dung hành động khắc phục/phòng ngừa" size="lg" @close="showEdit = false">
       <div class="space-y-3">
         <div class="form-group">
           <label class="form-label">Mô tả</label>
@@ -305,7 +305,7 @@ onMounted(load)
     <!-- Transition modal -->
     <BaseModal v-if="showTransition && pendingTransition" :title="pendingTransition.label" size="md" @close="showTransition = false">
       <div class="space-y-3">
-        <p class="text-sm text-slate-600">Chuyển CAPA sang trạng thái <strong>{{ capaWorkflowLabel(pendingTransition.target) }}</strong>.</p>
+        <p class="text-sm text-slate-600">Chuyển hành động khắc phục/phòng ngừa sang trạng thái <strong>{{ capaWorkflowLabel(pendingTransition.target) }}</strong>.</p>
         <template v-if="pendingTransition.target === 'Action Plan'">
           <div class="form-group">
             <label class="form-label">Phương pháp phân tích gốc (VR-05) *</label>
@@ -326,12 +326,12 @@ onMounted(load)
     </BaseModal>
 
     <!-- Effectiveness modal -->
-    <BaseModal v-if="showEffectiveness" title="Xác minh hiệu quả CAPA" size="md" @close="showEffectiveness = false">
+    <BaseModal v-if="showEffectiveness" title="Xác minh hiệu quả hành động khắc phục/phòng ngừa" size="md" @close="showEffectiveness = false">
       <div class="space-y-3">
         <div class="form-group">
           <label class="form-label">Kết quả *</label>
           <select v-model="effResult" class="form-select">
-            <option value="Effective">Hiệu quả (→ Đóng CAPA)</option>
+            <option value="Effective">Hiệu quả (→ Đóng hành động khắc phục/phòng ngừa)</option>
             <option value="Partially Effective">Hiệu quả một phần (→ Mở lại)</option>
             <option value="Not Effective">Không hiệu quả (→ Mở lại)</option>
           </select>
@@ -341,7 +341,7 @@ onMounted(load)
           <input v-model="effEvidence" class="form-input" placeholder="/files/evidence-...pdf" />
         </div>
         <p class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2" role="alert" aria-live="polite">
-          VR-07: chỉ "Hiệu quả" mới đóng được CAPA. Khác → tăng số lần mở lại + về "Mở lại".
+          VR-07: chỉ "Hiệu quả" mới đóng được hành động khắc phục/phòng ngừa. Khác → tăng số lần mở lại + về "Mở lại".
         </p>
       </div>
       <template #footer>
@@ -349,9 +349,9 @@ onMounted(load)
         <button
           class="btn-primary"
           :disabled="api.loading.value"
-          :title="effResult === 'Effective' ? 'Xác nhận hiệu quả và đóng CAPA' : 'Kết quả khác \'Hiệu quả\' sẽ mở lại CAPA (không đóng)'"
+          :title="effResult === 'Effective' ? 'Xác nhận hiệu quả và đóng hành động khắc phục/phòng ngừa' : 'Kết quả khác \'Hiệu quả\' sẽ mở lại hành động khắc phục/phòng ngừa (không đóng)'"
           @click="submitEffectiveness"
-        >{{ effResult === 'Effective' ? 'Xác nhận & Đóng CAPA' : 'Xác nhận (Mở lại)' }}</button>
+        >{{ effResult === 'Effective' ? 'Xác nhận & Đóng hành động khắc phục/phòng ngừa' : 'Xác nhận (Mở lại)' }}</button>
       </template>
     </BaseModal>
   </div>

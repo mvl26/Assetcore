@@ -21,6 +21,18 @@ vi.mock('@/api/imm08', () => ({
 import * as api from '@/api/imm08'
 import { useImm08Store } from '@/stores/imm08'
 
+function makeWO(overrides: Partial<api.PMWorkOrder> = {}): api.PMWorkOrder {
+  return {
+    name: 'PM-001', asset_ref: 'ACC-ASS-001', asset_name: 'Máy X-quang',
+    asset_category: 'Imaging', risk_class: 'High', pm_type: 'Quarterly',
+    wo_type: 'Preventive', status: 'In Progress', due_date: null,
+    scheduled_date: null, completion_date: null, assigned_to: null,
+    overall_result: null, technician_notes: '', pm_sticker_attached: false,
+    is_late: false, duration_minutes: null, source_pm_wo: null,
+    checklist_results: [], ...overrides,
+  }
+}
+
 const WO_NOT_FOUND = new ApiError('Không tìm thấy lệnh bảo trì định kỳ: PM-X.', {
   code: ErrorCode.NOT_FOUND,
   httpStatus: 404,
@@ -52,6 +64,36 @@ describe('imm08 store — notification contract', () => {
     const store = useImm08Store()
     const ok = await store.doReschedule('PM-X', '2026-06-01', 'lý do hợp lệ')
     expect(ok).toBe(false)
+    expect(store.lastApiError?.messageCode).toBe('IMM08-WO-NOT-FOUND')
+  })
+
+  // SMOKE escalation PM→CM (R36 verb-flip + SIGNATURE-FIX): handler ↔ service align
+  // ⇒ envelope 4-key {pm_wo,new_status,cm_wo_created,asset_status} trả về OK (hết TypeError/500).
+  // mockResolvedValue được type-check theo Promise<ReportMajorFailureResult> ⇒ 4-key là contract-guard.
+  it('doReportMajorFailure: envelope 4-key thành công → trả cm_wo_created, không set lastApiError', async () => {
+    vi.mocked(api.getPMWorkOrder).mockResolvedValue(makeWO({ status: 'Halted–Major Failure' }))
+    vi.mocked(api.reportMajorFailure).mockResolvedValueOnce({
+      pm_wo: 'PM-001',
+      new_status: 'Halted–Major Failure',
+      cm_wo_created: 'WO-RP-2026-00042',
+      asset_status: 'Out of Service',
+    })
+    const store = useImm08Store()
+    await store.fetchWorkOrder('PM-001')
+    const cmWo = await store.doReportMajorFailure('Hỏng nặng đầu dò trong lúc PM')
+    expect(cmWo).toBe('WO-RP-2026-00042')
+    expect(api.reportMajorFailure).toHaveBeenCalledWith('PM-001', 'Hỏng nặng đầu dò trong lúc PM')
+    expect(store.lastApiError).toBeNull()
+    expect(store.error).toBeNull()
+  })
+
+  it('doReportMajorFailure lỗi → lastApiError set + trả null', async () => {
+    vi.mocked(api.getPMWorkOrder).mockResolvedValue(makeWO())
+    vi.mocked(api.reportMajorFailure).mockRejectedValueOnce(WO_NOT_FOUND)
+    const store = useImm08Store()
+    await store.fetchWorkOrder('PM-001')
+    const cmWo = await store.doReportMajorFailure('mô tả lỗi')
+    expect(cmWo).toBeNull()
     expect(store.lastApiError?.messageCode).toBe('IMM08-WO-NOT-FOUND')
   })
 

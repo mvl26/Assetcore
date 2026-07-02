@@ -4,6 +4,7 @@ Run: bench --site miyano run-tests --module assetcore.tests.test_imm11
 """
 from __future__ import annotations
 
+import json
 import unittest
 
 import frappe
@@ -2248,3 +2249,295 @@ class TestGetDueCalibrationsNullExclusion(unittest.TestCase):
             all(r.get("next_calibration_date") for r in due["items"]),
             "due-list KHÔNG chứa item next_calibration_date NULL",
         )
+
+
+class TestCalibrationAllowedTransitions(unittest.TestCase):
+    """Server-driven CTA (mirror imm12 R3 + imm08 R21 + imm09 R22): get_calibration emit
+    `allowed_transitions[]`.
+
+    ASYMMETRY R3 ĐÓNG KÍN — màn calibration-detail mobile render nút workflow theo SERVER,
+    KHÔNG hardcode status→button (anti-pattern dead-gate). Đây là thành viên THỨ TƯ & CUỐI
+    có allowed_transitions[] (sau Incident R3 + PM R21 + Repair R22 → 4/4 *Detail emit).
+    Assert:
+      (1) codomain ⊆ CalibrationResult enum — mọi key + value-state ∈ enum (0 extra value);
+      (2) _CAL_VALID_TRANSITIONS == codomain imm_11_calibration_workflow.json edge-by-edge
+          theo SET (12 cạnh unique, `Failed→Conditionally Passed` khai 2 lần — tự dedup);
+          terminal Passed/Conditionally Passed/Cancelled → [] (0 outgoing);
+      (3) get_calibration(name) CHỨA key `allowed_transitions` == map[status] cho ≥3 status
+          (Scheduled / In Progress / Passed-terminal-rỗng) — set_value flip status để exercise
+          các nhánh (KHÔNG drive full workflow-engine).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.asset = _make_asset("-caltrans")
+
+    @classmethod
+    def tearDownClass(cls):
+        for c in frappe.get_all(
+            "IMM Asset Calibration", filters={"asset": cls.asset.name},
+            fields=["name"],
+        ):
+            frappe.delete_doc(
+                "IMM Asset Calibration", c.name, force=True, ignore_permissions=True
+            )
+        _purge_asset_with_deps(cls.asset.name)
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+
+    def test_codomain_subset_of_enum(self):
+        """(1) Mọi key + value-state của _CAL_VALID_TRANSITIONS ∈ CalibrationResult enum (0 extra)."""
+        from assetcore.services.imm11 import _CAL_VALID_TRANSITIONS
+
+        enum = {
+            getattr(CalibrationResult, a) for a in dir(CalibrationResult)
+            if not a.startswith("_") and isinstance(getattr(CalibrationResult, a), str)
+        }
+        for state, nexts in _CAL_VALID_TRANSITIONS.items():
+            self.assertIn(
+                state, enum, f"key-state '{state}' KHÔNG ∈ CalibrationResult enum (typo/bịa).")
+            for nx in nexts:
+                self.assertIn(
+                    nx, enum,
+                    f"_CAL_VALID_TRANSITIONS['{state}'] chứa '{nx}' KHÔNG ∈ CalibrationResult enum.")
+
+    def test_map_equals_workflow_json_edges(self):
+        """(2) _CAL_VALID_TRANSITIONS == codomain imm_11_calibration_workflow.json (SET dedup).
+
+        SSoT-divergence: thêm/bớt edge ở map mà KHÔNG đồng bộ workflow JSON → RED.
+        Terminal Passed/Conditionally Passed/Cancelled → []. Count thô = 13 transition (JSON
+        có dòng `Failed→Conditionally Passed` LẶP 2 lần — Compliance + System Manager); so SET
+        tự dedup → 12 cạnh unique khớp map.
+        """
+        import json
+        from pathlib import Path
+        from assetcore.services.imm11 import _CAL_VALID_TRANSITIONS
+
+        wf_path = (
+            Path(frappe.get_app_path("assetcore"))
+            / "assetcore" / "workflow" / "imm_11_calibration_workflow.json"
+        )
+        data = json.loads(wf_path.read_text(encoding="utf-8"))
+        codomain = {s["state"]: set() for s in data["states"]}
+        for t in data["transitions"]:
+            codomain.setdefault(t["state"], set()).add(t["next_state"])
+        # Key-set map BE PHẢI == states[] workflow JSON (8 state).
+        self.assertEqual(
+            set(_CAL_VALID_TRANSITIONS.keys()), set(codomain.keys()),
+            "Key-set _CAL_VALID_TRANSITIONS PHẢI == states[] imm_11_calibration_workflow.json (8 state).")
+        for state, wf_nexts in codomain.items():
+            self.assertEqual(
+                set(_CAL_VALID_TRANSITIONS[state]), wf_nexts,
+                f"DRIFT '{state}': map BE {sorted(_CAL_VALID_TRANSITIONS[state])} ≠ "
+                f"workflow next_state {sorted(wf_nexts)} (SSoT-divergence map↔workflow lệch).")
+        # Sanity-count workflow JSON: 8 state / 13 transition raw (KHÔNG 12 — JSON có dòng lặp).
+        self.assertEqual(
+            len(data.get("states", [])), 8,
+            "imm_11_calibration_workflow.json PHẢI 8 state (grounding count).")
+        self.assertEqual(
+            len(data.get("transitions", [])), 13,
+            "imm_11_calibration_workflow.json PHẢI 13 transition raw (12 cạnh unique — dòng lặp).")
+        # Terminal → [] rỗng.
+        self.assertEqual(_CAL_VALID_TRANSITIONS[CalibrationResult.PASSED], [], "Passed terminal → [].")
+        self.assertEqual(
+            _CAL_VALID_TRANSITIONS[CalibrationResult.COND_PASSED], [],
+            "Conditionally Passed terminal → [].")
+        self.assertEqual(
+            _CAL_VALID_TRANSITIONS[CalibrationResult.CANCELLED], [], "Cancelled terminal → [].")
+
+    def test_live_get_calibration_emits(self):
+        """(3) get_calibration CHỨA allowed_transitions == map[status] cho ≥3 status."""
+        from assetcore.services.imm11 import _CAL_VALID_TRANSITIONS, get_calibration
+
+        result = create_calibration(
+            asset=self.asset.name,
+            calibration_type="In-House",
+            scheduled_date=add_days(nowdate(), 7),
+            technician="Administrator",
+            reference_standard_serial="STD-TRANS-001",
+        )
+        frappe.db.commit()
+        name = result["name"]
+        try:
+            # Scheduled (as created) → key present + đúng codomain (In Progress, Sent to Lab, Cancelled).
+            detail = get_calibration(name)
+            self.assertIn(
+                "allowed_transitions", detail,
+                "get_calibration PHẢI emit key 'allowed_transitions' (server-driven CTA).")
+            self.assertEqual(
+                detail["allowed_transitions"],
+                _CAL_VALID_TRANSITIONS[CalibrationResult.SCHEDULED],
+                "Scheduled → [In Progress, Sent to Lab, Cancelled].")
+
+            # In Progress → 4 next (flip status trực tiếp; KHÔNG drive workflow-engine).
+            frappe.db.set_value(
+                "IMM Asset Calibration", name, "status", CalibrationResult.IN_PROGRESS)
+            frappe.db.commit()
+            self.assertEqual(
+                get_calibration(name)["allowed_transitions"],
+                _CAL_VALID_TRANSITIONS[CalibrationResult.IN_PROGRESS],
+                "In Progress → [Passed, Failed, Conditionally Passed, Cancelled].")
+
+            # Passed (terminal) → [] rỗng.
+            frappe.db.set_value(
+                "IMM Asset Calibration", name, "status", CalibrationResult.PASSED)
+            frappe.db.commit()
+            self.assertEqual(
+                get_calibration(name)["allowed_transitions"], [],
+                "Passed (terminal) → [] rỗng (KHÔNG transition ra).")
+        finally:
+            frappe.delete_doc(
+                "IMM Asset Calibration", name, force=True, ignore_permissions=True)
+            frappe.db.commit()
+
+
+class TestCalibrationListMineScope(unittest.TestCase):
+    """C-LISTREAD-MINE-CAL (ADR-MOBILE — quartet "phiếu-của-tôi" ĐÓNG NỐT sau PM/CM/Incident) —
+    api/imm11.list_calibrations mine=1 scope technician == session.user cho tab
+    'Phiếu hiệu chuẩn của tôi' (MVP-5d).
+
+    Mirror TestPMListMineScope (test_imm08.py) / TestRepairListMineScope (test_imm09.py) NHƯNG
+    field assignee = `technician` (KHÔNG `assigned_to`; calibration assignee — mirror IncidentMine
+    dùng reported_by, mỗi domain field RIÊNG). Inject @api-layer SAU apply_vendor_scope("Calibration
+    Record"). INVARIANT count==rows: count_with_or + get_all dùng CÙNG filters dict (đã có technician).
+    FENCE: mine=0/absent ⇒ filters byte-identical baseline (web-FE list_calibrations KHÔNG regress).
+
+    Calibration KHÔNG có ràng buộc "1 active / asset" (khác Asset Repair) ⇒ dùng 1 asset / nhiều
+    phiếu (mirror PM). Scope CHỈ phiếu của test này qua filter `asset == cls.asset.name`.
+    """
+
+    OTHER_USER = "_test_imm11_mine_other@example.com"
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.asset = _make_asset("-cal-mine")
+        # technician là Link User → user "khác" PHẢI tồn tại thật để insert phiếu hợp lệ.
+        if not frappe.db.exists("User", cls.OTHER_USER):
+            frappe.get_doc({
+                "doctype": "User",
+                "email": cls.OTHER_USER,
+                "first_name": "IMM11 Mine Other",
+                "send_welcome_email": 0,
+            }).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        cls._purge_cals()
+        if frappe.db.exists("User", cls.OTHER_USER):
+            frappe.delete_doc("User", cls.OTHER_USER, force=True, ignore_permissions=True)
+        _purge_asset_with_deps(cls.asset.name)
+        frappe.db.commit()
+
+    @classmethod
+    def _purge_cals(cls):
+        for c in frappe.get_all(
+            "IMM Asset Calibration", filters={"asset": cls.asset.name},
+            fields=["name", "docstatus"],
+        ):
+            doc = frappe.get_doc("IMM Asset Calibration", c["name"])
+            if doc.docstatus == 1:
+                doc.cancel()
+            frappe.delete_doc(
+                "IMM Asset Calibration", c["name"], force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        # Mỗi test tự dựng phiếu — purge giữa các test để count==rows deterministic.
+        self._purge_cals()
+
+    def _make_cal(self, technician: str, status: str | None = None) -> str:
+        # In-House (KHÔNG cần lab ISO-17025) + reference_standard_serial (VR In-House) — fixture
+        # tối thiểu hợp lệ; nội dung calibration_type/lab KHÔNG ảnh hưởng scope-by-technician.
+        res = create_calibration(
+            asset=self.asset.name,
+            calibration_type="In-House",
+            scheduled_date=nowdate(),
+            technician=technician,
+            reference_standard_serial="REF-STD-CALMINE",
+        )
+        name = res["name"]
+        if status and status != CalibrationResult.SCHEDULED:
+            # set sau insert (bypass service/controller — chỉ cần giá trị cột cho filter test;
+            # KHÔNG kích transition asset).
+            frappe.db.set_value("IMM Asset Calibration", name, "status", status)
+        frappe.db.commit()
+        return name
+
+    def _list(self, *, mine: int | None = None, extra: dict | None = None) -> dict:
+        from assetcore.api.imm11 import list_calibrations
+        f: dict = {"asset": self.asset.name}
+        if extra:
+            f.update(extra)
+        kwargs = {"filters": json.dumps(f), "page": 1, "page_size": 100}
+        if mine is not None:
+            kwargs["mine"] = mine
+        env = list_calibrations(**kwargs)
+        self.assertTrue(env.get("success"), f"envelope KHÔNG success: {env}")
+        return env["data"]
+
+    def test_list_calibrations_mine_scopes_technician_session_user(self):
+        """mine=1 → CHỈ phiếu technician == frappe.session.user (Administrator)."""
+        mine_cal = self._make_cal("Administrator")
+        other_cal = self._make_cal(self.OTHER_USER)
+        data = self._list(mine=1)
+        names = {r["name"] for r in data["data"]}
+        self.assertIn(mine_cal, names, "Phiếu của session.user PHẢI hiện khi mine=1.")
+        self.assertNotIn(other_cal, names, "Phiếu của KTV khác PHẢI bị loại khi mine=1.")
+        for r in data["data"]:
+            self.assertEqual(
+                r["technician"], "Administrator",
+                "mine=1 ⇒ MỌI row technician == session.user.",
+            )
+
+    def test_list_calibrations_mine_zero_fence_other_users_visible(self):
+        """FENCE blast-radius: mine=0/absent ⇒ phiếu technician KTV khác VẪN hiện
+        (filters byte-identical baseline — backward-compat tuyệt đối, web-FE
+        list_calibrations KHÔNG regress)."""
+        mine_cal = self._make_cal("Administrator")
+        other_cal = self._make_cal(self.OTHER_USER)
+        # mine=0 explicit.
+        names0 = {r["name"] for r in self._list(mine=0)["data"]}
+        self.assertIn(mine_cal, names0)
+        self.assertIn(other_cal, names0, "mine=0 ⇒ phiếu KTV khác VẪN hiện (fence).")
+        # mine absent — phải GIỐNG hệt mine=0 (default 0).
+        names_absent = {r["name"] for r in self._list()["data"]}
+        self.assertEqual(
+            names0, names_absent,
+            "mine absent PHẢI == mine=0 (default 0 — web-FE list_calibrations KHÔNG regress).",
+        )
+
+    def test_list_calibrations_mine_ands_with_status_filter(self):
+        """mine=1 + filters status ⇒ AND (chỉ phiếu của tôi + đúng status), KHÔNG ghi đè filter."""
+        my_inprogress = self._make_cal("Administrator", status=CalibrationResult.IN_PROGRESS)
+        my_scheduled = self._make_cal("Administrator", status=CalibrationResult.SCHEDULED)
+        other_inprogress = self._make_cal(self.OTHER_USER, status=CalibrationResult.IN_PROGRESS)
+        data = self._list(mine=1, extra={"status": CalibrationResult.IN_PROGRESS})
+        names = {r["name"] for r in data["data"]}
+        self.assertEqual(
+            names, {my_inprogress},
+            "mine=1 AND status='In Progress' ⇒ CHỈ my_inprogress (loại my_scheduled=status sai, "
+            "other_inprogress=KTV khác).",
+        )
+        self.assertNotIn(my_scheduled, names)
+        self.assertNotIn(other_inprogress, names)
+
+    def test_list_calibrations_mine_count_equals_rows(self):
+        """INVARIANT count==rows: mine=1 ⇒ pagination.total == len(data.data)
+        (count_with_or + get_all CÙNG filters dict đã có technician — chống drift
+        memory asset_list_count_drill_technician)."""
+        for _ in range(3):
+            self._make_cal("Administrator")
+        for _ in range(2):
+            self._make_cal(self.OTHER_USER)
+        data = self._list(mine=1)
+        self.assertEqual(
+            data["pagination"]["total"], len(data["data"]),
+            "mine=1 ⇒ pagination.total PHẢI == len(rows) (count-vs-rows drift guard).",
+        )
+        self.assertEqual(data["pagination"]["total"], 3, "CHỈ 3 phiếu của session.user.")

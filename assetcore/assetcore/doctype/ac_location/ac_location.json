@@ -40,14 +40,14 @@
   {
    "fieldname": "location_name",
    "fieldtype": "Data",
-   "label": "Location Name",
+   "label": "Tên vị trí",
    "reqd": 1,
    "in_list_view": 1
   },
   {
    "fieldname": "location_code",
    "fieldtype": "Data",
-   "label": "Location Code",
+   "label": "Mã vị trí",
    "unique": 1,
    "set_only_once": 1,
    "description": "Mã vị trí. Nếu nhập tay → ghi đè naming series và dùng làm mã định danh. Nếu để trống → hệ thống tự sinh. Sau khi tạo không thể thay đổi.",
@@ -56,7 +56,7 @@
   {
    "fieldname": "parent_location",
    "fieldtype": "Link",
-   "label": "Parent Location",
+   "label": "Vị trí cấp trên",
    "options": "AC Location"
   },
   {
@@ -103,14 +103,14 @@
   {
    "fieldname": "clinical_area_type",
    "fieldtype": "Select",
-   "label": "Clinical Area Type",
+   "label": "Loại khu vực lâm sàng",
    "options": "\nICU\nOR\nLab\nImaging\nGeneral Ward\nStorage\nOffice",
    "search_index": 1
   },
   {
    "fieldname": "infection_control_level",
    "fieldtype": "Select",
-   "label": "Infection Control Level",
+   "label": "Mức kiểm soát nhiễm khuẩn",
    "options": "\nStandard\nEnhanced\nIsolation"
   },
   {
@@ -120,7 +120,7 @@
   {
    "fieldname": "power_backup_available",
    "fieldtype": "Check",
-   "label": "Power Backup Available"
+   "label": "Có nguồn dự phòng"
   },
   {
    "fieldname": "section_contact",
@@ -148,7 +148,7 @@
   {
    "fieldname": "notes",
    "fieldtype": "Small Text",
-   "label": "Notes"
+   "label": "Ghi chú"
   }
  ],
  "links": [],

@@ -5,6 +5,7 @@ import { useRouter } from 'vue-router'
 import { getWarehouse, updateWarehouse, deleteWarehouse } from '@/api/inventory'
 import type { Warehouse, StockRow } from '@/types/inventory'
 import SmartSelect from '@/components/common/SmartSelect.vue'
+import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 
 const props = defineProps<{ name: string }>()
@@ -97,7 +98,7 @@ onMounted(load)
       <!-- Summary -->
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <div class="kpi-card p-4" style="--kpi-color: #2563eb">
-          <p class="t-eyebrow mb-2">Số SKU</p>
+          <p class="t-eyebrow mb-2">Số mã hàng</p>
           <p class="t-metric tabular-nums">{{ wh.stock_count || wh.stock_items.length }}</p>
         </div>
         <div class="kpi-card p-4" style="--kpi-color: #059669">
@@ -201,7 +202,7 @@ v-if="showEdit" class="fixed inset-0 z-50 flex items-center justify-center bg-bl
               </div>
               <div>
                 <label for="wh-edit-manager" class="form-label">Người phụ trách</label>
-                <SmartSelect id="wh-edit-manager" v-model="form.manager" doctype="User" placeholder="Chọn user..." />
+                <ApproverSelect id="wh-edit-manager" v-model="form.manager" context="user" placeholder="Chọn người dùng..." />
               </div>
               <div class="flex items-center gap-3 pt-6">
                 <input

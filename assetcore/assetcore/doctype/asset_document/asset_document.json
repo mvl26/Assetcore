@@ -187,7 +187,7 @@
   {
    "fieldname": "section_version",
    "fieldtype": "Section Break",
-   "label": "Version Control"
+   "label": "Quản lý phiên bản"
   },
   {
    "fieldname": "superseded_by",

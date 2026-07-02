@@ -28,7 +28,7 @@ const incCols: ListColumn[] = [
   { key: 'status', label: 'Trạng thái', type: 'status' },
 ]
 const nrCols: ListColumn[] = [
-  { key: 'name', label: 'Mã NR', type: 'link' },
+  { key: 'name', label: 'Mã đề xuất', type: 'link' },
   { key: 'device_model_ref', label: 'Thiết bị đề xuất' },
   { key: 'priority_class', label: 'Ưu tiên' },
   { key: 'workflow_state', label: 'Trạng thái', type: 'status' },

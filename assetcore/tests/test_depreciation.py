@@ -85,6 +85,45 @@ def _make_asset(
     return doc.name
 
 
+class TestAutoGenerateScheduleOnInsert(unittest.TestCase):
+    """L-07: tạo tài sản ĐÃ cấu hình khấu hao ⇒ after_insert tự sinh lịch (không
+    cần bấm 'Sinh lịch'). Tiến độ '0/0 kỳ' biến mất vì schedule rows đã tồn tại.
+
+    - Configured (method + gross>0 + months>0) ⇒ auto-gen đúng số kỳ.
+    - Chưa cấu hình (months=0) ⇒ KHÔNG sinh (không rác lịch trống).
+    - Best-effort: hook KHÔNG được vỡ thao tác tạo asset.
+    """
+
+    def _count_schedule(self, asset_name: str) -> int:
+        return frappe.db.count(
+            "AC Asset Depreciation Schedule",
+            {"parent": asset_name, "parenttype": "AC Asset"},
+        )
+
+    def tearDown(self) -> None:
+        from assetcore.tests._asset_cleanup import purge_asset
+        for name in getattr(self, "_created", []):
+            purge_asset(name)
+
+    def test_configured_asset_auto_generates_schedule(self) -> None:
+        self._created = []
+        name = _make_asset(suffix="AutoGen", months=12, frequency="Monthly")
+        self._created.append(name)
+        self.assertEqual(
+            self._count_schedule(name), 12,
+            "asset đã cấu hình (12 tháng/Monthly) phải tự sinh 12 kỳ khi tạo",
+        )
+
+    def test_unconfigured_asset_no_schedule(self) -> None:
+        self._created = []
+        name = _make_asset(suffix="NoRule", months=0, method="None")
+        self._created.append(name)
+        self.assertEqual(
+            self._count_schedule(name), 0,
+            "asset chưa cấu hình (months=0/method None) KHÔNG sinh lịch trống",
+        )
+
+
 def _book(asset: str) -> float:
     return flt(frappe.db.get_value(_DT_ASSET, asset, "current_book_value"))
 
@@ -344,6 +383,33 @@ class TestFullyDepreciatedSoT(unittest.TestCase):
             depr_svc.is_fully_depreciated(self._row(current_book_value=None)),
         )
 
+    def test_fresh_asset_not_fully_depreciated(self):
+        """L-05: asset MỚI (configured, current_book_value=0.0 do Frappe Currency
+        NOT NULL default lúc insert, accumulated=0) KHÔNG được tính 'hết khấu hao'
+        — chưa khấu hao kỳ nào. Phân biệt với asset đã KH hết (accumulated>0)."""
+        self.assertFalse(
+            depr_svc.is_fully_depreciated(
+                self._row(
+                    residual_value=0.0,
+                    current_book_value=0.0,
+                    accumulated_depreciation=0.0,
+                ),
+            ),
+        )
+
+    def test_fully_depreciated_when_accumulated_reached_base(self):
+        """Asset đã KH hết THẬT (accumulated == gross-residual, book chạm sàn 0) ⇒
+        VẪN tính 'hết khấu hao' (không bị fresh-asset guard nuốt)."""
+        self.assertTrue(
+            depr_svc.is_fully_depreciated(
+                self._row(
+                    residual_value=0.0,
+                    current_book_value=0.0,
+                    accumulated_depreciation=100_000_000.0,
+                ),
+            ),
+        )
+
 
 class TestEffectiveBookValueSoT(unittest.TestCase):
     """BR-05-13 / INV-DEP-8: SoT DUY NHẤT `effective_book_value(row)` đọc book.
@@ -371,16 +437,34 @@ class TestEffectiveBookValueSoT(unittest.TestCase):
         )
 
     def test_zero_stays_zero(self):
-        """current_book_value=0.0 (đã KH hết) ⇒ book = 0.0, KHÔNG về gross.
+        """Asset đã KH hết THẬT (current_book_value=0.0 VÀ accumulated>0) ⇒ book=0.0,
+        KHÔNG về gross.
 
-        RED-PROOF chính của falsy-zero bug: `0.0 or gross` → gross (sai).
+        RED-PROOF của falsy-zero bug: `0.0 or gross` → gross (sai). Phân biệt với
+        asset MỚI (accumulated=0 ⇒ book=gross, xem test_fresh_asset_*). Một asset
+        chỉ "đã KH hết về 0" khi accumulated đã đạt depreciable_base — nên row hợp
+        lệ PHẢI có accumulated>0.
         """
         self.assertEqual(
             depr_svc.effective_book_value({
                 "current_book_value": 0.0,
                 "gross_purchase_amount": 100_000_000,
+                "accumulated_depreciation": 100_000_000,
             }),
             0.0,
+        )
+
+    def test_fresh_asset_zero_book_falls_back_to_gross(self):
+        """L-04: asset MỚI — Frappe lưu current_book_value=0.0 (Currency NOT NULL
+        default) lúc insert, accumulated=0 ⇒ giá trị còn lại thực = gross (sửa
+        'Giá trị còn lại 0₫'). KHÁC asset đã KH hết (accumulated>0 ⇒ giữ 0.0)."""
+        self.assertEqual(
+            depr_svc.effective_book_value({
+                "current_book_value": 0.0,
+                "gross_purchase_amount": 5_000_000,
+                "accumulated_depreciation": 0,
+            }),
+            5_000_000.0,
         )
 
     def test_partial_value_verbatim(self):
@@ -1218,12 +1302,17 @@ class TestRegenerateSelfHeal(unittest.TestCase):
     def test_be5_audit_on_real_inherit_then_no_garbage(self):
         from assetcore.api.imm00 import regenerate_depreciation_schedule
         a = self._old_asset(suffix="BE5", category=self.cat_rule)
+        # Asset insert emits exactly 1 'System' IMM Audit Trail for qr_generated
+        # (ADR-001) — UNRELATED to the self-heal. _aud_count filters by the shared
+        # 'System' enum so it also catches the qr audit; measure the self-heal
+        # DELTA (not the absolute count) to assert the self-heal contribution.
+        base_aud = self._aud_count(a)
 
         _data, status = _unwrap(regenerate_depreciation_schedule(a))
         self.assertEqual(status, 200)
         self.assertEqual(self._ale_count(a), 1,
                          "real self-heal must record exactly 1 lifecycle event")
-        self.assertEqual(self._aud_count(a), 1,
+        self.assertEqual(self._aud_count(a) - base_aud, 1,
                          "real self-heal must record exactly 1 IMM Audit Trail")
 
         # 2nd call: asset now has months → inherit no-op → NO new events.
@@ -1231,7 +1320,7 @@ class TestRegenerateSelfHeal(unittest.TestCase):
         self.assertEqual(status2, 200)
         self.assertEqual(self._ale_count(a), 1,
                          "inherit no-op must NOT emit a 2nd lifecycle event")
-        self.assertEqual(self._aud_count(a), 1,
+        self.assertEqual(self._aud_count(a) - base_aud, 1,
                          "inherit no-op must NOT emit a 2nd audit trail")
 
     # ── [TDD-BE-5b] idempotent: 2 consecutive calls → same period count ───────

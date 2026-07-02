@@ -15,7 +15,7 @@ const route = useRoute()
       </p>
       <div class="flex gap-3 justify-center pt-2">
         <button class="btn-ghost" @click="router.push('/')">← Quay lại</button>
-        <button class="btn-primary" @click="router.push('/dashboard')">Về Dashboard</button>
+        <button class="btn-primary" @click="router.push('/dashboard')">Về Bảng điều khiển</button>
       </div>
     </div>
   </div>

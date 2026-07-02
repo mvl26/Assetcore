@@ -39,7 +39,7 @@
    "fieldname": "spec_ref",
    "fieldtype": "Link",
    "options": "IMM Tech Spec",
-   "label": "Tech Spec",
+   "label": "Hồ sơ kỹ thuật",
    "reqd": 1,
    "in_list_view": 1
   },
@@ -65,13 +65,13 @@
   {
    "fieldname": "section_score",
    "fieldtype": "Section Break",
-   "label": "Score",
+   "label": "Điểm",
    "permlevel": 1
   },
   {
    "fieldname": "lock_in_score",
    "fieldtype": "Float",
-   "label": "Lock-in score",
+   "label": "Điểm lệ thuộc",
    "read_only": 1,
    "precision": "4",
    "in_list_view": 1,
@@ -80,7 +80,7 @@
   {
    "fieldname": "threshold_used",
    "fieldtype": "Float",
-   "label": "Threshold",
+   "label": "Ngưỡng",
    "default": 2.5,
    "permlevel": 1
   },
@@ -97,19 +97,19 @@
   {
    "fieldname": "section_mit",
    "fieldtype": "Section Break",
-   "label": "Mitigation",
+   "label": "Biện pháp giảm thiểu",
    "permlevel": 1
   },
   {
    "fieldname": "mitigation_plan",
    "fieldtype": "Long Text",
-   "label": "Mitigation plan",
+   "label": "Kế hoạch giảm thiểu",
    "permlevel": 1
   },
   {
    "fieldname": "mitigation_evidence",
    "fieldtype": "Attach",
-   "label": "Mitigation evidence",
+   "label": "Bằng chứng giảm thiểu",
    "permlevel": 1
   },
   {
@@ -158,6 +158,17 @@
    "print": 1,
    "email": 0,
    "share": 0
+  },
+  {
+   "role": "AssetCore Super Admin",
+   "permlevel": 1,
+   "read": 1,
+   "write": 1
+  },
+  {
+   "role": "AssetCore Auditor",
+   "permlevel": 1,
+   "read": 1
   }
  ],
  "sort_field": "modified",

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import DateInput from '@/components/common/DateInput.vue'
+import CurrencyInput from '@/components/common/CurrencyInput.vue'
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { getAsset, updateAsset } from '@/api/imm00'
@@ -114,14 +115,14 @@ onMounted(load)
           </div>
           <div>
             <label class="form-label">Giá mua (VND)</label>
-            <input v-model.number="form.gross_purchase_amount" type="number" min="0" class="form-input w-full" />
+            <CurrencyInput v-model="form.gross_purchase_amount" aria-label="Giá mua (VND)" class="form-input w-full" />
           </div>
           <div>
             <label class="form-label">Ngày bảo hành hết hạn</label>
             <DateInput v-model="form.warranty_expiry_date" class="form-input w-full" />
           </div>
           <div>
-            <label class="form-label">Ngày commissioning</label>
+            <label class="form-label">Ngày nghiệm thu</label>
             <DateInput v-model="form.commissioning_date" class="form-input w-full" />
           </div>
         </div>
@@ -150,9 +151,9 @@ onMounted(load)
             <label class="form-label">Phân loại y tế</label>
             <select v-model="form.medical_device_class" class="form-select w-full">
               <option value="">— Chọn loại —</option>
-              <option>Class I</option>
-              <option>Class II</option>
-              <option>Class III</option>
+              <option value="Class I">Loại I — Rủi ro thấp</option>
+              <option value="Class II">Loại II — Rủi ro trung bình</option>
+              <option value="Class III">Loại III — Rủi ro cao</option>
             </select>
           </div>
           <div>
@@ -171,7 +172,7 @@ onMounted(load)
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div class="flex items-center gap-3">
             <input id="pm_check" v-model="form.is_pm_required" type="checkbox" :true-value="1" :false-value="0" class="h-4 w-4 text-blue-600 rounded" />
-            <label for="pm_check" class="text-sm text-slate-700">Yêu cầu bảo trì định kỳ (PM)</label>
+            <label for="pm_check" class="text-sm text-slate-700">Yêu cầu bảo trì định kỳ</label>
           </div>
           <div v-if="form.is_pm_required">
             <label class="form-label">Chu kỳ bảo trì (ngày)</label>

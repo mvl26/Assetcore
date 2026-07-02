@@ -20,9 +20,10 @@ from __future__ import annotations
 import frappe
 from frappe.utils import now_datetime
 
-from assetcore.services.shared import AssetStatus
+from assetcore.services.shared import AssetStatus, normalize_filters
 from assetcore.utils.notify import nthrow
 from assetcore.utils.messages import MSG
+from assetcore.utils.pagination import paginate
 
 _DOCTYPE_ASSET = "AC Asset"
 _DOCTYPE_DECOM = "Asset Decommission"
@@ -309,6 +310,102 @@ def _approve_payload(doc) -> dict:
 # ─────────────────────────────────────────────────────────────────────────────
 # get_decommission — đọc chi tiết (enrich)
 # ─────────────────────────────────────────────────────────────────────────────
+
+# ─────────────────────────────────────────────────────────────────────────────
+# list_decommissions — danh sách "Biên bản giải nhiệm" (read-only, RBAC-scoped)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Field trả ra 1 row (mirror pattern list_compliance_findings). asset_name_snapshot
+# đã materialize lúc before_insert → KHÔNG cần fetch AC Asset (no N+1).
+_DECOM_LIST_FIELDS = (
+    "name",
+    "asset",
+    "asset_name_snapshot",
+    "risk_classification_snapshot",
+    "workflow_state",
+    "disposal_method",
+    "decommissioned_on",
+    "responsible",
+)
+
+# Chỉ 3 khoá filter đo được (BR list) — whitelist chống lọc field ngoài ý đồ /
+# leak column không hợp lệ (SQL error). Giá trị rỗng bị loại → filter rỗng = toàn bộ.
+_DECOM_FILTER_KEYS = ("workflow_state", "disposal_method", "asset")
+
+
+def _normalize_decom_filters(filters: dict | None) -> dict:
+    """Whitelist (workflow_state/disposal_method/asset) + normalize list→[in,...]."""
+    raw = filters or {}
+    clean = {
+        k: raw[k]
+        for k in _DECOM_FILTER_KEYS
+        if raw.get(k) not in (None, "")
+    }
+    return normalize_filters(clean)
+
+
+def list_decommissions(
+    filters: dict | None = None,
+    *,
+    page: int = 1,
+    page_size: int = 20,
+) -> dict:
+    """Liệt kê hồ sơ giải nhiệm (Asset Decommission) — read-only, permission-scoped.
+
+    RBAC (acceptance): dùng ``frappe.get_list`` để áp DocPerm 'Asset Decommission'
+    (+ ``permission_query_conditions`` nếu đăng ký) — KHÔNG ``ignore_permissions``,
+    KHÔNG ``frappe.get_all`` (get_all bypass quyền). ``count_with_or`` cũng chạy qua
+    ``frappe.get_list`` ⇒ ``total`` đếm CÙNG predicate quyền với rows (count == số
+    dòng thực cho mọi persona; DONE-gate).
+
+    order_by ``decommissioned_on desc`` (Approved có ngày → mới nhất trước), fallback
+    ``creation desc`` (Draft/Cancelled decommissioned_on=NULL → nhóm cuối, mới trước).
+
+    Enrich ``responsible_name`` = User.full_name (bulk-fetch 1 query, chống N+1 +
+    chống rò email — LL-FE-53 / user_source policy). asset_name lấy từ snapshot sẵn.
+
+    Returns: ``{data: [...], pagination: {page, page_size, total, total_pages, offset}}``.
+    """
+    from assetcore.services.shared.filters import count_with_or
+
+    f = _normalize_decom_filters(filters)
+    total = count_with_or(_DOCTYPE_DECOM, f, None)
+    pg = paginate(total, page, page_size)
+    rows = frappe.get_list(
+        _DOCTYPE_DECOM,
+        filters=f,
+        fields=list(_DECOM_LIST_FIELDS),
+        order_by="decommissioned_on desc, creation desc",
+        limit_start=pg["offset"],
+        limit_page_length=pg["page_size"],
+    )
+    _enrich_responsible_names(rows)
+    return {"data": rows, "pagination": pg}
+
+
+def _enrich_responsible_names(rows: list[dict]) -> None:
+    """Gắn ``responsible_name`` = User.full_name (bulk, chống N+1, KHÔNG rò email).
+
+    Chỉ đọc ``full_name`` (KHÔNG email) → không leak PII. Mutate rows in-place.
+    """
+    ids = {r["responsible"] for r in rows if r.get("responsible")}
+    if not ids:
+        for r in rows:
+            r["responsible_name"] = None
+        return
+    name_map = {
+        u["name"]: u["full_name"]
+        for u in frappe.get_all(
+            "User",
+            filters={"name": ["in", list(ids)]},
+            fields=["name", "full_name"],
+            ignore_permissions=True,
+        )
+    }
+    for r in rows:
+        rid = r.get("responsible")
+        r["responsible_name"] = name_map.get(rid) if rid else None
+
 
 def get_decommission(name: str) -> dict:
     """Đọc chi tiết hồ sơ giải nhiệm + enrich asset_name, responsible_name, lifecycle."""

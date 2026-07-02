@@ -493,6 +493,34 @@ Then bin Y KHÔNG low (25 ≥ 20) — y hệt hành vi cũ
 
 ---
 
+### IV.6. UI Surfacing "Kiểm kê tồn kho" — Boundaries + ADR (vòng 2, 2026-07-01)
+
+**Bối cảnh:** Wave-2 đã có BE (`services/imm15.py` create/submit/post), api (`api/imm15.py`) và FE store/api (`api/imm15.ts`) cho Cycle Count nhưng **CHƯA có view/route/nav** → dead-feature; endpoint detail `get_cycle_count` được 06 §II.8 tham chiếu nhưng **chưa hiện thực**. Vòng 2 surface UI + bổ sung `get_cycle_count`.
+
+**Boundaries:**
+- **Always**: sinh record cho mọi action (create/submit/post đều tạo/sửa `IMM Stock Cycle Count`); post sinh `AC Stock Movement` (Adjustment) — RULE-F04; CTA FE gate theo `allowed_transitions` từ BE; nhãn hiển thị đầy đủ tiếng Việt (LL-FE-53); giá trị lệch format tiền VN; kho hiển thị TÊN.
+- **Ask first**: đổi schema child `IMM Cycle Count Item`; thêm state/transition mới vào workflow; đổi enum `count_type`/`status`.
+- **Never**: hardcode `status===` để bật nút (GATE-8/LL-FE-51); leak English enum; ghi thẳng stock không qua `AC Stock Movement`; đọc nhầm child orphan `IMM Stock Cycle Count Item`.
+
+#### ADR-IMM-15-06: `get_cycle_count` trả `allowed_transitions` capability-aware (server-driven CTA)
+
+- **Status**: Accepted
+- **Date**: 2026-07-01
+- **Context**: Màn CycleCountDetail cần biết nút nào được phép ở mỗi `status`. Lifecycle dual-track: `status` (Select, SSoT nghiệp vụ do service mutate trực tiếp) song song `workflow_state` (Link Workflow, hiện **không được service set** — orphan). FE tuyệt đối không được suy diễn `status===` (GATE-8/LL-FE-51). Post (`Reviewed→Posted`) yêu cầu cap `inventory.submit`; count/submit yêu cầu `inventory.write`.
+- **Decision**: `get_cycle_count` trả `allowed_transitions: list[str]` (tên next-state) = `_CYCLE_VALID_TRANSITIONS.get(status, [])`, **lọc theo capability** của `frappe.session.user` (strip `"Posted"` nếu thiếu `inventory.submit`). Đồng convention với imm08/09/11/12 (`_VALID_TRANSITIONS.get(status,[])`), chỉ thêm bước lọc-capability để Inventory User (chỉ đếm) không thấy nút Post chết.
+- **Alternatives**: (a) FE hardcode `status===` — loại (vi phạm GATE-8, brittle); (b) dùng `frappe.model.workflow.get_transitions` trên `workflow_state` — loại vì service không maintain `workflow_state` (luôn rỗng → trả sai); (c) trả transitions KHÔNG lọc capability (như siblings) — loại một phần: giữ nút Post cho non-approver = dead-CTA (bấm sẽ ăn cap-403), UX kém.
+- **Consequences**: BE thêm helper `_cycle_allowed_transitions(doc, user)` + dict `_CYCLE_VALID_TRANSITIONS`; capability vẫn enforce lần 2 tại `post_cycle_count` (in-handler cap-403 → HTTP-200 Error envelope) để không tin FE. `workflow_state` orphan giữ nguyên (không phạm vi task này) — `status` là SSoT.
+
+#### ADR-IMM-15-07: route dưới namespace `/inventory` (không `/imm15`)
+
+- **Status**: Accepted · **Date**: 2026-07-01
+- **Context**: 06 §II.8 (draft) ghi `/imm15/cycle-counts`, nhưng router app dùng `/inventory/*` (đã map `/^\/inventory/ → imm15` ở `router/index.ts` + `routeAccess.ts`).
+- **Decision**: dùng `/inventory/cycle-counts` (list) + `/inventory/cycle-counts/:name` (detail) cho khớp namespace hiện hữu + guard `imm15` sẵn có.
+- **Alternatives**: `/imm15/*` — loại (không khớp app, phải thêm map guard mới, lệch các màn inventory khác).
+- **Consequences**: 06 §II.8 route cũ được đánh dấu reconciliation ở §II.8bis; nav + StoreDashboard link trỏ `/inventory/cycle-counts`.
+
+---
+
 ## V. Non-Functional Requirements
 
 ### V.1. Performance

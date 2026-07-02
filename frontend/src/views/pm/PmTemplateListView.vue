@@ -155,8 +155,8 @@ async function applyToCategoryAssets() {
   if (!editingName.value) return
   const cat = form.value.asset_category
   if (!cat) { toast.error('Danh mục tài sản chưa chọn'); return }
-  const msg = `Tạo PM Schedule cho mọi thiết bị thuộc danh mục "${cat}" theo template "${editingName.value}"?\n\n`
-    + 'Thiết bị đã có lịch cùng loại PM sẽ được giữ nguyên.'
+  const msg = `Tạo lịch bảo trì định kỳ cho mọi thiết bị thuộc danh mục "${cat}" theo template "${editingName.value}"?\n\n`
+    + 'Thiết bị đã có lịch cùng loại bảo trì định kỳ sẽ được giữ nguyên.'
   if (!confirm(msg)) return
   applying.value = true
   try {
@@ -178,9 +178,9 @@ onMounted(load)
 <template>
   <div class="page-container animate-fade-in">
     <PageHeader
-      title="Template checklist PM"
+      title="Template checklist bảo trì định kỳ"
       :subtitle="`Tổng ${total} template`"
-      :breadcrumb="[{ label: 'IMM-08 · Bảo trì', to: '/pm/dashboard' }, { label: 'Template PM' }]"
+      :breadcrumb="[{ label: 'IMM-08 · Bảo trì', to: '/pm/dashboard' }, { label: 'Template bảo trì định kỳ' }]"
     >
       <template #actions>
         <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
@@ -197,15 +197,15 @@ onMounted(load)
       :show="showFilters"
       :chips="activeChips"
       v-model:search="filters.search"
-      search-placeholder="Tìm theo mã, tên template, version..."
+      search-placeholder="Tìm theo mã, tên template, phiên bản..."
       @reset="resetFilters"
       @clear-chip="clearChip"
     >
       <template #fields>
         <div class="form-group">
-          <label class="form-label">Loại PM</label>
+          <label class="form-label">Loại bảo trì định kỳ</label>
           <select v-model="filters.pm_type" class="form-select">
-            <option value="">Tất cả loại PM</option>
+            <option value="">Tất cả loại bảo trì định kỳ</option>
             <option v-for="t in PM_TYPES" :key="t" :value="t">{{ translatePmType(t) }}</option>
           </select>
         </div>
@@ -269,8 +269,8 @@ onMounted(load)
             <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Mã</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Tên template</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Danh mục tài sản</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Loại PM</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Version</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Loại bảo trì định kỳ</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Phiên bản</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Hiệu lực</th>
             <th class="px-4 py-3 text-right"></th>
           </tr>
@@ -317,7 +317,7 @@ onMounted(load)
 
     <div v-if="showForm" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 overflow-y-auto py-6" @click.self="showForm = false">
       <div class="bg-white rounded-xl p-6 w-[860px] max-w-full space-y-4 my-auto">
-        <h2 class="text-lg font-semibold">{{ editingName ? 'Sửa' : 'Thêm' }} Template Checklist PM</h2>
+        <h2 class="text-lg font-semibold">{{ editingName ? 'Sửa' : 'Thêm' }} Template Checklist bảo trì định kỳ</h2>
         <div v-if="err" class="bg-red-50 text-red-700 text-sm p-3 rounded">{{ err }}</div>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <label class="sm:col-span-2 block">
@@ -328,7 +328,7 @@ onMounted(load)
             <span class="block text-sm font-medium text-slate-700 mb-1">Danh mục tài sản *</span>
             <SmartSelect v-model="(form.asset_category as string)" doctype="AC Asset Category" placeholder="Chọn danh mục..." />
             <span class="block text-[11px] text-slate-400 mt-1">
-              Mọi tài sản thuộc danh mục này sẽ áp dụng template khi tạo PM Schedule.
+              Mọi tài sản thuộc danh mục này sẽ áp dụng template khi tạo lịch bảo trì định kỳ.
             </span>
           </label>
           <label class="block">
@@ -362,8 +362,8 @@ onMounted(load)
                 <option>Pass/Fail</option><option>Numeric</option><option>Text</option>
               </select>
               <input v-model="it.unit" placeholder="Đơn vị" class="col-span-1 border border-slate-300 rounded px-2 py-1.5 text-sm" />
-              <input v-model.number="it.expected_min" type="number" placeholder="Min" class="col-span-1 border border-slate-300 rounded px-2 py-1.5 text-sm" />
-              <input v-model.number="it.expected_max" type="number" placeholder="Max" class="col-span-1 border border-slate-300 rounded px-2 py-1.5 text-sm" />
+              <input v-model.number="it.expected_min" type="number" placeholder="Tối thiểu" class="col-span-1 border border-slate-300 rounded px-2 py-1.5 text-sm" />
+              <input v-model.number="it.expected_max" type="number" placeholder="Tối đa" class="col-span-1 border border-slate-300 rounded px-2 py-1.5 text-sm" />
               <label class="col-span-2 flex items-center gap-1 text-xs text-slate-600">
                 <input v-model="it.is_critical" type="checkbox" /> Trọng yếu
               </label>
@@ -380,10 +380,10 @@ onMounted(load)
             class="w-full text-xs px-3 py-2 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 disabled:opacity-50 transition-colors"
             @click="applyToCategoryAssets"
           >
-            {{ applying ? 'Đang áp dụng...' : '🔄 Tạo PM Schedule cho mọi thiết bị thuộc danh mục này' }}
+            {{ applying ? 'Đang áp dụng...' : '🔄 Tạo lịch bảo trì định kỳ cho mọi thiết bị thuộc danh mục này' }}
           </button>
           <p class="text-[10px] text-slate-500 mt-1 text-center">
-            Thiết bị đã có lịch cùng loại PM sẽ được giữ nguyên (bảo vệ lịch hiện hữu).
+            Thiết bị đã có lịch cùng loại bảo trì định kỳ sẽ được giữ nguyên (bảo vệ lịch hiện hữu).
           </p>
         </div>
 

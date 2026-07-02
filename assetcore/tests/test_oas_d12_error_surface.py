@@ -35,13 +35,43 @@ from assetcore.utils.response import ErrorCode, _HTTP_FOR_CODE
 # 2026-06-12 re-baseline 487→488 / get 237→238: working tree thêm endpoint thứ 488
 # `imm00.get_asset_action_meta` (GET, panel META NẠC cho 3 màn tạo WO — KHÔNG-parse-param,
 # 6-key NẠC, RBAC/vendor-isolation intact; NĐ98 data-min). Delta = đúng 1 GET, POST giữ 250.
-_BASELINE_TOTAL = 488
-_BASELINE_GET = 238
-_BASELINE_POST = 250
+# 2026-06-27 VERB-PARITY CLOSURE re-baseline get 238→235 / post 250→253 (total GIỮ 488): 3 write-action
+# bare @whitelist (submit_pm_result @imm08.py:54, create_calibration @imm11.py:89, submit_calibration
+# @imm11.py:114) siết @frappe.whitelist(methods=["POST"]) ⇒ runtime _http_method_for GET→POST cho 3 ⇒
+# get_count −3, post_count +3 (verb-flip observable trong x-assetcore-stats — Hyrum). 0 endpoint thêm/bớt.
+# 2026-06-27 R34 ADD-MEASUREMENT re-baseline get 235→234 / post 253→254 (total GIỮ 488): write-action thứ-4
+# bare @whitelist (add_measurement @imm11.py:120 — verb-parity gap R33 BỎ SÓT) siết
+# @frappe.whitelist(methods=["POST"]) ⇒ runtime _http_method_for GET→POST cho 1 ⇒ get_count −1, post_count
+# +1. RE-VERIFY @source (generate_spec SAU flip): get=234 post=254 (KHÔNG tin số học — đếm @source). 0 endpoint thêm/bớt.
+# 2026-06-28 R35 PM-DISPATCH re-baseline get 234→233 / post 254→255 (total GIỮ 488): write-action thứ-5
+# bare @whitelist (assign_technician @imm08.py:46 — verb-parity gap R33 BỎ SÓT, sibling add_measurement) siết
+# @frappe.whitelist(methods=["POST"]) ⇒ runtime _http_method_for GET→POST cho 1 ⇒ get_count −1, post_count
+# +1. RE-VERIFY @source (generate_spec SAU flip): get=233 post=255 (KHÔNG tin số học — đếm @source). 0 endpoint thêm/bớt.
+# 2026-06-28 R36 PM→CM ESCALATION re-baseline get 233→232 / post 255→256 (total GIỮ 488): write-action thứ-6
+# bare @whitelist (report_major_failure @imm08.py:74 — verb-parity gap còn sót + SIGNATURE-FIX DROP
+# failed_item_indexes) siết @frappe.whitelist(methods=["POST"]) ⇒ runtime _http_method_for GET→POST cho 1 ⇒
+# get_count −1, post_count +1. RE-VERIFY @source (generate_spec SAU flip): get=232 post=256 (KHÔNG tin số học — đếm @source). 0 endpoint thêm/bớt.
+# 2026-07-01 RE-BASELINE-FIX total 488→492 / get 232→236 (POST 256 GIỮ): commit 979d736 là RE-BASELINE
+# SÓT — commit-message ghi "path count 488→489" (thêm user.list_assignable_users, GET) và cập nhật
+# D15/D17 phần verb-split NHƯNG _BASELINE_TOTAL/get + D10 path-count GIỮ 488 ⇒ D10/D12/D15/D17 RED âm
+# thầm từ 979d736 (off-by-1, endpoint #489 chưa vào total). Nay HỢP NHẤT drift + 3 endpoint web GET mới
+# working-tree: imm00.get_depreciation_by_category (KPI khấu hao gom theo danh mục), imm14.list_decommissions
+# (list biên bản giải nhiệm, RBAC decommission.read), imm15.get_cycle_count (chi tiết phiếu kiểm kê chu kỳ).
+# ⇒ total 489+3=492 / get 233+3=236 (cả 4 đều GET) / POST 256 GIỮ. RE-VERIFY @source generate_spec:
+# total=492 get=236 post=256 guest=5 json_param=64. ⚠️ DESIGN-DEBT cho [BA]/lead: cùng 1 invariant
+# (endpoint surface) hardcode magic-number ở ≥4 file (D10/D12/D15/D17) → sửa phải lockstep, 979d736 sót
+# 1 file là RED âm thầm. Đề xuất: gom baseline về 1 SSoT module dùng chung (xem open-issues).
+_BASELINE_TOTAL = 492
+_BASELINE_GET = 236
+_BASELINE_POST = 256
 _BASELINE_GUEST = 5
 # enriched_count derive ĐỘNG (D6-IMM09-ENRICH: KHÔNG còn magic 161 cho 3-module). D12
 # (error-surface) KHÔNG đụng enrich → vẫn KHỚP số op enrich đếm qua helper SSoT.
 # 2026-06-11 re-baseline 63→64: print_asset_labels_pdf(assets=…) list-param = json param thứ 64.
+# 2026-06-28 R36 re-baseline 64→63: SIGNATURE-FIX DROP report_major_failure.failed_item_indexes
+# (JSON-string param @api/imm08.py cũ) ⇒ json_param_count −1. RE-VERIFY @source generate_spec.
+# 2026-07-01 re-baseline 63→64: imm14.list_decommissions thêm param `filters` (parse_json) = JSON-string
+# param thứ 64. RE-VERIFY @source generate_spec: json_param_count=64.
 _BASELINE_JSON_PARAM = 64
 
 _ERR_ENVELOPE_REF = "#/components/schemas/ErrorEnvelope"
@@ -116,7 +146,7 @@ class TestOasD12ErrorSurface(unittest.TestCase):
                         f"{op['operationId']}/{code}: $ref={ref!r} != {_ERR_ENVELOPE_REF}"
                     )
         self.assertEqual(missing, [], "Authed op thiếu 401/403 hoặc ref sai:\n  " + "\n  ".join(missing))
-        # Sanity: phải có hàng trăm authed op (483 ở baseline 488-5-guest).
+        # Sanity: phải có hàng trăm authed op (487 = baseline 492 − 5 guest).
         self.assertGreater(authed_n, 400, "Phải có >400 authed op.")
 
     def test_d12_01b_401_403_codes_match_ssot_http(self):
@@ -271,12 +301,12 @@ class TestOasD12ErrorSurface(unittest.TestCase):
             "error_responses_typed_count PHẢI == đếm động op có ≥1 response 4xx/5xx.",
         )
         self.assertIsInstance(stats["error_responses_typed_count"], int)
-        # Sau D12: MỌI op có ≥1 response 4xx — authed (483) có 401+403; guest (5) có 403
-        # baseline (cấm-quyền vẫn xảy ra ở guest endpoint). ⟹ typed_count == total (488).
+        # Sau D12: MỌI op có ≥1 response 4xx — authed (487) có 401+403; guest (5) có 403
+        # baseline (cấm-quyền vẫn xảy ra ở guest endpoint). ⟹ typed_count == total (492).
         self.assertEqual(
             stats["error_responses_typed_count"],
             _BASELINE_TOTAL,
-            "Mọi op (authed 401/403 + guest 403) có ≥1 status 4xx → typed_count == total (488).",
+            "Mọi op (authed 401/403 + guest 403) có ≥1 status 4xx → typed_count == total (492).",
         )
 
     def test_d12_05b_sibling_stats_unchanged(self):
@@ -284,9 +314,9 @@ class TestOasD12ErrorSurface(unittest.TestCase):
         from assetcore.services.shared import rbac
 
         stats = self.spec["x-assetcore-stats"]
-        self.assertEqual(stats["total_endpoints"], _BASELINE_TOTAL, "total GIỮ 488.")
-        self.assertEqual(stats["get_count"], _BASELINE_GET, "get GIỮ 238.")
-        self.assertEqual(stats["post_count"], _BASELINE_POST, "post GIỮ 250.")
+        self.assertEqual(stats["total_endpoints"], _BASELINE_TOTAL, "total 492 (489 committed + 3 web GET: get_depreciation_by_category, list_decommissions, get_cycle_count).")
+        self.assertEqual(stats["get_count"], _BASELINE_GET, "get 236 (233 committed + 3 web GET mới; 979d736 sót off-by-1 nay hợp nhất).")
+        self.assertEqual(stats["post_count"], _BASELINE_POST, "post 256 (3 endpoint mới đều GET → POST KHÔNG đổi).")
         self.assertEqual(stats["guest_count"], _BASELINE_GUEST, "guest GIỮ 5.")
         expected_enriched = sum(
             1
@@ -297,7 +327,7 @@ class TestOasD12ErrorSurface(unittest.TestCase):
             stats["enriched_count"], expected_enriched,
             "enriched_count == số op enrich đếm động (D12 không đụng enrich, KHÔNG magic).",
         )
-        self.assertEqual(stats["json_param_count"], _BASELINE_JSON_PARAM, "json_param GIỮ 64.")
+        self.assertEqual(stats["json_param_count"], _BASELINE_JSON_PARAM, "json_param 64 (+imm14.list_decommissions.filters parse_json).")
         self.assertEqual(stats["cap_set_version"], rbac.CAP_SET_VERSION, "cap_set_version KHÔNG đổi.")
 
     # ── TC-OAS-D12-06 — 0 dangling $ref + openapi 3.1 + key-order ────────────

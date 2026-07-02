@@ -37,6 +37,7 @@
   {
    "fieldname": "unit_cost",
    "fieldtype": "Currency",
+   "length": 28,
    "in_list_view": 1,
    "label": "Đơn giá",
    "options": "VND"

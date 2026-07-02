@@ -15,6 +15,7 @@ import json
 
 import frappe
 from frappe import _
+from frappe.utils import add_days, date_diff, today
 
 from assetcore.services import imm01 as svc
 from assetcore.services.shared import ErrorCode, ServiceError
@@ -68,16 +69,35 @@ def list_needs_requests(filters: str = "{}", page: int = 1, page_size: int = 20,
     return _handle(_list_needs_requests, filters, int(page), int(page_size), order_by)
 
 
+# SSoT overdue NR: phải KHỚP predicate scheduler `check_pending_request_overdue`
+# (services/imm01.py) + KPI `backlog_over_30d` (`_dashboard_kpis`) → count KPI = số
+# dòng khi lọc overdue (bấm KPI hiện đúng tập). Overdue = phiếu treo quá hạn ở state
+# tiếp nhận/rà soát; suy từ server-clock (memory overdue_server_flag_ssot — KHÔNG so
+# ngày ở client). Đổi ở đây thì đổi đồng bộ 3 nơi.
+_NR_OVERDUE_STATES = ("Submitted", "Reviewing")
+_NR_OVERDUE_DAYS = 30
+
+
 def _list_needs_requests(filters: str, page: int, page_size: int, order_by: str) -> dict:
-    """Trả list Needs Request kèm display names (BE-DC-01-01).
+    """Trả list Needs Request kèm display names (BE-DC-01-01) + cờ overdue server-side.
 
     Data contract: mọi Link field phải kèm display name trong cùng response.
     - `requesting_department` (AC Department) → `department_name`
     - `device_model_ref` (IMM Device Model) → `device_model_name`
     - `replacement_for_asset` (AC Asset) → `target_asset_name`
     - `owner` (User) → `requester_name`
+
+    Filter `overdue` (truthy): chỉ trả phiếu treo quá hạn (SSoT — khớp KPI
+    `backlog_over_30d`): docstatus=0, state ∈ {Submitted, Reviewing}, request_date treo
+    > 30 ngày. Cutoff tính bằng server-clock (`add_days(today(), -_NR_OVERDUE_DAYS)`).
     """
     f = _parse_json(filters)
+    # Overdue là filter phái sinh (không phải field) → pop trước, áp predicate SSoT.
+    overdue = bool(f.pop("overdue", 0))
+    if overdue:
+        f["docstatus"] = 0
+        f["workflow_state"] = ["in", list(_NR_OVERDUE_STATES)]
+        f["request_date"] = ["<", add_days(today(), -_NR_OVERDUE_DAYS)]
     # FE search: "mã phiếu hoặc tên model". `device_model_ref` chỉ chứa mã
     # link → muốn match `model_name` phải resolve qua link_search.
     f, or_filters = pop_search(
@@ -97,8 +117,29 @@ def _list_needs_requests(filters: str, page: int, page_size: int, order_by: str)
         order_by=order_by, start=start, page_length=page_size,
     )
     _enrich_needs_display_names(items)
+    _enrich_needs_overdue(items)
     total = count_with_or(_DT_NR, f or None, or_filters)
     return {"items": items, "total": total, "page": page, "page_size": page_size}
+
+
+def _enrich_needs_overdue(items: list[dict]) -> None:
+    """Mutates in-place: thêm `age_days` (tuổi phiếu kể từ request_date) + `is_overdue`
+    (cờ SSoT). Cả hai suy từ server-clock (`today()`), FE CHỈ render — KHÔNG so ngày ở
+    client (memory overdue_server_flag_ssot). `is_overdue` = state ∈ {Submitted,
+    Reviewing} và age > _NR_OVERDUE_DAYS → khớp KPI/scheduler.
+    """
+    if not items:
+        return
+    today_str = today()
+    for it in items:
+        rd = it.get("request_date")
+        age = date_diff(today_str, rd) if rd else None
+        it["age_days"] = age
+        it["is_overdue"] = bool(
+            age is not None
+            and age > _NR_OVERDUE_DAYS
+            and it.get("workflow_state") in _NR_OVERDUE_STATES
+        )
 
 
 def _enrich_needs_display_names(items: list[dict]) -> None:
@@ -378,9 +419,41 @@ def get_procurement_plan(name: str) -> dict:
     return _handle(_get_procurement_plan, name)
 
 
+def _plan_allowed_transition_actions(doc) -> list[str]:
+    """Danh sách workflow ACTION mà user HIỆN TẠI được phép trên kế hoạch mua sắm.
+
+    Tính bằng `frappe.model.workflow.get_transitions` trên _DT_PP (IMM Procurement
+    Plan) — đã lọc theo state hiện tại + role của user gọi. Dedupe theo action
+    (get_transitions trả 1 row / action×role match). KHÔNG dùng lại
+    `_get_allowed_transitions` (hardcode _DT_NR / Needs Request).
+
+    FE (ProcurementPlanDetailView) gate nút Phê duyệt/Kích hoạt/Đóng theo list này
+    (server-driven) → chống "nút hiện rồi bấm mới báo không có quyền".
+    """
+    from frappe.model.workflow import get_transitions
+
+    # `get_transitions` gọi doc.check_permission("read") + có thể ném WorkflowStateError.
+    # Đây là trường PHỤ TRỢ cho payload chi tiết: user không đủ quyền đọc (chỉ base
+    # role AssetCore System User) → trả [] (0 nút) thay vì làm VỠ cả payload
+    # get_procurement_plan bằng 403/500. Giữ endpoint bền vững (Hyrum's Law) — CTA
+    # gating degrade graceful, KHÔNG nuốt lỗi ghi/DB (get_transitions read-only).
+    try:
+        transitions = get_transitions(doc) or []
+    except Exception:
+        return []
+    actions: list[str] = []
+    for t in transitions:
+        action = t.get("action")
+        if action and action not in actions:
+            actions.append(action)
+    return actions
+
+
 def _get_procurement_plan(name: str) -> dict:
     doc = frappe.get_doc(_DT_PP, name)
     payload = doc.as_dict()
+    # Server-driven CTA gating (GATE-8 / LL-FE-51): action user hiện tại được phép.
+    payload["allowed_transitions"] = _plan_allowed_transition_actions(doc)
     # BUG-004: plan_items chỉ chứa link tới NR — FE cần department_name + tco_5y
     # để hiển thị bảng "Danh sách Needs Request đã gom". Bulk-fetch để tránh N+1.
     items = payload.get("plan_items") or []
@@ -415,18 +488,35 @@ def _get_procurement_plan(name: str) -> dict:
 
 
 @frappe.whitelist(methods=["POST"])
-def create_procurement_plan(plan_year: int, plan_period: str, budget_envelope: float = 0) -> dict:
+def create_procurement_plan(plan_year: int, plan_period: str, budget_envelope: float = 0,
+                            needs_requests: str = "[]") -> dict:
     rbac.require(_CAP_PLAN_CREATE)  # LL-BE-24: chốt chặn BE, không tin FE hide
-    return _handle(_create_procurement_plan, int(plan_year), plan_period, float(budget_envelope))
+    return _handle(_create_procurement_plan, int(plan_year), plan_period,
+                   float(budget_envelope), needs_requests)
 
 
-def _create_procurement_plan(plan_year: int, plan_period: str, budget_envelope: float) -> dict:
+def _create_procurement_plan(plan_year: int, plan_period: str, budget_envelope: float,
+                             needs_requests: str = "[]") -> dict:
     if not plan_period:
         raise ServiceError(ErrorCode.INVALID_PARAMS, _("plan_period không được rỗng"))
+    # Proposal-first (QĐ nghiệp vụ): kế hoạch mua sắm PHẢI được tạo TỪ ≥1 đề xuất
+    # (Needs Request đã duyệt) — chọn đề xuất rồi tạo, KHÔNG tạo kế hoạch rỗng rồi
+    # thêm sau. Chặn ngay tại BE (SSoT). Tạo KÈM dòng trong 1 thao tác ⇒ kế hoạch
+    # không bao giờ tồn tại ở trạng thái rỗng-có-thể-duyệt.
+    nrs = [n for n in _parse_json(needs_requests, default=[]) if n]
+    if not nrs:
+        raise ServiceError(
+            ErrorCode.VALIDATION,
+            _("Cần chọn ít nhất một đề xuất (Phiếu đề xuất đã duyệt) để tạo "
+              "kế hoạch mua sắm."),
+        )
     doc = frappe.new_doc(_DT_PP)
     doc.plan_year = plan_year
     doc.plan_period = plan_period
     doc.budget_envelope = budget_envelope
+    # Validate + append dòng đề xuất (raise BUSINESS_RULE nếu NR chưa Approved)
+    # TRƯỚC insert ⇒ fail-fast, không tạo plan rác.
+    svc.append_approved_nr_lines(doc, nrs)
     doc.insert(ignore_permissions=True)
     return {"name": doc.name}
 
@@ -454,6 +544,26 @@ def approve_plan(name: str) -> dict:
     return _handle(_approve_plan, name)
 
 
+def _save_plan_workflow_transition(doc, *, action_label: str, role_hint: str) -> None:
+    """Save doc sau khi đổi ``workflow_state`` cho một transition kế hoạch mua sắm.
+
+    Cả approve / activate / close đều set ``workflow_state`` trực tiếp rồi
+    ``save()`` ⇒ đều vướng cùng cổng role của Frappe ``validate_workflow``: nếu
+    user không có vai trò được phép transition, Frappe ném ``WorkflowPermissionError``
+    (kèm HTML <strong>) → ``_handle`` cũ trả nguyên chuỗi thô. Helper này đổi nó
+    thành ServiceError(FORBIDDEN/403) VI sạch, KHÔNG leak '<strong>'. DRY 1 chỗ.
+    """
+    from frappe.model.workflow import WorkflowPermissionError
+    try:
+        doc.save(ignore_permissions=True)
+    except WorkflowPermissionError:
+        raise ServiceError(
+            ErrorCode.FORBIDDEN,
+            _("Bạn không có quyền {0} kế hoạch mua sắm. Cần vai trò {1}.")
+            .format(action_label, role_hint),
+        )
+
+
 def _approve_plan(name: str) -> dict:
     doc = frappe.get_doc(_DT_PP, name)
     if doc.workflow_state != "Draft":
@@ -462,10 +572,23 @@ def _approve_plan(name: str) -> dict:
             _("Chỉ kế hoạch Draft mới Phê duyệt được (hiện: {0})")
             .format(doc.workflow_state),
         )
+    # Guard nghiệp vụ: kế hoạch PHẢI có ≥1 đề xuất (Phiếu đề xuất / Needs Request
+    # đã đưa vào plan_items) trước khi phê duyệt. Luồng đúng = đề xuất duyệt trước
+    # → đưa vào kế hoạch → mới phê duyệt; KHÔNG duyệt kế hoạch rỗng. Fail-fast
+    # TRƯỚC khi đổi workflow_state ⇒ thông báo VI sạch thay vì để Frappe ném raw
+    # "Workflow State transition not allowed from Draft to Approved".
+    if not doc.plan_items:
+        raise ServiceError(
+            ErrorCode.VALIDATION,
+            _("Kế hoạch chưa có đề xuất nào. Hãy đưa ít nhất một đề xuất "
+              "(Phiếu đề xuất đã duyệt) vào kế hoạch trước khi phê duyệt."),
+        )
     doc.workflow_state = "Approved"
     doc.approved_by = frappe.session.user
     doc.approved_date = frappe.utils.today()
-    doc.save(ignore_permissions=True)
+    _save_plan_workflow_transition(
+        doc, action_label="phê duyệt",
+        role_hint="Quản lý Mua sắm hoặc Quản lý Nghiệm thu")
     return doc.as_dict()
 
 
@@ -483,7 +606,9 @@ def _activate_plan(name: str) -> dict:
             .format(doc.workflow_state),
         )
     doc.workflow_state = "Active"
-    doc.save(ignore_permissions=True)
+    _save_plan_workflow_transition(
+        doc, action_label="kích hoạt",
+        role_hint="Quản lý Nhu cầu (Needs Manager)")
     return doc.as_dict()
 
 
@@ -501,7 +626,9 @@ def _close_plan(name: str) -> dict:
             .format(doc.workflow_state),
         )
     doc.workflow_state = "Closed"
-    doc.save(ignore_permissions=True)
+    _save_plan_workflow_transition(
+        doc, action_label="đóng",
+        role_hint="Quản lý Nghiệm thu (Commissioning Manager)")
     return doc.as_dict()
 
 

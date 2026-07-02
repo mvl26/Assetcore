@@ -20,14 +20,14 @@
   {
    "fieldname": "test_description",
    "fieldtype": "Data",
-   "label": "Test Description",
+   "label": "Mô tả phép đo",
    "reqd": 1,
    "in_list_view": 1
   },
   {
    "fieldname": "test_category",
    "fieldtype": "Select",
-   "label": "Test Category",
+   "label": "Nhóm phép đo",
    "options": "Electrical\nMechanical\nSoftware\nSafety\nPerformance",
    "reqd": 1,
    "in_list_view": 1
@@ -35,29 +35,29 @@
   {
    "fieldname": "expected_value",
    "fieldtype": "Data",
-   "label": "Expected Value"
+   "label": "Giá trị kỳ vọng"
   },
   {
    "fieldname": "measured_value",
    "fieldtype": "Data",
-   "label": "Measured Value"
+   "label": "Giá trị đo"
   },
   {
    "fieldname": "result",
    "fieldtype": "Select",
-   "label": "Result",
+   "label": "Kết quả",
    "options": "Pass\nFail\nN/A",
    "in_list_view": 1
   },
   {
    "fieldname": "notes",
    "fieldtype": "Text",
-   "label": "Notes"
+   "label": "Ghi chú"
   },
   {
    "fieldname": "photo",
    "fieldtype": "Attach",
-   "label": "Photo"
+   "label": "Ảnh"
   }
  ],
  "modified": "2026-04-17 09:00:00.000000",

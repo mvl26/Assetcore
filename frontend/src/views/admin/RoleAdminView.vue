@@ -4,7 +4,7 @@
 // Gate: meta.requiredCapabilities = ['data.admin'] (router) + BE rbac.require.
 
 import { ref, computed, onMounted } from 'vue'
-import { ROLE_CATALOG, SYSTEM_ROLES, DOMAINS } from '@/constants/roles'
+import { ROLE_CATALOG, SYSTEM_ROLES, DOMAINS, domainLabel } from '@/constants/roles'
 import {
   listUsers, getUserRoles, setUserRoles,
   type SimpleUser,
@@ -74,12 +74,12 @@ async function save() {
 
     <!-- ── 1. Catalog 30 role ──────────────────────────────────────── -->
     <section>
-      <h2 class="font-medium mb-2">Danh mục Role và quyền</h2>
+      <h2 class="font-medium mb-2">Danh mục Vai trò và quyền</h2>
       <div class="border rounded overflow-hidden">
         <table class="w-full text-sm">
           <thead>
             <tr class="bg-slate-100 text-left">
-              <th class="p-2">Role</th>
+              <th class="p-2">Vai trò</th>
               <th class="p-2">Nhóm</th>
               <th class="p-2">Mô tả quyền</th>
             </tr>
@@ -87,7 +87,7 @@ async function save() {
           <tbody>
             <tr v-for="r in ROLE_CATALOG" :key="r.name" class="border-t">
               <td class="p-2 font-mono">{{ r.name }}</td>
-              <td class="p-2">{{ r.group }}</td>
+              <td class="p-2">{{ domainLabel(r.group) }}</td>
               <td class="p-2 text-slate-600">{{ r.description }}</td>
             </tr>
           </tbody>
@@ -97,7 +97,7 @@ async function save() {
 
     <!-- ── 2. Gán role cho user ────────────────────────────────────── -->
     <section>
-      <h2 class="font-medium mb-2">Gán role cho người dùng</h2>
+      <h2 class="font-medium mb-2">Gán vai trò cho người dùng</h2>
       <div class="grid grid-cols-3 gap-4">
         <!-- Cột trái: danh sách user -->
         <div class="col-span-1 border rounded">
@@ -127,7 +127,7 @@ async function save() {
         <!-- Cột phải: grid Manager/User × module + System -->
         <div v-if="selected" class="col-span-2 space-y-4">
           <div>
-            <h3 class="font-medium mb-1">System Roles</h3>
+            <h3 class="font-medium mb-1">Vai trò hệ thống</h3>
             <div class="flex flex-wrap gap-3">
               <label
                 v-for="s in SYSTEM_ROLES"
@@ -145,18 +145,18 @@ async function save() {
           </div>
 
           <div>
-            <h3 class="font-medium mb-1">Module Roles</h3>
+            <h3 class="font-medium mb-1">Vai trò theo phân hệ</h3>
             <table class="text-sm border w-full">
               <thead>
                 <tr class="bg-slate-100">
-                  <th class="p-2 text-left">Module</th>
-                  <th class="p-2">Manager</th>
-                  <th class="p-2">User</th>
+                  <th class="p-2 text-left">Phân hệ</th>
+                  <th class="p-2">Quản lý</th>
+                  <th class="p-2">Người dùng</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-for="d in DOMAINS" :key="d" class="border-t">
-                  <td class="p-2">{{ d }}</td>
+                  <td class="p-2">{{ domainLabel(d) }}</td>
                   <td class="p-2 text-center">
                     <input
                       type="checkbox"
@@ -192,7 +192,7 @@ async function save() {
         </div>
 
         <div v-else class="col-span-2 text-slate-500 text-sm">
-          Chọn 1 người dùng ở cột trái để bắt đầu gán role.
+          Chọn 1 người dùng ở cột trái để bắt đầu gán vai trò.
         </div>
       </div>
     </section>

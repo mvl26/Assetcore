@@ -176,6 +176,20 @@ Quy tắc 1 câu: **Sẽ-hết-khi-việc-xong → `.claude/contexts/`. Đúng-m
 - `sessions/<ngày>/` tích theo NGÀY → archive cả folder-ngày cũ (vài tháng) sang `archive/`. ⚠️ File phiên giờ có 🪞 Mirror nên có thể LỚN (KB→MB tuỳ phiên) — đây là đánh đổi để "ghi y hệt"; archive sớm nếu nặng. (`MIRROR_RESULT_MAX`/`MIRROR_INPUT_MAX` chỉnh độ truncate; `MIRROR_THINKING=1` chép cả thinking = lớn hơn nhiều.)
 - KHÔNG commit `.claude/contexts/` vào git (gitignored trong repo — ephemeral, local-only). `.cursors/` cũng nằm trong `.claude/contexts/` → gitignored.
 
+## Đa-phiên ĐỒNG THỜI (nhiều session chạy CÙNG tree + CÙNG site DB) — takeover an toàn
+
+> Bối cảnh: user hay mở **nhiều `/build auto` / `/loop` song song** trên cùng working tree + cùng site `miyano`. Đây KHÁC factory (subagent có điều phối): đây là các phiên TOP-LEVEL không điều phối → **ghi đè file (last-writer-wins) = mất việc âm thầm** + test nhiễm chéo. Bài học session audit 2026-06-29.
+
+**Luật cứng:**
+1. **KHÔNG sửa file đang bị phiên khác ghi.** Trước khi edit, phát hiện race bằng **mtime file** (KHÔNG bằng đếm process — `ps` đầy shell-eval zombie thổi phồng số, sai tín hiệu):
+   `find frontend/src assetcore -name '*.vue' -o -name '*.ts' -o -name '*.py' -newermt '90 seconds ago'` → có kết quả lạ = phiên khác đang sweep → DỪNG, hỏi user / chuyển slice không trùng.
+2. **"User nói đã dừng phiên khác" ≠ tree đã yên.** Niềm tin user TRỄ hơn thực tế (đã gặp: user "take over" lúc 17:08 nhưng file vẫn đổi 17:09:52). **Verify-before-trust:** poll nền tới khi **0 source edit trong ≥75s** rồi MỚI nhận quyền (`Bash run_in_background` với `until` loop). Sau đó **re-read mọi file ngay trước khi Edit** (Edit báo "File has not been read" = mtime đã đổi → đọc lại).
+3. **Shared-file (STATE.md, MEMORY.md, plan.md, lessons-learned) = Read-fresh-ngay-trước-Edit + APPEND, không replace cả block** — merge với phần phiên khác vừa ghi, đừng clobber.
+4. **Full BE suite ĐỎ dưới đa-phiên = NHIỄM BẨN, không phải bug mình** (xem assetcore-test LL-TEST-30): tín hiệu tin cậy = FE vitest (isolated) + module chạy ISOLATED; đừng "sửa cho xanh" lỗi leaked-fixture của phiên khác.
+5. **Guard/baseline/endpoint của phiên khác** (vd OAS path-count, file-must-not-change) → **flag cho owner**, KHÔNG tự sửa giữa chừng (LL-BE-64).
+
+> Clean verification THẬT chỉ khi **1 phiên duy nhất** + tree yên + DB purge leak → nếu cần "go/no-go" thật, đề xuất user consolidate về 1 phiên rồi chạy 1 lần sạch.
+
 ## Common Rationalizations
 
 | Lý do hay viện để skip | Sự thật |
@@ -190,6 +204,9 @@ Quy tắc 1 câu: **Sẽ-hết-khi-việc-xong → `.claude/contexts/`. Đúng-m
 | "Đọc STATE thấy 'code đã X' rồi, tin luôn" | STATE là ảnh chụp lúc ghi, có thể lỗi thời. Verify-before-trust bằng `git status`/grep TRƯỚC khi hành động. |
 | "Tạo file handoff riêng / đặt tên path khác cho dễ nhớ" | Phá vỡ discovery. CHỈ `STATE.md` chung + 1 file/phiên trong `sessions/<ngày>/` (hook tạo, khóa `session_id`). Lấy path bằng `session-log.sh current` — KHÔNG bịa path. |
 | "Context tiện thì cứ commit/push cho phiên máy khác xài" | R3 — context CHỈ local, gitignored (`.claude/contexts/`), KHÔNG bao giờ lên GitHub. KHÔNG `git add -f`. |
+| "User bảo đã dừng phiên khác rồi → sửa thoải mái" | Niềm tin user TRỄ hơn thực tế. Verify bằng mtime: poll tới 0 source-edit ≥75s rồi mới nhận quyền; re-read trước mỗi Edit (xem §Đa-phiên). |
+| "Full BE suite đỏ → chắc mình làm hỏng, sửa cho xanh" | Đa-phiên trên cùng DB = nhiễm fixture (gmdn-unique, count drift). Cô lập module trước khi quy lỗi; tin FE vitest + isolated run (LL-TEST-30). |
+| "Process list nhìn rảnh/bận → dùng làm tín hiệu race" | `ps` đầy shell-eval zombie → sai. Dùng **mtime file** (`-newermt`) làm tín hiệu yên/bận, KHÔNG đếm process. |
 
 ## Red Flags — STOP
 
@@ -210,6 +227,9 @@ Quy tắc 1 câu: **Sẽ-hết-khi-việc-xong → `.claude/contexts/`. Đúng-m
 | Cố inject cả Mirror vào context mỗi phiên | `show` cố ý CẮT trước mục Mirror (mirror có thể vài MB). Mirror để đọc on-demand, không nhồi vào mỗi prompt |
 | Định commit/push `.claude/contexts/` | R3 — context CHỈ local, không bao giờ lên GitHub |
 | "Để cuối phiên ghi 1 thể cho gọn" | Ghi-lazy = ngắt giữa chừng mất hết. Checkpoint sau MỖI việc đáng kể |
+| Edit file khi `-newermt 90s` còn thấy file lạ đổi | Phiên khác đang sweep → last-writer-wins mất việc. DỪNG/poll quiescence trước (§Đa-phiên) |
+| Sửa guard/baseline/endpoint của phiên khác "cho qua test" | Flag cho owner, KHÔNG clobber giữa chừng (OAS path-count, file-must-not-change → LL-BE-64) |
+| Edit shared-file (STATE/MEMORY/plan) bằng replace cả block | Read-fresh ngay trước + APPEND/merge — phiên khác có thể vừa ghi vào đó |
 
 ## Verification
 

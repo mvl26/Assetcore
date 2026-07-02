@@ -65,28 +65,28 @@
   {
    "fieldname": "model_name",
    "fieldtype": "Data",
-   "label": "Model Name",
+   "label": "Tên mẫu máy",
    "reqd": 1,
    "in_list_view": 1
   },
   {
    "fieldname": "manufacturer",
    "fieldtype": "Data",
-   "label": "Manufacturer",
+   "label": "Hãng sản xuất",
    "reqd": 1,
    "in_list_view": 1
   },
   {
    "fieldname": "asset_category",
    "fieldtype": "Link",
-   "label": "Asset Category",
+   "label": "Nhóm tài sản",
    "options": "AC Asset Category",
    "reqd": 1
   },
   {
    "fieldname": "model_version",
    "fieldtype": "Data",
-   "label": "Model Version"
+   "label": "Phiên bản mẫu máy"
   },
   {
    "fieldname": "column_break_model",
@@ -95,12 +95,12 @@
   {
    "fieldname": "country_of_origin",
    "fieldtype": "Data",
-   "label": "Country of Origin"
+   "label": "Xuất xứ"
   },
   {
    "fieldname": "power_supply",
    "fieldtype": "Data",
-   "label": "Power Supply"
+   "label": "Nguồn điện"
   },
   {
    "fieldname": "section_media",
@@ -146,7 +146,7 @@
   {
    "fieldname": "expected_lifespan_years",
    "fieldtype": "Int",
-   "label": "Expected Lifespan (years)"
+   "label": "Tuổi thọ dự kiến (năm)"
   },
   {
    "fieldname": "section_class",
@@ -156,26 +156,26 @@
   {
    "fieldname": "medical_device_class",
    "fieldtype": "Select",
-   "label": "Medical Device Class",
+   "label": "Phân loại TBYT",
    "options": "Class I\nClass II\nClass III",
    "reqd": 1
   },
   {
    "fieldname": "risk_classification",
    "fieldtype": "Select",
-   "label": "Risk Classification",
+   "label": "Phân loại rủi ro",
    "options": "\nLow\nMedium\nHigh\nCritical",
    "read_only": 1
   },
   {
    "fieldname": "gmdn_code",
    "fieldtype": "Data",
-   "label": "GMDN Code"
+   "label": "Mã GMDN"
   },
   {
    "fieldname": "gmdn_term",
    "fieldtype": "Data",
-   "label": "GMDN Term",
+   "label": "Thuật ngữ GMDN",
    "description": "Tên thuật ngữ GMDN — kế thừa từ Danh mục tài sản"
   },
   {
@@ -193,27 +193,27 @@
   {
    "fieldname": "registration_required",
    "fieldtype": "Check",
-   "label": "Registration Required"
+   "label": "Bắt buộc đăng ký"
   },
   {
    "fieldname": "is_radiation_device",
    "fieldtype": "Check",
-   "label": "Is Radiation Device"
+   "label": "Là thiết bị bức xạ"
   },
   {
    "fieldname": "section_pm",
    "fieldtype": "Section Break",
-   "label": "PM Defaults"
+   "label": "Mặc định bảo trì (PM)"
   },
   {
    "fieldname": "is_pm_required",
    "fieldtype": "Check",
-   "label": "Is PM Required"
+   "label": "Bắt buộc bảo trì"
   },
   {
    "fieldname": "pm_interval_days",
    "fieldtype": "Int",
-   "label": "PM Interval (days)",
+   "label": "Chu kỳ bảo trì (ngày)",
    "mandatory_depends_on": "eval:doc.is_pm_required"
   },
   {
@@ -223,23 +223,23 @@
   {
    "fieldname": "pm_alert_days",
    "fieldtype": "Int",
-   "label": "PM Alert (days before)",
+   "label": "Cảnh báo bảo trì (ngày trước)",
    "default": "30"
   },
   {
    "fieldname": "section_cal",
    "fieldtype": "Section Break",
-   "label": "Calibration Defaults"
+   "label": "Mặc định hiệu chuẩn"
   },
   {
    "fieldname": "is_calibration_required",
    "fieldtype": "Check",
-   "label": "Is Calibration Required"
+   "label": "Bắt buộc hiệu chuẩn"
   },
   {
    "fieldname": "calibration_interval_days",
    "fieldtype": "Int",
-   "label": "Calibration Interval (days)",
+   "label": "Chu kỳ hiệu chuẩn (ngày)",
    "mandatory_depends_on": "eval:doc.is_calibration_required"
   },
   {
@@ -249,13 +249,13 @@
   {
    "fieldname": "calibration_alert_days",
    "fieldtype": "Int",
-   "label": "Calibration Alert (days before)",
+   "label": "Cảnh báo hiệu chuẩn (ngày trước)",
    "default": "30"
   },
   {
    "fieldname": "default_calibration_type",
    "fieldtype": "Select",
-   "label": "Default Calibration Type",
+   "label": "Loại hiệu chuẩn mặc định",
    "options": "\nInternal\nExternal\nBoth"
   },
   {
@@ -266,13 +266,13 @@
   {
    "fieldname": "spare_parts_list",
    "fieldtype": "Table",
-   "label": "Spare Parts List",
+   "label": "Danh sách phụ tùng",
    "options": "IMM Device Spare Part"
   },
   {
    "fieldname": "notes",
    "fieldtype": "Text Editor",
-   "label": "Notes"
+   "label": "Ghi chú"
   }
  ],
  "links": [],

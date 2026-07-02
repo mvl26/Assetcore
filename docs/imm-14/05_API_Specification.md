@@ -210,4 +210,95 @@ Tất cả message i18n trong `frontend/src/locales/*.json` và backend dùng `f
 
 > message nên raise qua `nthrow(MSG.XXX, **ctx)` để FE có `message_code` + `action_hint`; nếu chưa có MSG entry → tạo trong registry cùng commit BE (refer `assetcore-be/references/notification-contract.md`).
 
-*Hết file 05. §6 là CHỐT cho MVP vòng 2; §1–§5 giữ làm catalog Đợt 3.*
+---
+
+## §7. Wave 2 Vòng 2 — GET `list_decommissions` — CHỐT (register/tra cứu)
+
+> **Delta (2026-07-02).** Thêm 1 endpoint đọc để tra cứu "Biên bản giải nhiệm" (WHO §3.8 register). Mirror shape `assetcore.api.imm16.list_compliance_findings`. Đọc qua **DocPerm** (KHÔNG `ignore_permissions`) — ADR-IMM14-LIST-01 (`02 §VII.5`).
+
+### §7.1. Signature & auth
+
+`/api/method/assetcore.api.imm14.list_decommissions`
+
+- **Verb:** GET — `@frappe.whitelist()` (mặc định GET+POST; FE gọi qua `frappeGet`). KHÔNG `methods=["POST"]`.
+- **Auth:** `rbac.require("decommission.read")` (cap → `("Asset Decommission","read")`, `services/shared/rbac.py:112`).
+- **Signature:** `def list_decommissions(filters: str = "{}", page: int = 1, page_size: int = 20) -> dict`
+- **Body của handle:** parse `filters` (JSON string) → dict (mirror `_parse_json` của imm16; lỗi parse → `_err(..., ErrorCode.VALIDATION)`), rồi `return handle(svc.list_decommissions, f, page=int(page), page_size=int(page_size))`.
+
+### §7.2. Query params
+
+| Param | Kiểu | Default | Ý nghĩa |
+|---|---|---|---|
+| `filters` | JSON string | `"{}"` | dict equality-filter: bất kỳ tổ hợp `workflow_state`, `disposal_method`, `asset`. Rỗng `{}` → toàn bộ theo scope quyền. |
+| `page` | int | 1 | trang (1-based). |
+| `page_size` | int | 20 | clamp `[1,100]` qua `paginate()` (`utils/pagination.py`). |
+
+- `workflow_state` ∈ `{Draft, Approved, Cancelled}` (khớp Select DocType).
+- `disposal_method` ∈ `{Huỷ, Điều chuyển/Donation, Bán/Trade-in, Lưu trữ}` (khớp **EXACT** Select DocType — có dấu `/`).
+- `asset` = tên AC Asset (Link).
+- **Never vòng này:** KHÔNG free-text/`or_filters` (chỉ equality). KHÔNG filter khác 3 field trên.
+
+### §7.3. Response success (envelope)
+
+```json
+{
+  "success": true,
+  "data": {
+    "data": [
+      {
+        "name": "DECOM-2026-0001",
+        "asset": "AST-2024-0007",
+        "asset_name_snapshot": "Máy thở Hamilton C6",
+        "risk_classification_snapshot": "Critical",
+        "workflow_state": "Approved",
+        "disposal_method": "Huỷ",
+        "decommissioned_on": "2026-06-04 10:22:01",
+        "responsible": "manager@hospital.vn",
+        "responsible_name": "Nguyễn Văn A"
+      }
+    ],
+    "pagination": { "page": 1, "page_size": 20, "total": 1, "total_pages": 1, "offset": 0 }
+  }
+}
+```
+
+- **9 khoá/row CHỐT:** `name`, `asset`, `asset_name_snapshot`, `risk_classification_snapshot`, `workflow_state`, `disposal_method`, `decommissioned_on`, `responsible`, `responsible_name`.
+- `responsible_name` = `frappe.db.get_value("User", responsible, "full_name")` (enrich sau list, mirror `services/imm14.get_decommission`); NULL nếu `responsible` rỗng. **KHÔNG rò email ra cột hiển thị** (BR-14-W2-11 / user_source policy). `responsible` (email) chỉ là khoá kỹ thuật — FE KHÔNG render.
+- `order_by` mặc định: `"decommissioned_on desc, creation desc"` (record Draft có `decommissioned_on` NULL → rơi về creation desc).
+
+### §7.4. Service contract (`services/imm14.list_decommissions`)
+
+```python
+def list_decommissions(filters: dict, *, page: int = 1, page_size: int = 20) -> dict:
+    """Register hồ sơ giải nhiệm (WHO §3.8). DocPerm-aware (ADR-IMM14-LIST-01)."""
+    # 1. Chỉ nhận 3 khoá filter hợp lệ (whitelist key — bỏ khoá lạ, chống inject filter).
+    # 2. rows = frappe.get_list("Asset Decommission", filters=f, fields=[...9 field...],
+    #        order_by="decommissioned_on desc, creation desc",
+    #        limit_start=pg.offset, limit_page_length=pg.page_size, ignore_permissions=False)
+    # 3. total = ĐẾM trong cùng permission scope (get_list-based, KHÔNG frappe.db.count) → count==rows.
+    # 4. enrich responsible_name = User.full_name (KHÔNG email).
+    return {"data": rows, "pagination": pg}
+```
+
+- **DocPerm (BR-14-W2-09):** `ignore_permissions=False`. KHÔNG dùng `BaseRepository.list` (nó gọi `frappe.get_all` = bỏ DocPerm). Chi tiết: ADR-IMM14-LIST-01.
+- **count==rows (BR-14-W2-10):** `total` đếm qua get_list cùng filter+permission (vd `len(frappe.get_list(..., pluck="name", limit_page_length=0, ignore_permissions=False))` hoặc `frappe.get_list(..., fields=["count(name) as total"], ...)` — miễn áp cùng DocPerm/PQC). KHÔNG `frappe.db.count` (bỏ PQC → over-count, bug-class /audit-trail).
+
+### §7.5. RBAC — 2 loại 403 + tập rỗng
+
+| Tình huống | Kết quả | Ghi chú |
+|---|---|---|
+| Guest / no session cookie | **dispatcher-403** (Frappe re-auth) | trước khi vào handler. |
+| User đăng nhập nhưng thiếu `decommission.read` | **cap-403** in-handler: `rbac.require` raise `frappe.PermissionError` → HTTP 403 | KHÔNG rò dữ liệu. |
+| User có `decommission.read` nhưng scope không thấy record nào | `{data:[], pagination:{total:0,...}}` | tập rỗng theo scope, KHÔNG lỗi. |
+
+- Phân biệt rõ **dispatcher-403** (guest) vs **cap-403** (thiếu quyền) — DONE-gate spec-contract.
+- Lỗi parse `filters` (JSON hỏng) → envelope error `ErrorCode.VALIDATION` (HTTP-200 + `{success:false}`, in-handler; KHÔNG raise→4xx).
+
+### §7.6. Error → ErrorCode map
+
+| Tình huống | ErrorCode | HTTP | message VI mẫu |
+|---|---|---|---|
+| `filters` không phải JSON hợp lệ | `VALIDATION` | 200 (in-handler) | "Tham số lọc không hợp lệ." |
+| Thiếu `decommission.read` | (PermissionError) | 403 (cap-403) | Frappe permission message |
+
+*Hết file 05. §6 (write-path) + §7 (read/list) là CHỐT cho vòng 2; §1–§5 giữ làm catalog Đợt 3.*

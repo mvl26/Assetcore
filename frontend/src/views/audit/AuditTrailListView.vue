@@ -47,7 +47,7 @@ function closeDetail() { selectedTrail.value = null }
 // Single source of truth — value/label/color đứng cùng nhau, tránh drift khi thêm event type mới.
 const EVENT_TYPES: { value: string; label: string; color: string }[] = [
   { value: 'State Change',  label: 'Đổi trạng thái', color: 'bg-blue-100 text-blue-700' },
-  { value: 'CAPA',          label: 'CAPA',           color: 'bg-orange-100 text-orange-700' },
+  { value: 'CAPA',          label: 'Hành động khắc phục/phòng ngừa',           color: 'bg-orange-100 text-orange-700' },
   { value: 'Maintenance',   label: 'Bảo trì',        color: 'bg-yellow-100 text-yellow-700' },
   { value: 'Calibration',   label: 'Hiệu chuẩn',     color: 'bg-purple-100 text-purple-700' },
   { value: 'Document',      label: 'Hồ sơ',          color: 'bg-indigo-100 text-indigo-700' },
@@ -232,7 +232,7 @@ onMounted(fetchTrails)
         <svg class="w-12 h-12 mb-3 opacity-40" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
         </svg>
-        <p class="text-sm">Không có bản ghi audit nào phù hợp</p>
+        <p class="text-sm">Không có bản ghi kiểm toán nào phù hợp</p>
         <button v-if="activeFilterCount > 0" class="mt-3 text-xs text-blue-500 hover:text-blue-700 underline" @click="resetFilters">
           Xóa bộ lọc để xem tất cả
         </button>

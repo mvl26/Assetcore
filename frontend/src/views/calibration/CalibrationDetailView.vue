@@ -53,21 +53,38 @@ const calStepperSteps = computed(() => {
   return ['Scheduled', 'In Progress', terminal]
 })
 
+// SoT server-driven CTA (mirror IncidentDetailView R3): mọi nút workflow gate theo
+// allowed_transitions BE (_CAL_VALID_TRANSITIONS) — KHÔNG hardcode status→button
+// client-side. Đây là fix "quá nhiều nút / trộn luồng In-House↔External": mỗi
+// trạng thái CHỈ lộ đúng hành động-kế hợp lệ mà server cho phép.
+const allowedTransitions = computed(() => form.value.allowed_transitions ?? [])
+// overall_result của giai đoạn nhập kết quả (Đạt/Không đạt/Đạt có điều kiện).
+const RESULT_STATES = ['Passed', 'Failed', 'Conditionally Passed']
+
 const canSendToLab = computed(() =>
-  canExecuteCal.value && isExternal.value && !isSubmitted.value &&
-  (form.value.status === 'Scheduled' || form.value.status === 'In Progress'),
+  // 'Sent to Lab' có trong allowed cả In-House lẫn External (state machine Scheduled),
+  // nên vẫn cần isExternal để KHÔNG hiện "Gửi phòng hiệu chuẩn" cho phiếu nội bộ.
+  canExecuteCal.value && isExternal.value && allowedTransitions.value.includes('Sent to Lab'),
 )
 const canReceiveCert = computed(() =>
-  canExecuteCal.value && isExternal.value && !isSubmitted.value && form.value.status === 'Sent to Lab',
+  canExecuteCal.value && allowedTransitions.value.includes('Certificate Received'),
 )
 const canCancel = computed(() =>
-  canManageCal.value && !isSubmitted.value && form.value.status !== 'Cancelled',
+  canManageCal.value && allowedTransitions.value.includes('Cancelled'),
 )
-// BUG-007: Phiếu "Đã lên lịch" cần nút "Bắt đầu hiệu chuẩn" để chuyển sang
-// In Progress (đặc biệt cho In-House không có Send To Lab). External cũng dùng
-// được khi không gửi lab (cal tại chỗ với reference standard).
+// Scheduled → In Progress: "Bắt đầu hiệu chuẩn" (In-House, và External khi hiệu
+// chuẩn tại chỗ bằng reference standard thay vì gửi lab).
 const canStartCal = computed(() =>
-  canExecuteCal.value && !isSubmitted.value && form.value.status === 'Scheduled',
+  canExecuteCal.value && allowedTransitions.value.includes('In Progress'),
+)
+// Giai đoạn NHẬP KẾT QUẢ = khi BE cho phép chuyển sang Passed/Failed/Cond
+// (status In Progress hoặc Certificate Received). Trước đó (Scheduled / Sent to Lab)
+// KHÔNG lộ bảng nhập tham số đo + "Lưu kết quả" + "Gửi duyệt". `!isSubmitted` bắt
+// buộc: phiếu Failed sau submit vẫn còn allowed=[Conditionally Passed] (luồng sửa
+// đổi của Compliance Manager) — không được nhầm là còn nhập-đo được.
+const canEnterResults = computed(() =>
+  canExecuteCal.value && !isSubmitted.value &&
+  RESULT_STATES.some(s => allowedTransitions.value.includes(s)),
 )
 const startingCal = ref(false)
 async function doStartCal() {
@@ -122,7 +139,7 @@ async function uploadCertificateFile(event: Event) {
   try {
     const result = await uploadDocumentFile(file, { docname: props.id, isPrivate: true })
     recvData.value.certificate_file = result.file_url
-    toast.success(`Đã upload "${file.name}"`)
+    toast.success(`Đã tải lên "${file.name}"`)
   } catch (e: unknown) {
     store._captureError(e)
     err.value = store.error ?? ''
@@ -385,11 +402,11 @@ onMounted(load)
         <template v-if="form.calibration_type === 'In-House'">
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label class="form-label">Serial thiết bị chuẩn</label>
+              <label class="form-label">Số serial thiết bị chuẩn</label>
               <input v-model="form.reference_standard_serial" type="text" class="form-input w-full text-sm" />
             </div>
             <div>
-              <label class="form-label">Traceability ref</label>
+              <label class="form-label">Tham chiếu liên kết chuẩn</label>
               <input v-model="form.traceability_reference" type="text" class="form-input w-full text-sm" />
             </div>
           </div>
@@ -405,7 +422,7 @@ onMounted(load)
       <div class="card p-5">
         <div class="flex items-center justify-between mb-3">
           <h2 class="text-sm font-semibold text-slate-700">Tham số đo lường</h2>
-          <button v-if="!isSubmitted" class="text-blue-600 text-xs font-medium" @click="addMeasurement">+ Thêm tham số</button>
+          <button v-if="canEnterResults" class="text-blue-600 text-xs font-medium" @click="addMeasurement">+ Thêm tham số</button>
         </div>
         <div v-if="!form.measurements?.length" class="text-sm text-slate-400 py-3">Chưa có tham số đo.</div>
         <div v-else class="space-y-2">
@@ -418,20 +435,20 @@ onMounted(load)
             <span>Kết quả</span>
           </div>
           <div v-for="(m, i) in form.measurements" :key="i" class="grid grid-cols-7 gap-2 items-center">
-            <input v-if="!isSubmitted" v-model="m.parameter_name" class="col-span-2 form-input text-xs px-2 py-1" placeholder="Tên tham số" />
+            <input v-if="canEnterResults" v-model="m.parameter_name" class="col-span-2 form-input text-xs px-2 py-1" placeholder="Tên tham số" />
             <span v-else class="col-span-2 text-sm font-medium">{{ m.parameter_name }}</span>
 
-            <input v-if="!isSubmitted" v-model="m.unit" class="form-input text-xs px-2 py-1" placeholder="cmH₂O" />
+            <input v-if="canEnterResults" v-model="m.unit" class="form-input text-xs px-2 py-1" placeholder="cmH₂O" />
             <span v-else class="text-sm">{{ m.unit }}</span>
 
-            <input v-if="!isSubmitted" v-model.number="m.nominal_value" type="number" class="form-input text-xs px-2 py-1" />
+            <input v-if="canEnterResults" v-model.number="m.nominal_value" type="number" class="form-input text-xs px-2 py-1" />
             <span v-else class="text-sm">{{ m.nominal_value }}</span>
 
-            <input v-if="!isSubmitted" v-model.number="m.tolerance_positive" type="number" class="form-input text-xs px-2 py-1" placeholder="5" />
+            <input v-if="canEnterResults" v-model.number="m.tolerance_positive" type="number" class="form-input text-xs px-2 py-1" placeholder="5" />
             <span v-else class="text-sm">±{{ m.tolerance_positive }}%</span>
 
             <input
-v-if="!isSubmitted" v-model.number="m.measured_value" type="number" step="any" class="form-input text-xs px-2 py-1"
+v-if="canEnterResults" v-model.number="m.measured_value" type="number" step="any" class="form-input text-xs px-2 py-1"
               :class="m.measured_value !== null && computeResult(m) === 'Fail' ? 'border-red-400 bg-red-50' : ''" />
             <span v-else class="text-sm">{{ m.measured_value ?? '—' }}</span>
 
@@ -444,7 +461,7 @@ v-else-if="m.measured_value !== null && m.measured_value !== undefined" class="t
                 :class="computeResult(m) === 'Pass' ? 'text-green-600' : 'text-red-600'">
                 {{ computeResult(m) }}
               </span>
-              <button v-if="!isSubmitted" class="text-red-400 hover:text-red-600 ml-auto" aria-label="Xoá đo" @click="removeMeasurement(i)">
+              <button v-if="canEnterResults" class="text-red-400 hover:text-red-600 ml-auto" aria-label="Xoá đo" @click="removeMeasurement(i)">
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
@@ -458,10 +475,10 @@ v-else-if="m.measured_value !== null && m.measured_value !== undefined" class="t
           <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
         </svg>
         <div>
-          <p class="text-sm font-semibold text-red-700">Hiệu chuẩn thất bại — CAPA đã tạo</p>
+          <p class="text-sm font-semibold text-red-700">Hiệu chuẩn thất bại — hành động khắc phục/phòng ngừa đã tạo</p>
           <p class="text-xs text-red-600">{{ form.capa_record }}</p>
         </div>
-        <button class="ml-auto text-xs text-red-700 font-medium underline" @click="router.push(`/capas/${form.capa_record}`)">Xem CAPA</button>
+        <button class="ml-auto text-xs text-red-700 font-medium underline" @click="router.push(`/capas/${form.capa_record}`)">Xem hành động khắc phục/phòng ngừa</button>
       </div>
 
       <!-- BUG-007: Permission hint khi user không có quyền hành động -->
@@ -471,7 +488,7 @@ v-else-if="m.measured_value !== null && m.measured_value !== undefined" class="t
         </svg>
         <div>
           <p class="font-medium">Bạn không có quyền thực hiện hành động trên phiếu này.</p>
-          <p class="text-xs mt-0.5">Liên hệ quản trị để cấp role Kỹ thuật viên Hiệu chuẩn (Calibration User/Manager).</p>
+          <p class="text-xs mt-0.5">Liên hệ quản trị để cấp vai trò Kỹ thuật viên Hiệu chuẩn (Calibration User/Manager).</p>
         </div>
       </div>
 
@@ -499,26 +516,27 @@ v-if="canReceiveCert" class="bg-purple-600 hover:bg-purple-700 text-white px-4 p
           @click="showReceiveModal = true">
 Nhận chứng chỉ
 </button>
-        <template v-if="!isSubmitted && canExecuteCal">
-          <button class="btn-ghost text-sm" :disabled="saving" @click="save">
-            {{ saving ? 'Đang lưu...' : 'Lưu' }}
+        <button
+v-if="!isSubmitted && canExecuteCal" class="btn-ghost text-sm" :disabled="saving" @click="save">
+          {{ saving ? 'Đang lưu...' : 'Lưu' }}
+        </button>
+        <!-- "Gửi duyệt" CHỈ ở giai đoạn nhập kết quả (In Progress / Đã nhận chứng chỉ),
+             KHÔNG lộ disabled-kèm-tooltip ở Scheduled/Sent to Lab như trước. -->
+        <div v-if="canEnterResults" class="relative group">
+          <button
+            class="btn-primary text-sm"
+            :disabled="submitting || !canSubmitCal"
+            @click="openSubmitModal"
+          >
+            {{ submitting ? 'Đang gửi duyệt...' : 'Gửi duyệt' }}
           </button>
-          <div class="relative group">
-            <button
-              class="btn-primary text-sm"
-              :disabled="submitting || !canSubmitCal"
-              @click="openSubmitModal"
-            >
-              {{ submitting ? 'Đang gửi duyệt...' : 'Gửi duyệt' }}
-            </button>
-            <div
-              v-if="!canSubmitCal"
-              class="absolute bottom-full right-0 mb-2 w-64 bg-slate-800 text-white text-xs rounded-md px-2.5 py-1.5 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity z-10"
-            >
-              {{ submitBlockReason }}
-            </div>
+          <div
+            v-if="!canSubmitCal"
+            class="absolute bottom-full right-0 mb-2 w-64 bg-slate-800 text-white text-xs rounded-md px-2.5 py-1.5 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity z-10"
+          >
+            {{ submitBlockReason }}
           </div>
-        </template>
+        </div>
       </div>
     </template>
 
@@ -562,7 +580,7 @@ Nhận chứng chỉ
               :disabled="uploadingCert"
               @change="uploadCertificateFile"
             />
-            <span v-if="uploadingCert" class="text-xs text-slate-500">Đang upload...</span>
+            <span v-if="uploadingCert" class="text-xs text-slate-500">Đang tải lên...</span>
           </div>
           <p v-if="recvData.certificate_file" class="text-xs text-emerald-700 mt-1 truncate">
             Đã đính kèm:
@@ -580,11 +598,11 @@ Nhận chứng chỉ
           </div>
         </div>
         <div>
-          <label for="recv-trace" class="block text-sm font-medium mb-1">Traceability ref</label>
+          <label for="recv-trace" class="block text-sm font-medium mb-1">Tham chiếu liên kết chuẩn</label>
           <input id="recv-trace" v-model="recvData.traceability_reference" type="text" class="form-input w-full text-sm" />
         </div>
         <div>
-          <label for="recv-std" class="block text-sm font-medium mb-1">Serial thiết bị chuẩn</label>
+          <label for="recv-std" class="block text-sm font-medium mb-1">Số serial thiết bị chuẩn</label>
           <input id="recv-std" v-model="recvData.reference_standard_serial" type="text" class="form-input w-full text-sm" />
         </div>
         <div class="flex justify-end gap-2">

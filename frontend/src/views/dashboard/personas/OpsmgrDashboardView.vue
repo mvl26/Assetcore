@@ -65,9 +65,9 @@ const mkBars = computed(() => {
   // R8 §9.4.6 — bar drill từ BE descriptor. MTTR là metric thời lượng (không có
   // list 1-1) → KHÔNG drill (canonical-value rule §9.5 #10).
   return [
-    { label: 'MTTR (h)', value: Number(m.mttr_avg_hours ?? 0), drill: null },
-    { label: 'SLA (%)', value: Number(m.sla_compliance_pct ?? 0), suffix: '%', drill: d.sla_compliance_pct ?? null },
-    { label: 'WO mở', value: Number(m.open_wos ?? 0), drill: d.open_wos ?? null },
+    { label: 'Thời gian sửa chữa trung bình (h)', value: Number(m.mttr_avg_hours ?? 0), drill: null },
+    { label: 'Cam kết mức dịch vụ (%)', value: Number(m.sla_compliance_pct ?? 0), suffix: '%', drill: d.sla_compliance_pct ?? null },
+    { label: 'Lệnh công việc mở', value: Number(m.open_wos ?? 0), drill: d.open_wos ?? null },
     { label: 'Lặp lỗi', value: Number(m.repeat_failure_count ?? 0), drill: d.repeat_failure_count ?? null },
   ]
 })
@@ -98,7 +98,7 @@ const mkBars = computed(() => {
         />
       </DashboardSection>
       <div class="xl:col-span-3">
-        <BarsCard title="KPI bảo trì kỳ này" :bars="mkBars" />
+        <BarsCard title="Chỉ số hiệu suất bảo trì kỳ này" :bars="mkBars" />
       </div>
     </div>
     <div class="grid grid-cols-1 gap-5 xl:grid-cols-5">
@@ -119,9 +119,9 @@ const mkBars = computed(() => {
       <div class="xl:col-span-3 grid grid-cols-1 gap-5 lg:grid-cols-2">
         <TimelineCard title="Sự cố gần đây" :rows="recentEvents" :row-to="drill.incident" />
         <TimelineCard
-          title="PM sắp tới"
+          title="Bảo trì định kỳ sắp tới"
           :rows="recentPm"
-          empty-text="Không có PM"
+          empty-text="Không có bảo trì định kỳ"
           :row-to="(r) => drill.pmWo({ name: r.name })"
         />
       </div>

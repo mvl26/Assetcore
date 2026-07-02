@@ -157,7 +157,7 @@ onMounted(load)
 
       <div v-else-if="activeTab === 'checklist'" class="card p-5">
         <div v-if="!canChecklist" class="text-sm text-slate-500 py-6 text-center">
-          Bảng kiểm chỉ chỉnh sửa được khi kiểm toán đang "In Progress".
+          Bảng kiểm chỉ chỉnh sửa được khi kiểm toán ở trạng thái "Đang thực hiện".
           <span v-if="audit.status === 'Planned'">— Hãy nhấn "Bắt đầu" trước.</span>
         </div>
         <template v-else>
@@ -180,10 +180,10 @@ onMounted(load)
                   </td>
                   <td class="table-cell">
                     <select v-model="item.finding_status" class="form-select text-sm">
-                      <option value="Compliant">Compliant</option>
-                      <option value="Minor NC">Minor NC</option>
-                      <option value="Major NC">Major NC</option>
-                      <option value="N/A">N/A</option>
+                      <option value="Compliant">Phù hợp</option>
+                      <option value="Minor NC">Không phù hợp nhẹ</option>
+                      <option value="Major NC">Không phù hợp nặng</option>
+                      <option value="N/A">Không áp dụng</option>
                     </select>
                   </td>
                   <td class="table-cell">

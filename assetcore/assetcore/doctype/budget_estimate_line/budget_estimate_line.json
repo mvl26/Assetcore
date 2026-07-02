@@ -52,6 +52,7 @@
   {
    "fieldname": "unit_cost",
    "fieldtype": "Currency",
+   "length": 28,
    "label": "Đơn giá (VND)",
    "in_list_view": 1,
    "reqd": 1
@@ -59,6 +60,7 @@
   {
    "fieldname": "amount",
    "fieldtype": "Currency",
+   "length": 28,
    "label": "Thành tiền",
    "read_only": 1,
    "in_list_view": 1

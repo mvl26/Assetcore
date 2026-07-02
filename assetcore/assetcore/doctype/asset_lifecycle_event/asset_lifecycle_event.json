@@ -27,7 +27,7 @@
   {
    "fieldname": "section_core",
    "fieldtype": "Section Break",
-   "label": "Core"
+   "label": "Thông tin cốt lõi"
   },
   {
    "fieldname": "naming_series",
@@ -39,7 +39,7 @@
   {
    "fieldname": "asset",
    "fieldtype": "Link",
-   "label": "Asset",
+   "label": "Tài sản",
    "options": "AC Asset",
    "reqd": 1,
    "search_index": 1,
@@ -50,7 +50,7 @@
   {
    "fieldname": "event_type",
    "fieldtype": "Select",
-   "label": "Event Type",
+   "label": "Loại sự kiện",
    "options": "commissioned\nactivated\npm_started\npm_completed\nrepair_opened\nrepair_completed\nparts_hold_started\nparts_hold_resumed\ncalibration_started\ncalibration_passed\ncalibration_failed\nincident_reported\nout_of_service\nrestored\ndecommissioned\ntransferred\nregistered\ndepreciated\ndepreciation_rules_inherited\ndepreciation_stopped\nqr_generated\nlabel_printed\nqr_regenerated",
    "reqd": 1,
    "search_index": 1,
@@ -65,7 +65,7 @@
   {
    "fieldname": "timestamp",
    "fieldtype": "Datetime",
-   "label": "Timestamp",
+   "label": "Thời điểm",
    "reqd": 1,
    "in_list_view": 1,
    "read_only": 1,
@@ -74,7 +74,7 @@
   {
    "fieldname": "actor",
    "fieldtype": "Link",
-   "label": "Actor",
+   "label": "Người thực hiện",
    "options": "User",
    "reqd": 1,
    "search_index": 1,
@@ -84,38 +84,38 @@
   {
    "fieldname": "section_transition",
    "fieldtype": "Section Break",
-   "label": "Status Transition"
+   "label": "Chuyển trạng thái"
   },
   {
    "fieldname": "from_status",
    "fieldtype": "Data",
-   "label": "From Status",
+   "label": "Trạng thái trước",
    "read_only": 1,
    "no_copy": 1
   },
   {
    "fieldname": "to_status",
    "fieldtype": "Data",
-   "label": "To Status",
+   "label": "Trạng thái sau",
    "read_only": 1,
    "no_copy": 1
   },
   {
    "fieldname": "section_root",
    "fieldtype": "Section Break",
-   "label": "Source Record"
+   "label": "Bản ghi nguồn"
   },
   {
    "fieldname": "root_doctype",
    "fieldtype": "Data",
-   "label": "Root DocType",
+   "label": "DocType gốc",
    "read_only": 1,
    "no_copy": 1
   },
   {
    "fieldname": "root_record",
    "fieldtype": "Dynamic Link",
-   "label": "Root Record",
+   "label": "Bản ghi gốc",
    "options": "root_doctype",
    "read_only": 1,
    "no_copy": 1
@@ -123,7 +123,7 @@
   {
    "fieldname": "notes",
    "fieldtype": "Text",
-   "label": "Notes"
+   "label": "Ghi chú"
   }
  ],
  "links": [],

@@ -103,7 +103,7 @@ onMounted(() => applyFilter())
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
           </svg>
-          Tạo CAPA
+          Tạo hành động khắc phục/phòng ngừa
         </button>
       </template>
     </PageHeader>
@@ -139,7 +139,7 @@ onMounted(() => applyFilter())
         <SkeletonLoader variant="table" :rows="6" />
       </div>
       <div v-else-if="!store.capas.length" class="flex flex-col items-center justify-center py-16 text-slate-400">
-        <p class="text-sm">Không có CAPA nào</p>
+        <p class="text-sm">Không có hành động khắc phục/phòng ngừa nào</p>
         <button v-if="activeFilterCount > 0" class="text-xs text-blue-500 hover:text-blue-700 underline mt-2" @click="resetFilters">
           Xóa bộ lọc để xem tất cả
         </button>
@@ -179,7 +179,7 @@ onMounted(() => applyFilter())
           <table class="w-full text-sm">
             <thead class="bg-slate-50 border-b border-slate-200">
               <tr>
-                <th class="table-header">Mã CAPA</th>
+                <th class="table-header">Mã hành động khắc phục/phòng ngừa</th>
                 <th class="table-header">Thiết bị</th>
                 <th class="table-header">Mức độ</th>
                 <th class="table-header">Trạng thái</th>

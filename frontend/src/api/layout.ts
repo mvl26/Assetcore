@@ -97,15 +97,59 @@ const DOCTYPE_TO_ROUTE: Record<string, (name: string) => string> = {
   'Asset QA Non Conformance': (n) => `/commissioning/${encodeURIComponent(n)}/nc`,
   'IMM Device Model': (n) => `/device-models/${encodeURIComponent(n)}`,
   'AC Supplier': (n) => `/suppliers/${encodeURIComponent(n)}`,
+  'IMM Needs Request': (n) => `/needs-requests/${encodeURIComponent(n)}`,
   'Document Request': () => `/documents/requests`,
   'Firmware Change Request': () => `/cm/firmware`,
+}
+
+// Điểm đến cấp DANH SÁCH khi thông báo là digest span nhiều record (document_name
+// rỗng) → deep-link 1 doc vô nghĩa. Vd escalation "phiếu nhu cầu quá hạn"
+// (notify_needs_overdue) gộp nhiều NR → mở list đã lọc sẵn phiếu quá hạn.
+const DOCTYPE_TO_LIST_ROUTE: Record<string, string> = {
+  'IMM Needs Request': '/needs-requests?overdue=1',
 }
 
 export function resolveNotificationRoute(
   docType: string | null | undefined,
   docName: string | null | undefined,
 ): string | null {
-  if (!docType || !docName) return null
+  if (!docType) return null
+  // Digest (không có document_name cụ thể) → điểm đến danh sách nếu doctype có map.
+  if (!docName) return DOCTYPE_TO_LIST_ROUTE[docType] ?? null
   const builder = DOCTYPE_TO_ROUTE[docType]
   return builder ? builder(docName) : null
+}
+
+// ─── Nhãn tiếng Việt cho document_type (hiển thị trên chuông/thông báo) ──────────
+//
+// Tránh lộ mã DocType thô tiếng Anh ('IMM Needs Request') ra UI người dùng cuối
+// (LL-FE-46 · ui_copy_language_policy LL-FE-53). Doctype chưa map → trả nguyên văn.
+
+const DOCTYPE_LABEL_VI: Record<string, string> = {
+  'AC Asset': 'Thiết bị',
+  'Asset Document': 'Hồ sơ tài liệu',
+  'Asset Commissioning': 'Nghiệm thu',
+  'PM Work Order': 'Lệnh bảo trì',
+  'Asset Repair': 'Phiếu sửa chữa',
+  'CM Work Order': 'Phiếu sửa chữa',
+  'Incident Report': 'Sự cố',
+  'IMM CAPA Record': 'Hành động khắc phục/phòng ngừa',
+  'Asset Transfer': 'Điều chuyển tài sản',
+  'Service Contract': 'Hợp đồng dịch vụ',
+  'IMM Asset Calibration': 'Hiệu chuẩn',
+  'IMM Calibration': 'Hiệu chuẩn',
+  'IMM Calibration Schedule': 'Lịch hiệu chuẩn',
+  'Calibration Result': 'Kết quả hiệu chuẩn',
+  'IMM RCA Record': 'Phân tích nguyên nhân gốc',
+  'Asset QA Non Conformance': 'Điểm không phù hợp',
+  'IMM Device Model': 'Model thiết bị',
+  'AC Supplier': 'Nhà cung cấp',
+  'Document Request': 'Yêu cầu tài liệu',
+  'Firmware Change Request': 'Yêu cầu đổi firmware',
+  'IMM Needs Request': 'Phiếu nhu cầu',
+}
+
+export function docTypeLabel(docType: string | null | undefined): string {
+  if (!docType) return ''
+  return DOCTYPE_LABEL_VI[docType] ?? docType
 }

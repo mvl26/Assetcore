@@ -99,7 +99,12 @@ export function listProcurementPlans(filters: Record<string, unknown> = {}, page
   })
 }
 
-export function getProcurementPlan(name: string): Promise<Record<string, unknown>> {
+export interface ProcurementPlanDetail extends Record<string, unknown> {
+  /** Action workflow user hiện tại được phép (server-driven CTA gating, GATE-8). */
+  allowed_transitions?: string[]
+}
+
+export function getProcurementPlan(name: string): Promise<ProcurementPlanDetail> {
   return frappeGet(`${BASE}.get_procurement_plan`, { name })
 }
 
@@ -109,8 +114,13 @@ export function rollIntoPlan(plan_year: number, plan_period: string, needs_reque
   })
 }
 
-export function createProcurementPlan(plan_year: number, plan_period: string, budget_envelope: number): Promise<{ name: string }> {
-  return frappePost(`${BASE}.create_procurement_plan`, { plan_year, plan_period, budget_envelope })
+export function createProcurementPlan(
+  plan_year: number, plan_period: string, budget_envelope: number,
+  needs_requests: string[],
+): Promise<{ name: string }> {
+  return frappePost(`${BASE}.create_procurement_plan`, {
+    plan_year, plan_period, budget_envelope, needs_requests: JSON.stringify(needs_requests),
+  })
 }
 
 export function approvePlan(name: string): Promise<{ name: string; workflow_state: string }> {

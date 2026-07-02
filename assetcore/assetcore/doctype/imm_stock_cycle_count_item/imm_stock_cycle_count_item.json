@@ -66,6 +66,7 @@
   {
    "fieldname": "variance_value",
    "fieldtype": "Currency",
+   "length": 28,
    "label": "Chênh lệch (VNĐ)",
    "read_only": 1
   },

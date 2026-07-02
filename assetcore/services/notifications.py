@@ -134,12 +134,45 @@ def _finalize_states(doctype: str) -> frozenset[str]:
     )
 
 
+def _state_controlled_by_approver(doctype: str, state: str) -> bool:
+    """True nếu role được phép SỬA doc ở `state` (Workflow Document State.allow_edit)
+    thuộc tập role phê duyệt — tức quyền điều khiển phiếu ĐÃ rời role vận hành.
+
+    Tín hiệu State-level (đọc `allow_edit` của State, KHÔNG đọc transition) nên MIỄN
+    NHIỄM với admin-override trên transition: `backfill_workflow_admin` thêm role quản
+    trị (System Manager / AssetCore Super Admin) vào MỌI transition để cho phép ghi đè
+    (xem memory workflow_admin_override_rbac). Điều đó làm heuristic thuần-transition
+    ("gỡ bởi role quản trị" / "next_state finalize do role quản trị") mất khả năng
+    phân biệt state chờ-duyệt/escalation với state VẬN HÀNH bình thường (In Progress,
+    In Repair, Pending Parts…) — vì admin giờ có transition ở gần như mọi state.
+    `allow_edit` KHÔNG bị override đó chạm tới ⇒ discriminator ổn định: state chỉ thật
+    sự "chờ role quản trị" khi chính role quản trị mới được sửa doc ở state đó.
+
+    Rỗng `allow_edit` / không có workflow ⇒ False (an toàn: không nhận nhầm state vận
+    hành thành chờ-duyệt → tránh spam thông báo).
+    """
+    wf = _active_workflow(doctype)
+    if not wf:
+        return False
+    approval_roles = _approval_roles_for(doctype)
+    for s in (wf.states or []):
+        if s.state == state:
+            return s.get("allow_edit") in approval_roles
+    return False
+
+
 def _state_needs_approval(doctype: str, state: str) -> bool:
     """True nếu `state` là "cần duyệt" theo metadata Workflow của `doctype`.
 
-    Quy ước: tồn tại ≥1 transition rời `state` (transition.state == state) mà
-    `allowed` role thuộc tập role phê duyệt của doctype. Tức bước chuyển kế tiếp
-    do vai trò quản trị thực hiện ⇒ state hiện tại đang chờ vai trò đó duyệt.
+    Quy ước (CẢ 2 điều kiện):
+      (1) role được phép SỬA doc ở `state` thuộc tập role phê duyệt
+          (`_state_controlled_by_approver`) — quyền điều khiển đã rời role vận hành;
+      (2) tồn tại ≥1 transition PHÊ DUYỆT rời `state` tới state finalize do role phê
+          duyệt (`_is_approval_transition`).
+
+    Điều kiện (1) là chốt chặn admin-override: nếu chỉ dựa (2), việc admin-override
+    thêm role quản trị vào transition "hoàn thành" của state vận hành (vd In Progress
+    → Completed do System Manager) sẽ khiến state vận hành bị nhận nhầm là chờ-duyệt.
 
     Args:
         doctype: tên DocType có workflow.
@@ -149,6 +182,8 @@ def _state_needs_approval(doctype: str, state: str) -> bool:
         True nếu state cần duyệt; False nếu không (hoặc không có workflow).
     """
     if not doctype or not state:
+        return False
+    if not _state_controlled_by_approver(doctype, state):
         return False
     approval_roles = _approval_roles_for(doctype)
     finalize = _finalize_states(doctype)
@@ -746,6 +781,13 @@ def notify_calibration_due(asset_name: str, old_status: str, new_status: str) ->
 # Document State child không có field này; Workflow State master lưu style=""). Đọc
 # runtime luôn None. Thay bằng tín hiệu CÓ THẬT trong metadata transitions:
 # "VÀO bởi role vận hành" + "GỠ bởi role quản trị". Xem §III.1b-5.
+#
+# BỔ SUNG (fix admin-override collision): sau khi `backfill_workflow_admin` thêm role
+# quản trị (System Manager / AssetCore Super Admin) vào MỌI transition để cho phép ghi
+# đè (memory workflow_admin_override_rbac), điều kiện "GỠ bởi role quản trị" đúng ở gần
+# NHƯ MỌI state (kể cả state vận hành In Progress/In Repair) → nhận nhầm là escalation.
+# Chốt chặn: điều kiện (d) `_state_controlled_by_approver` — dùng State.allow_edit (role
+# được phép SỬA doc ở state), tín hiệu State-level KHÔNG bị override transition chạm tới.
 
 
 def _state_entered_by_operational(doctype: str, state: str) -> bool:
@@ -784,13 +826,20 @@ def _escalation_exit_roles(doctype: str, state: str) -> set[str]:
 def _state_is_escalation(doctype: str, state: str) -> bool:
     """True nếu `state` là ESCALATION theo §III.1b-5 (xác định ĐỘNG, không hard-code).
 
-    Điều kiện (CẢ 3, đều đọc từ Workflow metadata CÓ THẬT lúc runtime):
+    Điều kiện (CẢ 4, đều đọc từ Workflow metadata CÓ THẬT lúc runtime):
       (a) `state` chưa finalize (`doc_status == "0"`) — phân biệt với E2 (finalize);
       (b) `state` được VÀO bởi ≥1 transition do role VẬN HÀNH (không thuộc role
           quản trị) — chính người thực thi đẩy phiếu vào (báo lỗi), không phải
           state khởi tạo (`Open`) hay state do quản trị đặt (`Overdue`);
       (c) tồn tại ≥1 transition GỠ rời `state` do role quản trị (xem
-          `_escalation_exit_roles`) — tức cần cấp quản trị can thiệp tích cực.
+          `_escalation_exit_roles`) — tức cần cấp quản trị can thiệp tích cực;
+      (d) quyền SỬA doc ở `state` đã rời role vận hành, thuộc role phê duyệt
+          (`_state_controlled_by_approver`) — chốt chặn admin-override (memory
+          workflow_admin_override_rbac): nếu chỉ dựa (a)(b)(c), việc admin có
+          transition GỠ ở MỌI state (kể cả state vận hành như In Progress mà PM User
+          vẫn tự xử được) sẽ khiến state vận hành bị nhận nhầm là escalation. Escalation
+          THẬT là state mà role vận hành KHÔNG còn sửa được (allow_edit = role quản
+          trị), vd "Halted–Major Failure" chờ quản trị gỡ.
 
     Args:
         doctype: tên DocType có workflow.
@@ -808,7 +857,10 @@ def _state_is_escalation(doctype: str, state: str) -> bool:
     if not _state_entered_by_operational(doctype, state):
         return False
     # (c) có lối gỡ do role quản trị.
-    return bool(_escalation_exit_roles(doctype, state))
+    if not _escalation_exit_roles(doctype, state):
+        return False
+    # (d) quyền điều khiển đã rời role vận hành (allow_edit ∈ role phê duyệt).
+    return _state_controlled_by_approver(doctype, state)
 
 
 def resolve_escalation_recipients(doc) -> list[str]:
@@ -1364,3 +1416,278 @@ def get_delivery_kpi(days: int = _KPI_DEFAULT_DAYS) -> dict:
         "delivery_status": _delivery_status(delivery_rate),
         "opt_out_status": _opt_out_status(opt_out_rate),
     }
+
+
+# ─── IMM-01 — Escalation phiếu nhu cầu quá hạn (E7 / BR-01-11 / ADR-IMM-01-01) ────
+#
+# ROOT CAUSE thay thế: `imm01.check_pending_request_overdue` bản cũ CHỈ
+# `frappe.logger().info(...)` — tín hiệu escalation tồn tại nhưng KHÔNG tới người
+# xử lý (biến thể log-only của RBAC dead-gate). Thiết kế mới (docs/imm-01
+# 02_Analysis_Design.md BR-01-11 + ADR-IMM-01-01):
+#   - Recipient qua SSoT `notify_roles.NEEDS_STALE_ESCALATION` (role THẬT
+#     "Needs Manager"), KHÔNG literal / KHÔNG persona-name.
+#   - 1 digest/recipient/ngày (liệt kê tổng số phiếu + breakdown phòng ban) thay vì
+#     N thông báo/phiếu → chống spam; dedup Frappe-first qua Notification Log
+#     (marker subject + creation hôm nay) — KHÔNG thêm field/DocType.
+#   - 0 phiếu → 0 thông báo (early-return ở scheduler). 0 recipient → log cảnh báo,
+#     KHÔNG raise (fail-loud nhưng an toàn cho cron).
+
+_NEEDS_DOCTYPE: str = "IMM Needs Request"
+# Marker subject digest — dùng dedup 1 digest/recipient/ngày (Frappe-first). Đồng
+# bộ với test_imm01.TestNeedsOverdueEscalation._MARKER.
+_NEEDS_STALE_MARKER: str = "phiếu nhu cầu quá hạn xử lý"
+
+
+def _needs_stale_recipients() -> list[str]:
+    """Resolve người nhận escalation NR quá hạn từ SSoT `notify_roles`.
+
+    Union `get_users_with_role(r)` cho mọi `r ∈ NEEDS_STALE_ESCALATION`; loại
+    Administrator + rỗng + dedupe (giữ thứ tự). Rỗng → `frappe.logger("imm01")
+    .warning(...)` (anti dead-gate: fail-loud) rồi trả `[]` — KHÔNG raise.
+
+    Returns:
+        Danh sách user (name) giữ role escalation, không trùng, không Administrator.
+    """
+    from assetcore.services.shared import notify_roles
+
+    seen: set[str] = set()
+    out: list[str] = []
+    for role in notify_roles.NEEDS_STALE_ESCALATION:
+        try:
+            users = get_users_with_role(role)
+        except Exception:
+            frappe.log_error(frappe.get_traceback(), "notify_needs_overdue recipients")
+            continue
+        for u in users:
+            if u and u != "Administrator" and u not in seen:
+                seen.add(u)
+                out.append(u)
+    if not out:
+        frappe.logger("imm01").warning(
+            "IMM-01 escalation NR quá hạn: KHÔNG có người nhận (recipient rỗng) cho "
+            "role %s — bỏ qua, không gửi thông báo."
+            % (", ".join(notify_roles.NEEDS_STALE_ESCALATION) or "(rỗng)")
+        )
+    return out
+
+
+def _needs_digest_already_sent(user: str) -> bool:
+    """True nếu `user` ĐÃ nhận digest escalation NR quá hạn HÔM NAY (dedup Frappe-first).
+
+    Kiểm tra tồn tại Notification Log (type=Alert) cho user với subject chứa marker
+    digest và `creation >= today()` → scheduler chạy nhiều lần/ngày KHÔNG spam
+    (idempotent 1 digest/recipient/ngày). KHÔNG thêm field/DocType.
+    """
+    return bool(
+        frappe.db.exists(
+            "Notification Log",
+            {
+                "for_user": user,
+                "subject": ("like", f"%{_NEEDS_STALE_MARKER}%"),
+                "creation": (">=", frappe.utils.today()),
+            },
+        )
+    )
+
+
+def _needs_digest_message(overdue_rows: list[dict]) -> str:
+    """Dựng nội dung digest tiếng Việt đầy đủ: tổng số phiếu + breakdown theo phòng
+    ban + danh sách mã phiếu (audit/traceability truy về source)."""
+    from collections import Counter
+
+    total = len(overdue_rows)
+    by_dept: Counter = Counter()
+    for r in overdue_rows:
+        dept = r.get("requesting_department") or "(chưa gán phòng ban)"
+        by_dept[dept] += 1
+    codes = ", ".join(r.get("name", "") for r in overdue_rows if r.get("name"))
+
+    lines = [
+        f"Có <b>{total}</b> phiếu nhu cầu đang treo quá 30 ngày ở trạng thái "
+        "Đã gửi / Đang rà soát, cần xử lý sớm để không trễ tiến độ mua sắm.",
+        "",
+        "<b>Phân bổ theo phòng ban:</b>",
+    ]
+    for dept, cnt in sorted(by_dept.items(), key=lambda kv: (-kv[1], str(kv[0]))):
+        lines.append(f"• {dept}: {cnt} phiếu")
+    lines.append("")
+    lines.append(f"<b>Mã phiếu quá hạn:</b> {codes}")
+    return "<br>".join(lines)
+
+
+def notify_needs_overdue(overdue_rows: list[dict]) -> None:
+    """E7 — Escalation digest cho phiếu nhu cầu treo quá 30 ngày (BR-01-11).
+
+    Entry do `imm01.check_pending_request_overdue` gọi (chỉ khi có ≥1 phiếu — early
+    return đã lọc ở scheduler). Resolve recipient qua SSoT
+    `notify_roles.NEEDS_STALE_ESCALATION`, lọc recipient đã nhận digest hôm nay
+    (`_needs_digest_already_sent`), rồi `_dispatch` (in-app Notification Log + email
+    theo toggle) cho phần còn lại. Audit = Notification Log (Frappe core, bất biến).
+
+    Args:
+        overdue_rows: list dict mỗi phiếu quá hạn — cần `name` +
+            `requesting_department` (từ SQL scheduler).
+
+    Returns:
+        None. 0 phiếu / 0 recipient / tất cả đã nhận hôm nay → không dispatch,
+        KHÔNG raise (fail-safe cho cron).
+
+    Spec: docs/imm-01/02_Analysis_Design.md BR-01-11 + ADR-IMM-01-01; framework E7
+    (docs/imm-00/04_Backend_Design.md §III.1b).
+    """
+    if not overdue_rows:
+        return
+
+    recipients = _needs_stale_recipients()
+    if not recipients:
+        return  # cảnh báo đã log trong _needs_stale_recipients (anti dead-gate)
+
+    pending = [u for u in recipients if not _needs_digest_already_sent(u)]
+    if not pending:
+        return  # tất cả đã nhận digest hôm nay → idempotent, không spam
+
+    total = len(overdue_rows)
+    subject = f"{total} {_NEEDS_STALE_MARKER} (quá 30 ngày)"
+    message = _needs_digest_message(overdue_rows)
+    # Digest span nhiều NR → doc rời rạc (name rỗng): _dispatch bỏ reference/deep-link
+    # nhưng vẫn tạo Notification Log + email cho recipient (ADR-IMM-01-01).
+    doc_like = frappe._dict(doctype=_NEEDS_DOCTYPE, name="")
+    _dispatch(pending, subject, message, doc_like)
+
+
+# ─── E8: notify_workflow_transition (generic — governance/approval workflows) ────
+#
+# Bù khoảng trống lớn (audit 2026-07-02): 19/22 doctype workflow KHÔNG bắn thông báo
+# khi chuyển state. E1/E2/E5 chỉ phủ PM Work Order + Asset Repair; E3 phủ Incident.
+# Các luồng phê duyệt governance (IMM-01 NR, IMM-02/03 spec/quyết định, IMM-16
+# CAPA/audit…) chuyển state qua `apply_workflow`/`doc.submit()` nhưng KHÔNG có listener
+# → "trình BGĐ / phê duyệt xong không ai nhận thông báo" (user report). Framework cũng
+# THIẾU HẲN event "kết quả duyệt → người tạo".
+#
+# E8 = 1 listener generic wired `on_update` cho các doctype governance (KHÔNG wire cho
+# doctype đã có E1/E2/E5 → tránh double-notify). Mỗi lần workflow_state ĐỔI, bắn:
+#   (1) NGƯỜI XỬ LÝ BƯỚC KẾ: user giữ role `allowed` của transition RỜI state MỚI
+#       (loại role admin-override để không spam toàn bộ System Manager/Super Admin);
+#   (2) NGƯỜI TẠO PHIẾU (`owner`): kết quả (state finalize = Được duyệt/Bị bác) hoặc
+#       tiến trình — trừ khi owner chính là actor, hoặc đã nằm trong nhóm (1).
+# Dynamic-resolve từ Workflow metadata (KHÔNG hard-code state/role — LL-BE-30/31).
+
+_WF_ADMIN_OVERRIDE_ROLES: frozenset[str] = frozenset(
+    {"System Manager", "AssetCore Super Admin", "Administrator", "Guest", "All"}
+)
+
+# State kết-thúc mang nghĩa TỪ CHỐI/HỦY (chọn từ ngữ "bị bác" vs "được duyệt").
+_WF_REJECTED_STATES: frozenset[str] = frozenset(
+    {"Rejected", "Từ chối", "Cancelled", "Đã hủy", "Withdrawn", "Bị bác", "Suspended"}
+)
+
+
+def _next_actor_roles(doctype: str, state: str) -> set[str]:
+    """Role (KHÔNG phải admin-override) được phép thực hiện transition RỜI `state`.
+
+    = ai cần hành động tiếp theo khi phiếu đang ở `state`. Loại role admin-override
+    (`_WF_ADMIN_OVERRIDE_ROLES`) để không spam toàn bộ quản trị viên — họ có transition
+    ở gần như mọi state do `backfill_workflow_admin` (memory workflow_admin_override_rbac).
+    """
+    out: set[str] = set()
+    for t in _active_workflow_transitions(doctype):
+        if t.get("state") == state:
+            role = t.get("allowed")
+            if role and role not in _WF_ADMIN_OVERRIDE_ROLES:
+                out.add(role)
+    return out
+
+
+def resolve_next_actor_recipients(doc) -> list[str]:
+    """User cần xử lý bước kế cho `doc` ở `workflow_state` hiện tại.
+
+    Union `get_users_with_role` cho mọi role ∈ `_next_actor_roles`; loại actor hiện
+    tại (FR-00-NTF-04) + Administrator + rỗng, dedupe (giữ thứ tự).
+    """
+    doctype = getattr(doc, "doctype", None)
+    state = doc.get("workflow_state") if hasattr(doc, "get") else getattr(doc, "workflow_state", None)
+    if not doctype or not state:
+        return []
+    candidates: list[str] = []
+    for role in _next_actor_roles(doctype, state):
+        try:
+            candidates.extend(get_users_with_role(role))
+        except Exception:
+            frappe.log_error(
+                frappe.get_traceback(), "Notification resolve_next_actor_recipients"
+            )
+    actor = frappe.session.user
+    seen: set[str] = set()
+    out: list[str] = []
+    for u in candidates:
+        if u and u != actor and u != "Administrator" and u not in seen:
+            seen.add(u)
+            out.append(u)
+    return out
+
+
+def notify_workflow_transition(doc, method: str | None = None) -> None:
+    """E8 — Generic: workflow_state đổi → báo (1) người xử lý bước kế + (2) người tạo.
+
+    Wired `on_update` cho các doctype governance/approval CHƯA có listener chuyên biệt
+    (KHÔNG wire cho PM Work Order/Asset Repair/Incident Report — tránh double E1/E2/E5).
+
+    Idempotent: chỉ bắn khi `workflow_state` THỰC SỰ đổi (so `get_doc_before_save()`).
+    Bỏ doc cancelled (docstatus=2). Bỏ lần TẠO MỚI (before None) → không spam khi khởi
+    tạo (người tạo tự biết). `on_update` cũng chạy trong `doc.submit()` nên bắt được cả
+    transition finalize (Phê duyệt/Bác) — KHÔNG wire on_submit song song (tránh double).
+
+    Signature `(doc, method=None)` bắt buộc cho doc_events (LL-BE-6). Fail-safe: bọc
+    try/except — listener KHÔNG được làm vỡ luồng save chính (LL-BE-20).
+    """
+    try:
+        if getattr(doc, "docstatus", 0) == 2:
+            return
+        doctype = getattr(doc, "doctype", None)
+        state = doc.get("workflow_state") if hasattr(doc, "get") else getattr(doc, "workflow_state", None)
+        if not doctype or not state:
+            return
+
+        before = doc.get_doc_before_save() if hasattr(doc, "get_doc_before_save") else None
+        if before is None:
+            return  # tạo mới — không bắn (creator biết mình vừa tạo)
+        prev = before.get("workflow_state") if hasattr(before, "get") else getattr(before, "workflow_state", None)
+        if prev == state:
+            return  # workflow_state không đổi → no-op (tránh bắn mỗi lần save)
+
+        name = getattr(doc, "name", "")
+        actor = frappe.session.user
+
+        # (1) Người xử lý bước kế (role allowed rời state mới, trừ admin-override).
+        next_actors = resolve_next_actor_recipients(doc)
+        if next_actors:
+            subject = f"Cần xử lý: {doctype} {name}"
+            message = (
+                f"Phiếu <b>{doctype} {name}</b> vừa chuyển sang trạng thái "
+                f"<b>{state}</b> và cần bạn xử lý bước tiếp theo."
+            )
+            _dispatch(next_actors, subject, message, doc)
+
+        # (2) Người tạo phiếu — kết quả (finalize) hoặc tiến trình. Loại actor +
+        # Administrator + người đã nhận ở (1) → tránh double tới cùng 1 user.
+        owner = getattr(doc, "owner", None)
+        if owner and owner != actor and owner != "Administrator" and owner not in next_actors:
+            if state in _finalize_states(doctype):
+                if state in _WF_REJECTED_STATES:
+                    subject = f"Kết quả: {doctype} {name} — không được duyệt"
+                    verb = "đã <b>không được phê duyệt</b>"
+                else:
+                    subject = f"Kết quả: {doctype} {name} — đã được duyệt"
+                    verb = "đã <b>được phê duyệt</b>"
+                message = f"Phiếu <b>{doctype} {name}</b> bạn tạo {verb} (trạng thái: {state})."
+            else:
+                subject = f"Cập nhật: {doctype} {name}"
+                message = (
+                    f"Phiếu <b>{doctype} {name}</b> bạn tạo vừa chuyển sang "
+                    f"trạng thái <b>{state}</b>."
+                )
+            _dispatch([owner], subject, message, doc)
+    except Exception:
+        frappe.log_error(
+            frappe.get_traceback(), "Notification notify_workflow_transition"
+        )

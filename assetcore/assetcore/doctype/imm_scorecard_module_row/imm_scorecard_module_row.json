@@ -21,7 +21,7 @@
   {
    "fieldname": "module_name",
    "fieldtype": "Data",
-   "label": "Module",
+   "label": "Phân hệ",
    "reqd": 1,
    "in_list_view": 1
   },

@@ -434,9 +434,25 @@ def roll_into_plan(plan_year: int, plan_period: str, needs_requests: Iterable[st
         plan.plan_period = plan_period
         plan.budget_envelope = 0  # Caller phải set trước khi submit
 
+    append_approved_nr_lines(plan, needs_requests)
+    plan.save(ignore_permissions=True)
+    return plan.name
+
+
+def append_approved_nr_lines(plan: Document, needs_requests: Iterable[str]) -> int:
+    """Append `plan_items` cho mỗi Needs Request ĐÃ DUYỆT — SSoT cho luật
+    "chỉ đề xuất (NR) Approved mới vào kế hoạch mua sắm".
+
+    Dùng chung bởi `roll_into_plan` (đưa NR vào plan có sẵn) và
+    `api.imm01._create_procurement_plan` (tạo plan KÈM đề xuất, proposal-first).
+    Bỏ qua NR đã có trong plan (idempotent). Raise ServiceError(BUSINESS_RULE)
+    nếu BẤT KỲ NR nào chưa Approved (docstatus=1 + workflow_state="Approved").
+    KHÔNG tự save — caller quyết định thời điểm insert/save. Trả số dòng đã thêm.
+    """
     existing = {it.needs_request for it in (plan.plan_items or [])}
+    added = 0
     for nr_name in needs_requests:
-        if nr_name in existing:
+        if not nr_name or nr_name in existing:
             continue
         nr = frappe.get_doc(_DT_NR, nr_name)
         if nr.docstatus != 1 or nr.workflow_state != "Approved":
@@ -451,8 +467,9 @@ def roll_into_plan(plan_year: int, plan_period: str, needs_requests: Iterable[st
             "allocated_budget": nr.tco_5y or 0,
             "status":          "Pending Spec",
         })
-    plan.save(ignore_permissions=True)
-    return plan.name
+        existing.add(nr_name)
+        added += 1
+    return added
 
 
 # ─── Demand Forecast (scheduler) ──────────────────────────────────────────────
@@ -490,7 +507,17 @@ def generate_demand_forecast() -> None:
 # ─── Scheduler — overdue & envelope alerts ────────────────────────────────────
 
 def check_pending_request_overdue() -> None:
-    """Daily — phiếu Submitted/Reviewing > 30d → email PTP Khối 1 (placeholder)."""
+    """Daily — NR ở Submitted/Reviewing (docstatus=0) treo > 30 ngày kể từ
+    `request_date` → escalation **digest** in-app (Notification Log) + email tới
+    role SSoT `notify_roles.NEEDS_STALE_ESCALATION` (= "Needs Manager").
+
+    Giữ early-return sạch: 0 phiếu quá hạn → 0 thông báo. Ủy thác dispatch cho
+    `notifications.notify_needs_overdue` (E7) — resolve recipient qua SSoT, idempotent
+    1 digest/người/ngày, 0 recipient → log cảnh báo KHÔNG raise.
+
+    Spec: docs/imm-01/02_Analysis_Design.md BR-01-11 + ADR-IMM-01-01 (thay block
+    log-only cũ — biến thể dead-gate: tín hiệu có nhưng không tới người xử lý).
+    """
     rows = frappe.db.sql(
         f"""SELECT name, requesting_department, request_date
             FROM `tab{_DT_NR}`
@@ -501,8 +528,10 @@ def check_pending_request_overdue() -> None:
     )
     if not rows:
         return
-    # TODO: gửi email cho IMM Department Head + IMM Planning Officer
-    frappe.logger("imm01").info(f"IMM-01 overdue: {len(rows)} phiếu")
+    # Lazy-import: tránh circular import lúc bench start (notifications import các
+    # service khác ở module-level).
+    from assetcore.services import notifications
+    notifications.notify_needs_overdue(rows)
 
 
 def budget_envelope_alert() -> None:

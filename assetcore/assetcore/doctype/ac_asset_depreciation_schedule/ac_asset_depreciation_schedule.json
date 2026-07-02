@@ -34,6 +34,7 @@
   {
    "fieldname": "depreciation_amount",
    "fieldtype": "Currency",
+   "length": 28,
    "in_list_view": 1,
    "label": "Số tiền KH",
    "options": "VND",
@@ -43,6 +44,7 @@
   {
    "fieldname": "accumulated_amount",
    "fieldtype": "Currency",
+   "length": 28,
    "label": "Lũy kế",
    "options": "VND",
    "read_only": 1
@@ -50,6 +52,7 @@
   {
    "fieldname": "remaining_value",
    "fieldtype": "Currency",
+   "length": 28,
    "in_list_view": 1,
    "label": "Giá trị còn lại",
    "options": "VND",

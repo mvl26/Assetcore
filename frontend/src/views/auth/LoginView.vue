@@ -224,7 +224,7 @@ async function handleLogin() {
         </div>
 
         <div class="mt-6 pt-6 border-t border-gray-100 text-center">
-          <p class="text-xs text-gray-400">AssetCore — Hệ thống quản lý vòng đời thiết bị y tế (HTM)</p>
+          <p class="text-xs text-gray-400">AssetCore — Hệ thống quản lý vòng đời thiết bị y tế</p>
         </div>
       </div>
     </div>

@@ -155,7 +155,7 @@ async function submit() {
           <p v-if="amountInWords" class="mt-1 text-xs text-gray-500 italic">Bằng chữ: {{ amountInWords }}</p>
         </div>
         <div>
-          <label for="sc-sla" class="block text-sm font-medium text-gray-700 mb-1">SLA phản hồi (giờ)</label>
+          <label for="sc-sla" class="block text-sm font-medium text-gray-700 mb-1">Cam kết mức dịch vụ phản hồi (giờ)</label>
           <input id="sc-sla" v-model.number="form.sla_response_hours" type="number" min="0" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
         </div>
       </div>

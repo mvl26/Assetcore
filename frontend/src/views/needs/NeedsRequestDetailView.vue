@@ -16,9 +16,11 @@ import {
   priorityBadge, formatVnd,
 } from '@/utils/wave2Labels'
 import PageHeader from '@/components/common/PageHeader.vue'
+import CurrencyInput from '@/components/common/CurrencyInput.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import BaseModal from '@/components/common/BaseModal.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
+import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
 
 const props = defineProps<{ id?: string }>()
 const route  = useRoute()
@@ -62,8 +64,12 @@ const isBoardApprover = computed(() => auth.hasAnyRole([Roles.DEPT_HEAD, Roles.O
 const canScore = computed(() =>
   isQA.value && currentDoc.value?.workflow_state === 'Reviewing',
 )
+// Cho chỉnh dự toán ở CẢ 'Prioritized' và 'Budgeted' — để nút "Yêu cầu chỉnh dự toán"
+// (Pending Approval → Budgeted) trở thành đường phục hồi chạy được: sửa Nguồn vốn còn thiếu
+// rồi Trình BGĐ lại. BE `_submit_budget_estimate` đã cho lưu khi docstatus=0 nên không cần đổi BE.
 const canEditBudget = computed(() =>
-  isOpsManager.value && currentDoc.value?.workflow_state === 'Prioritized',
+  isOpsManager.value
+  && ['Prioritized', 'Budgeted'].includes(currentDoc.value?.workflow_state ?? ''),
 )
 const canApproveReject = computed(() =>
   isBoardApprover.value && currentDoc.value?.workflow_state === 'Pending Approval',
@@ -175,6 +181,9 @@ function removeOpex(i: number)  { opexDraft.value.splice(i, 1) }
 
 async function saveBudget() {
   if (!currentDoc.value?.name) return
+  // Nguồn vốn bắt buộc: chặn lưu dự toán khi rỗng → không để NR tới Chờ phê duyệt mà thiếu
+  // funding_source (gate G05). Nút "Lưu dự toán" cũng đã disabled khi rỗng — đây là lớp phòng thủ.
+  if (!fundingSourceDraft.value) return
   const lines = [...capexDraft.value, ...opexDraft.value]
   const res = await api.run(
     () => store.submitBudget(currentDoc.value!.name!, lines, fundingSourceDraft.value || undefined),
@@ -387,7 +396,7 @@ watch(currentDoc, (doc) => {
       <div class="card space-y-3">
         <h3 class="card-title">Thông tin thiết bị</h3>
         <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm">
-          <dt class="text-neutral-500">Model thiết bị</dt>
+          <dt class="text-neutral-500">Mẫu thiết bị</dt>
           <dd class="font-medium">{{ (currentDoc as any).device_model_name || currentDoc.device_model_ref || '—' }}</dd>
           <dt class="text-neutral-500">Danh mục</dt>
           <dd>{{ (currentDoc as any).device_category_name || (currentDoc as any).asset_category_name || currentDoc.device_category || '—' }}</dd>
@@ -422,7 +431,7 @@ watch(currentDoc, (doc) => {
           </div>
           <div v-if="currentDoc.tco_5y" class="text-center">
             <div class="text-2xl font-bold text-neutral-700">{{ formatVnd(currentDoc.tco_5y) }}</div>
-            <div class="text-xs text-neutral-500 mt-1">TCO 5 năm</div>
+            <div class="text-xs text-neutral-500 mt-1">Tổng chi phí sở hữu 5 năm</div>
           </div>
         </div>
       </div>
@@ -438,7 +447,7 @@ watch(currentDoc, (doc) => {
       <div v-if="!canScore && currentDoc.workflow_state !== 'Prioritized'"
            class="mb-4 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-700">
         <strong>Lưu ý:</strong>
-        Chỉ QA Officer có thể chấm điểm khi phiếu ở trạng thái
+        Chỉ cán bộ đảm bảo chất lượng có thể chấm điểm khi phiếu ở trạng thái
         <strong>{{ stateLabel('Reviewing') }}</strong>.
         Trạng thái hiện tại: <strong>{{ stateLabel(currentDoc.workflow_state) }}</strong>.
       </div>
@@ -551,8 +560,8 @@ watch(currentDoc, (doc) => {
       <div v-if="!canEditBudget && !['Budgeted','Pending Approval','Approved'].includes(currentDoc.workflow_state ?? '')"
            class="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-700">
         <strong>Lưu ý:</strong>
-        Ops Manager có thể lập dự toán khi phiếu ở trạng thái
-        <strong>{{ stateLabel('Prioritized') }}</strong>.
+        Quản lý vận hành có thể lập / chỉnh dự toán khi phiếu ở trạng thái
+        <strong>{{ stateLabel('Prioritized') }}</strong> hoặc <strong>{{ stateLabel('Budgeted') }}</strong>.
         Trạng thái hiện tại: <strong>{{ stateLabel(currentDoc.workflow_state) }}</strong>.
       </div>
 
@@ -567,7 +576,9 @@ watch(currentDoc, (doc) => {
           </template>
           <template v-else-if="budgetEditMode">
             <button class="btn-secondary text-sm" @click="cancelBudgetEdit">Huỷ</button>
-            <button class="btn-primary text-sm" @click="saveBudget">Lưu dự toán</button>
+            <button class="btn-primary text-sm" :disabled="!fundingSourceDraft"
+                    :title="!fundingSourceDraft ? 'Chọn Nguồn vốn trước khi lưu' : ''"
+                    @click="saveBudget">Lưu dự toán</button>
           </template>
         </div>
       </div>
@@ -576,7 +587,7 @@ watch(currentDoc, (doc) => {
         <!-- CAPEX -->
         <div class="card">
           <div class="flex items-center justify-between mb-3">
-            <h4 class="font-semibold text-neutral-700">Đầu tư mua sắm (CAPEX)</h4>
+            <h4 class="font-semibold text-neutral-700">Đầu tư mua sắm</h4>
             <span class="text-sm font-semibold text-blue-700">{{ formatVnd(budgetEditMode ? capexTotal : (currentDoc.total_capex ?? 0)) }}</span>
           </div>
           <table class="w-full text-sm">
@@ -605,7 +616,7 @@ watch(currentDoc, (doc) => {
                   <template v-else>{{ r.qty ?? 1 }}</template>
                 </td>
                 <td class="td text-right">
-                  <input v-if="budgetEditMode" v-model.number="r.unit_cost" type="number" min="0"
+                  <CurrencyInput v-if="budgetEditMode" v-model="r.unit_cost" aria-label="Đơn giá"
                          class="w-24 text-right border border-neutral-300 rounded px-1 py-0.5 text-sm" />
                   <template v-else>{{ formatVnd(r.unit_cost) }}</template>
                 </td>
@@ -622,14 +633,14 @@ watch(currentDoc, (doc) => {
             </tbody>
           </table>
           <button v-if="budgetEditMode" class="mt-2 text-sm text-blue-600 hover:text-blue-800 font-medium" @click="addCapex">
-            + Thêm dòng CAPEX
+            + Thêm dòng đầu tư
           </button>
         </div>
 
         <!-- OPEX -->
         <div class="card">
           <div class="flex items-center justify-between mb-3">
-            <h4 class="font-semibold text-neutral-700">Chi phí vận hành 5 năm (OPEX)</h4>
+            <h4 class="font-semibold text-neutral-700">Chi phí vận hành 5 năm</h4>
             <span class="text-sm font-semibold text-violet-700">{{ formatVnd(budgetEditMode ? opexTotal : (currentDoc.total_opex_5y ?? 0)) }}</span>
           </div>
           <table class="w-full text-sm">
@@ -657,7 +668,7 @@ watch(currentDoc, (doc) => {
                   <template v-else>{{ lineTypeLabel(r.line_type) }}</template>
                 </td>
                 <td class="td text-right font-medium">
-                  <input v-if="budgetEditMode" v-model.number="r.unit_cost" type="number" min="0"
+                  <CurrencyInput v-if="budgetEditMode" v-model="r.unit_cost" aria-label="Đơn giá"
                          class="w-24 text-right border border-neutral-300 rounded px-1 py-0.5 text-sm" />
                   <template v-else>{{ formatVnd(r.unit_cost) }}</template>
                 </td>
@@ -671,7 +682,7 @@ watch(currentDoc, (doc) => {
             </tbody>
           </table>
           <button v-if="budgetEditMode" class="mt-2 text-sm text-blue-600 hover:text-blue-800 font-medium" @click="addOpex">
-            + Thêm dòng OPEX
+            + Thêm dòng vận hành
           </button>
         </div>
       </div>
@@ -680,24 +691,30 @@ watch(currentDoc, (doc) => {
       <div class="card">
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div>
-            <label class="text-xs font-medium text-neutral-500 uppercase tracking-wide">Nguồn vốn</label>
+            <label class="text-xs font-medium text-neutral-500 uppercase tracking-wide">
+              Nguồn vốn <span class="text-rose-500">*</span>
+            </label>
             <div v-if="budgetEditMode" class="mt-1">
               <select v-model="fundingSourceDraft"
-                      class="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm">
+                      class="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm"
+                      :class="!fundingSourceDraft ? 'border-rose-300' : ''">
                 <option value="">Chưa chọn</option>
                 <option v-for="f in FUNDING_OPTIONS" :key="f" :value="f">{{ f }}</option>
               </select>
+              <p v-if="!fundingSourceDraft" class="mt-1 text-xs text-rose-500">
+                Bắt buộc chọn nguồn vốn để có thể trình duyệt (yêu cầu của cổng G05).
+              </p>
             </div>
             <div v-else class="mt-1 text-sm font-semibold">
               {{ currentDoc.funding_source || 'Chưa xác định' }}
             </div>
           </div>
           <div>
-            <label class="text-xs font-medium text-neutral-500 uppercase tracking-wide">CAPEX</label>
+            <label class="text-xs font-medium text-neutral-500 uppercase tracking-wide">Đầu tư mua sắm</label>
             <div class="mt-1 text-lg font-bold text-blue-700">{{ formatVnd(currentDoc.total_capex ?? 0) }}</div>
           </div>
           <div>
-            <label class="text-xs font-medium text-neutral-500 uppercase tracking-wide">TCO 5 năm</label>
+            <label class="text-xs font-medium text-neutral-500 uppercase tracking-wide">Tổng chi phí sở hữu 5 năm</label>
             <div class="mt-1 text-lg font-bold text-violet-700">{{ formatVnd(currentDoc.tco_5y ?? 0) }}</div>
           </div>
         </div>
@@ -747,9 +764,9 @@ watch(currentDoc, (doc) => {
              @close="showApproveModal = false">
     <div class="p-4 space-y-4">
       <div>
-        <label class="form-label">Người duyệt (tài khoản BGĐ) <span class="text-rose-500">*</span></label>
-        <input v-model="approverInput" type="text" placeholder="vd: nguyen.van.a@hospital.vn"
-               class="form-input mt-1" />
+        <label for="nr-board-approver" class="form-label">Người duyệt (tài khoản BGĐ) <span class="text-rose-500">*</span></label>
+        <ApproverSelect id="nr-board-approver" v-model="approverInput" context="user"
+                        class="mt-1" placeholder="Tìm tài khoản BGĐ theo tên hoặc email…" />
       </div>
       <div>
         <label class="form-label">Ghi chú phê duyệt</label>
@@ -801,7 +818,7 @@ watch(currentDoc, (doc) => {
       </p>
 
       <div v-if="!plans.length" class="text-center py-8 text-neutral-400 text-sm">
-        Không có kế hoạch nào ở trạng thái Draft hoặc Approved.
+        Không có kế hoạch nào ở trạng thái Nháp hoặc Đã duyệt.
       </div>
 
       <div v-else class="space-y-2">

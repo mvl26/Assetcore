@@ -26,6 +26,15 @@ export interface PMWorkOrder {
   duration_minutes: number | null
   source_pm_wo: string | null
   checklist_results: ChecklistResult[]
+  /**
+   * SSoT server-driven CTA (GATE-8 / LL-FE-51): danh sách trạng thái-đích hợp lệ
+   * kế tiếp mà BE cho phép, do `get_pm_work_order` emit =
+   * `_PM_VALID_TRANSITIONS.get(status, [])` (imm08.py:652). FE gate nút workflow bằng
+   * `capability && allowed_transitions.includes('<đích>')` — KHÔNG tự suy diễn theo
+   * `status === 'X'`. Chuỗi đích khớp EXACT PMStatus (en-dash: 'Halted–Major Failure',
+   * 'Pending–Device Busy'). Terminal (Completed/Cancelled) → []. Optional (forward-compat).
+   */
+  allowed_transitions?: string[]
 }
 
 export interface ChecklistResult {
@@ -124,11 +133,22 @@ export async function submitPMResult(payload: {
   )
 }
 
+// Envelope khớp BE ReportMajorFailureResponse (services/imm08.py report_major_failure) —
+// 4-key EXACT. `new_status` là PMStatus kỹ-thuật ('Halted–Major Failure') → KHÔNG render thô;
+// view re-fetch WO rồi map qua STATUS_LABEL. Giữ ở type cho parity contract (FE từng đọc 3-key).
+export interface ReportMajorFailureResult {
+  pm_wo: string
+  new_status: PMWorkOrder['status']
+  cm_wo_created: string
+  asset_status: string
+}
+
 export function reportMajorFailure(
   pmWoName: string,
   failureDescription: string,
-): Promise<{ pm_wo: string; cm_wo_created: string; asset_status: string }> {
-  return frappePost<{ pm_wo: string; cm_wo_created: string; asset_status: string }>(
+): Promise<ReportMajorFailureResult> {
+  // BE đã VERB-FLIP @frappe.whitelist(methods=["POST"]) — frappePost giữ tương thích (GET sẽ 405).
+  return frappePost<ReportMajorFailureResult>(
     `${BASE}.report_major_failure`,
     { pm_wo_name: pmWoName, failure_description: failureDescription },
   )

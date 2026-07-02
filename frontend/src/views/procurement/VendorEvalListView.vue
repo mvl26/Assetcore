@@ -235,7 +235,7 @@ onMounted(() => store.fetchEvaluations())
     <div v-if="showCreate" class="modal-overlay" @click.self="showCreate = false">
       <div class="modal-panel max-w-md">
         <h3 class="text-base font-semibold mb-1">Tạo phiếu đánh giá nhà cung cấp</h3>
-        <p class="text-xs text-slate-500 mb-4">Chọn hồ sơ kỹ thuật đã chốt (Locked) để khởi tạo phiếu đánh giá.</p>
+        <p class="text-xs text-slate-500 mb-4">Chọn hồ sơ kỹ thuật đã chốt để khởi tạo phiếu đánh giá.</p>
 
         <div v-if="createError" class="alert-error mb-3 text-sm">{{ createError }}</div>
 
@@ -247,7 +247,7 @@ onMounted(() => store.fetchEvaluations())
           </option>
         </select>
         <p v-if="lockedSpecs.length === 0 && !createError" class="text-xs text-amber-600 mb-4">
-          Chưa có hồ sơ kỹ thuật nào ở trạng thái Locked.
+          Chưa có hồ sơ kỹ thuật nào ở trạng thái Đã chốt.
         </p>
 
         <div class="flex justify-end gap-2">

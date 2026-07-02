@@ -100,7 +100,8 @@
   {
    "fieldname": "unit_cost",
    "fieldtype": "Currency",
-   "label": "Đơn giá tham khảo (theo stock UOM)",
+   "length": 28,
+   "label": "Đơn giá tham khảo (theo ĐVT kho)",
    "in_list_view": 1,
    "non_negative": 1
   },

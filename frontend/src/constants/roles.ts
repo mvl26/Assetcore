@@ -62,25 +62,30 @@ const DOMAIN_LABEL: Record<string, string> = {
   Calibration: 'Hiệu chuẩn',
   Corrective: 'Bảo trì khắc phục',
   Inventory: 'Tồn kho phụ tùng',
-  Compliance: 'Tuân thủ / QMS',
+  Compliance: 'Tuân thủ / Hệ thống quản lý chất lượng',
+}
+
+/** Nhãn tiếng Việt cho mã phân hệ (group). Fallback: trả mã gốc nếu chưa map. */
+export function domainLabel(d: string): string {
+  return DOMAIN_LABEL[d] ?? d
 }
 
 const SYSTEM_INFO: RoleInfo[] = [
   { name: 'AssetCore Super Admin', label: 'Quản trị hệ thống', group: 'System', rank: 100,
     description: 'Toàn quyền + bao trùm Frappe System Manager' },
   { name: 'AssetCore System User', label: 'Người dùng hệ thống', group: 'System', rank: 0,
-    description: 'Role nền: đăng nhập, dashboard, đọc shared-core' },
+    description: 'Vai trò nền: đăng nhập, bảng điều khiển, đọc lõi dùng chung' },
   { name: 'AssetCore Auditor', label: 'Kiểm toán viên', group: 'System', rank: 5,
-    description: 'Chỉ đọc toàn bộ + audit trail' },
+    description: 'Chỉ đọc toàn bộ + nhật ký truy vết' },
   { name: 'Vendor Engineer', label: 'KTV nhà cung cấp', group: 'System', rank: 5,
-    description: 'Bên thứ ba, cô lập theo WO/Asset' },
+    description: 'Bên thứ ba, cô lập theo Lệnh công việc/Tài sản' },
 ]
 
 const DOMAIN_INFO: RoleInfo[] = DOMAINS.flatMap((d) => ([
   { name: `${d} Manager`, label: `${DOMAIN_LABEL[d]} — Quản lý`, group: d, rank: 50,
-    description: 'Full CRUD + duyệt/hủy workflow' },
+    description: 'Toàn quyền + duyệt/hủy quy trình' },
   { name: `${d} User`, label: `${DOMAIN_LABEL[d]} — Người dùng`, group: d, rank: 10,
-    description: 'read/write/create, thao tác thường' },
+    description: 'đọc/ghi/tạo, thao tác thường' },
 ]))
 
 export const ROLE_CATALOG: RoleInfo[] = [...SYSTEM_INFO, ...DOMAIN_INFO]
@@ -111,6 +116,13 @@ export const Roles = {
   BOARD_APPROVER:   'Procurement Manager',
   TRAINING_OFFICER: 'Training Manager',
 } as const
+
+/**
+ * Base role BẮT BUỘC của mọi user AssetCore (định danh "user AssetCore" + đăng
+ * nhập SPA + đọc shared-core). Mirror BE `role_profile_catalog.BASE_ROLE`. BE
+ * luôn re-inject role này khi sửa role → UI hiển thị KHOÁ (không gỡ được).
+ */
+export const BASE_ROLE = 'AssetCore System User'
 
 // RoleName chap nhan moi role-name dang string (legacy + new module roles).
 // Khong narrow lai persona — code nen gate bang capability (useCapabilities).

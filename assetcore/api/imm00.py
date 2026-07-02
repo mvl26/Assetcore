@@ -3250,6 +3250,9 @@ def get_depreciation_stats():
                     "total_depreciation_months": months,
                     "residual_value": residual,
                     "current_book_value": book,
+                    # accumulated PHẢI truyền: effective_book_value (SoT) phân biệt
+                    # asset mới (book=0,accum=0→gross) vs đã KH hết (book=0,accum>0→0).
+                    "accumulated_depreciation": accum,
                 }):
                     totals["fully_depreciated"] += 1
                 m = method
@@ -3293,6 +3296,138 @@ def get_depreciation_stats():
             [{"category": cat_name_map.get(k, k), "book_value": v} for k, v in totals["by_category"].items()],
             key=lambda x: -x["book_value"],
         )[:8],
+    })
+
+
+# Bucket key cho asset chưa gán Danh mục — hiển thị nhãn VI, category_id = "".
+_DEPR_UNCATEGORIZED = "Chưa phân loại"
+
+
+@frappe.whitelist()
+def get_depreciation_by_category():
+    """GET — Tổng hợp khấu hao GOM THEO DANH MỤC (quản lý tập trung theo danh mục).
+
+    Mỗi Danh mục tài sản trả đủ chỉ số quản trị:
+      asset_count, configured_count, fully_depreciated, total_gross,
+      total_accumulated, total_book_value, pct_depreciated.
+    Khác get_depreciation_stats().by_category (chỉ book_value top-8) — endpoint này
+    là nguồn cho màn quản lý khấu hao theo danh mục (drill + áp dụng luật).
+
+    PARITY (INVARIANT SoT — KHÔNG drift với get_depreciation_stats): dùng CHUNG
+      • filter: ``docstatus != 2`` + ``reserved_prefix_filter()`` (loại asset rác test)
+      • predicate: ``effective_book_value`` / ``is_fully_depreciated`` / ``configured``
+    ⇒ Σ per-category == tổng toàn cục:
+        Σ cat.asset_count      == totals.total_assets == get_depreciation_stats().total_assets
+        Σ cat.fully_depreciated                        == get_depreciation_stats().fully_depreciated
+        totals.total_gross     == get_depreciation_stats().total_gross  (cùng raw sum)
+
+    Category id → category_name enrich (mirror get_depreciation_stats). Sắp theo
+    total_gross giảm dần (danh mục 'nặng vốn' lên đầu).
+    """
+    from assetcore.services.depreciation import (
+        is_fully_depreciated as _depr_is_fully_depreciated,
+        effective_book_value as _depr_effective_book_value,
+    )
+
+    BATCH = 500
+    # per-category accumulator, key = category docname hoặc _DEPR_UNCATEGORIZED
+    acc: dict[str, dict] = {}
+    grand = {"total_assets": 0, "total_gross": 0.0,
+             "total_accumulated": 0.0, "total_book": 0.0}
+
+    # SoT chung với get_depreciation_stats (parity KPI ↔ by-category).
+    _depr_filters = {"docstatus": ("!=", 2), **reserved_prefix_filter()}
+    offset = 0
+    while True:
+        batch = frappe.get_all(
+            _DT_ASSET, filters=_depr_filters, fields=_DEPR_LIST_FIELDS,
+            limit_start=offset, limit_page_length=BATCH,
+        )
+        if not batch:
+            break
+        for a in batch:
+            gross    = float(a.get("gross_purchase_amount") or 0)
+            residual = float(a.get("residual_value") or 0)
+            accum    = float(a.get("accumulated_depreciation") or 0)
+            # BR-05-13: SoT đọc book — None→gross, 0.0(mới)→gross (KHÔNG inline `or gross`).
+            book     = _depr_effective_book_value(a)
+            method   = (a.get("depreciation_method") or "").strip()
+            months   = int(a.get("total_depreciation_months") or 0)
+            configured = bool(method and method != "None" and gross > 0 and months > 0)
+
+            cat_id = a.get("asset_category") or _DEPR_UNCATEGORIZED
+            g = acc.get(cat_id)
+            if g is None:
+                g = {"asset_count": 0, "configured_count": 0, "fully_depreciated": 0,
+                     "total_gross": 0.0, "total_accumulated": 0.0, "total_book": 0.0}
+                acc[cat_id] = g
+
+            g["asset_count"]       += 1
+            g["total_gross"]       += gross
+            g["total_accumulated"] += accum
+            g["total_book"]        += book
+            if configured:
+                g["configured_count"] += 1
+                # SoT DUY NHẤT — KHÔNG inline `book <= residual + 1` (cùng số với KPI).
+                if _depr_is_fully_depreciated({
+                    "depreciation_method": method,
+                    "gross_purchase_amount": gross,
+                    "total_depreciation_months": months,
+                    "residual_value": residual,
+                    "current_book_value": book,
+                    "accumulated_depreciation": accum,
+                }):
+                    g["fully_depreciated"] += 1
+
+            grand["total_assets"]       += 1
+            grand["total_gross"]        += gross
+            grand["total_accumulated"]  += accum
+            grand["total_book"]         += book
+
+        if len(batch) < BATCH:
+            break
+        offset += BATCH
+
+    # Enrich category id -> human-readable category_name (mirror get_depreciation_stats).
+    cat_ids = [k for k in acc.keys() if k and k != _DEPR_UNCATEGORIZED]
+    cat_name_map: dict = {}
+    if cat_ids:
+        rows = frappe.get_all(
+            _DT_ASSET_CATEGORY, filters={"name": ("in", cat_ids)},
+            fields=["name", "category_name"],
+        )
+        cat_name_map = {r["name"]: (r.get("category_name") or r["name"]) for r in rows}
+
+    categories = []
+    for cat_id, g in acc.items():
+        tg = g["total_gross"]
+        ta = g["total_accumulated"]
+        uncategorized = cat_id == _DEPR_UNCATEGORIZED
+        categories.append({
+            "category_id":       "" if uncategorized else cat_id,
+            "category":          _DEPR_UNCATEGORIZED if uncategorized
+                                 else cat_name_map.get(cat_id, cat_id),
+            "asset_count":       g["asset_count"],
+            "configured_count":  g["configured_count"],
+            "fully_depreciated": g["fully_depreciated"],
+            "total_gross":       round(tg, 0),
+            "total_accumulated": round(ta, 0),
+            "total_book_value":  round(g["total_book"], 0),
+            "pct_depreciated":   round(ta / tg * 100, 1) if tg > 0 else 0.0,
+        })
+    categories.sort(key=lambda x: -x["total_gross"])
+
+    tg = grand["total_gross"]
+    ta = grand["total_accumulated"]
+    return _ok({
+        "categories": categories,
+        "totals": {
+            "total_assets":       grand["total_assets"],
+            "total_gross":        round(tg, 0),
+            "total_accumulated":  round(ta, 0),
+            "total_book_value":   round(grand["total_book"], 0),
+            "overall_pct":        round(ta / tg * 100, 1) if tg > 0 else 0.0,
+        },
     })
 
 

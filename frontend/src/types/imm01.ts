@@ -52,6 +52,9 @@ export interface NeedsRequestListItem {
   request_date: string
   total_capex?: number
   tco_5y?: number
+  // Overdue (server-flag SSoT — BE tính theo server-clock, FE chỉ render)
+  age_days?: number | null
+  is_overdue?: boolean
   // Display names (BE-DC-01-01)
   department_name?: string
   device_model_name?: string
@@ -105,6 +108,8 @@ export interface NeedsRequestFilters {
   request_type?: RequestType
   priority_class?: PriorityClass
   target_year?: number
+  /** SSoT overdue: BE lọc phiếu treo > 30 ngày ở Submitted/Reviewing (server-clock). */
+  overdue?: 0 | 1
 }
 
 export interface ProcurementPlanLineRow {

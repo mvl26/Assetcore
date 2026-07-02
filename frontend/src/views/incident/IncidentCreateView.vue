@@ -4,7 +4,10 @@ import { useRouter, useRoute } from 'vue-router'
 import { reportIncident } from '@/api/imm12'
 import { getAssetActionMeta } from '@/api/imm00'
 import SmartSelect from '@/components/common/SmartSelect.vue'
+import DateTimeInput from '@/components/common/DateTimeInput.vue'
+import FormError from '@/components/common/FormError.vue'
 import { useFormDraft } from '@/composables/useFormDraft'
+import { notFutureError } from '@/utils/formValidation'
 import { incidentSeverityLabel, INCIDENT_TYPE_LABEL, lifecycleStatusLabel } from '@/constants/labels'
 
 const router = useRouter()
@@ -31,6 +34,7 @@ const form = ref({
   incident_type: '',
   severity: '',
   description: '',
+  occurred_datetime: '',
   immediate_action: '',
   fault_code: '',
   workaround_applied: false,
@@ -96,13 +100,20 @@ async function submit() {
     return
   }
   if (form.value.severity === 'Critical' && !form.value.clinical_impact.trim()) {
-    error.value = 'Incident Critical bắt buộc nhập Tác động lâm sàng.'
+    error.value = 'Sự cố mức Nghiêm trọng bắt buộc nhập Tác động lâm sàng.'
     return
   }
   if (form.value.patient_affected && !form.value.patient_impact_description.trim()) {
     error.value = 'Vui lòng mô tả ảnh hưởng đến bệnh nhân.'
     return
   }
+  // L-19: chặn client thời điểm xảy ra ở tương lai (mirror BE guard; BE vẫn là
+  // guard quyền lực). Rỗng = hợp lệ (BE fallback reported_at).
+  const dtErr = notFutureError(
+    form.value.occurred_datetime,
+    'Thời điểm xảy ra sự cố không được ở tương lai.',
+  )
+  if (dtErr) { error.value = dtErr; return }
   saving.value = true
   error.value = ''
   try {
@@ -117,15 +128,16 @@ async function submit() {
       patient_affected: form.value.patient_affected ? 1 : 0,
       patient_impact_description: form.value.patient_impact_description,
       immediate_action: form.value.immediate_action,
+      occurred_datetime: form.value.occurred_datetime,
       source: form.value.source,
     })
     if (res?.name) {
       clearDraft()
       router.push('/incidents/dashboard')
     }
-    else error.value = 'Lỗi khi tạo Incident Report'
+    else error.value = 'Lỗi khi tạo phiếu sự cố'
   } catch (e: unknown) {
-    error.value = e instanceof Error ? e.message : 'Lỗi khi tạo Incident Report'
+    error.value = e instanceof Error ? e.message : 'Lỗi khi tạo phiếu sự cố'
   }
   saving.value = false
 }
@@ -143,11 +155,11 @@ onMounted(() => {
   <div class="page-container animate-fade-in space-y-6">
     <div class="flex items-center gap-3">
       <button class="text-slate-500 hover:text-slate-700 text-sm" @click="router.push('/incidents/list')">← Quay lại</button>
-      <h1 class="text-xl font-semibold text-slate-800">Tạo Incident Report</h1>
+      <h1 class="text-xl font-semibold text-slate-800">Tạo phiếu sự cố</h1>
     </div>
 
     <div class="bg-white rounded-xl border border-slate-200 p-6 space-y-5">
-      <div v-if="error" class="text-red-600 text-sm bg-red-50 px-3 py-2 rounded-lg">{{ error }}</div>
+      <FormError :message="error" />
 
       <div>
         <label class="block text-sm font-medium text-slate-700 mb-1">
@@ -184,7 +196,7 @@ onMounted(() => {
               <dd class="font-medium text-slate-800">{{ assetMeta.asset_name || 'Chưa có tên' }}</dd>
             </div>
             <div data-test="scan-incident-meta-model" class="flex flex-col">
-              <dt class="text-xs text-slate-500">Model</dt>
+              <dt class="text-xs text-slate-500">Mẫu máy</dt>
               <dd class="text-slate-800">{{ modelText }}</dd>
             </div>
             <div data-test="scan-incident-meta-location" class="flex flex-col">
@@ -213,8 +225,18 @@ onMounted(() => {
             <option value="">-- Chọn --</option>
             <option v-for="s in SEVERITIES" :key="s" :value="s">{{ incidentSeverityLabel(s) }}</option>
           </select>
-          <p v-if="form.severity === 'Critical'" class="text-xs text-red-600 mt-1">Mức Nghiêm trọng sẽ tự động đưa thiết bị về Ngừng sử dụng và bắt buộc lập RCA trước khi đóng.</p>
+          <p v-if="form.severity === 'Critical'" class="text-xs text-red-600 mt-1">Mức Nghiêm trọng sẽ tự động đưa thiết bị về Ngừng sử dụng và bắt buộc lập phân tích nguyên nhân gốc trước khi đóng.</p>
         </div>
+      </div>
+
+      <div>
+        <label for="inc-occurred" class="block text-sm font-medium text-slate-700 mb-1">Thời điểm xảy ra sự cố</label>
+        <DateTimeInput
+          id="inc-occurred"
+          v-model="form.occurred_datetime"
+          class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+        />
+        <p class="text-xs text-slate-500 mt-1">Để trống nếu sự cố vừa xảy ra — hệ thống dùng thời điểm báo. Không được chọn thời điểm ở tương lai.</p>
       </div>
 
       <div>
@@ -226,12 +248,12 @@ onMounted(() => {
         <div>
           <label for="inc-fault-code" class="block text-sm font-medium text-slate-700 mb-1">Mã lỗi (Fault Code)</label>
           <input id="inc-fault-code" v-model="form.fault_code" type="text" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" placeholder="vd: E-42, HW-FAIL..." />
-          <p class="text-xs text-slate-500 mt-1">Dùng cho phát hiện chronic failure (≥3 sự cố cùng mã trong 90 ngày).</p>
+          <p class="text-xs text-slate-500 mt-1">Dùng cho phát hiện lỗi lặp lại (≥3 sự cố cùng mã trong 90 ngày).</p>
         </div>
         <div class="flex items-end">
           <label class="flex items-center gap-2 cursor-pointer">
             <input id="inc-workaround" v-model="form.workaround_applied" type="checkbox" class="w-4 h-4 rounded" />
-            <span class="text-sm text-slate-700">Đã áp dụng workaround tạm thời</span>
+            <span class="text-sm text-slate-700">Đã áp dụng giải pháp tạm thời</span>
           </label>
         </div>
       </div>
@@ -262,7 +284,7 @@ onMounted(() => {
         class="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white py-2.5 rounded-lg text-sm font-medium"
         @click="submit"
       >
-{{ saving ? 'Đang tạo...' : 'Tạo Incident Report' }}
+{{ saving ? 'Đang tạo...' : 'Tạo phiếu sự cố' }}
 </button>
     </div>
   </div>

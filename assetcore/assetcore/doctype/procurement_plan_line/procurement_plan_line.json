@@ -42,6 +42,7 @@
   {
    "fieldname": "allocated_budget",
    "fieldtype": "Currency",
+   "length": 28,
    "label": "Phân bổ ngân sách",
    "in_list_view": 1,
    "reqd": 1

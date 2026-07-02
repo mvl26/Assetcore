@@ -10,7 +10,7 @@ import { getIncident } from '@/api/imm12'
 import { searchSpareParts } from '@/api/imm09'
 import { uploadDocumentFile } from '@/api/imm05'
 import { getAssetActionMeta } from '@/api/imm00'
-import { lifecycleStatusLabel, riskClassificationLabel } from '@/constants/labels'
+import { lifecycleStatusLabel, riskClassificationLabel, incidentSeverityLabel } from '@/constants/labels'
 import SmartSelect from '@/components/common/SmartSelect.vue'
 
 // Panel meta thiết bị — derive từ meta NẠC (getAssetActionMeta perm-aware, 6 field,
@@ -71,7 +71,7 @@ async function onFaultImageChange(e: Event) {
     const res = await uploadDocumentFile(file)
     form.value.fault_image = res.file_url
   } catch (err: unknown) {
-    uploadImageError.value = err instanceof Error ? err.message : 'Upload ảnh thất bại'
+    uploadImageError.value = err instanceof Error ? err.message : 'Tải ảnh lên thất bại'
   } finally {
     uploadingImage.value = false
   }
@@ -272,7 +272,7 @@ onMounted(() => {
       <!-- Source (tùy chọn — BR-09-01 đã nới) -->
       <div>
         <h2 class="font-semibold text-slate-700 mb-1">Nguồn sửa chữa <span class="text-xs text-slate-400 font-normal">(tùy chọn)</span></h2>
-        <p class="text-xs text-slate-500 mb-3">Nếu có Incident/PM, điền để tự pre-fill asset, severity, mô tả. Có thể bỏ trống (sửa chữa độc lập).</p>
+        <p class="text-xs text-slate-500 mb-3">Nếu có Sự cố/bảo trì định kỳ, điền để tự điền sẵn thiết bị, mức độ, mô tả. Có thể bỏ trống (sửa chữa độc lập).</p>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label class="block text-sm text-slate-600 mb-1">Báo cáo sự cố</label>
@@ -284,7 +284,7 @@ onMounted(() => {
           </div>
         </div>
         <div v-if="incidentMeta" class="mt-2 alert-info text-xs">
-          Đã đọc sự cố: mức độ <b>{{ incidentMeta.severity }}</b> — ưu tiên đặt tự động.
+          Đã đọc sự cố: mức độ <b>{{ incidentSeverityLabel(incidentMeta.severity ?? '') }}</b> — ưu tiên đặt tự động.
         </div>
       </div>
 
@@ -308,31 +308,31 @@ onMounted(() => {
               type="button"
               :class="['px-3 py-1.5', selectMode === 'asset' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600']"
               @click="selectMode = 'asset'"
-            >Chọn theo Asset</button>
+            >Chọn theo tài sản</button>
             <button
               type="button"
               :class="['px-3 py-1.5', selectMode === 'model' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600']"
               @click="selectMode = 'model'"
-            >Chọn theo Model</button>
+            >Chọn theo mẫu máy</button>
           </div>
         </div>
 
         <div v-if="!lockedFromScan && selectMode === 'model'" class="mb-3">
-          <label class="block text-sm text-slate-600 mb-1">Model thiết bị</label>
+          <label class="block text-sm text-slate-600 mb-1">Mẫu thiết bị</label>
           <SmartSelect
             v-model="selectedModel"
             doctype="IMM Device Model"
-            placeholder="Chọn model..."
+            placeholder="Chọn mẫu máy..."
             @select="onModelChange"
             @clear="onModelChange"
           />
-          <label v-if="selectedModel" class="block text-sm text-slate-600 mb-1 mt-3">Chọn thiết bị thuộc model này</label>
+          <label v-if="selectedModel" class="block text-sm text-slate-600 mb-1 mt-3">Chọn thiết bị thuộc mẫu máy này</label>
           <SmartSelect
             v-if="selectedModel"
             v-model="form.asset_ref"
             doctype="AC Asset"
             :filters="{ device_model: selectedModel }"
-            placeholder="Tìm thiết bị thuộc model..."
+            placeholder="Tìm thiết bị thuộc mẫu máy..."
           />
         </div>
         <SmartSelect v-else v-model="form.asset_ref" doctype="AC Asset" :disabled="lockedFromScan" placeholder="Tìm thiết bị theo tên / mã / serial..." />
@@ -353,7 +353,7 @@ onMounted(() => {
               <dd class="inline font-bold">{{ assetMeta.asset_name || 'Chưa có tên' }}</dd>
             </div>
             <div data-test="scan-cm-meta-model" class="bg-slate-50 rounded px-2 py-1.5">
-              <dt class="inline text-slate-500">Model:</dt>
+              <dt class="inline text-slate-500">Mẫu máy:</dt>
               <dd class="inline">{{ assetMeta.device_model_name || 'Chưa gán' }}</dd>
             </div>
             <div data-test="scan-cm-meta-location" class="bg-slate-50 rounded px-2 py-1.5">
@@ -380,7 +380,7 @@ onMounted(() => {
           Thiết bị đã thanh lý — không thể tạo phiếu sửa chữa.
         </div>
         <div v-if="isHighRisk" class="mt-2 alert-warning text-sm">
-          Mức rủi ro {{ riskClassDisplay }} — bắt buộc QA phê duyệt khi đóng phiếu.
+          Mức rủi ro {{ riskClassDisplay }} — bắt buộc đảm bảo chất lượng phê duyệt khi đóng phiếu.
         </div>
       </div>
 
@@ -397,13 +397,13 @@ onMounted(() => {
         <div>
           <label class="block text-sm text-slate-600 mb-1">Ưu tiên *</label>
           <select v-model="form.priority" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
-            <option value="Normal">Normal</option>
-            <option value="Urgent">Urgent</option>
-            <option value="Emergency">Emergency</option>
+            <option value="Normal">Bình thường</option>
+            <option value="Urgent">Khẩn</option>
+            <option value="Emergency">Cấp cứu</option>
           </select>
         </div>
         <div>
-          <label class="block text-sm text-slate-600 mb-1">SLA (giờ)</label>
+          <label class="block text-sm text-slate-600 mb-1">Cam kết mức dịch vụ (giờ)</label>
           <div class="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm font-semibold">
             {{ slaTarget }}h
           </div>
@@ -411,7 +411,7 @@ onMounted(() => {
       </div>
 
       <div v-if="form.priority === 'Emergency'" class="alert-error text-sm">
-        Phiếu mức <strong>Khẩn cấp</strong>. Trưởng xưởng sẽ được thông báo realtime, SLA chỉ {{ slaTarget }} giờ.
+        Phiếu mức <strong>Khẩn cấp</strong>. Trưởng xưởng sẽ được thông báo realtime, cam kết dịch vụ chỉ {{ slaTarget }} giờ.
       </div>
 
       <!-- Description -->

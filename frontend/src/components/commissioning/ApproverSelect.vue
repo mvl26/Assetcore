@@ -1,24 +1,42 @@
 <script setup lang="ts">
 import { ref, watch, onMounted } from 'vue'
 import { getUsersByRole } from '@/api/imm04'
+import { listAssignableUsers } from '@/api/user'
 
 // ─── Props & Emits ────────────────────────────────────────────────────────────
 
+// Picker user typeahead, 2 nguồn (chọn 1):
+//   - role:    user giữ 1 Frappe role cụ thể (commissioning approver — getUsersByRole).
+//   - context: user AssetCore ĐỦ NĂNG LỰC cho ngữ cảnh phân công, lọc theo
+//              capability/DocPerm (vd "repair" — listAssignableUsers). Ưu tiên khi set.
 interface Props {
-  modelValue: string
-  role: string
+  modelValue: string | undefined | null
+  role?: string
+  context?: string
   label?: string
   placeholder?: string
   disabled?: boolean
   required?: boolean
+  /** HTML id cho input bên trong — để <label for="..."> liên kết đúng. */
+  id?: string
 }
 
 const props = withDefaults(defineProps<Props>(), {
+  role: '',
+  context: '',
   label: '',
   placeholder: 'Tìm theo tên hoặc email...',
   disabled: false,
   required: false,
+  id: '',
 })
+
+/** Nguồn user: context (capability) ưu tiên hơn role. */
+function fetchUsers(q: string, limit: number): Promise<UserOption[]> {
+  return props.context
+    ? listAssignableUsers(props.context, q, limit)
+    : getUsersByRole(props.role, q, limit)
+}
 
 const emit = defineEmits<{
   (e: 'update:modelValue', value: string): void
@@ -30,7 +48,7 @@ interface UserOption {
   name: string
   full_name: string
   email: string
-  user_image?: string
+  user_image?: string | null
 }
 
 const query       = ref('')
@@ -47,7 +65,7 @@ let debounceTimer: ReturnType<typeof setTimeout> | null = null
 async function doSearch(q: string) {
   loading.value = true
   try {
-    const rows = await getUsersByRole(props.role, q, 20)
+    const rows = await fetchUsers(q, 20)
     results.value = rows
   } catch {
     results.value = []
@@ -124,7 +142,7 @@ async function loadInitialUser(username: string) {
   if (!username) return
   // First try to find in a short search for their own name
   try {
-    const rows = await getUsersByRole(props.role, '', 50)
+    const rows = await fetchUsers('', 50)
     const found = rows.find(r => r.name === username)
     if (found) {
       selectedUser.value = found
@@ -203,6 +221,7 @@ watch(() => props.modelValue, (val) => {
       <!-- Search input when no user selected -->
       <template v-else>
         <input
+          :id="id || undefined"
           type="text"
           :value="query"
           :disabled="disabled"

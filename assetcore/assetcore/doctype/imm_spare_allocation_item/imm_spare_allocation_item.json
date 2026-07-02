@@ -83,12 +83,14 @@
   {
    "fieldname": "unit_value",
    "fieldtype": "Currency",
+   "length": 28,
    "label": "Đơn giá",
    "fetch_from": "spare_part.unit_cost"
   },
   {
    "fieldname": "line_value",
    "fieldtype": "Currency",
+   "length": 28,
    "label": "Thành tiền",
    "read_only": 1
   },

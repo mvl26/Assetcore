@@ -141,6 +141,20 @@ class MSG:
     IMM09_CHECKLIST_FAILED = "IMM09-CHECKLIST-FAILED"
     IMM09_ASSET_NOT_FOUND = "IMM09-ASSET-NOT-FOUND"
     IMM09_DEPT_HEAD_REQUIRED = "IMM09-DEPT-HEAD-REQUIRED"
+    # R25 dispatch-validation gate (assign_technician): technician không hợp lệ
+    # (User không tồn tại / disabled / không có role repair-capable). Chặn ghi
+    # dữ liệu rác qua ignore_links=True. Xem ADR-IMM09-VALIDATE-TECH (docs/imm-09/04 §3.3).
+    IMM09_INVALID_TECHNICIAN = "IMM09-INVALID-TECHNICIAN"
+    # R26 referential-integrity gate (create_work_order): 2 optional Link FK
+    # (incident_report → Incident Report, source_pm_wo → PM Work Order) truyền
+    # non-empty nhưng record không tồn tại. ignore_links=True bypass FK Frappe →
+    # phải validate tường minh. Xem ADR-IMM09-CREATE-FK (docs/imm-09/04 §3.4).
+    IMM09_INCIDENT_REPORT_NOT_FOUND = "IMM09-INCIDENT-REPORT-NOT-FOUND"
+    IMM09_SOURCE_PM_WO_NOT_FOUND = "IMM09-SOURCE-PM-WO-NOT-FOUND"
+    # Lifecycle precondition gate (create_work_order): asset KHÔNG ở trạng thái
+    # cho phép chuyển sang Under Repair (vd Draft — chưa vận hành). Defense-in-depth
+    # service-tier; chặn raw InvalidAssetTransition (state machine) bubble → HTTP 500.
+    IMM09_ASSET_NOT_REPAIRABLE = "IMM09-ASSET-NOT-REPAIRABLE"
 
     # ── IMM-12 Incident / Corrective / RCA ──────────────────────────────────────
     # Sprint chuẩn hoá thông báo 2026-05-29 vòng 2 — docs/imm-12 §11.2
@@ -148,6 +162,7 @@ class MSG:
     IMM12_RCA_NOT_FOUND = "IMM12-RCA-NOT-FOUND"
     IMM12_ASSET_NOT_FOUND = "IMM12-ASSET-NOT-FOUND"
     IMM12_CLINICAL_IMPACT_REQUIRED = "IMM12-CLINICAL-IMPACT-REQUIRED"
+    IMM12_OCCURRED_DATETIME_FUTURE = "IMM12-OCCURRED-DATETIME-FUTURE"
     IMM12_RESOLUTION_NOTES_REQUIRED = "IMM12-RESOLUTION-NOTES-REQUIRED"
     IMM12_CANCEL_REASON_REQUIRED = "IMM12-CANCEL-REASON-REQUIRED"
     IMM12_RCA_ROOT_CAUSE_REQUIRED = "IMM12-RCA-ROOT-CAUSE-REQUIRED"
@@ -340,7 +355,7 @@ MESSAGES: dict[str, MessageEntry] = {
     },
     MSG.BIZ_COMPLIANCE_BLOCKED: {
         "title": "Bị chặn bởi tuân thủ",
-        "template": "Không thể thực hiện vì tài sản {asset} có {issue_count} phát hiện/CAPA nghiêm trọng chưa đóng.",
+        "template": "Không thể thực hiện vì tài sản {asset} có {issue_count} phát hiện/hành động khắc phục/phòng ngừa nghiêm trọng chưa đóng.",
         "action_hint": "Xử lý các phát hiện compliance trước, sau đó thử lại.",
         "severity": "critical",
         "http_status": 422,
@@ -455,8 +470,8 @@ MESSAGES: dict[str, MessageEntry] = {
         "http_status": 422,
     },
     MSG.IMM04_OPEN_NC: {
-        "title": "Còn NC chưa đóng",
-        "template": "VR-04 (Gate G05): Còn {count} NC chưa đóng.",
+        "title": "Còn sự không phù hợp chưa đóng",
+        "template": "VR-04 (Gate G05): Còn {count} sự không phù hợp chưa đóng.",
         "action_hint": "Đóng toàn bộ Non-Conformance trước khi Clinical Release.",
         "severity": "warning",
         "http_status": 422,
@@ -543,77 +558,77 @@ MESSAGES: dict[str, MessageEntry] = {
 
     # ── IMM-08 Preventive Maintenance ─────────────────────────────────────────
     MSG.IMM08_WO_NOT_FOUND: {
-        "title": "Không tìm thấy lệnh PM",
+        "title": "Không tìm thấy lệnh bảo trì định kỳ",
         "template": "Không tìm thấy lệnh bảo trì định kỳ: {name}.",
-        "action_hint": "Kiểm tra lại mã lệnh PM trong danh sách.",
+        "action_hint": "Kiểm tra lại mã lệnh bảo trì định kỳ trong danh sách.",
         "severity": "warning",
         "http_status": 404,
     },
     MSG.IMM08_SCHEDULE_NOT_FOUND: {
-        "title": "Không tìm thấy lịch PM",
+        "title": "Không tìm thấy lịch bảo trì định kỳ",
         "template": "Không tìm thấy lịch bảo trì định kỳ: {name}.",
-        "action_hint": "Kiểm tra lại mã lịch PM trong danh sách.",
+        "action_hint": "Kiểm tra lại mã lịch bảo trì định kỳ trong danh sách.",
         "severity": "warning",
         "http_status": 404,
     },
     MSG.IMM08_TEMPLATE_NOT_FOUND: {
         "title": "Không tìm thấy mẫu checklist",
-        "template": "Không tìm thấy mẫu checklist PM: {name}.",
+        "template": "Không tìm thấy mẫu checklist bảo trì định kỳ: {name}.",
         "action_hint": "Kiểm tra lại mã mẫu trong danh sách.",
         "severity": "warning",
         "http_status": 404,
     },
     MSG.IMM08_BAD_STATE: {
-        "title": "Sai trạng thái lệnh PM",
-        "template": "Không thể thực hiện hành động khi lệnh PM đang ở trạng thái '{state}'.",
+        "title": "Sai trạng thái lệnh bảo trì định kỳ",
+        "template": "Không thể thực hiện hành động khi lệnh bảo trì định kỳ đang ở trạng thái '{state}'.",
         "action_hint": "Chỉ thực hiện hành động hợp lệ với trạng thái hiện tại.",
         "severity": "warning",
         "http_status": 409,
     },
     MSG.IMM08_ALREADY_SUBMITTED: {
-        "title": "Lệnh PM đã chốt",
+        "title": "Lệnh bảo trì định kỳ đã chốt",
         "template": "Lệnh bảo trì định kỳ này đã được hoàn thành và chốt.",
-        "action_hint": "Không cần thao tác lại — lệnh PM đã chốt.",
+        "action_hint": "Không cần thao tác lại — lệnh bảo trì định kỳ đã chốt.",
         "severity": "warning",
         "http_status": 409,
     },
     MSG.IMM08_CHECKLIST_INCOMPLETE: {
         "title": "Checklist chưa hoàn tất",
-        "template": "Tất cả mục checklist phải có kết quả trước khi hoàn thành PM. Mục '{item}' chưa điền.",
+        "template": "Tất cả mục checklist phải có kết quả trước khi hoàn thành bảo trì định kỳ. Mục '{item}' chưa điền.",
         "action_hint": "Điền kết quả cho mọi mục checklist rồi thử lại.",
         "severity": "warning",
         "http_status": 422,
     },
     MSG.IMM08_DURATION_REQUIRED: {
         "title": "Thiếu thời gian thực hiện",
-        "template": "Thời gian thực hiện (phút) phải lớn hơn 0 trước khi hoàn thành PM.",
+        "template": "Thời gian thực hiện (phút) phải lớn hơn 0 trước khi hoàn thành bảo trì định kỳ.",
         "action_hint": "Nhập thời gian thực hiện rồi thử lại.",
         "severity": "warning",
         "http_status": 422,
     },
     MSG.IMM08_STICKER_REQUIRED: {
         "title": "Chưa gắn tem bảo trì",
-        "template": "Phải xác nhận đã gắn tem bảo trì trước khi hoàn thành PM.",
+        "template": "Phải xác nhận đã gắn tem bảo trì trước khi hoàn thành bảo trì định kỳ.",
         "action_hint": "Gắn tem bảo trì và tích xác nhận rồi thử lại.",
         "severity": "warning",
         "http_status": 422,
     },
     MSG.IMM08_PHOTO_REQUIRED: {
         "title": "Thiếu ảnh bằng chứng",
-        "template": "Thiết bị nguy cơ cao ({risk_class}) bắt buộc đính kèm ảnh trước/sau PM.",
+        "template": "Thiết bị nguy cơ cao ({risk_class}) bắt buộc đính kèm ảnh trước/sau bảo trì định kỳ.",
         "action_hint": "Đính kèm ảnh bằng chứng rồi thử lại.",
         "severity": "warning",
         "http_status": 422,
     },
     MSG.IMM08_SOURCE_PM_REQUIRED: {
-        "title": "Thiếu lệnh PM gốc",
-        "template": "Lệnh khắc phục (CM) phải tham chiếu lệnh PM gốc.",
-        "action_hint": "Chọn lệnh PM gốc rồi thử lại.",
+        "title": "Thiếu lệnh bảo trì định kỳ gốc",
+        "template": "Lệnh khắc phục phải tham chiếu lệnh bảo trì định kỳ gốc.",
+        "action_hint": "Chọn lệnh bảo trì định kỳ gốc rồi thử lại.",
         "severity": "warning",
         "http_status": 422,
     },
     MSG.IMM08_SUBMIT_SUCCESS: {
-        "title": "Đã hoàn thành PM",
+        "title": "Đã hoàn thành bảo trì định kỳ",
         "template": "Đã ghi nhận kết quả bảo trì định kỳ {name}.",
         "action_hint": "",
         "severity": "success",
@@ -638,13 +653,13 @@ MESSAGES: dict[str, MessageEntry] = {
     MSG.IMM09_ASSET_LOCKED: {
         "title": "Tài sản đang bị khoá",
         "template": "Tài sản {asset} đang được khoá bởi một lệnh khác.",
-        "action_hint": "Đợi lệnh kia đóng hoặc liên hệ quản lý PM.",
+        "action_hint": "Đợi lệnh kia đóng hoặc liên hệ quản lý bảo trì định kỳ.",
         "severity": "warning",
         "http_status": 409,
     },
     MSG.IMM09_SLA_EXPIRED: {
-        "title": "Vượt SLA",
-        "template": "Lệnh sửa chữa {name} đã quá thời hạn SLA ({hours_overdue} giờ).",
+        "title": "Vượt cam kết dịch vụ",
+        "template": "Lệnh sửa chữa {name} đã quá thời hạn cam kết dịch vụ ({hours_overdue} giờ).",
         "action_hint": "Liên hệ quản lý để giải trình và cập nhật tiến độ.",
         "severity": "critical",
         "http_status": 422,
@@ -687,15 +702,15 @@ MESSAGES: dict[str, MessageEntry] = {
     },
     MSG.IMM09_FCR_REQUIRED: {
         "title": "Cần yêu cầu đổi firmware",
-        "template": "Cập nhật firmware yêu cầu phải có Yêu cầu đổi Firmware (FCR) được phê duyệt.",
-        "action_hint": "Tạo và phê duyệt FCR trước khi hoàn thành lệnh.",
+        "template": "Cập nhật firmware yêu cầu phải có Yêu cầu đổi Firmware được phê duyệt.",
+        "action_hint": "Tạo và phê duyệt yêu cầu thay đổi firmware trước khi hoàn thành lệnh.",
         "severity": "warning",
         "http_status": 422,
     },
     MSG.IMM09_FCR_NOT_APPROVED: {
-        "title": "FCR chưa được phê duyệt",
-        "template": "FCR '{fcr}' chưa được phê duyệt (trạng thái: {status}).",
-        "action_hint": "Chờ FCR được phê duyệt rồi thử lại.",
+        "title": "Yêu cầu thay đổi firmware chưa được phê duyệt",
+        "template": "Yêu cầu thay đổi firmware '{fcr}' chưa được phê duyệt (trạng thái: {status}).",
+        "action_hint": "Chờ yêu cầu thay đổi firmware được phê duyệt rồi thử lại.",
         "severity": "warning",
         "http_status": 422,
     },
@@ -727,6 +742,46 @@ MESSAGES: dict[str, MessageEntry] = {
         "severity": "warning",
         "http_status": 400,
     },
+    # R25 dispatch-validation gate — chặn giao việc cho kỹ thuật viên không hợp lệ
+    # (User không tồn tại / disabled / không có quyền sửa chữa). http_status=422 (đầu
+    # vào không hợp lệ — field-level). Service gọi nthrow(..., error_code=VALIDATION_ERROR)
+    # ⇒ envelope code='VALIDATION_ERROR' + http_status=422. Xem ADR-IMM09-VALIDATE-TECH.
+    MSG.IMM09_INVALID_TECHNICIAN: {
+        "title": "Kỹ thuật viên không hợp lệ",
+        "template": "Không thể giao việc cho '{technician}' — tài khoản không tồn tại, đã bị khoá, hoặc không có quyền sửa chữa.",
+        "action_hint": "Chọn kỹ thuật viên từ danh sách gợi ý (tài khoản đang hoạt động + có quyền sửa chữa).",
+        "severity": "warning",
+        "http_status": 422,
+    },
+    # R26 referential-integrity gate (create_work_order) — chặn ghi 2 optional Link
+    # FK rác qua ignore_links=True. http_status=422 (đầu vào không hợp lệ — field-level).
+    # Service gọi nthrow(..., error_code=VALIDATION_ERROR) ⇒ envelope code='VALIDATION_ERROR'
+    # + http_status=422. Xem ADR-IMM09-CREATE-FK (docs/imm-09/04 §3.4).
+    MSG.IMM09_INCIDENT_REPORT_NOT_FOUND: {
+        "title": "Không tìm thấy báo cáo sự cố",
+        "template": "Không tìm thấy báo cáo sự cố nguồn: {incident_report}.",
+        "action_hint": "Chọn báo cáo sự cố từ danh sách, hoặc để trống nếu tạo phiếu sửa chữa độc lập.",
+        "severity": "warning",
+        "http_status": 422,
+    },
+    MSG.IMM09_SOURCE_PM_WO_NOT_FOUND: {
+        "title": "Không tìm thấy lệnh bảo trì nguồn",
+        "template": "Không tìm thấy lệnh bảo trì định kỳ nguồn: {source_pm_wo}.",
+        "action_hint": "Chọn lệnh bảo trì từ danh sách, hoặc để trống nếu tạo phiếu sửa chữa độc lập.",
+        "severity": "warning",
+        "http_status": 422,
+    },
+    # Lifecycle precondition gate (create_work_order) — asset KHÔNG ở trạng thái cho
+    # phép chuyển sang Under Repair (vd Draft — chưa vận hành). Service gọi
+    # nthrow(..., error_code=VALIDATION_ERROR) ⇒ envelope code='VALIDATION_ERROR' +
+    # http_status=422. {status} là nhãn VI (_lifecycle_vi) — no EN-leak.
+    MSG.IMM09_ASSET_NOT_REPAIRABLE: {
+        "title": "Thiết bị chưa thể sửa chữa",
+        "template": "Không thể tạo phiếu sửa chữa cho thiết bị {asset} ở trạng thái '{status}'. Thiết bị phải đang vận hành (Đang hoạt động / Đang bảo trì) hoặc Ngừng sử dụng.",
+        "action_hint": "Đưa thiết bị vào vận hành (nghiệm thu) trước, hoặc chọn thiết bị đang hoạt động.",
+        "severity": "warning",
+        "http_status": 422,
+    },
 
     # ── IMM-12 Incident / Corrective / RCA ─────────────────────────────────────
     # Sprint chuẩn hoá thông báo 2026-05-29 vòng 2 — đồng bộ docs/imm-12 §11.2
@@ -738,9 +793,9 @@ MESSAGES: dict[str, MessageEntry] = {
         "http_status": 404,
     },
     MSG.IMM12_RCA_NOT_FOUND: {
-        "title": "Không tìm thấy RCA",
+        "title": "Không tìm thấy phân tích nguyên nhân gốc",
         "template": "Không tìm thấy bản phân tích nguyên nhân gốc: {name}.",
-        "action_hint": "Kiểm tra lại mã RCA trong danh sách.",
+        "action_hint": "Kiểm tra lại mã phân tích nguyên nhân gốc trong danh sách.",
         "severity": "warning",
         "http_status": 404,
     },
@@ -756,6 +811,13 @@ MESSAGES: dict[str, MessageEntry] = {
         "template": "Sự cố mức Critical bắt buộc mô tả tác động lâm sàng.",
         "action_hint": "Nhập tác động lâm sàng trước khi báo cáo sự cố nghiêm trọng.",
         "severity": "critical",
+        "http_status": 422,
+    },
+    MSG.IMM12_OCCURRED_DATETIME_FUTURE: {
+        "title": "Thời điểm xảy ra không hợp lệ",
+        "template": "Thời điểm xảy ra sự cố không được ở tương lai.",
+        "action_hint": "Chọn lại thời điểm bằng hoặc trước thời điểm hiện tại.",
+        "severity": "warning",
         "http_status": 422,
     },
     MSG.IMM12_RESOLUTION_NOTES_REQUIRED: {
@@ -774,29 +836,29 @@ MESSAGES: dict[str, MessageEntry] = {
     },
     MSG.IMM12_RCA_ROOT_CAUSE_REQUIRED: {
         "title": "Thiếu nguyên nhân gốc rễ",
-        "template": "Cần nhập nguyên nhân gốc rễ để hoàn thành RCA.",
-        "action_hint": "Nhập nguyên nhân gốc rễ rồi gửi lại RCA.",
+        "template": "Cần nhập nguyên nhân gốc rễ để hoàn thành phân tích nguyên nhân gốc.",
+        "action_hint": "Nhập nguyên nhân gốc rễ rồi gửi lại phân tích nguyên nhân gốc.",
         "severity": "warning",
         "http_status": 422,
     },
     MSG.IMM12_RCA_CORRECTIVE_REQUIRED: {
         "title": "Thiếu hành động khắc phục",
-        "template": "Cần nhập hành động khắc phục để hoàn thành RCA.",
-        "action_hint": "Nhập hành động khắc phục rồi gửi lại RCA.",
+        "template": "Cần nhập hành động khắc phục để hoàn thành phân tích nguyên nhân gốc.",
+        "action_hint": "Nhập hành động khắc phục rồi gửi lại phân tích nguyên nhân gốc.",
         "severity": "warning",
         "http_status": 422,
     },
     MSG.IMM12_RCA_ALREADY_EXISTS: {
-        "title": "Sự cố đã có RCA",
+        "title": "Sự cố đã có phân tích nguyên nhân gốc",
         "template": "Sự cố này đã có bản phân tích nguyên nhân gốc: {rca}.",
-        "action_hint": "Mở RCA hiện có thay vì tạo mới.",
+        "action_hint": "Mở phân tích nguyên nhân gốc hiện có thay vì tạo mới.",
         "severity": "warning",
         "http_status": 409,
     },
     MSG.IMM12_RCA_ALREADY_COMPLETED: {
-        "title": "RCA đã hoàn thành",
+        "title": "Phân tích nguyên nhân gốc đã hoàn thành",
         "template": "Bản phân tích nguyên nhân gốc này đã hoàn thành.",
-        "action_hint": "Không cần gửi lại — RCA đã chốt.",
+        "action_hint": "Không cần gửi lại — phân tích nguyên nhân gốc đã chốt.",
         "severity": "warning",
         "http_status": 409,
     },
@@ -809,15 +871,15 @@ MESSAGES: dict[str, MessageEntry] = {
     },
     MSG.IMM12_CLOSE_RCA_REQUIRED: {
         "title": "Chưa thể đóng sự cố",
-        "template": "Sự cố mức {severity} bắt buộc có RCA hoàn tất trước khi đóng.",
-        "action_hint": "Tạo và hoàn thành RCA Record trước khi đóng sự cố.",
+        "template": "Sự cố mức {severity} bắt buộc có phân tích nguyên nhân gốc hoàn tất trước khi đóng.",
+        "action_hint": "Tạo và hoàn thành hồ sơ phân tích nguyên nhân gốc trước khi đóng sự cố.",
         "severity": "critical",
         "http_status": 422,
     },
     MSG.IMM12_CLOSE_RCA_INCOMPLETE: {
         "title": "Chưa thể đóng sự cố",
-        "template": "Không thể đóng sự cố mức {severity} khi RCA ({rca}) chưa hoàn thành.",
-        "action_hint": "Hoàn thành RCA Record liên kết trước khi đóng sự cố.",
+        "template": "Không thể đóng sự cố mức {severity} khi phân tích nguyên nhân gốc ({rca}) chưa hoàn thành.",
+        "action_hint": "Hoàn thành hồ sơ phân tích nguyên nhân gốc liên kết trước khi đóng sự cố.",
         "severity": "critical",
         "http_status": 422,
     },
@@ -1036,8 +1098,8 @@ MESSAGES: dict[str, MessageEntry] = {
     },
     # ── IMM-16 ∩ IMM-00 — Cổng hiệu quả CAPA (VR-06/VR-07) ───────────────────
     MSG.FIN_CAPA_NOT_EFFECTIVE: {
-        "title": "Không thể đóng CAPA",
-        "template": "Chưa xác minh hiệu quả — không thể đóng CAPA.",
+        "title": "Không thể đóng hành động khắc phục/phòng ngừa",
+        "template": "Chưa xác minh hiệu quả — không thể đóng hành động khắc phục/phòng ngừa.",
         "action_hint": "Thực hiện xác minh hiệu quả và đạt kết quả \"Hiệu quả\" trước khi đóng (VR-06/VR-07).",
         "severity": "warning",
         "http_status": 422,

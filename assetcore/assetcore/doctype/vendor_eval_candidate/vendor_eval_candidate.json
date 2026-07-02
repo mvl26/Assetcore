@@ -17,7 +17,7 @@
    "fieldname": "supplier",
    "fieldtype": "Link",
    "options": "AC Supplier",
-   "label": "Vendor",
+   "label": "Nhà cung cấp",
    "in_list_view": 1,
    "reqd": 1
   },
@@ -41,12 +41,12 @@
   {
    "fieldname": "scores",
    "fieldtype": "JSON",
-   "label": "Scores by criterion (JSON)"
+   "label": "Điểm theo tiêu chí (JSON)"
   },
   {
    "fieldname": "weighted_score",
    "fieldtype": "Float",
-   "label": "Weighted score",
+   "label": "Điểm có trọng số",
    "read_only": 1,
    "precision": "4",
    "in_list_view": 1

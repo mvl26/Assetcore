@@ -57,12 +57,12 @@ onMounted(() => store.fetchDashboard())
 <template>
   <div class="page-container animate-fade-in">
     <PageHeader
-      title="Tổng quan Sự cố & RCA"
-      subtitle="Giám sát sự cố thiết bị, RCA và hỏng hóc mãn tính"
+      title="Tổng quan Sự cố & Phân tích nguyên nhân gốc"
+      subtitle="Giám sát sự cố thiết bị, phân tích nguyên nhân gốc và hỏng hóc mãn tính"
     >
       <template #actions>
         <button class="btn-ghost" @click="router.push('/incidents/list')">Danh sách</button>
-        <button class="btn-ghost" @click="router.push('/rca')">Danh sách RCA</button>
+        <button class="btn-ghost" @click="router.push('/rca')">Danh sách phân tích nguyên nhân gốc</button>
         <button class="btn-primary" @click="router.push('/incidents/new')">+ Báo cáo sự cố</button>
       </template>
     </PageHeader>
@@ -102,7 +102,7 @@ onMounted(() => store.fetchDashboard())
         </div>
         <div class="kpi-card p-4 text-center" style="--kpi-color: #ea580c">
           <p class="text-3xl font-bold font-display tabular-nums text-orange-600">{{ stats.rca_pending ?? 0 }}</p>
-          <p class="text-xs text-slate-500 mt-1">Chờ RCA</p>
+          <p class="text-xs text-slate-500 mt-1">Chờ phân tích nguyên nhân gốc</p>
         </div>
         <!-- BR-12-12: tile 'Mãn tính' bind stats.chronic = SỐ NHÓM (asset,fault_code)
              đang lặp lại LIVE trong cửa sổ 90 ngày (cùng SoT get_chronic_failures →
@@ -127,18 +127,18 @@ onMounted(() => store.fetchDashboard())
         <div
           class="kpi-card p-4 text-center"
           style="--kpi-color: #dc2626"
-          title="Số sự cố ĐANG quá hạn tiếp nhận (chưa được tiếp nhận trong SLA) — tính trực tiếp theo thời điểm hiện tại, chỉ tiêu thống kê"
+          title="Số sự cố ĐANG quá hạn tiếp nhận (chưa được tiếp nhận trong cam kết mức dịch vụ) — tính trực tiếp theo thời điểm hiện tại, chỉ tiêu thống kê"
         >
           <p class="text-3xl font-bold font-display tabular-nums text-red-600">{{ slaResponseBreached }}</p>
-          <p class="text-xs text-slate-500 mt-1">Vi phạm SLA tiếp nhận</p>
+          <p class="text-xs text-slate-500 mt-1">Vi phạm cam kết mức dịch vụ tiếp nhận</p>
         </div>
         <div
           class="kpi-card p-4 text-center"
           style="--kpi-color: #dc2626"
-          title="Số sự cố ĐANG quá hạn xử lý (chưa đóng trong SLA) — tính trực tiếp theo thời điểm hiện tại, chỉ tiêu thống kê"
+          title="Số sự cố ĐANG quá hạn xử lý (chưa đóng trong cam kết mức dịch vụ) — tính trực tiếp theo thời điểm hiện tại, chỉ tiêu thống kê"
         >
           <p class="text-3xl font-bold font-display tabular-nums text-red-600">{{ slaResolutionBreached }}</p>
-          <p class="text-xs text-slate-500 mt-1">Vi phạm SLA xử lý</p>
+          <p class="text-xs text-slate-500 mt-1">Vi phạm cam kết mức dịch vụ xử lý</p>
         </div>
       </div>
 
@@ -194,7 +194,7 @@ class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium"
         <!-- Open RCAs -->
         <div class="card overflow-hidden">
           <div class="px-4 py-3 border-b border-slate-100 flex justify-between items-center">
-            <h2 class="font-semibold text-slate-800 text-sm">RCA đang mở</h2>
+            <h2 class="font-semibold text-slate-800 text-sm">Phân tích nguyên nhân gốc đang mở</h2>
             <span class="text-xs text-slate-400">{{ openRcas.length }} hồ sơ</span>
           </div>
           <template v-if="openRcas.length">
@@ -225,7 +225,7 @@ class="text-xs mt-1"
               </div>
             </div>
           </template>
-          <div v-else class="p-6 text-center text-slate-400 text-sm">Không có RCA đang mở</div>
+          <div v-else class="p-6 text-center text-slate-400 text-sm">Không có phân tích nguyên nhân gốc đang mở</div>
         </div>
 
         <!-- Chronic failures -->
@@ -239,7 +239,7 @@ class="text-xs mt-1"
                 <thead class="bg-slate-50 border-b border-slate-200">
                   <tr>
                     <th class="text-left px-4 py-2 font-semibold text-slate-600 text-xs">Thiết bị</th>
-                    <th class="text-left px-4 py-2 font-semibold text-slate-600 text-xs">Fault Code</th>
+                    <th class="text-left px-4 py-2 font-semibold text-slate-600 text-xs">Mã lỗi</th>
                     <th class="text-center px-4 py-2 font-semibold text-slate-600 text-xs">Số lần</th>
                     <th class="text-left px-4 py-2 font-semibold text-slate-600 text-xs">Lần gần nhất</th>
                   </tr>

@@ -65,7 +65,7 @@
   {
    "fieldname": "work_order_ref",
    "fieldtype": "Dynamic Link",
-   "label": "Work Order",
+   "label": "Lệnh công việc",
    "options": "work_order_doctype",
    "reqd": 0
   },
@@ -141,6 +141,7 @@
   {
    "fieldname": "total_value",
    "fieldtype": "Currency",
+   "length": 28,
    "label": "Tổng giá trị",
    "read_only": 1
   },
@@ -190,14 +191,14 @@
   {
    "fieldname": "stock_movement_ref",
    "fieldtype": "Link",
-   "label": "AC Stock Movement (Issue)",
+   "label": "Điều chuyển kho (Xuất)",
    "options": "AC Stock Movement",
    "read_only": 1
   },
   {
    "fieldname": "stock_movement_return_ref",
    "fieldtype": "Link",
-   "label": "AC Stock Movement (Return)",
+   "label": "Điều chuyển kho (Trả lại)",
    "options": "AC Stock Movement",
    "read_only": 1
   },
@@ -214,7 +215,7 @@
   {
    "fieldname": "audit_flags",
    "fieldtype": "Small Text",
-   "label": "Audit flags",
+   "label": "Cờ đánh giá",
    "read_only": 1
   }
  ],

@@ -82,20 +82,20 @@
     <!-- Thẻ: Benchmark -->
     <section v-show="tab === 'benchmark'" class="tab-content">
       <div class="card">
-        <h3>Phân tích thị trường (Benchmark)</h3>
+        <h3>So sánh thị trường</h3>
         <p class="muted">
-          Nhập ≥ 3 ứng viên (mã, tên, vendor, giá). Hệ thống sẽ recommend ứng viên có
+          Nhập ≥ 3 ứng viên (mã, tên, hãng, giá). Hệ thống sẽ gợi ý ứng viên có
           weighted_score cao nhất theo `weighting_scheme`.
         </p>
         <table class="data-table">
           <thead>
-            <tr><th>Model</th><th>Hãng sản xuất</th><th class="num">Giá ước tính (VND)</th><th></th></tr>
+            <tr><th>Mẫu máy</th><th>Hãng sản xuất</th><th class="num">Giá ước tính (VND)</th><th></th></tr>
           </thead>
           <tbody>
             <tr v-for="(c, i) in benchmarkDraft" :key="i">
-              <td><input v-model="c.model" placeholder="Model X" /></td>
+              <td><input v-model="c.model" placeholder="Mẫu máy" /></td>
               <td><input v-model="c.manufacturer" placeholder="Philips / GE / Mindray" /></td>
-              <td class="num"><input v-model.number="c.price_estimate" type="number" min="0" /></td>
+              <td class="num"><CurrencyInput v-model="c.price_estimate" aria-label="Giá ước tính" class="form-input w-full" /></td>
               <td><button class="btn-icon" @click="benchmarkDraft.splice(i, 1)">×</button></td>
             </tr>
             <tr v-if="!benchmarkDraft.length">
@@ -107,7 +107,7 @@
           <button class="btn btn-outline" @click="addBenchmarkRow">+ Thêm ứng viên</button>
           <button class="btn btn-primary" :disabled="benchmarkDraft.length < 3 || benchmarkBusy"
                   @click="doSubmitBenchmark">
-            {{ benchmarkBusy ? 'Đang gửi...' : 'Gửi Benchmark' }}
+            {{ benchmarkBusy ? 'Đang gửi...' : 'Gửi so sánh thị trường' }}
           </button>
         </div>
       </div>
@@ -116,8 +116,8 @@
     <!-- Thẻ: Lock-in Risk -->
     <section v-show="tab === 'lockin-action'" class="tab-content">
       <div class="card">
-        <h3>Đánh giá rủi ro phụ thuộc (Submit)</h3>
-        <p class="muted">5 hạng mục mặc định: Protocol, Consumable, Software, Parts, Service.</p>
+        <h3>Đánh giá rủi ro phụ thuộc (nhập)</h3>
+        <p class="muted">5 hạng mục mặc định: Giao thức, Vật tư tiêu hao, Phần mềm, Linh kiện, Dịch vụ.</p>
         <table class="data-table">
           <thead>
             <tr><th>Hạng mục</th><th class="num">Điểm (1-5)</th><th>Ghi chú</th></tr>
@@ -131,10 +131,10 @@
           </tbody>
         </table>
         <div class="form-row">
-          <label>Threshold:
+          <label>Ngưỡng:
             <input v-model.number="lockInThreshold" type="number" step="0.1" min="0" max="5" />
           </label>
-          <label>Mitigation plan:
+          <label>Phương án giảm thiểu:
             <input v-model="lockInMitigation" placeholder="Phương án giảm thiểu" />
           </label>
         </div>
@@ -202,6 +202,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useImm02Store } from '@/stores/imm02'
 import type { SpecState } from '@/types/imm02'
+import CurrencyInput from '@/components/common/CurrencyInput.vue'
 import {
   stateLabel, formatVnd, formatVnDate,
   infraDomainLabel, infraStatusLabel,
@@ -219,7 +220,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'overview',      label: '1. Tổng quan' },
   { id: 'req',           label: '2. Yêu cầu kỹ thuật' },
   { id: 'infra',         label: '3. Tương thích hạ tầng' },
-  { id: 'benchmark',     label: '4. Benchmark' },
+  { id: 'benchmark',     label: '4. So sánh thị trường' },
   { id: 'lockin-action', label: '5. Đánh giá rủi ro' },
   { id: 'lockin',        label: '6. Phụ thuộc nhà cung cấp (xem)' },
 ]

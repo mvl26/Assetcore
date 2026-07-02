@@ -48,7 +48,7 @@ onMounted(load)
   <div class="page-container animate-fade-in">
     <PageHeader
       title="Phụ tùng quan trọng"
-      subtitle="IMM-15 · Tồn kho phụ tùng — Theo dõi phụ tùng quan trọng cho thiết bị critical"
+      subtitle="IMM-15 · Tồn kho phụ tùng — Theo dõi phụ tùng quan trọng cho thiết bị quan trọng"
       :breadcrumb="[{ label: 'IMM-15 · Tồn kho phụ tùng', to: '/inventory/dashboard' }, { label: 'Phụ tùng quan trọng' }]"
     >
       <template #actions>

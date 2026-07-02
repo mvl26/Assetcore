@@ -5,6 +5,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { listSpareParts, createSparePart } from '@/api/inventory'
 import type { SparePart } from '@/types/inventory'
 import SmartSelect from '@/components/common/SmartSelect.vue'
+import CurrencyInput from '@/components/common/CurrencyInput.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
@@ -152,7 +153,7 @@ onMounted(load)
       :show="showFilters"
       :chips="activeChips"
       v-model:search="q"
-      search-placeholder="Tên / mã / part no NSX..."
+      search-placeholder="Tên / mã / mã NSX..."
       @reset="resetFilters"
       @clear-chip="clearChip"
       @apply="() => { page = 1; load() }"
@@ -324,7 +325,7 @@ v-if="showForm" class="fixed inset-0 z-50 flex items-center justify-center bg-bl
               </div>
               <div>
                 <label for="sp-cost" class="form-label">Đơn giá (VND)</label>
-                <input id="sp-cost" v-model.number="form.unit_cost" type="number" min="0" class="form-input w-full" />
+                <CurrencyInput id="sp-cost" v-model="form.unit_cost" aria-label="Đơn giá" class="form-input w-full" />
               </div>
               <div>
                 <p class="form-label">Đơn vị tính cơ bản</p>
@@ -332,7 +333,7 @@ v-if="showForm" class="fixed inset-0 z-50 flex items-center justify-center bg-bl
               </div>
               <div>
                 <p class="form-label">Đơn vị tính mua hàng</p>
-                <SmartSelect v-model="form.purchase_uom" doctype="AC UOM" placeholder="Để trống = dùng Stock UOM..." />
+                <SmartSelect v-model="form.purchase_uom" doctype="AC UOM" placeholder="Để trống = dùng đơn vị tồn kho..." />
               </div>
               <div>
                 <label for="sp-min" class="form-label">Tồn min</label>

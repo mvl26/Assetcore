@@ -23,7 +23,7 @@ import AssetDowntimeWidget from '@/components/asset/AssetDowntimeWidget.vue'
 import AssetDepreciationSchedule from '@/components/asset/AssetDepreciationSchedule.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import BaseModal from '@/components/common/BaseModal.vue'
-import SmartSelect from '@/components/common/SmartSelect.vue'
+import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
 import type { AssetLifecycleEvent, AssetKpi, ChainVerifyResult, LifecycleStatus } from '@/types/imm00'
 import { translateFrequency, translateDepreciationMethod, translateLifecycleEvent, translateStatus } from '@/utils/formatters'
 import { useCapabilities } from '@/composables/useCapabilities'
@@ -399,7 +399,7 @@ onMounted(async () => {
       <div class="card p-5 mb-5">
         <div class="flex items-start justify-between">
           <div>
-            <p class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-1">AC Asset</p>
+            <p class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-1">Tài sản</p>
             <h1 class="text-xl font-bold text-slate-900">{{ store.currentAsset.asset_name }}</h1>
             <p class="text-sm text-slate-400 mt-0.5">{{ store.currentAsset.name }}</p>
           </div>
@@ -601,7 +601,7 @@ onMounted(async () => {
           :class="activeTab === tab ? 'text-blue-600 border-b-2 border-blue-600 -mb-px' : 'text-slate-500 hover:text-slate-800'"
           @click="onTabChange(tab)"
         >
-          {{ { info: 'Thông tin', depreciation: 'Khấu hao', timeline: 'Lịch sử', kpi: 'KPI', audit: 'Audit Trail' }[tab] }}
+          {{ { info: 'Thông tin', depreciation: 'Khấu hao', timeline: 'Lịch sử', kpi: 'chỉ số hiệu suất', audit: 'Nhật ký truy vết' }[tab] }}
         </button>
       </div>
 
@@ -651,13 +651,13 @@ onMounted(async () => {
           </dl>
         </div>
         <div class="card p-4">
-          <h3 class="text-sm font-semibold text-slate-700 mb-3">Thông tin HTM</h3>
+          <h3 class="text-sm font-semibold text-slate-700 mb-3">Thông tin thiết bị y tế</h3>
           <dl class="space-y-2 text-sm">
             <!-- V1-E / ADR-IMM00-ASSETCODE §D1/D4: Mã tài sản (asset_code = PK) TÁCH BẠCH với Số serial NSX.
                  Fallback name khi asset_code rỗng (invariant asset_code == name cho legacy). -->
             <div class="flex justify-between"><dt class="text-slate-400">Mã tài sản</dt><dd class="text-slate-800 font-mono text-xs">{{ store.currentAsset.asset_code || store.currentAsset.name || '—' }}</dd></div>
             <div class="flex justify-between"><dt class="text-slate-400">Số serial NSX</dt><dd class="text-slate-800 font-mono text-xs">{{ store.currentAsset.manufacturer_sn || '—' }}</dd></div>
-            <div class="flex justify-between"><dt class="text-slate-400">UDI Code</dt><dd class="text-slate-800 font-mono text-xs">{{ store.currentAsset.udi_code || '—' }}</dd></div>
+            <div class="flex justify-between"><dt class="text-slate-400">Mã UDI</dt><dd class="text-slate-800 font-mono text-xs">{{ store.currentAsset.udi_code || '—' }}</dd></div>
             <div class="flex justify-between"><dt class="text-slate-400">GMDN</dt><dd class="text-slate-800">{{ store.currentAsset.gmdn_code || '—' }}</dd></div>
             <div class="flex justify-between items-center">
               <dt class="text-slate-400 shrink-0">Phiếu nghiệm thu</dt>
@@ -781,10 +781,10 @@ onMounted(async () => {
 
       <!-- Tab: KPI -->
       <div v-if="activeTab === 'kpi'">
-        <div v-if="!kpi" class="card p-8 text-center text-slate-400 text-sm">Đang tải KPI...</div>
+        <div v-if="!kpi" class="card p-8 text-center text-slate-400 text-sm">Đang tải chỉ số hiệu suất...</div>
         <div v-else class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
           <div class="card p-4 text-center">
-            <p class="text-xs text-slate-400 mb-1">Uptime</p>
+            <p class="text-xs text-slate-400 mb-1">Thời gian hoạt động</p>
             <p class="text-2xl font-bold text-green-600">{{ kpi.uptime_pct != null ? kpi.uptime_pct.toFixed(1) + '%' : '—' }}</p>
           </div>
           <div class="card p-4 text-center">
@@ -817,14 +817,14 @@ onMounted(async () => {
               <path v-if="chain.valid" stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
               <path v-else stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
             </svg>
-            {{ chain.valid ? 'Chain hợp lệ' : 'Chain bị phá vỡ' }}
+            {{ chain.valid ? 'Chuỗi hợp lệ' : 'Chuỗi bị phá vỡ' }}
           </span>
           <span class="text-xs text-slate-500">{{ chain.count }} bản ghi</span>
           <span v-if="!chain.valid" class="text-xs text-red-600">Tại: {{ chain.broken_at }}</span>
         </div>
-        <p v-else class="text-xs text-slate-400 mb-3">Chưa verify chain</p>
-        <button v-if="!chain" class="btn-ghost text-xs mb-4" @click="loadChain">Verify Audit Chain</button>
-        <p class="text-sm text-slate-500 italic">Xem audit trail chi tiết tại tab Lịch sử hoặc query API.</p>
+        <p v-else class="text-xs text-slate-400 mb-3">Chưa xác minh chuỗi</p>
+        <button v-if="!chain" class="btn-ghost text-xs mb-4" @click="loadChain">Xác minh chuỗi kiểm toán</button>
+        <p class="text-sm text-slate-500 italic">Xem nhật ký truy vết chi tiết tại tab Lịch sử hoặc truy vấn API.</p>
       </div>
     </template>
 
@@ -1007,13 +1007,14 @@ onMounted(async () => {
 
         <!-- Người chịu trách nhiệm -->
         <div>
-          <label class="block text-xs font-medium text-slate-600 mb-1">
+          <label for="decom-responsible" class="block text-xs font-medium text-slate-600 mb-1">
             Người chịu trách nhiệm <span class="text-red-500">*</span>
           </label>
-          <SmartSelect
+          <ApproverSelect
+            id="decom-responsible"
             v-model="decomForm.responsible"
-            doctype="User"
-            placeholder="Chọn người chịu trách nhiệm..."
+            context="user"
+            placeholder="Tìm người chịu trách nhiệm theo tên hoặc email..."
             data-testid="decom-responsible"
           />
         </div>

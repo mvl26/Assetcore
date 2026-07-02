@@ -410,7 +410,7 @@ function onRequestCreated(name: string) {
 function onExempted(docName: string) {
   exemptModal.open = false
   store.fetchDocuments(store.currentFilters, store.pagination.page)
-  toast.success(`Đã đánh dấu Exempt. Tài liệu mới: ${docName}`)
+  toast.success(`Đã đánh dấu Miễn đăng ký NĐ98. Tài liệu mới: ${docName}`)
 }
 
 </script>

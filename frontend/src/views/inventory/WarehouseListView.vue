@@ -5,6 +5,7 @@ import { useRouter } from 'vue-router'
 import { listWarehouses, createWarehouse, updateWarehouse, deleteWarehouse } from '@/api/inventory'
 import type { Warehouse } from '@/types/inventory'
 import SmartSelect from '@/components/common/SmartSelect.vue'
+import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
@@ -191,7 +192,7 @@ onMounted(load)
             <div class="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
               <span>{{ w.department_name || w.department || '—' }}</span>
               <span class="text-slate-300">·</span>
-              <span>{{ w.stock_count || 0 }} SKU</span>
+              <span>{{ w.stock_count || 0 }} mã hàng</span>
               <span class="text-slate-300">·</span>
               <span class="text-emerald-700 font-medium">{{ vnd(w.total_value) }}</span>
             </div>
@@ -214,7 +215,7 @@ onMounted(load)
                 <th class="table-header">Tên kho</th>
                 <th class="table-header hidden md:table-cell">Khoa quản lý</th>
                 <th class="table-header hidden lg:table-cell">Người phụ trách</th>
-                <th class="table-header text-right">Số SKU</th>
+                <th class="table-header text-right">Số mã hàng</th>
                 <th class="table-header text-right">Giá trị tồn</th>
                 <th class="table-header text-center">Trạng thái</th>
                 <th class="px-4 py-3" />
@@ -293,7 +294,7 @@ id="wh-code" v-model="form.warehouse_code" type="text" class="form-input w-full"
               </div>
               <div>
                 <label for="wh-manager" class="form-label">Người phụ trách</label>
-                <SmartSelect id="wh-manager" v-model="form.manager" doctype="User" placeholder="Chọn user..." />
+                <ApproverSelect id="wh-manager" v-model="form.manager" context="user" placeholder="Chọn người dùng..." />
               </div>
               <div class="flex items-center gap-3 pt-6">
                 <input

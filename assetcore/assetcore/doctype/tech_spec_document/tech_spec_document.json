@@ -35,7 +35,7 @@
   {
    "fieldname": "file_attachment",
    "fieldtype": "Attach",
-   "label": "File",
+   "label": "Tệp",
    "in_list_view": 1,
    "reqd": 1
   }

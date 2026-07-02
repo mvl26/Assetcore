@@ -6,6 +6,7 @@ import {
 } from '@/api/imm00'
 import { translateStatus, getStatusColor, formatDate, translatePmType } from '@/utils/formatters'
 import SmartSelect from '@/components/common/SmartSelect.vue'
+import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
 import DateInput from '@/components/common/DateInput.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
@@ -88,7 +89,7 @@ async function load() {
     masterStore.fetchDoctype('AC Asset'),
     masterStore.fetchDoctype('User'),
     masterStore.fetchDoctype('PM Checklist Template'),
-  ]), { errorMessage: 'Không tải được danh sách lịch PM' })
+  ]), { errorMessage: 'Không tải được danh sách lịch bảo trì định kỳ' })
   loading.value = false
 
   if (res === null) {
@@ -131,7 +132,7 @@ async function openEdit(name: string) {
   fieldErrors.value = {}
   editingName.value = name
   const r = await apiCall.run(() => getPmSchedule(name),
-    { errorMessage: 'Không tải được lịch PM' })
+    { errorMessage: 'Không tải được lịch bảo trì định kỳ' })
   if (r) {
     form.value = { ...(r as unknown as PmSchedule) }
     showForm.value = true
@@ -154,7 +155,7 @@ async function save() {
       ? updatePmSchedule(editingName.value, form.value)
       : createPmSchedule(form.value),
     {
-      successMessage: editingName.value ? 'Đã cập nhật lịch PM' : 'Đã tạo lịch PM mới',
+      successMessage: editingName.value ? 'Đã cập nhật lịch bảo trì định kỳ' : 'Đã tạo lịch bảo trì định kỳ mới',
       onFieldError: (fields) => { fieldErrors.value = fields },
     },
   )
@@ -168,10 +169,10 @@ async function save() {
 }
 
 async function remove(name: string) {
-  if (!confirm(`Xóa lịch PM "${name}"?`)) return
+  if (!confirm(`Xóa lịch bảo trì định kỳ "${name}"?`)) return
   await apiCall.run(() => deletePmSchedule(name), {
-    successMessage: `Đã xóa lịch PM "${name}"`,
-    errorMessage: 'Không thể xóa lịch PM',
+    successMessage: `Đã xóa lịch bảo trì định kỳ "${name}"`,
+    errorMessage: 'Không thể xóa lịch bảo trì định kỳ',
   })
   if (apiCall.lastError.value === null) await load()
 }
@@ -190,20 +191,20 @@ onMounted(load)
     <PageHeader
       title="Lịch bảo trì định kỳ"
       :subtitle="`Tổng ${total} lịch`"
-      :breadcrumb="[{ label: 'IMM-08 · Bảo trì', to: '/pm/dashboard' }, { label: 'Lịch PM' }]"
+      :breadcrumb="[{ label: 'IMM-08 · Bảo trì', to: '/pm/dashboard' }, { label: 'Lịch bảo trì định kỳ' }]"
     >
       <template #actions>
         <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
         <button
           class="btn-primary"
           :disabled="!canCreatePm"
-          :title="canCreatePm ? 'Tạo lịch PM mới' : 'Bạn không có quyền tạo lịch PM'"
+          :title="canCreatePm ? 'Tạo lịch bảo trì định kỳ mới' : 'Bạn không có quyền tạo lịch bảo trì định kỳ'"
           @click="openCreate"
         >
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
           </svg>
-          Thêm lịch PM
+          Thêm lịch bảo trì định kỳ
         </button>
       </template>
     </PageHeader>
@@ -218,9 +219,9 @@ onMounted(load)
     >
       <template #fields>
         <div class="form-group">
-          <label class="form-label">Loại PM</label>
+          <label class="form-label">Loại bảo trì định kỳ</label>
           <select v-model="filters.pm_type" class="form-select">
-            <option value="">Tất cả loại PM</option>
+            <option value="">Tất cả loại bảo trì định kỳ</option>
             <option v-for="t in PM_TYPES" :key="t" :value="t">{{ translatePmType(t) }}</option>
           </select>
         </div>
@@ -257,10 +258,10 @@ onMounted(load)
       <div v-else-if="filteredItems.length === 0" class="text-center py-12 px-6">
         <svg class="w-10 h-10 mx-auto mb-2 text-slate-300" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
         <p class="text-sm text-slate-500 mb-4">
-          {{ activeFilterCount > 0 ? 'Không có lịch PM nào phù hợp với bộ lọc.' : 'Chưa có lịch PM nào.' }}
+          {{ activeFilterCount > 0 ? 'Không có lịch bảo trì định kỳ nào phù hợp với bộ lọc.' : 'Chưa có lịch bảo trì định kỳ nào.' }}
         </p>
         <button v-if="activeFilterCount > 0" class="btn-ghost" @click="resetFilters">Xóa bộ lọc</button>
-        <button v-else class="btn-primary" :disabled="!canCreatePm" @click="openCreate">+ Thêm lịch PM</button>
+        <button v-else class="btn-primary" :disabled="!canCreatePm" @click="openCreate">+ Thêm lịch bảo trì định kỳ</button>
       </div>
       <template v-else>
         <!-- Mobile cards -->
@@ -296,7 +297,7 @@ onMounted(load)
           <tr>
             <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Mã</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Thiết bị</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Loại PM</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Loại bảo trì định kỳ</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Chu kỳ (ngày)</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Kỹ thuật viên</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Lần trước</th>
@@ -365,7 +366,7 @@ onMounted(load)
             <p v-if="fieldErrors.asset_ref" class="text-xs text-red-600 mt-1">{{ fieldErrors.asset_ref }}</p>
           </div>
           <div>
-            <label class="block text-sm font-medium text-slate-700 mb-1">Loại PM *</label>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Loại bảo trì định kỳ *</label>
             <select v-model="form.pm_type" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
               <option value="Quarterly">{{ translatePmType('Quarterly') }} — 3 tháng</option>
               <option value="Semi-Annual">{{ translatePmType('Semi-Annual') }} — 6 tháng</option>
@@ -389,14 +390,14 @@ onMounted(load)
           </div>
           <div class="col-span-2">
             <label class="block text-sm font-medium text-slate-700 mb-1">Kỹ thuật viên phụ trách</label>
-            <SmartSelect
+            <ApproverSelect
               v-model="(form.responsible_technician as string)"
-              doctype="User"
+              context="pm"
               placeholder="Tìm theo tên / email..."
             />
           </div>
           <div>
-            <label class="block text-sm font-medium text-slate-700 mb-1">Ngày PM gần nhất</label>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Ngày bảo trì định kỳ gần nhất</label>
             <DateInput v-model="(form.last_pm_date as string)" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
           </div>
           <div>

@@ -227,34 +227,53 @@ register ──► enabled=1, last_seen=now
       "body":  "<body VI>"                 // rút gọn ≤1000 ký tự, strip HTML (giống Frappe :122-128)
     },
     "data": {                               // data-only → APK tự điều hướng (KHÔNG render từ notification)
-      "doctype":  "PM Work Order",          // = _dispatch document_type (:374)
-      "name":     "PMWO-2026-0042",         // = _dispatch document_name (:375)
-      "event":    "approval_pending",       // mã event (E1..E5/sla) — APK map UX
-      "deeplink": "assetcore://wo/pm/PMWO-2026-0042"  // §4.2
+      "doctype":  "PM Work Order",          // = _dispatch document_type → ÉP str (fcm.py:95)
+      "name":     "PMWO-2026-0042",         // = _dispatch document_name → ÉP str (fcm.py:96)
+      "event":    "pm_assignment",          // 1 trong 5 giá trị `_ROUTES` emit (§4.1a) — KHÔNG có approval_pending
+      "deeplink": "assetcore://wo/pm/PMWO-2026-0042"  // §4.2 — 1 trong 5 template SSoT
     },
-    "android": { "priority": "high" }       // incident/SLA-breach = high; PM-due = normal (Phase E tinh chỉnh)
+    "android": { "priority": "high" }       // message.android.priority (KHÔNG phải data-key client đọc) — high/normal
   }
 }
 ```
 
 - **title/body tiếng Việt:** tái dùng `subject`/`message` mà `_dispatch` đã dựng (cùng nội dung in-app/email) → strip HTML cho push (Frappe strip pattern `push_notification.py:127-128`; body ≤1000 ký tự `:122`).
 - **data-only routing:** deep-link đặt trong `data` (KHÔNG chỉ trong `notification`) để APK điều hướng cả khi app foreground/background.
+- **`data` = map<string,string> đúng 4 key** (`doctype`/`name`/`event`/`deeplink`) — `_build_message` ÉP mọi value về `str`, default `""` khi rỗng (FCM HTTP v1 yêu cầu data map string→string, `utils/fcm.py:94-98`). Client native ĐỌC 4 key này; KHÔNG có key thứ 5 (`_priority` là key NỘI BỘ `_*`, BỊ LOẠI khỏi data, chỉ điều khiển `message.android.priority` — KHÔNG xuống client). Hợp đồng codegen = component `PushMessageData` trong `openapi/assetcore-mobile.openapi.yaml` (§4.1a).
+
+#### 4.1a — `event` enum + `deeplink` template = SSoT `_push_event_route` (Self-Correction 2026-06-15)
+
+> **Sửa drift (Self-Correction):** bản đề xuất Phase-A trước đây ghi `event: approval_pending` / `escalation` + deeplink `assetcore://approve/<doctype>/<name>`. Đó là drift — **live BE `_push_event_route(doc)` KHÔNG emit các giá trị này** vì chữ-ký `_dispatch` CHỈ thấy `doc` (KHÔNG thấy mã E#), nên `event`/`deeplink` được suy từ `doc.doctype` qua bảng map thuần, KHÔNG từ event-code nghiệp vụ. Bảng dưới = SSoT thực thi @`services/notifications.py:443-454` `_ROUTES` + fallback `:451`.
+
+| `doc.doctype` | `event` (data-key) | `deeplink` template | `android.priority` |
+|---|---|---|---|
+| `Incident Report` | `incident_created` | `assetcore://incident/<name>` | high |
+| `Asset Repair` | `repair_assigned` | `assetcore://wo/cm/<name>` | high |
+| `PM Work Order` | `pm_assignment` | `assetcore://wo/pm/<name>` | normal |
+| `AC Asset` | `calibration_due` | `assetcore://asset/<name>` | normal |
+| (khác / `name` rỗng — fallback `:451`) | `notification` | `""` (BỎ deeplink → APK mở inbox) | normal |
+
+- **`event` = đúng 5 giá trị** `[incident_created, repair_assigned, pm_assignment, calibration_due, notification]` — KHÔNG thêm/bịa giá trị; `notification` là **fallback bắt buộc** (doctype ngoài 4 map HOẶC `name` rỗng). YAML khai `enum` 5 giá trị này (closed).
+- **Quan hệ với §3.2 (6-event):** §3.2 mô tả 6 *event nghiệp vụ* (E1-E5 + SLA) ở **tầng kênh in-app/email** (1 điểm fan-out `_dispatch`). `event` data-key ở đây ở **tầng push deep-link** — suy theo `doc.doctype` nên gom về 5 giá trị (vd cả E1 assignment lẫn E5 escalation trên PM Work Order đều → `pm_assignment`/`assetcore://wo/pm/<name>`; SLA-breach Asset Repair → `repair_assigned`/`assetcore://wo/cm/<name>`). Hai tầng KHÔNG 1-1; client native route theo `event`+`deeplink` (5 giá trị), KHÔNG theo E#.
 
 ### 4.2 Ánh xạ deep-link → route native (`data.deeplink`)
 
 > Native KHÔNG dùng deep-link SPA `/a/<token>` (`ADR-MOBILE-001` consequences). Deep-link dạng custom-scheme `assetcore://<route>` để APK mở đúng màn.
 
-| event (E#) | doctype | deeplink (đề xuất) | Màn native đích |
-|---|---|---|---|
-| E1 assignment | PM Work Order / Asset Repair | `assetcore://wo/<pm\|cm>/<name>` | Chi tiết phiếu được gán |
-| E2 approval_pending | (theo doctype) | `assetcore://approve/<doctype>/<name>` | Màn duyệt |
-| E3 incident_created | Incident Report | `assetcore://incident/<name>` | Chi tiết sự cố |
-| E4 calibration_due | AC Asset | `assetcore://asset/<asset_name>` | Hồ sơ thiết bị (cờ overdue — `05-personas §`) |
-| E5 escalation | PM Work Order | `assetcore://wo/pm/<name>` | Chi tiết WO escalation |
-| SLA-a/b | Asset Repair / Incident Report | `assetcore://wo/cm/<name>` · `assetcore://incident/<name>` | Phiếu sắp/đã vi phạm SLA |
+> **SSoT = live `_ROUTES` (§4.1a), KHÔNG phải event-code nghiệp vụ.** Bảng dưới ánh xạ theo `doc.doctype` (đúng cách `_push_event_route` suy), KHÔNG theo E# — vì `_dispatch` KHÔNG truyền event-code xuống `_push_event_route`. 5 template = đúng những gì BE emit @`notifications.py:444-447` + fallback `:451`.
 
-- APK parse `data.deeplink` → router native push màn tương ứng; nếu chưa login → giữ deeplink, mở sau khi đăng nhập (D-AUTH).
-- Tên route native CHỐT ở **repo native Phase D**; bảng trên là HỢP ĐỒNG đề xuất (BE chỉ phát `doctype/name/event/deeplink`, KHÔNG ép route native cụ thể).
+| `doc.doctype` (`event`) | deeplink template | Màn native đích |
+|---|---|---|
+| `Incident Report` (`incident_created`) | `assetcore://incident/<name>` | Chi tiết sự cố |
+| `Asset Repair` (`repair_assigned`) | `assetcore://wo/cm/<name>` | Chi tiết phiếu sửa chữa (CM) — gồm cả SLA-breach Asset Repair |
+| `PM Work Order` (`pm_assignment`) | `assetcore://wo/pm/<name>` | Chi tiết PM WO — gồm cả assignment + escalation PM |
+| `AC Asset` (`calibration_due`) | `assetcore://asset/<name>` | Hồ sơ thiết bị (cờ overdue — `05-personas §`) |
+| (fallback — doctype khác / `name` rỗng, `notification`) | `""` (rỗng) | APK mở inbox/notification list mặc định |
+
+> **[SUPERSEDED 2026-06-15]** Bản đề xuất Phase-A cũ liệt kê `assetcore://approve/<doctype>/<name>` (E2 approval_pending) + tách riêng E1/E5/SLA. Live BE KHÔNG emit route `approve/...` và GOM theo doctype: PM WO (assignment + escalation) → cùng `assetcore://wo/pm/<name>`; Asset Repair (assign + SLA) → cùng `assetcore://wo/cm/<name>`. Giữ ghi chú này (KHÔNG xoá lịch sử) — SSoT hiện hành = bảng 5-template ở trên.
+
+- APK parse `data.deeplink` → router native push màn tương ứng; `deeplink == ""` ⇒ mở inbox; nếu chưa login → giữ deeplink, mở sau khi đăng nhập (D-AUTH).
+- Tên route native CHỐT ở **repo native Phase D**; bảng trên là HỢP ĐỒNG (BE phát đúng `doctype/name/event/deeplink` = component `PushMessageData` §4.1a — codegen SSoT).
 
 ---
 

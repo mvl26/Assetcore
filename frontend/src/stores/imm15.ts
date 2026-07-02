@@ -10,17 +10,18 @@ import { defineStore } from 'pinia'
 import {
   listAllocations, getAllocation, createAllocation,
   approveAllocation, issueAllocation, returnItems,
-  listCycleCounts, createCycleCount, submitCycleCount, postCycleCount,
+  listCycleCounts, getCycleCount, createCycleCount, submitCycleCount, postCycleCount,
   listSpareForecasts, generateSpareForecast, approveForecast,
   listWatchlist, addToWatchlist,
   getDashboardStats, getLowStockAlerts,
 } from '@/api/imm15'
 import type {
   AllocationRow, AllocationDetail, AllocationItem,
-  CycleCountRow, ForecastRow, WatchlistRow,
+  CycleCountRow, CycleCountDetail, ForecastRow, WatchlistRow,
   DashboardStats, LowStockAlert, ForecastMethod,
   Pagination, UrgencyLevel,
 } from '@/api/imm15'
+import { ApiError, toApiError } from '@/api/errors'
 
 const DEFAULT_PAGINATION: Pagination = { total: 0, page: 1, page_size: 20, total_pages: 1 }
 
@@ -35,6 +36,8 @@ export const useImm15Store = defineStore('imm15', () => {
   const cycleCounts = ref<CycleCountRow[]>([])
   const cycleCountsPagination = ref<Pagination>({ ...DEFAULT_PAGINATION })
   const cycleCountsLoading = ref(false)
+  const cycleCountDetail = ref<CycleCountDetail | null>(null)
+  const cycleCountDetailLoading = ref(false)
 
   // Forecasts
   const forecasts = ref<ForecastRow[]>([])
@@ -52,9 +55,13 @@ export const useImm15Store = defineStore('imm15', () => {
   const dashboardLoading = ref(false)
 
   const error = ref<string | null>(null)
+  // Giữ ApiError đã hydrate cho notification pipeline (notify.fromError).
+  const lastApiError = ref<ApiError | null>(null)
 
   function _setErr(e: unknown) {
-    error.value = e instanceof Error ? e.message : String(e)
+    const err = toApiError(e)
+    lastApiError.value = err
+    error.value = err.message
   }
 
   // ─── Allocations ──────────────────────────────────────────────────────────
@@ -112,6 +119,16 @@ export const useImm15Store = defineStore('imm15', () => {
       if (res.pagination) cycleCountsPagination.value = res.pagination
     } catch (e: unknown) { _setErr(e) }
     finally { cycleCountsLoading.value = false }
+  }
+
+  async function fetchCycleCount(name: string) {
+    cycleCountDetailLoading.value = true
+    error.value = null
+    lastApiError.value = null
+    try {
+      cycleCountDetail.value = await getCycleCount(name)
+    } catch (e: unknown) { _setErr(e); cycleCountDetail.value = null }
+    finally { cycleCountDetailLoading.value = false }
   }
 
   async function createCycleCountAction(payload: {
@@ -203,14 +220,15 @@ export const useImm15Store = defineStore('imm15', () => {
     // state
     allocations, allocationsPagination, allocationsLoading, allocationDetail,
     cycleCounts, cycleCountsPagination, cycleCountsLoading,
+    cycleCountDetail, cycleCountDetailLoading,
     forecasts, forecastsPagination, forecastsLoading,
     watchlist, watchlistPagination, watchlistLoading,
     dashboard, lowStockAlerts, dashboardLoading,
-    error,
+    error, lastApiError,
     // actions
     fetchAllocations, fetchAllocationDetail, submitNewAllocation,
     approveAllocationAction, issueAllocationAction, returnItemsAction,
-    fetchCycleCounts, createCycleCountAction, submitCycleCountAction, postCycleCountAction,
+    fetchCycleCounts, fetchCycleCount, createCycleCountAction, submitCycleCountAction, postCycleCountAction,
     fetchForecasts, generateForecastAction, approveForecastAction,
     fetchWatchlist, addWatchlistAction,
     fetchDashboard, fetchLowStockAlerts,

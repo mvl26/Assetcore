@@ -22,7 +22,7 @@
    "fieldname": "candidate_supplier",
    "fieldtype": "Link",
    "options": "AC Supplier",
-   "label": "Vendor",
+   "label": "Nhà cung cấp",
    "in_list_view": 1,
    "reqd": 1
   },
@@ -51,6 +51,7 @@
   {
    "fieldname": "price",
    "fieldtype": "Currency",
+   "length": 28,
    "label": "Giá",
    "in_list_view": 1,
    "reqd": 1

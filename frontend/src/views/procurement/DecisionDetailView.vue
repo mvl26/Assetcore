@@ -68,7 +68,7 @@
           <dt>Ngày trao thầu:</dt><dd>{{ formatVnDate(store.currentDecision.awarded_date) }}</dd>
           <dt v-if="store.currentDecision.contract_no">Số hợp đồng:</dt>
           <dd v-if="store.currentDecision.contract_no">{{ store.currentDecision.contract_no }}</dd>
-          <dt>Đơn hàng đã mint:</dt>
+          <dt>Đơn hàng đã tạo:</dt>
           <dd>
             <span v-if="store.currentDecision.ac_purchase_ref">
               {{ (store.currentDecision as any).ac_purchase_ref_name || store.currentDecision.ac_purchase_ref }}
@@ -107,7 +107,7 @@
             </select>
           </label>
           <label>Giá trúng thầu (đồng) <span class="req">*</span>
-            <input v-model.number="awardForm.awarded_price" type="number" min="1" required />
+            <CurrencyInput v-model="awardForm.awarded_price" required aria-label="Giá trúng thầu" class="form-input w-full" />
           </label>
           <label>Nguồn vốn <span class="req">*</span>
             <select v-model="awardForm.funding_source" required>
@@ -160,7 +160,7 @@
     <div class="action-bar">
       <button v-for="action in availableActions" :key="action"
               class="btn btn-outline" @click="doTransition(action)">
-        {{ action }}
+        {{ actionLabel(action) }}
       </button>
     </div>
   </div>
@@ -173,6 +173,7 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useImm03Store } from '@/stores/imm03'
+import CurrencyInput from '@/components/common/CurrencyInput.vue'
 import {
   getEvaluation, awardDecision, recordContract, transitionDecisionWorkflow,
 } from '@/api/imm03'
@@ -201,6 +202,15 @@ const TRANSITIONS_BY_STATE: Record<string, string[]> = {
   'Negotiation':       ['Đề xuất trúng thầu'],
   'Award Recommended': ['Trình BGĐ'],
   'Contract Signed':   ['Phát hành PO'],
+}
+
+// Nhãn hiển thị cho nút workflow. Value gửi BE giữ NGUYÊN ('Phát hành PO' là action trong
+// Workflow DocType — đổi sẽ phải migrate + khớp lại BE); ở đây chỉ việt-hoá chữ hiển thị.
+const ACTION_LABELS: Record<string, string> = {
+  'Phát hành PO': 'Phát hành đơn mua hàng',
+}
+function actionLabel(action: string): string {
+  return ACTION_LABELS[action] ?? action
 }
 
 const evalCandidates = ref<VendorEvalCandidate[]>([])

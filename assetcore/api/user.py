@@ -24,6 +24,7 @@ from assetcore.utils.helpers import _safe_sendmail
 # ── Hằng số ────────────────────────────────────────────────────────────────────
 
 from assetcore.services.shared.constants import Roles, ROLE_METADATA
+from assetcore.setup.role_profile_catalog import BASE_ROLE
 
 # Single source of truth — đồng bộ với fixtures/role.json
 _IMM_ROLES: list[str] = list(Roles.ALL)
@@ -139,6 +140,22 @@ def _extract_imm_role_names(raw_roles: list) -> list[str]:
     return result
 
 
+def _users_with_role(role: str) -> list[str]:
+    """Tên (email) các User giữ `role` — resolve qua child table Has Role.
+
+    `frappe.db.count` / `get_all` trên User không filter xuyên child table được
+    nên phải resolve danh sách parent trước rồi lọc `name in [...]`.
+    """
+    return [
+        r["parent"]
+        for r in frappe.get_all(
+            "Has Role",
+            filters={"parenttype": "User", "role": role},
+            fields=["parent"],
+        )
+    ]
+
+
 def _profile_lock_error(user_name: str) -> dict | None:
     """Trả _err nếu user đang gắn Role Profile → role bị khoá, không sửa thủ công.
 
@@ -157,6 +174,17 @@ def _profile_lock_error(user_name: str) -> dict | None:
 
 
 # ── Helpers thao tác trên User document ────────────────────────────────────────
+
+def _ensure_base_role(user_doc: Any) -> None:
+    """Đảm bảo user luôn giữ base role `AssetCore System User`.
+
+    Base role = định danh "user AssetCore" (đăng nhập SPA + đọc shared-core) →
+    BẮT BUỘC trên mọi user trong scope, KHÔNG gỡ được qua UI. Re-inject nếu bị
+    thiếu sau khi sửa role. SSoT = `role_profile_catalog.BASE_ROLE`.
+    """
+    if not any(r.role == BASE_ROLE for r in user_doc.roles):
+        user_doc.append("roles", {"role": BASE_ROLE})
+
 
 def _sync_imm_roles(user_doc: Any, new_roles: list[str]) -> None:
     """
@@ -178,6 +206,8 @@ def _sync_imm_roles(user_doc: Any, new_roles: list[str]) -> None:
         if role not in existing:
             user_doc.append("roles", {"role": role})
             existing.add(role)
+    # 3. Base role bắt buộc — re-inject dù payload không gồm (không gỡ qua UI).
+    _ensure_base_role(user_doc)
 
 
 def _apply_scalar_fields(user_doc: Any, data: dict) -> None:
@@ -276,6 +306,7 @@ def list_users(
 ) -> dict:
     """Liệt kê System Users có phân trang — kèm department_name."""
     page, page_size = int(page), int(page_size)
+    page_size = max(1, min(page_size, 100))  # cap chống unbounded-fetch (LL-BE-43)
     offset = (page - 1) * page_size
 
     filters: dict = {"user_type": "System User", "name": ["!=", "Guest"]}
@@ -286,20 +317,17 @@ def list_users(
     if approval_status and _safe_field("imm_approval_status"):
         filters["imm_approval_status"] = approval_status
 
-    # Lọc theo IMM role — role nằm ở child table Has Role (parent = User).
-    # Phải resolve sang danh sách User trước, vì frappe.db.count/get_all
-    # không filter xuyên child table được.
+    # Chỉ "user AssetCore" — phải giữ base role `AssetCore System User`. Role nằm ở
+    # child table Has Role (parent=User) → resolve danh sách User trước rồi lọc
+    # `name in [...]` (frappe.db.count/get_all không filter xuyên child table).
+    # Loại Administrator/Guest (infra account, không thuộc scope user AssetCore).
+    base_holders = set(_users_with_role(BASE_ROLE)) - {"Administrator", "Guest"}
     if role and role in _IMM_ROLES:
-        role_parents = [
-            r["parent"]
-            for r in frappe.get_all(
-                "Has Role",
-                filters={"parenttype": "User", "role": role},
-                fields=["parent"],
-            )
-        ]
-        # Không user nào giữ role → ép kết quả rỗng (tránh trả toàn bộ).
-        filters["name"] = ["in", role_parents or [""]]
+        # Lọc thêm theo 1 IMM role cụ thể → giao với tập base-holder.
+        base_holders &= set(_users_with_role(role))
+    # Tập rỗng → ép kết quả rỗng (tránh trả toàn bộ). count & rows dùng CÙNG
+    # filters["name"] nên pagination.total luôn khớp số dòng (LL-BE-42).
+    filters["name"] = ["in", sorted(base_holders) or [""]]
 
     or_filters = None
     if search:
@@ -557,8 +585,12 @@ def _build_new_user_doc(email: str, first_name: str, data: dict, imm_roles: list
     )
     if data.get("password"):
         user_doc.new_password = data["password"]
-    if imm_roles:
-        for role in imm_roles:
+    # Base role bắt buộc cho mọi user tạo từ UI AssetCore (định danh user
+    # AssetCore) + các domain role admin đã chọn. dedupe giữ thứ tự, base trước.
+    seen: set[str] = set()
+    for role in (BASE_ROLE, *imm_roles):
+        if role not in seen:
+            seen.add(role)
             user_doc.append("roles", {"role": role})
     user_doc.flags.ignore_permissions = True
     return user_doc
@@ -871,7 +903,8 @@ def set_user_roles(user: str, roles=None) -> dict:
     doc = frappe.get_doc("User", user)
     # Giữ mọi role không thuộc AssetCore (Frappe core, app khác)
     keep = [r.role for r in doc.roles if r.role not in allowed]
-    final = sorted(set(keep + target))
+    # Base role bắt buộc — luôn giữ dù payload không gồm (không gỡ qua UI).
+    final = sorted(set(keep + target + [BASE_ROLE]))
 
     doc.set("roles", [])
     for r in final:
@@ -904,3 +937,76 @@ def list_frappe_users(search: str = "", limit: int = 30) -> dict:
         limit_page_length=limit,
     )
     return _ok(users)
+
+
+# Allowlist "ngữ cảnh phân công" → (DocType, ptype) để kiểm capability.
+# Chống probe quyền tùy ý: endpoint CHỈ nhận context có tên, KHÔNG nhận doctype thô.
+# Mở rộng khi thêm field phân công mới (PM, Calibration…). "repair" = KTV nhận
+# lệnh sửa chữa (mirror services/imm09._is_repair_capable, BR-09-DISPATCH).
+# Context "any AssetCore user" — KHÔNG lọc năng lực, chỉ cần base role (field mô
+# tả người: giám sát, thủ kho, người nhận, trưởng khoa, leo thang SLA…).
+_ANY_USER_CONTEXT = "user"
+
+_ASSIGNABLE_CONTEXTS: dict[str, tuple[str, str]] = {
+    "repair": ("Asset Repair", "write"),   # KTV nhận lệnh sửa chữa (IMM-09)
+    "pm": ("PM Work Order", "write"),      # KTV nhận lệnh bảo trì định kỳ (IMM-08)
+    "calibration": ("IMM Asset Calibration", "write"),   # KTV hiệu chuẩn (IMM-11)
+    "incident": ("Incident Report", "write"),            # người xử lý sự cố (IMM-12)
+    "commissioning": ("Asset Commissioning", "write"),   # KTV lắp đặt/nghiệm thu (IMM-04)
+}
+
+
+@frappe.whitelist()
+def list_assignable_users(context: str, search: str = "", limit: int = 20) -> dict:
+    """User AssetCore (có base role) ĐỦ NĂNG LỰC cho 1 ngữ cảnh phân công.
+
+    Nguồn user = base-role holder (= "user AssetCore"), enabled, System User —
+    KHÔNG lấy toàn bộ Frappe user. "Đủ năng lực" = capability/DocPerm
+    (`frappe.has_permission(doctype, ptype, user=u)`), KHÔNG so role-name
+    (LL-BE-49; mirror `_is_repair_capable`) → picker khớp đúng gate BE khi submit,
+    user không chọn nhầm người rồi bị từ chối.
+
+    Context "user" = BẤT KỲ user AssetCore (chỉ cần base role, KHÔNG lọc năng lực)
+    — dùng cho field mô tả người (giám sát, thủ kho, leo thang SLA…).
+
+    Args:
+        context: "user" (mọi user AssetCore) HOẶC khoá `_ASSIGNABLE_CONTEXTS` (vd "repair").
+        search:  lọc theo full_name / email.
+        limit:   trần kết quả (cap 100).
+    """
+    if context != _ANY_USER_CONTEXT and context not in _ASSIGNABLE_CONTEXTS:
+        return _err(f"Ngữ cảnh phân công không hợp lệ: {context}", 400)
+    limit = max(1, min(int(limit), 100))
+
+    # Candidate = base-role holder (user AssetCore), enabled, System User, khớp search.
+    base_holders = set(_users_with_role(BASE_ROLE)) - {"Administrator", "Guest"}
+    if not base_holders:
+        return _ok([])
+
+    or_filters = None
+    if search:
+        or_filters = [
+            ["full_name", "like", f"%{search}%"],
+            ["email", "like", f"%{search}%"],
+        ]
+    candidates = frappe.get_all(
+        "User",
+        filters={"name": ["in", sorted(base_holders)], "enabled": 1,
+                 "user_type": "System User"},
+        or_filters=or_filters,
+        fields=["name", "full_name", "email", "user_image"],
+        order_by="full_name asc",
+    )
+
+    # Context "user": mọi user AssetCore (không lọc năng lực). Context khác: lọc
+    # theo năng lực (capability/DocPerm) — mirror _is_repair_capable. Candidate đã
+    # bị giới hạn ở base-holder (+search) nên vòng has_permission có chặn trên.
+    if context == _ANY_USER_CONTEXT:
+        capable = candidates
+    else:
+        doctype, ptype = _ASSIGNABLE_CONTEXTS[context]
+        capable = [
+            u for u in candidates
+            if frappe.has_permission(doctype, ptype, user=u["name"])
+        ]
+    return _ok(capable[:limit])

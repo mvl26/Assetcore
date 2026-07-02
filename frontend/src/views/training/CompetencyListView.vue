@@ -159,9 +159,9 @@ onMounted(() => load())
       <div class="flex-1">
         <p class="font-medium">Hồ sơ năng lực được sinh tự động.</p>
         <p class="mt-0.5">
-          Khi một <strong>Buổi đào tạo</strong> hoàn thành (state In Progress → Completed) và học viên đạt điểm,
-          hệ thống tự tạo bản ghi năng lực ở trạng thái <em>Pending Assessment</em> chờ Manager phê duyệt.
-          Dùng các action ở trang chi tiết để Phê duyệt / Tái chứng nhận / Thu hồi.
+          Khi một <strong>Buổi đào tạo</strong> hoàn thành (trạng thái Đang diễn ra → Hoàn thành) và học viên đạt điểm,
+          hệ thống tự tạo bản ghi năng lực ở trạng thái <em>Chờ đánh giá</em>, đợi Quản lý phê duyệt.
+          Dùng các thao tác ở trang chi tiết để Phê duyệt / Tái chứng nhận / Thu hồi.
         </p>
       </div>
     </div>

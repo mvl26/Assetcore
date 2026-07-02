@@ -17,12 +17,17 @@ from frappe.utils import (
 
 from assetcore.repositories.asset_repo import AssetRepo
 from assetcore.repositories.repair_repo import FirmwareChangeRequestRepo, RepairRepo
-from assetcore.services.imm00 import transition_asset_status
+from assetcore.services.imm00 import (
+    _lifecycle_vi,
+    is_valid_asset_transition,
+    transition_asset_status,
+)
 from assetcore.utils.lifecycle import create_lifecycle_event as _create_lifecycle_event
 from assetcore.services.shared import AssetStatus
 from assetcore.services.shared import rbac
 from assetcore.utils.notify import nthrow, nthrow_in_hook
 from assetcore.utils.messages import MSG
+from assetcore.utils.response import ErrorCode
 
 
 # ─── Constants riêng cho IMM-09 ───────────────────────────────────────────────
@@ -62,6 +67,47 @@ REPAIR_TERMINAL_STATES: frozenset[str] = frozenset({
     RepairStatus.CANNOT_REPAIR,
     RepairStatus.CANCELLED,
 })
+
+
+# ─── SoT: server-driven CTA — tập trạng-thái-kế hợp lệ per status (R3/R21 mirror) ─
+#
+# Map TẬP TRUNG cho server-driven CTA màn repair-detail: get_work_order emit
+# `allowed_transitions = _REPAIR_VALID_TRANSITIONS.get(doc.status, [])` để FE
+# render nút workflow theo SERVER (KHÔNG hardcode status→button client-side =
+# anti-pattern dead-gate/RBAC drift). Mirror IncidentDetail (imm12.py:778, R3) +
+# PmWorkOrderDetail (imm08.py:651, R21) — đây là thành viên THỨ BA có
+# allowed_transitions[], đóng NỬA Repair của ASYMMETRY R3 (nửa Calibration =
+# round riêng sau, state-machine imm_11_calibration_workflow.json).
+#
+# Keyed BẰNG RepairStatus.* constants (KHÔNG literal) — codomain GROUNDED
+# edge-by-edge `imm_09_repair_workflow.json` transitions[] (15 transition / 9
+# state). Terminal Completed/Cannot Repair/Cancelled → [] (0 outgoing). Guard
+# test (test_imm09.TestRepairAllowedTransitions + test_mobile_oas.
+# TestMobileRepairAllowedTransitionsContract) chốt SSoT-divergence map↔workflow
+# JSON edge-by-edge + codomain ⊆ RepairStatus enum (chống typo/drift).
+_REPAIR_VALID_TRANSITIONS: dict[str, list[str]] = {
+    RepairStatus.OPEN: [RepairStatus.ASSIGNED, RepairStatus.CANCELLED],
+    RepairStatus.ASSIGNED: [RepairStatus.DIAGNOSING, RepairStatus.CANCELLED],
+    RepairStatus.DIAGNOSING: [
+        RepairStatus.IN_REPAIR,
+        RepairStatus.PENDING_PARTS,
+        RepairStatus.CANCELLED,
+    ],
+    RepairStatus.PENDING_PARTS: [RepairStatus.IN_REPAIR, RepairStatus.CANCELLED],
+    RepairStatus.IN_REPAIR: [
+        RepairStatus.PENDING_INSPECTION,
+        RepairStatus.CANNOT_REPAIR,
+        RepairStatus.CANCELLED,
+    ],
+    RepairStatus.PENDING_INSPECTION: [
+        RepairStatus.COMPLETED,
+        RepairStatus.IN_REPAIR,
+        RepairStatus.CANCELLED,
+    ],
+    RepairStatus.COMPLETED: [],
+    RepairStatus.CANNOT_REPAIR: [],
+    RepairStatus.CANCELLED: [],
+}
 
 
 def is_repair_open(status: str | None) -> bool:
@@ -727,7 +773,34 @@ def get_work_order(name: str) -> dict:
     data["assigned_to_name"] = (
         frappe.db.get_value("User", assignee, "full_name") or assignee or ""
     ) if assignee else ""
+    # Server-driven CTA (mirror imm12.py:778 R3 + imm08.py:651 R21): client render
+    # nút workflow trên màn repair-detail theo SERVER (KHÔNG hardcode status→button).
+    data["allowed_transitions"] = _REPAIR_VALID_TRANSITIONS.get(doc.status, [])
     return data
+
+
+def _assert_valid_create_links(incident_report: str, source_pm_wo: str) -> None:
+    """Gate referential-integrity 2 optional Link FK (BR-09-CREATE-FK, R26).
+
+    Chặn ghi FK rác qua `ignore_links=True` (imm09.py: create_work_order set
+    `doc.flags.ignore_links = True` ⇒ Frappe KHÔNG tự kiểm Link tồn tại). Mỗi FK
+    chỉ validate KHI non-empty (empty-string = standalone hợp lệ, slide 24b):
+
+    - `incident_report` PHẢI tồn tại DocType `Incident Report` (link-target @asset_repair.json).
+    - `source_pm_wo` PHẢI tồn tại DocType `PM Work Order` (link-target @asset_repair.json).
+
+    Fail BẤT KỲ → `nthrow(..., error_code=ErrorCode.VALIDATION_ERROR)` ⇒ envelope
+    `code='VALIDATION_ERROR'` + `http_status=422` (registry entry). Raise TRƯỚC mọi
+    insert/commit (fail-fast) ⇒ KHÔNG partial write. Override `error_code` là CHỦ
+    ĐÍCH (cặp VALIDATION_ERROR×422 ≠ default-map) — mirror ADR-IMM09-VALIDATE-TECH,
+    xem ADR-IMM09-CREATE-FK (docs/imm-09/04 §3.4).
+    """
+    if incident_report and not frappe.db.exists("Incident Report", incident_report):
+        nthrow(MSG.IMM09_INCIDENT_REPORT_NOT_FOUND,
+               error_code=ErrorCode.VALIDATION_ERROR, incident_report=incident_report)
+    if source_pm_wo and not frappe.db.exists("PM Work Order", source_pm_wo):
+        nthrow(MSG.IMM09_SOURCE_PM_WO_NOT_FOUND,
+               error_code=ErrorCode.VALIDATION_ERROR, source_pm_wo=source_pm_wo)
 
 
 def create_work_order(*, asset_ref: str, repair_type: str, priority: str,
@@ -741,9 +814,21 @@ def create_work_order(*, asset_ref: str, repair_type: str, priority: str,
     """
     rbac.require("repair.create")
     asset_data = AssetRepo.get_value(
-        asset_ref, ["asset_name", "risk_classification"], as_dict=True)
+        asset_ref, ["asset_name", "risk_classification", "lifecycle_status"], as_dict=True)
     if not asset_data:
         nthrow(MSG.IMM09_ASSET_NOT_FOUND, asset=asset_ref)
+
+    # Defense-in-depth lifecycle gate (BR-00 state machine): chặn tạo phiếu sửa
+    # chữa khi lifecycle_status hiện tại KHÔNG cho phép chuyển sang Under Repair
+    # (vd Draft — chưa đưa vào vận hành). FE đã ẩn nút (available_actions) nhưng
+    # service PHẢI tự gate — user vào /cm/create trực tiếp bỏ qua FE. Raise nthrow
+    # VALIDATION_ERROR (422) fail-fast TRƯỚC insert (no partial write) THAY cho
+    # raw InvalidAssetTransition (transition_asset_status) bubble → HTTP 500.
+    current_status = asset_data.get("lifecycle_status") or ""
+    if not is_valid_asset_transition(current_status, AssetStatus.UNDER_REPAIR):
+        nthrow(MSG.IMM09_ASSET_NOT_REPAIRABLE,
+               error_code=ErrorCode.VALIDATION_ERROR,
+               asset=asset_ref, status=_lifecycle_vi(current_status))
 
     open_wo = RepairRepo.find_one(
         {"asset_ref": asset_ref, "status": ["not in", list(RepairStatus.CANNOT_START)]},
@@ -751,6 +836,11 @@ def create_work_order(*, asset_ref: str, repair_type: str, priority: str,
     )
     if open_wo:
         nthrow(MSG.IMM09_ASSET_HAS_OPEN_WO, existing=open_wo["name"])
+
+    # R26 referential-integrity gate: 2 optional Link FK PHẢI tồn tại (khi non-empty)
+    # TRƯỚC frappe.get_doc/insert (fail-fast, no partial write). ignore_links=True
+    # (dưới) cố ý bypass FK của Frappe ⇒ phải guard thủ công. Xem ADR-IMM09-CREATE-FK.
+    _assert_valid_create_links(incident_report, source_pm_wo)
 
     _risk_map = {"Low": RiskClass.I, "Medium": RiskClass.II, "High": RiskClass.III, "Critical": RiskClass.III}
     risk_class_raw = asset_data.get("risk_classification") or ""
@@ -786,6 +876,48 @@ def create_work_order(*, asset_ref: str, repair_type: str, priority: str,
     return {"name": doc.name, "status": RepairStatus.OPEN, "sla_target_hours": sla_hours}
 
 
+def _is_repair_capable(technician: str) -> bool:
+    """SoT (BR-09-DISPATCH, ADR-IMM09-VALIDATE-TECH): user `technician` có quyền
+    NHẬN giao lệnh sửa chữa ⟺ có DocPerm `write` trên DocType `Asset Repair`.
+
+    Kiểm bằng CAPABILITY/DocPerm (`frappe.has_permission(..., user=technician)`),
+    KHÔNG so tên role literal — chống anti-pattern *RBAC dead-gate* (đổi tên role /
+    thêm vai → gate fail âm thầm; memory `factory_rounds_1_25` P1). Cap `repair.write`
+    đã bind `(Asset Repair, "write")` ở `rbac.py` ⇒ bất kỳ user có DocPerm write
+    (Repair Manager/User + Super Admin) đều pass; user chỉ có vai khác (vd Auditor —
+    read-only) → False.
+
+    KHÔNG dùng `rbac.can(cap)`: hàm đó resolve theo `frappe.session.user` (không
+    nhận `user=`) ⇒ sẽ kiểm SAI người (kiểm caller thay vì target). Phải truyền
+    `user=technician` tường minh để gate đúng người được gán.
+    """
+    return bool(frappe.has_permission("Asset Repair", "write", user=technician))
+
+
+def _assert_valid_technician(technician: str) -> None:
+    """Gate dispatch-validation 3-AND (BR-09-DISPATCH, ADR-IMM09-VALIDATE-TECH).
+
+    Chặn mis-dispatch / ghi dữ liệu rác qua `ignore_links=True`: technician PHẢI
+    (1) là User TỒN TẠI trong DocType `User`, (2) `enabled == 1` (chưa bị khoá),
+    (3) repair-capable (`_is_repair_capable`). Fail BẤT KỲ điều kiện →
+    `nthrow(MSG.IMM09_INVALID_TECHNICIAN, error_code=ErrorCode.VALIDATION_ERROR)`
+    ⇒ envelope `code='VALIDATION_ERROR'` + `http_status=422` (registry entry).
+
+    Raise TRƯỚC mọi mutation (fail-fast) ⇒ caller giữ `assigned_to`/`status`
+    nguyên trạng (no partial write). Override `error_code=VALIDATION_ERROR` là CHỦ
+    ĐÍCH (cặp VALIDATION_ERROR×422 ≠ default-map) — xem ADR-IMM09-VALIDATE-TECH.
+    """
+    if not frappe.db.exists("User", technician):
+        nthrow(MSG.IMM09_INVALID_TECHNICIAN,
+               error_code=ErrorCode.VALIDATION_ERROR, technician=technician)
+    if int(frappe.db.get_value("User", technician, "enabled") or 0) != 1:
+        nthrow(MSG.IMM09_INVALID_TECHNICIAN,
+               error_code=ErrorCode.VALIDATION_ERROR, technician=technician)
+    if not _is_repair_capable(technician):
+        nthrow(MSG.IMM09_INVALID_TECHNICIAN,
+               error_code=ErrorCode.VALIDATION_ERROR, technician=technician)
+
+
 def assign_technician(name: str, *, technician: str, priority: str = "") -> dict:
     rbac.require("repair.create")
     doc = RepairRepo.get(name)
@@ -793,6 +925,12 @@ def assign_technician(name: str, *, technician: str, priority: str = "") -> dict
         nthrow(MSG.IMM09_NOT_FOUND, name=name)
     if doc.status != RepairStatus.OPEN:
         nthrow(MSG.IMM09_BAD_STATE, state=doc.status, expected=RepairStatus.OPEN)
+    # R25 dispatch-validation gate (BR-09-DISPATCH): chặn giao việc cho technician
+    # không hợp lệ (không tồn tại / disabled / không repair-capable) TRƯỚC khi set
+    # assigned_to — `ignore_links=True` bên dưới cố ý bypass FK Frappe (nhiều Link
+    # khác), nên technician PHẢI được validate tường minh ở đây. Raise TRƯỚC mutation
+    # ⇒ no partial write (assigned_to/status giữ nguyên). Xem ADR-IMM09-VALIDATE-TECH.
+    _assert_valid_technician(technician)
     doc.assigned_to = technician
     doc.assigned_by = frappe.session.user
     doc.assigned_datetime = now_datetime()

@@ -148,6 +148,23 @@ Bảng con của `AC Asset` (field `depreciation_schedule`, fieldtype Table). 1 
 - `depreciable_base = gross_purchase_amount − residual_value` (phần được phép khấu hao).
 - `residual_value` = giá trị thu hồi (salvage). NĐ98 / chuẩn kế toán VN: tài sản **không được khấu hao xuống dưới giá trị thu hồi**.
 
+### §2.4.1 Kiểu dữ liệu số & ngưỡng tràn (money = decimal, KHÔNG dùng Int)
+
+**Quy tắc bất biến:** mọi trường **tiền tệ** (đồng VND) PHẢI là `Currency`; **KHÔNG bao giờ** dùng `Int` cho tiền. Frappe ánh xạ fieldtype → cột MariaDB như sau:
+
+| Fieldtype | Cột MariaDB | Trần (signed) | Dùng cho |
+|---|---|---|---|
+| `Int` | `int(11)` | **2,147,483,647 (~2.1 tỷ)** | ĐẾM: tháng / ngày / năm / số lượng / điểm / `lft`,`rgt` (luôn < 2.1 tỷ) |
+| `Currency` (mặc định) | `decimal(21,9)` | **~999,999,999,999 (~1 nghìn tỷ)** | Trần mặc định Frappe |
+| `Currency` + `length: 28` | `decimal(28,9)` | **~10¹⁹ VND ("long long"-scale)** | **TIỀN** (AssetCore): nguyên giá, khấu hao, book value, đơn giá, ngân sách, giá trị hợp đồng… |
+| `Long Int` | `bigint(20)` | ~9.2 × 10¹⁸ | Số nguyên RẤT lớn (không phải tiền — không có phần thập phân đồng) |
+
+- **Vì sao KHÔNG dùng `Int`/`Long Int` cho tiền:** `Int` tràn ngay khi giá trị > **~2.1 tỷ VND** (lỗi *Out of range value*). Một thiết bị y tế cao cấp (MRI/CT/Linac, 30–80 tỷ) sẽ **vỡ** nếu lưu bằng `Int`. `Currency` là decimal nên không tràn ở 2 tỷ; `Long Int` là số nguyên (không có phần thập phân) ⇒ không hợp để giữ tiền đồng có lẻ.
+- **Mở rộng trần (đã áp dụng):** `Currency`/`Float`/`Percent` là **CONFIGURABLE decimal** (`frappe/database/schema.py::CONFIGURABLE_DECIMAL_TYPES`) — thuộc tính `length` của field đặt **width** cột (`decimal(width, precision)`). AssetCore đặt **`length: 28`** trên **mọi** trường tiền (38 field / 27 DocType) ⇒ cột `decimal(28,9)`: 19 chữ số phần nguyên ⇒ trần ~**10¹⁹ VND** (vượt mức `Long Int`/bigint mà user yêu cầu), GIỮ 9 chữ số thập phân (không đổi hành vi round/hiển thị). Phần nguyên cũ chỉ ~1 nghìn tỷ nên kể cả **tổng hợp toàn danh mục** (tổng giá trị bệnh viện / envelope ngân sách nhiều năm) cũng không còn nguy cơ tràn.
+  - ⚠️ **Kích hoạt:** đổi `length` chỉ ghi vào DocType JSON; cột DB chỉ thực sự `ALTER decimal(21,9)→(28,9)` sau **`bench --site <site> migrate`** (widening — an toàn, không mất dữ liệu). Trước migrate, JSON đi trước DB là trạng thái bình thường của Frappe.
+- **Tính toán khấu hao:** `services/depreciation.py` dùng `flt()` (float) xuyên suốt — không có phép toán `int()`/`cint()` nào trên số tiền ⇒ không cắt cụt / không tràn ở tầng tính.
+- **Guard chống hồi quy:** `assetcore/tests/test_depreciation_large_value.py` — `TestMoneyFieldsAreDecimalNotInt` (FAIL nếu trường tiền bị đổi sang `Int`/`Long Int`) + `TestMoneyColumnsWidenedToLongLong` (FAIL nếu thiếu `length: 28`, và xác minh `get_definition` Frappe → `decimal(28,9)`) + test pipeline 5 tỷ (preview → generate → executor) khẳng định lũy kế đạt ~4.5 tỷ không bị cắt.
+
 ### §2.5 Khấu hao — Planner vs Executor (NĐ98 / chuẩn kế toán)
 
 Service `assetcore/services/depreciation.py` tách 2 trách nhiệm:

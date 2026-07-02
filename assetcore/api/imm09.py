@@ -12,15 +12,30 @@ import frappe
 from frappe.utils import getdate, nowdate
 
 from assetcore.services import imm09 as svc
+from assetcore.services.shared import ServiceError
 from assetcore.services.shared import rbac
 from assetcore.services.shared.scope import apply_vendor_scope, assert_vendor_can_access
-from assetcore.utils.api_handler import handle, parse_json
+from assetcore.utils.api_handler import _service_error_to_envelope, handle, parse_json
 
 
 @frappe.whitelist()
-def list_repair_work_orders(filters: str = "{}", page: int = 1, page_size: int = 20):
-    f = parse_json(filters, field_name="filters")
+def list_repair_work_orders(filters: str = "{}", mine: int = 0,
+                            page: int = 1, page_size: int = 20):
+    # parse_json BÊN TRONG try/except (mirror imm08.list_pm_work_orders:30-32) — malformed `filters`
+    # → ServiceError(INVALID_PARAMS) chuyển thành Error-trên-HTTP-200 envelope thay vì raise uncaught
+    # = HTTP-500 (khớp contract C7 200-oneOf [RepairWorkOrderListEnvelope, Error]).
+    # C-LISTREAD-MINE-CM (A2-symmetry CUỐI / ADR-MOBILE-017): tab "Phiếu CM của tôi"
+    #   (MyWorkOrdersView, MVP-5b) truyền mine=1 → scope assigned_to == session.user. Inject SAU
+    #   apply_vendor_scope (vendor-scope vẫn áp trước). mine=0/absent ⇒ filters byte-identical
+    #   baseline (web-FE RepairWorkOrderListView KHÔNG đổi). count==rows giữ: count_with_or +
+    #   get_all dùng CÙNG filters dict (đã có assigned_to). Mirror list_pm_work_orders:28-42.
+    try:
+        f = parse_json(filters, field_name="filters")
+    except ServiceError as e:
+        return _service_error_to_envelope(e)
     f = apply_vendor_scope(f, "Asset Repair")
+    if int(mine or 0):
+        f["assigned_to"] = frappe.session.user
     return handle(svc.list_work_orders, f, page=int(page), page_size=int(page_size))
 
 

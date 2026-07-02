@@ -22,7 +22,7 @@ const METHODS = [
   { value: '', label: 'Tất cả phương pháp' },
   { value: '5-Why', label: '5-Why' },
   { value: 'Fishbone', label: 'Fishbone (Ishikawa)' },
-  { value: 'FTA', label: 'FTA (cây lỗi)' },
+  { value: 'FTA', label: 'Phân tích cây lỗi' },
 ]
 
 const STATUSES = [
@@ -74,9 +74,9 @@ onMounted(() => store.fetchRcas())
 <template>
   <div class="page-container animate-fade-in">
     <PageHeader
-      title="Phân tích nguyên nhân gốc (RCA)"
-      :subtitle="`${store.rcaPagination.total} hồ sơ RCA · Bắt buộc cho sự cố nghiêm trọng / lặp lại`"
-      :breadcrumb="[{ label: 'IMM-12 · Sự cố', to: '/incidents/dashboard' }, { label: 'RCA' }]"
+      title="Phân tích nguyên nhân gốc"
+      :subtitle="`${store.rcaPagination.total} hồ sơ phân tích nguyên nhân gốc · Bắt buộc cho sự cố nghiêm trọng / lặp lại`"
+      :breadcrumb="[{ label: 'IMM-12 · Sự cố', to: '/incidents/dashboard' }, { label: 'Phân tích nguyên nhân gốc' }]"
     >
       <template #actions>
         <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
@@ -150,12 +150,12 @@ onMounted(() => store.fetchRcas())
         <table class="min-w-full divide-y divide-slate-100">
           <thead>
             <tr>
-              <th class="table-header">Mã RCA</th>
+              <th class="table-header">Mã phân tích nguyên nhân gốc</th>
               <th class="table-header">Sự cố nguồn</th>
               <th class="table-header">Thiết bị</th>
               <th class="table-header">Phương pháp</th>
               <th class="table-header">Người phụ trách</th>
-              <th class="table-header">CAPA</th>
+              <th class="table-header">Hành động khắc phục/phòng ngừa</th>
               <th class="table-header">Trạng thái</th>
             </tr>
           </thead>
@@ -193,8 +193,8 @@ onMounted(() => store.fetchRcas())
         </table>
       </div>
       <div v-else class="flex flex-col items-center justify-center py-16 text-slate-400">
-        <p class="text-sm font-medium text-slate-500">Chưa có hồ sơ RCA nào</p>
-        <p class="text-xs mt-1">RCA được tạo tự động từ sự cố mức Cao/Nghiêm trọng hoặc lỗi lặp lại.</p>
+        <p class="text-sm font-medium text-slate-500">Chưa có hồ sơ phân tích nguyên nhân gốc nào</p>
+        <p class="text-xs mt-1">Phân tích nguyên nhân gốc được tạo tự động từ sự cố mức Cao/Nghiêm trọng hoặc lỗi lặp lại.</p>
         <button v-if="activeFilterCount > 0" class="text-xs text-blue-500 hover:text-blue-700 underline mt-2" @click="resetFilters">
           Xóa bộ lọc để xem tất cả
         </button>

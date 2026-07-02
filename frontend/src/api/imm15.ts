@@ -78,6 +78,36 @@ export interface CycleCountRow {
   variance_value?: number
 }
 
+export interface CycleCountItem {
+  name?: string
+  spare_part: string
+  part_name?: string
+  uom?: string
+  system_qty: number
+  counted_qty: number
+  variance_qty?: number
+  variance_pct?: number
+  variance_value?: number
+  root_cause?: string
+  capa_required?: 0 | 1
+  capa_ref?: string
+  notes?: string
+}
+
+// Server-driven CTA (GATE-8/LL-FE-51): BE phát danh sách action verb khả dụng
+// theo status + capability. FE gate nút theo đây, KHÔNG hardcode status===.
+export type CycleCountAction = 'Submit' | 'Post'
+
+export interface CycleCountDetail extends CycleCountRow {
+  items: CycleCountItem[]
+  posted_movement_ref?: string
+  adjustment_ref?: string
+  capa_created?: number
+  notes?: string
+  docstatus?: 0 | 1 | 2
+  allowed_transitions: CycleCountAction[]
+}
+
 export interface ForecastRow {
   name: string
   forecast_period: string
@@ -184,6 +214,9 @@ export const returnItems = (
 
 export const listCycleCounts = (params: Record<string, unknown> = {}) =>
   frappeGet<ListEnvelope<CycleCountRow>>(`${BASE}.list_cycle_counts`, params)
+
+export const getCycleCount = (name: string) =>
+  frappeGet<CycleCountDetail>(`${BASE}.get_cycle_count`, { name })
 
 export const createCycleCount = (payload: {
   warehouse: string

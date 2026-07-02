@@ -60,20 +60,20 @@
   {
    "fieldname": "supplier_name",
    "fieldtype": "Data",
-   "label": "Supplier Name",
+   "label": "Tên nhà cung cấp",
    "reqd": 1,
    "in_list_view": 1
   },
   {
    "fieldname": "supplier_code",
    "fieldtype": "Data",
-   "label": "Supplier Code",
+   "label": "Mã nhà cung cấp",
    "unique": 1
   },
   {
    "fieldname": "supplier_group",
    "fieldtype": "Select",
-   "label": "Supplier Group",
+   "label": "Nhóm nhà cung cấp",
    "options": "Manufacturer\nDistributor\nCalibration Lab\nService Provider",
    "reqd": 1
   },
@@ -84,27 +84,27 @@
   {
    "fieldname": "country",
    "fieldtype": "Data",
-   "label": "Country"
+   "label": "Quốc gia"
   },
   {
    "fieldname": "tax_id",
    "fieldtype": "Data",
-   "label": "Tax ID"
+   "label": "Mã số thuế"
   },
   {
    "fieldname": "website",
    "fieldtype": "Data",
-   "label": "Website"
+   "label": "Trang web"
   },
   {
    "fieldname": "is_transporter",
    "fieldtype": "Check",
-   "label": "Is Transporter"
+   "label": "Là nhà vận chuyển"
   },
   {
    "fieldname": "is_active",
    "fieldtype": "Check",
-   "label": "Is Active",
+   "label": "Đang hoạt động",
    "default": "1"
   },
   {
@@ -115,17 +115,17 @@
   {
    "fieldname": "address",
    "fieldtype": "Small Text",
-   "label": "Address"
+   "label": "Địa chỉ"
   },
   {
    "fieldname": "phone",
    "fieldtype": "Data",
-   "label": "Phone"
+   "label": "Điện thoại"
   },
   {
    "fieldname": "mobile_no",
    "fieldtype": "Data",
-   "label": "Mobile No"
+   "label": "Số di động"
   },
   {
    "fieldname": "email_id",
@@ -140,18 +140,18 @@
   {
    "fieldname": "support_hotline",
    "fieldtype": "Data",
-   "label": "Support Hotline"
+   "label": "Đường dây hỗ trợ"
   },
   {
    "fieldname": "technical_email",
    "fieldtype": "Data",
-   "label": "Technical Email",
+   "label": "Email kỹ thuật",
    "options": "Email"
   },
   {
    "fieldname": "local_representative",
    "fieldtype": "Data",
-   "label": "Local Representative"
+   "label": "Đại diện trong nước"
   },
   {
    "fieldname": "section_cert",
@@ -161,7 +161,7 @@
   {
    "fieldname": "vendor_type",
    "fieldtype": "Select",
-   "label": "Vendor Type",
+   "label": "Loại nhà cung cấp",
    "options": "Manufacturer\nDistributor\nCalibration Lab\nService",
    "reqd": 1,
    "search_index": 1
@@ -169,12 +169,12 @@
   {
    "fieldname": "iso_17025_cert",
    "fieldtype": "Data",
-   "label": "ISO 17025 Certificate"
+   "label": "Chứng nhận ISO 17025"
   },
   {
    "fieldname": "iso_17025_expiry",
    "fieldtype": "Date",
-   "label": "ISO 17025 Expiry"
+   "label": "Hết hạn ISO 17025"
   },
   {
    "fieldname": "column_break_cert",
@@ -183,12 +183,12 @@
   {
    "fieldname": "iso_13485_cert",
    "fieldtype": "Data",
-   "label": "ISO 13485 Certificate"
+   "label": "Chứng nhận ISO 13485"
   },
   {
    "fieldname": "iso_13485_expiry",
    "fieldtype": "Date",
-   "label": "ISO 13485 Expiry"
+   "label": "Hết hạn ISO 13485"
   },
   {
    "fieldname": "section_contract",
@@ -198,12 +198,12 @@
   {
    "fieldname": "contract_start",
    "fieldtype": "Date",
-   "label": "Contract Start"
+   "label": "Ngày bắt đầu hợp đồng"
   },
   {
    "fieldname": "contract_end",
    "fieldtype": "Date",
-   "label": "Contract End",
+   "label": "Ngày kết thúc hợp đồng",
    "search_index": 1
   },
   {
@@ -213,12 +213,13 @@
   {
    "fieldname": "contract_value",
    "fieldtype": "Currency",
-   "label": "Contract Value"
+   "length": 28,
+   "label": "Giá trị hợp đồng"
   },
   {
    "fieldname": "service_contract_ref",
    "fieldtype": "Link",
-   "label": "Service Contract Reference",
+   "label": "Tham chiếu hợp đồng dịch vụ",
    "options": "Service Contract"
   },
   {
@@ -229,7 +230,7 @@
   {
    "fieldname": "authorized_technicians",
    "fieldtype": "Table",
-   "label": "Authorized Technicians",
+   "label": "Kỹ thuật viên được ủy quyền",
    "options": "AC Authorized Technician"
   },
   {

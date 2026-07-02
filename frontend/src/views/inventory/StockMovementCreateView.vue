@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import DateTimeInput from '@/components/common/DateTimeInput.vue'
+import CurrencyInput from '@/components/common/CurrencyInput.vue'
 // Copyright (c) 2026, AssetCore Team
 import { ref, computed, watch, onMounted, onBeforeUnmount, type Ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
@@ -8,6 +9,7 @@ import type { RefDoc, UomConversion } from '@/api/inventory'
 import type { MovementType, StockMovementItem, SparePart } from '@/types/inventory'
 import { getPurchase } from '@/api/purchase'
 import SmartSelect from '@/components/common/SmartSelect.vue'
+import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import { useFieldsDraft } from '@/composables/useFormDraft'
 
@@ -274,7 +276,7 @@ async function submit(autoSubmit: boolean) {
 
   // BR-INV-07: Manual + Adjustment require notes
   if ((referenceType.value === 'Manual' || movementType.value === 'Adjustment') && !notes.value.trim()) {
-    error.value = 'Phiếu Manual / Điều chỉnh bắt buộc phải có Ghi chú (lý do)'; return
+    error.value = 'Phiếu thủ công / Điều chỉnh bắt buộc phải có Ghi chú (lý do)'; return
   }
   // BR: linked types require a selected document
   if (needsRefSearch.value && !referenceName.value) {
@@ -365,7 +367,7 @@ function vnd(v?: number) {
         </div>
         <div v-if="movementType === 'Issue'">
           <p class="form-label">Người nhận</p>
-          <SmartSelect v-model="receiverPerson" doctype="User" placeholder="Chọn người nhận..." />
+          <ApproverSelect v-model="receiverPerson" context="user" placeholder="Chọn người nhận..." />
         </div>
 
         <div v-if="movementType === 'Receipt'">
@@ -375,7 +377,7 @@ function vnd(v?: number) {
 
         <div>
           <p class="form-label">Người đề nghị</p>
-          <SmartSelect v-model="requestedBy" doctype="User" placeholder="Mặc định: người đăng nhập" />
+          <ApproverSelect v-model="requestedBy" context="user" placeholder="Mặc định: người đăng nhập" />
         </div>
 
         <div>
@@ -383,7 +385,7 @@ function vnd(v?: number) {
           <select id="sm-ref-type" v-model="referenceType" class="form-select w-full">
             <option value="">— Không —</option>
             <option value="Asset Repair">Sửa chữa (Asset Repair)</option>
-            <option value="PM Work Order">Bảo trì / Hiệu chuẩn (PM Work Order)</option>
+            <option value="PM Work Order">Bảo trì / Hiệu chuẩn</option>
             <option value="AC Purchase">Mua hàng (Purchase)</option>
             <option value="Manual">Thủ công (Manual)</option>
           </select>
@@ -396,7 +398,7 @@ function vnd(v?: number) {
 id="sm-ref-name" type="text" class="form-input w-full font-mono"
                  :value="refLabel"
                  :placeholder="referenceType === 'Asset Repair' ? 'Click để xem danh sách hoặc gõ để lọc...'
-                              : referenceType === 'AC Purchase' ? 'Click để xem PO có phụ tùng hoặc gõ để lọc...'
+                              : referenceType === 'AC Purchase' ? 'Click để xem lệnh mua hàng có phụ tùng hoặc gõ để lọc...'
                               : 'Click để xem lệnh bảo trì hoặc gõ để lọc...'"
                  @focus="onRefFocus()"
                  @input="onRefSearch(($event.target as HTMLInputElement).value)"
@@ -562,8 +564,8 @@ v-if="row.uom && row._stock_uom && row.uom !== row._stock_uom && row.stock_qty !
           <!-- Unit cost -->
           <div class="col-span-4 md:col-span-2">
             <label :for="`sm-cost-${idx}`" class="text-[10px] text-slate-500 mb-1 block">Đơn giá</label>
-            <input
-:id="`sm-cost-${idx}`" v-model.number="row.unit_cost" type="number" min="0" step="1000"
+            <CurrencyInput
+              :id="`sm-cost-${idx}`" v-model="row.unit_cost" aria-label="Đơn giá"
                    class="form-input w-full text-sm" />
           </div>
 

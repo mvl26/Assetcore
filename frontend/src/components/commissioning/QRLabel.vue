@@ -103,11 +103,11 @@ onMounted(fetchLabel)
             <span class="font-bold text-blue-700">{{ labelData.label.internal_qr }}</span>
           </div>
           <div class="flex justify-between gap-2">
-            <span class="text-gray-500">Serial NSX:</span>
+            <span class="text-gray-500">Số serial NSX:</span>
             <span class="font-bold">{{ labelData.label.vendor_serial }}</span>
           </div>
           <div class="flex justify-between gap-2">
-            <span class="text-gray-500">Model:</span>
+            <span class="text-gray-500">Mẫu máy:</span>
             <span class="font-bold truncate max-w-28">{{ labelData.label.model }}</span>
           </div>
           <div class="flex justify-between gap-2">

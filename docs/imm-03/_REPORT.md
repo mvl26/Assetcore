@@ -43,7 +43,7 @@
 
 - **AVL email cảnh báo 60/30d**: 02 §I.7 (R-03-02), 04 §VIII, 08 §I.3 và 09 II.2 F-02 đều mô tả "cảnh báo 60/30 ngày" nhưng `check_avl_expiry()` V1 chỉ set state Expired — KHÔNG gọi `frappe.sendmail`. Cần đánh dấu Wave 3 hoặc implement listener.
 - **`check_audit_due`**: chỉ `frappe.logger("imm03").info(...)` — KHÔNG tạo SA task. Docs 02 và 08 nói "tự động tạo IMM Supplier Audit task" → over-promise.
-- **Permlevel 1**: tài liệu 04/05/07 ghi permlevel=1 cho `awarded_price`, `funding_source`, ..., nhưng IMM Procurement Decision JSON chưa kiểm tra có permlevel set. Cần audit DocPerm thực để đảm bảo enforce.
+- **Permlevel 1**: ✅ **RESOLVED 2026-07-02**. `IMM Procurement Decision` có permlevel=1 trên `winner_supplier/awarded_price/envelope_check_pct/funding_source/funding_evidence/board_approver/contract_doc` NHƯNG thiếu DocPerm permlevel-1 → `_award_decision` (`doc.save()/submit()`) strip câm các field này với mọi user (trừ Administrator). Đã thêm DocPerm permlevel-1: Super Admin R+W, Procurement Manager R+W, Auditor R. Xem LL-BE-67 + memory `permlevel_no_docperm_silent_strip`.
 - **VR-03-06 (immutable audit trail)**: không enforce trong `services/imm03.py`. Phụ thuộc DocPerm của `IMM Audit Trail` (chung hệ thống) — chưa verify.
 - **`create_vendor_profile`** chỉ check `len(certs) >= 1`, KHÔNG check `cert_type` ∈ {ISO 9001, ISO 13485}; message cảnh báo có nhưng VR thực không match nội dung message.
 - **`record_contract.signed_date`** param được nhận nhưng silently dropped vì DocType không có field. Recommend remove param từ API signature hoặc thêm `contract_signed_date` field.

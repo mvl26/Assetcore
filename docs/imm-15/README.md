@@ -72,4 +72,6 @@ IMM-15 xây trên **AC Inventory Backbone** (Wave 1 LIVE):
 
 ---
 
-*Module IMM-15 — Wave 2 Implemented. Cập nhật 2026-05-27.*
+*Module IMM-15 — Wave 2 Implemented. Cập nhật 2026-07-01.*
+
+> **Delta vòng 2 (2026-07-01) — Surface Cycle Count UI:** thêm endpoint **`get_cycle_count`** (detail + `allowed_transitions` capability-aware — 05 §3.6a, ADR-IMM-15-06) + surface FE (view/route `/inventory/cycle-counts` + `:name`, nav "Kiểm kê tồn kho", StoreDashboard link — 06 §II.8bis, ADR-IMM-15-07). BE lifecycle create/submit/post đã có. ⚠️ Child LIVE = `IMM Cycle Count Item` (orphan `IMM Stock Cycle Count Item` cần BE dọn). Endpoint FE store: `submitCycleCount` (KHÔNG `save_counted_qty`).

@@ -137,7 +137,7 @@ const doExport = importWizard.doExport
 
 const IMPORT_NOTICE = [
   'Mã NCC (supplier_code) phải duy nhất.',
-  'Email & MST phải đúng định dạng (xem cảnh báo preview).',
+  'Email & MST phải đúng định dạng (xem cảnh báo xem trước).',
   'Loại NCC: Domestic / Foreign / Mixed.',
 ]
 </script>
@@ -169,7 +169,7 @@ const IMPORT_NOTICE = [
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
               d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
           </svg>
-          Import
+          Nhập Excel
         </button>
         <button class="btn-primary shrink-0" @click="router.push('/suppliers/new')">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -341,5 +341,5 @@ const IMPORT_NOTICE = [
     </div>
   </div>
 
-  <ImportWizardModal :ctx="importWizard" title="Import Nhà cung cấp" unit="NCC" :notice="IMPORT_NOTICE" />
+  <ImportWizardModal :ctx="importWizard" title="Nhập nhà cung cấp" unit="NCC" :notice="IMPORT_NOTICE" />
 </template>

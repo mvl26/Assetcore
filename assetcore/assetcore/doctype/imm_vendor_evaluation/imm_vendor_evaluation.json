@@ -44,7 +44,7 @@
    "fieldname": "spec_ref",
    "fieldtype": "Link",
    "options": "IMM Tech Spec",
-   "label": "Tech Spec",
+   "label": "Hồ sơ kỹ thuật",
    "reqd": 1,
    "in_list_view": 1
   },
@@ -97,7 +97,7 @@
    "fieldname": "plan_ref",
    "fieldtype": "Link",
    "options": "IMM Procurement Plan",
-   "label": "Procurement Plan"
+   "label": "Kế hoạch mua sắm"
   },
   {
    "fieldname": "plan_line",
@@ -126,18 +126,18 @@
    "fieldname": "criteria",
    "fieldtype": "Table",
    "options": "Vendor Eval Criterion",
-   "label": "Criteria"
+   "label": "Tiêu chí"
   },
   {
    "fieldname": "section_cands",
    "fieldtype": "Section Break",
-   "label": "Candidates"
+   "label": "Danh sách ứng viên"
   },
   {
    "fieldname": "candidates",
    "fieldtype": "Table",
    "options": "Vendor Eval Candidate",
-   "label": "Candidates"
+   "label": "Danh sách ứng viên"
   },
   {
    "fieldname": "section_quotes",
@@ -148,7 +148,7 @@
    "fieldname": "quotations",
    "fieldtype": "Table",
    "options": "Vendor Quotation Line",
-   "label": "Quotations"
+   "label": "Báo giá"
   },
   {
    "fieldname": "amended_from",

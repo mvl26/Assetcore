@@ -52,7 +52,7 @@
   {
    "fieldname": "status",
    "fieldtype": "Select",
-   "label": "Status",
+   "label": "Trạng thái",
    "read_only": 1,
    "options": "\nActive\nExpiring\nExpired",
    "in_list_view": 1
@@ -64,7 +64,7 @@
   {
    "fieldname": "attachment",
    "fieldtype": "Attach",
-   "label": "File"
+   "label": "Tệp"
   }
  ],
  "istable": 1,

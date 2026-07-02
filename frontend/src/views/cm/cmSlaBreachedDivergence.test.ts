@@ -22,7 +22,7 @@
 //  (B) List view nhận query.sla_breached=1 → fetch với sla_breached=1 và render
 //      đúng N dòng BE trả → card count === list length.
 //  (C) LIVE-TRUTH (INV-CM-SLA-5): WO open-overdue cờ thô sla_breached=0 nhưng
-//      is_sla_breached=true (live) → badge "SLA vi phạm" RENDER + đếm vào card.
+//      is_sla_breached=true (live) → badge "Cam kết dịch vụ vi phạm" RENDER + đếm vào card.
 //      RED-prove: revert binding về chỉ `sla_breached` ⇒ badge ẩn dù live-breach.
 //
 // ─── ROOT-CAUSE: test-isolation (vong-17 ĐỎ full-suite, xanh isolation) ──────────
@@ -82,7 +82,7 @@ const BREACHED_WOS = [
 // descriptor BE đã set (route /cm/work-orders, query {sla_breached:'1'}).
 const cmSlaBreachedKpi = {
   key: 'cm_sla_breached',
-  label_vi: 'SLA vi phạm',
+  label_vi: 'Cam kết dịch vụ vi phạm',
   value: N_BREACHED,
   foot_vi: 'SLA tuân thủ 70%',
   tone: 'danger' as const,
@@ -163,7 +163,7 @@ describe('IMM-09 cm_sla_breached — KPI card / drill-list divergence guard (BR-
   it('(A) card render value BE verbatim (3) — FE KHÔNG recompute breach', async () => {
     const w = mount(OpsmgrDashboardView, { global: dashboardGlobal })
     await flushPromises()
-    expect(w.text()).toContain('SLA vi phạm')
+    expect(w.text()).toContain('Cam kết dịch vụ vi phạm')
     // value 3 hiển thị (toLocaleString('vi-VN') không đổi 1 chữ số).
     expect(w.text()).toContain(String(N_BREACHED))
   })
@@ -171,7 +171,7 @@ describe('IMM-09 cm_sla_breached — KPI card / drill-list divergence guard (BR-
   it('(A) drill card trỏ /cm/work-orders?sla_breached=1 — CÙNG predicate, KHÔNG kèm status', async () => {
     const w = mount(OpsmgrDashboardView, { global: dashboardGlobal })
     await flushPromises()
-    const link = w.findAll('a').find((a) => a.text().includes('SLA vi phạm'))
+    const link = w.findAll('a').find((a) => a.text().includes('Cam kết dịch vụ vi phạm'))
     expect(link).toBeTruthy()
     const href = link!.attributes('href') ?? ''
     expect(href).toContain('/cm/work-orders')
@@ -222,7 +222,7 @@ describe('IMM-09 cm_sla_breached — list áp dụng cùng filter → count === 
 // ─── (C) LIVE-TRUTH (INV-CM-SLA-5) — badge theo is_sla_breached ?? sla_breached ─
 // Tập LIVE: 1 WO open-overdue cờ THÔ sla_breached=0 nhưng BE enrich is_sla_breached=true
 // (live-overdue trong cửa-sổ-trễ-scheduler) + 1 WO open in-hạn cờ=0 is_sla_breached=false.
-// Badge "SLA vi phạm" PHẢI render đúng 1 dòng (live-overdue) → == card count live.
+// Badge "Cam kết dịch vụ vi phạm" PHẢI render đúng 1 dòng (live-overdue) → == card count live.
 // RED-prove: revert binding view về chỉ `wo.sla_breached` ⇒ badge ẩn (cờ=0) ⇒ test FAIL.
 const LIVE_WOS = [
   // open-overdue: cờ thô CHƯA stamp (scheduler chưa quét) nhưng BE derive live=true.
@@ -253,10 +253,10 @@ describe('IMM-09 cm_sla_breached — LIVE-TRUTH badge (INV-CM-SLA-5, BR-09-07 LI
     return w
   }
 
-  it('(C) WO open-overdue cờ thô=0 nhưng is_sla_breached=true → badge "SLA vi phạm" RENDER', async () => {
+  it('(C) WO open-overdue cờ thô=0 nhưng is_sla_breached=true → badge "Cam kết dịch vụ vi phạm" RENDER', async () => {
     const w = await mountList()
     // badge xuất hiện đúng số WO live-breach (desktop + mobile mỗi WO 1 lần → đếm ≥ N_LIVE).
-    const occurrences = w.text().split('SLA vi phạm').length - 1
+    const occurrences = w.text().split('Cam kết dịch vụ vi phạm').length - 1
     expect(occurrences).toBeGreaterThanOrEqual(N_LIVE_BREACH)
     expect(occurrences).toBeGreaterThan(0) // live=true PHẢI render dù cờ thô=0
   })

@@ -10,6 +10,7 @@ import type { TrainingParticipant } from '@/api/imm06'
 import PageHeader from '@/components/common/PageHeader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import SmartSelect from '@/components/common/SmartSelect.vue'
+import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
 
 
 const props = defineProps<{ name?: string }>()
@@ -273,7 +274,7 @@ onMounted(load)
       </svg>
       <div>
         <p class="font-medium">Bạn không có quyền thực hiện hành động trên buổi đào tạo này.</p>
-        <p class="text-xs mt-0.5">Liên hệ quản trị để cấp role Training User (giảng dạy) hoặc Training Manager (duyệt/đóng).</p>
+        <p class="text-xs mt-0.5">Liên hệ quản trị để cấp vai trò Training User (giảng dạy) hoặc Training Manager (duyệt/đóng).</p>
       </div>
     </div>
 
@@ -415,7 +416,7 @@ onMounted(load)
           <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
             <div>
               <label class="text-[11px] text-slate-500 mb-1 block">Học viên *</label>
-              <SmartSelect v-model="enrollUser" doctype="User" placeholder="Chọn người dùng..." />
+              <ApproverSelect v-model="enrollUser" context="user" placeholder="Chọn người dùng..." />
             </div>
             <div>
               <label class="text-[11px] text-slate-500 mb-1 block">Khoa/Phòng</label>
@@ -445,8 +446,8 @@ onMounted(load)
                 <th class="table-header">Khoa/Phòng</th>
                 <th class="table-header">Vai trò</th>
                 <th class="table-header text-right">Điểm chuyên cần (%)</th>
-                <th class="table-header text-right">Điểm LT</th>
-                <th class="table-header text-right">Điểm TH</th>
+                <th class="table-header text-right">Điểm lý thuyết</th>
+                <th class="table-header text-right">Điểm thực hành</th>
                 <th class="table-header">Kết quả</th>
                 <th class="table-header">Cần thi lại</th>
                 <th v-if="canManage" class="table-header text-right">Thao tác</th>

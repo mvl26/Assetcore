@@ -41,7 +41,7 @@
    "fieldname": "supplier",
    "fieldtype": "Link",
    "options": "AC Supplier",
-   "label": "Vendor",
+   "label": "Nhà cung cấp",
    "reqd": 1,
    "in_list_view": 1
   },
@@ -115,7 +115,7 @@
   {
    "fieldname": "condition_notes",
    "fieldtype": "Long Text",
-   "label": "Conditional notes"
+   "label": "Ghi chú điều kiện"
   },
   {
    "fieldname": "suspension_reason",

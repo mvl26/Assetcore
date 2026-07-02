@@ -21,8 +21,12 @@ export type DisposalMethod =
   | 'Bán/Trade-in'
   | 'Lưu trữ'
 
-/** Trạng thái workflow của hồ sơ giải nhiệm (mirror BE). */
-export type DecommissionState = 'Draft' | 'Approved'
+/**
+ * Trạng thái workflow của hồ sơ giải nhiệm (mirror BE DocType `Asset Decommission`
+ * field `workflow_state` Select: Draft / Approved / Cancelled). Render qua
+ * StatusBadge (translateStatus) — KHÔNG render raw EN ra UI.
+ */
+export type DecommissionState = 'Draft' | 'Approved' | 'Cancelled'
 
 export interface DecommissionRecord {
   name: string
@@ -100,4 +104,65 @@ export function approveDecommission(name: string): Promise<ApproveDecommissionRe
 /** GET get_decommission — lấy chi tiết hồ sơ giải nhiệm của 1 record. */
 export function getDecommission(name: string): Promise<DecommissionRecord> {
   return frappeGet(`${BASE}.get_decommission`, { name })
+}
+
+// ─── Danh sách "Biên bản giải nhiệm" (list_decommissions) ────────────────────
+
+/**
+ * 1 dòng trong bảng "Biên bản giải nhiệm" — mirror EXACT field BE
+ * `list_decommissions` trả (services/imm14.py::_DECOM_LIST_FIELDS + enrich).
+ * `responsible_name` = full_name (User) do BE enrich — KHÔNG rò email
+ * (LL-FE-53 / user_source policy); có thể null nếu User không có full_name.
+ */
+export interface DecommissionRow {
+  name: string
+  asset: string
+  asset_name_snapshot: string
+  risk_classification_snapshot: string
+  workflow_state: DecommissionState
+  disposal_method: DisposalMethod
+  decommissioned_on: string | null
+  responsible: string
+  responsible_name: string | null
+}
+
+/** Bộ lọc đo được cho list — khớp whitelist BE (_DECOM_FILTER_KEYS). */
+export interface DecommissionListFilters {
+  workflow_state?: DecommissionState | ''
+  disposal_method?: DisposalMethod | ''
+  asset?: string
+}
+
+/** Metadata phân trang (mirror utils/pagination.paginate). */
+export interface DecommissionPagination {
+  page: number
+  page_size: number
+  total: number
+  total_pages: number
+  offset?: number
+}
+
+/** Envelope {data, pagination} — mirror list_compliance_findings/imm16. */
+export interface DecommissionListResult {
+  data: DecommissionRow[]
+  pagination: DecommissionPagination
+}
+
+/**
+ * GET list_decommissions — danh sách hồ sơ giải nhiệm (read-only, RBAC-scoped).
+ * BE áp DocPerm 'Asset Decommission' (KHÔNG ignore_permissions); user thiếu
+ * decommission.read → 403 (axios redirect). Sort mặc định decommissioned_on desc
+ * (fallback creation desc). `filters` gửi dạng JSON (frappeGet stringify hộ dict
+ * lồng KHÔNG an toàn → tự JSON.stringify, khớp signature BE `filters: str`).
+ */
+export function listDecommissions(
+  filters: DecommissionListFilters = {},
+  page = 1,
+  pageSize = 20,
+): Promise<DecommissionListResult> {
+  return frappeGet(`${BASE}.list_decommissions`, {
+    filters: JSON.stringify(filters),
+    page,
+    page_size: pageSize,
+  })
 }

@@ -749,8 +749,8 @@ Decision: ☐ Pass / ☐ Pass with conditions / ☐ Fail (block). *(Hiện: có 
 - [x] Sign-off section sẵn sàng
 
 ## VI. Security
-- [ ] DocPerm matrix đầy đủ — gap: thiếu DocPerm row permlevel-1 cho field nhạy cảm
-- [ ] Mọi field nhạy cảm có permlevel ≠ 0 — field có permlevel 1 nhưng chưa có DocPerm Read row
+- [x] DocPerm matrix đầy đủ — ✅ 2026-07-02 thêm DocPerm permlevel-1 (Super Admin R+W, Procurement Manager R+W, Auditor R). Trước đó thiếu row → `doc.save()` strip câm `awarded_price/funding_source/board_approver`. Xem LL-BE-67.
+- [x] Mọi field nhạy cảm có permlevel ≠ 0 — ✅ permlevel-1 field giờ có DocPerm Read+Write row hợp lệ
 - [ ] SQL injection + CSRF test pass — Planned
 - [ ] Audit chain test pass — Planned
 - [ ] Vendor isolation test — chưa có permission_query_conditions

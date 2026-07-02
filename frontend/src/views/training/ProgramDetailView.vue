@@ -166,7 +166,7 @@ onMounted(load)
             <p>{{ currentProgram?.is_mandatory_for_operation ? 'Có' : 'Không' }}</p>
           </div>
           <div>
-            <p class="text-xs text-slate-400 mb-1">Tài liệu QMS</p>
+            <p class="text-xs text-slate-400 mb-1">Tài liệu hệ thống quản lý chất lượng</p>
             <p>{{ currentProgram?.qms_doc_ref ?? '—' }}</p>
           </div>
           <div>
@@ -243,14 +243,14 @@ onMounted(load)
             </select>
           </div>
           <div>
-            <label class="form-label">Tài liệu QMS</label>
+            <label class="form-label">Tài liệu hệ thống quản lý chất lượng</label>
             <input
               v-model="form.qms_doc_ref"
               type="text"
               class="form-input w-full"
               placeholder="Mã Asset Document (VD: ADOC-2026-00012)"
             />
-            <p class="text-xs text-slate-400 mt-1">Link đến Asset Document. Để trống nếu chưa gắn.</p>
+            <p class="text-xs text-slate-400 mt-1">Liên kết đến Asset Document. Để trống nếu chưa gắn.</p>
           </div>
           <div class="sm:col-span-2">
             <label class="form-label">Yêu cầu giảng viên</label>

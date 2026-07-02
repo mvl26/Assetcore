@@ -48,9 +48,17 @@ CAPA_ESCALATION_MANAGER: list[str] = ["Compliance Manager"]
 INCIDENT_ESCALATION_QA: list[str] = QA_OFFICER       # ["Compliance Manager"]
 INCIDENT_ESCALATION_OPS: list[str] = OPS_MANAGER     # ["Maintenance Manager"]
 
+# Người nhận escalation phiếu nhu cầu (IMM Needs Request) treo quá 30 ngày ở
+# Submitted/Reviewing (IMM-01 BR-01-11 / RSK-01-05 / ADR-IMM-01-01). Map persona
+# "PTP Khối 1 / Quản lý Nhu cầu" → role THẬT "Needs Manager" (đã verify tồn tại +
+# gate NR workflow). KHAI BÁO RIÊNG để escalation NR có 1 SSoT routing độc lập —
+# KHÔNG literal role-name / persona-name ở call-site (chống dead-role R21).
+NEEDS_STALE_ESCALATION: list[str] = ["Needs Manager"]
+
 # Mọi role được tham chiếu để gửi notification từ module này — dùng cho guard test.
 ALL_NOTIFY_ROLES: frozenset[str] = frozenset(
     WORKSHOP_HEAD + OPS_MANAGER + QA_OFFICER + BIOMED_TECH + STOREKEEPER
     + CAPA_ESCALATION_MANAGER
     + INCIDENT_ESCALATION_QA + INCIDENT_ESCALATION_OPS
+    + NEEDS_STALE_ESCALATION
 )

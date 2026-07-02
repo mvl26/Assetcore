@@ -129,7 +129,7 @@ Output: Procurement Plan (Approved) → IMM-02 (Tech Spec), IMM-03 (Vendor/PO); 
 | RSK-01-02 | Replacement không có Decommission Plan IMM-13 → mua mới mà không thanh lý | H | Vi phạm NĐ98 §32, audit fail | VR-01-02 hard-block; tham chiếu IMM-13 mandatory cho request_type=Replacement |
 | RSK-01-03 | Chấm điểm cảm tính, thiên vị giữa khoa | M | Ưu tiên sai, mất minh bạch | G02 đủ 6/6 tiêu chí weighted; HTM Reviewer + KH-TC Officer 4-eyes |
 | RSK-01-04 | Vượt budget envelope quý do nhiều phiếu được duyệt độc lập | H | Vỡ kế hoạch tài chính | G04 hard-cap khi `enforce_envelope=1`; soft warning > 80% |
-| RSK-01-05 | Phiếu submitted rồi để treo > 30 ngày | M | Lead time KPI fail | Scheduler `check_pending_request_overdue` daily 02:00; email PTP Khối 1 + KH-TC |
+| RSK-01-05 | Phiếu submitted rồi để treo > 30 ngày | M | Lead time KPI fail | Scheduler `check_pending_request_overdue` (daily) → escalation digest in-app + email tới role **Needs Manager** (SSoT `notify_roles.NEEDS_STALE_ESCALATION`), idempotent 1 lần/người/ngày — xem BR-01-11 + ADR-IMM-01-01 |
 | RSK-01-06 | Demand Forecast lệch thực tế > 15% → đấu thầu tập trung sai dự báo | M | Vi phạm Luật Đấu thầu 22/2023 | KPI Forecast accuracy ≥ 85%; review tháng giữa KH-TC Officer + Workshop |
 | RSK-01-07 | Hồ sơ đính kèm clinical justification mất hoặc bị sửa | H | Vi phạm ISO 13485 §4.2.5 | IMM Audit Trail bất biến (NFR-01-06); backup daily 30-day (NFR-01-08) |
 | RSK-01-08 | Role mới (HTM Reviewer, KH-TC Officer, Finance Officer, Board Approver) chưa được đào tạo trước go-live | M | Workflow tắc nghẽn | IMM-06 Training prerequisite; UAT đầy đủ 8 actor scenarios |
@@ -217,8 +217,8 @@ TCKT nhận warning khi tổng dự toán > 80% envelope quý. Ghi nhận cảnh
 **E2 — Replacement thiếu Decommission Plan (VR-01-02):**
 VR-01-02 block save khi request_type=Replacement mà replacement_for_asset không có IMM-13 plan ở trạng thái Pending/Approved. Department User phải tạo Decommission Plan IMM-13 trước.
 
-**E3 — Backlog quá 30 ngày:**
-Scheduler `check_pending_request_overdue` (daily 02:00) phát hiện phiếu ở Submitted/Reviewing quá 30 ngày → email PTP Khối 1 và KH-TC Officer để nhắc xử lý.
+**E3 — Backlog quá 30 ngày (escalation, LIVE):**
+Scheduler `check_pending_request_overdue` (daily) phát hiện phiếu ở Submitted/Reviewing (docstatus=0) quá 30 ngày kể từ `request_date` → sinh **1 thông báo digest** (in-app Notification Log + email theo toggle) gửi tới **mọi user giữ role `Needs Manager`** (resolve qua SSoT `notify_roles.NEEDS_STALE_ESCALATION`, KHÔNG literal / KHÔNG persona-name). Nội dung liệt kê **tổng số phiếu + breakdown theo phòng ban** để người xử lý biết phạm vi. Idempotent: mỗi recipient nhận tối đa 1 digest/ngày (dedup qua Notification Log). Không có phiếu quá hạn → 0 thông báo. Không có user nào giữ role → ghi log cảnh báo, KHÔNG raise. Chi tiết design: ADR-IMM-01-01 (IV.2a) + framework E7 (`../imm-00/04_Backend_Design.md` §III.1b-7).
 
 ## II.6. RACI matrix
 
@@ -317,7 +317,7 @@ And tôi nhập requesting_department="ICU", quantity=2, target_year=2027
 And tôi nhấn "Gửi đề xuất"
 Then phiếu chuyển từ Draft → Submitted (docstatus vẫn 0)
 And Frappe Version track_changes ghi history thay đổi
-And (roadmap) email thông báo gửi PTP Khối 1 + KH-TC Officer khi cấu hình notification
+And (roadmap) email xác nhận lúc Submit gửi role Needs Manager khi bật notification — LƯU Ý: khác escalation quá-30-ngày (E3/BR-01-11) vốn đã LIVE qua scheduler
 ```
 
 **AC-2 — Thiếu clinical_justification (reqd):**
@@ -407,6 +407,34 @@ And có thể "Generate IMM-02 Spec Drafts" tạo loạt phiếu Tech Spec rỗn
 | BR-01-08 (VR-01-02) | Replacement nên có IMM-13 Decommission Plan — hiện chỉ soft warn (`msgprint`), sẽ đổi thành block khi IMM-13 LIVE | `_vr02_replacement_requires_decom_plan()` | — |
 | BR-01-09 (VR-01-04) | target_year ≥ năm hiện tại | `_vr04_target_year()` | — |
 | BR-01-10 (VR-01-05) | abs(weighted_score - Σ scoring_rows.weighted) < 0.01 | `_vr05_score_consistency()` | — |
+| BR-01-11 (RSK-01-05) | NR ở {Submitted, Reviewing} & docstatus=0 & `DATEDIFF(today, request_date) > 30` → escalation digest (in-app + email theo toggle) tới role SSoT `notify_roles.NEEDS_STALE_ESCALATION` (= `Needs Manager`); message liệt kê tổng số phiếu + breakdown phòng ban; idempotent 1 digest/recipient/ngày; 0 phiếu quá hạn → 0 thông báo; 0 recipient → log cảnh báo, KHÔNG raise | `imm01.check_pending_request_overdue()` → `notifications.notify_needs_overdue()` (E7) | `test_imm01.py::TestNeedsOverdueEscalation` (mới) |
+
+## IV.2a. Quyết định kiến trúc (ADR) & Boundaries — Escalation NR quá hạn
+
+### ADR-IMM-01-01: Escalation phiếu nhu cầu quá hạn dùng Notification Framework + SSoT role, digest, dedup Frappe-first
+- **Status**: Accepted
+- **Date**: 2026-07-02
+- **Context**: RSK-01-05 (phiếu Submitted/Reviewing treo > 30 ngày → trễ lead-time mua sắm). Scheduler `check_pending_request_overdue` bản cũ (`services/imm01.py:519-522`) CHỈ `frappe.logger().info(...)` — cảnh báo tồn tại nhưng **không tới người xử lý** (biến thể *log-only* của RBAC dead-gate: tín hiệu có nhưng vô hình). Spec cũ (II.5 E3, US-01-001 AC-1) mô tả "email PTP Khối 1 + KH-TC Officer" bằng **tên persona không phải role thật** → nếu code hoá literal sẽ tái phát dead-role (xem `services/shared/notify_roles.py` docstring R21).
+- **Decision**:
+  1. **Recipient qua SSoT** `notify_roles.NEEDS_STALE_ESCALATION = ["Needs Manager"]` + `frappe.utils.user.get_users_with_role` — KHÔNG literal role-name, KHÔNG persona-name. Thêm role này vào `ALL_NOTIFY_ROLES` để guard `test_notify_roles_exist` phủ.
+  2. **Digest** (1 thông báo/recipient/ngày liệt kê tổng số phiếu + breakdown theo phòng) thay vì N thông báo/phiếu — chống spam, giữ tín hiệu escalation dễ đọc.
+  3. **Dedup per-recipient-per-day** qua Notification Log (`for_user` + subject-marker + `DATE(creation)=CURDATE()`) — Frappe-first, KHÔNG field/DocType mới; tái dùng pattern `_warning_already_sent` (E6 IMM-09).
+  4. **Tái dùng engine** `notifications._dispatch` (in-app luôn + email theo Notification Settings toggle) → đồng nhất Notification Framework IMM-00 (E1–E6).
+- **Alternatives** (loại + lý do):
+  - *Per-record notification* (N phiếu = N thông báo): loại — spam chuông, lặp mỗi ngày, khó nắm phạm vi.
+  - *Field cờ `escalation_sent` trên NR*: loại — thêm field + migration; digest không thuộc 1 NR đơn lẻ nên cờ không mô hình hoá đúng.
+  - *`frappe.sendmail` trực tiếp, bỏ engine*: loại — mất kênh in-app, mất per-user toggle, mất audit Notification Log, lệch framework.
+  - *Giữ log-only*: loại — cảnh báo vô hình (dead-gate), RSK-01-05 không được giảm thiểu thật.
+- **Consequences**:
+  - (+) Cảnh báo tới người thật; audit qua Notification Log bất biến, truy về source (count + phòng ban) — 0 DocType/field mới.
+  - (+) Guard test chống dead-gate (assert `get_users_with_role("Needs Manager") ≥ 1` trên site test — đã xác minh 2 user).
+  - (−) Digest span nhiều NR → email KHÔNG có deep-link tới 1 record đơn (giảm thiểu: liệt kê mã phiếu trong body; link tới list view NR quá hạn là roadmap FE).
+  - (−) Dedup dựa `DATE(creation)` → phụ thuộc timezone site; chấp nhận vì scheduler chạy daily.
+
+### Boundaries (Always / Never) — feature escalation NR quá hạn
+- **Always**: sinh Notification Log cho mỗi escalation (audit); resolve recipient qua SSoT `notify_roles`; giữ early-return sạch khi 0 phiếu quá hạn; `frappe.logger("imm01").warning(...)` khi 0 recipient (KHÔNG raise); message **tiếng Việt đầy đủ**, không rò acronym EN (theo ui_copy_language_policy); bọc scheduler try/except fail-safe (1 lỗi KHÔNG dừng cả cron).
+- **Never**: hard-code / persona role-name ("PTP Khối 1", "KH-TC Officer") làm recipient; `raise` trong scheduler (vỡ cron toàn hệ); tạo DocType/field mới chỉ để dedup; gửi N thông báo/phiếu (spam); gửi lại digest cho cùng recipient trong cùng ngày.
+- **Spec-contract (DONE-gate)**: đây là **scheduler** (không phải whitelist HTTP handler) → contract "in-handler HTTP-200 + Error envelope" và "2 loại 403" KHÔNG áp dụng; invariant "count==rows" KHÔNG áp dụng (không có list endpoint). Contract thay thế cho scheduler: **KHÔNG raise + fail-safe per-recipient/per-batch + idempotent qua state (Notification Log)**.
 
 ## IV.3. State Machine
 

@@ -62,6 +62,10 @@ export interface AssetCalibration {
   technician_notes: string | null
   amendment_reason: string | null
   docstatus?: 0 | 1 | 2
+  // SoT server-driven CTA: tập trạng-thái-kế hợp lệ per status từ BE
+  // (_CAL_VALID_TRANSITIONS, imm11.py:1033). FE gate nút workflow theo list này —
+  // KHÔNG hardcode status→button client-side (anti-pattern dead-gate/flow-drift).
+  allowed_transitions?: string[]
 }
 
 export interface CalibrationKpis {

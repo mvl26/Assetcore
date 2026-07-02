@@ -376,4 +376,69 @@ BR-14-W2-01 (GATE) · -02 (disposal_method) · -03 (sanitization gate risk C/D) 
 
 > **Lưu ý reuse (KHÔNG viết lại):** `transition_asset_status` (services/imm00.py:92) đã có state machine + NEG-09 + lifecycle event `decommissioned` + audit `State Change` + `_cancel_pending_depreciation`. Service IMM-14 vòng 2 CHỈ orchestrate (validate field + gọi transition với reason chứa disposal_method/patient_data_sanitized). Spec BE/FE/API CHỐT ở `04 §IX`, `05 §6`, `06 §11`.
 
-*Hết file 02 — IMM-14 Analysis & Design. Phần I–V = thiết kế đầy đủ Đợt 3; Phần VI = MVP CHỐT vòng 2.*
+---
+
+# Phần VII — Wave 2 Vòng 2: Danh sách "Biên bản giải nhiệm" (Decommission register / tra cứu)
+
+> **Delta so với bản trước (2026-07-02).** Phần VI đã CHỐT *write-path* (tạo + duyệt closure). Vòng 2 bổ sung **read/list surface** để tra cứu & báo cáo hồ sơ giải nhiệm — WHO §3.8 (decommissioning report / inventory removal register) yêu cầu danh mục thiết bị đã giải nhiệm truy vết được cho audit NĐ98. Trước vòng này module IMM-14 **vô hình** trên FE (sidebar `items: []`, không route riêng — chỉ vào được qua nút trên màn asset detail). Phần VII biến IMM-14 thành module tra-cứu-được.
+
+## VII.1. Đề mục & 5 câu hỏi domain
+
+- **WHO HTM stage:** Giai đoạn 6 — Decommission. **WHO §3.8** — "inventory system & decommissioning report": bệnh viện phải giữ **register** thiết bị đã giải nhiệm (ngày, phương thức xử lý, người chịu trách nhiệm) làm evidence.
+- **NĐ98 article:** hồ sơ thanh lý/huỷ phải **lưu trữ + tra cứu được** (≥10 năm, xem NFR Phần V). Danh sách này là entrypoint tra cứu evidence.
+- **Stakeholder owns step:** Tổ HC-QLCL & Risk + Auditor tra cứu/xuất báo cáo; Commissioning/Compliance Manager theo dõi. (Đọc = mọi vai có `decommission.read`.)
+- **Lifecycle event produced:** KHÔNG — read-only, không sinh event/record (không mutate). Đây là surface *đọc* thuần.
+- **Hậu quả nếu data sai:** rò hồ sơ ngoài quyền (list bỏ qua DocPerm) → lộ thông tin thanh lý tài sản/PII scope khác; hoặc count≠rows → báo cáo sai số lượng thiết bị đã giải nhiệm (audit NĐ98 fail). → RBAC + invariant count==rows là bắt buộc (VII.4).
+
+## VII.2. Scope-fence (Boundaries)
+
+**Always (In-scope vòng này):**
+- 1 endpoint đọc: `assetcore.api.imm14.list_decommissions(filters, page, page_size)` — envelope `{data, pagination}` mirror `list_compliance_findings` (imm16).
+- 1 route FE `/decommissions` + `DecommissionListView` (bảng, filter, empty-state, pagination, row-click → `/assets/:asset`).
+- 1 mục sidebar IMM-14 "Biên bản giải nhiệm" (`items: []` → có 1 item) → module hết vô hình.
+- Read đi qua **DocPerm** `Asset Decommission` (KHÔNG `ignore_permissions`) — xem ADR-IMM14-LIST-01.
+
+**Never (Out — giữ `[ROADMAP]` Đợt 3):**
+- KHÔNG trang chi tiết `/decommissions/:name` riêng (row-click điều hướng về **asset**, không mở closure detail — closure detail vẫn là ROADMAP; `get_decommission` đã có nhưng chưa gắn route).
+- KHÔNG export/PDF, KHÔNG dashboard end-of-life, KHÔNG reconciliation/rollback (Phần I–V).
+- KHÔNG thêm/sửa field DocType `Asset Decommission` (schema đã đủ — chỉ đọc).
+- KHÔNG free-text search / or_filters ở vòng này (chỉ 3 filter equality: `workflow_state`, `disposal_method`, `asset`).
+
+## VII.3. GATE chính (đo được) — acceptance
+
+1. `GET list_decommissions` trả envelope `{data:[...], pagination:{page,page_size,total,total_pages,...}}`; mặc định `order_by="decommissioned_on desc, creation desc"` (fallback creation desc khi `decommissioned_on` NULL cho record Draft).
+2. Mỗi row đủ 9 khoá: `name` (DECOM-YYYY-####), `asset`, `asset_name_snapshot`, `risk_classification_snapshot`, `workflow_state`, `disposal_method`, `decommissioned_on`, `responsible`, `responsible_name` (full name resolve từ User — **KHÔNG rò email**, mirror `get_decommission`, theo LL-FE-53 / user_source policy).
+3. Filter đo được: `workflow_state` ∈ {Draft, Approved, Cancelled}, `disposal_method` ∈ {Huỷ, Điều chuyển/Donation, Bán/Trade-in, Lưu trữ}, `asset` — mỗi filter thu hẹp đúng tập; filters rỗng `{}` → toàn bộ theo scope quyền.
+4. **RBAC (VII.4):** user thiếu `decommission.read` → `PermissionError` (cap-403) hoặc tập rỗng theo scope; KHÔNG rò hồ sơ ngoài quyền. **Invariant count==rows** giữ.
+5. FE `/decommissions` render bảng nhãn VI 100% (cột + trạng thái + empty-state); row-click → `/assets/:asset`; sidebar có mục "Biên bản giải nhiệm" (cap `decommission.read`).
+
+## VII.4. Business rules vòng 2 (read-path)
+
+- **BR-14-W2-09 (RBAC-DocPerm):** endpoint gọi `rbac.require("decommission.read")` (cap → `("Asset Decommission","read")`, rbac.py:112) + list đi qua `frappe.get_list(..., ignore_permissions=False)`. KHÔNG dùng `BaseRepository.list` (nó gọi `frappe.get_all` = bỏ qua DocPerm). Xem ADR-IMM14-LIST-01.
+- **BR-14-W2-10 (count==rows invariant):** `pagination.total` PHẢI đếm trong **cùng permission scope** với rows (nếu về sau thêm `permission_query_conditions` cho `Asset Decommission` thì total vẫn khớp drill). KHÔNG dùng `frappe.db.count` (bỏ qua PQC → over-count). Hiện `Asset Decommission` chưa có hook PQC (hooks.py:390) nên role-level DocPerm quyết định; invariant vẫn phải test.
+- **BR-14-W2-11 (no email leak):** `responsible_name` = `frappe.db.get_value("User", responsible, "full_name")`; KHÔNG trả `responsible` email ra cột hiển thị (chỉ dùng làm khoá điều hướng/không hiển thị email). Theo user_source policy.
+- **BR-14-W2-12 (read-only):** endpoint KHÔNG mutate — không sinh Lifecycle Event / Audit Trail (khác write-path VI.3).
+
+## VII.5. Quyết định kiến trúc (ADR)
+
+### ADR-IMM14-LIST-01: List đi qua DocPerm (get_list) thay vì BaseRepository.list (get_all)
+- **Status**: Accepted
+- **Date**: 2026-07-02
+- **Context**: Mirror `list_compliance_findings` (imm16) dùng `ComplianceFindingRepo.list` → `BaseRepository.list` → `frappe.get_all` (mặc định `ignore_permissions=True`, bỏ qua DocPerm + PQC). Acceptance IMM-14 yêu cầu **KHÔNG ignore_permissions**: hồ sơ giải nhiệm chứa thông tin thanh lý tài sản + `responsible` — không được rò ngoài quyền. `Asset Decommission` có DocPerm read cho 5 vai (Super Admin, Commissioning Manager, Compliance Manager, Commissioning User, Auditor read-only).
+- **Decision**: `list_decommissions` gọi `rbac.require("decommission.read")` (cap-gate) **và** liệt kê bằng `frappe.get_list("Asset Decommission", ..., ignore_permissions=False)` (áp DocPerm + PQC). Total đếm trong cùng scope (get_list-based, không `frappe.db.count`).
+- **Alternatives**: (a) tái dùng `BaseRepository.list` như imm16 — loại vì dùng `get_all` = bỏ qua DocPerm (vi phạm acceptance + rủi ro rò dữ liệu). (b) Thêm `permission_query_conditions` hook — chưa cần vì DocPerm role-level đã đủ scope cho vòng này; để ROADMAP nếu cần vendor/dept isolation.
+- **Consequences**: lệch nhẹ pattern imm16 (đáng, vì tài liệu này chứa dữ liệu nhạy cảm hơn findings). count==rows phải test tường minh (BR-14-W2-10). Nếu Đợt 3 thêm PQC, total-path đã đúng sẵn — không phải refactor.
+
+### ADR-IMM14-LIST-02: Row-click điều hướng về Asset, không mở Closure detail
+- **Status**: Accepted
+- **Date**: 2026-07-02
+- **Context**: Chưa có route/detail-view cho closure record ở vòng này (Never-scope VII.2). Người dùng cần "từ danh sách → xem thiết bị".
+- **Decision**: click row → `router.push('/assets/' + row.asset)` (màn asset detail đã tồn tại, IMM-00). Cột "Số hồ sơ" chỉ hiển thị (không phải link tới closure detail).
+- **Alternatives**: mở `/decommissions/:name` — loại (chưa build closure detail view; `get_decommission` chưa gắn route → ROADMAP Đợt 3).
+- **Consequences**: closure detail view là ROADMAP; nếu Đợt 3 build, đổi target row-click sang closure detail + cột "Số hồ sơ" thành link (không phá vỡ list).
+
+*Hết Phần VII.*
+
+---
+
+*Hết file 02 — IMM-14 Analysis & Design. Phần I–V = thiết kế đầy đủ Đợt 3; Phần VI = write-path CHỐT vòng 2; Phần VII = read/list surface CHỐT vòng 2 (2026-07-02).*

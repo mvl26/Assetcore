@@ -146,6 +146,7 @@
   {
    "fieldname": "purchase_price",
    "fieldtype": "Currency",
+   "length": 28,
    "label": "Giá trị Mua sắm (VNĐ)",
    "description": "Giá trị theo PO/hợp đồng. Dùng khi tạo AC Asset.",
    "reqd": 0

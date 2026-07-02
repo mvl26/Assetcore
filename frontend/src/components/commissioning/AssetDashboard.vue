@@ -109,7 +109,7 @@ function stateLabel(state: string | null | undefined = 'Draft'): string {
 <!-- ── Header ─────────────────────────────────────────────────────────── -->
     <div class="flex items-start justify-between">
       <div>
-        <h2 class="text-xl font-bold text-gray-900">AssetDashboard — Kiểm chứng Data Layer</h2>
+        <h2 class="text-xl font-bold text-gray-900">AssetDashboard — Kiểm chứng Tầng dữ liệu</h2>
         <p class="text-sm text-gray-500 mt-0.5">
           Xác minh kết nối Vue → Frappe qua hai phương thức: FrappeResource + CommissioningStore
         </p>
@@ -128,7 +128,7 @@ function stateLabel(state: string | null | undefined = 'Draft'): string {
     <!-- ── Session info ────────────────────────────────────────────────────── -->
     <div class="bg-white border border-gray-200 rounded-xl p-4 grid grid-cols-2 gap-4 text-sm">
       <div>
-        <span class="text-gray-500">User:</span>
+        <span class="text-gray-500">Người dùng:</span>
         <span class="ml-2 font-medium text-gray-900">{{ auth.user?.full_name ?? '—' }}</span>
       </div>
       <div>
@@ -136,16 +136,16 @@ function stateLabel(state: string | null | undefined = 'Draft'): string {
         <span class="ml-2 font-medium text-gray-900">{{ auth.user?.email ?? '—' }}</span>
       </div>
       <div>
-        <span class="text-gray-500">Roles:</span>
+        <span class="text-gray-500">Vai trò:</span>
         <span class="ml-2 font-medium text-gray-900">{{ auth.roles.join(', ') || '—' }}</span>
       </div>
       <div>
-        <span class="text-gray-500">Authenticated:</span>
+        <span class="text-gray-500">Đã xác thực:</span>
         <span
           class="ml-2 font-semibold"
           :class="auth.isAuthenticated ? 'text-green-600' : 'text-red-600'"
         >
-          {{ auth.isAuthenticated ? 'Yes' : 'No' }}
+          {{ auth.isAuthenticated ? 'Có' : 'Không' }}
         </span>
       </div>
     </div>

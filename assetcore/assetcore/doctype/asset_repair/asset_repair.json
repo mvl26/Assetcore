@@ -103,7 +103,7 @@
   {
    "fieldname": "incident_report",
    "fieldtype": "Link",
-   "label": "Incident Report",
+   "label": "Báo cáo sự cố",
    "options": "Incident Report"
   },
   {
@@ -279,6 +279,7 @@
   {
    "fieldname": "total_parts_cost",
    "fieldtype": "Currency",
+   "length": 28,
    "label": "Tổng chi phí vật tư",
    "read_only": 1
   },
@@ -306,7 +307,7 @@
   {
    "fieldname": "firmware_change_request",
    "fieldtype": "Link",
-   "label": "Firmware Change Request",
+   "label": "Yêu cầu thay đổi firmware",
    "options": "Firmware Change Request"
   },
   {

@@ -114,7 +114,7 @@ function prevPage() { if (page.value > 1) { page.value--; load() } }
 function nextPage() { if (page.value * PAGE_SIZE < totalCount.value) { page.value++; load() } }
 
 async function remove(name: string) {
-  if (!confirm(`Xóa chuyển giao ${name}?\n\nThao tác sẽ cancel nếu đã submit.`)) return
+  if (!confirm(`Xóa chuyển giao ${name}?\n\nThao tác sẽ huỷ phiếu nếu đã đệ trình.`)) return
   try {
     await frappePost<void>(`${BASE}.delete_transfer`, { name })
     await load()
@@ -171,7 +171,7 @@ onMounted(load)
         </div>
         <div class="form-group">
           <label for="at-asset-filter" class="form-label">Thiết bị</label>
-          <input id="at-asset-filter" v-model="assetFilter" placeholder="Mã AC Asset..." class="form-input text-sm" @keyup.enter="() => { page = 1; load() }" />
+          <input id="at-asset-filter" v-model="assetFilter" placeholder="Mã thiết bị..." class="form-input text-sm" @keyup.enter="() => { page = 1; load() }" />
         </div>
       </template>
     </ListFilterBar>

@@ -161,12 +161,12 @@ async function onSubmit() {
               />
             </div>
             <div class="form-group">
-              <label class="form-label">Model thiết bị <span class="text-xs text-slate-400 normal-case">(tùy chọn)</span></label>
+              <label class="form-label">Mẫu thiết bị <span class="text-xs text-slate-400 normal-case">(tùy chọn)</span></label>
               <SmartSelect
                 v-model="form.device_model_ref"
                 doctype="IMM Device Model"
                 :filters="{ asset_category: form.device_category }"
-                placeholder="Tìm model thiết bị..."
+                placeholder="Tìm mẫu thiết bị..."
               />
             </div>
             <div class="form-group">
@@ -220,7 +220,7 @@ async function onSubmit() {
       <div class="flex justify-end gap-2 pt-2">
         <button type="button" class="btn-secondary" @click="router.push({ name: 'NeedsRequestList' })">Huỷ</button>
         <button type="submit" class="btn-primary" :disabled="!canSubmit || submitting">
-          {{ submitting ? 'Đang lưu...' : 'Tạo Draft' }}
+          {{ submitting ? 'Đang lưu...' : 'Tạo bản nháp' }}
         </button>
       </div>
     </form>

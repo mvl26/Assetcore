@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import DateTimeInput from '@/components/common/DateTimeInput.vue'
 import DateInput from '@/components/common/DateInput.vue'
+import CurrencyInput from '@/components/common/CurrencyInput.vue'
 // Copyright (c) 2026, AssetCore Team
 import { ref, computed, onBeforeUnmount, type Ref } from 'vue'
 import { useRouter } from 'vue-router'
@@ -210,10 +211,10 @@ function vnd(v?: number) {
 
     <div class="mb-6">
       <p class="text-xs text-slate-500 mt-1">
-        PO có thể chứa <b>thiết bị y tế</b> (→ phiếu tiếp nhận) <b>hoặc</b> <b>phụ tùng</b> (→ phiếu nhập kho) — không bắt buộc cả hai.
+        Lệnh mua hàng có thể chứa <b>thiết bị y tế</b> (→ phiếu tiếp nhận) <b>hoặc</b> <b>phụ tùng</b> (→ phiếu nhập kho) — không bắt buộc cả hai.
       </p>
       <p class="text-[11px] text-slate-400 mt-0.5 italic">
-        Phân công khoa/phòng ban cho từng máy được thực hiện ở bước tạo Asset, không cần khai trên PO.
+        Phân công khoa/phòng ban cho từng máy được thực hiện ở bước tạo hồ sơ thiết bị, không cần khai trên lệnh mua hàng.
       </p>
     </div>
 
@@ -260,11 +261,11 @@ id="pur-invoice" v-model="invoiceNo" type="text" class="form-input w-full font-m
 
       <!-- Quick-add N units of same model -->
       <div class="mb-4 p-3 rounded-lg border border-dashed border-indigo-200 bg-indigo-50/40">
-        <p class="text-xs font-semibold text-indigo-800 mb-2">Thêm nhanh nhiều máy cùng model</p>
+        <p class="text-xs font-semibold text-indigo-800 mb-2">Thêm nhanh nhiều máy cùng mẫu</p>
         <div class="grid grid-cols-12 gap-2 items-end">
           <div class="col-span-12 md:col-span-5">
-            <p class="text-[10px] text-slate-500 mb-1">Model thiết bị</p>
-            <SmartSelect v-model="quickModel" doctype="IMM Device Model" placeholder="Chọn model..." />
+            <p class="text-[10px] text-slate-500 mb-1">Mẫu thiết bị</p>
+            <SmartSelect v-model="quickModel" doctype="IMM Device Model" placeholder="Chọn mẫu máy..." />
           </div>
           <div class="col-span-4 md:col-span-2">
             <label for="qa-count" class="text-[10px] text-slate-500 mb-1 block">Số máy (1–50)</label>
@@ -289,7 +290,7 @@ id="qa-cost" v-model.number="quickCost" type="number" min="0" step="1000"
           </div>
         </div>
         <p class="text-[10px] text-indigo-600 mt-2 italic">
-          Mỗi máy là 1 thực thể riêng: 1 Asset, 1 Serial, 1 Phiếu tiếp nhận.
+          Mỗi máy là 1 thực thể riêng: 1 hồ sơ thiết bị, 1 số serial, 1 phiếu tiếp nhận.
         </p>
       </div>
 
@@ -307,8 +308,8 @@ v-for="(d, idx) in devices" :key="idx"
             </span>
           </div>
           <div class="col-span-12 md:col-span-4">
-            <p class="text-[10px] text-slate-500 mb-1">Model thiết bị *</p>
-            <SmartSelect v-model="d.device_model" doctype="IMM Device Model" placeholder="Chọn model..." />
+            <p class="text-[10px] text-slate-500 mb-1">Mẫu thiết bị *</p>
+            <SmartSelect v-model="d.device_model" doctype="IMM Device Model" placeholder="Chọn mẫu máy..." />
           </div>
           <div class="col-span-4 md:col-span-2">
             <label :for="`dev-qty-${idx}`" class="text-[10px] text-slate-500 mb-1 block">Số lượng</label>
@@ -318,8 +319,8 @@ v-for="(d, idx) in devices" :key="idx"
           </div>
           <div class="col-span-4 md:col-span-2">
             <label :for="`dev-cost-${idx}`" class="text-[10px] text-slate-500 mb-1 block">Đơn giá / máy</label>
-            <input
-:id="`dev-cost-${idx}`" v-model.number="d.unit_cost" type="number" min="0" step="1000"
+            <CurrencyInput
+              :id="`dev-cost-${idx}`" v-model="d.unit_cost" aria-label="Đơn giá / máy"
                    class="form-input w-full text-sm" />
           </div>
           <div class="col-span-3 md:col-span-3">
@@ -338,7 +339,7 @@ class="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded transition-co
           </div>
           <div class="col-span-12">
             <label :for="`dev-sn-${idx}`" class="text-[10px] text-slate-500 mb-1 block">
-              Serial Number Hãng<span v-if="(d.qty || 1) === 1"> (máy #{{ idx + 1 }})</span>
+              Số serial hãng<span v-if="(d.qty || 1) === 1"> (máy #{{ idx + 1 }})</span>
             </label>
             <input
 :id="`dev-sn-${idx}`" v-model="d.vendor_serial_no" type="text"
@@ -368,7 +369,7 @@ class="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded transition-co
       <div class="flex items-center justify-between mb-4 pb-2 border-b border-slate-100">
         <div>
           <h2 class="text-sm font-semibold text-slate-700">Phụ tùng</h2>
-          <p class="text-[11px] text-slate-400 mt-0.5">Nhập kho qua phiếu nhập kho sau khi duyệt PO.</p>
+          <p class="text-[11px] text-slate-400 mt-0.5">Nhập kho qua phiếu nhập kho sau khi duyệt lệnh mua hàng.</p>
         </div>
         <button class="btn-secondary text-xs" @click="addRow">+ Thêm phụ tùng</button>
       </div>
@@ -475,8 +476,8 @@ v-else-if="activeRowIdx === idx && !searchLoading && searchQuery.length >= 2 && 
           <!-- Unit cost -->
           <div class="col-span-4 md:col-span-2">
             <label :for="`pur-cost-${idx}`" class="text-[10px] text-slate-500 mb-1 block">Đơn giá</label>
-            <input
-:id="`pur-cost-${idx}`" v-model.number="row.unit_cost" type="number" min="0" step="1000"
+            <CurrencyInput
+              :id="`pur-cost-${idx}`" v-model="row.unit_cost" aria-label="Đơn giá"
                    class="form-input w-full text-sm" />
           </div>
 

@@ -299,13 +299,13 @@
    "fieldname": "procurement_plan",
    "fieldtype": "Link",
    "options": "IMM Procurement Plan",
-   "label": "Procurement Plan",
+   "label": "Kế hoạch mua sắm",
    "read_only": 1
   },
   {
    "fieldname": "tech_spec_ref",
    "fieldtype": "Data",
-   "label": "Tech Spec Reference",
+   "label": "Tham chiếu hồ sơ kỹ thuật",
    "description": "Đặt lại sau khi IMM-02 generate; placeholder vì IMM-02 DocType chưa tạo."
   },
   {
@@ -384,6 +384,23 @@
    "print": 1,
    "email": 0,
    "share": 0
+  },
+  {
+   "role": "AssetCore Super Admin",
+   "permlevel": 1,
+   "read": 1,
+   "write": 1
+  },
+  {
+   "role": "Needs Manager",
+   "permlevel": 1,
+   "read": 1,
+   "write": 1
+  },
+  {
+   "role": "AssetCore Auditor",
+   "permlevel": 1,
+   "read": 1
   }
  ],
  "sort_field": "modified",

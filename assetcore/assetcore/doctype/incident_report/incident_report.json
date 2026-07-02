@@ -15,6 +15,7 @@
   "column_break_basic",
   "reported_by",
   "reported_at",
+  "occurred_datetime",
   "assigned_to",
   "section_classification",
   "incident_type",
@@ -79,14 +80,14 @@
   {
    "fieldname": "incident_number",
    "fieldtype": "Data",
-   "label": "Incident Number",
+   "label": "Số sự cố",
    "read_only": 1,
    "in_list_view": 1
   },
   {
    "fieldname": "asset",
    "fieldtype": "Link",
-   "label": "Asset",
+   "label": "Tài sản",
    "options": "AC Asset",
    "reqd": 1,
    "search_index": 1,
@@ -99,7 +100,7 @@
   {
    "fieldname": "reported_by",
    "fieldtype": "Link",
-   "label": "Reported By",
+   "label": "Người báo cáo",
    "options": "User",
    "reqd": 1,
    "default": "__user"
@@ -107,10 +108,16 @@
   {
    "fieldname": "reported_at",
    "fieldtype": "Datetime",
-   "label": "Reported At",
+   "label": "Thời điểm báo cáo",
    "reqd": 1,
    "default": "now",
    "in_list_view": 1
+  },
+  {
+   "fieldname": "occurred_datetime",
+   "fieldtype": "Datetime",
+   "label": "Thời điểm xảy ra",
+   "description": "Thời điểm sự cố thực sự xảy ra (có thể trước lúc báo). Không được ở tương lai."
   },
   {
    "fieldname": "assigned_to",
@@ -127,7 +134,7 @@
   {
    "fieldname": "incident_type",
    "fieldtype": "Select",
-   "label": "Incident Type",
+   "label": "Loại sự cố",
    "options": "Failure\nSafety Event\nNear Miss\nMalfunction",
    "reqd": 1,
    "search_index": 1,
@@ -136,7 +143,7 @@
   {
    "fieldname": "severity",
    "fieldtype": "Select",
-   "label": "Severity",
+   "label": "Mức nghiêm trọng",
    "options": "Low\nMedium\nHigh\nCritical",
    "reqd": 1,
    "search_index": 1,
@@ -156,7 +163,7 @@
   {
    "fieldname": "status",
    "fieldtype": "Select",
-   "label": "Status",
+   "label": "Trạng thái",
    "options": "Open\nAcknowledged\nIn Progress\nResolved\nRCA Required\nClosed\nCancelled",
    "reqd": 1,
    "default": "Open",
@@ -180,13 +187,13 @@
   {
    "fieldname": "description",
    "fieldtype": "Text Editor",
-   "label": "Description",
+   "label": "Mô tả",
    "reqd": 1
   },
   {
    "fieldname": "immediate_action",
    "fieldtype": "Text Editor",
-   "label": "Immediate Action",
+   "label": "Hành động tức thời",
    "allow_on_submit": 1
   },
   {
@@ -197,12 +204,12 @@
   {
    "fieldname": "patient_affected",
    "fieldtype": "Check",
-   "label": "Patient Affected"
+   "label": "Người bệnh bị ảnh hưởng"
   },
   {
    "fieldname": "patient_impact_description",
    "fieldtype": "Text",
-   "label": "Patient Impact Description",
+   "label": "Mô tả ảnh hưởng người bệnh",
    "depends_on": "patient_affected"
   },
   {
@@ -213,12 +220,12 @@
   {
    "fieldname": "reported_to_byt",
    "fieldtype": "Check",
-   "label": "Reported to BYT"
+   "label": "Đã báo cáo BYT"
   },
   {
    "fieldname": "byt_report_date",
    "fieldtype": "Date",
-   "label": "BYT Report Date",
+   "label": "Ngày báo cáo BYT",
    "depends_on": "reported_to_byt"
   },
   {
@@ -229,7 +236,7 @@
   {
    "fieldname": "fault_code",
    "fieldtype": "Data",
-   "label": "Fault Code",
+   "label": "Mã lỗi",
    "search_index": 1
   },
   {
@@ -270,20 +277,20 @@
   {
    "fieldname": "linked_repair_wo",
    "fieldtype": "Link",
-   "label": "Linked Repair Work Order",
+   "label": "Lệnh sửa chữa liên kết",
    "options": "Asset Repair"
   },
   {
    "fieldname": "linked_capa",
    "fieldtype": "Link",
-   "label": "Linked CAPA",
+   "label": "CAPA liên kết",
    "options": "IMM CAPA Record",
    "allow_on_submit": 1
   },
   {
    "fieldname": "rca_record",
    "fieldtype": "Link",
-   "label": "RCA Record",
+   "label": "Bản ghi RCA",
    "options": "IMM RCA Record",
    "read_only": 1,
    "allow_on_submit": 1
@@ -296,25 +303,25 @@
   {
    "fieldname": "root_cause_summary",
    "fieldtype": "Text",
-   "label": "Root Cause Summary",
+   "label": "Tóm tắt nguyên nhân gốc",
    "allow_on_submit": 1
   },
   {
    "fieldname": "resolution_notes",
    "fieldtype": "Text",
-   "label": "Resolution Notes",
+   "label": "Ghi chú xử lý",
    "allow_on_submit": 1
   },
   {
    "fieldname": "section_audit",
    "fieldtype": "Section Break",
-   "label": "Audit Timestamps",
+   "label": "Mốc thời gian đánh giá",
    "collapsible": 1
   },
   {
    "fieldname": "acknowledged_by",
    "fieldtype": "Link",
-   "label": "Acknowledged By",
+   "label": "Người xác nhận",
    "options": "User",
    "read_only": 1,
    "allow_on_submit": 1
@@ -322,7 +329,7 @@
   {
    "fieldname": "acknowledged_at",
    "fieldtype": "Datetime",
-   "label": "Acknowledged At",
+   "label": "Thời điểm xác nhận",
    "read_only": 1,
    "allow_on_submit": 1
   },
@@ -333,7 +340,7 @@
   {
    "fieldname": "resolved_by",
    "fieldtype": "Link",
-   "label": "Resolved By",
+   "label": "Người xử lý",
    "options": "User",
    "read_only": 1,
    "allow_on_submit": 1
@@ -341,14 +348,14 @@
   {
    "fieldname": "resolved_at",
    "fieldtype": "Datetime",
-   "label": "Resolved At",
+   "label": "Thời điểm xử lý xong",
    "read_only": 1,
    "allow_on_submit": 1
   },
   {
    "fieldname": "closed_by",
    "fieldtype": "Link",
-   "label": "Closed By",
+   "label": "Người đóng",
    "options": "User",
    "read_only": 1,
    "allow_on_submit": 1
@@ -356,7 +363,7 @@
   {
    "fieldname": "closed_date",
    "fieldtype": "Date",
-   "label": "Closed Date",
+   "label": "Ngày đóng",
    "read_only": 1,
    "allow_on_submit": 1
   },
@@ -368,20 +375,20 @@
   {
    "fieldname": "sla_policy",
    "fieldtype": "Link",
-   "label": "SLA Policy",
+   "label": "Chính sách SLA",
    "options": "IMM SLA Policy",
    "read_only": 1
   },
   {
    "fieldname": "response_due_at",
    "fieldtype": "Datetime",
-   "label": "Response Due At",
+   "label": "Hạn phản hồi",
    "read_only": 1
   },
   {
    "fieldname": "resolution_due_at",
    "fieldtype": "Datetime",
-   "label": "Resolution Due At",
+   "label": "Hạn xử lý",
    "read_only": 1
   },
   {
@@ -391,14 +398,14 @@
   {
    "fieldname": "response_breached",
    "fieldtype": "Check",
-   "label": "Response SLA Breached",
+   "label": "Vi phạm SLA phản hồi",
    "read_only": 1,
    "default": "0"
   },
   {
    "fieldname": "resolution_breached",
    "fieldtype": "Check",
-   "label": "Resolution SLA Breached",
+   "label": "Vi phạm SLA xử lý",
    "read_only": 1,
    "default": "0"
   },

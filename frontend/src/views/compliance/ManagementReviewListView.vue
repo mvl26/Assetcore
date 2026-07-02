@@ -166,7 +166,7 @@ onMounted(() => load(1))
               <th class="table-header">Quý</th>
               <th class="table-header">Ngày soát xét</th>
               <th class="table-header">Chủ tịch</th>
-              <th class="table-header">Scorecard</th>
+              <th class="table-header">Bảng điểm</th>
               <th class="table-header">Trạng thái</th>
               <th class="table-header">Kế hoạch tới</th>
               <th class="table-header text-right">Thao tác</th>
@@ -209,11 +209,11 @@ onMounted(() => load(1))
           <input v-model="form.review_date" type="date" class="form-input" />
         </div>
         <div class="form-group">
-          <label class="form-label">Chủ tịch (User email)</label>
+          <label class="form-label">Chủ tịch (email người dùng)</label>
           <input v-model="form.chair" class="form-input" />
         </div>
         <div class="form-group">
-          <label class="form-label">Scorecard ref</label>
+          <label class="form-label">Tham chiếu bảng điểm</label>
           <input v-model="form.scorecard_ref" class="form-input" placeholder="SCR-2026-..." />
         </div>
       </div>

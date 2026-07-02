@@ -25,8 +25,8 @@ describe('TC-RWD-07 — AssetDetailView tab-bar cuộn ngang (F4)', () => {
 
   it("tab 'audit' (tab thứ 5) vẫn hiện diện trong danh sách tab", () => {
     expect(SRC).toContain("'audit'")
-    // nhãn audit map giữ nguyên
-    expect(SRC).toContain('Audit Trail')
+    // nhãn audit map giữ nguyên (đã Việt hoá: 'Audit Trail' → 'Nhật ký truy vết')
+    expect(SRC).toContain('Nhật ký truy vết')
   })
 
   it('mỗi tab shrink-0 để không bị co (giữ 1 hàng cuộn)', () => {

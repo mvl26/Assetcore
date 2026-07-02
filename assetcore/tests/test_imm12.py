@@ -1041,6 +1041,208 @@ class TestIncidentOpenStatesSoT(unittest.TestCase):
         )
 
 
+# ─── A2 closure — param `mine` self-scope reported_by (tab "Báo hỏng của tôi") ───
+
+
+class TestIncidentMineScope(unittest.TestCase):
+    """A2 known-gap closure (ADR-IMM12-05 / ADR-MOBILE-015) — param `mine` self-scope
+    `reported_by` cho tab "Báo hỏng của tôi" (MyWorkOrdersView › MVP-5c).
+
+    Semantic: KTV là người BÁO ⇒ mine = `reported_by == frappe.session.user` (KHÔNG
+    assigned_to). mine=1 → CHỈ incident của chính session.user. mine=0/absent → hành
+    vi cũ UNCHANGED (blast-radius fence — incident reporter khác VẪN hiện). mine AND
+    với status/severity/asset/open KỂ CẢ nhánh status return-sớm. pagination.total ==
+    len(items) khi mine=1 (count==rows — cùng filters dict).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.asset = _make_asset("-mine")
+        # KTV thật (Corrective User → corrective.read) — 2 reporter PHÂN BIỆT.
+        cls.user_a = cls._ensure_user("_test_mine_a@assetcore.test", ["Corrective User"])
+        cls.user_b = cls._ensure_user("_test_mine_b@assetcore.test", ["Corrective User"])
+        cls._incidents: list[str] = []
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        for ir in cls._incidents:
+            try:
+                frappe.delete_doc("Incident Report", ir, force=True,
+                                  ignore_permissions=True, delete_permanently=True)
+            except Exception:
+                pass
+        purge_asset(cls.asset.name)
+        for u in (cls.user_a, cls.user_b):
+            try:
+                frappe.delete_doc("User", u, force=True, ignore_permissions=True)
+            except Exception:
+                pass
+        frappe.db.commit()
+
+    @staticmethod
+    def _ensure_user(email: str, roles: list[str]) -> str:
+        if not frappe.db.exists("User", email):
+            doc = frappe.get_doc({
+                "doctype": "User", "email": email, "first_name": email.split("@")[0],
+                "send_welcome_email": 0, "enabled": 1,
+            }).insert(ignore_permissions=True)
+        else:
+            doc = frappe.get_doc("User", email)
+        existing = {r.role for r in doc.get("roles", [])}
+        for r in roles:
+            if r not in existing:
+                doc.append("roles", {"role": r})
+        doc.save(ignore_permissions=True)
+        frappe.db.commit()
+        return email
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+
+    def _make_incident(self, reporter: str, *, severity: str = "Medium",
+                       status: str = "Open") -> str:
+        """Tạo incident với reported_by=reporter (Medium → KHÔNG sinh RCA chain)."""
+        out = report_incident(
+            asset=self.asset.name, incident_type="Malfunction", severity=severity,
+            description=f"_Test mine-scope {reporter} {status}",
+            reported_by=reporter,
+        )
+        name = out["name"]
+        self._incidents.append(name)
+        if status != "Open":
+            frappe.db.set_value("Incident Report", name, "status", status,
+                                update_modified=False)
+        frappe.db.commit()
+        return name
+
+    @staticmethod
+    def _names(res: dict) -> set:
+        return {r["name"] for r in res["items"]}
+
+    # ── TDD-1: mine=1 chỉ trả incident reported_by==session.user ────────────────
+    def test_list_incidents_mine_filters_reported_by(self):
+        from assetcore.services.imm12 import list_incidents
+        ir_a = self._make_incident(self.user_a)
+        ir_b = self._make_incident(self.user_b)
+        frappe.set_user(self.user_a)
+        try:
+            res = list_incidents(mine=1, asset=self.asset.name, page_size=100)
+        finally:
+            frappe.set_user("Administrator")
+        names = self._names(res)
+        self.assertIn(ir_a, names, "mine=1 phải trả incident của chính userA")
+        self.assertNotIn(ir_b, names, "mine=1 KHÔNG được leak incident của userB")
+        self.assertTrue(
+            all(r["reported_by"] == self.user_a for r in res["items"]),
+            "mọi row mine=1 phải reported_by==userA",
+        )
+
+    # ── TDD-2: mine=0/absent → hành vi cũ UNCHANGED (blast-radius fence) ─────────
+    def test_list_incidents_mine_zero_unchanged(self):
+        from assetcore.services.imm12 import list_incidents
+        ir_a = self._make_incident(self.user_a)
+        ir_b = self._make_incident(self.user_b)
+        frappe.set_user(self.user_a)
+        try:
+            res_zero = list_incidents(mine=0, asset=self.asset.name, page_size=100)
+            res_absent = list_incidents(asset=self.asset.name, page_size=100)
+        finally:
+            frappe.set_user("Administrator")
+        for label, res in (("mine=0", res_zero), ("absent", res_absent)):
+            names = self._names(res)
+            self.assertIn(ir_a, names, f"{label}: incident userA phải hiện")
+            self.assertIn(
+                ir_b, names,
+                f"{label}: incident userB VẪN hiện (fence — reported_by KHÔNG áp ngầm)",
+            )
+
+    # ── TDD-3: mine AND open (open_incident_filter + reported_by cùng AND) ───────
+    def test_list_incidents_mine_combines_with_open(self):
+        from assetcore.services.imm12 import list_incidents
+        ir_a_open = self._make_incident(self.user_a, status="Open")
+        ir_a_closed = self._make_incident(self.user_a, status="Closed")
+        ir_b_open = self._make_incident(self.user_b, status="Open")
+        frappe.set_user(self.user_a)
+        try:
+            res = list_incidents(mine=1, open=1, asset=self.asset.name, page_size=100)
+        finally:
+            frappe.set_user("Administrator")
+        names = self._names(res)
+        self.assertIn(ir_a_open, names, "mine=1&open=1 → userA-Open phải hiện")
+        self.assertNotIn(ir_a_closed, names,
+                         "open=1 loại Closed (terminal) dù cùng reporter")
+        self.assertNotIn(ir_b_open, names,
+                         "mine=1 loại incident reporter khác dù đang mở")
+
+    # ── TDD-4: mine AND status (nhánh status return-sớm vẫn mang reported_by) ────
+    def test_list_incidents_mine_combines_with_status(self):
+        from assetcore.services.imm12 import list_incidents
+        ir_a_closed = self._make_incident(self.user_a, status="Closed")
+        ir_b_closed = self._make_incident(self.user_b, status="Closed")
+        ir_a_open = self._make_incident(self.user_a, status="Open")
+        frappe.set_user(self.user_a)
+        try:
+            res = list_incidents(mine=1, status="Closed",
+                                 asset=self.asset.name, page_size=100)
+        finally:
+            frappe.set_user("Administrator")
+        names = self._names(res)
+        self.assertIn(ir_a_closed, names, "mine=1&status=Closed → userA-Closed phải hiện")
+        self.assertNotIn(
+            ir_b_closed, names,
+            "status branch return-sớm VẪN áp reported_by → loại userB (seed TRƯỚC nhánh)",
+        )
+        self.assertNotIn(ir_a_open, names, "status=Closed loại userA-Open")
+        self.assertTrue(all(r["status"] == "Closed" for r in res["items"]))
+
+    # ── TDD-5: count==rows — pagination.total == len(items) khi mine=1 ──────────
+    def test_list_incidents_mine_total_matches_items(self):
+        from assetcore.services.imm12 import list_incidents
+        self._make_incident(self.user_a, status="Open")
+        self._make_incident(self.user_a, status="Closed")
+        self._make_incident(self.user_b, status="Open")
+        frappe.set_user(self.user_a)
+        try:
+            res = list_incidents(mine=1, asset=self.asset.name, page_size=100)
+        finally:
+            frappe.set_user("Administrator")
+        self.assertEqual(
+            res["pagination"]["total"], len(res["items"]),
+            "pagination.total phải == len(items) khi mine=1 (count dùng CÙNG filters dict)",
+        )
+        self.assertTrue(all(r["reported_by"] == self.user_a for r in res["items"]))
+
+    # ── TDD-6: Guest → 401 in-handler (guard api/imm12.py:212 UNCHANGED) ────────
+    def test_list_incidents_guest_401_unchanged(self):
+        from assetcore.api.imm12 import list_incidents as api_list
+        frappe.set_user("Guest")
+        try:
+            res = api_list(mine=1)
+        finally:
+            frappe.set_user("Administrator")
+        self.assertFalse(res.get("success"), "Guest gọi list_incidents(mine=1) phải lỗi")
+        self.assertEqual(res.get("http_status"), 401,
+                         "Guest → http_status 401 UNCHANGED (guard giữ)")
+
+    # ── TDD-7 (API): KTV corrective.read mine=1 → 200, KHÔNG leak reporter khác ──
+    def test_list_incidents_api_ktv_mine_no_leak(self):
+        from assetcore.api.imm12 import list_incidents as api_list
+        ir_a = self._make_incident(self.user_a)
+        ir_b = self._make_incident(self.user_b)
+        frappe.set_user(self.user_a)
+        try:
+            res = api_list(mine=1, asset=self.asset.name, page_size=100)
+        finally:
+            frappe.set_user("Administrator")
+        self.assertTrue(res.get("success"), f"KTV corrective.read mine=1 phải 200, nhận: {res}")
+        names = {r["name"] for r in res["data"]["items"]}
+        self.assertIn(ir_a, names)
+        self.assertNotIn(ir_b, names,
+                         "KTV mine=1 KHÔNG leak incident của reporter khác")
+
+
 # ─── Dashboard "đang mở" SoT — open_total + active_incidents (count == drill) ────
 
 

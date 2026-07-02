@@ -10,6 +10,7 @@ import type { Purchase, LinkedMovement, LinkedCommissioning } from '@/api/purcha
 import { createCommissioningFromPurchase } from '@/api/imm04'
 import SmartSelect from '@/components/common/SmartSelect.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
+import { formatStatus } from '@/constants/labels'
 
 const props = defineProps<{ name: string }>()
 const router = useRouter()
@@ -267,7 +268,7 @@ v-if="doc.items && doc.items.length"
         <div class="flex items-center justify-between mb-4 pb-2 border-b border-slate-100">
           <div>
             <h2 class="text-sm font-semibold text-slate-700">Thiết bị y tế — {{ doc.devices.length }} máy</h2>
-            <p class="text-[11px] text-slate-400 mt-0.5">Mỗi máy là 1 thực thể riêng (1 Asset, 1 Serial, 1 Phiếu tiếp nhận).</p>
+            <p class="text-[11px] text-slate-400 mt-0.5">Mỗi máy là 1 thực thể riêng (1 hồ sơ thiết bị, 1 số serial, 1 phiếu tiếp nhận).</p>
           </div>
           <span v-if="doc.docstatus !== 1" class="text-xs text-amber-600">
             Cần duyệt đơn hàng để tiếp nhận
@@ -286,9 +287,9 @@ v-for="(d, idx) in doc.devices" :key="d.name || idx"
               <div class="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs text-slate-600">
                 <span v-if="d.unit_cost">Đơn giá: <b>{{ vnd(d.unit_cost) }}</b></span>
                 <span v-if="d.vendor_serial_no">
-                  S/N: <span class="font-mono font-semibold text-slate-800">{{ d.vendor_serial_no }}</span>
+                  Số serial: <span class="font-mono font-semibold text-slate-800">{{ d.vendor_serial_no }}</span>
                 </span>
-                <span v-else class="text-amber-600 italic">S/N: điền khi tiếp nhận</span>
+                <span v-else class="text-amber-600 italic">Số serial: điền khi tiếp nhận</span>
                 <span v-if="d.warranty_months">BH: <b>{{ d.warranty_months }}</b> tháng</span>
                 <span v-if="d.clinical_dept">Khoa: <b>{{ d.clinical_dept }}</b></span>
               </div>
@@ -302,7 +303,7 @@ v-for="(d, idx) in doc.devices" :key="d.name || idx"
                   🔗 {{ d.commissioning_ref }}
                 </button>
                 <p v-if="d.commissioning_state" class="text-[10px] text-slate-500 text-right">
-                  {{ d.commissioning_state }}
+                  {{ formatStatus(d.commissioning_state) }}
                 </p>
                 <p v-if="d.final_asset" class="text-[10px] text-emerald-600 text-right">
                   ✓ Tài sản: <span class="font-mono">{{ d.final_asset }}</span>
@@ -390,8 +391,8 @@ v-for="(d, idx) in doc.devices" :key="d.name || idx"
             <thead>
               <tr class="text-xs text-slate-400 border-b border-slate-100">
                 <th class="py-2 text-left font-medium">Mã phiếu</th>
-                <th class="py-2 text-left font-medium">Model thiết bị</th>
-                <th class="py-2 text-left font-medium">Serial</th>
+                <th class="py-2 text-left font-medium">Mẫu thiết bị</th>
+                <th class="py-2 text-left font-medium">Số serial</th>
                 <th class="py-2 text-left font-medium">Khoa sử dụng</th>
                 <th class="py-2 text-left font-medium">Tài sản</th>
                 <th class="py-2 text-center font-medium">Trạng thái</th>
@@ -423,7 +424,7 @@ class="text-xs px-2 py-0.5 rounded-full font-medium"
                           : c.workflow_state === 'Cancelled'
                           ? 'bg-red-50 text-red-600'
                           : 'bg-blue-50 text-blue-700'">
-                    {{ c.workflow_state || 'Draft' }}
+                    {{ formatStatus(c.workflow_state || 'Draft') }}
                   </span>
                 </td>
               </tr>
@@ -496,7 +497,7 @@ v-if="showReceiptModal"
         <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 animate-fade-in">
           <h3 class="text-lg font-bold text-slate-900 mb-1">Tạo phiếu nhập kho</h3>
           <p class="text-sm text-slate-500 mb-5">
-            Tạo phiếu nhập kho (Receipt) từ đơn hàng <span class="font-mono font-semibold">{{ props.name }}</span>.
+            Tạo phiếu nhập kho từ đơn hàng <span class="font-mono font-semibold">{{ props.name }}</span>.
             Tất cả phụ tùng trong đơn sẽ được sao chép vào phiếu.
           </p>
 

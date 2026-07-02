@@ -87,6 +87,7 @@
   {
    "fieldname": "budget_envelope",
    "fieldtype": "Currency",
+   "length": 28,
    "label": "Tổng envelope",
    "reqd": 1,
    "in_list_view": 1
@@ -111,13 +112,13 @@
   {
    "fieldname": "section_items",
    "fieldtype": "Section Break",
-   "label": "Plan items"
+   "label": "Hạng mục kế hoạch"
   },
   {
    "fieldname": "plan_items",
    "fieldtype": "Table",
    "options": "Procurement Plan Line",
-   "label": "Items"
+   "label": "Hạng mục"
   },
   {
    "fieldname": "amended_from",

@@ -13,6 +13,7 @@ import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
 import SmartSelect from '@/components/common/SmartSelect.vue'
+import { lifecycleStatusLabel } from '@/constants/labels'
 
 const toast = useToast()
 const router = useRouter()
@@ -163,7 +164,7 @@ async function save() {
 }
 
 async function remove(name: string) {
-  if (!confirm(`Xóa FCR "${name}"?`)) return
+  if (!confirm(`Xóa yêu cầu thay đổi firmware "${name}"?`)) return
   try { await deleteFirmwareCr(name); await load() }
   catch (e: unknown) { toast.error(e instanceof Error ? e.message : 'Không thể xóa') }
 }
@@ -334,7 +335,7 @@ onMounted(load)
                 <div
                   :class="['rounded px-2 py-1.5', assetMeta.lifecycle_status === 'Decommissioned' ? 'bg-red-50 text-red-700' : 'bg-slate-50']"
                 >
-                  <span class="text-slate-500">Trạng thái:</span> <b>{{ assetMeta.lifecycle_status || '—' }}</b>
+                  <span class="text-slate-500">Trạng thái:</span> <b>{{ assetMeta.lifecycle_status ? lifecycleStatusLabel(assetMeta.lifecycle_status) : '—' }}</b>
                 </div>
               </div>
               <div v-if="assetMeta?.lifecycle_status === 'Decommissioned'" class="mt-1.5 text-xs text-red-600">
@@ -374,7 +375,7 @@ onMounted(load)
                 <input
                   v-model="woQuery"
                   class="form-input font-mono"
-                  placeholder="Tìm mã WO..."
+                  placeholder="Tìm mã lệnh công việc..."
                   autocomplete="off"
                   @input="onWoInput"
                   @blur="closeWoDropdown"

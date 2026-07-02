@@ -59,7 +59,7 @@
   {
    "fieldname": "finding_ref",
    "fieldtype": "Link",
-   "label": "Finding Reference",
+   "label": "Tham chiếu phát hiện",
    "options": "Audit Finding"
   }
  ],

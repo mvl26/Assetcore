@@ -288,13 +288,13 @@ onMounted(() => load(1))
             <label class="form-label">Nhóm</label>
             <select v-model="form.category" class="form-select">
               <option value="">-- Chọn nhóm --</option>
-              <option value="Document">Document</option>
-              <option value="PM">PM</option>
-              <option value="Calibration">Calibration</option>
-              <option value="Training">Training</option>
-              <option value="Stock">Stock</option>
-              <option value="SLA">SLA</option>
-              <option value="Safety">Safety</option>
+              <option value="Document">Tài liệu</option>
+              <option value="PM">Bảo trì</option>
+              <option value="Calibration">Hiệu chuẩn</option>
+              <option value="Training">Đào tạo</option>
+              <option value="Stock">Kho</option>
+              <option value="SLA">Cam kết mức dịch vụ</option>
+              <option value="Safety">An toàn</option>
             </select>
           </div>
           <div class="form-group">

@@ -39,6 +39,47 @@ _ORDER_NEXT_CAL_ASC = "next_calibration_date asc"
 _DT_CAL_SCHEDULE = "IMM Calibration Schedule"
 
 
+# ─── SoT: server-driven CTA — tập trạng-thái-kế hợp lệ per status (R3/R21/R22 mirror) ─
+#
+# Map TẬP TRUNG cho server-driven CTA màn calibration-detail: get_calibration emit
+# `allowed_transitions = _CAL_VALID_TRANSITIONS.get(doc.status, [])` để FE render nút
+# workflow theo SERVER (KHÔNG hardcode status→button client-side = anti-pattern
+# dead-gate/RBAC drift). Mirror IncidentDetail (imm12.py:778, R3) + PmWorkOrderDetail
+# (imm08.py:651, R21) + RepairWorkOrderDetail (imm09.py:773, R22) — đây là thành viên
+# THỨ TƯ & CUỐI có allowed_transitions[], ĐÓNG KÍN ASYMMETRY R3 (cả 4/4 *Detail emit).
+#
+# Keyed BẰNG CalibrationResult.* constants (KHÔNG literal) — codomain GROUNDED
+# edge-by-edge `imm_11_calibration_workflow.json` transitions[] (8 state / 13 transition
+# raw = 12 cạnh unique; `Failed→Conditionally Passed` khai 2 lần — Compliance Manager +
+# System Manager, cùng next_state). Terminal Passed/Conditionally Passed/Cancelled → []
+# (0 outgoing). Guard test (test_imm11.TestCalibrationAllowedTransitions +
+# test_mobile_oas.TestMobileCalibrationAllowedTransitionsContract) chốt SSoT-divergence
+# map↔workflow JSON theo SET (codomain dedup) + codomain ⊆ CalibrationResult enum.
+_CAL_VALID_TRANSITIONS: dict[str, list[str]] = {
+    CalibrationResult.SCHEDULED: [
+        CalibrationResult.IN_PROGRESS,
+        CalibrationResult.SENT_TO_LAB,
+        CalibrationResult.CANCELLED,
+    ],
+    CalibrationResult.IN_PROGRESS: [
+        CalibrationResult.PASSED,
+        CalibrationResult.FAILED,
+        CalibrationResult.COND_PASSED,
+        CalibrationResult.CANCELLED,
+    ],
+    CalibrationResult.SENT_TO_LAB: [CalibrationResult.CERT_RECEIVED],
+    CalibrationResult.CERT_RECEIVED: [
+        CalibrationResult.PASSED,
+        CalibrationResult.FAILED,
+        CalibrationResult.COND_PASSED,
+    ],
+    CalibrationResult.FAILED: [CalibrationResult.COND_PASSED],
+    CalibrationResult.PASSED: [],
+    CalibrationResult.COND_PASSED: [],
+    CalibrationResult.CANCELLED: [],
+}
+
+
 # ════════════════════════════════════════════════════════════════════════════
 #  SoT — "calibration due / overdue" predicate  (BR-11-08 / BR-11-09)
 #  docs/imm-11/04_Backend_Design.md §4.1
@@ -986,6 +1027,10 @@ def get_calibration(name: str) -> dict:
     data["technician_name"] = (
         frappe.db.get_value("User", tech, "full_name") or tech or ""
     ) if tech else ""
+    # Server-driven CTA (mirror imm12.py:778 R3 + imm08.py:651 R21 + imm09.py:773 R22):
+    # client render nút workflow trên màn calibration-detail theo SERVER (KHÔNG hardcode
+    # status→button). Thành viên THỨ TƯ & CUỐI — ĐÓNG KÍN ASYMMETRY R3 (4/4 *Detail emit).
+    data["allowed_transitions"] = _CAL_VALID_TRANSITIONS.get(doc.status, [])
     return data
 
 
