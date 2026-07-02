@@ -12,7 +12,9 @@ Scope (quyết định USER): MỌI System User TRỪ ``Administrator``/``Guest`
 An toàn:
   - Additive + idempotent (skip user đã có base role) — chạy lại không nhân đôi.
   - KHÔNG cấp cho Administrator/Guest (guard 2 lớp: query filter + skip trong loop).
-  - ``doc.save(ignore_permissions=True)`` giữ nguyên các role khác.
+  - ``doc.save()`` với ``ignore_permissions`` + ``ignore_links`` giữ nguyên các role
+    khác VÀ không abort migrate khi User có link cũ đã hỏng (vd ``ac_department``
+    trỏ phòng ban đã xoá) — patch chỉ append base role, không đụng field link nào.
 """
 from __future__ import annotations
 
@@ -48,6 +50,10 @@ def grant_base_role(user_names: list[str] | None = None) -> int:
             continue
         doc.append("roles", {"role": BASE_ROLE})
         doc.flags.ignore_permissions = True
+        # Chỉ APPEND base role — KHÔNG re-validate các link cũ trên User (vd
+        # ``ac_department`` trỏ phòng ban đã xoá). Không có ignore_links, một link
+        # hỏng bất kỳ sẽ ném LinkValidationError và abort CẢ ``bench migrate``.
+        doc.flags.ignore_links = True
         doc.save()
         granted += 1
     return granted

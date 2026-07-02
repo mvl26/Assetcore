@@ -247,6 +247,23 @@ class TestBackfillBaseRole(unittest.TestCase):
                          "grant_base_role KHÔNG được đổi role Administrator")
         self.assertIn(BASE_ROLE, self._roles(u))
 
+    def test_grants_despite_stale_link_field(self):
+        """User có link field cũ trỏ record đã bị xoá (vd ``ac_department`` = phòng ban
+        không còn tồn tại) → VẪN cấp base role, KHÔNG được abort bằng LinkValidationError.
+
+        Regression: patch 009 từng chặn cả ``bench migrate`` với 'Could not find Khoa /
+        Phòng (AssetCore): HSCC' vì ``doc.save()`` re-validate MỌI link trên User — kể cả
+        field patch không đụng tới. Patch chỉ APPEND base role nên phải bỏ qua link cũ.
+        """
+        u = self._insert("stalelink", ["Repair User"])
+        bogus = f"_ZZ_NOEXIST_{_UID}"
+        self.assertFalse(frappe.db.exists("AC Department", bogus))
+        # Ghi thẳng DB (bypass validation) để mô phỏng link cũ đã hỏng trên site thật.
+        frappe.db.set_value("User", u, "ac_department", bogus, update_modified=False)
+        frappe.db.commit()
+        self.assertEqual(self._grant([u]), 1)
+        self.assertIn(BASE_ROLE, self._roles(u))
+
 
 class TestListAssignableUsers(unittest.TestCase):
     """list_assignable_users: picker user AssetCore ĐỦ NĂNG LỰC cho 1 ngữ cảnh.
