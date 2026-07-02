@@ -670,6 +670,38 @@ export function computeAllDepreciation(): Promise<ComputeAllDepreciationResult> 
   return frappePost(`${BASE}.compute_all_depreciation`)
 }
 
+// ─── Depreciation gom theo Danh mục (quản lý tập trung) ──────────────────────
+
+/** Một dòng tổng hợp khấu hao cho 1 Danh mục tài sản. */
+export interface DepreciationCategoryRow {
+  /** Docname AC Asset Category ('' cho nhóm 'Chưa phân loại'). */
+  category_id: string
+  /** Tên hiển thị danh mục (category_name) hoặc 'Chưa phân loại'. */
+  category: string
+  asset_count: number
+  configured_count: number
+  fully_depreciated: number
+  total_gross: number
+  total_accumulated: number
+  total_book_value: number
+  pct_depreciated: number
+}
+
+export interface DepreciationByCategoryResult {
+  categories: DepreciationCategoryRow[]
+  totals: {
+    total_assets: number
+    total_gross: number
+    total_accumulated: number
+    total_book_value: number
+    overall_pct: number
+  }
+}
+
+export function getDepreciationByCategory(): Promise<DepreciationByCategoryResult> {
+  return frappeGet(`${BASE}.get_depreciation_by_category`)
+}
+
 // ─── Asset Transfer CRUD ─────────────────────────────────────────────────────
 
 export function getTransferFull(name: string): Promise<Record<string, unknown>> {
