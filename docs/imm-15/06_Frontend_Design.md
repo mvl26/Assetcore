@@ -408,6 +408,86 @@ Dropdown `verified_by`: loại trừ user `counted_by` (VR-15-11).
 
 ---
 
+### II.8bis Surfacing "Kiểm kê tồn kho" — route `/inventory`, nav, StoreDashboard (**NEW vòng 2, 2026-07-01**)
+
+> **Self-Correction / route reconciliation:** §II.8 (draft cũ) đặt route `/imm15/cycle-counts/:name`, nhưng router THỰC của app dùng namespace **`/inventory/*`** (`router/index.ts` — WarehouseList `/warehouses`, StockLevels `/stock`, forecasts `/inventory/forecasts`…). Wave-2 giao BE+api+store nhưng **CHƯA có view/route/nav** → dead-feature. Vòng 2 surface theo namespace `/inventory` cho khớp app. Route `:name` = `/inventory/cycle-counts/:name`.
+
+**Boundaries (Always / Never) — bám GATE-8/LL-FE-51 + LL-FE-53:**
+- **Always**: gate nút hành động theo `allowed_transitions` từ `get_cycle_count`; hiển thị TÊN kho (`warehouse_name`) không phải mã; format tiền VN cho `variance_value`; nhãn status + count_type + root_cause dịch đầy đủ tiếng Việt.
+- **Never**: hardcode `status === 'Reviewed'` để bật nút Post; leak English enum (Planned/Counting/Reviewed/Posted/Full/ABC_A_Monthly/Cycle/Spot); gọi `save_counted_qty` (không tồn tại — dùng `submitCycleCount`).
+
+#### Route (`router/index.ts`) — thêm 2 route (module `imm15`, đã map `/^\/inventory/ → imm15` sẵn):
+
+| name | path | component | meta |
+|---|---|---|---|
+| `CycleCountList` | `/inventory/cycle-counts` | `views/inventory/CycleCountListView.vue` | `cap: inventory.read` |
+| `CycleCountDetail` | `/inventory/cycle-counts/:name` | `views/inventory/CycleCountDetailView.vue` | `cap: inventory.read` |
+
+> Tạo phiếu: modal trong List view (nút "Tạo phiếu kiểm kê") HOẶC route `/inventory/cycle-counts/new` — chọn `warehouse` + `count_type` + `spare_parts[]` (tùy chọn, rỗng = snapshot toàn kho) → `createCycleCount` → phiếu `Planned` xuất hiện đầu danh sách.
+
+#### Sidebar (`constants/sidebarNav.ts`) — thêm mục trong nhóm **Kho** (persona Thủ kho):
+
+```ts
+{ label: 'Kiểm kê tồn kho', path: '/inventory/cycle-counts', icon: 'clipboard', cap: 'inventory.read' },
+```
+(đặt sau 'Phiếu kho' / cạnh 'Watchlist'; cap `inventory.read` để cả Inventory User thấy.)
+
+#### StoreDashboard (`views/dashboard/personas/StoreDashboardView.vue`):
+
+Hiện subtitle đã ghi "…· Kiểm kê chu kỳ" nhưng **không có link** (dead-link). Thêm 1 CTA/QuickLink điều hướng `/inventory/cycle-counts` — label **"Kiểm kê chu kỳ"**.
+
+#### CycleCountListView.vue — cột (render từ `listCycleCounts`)
+
+| Cột | Nguồn field | Hiển thị |
+|---|---|---|
+| Mã phiếu | `name` | link → detail |
+| Kho | `warehouse_name` | TÊN (không phải mã `warehouse`) |
+| Loại kiểm kê | `count_type` | label VI (map dưới) |
+| Trạng thái | `status` | `<StatusBadge>` VI |
+| Số dòng lệch | `variance_count` | số |
+| Giá trị lệch | `variance_value` | tiền VN (`formatCurrencyVND`) |
+
+Phân trang: dùng `pagination {total,page,page_size,total_pages}` từ envelope `ListEnvelope`.
+
+#### CycleCountDetailView.vue — flow
+
+1. `getCycleCount(name)` → header + `items[]` (system_qty | counted_qty | variance) + `allowed_transitions`.
+2. Nếu `allowed_transitions` chứa `"Reviewed"` → nút **"Hoàn tất kiểm kê"**: nhập `counted_qty` per-line (bắt buộc `root_cause` khi `|variance_pct|>5%` — VR-15-04) → `submitCycleCount(name, counted_items)` → status `Reviewed`, hiển thị variance per-line.
+3. Nếu chứa `"Posted"` → nút **"Post — Ghi điều chỉnh tồn"** (chỉ hiện với cap `inventory.submit`): `postCycleCount(name, verified_by)` (verified_by ≠ counted_by — VR-15-11) → status `Posted`, hiển thị `adjustment_ref` (bút toán `AC Stock Movement`) + cảnh báo nếu `capa_created > 0`.
+4. `allowed_transitions === []` (Posted) → read-only, link `posted_movement_ref`.
+
+#### FE api client (`api/imm15.ts`) — bổ sung
+
+```ts
+export interface CycleCountItem {
+  spare_part: string; part_name?: string
+  system_qty: number; counted_qty: number
+  variance_qty: number; variance_pct: number; variance_value: number
+  capa_required?: 0 | 1; root_cause?: string; notes?: string
+}
+export interface CycleCountDetail extends CycleCountRow {
+  counted_by?: string; verified_by?: string; notes?: string
+  posted_movement_ref?: string; docstatus?: 0 | 1 | 2
+  items: CycleCountItem[]
+  allowed_transitions: CycleCountState[]
+}
+export const getCycleCount = (name: string) =>
+  frappeGet<CycleCountDetail>(`${BASE}.get_cycle_count`, { name })
+```
+
+#### Nhãn tiếng Việt (LL-FE-53 — dịch đầy đủ, KHÔNG leak English)
+
+| `status` | VI | | `count_type` | VI |
+|---|---|---|---|---|
+| Planned | Lên kế hoạch | | Full | Kiểm kê toàn bộ |
+| Counting | Đang đếm | | ABC_A_Monthly | ABC nhóm A (hàng tháng) |
+| Reviewed | Đã soát xét | | Cycle | Theo chu kỳ |
+| Posted | Đã ghi sổ | | Spot | Đột xuất |
+
+`root_cause` (child Select): Damage=Hư hỏng · Lost=Thất lạc · Mis-issue=Xuất nhầm · System_Error=Lỗi hệ thống · Found_Extra=Phát hiện dư.
+
+---
+
 ### II.9 ForecastView.vue
 
 **Route**: `/imm15/forecasts/:period`

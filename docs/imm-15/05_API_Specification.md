@@ -70,6 +70,7 @@ _FORECAST_APPROVE_ROLES   = {ROLE_INVENTORY_MANAGER, ROLE_SUPER_ADMIN}
 | `return_items` | W | W | — | — | — | W |
 | `return_allocation` | W | W | — | — | — | W |
 | `list_cycle_counts` | R | R | — | R | R | R |
+| `get_cycle_count` | R | R | — | R | R | R |
 | `create_cycle_count` | W | W | — | — | — | W |
 | `submit_cycle_count` | W | W | — | — | — | W |
 | `post_cycle_count` | — | W | — | — | — | W |
@@ -335,6 +336,74 @@ POST /api/method/assetcore.api.imm15.create_cycle_count
   }
 }
 ```
+
+---
+
+### 3.6a `get_cycle_count` (detail + allowed_transitions) — **NEW (vòng 2, 2026-07-01)**
+
+> Endpoint **MỚI** — chưa tồn tại trong `api/imm15.py`/`services/imm15.py` (verified 2026-07-01). Bổ sung để surface màn **CycleCountDetailView**. `06_Frontend_Design.md` §II.8 đã tham chiếu `imm15.get_cycle_count` từ trước nhưng BE chưa hiện thực → đây là spec-before-code contract để BE build. GATE-8/LL-FE-51: server-driven CTA (client KHÔNG hardcode `status===`).
+
+```
+GET /api/method/assetcore.api.imm15.get_cycle_count?name=CYC-2026-00012
+```
+
+**BE contract:**
+- `api/imm15.py`: `@frappe.whitelist() def get_cycle_count(name: str) -> dict: return _handle(svc.get_cycle_count, name)`
+- `services/imm15.py`: `def get_cycle_count(name: str) -> dict` — pattern **giống hệt** `get_calibration` (imm11.py:1033) / `get_allocation` (imm15.py):
+  1. `doc = CycleCountRepo.get(name)`; nếu `None` → `raise ServiceError(ErrorCode.NOT_FOUND, ...)` (in-handler **HTTP-200 + Error envelope** qua `_handle`, KHÔNG raise→4xx — DONE-gate spec-contract).
+  2. `data = doc.as_dict()` + enrich display-name header: `warehouse_name` (AC Warehouse.warehouse_name), `counted_by_name` / `verified_by_name` (User.full_name).
+  3. Enrich mỗi item line (child **`IMM Cycle Count Item`** — xem ⚠️ dưới): `part_name` (AC Spare Part.part_name). Item đã có sẵn `system_qty` (snapshot lúc create), `counted_qty`, `variance_qty`, `variance_pct`, `variance_value`, `capa_required`, `root_cause`, `notes`.
+  4. `data["allowed_transitions"] = _cycle_allowed_transitions(doc, frappe.session.user)`.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "name": "CYC-2026-00012",
+    "warehouse": "WH-01",
+    "warehouse_name": "Kho trung tâm",
+    "count_date": "2026-07-01",
+    "count_type": "ABC_A_Monthly",
+    "status": "Reviewed",
+    "counted_by": "storekeeper@hospital.vn",
+    "counted_by_name": "Nguyễn Văn A",
+    "verified_by": null,
+    "verified_by_name": "",
+    "variance_count": 1,
+    "variance_value": 650000,
+    "posted_movement_ref": null,
+    "notes": "",
+    "docstatus": 0,
+    "items": [
+      {"spare_part": "AC-SP-2024-0001", "part_name": "Bóng đèn CT", "system_qty": 6, "counted_qty": 4, "variance_qty": -2, "variance_pct": 33.3, "variance_value": -650000, "capa_required": 1, "root_cause": "Damage", "notes": ""}
+    ],
+    "allowed_transitions": ["Posted"]
+  }
+}
+```
+
+**`allowed_transitions` — SSoT gating (ADR-IMM-15-06, xem 02 §IV.6):**
+
+`_CYCLE_VALID_TRANSITIONS: dict[str, list[str]]` (keyed by `status`, value = tên **next-state** — đồng convention với imm08/09/11/12):
+
+| `status` hiện tại | Base transitions | CTA phía FE |
+|---|---|---|
+| `Planned` | `["Reviewed"]` | "Hoàn tất kiểm kê" → `submit_cycle_count` |
+| `Counting` | `["Reviewed"]` | "Hoàn tất kiểm kê" → `submit_cycle_count` |
+| `Reviewed` | `["Posted"]` (**capability-gated**) | "Post — Ghi điều chỉnh tồn" → `post_cycle_count` |
+| `Posted` | `[]` (terminal) | — |
+
+- **Capability filter**: `"Posted"` chỉ có mặt nếu user có cap `inventory.submit` (`_CAP_APPROVE`). User chỉ có `inventory.write` (`_CAP_OPERATE`) → từ `Reviewed` nhận `[]` (không thấy nút Post). Ràng buộc capability vẫn được **enforce lần 2** trong `post_cycle_count` (in-handler cap-403 → HTTP-200 Error envelope nếu FE bị bypass).
+- Trạng thái `Counting` hiện **chưa có endpoint** đưa `Planned→Counting` (create đặt `Planned`, `submit` nhận cả `Planned|Counting`); flow thực tế `Planned → (submit) Reviewed → (post) Posted`. Transition `Reviewed→Counting` ("Sửa đếm lại" trong workflow json) chưa có service endpoint → `[ROADMAP]`, KHÔNG đưa vào `allowed_transitions` ở vòng này.
+
+**⚠️ Data note (Cần khảo sát / BE cleanup — KHÔNG tự sửa ở task này):** tồn tại **2** child DocType — `IMM Cycle Count Item` (**LIVE**, được parent `IMM Stock Cycle Count.items` tham chiếu qua `options`) và `IMM Stock Cycle Count Item` (**orphan**, field khác: có `warehouse`/`batch_no`, thiếu `capa_ref`/`notes`; `root_cause` là Data thay vì Select). `get_cycle_count` PHẢI đọc child **LIVE = `IMM Cycle Count Item`**. Orphan nên được BE dọn trong task riêng.
+
+---
+
+### 3.6b `submit_cycle_count` ↔ FE `submitCycleCount` (reconciliation)
+
+FE nhập số đếm rồi gọi **`submit_cycle_count`** (`api/imm15.ts::submitCycleCount(count_name, counted_items[])`), KHÔNG có endpoint `save_counted_qty` (tên cũ trong 06 §store draft là stale — dùng `submit_cycle_count`). Payload `counted_items: [{spare_part, counted_qty, root_cause?}]` → BE tính variance per-line, set `status=Reviewed`, trả `{name, workflow_state:"Reviewed", variance_count}`. Xem §3.7b.
 
 ---
 

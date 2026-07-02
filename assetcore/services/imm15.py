@@ -468,6 +468,76 @@ def list_cycle_counts(filters: dict, *, page: int = 1, page_size: int = 20) -> d
     return {"data": rows, "pagination": pg}
 
 
+# Semantic action tokens exposed to the FE (naming contract BE ⇄ FE):
+#   'Submit' → submitCycleCount  (Planned/Counting → Reviewed)
+#   'Post'   → postCycleCount    (Reviewed → Posted)
+# NOTE (dual-track status/workflow_state, ADR-IMM factory rounds 1-25): the SSoT
+# for state here is the `status` field, NOT `workflow_state` — create_cycle_count
+# never populates `workflow_state`, so frappe.model.workflow.get_transitions()
+# would read state=None and return []. We therefore derive the token list from
+# `status` (mirrors imm08/09/11/12 `_XXX_VALID_TRANSITIONS.get(status, [])`) and
+# gate each token by the session user's capability so the CTA is role-aware.
+def _cycle_allowed_transitions(status: str) -> list[str]:
+    """Role-aware CTA tokens for a cycle count in a given `status`."""
+    out: list[str] = []
+    if status in (CycleCountStatus.PLANNED, CycleCountStatus.COUNTING):
+        if rbac.can(_CAP_OPERATE):
+            out.append("Submit")
+    elif status == CycleCountStatus.REVIEWED:
+        if rbac.can(_CAP_APPROVE):
+            out.append("Post")
+    return out
+
+
+def get_cycle_count(name: str) -> dict:
+    """Get full cycle count: header + item lines + allowed_transitions.
+
+    Mirror of ``get_allocation`` (Data Contract BE-DC-15-01). Not-found raises a
+    typed NOT_FOUND ServiceError → API layer renders a 404 envelope (never 500).
+    Item ``part_name`` is bulk-resolved (single query) to avoid N+1.
+    """
+    doc = CycleCountRepo.get(name)
+    if not doc:
+        raise ServiceError(ErrorCode.NOT_FOUND,
+                           f"Không tìm thấy phiên kiểm kê: {name}")
+    data = doc.as_dict()
+    # Bulk-resolve part display names for the item lines (no N+1).
+    part_ids = {it.get("spare_part") for it in data.get("items", [])
+                if it.get("spare_part")}
+    part_names: dict[str, str] = {}
+    if part_ids:
+        part_names = {
+            r["name"]: r.get("part_name") or r["name"]
+            for r in frappe.get_all(
+                "AC Spare Part",
+                filters={"name": ("in", list(part_ids))},
+                fields=["name", "part_name"],
+            )
+        }
+    for it in data.get("items", []):
+        it["part_name"] = part_names.get(it.get("spare_part"),
+                                         it.get("spare_part") or "")
+        if it.get("variance_qty") in (None, ""):
+            it["variance_qty"] = float(it.get("counted_qty") or 0) - float(
+                it.get("system_qty") or 0)
+    # Header display names + FE aliases.
+    data["warehouse_name"] = frappe.db.get_value(
+        "AC Warehouse", data.get("warehouse"), "warehouse_name") or data.get(
+        "warehouse") or ""
+    data["counted_by_name"] = frappe.db.get_value(
+        "User", data.get("counted_by"), "full_name") or data.get(
+        "counted_by") or ""
+    data["verified_by_name"] = frappe.db.get_value(
+        "User", data.get("verified_by"), "full_name") or data.get(
+        "verified_by") or ""
+    # FE banner contract: adjustment_ref alias + CAPA count.
+    data["adjustment_ref"] = data.get("posted_movement_ref") or ""
+    data["capa_created"] = sum(
+        1 for it in data.get("items", []) if it.get("capa_required"))
+    data["allowed_transitions"] = _cycle_allowed_transitions(doc.status)
+    return data
+
+
 def create_cycle_count(warehouse: str, items: list[dict],
                        count_type: str = "Cycle",
                        count_date: str = "") -> dict:
@@ -505,7 +575,15 @@ def create_cycle_count(warehouse: str, items: list[dict],
 
 
 def submit_cycle_count(count_name: str, counted_items: list[dict]) -> dict:
-    """Hoàn tất kiểm kê — tính variance (chuyển sang Reviewed). Internal helper."""
+    """Hoàn tất kiểm kê — tính variance (chuyển sang Reviewed). Internal helper.
+
+    `counted_items` = [{spare_part, counted_qty, root_cause?}] — khớp naming
+    contract FE (submitCycleCount). `root_cause` (khi có) được LƯU vào dòng để
+    thỏa VR-15-04 lúc Post (variance > 5% bắt buộc root_cause). Idempotency:
+    chỉ hợp lệ từ Planned/Counting → mọi state khác trả BAD_STATE.
+    """
+    _require_any_role(_CAP_OPERATE,
+                      "Không có quyền cập nhật phiên kiểm kê")
     doc = CycleCountRepo.get(count_name)
     if not doc:
         raise ServiceError(ErrorCode.NOT_FOUND,
@@ -514,13 +592,16 @@ def submit_cycle_count(count_name: str, counted_items: list[dict]) -> dict:
         raise ServiceError(ErrorCode.BAD_STATE,
                            f"Không thể submit ở trạng thái: {doc.status}")
     from assetcore.services.inventory import get_available_qty
-    counted_map = {ci["spare_part"]: float(ci.get("counted_qty", 0))
+    counted_map = {ci["spare_part"]: ci
                    for ci in counted_items if ci.get("spare_part")}
     total_var_value = 0.0
     var_count = 0
     for item in doc.items:
         sys_qty = item.system_qty if item.system_qty else get_available_qty(doc.warehouse, item.spare_part)
-        cnt = counted_map.get(item.spare_part, item.counted_qty or 0)
+        ci = counted_map.get(item.spare_part) or {}
+        cnt = float(ci["counted_qty"]) if "counted_qty" in ci else float(item.counted_qty or 0)
+        if ci.get("root_cause"):
+            item.root_cause = ci["root_cause"]
         item.system_qty = sys_qty
         item.counted_qty = cnt
         item.variance_qty = cnt - sys_qty
@@ -571,21 +652,42 @@ def post_cycle_count(cycle_count: str, verified_by: str = "",
             )
 
     sm = _create_stock_movement_for_adjustment(doc)
+    adjustment_ref = sm.name if sm else ""
     doc.verified_by = verifier
     doc.notes = (doc.notes or "") + ("\n" + notes if notes else "")
-    doc.posted_movement_ref = sm.name
+    doc.posted_movement_ref = adjustment_ref or None
     doc.status = CycleCountStatus.POSTED
     CycleCountRepo.save(doc)
     capa_count = _seed_capa_for_cycle_variance(doc)
+    # §5 audit trail — mọi nghiệp vụ sinh record (chuỗi SHA-256, best-effort).
+    try:
+        log_audit_event(
+            asset="",
+            event_type="cycle_count_posted",
+            actor=verifier,
+            ref_doctype=CycleCountRepo.DOCTYPE,
+            ref_name=cycle_count,
+            change_summary=(
+                f"IMM-15 Cycle Count posted: {cycle_count} "
+                f"(variance {doc.variance_count}, adj {adjustment_ref or '—'}, "
+                f"capa {capa_count})"
+            ),
+            from_status=CycleCountStatus.REVIEWED,
+            to_status=CycleCountStatus.POSTED,
+        )
+    except Exception:
+        frappe.log_error(frappe.get_traceback(),
+                         "IMM-15: cycle_count_posted audit failed")
     try:
         frappe.publish_realtime("imm15_cycle_count_posted",
-                                {"name": cycle_count, "adjustment_ref": sm.name,
+                                {"name": cycle_count,
+                                 "adjustment_ref": adjustment_ref,
                                  "capa_count": capa_count})
     except Exception:
         pass
     frappe.db.commit()
     return {"name": cycle_count, "workflow_state": CycleCountStatus.POSTED,
-            "adjustment_ref": sm.name, "capa_created": capa_count}
+            "adjustment_ref": adjustment_ref, "capa_created": capa_count}
 
 
 # ─── Forecast ─────────────────────────────────────────────────────────────────
@@ -1050,7 +1152,13 @@ def _create_stock_movement_for_return(alloc_doc, items: list[dict]) -> object:
     return sm
 
 
-def _create_stock_movement_for_adjustment(cyc_doc) -> object:
+def _create_stock_movement_for_adjustment(cyc_doc):
+    """Tạo AC Stock Movement Adjustment cho các dòng CÓ lệch.
+
+    Trả None khi phiên không có variance nào — AC Stock Movement bắt buộc ≥1 dòng
+    (`_validate_items`), nên KHÔNG tạo phiếu rỗng (post phiên khớp tuyệt đối vẫn
+    hợp lệ, adjustment_ref = "").
+    """
     items = []
     for it in cyc_doc.items:
         delta = float(it.variance_qty or 0)
@@ -1061,6 +1169,8 @@ def _create_stock_movement_for_adjustment(cyc_doc) -> object:
             "qty": delta,
             "warehouse": cyc_doc.warehouse,
         })
+    if not items:
+        return None
     sm = frappe.get_doc({
         "doctype": "AC Stock Movement",
         "movement_type": "Adjustment",
@@ -1073,40 +1183,49 @@ def _create_stock_movement_for_adjustment(cyc_doc) -> object:
     })
     sm.flags.ignore_links = True
     sm.insert(ignore_permissions=True)
-    if items:
-        sm.submit()
+    sm.submit()
     return sm
 
 
 def _seed_capa_for_cycle_variance(cyc_doc) -> int:
-    """Seed CAPA records cho items có capa_required=1."""
+    """Seed CAPA records cho items có capa_required=1.
+
+    FIX (2026-07-01): bản cũ ghi `source`/`reference_doctype`/`reference_name`
+    (KHÔNG phải field IMM CAPA Record — cột không tồn tại) và `severity="Medium"`
+    (không thuộc Minor/Major/Critical) ⇒ insert LUÔN throw & bị try/except nuốt →
+    CAPA chưa bao giờ được tạo cho variance. Dùng schema đúng: `source_type`
+    ("Cycle Count Variance" là option hợp lệ), `severity="Major"`, và các field
+    reqd `responsible/opened_date/due_date`. `source_ref` (Dynamic Link) để trống
+    vì source_type là nhãn, không phải DocType. Dedup: post one-shot theo status
+    guard (Reviewed→Posted 1 lần) ⇒ không tạo trùng khi re-post.
+    """
+    owner = (cyc_doc.verified_by or cyc_doc.counted_by
+             or frappe.session.user or "Administrator")
     count = 0
     for it in cyc_doc.items:
         if not it.capa_required:
             continue
-        existing = frappe.db.exists("IMM CAPA Record", {
-            "reference_doctype": "AC Spare Part",
-            "reference_name": it.spare_part,
-            "status": ("not in", ["Closed", "Cancelled"]),
-        })
-        if existing:
-            continue
         try:
             capa = frappe.get_doc({
                 "doctype": "IMM CAPA Record",
-                "source": "Cycle Count Variance",
-                "reference_doctype": "AC Spare Part",
-                "reference_name": it.spare_part,
+                "source_type": "Cycle Count Variance",
+                "severity": "Major",
+                "status": "Open",
+                "responsible": owner,
+                "opened_date": nowdate(),
+                "due_date": add_days(nowdate(), 14),
                 "description": (
                     f"Cycle Count {cyc_doc.name} phát hiện variance "
-                    f"{it.variance_qty} ({it.variance_pct:.1f}%) cho {it.spare_part}. "
-                    f"Root cause: {it.root_cause or 'N/A'}"
+                    f"{it.variance_qty} ({float(it.variance_pct or 0):.1f}%) cho "
+                    f"phụ tùng {it.spare_part} tại kho {cyc_doc.warehouse}. "
+                    f"Nguyên nhân: {it.root_cause or 'N/A'}"
                 ),
-                "severity": "Medium",
-                "status": "Open",
             })
             capa.flags.ignore_links = True
             capa.insert(ignore_permissions=True)
+            # Persist link on the child row (post already saved doc) for §5 traceability.
+            frappe.db.set_value("IMM Cycle Count Item", it.name, "capa_ref",
+                                capa.name, update_modified=False)
             count += 1
         except Exception:
             frappe.log_error(frappe.get_traceback(),
