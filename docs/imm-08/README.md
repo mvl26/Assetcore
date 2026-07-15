@@ -6,7 +6,7 @@
 | Wave | 1 |
 | Trạng thái | Mature |
 | Số file hiện có | 14 |
-| Cập nhật cuối | 2026-06-03 |
+| Cập nhật cuối | 2026-07-15 (CR-28b — mobile-contract `getDuePmSchedules` read-list KHÔNG-pagination, màn "Nhắc việc" F8 nửa-PM · §05 §0.1.5 + ADR-IMM08-DUEPM + ADR-MOBILE-054) |
 | Khối kiến trúc | C. KHỐI 3 |
 | Đợt triển khai | 1 |
 | Owner | PTP Khối 2 · Workshop / Nhóm TBYT |

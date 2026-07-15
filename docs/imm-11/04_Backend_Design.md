@@ -189,6 +189,69 @@ return data
 # Fail path: services.imm11.handle_calibration_fail(cal_doc)
 ```
 
+### 3.2. Dual-track lockstep `workflow_state ⇄ status` + INVARIANT (round 18 — CR-WF-11-CAL)
+
+**Desync gốc (bug — KHÔNG phải dual-track có chủ đích).** DocType `IMM Asset Calibration` có **2 field song song**: `status` (Select, default `'Scheduled'`, 8 option) + `workflow_state` (Link → `Workflow State`, default `None`). Workflow `imm_11_calibration_workflow.json` **is_active=1**, bound qua `workflow_state_field="workflow_state"`. MỌI service-action calibration đặt `doc.status` qua `CalibrationRepo.update_fields` (= `doc.save()`) / `.create` / `.submit` NHƯNG **KHÔNG chạm `doc.workflow_state`**. Trên `doc.save()`, `validate_workflow` thấy `workflow_state` KHÔNG đổi (đọng `'Scheduled'`) ⇒ return sớm, 0 transition. Hệ quả: `status` marches nhưng `workflow_state` **đọng `'Scheduled'` (state khởi tạo) vĩnh viễn**.
+
+RED đo được (acceptance): tạo phiếu External → `send_to_lab` → `status='Sent to Lab'` nhưng `workflow_state='Scheduled'`. Trên **desk**, workflow-engine `get_transitions(doc)` đọc `workflow_state='Scheduled'` → chỉ hiện nút của `Scheduled` (→ In Progress / Sent to Lab / Cancelled) — SAI, vì phiếu THỰC đã ở `Sent to Lab`. ⇒ QTV/AssetCore Super Admin **không điều hành phiếu qua workflow-engine** dù đủ quyền (đây là triệu chứng CR).
+
+**Cơ chế fix (lockstep) — SAU mỗi transition-fn, sync `workflow_state = status`:**
+
+```python
+# assetcore/services/imm11.py — helper DRY (mirror IMM-16 §III.B.2 / IMM-12 imm12.py:797/938/1568).
+# frappe.db.set_value BYPASS validate_workflow (ghi SQL trực tiếp, 0 validate cycle).
+def _lockstep_cal_workflow_state(name: str, status: str) -> None:
+    frappe.db.set_value(_DT_CAL, name, {"workflow_state": status}, update_modified=False)
+
+# Gọi SAU mỗi write-path status (6 điểm), value = status CUỐI CÙNG của phiếu:
+#   create_calibration      → Scheduled      (imm11.py:1083)
+#   update_calibration      → doc.status     (patch.status, thường In Progress; imm11.py:1108)
+#   send_to_lab             → Sent to Lab    (imm11.py:1285)
+#   receive_certificate     → In Progress    (imm11.py:1327)  ⚠️ KHÔNG phải Certificate Received
+#   cancel_calibration      → Cancelled      (imm11.py:1356)
+#   submit_calibration      → doc.status     (KHÔNG đổi; controller chỉ set overall_result — OoS scope)
+```
+
+- **Vì sao `frappe.db.set_value` (KHÔNG `doc.save()` set cả 2):** Frappe v15 `model/workflow.py::validate_workflow` **raise `WorkflowPermissionError`** khi `doc.save()` đổi `workflow_state` sang state KHÔNG kề (không có edge từ state cũ). `receive_certificate` nhảy `Sent to Lab → In Progress` — workflow chỉ có cạnh `Sent to Lab → Certificate Received`, **0 cạnh `Sent to Lab → In Progress`** ⇒ `doc.save()` sẽ throw. `db.set_value` ghi SQL trực tiếp, KHÔNG chạy validate cycle ⇒ an toàn cho multi-hop (kể cả trên doc `docstatus=1` sau `submit_calibration`). (Lý do code cũ KHÔNG throw: `workflow_state` đọng `Scheduled→Scheduled` ⇒ `validate_workflow` return sớm `current==next`.)
+- **Boundaries — Always:** cả 6 write-path status (`create`/`update`/`send_to_lab`/`receive_certificate`/`cancel`/`submit`) đặt CẢ 2 track lockstep. **Never:** ❌ đổi `workflow_state` calibration qua `doc.save()` (trip validate_workflow) · ❌ sửa `imm_11_calibration_workflow.json` / `fixtures/workflow.json` (HARD-STOP reload/migrate — gate admin-override `test_workflow_admin_override` GREEN KHÔNG được phá) · ❌ nhồi cạnh mới `Sent to Lab → In Progress` vào workflow JSON để "khớp" `receive_certificate`.
+- **Scope hẹp — CHỈ field `workflow_state`:** lockstep đồng bộ đúng `workflow_state` ⇄ `status`. KHÔNG đụng `docstatus` (Frappe ledger). Terminal `Passed/Failed/Conditionally Passed` (docstatus=1) + `Cancelled` (docstatus=2) cột workflow-JSON là tình trạng CŨ — vòng này chỉ lockstep các status **service-reachable** (§INV-11-B), KHÔNG buộc docstatus khớp.
+
+**INVARIANT guard (RED-before / GREEN-after) — `test_imm11` (§07 AT-11-LOCKSTEP + INV-11):**
+
+```python
+# INV-11-A (name-parity): mọi giá trị status Select == tên state workflow (1-1).
+#   set(status Select options)  ==  set(states[] imm_11_calibration_workflow.json)  ==  8
+#   ⇒ lockstep `workflow_state := status` LUÔN ghi 1 tên Workflow State hợp lệ.
+# INV-11-B (service-reachable ⊆ states): S_svc ⊆ states[] name-parity.
+#   S_svc = {Scheduled, In Progress, Sent to Lab, Cancelled}  (4 — grounded 6 write-path)
+# INV-11-C (lockstep behavioral): drive từng transition service rồi đọc lại DB
+#   db.get_value('IMM Asset Calibration', name, 'workflow_state') == status.
+```
+
+- **S_svc GROUNDED = {Scheduled, In Progress, Sent to Lab, Cancelled}** — chính xác 4 giá trị mà 6 write-path đặt vào `status`. **Self-Correction (⚠️ quan trọng):** acceptance liệt kê "service-reachable {…, Certificate Received, …}" là **KHÔNG chính xác** — `receive_certificate` đặt `status = In Progress` (imm11.py:1327), **KHÔNG** đặt `Certificate Received`. `'Certificate Received'` là **workflow-state**: chỉ tới được qua **desk workflow-action** "Nhận chứng chỉ" (`Sent to Lab → Certificate Received`), 0 service-driver đặt `status` = giá trị này. Nó vẫn ∈ `states[]` (INV-11-A đủ), nhưng KHÔNG ∈ S_svc ⇒ INV-11-C chỉ drive 4 giá trị service-produced.
+- **RED-before:** với code chưa fix, AT-11-LOCKSTEP dừng ở assertion sau `send_to_lab`: `workflow_state='Scheduled' != status='Sent to Lab'` (chứng minh desk-desync). **GREEN-after:** mọi transition `workflow_state == status`.
+- **get_transitions phản ánh state HIỆN TẠI (acceptance #3):** sau `send_to_lab` (đã fix), `frappe.model.workflow.get_transitions(doc)` trả cạnh của `'Sent to Lab'` (→ Certificate Received), KHÔNG phải của `'Scheduled'` ⇒ admin/QTV thấy đúng nút workflow tiếp theo trên desk.
+
+**OUT-OF-SCOPE (backlog — KHÔNG làm vòng này):**
+1. `submit_calibration` KHÔNG tự advance `status` sang `Passed/Failed/Conditionally Passed` — controller `on_submit` chỉ set `overall_result` + asset/CAPA (imm11.py:31-35). 3 terminal-state + KPI `status`-filter `[Passed, Conditionally Passed]` (imm11.py:1161) là **bug thứ cấp riêng** (status vẫn `In Progress` sau submit).
+2. **Reverse-sync desk → service:** sau fix, tại `workflow_state='Sent to Lab'` desk hiện nút "Nhận chứng chỉ" → nếu admin bấm QUA workflow-engine, `workflow_state → Certificate Received` nhưng `status` giữ `Sent to Lab` (desk KHÔNG gọi `receive_certificate` service) ⇒ desync ngược. Vòng này chỉ đóng chiều **service → workflow_state** (desync gốc được báo). Chiều desk → service cần workflow-transition-handler riêng — `[ROADMAP]`.
+
+#### ADR-IMM11-06: Calibration dual-track lockstep `workflow_state ⇄ status` (đóng desync)
+
+- **Status:** Accepted — mirror **ADR-IMM-16-05** (IMM-16 Finding) + **IMM-12** (`imm12.py:797/938/1568`). SUPERSEDE giả định ngầm "workflow_state calibration là track song song decorative, service KHÔNG chạm".
+- **Date:** 2026-07-13
+- **Context:** `imm_11_calibration_workflow.json` **is_active=1**; 6 service write-path đặt `doc.status` KHÔNG chạm `doc.workflow_state` ⇒ workflow_state đọng `'Scheduled'` trong khi status marches → admin/QTV không điều hành phiếu qua workflow-engine desk (get_transitions đọc sai state).
+- **Decision:** SAU mỗi transition-fn, `frappe.db.set_value(_DT_CAL, name, {"workflow_state": <status cuối>}, update_modified=False)` (helper `_lockstep_cal_workflow_state`). 8 giá trị `CalibrationResult`/`status`-Select == 8 tên state workflow EXACT (INV-11-A) ⇒ lockstep 1-1 hợp lệ.
+- **Alternatives:**
+  - *`doc.save()` set cả `status` + `workflow_state`* — LOẠI: `validate_workflow` raise `WorkflowPermissionError` khi đổi `workflow_state` sang state không-kề (`receive_certificate`: `Sent to Lab → In Progress` 0 edge). `db.set_value` bypass validate.
+  - *Đi qua `apply_workflow` engine (walk từng cạnh)* — LOẠI: over-engineering; `Sent to Lab → In Progress` không có đường workflow; buộc hop qua `Certificate Received` vô nghĩa cho luồng service.
+  - *Thêm cạnh `Sent to Lab → In Progress` vào workflow JSON* — LOẠI: sửa `imm_11_calibration_workflow.json`/fixtures = HARD-STOP reload/migrate + rủi ro phá gate admin-override.
+- **Consequences:**
+  - (+) Đóng desync: `workflow_state == status` sau mỗi transition; workflow_state truthful cho desk workflow-engine + `permission_query_conditions`.
+  - (+) INVARIANT INV-11-A/B/C (§3.2) chống drift status Select ⇄ workflow states.
+  - (−) KHÔNG đóng reverse-sync desk → service (backlog #2) + KHÔNG advance terminal sau submit (backlog #1).
+  - (0) KHÔNG migration schema, KHÔNG đổi workflow JSON/fixtures, KHÔNG đụng FE (FE calibration đọc `allowed_transitions`/`status`, KHÔNG đọc `workflow_state` — verified grep=none), KHÔNG đụng gate admin-override.
+
 ---
 
 ## 4. Service Layer
@@ -221,16 +284,16 @@ return data
 | `create_schedule(asset, calibration_type, interval_days, ...)` | kwargs | `{name, next_due_date}` | Insert `IMM Calibration Schedule` |
 | `update_schedule(name, patch)` | str, dict | `{name}` | Patch allowed fields only |
 | `delete_schedule(name)` | str | `{name, deleted}` | Blocked if submitted calibrations exist |
-| `list_calibrations(filters, page, page_size)` | dict, int, int | `{data, pagination}` | None |
-| `get_calibration(name)` | str | dict | + key `allowed_transitions: list[str]` = `_CAL_VALID_TRANSITIONS.get(doc.status, [])` (server-driven CTA, §3.1). KHÔNG đổi signature `get_calibration(name)`; KHÔNG đổi handler `api/imm11.py:81`. |
-| `create_calibration(asset, calibration_type, scheduled_date, technician, ...)` | kwargs | `{name, status}` | Insert `IMM Asset Calibration` |
-| `update_calibration(name, patch)` | str, dict | `{name, status}` | Asset → Calibrating when status in (In Progress, Sent To Lab) |
-| `submit_calibration(name)` | str | `{name, status, overall_result, next_calibration_date}` | Triggers controller on_submit → Pass/Fail handlers |
+| `list_calibrations(filters, page, page_size)` | dict, int, int | `{data, pagination}` | Mỗi row + `is_overdue`/`is_due_soon` (int 0/1) derive server-side qua predicate chung trên row.`next_calibration_date` (BR-11-14, §4.1.8). KHÔNG thêm query DB (field đã có trong `fields=[...]`). |
+| `get_calibration(name)` | str | dict | + key `allowed_transitions: list[str]` = `_CAL_VALID_TRANSITIONS.get(doc.status, [])` (server-driven CTA, §3.1) + `is_overdue`/`is_due_soon` (int 0/1) derive server-side trên `data["next_calibration_date"]` (BR-11-14, §4.1.8). KHÔNG đổi signature `get_calibration(name)`; KHÔNG đổi handler `api/imm11.py:81`. |
+| `create_calibration(asset, calibration_type, scheduled_date, technician, ...)` | kwargs | `{name, status}` | Insert `IMM Asset Calibration` + **lockstep `workflow_state='Scheduled'` (§3.2)** |
+| `update_calibration(name, patch)` | str, dict | `{name, status}` | Asset → Calibrating when status in (In Progress, Sent To Lab) + **lockstep `workflow_state=doc.status` (§3.2)** |
+| `submit_calibration(name)` | str | `{name, status, overall_result, next_calibration_date}` | Triggers controller on_submit → Pass/Fail handlers + **lockstep `workflow_state=doc.status` (KHÔNG đổi status; §3.2)** |
 | `add_measurement(name, parameter_name, unit, ...)` | str, kwargs | `{name, measurement_count}` | Append to `measurements` child table |
-| `send_to_lab(name, sent_date, lab_supplier, lab_contract_ref)` | str, kwargs | `{name, status, sent_date}` | Status → Sent To Lab + Asset → Calibrating |
-| `receive_certificate(name, certificate_file, certificate_number, ...)` | str, kwargs | `{name, status, certificate_number}` | Status → In Progress |
-| `cancel_calibration(name, reason)` | str, str | `{name, status}` | Status → Cancelled + Asset → Active if was Calibrating |
-| `get_due_calibrations(days, limit)` | int, int | `{items, threshold_days}` | None |
+| `send_to_lab(name, sent_date, lab_supplier, lab_contract_ref)` | str, kwargs | `{name, status, sent_date}` | Status → Sent To Lab + Asset → Calibrating + **lockstep `workflow_state='Sent to Lab'` (§3.2)** |
+| `receive_certificate(name, certificate_file, certificate_number, ...)` | str, kwargs | `{name, status, certificate_number}` | Status → **In Progress** (⚠️ KHÔNG Certificate Received — §3.2 Self-Correction) + **lockstep `workflow_state='In Progress'`** |
+| `cancel_calibration(name, reason)` | str, str | `{name, status}` | Status → Cancelled + Asset → Active if was Calibrating + **lockstep `workflow_state='Cancelled'` (§3.2)** |
+| `get_due_calibrations(days, limit)` | int, int | `{items, threshold_days}` | None — item 7-field {name,asset_name,device_model,location,next_calibration_date,calibration_status,`days_left`}; `days_left` signed int (âm=quá hạn) **non-nullable** (`else None` @`services/imm11.py:1420` là dead-branch — filter `next_calibration_date is set`@1409 loại NULL). Mobile-contract binding = `getDueCalibrations` (read-list KHÔNG-pagination, §05 §0.1.9 + ADR-IMM11-DUECAL) |
 | `get_asset_history(asset, limit)` | str, int | `{asset, history}` | None |
 | `get_kpis(year, month)` | int, int | `{kpis: {...}}` | None |
 | `get_dashboard()` | — | `{kpis, overdue_assets, due_soon_assets, capa_open_list, period}` | None |
@@ -558,6 +621,49 @@ _apply_asset_calibration_rollup(cal_doc.asset, basis_date)  # BR-11-13 — cache
 - **INV-PASS-ROLLUP-4 (happy-path bất biến):** asset 1-lịch → schedule duy nhất sau advance có `next_due > today+30` → rollup `ON_SCHEDULE`, `MIN` = chính `basis+interval` → cache y hệt cũ (`On Schedule` + `add_days(basis, interval)`).
 - **INV-PASS-ROLLUP-5 (BR-11-04/12 bất biến):** `Schedule.next_due_date` (vừa Pass) = `basis+interval`; `CalibrationRepo.next_calibration_date` set như cũ; ALE `calibration_passed` (1 record) + restore-guard 3-nhánh KHÔNG đổi. BR-11-13 CHỈ chạm 3 field ASSET-cache.
 - **INV-PASS-ROLLUP-6 (no N+1):** rollup 1 asset = số query bounded (≤4), độc lập số schedule — KHÔNG loop per-schedule SQL.
+
+---
+
+### 4.1.8 Read-side derived flags — `is_overdue` / `is_due_soon` per record (BR-11-14)
+
+> **Bối cảnh (server-flag SSoT — mobile-BE CR-02, MVP-flow-5).** KTV mở phiếu hiệu chuẩn trên mobile (`getCalibration`) hoặc duyệt danh sách (`listCalibrations`) cần biết NGAY phiếu này **quá hạn / sắp hạn** để ưu tiên — KHÔNG được so `next_calibration_date` với đồng-hồ-thiết-bị (client-clock drift / lệch múi giờ → KTV coi thiết bị quá hạn là còn hạn → dùng thiết bị đo chưa hiệu chuẩn trên bệnh nhân → sai số đo + vi phạm NĐ98). Cờ phải **derive SERVER-SIDE**, consumer CHỈ render. Đối xứng `calibration_overdue` của `get_asset_scan_info` (imm00, CR-21) + `is_response_breached`/`is_resolution_breached` của incident-detail (imm12, INV-SLA-5). Ref bền: `memory/overdue_server_flag_ssot.md`.
+
+**Hành vi (dùng LẠI predicate thuần §4.1.1 — KHÔNG re-implement, KHÔNG thêm query DB):**
+
+```python
+# services/imm11.py — trong list_calibrations, VÒNG `for r in rows` đã có (imm11.py:1012-1015)
+# và trong get_calibration, sau khi build `data` (imm11.py:1023-1029).
+# next_calibration_date đã nằm trong fields=[...] (list) / doc.as_dict() (detail) → 0 query mới.
+ref = getdate(nowdate())                       # 1 ref-date server, tính 1 lần / call
+nd  = r.get("next_calibration_date")           # list: row-field ; detail: data["next_calibration_date"]
+r["is_overdue"]  = int(is_calibration_overdue(nd, ref))     # bool → int 0/1
+r["is_due_soon"] = int(is_calibration_due_soon(nd, ref))    # bool → int 0/1
+```
+
+- **Nguồn ngày = `next_calibration_date` của CHÍNH bản ghi hiệu chuẩn** (field `IMM Asset Calibration.next_calibration_date`), KHÔNG phải `Schedule.next_due_date` SoT của KPI/drill (`_overdue_asset_ids`). Đây là 2 câu hỏi KHÁC nhau — xem **ADR-IMM11-05**.
+- **Ma trận (predicate §4.1.1 đã bảo đảm loại-trừ-lẫn-nhau):**
+  | `next_calibration_date` | `is_overdue` | `is_due_soon` |
+  |---|---|---|
+  | `< today` (strict) | 1 | 0 |
+  | `∈ [today, today + CAL_DUE_SOON_WINDOW_DAYS]` (2 biên inclusive) | 0 | 1 |
+  | `> today + CAL_DUE_SOON_WINDOW_DAYS` | 0 | 0 |
+  | `None` (chưa có hạn — vd phiếu Scheduled/In Progress) | 0 | 0 |
+
+  Overdue ưu tiên: ngày `< today` bị biên-dưới của `is_calibration_due_soon` loại → 2 cờ KHÔNG BAO GIỜ cùng `1`.
+
+**Invariants:**
+- **INV-CALFLAG-1 (parity list == detail, kiểu INV-SLA-5):** với cùng bản ghi X và CÙNG ref-date, `list_calibrations` row-X.`{is_overdue,is_due_soon}` == `get_calibration(X)`.`{is_overdue,is_due_soon}`. Đảm bảo vì cả 2 gọi CÙNG predicate trên CÙNG field `next_calibration_date`, ref = `nowdate()` server. (Test cố định ref-date để loại race qua-nửa-đêm.)
+- **INV-CALFLAG-2 (int, không bool):** cờ là `int` `0`/`1` (bọc `int(...)`) — mirror `is_recalibration`/`is_response_breached` (Open#1 int-vs-bool; codegen Dart/Kotlin so `== 1`, KHÔNG deser bool).
+- **INV-CALFLAG-3 (no new query / no leak):** `next_calibration_date` đã được `list`/`get` trả sẵn → derive là pure-Python. KHÔNG thêm field web-only mới (2 cờ có trong CẢ mobile contract lẫn web-FE — handler dùng chung, §05 §0.1.5).
+
+#### ADR-IMM11-05: Cờ record-level dùng `next_calibration_date` (record), KHÔNG dùng Schedule-SoT `_overdue_asset_ids`
+
+- **Status**: Accepted
+- **Date**: 2026-07-09
+- **Context**: IMM-11 đã có 2 khái-niệm-ngày: (a) `IMM Calibration Schedule.next_due_date` = SoT cho KPI/dashboard/drill "**ASSET nào** quá hạn" (`_overdue_asset_ids`, de-dup theo asset, lọc active-schedule + không-decommissioned); (b) `IMM Asset Calibration.next_calibration_date` = hạn hiệu chuẩn kế tiếp ghi trên **BẢN GHI** hiệu chuẩn. `listCalibrations`/`getCalibration` trả **bản ghi**, nên cờ phải trả lời "**bản ghi này** quá hạn/sắp hạn không".
+- **Decision**: Cờ `is_overdue`/`is_due_soon` cho list/detail derive từ `next_calibration_date` của CHÍNH record qua predicate chung `is_calibration_overdue`/`is_calibration_due_soon` (§4.1.1). KHÔNG join Schedule, KHÔNG gọi `_overdue_asset_ids`.
+- **Alternatives bác**: (1) Map cờ record về Schedule-SoT `_overdue_asset_ids` → sai ngữ nghĩa (asset-level ≠ record-level) + thêm N query JOIN Schedule per list-page (vi phạm "KHÔNG thêm query DB"). (2) Re-implement so-ngày inline trong list/detail → nhân đôi predicate, drift `CAL_DUE_SOON_WINDOW_DAYS`.
+- **Consequences**: 2 cờ record-level phản ánh đúng hạn của bản ghi (rõ nhất trên phiếu đã `Passed` có `next_calibration_date`; phiếu chưa hoàn thành → `None` → cả 2 = 0). KHÁC predicate của `get_asset_scan_info` (imm00 `_is_calibration_overdue` — **exempt-aware** theo `lifecycle_status`, asset-scoped): 2 nơi cùng "server-derived, consumer render" nhưng phạm-vi khác — KHÔNG hợp nhất (record-flag = độ-tuân-thủ-lịch của bản ghi; scan-flag = trạng-thái asset có miễn-trừ). Đối xứng về PATTERN, không về predicate.
 
 ---
 

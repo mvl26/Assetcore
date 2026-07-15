@@ -78,12 +78,17 @@ State machine BE thật (khớp `imm_12_incident_workflow.json` + `_VALID_TRANSI
 | Acknowledged | "Hủy sự cố" | `cancel_incident` | Acknowledged → Cancelled | System Manager |
 | In Progress | "Đánh dấu đã giải quyết" | `resolve_incident` | In Progress → Resolved | Corrective User |
 | In Progress | "Hủy sự cố" | `cancel_incident` | In Progress → Cancelled | System Manager |
-| Resolved | "Yêu cầu RCA" | `create_rca` | Resolved → RCA Required | Compliance Manager |
+| Resolved | **"Yêu cầu phân tích RCA"** | **`request_rca`** | **Resolved → RCA Required** | **Compliance Manager / AssetCore Super Admin (cap `compliance.submit`)** |
 | Resolved | "Đóng sự cố" | `close_incident` | Resolved → Closed | System Manager / Workshop Lead / QA Officer |
+| Resolved | **"Mở lại điều tra"** | **`reopen_incident`** | **Resolved → In Progress** | **System Manager / AssetCore Super Admin (cap `incident.close`)** |
 | RCA Required | "Mở RCA" (link) → đóng sau khi RCA Completed | `close_incident` (gated BR-12-02) | RCA Required → Closed | System Manager |
 
 > **D3 chốt (Self-Correction BE):** `acknowledge_incident()` PHẢI set `Open → Acknowledged` (KHÔNG nhảy thẳng In Progress). Thêm action `start_work()` cho `Acknowledged → In Progress`. FE stepper align mô hình 2 bước này. Đây là root-cause fix, KHÔNG vá ở FE.
 > BR-12-02: High/Critical hoặc Chronic → nút "Đóng sự cố" ở RCA Required bị block đến khi RCA `Completed`.
+>
+> **BR-12-23 (Round 12, CR-WF-12) — nút "Mở lại điều tra":** SSoT = `allowed_transitions` (server-driven, GATE-8/LL-FE-51). Gate `canReopen = can('incident.close') && form.status === 'Resolved' && allowed_transitions.includes('In Progress')` — **KHÔNG hardcode role-name**, đọc `allowed_transitions` từ `get_incident_detail` (nay chứa `'In Progress'` khi Resolved sau fix drift a). Bấm → modal nhập `reason` (bắt buộc) → `reopenIncident({name, reason})` (POST envelope Decision-B, parity `closeIncident`) → `invalidateQueries(imm12Keys.detail(name))`. API client mới `reopenIncident` trong `api/imm12.ts`. *Never*: render nút theo `status===` literal hoặc role-name; *Always*: đọc `allowed_transitions`, disable khi thiếu cap.
+>
+> **BR-12-24 (Round 38, CR-WF-12-RCA-ENTRY) — nút "Yêu cầu phân tích RCA":** SSoT = `allowed_transitions` (server-driven, GATE-8/LL-FE-51 — đối xứng "Mở lại điều tra"). Gate `canRequestRca = can('compliance.submit') && form.status === 'Resolved' && allowed_transitions.includes('RCA Required')` — **KHÔNG hardcode `status===` literal, KHÔNG hardcode role-name**. `allowed_transitions[Resolved]` vốn đã chứa `'RCA Required'` (từ Round 12) — round này bổ driver THẬT (nút + endpoint) cho advertise "câm" đó (đóng hidden-CTA). `can('compliance.submit')` đọc từ cap-map auth store (`compliance.submit` ∈ `CAPABILITY_MAP` auto-gen). Đặt nút "Yêu cầu phân tích RCA" trong cụm workflow-actions (cạnh "Đánh giá đã giải quyết"/"Mở lại điều tra"), gate `v-if="canRequestRca"`. Bấm → modal nhập `rca_reason` (bắt buộc — nút xác nhận `:disabled` khi `!rca_reason.trim()`, KHÔNG gọi endpoint) → `requestRca(name, rca_reason)` (POST envelope Decision-B, parity `reopenIncident`) → `await load()`/`invalidateQueries(imm12Keys.detail(name))` refetch. **Sau refetch:** `status` → `'RCA Required'` ⇒ badge "Cần phân tích RCA" cập nhật + stepper hiện nhánh `RCA Required` (đã render `v-if="form.status === 'RCA Required'"`) + section RCA hiện RCA Record vừa link. API client mới `requestRca(name, rca_reason)` trong `api/imm12.ts` (`POST ${BASE}.request_rca`). *Never*: render theo `status===`/role-name; *Always*: `allowed_transitions` + `can(cap)`, disable khi thiếu cap. **KHÁC nút "Tạo phân tích nguyên nhân gốc"** (`doCreateRca`/`createRca`, gate `needsRca`=rca_required∧!rca_record, cho KTV): `request_rca` là hành động governance đổi status Incident, `create_rca` chỉ tạo record RCA.
 
 ### 2.2 New Incident Form (`/incidents/list/new`)
 
@@ -151,8 +156,34 @@ State machine BE thật (khớp `imm_12_incident_workflow.json` + `_VALID_TRANSI
 │    08:35 Ack.    | wl.lead    | Assigned to KTV Nguyễn          │
 │    11:45 Resolved| wl.lead    | Sensor replaced + calibrate     │
 │    11:46 RCA Req | System     | Auto-triggered (Critical)       │
+│    12:03 Ảnh     | ktv.nguyen | Đính ảnh bằng chứng: scene.jpg  │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+#### 2.3.a Ảnh bằng chứng hiện trường (`scene_photos`) — BR-12-17/18 🟡 SPEC
+
+```text
+│  ─── Ảnh hiện trường (bằng chứng NĐ98)  3/5 ─────────────────── │
+│   [🖼 scene_a][🖼 scene_b][🖼 scene_c]        [+ Đính ảnh]      │
+```
+- **Nguồn:** `get_incident_detail(name).scene_photos: [{file_url, file_name}]` (`[]` khi rỗng → hiện empty-state "Chưa có ảnh bằng chứng"). Ảnh là **private** → render qua endpoint file-serve có phiên (KHÔNG hot-link public).
+- **Nút "Đính ảnh"** = `<input type=file accept="image/jpeg,image/png">` → `POST attach_incident_photo` (multipart `file` + `incident_name`) → success `{file_url, file_name}` → invalidate query detail → gallery +1. **Ẩn/disable nút** khi `scene_photos.length >= 5` (tooltip "Tối đa 5 ảnh") + khi user KHÔNG phải reporter và KHÔNG có `incident.write` (gate theo capability, KHÔNG hardcode role-name — anti dead-gate).
+- **Feedback lỗi (Decision-B):** `code=VALIDATION` → toast + gắn `fields.file` dưới input (vd "Tệp phải là ảnh JPG hoặc PNG", "Tối đa 5 ảnh"); `code=FORBIDDEN` → toast "Không có quyền thực hiện hành động này". KHÔNG blank màn.
+- **Parity mobile:** cùng `scene_photos` + cùng endpoint `attach_incident_photo` (mobile `IncidentDetailView` gallery + máy ảnh) — web KHÔNG rò field web-only khác.
+
+#### 2.3.b Tình trạng SLA (`is_*_breached` derived — server-flag) — BR-12-13 / mobile CR-21 🟡 SPEC
+
+```text
+│  ─── Tình trạng SLA ──────────────────────────────────────────  │
+│    Phản hồi:  [Trong hạn]                                        │
+│    Xử lý:     [⚠ Vi phạm SLA xử lý]   (badge đỏ, cùng list)     │
+```
+- **Nguồn (SoT server-flag):** `get_incident_detail(name)` trả `is_response_breached` / `is_resolution_breached` (int 0|1, derive LIVE — `05 §17`). FE đọc **`form.is_response_breached ?? form.response_breached`** và **`form.is_resolution_breached ?? form.resolution_breached`** (ưu tiên derived; fallback cờ thô cho payload transition). **TUYỆT ĐỐI KHÔNG so ngày client-clock** — KHÔNG `Date.now()` / `new Date(due_at)` compare (memory `overdue_server_flag_ssot`: overdue là server-flag, FE chỉ render).
+- **2 dòng:** `Phản hồi` (response) + `Xử lý` (resolution). Mỗi dòng:
+  - cờ **truthy** (=1) → badge **"Vi phạm SLA tiếp nhận" / "Vi phạm SLA xử lý"** — **TÁI DÙNG `SlaBreachBadge`** (cùng component + cùng SSoT `SLA_BREACH_LABEL`/`SLA_BREACH_BADGE_CLASS` như `IncidentListView.vue:279-280`), badge chỉ render loại đang breach.
+  - cờ **falsy** (=0) → pill trung tính **"Trong hạn"** (SSoT label mới, vd `SLA_OK_LABEL = 'Trong hạn'` trong `constants/labels.ts`; class xám `bg-slate-100 text-slate-600`). `SlaBreachBadge` hiện tại KHÔNG render khi cờ=0 → để hiện "Trong hạn" cho từng dòng, FE **hoặc** thêm prop tùy chọn `always`+`okLabel` vào `SlaBreachBadge` (render "Trong hạn" khi cờ falsy) **hoặc** wrap: `<SlaBreachBadge v-if="flag"/>` else pill "Trong hạn". **Không đổi hành vi mặc định** của `SlaBreachBadge` ở list (props tên giữ nguyên, mặc định vẫn ẩn khi cờ=0).
+- **KHÔNG leak** chuỗi BE thô (`is_*_breached`/`response_breached`/`breached`) ra DOM — chỉ nhãn VI qua SSoT (anti-leak `wave2_ui_bugs`).
+- **Parity mobile (CR-21):** mobile `IncidentDetailView` hiện cùng 2 dòng, đọc cùng 2 derived flags — web KHÔNG rò field web-only khác.
 
 ### 2.4 RCA Form (`/rca/:id`)
 
@@ -179,6 +210,25 @@ State machine BE thật (khớp `imm_12_incident_workflow.json` + `_VALID_TRANSI
 │  ⓘ Submit sẽ tự động tạo CAPA Record qua imm00.create_capa()    │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+#### 2.4.a Server-driven CTA — gỡ dead-gate hardcode `rca.status===` (GATE-8 / LL-FE-51, BR-12-19) 🆕 SPEC
+
+`RCADetailView.vue` hiện gate action bằng `isCompleted = rca.status === 'Completed'` (`:43`) và chỉ có 1 nút "Hoàn thành RCA" (`v-if="!isCompleted"`) → cho phép submit thẳng từ `RCA Required` (nhảy-cóc, BUG BR-12-21) và KHÔNG có nút "Bắt đầu phân tích"/"Hủy RCA". Sửa theo GATE-8/LL-FE-51: **render CTA từ `allowed_transitions` + `can_manage_rca` do BE trả (`get_rca`), status CHỈ dùng cho badge**.
+
+**Ma trận nút (điều kiện = `can_manage_rca === 1 && đích ∈ allowed_transitions`):**
+
+| Nút | Đích | Action | Hiện khi status |
+|---|---|---|---|
+| **Bắt đầu phân tích RCA** | `RCA In Progress` | `startRca({name})` | `RCA Required` |
+| **Hoàn thành RCA** | `Completed` | `submitRca({...})` | `RCA In Progress` |
+| **Hủy RCA** | `Cancelled` | `cancelRca({name, reason})` | `RCA Required` \| `RCA In Progress` |
+| _(không nút)_ | — | — | `Completed` \| `Cancelled` (`allowed_transitions=[]`) |
+
+- **Boundaries** — *Never*: gate nút bằng `rca.status === 'X'` literal; gate bằng role-name; so ngày client-clock. *Always*: đọc `allowed_transitions`/`can_manage_rca` từ payload `get_rca`; nút disabled khi `can_manage_rca===0`; sau mỗi action `invalidateQueries(imm12Keys.rcaDetail(name))` để re-fetch allowed_transitions mới.
+- **Editability form** (5-Why + root_cause + corrective/preventive): editable khi `can_manage_rca && allowed_transitions.includes('Completed')` (⟺ status = `RCA In Progress` — phái sinh từ SERVER, KHÔNG hardcode `=== 'Completed'`). `Completed`/`Cancelled` → read-only.
+- **Nhãn trạng thái** (badge): dùng `rcaStatusLabel(rca.status)` (`constants/labels.ts:437-440` — `RCA Required→'Cần phân tích'`, `RCA In Progress→'Đang phân tích'`, `Completed→'Đã hoàn tất'`, `Cancelled→'Đã hủy'`). ĐÃ có full VI, KHÔNG lộ mã state thô (AC6).
+- **API client mới** trong `api/imm12.ts`: `startRca(payload:{name})`, `cancelRca(payload:{name,reason})` — POST envelope Decision-B (parity `submitRca`). Type `RCADetail` += `allowed_transitions?: string[]` (đã có `:43`) + `can_manage_rca?: number`.
+- **Test** (AC7): `frontend/src/views/incident/rcaDetailCtaGating.test.ts` — mount với các combo `(status, allowed_transitions, can_manage_rca)` assert đúng nút hiện/ẩn + không nút khi terminal + `can_manage_rca=0` disable. `vue-tsc` sạch.
 
 ---
 
@@ -213,6 +263,7 @@ export const SLA_BREACH_BADGE_CLASS = 'bg-red-100 text-red-700 ring-1 ring-red-2
 **Nơi hiển thị (cả 2 — verify count khớp tile, không divergence):**
 - `IncidentListView.vue` — chip/badge cạnh severity (`:279-280` mobile + `:347-348` desktop): bind **derived** `:response-breached="ir.is_response_breached"` + `:resolution-breached="ir.is_resolution_breached"` (ĐỔI từ cờ thô `ir.response_breached`/`ir.resolution_breached` — BR-12-13). `v-if` wrapper (`:342`) cũng đổi sang `ir.is_response_breached || ir.is_resolution_breached`. BE `list_incidents` trả 2 field derived (xem `05_API DELTA`).
 - `IMM12DashboardView.vue` — 2 stat card đọc `store.dashboard.stats.sla_response_breached` / `sla_resolution_breached` (nhãn "Vi phạm SLA tiếp nhận" / "Vi phạm SLA xử lý") — KPI giá trị nay là LIVE count (BR-12-13, BE-driven, binding KHÔNG đổi). Badge trong panel `active_incidents` (`:165` v-if + `:170-171`) cũng đổi sang `ir.is_response_breached`/`ir.is_resolution_breached`.
+- `IncidentDetailView.vue` — section **"Tình trạng SLA"** (2 dòng Phản hồi/Xử lý), đọc `form.is_response_breached ?? form.response_breached` + `form.is_resolution_breached ?? form.resolution_breached` (server-flag, KHÔNG client-clock — BR-12-13 / mobile CR-21, xem `§2.3.b`). Reuse `SlaBreachBadge` cho nhánh breach; pill "Trong hạn" cho nhánh còn hạn.
 
 **Divergence guard (FE test, BR-12-13):** số trên 2 stat card == số row có badge tương ứng trong list/active_incidents (cùng nguồn LIVE: tile = `sla_breach_count`, badge = `is_*_breached`, cùng predicate BE). **INV-SLA-5:** dựng row có `is_resolution_breached=1` nhưng `resolution_breached=0` (cờ thô) ⇒ badge VẪN hiện (đọc derived, KHÔNG cờ thô) — RED-prove: revert binding về cờ thô ⇒ badge ẩn ⇒ FAIL. Vitest assert label render từ `SLA_BREACH_LABEL` (KHÔNG chứa substring "breach"/"breached" tiếng Anh trong DOM). `vue-tsc` xanh.
 

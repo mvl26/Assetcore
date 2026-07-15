@@ -64,6 +64,7 @@
 | `linked_capa` | Link IMM CAPA Record | No | Set after RCA Submit |
 | `chronic_failure_flag` | Check | No | Set by scheduler |
 | `assigned_to` | Link User | No | KTV phụ trách |
+| `client_request_id` | Data | No | **CR-24 (Round 32)** — idempotency key mobile write-outbox. `search_index:1` (sinh DB index → dedupe index-seek O(1)); `hidden:1` + `read_only:1` + `no_copy:1` (field kỹ thuật, KHÔNG copy sang amendment — chống crid propagate làm false dedupe-hit). Rỗng (`""`) cho call-path cũ web/desk → backward-compat. Xem §2.1a |
 
 **Permission Query (DocType level):**
 ```python
@@ -81,9 +82,80 @@ CREATE INDEX idx_ir_asset_fault_date
   ON `tabIncident Report` (asset, fault_code, reported_at);
 CREATE INDEX idx_ir_severity_status
   ON `tabIncident Report` (severity, status);
+-- CR-24 (Round 32): sinh TỰ ĐỘNG bởi `client_request_id` field-prop `search_index:1`
+-- (KHÔNG viết SQL thủ công — Frappe `bench migrate` tạo index). Đáp ứng acceptance
+-- "dedupe lookup KHÔNG quét full-table (O(1)/index-seek)". NON-UNIQUE (xem ADR-IMM12-09
+-- — UNIQUE loại vì nhiều dòng `client_request_id=""` của call-path cũ).
+CREATE INDEX client_request_id
+  ON `tabIncident Report` (client_request_id);
 ```
 
-### 2.2 IMM RCA Record ✅ DocType: `imm_rca_record`
+### 2.1a Idempotency `client_request_id` — mobile write-outbox re-drain (CR-24, Round 32) 🆕 SPEC
+
+> **Bối cảnh (WHY).** App mobile ghi offline qua **write-outbox**: khi mất mạng, action `report_incident` xếp hàng trong outbox local; khi có mạng lại, outbox **re-drain** (gửi lại). Nếu response của lần gửi đầu bị mất (timeout/mạng rớt SAU khi server đã tạo phiếu), client tưởng thất bại → giữ trong outbox → **re-drain gửi LẠI** → tạo **phiếu sự cố TRÙNG**. NĐ98 yêu cầu vết sự cố / audit trail toàn vẹn — phiếu trùng + lifecycle event trùng + audit trail trùng = **làm bẩn vết audit**. `client_request_id` (UUID sinh client-side, ổn định qua mọi lần re-drain của CÙNG một action outbox) đóng cửa sổ này.
+
+**Field schema (DocType `Incident Report`):**
+
+| Prop | Giá trị | Lý do |
+|---|---|---|
+| `fieldname` | `client_request_id` | — |
+| `fieldtype` | `Data` | UUID string (mirror `fault_code` Data — precedent field có `search_index`) |
+| `search_index` | `1` | Sinh **DB index non-unique** trên cột → dedupe lookup = index-seek (acceptance O(1)) |
+| `unique` | `0` (KHÔNG set) | UNIQUE loại — xem ADR-IMM12-09 (nhiều dòng `""` của call-path cũ sẽ collide) |
+| `hidden` | `1` | Field kỹ thuật — KHÔNG hiện form web/desk |
+| `read_only` | `1` | Set 1 lần lúc insert, KHÔNG sửa sau |
+| `no_copy` | `1` | Incident Report submittable (`amended_from`) — chống crid copy sang amendment → false dedupe-hit |
+| `reqd` | `0` | OPTIONAL — call-path cũ (web/desk) KHÔNG gửi ⇒ backward-compat 100% |
+
+**Dedupe algorithm (service `report_incident`, đặt ở ĐẦU hàm — TRƯỚC validate/insert/log/event):**
+
+```python
+def report_incident(asset, incident_type, severity, description, *,
+                    ..., client_request_id: str = "") -> dict:
+    actor = reported_by or frappe.session.user
+    # CR-24: idempotency guard — re-drain outbox KHÔNG tạo phiếu trùng (BR-12-25).
+    # Scope (client_request_id, reported_by): cùng key + cùng người báo → CÙNG action.
+    # Bỏ qua khi rỗng → call-path cũ NGUYÊN VẸN (mỗi call = 1 phiếu).
+    if client_request_id:
+        existing = frappe.db.get_value(
+            _DT_INCIDENT,
+            {"client_request_id": client_request_id, "reported_by": actor},
+            ["name", "status", "severity"], as_dict=True,
+        )
+        if existing:
+            # Trả phiếu ĐÃ tạo — KHÔNG insert, KHÔNG _log, KHÔNG emit lifecycle event.
+            return {"name": existing.name, "status": existing.status,
+                    "severity": existing.severity}
+    # ... validate (BR-12-01 clinical_impact / asset exists) + tạo doc như cũ ...
+    doc.client_request_id = client_request_id   # persist (rỗng cho call cũ)
+    doc.insert()
+    # ... _log() + _emit_incident_reported_event() như cũ ...
+    return {"name": doc.name, "status": doc.status, "severity": severity}
+```
+
+**Invariant (INV-IDEMP-12):**
+- `client_request_id` non-empty, gọi 2× → **CHỈ 1 dòng** `tabIncident Report`; call thứ 2 return `name` phiếu đã có.
+- Sau call trùng thứ 2: `count(Asset Lifecycle Event, event_type='incident_reported', root_record=<IR>) == 1` **VÀ** `count(IMM Audit Trail cho <IR>) == 1` (early-return TRƯỚC `_log`/emit ⇒ không double).
+- `client_request_id` rỗng/thiếu → mỗi call = 1 phiếu (guard skip).
+- 2 `client_request_id` KHÁC nhau → 2 phiếu riêng.
+- Return shape của dedupe-hit **BẰNG** shape create thường: `{name, status, severity}` (3-key).
+
+### ADR-IMM12-09: Idempotency `client_request_id` = app-level dedupe (SELECT-before-insert) + index NON-UNIQUE, KHÔNG DB UNIQUE constraint
+- **Status**: Accepted
+- **Date**: 2026-07-14
+- **Context**: Mobile write-outbox re-drain tạo phiếu sự cố trùng (NĐ98 audit-integrity). Cần idempotency key ổn định. Ràng buộc: (a) backward-compat 100% — call-path cũ web/desk KHÔNG gửi key ⇒ field mặc định `""`, nhiều phiếu cùng `""` phải cùng tồn tại; (b) không double lifecycle event / audit; (c) lookup index-seek KHÔNG full-scan.
+- **Decision**: Dedupe ở **application-layer** — `frappe.db.get_value(_DT_INCIDENT, {client_request_id, reported_by})` SELECT-before-insert ở đầu service; trúng → early-return phiếu cũ (bỏ qua insert/log/event). Index = **`search_index:1` NON-UNIQUE** trên cột `client_request_id`. Scope dedupe = `(client_request_id, reported_by)` (cùng "reporter" theo acceptance).
+- **Alternatives (loại + lý do)**:
+  - **DB UNIQUE index trên `client_request_id`**: LOẠI. Frappe Data field mặc định lưu `""` (KHÔNG NULL); UNIQUE trên `""` → call-path cũ thứ 2 (không key) bị **DuplicateEntryError** ⇒ phá backward-compat (acceptance "mỗi call = 1 phiếu").
+  - **UNIQUE + lưu NULL khi rỗng** (MariaDB cho phép nhiều NULL, chặn trùng non-NULL): LOẠI ở round này. Frappe app-level `validate_duplicate` bỏ qua giá trị rỗng NHƯNG vẫn ép `""` xuống cột (không tự NULL-hoá) ⇒ phải override write-path để set None — tăng bề mặt rủi ro; và app-guard đã đáp ứng ĐỦ acceptance (test tuần tự). Ghi nhận là **hardening tương lai** nếu cần chống race.
+  - **Client gửi `name` cố định (idempotent-PUT)**: LOẠI. Va chạm naming_series (`INC-.YYYY.-`) + lộ cấu trúc name ra client.
+- **Consequences**:
+  - ➕ Backward-compat trọn vẹn; migration nhẹ (1 field + 1 index, `bench migrate`).
+  - ➕ Return-early trước `_log`/emit ⇒ 0 double audit / 0 double lifecycle event.
+  - ➖ **Residual race** (đã biết, chấp nhận): 2 re-drain ĐỒNG THỜI cùng key có thể cùng miss SELECT rồi cùng insert → 2 phiếu. Chấp nhận vì: outbox drain **tuần tự per-device** (1 hàng đợi/thiết bị), `client_request_id` là UUID; acceptance test tuần tự. Hardening (UNIQUE-via-NULL) để dành round sau nếu quan sát thấy trùng thực tế.
+  - ➖ Thêm 1 SELECT/req khi có key — chi phí index-seek, không đáng kể.
+
+
 
 DocType name: `IMM RCA Record`. Child tables: `IMM RCA Five Why Step` (`imm_rca_five_why_step`) for 5-Why, `IMM RCA Related Incident` (`imm_rca_related_incident`) for chronic grouping.
 
@@ -130,23 +202,110 @@ Naming: `RCA-.YYYY.-.#####` · Submittable
 
 > Internal docstring trong `services/imm12.py` đôi chỗ ghi "Under Investigation" — đây là alias lịch sử cho `In Progress`. Tên state thực tế trong code & DocType là `In Progress`.
 
-### Transitions (actual `_VALID_TRANSITIONS` dict in service + workflow JSON)
+### Transitions — SSoT `_VALID_TRANSITIONS` (incident) ⇄ `imm_12_incident_workflow.json` (CR-WF-12, Round 12) ✅ SPEC
 
-| From | To | Trigger function | Actor | Validation |
+**`_VALID_TRANSITIONS` là SSoT sinh `allowed_transitions`** — `get_incident_detail()` (`services/imm12.py:1084`) trả `allowed_transitions = _VALID_TRANSITIONS.get(doc.status, [])` → điều khiển render CTA FE (`IncidentDetailView.vue` gate `status===X && allowed_transitions.includes(Y)`). Vì thế map này PHẢI đối soát **edge-by-edge** với workflow JSON, nếu không nút CTA sẽ *dead* (map thừa cạnh workflow từ chối) hoặc *ẩn câm* (workflow cho phép nhưng map thiếu → FE không render).
+
+```python
+# services/imm12.py:228 — SSoT DUY NHẤT cho allowed_transitions Incident (drives FE CTA)
+_VALID_TRANSITIONS: dict[str, list[str]] = {
+    _STATUS_OPEN:          [_STATUS_ACKNOWLEDGED, _STATUS_CANCELLED],
+    _STATUS_ACKNOWLEDGED:  [_STATUS_INVESTIGATING, _STATUS_CANCELLED],
+    _STATUS_INVESTIGATING: [_STATUS_RESOLVED, _STATUS_CANCELLED],                    # ⬅ Round 12: BỎ 'RCA Required' (drift b — workflow KHÔNG có cạnh In Progress→RCA Required)
+    _STATUS_RESOLVED:      [_STATUS_CLOSED, _RCA_REQUIRED, _STATUS_INVESTIGATING],   # ⬅ Round 12: THÊM 'In Progress' = "Mở lại điều tra" (drift a — surface CTA reopen)
+}
+```
+
+| From | To | Trigger (service / workflow action) | Cap gate | Validation |
 |---|---|---|---|---|
-| Open | Acknowledged | `acknowledge_incident()` | Workshop Lead, Technician | — |
-| Open | In Progress | `acknowledge_incident()` (skip Acknowledged) | Workshop Lead, Technician | — |
-| Open | Cancelled | `cancel_incident()` | Workshop Lead | reason required |
-| Acknowledged | In Progress | (workflow action "Bắt đầu xử lý") | Workshop Lead, Technician | — |
-| Acknowledged | Cancelled | `cancel_incident()` | Workshop Lead | reason required |
-| In Progress | Resolved | `resolve_incident()` | Workshop Lead, Technician | resolution_notes required |
-| In Progress | RCA Required | `resolve_incident()` cho High/Critical | System | severity ∈ {High, Critical} |
-| In Progress | Cancelled | `cancel_incident()` | Workshop Lead | reason required |
-| Resolved | Closed | `close_incident()` | Workshop Lead, QA Officer | BR-12-02: High/Critical → RCA `Completed` required |
-| Resolved | In Progress | (workflow action "Mở lại điều tra") | Workshop Lead | — |
-| RCA Required | Closed | `close_incident()` sau RCA `Completed` | Workshop Lead, QA Officer | — |
+| Open | Acknowledged | `acknowledge_incident()` / "Tiếp nhận sự cố" | `incident.acknowledge` | — |
+| Open | Cancelled | `cancel_incident()` / "Hủy sự cố" | `incident.acknowledge` | reason required |
+| Acknowledged | In Progress | `start_work()` / "Bắt đầu xử lý" | `incident.acknowledge` | — |
+| Acknowledged | Cancelled | `cancel_incident()` / "Hủy sự cố" | `incident.acknowledge` | reason required |
+| In Progress | Resolved | `resolve_incident()` / "Đánh dấu đã giải quyết" | `incident.acknowledge` | resolution_notes required |
+| In Progress | Cancelled | `cancel_incident()` / "Hủy sự cố" | `incident.acknowledge` | reason required |
+| Resolved | Closed | `close_incident()` / "Đóng sự cố" | `incident.close` | BR-12-02: High/Critical → RCA `Completed` required |
+| Resolved | RCA Required | **`request_rca(name, rca_reason)` / "Yêu cầu RCA" (BR-12-24, Round 38)** — qua `apply_workflow("Yêu cầu RCA")` (KHÔNG `db.set_value`) + sync `status` Select | `compliance.submit` | `rca_reason` required · idempotent RCA reuse · audit `_log` (Resolved→RCA Required) |
+| Resolved | In Progress | **`reopen_incident(name, reason)` / "Mở lại điều tra" (BR-12-23, Round 12)** | `incident.close` | reason required · audit `_log` (Resolved→In Progress) |
+
+> **⚠️ Self-Correction (Round 12):** bảng cũ có 3 dòng SAI đã gỡ — (1) `Open → In Progress (skip Acknowledged)`: KHÔNG tồn tại; `_assert_transition` chặn (Open chỉ đi Acknowledged/Cancelled, D3). (2) `In Progress → RCA Required` gán cho `resolve_incident()`: SAI — `resolve_incident()` set status=`Resolved` rồi *auto-tạo RCA Record* (DocType khác), KHÔNG set Incident status; và workflow KHÔNG có cạnh này ⇒ đã gỡ khỏi `_VALID_TRANSITIONS[In Progress]`. (3) `RCA Required → Closed` gán cho `close_incident()`: SAI — đóng qua auto-advance (xem EXCEPTION_EDGES).
+
+**EXCEPTION_EDGES — cạnh workflow CỐ Ý không đưa vào `_VALID_TRANSITIONS`** (không phải CTA-FE, có cơ chế thực thi khác):
+
+| Edge | Cơ chế thực thi | Rationale (vì sao KHÔNG là CTA) |
+|---|---|---|
+| `RCA Required → Closed` | `_advance_incident_after_rca()` (`services/imm12.py:1475`) auto `apply_workflow(_ACTION_RCA_DONE_CLOSE)` khi RCA Record → `Completed` (test RC-04) | Hệ thống TỰ đẩy sau khi RCA hoàn tất — không có nút bấm. RCA có map CTA riêng `_RCA_VALID_TRANSITIONS` trên `IMM RCA Record`. Nếu đưa vào `_VALID_TRANSITIONS` sẽ tạo CTA "đóng tay" ở trạng thái RCA Required, lách BR-12-02 (đóng khi RCA chưa Completed). |
+
+> **Ghi chú "RCA Required" (Incident status) — grounded (cập nhật Round 38):** Trước Round 38, KHÔNG service nào set `Incident.doc.status = "RCA Required"` (các dòng `rca.status=_RCA_REQUIRED` là **RCA Record**, khác DocType) — Incident vào `RCA Required` CHỈ qua desk workflow. `Resolved → RCA Required` GIỮ trong map vì là cạnh THẬT của workflow (INV-1 pass). **Round 38 (BR-12-24, ADR-IMM12-RCA-ENTRY) ĐÓNG backlog này:** endpoint `request_rca(name, rca_reason)` surface cạnh thành CTA-FE server-driven — Incident vào `RCA Required` qua **`apply_workflow("Yêu cầu RCA")`** (mirror `_advance_incident_after_rca`, KHÔNG `db.set_value` trực tiếp) + sync `status` Select. **KHÔNG đổi `_VALID_TRANSITIONS` NÀO** (state edge đã đúng từ Round 12 — chỉ bổ ENTRY endpoint+CTA) ⇒ INVARIANT `TestIncidentAllowedTransitions` + workflow JSON bất biến ⇒ admin-override 22/22 GREEN. Cap-gate `compliance.submit` (⊆ workflow allowed → KHÔNG false-clickable). `request_rca` ↔ `_advance_incident_after_rca` là ENTRY↔EXIT của nhánh RCA Required (loop đóng kín).
+
+#### 3.0.0 INVARIANT (CR-WF-12) — chống drift câm ✅ SPEC
+
+Đặt `WF = {(state, next_state)}` gom-vai (dedupe theo cặp, bỏ chiều role) từ `imm_12_incident_workflow.json.transitions[]`; `SVC = {(f, t) | t ∈ _VALID_TRANSITIONS[f]}`; `EXCEPTION_EDGES = {("RCA Required","Closed")}`.
+
+- **INV-1 (service ⊆ workflow):** `SVC ⊆ WF` — mọi cạnh trong `_VALID_TRANSITIONS` PHẢI là cạnh THẬT của workflow (chặn nút *dead/bypass*). *Bắt drift (b): trước fix `("In Progress","RCA Required") ∈ SVC \ WF` → RED.*
+- **INV-2 (workflow ⊆ service ∪ exception):** `WF ⊆ SVC ∪ EXCEPTION_EDGES` — mọi cạnh workflow HOẶC là CTA (∈ SVC) HOẶC là exception có rationale. *Bắt drift (a): trước fix `("Resolved","In Progress") ∈ WF \ (SVC ∪ EXCEPTION)` → RED.*
+- **Codomain:** mọi state trong SVC ⊆ 7 state chuẩn `{Open, Acknowledged, In Progress, Resolved, RCA Required, Closed, Cancelled}`.
+
+Guard: `test_imm12.TestIncidentAllowedTransitions` (mirror `TestRCAAllowedTransitions:2739`) — **RED trước fix, GREEN sau fix**. Fix chỉ đụng SERVICE map + thêm `reopen_incident` handler; **KHÔNG đụng workflow JSON** ⇒ `test_workflow_admin_override` GIỮ GREEN (Super Admin vẫn phủ mọi transition-group — không thêm/bớt cạnh workflow nào).
 
 **RCA States:** `RCA Required` → `RCA In Progress` → `Completed` / `Cancelled`
+
+#### 3.0.1 RCA State Machine — server-driven CTA SSoT (BR-12-19..22, Round 9) ✅ SPEC
+
+RCA có **dual-track** giống Incident/Repair: `status` (domain SSoT, field trên `IMM RCA Record`) song song `workflow_state` (Frappe-native workflow "IMM-12 RCA Workflow"). **Endpoint thao tác trên `status`** (set trực tiếp + `_ok` Decision-B), KHÔNG gọi `apply_workflow` native → `status` là SoT hành động, `workflow_state` là mirror cho desk. (ADR-IMM12-RCA-CTA D1 — §02.)
+
+**SSoT chuyển trạng thái** — thêm map `_RCA_VALID_TRANSITIONS` trong `services/imm12.py` (mirror `_REPAIR_VALID_TRANSITIONS` imm09.py:91, keyed BẰNG hằng `_RCA_REQUIRED/_RCA_IN_PROGRESS/_RCA_COMPLETED/_RCA_CANCELLED`, KHÔNG literal):
+
+```python
+# services/imm12.py — SSoT DUY NHẤT cho allowed_transitions RCA (đóng ASYMMETRY:
+# imm12 báo-hỏng + imm09 repair đã có allowed_transitions[]; RCA là thành viên kế).
+_RCA_VALID_TRANSITIONS: dict[str, list[str]] = {
+    _RCA_REQUIRED:    [_RCA_IN_PROGRESS, _RCA_CANCELLED],   # 'RCA Required'
+    _RCA_IN_PROGRESS: [_RCA_COMPLETED, _RCA_CANCELLED],     # 'RCA In Progress'
+    _RCA_COMPLETED:   [],                                    # terminal
+    _RCA_CANCELLED:   [],                                    # terminal
+}
+```
+
+- **Codomain ⊆** `{RCA Required, RCA In Progress, Completed, Cancelled}` (options field `status`, verified 04 §2.2:107). Terminal `Completed`/`Cancelled` → `[]` (0 outgoing) ⇒ FE KHÔNG render nút.
+- **Grounded edge-by-edge** `fixtures/workflow.json` "IMM-12 RCA Workflow" transitions[] (start/complete/cancel). Guard test (`test_imm12.TestRCAAllowedTransitions`) chốt map ↔ enum `status` + payload `get_rca`.
+  > **⚠️ Self-Correction (Round 30, CR-WF-12-RCA):** guard cũ chỉ chốt *state-machine* (map codomain ↔ enum `status`) — **KHÔNG** parse workflow-JSON và **KHÔNG** kiểm *role-parity*. Vì thế asymmetry role desk↔endpoint (Corrective Manager thiếu ở "Bắt đầu/Hoàn thành") tồn tại câm dù D2 của ADR-IMM12-RCA-CTA đã tuyên bố `native-allowed == endpoint-allowed`. Fix + 3 invariant `INV-RCA-PARITY-A/B/C` ở §3.0.2 làm luật hoá; xem ADR-IMM12-RCA-PARITY (02 §IV.3).
+
+**Capability gate (root-cause axis-A — chống RBAC dead-gate).** 3 endpoint transition (`start_rca`/`submit_rca`/`cancel_rca`) gate theo **capability `corrective.write`** (SSoT binding `rbac.CAPABILITY_MAP["corrective.write"] = ("Incident Report", "write")` — domain `Corrective` primary DocType = Incident Report, rbac.py:71). Resolve TRUE cho role có DocPerm `write` trên Incident Report: **AssetCore Super Admin, Corrective Manager, Corrective User** (verified incident_report.json perms) — FALSE cho base `AssetCore System User` / Auditor / Commissioning Manager.
+- `get_rca` trả cờ `can_manage_rca` (int 0/1) = `1 if rbac.can("corrective.write") else 0` — mirror `allowed_transitions` của `get_work_order` (imm09.py:917). FE dùng `can_manage_rca && đích ∈ allowed_transitions` để render CTA (KHÔNG hardcode role-name, KHÔNG hardcode `status===`).
+- **KHÔNG** gate bằng role-name literal (anti-pattern dead-gate) và **KHÔNG** dựa `docstatus`/`_can_close` (submit-level) cho start/cancel — cả 3 là thao tác GHI nội-dung-RCA ⇒ cùng bind `write`.
+
+#### 3.0.2 RCA desk↔endpoint role parity — CR-WF-12-RCA (Trục A) ✅ SPEC
+
+**Vấn đề (grounded @source 2026-07-13).** `corrective.write` (gate 3 endpoint RCA) resolve TRUE cho **{AssetCore Super Admin, Corrective Manager, Corrective User}** (DocPerm `write=1` trên Incident Report). Nhưng workflow desk **`imm_12_rca_workflow.json`** cấp role hẹp hơn ở 2/3 action quản-RCA:
+
+| Action (transition) | Cạnh state | Role-set HIỆN TẠI (source == fixture) | Thiếu | Sau fix |
+|---|---|---|---|---|
+| **Bắt đầu phân tích RCA** | `RCA Required → RCA In Progress` | {AssetCore Super Admin, Corrective User, System Manager} | **Corrective Manager** | +Corrective Manager → 4 role |
+| **Hoàn thành RCA** | `RCA In Progress → Completed` | {AssetCore Super Admin, Corrective User, System Manager} | **Corrective Manager** | +Corrective Manager → 4 role |
+| **Hủy RCA** | `RCA Required → Cancelled` · `RCA In Progress → Cancelled` | {AssetCore Super Admin, Corrective Manager, Corrective User, System Manager} | — (đủ) | GIỮ NGUYÊN (4 role) |
+
+⇒ **Corrective Manager gọi được `start_rca`/`submit_rca` (có `corrective.write`) nhưng mở phiếu RCA ở desk KHÔNG THẤY / KHÔNG BẤM được nút "Bắt đầu/Hoàn thành"** (Frappe native enforce quyền theo TỪNG transition-group). Đây là root-cause "user đủ quyền AssetCore nhưng luồng RCA không duyệt được".
+
+**Delta (fix dữ-liệu-role thuần — KHÔNG code Python, KHÔNG đổi `_RCA_VALID_TRANSITIONS`):**
+
+1. `assetcore/assetcore/workflow/imm_12_rca_workflow.json` — THÊM 2 row transition:
+   ```json
+   { "action": "Bắt đầu phân tích RCA", "allowed": "Corrective Manager", "next_state": "RCA In Progress", "state": "RCA Required",    "allow_self_approval": 1 }
+   { "action": "Hoàn thành RCA",        "allowed": "Corrective Manager", "next_state": "Completed",       "state": "RCA In Progress", "allow_self_approval": 1 }
+   ```
+   (đối xứng đúng `allow_self_approval:1` như các row cùng transition-group; KHÔNG đổi row nào khác.)
+2. `assetcore/fixtures/workflow.json` "IMM-12 RCA Workflow" — THÊM **cùng 2 row** (giữ `source == fixture`, INV-C).
+
+Sau fix: role-set mỗi action quản-RCA = **{Corrective User, Corrective Manager, System Manager, AssetCore Super Admin}** (khớp "Hủy RCA" đã có). Tuple-set mọi row khác **bất biến**.
+
+**INVARIANT (làm luật — chống tái-drift câm; mirror `TestIncidentAllowedTransitions` incident):**
+
+- **INV-RCA-PARITY-A (SSoT⇄workflow):** codomain(state→{next_state}) parse từ `imm_12_rca_workflow.json` **== `_RCA_VALID_TRANSITIONS` codomain EXACT** theo set: `RCA Required→{RCA In Progress, Cancelled}`; `RCA In Progress→{Completed, Cancelled}`; `Completed→∅`; `Cancelled→∅`. (Bổ khuyết `TestRCAAllowedTransitions` — vốn KHÔNG parse workflow-JSON.)
+- **INV-RCA-PARITY-B (desk == endpoint):** ∀ action ∈ {Bắt đầu phân tích RCA, Hoàn thành RCA, Hủy RCA}: `workflow.allowed_role_set(action) ⊇ roles(corrective.write) ∪ {AssetCore Super Admin, System Manager}`. `roles(corrective.write)` tính **ĐỘNG** qua `rbac.CAPABILITY_MAP["corrective.write"] = ("Incident Report","write")` → DocPerm write=1 (KHÔNG hardcode role-name). Dùng **⊇** (không `==`): workflow được PHÉP rộng hơn cap-gate (admin-override), KHÔNG được hẹp hơn. **RED trước fix** (Start/Complete thiếu Corrective Manager) → **GREEN sau**.
+- **INV-RCA-PARITY-C (fresh-install seed):** `fixtures/workflow.json` "IMM-12 RCA Workflow" transition tuple-set (state, action, next_state, allowed) **== source** `imm_12_rca_workflow.json` — site cài mới seed đúng như dev.
+
+**Live-sync (KHÔNG `bench migrate` — HARD-STOP USER).** Đồng bộ Workflow doc "IMM-12 RCA Workflow" trên site đang chạy qua `setup.backfill_workflow_admin.run` (append admin-role) **HOẶC** re-import fixture / chỉnh live Workflow doc. **Lưu ý:** `backfill_workflow_admin` chỉ APPEND `{AssetCore Super Admin, System Manager}` — **KHÔNG tự thêm `Corrective Manager`**; role này vào live qua fixture re-import hoặc chỉnh Workflow doc trực tiếp (xem 08 §RCA-parity). Sau sync: user role `Corrective Manager` mở phiếu RCA ở desk THẤY + BẤM được nút "Bắt đầu/Hoàn thành phân tích". `_RCA_VALID_TRANSITIONS` (runtime service) **KHÔNG đổi** ⇒ FE `allowed_transitions`/`can_manage_rca` bất biến (Corrective Manager vốn đã có `can_manage_rca=1` trên SPA; fix này vá đường DESK/native-workflow).
 
 **BR-12-04:** Critical → auto asset Out of Service on `report_incident()`. High → auto asset Out of Service on `acknowledge_incident()`.
 **BR-12-02:** High/Critical Incident cannot close until linked RCA status = `Completed`.
@@ -370,16 +529,22 @@ def _row_is_breached(row: dict, kind: str, now) -> int:
 
 | Function | Returns | Logic Owner | Notes |
 |---|---|---|---|
-| `report_incident(asset, incident_type, severity, description, *, fault_code, ..., source="manual")` | `dict {name, status, severity}` | IMM-12 | BR-12-01 Critical→clinical_impact; BR-12-04 Critical→OOS; **BR-12-16** emit `incident_reported` lifecycle + provenance `source` (V4 D2) |
+| `report_incident(asset, incident_type, severity, description, *, fault_code, ..., source="manual", client_request_id="")` | `dict {name, status, severity}` | IMM-12 | BR-12-01 Critical→clinical_impact; BR-12-04 Critical→OOS; **BR-12-16** emit `incident_reported` lifecycle + provenance `source` (V4 D2); **BR-12-25 (CR-24)** idempotency guard `client_request_id` — trúng key (scope `+reported_by`) → early-return phiếu cũ TRƯỚC insert/log/event (§2.1a, ADR-IMM12-09) |
 | `acknowledge_incident(name, notes, assigned_to)` | `dict {name, status}` | IMM-12 | Open→Acknowledged (D3); High→OOS |
 | `resolve_incident(name, resolution_notes, root_cause)` | `dict {name, status, rca_created}` | IMM-12 | auto-create RCA for High/Critical |
 | `close_incident(name, verification_notes)` | `dict {name, status, closed_date}` | IMM-12 | BR-12-02 RCA Completed check; restore asset Active |
+| `reopen_incident(name, reason)` | `dict {name, status}` | IMM-12 | **BR-12-23 (Round 12)** — Resolved → In Progress ("Mở lại điều tra"); `_assert_transition` (map đã có 'In Progress' ∈ `_VALID_TRANSITIONS[Resolved]`); `reason` required (`IMM12_REOPEN_REASON_REQUIRED`); cap `incident.close` (parity Close — cùng role-set workflow {System Manager, Super Admin}); audit `_log(name, asset, "Mở lại điều tra — {reason}", "Resolved", "In Progress")` (IMM Audit Trail, BR-12-05). **KHÔNG** đổi asset `lifecycle_status` (Resolved chưa restore asset — chỉ Close mới restore; nếu Critical/OOS thì asset vẫn OOS, đúng) ⇒ **KHÔNG** cần Asset Lifecycle Event mới (xem ADR-IMM12-INCIDENT-CTA §Consequences) |
 | `cancel_incident(name, reason)` | `dict {name, status}` | IMM-12 | reason required |
+| `request_rca(name, rca_reason)` | `dict {name, status, rca_record}` | IMM-12 | **BR-12-24 / ADR-IMM12-RCA-ENTRY (Round 38)** — Resolved → RCA Required ("Yêu cầu RCA"). **Gate precondition đọc `doc.status` (domain SSoT, KHÔNG `workflow_state`)**: `status ≠ Resolved` → `nthrow(MSG.IMM12_REQUEST_RCA_BAD_STATE)` (422, MSG MỚI — KHÔNG dùng `_assert_transition`/`IMM12_BAD_STATE`=409), KHÔNG đổi status; `rca_reason` blank → `nthrow(MSG.IMM12_RCA_REASON_REQUIRED)` (422). Transition **qua `apply_workflow(inc, "Yêu cầu RCA")`** (mirror `_advance_incident_after_rca`, KHÔNG `db.set_value` trực tiếp) → flip `workflow_state`, rồi `frappe.db.set_value(status="RCA Required")` sync Select (dual-track); wrap try/except + fallback `db.set_value({workflow_state, status})` khi desync. **RCA idempotent reuse**: `if not (doc.rca_record ∧ frappe.db.exists(_DT_RCA, doc.rca_record)): create_rca(name)` (GUARD trước — `create_rca` raise 409 nếu đã có ⇒ KHÔNG tạo trùng). Audit `_log(name, asset, "Yêu cầu RCA — {rca_reason}", "Resolved", "RCA Required")` (IMM Audit Trail, BR-12-05) — **KHÔNG** thêm option Select `event_type`. Cap-gate `compliance.submit` ở API tier (rbac.can + `_MSG_FORBIDDEN`). ENTRY của nhánh RCA Required; EXIT = `_advance_incident_after_rca` (auto-close sau RCA Completed) |
 | `create_rca(incident_name, rca_method)` | `dict {name, status, due_date}` | IMM-12 | Idempotent: 409 if RCA exists |
-| `get_rca(name)` | `dict` | IMM-12 | includes `incident_severity` |
-| `submit_rca(name, root_cause, corrective_action, preventive_action, five_why_steps, rca_notes)` | `dict {name, status, linked_capa}` | IMM-12 | BR-12-06: auto `create_capa()` via IMM-00 |
+| `get_rca(name)` | `dict` | IMM-12 | includes `incident_severity` **+ `allowed_transitions: list[str]` = `_RCA_VALID_TRANSITIONS.get(status, [])` + `can_manage_rca: int(0/1)` = `rbac.can("corrective.write")` (BR-12-19, server-driven CTA — parity `get_work_order` imm09.py:917)** |
+| `start_rca(name)` | `dict {name, status}` | IMM-12 | **BR-12-20** — `RCA Required → RCA In Progress`; status ≠ `RCA Required` → `nthrow(MSG.IMM12_RCA_START_INVALID_STATE)` (VN inline, 409). Audit `_log(...)` change_summary token **`rca_started`**. Gate cap `corrective.write` ở API tier |
+| `submit_rca(name, root_cause, corrective_action, preventive_action, five_why_steps, rca_notes)` | `dict {name, status, linked_capa}` | IMM-12 | BR-12-06: auto `create_capa()` via IMM-00. **BR-12-21** — CHỈ thành công từ `RCA In Progress`; status == `RCA Required` → `nthrow(MSG.IMM12_RCA_SUBMIT_INVALID_STATE)` (chặn nhảy-cóc bỏ `RCA In Progress` — hành vi cũ = BUG). Audit token **`rca_completed`** |
+| `cancel_rca(name, reason)` | `dict {name, status}` | IMM-12 | **BR-12-22** — `{RCA Required, RCA In Progress} → Cancelled`; status ∈ `{Completed, Cancelled}` → `nthrow(MSG.IMM12_RCA_CANCEL_INVALID_STATE)` (VN inline, 409). `reason` required. Audit token **`rca_cancelled`**. Gate cap `corrective.write` ở API tier |
 | `list_incidents(status, severity, asset, page, page_size)` | `dict {pagination, items}` | IMM-12 | — |
-| `get_incident_detail(name)` | `dict` | IMM-12 | includes `allowed_transitions` + nested `rca` |
+| `get_incident_detail(name)` | `dict` | IMM-12 | includes `allowed_transitions` + nested `rca` + `is_response_breached`/`is_resolution_breached` (BR-12-13 LIVE) **+ `scene_photos: [{file_url, file_name}]`** (BR-12-18 parity mobile+web; `[]` khi chưa có; derive `_scene_photos(name)`) |
+| `attach_incident_photo(incident_name, *, file_bytes, file_name, content_type)` | `dict {file_url, file_name}` | IMM-12 | **BR-12-17** — validate content-type(jpg/png)+size(`MAX_INCIDENT_PHOTO_BYTES`)+max(`MAX_INCIDENT_PHOTOS=5`, đếm `_scene_photos`) TRƯỚC khi tạo File private (`is_private=1`, `attached_to_doctype="Incident Report"`, `attached_to_name=<incident>`); **BR-12-18** emit ĐÚNG 1 `Asset Lifecycle Event` `incident_photo_attached` (hard, KHÔNG swallow) + commit cùng File. Nhánh reject → `nthrow`/`ServiceError(VALIDATION\|FORBIDDEN)` **KHÔNG** tạo File. API tier wrap `handle()` → Decision-B HTTP-200 |
+| `_scene_photos(incident_name)` | `list[{file_url, file_name}]` | IMM-12 | **SoT DUY NHẤT** cho scene photos — `frappe.get_all("File", filters={attached_to_doctype:"Incident Report", attached_to_name, is_private:1}, fields=[file_url,file_name])` lọc ảnh (`.jpg/.jpeg/.png`). Dùng CHUNG cho `get_incident_detail.scene_photos` LẪN max-count `attach_incident_photo` ⇒ **count==rows** (chống drift) |
 | `get_incident_stats()` | `dict` | IMM-12 | counts per status + severity **+ `open_total` = count(`open_incident_filter()`) (BR-12-11 SoT card-count) + `critical_open`/`high_open` = count(`open_incident_filter()∧severity`) (BR-12-11b KPI-strip open-set) + `chronic` = `chronic_failure_count()` (BR-12-12 LIVE rolling-window nhóm, KHÔNG cờ stale) + `sla_response_breached` = `sla_breach_count("response")` + `sla_resolution_breached` = `sla_breach_count("resolution")`** (BR-12-13 LIVE predicate — KHÔNG còn `_count(response_breached=1)`/`_count(resolution_breached=1)` đơn lẻ) |
 | `get_asset_incident_history(asset, limit)` | `dict {asset, items}` | IMM-12 | — |
 | `chronic_failure_count()` | `int` | IMM-12 | **BR-12-12 SoT helper** — `len(get_chronic_failures())` (CÙNG predicate: GROUP BY (asset, fault_code) HAVING ≥ 3 trong 90d, `status != Cancelled`). Nguồn DUY NHẤT cho `stats.chronic`. Implement = `return len(get_chronic_failures())` (KHÔNG re-implement SQL — 1 SoT predicate) |
@@ -401,6 +566,8 @@ def _row_is_breached(row: dict, kind: str, now) -> int:
 - `submit_rca` writes fields: `root_cause`, `corrective_action_summary`, `preventive_action_summary`, `rca_notes`, `completed_by`, `completed_date`, `linked_capa`.
 - Auto-CAPA on `submit_rca` via `svc00.create_capa()` — sets `linked_capa` on both RCA and Incident.
 - `_auto_create_capa()` is a fallback on `resolve_incident()` for High/Critical without RCA flow.
+- **Audit trail 3 transition (Round 9):** ghi qua `_log(name, rca.asset, summary, from_status, to_status)` → `svc00.log_audit_event` (`IMM Audit Trail`), `summary` mang token semantic **`rca_started` / `rca_completed` / `rca_cancelled`** ở đầu chuỗi (test AC7 assert token trong `change_summary` + cặp `from_status→to_status`). Side-effect audit → wrap try/except, KHÔNG fail transition. (Không thêm value mới vào `Asset Lifecycle Event.event_type` enum — token nằm ở audit `change_summary`, giữ enum 26 giá trị canonical.)
+- **fixtures/workflow.json "IMM-12 RCA Workflow" — align với capability gate (ADR-IMM12-RCA-CTA D2):** hai transition "Hủy RCA" hiện chỉ `allowed` cho `System Manager` + `AssetCore Super Admin`. Vì endpoint `cancel_rca` gate `corrective.write` (Corrective User/Manager có write=1) → thêm `Corrective User` + `Corrective Manager` vào cả 2 transition "Hủy RCA" để **native-workflow-allowed == endpoint-capability-allowed** (đóng drift "cancel qua API được nhưng desk-workflow chặn"). Sau sửa fixture: `bench --site <site> reload-doctype "Workflow"`/`migrate` + `execute assetcore.setup.backfill_workflow_admin.run` (KHÔNG data-migration). Guard invariant: `test_workflow_admin_override` + guard test map↔JSON.
 
 ---
 
@@ -416,7 +583,7 @@ Imports from `assetcore.utils.response` (`_ok`, `_err`). Role check via `_has_ro
 
 | Function | Method | Role guard |
 |---|---|---|
-| `report_incident(asset, incident_type, severity, description, fault_code, ..., source)` | POST | **`rbac.can("corrective.create")`** (V4-GATE D1 — KHÔNG còn chỉ Guest-401) |
+| `report_incident(asset, incident_type, severity, description, fault_code, ..., source, client_request_id="")` | POST | **`rbac.can("corrective.create")`** (V4-GATE D1 — KHÔNG còn chỉ Guest-401); **CR-24** handler THÊM param `client_request_id` (default `""`) truyền xuống svc — bắt buộc để yaml-prop ⊆ live-handler-params (test_mobile_oas 13e handler-parity, §05) |
 | `cancel_incident(name, reason)` | POST | ROLES_INVESTIGATE |
 | `create_rca(incident_name, rca_method)` | POST | ROLES_INVESTIGATE |
 | `get_rca(name)` | GET | authenticated |
@@ -430,6 +597,7 @@ Imports from `assetcore.utils.response` (`_ok`, `_err`). Role check via `_has_ro
 | `resolve_incident(name, resolution_notes, root_cause)` | POST | ROLES_INVESTIGATE |
 | `close_incident(name, verification_notes)` | POST | ROLES_CLOSE |
 | `get_incident_stats()` | GET | authenticated | trả service-layer shape (gồm `open_total`) — xem Self-Correction dưới |
+| `attach_incident_photo(incident_name)` | POST (multipart) | **reporter OR `incident.write`** (BR-12-17) | `file` từ `frappe.request.files["file"]`; Guest→dispatcher-403; not-reporter∧not-write→in-handler cap-403 (Decision-B `FORBIDDEN`); validation→`VALIDATION` `fields.file`. Xem `05 §2 #15` |
 
 > **⚠️ SELF-CORRECTION (BR-12-11) — api-layer `get_incident_stats` divergence:** endpoint `api/imm12.py::get_incident_stats()` hiện re-implement cục bộ với alias chết `"Under Investigation"` + inline open-set tuple `["Open","Under Investigation"]` (đếm 0 trên data thật, vi phạm SoT + CLAUDE.md §15). Core Doc CHỐT: endpoint PHẢI `return handle(svc_stats)` (delegate `services/imm12.py::get_incident_stats`) ⇒ trả CÙNG shape với `get_dashboard().stats` (gồm `open_total`, `total`, severity, `sla_*`). Chi tiết: `05_API §11.6`.
 
@@ -489,6 +657,31 @@ Tất cả gọi `imm00.log_audit_event()` → SHA-256 hash chain (NĐ98/ISO 134
 **`source` (provenance):** enum `{"manual","qr-scan"}`, **default `"manual"`** (mọi đường cũ không truyền → manual, NO regression). source ∉ enum → coi `"manual"` (KHÔNG throw — provenance không phải security gate).
 
 **AC2 PASS khi:** (a) ≥1 `Asset Lifecycle Event` `event_type='incident_reported'` cho asset; (b) `notes` chứa "qr-scan" khi source=qr-scan / "manual" khi mặc định; (c) `verify_audit_chain(asset)['valid']==True` (lifecycle KHÔNG nằm trong chain — `utils/lifecycle.py:97-114`; audit-row mới có hash hợp lệ).
+
+### 6.2 Canonical lifecycle event `incident_photo_attached` — bằng chứng hiện trường NĐ98 (BR-12-18) 🟡 SPEC
+
+> **ADR:** `05 §2 ADR-IMM12-07`. **Gap:** đính ảnh vào phiếu là thao tác trên hồ sơ sự cố TTBYT → NĐ98 đòi evidence trail; KHÔNG được đính im lặng.
+
+**Schema change (BẮT BUỘC — deploy `bench reload-doctype "Asset Lifecycle Event"`):** THÊM option `incident_photo_attached` vào Select `event_type` của `asset_lifecycle_event.json` (hiện enum kết ở `qr_regenerated` — xem `04 §6.1` self-correction: giá trị ngoài Select bị throw/nuốt). Đối xứng tên `incident_reported`.
+
+**CHỐT (success-path `attach_incident_photo`, sau `File.insert`):**
+```python
+# services/imm12.py — hard-requirement, KHÔNG try/except-swallow (KHÁC incident_reported best-effort)
+svc00.create_lifecycle_event(
+    asset=incident.asset,
+    event_type="incident_photo_attached",
+    actor=frappe.session.user,                 # AC: actor = người đính
+    root_doctype="Incident Report",            # BẮT BUỘC kèm root_record (thiếu → event bị nuốt)
+    root_record=incident_name,
+    notes=f"Đính ảnh bằng chứng: {file_name}",
+)
+frappe.db.commit()                             # File + event commit CÙNG transaction
+```
+- **Đúng 1 event/lần success** (test khẳng định `count(event_type='incident_photo_attached', root_record=<IR>) == số lần attach thành công`).
+- **Atomicity:** nếu `create_lifecycle_event` throw → chưa `commit` ⇒ File.insert rollback ⇒ **không orphan, không silent** (khác `incident_reported` swallow — bằng chứng không được mất).
+- **Nhánh reject** (FORBIDDEN/VALIDATION) return-sớm TRƯỚC `File.insert` ⇒ KHÔNG File, KHÔNG event.
+
+**AC PASS khi:** (a) success → đúng 1 `File` private + đúng 1 lifecycle `incident_photo_attached` (`actor=session.user`, `root_record=<IR>`); (b) mọi nhánh reject → 0 File + 0 event; (c) `event_type` tồn tại trong Select sau reload-doctype (KHÔNG throw).
 
 ---
 

@@ -150,7 +150,7 @@ Toàn bộ artefact test được của IMM-05 (đối chiếu 04 §DocType/Serv
 | **Equivalence Partitioning (EP)** | Input có miền giá trị chia nhóm | `doc_category` (Legal/Technical/Certification/Training/QA), `visibility` (Public/Internal_Only), workflow_state enum | 1 test/partition |
 | **Boundary Value Analysis (BVA)** | Numeric / date có biên | `days_remaining` mốc 90/60/30/0 trong `_resolve_alert_level`; `expiry_date` vs `issued_date`; `version` "1.0" vs khác | 2-3 test/biên |
 | **Decision Table** | Multi-condition gate | GW-2 (license Active AND NOT exempt), BR-05-01 (active duplicate), `_can_see_internal` (role ∈ internal set) | 2^N rút gọn theo equivalence |
-| **State Transition Testing** | Workflow finite state machine | `imm_05_document_workflow.json` (Draft → Pending Review → Active/Rejected → Archived). KHÔNG có state `Expired` (BR-05-16: hết hạn = thuộc tính dẫn xuất, không transition). | Mỗi transition + invalid transition |
+| **State Transition Testing** | Workflow finite state machine | `'IMM-05 Document Workflow'` (fixtures/workflow.json): Draft → {Pending Review, Archived} · Pending Review → {Active, Rejected} · Rejected → Pending Review · Active → Archived. `Expired` = declared-dead terminal (0 transition dẫn vào; hết hạn = thuộc tính dẫn xuất, BR-05-16 / ADR-IMM-05-02). | Mỗi transition + invalid transition + INV-CTA-1 (map↔fixture) |
 | **Use Case Testing** | End-to-end actor flow | UAT scenarios, API integration test | 1/main + 1/alt + 1/exception |
 | **Pairwise / Combinatorial** | Nhiều field optional kết hợp | Form tạo Asset Document (doc_category × visibility × is_exempt) | Min set cover all pairs |
 | **Error Guessing** | Lỗi từ kinh nghiệm: null, empty, sai định dạng file, delete | `on_trash`, file .exe, file > 25MB, name không tồn tại | Bổ sung — không thay thế |
@@ -244,27 +244,37 @@ Toàn bộ artefact test được của IMM-05 (đối chiếu 04 §DocType/Serv
 
 ## III.4. Integration — Workflow transitions
 
-**File:** `assetcore/tests/test_imm05_workflow.py` ⬜ Planned. Workflow `imm_05_document_workflow.json`: **9 transition** (đã verify bằng `len(...['transitions'])`), **5 state còn-sống** (Draft, Pending Review, Active, Rejected, Archived). 9 transition gồm 4 action × các role allowed — **KHÔNG transition nào dẫn vào `Expired`**.
+**File:** `assetcore/tests/test_imm05.py` (module `assetcore.tests.test_imm05`). Workflow `'IMM-05 Document Workflow'` (`fixtures/workflow.json`): **6 state** (Draft, Pending Review, Active, Rejected, Archived, **Expired** — declared-dead, giữ theo ADR-IMM-05-02). Cạnh unique SAU Self-Correction = 6: `Draft→Pending Review`, **`Draft→Archived` (Hủy bỏ — THÊM MỚI)**, `Pending Review→Active`, `Pending Review→Rejected`, `Rejected→Pending Review`, `Active→Archived`. `Archived`/`Expired` = 0 outbound.
 
-> **BR-05-16 — orphan state `Expired` (COUPLED TEST CONTRACT):** workflow JSON từng khai báo state `Expired` nhưng KHÔNG có transition nào dẫn vào (dead-state). BE PHẢI gỡ entry state `Expired` khỏi `imm_05_document_workflow.json` (chỉ xóa state-def mồ côi; số transition = 9 KHÔNG đổi). **Hệ quả test:** `tests/test_workflows.py:26` đang assert `IMM-05 Document Workflow` `min_states: 6` (`assertGreaterEqual(len(wf.states), 6)`) — sau khi gỡ còn 5 state → BE PHẢI đồng thời sửa dòng đó thành **`min_states: 5`** trong CÙNG change, nếu không `test_workflow_state_counts` hồi quy. Số transition giữ `min_transitions: 8` (thực tế 9). Sau gỡ: workflow đúng 5 state, 9 transition; `test_workflows (8)` xanh.
->
-> **Phương án thay thế (nếu KHÔNG muốn đụng fixture+test workflow):** giữ nguyên 6 state trong JSON nhưng việc fix BR-05-16 ở read-path (predicate `expired_filter`) + FE marker đã ĐỦ kill divergence (KPI/drill không bao giờ tham chiếu state `Expired` nữa). Gỡ orphan là dọn-dẹp khuyến nghị, KHÔNG bắt buộc cho counterexample pass. **BE chọn 1 trong 2 và ghi rõ trong delta** — nhưng nếu gỡ thì BẮT BUỘC sửa kèm `min_states`.
+> **BR-05-16 / ADR-IMM-05-02 — state `Expired` GIỮ (supersede COUPLED TEST CONTRACT cũ):** contract cũ yêu cầu gỡ state-def `Expired` + hạ `test_workflows.py` `min_states` 6→5. **Quyết định mới:** GIỮ `Expired` (declared-dead terminal) → `test_workflows.py` giữ `min_states 6` (KHÔNG đổi), fixture giữ 6 state. Ngữ nghĩa derived-expiry (fix bug count-vs-drill ở read-path `expired_filter` + FE marker) KHÔNG phụ thuộc state-def → vẫn xanh. Gỡ `Expired` là backlog dọn-dẹp độc lập, KHÔNG thuộc change CTA này.
+
+**(a) State Transition Testing — mỗi edge = 1 pass + 1 fail (invalid transition / wrong role):**
 
 | Transition (action) | From → To | Role required (allowed) | Test pass | Test fail |
 |---|---|---|---|---|
 | Gửi duyệt | Draft → Pending Review | PM User | ☐ | ☐ (no file) |
 | Gửi duyệt | Draft → Pending Review | AssetCore Super Admin | ☐ | — |
+| Hủy bỏ | Draft → Archived | Compliance Manager / Super Admin (`doc.approve`) | ☐ | ☐ (no doc.approve) |
 | Phê duyệt | Pending Review → Active | Compliance Manager | ☐ | ☐ (wrong role) |
 | Phê duyệt | Pending Review → Active | AssetCore Super Admin | ☐ | — |
 | Từ chối | Pending Review → Rejected | Compliance Manager | ☐ | ☐ (no reason) |
 | Từ chối | Pending Review → Rejected | AssetCore Super Admin | ☐ | — |
 | Gửi lại | Rejected → Pending Review | PM User | ☐ | — |
 | Gửi lại | Rejected → Pending Review | AssetCore Super Admin | ☐ | — |
-| Lưu trữ | Active → Archived | AssetCore Super Admin | ☐ | ☐ (wrong role) |
+| Lưu trữ | Active → Archived | Compliance Manager / Super Admin (`doc.approve`) | ☐ | ☐ (wrong role) |
 
-State `Expired` (docstatus=1) đạt được qua scheduler `check_document_expiry` (không phải workflow transition) — cover ở III.2 `check_document_expiry`.
+**(b) INV-CTA-1 — invariant map ↔ fixture (BẮT BUỘC, chống drift):** đọc `fixtures/workflow.json` entry `'IMM-05 Document Workflow'`, dựng `codomain[state] = {t.next_state}`. Assert:
+1. `set(_DOC_VALID_TRANSITIONS.keys()) == set(states[])` (6 key: Draft, Pending Review, Active, Rejected, Archived, Expired).
+2. Với MỖI state: `set(_DOC_VALID_TRANSITIONS[state]) == codomain[state]` (thêm/sửa transition mà quên map → RED).
+3. Mọi value-state ∈ `DocState` enum (0 extra).
 
-**Kỹ thuật**: State Transition Testing — mỗi edge = 1 test pass + 1 test fail (invalid transition / wrong role).
+Mirror `test_imm11.TestCalibrationAllowedTransitions`. **Chỉ xanh SAU khi thêm cạnh `Draft→Archived` vào fixture (04 §3.2).**
+
+**(c) `get_document` enrich — contract 2 khóa:** với ≥3 state (Draft, Pending Review, Active), `get_document(name)` trả `allowed_transitions == _DOC_VALID_TRANSITIONS[state]` VÀ chứa khóa `can_approve` ∈ {0,1}; MỌI khóa cũ của AssetDocument vẫn còn (backward-compat).
+
+**(d) `can_approve` theo quyền:** user có `doc.approve` (Compliance Manager) → `can_approve == 1`; user KHÔNG có (vd technician-only) → `can_approve == 0`. (FE gating false-permissive test ở vitest — 06 §7.5.)
+
+**Run:** `bench --site miyano run-tests --module assetcore.tests.test_imm05` → `Ran N OK` (không FAIL/ERROR).
 
 ## III.5. Integration — Audit chain integrity
 

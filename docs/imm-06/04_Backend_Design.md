@@ -285,7 +285,7 @@
 | Program | `list_training_programs`, `get_training_program`, `create_training_program`, `update_training_program`, `list_programs`, `get_program`, `create_program`, `update_program` | CRUD chương trình đào tạo |
 | Session | `list_training_sessions`, `create_training_session`, `start_training_session`, `complete_training_session` | Core session lifecycle |
 | Session API | `list_sessions`, `get_session`, `create_session`, `confirm_session`, `enroll_participants`, `remove_participant`, `complete_session`, `cancel_session`, `verify_session`, `close_session` | API wrappers + participant management |
-| Competency | `list_user_competencies`, `get_user_competencies`, `signoff_competency_by_name`, `revoke_competency_with_capa`, `recertify_competency`, `create_competency_from_session`, `archive_old_competency` | Competency lifecycle |
+| Competency | `list_user_competencies`, `get_user_competencies`, `signoff_competency_by_name`, `revoke_competency_with_capa`, `recertify_competency`, `suspend_competency` (Vòng 26), `restore_competency` (Vòng 26), `create_competency_from_session`, `archive_old_competency` | Competency lifecycle |
 | Gates | `validate_user_authorized_for_asset`, `get_asset_operator_coverage` | Cross-module gates (IMM-04, IMM-08/09/11/12) |
 | Analytics | `get_dashboard_stats`, `get_competency_gaps_by_dept`, `get_expiring_competencies`, `generate_gap_report` | Dashboard + reports |
 | Validators | `validate_target_device_set`, `validate_passing_score_range`, `validate_validity_range`, `validate_instructor_present`, `validate_min_participants_for_confirm`, `compute_overall_results`, `set_computed_competency_fields` | VR enforcement |
@@ -699,13 +699,111 @@ class IMMTrainingProgram(Document):
 | Action | From | To | Allowed Roles |
 |---|---|---|---|
 | Xác nhận | Planned | Confirmed | IMM Training Officer, IMM System Admin |
-| Bắt đầu | Confirmed | In Progress | IMM Training Officer, IMM Biomed Technician |
+| Bắt đầu | **Planned, Confirmed** | In Progress | IMM Training Officer, IMM Biomed Technician |
 | Hoàn thành | In Progress | Completed | IMM Training Officer, IMM Biomed Technician |
 | Verify | Completed | Verified | IMM Workshop Lead, IMM System Admin |
 | Đóng | Verified | Closed | IMM Workshop Lead, IMM System Admin |
-| Hủy | Planned, Confirmed | Cancelled | IMM Training Officer, IMM System Admin |
+| Hủy | **Planned, Confirmed** | Cancelled | IMM Training Officer, IMM System Admin |
 
-> BR-06-12: Không thể Hủy từ Verified hoặc Closed.
+> BR-06-12: Chỉ Hủy được ở **Planned/Confirmed** (buổi chưa diễn ra). Không thể Hủy từ **In Progress, Completed, Verified hoặc Closed**: buổi đã bắt đầu (In Progress) → dùng luồng Hoàn thành; competency phát hành ở Completed → hủy sẽ mồ côi bản ghi năng lực.
+> "Bắt đầu" cho phép TỪ CẢ Planned (bỏ qua bước Xác nhận) — xác nhận là tùy chọn; xem ADR-IMM-06-02.
+> ⚠️ **Self-Correction (Vòng 28 — CR-WF-06-SESSION):** bảng CŨ ghi "Hủy | Planned, Confirmed, **In Progress**" và code-block §VI.1a CŨ ghi `IN_PROGRESS: [COMPLETED, CANCELLED]` — **LỆCH code + workflow JSON**: guard THẬT `cancel_session` (imm06.py:1431) chỉ cho `_session_source_states(CANCELLED)` = **{Planned, Confirmed}** (msg "Chỉ có thể hủy... Planned hoặc Confirmed"), và `imm_06_session_workflow.json` **KHÔNG** có cạnh `In Progress→Cancelled`. Reconcile guard Vòng 28 khoá map ≡ workflow (8 cạnh) → doc nay khớp SoT: In Progress KHÔNG hủy được.
+
+---
+
+### §VI.1a — SSoT máy trạng thái Session: `_SESSION_VALID_TRANSITIONS` (Vòng 7)
+
+**Vấn đề gốc (Self-Correction):** máy trạng thái Session được enforce ở **service layer** (không dùng Frappe Workflow JSON để transition — xem 07 §III.4), nên "trạng thái kế hợp lệ" phải là **một Single Source of Truth** mà cả BE (guard) lẫn FE (gate nút) đọc chung. Trước Vòng 7, map này là dict cục bộ `_transitions` **bên trong** `get_session()` và **thiếu** `In Progress` ở khóa `Planned` → FE (nếu gate theo map) ẩn nút "Bắt đầu" ở Planned dù `start_training_session` (imm06.py:242) cho phép → **desync "BE cho phép, UI chặn"**.
+
+**Quyết định:** Hoist thành **hằng module-level** `_SESSION_VALID_TRANSITIONS: dict[str, list[str]]` trong `assetcore/services/imm06.py`, liệt kê **đủ 7 state** (2 terminal → `[]`). `get_session()` và test invariant đọc cùng hằng này.
+
+```python
+# assetcore/services/imm06.py — SSoT máy trạng thái Session (module-level)
+_SESSION_VALID_TRANSITIONS: dict[str, list[str]] = {
+    SessionStatus.PLANNED:     [SessionStatus.CONFIRMED, SessionStatus.IN_PROGRESS, SessionStatus.CANCELLED],
+    SessionStatus.CONFIRMED:   [SessionStatus.IN_PROGRESS, SessionStatus.CANCELLED],
+    SessionStatus.IN_PROGRESS: [SessionStatus.COMPLETED],   # KHÔNG Cancelled (Self-Correction Vòng 28)
+    SessionStatus.COMPLETED:   [SessionStatus.VERIFIED],
+    SessionStatus.VERIFIED:    [SessionStatus.CLOSED],
+    SessionStatus.CLOSED:      [],   # terminal
+    SessionStatus.CANCELLED:   [],   # terminal
+}
+# get_session(): data["allowed_transitions"] = _SESSION_VALID_TRANSITIONS.get(data["workflow_state"], [])
+```
+
+**Bijection CTA → next-state (để test invariant map↔guard):**
+
+| CTA (API) | Service fn | next-state T | Guard cho phép TỪ state | Có trong map[s] khi |
+|---|---|---|---|---|
+| `confirm_session` | `confirm_session` | Confirmed | `== Planned` | s = Planned |
+| `start_session` | `start_training_session` | In Progress | `in (Planned, Confirmed)` | s ∈ {Planned, Confirmed} |
+| `complete_session` | `complete_training_session` | Completed | `== In Progress` | s = In Progress |
+| `verify_session` | `verify_session` | Verified | `== Completed` | s = Completed |
+| `close_session` | `close_session` | Closed | `== Verified` | s = Verified |
+| `cancel_session` | `cancel_session` | Cancelled | `in (Planned, Confirmed)` — imm06.py:1431 `_session_source_states(CANCELLED)` | s ∈ {Planned, Confirmed} |
+
+**INVARIANT (map↔guard KHÔNG drift)** — với mọi state `s` và mọi CTA có next-state `T`:
+`T ∈ _SESSION_VALID_TRANSITIONS[s]  ⟺  service_của_T KHÔNG ném guard-error (BAD_STATE) khi doc ở state s`.
+Test bắt drift 2 chiều (xem 07 §III.4 `TestSessionTransitionInvariant`).
+
+**Thay đổi CODE cần thiết (Self-Correction, ngoài hoist map):**
+1. `cancel_session` (imm06.py:1215) — MỞ RỘNG guard chặn thêm `VERIFIED`: `if doc.workflow_state in (COMPLETED, VERIFIED, CLOSED, CANCELLED): raise BAD_STATE`. Trước Vòng 7 guard **thiếu VERIFIED** → cho hủy buổi đã Verified, **vi phạm BR-06-12** (spec đã có sẵn) và làm drift map[Verified]=[Closed]. Đây là sửa code cho khớp spec, không đổi spec.
+2. `start_training_session` — GIỮ NGUYÊN (đã cho `in (Confirmed, Planned)`); chỉ map + FE cần đồng bộ.
+
+#### ADR-IMM-06-02: "Bắt đầu" cho phép từ Planned (xác nhận là tùy chọn)
+- **Status**: Accepted · **Date**: 2026-07-10
+- **Context**: `start_training_session` (imm06.py:242) từ đầu đã cho phép `workflow_state in (Confirmed, Planned)`. FE lại gate `state==='Confirmed'` → ẩn nút "Bắt đầu" ở Planned. Buổi khẩn/nhỏ có thể bắt đầu ngay không cần bước Xác nhận (VR-05 ≥1 học viên chỉ chặn ở Xác nhận).
+- **Decision**: Coi guard BE là SoT — "Bắt đầu" hợp lệ từ **Planned HOẶC Confirmed**. Đưa `In Progress` vào `map[Planned]`; FE gate bằng `allowedTransitions.includes('In Progress')`.
+- **Alternatives**: (a) Thắt BE chỉ cho Confirmed→In Progress — loại: mất khả năng bắt đầu nhanh, và đổi hành vi service đang chạy. (b) Giữ desync — loại: nút chết, vi phạm GATE-8/LL-FE-51.
+- **Consequences**: Xác nhận (Confirmed) trở thành **tùy chọn** trong luồng. Khi bắt đầu thẳng từ Planned, **VR-05 (≥1 học viên) KHÔNG được enforce ở Bắt đầu** (chỉ ở Xác nhận). *(Cần khảo sát)*: có cần thêm guard "≥1 học viên" cho `start_training_session` không → backlog, không thuộc Vòng 7.
+
+#### ADR-IMM-06-03: `allowed_transitions` server-driven — lớp state-machine tách khỏi lớp quyền
+- **Status**: Accepted · **Date**: 2026-07-10
+- **Context**: FE hardcode `state==='X'` cho 6 CTA (GATE-8/LL-FE-51 anti-pattern: dead-gate + dễ drift với BE).
+- **Decision**: BE tính `allowed_transitions` từ `_SESSION_VALID_TRANSITIONS` và trả trong `get_session` (Decision-B envelope `{success,data}`). FE gate **2 lớp AND**: `allowedTransitions.includes('<next-state>')` (state-machine) **&&** `<capability>` (quyền). `allowed_transitions` KHÔNG thay thế gate quyền — gọi API trực tiếp vẫn bị `_require_training_officer()` (training.write) chặn.
+- **Alternatives**: Suy ra transition từ Frappe Workflow JSON — loại: transition Session enforce ở service, không qua workflow engine (07 §III.4); đọc 2 nguồn sẽ drift.
+- **Consequences**: Thêm 1 field enriched trong `get_session`; mọi thay đổi state-machine chỉ sửa 1 hằng. FE có thể **nghiêm hơn** BE ở lớp quyền (vd Confirm gate `training.submit` trong khi BE chỉ đòi `training.write`) — chấp nhận (an toàn). *(Cần khảo sát)*: có nên nâng BE confirm/verify/close lên `training.submit` cho khớp FE không → backlog.
+
+---
+
+### §VI.1b — Reconcile invariant map ⇄ workflow JSON: `_SESSION_EXCEPTION_EDGES` == ∅ (Vòng 28 — CR-WF-06-SESSION)
+
+**Vấn đề gốc.** `_SESSION_VALID_TRANSITIONS` (SoT enforce + CTA server-driven) và `imm_06_session_workflow.json` (desk/admin-override) là **2 nguồn** mô tả CÙNG máy trạng thái buổi đào tạo. §VI.1a chỉ chốt invariant map↔service-guard (TC6) — **thiếu** invariant map↔workflow-JSON. Thêm/bớt 1 cạnh ở JSON (vd wire thêm `In Progress→Cancelled`) mà quên map (hoặc ngược lại) → drift ÂM THẦM: CTA hiện/ẩn lệch với transition desk. Đây là SSoT-map hardcode **CUỐI CÙNG** của IMM-06 chưa reconcile-vs-workflow (competency đã đóng ở §VI.2b / Vòng 26).
+
+**Quyết định (reconcile 2-chiều, EXCEPTION_EDGES rỗng).** Thêm invariant `test_session_allowed_transitions_matches_workflow` (parity R26 `test_competency_allowed_transitions_matches_workflow`): so tập cạnh distinct `(state, next_state)` giữa map và workflow JSON.
+
+```python
+# assetcore/tests/test_imm06.py — hằng test-level TƯỜNG MINH (imm06.py CHỈ +comment, 0 runtime logic)
+_SESSION_EXCEPTION_EDGES: frozenset = frozenset()   # 0 ngoại lệ — TƯƠNG PHẢN competency (4 cạnh)
+
+workflow_pairs = {(t["state"], t["next_state"]) for t in wf["transitions"]}   # role-expanded → set gom
+map_pairs = {(s, n) for s, ns in _SESSION_VALID_TRANSITIONS.items() for n in ns}
+assert workflow_pairs.symmetric_difference(map_pairs) == _SESSION_EXCEPTION_EDGES   # == ∅
+```
+
+**8 cạnh 2 bên khớp HỆT** (verified @source, python set-diff trên JSON THẬT + map): `Planned→{Confirmed, In Progress, Cancelled}` · `Confirmed→{In Progress, Cancelled}` · `In Progress→Completed` · `Completed→Verified` · `Verified→Closed`. sym-diff = ∅ (0 orphan, 0 unsurfaced).
+
+**Vì sao session 0 EXCEPTION_EDGES (TƯƠNG PHẢN competency 4 — §VI.2b):**
+
+| | Session | Competency |
+|---|---|---|
+| Map value | next-STATE (đích cụ thể) | nhãn ACTION (Sign-off/Revoke/…) |
+| scheduler-auto edge | KHÔNG có | 3 (Active→Expiring/Expired, Expiring→Expired) |
+| create-new edge | KHÔNG có | 1 (recertify sinh doc mới ở Pending) |
+| `_XXX_EXCEPTION_EDGES` | **∅ (frozenset())** | 4 cạnh |
+
+Máy trạng thái buổi đào tạo **100% CTA người dùng** (confirm/start/complete/verify/close/cancel) — không transition do scheduler tự chạy, không action sinh record mới — nên MỌI cạnh workflow ánh xạ 1:1 vào map.
+
+- **Grounding 2-chiều (0 orphan):** mọi action-label workflow (`Xác nhận/Bắt đầu/Hoàn thành/Verify/Đóng/Hủy`) có cạnh `(state→next_state) ∈ map`; mọi cạnh map `∈ workflow`. Anti-drift nhãn: label lạ trong JSON → `assertIn(t["action"], _SESSION_WF_ACTION_LABELS)` RED.
+- **RED-before demo (verified @output):** tạm gỡ `In Progress` khỏi `map[Planned]` → sym-diff = `{('Planned','In Progress')}` ≠ ∅ → RED, message: `map ⇄ workflow divergent [('Planned', 'In Progress')] != EXCEPTION_EDGES [] — cạnh lạ = drift SSoT↔workflow` (CTA "Bắt đầu" ẩn ở buổi Planned dù workflow còn cạnh). Restore → GREEN.
+- **KHÔNG sửa `imm_06_session_workflow.json`** (map đã khớp hệt JSON sẵn có) ⇒ admin-override invariant GIỮ NGUYÊN (`test_workflow_admin_override` 10/10) + 0 migrate. Chỉ `+comment` vào imm06.py (0 runtime logic) + test + doc ⇒ 0 gunicorn reload.
+
+#### ADR-IMM-06-08: Reconcile invariant map ⇄ workflow JSON qua `_SESSION_EXCEPTION_EDGES` == ∅
+- **Status**: Accepted · **Date**: 2026-07-13
+- **Context**: map `_SESSION_VALID_TRANSITIONS` (SoT CTA) và `imm_06_session_workflow.json` (desk) là 2 nguồn cùng mô tả state-machine buổi đào tạo; §VI.1a chỉ chốt map↔service-guard, chưa chốt map↔JSON → drift âm thầm khả dĩ. Là SSoT-map hardcode cuối của IMM-06 chưa có reconcile-vs-workflow.
+- **Decision**: Khai `_SESSION_EXCEPTION_EDGES` tường minh == `frozenset()` (0 ngoại lệ) + invariant `symmetric_difference(workflow_pairs, map_pairs) == EXCEPTION_EDGES`. Hằng đặt ở **test file** (imm06.py chỉ +comment — round này ràng buộc 0 .py runtime logic).
+- **Alternatives**: (a) Không guard, prose "đã khớp" — loại: không chống drift tương lai. (b) Đặt `_SESSION_EXCEPTION_EDGES` như hằng runtime trong imm06.py — loại: dead constant runtime + vi phạm ràng buộc "0 .py runtime logic / 0 reload". (c) Cho EXCEPTION_EDGES ≠ ∅ để "nới" — loại: session không có scheduler-auto/create-new nên mọi cạnh lệch = drift THẬT, không có ngoại lệ chính đáng.
+- **Consequences**: Drift 2-chiều bất khả (thêm/bớt cạnh 1 phía mà quên phía kia → RED). Khi thêm transition tương lai PHẢI cập nhật CẢ map lẫn JSON (nếu là CTA) HOẶC khai exception có lý do (nếu scheduler-auto/create-new — hiện chưa có). Parity đầy đủ với IMM-12 (vòng 12) / IMM-16 (vòng 14) / competency §VI.2b (vòng 26).
 
 ---
 
@@ -733,6 +831,193 @@ class IMMTrainingProgram(Document):
 | Khôi phục | Suspended | Active | IMM Workshop Lead, IMM Training Officer |
 | Thu hồi | * (≠ Revoked) | Revoked | IMM Training Officer, IMM System Admin |
 | Tái chứng nhận | Expired | Active | Service `trigger_recertification` (sau new session Pass + sign-off) |
+
+> ⚠️ **Self-Correction (Vòng 15) — bảng trên là hành vi CŨ, đã siết.** Nguồn-đích enforce THẬT nay theo SoT `_COMPETENCY_VALID_TRANSITIONS` (§VI.2a): **Thu hồi** chỉ từ `{Active, Expiring, Expired, Suspended}` (bỏ `Pending Assessment` — trước đây chỉ chặn `Revoked`); **Tái chứng nhận** từ `{Expiring, Expired}` (thêm guard state — service cũ KHÔNG kiểm state nguồn). Quyền enforce = capability `training.submit` (không hardcode role-name) — xem ADR-IMM-06-04.
+>
+> ⚠️ **Self-Correction (Vòng 26) — Tạm ngưng / Khôi phục là "hidden-transition-câm" đã hiện thực.** Hai cạnh **Tạm ngưng** (`Active → Suspended`) và **Khôi phục** (`Suspended → Active`) ĐÃ khai trong `imm_06_competency_workflow.json` (allowed = **PM Manager, Training Manager, AssetCore Super Admin, System Manager** — KHÔNG phải "IMM Workshop Lead / IMM Training Officer" như bảng CŨ) nhưng TRƯỚC Vòng 26 **THIẾU service + API + CTA** ⇒ bất khả thao tác từ app dù đủ quyền. Vòng 26 SURFACE 2 cạnh này vào SSoT `_COMPETENCY_VALID_TRANSITIONS` (`Active += Suspend`, `Suspended = [Restore, Revoke]`) + service `suspend_competency`/`restore_competency` + endpoint C.5/C.6 + CTA `CompetencyDetailView`. Chi tiết §VI.2b + ADR-IMM-06-05/06/07.
+
+---
+
+### §VI.2a — SSoT máy trạng thái Competency: `_COMPETENCY_VALID_TRANSITIONS` (Vòng 15)
+
+**Vấn đề gốc (Self-Correction — parity §VI.1a).** Ba CTA vòng đời năng lực (Sign-off / Thu hồi / Tái chứng nhận) được enforce ở **service layer** (dùng `flags.ignore_workflow_status_check = True` + set state trực tiếp, KHÔNG chạy Frappe Workflow transition — xem divergence bên dưới). Trước Vòng 15:
+1. **State-guard rời rạc / thiếu**: `signoff_competency` chặn đúng (`state != Pending → BAD_STATE`); `revoke_competency` chỉ chặn `state == Revoked` (⇒ **revoke được cả `Pending Assessment`** — vô nghĩa vì chưa có gì để thu hồi); `recertify_competency` **KHÔNG có guard state nguồn** (chạy từ mọi state). → FE phải hardcode danh sách state (`CompetencyDetailView.vue:30-40`) = dead-gate + drift với BE (GATE-8/LL-FE-51 anti-pattern).
+2. **Không có `allowed_transitions` server-driven** cho detail view (khác `get_session`).
+
+**Quyết định.** Hoist **1 hằng module-level** `_COMPETENCY_VALID_TRANSITIONS: dict[str, list[str]]` trong `assetcore/services/imm06.py`, liệt kê **đủ 6 state** (Revoked terminal → `[]`). `get_competency()` (endpoint MỚI) và 3 service-guard đọc **cùng** hằng này. **KHÁC `_SESSION_VALID_TRANSITIONS`**: value là **nhãn ACTION** (`"Sign-off" / "Revoke" / "Recertify"`), KHÔNG phải next-state — vì lifecycle năng lực là "hành động trên record" (revoke/recertify có side-effect tạo doc mới), không map 1:1 CTA→next-state như session.
+
+> **Tên hằng THẬT trong code** (grounding `services/imm06.py:117-146`): `COMPETENCY_SIGNOFF`/`COMPETENCY_REVOKE`/`COMPETENCY_RECERTIFY` (+ Vòng 26: `COMPETENCY_SUSPEND`/`COMPETENCY_RESTORE`); helper đọc-nguồn = `_competency_states_allowing(action)` (KHÔNG phải `_assert_competency_action` — minh hoạ dưới giữ tên rút gọn cho dễ đọc). BE code theo tên THẬT.
+
+```python
+# assetcore/services/imm06.py — hằng module-level (SSoT, Vòng 15 + Vòng 26)
+COMP_ACTION_SIGNOFF   = "Sign-off"
+COMP_ACTION_REVOKE    = "Revoke"
+COMP_ACTION_RECERTIFY = "Recertify"
+COMP_ACTION_SUSPEND   = "Suspend"     # Vòng 26 (JSON label "Tạm ngưng")
+COMP_ACTION_RESTORE   = "Restore"     # Vòng 26 (JSON label "Khôi phục")
+
+# Map PHẢI khớp EXACT guard state ở service layer (invariant test test_imm06
+# TC-COMP chống drift — parity TC6 session). value = nhãn ACTION (KHÁC session=state).
+# Vòng 26: Active += Suspend; Suspended = [Restore, Revoke] (thứ tự ỔN ĐỊNH — test list-eq).
+_COMPETENCY_VALID_TRANSITIONS: dict[str, list[str]] = {
+    CompetencyStatus.PENDING:   [COMP_ACTION_SIGNOFF],
+    CompetencyStatus.ACTIVE:    [COMP_ACTION_REVOKE, COMP_ACTION_SUSPEND],
+    CompetencyStatus.EXPIRING:  [COMP_ACTION_RECERTIFY, COMP_ACTION_REVOKE],
+    CompetencyStatus.EXPIRED:   [COMP_ACTION_RECERTIFY, COMP_ACTION_REVOKE],
+    CompetencyStatus.SUSPENDED: [COMP_ACTION_RESTORE, COMP_ACTION_REVOKE],
+    CompetencyStatus.REVOKED:   [],                     # terminal
+}
+
+def _assert_competency_action(state: str, action: str) -> None:
+    """Guard: action hợp lệ từ `state`? (đọc SoT — drift bất khả)."""
+    if action not in _COMPETENCY_VALID_TRANSITIONS.get(state, []):
+        raise ServiceError(
+            ErrorCode.BAD_STATE,
+            f"Không thể '{action}' ở trạng thái '{state}'",
+        )
+```
+
+**Áp dụng guard (mỗi service fn gọi ngay sau khi fetch doc):**
+
+| Service fn | Guard gọi | State nguồn hợp lệ (từ SoT) |
+|---|---|---|
+| `signoff_competency` | guard `state ∈ _competency_states_allowing(SIGNOFF)` | `Pending Assessment` |
+| `revoke_competency` | guard `state ∈ _competency_states_allowing(REVOKE)` | `Active`, `Expiring`, `Expired`, `Suspended` |
+| `recertify_competency` | guard `old.workflow_state ∈ _competency_states_allowing(RECERTIFY)` | `Expiring`, `Expired` |
+| `suspend_competency` (Vòng 26) | guard `state ∈ _competency_states_allowing(SUSPEND)` | `Active` |
+| `restore_competency` (Vòng 26) | guard `state ∈ _competency_states_allowing(RESTORE)` | `Suspended` |
+
+**Invariant (đo được — AC4):**
+`action ∈ _COMPETENCY_VALID_TRANSITIONS[s]  ⟺  service_của_action KHÔNG ném BAD_STATE khi doc ở state s`. (Có thể ném `VALIDATION`/`NOT_FOUND` như recertify thiếu session Completed / participant Fail — phân biệt bằng `ErrorCode`, KHÔNG tính drift.)
+
+**`get_competency()` emit (parity `get_session()` imm06.py:1005):**
+```python
+data["allowed_transitions"] = list(
+    _COMPETENCY_VALID_TRANSITIONS.get(data.get("workflow_state", ""), [])
+)
+# Cờ quyền — action khả dụng khi (state cho phép) ∧ (đủ capability). Vòng 26:
+# lọc theo allowed để cờ khớp EXACT cả 2 lớp (parity can_revoke — chống dead-control).
+_can = rbac.can("training.submit")
+data["can_signoff"]   = (COMP_ACTION_SIGNOFF   in allowed) and _can
+data["can_revoke"]    = (COMP_ACTION_REVOKE    in allowed) and _can
+data["can_recertify"] = (COMP_ACTION_RECERTIFY in allowed) and _can
+data["can_suspend"]   = (COMP_ACTION_SUSPEND   in allowed) and _can   # Vòng 26
+data["can_restore"]   = (COMP_ACTION_RESTORE   in allowed) and _can   # Vòng 26
+```
+
+> Grounding: code THẬT `get_competency` (imm06.py:1440) đã lọc `(ACTION in allowed) and _has_submit` cho 3 cờ hiện hữu; Vòng 26 chỉ THÊM 2 cờ `can_suspend`/`can_restore` cùng công thức.
+
+**Divergence workflow JSON (documented, KHÔNG block).** `imm_06_competency_workflow.json` khai báo `Tái chứng nhận: Expired → Active` (chỉ Expired, target Active). Nhưng service `recertify_competency` KHÔNG chạy transition đó — nó **tạo IMM User Competency mới** (state `Pending Assessment`) từ session Refresher đã `Completed` + mark bản cũ → `Expired`, dùng `ignore_workflow_status_check`. ⇒ Workflow JSON là **tham chiếu thứ cấp**; **SoT enforce = `_COMPETENCY_VALID_TRANSITIONS`**. Cạnh `Expiring→Tái chứng nhận` (map có, JSON không) + 3 cạnh scheduler-auto (JSON có, map không) nay được khai TƯỜNG MINH thành `_COMPETENCY_EXCEPTION_EDGES` và verify bằng reconcile invariant — xem §VI.2b.
+
+---
+
+### §VI.2b — Tạm ngưng / Khôi phục + Reconcile invariant map ⇄ workflow JSON (Vòng 26)
+
+**Vấn đề gốc (CR-WF-06-COMP — "hidden-transition-câm").** `imm_06_competency_workflow.json` khai 2 cạnh `Tạm ngưng` (`Active → Suspended`) và `Khôi phục` (`Suspended → Active`) cho Training/PM Manager/Super Admin/System Manager, nhưng **THIẾU service + API + CTA** → user đủ quyền vẫn KHÔNG thao tác được từ app (nút không tồn tại). SSoT `_COMPETENCY_VALID_TRANSITIONS` (Vòng 15) bỏ sót 2 cạnh này ⇒ `get_competency.allowed_transitions` không bao giờ chứa `Suspend`/`Restore` ⇒ FE (gate 2-lớp AND) không render nút. Đồng thời map ⇄ JSON chưa có invariant bảo vệ nên drift âm thầm.
+
+**Quyết định (surface + reconcile).**
+1. **SURFACE** 2 cạnh vào SSoT (đã cập nhật §VI.2a): `Active += Suspend`, `Suspended = [Restore, Revoke]` (thứ tự ổn định). ⇒ `allowed_transitions[Active] ⊇ {Suspend}`, `allowed_transitions[Suspended] == [Restore, Revoke]`.
+2. **2 service transition mới** (parity `revoke_competency` imm06.py:464):
+
+| Fn | Chuyển | reason | Guard state (SoT) | Audit action → event_type | Cache |
+|---|---|---|---|---|---|
+| `suspend_competency(name, reason)` | `Active → Suspended` | **BẮT BUỘC** (rỗng → `VALIDATION`/422) | `_competency_states_allowing(SUSPEND) = {Active}`; nguồn≠Active → `BAD_STATE`/409 | `SUSPENDED` → `competency_suspended` | `_invalidate_auth_cache(user, model)` (Suspended ∉ AUTHORIZED ⇒ mất authorization) |
+| `restore_competency(name)` | `Suspended → Active` | — (không cần) | `_competency_states_allowing(RESTORE) = {Suspended}`; nguồn≠Suspended → `BAD_STATE`/409 | `RESTORED` → `competency_restored` | `_invalidate_auth_cache(user, model)` (Active ∈ AUTHORIZED ⇒ tái cấp) |
+
+- **Thứ tự kiểm** (giống revoke): `NOT_FOUND`(404) → guard state `BAD_STATE`(409) → (suspend) `reason` rỗng `VALIDATION`(422) → mutate `workflow_state` với `doc.flags.ignore_workflow_status_check = True` → save → invalidate cache → `_log_competency_audit(name, doc.user, "SUSPENDED"|"RESTORED", reason)` → `frappe.db.commit()`.
+- **reason KHÔNG lưu field riêng**: ghi vào `IMM Audit Trail.change_summary` (qua `_log_competency_audit` note) — KHÔNG thêm `suspend_reason` field (tránh permlevel-strip trap + schema churn; audit là bản ghi bất biến đủ traceability NĐ98). `suspended_until` (Date, doctype §II.4:197) NGOÀI scope CR này (không có tạm-ngưng-có-hạn ở acceptance).
+- **Capability gate ở API layer** (parity revoke api:224): `if not rbac.can("training.submit"): return _err(..., ErrorCode.FORBIDDEN)` TRƯỚC khi gọi service ⇒ thiếu quyền → `FORBIDDEN`/403 in-handler HTTP-200 envelope, **KHÔNG chạm `workflow_state`** (chưa vào service). Xem 05 §C.5/C.6.
+
+3. **⚠️ REQUIRED — thêm 2 option vào Select `event_type` (IMM Audit Trail).** `_log_competency_audit` gọi `log_audit_event(event_type=f"competency_{action.lower()}")` → insert `IMM Audit Trail` với `event_type ∈ {competency_suspended, competency_restored}`. Field `event_type` là **Select** (`imm_audit_trail.json`) — hiện có `competency_signoff/revoked/recertified/auto_expired` NHƯNG **KHÔNG có** `competency_suspended`/`competency_restored`. Frappe validate Select strict ⇒ giá trị ngoài options → `ValidationError` → `_log_competency_audit` nuốt exception (try/except → `frappe.log_error`) ⇒ **audit rớt CÂM** (latent NĐ98 gap). ⇒ **PHẢI thêm** `competency_suspended` + `competency_restored` vào Select options `event_type` của `IMM Audit Trail` doctype (kèm reload/migrate để DB meta nhận option — nếu không audit test sẽ RED "no audit row"). Đây là schema-change bắt buộc (Ask-first đã CHỐT trong CR).
+
+**Reconcile INVARIANT (gate merge — parity IMM-12 vòng-12 / IMM-16 vòng-14).** Khai 1 hằng module-level:
+
+```python
+# assetcore/services/imm06.py — nhãn ACTION (map) → nhãn action workflow JSON (Vietnamese)
+_COMPETENCY_ACTION_JSON_LABEL = {
+    COMP_ACTION_SIGNOFF:   "Sign-off",
+    COMP_ACTION_REVOKE:    "Thu hồi",
+    COMP_ACTION_RECERTIFY: "Tái chứng nhận",
+    COMP_ACTION_SUSPEND:   "Tạm ngưng",     # Vòng 26
+    COMP_ACTION_RESTORE:   "Khôi phục",      # Vòng 26
+}
+# Cạnh (state, json_action) TỒN TẠI ở đúng MỘT phía (map XOR workflow) — khai tường minh.
+# WHY mỗi cạnh: 3 scheduler-auto (không có CTA người dùng) + 1 create-new (recertify sinh
+# doc mới thay vì chạy transition). KHÔNG được rỗng, KHÔNG được chứa Suspend/Restore.
+_COMPETENCY_EXCEPTION_EDGES = frozenset({
+    ("Active",   "Đánh dấu sắp hết hạn"),   # Active→Expiring  — scheduler auto (check_expiring)
+    ("Active",   "Hết hạn"),                # Active→Expired   — scheduler auto (auto_expire)
+    ("Expiring", "Hết hạn"),                # Expiring→Expired — scheduler auto (auto_expire)
+    ("Expiring", "Tái chứng nhận"),         # map-only — recertify create-new (JSON khai từ Expired)
+})
+```
+
+**Invariant (đo được):** với `wf_keys = {(t.state, t.action) ∀ transition ∈ JSON}` và `map_keys = {(state, _COMPETENCY_ACTION_JSON_LABEL[a]) ∀ (state, a) ∈ map}`:
+
+```
+symmetric_difference(wf_keys, map_keys) == _COMPETENCY_EXCEPTION_EDGES
+```
+
+- **Verified @source** (python set-diff trên JSON THẬT + map sau-fix): sym-diff = đúng 4 cạnh trên = `_COMPETENCY_EXCEPTION_EDGES`. WF-only = 3 scheduler; MAP-only = `(Expiring, Tái chứng nhận)`.
+- **RED-before** (gỡ `Suspend` khỏi `map[Active]` và/hoặc `Restore` khỏi `map[Suspended]`): sym-diff mọc thêm `(Active, "Tạm ngưng")` / `(Suspended, "Khôi phục")` ∉ EXCEPTION_EDGES ⇒ test RED (chống drift 2-chiều).
+- Workflow JSON là role-expanded 33 transition / **11 cạnh distinct** `(state, action, next_state)` — invariant so trên `(state, action)` (role-independent).
+
+**KHÔNG sửa `imm_06_competency_workflow.json`** (2 cạnh Suspend/Restore đã có sẵn + đã có `AssetCore Super Admin`/`System Manager`) ⇒ admin-override invariant 22/22 GIỮ NGUYÊN + 0 migrate cho workflow.
+
+---
+
+#### ADR-IMM-06-05: Surface Tạm ngưng / Khôi phục vào SSoT (đóng hidden-transition-câm)
+
+- **Status**: Accepted
+- **Date**: 2026-07-13
+- **Context**: 2 cạnh workflow `Tạm ngưng`/`Khôi phục` đã khai trong JSON nhưng thiếu service/API/CTA; map SSoT bỏ sót ⇒ nút không render (parity vấn đề vòng-12 reopen_incident, vòng-14 start_review). Suspended cần **có đường quay lại** Active (khác Revoked terminal) — pause có thể đảo ngược.
+- **Decision**: THÊM `Suspend` vào `map[Active]`, `Restore` vào `map[Suspended]`; hiện thực `suspend_competency`/`restore_competency` (parity revoke: guard-from-SoT + audit + cache-invalidate) + endpoint C.5/C.6 + CTA server-driven. Gate = `training.submit` (parity revoke — gỡ/tái authorization vận hành thiết bị = Manager-grade, NĐ98).
+- **Alternatives**: (a) Gỡ 2 cạnh khỏi JSON cho khớp map cũ — **Loại**: mất năng lực nghiệp vụ hợp lệ (tạm ngưng KTV nghỉ phép/điều tra mà không thu hồi vĩnh viễn) + đổi workflow JSON = HARD-STOP migrate + phá admin-override. (b) Giữ desync — **Loại**: nút chết, vi phạm GATE-8/LL-FE-51.
+- **Consequences**: +2 service fn, +2 endpoint, +2 CTA, +2 cờ `can_suspend`/`can_restore`, +2 Select option `event_type`. `map[Suspended]` chuyển từ terminal-ish `[Revoke]` → `[Restore, Revoke]` (giờ có 2 lối ra). Reason suspend chỉ ở audit (không field mới).
+
+#### ADR-IMM-06-06: Reconcile invariant map ⇄ workflow JSON qua `_COMPETENCY_EXCEPTION_EDGES`
+
+- **Status**: Accepted
+- **Date**: 2026-07-13
+- **Context**: map (SoT enforce/CTA) và workflow JSON (desk/admin-override) là 2 nguồn — divergent âm thầm (recertify create-new + scheduler-auto). Vòng 15 chỉ ghi chú prose "documented, KHÔNG block" → không có guard.
+- **Decision**: Khai `_COMPETENCY_EXCEPTION_EDGES` tường minh (4 cạnh, mỗi cạnh có lý do scheduler-auto / create-new) + invariant `symmetric_difference(wf_keys, map_keys) == EXCEPTION_EDGES`. Test gate-merge (parity IMM-12/16).
+- **Alternatives**: (a) Chỉ assert `map_keys ⊆ wf_keys` — **Loại**: không bắt được cạnh workflow-only (scheduler) lẫn map-only (recertify) đồng thời; symmetric-difference bắt CẢ HAI chiều. (b) Đồng bộ JSON = map (thêm `Expiring→Tái chứng nhận`, bỏ scheduler edges) — **Loại**: scheduler edges cần cho desk/auto; recertify là create-new không phải transition thật.
+- **Consequences**: Drift 2-chiều bất khả (thêm/bớt cạnh 1 phía mà không cập nhật phía kia hoặc EXCEPTION_EDGES → RED). Khi thêm transition tương lai phải cập nhật CẢ map/JSON HOẶC khai exception có lý do.
+
+#### ADR-IMM-06-07: Quá tải state "Suspended" (auto-archive vs manual-suspend) — ranh giới restore
+
+- **Status**: Accepted
+- **Date**: 2026-07-13
+- **Context**: `Suspended` được dùng ở **2 ngữ cảnh**: (a) **manual** — Training Manager tạm ngưng KTV (CR này); (b) **auto-archive** — `archive_old_competency` (imm06.py:534, BR-06-11) set bản cũ `Active → Suspended` khi 1 competency mới cùng `(user, device_model)` được sign-off. `restore_competency` (`Suspended → Active`) không phân biệt 2 nguồn ⇒ khôi phục 1 bản auto-archived có thể tạo **2 competency Active trùng `(user, model)`**.
+- **Decision**: Giữ `restore_competency` tối giản theo acceptance (`Suspended → Active`, gate `training.submit`); **KHÔNG** thêm guard chặn tự động trong CR này. Rủi ro trùng-Active giao **phán đoán Training Manager** (họ thấy bản ghi + lịch sử trước khi khôi phục) — ghi nhận là **known limitation**.
+- **Alternatives**: (a) restore chặn nếu tồn tại bản Active mới hơn cùng `(user, model)` → re-archive/blocked — **hoãn** (ngoài acceptance; sẽ mở backlog nếu vận hành phát sinh trùng). (b) Tách state `Archived` riêng khỏi `Suspended` — **Loại (scope)**: đổi enum + workflow + migrate dữ liệu, quá lớn cho CR.
+- **Consequences**: **Boundary (Never)** cho BE/FE: KHÔNG tự động re-activate hàng loạt bản Suspended; restore là thao tác đơn lẻ có chủ đích. **Backlog** `[ROADMAP]`: nếu cần, thêm duplicate-active guard vào `restore_competency` (invariant "≤1 Active per (user, device_model)").
+
+---
+
+#### ADR-IMM-06-04: Thống nhất `training.submit` cho cả 3 CTA vòng đời năng lực (sửa privilege asymmetry)
+
+- **Status**: Accepted
+- **Date**: 2026-07-10
+- **Context**: 3 CTA năng lực đang gate **2 capability KHÁC nhau** → privilege asymmetry + FE dead-control 403:
+  - `signoff_competency` (api:195) gate `rbac.can("training.submit")` → `("IMM Training Session", "delete")` → DocPerm delete=1 = **Super Admin, Training Manager** (Manager-grade, R18 fix).
+  - `revoke_competency`/`recertify_competency` (api:213,219) KHÔNG gate ở API; service gate `_require_training_officer()` → `rbac.can("training.write")` → auto-gen `("IMM Training Program", "write")` → DocPerm write=1 = **Super Admin, Training Manager, và Training User** (lỏng hơn!).
+  - Hệ quả: **Training User** (không phải manager) **thu hồi/tái chứng nhận được** năng lực KTV (gỡ authorization vận hành thiết bị — NĐ98 an toàn), nhưng **KHÔNG sign-off được**. Bất đối xứng: hành động nhạy hơn (revoke) lại gate lỏng hơn. `imm_06_competency_workflow.json` cũng ghi "Thu hồi"/"Tái chứng nhận" allowed = Training Manager + Super Admin (KHÔNG Training User) → service `training.write` sai ý định.
+  - FE `CompetencyDetailView.vue:33-40` gate cả 3 bằng `can('training.submit')`, LỆCH với BE `training.write` cho revoke/recertify → dead-control (FE ẩn nút với Training User dù BE cho phép) / desync.
+  - ⚠️ Đây KHÔNG phải "lỗ RBAC mở" (mọi user login KHÔNG revoke được — service `training.write` đã chặn plain `AssetCore System User`). Framing chính xác = **asymmetry**, không phải open-hole. (Self-Correction so với đề mục gốc.)
+- **Decision**: Thống nhất **cả 3 CTA năng lực gate DUY NHẤT `training.submit`** (Manager-grade). Enforce 2 lớp:
+  1. **API** (parity signoff, in-handler HTTP-200 FORBIDDEN envelope): `revoke_competency`/`recertify_competency` thêm inline `if not rbac.can("training.submit"): return _err("Chỉ Training Manager / Super Admin được …", ErrorCode.FORBIDDEN)` TRƯỚC `_run` — giống signoff:204.
+  2. **Service** (defense-in-depth, cùng capability): trong `revoke_competency` (418) và `recertify_competency` (1416), thay `_require_training_officer()` → `rbac.require("training.submit")`. **KHÔNG đụng** helper dùng chung `_require_training_officer` (session transitions confirm/verify/close vẫn giữ `training.write` — ngoài scope).
+  3. `get_competency` trả `can_signoff/can_revoke/can_recertify = rbac.can("training.submit")` → cờ FE khớp EXACT gate BE (chống dead-control 403).
+- **Alternatives**:
+  - (a) Chỉ thêm API gate, giữ service `training.write`: net-gate = `training.submit AND training.write`. Vì mọi role có Session-delete đều có Program-write (Super Admin/Training Manager), hiện tương đương — NHƯNG phụ thuộc invariant DocPerm ngầm (fragile, một thay đổi DocPerm tương lai làm lệch). **Loại** — không single-capability rõ ràng.
+  - (b) Hạ signoff xuống `training.write` cho khớp revoke: **Loại** — sai chiều least-privilege; gỡ authorization thiết bị y tế PHẢI Manager-grade (NĐ98).
+  - (c) Hardcode role-name (`if "Training Manager" in roles`): **Loại** — anti-pattern RBAC dead-gate (memory `asset_list_count_drill…` + LL-BE); phải capability-based.
+- **Consequences**:
+  - **Training User MẤT quyền revoke/recertify** (chỉ còn tạo/sửa program/session qua `training.write`) — đúng ý định workflow JSON + NĐ98. Đây là thay đổi hành vi có chủ đích; nêu trong Release Notes.
+  - **AC3 không cần bổ sung mapping**: `AssetCore Super Admin` đã có `training.submit` (IMM Training Session DocPerm delete=1 — verified fixture). `training.submit ⊇ AssetCore Super Admin` ✅.
+  - `CAP_SET_VERSION` **KHÔNG đổi** (không thêm/bớt cap key — chỉ đổi call-site) → FE persisted-caps không cần invalidate.
+  - Đóng backlog "*(Cần khảo sát)*" ở ADR-IMM-06-03 (nâng BE lên `training.submit` cho khớp FE) — cho phạm vi 3 CTA năng lực.
 
 ---
 

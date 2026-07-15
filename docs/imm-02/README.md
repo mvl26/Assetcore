@@ -6,7 +6,7 @@
 | Wave | 2 |
 | Trạng thái | Wave 2 — Live ✅ |
 | Số file hiện có | 8 file template chuẩn (README + 02–09) + 1 file `_REPORT.md` audit log = 9 file tổng cộng |
-| Cập nhật cuối | 2026-05-27 (no code delta — Wave 2 không chạm IMM-02 service/api) |
+| Cập nhật cuối | 2026-07-14 (vòng 34 CR-WF-RBAC-PROFILE-COVERAGE: đóng dead-gate persona `Spec User` ở `Gửi rà soát` bằng cách bổ sung role vào Role Profile "Trưởng phòng VT-TTBYT" (catalog-only, KHÔNG re-gate workflow JSON) + INVARIANT own-file `test_workflow_role_profile_coverage.py` reconcile transition-role ⊆ profile-catalog ∪ admin ∪ EXCEPTION{Vendor Engineer} trên 22 workflow — §IV.5, ADR-IMM02-03. Trước: vòng 24 CR-WF-02-SPEC surface 6 transition trung gian — BR-02-10, ADR-IMM02-02) |
 | Khối kiến trúc | A. KHỐI 1 |
 | Đợt triển khai | 2 |
 | Owner | PTP Khối 1 · Nhóm KH-TC |

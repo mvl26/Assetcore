@@ -259,7 +259,29 @@ File: `frontend/src/stores/imm01.ts` — **Đã implement.** Store ID: `'imm01'`
 | `fetchPlans(filters, page, pageSize)` | `list_procurement_plans` |
 | `fetchKpis()` | `dashboard_kpis` |
 
-> `getAllowedTransitions(name)` được gọi trực tiếp từ `NeedsRequestDetailView.vue` (không qua store) để refresh sau mỗi transition.
+> `getAllowedTransitions(name)` được gọi trực tiếp từ `NeedsRequestDetailView.vue` (không qua store) để refresh danh sách nút **generic** sau mỗi transition. **CTA Phê duyệt / Bác đề xuất KHÔNG dùng call này** — gate theo field `allowed_transitions` embed sẵn trong payload `get_needs_request` (xem §III.a).
+
+### §III.a Server-driven CTA gating — Phê duyệt / Bác đề xuất (GATE-8 / LL-FE-51)
+
+**Vấn đề (dead-gate):** `NeedsRequestDetailView.vue` hiện gate 2 nút Phê duyệt/Bác đề xuất bằng
+`isBoardApprover = hasAnyRole([DEPT_HEAD, OPS_MANAGER]) || isSystemAdmin`. Nhưng workflow
+`Pending Approval → Approved/Rejected` chỉ cho **`Procurement Manager` · `AssetCore Super Admin` · `System Manager`**
+(SSoT `fixtures/workflow.json`). Hai tập role LỆCH nhau ⇒:
+- `Procurement Manager` (người duyệt thật) KHÔNG khớp `isBoardApprover` → **không thấy nút** (bug).
+- `Dept Head`/`Ops Manager` khớp `isBoardApprover` → **thấy nút nhưng bấm bị 403** (false-permissive).
+
+**Fix — gate theo `allowed_transitions` do BE emit (đối xứng `ProcurementPlanDetailView.canDo`):**
+
+```ts
+// currentDoc.allowed_transitions: string[]  (từ get_needs_request payload)
+const canApprove = computed(() => (currentDoc.value?.allowed_transitions ?? []).includes('Phê duyệt'))
+const canReject  = computed(() => (currentDoc.value?.allowed_transitions ?? []).includes('Bác đề xuất'))
+```
+
+**Ràng buộc (Boundaries):**
+- **Always**: nút Phê duyệt render khi `canApprove`, nút Bác đề xuất render khi `canReject`; `allowed_transitions` lấy từ payload `get_needs_request` (không call thứ 2 → không flash); action-string khớp **EXACT** workflow.json (`'Phê duyệt'`, `'Bác đề xuất'`); `?? []` phòng khi BE chưa reload (payload thiếu field → 0 nút, KHÔNG crash).
+- **Never**: tham chiếu `isBoardApprover` / role-list (`Roles.DEPT_HEAD`, `Roles.OPS_MANAGER`) HAY literal `workflow_state === 'Pending Approval'` để gate 2 CTA này (grep `NeedsRequestDetailView.vue` phải SẠCH cả `isBoardApprover` lẫn `'Pending Approval'` cho 2 nút). `canApproveReject` cũ bị thay bằng `canApprove`/`canReject`.
+- **Regression**: type `NeedsRequestDoc` (`types/imm01.ts`) thêm `allowed_transitions?: string[]`; FE vitest `needsRequestDetailCtaGating.test.ts` (đối xứng `procurementPlanCtaGating.test.ts`) phủ 3 case: allowed chứa action → nút hiện; allowed `[]` → nút ẩn; payload thiếu field → 0 nút, không crash.
 
 ---
 

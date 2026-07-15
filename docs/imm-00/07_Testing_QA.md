@@ -478,6 +478,7 @@ File: `assetcore/tests/test_imm00_list_assets.py` (live). Envelope `{success, da
 | Happy `create_asset` + envelope `success=true` | `api/imm00.create_asset` | success, name set | Use Case | ⬜ Planned |
 | Permission `list_assets` low-role | `api/imm00.list_assets` | scope filter (chỉ asset gán) | EP (permission) | ⬜ Planned (xem Security VI.6) |
 | `transition_status` invalid → error | `api/imm00.transition_status` | error envelope | Error guessing | ⬜ Planned |
+| `transition_status` authz 3-lớp (`asset.write`+IDOR) | `api/imm00.transition_status` | 403 cap / 403 vendor / 403-not-404 / happy | EP + security | ⬜ Planned (xem §III.6.0e-TRANSITIONAUTHZ) |
 | `verify_chain` | `api/imm00.verify_chain` | `{verified, count, last_hash}` | Use Case | ⬜ Planned |
 
 ### III.6.0b — D6 (EXECUTED Vòng 3): TÁCH cap in/rotate `asset.print` + `asset.qr.rotate` (ADR-IMM00-QR-SCAN-ACTION)
@@ -511,6 +512,25 @@ File BE: class `TestLabelWriteCapability` + `TestRegenerateQrToken` (`assetcore/
 | `assetListBatchSelect.test.ts` (D6) | mock caps `{asset.read:true}` (KHÔNG print) | nút "In nhãn hàng loạt" KHÔNG render |
 | `routeAccess.test.ts` (D6) | guard `AssetLabelPrint` với caps `{asset.read:true}` | unauthorized; `{asset.print:true}` → allow |
 | `assetDetailRbacAffordance.test.ts` (D6) | caps `{asset.print:true}` only | "In nhãn QR" hiện, "Sinh lại mã QR"/"Chỉnh sửa" ẩn (least-privilege) |
+
+### III.6.0e-TRANSITIONAUTHZ — Vòng 39 / CR-WF-00-TRANSITION-AUTHZ: gate `asset.write` + IDOR tầng endpoint cho `transition_status` (BR-00-57 / FR-00-108)
+
+File BE: class MỚI `TestTransitionStatusAuthz` (`assetcore/tests/test_imm00.py`). **Template parity:** mirror get_asset cap-gate tests (`test_imm00.py:6139+` — `rbac.require('asset.read')` ĐẦU TIÊN, no existence-oracle) + write-cap+IDOR pattern (`:6856+`). Đo QUA layer `require`/`assert_vendor_can_access` với **user THẬT** (cấp/không-cấp DocPerm write trên AC Asset qua Role/Custom DocPerm + `frappe.set_user`). **KHÔNG** `monkeypatch rbac.require`/`frappe.has_permission` (chống false-green). RED-first: viết test TRƯỚC khi thêm gate (assert đổi được trạng thái = RED), thêm gate → GREEN.
+
+**Acceptance — `bench --site miyano run-tests --module assetcore.tests.test_imm00` (authz) + `test_imm08`/`test_imm09` (regression) `Ran N OK` THẬT** (đọc số thật, KHÔNG marker-trust). `CAP_SET_VERSION` GIỮ (0 cap mới). ⚠️ `api/imm00.py` reload-gated (gunicorn --preload) — HTTP-live BLOCKED (HARD-STOP user); gate hợp lệ = `bench run-tests` fresh-import + code-audit thứ-tự-lớp.
+
+| TC (BE) | Kịch bản (user THẬT, qua layer thật) | Verify | AC |
+|---|---|---|---|
+| `test_transition_no_write_cap_403_no_mutation` | user KHÔNG DocPerm `asset.write` (base `AssetCore System User`) POST `transition_status(asset, to_status)` | `frappe.PermissionError` (**403 status-line**); `frappe.db.get_value(asset,'lifecycle_status')` trước==sau (bất biến) | AC1 |
+| `test_transition_vendor_out_of_scope_403_no_mutation` | Vendor Engineer CÓ `asset.write` nhưng asset NGOÀI scope (không PM/CM WO giao) | `ServiceError`→`_err` `error_code=FORBIDDEN`; `lifecycle_status` bất biến | AC2 |
+| `test_transition_no_cap_nonexistent_asset_403_not_404` | user thiếu `asset.write` + `name` KHÔNG tồn tại | **403 KHÔNG 404** (rbac.require chạy TRƯỚC `frappe.db.exists` — no existence-oracle) | AC3 |
+| `test_transition_write_holder_happy_path` | Administrator/Super Admin (write=1) + in-scope + transition hợp state-machine (vd Commissioned→Active) | `_ok {name, lifecycle_status}`; ĐÚNG 1 Asset Lifecycle Event + 1 IMM Audit Trail `event_type='State Change'` | AC4 |
+| `test_transition_service_still_perm_free` | gọi THẲNG service `transition_asset_status(asset, to, actor=KTV)` bằng user KTV KHÔNG write | success (KHÔNG raise) — gate CHỈ ở endpoint | AC5 |
+| `test_cap_write_binding_unchanged` | white-box | `CAPABILITY_MAP['asset.write'] == ('AC Asset','write')`; `CAP_SET_VERSION` KHÔNG đổi (0 cap mới) | dead-gate guard |
+
+**Regression (PHẢI GREEN):** `test_imm08` (PM WO-complete → asset Active/Under Maintenance) + `test_imm09` (Repair WO-complete → Under Repair/Active/Completed) — các luồng gọi thẳng service, KHÔNG qua endpoint ⇒ gate endpoint KHÔNG chạm (AC5). `test_imm00` transition cũ (`:297/:1061/:2028` gọi service `actor="Administrator"`) GIỮ XANH.
+
+> **KHÔNG test false-green:** test tạo user thật + cấp/không-cấp DocPerm `write` trên `AC Asset` (Role/Custom DocPerm), `frappe.set_user(...)`, rồi gọi endpoint. Gate đi đúng đường `require("asset.write")`→`can`→`frappe.has_permission("AC Asset","write")`; IDOR đúng đường `assert_vendor_can_access`. KHÔNG mock.
 
 ### III.6.0c — Vòng 22 / B-6: Cap batch nhãn QR — 413 payload-DoS (ADR-001 D3/D4, BR-00-33)
 
@@ -1605,3 +1625,197 @@ Logging convention (mọi service function): `[function_name] key=value ... DONE
 - [ ] Lighthouse ≥ target — chưa chạy
 - [ ] Bundle size ≤ budget — chưa đo
 - [ ] Screenshot báo cáo gắn vào file 09 — chưa có
+
+---
+
+## XII. INVARIANT — Reconcile lifecycle map ⇄ workflow (CR-WF-00-LIFECYCLE, Vòng 32)
+
+> **File:** `assetcore/tests/test_imm00.py`. Spec đầy đủ: [`04_Backend_Design.md §II.1.7-RECON`](./04_Backend_Design.md) + **ADR-IMM00-LIFECYCLE-SM**. Chạy: `bench --site miyano run-tests --module assetcore.tests.test_imm00`. Guard bất-biến chống drift SSoT `_VALID_ASSET_TRANSITIONS` ⇄ `ac_asset_lifecycle_workflow.json` ⇄ `fixtures/workflow.json`.
+
+**SSoT khai trong test (đối xứng precedent `test_imm06.py::_SESSION_EXCEPTION_EDGES`):**
+```python
+EXCEPTION_EDGES = frozenset({
+    ("Draft", "Decommissioned"), ("Commissioned", "Decommissioned"),
+    ("Under Maintenance", "Decommissioned"), ("Under Repair", "Decommissioned"),
+    ("Calibrating", "Decommissioned"),
+})  # 5 cạnh — TẤT CẢ →Decommissioned
+```
+
+### TC-00-WF-RECON-01 — `test_asset_lifecycle_map_matches_workflow` (INVARIANT chính)
+Đọc TRỰC TIẾP `ac_asset_lifecycle_workflow.json` (KHÔNG hardcode danh sách cạnh). Build `wf_pairs = {(t["state"], t["next_state"])}`, `map_pairs = {(s, nxt) for s, nexts in _VALID_ASSET_TRANSITIONS.items() for nxt in nexts}`. Assert **edge-by-edge**:
+- `map_pairs − wf_pairs == EXCEPTION_EDGES` — mọi cạnh map-không-surface PHẢI được giải trình (0 cạnh drift không giải trình). Tương đương công thức acceptance: `∀ state s: set(_VALID_ASSET_TRANSITIONS[s]) − {e[1] for e in EXCEPTION_EDGES if e[0]==s} == wf_codomain[s]`.
+- `wf_pairs − map_pairs == set()` — 0 cạnh workflow mồ côi (mọi CTA Desk ⊆ map; không có nút Desk dẫn tới transition state-machine cấm).
+- `len(wf["states"]) == 8` và `{s["state"] for s in wf["states"]} == {AssetStatus.<8 giá trị>}` — grounding count (8 state workflow == 8 member `AssetStatus` enum, constants.py:88-95).
+- 2 cạnh SURFACE (`Commissioned→Out of Service`, `Under Maintenance→Out of Service`) mỗi cạnh PHẢI có transition với `allowed ∈ {AssetCore Super Admin, System Manager}` (đủ cả 2 role).
+- (anti-drift nhãn) mọi `t["action"]` ∈ tập action-label đã khai.
+
+**RED-before (BẮT BUỘC demo THẬT):** gỡ 4 transition object mới khỏi `ac_asset_lifecycle_workflow.json` → `map_pairs − wf_pairs` = **7 cạnh** ≠ `EXCEPTION_EDGES` (5) → assert đầu FAIL, in đúng 2 cạnh thiếu surface `{(Commissioned, Out of Service), (Under Maintenance, Out of Service)}`. Restore → GREEN.
+
+### TC-00-WF-RECON-02 — `test_lifecycle_workflow_source_matches_fixture` (lockstep parity)
+Source JSON (`assetcore/assetcore/workflow/ac_asset_lifecycle_workflow.json`) ⇄ block `AC Asset Lifecycle` trong `assetcore/fixtures/workflow.json`. Assert:
+- edge-set distinct BẰNG NHAU 2 file (`{(state,next_state)}` source == fixtures) — fresh-install `_sync_workflows` parity.
+- Với mỗi cạnh SURFACE + mọi cạnh cũ: coverage role `AssetCore Super Admin` của source == fixtures (không lệch role admin-override — nếu workflow gains edges thì fixtures cũng phải có, kèm Super Admin).
+
+**RED-before:** thêm cạnh vào source mà KHÔNG thêm vào fixtures → edge-set lệch → FAIL.
+
+### TC-00-WF-RECON-03 — `test_is_valid_asset_transition_reflects_neg09` (helper ⇄ guard)
+- Assert `is_valid_asset_transition(s, "Decommissioned") == False` với `s ∈ {Under Maintenance, Under Repair, Calibrating}` (helper phản ánh NEG-09).
+- Assert `is_valid_asset_transition("Draft","Decommissioned") == True` và `("Commissioned","Decommissioned") == True` (KHÔNG NEG-09; chặn ở IMM-14 gate lớp DB, ngoài phạm vi helper thuần).
+- Assert cạnh →Under Repair KHÔNG đổi (regression guard cho `test_imm09.py:431` + `imm09.py:1309`): `("Active","Under Repair")`, `("Under Maintenance","Under Repair")`, `("Out of Service","Under Repair")` vẫn `True`; `("Draft","Under Repair")` vẫn `False`.
+
+**RED-before:** trên code hiện tại (helper CHƯA vá) `is_valid_asset_transition("Under Maintenance","Decommissioned")` trả `True` → assert đầu FAIL → GREEN sau khi thêm nhánh NEG-09 vào helper.
+
+### TC-00-WF-SURFACE — `allowed_transitions` server-driven get_asset + FE render (CR-WF-00-LIFECYCLE-SURFACE, Vòng 41 / FR-00-109 / BR-00-58) — **NEW**
+
+> Spec: [`04_Backend_Design.md §II.1.7-SURFACE + ADR-IMM00-LIFECYCLE-SURFACE`](./04_Backend_Design.md) + [`05_API_Specification.md §get_asset`](./05_API_Specification.md). File BE `test_imm00.py`, FE `assetDetailTransitionAuthz.test.ts` + `AssetDetailView.test.ts`.
+
+**TC-00-WF-SURFACE-01 — `_surfaceable_asset_transitions` DRIVER cho reconcile-test (single-SSoT, no 2nd copy):** Trong `TC-00-WF-RECON-01` (`test_asset_lifecycle_map_matches_workflow`) THAY biểu thức inline `set(nexts) − exc_codom` bằng gọi `_surfaceable_asset_transitions(s)` → assert `_surfaceable_asset_transitions(s) == sorted(wf_codomain[s])` cho mọi state `s`. Chứng minh helper PURE = Desk workflow codomain (GỒM 2 cạnh Thanh lý `Active/Out of Service → Decommissioned`). *(Không tạo bản-sao-thứ-2 bảng transition — dẫn xuất từ `_VALID_ASSET_TRANSITIONS` + `_LIFECYCLE_EXCEPTION_EDGES`.)*
+
+**TC-00-WF-SURFACE-02 — `asset_allowed_transitions` khớp SSoT + BẤT-VARIANT no-Decommissioned (pure, cap=True):** với caller CÓ `asset.write` (test-user Administrator/Super Admin, `frappe.set_user`), assert `asset_allowed_transitions(s)` **BẰNG NHAU** với `sorted(_VALID_ASSET_TRANSITIONS[s] − {tất cả cạnh →Decommissioned})` cho cả 8 status (đối chiếu bảng 8-status 04 §II.1.7-SURFACE — KHÔNG hardcode expected list, tính từ SSoT). Assert **`'Decommissioned' not in asset_allowed_transitions(s)` cho MỌI `s`** (BẤT-VARIANT). Assert `asset_allowed_transitions("Decommissioned") == []` (terminal). **RED-before:** nếu helper chỉ `− _LIFECYCLE_EXCEPTION_EDGES` (không loại-hẳn-Decommissioned) → `asset_allowed_transitions("Active")` CHỨA `Decommissioned` → assert BẤT-VARIANT FAIL.
+
+**TC-00-WF-SURFACE-03 — capability filter (read-only → []):** user THẬT có DocPerm `read` NHƯNG KHÔNG `write` trên AC Asset (`frappe.set_user` + Role/Custom DocPerm — KHÔNG monkeypatch `rbac.can`) → `asset_allowed_transitions(s) == []` cho MỌI status. User có `asset.write` → subset đúng (TC-02). Mirror precedent test `firmware_allowed_transitions`.
+
+**TC-00-WF-SURFACE-04 — `get_asset` emit field:** GET `get_asset(name)` với asset ở status non-terminal + caller có `asset.write` → response chứa key `allowed_transitions` = list đúng theo status (subset, sorted, no Decommissioned). Caller read-only → `allowed_transitions == []`. (Parity 2 cờ overdue: field dẫn-xuất, KHÔNG lưu DB.)
+
+**TC-00-WF-SURFACE-05 — FE vitest (server-driven, no hardcode):**
+- `AssetDetailView.test.ts` / `assetDetailTransitionAuthz.test.ts`: mock `store.currentAsset.allowed_transitions` → nút "→ <state>" render **đúng bằng** list mock (KHÔNG phụ thuộc `lifecycle_status` thô, KHÔNG phụ thuộc bảng hardcode đã xóa). Cập nhật mock `currentAsset` (`lifecycle_status: 'Active'`) THÊM `allowed_transitions: ['Under Maintenance','Under Repair','Calibrating','Out of Service']`.
+- T6 (affordance-leak guard, thay đổi contract): server `[]` (read-only) → `currentAsset.allowed_transitions = []` → **KHÔNG render** nút →state nào (block ẩn theo `allowed_transitions?.length`). *(Chứng minh gate chuyển từ client-cap sang server-field; capability filter chứng minh ở BE TC-03.)*
+- Happy-path + FE-2 (403 → `notify.fromError`) của CR-WF-00-TRANSITION-AUTHZ (Vòng 39) GIỮ NGUYÊN (endpoint `transition_status` vẫn gate server).
+- Guard chống tái phạm: `grep`/AST khẳng định `AssetDetailView.vue` KHÔNG còn `const TRANSITIONS` (0 bảng transition hardcode FE).
+- `vue-tsc --noEmit` sạch (type `AcAsset.allowed_transitions?` mới).
+
+### DoD (không regression 8 file tham chiếu map)
+`bench --site miyano run-tests` cho `imm00 / imm08 / imm09 / imm11 / imm14 / test_depreciation_oos` → `Ran N OK` THẬT (đọc dòng cuối). Chuỗi phải còn hợp lệ: CM `Cannot Repair`→`Out of Service`→`Decommission` (qua IMM-14) · PM `Under Maintenance`→`Active` · Cal→`Active`. 8 file tham chiếu map: `test_imm00, test_imm00_smoke, test_imm08, test_imm09, test_imm11, test_imm14, test_depreciation_oos, _asset_cleanup`. **KHÔNG** `git commit/push`; **KHÔNG** `bench migrate` (đổi workflow chỉ cần `reload_workflow`/backfill live — HARD-STOP user duyệt working tree).
+
+> **DoD bổ sung Vòng 41 (CR-WF-00-LIFECYCLE-SURFACE):** BE `bench --site miyano run-tests test_imm00` (`Ran N OK` — gồm reconcile TC-00-WF-RECON-01 nay driven bởi `_surfaceable_asset_transitions` + TC-00-WF-SURFACE-01..04 + guards R32/R39 cũ). FE `npm test` (vitest) `AssetDetailView` + `assetDetailTransitionAuthz.test.ts` XANH + `vue-tsc --noEmit` sạch. `⚠️ api/imm00.py + services/imm00.py` edit ⇒ gunicorn reload để LIVE (HARD-STOP user); `bench run-tests` fresh-import KHÔNG cần reload. Guard: `AssetDetailView.vue` KHÔNG còn `const TRANSITIONS` (0 bảng transition hardcode FE).
+
+## XIII. TRANSFER-AUTHZ — gate `confirm_receipt` + server-driven CTA flags (CR-WF-00-TRANSFER-AUTHZ, Vòng 48 / FR-00-TRF-02 / BR-00-TRF-02)
+
+> Spec: 04 §II.1.13-TRANSFERAUTHZ / ADR-IMM00-TRANSFER-AUTHZ · 05 §III.12-AUTHZ · 06 §II.3a-TRANSFERAUTHZ. Test file: `assetcore/tests/test_imm00.py` (BE) + `AssetTransferDetailView` vitest (FE).
+
+### TC-00-TRF-AUTHZ-01 — RED-first: base user KHÔNG có cap receive → `confirm_receipt` raise PermissionError (đóng lỗ P1)
+- **Setup**: phiếu `Asset Transfer` status `Approved`; `frappe.set_user(<base AssetCore System User, KHÔNG Commissioning role>)`.
+- **Assert**: `receive_transfer(name)` / `confirm_receipt(name)` → `self.assertRaises(frappe.PermissionError)`. **Trước fix** = xác nhận THÀNH CÔNG (status→Received) = **false-pass** ⇒ test RED trước, GREEN sau khi thêm `rbac.require(_TRANSFER_RECEIVE_CAP)`.
+- **Đối chiếu**: status VẪN `Approved` (KHÔNG bị đổi), 0 audit `Transfer`, 0 lifecycle `transferred` sinh ra khi bị chặn.
+
+### TC-00-TRF-AUTHZ-02 — happy-path: user CÓ cap receive → confirm_receipt thành công (giữ hành vi)
+- **Setup**: phiếu `Approved`; user role có DocPerm write Asset Commissioning (vd Commissioning User — `write=1`).
+- **Assert**: `confirm_receipt(name, handover_notes="ok")` → `status=='Received'` ∧ `received_by==session.user` ∧ 1 audit `event_type=='Transfer'` ∧ 1 lifecycle `event_type=='transferred'` ∧ `handover_notes` lưu. (Regression happy-path — KHÔNG đổi.)
+
+### TC-00-TRF-AUTHZ-03 — server-driven flags `get_transfer_full` fail-closed cho base user
+- **Setup**: base user (không cap). Phiếu-P `Pending Approval`, phiếu-A `Approved`.
+- **Assert**: `get_transfer_full(P)["data"]` → `can_approve==0 ∧ can_receive==0`; `get_transfer_full(A)["data"]` → `can_approve==0 ∧ can_receive==0` (fail-closed cả 2 dù state khớp). Khóa `can_approve`/`can_receive` PRESENT (int, KHÔNG thiếu key).
+
+### TC-00-TRF-AUTHZ-04 — flags cấp đúng khi CÓ cap + state khớp
+- **Setup**: user Commissioning Manager (write=1, submit=1).
+- **Assert**: `get_transfer_full(P)["data"]["can_approve"]==1` (Pending + submit); `get_transfer_full(A)["data"]["can_receive"]==1` (Approved + write). Cross-check state-gate: phiếu `Received`/`Rejected` → cả 2 flag `0` (sai state dù có cap). Commissioning User (write=1/submit=0) trên phiếu-A → `can_receive==1 ∧ can_approve==0` (least-privilege).
+
+### TC-00-TRF-AUTHZ-05 — regression: enrich/pagination 5 TC (test_imm00 ~585-672) VẪN xanh
+- TC-1..TC-5 (`test_list_transfers_enriches_*` / `test_get_transfer_detail_enriches_names` / N+1 guard / pagination total) KHÔNG đỏ: `get_transfer_full` thêm 2 int-key `can_approve`/`can_receive` là **additive** (TC-3 assert 6 `*_name` + success, KHÔNG assert absence). `get_transfer` KHÔNG đổi (byte-identical). approve/reject VẪN `rbac.require(_TRANSFER_APPROVE_CAP)`.
+
+### TC-00-TRF-AUTHZ-06 (FE vitest) — gate 3 nút CTA + fail-closed
+- Xem 06 §II.3a-TRANSFERAUTHZ test-block: `can_receive:1`→nút "Xác nhận tiếp nhận" hiện, `:0`→ẩn; `can_approve:1`→Phê duyệt/Từ chối hiện, `:0`→ẩn nhưng "Hủy phiếu" GIỮ; flag vắng→0 nút CTA. `vue-tsc --noEmit` sạch.
+
+### DoD (TRANSFER-AUTHZ)
+`bench --site miyano run-tests test_imm00` → `Ran N OK` THẬT (TC-00-TRF-AUTHZ-01..05 + 5 enrich/pagination cũ + suite hiện có). FE `npm test` (vitest `AssetTransferDetailView`) XANH + `vue-tsc --noEmit` sạch. **⚠️ NEW `rbac.require` trong `services/imm00.py`** ⇒ gunicorn reload để LIVE (HARD-STOP user); `bench run-tests` fresh-import KHÔNG cần reload. **0 migrate** (`commissioning.write` đã có → 0 CAP_SET_VERSION bump). **KHÔNG** `git commit/push`. Mobile OAS `test_mobile_oas.py` GIỮ XANH (403 shape KHÔNG đổi — xem 05 §III.12-AUTHZ ⚠️ Mobile drift; cập nhật description = backlog mobile-BE, không blocking).
+
+## XIV. TRANSFER-CANCEL-AUTHZ — gate `cancel_transfer_request` + audit-on-cancel + flag `can_cancel` (CR-WF-00-CANCEL-AUTHZ, Vòng 41 / FR-00-TRF-03 / BR-00-TRF-03)
+
+> Spec: 04 §II.1.13-CANCELAUTHZ / ADR-IMM00-CANCEL-AUTHZ · 05 §III.12-CANCELAUTHZ · 06 §II.3a-CANCELAUTHZ. Test file: `assetcore/tests/test_imm00.py` (BE — class MỚI `TestTransferCancelAuthz`, mirror `TestTransferReceiveAuthzAndFlags` `:690`) + `assetTransferDetailCtaGate.test.ts` (FE). Helper tái dùng `_mk_transfer(status)` / `_mk_user(email, roles)` từ class receive.
+
+### TC-00-TRF-CANCEL-01 — RED-first: base user KHÔNG có cap → `cancel_transfer_request` raise PermissionError (đóng lỗ P1 missing-authz)
+- **Setup**: phiếu `Asset Transfer` status `Pending Approval`; `frappe.set_user(<base AssetCore System User, KHÔNG Commissioning role>)`.
+- **Assert**: `cancel_transfer_request(name)` → `self.assertRaises(frappe.PermissionError)`. **Trước fix** = hủy THÀNH CÔNG (status→Cancelled) = **lỗ hổng thật / false-pass** ⇒ test RED trước, GREEN sau khi thêm `rbac.require(_TRANSFER_CANCEL_CAP)`.
+- **Đối chiếu**: status VẪN `Pending Approval` (KHÔNG bị đổi khi bị chặn).
+
+### TC-00-TRF-CANCEL-02 — happy-path: user CÓ cap hủy phiếu Pending & Rejected → Cancelled + ĐÚNG 1 audit chứa 'Hủy' (đóng lỗ P1 silent-audit-loss)
+- **Setup**: 2 phiếu — P1 `Pending Approval`, P2 `Rejected`; user Commissioning User (`write=1`, `submit=0`).
+- **Assert**: `cancel_transfer_request(P1)` → `{name, status=='Cancelled'}` ∧ `db status=='Cancelled'`; tương tự `P2` (Rejected → Cancelled). **Audit**: mỗi lần hủy sinh **ĐÚNG 1** `IMM Audit Trail` với `{ref_doctype:'Asset Transfer', ref_name:P1, event_type:'Transfer'}` ∧ `change_summary` chứa `'Hủy'` (`frappe.db.count` == 1, KHÔNG 0/2). **Trước fix** = 0 dòng audit ⇒ assert RED trước, GREEN sau khi thêm `log_audit_event`.
+
+### TC-00-TRF-CANCEL-03 — ordering exists→require→status: NOT-FOUND vs 403 KHÔNG rò trạng thái
+- **Setup**: base user (không cap). (a) tên phiếu KHÔNG tồn tại; (b) phiếu CÓ tồn tại status `Approved` (sai-status-để-hủy).
+- **Assert**: (a) `cancel_transfer_request('AT-KHONG-TON-TAI')` → `self.assertRaises(frappe.exceptions.ValidationError)` (NOT-FOUND, existence-check TRƯỚC rbac — KHÔNG phải PermissionError). (b) `cancel_transfer_request(<Approved>)` → `self.assertRaises(frappe.PermissionError)` (rbac TRƯỚC status-check ⇒ base user KHÔNG chạm thông báo "Chỉ có thể hủy phiếu Pending/Rejected" ⇒ KHÔNG rò trạng thái); status VẪN `Approved`.
+
+### TC-00-TRF-CANCEL-04 — server-driven `can_cancel` fail-closed cho base user + state-gate cho user có cap
+- **Setup**: base user + Commissioning User. Phiếu ở 5 status: Pending Approval / Rejected / Approved / Received / Cancelled.
+- **Assert**: base user → `get_transfer_full(t)["data"]["can_cancel"]==0` ở **MỌI** status (fail-closed; key PRESENT int). Commissioning User → `can_cancel==1` CHỈ khi status∈{Pending Approval, Rejected}; `==0` ở Approved/Received/Cancelled (state-gate dù có cap).
+
+### TC-00-TRF-CANCEL-05 — regression: flags receive/approve + suite Vòng 48 VẪN xanh
+- `get_transfer_full` thêm khóa `can_cancel` là **additive** → TC-00-TRF-AUTHZ-01..05 (receive/approve flags) KHÔNG đỏ (assert theo key cụ thể, KHÔNG assert absence). `approve/reject/confirm_receipt` gate GIỮ NGUYÊN. `get_transfer`/`list_transfers` byte-identical (KHÔNG có `can_cancel`).
+
+### TC-00-TRF-CANCEL-06 (FE vitest) — gate nút "Hủy phiếu" theo can_cancel + fail-closed
+- Xem 06 §II.3a-CANCELAUTHZ test-block: `{status:'Pending Approval', can_cancel:1}`→nút `cta-cancel` hiện; `{...can_cancel:0}`→ẩn + hint; `{status:'Rejected', can_cancel:1}`→hiện; flag vắng→fail-closed ẩn. **Cập nhật 2 assert cũ** (`cta-cancel` true khi `can_approve:0`) → phụ thuộc `can_cancel`. `vue-tsc --noEmit` sạch.
+
+### DoD (TRANSFER-CANCEL-AUTHZ)
+`bench --site miyano run-tests test_imm00` → `Ran N OK` THẬT (TC-00-TRF-CANCEL-01..05 + TC-00-TRF-AUTHZ-01..05 Vòng 48 + suite hiện có). FE `npm test` (vitest `assetTransferDetailCtaGate`) XANH + `vue-tsc --noEmit` sạch. **⚠️ NEW `rbac.require` + `log_audit_event` trong `cancel_transfer_request` (`services/imm00.py`)** ⇒ gunicorn reload để LIVE (HARD-STOP user); `bench run-tests` fresh-import KHÔNG cần reload. **0 migrate** (`commissioning.write` đã có → 0 CAP_SET_VERSION bump). **KHÔNG** `git commit/push`. `delete_transfer` + `get_transfer_full` KHÔNG có trong mobile OAS ⇒ `test_mobile_oas.py` KHÔNG bị chạm (0 mobile drift).
+
+## XIV-EDIT. TRANSFER-EDIT-AUTHZ — gate `update_transfer` (endpoint-level) + flag `can_edit` (CR-WF-00-EDIT-AUTHZ, Vòng 46 / FR-00-TRF-04 / BR-00-TRF-04)
+
+> Spec: 04 §II.1.13-EDITAUTHZ / ADR-IMM00-EDIT-AUTHZ · 05 §III.12-EDITAUTHZ · 06 §II.3a-EDITAUTHZ. Test file: `assetcore/tests/test_imm00.py` (BE — class MỚI `TestTransferEditAuthz`, mirror `TestTransferReceiveAuthzAndFlags` / `TestTransferCancelAuthz`) + vitest `AssetTransferDetailView`. Helper tái dùng `_mk_transfer(status)` / `_mk_user(email, roles)`.
+>
+> **⚠️ Testing detail:** `update_transfer` là ENDPOINT đọc payload sửa từ `frappe.local.form_dict` (qua `_generic_update`). Test set `frappe.local.form_dict = frappe._dict({"reason": "...", "to_department": "...", ...})` TRƯỚC khi gọi `update_transfer(name)`. Cap-fail → `rbac.require` **raise** `frappe.PermissionError` (propagate, KHÔNG try/except) ⇒ `assertRaises`. Status-fail/not-found → **return dict envelope** `{success:False, http_status:422|404}` (HTTP-200 wire) ⇒ assert `resp["http_status"]`.
+
+### TC-00-TRF-EDIT-01 — RED-first: user chỉ `inventory.read` (KHÔNG `commissioning.write`) → `update_transfer` phiếu Pending raise PermissionError (đóng lỗ P1 custody-hole)
+- **Setup**: phiếu `Asset Transfer` status `Pending Approval`; `frappe.set_user(<user role có inventory.read, KHÔNG DocPerm write Asset Commissioning>)`; `frappe.local.form_dict = frappe._dict({"reason": "sửa lý do", "to_department": "<khoa khác>"})`.
+- **Assert**: `update_transfer(name)` → `self.assertRaises(frappe.PermissionError)`. **Trước fix** = trả `{success:True}` + field `reason`/`to_department` đổi THẬT (re-fetch xác nhận) = **custody-hole / false-pass** ⇒ test RED trước, GREEN sau khi thêm `rbac.require(_TRANSFER_EDIT_CAP)`.
+- **Đối chiếu**: field phiếu (`reason`/`to_department`) VẪN GIÁ TRỊ CŨ (KHÔNG bị đổi khi bị chặn) — re-fetch `frappe.db.get_value`.
+
+### TC-00-TRF-EDIT-02 — happy-path: user CÓ `commissioning.write` + phiếu Pending → 200 + field THẬT cập nhật (re-fetch xác nhận)
+- **Setup**: phiếu `Pending Approval`; user Commissioning User (`write=1`, `submit=0`); `frappe.local.form_dict = frappe._dict({"reason": "lý do mới", "to_department": "<khoa mới>", "notes": "ghi chú"})`.
+- **Assert**: `update_transfer(name)` → `resp["success"] is True`; **re-fetch** `frappe.db.get_value("Asset Transfer", name, ["reason","to_department","notes"])` == giá trị MỚI (field đích/khoa/người-nhận/ngày/lý do/ghi-chú THẬT cập nhật). (Regression happy-path — giữ hành vi `_generic_update`.)
+
+### TC-00-TRF-EDIT-03 — status-gate 422 GIỮ NGUYÊN cho user CÓ cap (KHÔNG bị rbac che thành 403)
+- **Setup**: user Commissioning User (`write=1`). 3 phiếu: `Approved`, `Received`, `Cancelled`; `frappe.local.form_dict = frappe._dict({"reason": "thử sửa"})`.
+- **Assert**: mỗi phiếu → `update_transfer(name)` return dict `resp["success"] is False` ∧ `resp["http_status"] == 422` ∧ message chứa `"Chỉ có thể chỉnh sửa phiếu đang Pending Approval"`. **KHÔNG** raise PermissionError (user CÓ cap → `rbac.require` không fire → chạm status-check → 422). field phiếu KHÔNG đổi.
+
+### TC-00-TRF-EDIT-04 — server-driven `can_edit` fail-closed + state-gate + parity invariant
+- **Setup**: base user (inventory.read) + Commissioning User (write=1). Phiếu ở 5 status: Pending Approval / Approved / Received / Rejected / Cancelled.
+- **Assert**: base user → `get_transfer_full(t)["data"]["can_edit"]==0` ở **MỌI** status (fail-closed; key PRESENT int). Commissioning User → `can_edit==1` CHỈ khi status=='Pending Approval'; `==0` ở Approved/Received/Rejected/Cancelled (state-gate dù có cap). **Parity invariant**: với session Commissioning User + phiếu Pending, `get_transfer_full["data"]["can_edit"]==1` ⇒ `update_transfer(name)` (cùng session, `form_dict` hợp lệ) → `success is True` KHÔNG raise PermissionError (button-affordance ⇔ action).
+
+### TC-00-TRF-EDIT-05 — ordering rbac-first (no existence-oracle) + regression additive
+- **Ordering**: base user (không cap) gọi `update_transfer('AT-KHONG-TON-TAI')` → `self.assertRaises(frappe.PermissionError)` (rbac-first: cap-403 TRƯỚC exists — no existence-oracle, mirror `transition_status`). user CÓ cap gọi `update_transfer('AT-KHONG-TON-TAI')` → return `{http_status:404}` (existence-check sau rbac).
+- **Regression**: `get_transfer_full` thêm khóa `can_edit` là **additive** → TC-00-TRF-AUTHZ-01..05 (receive/approve) + TC-00-TRF-CANCEL-01..05 (cancel) KHÔNG đỏ (assert theo key cụ thể, KHÔNG assert absence). `approve/reject/confirm_receipt/cancel` gate GIỮ NGUYÊN. `get_transfer`/`list_transfers` byte-identical (KHÔNG có `can_edit`).
+
+### TC-00-TRF-EDIT-06 (FE vitest) — `isEditable` ← `can_edit` + fail-closed
+- Xem 06 §II.3a-EDITAUTHZ test-block: `{status:'Pending Approval', can_edit:1}`→form editable + nút "Lưu thay đổi" hiện; `{...can_edit:0}`→form disabled + nút Lưu ẩn; `{status:'Pending Approval'}` (không key)→fail-closed read-only; `{status:'Approved', can_edit:0}`→read-only. `vue-tsc --noEmit` sạch.
+
+### DoD (TRANSFER-EDIT-AUTHZ)
+`bench --site miyano run-tests test_imm00` → `Ran N OK` THẬT (TC-00-TRF-EDIT-01..05 + TC-00-TRF-AUTHZ-01..05 Vòng 48 + TC-00-TRF-CANCEL-01..05 Vòng 41 + suite hiện có). FE `npm test` (vitest `AssetTransferDetailView`) XANH + `vue-tsc --noEmit` sạch. **⚠️ NEW `rbac.require` trong `api/imm00.py::update_transfer`** ⇒ gunicorn reload để LIVE (HARD-STOP user); `bench run-tests` fresh-import KHÔNG cần reload. **0 migrate** (`commissioning.write` đã có → 0 CAP_SET_VERSION bump). **KHÔNG** `git commit/push`. `update_transfer` + `get_transfer_full` KHÔNG có trong mobile OAS ⇒ `test_mobile_oas.py` KHÔNG bị chạm (0 mobile drift).
+
+## XV. FIXTURE-SRC-RECONCILE — bất-biến 2-chiều `fixtures/workflow.json` ⇄ 22 source `workflow/*.json` cho MỌI workflow (CR-WF-00-FXSRC-RECONCILE, Vòng 43 / FR-00-FXSRC / BR-00-FXSRC)
+
+> Spec thiết kế: [`04_Backend_Design.md §II.1.8-FXSRC + ADR-IMM00-WF-FXSRC-RECONCILE`](./04_Backend_Design.md). File test MỚI: `assetcore/tests/test_workflow_fixture_source_reconcile.py`. **0 file runtime `.py` đổi** (test-only) → 0 gunicorn reload, 0 `bench migrate`, KHÔNG commit.
+
+### Bối cảnh (đóng lỗ seed-drift 2-đường-cài-đặt)
+AssetCore có **2 đường seed workflow lệch nguồn** — drift 1-phía tái sinh **CÂM** bug "QTV không duyệt được" ở site cài mới:
+- **Fresh-install** `_sync_workflows()` (`setup/install.py:507-527`) `import_doc` từ thư mục **SOURCE** `assetcore/assetcore/workflow/*.json` (22 file).
+- **`bench migrate` / Frappe fixture-import** + `setup/backfill_workflow_admin.run` + MỌI invariant hiện có (`test_workflows.py` INV-A/B/C, `test_workflow_admin_override.py`, `test_workflow_admin_override_livedb.py`) đọc **FIXTURE** `assetcore/fixtures/workflow.json`.
+
+Guard hiện có `TC-00-WF-RECON-02` (§XII) chỉ reconcile **1 workflow** (AC Asset Lifecycle, edge-set `{(state,next_state)}`). `INV-C` (`test_workflows`) reconcile **transitions** cho 22 workflow (`{(state,action,next_state)→set(roles)}`) NHƯNG **KHÔNG so states** (`doc_status`/`allow_edit` có thể drift câm → đổi docstatus-envelope hoặc role-được-sửa-trong-state = họ hàng bug QTV) và **KHÔNG có meta-test RED-first** (guard no-op qua câm = false-green, META rule). Section này bổ sung 1 module hợp nhất, self-contained, KHÓA cả **states + edges (kèm `allowed`) + admin-override 2-phía**, và **tự chứng minh có răng**.
+
+### Đơn vị so sánh — projection tránh false-RED do export-artifact
+Source JSON **viết tay tối giản**; fixture là bản Frappe **export** (thêm field default + plumbing). So full-dict ⇒ false-RED hàng loạt. Chỉ so **projection load-bearing** (grounding: đối chiếu key-diff thực tế 22 file):
+- **STATE** (STRICT set-equal) = `(state, str(doc_status), allow_edit or "")`. LOẠI `type` (source-only — metadata Workflow-State master, KHÔNG phải field child Frappe enforce; fixture drop) + mọi plumbing fixture-only (`parent/parentfield/parenttype/workflow_builder_id/message/next_action_email_template/update_field/update_value/avoid_status_override/is_optional_state/send_email`).
+- **EDGE** (STRICT set-equal) = `(state, action, next_state, allowed or "")` — **INCLUDING `allowed`** ⇒ drift admin-override 1-phía = RED. LOẠI plumbing fixture-only (`parent*/workflow_builder_id/send_email_to_creator`). *(`condition`/`allow_self_approval` KHÔNG trong edge-identity Vòng 43 — parity INV-C; hardening riêng `[ROADMAP]`.)*
+- **HEADER check-field** = `{is_active, send_email_alert, override_status}` **normalize None↔0** trước so (source thiếu `override_status`→None; fixture=0 → benign, ĐÃ verify src=None vs fx=0). `norm0(v) = 0 if v in (None,'',0,'0',False) else 1`.
+- **Scope-filter fixture** về đúng 22 tên source TRƯỚC khi so (mirror `test_workflows._fixture_assetcore_workflows` — loại foreign multi-app mvl/antmed/workflowcore nếu tương lai lọt vào shared fixture). Hiện `fixtures/workflow.json` chứa ĐÚNG 22 Workflow AssetCore (đã verify) — filter là defensive.
+- **Admin role-set** = `import backfill_workflow_admin.ADMIN_ROLES` (SoT, KHÔNG hardcode — mirror `test_workflow_admin_override_livedb.ADMIN_SET`) ⇒ SoT đổi role-set thì guard tự bám.
+
+### Kiến trúc reconcile — RAISE-based để meta-test cắn được (chống no-op)
+Module có helper thuần trả `list[str]` drift cho từng lát + 1 hàm top-level `reconcile(source_map, fixture_map) -> None` gom drift 5 lát rồi `assert not drift, msg` ⇒ **RAISE `AssertionError`** khi có bất kỳ drift. 5 test-positive gọi helper-lát (`assertEqual(drift, [])` — thông điệp fail granular); 2 meta-test gọi `reconcile()` trên bản **deepcopy in-memory đã mutate** (KHÔNG persist ra file).
+
+| TC | Test method (INV) | Setup / Assert | Kỹ thuật |
+|---|---|---|---|
+| TC-00-FXSRC-01 | `test_name_set_parity` (INV-FXSRC-1) | `{workflow_name của 22 source}` == `{name của entry fixture scope}`; `len==22` cả 2. **0 workflow lệch 1-phía** (thêm/xoá 1 bên → RED, in `only_source`/`only_fixture`). | EP (set-equal) |
+| TC-00-FXSRC-02 | `test_states_parity_strict` (INV-FXSRC-2) | ∀ workflow: `state_set(source) == state_set(fixture)` với projection `(state, str(doc_status), allow_edit or "")`. STRICT. Drift → in `only_src`/`only_fix` state-tuple. **Đây là guard MỚI vs INV-C** (bắt `allow_edit`/`doc_status` drift). | EP (set-equal, STRICT) |
+| TC-00-FXSRC-03 | `test_edges_parity_including_allowed` (INV-FXSRC-3) | ∀ workflow: `edge_set(source) == edge_set(fixture)`, `edge = (state, action, next_state, allowed or "")`. STRICT, kèm `allowed`. | EP (set-equal, STRICT) |
+| TC-00-FXSRC-04 | `test_admin_override_both_sides` (INV-FXSRC-4) | ∀ transition-group `(state,action,next_state)` ở **CẢ** source **VÀ** fixture: `roles ⊇ {AssetCore Super Admin, System Manager}` (import `ADMIN_ROLES`). Chứng minh SOURCE (nguồn `_sync_workflows` dùng) KHÔNG thiếu quyền — không chỉ fixture. | EP (superset, 2-phía) |
+| TC-00-FXSRC-05 | `test_toplevel_checkfields_parity_normalized` | ∀ workflow: `{is_active, send_email_alert, override_status}` normalize None↔0 → source == fixture. **0 false-RED** do export-artifact (`override_status` src=None vs fx=0 → cả 2 =0). | EP (normalize + equal) |
+| TC-00-FXSRC-06 | `test_reconcile_raises_on_source_admin_strip` (INV-FXSRC-5a) | `deepcopy(source_map)`; gỡ `'System Manager'` khỏi `allowed` của 1 transition (hoặc drop row admin đó) → `with self.assertRaises(AssertionError): reconcile(mutated_source, fixture_map)`. Chứng minh admin-override + edge guard **cắn**. KHÔNG persist. | Mutation / RED-proof |
+| TC-00-FXSRC-07 | `test_reconcile_raises_on_fixture_phantom_edge` (INV-FXSRC-5b) | `deepcopy(fixture_map)`; append 1 phantom transition `(state,action,next_state,allowed)` mới vào 1 workflow → `with self.assertRaises(AssertionError): reconcile(source_map, mutated_fixture)`. Chứng minh edge-parity guard **cắn** 1-phía. KHÔNG persist. | Mutation / RED-proof |
+
+### DoD (FIXTURE-SRC-RECONCILE)
+- `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_workflow_fixture_source_reconcile` → **`Ran N OK` THẬT** (đọc dòng cuối), **N ≥ 5** (spec 7 method). GREEN trên trạng thái hiện tại (đã verify BA: name-set 22=22, states 0 drift, edges 0 drift, header check-field 0 drift sau normalize).
+- **RED-before (BẮT BUỘC demo THẬT)**: chạy TC-00-FXSRC-06/07 trên `reconcile()` CHƯA gom đủ lát (vd bỏ helper admin-override) → `assertRaises` FAIL (guard no-op) → thêm lát → GREEN. Chứng minh guard có răng, không nhận suông.
+- **Regression GREEN (không đỏ)**: `test_workflows` (INV-A/B/C), `test_workflow_admin_override`, `test_workflow_admin_override_livedb` — module MỚI là **ADDITIVE**, TUYỆT ĐỐI KHÔNG xoá/làm yếu guard cũ.
+- **0 file runtime `.py` đổi** → 0 gunicorn reload, 0 `bench migrate`, 0 CAP_SET_VERSION. **KHÔNG** `git commit/push`. Working tree để user review.

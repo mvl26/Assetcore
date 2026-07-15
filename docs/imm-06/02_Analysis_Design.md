@@ -79,7 +79,7 @@ Output: IMM User Competency (hồ sơ năng lực), IMM Competency Gap Report, A
 - 6 DocTypes: IMM Training Program, IMM Training Session, IMM Training Participant (child), IMM User Competency, IMM Competency Gap Report, IMM Competency Alert Log
 - 2 Workflow: Session (7 states), Competency (6 states)
 - 19 REST endpoints
-- 12 Business Rules (BR-06-01 → BR-06-12), 12 Validation Rules (VR-01 → VR-12)
+- 16 Business Rules (BR-06-01 → BR-06-16), 12 Validation Rules (VR-01 → VR-12)
 - 4 Scheduler jobs: check_competency_expiry (daily 02:00), auto_expire_competency (daily 02:30), check_recertification_due (daily 03:00), generate_competency_gap_report (weekly Mon 02:00)
 - Service layer `services/imm06.py` — xây mới hoàn toàn
 - Frontend: 14 routes Vue 3 + Pinia store `imm06Store.ts`
@@ -308,7 +308,19 @@ Scenario: Workflow transitions
   When instructor action "Bắt đầu"
   Then state → "In Progress"
   And email reminder gửi cho mọi participant
+
+Scenario: Bắt đầu thẳng từ Planned (Xác nhận là tùy chọn — ADR-IMM-06-02)
+  Given session ở "Planned"
+  And user có capability "training.write" (canConduct)
+  Then get_session.allowed_transitions chứa "In Progress"
+  And nút "Bắt đầu" HIỂN THỊ
+  When instructor action "Bắt đầu"
+  Then start_session KHÔNG throw, state → "In Progress"
 ```
+
+**Boundaries (Vòng 7 — CTA workflow Session; reconcile invariant Vòng 28):**
+- **Always**: gate 6 CTA bằng `allowed_transitions` (SSoT `_SESSION_VALID_TRANSITIONS`) **AND** capability; máy trạng thái enforce ở service guard (không qua Frappe Workflow JSON); mọi transition sinh audit (`_log_competency_audit`); giữ invariant map ⇄ `imm_06_session_workflow.json` `symmetric_difference == _SESSION_EXCEPTION_EDGES == frozenset()` (04 §VI.1b — Vòng 28).
+- **Never**: hardcode `state==='X'` để gate CTA (dead-gate, GATE-8/LL-FE-51); dùng `allowed_transitions` thay cho gate quyền; cho Huỷ từ **In Progress/Completed/Verified/Closed** (BR-06-12 — chỉ Hủy ở Planned/Confirmed; Self-Correction Vòng 28); sửa `imm_06_session_workflow.json` (map đã khớp hệt JSON → giữ admin-override 10/10 + 0 migrate); để map[state] drift khỏi guard service HOẶC workflow JSON (2 invariant test chặn merge).
 
 ### US-06-04 — Chấm điểm & Complete Session
 
@@ -474,6 +486,48 @@ Acceptance:
 
 ---
 
+### US-06-13 — Tạm ngưng / Khôi phục năng lực (Vòng 26)
+
+```gherkin
+As Training Manager (capability training.submit),
+I want tạm ngưng năng lực của KTV (đảo ngược được) rồi khôi phục khi đủ điều kiện,
+So that dừng authorization vận hành tạm thời (nghỉ phép/điều tra) mà KHÔNG thu hồi vĩnh viễn.
+
+Scenario: Tạm ngưng có lý do
+  Given competency ở "Active" và tôi có training.submit
+  When POST suspend_competency {name, reason="KTV đang điều tra sự cố"}
+  Then workflow_state = "Suspended"
+  And auth-cache invalidate (KTV mất authorization vận hành thiết bị)
+  And IMM Audit Trail event_type = "competency_suspended" (reason trong change_summary)
+
+Scenario: Tạm ngưng thiếu lý do → chặn
+  When POST suspend_competency {name, reason=""}
+  Then code = VALIDATION (422) và state KHÔNG đổi
+
+Scenario: Tạm ngưng sai state → chặn
+  Given competency ở "Suspended" (hoặc Revoked/Pending/Expiring/Expired)
+  When POST suspend_competency
+  Then code = BAD_STATE (409)
+
+Scenario: Khôi phục
+  Given competency ở "Suspended" và tôi có training.submit
+  When POST restore_competency {name}
+  Then workflow_state = "Active" và auth-cache invalidate (tái cấp authorization)
+  And IMM Audit Trail event_type = "competency_restored"
+
+Scenario: Thiếu quyền → 403 KHÔNG đổi state
+  Given user chỉ "AssetCore System User" (không training.submit)
+  When POST suspend_competency / restore_competency
+  Then code = FORBIDDEN (HTTP-200 envelope) và workflow_state giữ nguyên
+```
+
+**Boundaries (Vòng 26 — CTA Tạm ngưng / Khôi phục năng lực):**
+- **Always**: gate 5 CTA năng lực bằng `allowed_transitions` (SSoT `_COMPETENCY_VALID_TRANSITIONS`) **AND** capability `training.submit`; reason BẮT BUỘC cho suspend; mọi transition sinh IMM Audit Trail (`_log_competency_audit`); invalidate auth-cache khi đổi tình trạng authorization; map ⇄ workflow JSON giữ invariant `symmetric_difference == _COMPETENCY_EXCEPTION_EDGES`.
+- **Ask first**: đổi enum `event_type` (đã CHỐT: thêm `competency_suspended`/`competency_restored`); thêm field persist reason/`suspended_until` (hiện KHÔNG — reason ở audit).
+- **Never**: hardcode `workflow_state === 'X'` để gate CTA (GATE-8/LL-FE-51); gate `training.write` cho suspend/restore (giữ `training.submit` parity revoke); đổi state khi thiếu quyền (403 phải TRƯỚC mọi mutation); sửa `imm_06_competency_workflow.json` (2 cạnh đã có → giữ admin-override 22/22 + 0 migrate); tự động re-activate hàng loạt bản `Suspended` (ADR-IMM-06-07); để map[state] drift khỏi guard service hoặc workflow JSON (2 invariant test chặn merge).
+
+---
+
 # Phần IV — Functional Requirements
 
 ## IV.1. Business Rules
@@ -494,6 +548,14 @@ Acceptance:
 | BR-06-12 | Session đã Verified không thể Cancel — chỉ Closed | Workflow constraint + API `cancel_session` check | Internal |
 | BR-06-13 | `recertification_due_date` tính từ **DUY NHẤT 1 SoT** `compute_competency_dates(achieved_date, validity_months)` — INVARIANT `= expiry_date − 60 ngày`. Mọi write-site (creation / signoff / before_save / recertify / compute hooks) gọi chung SoT; cùng input → cùng recert date bất kể code path (idempotent). Cấm inline `add_days(expiry,-60)` hay `add_months(achieved, validity-2)` ngoài SoT. | `compute_competency_dates()` trong `services/imm06.py`; grep guard 0 literal; scheduler `check_recertification_due` lọc theo recert date này | WHO HTM (lead-time tái chứng nhận) |
 | BR-06-14 | Trạng thái **"Sắp hết hạn" / "Đã hết hạn"** của năng lực là **predicate LIVE date-derived DUY NHẤT** (không phải cờ `workflow_state` thuần). INVARIANT: `expiring(c) ⟺ workflow_state ∈ {Active, Expiring} ∧ expiry_date ∈ [today, today+EXPIRY_WINDOW_DAYS]` và `expired(c) ⟺ workflow_state ∈ {Active, Expiring, Expired} ∧ expiry_date < today`; `EXPIRY_WINDOW_DAYS=60` (khớp default `get_expiring_competencies`). Hai helper `_expiring_competency_filter()` / `_expired_competency_filter()` là SoT chung cho **CẢ** KPI count (`get_dashboard_stats`) **LẪN** drill list (`get_expiring_competencies`) — KHÔNG đếm `frappe.db.count(workflow_state==Expiring/Expired)` thuần. Đo được: `kpis.competencies.expiring == len(get_expiring_competencies(60))` với MỌI tập dữ liệu (card == drill). Revoked/Suspended KHÔNG bao giờ bị đếm. Scheduler `check_expiring_competencies` / `auto_expire_competencies` GIỮ NGUYÊN (vẫn stamp `workflow_state` phục vụ workflow + alert log + auth-cache invalidate). | `_expiring_competency_filter()` / `_expired_competency_filter()` trong `services/imm06.py`; `get_dashboard_stats().competencies.{expiring,expired}` + `get_expiring_competencies()` cùng dùng; test invariant card==drill | NĐ 98 §35 (operator-competency phải LIVE — hết hạn không được hiển thị "Đang hiệu lực") |
+| BR-06-15 | **5 CTA vòng đời năng lực (Sign-off / Thu hồi / Tái chứng nhận / Tạm ngưng / Khôi phục)** gate **server-driven** + **1 capability duy nhất `training.submit`** (Manager-grade). Nguồn-đích hợp lệ = SSoT `_COMPETENCY_VALID_TRANSITIONS` (state→nhãn ACTION): `Pending Assessment→[Sign-off]`, `Active→[Revoke, Suspend]`, `Expiring/Expired→[Recertify,Revoke]`, `Suspended→[Restore, Revoke]`, `Revoked→[]`. `get_competency` trả `allowed_transitions` + `can_signoff/can_revoke/can_recertify/can_suspend/can_restore = (ACTION in allowed) && rbac.can("training.submit")`. Gọi CTA sai state → `BAD_STATE`; thiếu quyền → `FORBIDDEN` (HTTP-200, state KHÔNG đổi). Cấm hardcode `workflow_state==='X'` ở FE và cấm gate `training.write` cho revoke/recertify (asymmetry — xem Self-Correction Vòng 15). | `_COMPETENCY_VALID_TRANSITIONS` + `_competency_states_allowing()` + `get_competency()` trong `services/imm06.py`; API `revoke/recertify/suspend/restore_competency` inline `rbac.can("training.submit")`; invariant test allowed⊆guard | NĐ98 (gỡ authorization vận hành thiết bị = quyết định Manager-grade) — ADR-IMM-06-04/05 |
+| BR-06-16 | **Tạm ngưng / Khôi phục năng lực là cặp chuyển-trạng-thái ĐẢO NGƯỢC** (khác Thu hồi terminal): `suspend_competency(name, reason)` `Active → Suspended` (reason **BẮT BUỘC**, rỗng → `VALIDATION`), `restore_competency(name)` `Suspended → Active`. `Suspended ∉ AUTHORIZED` ⇒ operator MẤT authorization vận hành cho tới khi khôi phục; cả 2 invalidate auth-cache + sinh audit (`competency_suspended` / `competency_restored`). Máy trạng thái (map) ⇄ workflow JSON đối soát bằng invariant `symmetric_difference(wf_keys, map_keys) == _COMPETENCY_EXCEPTION_EDGES` (3 scheduler-auto + 1 recertify create-new) — drift 2-chiều bất khả. ⚠️ `Suspended` quá tải với auto-archive (BR-06-11) → khôi phục là quyết định đơn lẻ có chủ đích (ADR-IMM-06-07). | `suspend_competency`/`restore_competency` + `_COMPETENCY_EXCEPTION_EDGES` trong `services/imm06.py`; API C.8/C.9 inline `training.submit`; reconcile invariant test | NĐ98 §35 (tạm ngưng operator không đủ điều kiện — có thể khôi phục) — ADR-IMM-06-05/06/07 |
+
+> **Self-Correction 2026-07-10 (Vòng 15) — privilege asymmetry, KHÔNG phải "lỗ RBAC mở":** đề mục gốc mô tả "mọi user login tự thu hồi/tái chứng nhận năng lực" — **kiểm chứng code SAI**: service `revoke_competency`(imm06.py:418)/`recertify_competency`(1416) ĐÃ gate `_require_training_officer()`→`rbac.can("training.write")`, và `api._run` chuyển `ServiceError(FORBIDDEN)`→HTTP-200 Error envelope. Plain `AssetCore System User` (không training.write) đã bị chặn. **Defect THẬT = ASYMMETRY**: `signoff` gate `training.submit` (IMM Training Session delete=1 → **chỉ** Super Admin + Training Manager) còn `revoke/recertify` gate `training.write` (IMM Training Program write=1 → Super Admin + Training Manager **+ Training User**). ⇒ Training User (không phải manager) thu hồi/tái chứng nhận được — LỎNG hơn cả sign-off, và trái `imm_06_competency_workflow.json` (Thu hồi/Tái chứng nhận allowed = Manager + Super Admin, KHÔNG Training User). Kèm FE dead-control: `CompetencyDetailView.vue:33-40` gate revoke/recertify bằng `can('training.submit')` LỆCH gate BE `training.write`. **Chốt**: thống nhất cả 3 CTA về `training.submit` (least-privilege đúng chiều — gỡ authorization thiết bị y tế phải Manager-grade), server-driven `allowed_transitions` thay hardcode state, siết state-guard (revoke bỏ `Pending`, recertify chỉ `{Expiring,Expired}`). `AssetCore Super Admin` đã có `training.submit` — AC3 không cần thêm mapping. Chi tiết: `04_Backend_Design.md §VI.2a` + `ADR-IMM-06-04`.
+
+**Boundaries (Vòng 15 — CTA vòng đời Competency):**
+- **Always**: gate 3 CTA bằng `allowed_transitions` (SSoT `_COMPETENCY_VALID_TRANSITIONS`) **AND** `can_<action>`; enforce quyền = capability `training.submit` ở CẢ API (inline, parity signoff, HTTP-200 FORBIDDEN) LẪN service (defense-in-depth); state-guard đọc SoT (`_assert_competency_action`); mỗi CTA sinh Lifecycle Event audit; FE load qua `getCompetency(name)`.
+- **Never**: hardcode `workflow_state==='X'` / `[...].includes(workflow_state)` để gate CTA (dead-gate, GATE-8/LL-FE-51); gate revoke/recertify bằng `training.write` (asymmetry); hardcode role-name (`"Training Manager" in roles` — anti-pattern RBAC dead-gate, dùng capability); raise→HTTP-4xx cho lỗi nghiệp vụ (dùng in-handler HTTP-200 envelope); để `allowed_transitions` (SoT) drift khỏi service-guard (invariant test chặn merge); đổi định nghĩa shared `_require_training_officer` (session transitions ngoài scope).
 
 > **Self-Correction 2026-06-03 (Vòng 22):** lỗi gốc — 2 công thức recert song song (A: expiry−60d; B: achieved+(validity−2)tháng) lệch 1–2 ngày → scheduler eligibility lệch theo code path. Chốt SoT "expiry − 60 ngày" (khớp filter `add_days(nowdate(),60)`). Chi tiết 6 write-site: `04_Backend_Design.md §V.1`.
 

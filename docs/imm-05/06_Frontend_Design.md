@@ -231,7 +231,8 @@ class DocState {
   REJECTED = "Rejected"
 }
 
-// Badge mapping — dùng đúng key từ DocState (5 state, KHÔNG có "Expired").
+// Badge mapping — 5 live state từ DocState. "Expired" = declared-dead terminal
+// (không xuất hiện qua flow — ADR-IMM-05-02); nếu gặp legacy → fallback badge default.
 const BADGE_MAP: Record<string, { label: string; class: string }> = {
   "Draft":          { label: "Nháp",           class: "badge-gray" },
   "Pending Review": { label: "Chờ duyệt",      class: "badge-yellow" },
@@ -431,6 +432,45 @@ watch(() => form.doc_category, (cat) => {
 **Confirm modal** trước khi:
 - Approve: "Phê duyệt tài liệu này sẽ tự động lưu trữ phiên bản cũ. Tiếp tục?"
 - mark_exempt: "Hành động này tạo tài liệu Active với is_exempt=1 và unblock GW-2. Xác nhận?"
+
+---
+
+## §7.5 — `DocumentDetailView` — CTA gating do SERVER lái (GATE-8 / LL-FE-51)
+
+`DocumentDetailView.vue` render nút CTA workflow theo **server** (`get_document` phát `allowed_transitions` + `can_approve`, xem 05 §2.2 · 04 §3.4 · ADR-IMM-05-01), KHÔNG hardcode `doc.workflow_state === 'X'`.
+
+**Computed nguồn:**
+```ts
+const allowedTransitions = computed<string[]>(() => doc.value?.allowed_transitions ?? [])
+const canApprove = computed<boolean>(() => doc.value?.can_approve === 1)
+```
+
+**Bảng gate nút CTA transition (điều kiện render):**
+
+| Nút | Điều kiện render (SAU đổi) | Nhãn | canApprove? |
+|---|---|---|:---:|
+| Gửi duyệt / Gửi lại | `allowedTransitions.includes('Pending Review')` | `workflow_state === 'Rejected' ? 'Gửi lại' : 'Gửi duyệt'` (nhãn display-only) | — |
+| Phê duyệt | `allowedTransitions.includes('Active') && canApprove` | "Duyệt tài liệu" | ✓ |
+| Từ chối | `allowedTransitions.includes('Rejected') && canApprove` | "Từ chối" | ✓ |
+| Lưu trữ / Hủy bỏ | `allowedTransitions.includes('Archived') && canApprove` | `workflow_state === 'Draft' ? 'Hủy bỏ' : 'Lưu trữ'` (nhãn display-only) | ✓ |
+
+> **Gộp "Gửi duyệt"↔"Gửi lại":** cả hai gọi `submitForReview` và cùng đích `Pending Review` → MỘT nút, gate `allowedTransitions.includes('Pending Review')`, nhãn chọn theo state (display-only, cho phép). KHÔNG dùng 2 nút gate bằng `workflow_state === 'Draft'` / `=== 'Rejected'` (điều kiện render CTA cấm dùng `workflow_state ===`).
+
+**Quy tắc (khớp acceptance):**
+- **0 nút CTA transition** (Gửi duyệt/Phê duyệt/Từ chối/Gửi lại/Lưu trữ/Hủy bỏ) còn gate bằng `doc.workflow_state === 'X'`. Tất cả gate bằng `allowedTransitions.includes(<next_state>)`.
+- `workflow_state === '…'` CHỈ được phép ở **nhãn hiển thị read-only** (label state terminal "Đã hết hạn"/"Đã lưu trữ"; label "Gửi duyệt"↔"Gửi lại"; label "Lưu trữ"↔"Hủy bỏ") — TUYỆT ĐỐI KHÔNG ở điều kiện render nút.
+- **Hết false-permissive:** user thiếu `doc.approve` (canApprove=false) KHÔNG còn thấy nút Phê duyệt/Từ chối/Lưu trữ trên phiếu Pending Review (trước đây thấy → bấm mới 403). User có `doc.approve` (Compliance Manager) hoặc AssetCore Super Admin thấy + bấm Phê duyệt → phiếu chuyển Active.
+
+**Ngoài scope thay đổi này (KHÔNG phải nút transition — giữ nguyên gate hiện tại):**
+- **Chỉnh sửa / Sửa lại** (`canEdit` = state ∈ {Draft, Rejected}): là toggle edit-mode field-mutation, KHÔNG phải state transition → giữ `canEdit`.
+- **Tải lên phiên bản mới** (state ∈ {Active, Expired}): điều hướng tạo tài liệu MỚI (không transition phiếu hiện tại) → giữ nguyên.
+- **Nhãn terminal read-only** (`isTerminalState` = state ∈ {Archived, Expired}): display-only, được phép dùng `workflow_state ===`.
+
+**Test FE (vitest) bắt buộc:** file test CTA-gating mới (`views/document/documentDetailCtaGating.test.ts`) assert theo state × canApprove:
+- Pending Review + `can_approve=0` → KHÔNG có nút "Duyệt tài liệu"/"Từ chối".
+- Pending Review + `can_approve=1` → CÓ cả hai nút.
+- Draft → có "Gửi duyệt" + "Hủy bỏ" (Hủy bỏ chỉ khi canApprove=1); KHÔNG có "Phê duyệt".
+- Rejected → có "Gửi lại"; Active → có "Lưu trữ" (khi canApprove=1); Archived/Expired → 0 nút transition, hiện nhãn read-only.
 
 ---
 

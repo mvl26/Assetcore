@@ -202,6 +202,8 @@ Hai luồng: **In-House** (`Scheduled → In Progress → Passed/Failed/Conditio
 | `ComplianceKPICard` | Card KPI compliance rate, OOT rate | `title, value, target, unit` |
 | `CalibrationTimeline` | Timeline lịch sử cal của 1 asset | `assetName` |
 
+> **Round 18 — CR-WF-11-CAL — 0 đổi FE (BE-only lockstep).** Fix desync `workflow_state ⇄ status` (`04_Backend_Design.md §3.2` + ADR-IMM11-06) là BE-only. `CalibrationDetailView` gate nút workflow theo `allowed_transitions` (status-keyed `_CAL_VALID_TRANSITIONS` server-driven CTA, §3.1) + `calibrationButtonGating` — **KHÔNG đọc `workflow_state`** (verified `grep workflow_state frontend/src/…calibration = none`). `workflow_state` chỉ phục vụ desk workflow-engine (admin/QTV). ⇒ contract FE + component KHÔNG đổi.
+
 ---
 
 ## 5. Pinia store

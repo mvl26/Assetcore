@@ -297,7 +297,7 @@ export const listDecommissions = (
 - **Empty-state:** khi `data.length === 0` — "Chưa có biên bản giải nhiệm nào." (VI). KHÔNG trắng tinh.
 - **Loading / error:** skeleton + toast lỗi (map `code` → message VI; KHÔNG "Lỗi hệ thống"). Thiếu `decommission.read` → router guard chặn trước (requiredCapabilities) → không tới màn; nếu lọt (race) BE trả 403 → toast + điều hướng.
 - **Pagination:** dùng `pagination.total` / `total_pages` từ envelope (component phân trang hiện có). **Invariant FE:** `data.length ≤ pagination.page_size`.
-- **Row-click:** `router.push('/assets/' + row.asset)` (ADR-IMM14-LIST-02).
+- **Row-click:** ~~`router.push('/assets/' + row.asset)` (ADR-IMM14-LIST-02)~~ → **Superseded vòng 17 (§13.4):** row-click → `/decommissions/:id` (biên bản); link asset chuyển xuống vị trí phụ. Xem ADR-IMM14-DETAIL-03.
 
 ### 12.6. Sidebar (`constants/sidebarNav.ts`)
 
@@ -317,4 +317,69 @@ imm14: {
 - Mock `listDecommissions` trả 3 row (mỗi workflow_state 1 trạng thái + đủ 4 disposal_method mẫu, `responsible_name` set, `responsible` email set).
 - Assert: (a) 3 dòng render; (b) badge VI **Bản nháp/Đã duyệt/Đã huỷ** xuất hiện, KHÔNG có 'Draft'/'Approved'/'Cancelled' raw EN trong DOM; (c) cột người render `responsible_name`, **KHÔNG** xuất hiện chuỗi email `responsible` trong DOM (anti-leak); (d) empty-state hiện khi mock trả `data:[]`; (e) click row gọi `router.push('/assets/<asset>')`.
 
-*Hết file 06. §11 (entrypoint asset-detail) + §12 (danh sách /decommissions) là CHỐT cho vòng 2. Wireframe / sitemap đầy đủ §1–§10 giữ làm Đợt 3.*
+---
+
+## 13. Vòng 17 — Màn Chi tiết & DUYỆT biên bản (`/decommissions/:id`) — CHỐT
+
+> **Delta (2026-07-10).** Supersede ADR-IMM14-LIST-02 → build `DecommissionDetailView` + đổi drill row → biên bản. Gate CTA Duyệt **server-driven** (`can_approve===1`, KHÔNG hardcode docstatus/workflow_state=== — GATE-8/LL-FE-51). Ref ADR-IMM14-DETAIL-03 + ADR-IMM14-APPROVE-04 (`02 §VIII.5`) + `05 §8`.
+>
+> **⚠️ Đính chính path (report):** §12.1 ghi list view ở `views/decommission/DecommissionListView.vue`, nhưng file THẬT nằm ở `frontend/src/views/eol/DecommissionListView.vue`. Vòng 17 dùng đúng path thật `views/eol/`.
+
+### 13.1. Vị trí (file thật)
+
+- **View (NEW):** `frontend/src/views/eol/DecommissionDetailView.vue`.
+- **Route (NEW):** `frontend/src/router/index.ts` — `path: '/decommissions/:id'`, `name: 'DecommissionDetail'`, `component: () => import('@/views/eol/DecommissionDetailView.vue')`, `meta: { requiresAuth: true, title: 'Biên bản giải nhiệm', moduleId: 'imm14', requiredCapabilities: ['decommission.read'] }`. Đặt **trước/sau** route `/decommissions` (list) sao cho matcher không nuốt (path param `:id` khác path tĩnh — Vue Router phân biệt được).
+- **API client (EXTEND):** `frontend/src/api/imm14.ts` — mở rộng `DecommissionRecord` (return của `getDecommission`) thêm 7 field (`05 §8.4`). `getDecommission` + `approveDecommission` đã tồn tại — KHÔNG thêm hàm mới.
+- **Test (NEW):** `frontend/src/views/eol/decommissionDetailCtaGate.test.ts`.
+
+### 13.2. Layout màn chi tiết (nhãn VI 100%)
+
+Section đọc biên bản (mirror `DocumentDetailView` card style):
+
+| Nhãn | Field | Render |
+|---|---|---|
+| Số hồ sơ | `name` | text (DECOM-YYYY-####). |
+| Thiết bị | `asset_name` (fallback `asset` chỉ khi rỗng) | text; **KHÔNG** render `asset` Link-id thô. Kèm nút phụ "Xem thiết bị" → `/assets/:asset`. |
+| Phân loại rủi ro | `risk_classification_snapshot` | badge phụ (Low/Medium/High/Critical → nhãn VI nếu có map; giá trị enum SSoT). |
+| Phương thức xử lý | `disposal_method` | enum render as-is (SSoT, exempt dịch — LL-FE-53). |
+| Lý do giải nhiệm | `decommission_reason` | text (multiline). |
+| Đã xử lý dữ liệu bệnh nhân | `patient_data_sanitized` | "Có"/"Không" (ép boolean từ int). |
+| Ghi chú xử lý dữ liệu | `sanitization_note` | text; rỗng → "—". |
+| Người chịu trách nhiệm | `responsible_name` | tên đầy đủ; NULL → "—". **KHÔNG** render `responsible` email (BR-14-W2-15). |
+| Ngày giải nhiệm | `decommissioned_on` | format dd/MM/yyyy; NULL (Draft) → "—". |
+| Trạng thái | `workflow_state` | `StatusBadge` VI: Draft→Bản nháp / Approved→Đã duyệt / Cancelled→Đã huỷ. KHÔNG raw EN. |
+
+### 13.3. CTA "Duyệt giải nhiệm" — server-driven gate (GATE-8/LL-FE-51)
+
+```typescript
+const canApprove = computed<boolean>(() => rec.value?.can_approve === 1)
+// KHÔNG: v-if="rec.docstatus === 0" / "rec.workflow_state === 'Draft'"  ← dead-gate, CẤM.
+```
+
+- Nút render **⇔ `canApprove === true`** (tức `can_approve === 1`). Trạng thái/flag lạ / thiếu field → degrade an toàn = KHÔNG nút.
+- Bấm → `useNotify.confirm` (xác nhận, hành động không đảo ngược) → `approveDecommission(name)` qua `useApi().run` (interceptor map lỗi VN, KHÔNG echo traceback) → thành công: toast "Đã giải nhiệm thiết bị", **refetch `getDecommission`** → `can_approve` về 0 (reason "…đã được duyệt."), badge `workflow_state`→"Đã duyệt", CTA tự ẩn.
+- **`can_approve === 0` → KHÔNG render nút** + hiện **hint** = `rec.approve_blocked_reason` (chuỗi VI từ BE) trong 1 vùng thông báo phụ (`role="status"`, không phải `role="alert"` đỏ). No dead-control (LL-FE-47).
+- `data-testid`: `cta-approve` (nút), `approve-blocked-hint` (vùng hint).
+
+### 13.4. Drill từ list (đổi target — supersede §12.5)
+
+- `DecommissionListView` row-click → `router.push('/decommissions/' + row.name)` (biên bản), thay `/assets/:asset`.
+- Link tới asset chuyển xuống **vị trí phụ**: giữ 1 icon-link/nút phụ trong row (hoặc chỉ trong màn detail — nút "Xem thiết bị"). Row-click chính = mở biên bản.
+- Cập nhật `DecommissionList.render.test.ts`: assert click row gọi `router.push('/decommissions/<name>')` (thay assertion cũ `/assets/<asset>`).
+
+### 13.5. Không hồi quy quyền (acceptance 5)
+
+- Super Admin / Compliance Manager / Commissioning Manager (submit=1) mở draft → `can_approve=1` → thấy CTA.
+- Commissioning User (create=1/submit=0) mở CÙNG biên bản → xem đủ, CTA **ẩn**, hint = "Bạn không đủ quyền duyệt giải nhiệm.". KHÔNG cấp/nới DocPerm — cờ do BE (`rbac.can`) quyết định.
+
+### 13.6. Render/CTA gate test (`decommissionDetailCtaGate.test.ts`)
+
+Matrix state × flag (mock `getDecommission`):
+- (a) `can_approve=1` (draft, approver) → nút `cta-approve` render; click → gọi `approveDecommission(name)`.
+- (b) `can_approve=0` + reason "Bạn không đủ quyền duyệt giải nhiệm." (Commissioning User) → KHÔNG nút; hint hiện chuỗi VI đó.
+- (c) `can_approve=0` + reason "Hồ sơ giải nhiệm đã được duyệt." (Approved) → KHÔNG nút; badge "Đã duyệt".
+- (d) Anti-dead-control: KHÔNG dựa `docstatus`/`workflow_state` để render nút (mock `docstatus=0` nhưng `can_approve=0` → vẫn KHÔNG nút).
+- (e) Anti-PII: `responsible` email + `asset` Link-id KHÔNG xuất hiện trong DOM (render `responsible_name`/`asset_name`); KHÔNG raw EN status ('Draft'/'Approved') trong DOM.
+- (f) Degrade: thiếu `can_approve` (undefined) → KHÔNG nút (an toàn).
+
+*Hết file 06. §11 (entrypoint asset-detail) + §12 (danh sách /decommissions) là CHỐT cho vòng 2; §13 (chi tiết + duyệt) là CHỐT cho vòng 17. Wireframe / sitemap đầy đủ §1–§10 giữ làm Đợt 3.*

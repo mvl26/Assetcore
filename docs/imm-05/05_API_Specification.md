@@ -169,6 +169,10 @@ export interface AssetDocument {
   notes?: string;
   workflow_state: DocumentWorkflowState;
   modified: string;
+  // Server-driven CTA (chỉ có ở get_document — chi tiết; §2.2 + 06 §7.5).
+  // FE `AssetDocumentDetail` (frontend/src/api/imm05.ts) thêm 2 field này.
+  allowed_transitions?: string[];   // _DOC_VALID_TRANSITIONS.get(workflow_state, [])
+  can_approve?: 0 | 1;              // int(rbac.can('doc.approve'))
 }
 
 export interface DocumentRequest {
@@ -197,6 +201,8 @@ export interface Pagination {
 ---
 
 ## §2 — Endpoint Specifications
+
+> 🔗 **Cross-module (IMM-04 · mobile CR-11d):** endpoint `imm04.get_commissioning_origin` (tab "Nguồn gốc thiết bị" màn Chi tiết thiết bị mobile) đọc **số tài-liệu chuyển-giao** của thiết bị = `frappe.db.count("Asset Document", {asset_ref, source_commissioning})` → field `transferred_doc_count` (integer) trong `CommissioningOriginRecord`. Đây là **read-only count** trên `Asset Document` (repo IMM-05), lọc theo `asset_ref` (thiết bị) + `source_commissioning` (phiếu nghiệm-thu gốc). Không mutate; không cần endpoint IMM-05 mới. Contract: [`ADR-MOBILE-041`](../mobile/ADR-MOBILE-041.md) + [`docs/imm-04/05_API_Specification.md §2.19`](../imm-04/05_API_Specification.md).
 
 ### §2.1 `list_documents` — Liệt kê tài liệu
 
@@ -272,7 +278,40 @@ export interface Pagination {
 
 **Params:** `name` (string)
 
-**Response data:** Full `AssetDocument` object.
+**Response data:** Full `AssetDocument` object **+ 2 khóa server-driven CTA** (thêm mới, KHÔNG đổi/bỏ khóa cũ):
+
+| Khóa | Kiểu | Nguồn | Ý nghĩa |
+|---|---|---|---|
+| `allowed_transitions` | `list[str]` | `_DOC_VALID_TRANSITIONS.get(workflow_state, [])` (services/imm05.py) | Tập **next-state hợp lệ** từ state hiện tại — khớp EXACT fixture `'IMM-05 Document Workflow'`. FE render nút CTA theo tập này (KHÔNG hardcode `workflow_state === 'X'`). |
+| `can_approve` | `int` (0/1) | `int(rbac.can('doc.approve'))` | 1 nếu user có capability `doc.approve` (submit trên Asset Document). Gate bổ sung cho nút Phê duyệt / Từ chối / Lưu trữ. |
+
+> **INV-CTA-1 (chống drift):** `set(allowed_transitions)` == `set(next_state hợp lệ của workflow_state trong fixtures/workflow.json)`. Test invariant (07 §III.4) đọc `fixtures/workflow.json` và assert cho MỖI state: `set(next_states từ transitions) == set(_DOC_VALID_TRANSITIONS[state])` + key-set(map) == states[] fixture → thêm/sửa transition mà quên cập nhật map = RED (mirror `_CAL_VALID_TRANSITIONS` imm11).
+
+**Ánh xạ `_DOC_VALID_TRANSITIONS` (grounded fixtures/workflow.json + §3.2 04):**
+
+| workflow_state | allowed_transitions | Action FE |
+|---|---|---|
+| `Draft` | `["Pending Review", "Archived"]` | Gửi duyệt · Hủy bỏ |
+| `Pending Review` | `["Active", "Rejected"]` | Phê duyệt · Từ chối |
+| `Rejected` | `["Pending Review"]` | Gửi lại |
+| `Active` | `["Archived"]` | Lưu trữ |
+| `Archived` | `[]` | (terminal — chỉ xem) |
+| `Expired` | `[]` | (declared-dead terminal — chỉ xem, xem ADR-IMM-05-02) |
+
+**Ví dụ response (state = Pending Review, user có doc.approve):**
+
+```json
+{
+  "success": true,
+  "data": {
+    "name": "DOC-ASSET-0001-2026-00007",
+    "workflow_state": "Pending Review",
+    "...": "...(mọi field AssetDocument như cũ)",
+    "allowed_transitions": ["Active", "Rejected"],
+    "can_approve": 1
+  }
+}
+```
 
 **Errors:**
 
@@ -280,6 +319,8 @@ export interface Pagination {
 |---|---|
 | `NOT_FOUND` | DocType không tồn tại |
 | `FORBIDDEN` | `visibility=Internal_Only` và user không thuộc internal roles |
+
+> **Lưu ý 403 (DONE-gate spec-contract):** `get_document` KHÔNG là action bị hạn chế theo capability — chỉ chặn bằng **visibility** (Internal_Only → in-handler `FORBIDDEN` HTTP-200 Error envelope, KHÔNG raise 4xx). Còn `can_approve=0` **KHÔNG** làm `get_document` trả 403; nó chỉ là cờ để FE ẩn nút. 403 thật cho hành động duyệt xảy ra ở `approve_document`/`reject_document`/`archive_document` (in-handler cap-403 qua `_require_approve_role()`), không phải ở `get_document`.
 
 ---
 

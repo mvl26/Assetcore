@@ -229,6 +229,33 @@ File `assetcore/tests/test_imm11_workflow.py` (⬜ Planned). Workflow `imm_11_ca
 
 Kỹ thuật: State Transition Testing — mỗi edge = 1 test pass + 1 test fail (wrong role hoặc invalid from-state).
 
+### III.4b. Dual-track lockstep `workflow_state ⇄ status` + INVARIANT (round 18 — CR-WF-11-CAL)
+
+**Class mới `TestCalibrationWorkflowLockstep` (`tests/test_imm11.py`).** Đóng desync `workflow_state` đọng state khởi tạo. Groundtruth `04_Backend_Design.md §3.2` + `ADR-IMM11-06`. **BE-only** — 0 FE, 0 migrate, 0 đổi workflow JSON.
+
+**RED-before (BẮT BUỘC chứng minh desync TRƯỚC khi fix):** tạo phiếu External `Scheduled` → `send_to_lab` → đọc lại DB `db.get_value('IMM Asset Calibration', name, 'workflow_state')` == `'Scheduled'` ≠ `status` == `'Sent to Lab'` ⇒ TC-11-LOCKSTEP-SENDLAB FAIL (chứng minh workflow_state đọng). Sau khi thêm lockstep (§3.2) → GREEN (`workflow_state == status`).
+
+| # | TC id | Drive (service transition) | Assert sau khi đọc lại DB | AC |
+|---|---|---|---|---|
+| 1 | TC-11-LOCKSTEP-CREATE | `create_calibration(...)` | `workflow_state == status == 'Scheduled'` | AC-11-LS-1 |
+| 2 | TC-11-LOCKSTEP-UPDATE | `update_calibration(name, {status: 'In Progress'})` | `workflow_state == status == 'In Progress'` | AC-11-LS-2 |
+| 3 | TC-11-LOCKSTEP-SENDLAB | `send_to_lab(name)` (External) | `workflow_state == status == 'Sent to Lab'` — **RED-prove** trước fix | AC-11-LS-3 |
+| 4 | TC-11-LOCKSTEP-RECVCERT | `receive_certificate(name, ...)` | `workflow_state == status == 'In Progress'` (⚠️ KHÔNG `Certificate Received` — §3.2) | AC-11-LS-4 |
+| 5 | TC-11-LOCKSTEP-CANCEL | `cancel_calibration(name, reason)` | `workflow_state == status == 'Cancelled'` | AC-11-LS-5 |
+| 6 | TC-11-LOCKSTEP-SUBMIT | `submit_calibration(name)` (đủ measurement) | `workflow_state == status` (giữ `'In Progress'` — submit KHÔNG advance, OoS backlog) | AC-11-LS-6 |
+| 7 | TC-11-LOCKSTEP-GETTRANS | sau `send_to_lab` (đã fix) | `frappe.model.workflow.get_transitions(doc)` = cạnh của `'Sent to Lab'` (→ Certificate Received), KHÔNG của `'Scheduled'` | AC-11-LS-7 |
+| 8 | TC-11-LOCKSTEP-NOTHROW | multi-hop `send_to_lab` → `receive_certificate` (`Sent to Lab → In Progress`, 0 workflow-edge) | KHÔNG raise `WorkflowPermissionError` (db.set_value bypass validate_workflow) | AC-11-LS-8 |
+
+**INVARIANT guard `test_imm11` (RED-before / GREEN-after) — name-parity status ⇄ workflow states:**
+
+| INV | Assert | Nguồn |
+|---|---|---|
+| INV-11-A | `set(status Select options `IMM Asset Calibration`) == set(states[] `imm_11_calibration_workflow.json`) == 8` (1-1 name-parity) ⇒ lockstep LUÔN ghi tên Workflow State hợp lệ | DocType JSON + workflow JSON |
+| INV-11-B | `S_svc = {Scheduled, In Progress, Sent to Lab, Cancelled} ⊆ states[]` (service-reachable ⊆ workflow states; `Certificate Received` + 3 terminal ∈ states nhưng ∉ S_svc — grounded 6 write-path) | imm11.py write-path |
+| INV-11-C | với mọi status ∈ S_svc: drive service transition → `db.get_value(workflow_state) == status` | TC-11-LOCKSTEP-* |
+
+- **DoD:** `bench --site miyano run-tests` (module `test_imm11`) = **'Ran N OK' THẬT** (N tăng đúng số TC mới) · `TestCalibrationAllowedTransitions@2357` (SSoT map↔workflow) + `test_workflow_admin_override` + `test_workflows` (IMM-11 min_states 8 / min_transitions 11) đều **GREEN (0 regression)** · **0 `bench migrate`** (db.set_value sync live) · **0 đổi FE** (`CalibrationDetailView` + `calibrationButtonGating` dùng `allowed_transitions` status-keyed; FE calibration KHÔNG đọc `workflow_state` — verified grep=none).
+
 ## III.5. Integration — Audit chain integrity
 
 File `assetcore/tests/test_imm11_audit.py` (⬜ Planned). 2 test chính:
@@ -420,6 +447,24 @@ bench --site miyano run-tests --module assetcore.tests.test_workflows
 | TC-11-PASS-ROLLUP-N1 (no N+1) | asset 3 active schedule | Pass | rollup ghi cache = số query bounded (≤4), KHÔNG loop per-schedule SQL (đếm query hoặc assert dùng `_calibration_status_asset_ids` set-query + 1 MIN aggregate) | AC-11-21, INV-PASS-ROLLUP-6 |
 
 > Fixture: asset prefix `_Test` + `_purge_asset_with_deps` teardown (purge schedule + ALE leak). No-regression bắt buộc: `test_imm11` + `test_workflows` + `test_dashboard` GREEN; FE vue-tsc prod 0 + vitest full GREEN. SoT helper (`_overdue_asset_ids`/`_due_soon_asset_ids`/`_calibration_status_asset_ids`) + `CalibrationScheduleRepo` advance (BR-11-04) + restore-guard (BR-11-12) KHÔNG đổi → parity không regress.
+
+### BR-11-14 — test cases bắt buộc (read-side derived flags `is_overdue`/`is_due_soon`)
+
+> **Class mới `TestCalibrationReadFlags` (`tests/test_imm11.py`).** Cố định ref-date (dùng `add_days(nowdate(), …)` cho `next_calibration_date` của record) để loại race qua-nửa-đêm. Fixture: 1 asset `_Test` + phiếu hiệu chuẩn với `next_calibration_date` set theo case; `_purge_asset_with_deps` teardown. RED-before: chưa emit cờ → `KeyError`/`assert 0==1` FAIL; GREEN-after: sau khi list_calibrations/get_calibration bọc `int(predicate(...))` (§04 §4.1.8) → PASS.
+
+| TC ID | Given (`next_calibration_date` của record) | When | Then | Map |
+|---|---|---|---|---|
+| TC-11-CALFLAG-OVERDUE | `today - 1` | `get_calibration(cal)` | `is_overdue == 1` ∧ `is_due_soon == 0` (int) | AC-11-24a, BR-11-14 |
+| TC-11-CALFLAG-DUESOON-LO | `today` (biên dưới inclusive) | `get_calibration(cal)` | `is_due_soon == 1` ∧ `is_overdue == 0` | AC-11-24b |
+| TC-11-CALFLAG-DUESOON-HI | `today + CAL_DUE_SOON_WINDOW_DAYS` (biên trên inclusive) | `get_calibration(cal)` | `is_due_soon == 1` ∧ `is_overdue == 0` | AC-11-24b |
+| TC-11-CALFLAG-BEYOND | `today + CAL_DUE_SOON_WINDOW_DAYS + 1` | `get_calibration(cal)` | cả hai cờ `== 0` | AC-11-24c |
+| TC-11-CALFLAG-NONE | `None` (phiếu Scheduled/In Progress chưa có hạn) | `get_calibration(cal)` | cả hai cờ `== 0` (None-guard) | AC-11-24c, BR-11-14 |
+| TC-11-CALFLAG-INT | bất kỳ | `get_calibration(cal)` | `type(is_overdue) is int` ∧ `type(is_due_soon) is int` (KHÔNG bool) | INV-CALFLAG-2 |
+| TC-11-CALFLAG-LIST-EACH | list ≥2 record ngày khác nhau | `list_calibrations()` | MỖI row có key `is_overdue`/`is_due_soon` (int 0/1) đúng theo `next_calibration_date` của row | AC-11-25, BR-11-14 |
+| TC-11-CALFLAG-PARITY | record X trong 1 dataset | so `list_calibrations()` row-X vs `get_calibration(X)` tại CÙNG ref-date | `row-X.{is_overdue,is_due_soon} == get_calibration(X).{is_overdue,is_due_soon}` | AC-11-25, INV-CALFLAG-1 |
+| TC-11-CALFLAG-SHARED | grep-guard / call-graph | `list_calibrations`/`get_calibration` gọi | dùng CHUNG `is_calibration_overdue`/`is_calibration_due_soon` (KHÔNG so-ngày inline mới); 0 query DB thêm (mock/assert repo-call-count không tăng) | AC-11-26, INV-CALFLAG-3 |
+
+> No-regression bắt buộc: `test_imm11` (kể cả `TestCalibrationAllowedTransitions`, list-mine `TestCalibrationListMineScope`) GREEN; `test_mobile_oas` (contract-shape 2 property × 2 schema `integer enum[0,1]`) + `test_mobile_docset` (reconcile `_GUARD_SUITE_SUM`/`_MOBILE_OAS_TOTAL`) GREEN. SoT helper + predicate thuần KHÔNG đổi (chỉ THÊM call-site) → KPI/dashboard/drill parity (BR-11-08/09) không regress. Consumer-audit: `grep` FE/mobile không có nơi so `next_calibration_date` với client-clock (server-flag SSoT).
 
 DoD: mọi BR có ≥ 1 happy + ≥ 1 negative. `TestCalibrationSubmitGate` (✅ Live) đã cover gate before_submit (CAL-004).
 

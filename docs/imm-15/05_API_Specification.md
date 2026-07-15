@@ -74,6 +74,7 @@ _FORECAST_APPROVE_ROLES   = {ROLE_INVENTORY_MANAGER, ROLE_SUPER_ADMIN}
 | `create_cycle_count` | W | W | — | — | — | W |
 | `submit_cycle_count` | W | W | — | — | — | W |
 | `post_cycle_count` | — | W | — | — | — | W |
+| `recount_cycle_count` | — | W | — | — | — | W |
 | `list_spare_forecasts` | R | R | — | — | R | R |
 | `generate_spare_forecast` | W | W | — | — | — | W |
 | `approve_forecast` | — | W | — | — | — | W |
@@ -90,6 +91,71 @@ _FORECAST_APPROVE_ROLES   = {ROLE_INVENTORY_MANAGER, ROLE_SUPER_ADMIN}
 ---
 
 ## 3. Endpoint Specifications — IMPLEMENTED (`assetcore/api/imm15.py`)
+
+### 3.0 `get_allocation` (detail + allowed_transitions) — **allowed_transitions NEW (vòng 16, CR-WF-15-ALLOC)**
+
+```
+GET /api/method/assetcore.api.imm15.get_allocation?name=SAL-2026-00045
+```
+
+> `get_allocation` đã tồn tại (api/imm15.py:66 = `_handle(svc.get_allocation, name)`; service imm15.py:224). Vòng 16 CHỈ THÊM key `allowed_transitions` vào `data` — server-driven CTA cho màn AllocationDetail (GATE-8/LL-FE-51: client KHÔNG hardcode `allocation_status===`). API layer KHÔNG đổi (passthrough).
+
+**BE contract (delta vòng 16):** cuối `get_allocation`, sau enrich header/items, thêm:
+```python
+data["allowed_transitions"] = _allocation_allowed_transitions(doc.allocation_status)
+```
+- `_allocation_allowed_transitions(status)` = SSoT `_ALLOCATION_ALLOWED_TRANSITIONS.get(status, [])` — **next-state strings** (KHÔNG token; khác `get_cycle_count`), **KHÔNG role-gate**. Xem 04 §VI.1.1 + ADR-IMM-15-10.
+- Not-found → `raise ServiceError(NOT_FOUND)` (in-handler **HTTP-200 + Error envelope** qua `_handle`, KHÔNG raise→4xx — DONE-gate).
+
+**`allowed_transitions` — SSoT gating per `allocation_status`:**
+
+| `allocation_status` | `allowed_transitions` | CTA phía FE → endpoint |
+|---|---|---|
+| `Requested` | `["Approved", "Issued", "Cancelled"]` | "Duyệt" → `approve_allocation` · "Xuất kho (khẩn)" → `issue_allocation` · "Hủy" → `cancel_allocation` |
+| `Approved` | `["Issued", "Cancelled"]` | "Xuất kho" → `issue_allocation` (shortcut, bỏ qua Pick chưa-wire) · "Hủy" → `cancel_allocation` |
+| `Picked` | `["Cancelled"]` | "Hủy" → `cancel_allocation` (defensive — Picked chỉ tới được qua desk workflow) |
+| `Issued` | `["Returned"]` | "Trả phụ tùng" → `return_items` |
+| `Returned` | `[]` | (terminal — read-only) |
+| `Cancelled` | `[]` | (terminal — read-only) |
+
+> **Deferred (04 §VI.1.1 EXCEPTION):** `Approved→Picked`, `Picked→Issued` (Pick chain chưa wire), `Returned→Issued` ("Đóng phiếu" re-close, chưa có service fn) — workflow json khai nhưng KHÔNG surface CTA. `Approved→Issued` là SHORTCUT (service xuất trực tiếp).
+
+**Response (ví dụ status=Requested):**
+```json
+{
+  "success": true,
+  "data": {
+    "name": "SAL-2026-00045",
+    "work_order_ref": "WO-2026-00234",
+    "asset": "AC-ASSET-00045",
+    "asset_name": "Máy CT Scanner",
+    "warehouse_from": "WH-01",
+    "warehouse_name": "Kho trung tâm",
+    "requested_by": "storekeeper@hospital.vn",
+    "requested_by_name": "Nguyễn Văn A",
+    "urgency": "Routine",
+    "allocation_status": "Requested",
+    "total_value": 1500000,
+    "docstatus": 0,
+    "items": [
+      {"spare_part": "AC-SP-2024-0001", "part_name": "Bóng đèn CT", "qty_requested": 1, "qty_approved": 0, "qty_issued": 0, "uom": "Cái", "unit_value": 1500000}
+    ],
+    "allowed_transitions": ["Approved", "Issued", "Cancelled"]
+  }
+}
+```
+
+> **Mobile (Trục B — CR-29b, 2026-07-14):** endpoint DETAIL này đã được curate vào OAS mirror
+> `docs/mobile/openapi/assetcore-mobile.openapi.yaml` (path `GET .../imm15.get_allocation`, `operationId:
+> getAllocation`, tag `inventory`) — **F9-DETAIL** (sibling của `listAllocations` R40/ADR-MOBILE-049) màn
+> **"Xuất kho phụ tùng phục vụ WO"**. Contract-only (0 `.py`). Param `name` = **query, required, string**.
+> 200 = inline `oneOf [SpareAllocationDetailEnvelope, Error]` (Decision-B: `NOT_FOUND` đến TRÊN HTTP-200 —
+> KHÔNG 404 status-line; slot `{200,401,403}`, 403 = **dispatcher-403 ONLY** vì `@whitelist` bare KHÔNG
+> `rbac.require`). 2 schema `SpareAllocationItem` (13 field child) + `SpareAllocationDetail` (27 prop header +
+> `items[]` + 3 enrich + `allowed_transitions[]`) — **⚠️ CẢ HAI `additionalProperties:true` (OPEN)** vì
+> service trả `doc.as_dict()` (mirror `CalibrationDetail`/`TransferDetail`); CHỈ envelope đóng. `used_for`/
+> `return_condition` = string nullable KHÔNG enum (Select **leading-blank** `''` unset); `allocation_status` =
+> enum 6; `approval_required` = `integer enum[0,1]`. Quyết định: **ADR-MOBILE-050**.
 
 ### 3.1 `list_allocations`
 
@@ -122,6 +188,13 @@ GET /api/method/assetcore.api.imm15.list_allocations
 ```
 
 > Lưu ý: key là `data` (không phải `items`), kèm object `pagination` — khớp với `BaseRepository.list()` contract và TypeScript type `ListEnvelope<T>` trong `api/imm15.ts`.
+>
+> **Mobile (Trục B — CR-29a, 2026-07-14):** endpoint này đã được curate vào OAS mirror
+> `docs/mobile/openapi/assetcore-mobile.openapi.yaml` (path `GET .../imm15.list_allocations`, `operationId:
+> listAllocations`, tag `inventory`) — LIST-ENTRY màn **F9 "Xuất kho phụ tùng phục vụ WO"**. Contract-only
+> (0 `.py`). Envelope là **DOUBLE-DATA** `data.data[]` (⚠️ KHÁC `listCommissioning` `data.items[]`);
+> item = 14 field (11 `AllocationRepo.list` + 3 enrich `asset_name`/`warehouse_name`/`requested_by_name`,
+> out-field theo special-case `services/imm15.py:189-196`). Quyết định: **ADR-MOBILE-049**.
 ```
 
 ---
@@ -213,7 +286,7 @@ POST /api/method/assetcore.api.imm15.issue_allocation
 - Tạo và submit `AC Stock Movement` (Issue, reference_type=IMM Spare Allocation)
 - `apply_stock_movement()` → `AC Spare Part Stock.qty_on_hand -= qty_issued`
 - **RELEASE reserved:** dòng rời HOLDING → `recompute_reserved(warehouse_from, spare_part)` → reserved giải phóng (không double-count)
-- Ghi `IMM Audit Trail` (action=ISSUED)
+- Ghi `IMM Audit Trail` `event_type="allocation_issued"` (xem note audit-slug dưới §3.4b)
 
 **Response:**
 ```json
@@ -247,9 +320,11 @@ POST /api/method/assetcore.api.imm15.cancel_allocation
 **Side effects:**
 - `{Requested, Approved, Picked}` → `Cancelled`; `qty_on_hand` KHÔNG đổi (chưa từng trừ)
 - **RELEASE reserved:** `recompute_reserved(warehouse_from, spare_part)` cho mọi dòng → reserved giải phóng
-- Ghi `IMM Audit Trail` (action=CANCELLED)
+- Ghi `IMM Audit Trail` `event_type="allocation_cancelled"` (xem note audit-slug dưới)
 
 **Response:** `{"success": true, "data": {"name": "SAL-2026-00045", "workflow_state": "Cancelled"}}`
+
+> **Note audit-slug allocation (vòng 12, CR-WF-15-AUDIT · ADR-IMM-15-09):** 5 transition allocation qua helper `_write_allocation_audit(name, action, payload)` ghi ĐÚNG **1** `IMM Audit Trail` mỗi cái, `event_type=f"allocation_{action.lower()}"` ∈ {`allocation_created` (create @258), `allocation_approved` (approve @282), `allocation_issued` (issue @361), `allocation_returned` (return @409), `allocation_cancelled` (cancel @450)}. 5 slug + `cycle_count_posted` = SSoT `IMM15_AUDIT_EVENT_TYPES` PHẢI ⊆ Select options. **Trước vòng 12:** slug ∉ Select ⇒ ValidationError bị `except: pass` @1374 nuốt CÂM ⇒ **0 dòng** (BEFORE 0 / AFTER 1). Fix: register 6 slug + bare `pass`→`log_error` (non-blocking best-effort). Xem 04 §IV-AUDIT + 07 §III.4b.
 
 **Errors:**
 ```json
@@ -353,7 +428,7 @@ GET /api/method/assetcore.api.imm15.get_cycle_count?name=CYC-2026-00012
   1. `doc = CycleCountRepo.get(name)`; nếu `None` → `raise ServiceError(ErrorCode.NOT_FOUND, ...)` (in-handler **HTTP-200 + Error envelope** qua `_handle`, KHÔNG raise→4xx — DONE-gate spec-contract).
   2. `data = doc.as_dict()` + enrich display-name header: `warehouse_name` (AC Warehouse.warehouse_name), `counted_by_name` / `verified_by_name` (User.full_name).
   3. Enrich mỗi item line (child **`IMM Cycle Count Item`** — xem ⚠️ dưới): `part_name` (AC Spare Part.part_name). Item đã có sẵn `system_qty` (snapshot lúc create), `counted_qty`, `variance_qty`, `variance_pct`, `variance_value`, `capa_required`, `root_cause`, `notes`.
-  4. `data["allowed_transitions"] = _cycle_allowed_transitions(doc, frappe.session.user)`.
+  4. `data["allowed_transitions"] = _cycle_allowed_transitions(doc.status)` (Self-Correct vòng 11: chữ ký THẬT 1-arg `status`, KHÔNG `(doc, user)` — hàm đọc session user qua `rbac.can` bên trong).
 
 **Response:**
 ```json
@@ -378,24 +453,27 @@ GET /api/method/assetcore.api.imm15.get_cycle_count?name=CYC-2026-00012
     "items": [
       {"spare_part": "AC-SP-2024-0001", "part_name": "Bóng đèn CT", "system_qty": 6, "counted_qty": 4, "variance_qty": -2, "variance_pct": 33.3, "variance_value": -650000, "capa_required": 1, "root_cause": "Damage", "notes": ""}
     ],
-    "allowed_transitions": ["Posted"]
+    "allowed_transitions": ["Recount", "Post"]
   }
 }
 ```
 
-**`allowed_transitions` — SSoT gating (ADR-IMM-15-06, xem 02 §IV.6):**
+**`allowed_transitions` — SSoT gating (ADR-IMM-15-06 + ADR-IMM-15-08, xem 02 §IV.6 + 04 §VI.2.1):**
 
-`_CYCLE_VALID_TRANSITIONS: dict[str, list[str]]` (keyed by `status`, value = tên **next-state** — đồng convention với imm08/09/11/12):
+> **Self-Correct vòng 11 (doc↔code drift):** bảng cũ ghi value = tên **next-state** (`["Reviewed"]`/`["Posted"]`). Code THẬT (`_cycle_allowed_transitions`) + FE (`CycleCountAction = 'Submit' | 'Post' | 'Recount'`) dùng **token hành động ngữ nghĩa** `Submit`/`Post`/`Recount`, KHÔNG phải next-state. Bảng dưới đã sửa cho khớp.
 
-| `status` hiện tại | Base transitions | CTA phía FE |
-|---|---|---|
-| `Planned` | `["Reviewed"]` | "Hoàn tất kiểm kê" → `submit_cycle_count` |
-| `Counting` | `["Reviewed"]` | "Hoàn tất kiểm kê" → `submit_cycle_count` |
-| `Reviewed` | `["Posted"]` (**capability-gated**) | "Post — Ghi điều chỉnh tồn" → `post_cycle_count` |
-| `Posted` | `[]` (terminal) | — |
+`_CYCLE_VALID_TRANSITIONS: dict[str, list[str]]` (keyed by `status`, value = **token hành động**; token→status đích + capability xem 04 §VI.2.1):
 
-- **Capability filter**: `"Posted"` chỉ có mặt nếu user có cap `inventory.submit` (`_CAP_APPROVE`). User chỉ có `inventory.write` (`_CAP_OPERATE`) → từ `Reviewed` nhận `[]` (không thấy nút Post). Ràng buộc capability vẫn được **enforce lần 2** trong `post_cycle_count` (in-handler cap-403 → HTTP-200 Error envelope nếu FE bị bypass).
-- Trạng thái `Counting` hiện **chưa có endpoint** đưa `Planned→Counting` (create đặt `Planned`, `submit` nhận cả `Planned|Counting`); flow thực tế `Planned → (submit) Reviewed → (post) Posted`. Transition `Reviewed→Counting` ("Sửa đếm lại" trong workflow json) chưa có service endpoint → `[ROADMAP]`, KHÔNG đưa vào `allowed_transitions` ở vòng này.
+| `status` hiện tại | Tokens (thứ tự) | Cap | CTA phía FE → endpoint |
+|---|---|---|---|
+| `Planned` | `["Submit"]` | `inventory.write` | "Hoàn tất kiểm kê" → `submit_cycle_count` (→ Reviewed) |
+| `Counting` | `["Submit"]` | `inventory.write` | "Hoàn tất kiểm kê" → `submit_cycle_count` (→ Reviewed) |
+| `Reviewed` | `["Recount", "Post"]` (**cap-gated**) | `inventory.submit` | "Sửa đếm lại" → `recount_cycle_count` (→ Counting) · "Post — Ghi điều chỉnh tồn" → `post_cycle_count` (→ Posted) |
+| `Posted` | `[]` (terminal) | — | — |
+
+- **Capability filter**: `Recount` + `Post` chỉ có mặt khi user có cap `inventory.submit` (`_CAP_APPROVE`). User chỉ có `inventory.write` (`_CAP_OPERATE`) → từ `Reviewed` nhận `[]` (không thấy cả Sửa-đếm-lại lẫn Post). Ràng buộc **enforce lần 2** trong service (`recount_cycle_count` / `post_cycle_count` gọi `_require_any_role` → in-handler cap-403 HTTP-200 Error envelope nếu FE bị bypass).
+- **Recount đặt TRƯỚC Post** trong list (thứ tự render nút).
+- Trạng thái `Counting` reachable qua **Recount** (Reviewed→Counting) — trước vòng 11 chỉ đạt được từ desk. Cạnh `Planned→Counting` ("Bắt đầu đếm" trong workflow json) KHÔNG surface CTA (dual-track collapse — service gộp Planned→Reviewed); khai báo `_CYCLE_EXCEPTION_EDGES` để INVARIANT không báo drift (04 §VI.2.1).
 
 **⚠️ Data note (Cần khảo sát / BE cleanup — KHÔNG tự sửa ở task này):** tồn tại **2** child DocType — `IMM Cycle Count Item` (**LIVE**, được parent `IMM Stock Cycle Count.items` tham chiếu qua `options`) và `IMM Stock Cycle Count Item` (**orphan**, field khác: có `warehouse`/`batch_no`, thiếu `capa_ref`/`notes`; `root_cause` là Data thay vì Select). `get_cycle_count` PHẢI đọc child **LIVE = `IMM Cycle Count Item`**. Orphan nên được BE dọn trong task riêng.
 
@@ -428,6 +506,7 @@ POST /api/method/assetcore.api.imm15.post_cycle_count
 - Tạo và submit `AC Stock Movement` (Adjustment, reference_type=IMM Stock Cycle Count)
 - `qty_on_hand := counted_qty` cho từng item
 - Seed CAPA cho items capa_required=1
+- **Audit (vòng 12, CR-WF-15-AUDIT):** ghi ĐÚNG **1** `IMM Audit Trail` `event_type="cycle_count_posted"`, `ref_doctype=CycleCountRepo.DOCTYPE`, `ref_name=<name>`, `actor=verified_by`, `from_status="Reviewed"`, `to_status="Posted"`. `cycle_count_posted` PHẢI ∈ Select options (ADR-IMM-15-09 — trước vòng 12 slug ∉ Select ⇒ ValidationError bị nuốt ⇒ **0 dòng** persist). Audit non-blocking best-effort; fail → `frappe.log_error` (KHÔNG bare pass).
 
 **Response:**
 ```json
@@ -447,6 +526,56 @@ POST /api/method/assetcore.api.imm15.post_cycle_count
 {"success": false, "error": "VR-15-11: Người kiểm tra phải khác người kiểm kê (segregation)", "code": "BUSINESS_RULE"}
 {"success": false, "error": "Một số item chưa điền root_cause cho variance > 5%", "code": "VALIDATION"}
 ```
+
+---
+
+### 3.7c `recount_cycle_count` (Reviewed → Counting, "Sửa đếm lại") — **NEW (vòng 11, CR-WF-15-CC)**
+
+> Surface cạnh workflow `Reviewed→Counting` (đã có sẵn trong `imm_15_cycle_count_workflow.json`, action "Sửa đếm lại") thành **CTA server-driven** để Inventory Manager / Super Admin gửi phiếu đã rà soát VỀ đếm lại (khi phát hiện số đếm cần sửa trước khi Post). Trước vòng 11 cạnh này bị **ẩn câm** — INVARIANT `TestCycleCountAllowedTransitions` RED (xem 07). GATE-8/LL-FE-51: client KHÔNG hardcode `status==='Reviewed'`.
+
+```
+POST /api/method/assetcore.api.imm15.recount_cycle_count
+```
+
+**BE contract:**
+- `api/imm15.py`:
+  ```python
+  @frappe.whitelist(methods=["POST"])
+  def recount_cycle_count(count_name: str = "", name: str = "", reason: str = "") -> dict:
+      return _handle(svc.recount_cycle_count, count_name or name, reason)
+  ```
+  Bare `@whitelist` (KHÔNG `allow_guest`) — dispatcher chặn guest TRƯỚC handler. Mirror alias `count_name or name` như `submit_cycle_count`.
+- `services/imm15.py`: `def recount_cycle_count(count_name: str, reason: str = "") -> dict` — xem 04 §cycle_count_service (skeleton) + §VI.2.1.
+
+**Request body:**
+```json
+{ "count_name": "CYC-2026-00012", "reason": "Lệch ca A/B — đếm lại kệ 3" }
+```
+
+**Response (HTTP-200):**
+```json
+{ "success": true, "data": { "name": "CYC-2026-00012", "workflow_state": "Counting" } }
+```
+
+**Errors (parity submit/post — in-handler ⇒ HTTP-200 + Error envelope, KHÔNG raise→4xx):**
+```json
+{"success": false, "error": "IMM15_RECOUNT_REASON_REQUIRED: Phải nhập lý do gửi đếm lại", "code": "VALIDATION"}
+{"success": false, "error": "Không thể gửi đếm lại ở trạng thái: Posted", "code": "BAD_STATE"}
+{"success": false, "error": "Không có quyền gửi phiếu về đếm lại", "code": "FORBIDDEN"}
+```
+
+| Case | Điều kiện | Bucket HTTP | Cách trả |
+|---|---|---|---|
+| Guest / no-token | chưa đăng nhập | **401** | **dispatcher** (Frappe re-auth — HTTP status THẬT, KHÔNG envelope) |
+| Thiếu cap `inventory.submit` | user login nhưng không có cap | **403** FORBIDDEN | **in-handler** cap-403 → HTTP-200 Error envelope (`_require_any_role`) |
+| `reason` rỗng/whitespace | `reason.strip()==""` | **422** VALIDATION | in-handler `IMM15_RECOUNT_REASON_REQUIRED`, HTTP-200 envelope |
+| `status ≠ Reviewed` | ví dụ Planned/Counting/Posted | **409** BAD_STATE | in-handler, HTTP-200 envelope |
+
+> **2 loại 403/401 (DONE-gate LL-BE-42..49):** guest/no-token = **dispatcher-401** (không tới handler, HTTP status thật). User đã login nhưng thiếu `inventory.submit` = **in-handler cap-403** (HTTP-200, Error envelope code=`FORBIDDEN`). KHÔNG dùng `raise`→HTTP-4xx cho lỗi nghiệp vụ.
+
+**Cap:** `inventory.submit` (`_CAP_APPROVE`) — send-back là hành vi Manager-level (đối xứng Post; cùng role-set workflow {Inventory Manager, AssetCore Super Admin, System Manager}).
+
+**Audit:** đúng **1** record `IMM Audit Trail` `from_status="Reviewed"`, `to_status="Counting"`, `event_type="State Change"` (∈ Select — Self-Correct: KHÔNG dùng value ngoài Select như `cycle_count_posted`), `change_summary` chứa `reason`. BR-15-10 "mọi transition → audit". Xem 04 §cycle_count_service (`_cycle_audit`).
 
 ---
 

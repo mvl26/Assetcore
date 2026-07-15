@@ -208,10 +208,22 @@ Screenshots thực tế lưu tại: `docs/imm-08/screenshots/` (thêm sau khi bu
 
 > 🆕 Vòng 23 (Self-Correction). Chip `dueBefore` đổi nhãn từ `Đến hạn trước {due_before}` → **`Đến hạn ≤ {date}, từ hôm nay`** (hoặc `Đến hạn trong 7 ngày` khi date == today+7). Lý do: nhãn cũ "trước {date}" khiến user hiểu nhầm danh sách GỒM cả WO quá hạn. Ngữ nghĩa thật là **cửa sổ due-soon `[hôm nay, {date}]`** — WO quá hạn nằm ở chip `Quá hạn` riêng (disjoint). FE **KHÔNG inline-compute membership** — vẫn forward `due_before` verbatim, BE `_normalize_filters` lo cận dưới `today` (gọi `due_soon_filter`). **Zero contract change ngoài label.** File: `frontend/src/views/pm/PMWorkOrderListView.vue` (`activeChips` computed, chip `dueBefore`).
 
+> 🆕 **CR-18 (tìm kiếm free-text phía SERVER — BR-08-17):** ô "Tìm phiếu" nay refetch **SERVER** thay vì lọc client-side chỉ trang đã tải.
+> - **Trước (search-trap):** `search` là ref client; `filteredWOs` computed lọc `store.workOrders` (CHỈ trang đang tải) theo `name`/`asset_name`/`asset_ref` `toLowerCase().includes` ⇒ phiếu ở trang 2+ KHÔNG hiện dù khớp. Subtitle "Tổng {total}" (server) lệch số dòng lọc (client) = trap.
+> - **Sau:** `search` ref → **debounce 300ms** → `buildFilters()` KHÔNG chứa search; thay vào đó truyền `search` như tham số riêng cho `store.fetchWorkOrders(buildFilters(), 1, search.value.trim())` → `listPMWorkOrders(filters, page, pageSize, search)` (discrete query-param `search`). Mỗi lần đổi `search` → **reset `page=1`** + refetch. **GỠ** `filteredWOs` computed (render thẳng `store.workOrders`); GỠ mọi nơi dùng `filteredWOs.length`/`?? filteredWOs.length` (subtitle + "Hiển thị N" + empty-state) → dùng `store.pagination.total` / `store.workOrders.length`. **GIỮ** chip `search` (`activeChips` key `'search'`, xóa chip → clear `search` + refetch). Placeholder giữ "Tìm theo mã lệnh công việc, tên thiết bị...".
+> - **Kết quả phủ MỌI trang:** BE OR-LIKE `name`/`asset_code`/`asset_name` toàn tập; FE KHÔNG lọc lại (transport-agnostic). File: `frontend/src/views/pm/PMWorkOrderListView.vue`, `frontend/src/api/imm08.ts` (`listPMWorkOrders` +`search`), `frontend/src/stores/imm08.ts` (`fetchWorkOrders` forward `search`).
+
 #### 3.4. Detail — PM Work Order (`:id`)
 
 **Left panel (60%):** Thông tin WO + Checklist items (one per row, radio Pass/Fail/N/A).
 **Right panel (40%):** SLA countdown + Kỹ thuật viên info + action buttons.
+
+**UX flow — đính ảnh bằng chứng theo mục checklist (BR-08-15/16, mobile CR-14/G6):**
+- Mỗi hàng checklist có **1 control upload ảnh** (nút "📷 Ảnh bằng chứng"), gọi `POST attach_pm_checklist_photo` **multipart** với `work_order_name`, `checklist_item_idx` (STT hàng), `file`. Sau success (`{file_url, file_name, checklist_item_idx}`) → hiển thị **thumbnail** từ `checklist_results[idx].photo` (đã có sẵn trong `get_pm_work_order`), KHÔNG cần refetch toàn phiếu ngoài invalidate.
+- **Client-side chỉ pre-hint** (đuôi jpg/png, ~10 MB) để UX nhanh; **server là enforcer cuối** — mọi lỗi (`VALIDATION`/`FORBIDDEN`/`NOT_FOUND`) surface Decision-B HTTP-200 → map qua Notification Contract, hiển thị dưới control (`fields.file` / `fields.checklist_item_idx`). KHÔNG so client-clock, KHÔNG tự suy quyền.
+- **Gate hiển thị control:** chỉ KTV được giao (`assigned_to`) hoặc role có `pm.write` (mirror gate nút action theo `allowed_transitions`, KHÔNG hardcode); WO ở trạng thái đang thực hiện (Open/In Progress). Class C/D (`risk_class`) → badge "⚠ Cần ảnh" nhắc BR-08-06.
+- **1 ảnh/mục — write-once** (server chặn ảnh thứ 2 → `"Mỗi mục checklist chỉ đính 1 ảnh"`, KHÔNG ghi đè; xem ADR-IMM08-PHOTO-03). `checklist_results[idx].photo` = ảnh đã đính làm thumbnail. Sau khi đính, control chuyển sang trạng thái "đã có ảnh" (KHÔNG cho chọn lại). Multi-photo/mục + đổi-ảnh-có-audit (`remove_pm_checklist_photo`) = `[ROADMAP]`.
+- **Ảnh iPhone (HEIC/HEIF):** app mobile PHẢI transcode → JPEG trước upload (ADR-IMM08-PHOTO-04); web-FE chỉ pre-hint đuôi jpg/png. Chọn HEIC trên web → server reject `"Tệp phải là ảnh JPG hoặc PNG"` (hiển thị dưới control `fields.file`).
 
 ---
 

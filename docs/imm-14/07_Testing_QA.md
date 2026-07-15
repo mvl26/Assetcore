@@ -11,6 +11,8 @@
 
 > **Trạng thái**: IMM-14 **chưa scaffold BE** (chưa có `services/imm14.py`, `api/imm14.py`, `tests/test_imm14.py`, workflow JSON). File này là **kế hoạch kiểm thử (planning skeleton)**: cấu trúc đầy đủ, điền sự thật đã chốt từ docs 02/04/05; mọi field/endpoint shape/test ID/coverage thực tế đánh dấu `⬜ Planned` hoặc `*(Cần khảo sát)*`, chốt sau Sprint W3-1.
 
+> **⚠️ Đính chính (2026-07-10):** banner trên đã **stale**. MVP vòng 2 + vòng 17 ĐÃ scaffold: `services/imm14.py`, `api/imm14.py`, `tests/test_imm14.py` (15 test class/method — gate, patient-data C/D, approve flow, idempotent/terminal, NEG-09, RBAC, list) đều tồn tại và xanh. Kế hoạch test cho **vòng 17** (detail-view + server-driven approve gate) ở **Phần VIII** cuối file. Phần I–VII giữ làm khung Đợt 3.
+
 ---
 
 # Phần I — Test Analysis (Phân tích đối tượng test)
@@ -661,4 +663,57 @@ Screenshot SonarQube + Lighthouse gắn vào [09 §Release Notes](./09_Release.m
 
 ---
 
-*Hết file 07 — IMM-14 planning skeleton. Test case ID, coverage %, sign-off điền khi BE scaffold (Sprint W3-1) và UAT (W3-4).*
+---
+
+# Phần VIII — Test plan vòng 17 (Chi tiết + server-driven approve gate) — CHỐT
+
+> Ref acceptance `02 §VIII.3` · SoT `04 §X` · API `05 §8` · FE `06 §13`. TDD gate: `bench --site miyano run-tests` (test_imm14) → "Ran N OK"; FE `decommissionDetailCtaGate.test.ts` pass + `npm run typecheck` (prod) 0 error.
+
+## VIII.1. BE — `tests/test_imm14.py` (EXTEND, không tạo file mới)
+
+Thêm class `TestGetDecommissionApproveGate(_BaseIMM14)` — trace BR-14-W2-13..16:
+
+| Test | Kịch bản | Assert |
+|---|---|---|
+| `test_get_emits_can_approve_for_approver_draft` | approver (submit=1) đọc draft hợp lệ (không C/D, hoặc C/D đã sanitized) | `can_approve == 1` **and** `approve_blocked_reason == ""` |
+| `test_get_can_approve_zero_for_reader_without_submit` | Commissioning User (create=1/submit=0) đọc CÙNG draft | `can_approve == 0` **and** reason == "Bạn không đủ quyền duyệt giải nhiệm." |
+| `test_get_can_approve_zero_when_already_approved` | record docstatus=1 | `can_approve == 0` **and** reason == "Hồ sơ giải nhiệm đã được duyệt." |
+| `test_get_can_approve_zero_when_patient_data_missing` | approver đọc draft C/D (High/Critical) chưa `patient_data_sanitized` | `can_approve == 0` **and** reason chứa "dữ liệu bệnh nhân" (WHO §3.6) |
+| `test_get_can_approve_zero_when_asset_already_decommissioned` | asset đã Decommissioned bởi record khác | `can_approve == 0` **and** reason chứa "đã được giải nhiệm" |
+| `test_invariant_reason_iff_blocked` | mọi case trên | `(approve_blocked_reason != "") == (can_approve == 0)` |
+| `test_get_no_email_leak` | responsible = email | output có `responsible_name`; `responsible` giữ khoá kỹ thuật; `asset_name` set (không rò id thô ở field hiển thị) |
+| `test_get_can_approve_matches_approve_enforcement` | **SoT parity:** với record mà `can_approve==0` vì field-rule → gọi `approve_decommission` PHẢI raise/blocked cùng lý do (không drift) | approve chặn tương ứng |
+
+- Dùng helper `_BaseIMM14` (set user theo role) đã có; capability check qua `rbac.can` → set session user role tương ứng (Super Admin / Commissioning Manager / Commissioning User).
+- Read-only: assert `get_decommission` KHÔNG sinh Lifecycle Event / Audit Trail mới (BR-14-W2-12 giữ).
+
+## VIII.2. FE — `views/eol/decommissionDetailCtaGate.test.ts` (NEW)
+
+Mirror `documentDetailCtaGating.test.ts`. Matrix (mock `getDecommission`):
+
+| Case | Mock | Assert |
+|---|---|---|
+| (a) approver draft | `can_approve:1, reason:""` | `[data-testid=cta-approve]` render; click → `approveDecommission(name)` gọi 1 lần |
+| (b) reader no-submit | `can_approve:0, reason:"Bạn không đủ quyền duyệt giải nhiệm."` | KHÔNG `cta-approve`; `[data-testid=approve-blocked-hint]` chứa chuỗi VI đó |
+| (c) already approved | `can_approve:0, reason:"Hồ sơ giải nhiệm đã được duyệt.", workflow_state:"Approved"` | KHÔNG nút; badge "Đã duyệt" |
+| (d) anti-dead-control | `docstatus:0, workflow_state:"Draft", can_approve:0` | **KHÔNG** nút (chứng minh gate theo `can_approve`, KHÔNG docstatus/state===) |
+| (e) anti-PII | `responsible:"x@y.vn", asset:"AST-1", asset_name:"Máy X", responsible_name:"Nguyễn A"` | DOM KHÔNG chứa "x@y.vn" / "AST-1" ở field hiển thị; KHÔNG raw 'Draft'/'Approved' EN |
+| (f) degrade | `can_approve: undefined` | KHÔNG nút (an toàn) |
+
+## VIII.3. FE — cập nhật `DecommissionList.render.test.ts` (EDIT)
+
+- Đổi assertion row-click: `router.push` gọi với `'/decommissions/<name>'` (thay `'/assets/<asset>'`) — theo ADR-IMM14-DETAIL-03.
+
+## VIII.4. Run commands
+
+```bash
+bench --site miyano run-tests --app assetcore --module assetcore.tests.test_imm14   # BE → "Ran N OK"
+cd frontend && npx vitest run src/views/eol/decommissionDetailCtaGate.test.ts       # FE gate
+cd frontend && npm run typecheck                                                     # prod tsc 0 error
+```
+
+*Hết Phần VIII (vòng 17).*
+
+---
+
+*Hết file 07 — IMM-14 planning skeleton (Phần I–VII) + test plan vòng 17 (Phần VIII CHỐT). Test case ID, coverage %, sign-off điền khi BE scaffold (Sprint W3-1) và UAT (W3-4).*

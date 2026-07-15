@@ -297,6 +297,31 @@ Khi user thêm/sửa item: gọi `check_part_availability` debounced 500ms → c
 | Trả phụ tùng | state=Issued | `return_items` (dialog chọn item + condition) |
 | Hủy | state IN (Requested, Approved, Picked) | `cancel_allocation` |
 
+> **⚠️ Server-driven CTA (vòng 16, CR-WF-15-ALLOC · ADR-IMM-15-10).** Bảng "Visible khi state=X" ở trên là spec gốc dùng hardcode `allocation_status===` — **ĐÃ SUPERSEDE**. Khi build `AllocationDetailView.vue` thật, gate nút theo **`allowed_transitions.includes('<NextState>')`** (từ `getAllocation`), KHÔNG hardcode state (GATE-8/LL-FE-51). Map next-state → nút:
+>
+> | Nút (nhãn VI đầy đủ) | Gate | Endpoint |
+> |---|---|---|
+> | **Duyệt** | `allowed_transitions.includes('Approved')` | `approveAllocation` |
+> | **Xuất kho** | `allowed_transitions.includes('Issued')` | `issueAllocation` |
+> | **Hủy** | `allowed_transitions.includes('Cancelled')` | `cancelAllocation` *(⚠️ wrapper CHƯA có trong `imm15.ts` — backlog)* |
+> | **Trả phụ tùng** | `allowed_transitions.includes('Returned')` | `returnItems` |
+>
+> `allowed_transitions === []` (Returned / Cancelled) → read-only. Nhãn hiển thị **đầy đủ tiếng Việt** (LL-FE-53) — 0 rò status EN (Requested/Approved/Issued/Cancelled/Returned dịch: Đã yêu cầu / Đã duyệt / Đã xuất / Đã hủy / Đã trả). **Deferred (không render CTA):** nút "Pick" (`Approved→Picked`) + "Đóng phiếu" (`Returned→Issued`) — service chưa wire (04 §VI.1.1 EXCEPTION).
+>
+> **Type (delta vòng 16 — `frontend/src/api/imm15.ts`):**
+> ```ts
+> export interface AllocationDetail extends AllocationRow {
+>   items: AllocationItem[]
+>   allowed_transitions: string[]   // ← THÊM (vòng 16): next-state strings từ get_allocation
+> }
+> ```
+>
+> **Boundaries — AllocationDetail (vòng 16):**
+> - **Always**: gate MỌI nút (Duyệt/Xuất kho/Hủy/Trả phụ tùng) theo `allowed_transitions.includes('<NextState>')`; nhãn + badge status đầy đủ tiếng Việt; format tiền VN cho `total_value`/`unit_value`; hiển thị TÊN kho (`warehouse_name`)/asset (`asset_name`) không phải mã; sau action invalidate query detail.
+> - **Never**: hardcode `allocation_status === 'X'` để bật nút (GATE-8/LL-FE-51); leak English enum; render nút "Pick"/"Đóng phiếu" (deferred, không có service endpoint) — click sẽ dead.
+>
+> **Scope vòng 16:** `AllocationDetailView.vue` CHƯA tồn tại (chỉ spec này) → delta CODE vòng 16 = **CHỈ** thêm field `allowed_transitions: string[]` vào interface `AllocationDetail` (imm15.ts) cho typed BE-emit. Build view + wire `cancelAllocation` = **[ROADMAP]/backlog**.
+
 ---
 
 ### II.6 EmergencyOverrideModal.vue
@@ -401,7 +426,7 @@ Khi user thêm/sửa item: gọi `check_part_availability` debounced 500ms → c
 
 | State | Hiển thị |
 |---|---|
-| Reviewed | Read-only counted_qty; [Sửa đếm lại] (Storekeeper) + [Post] (Workshop Head) |
+| Reviewed | Read-only counted_qty; **[Sửa đếm lại]** + **[Post]** — cả hai gate `allowed_transitions.includes('Recount'|'Post')`, cap `inventory.submit` (Inventory Manager / AssetCore Super Admin). Self-Correct vòng 11: role "Storekeeper/Workshop Head" cũ SAI — send-back + Post đều Manager-level |
 | Posted | Read-only; link `stock_reconciliation_ref`, `capa_seeded` count; [Mở SR] |
 
 Dropdown `verified_by`: loại trừ user `counted_by` (VR-15-11).
@@ -413,8 +438,8 @@ Dropdown `verified_by`: loại trừ user `counted_by` (VR-15-11).
 > **Self-Correction / route reconciliation:** §II.8 (draft cũ) đặt route `/imm15/cycle-counts/:name`, nhưng router THỰC của app dùng namespace **`/inventory/*`** (`router/index.ts` — WarehouseList `/warehouses`, StockLevels `/stock`, forecasts `/inventory/forecasts`…). Wave-2 giao BE+api+store nhưng **CHƯA có view/route/nav** → dead-feature. Vòng 2 surface theo namespace `/inventory` cho khớp app. Route `:name` = `/inventory/cycle-counts/:name`.
 
 **Boundaries (Always / Never) — bám GATE-8/LL-FE-51 + LL-FE-53:**
-- **Always**: gate nút hành động theo `allowed_transitions` từ `get_cycle_count`; hiển thị TÊN kho (`warehouse_name`) không phải mã; format tiền VN cho `variance_value`; nhãn status + count_type + root_cause dịch đầy đủ tiếng Việt.
-- **Never**: hardcode `status === 'Reviewed'` để bật nút Post; leak English enum (Planned/Counting/Reviewed/Posted/Full/ABC_A_Monthly/Cycle/Spot); gọi `save_counted_qty` (không tồn tại — dùng `submitCycleCount`).
+- **Always**: gate MỌI nút hành động (Submit / **Recount** / Post) theo `allowed_transitions.includes('<Token>')` từ `get_cycle_count`; modal "Sửa đếm lại" bắt buộc `reason` (submit disabled khi rỗng); sau Recount invalidate query detail; hiển thị TÊN kho (`warehouse_name`) không phải mã; format tiền VN cho `variance_value`; nhãn status + count_type + root_cause dịch đầy đủ tiếng Việt; nút "Sửa đếm lại" nhãn tiếng Việt đầy đủ.
+- **Never**: hardcode `status === 'Reviewed'` để bật nút Post/Recount (dùng `allowed_transitions.includes`); leak English enum (Planned/Counting/Reviewed/Posted/Full/ABC_A_Monthly/Cycle/Spot); gọi `save_counted_qty` (không tồn tại — dùng `submitCycleCount`); gọi `recountCycleCount` với `reason` rỗng (chặn ở client trước, BE trả `IMM15_RECOUNT_REASON_REQUIRED`).
 
 #### Route (`router/index.ts`) — thêm 2 route (module `imm15`, đã map `/^\/inventory/ → imm15` sẵn):
 
@@ -451,10 +476,15 @@ Phân trang: dùng `pagination {total,page,page_size,total_pages}` từ envelope
 
 #### CycleCountDetailView.vue — flow
 
+> **Self-Correct vòng 11:** `allowed_transitions` chứa **token hành động** `Submit`/`Post`/`Recount` (khớp code + `CycleCountAction`), KHÔNG phải next-state `Reviewed`/`Posted`. Flow dưới đã sửa. Nút gate `allowedTransitions.value.includes('<Token>')` — GATE-8/LL-FE-51 (KHÔNG hardcode `status===`).
+
 1. `getCycleCount(name)` → header + `items[]` (system_qty | counted_qty | variance) + `allowed_transitions`.
-2. Nếu `allowed_transitions` chứa `"Reviewed"` → nút **"Hoàn tất kiểm kê"**: nhập `counted_qty` per-line (bắt buộc `root_cause` khi `|variance_pct|>5%` — VR-15-04) → `submitCycleCount(name, counted_items)` → status `Reviewed`, hiển thị variance per-line.
-3. Nếu chứa `"Posted"` → nút **"Post — Ghi điều chỉnh tồn"** (chỉ hiện với cap `inventory.submit`): `postCycleCount(name, verified_by)` (verified_by ≠ counted_by — VR-15-11) → status `Posted`, hiển thị `adjustment_ref` (bút toán `AC Stock Movement`) + cảnh báo nếu `capa_created > 0`.
-4. `allowed_transitions === []` (Posted) → read-only, link `posted_movement_ref`.
+2. `canSubmit = allowedTransitions.includes('Submit')` → nút **"Hoàn tất kiểm kê"**: nhập `counted_qty` per-line (bắt buộc `root_cause` khi `|variance_pct|>5%` — VR-15-04) → `submitCycleCount(name, counted_items)` → status `Reviewed`, hiển thị variance per-line.
+3. `canRecount = allowedTransitions.includes('Recount')` → nút **"Sửa đếm lại"** (chỉ hiện với cap `inventory.submit`): mở modal nhập `reason` (bắt buộc) → `recountCycleCount(name, reason)` → status `Counting`, invalidate query detail cycle-count. Server-driven — KHÔNG `status==='Reviewed'`.
+4. `canPost = allowedTransitions.includes('Post')` → nút **"Post — Ghi điều chỉnh tồn"** (chỉ hiện với cap `inventory.submit`): `postCycleCount(name, verified_by)` (verified_by ≠ counted_by — VR-15-11) → status `Posted`, hiển thị `adjustment_ref` (bút toán `AC Stock Movement`) + cảnh báo nếu `capa_created > 0`.
+5. `allowed_transitions === []` (Posted) → read-only, link `posted_movement_ref`.
+
+> Ở `Reviewed`, cả **"Sửa đếm lại"** lẫn **"Post"** cùng gate bởi cap `inventory.submit`; user thiếu cap → `allowed_transitions` của Reviewed = `[]` (không thấy nút nào). Recount render TRƯỚC Post (thứ tự SSoT).
 
 #### FE api client (`api/imm15.ts`) — bổ sung
 
@@ -465,15 +495,24 @@ export interface CycleCountItem {
   variance_qty: number; variance_pct: number; variance_value: number
   capa_required?: 0 | 1; root_cause?: string; notes?: string
 }
+// Server-driven CTA (GATE-8/LL-FE-51). Self-Correct vòng 11: token hành động, +Recount.
+export type CycleCountAction = 'Submit' | 'Post' | 'Recount'
 export interface CycleCountDetail extends CycleCountRow {
   counted_by?: string; verified_by?: string; notes?: string
   posted_movement_ref?: string; docstatus?: 0 | 1 | 2
   items: CycleCountItem[]
-  allowed_transitions: CycleCountState[]
+  allowed_transitions: CycleCountAction[]
 }
 export const getCycleCount = (name: string) =>
   frappeGet<CycleCountDetail>(`${BASE}.get_cycle_count`, { name })
+
+// Reviewed → Counting ("Sửa đếm lại"). reason bắt buộc; BE cap inventory.submit.
+export const recountCycleCount = (count_name: string, reason: string) =>
+  frappePost<{ name: string; workflow_state: CycleCountState }>(
+    `${BASE}.recount_cycle_count`, { count_name, reason })
 ```
+
+**Store `stores/imm15.ts`** — thêm action `recountCycleCountAction(name, reason)` (mirror `postCycleCountAction`): gọi `recountCycleCount` → invalidate/refetch `getCycleCount(name)` (TanStack query key detail). Modal reason: textarea bắt buộc, submit disabled khi `reason.trim()===''` (parity BE `IMM15_RECOUNT_REASON_REQUIRED`).
 
 #### Nhãn tiếng Việt (LL-FE-53 — dịch đầy đủ, KHÔNG leak English)
 

@@ -217,10 +217,54 @@ GET ?name=TS-26-00045
       }
     ],
     "lock_in_risk_ref": "LR-26-00009",
-    "infra_status_overall": "Partial"
+    "infra_status_overall": "Partial",
+    "allowed_transitions": ["lock", "withdraw"],
+    "can_lock": 1,
+    "can_withdraw": 1,
+    "can_reissue": 0
   }
 }
 ```
+
+**Server-driven CTA gating (GATE-8 / LL-FE-51 — vòng 6).** `get_tech_spec` bổ sung 4 field derive server-side (BR-02-08/09, ADR-IMM02-01) để FE gate nút "Chốt / Rút / Phát hành lại" mà KHÔNG suy từ `workflow_state`:
+
+| Field | Kiểu | Nguồn derive |
+|---|---|---|
+| `allowed_transitions` | `string[]` | `_SPEC_CTA_TRANSITIONS.get(workflow_state, [])` — hint hiển thị role-agnostic. Mặc định `[]` khi state lạ/`None`. |
+| `can_lock` | `0\|1` | `int("lock" in allowed_transitions and rbac.can("spec.submit"))` |
+| `can_withdraw` | `0\|1` | `int("withdraw" in allowed_transitions and rbac.can("spec.submit"))` |
+| `can_reissue` | `0\|1` | `int("reissue" in allowed_transitions and rbac.can("spec.create"))` |
+
+Ma trận cờ theo state (giả định user có capability):
+
+| workflow_state | allowed_transitions | can_lock | can_withdraw | can_reissue |
+|---|---|---|---|---|
+| `Pending Approval` | `["lock","withdraw"]` | 1 | 1 | 0 |
+| `Locked` | `["withdraw"]` | 0 | 1 | 0 |
+| `Withdrawn` | `["reissue"]` | 0 | 0 | 1 |
+| Draft / Reviewing / Benchmarked / Risk Assessed | `[]` | 0 | 0 | 0 |
+
+> **INVARIANT (map ⊆ guard):** cờ advertise ⊆ tập guard `lock_spec`/`withdraw_spec`/`reissue_spec` thực cho phép. `allowed_transitions` chỉ là hint, KHÔNG nới lỏng guard. User thiếu capability → cờ = 0 (nút ẩn) VÀ endpoint trả `FORBIDDEN` nếu bị gọi trực tiếp.
+
+**Server-driven CTA cho 6 transition trung gian (CR-WF-02-SPEC — vòng 24, BR-02-10, ADR-IMM02-02).** `get_tech_spec` bổ sung field `allowed_actions` để FE render nút chuyển-trạng-thái trung gian (Gửi rà soát / Yêu cầu chỉnh spec / Hoàn tất benchmark / Đánh giá rủi ro xong / Trình duyệt spec / Yêu cầu chỉnh risk):
+
+| Field | Kiểu | Nguồn derive |
+|---|---|---|
+| `allowed_actions` | `string[]` | `spec_allowed_actions(workflow_state, frappe.get_roles(user))` — danh sách **nhãn ACTION** (VI) đã LỌC theo role. Mặc định `[]` khi state lạ/terminal (Locked/Withdrawn). |
+
+> ⚠️ `allowed_actions` (nhãn ACTION, vòng 24) ≠ `allowed_transitions` (next-STATE hint của vòng 6). **2 key khác semantic**, cùng tồn tại — KHÔNG collide.
+
+Ví dụ đo được (theo state × role):
+
+| workflow_state | roles user | `allowed_actions` |
+|---|---|---|
+| `Draft` | `Spec User` | `["Gửi rà soát"]` |
+| `Reviewing` | `Needs Manager` | `["Yêu cầu chỉnh spec","Hoàn tất benchmark"]` |
+| `Reviewing` | `Spec User` | `["Yêu cầu chỉnh spec"]` |
+| `Pending Approval` | `Procurement Manager` | `["Yêu cầu chỉnh risk"]` (+ can_lock/can_withdraw riêng) |
+| `Locked` / `Withdrawn` | bất kỳ | `[]` |
+
+> **INVARIANT (advertise ⟺ reachable):** roles trong SSoT `_SPEC_VALID_TRANSITIONS` == `allowed` gom-vai của `imm_02_spec_workflow.json` (reconcile test). `transition_workflow` áp qua `apply_workflow` native → mỗi action ∈ `allowed_actions` khi apply KHÔNG raise permission + đổi đúng `next_state`; user thiếu role → action vắng khỏi list. (Nhánh business-gate G01–G04 vẫn có thể reject `BUSINESS_RULE` — UX đúng.)
 
 ## 3.3 `create_tech_spec` — POST
 
@@ -366,7 +410,7 @@ Bulk thêm requirements từ list dict (đã parse từ CSV/Excel ở FE). **Par
 
 ## 3.8 `transition_workflow` — POST
 
-Thực thi 1 workflow transition.
+Thực thi 1 workflow transition trung gian (áp qua `apply_workflow` **native** — Frappe enforce đúng `allowed` role của transition). `action` phải ∈ `allowed_actions` mà `get_tech_spec` trả về (server-driven CTA — vòng 24).
 
 **Request:**
 ```json
@@ -387,6 +431,15 @@ Thực thi 1 workflow transition.
   }
 }
 ```
+
+**2 loại 403 (DONE-gate spec-contract — CR-WF-02-SPEC):**
+
+| Loại | Điều kiện | Hình thức trả |
+|---|---|---|
+| **dispatcher-403** | guest / no-token (endpoint bare `@whitelist(methods=["POST"])`, KHÔNG `allow_guest`) | Frappe từ chối TRƯỚC handler (HTTP 403 status-line) |
+| **in-handler cap-403** | user login thiếu role của cạnh → `apply_workflow` raise `PermissionError` | `_handle` bắt → `_err(str(e), FORBIDDEN)` = **HTTP-200 + Error envelope** (KHÔNG raise→HTTP-4xx) |
+
+> `action` không hợp lệ từ state hiện tại → `apply_workflow` raise `ValidationError` → `_err(..., VALIDATION)` (HTTP-200). Gate nghiệp vụ (G01–G04) fail → `BUSINESS_RULE` (HTTP-200). Cả hai giữ envelope in-handler.
 
 ## 3.9 `get_market_benchmark` — GET
 
@@ -443,6 +496,12 @@ GET ?name=LR-26-00009
 
 Submit Tech Spec (Pending Approval → Locked). **Params thực tế: `name`, `approver` (bắt buộc), `remarks` (optional).**
 
+**Guard (thứ tự capability → state — BR-02-09, ADR-IMM02-01):**
+1. `rbac.can("spec.submit")` sai → `ServiceError(FORBIDDEN)` (in-handler cap-403 → **HTTP-200 + Error envelope**, KHÔNG raise→HTTP-4xx).
+2. `workflow_state != "Pending Approval"` → `BAD_STATE`.
+
+> Trước vòng 6: chỉ có bước (2). Mọi user login (kể cả không quyền) pass state rồi `doc.submit()` → Lock thành công. Từ vòng 6: bước (1) chặn trước. Phân biệt với **dispatcher-403** (guest / thiếu token) — trả ở tầng dispatcher trước khi vào handler; guard này là **in-handler cap-403** (envelope `success:false`, code `FORBIDDEN`).
+
 **Request:**
 ```json
 {
@@ -467,6 +526,8 @@ Submit Tech Spec (Pending Approval → Locked). **Params thực tế: `name`, `a
 
 Rút hồ sơ. **Param thực tế: `withdrawal_reason` (không phải `reason`).**
 
+**Guard (thứ tự capability → state — BR-02-09):** `rbac.can("spec.submit")` sai → `FORBIDDEN` (in-handler cap-403, HTTP-200 + envelope); rồi `workflow_state not in ("Pending Approval","Locked")` → `BAD_STATE`; `withdrawal_reason` rỗng → `VALIDATION`.
+
 **Request:**
 ```json
 {
@@ -489,6 +550,8 @@ Rút hồ sơ. **Param thực tế: `withdrawal_reason` (không phải `reason`)
 ## 3.13 `reissue_spec` — POST
 
 Tái phát hành phiên bản mới từ spec đã Withdrawn. **Param thực tế: `from_spec` (không phải `name`).**
+
+**Guard (thứ tự capability → state — BR-02-09):** `rbac.can("spec.create")` sai → `FORBIDDEN` (in-handler cap-403, HTTP-200 + envelope); rồi `workflow_state != "Withdrawn"` → `BAD_STATE`. (Quyền vật lý = *create* vì `copy_doc` + `insert` bản Draft mới.)
 
 **Request:**
 ```json
@@ -653,6 +716,11 @@ GET /api/method/assetcore.api.imm02.dashboard_kpis
 | `BAD_STATE` | Chỉ Locked/Pending Approval mới Withdraw | withdraw_spec |
 | `NOT_FOUND` | Tech Spec không tồn tại | get_tech_spec |
 | `FORBIDDEN` | Không đủ quyền (permlevel 1) | xem lock_in_score |
+| `FORBIDDEN` | Thiếu capability `spec.submit` (BR-02-09) — in-handler cap-403, HTTP-200 + envelope | lock_spec / withdraw_spec |
+| `FORBIDDEN` | Thiếu capability `spec.create` (BR-02-09) | reissue_spec |
+| `FORBIDDEN` | User login thiếu role của transition (`apply_workflow`→`PermissionError`) — in-handler cap-403, HTTP-200 + envelope | transition_workflow |
+| `VALIDATION` | `action` không hợp lệ từ state hiện tại | transition_workflow |
+| `BUSINESS_RULE` | Gate G01–G04 fail khi chuyển state | transition_workflow |
 | `INTERNAL` | Lỗi hệ thống không xác định | mọi trường hợp unexpected |
 
 ---
@@ -696,6 +764,13 @@ export interface TechSpec {
   approval_date: string | null;
   withdrawal_reason?: string;
   documents: TechSpecDocument[];
+  // Server-driven CTA gating (vòng 6 — chỉ có trên get_tech_spec detail):
+  allowed_transitions?: string[]; // hint next-STATE (Locked/Withdrawn/Draft), default [] khi thiếu
+  can_lock?: 0 | 1;               // FE coerce Boolean() → v-if nút "Chốt hồ sơ"
+  can_withdraw?: 0 | 1;           // → v-if nút "Rút hồ sơ"
+  can_reissue?: 0 | 1;            // → v-if nút "Phát hành lại"
+  // CR-WF-02-SPEC (vòng 24): nhãn ACTION trung gian đã lọc role → FE render 1 nút/action.
+  allowed_actions?: string[];     // default [] khi state lạ/terminal; ≠ allowed_transitions (next-state)
 }
 
 export type TechSpecState =

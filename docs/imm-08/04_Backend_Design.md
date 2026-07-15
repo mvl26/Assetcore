@@ -206,9 +206,25 @@ File: `assetcore/services/imm08.py`
 | `apply_template_to_category_assets(template_name)` | str | dict `{template, asset_category, created, skipped, errors}` | bulk-tạo PM Schedule cho mọi asset cùng danh mục; bỏ qua asset đã có lịch cùng `pm_type` |
 | `get_dashboard_stats(*, year, month)` | int, int | dict | BR-08-13 — `kpis` tách 2 khối phạm vi: THÁNG (`total_scheduled`, `completed_on_time`, `overdue_in_month`, `pending_in_month`, `compliance_rate_pct` null-safe, `avg_days_late`) + GLOBAL (`overdue`=`count_overdue_pm()`, RC-10). Population THÁNG = WO **không-Cancelled** (`scheduled`, INV-PM-KPI-6). INV-PM-KPI-1..3,6 (§4.1.4) |
 | `get_calendar(*, year, month, ...)` | int, int, ... | dict | — |
+| `get_due_pm_schedules(days=30, limit=50)` | int, int | dict `{items, threshold_days}` | **CR-28b F8 "Nhắc việc" nửa-PM** — read-only list LỊCH PM sắp/quá hạn. Filter 3-clause `[status="Active", next_due_date is set, next_due_date <= add_days(today,days)]` (NULL-coerce guard BẮT BUỘC — mirror bẫy `get_due_calibrations`), `order_by next_due_date asc`, `page_size=limit`; enrich `asset_name` (`AssetRepo.get_value`, mirror `list_schedules`); derive `days_left = date_diff(next_due_date, today)` signed. return rows-key **`items`** (KHÔNG `data`), KHÔNG pagination. VERBATIM mirror `imm11.get_due_calibrations` — nguồn KHÁC (`PM Schedule.next_due_date` vs `AC Asset.next_calibration_date`). Spec đầy đủ §05 §0.1.5 + ADR-IMM08-DUEPM + [`ADR-MOBILE-054`](../mobile/ADR-MOBILE-054.md). ⚠️ NEW `.py` → worker reload PENDING USER. |
 | `is_pm_overdue(status, due_date, ref_date=None)` | str, date, date? | `bool` | None — pure SoT predicate (BR-08-11), `due_date < today` strict + status ∈ overdue-source |
 | `due_soon_filter(window_end, ref_date=None)` | date, date? | `dict` | None — pure SoT window filter builder (BR-08-12), `{due_date: [between, [ref_date, window_end]], status: [not in, [Completed, Cancelled]]}` |
 | `count_overdue_pm(user=None)` | str? | `int` | None — counter dùng chung KPI/dashboard (BR-08-11), đếm `status == Overdue` |
+| `attach_pm_checklist_photo(work_order_name, checklist_item_idx, filedata=None, filename="", content_type="")` | str, int, bytes?, str, str | dict `{file_url, file_name, checklist_item_idx}` | **BR-08-15/16 (mobile CR-14/G6)** — đính ảnh bằng chứng per-mục checklist PM (NĐ98 Class C/D). Thứ tự reject TRƯỚC File.insert: exists(WO)→NOT_FOUND · permission (assigned/write)→FORBIDDEN · idx→row VALIDATION · file present/content-type/size/max-count VALIDATION. Success: `File.insert(is_private=1, attached_to='PM Work Order', attached_to_field=f"checklist_results.photo.{idx}")` → `frappe.db.set_value("PM Checklist Result", row.name, "photo", file_url)` (**KHÔNG `wo.save()`** — tránh re-validate BR-08-08/docstatus) → `create_lifecycle_event(pm_checklist_photo_attached)` (hard-req, event throw→rollback) → commit. §05 #11 + ADR-IMM08-PHOTO-01/02. Đối xứng `imm12.attach_incident_photo`. |
+| `_pm_checklist_photos(work_order_name, checklist_item_idx)` | str, int | `list[{file_url, file_name}]` | None — **SoT DUY NHẤT** cho ảnh của 1 mục checklist (mirror `_scene_photos` imm12). Query `File` private theo bộ-3 (`attached_to_doctype="PM Work Order"`, `attached_to_name`, `attached_to_field=f"checklist_results.photo.{idx}"`) `order_by creation asc`, lọc đuôi `.jpg/.jpeg/.png`. CÙNG helper dùng cho max-count check LẪN mọi liệt kê per-item ⇒ invariant **count==rows**. 1 query, KHÔNG N+1. |
+| `_assert_can_attach_pm_photo(wo)` | PM Work Order doc | None | raise `ServiceError(FORBIDDEN)` nếu `wo.assigned_to != session.user` AND KHÔNG `frappe.has_permission("PM Work Order","write",doc=wo)` (BR-08-15; tái dùng IDOR-guard row-level `pm_work_order_has_permission`). |
+
+**Constants (đầu file, mirror imm12 §40-50):**
+```python
+MAX_PM_CHECKLIST_PHOTOS = 5              # per mục checklist (mirror MAX_INCIDENT_PHOTOS)
+MAX_PM_CHECKLIST_PHOTO_BYTES = 10 * 1024 * 1024
+_PM_PHOTO_CONTENT_TYPES = ("image/jpeg", "image/jpg", "image/png")
+_PM_PHOTO_EXTENSIONS = (".jpg", ".jpeg", ".png")
+_EVENT_PM_CHECKLIST_PHOTO_ATTACHED = "pm_checklist_photo_attached"
+# messages VN (Decision-B fields): _MSG_PM_PHOTO_MISSING / _NOT_IMAGE / _TOO_LARGE / _MAX / _IDX_INVALID / _FORBIDDEN
+```
+
+> **Field liên quan (ĐÃ tồn tại — KHÔNG migration schema):** `pm_checklist_result.photo` (`Attach`, permlevel=0) child của `PM Work Order.checklist_results`. Round này chỉ **ghi** vào field sẵn có + **thêm 1 option enum** `pm_checklist_photo_attached` vào `asset_lifecycle_event.json` (xem §6).
 
 ### Validators
 
@@ -536,8 +552,11 @@ def _handle(fn, *args, **kwargs) -> dict:
 | Fail-Major submit | PM Task Log + CM WO insert | KTV | failure_description, failed_items |
 | Overdue scheduler | db.set_value log | System | status=Overdue, days_overdue |
 | Reschedule | technician_notes append | Workshop Manager | old_date → new_date, reason |
+| **Đính ảnh mục checklist PM** (BR-08-16) | **`Asset Lifecycle Event` `pm_checklist_photo_attached`** | KTV / assigned | `asset=wo.asset_ref`, `root_doctype="PM Work Order"`, `root_record=WO`, `notes="Đính ảnh mục <idx>: <filename>"` — **hard-req** (commit cùng File, event throw→rollback, KHÔNG swallow) |
 
 Hash chain: sử dụng Frappe native `track_changes` trên PM Work Order. PM Task Log immutable (`in_create=1`) là audit-final record.
+
+> **⚡ Enum change (deploy — HARD-STOP USER, KHÔNG chặn test):** thêm option **`pm_checklist_photo_attached`** vào Select `event_type` của `Asset Lifecycle Event` (`assetcore/assetcore/doctype/asset_lifecycle_event/asset_lifecycle_event.json`) — nối tiếp `incident_photo_attached` (Vòng 1). Ghi `event_type` ngoài Select sẽ bị nuốt/throw → BẮT BUỘC mở enum trước khi LIVE. Deploy: `bench --site miyano reload-doctype "Asset Lifecycle Event"` + `clear-cache`. Test seed event qua `create_lifecycle_event` (không phụ thuộc reload live). Xem **ADR-IMM08-PHOTO-02** (`05 §2 #11`).
 
 ---
 

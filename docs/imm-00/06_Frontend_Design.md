@@ -203,6 +203,128 @@ Các routes dưới đây đánh dấu `[BUILT]` nếu có Vue component, `[SPEC
 /403                        → Forbidden403View                              [SPEC]
 ```
 
+## II.3a-TRANSFERNAMES. `AssetTransferDetailView.vue` — hiển thị tên Khoa/Vị trí/Người giữ (Vòng 16 — FR-00-TRF-01)
+
+> **Đề mục Vòng 16 (2026-07-10 — gỡ rò Link-id thô trên phiếu Điều chuyển).** Màn `AssetTransferDetailView.vue` consume `getTransferFull` (`imm00.ts:707` → `get_transfer_full`). Trước Vòng 16, view bind `v-model="form.from_location"` / `form.from_department` / `form.from_custodian` (+ `to_*`) vào **Link-id thô** (`AC-LOC-…`/`AC-DEPT-…`/`user@…`) trên các ô disabled → người dùng không đọc được Khoa/Vị trí/Người giữ. BE nay trả 6 `*_name` + `asset_name` (xem 05 §III.12-NAMES). FE render tên đọc được, fallback `'—'` khi rỗng, **KHÔNG còn Link-id thô**.
+
+**Contract type (`imm00.ts` — `getTransferFull`/`listTransfers` trả thêm):**
+
+```ts
+interface Transfer {
+  // … field cũ (from_location, to_department, … = Link-id thô, GIỮ cho POST update_transfer) …
+  asset_name?: string
+  from_location_name?: string;  to_location_name?: string
+  from_department_name?: string; to_department_name?: string
+  from_custodian_name?: string;  to_custodian_name?: string
+}
+```
+
+**Quy tắc render (BR-FE):**
+- **Ô "Từ (nguồn)"** (luôn read-only): thay `<input v-model="form.from_location">` bằng **hiển thị read-only** `form.from_location_name || '—'` (tương tự `from_department_name`, `from_custodian_name`). KHÔNG bind Link-id thô.
+- **Ô "Đến (đích)"**: khi **KHÔNG editable** (Approved/Received/Rejected/Cancelled) → hiển thị `form.to_location_name || '—'` (đọc). Khi **editable** (Pending Approval) → GIỮ input Link-id để sửa + POST `update_transfer` (picker Link-id thô là nợ UX RIÊNG, [ROADMAP], KHÔNG mở Vòng 16). ⇒ chế-độ-đọc KHÔNG rò Link-id; chế-độ-sửa vẫn gửi được PK.
+- **Ô "Thiết bị"** (line 152, hiện bind `form.asset` = Link-id thô `AC-ASSET-…`): hiển thị `form.asset_name || form.asset` (ưu tiên tên).
+- Fallback rỗng dùng `'—'` (em-dash) — **KHÔNG** hiển thị chuỗi rỗng câm hay Link-id.
+
+**Ngoài scope Vòng 16 ([BACKLOG]):** khối "Thông tin xử lý" (line 224-236) hiển thị `form.approved_by` / `form.rejected_by` / `form.received_by` = **User-id thô** (leak riêng). BE Vòng 16 CHỐT chỉ thêm 6 `*_name` from/to (KHÔNG `approved_by_name`…) → FE KHÔNG tự bịa field; leak processor-name là đề mục kế (cần BE enrich thêm `*_by_name` trước).
+
+**Mobile feature 12 (Nhận bàn giao scan-confirm):** app mobile (repo UI riêng) consume `list_transfers`/`get_transfer` đã enrich → màn "Nhận bàn giao" render từ→đến Khoa/Vị trí/Người giữ đọc được cùng contract (One-Version). FE web + mobile chia 1 BE contract.
+
+**Test (vitest — component-mount):** mount `AssetTransferDetailView` với stub `getTransferFull` trả `{from_department_name:'', from_location_name:'Khoa HSTC', to_custodian_name:'Nguyễn Văn A', …}` → assert (1) ô "Từ · Phòng ban" render `'—'` (rỗng→fallback), (2) ô "Từ · Vị trí" render `'Khoa HSTC'`, (3) 0 chuỗi `AC-DEPT-`/`AC-LOC-`/`@` nào trong DOM ô read-only, (4) chế-độ-sửa (Pending) `to_location` vẫn là input sửa được.
+
+## II.3a-TRANSFERAUTHZ. `AssetTransferDetailView.vue` — gate 3 nút CTA theo capability server-driven (Vòng 48 — CR-WF-00-TRANSFER-AUTHZ / FR-00-TRF-02, GATE-8/LL-FE-51)
+
+> **Đề mục Vòng 48 (Trục A — gỡ dead-button).** Hiện `AssetTransferDetailView.vue` render 3 nút CTA CHỈ theo `status` (`isPending` → Phê duyệt/Từ chối; `isApproved` → Xác nhận tiếp nhận), KHÔNG theo capability → **dead-button**: user thiếu quyền vẫn thấy nút (bấm approve/reject → 403; bấm "Xác nhận tiếp nhận" → THÀNH CÔNG SAI trước khi BE gate). Sau khi BE emit `can_approve`/`can_receive` (05 §III.12-AUTHZ), FE gate nút theo flag. Mirror `imm14` `DecommissionDetailView` (server-driven `can_approve`) / GATE-8.
+
+**Computed MỚI (fail-closed — flag `undefined` → `false`):**
+```ts
+const canApprove = computed(() => form.value.can_approve === 1)   // undefined → false
+const canReceive = computed(() => form.value.can_receive === 1)
+```
+> `=== 1` (KHÔNG truthy) → flag vắng/`0`/`undefined` = fail-closed = 0 nút. (BE trả int 0/1 — 05 §III.12-AUTHZ.)
+
+**Gate template (3 nút CTA):**
+
+| Nút | Trước (dead-button) | Sau (gated) |
+|---|---|---|
+| **Phê duyệt** | `v-if="isPending"` | `v-if="isPending && canApprove"` |
+| **Từ chối** | `v-if="isPending"` | `v-if="isPending && canApprove"` |
+| **Xác nhận tiếp nhận** | `v-if="isApproved"` | `v-if="isApproved && canReceive"` |
+| Ghi chú bàn giao (textarea) | `v-if="isApproved"` | `v-if="isApproved && canReceive"` (không hiện input khi không có quyền nhận) |
+| **Hủy phiếu** | `v-if="isPending"` | Vòng 48: GIỮ `v-if="isPending"` → **⚠️ SUPERSEDED Vòng 41 (CR-WF-00-CANCEL-AUTHZ): nay `v-if="canCancel"`** — xem §II.3a-CANCELAUTHZ |
+
+> **⚠️ Restructure:** hiện Phê duyệt/Từ chối/Hủy phiếu cùng `<template v-if="isPending">`. TÁCH: Phê duyệt+Từ chối vào `<template v-if="isPending && canApprove">`; "Hủy phiếu" ra ngoài (Vòng 48 để `v-if="isPending"`; **⚠️ Vòng 41 đổi `v-if="canCancel"` — §II.3a-CANCELAUTHZ**). "Xác nhận tiếp nhận" + textarea ghi-chú-bàn-giao gate `isApproved && canReceive`.
+
+**Boundaries (Always / Never):**
+- **Always**: gate 3 nút CTA theo flag server (`can_approve`/`can_receive`); fail-closed khi flag undefined; giữ nút "Hủy phiếu" theo `isPending` (⚠️ SUPERSEDED Vòng 41 → gate theo `canCancel`; §II.3a-CANCELAUTHZ).
+- **Never**: hardcode `status===`/role-name để quyết nút CTA (server-driven — GATE-8); dùng truthy thay `=== 1`; đụng logic edit-mode (`isEditable` GIỮ theo `isPending` — ⚠️ **SUPERSEDED Vòng 46 (CR-WF-00-EDIT-AUTHZ): nay `isEditable` ← `!!can_edit`** — §II.3a-EDITAUTHZ); tự gọi endpoint (chỉ đổi điều-kiện render).
+
+**Test (vitest — component-mount):**
+- stub `getTransferFull` trả `{status:'Approved', can_approve:0, can_receive:1}` → nút "Xác nhận tiếp nhận" HIỆN; `{...can_receive:0}` → KHÔNG hiện (dead-button gỡ).
+- `{status:'Pending Approval', can_approve:1}` → Phê duyệt+Từ chối HIỆN; `{...can_approve:0}` → KHÔNG hiện; "Hủy phiếu" phụ thuộc `can_cancel` (⚠️ SUPERSEDED Vòng 41 — xem §II.3a-CANCELAUTHZ test-block).
+- flag VẮNG (không key) → fail-closed 0 nút CTA.
+
+## II.3a-CANCELAUTHZ. `AssetTransferDetailView.vue` — gate nút "Hủy phiếu" theo `can_cancel` server-driven (Vòng 41 — CR-WF-00-CANCEL-AUTHZ / FR-00-TRF-03, GATE-8/LL-FE-51)
+
+> **Đề mục Vòng 41 (Trục A — bịt lỗ hủy thiếu-quyền + gỡ dead-button).** Hiện nút "Hủy phiếu" render `v-if="isPending"` (chỉ theo status) — user thiếu quyền vẫn thấy nút; bấm → trước Vòng 41 BE hủy THÀNH CÔNG SAI (missing-authz). Sau khi BE gate `cancel_transfer_request` + emit `can_cancel` (05 §III.12-CANCELAUTHZ), FE gate nút theo flag. **Supersede** §II.3a-TRANSFERAUTHZ (Vòng 48) chỗ để "Hủy phiếu" theo `isPending`. Mirror `canApprove`/`canReceive` / GATE-8.
+
+**Computed MỚI (fail-closed — flag `undefined` → `false`):**
+```ts
+const canCancel = computed(() => form.value.can_cancel === 1)   // undefined → false
+```
+> `=== 1` (KHÔNG truthy) → flag vắng/`0`/`undefined` = fail-closed = ẩn nút. (BE trả int 0/1 — 05 §III.12-CANCELAUTHZ; `can_cancel=1` ⟺ `commissioning.write` ∧ status∈{Pending Approval, Rejected}.)
+
+**Gate template + hint (chống silent-blank):**
+
+| Phần tử | Trước (Vòng 48) | Sau (Vòng 41 — gated) |
+|---|---|---|
+| **Hủy phiếu** | `v-if="isPending"` | `v-if="canCancel"` (data-testid `cta-cancel`) |
+| `showNoActionsHint` | `isApproved && !canReceive` | `(isApproved && !canReceive) \|\| (isPending && !canApprove && !canCancel)` — base user xem phiếu Pending không còn nút nào → hiện "Bạn không có quyền thao tác phiếu này" thay vì khoảng trống câm (LL-FE-23/26) |
+
+> **⚠️ Lưu ý status Rejected:** `can_cancel=1` cả khi status `Rejected` (không chỉ Pending). Nút "Hủy phiếu" nay có thể hiện trên phiếu `Rejected` (nếu có cap) — ĐÚNG nghiệp vụ (rút phiếu đã bị từ chối). `isPending` cũ KHÔNG bao phủ Rejected → đây là mở-rộng đúng theo `can_cancel`. KHÔNG suy nút từ `status===` thô.
+
+**Boundaries (Always / Never):**
+- **Always**: gate nút "Hủy phiếu" theo `canCancel` (server flag, `=== 1` fail-closed); mở rộng `showNoActionsHint` để Pending-không-CTA không blank; chỉ đổi điều-kiện render (KHÔNG đổi hàm `cancel()` gọi `delete_transfer`).
+- **Never**: hardcode `status==='Pending Approval'`/role-name để quyết nút Hủy (server-driven — GATE-8); dùng truthy thay `=== 1`; đụng `isEditable` (GIỮ theo `isPending` — edit-mode ⚠️ **nay trong scope Vòng 46: `isEditable` ← `!!can_edit`** — §II.3a-EDITAUTHZ); giữ `v-if="isPending"` cho nút Hủy (đó chính là dead-button đang gỡ).
+
+**Test (vitest — `assetTransferDetailCtaGate.test.ts`, mirror block receive):**
+- `{status:'Pending Approval', can_cancel:1}` → nút `cta-cancel` HIỆN; `{...can_cancel:0}` → ẩn + hint hiện (base user KHÔNG thấy nút — acceptance).
+- `{status:'Rejected', can_cancel:1}` → nút `cta-cancel` HIỆN (rút phiếu đã từ chối).
+- `{status:'Pending Approval'}` (không key `can_cancel`) → fail-closed ẩn.
+- **Cập nhật test cũ:** 2 assert `expect(cta-cancel).exists()).toBe(true)` khi `can_approve:0` (dòng ~88-90, ~130) → đổi thành phụ thuộc `can_cancel` (thêm `can_cancel` vào stub `mountWith`). `vue-tsc --noEmit` sạch.
+
+## II.3a-EDITAUTHZ. `AssetTransferDetailView.vue` — `isEditable` ← `can_edit` server-driven (Vòng 46 — CR-WF-00-EDIT-AUTHZ / FR-00-TRF-04, GATE-8/LL-FE-51)
+
+> **Đề mục Vòng 46 (Trục A — bịt custody-hole edit + gỡ dead-affordance).** Hiện `isEditable = computed(() => isPending.value)` (`:26`) — CHỈ theo status ⇒ **mọi user** (kể cả chỉ `inventory.read`) thấy form editable + nút "Lưu thay đổi" trên phiếu Pending; bấm Lưu → trước Vòng 46 BE `update_transfer` cập nhật field THÀNH CÔNG SAI (missing-authorization write / custody-hole). Sau khi BE gate `update_transfer` + emit `can_edit` (05 §III.12-EDITAUTHZ), FE bind `isEditable` theo flag server. **HOÀN TẤT** bộ-bốn server-driven `canApprove`/`canReceive`/`canCancel`/`isEditable` — supersede §II.3a-TRANSFERAUTHZ (Vòng 48) + §II.3a-CANCELAUTHZ (Vòng 41) chỗ để "`isEditable` GIỮ theo `isPending`". Mirror `!!form.value.can_*` / GATE-8.
+
+**Computed ĐỔI (`:26` — fail-closed, flag `undefined` → `false`):**
+```ts
+// TRƯỚC:  const isEditable = computed(() => isPending.value)
+const isEditable = computed(() => !!form.value.can_edit)   // undefined/0 → false (mirror canApprove/canReceive/canCancel :32-37)
+```
+> `!!` (mirror convention `canApprove`/`canReceive`/`canCancel` `:32-37`) → flag vắng/`0`/`undefined` = fail-closed = form read-only + ẩn nút Lưu. (BE trả int 0/1 — 05 §III.12-EDITAUTHZ; `can_edit=1` ⟺ `commissioning.write` ∧ `status=='Pending Approval'`.) **`isPending` (`:24`) GIỮ NGUYÊN** (còn dùng cho gate nút Phê duyệt/Từ chối `:168` — CHỈ tách `isEditable` khỏi `isPending`).
+
+**Chỗ `isEditable` gate (KHÔNG đổi markup, CHỈ đổi nguồn computed):**
+
+| Phần tử | Binding (giữ nguyên) | Hiệu ứng khi `can_edit=0` |
+|---|---|---|
+| `transfer_type` select `:204` · `expected_return_date` `:214` · `reason` textarea `:272` · `notes` textarea `:276` | `:disabled="!isEditable"` | disabled (read-only) |
+| Block sửa `to_*`/người-nhận `:239` | `v-if="isEditable"` | ẩn |
+| Block nút Lưu `:279` + nút "Lưu thay đổi" `:281-282` | `v-if="isEditable"` | ẩn nút "Lưu thay đổi" |
+
+> **INVARIANT button-affordance ⇔ action:** `can_edit=1` ⇒ form editable + nút Lưu hiện ⇒ `save()` (`:90` gọi `updateTransfer`) KHÔNG bị BE 403 (parity — BE `update_transfer` gate CÙNG cap `commissioning.write` mà `can_edit` suy ra). Base user / `inventory.read` → `can_edit=0` → form read-only, KHÔNG thấy nút Lưu (0 dead-affordance).
+
+**Type (`frontend/src/types/imm00.ts` — interface phiếu detail):** thêm `can_edit?: 0 | 1` (mirror `can_approve`/`can_receive`/`can_cancel` optional int đã có; `form.value` bind từ `getTransferFull` response).
+
+**Boundaries (Always / Never):**
+- **Always**: bind `isEditable` theo `!!form.value.can_edit` (server flag fail-closed); GIỮ markup `:disabled="!isEditable"` / `v-if="isEditable"` (chỉ đổi nguồn computed); giữ `isPending` cho gate nút Phê duyệt/Từ chối; thêm `can_edit` vào type.
+- **Never**: giữ `isEditable = isPending.value` (đó chính là custody-hole đang gỡ); hardcode `status===`/role-name để quyết edit-mode (server-driven — GATE-8, chống RBAC dead-gate); dùng `isPending` cho `isEditable`; đụng hàm `save()`/`updateTransfer` call (CHỈ đổi điều-kiện render/disable).
+
+**Test (vitest — `AssetTransferDetailView` / mirror block CTA-gate):**
+- stub `getTransferFull` trả `{status:'Pending Approval', can_edit:1}` → form fields KHÔNG disabled + nút "Lưu thay đổi" HIỆN.
+- `{status:'Pending Approval', can_edit:0}` → form fields `disabled` + nút "Lưu thay đổi" ẩn (base user KHÔNG sửa được dù phiếu Pending — acceptance).
+- `{status:'Pending Approval'}` (không key `can_edit`) → fail-closed read-only.
+- `{status:'Approved', can_edit:0}` → read-only (sai status → 0). `vue-tsc --noEmit` sạch.
+
 ## II.3b. QR deep-link `/a/:token` — resolve + redirect (ADR-001 A2 / V3)
 
 > **Đề mục A2.** Route ngắn `/a/:token` = đích camera điện thoại quét QR (URL build BE qua SSoT `_build_qr_url` — host = base-URL công khai cấu hình được `assetcore_qr_base_url`, fallback `get_url`; xem [`04 §II.1.8-QRBASE`](./04_Backend_Design.md) / BR-00-30). FE KHÔNG đụng (chỉ đọc `qr_url` từ BE). A2 CHỉ resolve + redirect — màn info đầy đủ ở `/assets/:id` (A6/V7).
@@ -823,6 +945,38 @@ Header: `← AC-ASSET-... [Active ●] [Sửa] [Thao tác ▾]`
 | 6. Audit Trail | Log immutable của asset, nút "Verify chain" |
 
 Action menu ▾: Đổi trạng thái (modal chọn transition hợp lệ), Transfer khoa, Decommission, In QR, Xuất lý lịch PDF.
+
+### III.3-SURFACE — Block "Chuyển trạng thái:" server-driven từ `asset.allowed_transitions` — xóa bảng hardcode `TRANSITIONS` (Vòng 41 — CR-WF-00-LIFECYCLE-SURFACE / FR-00-109) — **NEW**
+
+> **Đề mục Vòng 41 (Trục A · FE-hardcoded-SSoT).** `AssetDetailView.vue:154-163` giữ `const TRANSITIONS: Record<string, LifecycleStatus[]>` — **bản-sao-thứ-2** của state-machine BE (`_VALID_ASSET_TRANSITIONS`), drift câm khi BE đổi. `get_asset` nay emit `allowed_transitions` server-derive + capability-filter (xem [05 §get_asset](./05_API_Specification.md) + [04 §II.1.7-SURFACE](./04_Backend_Design.md)) → FE bỏ hardcode, chỉ render list server cấp.
+
+**Đổi (FE Bước-4):**
+- **XÓA HẲN** `const TRANSITIONS = {...}` (`AssetDetailView.vue:154-163`) — KHÔNG còn bảng transition nào ở FE (SSoT DUY NHẤT ở BE).
+- `type AcAsset` (`types/imm00.ts`) **+= `allowed_transitions?: LifecycleStatus[]`** (dẫn-xuất response get_asset — như `pm_overdue?`/`calibration_overdue?` cùng file).
+- Block template "Chuyển trạng thái:" (`AssetDetailView.vue:491-501`) — render từ field server:
+  ```vue
+  <!-- Server-driven: allowed_transitions đã capability-filter (asset.write) ở BE.
+       Bỏ client can('asset.write') khỏi block — server [] khi read-only ⇒ auto-ẩn. -->
+  <div v-if="store.currentAsset.allowed_transitions?.length" class="mt-4 flex flex-wrap gap-2">
+    <span class="text-xs text-slate-400 self-center">Chuyển trạng thái:</span>
+    <button
+      v-for="s in store.currentAsset.allowed_transitions"
+      :key="s"
+      class="px-3 py-1 text-xs rounded-md border border-slate-300 text-slate-600 hover:bg-slate-100 transition-colors"
+      @click="openTransitionModal(s as LifecycleStatus)"
+    >→ {{ lifecycleLabel[s] || s }}</button>
+  </div>
+  ```
+- **GIỮ NGUYÊN:** `lifecycleLabel` + `statusColor` (map HIỂN THỊ nhãn/màu VI — KHÔNG phải bảng transition; server trả mã canonical, FE dịch VI). `openTransitionModal` / `confirmTransition` / modal (notification-contract CR-WF-00-TRANSITION-AUTHZ Vòng 39 — 403 → `notify.fromError`). Nút "🗑️ Giải nhiệm thiết bị" (IMM-14 closure, `v-if="canDecommission"`, gate `showDecommissionButton`/`decommission.approve`) — **KHÔNG đụng** (thanh lý KHÔNG bao giờ vào block chuyển-trạng-thái).
+
+**Boundaries (Always / Never):**
+
+| | Ràng buộc |
+|---|---|
+| **ALWAYS** | Danh sách nút →state dựng **CHỈ từ** `store.currentAsset.allowed_transitions`. · Gate block = `allowed_transitions?.length` (server đã capability-filter + fetch tươi theo get_asset ⇒ authoritative). · `lifecycleLabel[s]` dịch nhãn VI (mã canonical → VI). · Nút "Hồ sơ giải nhiệm" GIỮ gate riêng `canDecommission`. |
+| **NEVER** | KHÔNG giữ/thêm BẤT KỲ bảng transition hardcode nào ở FE (`TRANSITIONS`, map, mảng literal). · KHÔNG suy danh sách đích từ `lifecycle_status` thô client-side. · KHÔNG thêm `'Decommissioned'` vào block chuyển-trạng-thái (đi qua IMM-14). · KHÔNG re-gate block bằng client `can('asset.write')` (thừa + persisted-caps có thể stale). |
+
+Test: [07 §XII TC-00-WF-SURFACE (FE vitest)](./07_Testing_QA.md).
 
 ## III.4. AC Asset — Form (Create / Edit)
 

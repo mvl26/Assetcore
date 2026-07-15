@@ -6,7 +6,7 @@
 | Wave | 2 — IMPLEMENTED (feature/hieuc/wave-2) |
 | Trạng thái | ✅ Stable — BE + FE đã merge; chờ UAT |
 | Số file | 9 (README + 02-09; nguồn gốc đã archive) |
-| Cập nhật cuối | 2026-06-04 |
+| Cập nhật cuối | 2026-07-15 (CR-27b — curate `getInternalAudit` mobile OAS detail-sibling, [ADR-MOBILE-052](../mobile/ADR-MOBILE-052.md); PREV CR-27a `listInternalAudits`, ADR-MOBILE-051) |
 | Khối kiến trúc | C. KHỐI 3 |
 | Đợt triển khai | 2 |
 | Owner | Tổ HC-QLCL & Risk |

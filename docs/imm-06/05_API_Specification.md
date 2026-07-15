@@ -108,12 +108,14 @@ _SIGNOFF_ROLES = {
     "Department Manager", "IMM Workshop Lead",
     "IMM Training Officer", "IMM System Admin"
 }
-_REVOKE_ROLES  = {"IMM Training Officer", "IMM System Admin"}
+_REVOKE_ROLES  = {"IMM Training Officer", "IMM System Admin"}   # ⚠️ DEPRECATED — xem note dưới
 _DASHBOARD_ROLES = {
     "IMM Workshop Lead", "IMM Training Officer",
     "IMM System Admin", "VP Block2"
 }
 ```
+
+> ⚠️ **Enforce THẬT là capability-based (`services/shared/rbac.py`), KHÔNG phải role-name set trên.** Các hằng role ở đây là tham chiếu lịch sử. **3 CTA vòng đời năng lực (sign-off/revoke/recertify) gate DUY NHẤT capability `training.submit`** (`_REVOKE_ROLES`/`_SIGNOFF_ROLES` **KHÔNG dùng** để enforce revoke/recertify từ Vòng 15 — ADR-IMM-06-04). Cấm hardcode role-name (anti-pattern RBAC dead-gate); đổi "ai được duyệt/thu hồi" = sửa DocPerm `delete` trên IMM Training Session ở `/app`, KHÔNG deploy code.
 
 ---
 
@@ -319,13 +321,41 @@ _DASHBOARD_ROLES = {
 
 | Method | GET |
 |---|---|
-| Permission | All authenticated |
+| Service | `services/imm06.py::get_session` |
+| Permission | All authenticated (dispatcher-auth) |
+| Envelope | Decision-B `{ "success": true, "data": {...} }` |
 
 **Query params:** `?name=TRN-2026-00042`
 
-**Response 200:** Full session object + `participants` array (child rows).
+**Response 200:** Full session object + `participants` array (child rows) + **`allowed_transitions: string[]`** (enriched, KHÔNG phải DocType field).
 
-**Errors:** `NOT_FOUND`
+`data.allowed_transitions` = danh sách **next-state hợp lệ** của máy trạng thái Session, tính SERVER-SIDE từ hằng SSoT `_SESSION_VALID_TRANSITIONS[workflow_state]` (xem 04 §VI.1a). Khớp EXACT theo từng state:
+
+| `workflow_state` | `allowed_transitions` |
+|---|---|
+| Planned | `["Confirmed", "In Progress", "Cancelled"]` |
+| Confirmed | `["In Progress", "Cancelled"]` |
+| In Progress | `["Completed"]` |
+| Completed | `["Verified"]` |
+| Verified | `["Closed"]` |
+| Closed | `[]` (terminal) |
+| Cancelled | `[]` (terminal) |
+
+FE gate mỗi CTA bằng `allowed_transitions.includes('<next-state>') && <capability>` (2 lớp — xem 06). `allowed_transitions` CHỈ là lớp state-machine; quyền vẫn do BE `_require_training_officer()` (training.write) enforce khi gọi CTA endpoint.
+
+```json
+{
+  "success": true,
+  "data": {
+    "name": "TRN-2026-00042",
+    "workflow_state": "Planned",
+    "participants": [ /* child rows */ ],
+    "allowed_transitions": ["Confirmed", "In Progress", "Cancelled"]
+  }
+}
+```
+
+**Errors:** `NOT_FOUND` (in-handler HTTP-200 + Error envelope, không phải HTTP-4xx).
 
 ---
 
@@ -608,47 +638,102 @@ _DASHBOARD_ROLES = {
 
 ---
 
+#### C.1b `get_competency` (server-driven CTA — MỚI Vòng 15)
+
+| Method | GET |
+|---|---|
+| Path | `/api/method/assetcore.api.imm06.get_competency?name=COMP-2026-0301` |
+| Service | `services/imm06.py::get_competency` (MỚI — parity `get_session`) |
+| Permission | All authenticated (đọc); ghi qua C.5b/C.6/C.7/C.8/C.9 |
+
+**Response 200:** Full IMM User Competency object (enriched `user_full_name`, `device_model_name`) + **2 field enriched (KHÔNG phải DocType field)**:
+- **`allowed_transitions: string[]`** — nhãn ACTION hợp lệ của máy trạng thái năng lực, tính SERVER-SIDE từ SSoT `_COMPETENCY_VALID_TRANSITIONS[workflow_state]` (xem 04 §VI.2a/§VI.2b). Value ∈ `{"Sign-off","Revoke","Recertify","Suspend","Restore"}` — **KHÁC `get_session`** (session trả next-state).
+- **`can_signoff` / `can_revoke` / `can_recertify` / `can_suspend` / `can_restore: boolean`** — cờ quyền = `(ACTION in allowed_transitions) && rbac.can("training.submit")` (lọc CẢ state LẪN capability — chống dead-control). FE gate = `allowed_transitions.includes('<Action>') && can_<action>` (2 lớp AND — xem 06).
+
+| `workflow_state` | `allowed_transitions` |
+|---|---|
+| `Pending Assessment` | `["Sign-off"]` |
+| `Active` | `["Revoke", "Suspend"]` |
+| `Expiring` | `["Recertify", "Revoke"]` |
+| `Expired` | `["Recertify", "Revoke"]` |
+| `Suspended` | `["Restore", "Revoke"]` |
+| `Revoked` (terminal) | `[]` |
+
+> **Vòng 26:** `Active` chứa `Suspend` (thứ tự `["Revoke","Suspend"]`); `Suspended == ["Restore","Revoke"]` (thứ tự ổn định — FE/test list-eq). Xem C.8/C.9.
+
+```json
+{
+  "success": true,
+  "data": {
+    "name": "COMP-2026-0301",
+    "user": "ktv1@hosp.vn",
+    "user_full_name": "Nguyễn Văn A",
+    "device_model": "MDL-MON-PHILIPS-X3",
+    "device_model_name": "Monitor Philips X3",
+    "competency_level": "Operator",
+    "workflow_state": "Expiring",
+    "achieved_date": "2026-05-20",
+    "expiry_date": "2026-08-20",
+    "days_until_expiry": 41,
+    "recertification_due_date": "2026-06-21",
+    "supervisor_signoff": "manager@hosp.vn",
+    "signoff_date": "2026-05-21",
+    "allowed_transitions": ["Recertify", "Revoke"],
+    "can_signoff": false,
+    "can_revoke": true,
+    "can_recertify": true
+  }
+}
+```
+
+**Errors:** `NOT_FOUND` (name không tồn tại)
+
+> **Endpoint ghi (CTA vòng đời):** `signoff_competency` (C.5b), `revoke_competency` (C.6), `recertify_competency` (C.7) — cùng gate capability `training.submit` (ADR-IMM-06-04), state-guard theo SSoT `_COMPETENCY_VALID_TRANSITIONS`. Xem cuối Group C.
+
+---
+
 #### C.2 `get_user_competencies` (self-service)
 
 | Method | GET |
 |---|---|
-| Permission | All authenticated; nếu `user` param != session.user → cần `_SIGNOFF_ROLES` hoặc `IMM Workshop Lead` / `IMM Training Officer` |
+| Path | `/api/method/assetcore.api.imm06.get_user_competencies` — handler `api/imm06.py:189` → `_run(svc.get_user_competencies, user or frappe.session.user)` |
+| Service | `services/imm06.py:1527` → `return {"user": target_user, "items": rows}` (`:1546`) |
+| Permission | **AS-IS**: mọi user authenticated (bare `@whitelist`, **0 `rbac.require`**). Bỏ trống `user` ⇒ `frappe.session.user`. ⚠️ Cross-user (`?user=<người-khác>`) **hiện KHÔNG enforce** — xem Self-Correction dưới. |
 
-**Query params:** `?user=ktv1@hosp.vn` (default = session.user)
+**Query params:** `?user=ktv1@hosp.vn` (optional — default = `frappe.session.user`)
 
-**Response 200:**
+**Response 200** (VERBATIM shape LIVE — grounded `services/imm06.py:1539-1546`):
 
 ```json
 {
   "success": true,
   "data": {
     "user": "ktv1@hosp.vn",
-    "user_full_name": "Nguyễn Văn A",
-    "competencies": [
+    "items": [
       {
         "name": "COMP-2026-0301",
         "device_model": "MDL-MON-PHILIPS-X3",
-        "device_model_name": "Monitor Philips X3",
+        "training_program": "TP-2026-0007",
         "competency_level": "Operator",
+        "workflow_state": "Active",
         "achieved_date": "2026-05-20",
         "expiry_date": "2028-05-20",
         "days_until_expiry": 745,
-        "workflow_state": "Active",
-        "recertification_due_date": "2028-03-21",
-        "certificate_file": "AD-2026-0001"
+        "is_expired": 0,
+        "last_assessment_score": 88.5
       }
-    ],
-    "summary": {
-      "active": 3,
-      "expiring": 1,
-      "expired": 0,
-      "revoked": 0
-    }
+    ]
   }
 }
 ```
 
-**Errors:** `FORBIDDEN`
+**Item = 10 field** (đúng field-select `UserCompetencyRepo.list`): `name` · `device_model` (Link id RAW, nullable) · `training_program` (Link id RAW, nullable) · `competency_level` (Select `[Trainee/Operator/Senior Operator/Trainer]`, nullable) · `workflow_state` (`[Pending Assessment/Active/Expiring/Expired/Suspended/Revoked]`) · `achieved_date`/`expiry_date` (date, nullable) · `days_until_expiry` (integer **SIGNED** — âm=quá hạn) · `is_expired` (integer **0/1** — Check-quirk READ) · `last_assessment_score` (number, nullable). `items` RỖNG hợp-lệ (user 0 năng lực). Order: `expiry_date asc`, `page_size=500` (KHÔNG pagination-param).
+
+**Errors:** guest → dispatcher-403 (status-line); lỗi khác → HTTP-200 body `Error` (`_run` `_err`).
+
+> ⚠️ **Self-Correction 2026-07-15 (CR-34) — response CŨ STALE, đã sửa khớp LIVE:** bản trước ghi `data.competencies[]` + `user_full_name` + `summary{}` + item-field `recertification_due_date`/`certificate_file`/`device_model_name` — **KHÔNG khớp service THẬT**. `get_user_competencies` @`:1527-1546` trả DUY NHẤT `{user, items[10-field]}` (KHÔNG `user_full_name`/`summary`/enrich display — enrich CHỈ có ở `get_competency` @`:1584`). Đã đổi `competencies`→`items`, gỡ field không tồn tại, thêm 10 field THẬT. Permission "cross-user cần `_SIGNOFF_ROLES`" cũng **aspirational** (handler LIVE 0 gate cross-user) → sửa thành AS-IS + flag `T-IMM06-AUTHZ` (có nên gate? = backend change → follow-on).
+
+> 📱 **Cross-ref Mobile-BE contract (CR-34 — MỞ NHÁNH IMM-06, mobile Trục B, 2026-07-15):** endpoint này được surface trong OpenAPI mobile [`docs/mobile/openapi/assetcore-mobile.openapi.yaml`](../mobile/openapi/assetcore-mobile.openapi.yaml) tại path `/api/method/assetcore.api.imm06.get_user_competencies` (opId **`getUserCompetencies`**, **tag `training` MỚI** — endpoint IMM-06 ĐẦU TIÊN trong mirror). **1 typed query-param** `user` (`in:query, type:string, required:false`, KHÔNG `default` — BE default động `session.user`; pattern CR-05). 200 = `oneOf [UserCompetenciesEnvelope, Error]` (route-by-VALUE `body.success`, 0 discriminator — `_run` CÓ nhánh `_err`); **3 schema CLOSED**: `UserCompetencyListItem` (10 field VERBATIM — `is_expired` integer `enum[0,1]` Check-quirk CR-01, `days_until_expiry` integer SIGNED, `competency_level`/`workflow_state` enum) / `UserCompetenciesData` `{user, items[]}` / `UserCompetenciesEnvelope` `{success.enum[true], data}`. **∈ `_MVP_READ_ENVELOPE` ∉ `_MVP_LIST_ENVELOPE`** (flat-object read). Slot `{200,401,403}`; 403 SINGLE dispatcher-only. Enrich `device_model_name` **DEFERRED** (backend+reload = HARD-STOP) + authz cross-user AS-IS = follow-on. **CONTRACT-ONLY** (0 `.py`/reload/migrate). Chi tiết hợp đồng + ADR: [`docs/mobile/04-api-contract.md §8.53`](../mobile/04-api-contract.md) + [`ADR-MOBILE-059.md`](../mobile/ADR-MOBILE-059.md).
 
 ---
 
@@ -760,71 +845,103 @@ _DASHBOARD_ROLES = {
 
 ---
 
-#### C.6 `revoke_competency`
+#### C.5b `signoff_competency` — Phê duyệt (Pending Assessment → Active)
 
 | Method | POST |
 |---|---|
-| Roles | `_REVOKE_ROLES` = {IMM Training Officer, IMM System Admin} |
+| Path | `/api/method/assetcore.api.imm06.signoff_competency` — Service `svc.signoff_competency_by_name(name)` |
+| Body | `{ "name": "COMP-2026-0301" }` |
+| Permission | **capability `training.submit`** (Super Admin / Training Manager) — in-handler gate (đã có, imm06.py:204) |
+| State guard | Chỉ từ `Pending Assessment` (SSoT `_COMPETENCY_VALID_TRANSITIONS` → `_assert_competency_action`) |
 
-**Request body:**
+**RBAC:** API gate `rbac.can("training.submit")` **inline TRƯỚC `_run`** → thiếu quyền trả **HTTP-200** `{"success": false, "code": "FORBIDDEN"}` (in-handler cap-403, KHÔNG raise→HTTP-4xx). Side-effect: set `supervisor_signoff`=session.user, `signoff_date`, `workflow_state = Active`; recompute `expiry_date`/`recertification_due_date` (SoT §V.1); archive bản Active cũ (BR-06-11, user × device_model → Suspended); invalidate auth-cache; Lifecycle Event `competency_signoff` (audit — CLAUDE.md §5 / NĐ98).
 
-```json
-{
-  "name": "COMP-2026-0301",
-  "revoke_reason": "Vi phạm quy trình vận hành — liên quan tới sự cố INC-2026-0033 (tối thiểu 30 ký tự)",
-  "revoke_capa_ref": "CAPA-2026-0011"
-}
-```
+**Response 200:** `{ "name": "…", "workflow_state": "Active", "expiry_date": "…" }`
 
-**Behavior:**
-1. Validate `_REVOKE_ROLES` — FORBIDDEN nếu fail.
-2. Validate VR-08: nếu `revoke_reason` chứa keyword in `["incident","sự cố","tai nạn","sai phạm"]` → `revoke_capa_ref` reqd.
-3. Set `workflow_state="Revoked"`, `revoked_by=session.user`, `revoked_date=now()`.
-4. `invalidate_authorization_cache(user, device_model)`.
-5. Log IMM Audit Trail `action="REVOKE"`.
-6. Quét WO open assigned cho user → flag + email IMM Workshop Lead.
-
-**Response 200:**
-
-```json
-{
-  "success": true,
-  "data": {
-    "name": "COMP-2026-0301",
-    "new_state": "Revoked",
-    "flagged_work_orders": ["WO-PM-2026-0042", "WO-CM-2026-0011"]
-  }
-}
-```
-
-**Errors:** `FORBIDDEN`, `NOT_FOUND`, `BUSINESS_RULE` (đã Revoked), `VALIDATION` (VR-08)
+**Errors:** `FORBIDDEN` (thiếu `training.submit`), `NOT_FOUND`, `BAD_STATE` (state ≠ Pending Assessment).
 
 ---
 
-#### C.7 `recertify_competency`
+#### C.6 `revoke_competency` — Thu hồi (→ Revoked, terminal)
 
 | Method | POST |
 |---|---|
-| Roles | `IMM Training Officer`, `IMM System Admin` |
+| Path | `/api/method/assetcore.api.imm06.revoke_competency` — Service `svc.revoke_competency_with_capa(name, reason, capa_ref)` |
+| Body | `{ "name": "COMP-2026-0301", "reason": "…", "capa_ref": "CAPA-2026-0011" }` (`reason` bắt buộc; `capa_ref` tùy chọn) |
+| Permission | **capability `training.submit`** — in-handler gate (Vòng 15: parity signoff; TRƯỚC đây service gate `training.write` → asymmetry, xem ADR-IMM-06-04) |
+| State guard | Từ `Active` / `Expiring` / `Expired` / `Suspended` (KHÔNG `Pending Assessment`, KHÔNG `Revoked`) |
 
-**Request body:** `{"name": "COMP-2026-0301", "auto_create_session": true}` hoặc `{"name": "COMP-2026-0301", "new_session_name": "TRN-2026-0099"}`
+**RBAC (Vòng 15 — sửa asymmetry):** thêm inline `rbac.can("training.submit")` ở API `revoke_competency` (api/imm06.py:213, parity signoff) **và** đổi service gate `_require_training_officer()`(→training.write) → `rbac.require("training.submit")` trong `revoke_competency` (imm06.py:418). Side-effect: `workflow_state = Revoked`, `revoke_reason`=reason, `revoked_by`, `revoked_date`, optional `revoke_capa_ref`; invalidate auth-cache; Lifecycle Event `competency_revoked`.
 
-**Behavior:** Gọi `services.imm06.trigger_recertification(name)` → tạo Refresher Session Planned hoặc liên kết session đã có.
+> ⚠️ **Field name (Self-Correction):** body dùng **`reason`** + **`capa_ref`** (khớp signature `revoke_competency(name, reason, capa_ref)` — api/imm06.py:213), KHÔNG phải `revoke_reason`/`revoke_capa_ref` (tên field DocType nội bộ). Bản doc cũ ghi sai — đã sửa.
 
-**Response 200:**
+**Response 200:** `{ "name": "…", "workflow_state": "Revoked" }`
 
-```json
-{
-  "success": true,
-  "data": {
-    "name": "COMP-2026-0301",
-    "new_session": "TRN-2026-0099",
-    "action": "created"
-  }
-}
-```
+**Errors:** `FORBIDDEN` (thiếu `training.submit` — HTTP-200 envelope, **state KHÔNG đổi**), `NOT_FOUND`, `VALIDATION` (thiếu `reason`), `BAD_STATE` (state = Pending Assessment / Revoked).
 
-**Errors:** `FORBIDDEN`, `NOT_FOUND`
+---
+
+#### C.7 `recertify_competency` — Tái chứng nhận (tạo bản mới + old → Expired)
+
+| Method | POST |
+|---|---|
+| Path | `/api/method/assetcore.api.imm06.recertify_competency` — Service `svc.recertify_competency(name, new_session)` |
+| Body | `{ "name": "<old-comp>", "new_session": "TRN-2026-0099" }` |
+| Permission | **capability `training.submit`** — in-handler gate (Vòng 15: parity; TRƯỚC đây service `training.write`) |
+| State guard | Bản cũ ở `Expiring` / `Expired` (Vòng 15 thêm guard — service cũ KHÔNG kiểm state nguồn) |
+
+**RBAC (Vòng 15):** inline `rbac.can("training.submit")` ở API `recertify_competency` (api/imm06.py:219) + service `rbac.require("training.submit")` (imm06.py:1416). Precondition nghiệp vụ (giữ nguyên): `new_session` phải `Completed`, participant = `old.user` với `overall_result == Pass`. Side-effect: tạo **IMM User Competency mới** (`Pending Assessment`, dates theo SoT §V.1) từ session Refresher; mark bản cũ → `Expired` + `is_expired=1`; Lifecycle Event `competency_recertified` (from old).
+
+> ⚠️ **Signature (Self-Correction):** bản doc cũ mô tả `auto_create_session`/`new_session_name` + `trigger_recertification` — SAI. Signature thật = `recertify_competency(name, new_session)`; caller PHẢI truyền `new_session` (mã Refresher Session đã Completed). `trigger_recertification` là job scheduler tạo placeholder, KHÔNG phải endpoint này.
+
+**Response 200:** `{ "old_competency": "<old>", "new_competency": "<new-COMP>" }`
+
+**Errors:** `FORBIDDEN` (thiếu `training.submit` — HTTP-200, state cũ KHÔNG đổi), `NOT_FOUND` (comp/session), `BAD_STATE` (bản cũ ∉ {Expiring, Expired}), `VALIDATION` (session chưa Completed / participant chưa Pass).
+
+> **Note 2 loại 403 (spec-contract, LL-BE-42..49):** cả 3 CTA — lỗi thiếu quyền = **in-handler cap-403 → HTTP-200 + Error envelope `FORBIDDEN`** (KHÔNG raise). Chỉ khi Guest/thiếu token → dispatcher-403 (HTTP-403 ở tầng Frappe `_guard()`, trước khi vào handler).
+
+---
+
+#### C.8 `suspend_competency` — Tạm ngưng (Active → Suspended) — MỚI Vòng 26
+
+| Method | POST |
+|---|---|
+| Path | `/api/method/assetcore.api.imm06.suspend_competency` — Service `svc.suspend_competency(name, reason)` |
+| Body | `{ "name": "COMP-2026-0301", "reason": "KTV nghỉ phép dài hạn / đang điều tra sự cố" }` |
+| Permission | **capability `training.submit`** — in-handler gate (parity C.6 revoke) |
+| State guard | Nguồn = `Active` (SSoT `_COMPETENCY_VALID_TRANSITIONS`); nguồn ≠ Active → `BAD_STATE` |
+
+**Ngữ nghĩa:** tạm ngưng hiệu lực năng lực **có thể đảo ngược** (KHÁC `revoke` terminal). `Suspended ∉ AUTHORIZED` ⇒ operator MẤT authorization vận hành thiết bị (`validate_user_authorized_for_asset` fail) cho tới khi `restore`. `reason` **BẮT BUỘC** (rỗng/whitespace → `VALIDATION`/422). Side-effect: `workflow_state = Suspended` (`flags.ignore_workflow_status_check`); invalidate auth-cache `(user, device_model)`; IMM Audit Trail action **`SUSPENDED`** → `event_type = competency_suspended` (reason vào `change_summary`).
+
+**Response 200:** `{ "name": "COMP-2026-0301", "workflow_state": "Suspended" }`
+
+**Errors (thứ tự kiểm):**
+- `FORBIDDEN` (403) — thiếu `training.submit`; **HTTP-200 Error envelope, `workflow_state` KHÔNG đổi** (gate ở API trước khi vào service).
+- `NOT_FOUND` (404) — `name` không tồn tại.
+- `BAD_STATE` (409) — nguồn ≠ `Active` (vd đang `Suspended`/`Revoked`/`Pending Assessment`/`Expiring`/`Expired`).
+- `VALIDATION` (422) — `reason` rỗng.
+
+---
+
+#### C.9 `restore_competency` — Khôi phục (Suspended → Active) — MỚI Vòng 26
+
+| Method | POST |
+|---|---|
+| Path | `/api/method/assetcore.api.imm06.restore_competency` — Service `svc.restore_competency(name)` |
+| Body | `{ "name": "COMP-2026-0301" }` |
+| Permission | **capability `training.submit`** — in-handler gate (parity C.6/C.8) |
+| State guard | Nguồn = `Suspended` (SSoT); nguồn ≠ Suspended → `BAD_STATE` |
+
+**Ngữ nghĩa:** khôi phục hiệu lực năng lực về `Active` ⇒ tái cấp authorization vận hành. **KHÔNG cần `reason`**. Side-effect: `workflow_state = Active` (`flags.ignore_workflow_status_check`); invalidate auth-cache; IMM Audit Trail action **`RESTORED`** → `event_type = competency_restored`. ⚠️ Ranh giới (ADR-IMM-06-07): `Suspended` có thể là bản auto-archive (BR-06-11) — khôi phục là quyết định có chủ đích của Training Manager; KHÔNG re-activate hàng loạt.
+
+**Response 200:** `{ "name": "COMP-2026-0301", "workflow_state": "Active" }`
+
+**Errors (thứ tự kiểm):**
+- `FORBIDDEN` (403) — thiếu `training.submit`; **HTTP-200 Error envelope, `workflow_state` KHÔNG đổi**.
+- `NOT_FOUND` (404) — `name` không tồn tại.
+- `BAD_STATE` (409) — nguồn ≠ `Suspended`.
+
+> **Note 2 loại 403 (spec-contract, LL-BE-42..49):** C.8/C.9 — thiếu quyền = **in-handler cap-403 → HTTP-200 + Error envelope `FORBIDDEN`** (KHÔNG raise → HTTP-4xx). Guest/thiếu token → dispatcher-403 (HTTP-403 ở `_guard()` trước handler). Cả 2 endpoint yêu cầu `event_type` Select của **IMM Audit Trail** đã thêm `competency_suspended`/`competency_restored` (04 §VI.2b) — nếu chưa, audit rớt câm.
 
 ---
 

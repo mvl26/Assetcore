@@ -261,8 +261,112 @@ Function `validate_lock_in_assessment(doc)`:
 
 | Function | Mô tả |
 |---|---|
-| `_reissue_spec(from_spec)` (trong `api/imm02.py`) | Copy doc, set `parent_spec`, bump version ("1.0"→"2.0"), reset approval/withdrawal fields, insert mới ở Draft |
-| `_withdraw_spec(name, reason)` (trong `api/imm02.py`) | Validate state in [Pending Approval, Locked], set `withdrawal_reason`, submit nếu docstatus=0 |
+| `_reissue_spec(from_spec)` (trong `api/imm02.py`) | **Guard `rbac.can("spec.create")` → FORBIDDEN**; validate state=Withdrawn; copy doc, set `parent_spec`, bump version ("1.0"→"2.0"), reset approval/withdrawal fields, insert mới ở Draft |
+| `_withdraw_spec(name, reason)` (trong `api/imm02.py`) | **Guard `rbac.can("spec.submit")` → FORBIDDEN** (trước state); validate state in [Pending Approval, Locked], set `withdrawal_reason`, submit nếu docstatus=0 |
+| `_lock_spec(name, approver, remarks)` (trong `api/imm02.py`) | **Guard `rbac.can("spec.submit")` → FORBIDDEN** (trước state); validate state=Pending Approval; set approver + `workflow_state=Locked`; `doc.submit()` |
+
+### III.7.1 CTA gating server-driven (GATE-8 / LL-FE-51 — vòng 6)
+
+Chi tiết đặc tả: `02_Analysis_Design.md` §IV.3 + ADR-IMM02-01. Tóm tắt BE:
+
+- **SoT map** `_SPEC_CTA_TRANSITIONS: dict[str, list[str]]` (trong `api/imm02.py`):
+  `{"Pending Approval": ["lock","withdraw"], "Locked": ["withdraw"], "Withdrawn": ["reissue"]}` — state khác `.get(state, [])` → `[]`.
+- **`_get_tech_spec`** bổ sung (import `from assetcore.services.shared import rbac`):
+  ```python
+  state   = doc.workflow_state or "Draft"
+  allowed = _SPEC_CTA_TRANSITIONS.get(state, [])
+  approve = rbac.can("spec.submit")
+  data["allowed_transitions"] = allowed
+  data["can_lock"]     = int("lock"     in allowed and approve)
+  data["can_withdraw"] = int("withdraw" in allowed and approve)
+  data["can_reissue"]  = int("reissue"  in allowed and rbac.can("spec.create"))
+  ```
+- **Guard helper** dùng chung, thứ tự **capability → state**:
+  ```python
+  def _require_spec_approver() -> None:
+      if not rbac.can("spec.submit"):
+          raise ServiceError(ErrorCode.FORBIDDEN,
+              _("Không đủ quyền phê duyệt/rút hồ sơ kỹ thuật"))
+  ```
+  Đặt gọi đầu `_lock_spec`/`_withdraw_spec`; `_reissue_spec` dùng biến thể `spec.create`. `ServiceError(FORBIDDEN)` được `_handle` bắt → `_err(...)` = **HTTP-200 + envelope** (in-handler cap-403, KHÔNG raise→HTTP-4xx).
+- **INVARIANT** (map ⊆ guard): cờ `get_tech_spec` ⊆ tập guard cho phép — test `test_imm02` phải khẳng định với mọi state không có cờ nào mở hành động guard sẽ reject.
+- **REGRESSION** (chuỗi lesson "full quyền vẫn không duyệt được"): `AssetCore Super Admin` có DocPerm submit=1 → `spec.submit`=True → `can_lock`=1 tại Pending Approval **và** `lock_spec` chạy OK.
+
+> ⚠️ **Drift cần lưu ý (report — light-touch):** bảng §V.1/§V.2 dưới dùng role-name persona cũ (`IMM HTM Engineer`, `IMM Board Approver`…) KHÔNG khớp fixture `assetcore/fixtures/workflow.json` (`Spec User`, `Needs Manager`, `Spec Manager`, `Commissioning Manager`, `Procurement Manager`, `AssetCore Super Admin`, `System Manager`). CTA gating vòng 6 KHÔNG dựa vào role-name mà dựa **capability** (`spec.submit`/`spec.create`) nên không bị ảnh hưởng; nhưng nên đồng bộ V.1/V.2 với fixture ở lượt chuẩn hoá docs riêng.
+
+### III.7.2 SSoT 6 transition trung gian — `_SPEC_VALID_TRANSITIONS` (CR-WF-02-SPEC, vòng 24)
+
+Ground truth spec: `02_Analysis_Design.md` §IV.4 + ADR-IMM02-02. Tóm tắt BE (`services/imm02.py`, **mirror `services/imm03.py::_AVL_VALID_TRANSITIONS`**):
+
+- **SSoT** `_SPEC_VALID_TRANSITIONS: dict[str, list[tuple[str, str, frozenset]]]` — 6 cạnh, mỗi cạnh `(action, next_state, roles)`. Roles = tập `allowed` gom-vai của group `(state, action, next_state)` trong `imm_02_spec_workflow.json` (grounded, không bịa). Định nghĩa DRY:
+  ```python
+  _SPEC_ADMIN_ROLES = frozenset({"AssetCore Super Admin", "System Manager"})
+
+  _SPEC_VALID_TRANSITIONS: dict[str, list[tuple[str, str, frozenset]]] = {
+      "Draft": [
+          ("Gửi rà soát", "Reviewing", frozenset({"Spec User"}) | _SPEC_ADMIN_ROLES),
+      ],
+      "Reviewing": [
+          ("Yêu cầu chỉnh spec", "Draft",
+           frozenset({"Spec User", "Needs Manager"}) | _SPEC_ADMIN_ROLES),
+          ("Hoàn tất benchmark", "Benchmarked",
+           frozenset({"Needs Manager"}) | _SPEC_ADMIN_ROLES),
+      ],
+      "Benchmarked": [
+          ("Đánh giá rủi ro xong", "Risk Assessed",
+           frozenset({"Spec Manager"}) | _SPEC_ADMIN_ROLES),
+      ],
+      "Risk Assessed": [
+          ("Trình duyệt spec", "Pending Approval",
+           frozenset({"Commissioning Manager"}) | _SPEC_ADMIN_ROLES),
+      ],
+      "Pending Approval": [
+          ("Yêu cầu chỉnh risk", "Risk Assessed",
+           frozenset({"Procurement Manager"}) | _SPEC_ADMIN_ROLES),
+      ],
+      # Locked / Withdrawn (docstatus=1, terminal workflow-engine) → không key → []
+  }
+
+  _SPEC_EXCEPTION_ACTIONS = frozenset({"Phê duyệt spec", "Rút spec"})
+  ```
+- **Derive fn** (mirror `avl_allowed_transitions`):
+  ```python
+  def spec_allowed_actions(workflow_state, user_roles=None) -> list[str]:
+      rows = _SPEC_VALID_TRANSITIONS.get(workflow_state or "", [])
+      if user_roles is None:
+          return [action for action, _n, _r in rows]
+      ur = set(user_roles)
+      return [action for action, _n, roles in rows if roles & ur]
+  ```
+- **Emit ở API** (`api/imm02.py::_get_tech_spec`, NGAY SAU `data.update(svc._spec_cta_flags(doc))`):
+  ```python
+  data["allowed_actions"] = svc.spec_allowed_actions(
+      doc.workflow_state, frappe.get_roles(frappe.session.user))
+  ```
+  `allowed_actions` (nhãn ACTION) ≠ `allowed_transitions` (next-STATE của vòng 6) — 2 key riêng, KHÔNG collide.
+- **`transition_workflow`** GIỮ NGUYÊN — đã áp qua `apply_workflow` (native enforce `allowed` role). KHÔNG thêm guard role tường minh (khác AVL vốn dùng `db.set_value`). 2 loại 403: dispatcher-403 (guest) · in-handler cap-403 (`PermissionError`→`_err(FORBIDDEN)`=HTTP-200+envelope).
+- **INVARIANT-1 (reconcile, STATIC)** — `test_spec_allowed_transitions_matches_workflow_fixture`: (a) ∀ `(state,action,next_state,roles)∈map`: `roles == ∪allowed` của group workflow tương ứng (EXACT); (b) `{action workflow} − {action map} == _SPEC_EXCEPTION_ACTIONS`. RED khi map rỗng/thiếu cạnh → GREEN sau 6 cạnh.
+- **INVARIANT-2 (advertise ⟺ reachable)** — bảo đảm bởi INVARIANT-1 (map roles == workflow roles) + `apply_workflow` native. Tách **RBAC-gate** (role) khỏi **business-gate** (G01–G04): `allowed_actions` chỉ advertise cạnh role-reachable; bấm vẫn có thể `BUSINESS_RULE` (UX đúng).
+- **KHÔNG đụng** `imm_02_spec_workflow.json` (giữ `test_workflow_admin_override` GREEN); KHÔNG migrate; chỉ sửa `.py` → cần worker reload để live.
+
+### III.7.3 Đóng dead-gate persona `Spec User` + INVARIANT coverage (CR-WF-RBAC-PROFILE-COVERAGE, vòng 34)
+
+Ground truth spec: `02_Analysis_Design.md` §IV.5 + ADR-IMM02-03. Tóm tắt BE:
+
+- **Root-cause:** `Gửi rà soát` (Draft→Reviewing) sole non-admin gate = `Spec User`, nhưng `Spec User ∉` mọi Role Profile trong `setup/role_profile_catalog.py::ROLE_PROFILE_CATALOG` → chỉ Super Admin/System Manager duyệt được (dead-gate). Scan 22 workflow: `Spec User` là role UNCOVERED **duy nhất**.
+- **Fix (catalog-only, KHÔNG re-gate workflow):** thêm `"Spec User"` vào list `"Trưởng phòng VT-TTBYT"`:
+  ```python
+  "Trưởng phòng VT-TTBYT": [
+      "Commissioning Manager", "Needs Manager",
+      "Procurement Manager", "Spec Manager", "Spec User",   # + CR vòng 34
+  ],
+  ```
+  `_SPEC_VALID_TRANSITIONS`, `imm_02_spec_workflow.json`, `fixtures/workflow.json`, `allow_edit` (Draft/Reviewing=`Spec User`) — **GIỮ NGUYÊN**. Persona VT-TTBYT nay có `Spec User` → tạo Draft + G01 + `Gửi rà soát` thông cùng 1 role.
+- **INVARIANT own-file mới** — `assetcore/tests/test_workflow_role_profile_coverage.py` (FILE-driven, glob source JSON + đọc catalog; mirror `_transition_groups` của `test_workflows.py`):
+  - **INV-COV:** ∀ transition trong 22 source JSON, mọi `allowed` non-admin role ∈ `(∪roles_for_profile) ∪ {AssetCore Super Admin, System Manager} ∪ EXCEPTION_ROLES`, với `EXCEPTION_ROLES = frozenset({"Vendor Engineer"})`. RED-trước = `{Spec User}` uncovered → GREEN-sau.
+  - **INV-EXC-REACH:** ∀ transition-group `allowed ∩ EXCEPTION_ROLES ≠ ∅` PHẢI có ≥1 role ∈ `∪roles_for_profile` (KHÔNG sole-gate bằng EXCEPTION). 3 group IMM-04 co-list `PM User` → GREEN.
+- **BE integration test** (mirror pattern `test_imm02` ensure_user + profile): user profile "Trưởng phòng VT-TTBYT" (non-admin) → Draft 8 spec-line → `transition_workflow('Gửi rà soát')` = success, `workflow_state=='Reviewing'`; base `AssetCore System User` → VẪN chặn. RED-trước: guard `spec_allowed_actions` role-filter `[]` → `BAD_STATE` (API) / `apply_workflow` `PermissionError` (raw).
+- **Deploy (sync live, KHÔNG migrate):** `bench --site miyano execute assetcore.setup.setup_role_profiles.run` — idempotent, ép `update_all_users` đồng bộ (flag `in_install`), re-sync `user.roles` cho user mang profile. Chạy lại = `unchanged`.
 
 ## III.8 Schedulers
 

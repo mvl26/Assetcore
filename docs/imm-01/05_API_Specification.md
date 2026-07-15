@@ -77,8 +77,8 @@ User không có Role hợp lệ → HTTP 200 + `{success: false, code: "FORBIDDE
 | 3.7 | `score_needs_request` | POST | IMM HTM Engineer, IMM Planning Officer | Ghi scoring_rows và recompute weighted_score |
 | 3.8 | `submit_budget_estimate` | POST | IMM Finance Officer | Ghi budget_lines, set funding_source / funding_evidence |
 | 3.9 | `transition_workflow` | POST | role-by-state | Áp dụng 1 workflow action (`frappe.model.workflow.apply_workflow`) |
-| 3.10 | `approve_needs_request` | POST | IMM Board Approver | Pending Approval → Approved (set board_approver, submit) |
-| 3.11 | `reject_needs_request` | POST | IMM Board Approver | Pending Approval → Rejected (rejection_reason bắt buộc) |
+| 3.10 | `approve_needs_request` | POST | Procurement Manager · Super Admin · System Manager (in-handler role-check → FORBIDDEN) | Pending Approval → Approved (set board_approver, submit, ghi audit) |
+| 3.11 | `reject_needs_request` | POST | Procurement Manager · Super Admin · System Manager (in-handler role-check → FORBIDDEN) | Pending Approval → Rejected (rejection_reason bắt buộc, ghi audit) |
 | 3.12 | `list_procurement_plans` | GET | IMM Planning Officer, IMM Department Head, IMM Board Approver | List Procurement Plan |
 | 3.13 | `get_procurement_plan` | GET | IMM Planning Officer, IMM Department Head, IMM Board Approver | Chi tiết 1 Plan (kèm `plan_items`) |
 | 3.14 | `create_procurement_plan` | POST | IMM Planning Officer (`needs.create`) | Tạo Plan Draft (`plan_year`, `plan_period`, `budget_envelope`). Chốt chặn BE: `rbac.require("needs.create")` — thiếu quyền trả `FORBIDDEN`. FE chỉ ẩn nút "Tạo kế hoạch" cho UX (`useCapabilities().can('needs.create')`); quyền thật do BE enforce. |
@@ -217,12 +217,15 @@ resolve qua tên, không LIKE trực tiếp trên ID.
     "scoring_rows": [],
     "budget_lines": [],
     "requesting_department_name": "ICU",
-    "device_category_name": "Imaging"
+    "device_category_name": "Imaging",
+    "allowed_transitions": ["Tiếp nhận rà soát", "Yêu cầu bổ sung"]
   }
 }
 ```
 
 > Endpoint enrich thêm `requesting_department_name` (từ `AC Department.department_name`) và `device_category_name` (từ `AC Asset Category.category_name`). KHÔNG trả `lifecycle_events` (audit gắn ở `IMM Audit Trail` shared, query riêng).
+
+> **`allowed_transitions`** (GATE-8 / LL-FE-51) — mảng action-string mà **user hiện tại** được phép transition trên phiếu (đã lọc theo state + role, dedupe theo action). Tính bằng `_nr_allowed_transition_actions(doc)` (helper `04 §5.2a`), degrade graceful → `[]` khi user không đủ quyền đọc. FE gate CTA Phê duyệt/Bác đề xuất theo field này (`allowed_transitions.includes('Phê duyệt' | 'Bác đề xuất')`) — **không cần call `get_allowed_transitions` thứ 2** ⇒ không flash ẩn/hiện nút lúc render đầu. Với NR ở `Pending Approval` + user `Procurement Manager` → chứa `["Phê duyệt", "Bác đề xuất", "Yêu cầu chỉnh dự toán"]`.
 
 **Lỗi:** `{success: false, error: "IMM Needs Request không tồn tại", code: "NOT_FOUND"}`
 
@@ -476,11 +479,11 @@ resolve qua tên, không LIKE trực tiếp trên ID.
 
 ### 3.9 `approve_needs_request`
 
-**Mô tả:** VP Block1 phê duyệt NR ở Pending Approval (validate G05).
+**Mô tả:** Phê duyệt NR ở `Pending Approval` → `Approved` (docstatus=1). Role được phép: **Procurement Manager · AssetCore Super Admin · System Manager** (SSoT = transition `Phê duyệt` trong `fixtures/workflow.json`). Endpoint set `board_approver` + `workflow_state=Approved` + `doc.submit()`, **luôn ghi audit trail** (`write_audit_trail` event "Approved", note = remarks nếu có).
 
-| Method | Path |
-|---|---|
-| POST | `/api/method/assetcore.api.imm01.approve_needs_request` |
+| Method | Path | Auth |
+|---|---|---|
+| POST | `/api/method/assetcore.api.imm01.approve_needs_request` | in-handler role-check (xem Lỗi) |
 
 **Request body:**
 
@@ -506,11 +509,20 @@ resolve qua tên, không LIKE trực tiếp trên ID.
 
 > `approval_date` được set trong `before_submit` (xem `before_submit_needs_request`) và có trong document, không trong response payload của endpoint này.
 
+**Lỗi (Error envelope, HTTP-200):**
+
+| Điều kiện | code | Thông điệp (VI, KHÔNG leak `<strong>`) |
+|---|---|---|
+| State ≠ `Pending Approval` | `BAD_STATE` | "Chỉ phiếu ở state 'Pending Approval' mới Approve được (hiện: …)" |
+| User KHÔNG có role duyệt (Frappe ném `WorkflowPermissionError`) | **`FORBIDDEN`** | "Bạn không có quyền phê duyệt đề xuất. Cần vai trò Quản lý Mua sắm." |
+
+> **Enforce role (đóng lỗ)**: handler bọc `doc.submit()` bắt `WorkflowPermissionError` → `ServiceError(FORBIDDEN)`. KHÔNG dựa vào FE ẩn nút; user gọi thẳng endpoint (vd đổi role, set `workflow_state` trực tiếp) vẫn bị Frappe `validate_workflow` chặn theo `allowed` roles của transition. Đây là **in-handler cap-403** (HTTP-200 + envelope), phân biệt **dispatcher-403** (guest/no-token, Frappe chặn trước handler).
+
 ---
 
 ### 3.10 `reject_needs_request`
 
-**Mô tả:** VP Block1 từ chối NR với lý do bắt buộc.
+**Mô tả:** Bác NR ở `Pending Approval` → `Rejected` với lý do bắt buộc. Role được phép: **Procurement Manager · AssetCore Super Admin · System Manager** (SSoT = transition `Bác đề xuất`). Luôn ghi audit trail (event "Rejected", note = rejection_reason).
 
 | Method | Path |
 |---|---|
@@ -527,7 +539,13 @@ resolve qua tên, không LIKE trực tiếp trên ID.
 
 **Response 200:** `{ "success": true, "data": { "workflow_state": "Rejected" } }`
 
-**Lỗi:** `VALIDATION` nếu rejection_reason rỗng.
+**Lỗi (Error envelope, HTTP-200):**
+
+| Điều kiện | code |
+|---|---|
+| `rejection_reason` rỗng | `VALIDATION` |
+| State ≠ `Pending Approval` | `BAD_STATE` |
+| User KHÔNG có role duyệt (`WorkflowPermissionError`) | **`FORBIDDEN`** — "Bạn không có quyền bác đề xuất. Cần vai trò Quản lý Mua sắm." (VI sạch, KHÔNG leak `<strong>`) |
 
 ---
 
