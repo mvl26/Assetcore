@@ -26,10 +26,22 @@ Ví dụ: `/factory` · `/factory 5 audit` · `/factory 10 improve hoàn thiện
 3. **Verify NGAY sau launch** (đừng đợi hết run): đọc `subagents/workflows/wf_*/agent-*.jsonl` grep `R1·PM`/`VÒNG 1/N` xác nhận đúng `rounds` + `mode` + focus. Sai → `TaskStop` rồi relaunch đúng args.
 4. **KHÔNG dừng giữa vòng.** Engine chạy đủ N vòng rồi trình **1 báo cáo tổng** cuối run.
 
+## Recovery & Đa-phiên (khi run DỪNG giữa chừng / chạy song song)
+
+Run sống LÂU HƠN 1 process Claude — 1 run 50 vòng có thể kéo dài NHIỀU phiên. Nếu `<task-notification>` báo `status=stopped` / "running when previous Claude Code process exited" (KHÔNG phải completion) hoặc `failed: StructuredOutput retry cap` → **KHÔNG phải hỏng, KHÔNG relaunch mới**:
+
+1. **Re-resume CÙNG runId** (cache replay các vòng đã xong, chạy tiếp từ điểm dừng):
+   > `Workflow({ scriptPath: '<snapshot .../workflows/scripts/assetcore-factory-<wf_id>.js>', resumeFromRunId: '<wf_id>', args: <ĐÚNG args gốc VERBATIM> })`
+   - ⚠️ **args PHẢI verbatim** (đổi 1 ký tự `focus` → cache prefix vỡ → chạy lại từ vòng 1, tốn kém + sai). Đọc args gốc trong `<recovery>` của notification.
+2. **Snapshot phải hardened**: resume dùng SNAPSHOT (không phải source). Nếu vừa sửa engine source (vd thêm try/catch resilience) → `cp .claude/workflows/assetcore-factory.js <snapshot>` rồi `node --check <snapshot>`. Agent-call KHÔNG đổi ⇒ cache vẫn hit; `diff snapshot source` chỉ được lệch phần resilience.
+3. **Verify resume LIVE**: `wc -l journal.jsonl` (tăng) + `find subagents/.../agent-*.jsonl -mmin -2` (có file mới = agent chạy).
+
+**Đa-phiên (multi-session) — TRƯỚC mọi launch/re-resume:** check quiescence bằng **mtime, KHÔNG bằng process count**: `find …/subagents/workflows/*/agent-*.jsonl -mmin -3`. Có file mới của run KHÁC = đang có run song song cùng working tree → **KHÔNG launch chồng** (2 run ghi cùng tree/DB = race, false-red test). Chờ quiescent hoặc phối hợp owner run kia (LL: multi_session_concurrency + factory_engine_crash_schema_cap).
+
 ## Ràng buộc (HARD-STOP — engine đã nhúng, nhắc lại)
 
 - **KHÔNG** `git commit`/push/merge/reset DB/drop site/deploy prod — chờ USER duyệt working tree (feedback: chỉ commit khi user yêu cầu rõ).
-- Carry-over STATE đầu run + Handoff (ghi `STATE.md` + file phiên) cuối run là tự động.
+- Carry-over STATE đầu run + Handoff (ghi `STATE.md` + file phiên) cuối run là tự động; **cả 4 agent-call của engine (args/carry/vòng/handoff) đã bọc try/catch** — 1 blip API chỉ skip 1 vòng, KHÔNG giết run.
 - Mỗi vòng = 1 đề mục, test xanh THẬT (`bench --site miyano run-tests` output `Ran N OK`), sửa ROOT CAUSE.
 
 > Chi tiết kiến trúc orchestrator + path in-session fallback (khi không có Workflow tool): xem agent `.claude/agents/assetcore-software-factory.agent.md`.

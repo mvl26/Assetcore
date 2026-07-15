@@ -91,6 +91,7 @@ Tất cả nằm **TRONG repo** nhưng **GITIGNORED** → user thấy được t
 1. Hook `SessionStart` tự `show` (STATE + file phiên gần nhất, **gồm cả sau compact**); hook `UserPromptSubmit` tự `on-prompt` — ghi prompt thô vào file phiên (chống-compact) rồi in STATE gọn vào **MỖI prompt**. Nếu KHÔNG thấy (agent con / phiên cũ) → chạy `./.claude/scripts/session-log.sh show`.
 2. Đọc `STATE.md` (🔴 Blockers → ▶️ Next step → 🟡 Open threads → 📝 Working-tree) **VÀ** phần curated của file phiên gần nhất (🎯 + yêu cầu raw + tiến trình) để hiểu các yêu cầu đang dở. **Cần truy gốc chi tiết** (đã nói/đã làm chính xác gì) → đọc THẲNG mục `## 🪞 Mirror` của file phiên đó (`session-log.sh current` → path) — đây là "thư viện tri thức" đầy đủ.
 3. **Verify-before-trust**: context là ảnh chụp lúc ghi. Trước khi tin "code đã X", `git status`/grep xác minh (state có thể lỗi thời).
+   - ⚠️ **STATE từ factory-run LAG cả vòng**: engine ghi checkpoint GIỮA vòng (thường ở bước [BA]) rồi run CHẠY TIẾP → 1 handoff ghi "BE/FE CR-XX **chưa viết** (Bước-4)" có thể ĐÃ landed (BE/FE step chạy sau snapshot). TRƯỚC khi (a) tự làm phần "còn thiếu" hoặc (b) resume, grep code trên đĩa (`grep -n 'def <endpoint>' services/*.py`, `git diff --stat`) — ĐỪNG tin chữ "chưa viết"/"chờ BE" của STATE mid-run. (LL: session này STATE nói reopen_incident "chưa viết" nhưng `services/imm12.py` đã có + test 109 OK.)
 
 ## WRITE protocol — CHECKPOINT THEO TỪNG YÊU CẦU (không đợi cuối phiên)
 

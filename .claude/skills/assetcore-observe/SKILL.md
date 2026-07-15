@@ -14,7 +14,6 @@ description: >
   production cần nhìn thấy & chẩn đoán được — KHÔNG dùng để debug sự cố đang xảy ra
   (đó là assetcore-audit/debugging) hay tối ưu tốc độ (assetcore-perf).
 ---
-
 # AssetCore Observe — telemetry vận hành kỹ thuật
 
 ## Overview
@@ -31,20 +30,25 @@ description: >
 - Review PR có retry, queue, cross-service call, email/notification.
 
 **KHÔNG dùng khi:**
+
 - Đang chữa sự cố ngay lúc này → `assetcore-audit` (debugging 5-step).
 - Tối ưu chậm đã đo → `assetcore-perf`.
 
 ## Process
 
 ### 1. Định nghĩa "working" TRƯỚC khi instrument
+
 Viết 2–4 câu on-call sẽ hỏi về feature. Không nêu được câu hỏi = chưa sẵn sàng instrument (sẽ log mọi thứ, học được không gì).
+
 ```
 FEATURE: gửi notification PM overdue
 ON-CALL HỎI: (1) bao nhiêu noti gửi thành công vs fail? (2) fail vì sao (SMTP? template? recipient rỗng?) (3) Email Queue có đọng?
 ```
 
 ### 2. Structured logging — `frappe.logger`
+
 Log **event có tên ổn định + field máy đọc được**, không phải prose:
+
 ```python
 # BAD: nội suy chuỗi — không query/filter được
 frappe.logger("assetcore.notify").info(f"sent {n} for {wo}")
@@ -56,44 +60,51 @@ frappe.logger("assetcore.notify").warning({
     "reason": err_code, "attempt": n,
 })
 ```
+
 - Level nhất quán: `error`=invariant vỡ (điều tra) · `warning`=degraded-handled (xem trend) · `info`=business event đáng kể · `debug`=tắt ở prod.
 - **KHÔNG log secret/token/password/PII đầy đủ** (hard rule — xem assetcore-audit security). Allowlist field, đừng log nguyên request body.
 - Dùng `frappe.local.request_id` (nếu có) để tương quan log của 1 request.
 
 ### 3. RED metrics cho whitelist API
+
 Mỗi endpoint + mỗi dependency ngoài: **R**ate (req/s) · **E**rrors (tỷ lệ fail) · **D**uration (histogram p95/p99, KHÔNG average). Resource (Email Queue, scheduler) dùng **USE** (Utilization/Saturation/Errors).
+
 - Label phải từ tập **nhỏ cố định** (route, status_class "5xx", provider). **KHÔNG** label bằng user id / serial / raw URL / message → cardinality bomb.
 - Trung bình giấu 1% user khổ → luôn đọc percentile (p95/p99).
 
 ### 4. Health surfaces có sẵn trong Frappe (dùng, đừng tự xây)
+
 | Cần biết | Soi ở |
-|---|---|
-| Lỗi runtime chưa bắt | **Error Log** doctype (`frappe.log_error`) |
-| Email không gửi | **Email Queue** (status, error) — xem assetcore-deploy SMTP |
-| Job nền chạy/chết | **Scheduled Job Log** + `scheduler_disabled` |
-| Hành vi user | Activity Log (≠ business audit) |
+| ----------------------- | ------------------------------------------------------------------ |
+| Lỗi runtime chưa bắt | **Error Log** doctype (`frappe.log_error`)                 |
+| Email không gửi       | **Email Queue** (status, error) — xem assetcore-deploy SMTP |
+| Job nền chạy/chết    | **Scheduled Job Log** + `scheduler_disabled`               |
+| Hành vi user           | Activity Log (≠ business audit)                                   |
 
 ### 5. Alert symptom-based (cái user cảm nhận), KHÔNG theo cause
+
 ```
 PAGE (user đau):              DASHBOARD (không page):
 error rate > 1% / 5min        CPU 85%
 p99 API > 2s                  1 worker restart
 Email Queue đọng > N/30min    disk 70%
 ```
+
 Mỗi alert: **actionable** (tự lành thì xoá) + **link runbook** + threshold có lý do. Chỉ 2 severity: **page** / **ticket**.
 
 ### 6. Verify telemetry (telemetry cũng là code — có thể sai)
+
 Induce 1 error ở staging → tìm lại bằng log (event + request id), field đúng cấu trúc (không `[object Object]`); bắn thử mỗi alert mới 1 lần.
 
 ## Common Rationalizations
 
-| Lý do | Thực tế |
-|---|---|
-| "Thêm log sau khi chạy được" | "Sau" = sau sự cố đầu tiên — lúc đắt nhất để phát hiện mình mù. Instrument khi build. |
-| "Càng nhiều log càng quan sát tốt" | Noise phi cấu trúc làm sự cố CHẬM hơn. 3 event query được > 300 dòng prose. |
-| "frappe.log_error là đủ" | Error Log tốt cho exception, nhưng business event đáng kể + metric cần logger/structured riêng. |
-| "Alert mọi thứ, tune sau" | Pager ồn → người ta học cách phớt lờ; lần page thật bị bỏ. |
-| "User id làm label cho dễ debug" | Làm metric backend sập (cardinality). High-cardinality thuộc về log/trace. |
+| Lý do                                  | Thực tế                                                                                              |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| "Thêm log sau khi chạy được"       | "Sau" = sau sự cố đầu tiên — lúc đắt nhất để phát hiện mình mù. Instrument khi build.  |
+| "Càng nhiều log càng quan sát tốt" | Noise phi cấu trúc làm sự cố CHẬM hơn. 3 event query được > 300 dòng prose.                 |
+| "frappe.log_error là đủ"             | Error Log tốt cho exception, nhưng business event đáng kể + metric cần logger/structured riêng. |
+| "Alert mọi thứ, tune sau"             | Pager ồn → người ta học cách phớt lờ; lần page thật bị bỏ.                                 |
+| "User id làm label cho dễ debug"      | Làm metric backend sập (cardinality). High-cardinality thuộc về log/trace.                         |
 
 ## Red Flags — STOP
 

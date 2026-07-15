@@ -68,7 +68,7 @@ const DEV_SCHEMA = {
   properties: { did_work: { type: 'boolean' }, files_changed: { type: 'array', items: { type: 'string' } }, summary: { type: 'string' }, open_issues: { type: 'array', items: { type: 'string' } } },
 }
 const QA_SCHEMA = {
-  type: 'object', additionalProperties: false, required: ['tests_ran', 'tests_green', 'command', 'totals', 'failures', 'summary'],
+  type: 'object', additionalProperties: false, required: ['tests_ran', 'tests_green', 'command', 'totals', 'summary'],
   properties: {
     tests_ran: { type: 'boolean', description: 'true CHỈ KHI đã chạy bench run-tests / npm test THẬT' },
     tests_green: { type: 'boolean' }, command: { type: 'string' }, totals: { type: 'string' },
@@ -84,11 +84,17 @@ const CARRY_SCHEMA = { type: 'object', additionalProperties: false, required: ['
 log(`AssetCore Factory — ${ROUNDS} vòng, mode=${MODE}, site=${SITE}${A.focus ? ' (custom focus)' : ''}`)
 
 // ── Carry-over: đọc session STATE ─────────────────────────────────────────────
-const carry = await agent(
-  `Đọc session STATE của AssetCore: chạy \`/home/miyano/frappe-bench/apps/assetcore/.claude/scripts/session-log.sh show\`. ` +
-  `Trả về tóm tắt NGẮN các 🔴 blocker + 🟡 open thread + ▶️ next-step đang treo để factory nối tiếp. Trống → "(STATE trống)".`,
-  { phase: 'Carry-over', label: 'carry-over', schema: CARRY_SCHEMA }
-)
+// RESILIENCE: carry-over throw (blip API) KHÔNG được giết run trước vòng 1 — default rồi chạy tiếp.
+let carry = null
+try {
+  carry = await agent(
+    `Đọc session STATE của AssetCore: chạy \`/home/miyano/frappe-bench/apps/assetcore/.claude/scripts/session-log.sh show\`. ` +
+    `Trả về tóm tắt NGẮN các 🔴 blocker + 🟡 open thread + ▶️ next-step đang treo để factory nối tiếp. Trống → "(STATE trống)".`,
+    { phase: 'Carry-over', label: 'carry-over', schema: CARRY_SCHEMA }
+  )
+} catch (e) {
+  log(`Carry-over lỗi (${String((e && e.message) || e).slice(0, 120)}) → dùng STATE mặc định, chạy tiếp`)
+}
 const CARRY = (carry && carry.carryover) || '(không đọc được STATE)'
 log(`Carry-over: ${CARRY.slice(0, 220)}`)
 
@@ -106,6 +112,9 @@ for (let r = 1; r <= ROUNDS; r++) {
     ? `\nĐÃ LÀM (KHÔNG chọn lại, KHÔNG biến thể nhỏ): ${doneItems.map((t, i) => `${i + 1}.${t}`).join(' | ')}`
     : ''
 
+  // RESILIENCE: bọc thân vòng — 1 agent throw (retry-cap do blip API/ConnectionRefused)
+  // KHÔNG được giết cả run; log + skip vòng đó + chạy tiếp (LL: factory_engine_crash_schema_cap).
+  try {
   // 1 — [PM] Ideation (+ anti gate-churn: ưu tiên task [AUTO], hết AUTO → đề mục mới/khu vực mới)
   const item = await agent(
     `[PM] Vòng ${r}/${ROUNDS}, AssetCore Software Factory (${MODE}-mode).\n${FOCUS}\n${prev}${avoid}\n` +
@@ -157,10 +166,10 @@ for (let r = 1; r <= ROUNDS; r++) {
     `tests_ran=true CHỈ KHI đã chạy thật và đọc output. KHÔNG tuyên bố xanh nếu chưa chạy (Prove-it). ${NO_COMMIT}`,
     { phase: 'QA', agentType: 'assetcore-qa', schema: QA_SCHEMA, label: `R${r}·QA` }
   )
-  if (qa && qa.tests_ran && !qa.tests_green && qa.failures.length) {
-    log(`R${r}: test ĐỎ (${qa.failures.length} fail) → 1 lần sửa rồi chạy lại`)
+  if (qa && qa.tests_ran && !qa.tests_green && (qa.failures || []).length) {
+    log(`R${r}: test ĐỎ (${(qa.failures || []).length} fail) → 1 lần sửa rồi chạy lại`)
     await agent(
-      `[BE] Test ĐỎ ở vòng ${r}. Lỗi: ${qa.failures.join(' | ')}. Sửa ROOT CAUSE (do thiết kế gốc → ghi rõ cần [BA]). ${NO_COMMIT}`,
+      `[BE] Test ĐỎ ở vòng ${r}. Lỗi: ${(qa.failures || []).join(' | ')}. Sửa ROOT CAUSE (do thiết kế gốc → ghi rõ cần [BA]). ${NO_COMMIT}`,
       { phase: 'Dev', agentType: 'assetcore-be-dev', schema: DEV_SCHEMA, label: `R${r}·BE-fix` }
     )
     qa = await agent(
@@ -189,6 +198,12 @@ for (let r = 1; r <= ROUNDS; r++) {
     eval: ev && { verdict: ev.verdict, ux: ev.ux_findings, backlog_next: ev.backlog_next },
   })
   log(`✓ Vòng ${r} xong — verdict: ${ev ? ev.verdict : 'n/a'} | test: ${qa ? (qa.tests_green ? 'XANH' : 'ĐỎ/—') : 'n/a'} | changed: ${changed}`)
+  } catch (e) {
+    const msg = String((e && e.message) || e).slice(0, 200)
+    log(`✗ Vòng ${r} lỗi engine (${msg}) → ghi skip, KHÔNG giết run, chạy tiếp vòng sau`)
+    history.push({ round: r, skipped: 'engine_error', error: msg })
+    continue
+  }
 }
 
 const nextBacklog = history.flatMap(h => (h.eval && h.eval.backlog_next) || [])
@@ -198,17 +213,22 @@ const fixedRounds = history.filter(h => (h.be && h.be.did_work) || (h.fe && h.fe
 const allFilesChanged = [...new Set(history.flatMap(h => [...((h.be && h.be.files) || []), ...((h.fe && h.fe.files) || [])]))]
 
 // ── Handoff: ghi STATE.md + file phiên cho phiên/run sau ──────────────────────
-await agent(
-  `Invoke skill **assetcore-session**, cập nhật bàn giao từ factory (${history.length} vòng, ${MODE}-mode):\n` +
-  `- Đề mục đã làm: ${JSON.stringify(doneItems).slice(0, 1800)}\n` +
-  `- Backlog vòng kế (▶️/🟡): ${JSON.stringify(nextBacklog).slice(0, 1500)}\n` +
-  `- Open issues còn lại: ${JSON.stringify(openIssues).slice(0, 1200)}\n` +
-  `- Test ĐỎ chưa xử lý (🔴 nếu có): ${JSON.stringify(redFails).slice(0, 800)}\n` +
-  `- Files đã đụng (working tree, CHƯA commit): ${JSON.stringify(allFilesChanged).slice(0, 1500)}\n` +
-  `GHI ĐÈ .claude/contexts/STATE.md thành current truth + bồi semantic vào file phiên sessions/<ngày>/ (KHÔNG còn LOG.md). ` +
-  `Ranh giới: state-tạm → contexts; fact bền vững → memory/. KHÔNG commit.`,
-  { phase: 'Handoff', label: 'session-handoff' }
-)
+// RESILIENCE: handoff throw (blip API) KHÔNG được nuốt report sau N vòng — log rồi vẫn return.
+try {
+  await agent(
+    `Invoke skill **assetcore-session**, cập nhật bàn giao từ factory (${history.length} vòng, ${MODE}-mode):\n` +
+    `- Đề mục đã làm: ${JSON.stringify(doneItems).slice(0, 1800)}\n` +
+    `- Backlog vòng kế (▶️/🟡): ${JSON.stringify(nextBacklog).slice(0, 1500)}\n` +
+    `- Open issues còn lại: ${JSON.stringify(openIssues).slice(0, 1200)}\n` +
+    `- Test ĐỎ chưa xử lý (🔴 nếu có): ${JSON.stringify(redFails).slice(0, 800)}\n` +
+    `- Files đã đụng (working tree, CHƯA commit): ${JSON.stringify(allFilesChanged).slice(0, 1500)}\n` +
+    `GHI ĐÈ .claude/contexts/STATE.md thành current truth + bồi semantic vào file phiên sessions/<ngày>/ (KHÔNG còn LOG.md). ` +
+    `Ranh giới: state-tạm → contexts; fact bền vững → memory/. KHÔNG commit.`,
+    { phase: 'Handoff', label: 'session-handoff' }
+  )
+} catch (e) {
+  log(`Handoff lỗi (${String((e && e.message) || e).slice(0, 120)}) → BỎ QUA, vẫn trả report (STATE có thể chưa ghi — bàn giao thủ công từ return value)`)
+}
 
 return {
   rounds_run: history.length,
