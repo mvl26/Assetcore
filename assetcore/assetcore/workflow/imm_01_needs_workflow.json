@@ -229,6 +229,76 @@
    "action": "Yêu cầu chỉnh dự toán",
    "allowed": "AssetCore Super Admin",
    "allow_self_approval": 1
+  },
+  {
+   "state": "Draft",
+   "next_state": "Submitted",
+   "action": "Gửi đề xuất",
+   "allowed": "System Manager",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Submitted",
+   "next_state": "Reviewing",
+   "action": "Tiếp nhận rà soát",
+   "allowed": "System Manager",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Submitted",
+   "next_state": "Draft",
+   "action": "Yêu cầu bổ sung",
+   "allowed": "System Manager",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Reviewing",
+   "next_state": "Prioritized",
+   "action": "Hoàn tất chấm điểm",
+   "allowed": "System Manager",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Reviewing",
+   "next_state": "Rejected",
+   "action": "Bác đề xuất sớm",
+   "allowed": "System Manager",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Prioritized",
+   "next_state": "Budgeted",
+   "action": "Hoàn tất dự toán",
+   "allowed": "System Manager",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Budgeted",
+   "next_state": "Pending Approval",
+   "action": "Trình BGĐ",
+   "allowed": "System Manager",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Pending Approval",
+   "next_state": "Approved",
+   "action": "Phê duyệt",
+   "allowed": "System Manager",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Pending Approval",
+   "next_state": "Rejected",
+   "action": "Bác đề xuất",
+   "allowed": "System Manager",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Pending Approval",
+   "next_state": "Budgeted",
+   "action": "Yêu cầu chỉnh dự toán",
+   "allowed": "System Manager",
+   "allow_self_approval": 1
   }
  ]
 }

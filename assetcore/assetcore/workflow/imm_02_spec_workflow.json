@@ -117,6 +117,118 @@
    "action": "Yêu cầu chỉnh risk",
    "allowed": "Procurement Manager",
    "allow_self_approval": 1
+  },
+  {
+   "state": "Draft",
+   "next_state": "Reviewing",
+   "action": "Gửi rà soát",
+   "allowed": "AssetCore Super Admin",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Draft",
+   "next_state": "Reviewing",
+   "action": "Gửi rà soát",
+   "allowed": "System Manager",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Reviewing",
+   "next_state": "Draft",
+   "action": "Yêu cầu chỉnh spec",
+   "allowed": "AssetCore Super Admin",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Reviewing",
+   "next_state": "Draft",
+   "action": "Yêu cầu chỉnh spec",
+   "allowed": "System Manager",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Reviewing",
+   "next_state": "Benchmarked",
+   "action": "Hoàn tất benchmark",
+   "allowed": "AssetCore Super Admin",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Reviewing",
+   "next_state": "Benchmarked",
+   "action": "Hoàn tất benchmark",
+   "allowed": "System Manager",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Benchmarked",
+   "next_state": "Risk Assessed",
+   "action": "Đánh giá rủi ro xong",
+   "allowed": "AssetCore Super Admin",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Benchmarked",
+   "next_state": "Risk Assessed",
+   "action": "Đánh giá rủi ro xong",
+   "allowed": "System Manager",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Risk Assessed",
+   "next_state": "Pending Approval",
+   "action": "Trình duyệt spec",
+   "allowed": "AssetCore Super Admin",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Risk Assessed",
+   "next_state": "Pending Approval",
+   "action": "Trình duyệt spec",
+   "allowed": "System Manager",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Pending Approval",
+   "next_state": "Locked",
+   "action": "Phê duyệt spec",
+   "allowed": "AssetCore Super Admin",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Pending Approval",
+   "next_state": "Locked",
+   "action": "Phê duyệt spec",
+   "allowed": "System Manager",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Pending Approval",
+   "next_state": "Withdrawn",
+   "action": "Rút spec",
+   "allowed": "AssetCore Super Admin",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Pending Approval",
+   "next_state": "Withdrawn",
+   "action": "Rút spec",
+   "allowed": "System Manager",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Pending Approval",
+   "next_state": "Risk Assessed",
+   "action": "Yêu cầu chỉnh risk",
+   "allowed": "AssetCore Super Admin",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Pending Approval",
+   "next_state": "Risk Assessed",
+   "action": "Yêu cầu chỉnh risk",
+   "allowed": "System Manager",
+   "allow_self_approval": 1
   }
  ]
 }

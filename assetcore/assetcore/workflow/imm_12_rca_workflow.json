@@ -52,6 +52,20 @@
    "allow_self_approval": 1
   },
   {
+   "action": "Hủy RCA",
+   "allowed": "Corrective User",
+   "next_state": "Cancelled",
+   "state": "RCA Required",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hủy RCA",
+   "allowed": "Corrective Manager",
+   "next_state": "Cancelled",
+   "state": "RCA Required",
+   "allow_self_approval": 1
+  },
+  {
    "action": "Hoàn thành RCA",
    "allowed": "Corrective User",
    "next_state": "Completed",
@@ -62,6 +76,76 @@
    "action": "Hủy RCA",
    "allowed": "System Manager",
    "next_state": "Cancelled",
+   "state": "RCA In Progress",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hủy RCA",
+   "allowed": "Corrective User",
+   "next_state": "Cancelled",
+   "state": "RCA In Progress",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hủy RCA",
+   "allowed": "Corrective Manager",
+   "next_state": "Cancelled",
+   "state": "RCA In Progress",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu phân tích RCA",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "RCA In Progress",
+   "state": "RCA Required",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu phân tích RCA",
+   "allowed": "System Manager",
+   "next_state": "RCA In Progress",
+   "state": "RCA Required",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hủy RCA",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Cancelled",
+   "state": "RCA Required",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hoàn thành RCA",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Completed",
+   "state": "RCA In Progress",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hoàn thành RCA",
+   "allowed": "System Manager",
+   "next_state": "Completed",
+   "state": "RCA In Progress",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hủy RCA",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Cancelled",
+   "state": "RCA In Progress",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu phân tích RCA",
+   "allowed": "Corrective Manager",
+   "next_state": "RCA In Progress",
+   "state": "RCA Required",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hoàn thành RCA",
+   "allowed": "Corrective Manager",
+   "next_state": "Completed",
    "state": "RCA In Progress",
    "allow_self_approval": 1
   }

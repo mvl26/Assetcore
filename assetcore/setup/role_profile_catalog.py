@@ -47,6 +47,15 @@ ROLE_PROFILE_CATALOG: dict[str, list[str]] = {
     "Trưởng phòng VT-TTBYT": [
         "Commissioning Manager", "Needs Manager",
         "Procurement Manager", "Spec Manager",
+        # 'Spec User' (2026-07-14, CR-WF-RBAC-PROFILE-COVERAGE / ADR-IMM02-03): đóng
+        # dead-gate persona — 'Gửi rà soát' (Draft→Reviewing) @ IMM-02 có sole
+        # non-admin gate = 'Spec User', nhưng KHÔNG Role Profile nào cấp role này →
+        # chỉ Super Admin/System Manager duyệt được (persona soạn spec bị khoá). VT-
+        # TTBYT là persona SOẠN + rà-soát spec chủ-đích; 'Spec User' = drafter 2-tier
+        # DocPerm (submit=0) song hành 'Spec Manager' (submit=1) vốn đã có. Fix
+        # catalog-only, KHÔNG chạm workflow JSON (giữ admin-override guard). Xem
+        # tests/test_workflow_role_profile_coverage.py (INV-COV) + docs/imm-02.
+        "Spec User",
     ],
     "Trưởng xưởng kỹ thuật": [
         "PM Manager", "Repair Manager",

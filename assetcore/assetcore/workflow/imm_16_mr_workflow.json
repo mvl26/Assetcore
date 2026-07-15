@@ -57,6 +57,41 @@
    "next_state": "Closed",
    "state": "Minutes Approved",
    "allow_self_approval": 1
+  },
+  {
+   "action": "Đánh dấu Đã họp",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Held",
+   "state": "Draft",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Đánh dấu Đã họp",
+   "allowed": "System Manager",
+   "next_state": "Held",
+   "state": "Draft",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Phê duyệt Biên bản",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Minutes Approved",
+   "state": "Held",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Phê duyệt Biên bản",
+   "allowed": "System Manager",
+   "next_state": "Minutes Approved",
+   "state": "Held",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Đóng",
+   "allowed": "System Manager",
+   "next_state": "Closed",
+   "state": "Minutes Approved",
+   "allow_self_approval": 1
   }
  ]
 }

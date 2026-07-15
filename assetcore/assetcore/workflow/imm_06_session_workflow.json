@@ -84,6 +84,20 @@
    "allow_self_approval": 1
   },
   {
+   "action": "Bắt đầu",
+   "allowed": "Training Manager",
+   "next_state": "In Progress",
+   "state": "Planned",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu",
+   "allowed": "PM User",
+   "next_state": "In Progress",
+   "state": "Planned",
+   "allow_self_approval": 1
+  },
+  {
    "action": "Hoàn thành",
    "allowed": "Training Manager",
    "next_state": "Completed",
@@ -149,6 +163,83 @@
   {
    "action": "Hủy",
    "allowed": "AssetCore Super Admin",
+   "next_state": "Cancelled",
+   "state": "Confirmed",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Xác nhận",
+   "allowed": "System Manager",
+   "next_state": "Confirmed",
+   "state": "Planned",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "In Progress",
+   "state": "Confirmed",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu",
+   "allowed": "System Manager",
+   "next_state": "In Progress",
+   "state": "Confirmed",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "In Progress",
+   "state": "Planned",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu",
+   "allowed": "System Manager",
+   "next_state": "In Progress",
+   "state": "Planned",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hoàn thành",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Completed",
+   "state": "In Progress",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hoàn thành",
+   "allowed": "System Manager",
+   "next_state": "Completed",
+   "state": "In Progress",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Verify",
+   "allowed": "System Manager",
+   "next_state": "Verified",
+   "state": "Completed",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Đóng",
+   "allowed": "System Manager",
+   "next_state": "Closed",
+   "state": "Verified",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hủy",
+   "allowed": "System Manager",
+   "next_state": "Cancelled",
+   "state": "Planned",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hủy",
+   "allowed": "System Manager",
    "next_state": "Cancelled",
    "state": "Confirmed",
    "allow_self_approval": 1

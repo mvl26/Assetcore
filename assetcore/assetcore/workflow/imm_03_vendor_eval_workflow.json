@@ -84,6 +84,76 @@
    "action": "Huỷ Eval",
    "allowed": "Commissioning Manager",
    "allow_self_approval": 1
+  },
+  {
+   "state": "Draft",
+   "next_state": "Open RFQ",
+   "action": "Mở RFQ",
+   "allowed": "AssetCore Super Admin",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Draft",
+   "next_state": "Open RFQ",
+   "action": "Mở RFQ",
+   "allowed": "System Manager",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Open RFQ",
+   "next_state": "Quotation Received",
+   "action": "Nhận báo giá xong",
+   "allowed": "AssetCore Super Admin",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Open RFQ",
+   "next_state": "Quotation Received",
+   "action": "Nhận báo giá xong",
+   "allowed": "System Manager",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Quotation Received",
+   "next_state": "Evaluated",
+   "action": "Hoàn tất chấm điểm",
+   "allowed": "AssetCore Super Admin",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Quotation Received",
+   "next_state": "Evaluated",
+   "action": "Hoàn tất chấm điểm",
+   "allowed": "System Manager",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Open RFQ",
+   "next_state": "Cancelled",
+   "action": "Huỷ Eval",
+   "allowed": "AssetCore Super Admin",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Open RFQ",
+   "next_state": "Cancelled",
+   "action": "Huỷ Eval",
+   "allowed": "System Manager",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Quotation Received",
+   "next_state": "Cancelled",
+   "action": "Huỷ Eval",
+   "allowed": "AssetCore Super Admin",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Quotation Received",
+   "next_state": "Cancelled",
+   "action": "Huỷ Eval",
+   "allowed": "System Manager",
+   "allow_self_approval": 1
   }
  ]
 }

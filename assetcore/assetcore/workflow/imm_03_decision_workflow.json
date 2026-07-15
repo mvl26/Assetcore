@@ -122,6 +122,118 @@
    "action": "Phát hành PO",
    "allowed": "Procurement Manager",
    "allow_self_approval": 1
+  },
+  {
+   "state": "Draft",
+   "next_state": "Method Selected",
+   "action": "Chọn phương án",
+   "allowed": "AssetCore Super Admin",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Draft",
+   "next_state": "Method Selected",
+   "action": "Chọn phương án",
+   "allowed": "System Manager",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Method Selected",
+   "next_state": "Negotiation",
+   "action": "Bắt đầu thương thảo",
+   "allowed": "AssetCore Super Admin",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Method Selected",
+   "next_state": "Negotiation",
+   "action": "Bắt đầu thương thảo",
+   "allowed": "System Manager",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Negotiation",
+   "next_state": "Award Recommended",
+   "action": "Đề xuất trúng thầu",
+   "allowed": "AssetCore Super Admin",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Negotiation",
+   "next_state": "Award Recommended",
+   "action": "Đề xuất trúng thầu",
+   "allowed": "System Manager",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Award Recommended",
+   "next_state": "Pending Approval",
+   "action": "Trình BGĐ",
+   "allowed": "AssetCore Super Admin",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Award Recommended",
+   "next_state": "Pending Approval",
+   "action": "Trình BGĐ",
+   "allowed": "System Manager",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Pending Approval",
+   "next_state": "Awarded",
+   "action": "Phê duyệt trúng thầu",
+   "allowed": "AssetCore Super Admin",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Pending Approval",
+   "next_state": "Awarded",
+   "action": "Phê duyệt trúng thầu",
+   "allowed": "System Manager",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Pending Approval",
+   "next_state": "Cancelled",
+   "action": "Huỷ Decision",
+   "allowed": "AssetCore Super Admin",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Pending Approval",
+   "next_state": "Cancelled",
+   "action": "Huỷ Decision",
+   "allowed": "System Manager",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Awarded",
+   "next_state": "Contract Signed",
+   "action": "Ký HĐ",
+   "allowed": "AssetCore Super Admin",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Awarded",
+   "next_state": "Contract Signed",
+   "action": "Ký HĐ",
+   "allowed": "System Manager",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Contract Signed",
+   "next_state": "PO Issued",
+   "action": "Phát hành PO",
+   "allowed": "AssetCore Super Admin",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Contract Signed",
+   "next_state": "PO Issued",
+   "action": "Phát hành PO",
+   "allowed": "System Manager",
+   "allow_self_approval": 1
   }
  ]
 }

@@ -91,6 +91,104 @@
    "action": "Phục hồi Approved",
    "allowed": "Procurement Manager",
    "allow_self_approval": 1
+  },
+  {
+   "state": "Draft",
+   "next_state": "Approved",
+   "action": "Phê duyệt AVL",
+   "allowed": "AssetCore Super Admin",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Draft",
+   "next_state": "Approved",
+   "action": "Phê duyệt AVL",
+   "allowed": "System Manager",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Draft",
+   "next_state": "Conditional",
+   "action": "Cấp Conditional",
+   "allowed": "AssetCore Super Admin",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Draft",
+   "next_state": "Conditional",
+   "action": "Cấp Conditional",
+   "allowed": "System Manager",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Approved",
+   "next_state": "Conditional",
+   "action": "Hạ xuống Conditional",
+   "allowed": "AssetCore Super Admin",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Approved",
+   "next_state": "Conditional",
+   "action": "Hạ xuống Conditional",
+   "allowed": "System Manager",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Approved",
+   "next_state": "Suspended",
+   "action": "Đình chỉ",
+   "allowed": "AssetCore Super Admin",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Approved",
+   "next_state": "Suspended",
+   "action": "Đình chỉ",
+   "allowed": "System Manager",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Conditional",
+   "next_state": "Approved",
+   "action": "Phục hồi Approved",
+   "allowed": "AssetCore Super Admin",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Conditional",
+   "next_state": "Approved",
+   "action": "Phục hồi Approved",
+   "allowed": "System Manager",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Conditional",
+   "next_state": "Suspended",
+   "action": "Đình chỉ",
+   "allowed": "AssetCore Super Admin",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Conditional",
+   "next_state": "Suspended",
+   "action": "Đình chỉ",
+   "allowed": "System Manager",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Suspended",
+   "next_state": "Approved",
+   "action": "Phục hồi Approved",
+   "allowed": "AssetCore Super Admin",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Suspended",
+   "next_state": "Approved",
+   "action": "Phục hồi Approved",
+   "allowed": "System Manager",
+   "allow_self_approval": 1
   }
  ]
 }

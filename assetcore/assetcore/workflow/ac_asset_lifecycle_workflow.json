@@ -172,6 +172,244 @@
    "next_state": "Decommissioned",
    "state": "Active",
    "allow_self_approval": 1
+  },
+  {
+   "action": "Commission",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Commissioned",
+   "state": "Draft",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Commission",
+   "allowed": "System Manager",
+   "next_state": "Commissioned",
+   "state": "Draft",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Activate",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Active",
+   "state": "Commissioned",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Activate",
+   "allowed": "System Manager",
+   "next_state": "Active",
+   "state": "Commissioned",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu bảo trì",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Under Maintenance",
+   "state": "Active",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu bảo trì",
+   "allowed": "System Manager",
+   "next_state": "Under Maintenance",
+   "state": "Active",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hoàn thành bảo trì",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Active",
+   "state": "Under Maintenance",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hoàn thành bảo trì",
+   "allowed": "System Manager",
+   "next_state": "Active",
+   "state": "Under Maintenance",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu sửa chữa",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Under Repair",
+   "state": "Active",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu sửa chữa",
+   "allowed": "System Manager",
+   "next_state": "Under Repair",
+   "state": "Active",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu sửa chữa",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Under Repair",
+   "state": "Under Maintenance",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu sửa chữa",
+   "allowed": "System Manager",
+   "next_state": "Under Repair",
+   "state": "Under Maintenance",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu hiệu chuẩn",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Calibrating",
+   "state": "Active",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu hiệu chuẩn",
+   "allowed": "System Manager",
+   "next_state": "Calibrating",
+   "state": "Active",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Đưa ra khỏi sử dụng",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Out of Service",
+   "state": "Active",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Đưa ra khỏi sử dụng",
+   "allowed": "System Manager",
+   "next_state": "Out of Service",
+   "state": "Active",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hoàn thành sửa chữa",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Active",
+   "state": "Under Repair",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hoàn thành sửa chữa",
+   "allowed": "System Manager",
+   "next_state": "Active",
+   "state": "Under Repair",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Không thể sửa chữa",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Out of Service",
+   "state": "Under Repair",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Không thể sửa chữa",
+   "allowed": "System Manager",
+   "next_state": "Out of Service",
+   "state": "Under Repair",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hiệu chuẩn đạt",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Active",
+   "state": "Calibrating",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hiệu chuẩn đạt",
+   "allowed": "System Manager",
+   "next_state": "Active",
+   "state": "Calibrating",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hiệu chuẩn không đạt",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Out of Service",
+   "state": "Calibrating",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hiệu chuẩn không đạt",
+   "allowed": "System Manager",
+   "next_state": "Out of Service",
+   "state": "Calibrating",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Khôi phục hoạt động",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Active",
+   "state": "Out of Service",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Khôi phục hoạt động",
+   "allowed": "System Manager",
+   "next_state": "Active",
+   "state": "Out of Service",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Sửa chữa lại",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Under Repair",
+   "state": "Out of Service",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Sửa chữa lại",
+   "allowed": "System Manager",
+   "next_state": "Under Repair",
+   "state": "Out of Service",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Thanh lý",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Decommissioned",
+   "state": "Out of Service",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Thanh lý",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Decommissioned",
+   "state": "Active",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Đưa ra khỏi sử dụng",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Out of Service",
+   "state": "Commissioned",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Đưa ra khỏi sử dụng",
+   "allowed": "System Manager",
+   "next_state": "Out of Service",
+   "state": "Commissioned",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Đưa ra khỏi sử dụng",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Out of Service",
+   "state": "Under Maintenance",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Đưa ra khỏi sử dụng",
+   "allowed": "System Manager",
+   "next_state": "Out of Service",
+   "state": "Under Maintenance",
+   "allow_self_approval": 1
   }
  ]
 }

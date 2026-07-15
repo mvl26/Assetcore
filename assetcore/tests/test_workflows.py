@@ -1,15 +1,102 @@
 # Copyright (c) 2026, AssetCore Team
-"""Smoke tests for IMM-04..IMM-12 workflows.
+"""Smoke + RBAC-invariant tests cho 22 AssetCore Workflow (Wave 1 + Wave 2).
 
-Validates that all 8 workflows are imported, active, and contain the expected
-states + transitions used by frontend client scripts.
+Hai nhóm:
+  1. Smoke (DB-driven): mỗi workflow tồn tại, active, đúng DocType, đủ state/
+     transition, không vi phạm docstatus rule, role tham chiếu tồn tại
+     (TestWorkflowsRegistered / DocstatusValidity / RolesExist / IMM12 / IMM11).
+
+  2. Admin-override + parity invariant (FILE-driven — đọc thẳng JSON, KHÔNG lệ
+     thuộc DB nên miễn nhiễm fixture-contamination):
+       - INV-A test_source_transitions_grant_admin_override: MỌI transition-group
+         trong MỌI file assetcore/assetcore/workflow/*.json phải cấp CẢ hai admin
+         role {AssetCore Super Admin, System Manager}.
+       - INV-B test_fixture_transitions_grant_admin_override: y hệt cho 22 workflow
+         AssetCore trong fixtures/workflow.json (lọc foreign multi-app theo tên
+         source).
+       - INV-C test_source_fixture_transition_parity: map {(state,action,next_state)
+         -> set(roles)} KHỚP HỆT giữa source JSON ⇄ fixtures — khoá drift giữa 2
+         install-path (fresh-install `_sync_workflows` đọc source · `bench migrate`
+         import fixtures).
+
+VÌ SAO admin-override (LL-BE-62 + memory `workflow_admin_override_rbac`):
+  Frappe enforce quyền workflow theo TỪNG transition group; `ignore_permissions=
+  True` KHÔNG bypass `validate_workflow`. Profile "Quản trị viên IT" (QTV) chỉ
+  cấp role `AssetCore Super Admin` — mọi transition thiếu role này ⇒ QTV bị
+  WorkflowPermissionError ("Bạn không có quyền …"). Guard khoá regression "QTV
+  không duyệt được" trên CẢ hai install-path.
 
 Run: bench --site miyano run-tests --app assetcore --module assetcore.tests.test_workflows
 """
 from __future__ import annotations
 
+import glob
+import json
+import os
 import unittest
+from collections import defaultdict
+
 import frappe
+
+# --- Admin-override + parity invariant helpers (FILE-driven) -----------------
+
+# Cả hai admin role PHẢI hiện diện trong MỌI transition group của MỌI workflow
+# AssetCore. Mirror `setup/backfill_workflow_admin.ADMIN_ROLES` (SoT sync live).
+_ADMIN_OVERRIDE = frozenset({"AssetCore Super Admin", "System Manager"})
+
+
+def _source_workflow_dir() -> str:
+    """Thư mục source workflow JSON — CÙNG thư mục `_sync_workflows` scan."""
+    return frappe.get_app_path("assetcore", "assetcore", "workflow")
+
+
+def _load_source_workflows() -> list[tuple[str, dict]]:
+    """Glob mọi file source workflow → list (basename, wf_dict).
+
+    Data-driven: đọc TỪ thư mục nên workflow mới thêm vào folder TỰ ĐỘNG được
+    kiểm (KHÔNG hardcode danh sách 22 trong assert-path).
+    """
+    out: list[tuple[str, dict]] = []
+    for fp in sorted(glob.glob(os.path.join(_source_workflow_dir(), "*.json"))):
+        with open(fp, encoding="utf-8") as fh:
+            out.append((os.path.basename(fp), json.load(fh)))
+    return out
+
+
+def _source_workflow_names() -> set[str]:
+    """Tập tên 22 Workflow AssetCore, đọc từ source JSON (SoT scope)."""
+    return {wf.get("name") for _bn, wf in _load_source_workflows()}
+
+
+def _fixture_assetcore_workflows() -> dict[str, dict]:
+    """{name: wf_dict} cho các Workflow AssetCore trong fixtures/workflow.json.
+
+    Lọc theo tập tên source (mirror `backfill_workflow_admin._assetcore_workflow_
+    names`) để BỎ QUA foreign workflow của mvl_accounting/antmed_crm/workflowcore
+    trên DB/fixtures shared — KHÔNG áp invariant AssetCore lên domain app khác.
+    """
+    path = frappe.get_app_path("assetcore", "fixtures", "workflow.json")
+    with open(path, encoding="utf-8") as fh:
+        data = json.load(fh)
+    names = _source_workflow_names()
+    return {
+        d.get("name"): d
+        for d in data
+        if d.get("doctype") == "Workflow" and d.get("name") in names
+    }
+
+
+def _transition_groups(wf: dict) -> dict[tuple[str, str, str], set[str]]:
+    """Gom `allowed` role theo (state, action, next_state).
+
+    Mirror logic gom-group của `setup/backfill_workflow_admin` — Frappe enforce
+    quyền theo group này, nên đây là đơn vị đúng để kiểm admin-override + parity.
+    """
+    groups: dict[tuple[str, str, str], set[str]] = defaultdict(set)
+    for t in wf.get("transitions", []):
+        key = (t.get("state"), t.get("action"), t.get("next_state"))
+        groups[key].add(t.get("allowed"))
+    return dict(groups)
 
 
 EXPECTED_WORKFLOWS = {
@@ -158,3 +245,96 @@ class TestIMM11CapaTransition(unittest.TestCase):
         cond = (match[0].condition or "").lower()
         self.assertIn("capa_closed", cond,
                       f"Transition thiếu condition capa_closed: {match[0].condition}")
+
+
+class TestWorkflowAdminOverrideInvariant(unittest.TestCase):
+    """Bất-biến admin-override + parity source⇄fixtures (FILE-driven).
+
+    VÌ SAO (LL-BE-62): Frappe enforce quyền workflow theo TỪNG transition group;
+    `ignore_permissions=True` KHÔNG bypass `validate_workflow`. QTV (profile
+    "Quản trị viên IT") chỉ có role `AssetCore Super Admin` → mọi transition-group
+    thiếu role này = WorkflowPermissionError ("QTV không duyệt được"). Guard khoá
+    regression đó trên CẢ hai install-path: fresh-install (`_sync_workflows` đọc
+    source JSON) VÀ `bench migrate` (import fixtures/workflow.json).
+
+    FILE-driven (đọc JSON, KHÔNG query DB) ⇒ miễn nhiễm fixture-contamination —
+    KHÔNG đỏ do môi trường như test_imm09/test_imm00.
+    """
+
+    def test_source_transitions_grant_admin_override(self):
+        """INV-A: MỌI transition-group trong MỌI source JSON ⊇ _ADMIN_OVERRIDE."""
+        missing: list[tuple] = []
+        for basename, wf in _load_source_workflows():
+            for (state, action, next_state), roles in _transition_groups(wf).items():
+                gap = _ADMIN_OVERRIDE - roles
+                if gap:
+                    missing.append((basename, state, action, next_state, sorted(gap)))
+        self.assertEqual(
+            missing, [],
+            "Source transition-group thiếu admin-override "
+            "(file, state, action, next_state, missing_roles):\n"
+            + "\n".join(str(m) for m in missing),
+        )
+
+    def test_fixture_transitions_grant_admin_override(self):
+        """INV-B: MỌI transition-group của 22 AssetCore workflow trong fixtures
+        ⊇ _ADMIN_OVERRIDE; foreign multi-app workflow bị lọc theo tên source."""
+        fx = _fixture_assetcore_workflows()
+        # Foreign workflow (mvl/antmed/workflowcore) bị loại → tập fixtures đúng
+        # bằng tập source (data-driven, KHÔNG hardcode 22 — glob source suy ra).
+        self.assertEqual(
+            set(fx.keys()), _source_workflow_names(),
+            "Tập AssetCore workflow trong fixtures phải KHỚP tập source "
+            "(foreign bị lọc, KHÔNG thiếu workflow source nào):\n"
+            f"  chỉ-source={sorted(_source_workflow_names() - set(fx.keys()))}\n"
+            f"  chỉ-fixture={sorted(set(fx.keys()) - _source_workflow_names())}",
+        )
+        missing: list[tuple] = []
+        for name, wf in fx.items():
+            for (state, action, next_state), roles in _transition_groups(wf).items():
+                gap = _ADMIN_OVERRIDE - roles
+                if gap:
+                    missing.append((name, state, action, next_state, sorted(gap)))
+        self.assertEqual(
+            missing, [],
+            "Fixture transition-group thiếu admin-override "
+            "(workflow, state, action, next_state, missing_roles):\n"
+            + "\n".join(str(m) for m in missing),
+        )
+
+    def test_source_fixture_transition_parity(self):
+        """INV-C: map {(state,action,next_state) -> set(roles)} KHỚP HỆT giữa
+        source JSON ⇄ fixtures cho MỖI workflow — khoá 0 drift giữa install-path
+        fresh-install (`_sync_workflows` đọc source) và migrate (import fixtures).
+        """
+        source = {wf.get("name"): _transition_groups(wf)
+                  for _bn, wf in _load_source_workflows()}
+        fixture = {name: _transition_groups(wf)
+                   for name, wf in _fixture_assetcore_workflows().items()}
+
+        drift: list[str] = []
+        for name in sorted(source):
+            s = source[name]
+            f = fixture.get(name)
+            if f is None:
+                drift.append(f"{name}: KHÔNG có trong fixtures/workflow.json")
+                continue
+            if s == f:
+                continue
+            only_src = {k: sorted(s[k]) for k in sorted(s.keys() - f.keys())}
+            only_fix = {k: sorted(f[k]) for k in sorted(f.keys() - s.keys())}
+            role_diff = {
+                k: {"source": sorted(s[k]), "fixture": sorted(f[k])}
+                for k in sorted(s.keys() & f.keys()) if s[k] != f[k]
+            }
+            drift.append(
+                f"{name}:\n"
+                f"    only_source_edges={only_src}\n"
+                f"    only_fixture_edges={only_fix}\n"
+                f"    role_diff={role_diff}"
+            )
+        self.assertEqual(
+            drift, [],
+            "Source⇄fixtures transition parity drift (install-path divergence):\n"
+            + "\n".join(drift),
+        )
