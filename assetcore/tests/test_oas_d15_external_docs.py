@@ -43,6 +43,13 @@ import frappe
 
 from assetcore.api import openapi
 from assetcore.api import openapi_overrides as ovr
+from assetcore.tests.oas_baseline import (
+    BASELINE_GET,
+    BASELINE_GUEST,
+    BASELINE_POST,
+    BASELINE_TOTAL,
+    BASELINE_TYPED,
+)
 
 # Pattern doc-path hợp lệ: 'docs/imm-NN/README' (mọi externalDocs.url phải khớp).
 _DOC_PATH_RE = re.compile(r"docs/imm-[0-9]{2}/README")
@@ -475,7 +482,24 @@ class TestOasD16Invariant(unittest.TestCase):
         #   979d736 RE-BASELINE SÓT (user.list_assignable_users #489 chỉ vào D15/D17 verb-split, total
         #   GIỮ 488 → off-by-1 RED âm thầm) + 3 web GET mới (get_depreciation_by_category /
         #   list_decommissions / get_cycle_count). RE-VERIFY @source generate_spec.
-        self.assertEqual(stats["total_endpoints"], 492)
+        # 2026-07-09 CR-14/CR-15/CR-17 PHOTO-ATTACH: total 492→495 / post 256→259 / typed 492→495 (+3 multipart
+        #   POST imm08.attach_pm_checklist_photo + imm09.attach_repair_checklist_photo + imm12.attach_incident_photo).
+        #   RE-VERIFY @source (QA vòng 3: baseline trước sót imm09 → 494 vs actual 495, đã sửa).
+        # 2026-07-10 RCA-CTA (GATE-8/BR-12-20/22): total 495→497 / post 259→261 / typed 495→497:
+        #   +2 POST @whitelist imm12.start_rca + imm12.cancel_rca. get/guest/json_param GIỮ.
+        # 2026-07-10 FCR-CTA (GATE-8/BR-09-20): total 497→498 / post 261→262 / typed 497→498:
+        #   +1 POST @whitelist imm00.transition_firmware_cr. get/guest/json_param GIỮ.
+        # 2026-07-10 COMPETENCY-CTA (GATE-8/LL-FE-51): total 498→499 / get 236→237 / typed 498→499:
+        #   +1 GET @whitelist imm06.get_competency. post/guest/json_param GIỮ.
+        # 2026-07-11 CR-WF-12 INCIDENT-REOPEN (BR-12-23): total 499→500 / post 262→263 / typed 499→500:
+        #   +1 POST @whitelist imm12.reopen_incident (CTA "Mở lại điều tra"). get/guest/json_param GIỮ.
+        # 2026-07-12 CR-WF-15-CC RECOUNT-CYCLE-COUNT (GATE-8): total 500→501 / post 263→264 / typed 500→501:
+        #   +1 POST @whitelist imm15.recount_cycle_count (CTA "Sửa đếm lại", Reviewed→Counting; cap
+        #   inventory.submit). get/guest/json_param GIỮ (count_name/name/reason str, không parse_json).
+        # 2026-07-14 CONCURRENT-CTA total 501→505 / post 264→268 / typed 501→505: +4 POST @whitelist
+        #   imm06.suspend_competency + imm06.restore_competency + imm12.request_rca + imm16.start_review.
+        #   Baseline tuyệt đối GOM về SSoT `assetcore.tests.oas_baseline` (ledger + open-issue [BA]).
+        self.assertEqual(stats["total_endpoints"], BASELINE_TOTAL)
         self.assertEqual(stats["total_endpoints"], len(spec["paths"]))
         # 2026-06-27 VERB-PARITY CLOSURE: get 238→235 / post 250→253 (3 write-action bare @whitelist
         #   siết methods=["POST"] @imm08.py:54/imm11.py:89/114 ⇒ verb-flip GET→POST; total GIỮ 488).
@@ -485,10 +509,10 @@ class TestOasD16Invariant(unittest.TestCase):
         #   bare→methods=["POST"] ⇒ verb-flip GET→POST; total GIỮ 488). RE-VERIFY @source generate_spec.
         # 2026-06-28 R36 PM→CM ESCALATION: get 233→232 / post 255→256 (report_major_failure @imm08.py:74
         #   bare→methods=["POST"] + SIGNATURE-FIX ⇒ verb-flip GET→POST; total GIỮ 488). RE-VERIFY @source generate_spec.
-        self.assertEqual(stats["get_count"], 236)
-        self.assertEqual(stats["post_count"], 256)
+        self.assertEqual(stats["get_count"], BASELINE_GET)
+        self.assertEqual(stats["post_count"], BASELINE_POST)
         self.assertEqual(stats["get_count"] + stats["post_count"], stats["total_endpoints"])
-        self.assertEqual(stats["guest_count"], 5)
+        self.assertEqual(stats["guest_count"], BASELINE_GUEST)
         # D6-IMM09-ENRICH: enriched_count derive ĐỘNG (KHÔNG magic 161) — D15/D16
         # (externalDocs) KHÔNG đụng enrich → KHỚP số op enrich đếm qua helper SSoT.
         expected_enriched = sum(
@@ -497,7 +521,7 @@ class TestOasD16Invariant(unittest.TestCase):
             if ovr.enrich_meta_for(p.replace("/api/method/assetcore.api.", "", 1)) is not None
         )
         self.assertEqual(stats["enriched_count"], expected_enriched)
-        self.assertEqual(stats["error_responses_typed_count"], 492)
+        self.assertEqual(stats["error_responses_typed_count"], BASELINE_TYPED)
         self.assertEqual(stats["json_param_count"], 64)  # +imm14.list_decommissions.filters (parse_json JSON-string param)
         self.assertTrue(stats["cap_set_version"], "cap_set_version non-empty.")
         self.assertTrue(stats["generated_app_version"], "generated_app_version non-empty.")

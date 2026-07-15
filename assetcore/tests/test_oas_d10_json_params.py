@@ -35,6 +35,7 @@ import assetcore.api.imm08 as m08
 import assetcore.api.imm12 as m12
 from assetcore.api import openapi
 from assetcore.api import openapi_overrides as _ovr
+from assetcore.tests.oas_baseline import BASELINE_TOTAL
 
 
 def _flatten_json_string_params() -> set[str]:
@@ -291,8 +292,24 @@ class TestOasD10InvariantRegression(unittest.TestCase):
         """len(paths) == 492 (D1 intact). 2026-07-01 rebase 488→492: 979d736 sót off-by-1
         (endpoint #489 user.list_assignable_users — chỉ vào D15/D17, KHÔNG vào total/D10/D12)
         + 3 web GET mới (get_depreciation_by_category, list_decommissions, get_cycle_count).
+        2026-07-09 CR-14/CR-15/CR-17 PHOTO-ATTACH 492→495: +3 multipart POST @whitelist đối xứng
+        (imm08.attach_pm_checklist_photo + imm09.attach_repair_checklist_photo + imm12.attach_incident_photo).
+        RE-VERIFY @source (QA vòng 3: baseline trước sót imm09 → 494 vs actual 495, đã sửa).
+        2026-07-10 RCA-CTA 495→497: +2 POST @whitelist imm12.start_rca + imm12.cancel_rca
+        (server-driven RCA transition — GATE-8/BR-12-20/22). RE-VERIFY @source generate_spec.
+        2026-07-10 FCR-CTA 497→498: +1 POST @whitelist imm00.transition_firmware_cr
+        (server-driven Firmware CR transition — GATE-8/BR-09-20). RE-VERIFY @source generate_spec.
+        2026-07-10 COMPETENCY-CTA 498→499: +1 GET @whitelist imm06.get_competency
+        (server-driven competency allowed_transitions — GATE-8/LL-FE-51). RE-VERIFY @source generate_spec.
+        2026-07-11 CR-WF-12 INCIDENT-REOPEN 499→500: +1 POST @whitelist imm12.reopen_incident
+        (server-driven CTA "Mở lại điều tra", Resolved→In Progress — BR-12-23). RE-VERIFY @source generate_spec.
+        2026-07-12 CR-WF-15-CC RECOUNT 500→501: +1 POST @whitelist imm15.recount_cycle_count
+        (server-driven CTA "Sửa đếm lại", Reviewed→Counting — GATE-8). RE-VERIFY @source generate_spec.
+        2026-07-14 CONCURRENT-CTA 501→505: +4 POST @whitelist (imm06.suspend_competency +
+        imm06.restore_competency + imm12.request_rca + imm16.start_review). Baseline tuyệt đối nay
+        GOM về SSoT `assetcore.tests.oas_baseline.BASELINE_TOTAL` (ledger đầy đủ + open-issue [BA]).
         Số bỏ khỏi tên method (chống magic-number-in-name drift — DESIGN-DEBT [BA])."""
-        self.assertEqual(len(self.spec["paths"]), 492)
+        self.assertEqual(len(self.spec["paths"]), BASELINE_TOTAL)
 
     def test_d10_07_enriched_count_dynamic(self):
         """enriched_count == derive ĐỘNG (D6 intact, KHÔNG magic 161 — nay 4 module enrich)."""

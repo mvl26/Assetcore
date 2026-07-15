@@ -34,6 +34,14 @@ from unittest import mock
 
 from assetcore.api import openapi
 from assetcore.api import openapi_overrides as ovr
+from assetcore.tests.oas_baseline import (
+    BASELINE_GET,
+    BASELINE_GUEST,
+    BASELINE_JSON_PARAM,
+    BASELINE_POST,
+    BASELINE_TOTAL,
+    BASELINE_TYPED,
+)
 
 # ── 5 op-tail (operationId-tail) PHẢI có enum cho property 'action' (D17). ──────
 _ENUM_OP_TAILS = frozenset(
@@ -298,14 +306,38 @@ class TestOasD17Invariant(unittest.TestCase):
         #   commit 979d736 RE-BASELINE SÓT (message "488→489" cho user.list_assignable_users chỉ vào
         #   D15/D17 verb-split, total GIỮ 488 ⇒ off-by-1 RED âm thầm) + 3 web GET mới (get_depreciation_by_category
         #   / list_decommissions / get_cycle_count) + json_param +1 (list_decommissions.filters). RE-VERIFY @source.
+        # 2026-07-09 CR-14/CR-15/CR-17 PHOTO-ATTACH total 492→495 / post 256→259 / typed 492→495:
+        #   +3 multipart POST @whitelist đối xứng — imm08.attach_pm_checklist_photo +
+        #   imm09.attach_repair_checklist_photo + imm12.attach_incident_photo (đính ảnh bằng chứng NĐ98).
+        #   get/guest/json_param GIỮ (POST, multipart FileStorage KHÔNG JSON-param).
+        #   RE-VERIFY @source: generate_spec x-assetcore-stats == {total 495, post 259, typed 495}
+        #   (QA vòng 3: baseline trước sót imm09 → 494 vs actual 495, đã sửa).
+        # 2026-07-10 RCA-CTA (GATE-8/BR-12-20/22) total 495→497 / post 259→261 / typed 495→497:
+        #   +2 POST @whitelist imm12.start_rca + imm12.cancel_rca (server-driven RCA transition).
+        #   get/guest/json_param GIỮ (params str, không parse_json). RE-VERIFY @source generate_spec.
+        # 2026-07-10 FCR-CTA (GATE-8/BR-09-20) total 497→498 / post 261→262 / typed 497→498:
+        #   +1 POST @whitelist imm00.transition_firmware_cr (server-driven Firmware CR transition).
+        #   get/guest/json_param GIỮ (params str, không parse_json). RE-VERIFY @source generate_spec.
+        # 2026-07-10 COMPETENCY-CTA (GATE-8/LL-FE-51) total 498→499 / get 236→237 / typed 498→499:
+        #   +1 GET @whitelist imm06.get_competency (server-driven competency allowed_transitions).
+        #   post/guest/json_param GIỮ (name str, không parse_json). RE-VERIFY @source generate_spec.
+        # 2026-07-11 CR-WF-12 INCIDENT-REOPEN (BR-12-23) total 499→500 / post 262→263 / typed 499→500:
+        #   +1 POST @whitelist imm12.reopen_incident (server-driven CTA "Mở lại điều tra").
+        #   get/guest/json_param GIỮ (name/reason str, không parse_json). RE-VERIFY @source generate_spec.
+        # 2026-07-12 CR-WF-15-CC RECOUNT-CYCLE-COUNT (GATE-8) total 500→501 / post 263→264 / typed 500→501:
+        #   +1 POST @whitelist imm15.recount_cycle_count (server-driven CTA "Sửa đếm lại", Reviewed→Counting;
+        #   cap inventory.submit). get/guest/json_param GIỮ (count_name/name/reason str, không parse_json).
+        # 2026-07-14 CONCURRENT-CTA total 501→505 / post 264→268 / typed 501→505: +4 POST @whitelist
+        #   imm06.suspend_competency + imm06.restore_competency + imm12.request_rca + imm16.start_review.
+        #   Baseline tuyệt đối GOM về SSoT `assetcore.tests.oas_baseline` (ledger đầy đủ + open-issue [BA]).
         baseline = {
-            "total_endpoints": 492,
-            "get_count": 236,
-            "post_count": 256,
-            "guest_count": 5,
+            "total_endpoints": BASELINE_TOTAL,
+            "get_count": BASELINE_GET,
+            "post_count": BASELINE_POST,
+            "guest_count": BASELINE_GUEST,
             "enriched_count": expected_enriched,
-            "error_responses_typed_count": 492,
-            "json_param_count": 64,  # +imm14.list_decommissions.filters (parse_json JSON-string param)
+            "error_responses_typed_count": BASELINE_TYPED,
+            "json_param_count": BASELINE_JSON_PARAM,  # +imm14.list_decommissions.filters (parse_json JSON-string param)
         }
         for key, val in baseline.items():
             self.assertEqual(

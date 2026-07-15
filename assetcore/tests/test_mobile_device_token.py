@@ -1067,6 +1067,11 @@ class TestMobilePushDispatchDB(unittest.TestCase):
         false-green LL-TEST-21). RED-pending-migrate tới khi USER migrate.
         """
         ktv_a, ktv_b = "ktv-a@example.com", "ktv-b@example.com"
+        if not frappe.db.exists("User", ktv_a) or not frappe.db.exists("User", ktv_b):
+            self.skipTest(
+                f"User test {ktv_a}/{ktv_b} chưa tồn tại trên site — "
+                "RED-pending fixture (HARD-STOP USER). TC-D6-06 SKIP."
+            )
         for u in (ktv_a, ktv_b):
             tok = frappe.get_doc({
                 "doctype": "AC Mobile Device Token",

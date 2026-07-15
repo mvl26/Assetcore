@@ -61,18 +61,39 @@ from assetcore.utils.response import ErrorCode, _HTTP_FOR_CODE
 # total=492 get=236 post=256 guest=5 json_param=64. ⚠️ DESIGN-DEBT cho [BA]/lead: cùng 1 invariant
 # (endpoint surface) hardcode magic-number ở ≥4 file (D10/D12/D15/D17) → sửa phải lockstep, 979d736 sót
 # 1 file là RED âm thầm. Đề xuất: gom baseline về 1 SSoT module dùng chung (xem open-issues).
-_BASELINE_TOTAL = 492
-_BASELINE_GET = 236
-_BASELINE_POST = 256
-_BASELINE_GUEST = 5
-# enriched_count derive ĐỘNG (D6-IMM09-ENRICH: KHÔNG còn magic 161 cho 3-module). D12
-# (error-surface) KHÔNG đụng enrich → vẫn KHỚP số op enrich đếm qua helper SSoT.
-# 2026-06-11 re-baseline 63→64: print_asset_labels_pdf(assets=…) list-param = json param thứ 64.
-# 2026-06-28 R36 re-baseline 64→63: SIGNATURE-FIX DROP report_major_failure.failed_item_indexes
-# (JSON-string param @api/imm08.py cũ) ⇒ json_param_count −1. RE-VERIFY @source generate_spec.
-# 2026-07-01 re-baseline 63→64: imm14.list_decommissions thêm param `filters` (parse_json) = JSON-string
-# param thứ 64. RE-VERIFY @source generate_spec: json_param_count=64.
-_BASELINE_JSON_PARAM = 64
+# 2026-07-09 CR-14/CR-15/CR-17 PHOTO-ATTACH: total 492→495 / post 256→259 (typed 492→495 == total): +3
+#   multipart POST @whitelist đối xứng imm08.attach_pm_checklist_photo + imm09.attach_repair_checklist_photo
+#   + imm12.attach_incident_photo (đính ảnh bằng chứng NĐ98). get/guest/json_param GIỮ. RE-VERIFY @source
+#   generate_spec (QA vòng 3: baseline trước sót imm09 → 494 vs actual 495, đã sửa).
+# 2026-07-10 RCA-CTA (GATE-8/BR-12-20/22): total 495→497 / post 259→261: +2 POST @whitelist
+#   imm12.start_rca + imm12.cancel_rca (server-driven RCA transition). get/guest/json_param GIỮ
+#   (params str, không parse_json). typed 497 == total. RE-VERIFY @source generate_spec.
+# 2026-07-10 FCR-CTA (GATE-8/BR-09-20): total 497→498 / post 261→262: +1 POST @whitelist
+#   imm00.transition_firmware_cr (server-driven Firmware CR transition). get/guest/json_param GIỮ
+#   (params str, không parse_json). typed 498 == total. RE-VERIFY @source generate_spec.
+# 2026-07-10 COMPETENCY-CTA (GATE-8/LL-FE-51): total 498→499 / get 236→237: +1 GET @whitelist
+#   imm06.get_competency (server-driven competency allowed_transitions). post/guest/json_param GIỮ
+#   (name str, không parse_json). typed 499 == total. RE-VERIFY @source generate_spec.
+# 2026-07-11 CR-WF-12 INCIDENT-REOPEN (BR-12-23): total 499→500 / post 262→263: +1 POST @whitelist
+#   imm12.reopen_incident (server-driven CTA "Mở lại điều tra", Resolved→In Progress; cap incident.close
+#   parity close_incident). get/guest/json_param GIỮ (name/reason str, không parse_json). typed 500 ==
+#   total. RE-VERIFY @source generate_spec.
+# 2026-07-12 CR-WF-15-CC RECOUNT-CYCLE-COUNT (GATE-8/LL-FE-51): total 500→501 / post 263→264: +1 POST
+#   @whitelist imm15.recount_cycle_count (server-driven CTA "Sửa đếm lại", Reviewed→Counting; cap
+#   inventory.submit parity post_cycle_count). get/guest/json_param GIỮ (count_name/name/reason str,
+#   không parse_json). typed 501 == total (authed op, baseline 401/403). RE-VERIFY @source generate_spec.
+# 2026-07-14 ROOT-CAUSE FIX: baseline tuyệt đối GOM về SSoT `assetcore.tests.oas_baseline`
+# (trước đây hardcode độc lập ở D10/D12/D15/D17 → lockstep-drift → silent RED; xem docstring
+# SSoT + open-issue [BA]). Ledger đầy đủ (kể cả entry 501→505) nay ở SSoT. Alias `_BASELINE_*`
+# GIỮ NGUYÊN mọi tham chiếu bên dưới — chỉ 1 nguồn số thay đổi.
+# enriched_count derive ĐỘNG (D6-IMM09-ENRICH: KHÔNG magic 161) — D12 (error-surface) KHÔNG đụng enrich.
+from assetcore.tests.oas_baseline import (  # noqa: E402
+    BASELINE_GET as _BASELINE_GET,
+    BASELINE_GUEST as _BASELINE_GUEST,
+    BASELINE_JSON_PARAM as _BASELINE_JSON_PARAM,
+    BASELINE_POST as _BASELINE_POST,
+    BASELINE_TOTAL as _BASELINE_TOTAL,
+)
 
 _ERR_ENVELOPE_REF = "#/components/schemas/ErrorEnvelope"
 _PREFIX = "/api/method/assetcore.api."
@@ -301,12 +322,12 @@ class TestOasD12ErrorSurface(unittest.TestCase):
             "error_responses_typed_count PHẢI == đếm động op có ≥1 response 4xx/5xx.",
         )
         self.assertIsInstance(stats["error_responses_typed_count"], int)
-        # Sau D12: MỌI op có ≥1 response 4xx — authed (487) có 401+403; guest (5) có 403
-        # baseline (cấm-quyền vẫn xảy ra ở guest endpoint). ⟹ typed_count == total (492).
+        # Sau D12: MỌI op có ≥1 response 4xx — authed (500) có 401+403; guest (5) có 403
+        # baseline (cấm-quyền vẫn xảy ra ở guest endpoint). ⟹ typed_count == total (SSoT).
         self.assertEqual(
             stats["error_responses_typed_count"],
             _BASELINE_TOTAL,
-            "Mọi op (authed 401/403 + guest 403) có ≥1 status 4xx → typed_count == total (492).",
+            "Mọi op (authed 401/403 + guest 403) có ≥1 status 4xx → typed_count == total (SSoT oas_baseline).",
         )
 
     def test_d12_05b_sibling_stats_unchanged(self):
@@ -314,9 +335,9 @@ class TestOasD12ErrorSurface(unittest.TestCase):
         from assetcore.services.shared import rbac
 
         stats = self.spec["x-assetcore-stats"]
-        self.assertEqual(stats["total_endpoints"], _BASELINE_TOTAL, "total 492 (489 committed + 3 web GET: get_depreciation_by_category, list_decommissions, get_cycle_count).")
-        self.assertEqual(stats["get_count"], _BASELINE_GET, "get 236 (233 committed + 3 web GET mới; 979d736 sót off-by-1 nay hợp nhất).")
-        self.assertEqual(stats["post_count"], _BASELINE_POST, "post 256 (3 endpoint mới đều GET → POST KHÔNG đổi).")
+        self.assertEqual(stats["total_endpoints"], _BASELINE_TOTAL, "total == SSoT oas_baseline.BASELINE_TOTAL (ledger @source).")
+        self.assertEqual(stats["get_count"], _BASELINE_GET, "get == SSoT BASELINE_GET (4 CTA mới 501→505 đều POST → get GIỮ).")
+        self.assertEqual(stats["post_count"], _BASELINE_POST, "post == SSoT BASELINE_POST (+4 POST CTA: suspend/restore_competency, request_rca, start_review).")
         self.assertEqual(stats["guest_count"], _BASELINE_GUEST, "guest GIỮ 5.")
         expected_enriched = sum(
             1

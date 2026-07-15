@@ -899,6 +899,33 @@ OPERATION_META: dict[str, dict] = {
             },
         },
     },
+    "imm09.attach_repair_checklist_photo": {
+        "summary": "Đính ảnh bằng chứng cho mục kiểm tra sửa chữa",
+        "description": (
+            "Đính MỘT ảnh bằng chứng (JPG/PNG, tối đa 10 MB) cho một mục trong danh "
+            "mục kiểm tra của lệnh sửa chữa (Asset Repair) — phục vụ hồ sơ thiết bị rủi "
+            "ro cao (Class C/D) theo NĐ98. Gửi dạng multipart (trường 'file'); mục xác "
+            "định qua chỉ số hàng (checklist_item_idx). Tệp lưu riêng tư; đính thành "
+            "công sinh sự kiện vòng đời và ghi nhận đường dẫn ảnh vào mục tương ứng."
+        ),
+        "tags": ["IMM-09"],
+        "examples": {
+            "request": {
+                "work_order_name": "WO-CM-2026-00001",
+                "checklist_item_idx": 1,
+            },
+            "response": {
+                "file_url": "/private/files/anh_bang_chung_muc_1.jpg",
+                "file_name": "anh_bang_chung_muc_1.jpg",
+                "checklist_item_idx": 1,
+            },
+            "errors": {
+                "NOT_FOUND": "Không tìm thấy lệnh sửa chữa",
+                "FORBIDDEN": "Không có quyền đính ảnh cho lệnh sửa chữa này",
+                "VALIDATION": "Tệp phải là ảnh JPG hoặc PNG",
+            },
+        },
+    },
     "imm09.assign_technician": {
         "summary": "Phân công kỹ thuật viên sửa chữa",
         "description": (
@@ -945,6 +972,9 @@ OPERATION_META: dict[str, dict] = {
                 "status": "Pending Inspection",
                 "mttr_hours": 6.5,
                 "sla_breached": False,
+                # CR-13b: trạng thái LIVE asset (SSoT) — happy → 'Under Repair'
+                # (asset chưa reactivate tới confirm_inspection).
+                "asset_status": "Under Repair",
             },
             "errors": {
                 "FORBIDDEN": "Bạn không có quyền đóng lệnh sửa chữa",
@@ -968,6 +998,10 @@ OPERATION_META: dict[str, dict] = {
                 "status": "Completed",
                 "mttr_hours": 6.5,
                 "sla_breached": False,
+                # CR-13a: trạng thái LIVE asset (SSoT) SAU nghiệm thu — happy →
+                # 'Active' (complete_repair restore); đối xứng override
+                # close_work_order. Edge (governance hold) giữ prev (BR-09-09).
+                "asset_status": "Active",
             },
             "errors": {
                 "FORBIDDEN": "Bạn không có quyền nghiệm thu lệnh sửa chữa",
