@@ -10,6 +10,7 @@ import type { TrainingParticipant } from '@/api/imm06'
 import PageHeader from '@/components/common/PageHeader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import SmartSelect from '@/components/common/SmartSelect.vue'
+import DateInput from '@/components/common/DateInput.vue'
 import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
 
 
@@ -79,12 +80,19 @@ const canConduct = computed(() => can('training.write'))
 
 const state = computed(() => currentSession.value?.workflow_state ?? '')
 
-const canConfirm = computed(() => state.value === 'Planned' && canManage.value)
-const canStart = computed(() => state.value === 'Confirmed' && canConduct.value)
-const canComplete = computed(() => state.value === 'In Progress' && canConduct.value)
-const canVerify = computed(() => state.value === 'Completed' && canManage.value)
-const canClose = computed(() => state.value === 'Verified' && canManage.value)
-const canCancel = computed(() => (state.value === 'Planned' || state.value === 'Confirmed') && canManage.value)
+// GATE-8 / LL-FE-51: 6 CTA workflow gate theo SSoT server-driven `allowed_transitions`
+// (BE _SESSION_VALID_TRANSITIONS, services/imm06.py) — KHÔNG hardcode state === 'X'.
+// Capability (canManage/canConduct) enforce SONG SONG với state-machine.
+// Desync fix: 'Bắt đầu' gate bằng includes('In Progress') → hiện cả khi buổi ở
+// 'Planned' (BE start_training_session cho phép Planned→In Progress), không chỉ Confirmed.
+const allowedTransitions = computed<string[]>(() => currentSession.value?.allowed_transitions ?? [])
+
+const canConfirm = computed(() => allowedTransitions.value.includes('Confirmed') && canManage.value)
+const canStart = computed(() => allowedTransitions.value.includes('In Progress') && canConduct.value)
+const canComplete = computed(() => allowedTransitions.value.includes('Completed') && canConduct.value)
+const canVerify = computed(() => allowedTransitions.value.includes('Verified') && canManage.value)
+const canClose = computed(() => allowedTransitions.value.includes('Closed') && canManage.value)
+const canCancel = computed(() => allowedTransitions.value.includes('Cancelled') && canManage.value)
 
 // BUG-006: Hint nếu user xem session ở state cần thao tác nhưng không có quyền nào.
 const hasAnyAction = computed(() =>
@@ -202,6 +210,7 @@ onMounted(load)
 
         <button
           v-if="canConfirm"
+          data-testid="cta-confirm"
           class="btn-primary text-sm"
           :disabled="api.loading.value"
           @click="doConfirm"
@@ -220,6 +229,7 @@ onMounted(load)
 
         <button
           v-if="canStart"
+          data-testid="cta-start"
           class="btn-primary text-sm"
           :disabled="api.loading.value"
           @click="doStart"
@@ -229,6 +239,7 @@ onMounted(load)
 
         <button
           v-if="canComplete"
+          data-testid="cta-complete"
           class="btn-primary text-sm"
           :disabled="api.loading.value"
           @click="doComplete"
@@ -238,6 +249,7 @@ onMounted(load)
 
         <button
           v-if="canVerify"
+          data-testid="cta-verify"
           class="btn-primary text-sm"
           :disabled="api.loading.value"
           @click="doVerify"
@@ -247,6 +259,7 @@ onMounted(load)
 
         <button
           v-if="canClose"
+          data-testid="cta-close"
           class="btn-primary text-sm"
           :disabled="api.loading.value"
           @click="doClose"
@@ -256,6 +269,7 @@ onMounted(load)
 
         <button
           v-if="canCancel"
+          data-testid="cta-cancel"
           class="btn-ghost text-sm text-red-600 hover:bg-red-50"
           @click="showCancelModal = true"
         >
@@ -288,7 +302,7 @@ onMounted(load)
         </div>
         <div>
           <label class="form-label">Ngày tổ chức <span class="text-red-500">*</span></label>
-          <input v-model="createForm.session_date" type="date" class="form-input w-full" />
+          <DateInput v-model="createForm.session_date" class="form-input w-full" />
         </div>
         <div>
           <label class="form-label">Hình thức</label>
@@ -304,7 +318,7 @@ onMounted(load)
         </div>
         <div>
           <label class="form-label">Giảng viên nội bộ</label>
-          <input v-model="createForm.instructor" type="text" class="form-input w-full" placeholder="Email người dùng..." />
+          <ApproverSelect v-model="createForm.instructor" context="user" placeholder="Chọn giảng viên..." />
         </div>
         <div>
           <label class="form-label">Giảng viên bên ngoài</label>

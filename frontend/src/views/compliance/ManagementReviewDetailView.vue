@@ -16,6 +16,8 @@ import StatusBadge from '@/components/common/StatusBadge.vue'
 import BaseModal from '@/components/common/BaseModal.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import RecordHistory from '@/components/common/RecordHistory.vue'
+import DateInput from '@/components/common/DateInput.vue'
+import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
 
 const route = useRoute()
 const store = useImm16Store()
@@ -26,16 +28,36 @@ const mr = ref<ManagementReview | null>(null)
 const loading = ref(true)
 const historyRef = ref<InstanceType<typeof RecordHistory> | null>(null)
 
-// Workflow action labels — khớp imm_16_mr_workflow.json EXACT.
+// Server-driven CTA (GATE-8 / LL-FE-51, mirror get_capa/get_audit/get_finding):
+// nút vòng đời gate theo `mr.allowed_transitions` (BE derive từ CÙNG SoT
+// _MR_TRANSITIONS mà advance_mr_state/finalize_management_review enforce) + cờ
+// capability server can_advance/can_close. KHÔNG hardcode client-map làm GATE
+// hay `status === 'Minutes Approved'` (dead-control → 403). Thiếu cờ (BE cũ) → 0 nút.
+const allowedTransitions = computed<string[]>(() => mr.value?.allowed_transitions ?? [])
+// Label-map CHỈ để hiển thị TEXT nút (KHÔNG còn vai trò GATE) — khớp
+// imm_16_mr_workflow.json EXACT.
 const NEXT_LABEL: Record<string, { label: string; target: MRStatus }> = {
   Draft: { label: 'Đánh dấu Đã họp', target: 'Held' },
   Held: { label: 'Phê duyệt Biên bản', target: 'Minutes Approved' },
 }
 const status = computed<string>(() => mr.value?.status || 'Draft')
-const nextStep = computed(() => NEXT_LABEL[status.value] ?? null)
-const canClose = computed(() => status.value === 'Minutes Approved')
 const isClosed = computed(() => status.value === 'Closed')
 const editable = computed(() => !isClosed.value)
+// Nhãn bước kế theo status (CHỈ tra cứu text — không gate).
+const advanceStep = computed(() => NEXT_LABEL[status.value] ?? null)
+// Nút 'Đánh dấu Đã họp'/'Phê duyệt Biên bản' chỉ hiện khi server cho phép chuyển
+// tới target ĐÓ và user có compliance.submit (can_advance===true).
+const canAdvance = computed(() =>
+  advanceStep.value !== null
+  && allowedTransitions.value.includes(advanceStep.value.target)
+  && mr.value?.can_advance === true)
+// Nút 'Đóng và xuất biên bản' chỉ hiện khi server cho phép chuyển tới 'Closed' và
+// user có compliance.submit (can_close===true). Gỡ hardcode status==='Minutes Approved'.
+const canClose = computed(() =>
+  allowedTransitions.value.includes('Closed') && mr.value?.can_close === true)
+// 0 nút CTA (chưa Closed) → hint giải thích (chống dead/empty action panel, LL-FE-23/26).
+const showNoActionHint = computed(() =>
+  !isClosed.value && !canAdvance.value && !canClose.value)
 
 async function load() {
   loading.value = true
@@ -114,11 +136,11 @@ async function saveEdit() {
 
 // ── Workflow advance ──
 async function advance() {
-  if (!nextStep.value) return
-  const step = nextStep.value
+  const step = advanceStep.value
+  if (!step || !canAdvance.value) return
   const res = await api.run(
     () => store.actionAdvanceMr(name, step.target),
-    { successMessage: `Đã chuyển sang: ${step.target}` },
+    { successMessage: 'Đã cập nhật trạng thái cuộc soát xét' },
   )
   if (res) refreshAll()
 }
@@ -181,8 +203,25 @@ onMounted(load)
       >
         <template #actions>
           <button v-if="editable" class="btn-secondary text-sm" @click="openEdit">Sửa nội dung</button>
-          <button v-if="nextStep" class="btn-primary text-sm" :disabled="api.loading.value" @click="advance">{{ nextStep.label }}</button>
-          <button v-if="canClose" class="btn-primary text-sm" :disabled="api.loading.value" @click="openClose">Đóng và xuất biên bản</button>
+          <button
+            v-if="canAdvance"
+            data-testid="cta-advance"
+            class="btn-primary text-sm"
+            :disabled="api.loading.value"
+            @click="advance"
+          >{{ advanceStep?.label }}</button>
+          <button
+            v-if="canClose"
+            data-testid="cta-close"
+            class="btn-primary text-sm"
+            :disabled="api.loading.value"
+            @click="openClose"
+          >Đóng và xuất biên bản</button>
+          <span
+            v-if="showNoActionHint"
+            data-testid="no-actions-hint"
+            class="text-xs text-slate-500 italic max-w-xs text-right"
+          >Bạn không có quyền chuyển trạng thái cuộc soát xét này. Liên hệ quản trị viên hoặc Quản lý chất lượng để duyệt/đóng.</span>
         </template>
       </PageHeader>
 
@@ -258,10 +297,10 @@ onMounted(load)
     <BaseModal v-if="showEdit" title="Sửa nội dung soát xét" size="xl" @close="showEdit = false">
       <div class="space-y-3">
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div class="form-group"><label class="form-label">Ngày họp</label><input v-model="editForm.review_date" type="date" class="form-input" /></div>
-          <div class="form-group"><label class="form-label">Chủ tọa (người dùng)</label><input v-model="editForm.chair" class="form-input" /></div>
+          <div class="form-group"><label class="form-label">Ngày họp</label><DateInput v-model="editForm.review_date" class="form-input" /></div>
+          <div class="form-group"><label class="form-label">Chủ tọa</label><ApproverSelect v-model="editForm.chair" context="user" placeholder="Chọn người dùng..." /></div>
           <div class="form-group"><label class="form-label">Tham chiếu bảng điểm</label><input v-model="editForm.scorecard_ref" class="form-input" placeholder="SCR-2026-..." /></div>
-          <div class="form-group"><label class="form-label">Họp tiếp theo</label><input v-model="editForm.next_review_date" type="date" class="form-input" /></div>
+          <div class="form-group"><label class="form-label">Họp tiếp theo</label><DateInput v-model="editForm.next_review_date" class="form-input" /></div>
           <div class="form-group sm:col-span-2"><label class="form-label">URL biên bản</label><input v-model="editForm.minutes_doc" class="form-input" placeholder="https://..." /></div>
         </div>
         <div class="form-group"><label class="form-label">Tóm tắt đầu vào</label><textarea v-model="editForm.inputs_summary" rows="2" class="form-input" /></div>
@@ -276,7 +315,7 @@ onMounted(load)
             <button class="text-xs text-brand-600 font-medium hover:underline" @click="addAttendee">Thêm thành viên</button>
           </div>
           <div v-for="(a, i) in editAttendees" :key="'att'+i" class="grid grid-cols-12 gap-2 mb-2 items-center">
-            <input v-model="a.user" class="form-input text-sm col-span-4" placeholder="user@hospital.vn" />
+            <ApproverSelect v-model="a.user" context="user" class="col-span-4" placeholder="Chọn người dùng..." />
             <input v-model="a.role_title" class="form-input text-sm col-span-4" placeholder="Chức danh" />
             <label class="col-span-2 text-xs flex items-center gap-1"><input v-model="a.present" type="checkbox" /> Có mặt</label>
             <button class="col-span-2 text-xs text-red-600" @click="removeAttendee(i)">Xoá</button>
@@ -290,8 +329,8 @@ onMounted(load)
           </div>
           <div v-for="(a, i) in editActions" :key="'act'+i" class="grid grid-cols-12 gap-2 mb-2 items-center">
             <input v-model="a.action_description" class="form-input text-sm col-span-5" placeholder="Mô tả" />
-            <input v-model="a.responsible" class="form-input text-sm col-span-3" placeholder="Người phụ trách" />
-            <input v-model="a.due_date" type="date" class="form-input text-sm col-span-3" />
+            <ApproverSelect v-model="a.responsible" context="user" class="col-span-3" placeholder="Người phụ trách..." />
+            <DateInput v-model="a.due_date" class="form-input text-sm col-span-3" />
             <button class="col-span-1 text-xs text-red-600" @click="removeAction(i)">×</button>
           </div>
         </div>
@@ -316,15 +355,15 @@ onMounted(load)
           </div>
           <div v-for="(a, i) in closeActions" :key="i" class="grid grid-cols-12 gap-2 mb-2 items-center">
             <input v-model="a.action" class="form-input text-sm col-span-5" placeholder="Mô tả" />
-            <input v-model="a.owner" class="form-input text-sm col-span-3" placeholder="user@hospital.vn" />
-            <input v-model="a.due_date" type="date" class="form-input text-sm col-span-3" />
+            <ApproverSelect v-model="a.owner" context="user" class="col-span-3" placeholder="Chọn người phụ trách..." />
+            <DateInput v-model="a.due_date" class="form-input text-sm col-span-3" />
             <button class="col-span-1 text-xs text-red-600" @click="removeCloseAction(i)">×</button>
           </div>
         </div>
       </div>
       <template #footer>
         <button class="btn-ghost" @click="showClose = false">Huỷ</button>
-        <button class="btn-primary" :disabled="api.loading.value" @click="submitClose">Đóng soát xét</button>
+        <button class="btn-primary" data-testid="cta-close-confirm" :disabled="api.loading.value" @click="submitClose">Đóng soát xét</button>
       </template>
     </BaseModal>
   </div>

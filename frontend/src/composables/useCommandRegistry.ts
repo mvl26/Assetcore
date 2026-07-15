@@ -12,8 +12,9 @@
 //   - LOẠI nhãn rỗng / route động (path chứa ':' hoặc '*').
 //   - router:95 đã sửa title 'Quét QR — GMDN Status' → 'Mở hồ sơ thiết bị' (nguồn).
 //
-// Dedupe path TOÀN CỤC (vd /asset-transfers xuất hiện 2× imm13/imm15; route
-// trùng path nav cũng bị loại). Nav thắng route khi cùng path.
+// Dedupe path TOÀN CỤC (vd /assets xuất hiện ở nhiều persona/module; route
+// trùng path nav cũng bị loại). Nav thắng route khi cùng path. Command thừa kế
+// `cap` của NavItem → ⌘K cũng gate theo capability (transfer = commissioning.read).
 //
 // Logic build TÁCH ra hàm thuần `buildCommandRegistry(modules, routes)` để
 // unit-test KHÔNG cần mount router (TC-CMDK-01/02/13/14).

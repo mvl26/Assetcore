@@ -4,6 +4,8 @@
 // /incidents/list?open=1 (card count == drill list rows invariant). "Xem tất cả"
 // của panel "Sự cố đang xử lý" cũng push /incidents/list?open=1.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+// CR-AFFORD: view giờ gọi useCapabilities() ở setup (gate nút Tạo) → mock để mount không cần Pinia.
+vi.mock('@/composables/useCapabilities', () => ({ useCapabilities: () => ({ can: () => true }) }))
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import { ref } from 'vue'
 

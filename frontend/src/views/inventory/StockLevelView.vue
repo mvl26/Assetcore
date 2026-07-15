@@ -2,6 +2,7 @@
 // Copyright (c) 2026, AssetCore Team
 import { ref, onMounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useCapabilities } from '@/composables/useCapabilities'
 import { listStockLevels } from '@/api/inventory'
 import type { StockRow } from '@/types/inventory'
 import SmartSelect from '@/components/common/SmartSelect.vue'
@@ -11,6 +12,7 @@ import ListFilterBar from '@/components/common/ListFilterBar.vue'
 
 const route = useRoute()
 const router = useRouter()
+const { can } = useCapabilities()
 
 const rows = ref<StockRow[]>([])
 const total = ref(0)
@@ -89,7 +91,7 @@ onMounted(load)
     >
       <template #actions>
         <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
-        <button class="btn-primary shrink-0" @click="router.push('/stock-movements/new')">
+        <button v-if="can('inventory.write')" class="btn-primary shrink-0" @click="router.push('/stock-movements/new')">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
           </svg>

@@ -7,9 +7,11 @@
 // chỉ liệt kê + lọc + điều hướng về hồ sơ thiết bị.
 //
 // 4-layer: view → useApi → api/imm14.listDecommissions → frappeGet. KHÔNG gọi
-// axios/DB trực tiếp. Nhãn 100% tiếng Việt; trạng thái qua StatusBadge (SSoT
-// translateStatus) — KHÔNG leak raw EN; người chịu trách nhiệm hiển thị full_name
-// (BE enrich responsible_name), KHÔNG rò email (LL-FE-53).
+// axios/DB trực tiếp. Nhãn 100% tiếng Việt; trạng thái + phương thức xử lý qua SSoT
+// domain-specific (decommissionStateLabel/disposalMethodLabel — Draft="Chờ duyệt",
+// Approved="Đã giải nhiệm") — KHÔNG leak raw EN; người chịu trách nhiệm hiển thị
+// full_name (BE enrich responsible_name), KHÔNG rò email (LL-FE-53).
+// Drill hàng → biên bản (/decommissions/:name); link hồ sơ thiết bị ở cột phụ.
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useApi } from '@/composables/useApi'
@@ -22,8 +24,12 @@ import {
 import type { DisposalMethod, DecommissionState } from '@/api/imm14'
 import PageHeader from '@/components/common/PageHeader.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
-import StatusBadge from '@/components/common/StatusBadge.vue'
 import { formatDate } from '@/utils/formatters'
+import {
+  disposalMethodLabel,
+  decommissionStateLabel,
+  decommissionStateClass,
+} from '@/constants/labels'
 
 const router = useRouter()
 const api = useApi()
@@ -31,15 +37,15 @@ const api = useApi()
 const PAGE_SIZE = 20
 const page = ref(1)
 
-// Bộ lọc — value = enum kỹ thuật khớp EXACT BE; label = tiếng Việt.
-// workflow_state label bám SSoT translateStatus (Bản nháp/Đã phê duyệt/Đã hủy).
+// Bộ lọc — value = enum kỹ thuật khớp EXACT BE; label = tiếng Việt qua SSoT
+// decommissionStateLabel (Chờ duyệt/Đã giải nhiệm/Đã hủy — domain-specific).
 const STATE_OPTIONS: { value: DecommissionState; label: string }[] = [
-  { value: 'Draft', label: 'Bản nháp' },
-  { value: 'Approved', label: 'Đã phê duyệt' },
-  { value: 'Cancelled', label: 'Đã hủy' },
+  { value: 'Draft', label: decommissionStateLabel('Draft') },
+  { value: 'Approved', label: decommissionStateLabel('Approved') },
+  { value: 'Cancelled', label: decommissionStateLabel('Cancelled') },
 ]
-// disposal_method: value == label (đã là chuỗi hiển thị tiếng Việt của DocType
-// `Asset Decommission`.disposal_method — GIỮ NGUYÊN enum, KHÔNG bịa nhãn khác).
+// disposal_method: value = enum kỹ thuật DocType (GIỮ NGUYÊN, gửi BE); label VI
+// qua SSoT disposalMethodLabel (dịch phần EN Donation/Trade-in — LL-FE-53).
 const DISPOSAL_OPTIONS: DisposalMethod[] = [
   'Huỷ', 'Điều chuyển/Donation', 'Bán/Trade-in', 'Lưu trữ',
 ]
@@ -94,6 +100,11 @@ function nextPage() {
   if (page.value * PAGE_SIZE < total.value) { page.value++; load() }
 }
 
+// Drill mặc định của hàng → biên bản giải nhiệm (chi tiết + duyệt hồ sơ draft mồ
+// côi). Link tới hồ sơ thiết bị giữ ở vị trí phụ (cột riêng).
+function goRecord(row: DecommissionRow) {
+  router.push(`/decommissions/${row.name}`)
+}
 function goAsset(row: DecommissionRow) {
   router.push(`/assets/${row.asset}`)
 }
@@ -123,7 +134,7 @@ onMounted(load)
           <label class="form-label" for="decom-method-filter">Phương thức xử lý</label>
           <select id="decom-method-filter" v-model="methodFilter" class="form-select text-sm">
             <option value="">Tất cả</option>
-            <option v-for="m in DISPOSAL_OPTIONS" :key="m" :value="m">{{ m }}</option>
+            <option v-for="m in DISPOSAL_OPTIONS" :key="m" :value="m">{{ disposalMethodLabel(m) }}</option>
           </select>
         </div>
         <button
@@ -178,26 +189,39 @@ onMounted(load)
               <th class="table-header text-center">Trạng thái</th>
               <th class="table-header hidden lg:table-cell">Ngày giải nhiệm</th>
               <th class="table-header hidden md:table-cell">Người chịu trách nhiệm</th>
+              <th class="table-header text-center">Thiết bị</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-50">
             <tr
               v-for="r in rows" :key="r.name"
               class="hover:bg-slate-50/70 cursor-pointer transition-all hover:translate-x-0.5 focus-within:bg-slate-50"
-              @click="goAsset(r)"
+              @click="goRecord(r)"
             >
               <td class="px-4 py-3 font-mono text-xs text-brand-700 font-semibold">
                 <button
                   class="hover:underline focus-visible:ring-2 focus-visible:ring-emerald-500 rounded"
-                  :aria-label="`Mở hồ sơ thiết bị của biên bản ${r.name}`"
-                  @click.stop="goAsset(r)"
+                  :aria-label="`Mở biên bản giải nhiệm ${r.name}`"
+                  @click.stop="goRecord(r)"
                 >{{ r.name }}</button>
               </td>
               <td class="px-4 py-3 text-slate-700">{{ r.asset_name_snapshot || r.asset }}</td>
-              <td class="px-4 py-3 text-slate-600 hidden md:table-cell">{{ r.disposal_method }}</td>
-              <td class="px-4 py-3 text-center"><StatusBadge :state="r.workflow_state" /></td>
+              <td class="px-4 py-3 text-slate-600 hidden md:table-cell">{{ disposalMethodLabel(r.disposal_method) }}</td>
+              <td class="px-4 py-3 text-center">
+                <span
+                  class="inline-flex items-center font-medium rounded-full px-2.5 py-0.5 text-[11px] leading-none whitespace-nowrap"
+                  :class="decommissionStateClass(r.workflow_state)"
+                >{{ decommissionStateLabel(r.workflow_state) }}</span>
+              </td>
               <td class="px-4 py-3 text-xs text-slate-500 hidden lg:table-cell">{{ formatDate(r.decommissioned_on) }}</td>
               <td class="px-4 py-3 text-slate-600 hidden md:table-cell">{{ r.responsible_name || '—' }}</td>
+              <td class="px-4 py-3 text-center">
+                <button
+                  class="text-xs text-brand-600 hover:text-brand-700 underline focus-visible:ring-2 focus-visible:ring-emerald-500 rounded"
+                  :aria-label="`Mở hồ sơ thiết bị của biên bản ${r.name}`"
+                  @click.stop="goAsset(r)"
+                >Hồ sơ thiết bị</button>
+              </td>
             </tr>
           </tbody>
         </table>

@@ -15,7 +15,9 @@ import BasePagination from '@/components/common/BasePagination.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import KpiCard from '@/components/common/KpiCard.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
+import { useCapabilities } from '@/composables/useCapabilities'
 
+const { can } = useCapabilities()
 const router = useRouter()
 const route  = useRoute()
 const store  = useImm01Store()
@@ -134,7 +136,7 @@ onMounted(() => {
     >
       <template #actions>
         <FilterToggleButton v-model="showFilters" :count="activeChips.length" />
-        <button class="btn-primary shrink-0" @click="goCreate">
+        <button v-if="can('needs.create')" class="btn-primary shrink-0" @click="goCreate">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
           </svg>

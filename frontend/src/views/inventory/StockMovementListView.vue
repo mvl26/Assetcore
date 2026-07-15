@@ -2,6 +2,7 @@
 // Copyright (c) 2026, AssetCore Team
 import { ref, onMounted, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { useCapabilities } from '@/composables/useCapabilities'
 import { listStockMovements } from '@/api/inventory'
 import type { StockMovement, MovementType, MovementStatus } from '@/types/inventory'
 import PageHeader from '@/components/common/PageHeader.vue'
@@ -11,6 +12,7 @@ import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import { stockReferenceTypeLabel } from '@/constants/labels'
 
 const router = useRouter()
+const { can } = useCapabilities()
 const rows = ref<StockMovement[]>([])
 const total = ref(0)
 const page = ref(1)
@@ -104,7 +106,7 @@ onMounted(load)
     >
       <template #actions>
         <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
-        <button class="btn-primary shrink-0" @click="router.push('/stock-movements/new')">
+        <button v-if="can('inventory.write')" class="btn-primary shrink-0" @click="router.push('/stock-movements/new')">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
           </svg>
@@ -159,7 +161,7 @@ onMounted(load)
         <button v-if="activeFilterCount > 0" class="text-xs text-brand-600 hover:text-brand-700 font-medium underline mt-2" @click="resetFilters">
           Xóa bộ lọc để xem tất cả
         </button>
-        <button v-else class="btn-primary mt-3" @click="router.push('/stock-movements/new')">Tạo phiếu kho đầu tiên</button>
+        <button v-else-if="can('inventory.write')" class="btn-primary mt-3" @click="router.push('/stock-movements/new')">Tạo phiếu kho đầu tiên</button>
       </div>
 
       <template v-else>

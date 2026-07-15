@@ -23,6 +23,16 @@ export interface Purchase {
   // Classification counts (chỉ trả về trong list response, không có ở detail)
   part_count?: number
   device_count?: number
+  // ─── Server-derived CTA flags (SoT DUY NHẤT cho gate nút — GATE-8/LL-FE-51) ───
+  // get_purchase emit các cờ này (capability + docstatus + status derive SERVER-SIDE).
+  // Optional → degrade an toàn khi BE cũ chưa emit (undefined ⇒ 0 nút, KHÔNG dead-control).
+  can_submit?: boolean
+  can_receive?: boolean
+  can_cancel?: boolean
+  /** Tuỳ chọn: BE có thể emit riêng cờ tạo phiếu nhập kho; nếu vắng → dùng can_receive. */
+  can_create_receipt?: boolean
+  can_edit?: boolean
+  can_delete?: boolean
 }
 
 export interface PurchaseItem {

@@ -13,6 +13,7 @@ import { useCapabilities } from '@/composables/useCapabilities'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import WorkflowStepper from '@/components/common/WorkflowStepper.vue'
 import { calibrationStatusLabel } from '@/constants/labels'
+import { calFlagBadge } from '@/utils/calibrationStatus'
 
 const props = defineProps<{ id: string }>()
 const router = useRouter()
@@ -38,6 +39,11 @@ const canManageCal = computed(() => can('calibration.cancel') || can('calibratio
 const isSubmitted = computed(() => form.value.docstatus === 1)
 const isFailed = computed(() => form.value.overall_result === 'Failed')
 const isExternal = computed(() => form.value.calibration_type === 'External')
+
+// Badge hạn hiệu chuẩn TỪ CỜ SERVER is_overdue/is_due_soon (server-flag SSoT · CR-02):
+// get_calibration derive cờ qua CHUNG helper với list_calibrations → parity list==detail.
+// FE CHỈ render cờ, KHÔNG so next_calibration_date với client-clock.
+const dueFlag = computed(() => calFlagBadge(form.value.is_overdue, form.value.is_due_soon))
 
 // Workflow stepper (mockup docs/fe/11-calibration/calibration-detail.html).
 // External đi qua lab; In-House đi thẳng. Terminal: Passed/Failed/Conditionally Passed.
@@ -298,6 +304,12 @@ function computeResult(m: CalibrationMeasurement) {
   return dev > tolPlus || dev < -tolMinus ? 'Fail' : 'Pass'
 }
 
+// Nhãn VI cho kết-quả-đo per phép đo — GIỮ value EN ('Pass'/'Fail') cho logic
+// (computeResult/anyFail/màu), chỉ dịch lớp hiển thị (KHÔNG leak EN ra UI · GATE-1).
+function measResultLabel(v: 'Pass' | 'Fail' | null | undefined): string {
+  return v === 'Pass' ? 'Đạt' : v === 'Fail' ? 'Không đạt' : '—'
+}
+
 onMounted(load)
 </script>
 
@@ -356,7 +368,14 @@ onMounted(load)
           </div>
           <div v-if="form.next_calibration_date">
             <p class="text-xs text-slate-400 mb-1">Ngày hiệu chuẩn tiếp theo</p>
-            <p class="font-semibold text-blue-600">{{ form.next_calibration_date }}</p>
+            <div class="flex items-center gap-2">
+              <p class="font-semibold" :class="dueFlag?.textClass ?? 'text-blue-600'">{{ form.next_calibration_date }}</p>
+              <span
+                v-if="dueFlag"
+                class="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium"
+                :class="dueFlag.badgeClass"
+              >{{ dueFlag.label }}</span>
+            </div>
           </div>
         </div>
       </div>
@@ -454,12 +473,12 @@ v-if="canEnterResults" v-model.number="m.measured_value" type="number" step="any
 
             <div class="flex items-center gap-1">
               <span v-if="m.pass_fail" class="text-xs font-semibold" :class="m.pass_fail === 'Pass' ? 'text-green-600' : 'text-red-600'">
-                {{ m.pass_fail }}
+                {{ measResultLabel(m.pass_fail) }}
               </span>
               <span
 v-else-if="m.measured_value !== null && m.measured_value !== undefined" class="text-xs font-semibold"
                 :class="computeResult(m) === 'Pass' ? 'text-green-600' : 'text-red-600'">
-                {{ computeResult(m) }}
+                {{ measResultLabel(computeResult(m)) }}
               </span>
               <button v-if="canEnterResults" class="text-red-400 hover:text-red-600 ml-auto" aria-label="Xoá đo" @click="removeMeasurement(i)">
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>

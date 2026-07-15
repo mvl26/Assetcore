@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { useCapabilities } from '@/composables/useCapabilities'
 import { listDeviceModels, deleteDeviceModel } from '@/api/imm00'
 import type { ImmDeviceModel } from '@/types/imm00'
 import { useImportWizard } from '@/composables/useImportWizard'
@@ -13,6 +14,7 @@ import ListFilterBar from '@/components/common/ListFilterBar.vue'
 import { medicalDeviceClassLabel } from '@/constants/labels'
 
 const router = useRouter()
+const { can } = useCapabilities()
 const toast = useToast()
 const models = ref<ImmDeviceModel[]>([])
 const loading = ref(false)
@@ -153,7 +155,7 @@ const IMPORT_NOTICE = [
           </svg>
           Nhập Excel
         </button>
-        <button class="btn-primary" @click="router.push('/device-models/new')">
+        <button v-if="can('data.create')" class="btn-primary" @click="router.push('/device-models/new')">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
           </svg>
@@ -292,8 +294,10 @@ const IMPORT_NOTICE = [
               </td>
               <td class="px-4 py-3 text-slate-500 font-mono text-xs">{{ m.gmdn_code || '—' }}</td>
               <td class="px-4 py-3 text-right space-x-2 whitespace-nowrap">
-                <button class="text-blue-600 hover:text-blue-800 text-xs font-medium" @click.stop="router.push(`/device-models/${m.name}`)">Sửa</button>
-                <button class="text-red-600 hover:text-red-800 text-xs font-medium" @click="(ev) => remove(m.name, ev)">Xóa</button>
+                <!-- CR-RBAC-PARITY: nút Sửa/Xóa chỉ cho data.write; user chỉ-đọc vẫn
+                     click-toàn-hàng để XEM read-only (/device-models/:id data.read). -->
+                <button v-if="can('data.write')" class="text-blue-600 hover:text-blue-800 text-xs font-medium" @click.stop="router.push(`/device-models/${m.name}`)">Sửa</button>
+                <button v-if="can('data.write')" class="text-red-600 hover:text-red-800 text-xs font-medium" @click="(ev) => remove(m.name, ev)">Xóa</button>
               </td>
             </tr>
           </tbody>

@@ -238,10 +238,11 @@
       </div>
     </section>
 
-    <!-- Hành động -->
-    <div class="action-bar">
+    <!-- Hành động (server-driven — 1 nút / action hợp lệ theo allowed_transitions) -->
+    <div v-if="availableActions.length" class="action-bar">
       <button v-for="action in availableActions" :key="action"
-              class="btn btn-primary" @click="doTransition(action)">
+              class="btn btn-primary" data-testid="workflow-action" :data-action="action"
+              @click="doTransition(action)">
         {{ action }}
       </button>
     </div>
@@ -294,9 +295,9 @@
           <label>Số báo giá
             <input v-model="newQuote.quotation_no" type="text" placeholder="Số báo giá của nhà cung cấp" />
           </label>
-          <label>Ngày báo giá <input v-model="newQuote.quotation_date" type="date" /></label>
+          <label>Ngày báo giá <DateInput v-model="newQuote.quotation_date" class="form-input w-full" /></label>
           <label>Hết hạn báo giá <span class="req">*</span>
-            <input v-model="newQuote.quotation_validity" type="date" />
+            <DateInput v-model="newQuote.quotation_validity" class="form-input w-full" />
           </label>
           <label>Giá (đồng) <span class="req">*</span>
             <CurrencyInput v-model="newQuote.price" aria-label="Giá báo giá" class="form-input w-full" />
@@ -331,6 +332,7 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useImm03Store } from '@/stores/imm03'
 import CurrencyInput from '@/components/common/CurrencyInput.vue'
+import DateInput from '@/components/common/DateInput.vue'
 import {
   scoreEvaluation, addCandidate, submitQuotations, transitionEvalWorkflow,
   getVendorScorecard, listVendorProfiles,
@@ -408,15 +410,12 @@ const tiedSuppliers = computed(() => {
   }))
 })
 
-// Workflow transition labels từ docs IMM-03 Vendor Eval Workflow
-const TRANSITIONS_BY_STATE: Record<string, string[]> = {
-  'Draft': ['Mở RFQ'],
-  'Open RFQ': ['Nhận báo giá xong', 'Huỷ Eval'],
-  'Quotation Received': ['Hoàn tất chấm điểm', 'Huỷ Eval'],
-}
-const availableActions = computed(() =>
-  TRANSITIONS_BY_STATE[store.currentEval?.workflow_state || ''] || []
-)
+// Server-driven CTA (GATE-8 / LL-FE-51): nút chuyển-trạng-thái gate theo tập ACTION
+// hợp lệ do BE emit (SoT = get_evaluation → _EVAL_VALID_TRANSITIONS, parity
+// get_decision, khớp fixture 'IMM-03 Vendor Eval Workflow'). KHÔNG hardcode theo
+// trạng thái ở client / client-map cũ — gây lệch khi workflow đổi ⇒ QTV/Commissioning
+// Manager thấy nút sai quyền. Vắng cờ (BE cũ chưa reload) → [] → degrade an toàn (0 nút).
+const availableActions = computed(() => store.currentEval?.allowed_transitions ?? [])
 
 function stepClass(i: number): string {
   const cur = store.currentEval?.workflow_state

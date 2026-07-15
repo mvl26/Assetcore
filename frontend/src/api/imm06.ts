@@ -89,6 +89,20 @@ export interface UserCompetency {
   supervisor_signoff: string | null
   signoff_date: string | null
   is_expired: 0 | 1
+  /**
+   * GATE-8 / LL-FE-51 — server-driven CTA. Enriched by BE get_competency:
+   * danh sách hành động hợp lệ ('Sign-off' | 'Suspend' | 'Restore' | 'Revoke' |
+   * 'Recertify') phái sinh từ SSoT `_COMPETENCY_VALID_TRANSITIONS`. FE gate nút theo
+   * đây, KHÔNG suy state client. Active chứa 'Suspend'; Suspended == ['Restore','Revoke'].
+   */
+  allowed_transitions?: string[]
+  /** Cờ capability đã lọc (state cho phép ∧ đủ quyền `training.submit`). */
+  can_signoff?: boolean
+  can_revoke?: boolean
+  can_recertify?: boolean
+  /** Tạm ngưng / Khôi phục năng lực (CR-WF-06-COMP) — parity can_revoke. */
+  can_suspend?: boolean
+  can_restore?: boolean
 }
 
 export interface Imm06ListResponse<T> {
@@ -270,6 +284,15 @@ export async function getUserCompetencies(
   )
 }
 
+/**
+ * Chi tiết 1 hồ sơ năng lực + `allowed_transitions` server-driven + cờ can_* (GATE-8).
+ * CompetencyDetailView load qua đây (thay list-filter) để có allowed_transitions/cờ
+ * capability trên record — gate 3 CTA theo server, KHÔNG suy state client.
+ */
+export async function getCompetency(name: string): Promise<UserCompetency> {
+  return frappeGet<UserCompetency>(`${BASE}.get_competency`, { name })
+}
+
 export async function signoffCompetency(name: string): Promise<{ name: string }> {
   return frappePost<{ name: string }>(`${BASE}.signoff_competency`, { name })
 }
@@ -294,6 +317,27 @@ export async function recertifyCompetency(
     name,
     new_session: newSession,
   })
+}
+
+/**
+ * Tạm ngưng năng lực: Active → Suspended (CR-WF-06-COMP). `reason` BẮT BUỘC — BE
+ * validate rỗng → 422. Gate capability `training.submit`; nguồn ≠ Active → 409.
+ * Path khớp naming contract BE `assetcore.api.imm06.suspend_competency`.
+ */
+export async function suspendCompetency(
+  name: string,
+  reason: string,
+): Promise<{ name: string }> {
+  return frappePost<{ name: string }>(`${BASE}.suspend_competency`, { name, reason })
+}
+
+/**
+ * Khôi phục năng lực: Suspended → Active (CR-WF-06-COMP). Gate capability
+ * `training.submit`; nguồn ≠ Suspended → 409. Path khớp naming contract BE
+ * `assetcore.api.imm06.restore_competency`.
+ */
+export async function restoreCompetency(name: string): Promise<{ name: string }> {
+  return frappePost<{ name: string }>(`${BASE}.restore_competency`, { name })
 }
 
 export async function getDashboardStats(): Promise<Imm06DashboardStats> {

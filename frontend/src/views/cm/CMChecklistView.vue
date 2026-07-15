@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useImm09Store } from '@/stores/imm09'
 import { useNotify } from '@/composables/useNotify'
 import { MSG } from '@/i18n/messages'
-import type { RepairChecklistRow } from '@/api/imm09'
+import { attachRepairChecklistPhoto, type RepairChecklistRow } from '@/api/imm09'
+import { ApiError } from '@/api/errors'
 
 const props = defineProps<{ id: string }>()
 const store = useImm09Store()
@@ -49,6 +50,52 @@ const canComplete = computed(() =>
 
 function setResult(item: RepairChecklistRow, result: 'Pass' | 'Fail' | 'N/A') {
   item.result = result
+}
+
+// ── Ảnh bằng chứng mỗi mục checklist (NĐ98 Class C/D — mobile CR-15/G6) ────────
+// Đối xứng IncidentDetailView. Tối đa 1 ảnh/mục (Attach ĐƠN, BE là SoT).
+const uploadingIdx = ref<number | null>(null)              // idx mục đang upload
+const photoErrors = reactive<Record<number, string>>({})   // lỗi VN inline theo idx
+// KHÔNG reactive: chỉ giữ tham chiếu <input> ẩn để .click() trong handler (tránh Vue
+// bọc proxy lên DOM node → cảnh báo).
+const fileInputs: Record<number, HTMLInputElement | null> = {}
+
+function setFileInput(idx: number, el: unknown) {
+  fileInputs[idx] = (el as HTMLInputElement | null) ?? null
+}
+
+function triggerPhotoPicker(idx: number) {
+  photoErrors[idx] = ''
+  fileInputs[idx]?.click()
+}
+
+async function onPhotoSelected(item: RepairChecklistRow, e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  photoErrors[item.idx] = ''
+  uploadingIdx.value = item.idx
+  try {
+    // LL-FE-47: truyền ĐÚNG File user chọn + idx của mục (KHÔNG hardcode call-site).
+    const res = await attachRepairChecklistPhoto(props.id, item.idx, file)
+    item.photo = res.file_url                    // authoritative → nút chuyển "đã đính"
+    await store.fetchWorkOrder(props.id)         // refetch WO (đồng bộ store + màn chi tiết)
+    notify.show({ code: MSG.UI_SAVE_SUCCESS, ctx: { entity: `ảnh bằng chứng mục #${item.idx}` } })
+  } catch (e2: unknown) {
+    // VALIDATION (sai định dạng / quá dung lượng / đã đủ ảnh) → thông điệp VN inline
+    // dưới control. System/khác → notify.fromError (toast/modal), inline giữ generic.
+    if (e2 instanceof ApiError && e2.fields?.file) {
+      photoErrors[item.idx] = e2.fields.file
+    } else if (e2 instanceof ApiError) {
+      photoErrors[item.idx] = e2.message
+      notify.fromError(e2)
+    } else {
+      photoErrors[item.idx] = e2 instanceof Error ? e2.message : 'Không thể đính ảnh bằng chứng'
+    }
+  } finally {
+    uploadingIdx.value = null
+    if (input) input.value = ''                  // reset để chọn lại cùng file được
+  }
 }
 
 function resultButtonClass(item: RepairChecklistRow, result: 'Pass' | 'Fail' | 'N/A'): string {
@@ -192,6 +239,50 @@ async function handleComplete() {
               placeholder="Ghi chú (tùy chọn)..."
             />
           </div>
+
+          <!-- Ảnh bằng chứng mục (NĐ98 Class C/D — tối đa 1 ảnh/mục) -->
+          <div class="mt-3 flex items-center gap-3 flex-wrap">
+            <a
+              v-if="item.photo"
+              :href="item.photo"
+              target="_blank"
+              rel="noopener"
+              class="rounded-lg overflow-hidden border border-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+              :aria-label="`Xem ảnh bằng chứng mục #${item.idx}`"
+            >
+              <img
+                :src="item.photo"
+                :alt="`Ảnh bằng chứng mục #${item.idx} — ${item.test_description}`"
+                class="h-16 w-16 object-cover"
+                loading="lazy"
+              >
+            </a>
+            <!-- input file ẩn (a11y: kích hoạt qua nút chữ có nhãn rõ ràng) -->
+            <input
+              :ref="el => setFileInput(item.idx, el)"
+              type="file"
+              accept="image/jpeg,image/png"
+              class="sr-only"
+              tabindex="-1"
+              aria-hidden="true"
+              @change="onPhotoSelected(item, $event)"
+            >
+            <button
+              type="button"
+              :disabled="!!item.photo || uploadingIdx === item.idx"
+              class="px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+              :aria-label="`Đính ảnh bằng chứng mục #${item.idx} (JPG hoặc PNG)`"
+              @click="triggerPhotoPicker(item.idx)"
+            >
+              <span v-if="item.photo">Đã đính ảnh bằng chứng</span>
+              <span v-else-if="uploadingIdx === item.idx">Đang tải lên...</span>
+              <span v-else>+ Đính ảnh (JPG hoặc PNG)</span>
+            </button>
+          </div>
+          <!-- Lỗi VALIDATION inline VN dưới control -->
+          <p v-if="photoErrors[item.idx]" class="mt-1.5 text-xs text-red-600" role="alert">
+            {{ photoErrors[item.idx] }}
+          </p>
         </div>
       </div>
 
@@ -251,7 +342,7 @@ async function handleComplete() {
       <Transition name="fade">
         <div v-if="!canComplete && checklist.length > 0" class="pb-4 text-xs text-slate-400 text-center">
           <span v-if="!allAnswered">Cần điền đầy đủ kết quả cho tất cả {{ totalCount - passCount - checklist.filter(r => r.result === 'Fail' || r.result === 'N/A').length }} mục chưa chọn</span>
-          <span v-else-if="hasAnyFail">Có {{ checklist.filter(r => r.result === 'Fail').length }} mục Fail — cần xử lý trước khi hoàn thành</span>
+          <span v-else-if="hasAnyFail">Có {{ checklist.filter(r => r.result === 'Fail').length }} mục Không đạt — cần xử lý trước khi hoàn thành</span>
           <span v-else-if="!deptHeadName.trim()">Cần nhập họ tên trưởng khoa phòng</span>
         </div>
       </Transition>

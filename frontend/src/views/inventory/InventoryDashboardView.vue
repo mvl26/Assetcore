@@ -3,12 +3,14 @@
 // Inventory Dashboard — tổng quan kho vật tư
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { useCapabilities } from '@/composables/useCapabilities'
 import { getInventoryOverview } from '@/api/inventory'
 import type { InventoryOverview } from '@/types/inventory'
 import PageHeader from '@/components/common/PageHeader.vue'
 import { formatCurrencyShort as vndShort } from '@/utils/formatters'
 
 const router = useRouter()
+const { can } = useCapabilities()
 const overview = ref<InventoryOverview | null>(null)
 const loading = ref(false)
 
@@ -31,7 +33,7 @@ onMounted(load)
   <div class="page-container animate-fade-in">
     <PageHeader title="Tồn kho phụ tùng" subtitle="IMM-15 · Tồn kho phụ tùng — Danh mục, tồn kho và giao dịch toàn hệ thống">
       <template #actions>
-        <button class="btn-secondary" @click="router.push('/stock-movements/new')">Tạo phiếu kho</button>
+        <button v-if="can('inventory.write')" class="btn-secondary" @click="router.push('/stock-movements/new')">Tạo phiếu kho</button>
         <button class="btn-primary" @click="router.push('/spare-parts')">Danh mục phụ tùng</button>
       </template>
     </PageHeader>

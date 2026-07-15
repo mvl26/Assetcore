@@ -81,7 +81,9 @@ export const PERSONAS: readonly Persona[] = [
     inferenceRoles: [
       'Commissioning Manager', 'Needs Manager', 'Procurement Manager', 'Spec Manager',
     ],
-    modules: ['master', 'imm01', 'imm02', 'imm03', 'imm04', 'imm14', 'system'],
+    // CR-TRF-AUTHZ (2026-07-15): +imm13 (Điều chuyển) — BE gate transfer theo
+    // Commissioning (DocPerm + commissioning.submit/write), persona này là owner.
+    modules: ['master', 'imm01', 'imm02', 'imm03', 'imm04', 'imm13', 'imm14', 'system'],
     rank: 70,
     roleProfile: 'Trưởng phòng VT-TTBYT',
   },
@@ -130,7 +132,9 @@ export const PERSONAS: readonly Persona[] = [
     label: 'Thủ kho phụ tùng',
     color: '#B45309',
     inferenceRoles: ['Inventory Manager', 'Inventory User'],
-    modules: ['imm15', 'imm13'],
+    // CR-TRF-AUTHZ (2026-07-15): GỠ imm13 (Điều chuyển) — Thủ kho (inventory)
+    // KHÔNG có DocPerm Asset Transfer ⇒ BE 403; điều chuyển = Commissioning owner.
+    modules: ['imm15'],
     rank: 35,
     roleProfile: 'Thủ kho phụ tùng',
   },

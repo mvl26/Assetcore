@@ -1,9 +1,22 @@
 // Copyright (c) 2026, AssetCore Team
 // IMM-12 — Incident workflow API client
 
-import { frappeGet, frappePost } from './helpers'
+import { frappeGet, frappePost, type ApiResponse } from './helpers'
+import axiosClient from './axios'
+import { ApiError, ErrorCode, type ErrorCodeType } from './errors'
 
 const BASE = '/api/method/assetcore.api.imm12'
+
+// Số ảnh hiện trường tối đa cho 1 phiếu sự cố — KHỚP MAX_INCIDENT_PHOTOS ở BE
+// (services/imm12.py) + app mobile (CR-17/G6). Đổi 1 nơi phải đổi cả 3.
+export const MAX_INCIDENT_PHOTOS = 5
+
+// Ảnh hiện trường (bằng chứng NĐ98) đính vào phiếu sự cố — mirror payload BE
+// attach_incident_photo (Decision-B data) + phần tử scene_photos ở get_incident_detail.
+export interface ScenePhoto {
+  file_url: string
+  file_name: string
+}
 
 export interface IncidentDetail {
   name: string
@@ -45,7 +58,16 @@ export interface IncidentDetail {
   // sla_breach_filter ở get_incident_stats). optional: forward-compat khi BE chưa ship.
   is_response_breached?: number
   is_resolution_breached?: number
+  // Hạn SLA (đối xứng IncidentListItem). CHỈ để hiển thị thông tin nếu cần —
+  // TUYỆT ĐỐI KHÔNG dùng để tự tính breach ở client (overdue_server_flag SSoT:
+  // breach chỉ đọc is_*_breached / *_breached derived server-side).
+  response_due_at?: string
+  resolution_due_at?: string
   rca?: { name: string; status: string; root_cause?: string }
+  // Ảnh hiện trường đã đính (bằng chứng NĐ98) — parity chi tiết mobile + web.
+  // BE get_incident_detail luôn trả list (rỗng khi chưa có ảnh). optional: forward-compat
+  // khi BE chưa ship endpoint đính ảnh → section render empty-state.
+  scene_photos?: ScenePhoto[]
 }
 
 export interface RCADetail {
@@ -68,6 +90,14 @@ export interface RCADetail {
   completed_date?: string
   incident_severity?: string
   five_why_steps?: Array<{ why_number: number; why_question: string; why_answer: string }>
+  // GATE-8/LL-FE-51: CTA workflow SERVER-DRIVEN. BE get_rca emit
+  // allowed_transitions = _RCA_VALID_TRANSITIONS.get(status, []) (đích hợp lệ theo
+  // status hiện tại) + can_manage_rca (int 0/1 theo capability corrective) — parity
+  // get_work_order (imm09). FE gate nút = (can_manage_rca && allowed_transitions
+  // .includes('<đích>')), KHÔNG hardcode `status === 'X'`. optional: forward-compat
+  // khi BE chưa ship → view fallback allowed=[]·canManage=false (0 CTA an toàn).
+  allowed_transitions?: string[]
+  can_manage_rca?: 0 | 1
 }
 
 export interface ChronicFailure {
@@ -143,6 +173,55 @@ export function getIncident(name: string) {
   return frappeGet<IncidentDetail>(`${BASE}.get_incident`, { name })
 }
 
+/**
+ * Đính 1 ảnh hiện trường (bằng chứng NĐ98) vào phiếu sự cố qua multipart/form-data.
+ * Mirror pattern upload của imm00.ts::uploadDeviceModelFile — POST FormData thẳng vào
+ * endpoint AssetCore whitelisted (KHÔNG /api/method/upload_file trần) để BE gate quyền
+ * (reporter HOẶC incident.write, IDOR-guard AUTH-10) + sinh Lifecycle Event 'incident_photo_attached'.
+ *
+ * Server-authoritative:
+ *  - success:true → { file_url, file_name } của File private vừa sinh.
+ *  - success:false → throw ApiError giữ `code` (FORBIDDEN/VALIDATION) + `fields.file`
+ *    (thông điệp VN, vd 'Tối đa 5 ảnh') để view render lỗi inline dưới control.
+ */
+export async function attachIncidentPhoto(
+  incidentName: string,
+  file: File,
+): Promise<ScenePhoto> {
+  const form = new FormData()
+  form.append('incident_name', incidentName)
+  form.append('file', file, file.name)
+  // axios v1 tự set Content-Type multipart + boundary khi data là FormData; khai báo
+  // 'multipart/form-data' để override default 'application/json' của instance.
+  const res = await axiosClient.post<{ message: ApiResponse<ScenePhoto> & Record<string, unknown> }>(
+    `${BASE}.attach_incident_photo`,
+    form,
+    { headers: { 'Content-Type': 'multipart/form-data' } },
+  )
+  const env = res.data?.message
+  // Decision-B envelope lỗi HỢP LỆ = { success:false, code, error, fields? } (utils/
+  // response._err LUÔN kèm `code` string) → thông điệp VN đã curate ở BE (vd 'Tối đa 5
+  // ảnh') an toàn để echo + render inline dưới control.
+  if (env && env.success === false && typeof env.code === 'string') {
+    throw new ApiError((env.error as string) || 'Không thể đính ảnh hiện trường', {
+      code: env.code as ErrorCodeType,
+      httpStatus: (env.http_status as number | undefined) ?? 0,
+      fields: env.fields as Record<string, string> | undefined,
+    })
+  }
+  // Finding C (2026-07-09): bất kỳ shape KHÔNG phải Decision-B success (thiếu env /
+  // success!=true / thiếu file_url / body lỗi thô Frappe {exc/exception}) → thông điệp
+  // máy chủ chung. TUYỆT ĐỐI KHÔNG echo env.error/exc/traceback thô ra UI. (500 thật đã
+  // bị interceptor axios chặn thành ApiError chung trước khi tới đây.)
+  if (!env || env.success !== true || !env.data?.file_url) {
+    throw new ApiError('Có lỗi máy chủ, vui lòng thử lại.', {
+      code: ErrorCode.INTERNAL_ERROR,
+      httpStatus: 500,
+    })
+  }
+  return env.data
+}
+
 export function acknowledgeIncident(name: string, notes = '', assigned_to = '') {
   return frappePost<{ name: string; status: string }>(
     `${BASE}.acknowledge_incident`, { name, notes, assigned_to },
@@ -204,9 +283,40 @@ export function cancelIncident(name: string, reason: string) {
   )
 }
 
+// BR-12-23 / CR-WF-12 — "Mở lại điều tra": Resolved → In Progress. Mirror BE
+// reopen_incident(name, reason) (naming contract; POST envelope Decision-B, parity
+// cancelIncident). `reason` BẮT BUỘC — BE nthrow IMM12_REOPEN_REASON_REQUIRED (422)
+// khi rỗng, IMM12_BAD_STATE (409) khi status ≠ Resolved. Cap incident.close (parity
+// Close). FE gate CTA bằng allowed_transitions.includes('In Progress') (server-driven,
+// GATE-8/LL-FE-51) — KHÔNG hardcode role-name/status.
+export function reopenIncident(name: string, reason: string) {
+  return frappePost<{ name: string; status: string }>(
+    `${BASE}.reopen_incident`, { name, reason },
+  )
+}
+
 export function createRca(incident_name: string, rca_method = '5-Why') {
   return frappePost<{ name: string; status: string }>(
     `${BASE}.create_rca`, { incident_name, rca_method },
+  )
+}
+
+// CR-WF-12-RCA-ENTRY — "Yêu cầu phân tích nguyên nhân gốc": Resolved → RCA Required.
+// Surface CTA cho cạnh workflow THẬT `Resolved → RCA Required` (action 'Yêu cầu RCA',
+// ∈ _VALID_TRANSITIONS[Resolved]) đang advertise trong allowed_transitions nhưng
+// trước đây KHÔNG có driver → dead-CTA. Mirror BE request_rca(name, rca_reason)
+// (naming contract; POST envelope Decision-B, parity reopenIncident/createRca): BE
+// apply_workflow(action='Yêu cầu RCA') sync status='RCA Required' + tạo/link RCA
+// Record (reuse create_rca, idempotent) + audit IMM Audit Trail (Resolved→RCA
+// Required, reason). Precondition status != 'Resolved' → 422 (message VN đã curate ở
+// BE). Cap-gate == workflow 'Yêu cầu RCA' role-set {Compliance Manager, System
+// Manager, AssetCore Super Admin}; thiếu quyền → 403 (KHÔNG leak raw cap). FE gate
+// CTA bằng (can(corrective.write) ∧ status==='Resolved' ∧ allowed_transitions
+// .includes('RCA Required')) — server-driven (GATE-8/LL-FE-51), KHÔNG hardcode
+// role-name. Response echo rca_record để view có thể điều hướng nếu cần.
+export function requestRca(name: string, rcaReason = '') {
+  return frappePost<{ name: string; status: string; rca_record?: string }>(
+    `${BASE}.request_rca`, { name, rca_reason: rcaReason },
   )
 }
 
@@ -240,6 +350,24 @@ export function submitRca(data: SubmitRcaPayload) {
   return frappePost<{ name: string; status: string; linked_capa?: string }>(
     `${BASE}.submit_rca`,
     { ...rest, five_why_steps: JSON.stringify(five_why_steps ?? []) } as unknown as Record<string, unknown>,
+  )
+}
+
+// GATE-8/LL-FE-51 — 2 transition mới (server-driven CTA). Đi qua frappePost →
+// axios interceptor sẵn có (401/403 redirect, ApiError giữ message VN đã curate ở
+// BE). TUYỆT ĐỐI KHÔNG echo traceback: view chỉ đọc ApiError.message.
+
+/** RCA Required → RCA In Progress ("Bắt đầu phân tích"). Mirror BE start_rca(name). */
+export function startRca(name: string) {
+  return frappePost<{ name: string; status: string }>(
+    `${BASE}.start_rca`, { name },
+  )
+}
+
+/** RCA Required|RCA In Progress → Cancelled ("Hủy RCA"). Mirror BE cancel_rca(name, reason). */
+export function cancelRca(name: string, reason = '') {
+  return frappePost<{ name: string; status: string }>(
+    `${BASE}.cancel_rca`, { name, reason },
   )
 }
 

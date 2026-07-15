@@ -5,6 +5,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { getAsset, updateAsset } from '@/api/imm00'
 import SmartSelect from '@/components/common/SmartSelect.vue'
+import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import type { AcAsset } from '@/types/imm00'
 
@@ -101,7 +102,7 @@ onMounted(load)
           </div>
           <div>
             <label class="form-label">Kỹ thuật viên phụ trách</label>
-            <input v-model="form.responsible_technician" type="text" class="form-input w-full" />
+            <ApproverSelect v-model="form.responsible_technician" context="user" placeholder="Chọn kỹ thuật viên..." />
           </div>
         </div>
       </div>

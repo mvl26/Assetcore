@@ -3,6 +3,7 @@
 // Calibration Dashboard — theo docs/imm-11/IMM-11_UI_UX_Guide.md §3.3
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { useCapabilities } from '@/composables/useCapabilities'
 import { frappeGet } from '@/api/helpers'
 import { useImm11Store } from '@/stores/imm11'
 import { translateStatus } from '@/utils/formatters'
@@ -11,6 +12,7 @@ import PageHeader from '@/components/common/PageHeader.vue'
 const store = useImm11Store()
 
 const router = useRouter()
+const { can } = useCapabilities()
 
 interface CalAssetRow {
   name: string
@@ -100,7 +102,7 @@ onMounted(load)
     >
       <template #actions>
         <button class="btn-ghost" @click="load">↻ Làm mới</button>
-        <button class="btn-primary" @click="router.push('/calibration/new')">+ Tạo phiếu</button>
+        <button v-if="can('calibration.create')" class="btn-primary" @click="router.push('/calibration/new')">+ Tạo phiếu</button>
       </template>
     </PageHeader>
 

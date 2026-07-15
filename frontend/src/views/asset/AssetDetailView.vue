@@ -13,7 +13,7 @@ import { usePdfLabelPrint } from '@/composables/usePdfLabelPrint'
 import { getCommissioningOrigin, type CommissioningOrigin } from '@/api/imm04'
 import {
   createDecommission, approveDecommission,
-  type DisposalMethod,
+  type DisposalMethod, type CreateDecommissionResult,
 } from '@/api/imm14'
 import {
   showDecommissionButton, canSubmitDecommission, requiresPatientDataConfirm as needsPhiConfirm,
@@ -147,20 +147,17 @@ async function confirmRegenQr() {
   }
 }
 
-// IMM-14: 'Decommissioned' CỐ TÌNH loại khỏi mọi transition trực tiếp — giải nhiệm
-// PHẢI đi qua "Hồ sơ giải nhiệm" (nút riêng + modal closure-record), không qua nút
-// chuyển-trạng-thái chung. Tránh bypass cổng closure từ FE (BE cũng chặn set
-// Decommissioned ngoài closure → BAD_STATE).
-const TRANSITIONS: Record<string, LifecycleStatus[]> = {
-  'Draft': ['Commissioned'],
-  'Commissioned': ['Active', 'Out of Service'],
-  'Active': ['Under Maintenance', 'Under Repair', 'Calibrating', 'Out of Service'] as LifecycleStatus[],
-  'Under Maintenance': ['Active', 'Under Repair', 'Out of Service'] as LifecycleStatus[],
-  'Under Repair': ['Active', 'Out of Service'],
-  'Calibrating': ['Active', 'Out of Service'],
-  'Out of Service': ['Active', 'Under Repair'],
-  'Decommissioned': [],
-}
+// CR-WF-00-LIFECYCLE-SURFACE (Trục A): các trạng-thái-đích của nút "Chuyển trạng thái"
+// dựng THUẦN từ server field `allowed_transitions` (get_asset emit — SSoT BE
+// asset_allowed_transitions). ĐÃ XOÁ bảng TRANSITION_MAP hardcode client-side để
+// KHÔNG có bản sao thứ 2 nào drift khỏi _VALID_ASSET_TRANSITIONS. Server ĐÃ:
+//   • loại 'Decommissioned' (carve-out IMM-14 — thanh lý đi qua "Hồ sơ giải nhiệm"
+//     riêng, KHÔNG phải CTA chuyển-trạng-thái tự do), VÀ
+//   • lọc theo capability caller (thiếu asset.write → []).
+// Rỗng ([]) → ẩn hẳn khối CTA (không có state đích khả dụng / read-only / terminal).
+const availableTransitions = computed<LifecycleStatus[]>(
+  () => store.currentAsset?.allowed_transitions ?? [],
+)
 
 const statusColor: Record<string, string> = {
   'Draft': 'bg-slate-100 text-slate-700',
@@ -228,7 +225,18 @@ async function confirmTransition() {
     if (res.success) {
       showTransitionModal.value = false
       await Promise.all([store.fetchOne(props.id), loadTimeline(), loadKpi()])
+      toast.success(`Đã chuyển trạng thái sang "${translateStatus(res.data.lifecycle_status)}".`)
     }
+  } catch (e: unknown) {
+    // CR-WF-00-TRANSITION-AUTHZ (Trục A): BE nay siết endpoint transition_status bằng
+    // rbac.require('asset.write') + assert_vendor_can_access (mirror get_asset). Caller
+    // thiếu DocPerm asset.write / vendor NGOÀI scope → 403 (frappe.PermissionError → _err
+    // ServiceError). Trước đây confirmTransition chỉ có try/finally (KHÔNG catch) → 403
+    // thành unhandled rejection: modal treo im lặng, user (read-only bypass qua URL /
+    // vendor out-of-scope) KHÔNG nhận phản hồi. Nay notify.fromError render bucket VI
+    // verbatim (title + action_hint từ registry, KHÔNG leak EN/raw-code, KHÔNG trang
+    // trắng). GIỮ modal MỞ (chỉ đóng khi success) → user đọc lỗi rồi huỷ/thử lại.
+    notify.fromError(toApiError(e))
   } finally {
     transitioning.value = false
   }
@@ -332,10 +340,13 @@ function openDecommissionModal() {
 async function confirmDecommission() {
   if (!store.currentAsset || !decomCanSubmit.value) return
   decommissioning.value = true
+  // 2-call tuần tự (doc §11.3): create_decommission (docstatus=0) → approve_decommission.
+  // TÁCH create ≠ approve: nếu create THÀNH CÔNG nhưng approve LỖI (vd 403 create-only /
+  // gate), hồ sơ draft KHÔNG được để mồ côi câm → điều hướng tới biên bản để
+  // user/approver mở lại duyệt hoặc thu hồi (GATE-8/LL-FE-51).
+  let created: CreateDecommissionResult | null = null
   try {
-    // 2-call tuần tự (doc §11.3): create_decommission (docstatus=0) → approve_decommission
-    // (submit → transition asset). Lỗi gate nào cũng surface qua toast cảnh báo VI.
-    const created = await createDecommission({
+    created = await createDecommission({
       asset: store.currentAsset.name,
       disposal_method: decomForm.value.disposal_method as DisposalMethod,
       decommission_reason: decomForm.value.decommission_reason.trim(),
@@ -343,15 +354,24 @@ async function confirmDecommission() {
       responsible: decomForm.value.responsible,
       sanitization_note: decomForm.value.sanitization_note.trim() || undefined,
     })
+  } catch (e: unknown) {
+    // Lỗi ngay ở bước tạo (duplicate/terminal/field) → toast cảnh báo VI, dừng.
+    notify.fromError(toApiError(e))
+    decommissioning.value = false
+    return
+  }
+  try {
     await approveDecommission(created.name)
     showDecommissionModal.value = false
     // Refresh asset → badge đổi 'Đã thanh lý' qua label map SSoT, nút tự ẩn.
     await Promise.all([store.fetchOne(props.id), loadTimeline()])
     toast.success('Đã giải nhiệm thiết bị thành công.')
   } catch (e: unknown) {
-    // Gate-error: toast CẢNH BÁO với message VI verbatim từ BE (KHÔNG 'Lỗi hệ thống',
-    // KHÔNG leak EN/raw status). toApiError giữ code + message BE đã VI hoá.
+    // Gate-error khi DUYỆT: toast CẢNH BÁO message VI verbatim (KHÔNG 'Lỗi hệ thống',
+    // KHÔNG leak EN/raw status) rồi mở biên bản draft vừa tạo (không mồ côi câm).
     notify.fromError(toApiError(e))
+    showDecommissionModal.value = false
+    router.push(`/decommissions/${created.name}`)
   } finally {
     decommissioning.value = false
   }
@@ -462,15 +482,19 @@ onMounted(async () => {
           </div>
         </div>
 
-        <!-- Transition buttons — B: chuyển trạng thái là mutating → gate asset.write
-             (ẩn cả label "Chuyển trạng thái:" lẫn nút →state cho user read-only).
-             GIỮ điều kiện length sẵn có: status không có transition (vd Decommissioned) vẫn ẩn. -->
-        <div v-if="can('asset.write') && TRANSITIONS[store.currentAsset.lifecycle_status]?.length" class="mt-4 flex flex-wrap gap-2">
+        <!-- Transition buttons — server-driven CTA (CR-WF-00-LIFECYCLE-SURFACE):
+             dựng TỪ availableTransitions (= asset.allowed_transitions). Server đã lọc
+             capability (thiếu asset.write → []) NHƯNG giữ thêm can('asset.write') ở FE
+             (defense-in-depth: ẩn cả label lẫn nút cho user read-only ngay cả khi
+             payload cache còn field). Rỗng → ẩn hẳn khối (terminal / read-only / không
+             còn state đích). Nhãn hiển thị qua lifecycleLabel (chỉ display). -->
+        <div v-if="can('asset.write') && availableTransitions.length" class="mt-4 flex flex-wrap gap-2">
           <span class="text-xs text-slate-400 self-center">Chuyển trạng thái:</span>
           <button
-            v-for="s in TRANSITIONS[store.currentAsset.lifecycle_status]"
+            v-for="s in availableTransitions"
             :key="s"
-            class="px-3 py-1 text-xs rounded-md border border-slate-300 text-slate-600 hover:bg-slate-100 transition-colors"
+            class="px-3 py-1 text-xs rounded-md border border-slate-300 text-slate-600 hover:bg-slate-100 transition-colors focus-visible:ring-2 focus-visible:ring-emerald-500"
+            :aria-label="`Chuyển trạng thái sang ${lifecycleLabel[s] || s}`"
             @click="openTransitionModal(s)"
           >
             → {{ lifecycleLabel[s] || s }}
@@ -500,7 +524,7 @@ onMounted(async () => {
             <span class="text-xs text-slate-400">Phiếu tiếp nhận:</span>
             <span class="font-mono text-xs font-semibold text-indigo-700">{{ origin.commissioning.name }}</span>
             <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 ml-1">
-              {{ origin.commissioning.workflow_state }}
+              {{ translateStatus(origin.commissioning.workflow_state) }}
             </span>
           </router-link>
           <svg class="w-4 h-4 text-slate-300" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">

@@ -14,6 +14,8 @@
 //   3. No-leak EN regex: 'Reserved / Available / On Hand / Low Stock' KHÔNG lọt UI;
 //      raw field key (reserved_qty / available_qty / low_stock_count) KHÔNG lọt UI.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+// CR-AFFORD: view giờ gọi useCapabilities() ở setup (gate nút Tạo) → mock để mount không cần Pinia.
+vi.mock('@/composables/useCapabilities', () => ({ useCapabilities: () => ({ can: () => true }) }))
 import { mount, flushPromises } from '@vue/test-utils'
 
 vi.mock('vue-router', () => ({

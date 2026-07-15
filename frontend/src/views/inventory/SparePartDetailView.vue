@@ -2,6 +2,7 @@
 // Copyright (c) 2026, AssetCore Team
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { useCapabilities } from '@/composables/useCapabilities'
 import { getSparePart, updateSparePart, deleteSparePart } from '@/api/inventory'
 import type { SparePart, StockRow, StockMovement } from '@/types/inventory'
 import { getPartPurchases } from '@/api/purchase'
@@ -13,6 +14,7 @@ import PageHeader from '@/components/common/PageHeader.vue'
 
 const props = defineProps<{ name: string }>()
 const router = useRouter()
+const { can } = useCapabilities()
 
 type PartDetail = SparePart & {
   stock_by_warehouse: StockRow[]
@@ -245,6 +247,7 @@ class="text-xs px-2 py-0.5 rounded-full font-medium"
             <span class="text-xs text-slate-400">{{ partPurchases.length }} đơn</span>
             <button
 class="text-xs text-blue-600 hover:underline"
+                    v-if="can('purchase.create')"
                     @click="router.push('/purchases/new')">
 + Tạo đơn hàng
 </button>

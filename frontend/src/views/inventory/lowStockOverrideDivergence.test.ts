@@ -9,6 +9,8 @@
 // Đồng thời chặn raw leak: bin có override hiển thị min_stock_level = effective_min
 // (vd 80), KHÔNG phải part-min thô (50).
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+// CR-AFFORD: view giờ gọi useCapabilities() ở setup (gate nút Tạo) → mock để mount không cần Pinia.
+vi.mock('@/composables/useCapabilities', () => ({ useCapabilities: () => ({ can: () => true }) }))
 import { mount, flushPromises } from '@vue/test-utils'
 
 vi.mock('vue-router', () => ({

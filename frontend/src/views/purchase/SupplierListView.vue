@@ -2,6 +2,7 @@
 import { useToast } from '@/composables/useToast'
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { useCapabilities } from '@/composables/useCapabilities'
 import { listSuppliers, deleteSupplier } from '@/api/imm00'
 import type { AcSupplier } from '@/types/imm00'
 import { useImportWizard } from '@/composables/useImportWizard'
@@ -13,6 +14,7 @@ import ListFilterBar from '@/components/common/ListFilterBar.vue'
 const toast = useToast()
 
 const router = useRouter()
+const { can } = useCapabilities()
 const suppliers = ref<AcSupplier[]>([])
 const loading = ref(false)
 const error = ref('')
@@ -171,7 +173,7 @@ const IMPORT_NOTICE = [
           </svg>
           Nhập Excel
         </button>
-        <button class="btn-primary shrink-0" @click="router.push('/suppliers/new')">
+        <button v-if="can('data.create')" class="btn-primary shrink-0" @click="router.push('/suppliers/new')">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
           </svg>

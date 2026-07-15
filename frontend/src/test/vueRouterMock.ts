@@ -25,23 +25,31 @@ import { vi } from 'vitest'
 import type { Mock } from 'vitest'
 
 type RouteQuery = Record<string, string>
+type RouteParams = Record<string, string>
 
 // Store route-state trên globalThis để bất biến qua bản-sao-module giữa các file
 // trong cùng worker (isolate duplicate module nhưng KHÔNG duplicate globalThis).
 const G = globalThis as unknown as {
   __AC_ROUTE_QUERY__?: RouteQuery
+  __AC_ROUTE_PARAMS__?: RouteParams
   __AC_ROUTER_PUSH__?: Mock
 }
 
 /** Reset route-state về rỗng + push-spy mới — gọi trong beforeEach mỗi test. */
 export function resetRouteMock(): void {
   G.__AC_ROUTE_QUERY__ = {}
+  G.__AC_ROUTE_PARAMS__ = {}
   G.__AC_ROUTER_PUSH__ = vi.fn()
 }
 
 /** Đặt route.query mà view sẽ đọc (drill-down từ dashboard). */
 export function setRouteQuery(q: RouteQuery): void {
   G.__AC_ROUTE_QUERY__ = { ...q }
+}
+
+/** Đặt route.params mà detail-view đọc (vd :name của phiếu). Nhớ clear ở afterEach. */
+export function setRouteParams(p: RouteParams): void {
+  G.__AC_ROUTE_PARAMS__ = { ...p }
 }
 
 /** Truy spy push() (vi.fn thật) để assert toHaveBeenCalledWith điều hướng. */
@@ -78,7 +86,7 @@ export function vueRouterMockFactory() {
   return {
     useRoute: () => ({
       get query() { return G.__AC_ROUTE_QUERY__ ?? {} },
-      params: {},
+      get params() { return G.__AC_ROUTE_PARAMS__ ?? {} },
       path: '/',
     }),
     useRouter: () => ({ push: routerPushSpy() }),

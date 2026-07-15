@@ -2,12 +2,14 @@
 // Copyright (c) 2026, AssetCore Team Incident Dashboard
 import { computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { useCapabilities } from '@/composables/useCapabilities'
 import { useImm12Store } from '@/stores/imm12'
 import PageHeader from '@/components/common/PageHeader.vue'
 import SlaBreachBadge from '@/components/incident/SlaBreachBadge.vue'
 import { incidentStatusLabel, incidentStatusClass, incidentSeverityLabel, rcaStatusLabel, rcaTriggerLabel, INCIDENT_OPEN_FILTER_LABEL } from '@/constants/labels'
 
 const router = useRouter()
+const { can } = useCapabilities()
 const store = useImm12Store()
 
 // Safe accessors với fallback rỗng
@@ -63,7 +65,7 @@ onMounted(() => store.fetchDashboard())
       <template #actions>
         <button class="btn-ghost" @click="router.push('/incidents/list')">Danh sách</button>
         <button class="btn-ghost" @click="router.push('/rca')">Danh sách phân tích nguyên nhân gốc</button>
-        <button class="btn-primary" @click="router.push('/incidents/new')">+ Báo cáo sự cố</button>
+        <button v-if="can('corrective.create')" class="btn-primary" @click="router.push('/incidents/new')">+ Báo cáo sự cố</button>
       </template>
     </PageHeader>
 

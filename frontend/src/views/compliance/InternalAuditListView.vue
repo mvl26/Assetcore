@@ -15,6 +15,8 @@ import BasePagination from '@/components/common/BasePagination.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import BaseModal from '@/components/common/BaseModal.vue'
+import DateInput from '@/components/common/DateInput.vue'
+import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
 
 const router = useRouter()
 const store = useImm16Store()
@@ -212,15 +214,15 @@ onMounted(() => load(1))
         </div>
         <div class="form-group">
           <label class="form-label">Bắt đầu *</label>
-          <input v-model="form.planned_start" type="date" class="form-input" />
+          <DateInput v-model="form.planned_start" class="form-input" />
         </div>
         <div class="form-group">
           <label class="form-label">Kết thúc *</label>
-          <input v-model="form.planned_end" type="date" class="form-input" />
+          <DateInput v-model="form.planned_end" class="form-input" />
         </div>
         <div class="form-group col-span-2">
-          <label class="form-label">Trưởng đoàn (email người dùng)</label>
-          <input v-model="form.lead_auditor" class="form-input" placeholder="user@hospital.vn" />
+          <label class="form-label">Trưởng đoàn</label>
+          <ApproverSelect v-model="form.lead_auditor" context="user" placeholder="Chọn người dùng..." />
         </div>
       </div>
       <template #footer>

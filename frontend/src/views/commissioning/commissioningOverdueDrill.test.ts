@@ -3,6 +3,8 @@
 // chịu trách nhiệm đẩy đúng cờ `overdue` xuống store.fetchList; conjoin/SoT ở BE.
 // Mô phỏng calibrationScheduleListDrilldown.test.ts.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+// CR-AFFORD: view giờ gọi useCapabilities() ở setup (gate nút Tạo) → mock để mount không cần Pinia.
+vi.mock('@/composables/useCapabilities', () => ({ useCapabilities: () => ({ can: () => true }) }))
 import { mount, flushPromises } from '@vue/test-utils'
 import { ref } from 'vue'
 

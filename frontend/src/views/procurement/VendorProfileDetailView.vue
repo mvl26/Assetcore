@@ -5,6 +5,7 @@ import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getVendorProfile, addVendorCert } from '@/api/imm03'
 import { avlStatusLabel } from '@/constants/labels'
+import DateInput from '@/components/common/DateInput.vue'
 
 interface VendorCert {
   cert_type: string; cert_number: string; issued_by?: string
@@ -206,8 +207,8 @@ onMounted(load)
         </label>
         <label>Số chứng chỉ *: <input v-model="newCert.cert_number" /></label>
         <label>Cấp bởi: <input v-model="newCert.issued_by" /></label>
-        <label>Ngày cấp: <input v-model="newCert.issued_date" type="date" /></label>
-        <label>Ngày hết hạn: <input v-model="newCert.expiry_date" type="date" /></label>
+        <label>Ngày cấp: <DateInput v-model="newCert.issued_date" class="form-input w-full" /></label>
+        <label>Ngày hết hạn: <DateInput v-model="newCert.expiry_date" class="form-input w-full" /></label>
         <label>Tệp đính kèm: <input v-model="newCert.attachment" placeholder="/files/..." /></label>
         <div class="modal-actions">
           <button class="btn btn-outline" @click="showCertModal = false" :disabled="certBusy">Huỷ</button>

@@ -13,6 +13,8 @@ import ListFilterBar from '@/components/common/ListFilterBar.vue'
 import BasePagination from '@/components/common/BasePagination.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
+import DateInput from '@/components/common/DateInput.vue'
+import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
 import BaseModal from '@/components/common/BaseModal.vue'
 
 const router = useRouter()
@@ -206,11 +208,11 @@ onMounted(() => load(1))
         </div>
         <div class="form-group">
           <label class="form-label">Ngày soát xét *</label>
-          <input v-model="form.review_date" type="date" class="form-input" />
+          <DateInput v-model="form.review_date" class="form-input" />
         </div>
         <div class="form-group">
-          <label class="form-label">Chủ tịch (email người dùng)</label>
-          <input v-model="form.chair" class="form-input" />
+          <label class="form-label">Chủ tịch</label>
+          <ApproverSelect v-model="form.chair" context="user" placeholder="Chọn người dùng..." />
         </div>
         <div class="form-group">
           <label class="form-label">Tham chiếu bảng điểm</label>

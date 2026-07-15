@@ -5,6 +5,8 @@
 // Regression guard: when reserved_qty > 0, "Đã giữ" must NOT be 0 and available_qty
 // must NOT equal qty_on_hand (the old dead-column bug where reserved was always 0).
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+// CR-AFFORD: view giờ gọi useCapabilities() ở setup (gate nút Tạo) → mock để mount không cần Pinia.
+vi.mock('@/composables/useCapabilities', () => ({ useCapabilities: () => ({ can: () => true }) }))
 import { mount, flushPromises } from '@vue/test-utils'
 import type { StockRow } from '@/types/inventory'
 

@@ -92,12 +92,18 @@ export interface PMListResponse {
 
 const BASE = '/api/method/assetcore.api.imm08'
 
-export function listPMWorkOrders(filters = {}, page = 1, pageSize = 20): Promise<PMListResponse> {
-  return frappeGet<PMListResponse>(`${BASE}.list_pm_work_orders`, {
+export function listPMWorkOrders(
+  filters = {}, page = 1, pageSize = 20, search?: string,
+): Promise<PMListResponse> {
+  const params: Record<string, unknown> = {
     filters: JSON.stringify(filters),
     page,
     page_size: pageSize,
-  })
+  }
+  // CR-18: tìm kiếm free-text server-side (mã phiếu / mã thiết bị / tên thiết bị).
+  // CHỈ gửi khi non-empty ⇒ absent = baseline byte-identical (BE bỏ qua search rỗng).
+  if (search && search.trim()) params.search = search.trim()
+  return frappeGet<PMListResponse>(`${BASE}.list_pm_work_orders`, params)
 }
 
 export function getPMWorkOrder(name: string): Promise<PMWorkOrder> {

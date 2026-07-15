@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
+import { useCapabilities } from '@/composables/useCapabilities'
 import { frappeGet, frappePost } from '@/api/helpers'
 import type { AssetTransfer } from '@/types/imm00'
 import { formatAssetDisplay, translateStatus, getStatusColor, formatDate } from '@/utils/formatters'
@@ -9,6 +10,7 @@ import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
 
 const router = useRouter()
+const { can } = useCapabilities()
 const route = useRoute()
 
 const transfers = ref<AssetTransfer[]>([])
@@ -137,7 +139,7 @@ onMounted(load)
     <PageHeader title="Chuyển giao thiết bị" :subtitle="`Tổng ${totalCount} lượt chuyển`">
       <template #actions>
         <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
-        <button class="btn-primary shrink-0" @click="router.push('/asset-transfers/new')">
+        <button v-if="can('commissioning.create')" class="btn-primary shrink-0" @click="router.push('/asset-transfers/new')">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
           </svg>
@@ -216,8 +218,8 @@ onMounted(load)
               >{{ TYPE_LABELS[t.transfer_type] || t.transfer_type }}</button>
               <span class="text-slate-300">·</span>
               <span>{{ formatDate(t.transfer_date) }}</span>
-              <span v-if="t.to_location" class="text-slate-300">·</span>
-              <span v-if="t.to_location">→ {{ t.to_location }}</span>
+              <span v-if="t.to_location_name" class="text-slate-300">·</span>
+              <span v-if="t.to_location_name">→ {{ t.to_location_name }}</span>
             </div>
           </div>
           <div v-if="transfers.length === 0" class="py-12 text-center text-slate-400">
@@ -273,8 +275,8 @@ onMounted(load)
                     @click.stop="quickFilter('status', t.status ?? '')"
                   >{{ translateStatus(t.status) }}</button>
                 </td>
-                <td class="px-4 py-3 text-slate-500 text-xs">{{ t.from_location || '—' }}</td>
-                <td class="px-4 py-3 text-slate-500 text-xs">{{ t.to_location }}</td>
+                <td class="px-4 py-3 text-slate-500 text-xs">{{ t.from_location_name || '—' }}</td>
+                <td class="px-4 py-3 text-slate-500 text-xs">{{ t.to_location_name || '—' }}</td>
                 <td class="px-4 py-3 text-slate-500 max-w-xs truncate">{{ t.reason }}</td>
                 <td class="px-4 py-3 text-right" @click.stop>
                   <button class="text-xs text-red-600 hover:text-red-800" @click="remove(t.name)">Xóa</button>

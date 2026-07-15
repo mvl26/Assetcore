@@ -79,6 +79,22 @@ export interface TechSpecDoc {
   withdrawal_reason?: string
   workflow_state?: SpecState
   docstatus?: 0 | 1 | 2
+  // CTA gating server-driven (GATE-8 / LL-FE-51) — get_tech_spec DERIVE các cờ này
+  // từ (guard-state predicate THỰC ∧ vai trò duyệt của user). FE gate nút
+  // Chốt/Rút/Phát-hành-lại DUY NHẤT theo cờ này, KHÔNG hardcode `workflow_state ===`.
+  // `allowed_transitions` chỉ là hint hiển thị (đích state), không phải quyền.
+  allowed_transitions?: string[]
+  // Danh sách ACTION workflow TRUNG GIAN đã LỌC theo vai trò (get_tech_spec →
+  // spec_allowed_actions(workflow_state, roles)). FE render 1 nút CTA / mỗi action —
+  // nguồn DUY NHẤT cho nút workflow (KHÔNG hardcode `workflow_state ===`, GATE-8/
+  // LL-FE-51). KHÁC `allowed_transitions` (chỉ là hint state đích). 2 cạnh Pending
+  // Approval ('Phê duyệt spec'/'Rút spec') KHÔNG nằm ở đây — do nút lock/withdraw
+  // (can_lock/can_withdraw) xử lý riêng ⇒ không double-render. Optional → an toàn
+  // khi worker cũ chưa emit field (v-for trên `|| []` → 0 nút, không crash).
+  allowed_actions?: string[]
+  can_lock?: boolean
+  can_withdraw?: boolean
+  can_reissue?: boolean
 }
 
 export interface DashboardKpis {

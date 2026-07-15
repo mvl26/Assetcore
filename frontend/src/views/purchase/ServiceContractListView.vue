@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { useCapabilities } from '@/composables/useCapabilities'
 import { frappeGet } from '@/api/helpers'
 import type { ServiceContract } from '@/types/imm00'
 import { useImportWizard } from '@/composables/useImportWizard'
@@ -13,6 +14,7 @@ import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 type ServiceContractRow = ServiceContract & { supplier_name?: string }
 
 const router = useRouter()
+const { can } = useCapabilities()
 
 const contracts = ref<ServiceContractRow[]>([])
 const contractType = ref('')
@@ -161,7 +163,7 @@ const IMPORT_NOTICE = [
           </svg>
           Nhập Excel
         </button>
-        <button class="btn-primary shrink-0" @click="router.push('/service-contracts/new')">
+        <button v-if="can('data.create')" class="btn-primary shrink-0" @click="router.push('/service-contracts/new')">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
           </svg>

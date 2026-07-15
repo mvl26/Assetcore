@@ -126,10 +126,11 @@ describe('CAPADetailView — header lifecycle status badge (SoT, cron-flip invar
   })
 
   // TDD-4 happy path: stage 'Đang điều tra' + lifecycle 'Đang mở'; nút transition của
-  // Investigating ('Lập kế hoạch hành động') vẫn render.
+  // Investigating ('Lập kế hoạch hành động') render theo allowed_transitions (server-driven).
   it("TDD-4 status='Open', workflow_state='Investigating' → 'Đang điều tra' + 'Đang mở' + nút transition", async () => {
     fetchCapaDetailSpy.mockResolvedValue(
-      baseCapa({ status: 'Open', workflow_state: 'Investigating' }))
+      baseCapa({ status: 'Open', workflow_state: 'Investigating',
+                 allowed_transitions: ['Action Plan'] }))
     const wrapper = mount(CAPADetailView, { global: { stubs } })
     await flushPromises()
     const html = wrapper.html()

@@ -41,7 +41,7 @@
 
       <div class="field-group">
         <label>Giao cho</label>
-        <input v-model="form.assigned_to" placeholder="Email người thực hiện" class="input" />
+        <ApproverSelect v-model="form.assigned_to" context="user" placeholder="Chọn người thực hiện..." />
       </div>
 
       <div class="field-group">
@@ -72,6 +72,7 @@
 
 <script setup lang="ts">
 import DateInput from '@/components/common/DateInput.vue'
+import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
 import { reactive, ref } from 'vue'
 import { useImm05Store } from '@/stores/imm05'
 import type { AssetDocumentItem } from '@/api/imm05'

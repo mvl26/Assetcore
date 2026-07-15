@@ -98,13 +98,10 @@ onMounted(() => applyFilter())
       :subtitle="`Tổng ${store.pagination.total} hồ sơ`"
     >
       <template #actions>
+        <!-- CR-AFFORD (2026-07-15): GỠ nút "Tạo CAPA" — không có route tạo CAPA
+             standalone (404). CAPA sinh từ Compliance Finding
+             (create_capa_from_finding). Vào /compliance/findings để mở CAPA từ phát hiện. -->
         <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
-        <button class="btn-primary shrink-0" @click="router.push('/capas/new')">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
-          </svg>
-          Tạo hành động khắc phục/phòng ngừa
-        </button>
       </template>
     </PageHeader>
 

@@ -66,6 +66,13 @@ export interface AssetCalibration {
   // (_CAL_VALID_TRANSITIONS, imm11.py:1033). FE gate nút workflow theo list này —
   // KHÔNG hardcode status→button client-side (anti-pattern dead-gate/flow-drift).
   allowed_transitions?: string[]
+  // Cờ hạn hiệu chuẩn derive SERVER-SIDE (CR-02 · server-flag SSoT). list_calibrations
+  // + get_calibration emit is_overdue/is_due_soon (int 0/1) qua CHUNG helper BE
+  // is_calibration_overdue / is_calibration_due_soon (services/imm11.py). Consumer CHỈ
+  // render cờ (calFlagBadge), KHÔNG so next_calibration_date với client-clock. Overdue
+  // ưu tiên due_soon; None/chưa-có-hạn → cả hai 0. INV parity list==detail (INV-SLA-5).
+  is_overdue?: 0 | 1
+  is_due_soon?: 0 | 1
 }
 
 export interface CalibrationKpis {

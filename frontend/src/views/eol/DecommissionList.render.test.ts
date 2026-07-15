@@ -71,20 +71,22 @@ describe('DecommissionListView render', () => {
     expect(w.text()).toContain('Bơm tiêm điện Terumo')
   })
 
-  it('workflow_state render tiếng Việt (StatusBadge SSoT), KHÔNG leak raw EN', async () => {
+  it('workflow_state render tiếng Việt domain-specific SSoT, KHÔNG leak raw EN', async () => {
     const w = await mountList()
     const txt = w.text()
-    expect(txt).toContain('Đã phê duyệt')  // Approved
-    expect(txt).toContain('Bản nháp')       // Draft
+    expect(txt).toContain('Đã giải nhiệm')  // Approved (hồ sơ duyệt = thiết bị đã giải nhiệm)
+    expect(txt).toContain('Chờ duyệt')       // Draft (hồ sơ chờ duyệt)
     expect(txt).not.toContain('Approved')
     // 'Draft' không được lộ như 1 từ độc lập trong nội dung hiển thị
     expect(txt).not.toMatch(/\bDraft\b/)
   })
 
-  it('hiển thị phương thức xử lý + người chịu trách nhiệm (tên, KHÔNG email)', async () => {
+  it('hiển thị phương thức xử lý (nhãn VI SSoT) + người chịu trách nhiệm (tên, KHÔNG email)', async () => {
     const w = await mountList()
     const txt = w.text()
-    expect(txt).toContain('Bán/Trade-in')
+    // disposal_method 'Bán/Trade-in' → nhãn VI 'Bán/Thu cũ đổi mới' (dịch phần EN)
+    expect(txt).toContain('Bán/Thu cũ đổi mới')
+    expect(txt).not.toContain('Trade-in')
     expect(txt).toContain('Huỷ')
     expect(txt).toContain('Nguyễn Văn A')
     expect(txt).toContain('Trần Thị B')
@@ -119,11 +121,21 @@ describe('DecommissionListView render', () => {
     expect(listDecommissionsSpy).toHaveBeenCalledWith({ disposal_method: 'Huỷ' }, 1, 20)
   })
 
-  it('row click → router.push tới /assets/:asset', async () => {
+  it('row click → router.push tới /decommissions/:name (biên bản, KHÔNG /assets/:asset)', async () => {
     const w = await mountList()
     const push = routerPushSpy()
     push.mockClear()
     await w.find('tbody tr').trigger('click')
+    expect(push).toHaveBeenCalledWith('/decommissions/DECOM-2026-0001')
+  })
+
+  it('link phụ "Hồ sơ thiết bị" → router.push tới /assets/:asset (giữ vị trí phụ)', async () => {
+    const w = await mountList()
+    const push = routerPushSpy()
+    push.mockClear()
+    const assetLinks = w.findAll('button').filter((b) => b.text() === 'Hồ sơ thiết bị')
+    expect(assetLinks.length).toBeGreaterThan(0)
+    await assetLinks[0].trigger('click')
     expect(push).toHaveBeenCalledWith('/assets/AC-ASS-0001')
   })
 })

@@ -48,6 +48,7 @@ vi.mock('vue-router', () => ({
 }))
 
 import DecisionDetailView from './DecisionDetailView.vue'
+import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
 
 // AVL hết hạn nhưng workflow_state vẫn 'Approved' (chưa bị scheduler flip).
 // BE predicate live đã trả in_avl=0 → FE phải bám cờ này.
@@ -59,6 +60,9 @@ const DECISION: DecisionDoc = {
   workflow_state: 'Pending Approval',
   procurement_method: 'Đấu thầu rộng rãi',
   creation: '2026-06-01',
+  // Server-driven CTA (GATE-8/LL-FE-51): form "Phê duyệt trao thầu" gate theo tập
+  // ACTION do BE emit — Pending Approval → [Phê duyệt trúng thầu, Huỷ Decision].
+  allowed_transitions: ['Phê duyệt trúng thầu', 'Huỷ Decision'],
 }
 
 const EVAL: EvalDoc = {
@@ -87,8 +91,6 @@ async function mountView() {
 }
 
 describe('IMM-03 DecisionDetailView — AVL eligibility badge bám cờ BE (verbatim)', () => {
-  let windowConfirmSpy: ReturnType<typeof vi.spyOn>
-
   beforeEach(() => {
     setActivePinia(createPinia())
     getDecisionSpy.mockReset().mockResolvedValue(DECISION)
@@ -97,7 +99,7 @@ describe('IMM-03 DecisionDetailView — AVL eligibility badge bám cờ BE (verb
     confirmSpy.mockReset().mockResolvedValue(true)
     fromErrorSpy.mockReset()
     showSpy.mockReset()
-    windowConfirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
   })
 
   it('option NCC trúng thầu render nhãn AVL VERBATIM theo cờ BE (in_avl)', async () => {
@@ -161,8 +163,9 @@ describe('IMM-03 DecisionDetailView — VR-03-05 surface qua notification-contra
     await priceInput.setValue('100000000')
     const fundingSelect = selects.find(s => s.findAll('option').some(o => o.text() === 'NSNN'))
     await fundingSelect!.setValue('NSNN')
-    const emailInput = wrapper.find('input[type="email"]')
-    await emailInput.setValue('giamdoc@benhvien.vn')
+    // board_approver = <ApproverSelect> (picker user AssetCore), KHÔNG input email tự do
+    // → set qua v-model contract của picker, không gõ chuỗi tự do.
+    await wrapper.findComponent(ApproverSelect).setValue('giamdoc@benhvien.vn')
     await flushPromises()
     // submit form trao thầu
     const awardForm = wrapper.findAll('form')[0]
@@ -200,6 +203,16 @@ describe('IMM-03 DecisionDetailView — VR-03-05 surface qua notification-contra
     expect(awardDecisionSpy).toHaveBeenCalledTimes(1)
     expect(fromErrorSpy).not.toHaveBeenCalled()
     expect(windowConfirmSpy).not.toHaveBeenCalled()
+  })
+
+  // Guard: người phê duyệt phải link tới user AssetCore thật (base role), KHÔNG gõ email tự do
+  // → sai chính tả/gõ email người ngoài hệ thống sẽ tạo link chết ở BE (Link → User).
+  it('board_approver render bằng ApproverSelect, KHÔNG có input email tự do', async () => {
+    const wrapper = await mountView()
+
+    expect(wrapper.findComponent(ApproverSelect).exists()).toBe(true)
+    expect(wrapper.findComponent(ApproverSelect).props('context')).toBe('user')
+    expect(wrapper.find('input[type="email"]').exists()).toBe(false)
   })
 
   it('hủy ở modal xác nhận → KHÔNG gọi award', async () => {

@@ -44,9 +44,11 @@ const CAP_DOC_APPROVE = 'doc.approve'
 // SoT: assetcore/services/shared/rbac.py::CAP_SET_VERSION (bench execute
 // assetcore.services.shared.rbac._compute_cap_set_version để lấy giá trị hiện tại).
 // 2026-06-08 (ADR-IMM00-QR-SCAN-ACTION D6): thêm asset.print + asset.qr.rotate
-// → BE version v95.3388ee5629c1 → v97.c30c69b8974d → bump hằng NÀY cho khớp
+// → BE version v95.3388ee5629c1 → v98.178ba7da7bd8 → bump hằng NÀY cho khớp
 // (isCapCacheStale tự bỏ persisted-caps cũ khi user load lại — self-heal IMM-14).
-export const CAP_SET_VERSION = 'v97.c30c69b8974d'
+// 2026-07-10 (ADR-IMM-03-05, Vòng 19): thêm 6 cap purchase.* (AC Purchase — bịt
+// lỗ RBAC bypass) → BE version v98.178ba7da7bd8 → v104.e46d05d9a66d (104 cap).
+export const CAP_SET_VERSION = 'v104.e46d05d9a66d'
 
 /**
  * SSoT cho quyết định invalidate cache caps theo version-stamp (FE-2/AC4).

@@ -16,10 +16,16 @@ vi.mock('vue-router', () => ({
   useRouter: () => ({ push: vi.fn() }),
 }))
 
-// ── Mock store (asset đã load) — lifecycle_status thay đổi per-test qua mutate ───────
-const currentAsset = {
+// ── Mock store (asset đã load) — lifecycle_status + allowed_transitions thay đổi per-test ──
+// allowed_transitions = server-driven CTA (CR-WF-00-LIFECYCLE-SURFACE): view dựng nút
+// →state TỪ field này (bảng TRANSITION_MAP hardcode ĐÃ XOÁ). Mutate cùng lifecycle_status.
+const currentAsset: {
+  name: string; asset_name: string; lifecycle_status: string
+  risk_classification: string; allowed_transitions: string[]
+} = {
   name: 'AC-ASSET-2026-00042', asset_name: 'Máy thở Dräger',
   lifecycle_status: 'Active', risk_classification: 'Low',
+  allowed_transitions: ['Calibrating', 'Out of Service', 'Under Maintenance', 'Under Repair'],
 }
 vi.mock('@/stores/imm00', () => ({
   useAssetStore: () => ({
@@ -83,6 +89,8 @@ describe('AssetDetailView — siết affordance ghi theo capability (B)', () => 
   beforeEach(() => {
     canCaps.clear()
     currentAsset.lifecycle_status = 'Active'
+    // Active → 4 CTA server-driven (sorted BE), KHÔNG Decommissioned.
+    currentAsset.allowed_transitions = ['Calibrating', 'Out of Service', 'Under Maintenance', 'Under Repair']
   })
 
   it('RED — read-only {asset.read} → KHÔNG render 5 nhóm nút ghi + KHÔNG khối "Chuyển trạng thái:"', async () => {
@@ -139,9 +147,10 @@ describe('AssetDetailView — siết affordance ghi theo capability (B)', () => 
     expect(findBtn(w, 'Xóa')).toBeFalsy()
   })
 
-  it('write=true + TRANSITIONS rỗng (Decommissioned) → KHÔNG render khối transition (length gate giữ nguyên)', async () => {
+  it('write=true + allowed_transitions rỗng (Decommissioned) → KHÔNG render khối transition (length gate giữ nguyên)', async () => {
     canCaps.add('asset.read'); canCaps.add('asset.write')
-    currentAsset.lifecycle_status = 'Decommissioned' // TRANSITIONS['Decommissioned'] = []
+    currentAsset.lifecycle_status = 'Decommissioned'
+    currentAsset.allowed_transitions = [] // server: terminal → [] (đối xứng asset_allowed_transitions)
     const w = mount(AssetDetailView, { props: { id: 'AC-ASSET-2026-00042' }, global: { stubs } })
     await flushPromises()
     expect(w.text()).not.toContain('Chuyển trạng thái:')

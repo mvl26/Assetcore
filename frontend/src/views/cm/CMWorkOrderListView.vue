@@ -78,7 +78,7 @@ function clearChip(key: string) {
   else if (key === 'slaBreached') slaBreached.value = false
   else if (key === 'repeatFailure') repeatFailure.value = false
   else if (key === 'open') openFilter.value = false
-  else search.value = ''
+  else if (key === 'search') { search.value = ''; reload(1) }  // search KHÔNG có watch → reload thủ công
 }
 
 function resetFilters() {
@@ -89,7 +89,7 @@ function resetFilters() {
   repeatFailure.value = false
   openFilter.value = false
   search.value = ''
-  store.fetchWorkOrders({})
+  reload(1)
 }
 
 // Nhấp vào badge trong bảng → lọc ngay
@@ -101,7 +101,7 @@ function quickFilter(key: 'status' | 'priority', value: string) {
   showFilters.value = false
 }
 
-function applyFilters() {
+function buildFilters(): Record<string, string> {
   const f: Record<string, string> = {}
   if (statusFilter.value) f.status = statusFilter.value
   if (priorityFilter.value) f.priority = priorityFilter.value
@@ -111,14 +111,27 @@ function applyFilters() {
   // open=1 chỉ áp khi KHÔNG có status đơn lẻ (status ưu tiên). BE dịch open=1
   // → open_repair_filter (SoT, NOT IN terminal) — không gửi positive-list.
   if (openFilter.value && !statusFilter.value) f.open = '1'
-  store.fetchWorkOrders(Object.keys(f).length ? f : {})
+  return f
+}
+
+// CR-18: refetch SERVER với column-filters + free-text `search` (mã phiếu / mã
+// thiết bị / tên thiết bị). Search phủ TOÀN tập mọi trang — KHÔNG lọc client-side
+// page-limited. `search` là param độc lập AND cùng các filter khác. Gửi undefined
+// khi rỗng ⇒ baseline byte-identical (BE bỏ qua).
+function reload(page = 1) {
+  store.fetchWorkOrders(buildFilters(), page, search.value.trim() || undefined)
+}
+
+// ListFilterBar phát `@apply` sau debounce khi user gõ ô tìm → refetch server + reset trang 1.
+function applyFilters() {
+  reload(1)
 }
 
 onMounted(() => {
-  applyFilters()
+  reload()
   store.fetchKPIs()
 })
-watch([statusFilter, priorityFilter, assetFilter, slaBreached, repeatFailure, openFilter], () => applyFilters())
+watch([statusFilter, priorityFilter, assetFilter, slaBreached, repeatFailure, openFilter], () => reload(1))
 // §9.3 — drill-down lần 2 từ dashboard (cùng route, query khác) → sync filter.
 watch(() => route.query.status, (val) => { statusFilter.value = (val as string) || '' })
 watch(() => route.query.priority, (val) => { priorityFilter.value = (val as string) || '' })
@@ -143,20 +156,13 @@ watch(() => route.query.asset, (val) => {
   assetFilter.value = (val as string) || ''
 })
 
-const filteredWOs = computed(() => {
-  if (!search.value) return store.workOrders
-  const q = search.value.toLowerCase()
-  return store.workOrders.filter(w =>
-    w.name.toLowerCase().includes(q) || (w.asset_name || '').toLowerCase().includes(q)
-  )
-})
 </script>
 
 <template>
   <div class="page-container animate-fade-in">
     <PageHeader
       title="Lệnh Sửa chữa"
-      :subtitle="`Tổng ${store.pagination.total ?? filteredWOs.length} lệnh`"
+      :subtitle="`Tổng ${store.pagination.total ?? store.workOrders.length} lệnh`"
       :breadcrumb="[{ label: 'IMM-09 · Sửa chữa', to: '/cm/dashboard' }, { label: 'Danh sách' }]"
     >
       <template #actions>
@@ -210,7 +216,7 @@ const filteredWOs = computed(() => {
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
       </svg>
       <span class="flex-1">{{ store.error }}</span>
-      <button class="text-xs font-semibold underline hover:no-underline" @click="store.fetchWorkOrders()">Thử lại</button>
+      <button class="text-xs font-semibold underline hover:no-underline" @click="reload()">Thử lại</button>
     </div>
 
     <!-- Mobile card list (< sm) -->
@@ -218,12 +224,12 @@ const filteredWOs = computed(() => {
       <div class="mobile-card-list sm:hidden">
         <!-- Info row -->
         <div class="flex items-center justify-between text-xs text-slate-500 pb-1">
-          <span>Hiển thị <strong class="text-slate-700">{{ filteredWOs.length }}</strong> lệnh</span>
+          <span>Hiển thị <strong class="text-slate-700">{{ store.workOrders.length }}</strong> lệnh</span>
           <button v-if="activeFilterCount > 0" class="text-red-500 font-medium" @click="resetFilters">Xóa tất cả</button>
         </div>
 
         <div
-          v-for="wo in filteredWOs"
+          v-for="wo in store.workOrders"
           :key="wo.name"
           class="mobile-card"
           @click="router.push(`/cm/work-orders/${wo.name}`)"
@@ -265,7 +271,7 @@ const filteredWOs = computed(() => {
           </div>
         </div>
 
-        <div v-if="filteredWOs.length === 0" class="py-12 text-center text-slate-400">
+        <div v-if="store.workOrders.length === 0" class="py-12 text-center text-slate-400">
           <p class="text-sm font-medium">Không tìm thấy lệnh sửa chữa nào</p>
           <button v-if="activeFilterCount > 0" class="text-xs text-blue-500 underline mt-2" @click="resetFilters">
             Xóa bộ lọc để xem tất cả
@@ -277,7 +283,7 @@ const filteredWOs = computed(() => {
       <div class="hidden sm:block table-wrapper">
         <!-- Info row -->
         <div class="flex items-center justify-between px-4 py-2.5 border-b border-slate-100 bg-slate-50/60 text-xs text-slate-500">
-          <span>Hiển thị <strong class="text-slate-700">{{ filteredWOs.length }}</strong> lệnh</span>
+          <span>Hiển thị <strong class="text-slate-700">{{ store.workOrders.length }}</strong> lệnh</span>
           <button v-if="activeFilterCount > 0" class="text-red-500 hover:text-red-700 font-medium" @click="resetFilters">Xóa tất cả</button>
         </div>
         <table class="min-w-full divide-y divide-slate-100">
@@ -294,7 +300,7 @@ const filteredWOs = computed(() => {
           </thead>
           <tbody class="divide-y divide-slate-50">
             <tr
-              v-for="wo in filteredWOs" :key="wo.name"
+              v-for="wo in store.workOrders" :key="wo.name"
               class="hover:bg-slate-50 cursor-pointer transition-colors"
               @click="router.push(`/cm/work-orders/${wo.name}`)"
             >
@@ -338,7 +344,7 @@ const filteredWOs = computed(() => {
                 >{{ translateStatus(wo.status) }}</button>
               </td>
             </tr>
-            <tr v-if="filteredWOs.length === 0">
+            <tr v-if="store.workOrders.length === 0">
               <td colspan="7" class="py-16 text-center text-slate-400">
                 <p class="text-sm font-medium">Không tìm thấy lệnh sửa chữa nào</p>
                 <button v-if="activeFilterCount > 0" class="text-xs text-blue-500 hover:text-blue-700 underline mt-2" @click="resetFilters">
@@ -351,6 +357,6 @@ const filteredWOs = computed(() => {
       </div>
     </template>
 
-    <BasePagination :pagination="store.pagination" @page-change="p => store.fetchWorkOrders({}, p)" />
+    <BasePagination :pagination="store.pagination" @page-change="p => reload(p)" />
   </div>
 </template>
