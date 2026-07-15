@@ -258,6 +258,109 @@ class TestCalibrationSubmitGate(unittest.TestCase):
         self.assertIn(res["overall_result"], ("Passed", "Conditionally Passed"))
 
 
+class TestCalibrationOverdueFlags(unittest.TestCase):
+    """CR-02 / INV-SLA-5 — cờ derived SERVER-SIDE is_overdue/is_due_soon cho
+    get_calibration + list_calibrations. Đối xứng calibration_overdue của
+    get_asset_scan_info + is_*_breached của incident detail. Server-flag SSoT:
+    consumer CHỈ render cờ, KHÔNG so next_calibration_date với client-clock.
+
+    Cả 2 endpoint dùng CHUNG helper is_calibration_overdue/is_calibration_due_soon
+    (INV parity list==detail tại cùng ref-date, chứng minh CÙNG SoT predicate).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.asset = _make_asset("-odflag")
+
+    @classmethod
+    def tearDownClass(cls):
+        for cal in frappe.get_all(
+            "IMM Asset Calibration", filters={"asset": cls.asset.name}, fields=["name"]
+        ):
+            frappe.delete_doc(
+                "IMM Asset Calibration", cal.name, force=True, ignore_permissions=True
+            )
+        _purge_asset_with_deps(cls.asset.name)
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+
+    def _make_cal(self, next_cal_date):
+        """Tạo phiếu hiệu chuẩn rồi set next_calibration_date (field ngày, KHÔNG
+        đổi status) để kiểm cờ derived. None → để trống (None-guard)."""
+        res = create_calibration(
+            asset=self.asset.name,
+            calibration_type="In-House",
+            scheduled_date=nowdate(),
+            technician="Administrator",
+            reference_standard_serial="STD-TEST-001",
+        )
+        if next_cal_date is not None:
+            frappe.db.set_value(
+                "IMM Asset Calibration", res["name"],
+                "next_calibration_date", next_cal_date,
+            )
+        frappe.db.commit()
+        return res["name"]
+
+    def test_get_calibration_overdue_flag(self):
+        from assetcore.services.imm11 import get_calibration
+        name = self._make_cal(add_days(nowdate(), -1))  # hạn = hôm qua
+        data = get_calibration(name)
+        self.assertEqual(data["is_overdue"], 1)
+        self.assertEqual(data["is_due_soon"], 0)
+
+    def test_get_calibration_due_soon_flag(self):
+        from assetcore.services.imm11 import get_calibration, CAL_DUE_SOON_WINDOW_DAYS
+        name = self._make_cal(add_days(nowdate(), CAL_DUE_SOON_WINDOW_DAYS - 1))
+        data = get_calibration(name)
+        self.assertEqual(data["is_due_soon"], 1)
+        self.assertEqual(data["is_overdue"], 0)
+
+    def test_get_calibration_not_due(self):
+        from assetcore.services.imm11 import get_calibration, CAL_DUE_SOON_WINDOW_DAYS
+        name = self._make_cal(add_days(nowdate(), CAL_DUE_SOON_WINDOW_DAYS + 30))
+        data = get_calibration(name)
+        self.assertEqual(data["is_overdue"], 0)
+        self.assertEqual(data["is_due_soon"], 0)
+
+    def test_get_calibration_none_guard(self):
+        from assetcore.services.imm11 import get_calibration
+        name = self._make_cal(None)  # chưa có hạn
+        data = get_calibration(name)
+        self.assertEqual(data["is_overdue"], 0)
+        self.assertEqual(data["is_due_soon"], 0)
+
+    def test_list_calibrations_overdue_flag_per_row(self):
+        from assetcore.services.imm11 import list_calibrations, CAL_DUE_SOON_WINDOW_DAYS
+        overdue = self._make_cal(add_days(nowdate(), -5))
+        future = self._make_cal(add_days(nowdate(), CAL_DUE_SOON_WINDOW_DAYS + 60))
+        res = list_calibrations(filters={"asset": self.asset.name}, page_size=100)
+        by_name = {r["name"]: r for r in res["data"]}
+        self.assertIn(overdue, by_name)
+        self.assertIn(future, by_name)
+        for r in res["data"]:
+            self.assertIn("is_overdue", r)
+            self.assertIn("is_due_soon", r)
+        self.assertEqual(by_name[overdue]["is_overdue"], 1)
+        self.assertEqual(by_name[overdue]["is_due_soon"], 0)
+        self.assertEqual(by_name[future]["is_overdue"], 0)
+        self.assertEqual(by_name[future]["is_due_soon"], 0)
+
+    def test_calibration_overdue_parity_list_vs_detail(self):
+        from assetcore.services.imm11 import list_calibrations, get_calibration
+        name = self._make_cal(add_days(nowdate(), -3))
+        res = list_calibrations(filters={"asset": self.asset.name}, page_size=100)
+        row = next(r for r in res["data"] if r["name"] == name)
+        detail = get_calibration(name)
+        # INV parity (kiểu INV-SLA-5): cùng phiếu, cùng ref → cờ khớp tuyệt đối.
+        self.assertEqual(row["is_overdue"], detail["is_overdue"])
+        self.assertEqual(row["is_due_soon"], detail["is_due_soon"])
+        self.assertEqual(row["is_overdue"], 1)
+        self.assertEqual(row["is_due_soon"], 0)
+
+
 class TestLLBE1CalKpis417(unittest.TestCase):
     """LL-BE-1 guard: get_calibration_kpis (GET, year/month optional) phải
     tolerate query rỗng (`?year=`) mà KHÔNG raise FrappeTypeError → HTTP 417.
@@ -2307,9 +2410,10 @@ class TestCalibrationAllowedTransitions(unittest.TestCase):
         """(2) _CAL_VALID_TRANSITIONS == codomain imm_11_calibration_workflow.json (SET dedup).
 
         SSoT-divergence: thêm/bớt edge ở map mà KHÔNG đồng bộ workflow JSON → RED.
-        Terminal Passed/Conditionally Passed/Cancelled → []. Count thô = 13 transition (JSON
-        có dòng `Failed→Conditionally Passed` LẶP 2 lần — Compliance + System Manager); so SET
-        tự dedup → 12 cạnh unique khớp map.
+        Terminal Passed/Conditionally Passed/Cancelled → []. Bất biến hành vi = 12 cạnh UNIQUE.
+        RAW transition rows KHÔNG cố định: workflow-admin-override thêm dòng-per-role (AssetCore
+        Super Admin + System Manager) vào EDGE SẴN CÓ ⇒ raw phình (13→31…) mà edge-set giữ 12.
+        Pin theo UNIQUE edge (invariant SSoT), KHÔNG raw-row (volatile theo RBAC — LL-TEST).
         """
         import json
         from pathlib import Path
@@ -2332,13 +2436,21 @@ class TestCalibrationAllowedTransitions(unittest.TestCase):
                 set(_CAL_VALID_TRANSITIONS[state]), wf_nexts,
                 f"DRIFT '{state}': map BE {sorted(_CAL_VALID_TRANSITIONS[state])} ≠ "
                 f"workflow next_state {sorted(wf_nexts)} (SSoT-divergence map↔workflow lệch).")
-        # Sanity-count workflow JSON: 8 state / 13 transition raw (KHÔNG 12 — JSON có dòng lặp).
+        # Sanity workflow JSON: 8 state (structural, bất biến) + UNIQUE edge-set == 12 (invariant
+        # SSoT). KHÔNG pin raw transition-row count — workflow-admin-override thêm dòng-per-role
+        # (AssetCore Super Admin + System Manager) vào EDGE SẴN CÓ ⇒ raw volatile (13→31…) mà
+        # edge-set semantics GIỮ 12; pin raw sẽ RED-âm mỗi lần cấp role. Raw >= unique là đủ.
         self.assertEqual(
             len(data.get("states", [])), 8,
             "imm_11_calibration_workflow.json PHẢI 8 state (grounding count).")
+        unique_edges = {(t["state"], t["next_state"]) for t in data["transitions"]}
         self.assertEqual(
-            len(data.get("transitions", [])), 13,
-            "imm_11_calibration_workflow.json PHẢI 13 transition raw (12 cạnh unique — dòng lặp).")
+            len(unique_edges), 12,
+            "imm_11_calibration_workflow.json PHẢI 12 cạnh UNIQUE (invariant SSoT — raw-row volatile "
+            "vì admin-override thêm dòng-per-role vào edge sẵn có).")
+        self.assertGreaterEqual(
+            len(data.get("transitions", [])), len(unique_edges),
+            "raw transition rows PHẢI >= unique edge (dòng-per-role duplicate hợp lệ).")
         # Terminal → [] rỗng.
         self.assertEqual(_CAL_VALID_TRANSITIONS[CalibrationResult.PASSED], [], "Passed terminal → [].")
         self.assertEqual(
@@ -2541,3 +2653,260 @@ class TestCalibrationListMineScope(unittest.TestCase):
             "mine=1 ⇒ pagination.total PHẢI == len(rows) (count-vs-rows drift guard).",
         )
         self.assertEqual(data["pagination"]["total"], 3, "CHỈ 3 phiếu của session.user.")
+
+
+# ─── Round 18 — CR-WF-11-CAL: dual-track lockstep workflow_state ⇄ status ──────
+# Groundtruth: docs/imm-11/04_Backend_Design.md §3.2 + 07 §III.4b + ADR-IMM11-06.
+# Đóng desync `workflow_state` đọng state khởi tạo ('Scheduled') khi `status` marches.
+# BE-only — 0 FE, 0 migrate, 0 đổi workflow JSON.
+
+def _load_cal_workflow_states() -> set:
+    """states[] của imm_11_calibration_workflow.json (đọc trực tiếp file — SSoT)."""
+    import json as _json
+    from pathlib import Path
+    p = (Path(frappe.get_app_path("assetcore"))
+         / "assetcore" / "workflow" / "imm_11_calibration_workflow.json")
+    data = _json.loads(p.read_text(encoding="utf-8"))
+    return {s["state"] for s in data["states"]}
+
+
+def _cal_status_select_options() -> set:
+    """Giá trị Select `status` của IMM Asset Calibration (đọc từ meta)."""
+    meta = frappe.get_meta("IMM Asset Calibration")
+    df = meta.get_field("status")
+    return {o.strip() for o in (df.options or "").split("\n") if o.strip()}
+
+
+def _ensure_cal_lab() -> str:
+    """Accredited Calibration Lab fixture (vendor_type + ISO 17025 còn hạn) cho
+    luồng External send_to_lab / receive_certificate."""
+    existing = frappe.db.get_value(
+        "AC Supplier", {"supplier_name": "_Test Cal Lab IMM11 Lockstep"}, "name")
+    if existing:
+        return existing
+    doc = frappe.get_doc({
+        "doctype": "AC Supplier",
+        "supplier_name": "_Test Cal Lab IMM11 Lockstep",
+        "supplier_group": "Calibration Lab",
+        "vendor_type": "Calibration Lab",
+        "iso_17025_cert": "ISO17025-LS-001",
+        "iso_17025_expiry": add_days(nowdate(), 365),
+    }).insert(ignore_permissions=True)
+    return doc.name
+
+
+class TestCalibrationLockstepInvariant(unittest.TestCase):
+    """INV-11-A/B — name-parity status Select ⇄ workflow states + S_svc ⊆ states.
+
+    Bảo đảm lockstep `workflow_state := status` LUÔN ghi 1 tên Workflow State hợp lệ.
+    Groundtruth: docs/imm-11/04_Backend_Design.md §3.2 (INV-11-A/B) + ADR-IMM11-06.
+    """
+
+    def test_inv_11_a_status_options_equal_workflow_states(self):
+        """INV-11-A: set(status Select) == set(workflow states) == 8 (1-1 name-parity)."""
+        status_opts = _cal_status_select_options()
+        wf_states = _load_cal_workflow_states()
+        self.assertEqual(len(wf_states), 8, "imm_11_calibration_workflow.json PHẢI 8 state.")
+        self.assertEqual(
+            status_opts, wf_states,
+            f"INV-11-A DRIFT: status Select {sorted(status_opts)} ≠ workflow states "
+            f"{sorted(wf_states)} — lockstep sẽ ghi workflow_state KHÔNG hợp lệ (vỡ Link).")
+
+    def test_inv_11_b_service_reachable_subset_of_states(self):
+        """INV-11-B: S_svc = {Scheduled, In Progress, Sent to Lab, Cancelled} ⊆ states[].
+
+        4 giá trị mà 6 write-path service ĐẶT vào `status` (grounded imm11.py). `Certificate
+        Received` + 3 terminal ∈ states nhưng ∉ S_svc (chỉ tới qua desk workflow-action).
+        """
+        s_svc = {
+            CalibrationResult.SCHEDULED, CalibrationResult.IN_PROGRESS,
+            CalibrationResult.SENT_TO_LAB, CalibrationResult.CANCELLED,
+        }
+        wf_states = _load_cal_workflow_states()
+        self.assertTrue(
+            s_svc.issubset(wf_states),
+            f"INV-11-B: S_svc {sorted(s_svc)} PHẢI ⊆ workflow states {sorted(wf_states)}.")
+
+
+class TestCalibrationWorkflowLockstep(unittest.TestCase):
+    """AT-11-LOCKSTEP / INV-11-C — sau MỖI transition service, đọc lại DB
+    `workflow_state == status`. Đóng desync workflow_state đọng state khởi tạo.
+
+    RED-before (chứng minh desync): send_to_lab → status='Sent to Lab' nhưng workflow_state
+    đọng 'Scheduled' (get_transitions đọc SAI state → admin/QTV không điều hành phiếu qua
+    workflow-engine desk). GREEN-after (lockstep §3.2): mọi transition workflow_state == status.
+    Groundtruth: docs/imm-11/04_Backend_Design.md §3.2 + 07 §III.4b + ADR-IMM11-06. BE-only.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.asset = _make_asset("-lockstep")
+        cls.lab = _ensure_cal_lab()
+
+    @classmethod
+    def tearDownClass(cls):
+        for c in frappe.get_all(
+            "IMM Asset Calibration", filters={"asset": cls.asset.name}, fields=["name"]
+        ):
+            frappe.db.delete("IMM Calibration Measurement", {"parent": c.name})
+            frappe.db.delete("IMM Asset Calibration", {"name": c.name})
+        _purge_asset_with_deps(cls.asset.name)
+        if cls.lab and frappe.db.exists("AC Supplier", cls.lab):
+            try:
+                frappe.delete_doc("AC Supplier", cls.lab, force=True, ignore_permissions=True)
+            except Exception:
+                pass
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+
+    # ── helpers ──
+    def _wf_state(self, name: str):
+        return frappe.db.get_value("IMM Asset Calibration", name, "workflow_state")
+
+    def _status(self, name: str):
+        return frappe.db.get_value("IMM Asset Calibration", name, "status")
+
+    def _make_inhouse(self) -> str:
+        res = create_calibration(
+            asset=self.asset.name, calibration_type="In-House",
+            scheduled_date=add_days(nowdate(), 7), technician="Administrator",
+            reference_standard_serial="STD-LOCKSTEP-001",
+        )
+        frappe.db.commit()
+        return res["name"]
+
+    def _make_external(self) -> str:
+        res = create_calibration(
+            asset=self.asset.name, calibration_type="External",
+            scheduled_date=add_days(nowdate(), 7), technician="Administrator",
+            lab_supplier=self.lab,
+        )
+        frappe.db.commit()
+        return res["name"]
+
+    # ── TC-11-LOCKSTEP-CREATE ──
+    def test_create_calibration_syncs_workflow_state(self):
+        """AC-11-LS-1: create → workflow_state == status == 'Scheduled' (baseline lockstep)."""
+        name = self._make_inhouse()
+        self.assertEqual(self._status(name), CalibrationResult.SCHEDULED)
+        self.assertEqual(
+            self._wf_state(name), self._status(name),
+            "workflow_state PHẢI == status == 'Scheduled' sau create.")
+
+    # ── TC-11-LOCKSTEP-UPDATE ──
+    def test_update_to_in_progress_syncs_workflow_state(self):
+        """AC-11-LS-2: update status=In Progress → workflow_state == 'In Progress'."""
+        from assetcore.services.imm11 import update_calibration
+        name = self._make_inhouse()
+        update_calibration(name, {"status": CalibrationResult.IN_PROGRESS})
+        frappe.db.commit()
+        self.assertEqual(self._status(name), CalibrationResult.IN_PROGRESS)
+        self.assertEqual(
+            self._wf_state(name), self._status(name),
+            "workflow_state PHẢI == status == 'In Progress' sau update_calibration.")
+
+    # ── TC-11-LOCKSTEP-SENDLAB (RED-prove) ──
+    def test_send_to_lab_syncs_workflow_state(self):
+        """AC-11-LS-3 (RED-prove desync): send_to_lab → workflow_state == 'Sent to Lab'.
+        TRƯỚC FIX: workflow_state đọng 'Scheduled' ⇒ assertion ĐỎ (chứng minh desk-desync)."""
+        from assetcore.services.imm11 import send_to_lab
+        name = self._make_external()
+        send_to_lab(name, lab_supplier=self.lab)
+        frappe.db.commit()
+        self.assertEqual(self._status(name), CalibrationResult.SENT_TO_LAB)
+        self.assertEqual(
+            self._wf_state(name), self._status(name),
+            "workflow_state PHẢI == 'Sent to Lab' — trước fix đọng 'Scheduled' (desync).")
+
+    # ── TC-11-LOCKSTEP-RECVCERT ──
+    def test_receive_certificate_syncs_workflow_state(self):
+        """AC-11-LS-4: receive_certificate → workflow_state == status == 'In Progress'
+        (⚠️ receive_certificate đặt status=In Progress, KHÔNG 'Certificate Received' — §3.2)."""
+        from assetcore.services.imm11 import send_to_lab, receive_certificate
+        name = self._make_external()
+        send_to_lab(name, lab_supplier=self.lab)
+        frappe.db.commit()
+        receive_certificate(
+            name, certificate_file="/files/cert-lockstep.pdf",
+            certificate_number="CERT-LS-001", certificate_date=nowdate(),
+        )
+        frappe.db.commit()
+        self.assertEqual(
+            self._status(name), CalibrationResult.IN_PROGRESS,
+            "receive_certificate đặt status=In Progress (§3.2 Self-Correction).")
+        self.assertEqual(
+            self._wf_state(name), self._status(name),
+            "workflow_state PHẢI == status == 'In Progress' sau receive_certificate.")
+
+    # ── TC-11-LOCKSTEP-CANCEL ──
+    def test_cancel_syncs_workflow_state(self):
+        """AC-11-LS-5: cancel_calibration → workflow_state == status == 'Cancelled'."""
+        name = self._make_inhouse()
+        cancel_calibration(name, reason="_Test lockstep cancel — thiết bị ngừng sử dụng")
+        frappe.db.commit()
+        self.assertEqual(self._status(name), CalibrationResult.CANCELLED)
+        self.assertEqual(
+            self._wf_state(name), self._status(name),
+            "workflow_state PHẢI == status == 'Cancelled' sau cancel_calibration.")
+
+    # ── TC-11-LOCKSTEP-SUBMIT ──
+    def test_submit_syncs_workflow_state(self):
+        """AC-11-LS-6: submit_calibration → workflow_state == status (giữ 'In Progress' —
+        submit KHÔNG advance sang terminal, OoS backlog §3.2)."""
+        from assetcore.services.imm11 import (
+            update_calibration, add_measurement, submit_calibration,
+        )
+        name = self._make_inhouse()
+        update_calibration(name, {"status": CalibrationResult.IN_PROGRESS})
+        add_measurement(
+            name, parameter_name="Temp", unit="C", nominal_value=100,
+            tolerance_positive=5, tolerance_negative=5, measured_value=101,
+        )
+        frappe.db.commit()
+        submit_calibration(name)
+        frappe.db.commit()
+        self.assertEqual(
+            self._status(name), CalibrationResult.IN_PROGRESS,
+            "submit KHÔNG advance status (controller chỉ set overall_result — OoS).")
+        self.assertEqual(
+            self._wf_state(name), self._status(name),
+            "workflow_state PHẢI == status sau submit (db.set_value bypass, doc docstatus=1).")
+
+    # ── TC-11-LOCKSTEP-GETTRANS ──
+    def test_get_transitions_reflects_current_state(self):
+        """AC-11-LS-7: sau send_to_lab, frappe.model.workflow.get_transitions(doc) trả cạnh
+        của 'Sent to Lab' (→ Certificate Received), KHÔNG của 'Scheduled'."""
+        from assetcore.services.imm11 import send_to_lab
+        from frappe.model.workflow import get_transitions
+        name = self._make_external()
+        send_to_lab(name, lab_supplier=self.lab)
+        frappe.db.commit()
+        doc = frappe.get_doc("IMM Asset Calibration", name)
+        next_states = {t.get("next_state") for t in get_transitions(doc)}
+        self.assertIn(
+            CalibrationResult.CERT_RECEIVED, next_states,
+            "get_transitions PHẢI phản ánh cạnh của 'Sent to Lab' (→ Certificate Received).")
+        self.assertNotIn(
+            CalibrationResult.SENT_TO_LAB, next_states,
+            "get_transitions KHÔNG được là cạnh của 'Scheduled' (workflow_state phải đúng state hiện tại).")
+
+    # ── TC-11-LOCKSTEP-NOTHROW ──
+    def test_multihop_send_lab_then_receive_no_workflow_error(self):
+        """AC-11-LS-8: multi-hop 'Sent to Lab → In Progress' (0 workflow-edge) KHÔNG raise
+        WorkflowPermissionError — db.set_value bypass validate_workflow."""
+        from assetcore.services.imm11 import send_to_lab, receive_certificate
+        name = self._make_external()
+        send_to_lab(name, lab_supplier=self.lab)
+        frappe.db.commit()
+        try:
+            receive_certificate(
+                name, certificate_file="/files/cert-nothrow.pdf",
+                certificate_number="CERT-LS-NOTHROW", certificate_date=nowdate(),
+            )
+        except Exception as e:  # noqa: BLE001
+            self.fail(f"multi-hop KHÔNG được raise — nhận {type(e).__name__}: {e}")
+        frappe.db.commit()
+        self.assertEqual(self._wf_state(name), self._status(name))

@@ -1070,3 +1070,852 @@ class TestDecisionCardDrillParity(unittest.TestCase):
                 self.assertEqual(self._kpi_states().get(st, 0),
                                  self._drill_total(st),
                                  f"INV-DEC-DRILL GÃY ({st}) sau seed cross-state")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# IMM-03 — Server-driven CTA (GATE-8 / LL-FE-51): get_decision emit
+#   `allowed_transitions = _DECISION_VALID_TRANSITIONS.get(workflow_state, [])`.
+#
+# BUG gốc (client-map DESYNC): FE DecisionDetailView giữ hằng TRANSITIONS_BY_STATE
+# THIẾU hẳn nhánh 'Pending Approval' → nút 'Huỷ Decision' KHÔNG bao giờ render ⇒
+# QTV / Procurement Manager KHÔNG huỷ được Decision dù fixture cấp quyền transition.
+# Fix: BE là SoT — get_decision emit tập ACTION hợp lệ; FE chỉ render theo tập này.
+#
+# KHÁC IMM-05 (map next_state): map ACTION (nhãn transition) vì FE POST action sang
+# transition_decision_workflow / award_decision / record_contract. allowed_transitions
+# CHỈ là hint hiển thị (⊆ guard-permitted) — guard role trên apply_workflow vẫn là
+# chốt enforcement thật, KHÔNG nới lỏng ở đây.
+# ──────────────────────────────────────────────────────────────────────────────
+
+class TestDecisionAllowedTransitions(unittest.TestCase):
+    """get_decision(name).allowed_transitions == _DECISION_VALID_TRANSITIONS map
+    cho MỖI workflow_state + invariant khớp fixture 'IMM-03 Decision Workflow'."""
+
+    _pds: list[str]
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls._pds = []
+        cls.names: dict[str, str] = {}
+        # 1 Decision cho mỗi state cần assert (insert ở Draft rồi ép state — workflow
+        # validation chặn nhảy thẳng Draft→X; predicate get_decision chỉ đọc field).
+        for state in (
+            "Draft", "Method Selected", "Negotiation", "Award Recommended",
+            "Pending Approval", "Awarded", "Contract Signed", "PO Issued", "Cancelled",
+        ):
+            cls.names[state] = cls._mk_pd(state)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        for name in cls._pds:
+            try:
+                frappe.db.set_value("IMM Procurement Decision", name, "docstatus",
+                                    0, update_modified=False)
+                frappe.delete_doc("IMM Procurement Decision", name, force=1,
+                                  ignore_permissions=True)
+            except Exception:
+                pass
+        frappe.db.commit()
+
+    @classmethod
+    def _mk_pd(cls, state: str) -> str:
+        pd = frappe.get_doc({"doctype": "IMM Procurement Decision",
+                             "workflow_state": "Draft"})
+        pd.flags.ignore_mandatory = True
+        pd.insert(ignore_permissions=True)
+        frappe.db.set_value("IMM Procurement Decision", pd.name,
+                            "workflow_state", state, update_modified=False)
+        cls._pds.append(pd.name)
+        return pd.name
+
+    # ── TC-03-CTA-01: emit đúng tập ACTION cho mỗi state ─────────────────────────
+    def test_get_decision_emits_allowed_transitions(self):
+        from assetcore.api.imm03 import get_decision
+        res = get_decision(self.names["Pending Approval"])["data"]
+        self.assertIn("allowed_transitions", res,
+                      "get_decision PHẢI emit key 'allowed_transitions' (server-driven CTA).")
+        self.assertEqual(set(res["allowed_transitions"]),
+                         {"Phê duyệt trúng thầu", "Huỷ Decision"})
+        self.assertEqual(
+            set(get_decision(self.names["Awarded"])["data"]["allowed_transitions"]),
+            {"Ký HĐ"})
+        self.assertEqual(
+            set(get_decision(self.names["Draft"])["data"]["allowed_transitions"]),
+            {"Chọn phương án"})
+        # Trạng thái cuối → [] tường minh.
+        self.assertEqual(
+            get_decision(self.names["PO Issued"])["data"]["allowed_transitions"], [])
+        self.assertEqual(
+            get_decision(self.names["Cancelled"])["data"]["allowed_transitions"], [])
+
+    # ── TC-03-CTA-02: invariant chống drift — map == fixture (mirror IMM-05) ──────
+    def test_decision_allowed_transitions_matches_workflow_fixture(self):
+        """INVARIANT: map BE == {state: set(action)} của fixture 'IMM-03 Decision
+        Workflow'. Ai thêm/sửa transition mà quên map → test đỏ."""
+        from pathlib import Path
+        from assetcore.services.imm03 import _DECISION_VALID_TRANSITIONS
+        wf_path = Path(frappe.get_app_path("assetcore")) / "fixtures" / "workflow.json"
+        fixtures = json.loads(wf_path.read_text(encoding="utf-8"))
+        wf = next(
+            (w for w in fixtures if w.get("name") == "IMM-03 Decision Workflow"), None)
+        self.assertIsNotNone(wf, "fixture 'IMM-03 Decision Workflow' KHÔNG tồn tại.")
+        # Codomain gồm MỌI state (kể cả terminal không transition ra → set() rỗng).
+        codomain: dict[str, set] = {s["state"]: set() for s in wf["states"]}
+        for t in wf["transitions"]:
+            codomain.setdefault(t["state"], set()).add(t["action"])
+        self.assertEqual(
+            set(_DECISION_VALID_TRANSITIONS.keys()), set(codomain.keys()),
+            "Key-set map BE PHẢI == states[] fixture (thừa/thiếu state → drift).")
+        for state, wf_actions in codomain.items():
+            self.assertEqual(
+                set(_DECISION_VALID_TRANSITIONS[state]), wf_actions,
+                f"DRIFT '{state}': map {sorted(_DECISION_VALID_TRANSITIONS[state])} "
+                f"!= fixture {sorted(wf_actions)}")
+
+    # ── TC-03-CTA-03: regression đúng bug — Pending Approval lộ 'Huỷ Decision' ────
+    def test_pending_approval_exposes_cancel_transition(self):
+        """Đúng nhánh trước đây client-map bỏ sót: ở Pending Approval, 'Huỷ Decision'
+        PHẢI có trong allowed_transitions (FE khôi phục nút Huỷ)."""
+        from assetcore.api.imm03 import get_decision
+        allowed = get_decision(self.names["Pending Approval"])["data"]["allowed_transitions"]
+        self.assertIn("Huỷ Decision", allowed,
+                      "'Huỷ Decision' PHẢI có ở Pending Approval — QTV/Procurement "
+                      "Manager huỷ được (bug client-map DESYNC).")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# IMM-03 — Server-driven CTA (GATE-8 / LL-FE-51) PARITY cho Vendor Evaluation:
+#   get_evaluation emit `allowed_transitions = _EVAL_VALID_TRANSITIONS.get(state, [])`
+#   (song song get_decision / _DECISION_VALID_TRANSITIONS).
+#
+# BUG gốc (client-map DESYNC): VendorEvalDetailView giữ hằng client TRANSITIONS_BY_STATE
+# → QTV/Commissioning Manager thấy/bấm action không đúng quyền hoặc lệch khi workflow
+# đổi. Fix: BE là SoT — get_evaluation emit tập ACTION hợp lệ; FE chỉ render theo tập
+# này. allowed_transitions CHỈ là hint hiển thị (⊆ guard-permitted) — guard role trên
+# apply_workflow (transition_eval_workflow) vẫn là chốt enforcement thật.
+# ──────────────────────────────────────────────────────────────────────────────
+
+class TestEvalAllowedTransitions(unittest.TestCase):
+    """get_evaluation(name).allowed_transitions == _EVAL_VALID_TRANSITIONS map cho
+    MỖI workflow_state + invariant khớp fixture 'IMM-03 Vendor Eval Workflow'."""
+
+    _ves: list[str]
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls._ves = []
+        cls.names: dict[str, str] = {}
+        # 1 Evaluation cho mỗi state cần assert (insert ở Draft rồi ép state —
+        # workflow validation chặn nhảy thẳng; predicate get_evaluation chỉ đọc field).
+        for state in ("Draft", "Open RFQ", "Quotation Received", "Evaluated", "Cancelled"):
+            cls.names[state] = cls._mk_ve(state)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        for name in cls._ves:
+            try:
+                frappe.db.set_value(_DT_VE, name, "docstatus", 0,
+                                    update_modified=False)
+                frappe.delete_doc(_DT_VE, name, force=1, ignore_permissions=True)
+            except Exception:
+                pass
+        frappe.db.commit()
+
+    @classmethod
+    def _mk_ve(cls, state: str) -> str:
+        ve = frappe.get_doc({"doctype": _DT_VE, "workflow_state": "Draft"})
+        ve.flags.ignore_mandatory = True
+        ve.insert(ignore_permissions=True)
+        frappe.db.set_value(_DT_VE, ve.name, "workflow_state", state,
+                            update_modified=False)
+        cls._ves.append(ve.name)
+        return ve.name
+
+    # ── TC-03-EVAL-CTA-01: emit đúng tập ACTION cho mỗi state ─────────────────────
+    def test_get_evaluation_emits_allowed_transitions(self):
+        from assetcore.api.imm03 import get_evaluation
+        res = get_evaluation(self.names["Quotation Received"])["data"]
+        self.assertIn("allowed_transitions", res,
+                      "get_evaluation PHẢI emit key 'allowed_transitions' (server-driven CTA).")
+        self.assertEqual(res["allowed_transitions"],
+                         ["Hoàn tất chấm điểm", "Huỷ Eval"])
+        self.assertEqual(
+            get_evaluation(self.names["Draft"])["data"]["allowed_transitions"],
+            ["Mở RFQ"])
+        self.assertEqual(
+            set(get_evaluation(self.names["Open RFQ"])["data"]["allowed_transitions"]),
+            {"Nhận báo giá xong", "Huỷ Eval"})
+        # Trạng thái cuối → [] tường minh (không nút transition).
+        self.assertEqual(
+            get_evaluation(self.names["Evaluated"])["data"]["allowed_transitions"], [])
+        self.assertEqual(
+            get_evaluation(self.names["Cancelled"])["data"]["allowed_transitions"], [])
+
+    # ── TC-03-EVAL-CTA-02: invariant chống drift — map == fixture (parity Decision) ─
+    def test_eval_allowed_transitions_matches_workflow_fixture(self):
+        """INVARIANT: map BE == {state: set(action)} của fixture 'IMM-03 Vendor Eval
+        Workflow'. Ai thêm/sửa transition mà quên map → test đỏ (equality, chống
+        thiếu/thừa desync)."""
+        from pathlib import Path
+        from assetcore.services.imm03 import _EVAL_VALID_TRANSITIONS
+        wf_path = Path(frappe.get_app_path("assetcore")) / "fixtures" / "workflow.json"
+        fixtures = json.loads(wf_path.read_text(encoding="utf-8"))
+        wf = next(
+            (w for w in fixtures if w.get("name") == "IMM-03 Vendor Eval Workflow"), None)
+        self.assertIsNotNone(wf, "fixture 'IMM-03 Vendor Eval Workflow' KHÔNG tồn tại.")
+        # Codomain gồm MỌI state (kể cả terminal không transition ra → set() rỗng).
+        codomain: dict[str, set] = {s["state"]: set() for s in wf["states"]}
+        for t in wf["transitions"]:
+            codomain.setdefault(t["state"], set()).add(t["action"])
+        self.assertEqual(
+            set(_EVAL_VALID_TRANSITIONS.keys()), set(codomain.keys()),
+            "Key-set map BE PHẢI == states[] fixture (thừa/thiếu state → drift).")
+        for state, wf_actions in codomain.items():
+            self.assertEqual(
+                set(_EVAL_VALID_TRANSITIONS[state]), wf_actions,
+                f"DRIFT '{state}': map {sorted(_EVAL_VALID_TRANSITIONS[state])} "
+                f"!= fixture {sorted(wf_actions)}")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# IMM-03 — Server-driven CTA (GATE-8 / LL-FE-51) cho AVL Entry (workflow 3/3):
+#   get_avl/list_avl emit `allowed_transitions` = svc.avl_allowed_transitions(
+#   workflow_state, user_roles) — LỌC theo role caller (⊆ tập được phép). SoT =
+#   `_AVL_VALID_TRANSITIONS` (RICHER: (action, next_state, allowed_roles)).
+#
+# BUG gốc: get_avl passthrough as_dict() thô (không emit allowed_transitions) +
+# AvlListView hardcode `workflow_state==='Draft'|'Approved'|'Conditional'` → nút
+# 'Phục hồi Approved' (Conditional/Suspended→Approved) BE+fixture cho phép nhưng
+# FE giấu = dead-functionality. Fix: BE là SoT — FE gate theo tập này.
+# ──────────────────────────────────────────────────────────────────────────────
+
+_DT_AVL = "IMM AVL Entry"
+
+
+class TestAvlAllowedTransitions(unittest.TestCase):
+    """get_avl/list_avl emit allowed_transitions đúng theo workflow_state + invariant
+    map == fixture 'IMM-03 AVL Workflow' (parity Decision/Eval)."""
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls._avls: list[str] = []
+        cls._suppliers: list[str] = []
+        cls._cats: list[str] = []
+        cls.supplier = cls._mk_supplier()
+        cls.cat = cls._mk_cat()
+        cls.names: dict[str, str] = {}
+        for state in ("Draft", "Approved", "Conditional", "Suspended", "Expired"):
+            cls.names[state] = cls._mk_avl(state)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        for name in cls._avls:
+            try:
+                frappe.db.set_value(_DT_AVL, name, "docstatus", 0, update_modified=False)
+                frappe.delete_doc(_DT_AVL, name, force=1, ignore_permissions=True)
+            except Exception:
+                pass
+        for c in cls._cats:
+            try:
+                frappe.delete_doc("AC Asset Category", c, force=1, ignore_permissions=True)
+            except Exception:
+                pass
+        for s in cls._suppliers:
+            try:
+                frappe.delete_doc("AC Supplier", s, force=1, ignore_permissions=True)
+            except Exception:
+                pass
+        frappe.db.commit()
+
+    @classmethod
+    def _mk_supplier(cls) -> str:
+        d = frappe.get_doc({"doctype": "AC Supplier",
+                            "supplier_name": f"_T-AVLCTA-SUP-{frappe.generate_hash(length=6)}"})
+        d.flags.ignore_mandatory = True
+        d.insert(ignore_permissions=True)
+        cls._suppliers.append(d.name)
+        return d.name
+
+    @classmethod
+    def _mk_cat(cls) -> str:
+        c = frappe.get_doc({"doctype": "AC Asset Category",
+                            "category_name": f"_T-AVLCTA-CAT-{frappe.generate_hash(length=6)}",
+                            "category_code": f"AC{frappe.generate_hash(length=4)}"})
+        c.flags.ignore_mandatory = True
+        c.insert(ignore_permissions=True)
+        cls._cats.append(c.name)
+        return c.name
+
+    @classmethod
+    def _mk_avl(cls, state: str) -> str:
+        from frappe.utils import today
+        avl = frappe.get_doc({"doctype": _DT_AVL, "supplier": cls.supplier,
+                              "device_category": cls.cat, "validity_years": 2,
+                              "valid_from": today()})
+        avl.flags.ignore_mandatory = True
+        avl.insert(ignore_permissions=True)
+        cls._avls.append(avl.name)
+        if state != "Draft":
+            avl.submit()  # docstatus 1 (workflow_state vẫn Draft → activate_avl skip)
+        frappe.db.set_value(_DT_AVL, avl.name, "workflow_state", state,
+                            update_modified=False)
+        return avl.name
+
+    # ── TC-03-AVL-CTA-01: invariant map == fixture EXACT (state,action,next,roles) ──
+    def test_avl_allowed_transitions_matches_workflow_fixture(self):
+        """INVARIANT chống desync: (state, action, next_state, roles) của
+        _AVL_VALID_TRANSITIONS == fixture 'IMM-03 AVL Workflow' (equality)."""
+        from pathlib import Path
+        from assetcore.services.imm03 import _AVL_VALID_TRANSITIONS
+        wf_path = Path(frappe.get_app_path("assetcore")) / "fixtures" / "workflow.json"
+        fixtures = json.loads(wf_path.read_text(encoding="utf-8"))
+        wf = next((w for w in fixtures if w.get("name") == "IMM-03 AVL Workflow"), None)
+        self.assertIsNotNone(wf, "fixture 'IMM-03 AVL Workflow' KHÔNG tồn tại.")
+        # (state, action, next_state) — dedupe rows role-nhân-bản của fixture.
+        fixture_edges = {(t["state"], t["action"], t["next_state"]) for t in wf["transitions"]}
+        map_edges = {(state, action, next_state)
+                     for state, rows in _AVL_VALID_TRANSITIONS.items()
+                     for action, next_state, _roles in rows}
+        self.assertEqual(
+            map_edges, fixture_edges,
+            "DRIFT _AVL_VALID_TRANSITIONS(edges) != fixture 'IMM-03 AVL Workflow'")
+        # Key-set == states[] (kể cả terminal Expired → [] nhưng CÓ key).
+        self.assertEqual(set(_AVL_VALID_TRANSITIONS.keys()),
+                         {s["state"] for s in wf["states"]})
+        # Role parity: allowed_roles mỗi edge == union 'allowed' fixture cho edge đó.
+        fixture_roles: dict[tuple, set] = {}
+        for t in wf["transitions"]:
+            fixture_roles.setdefault(
+                (t["state"], t["action"], t["next_state"]), set()).add(t["allowed"])
+        for state, rows in _AVL_VALID_TRANSITIONS.items():
+            for action, next_state, roles in rows:
+                self.assertEqual(
+                    set(roles), fixture_roles[(state, action, next_state)],
+                    f"ROLE DRIFT {state}/{action}: map {sorted(roles)} != "
+                    f"fixture {sorted(fixture_roles[(state, action, next_state)])}")
+
+    # ── TC-03-AVL-CTA-02: get_avl emit đúng tập ACTION cho mỗi state (Admin=full) ──
+    def test_get_avl_emits_allowed_transitions(self):
+        from assetcore.api.imm03 import get_avl
+        self.assertEqual(
+            get_avl(self.names["Draft"])["data"]["allowed_transitions"],
+            ["Phê duyệt AVL", "Cấp Conditional"])
+        self.assertEqual(
+            get_avl(self.names["Approved"])["data"]["allowed_transitions"],
+            ["Hạ xuống Conditional", "Đình chỉ"])
+        self.assertEqual(
+            get_avl(self.names["Conditional"])["data"]["allowed_transitions"],
+            ["Phục hồi Approved", "Đình chỉ"])
+        self.assertEqual(
+            get_avl(self.names["Suspended"])["data"]["allowed_transitions"],
+            ["Phục hồi Approved"])
+        # Trạng thái cuối → [] tường minh (0 nút).
+        self.assertEqual(
+            get_avl(self.names["Expired"])["data"]["allowed_transitions"], [])
+
+    # ── TC-03-AVL-CTA-03: list_avl emit allowed_transitions MỖI row ───────────────
+    def test_list_avl_emits_allowed_transitions_per_row(self):
+        from assetcore.api.imm03 import list_avl
+        res = list_avl(json.dumps({"supplier": self.supplier}))["data"]
+        by_state = {it["workflow_state"]: it.get("allowed_transitions")
+                    for it in res["items"]}
+        self.assertEqual(by_state.get("Draft"), ["Phê duyệt AVL", "Cấp Conditional"])
+        self.assertEqual(by_state.get("Approved"), ["Hạ xuống Conditional", "Đình chỉ"])
+        self.assertEqual(by_state.get("Suspended"), ["Phục hồi Approved"])
+        self.assertEqual(by_state.get("Expired"), [])
+        # MỖI row PHẢI carry key (không sót row nào).
+        for it in res["items"]:
+            self.assertIn("allowed_transitions", it)
+
+    # ── TC-03-AVL-CTA-04: Suspended lộ 'Phục hồi Approved' (đóng dead-functionality) ─
+    def test_suspended_exposes_restore_transition(self):
+        from assetcore.api.imm03 import get_avl
+        allowed = get_avl(self.names["Suspended"])["data"]["allowed_transitions"]
+        self.assertIn("Phục hồi Approved", allowed,
+                      "'Phục hồi Approved' PHẢI có ở Suspended (BE+fixture cho phép, "
+                      "trước đây FE giấu vì chỉ gate Draft → dead-functionality).")
+
+    # ── TC-03-AVL-CTA-05: role filter — user thiếu role → allowed_transitions rỗng ─
+    def test_allowed_transitions_filtered_by_role(self):
+        """SSoT derive LỌC theo role: user không có Procurement/Spec/Admin role →
+        [] (degrade an toàn, FE 0 nút, không dead-control 403)."""
+        from assetcore.services.imm03 import avl_allowed_transitions
+        low = {"AssetCore System User", "All"}
+        self.assertEqual(avl_allowed_transitions("Draft", low), [])
+        self.assertEqual(avl_allowed_transitions("Approved", low), [])
+        # Đủ role (Spec Manager) → thấy đúng action mình được phép.
+        spec = {"Spec Manager"}
+        self.assertEqual(avl_allowed_transitions("Approved", spec),
+                         ["Hạ xuống Conditional", "Đình chỉ"])
+        # Procurement Manager KHÔNG có 'Cấp Conditional' (Spec-only) ở Draft.
+        proc = {"Procurement Manager"}
+        self.assertEqual(avl_allowed_transitions("Draft", proc), ["Phê duyệt AVL"])
+
+
+class TestAvlTransitionEnforcement(unittest.TestCase):
+    """approve_avl/suspend_avl: SoT-gated + role-enforced (LL-BE-62), approver derive
+    session (chống spoof). Đóng root-cause 'không duyệt được dù đủ quyền'."""
+
+    _LOW_USER = "_t_avl_lowrole@example.com"
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls._avls: list[str] = []
+        cls._suppliers: list[str] = []
+        cls._cats: list[str] = []
+        # Low-role user (chỉ base role, KHÔNG có role transition nào của AVL).
+        if not frappe.db.exists("User", cls._LOW_USER):
+            u = frappe.get_doc({
+                "doctype": "User", "email": cls._LOW_USER,
+                "first_name": "AVL LowRole", "send_welcome_email": 0,
+                "roles": [{"role": "AssetCore System User"}],
+            })
+            u.flags.ignore_permissions = True
+            u.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        for name in cls._avls:
+            frappe.db.sql("DELETE FROM `tabIMM Audit Trail` "
+                          "WHERE ref_doctype=%s AND ref_name=%s", (_DT_AVL, name))
+            try:
+                frappe.db.set_value(_DT_AVL, name, "docstatus", 0, update_modified=False)
+                frappe.delete_doc(_DT_AVL, name, force=1, ignore_permissions=True)
+            except Exception:
+                pass
+        for c in cls._cats:
+            try:
+                frappe.delete_doc("AC Asset Category", c, force=1, ignore_permissions=True)
+            except Exception:
+                pass
+        for s in cls._suppliers:
+            try:
+                frappe.delete_doc("AC Supplier", s, force=1, ignore_permissions=True)
+            except Exception:
+                pass
+        try:
+            frappe.delete_doc("User", cls._LOW_USER, force=1, ignore_permissions=True)
+        except Exception:
+            pass
+        frappe.db.commit()
+
+    # ── fixtures ────────────────────────────────────────────────────────────────
+
+    def _supplier(self) -> str:
+        d = frappe.get_doc({"doctype": "AC Supplier",
+                            "supplier_name": f"_T-AVLENF-SUP-{frappe.generate_hash(length=6)}"})
+        d.flags.ignore_mandatory = True
+        d.insert(ignore_permissions=True)
+        type(self)._suppliers.append(d.name)
+        return d.name
+
+    def _cat(self) -> str:
+        c = frappe.get_doc({"doctype": "AC Asset Category",
+                            "category_name": f"_T-AVLENF-CAT-{frappe.generate_hash(length=6)}",
+                            "category_code": f"AE{frappe.generate_hash(length=4)}"})
+        c.flags.ignore_mandatory = True
+        c.insert(ignore_permissions=True)
+        type(self)._cats.append(c.name)
+        return c.name
+
+    def _mk_draft_avl(self, supplier=None, cat=None) -> str:
+        from frappe.utils import today
+        avl = frappe.get_doc({"doctype": _DT_AVL,
+                              "supplier": supplier or self._supplier(),
+                              "device_category": cat or self._cat(),
+                              "validity_years": 2, "valid_from": today()})
+        avl.flags.ignore_mandatory = True
+        avl.insert(ignore_permissions=True)  # docstatus 0, workflow_state Draft
+        type(self)._avls.append(avl.name)
+        return avl.name
+
+    def _mk_approved_avl(self):
+        """Trả (name, supplier) — AVL Approved (docstatus 1) + supplier synced."""
+        from frappe.utils import add_days, today
+        sup = self._supplier()
+        name = self._mk_draft_avl(supplier=sup, cat=self._cat())
+        avl = frappe.get_doc(_DT_AVL, name)
+        avl.submit()
+        frappe.db.set_value(_DT_AVL, name,
+                            {"workflow_state": "Approved",
+                             "valid_to": add_days(today(), 365)},
+                            update_modified=False)
+        from assetcore.services.imm03 import _sync_supplier_avl_status
+        _sync_supplier_avl_status(sup)
+        return name, sup
+
+    # ── TC-03-AVL-ENF-01: approver spoof bị ignore (derive session) ───────────────
+    def test_approve_ignores_client_approver_spoof(self):
+        from assetcore.api.imm03 import _approve_avl
+        name = self._mk_draft_avl()
+        _approve_avl(name)
+        self.assertEqual(frappe.db.get_value(_DT_AVL, name, "approver"),
+                         frappe.session.user)
+        self.assertEqual(frappe.db.get_value(_DT_AVL, name, "workflow_state"),
+                         "Approved")
+
+    def test_approve_whitelist_swallows_legacy_approver_kwarg(self):
+        """Whitelist approve_avl(name, approver='hacker@x.vn') → **_ignore nuốt
+        (back-compat OpenAPI/mobile); avl.approver == session, KHÔNG spoof."""
+        from assetcore.api.imm03 import approve_avl
+        name = self._mk_draft_avl()
+        res = approve_avl(name, approver="hacker@x.vn")  # legacy kwarg
+        self.assertTrue(res["success"])
+        self.assertEqual(frappe.db.get_value(_DT_AVL, name, "approver"),
+                         frappe.session.user)
+        self.assertNotEqual(frappe.db.get_value(_DT_AVL, name, "approver"),
+                            "hacker@x.vn")
+
+    # ── TC-03-AVL-ENF-02: approve Draft→Approved thành công (đủ quyền) ────────────
+    def test_approve_from_draft_success(self):
+        from assetcore.api.imm03 import _approve_avl
+        name = self._mk_draft_avl()
+        res = _approve_avl(name)
+        self.assertEqual(res["workflow_state"], "Approved")
+        self.assertEqual(frappe.db.get_value(_DT_AVL, name, "workflow_state"),
+                         "Approved")
+
+    # ── TC-03-AVL-ENF-03: suspend từ Draft KHÔNG có trong SoT → reject BAD_STATE ──
+    def test_suspend_from_draft_rejected(self):
+        from assetcore.api.imm03 import _suspend_avl
+        name = self._mk_draft_avl()
+        with self.assertRaises(ServiceError) as cm:
+            _suspend_avl(name, "Lý do đình chỉ")
+        self.assertEqual(cm.exception.code, ErrorCode.BAD_STATE)
+        # KHÔNG bị đổi state (ad-hoc branch cũ cho phép mọi state đã bị siết).
+        self.assertEqual(frappe.db.get_value(_DT_AVL, name, "workflow_state"), "Draft")
+
+    # ── TC-03-AVL-ENF-04: suspend Approved→Suspended OK + _sync gọi ───────────────
+    def test_suspend_from_approved_success_syncs_supplier(self):
+        from assetcore.api.imm03 import _suspend_avl
+        name, sup = self._mk_approved_avl()
+        # supplier có AVL active → imm_avl_status Approved trước khi đình chỉ
+        if frappe.db.has_column("AC Supplier", "imm_avl_status"):
+            self.assertEqual(
+                frappe.db.get_value("AC Supplier", sup, "imm_avl_status"), "Approved")
+        res = _suspend_avl(name, "Phát hiện vi phạm ISO 13485")
+        self.assertEqual(res["workflow_state"], "Suspended")
+        self.assertEqual(frappe.db.get_value(_DT_AVL, name, "workflow_state"), "Suspended")
+        self.assertEqual(frappe.db.get_value(_DT_AVL, name, "suspension_reason"),
+                         "Phát hiện vi phạm ISO 13485")
+        # _sync gọi → AVL active DUY NHẤT bị đình chỉ → supplier về Expired.
+        if frappe.db.has_column("AC Supplier", "imm_avl_status"):
+            self.assertEqual(
+                frappe.db.get_value("AC Supplier", sup, "imm_avl_status"), "Expired")
+
+    # ── TC-03-AVL-ENF-05: restore Suspended→Approved qua 'Phục hồi Approved' ──────
+    def test_restore_from_suspended_success(self):
+        from assetcore.api.imm03 import _approve_avl, _suspend_avl
+        name, _sup = self._mk_approved_avl()
+        _suspend_avl(name, "tạm dừng do audit")
+        res = _approve_avl(name)  # Suspended → Approved
+        self.assertEqual(res["workflow_state"], "Approved")
+        self.assertEqual(frappe.db.get_value(_DT_AVL, name, "workflow_state"), "Approved")
+
+    # ── TC-03-AVL-ENF-06: user thiếu role → approve/suspend raise FORBIDDEN ───────
+    def test_approve_low_role_rejected(self):
+        from assetcore.api.imm03 import _approve_avl
+        name = self._mk_draft_avl()
+        frappe.set_user(self._LOW_USER)
+        try:
+            with self.assertRaises(ServiceError) as cm:
+                _approve_avl(name)
+            self.assertEqual(cm.exception.code, ErrorCode.FORBIDDEN)
+        finally:
+            frappe.set_user("Administrator")
+        # Guard fail-fast → state KHÔNG đổi (vẫn Draft).
+        self.assertEqual(frappe.db.get_value(_DT_AVL, name, "workflow_state"), "Draft")
+
+    def test_suspend_low_role_rejected(self):
+        from assetcore.api.imm03 import _suspend_avl
+        name, _sup = self._mk_approved_avl()
+        frappe.set_user(self._LOW_USER)
+        try:
+            with self.assertRaises(ServiceError) as cm:
+                _suspend_avl(name, "lý do bất kỳ")
+            self.assertEqual(cm.exception.code, ErrorCode.FORBIDDEN)
+        finally:
+            frappe.set_user("Administrator")
+        self.assertEqual(frappe.db.get_value(_DT_AVL, name, "workflow_state"), "Approved")
+
+    # ── TC-03-AVL-ENF-07: approve từ Expired (ngoài SoT) → BAD_STATE ──────────────
+    def test_approve_from_expired_rejected(self):
+        from assetcore.api.imm03 import _approve_avl
+        name, _sup = self._mk_approved_avl()
+        frappe.db.set_value(_DT_AVL, name, "workflow_state", "Expired",
+                            update_modified=False)
+        with self.assertRaises(ServiceError) as cm:
+            _approve_avl(name)
+        self.assertEqual(cm.exception.code, ErrorCode.BAD_STATE)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CR-WF-03-AVL-COND — set_avl_conditional (đóng "hidden-CTA-câm")
+#
+# 2 nhãn action Conditional ĐÃ ở SoT `_AVL_VALID_TRANSITIONS` + fixture 'IMM-03
+# AVL Workflow' + phát qua `allowed_transitions` (list_avl/get_avl) NHƯNG chưa có
+# endpoint → FE render nút → click 404 câm. Endpoint mới `set_avl_conditional`:
+#   Draft    → Conditional  (action 'Cấp Conditional',      submit doc 0→1, mirror _approve_avl nhánh Draft)
+#   Approved → Conditional  (action 'Hạ xuống Conditional', db.set_value submitted, mirror _suspend_avl)
+# reuse field `condition_notes` (Long Text SẴN CÓ) — KHÔNG migrate.
+# ─────────────────────────────────────────────────────────────────────────────
+class TestAvlConditional(unittest.TestCase):
+    """set_avl_conditional: Draft→Conditional (submit) + Approved→Conditional
+    (db.set_value) — SoT-gated + role-enforced (LL-BE-62), condition_notes bắt buộc
+    (parity suspension_reason), _sync_supplier + 1 audit 'State Change'."""
+
+    _LOW_USER = "_t_avlcond_lowrole@example.com"
+    _SPEC_USER = "_t_avlcond_specmgr@example.com"
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls._avls: list[str] = []
+        cls._suppliers: list[str] = []
+        cls._cats: list[str] = []
+        # Low-role user (chỉ base role, KHÔNG có role transition nào của AVL) → FORBIDDEN.
+        if not frappe.db.exists("User", cls._LOW_USER):
+            u = frappe.get_doc({
+                "doctype": "User", "email": cls._LOW_USER,
+                "first_name": "AVLCond LowRole", "send_welcome_email": 0,
+                "roles": [{"role": "AssetCore System User"}],
+            })
+            u.flags.ignore_permissions = True
+            u.insert(ignore_permissions=True)
+        # Spec Manager user — AC2: Spec Manager thực hiện được CẢ 2 nhánh Conditional.
+        if not frappe.db.exists("User", cls._SPEC_USER):
+            u = frappe.get_doc({
+                "doctype": "User", "email": cls._SPEC_USER,
+                "first_name": "AVLCond SpecMgr", "send_welcome_email": 0,
+                "roles": [{"role": "AssetCore System User"}, {"role": "Spec Manager"}],
+            })
+            u.flags.ignore_permissions = True
+            u.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        for name in cls._avls:
+            frappe.db.sql("DELETE FROM `tabIMM Audit Trail` "
+                          "WHERE ref_doctype=%s AND ref_name=%s", (_DT_AVL, name))
+            try:
+                frappe.db.set_value(_DT_AVL, name, "docstatus", 0, update_modified=False)
+                frappe.delete_doc(_DT_AVL, name, force=1, ignore_permissions=True)
+            except Exception:
+                pass
+        for c in cls._cats:
+            try:
+                frappe.delete_doc("AC Asset Category", c, force=1, ignore_permissions=True)
+            except Exception:
+                pass
+        for s in cls._suppliers:
+            try:
+                frappe.delete_doc("AC Supplier", s, force=1, ignore_permissions=True)
+            except Exception:
+                pass
+        for user in (cls._LOW_USER, cls._SPEC_USER):
+            try:
+                frappe.delete_doc("User", user, force=1, ignore_permissions=True)
+            except Exception:
+                pass
+        frappe.db.commit()
+
+    # ── fixtures (mirror TestAvlTransitionEnforcement) ────────────────────────────
+    def _supplier(self) -> str:
+        d = frappe.get_doc({"doctype": "AC Supplier",
+                            "supplier_name": f"_T-AVLCOND-SUP-{frappe.generate_hash(length=6)}"})
+        d.flags.ignore_mandatory = True
+        d.insert(ignore_permissions=True)
+        type(self)._suppliers.append(d.name)
+        return d.name
+
+    def _cat(self) -> str:
+        c = frappe.get_doc({"doctype": "AC Asset Category",
+                            "category_name": f"_T-AVLCOND-CAT-{frappe.generate_hash(length=6)}",
+                            "category_code": f"AC{frappe.generate_hash(length=4)}"})
+        c.flags.ignore_mandatory = True
+        c.insert(ignore_permissions=True)
+        type(self)._cats.append(c.name)
+        return c.name
+
+    def _mk_draft_avl(self, supplier=None, cat=None) -> str:
+        from frappe.utils import today
+        avl = frappe.get_doc({"doctype": _DT_AVL,
+                              "supplier": supplier or self._supplier(),
+                              "device_category": cat or self._cat(),
+                              "validity_years": 2, "valid_from": today()})
+        avl.flags.ignore_mandatory = True
+        avl.insert(ignore_permissions=True)  # docstatus 0, workflow_state Draft
+        type(self)._avls.append(avl.name)
+        return avl.name
+
+    def _mk_approved_avl(self):
+        """Trả (name, supplier) — AVL Approved (docstatus 1) + supplier synced."""
+        from frappe.utils import add_days, today
+        sup = self._supplier()
+        name = self._mk_draft_avl(supplier=sup, cat=self._cat())
+        avl = frappe.get_doc(_DT_AVL, name)
+        avl.submit()
+        frappe.db.set_value(_DT_AVL, name,
+                            {"workflow_state": "Approved",
+                             "valid_to": add_days(today(), 365)},
+                            update_modified=False)
+        _sync_supplier_avl_status(sup)
+        return name, sup
+
+    def _count_state_change_audit(self, name: str) -> int:
+        return frappe.db.count("IMM Audit Trail",
+                               {"ref_doctype": _DT_AVL, "ref_name": name,
+                                "event_type": "State Change"})
+
+    # ── BE-TC1: Draft + Spec role + notes → Conditional docstatus=1 + notes lưu ────
+    def test_grant_conditional_from_draft(self):
+        from assetcore.api.imm03 import _set_avl_conditional
+        name = self._mk_draft_avl()
+        res = _set_avl_conditional(name, "Chỉ đạt 2/3 tiêu chí")
+        self.assertEqual(res["workflow_state"], "Conditional")
+        self.assertEqual(frappe.db.get_value(_DT_AVL, name, "workflow_state"), "Conditional")
+        self.assertEqual(frappe.db.get_value(_DT_AVL, name, "docstatus"), 1)  # submit 0→1
+        self.assertEqual(frappe.db.get_value(_DT_AVL, name, "condition_notes"),
+                         "Chỉ đạt 2/3 tiêu chí")
+
+    # ── BE-TC2: Approved (submitted) → Conditional qua db.set_value, docstatus giữ 1 ─
+    def test_downgrade_conditional_from_approved(self):
+        from assetcore.api.imm03 import _set_avl_conditional
+        name, _sup = self._mk_approved_avl()
+        self.assertEqual(frappe.db.get_value(_DT_AVL, name, "docstatus"), 1)
+        res = _set_avl_conditional(name, "Vi phạm nhẹ điều khoản giao hàng")
+        self.assertEqual(res["workflow_state"], "Conditional")
+        self.assertEqual(frappe.db.get_value(_DT_AVL, name, "workflow_state"), "Conditional")
+        # KHÔNG re-submit — docstatus vẫn 1 (không nhảy 2 hay reset 0).
+        self.assertEqual(frappe.db.get_value(_DT_AVL, name, "docstatus"), 1)
+        self.assertEqual(frappe.db.get_value(_DT_AVL, name, "condition_notes"),
+                         "Vi phạm nhẹ điều khoản giao hàng")
+
+    # ── BE-TC3: condition_notes rỗng/whitespace → VALIDATION ──────────────────────
+    def test_empty_condition_notes_rejected(self):
+        from assetcore.api.imm03 import _set_avl_conditional
+        name = self._mk_draft_avl()
+        for bad in ("", "   ", "\n\t "):
+            with self.assertRaises(ServiceError) as cm:
+                _set_avl_conditional(name, bad)
+            self.assertEqual(cm.exception.code, ErrorCode.VALIDATION)
+        # Không side-effect: vẫn Draft (docstatus 0).
+        self.assertEqual(frappe.db.get_value(_DT_AVL, name, "workflow_state"), "Draft")
+
+    # ── BE-TC4: state ∈ {Conditional, Suspended, Expired} → BAD_STATE (reject cạnh) ─
+    def test_out_of_sot_states_rejected(self):
+        from assetcore.api.imm03 import _set_avl_conditional
+        for bad_state in ("Conditional", "Suspended", "Expired"):
+            name, _sup = self._mk_approved_avl()
+            frappe.db.set_value(_DT_AVL, name, "workflow_state", bad_state,
+                                update_modified=False)
+            with self.assertRaises(ServiceError) as cm:
+                _set_avl_conditional(name, "lý do hợp lệ")
+            self.assertEqual(cm.exception.code, ErrorCode.BAD_STATE,
+                             f"state {bad_state} phải BAD_STATE")
+            # Không đổi state.
+            self.assertEqual(frappe.db.get_value(_DT_AVL, name, "workflow_state"), bad_state)
+
+    # ── BE-TC5: user thiếu role → FORBIDDEN (fail-fast, KHÔNG PermissionError) ─────
+    def test_low_role_rejected(self):
+        from assetcore.api.imm03 import _set_avl_conditional
+        name = self._mk_draft_avl()
+        frappe.set_user(self._LOW_USER)
+        try:
+            with self.assertRaises(ServiceError) as cm:
+                _set_avl_conditional(name, "lý do hợp lệ")
+            self.assertEqual(cm.exception.code, ErrorCode.FORBIDDEN)
+        finally:
+            frappe.set_user("Administrator")
+        # Guard fail-fast → state KHÔNG đổi.
+        self.assertEqual(frappe.db.get_value(_DT_AVL, name, "workflow_state"), "Draft")
+
+    # ── AC2: Spec Manager thực hiện được CẢ 2 nhánh ───────────────────────────────
+    def test_spec_manager_can_do_both_branches(self):
+        from assetcore.api.imm03 import _set_avl_conditional
+        # Nhánh Draft
+        d_name = self._mk_draft_avl()
+        # Nhánh Approved
+        a_name, _sup = self._mk_approved_avl()
+        frappe.set_user(self._SPEC_USER)
+        try:
+            r1 = _set_avl_conditional(d_name, "Điều kiện: bổ sung ISO 13485 trong 90 ngày")
+            r2 = _set_avl_conditional(a_name, "Hạ do phát hiện chậm giao 2 lô")
+        finally:
+            frappe.set_user("Administrator")
+        self.assertEqual(r1["workflow_state"], "Conditional")
+        self.assertEqual(r2["workflow_state"], "Conditional")
+        self.assertEqual(frappe.db.get_value(_DT_AVL, d_name, "docstatus"), 1)
+        self.assertEqual(frappe.db.get_value(_DT_AVL, a_name, "docstatus"), 1)
+
+    # ── BE-TC6: downgrade Approved→Conditional → _sync supplier + 1 audit 'State Change' ─
+    def test_downgrade_syncs_supplier_and_audits(self):
+        from assetcore.api.imm03 import _set_avl_conditional
+        name, sup = self._mk_approved_avl()
+        if frappe.db.has_column("AC Supplier", "imm_avl_status"):
+            self.assertEqual(
+                frappe.db.get_value("AC Supplier", sup, "imm_avl_status"), "Approved")
+        before = self._count_state_change_audit(name)
+        _set_avl_conditional(name, "Hạ do audit ISO phát hiện điểm không phù hợp minor")
+        # _sync gọi → AVL active DUY NHẤT giờ Conditional → supplier về Conditional.
+        if frappe.db.has_column("AC Supplier", "imm_avl_status"):
+            self.assertEqual(
+                frappe.db.get_value("AC Supplier", sup, "imm_avl_status"), "Conditional")
+        # ĐÚNG 1 dòng IMM Audit Trail 'State Change' mới.
+        after = self._count_state_change_audit(name)
+        self.assertEqual(after - before, 1)
+
+    def test_audit_summary_localized(self):
+        """change_summary = 'AVL — {action}: {from_vi} → Có điều kiện' (localize enum)."""
+        from assetcore.api.imm03 import _set_avl_conditional
+        name = self._mk_draft_avl()
+        _set_avl_conditional(name, "Đạt điều kiện tối thiểu")
+        summary = frappe.db.get_value(
+            "IMM Audit Trail",
+            {"ref_doctype": _DT_AVL, "ref_name": name, "event_type": "State Change"},
+            "change_summary")
+        self.assertEqual(summary, "AVL — Cấp Conditional: Nháp → Có điều kiện")
+
+    # ── BE-TC7 (INVARIANT): mọi action phát ra ⊆ endpoint @whitelist implemented ───
+    def test_avl_every_emitted_action_has_endpoint(self):
+        """MỌI action-label trong codomain _AVL_VALID_TRANSITIONS map tới 1 endpoint
+        @whitelist IMPLEMENTED (đóng câm, đo được). RED trước khi land
+        set_avl_conditional ('Cấp Conditional' + 'Hạ xuống Conditional' unmapped)."""
+        import assetcore.api.imm03 as api
+        from assetcore.services.imm03 import _AVL_VALID_TRANSITIONS
+        # Bảng action-label → tên endpoint @whitelist chịu trách nhiệm phát action đó.
+        action_endpoint = {
+            "Phê duyệt AVL":        "approve_avl",
+            "Phục hồi Approved":    "approve_avl",
+            "Cấp Conditional":      "set_avl_conditional",
+            "Hạ xuống Conditional": "set_avl_conditional",
+            "Đình chỉ":             "suspend_avl",
+        }
+        # codomain = tập action-label có trong SoT (mọi state).
+        emitted = {action
+                   for rows in _AVL_VALID_TRANSITIONS.values()
+                   for action, _next, _roles in rows}
+        # (1) mọi action phát ra PHẢI có trong bảng map (thêm action mới mà quên → đỏ).
+        unmapped = emitted - set(action_endpoint)
+        self.assertFalse(unmapped, f"Action chưa map tới endpoint: {unmapped}")
+        # (2) mỗi endpoint map tới PHẢI là callable @whitelist IMPLEMENTED.
+        for action in emitted:
+            fn = getattr(api, action_endpoint[action], None)
+            self.assertTrue(callable(fn),
+                            f"Endpoint cho '{action}' chưa implement: "
+                            f"{action_endpoint[action]}")
+            self.assertIn(fn, frappe.whitelisted,
+                          f"Endpoint '{action_endpoint[action]}' cho '{action}' "
+                          f"chưa @frappe.whitelist")

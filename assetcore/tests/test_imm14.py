@@ -537,5 +537,200 @@ class TestListDecommissions(_BaseIMM14):
         self.assertNotEqual(row["responsible_name"], row["responsible"])
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# TC-IMM14-CTA — get_decommission.can_approve + approve_blocked_reason (GATE-8) —
+# server-driven CTA + SoT parity (get ⇆ approve dùng CÙNG helper). TDD RED trước.
+# ─────────────────────────────────────────────────────────────────────────────
+class TestDecommissionApproveGate(_BaseIMM14):
+    """Bề mặt DUYỆT server-driven (GATE-8/LL-FE-51).
+
+    Acceptance:
+      - get_decommission emit can_approve (int 0/1) = rbac.can('decommission.approve')
+        AND doc-state-approvable (draft + asset chưa Decommissioned + field-gate
+        patient_data C/D đạt).
+      - approve_blocked_reason = chuỗi VI (từ MSG.*, rỗng khi can_approve=1).
+      - can_approve dẫn xuất CÙNG helper SoT mà approve_decommission enforce
+        (flip 1 điều kiện → cả 2 đổi đồng bộ, chống desync).
+    """
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+        for email in getattr(self, "_extra_users", []):
+            try:
+                frappe.delete_doc("User", email, force=True, ignore_permissions=True)
+            except Exception:  # noqa: BLE001
+                pass
+        frappe.db.commit()
+        super().tearDown()
+
+    def _mk_user(self, email: str, roles: list[str]) -> str:
+        if frappe.db.exists("User", email):
+            frappe.delete_doc("User", email, force=True, ignore_permissions=True)
+        u = frappe.get_doc({
+            "doctype": "User", "email": email,
+            "first_name": email.split("@")[0], "send_welcome_email": 0,
+            "user_type": "System User",
+        }).insert(ignore_permissions=True)
+        for r in roles:
+            u.append("roles", {"role": r})
+        u.flags.ignore_permissions = True
+        u.save()
+        frappe.db.commit()
+        from assetcore.services.shared import rbac as _rbac
+        _rbac.invalidate_capabilities(email)
+        self._extra_users = getattr(self, "_extra_users", [])
+        self._extra_users.append(email)
+        return email
+
+    @staticmethod
+    def _rendered(code: str, **ctx) -> str:
+        from assetcore.utils.messages import format_message
+        return format_message(code, ctx)[1]
+
+    # ── can_approve=1 (draft + có cap + patient_data ok) → reason rỗng ─────────
+    def test_get_can_approve_true_for_draft_with_cap(self):
+        from assetcore.services import imm14
+        asset = self._make_asset("cta-ok", lifecycle="Active", risk="Critical")
+        rec = self._make_record(asset, sanitized=True)  # High/Critical → sanitized reqd
+        mgr = self._mk_user("_test_imm14_cta_mgr@assetcore.test",
+                            ["Commissioning Manager"])
+        try:
+            frappe.set_user(mgr)
+            out = imm14.get_decommission(rec)
+            self.assertEqual(out["can_approve"], 1)
+            self.assertEqual(out["approve_blocked_reason"], "")
+        finally:
+            frappe.set_user("Administrator")
+
+    # ── can_approve=0 (a) thiếu cap (Commissioning User submit=0) ─────────────
+    def test_get_can_approve_false_missing_cap(self):
+        from assetcore.services import imm14
+        asset = self._make_asset("cta-nocap", lifecycle="Active", risk="Low")
+        rec = self._make_record(asset, sanitized=True)
+        user = self._mk_user("_test_imm14_cta_user@assetcore.test",
+                             ["Commissioning User"])
+        try:
+            frappe.set_user(user)
+            out = imm14.get_decommission(rec)
+            self.assertEqual(out["can_approve"], 0)
+            self.assertEqual(
+                out["approve_blocked_reason"],
+                self._rendered(MSG.IMM14_NO_APPROVE_PERMISSION))
+        finally:
+            frappe.set_user("Administrator")
+
+    # ── can_approve=0 (b) đã docstatus=1 (Approved) ──────────────────────────
+    def test_get_can_approve_false_already_approved(self):
+        from assetcore.services import imm14
+        asset = self._make_asset("cta-appr", lifecycle="Active", risk="Low")
+        rec = self._make_record(asset, sanitized=True)
+        imm14.approve_decommission(rec)
+        frappe.db.commit()
+        mgr = self._mk_user("_test_imm14_cta_appr_mgr@assetcore.test",
+                            ["Commissioning Manager"])
+        try:
+            frappe.set_user(mgr)
+            out = imm14.get_decommission(rec)
+            self.assertEqual(out["can_approve"], 0)
+            self.assertEqual(
+                out["approve_blocked_reason"],
+                self._rendered(MSG.IMM14_ALREADY_APPROVED))
+        finally:
+            frappe.set_user("Administrator")
+
+    # ── can_approve=0 (c) asset đã Decommissioned bởi record khác ─────────────
+    def test_get_can_approve_false_asset_terminal(self):
+        from assetcore.services import imm14
+        asset = self._make_asset("cta-term", lifecycle="Active", risk="Low")
+        rec = self._make_record(asset, sanitized=True)
+        # Mô phỏng: asset đã bị record khác giải nhiệm (đặt terminal trực tiếp).
+        frappe.db.set_value(_ASSET, asset, "lifecycle_status",
+                            AssetStatus.DECOMMISSIONED)
+        frappe.db.commit()
+        mgr = self._mk_user("_test_imm14_cta_term_mgr@assetcore.test",
+                            ["Commissioning Manager"])
+        try:
+            frappe.set_user(mgr)
+            out = imm14.get_decommission(rec)
+            self.assertEqual(out["can_approve"], 0)
+            self.assertEqual(
+                out["approve_blocked_reason"],
+                self._rendered(MSG.IMM14_ALREADY_DECOMMISSIONED, asset=asset))
+        finally:
+            frappe.set_user("Administrator")
+
+    # ── approve: docstatus 0→1 + asset Decommissioned + payload ──────────────
+    def test_approve_transitions_and_payload(self):
+        from assetcore.services import imm14
+        asset = self._make_asset("appr-payload", lifecycle="Active", risk="Low")
+        rec = self._make_record(asset, sanitized=True)
+        payload = imm14.approve_decommission(rec)
+        frappe.db.commit()
+        self.assertEqual(payload["docstatus"], 1)
+        self.assertEqual(payload["asset"], asset)
+        self.assertEqual(payload["lifecycle_status"], AssetStatus.DECOMMISSIONED)
+        self.assertTrue(payload["decommissioned_on"])
+        # gọi lần 2 idempotent no-op (KHÔNG double effect)
+        payload2 = imm14.approve_decommission(rec)
+        self.assertEqual(payload2["docstatus"], 1)
+        self.assertEqual(payload2["lifecycle_status"], AssetStatus.DECOMMISSIONED)
+
+    # ── approve: asset đã Decommissioned bởi record khác → BAD_STATE/409 ──────
+    def test_approve_blocked_when_asset_terminal(self):
+        from assetcore.services import imm14
+        asset = self._make_asset("appr-term", lifecycle="Active", risk="Low")
+        rec = self._make_record(asset, sanitized=True)
+        frappe.db.set_value(_ASSET, asset, "lifecycle_status",
+                            AssetStatus.DECOMMISSIONED)
+        frappe.db.commit()
+        with self.assertRaises(ServiceError) as ctx:
+            imm14.approve_decommission(rec)
+        self.assertEqual(ctx.exception.message_code, MSG.IMM14_ALREADY_DECOMMISSIONED)
+        self.assertEqual(ctx.exception.http_status, 409)
+        # record KHÔNG submit
+        self.assertEqual(frappe.db.get_value(_DECOM, rec, "docstatus"), 0)
+
+    # ── INVARIANT (GATE-8): get.can_approve ⇆ approve dùng CÙNG helper SoT ────
+    def test_can_approve_and_approve_derive_same_gate(self):
+        """Flip 1 điều kiện gate (patient_data) → CẢ get.can_approve và
+        approve_decommission đổi đồng bộ (chống desync server-driven CTA)."""
+        from assetcore.services import imm14
+        asset = self._make_asset("invariant", lifecycle="Active", risk="Critical")
+        rec = self._make_record(asset, sanitized=False)  # High/Critical + chưa sanitize
+        mgr = self._mk_user("_test_imm14_inv_mgr@assetcore.test",
+                            ["Commissioning Manager"])
+
+        # (1) chưa sanitize → get.can_approve=0 + approve raise PATIENT_DATA_REQUIRED
+        try:
+            frappe.set_user(mgr)
+            out = imm14.get_decommission(rec)
+            self.assertEqual(out["can_approve"], 0)
+            self.assertEqual(
+                out["approve_blocked_reason"],
+                self._rendered(MSG.IMM14_PATIENT_DATA_REQUIRED, risk="Critical"))
+        finally:
+            frappe.set_user("Administrator")
+        with self.assertRaises(ServiceError) as ctx:
+            imm14.approve_decommission(rec)
+        self.assertEqual(ctx.exception.message_code, MSG.IMM14_PATIENT_DATA_REQUIRED)
+        frappe.db.rollback()
+
+        # (2) FLIP điều kiện: đánh dấu đã xử lý dữ liệu bệnh nhân
+        frappe.db.set_value(_DECOM, rec, "patient_data_sanitized", 1)
+        frappe.db.commit()
+        # get.can_approve=1 + reason rỗng (đồng bộ)
+        try:
+            frappe.set_user(mgr)
+            out2 = imm14.get_decommission(rec)
+            self.assertEqual(out2["can_approve"], 1)
+            self.assertEqual(out2["approve_blocked_reason"], "")
+        finally:
+            frappe.set_user("Administrator")
+        # approve giờ THÀNH CÔNG (đồng bộ với can_approve=1)
+        payload = imm14.approve_decommission(rec)
+        frappe.db.commit()
+        self.assertEqual(payload["lifecycle_status"], AssetStatus.DECOMMISSIONED)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -5,16 +5,21 @@ Run: bench --site miyano run-tests --app assetcore --module assetcore.tests.test
 """
 from __future__ import annotations
 
+import json
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
 import frappe
 from frappe.utils import add_days, nowdate
 
 from assetcore.services.imm05 import (
     DocState,
+    _DOC_VALID_TRANSITIONS,
     _resolve_alert_level,
     approve_document,
     get_dashboard_stats,
+    get_document,
     list_documents,
     reject_document,
     update_document,
@@ -934,6 +939,122 @@ class TestFullyDepreciatedReadPath(unittest.TestCase):
         self.assertIn("pagination", res["data"])
         # Unfiltered total >= our 6 seeded assets.
         self.assertGreaterEqual(res["data"]["pagination"]["total"], 6)
+
+
+# ─── Server-driven CTA: get_document allowed_transitions + can_approve ────────
+#     GATE-8 / LL-FE-51 — màn Chi tiết tài liệu (get_document) emit tập
+#     allowed_transitions (SoT = workflow 'IMM-05 Document Workflow') + cờ
+#     can_approve (rbac.can('doc.approve')) → FE render nút CTA theo SERVER, KHÔNG
+#     hardcode workflow_state===. Mirror imm08._PM_VALID_TRANSITIONS / imm12.
+class TestGetDocumentAllowedTransitions(unittest.TestCase):
+    """(1) get_document(name) CHỨA key allowed_transitions == _DOC_VALID_TRANSITIONS
+    map cho MỖI workflow_state (Draft/Pending Review/Active/Rejected/Archived).
+    Archived (terminal) → []."""
+
+    asset: str
+
+    @classmethod
+    def setUpClass(cls):
+        cls.asset = _make_asset()
+        cls.names: dict[str, str] = {}
+        for state in (
+            DocState.DRAFT, DocState.PENDING_REVIEW, DocState.ACTIVE,
+            DocState.REJECTED, DocState.ARCHIVED,
+        ):
+            # Insert as Draft then flip via set_value — bypass Frappe workflow-engine
+            # transition validation (Draft→X không phải transition hợp lệ khi insert).
+            name = _make_doc(cls.asset)
+            if state != DocState.DRAFT:
+                frappe.db.set_value(
+                    "Asset Document", name, "workflow_state", state,
+                    update_modified=False,
+                )
+            cls.names[state] = name
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        purge_asset(cls.asset)
+        frappe.db.commit()
+
+    def test_get_document_emits_allowed_transitions_per_state(self):
+        for state, name in self.names.items():
+            data = get_document(name)
+            self.assertIn(
+                "allowed_transitions", data,
+                "get_document PHẢI emit key 'allowed_transitions' (server-driven CTA).")
+            self.assertEqual(
+                data["allowed_transitions"], _DOC_VALID_TRANSITIONS[state],
+                f"allowed_transitions '{state}' PHẢI == map[{state}].")
+        # Archived (terminal) → [] rỗng, tường minh.
+        self.assertEqual(
+            get_document(self.names[DocState.ARCHIVED])["allowed_transitions"], [],
+            "Archived (terminal) → [] rỗng (KHÔNG transition ra).")
+
+    def test_get_document_allowed_transitions_matches_workflow_fixture(self):
+        """INVARIANT chống drift: map BE == next_states của fixture
+        'IMM-05 Document Workflow'. Ai thêm/sửa transition mà quên map → test đỏ."""
+        wf_path = Path(frappe.get_app_path("assetcore")) / "fixtures" / "workflow.json"
+        fixtures = json.loads(wf_path.read_text(encoding="utf-8"))
+        wf = next(
+            (w for w in fixtures if w.get("name") == "IMM-05 Document Workflow"), None,
+        )
+        self.assertIsNotNone(wf, "fixture 'IMM-05 Document Workflow' KHÔNG tồn tại.")
+        # Codomain gồm MỌI state (kể cả terminal không có transition ra → set() rỗng).
+        codomain = {s["state"]: set() for s in wf["states"]}
+        for t in wf["transitions"]:
+            codomain.setdefault(t["state"], set()).add(t["next_state"])
+        self.assertEqual(
+            set(_DOC_VALID_TRANSITIONS.keys()), set(codomain.keys()),
+            "Key-set map BE PHẢI == states[] workflow fixture (thừa/thiếu state → drift).")
+        for state, wf_nexts in codomain.items():
+            self.assertEqual(
+                set(_DOC_VALID_TRANSITIONS[state]), wf_nexts,
+                f"DRIFT '{state}': map {sorted(_DOC_VALID_TRANSITIONS[state])} "
+                f"≠ workflow {sorted(wf_nexts)}.")
+
+
+class TestGetDocumentCanApprove(unittest.TestCase):
+    """(3) can_approve:int 0/1 = int(rbac.can('doc.approve')) — phản ánh capability
+    thật của user (stub rbac.can để deterministic, KHÔNG so role-name)."""
+
+    asset: str
+    name: str
+
+    @classmethod
+    def setUpClass(cls):
+        cls.asset = _make_asset()
+        cls.name = _make_doc(cls.asset)  # Draft
+        frappe.db.set_value(
+            "Asset Document", cls.name, "workflow_state", DocState.PENDING_REVIEW,
+            update_modified=False,
+        )
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        purge_asset(cls.asset)
+        frappe.db.commit()
+
+    def test_can_approve_1_when_capable(self):
+        with patch("assetcore.services.imm05.rbac.can", return_value=True):
+            data = get_document(self.name)
+        self.assertEqual(
+            data.get("can_approve"), 1,
+            "user CÓ capability doc.approve → can_approve == 1.")
+
+    def test_can_approve_0_when_not_capable(self):
+        with patch("assetcore.services.imm05.rbac.can", return_value=False):
+            data = get_document(self.name)
+        self.assertEqual(
+            data.get("can_approve"), 0,
+            "user KHÔNG có capability doc.approve → can_approve == 0.")
+
+    def test_can_approve_is_int_not_bool(self):
+        """Contract codegen (LL-BE-50): cờ 0/1 phải là int (Dart/Kotlin), KHÔNG bool."""
+        with patch("assetcore.services.imm05.rbac.can", return_value=True):
+            data = get_document(self.name)
+        self.assertIsInstance(data.get("can_approve"), int)
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@ Run: bench --site miyano run-tests --app assetcore --module assetcore.tests.test
 from __future__ import annotations
 
 import contextlib
+import json
 import unittest
 
 import frappe
@@ -14,31 +15,53 @@ from frappe.utils import add_days, add_months, nowdate
 from assetcore.services.imm06 import (
     EXPIRY_WINDOW_DAYS,
     RECERT_LEAD_DAYS,
+    COMPETENCY_RECERTIFY,
+    COMPETENCY_RESTORE,
+    COMPETENCY_REVOKE,
+    COMPETENCY_SIGNOFF,
+    COMPETENCY_SUSPEND,
     CompetencyStatus,
     ProgramStatus,
     SessionStatus,
+    _COMPETENCY_VALID_TRANSITIONS,
+    _SESSION_VALID_TRANSITIONS,
+    _competency_states_allowing,
     _expired_competency_filter,
     _expiring_competency_filter,
+    _session_source_states,
     archive_old_competency,
+    get_competency,
+    recertify_competency,
+    restore_competency,
+    revoke_competency,
+    suspend_competency,
     auto_expire_competencies,
+    cancel_session,
     check_expiring_competencies,
+    close_session,
+    complete_training_session,
     compute_competency_dates,
     compute_expiry_dates,
     compute_overall_results,
+    confirm_session,
     enroll_participants,
     get_dashboard_stats,
     get_expiring_competencies,
+    get_session,
     list_competencies,
     list_user_competencies,
     remove_participant,
     set_computed_competency_fields,
     signoff_competency,
+    start_training_session,
     get_program_score_bounds,
     validate_passing_score_range,
     validate_score_bounds_config,
     validate_validity_range,
+    verify_session,
 )
-from assetcore.services.shared import ServiceError
+from assetcore.api import imm06 as api06
+from assetcore.services.shared import ErrorCode, ServiceError
 
 
 # ─── Fixtures ────────────────────────────────────────────────────────────────
@@ -1440,6 +1463,777 @@ def _purge_test_competencies() -> None:
     if orphan_alerts:
         frappe.db.delete("IMM Competency Alert Log", {"name": ["in", orphan_alerts]})
     frappe.db.commit()
+
+
+# ─── GATE-8/LL-FE-51: server-driven CTA cho Training Session ──────────────────
+
+# CR-WF-06-SESSION (Vòng 28) — reconcile SSoT ⇄ workflow JSON; EXCEPTION_EDGES == ∅.
+#
+# `_SESSION_EXCEPTION_EDGES` khai TƯỜNG MINH == frozenset() (0 cạnh ngoại lệ).
+# TƯƠNG PHẢN competency (`test_competency_allowed_transitions_matches_workflow`,
+# 4 EXCEPTION_EDGES): session state-machine 100% CTA người dùng — KHÔNG
+# scheduler-auto (Active→Expired…), KHÔNG create-new (recertify sinh doc mới) —
+# nên MỌI cạnh workflow map 1:1 vào `_SESSION_VALID_TRANSITIONS` (value =
+# next-state cụ thể). ⇒ symmetric_difference(workflow_pairs, map_pairs) PHẢI
+# rỗng; cạnh lạ bất kỳ (1 phía có, phía kia thiếu) = drift → RED.
+_SESSION_EXCEPTION_EDGES: frozenset = frozenset()
+
+# Tập nhãn-hành-động hợp lệ của "IMM-06 Session Workflow" (anti-drift): label lạ
+# trong JSON → assertIn RED → buộc người sửa cập nhật bảng + kiểm có cạnh mới.
+_SESSION_WF_ACTION_LABELS: frozenset = frozenset({
+    "Xác nhận", "Bắt đầu", "Hoàn thành", "Verify", "Đóng", "Hủy",
+})
+
+
+class TestSessionAllowedTransitions(unittest.TestCase):
+    """IMM-06 Buổi đào tạo — get_session emit `allowed_transitions` khớp EXACT
+    SSoT `_SESSION_VALID_TRANSITIONS`, và 6 service transition đọc guard từ CHUNG
+    map (map↔guard KHÔNG drift). Đối xứng test_imm08.TestPmAllowedTransitions +
+    test_imm09.TestRepairAllowedTransitions.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        for r in ("AssetCore Super Admin", "Training Manager"):
+            if not frappe.db.exists("Role", r):
+                frappe.get_doc({"doctype": "Role", "role_name": r}
+                               ).insert(ignore_permissions=True)
+        frappe.get_doc("User", "Administrator").add_roles(
+            "AssetCore Super Admin", "Training Manager")
+        cls.prog = _make_program()
+        cls._sessions: list[str] = []
+
+    @classmethod
+    def tearDownClass(cls):
+        for name in cls._sessions:
+            if frappe.db.exists("IMM Training Session", name):
+                frappe.delete_doc("IMM Training Session", name,
+                                  force=True, ignore_permissions=True)
+        frappe.delete_doc("IMM Training Program", cls.prog,
+                          force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def _session(self, state: str = SessionStatus.PLANNED) -> str:
+        """Tạo buổi đào tạo có 1 học viên rồi ép workflow_state = ``state``
+        (qua db.set_value → bỏ qua controller side-effects)."""
+        sess = frappe.get_doc({
+            "doctype": "IMM Training Session",
+            "training_program": self.prog,
+            "session_date": nowdate(),
+            "session_type": "Onsite",
+            "duration_planned_hours": 4,
+            "instructor": "Administrator",
+        })
+        sess.append("participants", {"user": "Administrator",
+                                     "role_at_session": "Operator"})
+        sess.flags.ignore_links = True
+        sess.insert(ignore_permissions=True)
+        frappe.db.set_value("IMM Training Session", sess.name,
+                            "workflow_state", state)
+        frappe.db.commit()
+        type(self)._sessions.append(sess.name)
+        return sess.name
+
+    # ── TC1-TC4: allowed_transitions khớp EXACT map (thứ tự ổn định) ──────────
+
+    def test_tc1_planned_allowed(self):
+        name = self._session(SessionStatus.PLANNED)
+        self.assertEqual(
+            get_session(name)["allowed_transitions"],
+            ["Confirmed", "In Progress", "Cancelled"],
+        )
+
+    def test_tc2_confirmed_allowed(self):
+        name = self._session(SessionStatus.CONFIRMED)
+        self.assertEqual(
+            get_session(name)["allowed_transitions"],
+            ["In Progress", "Cancelled"],
+        )
+
+    def test_tc3_in_progress_allowed(self):
+        name = self._session(SessionStatus.IN_PROGRESS)
+        self.assertEqual(get_session(name)["allowed_transitions"], ["Completed"])
+
+    def test_tc4_completed_verified_terminal(self):
+        cases = {
+            SessionStatus.COMPLETED: ["Verified"],
+            SessionStatus.VERIFIED: ["Closed"],
+            SessionStatus.CLOSED: [],
+            SessionStatus.CANCELLED: [],
+        }
+        for state, expected in cases.items():
+            name = self._session(state)
+            self.assertEqual(
+                get_session(name)["allowed_transitions"], expected,
+                msg=f"allowed_transitions sai cho state={state}",
+            )
+
+    # ── TC5: regression desync — Bắt đầu từ Planned hợp lệ (imm06.py:242) ─────
+
+    def test_tc5_desync_start_from_planned(self):
+        name = self._session(SessionStatus.PLANNED)
+        # 1) map PHẢI offer 'In Progress' cho buổi Planned (trước fix thiếu → FE ẩn nút)
+        self.assertIn("In Progress", get_session(name)["allowed_transitions"])
+        # 2) service start_session từ Planned chạy thành công, KHÔNG throw
+        res = start_training_session(name)
+        self.assertEqual(res["workflow_state"], SessionStatus.IN_PROGRESS)
+        self.assertEqual(
+            frappe.db.get_value("IMM Training Session", name, "workflow_state"),
+            SessionStatus.IN_PROGRESS,
+        )
+
+    # ── TC6: invariant map↔guard — chống drift ──────────────────────────────
+
+    def test_tc6_map_guard_no_drift(self):
+        all_states = list(_SESSION_VALID_TRANSITIONS.keys())
+        specs = [
+            (SessionStatus.CONFIRMED, lambda n: confirm_session(n)),
+            (SessionStatus.IN_PROGRESS, lambda n: start_training_session(n)),
+            (SessionStatus.COMPLETED, lambda n: complete_training_session(n, [])),
+            (SessionStatus.VERIFIED, lambda n: verify_session(n)),
+            (SessionStatus.CLOSED, lambda n: close_session(n)),
+            (SessionStatus.CANCELLED, lambda n: cancel_session(n, "Lý do hủy hợp lệ")),
+        ]
+        for next_state, invoke in specs:
+            sources = _session_source_states(next_state)
+            self.assertTrue(
+                sources, msg=f"{next_state} phải có ≥1 state nguồn trong map")
+            # Forward: từ MỖI state nguồn hợp lệ → service KHÔNG raise BAD_STATE.
+            for s in sources:
+                name = self._session(s)
+                try:
+                    invoke(name)
+                except ServiceError as e:
+                    self.assertNotEqual(
+                        e.code, ErrorCode.BAD_STATE,
+                        msg=f"→{next_state}: nguồn hợp lệ {s} KHÔNG được raise BAD_STATE",
+                    )
+            # Reverse: từ state NGOÀI tập nguồn → service PHẢI raise BAD_STATE.
+            for s in [x for x in all_states if x not in sources]:
+                name = self._session(s)
+                with self.assertRaises(ServiceError) as ctx:
+                    invoke(name)
+                self.assertEqual(
+                    ctx.exception.code, ErrorCode.BAD_STATE,
+                    msg=f"→{next_state}: state ngoài map {s} PHẢI raise BAD_STATE",
+                )
+
+    # ── CR-WF-06-SESSION: reconcile map ⇄ workflow JSON (EXCEPTION_EDGES == ∅) ─
+
+    def test_session_allowed_transitions_matches_workflow(self):
+        """SSoT `_SESSION_VALID_TRANSITIONS` (next-state) reconcile ⇄ file workflow
+        `imm_06_session_workflow.json` (name "IMM-06 Session Workflow", doctype IMM
+        Training Session). Symmetric-difference các cạnh `(state, next_state)` giữa 2
+        nguồn PHẢI == `_SESSION_EXCEPTION_EDGES` (== frozenset() — 0 ngoại lệ). Parity
+        R26 competency `test_competency_allowed_transitions_matches_workflow`.
+
+        TƯƠNG PHẢN competency (4 EXCEPTION_EDGES: 3 scheduler-auto + 1 create-new):
+        session-state-machine 100% CTA người dùng ⇒ map ≡ workflow (8 cạnh khớp hệt).
+
+        RED-before demo: gỡ 'In Progress' khỏi `map[Planned]` → sym-diff mọc
+        {('Planned','In Progress')} ≠ ∅ → RED (CTA 'Bắt đầu' ẩn ở buổi Planned dù
+        workflow còn cạnh). Restore → GREEN.
+        """
+        path = frappe.get_app_path(
+            "assetcore", "assetcore", "workflow", "imm_06_session_workflow.json")
+        with open(path, encoding="utf-8") as fh:
+            wf = json.load(fh)
+
+        # Anti-drift nhãn: mọi action-label workflow PHẢI ∈ tập đã khai (lạ → RED).
+        for t in wf["transitions"]:
+            self.assertIn(
+                t["action"], _SESSION_WF_ACTION_LABELS,
+                msg=(f"Action-label workflow '{t['action']}' chưa khai trong "
+                     "_SESSION_WF_ACTION_LABELS — cập nhật + kiểm cạnh mới"),
+            )
+
+        # Cạnh distinct (role-expanded → set gom): workflow vs SSoT map.
+        workflow_pairs = {(t["state"], t["next_state"]) for t in wf["transitions"]}
+        map_pairs = {
+            (state, nxt)
+            for state, nexts in _SESSION_VALID_TRANSITIONS.items()
+            for nxt in nexts
+        }
+
+        divergent = workflow_pairs.symmetric_difference(map_pairs)
+        self.assertEqual(
+            divergent, _SESSION_EXCEPTION_EDGES,
+            msg=(f"map ⇄ workflow divergent {sorted(divergent)} != EXCEPTION_EDGES "
+                 f"{sorted(_SESSION_EXCEPTION_EDGES)} — cạnh lạ = drift SSoT↔workflow"),
+        )
+
+        # Grounding 2-chiều tường minh (0 orphan): map ⊆ workflow ∧ workflow ⊆ map.
+        self.assertEqual(
+            map_pairs - workflow_pairs, set(),
+            msg=f"Cạnh map MỒ CÔI (∉ workflow): {sorted(map_pairs - workflow_pairs)}",
+        )
+        self.assertEqual(
+            workflow_pairs - map_pairs, set(),
+            msg=(f"Cạnh workflow KHÔNG surface thành CTA trong map: "
+                 f"{sorted(workflow_pairs - map_pairs)}"),
+        )
+
+        # EXCEPTION_EDGES tường minh rỗng (tương phản competency 4 cạnh) + chốt 8 cạnh.
+        self.assertEqual(_SESSION_EXCEPTION_EDGES, frozenset())
+        self.assertEqual(len(workflow_pairs), 8, "workflow phải có đúng 8 cạnh distinct")
+        self.assertEqual(len(map_pairs), 8, "map phải có đúng 8 cạnh")
+
+
+class TestCompetencyAllowedTransitions(unittest.TestCase):
+    """IMM-06 Năng lực — get_competency emit `allowed_transitions` khớp EXACT SSoT
+    `_COMPETENCY_VALID_TRANSITIONS`, và 3 service transition (signoff/revoke/recertify)
+    đọc guard từ CHUNG map (map↔guard KHÔNG drift). Đối xứng TestSessionAllowedTransitions.
+    GATE-8 / LL-FE-51 — AC1 + AC4.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        for r in ("AssetCore Super Admin", "Training Manager"):
+            if not frappe.db.exists("Role", r):
+                frappe.get_doc({"doctype": "Role", "role_name": r}
+                               ).insert(ignore_permissions=True)
+        frappe.get_doc("User", "Administrator").add_roles(
+            "AssetCore Super Admin", "Training Manager")
+        cls._comps: list[str] = []
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        for name in cls._comps:
+            if frappe.db.exists("IMM User Competency", name):
+                frappe.db.delete("IMM User Competency", {"name": name})
+                frappe.db.delete("IMM Audit Trail",
+                                 {"ref_doctype": "IMM User Competency", "ref_name": name})
+        frappe.db.commit()
+
+    def _comp(self, state: str) -> str:
+        name = _make_competency("Administrator", "", state=state)
+        type(self)._comps.append(name)
+        return name
+
+    # ── AC1: allowed_transitions khớp EXACT SSoT theo từng state ──────────────
+
+    def test_get_competency_allowed_transitions_by_state(self):
+        cases = {
+            CompetencyStatus.PENDING:   [COMPETENCY_SIGNOFF],
+            CompetencyStatus.ACTIVE:    [COMPETENCY_SUSPEND, COMPETENCY_REVOKE],
+            CompetencyStatus.EXPIRING:  [COMPETENCY_RECERTIFY, COMPETENCY_REVOKE],
+            CompetencyStatus.EXPIRED:   [COMPETENCY_RECERTIFY, COMPETENCY_REVOKE],
+            CompetencyStatus.SUSPENDED: [COMPETENCY_RESTORE, COMPETENCY_REVOKE],
+            CompetencyStatus.REVOKED:   [],
+        }
+        for state, expected in cases.items():
+            name = self._comp(state)
+            got = get_competency(name)["allowed_transitions"]
+            self.assertEqual(
+                got, expected,
+                msg=f"allowed_transitions sai cho state={state}: {got} != {expected}",
+            )
+
+    def test_get_competency_terminal_revoked_empty(self):
+        name = self._comp(CompetencyStatus.REVOKED)
+        self.assertEqual(get_competency(name)["allowed_transitions"], [])
+
+    # ── AC3: Super Admin (training.submit) → cờ can_* non-empty ở state hợp lệ ──
+
+    def test_superadmin_can_flags_non_empty(self):
+        # Administrator có Super Admin + Training Manager (training.submit) → cờ True.
+        name = self._comp(CompetencyStatus.EXPIRING)
+        data = get_competency(name)
+        self.assertTrue(data["can_recertify"], "Super Admin phải can_recertify ở Expiring")
+        self.assertTrue(data["can_revoke"], "Super Admin phải can_revoke ở Expiring")
+        self.assertFalse(data["can_signoff"], "Sign-off KHÔNG khả dụng ở Expiring")
+
+    # ── AC4: invariant map↔guard — chống desync SoT↔enforce (bidirectional) ────
+
+    def test_competency_allowed_transitions_parity_invariant(self):
+        all_states = list(_COMPETENCY_VALID_TRANSITIONS.keys())
+        # invoke(name) — mỗi action, isolate STATE guard:
+        #   • Sign-off  : signoff_competency(name, admin) — guard PENDING.
+        #   • Revoke    : revoke_competency(name, reason) — guard {Active,Expiring,Expired,Suspended}.
+        #   • Recertify : recertify_competency(name, "__NO_SESSION__") — guard {Expiring,Expired}
+        #       chạy TRƯỚC session lookup → state hợp lệ ⇒ NOT_FOUND (≠ BAD_STATE);
+        #       state sai ⇒ BAD_STATE (guard state chặn trước).
+        specs = [
+            (COMPETENCY_SIGNOFF, lambda n: signoff_competency(n, "Administrator")),
+            (COMPETENCY_SUSPEND, lambda n: suspend_competency(n, "Lý do tạm ngưng hợp lệ")),
+            (COMPETENCY_RESTORE, lambda n: restore_competency(n)),
+            (COMPETENCY_REVOKE, lambda n: revoke_competency(n, "Lý do thu hồi hợp lệ")),
+            (COMPETENCY_RECERTIFY, lambda n: recertify_competency(n, "__NO_SESSION__")),
+        ]
+        for action, invoke in specs:
+            sources = _competency_states_allowing(action)
+            self.assertTrue(sources, msg=f"{action} phải có ≥1 state nguồn trong map")
+            # Forward: từ MỖI state nguồn hợp lệ → service KHÔNG raise BAD_STATE.
+            for s in sources:
+                name = self._comp(s)
+                try:
+                    invoke(name)
+                except ServiceError as e:
+                    self.assertNotEqual(
+                        e.code, ErrorCode.BAD_STATE,
+                        msg=f"{action}: nguồn hợp lệ {s} KHÔNG được raise BAD_STATE",
+                    )
+            # Reverse: từ state NGOÀI tập nguồn → service PHẢI raise BAD_STATE.
+            for s in [x for x in all_states if x not in sources]:
+                name = self._comp(s)
+                with self.assertRaises(ServiceError) as ctx:
+                    invoke(name)
+                self.assertEqual(
+                    ctx.exception.code, ErrorCode.BAD_STATE,
+                    msg=f"{action}: state ngoài map {s} PHẢI raise BAD_STATE",
+                )
+
+    def test_competency_transitions_no_jump_skip(self):
+        # signoff CHỈ từ Pending; recertify CHỈ từ Expiring/Expired; revoke KHÔNG từ Revoked.
+        active = self._comp(CompetencyStatus.ACTIVE)
+        with self.assertRaises(ServiceError) as c1:
+            signoff_competency(active, "Administrator")   # Active → signoff error
+        self.assertEqual(c1.exception.code, ErrorCode.BAD_STATE)
+
+        active2 = self._comp(CompetencyStatus.ACTIVE)
+        with self.assertRaises(ServiceError) as c2:
+            recertify_competency(active2, "__NO_SESSION__")  # Active → recertify error
+        self.assertEqual(c2.exception.code, ErrorCode.BAD_STATE)
+
+        revoked = self._comp(CompetencyStatus.REVOKED)
+        with self.assertRaises(ServiceError) as c3:
+            revoke_competency(revoked, "Lý do")            # Revoked → revoke error
+        self.assertEqual(c3.exception.code, ErrorCode.BAD_STATE)
+
+    # ── AC6: mỗi CTA sinh audit trail (NĐ98) ──────────────────────────────────
+
+    def test_competency_cta_emits_audit(self):
+        name = self._comp(CompetencyStatus.PENDING)
+        signoff_competency(name, "Administrator")
+        self.assertTrue(
+            frappe.db.exists("IMM Audit Trail", {
+                "ref_doctype": "IMM User Competency", "ref_name": name,
+                "event_type": "competency_signoff",
+            }),
+            "signoff phải sinh audit competency_signoff",
+        )
+        # từ Active → revoke → audit competency_revoked
+        revoke_competency(name, "Lý do thu hồi hợp lệ")
+        self.assertTrue(
+            frappe.db.exists("IMM Audit Trail", {
+                "ref_doctype": "IMM User Competency", "ref_name": name,
+                "event_type": "competency_revoked",
+            }),
+            "revoke phải sinh audit competency_revoked",
+        )
+
+    # ── CR-WF-06-COMP: cờ can_suspend/can_restore (parity can_revoke) ──────────
+
+    def test_superadmin_can_suspend_at_active(self):
+        # Active → allowed chứa 'Suspend' + can_suspend True (Administrator đủ quyền);
+        # KHÔNG can_restore (Restore không hợp lệ ở Active).
+        name = self._comp(CompetencyStatus.ACTIVE)
+        data = get_competency(name)
+        self.assertIn(COMPETENCY_SUSPEND, data["allowed_transitions"])
+        self.assertTrue(data["can_suspend"], "Super Admin phải can_suspend ở Active")
+        self.assertFalse(data["can_restore"], "Restore KHÔNG khả dụng ở Active")
+
+    def test_superadmin_can_restore_at_suspended(self):
+        # Suspended → allowed == ['Restore','Revoke'] (thứ tự ổn định) + can_restore True.
+        name = self._comp(CompetencyStatus.SUSPENDED)
+        data = get_competency(name)
+        self.assertEqual(data["allowed_transitions"], [COMPETENCY_RESTORE, COMPETENCY_REVOKE])
+        self.assertTrue(data["can_restore"], "Super Admin phải can_restore ở Suspended")
+        self.assertFalse(data["can_suspend"], "Suspend KHÔNG khả dụng ở Suspended")
+
+    # ── CR-WF-06-COMP: reconcile map ⇄ workflow JSON (EXCEPTION_EDGES tường minh) ─
+
+    def test_competency_allowed_transitions_matches_workflow(self):
+        """SSoT `_COMPETENCY_VALID_TRANSITIONS` (action-label) reconcile ⇄ file workflow
+        `imm_06_competency_workflow.json`. Symmetric-difference (state, action) giữa 2
+        nguồn PHẢI == EXCEPTION_EDGES khai tường minh — mọi cạnh khác divergent = drift.
+
+        EXCEPTION_EDGES (4):
+          • (Active, MarkExpiring)  — scheduler-auto (Active→Expiring, không CTA)
+          • (Active, Expire)        — scheduler-auto (Active→Expired, không CTA)
+          • (Expiring, Expire)      — scheduler-auto (Expiring→Expired, không CTA)
+          • (Expiring, Recertify)   — create-new (service cho recertify từ Expiring nhưng
+                                       workflow chỉ wire Expired→Active; recertify sinh
+                                       competency MỚI ở Pending + đánh dấu cũ Expired)
+        RED-before demo: gỡ Suspend/Restore khỏi map → (Active,Suspend)/(Suspended,Restore)
+        rơi khỏi map_pairs nhưng còn trong workflow → symmetric-diff ≠ EXCEPTION_EDGES → đỏ.
+        """
+        # VN action-label workflow → canonical action (service vocab / scheduler token).
+        wf_action_to_canon = {
+            "Sign-off": COMPETENCY_SIGNOFF,
+            "Tạm ngưng": COMPETENCY_SUSPEND,
+            "Khôi phục": COMPETENCY_RESTORE,
+            "Thu hồi": COMPETENCY_REVOKE,
+            "Tái chứng nhận": COMPETENCY_RECERTIFY,
+            "Đánh dấu sắp hết hạn": "MarkExpiring",  # scheduler-auto (no service CTA)
+            "Hết hạn": "Expire",                      # scheduler-auto (no service CTA)
+        }
+        path = frappe.get_app_path(
+            "assetcore", "assetcore", "workflow", "imm_06_competency_workflow.json")
+        with open(path, encoding="utf-8") as fh:
+            wf = json.load(fh)
+
+        # Mọi action-label workflow PHẢI khai trong bảng dịch (anti-drift: label lạ → KeyError).
+        for t in wf["transitions"]:
+            self.assertIn(
+                t["action"], wf_action_to_canon,
+                msg=f"Action-label workflow '{t['action']}' chưa khai trong bảng reconcile",
+            )
+        workflow_pairs = {
+            (t["state"], wf_action_to_canon[t["action"]]) for t in wf["transitions"]
+        }
+        map_pairs = {
+            (state, action)
+            for state, actions in _COMPETENCY_VALID_TRANSITIONS.items()
+            for action in actions
+        }
+        exception_edges = {
+            (CompetencyStatus.ACTIVE, "MarkExpiring"),
+            (CompetencyStatus.ACTIVE, "Expire"),
+            (CompetencyStatus.EXPIRING, "Expire"),
+            (CompetencyStatus.EXPIRING, COMPETENCY_RECERTIFY),
+        }
+        divergent = workflow_pairs.symmetric_difference(map_pairs)
+        self.assertEqual(
+            divergent, exception_edges,
+            msg=(f"map ⇄ workflow divergent {divergent} != EXCEPTION_EDGES "
+                 f"{exception_edges} — cạnh lạ = drift SSoT↔workflow (Suspend/Restore "
+                 "phải KHỚP workflow, không còn divergent)"),
+        )
+        # Sau fix: cạnh Suspend/Restore KHÔNG nằm trong divergent (đã khớp 2-chiều).
+        self.assertNotIn((CompetencyStatus.ACTIVE, COMPETENCY_SUSPEND), divergent)
+        self.assertNotIn((CompetencyStatus.SUSPENDED, COMPETENCY_RESTORE), divergent)
+
+    def test_competency_audit_event_types_registered_in_select(self):
+        """Chống silent-audit-loss (R12 imm15): mọi event_type competency service emit
+        PHẢI ∈ Select `IMM Audit Trail.event_type`. Thiếu → log_audit_event nuốt câm →
+        mất bản ghi NĐ98. Guard emitted ⊆ Select.
+        """
+        meta = frappe.get_meta("IMM Audit Trail")
+        opts = set((meta.get_field("event_type").options or "").split("\n"))
+        emitted = {
+            "competency_signoff", "competency_revoked", "competency_recertified",
+            "competency_suspended", "competency_restored",
+        }
+        missing = emitted - opts
+        self.assertEqual(
+            missing, set(),
+            msg=f"event_type competency thiếu trong Select IMM Audit Trail: {missing}",
+        )
+
+
+class TestCompetencySuspendRestore(unittest.TestCase):
+    """CR-WF-06-COMP — suspend_competency (Active→Suspended) + restore_competency
+    (Suspended→Active): state guard qua SSoT, reason bắt buộc, audit SUSPENDED/RESTORED
+    + lifecycle competency_suspended/competency_restored, BAD_STATE nguồn sai.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        for r in ("AssetCore Super Admin", "Training Manager"):
+            if not frappe.db.exists("Role", r):
+                frappe.get_doc({"doctype": "Role", "role_name": r}
+                               ).insert(ignore_permissions=True)
+        frappe.get_doc("User", "Administrator").add_roles(
+            "AssetCore Super Admin", "Training Manager")
+        cls._comps: list[str] = []
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        for name in cls._comps:
+            if frappe.db.exists("IMM User Competency", name):
+                frappe.db.delete("IMM User Competency", {"name": name})
+                frappe.db.delete("IMM Audit Trail",
+                                 {"ref_doctype": "IMM User Competency", "ref_name": name})
+        frappe.db.commit()
+
+    def _comp(self, state: str) -> str:
+        name = _make_competency("Administrator", "", state=state)
+        type(self)._comps.append(name)
+        return name
+
+    def _audit_exists(self, name: str, event_type: str) -> bool:
+        return bool(frappe.db.exists("IMM Audit Trail", {
+            "ref_doctype": "IMM User Competency", "ref_name": name,
+            "event_type": event_type,
+        }))
+
+    # ── AC-SUSPEND ────────────────────────────────────────────────────────────
+
+    def test_suspend_active_to_suspended_with_audit_and_lifecycle(self):
+        name = self._comp(CompetencyStatus.ACTIVE)
+        res = suspend_competency(name, "Tạm ngưng do vi phạm quy trình vận hành")
+        self.assertEqual(res["workflow_state"], CompetencyStatus.SUSPENDED)
+        self.assertEqual(
+            frappe.db.get_value("IMM User Competency", name, "workflow_state"),
+            CompetencyStatus.SUSPENDED,
+        )
+        # audit action 'SUSPENDED' + lifecycle event_type competency_suspended (1 bản ghi).
+        self.assertTrue(self._audit_exists(name, "competency_suspended"),
+                        "suspend phải sinh audit/lifecycle competency_suspended")
+
+    def test_suspend_empty_reason_raises_validation(self):
+        name = self._comp(CompetencyStatus.ACTIVE)
+        for bad in ("", "   "):
+            with self.assertRaises(ServiceError) as ctx:
+                suspend_competency(name, bad)
+            self.assertEqual(ctx.exception.code, ErrorCode.VALIDATION)
+        # State KHÔNG đổi khi reason rỗng.
+        self.assertEqual(
+            frappe.db.get_value("IMM User Competency", name, "workflow_state"),
+            CompetencyStatus.ACTIVE,
+        )
+
+    def test_suspend_from_non_active_bad_state(self):
+        for state in (CompetencyStatus.PENDING, CompetencyStatus.EXPIRING,
+                      CompetencyStatus.EXPIRED, CompetencyStatus.REVOKED,
+                      CompetencyStatus.SUSPENDED):
+            name = self._comp(state)
+            with self.assertRaises(ServiceError) as ctx:
+                suspend_competency(name, "Lý do bất kỳ")
+            self.assertEqual(
+                ctx.exception.code, ErrorCode.BAD_STATE,
+                msg=f"suspend từ {state} PHẢI BAD_STATE",
+            )
+            # state bất biến.
+            self.assertEqual(
+                frappe.db.get_value("IMM User Competency", name, "workflow_state"), state)
+
+    # ── AC-RESTORE ────────────────────────────────────────────────────────────
+
+    def test_restore_suspended_to_active_with_audit_and_lifecycle(self):
+        name = self._comp(CompetencyStatus.SUSPENDED)
+        res = restore_competency(name)
+        self.assertEqual(res["workflow_state"], CompetencyStatus.ACTIVE)
+        self.assertEqual(
+            frappe.db.get_value("IMM User Competency", name, "workflow_state"),
+            CompetencyStatus.ACTIVE,
+        )
+        self.assertTrue(self._audit_exists(name, "competency_restored"),
+                        "restore phải sinh audit/lifecycle competency_restored")
+
+    def test_restore_from_non_suspended_bad_state(self):
+        for state in (CompetencyStatus.PENDING, CompetencyStatus.ACTIVE,
+                      CompetencyStatus.EXPIRING, CompetencyStatus.EXPIRED,
+                      CompetencyStatus.REVOKED):
+            name = self._comp(state)
+            with self.assertRaises(ServiceError) as ctx:
+                restore_competency(name)
+            self.assertEqual(
+                ctx.exception.code, ErrorCode.BAD_STATE,
+                msg=f"restore từ {state} PHẢI BAD_STATE",
+            )
+            self.assertEqual(
+                frappe.db.get_value("IMM User Competency", name, "workflow_state"), state)
+
+    def test_suspend_then_restore_roundtrip(self):
+        name = self._comp(CompetencyStatus.ACTIVE)
+        suspend_competency(name, "Tạm ngưng để rà soát năng lực")
+        self.assertEqual(
+            frappe.db.get_value("IMM User Competency", name, "workflow_state"),
+            CompetencyStatus.SUSPENDED)
+        restore_competency(name)
+        self.assertEqual(
+            frappe.db.get_value("IMM User Competency", name, "workflow_state"),
+            CompetencyStatus.ACTIVE)
+        self.assertTrue(self._audit_exists(name, "competency_suspended"))
+        self.assertTrue(self._audit_exists(name, "competency_restored"))
+
+
+class TestCompetencyRbacGate(unittest.TestCase):
+    """VÁ lỗ RBAC (AC2/AC3): api.revoke_competency + api.recertify_competency REJECT
+    caller thiếu capability `training.submit` với FORBIDDEN + KHÔNG đổi workflow_state
+    (parity signoff_competency). Super Admin / Training Manager → thành công.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        for r in ("AssetCore Super Admin", "Training Manager"):
+            if not frappe.db.exists("Role", r):
+                frappe.get_doc({"doctype": "Role", "role_name": r}
+                               ).insert(ignore_permissions=True)
+        frappe.get_doc("User", "Administrator").add_roles(
+            "AssetCore Super Admin", "Training Manager")
+        # User thiếu quyền: chỉ base role, KHÔNG training.submit (không delete IMM Training Session).
+        cls.plain_user = f"_test_imm06_rbac_{frappe.generate_hash()[:8]}@test.local"
+        if not frappe.db.exists("User", cls.plain_user):
+            frappe.get_doc({
+                "doctype": "User", "email": cls.plain_user,
+                "first_name": "PlainRBAC", "enabled": 1,
+                "user_type": "System User", "send_welcome_email": 0,
+                "roles": [{"role": "AssetCore System User"}]
+                if frappe.db.exists("Role", "AssetCore System User") else [],
+            }).insert(ignore_permissions=True)
+        cls._comps: list[str] = []
+        cls._sessions: list[str] = []
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        for name in cls._comps:
+            if frappe.db.exists("IMM User Competency", name):
+                frappe.db.delete("IMM User Competency", {"name": name})
+                frappe.db.delete("IMM Audit Trail",
+                                 {"ref_doctype": "IMM User Competency", "ref_name": name})
+        for name in cls._sessions:
+            if frappe.db.exists("IMM Training Session", name):
+                frappe.delete_doc("IMM Training Session", name,
+                                  force=True, ignore_permissions=True)
+        if frappe.db.exists("User", cls.plain_user):
+            frappe.delete_doc("User", cls.plain_user, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def _comp(self, state: str) -> str:
+        frappe.set_user("Administrator")
+        name = _make_competency("Administrator", "", state=state)
+        type(self)._comps.append(name)
+        return name
+
+    def _completed_session_pass(self, user: str) -> str:
+        """Buổi đào tạo Completed có ``user`` đạt (Pass) — dùng cho recertify success."""
+        program = _ensure_test_program()
+        sess = frappe.get_doc({
+            "doctype": "IMM Training Session",
+            "training_program": program,
+            "session_date": nowdate(),
+            "session_type": "Onsite",
+            "duration_planned_hours": 4,
+            "instructor": "Administrator",
+        })
+        sess.append("participants", {
+            "user": user, "role_at_session": "Operator",
+            "overall_result": "Pass", "theory_score": 85, "practical_score": 88,
+        })
+        sess.flags.ignore_links = True
+        sess.flags.ignore_mandatory = True
+        sess.insert(ignore_permissions=True)
+        frappe.db.set_value("IMM Training Session", sess.name,
+                            "workflow_state", SessionStatus.COMPLETED)
+        frappe.db.commit()
+        type(self)._sessions.append(sess.name)
+        return sess.name
+
+    def test_revoke_competency_forbidden_without_capability(self):
+        name = self._comp(CompetencyStatus.ACTIVE)
+        frappe.set_user(self.plain_user)
+        try:
+            res = api06.revoke_competency(name, "Lý do bất kỳ")
+        finally:
+            frappe.set_user("Administrator")
+        self.assertFalse(res["success"], "revoke phải bị chặn")
+        self.assertEqual(res["code"], ErrorCode.FORBIDDEN)
+        # workflow_state KHÔNG đổi (assert DB).
+        self.assertEqual(
+            frappe.db.get_value("IMM User Competency", name, "workflow_state"),
+            CompetencyStatus.ACTIVE,
+        )
+
+    def test_recertify_competency_forbidden_without_capability(self):
+        name = self._comp(CompetencyStatus.EXPIRED)
+        frappe.set_user(self.plain_user)
+        try:
+            res = api06.recertify_competency(name, "__NO_SESSION__")
+        finally:
+            frappe.set_user("Administrator")
+        self.assertFalse(res["success"], "recertify phải bị chặn")
+        self.assertEqual(res["code"], ErrorCode.FORBIDDEN)
+        self.assertEqual(
+            frappe.db.get_value("IMM User Competency", name, "workflow_state"),
+            CompetencyStatus.EXPIRED,
+        )
+
+    def test_superadmin_can_signoff_and_revoke(self):
+        # Administrator (Super Admin + Training Manager) → get_competency emit non-empty +
+        # api.signoff/revoke thành công đổi đúng state.
+        frappe.set_user("Administrator")
+        name = self._comp(CompetencyStatus.PENDING)
+        self.assertIn(COMPETENCY_SIGNOFF, get_competency(name)["allowed_transitions"])
+        r1 = api06.signoff_competency(name)
+        self.assertTrue(r1["success"], f"signoff phải thành công: {r1}")
+        self.assertEqual(
+            frappe.db.get_value("IMM User Competency", name, "workflow_state"),
+            CompetencyStatus.ACTIVE,
+        )
+        r2 = api06.revoke_competency(name, "Lý do thu hồi hợp lệ")
+        self.assertTrue(r2["success"], f"revoke phải thành công: {r2}")
+        self.assertEqual(
+            frappe.db.get_value("IMM User Competency", name, "workflow_state"),
+            CompetencyStatus.REVOKED,
+        )
+
+    def test_superadmin_can_recertify(self):
+        # old Expired + buổi Completed (user Pass) → api.recertify thành công: old→Expired,
+        # sinh competency mới (Pending). Xác minh chiều ngược root-cause (AC3).
+        frappe.set_user("Administrator")
+        name = self._comp(CompetencyStatus.EXPIRED)
+        self.assertIn(COMPETENCY_RECERTIFY, get_competency(name)["allowed_transitions"])
+        session = self._completed_session_pass("Administrator")
+        res = api06.recertify_competency(name, session)
+        self.assertTrue(res["success"], f"recertify phải thành công: {res}")
+        new_comp = res["data"]["new_competency"]
+        type(self)._comps.append(new_comp)
+        self.assertTrue(frappe.db.exists("IMM User Competency", new_comp))
+        self.assertEqual(
+            frappe.db.get_value("IMM User Competency", name, "workflow_state"),
+            CompetencyStatus.EXPIRED,
+        )
+
+    # ── CR-WF-06-COMP: RBAC gate suspend/restore (parity revoke) ──────────────
+
+    def test_suspend_competency_forbidden_without_capability(self):
+        name = self._comp(CompetencyStatus.ACTIVE)
+        frappe.set_user(self.plain_user)
+        try:
+            res = api06.suspend_competency(name, "Lý do bất kỳ")
+        finally:
+            frappe.set_user("Administrator")
+        self.assertFalse(res["success"], "suspend phải bị chặn")
+        self.assertEqual(res["code"], ErrorCode.FORBIDDEN)
+        # workflow_state KHÔNG đổi (assert DB) — thiếu quyền KHÔNG chạm state.
+        self.assertEqual(
+            frappe.db.get_value("IMM User Competency", name, "workflow_state"),
+            CompetencyStatus.ACTIVE,
+        )
+
+    def test_restore_competency_forbidden_without_capability(self):
+        name = self._comp(CompetencyStatus.SUSPENDED)
+        frappe.set_user(self.plain_user)
+        try:
+            res = api06.restore_competency(name)
+        finally:
+            frappe.set_user("Administrator")
+        self.assertFalse(res["success"], "restore phải bị chặn")
+        self.assertEqual(res["code"], ErrorCode.FORBIDDEN)
+        self.assertEqual(
+            frappe.db.get_value("IMM User Competency", name, "workflow_state"),
+            CompetencyStatus.SUSPENDED,
+        )
+
+    def test_superadmin_can_suspend_and_restore(self):
+        # Administrator (Super Admin + Training Manager, capability training.submit) →
+        # api.suspend + api.restore thành công đổi đúng state (parity revoke).
+        frappe.set_user("Administrator")
+        name = self._comp(CompetencyStatus.ACTIVE)
+        self.assertIn(COMPETENCY_SUSPEND, get_competency(name)["allowed_transitions"])
+        r1 = api06.suspend_competency(name, "Tạm ngưng để rà soát")
+        self.assertTrue(r1["success"], f"suspend phải thành công: {r1}")
+        self.assertEqual(
+            frappe.db.get_value("IMM User Competency", name, "workflow_state"),
+            CompetencyStatus.SUSPENDED,
+        )
+        self.assertIn(COMPETENCY_RESTORE, get_competency(name)["allowed_transitions"])
+        r2 = api06.restore_competency(name)
+        self.assertTrue(r2["success"], f"restore phải thành công: {r2}")
+        self.assertEqual(
+            frappe.db.get_value("IMM User Competency", name, "workflow_state"),
+            CompetencyStatus.ACTIVE,
+        )
 
 
 if __name__ == "__main__":

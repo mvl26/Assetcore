@@ -113,11 +113,13 @@ class TestCycleCountDetailAndLifecycle(TestImm15Base):
             count_type="Cycle",
         )
         name = res["name"]
-        # Reviewed → only 'Post'
+        # Reviewed (Administrator, cap inventory.submit) → ['Recount', 'Post']
+        # (CR-WF-15-CC: Recount CTA surfaced Reviewed→Counting; Recount đặt TRƯỚC Post —
+        # xem test_imm15.TestCycleCountAllowedTransitions.test_recount_surfaced_for_reviewed).
         svc.submit_cycle_count(name, [{"spare_part": self.part, "counted_qty": 20}])
         data = svc.get_cycle_count(name)
         self.assertEqual(data["status"], "Reviewed")
-        self.assertEqual(data["allowed_transitions"], ["Post"])
+        self.assertEqual(data["allowed_transitions"], ["Recount", "Post"])
         # Posted → no action tokens
         svc.post_cycle_count(name, verified_by=_VERIFIER)
         data = svc.get_cycle_count(name)

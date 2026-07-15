@@ -18,6 +18,7 @@ from assetcore.services.imm09 import (
     _row_is_live_overdue,
     assign_technician,
     check_repair_sla_breach,
+    close_work_order,
     complete_repair,
     confirm_inspection,
     create_work_order,
@@ -885,6 +886,702 @@ class TestCmSlaBreachLiveSoT(unittest.TestCase):
                       "cm_sla_breach_count phải dùng _row_is_live_overdue (SoT predicate)")
         self.assertIn('"sla_breached": 1', src,
                       "nhánh (1) cờ lịch sử phải có trong count")
+
+
+# ─── BE-TC-SLA1..6: filter LIVE `sla_breached_live` cho list Asset Repair CM ───
+
+class TestListSlaBreachedLiveFilter(unittest.TestCase):
+    """Chip mobile 'Quá hạn SLA' — `list_work_orders({"sla_breached_live":1})` lọc
+    theo predicate LIVE (`is_sla_breached` = cờ thô OR live-overdue clock-stop),
+    CÙNG predicate badge row + card `cm_sla_breach_count`.
+
+    GATE: INVARIANT membership filter == badge hiển thị. Nếu lọc theo cột STORED
+    `sla_breached` (scheduler stamp trễ) → WO vừa quá hạn 1–59' MISS filter nhưng
+    badge HIỆN → mismatch phá niềm tin KTV. Test chứng minh LIVE ≠ stored.
+
+    DELTA-style (không rollback); mỗi WO fixture 1 asset riêng (né
+    validate_asset_not_under_repair); teardown purge by asset_name prefix. Gọi
+    thẳng svc.list_work_orders (mirror TestCmSlaBreachLiveSoT.tc05).
+    """
+
+    PREFIX = "_Test CM-SLA-LF"
+    SENTINEL_USER = "_slafilter_marker@assetcore.test"
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+
+    @classmethod
+    def tearDownClass(cls):
+        assets = frappe.get_all(
+            "AC Asset", filters={"asset_name": ["like", f"{cls.PREFIX}%"]}, fields=["name"])
+        for a in assets:
+            for wo in frappe.get_all(
+                "Asset Repair", filters={"asset_ref": a["name"]}, fields=["name", "docstatus"]):
+                doc = frappe.get_doc("Asset Repair", wo["name"])
+                if doc.docstatus == 1:
+                    doc.cancel()
+                frappe.delete_doc("Asset Repair", wo["name"], force=True, ignore_permissions=True)
+            purge_asset(a["name"])
+        cat = frappe.db.get_value("AC Asset Category", {"category_name": "_TestCatIMM09"}, "name")
+        if cat and not frappe.get_all("AC Asset", filters={"asset_category": cat}, limit=1):
+            frappe.delete_doc("AC Asset Category", cat, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+
+    def _mk_asset(self, tag: str):
+        import time
+        prev = frappe.flags.in_install
+        frappe.flags.in_install = "frappe"
+        try:
+            return frappe.get_doc({
+                "doctype": "AC Asset",
+                "asset_name": f"{self.PREFIX} {tag}",
+                "asset_category": _ensure_cat(),
+                "manufacturer_sn": f"SN-CMLF-{tag}-{int(time.time() * 1000) % 1000000}",
+                "lifecycle_status": "Active",
+            }).insert(ignore_permissions=True)
+        finally:
+            frappe.flags.in_install = prev
+
+    def _mk_wo(self, *, tag: str, status: str, elapsed_hours: float,
+               target: float, sla_breached: int, docstatus: int = 0,
+               completion: bool = False, parts_hold_hours: float = 0.0,
+               hold_started_hours_ago: float | None = None,
+               assigned_to: str | None = None) -> str:
+        """Asset Repair raw (bỏ qua workflow), backdate open_datetime. Mirror
+        TestCmSlaBreachLiveSoT._mk_wo + hỗ trợ clock-stop (parts_hold_hours /
+        parts_hold_started) và assigned_to sentinel (test pagination-on-filtered).
+
+        Controller `before_insert` overwrite open_datetime = now() (đúng prod) ⇒
+        backdate qua db.set_value SAU insert."""
+        asset = self._mk_asset(tag)
+        doc = frappe.get_doc({
+            "doctype": "Asset Repair",
+            "asset_ref": asset.name,
+            "asset_name": asset.asset_name,
+            "repair_type": "Corrective",
+            "priority": "Normal",
+            "risk_class": RiskClass.I,
+            "failure_description": f"_Test CM-SLA-LF fixture {tag}",
+            "status": status,
+            "sla_target_hours": target,
+            "sla_breached": sla_breached,
+        })
+        doc.flags.ignore_links = True
+        doc.insert(ignore_permissions=True)
+        updates = {
+            "open_datetime": add_to_date(now_datetime(), hours=-elapsed_hours),
+            "sla_target_hours": target,
+            "sla_breached": sla_breached,
+            "status": status,
+            "parts_hold_hours": parts_hold_hours,
+        }
+        if hold_started_hours_ago is not None:
+            updates["parts_hold_started"] = add_to_date(
+                now_datetime(), hours=-hold_started_hours_ago)
+        if assigned_to is not None:
+            updates["assigned_to"] = assigned_to
+        if completion:
+            updates["completion_datetime"] = now_datetime()
+            updates["mttr_hours"] = elapsed_hours
+        frappe.db.set_value("Asset Repair", doc.name, updates)
+        if docstatus == 1:
+            frappe.db.set_value("Asset Repair", doc.name, "docstatus", 1)
+        frappe.db.commit()
+        return doc.name
+
+    def _list_live(self, extra: dict | None = None, page: int = 1,
+                   page_size: int = 100000) -> dict:
+        from assetcore.services.imm09 import list_work_orders
+        f = {"sla_breached_live": 1}
+        if extra:
+            f.update(extra)
+        return list_work_orders(f, page=page, page_size=page_size)
+
+    def _mine_names(self, res: dict) -> list[str]:
+        return [(r.get("asset_name") or "") for r in res["data"]
+                if (r.get("asset_name") or "").startswith(self.PREFIX)]
+
+    # ── BE-TC-SLA1: filter chỉ chứa row is_sla_breached==True (LIVE) ──────────
+    def test_sla1_filter_contains_only_live_breached(self):
+        # open in-hạn cờ=0 (KHÔNG) · open live-overdue cờ=0 (CÓ) · Completed cờ=1 (CÓ)
+        self._mk_wo(tag="SLA1-inrange", status=RepairStatus.IN_REPAIR,
+                    elapsed_hours=1.0, target=72.0, sla_breached=0)
+        self._mk_wo(tag="SLA1-liveover", status=RepairStatus.IN_REPAIR,
+                    elapsed_hours=100.0, target=72.0, sla_breached=0)
+        self._mk_wo(tag="SLA1-doneflag", status=RepairStatus.COMPLETED,
+                    elapsed_hours=90.0, target=72.0, sla_breached=1,
+                    docstatus=1, completion=True)
+        res = self._list_live()
+        # GLOBAL invariant: MỌI row trong filter đều is_sla_breached==True.
+        self.assertTrue(res["data"], "filter phải trả ≥1 row")
+        self.assertTrue(all(r.get("is_sla_breached") for r in res["data"]),
+                        "MỌI row trong list sla_breached_live PHẢI is_sla_breached==True")
+        names = self._mine_names(res)
+        self.assertTrue(any(n.endswith("SLA1-liveover") for n in names),
+                        "open live-overdue (cờ=0, elapsed>target) PHẢI có trong filter LIVE")
+        self.assertTrue(any(n.endswith("SLA1-doneflag") for n in names),
+                        "Completed cờ=1 PHẢI có trong filter")
+        self.assertFalse(any(n.endswith("SLA1-inrange") for n in names),
+                         "open in-hạn (cờ=0, elapsed<target) KHÔNG được trong filter")
+
+    # ── BE-TC-SLA2 (GATE anti-stored): cờ STORED=0 vẫn xuất hiện ──────────────
+    def test_sla2_anti_stored_flag_zero_still_listed(self):
+        # open WO elapsed>target NHƯNG sla_breached=0 (scheduler CHƯA chạy).
+        name = self._mk_wo(tag="SLA2", status=RepairStatus.IN_REPAIR,
+                           elapsed_hours=80.0, target=72.0, sla_breached=0)
+        self.assertFalse(
+            frappe.db.get_value("Asset Repair", name, "sla_breached"),
+            "tiền đề: cột STORED sla_breached PHẢI còn 0/falsy (scheduler chưa stamp)")
+        names = self._mine_names(self._list_live())
+        self.assertTrue(any(n.endswith("SLA2") for n in names),
+                        "GATE anti-stored: WO quá hạn cột STORED=0 PHẢI xuất hiện trong "
+                        "filter LIVE (predicate LIVE ≠ cột stored — nếu MISS = badge/filter "
+                        "mismatch phá niềm tin KTV)")
+
+    # ── BE-TC-SLA3 (clock-stop faithful): Pending Parts trừ hold ──────────────
+    def test_sla3_clock_stop_pending_parts_not_listed(self):
+        from assetcore.services.imm09 import list_work_orders
+        # Pending Parts: wall-clock 100h > target 72, NHƯNG open-leg hold 50h ⇒
+        # elapsed = 100−50 = 50 < 72 ⇒ KHÔNG breach (clock-stop, BR-09-10).
+        self._mk_wo(tag="SLA3", status=RepairStatus.PENDING_PARTS,
+                    elapsed_hours=100.0, target=72.0, sla_breached=0,
+                    hold_started_hours_ago=50.0)
+        names = self._mine_names(self._list_live())
+        self.assertFalse(any(n.endswith("SLA3") for n in names),
+                         "WO Pending Parts wall>target nhưng elapsed-trừ-hold<target "
+                         "KHÔNG được vào filter (clock-stop faithful, BR-09-10)")
+        # Cùng WO trên baseline: derived is_sla_breached=False + sla_paused=True.
+        full = list_work_orders({}, page=1, page_size=100000)
+        row = next((r for r in full["data"]
+                    if (r.get("asset_name") or "").endswith("SLA3")), None)
+        self.assertIsNotNone(row, "fixture SLA3 phải trong list baseline")
+        self.assertFalse(row.get("is_sla_breached"),
+                         "SLA3 derived is_sla_breached PHẢI False (clock-stop trừ hold)")
+        self.assertTrue(row.get("sla_paused"),
+                        "SLA3 Pending Parts ⇒ sla_paused=True")
+
+    # ── BE-TC-SLA4 (terminal no-phantom): Cannot Repair KHÔNG, Completed cờ=1 CÓ ─
+    def test_sla4_terminal_no_phantom(self):
+        # Cannot Repair overdue cờ=0 → KHÔNG (terminal, live-overdue chỉ áp WO mở).
+        self._mk_wo(tag="SLA4-cannot", status=RepairStatus.CANNOT_REPAIR,
+                    elapsed_hours=200.0, target=72.0, sla_breached=0)
+        # Completed cờ=1 → CÓ (cờ lịch sử monotonic).
+        self._mk_wo(tag="SLA4-doneflag", status=RepairStatus.COMPLETED,
+                    elapsed_hours=90.0, target=72.0, sla_breached=1,
+                    docstatus=1, completion=True)
+        names = self._mine_names(self._list_live())
+        self.assertFalse(any(n.endswith("SLA4-cannot") for n in names),
+                         "Cannot Repair (terminal) overdue cờ=0 KHÔNG phantom trong filter")
+        self.assertTrue(any(n.endswith("SLA4-doneflag") for n in names),
+                        "Completed cờ=1 PHẢI trong filter (monotonic)")
+
+    # ── BE-TC-SLA5: pagination IN-PYTHON trên tập ĐÃ LỌC (không phải fetch thô) ─
+    def test_sla5_pagination_on_filtered_set(self):
+        from assetcore.services.imm09 import list_work_orders
+        # 3 breached (open live-overdue cờ=0) + 2 NON-breached (open in-hạn), CÙNG
+        # assigned_to sentinel ⇒ base query trả 5, filter LIVE giữ 3. Chứng minh
+        # pagination tính trên tập ĐÃ LỌC (total=3), KHÔNG phải 5 fetch thô.
+        for i in range(3):
+            self._mk_wo(tag=f"SLA5-b{i}", status=RepairStatus.IN_REPAIR,
+                        elapsed_hours=100.0, target=72.0, sla_breached=0,
+                        assigned_to=self.SENTINEL_USER)
+        for i in range(2):
+            self._mk_wo(tag=f"SLA5-ok{i}", status=RepairStatus.IN_REPAIR,
+                        elapsed_hours=1.0, target=72.0, sla_breached=0,
+                        assigned_to=self.SENTINEL_USER)
+        scope = {"assigned_to": self.SENTINEL_USER}
+        p1 = list_work_orders({"sla_breached_live": 1, **scope}, page=1, page_size=2)
+        self.assertEqual(p1["pagination"]["total"], 3,
+                         "pagination.total PHẢI = số breached (3), KHÔNG phải số fetch thô (5)")
+        self.assertEqual(len(p1["data"]), 2, "page 1 đầy đúng page_size=2")
+        self.assertEqual(p1["pagination"]["total_pages"], 2,
+                         "total_pages = ceil(3/2) = 2")
+        self.assertTrue(all(r.get("is_sla_breached") for r in p1["data"]),
+                        "mọi row page 1 phải breached")
+        p2 = list_work_orders({"sla_breached_live": 1, **scope}, page=2, page_size=2)
+        self.assertEqual(len(p2["data"]), 1, "page 2 phần dư = 1 row")
+        self.assertEqual(p2["pagination"]["total"], 3)
+        n1 = {r["name"] for r in p1["data"]}
+        n2 = {r["name"] for r in p2["data"]}
+        self.assertFalse(n1 & n2, "page 1 và page 2 KHÔNG trùng row")
+
+    # ── BE-TC-SLA6: baseline byte-identical (absent/falsy KHÔNG lọc) ──────────
+    def test_sla6_baseline_byte_identical(self):
+        from assetcore.services.imm09 import list_work_orders
+
+        def _sig(res):
+            return ([r["name"] for r in res["data"]], res["pagination"])
+
+        # falsy virtual key (0) POP sạch ⇒ path baseline y hệt absent (không đẩy cột
+        # ma vào get_all, không lọc SLA). So khớp names + pagination.
+        base_absent = list_work_orders({}, page=1, page_size=50)
+        base_zero = list_work_orders({"sla_breached_live": 0}, page=1, page_size=50)
+        self.assertEqual(_sig(base_absent), _sig(base_zero),
+                         "sla_breached_live=0 (falsy) POP sạch ⇒ baseline byte-identical "
+                         "với absent (không lọc, không cột ma)")
+        # status filter baseline vẫn hoạt động + KHÔNG bị SLA-filter (có thể chứa
+        # non-breached). In-Repair in-hạn PHẢI ở baseline status, NHƯNG vắng ở LIVE.
+        self._mk_wo(tag="SLA6-inrange", status=RepairStatus.IN_REPAIR,
+                    elapsed_hours=1.0, target=72.0, sla_breached=0)
+        base_status = list_work_orders({"status": RepairStatus.IN_REPAIR},
+                                       page=1, page_size=100000)
+        self.assertTrue(
+            all(r.get("status") == RepairStatus.IN_REPAIR for r in base_status["data"]),
+            "baseline status filter chỉ trả In Repair")
+        b_names = [(r.get("asset_name") or "") for r in base_status["data"]]
+        self.assertTrue(any(n.endswith("SLA6-inrange") for n in b_names),
+                        "In-Repair in-hạn PHẢI có ở baseline status filter (không SLA-filter)")
+        live_status = list_work_orders(
+            {"sla_breached_live": 1, "status": RepairStatus.IN_REPAIR},
+            page=1, page_size=100000)
+        l_names = [(r.get("asset_name") or "") for r in live_status["data"]]
+        self.assertFalse(any(n.endswith("SLA6-inrange") for n in l_names),
+                         "In-Repair in-hạn (không breach) PHẢI vắng ở filter LIVE cùng status")
+
+    # ── BE-TC-SLA7 (invariant): filter total == Σ badge == cm_sla_breach_count ─
+    def test_sla7_invariant_filter_total_equals_card(self):
+        from assetcore.services.imm09 import cm_sla_breach_count, list_work_orders
+        self._mk_wo(tag="SLA7-live", status=RepairStatus.IN_REPAIR,
+                    elapsed_hours=100.0, target=72.0, sla_breached=0)
+        self._mk_wo(tag="SLA7-flag", status=RepairStatus.COMPLETED,
+                    elapsed_hours=90.0, target=72.0, sla_breached=1,
+                    docstatus=1, completion=True)
+        res_filter = list_work_orders({"sla_breached_live": 1}, page=1, page_size=100000)
+        res_full = list_work_orders({}, page=1, page_size=100000)
+        full_breached = sum(1 for r in res_full["data"] if r.get("is_sla_breached"))
+        card = cm_sla_breach_count()
+        self.assertEqual(res_filter["pagination"]["total"], full_breached,
+                         "filter total == Σ badge is_sla_breached trên full list (card==drill)")
+        self.assertEqual(res_filter["pagination"]["total"], card,
+                         "filter total == card cm_sla_breach_count (cùng SoT LIVE)")
+        self.assertEqual(len(res_filter["data"]), full_breached,
+                         "page_size lớn ⇒ mọi breached trên 1 trang == full_breached")
+
+
+# ─── CR-18: free-text search server-side cho list Asset Repair (CM) ───────────
+
+class TestRepairListSearch(unittest.TestCase):
+    """CR-18 — api/imm09.list_repair_work_orders(search=...) OR-LIKE trên (name =
+    mã phiếu / asset_ref = mã thiết bị / asset_name = tên thiết bị) qua pop_search +
+    count_with_or. Đối xứng test_imm08 TestPMListSearch — KHÁC doctype Asset Repair.
+    """
+
+    OTHER_USER = "_test_imm09_search_other@example.com"
+
+    @classmethod
+    def setUpClass(cls):
+        import time
+        frappe.set_user("Administrator")
+        cls.token = f"ZZCMSRCH{int(time.time()) % 100000}"
+        if not frappe.db.exists("User", cls.OTHER_USER):
+            frappe.get_doc({
+                "doctype": "User", "email": cls.OTHER_USER,
+                "first_name": "IMM09 Search Other", "send_welcome_email": 0,
+            }).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        if frappe.db.exists("User", cls.OTHER_USER):
+            frappe.delete_doc("User", cls.OTHER_USER, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        # Asset Repair CẤM 2 WO mở/asset (validate_asset_not_under_repair — 1 asset
+        # chỉ 1 lệnh sửa đang mở). ⇒ MỖI WO 1 AC Asset MỚI (KHÔNG dùng chung asset_a/b).
+        # asset_name của asset "match" chứa token ⇒ search token khớp qua link_search.
+        self._assets: list = []
+        self._wo_seq = 0
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+        for a in self._assets:
+            for wo in frappe.get_all("Asset Repair", filters={"asset_ref": a.name}, pluck="name"):
+                frappe.delete_doc("Asset Repair", wo, force=True, ignore_permissions=True)
+            purge_asset(a.name)
+        frappe.db.commit()
+
+    def _make_wo(self, *, match: bool = True, assigned_to: str = "Administrator"):
+        """1 Asset Repair trên 1 AC Asset MỚI (đối xứng TestPMListSearch nhưng KHÁC:
+        PM Work Order cho phép nhiều WO/asset, Asset Repair thì KHÔNG → mỗi WO 1 asset).
+
+        match=True  ⇒ asset_name chứa ``self.token`` (search token PHẢI khớp).
+        match=False ⇒ asset decoy KHÔNG chứa token (search token KHÔNG khớp).
+        Trả ``(wo_name, asset)``.
+        """
+        self._wo_seq += 1
+        suffix = f"-{self.token}{self._wo_seq}" if match else f"-DECOY{self._wo_seq}"
+        asset = _make_asset(suffix)
+        self._assets.append(asset)
+        doc = frappe.get_doc({
+            "doctype": "Asset Repair",
+            "asset_ref": asset.name,
+            "asset_name": asset.asset_name,
+            "repair_type": "Corrective",
+            "priority": "Normal",
+            "risk_class": RiskClass.I,
+            "failure_description": "_Test CM search fixture",
+            "status": "In Repair",
+        })
+        doc.flags.ignore_links = True
+        doc.insert(ignore_permissions=True)
+        frappe.db.set_value("Asset Repair", doc.name,
+                            {"open_datetime": now_datetime(), "assigned_to": assigned_to})
+        frappe.db.commit()
+        return doc.name, asset
+
+    def _list(self, *, search=None, mine=None, page=1, page_size=100, extra=None) -> dict:
+        from assetcore.api.imm09 import list_repair_work_orders
+        f = dict(extra or {})
+        kwargs = {"filters": json.dumps(f), "page": page, "page_size": page_size}
+        if search is not None:
+            kwargs["search"] = search
+        if mine is not None:
+            kwargs["mine"] = mine
+        env = list_repair_work_orders(**kwargs)
+        self.assertTrue(env.get("success"), f"envelope KHÔNG success: {env}")
+        return env["data"]
+
+    def _all_names(self, **kw) -> set:
+        return {r["name"] for r in self._list(**kw)["data"]}
+
+    def test_list_repair_search_wo_name(self):
+        """2 phiếu (2 asset) khác name, search substring name 1 phiếu → CHỈ phiếu khớp."""
+        wo1, _ = self._make_wo()
+        wo2, _ = self._make_wo()
+        self.assertNotEqual(wo1, wo2)
+        term = wo1[-5:]
+        data = self._list(search=term)
+        names = {r["name"] for r in data["data"]}
+        self.assertIn(wo1, names)
+        self.assertNotIn(wo2, names)
+        self.assertEqual(data["pagination"]["total"], 1, "count==rows: chỉ 1 khớp.")
+
+    def test_list_repair_search_asset(self):
+        """search khớp asset_name (token) → trả phiếu asset đó kể cả 'trang sau'
+        (page_size nhỏ) — server phủ TOÀN tập. + asset_code (asset_ref) cũng khớp."""
+        wo_a, asset_a = self._make_wo(match=True)
+        for _ in range(3):
+            self._make_wo(match=False)
+        found = set()
+        page, total_pages = 1, 1
+        while page <= total_pages:
+            data = self._list(search=self.token, page=page, page_size=1)
+            found |= {r["name"] for r in data["data"]}
+            total_pages = data["pagination"]["total_pages"]
+            page += 1
+        self.assertEqual(found, {wo_a}, "search asset_name token → CHỈ phiếu asset A (mọi trang).")
+        self.assertIn(wo_a, self._all_names(search=asset_a.name),
+                      "search asset_code (asset_ref) PHẢI khớp.")
+
+    def test_list_repair_search_count_equals_rows(self):
+        """search + page_size=1 nhiều trang → Σ rows == pagination.total == số khớp."""
+        made = {self._make_wo(match=True)[0] for _ in range(3)}
+        self._make_wo(match=False)   # decoy
+        collected, totals = set(), set()
+        page, total_pages = 1, 1
+        while page <= total_pages:
+            data = self._list(search=self.token, page=page, page_size=1)
+            collected |= {r["name"] for r in data["data"]}
+            totals.add(data["pagination"]["total"])
+            total_pages = data["pagination"]["total_pages"]
+            page += 1
+        self.assertEqual(collected, made)
+        self.assertEqual(totals, {3}, "pagination.total == 3 (count==rows).")
+
+    def test_list_repair_search_mine_scope(self):
+        """search + mine=1 → CHỈ phiếu assigned_to==session.user VÀ khớp (không nới quyền)."""
+        mine_wo, _ = self._make_wo(match=True, assigned_to="Administrator")
+        other_wo, _ = self._make_wo(match=True, assigned_to=self.OTHER_USER)
+        names = self._all_names(search=self.token, mine=1)
+        self.assertIn(mine_wo, names)
+        self.assertNotIn(other_wo, names, "phiếu người khác (dù khớp) KHÔNG lọt khi mine=1.")
+
+    def test_list_repair_search_empty_baseline(self):
+        """search='' → == list KHÔNG search (byte-identical, no regression)."""
+        self._make_wo(match=True)
+        self._make_wo(match=False)
+        base = self._all_names()
+        self.assertEqual(self._all_names(search=""), base, "search='' == baseline.")
+        self.assertEqual(self._all_names(search="   "), base, "whitespace == baseline.")
+
+    def test_list_repair_search_wildcard_escaped(self):
+        """search '%'/'_' → khớp LITERAL, KHÔNG match toàn bảng (escape)."""
+        wo, _ = self._make_wo(match=True)
+        self.assertNotIn(wo, self._all_names(search="%"),
+                         "search='%' escaped ⇒ KHÔNG match-all.")
+        self.assertNotIn(wo, self._all_names(search="_"),
+                         "search='_' escaped ⇒ KHÔNG match mọi row.")
+        self.assertIn(wo, self._all_names(search=self.token),
+                      "token hợp lệ vẫn khớp sau escape.")
+
+
+# ─── CR-13b: close_work_order response contract — 3 nhánh cùng superset key-set ─
+
+class TestCloseWorkOrderResponseContract(unittest.TestCase):
+    """CR-13b (mobile, Trục B): close_work_order 2 nhánh (happy → Pending
+    Inspection, cannot_repair → Cannot Repair) PHẢI trả CÙNG key-set superset
+    {name, status, mttr_hours, sla_breached, asset_status} — không nhánh nào
+    thiếu/thừa key so với contract mobile `CloseWorkOrderResponse` (đóng vi phạm
+    additionalProperties:false). `asset_status` đọc LIVE qua SSoT (AC Asset.
+    lifecycle_status) — happy = 'Under Repair' (asset chưa reactivate tới
+    confirm_inspection), cannot_repair = 'Out of Service' (governance hold).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+
+    @classmethod
+    def tearDownClass(cls):
+        cat = frappe.db.get_value(
+            "AC Asset Category", {"category_name": "_TestCatIMM09"}, "name")
+        if cat:
+            frappe.delete_doc("AC Asset Category", cat, force=True, ignore_permissions=True)
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self._assets: list[str] = []
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+        for asset in self._assets:
+            for wo in frappe.get_all(
+                "Asset Repair", filters={"asset_ref": asset, "docstatus": ["!=", 2]},
+                fields=["name"],
+            ):
+                frappe.delete_doc("Asset Repair", wo.name, force=True, ignore_permissions=True)
+            purge_asset(asset)
+
+    def _wo_in_repair(self, tag: str) -> str:
+        """Tạo WO ở In Repair (docstatus=0); on_insert set asset → Under Repair."""
+        asset = _make_asset(f"-cr13b-{tag}")
+        self._assets.append(asset.name)
+        wo = create_work_order(
+            asset_ref=asset.name, repair_type="Corrective", priority="Normal",
+            failure_description="_Test CR-13b close contract — parity key-set 10ch",
+        )
+        name = wo["name"]
+        frappe.db.set_value("Asset Repair", name, {
+            "status": RepairStatus.IN_REPAIR,
+            "open_datetime": add_to_date(now_datetime(), hours=-3),
+        })
+        frappe.db.commit()
+        return name
+
+    def test_close_work_order_happy_emits_asset_status(self):
+        """Happy (In Repair → Pending Inspection): asset_status == 'Under Repair'
+        (LIVE, asset CHƯA reactivate) + 4 key cũ giữ nguyên."""
+        name = self._wo_in_repair("happy")
+        result = close_work_order(
+            name, repair_summary="_Test thay bộ nguồn, chạy thử ổn định",
+            root_cause_category="Electrical",
+            dept_head_name="Trưởng khoa Chẩn đoán hình ảnh",
+        )
+        self.assertEqual(result["status"], RepairStatus.PENDING_INSPECTION)
+        self.assertEqual(result["name"], name)
+        # asset_status đọc LIVE từ SSoT — asset chưa reactivate tới confirm_inspection.
+        self.assertEqual(
+            result["asset_status"], AssetStatus.UNDER_REPAIR,
+            "Happy branch PHẢI echo lifecycle_status LIVE = 'Under Repair'.")
+        self.assertEqual(
+            frappe.db.get_value("AC Asset",
+                                frappe.db.get_value("Asset Repair", name, "asset_ref"),
+                                "lifecycle_status"),
+            result["asset_status"],
+            "asset_status PHẢI == trạng thái LIVE (SSoT), KHÔNG hardcode.")
+        for k in ("name", "status", "mttr_hours", "sla_breached"):
+            self.assertIn(k, result, f"4 key cũ PHẢI giữ nguyên: thiếu {k}.")
+
+    def test_cannot_repair_emits_shape_parity(self):
+        """cannot_repair=1 → result có superset key mttr_hours & sla_breached +
+        asset_status == 'Out of Service' + status == 'Cannot Repair'."""
+        name = self._wo_in_repair("cannot")
+        result = close_work_order(
+            name, repair_summary="_Test không thể sửa — hỏng bo mạch chính",
+            root_cause_category="Electrical", dept_head_name="",
+            cannot_repair=1, cannot_repair_reason="Bo mạch chính hỏng, không có linh kiện thay thế",
+        )
+        self.assertEqual(result["status"], RepairStatus.CANNOT_REPAIR)
+        self.assertEqual(result["asset_status"], AssetStatus.OUT_OF_SERVICE)
+        # superset parity — cannot-repair KHÔNG tính MTTR nhưng vẫn khai key (None OK).
+        self.assertIn("mttr_hours", result, "cannot_repair PHẢI khai key mttr_hours (parity).")
+        self.assertIn("sla_breached", result, "cannot_repair PHẢI khai key sla_breached (parity).")
+
+    def test_close_response_key_parity_invariant(self):
+        """set(keys happy) == set(keys cannot_repair) == contract 5-key —
+        bắt lại divergence CR-13b (không nhánh nào lệch key)."""
+        contract = {"name", "status", "mttr_hours", "sla_breached", "asset_status"}
+        happy = close_work_order(
+            self._wo_in_repair("inv-happy"),
+            repair_summary="_Test parity happy branch key-set",
+            root_cause_category="Mechanical",
+            dept_head_name="Trưởng khoa Nội tổng hợp",
+        )
+        cannot = close_work_order(
+            self._wo_in_repair("inv-cannot"),
+            repair_summary="_Test parity cannot branch key-set",
+            root_cause_category="Mechanical", dept_head_name="",
+            cannot_repair=1, cannot_repair_reason="Thiết bị quá hạn sử dụng, không sửa được",
+        )
+        self.assertEqual(set(happy.keys()), contract,
+                         "Happy branch key-set PHẢI == contract 5-key.")
+        self.assertEqual(set(cannot.keys()), contract,
+                         "cannot_repair branch key-set PHẢI == contract 5-key.")
+        self.assertEqual(set(happy.keys()), set(cannot.keys()),
+                         "2 nhánh close_work_order PHẢI CÙNG key-set (CR-13b invariant).")
+
+
+# ─── CR-13a: confirm_inspection response contract — echo asset_status LIVE (SSoT) ─
+
+class TestConfirmInspectionResponseContract(unittest.TestCase):
+    """CR-13a (mobile, Trục B): `confirm_inspection` (nghiệm thu → Completed) trả
+    5-key {name, status, mttr_hours, sla_breached, asset_status} — đối xứng
+    CR-13b close_work_order để mobile KHỎI refetch asset sau nghiệm thu.
+
+    `asset_status` đọc LIVE qua SSoT (AC Asset.lifecycle_status) SAU doc.submit()
+    (on_submit → complete_repair flip asset) — KHÔNG hardcode 'Active':
+      • happy: asset đang 'Under Repair' → complete_repair restore → 'Active'.
+      • edge (BR-09-09): asset đã bị process KHÁC (calib-fail/CAPA/incident) đẩy
+        sang 'Out of Service' → complete_repair GIỮ prev (thiết bị out-of-tolerance
+        KHÔNG tự lọt lại lâm sàng — NĐ98) → asset_status = 'Out of Service'.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+
+    @classmethod
+    def tearDownClass(cls):
+        cat = frappe.db.get_value(
+            "AC Asset Category", {"category_name": "_TestCatIMM09"}, "name")
+        if cat:
+            frappe.delete_doc("AC Asset Category", cat, force=True, ignore_permissions=True)
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self._assets: list[str] = []
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+        for asset in self._assets:
+            for wo in frappe.get_all(
+                "Asset Repair", filters={"asset_ref": asset, "docstatus": ["!=", 2]},
+                fields=["name", "docstatus"],
+            ):
+                # confirm_inspection submit WO (docstatus=1) → phải cancel trước khi xoá.
+                if wo.docstatus == 1:
+                    cdoc = frappe.get_doc("Asset Repair", wo.name)
+                    cdoc.flags.ignore_permissions = True
+                    cdoc.flags.ignore_links = True
+                    cdoc.cancel()
+                frappe.delete_doc("Asset Repair", wo.name, force=True, ignore_permissions=True)
+            purge_asset(asset)
+
+    def _wo_pending_inspection(self, tag: str) -> str:
+        """Tạo WO → In Repair → close_work_order(happy) → 'Pending Inspection'.
+        Sau close: asset vẫn 'Under Repair' (chưa reactivate tới nghiệm thu)."""
+        asset = _make_asset(f"-cr13a-{tag}")
+        self._assets.append(asset.name)
+        wo = create_work_order(
+            asset_ref=asset.name, repair_type="Corrective", priority="Normal",
+            failure_description="_Test CR-13a confirm nghiệm thu — echo asset_status 10ch",
+        )
+        name = wo["name"]
+        frappe.db.set_value("Asset Repair", name, {
+            "status": RepairStatus.IN_REPAIR,
+            "open_datetime": add_to_date(now_datetime(), hours=-3),
+        })
+        frappe.db.commit()
+        close_work_order(
+            name, repair_summary="_Test thay bộ nguồn, chạy thử ổn định",
+            root_cause_category="Electrical",
+            dept_head_name="Trưởng khoa Chẩn đoán hình ảnh",
+            # BR-09-04: checklist Pass → before_submit gate qua khi confirm_inspection submit.
+            checklist_results=[
+                {"test_description": "Kiểm tra an toàn điện", "result": "Pass"},
+                {"test_description": "Chạy thử toàn tải", "result": "Pass"},
+            ],
+        )
+        # Sau close_work_order (happy): WO ở Pending Inspection, asset Under Repair.
+        self.assertEqual(
+            frappe.db.get_value("Asset Repair", name, "status"),
+            RepairStatus.PENDING_INSPECTION, "Setup PHẢI đưa WO về Pending Inspection.")
+        return name
+
+    def test_confirm_inspection_happy_emits_asset_status_active(self):
+        """Happy: asset 'Under Repair' trước nghiệm thu → confirm_inspection →
+        complete_repair restore → asset_status == 'Active', đọc LIVE (SSoT)."""
+        name = self._wo_pending_inspection("happy")
+        asset = frappe.db.get_value("Asset Repair", name, "asset_ref")
+        self.assertEqual(
+            frappe.db.get_value("AC Asset", asset, "lifecycle_status"),
+            AssetStatus.UNDER_REPAIR, "Trước nghiệm thu asset PHẢI đang Under Repair.")
+
+        result = confirm_inspection(name)
+
+        self.assertEqual(result["status"], RepairStatus.COMPLETED)
+        self.assertEqual(result["name"], name)
+        self.assertEqual(
+            result["asset_status"], AssetStatus.ACTIVE,
+            "Happy branch: complete_repair restore asset → asset_status = 'Active'.")
+        # ĐỌC LIVE (SSoT), KHÔNG literal hardcode: value PHẢI == lifecycle_status THẬT.
+        self.assertEqual(
+            frappe.db.get_value("AC Asset", asset, "lifecycle_status"),
+            result["asset_status"],
+            "asset_status PHẢI == AC Asset.lifecycle_status LIVE (SSoT), KHÔNG hardcode.")
+
+    def test_confirm_inspection_edge_out_of_service_kept_not_active(self):
+        """Edge (BR-09-09): asset bị process KHÁC đẩy sang 'Out of Service'
+        (governance hold) TRƯỚC nghiệm thu → complete_repair GIỮ prev → asset_status
+        == 'Out of Service' (KHÔNG bị ép 'Active') — chứng minh đọc LIVE + NĐ98."""
+        name = self._wo_pending_inspection("edge")
+        asset = frappe.db.get_value("Asset Repair", name, "asset_ref")
+        # Mô phỏng process ĐỘC LẬP (calib-fail/CAPA/incident) đẩy asset → OoS.
+        frappe.db.set_value("AC Asset", asset, "lifecycle_status", AssetStatus.OUT_OF_SERVICE)
+        frappe.db.commit()
+
+        result = confirm_inspection(name)
+
+        self.assertEqual(result["status"], RepairStatus.COMPLETED)
+        self.assertEqual(
+            result["asset_status"], AssetStatus.OUT_OF_SERVICE,
+            "Edge: asset out-of-tolerance KHÔNG tự lọt lại lâm sàng (NĐ98) — GIỮ 'Out of Service'.")
+        self.assertNotEqual(
+            result["asset_status"], AssetStatus.ACTIVE,
+            "asset_status KHÔNG được hardcode 'Active' — PHẢI đọc LIVE (BR-09-09).")
+        self.assertEqual(
+            frappe.db.get_value("AC Asset", asset, "lifecycle_status"),
+            result["asset_status"], "asset_status PHẢI == lifecycle_status LIVE (SSoT).")
+
+    def test_confirm_inspection_regression_key_set_additive(self):
+        """Regression contract: return đúng 5-key = 4 key cũ + asset_status (chỉ
+        THÊM, KHÔNG đổi key có sẵn); status INVARIANT 'Completed'; docstatus 0→1;
+        mttr_hours/sla_breached giữ key-set cũ."""
+        name = self._wo_pending_inspection("reg")
+        self.assertEqual(
+            frappe.db.get_value("Asset Repair", name, "docstatus"), 0,
+            "Trước nghiệm thu docstatus PHẢI 0.")
+
+        result = confirm_inspection(name)
+
+        self.assertEqual(
+            set(result.keys()),
+            {"name", "status", "mttr_hours", "sla_breached", "asset_status"},
+            "return PHẢI EXACT 5-key (4 cũ + asset_status additive, KHÔNG đổi/xoá key cũ).")
+        self.assertEqual(result["status"], RepairStatus.COMPLETED,
+                         "status INVARIANT 'Completed'.")
+        for k in ("name", "status", "mttr_hours", "sla_breached"):
+            self.assertIn(k, result, f"4 key cũ PHẢI giữ nguyên: thiếu {k}.")
+        self.assertEqual(
+            frappe.db.get_value("Asset Repair", name, "docstatus"), 1,
+            "SAU nghiệm thu docstatus PHẢI 1 (0→1, doc.submit()).")
 
 
 # ─── BR-09-09 / INV-09-RESTORE-1: state-machine-guarded asset restore ─────────
@@ -2276,3 +2973,1060 @@ class TestCreateFkMessageRegistry(unittest.TestCase):
                    source_pm_wo="PMWO-bogus")
         self.assertEqual(ctx2.exception.code, ErrorCode.VALIDATION_ERROR)
         self.assertEqual(ctx2.exception.http_status, 422)
+
+
+# ─── BE-TC-SCALE-01..03: clamp-100 bug fix (unclamped loop-paginate) ───────────
+
+class TestSlaBreachClampScale(unittest.TestCase):
+    """Regression scale >100 (clamp-100 bug): BOTH filter LIVE `_list_sla_breached_
+    live` VÀ `cm_sla_breach_count` phải quét TOÀN tập, KHÔNG bị `paginate` clamp im
+    lặng về `_MAX_PAGE_SIZE=100`.
+
+    BUG (trước fix): 2 chỗ gọi `RepairRepo.list(..., page_size=100000)` → paginate
+    CLAMP về 100 → chỉ lấy 100 dòng đầu → filter/count CẮT ở 100 khi >100 phiếu mở-
+    quá-hạn (membership < badge; card < drill — vỡ INV-CM-SLA-5). FIX = loop-
+    paginate UNCLAMPED (`_fetch_all_repair_rows`, mirror imm08 `_fetch_all_pm_rows`).
+
+    Seed 105 phiếu CM open live-overdue (cờ STORED=0, elapsed 100h > target 72h) —
+    VƯỢT ngưỡng 100 để lộ clamp. Card `card_before`/`card_after` chụp quanh seed
+    (delta phải == 105). ⚠ KHÔNG verify bằng `page_size=100000` (BẪY: baseline path
+    tự clamp 100 ⇒ mask bug) — page QUA TỪNG TRANG (page_size=20). DELTA-style,
+    teardown purge by asset_name prefix; scope filter qua sentinel assigned_to (105
+    của test riêng, không đụng phiếu ambient).
+    """
+
+    PREFIX = "_Test CM-SLA-SCALE"
+    SENTINEL_USER = "_slascale_marker@assetcore.test"
+    N = 105  # > _MAX_PAGE_SIZE (100) — biên lộ clamp
+
+    @classmethod
+    def setUpClass(cls):
+        from assetcore.services.imm09 import cm_sla_breach_count
+        frappe.set_user("Administrator")
+        # Chụp card TRƯỚC seed → đo delta chính xác của riêng 105 phiếu test.
+        cls.card_before = cm_sla_breach_count()
+        for i in range(cls.N):
+            cls._mk_wo(tag=f"s{i:03d}")
+        cls.card_after = cm_sla_breach_count()
+
+    @classmethod
+    def tearDownClass(cls):
+        assets = frappe.get_all(
+            "AC Asset", filters={"asset_name": ["like", f"{cls.PREFIX}%"]}, fields=["name"])
+        for a in assets:
+            for wo in frappe.get_all(
+                "Asset Repair", filters={"asset_ref": a["name"]}, fields=["name", "docstatus"]):
+                doc = frappe.get_doc("Asset Repair", wo["name"])
+                if doc.docstatus == 1:
+                    doc.cancel()
+                frappe.delete_doc("Asset Repair", wo["name"], force=True, ignore_permissions=True)
+            purge_asset(a["name"])
+        cat = frappe.db.get_value("AC Asset Category", {"category_name": "_TestCatIMM09"}, "name")
+        if cat and not frappe.get_all("AC Asset", filters={"asset_category": cat}, limit=1):
+            frappe.delete_doc("AC Asset Category", cat, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+
+    @classmethod
+    def _mk_wo(cls, *, tag: str) -> str:
+        """1 asset + 1 Asset Repair raw open live-overdue (cờ STORED=0, elapsed 100h
+        > target 72h), assigned_to sentinel. backdate open_datetime SAU insert
+        (controller before_insert overwrite = now())."""
+        import time
+        prev = frappe.flags.in_install
+        frappe.flags.in_install = "frappe"
+        try:
+            asset = frappe.get_doc({
+                "doctype": "AC Asset",
+                "asset_name": f"{cls.PREFIX} {tag}",
+                "asset_category": _ensure_cat(),
+                "manufacturer_sn": f"SN-CMSC-{tag}-{int(time.time() * 1000) % 1000000}",
+                "lifecycle_status": "Active",
+            }).insert(ignore_permissions=True)
+        finally:
+            frappe.flags.in_install = prev
+        doc = frappe.get_doc({
+            "doctype": "Asset Repair",
+            "asset_ref": asset.name,
+            "asset_name": asset.asset_name,
+            "repair_type": "Corrective",
+            "priority": "Normal",
+            "risk_class": RiskClass.I,
+            "failure_description": f"_Test CM-SLA-SCALE fixture {tag}",
+            "status": RepairStatus.IN_REPAIR,
+            "sla_target_hours": 72.0,
+            "sla_breached": 0,
+        })
+        doc.flags.ignore_links = True
+        doc.insert(ignore_permissions=True)
+        frappe.db.set_value("Asset Repair", doc.name, {
+            "open_datetime": add_to_date(now_datetime(), hours=-100.0),
+            "sla_target_hours": 72.0,
+            "sla_breached": 0,
+            "status": RepairStatus.IN_REPAIR,
+            "assigned_to": cls.SENTINEL_USER,
+        })
+        frappe.db.commit()
+        return doc.name
+
+    # ── BE-TC-SCALE-01: filter LIVE trả TOÀN 105 (KHÔNG cap 100), page qua hết ──
+    def test_scale01_live_filter_pages_all_105_no_cap(self):
+        from assetcore.services.imm09 import list_work_orders
+        scope = {"sla_breached_live": 1, "assigned_to": self.SENTINEL_USER}
+        # Page QUA TỪNG TRANG (page_size=20) — TUYỆT ĐỐI không page_size=100000.
+        seen: set[str] = set()
+        page = 1
+        total_reported = None
+        while True:
+            res = list_work_orders(dict(scope), page=page, page_size=20)
+            total_reported = res["pagination"]["total"]
+            for r in res["data"]:
+                seen.add(r["name"])
+                self.assertTrue(r.get("is_sla_breached"),
+                                "mọi row filter LIVE phải is_sla_breached==True")
+            if page >= res["pagination"]["total_pages"] or not res["data"]:
+                break
+            page += 1
+        self.assertEqual(total_reported, self.N,
+                         "pagination.total PHẢI = 105 (KHÔNG cap 100) — nếu ==100 thì "
+                         "fetch bị paginate clamp = BUG chưa fix")
+        self.assertEqual(len(seen), self.N,
+                         "union rows page-qua-hết PHẢI = 105 phiếu (đủ, không mất "
+                         "dòng >100 do clamp)")
+
+    # ── BE-TC-SCALE-02: cm_sla_breach_count delta == 105 (KHÔNG undercount) ─────
+    def test_scale02_card_count_delta_is_105_no_cap(self):
+        # card_before/card_after chụp quanh seed 105 (cờ=0 live-overdue → nhánh
+        # live_open). Nếu live_open còn clamp 100 → delta < 105 (vd đứng ở 100).
+        self.assertEqual(self.card_after - self.card_before, self.N,
+                         "cm_sla_breach_count delta PHẢI == 105 — nhánh live_open quét "
+                         "TOÀN tập candidate (KHÔNG clamp 100). delta<105 = undercount BUG")
+
+    # ── BE-TC-SCALE-03 (invariant card == drill ở scale >100) ───────────────────
+    def test_scale03_invariant_card_equals_drill_at_scale(self):
+        from assetcore.services.imm09 import cm_sla_breach_count, list_work_orders
+        card = cm_sla_breach_count()
+        # Drill GLOBAL total (LIVE path in-python paginate trên tập ĐÃ fetch unclamped)
+        # — đọc pagination.total, page nhỏ (page_size=20), KHÔNG page_size=100000.
+        drill_total = list_work_orders(
+            {"sla_breached_live": 1}, page=1, page_size=20)["pagination"]["total"]
+        self.assertEqual(card, drill_total,
+                         "INV-CM-SLA-5 ở scale >100: card cm_sla_breach_count == drill "
+                         "total filter LIVE (cả 2 unclamped ⇒ khớp)")
+        self.assertGreaterEqual(card, self.N,
+                         "card PHẢI ≥105 (đã seed 105 live-overdue) — nếu ≤100 thì còn clamp")
+
+    # ── Grep-guard: 2 hàm KHÔNG còn literal 100000, ĐÃ qua _fetch_all_repair_rows ─
+    def test_scale_grep_guard_no_100000_uses_loop_paginate(self):
+        import inspect
+        from assetcore.services import imm09 as svc
+        for fn in (svc._list_sla_breached_live, svc.cm_sla_breach_count):
+            src = inspect.getsource(fn)
+            self.assertNotIn("100000", src,
+                             f"{fn.__name__} KHÔNG được còn literal page_size=100000 "
+                             "(clamp-100 bug)")
+            self.assertIn("_fetch_all_repair_rows", src,
+                          f"{fn.__name__} PHẢI fetch qua _fetch_all_repair_rows "
+                          "(loop-paginate unclamped)")
+
+
+# ─── BR-09-15/16: attach_repair_checklist_photo — bằng chứng ảnh/mục checklist CM ──
+# Mobile CR-15/G6 (Vòng 3). Đính ảnh cho MỘT mục checklist sửa chữa → File private
+# (attached_to 'Asset Repair'/WO, is_private=1) + đúng 1 Asset Lifecycle Event
+# 'repair_checklist_photo_attached' + set row.photo=file_url (read-back parity
+# get_repair_work_order). Mọi nhánh reject TRƯỚC File.insert (NOT_FOUND/FORBIDDEN/
+# VALIDATION) → 0 File. Đối xứng attach_pm_checklist_photo (imm08) / attach_incident_
+# photo (imm12) — KHÁC module/doctype. Discriminator = Frappe child `idx` (Repair
+# Checklist KHÔNG có field STT domain như PM). max ảnh/mục = 1 (row.photo Attach ĐƠN,
+# count==nguồn).
+
+
+def _cm_jpg_bytes() -> bytes:
+    """Bytes JPEG THẬT (PIL). Frappe File.before_insert strip EXIF ⇒ PIL phải nhận
+    diện được ảnh (fake magic-byte → UnidentifiedImageError)."""
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (8, 8), (30, 120, 200)).save(buf, format="JPEG")
+    return buf.getvalue()
+
+
+def _cm_truncated_jpg_bytes() -> bytes:
+    """Ảnh JPEG THẬT bị CẮT CỤT thân (magic header hợp lệ, dữ liệu scan đứt) — mô
+    phỏng KTV chụp hiện trường wifi/4G chập chờn. PIL.open nhận diện JPEG nhưng
+    .save() ném OSError('Truncated File Read'). Filename .jpg ⇒ strip_exif chạy."""
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (64, 64), (30, 120, 200)).save(buf, format="JPEG")
+    full = buf.getvalue()
+    return full[: len(full) // 2]
+
+
+def _cm_garbage_jpg_bytes() -> bytes:
+    """Magic-byte JPEG hợp lệ nhưng thân RÁC → PIL.UnidentifiedImageError."""
+    return b"\xff\xd8\xff" + b"\x00" * 64
+
+
+class TestAttachRepairChecklistPhoto(unittest.TestCase):
+    """BR-09-15/16 (mobile CR-15/G6): đính ảnh bằng chứng theo TỪNG mục checklist CM.
+
+    - success → đúng 1 File private (attached_to 'Asset Repair'/WO, is_private=1) +
+      set row.photo=file_url (read-back get_repair_work_order) + đúng 1 lifecycle
+      'repair_checklist_photo_attached' (actor=session.user, asset của WO, hard-req).
+    - permission assignee OR repair.write: outsider (Auditor read-only, không assignee)
+      → FORBIDDEN, 0 File; assignee dù thiếu write vẫn đính được.
+    - validation: idx-không-khớp-row / thiếu-file / content-type≠ảnh / size>cap / ảnh
+      thứ 2 cùng mục → VALIDATION fields.file, 0 File (reject KHÔNG tạo File).
+    - no-gate-rerun: đính vào row result rỗng VẪN thành công (set_value KHÔNG trigger
+      validate_repair_checklist_complete); workflow_state/status KHÔNG đổi.
+    - rollback hard-req: emit event throw → File.insert + row.photo rollback (no orphan).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.cat = _ensure_cat()
+        # assignee/outsider: Auditor (read-only, KHÔNG repair.write) → assignee đính qua
+        # NHÁNH assignee; outsider KHÔNG assignee & KHÔNG write → FORBIDDEN.
+        cls.assignee = cls._ensure_user("_test_cm_photo_assignee@assetcore.test",
+                                        ["AssetCore Auditor"])
+        cls.outsider = cls._ensure_user("_test_cm_photo_outsider@assetcore.test",
+                                        ["AssetCore Auditor"])
+        cls._assets: list[str] = []
+        cls._wos: list[str] = []
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        for wo in cls._wos:
+            try:
+                for f in frappe.get_all(
+                    "File", filters={"attached_to_doctype": "Asset Repair",
+                                     "attached_to_name": wo}, pluck="name"):
+                    frappe.delete_doc("File", f, force=True, ignore_permissions=True)
+            except Exception:
+                pass
+            try:
+                frappe.delete_doc("Asset Repair", wo, force=True,
+                                  ignore_permissions=True, delete_permanently=True)
+            except Exception:
+                pass
+        for a in cls._assets:
+            purge_asset(a)
+        for u in (cls.assignee, cls.outsider):
+            try:
+                frappe.delete_doc("User", u, force=True, ignore_permissions=True)
+            except Exception:
+                pass
+        frappe.db.commit()
+
+    @staticmethod
+    def _ensure_user(email: str, roles: list[str]) -> str:
+        if not frappe.db.exists("User", email):
+            doc = frappe.get_doc({
+                "doctype": "User", "email": email, "first_name": email.split("@")[0],
+                "send_welcome_email": 0, "enabled": 1,
+            }).insert(ignore_permissions=True)
+        else:
+            doc = frappe.get_doc("User", email)
+        existing = {r.role for r in doc.get("roles", [])}
+        for r in roles:
+            if r not in existing:
+                doc.append("roles", {"role": r})
+        doc.save(ignore_permissions=True)
+        frappe.db.commit()
+        return email
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+
+    def _new_repair_wo(self, assigned_to: str = "Administrator",
+                       result: str = "") -> str:
+        """Asset Repair (docstatus=0) ở Pending Inspection với 2 hàng repair_checklist
+        (idx 1,2). Mỗi WO 1 asset riêng (né validate_asset_not_under_repair). result
+        rỗng ⇒ chưa Pass — before_submit gate KHÔNG chạy khi draft (test no-gate-rerun)."""
+        import secrets
+        asset = _make_asset(f"-cmp{secrets.token_hex(3)}")
+        self._assets.append(asset.name)
+        wo = frappe.get_doc({
+            "doctype": "Asset Repair",
+            "asset_ref": asset.name,
+            "asset_name": asset.asset_name,
+            "repair_type": "Corrective",
+            "priority": "Normal",
+            "failure_description": "_Test CM photo evidence",
+            "status": RepairStatus.PENDING_INSPECTION,
+            "assigned_to": assigned_to,
+            "repair_checklist": [
+                {"test_description": "Kiểm tra an toàn điện", "test_category": "Electrical",
+                 "result": result},
+                {"test_description": "Kiểm tra cơ khí", "test_category": "Mechanical",
+                 "result": result},
+            ],
+        })
+        wo.flags.ignore_links = True
+        wo.insert(ignore_permissions=True)
+        frappe.db.commit()
+        self._wos.append(wo.name)
+        return wo.name
+
+    def _file_count(self, wo: str) -> int:
+        return frappe.db.count("File", {
+            "attached_to_doctype": "Asset Repair",
+            "attached_to_name": wo, "is_private": 1})
+
+    def _row_photo(self, wo: str, idx: int):
+        from assetcore.services.imm09 import get_work_order
+        for r in get_work_order(wo)["repair_checklist"]:
+            if int(r["idx"]) == int(idx):
+                return r.get("photo")
+        return None
+
+    # ── TC-CM-PHOTO-01 Happy + read-back parity + lifecycle event ────────────────
+    def test_attach_repair_checklist_photo_happy(self):
+        from assetcore.services.imm09 import attach_repair_checklist_photo
+        wo = self._new_repair_wo()
+        res = attach_repair_checklist_photo(wo, 1, filedata=_cm_jpg_bytes(),
+                                            filename="cm_item1.jpg",
+                                            content_type="image/jpeg")
+        self.assertTrue(res.get("file_url"), "phải trả file_url != ''")
+        self.assertEqual(res.get("file_name"), "cm_item1.jpg")
+        self.assertEqual(res.get("checklist_item_idx"), 1)
+        files = frappe.get_all(
+            "File",
+            filters={"attached_to_doctype": "Asset Repair", "attached_to_name": wo},
+            fields=["name", "is_private", "attached_to_doctype", "attached_to_name"])
+        self.assertEqual(len(files), 1, "đúng 1 File được tạo")
+        self.assertEqual(files[0]["is_private"], 1, "File PHẢI private (NĐ98)")
+        self.assertEqual(files[0]["attached_to_doctype"], "Asset Repair")
+        self.assertEqual(files[0]["attached_to_name"], wo)
+        # read-back parity: get_repair_work_order.repair_checklist[idx].photo == file_url
+        self.assertEqual(self._row_photo(wo, 1), res["file_url"],
+                         "row.photo == file_url vừa trả (read-back parity, no drift)")
+        # lifecycle event hard-req: đúng 1 'repair_checklist_photo_attached'
+        asset_ref = frappe.db.get_value("Asset Repair", wo, "asset_ref")
+        evts = frappe.get_all(
+            "Asset Lifecycle Event",
+            filters={"event_type": "repair_checklist_photo_attached", "root_record": wo},
+            fields=["name", "actor", "asset", "root_doctype"])
+        self.assertEqual(len(evts), 1, "đúng 1 lifecycle event/lần success")
+        self.assertEqual(evts[0]["actor"], "Administrator", "actor = session.user")
+        self.assertEqual(evts[0]["asset"], asset_ref, "asset = wo.asset_ref")
+        self.assertEqual(evts[0]["root_doctype"], "Asset Repair")
+
+    # ── TC-CM-PHOTO-02 WO không tồn tại → NOT_FOUND, no orphan File ──────────────
+    def test_attach_repair_photo_wo_not_found(self):
+        from assetcore.services.imm09 import attach_repair_checklist_photo
+        with self.assertRaises(ServiceError) as ctx:
+            attach_repair_checklist_photo("WO-CM-DOES-NOT-EXIST-0000", 1,
+                                          filedata=_cm_jpg_bytes(), filename="x.jpg",
+                                          content_type="image/jpeg")
+        self.assertEqual(ctx.exception.code, ErrorCode.NOT_FOUND)
+        self.assertEqual(
+            frappe.db.count("File", {"attached_to_doctype": "Asset Repair",
+                                     "attached_to_name": "WO-CM-DOES-NOT-EXIST-0000"}),
+            0, "WO không tồn tại → KHÔNG orphan File")
+
+    # ── TC-CM-PHOTO-03 outsider (không assignee & không write) → FORBIDDEN ───────
+    def test_attach_repair_photo_forbidden_non_assignee(self):
+        from assetcore.services.imm09 import attach_repair_checklist_photo
+        wo = self._new_repair_wo(assigned_to=self.assignee)  # assigned_to != outsider
+        frappe.set_user(self.outsider)
+        try:
+            with self.assertRaises(ServiceError) as ctx:
+                attach_repair_checklist_photo(wo, 1, filedata=_cm_jpg_bytes(),
+                                              filename="x.jpg", content_type="image/jpeg")
+        finally:
+            frappe.set_user("Administrator")
+        self.assertEqual(ctx.exception.code, ErrorCode.FORBIDDEN)
+        self.assertEqual(self._file_count(wo), 0, "nhánh FORBIDDEN KHÔNG tạo File")
+
+    # ── assignee dù thiếu write vẫn đính được (nhánh assignee) ───────────────────
+    def test_attach_repair_photo_assignee_without_write_can_attach(self):
+        from assetcore.services.imm09 import attach_repair_checklist_photo
+        wo = self._new_repair_wo(assigned_to=self.assignee)
+        frappe.set_user(self.assignee)
+        try:
+            res = attach_repair_checklist_photo(wo, 1, filedata=_cm_jpg_bytes(),
+                                                filename="a.jpg", content_type="image/jpeg")
+        finally:
+            frappe.set_user("Administrator")
+        self.assertTrue(res.get("file_url"))
+        self.assertEqual(self._file_count(wo), 1)
+
+    # ── TC-CM-PHOTO-04 idx không khớp row → VALIDATION, no File ──────────────────
+    def test_attach_repair_photo_bad_idx(self):
+        from assetcore.services.imm09 import attach_repair_checklist_photo
+        wo = self._new_repair_wo()
+        with self.assertRaises(ServiceError) as ctx:
+            attach_repair_checklist_photo(wo, 99, filedata=_cm_jpg_bytes(),
+                                          filename="x.jpg", content_type="image/jpeg")
+        self.assertEqual(ctx.exception.code, ErrorCode.VALIDATION)
+        self.assertIn("file", ctx.exception.fields, "VALIDATION phải có fields.file")
+        self.assertEqual(self._file_count(wo), 0, "idx sai → reject TRƯỚC File.insert")
+
+    # ── TC-CM-PHOTO-05 thiếu file → VALIDATION, no File ─────────────────────────
+    def test_attach_repair_photo_missing_file(self):
+        from assetcore.services.imm09 import attach_repair_checklist_photo
+        wo = self._new_repair_wo()
+        with self.assertRaises(ServiceError) as ctx:
+            attach_repair_checklist_photo(wo, 1, filedata=None, filename="",
+                                          content_type="")
+        self.assertEqual(ctx.exception.code, ErrorCode.VALIDATION)
+        self.assertIn("file", ctx.exception.fields)
+        self.assertEqual(self._file_count(wo), 0)
+
+    # ── TC-CM-PHOTO-06 content-type ∉ ảnh → VALIDATION, no File ──────────────────
+    def test_attach_repair_photo_not_image(self):
+        from assetcore.services.imm09 import attach_repair_checklist_photo
+        wo = self._new_repair_wo()
+        with self.assertRaises(ServiceError) as ctx:
+            attach_repair_checklist_photo(wo, 1, filedata=b"%PDF-1.4 fake",
+                                          filename="doc.pdf",
+                                          content_type="application/pdf")
+        self.assertEqual(ctx.exception.code, ErrorCode.VALIDATION)
+        self.assertIn("file", ctx.exception.fields)
+        self.assertEqual(self._file_count(wo), 0, "nhánh VALIDATION KHÔNG tạo File")
+
+    # ── TC-CM-PHOTO-07 size > cap → VALIDATION, no File ─────────────────────────
+    def test_attach_repair_photo_too_large(self):
+        from assetcore.services.imm09 import (MAX_REPAIR_CHECKLIST_PHOTO_BYTES,
+                                              attach_repair_checklist_photo)
+        wo = self._new_repair_wo()
+        big = b"\x00" * (MAX_REPAIR_CHECKLIST_PHOTO_BYTES + 1)
+        with self.assertRaises(ServiceError) as ctx:
+            attach_repair_checklist_photo(wo, 1, filedata=big, filename="big.jpg",
+                                          content_type="image/jpeg")
+        self.assertEqual(ctx.exception.code, ErrorCode.VALIDATION)
+        self.assertIn("file", ctx.exception.fields)
+        self.assertEqual(self._file_count(wo), 0)
+
+    # ── TC-CM-PHOTO-08 ảnh thứ 2 cùng mục → VALIDATION (max-count), count==nguồn ─
+    def test_attach_repair_photo_max_per_item(self):
+        from assetcore.services.imm09 import (MAX_REPAIR_CHECKLIST_PHOTOS,
+                                              attach_repair_checklist_photo)
+        wo = self._new_repair_wo()
+        for _ in range(MAX_REPAIR_CHECKLIST_PHOTOS):
+            attach_repair_checklist_photo(wo, 1, filedata=_cm_jpg_bytes(),
+                                          filename="m.jpg", content_type="image/jpeg")
+        files_after_max = self._file_count(wo)
+        with self.assertRaises(ServiceError) as ctx:
+            attach_repair_checklist_photo(wo, 1, filedata=_cm_jpg_bytes(),
+                                          filename="over.jpg", content_type="image/jpeg")
+        self.assertEqual(ctx.exception.code, ErrorCode.VALIDATION)
+        self.assertIn("file", ctx.exception.fields)
+        self.assertEqual(self._file_count(wo), files_after_max,
+                         "ảnh vượt max bị chặn → File count giữ nguyên (no drift)")
+        self.assertIsNotNone(self._row_photo(wo, 1),
+                             "row.photo giữ đúng ảnh đã đính (count==nguồn)")
+
+    # ── TC-CM-PHOTO-09 no-gate-rerun: đính row result rỗng OK; state KHÔNG đổi ───
+    def test_attach_repair_photo_no_gate_rerun(self):
+        """set_value trên child row KHÔNG re-run validate_repair_checklist_complete
+        (gate BR-09-04). Đính vào row chưa Pass VẪN thành công; workflow_state/status
+        phiếu KHÔNG đổi trước/sau (anti-pattern #10 — KHÔNG doc.save trên Asset Repair)."""
+        from assetcore.services.imm09 import attach_repair_checklist_photo
+        wo = self._new_repair_wo(result="")  # result rỗng ⇒ gate hoàn-thành sẽ chặn nếu chạy
+        ws_before = frappe.db.get_value("Asset Repair", wo,
+                                        ["workflow_state", "status"], as_dict=True)
+        res = attach_repair_checklist_photo(wo, 1, filedata=_cm_jpg_bytes(),
+                                            filename="ng.jpg", content_type="image/jpeg")
+        self.assertTrue(res.get("file_url"), "đính OK dù row chưa Pass (không re-run gate)")
+        ws_after = frappe.db.get_value("Asset Repair", wo,
+                                       ["workflow_state", "status"], as_dict=True)
+        self.assertEqual(ws_before.workflow_state, ws_after.workflow_state,
+                         "workflow_state KHÔNG đổi khi đính ảnh")
+        self.assertEqual(ws_after.status, RepairStatus.PENDING_INSPECTION,
+                         "status giữ Pending Inspection (đính ảnh không đổi trạng thái)")
+
+    # ── TC-CM-PHOTO-EVIDENCE-03 rollback hard-req: event throw → no orphan File ──
+    def test_attach_repair_photo_event_rollback(self):
+        from assetcore.services import imm00 as svc00
+        from assetcore.services.imm09 import attach_repair_checklist_photo
+        wo = self._new_repair_wo()
+        before = self._file_count(wo)
+        orig = svc00.create_lifecycle_event
+
+        def _boom(**kw):
+            raise RuntimeError("boom-lifecycle-event")
+
+        svc00.create_lifecycle_event = _boom
+        try:
+            with self.assertRaises(Exception):
+                attach_repair_checklist_photo(wo, 1, filedata=_cm_jpg_bytes(),
+                                              filename="rb.jpg", content_type="image/jpeg")
+        finally:
+            svc00.create_lifecycle_event = orig
+        frappe.db.rollback()
+        self.assertEqual(self._file_count(wo), before,
+                         "event throw → File.insert rollback (KHÔNG orphan)")
+        self.assertIsNone(self._row_photo(wo, 1),
+                          "row.photo KHÔNG bị set khi event throw (rollback)")
+
+    # ── TC-CM-PHOTO-10 ảnh HỎNG / ĐỨT TRUYỀN → VALIDATION, no 500, no orphan ─────
+    def test_reject_corrupt_or_truncated_image_validation_no_file(self):
+        """Finding B (ROOT CAUSE): content-type hợp lệ nhưng bytes KHÔNG giải mã (ảnh
+        cắt-cụt/rác). File.before_insert → strip_exif → PIL ném UnidentifiedImageError
+        / OSError('Truncated File Read'). PHẢI thành VALIDATION Decision-B (fields.file,
+        thông điệp VN), KHÔNG 500, KHÔNG orphan File, KHÔNG set row.photo, KHÔNG
+        lifecycle event."""
+        from assetcore.services.imm09 import attach_repair_checklist_photo
+        for label, data in (("truncated-OSError", _cm_truncated_jpg_bytes()),
+                            ("garbage-Unidentified", _cm_garbage_jpg_bytes())):
+            with self.subTest(kind=label):
+                wo = self._new_repair_wo()
+                with self.assertRaises(ServiceError) as ctx:
+                    attach_repair_checklist_photo(wo, 1, filedata=data,
+                                                  filename="cm_bad.jpg",
+                                                  content_type="image/jpeg")
+                self.assertEqual(ctx.exception.code, ErrorCode.VALIDATION,
+                                 f"[{label}] ảnh hỏng → VALIDATION, KHÔNG 500")
+                self.assertIn("file", ctx.exception.fields,
+                              f"[{label}] Decision-B phải có fields.file")
+                self.assertIn("bị lỗi hoặc không đọc được",
+                              ctx.exception.fields["file"],
+                              f"[{label}] thông điệp VN chụp/chọn lại")
+                self.assertEqual(self._file_count(wo), 0,
+                                 f"[{label}] KHÔNG tạo File orphan")
+                self.assertIsNone(self._row_photo(wo, 1),
+                                  f"[{label}] row.photo KHÔNG bị set khi ảnh hỏng")
+                self.assertEqual(frappe.db.count("Asset Lifecycle Event", {
+                    "event_type": "repair_checklist_photo_attached",
+                    "root_record": wo}), 0,
+                    f"[{label}] KHÔNG sinh lifecycle event khi ảnh hỏng")
+
+    # ── API tier — Decision-B envelope + multipart parity (mirror imm08) ─────────
+    def _fake_request(self, filedata: bytes, filename: str, content_type: str):
+        import io
+
+        from werkzeug.datastructures import FileStorage
+        fs = FileStorage(stream=io.BytesIO(filedata), filename=filename,
+                         content_type=content_type)
+
+        class _Req:
+            files = {"file": fs}
+            host = None  # File.get_url() đọc request.host — None → fallback site conf
+
+        return _Req()
+
+    def test_api_attach_returns_decision_b_ok(self):
+        from assetcore.api.imm09 import attach_repair_checklist_photo as api_attach
+        wo = self._new_repair_wo()
+        orig = getattr(frappe.local, "request", None)
+        frappe.local.request = self._fake_request(_cm_jpg_bytes(), "api.jpg", "image/jpeg")
+        try:
+            res = api_attach(work_order_name=wo, checklist_item_idx="1")
+        finally:
+            frappe.local.request = orig
+        self.assertTrue(res.get("success"), f"phải success, nhận: {res}")
+        self.assertIn("file_url", res["data"])
+        self.assertEqual(res["data"]["file_name"], "api.jpg")
+        self.assertEqual(res["data"]["checklist_item_idx"], 1)
+
+    def test_api_attach_non_image_returns_validation_fields(self):
+        from assetcore.api.imm09 import attach_repair_checklist_photo as api_attach
+        wo = self._new_repair_wo()
+        orig = getattr(frappe.local, "request", None)
+        frappe.local.request = self._fake_request(b"%PDF fake", "n.pdf", "application/pdf")
+        try:
+            res = api_attach(work_order_name=wo, checklist_item_idx="1")
+        finally:
+            frappe.local.request = orig
+        self.assertFalse(res.get("success"))
+        self.assertEqual(res.get("code"), ErrorCode.VALIDATION)
+        self.assertIn("file", res.get("fields", {}))
+        self.assertEqual(self._file_count(wo), 0)
+
+
+# ─── BR-09-18/19/20 — Firmware Change Request state machine (SERVER-controlled) ──
+#
+# TDD cho _FCR_VALID_TRANSITIONS + capability-per-edge + audit trail (Lifecycle
+# Event) + allowed_transitions/can_approve. Đối xứng TestRepairAllowedTransitions
+# (Asset Repair) — nhưng cho DocType Firmware Change Request (status field = SSoT
+# state machine, KHÔNG Frappe Workflow). Root-cause fix: status FCR CHỈ đổi qua
+# transition có kiểm soát; update_firmware_cr (CRUD chung) STRIP field điều khiển.
+
+_DT_FCR = "Firmware Change Request"
+
+
+def _seed_fcr_user(role: str) -> str:
+    """Seed 1 User test với 1 role AssetCore. Trả email (= name)."""
+    email = f"_test_fcr_{role.replace(' ', '_').lower()}_{frappe.generate_hash()[:8]}@nope.invalid"
+    frappe.get_doc({
+        "doctype": "User",
+        "email": email,
+        "first_name": f"TestFCR-{role}",
+        "enabled": 1,
+        "send_welcome_email": 0,
+        "roles": [{"role": role}],
+    }).insert(ignore_permissions=True)
+    return email
+
+
+class TestFirmwareCrStateMachine(unittest.TestCase):
+    """BR-09-18/19/20 — FCR transition SERVER-controlled (_FCR_VALID_TRANSITIONS).
+
+    Ma trận capability: Duyệt/Hoàn tác = firmware.approve (DocPerm submit FCR —
+    Repair Manager + Super Admin), Gửi duyệt/Triển khai = repair.write. Mỗi
+    Approve/Deploy/Rollback ghi ĐÚNG 1 Lifecycle Event (audit NĐ98, fail-loud).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.asset = _make_asset("-fcr")
+        cls.repair_user = _seed_fcr_user("Repair User")        # write, KHÔNG approve
+        cls.manager = _seed_fcr_user("Repair Manager")         # write + approve
+        cls.super_admin = _seed_fcr_user("AssetCore Super Admin")  # approve
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        for fcr in frappe.get_all(
+            _DT_FCR, filters={"asset_ref": cls.asset.name, "docstatus": ["!=", 2]},
+            fields=["name"],
+        ):
+            frappe.delete_doc(_DT_FCR, fcr.name, force=True, ignore_permissions=True)
+        purge_asset(cls.asset.name)   # dọn cả Asset Lifecycle Event của asset (raw SQL)
+        for u in (cls.repair_user, cls.manager, cls.super_admin):
+            if frappe.db.exists("User", u):
+                frappe.delete_doc("User", u, force=True, ignore_permissions=True)
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+
+    # ── fixtures ──────────────────────────────────────────────────────────────
+    def _mk_fcr(self, status: str = "Pending Approval") -> str:
+        doc = frappe.get_doc({
+            "doctype": _DT_FCR,
+            "asset_ref": self.asset.name,
+            "version_before": "1.2.0",
+            "version_after": "1.3.1",
+            "change_notes": "_Test cập nhật firmware vá lỗi an toàn Class C",
+            "status": status,
+            # rollback_reason reqd khi status ∈ (Rollback Required, Rolled Back) — set sẵn
+            "rollback_reason": "seed" if status in ("Rollback Required", "Rolled Back") else None,
+        })
+        doc.flags.ignore_links = True
+        doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+        self.addCleanup(
+            lambda n=doc.name: frappe.db.exists(_DT_FCR, n)
+            and frappe.delete_doc(_DT_FCR, n, force=True, ignore_permissions=True))
+        return doc.name
+
+    def _events(self, fcr_name: str, event_type: str) -> list:
+        # order desc → [0] = mới nhất. FCR autoname (FCR-.YYYY.-.#####) TÁI DÙNG số
+        # khi doc bị xoá (đếm max-existing, KHÔNG tabSeries) ⇒ event từ test/run
+        # trước có thể còn orphan cùng root_record → assert theo DELTA (before/after),
+        # KHÔNG theo tổng tuyệt đối.
+        return frappe.get_all(
+            "Asset Lifecycle Event",
+            filters={"root_record": fcr_name, "event_type": event_type},
+            fields=["asset", "actor", "from_status", "to_status", "root_doctype"],
+            order_by="creation desc")
+
+    # ── (0) map/enum grounding + lifecycle event enum registered ──────────────
+    def test_map_codomain_subset_firmwarestatus_and_doctype_enum(self):
+        from assetcore.services.imm09 import _FCR_VALID_TRANSITIONS, FirmwareStatus
+        enum = {
+            getattr(FirmwareStatus, a) for a in dir(FirmwareStatus)
+            if not a.startswith("_") and isinstance(getattr(FirmwareStatus, a), str)
+        }
+        dt_opts = frappe.get_meta(_DT_FCR).get_field("status").options.split("\n")
+        for state, nexts in _FCR_VALID_TRANSITIONS.items():
+            self.assertIn(state, enum, f"key '{state}' KHÔNG ∈ FirmwareStatus.")
+            self.assertIn(state, dt_opts, f"key '{state}' KHÔNG ∈ DocType status enum.")
+            for nx in nexts:
+                self.assertIn(nx, enum, f"next '{nx}' KHÔNG ∈ FirmwareStatus.")
+                self.assertIn(nx, dt_opts, f"next '{nx}' KHÔNG ∈ DocType status enum.")
+
+    def test_lifecycle_event_enums_registered(self):
+        """3 event enum firmware_cr_* PHẢI có trong Asset Lifecycle Event (reload-doctype)."""
+        opts = frappe.get_meta("Asset Lifecycle Event").get_field("event_type").options.split("\n")
+        for ev in ("firmware_cr_approved", "firmware_deployed", "firmware_rolled_back"):
+            self.assertIn(ev, opts, f"event '{ev}' chưa có trong enum — cần reload-doctype.")
+
+    # ── (1) approve requires capability ───────────────────────────────────────
+    def test_repair_user_cannot_approve_status_unchanged(self):
+        from assetcore.services.imm09 import transition_firmware_cr
+        name = self._mk_fcr("Pending Approval")
+        before = len(self._events(name, "firmware_cr_approved"))
+        frappe.set_user(self.repair_user)
+        with self.assertRaises(ServiceError) as ctx:
+            transition_firmware_cr(name, action="approve")
+        self.assertEqual(ctx.exception.code, ErrorCode.FORBIDDEN)
+        self.assertEqual(ctx.exception.http_status, 403)
+        frappe.set_user("Administrator")
+        self.assertEqual(frappe.db.get_value(_DT_FCR, name, "status"), "Pending Approval")
+        # DELTA=0 — KHÔNG ghi event khi reject (audit chỉ cho action thành công).
+        self.assertEqual(len(self._events(name, "firmware_cr_approved")), before)
+
+    def test_manager_approve_succeeds_one_event(self):
+        from assetcore.services.imm09 import transition_firmware_cr
+        name = self._mk_fcr("Pending Approval")
+        before = len(self._events(name, "firmware_cr_approved"))
+        frappe.set_user(self.manager)
+        res = transition_firmware_cr(name, action="approve")
+        frappe.set_user("Administrator")
+        self.assertEqual(res["status"], "Approved")
+        self.assertEqual(frappe.db.get_value(_DT_FCR, name, "status"), "Approved")
+        self.assertEqual(frappe.db.get_value(_DT_FCR, name, "approved_by"), self.manager)
+        evs = self._events(name, "firmware_cr_approved")
+        self.assertEqual(len(evs) - before, 1)   # ĐÚNG 1 event mới
+        ev = evs[0]                               # [0] = mới nhất (order desc)
+        self.assertEqual(ev.asset, self.asset.name)
+        self.assertEqual(ev.actor, self.manager)
+        self.assertEqual(ev.from_status, "Pending Approval")
+        self.assertEqual(ev.to_status, "Approved")
+        self.assertEqual(ev.root_doctype, _DT_FCR)
+
+    def test_super_admin_approve_succeeds(self):
+        from assetcore.services.imm09 import transition_firmware_cr
+        name = self._mk_fcr("Pending Approval")
+        before = len(self._events(name, "firmware_cr_approved"))
+        frappe.set_user(self.super_admin)
+        res = transition_firmware_cr(name, action="approve")
+        frappe.set_user("Administrator")
+        self.assertEqual(res["status"], "Approved")
+        self.assertEqual(len(self._events(name, "firmware_cr_approved")) - before, 1)
+
+    # ── (2) invalid transition rejected ───────────────────────────────────────
+    def test_invalid_jump_draft_to_applied_rejected(self):
+        from assetcore.services.imm09 import transition_firmware_cr
+        name = self._mk_fcr("Draft")
+        frappe.set_user(self.manager)   # có đủ quyền → fail vì cạnh, KHÔNG vì quyền
+        with self.assertRaises(ServiceError) as ctx:
+            transition_firmware_cr(name, action="deploy")   # Draft→Applied nhảy-cóc
+        self.assertEqual(ctx.exception.code, ErrorCode.BAD_STATE)
+        frappe.set_user("Administrator")
+        self.assertEqual(frappe.db.get_value(_DT_FCR, name, "status"), "Draft")
+
+    def test_invalid_backward_approved_to_draft_rejected(self):
+        from assetcore.services.imm09 import _assert_valid_fcr_transition
+        with self.assertRaises(ServiceError) as ctx:
+            _assert_valid_fcr_transition("Approved", "Draft")
+        self.assertEqual(ctx.exception.code, ErrorCode.BAD_STATE)
+
+    def test_valid_edge_pending_to_approved_ok(self):
+        from assetcore.services.imm09 import _assert_valid_fcr_transition
+        # Không raise = cạnh hợp lệ.
+        _assert_valid_fcr_transition("Pending Approval", "Approved")
+        _assert_valid_fcr_transition("Approved", "Applied")
+        _assert_valid_fcr_transition("Applied", "Rolled Back")
+
+    # ── (3) deploy writes lifecycle event ─────────────────────────────────────
+    def test_deploy_writes_firmware_deployed_event(self):
+        from assetcore.services.imm09 import transition_firmware_cr
+        name = self._mk_fcr("Approved")
+        before = len(self._events(name, "firmware_deployed"))   # Administrator context
+        frappe.set_user(self.manager)
+        res = transition_firmware_cr(name, action="deploy")
+        frappe.set_user("Administrator")
+        self.assertEqual(res["status"], "Applied")
+        self.assertEqual(frappe.db.get_value(_DT_FCR, name, "status"), "Applied")
+        evs = self._events(name, "firmware_deployed")
+        self.assertEqual(len(evs) - before, 1)
+        self.assertEqual(evs[0].from_status, "Approved")
+        self.assertEqual(evs[0].to_status, "Applied")
+        self.assertEqual(evs[0].root_doctype, _DT_FCR)
+
+    # ── (4) rollback: reason reqd + capability + audit ────────────────────────
+    def test_rollback_requires_reason(self):
+        from assetcore.services.imm09 import transition_firmware_cr
+        name = self._mk_fcr("Applied")
+        frappe.set_user(self.manager)
+        with self.assertRaises(ServiceError) as ctx:
+            transition_firmware_cr(name, action="rollback", reason="   ")
+        self.assertEqual(ctx.exception.code, ErrorCode.VALIDATION)
+        frappe.set_user("Administrator")
+        self.assertEqual(frappe.db.get_value(_DT_FCR, name, "status"), "Applied")
+
+    def test_rollback_requires_approve_capability(self):
+        from assetcore.services.imm09 import transition_firmware_cr
+        name = self._mk_fcr("Applied")
+        frappe.set_user(self.repair_user)   # write nhưng KHÔNG approve; rollback ∈ approval-edge
+        with self.assertRaises(ServiceError) as ctx:
+            transition_firmware_cr(name, action="rollback", reason="Firmware gây treo máy thở")
+        self.assertEqual(ctx.exception.code, ErrorCode.FORBIDDEN)
+        frappe.set_user("Administrator")
+        self.assertEqual(frappe.db.get_value(_DT_FCR, name, "status"), "Applied")
+
+    def test_rollback_success_writes_event_and_reason(self):
+        from assetcore.services.imm09 import transition_firmware_cr
+        name = self._mk_fcr("Applied")
+        before = len(self._events(name, "firmware_rolled_back"))
+        frappe.set_user(self.manager)
+        transition_firmware_cr(name, action="rollback", reason="Firmware gây treo máy thở")
+        frappe.set_user("Administrator")
+        self.assertEqual(frappe.db.get_value(_DT_FCR, name, "status"), "Rolled Back")
+        self.assertEqual(
+            frappe.db.get_value(_DT_FCR, name, "rollback_reason"), "Firmware gây treo máy thở")
+        self.assertEqual(len(self._events(name, "firmware_rolled_back")) - before, 1)
+
+    # ── (5) unknown action + not found ────────────────────────────────────────
+    def test_unknown_action_rejected(self):
+        from assetcore.services.imm09 import transition_firmware_cr
+        name = self._mk_fcr("Pending Approval")
+        frappe.set_user(self.manager)
+        with self.assertRaises(ServiceError) as ctx:
+            transition_firmware_cr(name, action="frobnicate")
+        self.assertEqual(ctx.exception.code, ErrorCode.INVALID_PARAMS)
+        frappe.set_user("Administrator")
+        self.assertEqual(frappe.db.get_value(_DT_FCR, name, "status"), "Pending Approval")
+
+    def test_not_found_rejected(self):
+        from assetcore.services.imm09 import transition_firmware_cr
+        frappe.set_user(self.manager)
+        with self.assertRaises(ServiceError) as ctx:
+            transition_firmware_cr("FCR-9999-99999", action="approve")
+        self.assertEqual(ctx.exception.code, ErrorCode.NOT_FOUND)
+
+    # ── (6) fail-loud: event throw → status rollback (không đổi câm) ───────────
+    def test_event_failure_rolls_back_status(self):
+        from unittest.mock import patch
+        from assetcore.services.imm09 import transition_firmware_cr
+        name = self._mk_fcr("Pending Approval")
+        before = len(self._events(name, "firmware_cr_approved"))
+        frappe.set_user(self.manager)
+        with patch("assetcore.services.imm09._create_lifecycle_event",
+                   side_effect=RuntimeError("boom")):
+            with self.assertRaises(RuntimeError):
+                transition_firmware_cr(name, action="approve")
+        frappe.set_user("Administrator")
+        # status KHÔNG đổi câm — audit-first (NĐ98); event rollback theo savepoint.
+        self.assertEqual(frappe.db.get_value(_DT_FCR, name, "status"), "Pending Approval")
+        self.assertEqual(len(self._events(name, "firmware_cr_approved")), before)
+
+    # ── (7) allowed_transitions LỌC theo capability + can_approve ──────────────
+    def test_allowed_transitions_repair_user_pending_approval(self):
+        from assetcore.services.imm09 import firmware_allowed_transitions
+        frappe.set_user(self.repair_user)
+        allowed, can_approve = firmware_allowed_transitions("Pending Approval")
+        frappe.set_user("Administrator")
+        self.assertEqual(allowed, [])           # Approved ∈ approval-edge, user KHÔNG approve
+        self.assertFalse(can_approve)
+
+    def test_allowed_transitions_manager_pending_approval(self):
+        from assetcore.services.imm09 import firmware_allowed_transitions
+        frappe.set_user(self.manager)
+        allowed, can_approve = firmware_allowed_transitions("Pending Approval")
+        frappe.set_user("Administrator")
+        self.assertEqual(allowed, ["Approved"])
+        self.assertTrue(can_approve)
+
+    def test_allowed_transitions_terminal_empty(self):
+        from assetcore.services.imm09 import firmware_allowed_transitions
+        frappe.set_user(self.manager)
+        allowed, _ca = firmware_allowed_transitions("Rolled Back")
+        frappe.set_user("Administrator")
+        self.assertEqual(allowed, [])
+
+    def test_get_firmware_cr_enriches_allowed_and_can_approve(self):
+        from assetcore.api.imm00 import get_firmware_cr
+        name = self._mk_fcr("Pending Approval")
+        frappe.set_user(self.manager)
+        env = get_firmware_cr(name)
+        frappe.set_user("Administrator")
+        self.assertTrue(env["success"])
+        data = env["data"]
+        self.assertEqual(data["allowed_transitions"], ["Approved"])
+        self.assertIs(data["can_approve"], True)   # boolean cho FE (=== true), KHÔNG int 1
+
+    def test_get_firmware_cr_repair_user_no_approve_edge(self):
+        from assetcore.api.imm00 import get_firmware_cr
+        name = self._mk_fcr("Pending Approval")
+        frappe.set_user(self.repair_user)
+        env = get_firmware_cr(name)
+        frappe.set_user("Administrator")
+        data = env["data"]
+        self.assertEqual(data["allowed_transitions"], [])
+        self.assertIs(data["can_approve"], False)
+
+
+class TestFirmwareCrGenericUpdateGuard(unittest.TestCase):
+    """BR-09-19b — update_firmware_cr (CRUD chung) STRIP _FCR_CONTROLLED_FIELDS.
+
+    status/approved_by/approved_datetime/applied_datetime/rollback_reason KHÔNG
+    BAO GIỜ đổi qua CRUD chung (dù caller gửi status=Approved). Field mô tả tự do
+    (change_notes/source_reference) vẫn update được.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.asset = _make_asset("-fcrupd")
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        for fcr in frappe.get_all(
+            _DT_FCR, filters={"asset_ref": cls.asset.name, "docstatus": ["!=", 2]},
+            fields=["name"],
+        ):
+            frappe.delete_doc(_DT_FCR, fcr.name, force=True, ignore_permissions=True)
+        purge_asset(cls.asset.name)
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+
+    def _mk_fcr(self) -> str:
+        doc = frappe.get_doc({
+            "doctype": _DT_FCR,
+            "asset_ref": self.asset.name,
+            "version_before": "2.0.0",
+            "version_after": "2.1.0",
+            "change_notes": "_Test ghi chú gốc",
+            "status": "Draft",
+        })
+        doc.flags.ignore_links = True
+        doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+        self.addCleanup(
+            lambda n=doc.name: frappe.db.exists(_DT_FCR, n)
+            and frappe.delete_doc(_DT_FCR, n, force=True, ignore_permissions=True))
+        return doc.name
+
+    def test_generic_update_strips_status_keeps_free_fields(self):
+        from assetcore.api.imm00 import update_firmware_cr
+        name = self._mk_fcr()
+        orig = getattr(frappe.local, "form_dict", None)
+        frappe.local.form_dict = frappe._dict({
+            "name": name,
+            "status": "Approved",                 # PHẢI bị strip
+            "approved_by": "Administrator",        # PHẢI bị strip
+            "change_notes": "_Test ghi chú đã sửa",  # vẫn update
+        })
+        try:
+            res = update_firmware_cr(name)
+        finally:
+            frappe.local.form_dict = orig if orig is not None else frappe._dict()
+        self.assertTrue(res.get("success"), f"phải success, nhận: {res}")
+        self.assertEqual(frappe.db.get_value(_DT_FCR, name, "status"), "Draft")   # KHÔNG đổi
+        self.assertFalse(frappe.db.get_value(_DT_FCR, name, "approved_by"))       # KHÔNG đổi
+        self.assertEqual(
+            frappe.db.get_value(_DT_FCR, name, "change_notes"), "_Test ghi chú đã sửa")
+
+
+class TestFirmwareCrCreateGuard(unittest.TestCase):
+    """BLOCKER (governance/NĐ98 change-control) — create_firmware_cr LUÔN khởi tạo
+    FCR ở 'Draft'. Đối xứng TestFirmwareCrGenericUpdateGuard NHƯNG cho ĐƯỜNG TẠO.
+
+    Threat: Repair User (DocPerm create=1, submit=0, KHÔNG có capability
+    firmware.approve) POST create_firmware_cr với status='Applied'/'Approved' →
+    nếu payload không bị strip, FCR persist THẲNG vào trạng thái đã duyệt/áp dụng,
+    BỎ QUA capability-gate + valid-transition guard + audit Lifecycle Event. Đây là
+    cùng lỗ change-control mà round 10 đã đóng trên update_firmware_cr, còn hở ở
+    create. Status FCR CHỈ đổi qua transition_firmware_cr.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.asset = _make_asset("-fcrcreate")
+        cls.repair_user = _seed_fcr_user("Repair User")   # create=1, submit=0, KHÔNG approve
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        for fcr in frappe.get_all(
+            _DT_FCR, filters={"asset_ref": cls.asset.name, "docstatus": ["!=", 2]},
+            fields=["name"],
+        ):
+            frappe.delete_doc(_DT_FCR, fcr.name, force=True, ignore_permissions=True)
+        purge_asset(cls.asset.name)
+        if frappe.db.exists("User", cls.repair_user):
+            frappe.delete_doc("User", cls.repair_user, force=True, ignore_permissions=True)
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+
+    # ── helpers ────────────────────────────────────────────────────────────────
+    def _call_create(self, payload: dict) -> dict:
+        """Gọi create_firmware_cr như HTTP layer: nạp form_dict rồi invoke endpoint."""
+        from assetcore.api.imm00 import create_firmware_cr
+        orig = getattr(frappe.local, "form_dict", None)
+        frappe.local.form_dict = frappe._dict(payload)
+        try:
+            return create_firmware_cr()
+        finally:
+            frappe.local.form_dict = orig if orig is not None else frappe._dict()
+
+    def _base_payload(self, **over) -> dict:
+        p = {
+            "asset_ref": self.asset.name,
+            "version_before": "3.0.0",
+            "version_after": "3.1.0",
+            "change_notes": "_Test tạo FCR kiểm soát trạng thái ban đầu",
+        }
+        p.update(over)
+        return p
+
+    def _cleanup_fcr(self, name: str) -> None:
+        self.addCleanup(
+            lambda n=name: frappe.db.exists(_DT_FCR, n)
+            and frappe.delete_doc(_DT_FCR, n, force=True, ignore_permissions=True))
+
+    # ── anti-drift: hằng khởi tạo ⟺ DocType default ⟺ FirmwareStatus.DRAFT ──────
+    def test_initial_status_constant_matches_doctype_default_and_enum(self):
+        from assetcore.api.imm00 import _FCR_INITIAL_STATUS
+        from assetcore.services.imm09 import FirmwareStatus
+        dt_default = frappe.get_meta(_DT_FCR).get_field("status").default
+        self.assertEqual(_FCR_INITIAL_STATUS, "Draft")
+        self.assertEqual(_FCR_INITIAL_STATUS, dt_default)
+        self.assertEqual(_FCR_INITIAL_STATUS, FirmwareStatus.DRAFT)
+
+    # ── (RED-first) create bỏ qua status người dùng gửi → persist 'Draft' ───────
+    def test_create_strips_applied_status_persists_draft(self):
+        res = self._call_create(self._base_payload(
+            status="Applied",                       # PHẢI bị strip → default Draft
+            approved_by="Administrator",             # PHẢI bị strip
+            approved_datetime="2026-01-01 00:00:00",  # PHẢI bị strip
+            applied_datetime="2026-01-01 00:00:00",   # PHẢI bị strip
+        ))
+        self.assertTrue(res.get("success"), f"phải success, nhận: {res}")
+        name = res["data"]["name"]
+        self._cleanup_fcr(name)
+        self.assertEqual(frappe.db.get_value(_DT_FCR, name, "status"), "Draft")
+        self.assertFalse(frappe.db.get_value(_DT_FCR, name, "approved_by"))
+        self.assertFalse(frappe.db.get_value(_DT_FCR, name, "approved_datetime"))
+        self.assertFalse(frappe.db.get_value(_DT_FCR, name, "applied_datetime"))
+
+    def test_create_strips_approved_status_persists_draft(self):
+        res = self._call_create(self._base_payload(status="Approved"))
+        self.assertTrue(res.get("success"), f"phải success, nhận: {res}")
+        name = res["data"]["name"]
+        self._cleanup_fcr(name)
+        self.assertEqual(frappe.db.get_value(_DT_FCR, name, "status"), "Draft")
+
+    def test_create_without_status_defaults_draft(self):
+        res = self._call_create(self._base_payload())
+        self.assertTrue(res.get("success"), f"phải success, nhận: {res}")
+        name = res["data"]["name"]
+        self._cleanup_fcr(name)
+        self.assertEqual(frappe.db.get_value(_DT_FCR, name, "status"), "Draft")
+
+    def test_repair_user_cannot_create_in_applied_state(self):
+        """Threat-model: Repair User (submit=0) POST status='Applied' → vẫn Draft."""
+        frappe.set_user(self.repair_user)
+        try:
+            res = self._call_create(self._base_payload(status="Applied"))
+        finally:
+            frappe.set_user("Administrator")
+        self.assertTrue(res.get("success"), f"phải success, nhận: {res}")
+        name = res["data"]["name"]
+        self._cleanup_fcr(name)
+        self.assertEqual(frappe.db.get_value(_DT_FCR, name, "status"), "Draft")

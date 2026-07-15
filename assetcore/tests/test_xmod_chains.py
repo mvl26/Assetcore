@@ -209,6 +209,11 @@ class TestRC03_04_RcaCompletedChain(unittest.TestCase):
         frappe.db.commit()
 
         # 4. Submit RCA → triggers on_rca_completed chain
+        # AC3 (GATE-8): submit CHỈ hợp lệ từ 'RCA In Progress' → bắt đầu phân tích
+        # trước (bypass Frappe validate bằng set_value; five_why điền đủ ở submit).
+        frappe.db.set_value("IMM RCA Record", rca_name, "status",
+                            "RCA In Progress", update_modified=False)
+        frappe.db.commit()
         # RCA auto-create dùng method 5-Why; cần điền 5 steps đủ
         five_steps = [
             {"why_number": i, "why_question": f"Why {i}?",

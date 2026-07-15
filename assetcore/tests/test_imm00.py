@@ -136,9 +136,14 @@ class TestACSupplier(unittest.TestCase):
 class TestIMMDeviceModel(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        import uuid
+        # category_name có DB-unique constraint → uuid-suffix để setUpClass
+        # idempotent: 1 lần crash/SIGKILL (commit dưới) KHÔNG poison DB vĩnh viễn
+        # cho lần chạy sau (leaked record cũ KHÔNG còn đụng tên). name (CAT-####)
+        # mới là ref thật cho model/asset — literal này KHÔNG bị assert ở đâu.
         cls._cat = frappe.get_doc({
             "doctype": "AC Asset Category",
-            "category_name": "Thiết bị Chẩn đoán Hình ảnh",
+            "category_name": f"Thiết bị Chẩn đoán Hình ảnh {uuid.uuid4().hex[:8]}",
         }).insert(ignore_permissions=True)
 
     @classmethod
@@ -200,9 +205,12 @@ class TestACAsset(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        import uuid
+        # category_name (DB-unique) uuid-suffix — idempotent với leak từ run bị
+        # SIGKILL (parity fix _make_asset). dept/loc/supplier KHÔNG unique → leak vô hại.
         cls.cat = frappe.get_doc({
             "doctype": "AC Asset Category",
-            "category_name": "Máy thở & Hỗ trợ hô hấp",
+            "category_name": f"Máy thở & Hỗ trợ hô hấp {uuid.uuid4().hex[:8]}",
             "default_pm_interval_days": 30,
         }).insert(ignore_permissions=True)
 
@@ -244,7 +252,11 @@ class TestACAsset(unittest.TestCase):
     def _make_asset(self, suffix=""):
         # Use in_install bypass to insert with a non-initial lifecycle_status
         # (AC Asset Lifecycle workflow blocks direct "Draft" → "Commissioned").
-        tag = suffix.lstrip("-") or "0001"
+        import uuid
+        # manufacturer_sn qua app-level validate "serial đã tồn tại" (KHÔNG DB-unique)
+        # → uuid-suffix để asset leaked từ run bị SIGKILL (finally _purge_asset không
+        # chạy) KHÔNG chặn lần sau. Parity mọi _make_asset khác trong file (đã uuid).
+        tag = f"{suffix.lstrip('-') or '0001'}-{uuid.uuid4().hex[:8]}"
         return _insert_asset_bypass_workflow({
             "doctype": "AC Asset",
             "asset_name": f"Dräger Evita V500 — ICU{suffix}",
@@ -400,6 +412,1034 @@ class TestCreateTransferRequiredFields(unittest.TestCase):
         finally:
             frappe.delete_doc("Asset Transfer", result["name"],
                               force=True, ignore_permissions=True)
+
+
+class _SqlSpy:
+    """Context manager đếm số lần ``frappe.db.sql`` chạm 1 bảng cụ thể.
+
+    Dùng để chứng minh enrich N+1-free: số IN-query trên ``tabAC Location`` /
+    ``tabAC Department`` / ``tabUser`` phải là HẰNG SỐ theo số phiếu (batch),
+    KHÔNG tăng theo số row (per-row get_value).
+    """
+
+    def __init__(self):
+        self.queries: list = []
+
+    def __enter__(self):
+        self._orig = frappe.db.sql
+
+        def _spy(query, *args, **kwargs):
+            self.queries.append(str(query))
+            return self._orig(query, *args, **kwargs)
+
+        frappe.db.sql = _spy
+        return self
+
+    def __exit__(self, *exc):
+        frappe.db.sql = self._orig
+        return False
+
+    def count_table(self, table: str) -> int:
+        return sum(1 for q in self.queries if f"`{table}`" in q)
+
+
+class TestTransferEnrichNames(unittest.TestCase):
+    """Vòng 16 (FR-00-TRF-01) — denorm tên Khoa/Vị trí/Người giữ cho phiếu Điều chuyển.
+
+    ``list_transfers`` / ``get_transfer`` / ``get_transfer_full`` THÊM đúng 6 khóa
+    ``*_name`` (from/to × location/department/custodian) + giữ ``asset_name``,
+    coalesce ``''`` (NEVER None / NEVER raw Link-id), N+1-free (batch IN-query).
+    Xem docs/imm-00 §III.12-NAMES / §II.1.13-TRANSFERENRICH / ADR-IMM00-TRANSFER-ENRICH.
+    """
+
+    RAW_LINK_RE = re.compile(r"^(AC-DEPT-|AC-LOC-|ER-\d|.+@)")
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": "Máy thở (Transfer-Enrich test)",
+            "default_pm_interval_days": 30,
+        }).insert(ignore_permissions=True)
+        cls.loc_a = frappe.get_doc({
+            "doctype": "AC Location", "location_type": "Room",
+            "location_name": "Phòng Mổ số 1 (Enrich nguồn)",
+        }).insert(ignore_permissions=True)
+        cls.loc_b = frappe.get_doc({
+            "doctype": "AC Location", "location_type": "Room",
+            "location_name": "Phòng Hồi sức A (Enrich đích)",
+        }).insert(ignore_permissions=True)
+        cls.dept_a = frappe.get_doc({
+            "doctype": "AC Department",
+            "department_name": "Khoa Ngoại Tổng hợp (Enrich nguồn)",
+        }).insert(ignore_permissions=True)
+        cls.dept_b = frappe.get_doc({
+            "doctype": "AC Department",
+            "department_name": "Khoa Hồi sức tích cực ICU (Enrich đích)",
+        }).insert(ignore_permissions=True)
+        cls.user_a = cls._mk_user("transfer.enrich.nguon@example.com", "Trần Thị", "Nguồn")
+        cls.user_b = cls._mk_user("transfer.enrich.dich@example.com", "Lê Văn", "Đích")
+        cls.asset = _insert_asset_bypass_workflow({
+            "doctype": "AC Asset",
+            "asset_name": "Dräger Evita V500 (Transfer-Enrich)",
+            "asset_category": cls.cat.name,
+            "department": cls.dept_a.name,
+            "location": cls.loc_a.name,
+            "lifecycle_status": "Commissioned",
+        })
+        # Transfer A: from=locA/deptA/userA → to=locB/deptB/userB
+        cls.t_a = cls._mk_transfer(
+            from_location=cls.loc_a.name, from_department=cls.dept_a.name,
+            from_custodian=cls.user_a.name,
+            to_location=cls.loc_b.name, to_department=cls.dept_b.name,
+            to_custodian=cls.user_b.name,
+        )
+        # Transfer B: HOÁN ĐỔI nguồn/đích so với A → chứng minh KHÔNG cross-map
+        cls.t_b = cls._mk_transfer(
+            from_location=cls.loc_b.name, from_department=cls.dept_b.name,
+            from_custodian=cls.user_b.name,
+            to_location=cls.loc_a.name, to_department=cls.dept_a.name,
+            to_custodian=cls.user_a.name,
+        )
+        # Transfer C: "bàn giao khởi tạo" — from_department + from_custodian + to_custodian RỖNG
+        cls.t_c = cls._mk_transfer(
+            from_location=cls.loc_a.name, from_department="", from_custodian="",
+            to_location=cls.loc_b.name, to_department=cls.dept_b.name,
+            to_custodian="",
+        )
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        for name in (cls.t_a, cls.t_b, cls.t_c):
+            if frappe.db.exists("Asset Transfer", name):
+                frappe.delete_doc("Asset Transfer", name, force=True, ignore_permissions=True)
+        _purge_asset(cls.asset.name)
+        for dt, name in [
+            ("User", cls.user_a.name), ("User", cls.user_b.name),
+            ("AC Location", cls.loc_a.name), ("AC Location", cls.loc_b.name),
+            ("AC Department", cls.dept_a.name), ("AC Department", cls.dept_b.name),
+            ("AC Asset Category", cls.cat.name),
+        ]:
+            if frappe.db.exists(dt, name):
+                frappe.delete_doc(dt, name, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    @classmethod
+    def _mk_user(cls, email, first, last):
+        if frappe.db.exists("User", email):
+            frappe.delete_doc("User", email, force=True, ignore_permissions=True)
+        u = frappe.new_doc("User")
+        u.email = email
+        u.first_name = first
+        u.last_name = last
+        u.user_type = "System User"
+        u.enabled = 1
+        u.send_welcome_email = 0
+        u.flags.ignore_permissions = True
+        u.insert()
+        return u
+
+    @classmethod
+    def _mk_transfer(cls, **fields) -> str:
+        doc = frappe.get_doc({
+            "doctype": "Asset Transfer",
+            "asset": cls.asset.name,
+            "transfer_type": "Internal",
+            "transfer_date": nowdate(),
+            "reason": "Điều chuyển phục vụ nhu cầu khoa (enrich test)",
+            **fields,
+        })
+        doc.insert(ignore_permissions=True)
+        return doc.name
+
+    def _list_items(self):
+        from assetcore.api.imm00 import list_transfers
+        env = list_transfers(asset=self.asset.name, page_size=50)
+        self.assertTrue(env["success"])
+        return env["data"]
+
+    def _item_by_name(self, items, name):
+        for it in items:
+            if it["name"] == name:
+                return it
+        self.fail(f"Transfer {name} không có trong list")
+
+    _SIX_KEYS = (
+        "from_location_name", "to_location_name",
+        "from_department_name", "to_department_name",
+        "from_custodian_name", "to_custodian_name",
+    )
+
+    def _assert_no_raw_link(self, item):
+        for k in self._SIX_KEYS:
+            val = item.get(k)
+            self.assertIsInstance(val, str, f"{k} phải là str, gặp {type(val)}")
+            self.assertFalse(
+                self.RAW_LINK_RE.match(val),
+                f"{k} rò raw Link-id: {val!r}")
+
+    # ── TC-1: list_transfers enrich đủ 6 _name khớp source ───────────────────
+    def test_list_transfers_enriches_from_to_names(self):
+        data = self._list_items()
+        item = self._item_by_name(data["items"], self.t_a)
+        # asset_name GIỮ nguyên
+        self.assertEqual(item["asset_name"], self.asset.asset_name)
+        # 6 _name khớp source doctype
+        self.assertEqual(item["from_location_name"],
+                         frappe.db.get_value("AC Location", self.loc_a.name, "location_name"))
+        self.assertEqual(item["to_location_name"],
+                         frappe.db.get_value("AC Location", self.loc_b.name, "location_name"))
+        self.assertEqual(item["from_department_name"],
+                         frappe.db.get_value("AC Department", self.dept_a.name, "department_name"))
+        self.assertEqual(item["to_department_name"],
+                         frappe.db.get_value("AC Department", self.dept_b.name, "department_name"))
+        self.assertEqual(item["from_custodian_name"],
+                         frappe.db.get_value("User", self.user_a.name, "full_name"))
+        self.assertEqual(item["to_custodian_name"],
+                         frappe.db.get_value("User", self.user_b.name, "full_name"))
+        self._assert_no_raw_link(item)
+
+    # ── TC-2: Link rỗng → '' NGHIÊM NGẶT (KHÔNG None, KHÔNG raw id) ───────────
+    def test_list_transfers_blank_link_coalesces_empty_string(self):
+        data = self._list_items()
+        item = self._item_by_name(data["items"], self.t_c)
+        # from_department + from_custodian + to_custodian RỖNG → '' str
+        self.assertEqual(item["from_department_name"], "")
+        self.assertEqual(item["from_custodian_name"], "")
+        self.assertEqual(item["to_custodian_name"], "")
+        self.assertIsNotNone(item["from_department_name"])  # KHÔNG None
+        # khóa RỖNG vẫn present (đủ 6 khóa mọi item)
+        for k in self._SIX_KEYS:
+            self.assertIn(k, item, f"item thiếu khóa {k}")
+        # nhánh có giá trị vẫn đúng
+        self.assertEqual(item["from_location_name"],
+                         frappe.db.get_value("AC Location", self.loc_a.name, "location_name"))
+        self.assertEqual(item["to_department_name"],
+                         frappe.db.get_value("AC Department", self.dept_b.name, "department_name"))
+        self._assert_no_raw_link(item)
+
+    # ── TC-3: get_transfer + get_transfer_full enrich đồng shape ─────────────
+    def test_get_transfer_detail_enriches_names(self):
+        from assetcore.api.imm00 import get_transfer, get_transfer_full
+        for fn in (get_transfer, get_transfer_full):
+            with self.subTest(endpoint=fn.__name__):
+                env = fn(self.t_a)
+                self.assertTrue(env["success"])
+                doc = env["data"]
+                self.assertEqual(doc["asset_name"], self.asset.asset_name)
+                self.assertEqual(doc["from_location_name"],
+                                 frappe.db.get_value("AC Location", self.loc_a.name, "location_name"))
+                self.assertEqual(doc["to_custodian_name"],
+                                 frappe.db.get_value("User", self.user_b.name, "full_name"))
+                for k in self._SIX_KEYS:
+                    self.assertIn(k, doc)
+                self._assert_no_raw_link(doc)
+                # nhánh Link rỗng → '' (parity list)
+                env_c = fn(self.t_c)
+                doc_c = env_c["data"]
+                self.assertEqual(doc_c["from_department_name"], "")
+                self.assertEqual(doc_c["from_custodian_name"], "")
+                self._assert_no_raw_link(doc_c)
+
+    # ── TC-4: N+1 guard — nhiều row map ĐÚNG _name của chính nó ──────────────
+    def test_list_transfers_multiple_rows_map_correct(self):
+        data = self._list_items()
+        a = self._item_by_name(data["items"], self.t_a)
+        b = self._item_by_name(data["items"], self.t_b)
+        # A và B HOÁN ĐỔI nguồn/đích → nếu enrich cross-map, giá trị sẽ nhầm
+        self.assertEqual(a["from_location_name"],
+                         frappe.db.get_value("AC Location", self.loc_a.name, "location_name"))
+        self.assertEqual(b["from_location_name"],
+                         frappe.db.get_value("AC Location", self.loc_b.name, "location_name"))
+        self.assertEqual(a["from_custodian_name"],
+                         frappe.db.get_value("User", self.user_a.name, "full_name"))
+        self.assertEqual(b["from_custodian_name"],
+                         frappe.db.get_value("User", self.user_b.name, "full_name"))
+        self.assertNotEqual(a["from_location_name"], b["from_location_name"])
+        # batch IN-query: số query/bảng là HẰNG theo số row (KHÔNG per-row)
+        from assetcore.api.imm00 import list_transfers
+        with _SqlSpy() as spy:
+            list_transfers(asset=self.asset.name, page_size=50)
+        # from+to cùng bảng = 2 IN-query/bảng, ĐỘC LẬP số phiếu (3 row ở đây)
+        self.assertLessEqual(spy.count_table("tabAC Location"), 2)
+        self.assertLessEqual(spy.count_table("tabAC Department"), 2)
+        self.assertLessEqual(spy.count_table("tabUser"), 2)
+
+    # ── TC-5: pagination.total == len(items) bất biến ────────────────────────
+    def test_list_transfers_pagination_total_unchanged(self):
+        data = self._list_items()
+        self.assertEqual(data["pagination"]["total"], len(data["items"]))
+        self.assertEqual(data["pagination"]["total"], 3)
+
+    # ── TC-6: filter transfer_type PHẢI áp dụng (bug: FE gửi transfer_type
+    # nhưng signature cũ thiếu param → Frappe get_newargs nuốt câm → filter chết).
+    # 3 fixture đều Internal ⇒ lọc 'Loan' phải trả 0; lọc 'Internal' trả đủ 3.
+    def test_list_transfers_filter_by_transfer_type(self):
+        from assetcore.api.imm00 import list_transfers
+        env_loan = list_transfers(asset=self.asset.name, transfer_type="Loan", page_size=50)
+        self.assertTrue(env_loan["success"])
+        self.assertEqual(env_loan["data"]["pagination"]["total"], 0,
+                         "Lọc transfer_type='Loan' phải loại hết 3 phiếu Internal")
+        self.assertEqual(len(env_loan["data"]["items"]), 0)
+        env_internal = list_transfers(asset=self.asset.name, transfer_type="Internal", page_size=50)
+        self.assertEqual(env_internal["data"]["pagination"]["total"], 3,
+                         "Lọc transfer_type='Internal' phải trả đủ 3 phiếu")
+        for it in env_internal["data"]["items"]:
+            self.assertEqual(it["transfer_type"], "Internal")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CR-WF-00-TRANSFER-AUTHZ — server-driven CTA authorization cho Phiếu luân chuyển.
+# (1) Gate confirm_receipt bằng rbac.require(commissioning.write) — trước đây THIẾU
+#     (mọi user login xác nhận tiếp nhận Approved→Received, kể cả base) trái với
+#     approve/reject vốn gate commissioning.submit.
+# (2) get_transfer_full emit can_approve/can_receive (int 0/1) dẫn xuất CÙNG SoT
+#     (transfer_cta_flags) mà mutating enforce ⇒ FE gate nút = quyền thật (bỏ dead-btn).
+# receive_cap = commissioning.write (least-privilege): Commissioning User write=1/
+# submit=0 nhận nhưng KHÔNG duyệt; Commissioning Manager có cả hai; base AssetCore
+# System User fail-closed cả hai (không có DocPerm Asset Commissioning).
+# ADR-IMM00-TRANSFER-AUTHZ. TDD RED-first.
+# ─────────────────────────────────────────────────────────────────────────────
+class TestTransferReceiveAuthzAndFlags(unittest.TestCase):
+    _STATUS_PENDING  = "Pending Approval"
+    _STATUS_APPROVED = "Approved"
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": "Máy X-quang (Transfer-Authz test)",
+            "default_pm_interval_days": 30,
+        }).insert(ignore_permissions=True)
+        cls.dept = frappe.get_doc({
+            "doctype": "AC Department",
+            "department_name": "Khoa Chẩn đoán hình ảnh (Authz đích)",
+        }).insert(ignore_permissions=True)
+        cls.loc = frappe.get_doc({
+            "doctype": "AC Location", "location_type": "Room",
+            "location_name": "Phòng CĐHA số 2 (Authz đích)",
+        }).insert(ignore_permissions=True)
+        cls.asset = _insert_asset_bypass_workflow({
+            "doctype": "AC Asset",
+            "asset_name": "Philips EPIQ 7 (Transfer-Authz)",
+            "asset_category": cls.cat.name,
+            "department": cls.dept.name,
+            "location": cls.loc.name,
+            "lifecycle_status": "Commissioned",
+        })
+        cls._users: list[str] = []
+        cls._transfers: list[str] = []
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        for name in cls._transfers:
+            if frappe.db.exists("Asset Transfer", name):
+                frappe.delete_doc("Asset Transfer", name, force=True, ignore_permissions=True)
+        _purge_asset(cls.asset.name)
+        for email in cls._users:
+            if frappe.db.exists("User", email):
+                frappe.delete_doc("User", email, force=True, ignore_permissions=True)
+        for dt, nm in [("AC Location", cls.loc.name),
+                       ("AC Department", cls.dept.name),
+                       ("AC Asset Category", cls.cat.name)]:
+            if frappe.db.exists(dt, nm):
+                frappe.delete_doc(dt, nm, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    @classmethod
+    def _mk_user(cls, email: str, roles: list[str]) -> str:
+        if frappe.db.exists("User", email):
+            frappe.delete_doc("User", email, force=True, ignore_permissions=True)
+        u = frappe.get_doc({
+            "doctype": "User", "email": email,
+            "first_name": email.split("@")[0], "send_welcome_email": 0,
+            "user_type": "System User",
+        }).insert(ignore_permissions=True)
+        for r in roles:
+            u.append("roles", {"role": r})
+        u.flags.ignore_permissions = True
+        u.save()
+        from assetcore.services.shared import rbac as _rbac
+        _rbac.invalidate_capabilities(email)
+        cls._users.append(email)
+        frappe.db.commit()
+        return email
+
+    def _mk_transfer(self, status: str) -> str:
+        """Insert 1 Asset Transfer rồi ép status (field read_only/no_copy) qua DB."""
+        doc = frappe.get_doc({
+            "doctype": "Asset Transfer",
+            "asset": self.asset.name,
+            "transfer_type": "Internal",
+            "transfer_date": nowdate(),
+            "to_location": self.loc.name,
+            "to_department": self.dept.name,
+            "reason": "Điều chuyển phục vụ nhu cầu khoa (authz test)",
+        })
+        doc.insert(ignore_permissions=True)
+        frappe.db.set_value("Asset Transfer", doc.name, "status", status)
+        frappe.db.commit()
+        self._transfers.append(doc.name)
+        return doc.name
+
+    # ── TC-1 [RED-first]: base user (thiếu receive-cap) confirm_receipt Approved → 403
+    def test_confirm_receipt_requires_capability(self):
+        """Base AssetCore System User (không commissioning.write) xác nhận tiếp nhận
+        phiếu 'Approved' → frappe.PermissionError (403). Trước fix confirm_receipt
+        KHÔNG gate ⇒ THÀNH CÔNG (false-pass) → assertRaises ĐỎ; sau fix rbac.require
+        ném PermissionError → XANH. Gate chạy TRƯỚC status-check (mirror approve)."""
+        from assetcore.services.imm00 import confirm_receipt
+        t = self._mk_transfer(self._STATUS_APPROVED)
+        base = self._mk_user("_test_imm00_trf_base_recv@assetcore.test",
+                             ["AssetCore System User"])
+        try:
+            frappe.set_user(base)
+            with self.assertRaises(frappe.PermissionError):
+                confirm_receipt(t)
+        finally:
+            frappe.set_user("Administrator")
+        # Fail-closed: phiếu KHÔNG bị đổi trạng thái bởi user thiếu quyền.
+        self.assertEqual(frappe.db.get_value("Asset Transfer", t, "status"),
+                         self._STATUS_APPROVED)
+
+    # ── TC-2: user CÓ receive-cap (Commissioning User) → Received + side-effect thật
+    def test_confirm_receipt_authorized_succeeds(self):
+        """Commissioning User (write=1/submit=0 ⇒ commissioning.write) confirm_receipt
+        phiếu 'Approved' → status='Received', received_by=session.user, audit
+        event_type='Transfer' + lifecycle 'transferred' emitted (giữ hành vi hiện có).
+        Assert SIDE-EFFECT THẬT (LL-TEST-18) — không chỉ return."""
+        from assetcore.services.imm00 import confirm_receipt
+        t = self._mk_transfer(self._STATUS_APPROVED)
+        user = self._mk_user("_test_imm00_trf_recv_ok@assetcore.test",
+                             ["AssetCore System User", "Commissioning User"])
+        try:
+            frappe.set_user(user)
+            out = confirm_receipt(t, handover_notes="Thiết bị nguyên vẹn, đã kiểm tra khởi động")
+            self.assertEqual(out["status"], "Received")
+            self.assertEqual(out["received_by"], user)
+        finally:
+            frappe.set_user("Administrator")
+        self.assertEqual(frappe.db.get_value("Asset Transfer", t, "status"), "Received")
+        self.assertEqual(frappe.db.get_value("Asset Transfer", t, "received_by"), user)
+        self.assertTrue(frappe.db.exists("IMM Audit Trail", {
+            "ref_doctype": "Asset Transfer", "ref_name": t, "event_type": "Transfer"}),
+            "Thiếu audit event_type='Transfer' cho phiếu tiếp nhận")
+        self.assertTrue(frappe.db.exists("Asset Lifecycle Event", {
+            "root_record": t, "event_type": "transferred"}),
+            "Thiếu lifecycle event 'transferred'")
+
+    # ── TC-3: get_transfer_full emit can_approve/can_receive theo cap × status
+    def test_get_transfer_full_emits_capability_flags(self):
+        """Commissioning Manager (submit=1 + write=1). Pending → can_approve=1,
+        can_receive=0 (status-gate). Approved → can_receive=1, can_approve=0."""
+        from assetcore.api.imm00 import get_transfer_full
+        t_pending  = self._mk_transfer(self._STATUS_PENDING)
+        t_approved = self._mk_transfer(self._STATUS_APPROVED)
+        mgr = self._mk_user("_test_imm00_trf_mgr@assetcore.test",
+                            ["AssetCore System User", "Commissioning Manager"])
+        try:
+            frappe.set_user(mgr)
+            env_p = get_transfer_full(t_pending)
+            self.assertTrue(env_p["success"])
+            self.assertEqual(env_p["data"]["can_approve"], 1)
+            self.assertEqual(env_p["data"]["can_receive"], 0)
+            env_a = get_transfer_full(t_approved)
+            self.assertTrue(env_a["success"])
+            self.assertEqual(env_a["data"]["can_receive"], 1)
+            self.assertEqual(env_a["data"]["can_approve"], 0)
+        finally:
+            frappe.set_user("Administrator")
+
+    # ── TC-4: base user → can_approve==0 && can_receive==0 ở MỌI status (fail-closed)
+    def test_transfer_flags_false_for_base_user(self):
+        from assetcore.api.imm00 import get_transfer_full
+        statuses = (self._STATUS_PENDING, self._STATUS_APPROVED, "Received", "Rejected")
+        transfers = {st: self._mk_transfer(st) for st in statuses}
+        base = self._mk_user("_test_imm00_trf_base_flags@assetcore.test",
+                             ["AssetCore System User"])
+        try:
+            frappe.set_user(base)
+            for st, t in transfers.items():
+                env = get_transfer_full(t)
+                self.assertTrue(env["success"])
+                self.assertEqual(env["data"]["can_approve"], 0,
+                                 f"can_approve phải 0 (fail-closed) ở status {st}")
+                self.assertEqual(env["data"]["can_receive"], 0,
+                                 f"can_receive phải 0 (fail-closed) ở status {st}")
+        finally:
+            frappe.set_user("Administrator")
+
+    # ── TC-5 [regression]: approve/reject VẪN require cap (gate hiện có @2665/2696)
+    def test_approve_reject_still_require_cap(self):
+        from assetcore.services.imm00 import (
+            approve_transfer_request, reject_transfer_request,
+        )
+        t1 = self._mk_transfer(self._STATUS_PENDING)
+        t2 = self._mk_transfer(self._STATUS_PENDING)
+        base = self._mk_user("_test_imm00_trf_base_apprej@assetcore.test",
+                             ["AssetCore System User"])
+        try:
+            frappe.set_user(base)
+            with self.assertRaises(frappe.PermissionError):
+                approve_transfer_request(t1)
+            with self.assertRaises(frappe.PermissionError):
+                reject_transfer_request(t2, "Lý do từ chối hợp lệ cho kiểm thử")
+        finally:
+            frappe.set_user("Administrator")
+
+    # ── TC-6 [RED-first LOCK — QUA mobile handler]: CR-WF-00-TRANSFER-AUTHZ contract-sync.
+    #    Base AssetCore System User (thiếu commissioning.write) gọi API HANDLER
+    #    `api.imm00.receive_transfer` (KHÔNG service confirm_receipt trực tiếp như TC-1) trên phiếu
+    #    'Approved' → frappe.PermissionError PROPAGATE NGUYÊN qua handler → HTTP-403 status-line THẬT
+    #    (cap-403 REACHABLE). Handler CHỈ `except frappe.exceptions.ValidationError` @api/imm00.py:2645-2648
+    #    ⇒ PermissionError của rbac.require(commissioning.write) @services/imm00.py:2768 KHÔNG bị
+    #    nuốt/convert thành `_err(str(e), 422)` (200-Error). assertRaises PermissionError = bằng chứng
+    #    propagate: nếu handler trả `_err(..,422)` thay vì raise ⇒ KHÔNG có exception ⇒ test ĐỎ.
+    #    GUARD chống drift: ai đó nới `except Exception`/`except PermissionError → _err(422)` ⇒ RED.
+    #    (RED-first gốc: trước CR-WF-00-TRANSFER-AUTHZ confirm_receipt KHÔNG gate ⇒ handler trả _ok ⇒ ĐỎ.)
+    def test_receive_transfer_mobile_propagates_cap_403(self):
+        from assetcore.api.imm00 import receive_transfer
+        t = self._mk_transfer(self._STATUS_APPROVED)
+        base = self._mk_user("_test_imm00_trf_mob_base@assetcore.test",
+                             ["AssetCore System User"])
+        try:
+            frappe.set_user(base)
+            with self.assertRaises(frappe.PermissionError):
+                receive_transfer(t)
+        finally:
+            frappe.set_user("Administrator")
+        # Fail-closed: handler KHÔNG rơi vào _ok path ⇒ trạng thái phiếu KHÔNG đổi.
+        self.assertEqual(frappe.db.get_value("Asset Transfer", t, "status"),
+                         self._STATUS_APPROVED)
+
+    # ── TC-7 [happy-path — QUA mobile handler]: Commissioning User (write=1/submit=0 ⇒ CÓ
+    #    commissioning.write) gọi HANDLER `api.imm00.receive_transfer` phiếu 'Approved' → `_ok`
+    #    envelope {success:True, data:{name,status='Received',received_by}} (cap-đủ VẪN đi qua
+    #    handler bình thường, KHÔNG bị gate chặn nhầm). Chứng minh gate least-privilege
+    #    commissioning.write đúng cho bên nhận (KHÔNG cần commissioning.submit).
+    def test_receive_transfer_mobile_authorized_returns_ok_envelope(self):
+        from assetcore.api.imm00 import receive_transfer
+        t = self._mk_transfer(self._STATUS_APPROVED)
+        user = self._mk_user("_test_imm00_trf_mob_ok@assetcore.test",
+                             ["AssetCore System User", "Commissioning User"])
+        try:
+            frappe.set_user(user)
+            env = receive_transfer(t, handover_notes="Bàn giao đủ phụ kiện, khởi động OK")
+        finally:
+            frappe.set_user("Administrator")
+        self.assertIs(env["success"], True)
+        self.assertEqual(set(env["data"].keys()), {"name", "status", "received_by"},
+                         "Envelope data PHẢI EXACT 3-key {name,status,received_by} (services/imm00.py:2708).")
+        self.assertEqual(env["data"]["name"], t)
+        self.assertEqual(env["data"]["status"], "Received")
+        self.assertEqual(env["data"]["received_by"], user)
+        self.assertEqual(frappe.db.get_value("Asset Transfer", t, "status"), "Received")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CR-WF-00-CANCEL-AUTHZ (ADR-IMM00-CANCEL-AUTHZ) — Vòng 41. Đóng backlog cancel-authz
+# tách khỏi TRANSFER-AUTHZ. Trước fix `cancel_transfer_request`:
+#   (1) THIẾU rbac.require → mọi user login (kể cả base) hủy được phiếu Pending/Rejected.
+#   (2) THIẾU log_audit_event → hủy KHÔNG để lại dấu vết (vi phạm CLAUDE.md §5 + NĐ98).
+# cancel_cap = commissioning.write (parity confirm_receipt, least-privilege): Commissioning
+# User write=1 hủy được; base AssetCore System User fail-closed. Gate SAU exists TRƯỚC
+# status-check (mirror EXACT confirm_receipt) — base hủy phiếu sai status vẫn 403, không
+# rò trạng thái. get_transfer_full emit thêm can_cancel (int 0/1). TDD RED-first.
+# ─────────────────────────────────────────────────────────────────────────────
+class TestTransferCancelAuthzAndAudit(unittest.TestCase):
+    _STATUS_PENDING   = "Pending Approval"
+    _STATUS_APPROVED  = "Approved"
+    _STATUS_REJECTED  = "Rejected"
+    _STATUS_RECEIVED  = "Received"
+    _STATUS_CANCELLED = "Cancelled"
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": "Máy siêu âm (Cancel-Authz test)",
+            "default_pm_interval_days": 30,
+        }).insert(ignore_permissions=True)
+        cls.dept = frappe.get_doc({
+            "doctype": "AC Department",
+            "department_name": "Khoa Sản (Cancel-Authz đích)",
+        }).insert(ignore_permissions=True)
+        cls.loc = frappe.get_doc({
+            "doctype": "AC Location", "location_type": "Room",
+            "location_name": "Phòng Siêu âm số 1 (Cancel-Authz)",
+        }).insert(ignore_permissions=True)
+        cls.asset = _insert_asset_bypass_workflow({
+            "doctype": "AC Asset",
+            "asset_name": "GE Voluson E10 (Cancel-Authz)",
+            "asset_category": cls.cat.name,
+            "department": cls.dept.name,
+            "location": cls.loc.name,
+            "lifecycle_status": "Commissioned",
+        })
+        cls._users: list[str] = []
+        cls._transfers: list[str] = []
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        for name in cls._transfers:
+            if frappe.db.exists("Asset Transfer", name):
+                frappe.delete_doc("Asset Transfer", name, force=True, ignore_permissions=True)
+        _purge_asset(cls.asset.name)
+        for email in cls._users:
+            if frappe.db.exists("User", email):
+                frappe.delete_doc("User", email, force=True, ignore_permissions=True)
+        for dt, nm in [("AC Location", cls.loc.name),
+                       ("AC Department", cls.dept.name),
+                       ("AC Asset Category", cls.cat.name)]:
+            if frappe.db.exists(dt, nm):
+                frappe.delete_doc(dt, nm, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    @classmethod
+    def _mk_user(cls, email: str, roles: list[str]) -> str:
+        if frappe.db.exists("User", email):
+            frappe.delete_doc("User", email, force=True, ignore_permissions=True)
+        u = frappe.get_doc({
+            "doctype": "User", "email": email,
+            "first_name": email.split("@")[0], "send_welcome_email": 0,
+            "user_type": "System User",
+        }).insert(ignore_permissions=True)
+        for r in roles:
+            u.append("roles", {"role": r})
+        u.flags.ignore_permissions = True
+        u.save()
+        from assetcore.services.shared import rbac as _rbac
+        _rbac.invalidate_capabilities(email)
+        cls._users.append(email)
+        frappe.db.commit()
+        return email
+
+    def _mk_transfer(self, status: str) -> str:
+        """Insert 1 Asset Transfer (Draft) rồi ép status qua DB (read_only/no_copy).
+
+        Bypass ``create_transfer_request`` ⇒ KHÔNG sinh audit 'Yêu cầu luân chuyển'
+        ⇒ số audit-row của phiếu = 0 trước khi hủy (RED-first can đo được 0→1)."""
+        doc = frappe.get_doc({
+            "doctype": "Asset Transfer",
+            "asset": self.asset.name,
+            "transfer_type": "Internal",
+            "transfer_date": nowdate(),
+            "to_location": self.loc.name,
+            "to_department": self.dept.name,
+            "reason": "Điều chuyển phục vụ nhu cầu khoa (cancel-authz test)",
+        })
+        doc.insert(ignore_permissions=True)
+        frappe.db.set_value("Asset Transfer", doc.name, "status", status)
+        frappe.db.commit()
+        self._transfers.append(doc.name)
+        return doc.name
+
+    def _count_transfer_audit(self, name: str) -> int:
+        return frappe.db.count("IMM Audit Trail", {
+            "ref_doctype": "Asset Transfer", "ref_name": name, "event_type": "Transfer"})
+
+    # ── TC-1 [RED-first]: base user (thiếu cancel-cap) hủy Pending → 403, status giữ nguyên
+    def test_cancel_requires_capability(self):
+        """Base AssetCore System User (không commissioning.write) hủy phiếu 'Pending
+        Approval' → frappe.PermissionError. Trước fix cancel KHÔNG gate ⇒ THÀNH CÔNG
+        (status→Cancelled, false-pass) → assertRaises ĐỎ; sau fix rbac.require ném
+        PermissionError → XANH. Fail-closed: phiếu KHÔNG bị đổi trạng thái."""
+        from assetcore.services.imm00 import cancel_transfer_request
+        t = self._mk_transfer(self._STATUS_PENDING)
+        base = self._mk_user("_test_imm00_trf_cancel_base@assetcore.test",
+                             ["AssetCore System User"])
+        try:
+            frappe.set_user(base)
+            with self.assertRaises(frappe.PermissionError):
+                cancel_transfer_request(t)
+        finally:
+            frappe.set_user("Administrator")
+        self.assertEqual(frappe.db.get_value("Asset Transfer", t, "status"),
+                         self._STATUS_PENDING)
+
+    # ── TC-2: user CÓ cancel-cap (Commissioning User) hủy Pending & Rejected → Cancelled
+    def test_cancel_authorized_succeeds(self):
+        """Commissioning User (write=1) hủy phiếu 'Pending Approval' → {status:'Cancelled'};
+        và hủy phiếu 'Rejected' → {status:'Cancelled'}. Assert side-effect thật (DB)."""
+        from assetcore.services.imm00 import cancel_transfer_request
+        t_pending  = self._mk_transfer(self._STATUS_PENDING)
+        t_rejected = self._mk_transfer(self._STATUS_REJECTED)
+        user = self._mk_user("_test_imm00_trf_cancel_ok@assetcore.test",
+                             ["AssetCore System User", "Commissioning User"])
+        try:
+            frappe.set_user(user)
+            out_p = cancel_transfer_request(t_pending)
+            self.assertEqual(out_p, {"name": t_pending, "status": self._STATUS_CANCELLED})
+            out_r = cancel_transfer_request(t_rejected)
+            self.assertEqual(out_r, {"name": t_rejected, "status": self._STATUS_CANCELLED})
+        finally:
+            frappe.set_user("Administrator")
+        self.assertEqual(frappe.db.get_value("Asset Transfer", t_pending, "status"),
+                         self._STATUS_CANCELLED)
+        self.assertEqual(frappe.db.get_value("Asset Transfer", t_rejected, "status"),
+                         self._STATUS_CANCELLED)
+
+    # ── TC-3 [RED-first 0→1]: mỗi lần hủy sinh ĐÚNG 1 audit Transfer (change_summary 'Hủy')
+    def test_cancel_writes_one_audit_row(self):
+        """Sau hủy: đúng 1 IMM Audit Trail (event_type='Transfer', change_summary chứa
+        'Hủy'). Trước fix cancel KHÔNG log_audit_event ⇒ 0 dòng → assertEqual(...,1) ĐỎ."""
+        from assetcore.services.imm00 import cancel_transfer_request
+        t = self._mk_transfer(self._STATUS_PENDING)
+        self.assertEqual(self._count_transfer_audit(t), 0)  # RED baseline: chưa có audit
+        user = self._mk_user("_test_imm00_trf_cancel_audit@assetcore.test",
+                             ["AssetCore System User", "Commissioning User"])
+        try:
+            frappe.set_user(user)
+            cancel_transfer_request(t)
+        finally:
+            frappe.set_user("Administrator")
+        self.assertEqual(self._count_transfer_audit(t), 1,
+                         "Hủy phiếu phải sinh ĐÚNG 1 audit Transfer")
+        summary = frappe.db.get_value("IMM Audit Trail", {
+            "ref_doctype": "Asset Transfer", "ref_name": t, "event_type": "Transfer"},
+            "change_summary") or ""
+        self.assertIn("Hủy", summary)
+
+    # ── TC-4: gate ordering — existence TRƯỚC rbac; rbac TRƯỚC status (không rò trạng thái)
+    def test_cancel_gate_ordering(self):
+        """(a) base user hủy phiếu KHÔNG tồn tại → raise chứa 'không tồn tại' (existence
+        -check chạy TRƯỚC rbac). (b) base user hủy phiếu 'Approved' (SAI status) →
+        PermissionError (rbac chạy TRƯỚC status-check) — KHÔNG leak 'trạng thái'."""
+        from assetcore.services.imm00 import cancel_transfer_request
+        t_approved = self._mk_transfer(self._STATUS_APPROVED)
+        base = self._mk_user("_test_imm00_trf_cancel_order@assetcore.test",
+                             ["AssetCore System User"])
+        try:
+            frappe.set_user(base)
+            # (a) existence-check trước rbac → not-found, KHÔNG PermissionError
+            with self.assertRaises(frappe.exceptions.ValidationError) as ctx:
+                cancel_transfer_request("AT-DOES-NOT-EXIST-99999")
+            self.assertNotIsInstance(ctx.exception, frappe.PermissionError)
+            self.assertIn("không tồn tại", str(ctx.exception))
+            # (b) rbac trước status-check → PermissionError (không rò 'trạng thái')
+            with self.assertRaises(frappe.PermissionError) as ctx2:
+                cancel_transfer_request(t_approved)
+            self.assertNotIn("trạng thái", str(ctx2.exception))
+        finally:
+            frappe.set_user("Administrator")
+        # Fail-closed: phiếu Approved KHÔNG bị đổi trạng thái.
+        self.assertEqual(frappe.db.get_value("Asset Transfer", t_approved, "status"),
+                         self._STATUS_APPROVED)
+
+    # ── TC-5: transfer_cta_flags(status) → can_cancel matrix (cap × status)
+    def test_transfer_cta_flags_can_cancel_matrix(self):
+        """cap + Pending→1, cap + Rejected→1, cap + Approved→0, cap + Received→0;
+        base user (no cap) → 0 ở MỌI status (fail-closed)."""
+        from assetcore.services.imm00 import transfer_cta_flags
+        user = self._mk_user("_test_imm00_trf_flags_cancel@assetcore.test",
+                             ["AssetCore System User", "Commissioning User"])
+        base = self._mk_user("_test_imm00_trf_flags_cancel_base@assetcore.test",
+                             ["AssetCore System User"])
+        try:
+            frappe.set_user(user)
+            self.assertEqual(transfer_cta_flags(self._STATUS_PENDING)["can_cancel"], 1)
+            self.assertEqual(transfer_cta_flags(self._STATUS_REJECTED)["can_cancel"], 1)
+            self.assertEqual(transfer_cta_flags(self._STATUS_APPROVED)["can_cancel"], 0)
+            self.assertEqual(transfer_cta_flags(self._STATUS_RECEIVED)["can_cancel"], 0)
+            frappe.set_user(base)
+            for st in (self._STATUS_PENDING, self._STATUS_REJECTED,
+                       self._STATUS_APPROVED, self._STATUS_RECEIVED):
+                self.assertEqual(transfer_cta_flags(st)["can_cancel"], 0,
+                                 f"base user phải can_cancel=0 ở status {st}")
+        finally:
+            frappe.set_user("Administrator")
+
+    # ── TC-6: get_transfer_full echo can_cancel khớp transfer_cta_flags(status)
+    def test_get_transfer_full_emits_can_cancel(self):
+        """get_transfer_full response chứa key 'can_cancel' và khớp
+        transfer_cta_flags(status). Base user (no cap) → 0 ở mọi status."""
+        from assetcore.api.imm00 import get_transfer_full
+        from assetcore.services.imm00 import transfer_cta_flags
+        t_pending  = self._mk_transfer(self._STATUS_PENDING)
+        t_rejected = self._mk_transfer(self._STATUS_REJECTED)
+        user = self._mk_user("_test_imm00_trf_full_cancel@assetcore.test",
+                             ["AssetCore System User", "Commissioning User"])
+        base = self._mk_user("_test_imm00_trf_full_cancel_base@assetcore.test",
+                             ["AssetCore System User"])
+        try:
+            frappe.set_user(user)
+            env_p = get_transfer_full(t_pending)
+            self.assertTrue(env_p["success"])
+            self.assertIn("can_cancel", env_p["data"])
+            self.assertEqual(env_p["data"]["can_cancel"],
+                             transfer_cta_flags(self._STATUS_PENDING)["can_cancel"])
+            self.assertEqual(env_p["data"]["can_cancel"], 1)
+            env_r = get_transfer_full(t_rejected)
+            self.assertEqual(env_r["data"]["can_cancel"], 1)
+            frappe.set_user(base)
+            env_pb = get_transfer_full(t_pending)
+            self.assertEqual(env_pb["data"]["can_cancel"], 0)
+        finally:
+            frappe.set_user("Administrator")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CR-WF-00-EDIT-AUTHZ (ADR-IMM00-EDIT-AUTHZ) — Vòng 42. Đóng nốt bộ-tứ transfer-authz
+# (approve/receive/cancel/EDIT). Trước fix `api.imm00.update_transfer`:
+#   THIẾU rbac.require → mọi user login (kể cả Inventory User có inventory.read/write
+#   nhưng KHÔNG commissioning.write) sửa được đích/khoa/người nhận/ngày/lý do/ghi chú
+#   của phiếu 'Pending Approval' (missing-authorization write = custody-hole).
+#   `_generic_update` dùng doc.save(ignore_permissions=True) ⇒ không có hàng rào quyền
+#   nào ⇒ handler trả _ok/200 (false-pass).
+# edit_cap = commissioning.write (parity _TRANSFER_RECEIVE_CAP/_TRANSFER_CANCEL_CAP,
+# least-privilege): Commissioning User (write=1/submit=0) sửa được; Inventory User → 403
+# fail-closed. Ordering chốt bởi BA: tồn tại (404) → rbac.require (403) → status Pending
+# (422). update_transfer KHÔNG try/except ⇒ PermissionError propagate tự nhiên → HTTP-403;
+# status-gate 422 GIỮ NGUYÊN (KHÔNG bị rbac che thành 403). get_transfer_full emit thêm
+# can_edit (int 0/1) — SoT parity với transfer_cta_flags. TDD RED-first.
+# ─────────────────────────────────────────────────────────────────────────────
+class TestTransferEditAuthzAndFlags(unittest.TestCase):
+    _STATUS_PENDING   = "Pending Approval"
+    _STATUS_APPROVED  = "Approved"
+    _STATUS_REJECTED  = "Rejected"
+    _STATUS_RECEIVED  = "Received"
+    _STATUS_CANCELLED = "Cancelled"
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": "Máy nội soi (Edit-Authz test)",
+            "default_pm_interval_days": 30,
+        }).insert(ignore_permissions=True)
+        cls.dept = frappe.get_doc({
+            "doctype": "AC Department",
+            "department_name": "Khoa Nội soi (Edit-Authz đích)",
+        }).insert(ignore_permissions=True)
+        cls.loc = frappe.get_doc({
+            "doctype": "AC Location", "location_type": "Room",
+            "location_name": "Phòng Nội soi số 1 (Edit-Authz)",
+        }).insert(ignore_permissions=True)
+        cls.asset = _insert_asset_bypass_workflow({
+            "doctype": "AC Asset",
+            "asset_name": "Olympus CV-190 (Edit-Authz)",
+            "asset_category": cls.cat.name,
+            "department": cls.dept.name,
+            "location": cls.loc.name,
+            "lifecycle_status": "Commissioned",
+        })
+        cls._users: list[str] = []
+        cls._transfers: list[str] = []
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        for name in cls._transfers:
+            if frappe.db.exists("Asset Transfer", name):
+                frappe.delete_doc("Asset Transfer", name, force=True, ignore_permissions=True)
+        _purge_asset(cls.asset.name)
+        for email in cls._users:
+            if frappe.db.exists("User", email):
+                frappe.delete_doc("User", email, force=True, ignore_permissions=True)
+        for dt, nm in [("AC Location", cls.loc.name),
+                       ("AC Department", cls.dept.name),
+                       ("AC Asset Category", cls.cat.name)]:
+            if frappe.db.exists(dt, nm):
+                frappe.delete_doc(dt, nm, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def setUp(self):
+        # update_transfer đọc frappe.local.form_dict → lưu/khôi phục để không rò rỉ
+        # payload sang test khác chạy trong cùng process.
+        self._saved_form_dict = getattr(frappe.local, "form_dict", None)
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+        frappe.local.form_dict = self._saved_form_dict or frappe._dict()
+
+    @classmethod
+    def _mk_user(cls, email: str, roles: list[str]) -> str:
+        if frappe.db.exists("User", email):
+            frappe.delete_doc("User", email, force=True, ignore_permissions=True)
+        u = frappe.get_doc({
+            "doctype": "User", "email": email,
+            "first_name": email.split("@")[0], "send_welcome_email": 0,
+            "user_type": "System User",
+        }).insert(ignore_permissions=True)
+        for r in roles:
+            u.append("roles", {"role": r})
+        u.flags.ignore_permissions = True
+        u.save()
+        from assetcore.services.shared import rbac as _rbac
+        _rbac.invalidate_capabilities(email)
+        cls._users.append(email)
+        frappe.db.commit()
+        return email
+
+    def _mk_transfer(self, status: str, reason: str | None = None) -> str:
+        """Insert 1 Asset Transfer rồi ép status (field read_only/no_copy) qua DB."""
+        doc = frappe.get_doc({
+            "doctype": "Asset Transfer",
+            "asset": self.asset.name,
+            "transfer_type": "Internal",
+            "transfer_date": nowdate(),
+            "to_location": self.loc.name,
+            "to_department": self.dept.name,
+            "reason": reason or "Điều chuyển phục vụ nhu cầu khoa (edit-authz test)",
+        })
+        doc.insert(ignore_permissions=True)
+        frappe.db.set_value("Asset Transfer", doc.name, "status", status)
+        frappe.db.commit()
+        self._transfers.append(doc.name)
+        return doc.name
+
+    # ── TC-1 [RED-first]: Inventory User (inventory.read/write, KHÔNG commissioning.write)
+    #    gọi HANDLER api.imm00.update_transfer trên phiếu Pending → frappe.PermissionError.
+    #    Trước fix update_transfer KHÔNG gate ⇒ _generic_update(ignore_permissions) trả
+    #    _ok/200 (custody-hole, false-pass) → assertRaises ĐỎ; sau fix rbac.require ném
+    #    PermissionError → XANH. Gọi ENDPOINT (không service) để lock contract HTTP-403.
+    def test_update_transfer_denied_for_non_commissioning_user(self):
+        from assetcore.api.imm00 import update_transfer
+        t = self._mk_transfer(self._STATUS_PENDING, reason="Lý do gốc trước khi thử sửa")
+        inv = self._mk_user("_test_imm00_trf_edit_inv@assetcore.test",
+                            ["AssetCore System User", "Inventory User"])
+        try:
+            frappe.set_user(inv)
+            frappe.local.form_dict = frappe._dict({
+                "reason": "KTV kho cố sửa lý do (không được phép)",
+            })
+            with self.assertRaises(frappe.PermissionError):
+                update_transfer(t)
+        finally:
+            frappe.set_user("Administrator")
+        # Fail-closed: phiếu KHÔNG bị đổi bởi user thiếu quyền.
+        self.assertEqual(frappe.db.get_value("Asset Transfer", t, "reason"),
+                         "Lý do gốc trước khi thử sửa")
+
+    # ── TC-2: Commissioning User (write=1/submit=0) update phiếu Pending → success,
+    #    re-fetch xác nhận field THẬT được cập nhật (side-effect thật, LL-TEST-18).
+    def test_update_transfer_authorized_succeeds(self):
+        from assetcore.api.imm00 import update_transfer
+        t = self._mk_transfer(self._STATUS_PENDING, reason="Lý do ban đầu (authorized)")
+        user = self._mk_user("_test_imm00_trf_edit_ok@assetcore.test",
+                             ["AssetCore System User", "Commissioning User"])
+        new_reason = "Điều chỉnh: chuyển sang khoa Nội soi theo yêu cầu mới"
+        try:
+            frappe.set_user(user)
+            frappe.local.form_dict = frappe._dict({"reason": new_reason})
+            env = update_transfer(t)
+        finally:
+            frappe.set_user("Administrator")
+        self.assertIs(env["success"], True, f"update_transfer phải success: {env}")
+        self.assertEqual(env["data"]["name"], t)
+        # Re-fetch xác nhận field THẬT đổi trong DB.
+        self.assertEqual(frappe.db.get_value("Asset Transfer", t, "reason"), new_reason)
+
+    # ── TC-3: status-gate 422 GIỮ NGUYÊN — Commissioning User update phiếu Approved →
+    #    _err 422 (KHÔNG bị rbac che thành 403). Phân định 403(quyền) vs 422(trạng thái):
+    #    user CÓ cap ⇒ rbac.require pass ⇒ đến status-check ⇒ envelope http_status=422.
+    def test_update_transfer_status_gate_preserved(self):
+        from assetcore.api.imm00 import update_transfer
+        user = self._mk_user("_test_imm00_trf_edit_gate@assetcore.test",
+                             ["AssetCore System User", "Commissioning User"])
+        try:
+            frappe.set_user(user)
+            for st in (self._STATUS_APPROVED, self._STATUS_RECEIVED, self._STATUS_CANCELLED):
+                t = self._mk_transfer(st, reason=f"Không được sửa ở status {st}")
+                frappe.local.form_dict = frappe._dict({"reason": "cố sửa sai trạng thái"})
+                env = update_transfer(t)
+                self.assertIs(env["success"], False,
+                              f"update phiếu {st} phải fail (status-gate)")
+                self.assertEqual(env["http_status"], 422,
+                                 f"phiếu {st} phải 422 (status-gate), KHÔNG 403: {env}")
+                # Fail-closed: reason KHÔNG bị đổi.
+                self.assertEqual(frappe.db.get_value("Asset Transfer", t, "reason"),
+                                 f"Không được sửa ở status {st}")
+        finally:
+            frappe.set_user("Administrator")
+
+    # ── TC-4: transfer_cta_flags(status) → can_edit matrix (cap × status)
+    def test_transfer_cta_flags_can_edit_matrix(self):
+        """cap + Pending→1; cap + Approved/Received/Rejected→0 (status-gate);
+        base/Inventory user (no commissioning.write) → 0 ở MỌI status (fail-closed)."""
+        from assetcore.services.imm00 import transfer_cta_flags
+        user = self._mk_user("_test_imm00_trf_flags_edit@assetcore.test",
+                             ["AssetCore System User", "Commissioning User"])
+        inv = self._mk_user("_test_imm00_trf_flags_edit_inv@assetcore.test",
+                            ["AssetCore System User", "Inventory User"])
+        try:
+            frappe.set_user(user)
+            self.assertEqual(transfer_cta_flags(self._STATUS_PENDING)["can_edit"], 1)
+            self.assertEqual(transfer_cta_flags(self._STATUS_APPROVED)["can_edit"], 0)
+            self.assertEqual(transfer_cta_flags(self._STATUS_RECEIVED)["can_edit"], 0)
+            self.assertEqual(transfer_cta_flags(self._STATUS_REJECTED)["can_edit"], 0)
+            frappe.set_user(inv)
+            for st in (self._STATUS_PENDING, self._STATUS_APPROVED,
+                       self._STATUS_RECEIVED, self._STATUS_REJECTED):
+                self.assertEqual(transfer_cta_flags(st)["can_edit"], 0,
+                                 f"non-commissioning user phải can_edit=0 ở status {st}")
+        finally:
+            frappe.set_user("Administrator")
+
+    # ── TC-5: get_transfer_full echo can_edit khớp transfer_cta_flags(status)
+    def test_get_transfer_full_emits_can_edit(self):
+        """get_transfer_full response.data chứa key 'can_edit' đúng theo cap × status
+        (parity can_approve/can_receive/can_cancel). Pending+cap→1; Approved+cap→0;
+        base user → 0 ở mọi status."""
+        from assetcore.api.imm00 import get_transfer_full
+        from assetcore.services.imm00 import transfer_cta_flags
+        t_pending  = self._mk_transfer(self._STATUS_PENDING)
+        t_approved = self._mk_transfer(self._STATUS_APPROVED)
+        user = self._mk_user("_test_imm00_trf_full_edit@assetcore.test",
+                             ["AssetCore System User", "Commissioning User"])
+        base = self._mk_user("_test_imm00_trf_full_edit_base@assetcore.test",
+                             ["AssetCore System User"])
+        try:
+            frappe.set_user(user)
+            env_p = get_transfer_full(t_pending)
+            self.assertTrue(env_p["success"])
+            self.assertIn("can_edit", env_p["data"])
+            self.assertEqual(env_p["data"]["can_edit"],
+                             transfer_cta_flags(self._STATUS_PENDING)["can_edit"])
+            self.assertEqual(env_p["data"]["can_edit"], 1)
+            env_a = get_transfer_full(t_approved)
+            self.assertEqual(env_a["data"]["can_edit"], 0)  # status-gate
+            frappe.set_user(base)
+            env_pb = get_transfer_full(t_pending)
+            self.assertEqual(env_pb["data"]["can_edit"], 0)  # fail-closed
+        finally:
+            frappe.set_user("Administrator")
+
+    # ── TC-6 [INVARIANT]: can_edit=1 cho session ⇒ update_transfer KHÔNG raise
+    #    PermissionError cùng session (button-affordance ⇔ action parity, mirror
+    #    parity đã có cho can_cancel/can_receive).
+    def test_can_edit_implies_update_permitted(self):
+        from assetcore.api.imm00 import update_transfer
+        from assetcore.services.imm00 import transfer_cta_flags
+        t = self._mk_transfer(self._STATUS_PENDING, reason="Trạng thái đầu (invariant)")
+        user = self._mk_user("_test_imm00_trf_edit_inv_parity@assetcore.test",
+                             ["AssetCore System User", "Commissioning User"])
+        try:
+            frappe.set_user(user)
+            # Tiền đề: cờ can_edit=1 cho phiếu Pending dưới session này.
+            self.assertEqual(transfer_cta_flags(self._STATUS_PENDING)["can_edit"], 1)
+            frappe.local.form_dict = frappe._dict({"reason": "Sửa hợp lệ theo cờ can_edit"})
+            try:
+                env = update_transfer(t)
+            except frappe.PermissionError:
+                self.fail("can_edit=1 nhưng update_transfer raise PermissionError "
+                          "(vi phạm button-affordance ⇔ action parity)")
+        finally:
+            frappe.set_user("Administrator")
+        self.assertIs(env["success"], True)
+        self.assertEqual(frappe.db.get_value("Asset Transfer", t, "reason"),
+                         "Sửa hợp lệ theo cờ can_edit")
 
 
 def _insert_asset_bypass_workflow(data: dict):
@@ -2628,11 +3668,14 @@ class TestAssetCapabilityEnablement(unittest.TestCase):
         self.assertNotEqual(CAP_SET_VERSION, "v89.2df4c16c2bbd",
                             "CAP_SET_VERSION phải đổi sau khi thêm 6 cap asset.* "
                             "(quên bump = FE giữ cap-set rỗng asset.*)")
-        self.assertTrue(CAP_SET_VERSION.startswith("v97."),
-                        f"97 cap (89 + 6 asset.* + 2 D6 print/rotate) → version "
-                        f"prefix 'v97.' (hiện {CAP_SET_VERSION})")
-        self.assertEqual(len(CAPABILITY_MAP), 97,
-                         "89 + 6 cap asset.* + 2 cap D6 (asset.print/asset.qr.rotate) = 97")
+        self.assertTrue(CAP_SET_VERSION.startswith("v104."),
+                        f"104 cap (89 + 6 asset.* + 2 D6 print/rotate + 1 firmware.approve "
+                        f"+ 6 purchase.* IMM-03 Vòng 19) → "
+                        f"version prefix 'v104.' (hiện {CAP_SET_VERSION})")
+        self.assertEqual(len(CAPABILITY_MAP), 104,
+                         "89 + 6 cap asset.* + 2 cap D6 (asset.print/asset.qr.rotate) "
+                         "+ 1 firmware.approve (IMM-09 Vòng 10) "
+                         "+ 6 purchase.* (IMM-03 Vòng 19) = 104")
 
 
 class TestResolveQrToken(unittest.TestCase):
@@ -3006,8 +4049,8 @@ class TestAssetScanInfo(unittest.TestCase):
     }
     _CORE_KEYS = {
         "name", "asset_code", "asset_name", "device_model_name",
-        "location_name", "lifecycle_status", "recent_maintenance",
-        "next_pm_date",
+        "location_name", "department_name", "lifecycle_status",
+        "recent_maintenance", "next_pm_date",
     }
 
     @classmethod
@@ -3019,11 +4062,22 @@ class TestAssetScanInfo(unittest.TestCase):
             "description": "Category cho test get_asset_scan_info",
             "is_active": 1,
         }).insert(ignore_permissions=True)
+        # CR-19: khoa/phòng fixture — denorm AC Asset.department → department_name
+        # trên màn quét. _Test-prefix + department_code riêng để KHÔNG đụng dept
+        # seeded thật (AC Department dùng department_code làm PK).
+        cls.dept = frappe.get_doc({
+            "doctype": "AC Department",
+            "department_name": "_Test Khoa Chẩn đoán hình ảnh (CR-19)",
+            "department_code": "_TEST-SCAN-DEPT",
+            "is_active": 1,
+        }).insert(ignore_permissions=True)
         frappe.db.commit()
 
     @classmethod
     def tearDownClass(cls):
         frappe.set_user("Administrator")
+        frappe.delete_doc("AC Department", cls.dept.name,
+                          force=True, ignore_permissions=True)
         frappe.delete_doc("AC Asset Category", cls.cat.name,
                           force=True, ignore_permissions=True)
         frappe.db.commit()
@@ -3188,6 +4242,41 @@ class TestAssetScanInfo(unittest.TestCase):
         # no-regress guard: rỗng-name → None (KHÔNG query toàn bảng)
         self.assertIsNone(build_asset_scan_info(""))
         self.assertIsNone(build_asset_scan_info(None))
+
+    # ── CR-19 (department_name — Khoa/phòng màn quét QR) ────────────────────
+    # Denorm AC Asset.department → AC Department.department_name (parity
+    # location_name Vòng 46). KTV hiện trường cần biết thiết bị thuộc khoa/phòng
+    # nào (KHÔNG chỉ vị trí lắp đặt) để đối chiếu trước khi báo sự cố/mở WO. Đọc
+    # trong CÙNG get_value ('department' thêm vào field list — KHÔNG round-trip
+    # thừa), enrich qua _str_or_blank parity location_name. Asset thiếu khoa →
+    # '' (KHÔNG None, KHÔNG mã raw). Test SERVICE build_asset_scan_info trực tiếp.
+    def test_get_asset_scan_info_includes_department_name(self):
+        """asset có department → payload['department_name'] == nhãn khoa (AC Department.department_name)."""
+        from assetcore.services.imm00 import build_asset_scan_info
+        asset = self._make_asset("dept", department=self.dept.name)
+        payload = build_asset_scan_info(asset.name)
+        self.assertIsNotNone(payload)
+        self.assertIn("department_name", payload,
+                      "payload màn quét PHẢI có 'department_name' (CR-19)")
+        self.assertEqual(payload["department_name"], self.dept.department_name,
+                         "department_name = nhãn khoa (denorm AC Department.department_name), KHÔNG mã raw")
+        self.assertIsInstance(payload["department_name"], str,
+                              "department_name LUÔN là str (coalesce, KHÔNG None)")
+
+    def test_get_asset_scan_info_department_blank_when_missing(self):
+        """asset KHÔNG có department → payload['department_name'] == '' (KHÔNG None/KeyError/mã raw).
+
+        Parity coalesce location_name (Vòng 46): unassigned → skip query (KHÔNG N+1),
+        _str_or_blank('') → ''. KHÔNG để None lọt payload (no-leak raw)."""
+        from assetcore.services.imm00 import build_asset_scan_info
+        asset = self._make_asset("nodept")  # KHÔNG set department
+        payload = build_asset_scan_info(asset.name)
+        self.assertIsNotNone(payload)
+        self.assertIn("department_name", payload,
+                      "KHÔNG KeyError khi asset thiếu khoa (key luôn hiện diện)")
+        self.assertEqual(payload["department_name"], "",
+                         "asset thiếu khoa → '' (str rỗng, KHÔNG None, KHÔNG mã raw)")
+        self.assertIsInstance(payload["department_name"], str)
 
     # ── resolve theo name (deep-link /assets/:id/info) ──────────────────────
     def test_scan_info_by_name_returns_payload(self):
@@ -3777,7 +4866,7 @@ class TestWarrantyInScanInfo(unittest.TestCase):
     _OLD_KEYS = {
         "name", "asset_code", "asset_name", "manufacturer_sn",
         "risk_classification", "lifecycle_status", "device_model_name",
-        "location_name", "next_pm_date", "next_calibration_date",
+        "location_name", "department_name", "next_pm_date", "next_calibration_date",
         "recent_maintenance", "pm_overdue", "calibration_overdue",
         "available_actions",
     }
@@ -3885,17 +4974,17 @@ class TestWarrantyInScanInfo(unittest.TestCase):
         payload = build_asset_scan_info(asset.name)
         keys = set(payload.keys())
         missing = self._OLD_KEYS - keys
-        self.assertFalse(missing, f"13 key cũ PHẢI giữ nguyên, thiếu: {missing}")
+        self.assertFalse(missing, f"key cũ PHẢI giữ nguyên, thiếu: {missing}")
         for k in self._NEW_KEYS:
             self.assertIn(k, keys, f"key warranty mới PHẢI có: '{k}'")
         leaked = self._SENSITIVE_KEYS & keys
         self.assertFalse(leaked,
                          f"KHÔNG leak field tài chính/nhạy cảm: {leaked}")
-        # Đúng 16 key total (13 cũ + 2 mới + name nằm trong _OLD_KEYS) — KHÔNG
-        # thừa key lạ. _OLD_KEYS đã gồm 'name' → 14 + 2 = 16.
+        # Đúng 17 key total (15 cũ gồm name + department_name CR-19 + 2 warranty)
+        # — KHÔNG thừa key lạ. _OLD_KEYS đã gồm 'name' → 15 + 2 = 17.
         self.assertEqual(keys, self._OLD_KEYS | self._NEW_KEYS,
-                         "payload = đúng 14 key cũ (gồm name) + 2 key warranty, "
-                         "KHÔNG thừa/thiếu")
+                         "payload = đúng 15 key cũ (gồm name + department_name) + "
+                         "2 key warranty, KHÔNG thừa/thiếu")
 
 
 class TestScanInfoMalformedDateResilience(unittest.TestCase):
@@ -4701,7 +5790,7 @@ class TestAssetScanInfoPmOverdue(unittest.TestCase):
     # parity manufacturer_sn (raw enum SSoT, FE dịch VI).
     _EXISTING_KEYS = {
         "name", "asset_code", "asset_name", "manufacturer_sn", "risk_classification",
-        "device_model_name", "location_name", "lifecycle_status",
+        "device_model_name", "location_name", "department_name", "lifecycle_status",
         "recent_maintenance", "next_pm_date",
     }
     _SENSITIVE_KEYS = {
@@ -4942,10 +6031,11 @@ class TestAssetScanInfoWarranty(unittest.TestCase):
     warranty_expired. Cờ derive THUẦN từ ngày server (no client-clock). Helper
     _is_warranty_expired ĐỘC LẬP lifecycle (khác pm/cal overdue). RED trước impl."""
 
-    # 13 KEY CŨ của payload — no-regress khi thêm đúng 2 key warranty mới.
+    # KEY CŨ của payload — no-regress khi thêm đúng 2 key warranty mới. CR-19:
+    # += department_name (denorm AC Asset.department, parity location_name).
     _LEGACY_KEYS = {
         "name", "asset_code", "asset_name", "manufacturer_sn", "risk_classification",
-        "lifecycle_status", "device_model_name", "location_name",
+        "lifecycle_status", "device_model_name", "location_name", "department_name",
         "next_pm_date", "next_calibration_date", "recent_maintenance",
         "pm_overdue", "calibration_overdue", "available_actions",
     }
@@ -5085,16 +6175,16 @@ class TestAssetScanInfoWarranty(unittest.TestCase):
         asset = self._make_asset("noregress", warranty_expiry_date="2020-01-01",
                                  gross_purchase_amount=123_000_000)
         data = self._scan(asset)
-        # 13 key cũ GIỮ NGUYÊN
+        # key cũ GIỮ NGUYÊN
         missing = self._LEGACY_KEYS - set(data.keys())
-        self.assertFalse(missing, f"13 key cũ PHẢI giữ nguyên, thiếu: {missing}")
+        self.assertFalse(missing, f"key cũ PHẢI giữ nguyên, thiếu: {missing}")
         # đúng 2 key warranty mới
         self.assertIn("warranty_expiry_date", data)
         self.assertIn("warranty_expired", data)
-        # payload = 13 cũ + 2 mới (KHÔNG dư field khác)
+        # payload = key cũ + 2 mới (KHÔNG dư field khác)
         self.assertEqual(
             set(data.keys()), self._LEGACY_KEYS | {"warranty_expiry_date", "warranty_expired"},
-            "payload = 13 key cũ + đúng 2 key warranty mới (KHÔNG dư/thiếu)")
+            "payload = key cũ + đúng 2 key warranty mới (KHÔNG dư/thiếu)")
         # KHÔNG leak field tài chính/nhạy cảm
         leaked = self._SENSITIVE_KEYS & set(data.keys())
         self.assertFalse(leaked, f"KHÔNG leak field nhạy cảm: {leaked}")
@@ -5129,7 +6219,7 @@ class TestAssetScanInfoCalibrationOverdue(unittest.TestCase):
     # + risk_classification (phân loại rủi ro enum, read-only) — parity manufacturer_sn.
     _EXISTING_KEYS = {
         "name", "asset_code", "asset_name", "manufacturer_sn", "risk_classification",
-        "device_model_name", "location_name", "lifecycle_status",
+        "device_model_name", "location_name", "department_name", "lifecycle_status",
         "recent_maintenance", "next_pm_date", "pm_overdue",
     }
 
@@ -6164,6 +7254,251 @@ class TestGetAssetActionMetaRequiresAssetReadCapability(unittest.TestCase):
 
 
 # ──────────────────────────────────────────────────────────────────────────
+# CR-WF-00-TRANSITION-AUTHZ (Trục A — missing-authorization write) — endpoint
+# transition_status ĐỔI lifecycle_status AC Asset gọi service perm-free
+# transition_asset_status. TRƯỚC fix: MỌI user login POST được endpoint tự đổi
+# trạng thái thiết bị. Fix = MIRROR 3-lớp bảo mật get_asset:
+#   0. rbac.require("asset.write")  → 403 TRƯỚC exists (no existence-oracle)
+#   1. exists                       → 404 leak-safe
+#   2. assert_vendor_can_access     → 403 IDOR (Vendor Engineer ngoài scope)
+# Gate CHỈ ở tầng ENDPOINT — service transition_asset_status GIỮ NGUYÊN perm-free
+# (đường WO-driven: KTV không có asset.write vẫn chuyển trạng thái khi complete WO).
+# Chỉ "AssetCore Super Admin" có write DocPerm AC Asset; Administrator bypass mọi
+# permission (happy-path). rbac/has_permission KHÔNG monkeypatch — user THẬT +
+# DocPerm THẬT. RED viết TRƯỚC impl (mirror get_asset cap-gate Vòng 34).
+# ──────────────────────────────────────────────────────────────────────────
+class TestTransitionStatusRequiresAssetWrite(unittest.TestCase):
+    """transition_status gate rbac.require('asset.write') + IDOR (MIRROR get_asset).
+
+    Đóng lỗ CR-WF-00-TRANSITION-AUTHZ: endpoint đổi lifecycle_status AC Asset
+    thiếu authz → MỌI user login đổi được trạng thái thiết bị. Fix mirror 3-lớp
+    get_asset (rbac.require ĐẦU TIÊN → no existence-oracle → IDOR vendor).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": "Thiết bị transition AuthZ",
+            "description": "Category cho test transition_status authz (CR-WF-00-TRANSITION-AUTHZ)",
+            "is_active": 1,
+        }).insert(ignore_permissions=True)
+        # User base-role THẬT (AssetCore System User read=1, write=0 trên AC Asset
+        # + PM User) = "user login bất kỳ": có read, KHÔNG có asset.write. Chính là
+        # actor lỗ hổng trước fix (POST đổi trạng thái được). KHÔNG Guest (Guest quá
+        # yếu — không chứng minh "user login hợp lệ vẫn bị chặn WRITE").
+        cls.base_user = "trans_authz_base@example.com"
+        if frappe.db.exists("User", cls.base_user):
+            frappe.delete_doc("User", cls.base_user, force=True, ignore_permissions=True)
+        u = frappe.get_doc({
+            "doctype": "User", "email": cls.base_user,
+            "first_name": "Trans AuthZ Base", "send_welcome_email": 0,
+        }).insert(ignore_permissions=True)
+        u.add_roles("AssetCore System User", "PM User")
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        if frappe.db.exists("User", cls.base_user):
+            frappe.delete_doc("User", cls.base_user, force=True, ignore_permissions=True)
+        frappe.delete_doc("AC Asset Category", cls.cat.name,
+                          force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self._created: list[str] = []
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+        frappe.db.rollback()
+        for name in self._created:
+            _purge_asset(name)
+        frappe.db.commit()
+
+    def _make_asset(self, suffix="", **extra):
+        import uuid
+        uniq = f"{suffix or '0001'}-{uuid.uuid4().hex[:8]}"
+        data = {
+            "doctype": "AC Asset",
+            "asset_name": f"Máy TransAuthZ {uniq}",
+            "asset_category": self.cat.name,
+            "manufacturer_sn": f"TA-SN-{uniq}",
+            "asset_code": f"TA-ASSET-{uniq}",
+            "lifecycle_status": "Active",
+        }
+        data.update(extra)
+        doc = _insert_asset_bypass_workflow(data)
+        self._created.append(doc.name)
+        return doc
+
+    # ── T1 (AC1) — 403 khi thiếu asset.write; lifecycle_status KHÔNG đổi ───────
+    def test_transition_status_denies_without_asset_write(self):
+        """Base-role user (read=1, write=0) POST transition_status → 403.
+
+        Trước fix: transition_asset_status chạy → lifecycle_status đổi. Sau fix:
+        rbac.require('asset.write') chặn ĐẦU TIÊN → frappe.PermissionError (403);
+        lifecycle_status trong DB KHÔNG đổi (assert trước/sau bằng db.get_value).
+        """
+        from assetcore.api.imm00 import transition_status
+        from assetcore.services.shared import rbac
+        asset = self._make_asset("noperm")
+        before = frappe.db.get_value("AC Asset", asset.name, "lifecycle_status")
+        self.assertEqual(before, "Active", "tiền đề: asset khởi tạo ở Active")
+        frappe.set_user(self.base_user)
+        try:
+            self.assertFalse(rbac.can("asset.write"),
+                             "tiền đề: base-role user KHÔNG có asset.write (DocPerm write=0)")
+            with self.assertRaises(frappe.PermissionError):
+                transition_status(name=asset.name, to_status="Under Maintenance",
+                                  reason="Đưa vào bảo trì định kỳ")
+        finally:
+            frappe.set_user("Administrator")
+        after = frappe.db.get_value("AC Asset", asset.name, "lifecycle_status")
+        self.assertEqual(after, before,
+                         "denied → lifecycle_status KHÔNG đổi (vẫn Active)")
+
+    # ── T4 (AC3) — 403 TRƯỚC exists: no existence-oracle ─────────────────────
+    def test_transition_status_no_existence_oracle(self):
+        """User thiếu asset.write + name KHÔNG tồn tại → 403 (KHÔNG 404).
+
+        Chứng minh rbac.require chạy TRƯỚC frappe.db.exists (parity thứ-tự-lớp
+        get_asset): nếu gate chạy SAU exists sẽ trả _err(404) thay vì
+        PermissionError → user dò được tài sản tồn tại hay không (existence-oracle).
+        """
+        from assetcore.api.imm00 import transition_status
+        frappe.set_user(self.base_user)
+        try:
+            with self.assertRaises(frappe.PermissionError):
+                transition_status(name="AC-ASSET-DOES-NOT-EXIST-0000",
+                                  to_status="Under Maintenance", reason="probe")
+        finally:
+            frappe.set_user("Administrator")
+
+    # ── T2 (AC2) — IDOR: Vendor Engineer CÓ asset.write, asset ngoài scope → 403 ─
+    def test_transition_status_denies_vendor_out_of_scope(self):
+        """Vendor Engineer CÓ asset.write nhưng asset NGOÀI scope → 403 IDOR.
+
+        Mirror get_asset AUTH-10 (+ test_label_idor_vendor_scope). Chỉ 'AssetCore
+        Super Admin' có write DocPerm sẵn (và là bypass-IDOR) → cấp write TẠM cho
+        role 'Vendor Engineer' qua Custom DocPerm (DATA, KHÔNG cap mới), gỡ ở
+        finally. User QUA gate WRITE rồi mới đập IDOR (assert_vendor_can_access:
+        asset ngoài WO được giao). Siết RBAC KHÔNG nới IDOR. lifecycle_status
+        KHÔNG đổi.
+        """
+        from frappe.permissions import add_permission, update_permission_property
+        from assetcore.api.imm00 import transition_status
+        from assetcore.services.shared import rbac
+        asset = self._make_asset("idor")
+        name = asset.name
+        before = frappe.db.get_value("AC Asset", name, "lifecycle_status")
+        role = "Vendor Engineer"
+        vendor_email = "vendor_trans_authz_idor@example.com"
+        if frappe.db.exists("User", vendor_email):
+            frappe.delete_doc("User", vendor_email, force=True, ignore_permissions=True)
+        u = frappe.get_doc({
+            "doctype": "User", "email": vendor_email,
+            "first_name": "Vendor Trans AuthZ IDOR", "send_welcome_email": 0,
+        }).insert(ignore_permissions=True)
+        # Vendor Engineer (scope-restrict, KHÔNG bypass-IDOR) + Repair User.
+        u.add_roles("Vendor Engineer", "Repair User")
+        # Cấp write TẠM cho Vendor Engineer trên AC Asset → user qua gate WRITE
+        # NHƯNG bị chặn ở IDOR (asset ngoài WO được giao). DATA, KHÔNG cap mới.
+        add_permission("AC Asset", role, 0)
+        update_permission_property("AC Asset", role, 0, "write", 1)
+        frappe.clear_cache()
+        frappe.db.commit()
+        frappe.set_user(vendor_email)
+        try:
+            self.assertTrue(rbac.can("asset.write"),
+                            "tiền đề: Vendor Engineer (Custom DocPerm write=1) CÓ asset.write")
+            resp = transition_status(name=name, to_status="Under Maintenance",
+                                     reason="Vendor thử đổi trạng thái asset ngoài scope")
+            self.assertFalse(resp["success"], "vendor ngoài scope → KHÔNG success")
+            self.assertEqual(resp["http_status"], 403,
+                             "vendor ngoài scope → 403 (IDOR guard, mirror get_asset AUTH-10)")
+        finally:
+            frappe.set_user("Administrator")
+            cp = frappe.db.get_value(
+                "Custom DocPerm",
+                {"parent": "AC Asset", "role": role, "permlevel": 0}, "name")
+            if cp:
+                frappe.delete_doc("Custom DocPerm", cp, force=True,
+                                  ignore_permissions=True)
+            frappe.clear_cache()
+            rbac.invalidate_capabilities(vendor_email)
+            if frappe.db.exists("User", vendor_email):
+                frappe.delete_doc("User", vendor_email,
+                                  force=True, ignore_permissions=True)
+            frappe.db.commit()
+        after = frappe.db.get_value("AC Asset", name, "lifecycle_status")
+        self.assertEqual(after, before,
+                         "vendor denied → lifecycle_status KHÔNG đổi (vẫn Active)")
+
+    # ── T3 (AC4) — happy-path: holder asset.write + in-scope → _ok + audit ────
+    def test_transition_status_allows_asset_write_holder(self):
+        """Administrator (asset.write via bypass) + transition hợp state-machine
+        (Active→Under Maintenance) → _ok {name, lifecycle_status}; đúng 1 Asset
+        Lifecycle Event + 1 IMM Audit Trail 'State Change' row sinh (KHÔNG hồi quy).
+        """
+        from assetcore.api.imm00 import transition_status
+        from assetcore.services.shared import rbac
+        asset = self._make_asset("ok")
+        self.assertTrue(rbac.can("asset.write"),
+                        "tiền đề: Administrator có asset.write (bypass superuser)")
+        ale_before = frappe.db.count("Asset Lifecycle Event", {"asset": asset.name})
+        at_before = frappe.db.count(
+            "IMM Audit Trail", {"asset": asset.name, "event_type": "State Change"})
+        resp = transition_status(name=asset.name, to_status="Under Maintenance",
+                                 reason="Đưa thiết bị vào bảo trì định kỳ theo lịch PM")
+        self.assertTrue(resp["success"], "holder asset.write in-scope → success")
+        self.assertEqual(resp["data"]["name"], asset.name)
+        self.assertEqual(resp["data"]["lifecycle_status"], "Under Maintenance")
+        self.assertEqual(
+            frappe.db.get_value("AC Asset", asset.name, "lifecycle_status"),
+            "Under Maintenance", "lifecycle_status thực đổi trong DB")
+        self.assertEqual(
+            frappe.db.count("Asset Lifecycle Event", {"asset": asset.name}) - ale_before, 1,
+            "transition hợp lệ → sinh đúng 1 Asset Lifecycle Event")
+        self.assertEqual(
+            frappe.db.count(
+                "IMM Audit Trail",
+                {"asset": asset.name, "event_type": "State Change"}) - at_before, 1,
+            "transition hợp lệ → sinh đúng 1 IMM Audit Trail 'State Change'")
+
+    # ── T5 (AC5) — zero blast-radius: SERVICE perm-free (đường WO-driven) ─────
+    def test_service_transition_asset_status_no_perm_gate(self):
+        """Gọi TRỰC TIẾP service transition_asset_status với user KHÔNG có
+        asset.write vẫn success — khẳng định gate CHỈ ở ENDPOINT.
+
+        Đường WO-driven (test_imm08/09: KTV complete WO → asset Under Maintenance/
+        Active/Completed) gọi service programmatic; KTV không có asset.write DocPerm.
+        Nếu gate rớt xuống service → toàn bộ WO-complete vỡ. Guard này khoá contract
+        service perm-free.
+        """
+        from assetcore.services.imm00 import transition_asset_status
+        from assetcore.services.shared import rbac
+        asset = self._make_asset("svc")
+        frappe.set_user(self.base_user)
+        try:
+            self.assertFalse(rbac.can("asset.write"),
+                             "tiền đề: base-role user KHÔNG có asset.write")
+            transition_asset_status(
+                asset.name, "Under Maintenance", actor=self.base_user,
+                reason="WO-driven: KTV chuyển trạng thái khi bắt đầu bảo trì")
+            frappe.db.commit()
+            self.assertEqual(
+                frappe.db.get_value("AC Asset", asset.name, "lifecycle_status"),
+                "Under Maintenance",
+                "service perm-free → transition thành công dù user thiếu asset.write "
+                "(đường WO-complete KTV KHÔNG bị chặn)")
+        finally:
+            frappe.set_user("Administrator")
+
+
+# ──────────────────────────────────────────────────────────────────────────
 # A3 — Dữ liệu in nhãn QR + sự kiện in (ADR-001 D3)
 # get_asset_label_data (1) + get_asset_label_data_batch (batch, KHÔNG N+1) +
 # mark_label_printed (POST emit label_printed + audit). RED viết TRƯỚC impl.
@@ -6743,7 +8078,7 @@ class TestAssetLabelData(unittest.TestCase):
 #   - regenerate_asset_qr_token → gate `asset.qr.rotate`→(AC Asset,"write").
 #     Rotate = GHI ⇒ bind "write" (chỉ Super Admin/role được cấp write). print
 #     KHÔNG đủ để rotate.
-# Thêm 2 cap ⇒ CAP_SET_VERSION ĐỔI v95.3388ee5629c1 → v97.c30c69b8974d.
+# Thêm 2 cap ⇒ CAP_SET_VERSION ĐỔI v95.3388ee5629c1 → v104.e46d05d9a66d.
 #
 # KHÔNG test false-green (luật skill): test tạo user THẬT + cấp/không-cấp DocPerm
 # `print`/`write` trên AC Asset (qua Role/Custom DocPerm), frappe.set_user(...),
@@ -7058,16 +8393,16 @@ class TestLabelWriteCapability(unittest.TestCase):
         """D6 phương án B: thêm asset.print + asset.qr.rotate → version ĐỔI.
 
         White-box: CAP_SET_VERSION KHÔNG còn v95.3388ee5629c1 (giá trị cũ) → đổi
-        v97.c30c69b8974d (97 cap). FE auth.ts::CAP_SET_VERSION PHẢI bump khớp →
+        v104.e46d05d9a66d (98 cap). FE auth.ts::CAP_SET_VERSION PHẢI bump khớp →
         isCapCacheStale tự bỏ persisted-caps cũ. 2 cap mới bind đúng permtype.
         KHÔNG còn asset.print_label (tên cũ trong roadmap đã đổi đúng theo ADR).
         """
         from assetcore.services.shared.rbac import CAP_SET_VERSION, CAPABILITY_MAP
         self.assertNotEqual(CAP_SET_VERSION, "v95.3388ee5629c1",
                             "thêm 2 cap (D6) → CAP_SET_VERSION PHẢI đổi giá trị cũ")
-        self.assertEqual(CAP_SET_VERSION, "v97.c30c69b8974d",
-                         "97 cap sau D6 → version v97.c30c69b8974d "
-                         "(khớp FE auth.ts CAP_SET_VERSION)")
+        self.assertEqual(CAP_SET_VERSION, "v104.e46d05d9a66d",
+                         "98 cap (D6 + firmware.approve IMM-09 Vòng 10) → version "
+                         "v104.e46d05d9a66d (khớp FE auth.ts CAP_SET_VERSION)")
         self.assertIn("asset.print", CAPABILITY_MAP,
                       "asset.print (D6 phương án B) phải có trong CAPABILITY_MAP")
         self.assertEqual(CAPABILITY_MAP["asset.print"], ("AC Asset", "print"),
@@ -7692,8 +9027,8 @@ class TestRegenerateQrToken(unittest.TestCase):
     def test_rotate_cap_in_map_and_version_changed(self):
         """D6: rotate gate asset.qr.rotate→(AC Asset,write); CAP_SET_VERSION ĐỔI."""
         from assetcore.services.shared.rbac import CAP_SET_VERSION, CAPABILITY_MAP
-        self.assertEqual(CAP_SET_VERSION, "v97.c30c69b8974d",
-                         "thêm asset.print + asset.qr.rotate → version v97.c30c69b8974d")
+        self.assertEqual(CAP_SET_VERSION, "v104.e46d05d9a66d",
+                         "thêm asset.print + asset.qr.rotate → version v104.e46d05d9a66d")
         self.assertEqual(CAPABILITY_MAP.get("asset.qr.rotate"), ("AC Asset", "write"),
                          "asset.qr.rotate bind ('AC Asset','write') — rotate=GHI")
 
@@ -8004,9 +9339,9 @@ class TestQrResolveRateLimit(unittest.TestCase):
     def test_cap_set_version_unchanged(self):
         from assetcore.services.shared.rbac import CAP_SET_VERSION
         self.assertEqual(
-            CAP_SET_VERSION, "v97.c30c69b8974d",
+            CAP_SET_VERSION, "v104.e46d05d9a66d",
             "@rate_limit (decorator) KHÔNG đổi CAPABILITY_MAP; giá trị hiện hành "
-            "v97.c30c69b8974d (sau D6 tách asset.print/asset.qr.rotate)")
+            "v104.e46d05d9a66d (sau D6 tách asset.print/asset.qr.rotate)")
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -8298,9 +9633,9 @@ class TestQrRegenerateRateLimit(unittest.TestCase):
     def test_regen_cap_set_version_unchanged(self):
         from assetcore.services.shared.rbac import CAP_SET_VERSION
         self.assertEqual(
-            CAP_SET_VERSION, "v97.c30c69b8974d",
+            CAP_SET_VERSION, "v104.e46d05d9a66d",
             "@rate_limit lên rotate KHÔNG đổi CAPABILITY_MAP; giá trị hiện hành "
-            "v97.c30c69b8974d (sau D6 tách asset.print/asset.qr.rotate)")
+            "v104.e46d05d9a66d (sau D6 tách asset.print/asset.qr.rotate)")
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -8660,9 +9995,9 @@ class TestLabelMarkBatchRateLimit(unittest.TestCase):
     def test_cap_set_version_unchanged(self):
         from assetcore.services.shared.rbac import CAP_SET_VERSION
         self.assertEqual(
-            CAP_SET_VERSION, "v97.c30c69b8974d",
+            CAP_SET_VERSION, "v104.e46d05d9a66d",
             "@rate_limit lên mark/batch KHÔNG đổi CAPABILITY_MAP; giá trị hiện "
-            "hành v97.c30c69b8974d (sau D6 tách asset.print/asset.qr.rotate)")
+            "hành v104.e46d05d9a66d (sau D6 tách asset.print/asset.qr.rotate)")
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -9030,9 +10365,9 @@ class TestLabelDataRateLimit(unittest.TestCase):
     def test_cap_set_version_unchanged(self):
         from assetcore.services.shared.rbac import CAP_SET_VERSION
         self.assertEqual(
-            CAP_SET_VERSION, "v97.c30c69b8974d",
+            CAP_SET_VERSION, "v104.e46d05d9a66d",
             "@rate_limit lên single KHÔNG đổi CAPABILITY_MAP; giá trị hiện hành "
-            "v97.c30c69b8974d (sau D6 tách asset.print/asset.qr.rotate)")
+            "v104.e46d05d9a66d (sau D6 tách asset.print/asset.qr.rotate)")
 
 
 # ─── B (hardening) — base-URL công khai cấu hình được cho deep-link QR ─────────
@@ -9189,11 +10524,11 @@ class TestQrBaseUrl(unittest.TestCase):
                 _purge_asset(n)
             frappe.db.commit()
 
-    # (9) regression: cap-set version hiện hành v97.c30c69b8974d (sau D6).
+    # (9) regression: cap-set version hiện hành v104.e46d05d9a66d (sau D6).
     def test_cap_set_version_unchanged(self):
         from assetcore.services.shared.rbac import CAP_SET_VERSION
         self.assertEqual(
-            CAP_SET_VERSION, "v97.c30c69b8974d",
+            CAP_SET_VERSION, "v104.e46d05d9a66d",
             "base-URL deep-link là logic dựng URL — KHÔNG thêm cap (D6 mới đổi version)")
 
 
@@ -9207,30 +10542,38 @@ class TestQrBaseUrl(unittest.TestCase):
 # Deep-link vẫn dùng qua qr_url (build_asset_label_data server-side, A3/A4).
 # Test-case RED viết TRƯỚC fix (test_get_asset_no_raw_qr_token fail vì as_dict
 # leak). KHÔNG cap/field/DocType/enum mới ở vòng này (CAP_SET_VERSION hiện hành
-# v97.c30c69b8974d — D6 tách asset.print/asset.qr.rotate mới đổi version).
+# v104.e46d05d9a66d — D6 tách asset.print/asset.qr.rotate mới đổi version).
 # ──────────────────────────────────────────────────────────────────────────
 class TestGetAssetNoRawQrToken(unittest.TestCase):
     """B — no-raw-token parity MỌI đường đọc AC Asset (ADR-001 D4 rule 9)."""
 
     @classmethod
     def setUpClass(cls):
+        import uuid
         frappe.set_user("Administrator")
+        # category_name có DB-unique constraint + commit dưới → uuid-suffix để
+        # idempotent (leak từ run bị SIGKILL KHÔNG poison lần sau). model_name/
+        # location_name KHÔNG unique nên leak vô hại; ref qua .name (autoname).
         cls.cat = frappe.get_doc({
             "doctype": "AC Asset Category",
-            "category_name": "Thiết bị No-Raw-Token (B)",
+            "category_name": f"Thiết bị No-Raw-Token (B) {uuid.uuid4().hex[:8]}",
             "description": "Category cho test no-raw-token get_asset",
             "is_active": 1,
         }).insert(ignore_permissions=True)
+        # model_name/location_name KHÔNG DB-unique NHƯNG có app-level validate
+        # ((model_name,manufacturer) & location) → uuid-suffix để leak từ run bị
+        # SIGKILL (parity category) KHÔNG poison lần sau. Ref qua .name (autoname).
+        _u = uuid.uuid4().hex[:8]
         cls.model = frappe.get_doc({
             "doctype": "IMM Device Model",
-            "model_name": "NRT Dräger Evita V500",
+            "model_name": f"NRT Dräger Evita V500 {_u}",
             "manufacturer": "Dräger Medical",
             "medical_device_class": "Class II",
             "asset_category": cls.cat.name,
         }).insert(ignore_permissions=True)
         cls.loc = frappe.get_doc({
             "doctype": "AC Location",
-            "location_name": "NRT Phòng ICU — Tầng 3",
+            "location_name": f"NRT Phòng ICU — Tầng 3 {_u}",
             "location_type": "Room",
         }).insert(ignore_permissions=True)
         frappe.db.commit()
@@ -9310,7 +10653,7 @@ class TestGetAssetNoRawQrToken(unittest.TestCase):
         self.assertEqual(data["name"], asset.name)
         self.assertEqual(data["asset_code"], asset.asset_code)
         self.assertEqual(data["lifecycle_status"], "Active")
-        self.assertEqual(data["category_name"], "Thiết bị No-Raw-Token (B)")
+        self.assertEqual(data["category_name"], self.cat.category_name)
 
     # ── timeline — đường đọc-asset thứ 2 cũng no-raw-token ───────────────────
     def test_get_asset_timeline_no_qr_token(self):
@@ -9488,8 +10831,8 @@ class TestGetAssetNoRawQrToken(unittest.TestCase):
         """strip qr_token = logic API-response — KHÔNG cap/field/DocType/enum."""
         from assetcore.services.shared.rbac import CAP_SET_VERSION
         self.assertEqual(
-            CAP_SET_VERSION, "v97.c30c69b8974d",
-            "no-raw-token strip KHÔNG thêm cap; giá trị hiện hành v97.c30c69b8974d (sau D6)")
+            CAP_SET_VERSION, "v104.e46d05d9a66d",
+            "no-raw-token strip KHÔNG thêm cap; giá trị hiện hành v104.e46d05d9a66d (sau D6)")
 
 
 class TestGetAssetIdentityPayload(unittest.TestCase):
@@ -12622,6 +13965,435 @@ class TestLabelAssetsDedup(unittest.TestCase):
             out = _coerce_asset_names(bad)
             self.assertEqual(out, [], f"{bad!r}: malformed → [] (no-500/no-traceback)")
             self.assertIsInstance(out, list, f"{bad!r}: luôn list")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# XII. INVARIANT — Reconcile lifecycle map ⇄ workflow ⇄ fixtures
+#      (CR-WF-00-LIFECYCLE, Vòng 32). Spec: docs/imm-00/04_Backend_Design.md
+#      §II.1.7-RECON + ADR-IMM00-LIFECYCLE-SM ; docs/imm-00/07_Testing_QA.md §XII.
+#      Guard bất-biến chống drift SSoT `_VALID_ASSET_TRANSITIONS`
+#      ⇄ ac_asset_lifecycle_workflow.json ⇄ fixtures/workflow.json.
+# ══════════════════════════════════════════════════════════════════════════
+from assetcore.services.shared import AssetStatus as _AssetStatus
+from assetcore.services.imm00 import (
+    _VALID_ASSET_TRANSITIONS as _LC_MAP,
+    _LIFECYCLE_EXCEPTION_EDGES as _LC_EXC,
+    _NEG09_BLOCK_DECOM_FROM as _LC_NEG09,
+    is_valid_asset_transition as _lc_is_valid,
+    transition_asset_status as _lc_transition,
+    InvalidAssetTransition as _LcInvalidTransition,
+    # CR-WF-00-LIFECYCLE-SURFACE — DRIVER duy nhất cấp allowed_transitions cho CẢ
+    # get_asset emit LẪN reconcile test (single-SSoT, KHÔNG bản sao bảng transition).
+    asset_allowed_transitions as _asset_allowed_transitions,
+)
+
+# 8 mã canonical AssetStatus (constants.py:88-95) — grounding count workflow states.
+_CANONICAL_ASSET_STATES = {
+    _AssetStatus.DRAFT, _AssetStatus.COMMISSIONED, _AssetStatus.ACTIVE,
+    _AssetStatus.UNDER_MAINTENANCE, _AssetStatus.UNDER_REPAIR, _AssetStatus.CALIBRATING,
+    _AssetStatus.OUT_OF_SERVICE, _AssetStatus.DECOMMISSIONED,
+}
+# 2 cạnh SURFACE Vòng 32 (cả 2 →Out of Service) — ADR-IMM00-LIFECYCLE-SM.
+_SURFACED_OOS_EDGES = {
+    (_AssetStatus.COMMISSIONED, _AssetStatus.OUT_OF_SERVICE),
+    (_AssetStatus.UNDER_MAINTENANCE, _AssetStatus.OUT_OF_SERVICE),
+}
+_ADMIN_LIFECYCLE_ROLES = {"AssetCore Super Admin", "System Manager"}
+# Nhãn action Desk hợp lệ (anti-drift) — 14 nhãn (12 cũ + reuse "Đưa ra khỏi sử dụng").
+_LIFECYCLE_ACTION_LABELS = {
+    "Commission", "Activate", "Bắt đầu bảo trì", "Hoàn thành bảo trì",
+    "Bắt đầu sửa chữa", "Hoàn thành sửa chữa", "Không thể sửa chữa",
+    "Bắt đầu hiệu chuẩn", "Hiệu chuẩn đạt", "Hiệu chuẩn không đạt",
+    "Đưa ra khỏi sử dụng", "Khôi phục hoạt động", "Sửa chữa lại", "Thanh lý",
+}
+
+
+def _load_lifecycle_source_workflow() -> dict:
+    """Parse ac_asset_lifecycle_workflow.json (SOURCE — path `_sync_workflows` import_doc)."""
+    import json as _json
+    path = frappe.get_app_path(
+        "assetcore", "assetcore", "workflow", "ac_asset_lifecycle_workflow.json")
+    with open(path, encoding="utf-8") as fh:
+        return _json.load(fh)
+
+
+def _load_lifecycle_fixture_workflow() -> dict:
+    """Parse block 'AC Asset Lifecycle' trong fixtures/workflow.json (fresh-install parity)."""
+    import json as _json
+    path = frappe.get_app_path("assetcore", "fixtures", "workflow.json")
+    with open(path, encoding="utf-8") as fh:
+        data = _json.load(fh)
+    for w in data:
+        if w.get("doctype") == "Workflow" and w.get("name") == "AC Asset Lifecycle":
+            return w
+    raise AssertionError("Không tìm thấy 'AC Asset Lifecycle' trong fixtures/workflow.json")
+
+
+def _wf_edge_pairs(wf: dict) -> set:
+    """{(state, next_state)} distinct — bỏ role (đối soát cạnh state-machine)."""
+    return {(t["state"], t["next_state"]) for t in wf.get("transitions", [])}
+
+
+def _wf_edge_roles(wf: dict) -> dict:
+    """{(state, next_state): set(allowed)} — coverage role per cạnh."""
+    from collections import defaultdict
+    roles = defaultdict(set)
+    for t in wf.get("transitions", []):
+        roles[(t["state"], t["next_state"])].add(t.get("allowed"))
+    return roles
+
+
+class TestLifecycleReconcileInvariant(unittest.TestCase):
+    """Đối soát bất-biến map ⇄ workflow ⇄ fixtures + helper NEG-09 (pure/static, no-DB)."""
+
+    # ── TC-00-WF-RECON-01 — INVARIANT chính (map ⇄ workflow edge-by-edge) ──────
+    def test_asset_lifecycle_map_matches_workflow(self):
+        wf = _load_lifecycle_source_workflow()
+        wf_pairs = _wf_edge_pairs(wf)
+        map_pairs = {(s, nxt) for s, nexts in _LC_MAP.items() for nxt in nexts}
+        exc = set(_LC_EXC.keys())
+
+        # (a) mọi cạnh map-không-surface PHẢI ∈ EXCEPTION_EDGES (0 drift câm).
+        self.assertEqual(
+            map_pairs - wf_pairs, exc,
+            "DRIFT map⊋workflow chưa giải trình. "
+            f"Cạnh thừa (drift): {sorted((map_pairs - wf_pairs) - exc)}; "
+            f"Cạnh EXCEPTION thiếu surface bù: {sorted(exc - (map_pairs - wf_pairs))}",
+        )
+        # công thức acceptance edge-by-edge: ∀s set(map[s]) − exc_codom[s] == wf_codom[s]
+        for s, nexts in _LC_MAP.items():
+            exc_codom = {e[1] for e in exc if e[0] == s}
+            wf_codom = {t["next_state"] for t in wf["transitions"] if t["state"] == s}
+            self.assertEqual(
+                set(nexts) - exc_codom, wf_codom,
+                f"state '{s}': (map − EXCEPTION) ≠ workflow codomain")
+            # SINGLE-SSoT (CR-WF-00-LIFECYCLE-SURFACE): helper CTA-surfaceable
+            # ``asset_allowed_transitions`` là DRIVER get_asset emit. Đối soát TRỰC
+            # TIẾP với workflow codomain TRỪ terminal Decommissioned — carve-out
+            # IMM-14: "Thanh lý" (Active/Out of Service → Decommissioned) CÓ surface
+            # trong workflow JSON NHƯNG KHÔNG là CTA dropdown chuyển-trạng-thái tự do
+            # (thanh lý đi qua Asset Decommission closure). Chứng minh 0 drift giữa
+            # BE-emitted CTA ⇄ workflow, đọc TỪ helper (không bản sao bảng nào).
+            self.assertEqual(
+                set(_asset_allowed_transitions(s)),
+                wf_codom - {_AssetStatus.DECOMMISSIONED},
+                f"state '{s}': helper CTA-surfaceable ≠ workflow codomain (non-terminal)")
+
+        # (b) 0 cạnh workflow mồ côi — mọi CTA Desk ⊆ map.
+        self.assertEqual(
+            wf_pairs - map_pairs, set(),
+            f"CTA Desk dẫn tới transition ∉ state-machine map: {sorted(wf_pairs - map_pairs)}")
+
+        # (c) grounding count: 8 state workflow == 8 mã AssetStatus enum.
+        self.assertEqual(len(wf["states"]), 8, "workflow phải có đúng 8 state")
+        self.assertEqual({s["state"] for s in wf["states"]}, _CANONICAL_ASSET_STATES,
+                         "state workflow lệch AssetStatus enum (typo/drift)")
+
+        # (d) 2 cạnh SURFACE mỗi cạnh có ĐỦ cả 2 admin role.
+        roles = _wf_edge_roles(wf)
+        for e in _SURFACED_OOS_EDGES:
+            self.assertTrue(
+                _ADMIN_LIFECYCLE_ROLES <= roles.get(e, set()),
+                f"cạnh SURFACE {e} thiếu role: {_ADMIN_LIFECYCLE_ROLES - roles.get(e, set())}")
+
+        # (e) anti-drift nhãn action.
+        actual = {t["action"] for t in wf["transitions"]}
+        self.assertTrue(actual <= _LIFECYCLE_ACTION_LABELS,
+                        f"nhãn action lạ: {sorted(actual - _LIFECYCLE_ACTION_LABELS)}")
+
+    # ── EXCEPTION_EDGES rationale (0 cạnh câm không giải trình) ────────────────
+    def test_lifecycle_exception_edges_have_rationale(self):
+        self.assertTrue(_LC_EXC, "EXCEPTION_EDGES rỗng — phải khai tường minh")
+        for edge, rationale in _LC_EXC.items():
+            self.assertIn(rationale, {"NEG-09-superseded", "programmatic-only"},
+                          f"{edge}: rationale '{rationale}' ∉ tập cho phép")
+            self.assertTrue(str(rationale).strip(), f"{edge}: rationale rỗng")
+            # bất-biến ngữ nghĩa: mọi cạnh EXCEPTION đều →Decommissioned.
+            self.assertEqual(edge[1], _AssetStatus.DECOMMISSIONED,
+                             f"{edge}: cạnh EXCEPTION phải →Decommissioned")
+        self.assertEqual(len(_LC_EXC), 5, "phải đúng 5 cạnh EXCEPTION")
+        self.assertEqual(sum(1 for v in _LC_EXC.values() if v == "programmatic-only"), 2)
+        self.assertEqual(sum(1 for v in _LC_EXC.values() if v == "NEG-09-superseded"), 3)
+        # 3 cạnh NEG-09-superseded == đúng 3 from-state của _NEG09_BLOCK_DECOM_FROM.
+        neg09_edges = {e[0] for e, v in _LC_EXC.items() if v == "NEG-09-superseded"}
+        self.assertEqual(neg09_edges, set(_LC_NEG09.keys()),
+                         "NEG-09-superseded from-states lệch _NEG09_BLOCK_DECOM_FROM")
+
+    # ── helper asset_allowed_transitions: bất-biến CTA-surfaceable (pure, no-DB) ──
+    def test_asset_allowed_transitions_never_contains_decommissioned(self):
+        """CR-WF-00-LIFECYCLE-SURFACE BẤT-BIẾN: ∀ status trong _VALID_ASSET_TRANSITIONS,
+        Decommissioned KHÔNG bao giờ ∈ output helper — carve-out IMM-14 (thanh lý đi
+        qua Asset Decommission closure, KHÔNG là CTA Desk tự do). Đối xứng
+        _LIFECYCLE_EXCEPTION_EDGES + loại terminal. NB: 2 cạnh (Active/Out of Service
+        → Decommissioned) CÓ surface trong workflow ('Thanh lý') nhưng KHÔNG là
+        exception-edge ⇒ chỉ 'loại terminal' mới chặn được → RED nếu helper thiếu
+        filter terminal."""
+        for s in _LC_MAP:
+            out = _asset_allowed_transitions(s)
+            self.assertIsInstance(out, list, f"state '{s}': helper phải trả list")
+            self.assertNotIn(
+                _AssetStatus.DECOMMISSIONED, out,
+                f"state '{s}': Decommissioned KHÔNG được surface làm CTA dropdown")
+            self.assertEqual(out, sorted(out), f"state '{s}': helper phải sorted ổn định")
+            # mọi phần tử ∈ codomain SSoT (KHÔNG bịa target ngoài map)
+            self.assertTrue(set(out) <= set(_LC_MAP.get(s, set())),
+                            f"state '{s}': helper phát target ∉ _VALID_ASSET_TRANSITIONS")
+
+    def test_asset_allowed_transitions_active_subset_and_terminal_empty(self):
+        """Active → đúng 4 CTA {Under Maintenance, Under Repair, Calibrating, Out of
+        Service} (KHÔNG Decommissioned); terminal Decommissioned + status lạ → []."""
+        self.assertEqual(
+            _asset_allowed_transitions(_AssetStatus.ACTIVE),
+            ["Calibrating", "Out of Service", "Under Maintenance", "Under Repair"])
+        self.assertEqual(_asset_allowed_transitions(_AssetStatus.DECOMMISSIONED), [])
+        self.assertEqual(_asset_allowed_transitions("Trạng thái không tồn tại"), [])
+
+    # ── TC-00-WF-RECON-02 — lockstep source ⇄ fixtures (fresh-install parity) ──
+    def test_lifecycle_workflow_source_matches_fixture(self):
+        src, fix = _load_lifecycle_source_workflow(), _load_lifecycle_fixture_workflow()
+        self.assertEqual(
+            _wf_edge_pairs(src), _wf_edge_pairs(fix),
+            "edge-set source ≠ fixtures — fresh-install `_sync_workflows` sẽ lệch Desk-workflow")
+        sr, fr = _wf_edge_roles(src), _wf_edge_roles(fix)
+        for e in _wf_edge_pairs(src):
+            self.assertEqual(
+                "AssetCore Super Admin" in sr[e], "AssetCore Super Admin" in fr[e],
+                f"cạnh {e}: phủ role 'AssetCore Super Admin' source ≠ fixtures")
+        for e in _SURFACED_OOS_EDGES:  # 2 cạnh mới hiện diện trong CẢ 2 file
+            self.assertIn(e, _wf_edge_pairs(src), f"cạnh SURFACE {e} vắng ở source")
+            self.assertIn(e, _wf_edge_pairs(fix), f"cạnh SURFACE {e} vắng ở fixtures")
+
+    # ── grounding: 8 state == enum (dedicated, cả source + fixtures) ───────────
+    def test_lifecycle_workflow_states_match_enum(self):
+        for tag, wf in (("source", _load_lifecycle_source_workflow()),
+                        ("fixture", _load_lifecycle_fixture_workflow())):
+            self.assertEqual(len(wf["states"]), 8, f"{tag}: phải 8 state")
+            self.assertEqual({s["state"] for s in wf["states"]}, _CANONICAL_ASSET_STATES,
+                             f"{tag}: state lệch AssetStatus enum")
+
+    # ── admin-override regression — mọi cạnh source chứa 'AssetCore Super Admin' ─
+    def test_lifecycle_source_every_edge_allows_super_admin(self):
+        roles = _wf_edge_roles(_load_lifecycle_source_workflow())
+        no_admin = sorted(e for e in roles if "AssetCore Super Admin" not in roles[e])
+        self.assertEqual(no_admin, [],
+                         f"cạnh thiếu 'AssetCore Super Admin' (admin-override vỡ): {no_admin}")
+
+    # ── TC-00-WF-RECON-03 — helper is_valid_asset_transition phản ánh NEG-09 ───
+    def test_is_valid_asset_transition_reflects_neg09(self):
+        D = _AssetStatus.DECOMMISSIONED
+        # (a) 3 cạnh NEG-09 → helper False (KHỚP guard sẽ ném InvalidAssetTransition).
+        for s in (_AssetStatus.UNDER_MAINTENANCE, _AssetStatus.UNDER_REPAIR,
+                  _AssetStatus.CALIBRATING):
+            self.assertFalse(_lc_is_valid(s, D),
+                             f"helper phải False cho NEG-09 ({s}→Decommissioned)")
+        # (b) 2 cạnh programmatic-only → helper True (chặn ở IMM-14 gate DB-layer).
+        self.assertTrue(_lc_is_valid(_AssetStatus.DRAFT, D))
+        self.assertTrue(_lc_is_valid(_AssetStatus.COMMISSIONED, D))
+        # (c) regression →Under Repair KHÔNG đổi (imm09.py:1309 + test_imm09.py:431).
+        UR = _AssetStatus.UNDER_REPAIR
+        self.assertTrue(_lc_is_valid(_AssetStatus.ACTIVE, UR))
+        self.assertTrue(_lc_is_valid(_AssetStatus.UNDER_MAINTENANCE, UR))
+        self.assertTrue(_lc_is_valid(_AssetStatus.OUT_OF_SERVICE, UR))
+        self.assertFalse(_lc_is_valid(_AssetStatus.DRAFT, UR))
+        # no-op / empty from_status vẫn True (asset mới chưa vào lifecycle).
+        self.assertTrue(_lc_is_valid("", D))
+        self.assertTrue(_lc_is_valid(UR, UR))
+
+
+class TestGetAssetAllowedTransitions(unittest.TestCase):
+    """CR-WF-00-LIFECYCLE-SURFACE — get_asset emit ``allowed_transitions`` (server-
+    driven CTA, capability-filtered ``asset.write``). Mirror precedent
+    ``firmware_allowed_transitions`` (api/imm00.py:2806): FE gate dropdown chuyển-
+    trạng-thái CHỈ theo field này, KHÔNG hardcode bảng transition client-side.
+
+    Bất-biến kiểm bằng live-asset qua HTTP-shaped call ``get_asset(name)``:
+      - caller CÓ ``asset.write`` (AssetCore Super Admin, non-admin) → subset == helper.
+      - caller CHỈ-đọc (Commissioning User, read=1/write=0) → ``[]`` (RED-first: chưa
+        capability-filter sẽ trả full subset).
+      - Decommissioned KHÔNG bao giờ ∈ list (carve-out IMM-14); terminal → ``[]``.
+    """
+
+    _WRITE_USER = "be_lc_surface_write@example.com"        # AssetCore Super Admin (write=1)
+    _READONLY_USER = "be_lc_surface_readonly@example.com"  # Commissioning User (read=1/write=0)
+
+    @classmethod
+    def setUpClass(cls):
+        from assetcore.services.shared import rbac
+        frappe.set_user("Administrator")
+        cls.cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": "Thiết bị Lifecycle Surface (CR-WF-00)",
+            "description": "Category test allowed_transitions surface",
+            "is_active": 1,
+        }).insert(ignore_permissions=True)
+        for email, first, role in (
+            (cls._WRITE_USER, "lc-surface-write", "AssetCore Super Admin"),
+            (cls._READONLY_USER, "lc-surface-ro", "Commissioning User"),
+        ):
+            if frappe.db.exists("User", email):
+                frappe.delete_doc("User", email, force=True, ignore_permissions=True)
+            u = frappe.get_doc({
+                "doctype": "User", "email": email,
+                "first_name": first, "send_welcome_email": 0,
+            }).insert(ignore_permissions=True)
+            u.add_roles(role)
+            rbac.invalidate_capabilities(email)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        from assetcore.services.shared import rbac
+        frappe.set_user("Administrator")
+        for email in (cls._WRITE_USER, cls._READONLY_USER):
+            rbac.invalidate_capabilities(email)
+            if frappe.db.exists("User", email):
+                frappe.delete_doc("User", email, force=True, ignore_permissions=True)
+        frappe.delete_doc("AC Asset Category", cls.cat.name,
+                          force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self._created: list[str] = []
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+        for name in self._created:
+            _purge_asset(name)
+        frappe.db.commit()
+
+    def _make_asset(self, *, lifecycle: str) -> str:
+        import uuid
+        uniq = uuid.uuid4().hex[:8]
+        doc = _insert_asset_bypass_workflow({
+            "doctype": "AC Asset",
+            "asset_name": f"Máy siêu âm Philips EPIQ 7 {uniq}",
+            "asset_category": self.cat.name,
+            "manufacturer_sn": f"LCS-SN-{uniq}",
+            "asset_code": f"LCS-ASSET-{uniq}",
+            "lifecycle_status": lifecycle,
+        })
+        self._created.append(doc.name)
+        return doc.name
+
+    def _allowed_as(self, user: str, asset: str) -> list:
+        from assetcore.api.imm00 import get_asset
+        frappe.set_user(user)
+        try:
+            env = get_asset(asset)
+        finally:
+            frappe.set_user("Administrator")
+        self.assertTrue(env.get("success"), f"get_asset không success: {env}")
+        self.assertIn("allowed_transitions", env["data"],
+                      "get_asset PHẢI emit field 'allowed_transitions' (server-driven CTA)")
+        return env["data"]["allowed_transitions"]
+
+    # ── TC-1: write user, Active → subset == helper (KHÔNG Decommissioned) ──────
+    def test_get_asset_emits_allowed_transitions_matches_ssot_subset(self):
+        asset = self._make_asset(lifecycle="Active")
+        out = self._allowed_as(self._WRITE_USER, asset)
+        self.assertEqual(out, _asset_allowed_transitions("Active"),
+                         "get_asset emit ≠ helper (single-SSoT vỡ)")
+        self.assertEqual(
+            out, ["Calibrating", "Out of Service", "Under Maintenance", "Under Repair"])
+        self.assertNotIn("Decommissioned", out)
+
+    # ── TC-2: read-only user → [] (RED-first nếu chưa capability-filter) ────────
+    def test_get_asset_allowed_transitions_empty_for_readonly_user(self):
+        asset = self._make_asset(lifecycle="Active")
+        out = self._allowed_as(self._READONLY_USER, asset)
+        self.assertEqual(out, [],
+                         "caller thiếu asset.write PHẢI nhận allowed_transitions == []")
+
+    # ── TC-3: terminal Decommissioned → [] (dù caller có asset.write) ───────────
+    def test_get_asset_allowed_transitions_empty_terminal(self):
+        asset = self._make_asset(lifecycle="Decommissioned")
+        out = self._allowed_as(self._WRITE_USER, asset)
+        self.assertEqual(out, [], "asset Decommissioned (terminal) → []")
+
+
+class TestNeg09GuardRaisesLive(unittest.TestCase):
+    """TC-00-WF-RECON-03b — guard `transition_asset_status` ném NEG-09 KHỚP helper.
+
+    Live-asset: chứng minh cụ thể helper (False) ⇄ guard (raise) nhất quán cho 3
+    cạnh →Decommissioned từ Under Maintenance/Under Repair/Calibrating.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        import uuid
+        frappe.set_user("Administrator")
+        sfx = uuid.uuid4().hex[:8]
+        cls.cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": f"NEG09 Hô hấp {sfx}",
+            "default_pm_interval_days": 30,
+        }).insert(ignore_permissions=True)
+        cls.dept = frappe.get_doc({
+            "doctype": "AC Department",
+            "department_name": f"NEG09 ICU {sfx}",
+        }).insert(ignore_permissions=True)
+        cls.loc = frappe.get_doc({
+            "doctype": "AC Location",
+            "location_name": f"NEG09 Phòng {sfx}",
+            "location_type": "Room",
+        }).insert(ignore_permissions=True)
+        cls.sup = frappe.get_doc({
+            "doctype": "AC Supplier",
+            "supplier_name": f"NEG09 NCC {sfx}",
+            "supplier_group": "Manufacturer",
+            "vendor_type": "Manufacturer",
+            "country": "Vietnam",
+            "is_active": 1,
+        }).insert(ignore_permissions=True)
+        cls.asset = _insert_asset_bypass_workflow({
+            "doctype": "AC Asset",
+            "asset_name": f"NEG09 Máy thở {sfx}",
+            "asset_category": cls.cat.name,
+            "department": cls.dept.name,
+            "location": cls.loc.name,
+            "supplier": cls.sup.name,
+            "purchase_date": "2023-03-15",
+            "gross_purchase_amount": 850_000_000,
+            "in_service_date": "2023-03-20",
+            "commissioning_date": "2023-03-20",
+            "manufacturer_sn": f"NEG09-{sfx}",
+            "medical_device_class": "Class III",
+            "risk_classification": "Critical",
+            "lifecycle_status": "Active",
+        })
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        # asset đang Active (KHÔNG Decommissioned) → _purge_asset xoá sạch được.
+        _purge_asset(cls.asset.name)
+        for dt, name in [
+            ("AC Location", cls.loc.name), ("AC Supplier", cls.sup.name),
+            ("AC Department", cls.dept.name), ("AC Asset Category", cls.cat.name),
+        ]:
+            if frappe.db.exists(dt, name):
+                frappe.delete_doc(dt, name, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def test_guard_raises_neg09_for_maintenance_repair_calibration(self):
+        D = _AssetStatus.DECOMMISSIONED
+        try:
+            for state in (_AssetStatus.UNDER_MAINTENANCE, _AssetStatus.UNDER_REPAIR,
+                          _AssetStatus.CALIBRATING):
+                frappe.db.set_value("AC Asset", self.asset.name, "lifecycle_status",
+                                    state, update_modified=False)
+                with self.assertRaises(_LcInvalidTransition) as ctx:
+                    _lc_transition(self.asset.name, D, actor="Administrator")
+                self.assertIn("NEG-09", str(ctx.exception),
+                              f"{state}→Decommissioned phải ném InvalidAssetTransition NEG-09")
+                # guard ⇄ helper nhất quán: cùng 1 cạnh helper trả False.
+                self.assertFalse(_lc_is_valid(state, D),
+                                 f"helper mâu thuẫn guard tại {state}→Decommissioned")
+        finally:
+            # đưa về Active để asset còn ở trạng thái xoá-được (teardown _purge_asset).
+            frappe.db.set_value("AC Asset", self.asset.name, "lifecycle_status",
+                                _AssetStatus.ACTIVE, update_modified=False)
 
 
 def run_all():
