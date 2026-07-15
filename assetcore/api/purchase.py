@@ -8,6 +8,7 @@ from frappe import _
 from assetcore.utils.helpers import _err, _ok, _parse_json
 from assetcore.services import purchase as svc
 from assetcore.services.purchase import _DT_PUR
+from assetcore.services.shared import rbac
 
 _MSG_NOT_FOUND = "Không tìm thấy đơn hàng"
 
@@ -125,13 +126,34 @@ def get_purchase(name: str) -> dict:
     doc = _get_doc(name)
     if not doc:
         return _err(_(_MSG_NOT_FOUND), 404)
-    return _ok(_enrich_purchase(doc.as_dict()))
+    d = _enrich_purchase(doc.as_dict())
+    # ─── Server-driven CTA flags (SoT gating FE — 05 §3.A.1 / 04 §VII.4.4) ───────
+    # 6 cờ derive từ capability (rbac.can, live per-user) ∧ docstatus/status.
+    # SoT DUY NHẤT cho FE gate nút (PurchaseDetailView) — KHÔNG hardcode
+    # docstatus===/status=== ở client (chống dead-gate GATE-8/LL-FE-51).
+    # Backward-compatible: chỉ THÊM khóa, consumer cũ bỏ qua. Đây là HINT hiển thị
+    # (⊆ enforcement thật ở rbac.require + DocPerm) — KHÔNG nới lỏng quyền.
+    ds = d.get("docstatus")
+    st = d.get("status")
+    can_sub = rbac.can("purchase.submit")
+    d["can_submit"]         = bool(can_sub and ds == 0)
+    d["can_receive"]        = bool(can_sub and ds == 1 and st == "Submitted")
+    d["can_cancel"]         = bool(rbac.can("purchase.cancel") and ds == 1
+                                   and st not in ("Received", "Cancelled"))
+    d["can_create_receipt"] = bool(rbac.can("inventory.create") and ds == 1
+                                   and st == "Submitted")
+    d["can_edit"]           = bool(rbac.can("purchase.write") and ds == 0)
+    d["can_delete"]         = bool(rbac.can("purchase.delete") and ds == 0)
+    return _ok(d)
 
 
 # ─── Create ───────────────────────────────────────────────────────────────────
 
 @frappe.whitelist(methods=["POST"])
 def create_purchase(payload: str = "") -> dict:
+    # AC1: gate quyền là câu lệnh ĐẦU — thiếu purchase.create → PermissionError (403),
+    # KHÔNG bypass qua ignore_permissions.
+    rbac.require("purchase.create")
     data = _parse_json(payload, {}) or dict(frappe.local.form_dict)
     data.pop("payload", None)
     data.pop("cmd", None)
@@ -172,9 +194,10 @@ def create_purchase(payload: str = "") -> dict:
             for d in devices if d.get("device_model")
         ],
     })
-    doc.insert(ignore_permissions=True)
+    doc.insert()  # DocPerm create enforce (GỠ ignore_permissions)
 
     if int(data.get("auto_submit") or 0):
+        rbac.require("purchase.submit")
         doc.submit()
 
     return _ok({"name": doc.name, "status": doc.status})
@@ -184,6 +207,7 @@ def create_purchase(payload: str = "") -> dict:
 
 @frappe.whitelist(methods=["POST"])
 def update_purchase(name: str, payload: str = "") -> dict:
+    rbac.require("purchase.write")  # AC1 gate TRƯỚC khi ghi
     doc = _get_doc(name)
     if not doc:
         return _err(_(_MSG_NOT_FOUND), 404)
@@ -230,7 +254,7 @@ def update_purchase(name: str, payload: str = "") -> dict:
             })
         doc.set("devices", new_rows)
 
-    doc.save(ignore_permissions=True)
+    doc.save()  # DocPerm write enforce (GỠ ignore_permissions)
     return _ok({"name": doc.name, "status": doc.status})
 
 
@@ -238,6 +262,7 @@ def update_purchase(name: str, payload: str = "") -> dict:
 
 @frappe.whitelist(methods=["POST"])
 def submit_purchase(name: str) -> dict:
+    rbac.require("purchase.submit")  # AC1 gate TRƯỚC (trước _get_doc/404)
     doc = _get_doc(name)
     if not doc:
         return _err(_(_MSG_NOT_FOUND), 404)
@@ -249,6 +274,7 @@ def submit_purchase(name: str) -> dict:
 
 @frappe.whitelist(methods=["POST"])
 def cancel_purchase(name: str) -> dict:
+    rbac.require("purchase.cancel")  # AC1 gate TRƯỚC (trước _get_doc/404)
     doc = _get_doc(name)
     if not doc:
         return _err(_(_MSG_NOT_FOUND), 404)
@@ -260,12 +286,13 @@ def cancel_purchase(name: str) -> dict:
 
 @frappe.whitelist(methods=["POST"])
 def delete_purchase(name: str) -> dict:
+    rbac.require("purchase.delete")  # AC1 gate TRƯỚC (trước _get_doc/404)
     doc = _get_doc(name)
     if not doc:
         return _err(_(_MSG_NOT_FOUND), 404)
     if doc.docstatus != 0:
         return _err(_("Chỉ được xoá phiếu Nháp"), 400)
-    frappe.delete_doc(_DT_PUR, name, ignore_permissions=True)
+    frappe.delete_doc(_DT_PUR, name)  # DocPerm delete enforce (GỠ ignore_permissions)
     return _ok({"deleted": name})
 
 
@@ -273,14 +300,25 @@ def delete_purchase(name: str) -> dict:
 
 @frappe.whitelist(methods=["POST"])
 def mark_received(name: str) -> dict:
-    """Mark a Submitted purchase as Received (goods arrived)."""
+    """Mark a Submitted purchase as Received (goods arrived).
+
+    AC1/AC2 (ADR-IMM-03-06): gate `purchase.submit` là câu lệnh ĐẦU, rồi chuyển
+    `Submitted→Received` qua `doc.save()` (fields `status`+`actual_delivery_date`
+    `allow_on_submit`) — KHÔNG `db_set` bỏ qua permission. `doc.save()` sinh Version
+    audit + cập nhật `modified_by`. `before_save` recompute total/child là idempotent
+    (qty/unit_cost bất biến khi nhận hàng) → không raise UpdateAfterSubmitError.
+    """
+    rbac.require("purchase.submit")  # AC1/AC2 gate TRƯỚC (trước _get_doc/404)
     doc = _get_doc(name)
     if not doc:
         return _err(_(_MSG_NOT_FOUND), 404)
     if doc.docstatus != 1 or doc.status != "Submitted":
         return _err(_("Chỉ được xác nhận nhận hàng cho phiếu đã duyệt"), 400)
-    doc.db_set("status", "Received")
-    return _ok({"name": doc.name, "status": "Received"})
+    doc.status = "Received"
+    if not doc.actual_delivery_date:
+        doc.actual_delivery_date = frappe.utils.today()
+    doc.save()  # GỠ db_set: DocPerm write enforce + Version audit + modified_by
+    return _ok({"name": doc.name, "status": doc.status})
 
 
 # ─── Linked stock movements ───────────────────────────────────────────────────
@@ -297,6 +335,7 @@ def get_purchase_movements(name: str) -> dict:
 def create_receipt_movement(name: str, to_warehouse: str,
                             requested_by: str = "", auto_submit: int = 0) -> dict:
     """Create a Receipt Stock Movement from an approved AC Purchase."""
+    rbac.require("inventory.create")  # gate biên (ghi AC Stock Movement); service giữ nguyên
     if not frappe.db.exists(_DT_PUR, name):
         return _err(_(_MSG_NOT_FOUND), 404)
     try:

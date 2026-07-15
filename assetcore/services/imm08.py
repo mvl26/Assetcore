@@ -8,6 +8,7 @@ import calendar
 import frappe
 from frappe import _
 from frappe.utils import add_days, date_diff, getdate, nowdate
+from PIL import UnidentifiedImageError
 
 from assetcore.repositories.asset_repo import AssetRepo, DeviceModelRepo
 from assetcore.repositories.pm_repo import (
@@ -19,12 +20,39 @@ from assetcore.repositories.pm_repo import (
 from assetcore.repositories.repair_repo import RepairRepo
 from assetcore.services.shared import AssetStatus, ErrorCode, ServiceError
 from assetcore.services.shared.errors import validation
+from assetcore.services.shared.filters import pop_search
 from assetcore.utils.helpers import _get_role_emails, _safe_sendmail
 from assetcore.utils.messages import MSG
 from assetcore.utils.notify import nthrow, nthrow_in_hook
+from assetcore.utils.pagination import _MAX_PAGE_SIZE, paginate
 
 _DT_PM_WO = "PM Work Order"
 _DT_AC_ASSET = "AC Asset"
+_DT_PM_CHECKLIST_ROW = "PM Checklist Result"
+_DT_FILE = "File"
+
+# BR-08-14 (mobile CR-14/G6): đính ảnh bằng chứng theo TỪNG mục checklist PM (NĐ98
+# Class C/D). ĐỐI XỨNG attach_incident_photo (imm12) — KHÁC module/doctype/field.
+# Field `pm_checklist_result.photo` là Attach ĐƠN ⇒ đúng 1 ảnh / mục checklist; SoT
+# đếm max = row.photo (CÙNG field get_work_order hiển thị) ⇒ invariant count==nguồn-
+# liệt-kê (KHÔNG lệch, mirror _scene_photos Vòng 1). Content-type allowlist JPG/PNG;
+# size cap 10 MB (parity mobile + attach_incident_photo).
+MAX_PM_CHECKLIST_PHOTOS = 1
+MAX_PM_CHECKLIST_PHOTO_BYTES = 10 * 1024 * 1024
+_PM_PHOTO_CONTENT_TYPES = ("image/jpeg", "image/jpg", "image/png")
+_EVENT_PM_CHECKLIST_PHOTO_ATTACHED = "pm_checklist_photo_attached"
+
+# Field-level validation messages (VN) — nhánh reject Decision-B (fields.file). Hằng
+# số hiển thị (đối xứng _MSG_PHOTO_* imm12); KHÔNG leak raw cap/stack.
+_MSG_PM_PHOTO_MISSING = "Thiếu tệp ảnh"
+_MSG_PM_PHOTO_NOT_IMAGE = "Tệp phải là ảnh JPG hoặc PNG"
+_MSG_PM_PHOTO_TOO_LARGE = "Ảnh vượt quá dung lượng cho phép (tối đa 10 MB)"
+_MSG_PM_PHOTO_MAX = "Mỗi mục checklist chỉ đính 1 ảnh"
+_MSG_PM_PHOTO_FORBIDDEN = "Không có quyền đính ảnh cho lệnh bảo trì định kỳ này"
+_MSG_PM_PHOTO_IDX_NOT_FOUND = "Không tìm thấy mục checklist trong lệnh bảo trì này"
+# Ảnh HỎNG/ĐỨT TRUYỀN: content-type hợp lệ nhưng bytes không giải mã được (KTV chụp
+# hiện trường wifi/4G chập chờn) → PIL ném UnidentifiedImageError/OSError khi strip EXIF.
+_MSG_PM_PHOTO_CORRUPT = "Tệp ảnh bị lỗi hoặc không đọc được, vui lòng chụp/chọn lại."
 
 
 def _transition_asset(asset_ref: str, to_status: str, wo_name: str) -> None:
@@ -555,15 +583,21 @@ def update_pm_schedule_after_completion(pm_schedule_name: str, completion_date: 
 
 # ─── Business operations — Work Order ────────────────────────────────────────
 
-def list_work_orders(filters: dict, *, page: int = 1, page_size: int = 20) -> dict:
-    rows, pg = PMWorkOrderRepo.list(
-        filters=_normalize_filters(filters),
-        fields=["name", "asset_ref", "pm_type", "wo_type", "status",
-                "due_date", "completion_date", "assigned_to", "supervisor",
-                "overall_result", "is_late", "source_pm_wo"],
-        order_by="due_date asc",
-        page=page, page_size=page_size,
-    )
+# Fields fetch cho list PM Work Order — SoT DUY NHẤT (path chính + filter LIVE
+# `_list_pm_overdue_live` dùng CHUNG). Gồm cột predicate overdue (`status`/
+# `due_date`) để `_enrich_pm_overdue` derive `is_overdue` in-Python (no N+1).
+# 1 nguồn ⇒ 2 path enrich khớp byte-for-byte.
+_PM_LIST_FIELDS = [
+    "name", "asset_ref", "pm_type", "wo_type", "status",
+    "due_date", "completion_date", "assigned_to", "supervisor",
+    "overall_result", "is_late", "source_pm_wo",
+]
+
+
+def _enrich_pm_list_rows(rows: list[dict]) -> None:
+    """Enrich list PM WO rows với asset_name/location_name/assigned_to_name/
+    supervisor_name (dùng CHUNG path chính + filter LIVE `overdue_live`). Extract
+    nguyên khối enrich cũ của ``list_work_orders`` → 2 path trả cùng shape row."""
     asset_ids = {r["asset_ref"] for r in rows if r.get("asset_ref")}
     user_ids = {r["assigned_to"] for r in rows if r.get("assigned_to")}
     user_ids |= {r["supervisor"] for r in rows if r.get("supervisor")}
@@ -596,6 +630,121 @@ def list_work_orders(filters: dict, *, page: int = 1, page_size: int = 20) -> di
         r["location_name"] = (loc_map.get(a.location) if a and a.get("location") else "") or ""
         r["assigned_to_name"] = user_map.get(r.get("assigned_to"), r.get("assigned_to") or "")
         r["supervisor_name"] = user_map.get(r.get("supervisor"), r.get("supervisor") or "")
+
+
+def _enrich_pm_overdue(rows: list[dict], ref_date=None) -> None:
+    """SoT (BR-08-11) LIVE badge: gán ``is_overdue`` (bool) cho mỗi row list PM WO.
+
+    ``is_overdue = (status == Overdue)`` [cron nightly ĐÃ stamp — giữ superset
+    monotonic, KHÔNG mất phiếu chip cũ] ``OR is_pm_overdue(status, due_date, ref)``
+    [LIVE: ``due_date < today`` ∧ ``status ∈ OVERDUE_SOURCE_STATES``]. REUSE SoT
+    predicate ``is_pm_overdue`` (KHÔNG fork định nghĩa quá hạn).
+
+    Áp trên CẢ 2 path (list thường + filter LIVE) ⇒ badge FE đọc field derived
+    ``is_overdue`` khớp membership filter ``overdue_live`` mọi path (cron-independent).
+    ``ref`` tính 1 lần (KHÔNG nowdate() lặp per-row)."""
+    ref = getdate(ref_date) if ref_date else getdate(nowdate())
+    for r in rows:
+        status = r.get("status")
+        r["is_overdue"] = bool(
+            status == PMStatus.OVERDUE
+            or is_pm_overdue(status, r.get("due_date"), ref)
+        )
+
+
+def _fetch_all_pm_rows(filters: dict, *, or_filters: list | None = None) -> list[dict]:
+    """Fetch TOÀN tập PM Work Order khớp ``filters`` (+ ``or_filters`` free-text
+    search) — UNCLAMPED (loop-paginate qua từng trang ``_MAX_PAGE_SIZE`` tới hết
+    tập).
+
+    CR-18: ``or_filters`` (search OR-LIKE) truyền xuống ``PMWorkOrderRepo.list``
+    ⇒ membership LIVE (chip 'Quá hạn') vẫn AND với search — count==rows giữ
+    (``count_with_or`` + ``get_all`` dùng CÙNG ``or_filters``). ``None`` ⇒ nhánh
+    cũ byte-identical.
+
+    ⚠ KHÔNG truyền ``page_size`` khổng lồ 1 lần (bị ``paginate`` clamp im lặng về
+    ``_MAX_PAGE_SIZE=100`` = BUG scale imm09 R2: membership < badge khi >100 phiếu
+    quá hạn). Loop tích luỹ + termination theo ``pg["total_pages"]`` (từ total đã
+    đếm ở tầng Repo) ⇒ predicate LIVE áp trên TOÀN tập permission/vendor-scoped
+    (scope nằm trong ``filters`` — đã ``_normalize_filters`` ở call-site). Order
+    ``due_date asc`` khớp path chính ``list_work_orders``."""
+    all_rows: list[dict] = []
+    page = 1
+    total_pages = 1
+    while page <= total_pages:
+        rows, pg = PMWorkOrderRepo.list(
+            filters=filters,
+            or_filters=or_filters,
+            fields=_PM_LIST_FIELDS,
+            order_by="due_date asc",
+            page=page, page_size=_MAX_PAGE_SIZE,
+        )
+        all_rows.extend(rows)
+        total_pages = pg["total_pages"]
+        page += 1
+    return all_rows
+
+
+def _list_pm_overdue_live(base_filters: dict, *, or_filters: list | None = None,
+                          page: int = 1, page_size: int = 20) -> dict:
+    """BR-08-11 LIVE membership filter cho chip mobile 'Quá hạn' PM.
+
+    Trả CHỈ PM WO có ``is_overdue == True`` — DERIVED LIVE: (``status == Overdue``,
+    cron ĐÃ stamp) OR ``is_pm_overdue(status, due_date, today)`` (``due_date <
+    hôm nay`` ∧ ``status ∈ OVERDUE_SOURCE_STATES``). CÙNG predicate
+    ``_enrich_pm_overdue`` (badge row). INVARIANT: membership filter == badge —
+    chip lọc PHẢI khớp badge, KHÔNG lọc theo cột STORED ``status == Overdue`` đơn
+    thuần (cron nightly stamp trễ ⇒ WO ``due_date < today`` mà status vẫn Open/In
+    Progress MISS filter nhưng badge HIỆN = mismatch phá niềm tin KTV).
+
+    ``is_overdue`` KHÔNG phải cột DB (derived in-Python) ⇒ KHÔNG filter được ở SQL
+    → fetch UNCLAMPED TOÀN tập permission-scoped (``_fetch_all_pm_rows`` loop-
+    paginate — GIỮ vendor-scope + ``mine`` + ``status`` base filters qua
+    ``_normalize_filters``) → enrich → filter LIVE → paginate IN-PYTHON trên tập ĐÃ
+    LỌC (``pagination.total`` == số overdue thực, KHÔNG cap 100). Order ``due_date
+    asc`` như path chính."""
+    all_rows = _fetch_all_pm_rows(_normalize_filters(base_filters), or_filters=or_filters)
+    _enrich_pm_overdue(all_rows)
+    overdue = [r for r in all_rows if r.get("is_overdue")]
+    pg = paginate(len(overdue), page, page_size)
+    page_rows = overdue[pg["offset"]:pg["offset"] + pg["page_size"]]
+    _enrich_pm_list_rows(page_rows)
+    return {"data": page_rows, "pagination": pg}
+
+
+def list_work_orders(filters: dict, *, page: int = 1, page_size: int = 20) -> dict:
+    # POP cờ ảo `overdue_live` TRƯỚC _normalize_filters (mirror imm09
+    # list_work_orders POP `sla_breached_live`) — tránh đẩy 1 cột KHÔNG tồn tại
+    # (`overdue_live`) vào frappe.get_all. Truthy → nhánh membership LIVE (chip
+    # 'Quá hạn' PM); absent/falsy → path CŨ byte-identical baseline.
+    base = dict(filters or {})
+    want_overdue_live = base.pop("overdue_live", None)
+    # CR-18: free-text search server-side. POP cờ ảo `search` → OR-LIKE trên
+    # (name = mã phiếu / asset_ref = mã thiết bị) + link_search asset_name (AC
+    # Asset). Chạy SAU pop overdue_live ⇒ AND với column-filters + vendor-scope +
+    # mine (đã là cột thật trong `base`). count_with_or (qua Repo.list) dùng CÙNG
+    # or_filters ⇒ bất biến count==rows GIỮ. search absent/rỗng ⇒ or_filters=None
+    # ⇒ path CŨ byte-identical baseline. Wildcard %/_ escape-literal (pop_search).
+    base, or_filters = pop_search(
+        base,
+        ["name", "asset_ref"],
+        link_search={"asset_ref": ("AC Asset", "asset_name")},
+        escape_wildcards=True,   # CR-18: %/_ user gõ = literal (chống match-all/DoS)
+    )
+    if str(want_overdue_live) in ("1", "True", "true", "yes"):
+        return _list_pm_overdue_live(base, or_filters=or_filters, page=page, page_size=page_size)
+    rows, pg = PMWorkOrderRepo.list(
+        filters=_normalize_filters(base),
+        or_filters=or_filters,
+        fields=_PM_LIST_FIELDS,
+        order_by="due_date asc",
+        page=page, page_size=page_size,
+    )
+    _enrich_pm_list_rows(rows)
+    # BR-08-11 LIVE: derive per-row `is_overdue` (status==Overdue OR live-overdue)
+    # ⇒ drill/list hiển thị badge 'Quá hạn' LIVE khớp filter overdue_live
+    # (badge == membership mọi path, cron-independent). In-Python, KHÔNG query thêm.
+    _enrich_pm_overdue(rows)
     return {"data": rows, "pagination": pg}
 
 
@@ -651,6 +800,141 @@ def get_work_order(name: str) -> dict:
         # render nút workflow theo tập này, KHÔNG hardcode status→button client-side.
         "allowed_transitions": _PM_VALID_TRANSITIONS.get(wo.status, []),
         "checklist_results": checklist,
+    }
+
+
+def _find_checklist_row(wo, checklist_item_idx: int):
+    """Trả row `PM Checklist Result` khớp `checklist_item_idx` (STT mục — field domain,
+    KHÔNG phải Frappe child `idx`). None nếu không tồn tại → nhánh reject VALIDATION.
+    Nguồn = wo.checklist_results (đã load 1 lần) ⇒ KHÔNG N+1."""
+    for row in (wo.checklist_results or []):
+        if int(row.checklist_item_idx or 0) == int(checklist_item_idx):
+            return row
+    return None
+
+
+def _checklist_item_photos(row) -> list:
+    """SoT DUY NHẤT ảnh/mục checklist (BR-08-14) — đọc `row.photo` (Attach ĐƠN).
+
+    Trả `[{file_url}]` khi đã có ảnh, `[]` khi chưa. CÙNG nguồn mà get_work_order
+    hiển thị (`checklist_results[].photo`) VỪA đếm max-count ⇒ invariant count==nguồn-
+    liệt-kê (số chặn ảnh-thứ-2 == số hiển thị, mirror _scene_photos imm12)."""
+    return [{"file_url": row.photo}] if row.photo else []
+
+
+def _assert_can_attach_pm_photo(wo) -> None:
+    """BR-08-14 permission: KTV được giao (`assigned_to`) HOẶC `pm.write` trên chính WO.
+
+    `frappe.has_permission(doc=...)` áp CẢ role-DocPerm write LẪN row-level hook ⇒ tái
+    dùng vendor/scope guard. KTV assignee luôn đính được ảnh phiếu của mình (bằng chứng
+    hiện trường do chính họ thực hiện) — đối xứng reporter trong attach_incident_photo."""
+    user = frappe.session.user
+    if wo.assigned_to and wo.assigned_to == user:
+        return
+    if frappe.has_permission(_DT_PM_WO, ptype="write", doc=wo, user=user):
+        return
+    raise ServiceError(ErrorCode.FORBIDDEN, _MSG_PM_PHOTO_FORBIDDEN, http_status=403)
+
+
+def _pm_photo_validation_error(msg: str) -> ServiceError:
+    """VALIDATION Decision-B với fields.file (FE hiển thị lỗi dưới control upload)."""
+    return ServiceError(ErrorCode.VALIDATION, msg, http_status=422, fields={"file": msg})
+
+
+def attach_pm_checklist_photo(
+    work_order_name: str,
+    checklist_item_idx: int,
+    filedata: bytes | None = None,
+    filename: str = "",
+    content_type: str = "",
+) -> dict:
+    """BR-08-14 (mobile CR-14/G6): đính ảnh bằng chứng cho MỘT mục checklist PM (NĐ98).
+
+    ĐỐI XỨNG VERBATIM thứ tự reject-before-insert của `attach_incident_photo` (imm12) —
+    KHÁC module/doctype/field. Mọi nhánh reject TRƯỚC `File.insert`:
+    exists(WO) NOT_FOUND → permission (assignee/pm.write) FORBIDDEN → idx hợp lệ (row
+    tồn tại trong wo.checklist_results) VALIDATION → file present → content-type ∈
+    {jpg,png} → size ≤ cap → max-count/mục → `File.insert(is_private=1, attached_to=
+    'PM Work Order'/WO)` → set `row.photo=file_url` (`frappe.db.set_value` — KHÔNG
+    `wo.save()` re-run validate() gate hoàn-thành BR-08-06/08 giữa lúc đính ảnh) →
+    lifecycle `pm_checklist_photo_attached` (hard-req, KHÔNG swallow) → `commit`.
+    Nếu event throw → File.insert + set_value rollback (chưa commit) ⇒ KHÔNG orphan File,
+    KHÔNG silent (đối xứng incident_photo_attached).
+
+    Args:
+        work_order_name: PM Work Order đang mở.
+        checklist_item_idx: STT mục checklist (`pm_checklist_result.checklist_item_idx`).
+        filedata: bytes ảnh (API đọc `frappe.request.files["file"].stream.read()`).
+        filename: tên tệp gốc (File.file_name).
+        content_type: MIME client gửi (validate jpg/png).
+
+    Returns: `{"file_url", "file_name", "checklist_item_idx"}`.
+    Raises: ServiceError NOT_FOUND | FORBIDDEN | VALIDATION (Decision-B qua API tier).
+    """
+    wo = PMWorkOrderRepo.get(work_order_name)
+    if not wo:
+        nthrow(MSG.IMM08_WO_NOT_FOUND, name=work_order_name)   # NOT_FOUND nếu thiếu
+    _assert_can_attach_pm_photo(wo)                            # FORBIDDEN nếu ngoài quyền
+    row = _find_checklist_row(wo, checklist_item_idx)
+    if row is None:
+        raise _pm_photo_validation_error(_MSG_PM_PHOTO_IDX_NOT_FOUND)
+    if not filedata:
+        raise _pm_photo_validation_error(_MSG_PM_PHOTO_MISSING)
+    ct = (content_type or "").split(";")[0].strip().lower()
+    if ct not in _PM_PHOTO_CONTENT_TYPES:
+        raise _pm_photo_validation_error(_MSG_PM_PHOTO_NOT_IMAGE)
+    if len(filedata) > MAX_PM_CHECKLIST_PHOTO_BYTES:
+        raise _pm_photo_validation_error(_MSG_PM_PHOTO_TOO_LARGE)
+    if len(_checklist_item_photos(row)) >= MAX_PM_CHECKLIST_PHOTOS:
+        raise _pm_photo_validation_error(_MSG_PM_PHOTO_MAX)
+
+    try:
+        file_doc = frappe.get_doc({
+            "doctype": _DT_FILE,
+            "file_name": filename,
+            "attached_to_doctype": _DT_PM_WO,
+            "attached_to_name": work_order_name,
+            "is_private": 1,
+            "content": filedata,
+            "decode": False,
+        }).insert(ignore_permissions=True)
+    except (UnidentifiedImageError, OSError) as exc:
+        # ẢNH HỎNG/ĐỨT TRUYỀN: bytes không giải mã được dù content-type hợp lệ. Frappe
+        # File.before_insert → strip_exif → PIL.Image.open ném UnidentifiedImageError
+        # (thân rác) hoặc OSError('Truncated File Read') (cắt cụt), bọc CẢ xử lý ảnh
+        # phát sinh. PIL fail TRONG before_insert — TRƯỚC db_insert + write_file (đĩa) +
+        # set row.photo ⇒ KHÔNG orphan File (DB lẫn đĩa), row.photo CHƯA set. Chuyển
+        # thành lỗi VALIDATION Decision-B (fields.file) thay vì để HTTP-500 → bằng chứng
+        # NĐ98 mất. (Đối xứng attach_incident_photo imm12.)
+        frappe.logger("imm08").warning(
+            f"pm_checklist_photo_corrupt wo={work_order_name} err={type(exc).__name__}"
+        )
+        raise _pm_photo_validation_error(_MSG_PM_PHOTO_CORRUPT) from exc
+
+    # SoT ảnh/mục = row.photo (CÙNG field get_work_order hiển thị) → count==nguồn-liệt-kê.
+    # frappe.db.set_value trên child row (anti-pattern #10: KHÔNG doc.save trên WO
+    # workflow-managed — tránh re-run gate hoàn-thành khi đang đính ảnh dở phiếu).
+    frappe.db.set_value(
+        _DT_PM_CHECKLIST_ROW, row.name, "photo", file_doc.file_url,
+        update_modified=False,
+    )
+
+    # BR-08-14 evidence trail NĐ98 — hard-req, KHÔNG try/except-swallow. Event throw →
+    # File.insert + set_value rollback (chưa commit) ⇒ không orphan, không silent.
+    from assetcore.services import imm00 as svc00  # lazy — tránh circular import
+    svc00.create_lifecycle_event(
+        asset=wo.asset_ref,
+        event_type=_EVENT_PM_CHECKLIST_PHOTO_ATTACHED,
+        actor=frappe.session.user,
+        root_doctype=_DT_PM_WO,
+        root_record=work_order_name,
+        notes=f"Đính ảnh bằng chứng mục #{checklist_item_idx}: {filename}",
+    )
+    frappe.db.commit()
+    return {
+        "file_url": file_doc.file_url,
+        "file_name": file_doc.file_name,
+        "checklist_item_idx": int(checklist_item_idx),
     }
 
 
@@ -1041,6 +1325,47 @@ def list_schedules(*, asset_ref: str | None = None, status: str | None = None,
     for r in rows:
         r["asset_name"] = AssetRepo.get_value(r["asset_ref"], "asset_name") or ""
     return {"data": rows, "pagination": pg}
+
+
+def get_due_pm_schedules(days: int = 30, limit: int = 50) -> dict:
+    """Danh sách PM Schedule due_soon/overdue (≤ N ngày) — màn "Nhắc việc" (mobile F8).
+
+    ĐỐI XỨNG ``get_due_calibrations`` (services/imm11.py:1393) — KHÁC NGUỒN: nửa PM
+    dùng ``PM Schedule.next_due_date`` (KHÔNG AC Asset.next_calibration_date của
+    nửa hiệu chuẩn; CR-28b explicit — PM Schedule có responsible_technician/
+    alert_days_before phục vụ nhắc việc). Rows-key trả về = ``items`` (ĐỐI XỨNG
+    get_due_calibrations; KHÁC list_schedules dùng ``data`` + pagination).
+
+    CHỈ trả lịch ``status == 'Active'`` (LOẠI Paused/Suspended) CÓ ``next_due_date``
+    đã set (có lịch PM thật). Guard ``is set`` BẮT BUỘC: Frappe query-builder render
+    ``<= threshold`` thành ``ifnull(next_due_date, '0001-01-01') <= threshold`` ⇒ nếu
+    KHÔNG loại NULL, mọi lịch chưa-có-ngày (next_due_date NULL) bị coerce
+    '0001-01-01' và LỌT filter, sort ASC lên đầu, lấp kín ``limit`` → đẩy lịch
+    quá-hạn thật khỏi due-list (sai KPI 'sắp đến hạn' + drill). Lịch chưa-có-ngày
+    KHÔNG phải 'đến hạn'.
+
+    ``days_left = date_diff(next_due_date, today)`` signed int (ÂM = quá hạn) —
+    server-derived (client KHÔNG re-derive / so ngày client-clock).
+    """
+    today = nowdate()
+    threshold = add_days(today, int(days))
+    rows, _ = PMScheduleRepo.list(
+        filters=[
+            ["status", "=", PMScheduleStatus.ACTIVE],
+            ["next_due_date", "is", "set"],
+            ["next_due_date", "<=", threshold],
+        ],
+        fields=["name", "asset_ref", "pm_type", "status",
+                "next_due_date", "last_pm_date", "responsible_technician"],
+        order_by="next_due_date asc",
+        page_size=int(limit),
+    )
+    today_d = getdate(today)
+    for r in rows:
+        r["asset_name"] = AssetRepo.get_value(r["asset_ref"], "asset_name") or ""
+        nd = r.get("next_due_date")
+        r["days_left"] = date_diff(nd, today_d) if nd else None
+    return {"items": rows, "threshold_days": int(days)}
 
 
 def get_schedule(name: str) -> dict:

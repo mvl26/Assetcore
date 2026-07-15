@@ -114,6 +114,25 @@ def is_calibration_due_soon(next_due, ref_date=None) -> bool:
     return ref <= nd <= add_days(ref, CAL_DUE_SOON_WINDOW_DAYS)
 
 
+def _enrich_calibration_overdue(rows, ref=None):
+    """Gắn cờ derived is_overdue/is_due_soon (int 0/1) cho mỗi calibration dict.
+
+    SoT predicate = is_calibration_overdue / is_calibration_due_soon áp trên field
+    `next_calibration_date` của phiếu (KHÔNG re-implement so-sánh ngày). Overdue ưu
+    tiên (biên dưới due_soon inclusive today loại next < today). None → cả hai False.
+
+    Server-flag SSoT (mirror get_asset_scan_info.calibration_overdue + incident
+    is_*_breached): consumer CHỈ render cờ, KHÔNG so next_calibration_date với
+    client-clock. KHÔNG thêm query DB — next_calibration_date đã có trong dict.
+    Dùng CHUNG cho list_calibrations + get_calibration → INV parity list==detail.
+    """
+    for r in rows:
+        nd = r.get("next_calibration_date")
+        r["is_overdue"] = int(is_calibration_overdue(nd, ref))
+        r["is_due_soon"] = int(is_calibration_due_soon(nd, ref))
+    return rows
+
+
 def _overdue_asset_ids(ref_date=None) -> set[str]:
     """SoT: tập DISTINCT asset có >=1 active schedule overdue, asset không decommissioned.
 
@@ -265,7 +284,7 @@ def create_calibration_schedule_from_commissioning(commissioning_doc) -> Optiona
         "is_active": 1,
     })
     log_audit_event(
-        asset=asset, event_type="Calibration Schedule Created",
+        asset=asset, event_type="Calibration",
         actor=frappe.session.user, ref_doctype=CalibrationScheduleRepo.DOCTYPE,
         ref_name=sched.name,
         change_summary=f"Auto from commissioning {commissioning_doc.name}",
@@ -341,7 +360,7 @@ def create_calibration_schedule_from_asset(asset_doc, method: str | None = None)
 
     try:
         log_audit_event(
-            asset=asset_name, event_type="Calibration Schedule Created",
+            asset=asset_name, event_type="Calibration",
             actor=frappe.session.user,
             ref_doctype=CalibrationScheduleRepo.DOCTYPE,
             ref_name=sched.name,
@@ -1013,6 +1032,9 @@ def list_calibrations(filters: dict | None = None, *, page: int = 1, page_size: 
         r["asset_name"] = asset_map.get(r.get("asset"), r.get("asset") or "")
         r["lab_name"] = lab_map.get(r.get("lab_supplier"), r.get("lab_supplier") or "")
         r["technician_name"] = tech_map.get(r.get("technician"), r.get("technician") or "")
+    # Cờ derived SERVER-SIDE (CR-02): next_calibration_date đã nằm trong fields
+    # select ở trên → KHÔNG thêm query, KHÔNG N+1. CÙNG helper với get_calibration.
+    _enrich_calibration_overdue(rows)
     return {"data": rows, "pagination": pg}
 
 
@@ -1031,7 +1053,24 @@ def get_calibration(name: str) -> dict:
     # client render nút workflow trên màn calibration-detail theo SERVER (KHÔNG hardcode
     # status→button). Thành viên THỨ TƯ & CUỐI — ĐÓNG KÍN ASYMMETRY R3 (4/4 *Detail emit).
     data["allowed_transitions"] = _CAL_VALID_TRANSITIONS.get(doc.status, [])
+    # Cờ derived SERVER-SIDE (CR-02): data=as_dict đã có next_calibration_date.
+    # CÙNG helper với list_calibrations → INV parity list==detail (kiểu INV-SLA-5).
+    _enrich_calibration_overdue([data])
     return data
+
+
+def _lockstep_cal_workflow_state(name: str, status: str) -> None:
+    """Round 18 CR-WF-11-CAL — đóng desync dual-track: sync ``workflow_state = status``.
+
+    ``frappe.db.set_value`` BYPASS ``validate_workflow`` (ghi SQL trực tiếp, 0 validate
+    cycle) ⇒ an toàn cho multi-hop KHÔNG-kề (vd ``Sent to Lab → In Progress`` của
+    ``receive_certificate``, 0 workflow-edge) + doc ``docstatus=1`` (sau submit). Đưa
+    ``workflow_state`` vào ``doc.save()`` sẽ trip ``WorkflowPermissionError``. 8 giá trị
+    ``status`` Select == 8 tên Workflow State EXACT (INV-11-A) ⇒ lockstep 1-1 hợp lệ.
+    Mirror IMM-16 ADR-IMM-16-05 / IMM-12 (imm12.py:797/938/1568).
+    Xem docs/imm-11/04_Backend_Design.md §3.2 + ADR-IMM11-06.
+    """
+    frappe.db.set_value(_DT_CAL, name, {"workflow_state": status}, update_modified=False)
 
 
 def create_calibration(*, asset: str, calibration_type: str, scheduled_date: str,
@@ -1057,6 +1096,7 @@ def create_calibration(*, asset: str, calibration_type: str, scheduled_date: str
         "traceability_reference": traceability_reference,
         "status": CalibrationResult.SCHEDULED,
     })
+    _lockstep_cal_workflow_state(doc.name, doc.status)  # §3.2 dual-track lockstep
     return {"name": doc.name, "status": doc.status}
 
 
@@ -1086,6 +1126,7 @@ def update_calibration(name: str, patch: dict) -> dict:
         if asset_status == AssetStatus.ACTIVE:
             _transition_asset(doc.asset, AssetStatus.CALIBRATING, name,
                               reason=f"Calibration {new_status} — {name}")
+    _lockstep_cal_workflow_state(doc.name, doc.status)  # §3.2 dual-track lockstep
     return {"name": doc.name, "status": doc.status}
 
 
@@ -1096,6 +1137,9 @@ def submit_calibration(name: str) -> dict:
     if doc.docstatus == 1:
         nthrow(MSG.IMM11_ALREADY_SUBMITTED)
     doc = CalibrationRepo.submit(name)
+    # §3.2 dual-track lockstep — submit KHÔNG advance status (OoS backlog), sync giá trị
+    # hiện tại (thường In Progress). db.set_value an toàn trên doc docstatus=1.
+    _lockstep_cal_workflow_state(doc.name, doc.status)
     return {
         "name": doc.name,
         "status": doc.status,
@@ -1272,10 +1316,11 @@ def send_to_lab(name: str, *, sent_date: str | None = None,
         _transition_asset(doc.asset, AssetStatus.CALIBRATING, name,
                           reason=f"Sent to lab — {name}")
     log_audit_event(
-        asset=doc.asset, event_type="Calibration Sent To Lab",
+        asset=doc.asset, event_type="Calibration",
         actor=frappe.session.user, ref_doctype=_DT_CAL, ref_name=name,
-        change_summary=f"Lab: {patch.get('lab_supplier') or doc.lab_supplier or ''}",
+        change_summary=f"Sent to lab: {patch.get('lab_supplier') or doc.lab_supplier or ''}",
     )
+    _lockstep_cal_workflow_state(name, patch["status"])  # §3.2 dual-track lockstep
     return {"name": name, "status": patch["status"], "sent_date": patch["sent_date"]}
 
 
@@ -1307,10 +1352,11 @@ def receive_certificate(name: str, *, certificate_file: str,
         patch["reference_standard_serial"] = reference_standard_serial
     CalibrationRepo.update_fields(name, patch)
     log_audit_event(
-        asset=doc.asset, event_type="Calibration Certificate Received",
+        asset=doc.asset, event_type="Calibration",
         actor=frappe.session.user, ref_doctype=_DT_CAL, ref_name=name,
-        change_summary=f"Cert #{certificate_number} ngày {certificate_date}",
+        change_summary=f"Certificate received #{certificate_number} ngày {certificate_date}",
     )
+    _lockstep_cal_workflow_state(name, patch["status"])  # §3.2 dual-track lockstep
     return {"name": name, "status": patch["status"],
             "certificate_number": certificate_number}
 
@@ -1340,6 +1386,7 @@ def cancel_calibration(name: str, reason: str) -> dict:
         actor=frappe.session.user, ref_doctype=_DT_CAL, ref_name=name,
         change_summary=reason[:200],
     )
+    _lockstep_cal_workflow_state(name, CalibrationResult.CANCELLED)  # §3.2 dual-track lockstep
     return {"name": name, "status": CalibrationResult.CANCELLED}
 
 

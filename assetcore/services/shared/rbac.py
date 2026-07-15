@@ -80,6 +80,18 @@ _DOMAIN_PRIMARY: dict[str, str] = {
     # create,delete,submit,cancel} → CAP_SET_VERSION đổi → FE auto-invalidate
     # persisted-caps stale (lesson IMM-14) + after_migrate invalidate_capabilities().
     "Asset": "AC Asset",
+    # ADR-IMM-03-05 (IMM-03 vòng 19): AC Purchase (Đơn mua hàng) cần capability
+    # prefix `purchase.*` ĐỘC LẬP để gate 6 endpoint đổi-trạng-thái (create/write/
+    # submit/cancel/delete + mark_received) THEO DocPerm AC Purchase — bịt lỗ RBAC
+    # bypass (trước đây `ignore_permissions`/`db_set` cho MỌI user login tự Gửi
+    # duyệt/Nhận hàng/Huỷ/Xoá). Least-privilege theo permtype DocPerm, KHÔNG
+    # hardcode role-name (chống RBAC dead-gate). LƯU Ý: `AC Purchase` ĐANG ở domain
+    # `Procurement` (audit/scope) — KHÔNG đổi `_DOMAIN_PRIMARY["Procurement"]`
+    # (= IMM Vendor Evaluation); `_DOMAIN_PRIMARY` và `DOCTYPE_DOMAIN` độc lập
+    # (đối xứng `asset.*`). Thêm 6 cap purchase.{read,write,create,delete,submit,
+    # cancel} → CAP_SET_VERSION đổi (v98→v104) → FE auto-invalidate persisted-caps
+    # stale (lesson IMM-14) + after_migrate invalidate_capabilities().
+    "Purchase": "AC Purchase",
 }
 
 _PTYPES = ("read", "write", "create", "delete", "submit", "cancel")
@@ -127,6 +139,13 @@ CAPABILITY_MAP.update({
     # caps stale (lesson IMM-14) + after_migrate invalidate_capabilities() self-heal.
     "asset.print":          ("AC Asset", "print"),
     "asset.qr.rotate":      ("AC Asset", "write"),
+    # IMM-09 Vòng 10 (ADR-IMM09-FCR-02): Duyệt/Hoàn tác Firmware Change Request
+    # gate theo DocPerm submit của CHÍNH FCR → Repair Manager + AssetCore Super
+    # Admin (submit=1) TRUE, Repair User (submit=0) FALSE. Capability-based (chống
+    # RBAC dead-gate) — đổi ai được duyệt = sửa DocPerm ở /app, KHÔNG deploy code.
+    # Thêm cap → CAP_SET_VERSION đổi → FE auto-invalidate persisted-caps stale +
+    # after_migrate invalidate_capabilities().
+    "firmware.approve":     ("Firmware Change Request", "submit"),
 })
 
 

@@ -45,12 +45,156 @@ class FindingStatus:
     COMPLIANT_ADJUDICATED = (RESOLVED, WAIVED, CLOSED)
     PENDING = (OPEN, UNDER_REVIEW)
 
+    # ADR-IMM-16-01 — guard-scope cho service-CTA phân định (defense-in-depth):
+    #   REVIEWABLE = từ đây mới confirm / mark False Positive (chưa phân định).
+    #   WAIVABLE   = từ đây mới waive (gồm Confirmed NC — vẫn miễn được sau xác nhận).
+    # SoT cho tightened guard confirm/mark_false (REVIEWABLE) + waive (WAIVABLE) VÀ
+    # invariant "map ⊆ guard-permitted" (_FINDING_VALID_TRANSITIONS advertise transition
+    # nào thì src_status PHẢI ∈ guard-scope tương ứng).
+    REVIEWABLE = (OPEN, UNDER_REVIEW)
+    WAIVABLE = (OPEN, UNDER_REVIEW, CONFIRMED_NC)
+
+    # ADR-IMM-16-06 (round 14 — CR-WF-16-FIND): guard-scope cho CTA start_review —
+    # chỉ bắt đầu xem xét từ Open (Under Review đã trong review). Surface cạnh
+    # workflow ``Open→Under Review`` vốn 0 service-driver (phantom).
+    START_REVIEWABLE = (OPEN,)
+
+
+# ─── SoT: server-driven CTA — allowed_transitions per Finding status ──────────
+#
+# Map TẬP TRUNG (ADR-IMM-16-01) cho server-driven CTA màn FindingDetail:
+# ``get_finding`` emit ``allowed_transitions = _FINDING_VALID_TRANSITIONS.get(
+# status, [])`` để FE render nút phân định theo SERVER (KHÔNG hardcode
+# status→button client-side = dead-gate/desync khỏi ``FindingStatus``). Đối xứng
+# ``_REPAIR_VALID_TRANSITIONS`` (imm09.py:90) + PmWorkOrder (imm08) + Incident
+# (imm12) — GATE-8/LL-FE-51.
+#
+# Keyed BẰNG ``FindingStatus.*`` constants (KHÔNG literal); codomain ⊆
+# ``FindingStatus``. Open/Under Review → 3 CTA phân định. Confirmed NC → CHỈ
+# ``[Waived]`` (KHÔNG ``'Closed'``: Closed đến qua workflow-engine, KHÔNG phải
+# service-CTA của cán bộ; CAPA route đi qua cờ RIÊNG ``can_create_capa``).
+# ``Resolved`` đến qua auto-cascade (CAPA Closed → Finding Resolved) ⇒ ngoài
+# codomain. Terminal (False Positive / Resolved / Waived / Closed) → ``[]``.
+#
+# INVARIANT (map ⊆ guard-permitted): mọi đích trong map PHẢI được guard tương ứng
+# cho phép — confirm/mark-false chỉ từ ``FindingStatus.REVIEWABLE``, waive chỉ từ
+# ``FindingStatus.WAIVABLE`` — FE KHÔNG BAO GIỜ hiện nút mà BE sẽ raise
+# ``BAD_STATE``. ``allowed_transitions`` CHỈ là hint hiển thị, KHÔNG thay guard
+# (defense-in-depth: guard vẫn chặn cứng dù client bỏ qua hint).
+#
+# round 14 (CR-WF-16-FIND): +UNDER_REVIEW vào codomain[Open] để surface cạnh
+# workflow ``Open→Under Review`` ("Bắt đầu xem xét") vốn 0 service-driver
+# (phantom) — CTA ``start_review`` cho Under Review 1 driver THẬT. Đối xứng vòng
+# 12 IMM-12 ``reopen_incident``. Đóng phantom ⇒ INVARIANT INV-16-B thu
+# ``wf_next − codomain`` về đúng ``_FINDING_EXCEPTION_EDGES`` (§III.B.2).
+_FINDING_VALID_TRANSITIONS: dict[str, list[str]] = {
+    FindingStatus.OPEN: [FindingStatus.UNDER_REVIEW, FindingStatus.CONFIRMED_NC,
+                         FindingStatus.FALSE_POSITIVE, FindingStatus.WAIVED],
+    FindingStatus.UNDER_REVIEW: [FindingStatus.CONFIRMED_NC,
+                                 FindingStatus.FALSE_POSITIVE, FindingStatus.WAIVED],
+    FindingStatus.CONFIRMED_NC: [FindingStatus.WAIVED],
+    FindingStatus.FALSE_POSITIVE: [],
+    FindingStatus.RESOLVED: [],
+    FindingStatus.WAIVED: [],
+    FindingStatus.CLOSED: [],
+}
+
+
+# EXCEPTION_EDGES (round 14 — CR-WF-16-FIND, §III.B.2 INV-16-B): các state
+# reachable trong workflow ``imm_16_finding_workflow.json`` nhưng KHÔNG do
+# service-CTA (``_FINDING_VALID_TRANSITIONS``) sinh — có cơ chế thực thi RIÊNG:
+#   - Resolved: CAPA-auto cascade (``capa_record_on_update`` khi CAPA Closed) +
+#     ``close_finding`` (Confirmed NC → Resolved). KHÔNG CTA cán bộ trên FindingDetail.
+#   - Closed:   workflow-engine terminal desk-button (``*→Closed``). FE SPA 0 nút Close.
+# Invariant INV-16-B: ``wf_next_state − codomain(_FINDING_VALID_TRANSITIONS) ⊆
+# _FINDING_EXCEPTION_EDGES`` — guard chống drift phantom. Đối xứng
+# ``_INCIDENT_EXCEPTION_EDGES`` (test_imm12.py) — SSoT ở service để test import.
+_FINDING_EXCEPTION_EDGES: set[str] = {FindingStatus.RESOLVED, FindingStatus.CLOSED}
+
 
 class AuditStatus:
     PLANNED = "Planned"
     IN_PROGRESS = "In Progress"
     REPORTING = "Reporting"
     CLOSED = "Closed"
+
+
+# ─── SoT: server-driven CTA — allowed_transitions per Internal Audit status ───
+#
+# Map TẬP TRUNG (ADR-IMM-16-02) cho server-driven CTA màn InternalAuditDetail —
+# mirror ``_FINDING_VALID_TRANSITIONS`` (line 79) + Repair (imm09) + PM (imm08) +
+# Incident (imm12) — GATE-8/LL-FE-51. ``get_audit`` emit
+# ``allowed_transitions = _AUDIT_VALID_TRANSITIONS.get(doc.status, [])`` (action-key)
+# để FE render CTA (Bắt đầu / Hoàn tất bảng kiểm→Báo cáo / Đóng) theo SERVER,
+# KHÔNG hardcode ``audit.status ===`` client-side (dead-gate/desync khỏi
+# ``AuditStatus``).
+#
+# Vòng đời canonical: ``Planned →(start)→ In Progress →(complete_checklist)→
+# Reporting →(close, VR-13→VR-08)→ Closed``. Codomain = action-key, KHÔNG status.
+# Terminal (Closed) → ``[]``. Status rỗng/lạ → ``[]`` (safe-default ``.get`` —
+# KHÔNG KeyError).
+#
+# INVARIANT (hint ⊆ guard): ``allowed_transitions`` CHỈ là hint hiển thị, KHÔNG
+# thay guard cứng (defense-in-depth). start chỉ từ Planned; complete_checklist
+# chỉ từ In Progress; close chỉ từ Reporting (VR-13) — FE KHÔNG BAO GIỜ hiện nút
+# mà BE sẽ raise ``BAD_STATE`` dù client bỏ qua hint.
+_AUDIT_VALID_TRANSITIONS: dict[str, list[str]] = {
+    AuditStatus.PLANNED: ["start"],
+    AuditStatus.IN_PROGRESS: ["complete_checklist"],
+    AuditStatus.REPORTING: ["close"],
+    AuditStatus.CLOSED: [],
+}
+
+
+# ─── SoT: checklist finding_status (payload) → child ``result`` Select ─────────
+#
+# CR-27b (silent-verdict-loss). Payload bảng kiểm mang ``finding_status`` (4 giá
+# trị FE/mobile: Compliant / Minor NC / Major NC / N/A) NHƯNG child doctype
+# ``IMM Audit Checklist Item`` CHỈ có Select ``result`` 3 giá trị
+# {Conforming, Non-Conforming, Not Applicable} — KHÔNG có field ``finding_status``.
+# Trước đây ``complete_audit_checklist`` gán ``child.finding_status = ...`` sau
+# ``hasattr(child, "finding_status")`` → hasattr LUÔN False (field không tồn tại)
+# ⇒ NO-OP CÂM: verdict từng-mục KHÔNG BAO GIỜ persist → re-fetch get_audit trả
+# ``result`` rỗng. Map này là SSoT DUY NHẤT dịch verdict→result để round-trip.
+#
+# INVARIANT (pin bởi test_finding_status_map_values_subset_of_result_select):
+#   set(values) ⊆ options Select ``result`` của imm_audit_checklist_item.json.
+# finding_status unknown (∉ keys) → giữ nguyên result cũ (KHÔNG set giá trị lạ).
+# Grounded: FE select options + mobile spec §39 (BA chốt CR-27b).
+_FINDING_STATUS_TO_RESULT: dict[str, str] = {
+    "Compliant": "Conforming",
+    "Minor NC": "Non-Conforming",
+    "Major NC": "Non-Conforming",
+    "N/A": "Not Applicable",
+}
+
+
+# ─── SoT: canonical resolver action-key → next AuditStatus (CR-WF-16-AUDIT) ────
+#
+# ``_AUDIT_VALID_TRANSITIONS`` (line 141) advertise ACTION-KEY (KHÁC Finding/CAPA/
+# MR — 3 map kia codomain = status-đích). Để đối soát 2-CHIỀU map ⇄ workflow-JSON
+# (``imm_16_internal_audit.json``) cần 1 resolver dịch action-key → AuditStatus
+# đích, rồi so per-state với ``next_state`` graph của workflow.
+#
+# SSoT DUY NHẤT (ADR-IMM-16-09) — 3 canonical handler whitelisted đặt CÙNG
+# status-đích này (pinned bởi INVARIANT ``TestAuditWorkflowInvariant`` +
+# lifecycle test AA-16-7..11, KHÔNG hardcode rời):
+#   start_audit            →  In Progress   (Planned  →(start)→            )
+#   complete_audit_checklist → Reporting    (In Prog. →(complete_checklist)→)
+#   close_audit            →  Closed        (Reporting→(close, VR-13→VR-08)→)
+#
+# INVARIANT (đóng nốt quartet reconcile IMM-16 — Finding R14 / CAPA R19 / MR R20
+# + Internal Audit R22):
+#   keys == {start, complete_checklist, close} == 3 handler whitelisted
+#   codomain(_AUDIT_VALID_TRANSITIONS) ⊆ keys(resolver)   (no orphan action)
+#   values ⊆ AuditStatus enum {Planned, In Progress, Reporting, Closed}
+#   ∀ state: {resolver[a] for a in _AUDIT_VALID_TRANSITIONS[state]}
+#            == {next_state cạnh workflow từ state}          (drift ⇒ 'DRIFT <state>')
+_AUDIT_ACTION_TO_NEXT_STATE: dict[str, str] = {
+    "start": AuditStatus.IN_PROGRESS,
+    "complete_checklist": AuditStatus.REPORTING,
+    "close": AuditStatus.CLOSED,
+}
 
 
 class RuleCategory:
@@ -190,6 +334,11 @@ def close_finding(finding_name: str, capa_ref: str, resolution_note: str) -> dic
     doc.review_date = now_datetime()
     doc.reviewer = frappe.session.user
     ComplianceFindingRepo.save(doc)
+    # Dual-track lockstep (§III.B.2 / ADR-IMM-16-05): Confirmed NC → Resolved là
+    # EXCEPTION_EDGE CAPA-auto — vẫn đồng bộ workflow_state để không đọng 'Open'.
+    frappe.db.set_value(ComplianceFindingRepo.DOCTYPE, finding_name,
+                        {"workflow_state": FindingStatus.RESOLVED},
+                        update_modified=False)
 
     try:
         log_audit_event(
@@ -244,7 +393,10 @@ def submit_audit_findings(audit_name: str, findings: list[dict]) -> dict:
     if not doc:
         raise ServiceError(ErrorCode.NOT_FOUND,
                            f"Không tìm thấy audit: {audit_name}")
-    if doc.status not in (AuditStatus.IN_PROGRESS, AuditStatus.PLANNED):
+    # CR-WF-16-AUDIT (ADR-IMM-16-09): siết về linear-machine — CHỈ từ In Progress.
+    # Bỏ nhánh Planned (Planned→Reporting là skip-start guard-permissive: bỏ qua
+    # state In Progress + né VR-13). [DEPRECATED — dùng complete_audit_checklist.]
+    if doc.status != AuditStatus.IN_PROGRESS:
         raise ServiceError(ErrorCode.BAD_STATE,
                            f"Không thể ghi nhận kết quả ở trạng thái: {doc.status}")
 
@@ -293,6 +445,13 @@ def close_internal_audit(audit_name: str) -> dict:
                            f"Không tìm thấy audit: {audit_name}")
     if doc.status == AuditStatus.CLOSED:
         raise ServiceError(ErrorCode.BAD_STATE, "Audit đã được đóng")
+    # CR-WF-16-AUDIT (ADR-IMM-16-09): siết về linear-machine — chỉ đóng từ
+    # Reporting (VR-13, parity close_audit@1688). Chặn close-từ-Planned/In
+    # Progress (guard-permissive: né cổng Reporting + VR-08 Major-NC).
+    # [DEPRECATED — dùng close_audit (có VR-08 gate).]
+    if doc.status != AuditStatus.REPORTING:
+        raise ServiceError(ErrorCode.BAD_STATE,
+                           "Audit phải ở trạng thái Reporting trước khi đóng")
 
     doc.status = AuditStatus.CLOSED
     doc.actual_end = nowdate()
@@ -644,10 +803,24 @@ def capa_record_before_submit(doc, method=None) -> None:
 
 
 def capa_record_on_update(doc, method=None) -> None:
-    """Cascade: Finding → Resolved khi CAPA Closed."""
-    if doc.status == "Closed" and doc.source_type == "Compliance Finding":
+    """Cascade: Finding → Resolved khi CAPA Closed.
+
+    Dual-track lockstep (§III.B.2 / ADR-IMM-16-05): đặt CẢ HAI track
+    (``status`` + ``workflow_state``) = Resolved — nếu chỉ đặt ``status``,
+    workflow_state đọng 'Open' trên workflow ĐANG ACTIVE (desync bug đã đóng).
+
+    Root-cause phụ (round 14): source_type khớp ``"IMM Compliance Finding"`` —
+    giá trị Select CANONICAL (mirror imm16:1826/1882 + DocType options). Chuỗi cũ
+    ``"Compliance Finding"`` KHÔNG có trong Select ⇒ cascade DEAD (không CAPA nào
+    lưu được giá trị đó). Xem open-issue: ``_auto_create_capa_for_finding`` (producer)
+    còn typo tương tự + thiếu arg ``responsible`` (ngoài scope CR-WF-16-FIND).
+    """
+    if doc.status == "Closed" and doc.source_type == "IMM Compliance Finding":
         frappe.db.set_value(
-            "IMM Compliance Finding", doc.source_ref, "status", FindingStatus.RESOLVED
+            "IMM Compliance Finding", doc.source_ref,
+            {"status": FindingStatus.RESOLVED,
+             "workflow_state": FindingStatus.RESOLVED},
+            update_modified=False,
         )
 
 
@@ -1268,7 +1441,53 @@ def get_finding(name: str) -> dict:
         data["rule_name"] = frappe.db.get_value(
             ComplianceRuleRepo.DOCTYPE, data["rule"], "rule_name"
         ) or data["rule"]
+    # Server-driven CTA (ADR-IMM-16-01 / GATE-8, mirror imm09/08/12): client
+    # render nút phân định theo SERVER (KHÔNG hardcode status→button client-side).
+    # ``allowed_transitions`` là hint hiển thị (⊆ guard-permitted). Cờ
+    # ``can_create_capa`` (int 0/1) gate CTA Tạo/Liên kết CAPA = Confirmed NC
+    # chưa gắn CAPA — FE KHÔNG hardcode ``'Confirmed NC'``.
+    data["allowed_transitions"] = _FINDING_VALID_TRANSITIONS.get(doc.status, [])
+    data["can_create_capa"] = (
+        1 if (doc.status == FindingStatus.CONFIRMED_NC and not doc.capa_ref) else 0
+    )
     return data
+
+
+def start_review(name: str, reviewer_note: str = "") -> dict:
+    """ADR-IMM-16-06 (round 14 — CR-WF-16-FIND): Open → Under Review.
+
+    Surface cạnh workflow ``Open→Under Review`` ("Bắt đầu xem xét") vốn 0
+    service-driver (phantom) thành CTA THẬT — đối xứng vòng 12 IMM-12
+    ``reopen_incident``. Guard ``status != Open → BAD_STATE``
+    (``START_REVIEWABLE``); lockstep ``workflow_state='Under Review'`` (§III.B.2).
+    """
+    _require_qa_or_admin()
+    doc = ComplianceFindingRepo.get(name)
+    if not doc:
+        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy Finding: {name}")
+    if doc.status not in FindingStatus.START_REVIEWABLE:
+        raise ServiceError(
+            ErrorCode.BAD_STATE,
+            f"Chỉ bắt đầu xem xét Finding ở trạng thái Open (hiện tại: {doc.status})")
+    prev_status = doc.status
+    doc.status = FindingStatus.UNDER_REVIEW
+    doc.reviewer = frappe.session.user
+    doc.review_date = now_datetime()
+    if reviewer_note:
+        doc.notes = (doc.notes or "") + f"\n[Bắt đầu xem xét] {reviewer_note}"
+    ComplianceFindingRepo.save(doc)
+    # Dual-track lockstep (§III.B.2 / ADR-IMM-16-05).
+    frappe.db.set_value(ComplianceFindingRepo.DOCTYPE, name,
+                        {"workflow_state": FindingStatus.UNDER_REVIEW},
+                        update_modified=False)
+    _log_record_event(
+        ComplianceFindingRepo.DOCTYPE, name, "Audit",
+        f"Finding {name}: bắt đầu xem xét",
+        asset=doc.asset or "",
+        from_status=prev_status, to_status=FindingStatus.UNDER_REVIEW,
+    )
+    frappe.db.commit()
+    return {"name": name, "status": FindingStatus.UNDER_REVIEW}
 
 
 def confirm_finding(name: str, reviewer_note: str = "") -> dict:
@@ -1276,7 +1495,10 @@ def confirm_finding(name: str, reviewer_note: str = "") -> dict:
     doc = ComplianceFindingRepo.get(name)
     if not doc:
         raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy Finding: {name}")
-    if doc.status not in FindingStatus.ACTIVE:
+    # ADR-IMM-16-01: siết ACTIVE→REVIEWABLE — chỉ xác nhận NC khi CHƯA phân định
+    # (Open/Under Review). Xác nhận lại 1 Finding đã Confirmed NC = self-confirm vô
+    # nghĩa ⇒ BAD_STATE. Guard cứng (defense-in-depth) — allowed_transitions chỉ hint.
+    if doc.status not in FindingStatus.REVIEWABLE:
         raise ServiceError(ErrorCode.BAD_STATE,
                            f"Finding đã ở trạng thái: {doc.status}")
     prev_status = doc.status
@@ -1286,6 +1508,11 @@ def confirm_finding(name: str, reviewer_note: str = "") -> dict:
     if reviewer_note:
         doc.notes = (doc.notes or "") + f"\n[Confirmed] {reviewer_note}"
     ComplianceFindingRepo.save(doc)
+    # Dual-track lockstep (§III.B.2 / ADR-IMM-16-05): sync workflow_state ⇄ status
+    # qua db.set_value (BYPASS validate_workflow — multi-hop Open→Confirmed NC).
+    frappe.db.set_value(ComplianceFindingRepo.DOCTYPE, name,
+                        {"workflow_state": FindingStatus.CONFIRMED_NC},
+                        update_modified=False)
     _log_record_event(
         ComplianceFindingRepo.DOCTYPE, name, "Audit",
         f"Finding {name}: xác nhận NC",
@@ -1304,12 +1531,21 @@ def mark_false_positive(name: str, reason: str) -> dict:
     doc = ComplianceFindingRepo.get(name)
     if not doc:
         raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy Finding: {name}")
+    # ADR-IMM-16-01: chỉ đánh dấu sai khi CHƯA phân định (REVIEWABLE) —
+    # defense-in-depth, allowed_transitions chỉ là hint hiển thị.
+    if doc.status not in FindingStatus.REVIEWABLE:
+        raise ServiceError(ErrorCode.BAD_STATE,
+                           f"Finding đã ở trạng thái: {doc.status}")
     prev = doc.status
     doc.status = FindingStatus.FALSE_POSITIVE
     doc.reviewer = frappe.session.user
     doc.review_date = now_datetime()
     doc.notes = (doc.notes or "") + f"\n[False Positive] {reason}"
     ComplianceFindingRepo.save(doc)
+    # Dual-track lockstep (§III.B.2 / ADR-IMM-16-05).
+    frappe.db.set_value(ComplianceFindingRepo.DOCTYPE, name,
+                        {"workflow_state": FindingStatus.FALSE_POSITIVE},
+                        update_modified=False)
     _log_record_event(
         ComplianceFindingRepo.DOCTYPE, name, "Audit",
         f"Finding {name}: đánh dấu sai — {reason}",
@@ -1339,6 +1575,12 @@ def waive_finding(name: str, waiver_reason: str,
     doc = ComplianceFindingRepo.get(name)
     if not doc:
         raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy Finding: {name}")
+    # ADR-IMM-16-01: chỉ miễn áp dụng khi Finding còn WAIVABLE (Open/Under
+    # Review/Confirmed NC) — không waive phiếu đã terminal (Waived/Closed/Resolved/
+    # False Positive). Guard cứng (defense-in-depth) — allowed_transitions chỉ hint.
+    if doc.status not in FindingStatus.WAIVABLE:
+        raise ServiceError(ErrorCode.BAD_STATE,
+                           f"Finding đã ở trạng thái: {doc.status}")
     prev = doc.status
     doc.status = FindingStatus.WAIVED
     doc.waiver_reason = waiver_reason
@@ -1347,6 +1589,10 @@ def waive_finding(name: str, waiver_reason: str,
     doc.reviewer = frappe.session.user
     doc.review_date = now_datetime()
     ComplianceFindingRepo.save(doc)
+    # Dual-track lockstep (§III.B.2 / ADR-IMM-16-05).
+    frappe.db.set_value(ComplianceFindingRepo.DOCTYPE, name,
+                        {"workflow_state": FindingStatus.WAIVED},
+                        update_modified=False)
     _log_record_event(
         ComplianceFindingRepo.DOCTYPE, name, "Audit",
         f"Finding {name}: miễn áp dụng — hết hạn {waiver_expiry}",
@@ -1386,6 +1632,11 @@ def get_audit(name: str) -> dict:
         data["lead_auditor_name"] = frappe.db.get_value(
             "User", data["lead_auditor"], "full_name"
         ) or data["lead_auditor"]
+    # Server-driven CTA (ADR-IMM-16-02 / GATE-8) — hint hiển thị + 2 cờ capability
+    # derive SERVER-SIDE. Safe-default: status rỗng/lạ → [] (KHÔNG KeyError).
+    data["allowed_transitions"] = _AUDIT_VALID_TRANSITIONS.get(doc.status, [])
+    data["can_operate"] = rbac.can(_CAP_COMPLIANCE_WRITE)   # Bắt đầu + bảng kiểm
+    data["can_close"] = rbac.can(_CAP_COMPLIANCE_APPROVE)   # Đóng (Manager)
     return data
 
 
@@ -1404,21 +1655,37 @@ def start_audit(name: str) -> dict:
     doc.status = AuditStatus.IN_PROGRESS
     doc.actual_start = nowdate()
     InternalAuditRepo.save(doc)
+    # BR-16-10: ghi ĐÚNG 1 audit-event/thao tác (asset='' — audit không gắn asset).
+    _log_record_event(
+        InternalAuditRepo.DOCTYPE, name, "audit_started",
+        f"Audit {name}: bắt đầu kiểm toán",
+        from_status=AuditStatus.PLANNED, to_status=AuditStatus.IN_PROGRESS,
+    )
     frappe.db.commit()
     return {"name": name, "status": AuditStatus.IN_PROGRESS,
             "actual_start": doc.actual_start}
 
 
 def complete_audit_checklist(audit_name: str, items: list[dict]) -> dict:
-    """§3.3.4: Update checklist items + auto-sinh Finding cho Major/Minor NC."""
+    """§3.3.4: Update checklist items + auto-sinh Finding cho Major/Minor NC.
+
+    ``items`` = ``[{idx, finding_status, notes}]``. ``finding_status`` (4 giá trị
+    FE/mobile: Compliant / Minor NC / Major NC / N/A) được map sang Select
+    ``result`` của child ``IMM Audit Checklist Item`` qua ``_FINDING_STATUS_TO_RESULT``
+    — child KHÔNG có field ``finding_status`` nên verdict PHẢI lưu vào ``result``
+    (CR-27b: chống silent-verdict-loss, xem SoT map). Major/Minor NC còn auto-sinh
+    IMM Compliance Finding + đẩy state In Progress → Reporting.
+    """
     _require_qa_or_admin()
     doc = InternalAuditRepo.get(audit_name)
     if not doc:
         raise ServiceError(ErrorCode.NOT_FOUND,
                            f"Không tìm thấy Audit: {audit_name}")
-    if doc.status not in (AuditStatus.IN_PROGRESS, AuditStatus.PLANNED):
-        raise ServiceError(ErrorCode.BAD_STATE,
-                           f"Audit ở trạng thái {doc.status} — không thể nhập checklist")
+    # VR-13/siết guard: CHỈ từ In Progress (bỏ nhánh Planned — chặn skip-start).
+    if doc.status != AuditStatus.IN_PROGRESS:
+        raise ServiceError(
+            ErrorCode.BAD_STATE,
+            f"Audit phải ở trạng thái In Progress để nhập bảng kiểm, hiện: {doc.status}")
 
     findings_created = 0
     items = items or []
@@ -1430,12 +1697,16 @@ def complete_audit_checklist(audit_name: str, items: list[dict]) -> dict:
         if not payload:
             continue
         finding_status = payload.get("finding_status")
-        if hasattr(child, "finding_status"):
-            child.finding_status = finding_status
-        if hasattr(child, "notes"):
-            child.notes = payload.get("notes", "")
-        if hasattr(child, "clause_ref"):
-            child.clause_ref = payload.get("clause_ref", "")
+        # CR-27b: map verdict → child.result (child KHÔNG có field
+        # ``finding_status``; chỉ có Select ``result`` 3 giá trị). SSoT
+        # ``_FINDING_STATUS_TO_RESULT``. finding_status lạ (∉ map) → giữ nguyên
+        # result cũ. ANTI-PATTERN chống tái phạm: ``hasattr(child, "finding_status")``
+        # LUÔN False vì field không tồn tại → gán cũ là NO-OP CÂM (verdict mất
+        # trắng khi re-fetch). KHÔNG dùng lại pattern hasattr-gán-vào-field-ảo.
+        mapped = _FINDING_STATUS_TO_RESULT.get(finding_status)
+        if mapped:
+            child.result = mapped
+        child.notes = payload.get("notes", "")
 
         if finding_status in ("Major NC", "Minor NC"):
             severity = "High" if finding_status == "Major NC" else "Medium"
@@ -1458,10 +1729,21 @@ def complete_audit_checklist(audit_name: str, items: list[dict]) -> dict:
                                  "IMM-16 complete_audit_checklist: finding create failed")
 
     doc.findings_count = (doc.findings_count or 0) + findings_created
+    # Khôi phục state "Reporting" (trước đây chết — hoàn tất bảng kiểm nhưng KHÔNG
+    # đổi status): In Progress → Reporting.
+    doc.status = AuditStatus.REPORTING
     InternalAuditRepo.save(doc)
+    # BR-16-10: ghi ĐÚNG 1 audit-event/thao tác (asset='' — theo pattern
+    # submit_audit_findings). Finding con (Major/Minor NC) ghi ref RIÊNG
+    # (IMM Compliance Finding) → KHÔNG chồng số đếm ref_doctype='IMM Internal Audit'.
+    _log_record_event(
+        InternalAuditRepo.DOCTYPE, audit_name, "audit_checklist_completed",
+        f"Audit {audit_name}: {findings_created} findings, →Reporting",
+        from_status=AuditStatus.IN_PROGRESS, to_status=AuditStatus.REPORTING,
+    )
     frappe.db.commit()
     return {"audit_name": audit_name, "items_count": len(items),
-            "findings_created": findings_created}
+            "findings_created": findings_created, "status": AuditStatus.REPORTING}
 
 
 def close_audit(name: str, audit_report: str = "") -> dict:
@@ -1474,6 +1756,11 @@ def close_audit(name: str, audit_report: str = "") -> dict:
         raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy Audit: {name}")
     if doc.status == AuditStatus.CLOSED:
         raise ServiceError(ErrorCode.BAD_STATE, "Audit đã đóng")
+    # VR-13: chặn jump-skip — chỉ đóng được từ Reporting (Planned/In Progress
+    # bị chặn; Reporting là cổng bắt buộc trước Close).
+    if doc.status != AuditStatus.REPORTING:
+        raise ServiceError(ErrorCode.BAD_STATE,
+                           "Audit phải ở trạng thái Reporting trước khi đóng")
 
     # VR-08: block if any Major NC finding without CAPA link
     open_major = frappe.get_all(
@@ -1492,11 +1779,18 @@ def close_audit(name: str, audit_report: str = "") -> dict:
                            f"VR-08: Còn {len(open_major)} Major NC chưa link CAPA: "
                            f"{', '.join(open_major[:3])}")
 
+    prev = doc.status
     doc.status = AuditStatus.CLOSED
     doc.actual_end = nowdate()
     if audit_report:
         doc.audit_report = audit_report
     InternalAuditRepo.save(doc)
+    # BR-16-10: ghi ĐÚNG 1 audit-event/thao tác (asset='').
+    _log_record_event(
+        InternalAuditRepo.DOCTYPE, name, "audit_closed",
+        f"Audit {name}: đóng kiểm toán",
+        from_status=prev, to_status=AuditStatus.CLOSED,
+    )
     frappe.db.commit()
     return {"name": name, "status": AuditStatus.CLOSED,
             "actual_end": doc.actual_end}
@@ -1682,6 +1976,21 @@ def get_capa(name: str) -> dict:
             "Incident Report", incident_ref, "description") or ""
         # truncate dài mô tả cho UI hiển thị inline
         data["incident_subject"] = (desc[:120] + "…") if len(desc) > 120 else desc
+
+    # Server-driven CTA (ADR-IMM-16-01 / GATE-8, mirror get_finding/get_audit):
+    # ``allowed_transitions`` dẫn xuất TRỰC TIẾP từ ``_CAPA_TRANSITIONS`` — CÙNG
+    # SoT mà ``advance_capa_state`` dùng để enforce (KHÔNG tạo map thứ hai) →
+    # chống desync giữa nút hiển thị và transition thực thi. = [] khi caller
+    # KHÔNG có ``compliance.write`` (không lộ CTA cho viewer read-only). Terminal
+    # 'Closed' không phải key → ``.get(..., set())`` trả [] an toàn (KHÔNG
+    # KeyError). ``allowed_transitions`` CHỈ là hint hiển thị; guard cứng vẫn ở
+    # ``advance_capa_state`` (defense-in-depth).
+    can_advance = rbac.can(_CAP_COMPLIANCE_WRITE)
+    current_state = data.get("workflow_state") or "Open"
+    data["allowed_transitions"] = (
+        sorted(_CAPA_TRANSITIONS.get(current_state, set())) if can_advance else []
+    )
+    data["can_advance"] = can_advance
     return data
 
 
@@ -1996,6 +2305,22 @@ def get_management_review(name: str) -> dict:
         if oa.get("responsible"):
             oa["responsible_name"] = frappe.db.get_value(
                 "User", oa["responsible"], "full_name") or oa["responsible"]
+    # Server-driven CTA (ADR-IMM-16-03 / GATE-8, mirror get_finding/get_audit/
+    # get_capa — ĐÓNG NỐT workflow IMM-16 thứ 4/4). ``allowed_transitions`` dẫn
+    # xuất TRỰC TIẾP từ ``_MR_TRANSITIONS`` — CÙNG SoT mà ``advance_mr_state`` /
+    # ``finalize_management_review`` dùng để enforce (KHÔNG tạo map thứ hai) →
+    # chống desync giữa hint hiển thị và guard cứng. Safe-default: status rỗng/lạ
+    # /terminal 'Closed' không phải key → ``.get(..., set())`` trả [] (KHÔNG
+    # KeyError). Cờ ``can_advance``/``can_close`` = ``rbac.can('compliance.submit')``
+    # — CÙNG capability mà advance/finalize require (defense-in-depth: guard cứng
+    # vẫn ở service, FE chỉ dùng cờ để ẩn nút chống dead-control 403). 'Closed'
+    # đi qua ``finalize_management_review`` (``advance_mr_state`` từ chối VALIDATION).
+    data["allowed_transitions"] = sorted(
+        _MR_TRANSITIONS.get(data.get("status") or "Draft", set())
+    )
+    _can_submit = rbac.can(_CAP_COMPLIANCE_APPROVE)
+    data["can_advance"] = _can_submit
+    data["can_close"] = _can_submit
     return data
 
 

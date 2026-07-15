@@ -19,7 +19,7 @@ from assetcore.utils.api_handler import _service_error_to_envelope, handle, pars
 
 
 @frappe.whitelist()
-def list_repair_work_orders(filters: str = "{}", mine: int = 0,
+def list_repair_work_orders(filters: str = "{}", mine: int = 0, search: str = None,
                             page: int = 1, page_size: int = 20):
     # parse_json BÊN TRONG try/except (mirror imm08.list_pm_work_orders:30-32) — malformed `filters`
     # → ServiceError(INVALID_PARAMS) chuyển thành Error-trên-HTTP-200 envelope thay vì raise uncaught
@@ -36,6 +36,13 @@ def list_repair_work_orders(filters: str = "{}", mine: int = 0,
     f = apply_vendor_scope(f, "Asset Repair")
     if int(mine or 0):
         f["assigned_to"] = frappe.session.user
+    # CR-18: free-text search server-side. Inject `search` vào filters dict SAU
+    #   vendor-scope + mine → service pop_search dịch sang OR-LIKE (name/asset_ref/
+    #   asset_name) AND các filter khác. CHỈ khi non-empty ⇒ absent/rỗng byte-
+    #   identical baseline (web-FE CMWorkOrderListView KHÔNG regress). KHÔNG nới
+    #   quyền: search chỉ thêm OR-clause TRONG tập đã scope, KHÔNG bypass.
+    if search is not None and str(search).strip():
+        f["search"] = str(search)
     return handle(svc.list_work_orders, f, page=int(page), page_size=int(page_size))
 
 
@@ -45,6 +52,47 @@ def get_repair_work_order(name: str):
         assert_vendor_can_access("Asset Repair", name)
         return svc.get_work_order(name)
     return handle(_run)
+
+
+@frappe.whitelist(methods=["POST"])
+def attach_repair_checklist_photo(work_order_name: str = "", checklist_item_idx: str = "",
+                                 **_ignore) -> dict:
+    """POST (multipart) /api/method/assetcore.api.imm09.attach_repair_checklist_photo
+
+    BR-09-15/16 (mobile CR-15/G6): đính ảnh bằng chứng cho MỘT mục checklist sửa chữa
+    (NĐ98 Class C/D) → File private + đúng 1 lifecycle `repair_checklist_photo_attached`.
+    Single-step multipart: server đọc `frappe.request.files["file"]`, tự validate + tạo
+    + link File (robust, KHÔNG orphan như 2-bước upload→file_url). ĐỐI XỨNG
+    attach_pm_checklist_photo (imm08) — KHÁC module/doctype/discriminator (Frappe child
+    `idx`).
+
+    `**_ignore` nuốt kwargs spoof. Guest/no-token → dispatcher-403 (POST @whitelist
+    KHÔNG allow_guest); permission (assignee OR repair.write) + validation ở service →
+    Decision-B HTTP-200 qua `handle`. `checklist_item_idx` parse int ở boundary; giá trị
+    lỗi/không-tồn-tại → service trả VALIDATION (reject TRƯỚC File.insert).
+    """
+    files = frappe.request.files if getattr(frappe, "request", None) else None
+    upload = files.get("file") if files else None
+    # File present check nằm ở service (sau permission/idx — thứ tự spec): filedata=None
+    # khi thiếu file → service raise VALIDATION 'Thiếu tệp ảnh'.
+    if upload is not None:
+        filedata = upload.stream.read()
+        filename = upload.filename or ""
+        content_type = upload.content_type or ""
+    else:
+        filedata, filename, content_type = None, "", ""
+    try:
+        idx = int(checklist_item_idx)
+    except (TypeError, ValueError):
+        idx = -1  # sentinel không khớp row nào → service VALIDATION idx-not-found (đúng thứ tự)
+    return handle(
+        svc.attach_repair_checklist_photo,
+        work_order_name,
+        idx,
+        filedata=filedata,
+        filename=filename,
+        content_type=content_type,
+    )
 
 
 @frappe.whitelist(methods=["POST"])

@@ -28,6 +28,8 @@ from assetcore.repositories.allocation_repo import (
 from assetcore.services.shared import ErrorCode, ServiceError, normalize_filters
 from assetcore.services.shared import rbac
 from assetcore.utils.lifecycle import log_audit_event
+from assetcore.utils.messages import MSG
+from assetcore.utils.notify import nthrow
 
 
 def _safe_get_value(doctype: str, name: str, field: str | list, *, as_dict: bool = False):
@@ -93,6 +95,26 @@ class ForecastState:
 # Capability gates (Inventory domain) — quyen that do DocPerm quyet dinh.
 _CAP_APPROVE = "inventory.submit"   # duyet/post (Manager-level)
 _CAP_OPERATE = "inventory.write"    # thao tac thuong (User+)
+
+
+# ─── Audit event_type registry (CR-WF-15-AUDIT · ADR-IMM-15-09) ──────────────
+# SSoT DUY NHẤT cho mọi slug event_type mà imm15 phát vào IMM Audit Trail. PHẢI ⊆
+# `IMM Audit Trail.event_type` Select options (imm_audit_trail.json) — nếu KHÔNG,
+# `log_audit_event().insert()` chạy Frappe Select-validation → raise ValidationError,
+# bị try/except best-effort NUỐT ⇒ 0 dòng audit persist (silent-audit-loss). Guard
+# `TestImm15AuditEventTypeParity` (tests/test_imm15.py §III.4b) đối soát
+# `IMM15_AUDIT_EVENT_TYPES ⊆ Select` — RED trước khi đăng ký, GREEN sau — chống drift
+# emit-nhưng-quên-đăng-ký. AST literal-scan KHÔNG resolve được f-string `allocation_*`
+# ⇒ registry PHẢI tường minh. `_ALLOCATION_AUDIT_ACTIONS` khoá closed-set 5 action của
+# `_write_allocation_audit`; test `test_ssot_constant_matches_emit_sites` đối chiếu
+# derived slug == constant (bắt lệch nếu sửa một mà quên cái kia).
+# Recount GIỮ event_type="State Change" (∈ Select, KHÔNG thuộc 6 slug — nâng lên
+# "cycle_count_recount" = [ROADMAP] ngoài scope vòng 12).
+IMM15_AUDIT_EVENT_TYPES: frozenset[str] = frozenset({
+    "cycle_count_posted", "allocation_created", "allocation_approved",
+    "allocation_issued", "allocation_returned", "allocation_cancelled",
+})
+_ALLOCATION_AUDIT_ACTIONS = ("CREATED", "APPROVED", "ISSUED", "RETURNED", "CANCELLED")
 
 
 # ─── Reservation ledger SoT wiring (§III-bis / RULE-R01) ─────────────────────
@@ -217,6 +239,9 @@ def get_allocation(name: str) -> dict:
     data["asset_name"] = frappe.db.get_value("AC Asset", data.get("asset"), "asset_name") or data.get("asset") or ""
     data["warehouse_name"] = frappe.db.get_value("AC Warehouse", data.get("warehouse_from"), "warehouse_name") or data.get("warehouse_from") or ""
     data["requested_by_name"] = frappe.db.get_value("User", data.get("requested_by"), "full_name") or data.get("requested_by") or ""
+    # CR-WF-15-ALLOC: server-driven CTA hint (mirror get_cycle_count :597). ADDITIVE key
+    # — không đổi shape khác (Hyrum's Law). FE gate nút theo allowed_transitions.includes.
+    data["allowed_transitions"] = _allocation_allowed_transitions(data.get("allocation_status"))
     return data
 
 
@@ -450,6 +475,79 @@ def cancel_allocation(allocation: str) -> dict:
     return {"name": allocation, "workflow_state": AllocationStatus.CANCELLED}
 
 
+# ─── CR-WF-15-ALLOC (Trục A): SSoT allowed_transitions cho Spare Allocation ──────
+#
+# `_allocation_allowed_transitions` là SSoT sinh `allowed_transitions` (get_allocation →
+# CTA FE AllocationDetailView server-driven, GATE-8/LL-FE-51) — song song
+# `_cycle_allowed_transitions` (Cycle Count) và `_VALID_TRANSITIONS` (Incident, CR-WF-12).
+# KHÁC cycle-count: trả NEXT-STATE STRINGS (codomain ⊆ AllocationStatus), KHÔNG
+# action-verb token → không cần TOKEN_TARGET indirection. FE gate nút theo
+# `allowed_transitions.includes(<next-state>)`, KHÔNG hardcode `allocation_status === '...'`.
+#
+# Giá trị = các cạnh THẬT mà SERVICE hỗ trợ (approve/issue/cancel/return) — verify @source:
+#   • approve_allocation (imm15:286): Requested → Approved                    (guard REQUESTED)
+#   • issue_allocation  (imm15:310):  {Requested, Approved} → Issued          (guard @318 LOẠI Picked)
+#   • cancel_allocation (imm15:441):  {Requested, Approved, Picked} → Cancelled (guard OPEN)
+#   • return_items      (imm15:394):  Issued → Returned                       (guard ISSUED)
+# ⇒ Requested → [Approved, Issued, Cancelled]; Approved → [Issued, Cancelled];
+#   Picked → [Cancelled]; Issued → [Returned]; Returned → []; Cancelled → [] (terminal).
+# Đây là DISPLAY HINT — guard cứng (_require_*/BAD_STATE) trong từng entrypoint KHÔNG đổi.
+#
+# ── INVARIANT (mirror TestCycleCountAllowedTransitions §CR-WF-15-CC — BIDIRECTIONAL) ──
+#   INV-1 (SVC ⊆ WF ∪ EXC): mọi cạnh service surface PHẢI ∈ workflow HOẶC là exception
+#         có rationale → 0 dead/bypass CTA không-khai.
+#   INV-2 (WF ⊆ SVC ∪ EXC): mọi cạnh workflow HOẶC được surface CTA HOẶC là exception →
+#         0 drift câm.
+#   ⇒ keys(EXCEPTION_EDGES) == WF △ SVC (đối xứng) EXACT. Guard
+#   `TestAllocationAllowedTransitions` (tests/test_imm15.py) đối soát 2 chiều — RED nếu
+#   map lệch workflow mà quên khai, GREEN sau đối soát.
+#
+# EXCEPTION_EDGES — dual-track divergence CỐ Ý (status = SSoT runtime; workflow_state =
+# vestigial). Gồm CẢ hai chiều (mirror _CYCLE_EXCEPTION_EDGES: WF-only + SVC-only):
+_ALLOCATION_EXCEPTION_EDGES: dict[tuple[str, str], str] = {
+    # ── WF-only (workflow có cạnh, service CHƯA có CTA) ──
+    (AllocationStatus.APPROVED, AllocationStatus.PICKED):
+        "WF-only · Pick chain (physical pick/reservation step) — workflow 'Pick' "
+        "(Approved→Picked) CHƯA implement ở service (không fn nào set PICKED). Deferred.",
+    (AllocationStatus.PICKED, AllocationStatus.ISSUED):
+        "WF-only · Pick chain — workflow 'Issue' (Picked→Issued); issue_allocation@318 "
+        "chỉ nhận {Requested, Approved}, LOẠI Picked ⇒ không surface CTA từ Picked. Deferred.",
+    (AllocationStatus.RETURNED, AllocationStatus.ISSUED):
+        "WF-only · 'Đóng phiếu' (Returned→Issued) — SOURCE-VERIFIED: KHÔNG service fn nào "
+        "set từ Returned (issue_allocation@318 loại Returned; return_items yêu cầu Issued). "
+        "Chỉ là workflow-desk edge, chưa surface REST CTA (tránh nút câm). Deferred.",
+    # ── SVC-only (service hỗ trợ, workflow KHÔNG có cạnh trực tiếp) ──
+    (AllocationStatus.APPROVED, AllocationStatus.ISSUED):
+        "SVC-only · service COLLAPSE Pick chain — issue_allocation@318 nhận Approved TRỰC "
+        "TIẾP → Issued (Pick chưa implement nên đây là đường đi-tới THẬT từ Approved). "
+        "Workflow mô hình 2-hop Approved→Picked→Issued; service gộp còn 1-hop. Vì Pick "
+        "vestigial, CTA 'Xuất kho' từ Approved BẮT BUỘC surface (bỏ = allocation kẹt ở "
+        "Approved chỉ còn Hủy = CTA-ẩn-câm). Cạnh này LIVE, KHÔNG dead.",
+}
+
+# Pure status → next-state list (SSoT). Mọi AllocationStatus có entry (0 KeyError).
+_ALLOCATION_TRANSITIONS: dict[str, list[str]] = {
+    AllocationStatus.REQUESTED: [AllocationStatus.APPROVED, AllocationStatus.ISSUED,
+                                 AllocationStatus.CANCELLED],
+    AllocationStatus.APPROVED:  [AllocationStatus.ISSUED, AllocationStatus.CANCELLED],
+    AllocationStatus.PICKED:    [AllocationStatus.CANCELLED],
+    AllocationStatus.ISSUED:    [AllocationStatus.RETURNED],
+    AllocationStatus.RETURNED:  [],
+    AllocationStatus.CANCELLED: [],
+}
+
+
+def _allocation_allowed_transitions(status: str) -> list[str]:
+    """Next-state strings khả dụng (service-supported) cho allocation ở `status`.
+
+    SSoT cho `allowed_transitions` mà `get_allocation` emit → CTA FE server-driven. Trả
+    NEXT-STATE strings (⊆ AllocationStatus), KHÔNG action token (khác cycle-count). Đây là
+    DISPLAY HINT — quyền cứng do `_require_*`/BAD_STATE trong từng entrypoint quyết định.
+    Status lạ → [] (an toàn, 0 KeyError).
+    """
+    return list(_ALLOCATION_TRANSITIONS.get(status, []))
+
+
 # ─── Cycle Count: Create / Post ──────────────────────────────────────────────
 
 def list_cycle_counts(filters: dict, *, page: int = 1, page_size: int = 20) -> dict:
@@ -469,23 +567,61 @@ def list_cycle_counts(filters: dict, *, page: int = 1, page_size: int = 20) -> d
 
 
 # Semantic action tokens exposed to the FE (naming contract BE ⇄ FE):
-#   'Submit' → submitCycleCount  (Planned/Counting → Reviewed)
-#   'Post'   → postCycleCount    (Reviewed → Posted)
+#   'Submit'  → submitCycleCount   (Planned/Counting → Reviewed)
+#   'Recount' → recountCycleCount  (Reviewed → Counting — "Sửa đếm lại"/gửi về đếm lại)
+#   'Post'    → postCycleCount     (Reviewed → Posted)
 # NOTE (dual-track status/workflow_state, ADR-IMM factory rounds 1-25): the SSoT
 # for state here is the `status` field, NOT `workflow_state` — create_cycle_count
 # never populates `workflow_state`, so frappe.model.workflow.get_transitions()
 # would read state=None and return []. We therefore derive the token list from
 # `status` (mirrors imm08/09/11/12 `_XXX_VALID_TRANSITIONS.get(status, [])`) and
 # gate each token by the session user's capability so the CTA is role-aware.
+#
+# ── INVARIANT (CR-WF-15-CC, mirror imm12 §SSoT) ───────────────────────────────
+# `_cycle_allowed_transitions` là SSoT sinh `allowed_transitions` (get_cycle_count →
+# CTA FE CycleCountDetailView server-driven). Nó PHẢI khớp cạnh THẬT của
+# imm_15_cycle_count_workflow.json để không có nút DEAD/bypass và không có cạnh
+# workflow ẩn câm. Guard `TestCycleCountAllowedTransitions` (tests/test_imm15.py)
+# đối soát 2 chiều:
+#   INV-1 (SVC ⊆ WF ∪ EXCEPTION): mọi token→đích là cạnh workflow hoặc exception.
+#   INV-2 (WF ⊆ SVC ∪ EXCEPTION): mọi cạnh workflow được surface CTA hoặc là exception.
+# _CYCLE_TOKEN_TARGET ánh xạ token → status đích (đối chiếu với cạnh workflow).
+_CYCLE_TOKEN_TARGET: dict[str, str] = {
+    "Submit": CycleCountStatus.REVIEWED,    # submit_cycle_count
+    "Recount": CycleCountStatus.COUNTING,   # recount_cycle_count (Reviewed → Counting)
+    "Post": CycleCountStatus.POSTED,        # post_cycle_count
+}
+
+# EXCEPTION_EDGES — nơi state-machine SERVICE (status = SSoT) và workflow JSON
+# (workflow_state = vestigial, dual-track) LỆCH NHAU CỐ Ý. Mỗi entry kèm rationale
+# để guard chống drift CÂM mà không báo giả các divergence đã-biết.
+_CYCLE_EXCEPTION_EDGES: dict[tuple[str, str], str] = {
+    (CycleCountStatus.PLANNED, CycleCountStatus.COUNTING):
+        "Workflow 'Bắt đầu đếm' (Planned→Counting) — service KHÔNG có CTA rời; "
+        "submit_cycle_count gộp Planned→Counting→Reviewed thành 1 bước atomically "
+        "(dual-track: status là SSoT, workflow_state không dùng runtime).",
+    (CycleCountStatus.PLANNED, CycleCountStatus.REVIEWED):
+        "submit_cycle_count từ Planned nhảy thẳng Reviewed (bỏ qua Counting) — cạnh "
+        "tổng hợp KHÔNG có trong workflow (workflow chỉ có 2 hop rời Planned→Counting "
+        "và Counting→Reviewed).",
+}
+
+
 def _cycle_allowed_transitions(status: str) -> list[str]:
-    """Role-aware CTA tokens for a cycle count in a given `status`."""
+    """Role-aware CTA tokens for a cycle count in a given `status`.
+
+    Reviewed → {Recount (Reviewed→Counting), Post (Reviewed→Posted)} — cả hai gate
+    bởi `inventory.submit` (_CAP_APPROVE): Recount = gửi phiếu về đếm lại, Post = duyệt
+    điều chỉnh. Recount đặt TRƯỚC Post (thứ tự CTA FE). Thiếu cap → không token nào.
+    """
     out: list[str] = []
     if status in (CycleCountStatus.PLANNED, CycleCountStatus.COUNTING):
         if rbac.can(_CAP_OPERATE):
             out.append("Submit")
     elif status == CycleCountStatus.REVIEWED:
         if rbac.can(_CAP_APPROVE):
-            out.append("Post")
+            out.append("Recount")  # Reviewed → Counting (recountCycleCount, CR-WF-15-CC)
+            out.append("Post")     # Reviewed → Posted (postCycleCount)
     return out
 
 
@@ -688,6 +824,68 @@ def post_cycle_count(cycle_count: str, verified_by: str = "",
     frappe.db.commit()
     return {"name": cycle_count, "workflow_state": CycleCountStatus.POSTED,
             "adjustment_ref": adjustment_ref, "capa_created": capa_count}
+
+
+def recount_cycle_count(count_name: str, reason: str = "") -> dict:
+    """Gửi phiếu đã Reviewed về Counting để đếm lại ("Sửa đếm lại") — CR-WF-15-CC.
+
+    Surface CTA cho cạnh workflow THẬT `Reviewed → Counting` (∈ imm_15_cycle_count_
+    workflow.json — action "Sửa đếm lại"). `reason` bắt buộc. Cap `inventory.submit`
+    (_CAP_APPROVE, parity Post — cùng role-set duyệt: submit trên AC Stock Movement).
+    Audit IMM Audit Trail (Reviewed→Counting, đối xứng submit/post — mọi transition
+    sinh record).
+
+    Raises:
+        ServiceError(FORBIDDEN): thiếu cap inventory.submit.
+        ServiceError(NOT_FOUND): phiếu không tồn tại.
+        ServiceError(BAD_STATE): status ≠ Reviewed.
+        ServiceError(BUSINESS_RULE, 422): reason rỗng (IMM15_RECOUNT_REASON_REQUIRED).
+
+    Returns:
+        dict: {"name", "workflow_state": "Counting"}.
+    """
+    _require_any_role(
+        _CAP_APPROVE,
+        "Chỉ cấp quản lý kho (Inventory Manager) mới được gửi phiếu về đếm lại")
+    doc = CycleCountRepo.get(count_name)
+    if not doc:
+        raise ServiceError(ErrorCode.NOT_FOUND,
+                           f"Không tìm thấy phiên kiểm kê: {count_name}")
+    if doc.status != CycleCountStatus.REVIEWED:
+        raise ServiceError(
+            ErrorCode.BAD_STATE,
+            f"Cycle Count {count_name} chưa ở trạng thái Reviewed")
+    if not (reason or "").strip():
+        nthrow(MSG.IMM15_RECOUNT_REASON_REQUIRED)
+
+    doc.status = CycleCountStatus.COUNTING
+    # Recount = huỷ kết quả review trước → xoá dấu vết verify/post (an toàn: phiếu
+    # Reviewed chưa post nên thường đã None; xoá phòng thủ để state Counting sạch +
+    # tránh VR-15-11 controller-validate khi verified_by == counted_by sót lại).
+    doc.verified_by = None
+    doc.posted_movement_ref = None
+    CycleCountRepo.save(doc)
+    # §5 audit trail — mọi transition sinh record (đối xứng cycle_count_posted).
+    # event_type PHẢI ∈ Select IMM Audit Trail.event_type; "State Change" hợp lệ cho
+    # chuyển trạng thái (slug tự do → Select validation reject → mất audit câm).
+    try:
+        log_audit_event(
+            asset="",
+            event_type="State Change",
+            actor=frappe.session.user,
+            ref_doctype=CycleCountRepo.DOCTYPE,
+            ref_name=count_name,
+            change_summary=(
+                f"IMM-15 Cycle Count gửi về đếm lại: {count_name} — "
+                f"{reason.strip()[:160]}"),
+            from_status=CycleCountStatus.REVIEWED,
+            to_status=CycleCountStatus.COUNTING,
+        )
+    except Exception:
+        frappe.log_error(frappe.get_traceback(),
+                         "IMM-15: cycle_count_recount audit failed")
+    frappe.db.commit()
+    return {"name": count_name, "workflow_state": CycleCountStatus.COUNTING}
 
 
 # ─── Forecast ─────────────────────────────────────────────────────────────────
@@ -1260,6 +1458,14 @@ def _count_low_stock() -> int:
 
 
 def _write_allocation_audit(allocation_name: str, action: str, payload: dict) -> None:
+    """Ghi ĐÚNG 1 dòng IMM Audit Trail cho mỗi transition allocation (§5, BR-15-10).
+
+    ``event_type = f"allocation_{action.lower()}"`` với ``action`` ∈
+    ``_ALLOCATION_AUDIT_ACTIONS`` ⇒ slug ∈ ``IMM15_AUDIT_EVENT_TYPES`` (SSoT) ⊆ Select
+    options. Audit-write là **non-blocking best-effort** (fail KHÔNG rollback nghiệp
+    vụ đã commit) NHƯNG fail PHẢI SURFACE qua ``frappe.log_error`` — KHÔNG bare ``pass``
+    (bare pass = silent-audit-loss câm; đối xứng nhánh except @post_cycle_count).
+    """
     try:
         log_audit_event(
             asset="",
@@ -1270,7 +1476,8 @@ def _write_allocation_audit(allocation_name: str, action: str, payload: dict) ->
             change_summary=f"IMM-15 Allocation {action}: {allocation_name}",
         )
     except Exception:
-        pass
+        frappe.log_error(frappe.get_traceback(),
+                         "IMM-15: allocation audit failed")
 
 
 def _require_any_role(cap: str, message: str) -> None:

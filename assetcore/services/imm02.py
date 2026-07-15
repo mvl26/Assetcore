@@ -260,6 +260,219 @@ def _validate_gate_g04(doc: Document) -> None:
             )
 
 
+# ─── CTA gating & approval RBAC (GATE-8 / LL-FE-51) ───────────────────────────
+#
+# ROOT CAUSE (bug "mọi user login đều thấy + bấm 'Chốt hồ sơ'"): lock/withdraw
+# BYPASS `apply_workflow` — chúng set `workflow_state` trực tiếp qua `doc.submit()`
+# nên Frappe KHÔNG enforce role của transition workflow. Trước đây service chỉ
+# guard STATE, thiếu guard ROLE → lỗ RBAC. Fix: mirror role-name của các transition
+# rời 'Pending Approval' trong fixtures/workflow.json 'IMM-02 Spec Workflow'
+# ('Phê duyệt spec' → Locked, 'Rút spec' → Withdrawn) làm SoT + enforce ở service.
+
+# SoT — bộ role được phép duyệt (khớp `allowed` của transition 'Pending Approval').
+# Đây là gate role-name THẬT của workflow (không phải role-name bịa → không phải
+# RBAC dead-gate); đổi transition = phải đồng bộ set này (invariant test khoá).
+_SPEC_APPROVAL_ROLES = frozenset({
+    "Procurement Manager", "AssetCore Super Admin", "System Manager",
+})
+
+
+def _has_spec_approver_role(user: str | None = None) -> bool:
+    """True nếu `user` có ≥1 role duyệt spec (mirror transition 'Pending Approval')."""
+    user = user or frappe.session.user
+    return bool(_SPEC_APPROVAL_ROLES.intersection(frappe.get_roles(user)))
+
+
+def _require_spec_approver() -> None:
+    """Chặn cứng lock/withdraw — chỉ role duyệt spec mới được thực hiện.
+
+    Pattern như imm16._require_qa_or_admin. Gọi ở ĐẦU _lock_spec/_withdraw_spec
+    (capability → state, defense-in-depth).
+    """
+    if not _has_spec_approver_role():
+        raise ServiceError(
+            ErrorCode.FORBIDDEN,
+            _("Chỉ người có quyền duyệt hồ sơ kỹ thuật mới được thực hiện thao tác này"),
+        )
+
+
+def _can_reissue_actor(user: str | None = None) -> bool:
+    """Reissue = tạo Tech Spec MỚI (copy_doc + insert) → gate theo quyền CREATE
+    THẬT trên IMM Tech Spec (DocPerm: Spec User / Spec Manager / Super Admin).
+
+    KHÔNG hardcode role-name và KHÔNG bắt buộc role duyệt — người soạn hồ sơ được
+    phát hành lại. Mirror chính xác điều kiện mà `new.insert()` sẽ enforce ⇒ giữ
+    invariant map ⊆ guard-permitted (cờ can_reissue advertise ⟺ insert cho phép).
+    """
+    user = user or frappe.session.user
+    return bool(frappe.has_permission(_DT_TS, ptype="create", user=user))
+
+
+def _require_reissue_actor() -> None:
+    """Chặn cứng reissue — chỉ người có quyền soạn (create) Tech Spec mới reissue."""
+    if not _can_reissue_actor():
+        raise ServiceError(
+            ErrorCode.FORBIDDEN,
+            _("Chỉ người có quyền soạn hồ sơ kỹ thuật mới được phát hành lại"),
+        )
+
+
+# Guard-state predicates THỰC của lock/withdraw/reissue — SSoT DÙNG CHUNG cho cả
+# cờ CTA (_spec_cta_flags) VÀ guard BAD_STATE ở endpoint (không nới lỏng guard).
+# LƯU Ý: withdraw hợp lệ CẢ từ 'Locked' dù fixture KHÔNG có transition
+# Locked→Withdrawn — cờ phải khớp guard-predicate service THỰC, không dùng
+# blanket fixture-transition-map.
+def _spec_lock_state_ok(state: str | None) -> bool:
+    return (state or "Draft") == "Pending Approval"
+
+
+def _spec_withdraw_state_ok(state: str | None) -> bool:
+    return (state or "Draft") in ("Pending Approval", "Locked")
+
+
+def _spec_reissue_state_ok(state: str | None) -> bool:
+    return (state or "Draft") == "Withdrawn"
+
+
+def _spec_cta_flags(doc, user: str | None = None) -> dict:
+    """SSoT cờ CTA duyệt cho FE — derive server-side từ
+    (guard-state predicate THỰC ∧ role/capability của user).
+
+    Reuse bởi get_tech_spec (display hint) — KHÔNG nới guard. INVARIANT
+    (map ⊆ guard-permitted): mỗi cờ True ⟹ endpoint tương ứng KHÔNG reject
+    (state guard + _require_spec_approver / _require_reissue_actor cùng điều kiện).
+    `allowed_transitions` CHỈ là danh sách đích để hiển thị, không phải quyền.
+
+    Args:
+        doc: IMM Tech Spec document (đọc `workflow_state`).
+        user: user để tính role (mặc định session user).
+
+    Returns:
+        {allowed_transitions: list[str], can_lock, can_withdraw, can_reissue}
+    """
+    user = user or frappe.session.user
+    state = getattr(doc, "workflow_state", None) or "Draft"
+    is_approver = _has_spec_approver_role(user)
+    reissue_ok = _can_reissue_actor(user)
+
+    can_lock     = _spec_lock_state_ok(state) and is_approver
+    can_withdraw = _spec_withdraw_state_ok(state) and is_approver
+    can_reissue  = _spec_reissue_state_ok(state) and reissue_ok
+
+    allowed: list[str] = []
+    if can_lock:
+        allowed.append("Locked")
+    if can_withdraw:
+        allowed.append("Withdrawn")
+    if can_reissue:
+        allowed.append("Draft")  # reissue tạo bản mới ở Draft
+    return {
+        "allowed_transitions": allowed,
+        "can_lock": bool(can_lock),
+        "can_withdraw": bool(can_withdraw),
+        "can_reissue": bool(can_reissue),
+    }
+
+
+# ─── Intermediate workflow transitions — SSoT next-ACTION+role (khớp
+#     imm_02_spec_workflow.json 'IMM-02 Spec Workflow') ──────────────────────────
+# Đóng bug "Spec kẹt ở Draft/Reviewing/Benchmarked/Risk Assessed dù đủ quyền": FE
+# chỉ có 3 nút EXCEPTION lock/withdraw/reissue (cờ _spec_cta_flags), còn endpoint
+# transition_workflow LIVE nhưng 0 nút render 6 transition TRUNG GIAN. Fix: BE là
+# SoT — get_tech_spec emit `allowed_actions` (ĐÃ LỌC role) để FE render 1 nút/action.
+#
+# Mirror imm03._AVL_VALID_TRANSITIONS (RICHER: (action, next_state, allowed_roles)).
+# KHÁC 3 cờ EXCEPTION (_spec_cta_flags): 2 cạnh rời 'Pending Approval'
+# ('Phê duyệt spec'→Locked, 'Rút spec'→Withdrawn) do endpoint lock_spec/withdraw_spec
+# xử lý (BYPASS apply_workflow — doc.submit) → KHÔNG surface qua transition_workflow;
+# gom vào _SPEC_EXCEPTION_ACTIONS để invariant test trừ khỏi tập action workflow.
+#
+# allowed_roles = domain-role fixture ('allowed') + AssetCore Super Admin + System
+# Manager (đã backfill → QTV/Admin duyệt được — đóng root-cause 'không duyệt được dù
+# đủ quyền'). Invariant `test_spec_valid_transitions_reconciles_workflow_json` chốt
+# (state,action,next_state,roles) == workflow json EXACT + completeness (thiếu cạnh
+# → RED). allowed_actions CHỈ là hint hiển thị (⊆ guard-permitted) — apply_workflow
+# vẫn enforce role như lớp 2, KHÔNG nới lỏng.
+
+
+class SpecState:
+    """Workflow states của IMM Tech Spec (khớp imm_02_spec_workflow.json states[])."""
+    DRAFT            = "Draft"
+    REVIEWING        = "Reviewing"
+    BENCHMARKED      = "Benchmarked"
+    RISK_ASSESSED    = "Risk Assessed"
+    PENDING_APPROVAL = "Pending Approval"
+    LOCKED           = "Locked"
+    WITHDRAWN        = "Withdrawn"
+
+    ALL = frozenset({
+        DRAFT, REVIEWING, BENCHMARKED, RISK_ASSESSED,
+        PENDING_APPROVAL, LOCKED, WITHDRAWN,
+    })
+
+
+# +2 admin role đã backfill vào MỌI transition fixture (QTV/Admin thao tác được).
+_SPEC_ADMIN_ROLES = frozenset({"AssetCore Super Admin", "System Manager"})
+
+_SPEC_VALID_TRANSITIONS: dict[str, list[tuple[str, str, frozenset]]] = {
+    SpecState.DRAFT: [
+        ("Gửi rà soát", SpecState.REVIEWING,
+         frozenset({"Spec User"}) | _SPEC_ADMIN_ROLES),
+    ],
+    SpecState.REVIEWING: [
+        ("Yêu cầu chỉnh spec", SpecState.DRAFT,
+         frozenset({"Spec User", "Needs Manager"}) | _SPEC_ADMIN_ROLES),
+        ("Hoàn tất benchmark", SpecState.BENCHMARKED,
+         frozenset({"Needs Manager"}) | _SPEC_ADMIN_ROLES),
+    ],
+    SpecState.BENCHMARKED: [
+        ("Đánh giá rủi ro xong", SpecState.RISK_ASSESSED,
+         frozenset({"Spec Manager"}) | _SPEC_ADMIN_ROLES),
+    ],
+    SpecState.RISK_ASSESSED: [
+        ("Trình duyệt spec", SpecState.PENDING_APPROVAL,
+         frozenset({"Commissioning Manager"}) | _SPEC_ADMIN_ROLES),
+    ],
+    SpecState.PENDING_APPROVAL: [
+        ("Yêu cầu chỉnh risk", SpecState.RISK_ASSESSED,
+         frozenset({"Procurement Manager"}) | _SPEC_ADMIN_ROLES),
+    ],
+    # Terminal workflow-engine (docstatus 1) → 0 transition trung gian.
+    SpecState.LOCKED: [],
+    SpecState.WITHDRAWN: [],
+}
+
+# 2 cạnh rời 'Pending Approval' do endpoint lock_spec ('Phê duyệt spec'→Locked) /
+# withdraw_spec ('Rút spec'→Withdrawn) xử lý (BYPASS apply_workflow). KHÔNG surface
+# qua transition_workflow. Invariant: (wf_actions − map_actions) == set này.
+_SPEC_EXCEPTION_ACTIONS = frozenset({"Phê duyệt spec", "Rút spec"})
+
+
+def spec_allowed_actions(workflow_state, user_roles=None) -> list[str]:
+    """SSoT derive tập nhãn ACTION trung gian hợp lệ cho ``workflow_state``, ĐÃ LỌC
+    theo role của user (server-driven CTA, GATE-8/LL-FE-51). Trả ``list[str]``
+    (⊆ tập action user được phép). ``user_roles`` truyền 1 LẦN từ caller (N+1-free);
+    ``None`` → KHÔNG lọc (full SoT của state). Degrade an toàn: state
+    unknown/terminal (Locked/Withdrawn) → ``[]`` (FE render 0 nút).
+    Mirror imm03.avl_allowed_transitions."""
+    rows = _SPEC_VALID_TRANSITIONS.get(workflow_state or "", [])
+    if user_roles is None:
+        return [action for action, _next, _roles in rows]
+    ur = set(user_roles)
+    return [action for action, _next, roles in rows if roles & ur]
+
+
+def spec_transition_target(workflow_state, action):
+    """Trả ``(next_state, allowed_roles)`` cho ``(workflow_state, action)`` nếu ∈ SoT
+    ``_SPEC_VALID_TRANSITIONS``, else ``None``. API tier dùng để reject action ngoài
+    SoT (nhảy-cóc / action lạ) → BAD_STATE (apply_workflow enforce role như lớp 2).
+    Mirror imm03.avl_transition_target."""
+    for act, next_state, roles in _SPEC_VALID_TRANSITIONS.get(workflow_state or "", []):
+        if act == action:
+            return next_state, roles
+    return None
+
+
 # ─── Market Benchmark ─────────────────────────────────────────────────────────
 
 def validate_market_benchmark(doc: Document) -> None:

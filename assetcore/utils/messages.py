@@ -165,6 +165,12 @@ class MSG:
     IMM12_OCCURRED_DATETIME_FUTURE = "IMM12-OCCURRED-DATETIME-FUTURE"
     IMM12_RESOLUTION_NOTES_REQUIRED = "IMM12-RESOLUTION-NOTES-REQUIRED"
     IMM12_CANCEL_REASON_REQUIRED = "IMM12-CANCEL-REASON-REQUIRED"
+    IMM12_REOPEN_REASON_REQUIRED = "IMM12-REOPEN-REASON-REQUIRED"
+    # BR-12-24 (CR-WF-12-RCA-ENTRY): "Yêu cầu phân tích RCA" (Resolved → RCA
+    # Required). BAD_STATE riêng ở 422 (KHÔNG dùng IMM12_BAD_STATE=409) — precondition
+    # đọc doc.status (domain SSoT), KHÔNG _assert_transition.
+    IMM12_REQUEST_RCA_BAD_STATE = "IMM12-REQUEST-RCA-BAD-STATE"
+    IMM12_RCA_REASON_REQUIRED = "IMM12-RCA-REASON-REQUIRED"
     IMM12_RCA_ROOT_CAUSE_REQUIRED = "IMM12-RCA-ROOT-CAUSE-REQUIRED"
     IMM12_RCA_CORRECTIVE_REQUIRED = "IMM12-RCA-CORRECTIVE-REQUIRED"
     IMM12_RCA_ALREADY_EXISTS = "IMM12-RCA-ALREADY-EXISTS"
@@ -206,6 +212,9 @@ class MSG:
     IMM11_CERT_RECEIVED_SUCCESS = "IMM11-CERT-RECEIVED-SUCCESS"
     IMM11_CANCEL_SUCCESS = "IMM11-CANCEL-SUCCESS"
 
+    # ── IMM-15 Kiểm kê / Cycle Count (CR-WF-15-CC) ────────────────────────────
+    IMM15_RECOUNT_REASON_REQUIRED = "IMM15-RECOUNT-REASON-REQUIRED"
+
     # ── IMM-14 Giải nhiệm thiết bị (Decommission Closure Gate) ───────────────
     # Cổng "Hồ sơ giải nhiệm": chặn asset vào Decommissioned nếu chưa có closure
     # record ký duyệt + xác nhận xử lý dữ liệu BN (WHO §3.6) + phương thức (NĐ98).
@@ -221,6 +230,9 @@ class MSG:
     IMM14_GATE_NO_CLOSURE = "IMM14-GATE-NO-CLOSURE"
     IMM14_CREATE_SUCCESS = "IMM14-CREATE-SUCCESS"
     IMM14_APPROVE_SUCCESS = "IMM14-APPROVE-SUCCESS"
+    # can_approve=0 reasons (server-driven CTA — GATE-8/LL-FE-51)
+    IMM14_ALREADY_APPROVED = "IMM14-ALREADY-APPROVED"
+    IMM14_NO_APPROVE_PERMISSION = "IMM14-NO-APPROVE-PERMISSION"
 
     # ── IMM-16 ∩ IMM-00 — Cổng hiệu quả CAPA (VR-06/VR-07, BR-00-26) ─────────
     # ServiceError(VALIDATION, message_code='FIN-007') khi đóng CAPA mà
@@ -834,6 +846,35 @@ MESSAGES: dict[str, MessageEntry] = {
         "severity": "warning",
         "http_status": 422,
     },
+    MSG.IMM12_REOPEN_REASON_REQUIRED: {
+        "title": "Thiếu lý do mở lại",
+        "template": "Vui lòng nhập lý do mở lại điều tra.",
+        "action_hint": "Nhập lý do mở lại rồi thử lại.",
+        "severity": "warning",
+        "http_status": 422,
+    },
+    MSG.IMM12_REQUEST_RCA_BAD_STATE: {
+        "title": "Chưa thể yêu cầu phân tích RCA",
+        "template": ("Chỉ có thể yêu cầu phân tích nguyên nhân gốc (RCA) khi sự cố "
+                     "đã ở trạng thái Đã xử lý."),
+        "action_hint": "Đưa sự cố về trạng thái Đã xử lý trước khi yêu cầu phân tích RCA.",
+        "severity": "warning",
+        "http_status": 422,
+    },
+    MSG.IMM12_RCA_REASON_REQUIRED: {
+        "title": "Thiếu lý do yêu cầu RCA",
+        "template": "Vui lòng nhập lý do yêu cầu phân tích nguyên nhân gốc.",
+        "action_hint": "Nhập lý do yêu cầu RCA rồi thử lại.",
+        "severity": "warning",
+        "http_status": 422,
+    },
+    MSG.IMM15_RECOUNT_REASON_REQUIRED: {
+        "title": "Thiếu lý do đếm lại",
+        "template": "Vui lòng nhập lý do gửi phiếu về đếm lại.",
+        "action_hint": "Nhập lý do gửi về đếm lại rồi thử lại.",
+        "severity": "warning",
+        "http_status": 422,
+    },
     MSG.IMM12_RCA_ROOT_CAUSE_REQUIRED: {
         "title": "Thiếu nguyên nhân gốc rễ",
         "template": "Cần nhập nguyên nhân gốc rễ để hoàn thành phân tích nguyên nhân gốc.",
@@ -1189,6 +1230,20 @@ MESSAGES: dict[str, MessageEntry] = {
         "action_hint": "Thiết bị đã chuyển sang trạng thái Đã thanh lý.",
         "severity": "success",
         "http_status": 200,
+    },
+    MSG.IMM14_ALREADY_APPROVED: {
+        "title": "Hồ sơ đã được duyệt",
+        "template": "Hồ sơ giải nhiệm này đã được duyệt.",
+        "action_hint": "Thiết bị đã hoàn tất giải nhiệm — không cần duyệt lại.",
+        "severity": "info",
+        "http_status": 409,
+    },
+    MSG.IMM14_NO_APPROVE_PERMISSION: {
+        "title": "Không đủ quyền duyệt",
+        "template": "Bạn không đủ quyền duyệt hồ sơ giải nhiệm.",
+        "action_hint": "Liên hệ người có quyền duyệt (Quản lý lắp đặt / Quản lý tuân thủ / Quản trị viên).",
+        "severity": "warning",
+        "http_status": 403,
     },
 }
 

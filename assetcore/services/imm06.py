@@ -38,6 +38,65 @@ class SessionStatus:
     CANCELLED = "Cancelled"
 
 
+# SSoT máy-trạng-thái Training Session (GATE-8 / LL-FE-51). BE emit
+# `allowed_transitions = _SESSION_VALID_TRANSITIONS.get(state, [])` trong get_session
+# để FE gate 6 CTA (KHÔNG hardcode `state === 'X'`).
+#
+# Map PHẢI khớp EXACT các guard state ở service layer (invariant test test_imm06
+# TC6 chống drift). Đối chiếu:
+#   • confirm_session      : Planned                     → Confirmed
+#   • start_training_session: Planned | Confirmed        → In Progress  (desync fix:
+#         guard cho phép Planned→In Progress → map Planned PHẢI gồm 'In Progress')
+#   • complete_training_session: In Progress             → Completed
+#   • verify_session       : Completed                   → Verified
+#   • close_session        : Verified                    → Closed
+#   • cancel_session       : Planned | Confirmed         → Cancelled   (khớp workflow
+#         JSON "IMM-06 Session Workflow" + FE; guard đã siết về đúng 2 state này)
+# Thứ tự phần tử ổn định (test khớp exact list).
+#
+# CR-WF-06-SESSION (Vòng 28) — reconcile 2-chiều ⇄ file `imm_06_session_workflow.json`:
+# tập cạnh {(state, next_state)} của map == tập cạnh distinct của workflow JSON (8 cạnh
+# 2 bên khớp HỆT). Invariant `test_session_allowed_transitions_matches_workflow` chốt
+# symmetric_difference == `_SESSION_EXCEPTION_EDGES` == frozenset() (∅). TƯƠNG PHẢN
+# competency (`_COMPETENCY_VALID_TRANSITIONS`, 4 EXCEPTION_EDGES): session KHÔNG có cạnh
+# scheduler-auto / create-new ⇒ 0 ngoại lệ. Thêm/bớt transition 1 phía mà quên phía kia
+# → guard RED (drift bất khả). KHÔNG sửa JSON ⇒ admin-override GIỮ + 0 migrate.
+_SESSION_VALID_TRANSITIONS: dict[str, list[str]] = {
+    SessionStatus.PLANNED: [
+        SessionStatus.CONFIRMED,
+        SessionStatus.IN_PROGRESS,
+        SessionStatus.CANCELLED,
+    ],
+    SessionStatus.CONFIRMED: [
+        SessionStatus.IN_PROGRESS,
+        SessionStatus.CANCELLED,
+    ],
+    SessionStatus.IN_PROGRESS: [SessionStatus.COMPLETED],
+    SessionStatus.COMPLETED: [SessionStatus.VERIFIED],
+    SessionStatus.VERIFIED: [SessionStatus.CLOSED],
+    SessionStatus.CLOSED: [],
+    SessionStatus.CANCELLED: [],
+}
+
+
+def _session_source_states(next_state: str) -> list[str]:
+    """Tập state nguồn mà từ đó có thể chuyển sang ``next_state`` (đọc từ SSoT).
+
+    6 service transition (confirm/start/complete/verify/close/cancel) derive
+    guard trạng-thái nguồn TỪ ĐÂY thay vì literal state-tuple rời — map↔guard 1
+    nguồn duy nhất, drift bất khả về mặt cấu trúc (invariant test_imm06 TC6).
+
+    Args:
+        next_state: trạng thái đích của một transition.
+
+    Returns:
+        list state nguồn hợp lệ, theo thứ tự khai báo trong
+        ``_SESSION_VALID_TRANSITIONS``.
+    """
+    return [s for s, nexts in _SESSION_VALID_TRANSITIONS.items()
+            if next_state in nexts]
+
+
 class CompetencyStatus:
     PENDING = "Pending Assessment"
     ACTIVE = "Active"
@@ -47,6 +106,62 @@ class CompetencyStatus:
     REVOKED = "Revoked"
 
     AUTHORIZED = (ACTIVE, EXPIRING)
+
+
+# ─── SSoT máy-trạng-thái vòng đời Năng lực (GATE-8 / LL-FE-51) ────────────────
+#
+# BE emit `allowed_transitions = _COMPETENCY_VALID_TRANSITIONS.get(state, [])` trong
+# get_competency để FE gate 5 CTA (Sign-off / Tạm ngưng / Khôi phục / Thu hồi /
+# Tái chứng nhận) — KHÔNG
+# hardcode `workflow_state === 'X'`. Parity get_session/_SESSION_VALID_TRANSITIONS,
+# KHÁC ở chỗ VALUE = TÊN HÀNH ĐỘNG (không phải state đích) vì một action có thể phân
+# nhánh state đích (Recertify: sinh competency mới ở Pending + đánh dấu cũ Expired).
+#
+# Map PHẢI khớp EXACT guard state ở service layer (invariant test TestCompetency
+# AllowedTransitions chống drift) + reconcile ⇄ imm_06_competency_workflow.json
+# (test_competency_allowed_transitions_matches_workflow, EXCEPTION_EDGES tường minh).
+# Đối chiếu:
+#   • signoff_competency   : Pending Assessment                       → Active    (Sign-off)
+#   • suspend_competency   : Active                                   → Suspended (Suspend)
+#   • restore_competency   : Suspended                                → Active    (Restore)
+#   • revoke_competency    : Active | Expiring | Expired | Suspended  → Revoked   (Revoke)
+#   • recertify_competency : Expiring | Expired                       → (mới)     (Recertify)
+# Thứ tự phần tử ổn định (test khớp exact list): Active=[Suspend,Revoke],
+# Suspended=[Restore,Revoke]. Cạnh scheduler-auto (Active→Expiring/Expired,
+# Expiring→Expired) và create-new (recertify sinh competency mới) KHÔNG là CTA →
+# nằm trong EXCEPTION_EDGES, không phản chiếu vào map action-label.
+COMPETENCY_SIGNOFF = "Sign-off"
+COMPETENCY_SUSPEND = "Suspend"
+COMPETENCY_RESTORE = "Restore"
+COMPETENCY_REVOKE = "Revoke"
+COMPETENCY_RECERTIFY = "Recertify"
+
+_COMPETENCY_VALID_TRANSITIONS: dict[str, list[str]] = {
+    CompetencyStatus.PENDING:   [COMPETENCY_SIGNOFF],
+    CompetencyStatus.ACTIVE:    [COMPETENCY_SUSPEND, COMPETENCY_REVOKE],
+    CompetencyStatus.EXPIRING:  [COMPETENCY_RECERTIFY, COMPETENCY_REVOKE],
+    CompetencyStatus.EXPIRED:   [COMPETENCY_RECERTIFY, COMPETENCY_REVOKE],
+    CompetencyStatus.SUSPENDED: [COMPETENCY_RESTORE, COMPETENCY_REVOKE],
+    CompetencyStatus.REVOKED:   [],
+}
+
+
+def _competency_states_allowing(action: str) -> list[str]:
+    """Tập state nguồn mà từ đó ``action`` hợp lệ (đọc từ SSoT).
+
+    3 service transition (signoff/revoke/recertify) derive guard trạng-thái nguồn
+    TỪ ĐÂY thay vì literal state rời — map↔guard 1 nguồn duy nhất, drift bất khả về
+    cấu trúc (invariant test chống desync SoT↔enforce).
+
+    Args:
+        action: tên hành động (Sign-off / Revoke / Recertify).
+
+    Returns:
+        list state nguồn hợp lệ, theo thứ tự khai báo trong
+        ``_COMPETENCY_VALID_TRANSITIONS``.
+    """
+    return [s for s, actions in _COMPETENCY_VALID_TRANSITIONS.items()
+            if action in actions]
 
 
 # ─── BR-06-13 SoT — recertification_due_date (Vòng 22) ────────────────────────
@@ -239,7 +354,7 @@ def start_training_session(session_name: str) -> dict:
     """Chuyển session sang In Progress."""
     _require_training_officer()
     doc = _get_session_or_raise(session_name)
-    if doc.workflow_state not in (SessionStatus.CONFIRMED, SessionStatus.PLANNED):
+    if doc.workflow_state not in _session_source_states(SessionStatus.IN_PROGRESS):
         raise ServiceError(ErrorCode.BAD_STATE,
                            f"Không thể bắt đầu ở trạng thái {doc.workflow_state}")
     doc.workflow_state = SessionStatus.IN_PROGRESS
@@ -252,7 +367,7 @@ def complete_training_session(session_name: str, results: list[dict]) -> dict:
     """Hoàn thành session, cập nhật kết quả học viên, tạo competency records."""
     _require_training_officer()
     doc = _get_session_or_raise(session_name)
-    if doc.workflow_state != SessionStatus.IN_PROGRESS:
+    if doc.workflow_state not in _session_source_states(SessionStatus.COMPLETED):
         raise ServiceError(ErrorCode.BAD_STATE,
                            f"Session phải ở trạng thái In Progress, hiện tại: {doc.workflow_state}")
 
@@ -371,8 +486,18 @@ def revoke_competency(competency_name: str, reason: str) -> dict:
     if not doc:
         raise ServiceError(ErrorCode.NOT_FOUND,
                            f"Không tìm thấy hồ sơ năng lực: {competency_name}")
-    if doc.workflow_state == CompetencyStatus.REVOKED:
-        raise ServiceError(ErrorCode.BAD_STATE, "Hồ sơ năng lực đã bị thu hồi")
+    # Guard derive TỪ SSoT _COMPETENCY_VALID_TRANSITIONS (parity allowed_transitions):
+    # chỉ thu hồi khi Active/Expiring/Expired/Suspended — chặn cả Revoked (đã thu hồi)
+    # lẫn Pending Assessment (chưa hiệu lực, phải Sign-off/từ chối thay vì thu hồi).
+    _revoke_states = _competency_states_allowing(COMPETENCY_REVOKE)
+    if doc.workflow_state not in _revoke_states:
+        if doc.workflow_state == CompetencyStatus.REVOKED:
+            raise ServiceError(ErrorCode.BAD_STATE, "Hồ sơ năng lực đã bị thu hồi")
+        raise ServiceError(
+            ErrorCode.BAD_STATE,
+            f"Không thể thu hồi năng lực ở trạng thái {doc.workflow_state}. "
+            f"Chỉ thu hồi khi đang: {', '.join(_revoke_states)}.",
+        )
     if not reason:
         raise ServiceError(ErrorCode.VALIDATION, "Bắt buộc phải có lý do thu hồi")
 
@@ -389,13 +514,104 @@ def revoke_competency(competency_name: str, reason: str) -> dict:
     return {"name": competency_name, "workflow_state": CompetencyStatus.REVOKED}
 
 
+def suspend_competency(competency_name: str, reason: str) -> dict:
+    """Tạm ngưng năng lực: Active → Suspended (CR-WF-06-COMP).
+
+    Đình chỉ tạm thời hiệu lực operator (khác REVOKE terminal) — có thể khôi phục
+    (restore_competency). Guard state nguồn phái sinh TỪ SSoT ``_COMPETENCY_VALID_
+    TRANSITIONS`` (parity revoke), đổi state ở mức DB qua ``set_values`` (KHÔNG
+    apply_workflow — bỏ qua validate_workflow, RBAC gate ở API-layer training.submit;
+    đối xứng revoke_competency + archive_old_competency). Sinh audit action
+    ``SUSPENDED`` + lifecycle ``competency_suspended``.
+
+    Args:
+        competency_name: tên hồ sơ năng lực.
+        reason: lý do tạm ngưng (BẮT BUỘC — rỗng → VALIDATION).
+
+    Returns:
+        dict với name + workflow_state mới (Suspended).
+
+    Raises:
+        ServiceError: NOT_FOUND (không tồn tại) / BAD_STATE (nguồn ≠ Active) /
+        VALIDATION (thiếu reason).
+    """
+    _require_training_officer()
+    doc = UserCompetencyRepo.get(competency_name)
+    if not doc:
+        raise ServiceError(ErrorCode.NOT_FOUND,
+                           f"Không tìm thấy hồ sơ năng lực: {competency_name}")
+    # Guard derive TỪ SSoT (parity allowed_transitions): chỉ tạm ngưng khi Active.
+    _suspend_states = _competency_states_allowing(COMPETENCY_SUSPEND)
+    if doc.workflow_state not in _suspend_states:
+        raise ServiceError(
+            ErrorCode.BAD_STATE,
+            f"Không thể tạm ngưng năng lực ở trạng thái {doc.workflow_state}. "
+            f"Chỉ tạm ngưng khi đang: {', '.join(_suspend_states)}.",
+        )
+    if not reason or not reason.strip():
+        raise ServiceError(ErrorCode.VALIDATION, "Bắt buộc phải có lý do tạm ngưng")
+
+    UserCompetencyRepo.set_values(competency_name,
+                                  {"workflow_state": CompetencyStatus.SUSPENDED})
+    _invalidate_auth_cache(doc.user, doc.device_model)
+    _log_competency_audit(competency_name, doc.user, "SUSPENDED", reason)
+    frappe.db.commit()
+    return {"name": competency_name, "workflow_state": CompetencyStatus.SUSPENDED}
+
+
+def restore_competency(competency_name: str) -> dict:
+    """Khôi phục năng lực: Suspended → Active (CR-WF-06-COMP).
+
+    Nghịch đảo suspend_competency — trả operator về trạng thái hiệu lực. Guard state
+    nguồn phái sinh TỪ SSoT (chỉ Suspended), đổi state ở mức DB qua ``set_values``.
+    Sinh audit action ``RESTORED`` + lifecycle ``competency_restored``.
+
+    Ranh giới BA-chốt (superseded/archive_old): ``archive_old_competency`` cũng đưa
+    hồ sơ cũ về Suspended khi ký duyệt bản thay thế. Workflow JSON khai
+    ``Suspended → Active`` (Khôi phục) KHÔNG phân biệt nguồn Suspended → restore áp
+    dụng cho MỌI Suspended (khớp workflow SSoT). Rủi ro tồn dư: khôi phục 1 hồ sơ
+    archive-superseded trong khi đã có bản mới Active cho cùng (user × device_model)
+    → 2 Active song song. Đây là thao tác admin có chủ đích (training.submit); nếu BA
+    muốn chặn nhánh superseded cần THÊM field marker phân biệt (backlog open-issue).
+
+    Args:
+        competency_name: tên hồ sơ năng lực.
+
+    Returns:
+        dict với name + workflow_state mới (Active).
+
+    Raises:
+        ServiceError: NOT_FOUND / BAD_STATE (nguồn ≠ Suspended).
+    """
+    _require_training_officer()
+    doc = UserCompetencyRepo.get(competency_name)
+    if not doc:
+        raise ServiceError(ErrorCode.NOT_FOUND,
+                           f"Không tìm thấy hồ sơ năng lực: {competency_name}")
+    _restore_states = _competency_states_allowing(COMPETENCY_RESTORE)
+    if doc.workflow_state not in _restore_states:
+        raise ServiceError(
+            ErrorCode.BAD_STATE,
+            f"Không thể khôi phục năng lực ở trạng thái {doc.workflow_state}. "
+            f"Chỉ khôi phục khi đang: {', '.join(_restore_states)}.",
+        )
+
+    UserCompetencyRepo.set_values(competency_name,
+                                  {"workflow_state": CompetencyStatus.ACTIVE})
+    _invalidate_auth_cache(doc.user, doc.device_model)
+    _log_competency_audit(competency_name, doc.user, "RESTORED", "")
+    frappe.db.commit()
+    return {"name": competency_name, "workflow_state": CompetencyStatus.ACTIVE}
+
+
 def signoff_competency(competency_name: str, supervisor_user: str) -> dict:
     """Supervisor ký duyệt competency: Pending Assessment → Active."""
     doc = UserCompetencyRepo.get(competency_name)
     if not doc:
         raise ServiceError(ErrorCode.NOT_FOUND,
                            f"Không tìm thấy hồ sơ năng lực: {competency_name}")
-    if doc.workflow_state != CompetencyStatus.PENDING:
+    # Guard derive TỪ SSoT (parity allowed_transitions): Sign-off CHỈ từ Pending Assessment.
+    if doc.workflow_state not in _competency_states_allowing(COMPETENCY_SIGNOFF):
         raise ServiceError(ErrorCode.BAD_STATE,
                            f"Chỉ có thể ký duyệt ở trạng thái Pending Assessment, hiện tại: {doc.workflow_state}")
 
@@ -964,14 +1180,10 @@ def get_session(name: str) -> dict:
     if not doc:
         raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy buổi học: {name}")
     data = doc.as_dict()
-    _transitions: dict[str, list[str]] = {
-        SessionStatus.PLANNED: [SessionStatus.CONFIRMED, SessionStatus.CANCELLED],
-        SessionStatus.CONFIRMED: [SessionStatus.IN_PROGRESS, SessionStatus.CANCELLED],
-        SessionStatus.IN_PROGRESS: [SessionStatus.COMPLETED, SessionStatus.CANCELLED],
-        SessionStatus.COMPLETED: [SessionStatus.VERIFIED],
-        SessionStatus.VERIFIED: [SessionStatus.CLOSED],
-    }
-    data["allowed_transitions"] = _transitions.get(data.get("workflow_state", ""), [])
+    # SSoT server-driven CTA: list(...) trả bản sao để consumer không mutate hằng.
+    data["allowed_transitions"] = list(
+        _SESSION_VALID_TRANSITIONS.get(data.get("workflow_state", ""), [])
+    )
 
     # Convert to plain dict to avoid Frappe serialization filtering
     result = dict(data)
@@ -1030,7 +1242,7 @@ def confirm_session(name: str) -> dict:
     """
     _require_training_officer()
     doc = _get_session_or_raise(name)
-    if doc.workflow_state != SessionStatus.PLANNED:
+    if doc.workflow_state not in _session_source_states(SessionStatus.CONFIRMED):
         raise ServiceError(
             ErrorCode.BAD_STATE,
             f"Chỉ có thể xác nhận buổi học ở trạng thái Planned. Hiện tại: {doc.workflow_state}",
@@ -1212,11 +1424,15 @@ def cancel_session(name: str, cancel_reason: str) -> dict:
     """
     _require_training_officer()
     doc = _get_session_or_raise(name)
-    if doc.workflow_state in (SessionStatus.COMPLETED, SessionStatus.CLOSED,
-                               SessionStatus.CANCELLED):
+    # Chỉ hủy được khi buổi học chưa diễn ra (Planned/Confirmed) — khớp
+    # _SESSION_VALID_TRANSITIONS + workflow JSON "IMM-06 Session Workflow" + FE.
+    # Buổi đã bắt đầu/hoàn tất → dùng luồng Hoàn thành/Đóng, không hủy (chống drift
+    # map↔guard, invariant test_imm06 TC6).
+    if doc.workflow_state not in _session_source_states(SessionStatus.CANCELLED):
         raise ServiceError(
             ErrorCode.BAD_STATE,
-            f"Không thể hủy buổi học đã {doc.workflow_state}.",
+            f"Chỉ có thể hủy buổi học ở trạng thái Planned hoặc Confirmed. "
+            f"Hiện tại: {doc.workflow_state}",
         )
     if not cancel_reason or not cancel_reason.strip():
         raise ServiceError(ErrorCode.VALIDATION, "Bắt buộc nhập lý do hủy buổi học.")
@@ -1240,7 +1456,7 @@ def verify_session(name: str) -> dict:
     """
     _require_training_officer()
     doc = _get_session_or_raise(name)
-    if doc.workflow_state != SessionStatus.COMPLETED:
+    if doc.workflow_state not in _session_source_states(SessionStatus.VERIFIED):
         raise ServiceError(
             ErrorCode.BAD_STATE,
             f"Chỉ có thể xác minh buổi học ở trạng thái Completed. Hiện tại: {doc.workflow_state}",
@@ -1260,7 +1476,7 @@ def close_session(name: str) -> dict:
     """
     _require_training_officer()
     doc = _get_session_or_raise(name)
-    if doc.workflow_state != SessionStatus.VERIFIED:
+    if doc.workflow_state not in _session_source_states(SessionStatus.CLOSED):
         raise ServiceError(
             ErrorCode.BAD_STATE,
             f"Chỉ có thể đóng buổi học ở trạng thái Verified. Hiện tại: {doc.workflow_state}",
@@ -1329,6 +1545,56 @@ def get_user_competencies(user: str = "") -> dict:
     return {"user": target_user, "items": rows}
 
 
+def get_competency(name: str) -> dict:
+    """Chi tiết hồ sơ năng lực + allowed_transitions server-driven + cờ capability.
+
+    GATE-8 / LL-FE-51: FE gate 5 CTA (Sign-off / Tạm ngưng / Khôi phục / Thu hồi /
+    Tái chứng nhận) theo
+    ``allowed_transitions`` — phái sinh từ CÙNG SSoT ``_COMPETENCY_VALID_TRANSITIONS``
+    mà signoff/revoke/recertify enforce — cộng cờ ``can_signoff/can_revoke/
+    can_recertify`` đã LỌC theo capability của caller. FE KHÔNG hardcode
+    ``workflow_state === 'X'`` và KHÔNG suy state client.
+
+    Args:
+        name: tên hồ sơ năng lực.
+
+    Returns:
+        dict đầy đủ field + ``allowed_transitions`` (list action) + 3 cờ can_*.
+    """
+    doc = UserCompetencyRepo.get(name)
+    if not doc:
+        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy hồ sơ năng lực: {name}")
+    result = dict(doc.as_dict())
+
+    state = result.get("workflow_state", "")
+    # list(...) → bản sao để consumer không mutate hằng SSoT.
+    allowed = list(_COMPETENCY_VALID_TRANSITIONS.get(state, []))
+    result["allowed_transitions"] = allowed
+
+    # Cờ capability đã lọc — action khả dụng khi (state cho phép) ∧ (đủ quyền submit).
+    # `training.submit` = gate CHUNG cho cả 5 CTA (parity signoff_competency api-gate).
+    _has_submit = rbac.can("training.submit")
+    result["can_signoff"] = (COMPETENCY_SIGNOFF in allowed) and _has_submit
+    result["can_revoke"] = (COMPETENCY_REVOKE in allowed) and _has_submit
+    result["can_recertify"] = (COMPETENCY_RECERTIFY in allowed) and _has_submit
+    # CR-WF-06-COMP — parity can_revoke: Tạm ngưng (Active) / Khôi phục (Suspended).
+    result["can_suspend"] = (COMPETENCY_SUSPEND in allowed) and _has_submit
+    result["can_restore"] = (COMPETENCY_RESTORE in allowed) and _has_submit
+
+    # Enrich display name (không leak ID ra FE — LL-FE-6).
+    if result.get("device_model"):
+        result["device_model_name"] = (
+            frappe.db.get_value("IMM Device Model", result["device_model"], "model_name")
+            or result["device_model"]
+        )
+    if result.get("user"):
+        result["user_full_name"] = (
+            frappe.db.get_value("User", result["user"], "full_name")
+            or result["user"]
+        )
+    return result
+
+
 def signoff_competency_by_name(name: str) -> dict:
     """Phê duyệt hồ sơ năng lực dùng session user làm supervisor.
 
@@ -1376,6 +1642,15 @@ def recertify_competency(name: str, new_session: str) -> dict:
     old = UserCompetencyRepo.get(name)
     if not old:
         raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy hồ sơ năng lực: {name}")
+    # Guard derive TỪ SSoT (parity allowed_transitions): tái chứng nhận CHỈ khi hồ sơ cũ
+    # đang Expiring/Expired — chặn nhảy-cóc từ Active/Pending/Suspended/Revoked.
+    _recert_states = _competency_states_allowing(COMPETENCY_RECERTIFY)
+    if old.workflow_state not in _recert_states:
+        raise ServiceError(
+            ErrorCode.BAD_STATE,
+            f"Chỉ tái chứng nhận năng lực ở trạng thái {', '.join(_recert_states)}. "
+            f"Hiện tại: {old.workflow_state}.",
+        )
 
     session = TrainingSessionRepo.get(new_session)
     if not session:
@@ -1555,14 +1830,18 @@ def _invalidate_auth_cache(user: str, device_model: str) -> None:
 
 
 def _log_competency_audit(competency_name: str, user: str, action: str, note: str) -> None:
+    # `asset` là Link → AC Asset. Năng lực (user × device_model) KHÔNG gắn 1 asset cụ
+    # thể → asset="" (đối xứng audit không-asset imm16 compliance/internal_audit). Truyền
+    # user vào Link gây LinkValidationError → audit rớt câm (latent NĐ98 gap). Traceability
+    # nằm ở ref (competency có field user) + change_summary (kèm user).
     try:
         log_audit_event(
-            asset=user,
+            asset="",
             event_type=f"competency_{action.lower()}",
             actor=frappe.session.user,
             ref_doctype="IMM User Competency",
             ref_name=competency_name,
-            change_summary=f"IMM-06 {action}: {competency_name}. {note}",
+            change_summary=f"IMM-06 {action}: {competency_name} (nhân viên {user}). {note}",
         )
     except Exception:
         frappe.log_error(frappe.get_traceback(), f"IMM-06 audit trail failed: {action} {competency_name}")

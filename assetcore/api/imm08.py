@@ -25,7 +25,7 @@ def _form_dict(*strip: str) -> dict:
 # ─── PM Work Orders ───────────────────────────────────────────────────────────
 
 @frappe.whitelist()
-def list_pm_work_orders(filters: str = "{}", mine: int = 0,
+def list_pm_work_orders(filters: str = "{}", mine: int = 0, search: str = None,
                         page: int = 1, page_size: int = 20) -> dict:
     # C-LISTREAD-MINE-PM (A2 closure ĐỐI XỨNG / ADR-MOBILE-016): tab "Phiếu PM của tôi"
     #   (MyWorkOrdersView, MVP-5a) truyền mine=1 → scope assigned_to == session.user. Inject
@@ -39,6 +39,13 @@ def list_pm_work_orders(filters: str = "{}", mine: int = 0,
     f = apply_vendor_scope(f, "PM Work Order")
     if int(mine or 0):
         f["assigned_to"] = frappe.session.user
+    # CR-18: free-text search server-side. Inject `search` vào filters dict SAU
+    #   vendor-scope + mine → service pop_search dịch sang OR-LIKE (name/asset_ref/
+    #   asset_name) AND các filter khác. CHỈ khi non-empty ⇒ absent/rỗng byte-
+    #   identical baseline (web-FE PMWorkOrderListView KHÔNG regress). KHÔNG nới
+    #   quyền: search chỉ thêm OR-clause TRONG tập đã scope, KHÔNG bypass.
+    if search is not None and str(search).strip():
+        f["search"] = str(search)
     return handle(svc.list_work_orders, f, page=int(page), page_size=int(page_size))
 
 
@@ -49,6 +56,46 @@ def get_pm_work_order(name: str) -> dict:
     except ServiceError as e:
         return _service_error_to_envelope(e)
     return handle(svc.get_work_order, name)
+
+
+@frappe.whitelist(methods=["POST"])
+def attach_pm_checklist_photo(work_order_name: str = "", checklist_item_idx: str = "",
+                             **_ignore) -> dict:
+    """POST (multipart) /api/method/assetcore.api.imm08.attach_pm_checklist_photo
+
+    BR-08-14 (mobile CR-14/G6): đính ảnh bằng chứng cho MỘT mục checklist PM (NĐ98
+    Class C/D) → File private + đúng 1 lifecycle `pm_checklist_photo_attached`.
+    Single-step multipart: server đọc `frappe.request.files["file"]`, tự validate +
+    tạo + link File (robust, KHÔNG orphan như 2-bước upload→file_url). ĐỐI XỨNG
+    attach_incident_photo (imm12) — KHÁC module/doctype/field.
+
+    `**_ignore` nuốt kwargs spoof. Guest/no-session → dispatcher-403 (POST @whitelist
+    không allow_guest); permission (assignee OR pm.write) + validation ở service →
+    Decision-B HTTP-200 qua `handle`. `checklist_item_idx` parse int ở boundary; giá
+    trị lỗi/không-tồn-tại → service trả VALIDATION (reject TRƯỚC File.insert).
+    """
+    files = frappe.request.files if getattr(frappe, "request", None) else None
+    upload = files.get("file") if files else None
+    # File present check nằm ở service (sau permission/idx — thứ tự spec): filedata=None
+    # khi thiếu file → service raise VALIDATION 'Thiếu tệp ảnh'.
+    if upload is not None:
+        filedata = upload.stream.read()
+        filename = upload.filename or ""
+        content_type = upload.content_type or ""
+    else:
+        filedata, filename, content_type = None, "", ""
+    try:
+        idx = int(checklist_item_idx)
+    except (TypeError, ValueError):
+        idx = -1  # sentinel không khớp row nào → service VALIDATION idx-not-found (đúng thứ tự)
+    return handle(
+        svc.attach_pm_checklist_photo,
+        work_order_name,
+        idx,
+        filedata=filedata,
+        filename=filename,
+        content_type=content_type,
+    )
 
 
 @frappe.whitelist(methods=["POST"])
@@ -139,6 +186,13 @@ def list_pm_schedules(asset_ref: str = None, status: str = None,
 @frappe.whitelist()
 def get_pm_schedule(name: str) -> dict:
     return handle(svc.get_schedule, name)
+
+
+@frappe.whitelist()
+def get_due_pm_schedules(days: int = 30, limit: int = 50) -> dict:
+    # F8 "Nhắc việc" (mobile CR-28b) — PM sắp/quá hạn. ĐỐI XỨNG get_due_calibrations
+    #   (api/imm11.py:202): bare @whitelist → GET, DocPerm-governed (KHÔNG cap-gate).
+    return handle(svc.get_due_pm_schedules, int(days), int(limit))
 
 
 @frappe.whitelist(methods=["POST"])

@@ -13,6 +13,7 @@ from frappe import _
 from frappe.rate_limiter import rate_limit          # precedent api/auth.py:10
 
 from assetcore.utils.response import _ok, _err
+from assetcore.utils.api_handler import handle
 from assetcore.services.shared import ErrorCode, ServiceError
 from assetcore.services.shared.scope import apply_vendor_scope, assert_vendor_can_access
 from assetcore.utils.pagination import paginate
@@ -20,6 +21,7 @@ from assetcore.services.shared.filters import count_with_or
 from assetcore.services.shared import rbac
 from assetcore.services.imm00 import (
     transition_asset_status,
+    asset_allowed_transitions,   # SSoT server-driven CTA lifecycle (CR-WF-00-LIFECYCLE-SURFACE)
     validate_asset_for_operations,
     resolve_qr_token as _svc_resolve_qr_token,
     regenerate_asset_qr_token as _svc_regenerate_asset_qr_token,
@@ -46,12 +48,15 @@ from assetcore.services.imm00 import (
     create_capa,
     close_capa,
     verify_audit_chain,
+    _str_or_blank,               # SSoT coalesce '' (Vòng 16 — enrich phiếu Điều chuyển, NEVER raw Link-id)
     transfer_asset,
     create_transfer_request,
     approve_transfer_request,
     reject_transfer_request,
     confirm_receipt,
     cancel_transfer_request,
+    transfer_cta_flags,
+    _TRANSFER_EDIT_CAP,          # CR-WF-00-EDIT-AUTHZ — cap-SSoT gate update_transfer
     InvalidAssetTransition,
 )
 
@@ -222,11 +227,25 @@ def _strip_qr_token(doc):
     return doc
 
 
-def _enrich(items: list, field: str, doctype: str, display_field: str, out_field: str = None) -> None:
-    """Batch-enrich a list of dicts with a display name for a linked field (avoids N+1)."""
+def _enrich(items: list, field: str, doctype: str, display_field: str,
+            out_field: str = None, blank_missing: bool = False) -> None:
+    """Batch-enrich a list of dicts with a display name for a linked field (avoids N+1).
+
+    ``blank_missing`` (opt-in, default ``False`` — 15 caller cũ GIỮ NGUYÊN hành vi):
+      - ``False`` (mặc định): mapping miss → fallback ``row.get(field)`` (raw Link-id)
+        → ``""``; early-return khi cả trang không có ``field`` (khóa ``out`` vắng).
+        Đây là semantics cũ, KHÔNG đổi (tránh hồi quy asset-list category/location/…).
+      - ``True`` (Vòng 16 — phiếu Điều chuyển): coalesce ``''`` qua SSoT
+        ``_str_or_blank`` (NEVER raw Link-id, NEVER ``None``) + LUÔN init khóa ``out``
+        cho MỌI row (kể cả ``ids`` rỗng) → mỗi item đủ khóa denorm. Xem
+        docs/imm-00 §II.1.13-TRANSFERENRICH / ADR-IMM00-TRANSFER-ENRICH.
+    """
     out = out_field or f"{field}_name"
     ids = list({row.get(field) for row in items if row.get(field)})
     if not ids:
+        if blank_missing:
+            for row in items:
+                row[out] = ""
         return
     table = f"tab{doctype}"
     placeholders = ", ".join(["%s"] * len(ids))
@@ -236,7 +255,8 @@ def _enrich(items: list, field: str, doctype: str, display_field: str, out_field
     )
     mapping = {r[0]: r[1] for r in rows}
     for row in items:
-        row[out] = mapping.get(row.get(field)) or row.get(field) or ""
+        val = mapping.get(row.get(field))
+        row[out] = _str_or_blank(val) if blank_missing else (val or row.get(field) or "")
 _DT_AUDIT_TRAIL = "IMM Audit Trail"
 _DT_CAPA = "IMM CAPA Record"
 _DT_LIFECYCLE_EVENT = "Asset Lifecycle Event"
@@ -501,6 +521,16 @@ def get_asset(name: str):
     doc["pm_overdue"] = _is_pm_overdue(doc.get("next_pm_date"), _status)
     doc["calibration_overdue"] = _is_calibration_overdue(
         doc.get("next_calibration_date"), _status)
+    # Server-driven CTA (CR-WF-00-LIFECYCLE-SURFACE, Trục A) — allowed_transitions =
+    # tập trạng-thái-đích CTA-surfaceable (SSoT asset_allowed_transitions:
+    # _VALID_ASSET_TRANSITIONS − EXCEPTION − terminal Decommissioned) LỌC theo
+    # capability caller. FE dựng nút chuyển-trạng-thái CHỈ từ field này (xoá bảng
+    # TRANSITION_MAP hardcode → 0 bản sao drift). Caller thiếu asset.write (read-only
+    # DocPerm) → [] ⇒ FE ẩn khối CTA. Thanh lý (→Decommissioned) KHÔNG bao giờ ở đây
+    # — đi qua cổng IMM-14 riêng (đối xứng precedent firmware_allowed_transitions).
+    doc["allowed_transitions"] = (
+        asset_allowed_transitions(_status or "") if rbac.can("asset.write") else []
+    )
     # No-raw-token (ADR-001 §D4 rule 9): qr_token là khóa tra cứu MỜ nội bộ —
     # KHÔNG surface thô qua endpoint đọc asset (deep-link dùng qr_url server-side).
     # as_dict() leak nguyên field dù hidden/read_only → pop qua SSoT trước return.
@@ -712,7 +742,7 @@ def get_asset_label_data(asset: str = ""):
          ``has_permission("AC Asset","print")``: DocPerm print=1 sẵn cho ~mọi role
          vận hành ⇒ in được NGAY (KHÔNG đổi DocPerm). User KHÔNG có print → 403.
          (Cap mới ⇒ ``CAP_SET_VERSION`` ĐỔI ``v95.3388ee5629c1``→
-         ``v97.c30c69b8974d`` — FE auto-invalidate persisted-caps stale.)
+         ``v104.e46d05d9a66d`` — FE auto-invalidate persisted-caps stale.)
       2. asset rỗng/không tồn tại → 404 leak-safe (KHÔNG 500, KHÔNG đoán id).
       3. IDOR: ``assert_vendor_can_access`` → vendor ngoài scope → 403, KHÔNG leak.
 
@@ -751,7 +781,7 @@ def get_asset_label_data_batch(assets=None):
     (phương án B): TÁCH cap ``asset.print``→(AC Asset,"print") thay ``asset.write``
     (least-privilege; in nhãn = quyền PRINT, không phải WRITE toàn asset). DocPerm
     print=1 sẵn cho ~mọi role vận hành → in hàng loạt được NGAY. User KHÔNG có
-    print → 403. (Cap mới ⇒ ``CAP_SET_VERSION`` ĐỔI →``v97.c30c69b8974d``.) IDOR mỗi
+    print → 403. (Cap mới ⇒ ``CAP_SET_VERSION`` ĐỔI →``v104.e46d05d9a66d``.) IDOR mỗi
     asset hợp lệ qua ``assert_vendor_can_access`` → vendor có ≥1 asset ngoài scope →
     403 TOÀN call (KHÔNG partial, KHÔNG leak asset nào thuộc/không-thuộc scope).
 
@@ -812,7 +842,7 @@ def mark_label_printed(assets=None):
     print=1 sẵn cho ~mọi role vận hành → KTV/QL vật tư in được NGAY (sửa lỗi
     self-correction P2: trước đây chỉ Super Admin in được). User KHÔNG có print →
     403, chặn TRƯỚC mọi write (KHÔNG dò được asset tồn tại, KHÔNG sinh event/audit).
-    (Cap mới ⇒ ``CAP_SET_VERSION`` ĐỔI ``v95.3388ee5629c1``→``v97.c30c69b8974d``.)
+    (Cap mới ⇒ ``CAP_SET_VERSION`` ĐỔI ``v95.3388ee5629c1``→``v104.e46d05d9a66d``.)
 
     ``assets`` coerce an toàn qua ``_coerce_asset_names`` (SSoT 3 endpoint):
     malformed (bare-code/non-JSON/scalar/int/dict) → ``[]`` → all-or-nothing
@@ -978,7 +1008,7 @@ def regenerate_asset_qr_token(asset: str = ""):
          (KHÔNG ``asset.print`` — print KHÔNG được rotate). Gate bằng CAPABILITY
          (DocPerm), KHÔNG hardcode role. Hiện chỉ Super Admin (write=1); QL vật tư
          cấp thêm write/grant qua DocPerm (config /app, KHÔNG deploy code). (Cap
-         mới ⇒ ``CAP_SET_VERSION`` ĐỔI ``v95.3388ee5629c1``→``v97.c30c69b8974d``.)
+         mới ⇒ ``CAP_SET_VERSION`` ĐỔI ``v95.3388ee5629c1``→``v104.e46d05d9a66d``.)
       2. asset rỗng/không tồn tại → 404 leak-safe (KHÔNG 500, KHÔNG đoán id) —
          chặn TRƯỚC khi đụng service (no side-effect khi không hợp lệ).
       3. IDOR: ``assert_vendor_can_access`` → vendor ngoài scope → 403, KHÔNG leak
@@ -1110,9 +1140,35 @@ def update_asset(name: str):
 
 @frappe.whitelist(methods=["POST"])
 def transition_status(name: str, to_status: str, reason: str = ""):
-    """POST /api/method/assetcore.api.imm00.transition_status"""
+    """POST /api/method/assetcore.api.imm00.transition_status
+
+    Bảo mật — 3 lớp theo thứ tự (MIRROR get_asset:471, CR-WF-00-TRANSITION-AUTHZ,
+    ADR-IMM00-LIFECYCLE-AUTHZ):
+      0. ``rbac.require("asset.write")`` chạy ĐẦU TIÊN (CÂU LỆNH ĐẦU thân hàm) →
+         caller thiếu DocPerm write AC Asset → ``frappe.PermissionError`` (HTTP 403).
+         Gate bằng CAPABILITY (DocPerm), KHÔNG hardcode role-name (chống RBAC
+         dead-gate). Chạy TRƯỚC ``frappe.db.exists`` → no existence-oracle (thiếu
+         cap → 403 KHÔNG 404, parity thứ-tự-lớp get_asset). RC: endpoint này ĐỔI
+         lifecycle_status AC Asset qua service ``transition_asset_status`` (perm-free
+         — đường WO-driven programmatic). Thiếu gate ⇒ MỌI user login POST được
+         endpoint tự đổi trạng thái thiết bị (missing-authorization write).
+      1. exists → ``_err(404)`` leak-safe (name không tồn tại).
+      2. IDOR/vendor isolation: ``assert_vendor_can_access`` → Vendor Engineer ngoài
+         scope → ServiceError(FORBIDDEN) → ``_err(403)``, KHÔNG đổi lifecycle_status.
+    Authz đặt ở tầng ENDPOINT — service ``transition_asset_status`` GIỮ NGUYÊN
+    perm-free (lớp WO-complete: KTV không có asset.write vẫn chuyển trạng thái khi
+    hoàn tất Work Order). Xem docstring service để rõ ranh giới tier.
+    """
+    # 0. RBAC gate — require asset.write (DocPerm AC Asset). PermissionError → 403.
+    #    TRƯỚC exists → no existence-oracle (parity get_asset).
+    rbac.require("asset.write")
     if not frappe.db.exists(_DT_ASSET, name):
         return _err(_(_ERR_ASSET_NOT_FOUND), 404)
+    # AUTH-10: IDOR guard — Vendor Engineer can't transition assets outside scope.
+    try:
+        assert_vendor_can_access(_DT_ASSET, name)
+    except ServiceError as e:
+        return _err(e.message, e.code)
     try:
         transition_asset_status(name, to_status, actor=frappe.session.user, reason=reason)
         frappe.db.commit()
@@ -2044,8 +2100,27 @@ def submit_incident(name: str):
 # Asset Transfer  (3 endpoints)
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _enrich_transfer(items: list) -> None:
+    """SSoT denorm phiếu Điều chuyển (Vòng 16 — FR-00-TRF-01 / §II.1.13-TRANSFERENRICH).
+
+    Thêm ``asset_name`` + 6 khóa ``*_name`` (from/to × location/department/custodian)
+    vào MỖI item, coalesce ``''`` qua nhánh ``_enrich(blank_missing=True)``
+    (NEVER raw Link-id, NEVER ``None``, khóa LUÔN present). Batch IN-query mỗi
+    field ⇒ N+1-free, O(1)/số phiếu. 1 code-path DUY NHẤT cho
+    ``list_transfers`` / ``get_transfer`` / ``get_transfer_full`` (One-Version parity).
+    """
+    _enrich(items, "asset", _DT_ASSET, "asset_name", "asset_name", blank_missing=True)
+    _enrich(items, "from_location", _DT_LOCATION, "location_name", "from_location_name", blank_missing=True)
+    _enrich(items, "to_location", _DT_LOCATION, "location_name", "to_location_name", blank_missing=True)
+    _enrich(items, "from_department", _DT_DEPARTMENT, "department_name", "from_department_name", blank_missing=True)
+    _enrich(items, "to_department", _DT_DEPARTMENT, "department_name", "to_department_name", blank_missing=True)
+    _enrich(items, "from_custodian", "User", "full_name", "from_custodian_name", blank_missing=True)
+    _enrich(items, "to_custodian", "User", "full_name", "to_custodian_name", blank_missing=True)
+
+
 @frappe.whitelist()
 def list_transfers(asset: str = None, status: str = None,
+                   transfer_type: str = None,
                    page: int = 1, page_size: int = 20):
     """GET /api/method/assetcore.api.imm00.list_transfers"""
     page, page_size = int(page), int(page_size)
@@ -2054,6 +2129,8 @@ def list_transfers(asset: str = None, status: str = None,
         filters["asset"] = asset
     if status:
         filters["status"] = status
+    if transfer_type:
+        filters["transfer_type"] = transfer_type
     total = frappe.db.count(_DT_TRANSFER, filters=filters)
     pag = paginate(total, page, page_size)
     items = frappe.get_list(
@@ -2067,13 +2144,10 @@ def list_transfers(asset: str = None, status: str = None,
         limit_page_length=pag["page_size"],
         order_by="transfer_date desc",
     )
-    asset_ids = {r.get("asset") for r in items if r.get("asset")}
-    if asset_ids:
-        name_map = {a["name"]: a["asset_name"] for a in frappe.get_all(
-            _DT_ASSET, filters={"name": ["in", list(asset_ids)]},
-            fields=["name", "asset_name"])}
-        for r in items:
-            r["asset_name"] = name_map.get(r.get("asset"), "")
+    # Vòng 16 (FR-00-TRF-01) — denorm asset_name + 6 *_name (from/to location/
+    # department/custodian) qua SSoT enrich N+1-free, coalesce '' (NEVER raw
+    # Link-id). Chạy SAU count/get_list ⇒ pagination.total + len(items) bất biến.
+    _enrich_transfer(items)
     return _ok({"pagination": pag, "items": items})
 
 
@@ -2082,7 +2156,10 @@ def get_transfer(name: str):
     """GET /api/method/assetcore.api.imm00.get_transfer"""
     if not frappe.db.exists(_DT_TRANSFER, name):
         return _err(_(_ERR_TRANSFER_NOT_FOUND), 404)
-    return _ok(frappe.get_doc(_DT_TRANSFER, name).as_dict())
+    doc = frappe.get_doc(_DT_TRANSFER, name).as_dict()
+    # Vòng 16 (FR-00-TRF-01) — enrich asset_name + 6 *_name (parity list_transfers).
+    _enrich_transfer([doc])
+    return _ok(doc)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -2527,14 +2604,35 @@ def get_transfer_full(name: str):
     """GET — Lấy toàn bộ thông tin phiếu luân chuyển."""
     if not frappe.db.exists(_DT_TRANSFER, name):
         return _err(_("Phiếu luân chuyển không tồn tại"), 404)
-    return _ok(frappe.get_doc(_DT_TRANSFER, name).as_dict())
+    doc = frappe.get_doc(_DT_TRANSFER, name).as_dict()
+    # Vòng 16 (FR-00-TRF-01) — consumer web AssetTransferDetailView.vue: enrich
+    # asset_name + 6 *_name (from/to location/department/custodian) coalesce ''
+    # ⇒ màn chi tiết KHÔNG còn rò Link-id thô (parity get_transfer/list_transfers).
+    _enrich_transfer([doc])
+    # CR-WF-00-TRANSFER-AUTHZ — server-driven CTA authz (CHỈ get_transfer_full, KHÔNG
+    # đụng _enrich_transfer → giữ list_transfers/get_transfer rows parity, tránh N+1
+    # rbac.can trên list). FE gate 3 nút theo can_approve/can_receive (mirror imm14 R39).
+    doc.update(transfer_cta_flags(doc.get("status")))
+    return _ok(doc)
 
 
 @frappe.whitelist(methods=["POST"])
 def update_transfer(name: str):
-    """POST — Cập nhật ghi chú / thông tin phiếu (chỉ khi Pending Approval)."""
-    doc_status = frappe.db.get_value(_DT_TRANSFER, name, "status")
-    if doc_status != "Pending Approval":
+    """POST — Cập nhật thông tin phiếu luân chuyển (chỉ khi Pending Approval).
+
+    CR-WF-00-EDIT-AUTHZ: bịt lỗ missing-authorization write (custody-hole) — trước đây
+    THIẾU rbac.require ⇒ mọi user login (kể cả Inventory User không có commissioning.write)
+    sửa được đích/khoa/người nhận/ngày/lý do/ghi chú qua ``_generic_update`` (chạy
+    ``ignore_permissions=True``). Thứ tự chốt bởi BA: tồn tại (404) → ``rbac.require``
+    (403) → status Pending (422). Handler KHÔNG try/except ⇒ ``PermissionError`` từ
+    ``rbac.require`` propagate tự nhiên → HTTP-403; status-gate 422 GIỮ NGUYÊN (user CÓ
+    cap mới đến được status-check ⇒ KHÔNG bị rbac che thành 403). Base/Inventory user sửa
+    phiếu SAI status vẫn 403 (rbac trước status ⇒ không rò trạng thái).
+    """
+    if not frappe.db.exists(_DT_TRANSFER, name):
+        return _err(_("Phiếu luân chuyển không tồn tại"), 404)
+    rbac.require(_TRANSFER_EDIT_CAP)
+    if frappe.db.get_value(_DT_TRANSFER, name, "status") != "Pending Approval":
         return _err(_("Chỉ có thể chỉnh sửa phiếu đang Pending Approval"), 422)
     return _generic_update(_DT_TRANSFER, name)
 
@@ -2577,24 +2675,44 @@ _DT_DOC_REQUEST = "Document Request"
 
 
 def _paginated_list(doctype: str, filters: dict, fields: list[str],
-                    page: int, page_size: int, order_by: str = _ORDER_MODIFIED_DESC):
+                    page: int, page_size: int, order_by: str = _ORDER_MODIFIED_DESC,
+                    or_filters: list | None = None):
     offset = (page - 1) * page_size
-    total = frappe.db.count(doctype, filters)
-    items = frappe.get_all(doctype, filters=filters, fields=fields,
+    if or_filters:
+        # frappe.db.count KHÔNG nhận or_filters → total = len(name-only query) với
+        # cùng ngữ nghĩa (AND filters) AND (OR or_filters). Giữ total ĐÚNG khi có
+        # tìm kiếm (không thể suy total từ trang bị cắt — đúng lớp bug đang fix).
+        total = len(frappe.get_all(doctype, filters=filters, or_filters=or_filters,
+                                   fields=["name"], limit=0))
+    else:
+        total = frappe.db.count(doctype, filters)
+    items = frappe.get_all(doctype, filters=filters, or_filters=or_filters, fields=fields,
                            order_by=order_by, limit=page_size, start=offset)
     return items, {"total": total, "page": page, "page_size": page_size}
 
 
+def _search_or_filters(search: str, fields: list[str]) -> list | None:
+    """Build or_filters LIKE %search% trên nhiều field (OR). None nếu search rỗng."""
+    if not search or not search.strip():
+        return None
+    like = f"%{search.strip()}%"
+    return [[fld, "like", like] for fld in fields]
+
+
 @frappe.whitelist()
-def list_pm_schedules(page: int = 1, page_size: int = 20, asset: str = None, status: str = None):
+def list_pm_schedules(page: int = 1, page_size: int = 20, asset: str = None,
+                      status: str = None, pm_type: str = None, search: str = None):
     f = {}
     if asset: f["asset_ref"] = asset
     if status: f["status"] = status
+    if pm_type: f["pm_type"] = pm_type
+    of = _search_or_filters(search, ["name", "asset_ref", "checklist_template",
+                                     "responsible_technician"])
     items, meta = _paginated_list(_DT_PM_SCHEDULE, f,
         ["name", "asset_ref", "pm_type", "status", "pm_interval_days",
          "checklist_template", "responsible_technician",
          "last_pm_date", "next_due_date"],
-        int(page), int(page_size), "next_due_date asc")
+        int(page), int(page_size), "next_due_date asc", or_filters=of)
     asset_ids = {r.get("asset_ref") for r in items if r.get("asset_ref")}
     if asset_ids:
         info_map = {a["name"]: a for a in frappe.get_all(
@@ -2701,17 +2819,31 @@ def delete_pm_template(name: str):
 # ─────────────────────────────────────────────────────────────────────────────
 
 @frappe.whitelist()
-def list_firmware_crs(page: int = 1, page_size: int = 20, status: str = None, asset: str = None):
+def list_firmware_crs(page: int = 1, page_size: int = 20, status: str = None,
+                      asset: str = None, search: str = None):
     f = {}
     if status: f["status"] = status
     if asset: f["asset_ref"] = asset
+    of = _search_or_filters(search, ["name", "asset_ref", "version_before",
+                                     "version_after", "source_reference"])
     items, meta = _paginated_list(_DT_FIRMWARE_CR, f,
         ["name", "asset_ref", "version_before", "version_after", "status",
          "approved_by", "approved_datetime", "applied_datetime"],
-        int(page), int(page_size))
+        int(page), int(page_size), or_filters=of)
     _enrich(items, "asset_ref", _DT_ASSET, "asset_name", "asset_name")
     _enrich(items, "approved_by", "User", "full_name", "approved_by_name")
     return _ok({"items": items, **meta})
+
+
+# Field điều khiển state-machine FCR — status CHỈ đổi qua transition_firmware_cr;
+# CRUD chung (update_firmware_cr) VÀ create_firmware_cr STRIP các field này
+# (BR-09-19b, ADR-IMM09-FCR-01).
+_FCR_CONTROLLED_FIELDS = {"status", "approved_by", "approved_datetime",
+                          "applied_datetime", "rollback_reason"}
+# Trạng thái khởi tạo bất biến — MỌI FCR tạo qua create_firmware_cr LUÔN ở 'Draft'
+# (⟺ DocType default + services.imm09.FirmwareStatus.DRAFT; guard test chống drift:
+# TestFirmwareCrCreateGuard.test_initial_status_constant_matches_doctype_default_and_enum).
+_FCR_INITIAL_STATUS = "Draft"
 
 
 @frappe.whitelist()
@@ -2722,15 +2854,32 @@ def get_firmware_cr(name: str):
     items = [doc]
     _enrich(items, "asset_ref", _DT_ASSET, "asset_name", "asset_name")
     _enrich(items, "approved_by", "User", "full_name", "approved_by_name")
+    # Server-driven CTA (BR-09-20): allowed_transitions LỌC theo capability caller
+    # + cờ can_approve. FE gate nút CHỈ theo 2 field này (KHÔNG hardcode
+    # fcr.status==='X'). Lazy-import services.imm09 (né circular).
+    from assetcore.services import imm09 as _svc09
+    allowed, can_approve = _svc09.firmware_allowed_transitions(doc.get("status"))
+    doc["allowed_transitions"] = allowed
+    doc["can_approve"] = bool(can_approve)   # boolean cho FE (=== true), KHÔNG int 1
     return _ok(doc)
 
 
 @frappe.whitelist(methods=["POST"])
 def create_firmware_cr():
+    # BR-09-19b (create path): STRIP field điều khiển state-machine khỏi payload TẠO
+    # → FCR LUÔN khởi tạo ở 'Draft'. Repair User (DocPerm create=1, submit=0, KHÔNG
+    # capability firmware.approve) KHÔNG được POST status='Applied'/'Approved' để nhảy
+    # thẳng vào trạng thái đã duyệt/áp dụng, bỏ qua capability-gate + valid-transition
+    # guard + audit Lifecycle Event (governance NĐ98 change-control). Đối xứng
+    # update_firmware_cr. Status FCR CHỈ đổi qua transition_firmware_cr.
     data = frappe.local.form_dict
     try:
         doc = frappe.new_doc(_DT_FIRMWARE_CR)
-        doc.update({k: v for k, v in data.items() if k not in ("cmd", "doctype")})
+        doc.update({
+            k: v for k, v in data.items()
+            if k not in ("cmd", "doctype") and k not in _FCR_CONTROLLED_FIELDS
+        })
+        doc.status = _FCR_INITIAL_STATUS   # bất biến: tạo LUÔN ở Draft (belt-and-braces)
         doc.insert()
         frappe.db.commit()
         return _ok({"name": doc.name})
@@ -2740,7 +2889,27 @@ def create_firmware_cr():
 
 @frappe.whitelist(methods=["POST"])
 def update_firmware_cr(name: str):
+    # BR-09-19b: STRIP field điều khiển state-machine khỏi payload CRUD chung →
+    # status FCR KHÔNG BAO GIỜ đổi qua đây (dù caller gửi status=Approved). Field
+    # mô tả tự do (change_notes/source_reference/version_*) vẫn sửa được.
+    data = frappe.local.form_dict
+    for f in _FCR_CONTROLLED_FIELDS:
+        data.pop(f, None)
     return _generic_update(_DT_FIRMWARE_CR, name)
+
+
+@frappe.whitelist(methods=["POST"])
+def transition_firmware_cr(name: str, action: str, reason: str = ""):
+    """POST /api/method/assetcore.api.imm00.transition_firmware_cr
+
+    Transition FCR có kiểm soát SERVER-side (capability-role + valid-transition
+    guard + audit trail Lifecycle Event). `action` ∈ {submit, approve, deploy,
+    rollback}; `reason` BẮT BUỘC cho 'rollback'. Controller mỏng — logic ở
+    services/imm09.py (co-locate cạnh firmware repair). Lazy-import né circular.
+    Lỗi nghiệp vụ (cap/cạnh/reason/not-found) → HTTP-200 Error envelope qua
+    `handle` (ADR-IMM09-FCR-03), KHÔNG raise→4xx."""
+    from assetcore.services import imm09 as _svc09
+    return handle(_svc09.transition_firmware_cr, name, action=action, reason=reason)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -2753,14 +2922,18 @@ def delete_firmware_cr(name: str):
 # ─────────────────────────────────────────────────────────────────────────────
 
 @frappe.whitelist()
-def list_document_requests(page: int = 1, page_size: int = 20, status: str = None, asset: str = None):
+def list_document_requests(page: int = 1, page_size: int = 20, status: str = None,
+                           asset: str = None, priority: str = None, search: str = None):
     f = {}
     if status: f["status"] = status
     if asset: f["asset_ref"] = asset
+    if priority: f["priority"] = priority
+    of = _search_or_filters(search, ["name", "asset_ref", "doc_type_required",
+                                     "doc_category"])
     items, meta = _paginated_list(_DT_DOC_REQUEST, f,
         ["name", "asset_ref", "doc_type_required", "doc_category", "status",
          "priority", "assigned_to", "due_date", "fulfilled_by"],
-        int(page), int(page_size), _ORDER_DUE_DATE_ASC)
+        int(page), int(page_size), _ORDER_DUE_DATE_ASC, or_filters=of)
     _enrich(items, "asset_ref", _DT_ASSET, "asset_name", "asset_name")
     _enrich(items, "assigned_to", "User", "full_name", "assigned_to_name")
     return _ok({"items": items, **meta})

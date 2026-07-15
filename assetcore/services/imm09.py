@@ -14,6 +14,7 @@ from frappe.utils import (
     nowdate,
     time_diff_in_seconds,
 )
+from PIL import UnidentifiedImageError
 
 from assetcore.repositories.asset_repo import AssetRepo
 from assetcore.repositories.repair_repo import FirmwareChangeRequestRepo, RepairRepo
@@ -23,10 +24,12 @@ from assetcore.services.imm00 import (
     transition_asset_status,
 )
 from assetcore.utils.lifecycle import create_lifecycle_event as _create_lifecycle_event
-from assetcore.services.shared import AssetStatus
+from assetcore.services.shared import AssetStatus, ServiceError
 from assetcore.services.shared import rbac
+from assetcore.services.shared.filters import pop_search
 from assetcore.utils.notify import nthrow, nthrow_in_hook
 from assetcore.utils.messages import MSG
+from assetcore.utils.pagination import _MAX_PAGE_SIZE, paginate
 from assetcore.utils.response import ErrorCode
 
 
@@ -108,6 +111,236 @@ _REPAIR_VALID_TRANSITIONS: dict[str, list[str]] = {
     RepairStatus.CANNOT_REPAIR: [],
     RepairStatus.CANCELLED: [],
 }
+
+
+# ─── BR-09-15/16: đính ảnh bằng chứng theo TỪNG mục checklist sửa chữa (NĐ98) ──
+#
+# Mobile CR-15/G6 (Vòng 3). ĐỐI XỨNG attach_pm_checklist_photo (imm08) /
+# attach_incident_photo (imm12) — KHÁC module/doctype/discriminator. Field
+# `repair_checklist.photo` là Attach ĐƠN ⇒ đúng 1 ảnh / mục; SoT đếm max = row.photo
+# (CÙNG field get_work_order hiển thị) ⇒ invariant count==nguồn-liệt-kê (số chặn
+# ảnh-thứ-2 == số hiển thị). Discriminator mục = Frappe child `idx` (Repair Checklist
+# KHÔNG có field STT domain như PM — xem ADR-IMM09-PHOTO-01). Content-type allowlist
+# JPG/PNG; size cap 10 MB (parity mobile + sibling).
+_DT_ASSET_REPAIR = "Asset Repair"
+_DT_REPAIR_CHECKLIST_ROW = "Repair Checklist"
+_DT_FILE = "File"
+
+MAX_REPAIR_CHECKLIST_PHOTOS = 1
+MAX_REPAIR_CHECKLIST_PHOTO_BYTES = 10 * 1024 * 1024
+_REPAIR_PHOTO_CONTENT_TYPES = ("image/jpeg", "image/jpg", "image/png")
+_EVENT_REPAIR_CHECKLIST_PHOTO_ATTACHED = "repair_checklist_photo_attached"
+
+# Field-level validation messages (VN) — nhánh reject Decision-B (fields.file). Hằng
+# số hiển thị (đối xứng _MSG_PM_PHOTO_* imm08); KHÔNG leak raw cap/stack.
+_MSG_REPAIR_PHOTO_MISSING = "Thiếu tệp ảnh"
+_MSG_REPAIR_PHOTO_NOT_IMAGE = "Tệp phải là ảnh JPG hoặc PNG"
+_MSG_REPAIR_PHOTO_TOO_LARGE = "Ảnh vượt quá dung lượng cho phép (tối đa 10 MB)"
+_MSG_REPAIR_PHOTO_MAX = "Mỗi mục checklist chỉ đính 1 ảnh"
+_MSG_REPAIR_PHOTO_FORBIDDEN = "Không có quyền đính ảnh cho lệnh sửa chữa này"
+_MSG_REPAIR_PHOTO_IDX_NOT_FOUND = "Không tìm thấy mục checklist trong lệnh sửa chữa này"
+# Ảnh HỎNG/ĐỨT TRUYỀN: content-type hợp lệ nhưng bytes không giải mã được (KTV chụp
+# hiện trường wifi/4G chập chờn) → PIL ném UnidentifiedImageError/OSError khi strip EXIF.
+_MSG_REPAIR_PHOTO_CORRUPT = "Tệp ảnh bị lỗi hoặc không đọc được, vui lòng chụp/chọn lại."
+
+
+# ─── BR-09-18/19/20: Firmware Change Request — state machine SERVER-controlled ──
+#
+# Vòng 10 (ADR-IMM09-FCR-01/02/03). FCR (`Firmware Change Request`) là DocType
+# THỨ HAI của IMM-09 có state machine, nhưng KHÔNG có Frappe Workflow JSON →
+# field `status` là SSoT, enforce hoàn toàn qua service guard dưới đây (đối xứng
+# `_REPAIR_VALID_TRANSITIONS` của Asset Repair). Status FCR CHỈ đổi qua
+# `transition_firmware_cr` — `update_firmware_cr` (CRUD chung, api/imm00.py) STRIP
+# field điều khiển. Mỗi Approve/Deploy/Rollback ghi ĐÚNG 1 Asset Lifecycle Event
+# (audit NĐ98 change-control, fail-loud) → event throw thì rollback (status KHÔNG
+# đổi câm). Gate quyền bằng CAPABILITY (`firmware.approve` = DocPerm submit FCR,
+# `repair.write` = DocPerm write Asset Repair), KHÔNG hardcode role-name.
+_DT_FIRMWARE_CR = "Firmware Change Request"
+
+
+class FirmwareStatus:
+    DRAFT             = "Draft"
+    PENDING_APPROVAL  = "Pending Approval"
+    APPROVED          = "Approved"
+    APPLIED           = "Applied"
+    ROLLBACK_REQUIRED = "Rollback Required"   # RESERVED (2-phase tương lai) — KHÔNG trong map
+    ROLLED_BACK       = "Rolled Back"
+
+
+# SoT — codomain ⊆ FirmwareStatus (keyed bằng constants, KHÔNG literal). Guard test
+# (TestFirmwareCrStateMachine) chốt codomain ⊆ enum status của DocType (chống drift).
+_FCR_VALID_TRANSITIONS: dict[str, list[str]] = {
+    FirmwareStatus.DRAFT:            [FirmwareStatus.PENDING_APPROVAL],
+    FirmwareStatus.PENDING_APPROVAL: [FirmwareStatus.APPROVED],
+    FirmwareStatus.APPROVED:         [FirmwareStatus.APPLIED],
+    FirmwareStatus.APPLIED:          [FirmwareStatus.ROLLED_BACK],
+    FirmwareStatus.ROLLED_BACK:      [],
+}
+
+# Cạnh cần quyền phê duyệt (duyệt + hoàn tác = quyết định manager). Còn lại
+# (gửi-duyệt/triển-khai) chỉ cần `repair.write`.
+_FCR_APPROVAL_EDGES = {FirmwareStatus.APPROVED, FirmwareStatus.ROLLED_BACK}
+
+# Lifecycle event enums — PHẢI tồn tại trong Asset Lifecycle Event.event_type
+# (reload-doctype sau khi thêm). Grounded docs/imm-09 §3.1-bis / §3.15.
+_EVENT_FCR_APPROVED    = "firmware_cr_approved"
+_EVENT_FCR_DEPLOYED    = "firmware_deployed"
+_EVENT_FCR_ROLLED_BACK = "firmware_rolled_back"
+
+# VN messages (hằng — đối xứng _MSG_REPAIR_PHOTO_*; ServiceError legacy path,
+# KHÔNG leak cap/stack).
+_MSG_FCR_NOT_FOUND           = "Không tìm thấy yêu cầu đổi firmware"
+_MSG_FCR_FORBIDDEN_APPROVE   = "Bạn không có quyền phê duyệt yêu cầu đổi firmware"
+_MSG_FCR_FORBIDDEN_WRITE     = "Bạn không có quyền thao tác yêu cầu đổi firmware"
+_MSG_FCR_INVALID_TRANSITION  = "Không thể chuyển yêu cầu đổi firmware từ '{0}' sang '{1}'"
+_MSG_FCR_ROLLBACK_REASON_REQ = "Lý do hoàn tác là bắt buộc"
+_MSG_FCR_UNKNOWN_ACTION      = "Hành động không hợp lệ cho yêu cầu đổi firmware"
+
+# Dispatcher action → target state. FE gọi qua api/imm00.transition_firmware_cr
+# (BASE=imm00) với action ∈ {submit, approve, deploy, rollback}. 'submit'
+# (Draft→Pending Approval) có trong state-machine nhưng FE chưa dùng.
+_FCR_ACTION_TARGETS: dict[str, str] = {
+    "submit":   FirmwareStatus.PENDING_APPROVAL,
+    "approve":  FirmwareStatus.APPROVED,
+    "deploy":   FirmwareStatus.APPLIED,
+    "rollback": FirmwareStatus.ROLLED_BACK,
+}
+
+
+def _assert_valid_fcr_transition(current: str, target: str) -> None:
+    """Reject cạnh ngoài _FCR_VALID_TRANSITIONS (nhảy-cóc/lùi) → BAD_STATE 409."""
+    if target not in _FCR_VALID_TRANSITIONS.get(current, []):
+        raise ServiceError(
+            ErrorCode.BAD_STATE,
+            _MSG_FCR_INVALID_TRANSITION.format(current, target),
+            http_status=409,
+        )
+
+
+def _assert_can_approve_fcr() -> None:
+    """Gate cạnh duyệt/hoàn tác — capability `firmware.approve` (DocPerm submit
+    FCR: Repair Manager + AssetCore Super Admin). In-handler → ServiceError
+    (FORBIDDEN) → HTTP-200 Error envelope (ADR-IMM09-FCR-03), KHÔNG rbac.require
+    (=PermissionError/4xx re-auth)."""
+    if not rbac.can("firmware.approve"):
+        raise ServiceError(ErrorCode.FORBIDDEN, _MSG_FCR_FORBIDDEN_APPROVE, http_status=403)
+
+
+def _assert_can_write_fcr() -> None:
+    """Gate cạnh gửi-duyệt/triển-khai — capability `repair.write` (DocPerm write
+    Asset Repair). In-handler → HTTP-200 Error envelope."""
+    if not rbac.can("repair.write"):
+        raise ServiceError(ErrorCode.FORBIDDEN, _MSG_FCR_FORBIDDEN_WRITE, http_status=403)
+
+
+def firmware_allowed_transitions(status: str) -> tuple[list[str], bool]:
+    """Server-derive cho get_firmware_cr: raw list LỌC theo capability caller +
+    cờ can_approve. Consumer (web + mobile) CHỈ render nút theo 2 giá trị này,
+    KHÔNG suy từ `status` thô (chống dead-gate: Repair User tự 'Duyệt')."""
+    raw = _FCR_VALID_TRANSITIONS.get(status, [])
+    can_approve = rbac.can("firmware.approve")
+    can_write = rbac.can("repair.write")
+    allowed = [
+        t for t in raw
+        if (t in _FCR_APPROVAL_EDGES and can_approve)
+        or (t not in _FCR_APPROVAL_EDGES and can_write)
+    ]
+    return allowed, can_approve
+
+
+def firmware_transition(
+    name: str,
+    target: str,
+    *,
+    event_type: str | None = None,
+    extra_fields: dict | None = None,
+    notes: str = "",
+) -> dict:
+    """Transition FCR có kiểm soát (chung). Thứ tự reject TRƯỚC khi ghi DB:
+    exists(NOT_FOUND) → capability theo loại cạnh (FORBIDDEN) → cạnh hợp lệ
+    (BAD_STATE) → side-effect reqd (rollback_reason, VALIDATION) → `db_set`
+    status + extra_fields → 1 Asset Lifecycle Event canonical (fail-loud) →
+    commit. Event throw → `frappe.db.rollback()` + re-raise ⇒ status KHÔNG đổi
+    câm (audit-first NĐ98, robust cả ngoài request-boundary: job/test)."""
+    if not frappe.db.exists(_DT_FIRMWARE_CR, name):
+        raise ServiceError(ErrorCode.NOT_FOUND, _MSG_FCR_NOT_FOUND, http_status=404)
+    doc = frappe.get_doc(_DT_FIRMWARE_CR, name)
+    if target in _FCR_APPROVAL_EDGES:
+        _assert_can_approve_fcr()
+    else:
+        _assert_can_write_fcr()
+    _assert_valid_fcr_transition(doc.status, target)
+    # side-effect reqd (post-gate, pre-write) — hoàn tác BẮT BUỘC có lý do (audit).
+    if target == FirmwareStatus.ROLLED_BACK and not str(
+        (extra_fields or {}).get("rollback_reason", "")
+    ).strip():
+        raise ServiceError(ErrorCode.VALIDATION, _MSG_FCR_ROLLBACK_REASON_REQ, http_status=422)
+
+    from_status = doc.status
+    updates = dict(extra_fields or {})
+    updates["status"] = target
+    # SCOPED savepoint — audit-first: nếu Lifecycle Event lỗi (vd enum chưa reload)
+    # thì rollback CHỈ tới savepoint (undo db_set status), KHÔNG full-rollback
+    # (full rollback phá savepoint isolation của FrappeTestCase / cuốn theo write
+    # khác trong request). Robust cả ngoài request-boundary (job/test).
+    frappe.db.savepoint("fcr_transition")
+    # `db_set` mutate FIELD status (KHÔNG couple docstatus/doc.submit()); bỏ qua
+    # validate() FCR nên side-effect reqd đã tự-enforce ở trên.
+    doc.db_set(updates)
+    if event_type:
+        try:
+            _create_lifecycle_event(
+                asset=doc.asset_ref,
+                event_type=event_type,
+                actor=frappe.session.user,
+                from_status=from_status,
+                to_status=target,
+                root_doctype=_DT_FIRMWARE_CR,
+                root_record=name,
+                notes=notes,
+            )
+        except Exception:
+            frappe.db.rollback(save_point="fcr_transition")
+            raise
+    frappe.db.commit()
+    return {"name": name, "status": target}
+
+
+def transition_firmware_cr(name: str, *, action: str, reason: str = "") -> dict:
+    """Dispatcher endpoint (FE: api/imm00.transition_firmware_cr). Map
+    action→target + side-effect + lifecycle event, delegate `firmware_transition`.
+
+    Args:
+        name: Firmware Change Request name.
+        action: submit | approve | deploy | rollback.
+        reason: lý do hoàn tác (BẮT BUỘC khi action='rollback').
+
+    Returns: {"name", "status"} — FE reload get_firmware_cr sau đó.
+    Raises: ServiceError NOT_FOUND | FORBIDDEN | BAD_STATE | VALIDATION |
+        INVALID_PARAMS (mọi lỗi nghiệp vụ → HTTP-200 Error envelope qua `handle`).
+    """
+    target = _FCR_ACTION_TARGETS.get((action or "").strip().lower())
+    if target is None:
+        raise ServiceError(ErrorCode.INVALID_PARAMS, _MSG_FCR_UNKNOWN_ACTION, http_status=400)
+
+    extra: dict = {}
+    event: str | None = None
+    notes = ""
+    if target == FirmwareStatus.APPROVED:
+        extra = {"approved_by": frappe.session.user, "approved_datetime": now_datetime()}
+        event = _EVENT_FCR_APPROVED
+        notes = "Phê duyệt yêu cầu đổi firmware"
+    elif target == FirmwareStatus.APPLIED:
+        extra = {"applied_datetime": now_datetime()}
+        event = _EVENT_FCR_DEPLOYED
+        notes = "Triển khai cập nhật firmware"
+    elif target == FirmwareStatus.ROLLED_BACK:
+        r = (reason or "").strip()
+        extra = {"rollback_reason": r}   # firmware_transition reqd-check r non-empty
+        event = _EVENT_FCR_ROLLED_BACK
+        notes = r
+    # target == PENDING_APPROVAL (submit): no event, no extra
+    return firmware_transition(name, target, event_type=event, extra_fields=extra, notes=notes)
 
 
 def is_repair_open(status: str | None) -> bool:
@@ -323,13 +556,16 @@ def cm_sla_breach_count() -> int:
     """
     flagged = RepairRepo.count({"sla_breached": 1})
     now = now_datetime()
-    candidates, _ = RepairRepo.list(
-        filters=open_repair_filter({"sla_breached": 0}),
+    # ⚠ UNCLAMPED loop-paginate (KHÔNG page_size khổng lồ — bị `paginate` clamp im
+    # lặng về _MAX_PAGE_SIZE=100 ⇒ undercount khi >100 phiếu mở-quá-hạn = card <
+    # drill). `is_sla_breached`/live-overdue là derived in-Python (không filter SQL
+    # được), phải quét TOÀN tập candidate cờ=0 (INV-CM-SLA-5 card == Σ drill).
+    candidates = _fetch_all_repair_rows(
+        open_repair_filter({"sla_breached": 0}),
         fields=["name", "status", "open_datetime", "sla_target_hours",
                 "risk_class", "priority", "sla_breached",
                 # BR-09-10: clock-stop SoT cần hold data per-row (no N+1).
                 "parts_hold_hours", "parts_hold_started"],
-        page_size=100000,
     )
     live_open = sum(1 for r in candidates if _row_is_live_overdue(r, now))
     return flagged + live_open
@@ -715,16 +951,120 @@ def _apply_open_drill(filters: dict | None) -> dict:
     return f
 
 
+# Fields fetch cho list Asset Repair — SoT DUY NHẤT (path chính + filter LIVE
+# `_list_sla_breached_live` dùng CHUNG). Gồm cột SLA predicate (`sla_breached`/
+# `sla_target_hours`/`risk_class`/`priority`) + clock-stop SoT (`parts_hold_hours`/
+# `parts_hold_started`, no N+1). 1 nguồn ⇒ 2 path enrich khớp byte-for-byte.
+_LIST_WO_FIELDS = [
+    "name", "asset_ref", "asset_name", "repair_type", "priority",
+    "status", "open_datetime", "completion_datetime", "mttr_hours",
+    "sla_breached", "sla_target_hours", "is_repeat_failure", "assigned_to",
+    "root_cause_category", "risk_class",
+    # BR-09-10: clock-stop SoT cần hold data per-row cho live-overdue
+    # derive (no N+1); `parts_hold_hours` cũng trả ra FE.
+    "parts_hold_hours", "parts_hold_started",
+]
+
+
+def _finalize_list_row(r: dict) -> None:
+    """Post-enrich per-row list Asset Repair (dùng chung path chính + filter LIVE):
+    set `sla_paused` (BR-09-10: WO đang Pending Parts ⇒ FE badge VI 'Chờ phụ tùng —
+    SLA tạm dừng') + pop field nội bộ `parts_hold_started` (chỉ phục vụ derive SoT
+    trên BE, KHÔNG expose ra API list)."""
+    r["sla_paused"] = r.get("status") == RepairStatus.PENDING_PARTS
+    r.pop("parts_hold_started", None)
+
+
+def _fetch_all_repair_rows(filters: dict, *, fields: list[str],
+                           order_by: str = "open_datetime desc",
+                           or_filters: list | None = None) -> list[dict]:
+    """Fetch TOÀN tập Asset Repair khớp `filters` — UNCLAMPED (loop-paginate qua
+    từng trang `_MAX_PAGE_SIZE` tới hết tập).
+
+    ⚠ KHÔNG truyền `page_size` khổng lồ 1 lần: `paginate` CLAMP im lặng về
+    `_MAX_PAGE_SIZE=100` ⇒ chỉ lấy 100 dòng đầu = BUG scale (membership `_list_
+    sla_breached_live` < badge, hoặc `cm_sla_breach_count` undercount khi >100
+    phiếu mở-quá-hạn). Loop tích luỹ + termination theo `pg["total_pages"]` (từ
+    total đã đếm tầng Repo) ⇒ predicate LIVE (`_row_is_live_overdue` /
+    `_enrich_sla_breach`) áp trên TOÀN tập permission/vendor-scoped (scope nằm
+    trong `filters` — caller đã `_normalize_filters`/`open_repair_filter`). Mirror
+    imm08 `_fetch_all_pm_rows` (pattern đã de-risked)."""
+    all_rows: list[dict] = []
+    page = 1
+    total_pages = 1
+    while page <= total_pages:
+        rows, pg = RepairRepo.list(
+            filters=filters,
+            or_filters=or_filters,
+            fields=fields,
+            order_by=order_by,
+            page=page, page_size=_MAX_PAGE_SIZE,
+        )
+        all_rows.extend(rows)
+        total_pages = pg["total_pages"]
+        page += 1
+    return all_rows
+
+
+def _list_sla_breached_live(base_filters: dict, *, or_filters: list | None = None,
+                            page: int = 1, page_size: int = 20) -> dict:
+    """BR-09-07 LIVE membership filter cho chip mobile 'Quá hạn SLA'.
+
+    Trả CHỈ Asset Repair có `is_sla_breached == True` — DERIVED LIVE (cờ thô
+    `sla_breached` OR live-overdue clock-stop), CÙNG predicate `_enrich_sla_breach`
+    (badge row) + card `cm_sla_breach_count`. INVARIANT: membership filter == badge
+    hiển thị — chip lọc phải khớp badge, KHÔNG lọc theo cột STORED `sla_breached`
+    (scheduler stamp trễ ⇒ WO vừa quá hạn 1–59' MISS filter nhưng badge HIỆN =
+    mismatch phá niềm tin KTV).
+
+    `is_sla_breached` KHÔNG phải cột DB (derived in-Python) ⇒ KHÔNG filter được ở
+    SQL → mirror `cm_sla_breach_count`: fetch-all UNCLAMPED qua `_fetch_all_repair_
+    rows` (loop-paginate `_MAX_PAGE_SIZE`/trang — KHÔNG page_size khổng lồ bị clamp
+    100; GIỮ vendor-scope + `mine` + `status` trong `base_filters` qua `_apply_open_
+    drill`/`_normalize_filters`) → enrich → filter LIVE → paginate IN-PYTHON trên
+    tập ĐÃ LỌC (pagination.total == số breached, KHÔNG phải số fetch thô, KHÔNG cap
+    100). Order giữ `open_datetime desc` như path chính.
+    """
+    all_rows = _fetch_all_repair_rows(
+        _normalize_filters(_apply_open_drill(base_filters)),
+        fields=_LIST_WO_FIELDS,
+        order_by="open_datetime desc",
+        or_filters=or_filters,
+    )
+    _enrich_rows(all_rows)
+    _enrich_sla_breach(all_rows)
+    breached = [r for r in all_rows if r.get("is_sla_breached")]
+    pg = paginate(len(breached), page, page_size)
+    page_rows = breached[pg["offset"]:pg["offset"] + pg["page_size"]]
+    for r in page_rows:
+        _finalize_list_row(r)
+    return {"data": page_rows, "pagination": pg}
+
+
 def list_work_orders(filters: dict, *, page: int = 1, page_size: int = 20) -> dict:
+    # POP cờ ảo `sla_breached_live` TRƯỚC _normalize_filters (mirror _apply_open_drill
+    # pop `open`) — tránh đẩy 1 cột KHÔNG tồn tại vào frappe.get_all. Truthy → nhánh
+    # membership LIVE (chip 'Quá hạn SLA'); absent/falsy → path CŨ byte-identical.
+    base = dict(filters or {})
+    want_sla_live = base.pop("sla_breached_live", None)
+    # CR-18: free-text search server-side. POP cờ ảo `search` → OR-LIKE trên
+    # (name = mã phiếu / asset_ref = mã thiết bị) + link_search asset_name (AC
+    # Asset). Chạy SAU pop sla_breached_live + TRƯỚC _apply_open_drill/_normalize
+    # ⇒ AND với column-filters + vendor-scope + mine. count_with_or (qua Repo.list)
+    # dùng CÙNG or_filters ⇒ bất biến count==rows GIỮ. search absent/rỗng ⇒
+    # or_filters=None ⇒ path CŨ byte-identical. Wildcard %/_ escape-literal.
+    base, or_filters = pop_search(
+        base,
+        ["name", "asset_ref"],
+        link_search={"asset_ref": ("AC Asset", "asset_name")},
+        escape_wildcards=True,   # CR-18: %/_ user gõ = literal (chống match-all/DoS)
+    )
+    if str(want_sla_live) in ("1", "True", "true"):
+        return _list_sla_breached_live(base, or_filters=or_filters, page=page, page_size=page_size)
     rows, pg = RepairRepo.list(
-        filters=_normalize_filters(_apply_open_drill(filters)),
-        fields=["name", "asset_ref", "asset_name", "repair_type", "priority",
-                "status", "open_datetime", "completion_datetime", "mttr_hours",
-                "sla_breached", "sla_target_hours", "is_repeat_failure", "assigned_to",
-                "root_cause_category", "risk_class",
-                # BR-09-10: clock-stop SoT cần hold data per-row cho live-overdue
-                # derive (no N+1); `parts_hold_hours` cũng trả ra FE.
-                "parts_hold_hours", "parts_hold_started"],
+        filters=_normalize_filters(_apply_open_drill(base)),
+        or_filters=or_filters,
+        fields=_LIST_WO_FIELDS,
         order_by="open_datetime desc",
         page=page, page_size=page_size,
     )
@@ -734,12 +1074,10 @@ def list_work_orders(filters: dict, *, page: int = 1, page_size: int = 20) -> di
     # (INV-CM-SLA-5). BR-09-10: live-overdue nay phái sinh elapsed clock-stop ⇒ WO ở
     # Pending Parts KHÔNG live-overdue oan. In-Python, KHÔNG query thêm.
     _enrich_sla_breach(rows)
-    # BR-09-10: `sla_paused` = WO đang Pending Parts ⇒ FE hiện badge VI
-    # 'Chờ phụ tùng — SLA tạm dừng'. `parts_hold_started` là field nội bộ — không
-    # cần expose ra API list (chỉ phục vụ derive SoT trên BE).
+    # BR-09-10: `sla_paused` + pop field nội bộ `parts_hold_started` (dùng chung
+    # `_finalize_list_row` với filter LIVE ⇒ 2 path trả cùng shape row).
     for r in rows:
-        r["sla_paused"] = r.get("status") == RepairStatus.PENDING_PARTS
-        r.pop("parts_hold_started", None)
+        _finalize_list_row(r)
     return {"data": rows, "pagination": pg}
 
 
@@ -777,6 +1115,149 @@ def get_work_order(name: str) -> dict:
     # nút workflow trên màn repair-detail theo SERVER (KHÔNG hardcode status→button).
     data["allowed_transitions"] = _REPAIR_VALID_TRANSITIONS.get(doc.status, [])
     return data
+
+
+# ─── BR-09-15/16: attach_repair_checklist_photo — helpers + entrypoint ────────
+
+def _find_repair_checklist_row(wo, checklist_item_idx: int):
+    """Trả row `Repair Checklist` khớp Frappe child `idx` (1-based). Repair Checklist
+    KHÔNG có field STT domain riêng (khác PM `checklist_item_idx`) ⇒ so khớp
+    `int(idx) == row.idx`. None nếu không tồn tại → nhánh reject VALIDATION. Nguồn =
+    wo.repair_checklist (đã load 1 lần) ⇒ KHÔNG N+1."""
+    for row in (wo.repair_checklist or []):
+        if int(row.idx or 0) == int(checklist_item_idx):
+            return row
+    return None
+
+
+def _repair_checklist_item_photos(row) -> list:
+    """SoT DUY NHẤT ảnh/mục checklist (BR-09-16) — đọc `row.photo` (Attach ĐƠN).
+
+    Trả `[{file_url}]` khi đã có ảnh, `[]` khi chưa. CÙNG nguồn mà get_work_order
+    hiển thị (`repair_checklist[].photo` qua as_dict) VỪA đếm max-count ⇒ invariant
+    count==nguồn-liệt-kê (số chặn ảnh-thứ-2 == số hiển thị, mirror _checklist_item_
+    photos imm08)."""
+    return [{"file_url": row.photo}] if row.photo else []
+
+
+def _assert_can_attach_repair_photo(wo) -> None:
+    """BR-09-15 permission: KTV được giao (`assigned_to`) HOẶC `repair.write` trên
+    chính WO. `frappe.has_permission(doc=...)` áp CẢ role-DocPerm write LẪN row-level
+    hook (`ac_asset_repair_query`/vendor-scope) ⇒ tái dùng scope guard. KTV assignee
+    luôn đính được ảnh phiếu của mình (bằng chứng hiện trường do chính họ thực hiện) —
+    đối xứng assignee trong attach_pm_checklist_photo."""
+    user = frappe.session.user
+    if wo.assigned_to and wo.assigned_to == user:
+        return
+    if frappe.has_permission(_DT_ASSET_REPAIR, ptype="write", doc=wo, user=user):
+        return
+    raise ServiceError(ErrorCode.FORBIDDEN, _MSG_REPAIR_PHOTO_FORBIDDEN, http_status=403)
+
+
+def _repair_photo_validation_error(msg: str) -> ServiceError:
+    """VALIDATION Decision-B với fields.file (FE hiển thị lỗi dưới control upload)."""
+    return ServiceError(ErrorCode.VALIDATION, msg, http_status=422, fields={"file": msg})
+
+
+def attach_repair_checklist_photo(
+    work_order_name: str,
+    checklist_item_idx: int,
+    filedata: bytes | None = None,
+    filename: str = "",
+    content_type: str = "",
+) -> dict:
+    """BR-09-15/16 (mobile CR-15/G6): đính ảnh bằng chứng cho MỘT mục checklist sửa
+    chữa (NĐ98 Class C/D).
+
+    ĐỐI XỨNG VERBATIM thứ tự reject-before-insert của `attach_pm_checklist_photo`
+    (imm08) — KHÁC module/doctype/discriminator. Mọi nhánh reject TRƯỚC `File.insert`:
+    exists(WO) NOT_FOUND → permission (assignee/repair.write) FORBIDDEN → idx hợp lệ
+    (row khớp Frappe child `idx` trong wo.repair_checklist) VALIDATION → file present →
+    content-type ∈ {jpg,png} → size ≤ cap → max-count/mục → `File.insert(is_private=1,
+    attached_to='Asset Repair'/WO)` → set `row.photo=file_url` (`frappe.db.set_value` —
+    KHÔNG `wo.save()` re-run validate_repair_checklist_complete/gate BR-09-04 giữa lúc
+    đính ảnh; workflow_state KHÔNG đổi) → lifecycle `repair_checklist_photo_attached`
+    (hard-req, canonical create_lifecycle_event TRỰC TIẾP — KHÔNG wrapper
+    `_log_lifecycle_event` vì wrapper đó try/except-swallow) → `commit`. Nếu event throw
+    → File.insert + set_value rollback (chưa commit) ⇒ KHÔNG orphan File, KHÔNG silent
+    (đối xứng incident_photo_attached / pm_checklist_photo_attached).
+
+    Args:
+        work_order_name: Asset Repair đang mở.
+        checklist_item_idx: Frappe child `idx` (1-based) của hàng repair_checklist.
+        filedata: bytes ảnh (API đọc `frappe.request.files["file"].stream.read()`).
+        filename: tên tệp gốc (File.file_name).
+        content_type: MIME client gửi (validate jpg/png).
+
+    Returns: `{"file_url", "file_name", "checklist_item_idx"}`.
+    Raises: ServiceError NOT_FOUND | FORBIDDEN | VALIDATION (Decision-B qua API tier).
+    """
+    wo = RepairRepo.get(work_order_name)
+    if not wo:
+        nthrow(MSG.IMM09_NOT_FOUND, name=work_order_name)     # NOT_FOUND nếu thiếu
+    _assert_can_attach_repair_photo(wo)                       # FORBIDDEN nếu ngoài quyền
+    row = _find_repair_checklist_row(wo, checklist_item_idx)
+    if row is None:
+        raise _repair_photo_validation_error(_MSG_REPAIR_PHOTO_IDX_NOT_FOUND)
+    if not filedata:
+        raise _repair_photo_validation_error(_MSG_REPAIR_PHOTO_MISSING)
+    ct = (content_type or "").split(";")[0].strip().lower()
+    if ct not in _REPAIR_PHOTO_CONTENT_TYPES:
+        raise _repair_photo_validation_error(_MSG_REPAIR_PHOTO_NOT_IMAGE)
+    if len(filedata) > MAX_REPAIR_CHECKLIST_PHOTO_BYTES:
+        raise _repair_photo_validation_error(_MSG_REPAIR_PHOTO_TOO_LARGE)
+    if len(_repair_checklist_item_photos(row)) >= MAX_REPAIR_CHECKLIST_PHOTOS:
+        raise _repair_photo_validation_error(_MSG_REPAIR_PHOTO_MAX)
+
+    try:
+        file_doc = frappe.get_doc({
+            "doctype": _DT_FILE,
+            "file_name": filename,
+            "attached_to_doctype": _DT_ASSET_REPAIR,
+            "attached_to_name": work_order_name,
+            "is_private": 1,
+            "content": filedata,
+            "decode": False,
+        }).insert(ignore_permissions=True)
+    except (UnidentifiedImageError, OSError) as exc:
+        # ẢNH HỎNG/ĐỨT TRUYỀN: bytes không giải mã được dù content-type hợp lệ. Frappe
+        # File.before_insert → strip_exif → PIL.Image.open ném UnidentifiedImageError
+        # (thân rác) hoặc OSError('Truncated File Read') (cắt cụt), bọc CẢ xử lý ảnh
+        # phát sinh. PIL fail TRONG before_insert — TRƯỚC db_insert + write_file (đĩa) +
+        # set row.photo ⇒ KHÔNG orphan File (DB lẫn đĩa), row.photo CHƯA set. Chuyển
+        # thành lỗi VALIDATION Decision-B (fields.file) thay vì để HTTP-500 → bằng chứng
+        # NĐ98 mất. (Đối xứng attach_incident_photo imm12 / attach_pm_checklist_photo.)
+        frappe.logger("imm09").warning(
+            f"repair_checklist_photo_corrupt wo={work_order_name} err={type(exc).__name__}"
+        )
+        raise _repair_photo_validation_error(_MSG_REPAIR_PHOTO_CORRUPT) from exc
+
+    # SoT ảnh/mục = row.photo (CÙNG field get_work_order hiển thị) → count==nguồn-liệt-kê.
+    # frappe.db.set_value trên child row (anti-pattern #10: KHÔNG doc.save trên Asset
+    # Repair workflow-managed — tránh re-run gate hoàn-thành BR-09-04 khi đang đính ảnh).
+    frappe.db.set_value(
+        _DT_REPAIR_CHECKLIST_ROW, row.name, "photo", file_doc.file_url,
+        update_modified=False,
+    )
+
+    # BR-09-16 evidence trail NĐ98 — hard-req, canonical create_lifecycle_event TRỰC
+    # TIẾP (KHÔNG wrapper _log_lifecycle_event vì wrapper đó swallow). Event throw →
+    # File.insert + set_value rollback (chưa commit) ⇒ không orphan, không silent.
+    from assetcore.services import imm00 as svc00  # lazy — tránh circular import
+    svc00.create_lifecycle_event(
+        asset=wo.asset_ref,
+        event_type=_EVENT_REPAIR_CHECKLIST_PHOTO_ATTACHED,
+        actor=frappe.session.user,
+        root_doctype=_DT_ASSET_REPAIR,
+        root_record=work_order_name,
+        notes=f"Đính ảnh bằng chứng mục #{checklist_item_idx}: {filename}",
+    )
+    frappe.db.commit()
+    return {
+        "file_url": file_doc.file_url,
+        "file_name": file_doc.file_name,
+        "checklist_item_idx": int(checklist_item_idx),
+    }
 
 
 def _assert_valid_create_links(incident_report: str, source_pm_wo: str) -> None:
@@ -1096,6 +1577,12 @@ def close_work_order(name: str, *, repair_summary: str, root_cause_category: str
         "status": RepairStatus.PENDING_INSPECTION,
         "mttr_hours": doc.mttr_hours,
         "sla_breached": doc.sla_breached,
+        # CR-13b (mobile Trục B): đọc asset_status LIVE qua SSoT (AC Asset.
+        # lifecycle_status) — KHÔNG hardcode. Happy branch KHÔNG chạm asset
+        # (reactivate về Active chỉ xảy ra ở confirm_inspection → complete_repair)
+        # ⇒ resolve 'Under Repair'. Trả cùng superset key-set với _mark_cannot_repair
+        # để 2 nhánh close_work_order khớp contract CloseWorkOrderResponse.
+        "asset_status": AssetRepo.get_value(doc.asset_ref, "lifecycle_status"),
     }
 
 
@@ -1132,6 +1619,14 @@ def confirm_inspection(name: str) -> dict:
         "status": RepairStatus.COMPLETED,
         "mttr_hours": doc.mttr_hours,
         "sla_breached": doc.sla_breached,
+        # CR-13a (mobile Trục B): echo asset_status LIVE qua SSoT (AC Asset.
+        # lifecycle_status) SAU doc.submit() (on_submit → complete_repair đã flip
+        # asset theo BR-09-09) — KHÔNG hardcode 'Active'. Happy (asset đang Under
+        # Repair) → complete_repair restore → 'Active'; edge (governance hold
+        # OoS/Decommissioned set trước) → GIỮ prev (thiết bị out-of-tolerance
+        # KHÔNG tự lọt lại lâm sàng — NĐ98). Đối xứng nhánh happy CR-13b của
+        # close_work_order ⇒ mobile khỏi refetch asset sau nghiệm thu.
+        "asset_status": AssetRepo.get_value(doc.asset_ref, "lifecycle_status"),
     }
 
 
@@ -1150,7 +1645,12 @@ def _mark_cannot_repair(doc, name: str, reason: str) -> dict:
         root_doctype=RepairRepo.DOCTYPE, root_record=name,
         reason=f"Cannot repair: {reason}",
     )
+    # CR-13b (mobile Trục B): trả CÙNG superset key-set với nhánh happy
+    # {name,status,mttr_hours,sla_breached,asset_status} để 2 nhánh
+    # close_work_order khớp contract CloseWorkOrderResponse (parity shape).
+    # cannot-repair KHÔNG tính MTTR ⇒ mttr_hours/sla_breached có thể None (chấp nhận).
     return {"name": name, "status": RepairStatus.CANNOT_REPAIR,
+            "mttr_hours": doc.mttr_hours, "sla_breached": doc.sla_breached,
             "asset_status": AssetStatus.OUT_OF_SERVICE}
 
 

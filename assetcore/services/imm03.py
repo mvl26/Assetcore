@@ -34,6 +34,136 @@ _DT_PURCHASE = "AC Purchase"
 _DT_TS       = "IMM Tech Spec"
 _DT_PP       = "IMM Procurement Plan"
 
+# ─── State machine — SoT next-ACTION (khớp fixtures/workflow.json 'IMM-03 Decision
+#     Workflow') ──────────────────────────────────────────────────────────────
+# Server-driven CTA (GATE-8 / LL-FE-51): get_decision emit `allowed_transitions =
+# _DECISION_VALID_TRANSITIONS.get(workflow_state, [])` để FE gate nút CTA theo tập
+# này THAY hardcode `workflow_state === 'X'` — hết client-map DESYNC (nhánh 'Huỷ
+# Decision' ở Pending Approval từng bị bỏ sót ⇒ QTV không huỷ được dù có quyền).
+#
+# KHÁC IMM-05 (`_DOC_VALID_TRANSITIONS` map next_state): ở đây map ACTION (nhãn
+# transition) vì FE POST `action` sang transition_decision_workflow / award_decision
+# / record_contract. allowed_transitions CHỈ là hint hiển thị (⊆ guard-permitted) —
+# guard role trên apply_workflow vẫn là chốt enforcement thật, KHÔNG nới lỏng.
+#
+# next-action PHẢI trùng transitions fixture — invariant test
+# `test_decision_allowed_transitions_matches_workflow_fixture` chốt equality nên
+# thêm/sửa transition mà quên map → đỏ.
+#   Draft             → Chọn phương án
+#   Method Selected   → Bắt đầu thương thảo
+#   Negotiation       → Đề xuất trúng thầu
+#   Award Recommended → Trình BGĐ
+#   Pending Approval  → Phê duyệt trúng thầu | Huỷ Decision
+#   Awarded           → Ký HĐ
+#   Contract Signed   → Phát hành PO
+#   PO Issued / Cancelled → [] (trạng thái cuối)
+_DECISION_VALID_TRANSITIONS: dict[str, list[str]] = {
+    "Draft": ["Chọn phương án"],
+    "Method Selected": ["Bắt đầu thương thảo"],
+    "Negotiation": ["Đề xuất trúng thầu"],
+    "Award Recommended": ["Trình BGĐ"],
+    "Pending Approval": ["Phê duyệt trúng thầu", "Huỷ Decision"],
+    "Awarded": ["Ký HĐ"],
+    "Contract Signed": ["Phát hành PO"],
+    "PO Issued": [],
+    "Cancelled": [],
+}
+
+# ─── Vendor Evaluation — SoT next-ACTION (khớp fixtures/workflow.json 'IMM-03
+#     Vendor Eval Workflow') ─────────────────────────────────────────────────────
+# Song song _DECISION_VALID_TRANSITIONS: get_evaluation emit `allowed_transitions =
+# _EVAL_VALID_TRANSITIONS.get(workflow_state, [])` để FE (VendorEvalDetailView) gate
+# nút CTA (Mở RFQ / Nhận báo giá xong / Hoàn tất chấm điểm / Huỷ Eval) theo tập này
+# THAY hằng client TRANSITIONS_BY_STATE — hết client-map DESYNC (QTV/Commissioning
+# Manager thấy/bấm action lệch quyền khi workflow đổi).
+#
+# Map ACTION (nhãn transition) vì FE POST `action` sang transition_eval_workflow.
+# allowed_transitions CHỈ là hint hiển thị (⊆ guard-permitted) — guard role trên
+# apply_workflow (transition_eval_workflow) vẫn là chốt enforcement thật, KHÔNG nới.
+#
+# Invariant test `test_eval_allowed_transitions_matches_workflow_fixture` chốt equality
+# (map == fixture, không thiếu/thừa) nên thêm/sửa transition mà quên map → đỏ.
+#   Draft              → Mở RFQ
+#   Open RFQ           → Nhận báo giá xong | Huỷ Eval
+#   Quotation Received → Hoàn tất chấm điểm | Huỷ Eval
+#   Evaluated / Cancelled → [] (trạng thái cuối)
+_EVAL_VALID_TRANSITIONS: dict[str, list[str]] = {
+    "Draft": ["Mở RFQ"],
+    "Open RFQ": ["Nhận báo giá xong", "Huỷ Eval"],
+    "Quotation Received": ["Hoàn tất chấm điểm", "Huỷ Eval"],
+    "Evaluated": [],
+    "Cancelled": [],
+}
+
+# ─── AVL — SoT next-ACTION+role (khớp fixtures/workflow.json 'IMM-03 AVL Workflow')
+#     ──────────────────────────────────────────────────────────────────────────
+# Đóng workflow IMM-03 thứ 3/3 (parity _DECISION/_EVAL_VALID_TRANSITIONS) — nhưng
+# RICHER: mỗi transition mang (action, next_state, allowed_roles). Lý do khác 2 map
+# kia (chỉ list action): AVL enforce transition-role TƯỜNG MINH tại API tier
+# (approve_avl/suspend_avl đổi state submitted-doc qua db.set_value — KHÔNG qua
+# apply_workflow — nên tự guard role theo SoT này; LL-BE-62: KHÔNG set workflow_state
+# thô bỏ qua role). allowed_roles = tập role fixture cho (state,action,next_state):
+# domain-role (Procurement/Spec Manager) + AssetCore Super Admin + System Manager
+# (đã backfill V5 → QTV/Admin duyệt/đình chỉ/phục hồi được — đóng root-cause
+# 'không duyệt được dù đủ quyền').
+#
+# Invariant test `test_avl_allowed_transitions_matches_workflow_fixture` chốt
+# (state, action, next_state, roles) == fixture 'IMM-03 AVL Workflow' EXACT (chống
+# desync — thêm/sửa transition mà quên map → đỏ). 7 transition (dedupe theo role):
+#   Draft       → Approved 'Phê duyệt AVL' | Conditional 'Cấp Conditional'
+#   Approved    → Conditional 'Hạ xuống Conditional' | Suspended 'Đình chỉ'
+#   Conditional → Approved 'Phục hồi Approved' | Suspended 'Đình chỉ'
+#   Suspended   → Approved 'Phục hồi Approved'
+#   Expired     → [] (trạng thái cuối)
+_AVL_APPROVE_ROLES = frozenset(
+    {"Procurement Manager", "AssetCore Super Admin", "System Manager"})
+_AVL_SPEC_ROLES = frozenset(
+    {"Spec Manager", "AssetCore Super Admin", "System Manager"})
+
+_AVL_VALID_TRANSITIONS: dict[str, list[tuple[str, str, frozenset]]] = {
+    "Draft": [
+        ("Phê duyệt AVL", "Approved", _AVL_APPROVE_ROLES),
+        ("Cấp Conditional", "Conditional", _AVL_SPEC_ROLES),
+    ],
+    "Approved": [
+        ("Hạ xuống Conditional", "Conditional", _AVL_SPEC_ROLES),
+        ("Đình chỉ", "Suspended", _AVL_SPEC_ROLES),
+    ],
+    "Conditional": [
+        ("Phục hồi Approved", "Approved", _AVL_APPROVE_ROLES),
+        ("Đình chỉ", "Suspended", _AVL_SPEC_ROLES),
+    ],
+    "Suspended": [
+        ("Phục hồi Approved", "Approved", _AVL_APPROVE_ROLES),
+    ],
+    "Expired": [],
+}
+
+
+def avl_allowed_transitions(workflow_state, user_roles=None) -> list[str]:
+    """SSoT derive tập nhãn ACTION AVL hợp lệ cho ``workflow_state``, ĐÃ LỌC theo
+    role của user (server-driven CTA, GATE-8/LL-FE-51). Dùng CHUNG get_avl +
+    list_avl. Trả ``list[str]`` (⊆ tập action user được phép). ``user_roles`` truyền
+    1 LẦN từ caller (N+1-free trong list); ``None`` → KHÔNG lọc (full SoT của state).
+    Degrade an toàn: state không có/terminal → ``[]`` (FE render 0 nút)."""
+    rows = _AVL_VALID_TRANSITIONS.get(workflow_state or "", [])
+    if user_roles is None:
+        return [action for action, _next, _roles in rows]
+    ur = set(user_roles)
+    return [action for action, _next, roles in rows if roles & ur]
+
+
+def avl_transition_target(workflow_state, action):
+    """Trả ``(next_state, allowed_roles)`` cho ``(workflow_state, action)`` nếu ∈
+    SoT ``_AVL_VALID_TRANSITIONS``, else ``None``. API tier dùng để (1) reject
+    transition ngoài SoT (Draft→Suspended, Expired→*) → BAD_STATE, (2) enforce role
+    guard tường minh (LL-BE-62)."""
+    for act, next_state, roles in _AVL_VALID_TRANSITIONS.get(workflow_state or "", []):
+        if act == action:
+            return next_state, roles
+    return None
+
+
 ENVELOPE_HARD_LIMIT_PCT = 105.0  # > 105% cần justification
 
 _METHOD_RULES = {
