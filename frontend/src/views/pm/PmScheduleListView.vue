@@ -28,22 +28,9 @@ const PM_TYPES = ['Quarterly', 'Semi-Annual', 'Annual', 'Ad-hoc']
 // Nhãn pm_type: dùng SSoT translatePmType (@/utils/formatters) — không map cục bộ.
 const STATUS_OPTIONS = ['Active', 'Paused', 'Suspended']
 
+// Lọc SERVER-SIDE: BE list_pm_schedules áp pm_type/status/search + phân trang.
+// KHÔNG lọc client trên trang bị cắt (bug cũ: chỉ lọc 30 dòng đầu).
 interface FilterChip { key: 'pm_type' | 'status' | 'search'; label: string }
-const filteredItems = computed(() => {
-  let arr = items.value
-  if (filters.value.pm_type) arr = arr.filter(s => s.pm_type === filters.value.pm_type)
-  if (filters.value.status) arr = arr.filter(s => s.status === filters.value.status)
-  if (filters.value.search.trim()) {
-    const q = filters.value.search.trim().toLowerCase()
-    arr = arr.filter(s =>
-      (s.name || '').toLowerCase().includes(q)
-      || (s.asset_ref || '').toLowerCase().includes(q)
-      || (s.asset_name || '').toLowerCase().includes(q)
-      || (s.asset_code || '').toLowerCase().includes(q),
-    )
-  }
-  return arr
-})
 const activeChips = computed<FilterChip[]>(() => {
   const chips: FilterChip[] = []
   if (filters.value.pm_type) chips.push({ key: 'pm_type', label: translatePmType(filters.value.pm_type) })
@@ -85,7 +72,12 @@ async function load() {
   loadError.value = null
   // silentError: lỗi load list render fallback "Thử lại" inline; vẫn toast nhẹ.
   const res = await apiCall.run(() => Promise.all([
-    listPmSchedules({ page: page.value, page_size: PAGE_SIZE }),
+    listPmSchedules({
+      page: page.value, page_size: PAGE_SIZE,
+      pm_type: filters.value.pm_type || undefined,
+      status: filters.value.status || undefined,
+      search: filters.value.search.trim() || undefined,
+    }),
     masterStore.fetchDoctype('AC Asset'),
     masterStore.fetchDoctype('User'),
     masterStore.fetchDoctype('PM Checklist Template'),
@@ -97,8 +89,17 @@ async function load() {
     return
   }
   const d = res[0]
-  if (d) { items.value = d.data || []; total.value = d.pagination?.total || 0 }
+  // BE trả envelope phẳng { items, total } (KHÔNG { data, pagination }).
+  if (d) { items.value = d.items || []; total.value = d.total || 0 }
 }
+// Đổi filter (pm_type/status/search) → về trang 1 + reload server (debounce search).
+let filterTimer: ReturnType<typeof setTimeout>
+watch(filters, () => {
+  clearTimeout(filterTimer)
+  filterTimer = setTimeout(() => { page.value = 1; load() }, 300)
+}, { deep: true })
+function prevPage() { if (page.value > 1) { page.value--; load() } }
+function nextPage() { if (page.value * PAGE_SIZE < total.value) { page.value++; load() } }
 
 function openCreate() {
   editingName.value = null
@@ -239,10 +240,10 @@ onMounted(load)
     <div class="card overflow-hidden">
       <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50/60 text-xs text-slate-500">
         <span v-if="activeFilterCount > 0">
-          Kết quả lọc: <strong class="text-slate-700">{{ filteredItems.length }}</strong> / {{ items.length }} lịch
+          Kết quả lọc: <strong class="text-slate-700">{{ items.length }}</strong> / {{ total }} lịch
         </span>
         <span v-else>
-          Hiển thị <strong class="text-slate-700">{{ filteredItems.length }}</strong> / {{ total }} lịch
+          Hiển thị <strong class="text-slate-700">{{ items.length }}</strong> / {{ total }} lịch
         </span>
         <button v-if="activeFilterCount > 0" class="text-red-500 hover:text-red-700 font-medium" @click="resetFilters">Xóa tất cả</button>
       </div>
@@ -255,7 +256,7 @@ onMounted(load)
         <p class="text-sm text-red-700 mb-4">{{ loadError }}</p>
         <button class="btn-primary" @click="load">Thử lại</button>
       </div>
-      <div v-else-if="filteredItems.length === 0" class="text-center py-12 px-6">
+      <div v-else-if="items.length === 0" class="text-center py-12 px-6">
         <svg class="w-10 h-10 mx-auto mb-2 text-slate-300" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
         <p class="text-sm text-slate-500 mb-4">
           {{ activeFilterCount > 0 ? 'Không có lịch bảo trì định kỳ nào phù hợp với bộ lọc.' : 'Chưa có lịch bảo trì định kỳ nào.' }}
@@ -267,7 +268,7 @@ onMounted(load)
         <!-- Mobile cards -->
         <div class="mobile-card-list sm:hidden">
           <div
-            v-for="s in filteredItems"
+            v-for="s in items"
             :key="s.name"
             class="mobile-card"
           >
@@ -307,7 +308,7 @@ onMounted(load)
           </tr>
         </thead>
         <tbody class="divide-y divide-slate-100">
-          <tr v-for="s in filteredItems" :key="s.name" class="hover:bg-slate-50">
+          <tr v-for="s in items" :key="s.name" class="hover:bg-slate-50">
             <td class="px-4 py-3 font-mono text-xs text-slate-500">{{ s.name }}</td>
             <td class="px-4 py-3">
               <div class="font-medium text-slate-900 truncate max-w-[240px]">
@@ -348,6 +349,15 @@ onMounted(load)
       </table>
         </div>
       </template>
+
+      <!-- Pagination -->
+      <div v-if="total > PAGE_SIZE" class="flex items-center justify-between px-4 py-3 border-t border-slate-100 text-sm text-slate-500">
+        <span>{{ (page - 1) * PAGE_SIZE + 1 }}–{{ Math.min(page * PAGE_SIZE, total) }} / {{ total }}</span>
+        <div class="flex gap-2">
+          <button :disabled="page === 1" class="px-3 py-1 rounded border border-slate-300 disabled:opacity-40 hover:bg-slate-50" aria-label="Trang trước" @click="prevPage">‹</button>
+          <button :disabled="page * PAGE_SIZE >= total" class="px-3 py-1 rounded border border-slate-300 disabled:opacity-40 hover:bg-slate-50" aria-label="Trang sau" @click="nextPage">›</button>
+        </div>
+      </div>
     </div>
 
     <div v-if="showForm" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="showForm = false">

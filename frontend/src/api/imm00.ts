@@ -13,6 +13,7 @@ import type {
   AcAssetCategory, ImmDeviceModel, ImmSlaPolicy, ImmAuditTrail,
   ImmCapaRecord, AssetLifecycleEvent, IncidentReport,
   AssetListParams, PaginatedResponse, AssetKpi, ChainVerifyResult,
+  AssetTransfer,
 } from '@/types/imm00'
 
 const BASE = '/api/method/assetcore.api.imm00'
@@ -704,7 +705,11 @@ export function getDepreciationByCategory(): Promise<DepreciationByCategoryResul
 
 // ─── Asset Transfer CRUD ─────────────────────────────────────────────────────
 
-export function getTransferFull(name: string): Promise<Record<string, unknown>> {
+// Detail phiếu luân chuyển. BE (get_transfer_full / get_transfer) enrich thêm 6
+// denorm *_name (from/to × location/department/custodian) qua SSoT _enrich,
+// coalesce '' — consumer hiển thị *_name, KHÔNG render Link-id thô. Trả kèm
+// AssetTransfer để 6 *_name có type; giữ Record<string, unknown> cho field còn lại.
+export function getTransferFull(name: string): Promise<AssetTransfer & Record<string, unknown>> {
   return frappeGet(`${BASE}.get_transfer_full`, { name })
 }
 
@@ -734,12 +739,17 @@ export interface PmSchedule {
   notes?: string
 }
 
+// BE list_pm_schedules trả envelope phẳng { items, total, page, page_size } (qua
+// _ok → frappeGet unwrap data). KHÔNG phải { data, pagination } — type cũ sai shape
+// khiến view đọc d.data/d.pagination = undefined ⇒ list LUÔN rỗng. Sửa đúng shape.
 export interface PmScheduleListResponse {
-  data: PmSchedule[]
-  pagination: { page: number; page_size: number; total: number; total_pages: number }
+  items: PmSchedule[]
+  total: number
+  page: number
+  page_size: number
 }
 
-export function listPmSchedules(params: { page?: number; page_size?: number; asset_ref?: string; status?: string } = {}): Promise<PmScheduleListResponse> {
+export function listPmSchedules(params: { page?: number; page_size?: number; asset?: string; status?: string; pm_type?: string; search?: string } = {}): Promise<PmScheduleListResponse> {
   return frappeGet(`${BASE}.list_pm_schedules`, params as Record<string, unknown>)
 }
 
@@ -839,9 +849,17 @@ export interface FirmwareCR {
   approved_datetime?: string
   applied_datetime?: string
   rollback_reason?: string
+  // Server-driven CTA (GATE-8 / LL-FE-51). BE derive từ _FCR_VALID_TRANSITIONS
+  // đã LỌC theo capability caller; `can_approve` = cờ riêng cho cạnh duyệt.
+  // Consumer (web + mobile) CHỈ render nút theo 2 field này, KHÔNG suy từ `status`.
+  allowed_transitions?: string[]
+  can_approve?: boolean
 }
 
-export function listFirmwareCrs(params: { page?: number; page_size?: number; status?: string; asset?: string } = {}): Promise<{ items: FirmwareCR[]; total: number }> {
+/** Hành động chuyển-trạng-thái FCR có kiểm soát (transition endpoint). */
+export type FirmwareCrAction = 'approve' | 'deploy' | 'rollback'
+
+export function listFirmwareCrs(params: { page?: number; page_size?: number; status?: string; asset?: string; search?: string } = {}): Promise<{ items: FirmwareCR[]; total: number }> {
   return frappeGet(`${BASE}.list_firmware_crs`, params as Record<string, unknown>)
 }
 
@@ -853,8 +871,27 @@ export function createFirmwareCr(data: Partial<FirmwareCR>): Promise<{ name: str
   return frappePost(`${BASE}.create_firmware_cr`, data as Record<string, unknown>)
 }
 
+// ⚠️ update_firmware_cr = CRUD chung (mô tả/notes). KHÔNG dùng để đổi `status` —
+// BE reject/bỏ qua kwarg status. Đổi trạng thái PHẢI qua transitionFirmwareCr.
 export function updateFirmwareCr(name: string, data: Partial<FirmwareCR>): Promise<{ name: string }> {
   return frappePost(`${BASE}.update_firmware_cr`, { name, ...data } as Record<string, unknown>)
+}
+
+/**
+ * Chuyển trạng thái FCR qua endpoint có kiểm soát SERVER-side (capability-role +
+ * valid-transition guard + audit trail Lifecycle Event). Mirror BE
+ * `assetcore.api.imm00.transition_firmware_cr`. `reason` chỉ dùng cho action
+ * 'rollback' (lý do khôi phục — audit NĐ98). Trả FCR đã cập nhật (kèm
+ * allowed_transitions/can_approve mới).
+ */
+export function transitionFirmwareCr(
+  name: string,
+  action: FirmwareCrAction,
+  reason?: string,
+): Promise<FirmwareCR> {
+  const payload: Record<string, unknown> = { name, action }
+  if (reason) payload.reason = reason
+  return frappePost(`${BASE}.transition_firmware_cr`, payload)
 }
 
 export function deleteFirmwareCr(name: string): Promise<{ name: string; deleted: boolean }> {
@@ -878,7 +915,7 @@ export interface DocumentRequest {
   fulfilled_by?: string
 }
 
-export function listDocumentRequests(params: { page?: number; page_size?: number; status?: string; asset?: string } = {}): Promise<{ items: DocumentRequest[]; total: number }> {
+export function listDocumentRequests(params: { page?: number; page_size?: number; status?: string; asset?: string; priority?: string; search?: string } = {}): Promise<{ items: DocumentRequest[]; total: number }> {
   return frappeGet(`${BASE}.list_document_requests`, params as Record<string, unknown>)
 }
 
