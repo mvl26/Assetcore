@@ -2,16 +2,21 @@
 // Copyright (c) 2026, AssetCore Team
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useImm03Store } from '@/stores/imm03'
-import { approveAvl, suspendAvl, createAvlEntry } from '@/api/imm03'
+import { createAvlEntry, AVL_ACTIONS } from '@/api/imm03'
 import type { AvlListItem, AvlState } from '@/types/imm03'
 import { stateLabel, formatVnDate } from '@/utils/wave2Labels'
+import { useNotify } from '@/composables/useNotify'
+import { MSG } from '@/i18n/messages'
 import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar, { type FilterChip } from '@/components/common/ListFilterBar.vue'
 import KpiCard from '@/components/common/KpiCard.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
+import BaseModal from '@/components/common/BaseModal.vue'
+import DateInput from '@/components/common/DateInput.vue'
 
 const store = useImm03Store()
+const notify = useNotify()
 
 const STATES: AvlState[] = ['Draft', 'Approved', 'Conditional', 'Suspended', 'Expired']
 const EXPIRY_BUCKETS = [
@@ -102,18 +107,85 @@ const filteredAvl = computed(() => {
   })
 })
 
-async function doApproveAvl(a: AvlListItem) {
-  const approver = globalThis.prompt('Tài khoản người phê duyệt:', 'admin@example.com')
-  if (!approver) return
-  await approveAvl(a.name, approver)
-  applyFilters()
+// ── Server-driven CTA (GATE-8 / LL-FE-51) ─────────────────────────────────────
+// Nút render CHỈ khi action ∈ row.allowed_transitions (BE derive từ
+// `_AVL_VALID_TRANSITIONS`, đã lọc theo capability/role). KHÔNG hardcode
+// `workflow_state === 'X'` (dead-gate + lộ nút sai role). allowed_transitions
+// rỗng/undefined → 0 nút (degrade an toàn, không dead-control 403).
+function allowedActions(a: AvlListItem): string[] { return a.allowed_transitions ?? [] }
+function canApproveAvl(a: AvlListItem): boolean { return allowedActions(a).includes(AVL_ACTIONS.APPROVE) }
+function canRestoreAvl(a: AvlListItem): boolean { return allowedActions(a).includes(AVL_ACTIONS.RESTORE) }
+function canSuspendAvl(a: AvlListItem): boolean { return allowedActions(a).includes(AVL_ACTIONS.SUSPEND) }
+function canGrantConditional(a: AvlListItem): boolean { return allowedActions(a).includes(AVL_ACTIONS.GRANT_CONDITIONAL) }
+function canDowngradeConditional(a: AvlListItem): boolean { return allowedActions(a).includes(AVL_ACTIONS.DOWNGRADE_CONDITIONAL) }
+function hasAnyCta(a: AvlListItem): boolean {
+  return canApproveAvl(a) || canGrantConditional(a) || canDowngradeConditional(a) || canRestoreAvl(a) || canSuspendAvl(a)
 }
-async function doSuspendAvl(a: AvlListItem) {
-  const reason = globalThis.prompt('Lý do đình chỉ giấy phép:')
-  if (!reason) return
-  await suspendAvl(a.name, reason)
-  applyFilters()
+
+// Phê duyệt (Draft→Approved) & Phục hồi (Conditional/Suspended→Approved) đều gọi
+// approveAvlEntry — approver = frappe.session.user (server-side), FE KHÔNG nhập email.
+async function doApproveAvl(a: AvlListItem, restore = false) {
+  const who = a.vendor_name || a.supplier
+  const ok = await notify.confirm({
+    title: restore ? 'Phục hồi giấy phép' : 'Phê duyệt giấy phép',
+    body: restore
+      ? `Phục hồi giấy phép ${a.name} của ${who} về trạng thái Đã duyệt?`
+      : `Phê duyệt giấy phép ${a.name} cho ${who}?`,
+    confirmText: restore ? 'Phục hồi' : 'Phê duyệt',
+  })
+  if (!ok) return
+  const success = await store.approveAvlEntry(a.name)
+  if (success) notify.show({ code: MSG.UI_SAVE_SUCCESS, ctx: { entity: `giấy phép ${a.name}` } })
+  else notify.fromError(store.lastApiError)
 }
+
+// Đình chỉ: giữ modal nhập lý do (suspension_reason bắt buộc) thay window.prompt.
+const suspendTarget = ref<AvlListItem | null>(null)
+const suspendReason = ref('')
+const suspendBusy = ref(false)
+function openSuspendAvl(a: AvlListItem) { suspendTarget.value = a; suspendReason.value = '' }
+function closeSuspendAvl() { suspendTarget.value = null; suspendReason.value = '' }
+async function confirmSuspendAvl() {
+  const a = suspendTarget.value
+  const reason = suspendReason.value.trim()
+  if (!a || !reason) return
+  suspendBusy.value = true
+  const success = await store.suspendAvlEntry(a.name, reason)
+  suspendBusy.value = false
+  if (success) {
+    notify.show({ code: MSG.UI_SAVE_SUCCESS, ctx: { entity: `giấy phép ${a.name}` } })
+    closeSuspendAvl()
+  } else {
+    notify.fromError(store.lastApiError)
+  }
+}
+// Cấp/Hạ xuống có điều kiện: modal nhập điều kiện kèm theo (condition_notes bắt buộc,
+// parity với Đình chỉ). 1 modal dùng chung cho cả 2 nhánh — mode phân biệt Draft
+// (cấp) vs Approved (hạ xuống); cả hai chuyển sang trạng thái 'Có điều kiện'.
+type ConditionalMode = 'grant' | 'downgrade'
+const conditionalTarget = ref<AvlListItem | null>(null)
+const conditionalMode = ref<ConditionalMode>('grant')
+const conditionNotes = ref('')
+const conditionalBusy = ref(false)
+function openConditional(a: AvlListItem, mode: ConditionalMode) {
+  conditionalTarget.value = a; conditionalMode.value = mode; conditionNotes.value = ''
+}
+function closeConditional() { conditionalTarget.value = null; conditionNotes.value = '' }
+async function confirmConditional() {
+  const a = conditionalTarget.value
+  const notes = conditionNotes.value.trim()
+  if (!a || !notes) return
+  conditionalBusy.value = true
+  const success = await store.setAvlConditional(a.name, notes)
+  conditionalBusy.value = false
+  if (success) {
+    notify.show({ code: MSG.UI_SAVE_SUCCESS, ctx: { entity: `giấy phép ${a.name}` } })
+    closeConditional()
+  } else {
+    notify.fromError(store.lastApiError)
+  }
+}
+
 async function doCreate() {
   if (!canCreate.value) return
   await createAvlEntry(newAvl.supplier, newAvl.device_category, newAvl.validity_years, newAvl.valid_from)
@@ -204,13 +276,16 @@ onMounted(() => {
             </div>
             <p class="text-sm font-medium text-slate-900 truncate">{{ a.vendor_name || a.supplier }}</p>
             <div class="flex flex-wrap gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
-              <span>{{ (a as any).device_category_name || a.device_category }}</span>
+              <span>{{ a.device_category_name || a.device_category }}</span>
               <span>· {{ formatVnDate(a.valid_from) }} → {{ formatVnDate(a.valid_to) }}</span>
               <span v-if="isExpiring(a)" class="warn-text">⏰ Còn {{ daysLeft(a) }} ngày</span>
             </div>
-            <div class="flex gap-2 mt-2">
-              <button v-if="a.workflow_state === 'Draft'" class="btn-mini btn-success" @click.stop="doApproveAvl(a)">Phê duyệt</button>
-              <button v-if="a.workflow_state === 'Approved' || a.workflow_state === 'Conditional'" class="btn-mini btn-danger" @click.stop="doSuspendAvl(a)">Đình chỉ</button>
+            <div class="flex flex-wrap gap-2 mt-2">
+              <button v-if="canApproveAvl(a)" class="btn-mini btn-success" @click.stop="doApproveAvl(a)">Phê duyệt</button>
+              <button v-if="canGrantConditional(a)" class="btn-mini btn-warning" @click.stop="openConditional(a, 'grant')">Cấp có điều kiện</button>
+              <button v-if="canDowngradeConditional(a)" class="btn-mini btn-warning" @click.stop="openConditional(a, 'downgrade')">Hạ xuống có điều kiện</button>
+              <button v-if="canRestoreAvl(a)" class="btn-mini btn-success" @click.stop="doApproveAvl(a, true)">Phục hồi</button>
+              <button v-if="canSuspendAvl(a)" class="btn-mini btn-danger" @click.stop="openSuspendAvl(a)">Đình chỉ</button>
             </div>
           </div>
           <div v-if="filteredAvl.length === 0" class="py-12 text-center text-slate-400">
@@ -244,7 +319,7 @@ onMounted(() => {
                 </td>
                 <td>
                   <button class="link-cell" :title="`Lọc: ${a.device_category}`" @click="quickFilter('device_category', a.device_category)">
-                    {{ (a as any).device_category_name || a.device_category }}
+                    {{ a.device_category_name || a.device_category }}
                   </button>
                 </td>
                 <td>
@@ -260,12 +335,12 @@ onMounted(() => {
                   </button>
                 </td>
                 <td class="actions-col">
-                  <button v-if="a.workflow_state === 'Draft'" class="btn-mini btn-success" @click="doApproveAvl(a)">Phê duyệt</button>
-                  <button
-  v-if="a.workflow_state === 'Approved' || a.workflow_state === 'Conditional'"
-                          class="btn-mini btn-danger" @click="doSuspendAvl(a)">
-  Đình chỉ
-  </button>
+                  <button v-if="canApproveAvl(a)" data-testid="cta-approve" class="btn-mini btn-success" @click="doApproveAvl(a)">Phê duyệt</button>
+                  <button v-if="canGrantConditional(a)" data-testid="cta-grant-conditional" class="btn-mini btn-warning" @click="openConditional(a, 'grant')">Cấp có điều kiện</button>
+                  <button v-if="canDowngradeConditional(a)" data-testid="cta-downgrade-conditional" class="btn-mini btn-warning" @click="openConditional(a, 'downgrade')">Hạ xuống có điều kiện</button>
+                  <button v-if="canRestoreAvl(a)" data-testid="cta-restore" class="btn-mini btn-success" @click="doApproveAvl(a, true)">Phục hồi</button>
+                  <button v-if="canSuspendAvl(a)" data-testid="cta-suspend" class="btn-mini btn-danger" @click="openSuspendAvl(a)">Đình chỉ</button>
+                  <span v-if="!hasAnyCta(a)" class="text-xs text-slate-400">—</span>
                 </td>
               </tr>
             </tbody>
@@ -298,7 +373,7 @@ onMounted(() => {
             <input v-model.number="newAvl.validity_years" type="number" min="1" max="3" />
           </label>
           <label>Hiệu lực từ ngày
-            <input v-model="newAvl.valid_from" type="date" />
+            <DateInput v-model="newAvl.valid_from" class="form-input w-full" />
           </label>
         </div>
         <div class="modal-foot">
@@ -307,6 +382,90 @@ onMounted(() => {
         </div>
       </div>
     </div>
+
+    <!-- Suspend modal (thay window.prompt) — lý do đình chỉ bắt buộc -->
+    <BaseModal
+      v-if="suspendTarget"
+      title="Đình chỉ giấy phép nhà cung cấp"
+      size="md"
+      danger
+      @close="closeSuspendAvl"
+    >
+      <p class="text-sm text-slate-600 mb-3">
+        Đình chỉ giấy phép
+        <strong class="font-mono">{{ suspendTarget.name }}</strong>
+        của {{ suspendTarget.vendor_name || suspendTarget.supplier }}.
+      </p>
+      <label for="avl-suspend-reason" class="block text-sm font-medium text-slate-700 mb-1">
+        Lý do đình chỉ <span class="text-red-500">*</span>
+      </label>
+      <textarea
+        id="avl-suspend-reason"
+        v-model="suspendReason"
+        data-testid="avl-suspend-reason"
+        rows="3"
+        aria-describedby="avl-suspend-hint"
+        class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:outline-none"
+        placeholder="Ví dụ: Chứng chỉ ISO 13485 đã hết hạn, chưa gia hạn..."
+      ></textarea>
+      <p id="avl-suspend-hint" class="mt-1 text-xs text-slate-400">
+        Lý do được lưu vào hồ sơ và hiển thị trong lịch sử giấy phép.
+      </p>
+      <template #footer>
+        <button class="btn-ghost" @click="closeSuspendAvl">Huỷ</button>
+        <button
+          class="btn-mini btn-danger"
+          data-testid="cta-suspend-confirm"
+          :disabled="!suspendReason.trim() || suspendBusy"
+          @click="confirmSuspendAvl"
+        >
+          Đình chỉ
+        </button>
+      </template>
+    </BaseModal>
+
+    <!-- Cấp / Hạ xuống có điều kiện — điều kiện kèm theo bắt buộc (thay window.prompt) -->
+    <BaseModal
+      v-if="conditionalTarget"
+      :title="conditionalMode === 'grant' ? 'Cấp giấy phép có điều kiện' : 'Hạ giấy phép xuống có điều kiện'"
+      size="md"
+      @close="closeConditional"
+    >
+      <p class="text-sm text-slate-600 mb-3">
+        <template v-if="conditionalMode === 'grant'">Cấp</template>
+        <template v-else>Hạ</template>
+        giấy phép
+        <strong class="font-mono">{{ conditionalTarget.name }}</strong>
+        của {{ conditionalTarget.vendor_name || conditionalTarget.supplier }}
+        về trạng thái <strong>Có điều kiện</strong>.
+      </p>
+      <label for="avl-condition-notes" class="block text-sm font-medium text-slate-700 mb-1">
+        Điều kiện kèm theo <span class="text-red-500">*</span>
+      </label>
+      <textarea
+        id="avl-condition-notes"
+        v-model="conditionNotes"
+        data-testid="avl-condition-notes"
+        rows="3"
+        aria-describedby="avl-condition-hint"
+        class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:outline-none"
+        placeholder="Ví dụ: Chỉ đạt 2/3 tiêu chí — bổ sung chứng chỉ ISO trong 90 ngày..."
+      ></textarea>
+      <p id="avl-condition-hint" class="mt-1 text-xs text-slate-400">
+        Điều kiện được lưu vào hồ sơ giấy phép và hiển thị trong lịch sử.
+      </p>
+      <template #footer>
+        <button class="btn-ghost" @click="closeConditional">Huỷ</button>
+        <button
+          class="btn-mini btn-warning"
+          data-testid="cta-conditional-confirm"
+          :disabled="!conditionNotes.trim() || conditionalBusy"
+          @click="confirmConditional"
+        >
+          {{ conditionalMode === 'grant' ? 'Cấp có điều kiện' : 'Hạ xuống có điều kiện' }}
+        </button>
+      </template>
+    </BaseModal>
   </div>
 </template>
 
@@ -316,6 +475,7 @@ onMounted(() => {
 .btn-mini { padding: 0.3rem 0.6rem; font-size: 0.8rem; border-radius: 6px; border: 1px solid #cbd5e1; cursor: pointer; font: inherit; }
 .btn-mini.btn-success { background: #059669; color: white; border-color: #059669; }
 .btn-mini.btn-danger  { background: #dc2626; color: white; border-color: #dc2626; }
+.btn-mini.btn-warning { background: #d97706; color: white; border-color: #d97706; }
 .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
 .modal { background: white; border-radius: 8px; width: 480px; max-width: 90vw; }
 .modal-head { display: flex; justify-content: space-between; align-items: center; padding: 1rem; border-bottom: 1px solid #e5e7eb; }

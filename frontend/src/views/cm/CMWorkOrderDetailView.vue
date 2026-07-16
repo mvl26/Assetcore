@@ -380,6 +380,23 @@ Phiếu bảo trì {{ wo.source_pm_wo }} →
                 <div class="text-sm text-slate-800">{{ item.test_description }}</div>
                 <div class="text-xs text-slate-400">{{ item.test_category }}</div>
                 <div v-if="item.notes" class="text-xs text-slate-600 mt-1 italic">{{ item.notes }}</div>
+                <!-- Ảnh bằng chứng mục (NĐ98 Class C/D) — read-only cho QL/Kiểm toán xem.
+                     photo null/'' → không render (không crash). -->
+                <a
+                  v-if="item.photo"
+                  :href="item.photo"
+                  target="_blank"
+                  rel="noopener"
+                  class="inline-block mt-2 rounded-lg overflow-hidden border border-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+                  :aria-label="`Xem ảnh bằng chứng mục #${item.idx}`"
+                >
+                  <img
+                    :src="item.photo"
+                    :alt="`Ảnh bằng chứng mục #${item.idx} — ${item.test_description}`"
+                    class="h-20 w-20 object-cover"
+                    loading="lazy"
+                  >
+                </a>
               </div>
             </div>
           </div>

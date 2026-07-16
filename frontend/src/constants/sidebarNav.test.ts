@@ -97,7 +97,8 @@ describe('buildSidebarGroups — capability filter + grouping (Core Doc §2.1)',
   })
 
   it('T13: dedupe item by path across multiple modules of one persona', () => {
-    // workshop includes both imm15 and master which both list "/asset-transfers".
+    // Guard chống trùng path khi 1 persona gộp nhiều module (vd /assets ở master
+    // + nhiều nơi). workshop persona: đảm bảo không có path lặp sau khi UNION module.
     const groups = buildSidebarGroups(persona('workshop'), () => true, true)
     const paths = groups.flatMap((g) => g.items.map((i) => i.path))
     const dupes = paths.filter((p, i) => paths.indexOf(p) !== i)
@@ -260,5 +261,44 @@ describe('AppSidebar header — không leak nhãn persona', () => {
     // primaryPersona còn tồn tại (tô màu + route dashboard) nhưng .label không bind text.
     expect(SRC).toContain('primaryPersona')
     expect(SRC).toMatch(/personaColor/)
+  })
+})
+
+// ─── CR-TRF-AUTHZ: link 'Điều chuyển thiết bị' gate theo commissioning.read ─────
+// Bug (2026-07-15): NavItem /asset-transfers KHÔNG có `cap` → itemVisible luôn true
+// → lọt vào sidebar của persona 'store'/'workshop' (inventory) → click → BE 403.
+// BE gate transfer theo Commissioning. Fix: cap='commissioning.read' + chỉ đặt
+// item ở group imm13 (bỏ bản sao dưới imm15/Tồn kho). Anti-leak parity FE↔BE.
+describe('CR-TRF-AUTHZ — link Điều chuyển gate commissioning.read (anti-leak inventory)', () => {
+  const INV_CAPS = ['inventory.read', 'inventory.create', 'inventory.write']
+  const transferPaths = (groups: ReturnType<typeof buildSidebarGroupsForRoles>) =>
+    groups.flatMap((g) => g.items.map((i) => i.path))
+
+  it('NavItem /asset-transfers gated cap commissioning.read', () => {
+    const item = MODULE_NAV.imm13.items.find((i) => i.path === '/asset-transfers')
+    expect(item?.cap).toBe('commissioning.read')
+  })
+  it('/asset-transfers KHÔNG còn nằm trong group imm15 (Tồn kho phụ tùng)', () => {
+    expect(MODULE_NAV.imm15.items.some((i) => i.path === '/asset-transfers')).toBe(false)
+  })
+  it('store persona (inventory-only) KHÔNG thấy /asset-transfers', () => {
+    const groups = buildSidebarGroupsForRoles([persona('store')], canOnly(...INV_CAPS), false)
+    expect(transferPaths(groups)).not.toContain('/asset-transfers')
+  })
+  it('workshop persona (không commissioning) KHÔNG thấy /asset-transfers', () => {
+    const groups = buildSidebarGroupsForRoles(
+      [persona('workshop')],
+      canOnly('pm.read', 'repair.read', 'calibration.read', 'corrective.read', ...INV_CAPS),
+      false,
+    )
+    expect(transferPaths(groups)).not.toContain('/asset-transfers')
+  })
+  it('opsmgr persona (commissioning.read) THẤY /asset-transfers', () => {
+    const groups = buildSidebarGroupsForRoles([persona('opsmgr')], canOnly('commissioning.read'), false)
+    expect(transferPaths(groups)).toContain('/asset-transfers')
+  })
+  it('superuser luôn thấy /asset-transfers (bypass cap)', () => {
+    const groups = buildSidebarGroupsForRoles([persona('opsmgr')], canNone, true)
+    expect(transferPaths(groups)).toContain('/asset-transfers')
   })
 })

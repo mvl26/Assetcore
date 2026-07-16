@@ -6,7 +6,7 @@
 | Wave | 2 |
 | Trạng thái | Wave 2 — Live ✅ |
 | Số file hiện có | 8 (template chuẩn) |
-| Cập nhật cuối | 2026-07-02 |
+| Cập nhật cuối | 2026-07-14 |
 | Khối kiến trúc | A. KHỐI 1 |
 | Đợt triển khai | 2 |
 | Owner | PTP Khối 1 · Nhóm KH-TC |

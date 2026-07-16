@@ -387,6 +387,15 @@ export const SLA_BREACH_LABEL = {
 } as const
 export const SLA_BREACH_BADGE_CLASS = 'bg-red-100 text-red-700 ring-1 ring-red-200'
 
+// Nhãn trạng thái SLA cho màn Chi tiết (section 'Tình trạng SLA') — mỗi dòng
+// Phản hồi/Xử lý hiển thị 1 badge trạng thái theo cờ DERIVED của BE (0|1). Text
+// đầy đủ tiếng Việt (KHÔNG chỉ phân biệt bằng màu — WCAG 2.1 AA).
+export const SLA_STATUS_LABEL = {
+  breached: 'Quá hạn',
+  within:   'Trong hạn',
+} as const
+export const SLA_WITHIN_BADGE_CLASS = 'bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200'
+
 // ─── Incident type (khớp INCIDENT_TYPES trong IncidentCreateView + BE) ─────────
 export const INCIDENT_TYPE_LABEL: Record<string, string> = {
   'Failure':      'Hỏng hóc',
@@ -733,4 +742,41 @@ export function formatStatusClass(v: string | undefined | null): string {
     if (v in map) return map[v]
   }
   return 'bg-gray-100 text-gray-600'
+}
+
+// ─── IMM-14 · Giải nhiệm thiết bị (Asset Decommission) — SSoT nhãn hiển thị ───
+// Chỉ ĐỔI LỚP HIỂN THỊ; VALUE gửi BE (disposal_method / workflow_state) GIỮ NGUYÊN
+// (LL-FE-52/53 — display layer only). disposal_method: dịch phần EN lẫn trong enum
+// DocType (Donation/Trade-in) sang tiếng Việt, GIỮ phần đã VN (Huỷ, Lưu trữ).
+export const DISPOSAL_METHOD_LABEL: Record<string, string> = {
+  'Huỷ': 'Huỷ',
+  'Điều chuyển/Donation': 'Điều chuyển/Hiến tặng',
+  'Bán/Trade-in': 'Bán/Thu cũ đổi mới',
+  'Lưu trữ': 'Lưu trữ',
+}
+export function disposalMethodLabel(v?: string | null): string {
+  if (!v) return '—'
+  return DISPOSAL_METHOD_LABEL[v] ?? v
+}
+
+// Trạng thái hồ sơ giải nhiệm — nhãn domain-specific (KHÁC translateStatus toàn
+// cục: Draft = "Chờ duyệt" chứ không "Bản nháp"; Approved = "Đã giải nhiệm" vì hồ
+// sơ duyệt xong nghĩa là thiết bị đã giải nhiệm). Value giữ Draft/Approved/Cancelled.
+export const DECOMMISSION_STATE_LABEL: Record<string, string> = {
+  Draft: 'Chờ duyệt',
+  Approved: 'Đã giải nhiệm',
+  Cancelled: 'Đã hủy',
+}
+export const DECOMMISSION_STATE_CLASS: Record<string, string> = {
+  Draft: 'bg-amber-100 text-amber-700',
+  Approved: 'bg-gray-200 text-gray-600',
+  Cancelled: 'bg-red-100 text-red-700',
+}
+export function decommissionStateLabel(v?: string | null): string {
+  if (!v) return '—'
+  return DECOMMISSION_STATE_LABEL[v] ?? v
+}
+export function decommissionStateClass(v?: string | null): string {
+  if (!v) return 'bg-gray-100 text-gray-500'
+  return DECOMMISSION_STATE_CLASS[v] ?? 'bg-gray-100 text-gray-600'
 }

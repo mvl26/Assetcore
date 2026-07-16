@@ -42,7 +42,7 @@ def tearDownModule():  # noqa: N802
     )
     frappe.set_user("Administrator")
     purge_assets_by_name_prefix("_Test Asset IMM08")
-    purge_category_by_name("_TestCatIMM08", "_TestCatIMM08Gate")
+    purge_category_by_name("_TestCatIMM08", "_TestCatIMM08Gate", "_TestCatIMM08Photo")
     frappe.db.commit()
 
 
@@ -758,6 +758,419 @@ class TestPMListMineScope(unittest.TestCase):
             "mine=1 ⇒ pagination.total PHẢI == len(rows) (count-vs-rows drift guard).",
         )
         self.assertEqual(data["pagination"]["total"], 3, "CHỈ 3 WO của session.user.")
+
+
+# ─── CR-18: free-text search server-side cho list PM Work Order ────────────────
+
+class TestPMListSearch(unittest.TestCase):
+    """CR-18 — api/imm08.list_pm_work_orders(search=...) OR-LIKE trên (name = mã
+    phiếu / asset_ref = mã thiết bị / asset_name = tên thiết bị) qua pop_search +
+    count_with_or.
+
+    Acceptance: search khớp TOÀN tập mọi trang (KHÔNG phụ thuộc rows client tải);
+    count==rows GIỮ; AND với mine + filters; wildcard %/_ escape-literal; search
+    rỗng/absent ⇒ baseline byte-identical. Đối xứng test_imm09 TestRepairListSearch.
+    """
+
+    OTHER_USER = "_test_imm08_search_other@example.com"
+
+    @classmethod
+    def setUpClass(cls):
+        import time
+        frappe.set_user("Administrator")
+        cls.token = f"ZZPMSRCH{int(time.time()) % 100000}"
+        cls.cat = _ensure_cat("_TestCatIMM08Search")
+        # Asset A: asset_name chứa token DUY NHẤT → search token khớp qua link_search.
+        cls.asset_a = _make_asset(f"-{cls.token}A")
+        cls.asset_a.asset_category = cls.cat
+        cls.asset_a.save(ignore_permissions=True)
+        # Asset B (decoy): asset_name KHÔNG chứa token → search token KHÔNG khớp.
+        cls.asset_b = _make_asset("-DECOYB")
+        cls.asset_b.asset_category = cls.cat
+        cls.asset_b.save(ignore_permissions=True)
+        tmpl = _make_template(cls.cat)
+        cls.template_name = tmpl["name"]
+        cls.sched_a = _make_schedule(cls.asset_a.name, cls.template_name)["name"]
+        cls.sched_b = _make_schedule(cls.asset_b.name, cls.template_name)["name"]
+        if not frappe.db.exists("User", cls.OTHER_USER):
+            frappe.get_doc({
+                "doctype": "User", "email": cls.OTHER_USER,
+                "first_name": "IMM08 Search Other", "send_welcome_email": 0,
+            }).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        for a in (cls.asset_a, cls.asset_b):
+            for wo in frappe.get_all("PM Work Order", filters={"asset_ref": a.name}, pluck="name"):
+                frappe.delete_doc("PM Work Order", wo, force=True, ignore_permissions=True)
+            for sc in frappe.get_all("PM Schedule", filters={"asset_ref": a.name}, pluck="name"):
+                frappe.delete_doc("PM Schedule", sc, force=True, ignore_permissions=True)
+        frappe.delete_doc("PM Checklist Template", cls.template_name, force=True, ignore_permissions=True)
+        purge_asset(cls.asset_a.name)
+        purge_asset(cls.asset_b.name)
+        if frappe.db.exists("User", cls.OTHER_USER):
+            frappe.delete_doc("User", cls.OTHER_USER, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        for a in (self.asset_a, self.asset_b):
+            for wo in frappe.get_all("PM Work Order", filters={"asset_ref": a.name}, pluck="name"):
+                frappe.delete_doc("PM Work Order", wo, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def _make_wo(self, asset_ref: str, schedule: str, assigned_to: str = "Administrator") -> str:
+        wo = frappe.get_doc({
+            "doctype": "PM Work Order",
+            "asset_ref": asset_ref,
+            "pm_schedule": schedule,
+            "pm_type": "Quarterly",
+            "wo_type": "Preventive",
+            "status": "Open",
+            "due_date": add_days(nowdate(), 7),
+            "assigned_to": assigned_to,
+        })
+        wo.insert(ignore_permissions=True)
+        frappe.db.commit()
+        return wo.name
+
+    def _list(self, *, search=None, mine=None, page=1, page_size=100, extra=None) -> dict:
+        from assetcore.api.imm08 import list_pm_work_orders
+        f = dict(extra or {})
+        kwargs = {"filters": json.dumps(f), "page": page, "page_size": page_size}
+        if search is not None:
+            kwargs["search"] = search
+        if mine is not None:
+            kwargs["mine"] = mine
+        env = list_pm_work_orders(**kwargs)
+        self.assertTrue(env.get("success"), f"envelope KHÔNG success: {env}")
+        return env["data"]
+
+    def _all_names(self, **kw) -> set:
+        return {r["name"] for r in self._list(**kw)["data"]}
+
+    def test_list_pm_search_matches_wo_name(self):
+        """2 phiếu khác name, search substring name của 1 phiếu → CHỈ phiếu khớp."""
+        wo1 = self._make_wo(self.asset_a.name, self.sched_a)
+        wo2 = self._make_wo(self.asset_a.name, self.sched_a)
+        self.assertNotEqual(wo1, wo2)
+        # tail 5 ký tự của wo1.name — phân biệt wo1 vs wo2 (naming series liên tiếp).
+        term = wo1[-5:]
+        data = self._list(search=term)
+        names = {r["name"] for r in data["data"]}
+        self.assertIn(wo1, names, "phiếu có name chứa term PHẢI khớp.")
+        self.assertNotIn(wo2, names, "phiếu name KHÁC KHÔNG được lọt.")
+        self.assertEqual(data["pagination"]["total"], 1, "count==rows: chỉ 1 khớp.")
+
+    def test_list_pm_search_matches_asset_code_or_name(self):
+        """search khớp asset_name (token) → trả phiếu của asset đó kể cả ở 'trang
+        sau' (page_size nhỏ) — server phủ TOÀN tập, KHÔNG chỉ rows đã tải."""
+        wo_a = self._make_wo(self.asset_a.name, self.sched_a)   # asset_name chứa token
+        # decoy: nhiều WO asset_b (KHÔNG chứa token) đẩy wo_a về 'trang sau' nếu unpaged.
+        for _ in range(3):
+            self._make_wo(self.asset_b.name, self.sched_b)
+        # search theo asset_name token, page_size=1 → wo_a vẫn tìm được (server-side).
+        found = set()
+        page, total_pages = 1, 1
+        while page <= total_pages:
+            data = self._list(search=self.token, page=page, page_size=1)
+            found |= {r["name"] for r in data["data"]}
+            total_pages = data["pagination"]["total_pages"]
+            page += 1
+        self.assertEqual(found, {wo_a}, "search asset_name token → CHỈ phiếu asset A (mọi trang).")
+        # search theo asset_code (asset_ref = mã thiết bị) cũng khớp.
+        by_code = self._all_names(search=self.asset_a.name)
+        self.assertIn(wo_a, by_code, "search asset_code (asset_ref) PHẢI khớp phiếu asset A.")
+
+    def test_list_pm_search_count_equals_rows(self):
+        """search + page_size=1 nhiều trang → Σ(rows mọi trang)==pagination.total
+        ==số khớp thực (bất biến count==rows)."""
+        made = {self._make_wo(self.asset_a.name, self.sched_a) for _ in range(3)}
+        # decoy asset_b KHÔNG khớp token.
+        self._make_wo(self.asset_b.name, self.sched_b)
+        collected, totals = set(), set()
+        page, total_pages = 1, 1
+        while page <= total_pages:
+            data = self._list(search=self.token, page=page, page_size=1)
+            collected |= {r["name"] for r in data["data"]}
+            totals.add(data["pagination"]["total"])
+            total_pages = data["pagination"]["total_pages"]
+            page += 1
+        self.assertEqual(collected, made, "Σ rows mọi trang == tập khớp thực.")
+        self.assertEqual(totals, {3}, "pagination.total ổn định == 3 khớp (count==rows).")
+
+    def test_list_pm_search_and_mine_scope(self):
+        """search + mine=1 → CHỈ phiếu assigned_to==session.user VÀ khớp; phiếu
+        người khác (khớp search) KHÔNG lọt (không nới quyền)."""
+        mine_wo = self._make_wo(self.asset_a.name, self.sched_a, "Administrator")
+        other_wo = self._make_wo(self.asset_a.name, self.sched_a, self.OTHER_USER)
+        names = self._all_names(search=self.token, mine=1)
+        self.assertIn(mine_wo, names, "phiếu của tôi + khớp search PHẢI hiện.")
+        self.assertNotIn(other_wo, names, "phiếu người khác (dù khớp search) KHÔNG lọt khi mine=1.")
+
+    def test_list_pm_search_empty_is_baseline(self):
+        """search='' → kết quả == list KHÔNG search (byte-identical, no regression)."""
+        self._make_wo(self.asset_a.name, self.sched_a)
+        self._make_wo(self.asset_b.name, self.sched_b)
+        base = self._all_names()
+        empty = self._all_names(search="")
+        blank = self._all_names(search="   ")
+        self.assertEqual(empty, base, "search='' PHẢI == baseline không search.")
+        self.assertEqual(blank, base, "search khoảng-trắng PHẢI == baseline (strip rỗng).")
+
+    def test_list_pm_search_wildcard_escaped(self):
+        """search chứa '%'/'_' → khớp LITERAL, KHÔNG match toàn bảng (escape)."""
+        wo = self._make_wo(self.asset_a.name, self.sched_a)   # name/asset không có %/_
+        # Nếu KHÔNG escape: '%' → LIKE '%%%' match-all ⇒ wo lọt. Escape ⇒ literal '%'
+        # KHÔNG có trong field ⇒ wo KHÔNG lọt.
+        self.assertNotIn(wo, self._all_names(search="%"),
+                         "search='%' escaped literal ⇒ KHÔNG match toàn bảng.")
+        self.assertNotIn(wo, self._all_names(search="_"),
+                         "search='_' escaped literal ⇒ KHÔNG match mọi row 1-ký-tự.")
+        # sanity: token thật vẫn khớp (escape KHÔNG phá match hợp lệ).
+        self.assertIn(wo, self._all_names(search=self.token),
+                      "token hợp lệ vẫn khớp sau khi thêm escape.")
+
+
+# ─── BE-TC-OVD1..7: filter LIVE `overdue_live` cho list PM Work Order ──────────
+
+class TestListPmOverdueLiveFilter(unittest.TestCase):
+    """Chip mobile 'Quá hạn' PM — `list_work_orders({"overdue_live":1})` lọc theo
+    predicate LIVE `is_overdue` = (status==Overdue, cron ĐÃ stamp) OR
+    is_pm_overdue(status, due_date, today) (due_date<hôm nay ∧ status ∈
+    OVERDUE_SOURCE_STATES). CÙNG predicate badge row `_enrich_pm_overdue`.
+
+    GATE: INVARIANT membership filter == badge. Nếu lọc theo cột STORED
+    status==Overdue đơn thuần (cron nightly stamp trễ) → WO due_date<today mà
+    status vẫn Open MISS filter nhưng badge HIỆN → mismatch phá niềm tin KTV.
+    Test chứng minh LIVE ≠ stored status. Mirror imm09 TestListSlaBreachedLiveFilter.
+
+    ĐIỂM KHÁC imm09: fetch UNCLAMPED (loop-paginate `_fetch_all_pm_rows`) ⇒
+    BE-TC-OVD5 chứng minh >100 phiếu quá hạn KHÔNG bị cap 100 (imm09 R2 clamp bug).
+
+    DELTA-style; mọi WO fixture trên 1 asset riêng, setUp purge → count deterministic.
+    """
+
+    OVD_USER = "_test_imm08_ovd_scope@example.com"
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.cat = _ensure_cat("_TestCatIMM08Ovd")
+        cls.asset = _make_asset("-ovd")
+        cls.asset.asset_category = cls.cat
+        cls.asset.save(ignore_permissions=True)
+        tmpl = _make_template(cls.cat)
+        cls.template_name = tmpl["name"]
+        cls.schedule_name = _make_schedule(cls.asset.name, cls.template_name)["name"]
+        if not frappe.db.exists("User", cls.OVD_USER):
+            frappe.get_doc({
+                "doctype": "User",
+                "email": cls.OVD_USER,
+                "first_name": "IMM08 Overdue Scope",
+                "send_welcome_email": 0,
+            }).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        for wo in frappe.get_all(
+            "PM Work Order", filters={"asset_ref": cls.asset.name}, fields=["name"]
+        ):
+            frappe.delete_doc("PM Work Order", wo.name, force=True, ignore_permissions=True)
+        for sc in frappe.get_all(
+            "PM Schedule", filters={"asset_ref": cls.asset.name}, fields=["name"]
+        ):
+            frappe.delete_doc("PM Schedule", sc.name, force=True, ignore_permissions=True)
+        frappe.delete_doc(
+            "PM Checklist Template", cls.template_name, force=True, ignore_permissions=True
+        )
+        purge_asset(cls.asset.name)
+        if frappe.db.exists("User", cls.OVD_USER):
+            frappe.delete_doc("User", cls.OVD_USER, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        # Mỗi test tự dựng WO — purge giữa các test để count==rows deterministic.
+        for wo in frappe.get_all(
+            "PM Work Order", filters={"asset_ref": self.asset.name}, fields=["name"]
+        ):
+            frappe.delete_doc("PM Work Order", wo.name, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def _mk_wo(self, *, tag: str, status: str, due_offset_days: int,
+               is_late: int = 0, commit: bool = True) -> str:
+        """PM WO fixture: insert Open/tương-lai (hợp lệ controller) rồi db.set_value
+        status + due_date + is_late SAU insert (bypass controller — chỉ cần giá trị
+        cột cho predicate/filter). Mirror TestPMListMineScope._make_wo."""
+        wo = frappe.get_doc({
+            "doctype": "PM Work Order",
+            "asset_ref": self.asset.name,
+            "pm_schedule": self.schedule_name,
+            "pm_type": "Quarterly",
+            "wo_type": "Preventive",
+            "status": "Open",
+            "due_date": add_days(nowdate(), 7),
+            "assigned_to": "Administrator",
+        })
+        wo.insert(ignore_permissions=True)
+        frappe.db.set_value("PM Work Order", wo.name, {
+            "status": status,
+            "due_date": add_days(nowdate(), due_offset_days),
+            "is_late": is_late,
+        })
+        if commit:
+            frappe.db.commit()
+        return wo.name
+
+    def _list_live(self, extra: dict | None = None, page: int = 1,
+                   page_size: int = 100) -> dict:
+        from assetcore.services.imm08 import list_work_orders
+        f = {"overdue_live": 1, "asset_ref": self.asset.name}
+        if extra:
+            f.update(extra)
+        return list_work_orders(f, page=page, page_size=page_size)
+
+    # ── BE-TC-OVD1: filter chỉ chứa row is_overdue==True (LIVE) ───────────────
+    def test_ovd1_filter_contains_only_live_overdue(self):
+        # open in-hạn (due tương lai, cờ status Open) → KHÔNG
+        ok = self._mk_wo(tag="OVD1-ok", status="Open", due_offset_days=10)
+        # open live-overdue (due hôm qua, status vẫn Open) → CÓ
+        live = self._mk_wo(tag="OVD1-live", status="Open", due_offset_days=-1)
+        # Overdue cron-stamped → CÓ
+        stamp = self._mk_wo(tag="OVD1-stamp", status="Overdue", due_offset_days=-3)
+        res = self._list_live()
+        names = {r["name"] for r in res["data"]}
+        self.assertTrue(res["data"], "filter phải trả ≥1 row")
+        self.assertTrue(all(r.get("is_overdue") for r in res["data"]),
+                        "MỌI row trong list overdue_live PHẢI is_overdue==True")
+        self.assertIn(live, names, "open live-overdue (status Open, due<today) PHẢI có")
+        self.assertIn(stamp, names, "status==Overdue (cron-stamped) PHẢI có")
+        self.assertNotIn(ok, names, "open in-hạn (due tương lai) KHÔNG được trong filter")
+
+    # ── BE-TC-OVD2 (GATE anti-cron-miss): status STORED=Open vẫn xuất hiện ────
+    def test_ovd2_anti_cron_miss_open_status_still_listed(self):
+        # open WO due_date=hôm qua NHƯNG status vẫn Open (cron nightly CHƯA stamp).
+        name = self._mk_wo(tag="OVD2", status="Open", due_offset_days=-1)
+        self.assertEqual(
+            frappe.db.get_value("PM Work Order", name, "status"), "Open",
+            "tiền đề: cột STORED status PHẢI còn 'Open' (cron chưa flip → Overdue)")
+        names = {r["name"] for r in self._list_live()["data"]}
+        self.assertIn(name, names,
+                      "GATE anti-cron-miss: WO due<today status STORED=Open PHẢI xuất "
+                      "hiện trong filter LIVE (predicate LIVE ≠ cột stored status — nếu "
+                      "MISS = badge/filter mismatch phá niềm tin KTV)")
+
+    # ── BE-TC-OVD3 (monotonic superset): status==Overdue VẪN trong list ───────
+    def test_ovd3_monotonic_superset_stamped_kept(self):
+        # status==Overdue nhưng due_date TƯƠNG LAI (is_pm_overdue=False vì Overdue
+        # ∉ OVERDUE_SOURCE_STATES) → chỉ nhánh OR status==Overdue giữ nó → chứng
+        # minh superset monotonic (KHÔNG mất phiếu chip cũ cron-stamped).
+        name = self._mk_wo(tag="OVD3", status="Overdue", due_offset_days=5)
+        from assetcore.services.imm08 import is_pm_overdue
+        self.assertFalse(
+            is_pm_overdue("Overdue", add_days(nowdate(), 5)),
+            "tiền đề: is_pm_overdue False cho status=Overdue (∉ source states) — "
+            "membership dựa DUY NHẤT vào nhánh OR status==Overdue")
+        names = {r["name"] for r in self._list_live()["data"]}
+        self.assertIn(name, names,
+                      "monotonic: WO status==Overdue (cron-stamped) VẪN trong filter "
+                      "(OR superset — không mất phiếu chip cũ)")
+
+    # ── BE-TC-OVD4 (is_late KHÔNG rò): Completed-late KHÔNG trong overdue ──────
+    def test_ovd4_is_late_completed_not_listed(self):
+        # Completed-late: is_late=1, due=hôm qua, status Completed. is_pm_overdue
+        # False (Completed ∉ source states) + status != Overdue → is_overdue False.
+        name = self._mk_wo(tag="OVD4", status="Completed", due_offset_days=-5, is_late=1)
+        self.assertEqual(
+            frappe.db.get_value("PM Work Order", name, "is_late"), 1,
+            "tiền đề: is_late=1 (WO hoàn thành TRỄ)")
+        names = {r["name"] for r in self._list_live()["data"]}
+        self.assertNotIn(name, names,
+                         "is_late (hoàn thành trễ) ≠ is_overdue (chưa xong quá hạn) — "
+                         "Completed-late KHÔNG được rò vào filter overdue_live")
+
+    # ── BE-TC-OVD5 (GATE scale): UNCLAMPED — >100 phiếu quá hạn đếm ĐỦ ─────────
+    def test_ovd5_unclamped_pagination_over_100(self):
+        from assetcore.services.imm08 import list_work_orders
+        # 105 open-quá-hạn (due=hôm qua, status Open) → filter LIVE giữ CẢ 105.
+        # Nếu fetch bị clamp-100 (imm09 R2 bug) → total=100, MẤT 5 phiếu.
+        N = 105
+        created = set()
+        for i in range(N):
+            created.add(self._mk_wo(tag=f"OVD5-{i}", status="Open",
+                                    due_offset_days=-3, commit=False))
+        frappe.db.commit()
+        scope = {"asset_ref": self.asset.name}
+        p1 = list_work_orders({"overdue_live": 1, **scope}, page=1, page_size=100)
+        self.assertEqual(
+            p1["pagination"]["total"], N,
+            "UNCLAMPED GATE: pagination.total PHẢI = N (105) — KHÔNG cap 100 "
+            "(imm09 R2 fetch page_size khổng lồ bị clamp-100 im lặng)")
+        self.assertEqual(len(p1["data"]), 100, "page 1 đầy đúng page_size clamp=100")
+        self.assertEqual(p1["pagination"]["total_pages"], 2, "ceil(105/100)=2")
+        self.assertTrue(all(r.get("is_overdue") for r in p1["data"]),
+                        "mọi row page 1 phải is_overdue==True")
+        p2 = list_work_orders({"overdue_live": 1, **scope}, page=2, page_size=100)
+        self.assertEqual(len(p2["data"]), 5, "page 2 phần dư = 105-100 = 5")
+        self.assertEqual(p2["pagination"]["total"], N)
+        n1 = {r["name"] for r in p1["data"]}
+        n2 = {r["name"] for r in p2["data"]}
+        self.assertFalse(n1 & n2, "page 1 và page 2 KHÔNG trùng row")
+        self.assertEqual(n1 | n2, created,
+                         "union 2 trang == toàn tập 105 phiếu tạo (không mất/không trùng)")
+
+    # ── BE-TC-OVD6: baseline byte-identical (absent/falsy KHÔNG lọc) ──────────
+    def test_ovd6_baseline_byte_identical(self):
+        from assetcore.services.imm08 import list_work_orders
+
+        def _sig(res):
+            return ([r["name"] for r in res["data"]], res["pagination"])
+
+        # Dựng WO hỗn hợp để baseline có nội dung (In Progress due tương lai — KHÔNG
+        # overdue) → chứng minh path baseline KHÔNG bị overdue-filter.
+        self._mk_wo(tag="OVD6-inprog", status="In Progress", due_offset_days=8)
+        # falsy virtual key (0) POP sạch ⇒ path baseline y hệt absent (không đẩy cột
+        # ma `overdue_live` vào get_all, không lọc overdue). So khớp names + pagination.
+        base_absent = list_work_orders({}, page=1, page_size=50)
+        base_zero = list_work_orders({"overdue_live": 0}, page=1, page_size=50)
+        self.assertEqual(_sig(base_absent), _sig(base_zero),
+                         "overdue_live=0 (falsy) POP sạch ⇒ baseline byte-identical "
+                         "với absent (không lọc, không cột ma)")
+        # status filter baseline vẫn hoạt động + KHÔNG bị overdue-filter (chứa WO
+        # In Progress KHÔNG-overdue). Scope asset để fixture chắc chắn trong tập.
+        scope = {"asset_ref": self.asset.name}
+        base_status = list_work_orders({"status": "In Progress", **scope},
+                                       page=1, page_size=100)
+        self.assertTrue(
+            all(r.get("status") == "In Progress" for r in base_status["data"]),
+            "baseline status filter chỉ trả In Progress")
+        self.assertTrue(base_status["data"],
+                        "In Progress WO (KHÔNG overdue) PHẢI có ở baseline status filter "
+                        "(baseline KHÔNG bị overdue-filter)")
+
+    # ── BE-TC-OVD7 (invariant): filter total == Σ badge is_overdue baseline ────
+    def test_ovd7_invariant_filter_total_equals_badge(self):
+        from assetcore.services.imm08 import list_work_orders
+        scope = {"asset_ref": self.asset.name}
+        self._mk_wo(tag="OVD7-live", status="Open", due_offset_days=-1)   # live overdue
+        self._mk_wo(tag="OVD7-stamp", status="Overdue", due_offset_days=5)  # stamped
+        self._mk_wo(tag="OVD7-ok", status="Open", due_offset_days=10)     # in-hạn
+        self._mk_wo(tag="OVD7-done", status="Completed",
+                    due_offset_days=-10, is_late=1)                        # late-done
+        full = list_work_orders({**scope}, page=1, page_size=100)
+        badge_count = sum(1 for r in full["data"] if r.get("is_overdue"))
+        live = list_work_orders({"overdue_live": 1, **scope}, page=1, page_size=100)
+        self.assertEqual(
+            live["pagination"]["total"], badge_count,
+            "INVARIANT: membership filter total == Σ badge is_overdue trên baseline "
+            "(badge == membership mọi path)")
+        self.assertEqual(badge_count, 2,
+                         "CHỈ OVD7-live (live-overdue) + OVD7-stamp (status=Overdue) = 2")
 
 
 class TestPMCompletionGate(unittest.TestCase):
@@ -2300,3 +2713,597 @@ class TestPmComplianceExcludeCancelled(unittest.TestCase):
                          "Halted nằm trong pending bucket (KHÔNG Cancelled)")
         # compliance = 1 on-time / 2 scheduled = 50.0
         self.assertEqual(k["compliance_rate_pct"], 50.0)
+
+
+# ─── BR-08-14: attach_pm_checklist_photo — bằng chứng ảnh/mục checklist PM (NĐ98) ──
+# Mobile CR-14/G6. Đính ảnh cho MỘT mục checklist → File private (attached_to 'PM Work
+# Order'/WO, is_private=1) + đúng 1 Asset Lifecycle Event 'pm_checklist_photo_attached'
+# + set row.photo=file_url (read-back parity get_work_order). Mọi nhánh reject TRƯỚC
+# File.insert (NOT_FOUND/FORBIDDEN/VALIDATION) → 0 File. Đối xứng attach_incident_photo
+# (imm12) — KHÁC module/doctype. max ảnh/mục = 1 (row.photo Attach ĐƠN, count==nguồn).
+
+
+def _jpg_bytes() -> bytes:
+    """Bytes JPEG THẬT (PIL). Frappe File.before_insert strip EXIF ⇒ PIL phải nhận
+    diện được ảnh (fake magic-byte → UnidentifiedImageError)."""
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (8, 8), (30, 120, 200)).save(buf, format="JPEG")
+    return buf.getvalue()
+
+
+def _truncated_jpg_bytes() -> bytes:
+    """Ảnh JPEG THẬT bị CẮT CỤT thân (magic header hợp lệ, dữ liệu scan đứt) — mô
+    phỏng KTV chụp hiện trường wifi/4G chập chờn. PIL.open nhận diện JPEG nhưng
+    .save() ném OSError('Truncated File Read'). Filename .jpg ⇒ strip_exif chạy."""
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (64, 64), (30, 120, 200)).save(buf, format="JPEG")
+    full = buf.getvalue()
+    return full[: len(full) // 2]
+
+
+def _garbage_jpg_bytes() -> bytes:
+    """Magic-byte JPEG hợp lệ nhưng thân RÁC → PIL.UnidentifiedImageError."""
+    return b"\xff\xd8\xff" + b"\x00" * 64
+
+
+class TestPMChecklistPhotoAttach(unittest.TestCase):
+    """BR-08-14 (mobile CR-14/G6): đính ảnh bằng chứng theo TỪNG mục checklist PM.
+
+    - success → đúng 1 File private (attached_to 'PM Work Order'/WO, is_private=1) +
+      set row.photo=file_url (read-back get_work_order) + đúng 1 lifecycle
+      'pm_checklist_photo_attached' (actor=session.user, asset của WO, hard-req).
+    - permission assignee OR pm.write: outsider (Auditor read-only, không assignee)
+      → FORBIDDEN, 0 File; assignee dù thiếu write vẫn đính được.
+    - validation: idx-không-tồn-tại / thiếu-file / content-type≠ảnh / size>cap / ảnh
+      thứ 2 cùng mục → VALIDATION fields.file, 0 File (reject KHÔNG tạo File).
+    - rollback hard-req: emit event throw → File.insert rollback (no orphan).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        # Category/template/asset DEDICATED (_TestCatIMM08Photo) — KHÔNG shared
+        # _TestCatIMM08. R-9: fixture KHÔNG pollute shared state; nếu dùng shared cat,
+        # setUpClass commit PMCT-_TestCatIMM08-Quarterly → hỏng test_create_template_
+        # succeeds (chạy sau, _make_template thấy đã tồn tại → thiếu items_count).
+        cls.cat = _ensure_cat("_TestCatIMM08Photo")
+        cls.asset = cls._make_asset_in_cat("-photo", cls.cat)
+        tpl = _make_template(cls.cat)
+        cls.template_name = tpl["name"]
+        sched = _make_schedule(cls.asset.name, tpl["name"])
+        cls.schedule_name = sched["name"]
+        # assignee: Auditor (read-only, KHÔNG pm.write) → được set assigned_to ⇒ đính
+        # qua NHÁNH assignee. outsider: Auditor (read-only) KHÔNG assignee → FORBIDDEN.
+        cls.assignee = cls._ensure_user("_test_pm_photo_assignee@assetcore.test",
+                                        ["AssetCore Auditor"])
+        cls.outsider = cls._ensure_user("_test_pm_photo_outsider@assetcore.test",
+                                        ["AssetCore Auditor"])
+        cls._wos: list[str] = []
+
+    @staticmethod
+    def _make_asset_in_cat(suffix: str, cat: str) -> object:
+        import time
+        prev = frappe.flags.in_install
+        frappe.flags.in_install = "frappe"
+        sn = f"SN-08P-{suffix.lstrip('-')}-{int(time.time()) % 100000}"
+        try:
+            return frappe.get_doc({
+                "doctype": "AC Asset",
+                "asset_name": f"_Test Asset IMM08{suffix}",
+                "asset_category": cat,
+                "manufacturer_sn": sn,
+                "lifecycle_status": "Active",
+                "is_pm_required": 1,
+                "pm_interval_days": 90,
+            }).insert(ignore_permissions=True)
+        finally:
+            frappe.flags.in_install = prev
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        for wo in cls._wos:
+            try:
+                for f in frappe.get_all(
+                    "File", filters={"attached_to_doctype": "PM Work Order",
+                                     "attached_to_name": wo}, pluck="name"):
+                    frappe.delete_doc("File", f, force=True, ignore_permissions=True)
+            except Exception:
+                pass
+            try:
+                frappe.delete_doc("PM Work Order", wo, force=True,
+                                  ignore_permissions=True, delete_permanently=True)
+            except Exception:
+                pass
+        try:
+            frappe.delete_doc("PM Schedule", cls.schedule_name, force=True,
+                              ignore_permissions=True)
+        except Exception:
+            pass
+        purge_asset(cls.asset.name)
+        try:
+            frappe.delete_doc("PM Checklist Template", cls.template_name, force=True,
+                              ignore_permissions=True)
+        except Exception:
+            pass
+        try:
+            frappe.delete_doc("AC Asset Category", cls.cat, force=True,
+                              ignore_permissions=True)
+        except Exception:
+            pass
+        for u in (cls.assignee, cls.outsider):
+            try:
+                frappe.delete_doc("User", u, force=True, ignore_permissions=True)
+            except Exception:
+                pass
+        frappe.db.commit()
+
+    @staticmethod
+    def _ensure_user(email: str, roles: list[str]) -> str:
+        if not frappe.db.exists("User", email):
+            doc = frappe.get_doc({
+                "doctype": "User", "email": email, "first_name": email.split("@")[0],
+                "send_welcome_email": 0, "enabled": 1,
+            }).insert(ignore_permissions=True)
+        else:
+            doc = frappe.get_doc("User", email)
+        existing = {r.role for r in doc.get("roles", [])}
+        for r in roles:
+            if r not in existing:
+                doc.append("roles", {"role": r})
+        doc.save(ignore_permissions=True)
+        frappe.db.commit()
+        return email
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+
+    def _new_wo(self, assigned_to: str = "Administrator") -> str:
+        res = create_adhoc_work_order({
+            "asset_ref": self.asset.name,
+            "pm_schedule": self.schedule_name,
+            "due_date": add_days(nowdate(), 7),
+            "assigned_to": assigned_to,
+        })
+        frappe.db.commit()
+        self._wos.append(res["name"])
+        # checklist template có 2 mục ⇒ checklist_item_idx 1..2 tồn tại
+        self.assertGreaterEqual(res["checklist_items_count"], 1,
+                                "WO fixture PHẢI có ≥1 mục checklist")
+        return res["name"]
+
+    def _file_count(self, wo: str) -> int:
+        return frappe.db.count("File", {
+            "attached_to_doctype": "PM Work Order",
+            "attached_to_name": wo, "is_private": 1})
+
+    def _row_photo(self, wo: str, idx: int):
+        from assetcore.services.imm08 import get_work_order
+        for r in get_work_order(wo)["checklist_results"]:
+            if int(r["checklist_item_idx"]) == int(idx):
+                return r["photo"]
+        return None
+
+    # ── TC-PM-PHOTO-01 Happy + read-back parity ─────────────────────────────────
+    def test_happy_attach_creates_private_file_and_readback_parity(self):
+        from assetcore.services.imm08 import attach_pm_checklist_photo
+        wo = self._new_wo()
+        res = attach_pm_checklist_photo(wo, 1, filedata=_jpg_bytes(),
+                                        filename="pm_item1.jpg", content_type="image/jpeg")
+        self.assertTrue(res.get("file_url"), "phải trả file_url != ''")
+        self.assertEqual(res.get("file_name"), "pm_item1.jpg")
+        self.assertEqual(res.get("checklist_item_idx"), 1)
+        files = frappe.get_all(
+            "File",
+            filters={"attached_to_doctype": "PM Work Order", "attached_to_name": wo},
+            fields=["name", "is_private", "attached_to_doctype", "attached_to_name"])
+        self.assertEqual(len(files), 1, "đúng 1 File được tạo")
+        self.assertEqual(files[0]["is_private"], 1, "File PHẢI private (NĐ98)")
+        self.assertEqual(files[0]["attached_to_doctype"], "PM Work Order")
+        self.assertEqual(files[0]["attached_to_name"], wo)
+        # read-back parity: get_work_order.checklist_results[idx].photo == file_url
+        self.assertEqual(self._row_photo(wo, 1), res["file_url"],
+                         "row.photo == file_url vừa trả (read-back parity)")
+
+    # ── TC-PM-PHOTO-02 Lifecycle: đúng 1 event ──────────────────────────────────
+    def test_success_emits_exactly_one_lifecycle_event(self):
+        from assetcore.services.imm08 import attach_pm_checklist_photo
+        wo = self._new_wo()
+        attach_pm_checklist_photo(wo, 2, filedata=_jpg_bytes(),
+                                  filename="pm_item2.png", content_type="image/png")
+        evts = frappe.get_all(
+            "Asset Lifecycle Event",
+            filters={"event_type": "pm_checklist_photo_attached", "root_record": wo},
+            fields=["name", "actor", "asset", "root_doctype"])
+        self.assertEqual(len(evts), 1, "đúng 1 lifecycle event/lần success")
+        self.assertEqual(evts[0]["actor"], "Administrator", "actor = session.user")
+        self.assertEqual(evts[0]["asset"], self.asset.name, "asset của WO")
+        self.assertEqual(evts[0]["root_doctype"], "PM Work Order")
+
+    # ── TC-PM-PHOTO-03 Rollback hard-req: event throw → no orphan File ───────────
+    def test_rollback_on_event_failure_no_orphan_file(self):
+        from assetcore.services import imm00 as svc00
+        from assetcore.services.imm08 import attach_pm_checklist_photo
+        wo = self._new_wo()
+        before = self._file_count(wo)
+        orig = svc00.create_lifecycle_event
+
+        def _boom(**kw):
+            raise RuntimeError("boom-lifecycle-event")
+
+        svc00.create_lifecycle_event = _boom
+        try:
+            with self.assertRaises(Exception):
+                attach_pm_checklist_photo(wo, 1, filedata=_jpg_bytes(),
+                                          filename="rb.jpg", content_type="image/jpeg")
+        finally:
+            svc00.create_lifecycle_event = orig
+        frappe.db.rollback()
+        self.assertEqual(self._file_count(wo), before,
+                         "event throw → File.insert rollback (KHÔNG orphan)")
+        self.assertIsNone(self._row_photo(wo, 1),
+                          "row.photo KHÔNG bị set khi event throw (rollback)")
+
+    # ── TC-PM-PHOTO-04 Reject non-image → VALIDATION, no File ───────────────────
+    def test_reject_non_image_content_type_validation_no_file(self):
+        from assetcore.services.imm08 import attach_pm_checklist_photo
+        wo = self._new_wo()
+        with self.assertRaises(ServiceError) as ctx:
+            attach_pm_checklist_photo(wo, 1, filedata=b"%PDF-1.4 fake",
+                                      filename="doc.pdf", content_type="application/pdf")
+        self.assertEqual(ctx.exception.code, ErrorCode.VALIDATION)
+        self.assertIn("file", ctx.exception.fields, "VALIDATION phải có fields.file")
+        self.assertEqual(self._file_count(wo), 0, "nhánh VALIDATION KHÔNG tạo File")
+
+    # ── TC-PM-PHOTO-05 Reject oversize → VALIDATION, no File ────────────────────
+    def test_reject_oversize_photo_validation_no_file(self):
+        from assetcore.services.imm08 import (attach_pm_checklist_photo,
+                                              MAX_PM_CHECKLIST_PHOTO_BYTES)
+        wo = self._new_wo()
+        big = b"\x00" * (MAX_PM_CHECKLIST_PHOTO_BYTES + 1)
+        with self.assertRaises(ServiceError) as ctx:
+            attach_pm_checklist_photo(wo, 1, filedata=big, filename="big.jpg",
+                                      content_type="image/jpeg")
+        self.assertEqual(ctx.exception.code, ErrorCode.VALIDATION)
+        self.assertIn("file", ctx.exception.fields)
+        self.assertEqual(self._file_count(wo), 0)
+
+    # ── TC-PM-PHOTO-06 Reject idx không tồn tại → VALIDATION, no File ────────────
+    def test_reject_nonexistent_checklist_idx_validation_no_file(self):
+        from assetcore.services.imm08 import attach_pm_checklist_photo
+        wo = self._new_wo()
+        with self.assertRaises(ServiceError) as ctx:
+            attach_pm_checklist_photo(wo, 999, filedata=_jpg_bytes(),
+                                      filename="x.jpg", content_type="image/jpeg")
+        self.assertEqual(ctx.exception.code, ErrorCode.VALIDATION)
+        self.assertEqual(self._file_count(wo), 0, "idx sai → reject TRƯỚC File.insert")
+
+    # ── TC-PM-PHOTO-07 Reject WO không tồn tại → NOT_FOUND, no File ─────────────
+    def test_reject_nonexistent_wo_not_found(self):
+        from assetcore.services.imm08 import attach_pm_checklist_photo
+        with self.assertRaises(ServiceError) as ctx:
+            attach_pm_checklist_photo("WO-PM-DOES-NOT-EXIST-0000", 1,
+                                      filedata=_jpg_bytes(), filename="x.jpg",
+                                      content_type="image/jpeg")
+        self.assertEqual(ctx.exception.code, ErrorCode.NOT_FOUND)
+
+    # ── TC-PM-PHOTO-08 ảnh HỎNG / ĐỨT TRUYỀN → VALIDATION, no 500, no orphan ─────
+    def test_reject_corrupt_or_truncated_image_validation_no_file(self):
+        """Finding B (ROOT CAUSE): content-type hợp lệ nhưng bytes KHÔNG giải mã (ảnh
+        cắt-cụt/rác). File.before_insert → strip_exif → PIL ném UnidentifiedImageError
+        / OSError('Truncated File Read'). PHẢI thành VALIDATION Decision-B (fields.file,
+        thông điệp VN), KHÔNG 500, KHÔNG orphan File, KHÔNG set row.photo, KHÔNG
+        lifecycle event."""
+        from assetcore.services.imm08 import attach_pm_checklist_photo
+        for label, data in (("truncated-OSError", _truncated_jpg_bytes()),
+                            ("garbage-Unidentified", _garbage_jpg_bytes())):
+            with self.subTest(kind=label):
+                wo = self._new_wo()
+                with self.assertRaises(ServiceError) as ctx:
+                    attach_pm_checklist_photo(wo, 1, filedata=data,
+                                              filename="pm_bad.jpg",
+                                              content_type="image/jpeg")
+                self.assertEqual(ctx.exception.code, ErrorCode.VALIDATION,
+                                 f"[{label}] ảnh hỏng → VALIDATION, KHÔNG 500")
+                self.assertIn("file", ctx.exception.fields,
+                              f"[{label}] Decision-B phải có fields.file")
+                self.assertIn("bị lỗi hoặc không đọc được",
+                              ctx.exception.fields["file"],
+                              f"[{label}] thông điệp VN chụp/chọn lại")
+                self.assertEqual(self._file_count(wo), 0,
+                                 f"[{label}] KHÔNG tạo File orphan")
+                self.assertIsNone(self._row_photo(wo, 1),
+                                  f"[{label}] row.photo KHÔNG bị set khi ảnh hỏng")
+                self.assertEqual(frappe.db.count("Asset Lifecycle Event", {
+                    "event_type": "pm_checklist_photo_attached", "root_record": wo}), 0,
+                    f"[{label}] KHÔNG sinh lifecycle event khi ảnh hỏng")
+
+    # ── TC-PM-PHOTO-08 Permission: outsider FORBIDDEN; assignee/pm.write → 200 ───
+    def test_outsider_not_assignee_no_write_forbidden_no_file(self):
+        from assetcore.services.imm08 import attach_pm_checklist_photo
+        wo = self._new_wo(assigned_to=self.assignee)  # assigned_to != outsider
+        frappe.set_user(self.outsider)
+        try:
+            with self.assertRaises(ServiceError) as ctx:
+                attach_pm_checklist_photo(wo, 1, filedata=_jpg_bytes(),
+                                          filename="x.jpg", content_type="image/jpeg")
+        finally:
+            frappe.set_user("Administrator")
+        self.assertEqual(ctx.exception.code, ErrorCode.FORBIDDEN)
+        self.assertEqual(self._file_count(wo), 0, "nhánh FORBIDDEN KHÔNG tạo File")
+
+    def test_assignee_without_write_can_attach(self):
+        """BR-08-14: KTV được giao luôn đính được ảnh phiếu của mình dù thiếu write."""
+        from assetcore.services.imm08 import attach_pm_checklist_photo
+        wo = self._new_wo(assigned_to=self.assignee)
+        frappe.set_user(self.assignee)
+        try:
+            res = attach_pm_checklist_photo(wo, 1, filedata=_jpg_bytes(),
+                                            filename="a.jpg", content_type="image/jpeg")
+        finally:
+            frappe.set_user("Administrator")
+        self.assertTrue(res.get("file_url"))
+        self.assertEqual(self._file_count(wo), 1)
+
+    # ── TC-PM-PHOTO-09 Max-count: ảnh thứ 2 cùng mục → VALIDATION, count==nguồn ──
+    def test_reject_second_photo_same_item_max_count(self):
+        from assetcore.services.imm08 import (attach_pm_checklist_photo,
+                                              MAX_PM_CHECKLIST_PHOTOS)
+        wo = self._new_wo()
+        for _ in range(MAX_PM_CHECKLIST_PHOTOS):
+            attach_pm_checklist_photo(wo, 1, filedata=_jpg_bytes(),
+                                      filename="m.jpg", content_type="image/jpeg")
+        files_after_max = self._file_count(wo)
+        with self.assertRaises(ServiceError) as ctx:
+            attach_pm_checklist_photo(wo, 1, filedata=_jpg_bytes(),
+                                      filename="over.jpg", content_type="image/jpeg")
+        self.assertEqual(ctx.exception.code, ErrorCode.VALIDATION)
+        self.assertIn("file", ctx.exception.fields)
+        self.assertEqual(self._file_count(wo), files_after_max,
+                         "ảnh vượt max bị chặn → File count giữ nguyên (no drift)")
+        # count==nguồn-liệt-kê: row.photo (nguồn hiển thị) == đúng số ảnh max
+        self.assertIsNotNone(self._row_photo(wo, 1),
+                             "row.photo giữ đúng ảnh đã đính (count==nguồn)")
+
+    def test_max_count_is_per_item_not_shared(self):
+        """Mỗi mục checklist độc lập: đính mục 1 KHÔNG chặn mục 2 (per-item).
+
+        (file_url có thể trùng giữa 2 mục do Frappe dedup NỘI DUNG ảnh giống nhau —
+        KHÔNG assert file_url khác; điểm mấu chốt = mục 2 KHÔNG bị max của mục 1 chặn
+        + read-back row.photo đúng cho từng mục.)"""
+        from assetcore.services.imm08 import attach_pm_checklist_photo
+        wo = self._new_wo()
+        r1 = attach_pm_checklist_photo(wo, 1, filedata=_jpg_bytes(),
+                                       filename="i1.jpg", content_type="image/jpeg")
+        r2 = attach_pm_checklist_photo(wo, 2, filedata=_jpg_bytes(),
+                                       filename="i2.jpg", content_type="image/jpeg")
+        self.assertTrue(r1.get("file_url"))
+        self.assertTrue(r2.get("file_url"), "mục 2 đính được (KHÔNG bị max mục 1 chặn)")
+        self.assertEqual(self._row_photo(wo, 1), r1["file_url"])
+        self.assertEqual(self._row_photo(wo, 2), r2["file_url"])
+
+    # ── TC-PM-PHOTO-10 No-file → VALIDATION (reject TRƯỚC File.insert) ───────────
+    def test_reject_missing_file_validation(self):
+        from assetcore.services.imm08 import attach_pm_checklist_photo
+        wo = self._new_wo()
+        with self.assertRaises(ServiceError) as ctx:
+            attach_pm_checklist_photo(wo, 1, filedata=None, filename="",
+                                      content_type="")
+        self.assertEqual(ctx.exception.code, ErrorCode.VALIDATION)
+        self.assertIn("file", ctx.exception.fields)
+        self.assertEqual(self._file_count(wo), 0)
+
+    # ── API tier — Decision-B envelope + multipart parity ───────────────────────
+    def _fake_request(self, filedata: bytes, filename: str, content_type: str,
+                      idx: str = "1"):
+        import io
+
+        from werkzeug.datastructures import FileStorage
+        fs = FileStorage(stream=io.BytesIO(filedata), filename=filename,
+                         content_type=content_type)
+
+        class _Req:
+            files = {"file": fs}
+            host = None  # File.get_url() đọc request.host — None → fallback site conf
+
+        return _Req()
+
+    def test_api_attach_returns_decision_b_ok(self):
+        from assetcore.api.imm08 import attach_pm_checklist_photo as api_attach
+        wo = self._new_wo()
+        orig = getattr(frappe.local, "request", None)
+        frappe.local.request = self._fake_request(_jpg_bytes(), "api.jpg", "image/jpeg")
+        try:
+            res = api_attach(work_order_name=wo, checklist_item_idx="1")
+        finally:
+            frappe.local.request = orig
+        self.assertTrue(res.get("success"), f"phải success, nhận: {res}")
+        self.assertIn("file_url", res["data"])
+        self.assertEqual(res["data"]["file_name"], "api.jpg")
+        self.assertEqual(res["data"]["checklist_item_idx"], 1)
+
+    def test_api_attach_non_image_returns_validation_fields(self):
+        from assetcore.api.imm08 import attach_pm_checklist_photo as api_attach
+        wo = self._new_wo()
+        orig = getattr(frappe.local, "request", None)
+        frappe.local.request = self._fake_request(b"%PDF fake", "n.pdf", "application/pdf")
+        try:
+            res = api_attach(work_order_name=wo, checklist_item_idx="1")
+        finally:
+            frappe.local.request = orig
+        self.assertFalse(res.get("success"))
+        self.assertEqual(res.get("code"), ErrorCode.VALIDATION)
+        self.assertIn("file", res.get("fields", {}))
+        self.assertEqual(self._file_count(wo), 0)
+
+
+# ─── F8 "Nhắc việc" — get_due_pm_schedules (mobile CR-28b) ─────────────────────
+class TestDuePmSchedules(unittest.TestCase):
+    """ROOT-CAUSE GUARD — ``get_due_pm_schedules`` (mobile F8 "Nhắc việc") ĐỐI XỨNG
+    ``get_due_calibrations`` (imm11) NHƯNG KHÁC NGUỒN: dùng ``PM Schedule.next_due_date``
+    (KHÔNG AC Asset.next_calibration_date). CHỈ trả lịch ``status == 'Active'`` CÓ
+    ``next_due_date`` set, ≤ ngưỡng; rows-key ``items`` + ``threshold_days`` (KHÔNG
+    pagination); ``days_left`` signed server-derived.
+
+    NULL-coerce guard (mirror imm11): filter ``[next_due_date, is, set]`` BẮT BUỘC —
+    RED-prove bỏ nó ⇒ Frappe query-builder coerce NULL→'0001-01-01' ⇒ lịch chưa-có-
+    ngày LỌT filter, sort ASC lên top, lấp kín limit → đẩy lịch quá-hạn thật khỏi list.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.cat = _ensure_cat()
+        cls.template_name = _make_template(cls.cat)["name"]
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self._assets: list[str] = []
+
+    def tearDown(self):
+        for asset in self._assets:
+            for s in frappe.get_all(
+                "PM Schedule", filters={"asset_ref": asset}, pluck="name"
+            ):
+                for wo in frappe.get_all(
+                    "PM Work Order", filters={"pm_schedule": s}, pluck="name"
+                ):
+                    frappe.delete_doc("PM Work Order", wo, force=True, ignore_permissions=True)
+                frappe.delete_doc("PM Schedule", s, force=True, ignore_permissions=True)
+            purge_asset(asset)
+        frappe.db.commit()
+
+    def _new_schedule(self, suffix: str, *, next_due_date, status: str = "Active",
+                      pm_type: str = "Quarterly", last_pm_date=None) -> str:
+        """Tạo asset + PM Schedule với next_due_date/status CHÍNH XÁC.
+
+        before_save auto-điền next_due_date ⇒ dùng interval xa (3650) để né auto-WO
+        window, RỒI ép next_due_date/status/last_pm_date qua db.set_value (bypass
+        controller — mirror imm11 test set next_calibration_date trực tiếp). NULL =
+        set_value(None) → lịch chưa-có-ngày (KHÔNG lọt filter is-set)."""
+        asset = _make_asset(suffix)
+        self._assets.append(asset.name)
+        det = f"PMS-{asset.name}-{pm_type}"
+        if frappe.db.exists("PM Schedule", det):
+            frappe.delete_doc("PM Schedule", det, force=True, ignore_permissions=True)
+        sched = frappe.get_doc({
+            "doctype": "PM Schedule",
+            "asset_ref": asset.name,
+            "pm_type": pm_type,
+            "pm_interval_days": 3650,
+            "checklist_template": self.template_name,
+            "status": "Active",
+        }).insert(ignore_permissions=True)
+        frappe.db.set_value("PM Schedule", sched.name, {
+            "next_due_date": next_due_date,
+            "last_pm_date": last_pm_date,
+            "status": status,
+        }, update_modified=False)
+        frappe.db.commit()
+        return sched.name
+
+    def test_due_pm_01_soon_in_window_present_days_left_positive(self):
+        """TC-DUE-PM-01: Active, next_due_date=today+5 → có trong items, days_left==5."""
+        from assetcore.services.imm08 import get_due_pm_schedules
+        name = self._new_schedule("-due-soon", next_due_date=add_days(nowdate(), 5))
+        due = get_due_pm_schedules(days=30, limit=100)
+        row = next((r for r in due["items"] if r["name"] == name), None)
+        self.assertIsNotNone(row, "lịch Active due trong window PHẢI ∈ items")
+        self.assertEqual(row["days_left"], 5, "days_left signed = date_diff(next_due_date, today)")
+
+    def test_due_pm_02_overdue_present_days_left_negative_signed(self):
+        """TC-DUE-PM-02: Active, next_due_date=today-3 (quá hạn) → items, days_left==-3."""
+        from assetcore.services.imm08 import get_due_pm_schedules
+        name = self._new_schedule("-overdue", next_due_date=add_days(nowdate(), -3))
+        due = get_due_pm_schedules(days=30, limit=100)
+        row = next((r for r in due["items"] if r["name"] == name), None)
+        self.assertIsNotNone(row, "lịch quá hạn PHẢI ∈ items")
+        self.assertEqual(row["days_left"], -3, "quá hạn ⇒ days_left ÂM (signed)")
+
+    def test_due_pm_03_beyond_window_excluded(self):
+        """TC-DUE-PM-03: Active, next_due_date=today+40 với days=30 → KHÔNG có."""
+        from assetcore.services.imm08 import get_due_pm_schedules
+        name = self._new_schedule("-far", next_due_date=add_days(nowdate(), 40))
+        due = get_due_pm_schedules(days=30, limit=100)
+        names = {r["name"] for r in due["items"]}
+        self.assertNotIn(name, names, "ngoài due-window (40 > 30 ngày) ⇒ KHÔNG lọt")
+
+    def test_due_pm_04_null_next_due_date_excluded(self):
+        """TC-DUE-PM-04: next_due_date NULL → KHÔNG lọt (NULL-coerce guard).
+
+        RED-prove: bỏ filter `is set` ⇒ NULL bị Frappe ép '0001-01-01' <= threshold
+        ⇒ lịch chưa-có-ngày LỌT top."""
+        from assetcore.services.imm08 import get_due_pm_schedules
+        name = self._new_schedule("-null", next_due_date=None)
+        self.assertIsNone(
+            frappe.db.get_value("PM Schedule", name, "next_due_date"),
+            "tiền đề: lịch chưa có next_due_date (NULL)",
+        )
+        due = get_due_pm_schedules(days=30, limit=100)
+        names = {r["name"] for r in due["items"]}
+        self.assertNotIn(name, names, "lịch chưa-có-ngày (NULL) KHÔNG phải 'đến hạn'")
+        self.assertTrue(
+            all(r.get("next_due_date") for r in due["items"]),
+            "due-list KHÔNG chứa item next_due_date NULL (no phantom)",
+        )
+
+    def test_due_pm_05_paused_suspended_excluded_even_if_due(self):
+        """TC-DUE-PM-05: status Paused và Suspended dù đến hạn → LOẠI (chỉ Active)."""
+        from assetcore.services.imm08 import get_due_pm_schedules
+        paused = self._new_schedule("-paused", next_due_date=add_days(nowdate(), 2),
+                                    status="Paused")
+        suspended = self._new_schedule("-susp", next_due_date=add_days(nowdate(), 2),
+                                       status="Suspended")
+        due = get_due_pm_schedules(days=30, limit=100)
+        names = {r["name"] for r in due["items"]}
+        self.assertNotIn(paused, names, "Paused KHÔNG lọt (chỉ Active)")
+        self.assertNotIn(suspended, names, "Suspended KHÔNG lọt (chỉ Active)")
+
+    def test_due_pm_06_limit_cut_and_order_asc_worst_first(self):
+        """TC-DUE-PM-06: nhiều row đến hạn + limit=N → cắt đúng N, quá-hạn-nặng-nhất
+        (next_due_date nhỏ nhất) lên đầu (order asc)."""
+        from assetcore.services.imm08 import get_due_pm_schedules
+        worst = self._new_schedule("-w-neg10", next_due_date=add_days(nowdate(), -10))
+        mid = self._new_schedule("-w-neg2", next_due_date=add_days(nowdate(), -2))
+        soon = self._new_schedule("-w-pos3", next_due_date=add_days(nowdate(), 3))
+        mine = {worst, mid, soon}
+        due = get_due_pm_schedules(days=30, limit=2)
+        self.assertEqual(len(due["items"]), 2, "limit=2 ⇒ cắt đúng 2 row")
+        # order asc: mọi cặp liền kề next_due_date không giảm.
+        dates = [r["next_due_date"] for r in due["items"]]
+        self.assertEqual(dates, sorted(dates), "order_by next_due_date asc")
+        # với đủ rộng, quá-hạn-nặng-nhất (worst) đứng trước mid trước soon.
+        full = get_due_pm_schedules(days=30, limit=100)
+        ordered_mine = [r["name"] for r in full["items"] if r["name"] in mine]
+        self.assertEqual(ordered_mine, [worst, mid, soon],
+                         "asc: quá-hạn-nặng-nhất (next_due_date nhỏ nhất) lên đầu")
+
+    def test_due_pm_07_shape_and_row_fields(self):
+        """TC-DUE-PM-07: shape == {'items':[...],'threshold_days':30}; mỗi row đủ 9
+        field gồm asset_name enriched + days_left."""
+        from assetcore.services.imm08 import get_due_pm_schedules
+        name = self._new_schedule("-shape", next_due_date=add_days(nowdate(), 7))
+        due = get_due_pm_schedules(days=30, limit=100)
+        self.assertEqual(set(due.keys()), {"items", "threshold_days"},
+                         "shape ĐÚNG 2 key {items, threshold_days} (KHÔNG pagination)")
+        self.assertEqual(due["threshold_days"], 30, "threshold_days echo param days")
+        row = next((r for r in due["items"] if r["name"] == name), None)
+        self.assertIsNotNone(row)
+        expected_fields = {
+            "name", "asset_ref", "asset_name", "pm_type", "status",
+            "next_due_date", "last_pm_date", "responsible_technician", "days_left",
+        }
+        self.assertEqual(set(row.keys()), expected_fields,
+                         f"row PHẢI ĐÚNG 9 field: thừa={set(row.keys()) - expected_fields} "
+                         f"thiếu={expected_fields - set(row.keys())}")
+        self.assertEqual(row["asset_name"], "_Test Asset IMM08-shape",
+                         "asset_name enriched từ AC Asset.asset_name")
+        self.assertEqual(row["days_left"], 7, "days_left server-derived signed")

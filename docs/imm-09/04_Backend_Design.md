@@ -96,8 +96,12 @@ Frappe ORM + MariaDB  ← 4 DocTypes
 | `version_before` | Data | ✓ | — |
 | `version_after` | Data | ✓ | — |
 | `change_notes` | Text | ✓ | — |
-| `status` | Select | ✓ | Draft/Pending Approval/Approved/Applied/Rolled Back |
-| `approved_by` | Link User | (Approve) | reqd on Approve |
+| `status` | Select | ✓ | Draft/Pending Approval/Approved/Applied/Rollback Required/Rolled Back — **state machine `_FCR_VALID_TRANSITIONS`** (§3.1-bis), đổi CHỈ qua endpoint transition |
+| `approved_by` | Link User | (Approve) | set bởi `approve_firmware_cr` (read-only qua CRUD) |
+| `approved_datetime` / `applied_datetime` | Datetime | — | read-only, set bởi transition (approve/deploy) |
+| `rollback_reason` | Text | (Rollback) | reqd khi hoàn tác (`validate()` FCR + guard service) |
+
+> **⚠️ Fieldname thực (grounded `firmware_change_request.json`):** `asset_ref` (KHÔNG `asset`), `asset_repair_wo` (KHÔNG `repair_wo`), `source_reference` (Data). Bảng trên là tên rút gọn tài liệu — dùng fieldname thực khi code. State machine + capability + audit trail: xem **§3.1-bis** + BR-09-18/19/20.
 
 ---
 
@@ -209,6 +213,172 @@ data["allowed_transitions"] = _REPAIR_VALID_TRANSITIONS.get(doc.status, [])
 - **Decision:** thêm map tập trung `_REPAIR_VALID_TRANSITIONS` (SSoT, grounded workflow JSON edge-by-edge), emit `allowed_transitions[]` trong `get_work_order`. Schema YAML khai `array<string>` **KHÔNG enum-bound** + **NOT-required** (mirror IncidentDetail/PmWorkOrderDetail), `additionalProperties:true` giữ nguyên.
 - **Consequences:** FE render CTA hoàn toàn theo server (1 nguồn sự thật); thêm/bớt transition chỉ sửa workflow JSON + map (guard test bắt drift ngay). Field optional → client cũ bỏ qua an toàn (backward-compatible). Không enum-bound ⇒ thêm state mới không phá contract.
 - **Alternatives (rejected):** (a) FE hardcode `status→button` — drift 2 nơi, dead-gate; (b) schema enum-bound `items.enum=[...9 state]` — drift mỗi lần đổi workflow, phá codegen; (c) derive qua Frappe workflow-engine runtime — nặng + phụ thuộc Workflow record (IMM-09 không dùng Workflow record, enforce qua controller/guard).
+
+### 3.1-bis Firmware Change Request — state machine SERVER-controlled (`_FCR_VALID_TRANSITIONS`) (Vòng 10, BR-09-18/19/20)
+
+**Thành viên THỨ HAI của IMM-09 có `allowed_transitions[]`** (sau `_REPAIR_VALID_TRANSITIONS`) — nhưng cho **DocType `Firmware Change Request`** (KHÔNG phải Asset Repair). FCR **không có Frappe Workflow JSON** → `status` field là SSoT state machine, enforce hoàn toàn qua service guard (ADR-IMM09-FCR-01).
+
+**Enum constants + map (`services/imm09.py` — mirror `RepairStatus`/`_REPAIR_VALID_TRANSITIONS`):**
+
+```python
+class FirmwareStatus:
+    DRAFT             = "Draft"
+    PENDING_APPROVAL  = "Pending Approval"
+    APPROVED          = "Approved"
+    APPLIED           = "Applied"
+    ROLLBACK_REQUIRED = "Rollback Required"   # RESERVED (2-phase tương lai) — không trong map
+    ROLLED_BACK       = "Rolled Back"
+
+# SoT — codomain ⊆ FirmwareStatus (keyed bằng constants, KHÔNG literal). Guard test
+# chốt codomain ⊆ enum status của DocType (chống typo/drift).
+_FCR_VALID_TRANSITIONS: dict[str, list[str]] = {
+    FirmwareStatus.DRAFT:            [FirmwareStatus.PENDING_APPROVAL],
+    FirmwareStatus.PENDING_APPROVAL: [FirmwareStatus.APPROVED],
+    FirmwareStatus.APPROVED:         [FirmwareStatus.APPLIED],
+    FirmwareStatus.APPLIED:          [FirmwareStatus.ROLLED_BACK],
+    FirmwareStatus.ROLLED_BACK:      [],
+}
+
+# Cạnh yêu cầu quyền phê duyệt (đối xứng: duyệt + hoàn tác = quyết định manager)
+_FCR_APPROVAL_EDGES = {FirmwareStatus.APPROVED, FirmwareStatus.ROLLED_BACK}
+```
+
+**Capability-per-edge (gate CAPABILITY, KHÔNG role-name):**
+
+| Cạnh | Endpoint | Capability | Side-effect | Lifecycle Event |
+|---|---|---|---|---|
+| `Draft → Pending Approval` | `submit_firmware_cr` | `repair.write` | — | — |
+| `Pending Approval → Approved` | `approve_firmware_cr` | **`firmware.approve`** | set `approved_by=session.user`, `approved_datetime=now()` | `firmware_cr_approved` |
+| `Approved → Applied` | `deploy_firmware_cr` | `repair.write` | set `applied_datetime=now()` | `firmware_deployed` |
+| `Applied → Rolled Back` | `rollback_firmware_cr(reason)` | **`firmware.approve`** | reqd `rollback_reason` (throw VN nếu rỗng) | `firmware_rolled_back` |
+
+**Capability mới — `rbac.py` CAPABILITY_MAP.update():**
+
+```python
+# Vòng 10: Duyệt/Hoàn tác FCR gate theo DocPerm submit của CHÍNH Firmware Change
+# Request → Repair Manager + AssetCore Super Admin (submit=1) TRUE, Repair User
+# (submit=0) FALSE. Capability-based (chống RBAC dead-gate) — đổi quyền = sửa
+# DocPerm ở /app, KHÔNG deploy. Thêm cap → CAP_SET_VERSION đổi → FE auto-invalidate
+# persisted-caps stale + after_migrate invalidate_capabilities().
+"firmware.approve": ("Firmware Change Request", "submit"),
+```
+
+**Guard helper (service):**
+
+```python
+def _assert_valid_fcr_transition(current: str, target: str) -> None:
+    if target not in _FCR_VALID_TRANSITIONS.get(current, []):
+        raise ServiceError(ErrorCode.BAD_STATE,
+            _("Không thể chuyển yêu cầu đổi firmware từ '{0}' sang '{1}'").format(current, target))
+
+def _assert_can_approve_fcr() -> None:
+    # In-handler cap-check → ServiceError(FORBIDDEN) → HTTP-200 Error envelope (KHÔNG
+    # rbac.require → PermissionError/4xx). FE render inline VN, không re-auth redirect.
+    if not rbac.can("firmware.approve"):
+        raise ServiceError(ErrorCode.FORBIDDEN,
+            _("Bạn không có quyền phê duyệt yêu cầu đổi firmware"), http_status=403)
+
+def firmware_allowed_transitions(status: str) -> tuple[list[str], bool]:
+    """Server-derive cho get_firmware_cr: raw list LỌC theo capability caller + can_approve."""
+    raw = _FCR_VALID_TRANSITIONS.get(status, [])
+    can_approve = rbac.can("firmware.approve")
+    can_write   = rbac.can("repair.write")
+    allowed = [t for t in raw
+               if (t in _FCR_APPROVAL_EDGES and can_approve)
+               or (t not in _FCR_APPROVAL_EDGES and can_write)]
+    return allowed, can_approve
+```
+
+**Transition body (chung — `firmware_transition`), CANONICAL lifecycle event (fail-loud):**
+
+```python
+def firmware_transition(name, target, *, event_type, extra_fields=None, notes=""):
+    doc = frappe.get_doc(_DT_FIRMWARE_CR, name)   # NOT_FOUND nếu thiếu (guard trước)
+    if target in _FCR_APPROVAL_EDGES:
+        _assert_can_approve_fcr()
+    else:
+        _assert_can_write_fcr()                    # repair.write
+    _assert_valid_fcr_transition(doc.status, target)
+    from_status = doc.status
+    for k, v in (extra_fields or {}).items():
+        doc.set(k, v)
+    frappe.db.savepoint("fcr_transition")          # SCOPED rollback (robust job/test)
+    doc.db_set(updates)                            # mutate FIELD status + extra_fields
+    # HARD-REQ audit NĐ98 — canonical create_lifecycle_event TRỰC TIẾP (KHÔNG wrapper
+    # _log_lifecycle_event vì nó try/except-swallow). Event throw → rollback TỚI
+    # savepoint (undo db_set) + re-raise ⇒ status KHÔNG đổi câm (KHÔNG full-rollback,
+    # né phá savepoint-isolation test / cuốn write khác trong request).
+    try:
+        _create_lifecycle_event(
+            asset=doc.asset_ref, event_type=event_type, actor=frappe.session.user,
+            from_status=from_status, to_status=target,
+            root_doctype=_DT_FIRMWARE_CR, root_record=name, notes=notes)
+    except Exception:
+        frappe.db.rollback(save_point="fcr_transition")
+        raise
+    frappe.db.commit()
+    return {"name": name, "status": target}
+```
+
+**`update_firmware_cr` (generic) — STRIP controlled fields (`api/imm00.py`):**
+
+```python
+_FCR_CONTROLLED_FIELDS = {"status", "approved_by", "approved_datetime",
+                          "applied_datetime", "rollback_reason"}
+
+@frappe.whitelist(methods=["POST"])
+def update_firmware_cr(name: str):
+    data = frappe.local.form_dict
+    for f in _FCR_CONTROLLED_FIELDS:              # status KHÔNG đổi qua CRUD chung
+        data.pop(f, None)
+    return _generic_update(_DT_FIRMWARE_CR, name)  # _generic_update đã bỏ cmd/name/doctype
+```
+
+**`get_firmware_cr` — enrich `allowed_transitions` + `can_approve` (`api/imm00.py`, lazy-import):**
+
+```python
+from assetcore.services import imm09 as _svc09     # lazy trong hàm (né circular)
+allowed, can_approve = _svc09.firmware_allowed_transitions(doc["status"])
+doc["allowed_transitions"] = allowed
+doc["can_approve"] = bool(can_approve)   # BOOLEAN (FE web so === true), KHÔNG int 1/0
+```
+
+> **Endpoint thực (BUILT — khớp FE `imm00.ts::transitionFirmwareCr`):** 1 dispatcher
+> `transition_firmware_cr(name, action, reason)` ở `api/imm00.py` (action ∈
+> {submit, approve, deploy, rollback}), delegate `services/imm09.py::transition_firmware_cr`
+> → map action→target→`firmware_transition`. Gộp 1 endpoint action-based thay vì 4
+> endpoint riêng (One-Version + khớp FE đã build). Xem §05 §3.15.
+
+**Boundaries (Always / Never):**
+
+| | |
+|---|---|
+| **Always** | `status` field = SSoT workflow (mutate qua `db_set`/`set_value`). Keyed bằng `FirmwareStatus.*`. Gate `firmware.approve` bằng CAPABILITY. 1 ALE canonical/transition trong CÙNG transaction (fail-loud). `allowed_transitions` LỌC theo cap + `can_approve`. `update_firmware_cr` STRIP `_FCR_CONTROLLED_FIELDS`. |
+| **Never** | KHÔNG hardcode role-name (`role=='Repair Manager'`). KHÔNG dùng wrapper swallow `_log_lifecycle_event` cho audit firmware. KHÔNG `raise → HTTP-4xx` cho lỗi transition (dùng in-handler HTTP-200 Error envelope; dispatcher-403 chỉ guest). KHÔNG couple transition với `docstatus`/`doc.submit()` (dùng field `status`). KHÔNG đổi status FCR qua `update_firmware_cr`/`_generic_update`. KHÔNG thêm enum `event_type`/`status` mà quên `reload-doctype`. |
+
+**ADR-IMM09-FCR-01 — FCR `status` field = SSoT state machine (KHÔNG Frappe Workflow, KHÔNG generic CRUD)**
+
+- **Status:** Accepted · **Date:** 2026-07-10
+- **Context:** FCR (`is_submittable=1`) trước đây đổi status bằng `update_firmware_cr` (generic `_generic_update`, `ignore_permissions=True`) + FE hardcode `fcr.status==='X'` gate nút ⇒ Repair User tự Approve, nhảy-cóc, KHÔNG audit (vi phạm CLAUDE.md §5/§10, NĐ98 change-control). Không có `_FCR_VALID_TRANSITIONS` (Repair đã có `_REPAIR_VALID_TRANSITIONS` — ASYMMETRY).
+- **Decision:** thêm map SSoT `_FCR_VALID_TRANSITIONS` + endpoint transition riêng mỗi cạnh (submit/approve/deploy/rollback). `status` field là SSoT workflow (mutate `db_set`), KHÔNG dùng Frappe Workflow record (FCR chưa có workflow JSON), KHÔNG couple với `docstatus` submit. `on_submit` gate (status==Approved) giữ nguyên như hàng rào phụ.
+- **Alternatives (rejected):** (a) tạo Frappe Workflow JSON `imm_09_firmware_workflow.json` — nặng, thêm 1 state-machine engine cho 5 state đơn giản, lệch pattern Repair (cũng field-based); (b) couple transition với `docstatus` (approve = submit) — `on_submit` chỉ 1 transition, không phủ Deploy/Rollback trên doc đã submit (field submitted immutable trừ `db_set`); (c) giữ generic CRUD + chỉ thêm permission check — vẫn cho nhảy-cóc, không audit.
+- **Consequences:** contract nhất quán với Repair; thêm cạnh chỉ sửa map + 1 endpoint. Cần `reload-doctype` khi thêm event enum. `db_set` bỏ qua `validate()` FCR ⇒ side-effect (`rollback_reason` reqd) tự-enforce trong service TRƯỚC `db_set`.
+
+**ADR-IMM09-FCR-02 — capability `firmware.approve` = (`Firmware Change Request`, `submit`), KHÔNG role-name**
+
+- **Status:** Accepted · **Date:** 2026-07-10
+- **Context:** "Duyệt FCR = Repair Manager HOẶC Super Admin". Nếu gate bằng `if 'Repair Manager' in roles` → RBAC dead-gate (đổi role/thêm role duyệt phải sửa code; đối xứng root-cause workflow-admin-override "đủ quyền vẫn không duyệt được").
+- **Decision:** bind capability `firmware.approve → ("Firmware Change Request", "submit")`. DocPerm FCR đã có submit=1 cho Repair Manager + AssetCore Super Admin, submit=0 cho Repair User ⇒ `rbac.can("firmware.approve")` resolve ĐÚNG requirement mà KHÔNG hardcode role. Đổi ai được duyệt = sửa DocPerm ở /app.
+- **Alternatives (rejected):** (a) hardcode role-name — dead-gate; (b) reuse `repair.submit` (= Asset Repair submit) — sai đối tượng quyền (submit Asset Repair ≠ submit FCR, DocPerm khác nhau); (c) tạo domain `Firmware` riêng — thừa (FCR đã thuộc domain Repair, chỉ cần 1 cap đặc thù submit).
+- **Consequences:** thêm 1 cap → CAP_SET_VERSION đổi → FE auto-invalidate persisted-caps + `after_migrate invalidate_capabilities()`. Symmetry 401/403 mobile tự cân nếu surface (path vào business-paths).
+
+**ADR-IMM09-FCR-03 — lỗi transition (cap/invalid-edge/reason) = in-handler HTTP-200 Error envelope; dispatcher-403 chỉ guest**
+
+- **Status:** Accepted · **Date:** 2026-07-10
+- **Context:** DONE-gate spec-contract (LL-BE-42..49): lỗi nghiệp vụ = in-handler HTTP-200 + Error envelope (KHÔNG raise→4xx). Repair User bấm Duyệt cần thấy thông điệp VN inline (KHÔNG 403-redirect/re-auth, KHÔNG 500).
+- **Decision:** cap-check + valid-transition + reason-check nằm TRONG service, raise `ServiceError(FORBIDDEN/BAD_STATE/VALIDATION)` → `handle()` chuyển thành HTTP-200 Error envelope (route-by-VALUE `body.success=false`). KHÔNG dùng `rbac.require` (raise PermissionError→4xx) cho các action này. **2 loại 403 phân biệt:** dispatcher-403 = guest/no-token gõ POST @whitelist (trước handler, re-auth); "thiếu quyền" của user đã đăng nhập = business error → HTTP-200 Error envelope (show-msg), KHÔNG 403-line.
+- **Alternatives (rejected):** (a) `rbac.require` before `handle` → HTTP-403 — FE khó phân biệt với dispatcher-403 guest, dễ trigger re-auth flow sai; (b) trả 500 khi thiếu quyền — leak/UX tệ; (c) silent no-op — vi phạm "KHÔNG silent".
+- **Consequences:** test assert `body.success==False` + message VN (KHÔNG expect exception/4xx). Consumer web+mobile cùng route-by-value. Mirror pattern attach_*_photo (imm08/09/12) in-handler cap-403.
 
 ### 3.2 Mobile-BE contract — `assignTechnician` (DISPATCH: Open → Assigned)
 
@@ -477,6 +647,48 @@ File: `assetcore/services/imm09.py`
 | `_is_repair_capable(technician)` | str | bool | **MỚI (R25, BR-09-DISPATCH):** SoT 1-chỗ cho "user được phép nhận giao việc sửa chữa". `= frappe.has_permission("Asset Repair", "write", user=technician)` (capability/DocPerm, KHÔNG so tên role — chống RBAC dead-gate). KHÔNG dùng `rbac.can` (resolve theo session, không nhận `user=`). |
 | `assign_technician(name, *, technician, priority='')` | str, str, str | dict `{name, status, assigned_to}` | **SỬA (R25, BR-09-DISPATCH):** thêm dispatch-validation gate TRƯỚC set/save (sau status-gate Open). Gate 3-AND: `frappe.db.exists("User", technician)` ∧ `User.enabled==1` ∧ `_is_repair_capable(technician)`. Fail bất kỳ điều kiện → `nthrow(MSG.IMM09_INVALID_TECHNICIAN, error_code=ErrorCode.VALIDATION_ERROR, technician=technician)` (envelope `code='VALIDATION_ERROR'` + `http_status=422`) — raise TRƯỚC mutation ⇒ `assigned_to` GIỮ nguyên, `status` GIỮ Open (fail-fast, no partial write). Happy-path KHÔNG đổi (regression-safe R24). Xem ADR-IMM09-VALIDATE-TECH (§3.3). |
 | `create_work_order(*, asset_ref, repair_type, priority, failure_description, incident_report='', source_pm_wo='', fault_image='')` | str × N | dict `{name, status, sla_target_hours}` | **SỬA (R26, BR-09-CREATE-FK):** thêm referential-integrity gate cho 2 optional Link FK, SAU `asset_ref`-validate (`IMM09_ASSET_NOT_FOUND`) + open-WO-guard (`IMM09_ASSET_HAS_OPEN_WO`), TRƯỚC `get_doc`/insert. Per-FK, CHỈ khi non-empty: `incident_report` truthy → `frappe.db.exists("Incident Report", incident_report)` (fail → `nthrow(MSG.IMM09_INCIDENT_REPORT_NOT_FOUND, error_code=ErrorCode.VALIDATION_ERROR, incident_report=...)`); `source_pm_wo` truthy → `frappe.db.exists("PM Work Order", source_pm_wo)` (fail → `nthrow(MSG.IMM09_SOURCE_PM_WO_NOT_FOUND, error_code=ErrorCode.VALIDATION_ERROR, source_pm_wo=...)`). Envelope `code='VALIDATION_ERROR'` + `http_status=422`. Raise TRƯỚC `get_doc`/insert/commit ⇒ doc KHÔNG insert, no partial-write. Cả 2 FK rỗng (standalone slide 24b) → PASS như cũ (regression-safe R-pre). `asset_ref`-validate GIỮ nguyên (ngoài scope). Xem ADR-IMM09-CREATE-FK (§3.4). |
+
+| `attach_repair_checklist_photo(work_order_name, checklist_item_idx, filedata=None, filename="", content_type="")` | str, int, bytes?, str, str | dict `{file_url, file_name, checklist_item_idx}` | **MỚI (Vòng 3, BR-09-15/16, mobile CR-15/G6)** — đính ảnh bằng chứng per-mục checklist sửa chữa (NĐ98 Class C/D). Thứ tự reject TRƯỚC `File.insert`: `exists(WO)`→NOT_FOUND · permission (assignee/`repair.write`)→FORBIDDEN · `checklist_item_idx`→child-row `idx` VALIDATION · file present/content-type/size/max-count(=1) VALIDATION. Success: `File.insert(is_private=1, attached_to_doctype='Asset Repair', attached_to_name=WO, content=filedata, decode=False)` → `frappe.db.set_value("Repair Checklist", row.name, "photo", file_url, update_modified=False)` (**KHÔNG `doc.save()`** trên Asset Repair — anti-pattern #10, tránh re-validate BR-09-04/docstatus) → `create_lifecycle_event('repair_checklist_photo_attached')` **TRỰC TIẾP** (KHÔNG qua wrapper `_log_lifecycle_event` swallow — hard-req, event throw→rollback) → `commit`. §05 §3.10 + ADR-IMM09-PHOTO-01/02. Đối xứng `imm08.attach_pm_checklist_photo` / `imm12.attach_incident_photo`. |
+| `_find_repair_checklist_row(wo, checklist_item_idx)` | Document, int | Repair Checklist row \| None | None — resolve mục checklist theo **Frappe child `idx`** (1-based) trong `wo.repair_checklist` (Repair Checklist KHÔNG có field STT domain như PM Checklist Result — xem ADR-IMM09-PHOTO-01). `return next((r for r in wo.repair_checklist if int(r.idx)==idx), None)`. None → nhánh reject VALIDATION (KHÔNG N+1: dùng list con đã load). |
+| `_repair_checklist_item_photos(row)` | Repair Checklist row | `list[{file_url}]` | None — **SoT DUY NHẤT** ảnh/mục checklist (BR-09-16): đọc `row.photo` (`Attach` đơn trị). `return [{"file_url": row.photo}] if row.photo else []`. CÙNG nguồn mà `get_work_order` hiển thị (`repair_checklist[].photo`) VỪA đếm max-count ⇒ invariant **count==rows** (mirror `_pm_checklist_photos` imm08 / `_scene_photos` imm12). |
+| `_assert_can_attach_repair_photo(wo)` | Document | None | None — BR-09-15 permission: KTV được giao (`wo.assigned_to == session.user`) HOẶC `frappe.has_permission("Asset Repair", "write", doc=wo, user=session.user)` (áp CẢ role-DocPerm write LẪN row-level hook `ac_asset_repair_query`/vendor-scope ⇒ tái dùng IDOR-guard). Thiếu cả 2 → `raise ServiceError(ErrorCode.FORBIDDEN, _MSG_REPAIR_PHOTO_FORBIDDEN, http_status=403)`. Mirror `_assert_can_attach_pm_photo` (imm08). |
+
+### Firmware Change Request — transition service (BR-09-18/19/20, Vòng 10)
+
+| Function | Input | Output | Side effect |
+|---|---|---|---|
+| `firmware_allowed_transitions(status)` | str | `(list[str], bool)` | **MỚI** — server-derive cho `get_firmware_cr`: raw `_FCR_VALID_TRANSITIONS.get(status,[])` LỌC theo capability caller (`firmware.approve` cho cạnh ∈ `_FCR_APPROVAL_EDGES`, `repair.write` cho cạnh còn lại) + trả `can_approve = rbac.can("firmware.approve")`. Pure, no write. |
+| `_assert_valid_fcr_transition(current, target)` | str, str | None | **MỚI** — `target ∉ _FCR_VALID_TRANSITIONS.get(current,[])` → `raise ServiceError(BAD_STATE, "Không thể chuyển yêu cầu đổi firmware từ '{current}' sang '{target}'")`. |
+| `_assert_can_approve_fcr()` | — | None | **MỚI** — `not rbac.can("firmware.approve")` → `raise ServiceError(FORBIDDEN, "Bạn không có quyền phê duyệt yêu cầu đổi firmware", http_status=403)`. In-handler → HTTP-200 Error envelope (KHÔNG rbac.require/4xx). |
+| `firmware_transition(name, target, *, event_type, extra_fields=None, notes="")` | str, str, str, dict?, str | dict `{name, status}` | **MỚI** — thân chung: guard NOT_FOUND → cap-check (approve-edge → `_assert_can_approve_fcr`, else `repair.write`) → `_assert_valid_fcr_transition` → set `extra_fields` → `db_set("status", target)` → **canonical `create_lifecycle_event` TRỰC TIẾP** (hard-req, event throw → rollback status) → commit. |
+| `approve_firmware_cr(name)` | str | dict `{name, status}` | **MỚI** — `Pending Approval → Approved`; cap `firmware.approve`; `extra_fields={approved_by: session.user, approved_datetime: now}`; event `firmware_cr_approved`. |
+| `deploy_firmware_cr(name)` | str | dict `{name, status}` | **MỚI** — `Approved → Applied`; cap `repair.write`; `extra_fields={applied_datetime: now}`; event `firmware_deployed`. |
+| `rollback_firmware_cr(name, *, rollback_reason)` | str, str | dict `{name, status}` | **MỚI** — `Applied → Rolled Back`; cap `firmware.approve`; `rollback_reason` rỗng → `raise ServiceError(VALIDATION, ...)` TRƯỚC transition; `extra_fields={rollback_reason}`; event `firmware_rolled_back`. |
+| `submit_firmware_cr(name)` | str | dict `{name, status}` | **MỚI** — `Draft → Pending Approval`; cap `repair.write`; KHÔNG ALE (bước nội bộ). |
+
+> **Lifecycle events MỚI (add option enum `Asset Lifecycle Event.event_type` → deploy `reload-doctype`, HARD-STOP USER):** `firmware_cr_approved`, `firmware_deployed`, `firmware_rolled_back`. Đối xứng cách thêm `repair_checklist_photo_attached` (§6 Audit). Test seed event qua `create_lifecycle_event` (KHÔNG chặn bởi enum chưa reload trên worker cũ).
+
+### Constants đính ảnh bằng chứng (BR-09-15/16, mirror imm08/imm12)
+
+```python
+_DT_REPAIR_WO = "Asset Repair"
+_DT_REPAIR_CHECKLIST_ROW = "Repair Checklist"
+_DT_FILE = "File"
+_REPAIR_PHOTO_CONTENT_TYPES = ("image/jpeg", "image/jpg", "image/png")
+_EVENT_REPAIR_CHECKLIST_PHOTO_ATTACHED = "repair_checklist_photo_attached"
+MAX_REPAIR_CHECKLIST_PHOTOS = 1              # per mục — SoT = row.photo (Attach đơn trị), mirror imm08 code
+MAX_REPAIR_CHECKLIST_PHOTO_BYTES = 10 * 1024 * 1024   # 10 MB (parity mobile + imm12)
+
+# Field-level VALIDATION messages (VN, Decision-B fields.file — KHÔNG leak raw cap/stack)
+_MSG_REPAIR_PHOTO_MISSING     = "Thiếu tệp ảnh"
+_MSG_REPAIR_PHOTO_NOT_IMAGE   = "Tệp phải là ảnh JPG hoặc PNG"
+_MSG_REPAIR_PHOTO_TOO_LARGE   = "Ảnh vượt quá dung lượng cho phép (tối đa 10 MB)"
+_MSG_REPAIR_PHOTO_MAX         = "Mỗi mục checklist chỉ đính 1 ảnh"
+_MSG_REPAIR_PHOTO_FORBIDDEN   = "Không có quyền đính ảnh cho lệnh sửa chữa này"
+_MSG_REPAIR_PHOTO_IDX_NOT_FOUND = "Không tìm thấy mục checklist trong lệnh sửa chữa này"
+```
+
+> **Field liên quan (ĐÃ tồn tại — KHÔNG migration schema):** `repair_checklist.photo` (`Attach`, permlevel=0) child của `Asset Repair.repair_checklist` (xác nhận `assetcore/assetcore/doctype/repair_checklist/repair_checklist.json`). Vòng này chỉ **ghi** vào field sẵn có + **thêm 1 option enum** `repair_checklist_photo_attached` vào `asset_lifecycle_event.json` (xem §6 Audit + ADR-IMM09-PHOTO-02). **Read-side `get_repair_work_order` KHÔNG đổi** — `get_work_order` dùng `doc.as_dict()` đã serialize `repair_checklist[].photo`.
 
 ### SLA Matrix
 
@@ -893,6 +1105,20 @@ def _handle(fn, *args, **kwargs) -> dict:
 
 ---
 
+**ADR-IMM09-CLOSE-PARITY — `close_work_order` 2 nhánh return CÙNG key-set (superset 5-khoá gồm `asset_status`); OAS khai `asset_status` bịt `additionalProperties:false` (CR-13b, mobile Trục B)**
+
+- **Status**: Accepted
+- **Date**: 2026-07-10
+- **Context**: `close_work_order` có 2 nhánh return khác key-set: happy (`services/imm09.py:1575`) trả `{name, status, mttr_hours, sla_breached}`; `_mark_cannot_repair` (`services/imm09.py:1634`) trả `{name, status, asset_status}`. (1) Hai nhánh **lệch key-set** → client mobile phải deserialize 2 shape khác nhau cho cùng 1 endpoint (dễ vỡ codegen Dart/Kotlin strict). (2) Nhánh cannot_repair emit `asset_status` **KHÔNG khai** trong OAS `CloseWorkOrderResponse` (schema đóng 4-khoá `{name,status,mttr_hours,sla_breached}`, `test_mobile_oas.py:_CLOSE_WORK_ORDER_DATA_KEYS`) ⇒ **vi phạm `additionalProperties:false`** của contract mobile — codegen/validator reject field lạ.
+- **Decision**: chuẩn hoá **cùng key-set superset đúng 5 khoá** `{name, status, mttr_hours, sla_breached, asset_status}` cho CẢ 2 nhánh — INVARIANT `set(keys happy) == set(keys cannot_repair)`. Happy thêm `asset_status` = LIVE `lifecycle_status` (thường `Under Repair`); cannot_repair thêm `mttr_hours` + `sla_breached` (= `doc.*`, thường `null` — KHÔNG tính MTTR). `asset_status` đọc **SSoT LIVE** qua `frappe.db.get_value("AC Asset", doc.asset_ref, "lifecycle_status")` / `AssetRepo.get_value` (**KHÔNG hardcode** — cùng nguồn `complete_repair` `:732`; `lifecycle_status` do nhiều process quản, BR-09-09). OAS `CloseWorkOrderResponse` **khai thêm** property `asset_status` (`type:string`, `nullable:true`); `mttr_hours`/`sla_breached` giữ nullable; `required=[name,status]`. Đồng bộ hằng test `_CLOSE_WORK_ORDER_DATA_KEYS` (+`asset_status`) + example `api/openapi_overrides.py` `imm09.close_work_order` (`:955-975`).
+- **Alternatives**:
+  - *(A) Giữ 2 shape khác nhau, chỉ khai `asset_status` nullable*: bịt được vi phạm `additionalProperties` nhưng client vẫn phải xử lý key-set biến thiên → drift, không có INVARIANT test bảo vệ. Loại.
+  - *(B) Bỏ `asset_status` khỏi cannot_repair cho khớp 4-khoá cũ*: mất thông tin trạng thái asset (client cần biết thiết bị đã Out of Service để cập nhật UI) → giảm giá trị nghiệp vụ. Loại.
+  - *(C) Hardcode `asset_status="Under Repair"` cho happy*: sai SSoT — `lifecycle_status` có thể đã bị process khác đổi (calib-fail/decommission). Loại (mâu thuẫn BR-09-09).
+- **Consequences**: contract mobile ổn định (1 shape, INVARIANT test giữ). BE thêm 1 field-read live per branch (khuyến nghị tail dùng chung dựng đủ 5 khoá, chỉ `status` khác — chống drift). Regression-safe: `name/status/mttr_hours/sla_breached` GIỮ nguyên giá trị; happy vẫn → Pending Inspection, cannot_repair vẫn → Out of Service. **KHÔNG đụng** `confirm_inspection`/`ConfirmInspectionResponse` (4-key, `status.enum=[Completed]`, C3-split RIÊNG). Suite `mobile_oas` + `oas_d*` phải XANH sau `api:gen dev`; `test_imm09` (159) + toàn bộ test đóng/cannot_repair/pending_inspection/confirm_inspection GIỮ XANH. Chi tiết field-by-field + example: `05 §3.8 "Response contract — parity shape"`.
+
+---
+
 ## 6. Audit Trail
 
 | Trigger | Event type | Actor | Payload |
@@ -903,8 +1129,13 @@ def _handle(fn, *args, **kwargs) -> dict:
 | **exit_parts_hold (ra Pending Parts / chốt cuối)** | **`parts_hold_resumed`** | **KTV HTM / Kho** | **wo, khoảng hold vừa cộng (giờ), parts_hold_hours tích lũy — BR-09-10** |
 | complete_repair (on_submit) | `repair_completed` | KTV HTM | mttr_hours (clock-stop), parts_hold_hours, sla_breached, prev_status→new_status |
 | close_work_order(cannot_repair=1) | `cannot_repair` | KTV / Workshop Manager | cannot_repair_reason |
+| **attach_repair_checklist_photo (BR-09-16)** | **`repair_checklist_photo_attached`** | **KTV / assignee** | `asset=wo.asset_ref`, `root_doctype='Asset Repair'`, `root_record=WO`, `notes="Đính ảnh mục #<idx>: <filename>"` — **HARD-REQ** (commit CÙNG File.insert + set_value; event throw→rollback; KHÔNG swallow) |
 
 Tất cả ALE insert qua `_create_lifecycle_event(...)` trong `services/imm09.py`. Wrap trong `try/except` — ALE failure KHÔNG block main operation.
+
+> **⚠️ NGOẠI LỆ hard-req (BR-09-16):** sự kiện `repair_checklist_photo_attached` là **bản ghi bằng chứng NĐ98**, KHÔNG được mất im lặng ⇒ **KHÔNG** dùng wrapper `_log_lifecycle_event` (try/except-**swallow**) như các ALE khác. Gọi `create_lifecycle_event(...)` (canonical, `utils/lifecycle.py`) **TRỰC TIẾP** trong transaction, TRƯỚC `frappe.db.commit()`. Nếu event throw → File.insert + `set_value` rollback (chưa commit) ⇒ không orphan File, không silent. Đối xứng imm12 `incident_photo_attached` (`services/imm12.py:911`) / imm08 `pm_checklist_photo_attached` (`services/imm08.py:887`). Vì asset KHÔNG đổi trạng thái khi đính ảnh → `from_status == to_status == asset.lifecycle_status` hiện tại.
+
+> **⚡ Enum change (deploy — HARD-STOP USER, KHÔNG chặn test):** thêm option **`repair_checklist_photo_attached`** vào Select `event_type` của `Asset Lifecycle Event` (`assetcore/assetcore/doctype/asset_lifecycle_event/asset_lifecycle_event.json`) — nối tiếp `incident_photo_attached` (Vòng 1) + `pm_checklist_photo_attached` (Vòng 2). Ghi `event_type` ngoài Select sẽ bị nuốt/throw → BẮT BUỘC mở enum trước khi LIVE. Deploy: `bench --site miyano reload-doctype "Asset Lifecycle Event"` + `clear-cache`. Test seed event qua `create_lifecycle_event` (không phụ thuộc reload live). Xem **ADR-IMM09-PHOTO-02** (`05 §3.10`).
 
 **`repair_completed` LUÔN được ghi đúng 1 ALE — cả 3 nhánh restore (BR-09-09):**
 

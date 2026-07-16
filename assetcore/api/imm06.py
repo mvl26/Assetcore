@@ -191,6 +191,19 @@ def get_user_competencies(user: str = "") -> dict:
     return _run(svc.get_user_competencies, user or frappe.session.user)
 
 
+@frappe.whitelist()
+def get_competency(name: str) -> dict:
+    """GET /api/method/assetcore.api.imm06.get_competency
+
+    GATE-8 / LL-FE-51: trả hồ sơ năng lực + ``allowed_transitions`` (server-driven,
+    phái sinh từ SSoT ``_COMPETENCY_VALID_TRANSITIONS``) + cờ can_signoff/can_revoke/
+    can_recertify/can_suspend/can_restore đã lọc theo capability caller. FE gate 5 CTA
+    (Sign-off / Tạm ngưng / Khôi phục / Thu hồi / Tái chứng nhận) theo đây, KHÔNG hardcode
+    ``workflow_state === 'X'``.
+    """
+    return _run(svc.get_competency, name)
+
+
 @frappe.whitelist(methods=["POST"])
 def signoff_competency(name: str) -> dict:
     """POST /api/method/assetcore.api.imm06.signoff_competency
@@ -211,14 +224,71 @@ def signoff_competency(name: str) -> dict:
 
 @frappe.whitelist(methods=["POST"])
 def revoke_competency(name: str, reason: str, capa_ref: str = "") -> dict:
-    """POST /api/method/assetcore.api.imm06.revoke_competency"""
+    """POST /api/method/assetcore.api.imm06.revoke_competency
+
+    VÁ lỗ RBAC (parity signoff_competency): thu hồi năng lực là thao tác vòng đời
+    HUỶ hiệu lực operator (NĐ98) → chỉ Training Manager / Super Admin (capability
+    ``training.submit``) được phép. Thiếu quyền → FORBIDDEN, KHÔNG đổi workflow_state.
+    """
+    from assetcore.services.shared import rbac
+    if not rbac.can("training.submit"):
+        return _err(
+            "Chỉ Training Manager / Super Admin được thu hồi năng lực",
+            ErrorCode.FORBIDDEN,
+        )
     return _run(svc.revoke_competency_with_capa, name, reason, capa_ref)
 
 
 @frappe.whitelist(methods=["POST"])
 def recertify_competency(name: str, new_session: str) -> dict:
-    """POST /api/method/assetcore.api.imm06.recertify_competency"""
+    """POST /api/method/assetcore.api.imm06.recertify_competency
+
+    VÁ lỗ RBAC (parity signoff_competency): tái chứng nhận cấp lại hiệu lực operator
+    → chỉ Training Manager / Super Admin (capability ``training.submit``) được phép.
+    Thiếu quyền → FORBIDDEN, KHÔNG đổi workflow_state.
+    """
+    from assetcore.services.shared import rbac
+    if not rbac.can("training.submit"):
+        return _err(
+            "Chỉ Training Manager / Super Admin được tái chứng nhận năng lực",
+            ErrorCode.FORBIDDEN,
+        )
     return _run(svc.recertify_competency, name, new_session)
+
+
+@frappe.whitelist(methods=["POST"])
+def suspend_competency(name: str, reason: str = "") -> dict:
+    """POST /api/method/assetcore.api.imm06.suspend_competency
+
+    CR-WF-06-COMP (parity revoke/recertify): Tạm ngưng năng lực Active → Suspended.
+    Chỉ Training Manager / Super Admin (capability ``training.submit``) được phép.
+    Thiếu quyền → FORBIDDEN, KHÔNG đổi workflow_state. ``reason`` bắt buộc (rỗng →
+    service raise VALIDATION); nguồn ≠ Active → BAD_STATE.
+    """
+    from assetcore.services.shared import rbac
+    if not rbac.can("training.submit"):
+        return _err(
+            "Chỉ Training Manager / Super Admin được tạm ngưng năng lực",
+            ErrorCode.FORBIDDEN,
+        )
+    return _run(svc.suspend_competency, name, reason)
+
+
+@frappe.whitelist(methods=["POST"])
+def restore_competency(name: str) -> dict:
+    """POST /api/method/assetcore.api.imm06.restore_competency
+
+    CR-WF-06-COMP (parity revoke/recertify): Khôi phục năng lực Suspended → Active.
+    Chỉ Training Manager / Super Admin (capability ``training.submit``) được phép.
+    Thiếu quyền → FORBIDDEN, KHÔNG đổi workflow_state; nguồn ≠ Suspended → BAD_STATE.
+    """
+    from assetcore.services.shared import rbac
+    if not rbac.can("training.submit"):
+        return _err(
+            "Chỉ Training Manager / Super Admin được khôi phục năng lực",
+            ErrorCode.FORBIDDEN,
+        )
+    return _run(svc.restore_competency, name)
 
 
 # ─── Group D: Dashboard & Analytics ──────────────────────────────────────────

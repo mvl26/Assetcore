@@ -190,6 +190,20 @@ def post_cycle_count(cycle_count: str = "", name: str = "",
                    verified_by=verified_by, notes=notes)
 
 
+@frappe.whitelist(methods=["POST"])
+def recount_cycle_count(count_name: str = "", name: str = "",
+                        reason: str = "") -> dict:
+    """CR-WF-15-CC POST recount_cycle_count — "Sửa đếm lại": Reviewed → Counting.
+
+    Gửi phiếu đã Reviewed về Counting để đếm lại. Cap `inventory.submit` (parity
+    Post). Lỗi nghiệp vụ (reason rỗng → IMM15_RECOUNT_REASON_REQUIRED 422; status≠
+    Reviewed → BAD_STATE 409; thiếu cap → FORBIDDEN 403) trả in-handler HTTP-200 +
+    Error envelope qua _handle — KHÔNG raise HTTP-4xx (parity submit/post). Guest →
+    dispatcher (whitelist không allow_guest).
+    """
+    return _handle(svc.recount_cycle_count, count_name or name, reason)
+
+
 # ─── Forecast ─────────────────────────────────────────────────────────────────
 
 @frappe.whitelist()

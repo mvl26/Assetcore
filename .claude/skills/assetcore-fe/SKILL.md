@@ -394,6 +394,12 @@ FE `constants/roles.ts` có thể thiếu roles mới thêm vào BE (`PLANNING`,
 ### 🚫 Lỗi #4: Store thiếu nhưng view vẫn chạy (silent undefined)
 Một số modules chỉ có API client mà không có dedicated Pinia store — views dùng composable inline hoặc `useMasterDataStore`. **Check trước**: nếu module có ≥3 views hoặc shared state giữa views, cần store riêng. Nếu không, document rõ "module X dùng `useMasterDataStore`".
 
+### 🚫 Lỗi #5: `<style scoped>` mất tác dụng khi thay raw `<input>` bằng child component
+View cha có `<style scoped> .modal-body input {…} </style>`. Đổi 1 raw `<input>` → child component (`<DateInput>`/`<CurrencyInput>`/`<ApproverSelect>`) thì inner `<input>` của child **KHÔNG mang `data-v-*` scope của cha** ⇒ selector scoped `.modal-body input` KHÔNG khớp → **mất style** (width/border). **Fix:** child TỰ gắn class utility GLOBAL trên inner input (`form-input w-full`, như `CurrencyInput` vốn làm) — KHÔNG dựa vào scoped-selector của cha. **Rule:** khi swap raw `<input>`→child dưới scoped CSS, verify child sở hữu layout class riêng (render thật, đo width). (session 2026-07-14)
+
+### 🚫 Lỗi #6: raw `<input type="date">` hiển thị theo locale trình duyệt
+`<input type="date">` render ngày theo locale trình duyệt (en-US = **mm/dd/yyyy**), user VN đọc sai thứ tự — dù v-model vẫn ISO. **Fix:** dùng wrapper `<DateInput>` (hiển thị **dd/mm/yyyy**, v-model GIỮ ISO → API KHÔNG đổi). **Rule:** KHÔNG ship raw `<input type=date>` cho ngày user-facing; verify bằng render thật (nhập → thấy dd/mm/yyyy). (session 2026-07-14)
+
 ## Common Rationalizations
 
 | Lý do hay viện để skip | Sự thật |

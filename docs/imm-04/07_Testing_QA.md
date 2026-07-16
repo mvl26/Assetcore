@@ -24,7 +24,7 @@ Toàn bộ artefact test được của IMM-04. Mỗi dòng → ≥ 1 test class
 | 1 | `Asset Commissioning` | DocType | `asset_commissioning/asset_commissioning.json` | Integration (lifecycle) |
 | 2 | `Asset QA Non Conformance` | DocType | `asset_qa_non_conformance/*.json` | Integration |
 | 3 | `Commissioning Checklist` / `Commissioning Document Record` | Child DocType | `commissioning_checklist`, `commissioning_document_record` | Integration |
-| 4 | `IMM-04 Workflow` | Workflow | `workflow/imm_04_workflow.json` (11 state, 23 transition) | Integration (state transition) |
+| 4 | `IMM-04 Workflow` | Workflow | `workflow/imm_04_workflow.json` (11 state, **45 transition-row → 15 cạnh distinct**) | Integration (state transition) + surface-integrity guard (§III.4a) |
 | 5 | `initialize_commissioning`, `create_ac_asset`, `log_lifecycle_event`, `check_auto_clinical_hold` | Service function | `services/imm04.py` | Unit |
 | 6 | `validate_gate_g01`, `validate_gate_g03`, `validate_gate_g05_g06` | Gate validator | `services/imm04.py` | Unit (Decision Table / BVA) |
 | 7 | `_vr01_unique_serial_number`, `_vr05_risk_class_change_warning`, `_vr06_immutable_lifecycle_events`, `_validate_document_expiry` | Field validator | `services/imm04.py` | Unit (BVA/EP) |
@@ -93,7 +93,7 @@ Mỗi US/BR/Activity phải có ≥ 1 test ở Phần III và xuất hiện tron
 
 ## I.4. Scope
 
-- **In-scope**: gate logic G01/G03/G05/G06 (I.1 #6), validator VR-01/05/06 (#7), workflow 23 transition (#4), auto-mint Asset + audit chain (#5,#9), API permission matrix (#8).
+- **In-scope**: gate logic G01/G03/G05/G06 (I.1 #6), validator VR-01/05/06 (#7), workflow 45 transition-row / 15 cạnh + surface-integrity guard (#4, §III.4a), auto-mint Asset + audit chain (#5,#9), API permission matrix (#8).
 - **Out-of-scope**: Performance test (giao Phần III.8); Penetration test (giao Phần VI.10); cross-module với IMM-05 (Asset Document set) và IMM-08 (PM auto-create) chỉ smoke — IMM-08 listener còn deferred (xem IMM04-BUG-032).
 - **Assumptions**: master data (Device Model, Vendor, PO) đã seed qua `scripts/uat/uat_imm04.py`; test users đã tạo đủ role; browser Chrome ≥ 120.
 
@@ -110,7 +110,7 @@ Mỗi US/BR/Activity phải có ≥ 1 test ở Phần III và xuất hiện tron
 | **Equivalence Partitioning (EP)** | Input có miền giá trị chia nhóm | `risk_class` Select (A/B/C/D/Radiation), `overall_inspection_result` (Pass/Fail/Conditional Pass), permission partition theo role | 1 test/partition |
 | **Boundary Value Analysis (BVA)** | Numeric/date/length có biên | `reception_date` (today vs tomorrow), `_validate_document_expiry` (past/today/<30d/future), SN length, file size (≤ 20 MB) | 2-3 test/biên |
 | **Decision Table** | Multi-condition gate | G01 (mandatory × status), G03 (pass × critical), G05/G06 (NC open × approver set), VR-07 (risk_class → hold) | 2^N rút gọn |
-| **State Transition Testing** | Workflow FSM | `imm_04_workflow.json` 23 transition (11 state) | mỗi transition + invalid |
+| **State Transition Testing** | Workflow FSM | `imm_04_workflow.json` 45 transition-row / 15 cạnh (11 state) | mỗi transition + invalid |
 | **Use Case Testing** | End-to-end actor flow | UAT golden scenario, API integration | 1/main + 1/alt + 1/exception |
 | **Error Guessing** | null, empty, SN unicode, double-submit | `assign_identification`, `submit_commissioning` (idempotent), `_vr01` empty SN | Bổ sung |
 
@@ -149,7 +149,7 @@ Mỗi US/BR/Activity phải có ≥ 1 test ở Phần III và xuất hiện tron
               │   API Integration    │   ~15% (35 whitelist endpoint)
              ─┴──────────────────────┴─
           ┌────────────────────────────────┐
-          │  Workflow + DocType lifecycle  │   ~25% (11 state, 23 transition)
+          │  Workflow + DocType lifecycle  │   ~25% (11 state, 45 row / 15 cạnh)
          ─┴────────────────────────────────┴─
       ┌────────────────────────────────────────────┐
       │         Unit — Service Layer               │   ~55% (gates + VRs)
@@ -202,7 +202,9 @@ File: `tests/test_asset_commissioning_doctype.py` (⬜ Planned). Cover hook `bef
 
 ## III.4. Integration — Workflow transitions
 
-File: `tests/test_imm04_workflow.py` (⬜ Planned). Workflow `imm_04_workflow.json` có **11 state, 23 transition** (đếm: `python3 -c "import json;print(len(json.load(open('assetcore/assetcore/workflow/imm_04_workflow.json'))['transitions']))"` = 23). Phải cover 100%.
+File: `tests/test_imm04_workflow.py` (⬜ Planned). Workflow `imm_04_workflow.json` có **11 state, 45 transition-row → 15 cạnh distinct** (đếm: `python3 -c "import json;print(len(json.load(open('assetcore/assetcore/workflow/imm_04_workflow.json'))['transitions']))"` = **45**; 45 row = 15 cạnh logic × role-variant). Phải cover 100%.
+
+> ⚠️ Self-Correction (2026-07-14): số "23 transition" ở các bản trước là **stale** — sau backfill admin-override (`AssetCore Super Admin` bồi vào MỌI cạnh, memory `workflow_admin_override_rbac`), file thực tế = **45 row / 15 cạnh distinct**. Verified 2026-07-14.
 
 | Action | From → To | Role required | Test pass | Test fail |
 |---|---|---|---|---|
@@ -222,7 +224,29 @@ File: `tests/test_imm04_workflow.py` (⬜ Planned). Workflow `imm_04_workflow.js
 | Khắc phục xong | Non Conformance → To Be Installed | PM User | ☐ | |
 | Trả lại nhà cung cấp | Non Conformance → Return To Vendor (terminal) | System Manager | ☐ | |
 
-> 23 transition vật lý = 15 action logic × (role variants). Mỗi action có ≥ 1 test pass + 1 test fail (wrong role hoặc gate fail). State Transition Testing — vẽ state graph; mỗi edge = 1 pass + 1 fail.
+> 45 transition-row vật lý = 15 action logic (cạnh distinct) × role-variant. Mỗi action có ≥ 1 test pass + 1 test fail (wrong role hoặc gate fail). State Transition Testing — vẽ state graph; mỗi edge = 1 pass + 1 fail.
+
+## III.4a. Guard — Workflow-Surface Integrity (CR-WF-04-SURFACE · silent-CTA-loss)
+
+File: `tests/test_imm04.py` → class **`TestImm04WorkflowSurfaceGuard`** (⬜ Planned, **test-only** — 0 chạm runtime `.py`, 0 reload/migrate). Khoá 4 invariant INV-04-WF-1..4 (spec: `04 §3.1` + BR-04-24 + ADR-IMM-04-01). Đóng lỗ mà guard toàn cục `test_workflow_admin_override` **KHÔNG** bắt (glob JSON, không kiểm hằng-lookup service `services/imm04.py:671`).
+
+**Oracle độc lập:** parse file `assetcore/assetcore/workflow/imm_04_workflow.json` (JSON) + `import assetcore.services.imm04 as svc` (đọc `svc._DT`, gọi `svc._get_workflow_transitions`); assert trên workflow **live** (DB) + emit service **live**.
+
+| TC | Invariant | Assertion (chính xác) | Bắt lỗi |
+|---|---|---|---|
+| **TC-04-WF-SURFACE-01** | INV-04-WF-1 | `frappe.get_doc("Workflow", "IMM-04 Workflow")` KHÔNG raise (`DoesNotExistError`); `workflow.document_type == svc._DT == "Asset Commissioning"`. | rename workflow · drift `_DT` |
+| **TC-04-WF-SURFACE-02** | INV-04-WF-2 | Parse 45 transition-row → gom `{(state,action,next_state)}` = 15 cạnh distinct; **mỗi** cạnh có `"AssetCore Super Admin"` ∈ set `allowed`. `assertEqual(edges_missing_super_admin, [])`. | cạnh nghiệm thu tụt admin-override |
+| **TC-04-WF-SURFACE-03** | INV-04-WF-3 | Với 1 phiếu **Draft** thật + `frappe.set_user(<AssetCore Super Admin>)`: `emit = svc._get_workflow_transitions(draft.name)`; `assertTrue(len(emit) > 0)`; `draft_out = {t.next_state for file-rows where state=="Draft"}` (`=={"Pending Doc Verify"}`); `assert {e["next_state"] for e in emit} ⊆ draft_out`. | hằng-lookup @:671 sai → `[]` (RED) · emit stale ≠ file |
+| **TC-04-WF-SURFACE-04** | INV-04-WF-4 | Cùng phiếu Draft, `frappe.set_user(<role-nghèo: không role ∈ allowed cạnh Draft-out>)`: `poor = svc._get_workflow_transitions(draft.name)`; `assert {e["action"] for e in poor} ⊆ {e["action"] for e in emit_superadmin}` (subset chặt, thường `poor == []`). | false-permissive CTA (rò rỉ vượt quyền) |
+| **TC-04-WF-SURFACE-05** | INV-04-WF-1/3 (coupling) | Couple file ⇄ live: `file_name = json["name"]`; `assertEqual(file_name, "IMM-04 Workflow")`; `frappe.get_doc("Workflow", file_name)` KHÔNG raise. Đổi `name` trong `imm_04_workflow.json` → `file_name` mới ∉ DB live → raise → FAIL (0 migrate). | rename `name` trong file JSON |
+
+**RED-before / GREEN-after (chứng minh giá trị — BẮT BUỘC verify, KHÔNG false-green):**
+1. **GREEN baseline:** `bench --site miyano run-tests --module assetcore.tests.test_imm04` → `Ran 62 OK` (57 cũ + 5 mới), 0 fail / 0 error.
+2. **RED vector A (hằng lookup):** tạm đổi `services/imm04.py:671` `"IMM-04 Workflow"` → `"IMM-04 Workflow-X"` → chạy lại → **TC-04-WF-SURFACE-03** FAIL (`emit == []`) → revert.
+3. **RED vector B (rename file):** tạm đổi `name` trong `imm_04_workflow.json` → chạy lại → **TC-04-WF-SURFACE-05** FAIL (`file_name ∉ DB live`) → revert.
+4. **Đối chứng lỗ toàn cục:** với vector A hoặc B, `test_workflow_admin_override` vẫn **GREEN** (glob JSON, không kiểm hằng-lookup) → chứng minh guard module-local là cần thiết.
+
+**Boundary (Never):** KHÔNG sửa `services/imm04.py:667-680` để test xanh. Nếu thêm `log_error` thay `return []` (observability) = thay đổi runtime → **HARD-STOP USER reload worker**, tách khỏi CR test-only này, `[ROADMAP]`.
 
 ## III.5. Integration — Audit chain integrity
 

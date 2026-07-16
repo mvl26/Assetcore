@@ -153,6 +153,133 @@
    "next_state": "Conditionally Passed",
    "state": "Failed",
    "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu hiệu chuẩn",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "In Progress",
+   "state": "Scheduled",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu hiệu chuẩn",
+   "allowed": "System Manager",
+   "next_state": "In Progress",
+   "state": "Scheduled",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Gửi phòng hiệu chuẩn",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Sent to Lab",
+   "state": "Scheduled",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Gửi phòng hiệu chuẩn",
+   "allowed": "System Manager",
+   "next_state": "Sent to Lab",
+   "state": "Scheduled",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hủy lịch",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Cancelled",
+   "state": "Scheduled",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Đạt hiệu chuẩn",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Passed",
+   "state": "In Progress",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Đạt hiệu chuẩn",
+   "allowed": "System Manager",
+   "next_state": "Passed",
+   "state": "In Progress",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Không đạt hiệu chuẩn",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Failed",
+   "state": "In Progress",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Không đạt hiệu chuẩn",
+   "allowed": "System Manager",
+   "next_state": "Failed",
+   "state": "In Progress",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Đạt có điều kiện",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Conditionally Passed",
+   "state": "In Progress",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Đạt có điều kiện",
+   "allowed": "System Manager",
+   "next_state": "Conditionally Passed",
+   "state": "In Progress",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hủy hiệu chuẩn",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Cancelled",
+   "state": "In Progress",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Nhận chứng chỉ",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Certificate Received",
+   "state": "Sent to Lab",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Nhận chứng chỉ",
+   "allowed": "System Manager",
+   "next_state": "Certificate Received",
+   "state": "Sent to Lab",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Phê duyệt đạt",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Passed",
+   "state": "Certificate Received",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Phê duyệt không đạt",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Failed",
+   "state": "Certificate Received",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Phê duyệt có điều kiện",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Conditionally Passed",
+   "state": "Certificate Received",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "CAPA hoàn tất - chuyển có điều kiện",
+   "allowed": "AssetCore Super Admin",
+   "condition": "doc.capa_closed == 1",
+   "next_state": "Conditionally Passed",
+   "state": "Failed",
+   "allow_self_approval": 1
   }
  ]
 }

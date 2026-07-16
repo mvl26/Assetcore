@@ -195,3 +195,17 @@ describe('persona ↔ Role Profile mapping — Phase 1.4 (Core Doc §7.quinquies
     }
   })
 })
+
+// ─── CR-TRF-AUTHZ: 'Điều chuyển thiết bị' (imm13) thuộc audience Commissioning ──
+// Bug (2026-07-15): persona 'store' (Thủ kho, chỉ inventory) được gán module imm13
+// → thấy link điều chuyển nhưng BE (commissioning domain) 403. Fix: chuyển module
+// điều chuyển sang persona commissioning (opsmgr = Trưởng phòng VT-TTBYT), gỡ khỏi
+// store. KHÔNG cấp quyền BE mới — chỉ align nav-audience với BE enforcement.
+describe('CR-TRF-AUTHZ — module điều chuyển (imm13) = Commissioning audience', () => {
+  it('opsmgr (Trưởng phòng VT-TTBYT) có imm13 (commissioning owns transfers)', () => {
+    expect(getPersona('opsmgr')!.modules).toContain('imm13')
+  })
+  it('store (Thủ kho phụ tùng) KHÔNG có imm13', () => {
+    expect(getPersona('store')!.modules).not.toContain('imm13')
+  })
+})

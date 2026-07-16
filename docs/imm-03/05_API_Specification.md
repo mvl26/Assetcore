@@ -78,8 +78,9 @@ ROLE_ADMIN        = "IMM System Admin"           # CMMS Admin
 | `add_vendor_cert` | W | — | — | — | W | — | — | W |
 | `list_avl` | R | R | R | R | R | R | R | R |
 | `create_avl_entry` | W | — | — | — | — | — | — | W |
-| `approve_avl` | — | — | — | — | — | — | W | W |
+| `approve_avl` (Phê duyệt + **Phục hồi**) | — | — | — | — | — | — | W | W |
 | `suspend_avl` | — | — | — | — | W | — | W | W |
+| `set_avl_conditional` (Cấp/Hạ Conditional) | — | — | — | — | W | — | W | W |
 | `list_evaluations` | R | R | R | — | R | R | R | R |
 | `add_candidate` | W | — | — | — | — | — | — | W |
 | `submit_quotations` | W | — | — | — | — | — | — | W |
@@ -101,7 +102,7 @@ ROLE_ADMIN        = "IMM System Admin"           # CMMS Admin
 >
 > **Vendor Evaluation:** `list_evaluations`, `get_evaluation`, `create_evaluation`, `add_candidate`, `submit_quotations`, `score_evaluation`, `transition_eval_workflow`
 >
-> **AVL:** `list_avl`, `get_avl`, `create_avl_entry`, `approve_avl`, `suspend_avl`
+> **AVL:** `list_avl`, `get_avl`, `create_avl_entry`, `approve_avl` (Phê duyệt Draft **+ Phục hồi** Conditional/Suspended → Approved), `suspend_avl` (Đình chỉ), `set_avl_conditional` (Cấp/Hạ xuống Conditional — MỚI vòng 33) — mutation CTA đổi state qua `avl.submit()` (Draft 0→1) hoặc `db.set_value` (submitted), guard role tường minh `_require_avl_transition_role` theo SoT `_AVL_VALID_TRANSITIONS` (LL-BE-62 — KHÔNG set `workflow_state` thô bỏ qua role; **KHÔNG dùng `apply_workflow`** — Self-Correction, xem §3.5/§3.6/§3.6.b + ADR-IMM-03-07). `allowed_transitions` role-filtered emit ở `list_avl`/`get_avl` (04 §VII.3.a). **INV-AVL-ENDPOINT-MAP:** MỌI nhãn action trong codomain `_AVL_VALID_TRANSITIONS` map tới 1 endpoint @whitelist đã implement (§3.6.c).
 >
 > **Procurement Decision:** `list_decisions`, `get_decision`, `create_decision`, `award_decision`, `record_contract`, `transition_decision_workflow`
 >
@@ -270,44 +271,47 @@ POST /api/method/assetcore.api.imm03.create_avl_entry
 
 ---
 
-### 3.5 `approve_avl`
+### 3.5 `approve_avl` — action `Phê duyệt AVL` (Draft) **HOẶC** `Phục hồi Approved` (Conditional/Suspended) → Approved
+
+> **⚠️ Self-Correction R-05-AVL-COND-02 (vòng 33 — doc↔code align).** Bản trước đặc tả cơ chế `_apply_avl_transition` → `apply_workflow` + endpoint `restore_avl` RIÊNG + audit `imm03_avl_workflow_transition` + response 3-key `docstatus`. **Code LIVE (`api/imm03.py:437-505`, `services/imm03.py:123-165,516-553`) KHÔNG dùng `apply_workflow`**: `approve_avl` xử lý CẢ 2 nhánh (Draft→Approved bằng `avl.submit()`, Conditional/Suspended→Approved bằng `db.set_value`) qua role guard tường minh `_require_avl_transition_role` (LL-BE-62 vẫn thoả — KHÔNG set state thô bỏ qua role); **KHÔNG có endpoint `restore_avl` riêng** (§3.6.a nay = alias tài liệu của nhánh này); audit = `event_type='State Change'`, `change_summary="AVL — {action}: {from_vi} → {to_vi}"`; response = 2-key `{name, workflow_state}`. Xem ADR-IMM-03-07 (02 §IV.13, SUPERSEDE cơ chế `apply_workflow` của ADR-IMM-03-04).
 
 ```
 POST /api/method/assetcore.api.imm03.approve_avl
 ```
 
+**Signature:** `approve_avl(name, approval_doc='', **_ignore)`. **BỎ tham số `approver`** — server derive `frappe.session.user` (chống spoof, ADR-IMM-03-04). Kwarg `approver` client cũ nuốt an toàn qua `**_ignore` (LL-BE-63), KHÔNG dùng giá trị.
+
 **Request body:**
 ```json
 {
   "name": "AVL-2026-00045",
-  "approver": "vp.block1@hospital.vn",
   "approval_doc": "/files/avl-approval-45.pdf"
 }
 ```
 
-**Side effects:**
-- `avl.workflow_state = "Approved"` (KHÔNG phải `avl.status` — AVL không có field `status` riêng)
-- `avl.approver = approver`, `avl.approval_doc = approval_doc`
-- Nếu state là Draft → `avl.submit()` (docstatus → 1). Nếu Conditional/Suspended → `avl.save()` + `_sync_supplier_avl_status`
-- `AC Supplier.imm_avl_status` và `imm_avl_categories` được sync qua `_sync_supplier_avl_status`
+**Xử lý:** derive ACTION theo state — `Draft → "Phê duyệt AVL"` · `Conditional/Suspended → "Phục hồi Approved"` · state khác → `BAD_STATE`. `_require_avl_transition_role(state, action)` (role `{Procurement Manager, AssetCore Super Admin, System Manager}`). Nhánh Draft: `avl.approver=frappe.session.user`, `avl.approval_doc`, `workflow_state="Approved"`, `avl.submit()` (0→1). Nhánh Conditional/Suspended (submitted): `db.set_value({workflow_state:"Approved", approver})`. Sau: `_sync_supplier_avl_status(supplier)` + `_audit_avl` (State Change).
 
-**Response (thực tế — không có `"valid_to"`):**
+**Response:**
 ```json
 {"success": true, "data": {"name": "AVL-2026-00045", "workflow_state": "Approved"}}
 ```
 
-**Errors:**
+**Errors (in-handler HTTP-200 + Error envelope — KHÔNG raise→4xx):**
 ```json
-{"success": false, "error": "AVL ở state Approved không thể Approve", "code": "BAD_STATE"}
+{"success": false, "error": "AVL ở trạng thái Approved không thể Phê duyệt (chỉ Draft).", "code": "BAD_STATE"}
+{"success": false, "error": "Bạn không có quyền Phê duyệt AVL (cần Procurement Manager).", "code": "FORBIDDEN"}
 ```
+> `FORBIDDEN` = in-handler cap-403 (thiếu role, HTTP-200 envelope). Guest/no-token = dispatcher-403 (trước handler). User đủ quyền AssetCore (`AssetCore Super Admin`/`System Manager`, đã backfill vào transition) → duyệt THÀNH CÔNG (đóng root-cause "không duyệt được dù đủ quyền").
 
 ---
 
-### 3.6 `suspend_avl`
+### 3.6 `suspend_avl` — action `Đình chỉ` (Approved/Conditional → Suspended)
 
 ```
 POST /api/method/assetcore.api.imm03.suspend_avl
 ```
+
+**Signature:** `suspend_avl(name, suspension_reason)`. `suspension_reason` bắt buộc non-empty (else `VALIDATION`). Xử lý: `_require_avl_transition_role(state, "Đình chỉ")` → `db.set_value({workflow_state:"Suspended", suspension_reason})` (submitted-doc-safe) → `_sync_supplier_avl_status` + `_audit_avl`. **State-guard theo SoT:** chỉ Approved/Conditional (Draft→Suspended, Expired→* **bị chặn** `BAD_STATE` — siết nhánh ad-hoc cũ "suspend từ mọi state"). Là template mà `set_avl_conditional` nhánh Approved mirror.
 
 **Request body:**
 ```json
@@ -317,10 +321,65 @@ POST /api/method/assetcore.api.imm03.suspend_avl
 }
 ```
 
-**Response (thực tế — `workflow_state` thay vì `status`):**
+**Response:**
 ```json
 {"success": true, "data": {"name": "AVL-2026-00045", "workflow_state": "Suspended"}}
 ```
+
+---
+
+### 3.6.a `Phục hồi Approved` (Conditional/Suspended → Approved) — phục vụ bởi `approve_avl` (KHÔNG endpoint riêng)
+
+> **Self-Correction R-05-AVL-COND-02:** action `Phục hồi Approved` KHÔNG có endpoint `restore_avl` độc lập trong code LIVE — nó được `approve_avl` xử lý qua nhánh state `Conditional/Suspended` (§3.5). FE gọi CÙNG `approveAvl(name)` cho cả Phê duyệt lẫn Phục hồi (`allowed_transitions` phân biệt nhãn). Role `allowed` = `Procurement Manager` (+admin). **Đóng dead-functionality**: AVL Suspended/Conditional trước đây không khôi phục được trên UI.
+
+**Errors:** `BAD_STATE` nếu gọi `approve_avl` từ state không có `Phục hồi Approved`/`Phê duyệt AVL` (vd Expired); `FORBIDDEN` nếu thiếu role.
+
+---
+
+### 3.6.b `set_avl_conditional` — action `Cấp Conditional` (Draft) | `Hạ xuống Conditional` (Approved) → Conditional
+
+> **CR-WF-03-AVL-COND (vòng 33 — đóng "hidden-CTA-câm").** Endpoint MỚI đóng 2 nhãn action đã nằm trong SoT `_AVL_VALID_TRANSITIONS` + fixture `'IMM-03 AVL Workflow'` nhưng CHƯA có endpoint @whitelist nào phát ra (FE render nút "Cấp Conditional"/"Hạ xuống Conditional" theo `allowed_transitions` → click 404). Tên endpoint = `set_avl_conditional` (KHÔNG `set_conditional_avl` — Self-Correction R-05-AVL-COND-01). Xem ADR-IMM-03-07 (02 §IV.13) + INV-AVL-ENDPOINT-MAP (§3.6.c).
+
+```
+POST /api/method/assetcore.api.imm03.set_avl_conditional
+```
+
+**Signature:** `set_avl_conditional(name: str, condition_notes: str)` — `@frappe.whitelist(methods=["POST"])`, qua `_handle(_set_avl_conditional, name, condition_notes)`.
+
+**Tham số:**
+| Tham số | Bắt buộc | Ghi chú |
+|---|---|---|
+| `name` | Y | Mã AVL (IMM AVL Entry). Không tồn tại → `NOT_FOUND`. |
+| `condition_notes` | **Y** | Ghi chú điều kiện — **bắt buộc non-empty** (rỗng/whitespace → `VALIDATION`, **parity `suspension_reason` của `suspend_avl`**). Lưu vào field `condition_notes` (Long Text SẴN CÓ trong `imm_avl_entry.json` — **KHÔNG thêm field, KHÔNG `bench migrate`**). |
+
+**Xử lý (`_set_avl_conditional`, mirror `_approve_avl` nhánh Draft + `_suspend_avl`):**
+1. Guard `condition_notes` non-empty (else `ServiceError(VALIDATION)`) — **TRƯỚC** đọc doc (parity `_suspend_avl`).
+2. Đọc `state = frappe.db.get_value(_DT_AVL, name, "workflow_state")` (bypass DocPerm, fail-fast); rỗng → `ServiceError(NOT_FOUND)`.
+3. Derive ACTION theo state: `Draft → "Cấp Conditional"` · `Approved → "Hạ xuống Conditional"`. **State khác (Conditional / Suspended / Expired) → `ServiceError(BAD_STATE)` HTTP 422** (chỉ 2 nguồn → Conditional theo SoT).
+4. `_require_avl_transition_role(state, action)` — role guard theo SoT `_AVL_VALID_TRANSITIONS` (LL-BE-62). Thiếu `{Spec Manager, AssetCore Super Admin, System Manager}` → `ServiceError(FORBIDDEN)`.
+5. Mutation theo docstatus nguồn:
+   - **Draft (docstatus 0):** `avl = frappe.get_doc(...)`; `avl.condition_notes = condition_notes`; `avl.workflow_state = "Conditional"`; `avl.submit()` (0→1). `on_submit → activate_avl` **no-op** (chỉ sync khi state=="Approved") → BƯỚC 6 sync tường minh. **Mirror `_approve_avl` nhánh Draft.**
+   - **Approved (docstatus 1):** `frappe.db.set_value(_DT_AVL, name, {"workflow_state": "Conditional", "condition_notes": condition_notes}, update_modified=False)` (submitted-doc-safe). **Mirror `_suspend_avl`.**
+6. `svc._sync_supplier_avl_status(supplier)` (INV-AVL-LIVE-3 — Conditional VẪN là AVL live) + `_audit_avl(name, action, state, "Conditional")` → sinh ĐÚNG **1 dòng** IMM Audit Trail `event_type='State Change'`, `change_summary="AVL — {action}: {from_vi} → Có điều kiện"` (`from_vi` = `_AVL_STATE_VI[state]` = Nháp/Đã duyệt; "Có điều kiện" = `_AVL_STATE_VI["Conditional"]`). Best-effort (audit-fail KHÔNG vỡ nghiệp vụ).
+7. `return {"name": name, "workflow_state": "Conditional"}` (2-key, parity `_approve_avl`/`_suspend_avl`).
+
+**Request body:**
+```json
+{"name": "AVL-2026-00045", "condition_notes": "Được cấp có điều kiện — ISO 13485 gia hạn trong 90 ngày"}
+```
+
+**Response (in-handler HTTP-200 + Success envelope):**
+```json
+{"success": true, "data": {"name": "AVL-2026-00045", "workflow_state": "Conditional"}}
+```
+
+**Errors (in-handler HTTP-200 + Error envelope — KHÔNG raise→4xx):**
+```json
+{"success": false, "error": "Phải nhập condition_notes", "code": "VALIDATION"}
+{"success": false, "error": "AVL ở trạng thái 'Conditional' không cho phép hành động 'Cấp Conditional'.", "code": "BAD_STATE"}
+{"success": false, "error": "Bạn không đủ quyền thực hiện 'Cấp Conditional' trên AVL.", "code": "FORBIDDEN"}
+```
+> **2 loại 403 (DONE-gate spec-contract):** `FORBIDDEN` (thiếu role) = **in-handler cap-403** (HTTP-200 + Error envelope qua `_handle`). Guest/no-token = **dispatcher-403** (trước handler, do `@whitelist(methods=["POST"])` không `allow_guest`). Spec Manager thực hiện được CẢ 2 nhánh (Draft + Approved); AssetCore Super Admin / System Manager cũng được (đã backfill vào transition).
 
 ---
 
@@ -713,7 +772,7 @@ Xem `docs/template/05_API_Specification.md` §3.1 và §3.1.a.
 
 **FE placeholder** (`AvlListView.vue`): `"Tìm theo mã AVL hoặc tên nhà cung cấp..."`.
 
-**Response:** fields = `name`, `supplier`, `device_category`, `workflow_state`, `valid_from`, `valid_to` + enrich `vendor_name` (AC Supplier.supplier_name) + `device_category_name` (AC Asset Category.category_name).
+**Response:** fields = `name`, `supplier`, `device_category`, `workflow_state`, `valid_from`, `valid_to` + enrich `vendor_name` (AC Supplier.supplier_name) + `device_category_name` (AC Asset Category.category_name) + **`allowed_transitions`** (mỗi row, role-filtered — xem dưới).
 ```json
 {
   "success": true,
@@ -727,12 +786,15 @@ Xem `docs/template/05_API_Specification.md` §3.1 và §3.1.a.
         "device_category_name": "Imaging",
         "workflow_state": "Approved",
         "valid_from": "2026-05-01",
-        "valid_to": "2028-04-30"
+        "valid_to": "2028-04-30",
+        "allowed_transitions": ["Hạ xuống Conditional", "Đình chỉ"]
       }
     ]
   }
 }
 ```
+
+> **`allowed_transitions` mỗi row** = `svc.avl_allowed_transitions(workflow_state, user_roles)` (`services/imm03.py:143`) — trả `[action for (action,_next,roles) in _AVL_VALID_TRANSITIONS.get(state, []) if roles & user_roles]`; `user_roles = set(frappe.get_roles())` **tính 1 lần / request (N+1-free)** — ⊆ tập action user được phép. (Self-Correction R-05-AVL-COND-03: KHÔNG có dict `_AVL_ACTION_ROLES` riêng — role nhúng trong tuple `_AVL_VALID_TRANSITIONS[state] = [(action, next_state, frozenset_roles)]`.) FE `AvlListView` gate nút CTA theo `action ∈ row.allowed_transitions` (GATE-8/LL-FE-51). Ví dụ role-filter: user chỉ `Procurement Manager` → row `Approved` cho `[]`, row `Suspended` cho `['Phục hồi Approved']`; user chỉ `Spec Manager` → row `Draft` cho `['Cấp Conditional']`, row `Approved` cho `['Hạ xuống Conditional','Đình chỉ']`. Admin (`AssetCore Super Admin`/`System Manager`) → trọn tập state. Degrade an toàn: rỗng → 0 nút (không dead-control 403). Chi tiết SoT + INV-CTA-05: 04 §VII.3.a.
 
 ---
 
@@ -761,7 +823,19 @@ POST /api/method/assetcore.api.imm03.add_vendor_cert
 GET /api/method/assetcore.api.imm03.get_evaluation?name=VE-26-00120
 ```
 
-**Response:** `IMM Vendor Evaluation.as_dict()` với enrich: `supplier_name` per candidate + `candidate_supplier_name` per quotation. Gọi `_enrich_decision_chain` để add `plan_ref_name`.
+**Response:** `IMM Vendor Evaluation.as_dict()` với enrich: `supplier_name` per candidate + `candidate_supplier_name` per quotation. Gọi `_enrich_decision_chain` để add `plan_ref_name`. **+ khóa server-driven CTA** (thêm mới, parity `get_decision` §3.20, KHÔNG đổi/bỏ khóa cũ):
+
+| Field | Kiểu | Nguồn | Ý nghĩa |
+|---|---|---|---|
+| `allowed_transitions` | `list[str]` | `_EVAL_VALID_TRANSITIONS.get(workflow_state, [])` (services/imm03.py) | Tập **workflow ACTION hợp lệ** từ state hiện tại — khớp EXACT fixture `'IMM-03 Vendor Eval Workflow'` (state → set(action)). FE render nút CTA theo tập này (KHÔNG hardcode `workflow_state === 'X'`). Terminal `Evaluated`/`Cancelled` → `[]`. |
+
+> **INV-CTA-04 (chống drift — 04 §VII.2.b / test 07 §III.4.b):** `set(allowed_transitions)` == `set(action hợp lệ của workflow_state trong fixtures/workflow.json 'IMM-03 Vendor Eval Workflow')`. Test invariant đọc fixture, dựng `codomain[state]=set(t.action)` (seed mọi state → terminal `set()`), assert key-set(map)==states[] (5) + per-state **equality**. Parity `test_decision_allowed_transitions_matches_workflow_fixture`.
+>
+> **Map (5 state):** `Draft → ['Mở RFQ']` · `Open RFQ → ['Nhận báo giá xong','Huỷ Eval']` · `Quotation Received → ['Hoàn tất chấm điểm','Huỷ Eval']` · `Evaluated → []` · `Cancelled → []`.
+>
+> **KHÁC Decision:** Eval KHÔNG có action-form riêng → MỌI action đi qua 1 endpoint `transition_eval_workflow(name, action)`; FE `availableActions = allowed_transitions` (không `.filter` loại action có form). Ngữ nghĩa value = **ACTION** (giống Decision, khác IMM-05 next-STATE).
+>
+> **Lưu ý 403 (DONE-gate spec-contract):** `get_evaluation` KHÔNG bị hạn chế theo capability → `allowed_transitions` chỉ là cờ hiển thị, KHÔNG làm `get_evaluation` trả 403. 403 thật cho hành động chuyển trạng thái xảy ra ở `transition_eval_workflow` (guard role `apply_workflow` — dispatcher-403 nếu guest/no-token; in-handler 200 + Error envelope nếu thiếu quyền/transition không hợp lệ). `allowed_transitions` state-level (KHÔNG role-filter): fixture chỉ cho `Commissioning Manager`(+admin) `Huỷ Eval` — Procurement Manager bấm `Huỷ Eval` vẫn 403 ở guard (defense-in-depth). Enforcement giữ nguyên, `allowed_transitions` ⊆ tập guard cho phép.
 
 ---
 
@@ -771,7 +845,19 @@ GET /api/method/assetcore.api.imm03.get_evaluation?name=VE-26-00120
 GET /api/method/assetcore.api.imm03.get_decision?name=PD-26-00045
 ```
 
-**Response:** `IMM Procurement Decision.as_dict()` với enrich: `supplier_name` per candidate + `winner_supplier_name` (display name). Gọi `_enrich_decision_chain` để add `plan_ref_name` + `ac_purchase_ref_name`.
+**Response:** `IMM Procurement Decision.as_dict()` với enrich: `supplier_name` per candidate + `winner_supplier_name` (display name). Gọi `_enrich_decision_chain` để add `plan_ref_name` + `ac_purchase_ref_name`. **+ khóa server-driven CTA** (thêm mới, KHÔNG đổi/bỏ khóa cũ):
+
+| Field | Kiểu | Nguồn | Ý nghĩa |
+|---|---|---|---|
+| `allowed_transitions` | `list[str]` | `_DECISION_VALID_TRANSITIONS.get(workflow_state, [])` (api/imm03.py) | Tập **workflow ACTION hợp lệ** từ state hiện tại — khớp EXACT fixture `'IMM-03 Decision Workflow'` (state → set(action)). FE render nút CTA theo tập này (KHÔNG hardcode `workflow_state === 'X'`). Terminal `PO Issued`/`Cancelled` → `[]`. |
+
+> **INV-CTA-03 (chống drift — 04 §VII.2.a / test 07 §III.4):** `set(allowed_transitions)` == `set(action hợp lệ của workflow_state trong fixtures/workflow.json 'IMM-03 Decision Workflow')`. Test invariant đọc fixture, dựng `codomain[state]=set(t.action)` (seed mọi state → terminal `set()`), assert key-set(map)==states[] (9) + per-state equality. Mirror `test_get_document_allowed_transitions_matches_workflow_fixture` (IMM-05).
+>
+> **Ngữ nghĩa khác IMM-05:** ở đây `allowed_transitions` = list **ACTION** (`'Phê duyệt trúng thầu'`, `'Ký HĐ'`, `'Huỷ Decision'`…), KHÁC IMM-05 `_DOC_VALID_TRANSITIONS` = list next-**STATE**. Lý do: FE Decision + endpoint `transition_decision_workflow` thao tác trên `action`. FE: `canAward = allowed_transitions.includes('Phê duyệt trúng thầu')`, `canRecordContract = allowed_transitions.includes('Ký HĐ')`; nút transition chung = 1 nút/action **trừ** 2 action có form riêng (`Phê duyệt trúng thầu`/`Ký HĐ`).
+>
+> **Regression bug (desync):** với Decision ở `Pending Approval`, `allowed_transitions` = `['Phê duyệt trúng thầu','Huỷ Decision']` → nút **Huỷ Decision** phải render (trước đây client-map thiếu hẳn nhánh Pending Approval → QTV/Procurement Manager không huỷ được dù fixture cấp quyền).
+>
+> **Lưu ý 403 (DONE-gate spec-contract):** `get_decision` KHÔNG là action bị hạn chế theo capability → `allowed_transitions` chỉ là cờ hiển thị, KHÔNG làm `get_decision` trả 403. 403 thật cho hành động chuyển trạng thái xảy ra ở `transition_decision_workflow`/`award_decision`/`record_contract` (guard role `apply_workflow` — dispatcher-403 nếu guest/no-token; enforcement giữ nguyên, `allowed_transitions` ⊆ tập guard cho phép).
 
 ---
 
@@ -781,7 +867,35 @@ GET /api/method/assetcore.api.imm03.get_decision?name=PD-26-00045
 GET /api/method/assetcore.api.imm03.get_avl?name=AVL-2026-00045
 ```
 
-**Response:** `IMM AVL Entry.as_dict()`.
+**Response:** `IMM AVL Entry.as_dict()` **+ khóa server-driven CTA** (thay passthrough `as_dict()` thô cũ; parity `get_evaluation`/`get_decision`, KHÔNG đổi/bỏ khóa cũ):
+
+| Field | Kiểu | Nguồn | Ý nghĩa |
+|---|---|---|---|
+| `allowed_transitions` | `list[str]` | `[a for a in _AVL_VALID_TRANSITIONS.get(workflow_state, []) if a in permitted]` (services/imm03.py) | Tập **workflow ACTION hợp lệ** từ state hiện tại, **role-filtered** (∩ tập action user được phép, tính 1 lần/request). Value = ACTION (khớp fixture `'IMM-03 AVL Workflow'`). Terminal `Expired` → `[]`. |
+
+> **INV-CTA-05 (chống drift — 04 §VII.3.a / test 07 §III.4.c):** (a) `set(_AVL_VALID_TRANSITIONS.keys()) == set(states[])` (5) + per-state `set(action)` equality với fixture; (b) tập role nhúng trong tuple (`_AVL_VALID_TRANSITIONS[state][i][2]`) == `{action: set(allowed)}` gom từ transitions fixture. Parity `test_eval_allowed_transitions_matches_workflow_fixture`.
+>
+> **Map (5 state, raw — trước role-filter):** `Draft → ['Phê duyệt AVL','Cấp Conditional']` · `Approved → ['Hạ xuống Conditional','Đình chỉ']` · `Conditional → ['Phục hồi Approved','Đình chỉ']` · `Suspended → ['Phục hồi Approved']` · `Expired → []`.
+>
+> **Lưu ý 403 (DONE-gate spec-contract):** `get_avl` KHÔNG bị hạn chế theo capability → `allowed_transitions` chỉ là cờ hiển thị (đã role-filter), KHÔNG làm `get_avl` trả 403. 403/lỗi thật cho hành động chuyển trạng thái xảy ra ở `approve_avl` (Phê duyệt + Phục hồi) / `suspend_avl` / `set_avl_conditional` (guard role `_require_avl_transition_role` — dispatcher-403 nếu guest/no-token; in-handler 200 + Error envelope FORBIDDEN nếu thiếu role). **DIVERGENCE có chủ đích so với Decision/Eval** (state-level, KHÔNG role-filter): AVL là màn LIST inline-CTA nên role-filter để tránh dead-control per-row — xem ADR-IMM-03-03.
+
+---
+
+### 3.6.c INV-AVL-ENDPOINT-MAP — MỌI action AVL phát ra PHẢI có endpoint (đóng "hidden-CTA-câm", AC4)
+
+> **Invariant đóng-câm, đo được (test 07 §III.4.c).** Nguồn lỗi vòng 33: 2 nhãn action (`Cấp Conditional`, `Hạ xuống Conditional`) nằm trong codomain `_AVL_VALID_TRANSITIONS` + fixture (→ `allowed_transitions` phát ra → FE render nút) NHƯNG không endpoint @whitelist nào phục vụ → click 404 câm. Invariant chặn tái diễn.
+
+**Map contract (SoT — đặt cạnh SoT `_AVL_VALID_TRANSITIONS` để cùng review):**
+
+| Action (∈ codomain `_AVL_VALID_TRANSITIONS`) | Endpoint @whitelist phục vụ |
+|---|---|
+| `Phê duyệt AVL` | `assetcore.api.imm03.approve_avl` |
+| `Phục hồi Approved` | `assetcore.api.imm03.approve_avl` (nhánh Conditional/Suspended) |
+| `Đình chỉ` | `assetcore.api.imm03.suspend_avl` |
+| `Cấp Conditional` | `assetcore.api.imm03.set_avl_conditional` (Draft) |
+| `Hạ xuống Conditional` | `assetcore.api.imm03.set_avl_conditional` (Approved) |
+
+**INVARIANT (đo được):** `emitted = { action for rows in _AVL_VALID_TRANSITIONS.values() for (action,_next,_roles) in rows }` (5 nhãn). PHẢI: (1) `emitted == set(_AVL_ACTION_ENDPOINT.keys())` (không action nào thiếu map — thêm transition mà quên map endpoint → RED); (2) ∀ `ep in _AVL_ACTION_ENDPOINT.values()`: `getattr(assetcore.api.imm03, ep, None)` tồn tại VÀ là whitelist (`ep in frappe.whitelisted`-registry hoặc có flag). **RED-before:** bỏ `set_avl_conditional` (hoặc bỏ 1 nhánh) → `Cấp Conditional`+`Hạ xuống Conditional` map tới hàm không tồn tại → 2 FAIL. **GREEN-after:** endpoint land → mọi action có endpoint sống. (`_AVL_ACTION_ENDPOINT` = dict SoT đặt trong `api/imm03.py` cạnh các endpoint AVL.)
 
 ---
 
@@ -825,6 +939,96 @@ POST /api/method/assetcore.api.imm03.transition_decision_workflow
 
 **Request:** `name`, `action` (workflow action string).
 **Response:** `{"name": "PD-26-00045", "workflow_state": "...", "docstatus": 0}` — tương tự `transition_eval_workflow` nhưng cho IMM Procurement Decision. Ghi audit log `imm03_decision_workflow_transition`.
+
+---
+
+## 3.A `AC Purchase` (Đơn mua hàng) — RBAC-hardened (02 §IV.12, ADR-IMM-03-05/06)
+
+Namespace `assetcore.api.purchase`. Mọi endpoint ghi/đổi-trạng-thái gọi `rbac.require('purchase.<ptype>')` (capability bind DocPerm `AC Purchase`) là câu lệnh ĐẦU. **2 loại 403 (DONE-gate LL-BE-42..49):**
+
+- **dispatcher-403** — guest/no-token, TRƯỚC khi handler chạy (Frappe re-auth). Không phải envelope.
+- **in-handler cap-403** — `rbac.require` thiếu quyền → `frappe.PermissionError` → framework trả **HTTP 403**, body `{"exc_type":"PermissionError", ...}`, message `Không đủ quyền: purchase.X`. KHÁC lỗi nghiệp vụ (sai state/404) đi qua `_err` envelope Decision-B (`{success:false, error, code, http_status}`).
+
+### 3.A.1 `get_purchase` ✅ (enrich cờ `can_*`)
+
+```
+GET /api/method/assetcore.api.purchase.get_purchase?name=<PO>
+```
+
+**Request:** `name`. **Gate:** không (đọc — DocPerm read qua list; giữ hành vi cũ).
+**Response `data`** (thêm 6 cờ SERVER-derived — SoT gating FE, backward-compatible):
+
+```jsonc
+{
+  "name": "AC-PUR-2026-00042", "po_code": "AC-PUR-2026-00042",
+  "supplier": "AC-SUP-0007", "supplier_name": "Siemens Healthineers",
+  "status": "Submitted", "docstatus": 1, "total_value": 1250000000,
+  "devices": [...], "items": [...],
+  "can_submit": false,          // can('purchase.submit') && docstatus==0
+  "can_receive": true,          // can('purchase.submit') && docstatus==1 && status=='Submitted'
+  "can_cancel": true,           // can('purchase.cancel') && docstatus==1 && status ∉ {Received,Cancelled}
+  "can_create_receipt": true,   // can('inventory.create') && docstatus==1 && status=='Submitted'
+  "can_edit": false,            // can('purchase.write')  && docstatus==0
+  "can_delete": false           // can('purchase.delete') && docstatus==0
+}
+```
+
+### 3.A.2 `create_purchase` (POST) — gate `purchase.create` (+`purchase.submit` nếu `auto_submit`)
+
+```
+POST /api/method/assetcore.api.purchase.create_purchase
+```
+**Request:** `payload` (JSON): `supplier` (bắt buộc), `items[]`/`devices[]` (≥1), `purchase_date`/`invoice_no`/`expected_delivery`/`notes`/`auto_submit`.
+**Gate:** `rbac.require('purchase.create')`; nếu `auto_submit` → thêm `rbac.require('purchase.submit')`. Ghi qua `doc.insert()` (KHÔNG `ignore_permissions`).
+**Response:** `{"name": "...", "status": "Draft"}` · **403** nếu thiếu `purchase.create`.
+
+### 3.A.3 `update_purchase` (POST) — gate `purchase.write`
+
+```
+POST /api/method/assetcore.api.purchase.update_purchase
+```
+**Request:** `name`, `payload` (JSON). **Gate:** `rbac.require('purchase.write')`; chỉ sửa docstatus==0; `doc.save()` (KHÔNG `ignore_permissions`).
+**Response:** `{"name","status"}` · **403** thiếu `purchase.write` · **400** nếu không phải Nháp.
+
+### 3.A.4 `submit_purchase` (POST) — gate `purchase.submit`
+
+```
+POST /api/method/assetcore.api.purchase.submit_purchase
+```
+**Request:** `name`. **Gate:** `rbac.require('purchase.submit')`; `doc.submit()`.
+**Response:** `{"name","status":"Submitted"}` · **403** thiếu `purchase.submit` · **400** nếu không ở Nháp.
+
+### 3.A.5 `cancel_purchase` (POST) — gate `purchase.cancel`
+
+```
+POST /api/method/assetcore.api.purchase.cancel_purchase
+```
+**Request:** `name`. **Gate:** `rbac.require('purchase.cancel')`; `doc.cancel()`.
+**Response:** `{"name","status":"Cancelled"}` · **403** thiếu `purchase.cancel` · **400** nếu docstatus≠1.
+
+### 3.A.6 `delete_purchase` (POST) — gate `purchase.delete`
+
+```
+POST /api/method/assetcore.api.purchase.delete_purchase
+```
+**Request:** `name`. **Gate:** `rbac.require('purchase.delete')`; `frappe.delete_doc()` (KHÔNG `ignore_permissions`).
+**Response:** `{"deleted": "<PO>"}` · **403** thiếu `purchase.delete` · **400** nếu không phải Nháp.
+
+### 3.A.7 `mark_received` (POST) — gate `purchase.submit`, KHÔNG `db_set` (ADR-IMM-03-06)
+
+```
+POST /api/method/assetcore.api.purchase.mark_received
+```
+**Request:** `name`. **Gate:** `rbac.require('purchase.submit')` là câu lệnh ĐẦU. Chuyển `Submitted→Received` qua `doc.save()` (fields `status`+`actual_delivery_date` `allow_on_submit`), tự điền `actual_delivery_date=today()` nếu trống → sinh Version audit + `modified_by`.
+**Response:** `{"name","status":"Received"}` · **403** thiếu `purchase.submit` · **400** nếu không `docstatus==1 && status=='Submitted'`.
+
+### 3.A.8 `create_receipt_movement` (POST) — gate `inventory.create`
+
+```
+POST /api/method/assetcore.api.purchase.create_receipt_movement
+```
+**Request:** `name`, `to_warehouse`, `requested_by?`, `auto_submit?`. **Gate:** `rbac.require('inventory.create')` (ghi `AC Stock Movement`). Service `svc.create_receipt_movement` giữ nguyên.
+**Response:** `{"movement_name","status"}` · **403** thiếu `inventory.create` · **400** `ValidationError` nghiệp vụ.
 
 ---
 
@@ -941,6 +1145,7 @@ export interface VendorEvaluation {
   has_top_tie?: 0 | 1;                     // 1 ⇔ ≥2 NCC đồng hạng nhất
   tied_candidates?: string;               // CSV supplier name (sorted asc) khi has_top_tie=1
   workflow_state: EvalState;
+  allowed_transitions?: string[];  // server-driven CTA: _EVAL_VALID_TRANSITIONS.get(workflow_state, []) — list ACTION (§3.19). Optional: BE cũ chưa reload → undefined → 0 nút (degrade an toàn)
   docstatus: 0 | 1 | 2;
 }
 
@@ -1005,6 +1210,7 @@ export interface ProcurementDecision {
   ac_purchase_ref?: string;
   awarded_date?: string;
   workflow_state: DecisionState;
+  allowed_transitions?: string[];  // server-driven CTA: _DECISION_VALID_TRANSITIONS.get(workflow_state, []) — list ACTION (§3.20)
   docstatus: 0 | 1 | 2;
 }
 

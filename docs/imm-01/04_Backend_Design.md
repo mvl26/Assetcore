@@ -5,8 +5,8 @@
 | Mục | Giá trị |
 |---|---|
 | Module | IMM-01 — Đánh giá nhu cầu và dự toán |
-| Cập nhật | 2026-05-18 |
-| Liên kết | [02 Analysis](./02_Analysis_Design.md) · [03 Diagrams](./03_Diagrams.md) · [05 API](./05_API_Specification.md) |
+| Cập nhật | 2026-07-14 (thêm §5.4 Workflow-Surface Integrity + ADR-IMM-01-03) |
+| Liên kết | [02 Analysis](./02_Analysis_Design.md) · [03 Diagrams](./03_Diagrams.md) · [05 API](./05_API_Specification.md) · [07 Testing §III.4a](./07_Testing_QA.md) |
 
 ---
 
@@ -309,12 +309,26 @@ Có **2 workflow** trong `assetcore/assetcore/workflow/`:
 | Reviewing → Prioritized | Hoàn tất chấm điểm | IMM Planning Officer | G02 |
 | Reviewing → Rejected | Bác sớm | IMM Department Head | — |
 | Prioritized → Budgeted | Lập dự toán xong | IMM Finance Officer | G03 |
-| Budgeted → Pending Approval | Trình BGĐ | IMM Department Head | — |
-| Pending Approval → Approved | Phê duyệt | IMM Board Approver | G05 + doc.submit() |
-| Pending Approval → Rejected | Từ chối | IMM Board Approver | rejection_reason required (endpoint) |
-| Pending Approval → Budgeted | Yêu cầu chỉnh dự toán | IMM Board Approver | — |
+| Budgeted → Pending Approval | Trình BGĐ | Needs Manager · Super Admin | — |
+| Pending Approval → Approved | **Phê duyệt** | **Procurement Manager · AssetCore Super Admin · System Manager** | doc.submit() + audit |
+| Pending Approval → Rejected | **Bác đề xuất** | **Procurement Manager · AssetCore Super Admin · System Manager** | rejection_reason required (endpoint) |
+| Pending Approval → Budgeted | Yêu cầu chỉnh dự toán | Procurement Manager · AssetCore Super Admin · System Manager | — |
 
-> Approve/Reject ở state Pending Approval thường được gọi qua dedicated endpoint `approve_needs_request` / `reject_needs_request` (không qua `apply_workflow`), vì endpoint set `board_approver` + `rejection_reason` + submit cùng lúc.
+> ⚠️ Các nhãn role "IMM Board Approver" / "IMM Department Head" / "IMM Clinical User" ở bảng trên (các dòng chưa in đậm) là **nhãn nghiệp vụ cũ** — role thật trong `fixtures/workflow.json` là role chuẩn AssetCore (`Needs Manager`, `Spec Manager`, `Procurement Manager`, `Corrective User`, `AssetCore Super Admin`, `System Manager`). SSoT role↔transition = `07_Testing_QA.md` §III.4 (Integration — Workflow transitions) + `fixtures/workflow.json`. Ba dòng `Pending Approval` đã được cập nhật đúng role thật (load-bearing cho ADR-IMM-01-02).
+
+> **Approve/Reject (`approve_needs_request` / `reject_needs_request`)** — set `board_approver`/`rejection_reason` + `workflow_state` (Approved/Rejected) + `doc.submit()` trong 1 endpoint (KHÔNG qua `apply_workflow`). Cơ chế enforce role: `doc.submit()` chạy `frappe.model.document.validate_workflow` → nếu user KHÔNG có role trong `allowed` của transition, Frappe ném `WorkflowPermissionError` (subclass `ValidationError`, kèm HTML `<strong>`). Handler PHẢI bọc `doc.submit()` bắt `WorkflowPermissionError` → `ServiceError(FORBIDDEN)` **thông điệp VI sạch, KHÔNG leak `<strong>`** (đối xứng `_save_plan_workflow_transition` đã dùng cho Plan). Xem §5.2a + ADR-IMM-01-02 (`02_Analysis_Design.md` §IV.2b).
+
+### 5.2a Server-driven CTA gating cho Needs Request (GATE-8 / LL-FE-51)
+
+Đối xứng với Procurement Plan (`_plan_allowed_transition_actions`):
+
+- **BE — helper `_nr_allowed_transition_actions(doc) -> list[str]`**: gọi `frappe.model.workflow.get_transitions(doc)` (đã lọc theo state hiện tại + role của user gọi), dedupe theo `action`, trả list action-string. Bọc `try/except Exception → []` (degrade graceful: user chỉ có base role `AssetCore System User` không đọc được doc → 0 nút thay vì vỡ payload bằng 403/500 — `get_transitions` read-only, KHÔNG nuốt lỗi ghi/DB).
+- **`get_needs_request` (`_get_needs_request`)** thêm field `allowed_transitions = _nr_allowed_transition_actions(doc)` vào payload `data` → FE gate nút **không cần call thứ 2** (`get_allowed_transitions` giữ nguyên cho các nút generic khác nếu FE muốn, nhưng approve/reject gate theo field embed → không flash ẩn/hiện nút lúc render đầu).
+- **Invariant**: với NR ở `Pending Approval`, user role `Procurement Manager` (KHÔNG kèm role khác) → `allowed_transitions` chứa `"Phê duyệt"`, `"Bác đề xuất"`, `"Yêu cầu chỉnh dự toán"`. User KHÔNG có role duyệt (vd chỉ `Needs Manager`) → 2 action này KHÔNG có trong list ⇒ FE ẩn nút (không false-permissive).
+
+**Boundary — 2 loại 403 (DONE-gate spec-contract):**
+- **dispatcher-403** (guest / no-token): Frappe từ chối trước khi vào handler — KHÔNG phải envelope.
+- **in-handler cap-403**: approve/reject bởi user thiếu role duyệt → handler trả **HTTP-200 + Error envelope** `{success:false, code:"FORBIDDEN"}` (in-handler show-msg), KHÔNG raise→HTTP-4xx. FE render message VI, giữ nguyên state.
 
 ### 5.3 Plan Workflow — States (fixture `imm_01_plan_workflow.json`)
 
@@ -326,6 +340,59 @@ Có **2 workflow** trong `assetcore/assetcore/workflow/`:
 | Closed | 1 | `close_plan` |
 
 > Plan workflow fixture cũng có action "Phê duyệt kế hoạch", "Kích hoạt", "Đóng kế hoạch" — nhưng **code sử dụng dedicated endpoints**, không `apply_workflow`. Fixture giữ để Frappe UI Workflow Dashboard nhận diện states.
+
+### 5.4 INVARIANT — Workflow-Surface Integrity (CR-WF-01-SURFACE · silent-CTA-loss guard)
+
+**Bối cảnh (silent-CTA-loss).** IMM-01 có **2 surface** server-driven CTA gating (khác IMM-04 chỉ 1): `_nr_allowed_transition_actions(doc)` (`api/imm01.py:187`, embed vào payload `get_needs_request` @:225) và `_plan_allowed_transition_actions(doc)` (`api/imm01.py:476`, embed vào payload `get_procurement_plan` @:510). Cả hai gọi `frappe.model.workflow.get_transitions(doc)` trong khối `try … except Exception: return []`:
+
+```python
+# api/imm01.py:29-30 (ground truth — CR này KHÔNG được sửa)
+_DT_NR = "IMM Needs Request"        # == workflow.document_type (Needs)
+_DT_PP = "IMM Procurement Plan"     # == workflow.document_type (Plan)
+
+# api/imm01.py:187-217 / :476-506 (đối xứng)
+def _nr_allowed_transition_actions(doc) -> list[str]:
+    from frappe.model.workflow import get_transitions
+    try:
+        transitions = get_transitions(doc) or []   # ← resolve theo document_type
+    except Exception:
+        return []                                   # ← silent CTA loss
+    ...  # dedupe theo action → list[str]
+```
+
+**Cơ chế resolve (KHÁC IMM-04 — grounded `frappe/model/workflow.py`).** Surface IMM-01 **KHÔNG** hardcode hằng-lookup `get_doc("Workflow", "<literal>")` như IMM-04. `get_transitions(doc)` → `get_workflow(doc.doctype)` → `get_workflow_name(doctype)` = `frappe.db.get_value("Workflow", {"document_type": doctype, "is_active": 1}, "name")` (cached `frappe.cache.hget("workflow", doctype)`). Tức resolution đi qua **`document_type` + `is_active` → đúng 1 active workflow name**, KHÔNG qua tên literal.
+
+**Lỗ hổng.** Nếu ai đó (a) **rename** Workflow của doctype (đổi `name` trong `imm_01_needs_workflow.json` / `imm_01_plan_workflow.json` / `fixtures/workflow.json`), (b) **deactivate** (`is_active=0`) hoặc **xoá** active workflow, (c) tạo **duplicate** active workflow cho cùng `document_type` (⇒ `get_value` trả 1 name tuỳ ý/không tất định), hoặc (d) drift hằng `_DT_NR`/`_DT_PP` khỏi `document_type` thật → `get_workflow_name` trả `None`/sai → `get_workflow` raise → surface `except Exception: return []` **CÂM** → **toàn bộ CTA duyệt đề xuất/kế hoạch biến mất, KHÔNG test nào bắt**. Guard toàn cục `test_workflow_admin_override` (5-class) **KHÔNG bắt**: nó `glob` file JSON theo `name` để kiểm admin-role trên mọi cạnh — **không biết IMM-01 resolve workflow theo `document_type`** ⇒ rename/deactivate/duplicate lọt câm.
+
+**Invariants (regression-lock ở TẦNG MODULE — bổ sung, KHÔNG thay guard toàn cục):**
+
+| ID | Invariant | Ground |
+|---|---|---|
+| **INV-01-SURFACE-A** (workflow-resolution: document_type → đúng 1 active named workflow) | Với **mỗi** cặp `(hằng service, tên kỳ vọng)`: `_DT_NR='IMM Needs Request'` → resolve **đúng 1** active Workflow tên `IMM-01 Needs Workflow`; `_DT_PP='IMM Procurement Plan'` → **đúng 1** active tên `IMM-01 Plan Workflow`. **Oracle độc lập**: parse `fixtures/workflow.json` + 2 per-module JSON — mỗi `document_type` có **chính xác 1** entry `is_active==1`, `name`==kỳ vọng, `document_type`==hằng service. **Live**: `frappe.model.workflow.get_workflow_name(dt)` == tên kỳ vọng. **Service-const** (`inspect` `assetcore.api.imm01`): `_DT_NR`/`_DT_PP` không drift. **RED** nếu rename/xoá/deactivate/duplicate active workflow của doctype. | `api/imm01.py:29-30` · `imm_01_needs_workflow.json` · `imm_01_plan_workflow.json` · `fixtures/workflow.json` |
+| **INV-01-SURFACE-B** (live-wiring — NON-EMPTY cho user có role transition) | NR ở `Draft` + user CÓ role Draft-out (∈ `{AssetCore Super Admin, Corrective User, Needs Manager, System Manager}` — **KHÔNG** Procurement Manager, role đó chỉ ở cạnh `Pending Approval`) → `_nr_allowed_transition_actions(doc)` **NON-EMPTY** và == tập action (dedupe) từ `frappe.model.workflow.get_transitions(doc)` dưới cùng user (Draft-out action = `Gửi đề xuất`), **KHÔNG** permanent `[]`. **Đối xứng**: Plan ở `Draft` + user CÓ role (∈ `{AssetCore Super Admin, Commissioning Manager, Procurement Manager, System Manager}`) → `_plan_allowed_transition_actions(doc)` NON-EMPTY, chứa `Phê duyệt kế hoạch`, == get_transitions set. | `api/imm01.py:187,476` ⇄ `get_transitions` |
+| **INV-01-SURFACE-C** (phân-định degrade: graceful ≠ broken) | User **CHỈ** base role `AssetCore System User` (không role transition) → **cả 2 surface** trả `[]` **GRACEFUL** (KHÔNG raise, payload `get_needs_request`/`get_procurement_plan` còn nguyên các field khác). Phân biệt **empty-do-thiếu-quyền** (chấp nhận) ≠ **empty-do-workflow-vỡ** (bug): nếu workflow vỡ thì **INV-01-SURFACE-A FAIL trước** (resolution) → không nhầm 2 nguyên nhân. | filter `t.allowed in user_roles` (get_transitions) |
+
+**RED-before demo (chứng minh guard cắn — BẮT BUỘC):** (a) rename `name` kỳ vọng trong **bản-sao** JSON / temp workflow doctype `is_active` HOẶC (b) monkeypatch `frappe.model.workflow.get_transitions` → `raise` → **INV-A/B FAIL**; restore → **GREEN**. SURFACE-C giữ `[]` graceful trong CẢ 2 trạng thái (workflow lành + session base-role) — đó chính là mục "phân-định": empty base-role ≠ empty-vỡ.
+
+**Cross-ref (KHÔNG chép lại).** Bất biến "**mọi cạnh workflow có `AssetCore Super Admin`**" (kiểu INV-04-WF-2) **đã** được `test_workflow_admin_override` (5-class global) cover cho MỌI workflow gồm cả 2 workflow IMM-01 (đã verify 10/10 cạnh Needs + 3/3 cạnh Plan có Super Admin, 2026-07-14). Guard SURFACE này **CHỈ** khoá resolution + live-wiring + degrade — **cross-ref**, KHÔNG re-assert every-edge-super-admin (khác chủ ý với IMM-04 §3.1 INV-04-WF-2).
+
+**Delta vs IMM-04 (R29 mirror — 3 khác biệt chủ ý):**
+1. IMM-04 service dùng **hằng-lookup literal** `get_doc("Workflow","IMM-04 Workflow")` → guard couple string-literal ⇄ fixture (INV-04-WF-1/TC-2). IMM-01 **không có literal** → resolve theo `document_type`+`is_active` → INV-01-SURFACE-A couple `_DT_NR`/`_DT_PP` ⇄ `document_type` ⇄ **đúng-1-active-name**.
+2. IMM-01 có **2 surface** (NR + Plan) → mọi INV **đối xứng ×2**; IMM-04 chỉ 1 surface.
+3. IMM-01 **KHÔNG** re-assert every-edge-super-admin (đã global) — IMM-04 INV-04-WF-2 có.
+
+**Boundaries.**
+- **Always:** guard là **test-only** (class mới trong `assetcore.tests.test_imm01`), **0 chạm runtime `.py`** → 0 gunicorn `--preload` reload / 0 `bench migrate`. Oracle độc lập (parse-file JSON + `inspect` hằng service) + assert THẬT trên workflow **live** (DB, `get_workflow_name`) + emit **cả 2 surface** live. Full suite `test_imm01` GREEN, không regression; đọc dòng cuối `Ran N OK` (không false-green).
+- **Never:** KHÔNG "sửa" hành vi `except Exception: return []` trong `api/imm01.py` ở CR này (giữ nguyên `:187-217`, `:476-506`). KHÔNG nới lộ quyền / hardcode để test xanh giả. KHÔNG dựa `test_workflow_admin_override` để phủ lỗ này. KHÔNG re-assert every-edge-super-admin. KHÔNG git commit/push (HARD-STOP USER — working tree UNCOMMITTED).
+- **[ROADMAP] observability (tách khỏi core — HARD-STOP USER):** thay `except Exception: return []` câm bằng `frappe.log_error(...)` trước return để lỗi **quan-sát-được** là **thay đổi runtime** → cần reload worker → **KHÔNG auto-apply** trong CR test-only này. Ghi backlog, chờ USER quyết.
+
+### ADR-IMM-01-03: Guard workflow-surface module-local theo **resolution-by-document_type** (không hằng-lookup literal như IMM-04)
+
+- **Status:** Accepted · **Date:** 2026-07-14
+- **Context:** `test_workflow_admin_override` (5-class global) `glob` file JSON theo `name` — không biết IMM-01 resolve workflow **thế nào**. 2 surface NR/Plan resolve theo `document_type`+`is_active` (Frappe `get_workflow_name`) trong `try/except Exception: return []`. Rename / xoá / deactivate / **duplicate** active workflow của doctype, hoặc drift hằng `_DT_NR`/`_DT_PP` → `get_workflow_name`→`None`/sai → `get_workflow` raise → surface nuốt→`[]` **CÂM** → mất toàn bộ CTA duyệt đề xuất/kế hoạch, 0 test bắt. KHÁC IMM-04: IMM-01 **không** có hằng-lookup literal nên không thể couple string-literal ⇄ fixture.
+- **Decision:** thêm guard **module-local** `TestImm01WorkflowSurfaceIntegrity` (tên gợi ý) trong `test_imm01` khoá **INV-01-SURFACE-A/B/C** — couple `_DT_NR`/`_DT_PP` ⇄ `document_type` ⇄ **đúng-1-active-named-workflow** (live `get_workflow_name` + parse-file oracle) ⇄ emit **2 surface** live. Đổi bất kỳ đầu (rename/deactivate/duplicate workflow, drift `_DT_*`) → guard FAIL (RED-before/GREEN-after).
+- **Alternatives (loại):** (1) mở rộng `test_workflow_admin_override` đọc resolution per-module — loại: guard toàn cục phải app-agnostic (multi-app site), không nhét logic per-module. (2) đổi surface sang hằng-lookup literal như IMM-04 để dễ freeze — loại: đổi runtime `.py` (reload/HARD-STOP) + mất tính linh hoạt resolve-by-doctype của Frappe. (3) `log_error` thay `return []` — loại khỏi core CR (runtime change → HARD-STOP USER), giữ `[ROADMAP]`. (4) re-assert every-edge-super-admin trong guard này — loại: trùng lặp `test_workflow_admin_override`, dùng **cross-ref** thay vì chép.
+- **Consequences:** +1 test class `TestImm01WorkflowSurfaceIntegrity` (đối xứng ×2 surface, ~6–8 TC); 0 runtime change; lỗ rename/deactivate/duplicate/drift `_DT_*`/silent-`return[]` khoá ở tầng module cho **cả 2** surface NR+Plan. Trade-off: guard hardcode kỳ-vọng `IMM-01 Needs Workflow`/`IMM-01 Plan Workflow` — chấp nhận vì đó là **hợp đồng cần freeze**; đổi tên workflow chính đáng phải đồng thời cập nhật guard + doc (fail nhắc).
 
 ---
 

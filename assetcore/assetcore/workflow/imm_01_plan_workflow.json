@@ -64,6 +64,48 @@
    "action": "Đóng kỳ kế hoạch",
    "allowed": "Commissioning Manager",
    "allow_self_approval": 1
+  },
+  {
+   "state": "Draft",
+   "next_state": "Approved",
+   "action": "Phê duyệt kế hoạch",
+   "allowed": "AssetCore Super Admin",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Draft",
+   "next_state": "Approved",
+   "action": "Phê duyệt kế hoạch",
+   "allowed": "System Manager",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Approved",
+   "next_state": "Active",
+   "action": "Kích hoạt",
+   "allowed": "AssetCore Super Admin",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Approved",
+   "next_state": "Active",
+   "action": "Kích hoạt",
+   "allowed": "System Manager",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Active",
+   "next_state": "Closed",
+   "action": "Đóng kỳ kế hoạch",
+   "allowed": "AssetCore Super Admin",
+   "allow_self_approval": 1
+  },
+  {
+   "state": "Active",
+   "next_state": "Closed",
+   "action": "Đóng kỳ kế hoạch",
+   "allowed": "System Manager",
+   "allow_self_approval": 1
   }
  ]
 }

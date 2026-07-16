@@ -2,6 +2,7 @@
 // Copyright (c) 2026, AssetCore Team
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { useCapabilities } from '@/composables/useCapabilities'
 import { listPurchases } from '@/api/purchase'
 import type { Purchase } from '@/api/purchase'
 import SmartSelect from '@/components/common/SmartSelect.vue'
@@ -11,6 +12,7 @@ import ListFilterBar from '@/components/common/ListFilterBar.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 
 const router = useRouter()
+const { can } = useCapabilities()
 
 const rows = ref<Purchase[]>([])
 const total = ref(0)
@@ -106,7 +108,7 @@ onMounted(load)
     >
       <template #actions>
         <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
-        <button class="btn-primary shrink-0" @click="router.push('/purchases/new')">
+        <button v-if="can('purchase.create')" class="btn-primary shrink-0" @click="router.push('/purchases/new')">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
           </svg>

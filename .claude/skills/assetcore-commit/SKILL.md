@@ -37,26 +37,23 @@ Skill này chuẩn hoá việc tạo git commit cho AssetCore: chia working tree
 2. **Push toàn bộ commit lên GitHub** — sau khi tạo xong tất cả commit,
    chạy `git push` (hoặc `git push -u origin <branch>` nếu branch mới).
    Đây là phần BẮT BUỘC của flow commit, không cần user nhắc lại.
-
 3. **Subject line bằng tiếng Anh** — tuân thủ Conventional Commits + GitHub style.
-
 4. **Body có thể tiếng Việt** — giải thích chi tiết được phép viết tiếng Việt,
    nhưng bullet list nên ngắn gọn rõ ràng.
-
 5. **TUYỆT ĐỐI KHÔNG thêm trailer `Co-Authored-By:`** — không thêm bất kỳ
    dòng `Co-Authored-By: Claude ...` nào. Không thêm
    `🤖 Generated with Claude Code`.
-
 6. **Chỉ commit khi user yêu cầu** — không tự commit sau khi sửa code.
    Khi user đã yêu cầu commit → tự động chia nhỏ + push, không hỏi lại.
-
 7. **Isolation khi working tree có WIP của effort/session KHÁC** — chỉ stage
    ĐÚNG file của việc mình đang commit bằng đường dẫn TƯỜNG MINH; TUYỆT ĐỐI
    không `git add -A`/`git add .`/`git add -u`. Sau khi commit, VERIFY commit
    không lẫn file lạ:
+
    ```bash
    git show --stat --oneline HEAD | grep -iE '<từ khoá vùng cấm>' && echo LEAK || echo clean
    ```
+
    (Bài học 2026-05-29: một session "notification framework" chạy song song ghi
    ~50 file vào cùng working tree; commit lẫn file của nó = phá việc người khác.)
 
@@ -103,16 +100,16 @@ git log --oneline -<N>
 
 Đọc `git status` + `git diff` rồi nhóm file theo **chủ đề logic**:
 
-| Tín hiệu | Tách commit |
-|----------|-------------|
-| Nhiều bug fix khác module | 1 commit / bug |
-| Feature mới + docs đi kèm | Gộp được (cùng chủ đề) |
-| Refactor + bug fix | Tách (2 commit) |
-| BE change + FE change cùng feature | Có thể gộp (cùng feature) |
-| Nhiều module IMM khác nhau | 1 commit / module (trừ khi cross-cutting) |
-| Fixture/migration + code dùng nó | Gộp được (cùng release unit) |
-| Docs-only thay đổi nhiều nơi | 1 commit `docs:` gộp |
-| File cấu hình (.claude/, settings) | Tách riêng commit `chore:` |
+| Tín hiệu                           | Tách commit                               |
+| ------------------------------------ | ------------------------------------------ |
+| Nhiều bug fix khác module          | 1 commit / bug                             |
+| Feature mới + docs đi kèm         | Gộp được (cùng chủ đề)             |
+| Refactor + bug fix                   | Tách (2 commit)                           |
+| BE change + FE change cùng feature  | Có thể gộp (cùng feature)              |
+| Nhiều module IMM khác nhau         | 1 commit / module (trừ khi cross-cutting) |
+| Fixture/migration + code dùng nó   | Gộp được (cùng release unit)          |
+| Docs-only thay đổi nhiều nơi     | 1 commit`docs:` gộp                     |
+| File cấu hình (.claude/, settings) | Tách riêng commit`chore:`              |
 
 **Nguyên tắc vàng:** nếu một commit cần subject dạng "feat(X): add A and fix B
 and update C" → tách thành 3 commit.
@@ -134,6 +131,7 @@ and update C" → tách thành 3 commit.
 - Một commit = một `type` chính + một chủ đề. Subject không chứa "and".
 
 **Đúng:**
+
 ```
 feat(import): add bulk import/export for reference data
 fix(imm03): align asset_document VR-03 with workflow state name
@@ -143,6 +141,7 @@ chore(skills): tighten assetcore-commit rulebook
 ```
 
 **Sai:**
+
 ```
 feat: Added import feature.                       ← quá khứ + dấu chấm + hoa
 update code                                       ← thiếu type, không imperative
@@ -258,18 +257,18 @@ hash + subject từng commit + xác nhận `git push` thành công.
 
 ## Common Rationalizations
 
-| Lý do hay viện để skip | Sự thật |
-|---|---|
-| "Gộp hết vào 1 commit cho nhanh" | `git add -A && git commit` một phát cho 90 file = SAI (anti-pattern #1). Phải tách theo chủ đề logic, mỗi commit một vấn đề (rule cứng #1). |
-| "Subject 'feat: add A and fix B and update C' cũng được" | Subject chứa "and"/nhiều mệnh đề = dấu hiệu cần tách (anti-pattern #2). Một commit = một type + một chủ đề. |
-| "Viết subject tiếng Việt cho nhanh" | Subject phải English, imperative (anti-pattern #3 / rule cứng #3). Body mới được tiếng Việt. |
-| "Thêm `Co-Authored-By: Claude` cho minh bạch" | Vi phạm rule cứng #5 (anti-pattern #4). TUYỆT ĐỐI không thêm bất kỳ trailer attribution nào. |
-| "Commit thẳng lên master / tự commit sau khi sửa code" | Chỉ commit khi user yêu cầu (rule cứng #6 / anti-pattern #7). Không tự commit. |
-| "`git add -A` rồi commit cho gọn, kệ WIP session khác" | Working tree có thể chứa WIP của effort/session khác (~50 file notification framework) → commit lẫn = phá việc người khác (rule cứng #7). Stage đúng file bằng đường dẫn tường minh. |
-| "Commit xong là xong, push sau cũng được" | Quên `git push` = vi phạm rule cứng #2 (anti-pattern #8). User yêu cầu commit là ngầm yêu cầu push, KHÔNG hỏi lại. |
-| "Body một dòng cụt cho commit lớn cũng đủ" | Commit lớn phải liệt kê file/nhóm thay đổi (anti-pattern #6). |
-| "Commit 800 dòng 1 phát cho gọn" | Vi phạm change sizing (~100 dòng; >~1000 PHẢI tách) — diff to ẩn bug, revert đau. Tách theo chủ đề logic (Named principles). |
-| "Cứ ôm branch dài, gộp về master sau" | Trunk-based: master luôn deployable, branch ngắn merge sớm; branch dài phân kỳ = nợ. Việc dở dùng feature flag, không ôm branch (Named principles). |
+| Lý do hay viện để skip                                   | Sự thật                                                                                                                                                                                                 |
+| ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "Gộp hết vào 1 commit cho nhanh"                          | `git add -A && git commit` một phát cho 90 file = SAI (anti-pattern #1). Phải tách theo chủ đề logic, mỗi commit một vấn đề (rule cứng #1).                                                |
+| "Subject 'feat: add A and fix B and update C' cũng được" | Subject chứa "and"/nhiều mệnh đề = dấu hiệu cần tách (anti-pattern#2). Một commit = một type + một chủ đề.                                                                                 |
+| "Viết subject tiếng Việt cho nhanh"                       | Subject phải English, imperative (anti-pattern#3 / rule cứng #3). Body mới được tiếng Việt.                                                                                                       |
+| "Thêm`Co-Authored-By: Claude` cho minh bạch"             | Vi phạm rule cứng#5 (anti-pattern #4). TUYỆT ĐỐI không thêm bất kỳ trailer attribution nào.                                                                                                     |
+| "Commit thẳng lên master / tự commit sau khi sửa code"   | Chỉ commit khi user yêu cầu (rule cứng#6 / anti-pattern #7). Không tự commit.                                                                                                                       |
+| "`git add -A` rồi commit cho gọn, kệ WIP session khác" | Working tree có thể chứa WIP của effort/session khác (~50 file notification framework) → commit lẫn = phá việc người khác (rule cứng#7). Stage đúng file bằng đường dẫn tường minh. |
+| "Commit xong là xong, push sau cũng được"               | Quên`git push` = vi phạm rule cứng #2 (anti-pattern #8). User yêu cầu commit là ngầm yêu cầu push, KHÔNG hỏi lại.                                                                           |
+| "Body một dòng cụt cho commit lớn cũng đủ"            | Commit lớn phải liệt kê file/nhóm thay đổi (anti-pattern#6).                                                                                                                                       |
+| "Commit 800 dòng 1 phát cho gọn"                          | Vi phạm change sizing (~100 dòng; >~1000 PHẢI tách) — diff to ẩn bug, revert đau. Tách theo chủ đề logic (Named principles).                                                                   |
+| "Cứ ôm branch dài, gộp về master sau"                   | Trunk-based: master luôn deployable, branch ngắn merge sớm; branch dài phân kỳ = nợ. Việc dở dùng feature flag, không ôm branch (Named principles).                                           |
 
 ## Red Flags — STOP
 

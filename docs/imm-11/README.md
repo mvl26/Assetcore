@@ -6,7 +6,7 @@
 | Wave | 1 |
 | Trạng thái | ✅ Live — Code deployed (BE + FE + DocTypes) |
 | Số file | 8 (5 template chuẩn + 3 deployment docs) |
-| Cập nhật cuối | 2026-06-16 |
+| Cập nhật cuối | 2026-07-15 |
 | Khối kiến trúc | C. KHỐI 3 |
 | Đợt triển khai | 1 |
 | Owner | PTP Khối 2 · Workshop / Nhóm TBYT |
@@ -87,3 +87,5 @@
 ---
 
 *Module index — cập nhật 2026-05-08 sau khi cross-check codebase và archive files cũ.*
+
+*Round 18 (2026-07-13, CR-WF-11-CAL): thêm ADR-IMM11-06 dual-track lockstep `workflow_state ⇄ status` (đóng desync workflow_state đọng state khởi tạo) — spec ở `04_Backend_Design.md §3.2`, state-note `02_Analysis_Design.md §IV.3`, test `07_Testing_QA.md §III.4b`, API-note `05 §0`, FE-no-change `06 §4`. BE-only, 0 migrate, 0 đổi FE.*

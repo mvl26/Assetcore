@@ -404,9 +404,16 @@ def _list_avl(filters):
     sup_map = _fetch_display(_DT_SUPPLIER, sup_ids, "supplier_name")
     cat_ids = {it.get("device_category") for it in items if it.get("device_category")}
     cat_map = _fetch_display("AC Asset Category", cat_ids, "category_name")
+    # Server-driven CTA (GATE-8/LL-FE-51): tập ACTION hợp lệ cho MỖI row theo
+    # workflow_state, LỌC theo role caller. user_roles tính 1 LẦN ngoài vòng lặp
+    # (N+1-free) — parity get_decision/get_evaluation emit. FE gate nút Phê duyệt /
+    # Phục hồi Approved / Đình chỉ theo tập này (KHÔNG hardcode workflow_state==='X').
+    user_roles = set(frappe.get_roles(frappe.session.user))
     for it in items:
         it["vendor_name"] = sup_map.get(it.get("supplier"))
         it["device_category_name"] = cat_map.get(it.get("device_category"))
+        it["allowed_transitions"] = svc.avl_allowed_transitions(
+            it.get("workflow_state"), user_roles)
     return {"items": items}
 
 
@@ -428,25 +435,50 @@ def _create_avl_entry(supplier, device_category, validity_years, valid_from):
 
 
 @frappe.whitelist(methods=["POST"])
-def approve_avl(name: str, approver: str, approval_doc: str = "") -> dict:
-    return _handle(_approve_avl, name, approver, approval_doc)
+def approve_avl(name: str, approval_doc: str = "", **_ignore) -> dict:
+    """Phê duyệt (Draft→Approved) HOẶC Phục hồi (Conditional/Suspended→Approved) AVL.
+
+    approver KHÔNG nhận từ client (chống spoof) — derive ``frappe.session.user``.
+    Kwarg ``approver`` cũ (FE/mobile) bị ``**_ignore`` nuốt AN TOÀN (back-compat
+    OpenAPI — Frappe get_newargs pass-through khi hàm có VAR_KEYWORD, LL-BE-63).
+    """
+    return _handle(_approve_avl, name, approval_doc)
 
 
-def _approve_avl(name, approver, approval_doc):
+def _approve_avl(name, approval_doc=""):
+    # Đọc state qua db.get_value (bypass DocPerm) TRƯỚC → fail-fast role guard
+    # không cần read-perm; low-role reject sạch (FORBIDDEN) thay vì PermissionError.
+    state = frappe.db.get_value(_DT_AVL, name, "workflow_state")
+    if not state:
+        raise ServiceError(ErrorCode.NOT_FOUND, _("AVL {0} không tồn tại").format(name))
+    # 'approve' = 2 action tùy state (đều dẫn tới Approved): Draft → 'Phê duyệt AVL';
+    # Conditional/Suspended → 'Phục hồi Approved'. Trạng thái khác → BAD_STATE.
+    if state == "Draft":
+        action = "Phê duyệt AVL"
+    elif state in ("Conditional", "Suspended"):
+        action = "Phục hồi Approved"
+    else:
+        raise ServiceError(
+            ErrorCode.BAD_STATE,
+            _("AVL ở trạng thái '{0}' không thể phê duyệt.").format(state))
+    _require_avl_transition_role(state, action)  # LL-BE-62 role guard theo SoT
+    approver = frappe.session.user  # derive — KHÔNG spoof từ client
     avl = frappe.get_doc(_DT_AVL, name)
-    if avl.workflow_state == "Draft":
-        avl.workflow_state = "Approved"
+    if state == "Draft":
         avl.approver = approver
         avl.approval_doc = approval_doc or None
-        avl.submit()
-    elif avl.workflow_state in ("Conditional", "Suspended"):
         avl.workflow_state = "Approved"
-        avl.save()
-        svc._sync_supplier_avl_status(avl.supplier)
+        avl.submit()  # 0→1; activate_avl (on_submit) → _sync
     else:
-        raise ServiceError(ErrorCode.BAD_STATE,
-                            _("AVL ở state {0} không thể Approve").format(avl.workflow_state))
-    return {"name": avl.name, "workflow_state": "Approved"}
+        # submitted doc (docstatus=1) → db.set_value (allow_on_submit-safe, parity
+        # check_avl_expiry / on_submit_audit). Role đã guard tường minh phía trên.
+        frappe.db.set_value(
+            _DT_AVL, name,
+            {"workflow_state": "Approved", "approver": approver},
+            update_modified=False)
+    svc._sync_supplier_avl_status(avl.supplier)
+    _audit_avl(name, action, state, "Approved")
+    return {"name": name, "workflow_state": "Approved"}
 
 
 @frappe.whitelist(methods=["POST"])
@@ -457,15 +489,121 @@ def suspend_avl(name: str, suspension_reason: str) -> dict:
 def _suspend_avl(name, suspension_reason):
     if not (suspension_reason or "").strip():
         raise ServiceError(ErrorCode.VALIDATION, _("Phải nhập suspension_reason"))
-    avl = frappe.get_doc(_DT_AVL, name)
-    avl.workflow_state = "Suspended"
-    avl.suspension_reason = suspension_reason
-    if avl.docstatus == 0:
-        avl.submit()
+    state = frappe.db.get_value(_DT_AVL, name, "workflow_state")
+    if not state:
+        raise ServiceError(ErrorCode.NOT_FOUND, _("AVL {0} không tồn tại").format(name))
+    # 'Đình chỉ' chỉ hợp lệ từ Approved/Conditional (SoT) — Draft→Suspended,
+    # Expired→* bị reject (BAD_STATE) thay vì cho phép mọi state như nhánh cũ.
+    _require_avl_transition_role(state, "Đình chỉ")
+    supplier = frappe.db.get_value(_DT_AVL, name, "supplier")
+    frappe.db.set_value(
+        _DT_AVL, name,
+        {"workflow_state": "Suspended", "suspension_reason": suspension_reason},
+        update_modified=False)
+    svc._sync_supplier_avl_status(supplier)
+    _audit_avl(name, "Đình chỉ", state, "Suspended")
+    return {"name": name, "workflow_state": "Suspended"}
+
+
+@frappe.whitelist(methods=["POST"])
+def set_avl_conditional(name: str, condition_notes: str) -> dict:
+    """Cấp/Hạ AVL xuống 'Conditional' (CR-WF-03-AVL-COND).
+
+    2 nhánh tùy state hiện tại (đều dẫn tới Conditional, SoT ``_AVL_VALID_TRANSITIONS``):
+      - Draft    → 'Cấp Conditional'      (db.set_value + docstatus 0→1)
+      - Approved → 'Hạ xuống Conditional' (db.set_value submitted, mirror _suspend_avl)
+    ``condition_notes`` BẮT BUỘC (parity suspension_reason) — lưu vào field
+    ``condition_notes`` (Long Text SẴN CÓ). Role guard tường minh theo SoT (LL-BE-62).
+    KHÔNG dùng avl.submit() cho nhánh Draft — xem lý do LL-BE-62 ở _set_avl_conditional."""
+    return _handle(_set_avl_conditional, name, condition_notes)
+
+
+def _set_avl_conditional(name, condition_notes):
+    # Đọc state qua db.get_value (bypass DocPerm) TRƯỚC → fail-fast role guard không
+    # cần read-perm; low-role reject sạch (FORBIDDEN) thay vì PermissionError.
+    state = frappe.db.get_value(_DT_AVL, name, "workflow_state")
+    if not state:
+        raise ServiceError(ErrorCode.NOT_FOUND, _("AVL {0} không tồn tại").format(name))
+    # 'Conditional' đạt được từ 2 state: Draft → 'Cấp Conditional'; Approved →
+    # 'Hạ xuống Conditional'. Trạng thái khác (Conditional/Suspended/Expired) → BAD_STATE.
+    if state == "Draft":
+        action = "Cấp Conditional"
+    elif state == "Approved":
+        action = "Hạ xuống Conditional"
     else:
-        avl.save()
-    svc._sync_supplier_avl_status(avl.supplier)
-    return {"name": avl.name, "workflow_state": "Suspended"}
+        raise ServiceError(
+            ErrorCode.BAD_STATE,
+            _("AVL ở trạng thái '{0}' không thể chuyển sang Có điều kiện.").format(state))
+    _require_avl_transition_role(state, action)  # LL-BE-62 role guard theo SoT
+    notes = (condition_notes or "").strip()
+    if not notes:
+        raise ServiceError(ErrorCode.VALIDATION, _("Phải nhập condition_notes"))
+    # Role ĐÃ guard tường minh qua _require_avl_transition_role (capability SSoT) →
+    # db.set_value là mechanism bypass DocPerm nhất quán với _suspend_avl /
+    # _approve_avl nhánh submitted. LÝ DO KHÔNG dùng avl.submit() cho nhánh Draft:
+    # Spec Manager (SoT-allowed 'Cấp Conditional') KHÔNG có DocPerm trên IMM AVL Entry
+    # → submit() chạy validate_workflow → get_transitions(_doc_before_save)
+    # .check_permission("read") raise PermissionError (LL-BE-62: validate_workflow
+    # KHÔNG bypass bởi ignore_permissions; check_if_latest reload _doc_before_save nên
+    # pre-seed cũng vô hiệu). Nhánh Draft bump docstatus 0→1 trong CÙNG set_value;
+    # valid_to đã auto-compute ở insert (validate_avl) → không mất; activate_avl
+    # (on_submit) vốn no-op cho Conditional → _sync gọi tường minh bên dưới.
+    supplier = frappe.db.get_value(_DT_AVL, name, "supplier")
+    updates = {"workflow_state": "Conditional", "condition_notes": notes}
+    if state == "Draft":
+        updates["docstatus"] = 1  # Draft (docstatus 0) → submitted, mirror hiệu ứng submit()
+    frappe.db.set_value(_DT_AVL, name, updates, update_modified=False)
+    svc._sync_supplier_avl_status(supplier)
+    _audit_avl(name, action, state, "Conditional")
+    return {"name": name, "workflow_state": "Conditional"}
+
+
+# ─── AVL transition helpers (SoT-gated + role-enforced, LL-BE-62) ─────────────
+
+_AVL_STATE_VI = {
+    "Draft": "Nháp", "Approved": "Đã duyệt", "Conditional": "Có điều kiện",
+    "Suspended": "Đình chỉ", "Expired": "Hết hạn",
+}
+
+
+def _require_avl_transition_role(state: str, action: str) -> str:
+    """Enforce transition-role theo SoT ``svc._AVL_VALID_TRANSITIONS`` (LL-BE-62).
+
+    - action ∉ SoT cho ``state`` → ServiceError(BAD_STATE) (reject transition ngoài
+      SoT: Draft→Suspended, Expired→*).
+    - user thiếu MỌI role được phép → ServiceError(FORBIDDEN).
+    Trả ``next_state`` khi hợp lệ. KHÔNG set workflow_state thô bỏ qua role."""
+    target = svc.avl_transition_target(state, action)
+    if target is None:
+        raise ServiceError(
+            ErrorCode.BAD_STATE,
+            _("AVL ở trạng thái '{0}' không cho phép hành động '{1}'.").format(state, action))
+    next_state, allowed_roles = target
+    if not (set(frappe.get_roles(frappe.session.user)) & allowed_roles):
+        raise ServiceError(
+            ErrorCode.FORBIDDEN,
+            _("Bạn không đủ quyền thực hiện '{0}' trên AVL.").format(action))
+    return next_state
+
+
+def _audit_avl(name: str, action: str, from_state: str, to_state: str) -> None:
+    """Ghi IMM Audit Trail cho transition AVL (traceability CLAUDE.md §10).
+
+    event_type='State Change' (Select hợp lệ trong IMM Audit Trail); best-effort —
+    audit-fail KHÔNG vỡ nghiệp vụ (chỉ log_error). change_summary câu Việt hoàn
+    chỉnh + localize state enum (LL-BE-14)."""
+    try:
+        fr = _AVL_STATE_VI.get(from_state, from_state)
+        to = _AVL_STATE_VI.get(to_state, to_state)
+        _audit(
+            asset=None,
+            event_type="State Change",
+            ref_doctype=_DT_AVL,
+            ref_name=name,
+            change_summary=f"AVL — {action}: {fr} → {to}",
+        )
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "IMM-03 AVL audit trail failed")
 
 
 # ─── Procurement Decision ─────────────────────────────────────────────────────
@@ -487,6 +625,13 @@ def get_evaluation(name: str) -> dict:
             for q in quotations:
                 q["candidate_supplier_name"] = sup_map.get(q.get("candidate_supplier")) or q.get("candidate_supplier") or ""
         _enrich_decision_chain(doc)
+        # Server-driven CTA (GATE-8 / LL-FE-51): tập ACTION workflow hợp lệ cho state
+        # hiện tại — FE gate nút Mở RFQ/Nhận báo giá xong/Hoàn tất chấm điểm/Huỷ Eval
+        # theo tập này, KHÔNG hardcode `workflow_state === 'X'` (client-map DESYNC).
+        # Parity get_decision:529. CHỈ hint hiển thị (⊆ guard-permitted) — guard role
+        # trên apply_workflow (transition_eval_workflow) vẫn là chốt.
+        doc["allowed_transitions"] = svc._EVAL_VALID_TRANSITIONS.get(
+            doc.get("workflow_state"), [])
         return doc
     return _handle(_get, name)
 
@@ -522,13 +667,34 @@ def get_decision(name: str) -> dict:
             if winner:
                 doc["winner_supplier_name"] = sup_map.get(winner) or winner
         _enrich_decision_chain(doc)
+        # Server-driven CTA (GATE-8 / LL-FE-51): tập ACTION workflow hợp lệ cho
+        # state hiện tại — FE gate nút Phê duyệt/Ký HĐ/Huỷ Decision theo tập này,
+        # KHÔNG hardcode `workflow_state === 'X'` (client-map DESYNC bug). CHỈ hint
+        # hiển thị (⊆ guard-permitted) — guard role trên apply_workflow vẫn là chốt.
+        doc["allowed_transitions"] = svc._DECISION_VALID_TRANSITIONS.get(
+            doc.get("workflow_state"), [])
         return doc
     return _handle(_get, name)
 
 
 @frappe.whitelist()
 def get_avl(name: str) -> dict:
-    return _handle(lambda n: frappe.get_doc(_DT_AVL, n).as_dict(), name)
+    return _handle(_get_avl, name)
+
+
+def _get_avl(name):
+    doc = frappe.get_doc(_DT_AVL, name).as_dict()
+    # Enrich display names (parity list_avl / LL-BE-2) + server-driven CTA
+    # allowed_transitions (thay passthrough as_dict() thô). GATE-8/LL-FE-51.
+    if doc.get("supplier"):
+        doc["vendor_name"] = frappe.db.get_value(
+            _DT_SUPPLIER, doc["supplier"], "supplier_name")
+    if doc.get("device_category"):
+        doc["device_category_name"] = frappe.db.get_value(
+            "AC Asset Category", doc["device_category"], "category_name")
+    doc["allowed_transitions"] = svc.avl_allowed_transitions(
+        doc.get("workflow_state"), set(frappe.get_roles(frappe.session.user)))
+    return doc
 
 
 @frappe.whitelist()

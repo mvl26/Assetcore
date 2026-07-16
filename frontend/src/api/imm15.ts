@@ -52,6 +52,19 @@ export interface AllocationItem {
   return_condition?: 'Good' | 'Damaged' | 'Used'
 }
 
+// Server-driven CTA (GATE-8/LL-FE-51 · CR-WF-15-ALLOC): BE `get_allocation` emit
+// `allowed_transitions` = `_allocation_allowed_transitions(allocation_status)` — danh
+// sách NEXT-STATE khả dụng theo status + capability. Detail view (backlog, xem dưới)
+// gate nút theo `allowed_transitions.includes(<next-state>)`, KHÔNG hardcode
+// `allocation_status === '...'`:
+//   'Approved'  → nút "Duyệt"         (approveAllocation · Requested → Approved)
+//   'Issued'    → nút "Xuất kho"      (issueAllocation   · Requested/Approved → Issued)
+//   'Returned'  → nút "Trả phụ tùng"  (returnItems       · Issued → Returned)
+//   'Cancelled' → nút "Hủy"           (cancelAllocation  · Requested/Approved/Picked → Cancelled)
+// Khác `CycleCountDetail` (action-verb tokens 'Submit'/'Recount'/'Post'): allocation
+// dùng NEXT-STATE strings (codomain ⊆ AllocationState) theo hợp đồng
+// `_allocation_allowed_transitions`. Terminal (Returned/Cancelled) → []. Nhãn VI của
+// từng NEXT-STATE đã có trong STATUS_MAP (utils/formatters.ts) — 0 rò status EN.
 export interface AllocationDetail extends AllocationRow {
   items: AllocationItem[]
   notes?: string
@@ -61,6 +74,7 @@ export interface AllocationDetail extends AllocationRow {
   stock_movement_return_ref?: string
   audit_flags?: string
   docstatus?: 0 | 1 | 2
+  allowed_transitions: AllocationState[]
 }
 
 export interface CycleCountRow {
@@ -96,7 +110,10 @@ export interface CycleCountItem {
 
 // Server-driven CTA (GATE-8/LL-FE-51): BE phát danh sách action verb khả dụng
 // theo status + capability. FE gate nút theo đây, KHÔNG hardcode status===.
-export type CycleCountAction = 'Submit' | 'Post'
+//   'Submit'  → submitCycleCount   (Planned/Counting → Reviewed)
+//   'Recount' → recountCycleCount  (Reviewed → Counting — gửi về đếm lại)
+//   'Post'    → postCycleCount     (Reviewed → Posted)
+export type CycleCountAction = 'Submit' | 'Recount' | 'Post'
 
 export interface CycleCountDetail extends CycleCountRow {
   items: CycleCountItem[]
@@ -247,6 +264,15 @@ export const postCycleCount = (cycle_count: string, verified_by = '', notes = ''
   frappePost<{ name: string; workflow_state: CycleCountState; adjustment_ref: string; capa_created: number }>(
     `${BASE}.post_cycle_count`,
     { cycle_count, verified_by, notes },
+  )
+
+// Sửa đếm lại — gửi phiếu đã rà soát về Đang kiểm đếm (Reviewed → Counting).
+// Envelope Decision-B parity postCycleCount; `reason` bắt buộc (BE cũng validate
+// → IMM15_RECOUNT_REASON_REQUIRED). Cap `inventory.submit` (parity Post).
+export const recountCycleCount = (name: string, reason: string) =>
+  frappePost<{ name: string; workflow_state: CycleCountState }>(
+    `${BASE}.recount_cycle_count`,
+    { count_name: name, reason },
   )
 
 // ─── Forecast ─────────────────────────────────────────────────────────────────

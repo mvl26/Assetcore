@@ -21,12 +21,17 @@ import frappe
 from frappe.utils import now_datetime
 
 from assetcore.services.shared import AssetStatus, normalize_filters
+from assetcore.services.shared import rbac
 from assetcore.utils.notify import nthrow
-from assetcore.utils.messages import MSG
+from assetcore.utils.messages import MSG, format_message
 from assetcore.utils.pagination import paginate
 
 _DOCTYPE_ASSET = "AC Asset"
 _DOCTYPE_DECOM = "Asset Decommission"
+
+# Capability duyệt hồ sơ giải nhiệm → ("Asset Decommission", "submit").
+# Mirror api/imm14._CAP_APPROVE (BE↔FE naming contract; gate quyền tách khỏi state).
+_CAP_APPROVE = "decommission.approve"
 
 # disposal_method ∈ {Huỷ, Điều chuyển/Donation, Bán/Trade-in, Lưu trữ} (BR-14-W2-02)
 _VALID_DISPOSAL_METHODS = (
@@ -261,13 +266,71 @@ def on_decommission_cancel(doc, method=None) -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# SoT (GATE-8/LL-FE-51) — điều kiện DOC-STATE để duyệt hồ sơ giải nhiệm
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _decommission_approvable(doc) -> tuple[bool, str | None]:
+    """Single-source-of-truth: doc có ở trạng thái DUYỆT ĐƯỢC không (KHÔNG gồm quyền).
+
+    Trả ``(ok, reason_code)``:
+      - ``ok=True``  → doc duyệt được: draft (docstatus=0) + asset CHƯA Decommissioned
+        (bởi record khác) + đã thoả field-gate patient_data (risk C/D ⇒ sanitized=1).
+        ``reason_code=None``.
+      - ``ok=False`` → ``reason_code`` = MSG.* giải thích (dùng render VI cho
+        ``approve_blocked_reason`` trong get, và nthrow trong approve).
+
+    CẢ ``get_decommission`` (đọc → suy ``can_approve``) và ``approve_decommission``
+    (enforce) gọi CÙNG helper này ⇒ flip 1 điều kiện gate → cả 2 đổi ĐỒNG BỘ
+    (chống desync server-driven CTA — GATE-8). Capability ``decommission.approve``
+    kiểm RIÊNG ở caller (tách quyền ≠ trạng thái).
+    """
+    if doc.docstatus == 1:
+        return False, MSG.IMM14_ALREADY_APPROVED
+    if doc.docstatus == 2:
+        return False, MSG.IMM14_RECORD_NOT_FOUND
+    # docstatus == 0 (Draft)
+    asset_status = frappe.db.get_value(_DOCTYPE_ASSET, doc.asset, "lifecycle_status")
+    if asset_status == AssetStatus.DECOMMISSIONED:
+        return False, MSG.IMM14_ALREADY_DECOMMISSIONED
+    # BR-14-W2-03: risk High/Critical (C/D) ⇒ patient_data_sanitized PHẢI = 1.
+    risk = (doc.risk_classification_snapshot or "").strip()
+    if risk in _PATIENT_DATA_REQUIRED_RISK and not int(doc.patient_data_sanitized or 0):
+        return False, MSG.IMM14_PATIENT_DATA_REQUIRED
+    return True, None
+
+
+def _nthrow_approvable_reason(reason_code: str, doc) -> None:
+    """Raise ServiceError VI tương ứng reason_code từ ``_decommission_approvable``."""
+    if reason_code == MSG.IMM14_ALREADY_DECOMMISSIONED:
+        nthrow(MSG.IMM14_ALREADY_DECOMMISSIONED, asset=doc.asset)
+    if reason_code == MSG.IMM14_PATIENT_DATA_REQUIRED:
+        nthrow(MSG.IMM14_PATIENT_DATA_REQUIRED,
+               risk=(doc.risk_classification_snapshot or "").strip())
+    # docstatus==2 (RECORD_NOT_FOUND) hoặc fallback.
+    nthrow(reason_code, name=doc.name)
+
+
+def _render_blocked_reason(reason_code: str, doc) -> str:
+    """Render MSG.* → chuỗi VI cho ``approve_blocked_reason`` (KHÔNG raise)."""
+    ctx = {
+        "asset": doc.asset,
+        "name": doc.name,
+        "risk": (doc.risk_classification_snapshot or "").strip(),
+        "min": _MIN_REASON_LEN,
+    }
+    return format_message(reason_code, ctx)[1]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # approve_decommission — orchestrator cho API (validate → submit → transition)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def approve_decommission(name: str) -> dict:
-    """Duyệt hồ sơ giải nhiệm: validate gate → doc.submit() (0→1) → hook on_submit.
+    """Duyệt hồ sơ giải nhiệm: gate SoT → doc.submit() (0→1) → hook on_submit.
 
     Idempotent: record đã docstatus=1 → no-op success (KHÔNG double effect).
+    Gate DOC-STATE (terminal / patient_data / docstatus) qua
+    ``_decommission_approvable`` — CÙNG SoT mà get_decommission suy ``can_approve``.
     NEG-09 / gate raise trong on_submit → submit roll-back, lifecycle_status giữ.
 
     Returns: {name, workflow_state, docstatus, asset, lifecycle_status, decommissioned_on}.
@@ -281,13 +344,10 @@ def approve_decommission(name: str) -> dict:
         # Đã approved → idempotent no-op (KHÔNG submit/transition lần 2).
         return _approve_payload(doc)
 
-    if doc.docstatus == 2:
-        nthrow(MSG.IMM14_RECORD_NOT_FOUND, name=name)
-
-    # Terminal guard trước submit (asset đã Decommissioned bởi record khác).
-    asset_status = frappe.db.get_value(_DOCTYPE_ASSET, doc.asset, "lifecycle_status")
-    if asset_status == AssetStatus.DECOMMISSIONED:
-        nthrow(MSG.IMM14_ALREADY_DECOMMISSIONED, asset=doc.asset)
+    # SoT gate (parity với get.can_approve): docstatus=2 / terminal / patient_data.
+    ok, reason_code = _decommission_approvable(doc)
+    if not ok:
+        _nthrow_approvable_reason(reason_code, doc)
 
     # validate (controller validate cũng chạy lại) + submit → on_submit transition.
     doc.submit()
@@ -408,15 +468,43 @@ def _enrich_responsible_names(rows: list[dict]) -> None:
 
 
 def get_decommission(name: str) -> dict:
-    """Đọc chi tiết hồ sơ giải nhiệm + enrich asset_name, responsible_name, lifecycle."""
+    """Đọc chi tiết hồ sơ giải nhiệm + enrich + server-driven CTA (GATE-8/LL-FE-51).
+
+    Enrich (coalesce '' — KHÔNG None/raw-id, chống rò asset-id/User-email thô):
+      - ``asset_name`` = snapshot (fallback AC Asset.asset_name).
+      - ``responsible_name`` = User.full_name (KHÔNG rò email — user_source policy).
+      - ``lifecycle_status`` = AC Asset.lifecycle_status hiện tại.
+
+    Server-driven CTA (KHÔNG hardcode docstatus/workflow_state ở FE):
+      - ``can_approve`` (int 0/1) = ``rbac.can('decommission.approve')`` AND
+        doc-state-approvable (dẫn xuất CÙNG helper ``_decommission_approvable`` mà
+        ``approve_decommission`` enforce ⇒ parity, chống desync).
+      - ``approve_blocked_reason`` = chuỗi VI nêu lý do khi can_approve=0
+        (thiếu quyền / đã duyệt / thiết bị đã giải nhiệm / chưa xử lý dữ liệu bệnh
+        nhân); rỗng khi can_approve=1.
+    """
     if not frappe.db.exists(_DOCTYPE_DECOM, name):
         nthrow(MSG.IMM14_RECORD_NOT_FOUND, name=name)
     doc = frappe.get_doc(_DOCTYPE_DECOM, name)
     out = doc.as_dict()
     out["asset_name"] = doc.asset_name_snapshot or frappe.db.get_value(
-        _DOCTYPE_ASSET, doc.asset, "asset_name")
-    out["responsible_name"] = frappe.db.get_value(
-        "User", doc.responsible, "full_name") if doc.responsible else None
+        _DOCTYPE_ASSET, doc.asset, "asset_name") or ""
+    out["responsible_name"] = (frappe.db.get_value(
+        "User", doc.responsible, "full_name") or "") if doc.responsible else ""
     out["lifecycle_status"] = frappe.db.get_value(
         _DOCTYPE_ASSET, doc.asset, "lifecycle_status")
+
+    # ── server-driven CTA: can_approve + approve_blocked_reason (SoT parity) ──
+    state_ok, reason_code = _decommission_approvable(doc)
+    has_cap = rbac.can(_CAP_APPROVE)
+    can_approve = 1 if (has_cap and state_ok) else 0
+    out["can_approve"] = can_approve
+    if can_approve:
+        out["approve_blocked_reason"] = ""
+    elif not has_cap:
+        # Thiếu quyền duyệt ưu tiên hàng đầu (Commissioning User submit=0).
+        out["approve_blocked_reason"] = format_message(
+            MSG.IMM14_NO_APPROVE_PERMISSION, {})[1]
+    else:
+        out["approve_blocked_reason"] = _render_blocked_reason(reason_code, doc)
     return out

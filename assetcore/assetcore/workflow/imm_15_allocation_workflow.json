@@ -132,6 +132,111 @@
    "next_state": "Issued",
    "state": "Returned",
    "allow_self_approval": 1
+  },
+  {
+   "action": "Phê duyệt",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Approved",
+   "state": "Requested",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Phê duyệt",
+   "allowed": "System Manager",
+   "next_state": "Approved",
+   "state": "Requested",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Issue (Emergency)",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Issued",
+   "state": "Requested",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Issue (Emergency)",
+   "allowed": "System Manager",
+   "next_state": "Issued",
+   "state": "Requested",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hủy",
+   "allowed": "System Manager",
+   "next_state": "Cancelled",
+   "state": "Requested",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Pick",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Picked",
+   "state": "Approved",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Pick",
+   "allowed": "System Manager",
+   "next_state": "Picked",
+   "state": "Approved",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hủy",
+   "allowed": "System Manager",
+   "next_state": "Cancelled",
+   "state": "Approved",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Issue",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Issued",
+   "state": "Picked",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Issue",
+   "allowed": "System Manager",
+   "next_state": "Issued",
+   "state": "Picked",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hủy",
+   "allowed": "System Manager",
+   "next_state": "Cancelled",
+   "state": "Picked",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Trả phụ tùng",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Returned",
+   "state": "Issued",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Trả phụ tùng",
+   "allowed": "System Manager",
+   "next_state": "Returned",
+   "state": "Issued",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Đóng phiếu",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Issued",
+   "state": "Returned",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Đóng phiếu",
+   "allowed": "System Manager",
+   "next_state": "Issued",
+   "state": "Returned",
+   "allow_self_approval": 1
   }
  ]
 }

@@ -299,18 +299,89 @@ Bảo toàn INVARIANT **count tile == total list** cho 3 state decision. **Viế
 | Ký HĐ | Awarded → Contract Signed | Needs Manager | ⬜ | ⬜ |
 | Phát hành PO | Contract Signed → PO Issued | Procurement Manager | ⬜ | ⬜ |
 
-### AVL Entry (7)
-| Transition (action) | From → To | Role required | Test pass | Test fail |
-|---|---|---|---|---|
-| Phê duyệt AVL | Draft → Approved | Procurement Manager | ⬜ | ⬜ |
-| Cấp Conditional | Draft → Conditional | Spec Manager | ⬜ | ⬜ |
-| Hạ xuống Conditional | Approved → Conditional | Spec Manager | ⬜ | ⬜ |
-| Đình chỉ | Approved → Suspended | Spec Manager | ⬜ | ⬜ |
-| Phục hồi Approved | Conditional → Approved | Procurement Manager | ⬜ | ⬜ |
-| Đình chỉ | Conditional → Suspended | Spec Manager | ⬜ | ⬜ |
-| Phục hồi Approved | Suspended → Approved | Procurement Manager | ⬜ | ⬜ |
+#### III.4.a Server-driven CTA — `get_decision.allowed_transitions` (INV-CTA-03, GATE-8 / LL-FE-51)
 
-> Lưu ý invalid-transition cần test: Evaluated → Open RFQ (terminal), Awarded → Cancelled (terminal positive), Expired là terminal (set bởi scheduler `check_avl_expiry`, không có transition action).
+Class `TestGetDecisionAllowedTransitions` (module `imm03`) — mirror `test_get_document_allowed_transitions_matches_workflow_fixture` (IMM-05). Seed 1 Decision per state (insert Draft rồi `frappe.db.set_value(..., 'workflow_state', state, update_modified=False)` để bypass workflow-engine transition validation).
+
+| Test | Assert | Trạng thái |
+|---|---|---|
+| `test_get_decision_emits_allowed_transitions_per_state` | `get_decision(name)` chứa key `allowed_transitions == _DECISION_VALID_TRANSITIONS[state]` cho MỖI state (9). Terminal `PO Issued`/`Cancelled` → `[]`. | ⬜ |
+| `test_get_decision_allowed_transitions_matches_workflow_fixture` | **INVARIANT chống drift.** Đọc `fixtures/workflow.json` entry `'IMM-03 Decision Workflow'`; `codomain = {s.state: set() for s in states}`; với mỗi transition `codomain[t.state].add(t["action"])`. Assert (1) `set(_DECISION_VALID_TRANSITIONS.keys()) == set(codomain.keys())` (9 key); (2) ∀ state `set(_DECISION_VALID_TRANSITIONS[state]) == codomain[state]`. **Parse `t["action"]` (KHÔNG `t["next_state"]`)** — allowed_transitions IMM-03 = list ACTION. | ⬜ |
+| `test_pending_approval_includes_huy_decision` (regression đúng bug) | Decision ở `Pending Approval` → `'Huỷ Decision' in get_decision(name)['allowed_transitions']` (trước đây client-map thiếu hẳn nhánh → QTV/Procurement Manager không huỷ được dù fixture cấp quyền). | ⬜ |
+
+> **Boundary enforcement (KHÔNG nới lỏng):** `allowed_transitions` là hint hiển thị (⊆ guard-permitted). Guard role trên `transition_decision_workflow`/`award_decision`/`record_contract` (qua `apply_workflow`) vẫn là chốt enforcement thật — test transition_fail (cột "Test fail" bảng trên: sai role → 403) GIỮ NGUYÊN.
+
+**FE vitest** (`DecisionDetailView` spec): mock store `currentDecision.allowed_transitions`:
+- `['Phê duyệt trúng thầu','Huỷ Decision']` (Pending Approval) → `canAward === true`, form "Phê duyệt trao thầu" render, nút **"Huỷ Decision"** render (regression); nút Phê-duyệt/Ký-HĐ KHÔNG xuất hiện ở action-bar chung.
+- `['Ký HĐ']` (Awarded) → `canRecordContract === true`, form "Ghi nhận hợp đồng" render, action-bar chung rỗng.
+- `[]` (PO Issued/Cancelled) → không nút CTA/form nào. Assert KHÔNG còn tham chiếu `TRANSITIONS_BY_STATE` và KHÔNG `workflow_state ===` trong điều kiện render nút (grep guard trong test hoặc snapshot).
+
+#### III.4.b Server-driven CTA — `get_evaluation.allowed_transitions` (INV-CTA-04, parity III.4.a, GATE-8 / LL-FE-51)
+
+Class `TestGetEvaluationAllowedTransitions` (module `imm03`) — parity `TestDecisionAllowedTransitions`. Seed 1 Evaluation per state (insert Draft rồi `frappe.db.set_value('IMM Vendor Evaluation', name, 'workflow_state', state, update_modified=False)` để bypass workflow-engine transition validation; state cuối `Evaluated`/`Cancelled` docstatus 1 → set `docstatus` tương ứng khi cần, teardown reset docstatus=0 rồi force-delete như test Decision).
+
+| Test | Assert | Trạng thái |
+|---|---|---|
+| `test_get_evaluation_emits_allowed_transitions_per_state` | `get_evaluation(name)` chứa key `allowed_transitions == _EVAL_VALID_TRANSITIONS[state]` cho MỖI state (5). `Draft → ['Mở RFQ']`; `Quotation Received → ['Hoàn tất chấm điểm','Huỷ Eval']`; terminal `Evaluated`/`Cancelled` → `[]`. | ⬜ |
+| `test_eval_allowed_transitions_matches_workflow_fixture` | **INVARIANT chống drift.** Đọc `fixtures/workflow.json` entry `'IMM-03 Vendor Eval Workflow'`; `codomain = {s.state: set() for s in states}`; với mỗi transition `codomain[t.state].add(t["action"])`. Assert (1) `set(_EVAL_VALID_TRANSITIONS.keys()) == set(codomain.keys())` (5 key); (2) ∀ state `set(_EVAL_VALID_TRANSITIONS[state]) == codomain[state]` (**equality — không thiếu/thừa**). **Parse `t["action"]` (KHÔNG `t["next_state"]`)** — allowed_transitions IMM-03 = list ACTION. | ⬜ |
+| `test_quotation_received_exposes_cancel_transition` (regression parity) | Eval ở `Quotation Received` → `'Huỷ Eval' in get_evaluation(name)['allowed_transitions']` (parity `test_pending_approval_includes_huy_decision`; đóng nhánh dễ bị bỏ khi client-map drift). | ⬜ |
+
+> **Boundary enforcement (KHÔNG nới lỏng):** `allowed_transitions` là hint hiển thị state-level (⊆ guard-permitted). Guard role trên `transition_eval_workflow` (qua `apply_workflow`) vẫn là chốt enforcement per-role — fixture cho `Huỷ Eval` = `Commissioning Manager`(+admin), `Procurement Manager` bấm vẫn 403; test transition_fail (sai role → 403) GIỮ NGUYÊN.
+
+**FE vitest** (`VendorEvalDetailView` spec — parity `DecisionDetailView`): mock store `currentEval.allowed_transitions`:
+- `['Hoàn tất chấm điểm','Huỷ Eval']` (Quotation Received) → render **đúng 2 nút** transition; click 1 nút → gọi `transitionEvalWorkflow(name, action)` **đúng action** (spy).
+- `[]` hoặc `undefined` → **0 nút** transition (degrade an toàn, KHÔNG rơi về client-map). Assert KHÔNG còn tham chiếu `TRANSITIONS_BY_STATE` và KHÔNG `workflow_state ===` trong điều kiện render nút (chỉ stepper `WORKFLOW_STATES` được phép).
+
+#### III.4.c Server-driven CTA AVL — `list_avl`/`get_avl.allowed_transitions` + enforce `_require_avl_transition_role` + INV-AVL-ENDPOINT-MAP (INV-CTA-05, parity III.4.a/b, GATE-8 / LL-FE-51 / LL-BE-62)
+
+> **⚠️ Self-Correction R-07-AVL-01 (2026-07-14):** enforcement AVL = `_require_avl_transition_role` (KHÔNG `apply_workflow`); role nhúng trong tuple `_AVL_VALID_TRANSITIONS` (KHÔNG dict `_AVL_ACTION_ROLES` riêng); `approve_avl` phục vụ Phê duyệt + Phục hồi (KHÔNG endpoint `restore_avl`); endpoint Conditional = `set_avl_conditional(name, condition_notes)` (KHÔNG `set_conditional_avl`). Bảng dưới đã align code LIVE.
+
+Class `TestAvlAllowedTransitions` + `TestAvlWorkflowEnforcement` (module `imm03`) — parity `TestEvaluationAllowedTransitions`. Seed 1 AVL per state (insert Draft rồi `frappe.db.set_value('IMM AVL Entry', name, 'workflow_state', state, update_modified=False)` để bypass workflow-engine transition validation; state ≠ Draft docstatus 1 → set `docstatus`; teardown reset docstatus=0 rồi force-delete như test Decision/Eval).
+
+| Test | Assert | Status |
+|---|---|---|
+| `test_get_avl_emits_allowed_transitions_per_state` | `get_avl(name)['allowed_transitions'] == _AVL_VALID_TRANSITIONS[state]` cho MỖI state (5), chạy dưới user admin (trọn tập). `Draft → ['Phê duyệt AVL','Cấp Conditional']`; `Suspended → ['Phục hồi Approved']`; terminal `Expired → []`. | ⬜ |
+| `test_avl_allowed_transitions_matches_workflow_fixture` | **INVARIANT chống drift (INV-CTA-05a).** Đọc `fixtures/workflow.json` entry `'IMM-03 AVL Workflow'`; `codomain = {s.state: set() for s in states}`; `codomain[t.state].add(t["action"])`. Assert (1) `set(_AVL_VALID_TRANSITIONS.keys()) == set(codomain.keys())` (5 key); (2) ∀ state `set(_AVL_VALID_TRANSITIONS[state]) == codomain[state]` (equality). **Parse `t["action"]`** — value = ACTION. | ⬜ |
+| `test_avl_action_roles_matches_workflow_fixture` | **INVARIANT (INV-CTA-05b).** Role nhúng trong tuple `_AVL_VALID_TRANSITIONS[state][i][2]` == `{action: set(t["allowed"] for t where t.action==action)}` gom từ transitions fixture. Thêm/sửa role transition mà quên map → RED. | ⬜ |
+| `test_avl_action_endpoint_map_complete` (**AC4 · INV-AVL-ENDPOINT-MAP · đóng "hidden-CTA-câm"**) | `emitted = { a for rows in _AVL_VALID_TRANSITIONS.values() for (a,_n,_r) in rows }` (5 nhãn). Assert (1) `emitted == set(_AVL_ACTION_ENDPOINT.keys())` (mọi action phát ra có map endpoint); (2) ∀ `ep in _AVL_ACTION_ENDPOINT.values()`: `getattr(assetcore.api.imm03, ep)` tồn tại + whitelisted (`ep` ∈ `frappe.whitelisted` registry). **RED-before:** bỏ `set_avl_conditional` (hoặc bỏ map 2 nhãn Conditional) → 2 FAIL (`Cấp Conditional`/`Hạ xuống Conditional` unmapped). **GREEN-after** khi endpoint land. | ⬜ |
+| `test_list_avl_role_filters_allowed_transitions` (RBAC + N+1-free) | Dưới user chỉ `Procurement Manager`: row `Suspended` → `['Phục hồi Approved']`, row `Approved` → `[]` (Đình chỉ/Hạ Conditional là Spec Manager). Dưới user không role liên quan → mọi row `[]`. `frappe.get_roles()` gọi 1 lần (assert query-count không tăng theo số row). | ⬜ |
+| `test_approve_avl_missing_role_forbidden` (LL-BE-62 root-cause) | User thiếu role (không Procurement/Spec Manager, không Super Admin/System Manager) gọi `approve_avl(Draft)` → Error envelope `FORBIDDEN`, `workflow_state` KHÔNG đổi. | ⬜ |
+| `test_approve_avl_super_admin_succeeds` (đóng "không duyệt được dù đủ quyền") | User `AssetCore Super Admin` (đã backfill vào transition) gọi `approve_avl(Draft)` → `workflow_state == 'Approved'`, docstatus 1. Parity `suspend_avl`/`set_avl_conditional` cho Super Admin. | ⬜ |
+| `test_approve_avl_derives_session_user_no_spoof` | `approve_avl(name, approver='attacker@evil.com')` (kwarg cũ) → `avl.approver == frappe.session.user` (KHÔNG phải giá trị client). | ⬜ |
+| `test_suspend_from_draft_rejected` (SoT state-guard) | `suspend_avl(Draft)` → `BAD_STATE` (fixture chỉ Approved/Conditional→Suspended); `suspend_avl(Expired)` → `BAD_STATE`. Siết nhánh ad-hoc "suspend từ mọi state" cũ. | ⬜ |
+| `test_approve_avl_restores_from_suspended_and_conditional` | `approve_avl(Suspended)` → Approved (action `Phục hồi Approved`); `approve_avl(Conditional)` → Approved. `approve_avl(Expired)` → `BAD_STATE`. (Phục hồi = nhánh của `approve_avl`, KHÔNG endpoint riêng.) | ⬜ |
+| `test_set_avl_conditional_requires_notes` (**AC3 · parity suspension_reason**) | `set_avl_conditional(Draft, condition_notes='')` (và `'   '`) → Error envelope `VALIDATION`, `workflow_state` KHÔNG đổi, field `condition_notes` KHÔNG ghi. | ⬜ |
+| `test_set_avl_conditional_draft_grants` (**AC1 · mirror _approve_avl Draft**) | `set_avl_conditional(Draft, condition_notes='X')` → action `Cấp Conditional`, `workflow_state=='Conditional'`, `docstatus==1` (submit 0→1), field `condition_notes=='X'`, `_sync_supplier_avl_status` chạy (supplier `imm_avl_status` cập nhật). | ⬜ |
+| `test_set_avl_conditional_approved_downgrades` (**AC1 · mirror _suspend_avl**) | `set_avl_conditional(Approved, condition_notes='Y')` → action `Hạ xuống Conditional`, `workflow_state=='Conditional'`, docstatus giữ 1 (db.set_value), `condition_notes=='Y'`. | ⬜ |
+| `test_set_avl_conditional_bad_state` | `set_avl_conditional(Conditional/Suspended/Expired, notes='X')` → `BAD_STATE` HTTP 422 (chỉ Draft/Approved→Conditional). | ⬜ |
+| `test_set_avl_conditional_missing_role_forbidden` (**AC2 · LL-BE-62**) | User thiếu `{Spec Manager, AssetCore Super Admin, System Manager}` gọi `set_avl_conditional(Draft, notes='X')` → Error envelope `FORBIDDEN`, `workflow_state` KHÔNG đổi. Spec Manager thực hiện được CẢ Draft lẫn Approved. | ⬜ |
+| `test_set_avl_conditional_audit_single_row` (**AC3**) | Sau `set_avl_conditional(Draft, notes='X')`: đúng **1** IMM Audit Trail row `event_type='State Change'`, `change_summary=="AVL — Cấp Conditional: Nháp → Có điều kiện"`; nhánh Approved → `"AVL — Hạ xuống Conditional: Đã duyệt → Có điều kiện"`. | ⬜ |
+| `test_avl_transition_no_raw_state_set` (LL-BE-62 guard) | AST/grep: mọi mutation state trong 3 endpoint CTA đi SAU `_require_avl_transition_role`; KHÔNG có `db.set_value(workflow_state)`/`submit()` nào chạy TRƯỚC role check. | ⬜ |
+
+> **Boundary enforcement (KHÔNG nới lỏng):** `allowed_transitions` role-filtered là hint hiển thị (⊆ guard-permitted); `_require_avl_transition_role` (SoT `_AVL_VALID_TRANSITIONS`) là **chốt enforcement** — reject BAD_STATE/FORBIDDEN sạch TRƯỚC mutation (LL-BE-62). Lỗi nghiệp vụ = in-handler HTTP-200 + Error envelope (BAD_STATE/FORBIDDEN/VALIDATION), KHÔNG raise→4xx. 2 loại 403: dispatcher-403 (guest/no-token) vs in-handler cap-403 (FORBIDDEN qua `_handle`).
+
+**AC5 — chạy THẬT:** `bench --site miyano run-tests --module assetcore.tests.test_imm03` → đọc **dòng cuối** `Ran N OK` (KHÔNG skip/false-green). RED-before demo: tạm bỏ `set_avl_conditional` (hoặc bỏ nhánh) → `test_avl_action_endpoint_map_complete` + `test_set_avl_conditional_*` FAIL; restore → GREEN.
+
+**FE vitest** (`avlCtaGating.test.ts` — parity `decisionCtaGate`): mock row `allowed_transitions`:
+- `['Phê duyệt AVL','Cấp Conditional']` (Draft) → render **Cấp Conditional**; click → mở modal condition_notes; nhập notes + confirm → `store.setAvlConditional(name, notes)` gọi đúng args; notes rỗng → nút confirm disabled.
+- `['Hạ xuống Conditional','Đình chỉ']` (Approved) → render **Hạ xuống Conditional** + Đình chỉ; click Hạ xuống → modal condition_notes → `store.setAvlConditional`.
+- `['Phục hồi Approved']` (Suspended) → nút **Phục hồi Approved** → `approveAvl(name)` (KHÔNG approver arg).
+- `[]`/`undefined` → **0 nút** CTA (degrade an toàn). Assert KHÔNG có `a.workflow_state === 'X'` ở điều kiện render nút. `vue-tsc` clean; `AVL_ACTIONS` comment bỏ `chưa có endpoint BE`.
+
+---
+
+### AVL Entry (7 transition) — 3 endpoint phục vụ 5 nhãn action (submit/db.set_value + `_require_avl_transition_role`, LL-BE-62; INV-AVL-ENDPOINT-MAP)
+| Transition (action) | From → To | Endpoint | Frappe role `allowed` | Test pass | Test fail (sai role/state) |
+|---|---|---|---|---|---|
+| Phê duyệt AVL | Draft → Approved | `approve_avl` | Procurement Manager (+admin) | ⬜ | ⬜ |
+| Cấp Conditional | Draft → Conditional | `set_avl_conditional` | Spec Manager (+admin) | ⬜ | ⬜ |
+| Hạ xuống Conditional | Approved → Conditional | `set_avl_conditional` | Spec Manager (+admin) | ⬜ | ⬜ |
+| Đình chỉ | Approved → Suspended | `suspend_avl` | Spec Manager (+admin) | ⬜ | ⬜ |
+| Phục hồi Approved | Conditional → Approved | `approve_avl` (nhánh Phục hồi) | Procurement Manager (+admin) | ⬜ | ⬜ |
+| Đình chỉ | Conditional → Suspended | `suspend_avl` | Spec Manager (+admin) | ⬜ | ⬜ |
+| Phục hồi Approved | Suspended → Approved | `approve_avl` (nhánh Phục hồi) | Procurement Manager (+admin) | ⬜ | ⬜ |
+
+> **Invalid-transition cần test (SoT-guard):** `Draft → Suspended` (fixture chỉ Approved/Conditional→Suspended) → `BAD_STATE`; `Expired → *` → `BAD_STATE` (Expired terminal, set bởi scheduler `check_avl_expiry`, không có transition action); `approve_avl` trên state ≠ Draft → `BAD_STATE`. (`+admin` = `AssetCore Super Admin` + `System Manager`, backfill mọi transition — vòng workflow-admin.)
 
 **Kỹ thuật**: State Transition Testing — mỗi edge = 1 test pass + 1 test fail (wrong role / gate fail).
 
@@ -710,6 +781,30 @@ Decision: ☐ Pass / ☐ Pass with conditions / ☐ Fail (block). *(Hiện: có 
 **Expected (negative role)**: PermissionError / FORBIDDEN
 **Expected (gate fail)**: ServiceError(code=BUSINESS_RULE, message contains "<Gx>")
 ```
+
+---
+
+## III.A RBAC hardening `AC Purchase` — test plan (02 §IV.12, ADR-IMM-03-05/06)
+
+**File mới `assetcore/tests/test_purchase.py`** (chạy `bench --site miyano run-tests --module assetcore.tests.test_purchase`). Pattern gate: monkeypatch `rbac.require` (kiểu `test_imm01.py:332` / `test_create_calls_rbac_require_before_insert`).
+
+| TC | Loại | Kỳ vọng |
+|---|---|---|
+| TC-PUR-CAP-01 | unit | `rbac.CAPABILITY_MAP["purchase.submit"] == ("AC Purchase","submit")`; 6 cap `purchase.*` bind `("AC Purchase", ptype)` (INV-PUR-CAP / AC3) |
+| TC-PUR-CAP-02 | unit | `len(CAPABILITY_MAP)==104`; `CAP_SET_VERSION` prefix `v104.` — đồng bộ re-freeze `test_mobile_capability_map.py` (INV-PUR-COUNT / AC3) |
+| TC-PUR-GATE-CREATE | unit | monkeypatch `rbac.require` raise `PermissionError` → `create_purchase` raise, `frappe.db.count("AC Purchase")` KHÔNG tăng; cap gọi == `purchase.create` (AC1) |
+| TC-PUR-GATE-UPDATE/SUBMIT/CANCEL/DELETE | unit | mỗi endpoint gọi `rbac.require('purchase.<ptype>')` TRƯỚC ghi; thiếu quyền → `PermissionError` (403), không đổi trạng thái (AC1) |
+| TC-PUR-GATE-RECEIVE | unit | `mark_received` gọi `rbac.require('purchase.submit')` TRƯỚC; thiếu → `PermissionError`; status KHÔNG đổi (AC1/AC2) |
+| TC-PUR-NODBSET | unit | `inspect.getsource(mark_received)` KHÔNG chứa `db_set(`; sau nhận hàng `status=='Received'` và `modified_by` cập nhật (INV-PUR-NODBSET / AC2) |
+| TC-PUR-RECEIPT-GATE | unit | `create_receipt_movement` gọi `rbac.require('inventory.create')` TRƯỚC khi tạo `AC Stock Movement` |
+| TC-PUR-FLAGS | integration | `get_purchase` trả `can_submit`/`can_receive`/`can_cancel`/`can_create_receipt`/`can_edit`/`can_delete` đúng công thức state×cap (INV-PUR-FLAGS / AC4) |
+| TC-PUR-AC6-QTV | integration | user `AssetCore Super Admin` (QTV): create→submit→mark_received→cancel OK; cờ `can_*` True đúng state (không hồi quy false-restrictive) |
+| TC-PUR-AC6-MGR | integration | `Procurement Manager` full flow create→submit→mark_received→cancel OK |
+| TC-PUR-AC6-USER | integration | `Procurement User` (submit=0): `submit_purchase` → 403; `get_purchase.can_submit==False` (least-privilege đúng); create/update (write=1) vẫn OK |
+
+**FE Vitest `frontend/src/views/purchase/purchaseCtaGate.test.ts`** (parity `firmwareCrCtaGate.test.ts`): mount `PurchaseDetailView` với `getPurchase` mock trả doc `can_*` khác nhau → assert nút Duyệt/Nhận hàng/Huỷ/receipt/Sửa/Xoá hiện-ẩn đúng; doc thiếu cờ (undefined) → 0 nút (degrade an toàn); click nút → gọi đúng handler (submit/markReceived/cancel). `npm run typecheck` (prod) 0 error.
+
+**AC7 xanh THẬT**: `bench run-tests test_purchase` → "Ran N OK" + `test_mobile_capability_map` xanh sau re-freeze; vitest + typecheck 0 error. Live curl chờ USER reload gunicorn (blocked-reload caveat — KHÔNG re-fix 417/404).
 
 ---
 

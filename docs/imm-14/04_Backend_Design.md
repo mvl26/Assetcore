@@ -281,4 +281,71 @@ doc_events = {
 }
 ```
 
-*Hết file 04. Field detail + service code mẫu sẽ bổ sung trong sprint W3-1 sau khi BE scaffold. §IX là CHỐT cho MVP vòng 2.*
+---
+
+## X. Vòng 17 — `get_decommission` enrich `can_approve` + `approve_blocked_reason` (server-driven CTA) — CHỐT
+
+> **Delta (2026-07-10).** Không đụng DocType schema, không đổi capability/DocPerm. Chỉ (a) thêm 1 SoT predicate `_evaluate_approvability`; (b) `get_decommission` phát thêm 2 khoá; (c) 3 MSG entry mới. Ref ADR-IMM14-APPROVE-04 (`02 §VIII.5`).
+
+### X.1. `get_decommission` — output delta
+
+`services/imm14.py::get_decommission(name)` (hiện trả `doc.as_dict()` + `asset_name`/`responsible_name`/`lifecycle_status`) thêm 2 khoá:
+
+| Khoá | Kiểu | Nguồn |
+|---|---|---|
+| `can_approve` | int (0/1) | `_evaluate_approvability(doc)[0]` |
+| `approve_blocked_reason` | str (VI, "" khi can=1) | `_evaluate_approvability(doc)[1]` |
+
+Invariant: `approve_blocked_reason != "" ⇔ can_approve == 0` (BR-14-W2-13). Các khoá detail còn lại (asset_name, responsible_name, risk_classification_snapshot, disposal_method, decommission_reason, patient_data_sanitized, sanitization_note, workflow_state, docstatus, decommissioned_on, lifecycle_status) GIỮ NGUYÊN — đủ cho `DecommissionDetailView`.
+
+### X.2. `_evaluate_approvability(doc) -> tuple[int, str]` — SoT DUY NHẤT (BR-14-W2-13)
+
+```python
+def _evaluate_approvability(doc) -> tuple[int, str]:
+    """SoT cho can_approve + reason. Reuse validate_before_approve (KHÔNG copy field-rule).
+
+    Precedence (first match → blocked): docstatus terminal record → capability →
+    asset terminal → field/sanitization validation. Reason resolve qua MSG registry.
+    """
+    # 1. Record đã ở trạng thái cuối (không phải Draft) → không duyệt lại.
+    if doc.docstatus == 2:
+        return 0, _reason(MSG.IMM14_APPROVE_BLOCKED_CANCELLED)
+    if doc.docstatus == 1:
+        return 0, _reason(MSG.IMM14_APPROVE_BLOCKED_ALREADY_APPROVED)
+    # 2. Capability (boolean, KHÔNG raise) — Commissioning User read=1/submit=0 → 0.
+    if not rbac.can("decommission.approve"):
+        return 0, _reason(MSG.IMM14_APPROVE_BLOCKED_NO_PERMISSION)
+    # 3. Asset đã Decommissioned bởi record khác (terminal).
+    if frappe.db.get_value(_DOCTYPE_ASSET, doc.asset, "lifecycle_status") == AssetStatus.DECOMMISSIONED:
+        return 0, _reason(MSG.IMM14_ALREADY_DECOMMISSIONED, asset=doc.asset)
+    # 4. Field/sanitization gate — REUSE validate_before_approve (SoT field-rule).
+    try:
+        validate_before_approve(doc)
+    except ServiceError as e:   # nthrow → ServiceError mang message VI đã format.
+        return 0, e.message     # ⚠️ e.message (VI thuần), KHÔNG str(e).
+    return 1, ""
+```
+
+- **`_reason(code, **ctx)`** helper: `return format_message(code, ctx)[1]` (`utils/messages.format_message` → phần message đã render VI). KHÔNG hardcode chuỗi VI trong service.
+- **⚠️ `e.message` KHÔNG `str(e)`:** `ServiceError.__str__` = `f"[{code}] {message}"` (`services/shared/errors.py:51`) → `str(e)` **rò prefix `[BUSINESS_RULE]`** ra hint. Dùng `e.message` (errors.py:46 = message VI đã render) cho `approve_blocked_reason`.
+- **KHÔNG duplicate logic:** field-rule (disposal_method / reason≥20 / responsible / patient_data C-D) CHỈ định nghĩa trong `validate_before_approve` — predicate gọi lại + bắt raise. Terminal/docstatus/capability là atoms `approve_decommission` cũng dùng (guard docstatus, terminal check, `rbac.require` ở API). ⇒ `can_approve` ↔ `approve_decommission` không drift (ADR-IMM14-APPROVE-04).
+- **`rbac.can` không raise** (rbac.py:163 — cap thiếu → False). An toàn khi worker cũ / cap stale → degrade thành `can_approve=0` (nút ẩn), KHÔNG 500.
+- **Read-only:** `validate_before_approve(doc)` chỉ đọc field in-memory (không `db.set_value`/insert) → gọi trong GET không mutate. `get_decommission` KHÔNG sinh event/audit (BR-14-W2-12 vẫn giữ).
+
+### X.3. MSG registry — 3 entry mới (`utils/messages.py`, cùng commit BE)
+
+| MSG code | template (VI) | severity | http_status |
+|---|---|---|---|
+| `IMM14_APPROVE_BLOCKED_NO_PERMISSION` | "Bạn không đủ quyền duyệt giải nhiệm." | info | 200 |
+| `IMM14_APPROVE_BLOCKED_ALREADY_APPROVED` | "Hồ sơ giải nhiệm đã được duyệt." | info | 200 |
+| `IMM14_APPROVE_BLOCKED_CANCELLED` | "Hồ sơ giải nhiệm đã bị huỷ." | info | 200 |
+
+- Các reason còn lại reuse template SẴN CÓ: `IMM14_ALREADY_DECOMMISSIONED` (asset terminal), `IMM14_PATIENT_DATA_REQUIRED` (C/D chưa xử lý PII), `IMM14_REASON_TOO_SHORT`, `IMM14_DISPOSAL_METHOD_REQUIRED`/`_INVALID`, `IMM14_RESPONSIBLE_REQUIRED` (qua raise trong `validate_before_approve`).
+- 3 entry mới dùng cho **hint hiển thị** (không phải error envelope) → severity `info`, http_status 200 (chỉ để đủ shape `MessageEntry`; predicate chỉ lấy `[1]` = message).
+
+### X.4. Boundaries (Always / Never)
+
+- **Always:** `can_approve`/`reason` từ 1 SoT `_evaluate_approvability`; reason từ MSG registry; enrich chỉ đọc; `approve_decommission` giữ `rbac.require('decommission.approve')` (BE là SoT — FE ẩn nút chỉ là UX).
+- **Never:** KHÔNG reimplement field-rule trong predicate (reuse `validate_before_approve`); KHÔNG hardcode chuỗi VI; KHÔNG mutate trong `get_decommission`; KHÔNG đổi DocType schema / DocPerm / capability map; KHÔNG chạy `doc.submit()` để test-approvability trong GET.
+
+*Hết file 04. Field detail + service code mẫu sẽ bổ sung trong sprint W3-1 sau khi BE scaffold. §IX là CHỐT cho MVP vòng 2; §X là CHỐT cho vòng 17.*

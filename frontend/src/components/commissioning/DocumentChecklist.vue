@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import type { DocumentRecord } from '@/types/imm04'
+import DateInput from '@/components/common/DateInput.vue'
 
 const props = defineProps<{
   documents: DocumentRecord[]
@@ -230,22 +231,20 @@ function expiryLabel(d?: string): string {
           </div>
           <div>
             <label class="block text-xs text-slate-500 mb-0.5">Ngày nhận</label>
-            <input
-              type="date"
-              :value="doc.received_date || ''"
+            <DateInput
+              :model-value="doc.received_date || ''"
               :disabled="readonly"
               class="form-input text-sm w-full"
-              @change="updateField(doc.idx, 'received_date', ($event.target as HTMLInputElement).value)"
+              @change="updateField(doc.idx, 'received_date', $event)"
             />
           </div>
           <div>
             <label class="block text-xs text-slate-500 mb-0.5">Ngày hết hạn</label>
-            <input
-              type="date"
-              :value="doc.expiry_date || ''"
+            <DateInput
+              :model-value="doc.expiry_date || ''"
               :disabled="readonly"
               class="form-input text-sm w-full"
-              @change="updateField(doc.idx, 'expiry_date', ($event.target as HTMLInputElement).value)"
+              @change="updateField(doc.idx, 'expiry_date', $event)"
             />
             <p v-if="doc.expiry_date" class="text-xs mt-0.5" :class="expiryClass(doc.expiry_date)">
               {{ expiryLabel(doc.expiry_date) }}

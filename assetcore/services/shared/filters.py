@@ -41,11 +41,30 @@ def normalize_filters(f: dict | None) -> dict:
 _LINK_LOOKUP_LIMIT = 500
 
 
+def _escape_like(term: str) -> str:
+    """Escape LIKE-metachar so a user-typed ``%`` / ``_`` matches LITERALLY.
+
+    Mirror :func:`assetcore.services.imm00.escape_like_term` (SSoT contract,
+    ADR-IMM00-SEARCH-ESCAPE): escape ``%`` → ``\\%`` and ``_`` → ``\\_`` only.
+    Do NOT touch ``\\`` — Frappe ``DatabaseQuery`` already doubles the backslash
+    for the ``like`` operator (db_query.py:938-940); escaping it here would flip
+    a literal backslash into a wildcard-escape and break the match. Without this,
+    ``search='%'`` → ``LIKE '%%%'`` matches the whole table (over-match /
+    LIKE-backtracking DoS surface). Total-function: never raises; ``''`` → ``''``.
+
+    Applied ONCE at the ``like`` build point so BOTH the parent OR-LIKE and the
+    ``link_search`` lookup use the same escaped term ⇒ count_with_or / get_list
+    stay byte-parity on the same ``or_filters``.
+    """
+    return term.replace("%", "\\%").replace("_", "\\_")
+
+
 def pop_search(
     f: dict | None,
     searchable_fields: list[str],
     *,
     link_search: dict[str, tuple[str, str]] | None = None,
+    escape_wildcards: bool = False,
 ) -> tuple[dict, list | None]:
     """Pop the FE free-text ``search`` key and translate it to ``or_filters``.
 
@@ -68,6 +87,17 @@ def pop_search(
             helper looks up linked rows whose ``display_field`` LIKE the
             term, then adds ``[link_field, "in", [matched_ids]]`` to the OR
             clause. Lookup is capped at ``_LINK_LOOKUP_LIMIT`` matches.
+        escape_wildcards: when True, escape LIKE-metachar (``%``/``_``) in the
+            user term so they match LITERALLY instead of acting as SQL
+            wildcards (prevents ``search='%'`` matching the whole table +
+            LIKE-backtracking DoS surface — CR-18 IMM-08/09). Opt-in: default
+            False keeps the pre-existing behavior of every current caller
+            (e.g. IMM-11 ``list_schedules`` whose ``_Test``-prefixed fixtures
+            rely on ``_`` as a single-char wildcard) byte-identical.
+            NOTE: under Frappe's ``like`` the escaped metachar matches nothing
+            (engine doubles the backslash), so real data containing literal
+            ``%``/``_`` is out of scope — acceptable for WO/asset codes+names
+            which never contain them.
 
     Returns:
         ``(filters_without_search, or_filters_or_None)``. Pass both straight
@@ -80,7 +110,8 @@ def pop_search(
     term = str(raw).strip()
     if not term:
         return f, None
-    like = f"%{term}%"
+    safe = _escape_like(term) if escape_wildcards else term
+    like = f"%{safe}%"
     or_filters: list = [[field, "like", like] for field in searchable_fields]
     for link_field, (linked_doctype, display_field) in (link_search or {}).items():
         try:

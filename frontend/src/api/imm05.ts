@@ -94,6 +94,15 @@ export interface AssetDocumentDetail extends AssetDocumentItem {
   exempt_reason: string | null
   exempt_proof: string | null
   notes: string | null
+  /**
+   * Server-driven CTA (GATE-8 / LL-FE-51): tập next-state hợp lệ do BE trả
+   * (_DOC_VALID_TRANSITIONS trong services/imm05.py, SoT = fixture
+   * 'IMM-05 Document Workflow'). FE gate nút chuyển trạng thái theo tập này,
+   * KHÔNG hardcode workflow_state === 'X'. Vắng mặt → coi như [] (không nút).
+   */
+  allowed_transitions?: string[]
+  /** 1 nếu user hiện tại có capability doc.approve (gate Phê duyệt/Từ chối/Lưu trữ). */
+  can_approve?: number
 }
 
 export interface DocumentFilters {

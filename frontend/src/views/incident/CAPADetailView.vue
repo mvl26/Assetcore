@@ -12,6 +12,7 @@ import type { CapaDetail, CapaWorkflowState } from '@/api/imm16'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import BaseModal from '@/components/common/BaseModal.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
+import DateInput from '@/components/common/DateInput.vue'
 import RecordHistory from '@/components/common/RecordHistory.vue'
 import { sanitizeHtml } from '@/utils/sanitizeHtml'
 import { translateStatus } from '@/utils/formatters'
@@ -29,22 +30,45 @@ const historyRef = ref<InstanceType<typeof RecordHistory> | null>(null)
 
 const RCA_METHODS = ['5-Why', 'Fishbone', 'Fault Tree', 'Pareto', 'Other']
 
-// ── Workflow transitions — labels khớp imm_16_capa_workflow.json EXACT ──
+// ── Server-driven CTA (ADR-IMM-16-01 / GATE-8 / LL-FE-51) ──────────────────
+// KHÔNG còn client-map TRANSITIONS: tập transition ĐƯỢC PHÉP đến TRỰC TIẾP từ
+// server (`capa.allowed_transitions`, derive từ CÙNG _CAPA_TRANSITIONS mà
+// advance_capa_state enforce) → render đúng quyền, không desync khi workflow
+// đổi. Ở đây chỉ giữ NHÃN hiển thị (không phải nguồn transition) — action-phrased
+// theo state ĐÍCH; khớp imm_16_capa_workflow.json.
 interface Transition { label: string; target: CapaWorkflowState }
-const TRANSITIONS: Record<string, Transition[]> = {
-  Open: [{ label: 'Bắt đầu điều tra', target: 'Investigating' }],
-  Investigating: [{ label: 'Lập kế hoạch hành động', target: 'Action Plan' }],
-  'Action Plan': [{ label: 'Bắt đầu thực thi', target: 'Implementation' }],
-  Implementation: [{ label: 'Chuyển sang xác minh', target: 'Verification' }],
-  Verification: [],          // dùng effectiveness check (Đóng / Mở lại)
-  'Re-opened': [{ label: 'Bắt đầu điều tra lại', target: 'Investigating' }],
+const CTA_LABELS: Record<string, string> = {
+  Investigating: 'Bắt đầu điều tra',
+  'Action Plan': 'Lập kế hoạch hành động',
+  Implementation: 'Bắt đầu thực thi',
+  Verification: 'Chuyển sang xác minh',
+  Closed: 'Đóng hành động khắc phục/phòng ngừa',
+  'Re-opened': 'Mở lại do chưa hiệu quả',
 }
 
 const wfState = computed<string>(() => capa.value?.workflow_state || 'Open')
-const transitions = computed<Transition[]>(() => TRANSITIONS[wfState.value] ?? [])
-const isVerification = computed(() => wfState.value === 'Verification')
+// allowed_transitions do get_capa emit (⊆ guard). Thiếu (BE cũ) → [] = degrade
+// an toàn 0 nút (không đoán từ workflow_state client-side).
+const allowedTransitions = computed<string[]>(() => capa.value?.allowed_transitions ?? [])
+// Nút chuyển trạng thái thường — LOẠI 'Closed'/'Re-opened' (đi qua gate xác minh
+// hiệu quả bên dưới, không phải advance trực tiếp).
+const transitions = computed<Transition[]>(() =>
+  allowedTransitions.value
+    .filter((t) => t !== 'Closed' && t !== 'Re-opened')
+    .map((t) => ({ label: CTA_LABELS[t] ?? t, target: t as CapaWorkflowState })),
+)
+// Nút Đóng / Mở lại (gate xác minh) — gate theo allowed_transitions, KHÔNG
+// hardcode isVerification. Ở Verification server emit ['Closed','Re-opened'].
+const canCloseCapa = computed(() => allowedTransitions.value.includes('Closed'))
+const canReopenCapa = computed(() => allowedTransitions.value.includes('Re-opened'))
 const isClosed = computed(() => wfState.value === 'Closed')
 const isEditable = computed(() => !isClosed.value)
+// Không có thao tác chuyển trạng thái khả dụng (rỗng & chưa Closed) → hint
+// "không đủ quyền / không có thao tác" thay vì để trống mập mờ.
+const hasWorkflowActions = computed(
+  () => transitions.value.length > 0 || canCloseCapa.value || canReopenCapa.value,
+)
+const showNoActionsHint = computed(() => !isClosed.value && !hasWorkflowActions.value)
 
 // Lifecycle status (SoT) — KHÁC workflow_state (stage). Cron check_capa_overdue
 // flip `status`='Overdue' mà KHÔNG đổi workflow_state, nên header phải surface
@@ -215,20 +239,21 @@ onMounted(load)
         </div>
       </div>
 
-      <!-- Actions bar -->
+      <!-- Actions bar — server-driven CTA (allowed_transitions), KHÔNG hardcode -->
       <div class="card p-4 flex flex-wrap items-center gap-2">
-        <button v-if="isEditable" class="btn-secondary text-sm" @click="openEdit">Sửa nội dung</button>
+        <button v-if="isEditable" class="btn-secondary text-sm" data-testid="cta-edit" @click="openEdit">Sửa nội dung</button>
         <button
           v-for="t in transitions" :key="t.target"
           class="btn-primary text-sm"
+          :data-testid="`cta-transition-${t.target}`"
           :disabled="api.loading.value"
           @click="startTransition(t)"
         >{{ t.label }}</button>
-        <template v-if="isVerification">
-          <button class="btn-primary text-sm" :disabled="api.loading.value" @click="effResult = 'Effective'; showEffectiveness = true">Đóng hành động khắc phục/phòng ngừa</button>
-          <button class="btn-ghost text-sm" :disabled="api.loading.value" @click="effResult = 'Not Effective'; showEffectiveness = true">Mở lại do chưa hiệu quả</button>
-        </template>
+        <!-- Đóng / Mở lại (gate xác minh hiệu quả) — gate theo allowed_transitions -->
+        <button v-if="canCloseCapa" class="btn-primary text-sm" data-testid="cta-close" :disabled="api.loading.value" @click="effResult = 'Effective'; showEffectiveness = true">Đóng hành động khắc phục/phòng ngừa</button>
+        <button v-if="canReopenCapa" class="btn-ghost text-sm" data-testid="cta-reopen" :disabled="api.loading.value" @click="effResult = 'Not Effective'; showEffectiveness = true">Mở lại do chưa hiệu quả</button>
         <span v-if="isClosed" class="text-sm text-green-700 bg-green-50 border border-green-200 rounded px-3 py-1">Hành động khắc phục/phòng ngừa đã đóng — {{ formatDate(capa.closed_date) }}</span>
+        <span v-else-if="showNoActionsHint" class="text-sm text-slate-500 bg-slate-50 border border-slate-200 rounded px-3 py-1" data-testid="no-actions-hint">Không có thao tác khả dụng ở trạng thái này (hoặc bạn không đủ quyền).</span>
       </div>
 
       <!-- QMS content -->
@@ -315,13 +340,13 @@ onMounted(load)
           </div>
           <div class="form-group">
             <label class="form-label">Hạn xử lý (VR-12: phải sau hôm nay) *</label>
-            <input v-model="transitionPayload.due_date" type="date" class="form-input" />
+            <DateInput v-model="transitionPayload.due_date" class="form-input" />
           </div>
         </template>
       </div>
       <template #footer>
         <button class="btn-ghost" @click="showTransition = false">Huỷ</button>
-        <button class="btn-primary" :disabled="api.loading.value" @click="confirmTransition">{{ pendingTransition.label }}</button>
+        <button class="btn-primary" data-testid="transition-confirm" :disabled="api.loading.value" @click="confirmTransition">{{ pendingTransition.label }}</button>
       </template>
     </BaseModal>
 

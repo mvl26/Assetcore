@@ -1008,3 +1008,581 @@ class TestNeedsListOverdueEnrichment(unittest.TestCase):
         # NR-D: thiếu request_date → age None, không overdue (không vỡ)
         self.assertIsNone(by["NR-D"]["age_days"])
         self.assertFalse(by["NR-D"]["is_overdue"])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GATE-8 / LL-FE-51 — server-driven CTA cho phiếu đề xuất (Needs Request):
+# get_needs_request emit allowed_transitions + approve/reject enforce transition-role.
+# Đóng dead-gate: FE cũ gate isBoardApprover (Dept Head/Ops Manager) desync khỏi
+# role transition thật 'Phê duyệt'/'Bác đề xuất' (Procurement Manager / AssetCore
+# Super Admin / System Manager theo fixtures/workflow.json).
+# TDD: viết TRƯỚC implement (CLAUDE.md §17).
+# ─────────────────────────────────────────────────────────────────────────────
+class TestNeedsRequestAllowedTransitions(unittest.TestCase):
+    """`get_needs_request` PHẢI emit `allowed_transitions` (list[str] action ĐÃ
+    DEDUPE) — FE (NeedsRequestDetailView) gate nút Phê duyệt/Bác đề xuất theo list
+    này, KHÔNG theo isBoardApprover role-list hay workflow_state literal.
+
+    Persona duyệt = Needs Manager (đọc NR) + Procurement Manager (role transition
+    'Phê duyệt'/'Bác đề xuất') — mirror 'Trưởng phòng VT-TTBYT'. KHÔNG có Dept
+    Head/Ops Manager/System Manager.
+    """
+
+    NR = "IMM Needs Request"
+    APPROVE = "Phê duyệt"
+    REJECT = "Bác đề xuất"
+
+    @classmethod
+    def setUpClass(cls):
+        import frappe
+        frappe.set_user("Administrator")
+
+    def tearDown(self):
+        import frappe
+        frappe.set_user("Administrator")
+
+    def _make_pending_nr(self, year):
+        """NR ở 'Pending Approval' (docstatus=0). ignore_links → bỏ qua AC
+        Department/Category (helper allowed_transitions read-only, không submit)."""
+        import frappe
+        nr = frappe.new_doc(self.NR)
+        nr.request_date = frappe.utils.today()
+        nr.request_type = "New"
+        nr.requesting_department = "_TEST-NRCTA-DEPT"
+        nr.device_category = "_TEST-NRCTA-CAT"
+        nr.quantity = 1
+        nr.target_year = year
+        nr.funding_source = "NSNN"
+        nr.clinical_justification = "Test NR cho allowed_transitions — đủ ký tự."
+        nr.flags.ignore_links = True
+        nr.insert(ignore_permissions=True)
+        frappe.db.set_value(self.NR, nr.name, "workflow_state", "Pending Approval",
+                            update_modified=False)
+        frappe.db.commit()
+        self.addCleanup(self._purge_nr, nr.name)
+        return nr.name
+
+    def _purge_nr(self, name):
+        import frappe
+        frappe.set_user("Administrator")
+        if frappe.db.exists(self.NR, name):
+            frappe.db.set_value(self.NR, name, "docstatus", 0)
+            frappe.delete_doc(self.NR, name, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def _ensure_user(self, email, roles):
+        import frappe
+        if not frappe.db.exists("User", email):
+            frappe.get_doc({
+                "doctype": "User", "email": email,
+                "first_name": email.split("@")[0],
+                "send_welcome_email": 0, "enabled": 1,
+            }).insert(ignore_permissions=True)
+        doc = frappe.get_doc("User", email)
+        existing = {r.role for r in doc.get("roles", [])}
+        for r in roles:
+            if r not in existing:
+                doc.append("roles", {"role": r})
+        doc.save(ignore_permissions=True)
+        frappe.db.commit()
+        frappe.clear_cache(user=email)
+        from assetcore.services.shared import rbac as _rbac
+        if hasattr(_rbac, "invalidate_capabilities"):
+            _rbac.invalidate_capabilities(email)
+        self.addCleanup(self._purge_user, email)
+        return email
+
+    def _purge_user(self, email):
+        import frappe
+        frappe.set_user("Administrator")
+        if frappe.db.exists("User", email):
+            frappe.delete_doc("User", email, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def _allowed_as(self, user, name):
+        import frappe
+        from assetcore.api import imm01 as api
+        frappe.set_user(user)
+        try:
+            payload = api._get_needs_request(name)
+        finally:
+            frappe.set_user("Administrator")
+        self.assertIn("allowed_transitions", payload,
+                      "payload PHẢI có field allowed_transitions (server-driven CTA)")
+        self.assertIsInstance(payload["allowed_transitions"], list)
+        return payload["allowed_transitions"]
+
+    def test_procurement_manager_sees_approve_and_reject(self):
+        name = self._make_pending_nr(2090)
+        usr = self._ensure_user(
+            "nrcta_procmgr@test.local", ["Needs Manager", "Procurement Manager"])
+        allowed = self._allowed_as(usr, name)
+        self.assertIn(self.APPROVE, allowed)
+        self.assertIn(self.REJECT, allowed)
+        # Dedupe: workflow.json có nhiều row (Procurement/Super Admin/System Manager)
+        # cho cùng action ở Pending Approval → action chỉ xuất hiện MỘT lần.
+        self.assertEqual(allowed.count(self.APPROVE), 1)
+        self.assertEqual(allowed.count(self.REJECT), 1)
+
+    def test_reader_without_transition_role_excluded(self):
+        """Gate theo TRANSITION, KHÔNG theo status literal: Needs Manager đọc được
+        NR ở Pending Approval nhưng KHÔNG có role transition 'Phê duyệt' →
+        allowed_transitions KHÔNG chứa 'Phê duyệt'/'Bác đề xuất' (hết false-permissive)."""
+        name = self._make_pending_nr(2089)
+        usr = self._ensure_user("nrcta_needsmgr@test.local", ["Needs Manager"])
+        allowed = self._allowed_as(usr, name)
+        self.assertNotIn(self.APPROVE, allowed)
+        self.assertNotIn(self.REJECT, allowed)
+
+    def test_super_admin_sees_approve(self):
+        """Regression admin-override: QTV (AssetCore Super Admin) → 'Phê duyệt' CÓ
+        trong allowed_transitions (workflow.json khai Super Admin cho transition)."""
+        name = self._make_pending_nr(2088)
+        usr = self._ensure_user(
+            "nrcta_superadmin@test.local", ["AssetCore Super Admin"])
+        allowed = self._allowed_as(usr, name)
+        self.assertIn(self.APPROVE, allowed)
+
+
+class TestNeedsRequestApproveRejectRbac(unittest.TestCase):
+    """`approve_needs_request` / `reject_needs_request` PHẢI từ chối FORBIDDEN(403)
+    user KHÔNG nằm trong allowed roles của transition (đóng lỗ set workflow_state
+    trực tiếp bỏ qua kiểm role). Procurement Manager approve được (regression xanh).
+    """
+
+    NR = "IMM Needs Request"
+
+    @classmethod
+    def setUpClass(cls):
+        import frappe
+        frappe.set_user("Administrator")
+        # Dept + Category THẬT để NR submit được (approve → doc.submit() re-validate
+        # link). autoname series → capture name thật.
+        dept = frappe.new_doc("AC Department")
+        dept.department_name = "_Test NR-RBAC Dept"
+        dept.insert(ignore_permissions=True)
+        cls._dept = dept.name
+        cat = frappe.new_doc("AC Asset Category")
+        cat.category_name = "_Test NR-RBAC Cat"
+        cat.insert(ignore_permissions=True)
+        cls._cat = cat.name
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        import frappe
+        frappe.set_user("Administrator")
+        for dt, nm in (("AC Department", getattr(cls, "_dept", None)),
+                       ("AC Asset Category", getattr(cls, "_cat", None))):
+            if nm and frappe.db.exists(dt, nm):
+                frappe.delete_doc(dt, nm, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def tearDown(self):
+        import frappe
+        frappe.set_user("Administrator")
+
+    def _make_pending_nr(self, year):
+        """NR ở 'Pending Approval' (docstatus=0) với dept/cat THẬT (link hợp lệ) +
+        funding_source (gate G05 trước submit)."""
+        import frappe
+        nr = frappe.new_doc(self.NR)
+        nr.request_date = frappe.utils.today()
+        nr.request_type = "New"
+        nr.requesting_department = self._dept
+        nr.device_category = self._cat
+        nr.quantity = 1
+        nr.target_year = year
+        nr.funding_source = "NSNN"
+        nr.clinical_justification = "Test NR RBAC approve/reject — đủ ký tự mô tả."
+        nr.insert(ignore_permissions=True)
+        frappe.db.set_value(self.NR, nr.name, "workflow_state", "Pending Approval",
+                            update_modified=False)
+        frappe.db.commit()
+        self.addCleanup(self._purge_nr, nr.name)
+        return nr.name
+
+    def _purge_nr(self, name):
+        import frappe
+        frappe.set_user("Administrator")
+        if frappe.db.exists(self.NR, name):
+            frappe.db.set_value(self.NR, name, "docstatus", 0)
+            frappe.delete_doc(self.NR, name, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def _ensure_user(self, email, roles):
+        import frappe
+        if not frappe.db.exists("User", email):
+            frappe.get_doc({
+                "doctype": "User", "email": email,
+                "first_name": email.split("@")[0],
+                "send_welcome_email": 0, "enabled": 1,
+            }).insert(ignore_permissions=True)
+        doc = frappe.get_doc("User", email)
+        existing = {r.role for r in doc.get("roles", [])}
+        for r in roles:
+            if r not in existing:
+                doc.append("roles", {"role": r})
+        doc.save(ignore_permissions=True)
+        frappe.db.commit()
+        frappe.clear_cache(user=email)
+        from assetcore.services.shared import rbac as _rbac
+        if hasattr(_rbac, "invalidate_capabilities"):
+            _rbac.invalidate_capabilities(email)
+        self.addCleanup(self._purge_user, email)
+        return email
+
+    def _purge_user(self, email):
+        import frappe
+        frappe.set_user("Administrator")
+        if frappe.db.exists("User", email):
+            frappe.delete_doc("User", email, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def test_approve_wrong_role_forbidden(self):
+        """Needs Manager (đọc được NR, KHÔNG có role transition 'Phê duyệt') →
+        approve raise FORBIDDEN(403); workflow_state + docstatus KHÔNG đổi
+        (guard TRƯỚC mutate)."""
+        import frappe
+        from assetcore.api import imm01 as api
+        name = self._make_pending_nr(2085)
+        usr = self._ensure_user("nrrbac_needsmgr@test.local", ["Needs Manager"])
+        frappe.set_user(usr)
+        try:
+            with self.assertRaises(ServiceError) as cm:
+                api._approve_needs_request(name, "boss@test.local", "ok")
+        finally:
+            frappe.set_user("Administrator")
+        self.assertEqual(cm.exception.code, ErrorCode.FORBIDDEN)
+        self.assertNotIn("<strong>", (cm.exception.message or "").lower())
+        self.assertEqual(
+            frappe.db.get_value(self.NR, name, "workflow_state"), "Pending Approval")
+        self.assertEqual(frappe.db.get_value(self.NR, name, "docstatus"), 0)
+
+    def test_reject_wrong_role_forbidden(self):
+        """Đối xứng: Needs Manager reject NR Pending Approval → FORBIDDEN(403),
+        workflow_state KHÔNG đổi."""
+        import frappe
+        from assetcore.api import imm01 as api
+        name = self._make_pending_nr(2084)
+        usr = self._ensure_user("nrrbac_needsmgr@test.local", ["Needs Manager"])
+        frappe.set_user(usr)
+        try:
+            with self.assertRaises(ServiceError) as cm:
+                api._reject_needs_request(name, "Không đủ điều kiện")
+        finally:
+            frappe.set_user("Administrator")
+        self.assertEqual(cm.exception.code, ErrorCode.FORBIDDEN)
+        self.assertEqual(
+            frappe.db.get_value(self.NR, name, "workflow_state"), "Pending Approval")
+        self.assertEqual(frappe.db.get_value(self.NR, name, "docstatus"), 0)
+
+    def test_procurement_manager_approves_end_to_end(self):
+        """Regression xanh: Needs Manager + Procurement Manager → approve chạy
+        end-to-end: workflow_state='Approved', docstatus=1, write_audit_trail được
+        gọi với event 'Approval Note'."""
+        import frappe
+        from assetcore.api import imm01 as api
+        from assetcore.services import imm01 as svc
+        name = self._make_pending_nr(2083)
+        usr = self._ensure_user(
+            "nrrbac_procmgr@test.local", ["Needs Manager", "Procurement Manager"])
+
+        events: list[str] = []
+        orig = svc.write_audit_trail
+
+        def _spy(doc, event_type, *a, **k):
+            events.append(event_type)
+            return orig(doc, event_type, *a, **k)
+
+        svc.write_audit_trail = _spy
+        frappe.set_user(usr)
+        try:
+            # board_approver là Link→User: dùng chính user duyệt (tồn tại) để vượt
+            # link-validation lúc doc.submit().
+            res = api._approve_needs_request(name, usr, "Đồng ý phê duyệt")
+        finally:
+            frappe.set_user("Administrator")
+            svc.write_audit_trail = orig
+
+        self.assertEqual(res["workflow_state"], "Approved")
+        self.assertEqual(frappe.db.get_value(self.NR, name, "workflow_state"), "Approved")
+        self.assertEqual(frappe.db.get_value(self.NR, name, "docstatus"), 1)
+        self.assertIn("Approval Note", events,
+                      "write_audit_trail phải được gọi với event 'Approval Note'")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CR-WF-01-SURFACE-GUARD — invariant guard cho 2 surface CTA của IMM-01
+# (silent-CTA-loss). Mirror R29 IMM-04 cho module lifecycle-ENTRY (Needs 34
+# transition + Plan 10 transition, 2 surface — KHÁC IMM-04 chỉ 1 surface).
+#
+# Lỗ đóng: rename / deactivate / duplicate active Workflow → get_transitions trả []
+# → bare `except Exception: return []` @_nr/_plan_allowed_transition_actions nuốt
+# CÂM → mất TOÀN BỘ nút duyệt đề xuất/kế hoạch mà KHÔNG test nào bắt. 3 tầng bất
+# biến, module-local:
+#   • INV-A (resolution): document_type → ĐÚNG-1 active Workflow đúng tên (fixtures).
+#   • INV-B (live-wiring): user CÓ role transition trên Draft → surface NON-EMPTY
+#     và == tập action get_transitions (chống permanent []).
+#   • INV-C (degrade): user thiếu quyền / get_transitions raise → [] GRACEFUL,
+#     KHÔNG raise, payload không vỡ (phân định empty-do-thiếu-quyền vs empty-do-vỡ).
+#
+# Cross-ref (KHÔNG re-assert ở đây): Super-Admin-mọi-transition-edge đã khoá TOÀN
+# CỤC ở test_workflow_admin_override.py (5 class: TestWorkflowAdminOverride +
+# TestBackfillScope + TestRevertForeign[Live] + TestSourceWorkflowFiles). Guard này
+# CHỈ khoá resolution + live-wiring + degrade của 2 surface IMM-01.
+#
+# [AUTO] 0 runtime .py change (chỉ +test) → 0 gunicorn --preload reload / 0 migrate.
+# ─────────────────────────────────────────────────────────────────────────────
+class TestNeedsPlanWorkflowSurfaceInvariant(unittest.TestCase):
+    """Guard 2 surface CTA IMM-01 (`_nr_allowed_transition_actions` @api/imm01.py:187
+    + `_plan_allowed_transition_actions` @:476) chống mất-câm-nút-duyệt khi
+    workflow bị rename/deactivate/duplicate. Live-wiring = surface phải BẰNG tập
+    action `frappe.model.workflow.get_transitions` (không permanent []).
+    """
+
+    _DT_NR = "IMM Needs Request"
+    _DT_PP = "IMM Procurement Plan"
+    _EXPECTED_NR_WF = "IMM-01 Needs Workflow"
+    _EXPECTED_PP_WF = "IMM-01 Plan Workflow"
+    # Action Draft grounded fixtures/workflow.json (Draft có đúng 1 action/workflow).
+    _NR_DRAFT_ACTION = "Gửi đề xuất"
+    _PP_DRAFT_ACTION = "Phê duyệt kế hoạch"
+
+    @classmethod
+    def setUpClass(cls):
+        import frappe
+        frappe.set_user("Administrator")
+
+    def tearDown(self):
+        import frappe
+        frappe.set_user("Administrator")
+
+    # ── fixtures ──────────────────────────────────────────────────────────────
+    def _make_draft_nr(self, year):
+        """NR ở 'Draft' (docstatus=0). ignore_links → bỏ qua AC Department/Category
+        (guard read-only, không submit). workflow_state ép 'Draft' → deterministic."""
+        import frappe
+        nr = frappe.new_doc(self._DT_NR)
+        nr.request_date = frappe.utils.today()
+        nr.request_type = "New"
+        nr.requesting_department = "_TEST-INVSURF-DEPT"
+        nr.device_category = "_TEST-INVSURF-CAT"
+        nr.quantity = 1
+        nr.target_year = year
+        nr.funding_source = "NSNN"
+        nr.clinical_justification = "Guard INV-SURFACE cho NR — đủ ký tự minh chứng."
+        nr.flags.ignore_links = True
+        nr.insert(ignore_permissions=True)
+        frappe.db.set_value(self._DT_NR, nr.name, "workflow_state", "Draft",
+                            update_modified=False)
+        frappe.db.commit()
+        self.addCleanup(self._purge_nr, nr.name)
+        return nr.name
+
+    def _purge_nr(self, name):
+        import frappe
+        frappe.set_user("Administrator")
+        if frappe.db.exists(self._DT_NR, name):
+            frappe.db.set_value(self._DT_NR, name, "docstatus", 0)
+            frappe.delete_doc(self._DT_NR, name, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def _make_draft_plan(self, year, period="Q1"):
+        """Kế hoạch RỖNG ở 'Draft' (bậc thang transition đầu) — đủ để đo surface."""
+        import frappe
+        doc = frappe.new_doc(self._DT_PP)
+        doc.plan_year = year
+        doc.plan_period = period
+        doc.budget_envelope = 1_000_000
+        doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+        self.addCleanup(self._purge_plan, doc.name)
+        self.assertEqual(doc.workflow_state, "Draft")  # sanity: default workflow state
+        return doc.name
+
+    def _purge_plan(self, name):
+        import frappe
+        frappe.set_user("Administrator")
+        if frappe.db.exists(self._DT_PP, name):
+            frappe.delete_doc(self._DT_PP, name, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def _ensure_user(self, email, roles):
+        import frappe
+        if not frappe.db.exists("User", email):
+            frappe.get_doc({
+                "doctype": "User", "email": email,
+                "first_name": email.split("@")[0],
+                "send_welcome_email": 0, "enabled": 1,
+            }).insert(ignore_permissions=True)
+        doc = frappe.get_doc("User", email)
+        existing = {r.role for r in doc.get("roles", [])}
+        for r in roles:
+            if r not in existing:
+                doc.append("roles", {"role": r})
+        doc.save(ignore_permissions=True)
+        frappe.db.commit()
+        frappe.clear_cache(user=email)  # tránh stale role-cache nếu user tồn dư
+        from assetcore.services.shared import rbac as _rbac
+        if hasattr(_rbac, "invalidate_capabilities"):
+            _rbac.invalidate_capabilities(email)
+        self.addCleanup(self._purge_user, email)
+        return email
+
+    def _purge_user(self, email):
+        import frappe
+        frappe.set_user("Administrator")
+        if frappe.db.exists("User", email):
+            frappe.delete_doc("User", email, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def _surface_and_raw(self, kind, name, user):
+        """Tính (surface, raw) DƯỚI CÙNG session ``user``:
+          surface = _{nr|plan}_allowed_transition_actions(doc) (dedupe)
+          raw     = action từ frappe.model.workflow.get_transitions(doc) (dedupe)
+        So == raw = bằng chứng live-wiring (surface KHÔNG hardcode / permanent [])."""
+        import frappe
+        from assetcore.api import imm01 as api
+        from frappe.model.workflow import get_transitions
+        dt = self._DT_NR if kind == "nr" else self._DT_PP
+        surface_fn = (api._nr_allowed_transition_actions if kind == "nr"
+                      else api._plan_allowed_transition_actions)
+        frappe.set_user(user)
+        try:
+            doc = frappe.get_doc(dt, name)
+            surface = list(surface_fn(doc))
+            raw: list[str] = []
+            for t in (get_transitions(doc) or []):
+                a = t.get("action")
+                if a and a not in raw:
+                    raw.append(a)
+        finally:
+            frappe.set_user("Administrator")
+        return surface, raw
+
+    # ── INV-01-SURFACE-A: workflow-resolution (đúng-1-active-named) ────────────
+    def test_inv_surface_a1_needs_resolves_single_active_named_workflow(self):
+        """TC-01-SURF-A1: document_type 'IMM Needs Request' → ĐÚNG 1 active Workflow
+        tên 'IMM-01 Needs Workflow' (grounded fixtures/workflow.json). RED nếu
+        rename / deactivate / duplicate active workflow."""
+        import frappe
+        names = frappe.get_all(
+            "Workflow",
+            filters={"document_type": self._DT_NR, "is_active": 1},
+            pluck="name",
+        )
+        self.assertEqual(
+            len(names), 1,
+            f"INV-A1: document_type {self._DT_NR!r} PHẢI resolve ĐÚNG 1 active "
+            f"Workflow (rename/deactivate/duplicate = mất câm CTA); thấy: {names}")
+        self.assertEqual(
+            names[0], self._EXPECTED_NR_WF,
+            f"INV-A1: active Workflow phải tên {self._EXPECTED_NR_WF!r} "
+            f"(grounded fixtures/workflow.json); thấy: {names[0]!r}")
+
+    def test_inv_surface_a2_plan_resolves_single_active_named_workflow(self):
+        """TC-01-SURF-A2: document_type 'IMM Procurement Plan' → ĐÚNG 1 active
+        Workflow tên 'IMM-01 Plan Workflow' (grounded fixtures)."""
+        import frappe
+        names = frappe.get_all(
+            "Workflow",
+            filters={"document_type": self._DT_PP, "is_active": 1},
+            pluck="name",
+        )
+        self.assertEqual(
+            len(names), 1,
+            f"INV-A2: document_type {self._DT_PP!r} PHẢI resolve ĐÚNG 1 active "
+            f"Workflow; thấy: {names}")
+        self.assertEqual(
+            names[0], self._EXPECTED_PP_WF,
+            f"INV-A2: active Workflow phải tên {self._EXPECTED_PP_WF!r}; "
+            f"thấy: {names[0]!r}")
+
+    # ── INV-01-SURFACE-B: live-wiring (NON-EMPTY == get_transitions) ───────────
+    def test_inv_surface_b1_needs_live_wired_nonempty_equals_get_transitions(self):
+        """TC-01-SURF-B1: Draft NR + user CÓ role transition ('Needs Manager' —
+        đọc NR + có action Draft 'Gửi đề xuất') → _nr_allowed_transition_actions
+        NON-EMPTY và == {action từ get_transitions} (dedupe). Chống permanent []."""
+        name = self._make_draft_nr(2091)
+        usr = self._ensure_user("inv_nr_wire@test.local", ["Needs Manager"])
+        surface, raw = self._surface_and_raw("nr", name, usr)
+        self.assertTrue(
+            surface,
+            "INV-B1: user CÓ role transition PHẢI có ≥1 action (permanent [] = "
+            "workflow vỡ / bare-except nuốt câm)")
+        self.assertEqual(
+            set(surface), set(raw),
+            "INV-B1: surface PHẢI == tập action get_transitions (live-wired)")
+        self.assertEqual(
+            len(surface), len(set(surface)),
+            "INV-B1: surface dedupe theo action (không trùng)")
+        self.assertIn(
+            self._NR_DRAFT_ACTION, surface,
+            f"INV-B1: Draft NR + Needs Manager PHẢI thấy {self._NR_DRAFT_ACTION!r} "
+            f"(grounded fixtures/workflow.json)")
+
+    def test_inv_surface_b2_plan_live_wired_nonempty_equals_get_transitions(self):
+        """TC-01-SURF-B2: Draft Plan + user role transition ('Procurement Manager'
+        cho action + 'Needs Manager' cho quyền ĐỌC) → _plan_allowed_transition_actions
+        NON-EMPTY == get_transitions actions. Dùng _DT_PP — KHÔNG lẫn _DT_NR."""
+        name = self._make_draft_plan(2092)
+        usr = self._ensure_user(
+            "inv_pp_wire@test.local", ["Needs Manager", "Procurement Manager"])
+        surface, raw = self._surface_and_raw("plan", name, usr)
+        self.assertTrue(
+            surface,
+            "INV-B2: user CÓ role transition PHẢI có ≥1 action (permanent [] = vỡ)")
+        self.assertEqual(
+            set(surface), set(raw),
+            "INV-B2: surface PHẢI == tập action get_transitions (live-wired)")
+        self.assertEqual(
+            len(surface), len(set(surface)),
+            "INV-B2: surface dedupe theo action (không trùng)")
+        self.assertIn(
+            self._PP_DRAFT_ACTION, surface,
+            f"INV-B2: Draft Plan + Procurement Manager PHẢI thấy "
+            f"{self._PP_DRAFT_ACTION!r} (grounded fixtures/workflow.json)")
+
+    # ── INV-01-SURFACE-C: degrade graceful (phân định empty-do-thiếu-quyền) ────
+    def test_inv_surface_c1_needs_base_role_returns_empty_graceful(self):
+        """TC-01-SURF-C1: user CHỈ base role 'AssetCore System User' (không role
+        transition) → _nr_allowed_transition_actions trả [] GRACEFUL — KHÔNG raise,
+        payload KHÔNG vỡ. Đây là empty-do-thiếu-quyền (CHẤP NHẬN), phân biệt với
+        empty-do-workflow-vỡ (INV-A/INV-B bắt = bug)."""
+        import frappe
+        from assetcore.api import imm01 as api
+        name = self._make_draft_nr(2093)
+        usr = self._ensure_user("inv_nr_base@test.local", ["AssetCore System User"])
+        frappe.set_user(usr)
+        try:
+            doc = frappe.get_doc(self._DT_NR, name)
+            result = api._nr_allowed_transition_actions(doc)  # KHÔNG raise
+        finally:
+            frappe.set_user("Administrator")
+        self.assertEqual(
+            result, [],
+            "INV-C1: base-role → [] graceful (không raise / không 403-500 vỡ payload)")
+
+    def test_inv_surface_c2_get_transitions_raise_returns_empty_graceful(self):
+        """TC-01-SURF-C2: monkeypatch frappe.model.workflow.get_transitions → raise
+        → CẢ _nr/_plan surface trả [] (bare-except path chứng minh graceful).
+
+        ⚠️ HARD-STOP observability backlog (KHÔNG áp vòng này): bare
+        `except Exception: return []` @_nr/_plan_allowed_transition_actions NUỐT lỗi
+        CÂM. Nên thay bằng frappe.log_error(...) TRƯỚC khi degrade = runtime .py
+        change → cần gunicorn --preload reload (USER), ship RIÊNG. Guard này khoá
+        hành vi graceful hiện tại; khi thêm log_error surface VẪN trả [] nên test
+        vẫn GREEN (chỉ +side-effect log)."""
+        from unittest import mock
+        from types import SimpleNamespace
+        from assetcore.api import imm01 as api
+        dummy = SimpleNamespace()  # get_transitions bị patch raise trước khi chạm doc
+        with mock.patch("frappe.model.workflow.get_transitions",
+                        side_effect=Exception("boom-workflow-broken")):
+            self.assertEqual(
+                api._nr_allowed_transition_actions(dummy), [],
+                "INV-C2: get_transitions raise → _nr surface [] (bare-except graceful)")
+            self.assertEqual(
+                api._plan_allowed_transition_actions(dummy), [],
+                "INV-C2: get_transitions raise → _plan surface [] (bare-except graceful)")

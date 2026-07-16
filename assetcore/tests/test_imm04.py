@@ -1187,5 +1187,225 @@ class TestGenerateQrLabelDeepLink(unittest.TestCase):
                 frappe.conf["assetcore_qr_base_url"] = orig
 
 
+# ─── CR-WF-04-SURFACE: workflow-surface integrity (INV-04-WF-1..4) ────────────
+#
+# Đóng lỗ silent-CTA-loss: rename/xoá "IMM-04 Workflow", drift _DT khỏi
+# document_type, hoặc rớt "AssetCore Super Admin" khỏi 1 cạnh → _get_workflow_
+# transitions() nuốt lỗi (`except DoesNotExistError: return []`) → toàn bộ CTA
+# nghiệm thu biến mất CÂM. Guard toàn cục test_workflow_admin_override glob file
+# JSON theo `name`, KHÔNG biết hằng-lookup literal của service → rename lọt câm.
+# Guard này COUPLE: hằng-lookup service ⇄ workflow live (DB) ⇄ file JSON ⇄ emit.
+# TEST-ONLY: oracle độc lập (parse-file JSON + inspect service literal) + assert
+# trên workflow LIVE (DB) + emit service LIVE. 0 chạm runtime .py → 0 reload/migrate.
+# Core Doc: docs/imm-04/04_Backend_Design.md §3.1 (INV-04-WF-1..4) + ADR-IMM-04-01.
+
+class TestImm04WorkflowSurfaceIntegrity(unittest.TestCase):
+    """INV-04-WF-1..4 — khoá workflow-surface chống silent-CTA-loss (test-only)."""
+
+    WF_NAME = "IMM-04 Workflow"
+    ADMIN_ROLE = "AssetCore Super Admin"
+
+    @classmethod
+    def setUpClass(cls):
+        import json
+        from pathlib import Path
+
+        frappe.set_user("Administrator")
+
+        # Oracle độc lập: parse TRỰC TIẾP file JSON (KHÔNG qua DB) — bắt drift ở
+        # tầng nguồn, không phụ thuộc seed.
+        cls._wf_path = frappe.get_app_path(
+            "assetcore", "assetcore", "workflow", "imm_04_workflow.json")
+        cls._fx_path = frappe.get_app_path("assetcore", "fixtures", "workflow.json")
+        cls._wf_json = json.loads(Path(cls._wf_path).read_text(encoding="utf-8"))
+        cls._fx_json = json.loads(Path(cls._fx_path).read_text(encoding="utf-8"))
+
+        # distinct (state, action, next_state) -> set(allowed roles)
+        cls._edges = {}
+        for t in cls._wf_json["transitions"]:
+            cls._edges.setdefault(
+                (t["state"], t["action"], t["next_state"]), set()
+            ).add(t["allowed"])
+        # tập next_state reachable từ các cạnh state == 'Draft' (Draft-out).
+        cls._draft_out = {
+            t["next_state"] for t in cls._wf_json["transitions"]
+            if t["state"] == "Draft"
+        }
+
+        # 1 user Super Admin (chỉ 'AssetCore Super Admin') + 1 user role-nghèo
+        # (chỉ 'Vendor Engineer' — KHÔNG ∈ allowed của bất kỳ cạnh Draft-out).
+        cls.super_user = "_test_imm04_wfsurf_super@assetcore.test"
+        cls.poor_user = "_test_imm04_wfsurf_poor@assetcore.test"
+        cls._ensure_user(cls.super_user, cls.ADMIN_ROLE)
+        cls._ensure_user(cls.poor_user, "Vendor Engineer")
+
+        # Phiếu Asset Commissioning ở Draft (oracle live-wiring cho INV-04-WF-3/4).
+        doc = frappe.get_doc({
+            "doctype": "Asset Commissioning", "workflow_state": "Draft",
+        }).insert(ignore_permissions=True, ignore_mandatory=True, ignore_links=True)
+        doc.db_set("workflow_state", "Draft", update_modified=False)
+        cls.comm = doc.name
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        try:
+            frappe.delete_doc("Asset Commissioning", cls.comm, force=True,
+                              ignore_permissions=True)
+        except Exception:
+            pass
+        for email in (cls.super_user, cls.poor_user):
+            try:
+                frappe.delete_doc("User", email, force=True, ignore_permissions=True)
+            except Exception:
+                pass
+        frappe.db.commit()
+
+    @staticmethod
+    def _ensure_user(email: str, role: str) -> None:
+        """Tạo/đảm bảo user có CHÍNH XÁC 1 role (strip mọi role khác để filter
+        tất định — chống default-role gây false-permissive)."""
+        if not frappe.db.exists("User", email):
+            u = frappe.get_doc({
+                "doctype": "User", "email": email,
+                "first_name": email.split("@")[0], "send_welcome_email": 0,
+                "enabled": 1,
+            }).insert(ignore_permissions=True)
+        else:
+            u = frappe.get_doc("User", email)
+        u.set("roles", [])
+        u.append("roles", {"role": role})
+        u.save(ignore_permissions=True)
+
+    def _emit_under(self, user: str) -> list[dict]:
+        """Gọi _get_workflow_transitions LIVE trên phiếu Draft dưới session `user`."""
+        from assetcore.services.imm04 import _get_workflow_transitions
+        frappe.set_user(user)
+        try:
+            return _get_workflow_transitions(self.comm)
+        finally:
+            frappe.set_user("Administrator")
+
+    # ── TC-1 (INV-04-WF-1) ────────────────────────────────────────────────────
+    def test_imm04_workflow_doc_resolves_and_document_type_matches(self):
+        """get_doc('Workflow','IMM-04 Workflow') KHÔNG raise + document_type ==
+        services.imm04._DT ('Asset Commissioning'). RED nếu rename workflow (DB)
+        hoặc drift _DT — cả hai làm _get_workflow_transitions nuốt (return [])."""
+        from assetcore.services import imm04 as svc
+        try:
+            wf = frappe.get_doc("Workflow", self.WF_NAME)
+        except frappe.DoesNotExistError:
+            self.fail(
+                f"Workflow '{self.WF_NAME}' KHÔNG resolve — rename/xoá ⇒ "
+                "_get_workflow_transitions except→return [] ⇒ mất CÂM toàn bộ CTA "
+                "nghiệm thu (0 test toàn cục bắt)")
+        self.assertEqual(
+            wf.document_type, svc._DT,
+            f"drift: workflow.document_type ({wf.document_type!r}) != imm04._DT "
+            f"({svc._DT!r}) — service đọc _DT để lấy workflow_state của phiếu")
+        self.assertEqual(svc._DT, "Asset Commissioning")
+
+    # ── TC-2 (service-string ⇄ fixture) ───────────────────────────────────────
+    def test_imm04_service_lookup_name_matches_fixture_workflow_name(self):
+        """Hằng-lookup literal trong _get_workflow_transitions ('IMM-04 Workflow')
+        == đúng 1 workflow name có trong fixtures/workflow.json (seed live ⇄
+        service-code đồng bộ). RED nếu đổi hằng @services/imm04.py:671 sang sai
+        (test_workflow_admin_override KHÔNG bắt — nó chỉ glob file, không đọc hằng)."""
+        import re
+        import inspect
+        from assetcore.services import imm04 as svc
+
+        src = inspect.getsource(svc._get_workflow_transitions)
+        m = re.search(
+            r'get_doc\(\s*["\']Workflow["\']\s*,\s*["\']([^"\']+)["\']', src)
+        self.assertIsNotNone(
+            m, "Không trích được hằng-lookup Workflow literal từ "
+            "_get_workflow_transitions — cấu trúc get_doc('Workflow', <literal>) đổi?")
+        service_wf_name = m.group(1)
+        self.assertEqual(
+            service_wf_name, self.WF_NAME,
+            f"Hằng-lookup service ({service_wf_name!r}) đã lệch hợp đồng "
+            f"'{self.WF_NAME}' — rename lọt CÂM, CTA nghiệm thu biến mất")
+
+        # Nguồn seed 1: file workflow gốc imm_04_workflow.json → 'name' top-level.
+        # (đổi 'name' trong file này, KỂ CẢ chưa migrate, phải trip guard ngay).
+        self.assertEqual(
+            service_wf_name, self._wf_json.get("name"),
+            f"Service lookup {service_wf_name!r} ≠ imm_04_workflow.json name "
+            f"{self._wf_json.get('name')!r} — rename file mà giữ hằng service (hoặc "
+            "ngược lại) ⇒ get_doc raise ⇒ silent-CTA-loss")
+        # Nguồn seed 2: fixtures/workflow.json aggregate (bản seed live fresh-site).
+        fixture_names = {w.get("name") for w in self._fx_json}
+        self.assertIn(
+            service_wf_name, fixture_names,
+            f"Service lookup {service_wf_name!r} KHÔNG khớp bất kỳ workflow name nào "
+            "trong fixtures/workflow.json (seed live ⇄ service-code lệch)")
+        matched = [w for w in self._fx_json if w.get("name") == service_wf_name]
+        self.assertEqual(
+            len(matched), 1,
+            f"Kỳ vọng đúng 1 fixture workflow '{service_wf_name}', thấy {len(matched)}")
+        self.assertEqual(matched[0].get("document_type"), svc._DT)
+
+    # ── TC-3 (INV-04-WF-2) ────────────────────────────────────────────────────
+    def test_imm04_every_workflow_edge_grants_super_admin(self):
+        """MỌI distinct (state, action, next_state) trong imm_04_workflow.json
+        (45 row → 15 cạnh) có 'AssetCore Super Admin' ∈ allowed → QTV duyệt được
+        mọi cạnh nghiệm thu. RED nếu 1 edit rớt Super Admin khỏi 1 cạnh."""
+        self.assertEqual(
+            len(self._wf_json["transitions"]), 45,
+            "Số transition-row đổi khỏi 45 — cập nhật oracle + doc §3.1 INV-04-WF-2")
+        self.assertEqual(
+            len(self._edges), 15,
+            "Số cạnh distinct đổi khỏi 15 — cập nhật doc §3.1")
+        missing = sorted(
+            edge for edge, allowed in self._edges.items()
+            if self.ADMIN_ROLE not in allowed)
+        self.assertEqual(
+            missing, [],
+            f"Cạnh THIẾU '{self.ADMIN_ROLE}' → QTV KẸT không duyệt được: {missing}")
+
+    # ── TC-4 (INV-04-WF-3 — live-wiring emit⊆file) ────────────────────────────
+    def test_imm04_get_workflow_transitions_live_wired_for_draft_as_super_admin(self):
+        """Phiếu Draft, set_user Super Admin → _get_workflow_transitions trả list
+        KHÁC rỗng + MỌI entry.next_state ∈ Draft-out parse từ file
+        ({'Pending Doc Verify'}). Emit service khớp workflow thật (không stale)."""
+        self.assertEqual(
+            frappe.db.get_value("Asset Commissioning", self.comm, "workflow_state"),
+            "Draft", "phiếu oracle không còn ở Draft — sửa setUpClass")
+        emitted = self._emit_under(self.super_user)
+        self.assertTrue(
+            emitted,
+            "Super Admin KHÔNG thấy CTA nào ở Draft — silent-CTA-loss (return [] câm)")
+        for e in emitted:
+            self.assertIn(
+                e["next_state"], self._draft_out,
+                f"emit next_state {e['next_state']!r} ∉ Draft-out {self._draft_out} "
+                "— emit service stale/lệch file JSON")
+            self.assertEqual(
+                e["allowed_role"], self.ADMIN_ROLE,
+                "Super-Admin-only user phải chỉ khớp cạnh do Super Admin cấp")
+
+    # ── TC-5 (INV-04-WF-4 — không false-permissive) ───────────────────────────
+    def test_imm04_get_workflow_transitions_role_filtered_no_false_permissive(self):
+        """Cùng phiếu Draft, user role-nghèo (Vendor Engineer — KHÔNG ∈ allowed cạnh
+        Draft-out) → emit là SUBSET CHẶT (⊆ và thực-sự-nhỏ-hơn, kỳ vọng rỗng) so
+        với Super Admin. Chứng minh filter 't.allowed in user_roles' chặn CTA leo
+        quyền (không false-permissive)."""
+        super_set = {(e["action"], e["next_state"])
+                     for e in self._emit_under(self.super_user)}
+        poor_set = {(e["action"], e["next_state"])
+                    for e in self._emit_under(self.poor_user)}
+        self.assertTrue(super_set, "sanity: Super Admin phải có CTA ở Draft")
+        self.assertTrue(
+            poor_set <= super_set,
+            f"FALSE-PERMISSIVE: role-nghèo emit CTA vượt Super Admin: "
+            f"{poor_set - super_set}")
+        self.assertLess(
+            len(poor_set), len(super_set),
+            "role-nghèo (Vendor Engineer) phải bị filter chặt hơn Super Admin ở "
+            "Draft (kỳ vọng rỗng) — bằng nhau ⇒ filter t.allowed không hoạt động")
+
+
 if __name__ == "__main__":
     unittest.main()

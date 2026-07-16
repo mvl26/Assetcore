@@ -290,6 +290,130 @@ File mục tiêu: `tests/test_imm_spare_allocation_doctype.py` ⬜ Planned. Cove
 
 State Transition Testing: mỗi edge = 1 test pass (đúng role + đúng state) + 1 test fail (sai role / sai state → `BAD_STATE` đã verify ở `test_approve_bad_state`).
 
+### III.4a INVARIANT `TestCycleCountAllowedTransitions` + `TestCycleCountRecount` (vòng 11, CR-WF-15-CC)
+
+File: `assetcore/tests/test_imm15.py` (thêm `import json`). Mirror `TestIncidentAllowedTransitions` (test_imm12.py CR-WF-12).
+
+**INVARIANT `TestCycleCountAllowedTransitions`** — SSoT `_cycle_allowed_transitions` (qua 3 map §04 §VI.2.1) ⇄ `imm_15_cycle_count_workflow.json`. RED trước fix, GREEN sau.
+
+```python
+def _load_cycle_workflow_edges() -> set[tuple[str, str]]:
+    path = frappe.get_app_path("assetcore","assetcore","workflow",
+                               "imm_15_cycle_count_workflow.json")
+    with open(path, encoding="utf-8") as fh:
+        wf = json.load(fh)
+    return {(t["state"], t["next_state"]) for t in wf["transitions"]}
+
+def _cycle_service_edges() -> set[tuple[str, str]]:
+    return {(f, svc._CYCLE_TOKEN_TARGET[tok])
+            for f, toks in svc._CYCLE_VALID_TRANSITIONS.items() for tok in toks}
+```
+
+| TC | Assert | BEFORE fix | AFTER fix |
+|---|---|---|---|
+| `test_inv1_service_subset_workflow` | `SVC − WF − _CYCLE_SHORTCUT_EDGES == ∅` (không CTA dead/bypass) | GREEN (shortcut `(Planned,Reviewed)` khai báo) | GREEN |
+| `test_inv2_workflow_subset_service` | `WF − SVC − _CYCLE_EXCEPTION_EDGES == ∅` (không CTA ẩn câm) | **RED** — `(Reviewed,Counting)` uncovered | GREEN |
+| `test_exception_edges_have_rationale` | mỗi `_CYCLE_EXCEPTION_EDGES`/`_CYCLE_SHORTCUT_EDGES`: là cạnh THẬT (WF resp. SVC) + rationale ≠ "" + KHÔNG nằm ở phía đối | GREEN | GREEN |
+| `test_map_matches_core_doc` | `_CYCLE_VALID_TRANSITIONS[Reviewed] == ["Recount","Post"]` (Recount trước Post); `[Planned]==[Counting]==["Submit"]`; `[Posted]==[]` | **RED** | GREEN |
+| `test_allowed_transitions_reviewed_with_cap` | user cap `inventory.submit` → `_cycle_allowed_transitions("Reviewed")==["Recount","Post"]` | **RED** | GREEN |
+| `test_allowed_transitions_reviewed_no_cap` | user chỉ `inventory.write` → `_cycle_allowed_transitions("Reviewed")==[]` | GREEN | GREEN |
+
+> Verified python set-diff @source (BEFORE): `WF\SVC = {(Planned,Counting),(Reviewed,Counting)}`, `SVC\WF = {(Planned,Reviewed)}`. Sau khai báo EXC `{(Planned,Counting)}` + SHORTCUT `{(Planned,Reviewed)}`: chỉ còn `(Reviewed,Counting)` uncovered → RED do thiếu Recount. AFTER thêm Recount: sạch.
+
+**`TestCycleCountRecount`** — endpoint `recount_cycle_count` (Reviewed→Counting). Users mang role THẬT (axis-A cap): base `inventory.write` only (cap-403); Inventory Manager / Super Admin (`inventory.submit`) pass.
+
+| TC | Kịch bản | Expect |
+|---|---|---|
+| TC-15-RECOUNT-01 | Reviewed + cap + reason hợp lệ | `{name, workflow_state:"Counting"}`; status DB = Counting; **đúng 1** IMM Audit Trail `from=Reviewed, to=Counting`, `change_summary` chứa reason, `event_type="State Change"` |
+| TC-15-RECOUNT-02 | reason rỗng/whitespace | `ServiceError(VALIDATION)` `IMM15_RECOUNT_REASON_REQUIRED` (422); status GIỮ Reviewed; 0 audit mới |
+| TC-15-RECOUNT-03 | status ≠ Reviewed (Planned / Posted) | `ServiceError(BAD_STATE)` (409); không đổi status |
+| TC-15-RECOUNT-04 | user chỉ `inventory.write` (thiếu `inventory.submit`) | `ServiceError(FORBIDDEN)` (in-handler cap-403 → HTTP-200 envelope); status GIỮ Reviewed |
+| TC-15-RECOUNT-05 | sau Recount → `get_cycle_count` | `allowed_transitions == _cycle_allowed_transitions("Counting") == ["Submit"]` (refetch state mới) |
+
+> API-layer guest: `recount_cycle_count` qua HTTP guest → **dispatcher 401** (không tới handler). Kiểm ở `tests/test_imm15_api.py` (⬜ Planned) nếu cần; cap-403 in-handler đã cover ở TC-04.
+
+**DoD (đọc DÒNG CUỐI `Ran N OK` THẬT):**
+`bench --site miyano run-tests --module assetcore.tests.test_imm15` GREEN · `--module assetcore.tests.test_workflows` GREEN (`test_workflow_admin_override` KHÔNG đổi — vòng 11 KHÔNG đụng workflow json) · FE `npm test` (vitest `cycleCountDetailCtaGate` — thêm case Recount) GREEN · `vue-tsc` sạch (type `CycleCountAction` +`'Recount'`).
+
+### III.4b INVARIANT `TestImm15AuditEventTypeParity` + audit-row per-transition + bare-pass regression guard (vòng 12, CR-WF-15-AUDIT)
+
+File: `assetcore/tests/test_imm15.py`. Đóng silent-audit-loss: 6 slug domain IMM-15 ∉ Select `IMM Audit Trail.event_type` ⇒ ValidationError bị try/except nuốt ⇒ 0 dòng audit. Xem 04 §IV-AUDIT + ADR-IMM-15-09 + BR-15-10.
+
+**(A) INVARIANT `TestImm15AuditEventTypeParity`** — chống drift emit-nhưng-quên-đăng-ký. RED trước khi thêm 6 option vào `imm_audit_trail.json`, GREEN sau (+ `bench migrate` sync JSON→DB).
+
+```python
+def _audit_select_options() -> set[str]:
+    opts = frappe.get_meta("IMM Audit Trail").get_field("event_type").options or ""
+    return {o.strip() for o in opts.split("\n") if o.strip()}
+
+class TestImm15AuditEventTypeParity(FrappeTestCase):
+    def test_imm15_slugs_subset_of_select(self):
+        missing = svc.IMM15_AUDIT_EVENT_TYPES - _audit_select_options()
+        self.assertEqual(missing, set(),
+            f"IMM-15 emit slug ∉ Select (silent-audit-loss): {missing}")
+    def test_ssot_constant_matches_emit_sites(self):
+        # closed action-set ⇒ slug allocation_* + cycle_count_posted == SSoT
+        derived = ({f"allocation_{a.lower()}" for a in svc._ALLOCATION_AUDIT_ACTIONS}
+                   | {"cycle_count_posted"})
+        self.assertEqual(derived, set(svc.IMM15_AUDIT_EVENT_TYPES))
+```
+
+| TC | Assert | BEFORE fix | AFTER fix |
+|---|---|---|---|
+| `test_imm15_slugs_subset_of_select` | `IMM15_AUDIT_EVENT_TYPES − Select == ∅` | **RED** — 6 slug missing | GREEN |
+| `test_ssot_constant_matches_emit_sites` | derived slug set == `IMM15_AUDIT_EVENT_TYPES` | GREEN (constant contract) | GREEN |
+
+**(B) Audit-row per-transition** — mỗi transition ghi ĐÚNG 1 dòng đúng slug + ref/actor. (Đếm `frappe.db.count("IMM Audit Trail", {...})` delta = 1.)
+
+| TC | Kịch bản | Expect (BEFORE → AFTER) |
+|---|---|---|
+| TC-15-AUD-01 | `post_cycle_count` (Reviewed→Posted) | dòng `event_type="cycle_count_posted"`, `ref_doctype=CycleCountRepo.DOCTYPE`, `ref_name=<cyc>`, `actor=verified_by`, `from="Reviewed"`, `to="Posted"`. **BEFORE: 0 dòng · AFTER: 1** |
+| TC-15-AUD-02 | `create_allocation` | 1 dòng `allocation_created`, `ref_name=<sal>` (BEFORE 0 → AFTER 1) |
+| TC-15-AUD-03 | `approve_allocation` | 1 dòng `allocation_approved` (BEFORE 0 → 1) |
+| TC-15-AUD-04 | `issue_allocation` | 1 dòng `allocation_issued` (BEFORE 0 → 1) |
+| TC-15-AUD-05 | `return_items` / `return_allocation` | 1 dòng `allocation_returned` (BEFORE 0 → 1) |
+| TC-15-AUD-06 | `cancel_allocation` | 1 dòng `allocation_cancelled` (BEFORE 0 → 1) |
+| TC-15-AUD-07 | 1 vòng đời create→approve→issue→return | 4 dòng phân biệt được (created/approved/issued/returned) — granularity provenance (bác Alternative "State Change") |
+
+**(C) Bare-pass regression guard** — audit fail phải SURFACE (log_error), KHÔNG bare `pass`; nghiệp vụ vẫn thành công (non-blocking).
+
+| TC | Kịch bản | Expect |
+|---|---|---|
+| TC-15-AUD-08 | monkeypatch `svc.log_audit_event` → raise; gọi `cancel_allocation` | (a) allocation VẪN Cancelled (non-blocking best-effort); (b) `frappe.log_error` ĐƯỢC gọi (spy) HOẶC Error Log +1 — KHÔNG nuốt câm. Guard cho `except: pass`→`log_error` @`_write_allocation_audit`. |
+| TC-15-AUD-09 | (đối xứng) monkeypatch raise; `post_cycle_count` | post VẪN Posted; log_error gọi (đã có sẵn @718 — regression-lock) |
+
+> ⚠️ Anti-false-green: TC-15-AUD-01..06 PHẢI assert **delta đếm = 1 theo đúng slug + ref_name** (KHÔNG chỉ "≥1 dòng bất kỳ") — nếu không, dòng "State Change" của recount / audit khác lọt qua. INVARIANT (A) RED-first: chạy test TRƯỚC khi thêm option để thấy RED thật (chống guard giả).
+
+### III.4c INVARIANT `TestAllocationAllowedTransitions` (vòng 16, CR-WF-15-ALLOC)
+
+File: `assetcore/tests/test_imm15.py` (đã có `import json`). Mirror `TestCycleCountAllowedTransitions` (§III.4a) + `TestIncidentAllowedTransitions` (test_imm12.py). SSoT `_allocation_allowed_transitions` (dict `_ALLOCATION_ALLOWED_TRANSITIONS`, 04 §VI.1.1) ⇄ `imm_15_allocation_workflow.json`. **RED trước fix** (`_ALLOCATION_ALLOWED_TRANSITIONS` chưa tồn tại → `AttributeError`/`ImportError`; `get_allocation` chưa emit → KeyError), **GREEN sau**.
+
+```python
+def _load_allocation_workflow_edges() -> set[tuple[str, str]]:
+    path = frappe.get_app_path("assetcore", "assetcore", "workflow",
+                               "imm_15_allocation_workflow.json")
+    with open(path, encoding="utf-8") as fh:
+        wf = json.load(fh)
+    return {(t["state"], t["next_state"]) for t in wf["transitions"]}
+
+def _allocation_service_edges() -> set[tuple[str, str]]:
+    return {(f, t) for f, tos in svc._ALLOCATION_ALLOWED_TRANSITIONS.items() for t in tos}
+```
+
+> **Verified python set-diff @source:** `SVC` (7 cạnh) = `{(Requested,Approved),(Requested,Issued),(Requested,Cancelled),(Approved,Issued),(Approved,Cancelled),(Picked,Cancelled),(Issued,Returned)}`. `WF` (9 cạnh) = SVC ∪ `{(Approved,Picked),(Picked,Issued),(Returned,Issued)}` − `{(Approved,Issued)}` … cụ thể `WF−SVC = {(Approved,Picked),(Picked,Issued),(Returned,Issued)}` (3 EXCEPTION deferred), `SVC−WF = {(Approved,Issued)}` (1 SHORTCUT).
+
+| TC | Assert | BEFORE fix | AFTER fix |
+|---|---|---|---|
+| `test_inv_codomain_subset_enum` | `⋃ _ALLOCATION_ALLOWED_TRANSITIONS.values() ⊆ {6 AllocationStatus}` (0 typo) | RED (no map) | GREEN |
+| `test_inv_keys_equal_enum` | `set(keys) == {Requested,Approved,Picked,Issued,Returned,Cancelled}`; `_allocation_allowed_transitions('<any>')` KHÔNG raise KeyError | RED (no map) | GREEN |
+| `test_inv1_service_subset_workflow` | `SVC − WF − _ALLOCATION_SHORTCUT_EDGES == ∅` (không CTA dead/bypass) | RED (no map) | GREEN (shortcut `(Approved,Issued)` khai) |
+| `test_inv2_workflow_subset_service` | `WF − SVC − _ALLOCATION_EXCEPTION_EDGES == ∅` (không CTA ẩn câm) | RED (no map) | GREEN (3 exception khai). **RED nếu thiếu `(Returned,Issued)`** → chứng minh guard bắt drift |
+| `test_exception_edges_have_rationale` | mỗi `_ALLOCATION_EXCEPTION_EDGES` (∈ WF, ∉ SVC) + `_ALLOCATION_SHORTCUT_EDGES` (∈ SVC, ∉ WF): rationale ≠ "" + KHÔNG ở phía đối | RED (no set) | GREEN |
+| `test_map_matches_core_doc` | `[Requested]==["Approved","Issued","Cancelled"]`; `[Approved]==["Issued","Cancelled"]`; `[Picked]==["Cancelled"]`; `[Issued]==["Returned"]`; `[Returned]==[]`; `[Cancelled]==[]` | RED | GREEN |
+| `test_get_allocation_emits_allowed_transitions` | `get_allocation(name)` CHỨA key `allowed_transitions == _allocation_allowed_transitions(status)` cho ≥3 status (Requested/Approved/Issued) + terminal Cancelled → `[]` | RED (no emit) | GREEN |
+
+> **DoD (đọc DÒNG CUỐI `Ran N OK` THẬT):** `bench --site miyano run-tests --module assetcore.tests.test_imm15` GREEN · `--module assetcore.tests.test_imm15_reservation` GREEN (regression — recompute_reserved KHÔNG đụng) · `--module assetcore.tests.test_workflows` GREEN (`IMM-15 Spare Allocation Workflow` min_transitions:12 GIỮ — KHÔNG đụng json) · `test_workflow_admin_override` GREEN (22/22 — 0 migrate/reload). FE: `vue-tsc` sạch (interface `AllocationDetail += allowed_transitions: string[]`). Sửa root cause — KHÔNG false-green (RED-first mỗi INVARIANT trước khi thêm map/emit).
+
 ## III.5. Integration — Audit chain integrity
 
 `_write_allocation_audit` ghi `IMM Audit Trail` cho mọi mutation (BR-15-10). 2 test chính:
@@ -400,7 +524,7 @@ bench --site [site] execute assetcore.services.imm15.reclassify_abc
 | VR-15-10 | dual-approver khác nhau | — | ⬜ Planned |
 | VR-15-11 | verified_by ≠ counted_by | — | ⬜ Planned |
 | VR-15-12 | forecast method whitelist | — | ⬜ Planned |
-| BR-15-10 | audit trail mọi mutation | — | ⬜ Planned (III.5) |
+| BR-15-10 | audit trail mọi mutation (6 slug domain ∈ Select, non-silent) | `TestImm15AuditEventTypeParity` (INVARIANT ⊆ Select) + TC-15-AUD-01..09 (per-transition 1-row đúng slug + bare-pass regression) — III.4b | ⬜ Planned (RED→GREEN vòng 12) |
 | BR-15-11 / VR-15-16 | Cảnh báo batch sắp hết hạn — cửa sổ `[today, today+30]`, `qty_on_hand>0`, field `batch_no`, gate `table_exists("IMM Spare Batch")`, no dup-key dict-filter | `TestExpiringBatches` (6 method): `test_window_predicate_selects_exactly_three` (3 trong cửa sổ, KHÔNG 4/5) · `test_upper_bound_30d_not_swallowed` (cận today+30 IN — RED khi dup-key) · `test_uses_batch_no_field_no_raise` (naming-contract, no unknown-column) · `test_empty_batch_excluded` (qty=0 OUT) · `test_no_recipients_no_send` (recipients=∅ → no-op, no raise) · `test_no_duplicate_string_dict_keys_in_repo` (AST-guard repo: 0 offender) | ✅ Done (6 method, RED-proven) |
 
 ## IV.3. Component → Test mapping

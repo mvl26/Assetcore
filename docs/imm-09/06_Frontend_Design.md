@@ -235,9 +235,11 @@ export default routes
 ├─────────────────────────────────────────────────────────────────┤
 │  #1 Electrical — Kiểm tra điện áp đầu vào         [Pass ✓]    │
 │     Yêu cầu: 220V ± 5%   │ Đo được: [218V         ]           │
+│     [📷 Ảnh bằng chứng]  ⚠ Cần ảnh (Class C/D)   [thumb ✓]   │
 │                                                                 │
 │  #2 Electrical — Kiểm tra cầu chì thay thế        [Pass ✓]    │
 │     Yêu cầu: 5A           │ Đo được: [5A           ]           │
+│     [📷 Ảnh bằng chứng]                                        │
 │                                                                 │
 │  #3 Safety — Kiểm tra rò điện vỏ thiết bị         [Fail ✗]    │
 │     ⚠ Kết quả Fail — không thể hoàn thành         (highlight đỏ)│
@@ -255,6 +257,12 @@ export default routes
 │  [Hoàn thành sửa chữa]  ← disabled cho đến khi 100% Pass      │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+**UX flow — đính ảnh bằng chứng theo mục checklist (BR-09-15/16, mobile CR-15/G6):**
+- Mỗi hàng checklist có **1 control upload ảnh** (nút "📷 Ảnh bằng chứng"), gọi `POST attach_repair_checklist_photo` **multipart** với `work_order_name`, `checklist_item_idx` (= **Frappe child `idx`** của hàng, 1-based), `file`. Sau success (`{file_url, file_name, checklist_item_idx}`) → hiển thị **thumbnail** từ `repair_checklist[idx].photo` (đã có sẵn trong `get_repair_work_order` — KHÔNG cần refetch toàn phiếu ngoài invalidate cache TanStack).
+- **Gate hiển thị control:** chỉ KTV được giao (`assigned_to`) hoặc role có `repair.write` (mirror gate nút action theo `allowed_transitions`, KHÔNG hardcode `status===`); WO ở trạng thái đang thực hiện (không terminal). Class C/D (`risk_class`) → badge "⚠ Cần ảnh" nhắc bằng chứng NĐ98.
+- **Max 1 ảnh/mục** (single Attach — server chặn ảnh thứ 2 → `"Mỗi mục checklist chỉ đính 1 ảnh"`); `photo` field hiện ảnh đã đính làm thumbnail. Bộ nhiều-ảnh/mục = `[ROADMAP]` (cần chuyển `photo` → child table nếu nghiệp vụ đòi >1 ảnh).
+- **Xử lý lỗi Decision-B:** đọc `error.code` + `error.fields.file` từ envelope HTTP-200 → hiển thị message VN dưới control upload (VALIDATION: thiếu file/sai định dạng/quá 10 MB/đã có ảnh; FORBIDDEN: "Không có quyền đính ảnh…"). KHÔNG dựa status-line (lỗi nghiệp vụ đến HTTP-200).
 
 ### CMList — Danh Sách WO
 
@@ -321,7 +329,7 @@ export default routes
 ```
 views/cm/                              ← thư mục thực tế
 ├── CMDashboardView.vue        — KPI cards + backlog + SLA alerts
-├── CMWorkOrderListView.vue    — Danh sách WO có filter + phân trang
+├── CMWorkOrderListView.vue    — Danh sách WO có filter + phân trang + tìm kiếm SERVER (CR-18)
 ├── CMCreateView.vue           — Tạo WO mới
 ├── CMWorkOrderDetailView.vue  — Hub chính, routing theo status
 ├── CMDiagnoseView.vue         — Form chẩn đoán
@@ -363,6 +371,11 @@ components/charts/
 ├── BacklogBarChart.vue         — Bar chart backlog theo dept
 └── FtfrGaugeChart.vue          — Gauge chart First-Time Fix Rate
 ```
+
+> 🆕 **CR-18 (tìm kiếm free-text phía SERVER — BR-09-LISTSEARCH/BR-09-17):** ô "Tìm phiếu" trên `CMWorkOrderListView.vue` chuyển sang refetch SERVER (đối xứng PM `PMWorkOrderListView`).
+> - **Trước (search-trap):** `search` ref client; `filteredWOs` computed (`CMWorkOrderListView.vue:146-153`) lọc `store.workOrders` (CHỈ trang đang tải) theo `name`/`asset_name` `toLowerCase().includes` ⇒ phiếu trang 2+ KHÔNG hiện dù khớp.
+> - **Sau:** `search` ref → **debounce 300ms** → truyền `search` như tham số riêng cho `store.fetchWorkOrders(buildFilters(), 1, search.value.trim())` → `listRepairWorkOrders(filters, page, pageSize, search)` (discrete query-param). Đổi `search` → **reset `page=1`** + refetch SERVER. **GỠ** `filteredWOs` (render thẳng `store.workOrders`); GỠ mọi `filteredWOs.length`/`?? filteredWOs.length` (subtitle "Tổng {total}" + "Hiển thị N" + empty-state) → dùng `store.pagination.total` / `store.workOrders.length`. **GIỮ** chip `search` (`activeChips` key `'search'`; xóa chip → clear `search` + refetch). Placeholder giữ "Tìm theo mã lệnh, tên thiết bị...".
+> - **Kết quả phủ MỌI trang:** BE OR-LIKE `name`/`asset_code`/`asset_name` toàn tập; FE KHÔNG lọc lại. File: `frontend/src/views/cm/CMWorkOrderListView.vue`, `frontend/src/api/imm09.ts` (`listRepairWorkOrders` +`search`), `frontend/src/stores/imm09.ts` (`fetchWorkOrders` forward `search`).
 
 ### Component Archetype Detail
 
@@ -546,6 +559,44 @@ const ACTION_MAP: Record<RepairStatus, ActionButton[]> = {
   'Cancelled':          [],
 }
 ```
+
+### FirmwareCrDetailView — gate nút theo `allowed_transitions` + `can_approve` (BR-09-20, GATE-8 · LL-FE-51)
+
+> 🔴 **Self-Correction (Vòng 10):** `FirmwareCrDetailView.vue` HIỆN TẠI (a) đổi status bằng `updateFirmwareCr(name, {status:'Approved'})` (CRUD chung — lỗ bảo mật: Repair User tự Approve, KHÔNG audit) và (b) gate nút bằng hardcode `fcr.status === 'Draft' || 'Pending Approval'` / `fcr.status === 'Approved'` (dead-gate). **Sửa:** gọi endpoint transition riêng + gate 100% nút theo `allowed_transitions` + `can_approve` server-derived. **0 hardcode `fcr.status==='X'`** trên NÚT (badge/step-indicator/text hiển thị status = display-only, được phép).
+
+```typescript
+// api/imm00.ts — FirmwareCR type += 2 field server-derived + 4 transition fn
+export interface FirmwareCR {
+  name: string; asset_ref: string; status: string
+  version_before: string; version_after: string; /* ... */
+  allowed_transitions?: string[]   // đã LỌC theo capability caller (server)
+  can_approve?: 0 | 1               // rbac.can("firmware.approve")
+}
+export const submitFirmwareCr   = (name: string) => frappePost(`${BASE.i9}.submit_firmware_cr`,   { name })
+export const approveFirmwareCr  = (name: string) => frappePost(`${BASE.i9}.approve_firmware_cr`,  { name })
+export const deployFirmwareCr   = (name: string) => frappePost(`${BASE.i9}.deploy_firmware_cr`,   { name })
+export const rollbackFirmwareCr = (name: string, rollback_reason: string) =>
+  frappePost(`${BASE.i9}.rollback_firmware_cr`, { name, rollback_reason })
+```
+
+```vue
+<!-- FirmwareCrDetailView.vue — CTA gate 100% server-driven -->
+<script setup lang="ts">
+const at = computed(() => fcr.value?.allowed_transitions ?? [])
+const canApprove = computed(() => fcr.value?.can_approve === 1)
+const showSubmit   = computed(() => at.value.includes('Pending Approval'))  // Gửi duyệt
+const showApprove  = computed(() => at.value.includes('Approved') && canApprove.value)
+const showDeploy   = computed(() => at.value.includes('Applied'))           // Triển khai
+const showRollback = computed(() => at.value.includes('Rolled Back'))       // Hoàn tác (mở modal nhập lý do)
+// KHÔNG còn approve() gọi updateFirmwareCr({status}); mỗi nút gọi endpoint transition riêng,
+// sau đó await load() để nhận allowed_transitions/can_approve mới.
+</script>
+```
+
+- **Ánh xạ nút ↔ cạnh:** Gửi duyệt→`submitFirmwareCr` · Duyệt→`approveFirmwareCr` · Triển khai→`deployFirmwareCr` · Hoàn tác→`rollbackFirmwareCr(reason)` (bắt buộc modal nhập `rollback_reason`).
+- **Repair User** xem FCR Pending Approval: server trả `allowed_transitions=[]`, `can_approve=0` ⇒ KHÔNG nút Duyệt. Nếu vẫn POST (spoof) → BE trả `FORBIDDEN` HTTP-200 → toast VN inline (KHÔNG echo traceback — LL-FE-Finding-C).
+- **Manager/Super Admin:** `allowed_transitions=['Approved']`, `can_approve=1` ⇒ hiện nút Duyệt.
+- Step-indicator/`StatusBadge` GIỮ đọc `fcr.status` (display-only — KHÔNG phải gate nút). Test FE `FirmwareCrDetail.test.ts`: grep 0 `fcr.status ===` trong khối `<template>` nút hành động; render nút đúng theo `allowed_transitions` fixture.
 
 ### PartSearchCombobox — Debounce search
 

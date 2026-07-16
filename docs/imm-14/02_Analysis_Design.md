@@ -430,15 +430,83 @@ BR-14-W2-01 (GATE) · -02 (disposal_method) · -03 (sanitization gate risk C/D) 
 - **Consequences**: lệch nhẹ pattern imm16 (đáng, vì tài liệu này chứa dữ liệu nhạy cảm hơn findings). count==rows phải test tường minh (BR-14-W2-10). Nếu Đợt 3 thêm PQC, total-path đã đúng sẵn — không phải refactor.
 
 ### ADR-IMM14-LIST-02: Row-click điều hướng về Asset, không mở Closure detail
-- **Status**: Accepted
+- **Status**: **Superseded by ADR-IMM14-DETAIL-03 (2026-07-10)** — ~~Accepted 2026-07-02~~
 - **Date**: 2026-07-02
 - **Context**: Chưa có route/detail-view cho closure record ở vòng này (Never-scope VII.2). Người dùng cần "từ danh sách → xem thiết bị".
 - **Decision**: click row → `router.push('/assets/' + row.asset)` (màn asset detail đã tồn tại, IMM-00). Cột "Số hồ sơ" chỉ hiển thị (không phải link tới closure detail).
 - **Alternatives**: mở `/decommissions/:name` — loại (chưa build closure detail view; `get_decommission` chưa gắn route → ROADMAP Đợt 3).
 - **Consequences**: closure detail view là ROADMAP; nếu Đợt 3 build, đổi target row-click sang closure detail + cột "Số hồ sơ" thành link (không phá vỡ list).
+- **⚠️ Superseded (2026-07-10):** vòng 17 build `DecommissionDetailView` (route `/decommissions/:id`) + đổi drill row → biên bản. Lý do đảo quyết định: ADR-IMM14-DETAIL-03 (VIII.5). Giữ ADR này làm lịch sử — KHÔNG xoá.
 
 *Hết Phần VII.*
 
 ---
 
-*Hết file 02 — IMM-14 Analysis & Design. Phần I–V = thiết kế đầy đủ Đợt 3; Phần VI = write-path CHỐT vòng 2; Phần VII = read/list surface CHỐT vòng 2 (2026-07-02).*
+# Phần VIII — Vòng 17: Màn Chi tiết & DUYỆT biên bản giải nhiệm (server-driven CTA) — CHỐT
+
+> **Self-Correction (2026-07-10).** VII.2 (Never-scope) + ADR-IMM14-LIST-02 chốt "KHÔNG trang chi tiết `/decommissions/:name`, row-click → asset". Vòng 17 **đảo quyết định đó**: build `DecommissionDetailView` (route `/decommissions/:id`) render biên bản + gate DUYỆT theo cờ **server-driven `can_approve`** (KHÔNG hardcode docstatus/workflow_state=== — GATE-8/LL-FE-51). Lý do: (a) hồ sơ draft docstatus=0 "mồ côi" (tạo thành công nhưng approve bị 403 do worker cũ / thiếu submit) hiện KHÔNG có bề mặt để approver mở & duyệt lại — chỉ drill về asset là ngõ cụt; (b) tách `create` ≠ `approve` cần một màn đọc-rồi-duyệt độc lập với modal create trên AssetDetail. Endpoint `get_decommission` đã tồn tại (chưa gắn route) → vòng 17 enrich thêm 2 cờ + gắn route. **KHÔNG** đụng schema DocType, **KHÔNG** cấp/nới DocPerm.
+
+## VIII.1. Đề mục & 5 câu hỏi domain
+
+- **WHO HTM stage:** Giai đoạn 6 — Decommission. **WHO §3.8** (register) + **§3.6** (patient-data sanitization gate). Màn chi tiết là surface để người có quyền **đọc biên bản** rồi **ký duyệt** (đóng closure gate) — không phải re-tạo.
+- **NĐ98:** hồ sơ thanh lý phải lưu trữ + tra cứu + **có người ký duyệt chịu trách nhiệm** (audit trail). Nút Duyệt sinh lifecycle event `decommissioned` + audit "State Change" (qua write-path VI, KHÔNG nhân bản).
+- **Stakeholder owns step:** người **duyệt** = vai có capability `decommission.approve` (DocPerm submit=1: AssetCore Super Admin / Commissioning Manager / Compliance Manager). Người **xem** = mọi vai `decommission.read` (thêm Commissioning User create=1/submit=0 + Auditor read-only).
+- **Lifecycle event produced:** GET detail = KHÔNG (read-only). Nút Duyệt = write-path VI (event `decommissioned` do `transition_asset_status` lo). Vòng 17 KHÔNG thêm event mới.
+- **Hậu quả nếu data sai:** (a) CTA Duyệt render sai (dead-control) cho user thiếu quyền → click → 403 khó hiểu / hoặc bypass gate; (b) rò `asset` Link-id thô / `responsible` email thô ra UI (PII, user_source policy); (c) `can_approve` lệch SoT với `approve_decommission` → FE cho bấm nhưng BE chặn (drift), hoặc ẩn nút dù duyệt được. → cờ `can_approve` PHẢI dẫn xuất từ **cùng SoT** mà `approve_decommission` enforce.
+
+## VIII.2. Scope-fence (Boundaries)
+
+**Always (In-scope vòng 17):**
+- Route FE `/decommissions/:id` → `DecommissionDetailView.vue` (`frontend/src/views/eol/`) render biên bản từ `getDecommission(name)`.
+- `get_decommission` (BE) enrich thêm **2 cờ**: `can_approve` (int 0/1) + `approve_blocked_reason` (chuỗi VI, rỗng khi `can_approve=1`). Dẫn xuất từ SoT `_evaluate_approvability(doc)` (04 §X.2) — cùng điều kiện `approve_decommission` enforce.
+- CTA "Duyệt giải nhiệm" **chỉ render khi `can_approve===1`** (server-driven). `can_approve=0` → KHÔNG nút + hiện hint = `approve_blocked_reason` (no dead-control, LL-FE-47).
+- Drill: `DecommissionListView` row-click → `/decommissions/:id` (biên bản). Link tới asset giữ ở **vị trí phụ** (nút/nhãn "Xem thiết bị" trong màn chi tiết + optional icon-link trong row).
+- Hồ sơ draft docstatus=0 mồ côi reachable qua list → mở detail → duyệt được bởi approver.
+
+**Never (Out — giữ nguyên/ROADMAP):**
+- KHÔNG hardcode `docstatus===`/`workflow_state===` để gate CTA (GATE-8/LL-FE-51) — chỉ `can_approve===1`.
+- KHÔNG thêm/sửa field DocType `Asset Decommission` (schema đủ) — chỉ enrich response.
+- KHÔNG cấp/nới DocPerm mới; KHÔNG đổi capability map. Ai duyệt được = DocPerm submit hiện có.
+- KHÔNG build nút Huỷ/Cancel/Amend/rollback trên detail (ROADMAP Đợt 3). Vòng 17 chỉ có 1 CTA: Duyệt.
+- KHÔNG duplicate logic gate: `can_approve` KHÔNG reimplement field-rule — reuse `validate_before_approve` + atoms terminal/docstatus/capability.
+- KHÔNG rò `asset` Link-id thô / `responsible` email thô ra UI (dùng `asset_name` / `responsible_name`).
+
+## VIII.3. GATE chính (đo được) — acceptance
+
+1. Route `/decommissions/:id` tồn tại → `DecommissionDetailView` render: `asset_name` (KHÔNG asset-id thô), `responsible_name` (KHÔNG email thô), `disposal_method` (nhãn VI qua SSoT enum), `decommission_reason`, `patient_data_sanitized` + `sanitization_note`, `risk_classification_snapshot`, badge trạng thái VI (Draft→Bản nháp / Approved→Đã duyệt / Cancelled→Đã huỷ), `decommissioned_on` (format dd/MM/yyyy, NULL→"—").
+2. `get_decommission` trả thêm `can_approve` (int 0/1) = `rbac.can('decommission.approve')` **AND** `docstatus==0` **AND** gate tiền-điều-kiện đạt (không terminal record, asset chưa Decommissioned, `validate_before_approve` không raise); kèm `approve_blocked_reason` (chuỗi VI, rỗng ⇔ `can_approve=1`). Invariant: `approve_blocked_reason != "" ⇔ can_approve == 0`.
+3. CTA "Duyệt giải nhiệm" render **⇔ `can_approve===1`**; bấm → `approveDecommission(name)` → asset `lifecycle_status=Decommissioned`, badge đổi "Đã duyệt", CTA tự ẩn (refetch detail → `can_approve` về 0 với reason "Hồ sơ đã được duyệt."). `can_approve=0` → KHÔNG nút + hiện hint `approve_blocked_reason`.
+4. `DecommissionListView` row-click → `/decommissions/:id` (biên bản). Hồ sơ draft docstatus=0 mồ côi reachable + duyệt được bởi approver. Link asset ở vị trí phụ.
+5. **Không hồi quy quyền:** Super Admin / Compliance Manager / Commissioning Manager (submit=1) mở draft → `can_approve=1`, thấy CTA. Commissioning User (create=1/submit=0) mở CÙNG biên bản → xem được, CTA ẩn, `approve_blocked_reason="Bạn không đủ quyền duyệt giải nhiệm."`. KHÔNG cấp/nới DocPerm.
+6. TDD xanh THẬT: `bench --site miyano run-tests` (test_imm14) → "Ran N OK"; FE `decommissionDetailCtaGate.test.ts` pass + `npm run typecheck` (prod) 0 error.
+
+## VIII.4. Business rules vòng 17
+
+- **BR-14-W2-13 (can_approve = single SoT):** `can_approve` + `approve_blocked_reason` dẫn xuất từ `_evaluate_approvability(doc)` (04 §X.2). Predicate compose ĐÚNG các atom mà `approve_decommission` enforce: `rbac.can('decommission.approve')` · `docstatus==0` (docstatus 1 → "đã duyệt", 2 → "đã huỷ") · asset chưa Decommissioned · `validate_before_approve(doc)` không raise. KHÔNG viết lại field-rule (reuse hàm validate hiện có, bắt raise → lấy message VI).
+- **BR-14-W2-14 (CTA server-driven):** FE gate CTA CHỈ theo `can_approve===1`; KHÔNG `docstatus===`/`workflow_state===` (GATE-8/LL-FE-51). Trạng thái/flag lạ → degrade an toàn = KHÔNG nút (no dead-control).
+- **BR-14-W2-15 (no PII leak ở detail):** render `asset_name` (fallback `asset` chỉ khi name rỗng) + `responsible_name`; KHÔNG render `responsible` email / `asset` Link-id thô. Enum `disposal_method` render as-is (SSoT, exempt dịch — LL-FE-53). Trạng thái qua StatusBadge VI (KHÔNG raw EN).
+- **BR-14-W2-16 (no new grant):** enrich chỉ ĐỌC (`rbac.can` = boolean, không raise; `frappe.has_permission`). KHÔNG đổi DocPerm/capability map. `approve_decommission` giữ `rbac.require('decommission.approve')` (cap-403 nếu POST khi thiếu quyền) — FE ẩn nút chỉ là UX, BE vẫn là SoT.
+
+## VIII.5. Quyết định kiến trúc (ADR)
+
+### ADR-IMM14-DETAIL-03: Build DecommissionDetailView + drill row → biên bản (supersedes LIST-02)
+- **Status**: Accepted
+- **Date**: 2026-07-10
+- **Context**: ADR-IMM14-LIST-02 (row-click → asset, KHÔNG detail view) tạo ngõ cụt: hồ sơ draft docstatus=0 "mồ côi" (create thành công nhưng approve bị 403 worker-cũ / user thiếu submit) không có bề mặt để approver mở & duyệt lại. `create` (modal trên AssetDetail) ≠ `approve` cần màn đọc-rồi-duyệt riêng. `get_decommission` đã tồn tại nhưng chưa gắn route.
+- **Decision**: build `views/eol/DecommissionDetailView.vue` + route `/decommissions/:id` (cap `decommission.read`). `DecommissionListView` row-click → `/decommissions/:id`. Link tới asset chuyển xuống **vị trí phụ** (nút "Xem thiết bị" trong detail; row vẫn có thể có icon-link phụ tới asset).
+- **Alternatives**: (a) giữ LIST-02 (drill→asset) — loại: ngõ cụt cho draft mồ côi, không tách create/approve. (b) thêm nút Approve ngay trong list row — loại: nút hành động submit trong bảng đọc dễ mis-click + không có chỗ đọc đủ thông tin biên bản trước khi ký.
+- **Consequences**: route mới + view mới + test mới. Drill đổi target (list test cập nhật: row-click assert `/decommissions/:id` thay `/assets/:asset`). Không phá gate/RBAC (chỉ đọc). LIST-02 superseded (giữ lịch sử).
+
+### ADR-IMM14-APPROVE-04: can_approve dẫn xuất từ SoT chung `_evaluate_approvability` (no duplicate logic)
+- **Status**: Accepted
+- **Date**: 2026-07-10
+- **Context**: Acceptance yêu cầu CTA server-driven (GATE-8/LL-FE-51) — FE KHÔNG hardcode docstatus/workflow_state===. `get_decommission` phải phát `can_approve` phản ánh ĐÚNG những gì `approve_decommission` sẽ enforce (nếu lệch → FE cho bấm nhưng BE chặn, hoặc ẩn nút dù duyệt được). Mẫu có sẵn: `services/imm05.py:273` (`data["can_approve"]=int(rbac.can("doc.approve"))`) + `DocumentDetailView.vue` gate `can_approve===1`.
+- **Decision**: factor `_evaluate_approvability(doc) -> tuple[int, str]` trong `services/imm14.py` làm **SoT duy nhất**. Predicate reuse: `rbac.can('decommission.approve')` + guard docstatus (0/1/2) + terminal-asset + gọi `validate_before_approve(doc)` trong try/except (KHÔNG copy field-rule). `get_decommission` gọi predicate → set 2 cờ. `approve_decommission` giữ enforcement qua `doc.submit()` (controller `validate` = `validate_before_approve`) + guard terminal/docstatus hiện có — **cùng atoms** predicate dùng ⇒ không drift. Reason VI resolve qua `format_message(MSG.*, ctx)` (registry, KHÔNG hardcode chuỗi).
+- **Alternatives**: (a) FE tự suy `can_approve` từ docstatus — loại (dead-gate, drift, vi phạm GATE-8). (b) duplicate điều kiện trong `get_decommission` — loại (2 nơi sửa → lệch). (c) chạy thật `doc.submit()` trong get để test-approvability — loại (side-effect trong GET, sai HTTP-verb semantics; dùng `validate_before_approve` read-only thay thế).
+- **Consequences**: thêm 3 MSG entry (no-permission / already-approved / cancelled) vào registry. `get_decommission` chạy `validate_before_approve` (read-only, không mutate) mỗi lần đọc — chi phí nhỏ (in-memory field check). Predicate là điểm mở rộng khi Đợt 3 thêm điều kiện duyệt (SoD…) → sửa 1 nơi.
+
+*Hết Phần VIII.*
+
+---
+
+*Hết file 02 — IMM-14 Analysis & Design. Phần I–V = thiết kế đầy đủ Đợt 3; Phần VI = write-path CHỐT vòng 2; Phần VII = read/list surface CHỐT vòng 2 (2026-07-02); Phần VIII = detail-view + server-driven approve gate CHỐT vòng 17 (2026-07-10).*

@@ -15,8 +15,8 @@ Mức guard (chủ ý — KHÔNG re-implement gate):
   - Khẳng định **mỗi cap TỒN TẠI trong CAPABILITY_MAP** (import rbac.py SSoT) + binding
     `(DocType, ptype)` KHỚP ĐÚNG matrix. Cap thiếu / đổi-binding = hard-fail (= drift
     hợp đồng quyền).
-  - Anti-cap-creep: 0 cap MỚI vì mobile — `len(CAPABILITY_MAP)==97` + cap-set version
-    == 'v97.c30c69b8974d' (bench-verified) ⇒ mọi cap mobile dùng ⊆ tập hiện hữu (chống
+  - Anti-cap-creep: 0 cap MỚI vì mobile — `len(CAPABILITY_MAP)==98` + cap-set version
+    == 'v104.e46d05d9a66d' (bench-verified) ⇒ mọi cap mobile dùng ⊆ tập hiện hữu (chống
     'hệ quyền thứ 2' — ADR-MOBILE-001 (b)).
   - Drift-guard 2 chiều doc↔source: version đóng băng trong test = version doc 11
     §1/§3/§4/§Tham-chiếu. Nếu cap-set đổi (thêm/bớt/đổi cap) → test ĐỎ → buộc [BA]
@@ -43,12 +43,14 @@ from assetcore.services.shared.rbac import (
 # Giá trị NÀY PHẢI khớp doc `docs/mobile/11-phase-a-exit.md` (§1 legend · A-5 · §4
 # row 'Capability khớp SSoT' · §Tham chiếu chéo) VÀ `03-auth-oauth2.md §3 / §3.2`.
 # @source bench-verified: `bench --site miyano execute
-#   assetcore.services.shared.rbac._compute_cap_set_version` → "v97.c30c69b8974d"
+#   assetcore.services.shared.rbac._compute_cap_set_version` → "v104.e46d05d9a66d"
 # (= rbac.py:144-153 _compute_cap_set_version → f"v{len(MAP)}.{sha256(sorted keys)[:12]}").
 # Đổi cap-set (thêm/bớt/đổi cap) ⇒ version đổi ⇒ test ĐỎ ⇒ buộc [BA] cập nhật
 # matrix 11 §1 + version trong các doc trên + dòng dưới TRƯỚC khi qua.
-_EXPECTED_CAP_SET_VERSION = "v97.c30c69b8974d"
-_EXPECTED_CAP_COUNT = 97
+# Re-freeze IMM-03 vòng 19 (ADR-IMM-03-05): +6 cap purchase.{read,write,create,
+# delete,submit,cancel} bind AC Purchase → 98→104 (bench-verified, KHÔNG bịa hash).
+_EXPECTED_CAP_SET_VERSION = "v104.e46d05d9a66d"
+_EXPECTED_CAP_COUNT = 104
 
 # ── Ma trận endpoint MVP → capability (11 §1, 6 flow) ───────────────────────────
 # Mỗi dòng: dotted-path endpoint → (capability, (DocType, ptype) kỳ vọng).
@@ -153,7 +155,7 @@ class TestMobileCapabilityMap(unittest.TestCase):
 
     # AC#4 — count nhúng trong version stamp khớp count thật (phòng version-format drift).
     def test_mob_cap_05_version_embeds_real_count(self):
-        # CAP_SET_VERSION = f"v{len(MAP)}.{digest}" (rbac.py:150) → prefix 'v97'.
+        # CAP_SET_VERSION = f"v{len(MAP)}.{digest}" (rbac.py:150) → prefix 'v98'.
         self.assertTrue(
             CAP_SET_VERSION.startswith(f"v{len(CAPABILITY_MAP)}."),
             f"version stamp '{CAP_SET_VERSION}' không nhúng count thật "

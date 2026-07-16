@@ -106,6 +106,110 @@
    "next_state": "Investigating",
    "state": "Re-opened",
    "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu điều tra",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Investigating",
+   "state": "Open",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu điều tra",
+   "allowed": "System Manager",
+   "next_state": "Investigating",
+   "state": "Open",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Lập kế hoạch hành động",
+   "allowed": "AssetCore Super Admin",
+   "condition": "doc.imm_root_cause_method",
+   "next_state": "Action Plan",
+   "state": "Investigating",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Lập kế hoạch hành động",
+   "allowed": "System Manager",
+   "condition": "doc.imm_root_cause_method",
+   "next_state": "Action Plan",
+   "state": "Investigating",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu thực thi",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Implementation",
+   "state": "Action Plan",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu thực thi",
+   "allowed": "System Manager",
+   "next_state": "Implementation",
+   "state": "Action Plan",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Chuyển sang xác minh",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Verification",
+   "state": "Implementation",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Chuyển sang xác minh",
+   "allowed": "System Manager",
+   "next_state": "Verification",
+   "state": "Implementation",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Đóng CAPA",
+   "allowed": "AssetCore Super Admin",
+   "condition": "doc.effectiveness_check == \"Effective\"",
+   "next_state": "Closed",
+   "state": "Verification",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Đóng CAPA",
+   "allowed": "System Manager",
+   "condition": "doc.effectiveness_check == \"Effective\"",
+   "next_state": "Closed",
+   "state": "Verification",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Mở lại do chưa hiệu quả",
+   "allowed": "AssetCore Super Admin",
+   "condition": "doc.effectiveness_check == \"Not Effective\"",
+   "next_state": "Re-opened",
+   "state": "Verification",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Mở lại do chưa hiệu quả",
+   "allowed": "System Manager",
+   "condition": "doc.effectiveness_check == \"Not Effective\"",
+   "next_state": "Re-opened",
+   "state": "Verification",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu điều tra lại",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Investigating",
+   "state": "Re-opened",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu điều tra lại",
+   "allowed": "System Manager",
+   "next_state": "Investigating",
+   "state": "Re-opened",
+   "allow_self_approval": 1
   }
  ]
 }

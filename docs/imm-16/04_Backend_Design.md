@@ -160,6 +160,22 @@ Existing fields: `naming_series`, `asset` (Link AC Asset), `severity` (Minor/Maj
 | 19 | management_review_ref | Link → IMM Management Review | — |
 | 20 | workflow_state | Link → Workflow State | — |
 
+### II.4b. IMM Audit Checklist Item (child — LIVE, `istable:1`)
+
+Child của `checklist_items` (§II.4 #13). Schema thật (`imm_audit_checklist_item.json`) — dùng để ground CR-27b:
+
+| # | fieldname | fieldtype | options / ghi chú |
+|---|---|---|---|
+| 1 | item_description | Data (reqd) | mô tả mục kiểm |
+| 2 | category | Select | `Document / Process / System` |
+| 3 | criteria | Text | tiêu chí |
+| 4 | **result** | **Select** | **`Conforming / Non-Conforming / Not Applicable`** — **field persist verdict, round-trip qua `get_audit`** (SSoT verdict) |
+| 5 | evidence | Attach | bằng chứng |
+| 6 | notes | Small Text | ghi chú (persist verbatim) |
+| 7 | finding_ref | Link → **Audit Finding** | ⚠️ KHÔNG dùng cho backlink `IMM Compliance Finding` (kiểu Link khác) — xem note out-of-scope §III |
+
+> **KHÔNG có field** `finding_status`, `clause_ref`, `linked_finding` — 3 assign `hasattr(child, …)` tương ứng ở service là **no-op câm**. CR-27b LOẠI 2 assign đầu (`finding_status`/`clause_ref`) + map `finding_status → result`. Payload DTO `finding_status` (enum `Compliant/Minor NC/Major NC/N/A`) chỉ tồn tại ở lớp API/FE (`frontend/src/api/imm16.ts:378`) — service map sang `result` (bảng ở 05 §3.3.5), KHÔNG persist tên DTO.
+
 ## II.5. IMM Compliance Scorecard (LIVE)
 
 **Config:** `autoname: format:SCR-.YYYY.-.MM.-.#####`, `track_changes: 1`
@@ -234,12 +250,113 @@ Existing fields: `naming_series`, `asset` (Link AC Asset), `severity` (Minor/Maj
 |---|---|---|
 | `list_compliance_findings(filters, *, page, page_size)` | `→ dict` | enrich asset_name |
 | `create_finding(rule_ref, asset_ref, work_order_ref, severity, description, evaluation_date, actual_value, threshold_value)` | `→ dict` | idempotent; auto-CAPA nếu Critical |
-| `get_finding(name)` | `→ dict` | enrich asset_name, responsible_dept_name, rule_name |
-| `confirm_finding(name, reviewer_note)` | `→ dict` | → Confirmed NC + audit trail |
-| `mark_false_positive(name, reason)` | `→ dict` | reason required |
-| `waive_finding(name, waiver_reason, waiver_evidence, waiver_expiry)` | `→ dict` | VR-04: reason ≥ 50 chars, evidence, expiry > today |
-| `link_finding_to_capa(name, capa_ref)` | `→ dict` | set finding.capa_ref |
-| `close_finding(finding_name, capa_ref, resolution_note)` | `→ dict` | → Resolved |
+| `get_finding(name)` | `→ dict` | enrich asset_name, responsible_dept_name, rule_name, **`allowed_transitions[]`** + **`can_create_capa`** (server-driven CTA — §III.B.1) |
+| `start_review(name, reviewer_note="")` | `→ dict` | **(round 14 — CR-WF-16-FIND)** Open → Under Review; guard `status != Open → BAD_STATE`; lockstep `workflow_state='Under Review'` (§III.B.2); audit trail. Surface cạnh workflow `Open→Under Review` vốn 0 service-driver (phantom) — xem ADR-IMM-16-06 |
+| `confirm_finding(name, reviewer_note)` | `→ dict` | → Confirmed NC + audit trail; **lockstep `workflow_state='Confirmed NC'` (§III.B.2)** |
+| `mark_false_positive(name, reason)` | `→ dict` | reason required; **lockstep `workflow_state='False Positive'` (§III.B.2)** |
+| `waive_finding(name, waiver_reason, waiver_evidence, waiver_expiry)` | `→ dict` | VR-04: reason ≥ 50 chars, evidence, expiry > today; **lockstep `workflow_state='Waived'` (§III.B.2)** |
+| `link_finding_to_capa(name, capa_ref)` | `→ dict` | set finding.capa_ref (không đổi status ⇒ không đụng workflow_state) |
+| `close_finding(finding_name, capa_ref, resolution_note)` | `→ dict` | → Resolved (Confirmed NC → Resolved, cần `capa_ref`; KHÔNG có CTA trên FindingDetail — dùng cascade khi CAPA Closed); **lockstep `workflow_state='Resolved'` (§III.B.2)** |
+
+### III.B.1. Server-driven CTA — `_FINDING_VALID_TRANSITIONS` + `can_create_capa` (GATE-8 / LL-FE-51)
+
+> **Bối cảnh:** FindingDetailView.vue trước đây gate 5 CTA bằng so sánh `finding.status ===` client-side (dead-gate) → desync khỏi SoT `FindingStatus`. Chuyển sang **hint hiển thị do server phát**, đối xứng `_REPAIR_VALID_TRANSITIONS` (imm09.py:90) / IncidentDetail (imm12) / PmWorkOrderDetail (imm08). Xem **ADR-IMM-16-01** (`02_Analysis_Design.md`). Quyết định map do [BA] chốt — grounded state-machine `imm_16_finding_workflow.json` + service guard thực tế, KHÔNG theo phác thảo lỏng của đề mục.
+
+**Map TẬP TRUNG (keyed bằng `FindingStatus.*` constant, KHÔNG literal) — codomain ⊆ `FindingStatus` enum:**
+
+```python
+# services/imm16.py — cạnh class FindingStatus
+_FINDING_VALID_TRANSITIONS: dict[str, list[str]] = {
+    # round 14 (CR-WF-16-FIND): +UNDER_REVIEW vào Open → surface CTA start_review
+    # (Open→Under Review) — cạnh workflow vốn 0 service-driver (phantom). ADR-IMM-16-06.
+    FindingStatus.OPEN:           [FindingStatus.UNDER_REVIEW, FindingStatus.CONFIRMED_NC, FindingStatus.FALSE_POSITIVE, FindingStatus.WAIVED],
+    FindingStatus.UNDER_REVIEW:   [FindingStatus.CONFIRMED_NC, FindingStatus.FALSE_POSITIVE, FindingStatus.WAIVED],
+    FindingStatus.CONFIRMED_NC:   [FindingStatus.WAIVED],
+    FindingStatus.FALSE_POSITIVE: [],
+    FindingStatus.RESOLVED:       [],
+    FindingStatus.WAIVED:         [],
+    FindingStatus.CLOSED:         [],
+}
+```
+
+| `status` | `allowed_transitions` | CTA tương ứng trên FindingDetail |
+|---|---|---|
+| Open | `[Under Review, Confirmed NC, False Positive, Waived]` | **Bắt đầu xem xét** (round 14) · Xác nhận NC · Đánh dấu sai · Miễn áp dụng |
+| Under Review | `[Confirmed NC, False Positive, Waived]` | Xác nhận NC · Đánh dấu sai · Miễn áp dụng (KHÔNG có "Bắt đầu xem xét" — đã trong review) |
+| Confirmed NC | `[Waived]` | Miễn áp dụng (Xác nhận/Đánh dấu-sai ẩn — đã phân định NC); CAPA gate bằng `can_create_capa` |
+| False Positive / Resolved / Waived / Closed | `[]` | terminal — 0 CTA đổi trạng thái |
+
+**Vì sao KHÁC phác thảo đề mục** (Self-Correction, chi tiết ADR-IMM-16-01):
+- Đề mục ghi `Confirmed NC → 'Waived','Closed'`. **Đúng SoT = `Confirmed NC → ['Waived']`.** State `Closed` KHÔNG có service-action nào phát ra từ Confirmed NC: `close_finding` đặt `status='Resolved'` (không phải Closed), còn `Resolved → Closed` là transition workflow-engine (dual-track, không endpoint status-CTA). Advertise `'Closed'` = hint dối → FE hiện nút gọi endpoint không tồn tại.
+- `Resolved` KHÔNG có trong codomain Confirmed NC vì nó tới qua **auto-cascade** (`capa_record_on_update`: CAPA Closed → Finding Resolved, imm16.py:716) — KHÔNG phải CTA của cán bộ trên màn này. Lối đi CAPA biểu diễn bằng cờ riêng `can_create_capa` (dưới), KHÔNG nhồi vào `allowed_transitions`.
+- **(round 14 — CR-WF-16-FIND) `Under Review` ĐƯỢC THÊM vào codomain Open** để surface cạnh workflow `Open→Under Review` ("Bắt đầu xem xét") vốn 0 service-driver (phantom). CTA `start_review` (§III.B.2) đóng phantom bằng cách cho Under Review 1 driver THẬT — đối xứng vòng 12 IMM-12 `reopen_incident` (surface cạnh orphan thành CTA). Under Review KHÔNG bị gỡ khỏi workflow (Branch A bị LOẠI: gỡ = HARD-STOP migrate + phá KPI `pending` sống @test:957 + phá nút desk). Chi tiết ADR-IMM-16-06.
+
+**`get_finding(name)` enrich THÊM 2 field (derive SERVER-SIDE):**
+
+```python
+data["allowed_transitions"] = _FINDING_VALID_TRANSITIONS.get(data.get("status"), [])
+data["can_create_capa"] = bool(
+    data.get("status") == FindingStatus.CONFIRMED_NC and not data.get("capa_ref")
+)
+```
+
+- `can_create_capa` = cờ eligibility DUY NHẤT cho CẢ HAI CTA **Tạo CAPA** và **Liên kết CAPA** (cùng điều kiện: Confirmed NC ∧ chưa có `capa_ref`). FE KHÔNG hardcode `'Confirmed NC'`.
+- Fallback: worker cũ/field thiếu → FE đọc `allowed_transitions ?? []` và `can_create_capa ?? false` → CTA ẩn, KHÔNG vỡ.
+
+**Defense-in-depth — guard BE (hint ≠ guard; `_require_qa_or_admin` = `compliance.write` vẫn chặn cứng):**
+
+| Action | Set hợp lệ | Guard hiện tại | Yêu cầu sau round |
+|---|---|---|---|
+| `start_review` *(round 14)* | `START_REVIEWABLE = (Open,)` | *(fn mới)* | **THÊM** `status != Open → BAD_STATE` (chỉ bắt đầu review từ Open; Under Review đã review). Thêm set `FindingStatus.START_REVIEWABLE = (OPEN,)` |
+| `confirm_finding` | `REVIEWABLE = (Open, Under Review)` | `status not in ACTIVE` (gồm Confirmed NC — over-permissive, cho self-confirm) | **SIẾT** về `REVIEWABLE` → raise `BAD_STATE` khi confirm 1 Confirmed NC (đóng desync ở tầng guard, khớp map) |
+| `mark_false_positive` | `REVIEWABLE = (Open, Under Review)` | **KHÔNG có guard status** (gap) | **THÊM** `status not in REVIEWABLE → BAD_STATE` |
+| `waive_finding` | `WAIVABLE = (Open, Under Review, Confirmed NC)` | **KHÔNG có guard status** (gap) | **THÊM** `status not in WAIVABLE → BAD_STATE` (giữ nguyên VR-04 + cap `compliance.approve`) |
+| `close_finding` (→Resolved) | `(Confirmed NC)` khuyến nghị | `status not in ACTIVE` | GIỮ NGUYÊN (ngoài scope round — không có CTA trên FindingDetail) |
+| `create_capa_from_finding` · `link_finding_to_capa` | `Confirmed NC ∧ ¬capa_ref` | KHÔNG có guard | *(Khuyến nghị SHOULD)* thêm `status != Confirmed NC or capa_ref → BAD_STATE` để cờ `can_create_capa` truthful |
+
+> Bổ sung 3 set vào `class FindingStatus`: `START_REVIEWABLE = (OPEN,)` *(round 14)*, `REVIEWABLE = (OPEN, UNDER_REVIEW)` và `WAIVABLE = (OPEN, UNDER_REVIEW, CONFIRMED_NC)`. **Invariant an toàn:** với mọi `status`, `allowed_transitions[status] ⊆ {đích mà guard action cho phép}` — map KHÔNG BAO GIỜ advertise transition guard sẽ từ chối (map ⊆ guard-permitted). Đích `Under Review` ∈ map[Open] khớp guard `start_review` (Open → BAD_STATE nếu khác). Test-anchor: `TestFindingAllowedTransitions` (map↔state-machine edge-by-edge + codomain ⊆ enum + terminal → `[]`) — đối xứng `test_imm09.TestRepairAllowedTransitions`.
+>
+> ⚠️ Siết `confirm_finding` (ACTIVE→REVIEWABLE) đổi hành vi: confirm 1 Confirmed NC nay raise `BAD_STATE`. BE phải rà caller nội bộ (không có caller nào confirm lại Confirmed NC) + cập nhật test cũ (nếu có) assert hành vi lỏng.
+
+### III.B.2. Dual-track lockstep `workflow_state ⇄ status` + INVARIANT (round 14 — CR-WF-16-FIND)
+
+> **Bối cảnh (Self-Correction thiết kế gốc):** Workflow `imm_16_finding_workflow.json` **is_active=1**, bound qua `workflow_state_field="workflow_state"`. Các service-action Finding (`confirm_finding`@imm16:1353, `mark_false_positive`@1381, `waive_finding`@1410, `close_finding`@246 + cascade `capa_record_on_update`@716) đặt `doc.status` NHƯNG KHÔNG chạm `doc.workflow_state` → workflow_state **đọng `'Open'` vĩnh viễn** trong khi status marches qua vòng đời. Đây KHÔNG phải dual-track có chủ đích — là **DESYNC bug** (ADR-IMM-16-01 §V.1 note cũ mô tả sai là "track song song decorative"; SUPERSEDE bởi ADR-IMM-16-05).
+
+**Cơ chế fix (lockstep) — SAU mỗi transition, sync `workflow_state = status`:**
+
+```python
+# services/imm16.py — SAU ComplianceFindingRepo.save(doc) trong mỗi transition fn.
+# Mirror IMM-12 (imm12.py:797/938/1568 — dual-track lockstep đã proven) + CAPA/MR
+# "đặt CẢ HAI" (ADR-IMM-16-03/04). frappe.db.set_value BYPASS validate_workflow.
+frappe.db.set_value(ComplianceFindingRepo.DOCTYPE, name,
+                    {"workflow_state": <new_status>}, update_modified=False)
+# Cascade CAPA→Resolved (imm16:716): gộp 2 field 1 call —
+#   frappe.db.set_value("IMM Compliance Finding", source_ref,
+#       {"status": RESOLVED, "workflow_state": RESOLVED}, update_modified=False)
+```
+
+- **Vì sao `frappe.db.set_value` (KHÔNG `doc.save()` set cả 2):** Frappe v15 `model/workflow.py::validate_workflow` **raise `WorkflowPermissionError`** khi `doc.save()` đổi `workflow_state` sang state KHÔNG kề (không có transition edge từ state cũ). `confirm_finding` nhảy `Open→Confirmed NC` (bỏ qua `Under Review`) — workflow KHÔNG có cạnh `Open→Confirmed NC` ⇒ `doc.save()` sẽ throw. `db.set_value` ghi SQL trực tiếp, KHÔNG chạy validate cycle ⇒ an toàn cho multi-hop. (Lý do code cũ KHÔNG throw: workflow_state đọng Open→Open ⇒ `validate_workflow` return sớm `current==next`.)
+- **Mirror trivial `workflow_state = status`:** 7 giá trị `FindingStatus` == 7 tên state workflow EXACT (Open / Under Review / Confirmed NC / False Positive / Resolved / Waived / Closed) ⇒ 1-1.
+- **Boundaries — Always:** mọi transition-fn Finding (5: start_review/confirm/mark_false/waive/close) + cascade CAPA đặt CẢ 2 track lockstep. **Never:** đổi `workflow_state` Finding qua `doc.save()` (trip validate_workflow); sửa `imm_16_finding_workflow.json`/fixtures (HARD-STOP reload/migrate — root cause #1 admin-override GREEN 22/22 KHÔNG được phá); nhồi transition-edge mới vào workflow JSON.
+- **Scope hẹp — CHỈ field `workflow_state`:** lockstep đồng bộ đúng field `workflow_state` ⇄ `status`. KHÔNG đụng `docstatus` (Frappe ledger submit/cancel) — service Finding vốn KHÔNG submit doc (docstatus giữ 0); mismatch `doc_status` cột workflow-JSON (vd Waived doc_status=1) vs docstatus thực = tình trạng CŨ, NGOÀI scope CR-WF-16-FIND. BE KHÔNG submit doc để "khớp" doc_status.
+
+**INVARIANT guard (RED-before / GREEN-after) — codomain map ⇄ next_state graph workflow:**
+
+```python
+# Test đọc _FINDING_VALID_TRANSITIONS + parse imm_16_finding_workflow.json.
+codomain      = {t for tgts in _FINDING_VALID_TRANSITIONS.values() for t in tgts}
+wf_next_state = {tr["next_state"] for tr in workflow_json["transitions"]}
+EXCEPTION_EDGES = {FindingStatus.RESOLVED, FindingStatus.CLOSED}  # 2 cạnh có tài liệu
+# INV-16-A: 0 CTA advertise đích KHÔNG reachable trong workflow.
+assert codomain - wf_next_state == set()
+# INV-16-B: state workflow KHÔNG do map-CTA sinh ⊆ EXCEPTION_EDGES có tài liệu.
+assert wf_next_state - codomain <= EXCEPTION_EDGES
+# INV-16-C: mọi status service SINH ĐƯỢC reachable trong workflow.
+assert {CONFIRMED_NC, FALSE_POSITIVE, WAIVED, RESOLVED, UNDER_REVIEW} <= wf_next_state
+```
+
+- **EXCEPTION_EDGES = {Resolved, Closed}** (đúng 2 cạnh acceptance nêu): `Confirmed NC→Resolved` = CAPA-auto (`capa_record_on_update`@720 + close_finding, KHÔNG service-CTA cán bộ); `*→Closed` = workflow-engine terminal (KHÔNG service-driver; FE SPA 0 nút Close). Cả 2 KHÔNG trong codomain map ⇒ hợp lệ ở INV-16-B.
+- **RED-before:** trước round 14, `Under Review ∈ (wf_next_state − codomain)` NHƯNG ∉ EXCEPTION_EDGES ⇒ INV-16-B FAIL (phantom chưa phân định). **GREEN-after:** thêm `Under Review` vào codomain (map[Open]) ⇒ `wf_next_state − codomain == {Resolved, Closed} = EXCEPTION_EDGES` ⇒ PASS.
 
 ## III.C. Internal Audit
 
@@ -247,12 +364,113 @@ Existing fields: `naming_series`, `asset` (Link AC Asset), `severity` (Minor/Maj
 |---|---|---|
 | `list_internal_audits(filters, *, page, page_size)` | `→ dict` | enrich lead_auditor_name |
 | `create_internal_audit(data)` | `→ dict` | alias: `create_audit` |
-| `get_audit(name)` | `→ dict` | enrich lead_auditor_name |
-| `start_audit(name)` | `→ dict` | Planned → In Progress |
-| `submit_audit_findings(audit_name, findings)` | `→ dict` | batch create findings + → Reporting |
-| `complete_audit_checklist(audit_name, items)` | `→ dict` | auto-Finding cho Major/Minor NC |
-| `close_audit(name, audit_report)` | `→ dict` | VR-08: block nếu Major NC chưa CAPA |
-| `close_internal_audit(audit_name)` | `→ dict` | legacy alias |
+| `get_audit(name)` | `→ dict` | enrich lead_auditor_name **+ `allowed_transitions[]` + `can_operate` + `can_close`** (server-driven CTA — §III.C.1) |
+| `start_audit(name)` | `→ dict` | Planned → In Progress; **+1 audit-event `audit_started`** |
+| `submit_audit_findings(audit_name, findings)` | `→ dict` | **[legacy, KHÔNG wired — DEPRECATED, dùng `complete_audit_checklist`]** batch create findings + → Reporting (event `audit_findings_submitted`). **CR-WF-16-AUDIT: guard SIẾT về linear — chỉ từ `In Progress`** (bỏ nhánh Planned: Planned→Reporting là skip-start guard-permissive) |
+| `complete_audit_checklist(audit_name, items)` | `→ dict` | guard **chỉ `In Progress`** (bỏ nhánh Planned); **CR-27b: map `finding_status → child.result` (bảng SSoT §III.C.1b) để verdict round-trip — LOẠI 2 no-op `hasattr(child,"finding_status")`/`"clause_ref"`**; auto-Finding Major/Minor NC (`findings_created` KHÔNG đổi); **set `status=Reporting`** (khôi phục state chết); **+1 audit-event `audit_checklist_completed`** |
+| `close_audit(name, audit_report)` | `→ dict` | guard **`status==Reporting`** (VR-13, chặn jump-skip) → VR-08 (FIN-008) → Closed; **+1 audit-event `audit_closed`** |
+| `close_internal_audit(audit_name)` | `→ dict` | **[legacy alias, KHÔNG wired — DEPRECATED, dùng `close_audit`]** event `internal_audit_closed`. **CR-WF-16-AUDIT: guard SIẾT về linear — chỉ đóng từ `Reporting`** (VR-13 parity `close_audit`; chặn close-từ-Planned/In Progress). *Lưu ý: legacy KHÔNG có VR-08 Major-NC gate — dùng `close_audit` để có gate đầy đủ.* |
+
+### III.C.1. Server-driven CTA — `_AUDIT_VALID_TRANSITIONS` + capability flags (ADR-IMM-16-02)
+
+SSoT map keyed bằng `AuditStatus.*` (action-key, KHÔNG phải tên status-đích như Finding):
+
+```python
+_AUDIT_VALID_TRANSITIONS = {
+    AuditStatus.PLANNED:     ["start"],
+    AuditStatus.IN_PROGRESS: ["complete_checklist"],
+    AuditStatus.REPORTING:   ["close"],
+    AuditStatus.CLOSED:      [],
+}
+# get_audit enrich (safe-default .get → KHÔNG KeyError với status rỗng/lạ):
+data["allowed_transitions"] = _AUDIT_VALID_TRANSITIONS.get(data.get("status"), [])
+data["can_operate"] = rbac.can(_CAP_COMPLIANCE_WRITE)    # "compliance.write"
+data["can_close"]   = rbac.can(_CAP_COMPLIANCE_APPROVE)  # "compliance.submit"
+```
+
+### III.C.1b. Mapping SSoT `finding_status → result` (CR-27b — silent-verdict-loss)
+
+DUY NHẤT 1 dict module-level ở `services/imm16.py`; mọi value ∈ options Select `result` của `imm_audit_checklist_item.json` (`{Conforming, Non-Conforming, Not Applicable}`):
+
+```python
+# services/imm16.py — SSoT: DTO finding_status (API/FE enum) → child.result (persisted Select)
+_FINDING_STATUS_TO_RESULT = {
+    "Compliant": "Conforming",
+    "Minor NC":  "Non-Conforming",
+    "Major NC":  "Non-Conforming",
+    "N/A":       "Not Applicable",
+}
+# trong loop complete_audit_checklist:
+#   result = _FINDING_STATUS_TO_RESULT.get(finding_status)
+#   if result:            # unknown/thiếu → giữ nguyên child.result cũ (KHÔNG set giá trị lạ)
+#       child.result = result
+#   child.notes = payload.get("notes", "")   # field THẬT — persist
+#   # ❌ BỎ: child.finding_status / child.clause_ref (no-op câm, field không tồn tại)
+```
+
+- **Vì sao map thay vì thêm field:** verdict đã có nơi persist chuẩn (`result`, round-trip qua `get_audit`); thêm field `finding_status` vào child = migration + trùng dữ liệu 2 nguồn (drift). DTO enum finding_status thuộc lớp API/FE, map 1-chiều tại service. Xem ADR-IMM-16-10.
+- **unknown finding_status** (payload sai / rỗng) → `.get()` trả `None` → KHÔNG overwrite `result` → an toàn (không ghi rác vào Select).
+
+- **Guard (defense-in-depth, HTTP-200 Error envelope `BAD_STATE` khi sai state)** — `allowed_transitions` chỉ là hint hiển thị, KHÔNG thay guard:
+  - `start_audit`: chỉ từ `Planned` (giữ nguyên).
+  - `complete_audit_checklist`: chỉ từ `In Progress` (siết — bỏ `Planned`); cuối thân set `status = Reporting`.
+  - `close_audit`: chỉ từ `Reporting` (VR-13) → rồi VR-08 (`FIN-008`) → `Closed`.
+- **Audit-trail** — mỗi service-action gọi `from assetcore.utils.lifecycle import log_audit_event` rồi ghi ĐÚNG 1 record trong `try/except` (lỗi audit-trail KHÔNG chặn nghiệp vụ — `frappe.log_error`):
+
+  | Service-action | `event_type` | `from_status → to_status` |
+  |---|---|---|
+  | `start_audit` | `audit_started` | Planned → In Progress |
+  | `complete_audit_checklist` | `audit_checklist_completed` | In Progress → Reporting |
+  | `close_audit` | `audit_closed` | Reporting → Closed |
+
+  Mọi record: `asset=''`, `ref_doctype='IMM Internal Audit'`, `ref_name=<audit>`, `actor=frappe.session.user`.
+- **Invariant test-anchor** (`test_imm16`): `_AUDIT_VALID_TRANSITIONS.get(<mỗi AuditStatus>, [])` khớp bảng §IV.5; status rỗng/lạ → `[]` KHÔNG raise; đếm IMM Audit Trail tăng đúng 1 mỗi thao tác.
+- **Fallback forward-compat:** worker cũ chưa enrich → 3 field vắng → FE đọc `?? []` / `?? false` → CTA ẩn, KHÔNG vỡ.
+
+> **Dual-track status/workflow_state (ADR-IMM-16-02).** Canonical service-action đặt `status` trực tiếp; CTA InternalAuditDetail phát từ `status` qua `_AUDIT_VALID_TRANSITIONS`. `workflow_state` (workflow-engine `IMM-16 Internal Audit Workflow`, transition "Bắt đầu Audit / Chuyển sang Báo cáo / Đóng Audit") là track song song — KHÔNG phải nguồn CTA. Legacy `submit_audit_findings`/`close_internal_audit` **giữ trong whitelist (backward-compat, KHÔNG xóa) nhưng guard SIẾT về linear-machine** (CR-WF-16-AUDIT / §III.C.2 / ADR-IMM-16-09) — KHÔNG còn cho skip-start / close-từ-Planned. FE vẫn chỉ dùng canonical trio.
+
+### III.C.2. Reconcile-guard `_AUDIT_VALID_TRANSITIONS` ⇄ `imm_16_internal_audit.json` qua resolver (round 22 — CR-WF-16-AUDIT)
+
+> **ĐÓNG NỐT quartet reconcile IMM-16** (Finding R14 / CAPA R19 / MR R20 / **Internal Audit R22**). Khoá 0 hidden-CTA-câm + phát hiện guard-permissive trên state-machine Audit 4-state tuyến tính `Planned → In Progress → Reporting → Closed`. §III.C.2 / ADR-IMM-16-09. Đây chính là "backlog riêng" mà round MR (ADR-IMM-16-08, footnote ¹) đã defer — nay đóng.
+
+**Khác-biệt cốt-lõi vs 3 workflow kia:** `_AUDIT_VALID_TRANSITIONS` codomain = **ACTION-KEY** (`start`/`complete_checklist`/`close`), KHÔNG phải status-đích như Finding/CAPA/MR (codomain = state). ⇒ đối soát 2-chiều với `next_state` graph workflow đòi 1 **resolver** dịch action-key → AuditStatus:
+
+```python
+# services/imm16.py — cạnh _AUDIT_VALID_TRANSITIONS. SSoT DUY NHẤT (ADR-IMM-16-09):
+# 3 canonical handler whitelisted đặt CÙNG status-đích này (start_audit→In Progress,
+# complete_audit_checklist→Reporting, close_audit→Closed — pinned bởi INVARIANT +
+# lifecycle test AA-16-7..11).
+_AUDIT_ACTION_TO_NEXT_STATE = {
+    "start":              AuditStatus.IN_PROGRESS,
+    "complete_checklist": AuditStatus.REPORTING,
+    "close":              AuditStatus.CLOSED,
+}
+```
+
+**INVARIANT guard (`TestAuditWorkflowInvariant`, test_imm16 — parse trực tiếp `imm_16_internal_audit.json`):**
+
+| # | Kiểm | Kỳ vọng |
+|---|---|---|
+| INV-AUD-1 | `set(_AUDIT_VALID_TRANSITIONS.keys()) == states[]` workflow | == `{Planned, In Progress, Reporting, Closed}` (4-state; map keyed bằng status) |
+| INV-AUD-2 | `set(resolver.keys())` | == `{start, complete_checklist, close}` = 3 handler whitelisted |
+| INV-AUD-3 | `codomain(_AUDIT_VALID_TRANSITIONS) − keys(resolver)` | == ∅ (no orphan action — mọi action advertise dịch được → state) |
+| INV-AUD-4 | `values(resolver) ⊆ AuditStatus enum` | == True (chống typo status-đích) |
+| **INV-AUD-5 (RED→GREEN)** | ∀ state: `{resolver[a] for a in map[state]} == {next_state cạnh workflow từ state}` | Aligned: `Planned→{In Progress}`, `In Progress→{Reporting}`, `Reporting→{Closed}`, `Closed→∅`. **RED-before (perturbation THẬT):** đổi 1 entry resolver (vd `start→Reporting`) HOẶC thêm `'close'` vào `map[In Progress]` ⇒ FAIL message `'DRIFT <state>: map ≠ workflow'`; revert → GREEN |
+
+- **Guard source-state canonical (KHÔNG regress):** 3 handler whitelisted chỉ nhận đúng source theo workflow — `start_audit ← Planned`, `complete_audit_checklist ← In Progress` (bỏ Planned), `close_audit ← Reporting` (VR-13). FE KHÔNG hiện nút mà BE sẽ raise `BAD_STATE`.
+- **Legacy siết (guard-detect AA-16-13/14):** `submit_audit_findings` (was `∈ {In Progress, Planned}` → now `= In Progress`) + `close_internal_audit` (was `≠ Closed` → now `= Reporting`) — đóng lỗ guard-permissive (skip-start / close-từ-Planned né VR-13/VR-08). Whitelist GIỮ (0 API-count drift); chỉ guard state siết. Xem ADR-IMM-16-09.
+- **0 workflow-JSON / fixtures change ⇒ admin-override GREEN + 0 reload/migrate.** Map ⇄ workflow đã in-sync (resolver bắc cầu khớp 1-1). Nếu BE thấy drift THẬT ⇒ fix map/resolver = KHÔNG tự sửa workflow JSON (HARD-STOP USER nếu buộc đổi JSON).
+
+### ADR-IMM-16-10: DTO `finding_status` → persisted `result` mapping (KHÔNG thêm field child)
+
+- **Status**: Accepted
+- **Date**: 2026-07-14
+- **Context**: `complete_audit_checklist` nhận payload item `{idx, finding_status, notes, clause_ref}` (DTO enum FE `Compliant/Minor NC/Major NC/N/A` — `frontend/src/api/imm16.ts:378`). Service cũ gán `child.finding_status`/`child.clause_ref` sau `hasattr(child, …)` — nhưng child `IMM Audit Checklist Item` KHÔNG có 2 field đó (chỉ `result` Select `{Conforming, Non-Conforming, Not Applicable}`). `hasattr` trả `False` (field không khai báo trong docfields ⇒ KHÔNG là instance attribute; Frappe `BaseDocument` KHÔNG override `__getattr__` nên lookup mặc định raise `AttributeError` — kiểm chứng live: `hasattr(new_doc, "finding_status")==False`, `"clause_ref"==False`, `"notes"==True`) ⇒ assign **no-op câm** ⇒ verdict KHÔNG persist ⇒ re-fetch `get_audit` trả `result` LUÔN rỗng (silent-verdict-loss, CR-27b).
+- **Decision**: giữ nguyên schema child; thêm **1 dict SSoT `_FINDING_STATUS_TO_RESULT`** (§III.C.1b) map DTO enum → `result`, gán `child.result` (field round-trip THẬT). LOẠI 2 assign no-op `finding_status`/`clause_ref`. unknown/thiếu → giữ `result` cũ.
+- **Alternatives**:
+  1. *Thêm field `finding_status` (Select) + `clause_ref` (Data) vào child* — LOẠI: migration + 2 nguồn verdict (`finding_status` vs `result`) → drift; `result` đã là SSoT có round-trip + đã có FE/report tiêu thụ.
+  2. *Đổi FE gửi thẳng `result` value (Conforming/…)* — LOẠI: DTO enum finding_status mang thêm severity (Major/Minor) để auto-Finding; ép FE về `result` mất phân biệt Major↔Minor (đều `Non-Conforming`).
+- **Consequences**: 0 migration (field `result` đã tồn tại) → 0 `bench migrate`; verdict round-trip đúng; DTO enum vẫn giàu (Major/Minor) cho nhánh auto-Finding. Đánh đổi: map là 1-chiều — nếu cần lưu `clause_ref` thì phải thêm field (CR riêng, hiện discard). Backlink `linked_finding`/`finding_ref` vẫn no-op (out-of-scope, flag ở 05 §3.3.5).
 
 ## III.D. CAPA
 
@@ -269,11 +487,75 @@ Re-opened → Investigating
 | Function | Signature | Ghi chú |
 |---|---|---|
 | `create_capa_from_finding(finding_name, imm_risk_level, imm_root_cause_method, responsible, due_date)` | `→ dict` | gọi `imm00.create_capa` + set IMM-16 custom fields |
-| `get_capa(name)` | `→ dict` | enrich asset_name, responsible_name, finding_ref (BUG-16-08) |
+| `get_capa(name)` | `→ dict` | enrich asset_name, responsible_name, finding_ref (BUG-16-08) **+ `allowed_transitions[]` + `can_advance`** (server-driven CTA — §III.D.1) |
 | `update_capa_fields(name, data)` | `→ dict` | editable fields khi chưa Closed |
 | `advance_capa_state(name, target_state, payload)` | `→ dict` | VR-05/06/07/12 enforcement |
 | `perform_effectiveness_check(name, result, effectiveness_evidence)` | `→ dict` | Effective→Closed; Not Effective→Re-opened + reopen_count++ |
 | `reopen_capa(name, reason)` | `→ dict` | force → Re-opened |
+
+### III.D.1. Server-driven CTA — `_CAPA_TRANSITIONS` + `can_advance` (ADR-IMM-16-03 / GATE-8 / LL-FE-51)
+
+> **Bối cảnh:** `CAPADetailView.vue` (lines 34-41) trước đây gate 6 CTA vòng đời (Bắt đầu điều tra / Lập kế hoạch hành động / Bắt đầu thực thi / Chuyển sang xác minh / Đóng / Mở lại) bằng client-map hardcode `TRANSITIONS: Record<string, Transition[]>` + `isVerification = wfState === 'Verification'` → dead-gate/desync khỏi SoT `_CAPA_TRANSITIONS`: QMS/QTV thấy/bấm action lệch quyền, và khi workflow đổi cạnh thì client-map câm lặng lệch. Chuyển sang **hint hiển thị do server phát**, đối xứng Finding (§III.B.1) / Audit (§III.C.1) / Repair (imm09) / PM (imm08) / Incident (imm12). Xem **ADR-IMM-16-03** (`02_Analysis_Design.md`).
+
+SSoT map = **CÙNG** `_CAPA_TRANSITIONS` (dict giá trị `set`) mà `advance_capa_state` đọc để enforce — get_capa CHỈ ĐỌC lại, KHÔNG tạo nguồn thứ hai. Codomain = **tên workflow_state-đích** (KHÁC action-key của Audit), khớp tham số `target_state` của `advance_capa_state`:
+
+```python
+_CAPA_TRANSITIONS = {                       # GIỮ NGUYÊN — advance_capa_state enforce map này
+    "Open":           {"Investigating"},
+    "Investigating":  {"Action Plan"},
+    "Action Plan":    {"Implementation"},
+    "Implementation": {"Verification"},
+    "Verification":   {"Closed", "Re-opened"},
+    "Re-opened":      {"Investigating"},
+}
+# get_capa enrich (đặt cuối thân, trước return):
+current = data.get("workflow_state") or "Open"     # khớp advance_capa_state: doc.workflow_state or "Open"
+_can_advance = rbac.can(_CAP_COMPLIANCE_WRITE)      # "compliance.write" — CÙNG cap _require_qa_or_admin gate
+data["can_advance"] = _can_advance
+data["allowed_transitions"] = (
+    sorted(_CAPA_TRANSITIONS.get(current, set())) if _can_advance else []
+)
+```
+
+- **`allowed_transitions: string[]`** = `sorted(_CAPA_TRANSITIONS[current])` khi caller có `compliance.write`; **`[]` khi KHÔNG có** (gate quyền dồn vào chính hint — FE 1 nguồn). `sorted()` cho thứ tự **xác định** (set không thứ tự) → contract ổn định + test so-khớp được. Codomain ⊆ `CapaWorkflowState`. Terminal `Closed` (không key trong map) → `[]` (safe-default `.get`, KHÔNG KeyError).
+- **`can_advance: bool`** = `rbac.can('compliance.write')` — derive SERVER-SIDE; cờ tường minh cho FE (mirror `can_operate` của Audit). `True` cả ở state terminal (phản ánh QUYỀN, không phải còn-thao-tác-hay-không); FE dùng `can_advance && allowed_transitions.includes('<đích>')`.
+- **Guard (defense-in-depth) GIỮ NGUYÊN** — `advance_capa_state` vẫn `_require_qa_or_admin()` (FORBIDDEN nếu thiếu `compliance.write`) + `target not in _CAPA_TRANSITIONS[current] → INVALID_STATE` (chặn jump-skip). `allowed_transitions` CHỈ là hint hiển thị, KHÔNG thay guard: dù client bỏ qua hint, BE vẫn chặn cứng.
+- **Verification → {Closed, Re-opened} đi qua `perform_effectiveness_check`**, KHÔNG qua `advance_capa_state` trên màn FE (Effective→Closed / Not-Partially Effective→Re-opened + `imm_reopen_count++`). `allowed_transitions` tại Verification = `['Closed', 'Re-opened']` vẫn dẫn xuất từ CÙNG `_CAPA_TRANSITIONS['Verification']` (SoT thống nhất) — FE gate 2 nút hiệu quả bằng `allowed_transitions.includes('Closed')` / `.includes('Re-opened')` (thay `isVerification` hardcode), rồi gọi `perform_effectiveness_check`. `advance_capa_state(Verification→Closed/Re-opened)` cũng hợp lệ theo map (bất biến parity không vỡ), chỉ là FE chọn đường effectiveness để thu `result`.
+- **Invariant test-anchor** (`test_imm16`): (a) ∀ state S có `compliance.write`: `set(get_capa(S).allowed_transitions) == _CAPA_TRANSITIONS.get(S, set())` — emit = guard-domain, KHÔNG lệch; (b) ∀ T ∈ `get_capa(S).allowed_transitions`: `advance_capa_state(S, T)` KHÔNG raise `INVALID_STATE` (có thể raise validation downstream VR-05/12… nhưng KHÔNG BAO GIỜ "Không thể chuyển từ S sang T") — hint ⊆ guard-permitted; (c) caller thiếu `compliance.write` → `allowed_transitions == []` ∧ `can_advance == False` ở MỌI state; (d) user full-quyền AssetCore (có `compliance.write`, gồm `AssetCore Super Admin`) → `allowed_transitions` KHÔNG rỗng + `can_advance == True` ở state hợp lệ, và `advance_capa_state` thực thi thành công (KHÔNG FORBIDDEN).
+- **Fallback forward-compat:** worker cũ chưa enrich → 2 field vắng → FE đọc `?? []` / `?? false` → 0 CTA (ẩn, không disable), KHÔNG vỡ.
+
+> **Dual-track status/workflow_state (ADR-IMM-16-03).** CTA `CAPADetailView` phát từ `workflow_state` qua `_CAPA_TRANSITIONS`; `status` (SoT lifecycle — cron `check_capa_overdue` flip `Overdue` mà KHÔNG đổi `workflow_state`) là track song song hiển thị header, KHÔNG phải nguồn CTA. `advance_capa_state` đặt CẢ HAI (`workflow_state` = stage, `status` = In Progress/Closed).
+
+### III.D.2. INVARIANT reconcile-guard `_CAPA_TRANSITIONS` ⇄ `imm_16_capa_workflow.json` (round 19 — CR-WF-16-CAPA)
+
+> **Bối cảnh:** `_CAPA_TRANSITIONS` (SSoT sinh `allowed_transitions` → 6 CTA vòng đời CAPADetailView, §III.D.1) và workflow-engine `imm_16_capa_workflow.json` (is_active=1, bound `workflow_state_field="workflow_state"`) là **hai artefact tách rời** mô tả CÙNG một state-machine. Nếu chúng lệch cạnh — ai đó sửa 1 bên quên bên kia — thì: (a) map có cạnh workflow KHÔNG có ⇒ CTA **dead/bypass** (nút hiện nhưng engine từ chối); (b) workflow có cạnh map KHÔNG surface ⇒ **CTA câm** (nút duyệt biến mất, người dùng kẹt state). Guard này khoá parity **2 chiều, EDGE-by-EDGE** để mọi drift map↔workflow FAIL ngay ở test — mirror `TestFindingWorkflowInvariant` (§III.B.2, round 14) và `TestIncidentAllowedTransitions` (IMM-12, round 12).
+
+**Khác Finding §III.B.2 — đối soát chặt hơn.** Finding INV-16-A/B/C so **codomain** (chỉ tập `next_state`, bỏ qua `state` nguồn). CAPA đối soát **cặp `(state → next_state)` EDGE-by-EDGE** cả 2 chiều — bắt được cả drift "đúng đích, sai nguồn" (vd cạnh `Open→Verification` giả). Vì `_CAPA_TRANSITIONS` **đối xứng HOÀN TOÀN** workflow (7 cạnh khớp 1-1) ⇒ **`EXCEPTION_EDGES = ∅` cả 2 chiều** (KHÁC Finding `{Resolved, Closed}` do Finding có cạnh CAPA-auto + workflow-terminal 0 service-driver).
+
+```python
+# ── TEST-ONLY (test_imm16.py) — KHÔNG đụng services/imm16.py, KHÔNG đụng workflow JSON ──
+# SSoT map (state → set[next_state]) VERBATIM từ services/imm16.py:1958 (get_capa
+# + advance_capa_state cùng đọc). Loader parse workflow JSON, DEDUPE cạnh lặp-theo-vai
+# (Compliance Manager / System Manager / AssetCore Super Admin → nhiều entry cùng cạnh).
+map_edges = {(s, t) for s, tgts in _CAPA_TRANSITIONS.items() for t in tgts}   # 7 cạnh
+wf_edges  = {(tr["state"], tr["next_state"]) for tr in wf_json["transitions"]}  # 21 entry → 7 cạnh deduped
+_CAPA_EXCEPTION_EDGES: frozenset[tuple[str, str]] = frozenset()   # ∅ — đối xứng hoàn toàn
+
+# INV-16-CAPA-1 (MAP ⊆ WF): mọi cạnh map là cạnh THẬT của workflow (0 CTA dead/bypass).
+assert map_edges - wf_edges == set(_CAPA_EXCEPTION_EDGES)   # == ∅
+# INV-16-CAPA-2 (WF ⊆ MAP): mọi cạnh workflow được map surface (0 CTA câm).
+assert wf_edges - map_edges == set(_CAPA_EXCEPTION_EDGES)   # == ∅   ⇒ set-diff 2 chiều == ∅
+```
+
+- **7 cạnh khớp 1-1** (`map_edges == wf_edges`): `Open→Investigating` · `Investigating→Action Plan` · `Action Plan→Implementation` · `Implementation→Verification` · `Verification→Closed` · `Verification→Re-opened` · `Re-opened→Investigating`. Set-diff **cả 2 chiều == ∅**.
+- **Codomain `(keys ∪ values) ⊆ 7 state CAPA hợp lệ`** `{Open, Investigating, Action Plan, Implementation, Verification, Re-opened, Closed}` (== `states[]` của workflow JSON) — chống typo/orphan (vd `"Actn Plan"` lọt vào map). Không state lạ ngoài 7.
+- **Terminal `Closed` ∉ `keys(_CAPA_TRANSITIONS)`** (6 key: Open/Investigating/Action Plan/Implementation/Verification/Re-opened) ⇒ `get_capa` của CAPA đã Closed trả `allowed_transitions == []` (safe-default `.get("Closed", set())` → `[]`, KHÔNG KeyError). Live-proof: AC-16-5 (`test_get_capa_allowed_transitions_by_state`).
+- **RED-before (chứng minh THẬT, không GREEN-suông):** strip 1 cạnh map — vd bỏ `Re-opened` khỏi `_CAPA_TRANSITIONS["Verification"]` (`{"Closed"}` thay `{"Closed", "Re-opened"}`) → `wf_edges − map_edges == {("Verification", "Re-opened")}` ≠ ∅ ⇒ **INV-16-CAPA-2 FAIL** với message `'workflow có cạnh Verification→Re-opened KHÔNG surface (CTA câm)'`. Restore → GREEN. (Đối xứng: strip nguồn sai vào map → INV-16-CAPA-1 FAIL.)
+- **`EXCEPTION_EDGES = ∅`** = hằng test-level `frozenset()` (KHÔNG đưa vào `services/imm16.py` — round TEST-ONLY, 0 service change). Nếu tương lai workflow thêm cạnh **cố ý** map KHÔNG surface (vd auto-advance), phải bồi cạnh đó vào `_CAPA_EXCEPTION_EDGES` + ADR giải thích — KHÔNG để test tự-GREEN bằng cách nới assert.
+
+**Boundaries (Always / Never) — reconcile-guard CR-WF-16-CAPA:**
+- **Always**: đối soát `_CAPA_TRANSITIONS` ⇄ workflow JSON **2 chiều edge-by-edge**; loader parse JSON THẬT (`frappe.get_app_path`) + DEDUPE cạnh lặp-theo-vai; set-diff cả 2 chiều so với `_CAPA_EXCEPTION_EDGES` (không so với `∅` cứng → dễ mở rộng có kiểm soát); codomain ⊆ 7 state hợp lệ; message FAIL nêu RÕ cạnh nào drift + hệ quả (dead/câm).
+- **Never**: KHÔNG sửa `services/imm16.py` (map đã in-sync — round TEST-ONLY); KHÔNG sửa `imm_16_capa_workflow.json`/fixtures (⇒ 0 reload/migrate + admin-override giữ GREEN); KHÔNG chỉ so codomain `next_state` (bỏ sót drift "sai nguồn" — phải EDGE); KHÔNG nới assert để test GREEN khi drift THẬT (drift = fix map/JSON hoặc bồi EXCEPTION_EDGE + ADR); KHÔNG so cứng `== set()` (dùng `_CAPA_EXCEPTION_EDGES` để 1 chỗ khai báo miễn trừ).
 
 ## III.E. Compliance Scorecard
 
@@ -369,11 +651,73 @@ Minutes Approved → Closed  (nhưng close phải đi qua finalize_management_re
 | Function | Signature | Ghi chú |
 |---|---|---|
 | `list_management_reviews(filters, *, page, page_size)` | `→ dict` | enrich chair_name, scorecard_score_pct |
-| `get_management_review(name)` | `→ dict` | enrich chair_name + scorecard (BUG-16-10) |
+| `get_management_review(name)` | `→ dict` | enrich chair_name + scorecard (BUG-16-10) **+ `allowed_transitions[]` + `can_advance` + `can_close`** (server-driven CTA — §III.F.1) |
 | `create_management_review(data)` | `→ dict` | unique per quarter |
 | `update_management_review(name, data)` | `→ dict` | scalar fields + attendees + output_actions child |
 | `advance_mr_state(name, target_state)` | `→ dict` | Draft→Held→Minutes Approved; không cho→Closed (dùng finalize) |
 | `finalize_management_review(name, minutes_doc, output_actions)` | `→ dict` | Closed + attach minutes + VR: ≥1 output action |
+
+### III.F.1. Server-driven CTA — `_MR_TRANSITIONS` + `can_advance` + `can_close` (ADR-IMM-16-04 / GATE-8 / LL-FE-51)
+
+Workflow IMM-16 **thứ 4/4 — cái DUY NHẤT chưa server-driven** trước vòng này (Finding/Audit/CAPA đã chuyển ADR-16-01/02/03). SSoT map keyed bằng tên status (codomain = tên **status-đích**, KHÔNG action-key như Audit — khớp 1-1 tham số `target_state`):
+
+```python
+_MR_TRANSITIONS = {
+    "Draft":            {"Held"},
+    "Held":             {"Minutes Approved"},
+    "Minutes Approved": {"Closed"},   # 'Closed' đi qua finalize_management_review
+}
+# get_management_review enrich (safe-default .get → KHÔNG KeyError với status rỗng/lạ):
+data["allowed_transitions"] = sorted(_MR_TRANSITIONS.get(doc.status, []))
+data["can_advance"] = rbac.can(_CAP_COMPLIANCE_APPROVE)  # "compliance.submit"
+data["can_close"]   = rbac.can(_CAP_COMPLIANCE_APPROVE)  # "compliance.submit"
+```
+
+- **`allowed_transitions: string[]`** = `sorted(_MR_TRANSITIONS.get(doc.status, []))` — phát **vô điều kiện** (KHÔNG gate bằng cờ, mirror Finding/Audit — KHÁC CAPA gate `[]` khi thiếu quyền). `sorted()` cho thứ tự **xác định** (set không thứ tự) → contract ổn định + test so-khớp. `Draft→['Held']`, `Held→['Minutes Approved']`, `Minutes Approved→['Closed']`, `Closed`/rỗng/lạ → `[]`.
+- **`can_advance: bool`** = `rbac.can('compliance.submit')` — cờ tường minh gate 2 nút chuyển-cạnh (Đánh dấu Đã họp / Phê duyệt Biên bản). Derive SERVER-SIDE.
+- **`can_close: bool`** = `rbac.can('compliance.submit')` — cùng capability nhưng cờ **tách riêng** (đối xứng Audit `can_operate`/`can_close`) gate nút Đóng và xuất biên bản. FE dùng `allowed_transitions.includes('Closed') && can_close===true`.
+- **Guard (defense-in-depth, HTTP-200 Error envelope khi sai) — `allowed_transitions` chỉ là hint hiển thị, KHÔNG thay guard:**
+  - `advance_mr_state(name, target)`: `rbac.can('compliance.submit')` (FORBIDDEN nếu thiếu) + `target not in _MR_TRANSITIONS[current] → INVALID_STATE` (chặn jump-skip) + `target=='Closed' → VALIDATION` "Dùng finalize_management_review để đóng MR".
+  - `finalize_management_review(name, minutes_doc, actions)`: `rbac.can('compliance.submit')` + `status!='Closed'` (BAD_STATE nếu đã Closed) + `minutes_doc` bắt buộc (VALIDATION) + ≥1 output action (VALIDATION, skill R-2).
+- **INVARIANT (hint ⊆ guard):** MỌI target ∈ `allowed_transitions` do get_management_review phát PHẢI được guard chấp nhận ở status đó — `'Held'`/`'Minutes Approved'` qua `advance_mr_state`, `'Closed'` qua `finalize_management_review`. Target NGOÀI `_MR_TRANSITIONS[status]` → `advance_mr_state` reject `INVALID_STATE`. KHÔNG desync giữa hint hiển thị và guard cứng.
+- **Dual-track status/workflow_state (ADR-IMM-16-04).** Canonical service-action đặt `status` + `workflow_state` cùng lúc (advance_mr_state: cả hai = target; finalize: cả hai = "Closed"). CTA màn ManagementReviewDetail phát từ `status` qua `_MR_TRANSITIONS`. Frappe workflow-engine `IMM-16 Management Review Workflow` (transition 'Đánh dấu Đã họp' / 'Phê duyệt Biên bản' / 'Đóng') là track song song validate khi `doc.save()` đổi `workflow_state` — allowed roles phải gồm `AssetCore Super Admin` (fixtures/workflow.json đã có; backfill bởi `backfill_workflow_admin` nếu site chưa sync).
+- **RBAC (verify, KHÔNG cần patch code):** `_CAP_COMPLIANCE_APPROVE = "compliance.submit"` bind `('IMM CAPA Record','submit')`; `AssetCore Super Admin` đã có `submit=1` DocPerm → `rbac.can('compliance.submit')=True`. QTV duyệt/đóng được. Nếu LIVE test cho thấy grant thiếu → sửa DocPerm JSON / workflow.json (SoT), KHÔNG hardcode role-name.
+- **Invariant test-anchor** (`test_imm16`, đối xứng `TestCapaAllowedTransitions`): (a) ∀ status S: `set(get_management_review(S).allowed_transitions) == set(_MR_TRANSITIONS.get(S, set()))` — emit = guard-domain; (b) ∀ T ∈ `allowed_transitions`: nếu T≠'Closed' thì `advance_mr_state(S,T)` KHÔNG raise `INVALID_STATE`, nếu T=='Closed' thì `finalize_management_review` KHÔNG raise `INVALID_STATE`; (c) status rỗng/lạ/Closed → `allowed_transitions == []` (safe-default `.get`, KHÔNG KeyError); (d) user CHỈ role `AssetCore Super Admin` → `can_advance == can_close == True`, và advance_mr_state Draft→Held→Minutes Approved + finalize_management_review Closed đều KHÔNG raise `FORBIDDEN`.
+- **Fallback forward-compat:** worker cũ chưa enrich → 3 field vắng → FE đọc `?? []` / `?? false` → CTA ẩn, KHÔNG vỡ.
+
+### III.F.2. INVARIANT reconcile-guard `_MR_TRANSITIONS` ⇄ `imm_16_mr_workflow.json` (round 20 — CR-WF-16-MR)
+
+> **Bối cảnh:** `_MR_TRANSITIONS` (SSoT sinh `allowed_transitions` → 3 CTA vòng đời ManagementReviewDetail, §III.F.1) và workflow-engine `imm_16_mr_workflow.json` (is_active=1, bound `workflow_state_field="workflow_state"`) là **hai artefact tách rời** mô tả CÙNG state-machine MR 4-state (Draft → Held → Minutes Approved → Closed, tuyến tính KHÔNG nhánh/vòng). §III.F.1 (ADR-IMM-16-04) đã khoá parity **map ⇄ advance/finalize-guard** (emit = guard-domain, §III.F.1 (a)-(d)) NHƯNG **CHƯA** khoá parity **map ⇄ workflow-JSON**. Nếu ai sửa 1 bên quên bên kia: (a) map có cạnh workflow KHÔNG có ⇒ CTA **dead/bypass** (nút hiện, engine `doc.save()` từ chối `workflow_state`); (b) workflow có cạnh map KHÔNG surface ⇒ **CTA câm** (nút 'Đánh dấu Đã họp'/'Phê duyệt Biên bản'/'Đóng' biến mất, MR kẹt state — không họp/duyệt/đóng được). Guard này khoá parity **2 chiều, EDGE-by-EDGE** để mọi drift map↔workflow FAIL ngay ở test. **Đóng nốt quartet reconcile IMM-16** — cùng bộ với Finding (§III.B.2, round 14) và CAPA (§III.D.2, round 19); mirror `TestCapaWorkflowInvariant`/`TestFindingWorkflowInvariant`/`TestIncidentAllowedTransitions` (IMM-12, round 12).
+
+**Đối soát EDGE-by-EDGE 2 chiều — đối xứng HOÀN TOÀN (giống CAPA, KHÁC Finding).** MR đối soát **cặp `(state → next_state)`** cả 2 chiều (bắt cả drift "đúng đích, sai nguồn"), KHÔNG chỉ codomain `next_state` như Finding INV-16-A/B. Vì `_MR_TRANSITIONS` **khớp 1-1 HOÀN TOÀN** workflow (3 cạnh mỗi bên) ⇒ **`_MR_EXCEPTION_EDGES = ∅` cả 2 chiều** (KHÁC Finding `{Resolved, Closed}` do Finding có cạnh CAPA-auto-cascade + workflow-terminal 0 service-driver; giống CAPA `∅` do đối xứng hoàn toàn).
+
+```python
+# ── TEST-ONLY (test_imm16.py) — KHÔNG đụng services/imm16.py, KHÔNG đụng workflow JSON ──
+# SSoT map (state → set[next_state]) đọc VERBATIM từ svc._MR_TRANSITIONS (imm16.py:2391 —
+# get_management_review §III.F.1 + advance_mr_state cùng đọc). Loader parse workflow JSON,
+# DEDUPE cạnh lặp-theo-vai (Compliance Manager / System Manager / AssetCore Super Admin →
+# 8 transition entry → 3 cạnh duy nhất).
+_MR_VALID_STATES = {"Draft", "Held", "Minutes Approved", "Closed"}  # == states[] của JSON
+_MR_EXCEPTION_EDGES: frozenset[tuple[str, str]] = frozenset()   # ∅ — đối xứng hoàn toàn
+
+# map_edges = {(s, t) for s, tgts in svc._MR_TRANSITIONS.items() for t in tgts}
+#           = {(Draft,Held), (Held,Minutes Approved), (Minutes Approved,Closed)}
+# wf_edges  = _load_mr_workflow_edges() (deduped) = CÙNG 3 cạnh
+
+# INV-16-MR-1 (MAP ⊆ WF): mọi cạnh map là cạnh THẬT của workflow (0 CTA dead/bypass).
+assert map_edges - wf_edges == set(_MR_EXCEPTION_EDGES)   # == ∅
+# INV-16-MR-2 (WF ⊆ MAP): mọi cạnh workflow được map surface (0 CTA câm).
+assert wf_edges - map_edges == set(_MR_EXCEPTION_EDGES)   # == ∅   ⇒ set-diff 2 chiều == ∅
+```
+
+- **Codomain (keys ∪ values) ⊆ 4 state hợp lệ** `{Draft, Held, Minutes Approved, Closed}` — chống typo/orphan (INV-16-MR-3). keys = `{Draft, Held, Minutes Approved}`; values = `{Held, Minutes Approved, Closed}`; union = đúng 4 state, KHÔNG dư.
+- **Terminal `Closed` ∉ `keys(_MR_TRANSITIONS)`** (3 key: Draft/Held/Minutes Approved) ⇒ `get_management_review` của MR đã Closed trả `allowed_transitions == []` (safe-default `_MR_TRANSITIONS.get(data.get("status") or "Draft", set())` @imm16:2245-2246 → `[]`, KHÔNG KeyError). Live-proof: AM-16-4 / AM-16-5 (`test_get_mr_emits_allowed_transitions_per_status`@1044). **Đối xứng bất-cân-xứng có chủ đích:** `Closed` KHÔNG là key (đúng — không đi tiếp), nhưng LÀ value của `Minutes Approved` (đến qua `finalize_management_review`, KHÔNG qua `advance_mr_state` — advance reject `'Closed'` VALIDATION).
+- **RED-before (chứng minh THẬT, không GREEN-suông):** strip 1 cạnh khỏi map — vd bỏ `Held → {Minutes Approved}` khỏi `_MR_TRANSITIONS` (hoặc đổi `{"Minutes Approved"}` → `set()`) → `wf_edges − map_edges == {("Held", "Minutes Approved")}` ≠ ∅ ⇒ **INV-16-MR-2 FAIL** với message `'workflow có cạnh Held→Minutes Approved KHÔNG surface (CTA câm — nút duyệt MR mất)'`. Restore → GREEN. (Đối xứng: chèn cạnh-nguồn giả vào map → INV-16-MR-1 FAIL.)
+- **`_MR_EXCEPTION_EDGES = ∅`** = hằng test-level `frozenset()` (KHÔNG đưa vào `services/imm16.py` — round TEST-ONLY, 0 service change; đối xứng `_CAPA_EXCEPTION_EDGES`). Nếu tương lai workflow thêm cạnh **cố ý** map KHÔNG surface (vd auto-advance), phải bồi cạnh đó vào `_MR_EXCEPTION_EDGES` + ADR giải thích — KHÔNG nới assert để test tự-GREEN.
+
+**Boundaries (Always / Never) — reconcile-guard CR-WF-16-MR:**
+- **Always**: đối soát `_MR_TRANSITIONS` ⇄ `imm_16_mr_workflow.json` **2 chiều edge-by-edge**; loader `_load_mr_workflow_edges()` parse JSON THẬT (`frappe.get_app_path("assetcore","assetcore","workflow","imm_16_mr_workflow.json")`) + DEDUPE cạnh lặp-theo-vai (8 entry → 3 cạnh); `map_edges` đọc `svc._MR_TRANSITIONS` VERBATIM (KHÔNG map thứ hai); set-diff cả 2 chiều so với `_MR_EXCEPTION_EDGES` (không so `∅` cứng → dễ mở rộng có kiểm soát); codomain ⊆ 4 state hợp lệ; message FAIL nêu RÕ cạnh nào drift + hệ quả (dead/câm).
+- **Never**: KHÔNG sửa `services/imm16.py` (`_MR_TRANSITIONS`/`get_management_review`/`advance_mr_state`/`finalize_management_review` giữ nguyên — map ĐÃ in-sync 3-cạnh-khớp-1-1 lúc grounding); KHÔNG sửa `imm_16_mr_workflow.json`/fixtures (admin-override `AssetCore Super Admin` + `System Manager` ĐÃ có sẵn trên cả 3 cạnh ⇒ 0 reload/migrate + gate admin GREEN); KHÔNG chỉ so codomain `next_state` (bỏ sót drift "sai nguồn" — phải EDGE); KHÔNG nới assert để test GREEN khi drift THẬT (drift = fix map/JSON hoặc bồi EXCEPTION_EDGE + ADR = HARD-STOP USER); KHÔNG so cứng `== set()` (dùng `_MR_EXCEPTION_EDGES` — 1 chỗ khai báo miễn trừ).
 
 ## III.G. Dashboard / Reports / Cross-module
 
@@ -545,7 +889,9 @@ class IMMComplianceScorecard(Document):
 | Resolved | 1 | Success | → Closed (Compliance Manager) |
 | Closed | 2 | Success | terminal |
 
-**Workflow actions (Vietnamese):** "Chuyển sang Xem xét", "Xác nhận NC", "Đánh dấu Sai", "Miễn áp dụng", "Đánh dấu Đã giải quyết", "Đóng"
+**Workflow actions (Vietnamese):** "Bắt đầu xem xét", "Xác nhận vi phạm", "Xác nhận không vi phạm", "Miễn trừ", "Đánh dấu đã giải quyết", "Đóng finding"
+
+> **Dual-track status/workflow_state — LOCKSTEP (ADR-IMM-16-05, SUPERSEDES ADR-IMM-16-01 §V.1 note cũ).** Bảng trên là track `workflow_state` (workflow-engine is_active=1, gồm cạnh `Resolved→Closed`). Track `status` (field service enforce) do service-action đặt trực tiếp. **Round 14 (CR-WF-16-FIND) đóng DESYNC:** mỗi transition-fn (start_review/confirm/mark_false/waive/close + cascade CAPA) đặt CẢ HAI track lockstep (`workflow_state = status` qua `frappe.db.set_value`, §III.B.2) — mirror CAPA (ADR-IMM-16-03 "đặt CẢ HAI") / MR (ADR-IMM-16-04) / IMM-12 (imm12:797). **Note cũ ("workflow_state là track song song service KHÔNG chạm") ĐÃ SAI** → tạo desync workflow_state đọng `'Open'` trên workflow ĐANG ACTIVE. CTA trên FindingDetail vẫn chỉ phát từ `_FINDING_VALID_TRANSITIONS` (§III.B.1) — status-CTA `Under Review / Confirmed NC / False Positive / Waived` (+ route CAPA qua `can_create_capa`). **EXCEPTION_EDGES = {Resolved (CAPA-auto), Closed (workflow-engine terminal)}** — 2 state reachable qua workflow nhưng KHÔNG do service-CTA cán bộ sinh (INV-16-B, §III.B.2). `Closed` chỉ tới bằng workflow-engine desk button — FE SPA 0 nút Close.
 
 ## V.2. Internal Audit Workflow (`imm_16_audit_workflow.json`)
 

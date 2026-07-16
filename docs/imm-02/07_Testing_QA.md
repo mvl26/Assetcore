@@ -97,6 +97,8 @@ Toàn bộ artefact test được của IMM-02. Mỗi dòng → ≥ 1 test class
 | BR-02-05 | 6/6 infra domains phải đánh giá | G03 `_validate_gate_g03` (#15) + `_vr05` (#12) | BVA |
 | BR-02-06 | Lock-in score ≤ threshold hoặc có mitigation | G04 `_validate_gate_g04` (#16) | Decision Table |
 | BR-02-07 | Locked spec không sửa; phải Withdraw + Reissue | `before_save` docstatus=1 check (#27) | State Transition |
+| BR-02-08 | CTA gating server-driven (`can_lock/can_withdraw/can_reissue`) | `_get_tech_spec` derive cờ + `_SPEC_CTA_TRANSITIONS` | Decision Table (state × capability) |
+| BR-02-09 | Lock/Withdraw cần `spec.submit`; Reissue cần `spec.create` → FORBIDDEN | `_require_spec_approver` trong `_lock_spec`/`_withdraw_spec`/`_reissue_spec` | EP (permission) + State Transition |
 
 ### I.2.c. Từ Activity Flow / BPMN
 
@@ -285,8 +287,41 @@ File dự kiến: `tests/test_imm02_api.py`. Cover happy + envelope `success=tru
 | `test_submit_benchmark_fail_g02` ⬜ | `api/imm02.submit_benchmark` (2 cand) | `code=BUSINESS_RULE` | BVA |
 | `test_submit_lock_in_ok` ⬜ | `api/imm02.submit_lock_in_assessment` | lock_in_score correct | Use Case |
 | `test_lock_spec_ok` ⬜ | `api/imm02.lock_spec` | `success=true`, state=Locked | Use Case |
-| `test_lock_spec_low_role_forbidden` ⬜ | `api/imm02.lock_spec` (low-role) | `code=FORBIDDEN` | EP (permission) |
+| `test_lock_spec_low_role_forbidden` ⬜ | `api/imm02.lock_spec` (low-role) | `code=FORBIDDEN`, spec vẫn Pending Approval (KHÔNG pass-through submit) | EP (permission) |
 | `test_reissue_spec_ok` ⬜ | `api/imm02.reissue_spec` | new_spec, version bump | Use Case |
+
+### III.6.1. CTA gating server-driven (BR-02-08/09 — vòng 6, `test_imm02`)
+
+| Test | Đối tượng | Verify | Kỹ thuật |
+|---|---|---|---|
+| `test_get_tech_spec_flags_pending_approval` | `_get_tech_spec` @ Pending Approval, role có `spec.submit` | `allowed_transitions=["lock","withdraw"]`, `can_lock=1`, `can_withdraw=1`, `can_reissue=0` | Decision Table |
+| `test_get_tech_spec_flags_locked` | `_get_tech_spec` @ Locked | `can_withdraw=1`, `can_lock=0`, `can_reissue=0` | State Transition |
+| `test_get_tech_spec_flags_withdrawn` | `_get_tech_spec` @ Withdrawn, role có `spec.create` | `can_reissue=1`, còn lại 0 | State Transition |
+| `test_get_tech_spec_flags_draft_all_false` | `_get_tech_spec` @ Draft/Reviewing/… | `allowed_transitions=[]`, 3 cờ = 0 | EP |
+| `test_get_tech_spec_flags_no_role_all_false` | `_get_tech_spec` @ Pending Approval, user KHÔNG có `spec.submit` | `allowed_transitions=["lock","withdraw"]` (hint) nhưng `can_lock=can_withdraw=0` | EP (permission) |
+| `test_lock_spec_low_role_forbidden` | `_lock_spec` (user thiếu `spec.submit`) @ Pending Approval | `FORBIDDEN`; state vẫn Pending Approval | EP (permission) |
+| `test_withdraw_spec_low_role_forbidden` | `_withdraw_spec` (user thiếu `spec.submit`) | `FORBIDDEN`; state không đổi | EP (permission) |
+| `test_invariant_flags_subset_of_guard` | ∀ state × ∀ role: nếu `can_X=1` thì gọi endpoint X KHÔNG trả FORBIDDEN/BAD_STATE | map ⊆ guard-permitted | Property/State Transition |
+| `test_super_admin_can_lock_regression` | `AssetCore Super Admin` @ Pending Approval | `can_lock=1` **và** `lock_spec` OK (state→Locked) — chuỗi lesson "full quyền vẫn duyệt được" | Use Case (regression) |
+
+> FE parity: `frontend/src/views/tech-specs/__tests__/techSpecCtaGating.test.ts` (vitest) — cờ→nút v-if; grep `workflow_state ===` trong 3 computed CTA = 0; cờ thiếu → không lỗi + không nút.
+
+### III.6.2. SSoT 6 transition trung gian — `allowed_actions` + reconcile INVARIANT (CR-WF-02-SPEC vòng 24, `test_imm02`)
+
+| Test | Đối tượng | Verify | Kỹ thuật |
+|---|---|---|---|
+| `test_spec_allowed_transitions_matches_workflow_fixture` | `_SPEC_VALID_TRANSITIONS` ⇄ `imm_02_spec_workflow.json` (parse JSON) | (a) ∀ `(state,action,next_state,roles)∈map`: `roles == ∪allowed` group workflow (EXACT); (b) `{action wf} − {action map} == _SPEC_EXCEPTION_ACTIONS` (`{'Phê duyệt spec','Rút spec'}`). **RED khi map rỗng/thiếu cạnh → GREEN sau 6 cạnh** | Invariant (STATIC) |
+| `test_spec_allowed_actions_draft_spec_user` | `spec_allowed_actions('Draft', {'Spec User'})` | `== ['Gửi rà soát']` | Decision Table |
+| `test_spec_allowed_actions_reviewing_needs_manager` | `spec_allowed_actions('Reviewing', {'Needs Manager'})` | `== ['Yêu cầu chỉnh spec','Hoàn tất benchmark']` | Decision Table |
+| `test_spec_allowed_actions_reviewing_spec_user_no_benchmark` | `spec_allowed_actions('Reviewing', {'Spec User'})` | `== ['Yêu cầu chỉnh spec']` (KHÔNG có `Hoàn tất benchmark`) | EP (role filter) |
+| `test_spec_allowed_actions_terminal_empty` | `spec_allowed_actions('Locked'/'Withdrawn'/None/'Foo', roles)` | `== []` | Boundary |
+| `test_get_tech_spec_emits_allowed_actions` | `_get_tech_spec` @ Draft, session role có `Spec User` | payload có key `allowed_actions == ['Gửi rà soát']`; `allowed_transitions` (vòng 6) vẫn tồn tại riêng | Integration |
+| `test_transition_workflow_advertised_action_reachable` | user có role, doc thoả gate cho cạnh | ∀ `action ∈ allowed_actions`: `transition_workflow(name, action)` KHÔNG FORBIDDEN + `workflow_state == next_state` (INVARIANT-2) | State Transition |
+| `test_transition_workflow_missing_role_not_advertised` | user thiếu role cạnh (vd `Spec User` @ Reviewing với `Hoàn tất benchmark`) | action VẮNG khỏi `allowed_actions`; gọi thẳng `transition_workflow` → `FORBIDDEN` (in-handler cap-403, HTTP-200 + envelope, state không đổi) | EP (permission) |
+
+> **Tách RBAC-gate ≠ business-gate:** `test_transition_workflow_advertised_action_reachable` phải dựng fixture thoả G01–G04 cho cạnh đang kiểm (vd Draft→Reviewing cần ≥8 mandatory + test_method), hoặc assert INVARIANT-2 ở mức role-permission. `allowed_actions` chỉ advertise cạnh role-reachable; `BUSINESS_RULE` khi bấm là UX đúng, KHÔNG vi phạm invariant.
+
+> **KHÔNG đụng** `imm_02_spec_workflow.json` → `test_workflow_admin_override` GIỮ GREEN (verify trong DoD). FE parity: `techSpecCtaGating.test.ts` +case `allowed_actions` (render `cta-wf-<slug>`, click → `store.transitionWorkflow` + `fetchOne`, rỗng/thiếu → 0 nút wf, Pending Approval không nuốt `cta-lock`/`cta-withdraw`). DoD: `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_imm02` → 'Ran N OK' THẬT (dòng cuối) + `vue-tsc` sạch + `vitest` xanh.
 
 ## III.7. E2E browser (Playwright)
 
@@ -378,6 +413,23 @@ bench --site <site> run-tests --module assetcore.tests.test_imm02_workflow
 | `_compute_candidate_score` (#19) | `TestComputeCandidateScore` | Unit | *(Cần khảo sát)* | Medium |
 | `_rollup_infra_status` (#18) | `TestRollupInfraStatus` | Unit | *(Cần khảo sát)* | High (G03 input) |
 | API endpoints (#28) | `test_imm02_api.py` ⬜ | API | 0% (Planned) | High |
+| Workflow role ⊆ Role Profile coverage (§IV.5) | `test_workflow_role_profile_coverage.py` ⬜ | Invariant (static, 22 wf) | 0% (Planned) | Critical |
+| Dead-gate `Spec User` đóng (persona VT-TTBYT) | `test_imm02.py::TestSpecProfileDeadGate` ⬜ | Integration | 0% (Planned) | Critical |
+
+## IV.4. CR-WF-RBAC-PROFILE-COVERAGE (vòng 34) — test spec
+
+Ground truth: `02_Analysis_Design.md` §IV.5 + ADR-IMM02-03. TDD RED-trước → GREEN-sau.
+
+| Test ID | Layer | Assert | RED-trước | GREEN-sau |
+|---|---|---|---|---|
+| `test_workflow_role_profile_coverage.py::test_every_non_admin_role_is_profile_backed` (**INV-COV**, own-file) | Invariant static (glob 22 source JSON + `ROLE_PROFILE_CATALOG`) | ∀ transition, mọi `allowed` non-admin role ∈ `(∪roles_for_profile) ∪ {Super Admin, System Manager} ∪ EXCEPTION_ROLES{Vendor Engineer}` | uncovered == `{Spec User}` → đỏ (msg liệt kê role + workflow) | thêm `Spec User` vào catalog → uncovered == `∅` |
+| `test_workflow_role_profile_coverage.py::test_exception_role_never_sole_gates` (**INV-EXC-REACH**) | Invariant static | ∀ transition-group `allowed ∩ EXCEPTION_ROLES ≠ ∅` có ≥1 role ∈ `∪roles_for_profile` | (GREEN sẵn: 3 group IMM-04 co-list `PM User`) | giữ GREEN — chống ai đó thêm cạnh sole-gate `Vendor Engineer` |
+| `TestSpecProfileDeadGate::test_vttbyt_profile_can_send_review` | Integration (ensure_user + profile "Trưởng phòng VT-TTBYT") | tạo Draft 8 spec-line (G01) → `transition_workflow('Gửi rà soát')` success + `workflow_state=='Reviewing'` | guard `spec_allowed_actions('Draft', roles)==[]` → `BAD_STATE` envelope (API) / `apply_workflow` `PermissionError` (raw) | success |
+| `TestSpecProfileDeadGate::test_base_role_still_blocked` | Integration (user chỉ `AssetCore System User`) | `Gửi rà soát` bị chặn (BAD_STATE / PermissionError) | (đã chặn) | VẪN chặn — không mở-toang |
+
+**Regression phải GREEN (không đỏ):** INV-A/INV-B/INV-C (`test_workflows.py`), `test_imm02.py` 593–604 (`spec_allowed_actions` với `{Spec User}`), `test_spec_valid_transitions_reconciles_workflow_json` (INVARIANT-1), `test_role_profiles.py` (`len(PROFILE_NAMES)==8`) — vì workflow JSON / `_SPEC_VALID_TRANSITIONS` / fixtures **không đổi**.
+
+**DONE-gate:** `bench --site miyano run-tests` báo `Ran N OK` THẬT (không skip/false-green); sync live `assetcore.setup.setup_role_profiles.run` (idempotent, KHÔNG `bench migrate`).
 
 ---
 

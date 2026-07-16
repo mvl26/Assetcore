@@ -80,7 +80,7 @@
     </div>
 
     <!-- Hành động: Phê duyệt trao thầu -->
-    <div v-if="canAward" class="card award-card">
+    <div v-if="canAward" class="card award-card" data-testid="cta-award">
       <h3>★ Phê duyệt trao thầu</h3>
       <p class="muted">
         Khi phê duyệt, hệ thống sẽ tự động: (1) tạo đơn hàng nội bộ tương ứng,
@@ -116,7 +116,7 @@
             </select>
           </label>
           <label>Người phê duyệt <span class="req">*</span>
-            <input v-model="awardForm.board_approver" type="email" required placeholder="email@benhvien.vn" />
+            <ApproverSelect v-model="awardForm.board_approver" context="user" required placeholder="Chọn người phê duyệt..." />
           </label>
         </div>
         <label>Đường dẫn file hợp đồng (nếu có)
@@ -134,7 +134,7 @@
     </div>
 
     <!-- Hành động: Ghi nhận hợp đồng -->
-    <div v-if="canRecordContract" class="card">
+    <div v-if="canRecordContract" class="card" data-testid="cta-record-contract">
       <h3>Ghi nhận hợp đồng đã ký</h3>
       <form class="form" @submit.prevent="doRecordContract">
         <div class="grid-2col">
@@ -142,7 +142,7 @@
             <input v-model="contractForm.contract_no" type="text" required placeholder="Số hợp đồng đã ký" />
           </label>
           <label>Ngày ký
-            <input v-model="contractForm.signed_date" type="date" />
+            <DateInput v-model="contractForm.signed_date" class="form-input w-full" />
           </label>
         </div>
         <label>Đường dẫn file hợp đồng đã ký
@@ -156,10 +156,11 @@
       </form>
     </div>
 
-    <!-- Workflow transitions (other states) -->
-    <div class="action-bar">
-      <button v-for="action in availableActions" :key="action"
-              class="btn btn-outline" @click="doTransition(action)">
+    <!-- Workflow transitions (server-driven — 1 nút/action, trừ 2 action có form riêng) -->
+    <div v-if="workflowActions.length" class="action-bar">
+      <button v-for="action in workflowActions" :key="action"
+              class="btn btn-outline" data-testid="workflow-action" :data-action="action"
+              @click="doTransition(action)">
         {{ actionLabel(action) }}
       </button>
     </div>
@@ -174,6 +175,8 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useImm03Store } from '@/stores/imm03'
 import CurrencyInput from '@/components/common/CurrencyInput.vue'
+import DateInput from '@/components/common/DateInput.vue'
+import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
 import {
   getEvaluation, awardDecision, recordContract, transitionDecisionWorkflow,
 } from '@/api/imm03'
@@ -196,18 +199,12 @@ const WORKFLOW_STATES: DecisionState[] = [
 
 const FUNDING_SOURCES = ['NSNN', 'Tài trợ', 'Xã hội hóa', 'BHYT', 'Khác']
 
-const TRANSITIONS_BY_STATE: Record<string, string[]> = {
-  'Draft':             ['Chọn phương án'],
-  'Method Selected':   ['Bắt đầu thương thảo'],
-  'Negotiation':       ['Đề xuất trúng thầu'],
-  'Award Recommended': ['Trình BGĐ'],
-  'Contract Signed':   ['Phát hành PO'],
-}
-
-// Nhãn hiển thị cho nút workflow. Value gửi BE giữ NGUYÊN ('Phát hành PO' là action trong
-// Workflow DocType — đổi sẽ phải migrate + khớp lại BE); ở đây chỉ việt-hoá chữ hiển thị.
+// Nhãn hiển thị cho nút workflow. Value gửi BE giữ NGUYÊN ('Phát hành PO'/'Huỷ Decision'
+// là action trong Workflow DocType — đổi sẽ phải migrate + khớp lại BE); ở đây chỉ
+// việt-hoá chữ hiển thị (UI copy policy LL-FE-53: 'PO'/'Decision' → tiếng Việt đầy đủ).
 const ACTION_LABELS: Record<string, string> = {
   'Phát hành PO': 'Phát hành đơn mua hàng',
+  'Huỷ Decision': 'Huỷ quyết định',
 }
 function actionLabel(action: string): string {
   return ACTION_LABELS[action] ?? action
@@ -233,15 +230,23 @@ const awardForm = reactive({
 const contractForm = reactive({ contract_no: '', contract_doc: '', signed_date: '' })
 const awarding = ref(false)
 
-const canAward = computed(() => store.currentDecision?.workflow_state === 'Pending Approval')
-const canRecordContract = computed(() => store.currentDecision?.workflow_state === 'Awarded')
+// Server-driven CTA (GATE-8 / LL-FE-51): gate nút theo tập ACTION do BE emit
+// (get_decision → _DECISION_VALID_TRANSITIONS, SoT khớp fixture 'IMM-03 Decision
+// Workflow'), KHÔNG hardcode theo `workflow_state` literal. Nút Phê duyệt trao thầu
+// / Ghi nhận hợp đồng có form riêng nên tách khỏi danh sách nút workflow chung.
+const allowedTransitions = computed(() => store.currentDecision?.allowed_transitions ?? [])
+const canAward = computed(() => allowedTransitions.value.includes('Phê duyệt trúng thầu'))
+const canRecordContract = computed(() => allowedTransitions.value.includes('Ký HĐ'))
 const canSubmitAward = computed(() =>
   awardForm.winner_supplier && awardForm.awarded_price > 0
   && awardForm.funding_source && awardForm.board_approver,
 )
 
-const availableActions = computed(() =>
-  TRANSITIONS_BY_STATE[store.currentDecision?.workflow_state || ''] || []
+// Nút workflow chung = mọi action còn lại (loại 2 action đã có form riêng).
+// Khôi phục nút 'Huỷ Decision' ở Pending Approval + giữ Chọn phương án / Bắt đầu
+// thương thảo / Đề xuất trúng thầu / Trình BGĐ / Phát hành PO.
+const workflowActions = computed(() =>
+  allowedTransitions.value.filter(a => a !== 'Phê duyệt trúng thầu' && a !== 'Ký HĐ')
 )
 
 function stepClass(i: number): string {

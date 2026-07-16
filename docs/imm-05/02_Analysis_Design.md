@@ -522,7 +522,7 @@ stateDiagram-v2
     Active --> Archived: Auto khi version mới Active (BR-05-01)
 ```
 
-> **⚠️ "Đã hết hạn" KHÔNG phải workflow_state (BR-05-16).** Không có transition `→ Expired`: scheduler `check_document_expiry` chỉ set cờ derived `is_expired=1` (không đổi `workflow_state`). "Hết hạn" là **thuộc tính dẫn xuất** đo bằng predicate SoT `EXPIRED_FILTER` (`expiry_date < today ∧ state ∉ {Archived,Rejected}`) — áp song song lên MỌI state còn-sống (Active/Draft/Pending Review/Rejected*). Một doc Active quá hạn vẫn ở state `Active` (vẫn đếm/hiện trong KPI "Đã hết hạn"). Dead-state `Expired` (do thiết kế gốc khai báo nhầm) đã được gỡ khỏi state machine + mọi filter builder. *(Rejected loại khỏi predicate vì không phải gap còn sống — đã bị từ chối.)*
+> **⚠️ "Đã hết hạn" KHÔNG phải workflow_state (BR-05-16).** Không có transition `→ Expired`: scheduler `check_document_expiry` chỉ set cờ derived `is_expired=1` (không đổi `workflow_state`). "Hết hạn" là **thuộc tính dẫn xuất** đo bằng predicate SoT `EXPIRED_FILTER` (`expiry_date < today ∧ state ∉ {Archived,Rejected}`) — áp song song lên MỌI state còn-sống (Active/Draft/Pending Review/Rejected*). Một doc Active quá hạn vẫn ở state `Active` (vẫn đếm/hiện trong KPI "Đã hết hạn"). Dead-state `Expired` đã được loại khỏi **mọi filter builder / read-path** (không route vào, không tham chiếu); state-def vẫn **khai báo như terminal declared-dead** trong fixture (ADR-IMM-05-02) — không gỡ. *(Rejected loại khỏi predicate vì không phải gap còn sống — đã bị từ chối.)*
 
 **Bảng State:**
 
@@ -534,9 +534,31 @@ stateDiagram-v2
 | Rejected | 0 | Bị từ chối, cần sửa | Biomed / CMMS Admin | Gửi lại |
 | Archived | 2 | Đã lưu trữ (terminal) | — | Chỉ xem |
 
-> **Lưu ý dữ liệu legacy:** State `Expired` đã bị loại khỏi vòng đời. Nếu DB còn record `workflow_state='Expired'` (dữ liệu cũ trước Vòng 19) → BE patch hạ về `Active` (giữ `is_expired` derived) hoặc `Archived` tùy ngữ cảnh; predicate `EXPIRED_FILTER` đã loại Archived nên record legacy không gây double-count. KHÔNG còn DocType/workflow nào tạo mới state này.
+> **Lưu ý dữ liệu legacy + Expired (cập nhật ADR-IMM-05-02):** ngữ nghĩa "hết hạn = derived" giữ nguyên (scheduler chỉ set `is_expired`, KHÔNG route vào `Expired`). Tuy nhiên state-def `Expired` **vẫn được khai báo** trong cả 2 file workflow (cleanup gỡ-state Vòng 19 chưa từng áp) → quyết định GIỮ `Expired` như terminal declared-dead (0 inbound / 0 outbound), map `_DOC_VALID_TRANSITIONS` phủ `Expired → []`. Nếu DB có record `workflow_state='Expired'` (không xảy ra qua flow, chỉ dữ liệu cũ) → hiển thị read-only, predicate `EXPIRED_FILTER` đã loại Archived/Rejected nên không double-count.
 
 VR-05: Không cho phép thoát khỏi Archived (terminal). "Hết hạn" không terminal — doc quá hạn vẫn có thể được Lưu trữ hoặc thay bằng phiên bản mới (upload Draft mới → Active → auto-archive bản cũ, BR-05-01).
+
+### IV.3.a. ADR — Server-driven CTA cho Document Detail
+
+#### ADR-IMM-05-01: Nút CTA workflow do SERVER lái (`allowed_transitions` + `can_approve`)
+- **Status**: Accepted
+- **Date**: 2026-07-09
+- **Context**: `DocumentDetailView.vue` gate nút CTA (Gửi duyệt/Phê duyệt/Từ chối/Gửi lại/Lưu trữ) bằng `doc.workflow_state === 'X'` hardcode client-side. Sinh 2 lỗi: (a) **false-permissive** — user thiếu `doc.approve` vẫn thấy nút Phê duyệt/Từ chối ở Pending Review → bấm mới 403 (UX xấu + lộ ý định); (b) **drift** — sửa transition ở fixture mà quên sửa FE thì UI lệch state machine (anti-pattern dead-gate — cùng họ GATE-8/LL-FE-51 đã áp cho 4 màn *Detail khác).
+- **Decision**: `get_document` phát 2 khóa server-driven: `allowed_transitions = _DOC_VALID_TRANSITIONS.get(workflow_state, [])` (list next-state hợp lệ, khớp EXACT fixture) và `can_approve = int(rbac.can('doc.approve'))`. FE render MỌI nút CTA transition theo `allowedTransitions.includes(<next_state>)`; nút Phê duyệt/Từ chối/Lưu trữ thêm `&& canApprove`. `workflow_state === '…'` chỉ còn ở NHÃN read-only (label Expired/Archived, hoặc label "Gửi duyệt"↔"Gửi lại", "Lưu trữ"↔"Hủy bỏ"), TUYỆT ĐỐI KHÔNG ở điều kiện render nút.
+- **Alternatives**: (1) Chỉ ẩn nút bằng role-name FE — loại: RBAC dead-gate, role đổi/không tồn tại thì gate câm. (2) Thêm `can_edit`/`can_archive`... nhiều cờ — loại: map transition đã đủ diễn đạt; chỉ cần 1 cờ quyền `can_approve` cho nhánh duyệt.
+- **Consequences**: SSoT = fixture workflow; invariant test (INV-CTA-1) chốt map↔fixture. BE vẫn enforce `_require_approve_role()` server-side (ẩn nút ≠ security). Thêm 2 khóa response (backward-compatible, optional ở FE type).
+
+#### ADR-IMM-05-02: GIỮ state `Expired` như terminal declared-dead (supersede ý định gỡ ở Vòng 19)
+- **Status**: Accepted — supersedes phần "gỡ state-def Expired" của Self-Correction Vòng 19 (BR-05-16 phần derived-expiry vẫn hiệu lực)
+- **Date**: 2026-07-09
+- **Context**: Vòng 19 (BR-05-16) quyết định "hết hạn = derived attribute" và ghi ý định GỠ state-def `Expired` khỏi workflow (04 §3.1 cũ nói "5 state", 07 §III.4 nói "min_states 5"). Thực tế cleanup đó CHƯA áp: cả `fixtures/workflow.json` lẫn `assetcore/workflow/imm_05_document_workflow.json` vẫn khai 6 state (gồm `Expired`); `tests/test_workflows.py` vẫn assert `min_states 6`. Task server-driven CTA cần map phủ đúng tập state của fixture.
+- **Decision**: GIỮ `Expired` như terminal declared-dead (0 inbound / 0 outbound); `_DOC_VALID_TRANSITIONS` có key `Expired → []`; KHÔNG gỡ state-def trong change này.
+- **Alternatives**: Hoàn tất gỡ `Expired` (sửa 2 workflow.json + `test_workflows.py` min_states 6→5) — loại KHỎI scope này: churn state-def rủi ro, tiếp tuyến CTA, và acceptance liệt kê `Expired→[]`. Để lại như backlog cleanup độc lập nếu muốn dọn dead-state.
+- **Consequences**: Ngữ nghĩa derived-expiry (bản vá thật bug count-vs-drill) KHÔNG phụ thuộc state-def → giữ nguyên. Map + invariant vận hành trên fixture 6-state hiện tại → xanh ngay, không cần gỡ state.
+
+### IV.3.b. Boundaries (Always / Never) cho server-driven CTA
+- **Always**: `get_document` phát `allowed_transitions` (từ `_DOC_VALID_TRANSITIONS`) + `can_approve` (từ `rbac.can`); FE gate nút transition BẰNG `allowedTransitions.includes(<next_state>)`; nhánh duyệt (Phê duyệt/Từ chối/Lưu trữ) thêm `&& canApprove`; BE enforce `_require_approve_role()` ở endpoint duyệt (server-side, defense-in-depth); map khớp EXACT fixture (invariant test).
+- **Never**: gate điều kiện render nút CTA bằng `workflow_state === '…'` hoặc role-name FE; để user thiếu `doc.approve` thấy nút Phê duyệt/Từ chối; sửa transition ở fixture mà quên cập nhật `_DOC_VALID_TRANSITIONS`; coi việc ẩn nút FE là kiểm soát bảo mật; bịa next-state không có trong fixture.
 
 ## IV.4. Input — Output
 

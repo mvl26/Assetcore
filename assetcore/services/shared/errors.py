@@ -26,6 +26,10 @@ class ServiceError(Exception):
         message_code: MSG.XXX key vào registry — FE tra cứu lại entry để get
             action_hint, severity, title. Optional — chỉ có giá trị khi raise qua
             `nthrow()`.
+        fields: dict {field_name: error_message} — form/field-level validation
+            (vd upload ảnh: {"file": "Tệp phải là ảnh JPG hoặc PNG"}). API layer
+            (`handle`) đẩy vào envelope `fields` → FE hiển thị lỗi dưới đúng control.
+            Optional — mặc định {} (envelope KHÔNG kèm `fields` khi rỗng).
     """
 
     def __init__(
@@ -36,12 +40,14 @@ class ServiceError(Exception):
         http_status: int = 400,
         context: dict | None = None,
         message_code: str | None = None,
+        fields: dict | None = None,
     ):
         self.code = code
         self.message = message
         self.http_status = http_status
         self.context = context or {}
         self.message_code = message_code
+        self.fields = fields or {}
         super().__init__(f"[{code}] {message}")
 
 

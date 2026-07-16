@@ -100,6 +100,10 @@ export interface NeedsRequestDoc {
   procurement_plan?: string
   workflow_state?: NeedsRequestState
   docstatus?: 0 | 1 | 2
+  /** Server-driven CTA gating (GATE-8 / LL-FE-51): action-string workflow user
+   *  hiện tại được phép (dedupe). Nguồn từ `get_needs_request` — FE gate nút
+   *  Phê duyệt/Bác đề xuất theo list này, KHÔNG theo role hardcode. */
+  allowed_transitions?: string[]
 }
 
 export interface NeedsRequestFilters {

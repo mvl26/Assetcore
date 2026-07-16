@@ -12,6 +12,8 @@
 //   có thể rơi nhầm sang on-schedule. Ta cắt chuỗi 'YYYY-MM-DD' và so sánh string,
 //   khớp đúng ngữ nghĩa date của BE (getdate/nowdate).
 
+import { calibrationStatusLabel, calibrationStatusClass } from '@/constants/labels'
+
 /** Cửa sổ "sắp đến hạn" — PHẢI khớp BE `CAL_DUE_SOON_WINDOW_DAYS` trong services/imm11.py. */
 export const CAL_DUE_SOON_WINDOW_DAYS = 30
 
@@ -107,4 +109,52 @@ export function isCalDueNow(
 ): boolean {
   const k = deriveCalStatus(nextDueDate, now).kind
   return k === 'overdue' || k === 'due_soon'
+}
+
+// ─── Badge hạn TỪ CỜ SERVER (is_overdue/is_due_soon) — server-flag SSoT (CR-02) ──
+// KHÁC deriveCalStatus (client-clock từ next_due_date): list_calibrations +
+// get_calibration của BE đã derive cờ qua CHUNG helper is_calibration_overdue /
+// is_calibration_due_soon (services/imm11.py). Consumer (list + detail phiếu) CHỈ
+// render cờ, KHÔNG so next_calibration_date với client-clock
+// (memory: overdue_server_flag_ssot). Nhãn/lớp màu lấy từ SSoT constants/labels.
+
+export interface CalFlagBadge {
+  kind: 'overdue' | 'due_soon'
+  /** Nhãn VI SSoT: 'Quá hạn' / 'Sắp đến hạn' (calibrationStatusLabel). */
+  label: string
+  /** Lớp badge SSoT (calibrationStatusClass). */
+  badgeClass: string
+  /** Lớp màu chữ cho cell ngày: đỏ (overdue) · cam (due_soon). */
+  textClass: string
+}
+
+/**
+ * Derive badge hạn hiệu chuẩn TỪ CỜ SERVER (int 0/1), KHÔNG dùng ngày/client-clock.
+ *
+ * Overdue ưu tiên due_soon (khớp biên BE: due_soon inclusive today loại next < today).
+ * Cờ coerce Number(x)===1 → chống string "1"/boolean; undefined (None-guard) → cả hai
+ * KHÔNG match → null (không badge). Dùng CHUNG cho list + detail phiếu → INV parity
+ * list==detail (kiểu INV-SLA-5): cùng cờ server → cùng badge.
+ */
+export function calFlagBadge(
+  isOverdue?: number | boolean | null,
+  isDueSoon?: number | boolean | null,
+): CalFlagBadge | null {
+  if (Number(isOverdue) === 1) {
+    return {
+      kind: 'overdue',
+      label: calibrationStatusLabel('Overdue'),
+      badgeClass: calibrationStatusClass('Overdue'),
+      textClass: 'text-red-600 font-semibold',
+    }
+  }
+  if (Number(isDueSoon) === 1) {
+    return {
+      kind: 'due_soon',
+      label: calibrationStatusLabel('Due Soon'),
+      badgeClass: calibrationStatusClass('Due Soon'),
+      textClass: 'text-amber-600 font-semibold',
+    }
+  }
+  return null
 }

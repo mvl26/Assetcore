@@ -309,8 +309,11 @@ def expired_filter(today: str | None = None) -> list[list]:
 | Active | 1 | Success | — |
 | Rejected | 0 | Danger | — |
 | Archived | 2 | Default | ✓ (VR-05) |
+| Expired | 1 | Default | ✓ (declared-dead — ADR-IMM-05-02) |
 
-> **Không có state `Expired` (BR-05-16).** "Đã hết hạn" là **thuộc tính dẫn xuất** (cờ `is_expired` do `set_computed_fields` + predicate `expired_filter()` §2.6), KHÔNG phải workflow_state. Workflow JSON `imm_05_document_workflow.json` chỉ có 5 state trên + KHÔNG transition nào dẫn vào `Expired`. (State `Expired` đã bị loại khỏi vòng đời ở Vòng 19 — xem 02 §IV.3.)
+> **"Đã hết hạn" vẫn là thuộc tính DẪN XUẤT, KHÔNG phải state đang-dùng (BR-05-16).** Cờ `is_expired` (do `set_computed_fields`) + predicate `expired_filter()` (§2.6) là SoT của "hết hạn"; scheduler KHÔNG bao giờ set `workflow_state='Expired'` → **KHÔNG transition nào dẫn vào `Expired`** (dead-state, 0 inbound / 0 outbound).
+>
+> **Self-Correction (ADR-IMM-05-02, supersede ý định gỡ state ở Vòng 19):** cả `fixtures/workflow.json` lẫn `assetcore/workflow/imm_05_document_workflow.json` **hiện vẫn khai báo 6 state (gồm `Expired`)** — cleanup "gỡ state-def Expired" ở Vòng 19 được ghi trong doc nhưng **chưa từng áp** vào fixture. Quyết định (bounded để phục vụ server-driven CTA): **GIỮ `Expired` như terminal declared-dead**, KHÔNG gỡ trong change này (gỡ state-def là churn rủi ro, tiếp tuyến với việc CTA). Bản đồ `_DOC_VALID_TRANSITIONS` phủ `Expired → []` (§3.4). Ngữ nghĩa derived-expiry (bản vá thật của bug count-vs-drill) KHÔNG phụ thuộc việc state-def còn/mất → giữ nguyên. Xem ADR đầy đủ ở 02 §IV.3.
 
 ### §3.2 Transition matrix
 
@@ -320,11 +323,13 @@ def expired_filter(today: str | None = None) -> list[list]:
 | Phê duyệt | Pending Review | Active | Tổ HC-QLCL, CMMS Admin |
 | Từ chối | Pending Review | Rejected | Tổ HC-QLCL, CMMS Admin |
 | Gửi lại | Rejected | Pending Review | Biomed Engineer, CMMS Admin |
-| Lưu trữ | Active | Archived | CMMS Admin |
-| Hủy bỏ | Draft | Archived | CMMS Admin |
+| Lưu trữ | Active | Archived | Compliance Manager, AssetCore Super Admin, System Manager |
+| Hủy bỏ | Draft | Archived | Compliance Manager, AssetCore Super Admin, System Manager |
 | Auto: Archived | Active | Archived | archive_old_versions (on new Active) |
 
 > **Đã gỡ transition phantom `Auto: Expired (Active→Expired)`** (Vòng 19): khai báo cũ KHÔNG có trong workflow JSON và scheduler KHÔNG thực thi (chỉ set `is_expired=1`). Hết hạn không đổi state — xem §2.6 + §7.2.
+
+> **⚠️ Self-Correction — drift fixture ↔ spec cho `Hủy bỏ (Draft→Archived)`:** §3.2 (bảng này) VÀ 02 §IV.3 state machine VÀ service `archive_document` (imm05.py: cho phép `Draft/Active → Archived`) VÀ FE (nút "Hủy bỏ" ở Draft) đều coi `Draft→Archived` là hợp lệ, **nhưng cả `fixtures/workflow.json` lẫn `assetcore/workflow/imm_05_document_workflow.json` HIỆN THIẾU cạnh này** (chỉ có `Draft→Pending Review`). Để server-driven CTA (§3.4) + invariant test xanh, **BE PHẢI thêm cạnh `Draft → Archived` (action "Hủy bỏ")** vào CẢ HAI file workflow, role = `Compliance Manager, AssetCore Super Admin, System Manager` (khớp gate operative `doc.approve` của nút — xem §3.4). Deploy: re-sync workflow fixture (bench migrate / reload). Runtime "Hủy bỏ" vốn đã chạy qua service `archive_document` (bypass `apply_workflow`) → thêm cạnh là để đồng bộ SSoT + invariant, KHÔNG đổi hành vi service.
 
 ### §3.3 Controller hook pattern
 
@@ -359,6 +364,41 @@ class AssetDocument(Document):
     def on_trash(self):
         frappe.throw("Không được phép xóa tài liệu. Thay thế bằng lưu trữ.")
 ```
+
+---
+
+### §3.4 Server-driven CTA — `_DOC_VALID_TRANSITIONS` + enrich `get_document` (GATE-8 / LL-FE-51)
+
+**Vấn đề (root cause):** `DocumentDetailView.vue` hardcode render nút CTA theo `doc.workflow_state === 'X'` (dead-gate client-side) → 2 lỗi: (a) **false-permissive** — user KHÔNG có `doc.approve` vẫn thấy nút "Phê duyệt"/"Từ chối" ở phiếu Pending Review, bấm mới nhận 403; (b) **drift** — thêm/đổi transition ở fixture mà quên sửa FE thì UI lệch state machine. Sửa ROOT CAUSE = server phát tập transition hợp lệ + cờ quyền; FE chỉ render theo server (KHÔNG so `workflow_state===`).
+
+**SoT map (services/imm05.py — mirror `_CAL_VALID_TRANSITIONS` imm11:58):**
+
+```python
+# Keyed BẰNG DocState.* constants (KHÔNG literal). Codomain GROUNDED edge-by-edge
+# fixtures/workflow.json 'IMM-05 Document Workflow' (6 state). Terminal Archived/Expired → [].
+_DOC_VALID_TRANSITIONS: dict[str, list[str]] = {
+    DocState.DRAFT:          [DocState.PENDING_REVIEW, DocState.ARCHIVED],  # Gửi duyệt · Hủy bỏ
+    DocState.PENDING_REVIEW: [DocState.ACTIVE, DocState.REJECTED],         # Phê duyệt · Từ chối
+    DocState.REJECTED:       [DocState.PENDING_REVIEW],                    # Gửi lại
+    DocState.ACTIVE:         [DocState.ARCHIVED],                          # Lưu trữ
+    DocState.ARCHIVED:       [],                                           # terminal
+    DocState.EXPIRED:        [],                                           # declared-dead terminal (ADR-IMM-05-02)
+}
+```
+
+**Enrich `get_document(name)`** — THÊM 2 khóa vào `data` (KHÔNG đổi/bỏ khóa cũ), NGAY TRƯỚC `return data`:
+
+```python
+data["allowed_transitions"] = _DOC_VALID_TRANSITIONS.get(doc.workflow_state, [])
+data["can_approve"] = int(rbac.can("doc.approve"))
+```
+
+- `allowed_transitions: list[str]` — tập next-state hợp lệ từ `workflow_state` hiện tại. `.get(..., [])` = default-an-toàn cho state lạ.
+- `can_approve: int` (0/1) — `int(rbac.can("doc.approve"))`; capability `doc.approve` → (Asset Document, "submit") trong `rbac.CAPABILITY_MAP`. KHÔNG truyền `doc` (chỉ hỏi cap ở mức doctype). Đây CHỈ là cờ ẩn/hiện nút; **BE vẫn enforce `_require_approve_role()` ở `approve/reject/archive_document`** (defense-in-depth — ẩn nút FE KHÔNG phải security control).
+
+**INV-CTA-1 (invariant chống drift — test bắt buộc, 07 §III.4):** đọc `fixtures/workflow.json` entry `'IMM-05 Document Workflow'`, dựng `codomain[state] = {t.next_state}`. Assert: (1) `set(_DOC_VALID_TRANSITIONS.keys()) == set(states[])` (6 key); (2) với MỖI state `set(_DOC_VALID_TRANSITIONS[state]) == codomain[state]`; (3) codomain ⊆ `DocState` enum. Thêm/sửa transition mà quên map → RED.
+
+> **Phụ thuộc BE:** invariant (2) chỉ xanh SAU khi thêm cạnh `Draft → Archived` vào `fixtures/workflow.json` (§3.2). `get_document` cần import `rbac` (đã có ở service).
 
 ---
 

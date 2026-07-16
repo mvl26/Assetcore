@@ -61,7 +61,7 @@ User không có Role hợp lệ → HTTP 403 + `CM-010`.
 
 | # | Function | Method | Permission | Mô tả |
 |---|---|---|---|---|
-| 3.1 | `list_repair_work_orders` | GET | Tất cả có đăng nhập | Danh sách WO + filter + phân trang (+ `mine=1` self-scope `assigned_to` — tab "Phiếu CM của tôi" MVP-5b) |
+| 3.1 | `list_repair_work_orders` | GET | Tất cả có đăng nhập | Danh sách WO + filter + phân trang (+ `mine=1` self-scope `assigned_to` — tab "Phiếu CM của tôi" MVP-5b; + `search` OR-LIKE `name`/`asset_code`/`asset_name` toàn tập — CR-18/BR-09-LISTSEARCH) |
 | 3.2 | `get_repair_work_order` | GET | Tất cả có đăng nhập | Chi tiết WO + asset_info enriched |
 | 3.3 | `create_repair_work_order` | POST | Workshop Manager / CMMS Admin | Tạo WO mới |
 | 3.4 | `assign_technician` | POST | Workshop Manager | Phân công Kỹ thuật viên |
@@ -89,6 +89,7 @@ User không có Role hợp lệ → HTTP 403 + `CM-010`.
 | `request_spare_parts` | `@frappe.whitelist(methods=["POST"])` | KTV HTM, Workshop Manager, Kho vật tư |
 | `start_repair` | `@frappe.whitelist(methods=["POST"])` | KTV HTM, Workshop Manager |
 | `close_work_order` | `@frappe.whitelist()` | KTV HTM, Workshop Manager, CMMS Admin |
+| `attach_repair_checklist_photo` | `@frappe.whitelist(methods=["POST"])` (multipart) | assigned KTV OR `repair.write` (assignee/DocPerm write trên Asset Repair) |
 | `get_repair_kpis` | `@frappe.whitelist()` | PTP Khối 2, Workshop Manager, CMMS Admin |
 | `get_mttr_report` | `@frappe.whitelist()` | PTP Khối 2, Workshop Manager, CMMS Admin |
 | `search_spare_parts` | `@frappe.whitelist()` | KTV HTM, Workshop Manager, Kho vật tư |
@@ -112,10 +113,33 @@ User không có Role hợp lệ → HTTP 403 + `CM-010`.
 |---|---|---|---|
 | `filters` | JSON string | Không | Filter Frappe-style: exact, `["in",[...]]`, `[">=",val]`, `["like","%x%"]` |
 | `mine` | int (`0\|1`) | Không | **`mine=1`** → self-scope `assigned_to == session.user` (tab "Phiếu CM của tôi" — MyWorkOrdersView, MVP-5b). AND với mọi key trong `filters`. **`mine=0`/absent (mặc định 0)** = hành vi cũ BYTE-IDENTICAL (permission-aware — web-FE `RepairWorkOrderListView` KHÔNG đổi). Xem `04_Backend_Design.md §3.6` ADR-IMM09-LISTMINE + mobile ADR-MOBILE-017. |
+| `search` | string | Không | default `""`; free-text OR-LIKE trên `name` (mã lệnh CM) / `asset_code` / `asset_name` — case-insensitive, TOÀN tập mọi trang (CR-18 — xem BR-09-LISTSEARCH + ADR-IMM09-SEARCH-01). `""`/absent ⇒ list BYTE-IDENTICAL baseline. AND với `filters`/`mine`/vendor-scope. |
 | `page` | int | Không | Trang hiện tại (mặc định 1) |
 | `page_size` | int | Không | Kích thước trang (mặc định 20) |
 
+> **📱 Mobile-BE contract (list-element `status`/`priority` enum-parity — CR-08, mobile Trục B, 2026-07-13):** phần tử `data.data[]` được mirror trong OpenAPI mobile [`docs/mobile/openapi/assetcore-mobile.openapi.yaml`](../mobile/openapi/assetcore-mobile.openapi.yaml) schema **`RepairWorkOrderListItem`** (C3-split, 21 field). CR-08 **formal-hoá `enum`** cho 2 property `status` + `priority` (trước round là `type:string` TRẦN → codegen `String` free-form): `status.enum` = 9 giá trị `RepairStatus` VERBATIM `[Open, Assigned, Diagnosing, Pending Parts, In Repair, Pending Inspection, Completed, Cannot Repair, Cancelled]` (**bằng-hệt** precedent `CreateRepairWorkOrderResponse.status`, 1 SoT — KHÔNG chế enum mới), `priority.enum` = `[Normal, Urgent, Emergency]`. Nguồn contract-truthful: `services/imm09.py::list_work_orders` trả `status`/`priority` **CANONICAL** (∈ `_LIST_WO_FIELDS` qua `get_all` — 0 transform; enricher chỉ ĐỌC `status` để derive `sla_paused`). **CONTRACT-ONLY** (0 `.py`/reload/migrate — pure-yaml + test): grounding `set(enum)==set(asset_repair.json Select options)` đọc TRỰC TIẾP doctype; zero-footprint `additionalProperties:false` + `required:['name']` + tổng property 21 GIỮ. Chi tiết + Alternatives: [ADR-MOBILE-037](../mobile/ADR-MOBILE-037.md) + [`04-api-contract.md §6.3`](../mobile/04-api-contract.md).
+
 > **BR-09-LISTMINE (self-scope opt-in):** `mine` là **filter ứng-dụng**, KHÔNG phải hàng-rào-bảo-mật — read-gating GIỮ DocPerm `repair.read` + `permission_query_conditions` `asset_repair_query` (`permissions.py:115`) + `apply_vendor_scope`. Inject `f["assigned_to"]=frappe.session.user` ở API-layer **SAU** `apply_vendor_scope`, **TRƯỚC** `handle(svc.list_work_orders)` (mirror `api/imm08.py::list_pm_work_orders`). Invariant **count==rows**: `count_with_or` + `get_all` (`BaseRepository.list`) dùng CÙNG `filters` dict (đã có `assigned_to`) ⇒ `pagination.total == len(data.data)`. Với KTV thì `asset_repair_query` đã tự scope `assigned_to` (mine thừa nhưng vô hại — AND idempotent); với senior/QA (`asset_repair_query` trả `""` → thấy tất cả) thì `mine=1` thu hẹp về "của tôi" = use-case chính của tab.
+
+> **BR-09-LISTSEARCH (free-text search phía SERVER — CR-18, ĐỐI XỨNG BR-08-17):** param `search` (string, optional) → OR-LIKE `name` (mã lệnh CM = PK `Asset Repair`) / `asset_code` / `asset_name` (2 field trên **AC Asset**, link `asset_ref`), TOÀN tập mọi trang (thay lọc client-side chỉ-trang-đã-tải + gỡ search-trap).
+> - **Điểm inject:** discrete param → `api/imm09.py::list_repair_work_orders` inject `f["search"]=search.strip()` **CHỈ khi** non-empty, **SAU** `apply_vendor_scope` + `mine` (đối xứng `mine`). Trống ⇒ KHÔNG đụng `f` ⇒ byte-identical.
+> - **Dịch → `or_filters` @service:** `services/imm09.py::list_work_orders` gọi SSoT `pop_search(base, ["name"], link_search={"asset_ref": ("AC Asset", ["asset_code","asset_name"])})` **TRƯỚC** `_normalize_filters`/`_apply_open_drill` (tránh `Unknown column 'tabAsset Repair.search'`). Trả `["name","like","%<esc>%"]` (PK CM) + `["asset_ref","in",<AC Asset khớp asset_code/asset_name/name>]` (resolve 1 lần, cap 500).
+> - **Escape (SSoT `escape_like_term`):** `%`→`\%`, `_`→`\_` trước bọc `%…%`, áp CẢ `name` LẪN link-lookup ⇒ khớp literal, chống wildcard-injection/DoS.
+> - **AND-combine KHÔNG nới quyền:** `search` AND với `status`/`priority`/`asset_ref`/`open_repair_filter` + `mine`(`assigned_to`) + vendor-scope(`asset_ref IN […]`). KTV `mine=1`/Vendor KHÔNG thấy phiếu ngoài scope dù khớp `search`. Link-lookup AC Asset `ignore_permissions=True` chỉ resolve id text-match; phạm vi phiếu VẪN do `filters`+`permission_query`/vendor.
+> - **INVARIANT count==rows:** `or_filters` (id link đã resolve) dựng 1 lần → thread CÙNG cho `count_with_or`(`get_list`)+`get_all` ⇒ `pagination.total == số phiếu thực khớp` mọi trang (test `page_size` nhỏ vẫn đúng tổng). KHÔNG resolve id riêng cho count vs rows.
+> - **⚠ VERIFY BE Bước-4 (bất đối xứng PQC rows-vs-count — như PM):** rows = `frappe.get_all` (KHÔNG áp `permission_query_conditions`) vs count = `count_with_or`→`frappe.get_list` (CÓ áp `asset_repair_query` = `assigned_to==user`). Read-all persona khớp; **vendor** (`apply_vendor_scope` inject `asset_ref IN […]` KHÁC predicate pqc `assigned_to`) có thể count < rows + rò phiếu ngoài `assigned_to` (latent baseline, không do CR-18). BE chốt: rows cũng qua `get_list` (áp pqc) HOẶC canh explicit-filter khớp pqc; thêm regression count==rows persona vendor (search rỗng + có search). Nếu là bug baseline → tách finding riêng, KHÔNG mở rộng scope CR-18.
+> - **Nhánh live `sla_breached_live`:** `search` pop TRƯỚC rẽ nhánh; `or_filters` forward vào `_fetch_all_repair_rows`/`_list_sla_breached_live` để chip "Quá hạn SLA" + search compose đúng, count==rows giữ trong tập lọc live.
+> - **Recall cap 500 asset/term** → count==rows vẫn giữ (chung id đã cap), recall giảm = `[ROADMAP]` streaming (ADR-IMM00-LIST-SCOPE §4b).
+
+#### ADR-IMM09-SEARCH-01: `search` discrete param + `pop_search`/`escape_like_term` SSoT (CR-18)
+
+- **Status**: Accepted — Date 2026-07-10. Đối xứng PM `ADR-IMM08-SEARCH-01` + tái dùng `ADR-IMM00-SEARCH-ESCAPE`; dùng CHUNG `pop_search`/`escape_like_term`/`BaseRepository.list(or_filters)`.
+- **Context**: FE `CMWorkOrderListView` lọc client-side chỉ trang đã tải (`filteredWOs`) → KTV bỏ sót phiếu trang sau. `asset_code`/`asset_name` trên AC Asset (link `asset_ref`). Ràng buộc: count==rows, byte-identical baseline khi trống, KHÔNG nới quyền, chống wildcard-injection/DoS.
+- **Decision**: 1 discrete query-param `search` (default `""`) → inject `f["search"]` @api khi non-empty → `pop_search` @service → `or_filters` (parent `name` + link-lookup AC Asset) đã escape → `RepairRepo.list(or_filters=…)` thread chung count+rows.
+- **Alternatives**: (A) client-filter → search-trap không sửa được → loại. (B) raw `%term%` không escape → wildcard-injection/DoS → loại. (C) endpoint `search_repair_work_orders` riêng → +1 path, nhân đôi enrich/scope → loại. (D) full-text MATCH…AGAINST → schema migration + đổi count semantics → `[ROADMAP]`.
+- **Consequences**: blast-radius = 1 param @api + 1 nhánh `pop_search` @service + forward `or_filters` vào nhánh `sla_breached_live`; count==rows giữ; backward-compat khi trống; recall cap 500 = `[ROADMAP]`; `search` là filter ứng-dụng (bảo mật read vẫn do DocPerm/`asset_repair_query`+vendor-scope).
+
+> **DELTA vòng này (CR-18):** (1) Query-params table thêm `search`; (2) BR-09-LISTSEARCH + ADR-IMM09-SEARCH-01 mới. **BE Bước-4:** `api/imm09.py::list_repair_work_orders(filters, mine, search: str = "", page, page_size)` (inject `f["search"]` khi non-empty); `services/imm09.py::list_work_orders` (pop `search`→`or_filters` qua `pop_search` TRƯỚC `_normalize_filters`, forward vào `_list_sla_breached_live`); `services/shared/filters.py::pop_search` (escape + list display-field); `api/openapi_overrides.py` (khai `search` cho `list_repair_work_orders` + mirror `docs/mobile/openapi/*.yaml`); tests `test_imm09` (count==rows-paginated + escape-literal + AND-vendor/mine + byte-identical-empty). **FE Bước-4:** `CMWorkOrderListView.vue` (server refetch debounce+reset page=1, gỡ `filteredWOs`+search-trap, giữ chip); `api/imm09.ts::listRepairWorkOrders` (+`search`); `stores/imm09.ts::fetchWorkOrders` (forward `search`).
 
 **Ví dụ request:**
 
@@ -552,6 +576,7 @@ curl -G "https://acme.local/api/method/assetcore.api.imm09.list_repair_work_orde
 1. Set các trường từ body (`repair_summary`, `root_cause_category`, `dept_head_name`, `checklist_results`, `spare_parts`, `firmware_*`).
 2. `status = "Pending Inspection"` — **WO chưa submit ở bước này**.
 3. ALE `event_type = "repair_pending_inspection"`.
+4. **Đọc `asset_status` LIVE** cho response (KHÔNG đổi trạng thái asset ở bước này) — xem "Response contract (parity shape)" bên dưới.
 
 > Nghiệm thu thực sự xảy ra ở `confirm_inspection` (endpoint 3.9).
 
@@ -562,16 +587,22 @@ curl -G "https://acme.local/api/method/assetcore.api.imm09.list_repair_work_orde
   "success": true,
   "data": {
     "name": "WO-CM-2026-00042",
-    "status": "Pending Inspection"
+    "status": "Pending Inspection",
+    "mttr_hours": null,
+    "sla_breached": 0,
+    "asset_status": "Under Repair"
   }
 }
 ```
 
+> `mttr_hours` = `null` ở nhánh này — MTTR chỉ tính ở `complete_repair()` (chạy khi `confirm_inspection` submit). `sla_breached` = cờ doc hiện tại (0 mặc định, hoặc 1 nếu scheduler đã stamp). `asset_status` = trạng thái LIVE của asset (thường `Under Repair`, đọc SSoT — KHÔNG hardcode).
+
 **Side-effects (Cannot Repair mode):**
 1. Nếu đang `"Pending Parts"` → **`exit_parts_hold(doc, until=now())` (BR-09-10, INV-CM-HOLD-5)** chốt khoảng hold cuối + ALE `parts_hold_resumed` (audit đầy đủ; WO không tính MTTR nhưng vẫn ghi trọn khoảng hold).
 2. Set `cannot_repair_reason`, `status = "Cannot Repair"`.
-3. `Asset.status = "Out of Service"`.
+3. `transition_asset_status(→ "Out of Service")` (= `AssetStatus.OUT_OF_SERVICE`, casing chính xác **"Out of Service"** — chữ `of` viết thường).
 4. ALE `event_type = "cannot_repair"`.
+5. **Đọc `asset_status` LIVE** sau transition (trả `"Out of Service"`) — cùng SSoT với nhánh happy.
 
 **Response 200 (Cannot Repair):**
 
@@ -581,10 +612,38 @@ curl -G "https://acme.local/api/method/assetcore.api.imm09.list_repair_work_orde
   "data": {
     "name": "WO-CM-2026-00042",
     "status": "Cannot Repair",
+    "mttr_hours": null,
+    "sla_breached": null,
     "asset_status": "Out of Service"
   }
 }
 ```
+
+> `mttr_hours` / `sla_breached` = `null` ở nhánh này — WO không hoàn thành sửa chữa nên **không tính MTTR** (2 field thêm CHỈ để parity key-set với nhánh happy, giá trị = `doc.mttr_hours` / `doc.sla_breached`, thường `null`/chưa set). `asset_status` = trạng thái LIVE sau transition = `"Out of Service"`.
+
+#### Response contract — parity shape (CR-13b, mobile Trục B)
+
+**INVARIANT hợp đồng (bắt buộc test):** cả 2 nhánh return của `close_work_order` phải trả **CÙNG key-set — superset đúng 5 khoá**:
+
+```
+set(keys happy) == set(keys cannot_repair) == {name, status, mttr_hours, sla_breached, asset_status}
+```
+
+Không nhánh nào được thiếu/thừa khoá so với contract. Bảng chi tiết từng field:
+
+| Field | Kiểu (OAS) | Nhánh happy (Pending Inspection) | Nhánh cannot_repair (Cannot Repair) |
+|---|---|---|---|
+| `name` | string | WO name | WO name |
+| `status` | string (enum 2 giá trị `[Pending Inspection, Cannot Repair]`) | `"Pending Inspection"` | `"Cannot Repair"` |
+| `mttr_hours` | number, **nullable** | `doc.mttr_hours` (thường `null` — MTTR tính ở `confirm_inspection`) | `doc.mttr_hours` (`null` — không tính MTTR) |
+| `sla_breached` | integer enum `[0,1]`, **nullable** | `doc.sla_breached` (0 mặc định / 1 nếu scheduler stamp) | `doc.sla_breached` (`null`/chưa set) |
+| `asset_status` | **string, nullable** ⟵ **MỚI (CR-13b)** | LIVE `lifecycle_status` (thường `Under Repair`) | LIVE `lifecycle_status` sau transition = `Out of Service` |
+
+**Nguồn `asset_status` = SSoT LIVE (KHÔNG hardcode):** đọc trực tiếp trạng thái asset qua `frappe.db.get_value("AC Asset", doc.asset_ref, "lifecycle_status")` (hoặc `AssetRepo.get_value(doc.asset_ref, "lifecycle_status")` — cùng SSoT như `complete_repair` `services/imm09.py:732`). Lý do KHÔNG hardcode: `lifecycle_status` của AC Asset do **nhiều process** quản (calib-fail → OoS+CAPA, decommission…) — xem BR-09-09 (root-cause `04 §restore có điều kiện`). Nhánh happy asset vẫn `Under Repair` (WO → Pending Inspection, chưa restore); nhánh cannot_repair vừa transition sang `Out of Service` nên LIVE-read == `"Out of Service"`. Khuyến nghị BE: một tail dùng chung dựng đủ 5 khoá, chỉ `status` khác giữa 2 nhánh (chống drift key-set).
+
+**OAS `CloseWorkOrderResponse` — khai `asset_status` (bịt vi phạm `additionalProperties: false`):** schema hiện đóng 4 khoá `{name, status, mttr_hours, sla_breached}` (`test_mobile_oas.py:_CLOSE_WORK_ORDER_DATA_KEYS`) → nhánh cannot_repair emit `asset_status` **KHÔNG được khai** ⇒ vi phạm `additionalProperties:false` của contract mobile. CR-13b thêm property `asset_status` (`type: string`, `nullable: true`) vào `CloseWorkOrderResponse` → backend KHÔNG còn emit field bị cấm. `mttr_hours` (`number`, nullable) + `sla_breached` (`integer` enum[0,1], nullable) đã nullable sẵn — giữ nguyên. `required` giữ `[name, status]` (3 field còn lại nullable, không bắt buộc). Đồng bộ: hằng test `_CLOSE_WORK_ORDER_DATA_KEYS` thêm `asset_status`; example ở `api/openapi_overrides.py` `imm09.close_work_order` (`:955-975`) thêm `asset_status` vào block `response`.
+
+> ⚠️ **KHÔNG đụng `confirm_inspection` / `ConfirmInspectionResponse`** — endpoint 3.9 giữ 4-key `{name, status, mttr_hours, sla_breached}` (schema RIÊNG, C3-split, `status.enum=[Completed]`). CR-13b chỉ chạm `close_work_order` / `CloseWorkOrderResponse`. Không endpoint/behavior nào khác đổi. Xem **ADR-IMM09-CLOSE-PARITY** (`04 §3`).
 
 **Lỗi trong submit (Completed mode):**
 
@@ -646,7 +705,86 @@ curl -G "https://acme.local/api/method/assetcore.api.imm09.list_repair_work_orde
 | `BAD_STATE` | 409 | WO không ở trạng thái "Pending Inspection" (`IMM09_BAD_STATE` `services/imm09.py:1102`; `messages.py:646` — xung-đột TRẠNG THÁI, KHÔNG 422) |
 | `FORBIDDEN` | 403 | Không có quyền `repair.submit` (cap-gate `rbac.require` `api/imm09.py:105`) |
 
-> 📱 **Cross-ref Mobile-BE contract (flow-5 acceptance):** endpoint này được surface trong OpenAPI mobile [`docs/mobile/openapi/assetcore-mobile.openapi.yaml`](../mobile/openapi/assetcore-mobile.openapi.yaml) tại path `/api/method/assetcore.api.imm09.confirm_inspection` (opId **`confirmInspection`**, POST-only). Đây là **action TERMINAL-THẬT** đóng dead-end CUỐI chuỗi repair: `closeWorkOrder` chỉ đưa WO về `Pending Inspection` (NON-terminal); `getRepairWorkOrder.allowed_transitions[]` surface CTA `Completed` nhưng KHÔNG có endpoint để thực thi → `confirmInspection` lấp. 200 = `oneOf [ConfirmInspectionEnvelope, Error]` (route-by-VALUE `body.success`, 0 discriminator); `data` = **`ConfirmInspectionResponse`** closed 4-key `{name, status, mttr_hours, sla_breached}` (`required[name,status]`), `status.enum=[Completed]` (single-value INVARIANT), `sla_breached` integer enum[0,1] (KHÔNG boolean). **Schema RIÊNG, KHÔNG reuse `CloseWorkOrderResponse`** dù shape trùng — C3-split cross-action vì `status` 1-value `[Completed]` ≠ 2-value `[Pending Inspection, Cannot Repair]`. Cap-gate `repair.submit` (phê-duyệt-chất-lượng) **KHÁC `repair.create`** (KTV). 2 lỗi nghiệp vụ in-handler (`IMM09_NOT_FOUND` 404 + `IMM09_BAD_STATE` 409) arrive **HTTP-200 + Error envelope** (quirk §5, KHÔNG status-line). Chi tiết hợp đồng + ADR: [`docs/mobile/04-api-contract.md §8.20`](../mobile/04-api-contract.md) + [`ADR-MOBILE-009.md`](../mobile/ADR-MOBILE-009.md).
+> 📱 **Cross-ref Mobile-BE contract (flow-5 acceptance):** endpoint này được surface trong OpenAPI mobile [`docs/mobile/openapi/assetcore-mobile.openapi.yaml`](../mobile/openapi/assetcore-mobile.openapi.yaml) tại path `/api/method/assetcore.api.imm09.confirm_inspection` (opId **`confirmInspection`**, POST-only). Đây là **action TERMINAL-THẬT** đóng dead-end CUỐI chuỗi repair: `closeWorkOrder` chỉ đưa WO về `Pending Inspection` (NON-terminal); `getRepairWorkOrder.allowed_transitions[]` surface CTA `Completed` nhưng KHÔNG có endpoint để thực thi → `confirmInspection` lấp. 200 = `oneOf [ConfirmInspectionEnvelope, Error]` (route-by-VALUE `body.success`, 0 discriminator); `data` = **`ConfirmInspectionResponse`** closed 4-key `{name, status, mttr_hours, sla_breached}` (`required[name,status]`), `status.enum=[Completed]` (single-value INVARIANT), `sla_breached` integer enum[0,1] (KHÔNG boolean). **Schema RIÊNG, KHÔNG reuse `CloseWorkOrderResponse`** — C3-split cross-action: `status` 1-value `[Completed]` ≠ 2-value `[Pending Inspection, Cannot Repair]`; **và sau CR-13b** `CloseWorkOrderResponse` mang 5-key (thêm `asset_status`) trong khi `ConfirmInspectionResponse` giữ 4-key `{name,status,mttr_hours,sla_breached}` (KHÔNG `asset_status`) ⇒ shape KHÁC hẳn, càng KHÔNG reuse. Cap-gate `repair.submit` (phê-duyệt-chất-lượng) **KHÁC `repair.create`** (KTV). 2 lỗi nghiệp vụ in-handler (`IMM09_NOT_FOUND` 404 + `IMM09_BAD_STATE` 409) arrive **HTTP-200 + Error envelope** (quirk §5, KHÔNG status-line). Chi tiết hợp đồng + ADR: [`docs/mobile/04-api-contract.md §8.20`](../mobile/04-api-contract.md) + [`ADR-MOBILE-009.md`](../mobile/ADR-MOBILE-009.md).
+
+---
+
+### 3.10 `attach_repair_checklist_photo` — Đính ảnh bằng chứng theo TỪNG mục checklist sửa chữa (NĐ98) 🟢 LIVE (BE+service @source · mobile OAS §8.36 CR-15)
+
+> **Mục tiêu (mobile CR-15/G6):** KTV thực hiện sửa chữa tại hiện trường chụp ảnh bằng chứng cho **từng mục checklist nghiệm thu** (vd đo điện trở đất, test dòng rò, kiểm tra cơ khí) → đính **trực tiếp vào đúng mục** của Asset Repair làm **bằng chứng NĐ98** cho thiết bị **Class C/D**. **Đối xứng** `imm08.attach_pm_checklist_photo` (Vòng 2) + `imm12.attach_incident_photo` (Vòng 1) — CÙNG pattern write-path multipart + File private + lifecycle-hard-req + Decision-B; **KHÁC**: module IMM-09, doctype `Asset Repair`, child `Repair Checklist`, và **discriminator = Frappe child `idx`** (Repair Checklist KHÔNG có field STT domain như PM Checklist Result — xem ADR-IMM09-PHOTO-01).
+
+**Endpoint:** `POST assetcore.api.imm09.attach_repair_checklist_photo`
+
+**Request — `multipart/form-data`** (KHÁC mọi endpoint imm09 khác dùng JSON/form_dict):
+
+| Phần | Nguồn | Bắt buộc | Ghi chú |
+|---|---|---|---|
+| `work_order_name` | form-field / query (`frappe.form_dict`) | ✅ | tên Asset Repair (WO) đang mở |
+| `checklist_item_idx` | form-field (`frappe.form_dict`) → `int()` | ✅ | **Frappe child `idx`** của hàng `repair_checklist` (1-based); parse-fail (sentinel −1) / không khớp `idx` → `VALIDATION` |
+| `file` | `frappe.request.files["file"]` (binary) | ✅ | ảnh JPG/PNG; đọc `upload.stream.read()` (mirror `imm08.attach_pm_checklist_photo` `api/imm08.py:70-79`) |
+
+**Response 200 — success (Decision-B):**
+```jsonc
+{ "success": true, "data": { "file_url": "/private/files/repair_xxx.jpg", "file_name": "repair_xxx.jpg", "checklist_item_idx": 2 } }
+```
+
+**Side-effects khi success (BR-09-15 + BR-09-16):**
+1. Sinh **đúng 1** `File` **private** (`attached_to_doctype="Asset Repair"`, `attached_to_name=<WO>`, `is_private=1`, `content=filedata`, `decode=False`).
+2. Ghi `file_url` vào field `repair_checklist[idx].photo` bằng **`frappe.db.set_value("Repair Checklist", <row.name>, "photo", file_url, update_modified=False)`** — **KHÔNG** `doc.save()` trên Asset Repair (anti-pattern #10: tránh re-chạy `validate_repair_checklist_complete` → BR-09-04 chưa-đủ-Pass sẽ throw khi checklist đang dở, và tránh docstatus lock/đổi `workflow_state`; `photo` permlevel=0 nên không strip). Read-back: `get_repair_work_order(WO).repair_checklist[idx].photo == file_url` (`get_work_order` KHÔNG đổi — `doc.as_dict()` đã trả `repair_checklist[].photo`).
+3. Sinh **đúng 1** `Asset Lifecycle Event` `event_type="repair_checklist_photo_attached"` (`asset=wo.asset_ref`, `actor=frappe.session.user`, `timestamp=now`, `root_doctype="Asset Repair"`, `root_record=<WO>`, `notes="Đính ảnh mục #<idx>: <filename>"`) — evidence trail NĐ98, **hard-requirement KHÔNG swallow**: gọi `create_lifecycle_event` (canonical) TRỰC TIẾP, **KHÔNG** qua wrapper `_log_lifecycle_event` (vốn try/except-swallow). Event throw → File.insert + set_value rollback (chưa commit) ⇒ **không orphan, không silent** (đối xứng imm12/imm08).
+
+**Bảng lỗi (tất cả in-handler HTTP-200 + Error envelope — Decision-B, KHÔNG raise→4xx):**
+
+| Nhánh | `success` | `code` | `http_status` (metadata envelope) | `fields` | File tạo? |
+|---|---|---|---|---|---|
+| **Guest/no-token** | — | — | **403 (dispatcher)** | — | ❌ (chặn TRƯỚC service; `@frappe.whitelist(methods=["POST"])` KHÔNG `allow_guest`) |
+| WO không tồn tại | `false` | `NOT_FOUND` | 404 | — | ❌ |
+| Không phải KTV được giao **VÀ** không `repair.write` | `false` | `FORBIDDEN` | 403 | — | ❌ (in-handler cap-403; check TRƯỚC khi tạo File) |
+| `checklist_item_idx` thiếu / không parse int / KHÔNG khớp child `idx` nào | `false` | `VALIDATION` | 422 | `{file: "Không tìm thấy mục checklist trong lệnh sửa chữa này"}` | ❌ |
+| Thiếu `file` | `false` | `VALIDATION` | 422 | `{file: "Thiếu tệp ảnh"}` | ❌ |
+| Content-type ∉ {image/jpeg, image/jpg, image/png} (`_REPAIR_PHOTO_CONTENT_TYPES` **3 giá-trị** `services/imm09.py:131`) | `false` | `VALIDATION` | 422 | `{file: "Tệp phải là ảnh JPG hoặc PNG"}` | ❌ |
+| Size > cap (`MAX_REPAIR_CHECKLIST_PHOTO_BYTES` = 10 MB, `:130`) | `false` | `VALIDATION` | 422 | `{file: "Ảnh vượt quá dung lượng cho phép (tối đa 10 MB)"}` | ❌ |
+| Mục đã có ảnh (`len(_repair_checklist_item_photos(row)) >= MAX_REPAIR_CHECKLIST_PHOTOS=1`, `:129`) | `false` | `VALIDATION` | 422 | `{file: "Mỗi mục checklist chỉ đính 1 ảnh"}` | ❌ |
+| **Ảnh hỏng / đứt-truyền** (`UnidentifiedImageError\|OSError` khi Frappe `File.before_insert`→`strip_exif`→`PIL.Image.open` — bytes rác/cắt-cụt dù content-type hợp lệ; `services/imm09.py:1222-1233`) | `false` | `VALIDATION` | 422 | `{file: "Tệp ảnh bị lỗi hoặc không đọc được, vui lòng chụp/chọn lại."}` | ❌ (PIL fail TRONG `before_insert` TRƯỚC db_insert+write_file ⇒ KHÔNG orphan; `row.photo` chưa set) |
+
+> **HEIC/HEIF (chốt cross-module — canonical ADR-IMM08-PHOTO-04):** allowlist BE **GIỮ** `{image/jpeg, image/jpg, image/png}` (`_REPAIR_PHOTO_CONTENT_TYPES` **3 giá-trị**, `services/imm09.py:131` — `image/jpg` là alias JPEG, KHÔNG mở HEIC). iPhone chụp HEIC/HEIF **PHẢI được app mobile transcode → JPEG TRƯỚC upload** (fix tại-nguồn, 0 dependency BE, JPEG xem được trong web-audit). BE-transcode (pillow-heif) = `[ROADMAP]` fallback (measure-first); mở-allowlist-nhận-HEIC = **loại** (HEIC không render trên trình duyệt). Chi tiết + alternatives: `docs/imm-08/05_API_Specification.md` ADR-IMM08-PHOTO-04.
+
+**2 loại 403 (DONE-gate spec-contract — mirror imm08/imm12):**
+- **dispatcher-403** = Guest/no-token → chặn TRƯỚC khi vào service (POST-@whitelist không `allow_guest` → Frappe dispatcher trả 403 thật, có status-line). Đây KHÔNG phải lỗi nghiệp vụ.
+- **in-handler cap-403** = đã đăng nhập nhưng không phải KTV được giao và thiếu `repair.write` → `ServiceError(FORBIDDEN)` surface Decision-B **HTTP-200** body `code=FORBIDDEN`, `http_status=403` (metadata trong envelope, KHÔNG status-line). **KHÔNG leak** raw cap.
+
+**Thứ tự thực thi (BẮT BUỘC — mọi nhánh reject TRƯỚC khi ghi File):** exists(WO) NOT_FOUND → permission (assignee/`repair.write`) FORBIDDEN → resolve `checklist_item_idx`→child-row (idx hợp lệ) VALIDATION → file present VALIDATION → content-type VALIDATION → size VALIDATION → max-count VALIDATION → `File.insert(is_private=1)` (**corrupt-guard**: `UnidentifiedImageError|OSError`→VALIDATION 422 TRONG `before_insert`, TRƯỚC db_insert ⇒ không orphan) → `db.set_value(row.photo)` → `create_lifecycle_event(repair_checklist_photo_attached)` → `frappe.db.commit()` → `_ok`. **KHÔNG commit trước khi emit event** (giữ rollback-on-throw).
+
+**Permission model (BR-09-15) — mirror `_assert_can_attach_pm_photo` (imm08):**
+```
+is_assignee = (wo.assigned_to == frappe.session.user)
+has_write   = frappe.has_permission("Asset Repair", ptype="write", doc=wo, user=frappe.session.user)
+allowed     = is_assignee OR has_write
+```
+- `frappe.has_permission(..., doc=wo)` áp CẢ role-DocPerm write (Repair Manager / Repair User / Super Admin) LẪN row-level hook `ac_asset_repair_query`/vendor-scope ⇒ **tái dùng IDOR-guard** — Vendor Engineer / KTV ngoài `assigned_to` → `has_write=False` → FORBIDDEN.
+- KTV được giao luôn được đính ảnh cho chính WO của mình (bằng chứng hiện trường do chính họ thực hiện — đối xứng reporter trong `attach_incident_photo`).
+
+**Boundaries (Always / Never):**
+- **Always:** File `is_private=1` (NĐ98 — ảnh thiết bị y tế KHÔNG public); check permission + idx + validation + max-count TRƯỚC `File.insert`; emit ĐÚNG 1 lifecycle event `repair_checklist_photo_attached` per success (hard-req, KHÔNG swallow); ghi `row.photo` bằng `db.set_value(update_modified=False)` (KHÔNG `doc.save()`); dùng CÙNG helper `_repair_checklist_item_photos(row)` cho cả max-count check LẪN read-side hiển thị (invariant **count==rows**).
+- **Never:** tạo File ở nhánh reject; `is_private=0`; `doc.save()` trên Asset Repair để set photo (re-validate BR-09-04 khi checklist chưa xong → false-error + đổi `workflow_state`); `raise frappe.throw`→HTTP-4xx cho lỗi nghiệp vụ (phải Decision-B HTTP-200); dùng wrapper `_log_lifecycle_event` (swallow) cho event evidence; dùng event ngoài `repair_checklist_photo_attached` (giá trị ngoài Select `Asset Lifecycle Event` bị nuốt/throw); commit trước khi emit event (mất rollback-on-throw); leak raw cap trong message FORBIDDEN; đổi shape `get_repair_work_order` vòng này (chỉ đọc `r.photo` sẵn có).
+
+> 📱 **Cross-ref Mobile-BE contract (CR-15/G6 — path multipart THỨ BA, hoàn tất bộ-ba):** endpoint này được surface trong OpenAPI mobile [`docs/mobile/openapi/assetcore-mobile.openapi.yaml`](../mobile/openapi/assetcore-mobile.openapi.yaml) tại path `/api/method/assetcore.api.imm09.attach_repair_checklist_photo` (opId **`attachRepairChecklistPhoto`**, POST-only, **tag `work-order`**). requestBody = **`multipart/form-data` DUY NHẤT** (`$ref AttachRepairChecklistPhotoRequest` closed 3-part `[work_order_name, checklist_item_idx:integer, file:{format:binary}]`); 200 = **`oneOf [AttachRepairChecklistPhotoEnvelope, Error]`** (route-by-VALUE `body.success`, 0 discriminator); `data` = **`AttachRepairChecklistPhotoResponse`** closed EXACT 3-key `{file_url, file_name, checklist_item_idx:integer}` (**ĐỒNG `AttachPmChecklistPhotoResponse` 3-prop NHƯNG schema RIÊNG — naming-guard 3-way; KHÁC `AttachIncidentPhotoResponse` 2-prop**). Slot `{200,401,403}`; **403 SINGLE-SHAPE `Forbidden`** (dispatcher-403 guest/no-token — in-handler cap-403 arrive HTTP-200 + Error). 8 nhánh lỗi in-handler (`Error.http_status` ⊇ {403,404,422}, gồm idx-row + corrupt-guard) arrive **HTTP-200 + Error envelope** (Decision-B, KHÔNG status-line). Chi tiết hợp đồng + ADR: [`docs/mobile/04-api-contract.md §8.36`](../mobile/04-api-contract.md) + [`ADR-MOBILE-030.md`](../mobile/ADR-MOBILE-030.md).
+
+> ✍️ **Self-Correction (2026-07-11, verify-before-claim @source khi curate mobile OAS §8.36):** (1) allowlist content-type = **3 giá-trị** `_REPAIR_PHOTO_CONTENT_TYPES = ("image/jpeg","image/jpg","image/png")` `services/imm09.py:131` (doc cũ ghi 2 giá-trị `{image/jpeg, image/png}` @`:129` — sửa +`image/jpg` alias + line-ref 129→131); (2) **thêm nhánh lỗi #8 corrupt-guard** `UnidentifiedImageError|OSError` @`services/imm09.py:1222-1233` vào bảng lỗi (đối xứng imm08/imm12 — trước bị sót); (3) header status 🟡 SPEC → 🟢 LIVE (handler @`api/imm09.py:58` + service @`services/imm09.py:1162` ĐÃ trên đĩa). KHÔNG đụng `.py` — chỉ đồng-bộ doc với source.
+
+### ADR-IMM09-PHOTO-01: Lưu ảnh bằng chứng sửa chữa = Frappe `File` private attach vào Asset Repair; discriminator per-mục = **Frappe child `idx`**; SoT = `row.photo` (Attach đơn trị, max 1/mục)
+- **Status**: Accepted · **Date**: 2026-07-09
+- **Context**: NĐ98 (thiết bị Class C/D) đòi ảnh bằng chứng **theo từng mục** checklist sửa chữa; `repair_checklist.photo` là field `Attach` **đơn trị** đã tồn tại (KHÔNG schema-change). **KHÁC imm08**: `Repair Checklist` (child của Asset Repair) **KHÔNG có** field STT domain `checklist_item_idx` (chỉ có `test_description/test_category/expected_value/measured_value/result/notes/photo`) — trong khi PM Checklist Result CÓ. `get_repair_work_order` đã trả `repair_checklist[].photo` (qua `doc.as_dict()`). `_apply_checklist` (`services/imm09.py:1247`) đã dùng Frappe child `idx` làm khóa cập-nhật hàng (`row.idx == r.get("idx")`).
+- **Decision**: (1) store = Frappe `File` private, attach vào **parent WO** (`attached_to_doctype='Asset Repair'`, `attached_to_name=WO`, KHÔNG attach vào child-row). (2) discriminator per-mục = **Frappe child `idx`** (1-based) — `_find_repair_checklist_row(wo, idx)` duyệt `wo.repair_checklist` khớp `int(r.idx)==idx` (KHÔNG N+1: list con đã load). (3) SoT ảnh/mục = `row.photo` (đơn trị, `db.set_value(update_modified=False)`) — `_repair_checklist_item_photos(row)` trả `[{file_url}]`/`[]` = **1 SoT** cho max-count(=1) + read-side hiển thị ⇒ count==rows. `MAX_REPAIR_CHECKLIST_PHOTOS=1` (mirror imm08 CODE, KHÔNG mirror bản mô tả cũ imm08 doc multi-photo-discriminator).
+- **Alternatives**: (A) thêm field STT domain `checklist_item_idx` vào Repair Checklist để mirror imm08 1:1 → schema-change + migration + backfill hàng cũ, trong khi Frappe child `idx` đã đủ ổn định cho checklist append-only (không reorder/xóa hàng giữa flow) → loại (over-engineering). (B) attach File vào child-row (`attached_to_doctype='Repair Checklist'`, `attached_to_name=row.name`) → child-row name là hash + resolve permission trên child doctype phức tạp + trái parity imm08 → loại. (C) multi-photo/mục qua File-query discriminator → phức tạp hơn, task chỉ cần `populate repair_checklist.photo` (đơn trị) → loại.
+- **Consequences**: 0 field mới / 0 child table / 0 migration schema; `MAX_REPAIR_CHECKLIST_PHOTOS=1` (đính ảnh thứ 2 vào mục đã có ảnh → VALIDATION); `row.photo` hiển thị làm thumbnail. **Đánh đổi (ghi rõ):** discriminator = Frappe child `idx` chỉ ổn định khi hàng checklist KHÔNG bị reorder/xóa sau khi tạo (đúng với luồng CM: checklist clone từ template/append lúc close, không xóa hàng giữa chừng). Nếu tương lai cho phép xóa hàng checklist giữa flow → phải chuyển discriminator sang `row.name` (child docname) — ghi backlog, ngoài scope vòng này.
+
+### ADR-IMM09-PHOTO-02: Audit đính ảnh sửa chữa = canonical `Asset Lifecycle Event` `repair_checklist_photo_attached` (thêm option Select) — hard-requirement, KHÔNG dùng wrapper swallow
+- **Status**: Accepted · **Date**: 2026-07-09
+- **Context**: NĐ98 đòi evidence trail cho mọi thao tác trên hồ sơ sửa chữa; `Asset Lifecycle Event.event_type` là Select enum cố định (`asset_lifecycle_event.json`); `repair_checklist_photo_attached` CHƯA có trong options (hiện có `repair_opened`, `repair_completed`, `incident_photo_attached` Vòng 1, `pm_checklist_photo_attached` Vòng 2…). **Bẫy nội bộ IMM-09:** wrapper `_log_lifecycle_event` (`services/imm09.py:543`) **try/except-swallow** exception (audit best-effort cho các transition thường) — nếu tái dùng cho event evidence sẽ **mất bằng chứng im lặng**.
+- **Decision**: (1) **THÊM option `repair_checklist_photo_attached`** vào Select `event_type` của `Asset Lifecycle Event` (KHÔNG migration field khác — chỉ mở enum → deploy `bench reload-doctype "Asset Lifecycle Event"`, HARD-STOP USER, KHÔNG chặn test vì test seed event trực tiếp). (2) emit canonical `create_lifecycle_event(...)` (`utils/lifecycle.py`) **TRỰC TIẾP** ở success-path, **hard-requirement** (trong transaction, commit cùng File + set_value), **KHÔNG** đi qua wrapper `_log_lifecycle_event` swallow — đây là **bản ghi bằng chứng** không được mất im lặng. Mirror imm12 `incident_photo_attached` / imm08 `pm_checklist_photo_attached`.
+- **Alternatives**: (A) tái dùng `repair_completed`/`repair_opened` → sai nghĩa (đính ảnh ≠ hoàn thành/mở sửa chữa), loại. (B) dùng wrapper `_log_lifecycle_event` (swallow) cho tiện → mất evidence im lặng khi throw, vi phạm NĐ98, loại. (C) audit best-effort try/except riêng → cùng lỗi (B), loại.
+- **Consequences**: enum +1; deploy cần reload-doctype 1 lần; test seed event bằng `create_lifecycle_event` không phụ thuộc reload live (không chặn `run-tests`). Đánh đổi: enum drift phải đồng bộ với `docs/mobile` nếu mobile map event-type.
 
 ---
 
@@ -682,6 +820,12 @@ curl -G "https://acme.local/api/method/assetcore.api.imm09.list_repair_work_orde
   }
 }
 ```
+
+> 📱 **Cross-ref Mobile-BE contract (Dashboard-KPI R1c — `getRepairKpis`, CR-31c HOÀN-TẤT-TRIAD, 2026-07-15):** endpoint này được surface trong OpenAPI mirror `docs/mobile/openapi/assetcore-mobile.openapi.yaml` — path `GET /api/method/assetcore.api.imm09.get_repair_kpis`, opId **`getRepairKpis`**, tag `work-order`, cho màn "Bảng chỉ số sửa chữa (CM)". Quyết định kiến trúc: [`../mobile/ADR-MOBILE-058.md`](../mobile/ADR-MOBILE-058.md) + spec [`../mobile/04-api-contract.md`](../mobile/04-api-contract.md) §8.52.
+> - **HÌNH DẠNG RIÊNG** trong bộ-ba Dashboard-KPI: SINGLE khối `kpis` (5-key) **+ `root_cause_breakdown[]`** — KHÔNG `trend_6months` (KHÁC `getPmDashboardStats`/ADR-056) + CÓ `root_cause_breakdown` (KHÁC `getCalibrationKpis`/ADR-057 single-kpis). Grounded VERBATIM `services/imm09.py::get_kpis` @`:1713-1725`.
+> - **`mttr_avg_hours` & `sla_compliance_pct` = number NON-nullable** (`round(...) if total else 0` @`:1698-1700` — LUÔN number, KHÔNG null-guard; mirror Cal `pass_rate_pct`, ĐỐI-NGHỊCH Pm `compliance_rate_pct` nullable). `open_wos` = COUNT khớp drill `/cm/work-orders` (§7.2/BR-09-08 INVARIANT card==drill).
+> - **Query-param `year`/`month` = `type:string`** (signature `get_repair_kpis(year: str = "", month: str = "")` @`api/imm09.py:167` — KHÁC `getCalibrationKpis` `integer` vì `imm11` dùng `year=None`); `required:false`, không khai `default:` (BE default động `getdate(nowdate())`).
+> - 4 schema closed: `RepairKpis` (5-key) / `RepairRootCauseItem` (schema MỚI — `{category,count}`) / `RepairKpisData` (`{kpis, root_cause_breakdown}`) / `RepairKpisEnvelope`. 200 = `oneOf [RepairKpisEnvelope, Error]` Decision-B. **CONTRACT-ONLY** (handler LIVE @source, 0 `.py`/reload/migrate).
 
 ---
 
@@ -801,6 +945,57 @@ curl -G "https://acme.local/api/method/assetcore.api.imm09.list_repair_work_orde
 ```
 
 **Ghi chú:** Chỉ trả về WO có `docstatus = 1` (đã Submit). Sort theo `open_datetime desc`. `limit` mặc định 10.
+
+---
+
+### 3.15 Firmware Change Request — transition endpoint (BR-09-18/19/20, Vòng 10) ✅ BUILT (BE/FE Bước-4)
+
+> **Đóng ASYMMETRY + lỗ bảo mật:** thay `05 §10.2` cũ *("`approve_firmware_fcr` — quản lý qua Frappe Desk form, chưa có custom endpoint")*. FCR có state machine SERVER-controlled `_FCR_VALID_TRANSITIONS` (§04 §3.1-bis). Status **chỉ đổi** qua endpoint transition dưới đây; `update_firmware_cr` (CRUD chung) **STRIP** field điều khiển.
+
+**Vị trí endpoint (BE-FE naming contract):** 1 endpoint dispatcher `transition_firmware_cr(name, action, reason)` đặt ở **`api/imm00.py`** (co-locate cạnh CRUD firmware list/get/create/update/delete đã có ở đây; khớp path FE gọi `frontend/src/api/imm00.ts::transitionFirmwareCr` = `assetcore.api.imm00.transition_firmware_cr`). Controller mỏng → delegate `services/imm09.py::transition_firmware_cr` (business logic + audit co-locate cạnh firmware repair logic, lazy-import né circular). *(Refinement từ bản 🟡 SPEC 4-endpoint: gộp 1 dispatcher action-based để khớp FE đã build + One-Version; state machine/capability/event GIỮ NGUYÊN.)*
+
+**Endpoint:** `POST /api/method/assetcore.api.imm00.transition_firmware_cr` — body `{name, action, reason?}`.
+
+| `action` | Cạnh | Capability | Side-effect | Lifecycle Event |
+|---|---|---|---|---|
+| `submit` | Draft → Pending Approval | `repair.write` | — | — |
+| `approve` | Pending Approval → Approved | **`firmware.approve`** | set `approved_by`, `approved_datetime` | `firmware_cr_approved` |
+| `deploy` | Approved → Applied | `repair.write` | set `applied_datetime` | `firmware_deployed` |
+| `rollback` | Applied → Rolled Back | **`firmware.approve`** | reqd `reason` → `rollback_reason` | `firmware_rolled_back` |
+
+**Request:** `submit`/`approve`/`deploy` → `{name, action}`; `rollback` → `{name, action:"rollback", reason}` (reqd — rỗng → `VALIDATION`). `action` ngoài 4 giá trị → `INVALID_PARAMS`.
+
+**Response 200 (success):** `{"success": true, "data": {"name": "FCR-2026-00007", "status": "Approved"}}` (route-by-VALUE `body.success`; FE reload `get_firmware_cr` sau đó để lấy `allowed_transitions`/`can_approve` mới).
+
+**Response 200 (business error — in-handler HTTP-200 + Error envelope, KHÔNG raise→4xx):**
+
+| Tình huống | `code` | Thông điệp VN |
+|---|---|---|
+| Repair User bấm Duyệt/Hoàn tác (thiếu `firmware.approve`) | `FORBIDDEN` | "Bạn không có quyền phê duyệt yêu cầu đổi firmware" |
+| Chuyển ngoài `_FCR_VALID_TRANSITIONS` (nhảy-cóc/lùi) | `BAD_STATE` | "Không thể chuyển yêu cầu đổi firmware từ '{from}' sang '{to}'" |
+| `action="rollback"` thiếu `reason` | `VALIDATION` | "Lý do hoàn tác là bắt buộc" |
+| `action` không hợp lệ | `INVALID_PARAMS` | "Hành động không hợp lệ cho yêu cầu đổi firmware" |
+| FCR không tồn tại | `NOT_FOUND` | "Không tìm thấy yêu cầu đổi firmware" |
+
+> **2 loại 403 (DONE-gate):** Guest/no-token gõ POST @whitelist → **dispatcher-403** (trước handler, re-auth). User đã đăng nhập thiếu quyền duyệt → **business error → HTTP-200 Error envelope** (`code=FORBIDDEN`, show-msg inline), KHÔNG 403-line. Xem ADR-IMM09-FCR-03 (§04).
+
+**`get_firmware_cr` (api/imm00.py) — enrich (Vòng 10):** thêm 2 field vào `data`:
+
+```json
+{
+  "success": true,
+  "data": {
+    "name": "FCR-2026-00007", "asset_ref": "AC-ASSET-2026-00042",
+    "status": "Pending Approval", "version_before": "1.2.0", "version_after": "1.3.1",
+    "allowed_transitions": ["Approved"],
+    "can_approve": true
+  }
+}
+```
+
+- `allowed_transitions[]` = `_FCR_VALID_TRANSITIONS.get(status,[])` **đã LỌC** theo capability caller (Repair User xem FCR Pending Approval → `[]`; Manager → `["Approved"]`). `can_approve` = **boolean** `true/false` theo `rbac.can("firmware.approve")` (BE trả `bool(...)` — FE web so `=== true`, KHÔNG int `1/0`). FE gate nút CHỈ theo 2 field này — KHÔNG hardcode `fcr.status==='X'` (BR-09-20).
+
+**`update_firmware_cr` (api/imm00.py) — hardened (Vòng 10):** STRIP `_FCR_CONTROLLED_FIELDS = {status, approved_by, approved_datetime, applied_datetime, rollback_reason}` khỏi payload → **status KHÔNG BAO GIỜ đổi qua CRUD chung** (dù caller gửi `status=Approved`). Field tự do (`change_notes`/`source_reference`/`version_*` khi Draft) vẫn sửa được. Test: gọi `update_firmware_cr(name, status='Approved')` → assert `status` giữ nguyên (TC-FCR-CRUD-GUARD-01).
 
 ---
 
@@ -1023,6 +1218,7 @@ KPI thẻ "CM đang mở" (`cm_open`, `get_overview` → `cm.open`) và drill-do
 | `start_repair` | State machine |
 | `close_work_order` (Completed) | BR-09-02 (stock entry), BR-09-03 (FCR), BR-09-04 (checklist) — chuyển sang Pending Inspection |
 | `confirm_inspection` | Nghiệm thu: role CAN_APPROVE_DEP → submit doc → complete_repair() → MTTR/SLA/ALE |
+| `attach_repair_checklist_photo` | BR-09-15 (permission + validation reject-before-insert), BR-09-16 (lifecycle `repair_checklist_photo_attached` hard-req + read-back parity + count==rows) — NĐ98 evidence Class C/D |
 | `close_work_order` (Cannot Repair) | BR-09-05 (Asset → Out of Service) |
 | `get_repair_kpis` / `get_mttr_report` | BR-09-07 (theo dõi KPI MTTR) |
 | `get_asset_repair_history` | Audit trail + BR-09-06 (detect repeat failure) |
@@ -1094,7 +1290,8 @@ curl -s -G "$BASE.get_repair_kpis" -H "$AUTH" \
 | Hạng mục | Trạng thái |
 |---|---|
 | `search_spare_parts` endpoint | ✅ Đã implement — `api/imm09.py` + `services/imm09.py` + FE `@/api/imm09.searchSpareParts()` |
-| `create_firmware_fcr` / `approve_firmware_fcr` | Quản lý qua Frappe Desk form — chưa có custom endpoint |
+| `submit_firmware_cr` / `approve_firmware_cr` / `deploy_firmware_cr` / `rollback_firmware_cr` | 🟡 SPEC Vòng 10 (§3.15) — transition SERVER-controlled `_FCR_VALID_TRANSITIONS` (`api/imm09.py` + `services/imm09.py`); status KHÔNG còn đổi qua Desk/CRUD chung. Deploy sau code: `reload-doctype "Asset Lifecycle Event"` (3 event enum) + worker reload + `after_migrate invalidate_capabilities()` (cap `firmware.approve`). |
+| `update_firmware_cr` status-strip | 🟡 SPEC Vòng 10 — STRIP `_FCR_CONTROLLED_FIELDS` khỏi CRUD chung (BR-09-19b) |
 | MTTR theo working hours | Hiện tính calendar time; cần util `get_working_hours_between` khi cần chính xác hơn |
 
 ### §10.3 `ignore_permissions` & `ignore_links`

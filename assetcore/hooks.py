@@ -446,6 +446,15 @@ has_permission = {
     "AC Mobile Device Token": "assetcore.permissions.ac_mobile_device_token_has_permission",
 }
 
+# ─── Request hooks ──────────────────────────────────────────────────────────
+# Nâng phiên mobile HẾT HẠN/không hợp lệ trên endpoint `assetcore.api.*` từ HTTP
+# 403 (PermissionError của dispatcher với Guest) → 401 (Unauthenticated) để client
+# mobile logout an toàn, KHÔNG lẫn với 403 "thiếu quyền/role" của user còn phiên.
+# Chi tiết + ràng buộc an toàn: assetcore/api/session_guard.py
+before_request = [
+    "assetcore.api.session_guard.enforce_authenticated_session",
+]
+
 # Not overriding any Frappe/ERPNext DocType — AssetCore is Frappe-only (no ERPNext dep)
 override_doctype_class = {}
 override_whitelisted_methods = {}

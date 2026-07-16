@@ -64,6 +64,62 @@
    "next_state": "Posted",
    "state": "Reviewed",
    "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu đếm",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Counting",
+   "state": "Planned",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu đếm",
+   "allowed": "System Manager",
+   "next_state": "Counting",
+   "state": "Planned",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hoàn tất đếm",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Reviewed",
+   "state": "Counting",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hoàn tất đếm",
+   "allowed": "System Manager",
+   "next_state": "Reviewed",
+   "state": "Counting",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Sửa đếm lại",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Counting",
+   "state": "Reviewed",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Sửa đếm lại",
+   "allowed": "System Manager",
+   "next_state": "Counting",
+   "state": "Reviewed",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Post",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Posted",
+   "state": "Reviewed",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Post",
+   "allowed": "System Manager",
+   "next_state": "Posted",
+   "state": "Reviewed",
+   "allow_self_approval": 1
   }
  ]
 }

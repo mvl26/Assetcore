@@ -37,7 +37,7 @@ const FINANCE_READ_CAPS = [
   'data.write', 'needs.read', 'procurement.read', 'pm.read', 'calibration.read',
 ] as const
 
-const routes: RouteRecordRaw[] = [
+export const routes: RouteRecordRaw[] = [
   // ─── 1. Auth & Root ────────────────────────────────────────────────────────
   {
     path: '/login',
@@ -199,7 +199,11 @@ const routes: RouteRecordRaw[] = [
     name: 'DeviceModelEdit',
     component: () => import('@/views/asset/DeviceModelFormView.vue'),
     props: true,
-    meta: { requiresAuth: true, title: 'Sửa Model thiết bị', requiredCapabilities: ['data.write'] },
+    // CR-RBAC-PARITY (2026-07-15): hạ data.write→data.read. DeviceModelListView
+    // click-toàn-hàng tới đây → user data.read (thấy list) TRƯỚC bị /unauthorized
+    // (dead-gate). Form render READ-ONLY khi thiếu data.write (fieldset disabled +
+    // ẩn Lưu/Xóa); GHI vẫn cần data.write ở BE. Title động theo readonly trong view.
+    meta: { requiresAuth: true, title: 'Model thiết bị', requiredCapabilities: ['data.read'] },
   },
   {
     path: '/sla-policies',
@@ -384,14 +388,20 @@ const routes: RouteRecordRaw[] = [
     path: '/cm/firmware',
     name: 'FirmwareCrList',
     component: () => import('@/views/document/FirmwareCrListView.vue'),
-    meta: { requiresAuth: true, title: 'Yêu cầu cập nhật Firmware', requiredCapabilities: ['repair.read'], moduleId: 'imm09' },
+    // CR-RBAC-PARITY (2026-07-15): Firmware CR = tính năng cấp quản lý sửa chữa
+    // (sidebar imm09 gate 'repair.write'; màn có nút Tạo/Sửa/Xoá + duyệt). Gate
+    // route theo repair.write KHỚP sidebar — TRƯỚC repair.read → user repair.write
+    // thấy link nhưng route chặn (dead-gate) + nếu nới sidebar sẽ lộ nút ghi cho
+    // KTV chỉ-đọc → 403. Nút duyệt vẫn gate SERVER-driven (firmware.approve).
+    meta: { requiresAuth: true, title: 'Yêu cầu cập nhật Firmware', requiredCapabilities: ['repair.write'], moduleId: 'imm09' },
   },
   {
     path: '/cm/firmware/:id',
     name: 'FirmwareCrDetail',
     component: () => import('@/views/document/FirmwareCrDetailView.vue'),
     props: true,
-    meta: { requiresAuth: true, title: 'Chi tiết Firmware CR', requiredCapabilities: ['repair.read'], moduleId: 'imm09' },
+    // CR-RBAC-PARITY: chi tiết Firmware CR cùng cấp với list (repair.write).
+    meta: { requiresAuth: true, title: 'Chi tiết Firmware CR', requiredCapabilities: ['repair.write'], moduleId: 'imm09' },
   },
   {
     path: '/cm/mttr',
@@ -465,14 +475,21 @@ const routes: RouteRecordRaw[] = [
     path: '/rca',
     name: 'RCAList',
     component: () => import('@/views/incident/RCAListView.vue'),
-    meta: { requiresAuth: true, title: 'Phân tích nguyên nhân (RCA)', moduleId: 'imm12', requiredCapabilities: ['corrective.write'] },
+    // CR-RBAC-PARITY (2026-07-15): XEM RCA = corrective.read (khớp drill-map
+    // DRILL_MODULE_RULES /rca→imm12→corrective.read + BE get_rca/list_rcas KHÔNG
+    // require write). TRƯỚC corrective.write → persona giám sát read-only (opsmgr)
+    // drill từ sự cố sang RCA bị /unauthorized (drill dead-gate §9.4.9). Soạn thảo
+    // RCA vẫn gate SERVER-driven (can_manage_rca / service corrective.write).
+    meta: { requiresAuth: true, title: 'Phân tích nguyên nhân (RCA)', moduleId: 'imm12', requiredCapabilities: ['corrective.read'] },
   },
   {
     path: '/rca/:id',
     name: 'RCADetail',
     component: () => import('@/views/incident/RCADetailView.vue'),
     props: true,
-    meta: { requiresAuth: true, title: 'Phân tích nguyên nhân (RCA)', moduleId: 'imm12', requiredCapabilities: ['corrective.write'] },
+    // CR-RBAC-PARITY: chi tiết RCA render read-only cho corrective.read (fields
+    // :disabled=!canEdit, canEdit=can_manage_rca server-driven). Xem = read.
+    meta: { requiresAuth: true, title: 'Phân tích nguyên nhân (RCA)', moduleId: 'imm12', requiredCapabilities: ['corrective.read'] },
   },
   {
     path: '/capas',
@@ -485,7 +502,12 @@ const routes: RouteRecordRaw[] = [
     name: 'CAPADetail',
     component: () => import('@/views/incident/CAPADetailView.vue'),
     props: true,
-    meta: { requiresAuth: true, title: 'Chi tiết CAPA', requiredCapabilities: ['capa.close'], moduleId: 'imm16' },
+    // CR-RBAC-PARITY (2026-07-15): XEM chi tiết CAPA = compliance.read (khớp list
+    // /capas + BE read IMM CAPA Record). TRƯỚC gate 'capa.close' (submit) → cán bộ
+    // tuân thủ mở list được rồi click hàng → /unauthorized (dead-gate). Nút "Đóng
+    // CAPA" vẫn gate SERVER-driven qua allowed_transitions (CAPADetailView L62),
+    // KHÔNG nới quyền đóng. capa.close chỉ để DUYỆT, không để XEM.
+    meta: { requiresAuth: true, title: 'Chi tiết CAPA', requiredCapabilities: ['compliance.read'], moduleId: 'imm16' },
   },
   {
     path: '/audit-trail',
@@ -565,20 +587,26 @@ const routes: RouteRecordRaw[] = [
     path: '/asset-transfers',
     name: 'AssetTransferList',
     component: () => import('@/views/asset/AssetTransferListView.vue'),
-    meta: { requiresAuth: true, title: 'Chuyển giao thiết bị' },
+    // CR-TRF-AUTHZ (2026-07-15): điều chuyển = Commissioning domain (khớp BE:
+    // DocPerm Asset Transfer + service commissioning.submit/write). Gate theo
+    // commissioning.read — KHÔNG mượn imm15→inventory.read (SAI domain: Thủ kho
+    // lọt route rồi 403 list_transfers; Trưởng phòng VT-TTBYT bị /unauthorized).
+    meta: { requiresAuth: true, title: 'Chuyển giao thiết bị', requiredCapabilities: ['commissioning.read'] },
   },
   {
     path: '/asset-transfers/new',
     name: 'AssetTransferCreate',
     component: () => import('@/views/asset/AssetTransferCreateView.vue'),
-    meta: { requiresAuth: true, title: 'Tạo phiếu điều chuyển thiết bị', requiredCapabilities: ['inventory.create'] },
+    // create_transfer_request → doc.insert(ignore_permissions=False) enforce
+    // DocPerm Asset Transfer create = Commissioning Manager/User. Gate FE khớp BE.
+    meta: { requiresAuth: true, title: 'Tạo phiếu điều chuyển thiết bị', requiredCapabilities: ['commissioning.create'] },
   },
   {
     path: '/asset-transfers/:id',
     name: 'AssetTransferDetail',
     component: () => import('@/views/asset/AssetTransferDetailView.vue'),
     props: true,
-    meta: { requiresAuth: true, title: 'Chi tiết Chuyển giao' },
+    meta: { requiresAuth: true, title: 'Chi tiết Chuyển giao', requiredCapabilities: ['commissioning.read'] },
   },
 
   // ─── IMM-14 — Giải nhiệm thiết bị (End-of-Life) ────────────────────────────
@@ -591,6 +619,19 @@ const routes: RouteRecordRaw[] = [
     meta: {
       requiresAuth: true,
       title: 'Biên bản giải nhiệm — AssetCore',
+      requiredCapabilities: ['decommission.read'],
+    },
+  },
+  // Chi tiết & DUYỆT biên bản giải nhiệm — thu hồi hồ sơ draft mồ côi (create ≠
+  // approve, GATE-8/LL-FE-51). CTA duyệt server-driven qua can_approve từ BE.
+  {
+    path: '/decommissions/:id',
+    name: 'DecommissionDetail',
+    component: () => import('@/views/eol/DecommissionDetailView.vue'),
+    props: true,
+    meta: {
+      requiresAuth: true,
+      title: 'Chi tiết biên bản giải nhiệm — AssetCore',
       requiredCapabilities: ['decommission.read'],
     },
   },
@@ -741,7 +782,10 @@ const routes: RouteRecordRaw[] = [
     path: '/purchases/new',
     name: 'PurchaseCreate',
     component: () => import('@/views/purchase/PurchaseCreateView.vue'),
-    meta: { requiresAuth: true, title: 'Tạo đơn hàng' },
+    // CR-AFFORD (2026-07-15): tạo AC Purchase = purchase.create (BE DocPerm
+    // Procurement Manager/User). Trước KHÔNG khai cap → fallback imm03→procurement.read
+    // (cap READ) cho hành động TẠO → procurement.read-only vào form rồi submit 403.
+    meta: { requiresAuth: true, title: 'Tạo đơn hàng', requiredCapabilities: ['purchase.create'] },
   },
   {
     path: '/purchases/:name/edit',
@@ -831,7 +875,10 @@ const routes: RouteRecordRaw[] = [
     path: '/needs-requests/new',
     name: 'NeedsRequestCreate',
     component: () => import('@/views/needs/NeedsRequestCreateView.vue'),
-    meta: { requiresAuth: true, title: 'Tạo đề xuất nhu cầu', requiredCapabilities: ['needs.read'] },
+    // CR-AFFORD (2026-07-15): tạo đề xuất nhu cầu = needs.create (BE doc.insert
+    // DocPerm create IMM Needs Request). TRƯỚC needs.read (cap ĐỌC) → user chỉ-đọc
+    // mở form tạo rồi submit→403. Nút "Tạo đề xuất" (NeedsRequestListView) cùng cap.
+    meta: { requiresAuth: true, title: 'Tạo đề xuất nhu cầu', requiredCapabilities: ['needs.create'] },
   },
   {
     path: '/needs-requests/:id',
@@ -859,20 +906,26 @@ const routes: RouteRecordRaw[] = [
     path: '/tech-specs',
     name: 'TechSpecList',
     component: () => import('@/views/tech-specs/TechSpecListView.vue'),
-    meta: { requiresAuth: true, title: 'Hồ sơ kỹ thuật', requiredCapabilities: ['needs.read'] },
+    // CR-SPEC-AUTHZ (2026-07-15): IMM Tech Spec = Spec domain (BE DocPerm Spec
+    // Manager/User + Auditor). Gate spec.read — KHÔNG needs.read (SAI domain,
+    // latent leak: spec-only user thấy sidebar-item spec.read nhưng route chặn).
+    meta: { requiresAuth: true, title: 'Hồ sơ kỹ thuật', requiredCapabilities: ['spec.read'] },
   },
   {
     path: '/tech-specs/new',
     name: 'TechSpecCreate',
     component: () => import('@/views/tech-specs/TechSpecCreateView.vue'),
-    meta: { requiresAuth: true, title: 'Sinh hồ sơ kỹ thuật từ kế hoạch', requiredCapabilities: ['needs.read'] },
+    // CR-SPEC-AUTHZ: tạo Tech Spec = spec.create (BE IMM Tech Spec create = Spec
+    // Manager/User). needs.read cũ SAI domain.
+    meta: { requiresAuth: true, title: 'Sinh hồ sơ kỹ thuật từ kế hoạch', requiredCapabilities: ['spec.create'] },
   },
   {
     path: '/tech-specs/:id',
     name: 'TechSpecDetail',
     component: () => import('@/views/tech-specs/TechSpecDetailView.vue'),
     props: true,
-    meta: { requiresAuth: true, title: 'Chi tiết hồ sơ kỹ thuật', requiredCapabilities: ['needs.read'] },
+    // CR-SPEC-AUTHZ: chi tiết Tech Spec = spec.read (khớp BE + sidebar-item).
+    meta: { requiresAuth: true, title: 'Chi tiết hồ sơ kỹ thuật', requiredCapabilities: ['spec.read'] },
   },
 
   // Đánh giá NCC, Danh mục NCC duyệt (AVL), Quyết định mua sắm
@@ -1033,7 +1086,7 @@ const MODULE_RULES: Array<[RegExp, string]> = [
   [/^\/warehouses/,            'imm15'],
   // Khối 4 — Kết thúc vòng đời
   [/^\/decommissions/,         'imm14'],   // IMM-14 Giải nhiệm thiết bị
-  [/^\/asset-transfers/,       'imm15'],   // transfer tạm gắn IMM-15 (IMM-13 chưa build)
+  [/^\/asset-transfers/,       'imm13'],   // CR-TRF-AUTHZ: điều chuyển = workspace IMM-13 (Commissioning domain), KHÔNG imm15/inventory
   // Master data
   [/^\/depreciation/,          'master'],
   [/^\/assets/,                'master'],

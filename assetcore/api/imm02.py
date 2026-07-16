@@ -124,6 +124,15 @@ def _get_tech_spec(name: str) -> dict:
         data["device_category_name"] = frappe.db.get_value(
             "AC Asset Category", doc.get("device_category"), "category_name"
         ) or doc.get("device_category")
+    # CTA gating (GATE-8 / LL-FE-51) — cờ server-driven cho FE ẩn/hiện nút duyệt.
+    # allowed_transitions chỉ là display hint; guard THẬT ở _lock/_withdraw/_reissue.
+    data.update(svc._spec_cta_flags(doc))
+    # 6 transition TRUNG GIAN → server-driven CTA (CR-WF-02-SPEC). allowed_actions =
+    # tập ACTION đã LỌC role của user (mirror IMM-03 AVL). Tách kênh khỏi 3 cờ
+    # EXCEPTION ở trên (lock/withdraw/reissue) — FE render 1 nút / action, KHÔNG
+    # double-render 'Phê duyệt spec'/'Rút spec'.
+    data["allowed_actions"] = svc.spec_allowed_actions(
+        doc.workflow_state, frappe.get_roles(frappe.session.user))
     return data
 
 
@@ -233,6 +242,17 @@ def _transition_workflow(name: str, action: str) -> dict:
     from frappe.model.workflow import apply_workflow
     doc_before = frappe.get_doc(_DT_TS, name)
     prev_state = doc_before.workflow_state or "Draft"
+    # Guard tường minh (advertise ⟺ reachable): action PHẢI ∈ SoT đã-lọc-role của
+    # prev_state, HOẶC là action EXCEPTION (lock/withdraw đi qua apply_workflow như
+    # lớp 2 enforce role). Chống nhảy-cóc / action lạ → BAD_STATE. Giữ atomic —
+    # chỉ 1 guard-check, apply_workflow vẫn là chốt role enforcement thật.
+    if (action not in svc.spec_allowed_actions(
+            prev_state, frappe.get_roles(frappe.session.user))
+            and action not in svc._SPEC_EXCEPTION_ACTIONS):
+        raise ServiceError(
+            ErrorCode.BAD_STATE,
+            _("Không thể thực hiện '{0}' từ trạng thái '{1}'").format(action, prev_state),
+        )
     apply_workflow(doc_before, action)
     doc = frappe.get_doc(_DT_TS, name)
     try:
@@ -264,8 +284,10 @@ def lock_spec(name: str, approver: str, remarks: str = "") -> dict:
 
 
 def _lock_spec(name: str, approver: str, remarks: str) -> dict:
+    # Defense-in-depth capability → state: chặn RBAC TRƯỚC khi load/đổi state.
+    svc._require_spec_approver()
     doc = frappe.get_doc(_DT_TS, name)
-    if doc.workflow_state != "Pending Approval":
+    if not svc._spec_lock_state_ok(doc.workflow_state):
         raise ServiceError(
             ErrorCode.BAD_STATE,
             _("Chỉ spec ở 'Pending Approval' mới Lock được (hiện: {0})")
@@ -293,10 +315,12 @@ def withdraw_spec(name: str, withdrawal_reason: str) -> dict:
 
 
 def _withdraw_spec(name: str, withdrawal_reason: str) -> dict:
+    # Defense-in-depth capability → state: chặn RBAC TRƯỚC input/state guard.
+    svc._require_spec_approver()
     if not (withdrawal_reason or "").strip():
         raise ServiceError(ErrorCode.VALIDATION, _("Phải nhập withdrawal_reason"))
     doc = frappe.get_doc(_DT_TS, name)
-    if doc.workflow_state not in ("Pending Approval", "Locked"):
+    if not svc._spec_withdraw_state_ok(doc.workflow_state):
         raise ServiceError(
             ErrorCode.BAD_STATE,
             _("Chỉ Pending Approval / Locked mới withdraw được (hiện: {0})")
@@ -326,8 +350,10 @@ def reissue_spec(from_spec: str) -> dict:
 
 
 def _reissue_spec(from_spec: str) -> dict:
+    # Reissue không bắt buộc role duyệt — gate theo quyền soạn (create) Tech Spec.
+    svc._require_reissue_actor()
     src = frappe.get_doc(_DT_TS, from_spec)
-    if src.workflow_state != "Withdrawn":
+    if not svc._spec_reissue_state_ok(src.workflow_state):
         raise ServiceError(
             ErrorCode.BAD_STATE,
             _("Chỉ Withdrawn spec mới reissue (hiện: {0})").format(src.workflow_state),

@@ -139,7 +139,10 @@ export const MODULE_NAV: Record<string, ModuleNav> = {
   imm13: {
     code: 'IMM-13', title: 'Điều chuyển thiết bị', icon: 'transfer',
     items: [
-      { label: 'Phiếu điều chuyển', path: '/asset-transfers', icon: 'transfer' },
+      // CR-TRF-AUTHZ (2026-07-15): điều chuyển = Commissioning domain (BE DocPerm
+      // Asset Transfer + service commissioning.*). Gate cap 'commissioning.read'
+      // → chỉ persona commissioning thấy link (chống leak Thủ kho/Trưởng xưởng → 403).
+      { label: 'Phiếu điều chuyển', path: '/asset-transfers', icon: 'transfer', cap: 'commissioning.read' },
     ],
   },
   imm14: {
@@ -160,7 +163,8 @@ export const MODULE_NAV: Record<string, ModuleNav> = {
       { label: 'Đơn vị tính',          path: '/inventory/uom',       icon: 'uom',       cap: 'inventory.write' },
       { label: 'Dự báo phụ tùng',      path: '/inventory/forecasts', icon: 'chart',     cap: 'inventory.write' },
       { label: 'Watchlist',            path: '/inventory/watchlist', icon: 'shield',    cap: 'inventory.write' },
-      { label: 'Điều chuyển thiết bị', path: '/asset-transfers',     icon: 'transfer' },
+      // CR-TRF-AUTHZ (2026-07-15): GỠ link điều chuyển khỏi group Tồn kho — điều
+      // chuyển thuộc Commissioning (BE 403 cho inventory), đã chuyển sang imm13.
     ],
   },
   imm16: {
@@ -172,7 +176,11 @@ export const MODULE_NAV: Record<string, ModuleNav> = {
       { label: 'Bảng điểm',         path: '/compliance/scorecard', icon: 'chart',    cap: 'compliance.read' },
       { label: 'Soát xét quản lý',  path: '/compliance/mr',        icon: 'log',      cap: 'compliance.write' },
       { label: 'Bản đồ nhiệt',      path: '/compliance/heatmap',   icon: 'grid',     cap: 'compliance.read' },
-      { label: 'Hành động khắc phục/phòng ngừa', path: '/capas',   icon: 'shield',   cap: 'capa.close' },
+      // CR-RBAC-PARITY (2026-07-15): hiện link CAPA theo compliance.read (khớp
+      // route list /capas + xem chi tiết). TRƯỚC gate 'capa.close' (submit) → cán
+      // bộ tuân thủ chỉ-đọc KHÔNG thấy link dù list cho vào (dead-gate/UI lệch).
+      // Đóng CAPA vẫn gate server-driven trong CAPADetailView (allowed_transitions).
+      { label: 'Hành động khắc phục/phòng ngừa', path: '/capas',   icon: 'shield',   cap: 'compliance.read' },
       { label: 'Nhật ký kiểm toán', path: '/audit-trail',          icon: 'database', cap: 'audit.read' },
     ],
   },

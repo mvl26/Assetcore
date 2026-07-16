@@ -220,9 +220,13 @@ async function handle403(): Promise<never> {
     ErrorCode.FORBIDDEN, 403)
 }
 
-function handle500(data: FrappeErrorData | undefined): never {
-  const last = data?.exc ? String(data.exc).split('\n').findLast(Boolean) ?? '' : ''
-  throw new ApiError('Lỗi máy chủ nội bộ' + (last ? ' — ' + last : ''),
+function handle500(): never {
+  // Finding C (2026-07-09): TUYỆT ĐỐI KHÔNG echo `data.exc`/traceback/exception ra UI.
+  // Trước đây lấy dòng cuối của traceback Python ghép vào message → rò thông tin nội bộ
+  // (đường dẫn file, tên hàm, stack) + gây hoảng cho người dùng cuối
+  // ('Lỗi máy chủ nội bộ — ["Traceback (most recent call last)...'). Mọi 5xx (không
+  // khớp shape Decision-B) → 1 thông điệp VN chung; chi tiết lỗi đã có ở Error Log server.
+  throw new ApiError('Có lỗi máy chủ, vui lòng thử lại.',
     ErrorCode.INTERNAL_ERROR, 500)
 }
 
@@ -295,7 +299,9 @@ api.interceptors.response.use(
       throw makeBusinessRuleError(data, status)
     }
     if (status === 429) return handle429()
-    if (status === 500) return handle500(data)
+    // Mọi 5xx (500/502/503/504…) → thông điệp máy chủ chung, KHÔNG passthrough
+    // `data.message`/traceback (Finding C — chống rò thông tin nội bộ).
+    if (status >= 500) return handle500()
 
     throw new ApiError(
       data?.message ?? `Lỗi không xác định (HTTP ${status})`,

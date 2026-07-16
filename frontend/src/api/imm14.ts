@@ -33,11 +33,33 @@ export interface DecommissionRecord {
   asset: string
   disposal_method: DisposalMethod
   decommission_reason: string
-  patient_data_sanitized: boolean
+  // BE lưu int (0/1); render qua truthiness, KHÔNG so === true.
+  patient_data_sanitized: boolean | number
   responsible: string
   sanitization_note?: string
   workflow_state: DecommissionState
   docstatus: number
+  // ── Enrich do get_decommission trả (BE) — hiển thị tên, KHÔNG rò id/email ──
+  /** Tên thiết bị (asset_name_snapshot ưu tiên) — KHÔNG render `asset` id thô. */
+  asset_name?: string | null
+  /** full_name người chịu trách nhiệm — KHÔNG rò `responsible` (email/User-id). */
+  responsible_name?: string | null
+  /** lifecycle_status hiện tại của asset (để refresh badge sau duyệt). */
+  lifecycle_status?: string | null
+  /** Snapshot lúc lập hồ sơ (materialize before_insert). */
+  asset_name_snapshot?: string
+  risk_classification_snapshot?: string
+  decommissioned_on?: string | null
+  // ── Cổng duyệt server-driven (GATE-8/LL-FE-51) — SoT ở BE get_decommission ──
+  /**
+   * 1 ⇔ user có decommission.approve AND docstatus==0 AND gate tiền-điều-kiện đạt.
+   * Dẫn xuất từ CÙNG SoT mà approve_decommission enforce (KHÔNG duplicate ở FE).
+   * FE gate CTA `can_approve === 1` — KHÔNG hardcode docstatus/workflow_state===.
+   * Optional: BE chưa emit ⇒ undefined ⇒ CTA ẩn (degrade an toàn, no dead-control).
+   */
+  can_approve?: number
+  /** Lý do (tiếng Việt) khi can_approve=0 — rỗng khi không bị chặn. */
+  approve_blocked_reason?: string
 }
 
 /** Payload tạo hồ sơ giải nhiệm — mirror body BE create_decommission. */

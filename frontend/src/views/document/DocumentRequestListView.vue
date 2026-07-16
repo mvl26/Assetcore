@@ -57,22 +57,9 @@ const CATEGORY_LABEL: Record<string, string> = {
   Training: 'Đào tạo', QA: 'Chất lượng',
 }
 
-const filteredItems = computed(() => {
-  let arr = items.value
-  if (filters.value.priority) arr = arr.filter(d => d.priority === filters.value.priority)
-  if (filters.value.search.trim()) {
-    const q = filters.value.search.trim().toLowerCase()
-    arr = arr.filter(d =>
-      (d.name || '').toLowerCase().includes(q)
-      || (d.doc_type_required || '').toLowerCase().includes(q)
-      || (d.asset_name || '').toLowerCase().includes(q)
-      || (d.asset_ref || '').toLowerCase().includes(q)
-      || (d.assigned_to || '').toLowerCase().includes(q),
-    )
-  }
-  return arr
-})
-
+// Lọc SERVER-SIDE: BE list_document_requests áp asset/status/priority/search +
+// phân trang. KHÔNG lọc client trên trang bị cắt (bug cũ: priority/search chỉ lọc
+// 20 dòng đầu).
 interface FilterChip { key: 'asset' | 'status' | 'priority' | 'search'; label: string }
 const activeChips = computed<FilterChip[]>(() => {
   const chips: FilterChip[] = []
@@ -87,35 +74,44 @@ const activeFilterCount = computed(() => activeChips.value.length)
 function clearChip(key: string) {
   (filters.value as Record<string, unknown>)[key] = ''
   if (key === 'asset') router.replace({ query: {} })
-  if (key === 'asset' || key === 'status') load()
 }
 function resetFilters() {
   filters.value = { asset: '', status: '', priority: '', search: '' }
   router.replace({ query: {} })
-  load()
 }
 function quickFilter(key: 'status' | 'priority' | 'asset', value: string) {
   if (!value || filters.value[key] === value) return
   filters.value[key] = value
   showFilters.value = false
-  if (key === 'asset' || key === 'status') load()
 }
 
+const page = ref(1)
+const PAGE_SIZE = 20
 async function load() {
   loading.value = true
   try {
     const d = await listDocumentRequests({
+      page: page.value, page_size: PAGE_SIZE,
       asset: filters.value.asset || undefined,
       status: filters.value.status || undefined,
+      priority: filters.value.priority || undefined,
+      search: filters.value.search.trim() || undefined,
     })
     items.value = d.items || []; total.value = d.total || 0
   } finally { loading.value = false }
 }
+// Mọi đổi filter (asset/status/priority/search) → về trang 1 + reload server (debounce cho search).
+let filterTimer: ReturnType<typeof setTimeout>
+watch(filters, () => {
+  clearTimeout(filterTimer)
+  filterTimer = setTimeout(() => { page.value = 1; load() }, 300)
+}, { deep: true })
+function prevPage() { if (page.value > 1) { page.value--; load() } }
+function nextPage() { if (page.value * PAGE_SIZE < total.value) { page.value++; load() } }
 
-// Re-load when query param changes (e.g. navigating from AssetDetail)
+// Điều hướng từ AssetDetail (?asset=...) → cập nhật filter (deep watcher tự reload).
 watch(() => route.query.asset, (val) => {
   filters.value.asset = (val as string) || ''
-  load()
 })
 
 function openCreate() {
@@ -218,10 +214,10 @@ onMounted(load)
     <div class="card overflow-hidden">
       <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50/60 text-xs text-slate-500">
         <span v-if="activeFilterCount > 0">
-          Kết quả lọc: <strong class="text-slate-700">{{ filteredItems.length }}</strong> / {{ total }} yêu cầu
+          Kết quả lọc: <strong class="text-slate-700">{{ items.length }}</strong> / {{ total }} yêu cầu
         </span>
         <span v-else>
-          Hiển thị <strong class="text-slate-700">{{ filteredItems.length }}</strong> / {{ total }} yêu cầu
+          Hiển thị <strong class="text-slate-700">{{ items.length }}</strong> / {{ total }} yêu cầu
         </span>
         <button v-if="activeFilterCount > 0" class="text-red-500 hover:text-red-700 font-medium" @click="resetFilters">Xóa tất cả</button>
       </div>
@@ -229,14 +225,14 @@ onMounted(load)
       <div v-if="loading" class="p-6">
         <SkeletonLoader variant="table" :rows="6" />
       </div>
-      <div v-else-if="filteredItems.length === 0" class="text-center text-slate-400 py-12 text-sm">
+      <div v-else-if="items.length === 0" class="text-center text-slate-400 py-12 text-sm">
         {{ activeFilterCount > 0 ? 'Không có yêu cầu nào phù hợp.' : 'Chưa có yêu cầu hồ sơ.' }}
       </div>
       <template v-else>
         <!-- Mobile cards -->
         <div class="mobile-card-list sm:hidden">
           <div
-            v-for="d in filteredItems"
+            v-for="d in items"
             :key="d.name"
             class="mobile-card"
           >
@@ -275,7 +271,7 @@ onMounted(load)
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100">
-            <tr v-for="d in filteredItems" :key="d.name" class="hover:bg-slate-50">
+            <tr v-for="d in items" :key="d.name" class="hover:bg-slate-50">
               <td class="px-4 py-3 font-mono text-xs text-slate-500">{{ d.name }}</td>
               <td class="px-4 py-3">
                 <button
@@ -314,6 +310,15 @@ onMounted(load)
           </tbody>
         </table>
       </template>
+
+      <!-- Pagination -->
+      <div v-if="total > PAGE_SIZE" class="flex items-center justify-between px-4 py-3 border-t border-slate-100 text-sm text-slate-500">
+        <span>{{ (page - 1) * PAGE_SIZE + 1 }}–{{ Math.min(page * PAGE_SIZE, total) }} / {{ total }}</span>
+        <div class="flex gap-2">
+          <button :disabled="page === 1" class="px-3 py-1 rounded border border-slate-300 disabled:opacity-40 hover:bg-slate-50" aria-label="Trang trước" @click="prevPage">‹</button>
+          <button :disabled="page * PAGE_SIZE >= total" class="px-3 py-1 rounded border border-slate-300 disabled:opacity-40 hover:bg-slate-50" aria-label="Trang sau" @click="nextPage">›</button>
+        </div>
+      </div>
     </div>
 
     <div v-if="showForm" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="showForm = false">

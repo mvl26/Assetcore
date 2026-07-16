@@ -13,6 +13,8 @@
 // Đây là regression guard cho lỗi tái diễn (memory wave2_ui_bugs): English status /
 // raw enum lọt ra UI calibration dashboard.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+// CR-AFFORD: view giờ gọi useCapabilities() ở setup (gate nút Tạo) → mock để mount không cần Pinia.
+vi.mock('@/composables/useCapabilities', () => ({ useCapabilities: () => ({ can: () => true }) }))
 import { mount, flushPromises } from '@vue/test-utils'
 
 // get_calibration_dashboard đi qua frappeGet trực tiếp trong view.

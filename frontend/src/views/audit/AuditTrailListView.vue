@@ -55,6 +55,15 @@ const EVENT_TYPES: { value: string; label: string; color: string }[] = [
   { value: 'Audit',         label: 'Kiểm toán',      color: 'bg-gray-100 text-gray-700' },
   { value: 'System',        label: 'Hệ thống',       color: 'bg-slate-100 text-slate-600' },
   { value: 'Transfer',      label: 'Luân chuyển',    color: 'bg-cyan-100 text-cyan-700' },
+  // IMM-15 (Kiểm kê & Cấp phát) — mã snake_case do log_audit_event ghi vào IMM Audit Trail.
+  // value PHẢI khớp EXACT option Select IMM Audit Trail.event_type (BE); label VI đầy đủ để
+  // không rò mã thô ra UI (LL-FE-53 / no-raw-code-leak). Đối xứng audit_*/competency_* codes.
+  { value: 'cycle_count_posted',   label: 'Đã chốt kiểm kê',    color: 'bg-teal-100 text-teal-700' },
+  { value: 'allocation_created',   label: 'Tạo phiếu cấp phát', color: 'bg-sky-100 text-sky-700' },
+  { value: 'allocation_approved',  label: 'Duyệt cấp phát',     color: 'bg-green-100 text-green-700' },
+  { value: 'allocation_issued',    label: 'Đã cấp phát',        color: 'bg-emerald-100 text-emerald-700' },
+  { value: 'allocation_returned',  label: 'Đã hoàn trả',        color: 'bg-amber-100 text-amber-700' },
+  { value: 'allocation_cancelled', label: 'Đã hủy cấp phát',    color: 'bg-rose-100 text-rose-700' },
 ]
 const EVENT_LABEL: Record<string, string> = Object.fromEntries(EVENT_TYPES.map(e => [e.value, e.label]))
 const EVENT_COLORS: Record<string, string> = Object.fromEntries(EVENT_TYPES.map(e => [e.value, e.color]))

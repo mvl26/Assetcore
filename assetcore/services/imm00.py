@@ -63,6 +63,39 @@ _VALID_ASSET_TRANSITIONS: dict[str, set[str]] = {
     _STATUS_DECOMMISSIONED:   set(),  # terminal
 }
 
+# ────────────────────────────────────────────
+# NEG-09 blocked-from set (BR-00-02b) — SSoT DÙNG CHUNG guard + helper
+# ────────────────────────────────────────────
+# Chặn "Thanh lý" (→Decommissioned) khi thiết bị đang trong dây chuyền bảo trì/
+# hiệu chuẩn/sửa chữa (tránh treo Work Order mồ côi). Hằng module-level DUY NHẤT
+# để CẢ ``transition_asset_status`` (guard runtime) VÀ ``is_valid_asset_transition``
+# (helper precondition) đọc chung — chống 2 bản logic lệch nhau (BR-00-02c).
+_NEG09_BLOCK_DECOM_FROM: dict[str, str] = {
+    _STATUS_UNDER_MAINTENANCE: "Bảo trì",
+    _STATUS_UNDER_REPAIR:      "Sửa chữa",
+    _STATUS_CALIBRATING:       "Hiệu chuẩn",
+}
+
+# ────────────────────────────────────────────
+# EXCEPTION_EDGES (BR-00-02b — CR-WF-00-LIFECYCLE Vòng 32, ADR-IMM00-LIFECYCLE-SM)
+# ────────────────────────────────────────────
+# Cạnh CỐ Ý giữ trong ``_VALID_ASSET_TRANSITIONS`` (state-machine hợp lệ) NHƯNG
+# KHÔNG surface thành CTA Desk trong ``ac_asset_lifecycle_workflow.json``. TẤT CẢ
+# đều →Decommissioned: thanh lý KHÔNG bao giờ là nút Desk tự do. SSoT
+# ``(from, to) → rationale`` để INVARIANT test đọc TRỰC TIẾP (đối xứng precedent
+# ``_CYCLE_EXCEPTION_EDGES`` imm15 / ``_FINDING_EXCEPTION_EDGES`` imm16).
+#   • ``programmatic-only``  = reachable qua IMM-14 closure (KHÔNG NEG-09); surface
+#     Desk = bypass gate NĐ98 ⇒ giữ map, chặn thật ở IMM-14 gate lớp DB.
+#   • ``NEG-09-superseded``  = chặn runtime bởi NEG-09 (``_NEG09_BLOCK_DECOM_FROM``).
+# Bất-biến (INVARIANT test): ``map_pairs − wf_pairs == set(_LIFECYCLE_EXCEPTION_EDGES)``.
+_LIFECYCLE_EXCEPTION_EDGES: dict[tuple[str, str], str] = {
+    (_STATUS_DRAFT,             _STATUS_DECOMMISSIONED): "programmatic-only",
+    (_STATUS_COMMISSIONED,      _STATUS_DECOMMISSIONED): "programmatic-only",
+    (_STATUS_UNDER_MAINTENANCE, _STATUS_DECOMMISSIONED): "NEG-09-superseded",
+    (_STATUS_UNDER_REPAIR,      _STATUS_DECOMMISSIONED): "NEG-09-superseded",
+    (_STATUS_CALIBRATING,       _STATUS_DECOMMISSIONED): "NEG-09-superseded",
+}
+
 
 class InvalidAssetTransition(Exception):
     """Raised khi transition không nằm trong _VALID_ASSET_TRANSITIONS."""
@@ -70,18 +103,69 @@ class InvalidAssetTransition(Exception):
 
 def is_valid_asset_transition(from_status: str, to_status: str) -> bool:
     """True nếu chuyển ``from_status`` → ``to_status`` hợp lệ theo state machine
-    (SSoT ``_VALID_ASSET_TRANSITIONS``).
+    (SSoT ``_VALID_ASSET_TRANSITIONS``) VÀ không bị NEG-09 chặn.
 
-    Helper THUẦN (KHÔNG đọc DB) phản chiếu guard của ``transition_asset_status``:
+    Helper THUẦN (KHÔNG đọc DB) phản chiếu 2 lớp guard của
+    ``transition_asset_status`` cùng ném ``InvalidAssetTransition`` — chính là
+    failure-mode helper sinh ra để pre-empt:
+      1. **State-machine** — ``to_status ∈ _VALID_ASSET_TRANSITIONS[from_status]``.
+      2. **NEG-09** (BR-00-02c) — thanh lý (``→Decommissioned``) khi đang ở
+         ``_NEG09_BLOCK_DECOM_FROM`` (Under Maintenance/Under Repair/Calibrating)
+         bị guard ném; helper trả ``False`` để KHÔNG nói 'valid' cho transition mà
+         ``transition_asset_status`` sẽ ném.
+
     ``from_status`` rỗng (asset mới, chưa vào lifecycle) hoặc ``== to_status``
     (no-op) ⇒ True. Dùng cho precondition gate fail-fast ở service tier (vd tạo
     phiếu sửa chữa) để raise lỗi nghiệp vụ SẠCH (nthrow → 422) THAY VÌ để
     ``transition_asset_status`` ném ``InvalidAssetTransition`` uncaught → HTTP 500.
+
+    KHÔNG phản chiếu lớp IMM-14 gate (``assert_decommission_gate`` ném
+    ``ServiceError`` → envelope sạch sẵn, khác failure-mode) ⇒ 2 cạnh
+    programmatic-only ``(Draft/Commissioned → Decommissioned)`` vẫn trả ``True``
+    (chặn thật ở gate DB-layer, đúng thiết kế — ADR-IMM00-LIFECYCLE-SM).
     """
     from_status = from_status or ""
     if not from_status or from_status == to_status:
         return True
-    return to_status in _VALID_ASSET_TRANSITIONS.get(from_status, set())
+    if to_status not in _VALID_ASSET_TRANSITIONS.get(from_status, set()):
+        return False
+    if to_status == _STATUS_DECOMMISSIONED and from_status in _NEG09_BLOCK_DECOM_FROM:
+        return False  # NEG-09: guard sẽ ném InvalidAssetTransition
+    return True
+
+
+def asset_allowed_transitions(status: str) -> list[str]:
+    """SSoT DUY NHẤT các trạng-thái-đích CTA-surfaceable cho màn AC Asset detail.
+
+    Driver chung cho CẢ ``get_asset`` emit (server-driven CTA) LẪN INVARIANT test
+    (``test_asset_lifecycle_map_matches_workflow``) → KHÔNG tồn tại bản sao thứ 2
+    của bảng transition (BE hay FE). Thay bảng ``TRANSITION_MAP`` hardcode
+    client-side ở ``AssetDetailView.vue`` — bảng đó có thể drift khỏi
+    ``_VALID_ASSET_TRANSITIONS`` mà không ai biết.
+
+    Công thức = ``_VALID_ASSET_TRANSITIONS[status]`` trừ:
+      • cạnh EXCEPTION (``_LIFECYCLE_EXCEPTION_EDGES`` — map-only, cố ý KHÔNG
+        surface thành CTA Desk), VÀ
+      • trạng thái TERMINAL ``Decommissioned`` — thanh lý PHẢI đi qua cổng IMM-14
+        (Asset Decommission closure record), KHÔNG bao giờ là CTA Desk tự do. Mọi
+        cạnh ``→Decommissioned`` bị loại BẤT KỂ workflow JSON có surface hay không
+        (vd Active/Out of Service →Decommissioned CÓ trong workflow nhưng vẫn loại)
+        ⇒ bất-biến: ``Decommissioned`` KHÔNG bao giờ nằm trong list trả về.
+
+    Sắp xếp ổn định (``sorted``) → output tất định (test đối chiếu ``==``).
+
+    PURE (không I/O / DB / session) — capability filter (``asset.write``) áp ở lớp
+    API (``get_asset``): caller thiếu asset.write → emit ``[]``. Đối xứng precedent
+    ``imm09.firmware_allowed_transitions`` (server-driven CTA, LỌC theo capability).
+    """
+    raw = _VALID_ASSET_TRANSITIONS.get(status or "", set())
+    allowed = {
+        target
+        for target in raw
+        if target != _STATUS_DECOMMISSIONED
+        and (status, target) not in _LIFECYCLE_EXCEPTION_EDGES
+    }
+    return sorted(allowed)
 
 
 # ────────────────────────────────────────────
@@ -771,7 +855,7 @@ def build_asset_scan_info(asset_name: str) -> dict | None:
     row = frappe.db.get_value(
         _DOCTYPE_ASSET, asset_name,
         ["name", "asset_code", "asset_name", "manufacturer_sn", "risk_classification",
-         "lifecycle_status", "device_model", "location", "next_pm_date",
+         "lifecycle_status", "device_model", "location", "department", "next_pm_date",
          "next_calibration_date", "warranty_expiry_date"],
         as_dict=True,
     )
@@ -814,6 +898,17 @@ def build_asset_scan_info(asset_name: str) -> dict | None:
         "location_name": _str_or_blank(
             frappe.db.get_value("AC Location", row["location"], "location_name")
             if row.get("location") else ""
+        ),
+        # CR-19: Khoa/phòng màn quét — denorm AC Asset.department (Link) → nhãn
+        # AC Department.department_name (parity location_name Vòng 46). KTV hiện
+        # trường cần biết thiết bị thuộc khoa nào (KHÔNG chỉ vị trí lắp đặt) để đối
+        # chiếu trước khi báo sự cố / mở WO. Điều kiện `if row.get('department')`
+        # skip query khi unassigned (KHÔNG N+1; _str_or_blank('') → ''). Qua CÙNG
+        # _str_or_blank: mã raw/None/whitespace-only → '' (KHÔNG rò mã Link ra UI).
+        # KHÔNG round-trip DB thêm (chỉ enrich giá trị 'department' đã đọc cùng get_value).
+        "department_name": _str_or_blank(
+            frappe.db.get_value("AC Department", row["department"], "department_name")
+            if row.get("department") else ""
         ),
         # str|None theo contract FR-00-86 (Vòng 11 — parity với next_calibration_date):
         # Date field từ get_value trả date object → chuẩn hoá 'YYYY-MM-DD' (rỗng → None)
@@ -882,7 +977,7 @@ _LBL_ERR_QR_EMPTY = "Không tạo được mã QR"
 # NHẤT: CẢ HAI endpoint tham chiếu hằng này (KHÔNG literal 200 lặp ở API layer).
 # Vượt cap → API trả _err(_ERR_BATCH_TOO_LARGE, 413) (bucket RIÊNG, KHÔNG 404/403/429),
 # SAU rbac.require('asset.print') (D6 phương án B — chỉ user đã-auth-print mới tới,
-# không lộ giới hạn cho khách). CAP_SET_VERSION hiện hành v97.c30c69b8974d (sau D6
+# không lộ giới hạn cho khách). CAP_SET_VERSION hiện hành v104.e46d05d9a66d (sau D6
 # tách asset.print/asset.qr.rotate). Xem ADR-001 §B + ADR-IMM00-QR-SCAN-ACTION §D6.
 # Vòng 15 — CAP đo TRÊN list ĐÃ DEDUP: `_coerce_asset_names` (SSoT API) dedup
 # within-call TRƯỚC khi đếm ⇒ `len(names) > _MAX_LABEL_BATCH` đo trên UNIQUE.
@@ -1498,6 +1593,17 @@ def transition_asset_status(
 
     Ghi lifecycle event + audit trail + mở/đóng downtime log tự động.
     Raises InvalidAssetTransition nếu transition không hợp lệ.
+
+    PERM-FREE — CỐ Ý (ADR-IMM00-LIFECYCLE-AUTHZ / CR-WF-00-TRANSITION-AUTHZ):
+    service này KHÔNG gọi ``rbac.require``/``assert_vendor_can_access``. Authorization
+    đặt ở tầng ENDPOINT (``api.imm00.transition_status`` gate ``asset.write`` + IDOR).
+    Lý do: đường vào CHÍNH của hàm là programmatic WO-driven — kỹ thuật viên hoàn
+    tất PM/CM/Calibration Work Order (imm08/imm09/imm11) đẩy asset qua Under
+    Maintenance/Under Repair/Active/Completed; các actor này KHÔNG có DocPerm write
+    trên AC Asset (chỉ Super Admin có). Gắn perm-check vào service ⇒ vỡ toàn bộ
+    luồng WO-complete. Service tin caller nội bộ đã được authz đúng ở boundary
+    (3-tier: gate ở API, business logic ở service). Mọi lời gọi TỪ HTTP phải đi
+    qua endpoint đã gate.
     """
     prev_status = frappe.db.get_value(_DOCTYPE_ASSET, asset_name, "lifecycle_status") or ""
     if prev_status == to_status:
@@ -1516,14 +1622,11 @@ def transition_asset_status(
 
     # NEG-09: chặn "Thanh lý" (Decommission) khi thiết bị đang trong dây chuyền
     # bảo trì/hiệu chuẩn/sửa chữa. Bắt buộc đóng phiếu PM/CM/Cal hoặc đưa về
-    # Active trước khi thanh lý — tránh treo Work Order mồ côi.
-    _BLOCK_DECOM_FROM = {
-        _STATUS_UNDER_MAINTENANCE: "Bảo trì",
-        _STATUS_UNDER_REPAIR:      "Sửa chữa",
-        _STATUS_CALIBRATING:       "Hiệu chuẩn",
-    }
-    if to_status == _STATUS_DECOMMISSIONED and prev_status in _BLOCK_DECOM_FROM:
-        flow = _BLOCK_DECOM_FROM[prev_status]
+    # Active trước khi thanh lý — tránh treo Work Order mồ côi. Dùng CHUNG hằng
+    # module-level ``_NEG09_BLOCK_DECOM_FROM`` với ``is_valid_asset_transition``
+    # (BR-00-02c) — 1 SSoT, guard và helper KHÔNG lệch.
+    if to_status == _STATUS_DECOMMISSIONED and prev_status in _NEG09_BLOCK_DECOM_FROM:
+        flow = _NEG09_BLOCK_DECOM_FROM[prev_status]
         raise InvalidAssetTransition(
             f"NEG-09: Không thể thanh lý '{asset_name}' khi đang ở trạng thái "
             f"'{prev_status}' ({flow}). Vui lòng đóng/hoàn tất phiếu {flow} hoặc "
@@ -2499,12 +2602,66 @@ def compose_reserved_into(
 
 _DT_TRANSFER = "Asset Transfer"
 _TRANSFER_APPROVE_CAP = "commissioning.submit"
+# CR-WF-00-TRANSFER-AUTHZ (ADR-IMM00-TRANSFER-AUTHZ): "xác nhận tiếp nhận" gate bằng
+# cap RIÊNG `commissioning.write` (≠ approve `commissioning.submit`) — least-privilege:
+# Commissioning User (write=1/submit=0) tiếp nhận nhưng KHÔNG duyệt; Commissioning
+# Manager có cả hai; base AssetCore System User không có DocPerm Asset Commissioning
+# → fail-closed. `commissioning.write` ĐÃ có trong CAPABILITY_MAP (auto-gen) → 0
+# CAP_SET_VERSION bump, 0 migrate. Capability-SSoT, KHÔNG hardcode role-name.
+_TRANSFER_RECEIVE_CAP = "commissioning.write"
+# CR-WF-00-CANCEL-AUTHZ (ADR-IMM00-CANCEL-AUTHZ): "hủy phiếu" (delete_transfer) gate
+# bằng CÙNG cap `commissioning.write` như receive — least-privilege, parity
+# confirm_receipt: Commissioning User (write=1) hủy phiếu Pending/Rejected; base
+# AssetCore System User (không có DocPerm Asset Commissioning) → fail-closed.
+# Phương án requester-only ownership bị LOẠI: không có pattern owner-check nào trong
+# khối transfer; cap-gate là pattern đã dùng nhất quán (approve/reject/receive).
+# `commissioning.write` ĐÃ có trong CAPABILITY_MAP → 0 CAP_SET_VERSION bump, 0 migrate.
+_TRANSFER_CANCEL_CAP = "commissioning.write"
+# CR-WF-00-EDIT-AUTHZ (ADR-IMM00-EDIT-AUTHZ): "chỉnh sửa phiếu" (update_transfer) gate
+# bằng CÙNG cap `commissioning.write` như receive/cancel — least-privilege, parity
+# _TRANSFER_RECEIVE_CAP/_TRANSFER_CANCEL_CAP: Commissioning User (write=1/submit=0) sửa
+# phiếu đang Pending Approval; base AssetCore System User + Inventory User (inventory.read
+# nhưng KHÔNG có DocPerm write trên Asset Commissioning) → fail-closed 403. Phương án
+# requester-only ownership bị LOẠI: không có pattern owner-check nào trong khối transfer;
+# cap-gate là pattern nhất quán của cả bộ-tứ (approve/reject/receive/cancel).
+# `commissioning.write` ĐÃ có trong CAPABILITY_MAP → 0 CAP_SET_VERSION bump, 0 migrate.
+# Capability-SSoT, KHÔNG hardcode role-name.
+_TRANSFER_EDIT_CAP = "commissioning.write"
 _ERR_TRANSFER_NOT_FOUND = "Phiếu luân chuyển '{0}' không tồn tại"
 _TRANSFER_STATUS_PENDING   = "Pending Approval"
 _TRANSFER_STATUS_APPROVED  = "Approved"
 _TRANSFER_STATUS_REJECTED  = "Rejected"
 _TRANSFER_STATUS_RECEIVED  = "Received"
 _TRANSFER_STATUS_CANCELLED = "Cancelled"
+
+
+def transfer_cta_flags(status: str) -> dict:
+    """Server-driven CTA authorization cho Phiếu luân chuyển (SoT parity).
+
+    Trả ``{can_approve, can_receive, can_cancel, can_edit}`` (int 0/1) theo capability ×
+    status của session hiện tại. ``get_transfer_full`` emit từ ĐÂY; mutating
+    (``approve_transfer_request``/``reject_transfer_request`` gate ``commissioning.submit``,
+    ``confirm_receipt``/``cancel_transfer_request`` gate ``commissioning.write``,
+    ``api.imm00.update_transfer`` gate ``commissioning.write``) enforce CÙNG cap ⇒ nút FE
+    hiển thị ⇔ hành động thực sự được phép (bỏ dead-button, mirror
+    ``imm14.get_decommission.can_approve``).
+
+    Fail-closed: thiếu quyền HOẶC sai status → 0. Base/Inventory user (không DocPerm write
+    trên Asset Commissioning) → cả bốn = 0 ở mọi status.
+    """
+    return {
+        "can_approve": 1 if (status == _TRANSFER_STATUS_PENDING
+                             and rbac.can(_TRANSFER_APPROVE_CAP)) else 0,
+        "can_receive": 1 if (status == _TRANSFER_STATUS_APPROVED
+                             and rbac.can(_TRANSFER_RECEIVE_CAP)) else 0,
+        "can_cancel": 1 if (status in (_TRANSFER_STATUS_PENDING, _TRANSFER_STATUS_REJECTED)
+                            and rbac.can(_TRANSFER_CANCEL_CAP)) else 0,
+        # CR-WF-00-EDIT-AUTHZ: sửa CHỈ khi Pending Approval (mirror status-gate 422 của
+        # update_transfer) AND có commissioning.write ⇒ nút "Lưu thay đổi" hiển thị ⇔
+        # update_transfer không raise PermissionError cùng session (button ⇔ action parity).
+        "can_edit": 1 if (status == _TRANSFER_STATUS_PENDING
+                          and rbac.can(_TRANSFER_EDIT_CAP)) else 0,
+    }
 
 
 def create_transfer_request(data: dict) -> dict:
@@ -2621,6 +2778,11 @@ def confirm_receipt(name: str, handover_notes: str = "") -> dict:
     if not frappe.db.exists(_DT_TRANSFER, name):
         frappe.throw(_(_ERR_TRANSFER_NOT_FOUND).format(name))
 
+    # CR-WF-00-TRANSFER-AUTHZ: gate NGAY sau existence-check, TRƯỚC status-check —
+    # mirror EXACT ordering approve_transfer_request. Thiếu quyền → frappe.PermissionError
+    # (403), KHÔNG rò trạng thái phiếu cho user không đủ quyền.
+    rbac.require(_TRANSFER_RECEIVE_CAP)
+
     doc = frappe.get_doc(_DT_TRANSFER, name)
     if doc.status != _TRANSFER_STATUS_APPROVED:
         frappe.throw(_("Phiếu phải ở trạng thái 'Approved' trước khi xác nhận tiếp nhận"))
@@ -2651,15 +2813,33 @@ def confirm_receipt(name: str, handover_notes: str = "") -> dict:
 
 
 def cancel_transfer_request(name: str) -> dict:
-    """Hủy phiếu luân chuyển (chỉ khi đang Pending Approval)."""
+    """Hủy phiếu luân chuyển (chỉ khi đang Pending Approval hoặc Rejected).
+
+    CR-WF-00-CANCEL-AUTHZ: gate bằng cap ``commissioning.write`` (parity confirm_receipt)
+    + sinh ĐÚNG 1 audit trail cho mỗi lần hủy (CLAUDE.md §5 — mọi nghiệp vụ phải có
+    record; NĐ98 traceability). Hủy KHÔNG đổi lifecycle của asset ⇒ CHỈ audit, KHÔNG
+    ``create_lifecycle_event`` (mirror ``reject_transfer_request``).
+    """
     if not frappe.db.exists(_DT_TRANSFER, name):
         frappe.throw(_(_ERR_TRANSFER_NOT_FOUND).format(name))
 
-    current_status = frappe.db.get_value(_DT_TRANSFER, name, "status")
-    if current_status not in (_TRANSFER_STATUS_PENDING, _TRANSFER_STATUS_REJECTED):
+    # Gate NGAY sau existence-check, TRƯỚC status-check (mirror EXACT confirm_receipt).
+    # Thiếu quyền → frappe.PermissionError (403) — base user hủy phiếu SAI status vẫn
+    # 403, KHÔNG rò trạng thái phiếu cho user không đủ quyền.
+    rbac.require(_TRANSFER_CANCEL_CAP)
+
+    doc = frappe.get_doc(_DT_TRANSFER, name)
+    if doc.status not in (_TRANSFER_STATUS_PENDING, _TRANSFER_STATUS_REJECTED):
         frappe.throw(_("Chỉ có thể hủy phiếu đang Pending Approval hoặc Rejected"))
 
     frappe.db.set_value(_DT_TRANSFER, name, "status", _TRANSFER_STATUS_CANCELLED)
+
+    log_audit_event(
+        asset=doc.asset, event_type="Transfer",
+        actor=frappe.session.user,
+        ref_doctype=_DT_TRANSFER, ref_name=name,
+        change_summary="Hủy phiếu luân chuyển",
+    )
     frappe.db.commit()
     return {"name": name, "status": _TRANSFER_STATUS_CANCELLED}
 

@@ -136,6 +136,68 @@ Kế hoạch giảm thiểu: [text area]
 [Trình duyệt G03 →]
 ```
 
+### II.2.1. CTA duyệt hồ sơ — server-driven gating (GATE-8 / LL-FE-51, vòng 6)
+
+Thanh hành động (`.action-bar`) có 3 nút: **Chốt hồ sơ** / **Rút hồ sơ** / **Phát hành lại (phiên bản mới)**. Ground truth spec: `05_API_Specification.md` §3.2 (cờ) + `02_Analysis_Design.md` §IV.3 + ADR-IMM02-01.
+
+**Đặc tả bắt buộc:**
+- 3 computed `canLock` / `canWithdraw` / `canReissue` đọc **DUY NHẤT cờ server** `store.currentSpec?.can_lock` / `can_withdraw` / `can_reissue` (coerce `Boolean()`):
+  ```ts
+  const canLock     = computed(() => Boolean(store.currentSpec?.can_lock))
+  const canWithdraw = computed(() => Boolean(store.currentSpec?.can_withdraw))
+  const canReissue  = computed(() => Boolean(store.currentSpec?.can_reissue))
+  ```
+- **ZERO `workflow_state ===`** trong 3 computed CTA này (grep count = 0). Gỡ hardcode cũ (`TechSpecDetailView.vue` l.233-238: `workflow_state === 'Pending Approval'` v.v.). *(Lưu ý: `workflow_state ===` ở phần hiển thị khác — badge, điều kiện show `withdrawal_reason`, `stepClass` — KHÔNG thuộc CTA gating, được phép giữ.)*
+- Nút **ẩn** (`v-if`, không chỉ `:disabled`) khi cờ false — user thiếu quyền/sai state KHÔNG thấy nút.
+- Cờ thiếu (BE cũ chưa deploy / spec state lạ) → `Boolean(undefined)=false` → không nút; `allowed_transitions` default `[]` → **không lỗi console**.
+- Types `frontend/src/types/imm02.ts` (`TechSpecDoc`): thêm `allowed_transitions?: string[]`, `can_lock?: 0|1`, `can_withdraw?: 0|1`, `can_reissue?: 0|1`.
+- Test `techSpecCtaGating.test.ts`: assert ma trận cờ→nút (Pending Approval: Chốt+Rút hiện; Locked: chỉ Rút; Withdrawn: chỉ Phát hành lại; cờ=0 → nút ẩn; cờ thiếu → không lỗi + không nút).
+
+### II.2.2. CTA 6 transition trung gian — server-driven `allowed_actions` (CR-WF-02-SPEC, vòng 24)
+
+Đóng bug **"hidden-CTA-câm"**: action-bar cũ chỉ có 3 nút terminal (§II.2.1). Thêm cụm nút **1 nút / mỗi entry `allowed_actions`** (nhãn action VI trực tiếp). Ground truth: `05_API_Specification.md` §3.2 (`allowed_actions`) + `02_Analysis_Design.md` §IV.4 + ADR-IMM02-02. **Mirror IMM-01 Needs** (`NeedsRequestDetailView.vue` — render 1 nút/action từ `allowed_transitions`).
+
+**Đặc tả bắt buộc:**
+- Computed đọc DUY NHẤT field server:
+  ```ts
+  const wfActions = computed<string[]>(
+    () => (store.currentSpec as { allowed_actions?: string[] } | null)?.allowed_actions ?? [])
+  ```
+- Slug ổn định cho `data-testid` (strip dấu + `đ`→`d` + hyphenate):
+  ```ts
+  function actionSlug(a: string): string {
+    return a.normalize('NFD').replace(/[̀-ͯ]/g, '')
+            .replace(/đ/g, 'd').replace(/Đ/g, 'D')
+            .toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+  }
+  // 'Gửi rà soát'→'gui-ra-soat' · 'Yêu cầu chỉnh spec'→'yeu-cau-chinh-spec'
+  // 'Hoàn tất benchmark'→'hoan-tat-benchmark' · 'Đánh giá rủi ro xong'→'danh-gia-rui-ro-xong'
+  // 'Trình duyệt spec'→'trinh-duyet-spec' · 'Yêu cầu chỉnh risk'→'yeu-cau-chinh-risk'
+  ```
+- Render trong `.action-bar` (đặt TRƯỚC 3 nút terminal), label = action VI trực tiếp:
+  ```html
+  <button v-for="act in wfActions" :key="act"
+          :data-testid="`cta-wf-${actionSlug(act)}`"
+          class="btn btn-primary" @click="doTransition(act)">
+    {{ act }}
+  </button>
+  ```
+- Handler refetch sau transition (mirror `doLock`):
+  ```ts
+  async function doTransition(action: string) {
+    const name = store.currentSpec?.name
+    if (!name) return
+    await store.transitionWorkflow(name, action)
+    await store.fetchOne(name)
+  }
+  ```
+- **Store**: đổi tên action `transition(name, action)` → **`transitionWorkflow(name, action)`** (không caller nào khác dùng `store.transition` — đã grep). Vẫn gọi `api.transitionSpecWorkflow` (`transition_workflow`).
+- **Cụm ẩn khi `allowed_actions` rỗng** — `v-for` mảng rỗng render 0 nút (tự nhiên). State lạ / field thiếu → `?? []` → không lỗi console.
+- **KHÔNG double-render**: `Phê duyệt spec`/`Rút spec` ∉ `allowed_actions` (exception) → 3 nút terminal `cta-lock`/`cta-withdraw`/`cta-reissue` (§II.2.1) GIỮ NGUYÊN, không trùng.
+- **ZERO `workflow_state ===`** cho nút wf (gate DUY NHẤT theo membership `allowed_actions`; grep = 0). *(Badge/stepClass/`withdrawal_reason` hiển thị KHÔNG thuộc CTA — được giữ.)*
+- **Types** `frontend/src/types/imm02.ts` (`TechSpecDoc`): thêm `allowed_actions?: string[]`.
+- Test `techSpecCtaGating.test.ts`: Draft+`allowed_actions:['Gửi rà soát']` → có `cta-wf-gui-ra-soat`, click gọi `store.transitionWorkflow('...','Gửi rà soát')` + `fetchOne`; `allowed_actions:[]`/thiếu → 0 nút wf + không lỗi; Pending Approval có cả nút wf `cta-wf-yeu-cau-chinh-risk` LẪN `cta-lock`/`cta-withdraw` (không nuốt nhau).
+
 ## II.3. RequirementEditor
 
 Inline-editable table với keyboard navigation:
@@ -261,7 +323,7 @@ File: `frontend/src/stores/imm02.ts` — **Đã implement.** Store ID: `'imm02'`
 | `fetchList(filters, page, pageSize)` | `list_tech_specs` | |
 | `fetchOne(name)` | `get_tech_spec` | |
 | `fetchKpis()` | `dashboard_kpis` | |
-| `transition(name, action)` | `transition_workflow` | `transitionSpecWorkflow` trong api/imm02.ts |
+| `transitionWorkflow(name, action)` | `transition_workflow` | `transitionSpecWorkflow` trong api/imm02.ts (đổi tên từ `transition` — CR-WF-02-SPEC vòng 24; render 1 nút/`allowed_actions`) |
 | `lock(name, approver, remarks)` | `lock_spec` | |
 | `withdraw(name, reason)` | `withdraw_spec` | reason → `withdrawal_reason` param |
 | `reissue(from)` | `reissue_spec` | from → `from_spec` param |

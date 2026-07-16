@@ -301,4 +301,93 @@ def list_decommissions(filters: dict, *, page: int = 1, page_size: int = 20) -> 
 | `filters` không phải JSON hợp lệ | `VALIDATION` | 200 (in-handler) | "Tham số lọc không hợp lệ." |
 | Thiếu `decommission.read` | (PermissionError) | 403 (cap-403) | Frappe permission message |
 
-*Hết file 05. §6 (write-path) + §7 (read/list) là CHỐT cho vòng 2; §1–§5 giữ làm catalog Đợt 3.*
+---
+
+## §8. Vòng 17 — GET `get_decommission` — chi tiết biên bản + server-driven approve gate — CHỐT
+
+> **Delta (2026-07-10).** Endpoint `get_decommission` đã tồn tại (`api/imm14.py:78`) — vòng 17 **enrich thêm 2 cờ** cho `DecommissionDetailView` gate CTA server-driven (GATE-8/LL-FE-51). KHÔNG endpoint mới, KHÔNG đổi verb/auth. Ref ADR-IMM14-APPROVE-04 (`02 §VIII.5`) + `04 §X`.
+
+### §8.1. Signature & auth
+
+`/api/method/assetcore.api.imm14.get_decommission`
+
+- **Verb:** GET — `@frappe.whitelist()` (FE gọi qua `frappeGet`).
+- **Auth:** `rbac.require("decommission.read")` (cap → `("Asset Decommission","read")`). Mọi vai `decommission.read` xem được (gồm Commissioning User submit=0 + Auditor read-only).
+- **Signature:** `def get_decommission(name: str) -> dict`.
+- **2 loại 403:** guest/no-token → dispatcher-403 (Frappe re-auth); user đăng nhập thiếu `decommission.read` → cap-403 in-handler (`rbac.require` raise `PermissionError`). KHÔNG rò dữ liệu.
+
+### §8.2. Response success (envelope) — thêm `can_approve` + `approve_blocked_reason`
+
+```json
+{
+  "success": true,
+  "data": {
+    "name": "DECOM-2026-0001",
+    "asset": "AST-2024-0007",
+    "asset_name": "Máy thở Hamilton C6",
+    "risk_classification_snapshot": "Critical",
+    "disposal_method": "Huỷ",
+    "decommission_reason": "Thiết bị hết khấu hao, sửa chữa không kinh tế, đã có quyết định thanh lý.",
+    "patient_data_sanitized": 1,
+    "sanitization_note": "Đã format ổ cứng theo NIST 800-88 + huỷ vật lý.",
+    "responsible": "manager@hospital.vn",
+    "responsible_name": "Nguyễn Văn A",
+    "workflow_state": "Draft",
+    "docstatus": 0,
+    "decommissioned_on": null,
+    "lifecycle_status": "Active",
+    "can_approve": 1,
+    "approve_blocked_reason": ""
+  }
+}
+```
+
+- **`can_approve`** (int 0/1) = `rbac.can('decommission.approve')` **AND** `docstatus==0` **AND** asset chưa Decommissioned **AND** `validate_before_approve` không raise. Dẫn xuất từ SoT `_evaluate_approvability` (`04 §X.2`) — **cùng điều kiện** `approve_decommission` enforce (KHÔNG duplicate).
+- **`approve_blocked_reason`** (str VI) = lý do khi `can_approve=0`; **rỗng `""` khi `can_approve=1`**. Invariant: `approve_blocked_reason != "" ⇔ can_approve == 0`.
+- **`asset_name`** = `asset_name_snapshot` (fallback fetch `AC Asset.asset_name`) — FE render, KHÔNG rò `asset` Link-id thô.
+- **`responsible_name`** = `User.full_name` — FE render, KHÔNG rò `responsible` email (BR-14-W2-15 / user_source policy).
+- `patient_data_sanitized` trả int (0/1) — FE ép boolean khi render.
+
+### §8.3. `approve_blocked_reason` — bảng lý do (precedence, first match)
+
+| # | Điều kiện (`can_approve=0`) | MSG code | message VI mẫu |
+|---|---|---|---|
+| 1 | `docstatus == 2` (record đã huỷ) | `IMM14_APPROVE_BLOCKED_CANCELLED` | "Hồ sơ giải nhiệm đã bị huỷ." |
+| 2 | `docstatus == 1` (đã duyệt) | `IMM14_APPROVE_BLOCKED_ALREADY_APPROVED` | "Hồ sơ giải nhiệm đã được duyệt." |
+| 3 | thiếu `decommission.approve` | `IMM14_APPROVE_BLOCKED_NO_PERMISSION` | "Bạn không đủ quyền duyệt giải nhiệm." |
+| 4 | asset đã Decommissioned (record khác) | `IMM14_ALREADY_DECOMMISSIONED` | "Thiết bị … đã được giải nhiệm — không thể … duyệt hồ sơ khác." |
+| 5 | C/D chưa xác nhận xử lý PII | `IMM14_PATIENT_DATA_REQUIRED` | "Thiết bị phân loại C/D bắt buộc xác nhận đã xử lý dữ liệu bệnh nhân…" |
+| 5 | reason < 20 ký tự / thiếu disposal_method / thiếu responsible | `IMM14_REASON_TOO_SHORT` / `IMM14_DISPOSAL_METHOD_*` / `IMM14_RESPONSIBLE_REQUIRED` | (message VI tương ứng, qua `validate_before_approve`) |
+
+- Hàng #4/#5 = raise trong `validate_before_approve` → predicate bắt `ServiceError` lấy message VI.
+- **Không** trả `message_code` riêng cho reason (reason là hint hiển thị, KHÔNG error envelope) — chỉ chuỗi VI trong `approve_blocked_reason`.
+
+### §8.4. FE contract (`api/imm14.ts` — EXTEND `getDecommission` return type)
+
+`DecommissionRecord` (return của `getDecommission`) THÊM field cho detail + gate:
+
+```typescript
+export interface DecommissionRecord {
+  name: string
+  asset: string
+  asset_name: string                 // NEW — render, KHÔNG rò asset id thô
+  risk_classification_snapshot: string  // NEW
+  disposal_method: DisposalMethod
+  decommission_reason: string
+  patient_data_sanitized: boolean    // BE trả int 0/1 → helper ép boolean
+  sanitization_note?: string
+  responsible: string                // email — KHÔNG render
+  responsible_name: string | null    // NEW — render "Người chịu trách nhiệm"
+  workflow_state: DecommissionState
+  docstatus: number
+  decommissioned_on: string | null   // NEW
+  lifecycle_status: string           // NEW — badge thiết bị (map VI)
+  can_approve: number                // NEW — 0/1, gate CTA (=== 1)
+  approve_blocked_reason: string     // NEW — hint khi can_approve=0 ("" khi =1)
+}
+```
+
+- FE gate CTA **CHỈ** theo `can_approve === 1` (KHÔNG `docstatus===`/`workflow_state===` — GATE-8/LL-FE-51). `can_approve=0` → ẩn nút + hiện `approve_blocked_reason` (no dead-control, LL-FE-47).
+- Sau `approveDecommission(name)` thành công → refetch `getDecommission` → `can_approve` về 0 (reason "…đã được duyệt."), badge `lifecycle_status`→"Đã giải nhiệm".
+
+*Hết file 05. §6 (write-path) + §7 (read/list) là CHỐT cho vòng 2; §8 (detail + approve gate) là CHỐT cho vòng 17; §1–§5 giữ làm catalog Đợt 3.*

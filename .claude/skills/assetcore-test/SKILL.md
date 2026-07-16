@@ -336,6 +336,7 @@ Small chiếm đa số → nhanh, ổn định, dễ debug khi đỏ. Large (Pla
 | "Detail thiếu nút workflow → bug, report luôn" | Có thể là role-gating đúng (LL-TEST-14/11) hoặc Vite HMR churn (LL-QA-11). Verify role + `v-if` + tab sạch TRƯỚC khi report. |
 | "Sửa `api/*.py` xong, `run-tests` xanh → feature live trên HTTP" | gunicorn `--preload` đông cứng import: code live ở `run-tests`/`execute` nhưng CHƯA live HTTP tới khi USER reload → verdict `blocked-reload` (LL-QA-15, LL-TEST-25). |
 | "Sửa endpoint module này, module kia không touch nên vẫn xanh" | SSoT introspect-được (tổng endpoint) đổi → suite KHÁC hardcode count ĐỎ (LL-TEST-27). Chạy LẠI MỌI suite assert vào nó; KHÔNG cộng số per-module từ trí nhớ. |
+| "Full BE suite ĐỎ `Asset None not found` → 'môi trường' / 'bug module này'" | **Cả 2 kết luận đều sai nếu chưa chạy lại ISOLATED.** Lỗi CHỈ xuất hiện ở full-suite mà KHÔNG có khi `--module <mod>` chạy riêng = **fixture-contamination** (asset leak từ module/phiên khác), KHÔNG phải bug module (false-red) và KHÔNG được bỏ qua là "environmental" (false-green). Verdict THẬT = chạy LẠI đúng module ISOLATED (`--module assetcore.tests.test_immXX`); isolated xanh → module OK, đỏ → bug thật. (LL multi_session_concurrency + factory_engine_crash) |
 | "Eval xong dọn ảnh là đủ" | tidy-eval CHỈ dọn FILE. User/data scoped tạo lúc eval → tear-down DB hoặc flag 🔴 "chờ purge" (LL-TEST-28, R-12). |
 
 ## Red Flags — STOP
@@ -349,6 +350,7 @@ Small chiếm đa số → nhanh, ổn định, dễ debug khi đỏ. Large (Pla
 - `try/except: pass` quanh delete chain trong tearDown (nuốt exception = leak thầm).
 - Report "code leak"/"stuck workflow"/"thiếu nút" mà chưa loại trừ enrich-sibling / role-gate / Vite-HMR.
 - Console error / API 4xx-5xx còn trên trang mà vẫn khai PASS (R-7).
+- Gán full-suite `Asset None not found` là "environmental"/"bug module" mà CHƯA chạy lại module đó ISOLATED (`--module`) để phân biệt fixture-contamination vs bug thật.
 - Kết thúc session test/eval/factory mà `git status` còn `.png`/`_scan_junk`/`.py.tmp` rớt ngoài `.playwright/eval/` (R-11/R-12).
 
 ## Verification

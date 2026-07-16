@@ -91,29 +91,9 @@ function selectWo(item: { name: string }) {
 
 function closeWoDropdown() { window.setTimeout(() => { woDropdownOpen.value = false }, 200) }
 
-// ─── Filters ──────────────────────────────────────────────────────────────────
+// ─── Filters (SERVER-SIDE — BE list_firmware_crs áp status/asset/search + phân
+// trang; KHÔNG lọc client trên trang bị cắt) ───────────────────────────────────
 interface FilterChip { key: 'status' | 'asset' | 'search'; label: string }
-const filteredItems = computed(() => {
-  let arr = items.value
-  if (filters.value.status) arr = arr.filter(f => f.status === filters.value.status)
-  if (filters.value.asset) {
-    const q = filters.value.asset.toLowerCase()
-    arr = arr.filter(f =>
-      (f.asset_ref || '').toLowerCase().includes(q)
-      || (f.asset_name || '').toLowerCase().includes(q),
-    )
-  }
-  if (filters.value.search.trim()) {
-    const q = filters.value.search.trim().toLowerCase()
-    arr = arr.filter(f =>
-      (f.name || '').toLowerCase().includes(q)
-      || (f.version_before || '').toLowerCase().includes(q)
-      || (f.version_after || '').toLowerCase().includes(q)
-      || (f.source_reference || '').toLowerCase().includes(q),
-    )
-  }
-  return arr
-})
 const activeChips = computed<FilterChip[]>(() => {
   const chips: FilterChip[] = []
   if (filters.value.status) chips.push({ key: 'status', label: STATUS_LABELS[filters.value.status] || filters.value.status })
@@ -129,19 +109,35 @@ function quickFilter(key: 'status' | 'asset', value: string) {
 function clearChip(key: string) { (filters.value as Record<string, string>)[key] = '' }
 function resetFilters() { filters.value = { status: '', asset: '', search: '' } }
 
-// ─── Load ─────────────────────────────────────────────────────────────────────
+// ─── Load (server-side filter + pagination) ────────────────────────────────────
+const page = ref(1)
+const PAGE_SIZE = 20
 async function load() {
   loading.value = true
   try {
-    const d = await listFirmwareCrs()
+    const d = await listFirmwareCrs({
+      page: page.value, page_size: PAGE_SIZE,
+      status: filters.value.status || undefined,
+      asset: filters.value.asset || undefined,
+      search: filters.value.search.trim() || undefined,
+    })
     items.value = d.items || []; total.value = d.total || 0
   } finally { loading.value = false }
 }
+// Debounce đổi filter → về trang 1 + reload server (search gõ liên tục).
+let filterTimer: ReturnType<typeof setTimeout>
+watch(filters, () => {
+  clearTimeout(filterTimer)
+  filterTimer = setTimeout(() => { page.value = 1; load() }, 300)
+}, { deep: true })
+function prevPage() { if (page.value > 1) { page.value--; load() } }
+function nextPage() { if (page.value * PAGE_SIZE < total.value) { page.value++; load() } }
 
 // ─── Form ─────────────────────────────────────────────────────────────────────
 function openCreate() {
   editingName.value = null
-  form.value = { asset_ref: '', version_before: '', version_after: '', status: 'Draft', change_notes: '', source_reference: '' }
+  // KHÔNG set status ở FE — BE default 'Draft' (DocType). Status là máy quản.
+  form.value = { asset_ref: '', version_before: '', version_after: '', change_notes: '', source_reference: '' }
   assetMeta.value = null; woQuery.value = ''
   err.value = ''; showForm.value = true
 }
@@ -156,9 +152,13 @@ async function openEdit(name: string) {
 
 async function save() {
   err.value = ''
+  // Status + cờ server-derived KHÔNG đi qua CRUD chung (chỉ đổi qua transition
+  // endpoint có kiểm soát). Loại khỏi payload để FE không gửi dead-kwarg.
+  const { status: _s, allowed_transitions: _at, can_approve: _ca, ...payload } = form.value
+  void _s; void _at; void _ca
   try {
-    if (editingName.value) await updateFirmwareCr(editingName.value, form.value)
-    else await createFirmwareCr(form.value)
+    if (editingName.value) await updateFirmwareCr(editingName.value, payload)
+    else await createFirmwareCr(payload)
     showForm.value = false; await load()
   } catch (e: unknown) { err.value = e instanceof Error ? e.message : 'Lỗi lưu' }
 }
@@ -207,7 +207,7 @@ onMounted(load)
         </div>
         <div class="form-group">
           <label class="form-label">Thiết bị</label>
-          <input v-model="filters.asset" placeholder="Mã/tên thiết bị..." class="form-input" />
+          <input v-model="filters.asset" placeholder="Mã thiết bị..." class="form-input" />
         </div>
       </template>
     </ListFilterBar>
@@ -216,10 +216,10 @@ onMounted(load)
     <div class="card overflow-hidden">
       <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50/60 text-xs text-slate-500">
         <span v-if="activeFilterCount > 0">
-          Kết quả lọc: <strong class="text-slate-700">{{ filteredItems.length }}</strong> / {{ total }} yêu cầu
+          Kết quả lọc: <strong class="text-slate-700">{{ items.length }}</strong> / {{ total }} yêu cầu
         </span>
         <span v-else>
-          Hiển thị <strong class="text-slate-700">{{ filteredItems.length }}</strong> / {{ total }} yêu cầu
+          Hiển thị <strong class="text-slate-700">{{ items.length }}</strong> / {{ total }} yêu cầu
         </span>
         <button v-if="activeFilterCount > 0" class="text-red-500 hover:text-red-700 font-medium" @click="resetFilters">Xóa tất cả</button>
       </div>
@@ -227,14 +227,14 @@ onMounted(load)
       <div v-if="loading" class="p-6">
         <SkeletonLoader variant="table" :rows="6" />
       </div>
-      <div v-else-if="filteredItems.length === 0" class="text-center text-slate-400 py-12 text-sm">
+      <div v-else-if="items.length === 0" class="text-center text-slate-400 py-12 text-sm">
         {{ activeFilterCount > 0 ? 'Không có yêu cầu nào phù hợp.' : 'Chưa có yêu cầu nào.' }}
       </div>
       <template v-else>
         <!-- Mobile cards -->
         <div class="mobile-card-list sm:hidden">
           <div
-            v-for="f in filteredItems"
+            v-for="f in items"
             :key="f.name"
             class="mobile-card"
             @click="router.push(`/cm/firmware/${f.name}`)"
@@ -269,7 +269,7 @@ onMounted(load)
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100">
-            <tr v-for="f in filteredItems" :key="f.name" class="hover:bg-slate-50">
+            <tr v-for="f in items" :key="f.name" class="hover:bg-slate-50">
               <td class="px-4 py-3 font-mono text-xs text-slate-500">{{ f.name }}</td>
               <td class="px-4 py-3">
                 <button
@@ -299,6 +299,15 @@ onMounted(load)
           </tbody>
         </table>
       </template>
+
+      <!-- Pagination -->
+      <div v-if="total > PAGE_SIZE" class="flex items-center justify-between px-4 py-3 border-t border-slate-100 text-sm text-slate-500">
+        <span>{{ (page - 1) * PAGE_SIZE + 1 }}–{{ Math.min(page * PAGE_SIZE, total) }} / {{ total }}</span>
+        <div class="flex gap-2">
+          <button :disabled="page === 1" class="px-3 py-1 rounded border border-slate-300 disabled:opacity-40 hover:bg-slate-50" aria-label="Trang trước" @click="prevPage">‹</button>
+          <button :disabled="page * PAGE_SIZE >= total" class="px-3 py-1 rounded border border-slate-300 disabled:opacity-40 hover:bg-slate-50" aria-label="Trang sau" @click="nextPage">›</button>
+        </div>
+      </div>
     </div>
 
     <!-- Form modal -->
@@ -361,11 +370,19 @@ onMounted(load)
               <textarea v-model="form.change_notes" rows="3" class="form-textarea" placeholder="Mô tả các thay đổi của bản firmware mới..."></textarea>
             </div>
 
-            <div class="form-group">
+            <!-- Trạng thái = máy quản (SSoT server). KHÔNG cho đổi tùy tiện qua form
+                 CRUD — chỉ qua nút hành động có kiểm soát ở trang chi tiết (transition
+                 endpoint + audit). Ở đây chỉ HIỂN THỊ read-only khi đang sửa. -->
+            <div v-if="editingName" class="form-group">
               <label class="form-label">Trạng thái</label>
-              <select v-model="form.status" class="form-select">
-                <option v-for="s in STATUS_KEYS" :key="s" :value="s">{{ STATUS_LABELS[s] }}</option>
-              </select>
+              <div>
+                <span :class="['inline-flex px-2.5 py-1 rounded-full text-xs font-medium', statusColor(form.status)]">
+                  {{ statusLabel(form.status) }}
+                </span>
+                <p class="mt-1 text-xs text-slate-400">
+                  Trạng thái chỉ thay đổi qua các nút Duyệt / Triển khai / Khôi phục ở trang chi tiết.
+                </p>
+              </div>
             </div>
 
             <!-- WO autocomplete -->

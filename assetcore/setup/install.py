@@ -387,6 +387,7 @@ def before_uninstall() -> None:
 
 
 def after_migrate() -> None:
+    _reconcile_asset_repair_override()
     _sync_workflows()
     _seed_uoms()
     create_user_custom_fields()
@@ -398,6 +399,49 @@ def after_migrate() -> None:
     _install_notifications()
     _bust_capability_cache()
     _build_frontend(force=False)
+
+
+def _reconcile_asset_repair_override() -> None:
+    """ROOT-CAUSE FIX — core-doctype name collision (Asset Repair).
+
+    AssetCore ships its own "Asset Repair" doctype (module=AssetCore, uses
+    ``asset_ref`` + AssetCore controller) that overrides the core ERPNext
+    "Asset Repair" (module=Assets, core ``asset`` field + ERPNext controller).
+
+    ERPNext migrates AFTER assetcore in installed_apps
+    (``[frappe, assetcore, …, erpnext, …]``), so ``sync_all()`` re-syncs
+    ERPNext's version LAST every ``bench migrate`` and clobbers the override.
+    Symptom: ``DoesNotExistError 'Asset None not found'`` — ERPNext's
+    ``AssetRepair.validate()`` reads core ``asset`` (always None; AssetCore
+    only sets ``asset_ref``). A plain ``bench migrate`` therefore does NOT
+    fix this — it re-drifts.
+
+    ``after_migrate`` runs AFTER ``sync_all()``, so re-asserting AssetCore's
+    JSON here makes the override deterministically win regardless of app
+    order. Idempotent (guarded by current module) + self-healing.
+
+    NOTE for [BA] — durable fix is out of scope here: the override of a core
+    ERPNext doctype name violates CLAUDE.md §5/§19 (don't modify core) and is
+    inherently fragile. The lasting fix is to rename this doctype to a
+    non-colliding AssetCore name (e.g. "AC Asset Repair"), which is an
+    architecture change spanning data + code + FE + OpenAPI and needs a
+    Core Doc spec.
+    """
+    try:
+        current = frappe.db.get_value("DocType", "Asset Repair", "module")
+        if current == "AssetCore":
+            return
+        frappe.reload_doc("assetcore", "doctype", "asset_repair", force=True)
+        frappe.clear_cache(doctype="Asset Repair")
+        print(
+            f"[AssetCore] Asset Repair override re-asserted "
+            f"(was module={current!r} → AssetCore)"
+        )
+    except Exception as e:  # noqa: BLE001 — không chặn migrate
+        frappe.log_error(
+            f"_reconcile_asset_repair_override failed: {e}",
+            "AssetCore after_migrate",
+        )
 
 
 def _bust_capability_cache() -> None:

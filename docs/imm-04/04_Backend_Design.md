@@ -163,6 +163,54 @@ def overdue_commissioning_filter(today: str | None = None) -> dict:
 | `Clinical Hold` → `Clinical Release` | Gỡ giữ lâm sàng |
 | `Non Conformance` → `Return To Vendor` | Trả lại NCC |
 
+> Bảng trên **rút gọn** (12/15 cạnh). File `imm_04_workflow.json` = **11 state, 45 transition-row → 15 cạnh distinct** (`(state, action, next_state)`). Verify: `python3 -c "import json;print(len(json.load(open('assetcore/assetcore/workflow/imm_04_workflow.json'))['transitions']))"` = **45**. 3 cạnh không có trong bảng rút gọn: `Non Conformance → To Be Installed` (Khắc phục xong), `Re Inspection → Clinical Release` (Phê duyệt sau tái kiểm), `Initial Inspection → Re Inspection` (Báo cáo lỗi baseline) — có đủ ở State Machine `02 §IV.3`.
+
+### 3.1. INVARIANT — Workflow-Surface Integrity (CR-WF-04-SURFACE · silent-CTA-loss guard)
+
+**Bối cảnh (silent-CTA-loss).** Mọi nút hành động nghiệm thu (CTA) trên FE sinh từ `allowed_transitions`, trả về bởi service `_get_workflow_transitions(doc_name)` (`services/imm04.py:667`). Hàm resolve workflow bằng **hằng lookup literal**, trong khối `try … except`:
+
+```python
+# services/imm04.py:34, 667-680  (ground truth — CR này KHÔNG được sửa)
+_DT = "Asset Commissioning"                          # == workflow.document_type
+
+def _get_workflow_transitions(doc_name: str) -> list[dict]:
+    user_roles = frappe.get_roles(frappe.session.user)
+    current_state = frappe.db.get_value(_DT, doc_name, "workflow_state")
+    try:
+        workflow = frappe.get_doc("Workflow", "IMM-04 Workflow")   # ← hằng lookup :671
+    except frappe.DoesNotExistError:
+        return []                                                  # ← silent CTA loss
+    return [
+        {"action": t.action, "next_state": t.next_state, "allowed_role": t.allowed}
+        for t in workflow.transitions
+        if t.state == current_state and t.allowed in user_roles
+    ]
+```
+
+**Lỗ hổng.** Nếu ai đó (a) rename Workflow trong `imm_04_workflow.json` / `fixtures/workflow.json`, (b) đổi hằng lookup `"IMM-04 Workflow"` @:671 sang giá trị khác, hoặc (c) drift `_DT` khỏi `document_type` của workflow → `frappe.get_doc` raise `DoesNotExistError` → `return []` **CÂM** → toàn bộ CTA nghiệm thu biến mất, **KHÔNG test nào bắt**. Guard toàn cục `test_workflow_admin_override` **KHÔNG bắt**: nó `glob` file JSON (`assetcore/assetcore/workflow/*.json`) và đọc bất kỳ `name` nào có trong file để kiểm admin-role — **không hề biết hằng-lookup của service** ⇒ rename lọt câm.
+
+**Invariants (regression-lock ở TẦNG MODULE — bổ sung, KHÔNG thay guard toàn cục):**
+
+| ID | Invariant | Ground |
+|---|---|---|
+| **INV-04-WF-1** (resolve + document_type) | `frappe.get_doc("Workflow", "IMM-04 Workflow")` KHÔNG raise **VÀ** `workflow.document_type == assetcore.services.imm04._DT` (`== "Asset Commissioning"`). Bắt cả rename lẫn drift `_DT`. | `services/imm04.py:34,671` |
+| **INV-04-WF-2** (admin-override mọi cạnh) | MỌI distinct `(state, action, next_state)` trong `imm_04_workflow.json` (**45 transition-row → 15 cạnh distinct**) có `"AssetCore Super Admin"` ∈ tập `allowed`. QTV duyệt được mọi cạnh nghiệm thu. Verified 15/15 (2026-07-14). | `imm_04_workflow.json` |
+| **INV-04-WF-3** (live-wiring emit⊆file) | `_get_workflow_transitions(<phiếu Draft>)` gọi bởi `AssetCore Super Admin` → list **KHÁC rỗng**, và **mọi** `entry.next_state ∈` tập Draft-out next_states parse từ file (`{"Pending Doc Verify"}`). Emit service khớp file, không stale. | `services/imm04.py:667` ⇄ file |
+| **INV-04-WF-4** (không false-permissive) | User **role-nghèo** (không role nào ∈ `allowed` của cạnh Draft-out) → `_get_workflow_transitions` trả **subset chặt** (⊆ tập của Super Admin, thường rỗng). CTA không rò rỉ vượt quyền. | filter `t.allowed in user_roles` |
+
+**Boundaries.**
+- **Always:** guard là **test-only** (module `assetcore.tests.test_imm04`), 0 chạm runtime `.py` → 0 reload / 0 migrate. Đọc hằng qua `import assetcore.services.imm04` + parse-file JSON (oracle độc lập), assert THẬT trên workflow **live** (DB) + emit service **live**.
+- **Never:** KHÔNG "sửa" hành vi `return []` trong core ở CR này (giữ nguyên `services/imm04.py:667-680`). KHÔNG nới lộ quyền / hardcode để test xanh giả. KHÔNG dựa vào `test_workflow_admin_override` để phủ lỗ này.
+- **[ROADMAP] observability (tách khỏi core — HARD-STOP USER):** thay `return []` câm bằng `frappe.log_error(...)` trước khi return để lỗi **quan-sát-được** là **thay đổi runtime** → cần reload worker → **KHÔNG auto-apply** trong CR test-only này. Ghi backlog, chờ USER quyết.
+
+### ADR-IMM-04-01: Guard workflow-surface ở TẦNG MODULE thay vì mở rộng guard toàn cục
+
+- **Status:** Accepted · **Date:** 2026-07-14
+- **Context:** `test_workflow_admin_override` (guard toàn cục) đảm bảo mọi cạnh của mọi workflow có admin-role, nhưng nó **glob file JSON theo `name`** — không biết hằng-lookup literal `"IMM-04 Workflow"` mà service `_get_workflow_transitions` dùng để `get_doc`. Rename workflow, đổi hằng lookup, hoặc drift `_DT` ⇒ `except DoesNotExistError: return []` nuốt lỗi ⇒ mất CÂM toàn bộ CTA nghiệm thu, 0 test bắt.
+- **Decision:** Thêm guard **module-local** `TestImm04WorkflowSurfaceIntegrity` trong `test_imm04` khoá 4 invariant INV-04-WF-1..4 — couple **hằng-lookup service ⇄ workflow live (DB) ⇄ file JSON ⇄ emit `_get_workflow_transitions`**. Đổi bất kỳ đầu nào (hằng @:671 sai HOẶC `name` trong `imm_04_workflow.json`) → guard FAIL (RED-before/GREEN-after).
+- **Alternatives (loại):** (1) Mở rộng `test_workflow_admin_override` đọc hằng service — loại: guard toàn cục phải app-agnostic (multi-app site), không nên nhét literal per-module. (2) Bỏ hằng literal, đọc `document_type`→lookup động — loại: đổi runtime `.py` (reload/HARD-STOP), ngoài scope test-only. (3) `log_error` thay `return []` — loại khỏi core CR này (runtime change → HARD-STOP USER), giữ ở [ROADMAP].
+- **Consequences:** +1 test class `TestImm04WorkflowSurfaceIntegrity` (5 TC), N 57→62; 0 runtime change; lỗ rename/drift `_DT`/silent-`return[]` được khoá ở tầng module. Trade-off: guard hardcode literal `"IMM-04 Workflow"` — chấp nhận vì đó chính là **hợp đồng cần freeze** (đổi 1 phía mà không đổi test = FAIL, đúng mục tiêu).
+
 **Lifecycle hooks (controller chỉ delegate):**
 
 ```python

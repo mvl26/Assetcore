@@ -112,6 +112,122 @@
    "next_state": "Closed",
    "state": "Resolved",
    "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu xem xét",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Under Review",
+   "state": "Open",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu xem xét",
+   "allowed": "System Manager",
+   "next_state": "Under Review",
+   "state": "Open",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Xác nhận vi phạm",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Confirmed NC",
+   "state": "Under Review",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Xác nhận vi phạm",
+   "allowed": "System Manager",
+   "next_state": "Confirmed NC",
+   "state": "Under Review",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Xác nhận không vi phạm",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "False Positive",
+   "state": "Under Review",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Xác nhận không vi phạm",
+   "allowed": "System Manager",
+   "next_state": "False Positive",
+   "state": "Under Review",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Miễn trừ",
+   "allowed": "AssetCore Super Admin",
+   "condition": "doc.waiver_reason and doc.expiry_date",
+   "next_state": "Waived",
+   "state": "Under Review",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Miễn trừ",
+   "allowed": "System Manager",
+   "condition": "doc.waiver_reason and doc.expiry_date",
+   "next_state": "Waived",
+   "state": "Under Review",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Đánh dấu đã giải quyết",
+   "allowed": "AssetCore Super Admin",
+   "condition": "doc.capa_ref",
+   "next_state": "Resolved",
+   "state": "Confirmed NC",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Đánh dấu đã giải quyết",
+   "allowed": "System Manager",
+   "condition": "doc.capa_ref",
+   "next_state": "Resolved",
+   "state": "Confirmed NC",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Đóng finding",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Closed",
+   "state": "False Positive",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Đóng finding",
+   "allowed": "System Manager",
+   "next_state": "Closed",
+   "state": "False Positive",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Đóng finding",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Closed",
+   "state": "Waived",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Đóng finding",
+   "allowed": "System Manager",
+   "next_state": "Closed",
+   "state": "Waived",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Đóng finding",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Closed",
+   "state": "Resolved",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Đóng finding",
+   "allowed": "System Manager",
+   "next_state": "Closed",
+   "state": "Resolved",
+   "allow_self_approval": 1
   }
  ]
 }

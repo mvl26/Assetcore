@@ -62,6 +62,7 @@
   "col_break_sla",
   "response_breached",
   "resolution_breached",
+  "client_request_id",
   "amended_from"
  ],
  "fields": [
@@ -408,6 +409,16 @@
    "label": "Vi phạm SLA xử lý",
    "read_only": 1,
    "default": "0"
+  },
+  {
+   "fieldname": "client_request_id",
+   "fieldtype": "Data",
+   "label": "Mã yêu cầu chống trùng (client)",
+   "read_only": 1,
+   "no_copy": 1,
+   "set_only_once": 1,
+   "unique": 1,
+   "description": "Khoá idempotency do client sinh (mobile write-outbox). Chống tạo phiếu sự cố TRÙNG khi re-drain hàng đợi offline. Server gán 1 lần lúc tạo; unique → 1 khoá = 1 phiếu (nhiều phiếu không khoá vẫn hợp lệ vì lưu NULL)."
   },
   {
    "fieldname": "amended_from",

@@ -239,6 +239,160 @@
    "next_state": "Return To Vendor",
    "state": "Non Conformance",
    "allow_self_approval": 1
+  },
+  {
+   "action": "Gửi kiểm tra tài liệu",
+   "allowed": "System Manager",
+   "next_state": "Pending Doc Verify",
+   "state": "Draft",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Xác nhận đủ tài liệu",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "To Be Installed",
+   "state": "Pending Doc Verify",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Xác nhận đủ tài liệu",
+   "allowed": "System Manager",
+   "next_state": "To Be Installed",
+   "state": "Pending Doc Verify",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Yêu cầu bổ sung tài liệu",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Draft",
+   "state": "Pending Doc Verify",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Yêu cầu bổ sung tài liệu",
+   "allowed": "System Manager",
+   "next_state": "Draft",
+   "state": "Pending Doc Verify",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu lắp đặt",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Installing",
+   "state": "To Be Installed",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu lắp đặt",
+   "allowed": "System Manager",
+   "next_state": "Installing",
+   "state": "To Be Installed",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Báo cáo sự cố",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Non Conformance",
+   "state": "To Be Installed",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Báo cáo sự cố",
+   "allowed": "System Manager",
+   "next_state": "Non Conformance",
+   "state": "To Be Installed",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Lắp đặt hoàn thành",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Identification",
+   "state": "Installing",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Lắp đặt hoàn thành",
+   "allowed": "System Manager",
+   "next_state": "Identification",
+   "state": "Installing",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Báo cáo DOA",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Non Conformance",
+   "state": "Installing",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Báo cáo DOA",
+   "allowed": "System Manager",
+   "next_state": "Non Conformance",
+   "state": "Installing",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu kiểm tra",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Initial Inspection",
+   "state": "Identification",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu kiểm tra",
+   "allowed": "System Manager",
+   "next_state": "Initial Inspection",
+   "state": "Identification",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Giữ lâm sàng",
+   "allowed": "System Manager",
+   "next_state": "Clinical Hold",
+   "state": "Initial Inspection",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Báo cáo lỗi baseline",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Re Inspection",
+   "state": "Initial Inspection",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Báo cáo lỗi baseline",
+   "allowed": "System Manager",
+   "next_state": "Re Inspection",
+   "state": "Initial Inspection",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Gỡ giữ lâm sàng",
+   "allowed": "System Manager",
+   "next_state": "Clinical Release",
+   "state": "Clinical Hold",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Khắc phục xong",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "To Be Installed",
+   "state": "Non Conformance",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Khắc phục xong",
+   "allowed": "System Manager",
+   "next_state": "To Be Installed",
+   "state": "Non Conformance",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Trả lại nhà cung cấp",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Return To Vendor",
+   "state": "Non Conformance",
+   "allow_self_approval": 1
   }
  ]
 }

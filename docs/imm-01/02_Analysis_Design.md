@@ -372,14 +372,33 @@ And nếu thiếu OPEX year nào → G03 fail "Budget Estimate phải có cả C
 
 ### US-01-030 — Phê duyệt với funding_source
 
-Là **VP Block1**, tôi muốn **duyệt/bác phiếu kèm lý do và funding_source**.
+Là **Quản lý Mua sắm (Procurement Manager)**, tôi muốn **duyệt/bác phiếu kèm lý do và funding_source**.
 
 ```gherkin
 Given phiếu ở Pending Approval
-When tôi nhập board_approver="self", funding_source="NSNN" và nhấn "Approved"
+And tôi có role Procurement Manager (KHÔNG kèm Dept Head/Ops Manager/System Manager)
+When tôi nhập board_approver="self", funding_source="NSNN" và nhấn "Phê duyệt"
 Then phiếu chuyển Approved (docstatus=1) qua `approve_needs_request` endpoint
 And `before_submit_needs_request` set `approval_date = today()`
-And `write_audit_trail` ghi IMM Audit Trail CHỈ khi `replacement_for_asset` có giá trị (audit gắn vào Asset). Với New/Upgrade/Add-on (chưa có asset) → Frappe Version track_changes lưu history.
+And `write_audit_trail` được gọi (ghi IMM Audit Trail khi `replacement_for_asset` có giá trị; New/Upgrade/Add-on chưa có asset → Frappe Version track_changes lưu history)
+```
+
+### US-01-031 — Gate CTA Phê duyệt/Bác đề xuất server-driven + BE enforce role (ADR-IMM-01-02)
+
+Là **hệ thống**, tôi muốn **nút Phê duyệt/Bác đề xuất chỉ hiện đúng người được phép, và BE từ chối người không đủ quyền** — để không còn "nút hiện rồi bấm mới báo không có quyền" và không lọt duyệt sai role.
+
+```gherkin
+# FE gating (server-driven)
+Given get_needs_request trả allowed_transitions
+When user là Procurement Manager, NR ở Pending Approval → allowed_transitions chứa "Phê duyệt","Bác đề xuất"
+Then FE render nút "Phê duyệt ✓" và "Bác đề xuất" (canApprove/canReject = allowed_transitions.includes(...))
+When user KHÔNG được transition (state≠Pending Approval HOẶC role không nằm trong workflow) → allowed_transitions KHÔNG chứa 2 action
+Then FE KHÔNG render 2 nút (không false-permissive); KHÔNG còn tham chiếu isBoardApprover / literal 'Pending Approval' cho 2 CTA (grep sạch)
+
+# BE enforce (defense-in-depth)
+Given user KHÔNG có role duyệt gọi thẳng approve_needs_request/reject_needs_request
+Then trả Error envelope code=FORBIDDEN (HTTP-200), thông điệp VI sạch, state KHÔNG đổi
+And Procurement Manager gọi vẫn approve/reject thành công (regression xanh)
 ```
 
 ### US-01-040 — Xem Procurement Plan tổng hợp
@@ -435,6 +454,25 @@ And có thể "Generate IMM-02 Spec Drafts" tạo loạt phiếu Tech Spec rỗn
 - **Always**: sinh Notification Log cho mỗi escalation (audit); resolve recipient qua SSoT `notify_roles`; giữ early-return sạch khi 0 phiếu quá hạn; `frappe.logger("imm01").warning(...)` khi 0 recipient (KHÔNG raise); message **tiếng Việt đầy đủ**, không rò acronym EN (theo ui_copy_language_policy); bọc scheduler try/except fail-safe (1 lỗi KHÔNG dừng cả cron).
 - **Never**: hard-code / persona role-name ("PTP Khối 1", "KH-TC Officer") làm recipient; `raise` trong scheduler (vỡ cron toàn hệ); tạo DocType/field mới chỉ để dedup; gửi N thông báo/phiếu (spam); gửi lại digest cho cùng recipient trong cùng ngày.
 - **Spec-contract (DONE-gate)**: đây là **scheduler** (không phải whitelist HTTP handler) → contract "in-handler HTTP-200 + Error envelope" và "2 loại 403" KHÔNG áp dụng; invariant "count==rows" KHÔNG áp dụng (không có list endpoint). Contract thay thế cho scheduler: **KHÔNG raise + fail-safe per-recipient/per-batch + idempotent qua state (Notification Log)**.
+
+## IV.2b. Quyết định kiến trúc (ADR) & Boundaries — Server-driven CTA Phê duyệt/Bác đề xuất
+
+### ADR-IMM-01-02: CTA Phê duyệt/Bác đề xuất gate server-driven (`allowed_transitions`) + BE enforce transition-role → FORBIDDEN
+
+- **Status**: Accepted
+- **Date**: 2026-07-09
+- **Context**: `NeedsRequestDetailView.vue` gate 2 nút Phê duyệt/Bác đề xuất bằng `isBoardApprover` (client role-list `DEPT_HEAD`/`OPS_MANAGER`), **desynced** khỏi role thật của workflow transition (`Procurement Manager` · `AssetCore Super Admin` · `System Manager` trong `fixtures/workflow.json`). Hệ quả kép: (1) người duyệt thật (`Procurement Manager`) KHÔNG thấy nút (dead-gate); (2) `Dept Head`/`Ops Manager` thấy nút nhưng bấm → 403 (false-permissive). Đồng thời handler `approve/reject` set `workflow_state` trực tiếp + submit, nếu Frappe ném `WorkflowPermissionError` thì `_handle` trả `VALIDATION` + leak HTML `<strong>` thay vì `FORBIDDEN` sạch.
+- **Decision**: (a) BE emit `allowed_transitions` (action-string đã lọc theo state+role của user hiện tại, dedupe) trong payload `get_needs_request` — helper `_nr_allowed_transition_actions` đối xứng `_plan_allowed_transition_actions`. (b) FE gate `canApprove = allowed_transitions.includes('Phê duyệt')`, `canReject = allowed_transitions.includes('Bác đề xuất')` — bỏ hoàn toàn `isBoardApprover` + literal `'Pending Approval'` cho 2 CTA này. (c) BE `approve/reject` bọc `doc.submit()` bắt `WorkflowPermissionError` → `ServiceError(FORBIDDEN)` VI sạch (đối xứng `_save_plan_workflow_transition`).
+- **Alternatives**:
+  - *Sửa client role-list cho khớp workflow* — loại: vẫn duplicate role↔transition ở FE, drift lại khi đổi workflow; SSoT phải là workflow.json qua `get_transitions`.
+  - *Gọi `get_allowed_transitions` (call thứ 2) để gate* — loại cho 2 CTA chính: gây flash ẩn/hiện nút lúc render đầu + round-trip thừa; embed vào `get_needs_request` là 1 nguồn, 1 lần. (`get_allowed_transitions` giữ lại cho các nút generic.)
+  - *Chỉ sửa FE (ẩn nút đúng)* — loại: không đóng lỗ gọi thẳng endpoint bỏ qua UI; BE PHẢI enforce (defense-in-depth).
+- **Consequences**: `get_needs_request` payload += `allowed_transitions` (type FE `NeedsRequestDoc.allowed_transitions?: string[]`); `WorkflowPermissionError` được map sang `FORBIDDEN` (403 envelope) thay vì `VALIDATION`; approve **luôn** ghi audit trail (trước đây chỉ ghi khi có remarks — nay ghi cả khi remarks rỗng, khớp AC "audit trail ghi"); cần regression test BE (wrong-role → FORBIDDEN) + FE vitest gating. Không đổi schema DocType/field, không migration.
+
+### Boundaries (Always / Never) — server-driven CTA Phê duyệt/Bác đề xuất
+- **Always**: SSoT role↔transition = `fixtures/workflow.json` (đọc qua `frappe.model.workflow.get_transitions`); action-string khớp EXACT (`'Phê duyệt'`/`'Bác đề xuất'`); `_nr_allowed_transition_actions` degrade graceful `try/except → []` (base-role-only → 0 nút, KHÔNG vỡ payload); BE approve/reject enforce role qua `validate_workflow` → map `WorkflowPermissionError` sang FORBIDDEN VI sạch; approve/reject **luôn** `write_audit_trail`; Procurement Manager (không kèm role khác) approve/reject được (regression xanh).
+- **Never**: gate CTA bằng client role-list (`isBoardApprover`/`DEPT_HEAD`/`OPS_MANAGER`) hay literal `workflow_state === 'Pending Approval'`; leak `<strong>`/traceback ra message; đổi `workflow_state` bằng `db_set`/SQL trực tiếp (bỏ qua `validate_workflow` → bỏ qua role-check); tin FE ẩn nút thay cho BE enforce; trả `VALIDATION` cho lỗi thiếu-quyền (phải `FORBIDDEN`).
+- **Spec-contract (DONE-gate)**: lỗi nghiệp vụ = **in-handler HTTP-200 + Error envelope** (BAD_STATE / VALIDATION / FORBIDDEN), KHÔNG raise→HTTP-4xx. **2 loại 403**: dispatcher-403 (guest/no-token, Frappe chặn trước handler) vs **in-handler cap-403** (thiếu role duyệt → envelope `code=FORBIDDEN`). `allowed_transitions` là field phái sinh cùng payload (không list endpoint riêng) ⇒ invariant "count==rows" không áp dụng; invariant tương đương: **nút hiển thị == action mà `get_transitions` cho phép** (FE gate == BE cho phép, không lệch).
 
 ## IV.3. State Machine
 

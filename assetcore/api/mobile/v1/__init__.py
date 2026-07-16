@@ -24,4 +24,19 @@ from assetcore.api.mobile.v1.device_token import (  # noqa: E402,F401
     unregister_device_token,
 )
 
-__all__ = ["register_device_token", "unregister_device_token"]
+# Account/profile màn "Tài khoản" (get_my_profile / update_my_profile / change_my_password) —
+# RE-EXPORT cùng lý do path-resolvability nêu trên: dispatcher tra ATTR trên PACKAGE `v1`, KHÔNG
+# tự đi vào submodule `profile`. Thiếu re-export → AttributeError → HTTP 404 cho client codegen.
+from assetcore.api.mobile.v1.profile import (  # noqa: E402,F401
+    change_my_password,
+    get_my_profile,
+    update_my_profile,
+)
+
+__all__ = [
+    "register_device_token",
+    "unregister_device_token",
+    "get_my_profile",
+    "update_my_profile",
+    "change_my_password",
+]

@@ -235,6 +235,27 @@ File (roadmap): `assetcore/tests/test_imm01_workflow.py` — chưa tạo. Workfl
 
 State Transition Testing — mỗi edge = 1 test pass + 1 test fail. (Lưu ý: tên role trong workflow JSON dùng role chuẩn AssetCore — `Needs Manager`, `Spec Manager`, `Procurement Manager`, `Corrective User`, `AssetCore Super Admin` — không phải nhãn nghiệp vụ `IMM Clinical User`/`IMM Board Approver` ở doc cũ.)
 
+> ⚠️ **Stale-count flag (light-touch — không rewrite):** dòng "8 state / 24 transition" ở trên là số ĐẾM CŨ. Fixture **hiện tại** (verified 2026-07-14): `imm_01_needs_workflow.json` = **34 transition-row → 10 cạnh distinct** (`{(state,action,next_state)}`, khớp 10 dòng bảng); `imm_01_plan_workflow.json` = **10 transition-row → 3 cạnh distinct**. Guard III.4a dưới dùng con số MỚI (grounded).
+
+## III.4a. Guard — Workflow-Surface Integrity (CR-WF-01-SURFACE · silent-CTA-loss)
+
+File: `tests/test_imm01.py` → class **`TestImm01WorkflowSurfaceIntegrity`** (⬜ Planned, **test-only** — 0 chạm runtime `.py`, 0 gunicorn `--preload` reload / 0 `bench migrate`). Khoá **INV-01-SURFACE-A/B/C** (spec: `04 §5.4` + ADR-IMM-01-03). Đóng lỗ mà guard toàn cục `test_workflow_admin_override` **KHÔNG** bắt: nó `glob` JSON theo `name`, không biết 2 surface IMM-01 (`_nr_allowed_transition_actions` `api/imm01.py:187` · `_plan_allowed_transition_actions` `api/imm01.py:476`) resolve workflow theo **`document_type`+`is_active`** (Frappe `get_workflow_name`), KHÔNG qua tên literal (KHÁC IMM-04).
+
+| Test ID | Invariant | Assert (grounded) | RED vector |
+|---|---|---|---|
+| **TC-01-WF-SURFACE-01** | INV-01-SURFACE-A (NR) | Oracle parse `fixtures/workflow.json` + `imm_01_needs_workflow.json`: `document_type=='IMM Needs Request'` có **đúng 1** entry `is_active==1`, `name=='IMM-01 Needs Workflow'`; live `get_workflow_name('IMM Needs Request')=='IMM-01 Needs Workflow'`; `inspect` `api/imm01._DT_NR=='IMM Needs Request'`. | rename · xoá · deactivate · duplicate active workflow Needs · drift `_DT_NR` |
+| **TC-01-WF-SURFACE-02** | INV-01-SURFACE-A (Plan) | Đối xứng: `document_type=='IMM Procurement Plan'` → **đúng 1** active `name=='IMM-01 Plan Workflow'`; live `get_workflow_name(...)` == kỳ vọng; `_DT_PP=='IMM Procurement Plan'`. | rename · xoá · deactivate · duplicate active workflow Plan · drift `_DT_PP` |
+| **TC-01-WF-SURFACE-03** | INV-01-SURFACE-B (NR live-wiring) | NR seed `workflow_state='Draft'` + `set_user(<Needs Manager | System Manager | Super Admin>)` (∈ allowed cạnh Draft-out `Gửi đề xuất`; **KHÔNG** Procurement Manager) → `_nr_allowed_transition_actions(doc)` **NON-EMPTY**, `== dedupe(action for get_transitions(doc))`, chứa `Gửi đề xuất`. | workflow vỡ → `except→[]` permanent (RED) · emit stale ≠ get_transitions |
+| **TC-01-WF-SURFACE-04** | INV-01-SURFACE-B (Plan live-wiring) | Plan seed `Draft` + `set_user(<Procurement Manager | Commissioning Manager | System Manager | Super Admin>)` → `_plan_allowed_transition_actions(doc)` NON-EMPTY, chứa `Phê duyệt kế hoạch`, `== dedupe(get_transitions)`. | như trên (Plan surface) |
+| **TC-01-WF-SURFACE-05** | INV-01-SURFACE-C (degrade NR) | Cùng NR Draft, `set_user(<chỉ base role AssetCore System User>)` → `_nr_allowed_transition_actions` trả `[]` **GRACEFUL** (không raise); payload `_get_needs_request(name)` còn nguyên các field khác (không vỡ). | phân-định empty-thiếu-quyền ≠ empty-vỡ |
+| **TC-01-WF-SURFACE-06** | INV-01-SURFACE-C (degrade Plan) | Đối xứng Plan: base-role user → `_plan_allowed_transition_actions=[]` graceful; payload `_get_procurement_plan` intact. | như trên |
+
+**RED-before demo (chứng minh guard cắn — chạy THẬT, không false-green):**
+1. Baseline `bench --site miyano run-tests --module assetcore.tests.test_imm01` → đọc dòng cuối `Ran N OK`.
+2. **RED vector A (rename):** tạm đổi `name` `IMM-01 Needs Workflow` → `IMM-01 Needs Workflow-X` trong **bản-sao** workflow live (hoặc temp Workflow doctype `is_active`) → **TC-01-WF-SURFACE-01** FAIL (resolve ≠ kỳ vọng) → revert.
+3. **RED vector B (monkeypatch):** `unittest.mock.patch('frappe.model.workflow.get_transitions', side_effect=Exception)` trong 1 TC riêng → **TC-01-WF-SURFACE-03/04** FAIL (`emit == []` permanent) → chứng minh surface `except→[]` là silent-loss thật; SURFACE-C (TC-05/06) VẪN `[]` graceful → **phân-định** đúng.
+4. Restore → **GREEN**. `test_workflow_admin_override` 5-class **VẪN GREEN** và **KHÔNG** bị re-assert (every-edge-super-admin đã cover global — cross-ref, không chép).
+
 ## III.5. Integration — Audit chain integrity (planned)
 
 2 test chính (file roadmap `test_imm01_audit.py`):
@@ -261,7 +282,13 @@ Cover: happy + envelope `success=true`; invalid params → `code=INVALID_PARAMS`
 | `test_create_no_permission` ⬜ | `create_needs_request` (role Auditor) | `code=FORBIDDEN` | EP (permission partition) |
 | `test_score_compute` ⬜ | `score_needs_request` 6 rows | `weighted_score=4.35`, `priority_class=P1` | Use Case |
 | `test_approve_g05_fail` ⬜ | `approve_needs_request` missing funding | `code=BUSINESS_RULE` | Decision Table |
+| `test_get_needs_request_allowed_transitions` ⬜ | `get_needs_request` (NR Pending Approval, user Procurement Manager) | payload có `allowed_transitions` ⊇ `["Phê duyệt","Bác đề xuất"]` | ADR-IMM-01-02 |
+| `test_approve_wrong_role_clean_forbidden` ⬜ | `_approve_needs_request` (NR Pending Approval, user role KHÔNG duyệt vd Needs Manager) | `ServiceError.code=FORBIDDEN`; message KHÔNG chứa `<strong>`/"transition not allowed"; `workflow_state` giữ `Pending Approval` | ADR-IMM-01-02 (đối xứng `test_approve_nonempty_plan_wrong_role_clean_forbidden`) |
+| `test_reject_wrong_role_clean_forbidden` ⬜ | `_reject_needs_request` (user role KHÔNG duyệt) | `code=FORBIDDEN` sạch; state không đổi | ADR-IMM-01-02 |
+| `test_approve_procurement_manager_ok` ⬜ | `_approve_needs_request` (user Procurement Manager thuần) | `workflow_state=Approved`, docstatus=1; `write_audit_trail` được gọi (regression xanh) | ADR-IMM-01-02 |
 | `test_dashboard_kpis_format` ⬜ | `dashboard_kpis?period=2026-Q2` | 6 KPI key present *(cần khảo sát key chính xác)* | Use Case |
+
+> **FE vitest** `needsRequestDetailCtaGating.test.ts` (đối xứng `procurementPlanCtaGating.test.ts`): mount `NeedsRequestDetailView` với `currentDoc.allowed_transitions` = `["Phê duyệt","Bác đề xuất"]` → 2 nút render; = `[]` → 2 nút ẩn; field vắng → 0 nút, không crash. Grep guard: `NeedsRequestDetailView.vue` KHÔNG còn `isBoardApprover` HAY literal `'Pending Approval'` cho 2 CTA. `vue-tsc` sạch (type `NeedsRequestDoc.allowed_transitions?: string[]`).
 
 ## III.7. E2E browser (Playwright)
 

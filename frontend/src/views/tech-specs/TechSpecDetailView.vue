@@ -187,9 +187,18 @@
 
     <!-- Hành động -->
     <div class="action-bar">
-      <button v-if="canLock" class="btn btn-success" @click="doLock">Chốt hồ sơ</button>
-      <button v-if="canWithdraw" class="btn btn-danger" @click="doWithdraw">Rút hồ sơ</button>
-      <button v-if="canReissue" class="btn btn-primary" @click="doReissue">Phát hành lại (phiên bản mới)</button>
+      <!-- CTA workflow TRUNG GIAN server-driven (GATE-8 / LL-FE-51): 1 nút / mỗi
+           action do BE emit `allowed_actions` (spec_allowed_actions đã lọc theo vai
+           trò). Nhãn = action tiếng Việt trực tiếp. ZERO so-sánh `workflow_state ===`.
+           Cụm tự ẩn khi `allowed_actions` rỗng/vắng (v-for trên `|| []`). 2 cạnh
+           'Phê duyệt spec'/'Rút spec' KHÔNG ở đây → nút lock/withdraw dưới xử lý. -->
+      <button v-for="a in store.currentSpec?.allowed_actions || []" :key="a"
+              :data-testid="`cta-wf-${slug(a)}`" class="btn btn-outline" @click="onWf(a)">
+        {{ a }}
+      </button>
+      <button v-if="canLock" data-testid="cta-lock" class="btn btn-success" @click="doLock">Chốt hồ sơ</button>
+      <button v-if="canWithdraw" data-testid="cta-withdraw" class="btn btn-danger" @click="doWithdraw">Rút hồ sơ</button>
+      <button v-if="canReissue" data-testid="cta-reissue" class="btn btn-primary" @click="doReissue">Phát hành lại (phiên bản mới)</button>
     </div>
   </div>
 
@@ -209,11 +218,31 @@ import {
 } from '@/utils/wave2Labels'
 import RequirementTable from '@/components/tech-specs/RequirementTable.vue'
 import { submitBenchmark, submitLockInAssessment } from '@/api/imm02'
+import { useNotify } from '@/composables/useNotify'
+import { MSG } from '@/i18n/messages'
 
 const props = defineProps<{ id: string }>()
 const route = useRoute()
 const router = useRouter()
 const store = useImm02Store()
+const notify = useNotify()
+
+// data-testid ổn định cho nút CTA workflow: bỏ dấu tiếng Việt + kebab-case.
+// 'Gửi rà soát' → 'gui-ra-soat'. Chỉ dùng cho testid, KHÔNG là value gửi BE.
+function slug(s: string): string {
+  return s
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/đ/g, 'd').replace(/Đ/g, 'D')
+    .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
+}
+
+// Bấm 1 nút CTA workflow → transition qua store (server là guard THẬT), refetch;
+// phản hồi qua notify contract (success toast / lỗi = fromError render registry).
+async function onWf(action: string) {
+  const ok = await store.transitionWorkflow(props.id, action)
+  if (ok) notify.show({ code: MSG.UI_SAVE_SUCCESS, ctx: { entity: `hồ sơ ${props.id}` } })
+  else notify.fromError(store.lastApiError)
+}
 
 type TabId = 'overview' | 'req' | 'infra' | 'lockin' | 'benchmark' | 'lockin-action'
 const TABS: { id: TabId; label: string }[] = [
@@ -230,12 +259,13 @@ const WORKFLOW_STATES: SpecState[] = [
   'Draft', 'Reviewing', 'Benchmarked', 'Risk Assessed', 'Pending Approval', 'Locked',
 ]
 
-const canLock = computed(() => store.currentSpec?.workflow_state === 'Pending Approval')
-const canWithdraw = computed(() =>
-  store.currentSpec?.workflow_state === 'Pending Approval'
-  || store.currentSpec?.workflow_state === 'Locked',
-)
-const canReissue = computed(() => store.currentSpec?.workflow_state === 'Withdrawn')
+// CTA gating server-driven (GATE-8 / LL-FE-51): đọc DUY NHẤT cờ do get_tech_spec
+// DERIVE từ (guard-state THỰC ∧ vai trò duyệt). ZERO so-sánh-trạng-thái hardcode ở đây —
+// nút ẩn (v-if) khi cờ false / vắng (default false → không lỗi console khi field vắng).
+// Guard THẬT nằm ở BE (_require_spec_approver + state) → FE chỉ ẩn/hiện, không nới quyền.
+const canLock = computed(() => store.currentSpec?.can_lock === true)
+const canWithdraw = computed(() => store.currentSpec?.can_withdraw === true)
+const canReissue = computed(() => store.currentSpec?.can_reissue === true)
 
 function stepClass(_s: SpecState, i: number): string {
   const cur = store.currentSpec?.workflow_state

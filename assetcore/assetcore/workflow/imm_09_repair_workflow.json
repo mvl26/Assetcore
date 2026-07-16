@@ -171,6 +171,153 @@
    "next_state": "Cancelled",
    "state": "Pending Inspection",
    "allow_self_approval": 1
+  },
+  {
+   "action": "Phân công KTV",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Assigned",
+   "state": "Open",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hủy phiếu",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Cancelled",
+   "state": "Open",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu chẩn đoán",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Diagnosing",
+   "state": "Assigned",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu chẩn đoán",
+   "allowed": "System Manager",
+   "next_state": "Diagnosing",
+   "state": "Assigned",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Yêu cầu linh kiện",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Pending Parts",
+   "state": "Diagnosing",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Yêu cầu linh kiện",
+   "allowed": "System Manager",
+   "next_state": "Pending Parts",
+   "state": "Diagnosing",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu sửa chữa",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "In Repair",
+   "state": "Diagnosing",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu sửa chữa",
+   "allowed": "System Manager",
+   "next_state": "In Repair",
+   "state": "Diagnosing",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Linh kiện đã nhận - bắt đầu sửa",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "In Repair",
+   "state": "Pending Parts",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Linh kiện đã nhận - bắt đầu sửa",
+   "allowed": "System Manager",
+   "next_state": "In Repair",
+   "state": "Pending Parts",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hoàn thành sửa chữa - chờ kiểm tra",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Pending Inspection",
+   "state": "In Repair",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hoàn thành sửa chữa - chờ kiểm tra",
+   "allowed": "System Manager",
+   "next_state": "Pending Inspection",
+   "state": "In Repair",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Không thể sửa chữa",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Cannot Repair",
+   "state": "In Repair",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Xác nhận hoàn thành",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Completed",
+   "state": "Pending Inspection",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Kiểm tra thất bại - sửa lại",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "In Repair",
+   "state": "Pending Inspection",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Kiểm tra thất bại - sửa lại",
+   "allowed": "System Manager",
+   "next_state": "In Repair",
+   "state": "Pending Inspection",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hủy phiếu",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Cancelled",
+   "state": "Assigned",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hủy phiếu",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Cancelled",
+   "state": "Diagnosing",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hủy phiếu",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Cancelled",
+   "state": "Pending Parts",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hủy phiếu",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Cancelled",
+   "state": "In Repair",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hủy phiếu",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Cancelled",
+   "state": "Pending Inspection",
+   "allow_self_approval": 1
   }
  ]
 }

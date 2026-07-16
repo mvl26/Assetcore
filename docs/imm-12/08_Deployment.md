@@ -184,6 +184,20 @@ bench --site assetcore.local set-maintenance-mode off
 | Thêm `chronic_failure_flag` vào `AC Asset` | Low | Nullable boolean, default 0 |
 | Thêm composite index `Incident Report` | Medium | Index lock ngắn trên table lớn; chạy sau giờ cao điểm |
 | Seed Fault Code dictionary (8 records) | Low | Idempotent `if not exists` check |
+| **THÊM option `incident_photo_attached` vào Select `Asset Lifecycle Event.event_type`** (BR-12-18 / ADR-IMM12-07) | Low | Sửa `asset_lifecycle_event.json` (JSON option), deploy **`bench --site <site> reload-doctype "Asset Lifecycle Event"`** (KHÔNG data migration — chỉ nới enum). BẮT BUỘC chạy TRƯỚC khi `attach_incident_photo` live, nếu không emit lifecycle throw ValidationError select. `bench migrate` cũng nạp (fixture/doctype sync). **HARD-STOP:** lệnh reload/migrate thuộc quyền USER. |
+| **THÊM row `Corrective Manager` vào 2 transition RCA "Bắt đầu phân tích RCA" + "Hoàn thành RCA"** (CR-WF-12-RCA / ADR-IMM12-RCA-PARITY) | Low | Sửa `imm_12_rca_workflow.json` (source) **+** `fixtures/workflow.json` "IMM-12 RCA Workflow" (INV-C: giữ 2 file khớp). Đây là fix **role-set thuần** (KHÔNG đổi state/next_state, KHÔNG data migration). Live-sync KHÔNG `bench migrate`: xem §RCA-parity dưới. **HARD-STOP:** lệnh reload/migrate thuộc quyền USER. |
+
+##### §RCA-parity — Live-sync workflow "IMM-12 RCA Workflow" (CR-WF-12-RCA, KHÔNG `bench migrate`)
+
+> ⚠️ **`setup.backfill_workflow_admin.run` KHÔNG đủ cho fix này.** Công cụ đó chỉ APPEND admin-role `{AssetCore Super Admin, System Manager}` vào transition-group (memory `workflow_admin_override_rbac`) — **KHÔNG thêm `Corrective Manager`**. Để row `Corrective Manager` mới vào **live Workflow doc** trên site đang chạy, chọn 1 trong 2 (đều thuộc lane USER, review-friendly, KHÔNG `bench migrate`):
+>
+> 1. **Re-import fixture** (khuyến nghị — đồng bộ nguyên "IMM-12 RCA Workflow"):
+>    `bench --site <site> execute frappe.core.doctype.data_import.data_import.import_doc --kwargs "{'path':'apps/assetcore/assetcore/fixtures/workflow.json'}"` — hoặc `bench --site <site> reload-doc assetcore workflow imm_12_rca_workflow` (nạp thẳng source JSON vào DB doc).
+> 2. **Chỉnh live Workflow doc** trực tiếp (UI `/app/workflow/IMM-12 RCA Workflow` hoặc script append 2 transition row `allowed="Corrective Manager"`).
+>
+> **Verify sau sync:** đăng nhập user role `Corrective Manager`, mở phiếu RCA ở desk (`/app/imm-rca-record/<name>`) — THẤY + BẤM được nút "Bắt đầu phân tích RCA" (khi `RCA Required`) / "Hoàn thành RCA" (khi `RCA In Progress`). `_RCA_VALID_TRANSITIONS` (runtime) KHÔNG đổi ⇒ KHÔNG cần worker reload cho fix này (thuần dữ-liệu Workflow doc, không đụng `.py`). **HARD-STOP:** mọi lệnh reload/import/migrate thuộc quyền USER.
+
+> **Ảnh bằng chứng (`attach_incident_photo`) KHÔNG cần schema field mới** trên `Incident Report` — lưu qua `File` private native (ADR-IMM12-06). Chỉ 1 thay đổi schema = nới enum `event_type` ở trên. `api/imm12.py` có handler mới ⇒ cần **worker reload** (gunicorn `--preload` staleness — HARD-STOP user) để endpoint live.
 
 **Composite Index build time:**
 - Ước tính Incident Report records tại deploy time: ≤ 5000 records (Wave 1).

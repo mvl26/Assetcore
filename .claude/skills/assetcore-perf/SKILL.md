@@ -11,7 +11,6 @@ description: >
   "phân trang", "1430 asset load chậm", "Core Web Vitals", "LCP", "INP".
   Kích hoạt khi có yêu cầu/nghi ngờ hiệu năng BE hoặc FE — KHÔNG tối ưu khi chưa đo.
 ---
-
 # AssetCore Performance — Frappe + Vue, measure-first
 
 ## Overview
@@ -38,21 +37,23 @@ frappe.db.sql("SET profiling = 1")          # hoặc bật slow query log
 t = time.monotonic(); rows = service_call(); print("ms:", (time.monotonic()-t)*1000)
 # Đếm số query 1 request: bật frappe recorder (Frappe → "Recorder" tool) → xem #queries + thời gian
 ```
+
 - FE: Chrome DevTools Performance / Lighthouse (synthetic) + đo thời gian TanStack query.
 - **Asset list 1430-row** là case thật: đo #query của `permission_query_conditions` + count path trước khi sửa.
 
 ### 2. IDENTIFY bottleneck (bảng triệu chứng → nguyên nhân)
 
-| Triệu chứng | Nguyên nhân hay gặp (Frappe) | Soi |
-|---|---|---|
-| API list/detail chậm | **N+1 query**, thiếu index, query không paginate | Frappe Recorder: #query, query lặp |
-| Memory/CPU tăng theo data | fetch unbounded, build list khổng lồ trong Python | đếm rows trả về |
-| Report nặng | nhiều round-trip, JOIN không index, tính KPI mỗi request | xem `frappe.db.sql` plan |
-| FE giật/slow nav | bundle to, không lazy route, re-render, fetch waterfall | DevTools Performance / Network |
+| Triệu chứng              | Nguyên nhân hay gặp (Frappe)                              | Soi                                |
+| -------------------------- | ------------------------------------------------------------ | ---------------------------------- |
+| API list/detail chậm      | **N+1 query**, thiếu index, query không paginate     | Frappe Recorder:#query, query lặp |
+| Memory/CPU tăng theo data | fetch unbounded, build list khổng lồ trong Python          | đếm rows trả về                |
+| Report nặng               | nhiều round-trip, JOIN không index, tính KPI mỗi request | xem`frappe.db.sql` plan          |
+| FE giật/slow nav          | bundle to, không lazy route, re-render, fetch waterfall     | DevTools Performance / Network     |
 
 ### 3. FIX — anti-pattern Frappe/Vue (tailor)
 
 **N+1 query (BE) — lỗi #1:**
+
 ```python
 # BAD: 1 query/loop → N+1
 assets = frappe.get_all("AC Asset", pluck="name")
@@ -69,6 +70,7 @@ model_map = {m.name: m.model_name for m in frappe.get_all(
 ```
 
 **Pagination bắt buộc cho list endpoint:**
+
 ```python
 # Mọi list service: LUÔN limit — không trả nguyên bảng
 rows = frappe.get_all("AC Work Order",
@@ -82,6 +84,7 @@ rows = frappe.get_all("AC Work Order",
 **Cache derived KPI** đắt: dùng `frappe.cache()` với TTL thay vì tính mỗi request; bust khi nguồn đổi.
 
 **FE (Vue/TanStack):**
+
 - Route-level lazy: `const View = () => import("@/views/...")`.
 - TanStack `staleTime`/`gcTime` cho data ít đổi (master data) → tránh refetch.
 - Bảng lớn → virtual list/pagination, không render 1430 row 1 lần.
@@ -103,12 +106,12 @@ Core Web Vitals (FE)       LCP ≤ 2.5s · INP ≤ 200ms · CLS ≤ 0.1
 
 ## Common Rationalizations
 
-| Lý do | Thực tế |
-|---|---|
-| "Tối ưu sau" | Perf debt cộng dồn. Sửa anti-pattern hiển nhiên (N+1, no-paginate) NGAY; defer micro-opt. |
-| "Máy tôi chạy nhanh" | Máy bạn ≠ server prod + 1430 rows. Đo trên data thật. |
-| "Tối ưu này chắc chắn đúng" | Không đo = không biết. Profile trước. |
-| "Frappe tự lo hiệu năng" | Frappe KHÔNG fix N+1 trong code bạn, không paginate hộ bạn. |
+| Lý do                             | Thực tế                                                                                      |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------- |
+| "Tối ưu sau"                     | Perf debt cộng dồn. Sửa anti-pattern hiển nhiên (N+1, no-paginate) NGAY; defer micro-opt. |
+| "Máy tôi chạy nhanh"            | Máy bạn ≠ server prod + 1430 rows. Đo trên data thật.                                    |
+| "Tối ưu này chắc chắn đúng" | Không đo = không biết. Profile trước.                                                    |
+| "Frappe tự lo hiệu năng"        | Frappe KHÔNG fix N+1 trong code bạn, không paginate hộ bạn.                               |
 
 ## Red Flags — STOP
 

@@ -5,12 +5,14 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useImm16Store } from '@/stores/imm16'
 import { useApi } from '@/composables/useApi'
+import { useCapabilities } from '@/composables/useCapabilities'
 import { getFinding } from '@/api/imm16'
 import type { ComplianceFinding } from '@/api/imm16'
 import { formatDate, formatAssetDisplay } from '@/utils/formatters'
 import PageHeader from '@/components/common/PageHeader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import BaseModal from '@/components/common/BaseModal.vue'
+import DateInput from '@/components/common/DateInput.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import RecordHistory from '@/components/common/RecordHistory.vue'
 
@@ -18,6 +20,7 @@ const props = defineProps<{ id: string }>()
 const router = useRouter()
 const store = useImm16Store()
 const api = useApi()
+const { can } = useCapabilities()
 
 const finding = ref<ComplianceFinding | null>(null)
 const loading = ref(false)
@@ -33,12 +36,35 @@ async function load() {
   }
 }
 
-const canConfirm = computed(() =>
-  finding.value && ['Open', 'Under Review'].includes(finding.value.status))
-const canWaive = computed(() =>
-  finding.value && !['Waived', 'Closed', 'False Positive'].includes(finding.value.status))
-const canCreateCapa = computed(() =>
-  finding.value && finding.value.status === 'Confirmed NC' && !finding.value.capa_ref)
+// Server-driven CTA (ADR-IMM-16-01 / GATE-8 / LL-FE-51): nút gate theo
+// allowed_transitions (BE _FINDING_VALID_TRANSITIONS) + capability compliance.write.
+// KHÔNG so finding.status === '...' client-side (dead-gate / desync khỏi SoT
+// FindingStatus). Vắng field (worker cũ) → ?? [] → CTA ẩn, KHÔNG crash.
+const allowedTransitions = computed<string[]>(() => finding.value?.allowed_transitions ?? [])
+const canWrite = computed(() => can('compliance.write'))
+
+// Bắt đầu xem xét (round 14 — CR-WF-16-FIND / ADR-IMM-16-06): surface cạnh
+// workflow Open→Under Review. Gate server-driven — nút chỉ hiện khi BE quảng bá
+// 'Under Review' trong allowed_transitions (state Open), KHÔNG so status client-side.
+const canStartReview = computed(() => canWrite.value && allowedTransitions.value.includes('Under Review'))
+const canConfirm = computed(() => canWrite.value && allowedTransitions.value.includes('Confirmed NC'))
+const canMarkFalse = computed(() => canWrite.value && allowedTransitions.value.includes('False Positive'))
+const canWaive = computed(() => canWrite.value && allowedTransitions.value.includes('Waived'))
+// Eligibility CAPA (Tạo/Liên kết) — cờ server can_create_capa (Confirmed NC && !capa_ref).
+// FE KHÔNG hardcode 'Confirmed NC'; vắng field → falsy → CTA ẩn.
+const canCreateCapa = computed(() => canWrite.value && !!finding.value?.can_create_capa)
+const canLinkCapa = canCreateCapa
+
+// ── Start review (Open → Under Review) ──
+const showStartReview = ref(false)
+const startReviewNote = ref('')
+async function doStartReview() {
+  if (!finding.value) return
+  const res = await api.run(() => store.actionStartReview(finding.value!.name, startReviewNote.value), {
+    successMessage: 'Đã bắt đầu xem xét phát hiện',
+  })
+  if (res) { showStartReview.value = false; startReviewNote.value = ''; await load() }
+}
 
 // ── Confirm ──
 const reviewerNote = ref('')
@@ -134,11 +160,12 @@ onMounted(load)
         ]"
       >
         <template #actions>
-          <button v-if="canConfirm" class="btn-primary text-sm" @click="showConfirm = true">Xác nhận sự không phù hợp</button>
-          <button v-if="canConfirm" class="btn-secondary text-sm" @click="showFP = true">Đánh dấu sai</button>
-          <button v-if="canWaive" class="btn-ghost text-sm" @click="showWaive = true">Miễn áp dụng</button>
-          <button v-if="canCreateCapa" class="btn-primary text-sm" @click="showCreateCapa = true">Tạo hành động khắc phục/phòng ngừa</button>
-          <button v-if="finding.status === 'Confirmed NC' && !finding.capa_ref" class="btn-secondary text-sm" @click="showLinkCapa = true">Liên kết hành động khắc phục/phòng ngừa</button>
+          <button v-if="canStartReview" data-testid="cta-start-review" class="btn-secondary text-sm" @click="showStartReview = true">Bắt đầu xem xét</button>
+          <button v-if="canConfirm" data-testid="cta-confirm" class="btn-primary text-sm" @click="showConfirm = true">Xác nhận sự không phù hợp</button>
+          <button v-if="canMarkFalse" data-testid="cta-mark-false" class="btn-secondary text-sm" @click="showFP = true">Đánh dấu sai</button>
+          <button v-if="canWaive" data-testid="cta-waive" class="btn-ghost text-sm" @click="showWaive = true">Miễn áp dụng</button>
+          <button v-if="canCreateCapa" data-testid="cta-create-capa" class="btn-primary text-sm" @click="showCreateCapa = true">Tạo hành động khắc phục/phòng ngừa</button>
+          <button v-if="canLinkCapa" data-testid="cta-link-capa" class="btn-secondary text-sm" @click="showLinkCapa = true">Liên kết hành động khắc phục/phòng ngừa</button>
         </template>
       </PageHeader>
 
@@ -219,6 +246,21 @@ onMounted(load)
       <RecordHistory ref-doctype="IMM Compliance Finding" :ref-name="finding.name" />
     </template>
 
+    <!-- Start Review Modal -->
+    <BaseModal v-if="showStartReview" title="Bắt đầu xem xét" size="md" @close="showStartReview = false">
+      <div class="space-y-3">
+        <p class="text-sm text-slate-600">Chuyển phát hiện sang trạng thái “Đang xem xét” để phân công cán bộ đánh giá trước khi kết luận.</p>
+        <div class="form-group">
+          <label class="form-label" for="start-review-note">Ghi chú xem xét</label>
+          <textarea id="start-review-note" v-model="startReviewNote" rows="4" class="form-input" placeholder="Phân công / ngữ cảnh bắt đầu xem xét (không bắt buộc)..." />
+        </div>
+      </div>
+      <template #footer>
+        <button class="btn-ghost" @click="showStartReview = false">Huỷ</button>
+        <button class="btn-primary" :disabled="api.loading.value" @click="doStartReview">Bắt đầu xem xét</button>
+      </template>
+    </BaseModal>
+
     <!-- Confirm Modal -->
     <BaseModal v-if="showConfirm" title="Xác nhận không phù hợp" size="md" @close="showConfirm = false">
       <div class="space-y-3">
@@ -265,7 +307,7 @@ onMounted(load)
         </div>
         <div class="form-group">
           <label class="form-label">Ngày hết hiệu lực *</label>
-          <input v-model="waiveExpiry" type="date" class="form-input" />
+          <DateInput v-model="waiveExpiry" class="form-input" />
           <p class="text-xs text-slate-400 mt-1">Sau ngày này, phát hiện sẽ tự động mở lại.</p>
         </div>
       </div>
@@ -310,7 +352,7 @@ onMounted(load)
         </div>
         <div class="form-group">
           <label class="form-label">Hạn xử lý</label>
-          <input v-model="capaPayload.due_date" type="date" class="form-input" />
+          <DateInput v-model="capaPayload.due_date" class="form-input" />
         </div>
       </div>
       <template #footer>

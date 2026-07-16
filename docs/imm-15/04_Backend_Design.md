@@ -660,6 +660,112 @@ def seed_capa_for_variance(doc: "Document") -> None:
     ...
 
 
+def recount_cycle_count(count_name: str, reason: str = "") -> dict:
+    """Gửi phiếu Reviewed về đếm lại — Reviewed → Counting (CR-WF-15-CC, vòng 11).
+
+    Đối xứng submit/post: cap-gate SERVICE (đường DUY NHẤT — API/curl/test đều qua),
+    reason bắt buộc, sinh đúng 1 audit. `reason` giải trình vì sao trả lại (lưu vào
+    change_summary audit; KHÔNG xoá counted_qty — user sửa số ở vòng đếm kế).
+
+    Raises (in-handler → HTTP-200 Error envelope qua _handle, KHÔNG raise→4xx):
+        FORBIDDEN(403)   — thiếu cap inventory.submit (cap-403 in-handler).
+        NOT_FOUND(404)   — không tìm thấy phiếu.
+        VALIDATION(422)  — reason rỗng/whitespace → IMM15_RECOUNT_REASON_REQUIRED.
+        BAD_STATE(409)   — status ≠ Reviewed.
+    Returns: {"name", "workflow_state": "Counting"}
+    """
+    # Skeleton (BE Bước-4):
+    #   _require_any_role(_CAP_APPROVE, "Không có quyền gửi phiếu về đếm lại")  # inventory.submit
+    #   doc = CycleCountRepo.get(count_name); None → ServiceError(NOT_FOUND, ...)
+    #   if not (reason or "").strip(): raise ServiceError(VALIDATION,
+    #       "IMM15_RECOUNT_REASON_REQUIRED: Phải nhập lý do gửi đếm lại", http_status=422)
+    #   if doc.status != REVIEWED: raise ServiceError(BAD_STATE,
+    #       f"Không thể gửi đếm lại ở trạng thái: {doc.status}")   # → 409
+    #   doc.status = CycleCountStatus.COUNTING; CycleCountRepo.save(doc)
+    #   _cycle_audit(count_name, f"Sửa đếm lại — {reason}", REVIEWED, COUNTING)  # 1 record
+    #   frappe.db.commit(); return {"name": count_name, "workflow_state": COUNTING}
+    ...
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# §IV-AUDIT — Registry event_type IMM-15 vào IMM Audit Trail.event_type Select
+#             (vòng 12, CR-WF-15-AUDIT · silent-audit-loss · ADR-IMM-15-09)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+#   BỐI CẢNH — `IMM Audit Trail.event_type` là **Select reqd=1** options bounded
+#   (`imm_audit_trail.json` field `event_type`). log_audit_event(event_type=<value ∉
+#   Select>) → `.insert()` chạy Frappe Select-validation → **frappe.ValidationError
+#   "Loại sự kiện cannot be ..."**. Cả 3 call-site log_audit_event ∈ imm15 gói trong
+#   try/except best-effort ⇒ ValidationError bị NUỐT ⇒ **0 dòng audit persist (câm)**.
+#
+#   HAI ĐIỂM AUDIT-LOSS CÂM (DB-probe xác nhận BEFORE = 0 dòng):
+#     (1) `post_cycle_count` @~706 — event_type="cycle_count_posted" ∉ Select.
+#     (2) `_write_allocation_audit` @~1364 — event_type=f"allocation_{action.lower()}"
+#         gọi bởi 5 transition @258/282/361/409/450 (CREATED/APPROVED/ISSUED/RETURNED/
+#         CANCELLED) → 5 slug allocation_* ∉ Select. Except @~1374 = **bare `pass`**
+#         (câm HOÀN TOÀN — KHÔNG cả log_error, tệ hơn post đã có log_error).
+#
+#   ➜ QUYẾT ĐỊNH (ADR-IMM-15-09 — **Supersedes** khuyến nghị vòng 11 "đổi post sang
+#     State Change"): **REGISTER 6 slug domain IMM-15 vào Select** (KHÔNG collapse về
+#     "State Change") — đối xứng tiền lệ sibling audit_*/competency_* đã đăng ký slug
+#     riêng; giữ granularity provenance cho audit report (NĐ98/WHO HTM). 6 slug:
+#         cycle_count_posted · allocation_created · allocation_approved ·
+#         allocation_issued · allocation_returned · allocation_cancelled
+#     Sau khi thêm, `imm_audit_trail.json` field event_type options =
+#         State Change\nCAPA\nMaintenance\nCalibration\nDocument\nIncident\nAudit\n
+#         System\nTransfer\naudit_started\naudit_checklist_completed\naudit_closed\n
+#         competency_signoff\ncompetency_revoked\ncompetency_recertified\n
+#         competency_auto_expired\ncycle_count_posted\nallocation_created\n
+#         allocation_approved\nallocation_issued\nallocation_returned\nallocation_cancelled
+#     ⚠️ DEPLOY: đổi Select options = schema DocType JSON → BE PHẢI `bench migrate`
+#     (hoặc reload_doc) để sync JSON→DB TRƯỚC khi option mới qua validation (08 §migrate).
+#
+#   ➜ SSoT CONSTANT (D2) — module-level trong `services/imm15.py`, nguồn DUY NHẤT cho
+#     cả emit lẫn INVARIANT test (AST literal-scan KHÔNG bắt được f-string slug ⇒ phải
+#     là registry tường minh):
+#
+#       IMM15_AUDIT_EVENT_TYPES: frozenset[str] = frozenset({
+#           "cycle_count_posted", "allocation_created", "allocation_approved",
+#           "allocation_issued", "allocation_returned", "allocation_cancelled",
+#       })
+#       _ALLOCATION_AUDIT_ACTIONS = ("CREATED","APPROVED","ISSUED","RETURNED","CANCELLED")
+#       # invariant nội bộ: {f"allocation_{a.lower()}" for a in _ALLOCATION_AUDIT_ACTIONS}
+#       #                   ∪ {"cycle_count_posted"} == IMM15_AUDIT_EVENT_TYPES
+#     (Recount GIỮ event_type="State Change" — ∈ Select, KHÔNG audit-loss, KHÔNG thuộc 6
+#      slug; nâng lên "cycle_count_recount" = [ROADMAP] ngoài scope vòng 12.)
+#
+#   ➜ FAIL-LOUD (D3) — thay bare `pass` @~1374 bằng `frappe.log_error(...)` (đối xứng
+#     post @718). Audit-write GIỮ **non-blocking best-effort** (audit fail KHÔNG rollback
+#     nghiệp vụ) — vì INVARIANT test (07 §III.4b) là gate CỨNG chặn unknown-slug từ lúc
+#     merge; log_error là defense-in-depth cho fail-mode KHÁC (DB down, hash). "Fail
+#     loudly" = surface Error Log, KHÔNG raise→rollback (raise = hi sinh nghiệp vụ cho
+#     lỗi data-quality mà test đã chặn).
+#
+#       def _write_allocation_audit(allocation_name, action, payload):
+#           try:
+#               log_audit_event(asset="", event_type=f"allocation_{action.lower()}",
+#                   actor=frappe.session.user, ref_doctype=AllocationRepo.DOCTYPE,
+#                   ref_name=allocation_name,
+#                   change_summary=f"IMM-15 Allocation {action}: {allocation_name}")
+#           except Exception:
+#               frappe.log_error(frappe.get_traceback(),   # ⟵ KHÔNG còn bare pass
+#                                "IMM-15: allocation audit failed")
+#
+#   ➜ INVARIANT (chống drift tương lai) — test `TestImm15AuditEventTypeParity` (07
+#     §III.4b): `IMM15_AUDIT_EVENT_TYPES ⊆` set option Select đọc từ
+#     `frappe.get_meta("IMM Audit Trail").get_field("event_type").options.split("\n")`.
+#     RED trước khi thêm 6 option, GREEN sau. Chống mọi slug mới emit-nhưng-quên-đăng-ký.
+#
+#   ⚠️ BACKLOG (ngoài scope IMM-15, grounded @source): `services/imm16.py` emit ≥4 slug
+#     KHÔNG ∈ Select ⇒ audit-loss câm ĐỐI XỨNG (LỚN HƠN IMM-15):
+#       :234 compliance_finding_created · :267 compliance_finding_closed ·
+#       :344 audit_findings_submitted · :374 internal_audit_closed
+#       (+ :1200 event_type=<biến> dynamic — cần soát runtime value).
+#     Select có audit_started/audit_checklist_completed/audit_closed (nghi orphan —
+#     KHÔNG khớp emit imm16 thực). Đề xuất CR riêng IMM-16 + tổng-quát-hoá INVARIANT
+#     per-module (test gom emit-set mọi services vs Select) ở vòng sau.
+
+
 # --- forecast_service ---
 
 def generate_forecast_moving_avg(spare_part: str, period: dict) -> dict:
@@ -796,15 +902,152 @@ Cột **reserved** = hiệu ứng lên `reserved_qty` qua `recompute_reserved` (
 | `Approved` | Hủy | `Cancelled` | Inventory Manager / AssetCore Super Admin | **RELEASE** |
 | `Picked` | Hủy | `Cancelled` | Inventory Manager / AssetCore Super Admin | **RELEASE** |
 
+---
+
+### VI.1.1 SSoT CTA `_allocation_allowed_transitions` ⇄ workflow — INVARIANT (vòng 16, CR-WF-15-ALLOC)
+
+**Bối cảnh dual-track (ADR-IMM-15-10, đối xứng ADR-IMM-15-08 của Cycle Count).** Allocation là state-machine **status-driven**: `create_allocation` set `allocation_status="Requested"`; `approve/issue/cancel/return` set `doc.allocation_status` TRỰC TIẾP (`AllocationRepo.save`, KHÔNG gọi `frappe.model.workflow.apply_workflow`). Vì vậy `get_transitions()` đọc `workflow_state` desk KHÔNG phản ánh path service. SSoT sinh CTA = field `allocation_status` (mirror imm08/09/11/12 + Cycle Count §VI.2.1). Workflow json (`imm_15_allocation_workflow.json`) chỉ phục vụ desk + `test_workflow_admin_override`. Trước vòng 16, `get_allocation` KHÔNG emit `allowed_transitions` → FE (nếu build detail view) buộc hardcode `allocation_status===` ⇒ CTA-ẩn-câm/dead. Vòng 16 surface SSoT + guard.
+
+**Next-state strings (KHÁC Cycle Count).** Khác `_cycle_allowed_transitions` (trả **token** `Submit`/`Recount`/`Post`), allocation trả thẳng **tên next-state** (`Approved`/`Issued`/`Cancelled`/`Returned`) vì mỗi action → 1 đích PHÂN BIỆT (Duyệt→Approved, Xuất kho→Issued, Hủy→Cancelled, Trả→Returned) — không cần token indirection. Map **thuần status→next-state, KHÔNG role-gate** (khác Cycle Count role-aware): role đã cưỡng chế ở endpoint (`_require_any_role(_CAP_APPROVE)` cho approve, `_CAP_OPERATE` cho issue/cancel/return) ⇒ codomain INVARIANT xác định, không phụ thuộc session.
+
+```python
+# services/imm15.py — SSoT allocation state machine (status → next-state strings)
+_ALLOCATION_ALLOWED_TRANSITIONS: dict[str, list[str]] = {
+    AllocationStatus.REQUESTED: [AllocationStatus.APPROVED, AllocationStatus.ISSUED,
+                                 AllocationStatus.CANCELLED],
+    AllocationStatus.APPROVED:  [AllocationStatus.ISSUED, AllocationStatus.CANCELLED],
+    AllocationStatus.PICKED:    [AllocationStatus.CANCELLED],   # defensive (Picked unreachable via service)
+    AllocationStatus.ISSUED:    [AllocationStatus.RETURNED],
+    AllocationStatus.RETURNED:  [],
+    AllocationStatus.CANCELLED: [],
+}
+
+def _allocation_allowed_transitions(status: str) -> list[str]:
+    """Next-state strings mà service allocation hỗ trợ từ `status` (SSoT sinh CTA FE).
+    `.get(status, [])` → 0 KeyError với bất kỳ status; keys == AllocationStatus (6)."""
+    return list(_ALLOCATION_ALLOWED_TRANSITIONS.get(status, []))
+```
+
+- Emit tại `get_allocation` (imm15.py:224): `data["allowed_transitions"] = _allocation_allowed_transitions(doc.allocation_status)` (mirror `get_cycle_count`:597). API `get_allocation` (api/imm15.py:66) chỉ `_handle(svc.get_allocation, name)` ⇒ key tự chảy qua envelope, KHÔNG sửa api layer.
+- SVC edge = `{(f, t) | f, tos ∈ _ALLOCATION_ALLOWED_TRANSITIONS, t ∈ tos}` = 7 cạnh. WF edge = `{(state, next_state)}` gom-vai từ `imm_15_allocation_workflow.json` = 9 cạnh.
+
+**Verified python set-diff @source** (đối soát 2 chiều):
+
+| Chiều | Kết quả | Diễn giải |
+|---|---|---|
+| `WF − SVC` | `{(Approved,Picked), (Picked,Issued), (Returned,Issued)}` | **3 cạnh deferred** — workflow khai nhưng service CHƯA wire |
+| `SVC − WF` | `{(Approved,Issued)}` | **1 cạnh shortcut** — service xuất trực tiếp từ Approved (đi tắt Pick chain chưa-wire) |
+
+> ⚠️ **Self-Correction so với acceptance gốc.** Acceptance nêu `EXCEPTION_EDGES = {Approved→Picked, Picked→Issued}` (2 cạnh, "Pick chain") và "0 bypass". Grounding @source cho thấy: (1) EXCEPTION deferred THỰC là **3 cạnh** — thêm `Returned→Issued` ("Đóng phiếu" re-close, KHÔNG có service fn `reissue/close_allocation`); (2) TỒN TẠI **1 shortcut** `Approved→Issued` (`issue_allocation` guard nhận `APPROVED` @imm15.py:318) — KHÔNG thể "0 bypass". Do allocation status-driven (không `apply_workflow`), model INVARIANT PHẢI là `SVC ⊆ WF ∪ SHORTCUT` (KHÔNG strict `SVC ⊆ WF` kiểu IMM-12) — **y hệt** dual-track collapse Cycle Count §VI.2.1 dòng 981. Pick chain vẫn deferred (KHÔNG implement `pick_allocation` vòng 16).
+
+```python
+# WF-only (INV-2: WF ⊆ SVC ∪ EXCEPTION): cạnh workflow CỐ Ý không surface CTA (deferred backlog)
+_ALLOCATION_EXCEPTION_EDGES: dict[tuple[str, str], str] = {
+    (AllocationStatus.APPROVED, AllocationStatus.PICKED):
+        "Pick step CHƯA wire ở service (không có pick_allocation) — deferred backlog. "
+        "Workflow json giữ cho desk + test_workflow_admin_override.",
+    (AllocationStatus.PICKED, AllocationStatus.ISSUED):
+        "Pick→Issue CHƯA wire — deferred; service xuất trực tiếp từ Approved (shortcut) thay thế.",
+    (AllocationStatus.RETURNED, AllocationStatus.ISSUED):
+        "'Đóng phiếu' re-close CHƯA có service fn (không có reissue/close_allocation) — deferred backlog.",
+}
+# SVC-only (INV-1: SVC ⊆ WF ∪ SHORTCUT): cạnh service đi tắt qua node workflow chưa-wire
+_ALLOCATION_SHORTCUT_EDGES: dict[tuple[str, str], str] = {
+    (AllocationStatus.APPROVED, AllocationStatus.ISSUED):
+        "issue_allocation guard nhận APPROVED (imm15.py:318 `not in (APPROVED, REQUESTED)`) → "
+        "xuất trực tiếp, đi tắt Pick chain chưa-wire. Đối xứng exception (Approved,Picked)+"
+        "(Picked,Issued) — y hệt dual-track collapse Cycle Count §VI.2.1.",
+}
+```
+
+- **INV-A** `codomain(map) ⊆ AllocationStatus enum` — `{Approved,Issued,Cancelled,Returned} ⊆ 6-enum` (0 typo).
+- **INV-B** `keys(map) == AllocationStatus enum` (6 status) — 0 KeyError với mọi status.
+- **INV-1** `SVC − WF − _ALLOCATION_SHORTCUT_EDGES == ∅` — chặn CTA dead/bypass (mọi next-state → cạnh workflow THẬT trừ shortcut khai báo). GREEN.
+- **INV-2** `WF − SVC − _ALLOCATION_EXCEPTION_EDGES == ∅` — chặn CTA ẩn câm. GREEN sau khai đủ 3 exception (RED nếu thiếu `Returned→Issued`).
+- **INV-rationale** mỗi EXCEPTION/SHORTCUT: là cạnh THẬT (WF resp. SVC) + rationale ≠ "" + KHÔNG nằm ở phía đối.
+- `Picked` unreachable qua service (không transition nào set `Picked`); `Picked:[Cancelled]` là defensive — nếu desk workflow đẩy sang Picked, service vẫn cho hủy (`cancel_allocation` guard `OPEN=(Requested,Approved,Picked)`).
+
+**KHÔNG đụng `imm_15_allocation_workflow.json` / `fixtures/workflow.json`** (mọi cạnh WF đã có sẵn) ⇒ `test_workflows` (min_transitions:12 GIỮ) + `test_workflow_admin_override` (22/22) GREEN, 0 migrate/reload.
+
 ### VI.2 IMM Stock Cycle Count (4 states / 5 transitions)
 
-| From | Action (tiếng Việt) | To | Role |
+> Bảng dưới = **workflow json** (`imm_15_cycle_count_workflow.json`, desk + admin-override RBAC). Role cột này = role gom-vai trong json (Self-Correct vòng 11: 3 cạnh chuyển-trạng-thái đều cho `Inventory Manager` / `AssetCore Super Admin` / `System Manager` — KHÔNG phải "Inventory User"). Runtime CTA FE lấy từ SSoT `_cycle_allowed_transitions` (§VI.2.1) — status-driven, KHÁC workflow json (xem dual-track ADR-IMM-15-08).
+
+| From | Action (tiếng Việt) | To | Role (workflow json) |
 |---|---|---|---|
-| — | (create) | `Planned` | Inventory User / AssetCore Super Admin |
-| `Planned` | Bắt đầu đếm | `Counting` | Inventory User |
-| `Counting` | Hoàn tất đếm | `Reviewed` | Inventory Manager / Compliance Manager |
-| `Reviewed` | Sửa đếm lại | `Counting` | Inventory User |
-| `Reviewed` | Post | `Posted` | Inventory Manager / Inventory Manager (sinh AC Stock Movement Adjustment) |
+| — | (create) | `Planned` | Inventory Manager / AssetCore Super Admin |
+| `Planned` | Bắt đầu đếm | `Counting` | Inventory Manager / AssetCore Super Admin / System Manager |
+| `Counting` | Hoàn tất đếm | `Reviewed` | Inventory Manager / AssetCore Super Admin / System Manager |
+| `Reviewed` | **Sửa đếm lại** | `Counting` | Inventory Manager / AssetCore Super Admin / System Manager |
+| `Reviewed` | Post | `Posted` | Inventory Manager / AssetCore Super Admin / System Manager (sinh AC Stock Movement Adjustment) |
+
+---
+
+### VI.2.1 SSoT CTA `_cycle_allowed_transitions` ⇄ workflow — INVARIANT (vòng 11, CR-WF-15-CC)
+
+**Bối cảnh dual-track (ADR-IMM-15-08).** Cycle Count là state-machine **status-driven**: `create_cycle_count` set `status="Planned"` và KHÔNG populate `workflow_state`; `submit/post/recount` set `doc.status` TRỰC TIẾP (KHÔNG gọi `frappe.model.workflow.apply_workflow`). Vì vậy `frappe.model.workflow.get_transitions()` sẽ đọc `workflow_state=None` → `[]`. SSoT sinh CTA = field `status` (mirror imm08/09/11/12), gate mỗi token theo capability của session user. Workflow json chỉ phục vụ desk + test `test_workflow_admin_override`.
+
+**Token ngữ nghĩa (SSoT — KHỚP code + FE `CycleCountAction`).** `_cycle_allowed_transitions` trả **token hành động** (`Submit`/`Post`/`Recount`), KHÔNG phải tên next-state. Ba map thuần (state-machine) + capability gate:
+
+```python
+# services/imm15.py — SSoT state machine (status → token theo THỨ TỰ ưu tiên)
+_CYCLE_VALID_TRANSITIONS: dict[str, list[str]] = {
+    CycleCountStatus.PLANNED:  ["Submit"],
+    CycleCountStatus.COUNTING: ["Submit"],
+    CycleCountStatus.REVIEWED: ["Recount", "Post"],   # Recount đặt TRƯỚC Post
+    CycleCountStatus.POSTED:   [],
+}
+# token → status ĐÍCH THẬT của service (dùng bởi INVARIANT dựng SVC edge + audit)
+_CYCLE_TOKEN_TARGET: dict[str, str] = {
+    "Submit":  CycleCountStatus.REVIEWED,   # submit_cycle_count: Planned/Counting → Reviewed
+    "Recount": CycleCountStatus.COUNTING,   # recount_cycle_count: Reviewed → Counting  (MỚI)
+    "Post":    CycleCountStatus.POSTED,     # post_cycle_count:  Reviewed → Posted
+}
+# token → capability bắt buộc để surface
+_CYCLE_TOKEN_CAP: dict[str, str] = {
+    "Submit":  _CAP_OPERATE,   # inventory.write
+    "Recount": _CAP_APPROVE,   # inventory.submit  ← send-back là hành vi Manager-level
+    "Post":    _CAP_APPROVE,   # inventory.submit
+}
+
+def _cycle_allowed_transitions(status: str) -> list[str]:
+    return [tok for tok in _CYCLE_VALID_TRANSITIONS.get(status, [])
+            if rbac.can(_CYCLE_TOKEN_CAP[tok])]
+```
+
+- `_cycle_allowed_transitions("Reviewed")` với cap `inventory.submit` → `["Recount","Post"]`; thiếu cap → `[]` (không token nào của Reviewed). `Planned/Counting` → `["Submit"]` khi có `inventory.write`.
+
+**INVARIANT guard (mirror `TestIncidentAllowedTransitions` CR-WF-12).** SVC edge = `{(f, _CYCLE_TOKEN_TARGET[tok]) | f, toks ∈ _CYCLE_VALID_TRANSITIONS, tok ∈ toks}`. WF edge = `{(state,next_state)}` gom-vai từ workflow json.
+
+| BEFORE fix (chưa có Recount) | AFTER fix |
+|---|---|
+| SVC = {(Planned,Reviewed),(Counting,Reviewed),(Reviewed,Posted)} | + (Reviewed,Counting) |
+| WF = {(Planned,Counting),(Counting,Reviewed),(Reviewed,Counting),(Reviewed,Posted)} | (không đổi) |
+| **INV-2 RED**: (Reviewed,Counting) ∈ WF\(SVC∪EXC) → "Sửa đếm lại" ẩn câm | INV-2 GREEN |
+
+**Hai exception dual-track collapse tại node `Planned`** (verified python set-diff — xem 07 §invariant). Service gộp Planned→Reviewed (không có transition rời "start counting"); workflow json vẫn model 2 bước Planned→Counting→Reviewed. Divergence này **có SẴN từ trước**, độc lập với Recount:
+
+```python
+# WF-only (INV-2: WF ⊆ SVC ∪ EXCEPTION): cạnh workflow CỐ Ý không surface CTA
+_CYCLE_EXCEPTION_EDGES: dict[tuple[str,str], str] = {
+    (CycleCountStatus.PLANNED, CycleCountStatus.COUNTING):
+        "Dual-track collapse: service status-SSoT KHÔNG có transition rời 'Bắt đầu đếm'; "
+        "submit_cycle_count nhận Planned trực tiếp → Reviewed (Planned & Counting đều là "
+        "state nhập-liệu tiền-review). Workflow json giữ 2-bước cho desk/admin-override. Không CTA.",
+}
+# SVC-only (INV-1: SVC ⊆ WF ∪ SHORTCUT): cạnh service đi tắt qua node workflow
+_CYCLE_SHORTCUT_EDGES: dict[tuple[str,str], str] = {
+    (CycleCountStatus.PLANNED, CycleCountStatus.REVIEWED):
+        "Dual-track collapse: submit_cycle_count nhảy thẳng Planned→Reviewed (status-SSoT, "
+        "KHÔNG apply_workflow). Là mặt đối của exception (Planned,Counting).",
+}
+```
+
+- **INV-1** `SVC ⊆ WF ∪ _CYCLE_SHORTCUT_EDGES` — chặn CTA dead/bypass (mọi token → cạnh workflow THẬT trừ shortcut khai báo). GREEN cả BEFORE lẫn AFTER.
+- **INV-2** `WF ⊆ SVC ∪ _CYCLE_EXCEPTION_EDGES` — chặn CTA ẩn câm. RED BEFORE (thiếu Recount), GREEN AFTER.
+- Vì sao IMM-15 cần `_CYCLE_SHORTCUT_EDGES` mà IMM-12 KHÔNG: IMM-12 service GỌI `apply_workflow` nên INV-1 phải strict `SVC⊆WF`; IMM-15 status-SSoT KHÔNG apply_workflow nên cố ý có shortcut Planned→Reviewed (đối xứng exception Planned→Counting). Cả hai đều có rationale + test `test_exception_edges_have_rationale`.
+
+**KHÔNG đụng `imm_15_cycle_count_workflow.json`** (cạnh Reviewed→Counting đã có sẵn) ⇒ `test_workflow_admin_override` GIỮ GREEN.
 
 ---
 

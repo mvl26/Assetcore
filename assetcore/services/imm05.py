@@ -35,6 +35,29 @@ class Visibility:
     INTERNAL_ONLY = "Internal_Only"
 
 
+# ─── State machine — SoT next-state (khớp fixtures/workflow.json 'IMM-05 Document
+# Workflow') ──────────────────────────────────────────────────────────────────
+# Server-driven CTA (GATE-8 / LL-FE-51): get_document emit `allowed_transitions =
+# _DOC_VALID_TRANSITIONS.get(workflow_state, [])` để FE gate nút CTA theo tập này
+# (+ capability doc.approve cho Phê duyệt/Từ chối/Lưu trữ) THAY hardcode
+# `workflow_state === 'X'` — hết false-permissive (nút hiện rồi bấm mới 403) và hết
+# dead-gate. next_state PHẢI trùng transitions trong fixture — invariant test
+# `test_get_document_allowed_transitions_matches_workflow_fixture` chốt equality
+# nên thêm/sửa transition mà quên map → đỏ.
+#   Draft → Pending Review (Gửi duyệt) | Archived (Hủy bỏ)
+#   Pending Review → Active (Phê duyệt) | Rejected (Từ chối)
+#   Rejected → Pending Review (Gửi lại)
+#   Active → Archived (Lưu trữ)
+#   Archived / Expired → [] (trạng thái cuối)
+_DOC_VALID_TRANSITIONS: dict[str, list[str]] = {
+    DocState.DRAFT: [DocState.PENDING_REVIEW, DocState.ARCHIVED],
+    DocState.PENDING_REVIEW: [DocState.ACTIVE, DocState.REJECTED],
+    DocState.ACTIVE: [DocState.ARCHIVED],
+    DocState.REJECTED: [DocState.PENDING_REVIEW],
+    DocState.ARCHIVED: [],
+    DocState.EXPIRED: [],
+}
+
 
 _ALERT_THRESHOLDS = [(7, "Danger"), (30, "Critical"), (60, "Warning"), (90, "Info")]
 
@@ -243,6 +266,11 @@ def get_document(name: str) -> dict:
     data = doc.as_dict()
     if data.get("asset_ref"):
         data["asset_name"] = frappe.db.get_value("AC Asset", data["asset_ref"], "asset_name") or ""
+    # Server-driven CTA (GATE-8 / LL-FE-51): FE gate nút chuyển trạng thái theo tập
+    # này + can_approve, KHÔNG hardcode workflow_state===. `.get(..., [])` → trạng
+    # thái lạ / None degrade an toàn thành "không nút".
+    data["allowed_transitions"] = _DOC_VALID_TRANSITIONS.get(doc.workflow_state, [])
+    data["can_approve"] = int(rbac.can("doc.approve"))
     return data
 
 

@@ -59,6 +59,28 @@ export interface ComplianceFinding {
   capa_ref: string | null
   evaluation_date: string
   workflow_state?: string
+  // Server-driven CTA (ADR-IMM-16-01 / GATE-8, mirror imm09/08/12): get_finding
+  // emit allowed_transitions = _FINDING_VALID_TRANSITIONS.get(status, []). Gate nút
+  // bằng can('compliance.write') && allowed_transitions.includes('<đích>') — KHÔNG
+  // so status === client-side. Vắng field (worker cũ) → CTA ẩn (fallback ?? []).
+  allowed_transitions?: string[]
+  // Cờ eligibility CAPA (int 0/1) = status=='Confirmed NC' && !capa_ref. FE gate CTA
+  // Tạo/Liên kết CAPA bằng cờ này — KHÔNG hardcode 'Confirmed NC'.
+  can_create_capa?: number
+}
+
+// Persisted child row (get_audit → doc.as_dict().checklist_items).
+// NOTE: child DocType `IMM Audit Checklist Item` KHÔNG có field finding_status /
+// clause_ref — verdict round-trip qua `result` (Select: Conforming/Non-Conforming/
+// Not Applicable). complete_audit_checklist map finding_status → result phía BE.
+export interface AuditChecklistItemRow {
+  idx: number
+  item_description?: string
+  category?: string
+  criteria?: string
+  result?: '' | 'Conforming' | 'Non-Conforming' | 'Not Applicable'
+  notes?: string
+  finding_ref?: string | null
 }
 
 export interface InternalAudit {
@@ -72,6 +94,20 @@ export interface InternalAudit {
   lead_auditor: string
   status: 'Planned' | 'In Progress' | 'Reporting' | 'Closed'
   findings_count: number
+  // Child rows persisted (verdict = `result`) → hydrate lại khi mở audit ĐÃ nhập
+  // bảng kiểm (CR-27b: verdict round-trip, reload KHÔNG reset về Compliant).
+  checklist_items?: AuditChecklistItemRow[]
+  // Server-driven CTA (ADR-IMM-16-01 / GATE-8 / LL-FE-51, mirror imm09/08/12 + get_finding):
+  // get_audit emit allowed_transitions = _AUDIT_VALID_TRANSITIONS.get(status, []) —
+  // Planned→['start']; In Progress→['complete_checklist']; Reporting→['close']; Closed→[].
+  // Gate CTA bằng flag capability + allowed_transitions.includes('<action>') — KHÔNG so
+  // status === client-side. Vắng field (worker cũ) → CTA ẩn (fallback ?? []).
+  allowed_transitions?: string[]
+  // Cờ capability derive SERVER-SIDE (read-only, KHÔNG round-trip khi CRUD):
+  // can_operate = rbac.can('compliance.write'); can_close = rbac.can('compliance.submit').
+  // FE gate bằng cờ này, KHÔNG hardcode role name.
+  can_operate?: boolean
+  can_close?: boolean
 }
 
 export type CapaWorkflowState =
@@ -166,6 +202,15 @@ export interface ManagementReview {
   qms_changes_decided?: string
   attendees?: MRAttendee[]
   output_actions?: MROutputActionRow[]
+  // Server-driven CTA (GATE-8 / LL-FE-51, parity CapaRecord/InternalAudit):
+  // get_management_review emit ``allowed_transitions`` dẫn xuất từ CÙNG SoT
+  // _MR_TRANSITIONS mà advance_mr_state/finalize_management_review enforce
+  // (Draft→['Held']; Held→['Minutes Approved']; Minutes Approved→['Closed'];
+  // Closed/lạ→[]). Cờ can_advance/can_close = rbac.can('compliance.submit').
+  // Thiếu (BE cũ / lỗi) → undefined → FE degrade an toàn = 0 nút CTA.
+  allowed_transitions?: string[]
+  can_advance?: boolean
+  can_close?: boolean
 }
 
 export interface DashboardKpis {
@@ -292,6 +337,15 @@ export const listFindings = (filters = {}, page = 1, pageSize = 20) =>
 export const getFinding = (name: string) =>
   frappeGet<ComplianceFinding>(`${BASE}.get_finding`, { name })
 
+// (round 14 — CR-WF-16-FIND / ADR-IMM-16-06) Surface phantom cạnh workflow
+// Open→Under Review (0 service-driver trước đó). BE lockstep workflow_state='Under
+// Review'. Guard: cap compliance.write + status=='Open' (START_REVIEWABLE). Gate CTA
+// FE bằng allowed_transitions.includes('Under Review') — KHÔNG hardcode status.
+export const startReview = (name: string, reviewer_note = '') =>
+  frappePost<{ name: string; status: FindingStatus }>(
+    `${BASE}.start_review`, { name, reviewer_note },
+  )
+
 export const confirmFinding = (name: string, reviewer_note = '') =>
   frappePost<{ name: string; status: FindingStatus }>(
     `${BASE}.confirm_finding`, { name, reviewer_note },
@@ -381,6 +435,13 @@ export interface CapaDetail extends CapaRecord {
   linked_incident?: string | null
   opened_date?: string
   creation?: string
+  // Server-driven CTA (ADR-IMM-16-01 / GATE-8 / LL-FE-51, parity get_finding/
+  // get_audit): get_capa emit allowed_transitions = sorted(_CAPA_TRANSITIONS[
+  // workflow_state]) khi caller có compliance.write, else []. Gate nút chuyển
+  // trạng thái bằng allowed_transitions.includes('<đích>') — KHÔNG hardcode
+  // client-map. can_advance = rbac.can('compliance.write') (cờ tổng).
+  allowed_transitions?: string[]
+  can_advance?: boolean
 }
 
 export const getCapaDetail = (name: string) =>

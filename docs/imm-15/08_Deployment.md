@@ -337,6 +337,15 @@ def execute():
 
 ---
 
+#### Schema note — Register IMM-15 event_type slug (vòng 12, CR-WF-15-AUDIT · ADR-IMM-15-09)
+
+Thêm 6 slug domain (`cycle_count_posted`, `allocation_created/approved/issued/returned/cancelled`) vào field `event_type` của `imm_audit_trail.json`. `IMM Audit Trail` là DocType **AssetCore sở hữu** ⇒ sửa TRỰC TIẾP `options` trong JSON, **KHÔNG** cần Property Setter/patch (Property Setter chỉ dùng cho field của DocType không-sở-hữu như `AC Stock Movement`).
+
+**Deploy step (MANDATORY):** sau khi sửa JSON → `bench --site <site> migrate` (hoặc `bench --site <site> reload-doc assetcore doctype imm_audit_trail`) để sync JSON→DB. ⚠️ **TRƯỚC khi migrate, Select validation vẫn dùng options CŨ** ⇒ INVARIANT test `TestImm15AuditEventTypeParity` RED + emit slug bị nuốt. Chạy migrate rồi mới GREEN. Không cần data-migration (chỉ mở rộng enum, additive — dòng audit cũ không bị ảnh hưởng).
+**Risk**: Low — additive enum. **Rollback**: gỡ 6 slug khỏi JSON options + migrate (dòng audit đã ghi vẫn giữ giá trị — không cascade).
+
+---
+
 #### v3_209: Backfill Part Class from is_critical
 
 ```python

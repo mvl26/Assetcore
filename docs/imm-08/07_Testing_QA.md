@@ -245,6 +245,12 @@ Bổ sung: PM Task Log immutable — `frappe.db.set_value("PM Task Log", name, .
 |---|---|---|---|
 | `test_list_pm_work_orders_pagination` | `api/imm08.list_pm_work_orders` | page=1, page_size=20, total ≥ 0 | Pairwise |
 | `test_list_filter_status_open` | `list_pm_work_orders?filters={"status":"Open"}` | mọi row status == Open | EP |
+| **TC-PM-SEARCH-01** `test_search_matches_name_asset_code_name` | `list_pm_work_orders?search=X` | mọi row có `name` HOẶC `asset_code` HOẶC `asset_name` chứa "X" (case-insensitive); phiếu KHÔNG khớp bị loại | EP |
+| **TC-PM-SEARCH-02** `test_search_count_equals_rows_paginated` | `list_pm_work_orders?search=X&page_size=2` (dataset > 2 khớp) | `pagination.total` == tổng phiếu khớp toàn tập; lặp mọi trang → `len(gộp) == total`; count==rows | Invariant + BVA |
+| **TC-PM-SEARCH-03** `test_search_empty_byte_identical_baseline` | `search=""` vs absent vs baseline | data + pagination BYTE-IDENTICAL list không-search (regression=0) | Invariant |
+| **TC-PM-SEARCH-04** `test_search_wildcard_escaped_literal` | `search='%'` / `'_'` / `'%%%%%'` | KHÔNG match toàn bảng (khớp literal `%`/`_`); no-throw, no-DoS | Security (escape) |
+| **TC-PM-SEARCH-05** `test_search_and_vendor_mine_no_leak` | Vendor + `mine=1` KTV, `search` khớp phiếu ngoài scope | phiếu ngoài scope KHÔNG trả dù khớp (AND vendor/`assigned_to`); count==rows | Security (scope) |
+| **TC-PM-SEARCH-06** `test_search_and_status_filter` | `search=X&filters={"status":"Open"}` | chỉ phiếu Open ∧ khớp search (AND-combine) | EP |
 | `test_get_existing_wo` | `get_pm_work_order` | `success=true`, checklist present | Use Case |
 | `test_get_not_found` | `get_pm_work_order?name=FAKE` | `code=NOT_FOUND` | EP |
 | `test_assign_technician_happy` | `assign_technician` | status==In Progress, assigned_to set | Use Case |
@@ -345,6 +351,8 @@ Coverage % thực tế: *(Cần khảo sát — chạy `coverage report`)*. CI f
 | BR-08-12 | **Due-soon window SoT `due_soon_filter`** — KPI count == drill rows, disjoint với overdue | `TestPMDueSoonConvergence` + `test_d_be_18b` (convergence, KHÔNG còn superset comment) | BVA + Decision Table | 1 / 3 — 🔴 Vòng 23 |
 | BR-08-13 | **KPI dashboard đồng nhất phạm vi** — strip tháng đối-soát số học; `overdue` global giữ RC-10; compliance null-safe | `TestPMDashboardKPIScope` (`test_imm08.py`/`test_dashboard.py`) — TC-PM-KPI-1..6 | Invariant + Decision Table | 0 / 6 — 🔴 Vòng 10 |
 | BR-08-14 | **Loại WO Cancelled khỏi MẪU tuân thủ + bucket pending** (INV-PM-KPI-6) — `total_scheduled`/compliance/pending bỏ Cancelled; tháng chỉ-Cancelled → `compliance_rate_pct==None`; trend dùng cùng predicate; no-regression Cancelled-free path | `TestPMDashboardKPIScope` (`test_imm08.py`) — TC-PM-KPI-06..09 | Invariant + Decision Table | 0 / 4 — 🔴 Vòng 25 |
+| BR-08-15 | **Đính ảnh mục checklist — permission + validation + reject-order** (mobile CR-14/G6) — mọi nhánh reject TRƯỚC File.insert; 2 loại 403 | `TestAttachPmChecklistPhoto` (`test_imm08.py`) — TC-PM-PHOTO-01..08 | Decision Table + EP + BVA (size/max-count boundary) | 0 / 8 — 🔴 Vòng 2 (RED-first) |
+| BR-08-16 | **Bằng chứng NĐ98 — lifecycle event hard-req + read-back parity + count==rows** | `TestAttachPmChecklistPhoto` — TC-PM-PHOTO-EVIDENCE-01..03 | Invariant (rollback-on-throw, count==rows) | 0 / 3 — 🔴 Vòng 2 (RED-first) |
 
 Bổ sung gate đã Live: `test_complete_blocked_when_labor_zero` (BR-08-09 duration > 0), `test_complete_blocked_when_sticker_missing` (BR-08-10 sticker).
 
@@ -385,6 +393,45 @@ Bổ sung gate đã Live: `test_complete_blocked_when_labor_zero` (BR-08-09 dura
 | `test_pm_due_soon_boundary` | `test_imm08.py` | BVA: due==today **IN**, due==today+7 **IN**, due==today+8 **OUT**, due==today-1 **OUT (overdue)**, Completed/Cancelled **OUT** bất kể due_date. | 🔴 Viết mới |
 
 > Sửa `test_d_be_18` (hoặc giữ + thêm `test_d_be_18b`): KHÔNG còn comment/assert hợp-thức-hoá superset cho PM due-soon. Grep guard QA: `grep -n "due_date.*<=.*due_before\|between.*today_str.*next7" assetcore/services/imm08.py assetcore/api/dashboard.py` == 0 inline (chỉ qua `due_soon_filter`).
+
+### IV.2.c Test mới vòng 2 — Đính ảnh bằng chứng mục checklist PM (BR-08-15/16)
+
+> Đối xứng `test_imm12.py::TestAttachIncidentPhoto` (Vòng 1). Class `TestAttachPmChecklistPhoto` trong `test_imm08.py`. Gọi thẳng service `attach_pm_checklist_photo(...)` (truyền `filedata`/`filename`/`content_type` như API tier đã parse) + assert envelope Decision-B qua `handle`. **RED-first**: mỗi TC có bản chứng-đỏ khi thiếu logic. Test seed event bằng helper `create_lifecycle_event` (KHÔNG phụ thuộc `reload-doctype` live — enum add là deploy concern).
+
+| Test ID | Assert | Trạng thái |
+|---|---|---|
+| TC-PM-PHOTO-01 (happy) | WO có checklist, KTV = `assigned_to`, file jpg hợp lệ → `success:true`, `data=={file_url, file_name, checklist_item_idx}`; **đúng 1** File `is_private=1`, `attached_to_doctype=="PM Work Order"`, `attached_to_name==WO`. | 🔴 Viết mới |
+| TC-PM-PHOTO-02 (WO không tồn tại) | `work_order_name` không có → `NOT_FOUND`; **0 File tạo**. | 🔴 Viết mới |
+| TC-PM-PHOTO-03 (FORBIDDEN in-handler) | User KHÔNG phải `assigned_to` và KHÔNG `pm.write` (vd KTV khác) → `FORBIDDEN` HTTP-200 Decision-B; **0 File**; KHÔNG leak cap. | 🔴 Viết mới |
+| TC-PM-PHOTO-04 (idx không tồn tại) | `checklist_item_idx` không khớp mục nào (vd 999) / thiếu / không parse int → `VALIDATION` `fields.checklist_item_idx`; **0 File**. | 🔴 Viết mới |
+| TC-PM-PHOTO-05 (no-file) | `filedata=None` → `VALIDATION` `fields.file=="Thiếu tệp ảnh"`; **0 File**. | 🔴 Viết mới |
+| TC-PM-PHOTO-06 (non-image) | content-type `application/pdf` → `VALIDATION` `fields.file` "JPG hoặc PNG"; **0 File**. | 🔴 Viết mới |
+| TC-PM-PHOTO-07 (oversize, BVA) | `len(filedata) > MAX_PM_CHECKLIST_PHOTO_BYTES` → `VALIDATION` "tối đa 10 MB"; biên `==cap` PASS, `cap+1` FAIL; **0 File**. | 🔴 Viết mới |
+| TC-PM-PHOTO-08 (max-count, BVA) | Đính 5 ảnh cùng mục OK; ảnh **thứ 6** cùng mục → `VALIDATION` "Tối đa 5 ảnh mỗi mục"; **0 File thứ 6**. Ảnh cho **mục khác** vẫn OK (discriminator per-mục độc lập). | 🔴 Viết mới |
+| TC-PM-PHOTO-EVIDENCE-01 (event) | Success → **đúng 1** `Asset Lifecycle Event` `event_type=="pm_checklist_photo_attached"` (`asset==wo.asset_ref`, `root_doctype=="PM Work Order"`, `root_record==WO`). | 🔴 Viết mới |
+| TC-PM-PHOTO-EVIDENCE-02 (rollback-on-throw) | Monkeypatch `create_lifecycle_event` raise → toàn giao dịch rollback: **0 File orphan** + `row.photo` KHÔNG đổi + KHÔNG commit (mirror imm12 rollback). | 🔴 Viết mới |
+| TC-PM-PHOTO-EVIDENCE-03 (read-back parity + count==rows) | Sau success: `get_work_order(WO).checklist_results[idx].photo == file_url` vừa trả; `len(_pm_checklist_photos(WO, idx))` == số File chặn max (count==rows); mục chưa đính → `photo` rỗng, helper == `[]`. | 🔴 Viết mới |
+
+**Boundaries test (chống false-green):** assert **0 File** ở MỌI nhánh reject (query `frappe.get_all("File", filters={attached_to_name: WO})` count trước/sau == nhau); KHÔNG assert chỉ envelope. Grep guard: 0 `wo.save()` trong `attach_pm_checklist_photo` (phải `db.set_value`); 0 `frappe.throw`/`raise` HTTP-4xx cho lỗi nghiệp vụ (phải Decision-B). `bench --site miyano run-tests --module assetcore.tests.test_imm08` → `Ran N OK` (N tăng + KHÔNG regression). Live curl hoãn tới USER reload `--preload` (417/404 khi chưa reload = stale-worker, ĐỪNG re-fix — LL-DEPLOY-07).
+
+### IV.2.d Test mới CR-28b — `getDuePmSchedules` màn "Nhắc việc" nửa-PM (F8)
+
+> Spec đầy đủ §05 §0.1.5 + ADR-IMM08-DUEPM + [`ADR-MOBILE-054`](../mobile/ADR-MOBILE-054.md). 2 lớp test: **BE-unit** (`test_imm08.py::TestGetDuePmSchedules`, gọi thẳng service) + **contract** (`test_mobile_oas.py::TestMobileDuePmSchedulesContract a..g`, ĐỐI XỨNG `TestMobileDueCalibrationsContract`). RED-first: BE-unit đỏ do handler/service ∄ trước Bước-4.
+
+**BE-unit (`test_imm08.py::TestGetDuePmSchedules`):**
+
+| Test ID | Assert | Trạng thái |
+|---|---|---|
+| TC-DUEPM-01 (happy) | Seed 2 lịch Active `next_due_date` ≤ today+30 → `success:true`, `data=={items, threshold_days}`; `threshold_days==30`; mỗi item EXACT 9-field {name,asset_ref,asset_name,pm_type,status,next_due_date,last_pm_date,responsible_technician,days_left}; sort `next_due_date asc`. | 🔴 Viết mới |
+| TC-DUEPM-02 (NULL-coerce guard) | Lịch Active `next_due_date=NULL` (chưa set) **KHÔNG lọt** items (mirror bẫy `ifnull '0001-01-01'` của calib); KHÔNG lấp `limit` đẩy lịch overdue thật ra ngoài. | 🔴 Viết mới |
+| TC-DUEPM-03 (status filter) | Lịch `Paused`/`Suspended` (dù due) **KHÔNG lọt**; chỉ `Active`. | 🔴 Viết mới |
+| TC-DUEPM-04 (`days_left` signed) | Lịch `next_due_date < today` → `days_left` **âm** (quá hạn); `==today` → `0`; future → dương. Server-derived — KHÔNG re-derive client. | 🔴 Viết mới |
+| TC-DUEPM-05 (window + limit) | `days=0` → chỉ lịch `next_due_date <= today`; `limit` cắt số dòng trang-đầu (KHÔNG pagination meta). | 🔴 Viết mới |
+| TC-DUEPM-06 (`last_pm_date` nullable) | Lịch chưa từng chạy PM (`last_pm_date=NULL`) VẪN trả (item `last_pm_date=None`) — KHÔNG bị loại (KHÁC `next_due_date` filter is-set). | 🔴 Viết mới |
+
+**Contract (`test_mobile_oas.py::TestMobileDuePmSchedulesContract`, +7 TC):** a=path+opId `getDuePmSchedules`+GET+tag `pm`; b=2 typed param days/limit integer-default-required:false; c=Item 9-field CLOSED-VERBATIM 0-extra; d=`days_left`/`next_due_date` NON-nullable ∧ `last_pm_date`/`responsible_technician` nullable; e=`DuePmScheduleListPage` EXACT 2-key NO-pagination; f=200 oneOf[Env,Error] 0-discr + Envelope CLOSED; g=naming-guard + live-signature parity `{days,limit}`.
+
+**Đếm đồng bộ (grep-verify @source TRƯỚC bump — đa-phiên race):** `_EXPECTED_TEST_COUNT` 767→774 · path/opId 84→85 · `c5`/`_PARITY_BUSINESS_PATHS` 73→74 · `_MVP_LIST_ENVELOPE` 12→13 (+`_DUE_PM_SCHEDULES_PATH`) · `test_mobile_docset` `_GUARD_SUITE_EXPECTED["test_mobile_oas.py"]` 767→774 + `_GUARD_SUITE_SUM` 910→917 + `_MOBILE_OAS_TOTAL` 936→943. `bench --site miyano run-tests` → **'Ran N OK' THẬT** (KHÔNG false-green); 0 `bench migrate`; NEW `.py` → worker reload PENDING USER (KHÔNG curl-verify LIVE — LL-DEPLOY-07).
 
 ## IV.3. Component → Test mapping
 

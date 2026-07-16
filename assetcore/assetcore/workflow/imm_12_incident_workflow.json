@@ -126,6 +126,107 @@
    "next_state": "In Progress",
    "state": "Resolved",
    "allow_self_approval": 1
+  },
+  {
+   "action": "Tiếp nhận sự cố",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Acknowledged",
+   "state": "Open",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Tiếp nhận sự cố",
+   "allowed": "System Manager",
+   "next_state": "Acknowledged",
+   "state": "Open",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hủy sự cố",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Cancelled",
+   "state": "Open",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu xử lý",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "In Progress",
+   "state": "Acknowledged",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu xử lý",
+   "allowed": "System Manager",
+   "next_state": "In Progress",
+   "state": "Acknowledged",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hủy sự cố",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Cancelled",
+   "state": "Acknowledged",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Đánh dấu đã giải quyết",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Resolved",
+   "state": "In Progress",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Đánh dấu đã giải quyết",
+   "allowed": "System Manager",
+   "next_state": "Resolved",
+   "state": "In Progress",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hủy sự cố",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Cancelled",
+   "state": "In Progress",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Yêu cầu RCA",
+   "allowed": "AssetCore Super Admin",
+   "condition": "doc.severity in ('High', 'Critical') or doc.requires_rca == 1",
+   "next_state": "RCA Required",
+   "state": "Resolved",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Yêu cầu RCA",
+   "allowed": "System Manager",
+   "condition": "doc.severity in ('High', 'Critical') or doc.requires_rca == 1",
+   "next_state": "RCA Required",
+   "state": "Resolved",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Đóng sự cố",
+   "allowed": "AssetCore Super Admin",
+   "condition": "(doc.severity not in ('High','Critical')) and (doc.requires_rca != 1)",
+   "next_state": "Closed",
+   "state": "Resolved",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "RCA hoàn tất - đóng sự cố",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "Closed",
+   "state": "RCA Required",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Mở lại điều tra",
+   "allowed": "AssetCore Super Admin",
+   "next_state": "In Progress",
+   "state": "Resolved",
+   "allow_self_approval": 1
   }
  ]
 }

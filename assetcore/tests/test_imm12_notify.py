@@ -147,6 +147,11 @@ class TestImm12MessageCodes(unittest.TestCase):
             severity="Critical", description="_Test rca-rootcause",
             clinical_impact="impact")
         rca = svc.create_rca(ir["name"])
+        # AC3 (GATE-8): submit CHỈ hợp lệ từ 'RCA In Progress' → bắt đầu phân tích
+        # trước (bypass Frappe validate bằng set_value, giữ test orthogonal với gate
+        # root-cause bên dưới).
+        frappe.db.set_value("IMM RCA Record", rca["name"], "status",
+                            "RCA In Progress", update_modified=False)
         self._assert_code(
             lambda: svc.submit_rca(rca["name"], root_cause="",
                                    corrective_action="fix"),
@@ -158,6 +163,8 @@ class TestImm12MessageCodes(unittest.TestCase):
             severity="Critical", description="_Test rca-corrective",
             clinical_impact="impact")
         rca = svc.create_rca(ir["name"])
+        frappe.db.set_value("IMM RCA Record", rca["name"], "status",
+                            "RCA In Progress", update_modified=False)
         self._assert_code(
             lambda: svc.submit_rca(rca["name"], root_cause="cause",
                                    corrective_action=""),
@@ -170,6 +177,9 @@ class TestImm12MessageCodes(unittest.TestCase):
             clinical_impact="impact")
         # Use Fishbone to skip the 5-Why completeness gate (orthogonal to this test)
         rca = svc.create_rca(ir["name"], rca_method="Fishbone")
+        # AC3: submit chỉ từ 'RCA In Progress' — bắt đầu phân tích trước.
+        frappe.db.set_value("IMM RCA Record", rca["name"], "status",
+                            "RCA In Progress", update_modified=False)
         svc.submit_rca(rca["name"], root_cause="cause", corrective_action="fix")
         self._assert_code(
             lambda: svc.submit_rca(rca["name"], root_cause="c2",

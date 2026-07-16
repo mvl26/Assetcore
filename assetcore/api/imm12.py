@@ -21,13 +21,18 @@ from assetcore.services.imm12 import (
     acknowledge_incident as svc_acknowledge,
     start_work as svc_start_work,
     resolve_incident as svc_resolve,
+    reopen_incident as svc_reopen,
+    request_rca as svc_request_rca,
     list_rcas as svc_list_rcas,
     close_incident as svc_close,
     create_rca as svc_create_rca,
     get_rca as svc_get_rca,
+    start_rca as svc_start_rca,
     submit_rca as svc_submit_rca,
+    cancel_rca as svc_cancel_rca,
     list_incidents as svc_list,
     get_incident_detail as svc_get,
+    attach_incident_photo as svc_attach_photo,
     get_asset_incident_history as svc_asset_history,
     get_chronic_failures as svc_chronic,
     get_dashboard as svc_dashboard,
@@ -53,6 +58,14 @@ _CAP_CLOSE = "incident.close"              # → ("Incident Report", "submit")
 # DÙNG rbac.can + _err(_MSG_FORBIDDEN,403) — KHÔNG rbac.require (require leak raw cap
 # 'corrective.create' vào message, vi phạm AC1 no-leak — rbac.py:156-162).
 _CAP_REPORT = "corrective.create"          # → ("Incident Report", "create")
+# BR-12-24 (CR-WF-12-RCA-ENTRY): "Yêu cầu phân tích RCA" (Resolved → RCA Required).
+# Cap `compliance.submit` = ("IMM CAPA Record","submit") → role-set {Compliance
+# Manager, AssetCore Super Admin} ⊆ workflow "Yêu cầu RCA" allowed {Compliance
+# Manager, System Manager, AssetCore Super Admin} ⇒ KHÔNG false-clickable (cap ⊆
+# workflow). Residual: pure-System Manager ∉ compliance.submit → nút ẩn/cap-403 trên
+# SPA (an toàn, phủ qua Super Admin + desk admin-override). DÙNG rbac.can +
+# _MSG_FORBIDDEN (KHÔNG rbac.require — require leak raw cap vào message).
+_CAP_REQUEST_RCA = "compliance.submit"     # → ("IMM CAPA Record", "submit")
 
 
 def _can_investigate() -> bool:
@@ -65,6 +78,10 @@ def _can_report() -> bool:
 
 def _can_close() -> bool:
     return rbac.can(_CAP_CLOSE)
+
+
+def _can_request_rca() -> bool:
+    return rbac.can(_CAP_REQUEST_RCA)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -82,12 +99,18 @@ def report_incident(
     linked_repair_wo: str = "",
     occurred_datetime: str = "",
     source: str = "manual",
+    client_request_id: str = "",
 ):
     """POST /api/method/assetcore.api.imm12.report_incident
 
     `source` (ADR-IMM12-REPORT-FAILURE D2): provenance nguồn báo hỏng — 'qr-scan'
     khi đến từ màn quét QR, 'manual' (mặc định) khi tạo thủ công. str='manual'
     (KHÔNG str|None → tránh HTTP 417 pydantic-coercion).
+
+    `client_request_id` (CR-24 idempotency): khoá do client (mobile write-outbox)
+    sinh — CÙNG khoá + CÙNG reporter gọi 2 lần chỉ tạo 1 phiếu; call trùng trả
+    `name` phiếu đã tạo (KHÔNG insert/audit lần 2 → chống làm bẩn vết audit NĐ98).
+    Rỗng → tạo mới bình thường (backward-compat 100%). str='' (KHÔNG str|None → 417).
     """
     if frappe.session.user == "Guest":
         return _err(_(_MSG_UNAUTHENTICATED), 401)
@@ -105,6 +128,7 @@ def report_incident(
         immediate_action=immediate_action, linked_repair_wo=linked_repair_wo,
         occurred_datetime=occurred_datetime,
         source=source,
+        client_request_id=client_request_id,
     )
 
 
@@ -130,10 +154,27 @@ def create_rca(incident_name: str, rca_method: str = "5-Why"):
 
 @frappe.whitelist()
 def get_rca(name: str):
-    """GET /api/method/assetcore.api.imm12.get_rca"""
+    """GET /api/method/assetcore.api.imm12.get_rca
+
+    Emit `allowed_transitions` (SSoT _RCA_VALID_TRANSITIONS) + `can_manage_rca`
+    (int 0/1) cho server-driven CTA ở RCADetailView (GATE-8/LL-FE-51).
+    """
     if frappe.session.user == "Guest":
         return _err(_(_MSG_UNAUTHENTICATED), 401)
     return handle(svc_get_rca, name)
+
+
+@frappe.whitelist(methods=["POST"])
+def start_rca(name: str):
+    """POST /api/method/assetcore.api.imm12.start_rca
+
+    "Bắt đầu phân tích": 'RCA Required' → 'RCA In Progress'. Cap-gate corrective.write
+    ở SERVICE → ServiceError(FORBIDDEN) Decision-B khi thiếu quyền (KHÔNG dispatcher
+    403 thô). Sai trạng thái → BAD_STATE inline VN.
+    """
+    if frappe.session.user == "Guest":
+        return _err(_(_MSG_UNAUTHENTICATED), 401)
+    return handle(svc_start_rca, name)
 
 
 @frappe.whitelist()
@@ -169,6 +210,20 @@ def submit_rca(
         name, root_cause=root_cause, corrective_action=corrective_action,
         preventive_action=preventive_action, five_why_steps=steps, rca_notes=rca_notes,
     )
+
+
+@frappe.whitelist(methods=["POST"])
+def cancel_rca(name: str, reason: str = ""):
+    """POST /api/method/assetcore.api.imm12.cancel_rca
+
+    "Hủy RCA": 'RCA Required'|'RCA In Progress' → 'Cancelled'. Cap-gate
+    corrective.submit ở SERVICE (thao tác đề-cao) → ServiceError(FORBIDDEN)
+    Decision-B khi thiếu quyền. Sai trạng thái (Completed/Cancelled) → BAD_STATE
+    inline VN. `reason` optional (str="" — tránh 417).
+    """
+    if frappe.session.user == "Guest":
+        return _err(_(_MSG_UNAUTHENTICATED), 401)
+    return handle(svc_cancel_rca, name, reason=reason)
 
 
 @frappe.whitelist()
@@ -237,6 +292,40 @@ def get_incident(name: str):
 
 
 @frappe.whitelist(methods=["POST"])
+def attach_incident_photo(incident_name: str = "", **_ignore):
+    """POST (multipart) /api/method/assetcore.api.imm12.attach_incident_photo
+
+    BR-12-17/18 (mobile CR-17/G6): đính ảnh bằng chứng hiện trường (NĐ98) vào 1
+    Incident Report → File private + đúng 1 lifecycle `incident_photo_attached`.
+    Single-step multipart: server đọc `frappe.request.files["file"]`, tự validate +
+    tạo + link File (robust, KHÔNG orphan như 2-bước upload→file_url).
+
+    `**_ignore` nuốt kwargs spoof (đối xứng register_device_token). Guest/no-session
+    → dispatcher-403 (POST @whitelist không allow_guest); permission (reporter OR
+    incident.write) + validation ở service → Decision-B HTTP-200 qua `handle`.
+    """
+    if frappe.session.user == "Guest":
+        return _err(_(_MSG_UNAUTHENTICATED), 401)
+    files = frappe.request.files if getattr(frappe, "request", None) else None
+    upload = files.get("file") if files else None
+    # File present check nằm ở service (sau permission — thứ tự spec §15): truyền
+    # filedata=None khi thiếu file → service raise VALIDATION 'Thiếu tệp ảnh'.
+    if upload is not None:
+        filedata = upload.stream.read()
+        filename = upload.filename or ""
+        content_type = upload.content_type or ""
+    else:
+        filedata, filename, content_type = None, "", ""
+    return handle(
+        svc_attach_photo,
+        incident_name,
+        filedata=filedata,
+        filename=filename,
+        content_type=content_type,
+    )
+
+
+@frappe.whitelist(methods=["POST"])
 def acknowledge_incident(name: str, notes: str = "", assigned_to: str = ""):
     """POST /api/method/assetcore.api.imm12.acknowledge_incident
     "Tiếp nhận": Open → Acknowledged.
@@ -283,6 +372,41 @@ def close_incident(name: str, verification_notes: str = ""):
     if not _can_close():
         return _err(_("Không có quyền đóng Incident (cần Workshop Lead hoặc QA Officer)"), 403)
     return handle(svc_close, name, verification_notes=verification_notes)
+
+
+@frappe.whitelist(methods=["POST"])
+def reopen_incident(name: str, reason: str):
+    """POST /api/method/assetcore.api.imm12.reopen_incident
+    "Mở lại điều tra": Resolved → In Progress (BR-12-23, CR-WF-12).
+
+    Cap `incident.close` (parity Close — cùng role-set workflow {System Manager,
+    AssetCore Super Admin}). Lỗi nghiệp vụ (reason rỗng → IMM12_REOPEN_REASON_REQUIRED;
+    status≠Resolved → IMM12_BAD_STATE) trả in-handler HTTP-200 + Error envelope qua
+    handle() — KHÔNG raise HTTP-4xx.
+    """
+    if frappe.session.user == "Guest":
+        return _err(_(_MSG_UNAUTHENTICATED), 401)
+    if not _can_close():
+        return _err(_(_MSG_FORBIDDEN), 403)
+    return handle(svc_reopen, name, reason=reason)
+
+
+@frappe.whitelist(methods=["POST"])
+def request_rca(name: str, rca_reason: str):
+    """POST /api/method/assetcore.api.imm12.request_rca
+    "Yêu cầu phân tích RCA": Resolved → RCA Required (BR-12-24, CR-WF-12-RCA-ENTRY).
+
+    Cap `compliance.submit` (rbac.can + `_MSG_FORBIDDEN`, parity ack/close — KHÔNG
+    rbac.require leak raw cap). Lỗi nghiệp vụ (rca_reason blank →
+    IMM12_RCA_REASON_REQUIRED; status≠Resolved → IMM12_REQUEST_RCA_BAD_STATE, cả 2 =
+    422 bucket) trả in-handler HTTP-200 + Error envelope qua handle() — KHÔNG raise
+    HTTP-4xx. Cap ⊆ workflow "Yêu cầu RCA" ⇒ nút hiện == nút bấm-được (KHÔNG dead-gate).
+    """
+    if frappe.session.user == "Guest":
+        return _err(_(_MSG_UNAUTHENTICATED), 401)
+    if not _can_request_rca():
+        return _err(_(_MSG_FORBIDDEN), 403)
+    return handle(svc_request_rca, name, rca_reason=rca_reason)
 
 
 @frappe.whitelist()

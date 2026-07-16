@@ -37,6 +37,8 @@ Workflow assetcore-factory   (.claude/workflows/assetcore-factory.js)
 
 Workflow chạy nền, báo `<task-notification>` khi xong; theo dõi tiến độ bằng `/workflows`.
 
+**Recovery khi run DỪNG giữa chừng (interrupt/crash) — KHÔNG relaunch mới:** run sống LÂU HƠN 1 process Claude. Notification `status=stopped`/"running when previous process exited", hoặc `failed: StructuredOutput retry cap` = **re-resume CÙNG runId**, args VERBATIM: `Workflow({scriptPath:'<snapshot>', resumeFromRunId:'<wf_id>', args:<gốc>})` (cache replay vòng đã xong). Engine đã bọc **4 try/catch** (args/carry/vòng/handoff) → 1 blip API chỉ skip 1 vòng. Sửa engine source → `cp source→snapshot`+`node --check` trước resume (agent-call không đổi ⇒ cache hit). Chi tiết đầy đủ: `.claude/commands/factory.md` §Recovery & Đa-phiên. **Trước mọi launch/re-resume**: check quiescence bằng **mtime** (`find subagents/.../agent-*.jsonl -mmin -3`) — có run KHÁC đang chạy cùng tree = KHÔNG launch chồng (race DB/tree).
+
 **Agent .md này (path khi KHÔNG dùng workflow):** điều phối THE LOOP in-session theo §Fallback — vẫn chạy đủ N vòng rồi mới dừng (xem §Autonomy).
 
 ---

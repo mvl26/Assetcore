@@ -64,6 +64,11 @@ export interface EvalDoc {
   tied_candidates?: string
   workflow_state?: EvalState
   docstatus?: 0 | 1 | 2
+  // Server-driven CTA (GATE-8 / LL-FE-51): tập ACTION workflow hợp lệ cho state
+  // hiện tại (SoT = BE `_EVAL_VALID_TRANSITIONS`, parity get_decision). FE gate nút
+  // CTA theo tập này, KHÔNG hardcode client-map TRANSITIONS_BY_STATE. Optional: BE
+  // cũ chưa reload → undefined → degrade an toàn (0 nút transition).
+  allowed_transitions?: string[]
 }
 
 export interface AvlListItem {
@@ -71,9 +76,16 @@ export interface AvlListItem {
   supplier: string
   vendor_name?: string
   device_category: string
+  device_category_name?: string
   workflow_state: AvlState
   valid_from: string
   valid_to: string
+  // Server-driven CTA (GATE-8 / LL-FE-51): tập ACTION workflow hợp lệ cho state
+  // hiện tại — SoT = BE `_AVL_VALID_TRANSITIONS` (parity get_decision/get_evaluation),
+  // đã LỌC theo capability/role của caller. FE gate nút Phê duyệt / Đình chỉ /
+  // Phục hồi Approved theo tập này — KHÔNG hardcode `workflow_state === 'X'`.
+  // Optional: BE cũ chưa reload → undefined → degrade an toàn (0 nút, không dead-control).
+  allowed_transitions?: string[]
 }
 
 export interface DecisionListItem {
@@ -102,6 +114,10 @@ export interface DecisionDoc extends DecisionListItem {
   contract_no?: string
   contract_doc?: string
   awarded_date?: string
+  // Server-driven CTA (GATE-8 / LL-FE-51): tập ACTION workflow hợp lệ cho state
+  // hiện tại (SoT = BE `_DECISION_VALID_TRANSITIONS`). FE gate nút theo tập này,
+  // KHÔNG hardcode `workflow_state === 'X'`. Optional: BE cũ chưa reload → undefined.
+  allowed_transitions?: string[]
 }
 
 export interface DashboardKpis {

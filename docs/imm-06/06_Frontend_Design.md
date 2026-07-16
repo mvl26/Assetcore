@@ -45,7 +45,7 @@
 | 7 | ✅ | `/imm06/sessions/:name` | `SessionDetailView.vue` | `get_session`, `confirm_session`, `cancel_session`, `enroll_participants`, `remove_participant` | All authenticated |
 | 8 | ⬜ | `/imm06/sessions/:name/run` | `SessionRunView.vue` | `complete_session` | IMM Training Officer, IMM Biomed Technician |
 | 9 | ✅ | `/imm06/competencies` | `CompetencyListView.vue` | `list_competencies` | All authenticated (role-scoped) |
-| 10 | ✅ | `/imm06/competencies/:name` | `CompetencyDetailView.vue` | `get_user_competencies`, `revoke_competency`, `recertify_competency`, `signoff_competency` | All authenticated |
+| 10 | ✅ | `/imm06/competencies/:name` | `CompetencyDetailView.vue` | `get_competency` (server-driven, Vòng 15), `signoff_competency`, `revoke_competency`, `recertify_competency`, `suspend_competency` (Vòng 26), `restore_competency` (Vòng 26) | All authenticated (CTA gate `training.submit`) |
 | 11 | ⬜ | `/me/competencies` | `MyCompetenciesView.vue` | `get_user_competencies` (self) | All authenticated |
 | 12 | ⬜ | `/imm06/gap-reports/:name` | `GapReportView.vue` | `get_competency_gaps_by_dept` | `_DASHBOARD_ROLES` |
 | 13 | ⬜ | (modal) | `RevokeCompetencyModal.vue` | `revoke_competency` | `_REVOKE_ROLES` |
@@ -229,19 +229,24 @@
 
 ### `SessionDetailView.vue`
 
-**Mục đích:** Chi tiết Session với action theo workflow_state.
+**Mục đích:** Chi tiết Session với 6 CTA workflow gate **server-driven** theo `allowed_transitions`.
 
-**State-based actions:**
+**Gating CTA (Vòng 7 — GATE-8/LL-FE-51):** KHÔNG hardcode `state.value === '<StatusString>'`. Mỗi CTA gate **2 lớp AND** = `allowedTransitions.includes('<next-state>')` (state-machine, từ `get_session().allowed_transitions`) **&&** `<capability>` (quyền). Dùng chung pattern `useWorkflow.ts` như CM/PM/Calibration/Procurement detail view. `const allowedTransitions = computed(() => currentSession.value?.allowed_transitions ?? [])`.
 
-| State | Hiển thị | Actions |
-|---|---|---|
-| Planned | Form editable | [Sửa], [Xác nhận], [Hủy] |
-| Confirmed | Read-only | [Bắt đầu] (Instructor/Tổ HC-QLCL) |
-| In Progress | Link run mode | [Vào Run Mode] → `SessionRunView` |
-| Completed | Summary table + competency list | [Verify] (IMM Workshop Lead) |
-| Verified | Badge xanh | [Đóng] (IMM Workshop Lead) |
-| Closed | Read-only | — |
-| Cancelled | Banner đỏ + reason | — |
+| CTA | Nút | Gate (thay cho `state==='X'`) | Capability giữ nguyên |
+|---|---|---|---|
+| Xác nhận | [Xác nhận] | `allowedTransitions.includes('Confirmed')` | `canManage` (`training.submit`) |
+| Bắt đầu | [Bắt đầu] | `allowedTransitions.includes('In Progress')` | `canConduct` (`training.write`) |
+| Hoàn thành | [Hoàn thành] | `allowedTransitions.includes('Completed')` | `canConduct` (`training.write`) |
+| Nghiệm thu | [Nghiệm thu] | `allowedTransitions.includes('Verified')` | `canManage` (`training.submit`) |
+| Đóng | [Đóng] | `allowedTransitions.includes('Closed')` | `canManage` (`training.submit`) |
+| Huỷ | [Huỷ] | `allowedTransitions.includes('Cancelled')` | `canManage` (`training.submit`) |
+
+**Desync ĐÓNG (đo được):** buổi ở **Planned** + user có `canConduct` → `allowedTransitions=['Confirmed','In Progress','Cancelled']` ⇒ nút **[Bắt đầu] HIỂN THỊ và bấm được** (trước Vòng 7 bị ẩn vì `state!=='Confirmed'`). **[Huỷ]** hiện ở **Planned/Confirmed** (map cho phép), và **ẩn** ở In Progress (map=`['Completed']`) + Verified (map=`['Closed']`) — khớp BR-06-12 (Self-Correction Vòng 28: In Progress KHÔNG hủy được, đồng bộ workflow JSON). Terminal (Closed/Cancelled) → `allowed_transitions=[]` ⇒ mọi CTA ẩn.
+
+**Lớp quyền song song:** thiếu `canManage`/`canConduct` → CTA ẩn dù `allowed_transitions` có next-state; nếu gọi API trực tiếp vẫn bị BE `_require_training_officer()` từ chối (`FORBIDDEN`). `allowed_transitions` KHÔNG thay gate quyền.
+
+> `isScoring` (form chấm điểm, `state==='In Progress'`) là gate **chế độ nhập liệu**, KHÔNG phải 1 trong 6 CTA workflow → ngoài phạm vi refactor này.
 
 **Tab "Lịch sử":** Frappe Version timeline — workflow transitions + field changes.
 
@@ -296,18 +301,40 @@
 
 ### `CompetencyDetailView.vue`
 
-**Mục đích:** Chi tiết competency với action theo workflow_state.
+**Mục đích:** Chi tiết competency với **5 CTA** vòng đời (Phê duyệt / Thu hồi / Tái chứng nhận / **Tạm ngưng** / **Khôi phục** — 2 CTA cuối MỚI Vòng 26) gate **server-driven** theo `allowed_transitions` + cờ capability.
 
-**State-based actions:**
+**API client (`frontend/src/api/imm06.ts`, Vòng 15 + Vòng 26):** interface `UserCompetency` (dòng ~72) += `allowed_transitions?: string[]`, `can_signoff?: boolean`, `can_revoke?: boolean`, `can_recertify?: boolean`, **`can_suspend?: boolean`, `can_restore?: boolean`** (Vòng 26). Thêm `export async function getCompetency(name: string): Promise<UserCompetency>` → `frappeGet(`${BASE}.get_competency`, { name })`. **Vòng 26** thêm:
+- `export async function suspendCompetency(name: string, reason: string)` → `frappePost(`${BASE}.suspend_competency`, { name, reason })`.
+- `export async function restoreCompetency(name: string)` → `frappePost(`${BASE}.restore_competency`, { name })`.
 
-| State | Banner | Actions |
-|---|---|---|
-| Pending Assessment | Yellow "⏳ Chờ duyệt" | [Sign-off] (supervisor scope) → `SignoffModal` |
-| Active | Green "✓ Active" + countdown | [Tạm ngưng] (Workshop Lead), [Thu hồi] → `RevokeModal`, [Tải chứng nhận] |
-| Expiring | Orange "⚠ Sắp hết hạn ({days}d)" | [Tạo Refresher Session] (Tổ HC-QLCL) |
-| Expired | Red "✗ Đã hết hạn" | [Tái chứng nhận] |
-| Suspended | Orange "Tạm ngưng đến DD/MM/YYYY" | [Khôi phục] (Workshop Lead) |
-| Revoked | Black + reason + CAPA link | Read-only terminal |
+**Load (Vòng 15 — server-driven, GATE-8/LL-FE-51):** `onMounted` gọi **`getCompetency(props.name)`** (endpoint MỚI C.1b) — **KHÔNG** còn `store.fetchCompetencies` + fallback `getExpiringCompetencies` (đường cũ imm06.ts:86-98 không có `allowed_transitions`/`can_*`). Sau mỗi CTA thành công → reload `getCompetency` để lấy state + allowed_transitions mới.
+
+**Gating CTA (Vòng 15 — thay hardcode `workflow_state==='X'` ở dòng 30-40):** GỠ toàn bộ `competency.value?.workflow_state === 'Pending Assessment'` / `['Active','Expiring','Expired','Suspended'].includes(...)` / `['Expired','Expiring'].includes(...)`. Gate mỗi CTA **2 lớp AND**:
+
+```ts
+const allowedTransitions = computed(() => competency.value?.allowed_transitions ?? [])
+const canSignoff   = computed(() => allowedTransitions.value.includes('Sign-off')  && competency.value?.can_signoff   === true)
+const canRevoke    = computed(() => allowedTransitions.value.includes('Revoke')    && competency.value?.can_revoke    === true)
+const canRecertify = computed(() => allowedTransitions.value.includes('Recertify') && competency.value?.can_recertify === true)
+// Vòng 26 — Tạm ngưng / Khôi phục (CÙNG pattern 2-lớp AND — KHÔNG hardcode workflow_state === 'X')
+const canSuspend   = computed(() => allowedTransitions.value.includes('Suspend')   && competency.value?.can_suspend   === true)
+const canRestore   = computed(() => allowedTransitions.value.includes('Restore')   && competency.value?.can_restore   === true)
+```
+
+- Lớp state-machine = `allowedTransitions.includes('<Action>')` (từ `getCompetency().allowed_transitions`, SSoT `_COMPETENCY_VALID_TRANSITIONS`).
+- Lớp quyền = `can_<action>` (BE trả = `(ACTION in allowed) && rbac.can("training.submit")` — KHỚP EXACT gate BE ⇒ **KHÔNG dead-control 403**; trước Vòng 15 FE dùng `can('training.submit')` cho revoke/recertify nhưng BE gate `training.write` → lệch).
+- **KHÔNG suy state client** (không so `workflow_state` với chuỗi literal để bật/tắt nút — GATE-8/LL-FE-51). Vòng 26: nút **Tạm ngưng** hiện ⟺ `allowedTransitions.includes('Suspend')` (state Active); nút **Khôi phục** hiện ⟺ `allowedTransitions.includes('Restore')` (state Suspended).
+
+**UX 2 CTA mới (Vòng 26):**
+- **Tạm ngưng** → mở modal nhập **lý do BẮT BUỘC** (parity `RevokeCompetencyModal`): nút "Xác nhận" `:disabled="!suspendReason.trim()"`; submit `suspendCompetency(name, suspendReason)`; thành công → đóng modal + reload `getCompetency`. Nếu để trống → BE trả `VALIDATION` (defense-in-depth), FE chặn trước.
+- **Khôi phục** → dialog **xác nhận đơn giản** (không nhập lý do): "Khôi phục hiệu lực năng lực này về Đang hiệu lực?"; submit `restoreCompetency(name)`; thành công → reload.
+- `data-testid="cta-suspend"` / `cta-restore` + `confirm-suspend` / `confirm-restore`.
+
+**data-testid + degrade an toàn:** mỗi nút có `data-testid="cta-signoff|cta-revoke|cta-recertify|cta-suspend|cta-restore"`. Nếu BE chưa trả `allowed_transitions`/`can_*` (endpoint chưa live) → tất cả computed = false ⇒ **0 nút** (degrade an toàn, không nhảy 403).
+
+**Hint quyền/thao tác:** `hasAnyAction = canSignoff || canRevoke || canRecertify || canSuspend || canRestore`. Khi `!hasAnyAction`:
+- state có action nhưng thiếu quyền (`allowed_transitions` không rỗng ∧ `can_* = false`) → hint "Bạn không đủ quyền duyệt/thu hồi/tái chứng nhận (cần Training Manager / Super Admin)".
+- state terminal/không có thao tác (`allowed_transitions = []`, vd Revoked) → hint "Không có thao tác khả dụng ở trạng thái này".
 
 **Days countdown color:** > 90d → xanh; 30-90d → vàng; 0-30d → cam; < 0 → đỏ.
 

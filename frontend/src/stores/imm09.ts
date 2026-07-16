@@ -41,11 +41,13 @@ export const useImm09Store = defineStore('imm09', () => {
     return currentWO.value.repair_checklist.every(r => r.result !== null)
   })
 
-  async function fetchWorkOrders(filters = {}, page = 1) {
+  // CR-18: `search` (free-text server-side) là param độc lập — refetch SERVER,
+  // KHÔNG lọc client-side page-limited. Absent ⇒ baseline (BE bỏ qua rỗng).
+  async function fetchWorkOrders(filters = {}, page = 1, search?: string) {
     loading.value = true
     error.value = null
     try {
-      const res = await listRepairWorkOrders(filters, page)
+      const res = await listRepairWorkOrders(filters, page, pagination.value.page_size, search)
       workOrders.value = res.data
       pagination.value = res.pagination
     } catch (e: unknown) {

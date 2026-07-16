@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
+import { useCapabilities } from '@/composables/useCapabilities'
 import { useImm11Store } from '@/stores/imm11'
 import { formatAssetDisplay, formatDate } from '@/utils/formatters'
-import { deriveCalStatus } from '@/utils/calibrationStatus'
+import { calFlagBadge } from '@/utils/calibrationStatus'
 import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
@@ -12,10 +13,16 @@ import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 
 const router = useRouter()
+const { can } = useCapabilities()
 const route = useRoute()
 const store = useImm11Store()
 
 const items = computed(() => store.calibrations)
+// Mỗi phiếu augment sẵn badge hạn TỪ CỜ SERVER (is_overdue/is_due_soon) — server-flag
+// SSoT: derive 1 lần/hàng qua calFlagBadge, KHÔNG so next_calibration_date client-clock.
+const rows = computed(() =>
+  items.value.map((c) => ({ ...c, dueFlag: calFlagBadge(c.is_overdue, c.is_due_soon) })),
+)
 const pagination = computed(() => store.pagination)
 const kpis = computed(() => store.kpis?.kpis ?? null)
 const loading = computed(() => store.loading)
@@ -106,13 +113,6 @@ async function loadKpis() {
   await store.fetchKpis()
 }
 
-// Màu cell "ngày hiệu chuẩn kế tiếp" derive THUẦN từ ngày SoT (date-only) — FAIL
-// due-now (next_calibration_date <= today) → đỏ/cam, KHÔNG xanh "đúng lịch". Khớp
-// _overdue/_due_soon của BE (BR-11-08). Thay so sánh `new Date()<new Date()` fragile.
-function calDateClass(date: string | null) {
-  return deriveCalStatus(date).textClass
-}
-
 watch(() => route.query.asset, (val) => {
   assetFilter.value = (val as string) || ''
   load(1)
@@ -134,7 +134,7 @@ onMounted(() => { load(); loadKpis() })
       <template #actions>
         <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
         <button class="btn-ghost text-sm" @click="router.push('/calibration/schedules')">Lịch hiệu chuẩn</button>
-        <button class="btn-primary" @click="router.push('/calibration/new')">
+        <button v-if="can('calibration.create')" class="btn-primary" @click="router.push('/calibration/new')">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
           </svg>
@@ -228,27 +228,38 @@ onMounted(() => { load(); loadKpis() })
         <!-- Mobile cards (< sm) -->
         <div class="mobile-card-list sm:hidden">
           <div
-            v-for="c in items"
+            v-for="c in rows"
             :key="c.name"
             class="mobile-card"
             @click="router.push(`/calibration/${c.name}`)"
           >
             <div class="flex items-center justify-between mb-2">
               <span class="font-mono text-sm font-semibold text-brand-700">{{ c.name }}</span>
-              <button @click.stop="quickFilter('status', c.status)">
-                <StatusBadge :state="c.status" />
-              </button>
+              <div class="flex items-center gap-1.5">
+                <span
+                  v-if="c.dueFlag"
+                  class="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium leading-none"
+                  :class="c.dueFlag.badgeClass"
+                >{{ c.dueFlag.label }}</span>
+                <button @click.stop="quickFilter('status', c.status)">
+                  <StatusBadge :state="c.status" />
+                </button>
+              </div>
             </div>
             <p class="text-sm font-medium text-slate-900 truncate">{{ formatAssetDisplay(c.asset_name, c.asset).main }}</p>
             <div class="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
               <span>{{ calTypeLabel(c.calibration_type) }}</span>
               <span class="text-slate-300">·</span>
               <span>{{ formatDate(c.scheduled_date) }}</span>
+              <span v-if="c.next_calibration_date" class="text-slate-300">·</span>
+              <span v-if="c.next_calibration_date" :class="c.dueFlag?.textClass ?? 'text-slate-500'">
+                Cal tiếp: {{ formatDate(c.next_calibration_date) }}
+              </span>
               <span v-if="c.overall_result" class="text-slate-300">·</span>
               <StatusBadge v-if="c.overall_result" :state="c.overall_result" />
             </div>
           </div>
-          <div v-if="items.length === 0" class="py-12 text-center text-slate-400">
+          <div v-if="rows.length === 0" class="py-12 text-center text-slate-400">
             <p class="text-sm font-medium">Không có dữ liệu</p>
           </div>
         </div>
@@ -264,12 +275,12 @@ onMounted(() => { load(); loadKpis() })
                 <th class="table-header">Trạng thái</th>
                 <th class="table-header">Ngày dự kiến</th>
                 <th class="table-header">Kết quả</th>
-                <th class="table-header">Ngày cal tiếp</th>
+                <th class="table-header">Ngày hiệu chuẩn tiếp theo</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-100">
               <tr
-                v-for="c in items" :key="c.name"
+                v-for="c in rows" :key="c.name"
                 class="hover:bg-slate-50 cursor-pointer transition-colors"
                 @click="router.push(`/calibration/${c.name}`)"
               >
@@ -293,8 +304,17 @@ onMounted(() => { load(); loadKpis() })
                   <StatusBadge v-if="c.overall_result" :state="c.overall_result" />
                   <span v-else class="text-slate-300">—</span>
                 </td>
-                <td class="table-cell text-xs" :class="calDateClass(c.next_calibration_date)">
-                  {{ formatDate(c.next_calibration_date) }}
+                <td class="table-cell text-xs">
+                  <div class="flex items-center gap-1.5">
+                    <span :class="c.dueFlag?.textClass ?? 'text-slate-500'">
+                      {{ formatDate(c.next_calibration_date) }}
+                    </span>
+                    <span
+                      v-if="c.dueFlag"
+                      class="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium leading-none"
+                      :class="c.dueFlag.badgeClass"
+                    >{{ c.dueFlag.label }}</span>
+                  </div>
                 </td>
               </tr>
             </tbody>

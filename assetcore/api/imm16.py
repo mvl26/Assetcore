@@ -207,6 +207,12 @@ def get_finding(name: str) -> dict:
 
 
 @frappe.whitelist(methods=["POST"])
+def start_review(name: str, reviewer_note: str = "") -> dict:
+    """CR-WF-16-FIND (round 14): Open → Under Review ("Bắt đầu xem xét")."""
+    return _handle(svc.start_review, name, reviewer_note)
+
+
+@frappe.whitelist(methods=["POST"])
 def confirm_finding(name: str, reviewer_note: str = "") -> dict:
     return _handle(svc.confirm_finding, name, reviewer_note)
 

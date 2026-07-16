@@ -518,6 +518,131 @@ export const useImm16Store = defineStore('imm16', {
 
 ---
 
+## II.9. FindingDetailView.vue — Server-driven CTA gating (GATE-8 / LL-FE-51)
+
+> **Vấn đề gốc (dead-gate):** 5 CTA trước đây gate bằng so `finding.status ===` / `.includes([...])` client-side → desync khỏi SoT `FindingStatus` (vd `canConfirm = ['Open','Under Review']` loại Confirmed NC trong khi BE `ACTIVE` gồm Confirmed NC; `canWaive` cho cả Resolved). Chuyển sang hint server (`allowed_transitions` + `can_create_capa` từ `get_finding` — §III.B.1 backend). Đối xứng PmWorkOrderDetail (II·imm08), IncidentDetail (imm12), RepairDetail (imm09).
+
+**Nguồn quyền + hint:**
+```ts
+const { can } = useCapabilities()
+const at = computed(() => finding.value?.allowed_transitions ?? [])   // fallback an toàn
+const canWrite = computed(() => can('compliance.write'))
+```
+
+**Mỗi CTA = `canWrite && (allowed_transitions.includes(<đích>) | can_create_capa)`** — KHÔNG còn `finding.status ===`:
+
+| CTA | computed | Điều kiện |
+|---|---|---|
+| Bắt đầu xem xét *(round 14)* | `canStartReview` | `canWrite && at.includes('Under Review')` → click gọi `start_review` (store `actionStartReview`) |
+| Xác nhận sự không phù hợp | `canConfirm` | `canWrite && at.includes('Confirmed NC')` |
+| Đánh dấu sai | `canMarkFalse` | `canWrite && at.includes('False Positive')` *(tách khỏi `canConfirm` cũ — trước dùng chung gate)* |
+| Miễn áp dụng | `canWaive` | `canWrite && at.includes('Waived')` |
+| Tạo CAPA | `canCreateCapa` | `canWrite && (finding.can_create_capa === true)` |
+| Liên kết CAPA | `canLinkCapa` | `canWrite && (finding.can_create_capa === true)` *(gỡ inline `status==='Confirmed NC' && !capa_ref` ở template)* |
+
+**Đổi hành vi hiển thị (do SoT siết lại — có chủ đích):**
+- **Open (round 14):** `at=['Under Review','Confirmed NC','False Positive','Waived']` → +CTA "Bắt đầu xem xét" (hiện). `canConfirm/canMarkFalse/canWaive` KHÔNG regress: 3 nút cũ vẫn hiện; nút mới chỉ THÊM. `findingDetailCtaGating.test.ts` xanh không đổi (fixtures hardcode KHÔNG có `'Under Review'` ⇒ nút mới ẩn trong test cũ; NÊN thêm 1 case mới assert `canStartReview` hiện khi `at.includes('Under Review')`).
+- Under Review: `at=['Confirmed NC','False Positive','Waived']` → "Bắt đầu xem xét" **ẩn** (đã trong review); 3 CTA phân định hiện.
+- Confirmed NC: `at=['Waived']` → Xác nhận/Đánh dấu-sai **ẩn** (khớp `canConfirm` cũ); Miễn áp dụng **hiện** (khớp `canWaive` cũ); CAPA route qua `can_create_capa`.
+- Resolved: `at=[]` → Miễn áp dụng **ẩn** (trước `canWaive` cho hiện — waive 1 finding đã Resolved là vô nghĩa; nay đóng).
+- Terminal (False Positive/Waived/Closed): 0 CTA — như cũ.
+
+**Ràng buộc:**
+- Gỡ TOÀN BỘ `finding.status ===` / `['...'].includes(finding.status)` khỏi `<script>` + `<template>` (kể cả dòng inline nút Liên kết CAPA).
+- Thiếu `compliance.write` → mọi CTA ẩn (không chỉ disable) — nhất quán permission-driven UI.
+- `allowed_transitions`/`can_create_capa` vắng (worker cũ) → `?? []` / `?? false` → CTA ẩn, KHÔNG crash.
+- **(round 14)** Wire: `api/imm16.ts` += `startReview(name, reviewer_note)` (POST `assetcore.api.imm16.start_review`); store `imm16.ts` += `actionStartReview`; sau transition refetch `get_finding` (Open→Under Review ẩn nút "Bắt đầu xem xét", hiện 3 CTA phân định). Nhãn nút "Bắt đầu xem xét" (tiếng Việt đầy đủ, LL-FE-53).
+- KHÔNG leak EN/raw status; nhãn nút giữ tiếng Việt hiện có.
+
+## II.10. InternalAuditDetailView.vue — Server-driven CTA gating (GATE-8 / LL-FE-51)
+
+> **Vấn đề gốc (dead-gate):** 3 CTA vòng đời (Bắt đầu / Hoàn tất bảng kiểm→Báo cáo / Đóng) gate bằng so `audit.status ===` client-side → desync + không phản ánh quyền server. Chuyển sang hint server (`allowed_transitions` action-key + 2 cờ `can_operate`/`can_close` từ `get_audit` — §III.C.1 backend / ADR-IMM-16-02). Đối xứng FindingDetail (II.9), PmWorkOrderDetail (imm08), IncidentDetail (imm12), RepairDetail (imm09).
+
+**Nguồn quyền + hint:**
+```ts
+const at = computed(() => audit.value?.allowed_transitions ?? [])   // fallback an toàn
+const canOperate = computed(() => audit.value?.can_operate === true) // compliance.write (server-derived)
+const canClose   = computed(() => audit.value?.can_close === true)   // compliance.submit (server-derived)
+```
+
+**Mỗi CTA = `<cờ> && at.includes('<action-key>')`** — KHÔNG còn `audit.status ===`:
+
+| CTA | computed | Điều kiện | Endpoint |
+|---|---|---|---|
+| Bắt đầu | `canStart` | `canOperate && at.includes('start')` — **CHỈ ở Planned** | `startAudit` |
+| Editor bảng kiểm + Hoàn tất bảng kiểm | `canCompleteChecklist` | `canOperate && at.includes('complete_checklist')` — **CHỈ ở In Progress** | `completeAuditChecklist` |
+| Đóng | `canCloseCta` | `canClose && at.includes('close')` — **CHỈ ở Reporting, KHÔNG In Progress** | `closeAudit` |
+
+**Ràng buộc (`InternalAuditDetailView.vue` + `stores/imm16.ts` + `api/imm16.ts`):**
+- `api/imm16.ts` `InternalAudit` += `allowed_transitions?: string[]` + `can_operate?: boolean` + `can_close?: boolean`.
+- Gỡ TOÀN BỘ `audit.status ===` / `['...'].includes(audit.status)` khỏi `<script>` + `<template>` (nút chỉ dùng cờ + `at`). `status` chỉ còn cho badge/stepper.
+- `allowed_transitions` rỗng HOẶC thiếu cờ → **0 CTA** (ẩn, không disable). Worker cũ (3 field vắng) → `?? []`/`?? false` → CTA ẩn, KHÔNG crash.
+- Nút Đóng gate bằng `can_close` (submit) — KHÔNG hiện ở In Progress dù `can_operate=true`.
+- Sau mỗi transition: refetch `get_audit` để `allowed_transitions`/cờ cập nhật (Planned→In Progress ẩn Bắt đầu, hiện editor bảng kiểm…). Error map interceptor VN, KHÔNG echo traceback.
+- KHÔNG leak EN/raw status; nhãn nút giữ tiếng Việt.
+- Test: `internalAuditCtaGate.test.ts` — matrix `status × {can_operate, can_close}` + anti-dead-control click→`startAudit`/`completeAuditChecklist`/`closeAudit` + degrade an toàn khi thiếu `allowed_transitions`.
+
+## II.11. CAPADetailView.vue — Server-driven CTA gating (GATE-8 / LL-FE-51)
+
+> **Vấn đề gốc (dead-gate):** 6 CTA vòng đời gate bằng client-map hardcode `TRANSITIONS: Record<string, Transition[]>` (lines 34-41) + `isVerification = wfState === 'Verification'` → QMS/QTV thấy/bấm action lệch quyền, desync khi workflow `IMM-16 CAPA Workflow` đổi cạnh. Chuyển sang hint server (`allowed_transitions` = tên workflow_state-đích + cờ `can_advance` từ `get_capa` — §III.D.1 backend / ADR-IMM-16-03). Đối xứng FindingDetail (II.9), InternalAuditDetail (II.10), PmWorkOrderDetail (imm08), IncidentDetail (imm12), RepairDetail (imm09).
+
+**Nguồn quyền + hint:**
+```ts
+const at = computed(() => capa.value?.allowed_transitions ?? [])   // fallback an toàn
+const canAdvance = computed(() => capa.value?.can_advance === true) // compliance.write (server-derived)
+const isClosed = computed(() => (capa.value?.workflow_state || 'Open') === 'Closed')
+```
+
+**Mỗi CTA = `canAdvance && at.includes('<workflow_state-đích>')`** — KHÔNG còn `TRANSITIONS[wfState]` / `isVerification`. Dùng **nút rời tường minh** (mirror Finding/Audit), nhãn CTA hardcode VN trong `<template>` (KHÔNG map client edge):
+
+| CTA | Điều kiện | Endpoint |
+|---|---|---|
+| Bắt đầu điều tra | `canAdvance && at.includes('Investigating')` — ở Open **và** Re-opened | `advanceCapaState(name, 'Investigating')` |
+| Lập kế hoạch hành động | `canAdvance && at.includes('Action Plan')` (mở modal payload VR-05 method + VR-12 due_date) | `advanceCapaState(name, 'Action Plan', payload)` |
+| Bắt đầu thực thi | `canAdvance && at.includes('Implementation')` | `advanceCapaState(name, 'Implementation')` |
+| Chuyển sang xác minh | `canAdvance && at.includes('Verification')` | `advanceCapaState(name, 'Verification')` |
+| Đóng CAPA | `canAdvance && at.includes('Closed')` (cổng Verification) → mở modal hiệu quả, `result='Effective'` | **`performEffectivenessCheck`** |
+| Mở lại do chưa hiệu quả | `canAdvance && at.includes('Re-opened')` (cổng Verification) → modal hiệu quả, `result='Not Effective'` | **`performEffectivenessCheck`** |
+
+**Ràng buộc (`CAPADetailView.vue` + `stores/imm16.ts` + `api/imm16.ts`):**
+- `api/imm16.ts` `CapaDetail` (extends `CapaRecord`) += `allowed_transitions?: string[]` + `can_advance?: boolean`.
+- **XOÁ HOÀN TOÀN** `interface Transition` + `const TRANSITIONS: Record<string, Transition[]>` (lines 34-41) + `const transitions` + `const isVerification`. `wfState`/`workflow_state` chỉ còn cho badge/stepper + `isClosed`. `startTransition(target: CapaWorkflowState)` nhận thẳng target (nút rời truyền literal), KHÔNG tra client-map.
+- 2 nút hiệu quả **Đóng/Mở lại** gate bằng `at.includes('Closed')` / `at.includes('Re-opened')` — **thay** `v-if="isVerification"` hardcode. Vẫn gọi `performEffectivenessCheck` (thu `result` Effective/Not Effective → BE `Closed`/`Re-opened`).
+- `allowed_transitions` rỗng HOẶC thiếu cờ → **0 CTA** (ẩn, không disable). Worker cũ (2 field vắng) → `?? []`/`?? false` → CTA ẩn, KHÔNG crash.
+- **Hint khi rỗng:** `!isClosed && at.length === 0` → dòng gợi ý VN. Phân nhánh: `!canAdvance` → "Bạn không đủ quyền thao tác (cần quyền cập nhật tuân thủ)"; ngược lại (có quyền nhưng state không còn cạnh) → "Không có thao tác khả dụng ở trạng thái hiện tại". Ở `isClosed` → badge "CAPA đã đóng — {ngày}" (giữ nguyên).
+- Sau mỗi transition / effectiveness: refetch `get_capa` → `allowed_transitions`/`can_advance` cập nhật. Error map interceptor VN, KHÔNG echo traceback.
+- Nhãn CTA đầy đủ tiếng Việt (LL-FE-53); KHÔNG leak `workflow_state` raw/EN ra UI (badge dùng `capaWorkflowLabel`).
+- Test: `capaCtaGate.test.ts` — matrix `workflow_state × can_advance` + anti-dead-control click→`advanceCapaState(name,'Investigating'/'Action Plan'/'Implementation'/'Verification')` & Đóng/Mở lại→`performEffectivenessCheck` + degrade an toàn khi thiếu `allowed_transitions`/`can_advance`.
+
+## II.12. ManagementReviewDetailView.vue — Server-driven CTA gating (GATE-8 / LL-FE-51)
+
+> **Vấn đề gốc (dead-gate / dead-control):** 3 CTA vòng đời gate bằng **client-map hardcode** `NEXT_LABEL: Record<string,{label,target}>` (lines 29-36) + `canClose = status === 'Minutes Approved'` → MỌI user xem-được (kể cả read-only) thấy/bấm nút rồi BE `FORBIDDEN` 403 (client-map KHÔNG biết caller có `compliance.submit`), desync khi `_MR_TRANSITIONS`/workflow đổi cạnh. Đây là workflow IMM-16 **thứ 4/4 — cái DUY NHẤT chưa server-driven**. Chuyển sang hint server (`allowed_transitions` = tên status-đích + 2 cờ `can_advance`/`can_close` từ `get_management_review` — §III.F.1 backend / ADR-IMM-16-04). Đối xứng CAPADetail (II.11), InternalAuditDetail (II.10), FindingDetail (II.9), PmWorkOrderDetail (imm08), IncidentDetail (imm12), RepairDetail (imm09).
+
+**Nguồn quyền + hint:**
+```ts
+const at = computed(() => mr.value?.allowed_transitions ?? [])     // fallback an toàn
+const canAdvance = computed(() => mr.value?.can_advance === true)  // compliance.submit (server-derived)
+const canCloseFlag = computed(() => mr.value?.can_close === true)  // compliance.submit (server-derived)
+const isClosed = computed(() => (mr.value?.status || 'Draft') === 'Closed')
+```
+
+**Mỗi CTA = cờ quyền tương ứng && `at.includes('<status-đích>')`** — KHÔNG còn `NEXT_LABEL[status]` / `nextStep` / `canClose = status === 'Minutes Approved'`. Dùng **nút rời tường minh** (mirror CAPA/Audit), nhãn CTA hardcode VN trong `<template>` khớp EXACT workflow `IMM-16 Management Review Workflow`:
+
+| CTA (nhãn khớp workflow) | Điều kiện | Endpoint |
+|---|---|---|
+| Đánh dấu Đã họp | `canAdvance && at.includes('Held')` | `advanceMrState(name, 'Held')` |
+| Phê duyệt Biên bản | `canAdvance && at.includes('Minutes Approved')` | `advanceMrState(name, 'Minutes Approved')` |
+| Đóng và xuất biên bản | `canCloseFlag && at.includes('Closed')` (mở modal minutes_doc + ≥1 output action) | `finalizeManagementReview(name, minutes_doc, actions)` |
+
+**Ràng buộc (`ManagementReviewDetailView.vue` + `stores/imm16.ts` + `api/imm16.ts`):**
+- `api/imm16.ts` `ManagementReview` += `allowed_transitions?: string[]` + `can_advance?: boolean` + `can_close?: boolean`.
+- **XOÁ HOÀN TOÀN** `const NEXT_LABEL: Record<string, { label; target }>` (lines 29-36) + `const nextStep` + `const canClose = computed(() => status.value === 'Minutes Approved')`. `status` chỉ còn cho badge/stepper + `isClosed` + `editable`. Nút chuyển-cạnh truyền literal target (`'Held'`/`'Minutes Approved'`) trực tiếp vào `advance(target)`, KHÔNG tra client-map.
+- `allowed_transitions` rỗng HOẶC thiếu cờ → **0 CTA** (ẩn, không disable). Worker cũ / BE lỗi (3 field vắng) → `?? []`/`?? false` → CTA ẩn, KHÔNG dead-control, KHÔNG crash.
+- **Hint khi rỗng:** `!isClosed && at.length === 0` → dòng gợi ý VN. Phân nhánh: `!canAdvance && !canCloseFlag` → "Bạn không đủ quyền thao tác (cần quyền phê duyệt tuân thủ)"; ngược lại → "Không có thao tác khả dụng ở trạng thái hiện tại". Ở `isClosed` → giữ badge trạng thái "Đã đóng".
+- Sau mỗi transition / finalize: refetch `get_management_review` (`refreshAll`) → `allowed_transitions`/2 cờ cập nhật (Draft→Held ẩn "Đánh dấu Đã họp", hiện "Phê duyệt Biên bản"…). Error map interceptor VN, KHÔNG echo traceback.
+- Nhãn CTA đầy đủ tiếng Việt (LL-FE-53); KHÔNG leak `status`/`workflow_state` raw/EN ra UI (badge dùng nhãn VI qua `StatusBadge`).
+- Test: `managementReviewCtaGate.test.ts` — matrix `status × {can_advance, can_close}` + anti-dead-control click→`advanceMrState(name,'Held'/'Minutes Approved')` & Đóng→`finalizeManagementReview` + degrade an toàn khi thiếu `allowed_transitions`/2 cờ + user không quyền → 0 CTA.
+
 ## UX Patterns chung
 
 ### Toast / Notification

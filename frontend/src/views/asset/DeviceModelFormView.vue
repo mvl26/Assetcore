@@ -9,11 +9,18 @@ import PageHeader from '@/components/common/PageHeader.vue'
 import type { ImmDeviceModel, AcAssetCategory } from '@/types/imm00'
 import { useFormDraft } from '@/composables/useFormDraft'
 import { translateDepreciationMethod } from '@/utils/formatters'
+import { useCapabilities } from '@/composables/useCapabilities'
 
+const { can } = useCapabilities()
 const route = useRoute()
 const router = useRouter()
 const isEdit = computed(() => !!route.params.id)
 const name = computed(() => route.params.id as string | undefined)
+// CR-RBAC-PARITY (2026-07-15): route /device-models/:id hạ xuống data.read để user
+// chỉ-đọc XEM được chi tiết model (list row click-toàn-hàng). Khi thiếu data.write →
+// render READ-ONLY: fieldset :disabled khoá mọi input + ẩn nút Lưu/Xóa. Ghi vẫn cần
+// data.write (BE DocPerm). Create mode (route /new) đã gate data.create nên !readonly.
+const readonly = computed(() => isEdit.value && !can('data.write'))
 
 const form = ref<Partial<ImmDeviceModel> & Record<string, unknown>>({
   model_name: '',
@@ -183,7 +190,7 @@ onMounted(load)
       ]"
     >
       <template #actions>
-        <button v-if="isEdit" class="text-red-600 hover:text-red-800 text-sm font-medium" @click="remove">Xóa</button>
+        <button v-if="isEdit && !readonly" class="text-red-600 hover:text-red-800 text-sm font-medium" @click="remove">Xóa</button>
       </template>
     </PageHeader>
 
@@ -191,6 +198,11 @@ onMounted(load)
 
     <div v-if="loading" class="text-center text-gray-400 py-12">Đang tải...</div>
     <div v-else class="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
+      <div v-if="readonly" class="flex items-center gap-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-sm px-3 py-2">
+        <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+        Chế độ chỉ xem — bạn không có quyền chỉnh sửa Model thiết bị.
+      </div>
+      <fieldset :disabled="readonly" class="contents">
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div class="col-span-2">
           <label class="block text-sm font-medium text-gray-700 mb-1">Tên Model <span class="text-red-500">*</span></label>
@@ -448,9 +460,10 @@ v-model="form.specifications" rows="4"
         <textarea v-model="form.notes" rows="3" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"></textarea>
       </div>
 
+      </fieldset>
       <div class="flex justify-end gap-2 pt-4 border-t border-gray-100">
-        <button class="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50" @click="router.push('/device-models')">Hủy</button>
-        <button class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50" :disabled="saving" @click="save">
+        <button class="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50" @click="router.push('/device-models')">{{ readonly ? 'Quay lại' : 'Hủy' }}</button>
+        <button v-if="!readonly" class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50" :disabled="saving" @click="save">
           {{ saving ? 'Đang lưu...' : (isEdit ? 'Cập nhật' : 'Tạo mới') }}
         </button>
       </div>

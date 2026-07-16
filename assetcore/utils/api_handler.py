@@ -53,11 +53,15 @@ def handle(fn: Callable, *args: Any, **kwargs: Any) -> dict:
 
 def _service_error_to_envelope(e: ServiceError) -> dict:
     """Convert ServiceError → error envelope, hydrate notification fields từ registry."""
+    # Field-level validation errors (vd upload) → envelope `fields` cho FE hiển thị
+    # lỗi dưới đúng control. Rỗng → `_err` bỏ qua (không noise).
+    fields = getattr(e, "fields", None) or None
     if e.message_code:
         entry = lookup_message(e.message_code)
         return _err(
             e.message,
             e.code,
+            fields=fields,
             http_status=e.http_status,
             message_code=e.message_code,
             context=e.context if e.context else None,
@@ -66,7 +70,7 @@ def _service_error_to_envelope(e: ServiceError) -> dict:
             title=entry.get("title"),
         )
     # Legacy ServiceError không có message_code → envelope tối thiểu
-    return _err(e.message, e.code, http_status=e.http_status)
+    return _err(e.message, e.code, fields=fields, http_status=e.http_status)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

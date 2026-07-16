@@ -150,6 +150,13 @@ Stepper: [Draft] ▶ [Open RFQ] ▶ [Quotation Received] ▶ [Evaluated]
 
 **Hành vi đỉnh hòa (INV-VE-TIE §IV.7):** khi `has_top_tie=1` → ẩn dòng "★ Đề xuất", hiện banner cảnh báo + danh sách `tied_candidates`. Nút "Tạo Procurement Decision" vẫn cho phép nhưng **KHÔNG** prefill `winner_supplier` từ `recommended_candidate` (vì = null) — Decision form bắt người dùng chọn NCC trúng thầu thủ công; cổng `_vr05_winner_avl_required` (VR-03-05) vẫn chặn NCC không có AVL live khi submit.
 
+**Computed workflow CTA (server-driven — GATE-8 / LL-FE-51, parity `DecisionDetailView` §II.4; 04 §VII.2.b / 05 §3.19 / ADR-IMM-03-02):**
+- `availableActions = computed(() => store.currentEval?.allowed_transitions ?? [])` — nguồn DUY NHẤT gate nút CTA. **KHÁC Decision KHÔNG `.filter`** (Eval không có action-form riêng — mọi action đi qua 1 endpoint). Render 1 nút / action; click → `transitionEvalWorkflow(store.currentEval.name, action)` đúng `action`.
+- `WORKFLOW_STATES` (`['Draft','Open RFQ','Quotation Received','Evaluated']`) CHỈ dùng cho stepper hiển thị read-only (`stepClass`) — KHÔNG gate nút.
+- Ví dụ: `allowed_transitions = ['Hoàn tất chấm điểm','Huỷ Eval']` (Quotation Received) → render đúng 2 nút. `[]` hoặc `undefined` (BE cũ chưa reload) → 0 nút transition (**degrade an toàn, KHÔNG rơi về client-map**).
+
+> **Delta (gỡ client-map — mirror Decision §II.4):** BỎ hằng `TRANSITIONS_BY_STATE` (VendorEvalDetailView 412–416) + biểu thức `availableActions` cũ đọc từ nó. `availableActions` giờ đọc `store.currentEval?.allowed_transitions`. KHÔNG còn bất kỳ literal `action`/`state` nào gate nút transition; `workflow_state ===` chỉ được phép ở nhãn/stepper read-only qua `WORKFLOW_STATES`. `allowed_transitions` là hint hiển thị (state-level); guard role BE (`apply_workflow` qua `transition_eval_workflow`) vẫn là chốt enforcement per-role — lỗi transition thiếu quyền (403) → `notify.fromError` map thông điệp VN (interceptor `axios.ts` xử lý sẵn — KHÔNG churn), KHÔNG echo traceback. Type `EvalDoc` += `allowed_transitions?: string[]` (mirror `DecisionDoc`).
+
 ---
 
 ### II.4 `DecisionDetailView.vue` ✅ (tên cũ trong spec: `DecisionDetail.vue`)
@@ -175,17 +182,25 @@ Stepper: [Draft]▶[Method]▶[Negotiation]▶[Recommended]▶[Pending]▶[Award
     Người phê duyệt: [vp.block1@... ▾]
     Hợp đồng: [upload PDF]
 
-Action footer (theo state + role):
-  [Trình BGĐ]    (PTP Khối 1, state Award Recommended)
-  [Awarded ✓]    (VP Block1, state Pending Approval)
-  [Huỷ]         (Dept Head, trước Awarded)
+Action footer (server-driven — theo allowed_transitions từ get_decision):
+  [Trình BGĐ]         (state Award Recommended)
+  Form "Phê duyệt trao thầu"  (state Pending Approval — canAward)
+  [Huỷ Decision]      (state Pending Approval — nút transition chung)
+  Form "Ghi nhận hợp đồng"    (state Awarded — canRecordContract)
+  [Phát hành PO]      (state Contract Signed)
 
 Sau Awarded:
   Tab phụ "AC Purchase" → AC-PUR-2026-00112 [Click để xem]
 ```
 
 **Props:** `name: string`
-**Computed:** `isEditable`, `availableActions` (theo role + state)
+**Computed (server-driven CTA — GATE-8 / LL-FE-51, 04 §VII.2.a / 05 §3.20):**
+- `allowedTransitions = store.currentDecision?.allowed_transitions ?? []` — nguồn DUY NHẤT để gate nút.
+- `canAward = allowedTransitions.includes('Phê duyệt trúng thầu')` (mở form "Phê duyệt trao thầu" → gọi `award_decision`).
+- `canRecordContract = allowedTransitions.includes('Ký HĐ')` (mở form "Ghi nhận hợp đồng" → gọi `record_contract`, nội bộ `apply_workflow('Ký HĐ')`).
+- `availableActions = allowedTransitions.filter(a => !['Phê duyệt trúng thầu','Ký HĐ'].includes(a))` — nút transition chung (1 nút/action) qua `transition_decision_workflow`; loại 2 action đã có form riêng. Ở `Pending Approval` → `['Huỷ Decision']` (nút Huỷ Decision hiện — fix bug desync).
+
+> **Delta (gỡ client-map desync):** BỎ hằng `TRANSITIONS_BY_STATE` (thiếu key `Pending Approval`/`Awarded` → nút "Huỷ Decision" không bao giờ render dù QTV/Procurement Manager có quyền). BỎ `canAward = workflow_state === 'Pending Approval'` và `canRecordContract = workflow_state === 'Awarded'` (hardcode). KHÔNG còn bất kỳ `v-if` gate action nào theo `workflow_state === 'X'` (`workflow_state ===` chỉ được phép ở nhãn/stepper read-only). `allowed_transitions` là hint hiển thị; guard role BE (`apply_workflow`/`award_decision`/`record_contract`) vẫn là chốt enforcement.
 
 ---
 
@@ -228,6 +243,40 @@ Kết quả lọc: 5 quyết định            [Xóa tất cả]   (gỡ filter
 **Tests (vitest — `DecisionListView` spec):** click tile `Đã trao thầu`/`Chờ phê duyệt`/`Đã phát hành đơn hàng` → `quickFilter('workflow_state', <S>)` đúng `Awarded`/`Pending Approval`/`PO Issued`; click lại tile active → filter về `''`; assert `aria-pressed`/active class khi filter trùng. Mock store bằng real refs + real pinia `storeToRefs` (tránh false-positive error branch).
 
 **Props/State:** không thêm prop view; tái dùng `filters.workflow_state`, `quickFilter`, `resetFilters`, `activeChips`, `store.kpis` đã có. KHÔNG đổi `buildPayload` (workflow_state đã được map sang filter BE — line 58).
+
+---
+
+### II.4c `AvlListView.vue` — CTA workflow server-driven (GATE-8 / LL-FE-51; parity Decision/Eval §II.4)
+
+**Đóng workflow IMM-03 thứ 3/3.** Gỡ hardcode gate + client-spoof approver; render nút CTA theo `allowed_transitions` BE emit (role-filtered) mỗi row.
+
+**Type (`types/imm03.ts`):** `AvlListItem` += `allowed_transitions?: string[]` (mirror `EvalDoc`/`DecisionDoc` — ĐÃ LIVE).
+
+> **⚠️ Self-Correction R-06-AVL-01 (2026-07-14 — align với FE LIVE).** Bản trước ghi `restoreAvl(name)→restore_avl` + `setConditionalAvl(name)→set_conditional_avl` (endpoint riêng, không param). **FE LIVE (`AvlListView.vue`, `api/imm03.ts`, `stores/imm03.ts`) KHÔNG có `restoreAvl`**: Phục hồi dùng CHUNG `approveAvl(name)` (cờ UI `restore=true` chỉ đổi tiêu đề confirm). CR vòng 33 spec đúng: `setAvlConditional(name, condition_notes)` (CÓ param condition_notes, tên `set_avl_conditional`).
+
+**API (`api/imm03.ts`) — LIVE + delta vòng 33:**
+- `approveAvl(name)` (LIVE) → `frappePost(approve_avl, { name })` — phục vụ CẢ Phê duyệt (Draft) lẫn Phục hồi (Conditional/Suspended); KHÔNG gửi `approver`.
+- `suspendAvl(name, suspension_reason)` (LIVE) → `frappePost(suspend_avl, { name, suspension_reason })`.
+- **`setAvlConditional(name, condition_notes)` — MỚI** → `frappePost(set_avl_conditional, { name, condition_notes })`. Return `Promise<{ name: string; workflow_state: string }>`.
+- **`AVL_ACTIONS`**: BỎ comment `// … (chưa có endpoint BE)` ở `GRANT_CONDITIONAL`/`DOWNGRADE_CONDITIONAL` (endpoint đã land vòng 33).
+- `listAvl`/`getAvl` trả `AvlListItem` (có `allowed_transitions`) — LIVE.
+
+**Store (`stores/imm03.ts`):**
+- `approveAvlEntry(name)` / `suspendAvlEntry(name, reason)` — LIVE (qua `_avlTransition` → refetch giữ filter).
+- **`setAvlConditional(name, condition_notes)` — MỚI** → `_avlTransition(() => api.setAvlConditional(name, condition_notes))`. Export trong return của store.
+
+**View (`AvlListView.vue`) — LIVE có `canApproveAvl`/`canRestoreAvl`/`canSuspendAvl` + delta 2 nút Conditional:**
+- Gate nút theo `allowedActions(a) = a.allowed_transitions ?? []` (KHÔNG hardcode `workflow_state === 'X'` — LIVE). Thêm 2 gate:
+  - `canGrantConditional(a) = allowedActions(a).includes(AVL_ACTIONS.GRANT_CONDITIONAL)` // 'Cấp Conditional' (chỉ khi state=Draft, BE role-filter Spec Manager)
+  - `canDowngradeConditional(a) = allowedActions(a).includes(AVL_ACTIONS.DOWNGRADE_CONDITIONAL)` // 'Hạ xuống Conditional' (chỉ khi state=Approved)
+- Render nút: **Phê duyệt** (canApproveAvl) · **Phục hồi Approved** (canRestoreAvl) · **Đình chỉ** (canSuspendAvl) · **Cấp Conditional** (canGrantConditional — MỚI, amber) · **Hạ xuống Conditional** (canDowngradeConditional — MỚI, amber). Cả card mobile + bảng desktop; mỗi nút CHỈ render khi label ∈ `allowed_transitions`.
+- **condition_notes prompt (mirror modal Đình chỉ):** click "Cấp Conditional"/"Hạ xuống Conditional" → mở `BaseModal` reuse pattern `suspendTarget`/`suspendReason` (state riêng `conditionalTarget`/`conditionNotes`/`conditionalBusy`; label "Ghi chú điều kiện *", `data-testid="avl-condition-notes"`, `:disabled="!conditionNotes.trim() || conditionalBusy"`). Confirm → `store.setAvlConditional(a.name, conditionNotes.trim())` → success `notify.show(UI_SAVE_SUCCESS)` + đóng modal + re-fetch; fail → `notify.fromError(store.lastApiError)`.
+- Error transition thiếu quyền (FORBIDDEN) → `notify.fromError` map VN qua interceptor `axios.ts` (KHÔNG echo traceback).
+- **Degrade an toàn:** `allowed_transitions` rỗng/undefined → 0 nút (KHÔNG dead-control 403, KHÔNG rơi về client-map). `workflow_state ===` chỉ được ở `<StatusBadge>`/quickFilter (nhãn read-only).
+
+**Test (`avlCtaGating.test.ts` — MỞ RỘNG):** row Draft `allowed_transitions=['Phê duyệt AVL','Cấp Conditional']` → render "Cấp Conditional", click → mở modal → confirm với notes → `store.setAvlConditional` gọi đúng `(name, notes)`; row Approved `['Hạ xuống Conditional','Đình chỉ']` → render "Hạ xuống Conditional"; `[]`/undefined → 0 nút. `vue-tsc` clean.
+
+**Boundaries:** Always gate nút theo `allowed_transitions` + bắt buộc nhập condition_notes trước khi gọi `setAvlConditional`; Never hardcode `workflow_state === 'X'` gate nút, Never gửi `approver` từ client, Never gọi `setAvlConditional` với notes rỗng (BE sẽ VALIDATION nhưng FE chặn trước cho UX).
 
 ---
 
@@ -335,6 +384,42 @@ Phát hiện:
 ```
 
 ---
+
+### II.9 `PurchaseDetailView.vue` — CTA server-driven `can_*` (GATE-8 / LL-FE-51; 02 §IV.12, ADR-IMM-03-05)
+
+> `frontend/src/views/purchase/PurchaseDetailView.vue` — GỠ hardcode `docstatus`/`status`, gate nút theo cờ `can_*` do `get_purchase` phát (SoT server). Degrade an toàn: thiếu cờ → 0 nút (KHÔNG dead-control 403-khi-bấm).
+
+**Interface `Purchase` (`frontend/src/api/purchase.ts`)** thêm cờ optional:
+
+```ts
+export interface Purchase {
+  // ...cũ...
+  can_submit?: boolean
+  can_receive?: boolean
+  can_cancel?: boolean
+  can_create_receipt?: boolean
+  can_edit?: boolean
+  can_delete?: boolean
+}
+```
+
+**Đổi `<template>` — GỠ mọi `v-if="doc.docstatus === X"` / `status === 'Y'` ở nút, thay bằng cờ server:**
+
+| Nút | Trước (hardcode) | Sau (server flag) |
+|---|---|---|
+| Sửa (line 173) | `v-if="doc.docstatus === 0"` | `v-if="doc.can_edit"` |
+| Xoá (line 174) | `v-if="doc.docstatus === 0"` | `v-if="doc.can_delete"` |
+| Duyệt đơn (line 175) | `v-if="doc.docstatus === 0"` | `v-if="doc.can_submit"` |
+| Xác nhận nhận hàng (line 178) | `v-if="doc.docstatus === 1 && doc.status === 'Submitted'"` | `v-if="doc.can_receive"` |
+| Huỷ đơn (line 181) | `v-if="doc.docstatus === 1 && doc.status !== 'Received' && doc.status !== 'Cancelled'"` | `v-if="doc.can_cancel"` |
+| + Tạo phiếu nhập kho (line 333) | `v-if="doc.docstatus === 1 && doc.status === 'Submitted'"` | `v-if="doc.can_create_receipt"` |
+
+- **Chỉ display**: `status`/`docstatus` VẪN dùng cho badge (`STATUS_LABELS`/`STATUS_CLASS`, line 187) + stepper/nhãn read-only + các dòng thông tin — KHÔNG gate hành động. `formatStatus`/`STATUS_LABELS` giữ nguyên (không leak enum EN).
+- **Hint "cần duyệt"** (line 273/340 "Cần duyệt đơn hàng để tiếp nhận" / "Cần duyệt đơn trước khi nhập kho"): giữ nếu vẫn dựa `docstatus !== 1` (thông tin trạng thái, không phải nút hành động) — HOẶC đổi sang phủ định cờ nếu muốn nhất quán.
+- **Nút "Tạo phiếu tiếp nhận"** (line 312, IMM-04 `commissioning.create`) + nút "+ New" ở `PurchaseListView`: **[BACKLOG]** ngoài scope vòng này (cần cờ `can_commission`/`can('purchase.create')` riêng).
+- **Handler** `doSubmit`/`doMarkReceived`/`doCancel`/`doDelete`/`doCreateReceipt` giữ nguyên; lỗi 403 (nếu race cờ stale) map qua axios interceptor → message VN, KHÔNG echo traceback. `confirm()` cũ giữ nguyên (không trong scope; có thể nâng `useNotify.confirm` [BACKLOG]).
+
+**Vitest (parity firmwareCrCtaGate.test.ts):** matrix state × cờ — mount PurchaseDetailView với doc `can_*` khác nhau, assert nút hiện/ẩn đúng + thiếu cờ (undefined) → 0 nút (degrade). Xem 07 §III.A.
 
 ## III. Atomic Components
 

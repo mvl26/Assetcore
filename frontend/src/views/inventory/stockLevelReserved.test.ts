@@ -3,6 +3,8 @@
 // Khi reserved_qty>0: 'Đã giữ' hiển thị đúng, 'Khả dụng' = available_qty (= Tồn − Đã giữ),
 // KHÔNG còn dead-column luôn-0, KHÔNG fallback available==qty_on_hand khi reserved>0.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+// CR-AFFORD: view giờ gọi useCapabilities() ở setup (gate nút Tạo) → mock để mount không cần Pinia.
+vi.mock('@/composables/useCapabilities', () => ({ useCapabilities: () => ({ can: () => true }) }))
 import { mount, flushPromises } from '@vue/test-utils'
 import { ref } from 'vue'
 import type { StockRow } from '@/types/inventory'

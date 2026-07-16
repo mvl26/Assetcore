@@ -11,7 +11,8 @@
 //   4. moduleId → `<domain>.read` fallback
 // Route mở (không meta nào) → allow.
 import { describe, it, expect } from 'vitest'
-import { resolveRouteAccess, type RouteAccessCtx } from './routeAccess'
+import { resolveRouteAccess, type RouteAccessCtx, type RouteAccessMeta } from './routeAccess'
+import { routes } from './index'
 
 function ctx(opts: Partial<RouteAccessCtx> = {}): RouteAccessCtx {
   return {
@@ -234,5 +235,191 @@ describe('§7.septies.3 — /depreciation finance OR-gate (VĐ2)', () => {
   })
   it('admin bypass → allow', () => {
     expect(resolveRouteAccess(DEP_META, ctx({ isFrappeAdmin: true }))).toBe('allow')
+  })
+})
+
+// ─── CR-TRF-AUTHZ: Asset Transfer route-access = Commissioning domain ─────────
+// Bug (2026-07-15): /asset-transfers gate qua imm15→inventory.read (SAI domain).
+// BE gate TOÀN BỘ vòng đời transfer theo Commissioning (DocPerm Asset Transfer +
+// service commissioning.submit/write). Hệ quả: Thủ kho (inventory) lọt route-gate
+// rồi 403 ở list_transfers; Trưởng phòng VT-TTBYT (commissioning) bị /unauthorized.
+// Fix: gate route theo commissioning.read (view) / commissioning.create (new) —
+// khớp BE, KHÔNG cấp quyền mới. Guard bind vào ROUTE THẬT (routes import).
+describe('CR-TRF-AUTHZ — Asset Transfer route gate theo Commissioning (FE↔BE parity)', () => {
+  const findRoute = (path: string) => {
+    const stack = [...routes]
+    while (stack.length) {
+      const r = stack.shift()!
+      if (r.path === path) return r
+      if (r.children) stack.push(...r.children)
+    }
+    return undefined
+  }
+  const invCtx = ctx({ can: canOnly('inventory.read', 'inventory.create', 'inventory.write') })
+  const comReadCtx = ctx({ can: canOnly('commissioning.read') })
+
+  it('CR-TRF-ROUTE-1: /asset-transfers (list) — inventory-only DENY, commissioning ALLOW', () => {
+    const r = findRoute('/asset-transfers')
+    expect(r).toBeTruthy()
+    const meta = r!.meta as RouteAccessMeta
+    expect(resolveRouteAccess(meta, invCtx)).toBe('unauthorized')
+    expect(resolveRouteAccess(meta, comReadCtx)).toBe('allow')
+  })
+
+  it('CR-TRF-ROUTE-2: /asset-transfers/:id (detail) — inventory-only DENY, commissioning ALLOW', () => {
+    const meta = findRoute('/asset-transfers/:id')!.meta as RouteAccessMeta
+    expect(resolveRouteAccess(meta, invCtx)).toBe('unauthorized')
+    expect(resolveRouteAccess(meta, comReadCtx)).toBe('allow')
+  })
+
+  it('CR-TRF-ROUTE-3: /asset-transfers/new (create) — commissioning.create ALLOW, inventory.create DENY', () => {
+    const meta = findRoute('/asset-transfers/new')!.meta as RouteAccessMeta
+    expect(resolveRouteAccess(meta, ctx({ can: canOnly('commissioning.create') }))).toBe('allow')
+    expect(resolveRouteAccess(meta, ctx({ can: canOnly('inventory.create') }))).toBe('unauthorized')
+  })
+})
+
+// ─── CR-SPEC-AUTHZ: /tech-specs route gate theo Spec domain (khớp BE) ─────────
+// Audit RBAC-parity (2026-07-15) phát hiện drift cùng lớp transfer: 3 route
+// /tech-specs gate 'needs.read' (SAI domain) trong khi BE IMM Tech Spec = Spec
+// roles (Spec Manager/User + Auditor) và sidebar item đã dùng 'spec.read'. Latent
+// leak: user spec-only sẽ thấy link (spec.read) nhưng route chặn (needs.read).
+// Fix: list/detail → spec.read, /new → spec.create.
+describe('CR-SPEC-AUTHZ — /tech-specs gate theo Spec domain (FE↔BE parity)', () => {
+  const find = (path: string) => {
+    const stack = [...routes]
+    while (stack.length) {
+      const r = stack.shift()!
+      if (r.path === path) return r
+      if (r.children) stack.push(...r.children)
+    }
+    return undefined
+  }
+  const needsOnly = ctx({ can: canOnly('needs.read', 'needs.create') })
+  const specRead = ctx({ can: canOnly('spec.read') })
+
+  it('CR-SPEC-1: /tech-specs (list) — needs-only DENY, spec.read ALLOW', () => {
+    const meta = find('/tech-specs')!.meta as RouteAccessMeta
+    expect(resolveRouteAccess(meta, needsOnly)).toBe('unauthorized')
+    expect(resolveRouteAccess(meta, specRead)).toBe('allow')
+  })
+  it('CR-SPEC-2: /tech-specs/:id (detail) — needs-only DENY, spec.read ALLOW', () => {
+    const meta = find('/tech-specs/:id')!.meta as RouteAccessMeta
+    expect(resolveRouteAccess(meta, needsOnly)).toBe('unauthorized')
+    expect(resolveRouteAccess(meta, specRead)).toBe('allow')
+  })
+  it('CR-SPEC-3: /tech-specs/new (create) — spec.create ALLOW, needs.read DENY', () => {
+    const meta = find('/tech-specs/new')!.meta as RouteAccessMeta
+    expect(resolveRouteAccess(meta, ctx({ can: canOnly('spec.create') }))).toBe('allow')
+    expect(resolveRouteAccess(meta, ctx({ can: canOnly('needs.read', 'needs.create') }))).toBe('unauthorized')
+  })
+})
+
+// ─── CR-RBAC-PARITY: list ⇔ detail cùng cấp XEM (không dead-gate khi click) ──────
+// Audit mở rộng (2026-07-15) phát hiện thêm lỗi cùng lớp transfer: route DETAIL
+// gate cap CHẶT hơn route LIST → user mở được list, click 1 hàng → /unauthorized.
+// Sidebar-parity guard (sidebarRouteParity.test.ts) chỉ soi path LIST (path có ở
+// sidebar); test này chốt riêng cặp list↔detail cho CAPA (compliance.read) và
+// Firmware CR (repair.write). Hành động DUYỆT/ĐÓNG trong detail vẫn gate
+// server-driven (allowed_transitions / firmware.approve), KHÔNG do route cấp.
+describe('CR-RBAC-PARITY — XEM list ⇔ detail đồng cấp (chống dead-gate khi click hàng)', () => {
+  const find = (path: string) => {
+    const stack = [...routes]
+    while (stack.length) {
+      const r = stack.shift()!
+      if (r.path === path) return r
+      if (r.children) stack.push(...r.children)
+    }
+    return undefined
+  }
+  it('CAPA: /capas (list) và /capas/:id (detail) — compliance.read vào được CẢ HAI', () => {
+    const complianceRead = ctx({ can: canOnly('compliance.read') })
+    expect(resolveRouteAccess(find('/capas')!.meta as RouteAccessMeta, complianceRead)).toBe('allow')
+    expect(resolveRouteAccess(find('/capas/:id')!.meta as RouteAccessMeta, complianceRead)).toBe('allow')
+  })
+  it('CAPA: user chỉ capa.close (submit) KHÔNG bị coi là điều kiện XEM — vẫn cần compliance.read', () => {
+    // Không nới quyền đóng: capa.close-only mà thiếu compliance.read thì không XEM
+    // (edge lý thuyết — thực tế submit⇒read). Chốt: XEM neo vào compliance.read.
+    const capaCloseOnly = ctx({ can: canOnly('capa.close') })
+    expect(resolveRouteAccess(find('/capas/:id')!.meta as RouteAccessMeta, capaCloseOnly)).toBe('unauthorized')
+  })
+  it('Firmware CR: /cm/firmware và /cm/firmware/:id — repair.write vào được, repair.read-only DENY', () => {
+    const write = ctx({ can: canOnly('repair.write') })
+    const readOnly = ctx({ can: canOnly('repair.read') })
+    expect(resolveRouteAccess(find('/cm/firmware')!.meta as RouteAccessMeta, write)).toBe('allow')
+    expect(resolveRouteAccess(find('/cm/firmware/:id')!.meta as RouteAccessMeta, write)).toBe('allow')
+    expect(resolveRouteAccess(find('/cm/firmware')!.meta as RouteAccessMeta, readOnly)).toBe('unauthorized')
+  })
+  it('RCA: /rca và /rca/:id — corrective.read vào được (khớp drill-map), soạn thảo server-gated', () => {
+    // Persona giám sát read-only (opsmgr) drill sự cố → RCA: XEM được read-only.
+    // TRƯỚC gate corrective.write → drill dead-gate. can_manage_rca gate soạn thảo.
+    const read = ctx({ can: canOnly('corrective.read') })
+    expect(resolveRouteAccess(find('/rca')!.meta as RouteAccessMeta, read)).toBe('allow')
+    expect(resolveRouteAccess(find('/rca/:id')!.meta as RouteAccessMeta, read)).toBe('allow')
+  })
+})
+
+// ─── CR-AFFORD: /purchases/new gate theo purchase.create (khớp BE AC Purchase) ──
+// Route cũ KHÔNG khai requiredCapabilities → fallback imm03→procurement.read (cap
+// READ) cho hành động TẠO. BE create AC Purchase = Procurement Manager/User
+// (purchase.create). Fix: gate purchase.create — procurement.read-only (vd Auditor)
+// KHÔNG tạo được (parity BE, tránh form→submit→403).
+describe('CR-AFFORD — /purchases/new gate purchase.create (FE↔BE parity)', () => {
+  const find = (path: string) => {
+    const stack = [...routes]
+    while (stack.length) {
+      const r = stack.shift()!
+      if (r.path === path) return r
+      if (r.children) stack.push(...r.children)
+    }
+    return undefined
+  }
+  it('purchase.create ALLOW, procurement.read-only DENY', () => {
+    const meta = find('/purchases/new')!.meta as RouteAccessMeta
+    expect(resolveRouteAccess(meta, ctx({ can: canOnly('purchase.create') }))).toBe('allow')
+    expect(resolveRouteAccess(meta, ctx({ can: canOnly('procurement.read') }))).toBe('unauthorized')
+  })
+})
+
+// ─── CR-AFFORD: /needs-requests/new gate theo needs.create (khớp BE) ───────────
+// Route TẠO đề xuất nhu cầu gate 'needs.read' (cap ĐỌC) → user chỉ-đọc mở form
+// tạo rồi doc.insert() 403 (DocPerm create IMM Needs Request = needs.create). Fix:
+// gate needs.create — parity BE + nút "Tạo đề xuất" (NeedsRequestListView) cùng cap.
+describe('CR-AFFORD — /needs-requests/new gate needs.create (FE↔BE parity)', () => {
+  const find = (path: string) => {
+    const stack = [...routes]
+    while (stack.length) {
+      const r = stack.shift()!
+      if (r.path === path) return r
+      if (r.children) stack.push(...r.children)
+    }
+    return undefined
+  }
+  it('needs.create ALLOW, needs.read-only DENY', () => {
+    const meta = find('/needs-requests/new')!.meta as RouteAccessMeta
+    expect(resolveRouteAccess(meta, ctx({ can: canOnly('needs.create') }))).toBe('allow')
+    expect(resolveRouteAccess(meta, ctx({ can: canOnly('needs.read') }))).toBe('unauthorized')
+  })
+})
+
+// ─── CR-RBAC-PARITY: /device-models/:id XEM = data.read (form render read-only) ──
+// DeviceModelListView click-toàn-hàng → /device-models/:id. TRƯỚC gate data.write
+// (chỉ có route SỬA) → user data.read (thấy list) click model → /unauthorized
+// (dead-gate). Fix: route data.read; DeviceModelFormView render READ-ONLY khi thiếu
+// data.write (fieldset :disabled + ẩn Lưu/Xóa). Ghi vẫn cần data.write ở BE.
+describe('CR-RBAC-PARITY — /device-models/:id XEM data.read (read-only khi thiếu write)', () => {
+  const find = (path: string) => {
+    const stack = [...routes]
+    while (stack.length) {
+      const r = stack.shift()!
+      if (r.path === path) return r
+      if (r.children) stack.push(...r.children)
+    }
+    return undefined
+  }
+  it('data.read vào được (đọc), no-cap DENY', () => {
+    const meta = find('/device-models/:id')!.meta as RouteAccessMeta
+    expect(resolveRouteAccess(meta, ctx({ can: canOnly('data.read') }))).toBe('allow')
+    expect(resolveRouteAccess(meta, ctx())).toBe('unauthorized')
   })
 })

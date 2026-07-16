@@ -184,9 +184,45 @@ def get_needs_request(name: str) -> dict:
     return _handle(_get_needs_request, name)
 
 
+def _nr_allowed_transition_actions(doc) -> list[str]:
+    """Danh sách workflow ACTION mà user HIỆN TẠI được phép trên phiếu đề xuất.
+
+    Tính bằng ``frappe.model.workflow.get_transitions`` trên _DT_NR (IMM Needs
+    Request) — đã lọc theo state hiện tại + role của user gọi. Dedupe theo action
+    (get_transitions trả 1 row / action×role match). Đối xứng
+    ``_plan_allowed_transition_actions`` (Procurement Plan).
+
+    Server-driven CTA gating (GATE-8 / LL-FE-51): FE (NeedsRequestDetailView) gate
+    nút Phê duyệt/Bác đề xuất theo list này → gỡ dead-gate isBoardApprover (Dept
+    Head/Ops Manager) desync khỏi role transition thật (Procurement Manager /
+    AssetCore Super Admin / System Manager theo fixtures/workflow.json).
+
+    ``get_transitions`` gọi ``doc.check_permission("read")`` + có thể ném
+    WorkflowStateError. Đây là trường PHỤ TRỢ cho payload get_needs_request: user
+    không đủ quyền đọc (chỉ base role AssetCore System User) → trả [] (0 nút) thay
+    vì làm VỠ payload bằng 403/500. CTA gating degrade graceful, KHÔNG nuốt lỗi
+    ghi/DB (get_transitions read-only).
+    """
+    from frappe.model.workflow import get_transitions
+
+    try:
+        transitions = get_transitions(doc) or []
+    except Exception:
+        return []
+    actions: list[str] = []
+    for t in transitions:
+        action = t.get("action")
+        if action and action not in actions:
+            actions.append(action)
+    return actions
+
+
 def _get_needs_request(name: str) -> dict:
     doc = frappe.get_doc(_DT_NR, name)
     data = doc.as_dict()
+    # Server-driven CTA gating (GATE-8 / LL-FE-51): action workflow user hiện tại
+    # được phép — FE render nút Phê duyệt/Bác đề xuất theo list này (dedupe action).
+    data["allowed_transitions"] = _nr_allowed_transition_actions(doc)
     # Enrich with human-readable department name for FE display
     if doc.requesting_department:
         data["requesting_department_name"] = frappe.db.get_value(
@@ -361,6 +397,16 @@ def _approve_needs_request(name: str, board_approver: str, remarks: str) -> dict
             _("Chỉ phiếu ở state 'Pending Approval' mới Approve được (hiện: {0})")
             .format(doc.workflow_state),
         )
+    # Đóng lỗ set workflow_state trực tiếp bỏ qua kiểm role transition: chỉ user
+    # nằm trong allowed roles của 'Phê duyệt' (Procurement Manager / AssetCore Super
+    # Admin / System Manager theo fixtures/workflow.json) mới approve. Kiểm TRƯỚC
+    # khi mutate → FORBIDDEN(403) sạch, không để Frappe ném raw
+    # WorkflowPermissionError khi doc.submit().
+    if "Phê duyệt" not in _nr_allowed_transition_actions(doc):
+        raise ServiceError(
+            ErrorCode.FORBIDDEN,
+            _("Bạn không có quyền phê duyệt đề xuất này. Cần vai trò Quản lý Mua sắm."),
+        )
     doc.board_approver = board_approver
     doc.workflow_state = "Approved"
     doc.submit()
@@ -383,6 +429,14 @@ def _reject_needs_request(name: str, rejection_reason: str) -> dict:
             ErrorCode.BAD_STATE,
             _("Chỉ phiếu Pending Approval mới Reject được (hiện: {0})")
             .format(doc.workflow_state),
+        )
+    # Đối xứng approve: chỉ user nằm trong allowed roles của 'Bác đề xuất'
+    # (Procurement Manager / AssetCore Super Admin / System Manager) mới reject được
+    # → FORBIDDEN(403) sạch TRƯỚC khi mutate workflow_state.
+    if "Bác đề xuất" not in _nr_allowed_transition_actions(doc):
+        raise ServiceError(
+            ErrorCode.FORBIDDEN,
+            _("Bạn không có quyền bác đề xuất này. Cần vai trò Quản lý Mua sắm."),
         )
     doc.rejection_reason = rejection_reason
     doc.workflow_state = "Rejected"

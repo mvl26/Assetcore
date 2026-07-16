@@ -2,14 +2,17 @@
 // Copyright (c) 2026, AssetCore Team
 // IMM-15 · Chi tiết phiếu kiểm kê tồn kho (Cycle Count) + workflow.
 //
-// GATE-8 / LL-FE-51: nút hành động (Submit / Post) render THEO
+// GATE-8 / LL-FE-51: nút hành động (Submit / Recount / Post) render THEO
 // `allowed_transitions` do BE emit (server-driven CTA) — KHÔNG hardcode
 // `status === 'X'`. FE gate = allowedTransitions.includes('<Action>').
+//   'Submit'  → Gửi rà soát        (Planned/Counting → Reviewed)
+//   'Recount' → Sửa đếm lại        (Reviewed → Counting — gửi về đếm lại)
+//   'Post'    → Ghi nhận điều chỉnh (Reviewed → Posted)
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useImm15Store } from '@/stores/imm15'
-import { submitCycleCount, postCycleCount } from '@/api/imm15'
+import { submitCycleCount, postCycleCount, recountCycleCount } from '@/api/imm15'
 import type { CycleCountItem } from '@/api/imm15'
 import PageHeader from '@/components/common/PageHeader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
@@ -40,6 +43,7 @@ const items = computed<CycleCountItem[]>(() => detail.value?.items ?? [])
 // Server-driven CTA (KHÔNG hardcode status===).
 const allowedTransitions = computed(() => detail.value?.allowed_transitions ?? [])
 const canSubmit = computed(() => allowedTransitions.value.includes('Submit'))
+const canRecount = computed(() => allowedTransitions.value.includes('Recount'))
 const canPost = computed(() => allowedTransitions.value.includes('Post'))
 
 const isEditable = computed(() => canSubmit.value)  // Planned/Counting → nhập số đếm
@@ -92,6 +96,28 @@ async function doPost() {
   posting.value = false
   if (res) {
     showPostModal.value = false
+    await load()
+  }
+}
+
+// ── Recount / Sửa đếm lại (Reviewed → Counting) ──────────────────────────
+const showRecountModal = ref(false)
+const recountReason = ref('')
+const recounting = ref(false)
+function openRecountModal() {
+  recountReason.value = ''
+  showRecountModal.value = true
+}
+async function doRecount() {
+  const reason = recountReason.value.trim()
+  if (!reason) return   // BE cũng validate; nút Xác nhận đã disabled khi rỗng.
+  recounting.value = true
+  const res = await api.run(() => recountCycleCount(name.value, reason), {
+    successMessage: 'Đã gửi phiếu về Đang kiểm đếm để đếm lại',
+  })
+  recounting.value = false
+  if (res) {
+    showRecountModal.value = false
     await load()
   }
 }
@@ -170,6 +196,12 @@ onMounted(load)
               :disabled="submitting"
               @click="doSubmit"
             >{{ submitting ? 'Đang gửi…' : 'Gửi rà soát' }}</button>
+            <button
+              v-if="canRecount"
+              data-testid="cta-recount"
+              class="bg-amber-700 hover:bg-amber-800 text-white px-4 py-2 rounded-lg text-sm font-medium focus-visible:ring-2 focus-visible:ring-amber-500"
+              @click="openRecountModal"
+            >Sửa đếm lại</button>
             <button
               v-if="canPost"
               data-testid="cta-post"
@@ -285,6 +317,42 @@ onMounted(load)
         <button class="btn-primary" :disabled="posting" @click="doPost">
           {{ posting ? 'Đang ghi nhận…' : 'Xác nhận ghi nhận' }}
         </button>
+      </template>
+    </BaseModal>
+
+    <!-- Recount modal: gửi phiếu đã rà soát về Đang kiểm đếm để đếm lại. -->
+    <BaseModal v-if="showRecountModal" title="Sửa đếm lại" @close="showRecountModal = false">
+      <div class="space-y-4">
+        <p class="text-sm text-slate-600">
+          Gửi phiếu về trạng thái Đang kiểm đếm để kiểm đếm lại. Số đếm và chênh lệch đã rà soát
+          sẽ mở lại để chỉnh sửa. Vui lòng nêu rõ lý do đếm lại (bắt buộc).
+        </p>
+        <div class="form-group">
+          <label class="form-label" for="cc-recount-reason">Lý do đếm lại</label>
+          <textarea
+            id="cc-recount-reason"
+            data-testid="recount-reason"
+            v-model="recountReason"
+            rows="3"
+            required
+            aria-required="true"
+            :aria-describedby="!recountReason.trim() ? 'cc-recount-reason-hint' : undefined"
+            class="form-input w-full"
+            placeholder="Ví dụ: chênh lệch bất thường tại kệ A3, cần kiểm đếm lại"
+          ></textarea>
+          <p v-if="!recountReason.trim()" id="cc-recount-reason-hint" class="text-xs text-slate-400 mt-1">
+            Bắt buộc nhập lý do trước khi gửi về đếm lại.
+          </p>
+        </div>
+      </div>
+      <template #footer>
+        <button class="btn-secondary" @click="showRecountModal = false">Hủy</button>
+        <button
+          class="btn-primary"
+          data-testid="cta-recount-confirm"
+          :disabled="recounting || !recountReason.trim()"
+          @click="doRecount"
+        >{{ recounting ? 'Đang gửi…' : 'Xác nhận đếm lại' }}</button>
       </template>
     </BaseModal>
   </div>

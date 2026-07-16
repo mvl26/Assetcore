@@ -4,6 +4,7 @@ import FormError from '@/components/common/FormError.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useCapabilities } from '@/composables/useCapabilities'
 import { getSupplier, createSupplier, updateSupplier, deleteSupplier } from '@/api/imm00'
 import type { AcSupplier } from '@/types/imm00'
 import { listPurchases } from '@/api/purchase'
@@ -13,6 +14,7 @@ import { emailError, dateOrderError, firstError } from '@/utils/formValidation'
 
 const route = useRoute()
 const router = useRouter()
+const { can } = useCapabilities()
 const isEdit = computed(() => !!route.params.id)
 const name = computed(() => route.params.id as string | undefined)
 
@@ -222,6 +224,7 @@ onMounted(load)
           <span class="text-xs text-slate-400">{{ purchasesTotal }} đơn</span>
           <button
 class="text-xs text-blue-600 hover:underline"
+                  v-if="can('purchase.create')"
                   @click="router.push('/purchases/new')">
 + Tạo đơn hàng
 </button>

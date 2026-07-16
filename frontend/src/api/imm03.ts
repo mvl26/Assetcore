@@ -81,6 +81,17 @@ export function transitionEvalWorkflow(name: string, action: string): Promise<{ 
 
 // ─── AVL ──────────────────────────────────────────────────────────────────────
 
+// Action strings khớp EXACT transitions của fixture 'IMM-03 AVL Workflow' — SoT dùng
+// để gate nút theo `allowed_transitions` (server-driven CTA, GATE-8/LL-FE-51). ĐỪNG
+// đổi chuỗi: đổi = desync với workflow fixture + `_AVL_VALID_TRANSITIONS` (BE).
+export const AVL_ACTIONS = {
+  APPROVE: 'Phê duyệt AVL',            // Draft → Approved (approve_avl)
+  GRANT_CONDITIONAL: 'Cấp Conditional', // Draft → Conditional (set_avl_conditional)
+  DOWNGRADE_CONDITIONAL: 'Hạ xuống Conditional', // Approved → Conditional (set_avl_conditional)
+  SUSPEND: 'Đình chỉ',                 // Approved|Conditional → Suspended (suspend_avl)
+  RESTORE: 'Phục hồi Approved',        // Conditional|Suspended → Approved (approve_avl)
+} as const
+
 export function listAvl(filters: Record<string, unknown> = {}): Promise<{ items: AvlListItem[] }> {
   return frappeGet(`${BASE}.list_avl`, { filters: JSON.stringify(filters) })
 }
@@ -91,11 +102,23 @@ export function createAvlEntry(supplier: string, device_category: string, validi
     Promise<{ name: string; valid_to: string }> {
   return frappePost(`${BASE}.create_avl_entry`, { supplier, device_category, validity_years, valid_from })
 }
-export function approveAvl(name: string, approver: string, approval_doc = ''): Promise<{ name: string; workflow_state: string }> {
-  return frappePost(`${BASE}.approve_avl`, { name, approver, approval_doc })
+// Phê duyệt Draft→Approved VÀ Phục hồi Conditional/Suspended→Approved đều qua đây
+// (BE `_approve_avl` xử lý cả 2 nhánh). approver = frappe.session.user (server-side)
+// — FE KHÔNG gửi approver (chống spoof client). transition-role được BE guard theo
+// fixture (LL-BE-62), không set workflow_state thô bỏ qua role.
+export function approveAvl(name: string): Promise<{ name: string; workflow_state: string }> {
+  return frappePost(`${BASE}.approve_avl`, { name })
 }
 export function suspendAvl(name: string, suspension_reason: string): Promise<{ name: string; workflow_state: string }> {
   return frappePost(`${BASE}.suspend_avl`, { name, suspension_reason })
+}
+// Chuyển AVL sang trạng thái 'Có điều kiện' — phục vụ CẢ 2 nhánh SoT
+// `_AVL_VALID_TRANSITIONS`: Draft→Conditional ('Cấp Conditional', submit doc 0→1)
+// và Approved→Conditional ('Hạ xuống Conditional', db.set_value trên submitted doc).
+// BE tự phân nhánh theo workflow_state hiện tại + guard transition-role (LL-BE-62)
+// — FE chỉ gửi name + condition_notes (bắt buộc, parity suspension_reason).
+export function setAvlConditional(name: string, condition_notes: string): Promise<{ name: string; workflow_state: string }> {
+  return frappePost(`${BASE}.set_avl_conditional`, { name, condition_notes })
 }
 
 // ─── Procurement Decision ─────────────────────────────────────────────────────

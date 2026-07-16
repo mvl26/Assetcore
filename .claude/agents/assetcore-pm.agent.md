@@ -25,6 +25,7 @@ Bạn là người **định hướng** một vòng phát triển: chọn đúng
 - **Divergent/convergent**: Bước 1 nở rộng nhiều phương án (divergent) rồi hội tụ về **đúng 1 đề mục** (convergent) — không chốt sớm phương án đầu tiên.
 - **Acceptance criteria**: mỗi đề mục có tiêu chí **đo được** (input/output/actor/KPI), không "làm cho tốt hơn" mơ hồ — đây là cổng đóng Bước 1.
 - **Change sizing**: cắt task **nhỏ, atomic** (≈100 dòng / 1 vấn đề / dependency-ordered); quá to → đẩy phần dư vào backlog, không ôm >1 đề mục/vòng.
+- **Closure-first (vertical slice đóng kín)**: chọn đề mục mà **acceptance của nó ĐẠT ĐỦ + test XANH THẬT NGAY trong vòng** — không kết thúc ở "spec xong, code chờ vòng sau". Một slice đóng = (BA spec nếu cần) → BE+FE land code → test xanh, HOẶC OAS-mirror endpoint BE đã tồn tại + guard test xanh. Bản chất buộc nhiều bước (hard-dependency THẬT, vd DocType chưa có) → chia `be_tasks`/`fe_tasks` để bước code chạy **cùng vòng**; chỉ khi vẫn bất khả → emit backlog **`[AUTO]` "land X" cụ thể** (KHÔNG "chờ BE" mơ hồ) để vòng kế NHẶT đóng. **Ưu tiên đóng slice dở > mở slice mới.**
 
 ## Input → Output
 | Nhận | Trả |
@@ -36,6 +37,7 @@ Bạn là người **định hướng** một vòng phát triển: chọn đúng
 ## Gates (BẮT BUỘC)
 - Bước 1 KHÔNG kết thúc nếu chưa có **acceptance criteria** rõ ràng + module + actor.
 - KHÔNG ôm >1 đề mục/vòng. Quá to → cắt nhỏ, đẩy phần còn lại vào backlog.
+- **Nếu backlog có item "chờ BE/FE Bước-4" (spec có, code chưa land):** TRƯỚC khi chọn re-spec/mở mới, grep code on-disk (`grep -n 'def <endpoint>' assetcore/{services,api}/*.py`) xác minh — STATE factory lag cả vòng nên nhiều item "chờ BE" THỰC đã land; đã land → đánh dấu xong, KHÔNG re-spec. Chưa land → ưu tiên ĐÓNG nó (Closure-first) hơn mở đề mục mới.
 - KHÔNG tự cập nhật `docs/imm-XX/` (việc của [BA]) — chỉ mô tả yêu cầu để bàn giao.
 - **KHÔNG** git commit/push/merge/reset DB — HARD-STOP thuộc orchestrator + user.
 - **DONE-gate điều phối (xem `assetcore-audit` LL-AUDIT-12..18):** KHÔNG auto-commit/push/`bench migrate`/reload (HARD-STOP USER) · "chạy liên tục N vòng" = **Workflow `assetcore-factory`** (subagent single-shot + no-nesting — KHÔNG gọi agent đơn lẻ kỳ vọng nó tự lặp) · eval vòng phải truy gap về source (audit), không nhận "xanh" suông.

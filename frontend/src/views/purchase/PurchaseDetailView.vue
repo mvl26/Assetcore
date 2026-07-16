@@ -23,6 +23,21 @@ const acting = ref(false)
 const toast = ref('')
 const toastError = ref(false)
 
+// ─── Server-driven CTA gating (GATE-8 / LL-FE-51) ────────────────────────────
+// SoT DUY NHẤT là cờ can_* do get_purchase derive server-side (capability +
+// docstatus + status). KHÔNG suy nút từ docstatus===/status=== ở client (trước
+// đây hardcode → MỌI user login thấy nút rồi 403 khi bấm). Thiếu cờ (BE cũ / lỗi
+// prefetch) → false ⇒ 0 nút duyệt render (degrade an toàn, KHÔNG dead-control).
+const canSubmit = computed(() => doc.value?.can_submit === true)
+const canReceive = computed(() => doc.value?.can_receive === true)
+const canCancel = computed(() => doc.value?.can_cancel === true)
+// Sửa/Xoá gate theo cờ can_edit/can_delete (Core Doc 06 §II.9) — tránh dead-control
+// (BE giờ enforce purchase.write/delete; nút phải ẩn khi thiếu quyền, không 403-khi-bấm).
+const canEdit = computed(() => doc.value?.can_edit === true)
+const canDelete = computed(() => doc.value?.can_delete === true)
+// Nút "+ Tạo phiếu nhập kho": dùng cờ riêng nếu BE emit, else theo can_receive.
+const canCreateReceipt = computed(() => doc.value?.can_create_receipt ?? canReceive.value)
+
 // Flow summary
 const deviceCommissioningDone = computed(() =>
   (doc.value?.devices || []).filter(d => d.commissioning_ref).length,
@@ -170,15 +185,15 @@ onMounted(load)
         :breadcrumb="[{ label: 'Mua hàng', to: '/purchases' }, { label: doc.name }]"
       >
         <template #actions>
-          <button v-if="doc.docstatus === 0" class="btn-ghost" :disabled="acting" @click="router.push(`/purchases/${doc.name}/edit`)">Sửa</button>
-          <button v-if="doc.docstatus === 0" class="btn-ghost text-red-600" :disabled="acting" @click="doDelete">Xoá</button>
-          <button v-if="doc.docstatus === 0" class="btn-primary" :disabled="acting" @click="doSubmit">
+          <button v-if="canEdit" data-testid="cta-edit" class="btn-ghost" :disabled="acting" @click="router.push(`/purchases/${doc.name}/edit`)">Sửa</button>
+          <button v-if="canDelete" data-testid="cta-delete" class="btn-ghost text-red-600" :disabled="acting" @click="doDelete">Xoá</button>
+          <button v-if="canSubmit" data-testid="cta-submit" class="btn-primary" :disabled="acting" @click="doSubmit">
             {{ acting ? '...' : 'Duyệt đơn' }}
           </button>
-          <button v-if="doc.docstatus === 1 && doc.status === 'Submitted'" class="btn-secondary" :disabled="acting" @click="doMarkReceived">
+          <button v-if="canReceive" data-testid="cta-receive" class="btn-secondary" :disabled="acting" @click="doMarkReceived">
             {{ acting ? '...' : 'Xác nhận nhận hàng' }}
           </button>
-          <button v-if="doc.docstatus === 1 && doc.status !== 'Received' && doc.status !== 'Cancelled'" class="btn-secondary text-red-600" :disabled="acting" @click="doCancel">
+          <button v-if="canCancel" data-testid="cta-cancel" class="btn-secondary text-red-600" :disabled="acting" @click="doCancel">
             {{ acting ? '...' : 'Huỷ đơn' }}
           </button>
         </template>
@@ -330,7 +345,8 @@ v-for="(d, idx) in doc.devices" :key="d.name || idx"
             <p class="text-[11px] text-slate-400 mt-0.5">Sau khi duyệt, phụ tùng được nhập vào kho qua phiếu nhập kho.</p>
           </div>
           <button
-            v-if="doc.docstatus === 1 && doc.status === 'Submitted'"
+            v-if="canCreateReceipt"
+            data-testid="cta-create-receipt"
             class="text-xs px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             :disabled="acting"
             @click="showReceiptModal = true"

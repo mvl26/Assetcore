@@ -59,7 +59,6 @@ function stepStatus(s: NeedsRequestState): 'done' | 'active' | 'pending' {
 // ── permissions ───────────────────────────────────────────────────────────────
 const isQA         = computed(() => auth.hasRole(Roles.QA) || auth.isSystemAdmin)
 const isOpsManager = computed(() => auth.hasRole(Roles.OPS_MANAGER) || auth.isSystemAdmin)
-const isBoardApprover = computed(() => auth.hasAnyRole([Roles.DEPT_HEAD, Roles.OPS_MANAGER]) || auth.isSystemAdmin)
 
 const canScore = computed(() =>
   isQA.value && currentDoc.value?.workflow_state === 'Reviewing',
@@ -71,25 +70,33 @@ const canEditBudget = computed(() =>
   isOpsManager.value
   && ['Prioritized', 'Budgeted'].includes(currentDoc.value?.workflow_state ?? ''),
 )
-const canApproveReject = computed(() =>
-  isBoardApprover.value && currentDoc.value?.workflow_state === 'Pending Approval',
-)
 const canRollIntoPlan = computed(() =>
   currentDoc.value?.workflow_state === 'Approved' && !currentDoc.value?.procurement_plan,
 )
 
-// ── allowed workflow transitions ──────────────────────────────────────────────
-const allowedActions = ref<string[]>([])
+// ── allowed workflow transitions (server-driven CTA — GATE-8 / LL-FE-51) ───────
+// Nguồn ưu tiên = `currentDoc.allowed_transitions` (từ get_needs_request) → không
+// flash ẩn nút lúc render đầu. Fallback = getAllowedTransitions (dùng khi payload
+// cũ chưa có field). Gate Phê duyệt/Bác đề xuất bằng list này, KHÔNG bằng
+// isBoardApprover (role Dept Head/Ops Manager desync khỏi Procurement Manager) hay
+// workflow_state === 'Pending Approval' literal.
+const fetchedActions = ref<string[]>([])
 const SPECIAL_ACTIONS = new Set(['Phê duyệt', 'Bác đề xuất'])
+const allowedActions = computed<string[]>(() => {
+  const fromDoc = currentDoc.value?.allowed_transitions
+  return Array.isArray(fromDoc) ? fromDoc : fetchedActions.value
+})
 const genericActions = computed(() => allowedActions.value.filter(a => !SPECIAL_ACTIONS.has(a)))
+const canApprove = computed(() => allowedActions.value.includes('Phê duyệt'))
+const canReject  = computed(() => allowedActions.value.includes('Bác đề xuất'))
 
 async function refreshActions() {
   const name = currentDoc.value?.name
-  if (!name) { allowedActions.value = []; return }
+  if (!name) { fetchedActions.value = []; return }
   try {
     const res = await getAllowedTransitions(name)
-    allowedActions.value = res.transitions.map(t => t.action)
-  } catch { allowedActions.value = [] }
+    fetchedActions.value = res.transitions.map(t => t.action)
+  } catch { fetchedActions.value = [] }
 }
 
 // ── scoring tab ───────────────────────────────────────────────────────────────
@@ -736,11 +743,9 @@ watch(currentDoc, (doc) => {
           📋 Đưa vào kế hoạch mua sắm
         </button>
 
-        <!-- Approve / Reject -->
-        <template v-if="canApproveReject">
-          <button class="btn-danger text-sm" @click="showRejectModal = true">Bác đề xuất</button>
-          <button class="btn-success text-sm" @click="showApproveModal = true">Phê duyệt ✓</button>
-        </template>
+        <!-- Approve / Reject — gate riêng theo allowed_transitions (server-driven) -->
+        <button v-if="canReject" class="btn-danger text-sm" @click="showRejectModal = true">Bác đề xuất</button>
+        <button v-if="canApprove" class="btn-success text-sm" @click="showApproveModal = true">Phê duyệt ✓</button>
 
         <!-- Generic workflow transitions -->
         <button v-for="action in genericActions" :key="action"

@@ -25,22 +25,11 @@
   },
   {
     "doctype": "Custom Field",
-    "name": "Asset-custom_imm_asset_profile",
-    "dt": "Asset",
-    "fieldname": "custom_imm_asset_profile",
-    "fieldtype": "Link",
-    "label": "Hồ sơ IMM",
-    "options": "IMM Asset Profile",
-    "insert_after": "custom_imm_device_model",
-    "read_only": 1
-  },
-  {
-    "doctype": "Custom Field",
     "name": "Asset-custom_imm_col1",
     "dt": "Asset",
     "fieldname": "custom_imm_col1",
     "fieldtype": "Column Break",
-    "insert_after": "custom_imm_asset_profile"
+    "insert_after": "custom_imm_device_model"
   },
   {
     "doctype": "Custom Field",

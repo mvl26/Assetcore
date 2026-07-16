@@ -43,9 +43,27 @@ const showUploadNewVersion = ref(false)
 
 const canEdit = computed(() => ['Draft', 'Rejected'].includes(doc.value?.workflow_state ?? ''))
 
+// ── Server-driven CTA gating (GATE-8 / LL-FE-51) ──────────────────────────────
+// Nút CHUYỂN TRẠNG THÁI (Gửi duyệt/Phê duyệt/Từ chối/Gửi lại/Lưu trữ) gate theo
+// `allowed_transitions` (BE _DOC_VALID_TRANSITIONS, SoT = fixture 'IMM-05 Document
+// Workflow') + capability doc.approve — KHÔNG hardcode doc.workflow_state === 'X'
+// (mirror PMWorkOrderDetailView / IncidentDetailView). Ground truth = SERVER →
+// hết false-permissive (nút Phê duyệt/Từ chối hiện rồi bấm mới 403 khi thiếu quyền)
+// và hết dead-gate. workflow_state === 'X' chỉ còn ở NHÃN hiển thị read-only.
+const allowedTransitions = computed<string[]>(() => doc.value?.allowed_transitions ?? [])
+const canApprove = computed<boolean>(() => doc.value?.can_approve === 1)
+
 // BR-05-02: tài liệu không được xóa — chỉ lưu trữ. Trạng thái cuối → read-only.
 const isTerminalState = computed(() =>
   ['Archived', 'Expired'].includes(doc.value?.workflow_state ?? ''),
+)
+
+// "Tải lên phiên bản mới" KHÔNG phải transition workflow (điều hướng tạo tài liệu
+// phiên bản kế) → không có trong allowed_transitions; chỉ khả dụng khi doc đã
+// Active/Expired. Tách computed để khối action template không còn bare
+// workflow_state === trong điều kiện render nút.
+const canUploadNewVersion = computed(() =>
+  ['Active', 'Expired'].includes(doc.value?.workflow_state ?? ''),
 )
 
 async function load(): Promise<void> {
@@ -102,10 +120,6 @@ async function saveEdits(): Promise<void> {
     saveError.value = store.error ?? 'Lưu thất bại'
     notify.fromError(store.lastApiError)
   }
-}
-
-function resubmit(): void {
-  startEditing()
 }
 
 async function submitForReview(): Promise<void> {
@@ -171,10 +185,7 @@ const expiryDisplay = computed<ExpiryDisplay>(() => {
 const expiryDateClass = computed(() => expiryDisplay.value.cssClass)
 
 // "Lưu trữ" (Active) / "Hủy bỏ" (Draft) → Archived. NĐ98: chỉ lưu trữ, không xóa.
-const canArchive = computed(() =>
-  ['Active', 'Draft'].includes(doc.value?.workflow_state ?? ''),
-)
-
+// Gate hiển thị nút = allowedTransitions.includes('Archived') && canApprove (dưới).
 async function handleArchive(): Promise<void> {
   if (!doc.value) return
   if (
@@ -269,26 +280,29 @@ async function handleReject(): Promise<void> {
 
     <!-- Document detail -->
     <template v-else-if="doc">
-      <!-- Actions card -->
+      <!-- Actions card — server-driven CTA: nút chuyển trạng thái gate theo
+           (allowedTransitions BE + capability doc.approve), KHÔNG hardcode
+           doc.workflow_state === 'X' (GATE-8 / LL-FE-51). -->
       <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 mb-4">
         <div class="flex flex-wrap gap-3">
-<!-- Approve / Reject actions (Pending_Review) -->
-          <template v-if="doc.workflow_state === 'Pending Review'">
-            <button
-              class="px-4 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50"
-              :disabled="actionLoading"
-              @click="handleApprove"
-            >
-              Duyệt tài liệu
-            </button>
-            <button
-              class="px-4 py-2 border border-red-300 text-red-600 text-sm rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50"
-              :disabled="actionLoading"
-              @click="showRejectInput = !showRejectInput"
-            >
-              Từ chối
-            </button>
-          </template>
+          <!-- Phê duyệt (→ Active) — allowedTransitions + capability doc.approve -->
+          <button
+            v-if="allowedTransitions.includes('Active') && canApprove"
+            class="px-4 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50"
+            :disabled="actionLoading"
+            @click="handleApprove"
+          >
+            Duyệt tài liệu
+          </button>
+          <!-- Từ chối (→ Rejected) — allowedTransitions + capability doc.approve -->
+          <button
+            v-if="allowedTransitions.includes('Rejected') && canApprove"
+            class="px-4 py-2 border border-red-300 text-red-600 text-sm rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50"
+            :disabled="actionLoading"
+            @click="showRejectInput = !showRejectInput"
+          >
+            Từ chối
+          </button>
 
           <!-- Edit button (Draft or Rejected, not already editing) -->
           <button
@@ -299,46 +313,33 @@ async function handleReject(): Promise<void> {
             Chỉnh sửa
           </button>
 
-          <!-- Gửi duyệt button (Draft, not editing) -->
+          <!-- Gửi duyệt (Draft) / Gửi lại (Rejected) → Pending Review — GỘP MỘT nút
+               (06 §7.5): cùng transition (submitForReview), cùng đích Pending Review →
+               gate allowedTransitions.includes('Pending Review'); NHÃN chọn theo state
+               (display-only, cho phép), KHÔNG dùng workflow_state=== trong điều kiện
+               render. -->
           <button
-            v-if="doc.workflow_state === 'Draft' && !isEditing"
+            v-if="allowedTransitions.includes('Pending Review') && !isEditing"
             class="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
             :disabled="actionLoading"
             @click="submitForReview"
           >
-            Gửi duyệt
+            {{ doc.workflow_state === 'Rejected' ? 'Gửi lại' : 'Gửi duyệt' }}
           </button>
 
-          <!-- Sửa lại (Rejected) -->
+          <!-- Tải lên phiên bản mới (Active/Expired) — điều hướng, KHÔNG transition -->
           <button
-            v-if="doc.workflow_state === 'Rejected' && !isEditing"
-            class="px-4 py-2 border border-orange-300 text-orange-600 text-sm rounded-lg hover:bg-orange-50 transition-colors"
-            @click="resubmit"
-          >
-            Chỉnh sửa
-          </button>
-
-          <!-- Gửi lại (Rejected → Pending Review) -->
-          <button
-            v-if="doc.workflow_state === 'Rejected' && !isEditing"
-            class="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
-            :disabled="actionLoading"
-            @click="submitForReview"
-          >
-            Gửi lại
-          </button>
-
-          <!-- Upload phiên bản mới (Active or Expired) -->
-          <button
-            v-if="doc.workflow_state === 'Active' || doc.workflow_state === 'Expired'"
+            v-if="canUploadNewVersion"
             class="px-4 py-2 border border-blue-300 text-blue-600 text-sm rounded-lg hover:bg-blue-50 transition-colors"
             @click="showUploadNewVersion = true"
           >
             Tải lên phiên bản mới
           </button>
-          <!-- Lưu trữ (Active "Lưu trữ" / Draft "Hủy bỏ" → Archived) — NĐ98 -->
+          <!-- Lưu trữ (Active) / Hủy bỏ (Draft) → Archived — allowedTransitions +
+               capability doc.approve (NĐ98). workflow_state === 'Draft' CHỈ để chọn
+               NHÃN hiển thị, KHÔNG quyết định render nút. -->
           <button
-            v-if="canArchive && !isEditing"
+            v-if="allowedTransitions.includes('Archived') && canApprove && !isEditing"
             class="px-4 py-2 border border-gray-300 text-gray-600 text-sm rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
             :disabled="actionLoading"
             @click="handleArchive"

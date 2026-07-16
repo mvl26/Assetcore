@@ -186,6 +186,8 @@ const STATUS_MAP: Record<string, string> = {
   Transferred:          'Đã chuyển',
   Inactive:             'Không hoạt động',
   Applied:              'Đã áp dụng',
+  'Rollback Required':  'Cần khôi phục',
+  Rollback_Required:    'Cần khôi phục',
   'Rolled Back':        'Đã khôi phục',
   Rolled_Back:          'Đã khôi phục',
   Confirmed:            'Đã xác nhận',

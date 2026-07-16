@@ -102,6 +102,13 @@ export interface AcAsset extends AcAssetListItem {
   // clock (tz-drift). Cùng kết luận overdue với màn quét-QR (AssetScanInfo).
   pm_overdue?: boolean
   calibration_overdue?: boolean
+  // Server-driven CTA lifecycle (CR-WF-00-LIFECYCLE-SURFACE, Trục A). get_asset
+  // emit tập trạng-thái-đích CTA-surfaceable (SSoT BE asset_allowed_transitions:
+  // _VALID_ASSET_TRANSITIONS − EXCEPTION − terminal Decommissioned) đã LỌC theo
+  // capability caller (asset.write). FE dựng nút chuyển-trạng-thái CHỈ từ field này
+  // (KHÔNG bảng TRANSITION_MAP hardcode). Rỗng ([]) = read-only / terminal → ẩn khối
+  // CTA. Thanh lý (→Decommissioned) KHÔNG bao giờ ở đây — đi qua cổng IMM-14 riêng.
+  allowed_transitions?: LifecycleStatus[]
 }
 
 export interface AcAuthorizedTechnician {
@@ -361,6 +368,15 @@ export interface AssetTransfer {
   to_location: string
   to_department?: string
   to_custodian?: string
+  // Denorm display names (BE _enrich SSoT, coalesce '' — parity list_assets.location_name).
+  // Optional: degrade an toàn khi BE chưa reload (undefined → fallback '—' ở view,
+  // KHÔNG render Link-id thô AC-DEPT-…/ER-…/user@…).
+  from_location_name?: string
+  to_location_name?: string
+  from_department_name?: string
+  to_department_name?: string
+  from_custodian_name?: string
+  to_custodian_name?: string
   reason: string
   approved_by?: string
   approval_date?: string
@@ -368,6 +384,17 @@ export interface AssetTransfer {
   received_date?: string
   expected_return_date?: string
   notes?: string
+  // Server-driven CTA authz (CR-WF-00-TRANSFER-AUTHZ + EDIT-AUTHZ + CANCEL-AUTHZ).
+  // get_transfer_full emit int 0/1 từ services.imm00.transfer_cta_flags — dẫn xuất từ
+  // CÙNG SoT (rbac.can) mà approve/receive/cancel/update_transfer enforce ⇒ nút/ô-nhập
+  // FE hiển thị ⇔ hành động thực sự được phép (bỏ dead-control, fail-closed khi undefined).
+  // FE gate bằng `!!flag` (0/undefined → false), TUYỆT ĐỐI KHÔNG suy từ status thô.
+  can_approve?: number
+  can_receive?: number
+  can_cancel?: number
+  // can_edit=1 CHỈ khi status=='Pending Approval' AND rbac.can(commissioning.write).
+  // isEditable bind !!can_edit — KHÔNG isPending status thô (status-gate 422 vẫn giữ ở BE).
+  can_edit?: number
 }
 
 // ─── Service Contract ─────────────────────────────────────────────────────────

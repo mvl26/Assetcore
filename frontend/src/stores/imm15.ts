@@ -10,7 +10,7 @@ import { defineStore } from 'pinia'
 import {
   listAllocations, getAllocation, createAllocation,
   approveAllocation, issueAllocation, returnItems,
-  listCycleCounts, getCycleCount, createCycleCount, submitCycleCount, postCycleCount,
+  listCycleCounts, getCycleCount, createCycleCount, submitCycleCount, postCycleCount, recountCycleCount,
   listSpareForecasts, generateSpareForecast, approveForecast,
   listWatchlist, addToWatchlist,
   getDashboardStats, getLowStockAlerts,
@@ -154,6 +154,14 @@ export const useImm15Store = defineStore('imm15', () => {
     return res
   }
 
+  // Sửa đếm lại (Reviewed → Counting). Refresh detail + list keys sau khi gửi về.
+  async function recountCycleCountAction(name: string, reason: string) {
+    const res = await recountCycleCount(name, reason)
+    await fetchCycleCount(name)
+    await fetchCycleCounts()
+    return res
+  }
+
   // ─── Forecasts ────────────────────────────────────────────────────────────
   async function fetchForecasts(params: Record<string, unknown> = {}) {
     forecastsLoading.value = true
@@ -228,7 +236,7 @@ export const useImm15Store = defineStore('imm15', () => {
     // actions
     fetchAllocations, fetchAllocationDetail, submitNewAllocation,
     approveAllocationAction, issueAllocationAction, returnItemsAction,
-    fetchCycleCounts, fetchCycleCount, createCycleCountAction, submitCycleCountAction, postCycleCountAction,
+    fetchCycleCounts, fetchCycleCount, createCycleCountAction, submitCycleCountAction, postCycleCountAction, recountCycleCountAction,
     fetchForecasts, generateForecastAction, approveForecastAction,
     fetchWatchlist, addWatchlistAction,
     fetchDashboard, fetchLowStockAlerts,

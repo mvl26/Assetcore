@@ -7,15 +7,18 @@
 # Test data isolation: each test rolls back via tearDown.
 from __future__ import annotations
 
+import json
+import time
 import unittest
 from contextlib import suppress
+from unittest.mock import patch
 
 import frappe
 from frappe.utils import add_days, nowdate
 
 from assetcore.services import imm16 as svc
 from assetcore.services.imm16 import FindingStatus
-from assetcore.services.shared import ServiceError
+from assetcore.services.shared import ErrorCode, ServiceError
 
 
 def _delete_if_exists(doctype: str, name: str) -> None:
@@ -47,6 +50,25 @@ def tearDownModule():  # noqa: N802
                               ignore_permissions=True, ignore_on_trash=True)
     purge_assets_by_name_prefix("Gate Test Asset", "Gate Cron Asset")
     frappe.db.commit()
+
+
+def _ensure_user(email: str, roles: list[str]) -> str:
+    """Create (recreate) a System User carrying exactly ``roles`` for RBAC tests."""
+    if frappe.db.exists("User", email):
+        frappe.delete_doc("User", email, force=True, ignore_permissions=True)
+    doc = frappe.get_doc({
+        "doctype": "User",
+        "email": email,
+        "first_name": email.split("@")[0],
+        "enabled": 1,
+        "user_type": "System User",
+        "send_welcome_email": 0,
+        "roles": [{"role": r} for r in roles],
+    })
+    doc.flags.ignore_permissions = True
+    doc.insert()
+    frappe.db.commit()
+    return email
 
 
 def _ensure(doctype: str, name: str, data: dict) -> str:
@@ -261,6 +283,320 @@ class TestAuditClose(TestImm16Base):
         self.assertIn(ctx.exception.code, ("NOT_FOUND",))
 
 
+# ── TC-16-03b: Internal Audit server-driven CTA + state machine + audit-trail ─
+# ADR-IMM-16-02 / VR-13 / BR-16-10 (docs/imm-16/02 §US-16-05, 04 §III.C.1, 07
+# AA-16-1..12). SSoT _AUDIT_VALID_TRANSITIONS + capability flags + Reporting-
+# before-Close guard + 1-record-per-action audit trail.
+
+class TestAuditServerDrivenLifecycle(TestImm16Base):
+    """Internal Audit vòng đời server-driven: allowed_transitions/can_operate/
+    can_close, Reporting-before-Close (VR-13), audit-trail 1 record/thao tác."""
+
+    def _mk_audit(self, code: str, status: str = "Planned") -> str:
+        """Dựng 1 IMM Internal Audit ở ``status`` (autoname → trả tên thật).
+        Cleanup theo ``audit_code`` prefix (name bị autoname ghi đè)."""
+        return _ensure(
+            "IMM Internal Audit", code,
+            {
+                "audit_code": code,
+                "audit_type": "Internal",
+                "planned_start": nowdate(),
+                "planned_end": nowdate(),
+                # lead_auditor mandatory — start/complete gọi doc.save() re-validate.
+                "lead_auditor": "Administrator",
+                "status": status,
+            },
+        )
+
+    def _mk_audit_with_items(self, code: str, item_count: int = 4,
+                             status: str = "In Progress") -> str:
+        """Audit ở ``status`` kèm ``item_count`` checklist item (auto idx 1..N).
+        Dùng cho CR-27b: kiểm tra verdict round-trip vào child ``result``."""
+        return _ensure(
+            "IMM Internal Audit", code,
+            {
+                "audit_code": code,
+                "audit_type": "Internal",
+                "planned_start": nowdate(),
+                "planned_end": nowdate(),
+                "lead_auditor": "Administrator",
+                "status": status,
+                "checklist_items": [
+                    {"item_description": f"Muc kiem tra {i}"}
+                    for i in range(1, item_count + 1)
+                ],
+            },
+        )
+
+    @staticmethod
+    def _count_audit_events(ref_name: str, event_type: str | None = None) -> int:
+        filt = {"ref_doctype": "IMM Internal Audit", "ref_name": ref_name}
+        if event_type:
+            filt["event_type"] = event_type
+        return frappe.db.count("IMM Audit Trail", filt)
+
+    # AA-16-1..5 — allowed_transitions map + safe-default cho status lạ.
+    def test_get_audit_allowed_transitions_by_status(self):
+        cases = {
+            "Planned": ["start"],
+            "In Progress": ["complete_checklist"],
+            "Reporting": ["close"],
+            "Closed": [],
+        }
+        for status, expected in cases.items():
+            name = self._mk_audit(f"TEST-AUDSD-AT-{status.replace(' ', '')}", status)
+            data = svc.get_audit(name)
+            self.assertEqual(data["allowed_transitions"], expected,
+                             f"status={status}")
+        # status rỗng/lạ → [] (safe-default .get, KHÔNG KeyError)
+        weird = self._mk_audit("TEST-AUDSD-AT-WEIRD", "Planned")
+        frappe.db.set_value("IMM Internal Audit", weird, "status",
+                            "Zzz-Unknown", update_modified=False)
+        data = svc.get_audit(weird)
+        self.assertEqual(data["allowed_transitions"], [])
+
+    # AA-16-6 — capability flags derive server-side + FORBIDDEN close.
+    def test_get_audit_capability_flags(self):
+        name = self._mk_audit("TEST-AUDSD-CAP", "Reporting")
+
+        def only_write(cap, doc=None):
+            return {"compliance.write": True, "compliance.submit": False}.get(cap, False)
+
+        with patch.object(svc.rbac, "can", side_effect=only_write):
+            data = svc.get_audit(name)
+            self.assertTrue(data["can_operate"])
+            self.assertFalse(data["can_close"])
+            with self.assertRaises(ServiceError) as ctx:
+                svc.close_audit(name)
+            self.assertEqual(ctx.exception.code, ErrorCode.FORBIDDEN)
+
+        def with_submit(cap, doc=None):
+            return {"compliance.write": True, "compliance.submit": True}.get(cap, False)
+
+        with patch.object(svc.rbac, "can", side_effect=with_submit):
+            data = svc.get_audit(name)
+            self.assertTrue(data["can_operate"])
+            self.assertTrue(data["can_close"])
+
+    # AA-16-7/8 — complete_audit_checklist In Progress→Reporting; Planned → BAD_STATE.
+    def test_complete_checklist_moves_to_reporting(self):
+        name = self._mk_audit("TEST-AUDSD-CK", "Planned")
+        svc.start_audit(name)  # → In Progress
+        res = svc.complete_audit_checklist(name, [])
+        self.assertEqual(res["status"], svc.AuditStatus.REPORTING)
+        self.assertEqual(svc.get_audit(name)["status"], "Reporting")
+
+        # Gọi complete lúc PLANNED (chưa start) → BAD_STATE (bỏ nhánh Planned)
+        name2 = self._mk_audit("TEST-AUDSD-CK2", "Planned")
+        with self.assertRaises(ServiceError) as ctx:
+            svc.complete_audit_checklist(name2, [])
+        self.assertEqual(ctx.exception.code, ErrorCode.BAD_STATE)
+
+    # AA-16-9/11 — close chặn jump-skip (In Progress) rồi cho close từ Reporting.
+    def test_close_audit_blocked_before_reporting(self):
+        name = self._mk_audit("TEST-AUDSD-CL", "Planned")
+        svc.start_audit(name)  # → In Progress
+        with self.assertRaises(ServiceError) as ctx:
+            svc.close_audit(name)  # jump-skip từ In Progress
+        self.assertEqual(ctx.exception.code, ErrorCode.BAD_STATE)
+        # Đưa về Reporting rồi close → Closed
+        svc.complete_audit_checklist(name, [])
+        res = svc.close_audit(name)
+        self.assertEqual(res["status"], svc.AuditStatus.CLOSED)
+
+    # AA-16-10 — VR-08 regression: từ Reporting còn Major NC chưa CAPA → FIN-008.
+    def test_close_audit_still_blocks_major_nc_without_capa(self):
+        name = self._mk_audit("TEST-AUDSD-NC", "Reporting")
+        _ensure(
+            "IMM Compliance Finding", "TEST-FND-AUDNC-01",
+            {
+                "rule": self.rule,
+                "source_record_doctype": "IMM Internal Audit",
+                "source_record": name,
+                "detected_date": nowdate(),
+                "evaluation_date": nowdate(),
+                "severity": "High",
+                "status": "Open",
+            },
+        )
+        with self.assertRaises(ServiceError) as ctx:
+            svc.close_audit(name)
+        self.assertEqual(ctx.exception.code, "FIN-008")
+
+    # AA-16-12 — mỗi start/checklist/close ghi ĐÚNG 1 IMM Audit Trail record.
+    def test_audit_lifecycle_writes_audit_trail(self):
+        # Đếm DELTA (không tuyệt đối): IMM Audit Trail append-only (ISO 13485:
+        # 7.5.9) → row các run trước KHÔNG xoá được; autoname series roll-back bởi
+        # test không-commit ⇒ ref_name có thể trùng run trước. Delta cô lập đúng
+        # +1 record/thao tác + đúng event_type của run này.
+        name = self._mk_audit("TEST-AUDSD-TRAIL", "Planned")
+
+        def evt(event_type=None):
+            return self._count_audit_events(name, event_type)
+
+        c0, s0 = evt(), evt("audit_started")
+        svc.start_audit(name)
+        self.assertEqual(evt(), c0 + 1)
+        self.assertEqual(evt("audit_started"), s0 + 1)
+
+        k0 = evt("audit_checklist_completed")
+        svc.complete_audit_checklist(name, [])
+        self.assertEqual(evt(), c0 + 2)
+        self.assertEqual(evt("audit_checklist_completed"), k0 + 1)
+
+        z0 = evt("audit_closed")
+        svc.close_audit(name)
+        self.assertEqual(evt(), c0 + 3)
+        self.assertEqual(evt("audit_closed"), z0 + 1)
+
+    # AA-16-13 (guard-detect, CR-WF-16-AUDIT) — legacy submit_audit_findings SIẾT
+    # về linear: chỉ In Progress. RED-before round 22: guard `not in
+    # (IN_PROGRESS, PLANNED)` cho Planned→Reporting skip-start.
+    def test_legacy_submit_findings_rejects_planned(self):
+        name = self._mk_audit("TEST-AUDSD-LEGSUB", "Planned")
+        with self.assertRaises(ServiceError) as ctx:
+            svc.submit_audit_findings(name, [])   # skip-start từ Planned
+        self.assertEqual(ctx.exception.code, ErrorCode.BAD_STATE)
+        # In Progress vẫn hợp lệ (linear) → Reporting.
+        svc.start_audit(name)
+        res = svc.submit_audit_findings(name, [])
+        self.assertEqual(res["status"], svc.AuditStatus.REPORTING)
+
+    # AA-16-14 (guard-detect) — legacy close_internal_audit SIẾT về linear: chỉ
+    # Reporting (VR-13 parity close_audit). RED-before: guard `== CLOSED` cho
+    # đóng từ mọi non-Closed (Planned/In Progress) → bypass cổng Reporting.
+    def test_legacy_close_internal_rejects_non_reporting(self):
+        name = self._mk_audit("TEST-AUDSD-LEGCL", "Planned")
+        with self.assertRaises(ServiceError) as ctx:
+            svc.close_internal_audit(name)        # close từ Planned
+        self.assertEqual(ctx.exception.code, ErrorCode.BAD_STATE)
+        svc.start_audit(name)                     # → In Progress
+        with self.assertRaises(ServiceError) as ctx2:
+            svc.close_internal_audit(name)        # close từ In Progress
+        self.assertEqual(ctx2.exception.code, ErrorCode.BAD_STATE)
+        # Reporting → close hợp lệ.
+        svc.complete_audit_checklist(name, [])
+        res = svc.close_internal_audit(name)
+        self.assertEqual(res["status"], svc.AuditStatus.CLOSED)
+
+    # CR-27b (silent-verdict-loss) — RED-first: verdict finding_status PHẢI
+    # round-trip vào child.result qua _FINDING_STATUS_TO_RESULT. Trước fix:
+    # hasattr(child,"finding_status")==False → NO-OP câm → result rỗng hết (RED).
+    def test_complete_checklist_persists_result_from_finding_status(self):
+        name = self._mk_audit_with_items("TEST-AUDSD-RESULT", item_count=4,
+                                         status="In Progress")
+        svc.complete_audit_checklist(name, [
+            {"idx": 1, "finding_status": "Compliant"},
+            {"idx": 2, "finding_status": "Minor NC"},
+            {"idx": 3, "finding_status": "Major NC"},
+            {"idx": 4, "finding_status": "N/A"},
+        ])
+        rows = sorted(svc.get_audit(name)["checklist_items"],
+                      key=lambda r: r["idx"])
+        self.assertEqual(
+            [r.get("result") for r in rows],
+            ["Conforming", "Non-Conforming", "Non-Conforming", "Not Applicable"],
+            "verdict finding_status phải round-trip vào child.result (CR-27b)")
+
+    # CR-27b regression (0 hồi quy) — mở rộng test_complete_checklist_moves_to_
+    # reporting: Major+Minor NC vẫn chạy nhánh Finding + state→Reporting + notes
+    # persist + đúng 1 audit-event; verdict-mapping KHÔNG phá hành vi cũ.
+    def test_complete_checklist_still_creates_findings_and_reporting(self):
+        name = self._mk_audit_with_items("TEST-AUDSD-REGR", item_count=2,
+                                         status="In Progress")
+        ev0 = self._count_audit_events(name, "audit_checklist_completed")
+        res = svc.complete_audit_checklist(name, [
+            {"idx": 1, "finding_status": "Major NC", "notes": "Thiếu hồ sơ hiệu chuẩn"},
+            {"idx": 2, "finding_status": "Minor NC", "notes": "Nhãn UDI mờ"},
+        ])
+        # state In Progress → Reporting (KHÔNG đổi).
+        self.assertEqual(res["status"], svc.AuditStatus.REPORTING)
+        self.assertEqual(svc.get_audit(name)["status"], "Reporting")
+        # notes vẫn persist + result mapped song song.
+        rows = sorted(svc.get_audit(name)["checklist_items"],
+                      key=lambda r: r["idx"])
+        self.assertEqual([r.get("notes") for r in rows],
+                         ["Thiếu hồ sơ hiệu chuẩn", "Nhãn UDI mờ"])
+        self.assertEqual([r.get("result") for r in rows],
+                         ["Non-Conforming", "Non-Conforming"])
+        # đúng 1 audit-event/thao tác (delta, append-only trail).
+        self.assertEqual(
+            self._count_audit_events(name, "audit_checklist_completed"), ev0 + 1)
+        # findings_created KHÔNG đổi bởi fix result-mapping. Giá trị hiện tại = 0
+        # vì nhánh sinh Finding tạo IMM Compliance Finding với rule="" (child
+        # KHÔNG có field rule_ref → getattr trả "" → MandatoryError bị nuốt bởi
+        # except). Đây là NO-OP CÂM RIÊNG (cùng lớp anti-pattern), OUT-OF-SCOPE
+        # CR-27b (Task-BE: "GIỮ NGUYÊN nhánh Finding") → BACKLOG. Guard 0-hồi-quy:
+        # fix result-mapping KHÔNG được làm số này khác baseline.
+        self.assertEqual(res["findings_created"], 0)
+
+    @classmethod
+    def tearDownClass(cls):
+        # start/complete/close commit nội bộ → dọn tường minh theo audit_code
+        # (name đã bị autoname ghi đè). IMM Audit Trail append-only (ISO
+        # 13485:7.5.9) → KHÔNG xoá được, để nguyên (asset='' + ref autoname,
+        # KHÔNG match R-9 %test%).
+        frappe.set_user("Administrator")
+        for nm in frappe.get_all(
+            "IMM Internal Audit",
+            filters={"audit_code": ("like", "TEST-AUDSD-%")}, pluck="name",
+        ):
+            with suppress(Exception):
+                frappe.delete_doc("IMM Internal Audit", nm, force=True,
+                                  ignore_permissions=True, ignore_on_trash=True)
+        frappe.db.commit()
+        super().tearDownClass()
+
+
+# ── CR-27b guards: SSoT map ⇄ Select options + no-op-proof (drift-proof) ─────
+
+class TestChecklistFindingStatusResultMap(unittest.TestCase):
+    """Pin _FINDING_STATUS_TO_RESULT (SSoT verdict→result) đúng & drift-proof.
+    KHÔNG cần fixture — thuần đọc doctype JSON + inspect map/meta (Small test)."""
+
+    @staticmethod
+    def _result_select_options() -> set[str]:
+        """Parse imm_audit_checklist_item.json → options Select ``result``
+        (nguồn SSoT ở tầng JSON — bắt drift nếu ai đổi Select)."""
+        path = frappe.get_app_path(
+            "assetcore", "assetcore", "doctype", "imm_audit_checklist_item",
+            "imm_audit_checklist_item.json")
+        with open(path, encoding="utf-8") as fh:
+            doc = json.load(fh)
+        for f in doc["fields"]:
+            if f["fieldname"] == "result":
+                return {o for o in (f.get("options") or "").split("\n") if o}
+        raise AssertionError("field 'result' không tồn tại trong child JSON")
+
+    # INVARIANT: mọi value map ∈ options Select result → set/map đổi lệch = ĐỎ.
+    def test_finding_status_map_values_subset_of_result_select(self):
+        opts = self._result_select_options()
+        self.assertEqual(opts, {"Conforming", "Non-Conforming", "Not Applicable"},
+                         "Select result baseline drift")
+        values = set(svc._FINDING_STATUS_TO_RESULT.values())
+        self.assertTrue(
+            values <= opts,
+            f"map values {values} phải ⊆ options Select result {opts}")
+        # keys = đúng 4 verdict FE/mobile (Compliant/Minor NC/Major NC/N/A).
+        self.assertEqual(set(svc._FINDING_STATUS_TO_RESULT),
+                         {"Compliant", "Minor NC", "Major NC", "N/A"})
+
+    # Guard no-op-proof: child KHÔNG có finding_status/clause_ref → 2 assign cũ
+    # (hasattr-gán) là NO-OP CÂM. Nếu ai THÊM field → test đỏ, buộc xem lại map.
+    def test_audit_checklist_item_has_no_finding_status_clause_ref_field(self):
+        meta = frappe.get_meta("IMM Audit Checklist Item")
+        fieldnames = {f.fieldname for f in meta.fields}
+        cols = set(meta.get_valid_columns())
+        for ghost in ("finding_status", "clause_ref"):
+            self.assertNotIn(
+                ghost, fieldnames,
+                f"child có field {ghost!r} → hasattr-assign cũ KHÔNG còn no-op, "
+                f"phải reconcile map/logic complete_audit_checklist")
+            self.assertNotIn(ghost, cols)
+        # result (đích của map) PHẢI tồn tại → verdict có chỗ persist.
+        self.assertIn("result", fieldnames)
+
+
 # ── TC-16-04..07: CAPA workflow advance ─────────────────────────────────────
 
 class TestCapaWorkflow(TestImm16Base):
@@ -312,6 +648,120 @@ class TestCapaWorkflow(TestImm16Base):
                          "due_date": nowdate()},
             )
         self.assertEqual(ctx.exception.code, "FIN-012")
+
+
+# ── TC-16-04b: CAPA server-driven CTA — allowed_transitions/can_advance ─────
+# ADR-IMM-16-01 / GATE-8 / LL-FE-51 (mirror get_finding/get_audit). get_capa
+# emit allowed_transitions dẫn xuất TỪ CÙNG _CAPA_TRANSITIONS mà advance_capa_state
+# enforce (1 SoT — chống desync nút↔transition). = [] khi caller KHÔNG có
+# compliance.write. Bất biến parity có test khoá.
+
+class TestCapaServerDrivenLifecycle(TestImm16Base):
+    """CAPA vòng đời server-driven: allowed_transitions/can_advance derive
+    server-side từ _CAPA_TRANSITIONS (SoT DUY NHẤT), parity với guard
+    advance_capa_state, gate theo capability compliance.write."""
+
+    _MARKER = "CAPA server-driven CTA test"
+
+    def _mk_capa(self, name: str, state: str, asset: str = "N/A") -> str:
+        """Dựng 1 IMM CAPA Record ở ``state`` (autoname → trả tên thật).
+        Cleanup theo ``description`` marker (name bị autoname ghi đè)."""
+        return _ensure(
+            "IMM CAPA Record", name,
+            {
+                "asset": asset,
+                "source_type": "Non-Conformance",
+                "severity": "Major",
+                "description": self._MARKER,
+                "opened_date": nowdate(),
+                "due_date": add_days(nowdate(), 30),
+                "workflow_state": state,
+                "status": "Open" if state == "Open" else "In Progress",
+                # responsible mandatory — advance_capa_state gọi doc.save() re-validate.
+                "responsible": "Administrator",
+                "root_cause": "test",
+                "corrective_action": "test",
+                "preventive_action": "test",
+            },
+        )
+
+    @staticmethod
+    def _has_write(cap, doc=None):
+        return cap == svc._CAP_COMPLIANCE_WRITE
+
+    # [BE][invariant] mỗi state → allowed_transitions == sorted(_CAPA_TRANSITIONS[state]).
+    def test_get_capa_allowed_transitions_by_state(self):
+        with patch.object(svc.rbac, "can", side_effect=self._has_write):
+            for state, targets in svc._CAPA_TRANSITIONS.items():
+                name = self._mk_capa(
+                    f"TEST-CAPA-AT-{state.replace(' ', '')}", state)
+                data = svc.get_capa(name)
+                self.assertEqual(data["allowed_transitions"], sorted(targets),
+                                 f"state={state}")
+                self.assertTrue(data["can_advance"], f"state={state}")
+            # Verification → ['Closed','Re-opened'] (đóng/mở lại qua gate xác minh)
+            vname = self._mk_capa("TEST-CAPA-AT-VER", "Verification")
+            self.assertEqual(svc.get_capa(vname)["allowed_transitions"],
+                             ["Closed", "Re-opened"])
+            # Terminal 'Closed' không phải key → [] (safe .get, KHÔNG KeyError)
+            cname = self._mk_capa("TEST-CAPA-AT-CLO", "Closed")
+            data = svc.get_capa(cname)
+            self.assertEqual(data["allowed_transitions"], [])
+            self.assertTrue(data["can_advance"])  # cờ do capability, không do state
+
+    # [BE] viewer read-only (KHÔNG compliance.write) → không lộ CTA.
+    def test_get_capa_readonly_viewer_hides_cta(self):
+        name = self._mk_capa("TEST-CAPA-RO", "Investigating")
+        with patch.object(svc.rbac, "can", return_value=False):
+            data = svc.get_capa(name)
+        self.assertEqual(data["allowed_transitions"], [])
+        self.assertFalse(data["can_advance"])
+
+    # [BE][axis-A regression] Super Admin (Administrator có compliance.write) →
+    # allowed_transitions KHÔNG rỗng + can_advance True; advance hợp lệ thành công
+    # (KHÔNG FORBIDDEN); jump-skip vẫn INVALID_STATE.
+    def test_get_capa_super_admin_can_advance_axis_a(self):
+        if not self.test_asset:
+            self.skipTest("No AC Asset found in DB — skipping axis-A advance test")
+        name = self._mk_capa("TEST-CAPA-AXA", "Open", asset=self.test_asset)
+        # Administrator (setUpClass) có capability compliance.write — KHÔNG patch.
+        data = svc.get_capa(name)
+        self.assertTrue(data["can_advance"])
+        self.assertEqual(data["allowed_transitions"], ["Investigating"])
+        # transition hợp lệ (Open→Investigating, không state-validation) → thành công
+        res = svc.advance_capa_state(name, "Investigating")
+        self.assertEqual(res["workflow_state"], "Investigating")
+        # transition sai (jump-skip Open→Verification) vẫn INVALID_STATE
+        name2 = self._mk_capa("TEST-CAPA-AXA2", "Open", asset=self.test_asset)
+        with self.assertRaises(ServiceError) as ctx:
+            svc.advance_capa_state(name2, "Verification")
+        self.assertEqual(ctx.exception.code, "INVALID_STATE")
+
+    # [BE][anti-desync] test khoá: emit của get_capa == tập target advance chấp nhận.
+    def test_allowed_transitions_parity_with_advance_guard(self):
+        with patch.object(svc.rbac, "can", side_effect=self._has_write):
+            for state, guard_targets in svc._CAPA_TRANSITIONS.items():
+                name = self._mk_capa(
+                    f"TEST-CAPA-PAR-{state.replace(' ', '')}", state)
+                emitted = set(svc.get_capa(name)["allowed_transitions"])
+                self.assertEqual(
+                    emitted, set(guard_targets),
+                    f"desync at state={state}: emit={emitted} guard={guard_targets}")
+
+    @classmethod
+    def tearDownClass(cls):
+        # advance_capa_state commit nội bộ → dọn tường minh theo description marker
+        # (name đã bị autoname ghi đè, _delete_if_exists không match).
+        frappe.set_user("Administrator")
+        for nm in frappe.get_all(
+            "IMM CAPA Record",
+            filters={"description": cls._MARKER}, pluck="name",
+        ):
+            with suppress(Exception):
+                frappe.delete_doc("IMM CAPA Record", nm, force=True,
+                                  ignore_permissions=True, ignore_on_trash=True)
+        frappe.db.commit()
+        super().tearDownClass()
 
 
 # ── TC-16-08: Effectiveness Not Effective → reopen counter++ ────────────────
@@ -715,17 +1165,150 @@ class TestCapaFieldsAndGet(TestImm16Base):
 # ── TC-16-15: Management Review lifecycle (update + advance) ────────────────
 
 class TestMRLifecycle(TestImm16Base):
+    # Distinct quarters per status so fixtures never collide on find_by_quarter.
+    _Q_BY_STATUS = {
+        "Draft": "Q1-2099",
+        "Held": "Q2-2099",
+        "Minutes Approved": "Q3-2099",
+        "Closed": "Q4-2099",
+    }
+
     def _mr(self) -> str:
+        return self._mr_in("Draft")
+
+    def _mr_in(self, status: str) -> str:
+        """Fixture MR forced into ``status`` (status + workflow_state) for CTA tests."""
+        quarter = self._Q_BY_STATUS.get(status, "Q1-2098")
         return _ensure(
-            "IMM Management Review", "TEST-MR-Q1-2099",
+            "IMM Management Review",
+            f"TEST-MR-{status.replace(' ', '')}-CTA",
             {
-                "quarter": "Q1-2099",
+                "quarter": quarter,
                 "review_date": nowdate(),
                 "chair": "Administrator",
-                "status": "Draft",
-                "workflow_state": "Draft",
+                "status": status,
+                "workflow_state": status,
             },
         )
+
+    # [BE][TDD] AA-16-MR-1 — allowed_transitions dẫn xuất từ _MR_TRANSITIONS per status.
+    def test_get_mr_emits_allowed_transitions_per_status(self):
+        for status in ("Draft", "Held", "Minutes Approved", "Closed"):
+            expected = sorted(svc._MR_TRANSITIONS.get(status, set()))
+            mr = self._mr_in(status)
+            data = svc.get_management_review(mr)
+            self.assertEqual(data["allowed_transitions"], expected,
+                             f"status={status}")
+        # Kiểm chứng cụ thể (đọc từ SoT, không hardcode kỳ vọng rời).
+        self.assertEqual(
+            svc.get_management_review(self._mr_in("Draft"))["allowed_transitions"],
+            ["Held"])
+        self.assertEqual(
+            svc.get_management_review(self._mr_in("Held"))["allowed_transitions"],
+            ["Minutes Approved"])
+        self.assertEqual(
+            svc.get_management_review(
+                self._mr_in("Minutes Approved"))["allowed_transitions"],
+            ["Closed"])
+        self.assertEqual(
+            svc.get_management_review(self._mr_in("Closed"))["allowed_transitions"],
+            [])
+        # status lạ → [] (safe-default .get, KHÔNG KeyError)
+        weird = self._mr_in("Draft")
+        frappe.db.set_value("IMM Management Review", weird, "status",
+                            "Zzz-Unknown", update_modified=False)
+        self.assertEqual(
+            svc.get_management_review(weird)["allowed_transitions"], [])
+
+    # [BE][TDD] AA-16-MR-2 — cờ capability derive server-side (== compliance.submit).
+    def test_get_mr_emits_capability_flags(self):
+        mr = self._mr()
+
+        def with_submit(cap, doc=None):
+            return cap == "compliance.submit"
+
+        with patch.object(svc.rbac, "can", side_effect=with_submit):
+            data = svc.get_management_review(mr)
+            self.assertTrue(data["can_advance"])
+            self.assertTrue(data["can_close"])
+
+        def no_submit(cap, doc=None):
+            return {"compliance.write": True, "compliance.submit": False}.get(
+                cap, False)
+
+        with patch.object(svc.rbac, "can", side_effect=no_submit):
+            data = svc.get_management_review(mr)
+            self.assertFalse(data["can_advance"])
+            self.assertFalse(data["can_close"])
+            # Cả hai cờ == rbac.can('compliance.submit').
+            self.assertEqual(data["can_advance"], data["can_close"])
+
+    # [BE][TDD][INVARIANT] AA-16-MR-3 — hint ⊆ guard: mọi target emit được
+    # advance_mr_state (hoặc finalize cho 'Closed') chấp nhận; bịa ngoài SoT → INVALID_STATE.
+    def test_mr_allowed_transitions_subset_of_guard(self):
+        for status, guard_targets in svc._MR_TRANSITIONS.items():
+            emitted = set(
+                svc.get_management_review(self._mr_in(status))["allowed_transitions"])
+            self.assertEqual(emitted, set(guard_targets),
+                             f"desync at status={status}")
+            for target in emitted:
+                fresh = self._mr_in(status)
+                if target == "Closed":
+                    # 'Closed' đi qua finalize; advance từ chối VALIDATION (không INVALID).
+                    res = svc.finalize_management_review(
+                        fresh, minutes_doc="/files/m.pdf",
+                        output_actions=[{"action": "Cải tiến",
+                                         "responsible": "Administrator"}])
+                    self.assertEqual(res["status"], "Closed")
+                else:
+                    res = svc.advance_mr_state(fresh, target)
+                    self.assertEqual(res["status"], target)
+        # target bịa ngoài _MR_TRANSITIONS → INVALID_STATE (chống desync hint↔guard).
+        with self.assertRaises(ServiceError) as ctx:
+            svc.advance_mr_state(self._mr_in("Draft"), "Bogus-State")
+        self.assertEqual(ctx.exception.code, "INVALID_STATE")
+
+    # [BE][TDD][axis-A crux] AA-16-MR-4 — user CHỈ mang role 'AssetCore Super Admin'
+    # (QTV) → rbac.can('compliance.submit') True → advance Draft→Held→Minutes Approved
+    # OK + finalize đóng MR OK (chứng minh "QTV duyệt/đóng được dù chỉ có quyền AssetCore").
+    def test_super_admin_can_advance_and_close_mr(self):
+        uid = str(int(time.time() * 1000) % 1_000_000)
+        email = _ensure_user(
+            f"_test_mr_sadm_{uid}@example.com", ["AssetCore Super Admin"])
+        mr = self._mr()  # Draft (tạo dưới Administrator)
+        try:
+            frappe.set_user(email)
+            self.assertTrue(
+                svc.rbac.can("compliance.submit"),
+                "AssetCore Super Admin thiếu compliance.submit → vá SoT DocPerm "
+                "'IMM CAPA Record' submit=1 (chống RBAC dead-gate, KHÔNG hardcode role)")
+            self.assertEqual(svc.advance_mr_state(mr, "Held")["status"], "Held")
+            self.assertEqual(
+                svc.advance_mr_state(mr, "Minutes Approved")["status"],
+                "Minutes Approved")
+            self.assertEqual(
+                svc.finalize_management_review(
+                    mr, minutes_doc="/files/mr.pdf",
+                    output_actions=[{"action": "Cải tiến PM",
+                                     "responsible": "Administrator"}])["status"],
+                "Closed")
+        finally:
+            frappe.set_user("Administrator")
+            _delete_if_exists("User", email)
+
+    # [BE][TDD] AA-16-MR-5 — guard cứng còn nguyên: user KHÔNG capability gọi
+    # advance/finalize → FORBIDDEN (dù FE đã ẩn nút).
+    def test_non_approver_advance_forbidden(self):
+        mr = self._mr()
+        with patch.object(svc.rbac, "can", return_value=False):
+            with self.assertRaises(ServiceError) as ctx:
+                svc.advance_mr_state(mr, "Held")
+            self.assertEqual(ctx.exception.code, ErrorCode.FORBIDDEN)
+            with self.assertRaises(ServiceError) as ctx2:
+                svc.finalize_management_review(
+                    mr, minutes_doc="/files/m.pdf",
+                    output_actions=[{"action": "A", "responsible": "Administrator"}])
+            self.assertEqual(ctx2.exception.code, ErrorCode.FORBIDDEN)
 
     def test_advance_draft_to_held(self):
         mr = self._mr()
@@ -1516,6 +2099,554 @@ class TestQaPersonaComplianceFindingsActive(TestImm16Base):
         self.assertTrue(
             '["Closed"]' in code_only or "['Closed']" in code_only,
             "capa_rows phải GIỮ predicate status NOT IN [Closed]")
+
+
+# ── TC-16-CTA: server-driven CTA — allowed_transitions + can_create_capa ────
+#
+# GATE-8 / LL-FE-51 (đối xứng test_imm09.TestRepairAllowedTransitions): get_finding
+# emit `allowed_transitions` (SoT = _FINDING_VALID_TRANSITIONS) + cờ eligibility
+# `can_create_capa` để FE gate nút status-CTA / CAPA theo SERVER, KHÔNG hardcode
+# finding.status===X client-side. SoT map = docs/imm-16/04 §III.B.1 (BA-chotted):
+# Confirmed NC → ['Waived'] CHỈ (KHÔNG 'Closed' — hint dối).
+class TestFindingAllowedTransitions(TestImm16Base):
+    def _finding_in_status(self, status: str, *, capa_ref: str = "") -> str:
+        data = {
+            "rule": self.rule,
+            "detected_date": nowdate(),
+            "evaluation_date": nowdate(),
+            "severity": "High",
+            "status": status,
+        }
+        if capa_ref:
+            data["capa_ref"] = capa_ref
+        return _ensure("IMM Compliance Finding", "TEST-FND-CTA-01", data)
+
+    def test_open_transitions_and_capa_flag(self):
+        """[BE TDD-1] Open → allowed = {Confirmed NC, False Positive, Waived};
+        can_create_capa == 0 (chưa Confirmed NC)."""
+        name = self._finding_in_status(FindingStatus.OPEN)
+        data = svc.get_finding(name)
+        self.assertIn(FindingStatus.CONFIRMED_NC, data["allowed_transitions"])
+        self.assertIn(FindingStatus.FALSE_POSITIVE, data["allowed_transitions"])
+        self.assertIn(FindingStatus.WAIVED, data["allowed_transitions"])
+        self.assertEqual(data["can_create_capa"], 0)
+
+    def test_under_review_mirrors_open(self):
+        """[BE TDD-1b] Under Review đối xứng Open (cùng codomain)."""
+        name = self._finding_in_status(FindingStatus.UNDER_REVIEW)
+        data = svc.get_finding(name)
+        self.assertCountEqual(
+            data["allowed_transitions"],
+            [FindingStatus.CONFIRMED_NC, FindingStatus.FALSE_POSITIVE,
+             FindingStatus.WAIVED],
+        )
+        self.assertEqual(data["can_create_capa"], 0)
+
+    def test_confirmed_nc_without_capa(self):
+        """[BE TDD-2] Confirmed NC (chưa capa_ref) → allowed chứa 'Waived'
+        (KHÔNG 'Closed' — SoT 04 §III.B.1); can_create_capa == 1."""
+        name = self._finding_in_status(FindingStatus.CONFIRMED_NC)
+        data = svc.get_finding(name)
+        self.assertIn(FindingStatus.WAIVED, data["allowed_transitions"])
+        self.assertNotIn(
+            FindingStatus.CLOSED, data["allowed_transitions"],
+            "Confirmed NC KHÔNG advertise 'Closed' (close_finding→Resolved; "
+            "Resolved→Closed là cạnh workflow-engine, không status-CTA)")
+        self.assertEqual(data["can_create_capa"], 1)
+
+    def test_confirmed_nc_with_capa_flag_off(self):
+        """[BE TDD-3] Confirmed NC ĐÃ có capa_ref → can_create_capa == 0."""
+        name = self._finding_in_status(
+            FindingStatus.CONFIRMED_NC, capa_ref="CAPA-2026-99999")
+        data = svc.get_finding(name)
+        self.assertEqual(data["can_create_capa"], 0)
+
+    def test_terminal_states_empty(self):
+        """[BE TDD-4] terminal (Waived/Closed/False Positive/Resolved) →
+        allowed_transitions == []; can_create_capa == 0."""
+        for st in (FindingStatus.WAIVED, FindingStatus.CLOSED,
+                   FindingStatus.FALSE_POSITIVE, FindingStatus.RESOLVED):
+            name = self._finding_in_status(st)
+            data = svc.get_finding(name)
+            self.assertEqual(data["allowed_transitions"], [],
+                             f"{st} phải terminal (0 status-CTA)")
+            self.assertEqual(data["can_create_capa"], 0,
+                             f"{st}: can_create_capa phải 0")
+
+    def test_confirm_on_waived_raises_bad_state(self):
+        """[BE TDD-5] Invariant guard: confirm_finding trên Finding Waived →
+        ServiceError(BAD_STATE). allowed_transitions là hint hiển thị, KHÔNG
+        bypass guard BE (defense-in-depth)."""
+        name = self._finding_in_status(FindingStatus.WAIVED)
+        with self.assertRaises(ServiceError) as ctx:
+            svc.confirm_finding(name, "reviewer note")
+        self.assertEqual(ctx.exception.code, ErrorCode.BAD_STATE)
+
+    def test_confirm_on_confirmed_nc_raises_bad_state(self):
+        """[BE TDD-5b] confirm_finding trên Finding Confirmed NC → BAD_STATE
+        (siết guard ACTIVE→REVIEWABLE, đóng self-confirm — 04 §III.B.1)."""
+        name = self._finding_in_status(FindingStatus.CONFIRMED_NC)
+        with self.assertRaises(ServiceError) as ctx:
+            svc.confirm_finding(name, "reviewer note")
+        self.assertEqual(ctx.exception.code, ErrorCode.BAD_STATE)
+
+    def test_map_invariant_codomain_subset_and_keyed_by_status(self):
+        """[BE TDD-6] Invariant map↔state-machine: codomain ⊆ FindingStatus
+        enum (chống typo/drift) + key ⊆ enum. Terminal → []."""
+        from assetcore.services.imm16 import _FINDING_VALID_TRANSITIONS
+        valid = {
+            FindingStatus.OPEN, FindingStatus.UNDER_REVIEW,
+            FindingStatus.CONFIRMED_NC, FindingStatus.FALSE_POSITIVE,
+            FindingStatus.RESOLVED, FindingStatus.WAIVED, FindingStatus.CLOSED,
+        }
+        for src_status, targets in _FINDING_VALID_TRANSITIONS.items():
+            self.assertIn(src_status, valid, f"key {src_status} ⊄ enum")
+            for t in targets:
+                self.assertIn(t, valid, f"đích {t} ⊄ FindingStatus enum")
+        # confirm/mark_false_positive ⊆ REVIEWABLE; waive ⊆ WAIVABLE;
+        # start_review ⊆ START_REVIEWABLE — map KHÔNG advertise transition guard
+        # sẽ từ chối (round 14: +UNDER_REVIEW ∈ map[Open] khớp START_REVIEWABLE).
+        for src_status, targets in _FINDING_VALID_TRANSITIONS.items():
+            if FindingStatus.CONFIRMED_NC in targets or \
+               FindingStatus.FALSE_POSITIVE in targets:
+                self.assertIn(src_status, FindingStatus.REVIEWABLE)
+            if FindingStatus.WAIVED in targets:
+                self.assertIn(src_status, FindingStatus.WAIVABLE)
+            if FindingStatus.UNDER_REVIEW in targets:
+                self.assertIn(src_status, FindingStatus.START_REVIEWABLE)
+
+
+# ── AT-16-10..16: dual-track lockstep workflow_state ⇄ status (CR-WF-16-FIND) ─
+#
+# Root cause: transition-fn Finding set doc.status NHƯNG KHÔNG chạm
+# doc.workflow_state → workflow_state đọng 'Open' vĩnh viễn trên workflow ĐANG
+# ACTIVE (is_active=1). Fix (§III.B.2 ADR-IMM-16-05): SAU mỗi transition,
+# frappe.db.set_value(..., {"workflow_state": <status>}) lockstep. RED-before:
+# workflow_state đọng 'Open'; GREEN-after: workflow_state == status.
+class TestFindingDualTrackLockstep(TestImm16Base):
+    def _finding(self, name: str, status: str, **extra) -> str:
+        return _ensure("IMM Compliance Finding", name, {
+            "rule": self.rule,
+            "detected_date": nowdate(),
+            "evaluation_date": nowdate(),
+            "severity": "High",
+            "status": status,
+            "workflow_state": status,
+            **extra,
+        })
+
+    def _track(self, name: str) -> dict:
+        return frappe.db.get_value(
+            "IMM Compliance Finding", name, ["status", "workflow_state"],
+            as_dict=True)
+
+    def test_at_16_10_confirm_locksteps_workflow_state(self):
+        """AT-16-10 (RED→GREEN): Open → confirm_finding → status AND
+        workflow_state == 'Confirmed NC' (RED: workflow_state đọng 'Open')."""
+        name = self._finding("TEST-FND-LOCK-CFM", FindingStatus.OPEN)
+        svc.confirm_finding(name, "kiểm tra vi phạm")
+        row = self._track(name)
+        self.assertEqual(row.status, FindingStatus.CONFIRMED_NC)
+        self.assertEqual(row.workflow_state, FindingStatus.CONFIRMED_NC,
+                         "workflow_state phải lockstep với status (đọng 'Open' = RED)")
+
+    def test_at_16_11_mark_false_positive_locksteps(self):
+        """AT-16-11: Open → mark_false_positive → cả hai == 'False Positive'."""
+        name = self._finding("TEST-FND-LOCK-FP", FindingStatus.OPEN)
+        svc.mark_false_positive(name, "cảnh báo sai do lỗi cảm biến")
+        row = self._track(name)
+        self.assertEqual(row.status, FindingStatus.FALSE_POSITIVE)
+        self.assertEqual(row.workflow_state, FindingStatus.FALSE_POSITIVE)
+
+    def test_at_16_12_waive_locksteps(self):
+        """AT-16-12: Under Review → waive_finding (VR-04) → cả hai == 'Waived'."""
+        name = self._finding("TEST-FND-LOCK-WV", FindingStatus.UNDER_REVIEW)
+        svc.waive_finding(
+            name,
+            waiver_reason="Thiết bị dự phòng, không sử dụng lâm sàng nên tạm "
+                          "miễn áp dụng tới khi tái vận hành theo kế hoạch.",
+            waiver_evidence="/files/waiver-approval.pdf",
+            waiver_expiry=add_days(nowdate(), 60),
+        )
+        row = self._track(name)
+        self.assertEqual(row.status, FindingStatus.WAIVED)
+        self.assertEqual(row.workflow_state, FindingStatus.WAIVED)
+
+    def test_at_16_13_close_locksteps(self):
+        """AT-16-13: Confirmed NC → close_finding → cả hai == 'Resolved'
+        (EXCEPTION_EDGE CAPA-auto @imm16:720)."""
+        name = self._finding("TEST-FND-LOCK-CLS", FindingStatus.CONFIRMED_NC)
+        svc.close_finding(name, capa_ref="", resolution_note="Đã khắc phục")
+        row = self._track(name)
+        self.assertEqual(row.status, FindingStatus.RESOLVED)
+        self.assertEqual(row.workflow_state, FindingStatus.RESOLVED)
+
+    def test_at_16_14_capa_cascade_locksteps(self):
+        """AT-16-14: CAPA (source_type='Compliance Finding') → Closed → cascade
+        Finding status AND workflow_state == 'Resolved'."""
+        if not self.test_asset:
+            self.skipTest("No AC Asset found")
+        finding = self._finding("TEST-FND-LOCK-CASC", FindingStatus.CONFIRMED_NC)
+        # source_type = canonical Select value (imm16:1826/1882); chuỗi cũ
+        # "Compliance Finding" KHÔNG có trong Select ⇒ cascade DEAD (root-cause phụ).
+        capa = _ensure("IMM CAPA Record", "TEST-CAPA-CASC-01", {
+            "asset": self.test_asset,
+            "source_type": "IMM Compliance Finding",
+            "source_ref": finding,
+            "severity": "Major",
+            "description": "Cascade resolve test",
+            "opened_date": nowdate(),
+            "due_date": add_days(nowdate(), 30),
+            "responsible": "Administrator",
+            "status": "Closed",
+        })
+        svc.capa_record_on_update(frappe.get_doc("IMM CAPA Record", capa))
+        row = self._track(finding)
+        self.assertEqual(row.status, FindingStatus.RESOLVED)
+        self.assertEqual(row.workflow_state, FindingStatus.RESOLVED,
+                         "cascade CAPA phải đặt CẢ HAI track lockstep")
+
+    def test_at_16_15_start_review_locksteps(self):
+        """AT-16-15 (RED→GREEN): Open → start_review → cả hai == 'Under Review'
+        (fn mới; surface phantom Open→Under Review)."""
+        name = self._finding("TEST-FND-LOCK-SR", FindingStatus.OPEN)
+        res = svc.start_review(name, "bắt đầu điều tra hồ sơ")
+        self.assertEqual(res["status"], FindingStatus.UNDER_REVIEW)
+        row = self._track(name)
+        self.assertEqual(row.status, FindingStatus.UNDER_REVIEW)
+        self.assertEqual(row.workflow_state, FindingStatus.UNDER_REVIEW)
+
+    def test_at_16_16_start_review_guard_non_open(self):
+        """AT-16-16: start_review từ status ≠ Open (Under Review/Confirmed NC) →
+        BAD_STATE (START_REVIEWABLE = (Open,))."""
+        for st in (FindingStatus.UNDER_REVIEW, FindingStatus.CONFIRMED_NC):
+            name = self._finding("TEST-FND-LOCK-GRD", st)
+            with self.assertRaises(ServiceError) as ctx:
+                svc.start_review(name)
+            self.assertEqual(ctx.exception.code, ErrorCode.BAD_STATE,
+                             f"start_review từ {st} phải BAD_STATE")
+
+
+# ── AT-16-17: INVARIANT map codomain ⇄ workflow next_state (CR-WF-16-FIND) ────
+#
+# Guard chống drift phantom giữa SSoT service-CTA (_FINDING_VALID_TRANSITIONS,
+# sinh allowed_transitions → CTA FE) và state-machine imm_16_finding_workflow.json.
+# §III.B.2 INV-16-A/B/C. RED trước round 14: 'Under Review' ∈ (wf_next − codomain)
+# NHƯNG ∉ EXCEPTION_EDGES ⇒ INV-16-B FAIL (phantom chưa phân định). GREEN sau:
+# thêm 'Under Review' vào codomain (map[Open]) ⇒ wf_next − codomain == {Resolved,
+# Closed} = EXCEPTION_EDGES. Đối xứng TestIncidentAllowedTransitions (test_imm12).
+def _load_finding_workflow_next_states() -> set[str]:
+    path = frappe.get_app_path(
+        "assetcore", "assetcore", "workflow", "imm_16_finding_workflow.json")
+    with open(path, encoding="utf-8") as fh:
+        wf = json.load(fh)
+    return {tr["next_state"] for tr in wf["transitions"]}
+
+
+class TestFindingWorkflowInvariant(unittest.TestCase):
+    def _codomain(self) -> set[str]:
+        from assetcore.services.imm16 import _FINDING_VALID_TRANSITIONS
+        return {t for tgts in _FINDING_VALID_TRANSITIONS.values() for t in tgts}
+
+    def test_inv_16_a_codomain_reachable_in_workflow(self):
+        """INV-16-A: mọi đích CTA advertise PHẢI reachable trong workflow
+        (codomain − wf_next == ∅) — 0 nút dead/bypass."""
+        codomain = self._codomain()
+        wf_next = _load_finding_workflow_next_states()
+        self.assertEqual(
+            codomain - wf_next, set(),
+            f"_FINDING_VALID_TRANSITIONS advertise đích KHÔNG có cạnh workflow: "
+            f"{codomain - wf_next}")
+
+    def test_inv_16_b_workflow_extra_states_are_documented_exceptions(self):
+        """INV-16-B (RED→GREEN): state workflow KHÔNG do map-CTA sinh ⊆
+        _FINDING_EXCEPTION_EDGES = {Resolved, Closed}. RED trước round 14:
+        'Under Review' ∈ dư-thừa NHƯNG ∉ EXCEPTION ⇒ FAIL."""
+        from assetcore.services.imm16 import _FINDING_EXCEPTION_EDGES
+        codomain = self._codomain()
+        wf_next = _load_finding_workflow_next_states()
+        self.assertEqual(
+            _FINDING_EXCEPTION_EDGES,
+            {FindingStatus.RESOLVED, FindingStatus.CLOSED},
+            "EXCEPTION_EDGES phải đúng 2 cạnh acceptance nêu (Resolved, Closed)")
+        self.assertEqual(
+            wf_next - codomain, _FINDING_EXCEPTION_EDGES,
+            f"State workflow ngoài codomain PHẢI == EXCEPTION_EDGES (drift "
+            f"phantom nếu lệch): {wf_next - codomain}")
+
+    def test_inv_16_c_service_produced_reachable(self):
+        """INV-16-C: mọi status service SINH ĐƯỢC PHẢI reachable trong workflow."""
+        wf_next = _load_finding_workflow_next_states()
+        produced = {FindingStatus.CONFIRMED_NC, FindingStatus.FALSE_POSITIVE,
+                    FindingStatus.WAIVED, FindingStatus.RESOLVED,
+                    FindingStatus.UNDER_REVIEW}
+        self.assertTrue(
+            produced <= wf_next,
+            f"status service-produced KHÔNG reachable: {produced - wf_next}")
+
+
+# ── AT-16-CAPA-INV: INVARIANT 2 chiều _CAPA_TRANSITIONS ⇄ imm_16_capa_workflow.json ──
+# (CR-WF-16-CAPA, round 19). Guard chống drift phantom giữa SSoT service-CTA
+# (_CAPA_TRANSITIONS@imm16:1958 — sinh allowed_transitions → 6 CTA CAPADetailView) và
+# state-machine imm_16_capa_workflow.json (is_active=1). §III.D.2 / ADR-IMM-16-07.
+# KHÁC Finding (§III.B.2 codomain-only, EXCEPTION_EDGES={Resolved,Closed}): CAPA đối
+# soát EDGE-by-EDGE (cặp state→next_state) 2 chiều — bắt cả drift "đúng đích, sai
+# nguồn". Map đối xứng HOÀN TOÀN workflow (7 cạnh khớp 1-1) ⇒ EXCEPTION_EDGES=∅ cả 2
+# chiều. Đối xứng TestFindingWorkflowInvariant + test_imm12.TestIncidentAllowedTransitions.
+
+# 7 state CAPA hợp lệ (== states[] của imm_16_capa_workflow.json)
+_CAPA_VALID_STATES = {
+    "Open", "Investigating", "Action Plan", "Implementation",
+    "Verification", "Re-opened", "Closed",
+}
+# EXCEPTION_EDGES = ∅ — map ⇄ workflow đối xứng hoàn toàn (0 cạnh miễn trừ 2 chiều).
+# Đặt TEST-LEVEL (KHÔNG trong services/imm16.py) — round TEST-ONLY, 0 service change.
+_CAPA_EXCEPTION_EDGES: frozenset = frozenset()
+
+
+def _load_capa_workflow_edges() -> set:
+    """Tập cạnh (state, next_state) DEDUPED của imm_16_capa_workflow.json.
+
+    Workflow lặp transition theo vai (Compliance Manager / System Manager /
+    AssetCore Super Admin) ⇒ nhiều entry cùng cạnh; set() gom về cạnh duy nhất.
+    """
+    path = frappe.get_app_path(
+        "assetcore", "assetcore", "workflow", "imm_16_capa_workflow.json")
+    with open(path, encoding="utf-8") as fh:
+        wf = json.load(fh)
+    return {(tr["state"], tr["next_state"]) for tr in wf["transitions"]}
+
+
+class TestCapaWorkflowInvariant(unittest.TestCase):
+    """CR-WF-16-CAPA: đối soát 2 chiều edge-by-edge _CAPA_TRANSITIONS ⇄ workflow JSON."""
+
+    def _map_edges(self) -> set:
+        return {(s, t) for s, tgts in svc._CAPA_TRANSITIONS.items() for t in tgts}
+
+    def test_at_16_capa_inv_1_map_edges_subset_workflow(self):
+        """INV-16-CAPA-1 (MAP⊆WF): mọi cạnh (state,next) trong _CAPA_TRANSITIONS
+        là cạnh THẬT của workflow ∪ EXCEPTION_EDGES=∅ ⇒ 0 CTA dead/bypass."""
+        extra = self._map_edges() - _load_capa_workflow_edges()
+        self.assertEqual(
+            extra, set(_CAPA_EXCEPTION_EDGES),
+            f"_CAPA_TRANSITIONS advertise cạnh KHÔNG có trong workflow "
+            f"(CTA dead/bypass): {sorted(extra)}")
+
+    def test_at_16_capa_inv_2_workflow_edges_subset_map(self):
+        """INV-16-CAPA-2 (WF⊆MAP): mọi cạnh (state→next_state) của workflow được
+        map surface ∪ EXCEPTION_EDGES=∅. RED-before: strip 1 cạnh map (vd
+        Verification→Re-opened) ⇒ cạnh workflow đó KHÔNG surface ⇒ FAIL (CTA câm)."""
+        unsurfaced = _load_capa_workflow_edges() - self._map_edges()
+        # message nêu RÕ cạnh drift + hệ quả (đối chiếu acceptance RED-before)
+        detail = ", ".join(f"{s}→{t}" for s, t in sorted(unsurfaced)) or "∅"
+        self.assertEqual(
+            unsurfaced, set(_CAPA_EXCEPTION_EDGES),
+            f"workflow có cạnh {detail} KHÔNG surface (CTA câm — nút duyệt CAPA "
+            f"sẽ mất trên state machine 6-state)")
+
+    def test_at_16_capa_inv_3_codomain_subset_valid_states(self):
+        """Codomain (keys ∪ values) ⊆ 7 state CAPA hợp lệ — chống typo/orphan."""
+        codomain = set(svc._CAPA_TRANSITIONS.keys()) | {
+            t for tgts in svc._CAPA_TRANSITIONS.values() for t in tgts}
+        orphans = codomain - _CAPA_VALID_STATES
+        self.assertEqual(
+            orphans, set(),
+            f"_CAPA_TRANSITIONS chứa state KHÔNG hợp lệ (typo/orphan): {sorted(orphans)}")
+
+    def test_at_16_capa_inv_4_terminal_closed_not_key(self):
+        """Terminal 'Closed' ∉ keys ⇒ get_capa(CAPA Closed).allowed_transitions
+        == [] (safe .get, KHÔNG KeyError). Live-proof: AC-16-5@test:557."""
+        self.assertNotIn(
+            "Closed", svc._CAPA_TRANSITIONS,
+            "'Closed' là terminal — KHÔNG được là key (phải trả [] qua safe .get)")
+        self.assertEqual(
+            sorted(svc._CAPA_TRANSITIONS.get("Closed", set())), [],
+            "allowed_transitions của Closed phải == []")
+
+
+# ── AT-16-MR-INV: INVARIANT 2 chiều _MR_TRANSITIONS ⇄ imm_16_mr_workflow.json ──
+# (CR-WF-16-MR, round 20). Guard chống drift phantom giữa SSoT service-CTA
+# (_MR_TRANSITIONS@imm16:2391 — sinh allowed_transitions@imm16:2245 → CTA
+# MRDetailView) và state-machine imm_16_mr_workflow.json (is_active=1). ĐÓNG NỐT
+# quartet reconcile IMM-16 (Finding R14 / CAPA R19 / MR) — khoá 0 hidden-CTA-câm
+# trên state machine MR 4-state (Draft→Held→Minutes Approved→Closed). ADR-IMM-16-07.
+# KHÁC Finding (§III.B.2 codomain-only): MR đối soát EDGE-by-EDGE (cặp
+# state→next_state) 2 chiều — bắt cả drift "đúng đích, sai nguồn". Map đối xứng HOÀN
+# TOÀN workflow (3 cạnh khớp 1-1) ⇒ EXCEPTION_EDGES=∅ cả 2 chiều. Đối xứng
+# TestCapaWorkflowInvariant + TestFindingWorkflowInvariant.
+# NOTE: cạnh Minutes Approved→Closed thực thi bởi finalize_management_review@2340
+# (advance_mr_state@2451 từ chối bằng VALIDATION) NHƯNG là cạnh workflow THẬT ⇒ ∈ cả
+# map + json ⇒ reconcile SẠCH, KHÔNG phải exception-edge.
+
+# 4 state MR hợp lệ (== states[] của imm_16_mr_workflow.json)
+_MR_VALID_STATES = {"Draft", "Held", "Minutes Approved", "Closed"}
+# EXCEPTION_EDGES = ∅ — map ⇄ workflow đối xứng hoàn toàn (0 cạnh miễn trừ 2 chiều).
+# Đặt TEST-LEVEL (KHÔNG trong services/imm16.py) — round TEST-ONLY, 0 service change.
+_MR_EXCEPTION_EDGES: frozenset = frozenset()
+
+
+def _load_mr_workflow_edges() -> set:
+    """Tập cạnh (state, next_state) DEDUPED của imm_16_mr_workflow.json.
+
+    Workflow lặp transition theo vai (Compliance Manager / System Manager /
+    AssetCore Super Admin) ⇒ nhiều entry cùng cạnh; set() gom về cạnh duy nhất.
+    Mirror ``_load_capa_workflow_edges``.
+    """
+    path = frappe.get_app_path(
+        "assetcore", "assetcore", "workflow", "imm_16_mr_workflow.json")
+    with open(path, encoding="utf-8") as fh:
+        wf = json.load(fh)
+    return {(tr["state"], tr["next_state"]) for tr in wf["transitions"]}
+
+
+class TestMrWorkflowInvariant(unittest.TestCase):
+    """CR-WF-16-MR: đối soát 2 chiều edge-by-edge _MR_TRANSITIONS ⇄ workflow JSON."""
+
+    def _map_edges(self) -> set:
+        return {(s, t) for s, tgts in svc._MR_TRANSITIONS.items() for t in tgts}
+
+    def test_at_16_mr_inv_1_map_edges_subset_workflow(self):
+        """INV-16-MR-1 (MAP⊆WF): mọi cạnh (state,next) trong _MR_TRANSITIONS
+        là cạnh THẬT của workflow ∪ EXCEPTION_EDGES=∅ ⇒ 0 CTA dead/bypass."""
+        extra = self._map_edges() - _load_mr_workflow_edges()
+        self.assertEqual(
+            extra, set(_MR_EXCEPTION_EDGES),
+            f"_MR_TRANSITIONS advertise cạnh KHÔNG có trong workflow "
+            f"(CTA dead/bypass): {sorted(extra)}")
+
+    def test_at_16_mr_inv_2_workflow_edges_subset_map(self):
+        """INV-16-MR-2 (WF⊆MAP): mọi cạnh (state→next_state) của workflow được
+        map surface ∪ EXCEPTION_EDGES=∅. RED-before: strip 1 cạnh map (vd
+        Held→Minutes Approved) ⇒ cạnh workflow đó KHÔNG surface ⇒ FAIL (CTA câm)."""
+        unsurfaced = _load_mr_workflow_edges() - self._map_edges()
+        # message nêu RÕ cạnh drift + hệ quả (đối chiếu acceptance RED-before)
+        detail = ", ".join(f"{s}→{t}" for s, t in sorted(unsurfaced)) or "∅"
+        self.assertEqual(
+            unsurfaced, set(_MR_EXCEPTION_EDGES),
+            f"workflow có cạnh {detail} KHÔNG surface (CTA câm — nút duyệt MR mất)")
+
+    def test_at_16_mr_inv_3_codomain_subset_valid_states(self):
+        """Codomain (keys ∪ values) ⊆ 4 state MR hợp lệ — chống typo/orphan."""
+        codomain = set(svc._MR_TRANSITIONS.keys()) | {
+            t for tgts in svc._MR_TRANSITIONS.values() for t in tgts}
+        orphans = codomain - _MR_VALID_STATES
+        self.assertEqual(
+            orphans, set(),
+            f"_MR_TRANSITIONS chứa state KHÔNG hợp lệ (typo/orphan): {sorted(orphans)}")
+
+    def test_at_16_mr_inv_4_terminal_closed_not_key(self):
+        """Terminal 'Closed' ∉ keys ⇒ get_management_review(MR Closed)
+        .allowed_transitions == [] (safe .get@imm16:2246, KHÔNG KeyError)."""
+        self.assertNotIn(
+            "Closed", svc._MR_TRANSITIONS,
+            "'Closed' là terminal — KHÔNG được là key (phải trả [] qua safe .get)")
+        self.assertEqual(
+            sorted(svc._MR_TRANSITIONS.get("Closed", set())), [],
+            "allowed_transitions của MR Closed phải == []")
+
+
+# ── AT-16-AUD-INV: INVARIANT 2-chiều _AUDIT_VALID_TRANSITIONS ⇄ imm_16_internal_audit.json ──
+# (CR-WF-16-AUDIT, round 22). ĐÓNG NỐT quartet reconcile IMM-16 (Finding R14 /
+# CAPA R19 / MR R20 / Internal Audit R22) — khoá 0 hidden-CTA-câm + guard-
+# permissive trên state machine Audit 4-state (Planned→In Progress→Reporting→
+# Closed). §III.C.2 / ADR-IMM-16-09.
+#
+# KHÁC 3 workflow kia (map codomain = STATE-đích ⇒ edge-by-edge trực tiếp):
+# Audit map codomain = ACTION-KEY (start/complete_checklist/close). ⇒ cần
+# resolver ``_AUDIT_ACTION_TO_NEXT_STATE`` (action-key→AuditStatus, SSoT@imm16)
+# bắc cầu action→state TRƯỚC khi đối soát per-state. Đối xứng
+# TestFindingWorkflowInvariant + TestCapa/MrWorkflowInvariant + test_imm12
+# TestIncidentAllowedTransitions. Pure map+resolver+JSON parse, KHÔNG DB fixture.
+
+def _load_audit_workflow_state_edges() -> dict:
+    """{state: set(next_state)} DEDUPED của imm_16_internal_audit.json.
+
+    Workflow lặp transition theo vai (Compliance Manager / System Manager /
+    AssetCore Super Admin) ⇒ nhiều entry cùng cạnh; set() gom về cạnh duy nhất
+    per state (9 transition-entry → 3 cạnh: Planned→In Progress, In Progress→
+    Reporting, Reporting→Closed)."""
+    path = frappe.get_app_path(
+        "assetcore", "assetcore", "workflow", "imm_16_internal_audit.json")
+    with open(path, encoding="utf-8") as fh:
+        wf = json.load(fh)
+    edges: dict = {}
+    for tr in wf["transitions"]:
+        edges.setdefault(tr["state"], set()).add(tr["next_state"])
+    return edges
+
+
+def _load_audit_workflow_states() -> set:
+    """states[] của imm_16_internal_audit.json (oracle độc lập)."""
+    path = frappe.get_app_path(
+        "assetcore", "assetcore", "workflow", "imm_16_internal_audit.json")
+    with open(path, encoding="utf-8") as fh:
+        wf = json.load(fh)
+    return {s["state"] for s in wf["states"]}
+
+
+class TestAuditWorkflowInvariant(unittest.TestCase):
+    """CR-WF-16-AUDIT: đối soát 2-chiều _AUDIT_VALID_TRANSITIONS ⇄ workflow JSON
+    qua resolver _AUDIT_ACTION_TO_NEXT_STATE (SSoT action-key→AuditStatus)."""
+
+    _AUDIT_STATES = {"Planned", "In Progress", "Reporting", "Closed"}
+
+    def test_at_16_aud_inv_1_map_keys_equal_workflow_states(self):
+        """(a) set(_AUDIT_VALID_TRANSITIONS.keys()) == states[] workflow (4-state).
+        Map keyed bằng status ⇒ mọi status của state-machine có 1 entry (kể cả
+        terminal Closed → [])."""
+        self.assertEqual(
+            set(svc._AUDIT_VALID_TRANSITIONS.keys()),
+            _load_audit_workflow_states(),
+            "keys map (AuditStatus) PHẢI == states[] workflow (Planned, In "
+            "Progress, Reporting, Closed)")
+
+    def test_at_16_aud_inv_2_resolver_keys_are_the_3_handlers(self):
+        """resolver keys == {start, complete_checklist, close} == 3 handler
+        canonical whitelisted (start_audit / complete_audit_checklist /
+        close_audit)."""
+        self.assertEqual(
+            set(svc._AUDIT_ACTION_TO_NEXT_STATE.keys()),
+            {"start", "complete_checklist", "close"},
+            "resolver keys PHẢI khớp 3 canonical handler whitelisted")
+
+    def test_at_16_aud_inv_3_no_orphan_action(self):
+        """Mọi action ∈ codomain(_AUDIT_VALID_TRANSITIONS) có entry resolver
+        (no orphan — action advertise nhưng không dịch được → state)."""
+        codomain = {a for acts in svc._AUDIT_VALID_TRANSITIONS.values()
+                    for a in acts}
+        orphans = codomain - set(svc._AUDIT_ACTION_TO_NEXT_STATE.keys())
+        self.assertEqual(
+            orphans, set(),
+            f"action advertise KHÔNG có resolver entry (orphan): {sorted(orphans)}")
+
+    def test_at_16_aud_inv_4_resolver_values_subset_status_enum(self):
+        """values(resolver) ⊆ AuditStatus enum {Planned, In Progress, Reporting,
+        Closed} — chống typo/orphan status-đích."""
+        vals = set(svc._AUDIT_ACTION_TO_NEXT_STATE.values())
+        self.assertTrue(
+            vals <= self._AUDIT_STATES,
+            f"resolver values ngoài AuditStatus enum: {vals - self._AUDIT_STATES}")
+        # AuditStatus.* == 4 giá trị enum (oracle độc lập với set literal ở trên).
+        self.assertEqual(
+            {svc.AuditStatus.PLANNED, svc.AuditStatus.IN_PROGRESS,
+             svc.AuditStatus.REPORTING, svc.AuditStatus.CLOSED},
+            self._AUDIT_STATES)
+
+    def test_at_16_aud_inv_5_per_state_map_equals_workflow(self):
+        """(b) ∀ state: {resolver[a] for a in map[state]} == {next_state cạnh
+        workflow từ state}. RED-before round 22 (perturbation THẬT): đổi 1 entry
+        resolver (vd start→Reporting) HOẶC thêm 'close' vào map[In Progress] ⇒
+        FAIL 'DRIFT <state>: map ≠ workflow'. Aligned hiện tại: Planned→{In
+        Progress}, In Progress→{Reporting}, Reporting→{Closed}, Closed→∅."""
+        wf_edges = _load_audit_workflow_state_edges()
+        resolver = svc._AUDIT_ACTION_TO_NEXT_STATE
+        for state in svc._AUDIT_VALID_TRANSITIONS:
+            mapped = {resolver[a] for a in svc._AUDIT_VALID_TRANSITIONS[state]}
+            wf_next = wf_edges.get(state, set())
+            self.assertEqual(
+                mapped, wf_next,
+                f"DRIFT {state}: map ≠ workflow "
+                f"(map→{sorted(mapped)} vs workflow→{sorted(wf_next)})")
 
 
 if __name__ == "__main__":

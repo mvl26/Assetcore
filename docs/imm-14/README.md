@@ -5,10 +5,12 @@
 | Khối kiến trúc | D. KHỐI 4 (End-of-life) |
 | Đợt triển khai | 3 |
 | Owner | PTP Khối 2 + Tổ HC-QLCL & Risk + Nhóm KH-TC |
-| Trạng thái docs | In Progress — **MVP vòng 2 CHỐT để code** (closure-record + gate + danh sách tra cứu); reconciliation/rollback/dashboard = ROADMAP Đợt 3 |
-| Cập nhật | 2026-07-02 |
+| Trạng thái docs | In Progress — **MVP vòng 2 + vòng 17 CHỐT để code** (closure-record + gate + danh sách + chi tiết & duyệt server-driven); reconciliation/rollback/dashboard = ROADMAP Đợt 3 |
+| Cập nhật | 2026-07-10 |
 
 > **Vòng 2 (2026-06-04):** spec CHỐT cho Cổng "Hồ sơ giải nhiệm" — DocType `Asset Decommission` + gate chặn `Decommissioned` nếu chưa có closure approved + entrypoint FE trên màn asset detail. Chi tiết: [02 §VI](./02_Analysis_Design.md#phần-vi--wave-2-mvp-cổng-hồ-sơ-giải-nhiệm-decommission-closure-gate) · [04 §IX](./04_Backend_Design.md) · [05 §6](./05_API_Specification.md) · [06 §11](./06_Frontend_Design.md). Reuse `transition_asset_status` (services/imm00.py) — KHÔNG viết lại lifecycle event / audit / cancel depreciation.
+>
+> **Vòng 17 (2026-07-10):** spec CHỐT cho **Màn Chi tiết & DUYỆT biên bản** — route `/decommissions/:id` → `DecommissionDetailView`; `get_decommission` enrich `can_approve` (int 0/1) + `approve_blocked_reason` (VI) từ SoT chung `_evaluate_approvability` (cùng điều kiện `approve_decommission` enforce, KHÔNG duplicate); CTA server-driven (`can_approve===1`, GATE-8/LL-FE-51); drill list → biên bản (supersede ADR-IMM14-LIST-02). Chi tiết: [02 §VIII](./02_Analysis_Design.md) · [04 §X](./04_Backend_Design.md) · [05 §8](./05_API_Specification.md) · [06 §13](./06_Frontend_Design.md) · [07 §VIII](./07_Testing_QA.md). KHÔNG đổi DocType schema / DocPerm / capability map.
 
 > **Vòng 2 — read/list (2026-07-02):** spec CHỐT cho **Danh sách "Biên bản giải nhiệm"** — GET `list_decommissions` (envelope `{data,pagination}`, mirror `list_compliance_findings`) + `DecommissionListView` (`/decommissions`) + sidebar item (module hết vô hình). Read qua **DocPerm** (KHÔNG `ignore_permissions`, ADR-IMM14-LIST-01), invariant count==rows, `responsible_name` = User.full_name (KHÔNG rò email). Chi tiết: [02 §VII](./02_Analysis_Design.md) · [05 §7](./05_API_Specification.md) · [06 §12](./06_Frontend_Design.md).
 

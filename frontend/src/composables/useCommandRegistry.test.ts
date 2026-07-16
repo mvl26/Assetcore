@@ -64,7 +64,7 @@ describe('buildCommandRegistry — D1 derived from 2 sources', () => {
     const assets = registry.filter((c) => c.to === '/assets')
     expect(assets.length).toBe(1)
     expect(assets[0].source).toBe('nav')
-    // /asset-transfers xuất hiện imm13 + imm15 → chỉ 1.
+    // /asset-transfers chỉ còn nguồn imm13 (CR-TRF-AUTHZ: gỡ bản sao imm15) → 1 entry.
     const transfers = registry.filter((c) => c.to === '/asset-transfers')
     expect(transfers.length).toBe(1)
   })

@@ -57,6 +57,48 @@
    "allow_self_approval": 1,
    "state": "Reporting",
    "next_state": "Closed"
+  },
+  {
+   "action": "Bắt đầu Audit",
+   "allowed": "AssetCore Super Admin",
+   "allow_self_approval": 1,
+   "state": "Planned",
+   "next_state": "In Progress"
+  },
+  {
+   "action": "Bắt đầu Audit",
+   "allowed": "System Manager",
+   "allow_self_approval": 1,
+   "state": "Planned",
+   "next_state": "In Progress"
+  },
+  {
+   "action": "Chuyển sang Báo cáo",
+   "allowed": "AssetCore Super Admin",
+   "allow_self_approval": 1,
+   "state": "In Progress",
+   "next_state": "Reporting"
+  },
+  {
+   "action": "Chuyển sang Báo cáo",
+   "allowed": "System Manager",
+   "allow_self_approval": 1,
+   "state": "In Progress",
+   "next_state": "Reporting"
+  },
+  {
+   "action": "Đóng Audit",
+   "allowed": "AssetCore Super Admin",
+   "allow_self_approval": 1,
+   "state": "Reporting",
+   "next_state": "Closed"
+  },
+  {
+   "action": "Đóng Audit",
+   "allowed": "System Manager",
+   "allow_self_approval": 1,
+   "state": "Reporting",
+   "next_state": "Closed"
   }
  ]
 }

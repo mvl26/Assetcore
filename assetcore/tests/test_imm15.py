@@ -6,6 +6,7 @@
 # and rolls back via `frappe.db.rollback()` on tearDown.
 from __future__ import annotations
 
+import json
 import unittest
 from contextlib import suppress
 
@@ -14,6 +15,7 @@ import frappe
 from assetcore.services import imm15 as svc
 from assetcore.services.shared import ErrorCode, ServiceError
 from assetcore.tests._asset_cleanup import purge_asset
+from assetcore.utils.messages import MSG
 
 
 def _ensure_doc(doctype: str, lookup: dict, data: dict) -> str:
@@ -913,6 +915,709 @@ class TestExpiringBatches(unittest.TestCase):
                                 seen.add(k.value)
         self.assertEqual(offenders, [],
                          f"dict literal có string-key trùng (silent override): {offenders}")
+
+
+# ─── CR-WF-15-CC (Trục A): SSoT guard _cycle_allowed_transitions ⇄ workflow ────
+#
+# _cycle_allowed_transitions là SSoT sinh `allowed_transitions` (get_cycle_count →
+# CTA FE CycleCountDetailView server-driven, GATE-8/LL-FE-51). Guard đối soát
+# edge-by-edge với imm_15_cycle_count_workflow.json để chống drift CÂM: workflow
+# cấp cạnh Reviewed→Counting ("Sửa đếm lại") mà service KHÔNG surface = CTA ẩn câm
+# (Inventory Manager/Super Admin không gửi phiếu về đếm lại được dù workflow cho
+# phép). Mirror TestIncidentAllowedTransitions (CR-WF-12).
+
+
+def _load_cycle_workflow_edges() -> set[tuple[str, str]]:
+    """WF = {(state, next_state)} gom-vai (dedupe theo cặp, bỏ chiều role) từ
+    imm_15_cycle_count_workflow.json.transitions[]."""
+    path = frappe.get_app_path(
+        "assetcore", "assetcore", "workflow", "imm_15_cycle_count_workflow.json")
+    with open(path, encoding="utf-8") as fh:
+        wf = json.load(fh)
+    return {(t["state"], t["next_state"]) for t in wf["transitions"]}
+
+
+def _cycle_service_edges() -> set[tuple[str, str]]:
+    """SVC = {(status, target)} — mỗi token của _cycle_allowed_transitions ánh xạ đích
+    qua _CYCLE_TOKEN_TARGET. Gọi DƯỚI Administrator (full cap) để lấy TẬP TOKEN đầy đủ
+    (không bị cap-gate cắt bớt)."""
+    s = svc.CycleCountStatus
+    edges: set[tuple[str, str]] = set()
+    for status in (s.PLANNED, s.COUNTING, s.REVIEWED, s.POSTED):
+        for tok in svc._cycle_allowed_transitions(status):
+            edges.add((status, svc._CYCLE_TOKEN_TARGET[tok]))
+    return edges
+
+
+class TestCycleCountAllowedTransitions(unittest.TestCase):
+    """CR-WF-15-CC INVARIANT (mirror TestIncidentAllowedTransitions): SSoT
+    _cycle_allowed_transitions ⇄ imm_15_cycle_count_workflow.json. RED trước fix
+    (INV-2 bắt Reviewed→Counting chưa surface), GREEN sau đối soát."""
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+
+    def test_svc_subset_workflow(self):
+        """INV-1 (SVC ⊆ WF ∪ EXCEPTION): mọi (status, token)→đích PHẢI là cạnh THẬT của
+        workflow HOẶC exception có rationale (dual-track collapse) → chặn CTA
+        dead/bypass. role∩cap: token gated bởi cap DocPerm, KHÔNG so role-name (dual-
+        track: caps qua DocPerm ≠ workflow `allowed` role-name — không assert ở tầng
+        cấu trúc này)."""
+        svc_e = _cycle_service_edges()
+        wf = _load_cycle_workflow_edges()
+        exc = set(svc._CYCLE_EXCEPTION_EDGES.keys())
+        extra = svc_e - (wf | exc)
+        self.assertEqual(
+            extra, set(),
+            f"_cycle_allowed_transitions có cạnh KHÔNG có trong workflow và KHÔNG khai "
+            f"EXCEPTION (dead/bypass): {extra}")
+
+    def test_workflow_subset_svc_union_exception(self):
+        """INV-2 (WF ⊆ SVC ∪ EXCEPTION): mọi cạnh workflow HOẶC được surface thành CTA
+        (∈ SVC) HOẶC là exception có rationale. RED trước fix: ('Reviewed','Counting')
+        ∈ WF \\ (SVC ∪ EXC) — CTA 'Sửa đếm lại' ẩn câm; GREEN sau khi surface
+        'Recount'."""
+        svc_e = _cycle_service_edges()
+        wf = _load_cycle_workflow_edges()
+        exc = set(svc._CYCLE_EXCEPTION_EDGES.keys())
+        uncovered = wf - (svc_e | exc)
+        self.assertEqual(
+            uncovered, set(),
+            f"Cạnh workflow KHÔNG surface trong _cycle_allowed_transitions và KHÔNG khai "
+            f"EXCEPTION (drift câm): {uncovered}")
+
+    def test_exception_edges_have_rationale(self):
+        """Mọi EXCEPTION_EDGE phải (a) là cạnh THẬT của ít nhất một máy trạng thái
+        (workflow HOẶC service — mã hoá divergence dual-track), (b) có rationale."""
+        wf = _load_cycle_workflow_edges()
+        svc_e = _cycle_service_edges()
+        for edge, rationale in svc._CYCLE_EXCEPTION_EDGES.items():
+            self.assertTrue(
+                (rationale or "").strip(), f"EXCEPTION_EDGE {edge} thiếu rationale")
+            self.assertIn(
+                edge, wf | svc_e,
+                f"EXCEPTION_EDGE {edge} không phải cạnh của workflow lẫn service")
+
+    def test_recount_surfaced_for_reviewed(self):
+        """AC: _cycle_allowed_transitions('Reviewed') == ['Recount','Post'] khi caller
+        có cap inventory.submit (Administrator) — Recount đặt TRƯỚC Post."""
+        self.assertEqual(
+            svc._cycle_allowed_transitions(svc.CycleCountStatus.REVIEWED),
+            ["Recount", "Post"])
+
+
+# ─── CR-WF-15-ALLOC (Trục A): SSoT guard _allocation_allowed_transitions ⇄ workflow ──
+#
+# _allocation_allowed_transitions là SSoT sinh `allowed_transitions` (get_allocation →
+# CTA FE AllocationDetailView server-driven, GATE-8/LL-FE-51). KHÁC cycle-count: trả
+# NEXT-STATE strings (codomain ⊆ AllocationStatus), KHÔNG action-verb token → không cần
+# TOKEN_TARGET indirection. Guard đối soát edge-by-edge với
+# imm_15_allocation_workflow.json để chống drift CÂM + dead/bypass CTA. Mirror
+# TestCycleCountAllowedTransitions / TestIncidentAllowedTransitions (CR-WF-12).
+
+
+def _load_allocation_workflow_edges() -> set[tuple[str, str]]:
+    """WF = {(state, next_state)} gom-vai (dedupe theo cặp, bỏ chiều role) từ
+    imm_15_allocation_workflow.json.transitions[]."""
+    path = frappe.get_app_path(
+        "assetcore", "assetcore", "workflow", "imm_15_allocation_workflow.json")
+    with open(path, encoding="utf-8") as fh:
+        wf = json.load(fh)
+    return {(t["state"], t["next_state"]) for t in wf["transitions"]}
+
+
+def _allocation_service_edges() -> set[tuple[str, str]]:
+    """SVC = codomain của _allocation_allowed_transitions dựng thành {(status, next_state)}
+    trên TOÀN BỘ 6 AllocationStatus. Map trả next-state strings TRỰC TIẾP (không token)."""
+    s = svc.AllocationStatus
+    edges: set[tuple[str, str]] = set()
+    for status in (s.REQUESTED, s.APPROVED, s.PICKED, s.ISSUED, s.RETURNED, s.CANCELLED):
+        for nxt in svc._allocation_allowed_transitions(status):
+            edges.add((status, nxt))
+    return edges
+
+
+def _allocation_enum_values() -> set[str]:
+    s = svc.AllocationStatus
+    return {s.REQUESTED, s.APPROVED, s.PICKED, s.ISSUED, s.RETURNED, s.CANCELLED}
+
+
+class TestAllocationAllowedTransitions(unittest.TestCase):
+    """CR-WF-15-ALLOC INVARIANT: SSoT _allocation_allowed_transitions ⇄
+    imm_15_allocation_workflow.json. TC-ALLOC-1/2/3/5/6 + map fidelity."""
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+
+    def test_tc_alloc_1_codomain_subset_enum(self):
+        """TC-ALLOC-1: mọi next-state trong codomain ∈ AllocationStatus enum (0 typo)."""
+        codomain = {nxt for _s, nxt in _allocation_service_edges()}
+        self.assertTrue(codomain, "codomain rỗng — map chưa surface next-state nào")
+        self.assertLessEqual(
+            codomain, _allocation_enum_values(),
+            f"codomain chứa state lạ (typo, ∉ AllocationStatus): "
+            f"{codomain - _allocation_enum_values()}")
+
+    def test_tc_alloc_2_svc_subset_workflow_union_exception(self):
+        """TC-ALLOC-2 (INV-1 SVC ⊆ WF ∪ EXC): mọi (status, next-state) service surface PHẢI
+        là cạnh THẬT của workflow HOẶC exception có rationale → 0 dead/bypass CTA
+        không-khai. (Approved→Issued = service-collapse Pick chain, khai EXCEPTION.)"""
+        svc_e = _allocation_service_edges()
+        wf = _load_allocation_workflow_edges()
+        exc = set(svc._ALLOCATION_EXCEPTION_EDGES.keys())
+        extra = svc_e - (wf | exc)
+        self.assertEqual(
+            extra, set(),
+            f"_allocation_allowed_transitions có cạnh KHÔNG có trong workflow và KHÔNG "
+            f"khai EXCEPTION (dead/bypass CTA): {extra}")
+
+    def test_tc_alloc_3_exception_edges_exact(self):
+        """TC-ALLOC-3 (INV-2 WF ⊆ SVC ∪ EXC + EXC EXACT): mọi cạnh workflow HOẶC surface
+        CTA HOẶC là exception; VÀ keys(EXCEPTION_EDGES) == WF △ SVC (đối xứng) EXACT —
+        chống drift câm. Pick chain {Approved→Picked, Picked→Issued} PHẢI ∈ exception."""
+        svc_e = _allocation_service_edges()
+        wf = _load_allocation_workflow_edges()
+        exc = set(svc._ALLOCATION_EXCEPTION_EDGES.keys())
+        uncovered = wf - (svc_e | exc)
+        self.assertEqual(
+            uncovered, set(),
+            f"Cạnh workflow không surface CTA và không khai EXCEPTION (drift câm): "
+            f"{uncovered}")
+        # EXCEPTION_EDGES = ĐÚNG tập divergence đối xứng (không thừa/thiếu exception).
+        self.assertEqual(
+            exc, wf ^ svc_e,
+            f"EXCEPTION_EDGES lệch WF△SVC — thừa: {exc - (wf ^ svc_e)}; "
+            f"thiếu: {(wf ^ svc_e) - exc}")
+        # Pick chain đích danh (acceptance CR-WF-15-ALLOC).
+        s = svc.AllocationStatus
+        self.assertIn((s.APPROVED, s.PICKED), svc._ALLOCATION_EXCEPTION_EDGES)
+        self.assertIn((s.PICKED, s.ISSUED), svc._ALLOCATION_EXCEPTION_EDGES)
+
+    def test_exception_edges_have_rationale(self):
+        """Mọi EXCEPTION_EDGE (a) là cạnh THẬT của workflow HOẶC service (mã hoá divergence
+        dual-track), (b) có rationale."""
+        wf = _load_allocation_workflow_edges()
+        svc_e = _allocation_service_edges()
+        for edge, rationale in svc._ALLOCATION_EXCEPTION_EDGES.items():
+            self.assertTrue((rationale or "").strip(),
+                            f"EXCEPTION_EDGE {edge} thiếu rationale")
+            self.assertIn(edge, wf | svc_e,
+                          f"EXCEPTION_EDGE {edge} không phải cạnh của workflow lẫn service")
+
+    def test_tc_alloc_5_keys_cover_enum_no_keyerror(self):
+        """TC-ALLOC-5: keys(map) == AllocationStatus enum (6 status, mọi status có entry
+        tường minh — KHÔNG dựa .get default) → _allocation_allowed_transitions ở BẤT KỲ
+        status trả list (0 KeyError/None)."""
+        self.assertEqual(
+            set(svc._ALLOCATION_TRANSITIONS.keys()), _allocation_enum_values(),
+            "keys(_ALLOCATION_TRANSITIONS) phải == AllocationStatus enum (6 status)")
+        for status in _allocation_enum_values():
+            out = svc._allocation_allowed_transitions(status)
+            self.assertIsInstance(out, list, f"status {status} không trả list")
+
+    def test_map_fidelity_per_status(self):
+        """Map content pin (chống tautology TC-ALLOC-4): giá trị khớp cạnh
+        service-supported (approve/issue/cancel/return) đã verify @source."""
+        s = svc.AllocationStatus
+        self.assertEqual(svc._allocation_allowed_transitions(s.REQUESTED),
+                         [s.APPROVED, s.ISSUED, s.CANCELLED])
+        self.assertEqual(svc._allocation_allowed_transitions(s.APPROVED),
+                         [s.ISSUED, s.CANCELLED])
+        self.assertEqual(svc._allocation_allowed_transitions(s.PICKED),
+                         [s.CANCELLED])
+        self.assertEqual(svc._allocation_allowed_transitions(s.ISSUED),
+                         [s.RETURNED])
+        self.assertEqual(svc._allocation_allowed_transitions(s.RETURNED), [])
+        self.assertEqual(svc._allocation_allowed_transitions(s.CANCELLED), [])
+
+    def test_tc_alloc_6_workflow_untouched_edge_set(self):
+        """TC-ALLOC-6 (regression): imm_15_allocation_workflow.json edge-set (gom-vai)
+        GIỮ NGUYÊN 9 cạnh unique — guard chống sửa nhầm JSON (admin-override 22/22 +
+        test_workflows IMM-15 min_transitions phụ thuộc JSON untouched)."""
+        s = svc.AllocationStatus
+        expected = {
+            (s.REQUESTED, s.APPROVED), (s.REQUESTED, s.ISSUED), (s.REQUESTED, s.CANCELLED),
+            (s.APPROVED, s.PICKED), (s.APPROVED, s.CANCELLED),
+            (s.PICKED, s.ISSUED), (s.PICKED, s.CANCELLED),
+            (s.ISSUED, s.RETURNED), (s.RETURNED, s.ISSUED),
+        }
+        self.assertEqual(_load_allocation_workflow_edges(), expected)
+
+
+class TestGetAllocationServerDrivenCta(TestImm15Base):
+    """TC-ALLOC-4: get_allocation emit allowed_transitions ==
+    _allocation_allowed_transitions(allocation_status) cho Requested/Approved/Issued
+    (≥3 status) + Cancelled → []. Mirror get_cycle_count (BE-DC-15-01)."""
+
+    def test_tc_alloc_4_emit_matches_map(self):
+        res = svc.create_allocation(
+            work_order_ref="WO-ALLOC-CTA-01",
+            items=[{"spare_part": self.part, "qty_requested": 1}],
+            asset=self.asset, warehouse=self.warehouse, urgency="Routine",
+        )
+        name = res["name"]
+        # Requested
+        d = svc.get_allocation(name)
+        self.assertIn("allowed_transitions", d)
+        self.assertEqual(d["allowed_transitions"],
+                         svc._allocation_allowed_transitions(svc.AllocationStatus.REQUESTED))
+        # Approved
+        svc.approve_allocation(name)
+        d = svc.get_allocation(name)
+        self.assertEqual(d["allowed_transitions"],
+                         svc._allocation_allowed_transitions(svc.AllocationStatus.APPROVED))
+        # Issued
+        svc.issue_allocation(name)
+        d = svc.get_allocation(name)
+        self.assertEqual(d["allowed_transitions"],
+                         svc._allocation_allowed_transitions(svc.AllocationStatus.ISSUED))
+
+    def test_tc_alloc_4_cancelled_terminal_empty(self):
+        res = svc.create_allocation(
+            work_order_ref="WO-ALLOC-CTA-02",
+            items=[{"spare_part": self.part, "qty_requested": 1}],
+            asset=self.asset, warehouse=self.warehouse, urgency="Routine",
+        )
+        svc.cancel_allocation(res["name"])
+        d = svc.get_allocation(res["name"])
+        self.assertEqual(d["allowed_transitions"], [])
+
+
+def _ensure_role_user(email: str, roles: list[str]) -> str:
+    """Idempotent user mang role THẬT (capability resolution). Mirror test_rbac."""
+    if not frappe.db.exists("User", email):
+        doc = frappe.get_doc({
+            "doctype": "User", "email": email,
+            "first_name": email.split("@")[0],
+            "send_welcome_email": 0, "enabled": 1,
+        }).insert(ignore_permissions=True)
+    else:
+        doc = frappe.get_doc("User", email)
+    existing = {r.role for r in doc.get("roles", [])}
+    for r in roles:
+        if r not in existing:
+            doc.append("roles", {"role": r})
+    doc.save(ignore_permissions=True)
+    frappe.db.commit()
+    from assetcore.services.shared import rbac as _rbac
+    _rbac.invalidate_capabilities(email)
+    return email
+
+
+class TestCycleCountRecount(TestImm15Base):
+    """CR-WF-15-CC — recount_cycle_count: Reviewed → Counting ("Sửa đếm lại").
+    TC-15-RECOUNT-01..05. Cap inventory.submit (parity Post)."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        frappe.set_user("Administrator")
+        # write+submit → có inventory.submit ⇒ recount OK
+        cls.mgr = _ensure_role_user(
+            "_cc_recount_mgr@assetcore.test", ["Inventory Manager"])
+        # write only (submit=0 trên AC Stock Movement) → thiếu inventory.submit
+        cls.usr = _ensure_role_user(
+            "_cc_recount_usr@assetcore.test", ["Inventory User"])
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        for u in (getattr(cls, "mgr", ""), getattr(cls, "usr", "")):
+            if u:
+                with suppress(Exception):
+                    frappe.delete_doc("User", u, force=True, ignore_permissions=True)
+        super().tearDownClass()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+
+    def _make_reviewed_cc(self) -> str:
+        """create → submit (counted == system → variance 0) → status Reviewed."""
+        frappe.set_user("Administrator")
+        cc = svc.create_cycle_count(self.warehouse, [{"spare_part": self.part}])
+        svc.submit_cycle_count(
+            cc["name"], [{"spare_part": self.part, "counted_qty": 20}])
+        self.assertEqual(
+            frappe.db.get_value("IMM Stock Cycle Count", cc["name"], "status"),
+            svc.CycleCountStatus.REVIEWED)
+        return cc["name"]
+
+    def _recount_audit_count(self, name: str) -> int:
+        return frappe.db.count("IMM Audit Trail", {
+            "ref_doctype": "IMM Stock Cycle Count", "ref_name": name,
+            "from_status": "Reviewed", "to_status": "Counting"})
+
+    def test_tc_recount_01_reviewed_to_counting_ok(self):
+        """TC-15-RECOUNT-01: Inventory Manager Reviewed→Counting OK; return {name,
+        workflow_state:'Counting'}; đúng 1 audit from='Reviewed' to='Counting'
+        change_summary chứa reason."""
+        name = self._make_reviewed_cc()
+        reason = ("Nghi đếm nhầm lô Van PEEP máy thở Dräger Evita V500 — "
+                  "yêu cầu đếm lại toàn kho")
+        before = self._recount_audit_count(name)
+        frappe.set_user(self.mgr)
+        try:
+            out = svc.recount_cycle_count(name, reason)
+        finally:
+            frappe.set_user("Administrator")
+        frappe.db.commit()
+        self.assertEqual(out.get("name"), name)
+        self.assertEqual(out.get("workflow_state"), svc.CycleCountStatus.COUNTING)
+        self.assertEqual(
+            frappe.db.get_value("IMM Stock Cycle Count", name, "status"),
+            svc.CycleCountStatus.COUNTING)
+        self.assertEqual(
+            self._recount_audit_count(name), before + 1,
+            "recount phải sinh đúng 1 audit Reviewed→Counting")
+        row = frappe.get_all(
+            "IMM Audit Trail",
+            filters={"ref_doctype": "IMM Stock Cycle Count", "ref_name": name,
+                     "to_status": "Counting"},
+            fields=["change_summary", "from_status"],
+            order_by="creation desc", limit=1)[0]
+        self.assertEqual(row["from_status"], "Reviewed")
+        self.assertIn("Van PEEP", row["change_summary"],
+                      "change_summary phải chứa reason đã nhập")
+
+    def test_tc_recount_02_bad_state_non_reviewed(self):
+        """TC-15-RECOUNT-02: status≠Reviewed (Planned/Counting/Posted) → BAD_STATE
+        (409 bucket); không đổi status."""
+        # Planned (create only)
+        cc = svc.create_cycle_count(self.warehouse, [{"spare_part": self.part}])
+        with self.assertRaises(ServiceError) as ctx:
+            svc.recount_cycle_count(cc["name"], "gửi về đếm lại")
+        self.assertEqual(ctx.exception.code, ErrorCode.BAD_STATE)
+        self.assertEqual(
+            frappe.db.get_value("IMM Stock Cycle Count", cc["name"], "status"),
+            svc.CycleCountStatus.PLANNED)
+        # Counting (recount Reviewed → Counting, rồi recount lại = BAD_STATE)
+        name = self._make_reviewed_cc()
+        svc.recount_cycle_count(name, "gửi về đếm lại lần 1")
+        self.assertEqual(
+            frappe.db.get_value("IMM Stock Cycle Count", name, "status"),
+            svc.CycleCountStatus.COUNTING)
+        with self.assertRaises(ServiceError) as ctx2:
+            svc.recount_cycle_count(name, "gửi về đếm lại lần 2")
+        self.assertEqual(ctx2.exception.code, ErrorCode.BAD_STATE)
+        # Posted (create → submit → post với verifier khác người đếm → Posted)
+        posted = self._make_reviewed_cc()
+        svc.post_cycle_count(posted, verified_by=self.mgr)
+        self.assertEqual(
+            frappe.db.get_value("IMM Stock Cycle Count", posted, "status"),
+            svc.CycleCountStatus.POSTED)
+        with self.assertRaises(ServiceError) as ctx3:
+            svc.recount_cycle_count(posted, "gửi về đếm lại")
+        self.assertEqual(ctx3.exception.code, ErrorCode.BAD_STATE)
+
+    def test_tc_recount_03_reason_required(self):
+        """TC-15-RECOUNT-03: reason rỗng/space-only → IMM15_RECOUNT_REASON_REQUIRED
+        (BUSINESS_RULE / 422 bucket); không đổi status."""
+        for bad in ("", "   ", "\n\t "):
+            name = self._make_reviewed_cc()
+            with self.assertRaises(ServiceError) as ctx:
+                svc.recount_cycle_count(name, bad)
+            self.assertEqual(ctx.exception.code, ErrorCode.BUSINESS_RULE)
+            self.assertEqual(ctx.exception.http_status, 422)
+            self.assertEqual(
+                ctx.exception.message_code, MSG.IMM15_RECOUNT_REASON_REQUIRED)
+            self.assertEqual(
+                frappe.db.get_value("IMM Stock Cycle Count", name, "status"),
+                svc.CycleCountStatus.REVIEWED)
+
+    def test_tc_recount_04_insufficient_cap_forbidden(self):
+        """TC-15-RECOUNT-04: user chỉ inventory.write (Inventory User, thiếu
+        inventory.submit) → FORBIDDEN; guest → FORBIDDEN (HTTP dispatcher 401 tách
+        ở tầng whitelist). Không đổi status."""
+        name = self._make_reviewed_cc()
+        frappe.set_user(self.usr)
+        try:
+            with self.assertRaises(ServiceError) as ctx:
+                svc.recount_cycle_count(name, "gửi về đếm lại")
+            self.assertEqual(ctx.exception.code, ErrorCode.FORBIDDEN)
+        finally:
+            frappe.set_user("Administrator")
+        self.assertEqual(
+            frappe.db.get_value("IMM Stock Cycle Count", name, "status"),
+            svc.CycleCountStatus.REVIEWED)
+        frappe.set_user("Guest")
+        try:
+            with self.assertRaises(ServiceError) as ctx2:
+                svc.recount_cycle_count(name, "gửi về đếm lại")
+            self.assertEqual(ctx2.exception.code, ErrorCode.FORBIDDEN)
+        finally:
+            frappe.set_user("Administrator")
+
+    def test_tc_recount_05_get_cycle_count_server_driven(self):
+        """TC-15-RECOUNT-05: get_cycle_count(reviewed).allowed_transitions chứa
+        'Recount' khi caller có inventory.submit (Inventory Manager), KHÔNG chứa khi
+        chỉ inventory.write (Inventory User) — server-driven contract."""
+        name = self._make_reviewed_cc()
+        frappe.set_user(self.mgr)
+        try:
+            data_mgr = svc.get_cycle_count(name)
+        finally:
+            frappe.set_user("Administrator")
+        self.assertIn("Recount", data_mgr["allowed_transitions"])
+        self.assertEqual(data_mgr["allowed_transitions"], ["Recount", "Post"])
+        frappe.set_user(self.usr)
+        try:
+            data_usr = svc.get_cycle_count(name)
+        finally:
+            frappe.set_user("Administrator")
+        self.assertNotIn("Recount", data_usr["allowed_transitions"])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CR-WF-15-AUDIT · ADR-IMM-15-09 — Bịt silent-audit-loss (07 §III.4b)
+#   6 slug domain IMM-15 ∉ Select IMM Audit Trail.event_type ⇒ log_audit_event()
+#   .insert() raise ValidationError, bị try/except NUỐT ⇒ 0 dòng audit. Fix =
+#   REGISTER 6 slug + SSoT constant + bare pass → log_error.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _audit_select_options() -> set[str]:
+    opts = frappe.get_meta("IMM Audit Trail").get_field("event_type").options or ""
+    return {o.strip() for o in opts.split("\n") if o.strip()}
+
+
+class TestImm15AuditEventTypeParity(unittest.TestCase):
+    """(A) INVARIANT — chống drift emit-nhưng-quên-đăng-ký. RED trước khi thêm 6
+    option vào imm_audit_trail.json (+ reload/migrate JSON→DB), GREEN sau."""
+
+    def test_imm15_slugs_subset_of_select(self):
+        """IMM15_AUDIT_EVENT_TYPES ⊆ Select options — RED: 6 slug missing."""
+        missing = svc.IMM15_AUDIT_EVENT_TYPES - _audit_select_options()
+        self.assertEqual(
+            missing, set(),
+            f"IMM-15 emit slug ∉ Select (silent-audit-loss): {sorted(missing)}")
+
+    def test_ssot_constant_matches_emit_sites(self):
+        """derived slug từ _ALLOCATION_AUDIT_ACTIONS + cycle_count_posted == SSoT
+        (bắt lệch nếu sửa constant mà quên emit-site / action-set — GREEN luôn)."""
+        derived = ({f"allocation_{a.lower()}" for a in svc._ALLOCATION_AUDIT_ACTIONS}
+                   | {"cycle_count_posted"})
+        self.assertEqual(derived, set(svc.IMM15_AUDIT_EVENT_TYPES))
+
+
+class TestImm15AuditRows(TestImm15Base):
+    """(B) audit-row per-transition + (C) bare-pass regression guard.
+
+    Mỗi transition ghi ĐÚNG 1 dòng đúng slug + ref_doctype/ref_name/actor (đếm delta
+    theo slug + ref_name — anti-false-green: KHÔNG chỉ '≥1 dòng bất kỳ'). BEFORE fix:
+    0 dòng (slug ∉ Select → ValidationError nuốt câm); AFTER: 1 dòng.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        frappe.set_user("Administrator")
+        # Inventory Manager → có inventory.submit ⇒ verifier hợp lệ cho post
+        # (KHÁC counted_by=Administrator → thoả VR-15-11 segregation).
+        cls.mgr = _ensure_role_user(
+            "_imm15_aud_mgr@assetcore.test", ["Inventory Manager"])
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        if getattr(cls, "mgr", ""):
+            with suppress(Exception):
+                frappe.delete_doc("User", cls.mgr, force=True,
+                                  ignore_permissions=True)
+        super().tearDownClass()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+
+    # ── helpers ───────────────────────────────────────────────────────────────
+    # Đếm DELTA theo (ref_doctype, event_type) quanh 1 transition (07 §III.4b:
+    # "delta = 1"). Global-delta thay vì absolute-per-ref: SAL/CYC naming-counter
+    # trên dev-DB tái dùng ref_name (tabSeries current < ref lịch sử) ⇒ dòng audit
+    # LEAKED của run trước pollute absolute==1. Delta-quanh-op miễn nhiễm với dòng cũ
+    # + KHÔNG cần purge phá hoại (an toàn phiên concurrent). Newest row = dòng vừa ghi.
+    def _cnt(self, doctype: str, event_type: str) -> int:
+        return frappe.db.count("IMM Audit Trail", {
+            "ref_doctype": doctype, "event_type": event_type})
+
+    def _assert_one_new(self, doctype: str, event_type: str, expected_ref: str, fn):
+        before = self._cnt(doctype, event_type)
+        result = fn()
+        self.assertEqual(
+            self._cnt(doctype, event_type) - before, 1,
+            f"transition phải ghi ĐÚNG 1 dòng {event_type} (delta)")
+        newest = frappe.get_all(
+            "IMM Audit Trail",
+            filters={"ref_doctype": doctype, "event_type": event_type},
+            fields=["ref_name"], order_by="creation desc", limit=1)[0]
+        self.assertEqual(newest["ref_name"], expected_ref,
+                         f"dòng {event_type} phải trỏ đúng {expected_ref}")
+        return result
+
+    def _reset_bin(self, on_hand: float = 20) -> None:
+        # Giải phóng các phiếu còn HOLDING trên bin dùng-chung + đặt lại tồn.
+        for n in frappe.get_all(
+            "IMM Spare Allocation",
+            filters={"warehouse_from": self.warehouse,
+                     "allocation_status": ("in", ["Requested", "Approved", "Picked"])},
+            pluck="name",
+        ):
+            with suppress(Exception):
+                svc.cancel_allocation(n)
+        frappe.db.set_value(
+            "AC Spare Part Stock",
+            {"spare_part": self.part, "warehouse": self.warehouse},
+            {"qty_on_hand": on_hand, "reserved_qty": 0, "available_qty": on_hand})
+        frappe.db.commit()
+
+    def _new_allocation(self, wo="WO-AUD", qty=1) -> str:
+        res = svc.create_allocation(
+            work_order_ref=wo,
+            items=[{"spare_part": self.part, "qty_requested": qty}],
+            asset=self.asset, warehouse=self.warehouse, urgency="Routine")
+        return res["name"]
+
+    def _make_reviewed_cc(self) -> str:
+        frappe.set_user("Administrator")
+        cc = svc.create_cycle_count(self.warehouse, [{"spare_part": self.part}])
+        svc.submit_cycle_count(
+            cc["name"], [{"spare_part": self.part, "counted_qty": 20}])
+        return cc["name"]
+
+    # ── (B) per-transition audit-row ────────────────────────────────────────────
+    def test_tc_aud_01_post_cycle_count(self):
+        """post_cycle_count → 1 dòng cycle_count_posted, ref=phiếu, actor=verified_by,
+        from=Reviewed to=Posted (BEFORE 0 → AFTER 1)."""
+        cyc = svc.CycleCountRepo.DOCTYPE
+        name = self._make_reviewed_cc()
+        self._assert_one_new(
+            cyc, "cycle_count_posted", name,
+            lambda: svc.post_cycle_count(name, verified_by=self.mgr))
+        row = frappe.get_all(
+            "IMM Audit Trail",
+            filters={"ref_doctype": cyc, "ref_name": name,
+                     "event_type": "cycle_count_posted"},
+            fields=["actor", "from_status", "to_status"],
+            order_by="creation desc", limit=1)[0]
+        self.assertEqual(row["actor"], self.mgr)
+        self.assertEqual(row["from_status"], svc.CycleCountStatus.REVIEWED)
+        self.assertEqual(row["to_status"], svc.CycleCountStatus.POSTED)
+
+    def test_tc_aud_02_create_allocation(self):
+        alloc = svc.AllocationRepo.DOCTYPE
+        before = self._cnt(alloc, "allocation_created")
+        name = self._new_allocation("WO-AUD-02")
+        self.assertEqual(self._cnt(alloc, "allocation_created") - before, 1,
+                         "create_allocation phải ghi ĐÚNG 1 dòng allocation_created")
+        newest = frappe.get_all(
+            "IMM Audit Trail",
+            filters={"ref_doctype": alloc, "event_type": "allocation_created"},
+            fields=["ref_name"], order_by="creation desc", limit=1)[0]
+        self.assertEqual(newest["ref_name"], name)
+
+    def test_tc_aud_03_approve_allocation(self):
+        alloc = svc.AllocationRepo.DOCTYPE
+        name = self._new_allocation("WO-AUD-03")
+        self._assert_one_new(alloc, "allocation_approved", name,
+                             lambda: svc.approve_allocation(name))
+
+    def test_tc_aud_04_issue_allocation(self):
+        alloc = svc.AllocationRepo.DOCTYPE
+        self._reset_bin(20)
+        name = self._new_allocation("WO-AUD-04")
+        svc.approve_allocation(name)
+        self._assert_one_new(alloc, "allocation_issued", name,
+                             lambda: svc.issue_allocation(name))
+
+    def test_tc_aud_05_return_items(self):
+        alloc = svc.AllocationRepo.DOCTYPE
+        self._reset_bin(20)
+        name = self._new_allocation("WO-AUD-05")
+        svc.approve_allocation(name)
+        svc.issue_allocation(name)
+        self._assert_one_new(
+            alloc, "allocation_returned", name,
+            lambda: svc.return_items(
+                name, [{"spare_part": self.part, "qty_returned": 1,
+                        "return_condition": "Good"}]))
+
+    def test_tc_aud_06_cancel_allocation(self):
+        alloc = svc.AllocationRepo.DOCTYPE
+        name = self._new_allocation("WO-AUD-06")
+        self._assert_one_new(alloc, "allocation_cancelled", name,
+                             lambda: svc.cancel_allocation(name))
+
+    def test_tc_aud_07_lifecycle_four_distinct_rows(self):
+        """1 vòng đời create→approve→issue→return → 4 dòng PHÂN BIỆT được
+        (granularity provenance — bác Alternative 'State Change' collapse)."""
+        alloc = svc.AllocationRepo.DOCTYPE
+        self._reset_bin(20)
+        before = self._cnt(alloc, "allocation_created")
+        name = self._new_allocation("WO-AUD-07")
+        self.assertEqual(self._cnt(alloc, "allocation_created") - before, 1,
+                         "vòng đời phải ghi đúng 1 dòng allocation_created")
+        self._assert_one_new(alloc, "allocation_approved", name,
+                             lambda: svc.approve_allocation(name))
+        self._assert_one_new(alloc, "allocation_issued", name,
+                             lambda: svc.issue_allocation(name))
+        self._assert_one_new(
+            alloc, "allocation_returned", name,
+            lambda: svc.return_items(
+                name, [{"spare_part": self.part, "qty_returned": 1,
+                        "return_condition": "Good"}]))
+
+    # ── (C) bare-pass regression guard ──────────────────────────────────────────
+    def test_tc_aud_08_bare_pass_regression_allocation(self):
+        """monkeypatch svc.log_audit_event → raise; cancel_allocation:
+        (a) allocation VẪN Cancelled (non-blocking best-effort);
+        (b) frappe.log_error ĐƯỢC gọi (KHÔNG bare pass @_write_allocation_audit)."""
+        name = self._new_allocation("WO-AUD-08")
+        calls: list = []
+        orig_lae = svc.log_audit_event
+        orig_le = frappe.log_error
+
+        def _boom(*a, **k):
+            raise RuntimeError("audit backend down")
+
+        def _spy(*a, **k):
+            calls.append((a, k))
+
+        svc.log_audit_event = _boom
+        frappe.log_error = _spy
+        try:
+            out = svc.cancel_allocation(name)
+        finally:
+            svc.log_audit_event = orig_lae
+            frappe.log_error = orig_le
+        self.assertEqual(out["workflow_state"], svc.AllocationStatus.CANCELLED)
+        self.assertEqual(
+            frappe.db.get_value("IMM Spare Allocation", name, "allocation_status"),
+            svc.AllocationStatus.CANCELLED,
+            "cancel phải thành công dù audit fail (non-blocking)")
+        self.assertTrue(
+            calls, "audit-write fail phải log_error — KHÔNG bare pass (silent-loss)")
+
+    def test_tc_aud_09_regression_post_cycle_count(self):
+        """(đối xứng) monkeypatch raise; post_cycle_count vẫn Posted + log_error gọi
+        (regression-lock cho nhánh except @post @718)."""
+        name = self._make_reviewed_cc()
+        calls: list = []
+        orig_lae = svc.log_audit_event
+        orig_le = frappe.log_error
+
+        def _boom(*a, **k):
+            raise RuntimeError("audit backend down")
+
+        svc.log_audit_event = _boom
+        frappe.log_error = lambda *a, **k: calls.append(1)
+        try:
+            out = svc.post_cycle_count(name, verified_by=self.mgr)
+        finally:
+            svc.log_audit_event = orig_lae
+            frappe.log_error = orig_le
+        self.assertEqual(out["workflow_state"], svc.CycleCountStatus.POSTED)
+        self.assertEqual(
+            frappe.db.get_value("IMM Stock Cycle Count", name, "status"),
+            svc.CycleCountStatus.POSTED,
+            "post phải thành công dù audit fail (non-blocking)")
+        self.assertTrue(calls, "post audit fail phải log_error (regression-lock)")
 
 
 if __name__ == "__main__":

@@ -8,7 +8,7 @@ import { defineStore } from 'pinia'
 import {
   listRules, listFindings, listAudits, listScorecards, listManagementReviews,
   getDashboardStats, getComplianceHeatmap, getCapaAging, getOverdueActions,
-  confirmFinding, markFalsePositive, waiveFinding, linkToCapa,
+  startReview, confirmFinding, markFalsePositive, waiveFinding, linkToCapa,
   createCapaFromFinding, advanceCapaState, performEffectivenessCheck, reopenCapa,
   getCapaDetail, updateCapaFields,
   startAudit, completeAuditChecklist, closeAudit,
@@ -84,6 +84,9 @@ export const useImm16Store = defineStore('imm16', () => {
     finally { findingsLoading.value = false }
   }
 
+  async function actionStartReview(name: string, note = '') {
+    return await startReview(name, note)
+  }
   async function actionConfirmFinding(name: string, note = '') {
     return await confirmFinding(name, note)
   }
@@ -235,7 +238,7 @@ export const useImm16Store = defineStore('imm16', () => {
     error,
     // actions
     fetchRules, fetchRule, actionUpdateRule, actionDeactivateRule, actionReactivateRule,
-    fetchFindings, actionConfirmFinding, actionMarkFalsePositive,
+    fetchFindings, actionStartReview, actionConfirmFinding, actionMarkFalsePositive,
     actionWaiveFinding, actionLinkToCapa,
     fetchAudits, actionStartAudit, actionCompleteChecklist, actionCloseAudit,
     actionCreateCapaFromFinding, actionAdvanceCapa,

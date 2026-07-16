@@ -28,7 +28,7 @@ Tổng hợp artefact test được của IMM-06 (đối chiếu 04 Backend, 05 
 | 5 | IMM Trainer | DocType | `imm_trainer.json` | Integration (assign instructor) |
 | 6 | IMM Competency Gap Report | DocType | `imm_competency_gap_report.json` | Integration (scheduler output) |
 | 7 | IMM Competency Alert Log | DocType | `imm_competency_alert_log.json` | Unit (idempotent alert) |
-| 8 | Competency Workflow | Workflow JSON | `workflow/imm_06_competency_workflow.json` (19 transitions) | Integration (state transition) |
+| 8 | Competency Workflow | Workflow JSON | `workflow/imm_06_competency_workflow.json` (33 role-expanded / 11 cạnh distinct) | Integration (state transition) |
 | 9 | Session lifecycle | Service state machine | `services/imm06.py::confirm/start/complete/verify/close/cancel_session` | Integration (state transition) |
 | 10 | Validators | Service function | `services/imm06.py::validate_*` (VR-01..VR-12) | Unit (BVA/EP/Decision Table) |
 | 11 | Score compute | Service function | `services/imm06.py::compute_overall_results` | Unit |
@@ -257,7 +257,9 @@ Fixture trong `setUpClass` phải có `tearDownClass` purge.
 
 **File:** `assetcore/tests/test_imm06_workflow.py` ⬜ Planned.
 
-**Workflow JSON:** `assetcore/assetcore/workflow/imm_06_competency_workflow.json` — **19 transitions** (xác thực `python3 -c "import json;print(len(json.load(open('...'))['transitions']))"` → 19). 6 state: Pending Assessment, Active, Expiring, Expired, Suspended, Revoked.
+**Workflow JSON:** `assetcore/assetcore/workflow/imm_06_competency_workflow.json` — **33 transition role-expanded** / **11 cạnh distinct `(state, action, next_state)`** (verified `python3 -c "import json;t=json.load(open('...'))['transitions'];print(len(t), len({(x['state'],x['action'],x['next_state']) for x in t}))"` → `33 11`). 6 state: Pending Assessment, Active, Expiring, Expired, Suspended, Revoked.
+
+> ⚠️ **Self-Correction (Vòng 26):** count CŨ "19 transitions" **STALE** — JSON hiện có 33 dòng role-expanded (thêm `AssetCore Super Admin` + `System Manager` cho MỌI action → admin-override 22/22 + QTV thao tác được). Bảng đại diện dưới liệt kê `Training/PM Manager`-role; các dòng Super Admin/System Manager cùng action-cạnh KHÔNG lặp lại ở bảng.
 
 | # | Action | From → To | Role required | Test pass | Test fail (wrong role / gate) |
 |---|---|---|---|---|---|
@@ -286,13 +288,116 @@ Fixture trong `setUpClass` phải có `tearDownClass` purge.
 | Action (service fn) | From → To | Role required | Test pass | Test fail |
 |---|---|---|---|---|
 | `confirm_session` | Planned → Confirmed | Tổ HC-QLCL | ☐ | ☐ (VR-05 no participant / wrong state) |
-| `start_session` | Confirmed → In Progress | Instructor / Tổ HC-QLCL | ☐ | ☐ (wrong state) |
+| `start_training_session` | **Planned/Confirmed** → In Progress | Instructor / Tổ HC-QLCL | ☐ | ☐ (wrong state) |
 | `complete_session` | In Progress → Completed | Instructor / Tổ HC-QLCL | ☐ | ☐ (VR-06 missing score / idempotent 2nd call) |
 | `verify_session` | Completed → Verified | Workshop Head | ☐ | ☐ (wrong state) |
 | `close_session` | Verified → Closed | Workshop Head / CMMS Admin | ☐ | ☐ |
-| `cancel_session` | Planned/Confirmed/In Progress → Cancelled | Tổ HC-QLCL / CMMS Admin | ☐ | ☐ (BR-06-12 from Verified) |
+| `cancel_session` | Planned/Confirmed → Cancelled | Tổ HC-QLCL / CMMS Admin | ☐ | ☐ (**BR-06-12: from In Progress/Completed/Verified/Closed → BAD_STATE**; Self-Correction Vòng 28 — In Progress KHÔNG hủy được, khớp workflow JSON) |
 
 **Kỹ thuật:** State Transition Testing — mỗi edge = 1 test pass + 1 test fail.
+
+**INVARIANT `TestSessionTransitionInvariant` (Vòng 7 — gate merge, bắt drift map↔guard):**
+File `assetcore/tests/test_imm06.py`. Đọc hằng SSoT `_SESSION_VALID_TRANSITIONS` (04 §VI.1a). Với bijection CTA→next-state (confirm→Confirmed, start→In Progress, complete→Completed, verify→Verified, close→Closed, cancel→Cancelled), lặp **7 state × 6 CTA** và assert 2 chiều:
+- **Forward**: `T ∈ _SESSION_VALID_TRANSITIONS[s]` ⇒ gọi service tương ứng khi doc ở `s` **KHÔNG** ném `BAD_STATE` (có thể ném VALIDATION như VR-05/VR-06 — phân biệt bằng `ErrorCode`, không tính là drift).
+- **Reverse**: `T ∉ _SESSION_VALID_TRANSITIONS[s]` ⇒ service tương ứng **PHẢI** ném `BAD_STATE` khi doc ở `s`.
+- Terminal: `_SESSION_VALID_TRANSITIONS[Closed] == []` và `[Cancelled] == []`.
+
+**Test đóng desync (Vòng 7):**
+- `test_get_session_allowed_transitions_exact` — với mỗi trong 7 state, `get_session(name).allowed_transitions` == EXACT bảng (05 §B.2); Closed/Cancelled → `[]`.
+- `test_start_from_planned_ok` — doc ở Planned + user training.write → `start_training_session` thành công, state → In Progress, KHÔNG throw (khớp ADR-IMM-06-02).
+- `test_cancel_from_verified_rejected` — doc ở Verified → `cancel_session` ném `BAD_STATE` (BR-06-12; guard đã mở rộng chặn Verified).
+
+**FE vitest `sessionDetailCtaGating` (Vòng 7):**
+File `frontend/src/views/training/sessionDetailCtaGating.test.ts` (theo mẫu `pmWorkOrderCtaGating.test.ts`). Assert:
+- grep computed `canConfirm/canStart/canComplete/canVerify/canClose/canCancel` = **0 match** hardcode `state.value === '<StatusString>'` (chỉ dùng `allowedTransitions.includes(...)`).
+- Planned + `allowed_transitions=['Confirmed','In Progress','Cancelled']` + canConduct → `canStart===true` (nút Bắt đầu hiện).
+- Verified + `allowed_transitions=['Closed']` → `canCancel===false`.
+- Thiếu capability (canManage/canConduct=false) → CTA tương ứng ẩn dù `allowed_transitions` có next-state.
+- Terminal `allowed_transitions=[]` → cả 6 CTA ẩn.
+
+### III.3-bis. Reconcile invariant Session map ⇄ workflow JSON (Vòng 28 — CR-WF-06-SESSION)
+
+**INVARIANT `test_session_allowed_transitions_matches_workflow` (gate merge — parity §III.4a-bis competency / IMM-12 vòng-12 / IMM-16 vòng-14):**
+- Parse `imm_06_session_workflow.json` (name "IMM-06 Session Workflow", doctype IMM Training Session); `workflow_pairs = {(t["state"], t["next_state"]) ∀ transition}` (role-expanded → set gom cạnh distinct).
+- Từ `_SESSION_VALID_TRANSITIONS` (04 §VI.1a — value = next-state): `map_pairs = {(state, n) ∀ n ∈ map[state]}`.
+- **Assert** `workflow_pairs ^ map_pairs == _SESSION_EXCEPTION_EDGES == frozenset()` (∅ — **8 cạnh 2 bên khớp HỆT**). `_SESSION_EXCEPTION_EDGES` khai TƯỜNG MINH ở **test file** (imm06.py CHỈ +comment — round này ràng buộc 0 .py runtime logic).
+- **Grounding 2-chiều (0 orphan)**: `map_pairs − workflow_pairs == ∅` ∧ `workflow_pairs − map_pairs == ∅`; anti-drift nhãn: mọi `t["action"]` ∈ `_SESSION_WF_ACTION_LABELS` (`Xác nhận/Bắt đầu/Hoàn thành/Verify/Đóng/Hủy`) — label lạ → RED.
+- **TƯƠNG PHẢN competency** (§III.4a-bis, 4 EXCEPTION_EDGES = 3 scheduler-auto + 1 create-new): session 100% CTA người dùng → 0 scheduler-auto + 0 create-new → EXCEPTION_EDGES **rỗng**. Docstring test nêu rõ tương phản này.
+- **RED-before demo (verified @output)**: tạm gỡ `In Progress` khỏi `map[Planned]` → sym-diff = `{('Planned','In Progress')}` ≠ ∅ → RED, message `map ⇄ workflow divergent [('Planned', 'In Progress')] != EXCEPTION_EDGES []` (CTA "Bắt đầu" ẩn dù workflow còn cạnh). Restore → GREEN.
+- **Không regress**: TC6 `test_tc6_map_guard_no_drift` (map ⇄ 6 service-guard) GIỮ xanh; `test_workflow_admin_override` GIỮ xanh (KHÔNG đụng JSON). **DoD**: `bench --site miyano run-tests --module assetcore.tests.test_imm06` → `Ran 94 OK` (93 baseline + 1); `test_workflow_admin_override` → `Ran 10 OK`. 0 gunicorn reload / 0 bench migrate.
+
+### III.4a. Competency CTA server-driven + RBAC parity (Vòng 15 — AC1..AC6)
+
+**INVARIANT `TestCompetencyTransitionInvariant` (gate merge — parity `TestSessionTransitionInvariant`; AC4).**
+File `assetcore/tests/test_imm06.py`. Đọc hằng SSoT `_COMPETENCY_VALID_TRANSITIONS` (04 §VI.2a; value = nhãn ACTION). Với map ACTION→service (`Sign-off`→`signoff_competency`, `Revoke`→`revoke_competency`, `Recertify`→`recertify_competency`), lặp **6 state × 3 ACTION** và assert 2 chiều:
+- **Forward**: `action ∈ _COMPETENCY_VALID_TRANSITIONS[s]` ⇒ gọi service khi doc ở `s` **KHÔNG** ném `BAD_STATE` (recertify có thể ném `VALIDATION`/`NOT_FOUND` do precondition session/participant — phân biệt bằng `ErrorCode`, không tính drift).
+- **Reverse**: `action ∉ _COMPETENCY_VALID_TRANSITIONS[s]` ⇒ service **PHẢI** ném `BAD_STATE` khi doc ở `s` (jump-skip bị chặn — AC4).
+- Terminal: `_COMPETENCY_VALID_TRANSITIONS['Revoked'] == []`.
+
+**Test server-driven `get_competency` (AC1):**
+- `test_get_competency_allowed_transitions_exact` — với mỗi trong 6 state: `get_competency(name).allowed_transitions` == EXACT bảng (05 §C.1b). Đo: `Pending Assessment` ⊇ `Sign-off`; `Expiring`/`Expired` ⊇ `Recertify` ∧ `Revoke`; `Active`/`Suspended` ⊇ `Revoke` ∧ ∌ `Recertify`; `Revoked` → `[]`.
+- `test_get_competency_can_flags_capability` — user có `training.submit` → `can_signoff/can_revoke/can_recertify` = true; user KHÔNG có → cả 3 = false.
+
+**Test VÁ RBAC asymmetry (AC2 — root cause; parity signoff):**
+- `test_revoke_forbidden_without_training_submit` — user chỉ role `AssetCore System User` (không `training.submit`) gọi `revoke_competency` → envelope `code == FORBIDDEN` **HTTP-200** ∧ `frappe.db.get_value('IMM User Competency', name, 'workflow_state')` **giữ nguyên** (assert DB không đổi state).
+- `test_recertify_forbidden_without_training_submit` — tương tự cho `recertify_competency` (state cũ không đổi).
+- ⚠️ **Chú ý fixture (Self-Correction)**: chứng minh gate hiện HỮU — dùng user CHỈ `AssetCore System User` (KHÔNG có `training.write` lẫn `training.submit`). Nếu test cũ dùng `Administrator` → bypass mọi permission (false-green). Test bằng `frappe.set_user()` sang user thật rồi khôi phục.
+
+**Test QTV/Super Admin duyệt được (AC3 — chiều ngược root cause):**
+- `test_super_admin_can_signoff_revoke_recertify` — `frappe.set_user()` sang user có role profile chứa `AssetCore Super Admin` → `get_competency` trả `allowed_transitions` KHÔNG rỗng ở state hợp lệ ∧ `signoff/revoke/recertify` THÀNH CÔNG (state đổi đúng).
+- `test_training_submit_covers_super_admin` — assert invariant mapping: `rbac.can("training.submit")` == True cho user Super Admin (IMM Training Session DocPerm delete=1). KHÔNG hardcode role-name — resolve qua capability.
+
+**Test audit trail (AC6):**
+- `test_signoff_emits_lifecycle_event` / `test_revoke_emits_lifecycle_event` / `test_recertify_emits_lifecycle_event` — sau mỗi CTA, tồn tại record audit (`_log_competency_audit` → Lifecycle Event `competency_signoff/revoked/recertified`).
+
+**FE vitest `competencyCtaGate.test.ts` (AC5 — GATE-8/LL-FE-51):**
+File `frontend/src/views/training/competencyCtaGate.test.ts` (mẫu `sessionDetailCtaGating.test.ts`/`firmwareCrCtaGate.test.ts`). Assert:
+- grep computed `canSignoff/canRevoke/canRecertify` = **0 match** hardcode `workflow_state === '<StatusString>'` / `[...].includes(workflow_state)` (chỉ `allowedTransitions.includes('<Action>') && can_<action>`).
+- Matrix state × cờ: `Pending Assessment` + `allowed_transitions=['Sign-off']` + `can_signoff=true` → nút `cta-signoff` hiện; `can_signoff=false` → ẩn (hint "không đủ quyền").
+- `Expiring` + `allowed=['Recertify','Revoke']` + caps → `cta-recertify` ∧ `cta-revoke` hiện; `cta-signoff` ẩn.
+- Terminal `Revoked` (`allowed=[]`) → cả 3 CTA ẩn + hint "không có thao tác".
+- Degrade an toàn: `allowed_transitions`/`can_*` undefined (BE chưa live) → 0 nút (không dead-control 403).
+- Load qua `getCompetency(name)` (mock) — KHÔNG suy state client.
+
+### III.4a-bis. Tạm ngưng / Khôi phục + Reconcile invariant map ⇄ workflow JSON (Vòng 26 — CR-WF-06-COMP)
+
+**Cập nhật test hiện hữu (KHÔNG chỉ thêm mới):**
+- `test_get_competency_allowed_transitions_exact` (III.4a) — bảng expected UPDATE: `Active == ["Revoke","Suspend"]`, `Suspended == ["Restore","Revoke"]` (thứ tự ổn định — list-eq, KHÔNG set-eq). Đồng bộ hằng thật `_COMPETENCY_VALID_TRANSITIONS` sau fix.
+- `TestCompetencyTransitionInvariant` (III.4a) — map ACTION→service += `Suspend`→`suspend_competency(n, "lý do")`, `Restore`→`restore_competency(n)`; lặp **6 state × 5 ACTION** (forward: nguồn hợp lệ KHÔNG `BAD_STATE`; reverse: nguồn ngoài map PHẢI `BAD_STATE`). Suspend guard nguồn = `{Active}`; Restore = `{Suspended}`.
+
+**Test service suspend/restore (AC — happy + guard):**
+- `test_suspend_active_to_suspended` — comp `Active` → `suspend_competency(name, "KTV nghỉ phép")` → `workflow_state == "Suspended"`.
+- `test_suspend_reason_required` — `suspend_competency(name, "")` (và `"   "`) → `ServiceError.code == VALIDATION` (422); state KHÔNG đổi.
+- `test_suspend_non_active_bad_state` — comp `Suspended`/`Revoked`/`Pending Assessment`/`Expiring`/`Expired` → `suspend_competency` → `BAD_STATE` (409).
+- `test_restore_suspended_to_active` — comp `Suspended` → `restore_competency(name)` → `workflow_state == "Active"`.
+- `test_restore_non_suspended_bad_state` — comp `Active`/`Revoked`/… → `restore_competency` → `BAD_STATE` (409).
+- `test_suspend_invalidates_auth_cache` — sau suspend, `validate_user_authorized_for_asset(user, asset-cùng-model)` trả `authorized == False` (Suspended ∉ AUTHORIZED); sau restore → `True`.
+
+**Test RBAC (parity C.6):**
+- `test_suspend_forbidden_without_training_submit` — user chỉ `AssetCore System User` gọi `suspend_competency` → envelope `code == FORBIDDEN` **HTTP-200** ∧ `frappe.db.get_value(..., "workflow_state")` **giữ nguyên Active** (KHÔNG đổi state). ⚠️ dùng user thật `frappe.set_user()` (KHÔNG Administrator — false-green).
+- `test_restore_forbidden_without_training_submit` — tương tự cho `restore_competency` (state cũ Suspended KHÔNG đổi).
+
+**Test audit trail (AC6 — parity):**
+- `test_suspend_emits_audit_competency_suspended` — sau suspend, tồn tại `IMM Audit Trail` `{ref_doctype:"IMM User Competency", ref_name:name, event_type:"competency_suspended"}` (reason ∈ `change_summary`).
+- `test_restore_emits_audit_competency_restored` — tương tự `event_type:"competency_restored"`.
+- ⚠️ **Gate schema**: 2 test này RED nếu Select `event_type` (IMM Audit Trail) CHƯA có `competency_suspended`/`competency_restored` (04 §VI.2b) — audit rớt câm, `frappe.db.exists` = False. Xác nhận doctype đã thêm option + reload/migrate trước khi chạy.
+
+**INVARIANT reconcile `test_competency_map_reconcile_workflow_json` (gate merge — parity IMM-12 vòng-12 / IMM-16 vòng-14):**
+- Parse `imm_06_competency_workflow.json`; `wf_keys = {(t["state"], t["action"]) ∀ transition}`.
+- Từ `_COMPETENCY_VALID_TRANSITIONS` + `_COMPETENCY_ACTION_JSON_LABEL` (04 §VI.2b): `map_keys = {(state, LABEL[a]) ∀ (state, a)}`.
+- **Assert** `wf_keys ^ map_keys == _COMPETENCY_EXCEPTION_EDGES` (== 4 cạnh: 3 scheduler-auto `Active/Đánh dấu sắp hết hạn`, `Active/Hết hạn`, `Expiring/Hết hạn` + 1 create-new `Expiring/Tái chứng nhận`).
+- **Assert** `_COMPETENCY_EXCEPTION_EDGES` KHÔNG chứa `Suspend`/`Restore` label (`("Active","Tạm ngưng")`, `("Suspended","Khôi phục")` ∉ EXCEPTION_EDGES).
+- **RED-before demo**: tạm gỡ `Suspend` khỏi `map[Active]` (hoặc `Restore` khỏi `map[Suspended]`) → sym-diff mọc `("Active","Tạm ngưng")`/`("Suspended","Khôi phục")` ∉ EXCEPTION_EDGES → test RED. Restore map → GREEN.
+
+**FE vitest `competencyCtaGate.test.ts` (mở rộng Vòng 26):**
+- `Active` + `allowed=["Revoke","Suspend"]` + `can_suspend=true` → `cta-suspend` hiện; `can_suspend=false` → ẩn.
+- `Suspended` + `allowed=["Restore","Revoke"]` + `can_restore=true` → `cta-restore` ∧ `cta-revoke` hiện; `cta-signoff`/`cta-recertify` ẩn.
+- grep: `canSuspend`/`canRestore` computed = **0 match** hardcode `workflow_state === '<X>'` (chỉ `allowedTransitions.includes('Suspend'|'Restore') && can_*`).
+- Modal Tạm ngưng: nút `confirm-suspend` `:disabled` khi reason rỗng.
+
+**Acceptance chạy (Vòng 26):** `bench --site miyano run-tests --module assetcore.tests.test_imm06` → đọc **dòng cuối** `Ran N OK` THẬT (KHÔNG false-green — nhiễu fixture "Asset None not found" là môi trường, phân biệt bằng test-name); `test_workflows` admin-override **22/22 KHÔNG đổi** (workflow JSON KHÔNG sửa); FE `npx vitest run competencyCtaGate` xanh + `vue-tsc` prod sạch.
+
+**Acceptance chạy (AC6):** `bench --site miyano run-tests --module assetcore.tests.test_imm06` → `Ran N OK`; FE `npx vitest run competencyCtaGate` xanh + `vue-tsc` prod sạch.
 
 ## III.5. Integration — Audit chain integrity
 
@@ -304,7 +409,7 @@ Fixture trong `setUpClass` phải có `tearDownClass` purge.
 
 ## III.6. API test
 
-**File:** `assetcore/tests/test_imm06_api.py` ⬜ Planned. **25 endpoint thực tế** (xác thực `grep -n "@frappe.whitelist" assetcore/api/imm06.py`):
+**File:** `assetcore/tests/test_imm06_api.py` ⬜ Planned. **25 endpoint thực tế** (xác thực `grep -n "@frappe.whitelist" assetcore/api/imm06.py`) + **`get_competency` (MỚI Vòng 15 → 26)** — GET server-driven CTA (§C.1b), cần test `allowed_transitions`/`can_*` + FORBIDDEN parity revoke/recertify:
 
 | # | Endpoint | Verb | # | Endpoint | Verb |
 |---|---|---|---|---|---|
