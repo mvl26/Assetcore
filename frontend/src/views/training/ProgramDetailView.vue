@@ -9,6 +9,8 @@ import type { TrainingProgram } from '@/api/imm06'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import SmartSelect from '@/components/common/SmartSelect.vue'
+import DetailLoadError from '@/components/common/DetailLoadError.vue'
+import { loadErrorKind } from '@/api/errors'
 
 const props = defineProps<{ name?: string }>()
 const router = useRouter()
@@ -16,7 +18,15 @@ const store = useImm06Store()
 const api = useApi()
 const { can } = useCapabilities()
 
-const { currentProgram, loading, error } = storeToRefs(store)
+const { currentProgram, loading, error, lastApiError } = storeToRefs(store)
+
+// Mã chương trình sai / đã xoá ⇒ 404: hiện empty-state "không tìm thấy" + lối về
+// danh sách, KHÔNG phải banner đỏ + "Thử lại" (retry vô nghĩa) hay dòng chữ cụt.
+const loadFailed = computed<'' | 'notfound' | 'unknown'>(() => {
+  if (isCreateMode.value || currentProgram.value) return ''
+  if (error.value) return loadErrorKind(lastApiError.value ?? new Error(error.value))
+  return 'notfound'
+})
 
 const isCreateMode = computed(() => !props.name)
 const editing = ref(false)
@@ -118,10 +128,16 @@ onMounted(load)
 
     <div v-if="loading" class="card p-8 text-center text-slate-400">Đang tải…</div>
 
-    <div v-else-if="error && !isCreateMode" class="card border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700 flex items-center gap-3">
-      <span class="flex-1">{{ error }}</span>
-      <button class="text-sm underline" @click="load()">Thử lại</button>
-    </div>
+    <DetailLoadError
+      v-else-if="loadFailed"
+      :kind="loadFailed"
+      entity-label="chương trình đào tạo"
+      :record-id="props.name"
+      :message="error ?? ''"
+      back-label="Về danh sách chương trình"
+      @retry="load()"
+      @back="router.push('/imm06/programs')"
+    />
 
     <template v-else-if="currentProgram || isCreateMode">
       <div v-if="error && isCreateMode" class="card border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700 text-sm">{{ error }}</div>
@@ -278,6 +294,6 @@ onMounted(load)
       </div>
     </template>
 
-    <div v-else class="card p-8 text-center text-slate-400">Không tìm thấy chương trình.</div>
+
   </div>
 </template>

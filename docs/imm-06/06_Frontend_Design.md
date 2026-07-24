@@ -285,7 +285,17 @@
 **Behavior:**
 - Mỗi cell auto-recompute `overall_result` real-time khi nhập.
 - "Lưu nháp" = update session (chưa chuyển workflow).
-- "Hoàn thành" → `complete_session` API → toast: *"Đã tạo 13 Pending Assessment competency. Đã gửi email supervisor."*
+- "Hoàn thành" → `complete_session` API. Toast thành công phải phản ánh **số THỰC từ server** (`scored_count` + `competencies_created.length`), KHÔNG phải số dòng local: *"Đã chấm {scored_count} học viên · tạo {competencies_created.length} hồ sơ năng lực Pending."*
+
+**§ Gating & anti-success-giả nút "Hoàn thành" (BR-06-17 — SessionDetailView.vue, actual file):**
+
+> ⚠️ Defect gốc `SessionDetailView.vue::doComplete` (line ~140): (1) gửi TOÀN BỘ `participants` bất kể có nhập điểm hay không → BE hiện complete-giả; sau fix BR-06-17 sẽ bị BE reject nếu 0 chấm điểm; (2) `successMessage` hardcode "Đã hoàn thành buổi đào tạo" — success-giả, không phản ánh `scored_count`/`competencies_created` server; (3) nút chỉ gate `canComplete` (state) + `api.loading`, **không** gate theo đã-nhập-điểm.
+
+- **Nút "Hoàn thành" `disabled`** khi `scoredLocalCount === 0` — với `scoredLocalCount` = số participant có nhập `theory_score` HOẶC `practical_score` (giá trị số hợp lệ). Chưa chấm ai → disabled + hint "Chưa nhập điểm cho học viên nào" (tránh gọi API chắc-chắn-fail). Khi `isScoring` (state In Progress + `canConduct`) mới hiện chế độ nhập điểm.
+- **Payload:** chỉ gửi các participant đã nhập điểm (hoặc gửi cả, BE strict-check unmatched — nhưng participant của buổi luôn khớp nên an toàn). KHÔNG gửi user ngoài `currentSession.participants`.
+- **Toast thành công** đọc `result.scored_count` + `result.competencies_created` (server-real), KHÔNG dùng `participants.length`/`len(results)`. Nếu shape `api/imm06.ts::completeSession` còn `participants_summary`/`new_state` → cập nhật type sang `{ name; workflow_state; scored_count; competencies_created }`.
+- **Khi BE raise** (VR-13 `Phải chấm điểm ít nhất 1 học viên…(BR-06-08)` / VR-14 user không thuộc buổi): `api.run` trả falsy → hiển thị **message lỗi từ server** (error toast/banner), state UI giữ nguyên (buổi vẫn In Progress). KHÔNG hiện toast thành công.
+- **Test guard (`sessionDetailCtaGating.test.ts` mở rộng):** (a) 0 điểm nhập → nút "Hoàn thành" `disabled`; (b) ≥1 điểm → enabled; (c) BE trả error envelope VALIDATION → render message lỗi, KHÔNG toast success; (d) BE trả `scored_count`/`competencies_created` → toast chứa đúng số server (không phải số dòng local).
 
 ---
 

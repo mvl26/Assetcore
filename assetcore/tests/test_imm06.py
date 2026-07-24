@@ -44,10 +44,12 @@ from assetcore.services.imm06 import (
     compute_expiry_dates,
     compute_overall_results,
     confirm_session,
+    create_training_session,
     enroll_participants,
     get_dashboard_stats,
     get_expiring_competencies,
     get_session,
+    get_user_competencies,
     list_competencies,
     list_user_competencies,
     remove_participant,
@@ -395,6 +397,100 @@ class TestSignoffCompetency(unittest.TestCase):
         with self.assertRaises(ServiceError) as ctx:
             signoff_competency("FAKE-COMP-NAME", "Administrator")
         self.assertEqual(ctx.exception.code, "NOT_FOUND")
+
+
+# ─── get_user_competencies — enrich display names (CR-34a) ────────────────────
+
+class TestGetUserCompetenciesEnrichment(unittest.TestCase):
+    """CR-34a — get_user_competencies bồi display-name per item[]:
+    device_model_name + training_program_name (reuse _enrich_competency_display_names),
+    chống rò Link-ID thô ra mobile 'Năng lực của tôi' (Spec 45). LIST trả None cho
+    link absent/broken (mobile OMIT — KHÔNG raw-ID fallback như detail)."""
+
+    # 10 raw fields VERBATIM UserCompetencyRepo.list @services/imm06.py:1538-1541.
+    _RAW_FIELDS = {
+        "name", "device_model", "training_program", "competency_level", "workflow_state",
+        "achieved_date", "expiry_date", "days_until_expiry", "is_expired", "last_assessment_score",
+    }
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls._created: list[str] = []
+
+    @classmethod
+    def tearDownClass(cls):
+        # BR-06-09 on_trash guard blocks ORM delete → raw purge (parity tearDownModule).
+        if cls._created:
+            frappe.db.delete("IMM User Competency", {"name": ["in", cls._created]})
+            frappe.db.delete(
+                "IMM Audit Trail",
+                {"ref_doctype": "IMM User Competency", "ref_name": ["in", cls._created]},
+            )
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+
+    def _row_for(self, comp: str) -> dict:
+        result = get_user_competencies("Administrator")
+        self.assertIn("items", result, "get_user_competencies PHẢI trả key 'items'.")
+        rows = [it for it in result["items"] if it.get("name") == comp]
+        self.assertEqual(len(rows), 1, f"PHẢI đúng 1 hồ-sơ khớp {comp} trong items[].")
+        return rows[0]
+
+    def test_device_model_name_resolved_not_raw_id(self):
+        comp = _make_competency("Administrator", "")
+        self.__class__._created.append(comp)
+        model = _ensure_test_model()
+        row = self._row_for(comp)
+        self.assertEqual(
+            row["device_model_name"], "_Test Model IMM06",
+            "device_model_name PHẢI = IMM Device Model.model_name (KHÔNG raw Link-ID 'DM-...').",
+        )
+        self.assertEqual(row["device_model"], model, "device_model raw = PK (giữ nguyên).")
+        self.assertNotEqual(
+            row["device_model_name"], row["device_model"],
+            "name bồi KHÁC raw ID (chống rò Link-ID thô ra mobile).",
+        )
+
+    def test_training_program_name_resolved(self):
+        comp = _make_competency("Administrator", "")
+        self.__class__._created.append(comp)
+        row = self._row_for(comp)
+        self.assertEqual(
+            row["training_program_name"], "_Test Program IMM06 Shared",
+            "training_program_name PHẢI = IMM Training Program.program_name (SSoT parity imm06.py:1193).",
+        )
+
+    def test_missing_links_name_fields_none_no_crash(self):
+        comp = _make_competency("Administrator", "")
+        self.__class__._created.append(comp)
+        # Blank cả 2 Link trực-tiếp (bypass controller) → test null-safe cho LIST.
+        frappe.db.set_value("IMM User Competency", comp, "device_model", "")
+        frappe.db.set_value("IMM User Competency", comp, "training_program", "")
+        row = self._row_for(comp)
+        self.assertIsNone(
+            row["device_model_name"],
+            "device_model rỗng → device_model_name is None (mobile OMIT, 0 raw-ID leak, KHÔNG KeyError).",
+        )
+        self.assertIsNone(
+            row["training_program_name"],
+            "training_program rỗng → training_program_name is None (LIST KHÔNG raw-ID fallback).",
+        )
+
+    def test_item_field_set_superset_guard(self):
+        comp = _make_competency("Administrator", "")
+        self.__class__._created.append(comp)
+        row = self._row_for(comp)
+        expected = self._RAW_FIELDS | {
+            "device_model_name", "training_program_name", "user_full_name",
+        }
+        self.assertEqual(
+            set(row.keys()), expected,
+            "items[] field-set PHẢI = 10 raw + device_model_name + training_program_name + "
+            f"user_full_name (regression guard chống drift): {sorted(row.keys())}.",
+        )
 
 
 # ─── archive_old_competency ───────────────────────────────────────────────────
@@ -1590,7 +1686,13 @@ class TestSessionAllowedTransitions(unittest.TestCase):
         specs = [
             (SessionStatus.CONFIRMED, lambda n: confirm_session(n)),
             (SessionStatus.IN_PROGRESS, lambda n: start_training_session(n)),
-            (SessionStatus.COMPLETED, lambda n: complete_training_session(n, [])),
+            # Reconcile BR-06-08: `_session` gắn 1 participant "Administrator". Gate
+            # empty-scoring mới raise VALIDATION (≠ BAD_STATE) khi results=[], nên
+            # nhánh COMPLETED phải chấm 1 result KHỚP participant để test đúng
+            # forward-happy-path (không raise) thay vì dựa vào VALIDATION≠BAD_STATE.
+            (SessionStatus.COMPLETED, lambda n: complete_training_session(
+                n, [{"user": "Administrator",
+                     "theory_score": 0, "practical_score": 0}])),
             (SessionStatus.VERIFIED, lambda n: verify_session(n)),
             (SessionStatus.CLOSED, lambda n: close_session(n)),
             (SessionStatus.CANCELLED, lambda n: cancel_session(n, "Lý do hủy hợp lệ")),
@@ -1678,6 +1780,156 @@ class TestSessionAllowedTransitions(unittest.TestCase):
         self.assertEqual(_SESSION_EXCEPTION_EDGES, frozenset())
         self.assertEqual(len(workflow_pairs), 8, "workflow phải có đúng 8 cạnh distinct")
         self.assertEqual(len(map_pairs), 8, "map phải có đúng 8 cạnh")
+
+
+class TestCompleteTrainingSessionBR0608(unittest.TestCase):
+    """BR-06-08 (VR-13/VR-14) — chặn nghiệm-thu-giả buổi đào tạo trong
+    `complete_training_session`. Guard-before-persist (docs/imm-06/05 §B.5):
+      (a) result trỏ user KHÔNG thuộc buổi → VALIDATION strict fail-loud (BA chốt),
+          KHÔNG drop câm, KHÔNG đổi state.
+      (b) scored_count == 0 (gồm results=[]) → VALIDATION message FROZEN, DB giữ
+          `In Progress` (chống chuyển-trạng-thái-rồi-mới-fail).
+      return.scored_count = số participant THỰC set overall_result (đếm trong loop,
+      KHÔNG len(results)); competencies_created = tên IMM User Competency THỰC persist.
+    Session dựng qua flow THẬT: create → enroll → confirm → start.
+    """
+
+    _FROZEN_NO_SCORE = ("Phải chấm điểm ít nhất 1 học viên trước khi hoàn thành "
+                        "buổi học (BR-06-08)")
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        for r in ("AssetCore Super Admin", "Training Manager"):
+            if not frappe.db.exists("Role", r):
+                frappe.get_doc({"doctype": "Role", "role_name": r}
+                               ).insert(ignore_permissions=True)
+        frappe.get_doc("User", "Administrator").add_roles(
+            "AssetCore Super Admin", "Training Manager")
+        cls.prog = _make_program()
+        cls.trainee2 = cls._ensure_user("_test-trainee2-imm06@assetcore.test")
+        cls._sessions: list[str] = []
+        cls._comps: list[str] = []
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        for name in cls._comps:
+            if frappe.db.exists("IMM User Competency", name):
+                frappe.db.delete("IMM User Competency", {"name": name})
+                frappe.db.delete("IMM Audit Trail",
+                                 {"ref_doctype": "IMM User Competency", "ref_name": name})
+        for name in cls._sessions:
+            if frappe.db.exists("IMM Training Session", name):
+                frappe.delete_doc("IMM Training Session", name,
+                                  force=True, ignore_permissions=True)
+        if frappe.db.exists("IMM Training Program", cls.prog):
+            frappe.delete_doc("IMM Training Program", cls.prog,
+                              force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    @staticmethod
+    def _ensure_user(email: str) -> str:
+        if not frappe.db.exists("User", email):
+            u = frappe.get_doc({
+                "doctype": "User", "email": email,
+                "first_name": "Trainee2 IMM06", "send_welcome_email": 0,
+                "enabled": 1,
+            })
+            u.flags.ignore_permissions = True
+            u.insert(ignore_permissions=True)
+            frappe.db.commit()
+        return email
+
+    def _inprogress_session(self, enroll: list[dict]) -> str:
+        """Dựng buổi In Progress qua flow THẬT (create→enroll→confirm→start)."""
+        res = create_training_session({
+            "training_program": self.prog,
+            "session_date": nowdate(),
+            "session_type": "Onsite",
+            "duration_planned_hours": 4,
+            "instructor": "Administrator",
+        })
+        name = res["name"]
+        type(self)._sessions.append(name)
+        enroll_participants(name, enroll)
+        confirm_session(name)
+        start_training_session(name)
+        self.assertEqual(
+            frappe.db.get_value("IMM Training Session", name, "workflow_state"),
+            SessionStatus.IN_PROGRESS)
+        return name
+
+    # ── RED (b/VR-13): empty-scoring reject + DB giữ In Progress ──────────────
+    def test_complete_empty_results_rejected(self):
+        name = self._inprogress_session(
+            [{"user": "Administrator", "role_at_session": "Operator"}])
+        with self.assertRaises(ServiceError) as ctx:
+            complete_training_session(name, [])
+        self.assertEqual(ctx.exception.code, ErrorCode.VALIDATION)
+        self.assertEqual(ctx.exception.message, self._FROZEN_NO_SCORE)
+        # DB PHẢI giữ In Progress — guard TRƯỚC persist.
+        self.assertEqual(
+            frappe.db.get_value("IMM Training Session", name, "workflow_state"),
+            SessionStatus.IN_PROGRESS)
+
+    # ── RED (a/VR-14): unmatched user strict fail-loud ───────────────────────
+    def test_complete_unknown_user_strict_raises(self):
+        name = self._inprogress_session(
+            [{"user": "Administrator", "role_at_session": "Operator"}])
+        stranger = "nguoi-la-khong-ghi-danh@benhvien.vn"
+        with self.assertRaises(ServiceError) as ctx:
+            complete_training_session(name, [
+                {"user": stranger, "theory_score": 80, "practical_score": 80}])
+        self.assertEqual(ctx.exception.code, ErrorCode.VALIDATION)
+        self.assertIn(stranger, ctx.exception.message)
+        self.assertIn("không thuộc buổi", ctx.exception.message)
+        self.assertEqual(
+            frappe.db.get_value("IMM Training Session", name, "workflow_state"),
+            SessionStatus.IN_PROGRESS)
+
+    # ── GREEN: 1 participant Pass → scored_count=1 + 1 competency THỰC persist ─
+    def test_complete_scored_count_real_and_competency_persists(self):
+        name = self._inprogress_session(
+            [{"user": "Administrator", "role_at_session": "Operator"}])
+        res = complete_training_session(name, [
+            {"user": "Administrator", "theory_score": 85, "practical_score": 80}])
+        type(self)._comps.extend(res.get("competencies_created", []))
+        self.assertEqual(res["scored_count"], 1)
+        self.assertEqual(len(res["competencies_created"]), 1)
+        self.assertTrue(frappe.db.exists(
+            "IMM User Competency", res["competencies_created"][0]))
+        self.assertEqual(
+            frappe.db.get_value("IMM Training Session", name, "workflow_state"),
+            SessionStatus.COMPLETED)
+        row = frappe.db.get_value(
+            "IMM Training Participant",
+            {"parent": name, "user": "Administrator"},
+            "overall_result")
+        self.assertEqual(row, "Pass")
+
+    # ── GREEN/pin-BA: 2 participant chấm 1 → partial cho phép, scored_count THỰC ─
+    def test_complete_partial_scoring_counts_real(self):
+        name = self._inprogress_session([
+            {"user": "Administrator", "role_at_session": "Operator"},
+            {"user": self.trainee2, "role_at_session": "Operator"},
+        ])
+        # Chỉ chấm trainee2 (Fail 40<70) — Administrator để trống.
+        res = complete_training_session(name, [
+            {"user": self.trainee2, "theory_score": 40, "practical_score": 40}])
+        type(self)._comps.extend(res.get("competencies_created", []))
+        # scored_count đếm THỰC (1), KHÔNG len(results) (cũng 1 ở đây nhưng
+        # participant còn lại KHÔNG được set) — cốt là honest count trong loop.
+        self.assertEqual(res["scored_count"], 1)
+        self.assertEqual(len(res["competencies_created"]), 0)  # Fail → 0 competency
+        admin_result = frappe.db.get_value(
+            "IMM Training Participant",
+            {"parent": name, "user": "Administrator"}, "overall_result")
+        self.assertIn(admin_result, (None, ""))  # partial cho phép: chưa chấm → rỗng
+        t2_result = frappe.db.get_value(
+            "IMM Training Participant",
+            {"parent": name, "user": self.trainee2}, "overall_result")
+        self.assertEqual(t2_result, "Fail")
 
 
 class TestCompetencyAllowedTransitions(unittest.TestCase):

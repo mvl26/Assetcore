@@ -12,7 +12,7 @@ import {
   getDashboardStats, getExpiringCompetencies,
   type TrainingProgram, type TrainingSession,
   type UserCompetency, type TrainingParticipant,
-  type Imm06DashboardStats,
+  type Imm06DashboardStats, type CompleteSessionResult,
 } from '@/api/imm06'
 import { ApiError } from '@/api/errors'
 
@@ -38,8 +38,12 @@ export const useImm06Store = defineStore('imm06', () => {
   // Loading / error
   const loading = ref(false)
   const error = ref<string | null>(null)
+  // Giữ NGUYÊN ApiError cuối (không chỉ message) để view phân loại 404 vs lỗi khác
+  // → render empty-state "không tìm thấy" thay vì banner "Thử lại" vô nghĩa.
+  const lastApiError = ref<ApiError | null>(null)
 
   function _setError(e: unknown) {
+    lastApiError.value = e instanceof ApiError ? e : null
     error.value = e instanceof ApiError ? e.message : (e instanceof Error ? e.message : String(e))
   }
 
@@ -54,6 +58,7 @@ export const useImm06Store = defineStore('imm06', () => {
   async function fetchPrograms(filters = {}, page = 1): Promise<void> {
     loading.value = true
     error.value = null
+    lastApiError.value = null
     try {
       const res = await listPrograms(filters, page)
       programs.value = res.data ?? []
@@ -68,6 +73,7 @@ export const useImm06Store = defineStore('imm06', () => {
   async function fetchProgram(name: string): Promise<void> {
     loading.value = true
     error.value = null
+    lastApiError.value = null
     try {
       currentProgram.value = await getProgram(name)
     } catch (e: unknown) {
@@ -106,6 +112,7 @@ export const useImm06Store = defineStore('imm06', () => {
   async function fetchSessions(filters = {}, page = 1): Promise<void> {
     loading.value = true
     error.value = null
+    lastApiError.value = null
     try {
       const res = await listSessions(filters, page)
       sessions.value = res.data ?? []
@@ -120,6 +127,7 @@ export const useImm06Store = defineStore('imm06', () => {
   async function fetchSession(name: string): Promise<void> {
     loading.value = true
     error.value = null
+    lastApiError.value = null
     try {
       currentSession.value = await getSession(name)
     } catch (e: unknown) {
@@ -150,14 +158,20 @@ export const useImm06Store = defineStore('imm06', () => {
     }
   }
 
-  async function doCompleteSession(name: string, results: TrainingParticipant[]): Promise<boolean> {
+  // BR-06-08: trả về kết quả THỰC từ BE (scored_count/competencies_created) — KHÔNG
+  // nuốt thành boolean — để view dựng toast phản ánh số học viên THỰC được chấm +
+  // số chứng nhận THỰC sinh ra (anti success-giả). null khi BE raise (VALIDATION…).
+  async function doCompleteSession(
+    name: string,
+    results: TrainingParticipant[],
+  ): Promise<CompleteSessionResult | null> {
     try {
-      await completeSession(name, results)
+      const res = await completeSession(name, results)
       await fetchSession(name)
-      return true
+      return res
     } catch (e: unknown) {
       _setError(e)
-      return false
+      return null
     }
   }
 
@@ -177,6 +191,7 @@ export const useImm06Store = defineStore('imm06', () => {
   async function fetchCompetencies(filters = {}, page = 1): Promise<void> {
     loading.value = true
     error.value = null
+    lastApiError.value = null
     try {
       const res = await listCompetencies(filters, page)
       competencies.value = res.data ?? []
@@ -193,6 +208,7 @@ export const useImm06Store = defineStore('imm06', () => {
   async function fetchExpiringCompetencies(days = 60): Promise<void> {
     loading.value = true
     error.value = null
+    lastApiError.value = null
     try {
       const rows = await getExpiringCompetencies(days)
       competencies.value = rows
@@ -210,6 +226,7 @@ export const useImm06Store = defineStore('imm06', () => {
   async function fetchMyCompetencies(user?: string): Promise<void> {
     loading.value = true
     error.value = null
+    lastApiError.value = null
     try {
       const res = await getUserCompetencies(user)
       myCompetencies.value = res.competencies
@@ -245,6 +262,7 @@ export const useImm06Store = defineStore('imm06', () => {
   async function fetchDashboardStats(): Promise<void> {
     loading.value = true
     error.value = null
+    lastApiError.value = null
     try {
       dashboardStats.value = await getDashboardStats()
     } catch (e: unknown) {
@@ -260,7 +278,7 @@ export const useImm06Store = defineStore('imm06', () => {
     sessions, currentSession, sessionPagination,
     competencies, myCompetencies, competencyPagination,
     dashboardStats,
-    loading, error,
+    loading, error, lastApiError,
     // Getters
     activePrograms, upcomingSessions,
     // Program actions

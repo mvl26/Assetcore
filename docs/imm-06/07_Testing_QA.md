@@ -443,8 +443,12 @@ File `frontend/src/views/training/competencyCtaGate.test.ts` (mẫu `sessionDeta
 | `test_list_competencies_as_operator` | `list_competencies` role=Operator | chỉ own records | EP |
 | `test_create_program_no_permission` | `create_program` role=HTM Technician | HTTP 403 / FORBIDDEN | EP |
 | `test_idempotent_complete_session` | `complete_session` ×2 | 2nd → `code=BAD_STATE` | Error guessing |
+| `test_complete_empty_results_rejected` (BR-06-17/VR-13) | `complete_training_session(s, [])` trên buổi In Progress có ≥1 participant | `code=VALIDATION`, message == "Phải chấm điểm ít nhất 1 học viên trước khi hoàn thành buổi học (BR-06-08)"; `frappe.db.get_value(...workflow_state)=='In Progress'` (verify DB, KHÔNG Completed) | Decision Table |
+| `test_complete_unmatched_user_strict` (BR-06-17/VR-14) | `results` chứa user không thuộc buổi | `code=VALIDATION`, message nêu rõ user; state giữ In Progress | Error guessing |
+| `test_complete_scored_count_real` (BR-06-17) | ≥1 result khớp participant hợp lệ | return `scored_count` = số participant THỰC set `overall_result` (≠ `len(results)`); mỗi participant chấm có `overall_result ∈ {Pass,Fail}` persist DB; mỗi Pass sinh đúng 1 IMM User Competency; `competencies_created` mỗi tên `frappe.db.exists`=True | Use Case |
+| `test_tc6_map_guard_no_drift` (reconcile) | nhánh COMPLETED dùng buổi có participant + result hợp lệ (KHÔNG `complete_training_session(n, [])`) | transition Completed từ In Progress KHÔNG raise BAD_STATE | Invariant |
 
-Cover: happy + envelope `success=true`, invalid params, no permission FORBIDDEN, pagination boundaries, idempotent retry.
+Cover: happy + envelope `success=true`, invalid params, no permission FORBIDDEN, pagination boundaries, idempotent retry, **anti-nghiệm-thu-giả (BR-06-17): empty-scoring reject + unmatched-user strict + scored_count/competencies_created THỰC + DB state giữ In Progress khi raise**.
 
 ## III.7. E2E browser (Playwright)
 

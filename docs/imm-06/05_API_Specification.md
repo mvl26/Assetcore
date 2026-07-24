@@ -510,33 +510,41 @@ FE gate mỗi CTA bằng `allowed_transitions.includes('<next-state>') && <capab
 }
 ```
 
-**Behavior:**
-1. Validate VR-06 (scores reqd nếu `program.assessment_method="Both"`).
-2. Compute `overall_result` per participant: `attendance_pct >= 80% AND avg(theory, practical) >= passing_score_pct` → Pass.
-3. Chuyển workflow In Progress → Completed.
-4. Gọi `services.imm06.create_competency_from_session(name)` → tạo Pending Assessment competency cho mọi Pass.
-5. Gửi email cho supervisor (Department Manager) yêu cầu sign-off.
+**Behavior (guard-before-persist — BR-06-17, xem BE §VI.1c):**
+1. State phải `In Progress` (source của Completed) — nếu không → `BAD_STATE`.
+2. **Guard (a) strict fail-loud (VR-14):** mọi `user` trong `participants_results` phải là participant của buổi. Có user lạ → `VALIDATION` nêu rõ user, **KHÔNG** đổi state.
+3. Compute IN-MEMORY `overall_result` per participant khớp result: `avg(theory, practical) >= program.passing_score_pct` → Pass, ngược lại Fail. Đếm `scored_count` = số participant THỰC được set `overall_result` (đếm trong loop, **KHÔNG** `len(participants_results)`).
+4. **Guard (b) empty-scoring (VR-13):** `scored_count == 0` (gồm `participants_results=[]`) → `VALIDATION` message FROZEN `Phải chấm điểm ít nhất 1 học viên trước khi hoàn thành buổi học (BR-06-08)`, **KHÔNG** đổi state (DB `workflow_state` giữ `In Progress`).
+5. Chỉ khi qua guard: chuyển `In Progress → Completed`, save + commit.
+6. Tạo Pending Assessment competency cho mỗi Pass; `competencies_created` = list tên IMM User Competency **THỰC persist** (mỗi tên xác nhận `frappe.db.exists`).
 
-**Response 200:**
+**Response 200 (thành công):**
 
 ```json
 {
   "success": true,
   "data": {
     "name": "TRN-2026-00042",
-    "new_state": "Completed",
-    "participants_summary": {
-      "total": 15,
-      "pass": 13,
-      "fail": 1,
-      "conditional": 1
-    },
+    "workflow_state": "Completed",
+    "scored_count": 13,
     "competencies_created": ["COMP-2026-0301", "COMP-2026-0302"]
   }
 }
 ```
 
-**Errors:** `FORBIDDEN`, `NOT_FOUND`, `VALIDATION` (VR-06), `BUSINESS_RULE` (sai state), `INTERNAL`
+> ⚠️ **Doc-drift đã sửa (2026-07-19):** bản trước ghi `new_state`/`participants_summary` — KHÔNG khớp return service thực. Shape thực = `{name, workflow_state, scored_count, competencies_created}`. FE `api/imm06.ts::completeSession` phải cập nhật type theo shape này (bỏ `participants_summary`, thêm `scored_count`, đổi `new_state`→`workflow_state`).
+
+**Error envelope (business-error = in-handler HTTP-200; xem BE §VI.1c):**
+
+| Tình huống | Code | HTTP | Message |
+|---|---|---|---|
+| Guest / không session | (dispatcher PermissionError) | **403** | Frappe dispatcher, TRƯỚC handler |
+| Thiếu `training.write` (cap in-handler) | `FORBIDDEN` | **200** | "Chỉ Training Manager/User mới được thực hiện thao tác này" |
+| Sai state (≠ In Progress) | `BAD_STATE` | **200** | "Session phải ở trạng thái In Progress, hiện tại: {state}" |
+| `results=[]` / không result khớp participant (VR-13) | `VALIDATION` | **200** | **FROZEN** "Phải chấm điểm ít nhất 1 học viên trước khi hoàn thành buổi học (BR-06-08)" |
+| User không thuộc buổi (VR-14) | `VALIDATION` | **200** | "Học viên {user} không thuộc buổi đào tạo này — không thể chấm điểm (BR-06-08)" |
+| Không tìm thấy buổi | `NOT_FOUND` | **200** | "Không tìm thấy buổi đào tạo: {name}" |
+| Lỗi server | `INTERNAL` | **200** | "Lỗi server" |
 
 ---
 

@@ -766,6 +766,61 @@ Test bắt drift 2 chiều (xem 07 §III.4 `TestSessionTransitionInvariant`).
 
 ---
 
+### §VI.1c — `complete_training_session` integrity guards (BR-06-17 — chống nghiệm-thu-giả)
+
+**Vấn đề gốc (defect thiết kế).** `complete_training_session(session_name, results)` (imm06.py:366) hiện:
+1. Build `result_map = {r["user"]: r for r in results if r.get("user")}` rồi loop `doc.participants`, **chỉ** chấm participant có result khớp, participant khác `continue` (bỏ qua).
+2. Set `doc.workflow_state = Completed` + `save()` **VÔ ĐIỀU KIỆN** — kể cả khi `results=[]` hoặc không result nào khớp participant. ⇒ **nghiệm-thu-giả**: buổi Completed, 0 competency, no-signal — operator không có tín hiệu năng lực THỰC nhưng buổi hiển thị "đã hoàn thành" (vi phạm ISO 13485 §7.5.1 + NĐ98 §35).
+3. `results` chứa `user` KHÔNG thuộc `participants` → **drop câm** (không bao giờ vào loop) — dữ liệu bẩn/nhầm session lọt không ai biết.
+4. Return chỉ có `competencies_created`; **thiếu** `scored_count`. FE toast dùng `len(results)` (số dòng local) → success-giả (đếm dòng gửi lên chứ không phải số THỰC được chấm/persist).
+
+**Quyết định (guard-before-persist, fail-loud, strict — ADR-IMM-06-08).** Sửa `complete_training_session`:
+
+```text
+Precondition (GIỮ NGUYÊN): state phải ∈ _session_source_states(Completed) = {In Progress} → nếu không: BAD_STATE.
+
+1. participant_users = {p.user for p in doc.participants if p.user}
+2. result_map = {r["user"]: r for r in results if r.get("user")}
+3. GUARD (a) — unmatched strict (BR-06-17 / VR-14, TRƯỚC mọi persist):
+     unmatched = [u for u in result_map if u not in participant_users]
+     if unmatched: raise ServiceError(VALIDATION,
+        f"Học viên {', '.join(unmatched)} không thuộc buổi đào tạo này — không thể chấm điểm (BR-06-08)")
+4. Tính điểm IN-MEMORY: loop participants, với participant có result khớp:
+     set theory/practical, tính avg, set overall_result ∈ {Pass,Fail}, scored_count += 1
+     (đếm scored_count TRONG loop — KHÔNG len(results))
+5. GUARD (b) — empty-scoring (BR-06-17 / VR-13, TRƯỚC mọi persist):
+     if scored_count == 0: raise ServiceError(VALIDATION,
+        "Phải chấm điểm ít nhất 1 học viên trước khi hoàn thành buổi học (BR-06-08)")   # FROZEN literal
+6. PERSIST (chỉ tới đây mới đụng DB state): doc.workflow_state = Completed; save(); commit()
+7. Tạo competency cho participant Pass; new_competencies = [name for name in ... if frappe.db.exists("IMM User Competency", name)]
+8. return {name, workflow_state: Completed, scored_count, competencies_created: new_competencies}
+```
+
+**INVARIANT bắt buộc (verify được):**
+- Khi guard (a)/(b) raise → `frappe.db.get_value("IMM Training Session", name, "workflow_state") == "In Progress"` (guard fire TRƯỚC bước 6). KHÔNG được set Completed rồi mới raise/rollback.
+- `scored_count >= 1` khi return thành công; `scored_count` = số participant THỰC được set `overall_result` (đếm trong loop), KHÔNG `len(results)`.
+- Mỗi participant Pass sinh **đúng 1** IMM User Competency; `competencies_created` = list tên THỰC persist (mỗi tên `frappe.db.exists` = True) — KHÔNG chứa tên của bản `_create_competency_record` trả `None` (insert lỗi log-and-skip).
+- `test_tc6_map_guard_no_drift` **reconcile**: nhánh COMPLETED KHÔNG được dùng `complete_training_session(n, [])` (sẽ raise VALIDATION do BR-06-17). Sửa spec nhánh này để buổi In Progress có ≥1 participant + truyền 1 result hợp lệ (khớp participant) → transition Completed không raise BAD_STATE. Guard mới trả `VALIDATION` (KHÔNG `BAD_STATE`) nên assertion "nguồn hợp lệ KHÔNG raise BAD_STATE" vẫn giữ cho các state khác; chỉ nhánh COMPLETED cần data participant thực.
+
+**Envelope (DONE-gate — 2 loại 403 + business-error HTTP-200):**
+- `_require_training_officer()` thiếu `training.write` → in-handler `ServiceError(FORBIDDEN)` → `_run`→`_err` → **HTTP-200** Error envelope `{success:false, error:{code:"FORBIDDEN", ...}}` (cap-403 in-handler).
+- Guest/không session gọi `@frappe.whitelist()` → Frappe dispatcher trả **HTTP-403** TRƯỚC handler (dispatcher-403). `_guard()` chỉ belt-and-suspenders.
+- BR-06-17 (VR-13/VR-14) là **lỗi nghiệp vụ** → in-handler **HTTP-200** + Error envelope code `VALIDATION` (KHÔNG raise→HTTP-4xx).
+
+**Boundaries:**
+- **Always**: guard (a)+(b) chạy TRƯỚC `doc.workflow_state=Completed`/`save()`; đếm `scored_count` trong loop; xác nhận từng competency `frappe.db.exists` trước khi thêm vào `competencies_created`; message BR-06-08 emit **verbatim** (frozen QA literal).
+- **Ask first**: chuyển sang chế độ **Lenient** (`unmatched_users[]` + tiếp tục thay vì raise) — cần ADR mới Supersede ADR-IMM-06-08.
+- **Never**: set `Completed` rồi mới validate/rollback (state-leak); dùng `len(results)` làm `scored_count`; drop câm user không thuộc buổi; "sửa" tag `(BR-06-08)` trong message thành `(BR-06-17)`; raise→HTTP-4xx cho BR-06-17 (dùng in-handler HTTP-200 envelope).
+
+#### ADR-IMM-06-08: Guard-before-persist + strict fail-loud cho hoàn thành buổi
+- **Status**: Accepted · **Date**: 2026-07-19
+- **Context**: `complete_training_session` set `Completed` vô điều kiện + drop câm user lạ → nghiệm-thu-giả (buổi Completed 0-competency) + dữ liệu bẩn lọt không dấu vết. Acceptance factory Vòng 4 yêu cầu message đóng băng `(BR-06-08)`.
+- **Decision**: Validate TRƯỚC mọi persist (state chỉ đổi khi chắc chắn có ≥1 chấm điểm hợp lệ); strict fail-loud với user không thuộc buổi (mặc định); trả `scored_count` THỰC + `competencies_created` đã xác nhận persist.
+- **Alternatives**: (a) Lenient (bỏ qua user lạ, complete nếu còn ≥1 khớp) — loại (mặc định): dữ liệu nhầm lọt câm, khó truy vết; giữ làm tùy chọn qua ADR Supersede. (b) Cho phép complete buổi 0-chấm-điểm rồi cảnh báo ở FE — loại: BE là SoT, no-signal vẫn persist Completed = rủi ro NĐ98. (c) Renumber BR-06-08 audit-trail để nhường số — loại: destructive, đụng traceability 07/08/09 (light-touch).
+- **Consequences**: `test_tc6_map_guard_no_drift` phải reconcile nhánh COMPLETED (dùng result hợp lệ). Return thêm field `scored_count` (không đổi DocType schema — chỉ response). Message mang tag `(BR-06-08)` trong khi canonical ID = BR-06-17 → cần note disambiguation (đã ghi ở 02 §IV.1).
+
+---
+
 ### §VI.1b — Reconcile invariant map ⇄ workflow JSON: `_SESSION_EXCEPTION_EDGES` == ∅ (Vòng 28 — CR-WF-06-SESSION)
 
 **Vấn đề gốc.** `_SESSION_VALID_TRANSITIONS` (SoT enforce + CTA server-driven) và `imm_06_session_workflow.json` (desk/admin-override) là **2 nguồn** mô tả CÙNG máy trạng thái buổi đào tạo. §VI.1a chỉ chốt invariant map↔service-guard (TC6) — **thiếu** invariant map↔workflow-JSON. Thêm/bớt 1 cạnh ở JSON (vd wire thêm `In Progress→Cancelled`) mà quên map (hoặc ngược lại) → drift ÂM THẦM: CTA hiện/ẩn lệch với transition desk. Đây là SSoT-map hardcode **CUỐI CÙNG** của IMM-06 chưa reconcile-vs-workflow (competency đã đóng ở §VI.2b / Vòng 26).

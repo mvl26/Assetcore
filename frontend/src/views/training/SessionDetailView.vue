@@ -5,6 +5,7 @@ import { storeToRefs } from 'pinia'
 import { useImm06Store } from '@/stores/imm06'
 import { useCapabilities } from '@/composables/useCapabilities'
 import { useApi } from '@/composables/useApi'
+import { useToast } from '@/composables/useToast'
 import { confirmSession, startSession, completeSession, cancelSession, verifySession, closeSession, createSession, enrollParticipants, removeParticipant } from '@/api/imm06'
 import type { TrainingParticipant } from '@/api/imm06'
 import PageHeader from '@/components/common/PageHeader.vue'
@@ -12,6 +13,8 @@ import StatusBadge from '@/components/common/StatusBadge.vue'
 import SmartSelect from '@/components/common/SmartSelect.vue'
 import DateInput from '@/components/common/DateInput.vue'
 import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
+import DetailLoadError from '@/components/common/DetailLoadError.vue'
+import { loadErrorKind } from '@/api/errors'
 
 
 const props = defineProps<{ name?: string }>()
@@ -20,10 +23,19 @@ const route = useRoute()
 const store = useImm06Store()
 const { can } = useCapabilities()
 const api = useApi()
+const toast = useToast()
 
-const { currentSession, loading, error } = storeToRefs(store)
+const { currentSession, loading, error, lastApiError } = storeToRefs(store)
 
 const isCreateMode = computed(() => !props.name)
+
+// Mã buổi đào tạo sai / đã xoá ⇒ 404: empty-state "không tìm thấy" + lối về danh
+// sách (thay banner đỏ + "Thử lại" và dòng chữ cụt cuối template — dead-end).
+const loadFailed = computed<'' | 'notfound' | 'unknown'>(() => {
+  if (isCreateMode.value || currentSession.value) return ''
+  if (error.value) return loadErrorKind(lastApiError.value ?? new Error(error.value))
+  return 'notfound'
+})
 
 // Create form state
 const createForm = ref({
@@ -137,13 +149,48 @@ async function doStart() {
 
 const isScoring = computed(() => state.value === 'In Progress' && canConduct.value)
 
+// BR-06-08 (chống nghiệm-thu-giả) — DIRTY-TRACKING, KHÔNG suy từ giá trị:
+// get_session trả theory_score/practical_score = 0 (child DocType Float ⇒ DB NOT NULL
+// DEFAULT 0) cho học viên CHƯA chấm. 0 vừa là default-lưu-trữ vừa là điểm-hợp-lệ ⇒ KHÔNG
+// thể phân biệt "chưa chấm" với "chấm 0" bằng giá trị. Vì vậy "đã chấm" = instructor THỰC
+// SỰ gõ vào ô điểm lý thuyết/thực hành TRONG phiên này (markScored theo @input). Chuyên
+// cần (attendance_pct) KHÔNG tính là chấm điểm. Key theo p.user để khớp result_map BE
+// (complete_training_session map theo r["user"]).
+const scoredKeys = ref<Set<string>>(new Set())
+function markScored(p: TrainingParticipant) {
+  if (p.user) scoredKeys.value.add(p.user)
+}
+const scoredParticipants = computed<TrainingParticipant[]>(() =>
+  ((currentSession.value?.participants ?? []) as TrainingParticipant[]).filter(
+    (p) => !!p.user && scoredKeys.value.has(p.user),
+  ),
+)
+// Gate nút "Hoàn thành": phải chấm điểm ≥1 học viên trước khi hoàn thành buổi (BR-06-08).
+const hasAnyScore = computed(() => scoredParticipants.value.length > 0)
+
 async function doComplete() {
-  const participants = (currentSession.value?.participants ?? []) as TrainingParticipant[]
+  // Guard kép: nút đã disabled khi chưa chấm ai; chặn luôn ở handler (double-safety,
+  // tránh trigger qua phím/enter khi 0 điểm → BE cũng raise VALIDATION BR-06-08).
+  if (!hasAnyScore.value) return
+  // Chỉ gửi học viên ĐÃ được chấm → BE set overall_result đúng tập này (partial-scoring),
+  // scored_count đếm THỰC trong loop, không kéo theo học viên chưa chấm.
   const result = await api.run(
-    () => completeSession(props.name!, participants),
-    { successMessage: 'Đã hoàn thành buổi đào tạo' },
+    () => completeSession(props.name!, scoredParticipants.value),
+    // silentSuccess: dựng toast từ kết quả THỰC của BE (scored_count/competencies_created),
+    // KHÔNG dùng chuỗi tĩnh / số dòng local (anti success-giả). Reject-path (VALIDATION…)
+    // vẫn được api.run surface qua notify.fromError → không toast success, không điều hướng.
+    { silentSuccess: true },
   )
-  if (result) await store.fetchSession(props.name!)
+  if (result) {
+    const scored = typeof result.scored_count === 'number'
+      ? result.scored_count
+      : scoredParticipants.value.length
+    const certs = result.competencies_created?.length ?? 0
+    toast.success(
+      `Đã hoàn thành buổi đào tạo — đã chấm điểm ${scored} học viên, cấp ${certs} chứng nhận năng lực.`,
+    )
+    await store.fetchSession(props.name!)
+  }
 }
 
 async function doVerify() {
@@ -184,6 +231,8 @@ async function doCreate() {
 }
 
 async function load() {
+  // Reset dirty-tracking khi (re)load buổi khác → không kéo cờ "đã chấm" phiên trước.
+  scoredKeys.value = new Set()
   if (!isCreateMode.value) {
     await store.fetchSession(props.name!)
   }
@@ -240,8 +289,10 @@ onMounted(load)
         <button
           v-if="canComplete"
           data-testid="cta-complete"
-          class="btn-primary text-sm"
-          :disabled="api.loading.value"
+          class="btn-primary text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+          :disabled="api.loading.value || !hasAnyScore"
+          :title="!hasAnyScore ? 'Chưa chấm điểm học viên nào' : undefined"
+          :aria-describedby="!hasAnyScore ? 'complete-score-hint' : undefined"
           @click="doComplete"
         >
           {{ api.loading.value ? 'Đang lưu…' : 'Hoàn thành' }}
@@ -289,6 +340,23 @@ onMounted(load)
       <div>
         <p class="font-medium">Bạn không có quyền thực hiện hành động trên buổi đào tạo này.</p>
         <p class="text-xs mt-0.5">Liên hệ quản trị để cấp vai trò Training User (giảng dạy) hoặc Training Manager (duyệt/đóng).</p>
+      </div>
+    </div>
+
+    <!-- BR-06-08: buổi đang diễn ra + có quyền hoàn thành nhưng chưa chấm điểm ai -->
+    <div
+      v-if="!isCreateMode && canComplete && !hasAnyScore"
+      id="complete-score-hint"
+      data-testid="complete-score-hint"
+      role="status"
+      class="card p-4 bg-slate-50 border-slate-200 text-sm text-slate-600 flex items-start gap-3"
+    >
+      <svg class="w-5 h-5 shrink-0 text-slate-400 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 100 20 10 10 0 000-20z" />
+      </svg>
+      <div>
+        <p class="font-medium text-slate-700">Chưa chấm điểm học viên nào.</p>
+        <p class="text-xs mt-0.5">Nhập điểm lý thuyết hoặc thực hành cho ít nhất một học viên trước khi hoàn thành buổi học.</p>
       </div>
     </div>
 
@@ -346,10 +414,16 @@ onMounted(load)
 
     <div v-else-if="loading" class="card p-8 text-center text-slate-400">Đang tải…</div>
 
-    <div v-else-if="error" class="card border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700 flex items-center gap-3">
-      <span class="flex-1">{{ error }}</span>
-      <button class="text-sm underline" @click="load()">Thử lại</button>
-    </div>
+    <DetailLoadError
+      v-else-if="loadFailed"
+      :kind="loadFailed"
+      entity-label="buổi đào tạo"
+      :record-id="props.name"
+      :message="error ?? ''"
+      back-label="Về danh sách buổi đào tạo"
+      @retry="load()"
+      @back="router.push('/imm06/sessions')"
+    />
 
     <template v-else-if="currentSession">
       <!-- Session Info -->
@@ -477,11 +551,11 @@ onMounted(load)
                   <span v-else>{{ p.attendance_pct ?? '—' }}</span>
                 </td>
                 <td class="table-cell text-right">
-                  <input v-if="isScoring" v-model.number="p.theory_score" type="number" min="0" max="100" class="form-input w-20 text-right text-sm" />
+                  <input v-if="isScoring" v-model.number="p.theory_score" :data-testid="`theory-score-${p.user}`" @input="markScored(p)" type="number" min="0" max="100" class="form-input w-20 text-right text-sm" />
                   <span v-else>{{ p.theory_score ?? '—' }}</span>
                 </td>
                 <td class="table-cell text-right">
-                  <input v-if="isScoring" v-model.number="p.practical_score" type="number" min="0" max="100" class="form-input w-20 text-right text-sm" />
+                  <input v-if="isScoring" v-model.number="p.practical_score" :data-testid="`practical-score-${p.user}`" @input="markScored(p)" type="number" min="0" max="100" class="form-input w-20 text-right text-sm" />
                   <span v-else>{{ p.practical_score ?? '—' }}</span>
                 </td>
                 <td class="table-cell">
@@ -508,7 +582,6 @@ onMounted(load)
       </div>
     </template>
 
-    <div v-else class="card p-8 text-center text-slate-400">Không tìm thấy buổi đào tạo.</div>
 
     <!-- Cancel Modal -->
     <div v-if="showCancelModal" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">

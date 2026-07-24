@@ -235,11 +235,30 @@ export async function startSession(
   return frappePost<{ name: string; workflow_state: string }>(`${BASE}.start_session`, { name })
 }
 
+/**
+ * Kết quả hoàn thành buổi đào tạo (BR-06-08 — chống nghiệm-thu-giả).
+ *
+ * BE `complete_training_session` đếm THỰC trong loop, KHÔNG `len(results)`:
+ * - `scored_count`: số học viên THỰC được set overall_result (≥1 bắt buộc, nếu 0 → BE raise VALIDATION).
+ * - `competencies_created`: tên IMM User Competency THỰC persist (mỗi học viên Đạt sinh đúng 1).
+ * FE dùng 2 giá trị này cho toast thành công — KHÔNG đếm số dòng local (anti success-giả).
+ */
+export interface CompleteSessionResult {
+  name: string
+  workflow_state: string
+  scored_count: number
+  competencies_created: string[]
+  /** Lenient mode (nếu BA đổi): user gửi lên nhưng KHÔNG thuộc buổi — không tính điểm. */
+  unmatched_users?: string[]
+  /** Legacy shape — một số nhánh BE trả participants_summary thay vì scored_count. */
+  participants_summary?: Record<string, unknown>
+}
+
 export async function completeSession(
   name: string,
   participantsResults: TrainingParticipant[],
-): Promise<{ name: string; participants_summary: Record<string, unknown>; competencies_created: string[] }> {
-  return frappePost<{ name: string; participants_summary: Record<string, unknown>; competencies_created: string[] }>(
+): Promise<CompleteSessionResult> {
+  return frappePost<CompleteSessionResult>(
     `${BASE}.complete_session`,
     { name, participants_results: JSON.stringify(participantsResults) },
   )
