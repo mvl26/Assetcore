@@ -183,14 +183,26 @@ export function getIncident(name: string) {
  *  - success:true → { file_url, file_name } của File private vừa sinh.
  *  - success:false → throw ApiError giữ `code` (FORBIDDEN/VALIDATION) + `fields.file`
  *    (thông điệp VN, vd 'Tối đa 5 ảnh') để view render lỗi inline dưới control.
+ *
+ * IDEMPOTENCY-PHOTO-CR24 (B-rel-3, parity report_incident): `clientRequestId` là
+ * key idempotency do client sinh (field body `client_request_id`, khớp signature BE
+ * attach_incident_photo). Cùng key + cùng incident + cùng session → BE dedupe: trả
+ * File ĐÃ đính (name/file_url khớp lần 1), KHÔNG insert mới — đóng cửa sổ
+ * attachment-dup khi retry sau lỗi mạng. Rỗng/absent → behavior at-least-once cũ
+ * (mỗi lần gọi tạo File mới). Call-site sinh key 1 lần per-file (crypto.randomUUID)
+ * và GIỮ NGUYÊN key khi retry cùng file.
  */
 export async function attachIncidentPhoto(
   incidentName: string,
   file: File,
+  clientRequestId = '',
 ): Promise<ScenePhoto> {
   const form = new FormData()
   form.append('incident_name', incidentName)
   form.append('file', file, file.name)
+  // AC3 backward-compat: chỉ gửi field khi có key — rỗng thì FormData KHÔNG có
+  // field client_request_id (BE giữ nguyên nhánh at-least-once cũ).
+  if (clientRequestId) form.append('client_request_id', clientRequestId)
   // axios v1 tự set Content-Type multipart + boundary khi data là FormData; khai báo
   // 'multipart/form-data' để override default 'application/json' của instance.
   const res = await axiosClient.post<{ message: ApiResponse<ScenePhoto> & Record<string, unknown> }>(

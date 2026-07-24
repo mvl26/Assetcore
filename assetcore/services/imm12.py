@@ -32,6 +32,7 @@ from PIL import UnidentifiedImageError
 from assetcore.repositories.repair_repo import IncidentRepo, RCARepo
 from assetcore.services import imm00 as svc00
 from assetcore.services.shared import ServiceError, ErrorCode, rbac
+from assetcore.utils.idempotency import resolve_idempotency_key
 from assetcore.utils.notify import nthrow, nthrow_in_hook
 from assetcore.utils.messages import MSG
 
@@ -248,6 +249,53 @@ _VALID_TRANSITIONS: dict[str, list[str]] = {
     # surface CTA request_rca là backlog).
     _STATUS_RESOLVED: [_STATUS_CLOSED, _RCA_REQUIRED, _STATUS_INVESTIGATING],
 }
+
+# ─── SSoT: Incident write-path capabilities (DÙNG CHUNG api ↔ service builder) ───
+# 1 NGUỒN hằng số cho CẢ api/imm12.py (gate endpoint ghi _can_investigate/_can_close)
+# LẪN _build_incident_available_actions (has_cap của 6 CTA). api/imm12.py IMPORT từ
+# ĐÂY — KHÔNG copy literal cap thứ 2 (drift cap = "gate nói dối"). R16: cap THẬT
+# (DocPerm Incident Report), KHÔNG role-name bịa:
+#   incident.acknowledge → ("Incident Report","write")  = triage/work/resolve/cancel
+#   incident.close       → ("Incident Report","submit") = close/reopen
+_CAP_INVESTIGATE = "incident.acknowledge"
+_CAP_CLOSE = "incident.close"
+
+# ─── SSoT: 6 CTA vòng đời phiếu (available_actions server-driven — CR-39) ─────────
+# Mirror imm00._build_available_actions(:762). Thứ tự CỐ ĐỊNH = thứ tự render FE
+# (IncidentDetailView). Mỗi spec: {key, label(VI = nhãn nút FE), target(status đích),
+# from(tuple status nguồn hợp lệ), cap}. `from` KHỬ VA CHẠM start_work↔reopen (cùng
+# đích 'In Progress'): _VALID_TRANSITIONS[status] cho biết đích hợp lệ nhưng KHÔNG
+# phân biệt CTA nào (Acknowledged→In Progress = start_work; Resolved→In Progress =
+# reopen). Khớp disambiguation FE incidentDetailCtaGating.test.ts. cap ánh xạ ĐÚNG
+# predicate endpoint ghi: 'investigate'=_CAP_INVESTIGATE (ack/start/resolve/cancel),
+# 'close'=_CAP_CLOSE (close/reopen) — KHÔNG hardcode literal cap khác.
+_CTA_INVESTIGATE = "investigate"
+_CTA_CLOSE = "close"
+_INCIDENT_ACTION_SPECS: tuple[dict, ...] = (
+    {"key": "acknowledge", "label": "Tiếp nhận", "target": _STATUS_ACKNOWLEDGED,
+     "from": (_STATUS_OPEN,), "cap": _CTA_INVESTIGATE},
+    {"key": "start_work", "label": "Bắt đầu xử lý", "target": _STATUS_INVESTIGATING,
+     "from": (_STATUS_ACKNOWLEDGED,), "cap": _CTA_INVESTIGATE},
+    {"key": "resolve", "label": "Đánh dấu đã giải quyết", "target": _STATUS_RESOLVED,
+     "from": (_STATUS_INVESTIGATING,), "cap": _CTA_INVESTIGATE},
+    {"key": "close", "label": "Đóng sự cố", "target": _STATUS_CLOSED,
+     "from": (_STATUS_RESOLVED,), "cap": _CTA_CLOSE},
+    {"key": "reopen", "label": "Mở lại điều tra", "target": _STATUS_INVESTIGATING,
+     "from": (_STATUS_RESOLVED,), "cap": _CTA_CLOSE},
+    {"key": "cancel", "label": "Hủy (báo nhầm)", "target": _STATUS_CANCELLED,
+     "from": (_STATUS_OPEN, _STATUS_ACKNOWLEDGED, _STATUS_INVESTIGATING),
+     "cap": _CTA_INVESTIGATE},
+)
+
+# Reason VI (CHỈ khi enabled=False) — 3 bậc ưu tiên transition > capability >
+# business-gate (D9, parity imm00 no-EN-leak). Bậc transition phủ luôn nhánh status
+# rỗng/lạ (transition_allowed=False cho MỌI CTA vì target ∉ []) ⇒ enabled False LUÔN
+# có reason (bất biến D9).
+_ACTION_REASON_TRANSITION = (
+    "Không thể thực hiện thao tác này ở trạng thái hiện tại của phiếu")
+_ACTION_REASON_CAPABILITY = "Bạn không có quyền thực hiện thao tác này"
+_ACTION_REASON_RCA_GATE = (
+    "Cần hoàn thành phân tích nguyên nhân gốc (RCA) trước khi đóng phiếu sự cố")
 
 _CHRONIC_WINDOW_DAYS = 90
 _CHRONIC_MIN_COUNT = 3
@@ -489,15 +537,22 @@ def report_incident(
     `incident_reported` (trục §10) + provenance `source` (qr-scan|manual) trong
     notes(lifecycle)/change_summary(audit). source lạ → coerce 'manual'.
 
-    CR-24 (ADR-MOBILE idempotency): `client_request_id` = khoá idempotency do client
-    (mobile write-outbox) sinh — đóng cửa sổ re-drain tạo phiếu TRÙNG (NĐ98
-    audit-integrity). Truthy → dedupe TRƯỚC khối tạo: tồn tại thì return phiếu cũ
-    (shape create-response) KHÔNG insert/lifecycle/audit lần 2. Rỗng → hành vi cũ
-    nguyên vẹn (mỗi call = 1 phiếu, 100% backward-compat). Insert bọc try/except
-    UniqueValidationError (race concurrent re-drain) → re-read → return existing.
+    CR-24 (ADR-MOBILE idempotency): khoá idempotency đóng cửa sổ re-drain tạo phiếu TRÙNG
+    (NĐ98 audit-integrity). Nguồn khoá resolve qua shared `resolve_idempotency_key`
+    (HANDOFF §2.1 header-parity): body param `client_request_id` non-empty THẮNG header
+    `X-Idempotency-Key` / alias `Idempotency-Key` (parity imm09/imm00/imm11); cả hai vắng
+    ⇒ "" ⇒ NO-OP dedup (mỗi call = 1 phiếu, legacy web-desk/client-cũ 100% backward-compat).
+    Khoá ĐÃ RESOLVE (không phải raw body) là cái dùng để lookup + PERSIST vào
+    Incident.client_request_id ⇒ header-only re-drain khớp đúng row cũ. Truthy → dedupe
+    TRƯỚC khối tạo: tồn tại thì return phiếu cũ (shape create-response) KHÔNG
+    insert/lifecycle/audit lần 2. Insert bọc try/except UniqueValidationError (race
+    concurrent re-drain) → re-read theo khoá resolve → return existing.
     """
+    # CR-24 (HANDOFF §2.1): resolve khoá — body param THẮNG header X-Idempotency-Key/
+    # Idempotency-Key; cả hai vắng ⇒ "" ⇒ NO-OP dedup (legacy y nguyên).
+    resolved_key = resolve_idempotency_key(client_request_id)
     # CR-24: dedupe idempotent — khoá đã tạo phiếu thì trả phiếu cũ, KHÔNG tạo mới.
-    existing = _dedupe_lookup(client_request_id)
+    existing = _dedupe_lookup(resolved_key)
     if existing:
         return existing
 
@@ -539,10 +594,11 @@ def report_incident(
     if linked_repair_wo:
         doc.linked_repair_wo = linked_repair_wo
     doc.rca_required = 1 if _needs_rca(severity) else 0
-    # CR-24: persist idempotency key (only khi truthy → NULL cho phiếu không khoá;
-    # MariaDB unique index cho phép nhiều NULL → backward-compat nguyên vẹn).
-    if client_request_id:
-        doc.client_request_id = client_request_id
+    # CR-24: persist khoá ĐÃ RESOLVE (không raw body — header-only re-drain phải khớp
+    # đúng row cũ). Only khi truthy → NULL cho phiếu không khoá; MariaDB unique index cho
+    # phép nhiều NULL → backward-compat nguyên vẹn.
+    if resolved_key:
+        doc.client_request_id = resolved_key
     # BR-12-08: SLA due-times từ IMM SLA Policy (sau khi reported_at đã set).
     _apply_sla_policy(doc)
     doc.flags.ignore_permissions = True
@@ -554,7 +610,7 @@ def report_incident(
         # "must be unique" thừa, re-read winner rồi return idempotent — KHÔNG tạo phiếu
         # trùng, KHÔNG emit lifecycle/audit lần 2.
         frappe.clear_last_message()
-        winner = _dedupe_lookup(client_request_id)
+        winner = _dedupe_lookup(resolved_key)
         if winner:
             return winner
         raise
@@ -702,13 +758,20 @@ def resolve_incident(name: str, resolution_notes: str, root_cause: str = "") -> 
 
 def close_incident(name: str, verification_notes: str = "") -> dict:
     """Resolved → Closed.
-    BR-12-02: Major/Critical → phải có RCA Completed trước khi Close.
+
+    BR-12-02 (non-waivable): High/Critical → phải có RCA Completed trước khi
+    Close. Gate enforce theo LIVE `_needs_rca(doc.severity)` (SSoT = severity),
+    KHÔNG phụ thuộc cờ STORED `rca_required` — cờ có thể stale sau escalation
+    Medium→Critical. rca_required nay = derived(severity) re-sync mọi save (xem
+    IncidentReport._resync_rca_required); gate đọc severity trực tiếp để bất biến
+    kể cả trên hàng chưa re-save. Ref: memory server-flag-SSoT / derive-live.
     """
     doc = _get_incident(name)
     _assert_transition(doc, _STATUS_CLOSED)
 
-    # BR-12-02
-    if _needs_rca(doc.severity) and doc.rca_required:
+    # BR-12-02: enforce theo LIVE severity (không AND cờ stored rca_required —
+    # escalation Medium→Critical với cờ stale=0 sẽ lọt ⇒ đóng-giả).
+    if _needs_rca(doc.severity):
         rca_name = frappe.db.get_value(_DT_INCIDENT, name, "rca_record")
         if rca_name:
             rca_status = frappe.db.get_value(_DT_RCA, rca_name, "status")
@@ -782,6 +845,21 @@ def reopen_incident(name: str, reason: str) -> dict:
     return {"name": name, "status": doc.status}
 
 
+def _has_live_rca(doc: "frappe.Document") -> bool:
+    """CR-55: True nếu Incident đang trỏ hồ sơ RCA CÒN SỐNG (tồn tại ∧ status != Cancelled).
+
+    Vị từ DÙNG CHUNG cho create_rca (guard IMM12_RCA_ALREADY_EXISTS) và request_rca
+    (idempotent reuse) — 2 call-site KHÔNG lệch vị từ (chống drift). Hồ sơ RCA đã
+    Cancelled KHÔNG chặn tạo mới ⇒ gỡ deadlock phiếu High/Critical bị khoá vĩnh viễn
+    khi hồ sơ RCA duy nhất bị huỷ. frappe.db.get_value trả None khi rca_record trỏ hồ
+    sơ đã xoá (orphan FK) ⇒ coi như không có RCA sống (LL-BE-18 null-guard dangling FK).
+    """
+    if not doc.rca_record:
+        return False
+    status = frappe.db.get_value(_DT_RCA, doc.rca_record, "status")
+    return status is not None and status != _RCA_CANCELLED
+
+
 def request_rca(name: str, rca_reason: str) -> dict:
     """"Yêu cầu phân tích RCA": Resolved → RCA Required (BR-12-24, CR-WF-12-RCA-ENTRY).
 
@@ -795,8 +873,10 @@ def request_rca(name: str, rca_reason: str) -> dict:
     IMM12_REQUEST_RCA_BAD_STATE (422 MỚI, KHÔNG `_assert_transition`/IMM12_BAD_STATE=409),
     KHÔNG đổi status. `rca_reason` blank → IMM12_RCA_REASON_REQUIRED (422).
 
-    RCA idempotent reuse: chỉ `create_rca` khi CHƯA có rca_record hợp lệ (GUARD trước —
-    `create_rca` raise 409 nếu đã có ⇒ KHÔNG tạo trùng). Transition qua
+    RCA idempotent reuse (CR-55): chỉ `create_rca` khi CHƯA có rca_record CÒN SỐNG
+    (`_has_live_rca` — tồn tại ∧ status != Cancelled). rca_record trỏ hồ sơ đã Cancelled
+    ⇒ tạo hồ sơ RCA MỚI (KHÔNG tái dùng hồ sơ huỷ); RCA còn sống ⇒ `create_rca` raise
+    409 (KHÔNG tạo trùng). CÙNG vị từ `_has_live_rca` với create_rca (chống drift). Transition qua
     `apply_workflow("Yêu cầu RCA")` (giữ Frappe workflow consistency, mirror
     `_advance_incident_after_rca`, KHÔNG `db.set_value` cho state) + sync `status`
     Select. Fallback `db.set_value({workflow_state, status})` khi apply_workflow từ chối
@@ -812,8 +892,11 @@ def request_rca(name: str, rca_reason: str) -> dict:
     if not (rca_reason or "").strip():
         nthrow(MSG.IMM12_RCA_REASON_REQUIRED)
 
-    # Idempotent: chỉ tạo khi CHƯA có rca_record hợp lệ (create_rca guard 409 trước).
-    if not (doc.rca_record and frappe.db.exists(_DT_RCA, doc.rca_record)):
+    # Idempotent (CR-55): chỉ tạo khi CHƯA có rca_record CÒN SỐNG. rca_record trỏ hồ sơ
+    # đã Cancelled ⇒ _has_live_rca=False ⇒ create_rca tạo hồ sơ MỚI (KHÔNG tái dùng hồ
+    # sơ huỷ); create_rca guard 409 CHỈ khi RCA còn sống (CÙNG vị từ _has_live_rca —
+    # chống drift 2 call-site).
+    if not _has_live_rca(doc):
         create_rca(name)
     rca_record = frappe.db.get_value(_DT_INCIDENT, name, "rca_record")
 
@@ -848,9 +931,16 @@ def request_rca(name: str, rca_reason: str) -> dict:
 # ─── RCA orchestration ────────────────────────────────────────────────────────
 
 def create_rca(incident_name: str, rca_method: str = "5-Why") -> dict:
-    """Tạo RCA Record liên kết Incident. Idempotent — raise 409 nếu đã có."""
+    """Tạo RCA Record liên kết Incident. Idempotent — raise 409 nếu đã có RCA CÒN SỐNG.
+
+    CR-55: nếu rca_record cũ = Cancelled (hoặc orphan) → BỎ QUA guard, tạo hồ sơ MỚI
+    (gỡ deadlock phiếu High/Critical bị khoá vĩnh viễn). Hồ sơ cũ GIỮ NGUYÊN
+    status=Cancelled làm vết audit NĐ98 (KHÔNG mutate/xoá). set_value(rca_record) cuối
+    hàm tự cập nhật Incident sang tên mới. Vị từ _has_live_rca dùng chung với
+    request_rca (chống drift).
+    """
     doc = _get_incident(incident_name)
-    if doc.rca_record and frappe.db.exists(_DT_RCA, doc.rca_record):
+    if _has_live_rca(doc):
         nthrow(MSG.IMM12_RCA_ALREADY_EXISTS, rca=doc.rca_record)
 
     trigger = "Critical Incident" if doc.severity == _SEV_CRITICAL else "Major Incident"
@@ -1149,26 +1239,48 @@ def attach_incident_photo(
     filedata: bytes | None = None,
     filename: str = "",
     content_type: str = "",
+    client_request_id: str = "",
 ) -> dict:
     """BR-12-17/18 (mobile CR-17/G6): đính ảnh bằng chứng hiện trường (NĐ98).
 
     Thứ tự BẮT BUỘC (mọi nhánh reject TRƯỚC `File.insert`): exists(incident) →
-    permission (reporter/write) → file present → content-type → size → max-count →
-    `File.insert(is_private=1)` → lifecycle event `incident_photo_attached` (hard-req,
-    KHÔNG swallow) → `commit`. Nếu event throw → File.insert rollback (chưa commit)
-    ⇒ không orphan, không silent (khác `incident_reported` best-effort).
+    permission (reporter/write) → **dedupe pre-check (BR-12-26)** → file present →
+    content-type → size → max-count → `File.insert(is_private=1)` → lifecycle event
+    `incident_photo_attached` (hard-req, KHÔNG swallow) → `commit`. Nếu event throw
+    → File.insert rollback (chưa commit) ⇒ không orphan, không silent (khác
+    `incident_reported` best-effort).
+
+    BR-12-26 (CR-24 phần dư · B-rel-3 / ADR-IMM12-10): `client_request_id` non-empty
+    → dedupe 2 lớp theo composite scoped key `f"{incident}::{key}"` trên Custom Field
+    `File.ac_client_request_id` (unique NULL-store): lớp-1 pre-check SAU permission
+    (chống probe key leak file_url) / TRƯỚC validation (replay ảnh đã đính phải trả
+    success kể cả khi phiếu đã đủ 5 ảnh) — trúng ⇒ early-return `{file_url,file_name}`
+    File ĐÃ đính, 0 insert / 0 event lần 2; lớp-2 race-handler `UniqueValidationError`
+    → re-read winner (kẻ thua raise TRƯỚC emit ⇒ 0 event trùng). Rỗng/thiếu → mỗi
+    call 1 File mới (at-least-once CŨ, field NULL). Cùng key KHÁC incident → composite
+    KHÁC → KHÔNG dedupe chéo.
 
     Args:
         incident_name: Incident Report đang mở.
         filedata: bytes ảnh (API đọc `frappe.request.files["file"].stream.read()`).
         filename: tên tệp gốc (dùng cho File.file_name + lọc đuôi ảnh).
         content_type: MIME type client gửi (validate jpg/png).
+        client_request_id: idempotency key per-ảnh (mobile write-outbox re-drain);
+            rỗng → behavior at-least-once cũ nguyên vẹn.
 
     Returns: `{"file_url", "file_name"}`.
     Raises: ServiceError NOT_FOUND | FORBIDDEN | VALIDATION (Decision-B qua API tier).
     """
     incident = _get_incident(incident_name)               # NOT_FOUND nếu thiếu
     _assert_can_attach_photo(incident)                    # FORBIDDEN nếu ngoài quyền
+    # BR-12-26 lớp-1: dedupe pre-check — SAU permission / TRƯỚC validation ladder.
+    scoped_key = f"{incident_name}::{client_request_id}" if client_request_id else ""
+    if scoped_key:
+        existing = frappe.db.get_value(
+            _DT_FILE, {"ac_client_request_id": scoped_key},
+            ["file_url", "file_name"], as_dict=True)
+        if existing:
+            return {"file_url": existing.file_url, "file_name": existing.file_name}
     if not filedata:
         raise _photo_validation_error(_MSG_PHOTO_MISSING)
     ct = (content_type or "").split(";")[0].strip().lower()
@@ -1179,16 +1291,33 @@ def attach_incident_photo(
     if len(_scene_photos(incident_name)) >= MAX_INCIDENT_PHOTOS:
         raise _photo_validation_error(_MSG_PHOTO_MAX)
 
+    file_payload = {
+        "doctype": _DT_FILE,
+        "file_name": filename,
+        "attached_to_doctype": _DT_INCIDENT,
+        "attached_to_name": incident_name,
+        "is_private": 1,
+        "content": filedata,
+        "decode": False,
+    }
+    # BR-12-26: persist scoped key CHỈ khi truthy (NULL-store — File thường lưu NULL,
+    # MariaDB unique index cho phép nhiều NULL ⇒ backward-compat nguyên vẹn).
+    if scoped_key:
+        file_payload["ac_client_request_id"] = scoped_key
     try:
-        file_doc = frappe.get_doc({
-            "doctype": _DT_FILE,
-            "file_name": filename,
-            "attached_to_doctype": _DT_INCIDENT,
-            "attached_to_name": incident_name,
-            "is_private": 1,
-            "content": filedata,
-            "decode": False,
-        }).insert(ignore_permissions=True)
+        file_doc = frappe.get_doc(file_payload).insert(ignore_permissions=True)
+    except frappe.UniqueValidationError:
+        # BR-12-26 lớp-2 race: request re-drain concurrent đã insert CÙNG scoped_key
+        # giữa pre-check và insert này (unique index tabFile chặn kẻ thua). Kẻ thua
+        # raise TRƯỚC create_lifecycle_event ⇒ 0 event trùng. Dọn msgprint "must be
+        # unique" thừa, re-read winner rồi return idempotent (parity report_incident).
+        frappe.clear_last_message()
+        winner = frappe.db.get_value(
+            _DT_FILE, {"ac_client_request_id": scoped_key},
+            ["file_url", "file_name"], as_dict=True)
+        if winner:
+            return {"file_url": winner.file_url, "file_name": winner.file_name}
+        raise
     except (UnidentifiedImageError, OSError) as exc:
         # ẢNH HỎNG/ĐỨT TRUYỀN: bytes không giải mã được dù content-type hợp lệ. Frappe
         # File.before_insert → strip_exif → PIL.Image.open ném UnidentifiedImageError
@@ -1216,6 +1345,59 @@ def attach_incident_photo(
     return {"file_url": file_doc.file_url, "file_name": file_doc.file_name}
 
 
+def _build_incident_available_actions(doc, rca_status: str) -> list[dict]:
+    """Derive available_actions (CR-39) = transition_allowed ∩ has_cap ∩ business_gate.
+
+    Mirror imm00._build_available_actions(:762). Lặp SSoT ``_INCIDENT_ACTION_SPECS``
+    (6 CTA, thứ tự cố định = thứ tự render FE). Mỗi CTA:
+      - ``transition_allowed`` = ``spec['target'] ∈ _VALID_TRANSITIONS[doc.status]``
+        ∧ ``doc.status ∈ spec['from']`` (``from`` khử va chạm start_work↔reopen cùng
+        đích 'In Progress' — target-membership đơn thuần KHÔNG phân biệt được: cả 2
+        đều nhận 'In Progress' làm đích hợp lệ tại Acknowledged/Resolved).
+      - ``has_cap`` = ``rbac.can(cap)`` qua ĐÚNG cap-SSoT endpoint ghi
+        (``_CAP_INVESTIGATE`` cho ack/start/resolve/cancel, ``_CAP_CLOSE`` cho
+        close/reopen) — KHÔNG hardcode literal cap khác (drift = gate nói dối).
+      - ``business_gate``: CHỈ 'close' áp BR-12-02 — ``_needs_rca(doc.severity)`` ⇒
+        ``rca_status`` phải ``Completed`` (rỗng/chưa Completed → chặn). CTA khác True.
+      - ``enabled`` = 3 điều kiện.
+      - ``reason`` (CHỈ khi disabled): 3 bậc ưu tiên transition > capability >
+        business-gate. Bậc transition phủ luôn status rỗng/lạ (target ∉ []).
+    BẤT BIẾN ĐO ĐƯỢC (D9, parity imm00): ``enabled is False ⟹ reason != ""`` với MỌI
+    status (kể cả '' và mã LẠ); ``enabled is True ⟹ reason == ""``. Shape phần tử =
+    AvailableAction ``{key, label, route, enabled, reason}`` với ``route=""`` (CTA
+    nằm TRONG màn Chi tiết, KHÔNG deep-link). READ-ONLY (chỉ rbac.can + đọc
+    status/severity — KHÔNG I/O ghi).
+    """
+    status = doc.status or ""
+    valid_targets = _VALID_TRANSITIONS.get(status, [])
+    needs_rca = _needs_rca(doc.severity)
+    actions: list[dict] = []
+    for spec in _INCIDENT_ACTION_SPECS:
+        transition_ok = spec["target"] in valid_targets and status in spec["from"]
+        cap = _CAP_INVESTIGATE if spec["cap"] == _CTA_INVESTIGATE else _CAP_CLOSE
+        has_cap = rbac.can(cap)
+        business_ok = True
+        if spec["key"] == "close" and needs_rca:
+            business_ok = rca_status == _RCA_COMPLETED
+        enabled = bool(transition_ok and has_cap and business_ok)
+        if enabled:
+            reason = ""
+        elif not transition_ok:
+            reason = _ACTION_REASON_TRANSITION
+        elif not has_cap:
+            reason = _ACTION_REASON_CAPABILITY
+        else:  # business-gate chặn (chỉ 'close')
+            reason = _ACTION_REASON_RCA_GATE
+        actions.append({
+            "key": spec["key"],
+            "label": spec["label"],
+            "route": "",
+            "enabled": enabled,
+            "reason": reason,
+        })
+    return actions
+
+
 def get_incident_detail(name: str) -> dict:
     """Chi tiết 1 Incident Report (màn Chi tiết web + mobile).
 
@@ -1228,20 +1410,52 @@ def get_incident_detail(name: str) -> dict:
       (Closed/Cancelled/Resolved) chỉ breach qua nhánh cờ=1 (INV-SLA-6, KHÔNG
       live-overdue dù due đã quá hạn).
     - `asset_name`, `allowed_transitions`, `rca` (nếu có `rca_record`), `scene_photos`.
+    - CR-40 (additive/optional — REUSE khuôn user-enrich list_incidents, migrate-free):
+      * `reporter_name` = `User.full_name` của `reported_by` (fallback raw id khi thiếu
+        full_name) — chỉ có mặt khi `reported_by` set; KHÔNG rò email thô (U7/UI-FIX-05).
+      * `assigned_to_name` = `full_name` của `assigned_to` (fallback raw id) — chỉ có mặt
+        khi `assigned_to` set.
+      * `asset_lifecycle_status` = `AC Asset.lifecycle_status` của `doc.asset` (SONG SONG
+        `asset_name`); '' khi phiếu KHÔNG gắn asset. KTV rút máy khỏi vận hành thấy trạng
+        thái thiết bị LIVE (U1 / BR-12-04: acknowledge High/Critical → Out of Service).
     """
     doc = _get_incident(name)
     data = doc.as_dict()
     if doc.asset:
         data["asset_name"] = frappe.db.get_value(_DT_ASSET, doc.asset, "asset_name")
+        # CR-40: trạng thái vòng đời thiết bị (SONG SONG asset_name) — KTV rút máy khỏi
+        # vận hành THẤY trạng thái LIVE (U1 🔴 / BR-12-04: acknowledge High/Critical đẩy
+        # asset → Out of Service). READ-ONLY, additive/optional.
+        data["asset_lifecycle_status"] = frappe.db.get_value(
+            _DT_ASSET, doc.asset, "lifecycle_status")
+    else:
+        data["asset_lifecycle_status"] = ""
     data["allowed_transitions"] = _VALID_TRANSITIONS.get(doc.status, [])
     # BR-12-09 LIVE (INV-SLA-5): badge màn Chi tiết đọc is_*_breached (derived) thay cờ
     # thô → khớp danh sách/dashboard (CÙNG SoT _enrich_sla_breach, KHÔNG re-implement
     # predicate). Terminal chỉ breach qua nhánh cờ=1 (INV-SLA-6). Surface đúng 2 field
     # mobile cần (không rò field web-only khác).
     _enrich_sla_breach([data])
+    # CR-40: bồi tên hiển thị người báo/người xử lý (U7 / UI-FIX-05: chấm dứt rò email
+    # thô trên màn Chi tiết sự cố). REUSE nguyên khuôn user-enrich list_incidents
+    # (_enrich_asset_names:444-461) — 1 get_all User cho {reported_by, assigned_to},
+    # fallback raw id KHI thiếu full_name (KHÔNG rò rỗng). Chỉ set khi field nguồn có
+    # giá trị ⇒ additive/optional (consumer cũ bất biến; key vắng khi field trống).
+    user_ids = {u for u in (doc.reported_by, doc.assigned_to) if u}
+    if user_ids:
+        user_map = {u.name: u.full_name for u in frappe.get_all(
+            "User", filters={"name": ["in", list(user_ids)]},
+            fields=["name", "full_name"],
+        )}
+        if doc.reported_by:
+            data["reporter_name"] = user_map.get(doc.reported_by) or doc.reported_by
+        if doc.assigned_to:
+            data["assigned_to_name"] = user_map.get(doc.assigned_to) or doc.assigned_to
+    rca_status = ""
     if doc.rca_record:
         rca = RCARepo.get(doc.rca_record)
         if rca:
+            rca_status = rca.status or ""
             data["rca"] = {
                 "name": rca.name,
                 "status": rca.status,
@@ -1249,6 +1463,12 @@ def get_incident_detail(name: str) -> dict:
                 "due_date": str(rca.due_date) if rca.due_date else None,
                 "trigger_type": rca.trigger_type,
             }
+    # CR-39: 6 CTA vòng đời server-driven (available_actions[]) — thay predicate-mirror
+    # client-side (FE gate nút theo enabled/reason, KHÔNG tự chế nút ⇒ khử "403 sau khi
+    # bấm"). rca_status = trạng thái RCA hiện tại (đã tính ở block trên cho gate
+    # BR-12-02 close). SSoT _build_incident_available_actions. READ-ONLY (KHÔNG
+    # audit/lifecycle/modify doc).
+    data["available_actions"] = _build_incident_available_actions(doc, rca_status)
     # BR-12-18: parity chi tiết mobile+web — liệt kê ảnh bằng chứng hiện trường
     # (derive read-time từ File, KHÔNG denormalize → không drift). [] khi chưa có.
     # CÙNG SoT _scene_photos với max-count của attach_incident_photo (count==rows).
@@ -1700,7 +1920,16 @@ def _advance_incident_after_rca(incident_name: str) -> bool:
 
 def validate_incident_close_gate(doc, method: str | None = None) -> None:
     """NEG-11: Hook 'Incident Report.validate' — chặn đóng High/Critical
-    khi chưa có RCA Completed.
+    khi chưa có RCA Completed (đường desk / apply_workflow / doc.save trực tiếp,
+    song song gate service close_incident:711 — CÙNG SSoT = LIVE severity).
+
+    BR-12-02 (non-waivable): High/Critical = RCA bắt buộc, KHÔNG waiver bằng cờ.
+    Gate chỉ đọc LIVE `severity` (SSoT). ĐÃ BỎ nhánh bypass theo `rca_required`
+    (read_only mirror-của-severity, KHÔNG phải lever admin) — bypass cũ khiến
+    escalation Medium→Critical với cờ stale=0 đóng-giả qua desk path. INV:
+    rca_required = derived(severity) re-sync mọi save
+    (IncidentReport._resync_rca_required) chạy TRƯỚC hook này trong chuỗi validate.
+    Ref: memory server-flag-SSoT / derive-live.
 
     Áp dụng khi workflow_state hoặc status đang chuyển sang Closed.
     """
@@ -1710,8 +1939,6 @@ def validate_incident_close_gate(doc, method: str | None = None) -> None:
     severity = doc.get("severity") or ""
     if severity not in _HIGH_SEVERITY:
         return
-    if not doc.get("requires_rca") and not doc.get("rca_required"):
-        return  # User đã thủ công gỡ requires_rca (admin override) — không chặn
     rca_name = doc.get("rca_record")
     if not rca_name:
         nthrow_in_hook(MSG.IMM12_CLOSE_RCA_REQUIRED, severity=severity)

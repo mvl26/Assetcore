@@ -6,7 +6,9 @@ from __future__ import annotations
 
 import json
 import time
+import types
 import unittest
+from unittest.mock import patch
 
 import frappe
 
@@ -22,13 +24,20 @@ from assetcore.services.imm12 import (
     get_incident_detail,
     list_rcas,
     get_rca,
+    create_rca,
     start_rca,
     submit_rca,
     cancel_rca,
     _RCA_VALID_TRANSITIONS,
     _VALID_TRANSITIONS,
+    _build_incident_available_actions,
+    _ACTION_REASON_TRANSITION,
+    _ACTION_REASON_CAPABILITY,
+    _ACTION_REASON_RCA_GATE,
 )
+from assetcore.services.shared import rbac
 from assetcore.services.shared import ServiceError, ErrorCode
+from assetcore.utils.messages import MSG
 from assetcore.tests._asset_cleanup import purge_asset
 
 
@@ -1023,6 +1032,139 @@ class TestIncidentDetailSlaLive(unittest.TestCase):
         # response cờ thô=0 + terminal → is_response_breached=0 (không live-overdue).
         self.assertEqual(detail.get("is_response_breached"), 0,
                          "terminal + response cờ=0 → is_response_breached=0")
+
+
+# ─── CR-40: get_incident_detail user/lifecycle enrich (U1/U7 UI-FIX-05) ─────────
+
+
+class TestGetIncidentDetailEnrich(unittest.TestCase):
+    """CR-40: get_incident_detail bồi 3 field enrich rẻ trên màn Chi tiết sự cố:
+    - reporter_name = User.full_name của reported_by (fallback raw id khi thiếu
+      full_name) ⇒ KHÔNG rò email thô khi full_name tồn tại (U7 / UI-FIX-05).
+    - assigned_to_name = full_name của assigned_to (fallback raw id).
+    - asset_lifecycle_status = AC Asset.lifecycle_status của doc.asset (song song
+      asset_name) ⇒ KTV rút máy khỏi vận hành THẤY trạng thái thiết bị (U1 🔴,
+      BR-12-04 acknowledge High/Critical → Out of Service).
+    Cả 3 additive/optional (REUSE khuôn user-enrich list_incidents _enrich_asset_names
+    :444-461 — 1 get_all User, KHÔNG re-implement predicate). Migrate-free.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.asset = _make_asset("-enrich")
+        cls._incidents: list[str] = []
+        cls._users: list[str] = []
+        cls.reporter = cls._make_user("_test_imm12_reporter", "Nguyễn Văn A")
+        cls.handler = cls._make_user("_test_imm12_handler", "Trần Thị B")
+        cls.nameless = cls._make_user("_test_imm12_nameless", "")
+
+    @classmethod
+    def _make_user(cls, local: str, full_name: str) -> str:
+        email = f"{local}_{_RUN_TAG}@assetcore.test"
+        if not frappe.db.exists("User", email):
+            frappe.get_doc({
+                "doctype": "User", "email": email,
+                "first_name": full_name or "x",
+                "send_welcome_email": 0, "enabled": 1,
+            }).insert(ignore_permissions=True)
+            cls._users.append(email)
+        # Ép full_name đúng kịch bản (rỗng = fallback raw id) — full_name auto-set từ
+        # first_name nên phải ghi đè trực tiếp DB.
+        frappe.db.set_value("User", email, "full_name", full_name, update_modified=False)
+        frappe.db.commit()
+        return email
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        for ir in cls._incidents:
+            try:
+                frappe.delete_doc("Incident Report", ir, force=True,
+                                  ignore_permissions=True, delete_permanently=True)
+            except Exception:
+                pass
+        for u in cls._users:
+            try:
+                frappe.delete_doc("User", u, force=True, ignore_permissions=True)
+            except Exception:
+                pass
+        purge_asset(cls.asset.name)
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+
+    def _make_incident(self, *, has_asset: bool = True, reported_by: str = "",
+                       assigned_to: str = "", lifecycle_status: str | None = None) -> str:
+        """Tạo incident rồi set reported_by/assigned_to/asset THẲNG DB (bypass workflow)."""
+        out = report_incident(
+            asset=self.asset.name, incident_type="Malfunction", severity="High",
+            description="_Test detail enrich",
+        )
+        name = out["name"]
+        self._incidents.append(name)
+        vals: dict = {
+            "reported_by": reported_by or None,
+            "assigned_to": assigned_to or None,
+            "asset": self.asset.name if has_asset else "",
+        }
+        frappe.db.set_value("Incident Report", name, vals, update_modified=False)
+        if lifecycle_status is not None:
+            frappe.db.set_value("AC Asset", self.asset.name, "lifecycle_status",
+                                lifecycle_status, update_modified=False)
+        frappe.db.commit()
+        return name
+
+    def test_reporter_name_uses_full_name_not_email(self):
+        """reported_by = user có full_name 'Nguyễn Văn A' → reporter_name == full_name,
+        KHÔNG == email thô (U7 / UI-FIX-05: chấm dứt rò email trên màn Chi tiết)."""
+        name = self._make_incident(reported_by=self.reporter)
+        detail = get_incident_detail(name)
+        self.assertEqual(detail.get("reporter_name"), "Nguyễn Văn A",
+                         "reporter_name PHẢI = User.full_name")
+        self.assertNotEqual(detail.get("reporter_name"), self.reporter,
+                            "reporter_name KHÔNG được rò email thô khi full_name tồn tại")
+
+    def test_assigned_to_name_uses_full_name(self):
+        """assigned_to = user có full_name → assigned_to_name == full_name."""
+        name = self._make_incident(reported_by=self.reporter, assigned_to=self.handler)
+        detail = get_incident_detail(name)
+        self.assertEqual(detail.get("assigned_to_name"), "Trần Thị B",
+                         "assigned_to_name PHẢI = User.full_name của assigned_to")
+
+    def test_user_without_full_name_falls_back_to_raw_id(self):
+        """User KHÔNG full_name → fallback == raw id (email), KHÔNG KeyError, KHÔNG rò rỗng."""
+        name = self._make_incident(reported_by=self.nameless, assigned_to=self.nameless)
+        detail = get_incident_detail(name)
+        self.assertEqual(detail.get("reporter_name"), self.nameless,
+                         "reporter_name thiếu full_name → fallback raw id")
+        self.assertEqual(detail.get("assigned_to_name"), self.nameless,
+                         "assigned_to_name thiếu full_name → fallback raw id")
+
+    def test_asset_lifecycle_status_out_of_service(self):
+        """asset lifecycle_status = 'Out of Service' (BR-12-04 sau acknowledge High/
+        Critical) → detail['asset_lifecycle_status'] == 'Out of Service' (đồng bộ máy)."""
+        name = self._make_incident(lifecycle_status="Out of Service")
+        detail = get_incident_detail(name)
+        self.assertEqual(detail.get("asset_lifecycle_status"), "Out of Service",
+                         "asset_lifecycle_status PHẢI khớp AC Asset.lifecycle_status LIVE")
+
+    def test_no_asset_no_assigned_regression(self):
+        """Incident KHÔNG asset + KHÔNG assigned_to → asset_lifecycle_status ∈ {'', None},
+        key assigned_to_name VẮNG, endpoint KHÔNG raise; keys cũ BẤT BIẾN."""
+        name = self._make_incident(has_asset=False, reported_by=self.reporter)
+        detail = get_incident_detail(name)  # KHÔNG raise
+        self.assertIn(detail.get("asset_lifecycle_status"), ("", None),
+                      "KHÔNG gắn asset → asset_lifecycle_status '' hoặc None")
+        self.assertNotIn("assigned_to_name", detail,
+                         "assigned_to VẮNG → key assigned_to_name KHÔNG có mặt (additive)")
+        # reporter_name vẫn có mặt (reported_by set).
+        self.assertEqual(detail.get("reporter_name"), "Nguyễn Văn A")
+        # Keys cũ BẤT BIẾN (contract invariant — additive không phá consumer cũ).
+        for k in ("is_response_breached", "is_resolution_breached",
+                  "available_actions", "scene_photos", "allowed_transitions"):
+            self.assertIn(k, detail, f"key cũ '{k}' PHẢI BẤT BIẾN (additive)")
 
 
 # ─── SoT "incident đang mở" — INCIDENT_OPEN_STATES + open_incident_filter ───────
@@ -2514,6 +2656,188 @@ class TestReportIncidentIdempotency(unittest.TestCase):
         self.assertEqual(self._count_key(key), 1, "race KHÔNG được tạo phiếu trùng (unique DB chặn)")
 
 
+class TestReportIncidentHeaderParity(unittest.TestCase):
+    """CR-24 §2.1 (HANDOFF header-parity closure): report_incident honor khoá idempotency
+    từ header ``X-Idempotency-Key`` / alias ``Idempotency-Key`` qua shared
+    ``resolve_idempotency_key`` — body param ``client_request_id`` THẮNG header khi cả hai
+    present; cả hai vắng ⇒ NO-OP dedup (legacy web-desk byte-identical). Parity 3 op đã
+    honor (imm09 close_work_order / imm00 confirm_receipt / imm11 add_measurement).
+
+    Test-context header: monkeypatch ``frappe.get_request_header`` (resolver try/except
+    khi vắng request). Đếm DB theo asset RIÊNG per-test ⇒ delta cô lập.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+
+    def _count_asset(self, asset: str) -> int:
+        return frappe.db.count("Incident Report", {"asset": asset})
+
+    def _count_key(self, key: str) -> int:
+        return frappe.db.count("Incident Report", {"client_request_id": key})
+
+    @staticmethod
+    def _hdr_factory(mapping):
+        def _hdr(key, default=None):
+            return mapping.get(key, default or "")
+        return _hdr
+
+    def test_report_incident_header_only_dedup(self):
+        """RED-first: body client_request_id='' NHƯNG header X-Idempotency-Key GIỐNG nhau
+        2× ⇒ CÙNG name + ĐÚNG 1 Incident Report persist. Hiện ĐỎ trước fix (service chỉ
+        đọc body param → 2 phiếu trùng)."""
+        from unittest import mock
+        asset = _make_asset("-hdronly")
+        self.addCleanup(purge_asset, asset.name)
+        key = f"crid-hdr-{_RUN_TAG}-{int(time.time() * 1000)}"
+        before = self._count_asset(asset.name)
+        with mock.patch("frappe.get_request_header",
+                        side_effect=self._hdr_factory({"X-Idempotency-Key": key})):
+            out1 = report_incident(
+                asset=asset.name, incident_type="Malfunction", severity="Medium",
+                description="_Test header only dedup first call here here",
+                client_request_id="")
+            frappe.db.commit()
+            out2 = report_incident(
+                asset=asset.name, incident_type="Malfunction", severity="Medium",
+                description="_Test header only dedup second call DIFFERENT desc",
+                client_request_id="")
+            frappe.db.commit()
+        self.assertEqual(out2["name"], out1["name"],
+                         "header-only re-drain CÙNG X-Idempotency-Key phải trả phiếu đã tạo")
+        self.assertEqual(self._count_asset(asset.name) - before, 1,
+                         "header-only dedup: ĐÚNG 1 Incident Report persist (không nhân đôi)")
+        # khoá ĐÃ RESOLVE (header) persist vào Incident.client_request_id ⇒ header-only
+        # re-drain khớp đúng row cũ (KHÔNG raw body '').
+        self.assertEqual(self._count_key(key), 1,
+                         "khoá header đã persist vào client_request_id (không phải raw body)")
+
+    def test_report_incident_body_wins_over_header(self):
+        """body='B' + header='H' cùng present ⇒ resolved dùng 'B' (persist/lookup theo 'B',
+        KHÔNG 'H') — parity semantics 3 op kia (body non-empty THẮNG)."""
+        from unittest import mock
+        asset = _make_asset("-bodywins")
+        self.addCleanup(purge_asset, asset.name)
+        body_key = f"crid-body-{_RUN_TAG}-{int(time.time() * 1000)}"
+        hdr_key = f"crid-hdrx-{_RUN_TAG}-{int(time.time() * 1000)}"
+        with mock.patch("frappe.get_request_header",
+                        side_effect=self._hdr_factory({"X-Idempotency-Key": hdr_key})):
+            out = report_incident(
+                asset=asset.name, incident_type="Failure", severity="Low",
+                description="_Test body wins over header persisted key",
+                client_request_id=body_key)
+            frappe.db.commit()
+        self.assertEqual(
+            frappe.db.get_value("Incident Report", out["name"], "client_request_id"),
+            body_key, "body param THẮNG header — persist theo body key")
+        self.assertEqual(self._count_key(body_key), 1)
+        self.assertEqual(self._count_key(hdr_key), 0,
+                         "header KHÔNG được dùng làm khoá khi body present (body wins)")
+
+    def test_report_incident_alias_idempotency_key_dedup(self):
+        """alias 'Idempotency-Key' (KHÔNG tiền tố X-) cũng được honor (HANDOFF A6 §9)."""
+        from unittest import mock
+        asset = _make_asset("-alias")
+        self.addCleanup(purge_asset, asset.name)
+        key = f"crid-alias-{_RUN_TAG}-{int(time.time() * 1000)}"
+        before = self._count_asset(asset.name)
+        with mock.patch("frappe.get_request_header",
+                        side_effect=self._hdr_factory({"Idempotency-Key": key})):
+            out1 = report_incident(
+                asset=asset.name, incident_type="Malfunction", severity="Medium",
+                description="_Test alias idempotency key first call here",
+                client_request_id="")
+            frappe.db.commit()
+            out2 = report_incident(
+                asset=asset.name, incident_type="Malfunction", severity="Medium",
+                description="_Test alias idempotency key second call here",
+                client_request_id="")
+            frappe.db.commit()
+        self.assertEqual(out2["name"], out1["name"], "alias Idempotency-Key phải dedup")
+        self.assertEqual(self._count_asset(asset.name) - before, 1)
+
+    def test_report_incident_no_key_no_header_legacy_noop(self):
+        """cả body param LẪN header đều VẮNG ⇒ NO-OP dedup: 2 call = 2 phiếu (legacy
+        byte-identical, web-desk/client-cũ 0 regression)."""
+        from unittest import mock
+        asset = _make_asset("-noopnokey")
+        self.addCleanup(purge_asset, asset.name)
+        before = self._count_asset(asset.name)
+        with mock.patch("frappe.get_request_header",
+                        side_effect=self._hdr_factory({})):   # 0 header
+            out1 = report_incident(
+                asset=asset.name, incident_type="Failure", severity="Low",
+                description="_Test no key no header legacy call one here")
+            out2 = report_incident(
+                asset=asset.name, incident_type="Failure", severity="Low",
+                description="_Test no key no header legacy call two here")
+            frappe.db.commit()
+        self.assertNotEqual(out1["name"], out2["name"], "NO-OP dedup → 2 phiếu riêng")
+        self.assertEqual(self._count_asset(asset.name) - before, 2,
+                         "cả body lẫn header vắng ⇒ legacy 2 phiếu (byte-identical)")
+
+
+class TestWriteFamilyIdempotencyInvariant(unittest.TestCase):
+    """CR-24 write-family closure guard: cả 5 op offline-write resolve khoá idempotency
+    theo CÙNG semantics (body THẮNG header X-Idempotency-Key / Idempotency-Key). Chống
+    regression — ai revert 1 op về đọc raw body param ⇒ guard ĐỎ.
+
+    4/5 route qua shared ``assetcore.utils.idempotency.resolve_idempotency_key``
+    (imm08 submit_result · imm09 close_work_order · imm00 confirm_receipt · imm12
+    report_incident); imm11 add_measurement dùng resolver riêng
+    ``_resolve_measurement_idempotency_key`` (ĐÃ honor header — migrate sang shared util
+    = backlog, KHÔNG regress).
+    """
+
+    def test_shared_resolver_body_wins_header_fallback(self):
+        from unittest import mock
+        from assetcore.utils.idempotency import resolve_idempotency_key
+
+        # body present → THẮNG (không cần request ctx)
+        self.assertEqual(resolve_idempotency_key("B"), "B")
+        self.assertEqual(resolve_idempotency_key("  B  "), "B")   # strip
+        # body rỗng + header X- → header; body present + header → body THẮNG
+        with mock.patch("frappe.get_request_header",
+                        side_effect=lambda k, d=None: "H" if k == "X-Idempotency-Key" else (d or "")):
+            self.assertEqual(resolve_idempotency_key(""), "H")
+            self.assertEqual(resolve_idempotency_key("B"), "B")
+        # alias Idempotency-Key khi X- vắng
+        with mock.patch("frappe.get_request_header",
+                        side_effect=lambda k, d=None: "A" if k == "Idempotency-Key" else (d or "")):
+            self.assertEqual(resolve_idempotency_key(""), "A")
+        # ngoài request-context → '' KHÔNG raise
+        with mock.patch("frappe.get_request_header",
+                        side_effect=RuntimeError("outside request context")):
+            self.assertEqual(resolve_idempotency_key(""), "")
+
+    def test_five_write_family_ops_route_through_resolver(self):
+        import inspect
+        from assetcore.services import imm00, imm08, imm09, imm11, imm12
+
+        shared = (
+            imm12.report_incident,
+            imm08.submit_result,
+            imm09.close_work_order,
+            imm00.confirm_receipt,
+        )
+        for fn in shared:
+            src = inspect.getsource(fn)
+            self.assertIn(
+                "resolve_idempotency_key", src,
+                f"{fn.__module__}.{fn.__name__} PHẢI resolve khoá qua shared "
+                "resolve_idempotency_key (header-fallback, body-wins) — write-family parity")
+        # imm11 add_measurement honor header qua resolver riêng (backlog: migrate shared)
+        src11 = inspect.getsource(imm11.add_measurement)
+        self.assertTrue(
+            "_resolve_measurement_idempotency_key" in src11
+            or "resolve_idempotency_key" in src11,
+            "imm11 add_measurement PHẢI resolve khoá qua resolver honor-header")
+
+
 class TestCorrectiveCreateCapConsistency(unittest.TestCase):
     """AC1 3-tier parity (test tương đẳng): scan-action SSoT == route meta == svc gate cap.
 
@@ -2856,6 +3180,264 @@ class TestIncidentPhotoAttach(unittest.TestCase):
                 self.assertEqual(frappe.db.count("Asset Lifecycle Event", {
                     "event_type": "incident_photo_attached", "root_record": ir}), 0,
                     f"[{label}] KHÔNG sinh lifecycle event khi ảnh hỏng")
+
+
+# ─── BR-12-26 / ADR-IMM12-10: attach_incident_photo idempotency (CR-24 phần dư) ──
+
+
+class TestIncidentPhotoIdempotency(unittest.TestCase):
+    """CR-24 phần dư · B-rel-3: idempotency `client_request_id` đóng cửa sổ attachment-dup.
+
+    Re-drain outbox PHA-2 re-POST cùng ảnh (response rớt mạng SAU khi server đã tạo
+    File) → File TRÙNG + lifecycle event `incident_photo_attached` TRÙNG (bẩn
+    evidence-trail NĐ98). Dedupe theo composite scoped key `{incident}::{key}` trên
+    Custom Field `File.ac_client_request_id` (unique NULL-store — ADR-IMM12-10):
+      - TC-12-PHOTO-IDEMP-01/02: replay cùng (incident, key) → 1 File + 1 event;
+        response#2 == response#1 (KHÔNG insert mới).
+      - TC-12-PHOTO-IDEMP-03: key rỗng/thiếu → at-least-once CŨ (2 File, field NULL).
+      - TC-12-PHOTO-IDEMP-04: cùng key KHÁC incident → KHÔNG dedupe chéo (2 File).
+      - TC-12-PHOTO-IDEMP-05: key persist composite + Custom Field `unique==1`.
+      - TC-12-PHOTO-IDEMP-06: dedupe-hit thắng max-count (replay ảnh #5 khi đã đủ
+        5 ảnh → success, KHÔNG `VALIDATION "Tối đa 5 ảnh"`).
+      - TC-12-PHOTO-IDEMP-07: permission TRƯỚC dedupe — outsider replay key hợp lệ
+        → FORBIDDEN (KHÔNG leak file_url qua dedupe-hit).
+      - LL-BE-54 kwargs-swallow guard: handler API nhận `client_request_id` TƯỜNG
+        MINH (hết bị `**_ignore` nuốt câm) — replay qua API tier vẫn dedupe.
+
+    Precondition: Custom Field `File.ac_client_request_id` đã sync
+    (`fixtures/file_custom_fields.json` — qua migrate/import-fixtures).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.asset = _make_asset("-photoidemp")
+        # outsider: Auditor read-only (not-reporter ∧ not-write) ⇒ FORBIDDEN.
+        cls.outsider = TestIncidentPhotoAttach._ensure_user(
+            "_test_photoidemp_outsider@assetcore.test", ["AssetCore Auditor"])
+        cls._incidents: list[str] = []
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        for ir in cls._incidents:
+            try:
+                for f in frappe.get_all(
+                    "File", filters={"attached_to_doctype": "Incident Report",
+                                     "attached_to_name": ir}, pluck="name"):
+                    frappe.delete_doc("File", f, force=True, ignore_permissions=True)
+            except Exception:
+                pass
+            try:
+                frappe.delete_doc("Incident Report", ir, force=True,
+                                  ignore_permissions=True, delete_permanently=True)
+            except Exception:
+                pass
+        purge_asset(cls.asset.name)
+        try:
+            frappe.delete_doc("User", cls.outsider, force=True,
+                              ignore_permissions=True)
+        except Exception:
+            pass
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+
+    def _new_incident(self) -> str:
+        out = report_incident(
+            asset=self.asset.name, incident_type="Malfunction", severity="Medium",
+            description="_Test photo idempotency incident description here",
+        )
+        frappe.db.commit()
+        self._incidents.append(out["name"])
+        return out["name"]
+
+    def _key(self, tag: str) -> str:
+        return f"pk-{_RUN_TAG}-{tag}-{int(time.time() * 1000)}"
+
+    _seq = 0
+
+    @classmethod
+    def _unique_jpg_bytes(cls) -> bytes:
+        """Bytes JPEG THẬT, KHÁC nhau mỗi call (đổi màu pixel) — tránh Frappe
+        `File` reuse `file_url` khi trùng `content_hash` (2 File riêng nhưng URL
+        chung → assert URL-khác sẽ false-fail dù ROW đúng)."""
+        import io
+
+        from PIL import Image
+
+        cls._seq += 1
+        buf = io.BytesIO()
+        Image.new(
+            "RGB", (8, 8),
+            (cls._seq % 256, (cls._seq * 7) % 256, 30),
+        ).save(buf, format="JPEG")
+        return buf.getvalue()
+
+    def _attach(self, ir: str, key: str = "", filename: str = "scene.jpg",
+                data: bytes | None = None) -> dict:
+        from assetcore.services.imm12 import attach_incident_photo
+        return attach_incident_photo(
+            ir, filedata=data if data is not None else self._unique_jpg_bytes(),
+            filename=filename, content_type="image/jpeg", client_request_id=key)
+
+    def _file_count(self, ir: str) -> int:
+        return frappe.db.count("File", {
+            "attached_to_doctype": "Incident Report",
+            "attached_to_name": ir, "is_private": 1})
+
+    def _event_count(self, ir: str) -> int:
+        return frappe.db.count("Asset Lifecycle Event", {
+            "event_type": "incident_photo_attached", "root_record": ir})
+
+    # ── TC-12-PHOTO-IDEMP-01 + 02 (AC2 lõi) ───────────────────────────────────
+    def test_replay_same_key_single_file_event_same_response(self):
+        """2× CÙNG key + cùng incident → 1 ROW File + 1 lifecycle event; call#2 trả
+        `{file_url, file_name}` == call#1 (KHÔNG insert mới). RED-before: chưa dedupe
+        → 2 File."""
+        ir = self._new_incident()
+        key = self._key("tc1")
+        res1 = self._attach(ir, key=key, filename="idemp_a.jpg")
+        res2 = self._attach(ir, key=key, filename="idemp_a.jpg")
+        self.assertEqual(
+            frappe.db.count("File", {"ac_client_request_id": f"{ir}::{key}"}), 1,
+            "CÙNG (incident, key) → CHỈ 1 ROW File mang scoped key")
+        self.assertEqual(self._file_count(ir), 1,
+                         "replay KHÔNG được insert File thứ 2")
+        self.assertEqual(self._event_count(ir), 1,
+                         "replay KHÔNG được emit lifecycle event lần 2 (NĐ98)")
+        self.assertEqual(res2, res1,
+                         "response replay phải == lần 1 (file_url/file_name File ĐÃ đính)")
+        self.assertEqual(set(res2.keys()), {"file_url", "file_name"},
+                         f"shape EXACT 2-key KHÔNG đổi (OAS closed), nhận: {res2}")
+
+    # ── 2 key KHÁC nhau cùng incident → 2 File (không over-dedupe) ─────────────
+    def test_distinct_keys_same_incident_two_files(self):
+        ir = self._new_incident()
+        res1 = self._attach(ir, key=self._key("tc2a"), filename="d1.jpg")
+        res2 = self._attach(ir, key=self._key("tc2b"), filename="d2.jpg")
+        self.assertNotEqual(res1["file_url"], res2["file_url"],
+                            "2 key KHÁC nhau → 2 File riêng biệt")
+        self.assertEqual(self._file_count(ir), 2, "2 key KHÁC → đúng 2 File")
+        self.assertEqual(self._event_count(ir), 2, "2 File thật → đúng 2 event")
+
+    # ── TC-12-PHOTO-IDEMP-03 (AC3 backward-compat) ─────────────────────────────
+    def test_no_key_backward_compat_two_files_null_key(self):
+        """2× KHÔNG key → 2 File riêng (at-least-once CŨ); cả 2 ROW ac_client_request_id
+        NULL (NULL-store — unique index không collide)."""
+        ir = self._new_incident()
+        same_photo = _jpg_bytes()  # CÙNG ảnh 2 lần (doc TC-03: "attach 2× cùng ảnh")
+        self._attach(ir, key="", filename="nk1.jpg", data=same_photo)
+        self._attach(ir, key="", filename="nk2.jpg", data=same_photo)
+        self.assertEqual(self._file_count(ir), 2,
+                         "KHÔNG key → mỗi call = 1 File (hành vi cũ nguyên vẹn)")
+        keys = frappe.get_all(
+            "File", filters={"attached_to_doctype": "Incident Report",
+                             "attached_to_name": ir, "is_private": 1},
+            pluck="ac_client_request_id")
+        self.assertTrue(all(not k for k in keys),
+                        f"File không-khoá phải lưu NULL/empty, nhận: {keys}")
+
+    # ── TC-12-PHOTO-IDEMP-04 (AC4 scope key) ───────────────────────────────────
+    def test_same_key_different_incidents_no_cross_dedupe(self):
+        """CÙNG key nhưng 2 incident KHÁC nhau → KHÔNG dedupe chéo (composite khác)
+        — mỗi incident 1 File, KHÔNG UniqueValidation lộ ra client."""
+        ir_a = self._new_incident()
+        ir_b = self._new_incident()
+        key = self._key("tc4")
+        res_a = self._attach(ir_a, key=key, filename="xa.jpg")
+        res_b = self._attach(ir_b, key=key, filename="xb.jpg")
+        self.assertNotEqual(res_a["file_url"], res_b["file_url"],
+                            "cùng key KHÁC incident → 2 File riêng (composite khác)")
+        self.assertEqual(self._file_count(ir_a), 1)
+        self.assertEqual(self._file_count(ir_b), 1)
+        self.assertEqual(self._event_count(ir_a), 1)
+        self.assertEqual(self._event_count(ir_b), 1)
+
+    # ── TC-12-PHOTO-IDEMP-05 (persist + unique index) ──────────────────────────
+    def test_key_persisted_composite_and_unique_meta(self):
+        """File mang `ac_client_request_id == f'{IR}::{K}'` (key THỰC được persist —
+        chứng minh không còn bị `**_ignore` nuốt) + Custom Field `unique==1` (lớp-2
+        race qua unique index)."""
+        ir = self._new_incident()
+        key = self._key("tc5")
+        res = self._attach(ir, key=key, filename="pk.jpg")
+        stored = frappe.db.get_value(
+            "File", {"ac_client_request_id": f"{ir}::{key}"},
+            ["file_url", "file_name"], as_dict=True)
+        self.assertIsNotNone(stored, "lookup theo scoped key PHẢI hit (key đã persist)")
+        self.assertEqual(stored.file_url, res["file_url"])
+        field = frappe.get_meta("File").get_field("ac_client_request_id")
+        self.assertIsNotNone(field, "Custom Field File.ac_client_request_id phải tồn tại")
+        self.assertEqual(int(field.unique or 0), 1,
+                         "ac_client_request_id PHẢI unique (NULL-store, ADR-IMM12-10)")
+
+    # ── TC-12-PHOTO-IDEMP-06 (dedupe TRƯỚC max-count) ──────────────────────────
+    def test_dedupe_hit_wins_max_count(self):
+        """Incident đủ 5 ảnh, ảnh #5 mang key K5 → replay K5 trả success File #5
+        (KHÔNG dội VALIDATION 'Tối đa 5 ảnh') — chứng minh dedupe TRƯỚC validation."""
+        from assetcore.services.imm12 import MAX_INCIDENT_PHOTOS
+        ir = self._new_incident()
+        for i in range(MAX_INCIDENT_PHOTOS - 1):
+            self._attach(ir, key="", filename=f"m{i}.jpg")
+        key5 = self._key("tc6")
+        res5 = self._attach(ir, key=key5, filename="m5.jpg")
+        self.assertEqual(self._file_count(ir), MAX_INCIDENT_PHOTOS)
+        replay = self._attach(ir, key=key5, filename="m5.jpg")
+        self.assertEqual(replay, res5,
+                         "replay ảnh #5 phải success trả File đã đính, KHÔNG VALIDATION max")
+        self.assertEqual(self._file_count(ir), MAX_INCIDENT_PHOTOS,
+                         "replay KHÔNG thêm File vượt max")
+
+    # ── TC-12-PHOTO-IDEMP-07 (permission TRƯỚC dedupe) ─────────────────────────
+    def test_permission_before_dedupe_forbidden_no_leak(self):
+        """Key đã đính bởi admin; outsider (không-reporter ∧ không-write) replay CÙNG
+        key → FORBIDDEN Decision-B — KHÔNG leak file_url qua dedupe-hit."""
+        ir = self._new_incident()
+        key = self._key("tc7")
+        res = self._attach(ir, key=key, filename="perm.jpg")
+        frappe.set_user(self.outsider)
+        try:
+            with self.assertRaises(ServiceError) as ctx:
+                self._attach(ir, key=key, filename="perm.jpg")
+        finally:
+            frappe.set_user("Administrator")
+        self.assertEqual(ctx.exception.code, ErrorCode.FORBIDDEN,
+                         "outsider replay key → FORBIDDEN (permission TRƯỚC dedupe)")
+        self.assertNotIn(res["file_url"], str(ctx.exception),
+                         "message FORBIDDEN KHÔNG được leak file_url File đã đính")
+
+    # ── LL-BE-54 kwargs-swallow guard: API tier nhận param TƯỜNG MINH ──────────
+    def test_api_handler_explicit_param_replay_dedupes(self):
+        """Handler `api.imm12.attach_incident_photo` nhận `client_request_id` TƯỜNG
+        MINH (∈ signature, KHÔNG bị `**_ignore` nuốt câm) — replay 2× qua API tier
+        cùng key → 1 File, response#2 == #1 (Decision-B success)."""
+        import inspect as _inspect
+
+        from assetcore.api.imm12 import attach_incident_photo as api_attach
+        params = _inspect.signature(api_attach).parameters
+        self.assertIn("client_request_id", params,
+                      "client_request_id PHẢI là param tường minh của handler API")
+        self.assertEqual(params["client_request_id"].default, "",
+                         "default PHẢI '' (KHÔNG None — tránh HTTP-417 coercion)")
+        ir = self._new_incident()
+        key = self._key("api")
+        orig = getattr(frappe.local, "request", None)
+        results = []
+        try:
+            for _ in range(2):
+                frappe.local.request = TestIncidentPhotoAttach._fake_request(
+                    self, self._unique_jpg_bytes(), "api_idemp.jpg", "image/jpeg")
+                results.append(api_attach(incident_name=ir, client_request_id=key))
+        finally:
+            frappe.local.request = orig
+        self.assertTrue(results[0].get("success"), f"call#1 phải success: {results[0]}")
+        self.assertTrue(results[1].get("success"), f"call#2 phải success: {results[1]}")
+        self.assertEqual(results[1]["data"], results[0]["data"],
+                         "replay qua API tier phải trả CÙNG File (key không bị nuốt)")
+        self.assertEqual(self._file_count(ir), 1,
+                         "API replay cùng key → CHỈ 1 File")
 
 
 # ─── IMM-12 RCA server-driven transitions (GATE-8/LL-FE-51) ──────────────────────
@@ -4043,3 +4625,668 @@ class TestIncidentRequestRca(unittest.TestCase):
         self.assertEqual(
             frappe.db.get_value("Incident Report", name, "status"), "Closed",
             "sau RCA Completed, Incident PHẢI auto-close (_advance_incident_after_rca)")
+
+
+# ── RCA-gate SSoT (BR-12-02): rca_required = derived(severity) re-sync mọi save ──
+#    Chống ĐÓNG-GIẢ sự cố escalation Medium→Critical. Cả 2 gate (service
+#    close_incident + controller hook validate_incident_close_gate) đọc CÙNG SSoT =
+#    LIVE severity. TẤT CẢ drive qua service/doc-save path — KHÔNG pre-seed
+#    rca_required qua db.set_value (khác _make_incident_at_rca_required cũ vốn
+#    pre-seed cờ = false-green). Ref: memory server-flag-SSoT / derive-live.
+class TestIncidentCloseRcaGateSSoT(unittest.TestCase):
+    """RCA-gate SSoT — rca_required derive-live từ severity, non-waivable High/Critical."""
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.asset = _make_asset("-rcassot")
+
+    @classmethod
+    def tearDownClass(cls):
+        purge_asset(cls.asset.name)
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+
+    # ── helpers (đường doc-save / service THẬT, KHÔNG db.set_value cờ) ──────────
+    def _escalate(self, name: str, to: str = "Critical") -> None:
+        """Nâng/hạ severity qua doc.save() TRỰC TIẾP (đường desk) → kích hoạt
+        controller re-sync rca_required. Critical bắt buộc clinical_impact
+        (mandatory_depends_on trong DocType) nên seed khi thiếu."""
+        doc = frappe.get_doc("Incident Report", name)
+        doc.severity = to
+        if to == "Critical" and not (doc.clinical_impact or "").strip():
+            doc.clinical_impact = (
+                "Nâng mức nghiêm trọng sau đánh giá lại — ảnh hưởng an toàn bệnh nhân")
+        doc.flags.ignore_permissions = True
+        doc.save()
+        frappe.db.commit()
+
+    def _open_medium_incident(self) -> str:
+        out = report_incident(
+            asset=self.asset.name, incident_type="Malfunction", severity="Medium",
+            description="_Test SSoT rca-gate incident description body")
+        frappe.db.commit()
+        return out["name"]
+
+    def _rca_required(self, name: str) -> int:
+        return frappe.db.get_value("Incident Report", name, "rca_required")
+
+    # ── #1 SSoT: rca_required derive-live từ severity trên MỌI save ─────────────
+    def test_rca_required_derives_live_from_severity_on_save(self):
+        name = self._open_medium_incident()
+        self.assertEqual(
+            self._rca_required(name), 0,
+            "Medium mới tạo → rca_required=0 (SSoT severity)")
+        # Escalate Medium → Critical: re-sync PHẢI bật cờ (RED trước fix: stays 0).
+        self._escalate(name, "Critical")
+        self.assertEqual(
+            self._rca_required(name), 1,
+            "Sau escalate Critical + save → rca_required=1 (derive-live, KHÔNG stale)")
+        # Downgrade Critical → Medium: re-sync PHẢI tắt cờ.
+        self._escalate(name, "Medium")
+        self.assertEqual(
+            self._rca_required(name), 0,
+            "Hạ lại Medium + save → rca_required=0 (mirror-của-severity)")
+
+    # ── #2 close-giả (CA sắc nhất): escalation Medium→Critical KHÔNG rca_record ──
+    def test_escalated_critical_without_rca_close_blocked_required(self):
+        # Resolve khi CÒN Medium ⇒ resolve KHÔNG auto-tạo RCA (rca_record rỗng).
+        name = _make_resolved_incident(self.asset.name, severity="Medium")
+        self.assertEqual(self._rca_required(name), 0)
+        # Escalate lên Critical SAU resolve → re-sync rca_required=1, rca_record vẫn rỗng.
+        self._escalate(name, "Critical")
+        self.assertEqual(self._rca_required(name), 1)
+        with self.assertRaises(ServiceError) as ctx:
+            close_incident(name, verification_notes="_Test close escalated critical")
+        self.assertEqual(
+            ctx.exception.message_code, MSG.IMM12_CLOSE_RCA_REQUIRED,
+            "Escalated Critical không RCA → chặn REQUIRED (KHÔNG đóng-giả)")
+        self.assertNotEqual(
+            frappe.db.get_value("Incident Report", name, "status"), "Closed",
+            "close BỊ CHẶN ⇒ status KHÔNG được thành Closed (chống fake-close)")
+
+    # ── #3 escalated Critical có rca_record nhưng RCA chưa Completed → INCOMPLETE ─
+    def test_escalated_critical_incomplete_rca_close_blocked_incomplete(self):
+        name = self._open_medium_incident()
+        acknowledge_incident(name)
+        start_work(name)
+        frappe.db.commit()
+        # Escalate TRƯỚC resolve ⇒ resolve auto-tạo RCA (status='RCA Required').
+        self._escalate(name, "Critical")
+        resolve_incident(name, resolution_notes="_Test resolve escalated critical")
+        frappe.db.commit()
+        rca_name = frappe.db.get_value("Incident Report", name, "rca_record")
+        self.assertTrue(rca_name, "resolve Critical PHẢI auto-tạo RCA record")
+        self.assertNotEqual(
+            frappe.db.get_value("IMM RCA Record", rca_name, "status"), "Completed")
+        with self.assertRaises(ServiceError) as ctx:
+            close_incident(name, verification_notes="_Test close incomplete rca")
+        self.assertEqual(
+            ctx.exception.message_code, MSG.IMM12_CLOSE_RCA_INCOMPLETE,
+            "rca_record tồn tại nhưng chưa Completed → chặn INCOMPLETE")
+
+    # ── #4 GREEN happy: RCA driven Completed → close OK, asset khôi phục Active ──
+    def test_escalated_critical_completed_rca_close_succeeds(self):
+        name = self._open_medium_incident()
+        acknowledge_incident(name)   # Critical (sau escalate) → asset Out of Service
+        start_work(name)
+        frappe.db.commit()
+        self._escalate(name, "Critical")
+        resolve_incident(name, resolution_notes="_Test resolve for green rca")
+        frappe.db.commit()
+        rca_name = frappe.db.get_value("Incident Report", name, "rca_record")
+        self.assertTrue(rca_name)
+        # Drive RCA → Completed qua service THẬT (start_rca → submit_rca), KHÔNG
+        # db.set_value (khác _make_incident_at_rca_required cũ = false-green).
+        start_rca(rca_name)
+        five_why = [
+            {"why_number": i, "why_question": f"Vì sao tầng {i}?",
+             "why_answer": f"Nguyên nhân tầng {i}: linh kiện xuống cấp theo thời gian"}
+            for i in range(1, 6)
+        ]
+        submit_rca(
+            rca_name, root_cause="Nguyên nhân gốc: mòn linh kiện sau chu kỳ vận hành",
+            corrective_action="Thay linh kiện + hiệu chuẩn lại theo NĐ98",
+            five_why_steps=five_why)
+        frappe.db.commit()
+        self.assertEqual(
+            frappe.db.get_value("IMM RCA Record", rca_name, "status"), "Completed")
+        res = close_incident(name, verification_notes="Đã xác minh khắc phục hoàn tất")
+        self.assertEqual(res["status"], "Closed")
+        self.assertEqual(
+            frappe.db.get_value("Incident Report", name, "status"), "Closed")
+        self.assertEqual(
+            frappe.db.get_value("AC Asset", self.asset.name, "lifecycle_status"),
+            "Active", "Critical acknowledge → Out of Service; close → khôi phục Active")
+
+    # ── #5 non-regression: Medium thực (không escalate) → close bình thường ──────
+    def test_medium_non_escalated_closes_without_rca(self):
+        name = _make_resolved_incident(self.asset.name, severity="Medium")
+        self.assertEqual(self._rca_required(name), 0)
+        res = close_incident(name, verification_notes="_Test close medium normal")
+        self.assertEqual(res["status"], "Closed")
+        self.assertEqual(
+            self._rca_required(name), 0,
+            "Medium thực → rca_required=0, KHÔNG bắt RCA (non-regression)")
+
+    # ── #6 non-regression: Critical từ đầu chưa RCA Completed → close chặn ───────
+    def test_critical_from_start_incomplete_rca_close_blocked(self):
+        name = _make_resolved_incident(
+            self.asset.name, severity="Critical",
+            clinical_impact="Ảnh hưởng lâm sàng nghiêm trọng — thiết bị ngừng an toàn")
+        self.assertEqual(self._rca_required(name), 1)
+        rca_name = frappe.db.get_value("Incident Report", name, "rca_record")
+        self.assertTrue(rca_name, "resolve Critical PHẢI auto-tạo RCA")
+        with self.assertRaises(ServiceError) as ctx:
+            close_incident(name, verification_notes="_Test close critical from start")
+        self.assertEqual(
+            ctx.exception.message_code, MSG.IMM12_CLOSE_RCA_INCOMPLETE,
+            "Critical từ đầu, RCA chưa Completed → close chặn (giữ hành vi, chống lệch)")
+
+    # ── #7 controller net: chặn desk-path (doc.save status→Closed, KHÔNG service) ─
+    def test_controller_gate_blocks_desk_close_path(self):
+        out = report_incident(
+            asset=self.asset.name, incident_type="Malfunction", severity="Critical",
+            description="_Test desk-path close gate incident body",
+            clinical_impact="Ảnh hưởng lâm sàng — cần chặn đóng-giả đường desk")
+        frappe.db.commit()
+        name = out["name"]
+        self.assertEqual(self._rca_required(name), 1)
+        # Đóng TRỰC TIẾP qua doc.save() flip workflow_state='Closed' (đường
+        # desk/apply_workflow — gate ưu tiên workflow_state) — KHÔNG qua service
+        # close_incident. Controller hook validate_incident_close_gate PHẢI chặn.
+        with self.assertRaises(frappe.ValidationError):
+            doc = frappe.get_doc("Incident Report", name)
+            doc.workflow_state = "Closed"
+            doc.flags.ignore_permissions = True
+            doc.save()
+        self.assertEqual(
+            frappe.local.response.get("message_code"), MSG.IMM12_CLOSE_RCA_REQUIRED,
+            "hook chặn desk-path phải phát message_code REQUIRED")
+        self.assertNotEqual(
+            frappe.db.get_value("Incident Report", name, "workflow_state"), "Closed",
+            "desk-path bị chặn ⇒ KHÔNG persist workflow_state Closed")
+
+
+# ── CR-55: RCA deadlock — hồ sơ RCA Cancelled KHÔNG được khoá vĩnh viễn phiếu ────
+#    High/Critical. create_rca/request_rca dùng CÙNG vị từ _has_live_rca (rca_record
+#    tồn tại ∧ status != 'Cancelled') để "thay hồ sơ RCA đã huỷ" mà KHÔNG chạm hồ sơ
+#    huỷ (giữ vết audit NĐ98). Regression: RCA còn sống VẪN chặn IMM12_RCA_ALREADY_EXISTS.
+# ─────────────────────────────────────────────────────────────────────────────────
+
+class TestRCADeadlockCancelledReplacement(unittest.TestCase):
+    """CR-55: gỡ deadlock hồ sơ RCA Cancelled khoá phiếu sự cố Cao/Nguy kịch.
+
+    Cover:
+      - create_rca thay hồ sơ RCA đã Cancelled (tạo mới, không raise ALREADY_EXISTS).
+      - create_rca VẪN chặn khi RCA còn sống (regression guard idempotent).
+      - request_rca (Resolved→RCA Required) tạo hồ sơ MỚI sau khi hồ sơ cũ Cancelled.
+      - request_rca precondition status != Resolved → 422 (bất biến).
+      - close_incident hết deadlock sau khi RCA thay-thế Completed; asset OOS→Active.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.asset = _make_asset("-rcadeadlock")
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        # purge_asset cancels submitted Incident/RCA/CAPA (dependency order) và purge
+        # raw-SQL audit trail trước khi xoá asset.
+        purge_asset(cls.asset.name)
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+
+    def _resolved_incident_with_auto_rca(self, severity: str = "High") -> tuple[str, str]:
+        """report → ack → start_work → resolve; resolve auto-tạo RCA (RCA Required).
+
+        Trả (incident_name, auto_rca_name). Incident.status = Resolved,
+        rca_record trỏ hồ sơ RCA auto-tạo (LIVE — 'RCA Required'). KHÔNG set
+        workflow_state='RCA Required' ⇒ _advance_incident_after_rca sẽ no-op
+        (tránh auto-close nhiễu test close tường minh).
+        """
+        result = report_incident(
+            asset=self.asset.name,
+            incident_type="Malfunction",
+            severity=severity,
+            description="_Test CR-55 deadlock incident body",
+            clinical_impact="_Test clinical impact CR-55 deadlock",
+        )
+        frappe.db.commit()
+        ir = result["name"]
+        acknowledge_incident(ir, notes="_Test ack CR-55")
+        frappe.db.commit()
+        start_work(ir, notes="_Test start CR-55")
+        frappe.db.commit()
+        resolve_incident(
+            ir,
+            resolution_notes="_Test resolution CR-55",
+            root_cause="_Test root cause CR-55",
+        )
+        frappe.db.commit()
+        rca = frappe.db.get_value("Incident Report", ir, "rca_record")
+        self.assertTrue(rca, "resolve High/Critical phải auto-tạo hồ sơ RCA")
+        return ir, rca
+
+    @staticmethod
+    def _filled_five_whys() -> list:
+        return [
+            {"why_number": i, "why_question": f"Vì sao {i}?",
+             "why_answer": f"Nguyên nhân mức {i}"}
+            for i in range(1, 6)
+        ]
+
+    def test_create_rca_replaces_cancelled_record(self):
+        """rca_record trỏ hồ sơ Cancelled → create_rca tạo hồ sơ MỚI, hồ sơ cũ giữ Cancelled."""
+        ir, old_rca = self._resolved_incident_with_auto_rca(severity="High")
+        cancel_rca(old_rca, reason="_Test hủy RCA để thay thế")
+        frappe.db.commit()
+        self.assertEqual(
+            frappe.db.get_value("IMM RCA Record", old_rca, "status"), "Cancelled")
+
+        result = create_rca(ir)
+        frappe.db.commit()
+        new_rca = result["name"]
+
+        self.assertNotEqual(
+            new_rca, old_rca, "create_rca phải tạo hồ sơ RCA MỚI, không tái dùng hồ sơ huỷ")
+        self.assertEqual(
+            frappe.db.get_value("Incident Report", ir, "rca_record"), new_rca,
+            "Incident.rca_record phải cập nhật sang tên hồ sơ RCA mới")
+        # Hồ sơ cũ GIỮ NGUYÊN Cancelled — vết audit NĐ98, không bị mutate/xoá.
+        self.assertEqual(
+            frappe.db.get_value("IMM RCA Record", old_rca, "status"), "Cancelled",
+            "hồ sơ RCA cũ phải giữ nguyên status=Cancelled (bằng chứng audit)")
+        self.assertTrue(
+            frappe.db.exists("IMM RCA Record", old_rca),
+            "hồ sơ RCA cũ KHÔNG được xoá")
+
+    def test_create_rca_still_blocks_live_rca(self):
+        """Regression: rca_record trỏ hồ sơ còn sống → VẪN raise IMM12_RCA_ALREADY_EXISTS."""
+        ir, live_rca = self._resolved_incident_with_auto_rca(severity="High")
+        # 'RCA Required' (LIVE) → chặn.
+        self.assertEqual(
+            frappe.db.get_value("IMM RCA Record", live_rca, "status"), "RCA Required")
+        with self.assertRaises(ServiceError) as ctx:
+            create_rca(ir)
+        self.assertEqual(ctx.exception.message_code, MSG.IMM12_RCA_ALREADY_EXISTS)
+
+        # 'RCA In Progress' (LIVE) → cũng chặn.
+        start_rca(live_rca)
+        frappe.db.commit()
+        self.assertEqual(
+            frappe.db.get_value("IMM RCA Record", live_rca, "status"), "RCA In Progress")
+        with self.assertRaises(ServiceError) as ctx2:
+            create_rca(ir)
+        self.assertEqual(ctx2.exception.message_code, MSG.IMM12_RCA_ALREADY_EXISTS)
+
+    def test_request_rca_creates_new_after_cancel(self):
+        """Phiếu Resolved, rca_record Cancelled → request_rca tạo hồ sơ MỚI, KHÔNG tái dùng huỷ."""
+        ir, old_rca = self._resolved_incident_with_auto_rca(severity="High")
+        cancel_rca(old_rca, reason="_Test hủy RCA trước khi yêu cầu lại")
+        frappe.db.commit()
+        self.assertEqual(
+            frappe.db.get_value("Incident Report", ir, "status"), "Resolved",
+            "hủy RCA không đổi trạng thái phiếu (vẫn Resolved)")
+
+        out = request_rca(ir, rca_reason="_Test yêu cầu RCA mới sau khi hủy")
+        frappe.db.commit()
+
+        self.assertEqual(out["status"], "RCA Required")
+        new_rca = frappe.db.get_value("Incident Report", ir, "rca_record")
+        self.assertNotEqual(
+            new_rca, old_rca, "request_rca phải tạo hồ sơ RCA MỚI, không tái dùng hồ sơ huỷ")
+        self.assertEqual(
+            frappe.db.get_value("IMM RCA Record", new_rca, "status"), "RCA Required")
+        # Hồ sơ huỷ giữ nguyên (audit).
+        self.assertEqual(
+            frappe.db.get_value("IMM RCA Record", old_rca, "status"), "Cancelled")
+
+    def test_request_rca_precondition_not_resolved_422(self):
+        """Bất biến: request_rca trên phiếu status != Resolved → 422."""
+        result = report_incident(
+            asset=self.asset.name,
+            incident_type="Malfunction",
+            severity="High",
+            description="_Test CR-55 precondition not resolved",
+            clinical_impact="_Test clinical impact precondition",
+        )
+        frappe.db.commit()
+        ir = result["name"]  # status = Open (chưa Resolved)
+        self.assertNotEqual(
+            frappe.db.get_value("Incident Report", ir, "status"), "Resolved")
+        with self.assertRaises(ServiceError) as ctx:
+            request_rca(ir, rca_reason="_Test yêu cầu RCA khi chưa Resolved")
+        self.assertEqual(ctx.exception.message_code, MSG.IMM12_REQUEST_RCA_BAD_STATE)
+        self.assertEqual(ctx.exception.http_status, 422)
+
+    def test_close_incident_unblocked_after_replacement_rca_completed(self):
+        """End-to-end: Critical → cancel RCA (deadlock) → thay RCA mới → Completed →
+        close_incident OK (KHÔNG IMM12_CLOSE_RCA_INCOMPLETE); asset OOS→Active."""
+        # Đảm bảo điểm xuất phát asset = Active (test độc lập thứ tự).
+        frappe.db.set_value(
+            "AC Asset", self.asset.name, "lifecycle_status", "Active",
+            update_modified=False)
+        frappe.db.commit()
+
+        ir, old_rca = self._resolved_incident_with_auto_rca(severity="Critical")
+        # BR-12-04: Critical report → asset Out of Service.
+        self.assertEqual(
+            frappe.db.get_value("AC Asset", self.asset.name, "lifecycle_status"),
+            "Out of Service", "Critical report phải đưa asset về Out of Service")
+
+        # Hủy RCA auto → tạo deadlock: close bị chặn vì RCA chưa Completed.
+        cancel_rca(old_rca, reason="_Test hủy RCA gây deadlock")
+        frappe.db.commit()
+        with self.assertRaises(ServiceError) as ctx:
+            close_incident(ir, verification_notes="_Test đóng khi RCA còn huỷ")
+        self.assertEqual(
+            ctx.exception.message_code, MSG.IMM12_CLOSE_RCA_INCOMPLETE,
+            "RCA Cancelled → close phải chặn IMM12_CLOSE_RCA_INCOMPLETE (deadlock)")
+
+        # CR-55: thay hồ sơ RCA mới rồi hoàn tất qua đường thật.
+        new_rca = create_rca(ir)["name"]
+        frappe.db.commit()
+        self.assertNotEqual(new_rca, old_rca)
+        start_rca(new_rca)
+        frappe.db.commit()
+        submit_rca(
+            new_rca,
+            root_cause="_Test nguyên nhân gốc thay thế CR-55",
+            corrective_action="_Test hành động khắc phục thay thế CR-55",
+            five_why_steps=self._filled_five_whys(),
+        )
+        frappe.db.commit()
+        self.assertEqual(
+            frappe.db.get_value("IMM RCA Record", new_rca, "status"), "Completed")
+        # workflow_state != 'RCA Required' ⇒ submit không auto-close ⇒ đóng tường minh.
+        self.assertNotEqual(
+            frappe.db.get_value("Incident Report", ir, "status"), "Closed",
+            "RCA hoàn tất không auto-close phiếu (đóng qua close_incident tường minh)")
+
+        # Deadlock đã gỡ: close_incident KHÔNG còn raise.
+        close_incident(ir, verification_notes="_Test đóng sau khi thay RCA hoàn tất")
+        frappe.db.commit()
+        self.assertEqual(
+            frappe.db.get_value("Incident Report", ir, "status"), "Closed",
+            "close_incident phải thành công sau khi RCA thay-thế Completed")
+        # Asset khôi phục Out of Service → Active (deadlock gỡ end-to-end).
+        self.assertEqual(
+            frappe.db.get_value("AC Asset", self.asset.name, "lifecycle_status"),
+            "Active", "đóng phiếu phải khôi phục asset Out of Service → Active")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CR-39 — get_incident_detail.available_actions[] server-driven (6 CTA vòng đời)
+# Xoá predicate-mirror client-side + "403 sau khi bấm". Mirror imm00.
+# ══════════════════════════════════════════════════════════════════════════════
+
+_AA_KEYS_ORDER = ["acknowledge", "start_work", "resolve", "close", "reopen", "cancel"]
+# Shape AvailableAction (tái dùng schema QR-scan yaml:7795, required 5 field) —
+# route ∈ required ⇒ incident emit route="" (CTA nằm TRONG màn Chi tiết).
+_AA_SHAPE = {"key", "label", "route", "enabled", "reason"}
+
+_C_ACK = "incident.acknowledge"
+_C_CLOSE = "incident.close"
+
+
+def _aa_stub(status: str, severity: str = "Medium"):
+    """Doc-stub tối thiểu cho builder (chỉ đọc .status/.severity) — cho phép duyệt
+    MỌI status kể cả '' và mã LẠ (Select DocType không tạo được các state đó)."""
+    return types.SimpleNamespace(status=status, severity=severity)
+
+
+def _fake_can(allow: set):
+    """rbac.can giả: True ⇔ cap ∈ allow. Điều khiển has_cap deterministic (unit)."""
+    def _c(cap, doc=None):
+        return cap in allow
+    return _c
+
+
+def _by_key(actions: list) -> dict:
+    return {a["key"]: a for a in actions}
+
+
+class TestIncidentAvailableActionsShape(unittest.TestCase):
+    """TDD-1: get_incident_detail bồi available_actions = list ĐÚNG 6 CTA, thứ tự cố
+    định, shape AvailableAction {key,label,route,enabled,reason} (route='') — KHÔNG
+    khoá thừa/thiếu."""
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.asset = _make_asset("-aa-shape")
+        out = report_incident(
+            asset=cls.asset.name, incident_type="Malfunction", severity="Medium",
+            description="_Test available_actions shape incident description",
+        )
+        cls.inc = out["name"]
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        purge_asset(cls.asset.name)
+        frappe.db.commit()
+
+    def test_available_actions_present_exactly_six_fixed_order(self):
+        data = get_incident_detail(self.inc)
+        self.assertIn("available_actions", data,
+                      "get_incident_detail PHẢI bồi khoá available_actions (CR-39)")
+        aa = data["available_actions"]
+        self.assertIsInstance(aa, list)
+        self.assertEqual(len(aa), 6, "PHẢI đúng 6 CTA vòng đời")
+        self.assertEqual([a["key"] for a in aa], _AA_KEYS_ORDER,
+                         "thứ tự CỐ ĐỊNH [acknowledge,start_work,resolve,close,reopen,cancel]")
+
+    def test_each_element_exact_shape_route_empty(self):
+        aa = get_incident_detail(self.inc)["available_actions"]
+        for a in aa:
+            self.assertEqual(
+                set(a.keys()), _AA_SHAPE,
+                f"CTA {a.get('key')} shape phải = {_AA_SHAPE} (AvailableAction), KHÔNG khoá thừa/thiếu")
+            self.assertEqual(a["route"], "", "route='' — CTA nằm trong màn (không deep-link)")
+            self.assertIsInstance(a["enabled"], bool)
+            self.assertIsInstance(a["reason"], str)
+
+
+class TestIncidentAvailableActionsReadOnly(unittest.TestCase):
+    """TDD-7: get_incident_detail READ-ONLY tuyệt đối — KHÔNG tạo IMM Audit Trail /
+    Asset Lifecycle Event, KHÔNG modify doc (count/modified before == after)."""
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.asset = _make_asset("-aa-ro")
+        out = report_incident(
+            asset=cls.asset.name, incident_type="Malfunction", severity="Medium",
+            description="_Test available_actions read-only incident description",
+        )
+        cls.inc = out["name"]
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        purge_asset(cls.asset.name)
+        frappe.db.commit()
+
+    def test_get_incident_detail_has_no_write_side_effects(self):
+        audit_before = frappe.db.count("IMM Audit Trail")
+        lifecycle_before = frappe.db.count("Asset Lifecycle Event")
+        mod_before = frappe.db.get_value("Incident Report", self.inc, "modified")
+        # Gọi 2 lần để chắc chắn không tích luỹ side-effect ghi.
+        get_incident_detail(self.inc)
+        data = get_incident_detail(self.inc)
+        audit_after = frappe.db.count("IMM Audit Trail")
+        lifecycle_after = frappe.db.count("Asset Lifecycle Event")
+        mod_after = frappe.db.get_value("Incident Report", self.inc, "modified")
+        self.assertEqual(audit_after, audit_before,
+                         "get_incident_detail KHÔNG được tạo IMM Audit Trail")
+        self.assertEqual(lifecycle_after, lifecycle_before,
+                         "get_incident_detail KHÔNG được tạo Asset Lifecycle Event")
+        self.assertEqual(mod_after, mod_before,
+                         "get_incident_detail KHÔNG được modify doc (modified bất biến)")
+        self.assertEqual(len(data["available_actions"]), 6,
+                         "vẫn trả đủ 6 CTA (đảm bảo test không vô nghĩa)")
+
+
+class TestIncidentAvailableActionsTransition(unittest.TestCase):
+    """TDD-2: transition_allowed = target ∈ _VALID_TRANSITIONS[status] ∧ from-state.
+    Open + đủ cap → acknowledge mở (reason=''); close chưa cho transition → đóng
+    (reason != '')."""
+
+    def test_open_acknowledge_enabled_close_transition_blocked(self):
+        with patch.object(rbac, "can", side_effect=_fake_can({_C_ACK, _C_CLOSE})):
+            actions = _by_key(_build_incident_available_actions(_aa_stub("Open"), ""))
+        ack = actions["acknowledge"]
+        self.assertTrue(ack["enabled"], "Open + cap acknowledge ⟹ acknowledge mở")
+        self.assertEqual(ack["reason"], "", "enabled ⟹ reason=''")
+        close = actions["close"]
+        self.assertFalse(close["enabled"], "close chưa mở transition tại Open")
+        self.assertEqual(close["reason"], _ACTION_REASON_TRANSITION,
+                         "transition chưa cho ⟹ reason bậc transition (VI != '')")
+
+
+class TestIncidentAvailableActionsCapability(unittest.TestCase):
+    """TDD-3: has_cap dùng ĐÚNG predicate SSoT endpoint ghi. Thiếu incident.acknowledge
+    → 4 op investigate (ack/start/resolve/cancel) disabled + reason capability;
+    close/reopen theo incident.close ĐỘC LẬP (verify cả 2 chiều)."""
+
+    # (cta, status transition-hợp-lệ để cô lập nhánh capability, không phải transition)
+    _INVESTIGATE_AT = [
+        ("acknowledge", "Open"),
+        ("start_work", "Acknowledged"),
+        ("resolve", "In Progress"),
+        ("cancel", "Open"),
+    ]
+
+    def test_missing_investigate_cap_disables_investigate_ctas(self):
+        # CÓ incident.close, THIẾU incident.acknowledge.
+        with patch.object(rbac, "can", side_effect=_fake_can({_C_CLOSE})):
+            for key, status in self._INVESTIGATE_AT:
+                actions = _by_key(
+                    _build_incident_available_actions(_aa_stub(status, "Low"), ""))
+                a = actions[key]
+                self.assertFalse(a["enabled"], f"{key}@{status}: thiếu cap acknowledge ⟹ disabled")
+                self.assertEqual(a["reason"], _ACTION_REASON_CAPABILITY,
+                                 f"{key}: transition OK nhưng thiếu cap ⟹ reason bậc capability")
+
+    def test_close_reopen_independent_of_investigate_cap(self):
+        # Chiều 1: THIẾU acknowledge, CÓ close → close/reopen mở tại Resolved (Low → no RCA gate).
+        with patch.object(rbac, "can", side_effect=_fake_can({_C_CLOSE})):
+            actions = _by_key(
+                _build_incident_available_actions(_aa_stub("Resolved", "Low"), ""))
+        self.assertTrue(actions["close"]["enabled"], "close độc lập cap acknowledge")
+        self.assertEqual(actions["close"]["reason"], "")
+        self.assertTrue(actions["reopen"]["enabled"], "reopen độc lập cap acknowledge")
+        self.assertEqual(actions["reopen"]["reason"], "")
+        # Chiều 2: CÓ acknowledge, THIẾU close → close/reopen disabled + reason capability.
+        with patch.object(rbac, "can", side_effect=_fake_can({_C_ACK})):
+            actions = _by_key(
+                _build_incident_available_actions(_aa_stub("Resolved", "Low"), ""))
+        self.assertFalse(actions["close"]["enabled"], "thiếu cap close ⟹ close đóng")
+        self.assertEqual(actions["close"]["reason"], _ACTION_REASON_CAPABILITY)
+        self.assertFalse(actions["reopen"]["enabled"], "thiếu cap close ⟹ reopen đóng")
+        self.assertEqual(actions["reopen"]["reason"], _ACTION_REASON_CAPABILITY)
+
+
+class TestIncidentAvailableActionsBusinessGate(unittest.TestCase):
+    """TDD-4: business_gate close = BR-12-02. severity High/Critical + Resolved:
+    (a) RCA rỗng/chưa Completed → close đóng + reason RCA-gate; (b) RCA Completed +
+    đủ cap → close mở + reason=''."""
+
+    def test_close_blocked_when_rca_incomplete_high_severity(self):
+        with patch.object(rbac, "can", side_effect=_fake_can({_C_ACK, _C_CLOSE})):
+            for sev in ("High", "Critical"):
+                for rca_status in ("", "RCA Required", "In Progress"):
+                    actions = _by_key(_build_incident_available_actions(
+                        _aa_stub("Resolved", sev), rca_status))
+                    close = actions["close"]
+                    self.assertFalse(
+                        close["enabled"],
+                        f"sev={sev} rca={rca_status!r}: BR-12-02 chặn close")
+                    self.assertEqual(close["reason"], _ACTION_REASON_RCA_GATE,
+                                     f"sev={sev} rca={rca_status!r}: reason bậc business-gate RCA")
+
+    def test_close_allowed_when_rca_completed(self):
+        with patch.object(rbac, "can", side_effect=_fake_can({_C_ACK, _C_CLOSE})):
+            for sev in ("High", "Critical"):
+                actions = _by_key(_build_incident_available_actions(
+                    _aa_stub("Resolved", sev), "Completed"))
+                close = actions["close"]
+                self.assertTrue(close["enabled"],
+                                f"sev={sev} rca=Completed + đủ cap ⟹ close mở")
+                self.assertEqual(close["reason"], "")
+
+
+class TestIncidentAvailableActionsD9Invariant(unittest.TestCase):
+    """TDD-5: bất biến D9 — duyệt MỌI status (kể cả '' và mã LẠ 'Foo') × severity ×
+    cap-combo: enabled is False ⟹ reason != ''; enabled is True ⟹ reason == ''."""
+
+    _ALL_STATUSES = [
+        "Open", "Acknowledged", "In Progress", "Resolved", "RCA Required",
+        "Closed", "Cancelled", "", "Foo",
+    ]
+
+    def test_invariant_holds_over_full_matrix(self):
+        cap_scenarios = [set(), {_C_ACK}, {_C_CLOSE}, {_C_ACK, _C_CLOSE}]
+        for caps in cap_scenarios:
+            with patch.object(rbac, "can", side_effect=_fake_can(caps)):
+                for status in self._ALL_STATUSES:
+                    for sev in ("Low", "High", "Critical"):
+                        for rca_status in ("", "Completed"):
+                            actions = _build_incident_available_actions(
+                                _aa_stub(status, sev), rca_status)
+                            self.assertEqual(len(actions), 6)
+                            for a in actions:
+                                ctx = (f"status={status!r} sev={sev} rca={rca_status!r} "
+                                       f"cap={sorted(caps)} key={a['key']}")
+                                if a["enabled"]:
+                                    self.assertEqual(a["reason"], "",
+                                                     f"enabled True ⟹ reason='' ({ctx})")
+                                else:
+                                    self.assertNotEqual(a["reason"], "",
+                                                        f"enabled False ⟹ reason!='' ({ctx})")
+
+
+class TestIncidentAvailableActionsReopenCollision(unittest.TestCase):
+    """TDD-6 + regression va-chạm: start_work↔reopen cùng đích 'In Progress' được khử
+    bằng from-state. reopen mở CHỈ tại Resolved; start_work mở CHỈ tại Acknowledged."""
+
+    def test_reopen_enabled_at_resolved_with_close_cap(self):
+        with patch.object(rbac, "can", side_effect=_fake_can({_C_CLOSE})):
+            actions = _by_key(
+                _build_incident_available_actions(_aa_stub("Resolved", "Low"), ""))
+        self.assertTrue(actions["reopen"]["enabled"])
+        self.assertEqual(actions["reopen"]["reason"], "")
+
+    def test_reopen_disabled_at_in_progress_transition_blocked(self):
+        with patch.object(rbac, "can", side_effect=_fake_can({_C_CLOSE})):
+            actions = _by_key(
+                _build_incident_available_actions(_aa_stub("In Progress", "Low"), ""))
+        r = actions["reopen"]
+        self.assertFalse(r["enabled"], "reopen KHÔNG mở tại In Progress")
+        self.assertEqual(r["reason"], _ACTION_REASON_TRANSITION)
+
+    def test_start_work_not_enabled_at_resolved(self):
+        # Va-chạm: 'In Progress' ∈ _VALID_TRANSITIONS['Resolved'] nhưng đó là reopen,
+        # KHÔNG phải start_work. from-state phải khử.
+        with patch.object(rbac, "can", side_effect=_fake_can({_C_ACK, _C_CLOSE})):
+            actions = _by_key(
+                _build_incident_available_actions(_aa_stub("Resolved", "Low"), ""))
+        self.assertFalse(actions["start_work"]["enabled"],
+                         "start_work KHÔNG được mở tại Resolved (chỉ reopen)")
+        self.assertTrue(actions["reopen"]["enabled"], "reopen mở tại Resolved")
+
+    def test_reopen_not_enabled_at_acknowledged(self):
+        with patch.object(rbac, "can", side_effect=_fake_can({_C_ACK, _C_CLOSE})):
+            actions = _by_key(
+                _build_incident_available_actions(_aa_stub("Acknowledged", "Low"), ""))
+        self.assertFalse(actions["reopen"]["enabled"],
+                         "reopen KHÔNG được mở tại Acknowledged (chỉ start_work)")
+        self.assertTrue(actions["start_work"]["enabled"], "start_work mở tại Acknowledged")

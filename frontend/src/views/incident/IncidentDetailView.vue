@@ -8,8 +8,10 @@ import type { IncidentDetail, ScenePhoto } from '@/api/imm12'
 import { ApiError } from '@/api/errors'
 import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
 import WorkflowStepper from '@/components/common/WorkflowStepper.vue'
+import RelatedRecords from '@/components/common/RelatedRecords.vue'
 import SlaBreachBadge from '@/components/incident/SlaBreachBadge.vue'
 import { useToast } from '@/composables/useToast'
+import { useNotify } from '@/composables/useNotify'
 import { useAuthStore } from '@/stores/auth'
 import { useCapabilities } from '@/composables/useCapabilities'
 import { sanitizeHtml } from '@/utils/sanitizeHtml'
@@ -21,9 +23,13 @@ const INCIDENT_STEPS = ['Open', 'Acknowledged', 'In Progress', 'Resolved', 'Clos
 const route = useRoute()
 const router = useRouter()
 const toast = useToast()
+const notify = useNotify()
 const auth = useAuthStore()
 const { can } = useCapabilities()
 const name = computed(() => route.params.id as string)
+
+// BR-12-02 hint (SSoT tiếng Việt) — hiển thị khi nút "Đóng sự cố" bị chặn vì yêu cầu RCA.
+const RCA_CLOSE_HINT = 'Sự cố Nghiêm trọng/Nặng: bắt buộc có RCA Hoàn thành trước khi đóng (BR-12-02)'
 
 // LL-FE-12/22: gate qua capability (đồng bộ BE rbac.CAPABILITY_MAP), KHÔNG dùng
 // ROLES_* stub rỗng. incident.acknowledge = write; incident.close = submit.
@@ -78,6 +84,27 @@ const canAttachPhoto = computed(() =>
   !isTerminalStatus.value && (can('incident.acknowledge') || isReporter.value),
 )
 
+// ── IDEMPOTENCY-PHOTO-CR24 (B-rel-3): key idempotency per-file, retry-safe ────
+// Mỗi lần chọn file browser tạo File object MỚI → không so identity được; nhận
+// diện "cùng file" bằng fingerprint (incident|name|size|lastModified). Key sinh
+// 1 lần per-file (crypto.randomUUID) và GIỮ NGUYÊN khi user chọn lại cùng file
+// để retry sau lỗi → BE dedupe (cùng key + cùng incident → trả File ĐÃ đính,
+// không insert dup). Xoá key sau khi upload THÀNH CÔNG để lần đính chủ-đích
+// tiếp theo (cùng ảnh) nhận key mới — không bị over-dedupe.
+const photoRequestKeys = new Map<string, string>()
+function photoFingerprint(file: File): string {
+  return `${name.value}|${file.name}|${file.size}|${file.lastModified}`
+}
+function photoRequestKey(file: File): string {
+  const fp = photoFingerprint(file)
+  let key = photoRequestKeys.get(fp)
+  if (!key) {
+    key = globalThis.crypto.randomUUID()
+    photoRequestKeys.set(fp, key)
+  }
+  return key
+}
+
 function triggerPhotoPicker() {
   photoError.value = ''
   fileInput.value?.click()
@@ -90,7 +117,8 @@ async function onPhotoSelected(e: Event) {
   photoError.value = ''
   uploadingPhoto.value = true
   try {
-    await attachIncidentPhoto(name.value, file)
+    await attachIncidentPhoto(name.value, file, photoRequestKey(file))
+    photoRequestKeys.delete(photoFingerprint(file))   // success → key mới cho lần đính sau
     toast.success('Đã đính ảnh hiện trường')
     await load()                                  // refetch → scene_photos +1
   } catch (e2: unknown) {
@@ -181,9 +209,12 @@ async function doClose() {
     toast.success('Đã đóng sự cố')
     await load()
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : 'Lỗi khi đóng'
-    err.value = msg
-    toast.error(msg)
+    // Contract BE→FE (BR-12-02): close_incident trả VALIDATION (RCA chưa có / chưa Hoàn
+    // thành) → hiển thị qua notify.fromError (render MSG.IMM12_CLOSE_RCA_* từ registry,
+    // severity 'critical' → modal chặn). TUYỆT ĐỐI KHÔNG success toast + KHÔNG reload giả
+    // (giữ nguyên trạng thái phiếu; BE đã từ chối chuyển trạng thái).
+    showCloseModal.value = false
+    notify.fromError(e)
   } finally { actionLoading.value = false }
 }
 
@@ -331,6 +362,15 @@ const canDelete = computed(() =>
 const needsRca = computed(() =>
   (form.value.rca_required === 1) && !form.value.rca_record,
 )
+// BR-12-02 (RCA-gate SSoT): "Đóng sự cố" bị chặn khi phiếu YÊU CẦU RCA nhưng RCA chưa
+// Hoàn thành. Đọc cờ `rca_required` DERIVE-LIVE do BE tính lại theo severity mỗi lần
+// save (get_incident) — KHÔNG so severity thô client-side, KHÔNG đọc cờ stored stale
+// (phiếu escalation Medium→Critical lộ rca_required=1 ngay). `form.rca` chỉ tồn tại khi
+// có rca_record → status === 'Completed' là điều kiện đóng. Gate FE mirror EXACT gate BE
+// close_incident (services/imm12.py:711) ⇒ nhất quán API lẫn desk; BE vẫn là chốt chặn.
+const rcaRequiredLive = computed(() => form.value.rca_required === 1)
+const rcaCompleted = computed(() => form.value.rca?.status === 'Completed')
+const rcaGateBlocked = computed(() => rcaRequiredLive.value && !rcaCompleted.value)
 
 onMounted(load)
 onMounted(() => window.addEventListener('keydown', onKeydown))
@@ -350,6 +390,12 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
             {{ incidentStatusLabel(form.status ?? '') }}
           </span>
           <span v-if="form.status === 'RCA Required'" class="px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-800">{{ incidentStatusLabel('RCA Required') }}</span>
+          <!-- BR-12-02: badge "Cần RCA" theo LIVE severity (rca_required derive-live) —
+               phiếu escalated lên Nghiêm trọng/Nặng hiện ngay, ẩn khi RCA đã Hoàn thành. -->
+          <span
+            v-if="rcaGateBlocked"
+            class="px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800"
+            title="Bắt buộc có RCA Hoàn thành trước khi đóng (BR-12-02)">Cần RCA</span>
         </div>
       </div>
 
@@ -373,12 +419,25 @@ v-if="canResolve"
           @click="showResolveModal = true">
           Đánh dấu đã giải quyết
         </button>
-        <button
-v-if="canClose"
-          class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
-          @click="showCloseModal = true">
-          Đóng sự cố
-        </button>
+        <!-- BR-12-02 gate: nút "Đóng sự cố" hiển thị theo allowed_transitions (server-driven,
+             GATE-8) nhưng DISABLED khi yêu cầu RCA chưa thỏa (rcaGateBlocked) — kèm hint VI +
+             aria-describedby (WCAG). BE close_incident là chốt chặn cuối cùng. -->
+        <div v-if="canClose" class="flex flex-col items-end gap-1">
+          <button
+            :disabled="rcaGateBlocked"
+            :aria-describedby="rcaGateBlocked ? 'close-rca-hint' : undefined"
+            :title="rcaGateBlocked ? RCA_CLOSE_HINT : undefined"
+            class="bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500"
+            @click="showCloseModal = true">
+            Đóng sự cố
+          </button>
+          <p
+            v-if="rcaGateBlocked"
+            id="close-rca-hint"
+            class="text-[11px] text-amber-700 max-w-[240px] text-right leading-snug">
+            {{ RCA_CLOSE_HINT }}
+          </p>
+        </div>
         <button
 v-if="canRequestRca"
           class="bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-lg text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
@@ -412,6 +471,9 @@ Xóa
     </div>
 
     <!-- SLA + NĐ98 banner khi ảnh hưởng bệnh nhân -->
+    <!-- Bản ghi liên quan: nội dung do đồ thị liên kết ở backend quyết định. -->
+    <RelatedRecords v-if="!loading && form.status" class="mt-4" doctype="Incident Report" :name="name" />
+
     <div v-if="!loading && form.patient_affected" class="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-800 space-y-1">
       <div><strong>Ảnh hưởng bệnh nhân:</strong> {{ form.patient_impact_description || 'Có ảnh hưởng (chưa mô tả chi tiết)' }}</div>
       <div v-if="form.linked_repair_wo">Đã sinh lệnh sửa chữa: <strong>{{ form.linked_repair_wo }}</strong> — thiết bị chuyển Ngừng sử dụng.</div>

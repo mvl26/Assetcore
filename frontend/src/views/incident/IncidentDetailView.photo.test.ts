@@ -22,7 +22,8 @@ const attachIncidentPhotoSpy = vi.fn()
 vi.mock('@/api/imm12', () => ({
   MAX_INCIDENT_PHOTOS: 5,
   getIncident: () => getIncidentSpy(),
-  attachIncidentPhoto: (name: string, file: File) => attachIncidentPhotoSpy(name, file),
+  attachIncidentPhoto: (name: string, file: File, clientRequestId?: string) =>
+    attachIncidentPhotoSpy(name, file, clientRequestId),
   acknowledgeIncident: vi.fn(),
   startWork: vi.fn(),
   resolveIncident: vi.fn(),
@@ -158,6 +159,90 @@ describe('IncidentDetailView — upload ảnh (LL-FE-47 anti-dead-control + refe
     const alert = w.find('[role="alert"]')
     expect(alert.exists()).toBe(true)
     expect(alert.text()).toContain('Chỉ chấp nhận ảnh JPG hoặc PNG')
+  })
+})
+
+// ── IDEMPOTENCY-PHOTO-CR24 (B-rel-3) — key idempotency per-file, retry-safe ──
+// Call-site sinh key 1 lần per-file (crypto.randomUUID) và GIỮ NGUYÊN key khi user
+// chọn lại CÙNG file để retry sau lỗi → BE dedupe đóng cửa sổ attachment-dup.
+// Sau khi upload THÀNH CÔNG → key được xoá: lần đính chủ-đích tiếp theo (cùng ảnh)
+// nhận key MỚI, không bị dedupe nhầm (over-dedupe).
+describe('IncidentDetailView — client_request_id retry-safe (IDEMPOTENCY-PHOTO-CR24)', () => {
+  beforeEach(() => {
+    getIncidentSpy.mockReset()
+    attachIncidentPhotoSpy.mockReset()
+    toastError.mockReset()
+  })
+
+  // Cùng fingerprint (name|size|lastModified) — mô phỏng user chọn lại CÙNG file
+  // (mỗi lần chọn browser tạo File object MỚI, nên không thể so sánh identity).
+  const sameFile = () =>
+    new File(['xx'], 'hien-truong.jpg', { type: 'image/jpeg', lastModified: 1_700_000_000_000 })
+
+  async function selectFile(w: Awaited<ReturnType<typeof mountView>>, file: File) {
+    const input = w.find('input[type="file"]')
+    Object.defineProperty(input.element, 'files', { value: [file], configurable: true })
+    await input.trigger('change')
+    await flushPromises()
+  }
+
+  it('lần đầu upload → gửi client_request_id KHÔNG rỗng (UUID sinh 1 lần per-file)', async () => {
+    getIncidentSpy.mockResolvedValue(baseIncident({ scene_photos: [] }))
+    attachIncidentPhotoSpy.mockResolvedValue(photo(1))
+    const w = await mountView()
+
+    await selectFile(w, sameFile())
+
+    expect(attachIncidentPhotoSpy).toHaveBeenCalledTimes(1)
+    const key = attachIncidentPhotoSpy.mock.calls[0][2] as string
+    expect(typeof key).toBe('string')
+    expect(key.length).toBeGreaterThan(0)
+  })
+
+  it('upload FAIL → retry CÙNG file → gửi CÙNG client_request_id (key ổn định across retry)', async () => {
+    getIncidentSpy.mockResolvedValue(baseIncident({ scene_photos: [] }))
+    attachIncidentPhotoSpy
+      .mockRejectedValueOnce(new ApiError('Có lỗi máy chủ, vui lòng thử lại.', { code: ErrorCode.INTERNAL_ERROR }))
+      .mockResolvedValueOnce(photo(1))
+    const w = await mountView()
+
+    await selectFile(w, sameFile())          // lần 1: fail
+    await selectFile(w, sameFile())          // lần 2: retry cùng file (File object mới)
+
+    expect(attachIncidentPhotoSpy).toHaveBeenCalledTimes(2)
+    const key1 = attachIncidentPhotoSpy.mock.calls[0][2] as string
+    const key2 = attachIncidentPhotoSpy.mock.calls[1][2] as string
+    expect(key1.length).toBeGreaterThan(0)
+    expect(key2).toBe(key1)
+  })
+
+  it('upload THÀNH CÔNG → đính lại CÙNG ảnh (chủ đích) → key MỚI, không over-dedupe', async () => {
+    getIncidentSpy.mockResolvedValue(baseIncident({ scene_photos: [] }))
+    attachIncidentPhotoSpy.mockResolvedValue(photo(1))
+    const w = await mountView()
+
+    await selectFile(w, sameFile())          // lần 1: success → key xoá
+    await selectFile(w, sameFile())          // lần 2: đính chủ-đích lần nữa
+
+    expect(attachIncidentPhotoSpy).toHaveBeenCalledTimes(2)
+    const key1 = attachIncidentPhotoSpy.mock.calls[0][2] as string
+    const key2 = attachIncidentPhotoSpy.mock.calls[1][2] as string
+    expect(key2).not.toBe(key1)
+  })
+
+  it('file KHÁC nhau → key KHÁC nhau (scope key per-file, không share)', async () => {
+    getIncidentSpy.mockResolvedValue(baseIncident({ scene_photos: [] }))
+    attachIncidentPhotoSpy
+      .mockRejectedValueOnce(new ApiError('Có lỗi máy chủ, vui lòng thử lại.', { code: ErrorCode.INTERNAL_ERROR }))
+      .mockRejectedValueOnce(new ApiError('Có lỗi máy chủ, vui lòng thử lại.', { code: ErrorCode.INTERNAL_ERROR }))
+    const w = await mountView()
+
+    await selectFile(w, sameFile())
+    await selectFile(w, new File(['yyyy'], 'goc-khac.jpg', { type: 'image/jpeg', lastModified: 1_700_000_111_000 }))
+
+    const key1 = attachIncidentPhotoSpy.mock.calls[0][2] as string
+    const key2 = attachIncidentPhotoSpy.mock.calls[1][2] as string
+    expect(key2).not.toBe(key1)
   })
 })
 

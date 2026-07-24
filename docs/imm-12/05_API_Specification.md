@@ -19,7 +19,7 @@
 | # | Endpoint (actual @frappe.whitelist name) | Method | Mô tả | Role guard | US |
 |---|---|---|---|---|---|
 | 1 | `assetcore.api.imm12.report_incident` | POST | Tạo Incident Report. **CR-24 (Round 32):** +param optional `client_request_id` — idempotency mobile write-outbox (gửi non-empty → gọi lặp trả phiếu đã tạo, KHÔNG trùng). Xem §1a | **`corrective.create`** (V4 D1) | US-12-01 |
-| 2 | `assetcore.api.imm12.get_incident` | GET | Chi tiết 1 IR (calls `get_incident_detail`) | authenticated | US-12-07 |
+| 2 | `assetcore.api.imm12.get_incident` | GET | Chi tiết 1 IR (calls `get_incident_detail`). **CR-39 (2026-07-23):** response += `available_actions[]` = 6 CTA vòng đời server-driven (§18). **CR-40 (2026-07-24):** response += `reporter_name`/`assigned_to_name`/`asset_lifecycle_status` (§19 — hết rò email thô + hiện trạng thái máy) | authenticated | US-12-07 |
 | 3 | `assetcore.api.imm12.list_incidents` | GET | List IR với filter (`status`/`severity`/`asset`/`open`/**`mine`**) + pagination. `mine=1` scope `reported_by==session.user` (tab "Báo hỏng của tôi" MVP-5c — §2 #3 "list_incidents — filter mine" + ADR-IMM12-05) | authenticated | US-12-07 |
 | 4 | `assetcore.api.imm12.acknowledge_incident` | POST | Open → Acknowledged (hoặc → In Progress) | ROLES_INVESTIGATE | US-12-02 |
 | 5 | `assetcore.api.imm12.resolve_incident` | POST | In Progress → Resolved + auto RCA cho High/Critical | ROLES_INVESTIGATE | US-12-02 |
@@ -27,7 +27,7 @@
 | 6b | `assetcore.api.imm12.reopen_incident` | POST | **Mở lại điều tra:** `Resolved → In Progress` (BR-12-23, CR-WF-12). `reason` required. Audit IMM Audit Trail (Resolved→In Progress) | cap **`incident.close`** (`_can_close`, parity Close) | US-12-02 |
 | 6c | `assetcore.api.imm12.request_rca` | POST | **Yêu cầu phân tích RCA:** `Resolved → RCA Required` (BR-12-24, CR-WF-12-RCA-ENTRY). `rca_reason` required. Qua `apply_workflow("Yêu cầu RCA")` + sync `status`; idempotent RCA reuse; audit IMM Audit Trail (Resolved→RCA Required) | cap **`compliance.submit`** (rbac.can + `_MSG_FORBIDDEN`, parity ack/close) | US-12-03 |
 | 7 | `assetcore.api.imm12.cancel_incident` | POST | Huỷ IR (false alarm) | ROLES_INVESTIGATE | US-12-02 |
-| 8 | `assetcore.api.imm12.create_rca` | POST | Tạo IMM RCA Record liên kết IR | ROLES_INVESTIGATE | US-12-03 |
+| 8 | `assetcore.api.imm12.create_rca` | POST | Tạo IMM RCA Record liên kết IR. Idempotent 409 `IMM12_RCA_ALREADY_EXISTS` khi RCA CÒN SỐNG; **CR-55/BR-12-27**: rca_record trỏ RCA `Cancelled` → tạo RCA MỚI thay thế (re-point) | ROLES_INVESTIGATE | US-12-03 |
 | 9 | `assetcore.api.imm12.get_rca` | GET | Chi tiết 1 IMM RCA Record **+ `allowed_transitions[]` + `can_manage_rca` (0/1)** (server-driven CTA, BR-12-19) | authenticated | US-12-07 |
 | 10 | `assetcore.api.imm12.submit_rca` | POST | Hoàn thành RCA → auto create IMM CAPA Record. **CHỈ từ `RCA In Progress`** (BR-12-21, chặn nhảy-cóc) | cap `corrective.write` | US-12-03 |
 | 9b | `assetcore.api.imm12.start_rca` | POST | **Bắt đầu phân tích:** `RCA Required → RCA In Progress` (BR-12-20). Audit `rca_started` | cap `corrective.write` | US-12-03 |
@@ -36,9 +36,15 @@
 | 12 | `assetcore.api.imm12.get_dashboard` | GET | Dashboard: stats + active + rcas + chronic | authenticated | US-12-05 |
 | 13 | `assetcore.api.imm12.get_incident_stats` | GET | KPI counts per status+severity | authenticated | US-12-05 |
 | 14 | `assetcore.api.imm12.get_asset_incident_history` | GET | Incident history của 1 asset (`asset` required + `limit` default 10) → `{asset, items[]}` (9-field/dòng `name,incident_type,severity,status,reported_at,fault_code,closed_date,linked_capa,rca_record` @`services/imm12.py:838-843`; KHÔNG pagination) | authenticated | US-12-07 |
-| 15 | `assetcore.api.imm12.attach_incident_photo` | POST (multipart) | Đính **ảnh bằng chứng hiện trường** (NĐ98) vào 1 Incident Report → File private + 1 lifecycle event `incident_photo_attached`. Permission = **reporter HOẶC `incident.write`** trên chính phiếu đó (§2 #15 + BR-12-17). Mobile CR-17/G6 (endpoint DUY NHẤT còn thiếu trong contract). | reporter OR `incident.write` | US-12-08 |
+| 15 | `assetcore.api.imm12.attach_incident_photo` | POST (multipart) | Đính **ảnh bằng chứng hiện trường** (NĐ98) vào 1 Incident Report → File private + 1 lifecycle event `incident_photo_attached`. Permission = **reporter HOẶC `incident.write`** trên chính phiếu đó (§2 #15 + BR-12-17). Mobile CR-17/G6 (endpoint DUY NHẤT còn thiếu trong contract). **CR-24 phần dư (vòng 3):** +param optional `client_request_id` — idempotency re-drain ảnh, đóng attachment-dup (B-rel-3). Xem §15a | reporter OR `incident.write` | US-12-08 |
 
 > 📱 **Mobile-BE contract (FLOW-2 device-profile):** endpoint #14 đã bồi vào `docs/mobile/openapi/assetcore-mobile.openapi.yaml` (opId `getAssetIncidentHistory`, 200 = oneOf `[AssetIncidentHistoryEnvelope, Error]` closed-schema route-by-VALUE `body.success`; envelope `data.required=[asset,items]` **KHÔNG pagination** — KHÁC `IncidentListEnvelope`; element `AssetIncidentHistoryItem` EXACT 9 prop, 0 Check field ⇒ né int-vs-bool trap). Lấp dead-end màn hồ-sơ-thiết-bị sau `getAssetScanInfo`. Spec đầy đủ: [`docs/mobile/04-api-contract.md §8.18`](../mobile/04-api-contract.md).
+
+> 🔒 **DONE-gate spec-contract endpoint #6 `close_incident` (BR-12-02 / ADR-IMM12-RCA-LIVE-SSoT, Round 4 — chống ĐÓNG-GIẢ escalation):**
+> - **Gate RCA DERIVE-LIVE từ `severity` (SSoT), KHÔNG cờ STORED `rca_required`.** Predicate = `_needs_rca(doc.severity) OR doc.requires_rca` (mirror workflow JSON `doc.severity in ('High','Critical') or doc.requires_rca==1`). Chặn phiếu Critical/High thiếu RCA `Completed` **kể cả phiếu escalation từ Medium/Low** (`rca_required` ban đầu 0 nhưng gate đọc `severity` LIVE). Bug cũ `_needs_rca(sev) AND rca_required` lọt escalation — đã đóng.
+> - **2 gate 1 predicate (không lệch):** service `close_incident` (@711, đường API) + controller hook `validate_incident_close_gate` (@1740, wired `hooks.py:270` `Incident Report.validate` — đường desk/`doc.save`/`apply_workflow`). Cùng predicate ⇒ chặn nhất quán cả 2 đường.
+> - **Lỗi nghiệp vụ = in-handler HTTP-200 + Error envelope** (KHÔNG `raise`→HTTP-4xx, KHÔNG status-line): `IMM12_CLOSE_RCA_REQUIRED` (thiếu `rca_record`) / `IMM12_CLOSE_RCA_INCOMPLETE` (RCA `status!=Completed`) — body `success:false`, bucket 422. Phiếu Critical có RCA `Completed` → 200 `status='Closed'` + asset Out of Service → Active. Non-regression Low/Medium thực (`requires_rca=0`) → close 200 bình thường.
+> - **KHÔNG thêm `@frappe.whitelist` mới ⇒ `oas_baseline` bất biến (né Blocker#4); `imm_12_incident_workflow.json` bất biến (admin-override GREEN).** Acceptance đầy đủ: `02 §IV.2c` (INV-RCA-LIVE-1..8); backend §3.0.3.
 
 > 🔒 **DONE-gate spec-contract endpoint #6b `reopen_incident` (CR-WF-12, parity `close_incident`):**
 > - **Lỗi nghiệp vụ = in-handler HTTP-200 + Error envelope** (`_err`/`handle`) — KHÔNG `raise`→HTTP-4xx: `IMM12_REOPEN_REASON_REQUIRED` (422 bucket, HTTP-200 body), `IMM12_BAD_STATE` (409 bucket, HTTP-200 body) khi status ≠ `Resolved`.
@@ -108,7 +114,7 @@ FE đọc `response.data.data` (axios + Frappe lớp ngoài đã wrap).
 | `BUSINESS_RULE` | 422 | warning | `IMM12_REQUEST_RCA_BAD_STATE` | BR-12-24 | `request_rca` khi status ≠ `Resolved` — VN: "Chỉ có thể yêu cầu phân tích nguyên nhân gốc khi sự cố đang ở trạng thái Đã giải quyết" (MSG MỚI, **422 — KHÔNG dùng `IMM12_BAD_STATE`=409**) |
 | `BUSINESS_RULE` | 422 | warning | `IMM12_RCA_ROOT_CAUSE_REQUIRED` | BR-12-07 | Submit RCA thiếu `root_cause` |
 | `BUSINESS_RULE` | 422 | warning | `IMM12_RCA_CORRECTIVE_REQUIRED` | BR-12-07 | Submit RCA thiếu `corrective_action` |
-| `CONFLICT` | 409 | warning | `IMM12_RCA_ALREADY_EXISTS` | — | Incident đã có RCA Record (create_rca idempotent) |
+| `CONFLICT` | 409 | warning | `IMM12_RCA_ALREADY_EXISTS` | BR-12-27 | Incident đã có RCA **CÒN SỐNG** (`_has_live_rca`=True; status ∈ {Required, In Progress, Completed}) — `create_rca` idempotent. **CR-55**: rca_record trỏ RCA `Cancelled` KHÔNG raise (tạo RCA mới thay thế) |
 | `CONFLICT` | 409 | warning | `IMM12_RCA_ALREADY_COMPLETED` | — | Submit RCA khi RCA đã Completed |
 | `CONFLICT` | 409 | warning | `IMM12_RCA_START_INVALID_STATE` | BR-12-20 | `start_rca` khi status ≠ `RCA Required` — VN: "Chỉ có thể bắt đầu phân tích khi phiếu ở trạng thái Cần phân tích" |
 | `CONFLICT` | 409 | warning | `IMM12_RCA_SUBMIT_INVALID_STATE` | BR-12-21 | `submit_rca` từ `RCA Required` (nhảy-cóc) — VN: "Chỉ có thể hoàn thành khi phiếu đang ở trạng thái Đang phân tích" |
@@ -235,6 +241,8 @@ FE đọc `response.data.data` (axios + Frappe lớp ngoài đã wrap).
 | Cùng `client_request_id`, reporter KHÁC | KHÔNG dedupe (scope `(client_request_id, reported_by)`) — thực tế UUID nên không xảy ra. |
 
 **Cơ chế (SSoT §04 §2.1a + ADR-IMM12-09):** SELECT-before-insert ở ĐẦU service — `frappe.db.get_value("Incident Report", {client_request_id, reported_by}, [name,status,severity])`; trúng → early-return. Field `client_request_id` (Data, `search_index:1` → DB index NON-UNIQUE) persist trên `Incident Report`; lookup = index-seek O(1), KHÔNG full-scan.
+
+> ⚠️ **[LANDED-DELTA 2026-07-14 — hiện thực KHÁC spec trên, đã VERIFY @source]:** bản land (ADR-MOBILE-047, Accepted) chốt **GLOBAL-key** (`_dedupe_lookup` `services/imm12.py:450` — KHÔNG lọc `reported_by`) + field **`unique:1` NULL-store** (`incident_report.json` — persist CHỈ khi truthy → NULL, KHÔNG `search_index`) + **race-handler `UniqueValidationError`** (@:549-560). Spec NON-UNIQUE/(key,reported_by) ở đây + ADR-IMM12-09 đã bị **supersede** — xem `04 §2.1a` note + ADR-IMM12-09 Status. Spec mới (photo §15a) bám pattern ĐÃ LAND, không bám spec cũ này.
 
 **📱 Mobile-BE OAS mirror delta (COUPLED — KHÔNG contract-only, land cùng handler ở Bước-4):**
 - `docs/mobile/openapi/assetcore-mobile.openapi.yaml` → schema `ReportIncidentRequest.properties`: THÊM
@@ -383,7 +391,7 @@ curl -X POST 'https://hospital.assetcore.vn/api/method/assetcore.api.imm12.submi
 1. `doc = _get_incident(name)` (404 `IMM12_INCIDENT_NOT_FOUND` nếu không tồn tại).
 2. **Precondition (đọc `doc.status` — domain SSoT, KHÔNG `workflow_state`):** `status ≠ "Resolved"` → `nthrow(MSG.IMM12_REQUEST_RCA_BAD_STATE)` (422); `rca_reason.strip()` rỗng → `nthrow(MSG.IMM12_RCA_REASON_REQUIRED)` (422). KHÔNG đổi status.
 3. `apply_workflow(inc, "Yêu cầu RCA")` (flip `workflow_state` → `RCA Required`), rồi `frappe.db.set_value(_DT_INCIDENT, name, {"status": "RCA Required"}, update_modified=False)` sync Select. Wrap `try/except` + fallback `db.set_value({"workflow_state": "RCA Required", "status": "RCA Required"})` khi `workflow_state` desync (mirror `_advance` except-branch). `frappe.db.commit()`.
-4. **RCA idempotent reuse:** `if not (doc.rca_record and frappe.db.exists(_DT_RCA, doc.rca_record)): create_rca(name)` — GUARD trước khi gọi (`create_rca` raise 409 nếu đã có → KHÔNG tạo trùng). Reuse `rca_record` sẵn (vd Critical đã auto-tạo ở `resolve_incident`).
+4. **RCA idempotent reuse (loại-Cancelled, BR-12-27/ADR-IMM12-11):** `if not _has_live_rca(doc): create_rca(name)` — reuse `rca_record` CHỈ khi RCA CÒN SỐNG (vd Critical đã auto-tạo ở `resolve_incident`, status ∈ {Required, In Progress, Completed}). Nếu rca_record trỏ RCA `Cancelled` (CR-55) ⇒ `_has_live_rca`=False ⇒ `create_rca(name)` tạo RCA MỚI + re-point (KHÔNG tái dùng hồ sơ huỷ). `create_rca` raise 409 nếu đã có RCA sống ⇒ KHÔNG tạo trùng.
 5. `_log(name, doc.asset, f"Yêu cầu RCA — {rca_reason[:120]}", "Resolved", "RCA Required")` (IMM Audit Trail — **KHÔNG** thêm option Select `event_type`, precedent reopen D4).
 6. `return {"name": name, "status": "RCA Required", "rca_record": <rca.name>}`.
 
@@ -398,6 +406,22 @@ curl -X POST 'https://hospital.assetcore.vn/api/method/assetcore.api.imm12.submi
 **Side effect:** audit IMM Audit Trail (`Resolved → RCA Required`); RCA Record tạo/link (idempotent). **ENTRY** của nhánh `RCA Required` — sau khi hoàn tất RCA (`start_rca` → `submit_rca`), `_advance_incident_after_rca` (EXIT, đã build) auto `apply_workflow("RCA hoàn tất - đóng sự cố")` → Incident `Closed` (loop đóng kín).
 
 **Phân vai với `create_rca` (#8):** `create_rca` (gate `incident.acknowledge`=corrective) = KTV **tạo bản phân tích** RCA, KHÔNG đổi status Incident. `request_rca` (gate `compliance.submit`=governance) = quản trị tuân thủ **chốt sự cố PHẢI qua RCA** (đổi status Resolved→RCA Required, chặn close tới khi RCA Completed — BR-12-02). Hai endpoint phân vai rõ, cùng tồn tại.
+
+---
+
+### 8. create_rca / request_rca — thay hồ sơ RCA đã HỦY (CR-55, BR-12-27, ADR-IMM12-11) 🆕 SPEC
+
+**Vấn đề (deadlock):** Incident High/Critical có `rca_record` trỏ RCA `status='Cancelled'` (do `cancel_rca` BR-12-22) bị KHÓA VĨNH VIỄN: `create_rca` raise 409 (rca_record tồn tại) ⇒ không tạo RCA thay thế; RCA Cancelled không bao giờ → `Completed` ⇒ `close_incident` raise `IMM12_CLOSE_RCA_INCOMPLETE` (BR-12-02) mãi ⇒ asset kẹt `Out of Service`.
+
+**Fix (vị-từ "RCA CÒN SỐNG"):** cả 2 hàm dùng CHUNG helper `_has_live_rca(doc)` = `bool(doc.rca_record) ∧ frappe.db.exists("IMM RCA Record", rca_record) ∧ status != "Cancelled"`.
+
+| Tình huống `rca_record` | `create_rca` | `request_rca` (reuse) |
+|---|---|---|
+| Không có / không tồn tại | Tạo RCA mới | `create_rca(name)` → tạo mới |
+| Trỏ RCA `Cancelled` (**CR-55**) | `_has_live_rca`=False ⇒ **TẠO MỚI** + re-point `rca_record`; Cancelled cũ GIỮ NGUYÊN (audit) | `_has_live_rca`=False ⇒ **TẠO MỚI** (KHÔNG tái dùng huỷ) |
+| Trỏ RCA `Required`/`In Progress`/`Completed` (**REGRESSION-GUARD**) | `_has_live_rca`=True ⇒ **raise `IMM12_RCA_ALREADY_EXISTS`** (409, in-handler HTTP-200) | reuse hồ sơ sống, KHÔNG tạo trùng |
+
+> 🔒 **DONE-gate spec-contract (CR-55):** lỗi nghiệp vụ `IMM12_RCA_ALREADY_EXISTS` = **in-handler HTTP-200 + Error envelope** (409 bucket qua `nthrow`/`handle`), KHÔNG `raise`→HTTP-4xx. Cap-403 giữ 2-flavor cũ (dispatcher guest/no-token vs in-handler thiếu cap). KHÔNG field/endpoint/`@frappe.whitelist`/DocPerm mới ⇒ `oas_baseline` bất biến, KHÔNG migrate. Sau RCA mới hoàn tất (`start_rca`→`submit_rca`→`Completed`), `close_incident` High/Critical KHÔNG còn raise `IMM12_CLOSE_RCA_INCOMPLETE`; asset `Out of Service` → `Active` (deadlock gỡ end-to-end).
 
 ---
 
@@ -662,6 +686,62 @@ allowed     = is_reporter OR has_write
 
 > 📱 **Mobile-BE contract (CR-17/G6 — path `multipart/form-data` ĐẦU TIÊN của mirror):** `attach_incident_photo` ĐÃ được bồi vào `docs/mobile/openapi/assetcore-mobile.openapi.yaml` (opId `attachIncidentPhoto`, POST-only, path/opId **58→59**). requestBody = **`multipart/form-data` DUY NHẤT** (`$ref AttachIncidentPhotoRequest` closed `req[incident_name,file]`, `file:{type:string,format:binary}` — **KHÔNG `application/json`/`x-www-form-urlencoded`** vì server đọc `frappe.request.files["file"]`, KHÔNG `form_dict`). **200 = oneOf [`AttachIncidentPhotoEnvelope` \| `Error`]** (Decision-B route-by-VALUE `body.success`, 0 discriminator); `AttachIncidentPhotoResponse` closed EXACT 2-prop `req[file_url,file_name]` (grounded `services/imm12.py:1064`); nhánh `Error.http_status` ⊇ **{403,404,422}** khớp ladder 7 nhánh trên (gồm nhánh **corrupt** @1040-1051). slot `{200,401,403}` — **`403 Forbidden` SINGLE-SHAPE** (dispatcher-403 guest/no-token; in-handler cap-403 đã phủ bởi nhánh Error 200-oneOf ⇒ KHÔNG dual-403 như `reportIncident`; mirror `acknowledgeIncident` ADR-MOBILE-006). Membership `_MVP_BUSINESS_PATHS` + `_MVP_ACTION_ENVELOPE`; media-type guard mở-rộng hằng RIÊNG `_ATTACH_INCIDENT_PHOTO_BODY_MEDIA_TYPES={"multipart/form-data"}`. **CONTRACT-ONLY** (BE LIVE, pure-yaml). Spec đầy đủ + Alternatives + handoff BE: [`docs/mobile/04-api-contract.md §8.33`](../mobile/04-api-contract.md) · [`ADR-MOBILE-027.md`](../mobile/ADR-MOBILE-027.md). Đây là template cho **CR-14/CR-15** (ảnh checklist PM/CM — cùng family multipart, MAX=1/item KHÁC incident MAX=5).
 
+### 15a. attach_incident_photo — Idempotency `client_request_id` (CR-24 phần dư · B-rel-3) 🆕 SPEC (BE Bước-4, vòng 3 2026-07-16)
+
+> **Mục tiêu.** Đóng **cửa sổ attachment-dup** — parity `report_incident` §1a. Mobile drain outbox PHA-2 (đính ảnh theo `photoCursor` sau khi phiếu đã có `incidentName`): nếu response `attach_incident_photo` **rớt mạng SAU khi server đã tạo File**, client không advance cursor → re-drain **re-POST cùng ảnh** → **File TRÙNG + lifecycle event `incident_photo_attached` TRÙNG** (bẩn evidence-trail NĐ98 — 2 event cho 1 bằng chứng thực).
+>
+> **Vì sao Frappe không tự đóng (backend-confirm (a)):** Frappe **KHÔNG có cơ chế idempotency request-level** cho whitelisted RPC. `File.validate_duplicate_entry` (`frappe/core/doctype/file/file.py:413-441`) khi trùng `content_hash`+`attached_to` CHỈ **reuse `file_url`** (đỡ ghi đĩa) — VẪN insert **ROW File mới** + service VẪN emit **event lần 2** ⇒ không phải idempotency. Phải tự dedupe app-level (precedent ADR-MOBILE-047).
+
+**Param mới (AC1 — land ATOMIC handler + service + OAS + guard, KHÔNG pure-yaml):**
+
+- `api/imm12.py::attach_incident_photo` (@:295): thêm `client_request_id: str = ""` **TƯỜNG MINH** vào signature (hiện bị `**_ignore` nuốt câm — client gửi cũng vô tác dụng). `**_ignore` **GIỮ** (vẫn nuốt kwargs spoof KHÁC). KHÔNG `str|None` (tránh HTTP-417 coercion). Docstring ghi CR-24/B-rel-3. Pass-through: `handle(svc_attach_photo, incident_name, filedata=..., filename=..., content_type=..., client_request_id=client_request_id)`.
+- `services/imm12.py::attach_incident_photo` (@:1147): thêm keyword param `client_request_id: str = ""` + dedupe 2 lớp (pre-check + unique race-handler) — thuật toán & field schema: **`04 §2.1b` + ADR-IMM12-10**.
+
+**Hành vi (BR-12-26):**
+
+| Trường hợp | Kết quả |
+|---|---|
+| Cùng `client_request_id` + CÙNG incident, POST 2× (AC2) | **1 File + 1 lifecycle event.** Call#2 → dedupe-hit → success envelope Decision-B `{success:true, data:{file_url,file_name}}` của File **ĐÃ đính lần 1** (file_url/file_name khớp). KHÔNG insert File, KHÔNG emit `incident_photo_attached` lần 2. Shape response KHÔNG đổi (EXACT 2-key — guard (e) GIỮ). |
+| `client_request_id` rỗng/thiếu (AC3) | **At-least-once CŨ NGUYÊN VẸN** — mỗi call tạo File mới (field không set → NULL). Backward-compat 100%: web FE + toàn bộ test imm12 cũ không đổi. |
+| Cùng key nhưng **KHÁC incident** (AC4) | **KHÔNG dedupe chéo** — 2 File riêng (dedupe scope = `(incident_name, client_request_id)`; chỉ match File sinh từ đúng flow attach của incident đó — File không mang key/flow khác KHÔNG bao giờ match). |
+| 2 key KHÁC nhau, cùng incident | 2 File riêng (2 ảnh khác nhau của cùng phiếu). |
+| 2 request CONCURRENT cùng key + cùng incident (race) | 1 File — lớp-2 unique constraint chặn kẻ thua → race-handler re-read → return winner (parity ADR-MOBILE-047 lớp-2). Kẻ thua raise TRƯỚC emit event ⇒ vẫn đúng 1 event. |
+
+**Thứ tự thực thi MỚI (delta vs §15 — chèn 1 bước):** Guest → exists(incident) → permission (reporter/write) → **`dedupe pre-check` (key truthy + trúng → early-return File cũ)** → file present → content-type → size → max-count → `File.insert` (persist scoped key) → `create_lifecycle_event` → `commit` → `_ok`.
+- **Dedupe SAU permission:** chặn probe key → leak `file_url` phiếu người khác (khác `report_incident` — ở đó cap-gate `corrective.create` nằm API-tier trước handle).
+- **Dedupe TRƯỚC file-present/max-count:** replay của ảnh thứ 5 phải trả success (File đã đính), KHÔNG dội `VALIDATION "Tối đa 5 ảnh"`; idempotent-replay trả kết quả đã ghi bất kể body lần 2.
+
+**Backend-confirm (task AC5 — chi tiết + alternatives: `04 §2.1b` ADR-IMM12-10):**
+- **(a)** Frappe KHÔNG có idempotency sẵn (evidence trên) → tự dedupe app-level 2 lớp.
+- **(b)** Khoá đi trong **body field `client_request_id`** (multipart form part) — parity `report_incident`; KHÔNG dùng header `Idempotency-Key` (Frappe RPC không route header sạch — ADR-MOBILE-047 Alt-A).
+- **(c)** **KHÔNG TTL** — key sống cùng File record (parity ADR-MOBILE-047 Alt-D); File bị xoá → key biến mất → replay sau đó tạo File mới (chấp nhận, ghi Consequences ADR-IMM12-10). 0 cleanup job.
+
+**Key per-photo (client contract — ghi vào OAS description + handoff mobile):** mỗi **ảnh** = 1 key RIÊNG, ổn định qua mọi re-drain của CÙNG ảnh (vd `${item.id}#p${photoCursor}` — item.id outbox + STT ảnh). **KHÔNG tái dùng** key của `report_incident` hay của ảnh khác cùng phiếu — tái dùng ⇒ ảnh sau bị dedupe nhầm thành ảnh trước → **mất ảnh im lặng**.
+
+**📱 OAS mirror delta (COUPLED — guard live-sig parity sẽ RED nếu yaml đi trước handler):**
+- `docs/mobile/openapi/assetcore-mobile.openapi.yaml` schema `AttachIncidentPhotoRequest` (@:5260-5282): THÊM property
+  ```yaml
+  client_request_id:
+    type: string
+    description: >-
+      OPTIONAL — idempotency key per-ảnh (CR-24/B-rel-3, mobile write-outbox re-drain). Cùng key +
+      cùng incident gọi lặp ⇒ trả File ĐÃ đính (KHÔNG File/event trùng). Mỗi ảnh 1 key RIÊNG, ổn định
+      qua re-drain; KHÔNG tái dùng key ảnh khác (bị dedupe nhầm → mất ảnh). Rỗng/thiếu ⇒ hành vi cũ.
+  ```
+  `additionalProperties: false` **GIỮ** (schema ĐÓNG — 3 props; **KHÁC** `ReportIncidentRequest` OPEN cố ý §1a); `required[]` **GIỮ EXACT** `[incident_name, file]` — `client_request_id` ∉ required. **Curate mô tả @source VERBATIM** sau khi handler/service land (line-ref thật, không đoán). 0 path/opId mới → **path-count GIỮ 91**.
+- **Guard coupling (`test_mobile_oas.py`) — cập nhật CÙNG lượt:**
+  1. `_ATTACH_INCIDENT_PHOTO_REQUEST_PROPS` (@:1114) `{incident_name, file}` → `{incident_name, file, client_request_id}`; `_ATTACH_INCIDENT_PHOTO_REQUEST_REQUIRED` (@:1113) **GIỮ** `["file", "incident_name"]` ⇒ guard (c) (@:17265-17271) tự phủ props-EXACT-3 + required-EXACT-2 + closed GIỮ. +assert `client_request_id` type `string`.
+  2. Guard (h) live-sig parity (@:17357-17375): non-var params `{incident_name}` → `{incident_name, client_request_id}`; assert `**_ignore` VAR_KEYWORD **GIỮ**.
+  3. Khuyến nghị +TC class `TestMobileAttachPhotoIdempotencyContract` (mirror `TestMobileReportIncidentIdempotencyContract` ADR-047: prop-exists / ∉required+closed-GIỮ / handler-parity) — RED-before proof phía contract.
+  4. Đồng bộ counter `_EXPECTED_TEST_COUNT` + `_GUARD_SUITE_EXPECTED[test_mobile_oas.py]` + `_GUARD_SUITE_SUM` + `_MOBILE_OAS_TOTAL` (test_mobile_docset) — **đọc số FRESH tại thời điểm code** (multi-session drift; số trong doc này có thể cũ).
+  5. Comment/docstring guard còn line-ref trôi (`api/imm12.py:273/293`, `services/imm12.py:995/1064` — thực tế :295/:314, :1147/:1216) — CHỈ comment, 0 assertion; refresh nếu tiện (cùng loại T2 STATE).
+
+**Errors:** KHÔNG thêm nhánh lỗi mới — dedupe-hit là success path (HTTP-200 envelope). Bảng lỗi §15 giữ nguyên; `Error.http_status` enum không đổi.
+
+**DoD (AC6):** `bench --site miyano run-tests` cho `test_imm12` (TC-12-PHOTO-IDEMP-01..07, xem `07 §III.2`) + `test_mobile_oas` + `test_mobile_docset` → 'Ran N OK' THẬT; **RED-before**: chưa có dedupe → TC-01 FAIL (2 File). FE vitest + vue-tsc PASS (web FE 0 file đổi — kỳ vọng pass nguyên trạng). **Deploy-note:** `.py` đổi → cần **gunicorn reload (`--preload` staleness — HARD-STOP USER, chỉ ghi chú)**; Custom Field fixture → `bench migrate`/`import-fixtures` trên dev (được phép round này) — HTTP live chờ user reload. KHÔNG git commit.
+
+**OUT-OF-SCOPE vòng này (backlog [AUTO] vòng kế):** (1) cùng pattern dedupe cho `attach_pm_checklist_photo` (imm08) + `attach_repair_checklist_photo` (imm09) — cân nhắc generalize helper/registry khi làm (ADR-IMM12-10 Alt-D); (2) idempotency cho `close_work_order`/`submit_pm_result`/`receive_transfer` (contract chỉ khuyến nghị); (3) CR-28b PM server due-filter.
+
 ### 16. get_incident_detail — parity `scene_photos[]` (mobile + web) 🟡 SPEC (BE Bước-4)
 
 `get_incident_detail(name)` (endpoint #2 `get_incident`) trả **THÊM** property:
@@ -728,6 +808,106 @@ allowed     = is_reporter OR has_write
 > **DELTA vòng này (so với bản trước):** (1) catalog +row #15 `attach_incident_photo`; (2) §2 #15 endpoint multipart + bảng-lỗi Decision-B + 2-loại-403 + permission model + Boundaries; (3) §2 #16 `get_incident_detail += scene_photos[]` (count==rows với max-check); (4) ADR-IMM12-06 (File-private store) + ADR-IMM12-07 (lifecycle enum-add). **BE Bước-4 delta** (KHÔNG thuộc file doc): `api/imm12.py` (`attach_incident_photo` handler), `services/imm12.py` (`_scene_photos` helper + `attach_incident_photo` service + `get_incident_detail` += scene_photos + const `MAX_INCIDENT_PHOTOS=5`/`MAX_INCIDENT_PHOTO_BYTES`), `asset_lifecycle_event.json` (+option `incident_photo_attached`), `tests/test_imm12.py` (7 nhánh AC). **Mobile contract delta:** path `attachIncidentPhoto` (multipart) + `IncidentDetail += scene_photos`.
 
 > **DELTA CR-21 (round 4) — SLA-breach parity màn Chi tiết:** (1) §17 mới `get_incident_detail += is_response_breached/is_resolution_breached` (INV-SLA-5 mở rộng detail, INV-SLA-6 terminal, Boundaries no-web-only-leak + no-client-clock); (2) ADR-IMM12-08 (detail đọc derived server-flag, supersede "out-of-scope"); (3) Self-Correction §DELTA per-row enrich. **BE Bước-4 delta:** `services/imm12.py::get_incident_detail` += `_enrich_sla_breach([data])` (đã có trong working-tree, `imm12.py:950`); `api/imm12.py::get_incident` UNCHANGED. **FE Bước-4 delta:** `IncidentDetailView.vue` +section "Tình trạng SLA" (đọc `is_*_breached ?? *_breached`, reuse `SlaBreachBadge`, KHÔNG client-clock — xem `06 §2.3.b`). **Test delta:** `test_imm12.py::TestIncidentDetailSlaLive` (4 nhánh AC-S6 — bổ sung AC#1 resolution-past→1 + AC#4 terminal-cờ=1→1); FE `incidentDetailSlaBadge.test.ts`. **Mobile contract delta:** `IncidentDetail += is_response_breached/is_resolution_breached`.
+
+### 18. get_incident_detail — `available_actions[]` server-driven 6 CTA (CR-39) 🟡 SPEC (BE/FE Bước-4)
+
+> **Mục tiêu (CR-39):** màn **Chi tiết sự cố** (web `IncidentDetailView` + mobile) hiện tại gate 6 nút CTA vòng đời bằng **predicate-mirror ở FE** (hardcode `status===X`, `can(cap)`, và tự suy BR-12-02) → 2 lỗi: (a) FE tính khác BE ⇒ nút hiện nhưng bấm → **lỗi 403/422 sau khi bấm** (advertise≠enforce); (b) drift khi BE đổi cap/transition. Cách sửa (parity `available_actions` của IMM-00 QR-scan + `allowed_transitions`/`can_manage_rca` RCA): BE trả **1 mảng CTA có sẵn `enabled`+`reason`** — FE chỉ render, KHÔNG tự suy.
+
+**Endpoint:** `GET assetcore.api.imm12.get_incident` (endpoint #2 → service `get_incident_detail(name)`). Auth/handler **KHÔNG đổi**: Guest → 401; đăng nhập → AUTH-10 IDOR guard (`assert_vendor_can_access("Incident Report", name)`) → `handle(_run)` Decision-B `_ok(...)`. Envelope shape **KHÔNG đổi** (field additive).
+
+`get_incident_detail(name)` trả **THÊM** property `available_actions`: **mảng ĐÚNG 6 phần tử**, thứ tự **CỐ ĐỊNH** `[acknowledge, start_work, resolve, close, reopen, cancel]`, **LUÔN đủ 6** (kể cả khi `enabled=false`):
+
+```jsonc
+"available_actions": [
+  { "key": "acknowledge", "label": "Tiếp nhận",           "route": "", "enabled": true,  "reason": "" },
+  { "key": "start_work",  "label": "Bắt đầu xử lý",       "route": "", "enabled": false, "reason": "Chỉ bắt đầu xử lý được khi sự cố đã tiếp nhận" },
+  { "key": "resolve",     "label": "Đánh dấu đã giải quyết","route": "", "enabled": false, "reason": "Chỉ đánh dấu đã giải quyết khi sự cố đang xử lý" },
+  { "key": "close",       "label": "Đóng sự cố",           "route": "", "enabled": false, "reason": "Chỉ đóng được khi sự cố đã được giải quyết" },
+  { "key": "reopen",      "label": "Mở lại điều tra",      "route": "", "enabled": false, "reason": "Chỉ mở lại điều tra khi sự cố đã được giải quyết" },
+  { "key": "cancel",      "label": "Hủy sự cố",            "route": "", "enabled": true,  "reason": "" }
+]
+```
+
+- **Shape phần tử = `AvailableAction`** (TÁI DÙNG schema QR-scan `{key, label, route, enabled, reason}` — KHÔNG mint schema mới). `route` **luôn `""`** (CTA nằm **trong màn** Chi tiết, KHÔNG deep-link; `route` giữ trong shape vì schema tái dùng `required` gồm `route`).
+- **SSoT = `_build_incident_actions(doc)`** (`services/imm12.py`, gọi trong `get_incident_detail`). Xem `04 §3.0.4` cho spec helper + tuple `_INCIDENT_ACTION_SPECS`.
+
+**`enabled` = `transition_allowed` ∩ `has_cap` ∩ `business_gate`** (3 tầng — parity `_build_available_actions` imm00):
+
+| Tầng | Định nghĩa | Nguồn SSoT |
+|---|---|---|
+| `transition_allowed` | `cta.target_status ∈ _VALID_TRANSITIONS[doc.status]` **∧** `doc.status ∈ cta.source_states` | `_VALID_TRANSITIONS` (`imm12.py:242`) + `source_states` per-CTA (**xem ADR-IMM12-09** — khử va chạm `start_work`↔`reopen` cùng đích `In Progress`) |
+| `has_cap` | `rbac.can(cap)` — `acknowledge/start_work/resolve/cancel → incident.acknowledge` (`_CAP_INVESTIGATE`); `close/reopen → incident.close` (`_CAP_CLOSE`) | **DÙNG ĐÚNG cap-string endpoint ghi** (`api/imm12.py:52-53`). TUYỆT ĐỐI KHÔNG re-literal cap khác (drift = gate nói dối). Khuyến nghị hoist 2 hằng cap về `services/imm12.py` để advertise & enforce đọc **1 SSoT** |
+| `business_gate` | CHỈ `close` = BR-12-02 `_close_rca_satisfied(doc)`; 5 CTA còn lại = `True` | `_close_rca_satisfied(doc)` = `not _needs_rca(severity)` OR (`rca_record` set ∧ `rca.status=='Completed'`). **CÙNG predicate** `close_incident()` enforce ⇒ advertise==enforce (§04 §3.0.4) |
+
+**BR-12-02 cho `close.enabled`:** `_needs_rca(doc.severity)` ∧ (`rca_record` rỗng ∨ `rca.status != 'Completed'`) ⇒ `close.enabled=false`, `reason` = "Cần hoàn tất phân tích nguyên nhân gốc (RCA) trước khi đóng sự cố". Khi `rca.status=='Completed'` (và transition+cap đủ) ⇒ `close.enabled=true`, `reason=""`.
+
+**BẤT BIẾN ĐO ĐƯỢC (D9 — parity imm00 `_build_available_actions`):**
+
+| Invariant | Kỳ vọng |
+|---|---|
+| **INV-CTA-1** (reason ⟺ enabled) | `enabled is False` ⟹ `reason != ""` (câu tiếng Việt) với **MỌI** `status` (kể cả `''` và mã LẠ ngoài enum); `enabled is True` ⟹ `reason == ""`. |
+| **INV-CTA-2** (ưu tiên reason) | 3 bậc: **lifecycle/transition > capability > business-gate/unknown**. transition-blocked → reason precondition-CTA; else thiếu cap → reason capability; else (chỉ close) business-gate → reason RCA; fallback unknown (`""` status/mã lạ + đủ cap+transition) → reason chung an toàn (KHÔNG để rỗng). |
+| **INV-CTA-3** (đúng 6, thứ tự cố định) | `len(available_actions)==6`, `key` theo thứ tự `[acknowledge, start_work, resolve, close, reopen, cancel]` bất kể `status`. |
+| **INV-CTA-4** (advertise==enforce) | `close.enabled==True` ⟺ `close_incident(name)` KHÔNG raise BR-12-02; `<cta>.enabled==True` ⟹ endpoint tương ứng KHÔNG trả 403/`BAD_STATE`. |
+| **INV-CTA-5** (READ-ONLY) | Gọi `get_incident_detail` **KHÔNG** tạo IMM Audit Trail / Asset Lifecycle Event / modify doc (`count-before == count-after` cho cả 2 doctype). |
+
+**Boundaries (Always / Never):**
+- **Always:** trả đủ 6 CTA thứ tự cố định; `enabled` = 3 tầng qua **SSoT** (`_VALID_TRANSITIONS` + cap-hằng endpoint + `_close_rca_satisfied`); `reason` VI non-empty khi disabled (INV-CTA-1); `route=""`; READ-ONLY tuyệt đối.
+- **Never:** hardcode cap-string khác endpoint ghi; re-implement BR-12-02 predicate (phải dùng `_close_rca_satisfied` chung với `close_incident`); suy `enabled` từ role-name (dùng `rbac.can`); ghi audit/lifecycle/modify doc trong nhánh read; đổi shape envelope Decision-B; đổi 5 CTA còn lại theo business_gate (chỉ `close`).
+
+**Mobile contract (CR-39):** `IncidentDetail += available_actions: array<AvailableAction>` (**KHÔNG** vào `required`; additive trên schema MỞ `additionalProperties:true` GIỮ; mirror pattern optional-emit `allowed_transitions`/`scene_photos`/`is_*_breached`; mobile **KHÔNG** bắt buộc `api:gen`, client cũ không ảnh hưởng).
+
+> ✅ **Mobile OAS mirror ĐÃ CURATE (CR-39, 2026-07-23 — CONTRACT-ONLY, BA slice):** property `available_actions` (`type:array`, `items.$ref '#/components/schemas/AvailableAction'`) bồi vào schema `IncidentDetail` (`docs/mobile/openapi/assetcore-mobile.openapi.yaml`, cạnh `allowed_transitions`; property 43→44; `additionalProperties:true` GIỮ; `required` GIỮ `['name']`). Guard `TestMobileIncidentDetailAvailableActionsParity` incact_a..f (`test_mobile_oas` +6 TC — field/array/$ref/optional/open-schema/reuse-AvailableAction; RED-before/GREEN-after): `_EXPECTED_TEST_COUNT` 882→888 + 2 counter-guard hardcode 882→888 · `test_mobile_docset` sync `_GUARD_SUITE_EXPECTED[test_mobile_oas.py]` 882→888 / `_GUARD_SUITE_SUM` 1025→1031 / `_MOBILE_OAS_TOTAL` 1051→1057 / transition-baseline `available_actions_incdetail_delta=6`. **VERIFIED:** `test_mobile_docset` 9/9 GREEN; `test_mobile_oas` — 6 TC mới + count-guard GREEN (2 error tồn dư = `TestMobileSpecParityRuntime`/`addmeas_i` do module `files` chưa map `_CROSSCUT_TAG_MAP`, **owner khác** — KHÔNG do CR-39). **BE Bước-4 (KHÔNG thuộc slice contract):** `services/imm12.py` (+`_build_incident_actions` + `_INCIDENT_ACTION_SPECS` tuple + `_close_rca_satisfied` shared predicate + `get_incident_detail` += `available_actions`; hoist 2 cap-hằng); `tests/test_imm12.py` (nhánh AC INV-CTA-1..5). **FE Bước-4:** `IncidentDetailView.vue` render cụm workflow-CTA từ `available_actions` (§06 §2.1.a), xoá predicate-mirror.
+
+### ADR-IMM12-09: `available_actions` = 3-tầng gate với `source_states` per-CTA (khử va chạm shared-target) + reuse `AvailableAction`
+- **Status**: Accepted · **Date**: 2026-07-23
+- **Context**: CR-39 muốn `enabled` của mỗi CTA = `transition_allowed ∩ has_cap ∩ business_gate`, với `transition_allowed` neo vào SSoT `_VALID_TRANSITIONS` (chống dead-button). **NHƯNG** `start_work` và `reopen` **cùng đích** `In Progress`: `_VALID_TRANSITIONS[Acknowledged]=[In Progress, Cancelled]` và `_VALID_TRANSITIONS[Resolved]=[Closed, RCA Required, In Progress]` — nếu chỉ dùng `target ∈ _VALID_TRANSITIONS[status]` thì `reopen` sẽ `enabled` **sai** ở `Acknowledged` và `start_work` sẽ `enabled` **sai** ở `Resolved` (cả 2 cùng đích `In Progress` ⇒ cùng transition_allowed). Đây là **thiếu sót của công thức "target ∈ allowed"** trong đề mục gốc — cần Self-Correction.
+- **Decision**: mỗi CTA trong `_INCIDENT_ACTION_SPECS` mang thêm `source_states` (tập status mà CTA có nghĩa): `acknowledge={Open}`, `start_work={Acknowledged}`, `resolve={In Progress}`, `close={Resolved}`, `reopen={Resolved}`, `cancel={Open, Acknowledged, In Progress}`. `transition_allowed = (target ∈ _VALID_TRANSITIONS[status]) ∧ (status ∈ source_states)`. Clause 1 giữ SSoT `_VALID_TRANSITIONS` (đổi/gỡ edge → CTA auto-tắt, chống dead-button); clause 2 khử va chạm `start_work`↔`reopen`. TÁI DÙNG schema `AvailableAction` (route=`""`), KHÔNG mint schema riêng cho incident.
+- **Alternatives**: (A) chỉ `target ∈ _VALID_TRANSITIONS[status]` → `start_work`/`reopen` bật sai chéo state (BUG) → loại. (B) reverse-map `target→source_states` tự động từ `_VALID_TRANSITIONS` → **bất khả** vì shared-target `In Progress` ambiguous → loại. (C) bỏ 1 trong 2 CTA khỏi mảng tùy state (mảng không cố định 6) → vỡ INV-CTA-3 + FE phải suy lại → loại. (D) mint schema `IncidentAction` riêng → nở surface, trùng shape → loại.
+- **Consequences**: `source_states` là SSoT phụ (khai tường minh per-CTA) đi kèm `_VALID_TRANSITIONS` — chi phí: 1 tập nhỏ/CTA + test INV-CTA-4 (advertise==enforce) chốt không lệch với endpoint. Đổi lại: FE gỡ hoàn toàn predicate-mirror; hết lỗi "403-sau-khi-bấm"; drift cap/transition được BE bắt qua guard. `AvailableAction.route` mang giá trị `""` cho incident (schema tái dùng chấp nhận — `route` chỉ có nghĩa cho CTA deep-link QR-scan).
+
+### 19. get_incident_detail — enrich 3 field rẻ (`reporter_name` / `assigned_to_name` / `asset_lifecycle_status`) (CR-40) 🟡 SPEC (BE/FE Bước-4)
+
+> **Mục tiêu (CR-40):** màn **Chi tiết sự cố** (web `IncidentDetailView` + mobile `IncidentDetailView`) hiện có **2 lỗ**: (1) 🔴 **RÒ EMAIL THÔ** — panel "Thông tin xử lý" render `reported_by`/`assigned_to` = **user id thô** (email `bs.nguyen@hospital.vn`) thay vì **họ tên** (U7/UI-FIX-05, cùng họ lỗ rò raw-email của transfer panel — Open thread §🔥 approval-inbox); (2) 🔴 **KTV rút máy khỏi vận hành KHÔNG thấy trạng thái thiết bị** — acknowledge High/Critical đẩy asset `Out of Service` (BR-12-04) nhưng màn Chi tiết KHÔNG hiện trạng thái vòng đời LIVE của máy ⇒ KTV không biết máy đã bị khoá vận hành (U1). Cách sửa: `get_incident_detail` bồi **3 field enrich rẻ** — **REUSE** khuôn user-enrich của `list_incidents` (`_enrich_asset_names`, `imm12.py:444-461`) cho 2 tên người + fetch `AC Asset.lifecycle_status` **SONG SONG** `asset_name` (`imm12.py:1417`) cho trạng thái máy. **Additive · migrate-free · 0 DocType/field/endpoint mới.**
+
+**Endpoint:** `GET assetcore.api.imm12.get_incident` (endpoint #2 → service `get_incident_detail(name)`). Auth/handler **KHÔNG đổi**: Guest → 401; đăng nhập → AUTH-10 IDOR guard (`assert_vendor_can_access("Incident Report", name)`, `api/imm12.py:228`) → `handle(_run)` Decision-B `_ok(...)`. Envelope shape **KHÔNG đổi** (field additive trên schema MỞ `additionalProperties:true`).
+
+`get_incident_detail(name)` trả **THÊM đúng 3** property (KHÔNG kéo field web-only khác):
+
+| Field | Kiểu | Nguồn (SSoT) | Có mặt khi | Fallback / rỗng |
+|---|---|---|---|---|
+| `reporter_name` | `string` | `User.full_name` của `doc.reported_by` — **REUSE** `_enrich_asset_names([data])` (`imm12.py:452-458`), KHÔNG re-implement predicate | `reported_by` set | full_name rỗng → **raw id** (KHÔNG rò khi full_name tồn tại); `reported_by` rỗng → key **absent** |
+| `assigned_to_name` | `string` | `User.full_name` của `doc.assigned_to` — cùng helper `_enrich_asset_names` (`imm12.py:459-460`) | `assigned_to` set | full_name rỗng → **raw id**; `assigned_to` rỗng → key **absent** |
+| `asset_lifecycle_status` | `string` (nullable) | `AC Asset.lifecycle_status` của `doc.asset` — **SONG SONG** `asset_name` (`imm12.py:1417`), 1 `db.get_value` chung | `doc.asset` set | phiếu KHÔNG gắn asset → `''`/`None`; endpoint **KHÔNG crash** |
+
+**Boundaries (Always / Never):**
+- **Always:** REUSE `_enrich_asset_names` cho `reporter_name`/`assigned_to_name` (1 SSoT với list — không predicate thứ 2); `asset_lifecycle_status` đọc LIVE từ `AC Asset.lifecycle_status` (server SSoT, KHÔNG denormalize); cả 3 field **optional** (∉ `required`); READ-ONLY (KHÔNG audit/lifecycle/modify doc).
+- **Never:** KHÔNG rò **email/user-id thô** ra màn Chi tiết khi `full_name` tồn tại (U7 — FE đọc `reporter_name ?? reported_by`); KHÔNG thêm `@frappe.whitelist`/DocType/field/enum (oas_baseline bất biến); KHÔNG `bench migrate`; KHÔNG re-implement user-enrich (drift SSoT); KHÔNG mở rộng sang `list_incidents` (scope đóng kín CHỈ `get_incident_detail`).
+
+**BẤT BIẾN ĐO ĐƯỢC:**
+
+| Invariant | Kiểm chứng |
+|---|---|
+| **INV-ENR-1** (parity name-enrich với list) | `get_incident_detail(name).reporter_name` == `list_incidents()` row cùng `name` `.reporter_name` (cùng `_enrich_asset_names`, cùng `User.full_name`). |
+| **INV-ENR-2** (no-raw-email-leak) | `reported_by` có `full_name` ⟹ `reporter_name == full_name` (KHÔNG == email thô). Idem `assigned_to`/`assigned_to_name`. |
+| **INV-ENR-3** (lifecycle LIVE == asset SSoT) | `asset_lifecycle_status == frappe.db.get_value("AC Asset", doc.asset, "lifecycle_status")` tại cùng `now`. Sau acknowledge Critical (BR-12-04 đẩy `Out of Service`) ⟹ `get_incident_detail.asset_lifecycle_status == "Out of Service"`. |
+| **INV-ENR-4** (no-asset defensive) | `doc.asset` rỗng ⟹ endpoint KHÔNG raise; `asset_lifecycle_status` ∈ {`''`, `None`, absent}. |
+| **INV-ENR-5** (additive, consumer cũ bất biến) | 3 field ∉ `required`; response cũ (không có 3 field) vẫn valid — client cũ/mobile KHÔNG break. |
+
+**BE Bước-4 delta** (KHÔNG thuộc file doc — `services/imm12.py::get_incident_detail`): (a) đổi block `imm12.py:1416-1417` fetch **cả 2** field 1 lần: `data["asset_name"], data["asset_lifecycle_status"] = frappe.db.get_value(_DT_ASSET, doc.asset, ["asset_name", "lifecycle_status"])`; (b) thêm `_enrich_asset_names([data])` (REUSE) để bồi `reporter_name`/`assigned_to_name` (helper cũng set lại `asset_name` cùng giá trị — vô hại). `api/imm12.py::get_incident` UNCHANGED. Chi tiết: `04 §3.0.5`. **Test (Bước-4, `tests/test_imm12.py`):** INV-ENR-1..5 (parity list + no-raw-email + lifecycle-LIVE sau acknowledge Critical + no-asset defensive + additive).
+
+**FE Bước-4 delta** (KHÔNG thuộc file doc): `IncidentDetailView.vue` panel "Thông tin xử lý" đọc `form.reporter_name ?? form.reported_by` + `form.assigned_to_name ?? form.assigned_to` (ưu tiên tên, fallback id cho payload cũ) — hết rò email; thêm badge trạng thái máy đọc `form.asset_lifecycle_status` (nhãn VI qua SSoT enum lifecycle, KHÔNG leak mã thô). Xem `06 §2.3.c`.
+
+**Mobile contract (CR-40):** `IncidentDetail += reporter_name: string`, `assigned_to_name: string`, `asset_lifecycle_status: string(nullable)` (**KHÔNG** vào `required`; additive trên schema MỞ `additionalProperties:true` GIỮ; mirror pattern optional-emit `allowed_transitions`/`scene_photos`/`is_*_breached`/`available_actions`; mobile **KHÔNG** bắt buộc `api:gen`, client cũ không ảnh hưởng).
+
+> ✅ **Mobile OAS mirror ĐÃ CURATE (CR-40, 2026-07-24 — CONTRACT-ONLY, BA slice):** 3 property `reporter_name` + `assigned_to_name` (`type:string`, `description` **VERBATIM** precedent `IncidentListItem` yaml:1436-1441 — cùng `_enrich_asset_names`, 1 SoT) + `asset_lifecycle_status` (`type:string` `nullable:true`, mirror `asset_name`) đã bồi vào schema `IncidentDetail` của `docs/mobile/openapi/assetcore-mobile.openapi.yaml` (cạnh `asset_name`/`reported_by`/`assigned_to`; tổng property 44→47; `additionalProperties:true` GIỮ; `required` GIỮ `['name']`; path/opId/whitelist 0 mới ⇒ `oas_baseline` GIỮ). Guard `TestMobileIncidentDetailEnrichParity` incenrich_a..e (`test_mobile_oas` **+5 TC** — present/type-string/description-verbatim-parity/optional/open-schema-kept; RED-before/GREEN-after): `_EXPECTED_TEST_COUNT` 888→893 (+2 counter-guard hardcode) · property_count test `44→47` · `test_mobile_docset` sync `_GUARD_SUITE_EXPECTED[test_mobile_oas.py]` 888→893 / `_GUARD_SUITE_SUM` 1031→1036 / `_MOBILE_OAS_TOTAL` 1057→1062 / `enrich_incdetail_delta=5` (giữ `pre_fc3_six==191`). **VERIFIED:** `bench --site miyano run-tests` → `test_mobile_oas` **Ran 893 OK** (self-count meta-guard xác nhận 893 test-method THẬT) + `test_mobile_docset` **Ran 9 OK**. **BE Bước-4 (KHÔNG thuộc slice contract, cần USER reload gunicorn `--preload`):** `services/imm12.py::get_incident_detail` (+`_enrich_asset_names([data])` + fetch `lifecycle_status` song song `asset_name`); `tests/test_imm12.py` (INV-ENR-1..5). DoD = `test_imm12` (module-isolated) + `test_mobile_oas` XANH THẬT — KHÔNG curl live.
+
+#### ADR-IMM12-12: `get_incident_detail` REUSE `_enrich_asset_names` cho name-enrich + fetch `lifecycle_status` song song `asset_name`
+- **Status**: Accepted · **Date**: 2026-07-24
+- **Context**: Màn Chi tiết sự cố rò `reported_by`/`assigned_to` = email thô (U7) và không hiện trạng thái vòng đời máy sau khi acknowledge Critical khoá vận hành (U1). `list_incidents` ĐÃ giải quyết name-enrich qua `_enrich_asset_names` (`imm12.py:444-461`), nhưng `get_incident_detail` là code path RIÊNG (`imm12.py:1414-1446`) tự fetch `asset_name` (`:1417`) và KHÔNG gọi helper enrich ⇒ drift surface (list có `reporter_name`, detail không). `asset_lifecycle_status` chưa tồn tại ở cả hai.
+- **Decision**: `get_incident_detail` (a) gọi CHUNG `_enrich_asset_names([data])` để bồi `reporter_name`/`assigned_to_name` (1 SSoT với list — cùng `User.full_name`, cùng fallback raw-id); (b) mở rộng `db.get_value` `asset_name` tại `:1417` để fetch **thêm** `lifecycle_status` trong **cùng 1 query** (song song, không N+1). Cả 3 field OPTIONAL emit-when-set. `asset_lifecycle_status` GIỮ trong `get_incident_detail` (KHÔNG đẩy vào `_enrich_asset_names` chung) ⇒ **KHÔNG** lan sang `list_incidents` (scope đóng kín).
+- **Alternatives**: (A) re-implement user-enrich cục bộ trong `get_incident_detail` → predicate thứ 2, drift với list (list đổi map full_name → detail lệch) → loại (vi phạm "REUSE, KHÔNG re-implement"). (B) đẩy `lifecycle_status` vào `_enrich_asset_names` chung → list_incidents cũng phát `asset_lifecycle_status` (nở scope + payload list) → loại (scope CHỈ detail). (C) denormalize `lifecycle_status` lên Incident doc → migrate + drift khi asset đổi trạng thái → loại (server-flag LIVE nguyên tắc `overdue_server_flag_ssot`). (D) FE tự query `AC Asset` để lấy trạng thái → 2 request + FE-side join → loại (đã có `doc.asset` trong payload, thêm 1 field rẻ).
+- **Consequences**: 1 field enrich rẻ/surface; `get_incident_detail` chi phí +1 `db.get_value` field (gộp query `asset_name`) + 1 `_enrich_asset_names` (1 query `User` cho ≤2 id). Đổi lại: hết rò email thô (U7), KTV thấy trạng thái máy LIVE (U1), parity name-enrich list↔detail. Additive/migrate-free — consumer cũ bất biến. `asset_lifecycle_status` nullable (defensive khi phiếu no-asset — INV-ENR-4).
 
 ---
 
