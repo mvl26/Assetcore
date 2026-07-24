@@ -3636,6 +3636,52 @@ Fixtures hiện đăng ký qua file JSON trong `assetcore/fixtures/` (bench tự
 
 ---
 
+## V.5. Đồ thị liên kết (dashboard connections) — SSoT dùng chung Desk + Vue
+
+> Bổ sung 2026-07-22 theo `docs/architecture/SPEC_core_refinement_frappe_native.md` §3 P1.
+
+Trước đây **0/110** DocType khai liên kết ⇒ mở một tài sản không thấy phiếu bảo trì /
+sửa chữa / hiệu chuẩn / sự cố / hồ sơ nào, dù quan hệ đã có sẵn trong CSDL. Mỗi màn chi
+tiết phải tự viết API riêng để lấy "bản ghi liên quan" (33 màn = 33 chỗ khai trùng).
+
+**Cơ chế.** Mỗi hub DocType khai đồ thị MỘT LẦN trong
+`assetcore/assetcore/doctype/<snake>/<snake>_dashboard.py`, hàm **`get_data()`**
+(đúng tên Frappe gọi — `frappe/model/meta.py::get_dashboard_data`). Hai tầng hiển thị
+cùng đọc một nguồn:
+
+| Tầng | Đường đọc |
+| --- | --- |
+| Desk | `Meta.get_dashboard_data()` → tab **Connections**, không cần code thêm |
+| Vue SPA | `GET assetcore.api.connections.get_connections(doctype, name)` → component chung `RelatedRecords.vue` |
+
+**Ba cách khai một liên kết** (chọn sai ⇒ badge luôn bằng 0, trông y hệt "chưa có dữ liệu"):
+
+| Chiều | Khai bằng | Ý nghĩa |
+| --- | --- | --- |
+| Ngược (phổ biến) | `fieldname` / `non_standard_fieldnames[dt]` | DocType kia có Link trỏ **về** hub |
+| Xuôi | `internal_links[dt] = "<field trên hub>"` | Hub có Link trỏ **tới** DocType kia |
+| Qua bảng con | `internal_links[dt] = ["<table_field>", "<link_field>"]` | Gom qua dòng con của hub |
+
+**Phân quyền.** `get_connections` đếm bằng `frappe.get_list` dưới `frappe.session.user`,
+**không** `ignore_permissions`, **không** `frappe.db.count` — nên số đếm luôn bằng số
+dòng người dùng thấy khi bấm vào (bất biến `count == drill`, ADR-IMM00-LIST-SCOPE §4b).
+DocType người dùng không có quyền đọc bị **ẩn hẳn** khỏi kết quả.
+
+**Guard.** `tests/test_doctype_connectivity.py` chặn hai lớp lỗi câm: (1) file dashboard
+lỗi import hoặc sai tên hàm — Frappe nuốt `ImportError` nên mất tab Connections mà không
+báo lỗi; (2) mục trỏ tới DocType/field không tồn tại. 12 hub đợt đầu: `AC Asset`,
+`PM Work Order`, `Asset Repair`, `IMM Asset Calibration`, `Incident Report`,
+`Asset Commissioning`, `Asset Document`, `Asset Transfer`, `AC Supplier`,
+`IMM Device Model`, `AC Spare Part`, `IMM CAPA Record`.
+
+> ⚠️ Nợ kỹ thuật đã lộ ra khi làm việc này: đồ thị liên kết của AC Asset còn **2 bản
+> chép tay** khác — `ac_asset.py::on_trash._RELATED` (chặn xoá cứng) và
+> `tests/_asset_cleanup.py::_ASSET_DEPENDENTS` (dọn fixture). Bản trong `on_trash` có 2
+> mục **không tồn tại** (`CM Work Order`, `IMM Calibration Order`) đang bị `except:
+> continue` nuốt lặng. Gộp về SSoT dashboard là việc của một vòng sau.
+
+---
+
 ## DoD — File 04 hoàn chỉnh
 
 > Reviewed vs codebase 2026-05-08. Tất cả thông tin dưới đây đã được cross-check với code thực tế.

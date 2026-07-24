@@ -9,18 +9,26 @@ import frappe
 from frappe.utils import nowdate, add_days, flt, getdate
 
 # IMM-14 GATE (BR-14-W2-01): asset chỉ vào Decommissioned qua closure flow.
-from assetcore.tests._asset_cleanup import decommission_via_closure
+from assetcore.tests._asset_cleanup import (
+    decommission_via_closure,
+    purge_asset,
+    purge_assets_created_after,
+)
 
 
 # Track whether this module created the "Cái" UOM so tearDownModule never
 # deletes a pre-existing (real, shared) UOM that other records depend on.
 _uom_created = False
 
+#: Mốc bắt đầu module — lưới an toàn cuối module purge asset sinh sau mốc này.
+_MODULE_START = None
+
 
 def setUpModule():
     """Seed master records required by AC Asset link validation."""
-    global _uom_created
+    global _uom_created, _MODULE_START
     frappe.set_user("Administrator")
+    _MODULE_START = frappe.utils.now_datetime()
     if not frappe.db.exists("AC UOM", "Cái"):
         frappe.get_doc({"doctype": "AC UOM", "uom_name": "Cái"}).insert(ignore_permissions=True)
         frappe.db.commit()
@@ -29,6 +37,11 @@ def setUpModule():
 
 def tearDownModule():
     """Remove the UOM seed only if setUpModule created it (else it is shared real data)."""
+    # Lưới an toàn: teardown theo-class có thể hụt khi test tương tác nhau (đo
+    # thực tế: asset 'Máy PDF Nhãn'/'Máy Nhãn' sống sót khi chạy CẢ module, dù
+    # chạy riêng test đó thì sạch). Không có lưới này thì mỗi lần chạy suite lại
+    # bẩn site (nguồn tái sinh rác test — STATE Blocker#5).
+    purge_assets_created_after(_MODULE_START)
     if _uom_created and frappe.db.exists("AC UOM", "Cái"):
         frappe.delete_doc("AC UOM", "Cái", force=True, ignore_permissions=True)
         frappe.db.commit()
@@ -333,6 +346,132 @@ class TestACAsset(unittest.TestCase):
             decommission_via_closure(asset.name)
             asset.reload()
             self.assertEqual(asset.is_pm_required, 0)
+        finally:
+            _purge_asset(asset.name)
+
+
+class TestGetAssetWarrantyParity(unittest.TestCase):
+    """CR-38 — imm00.get_asset (AssetDetail) parity BẢO HÀNH với get_asset_scan_info.
+
+    get_asset phải phơi THÊM 2 field server-flag (đối xứng build_asset_scan_info):
+      - ``warranty_expired`` (bool SERVER-FLAG, qua CÙNG SSoT ``_is_warranty_expired``)
+      - ``warranty_expiry_date`` (str 'YYYY-MM-DD' | None, qua ``_date_str_or_none``)
+    KHÔNG re-implement so-ngày ở api layer (SSoT @services/imm00.py) — chống drift.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        import uuid
+        cls.cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": f"Máy theo dõi bệnh nhân {uuid.uuid4().hex[:8]}",
+            "default_pm_interval_days": 90,
+        }).insert(ignore_permissions=True)
+        cls.dept = frappe.get_doc({
+            "doctype": "AC Department",
+            "department_name": f"Khoa Nội tổng hợp {uuid.uuid4().hex[:8]}",
+        }).insert(ignore_permissions=True)
+        cls.loc = frappe.get_doc({
+            "doctype": "AC Location",
+            "location_name": f"Phòng khám 2 — {uuid.uuid4().hex[:8]}",
+            "location_type": "Room",
+        }).insert(ignore_permissions=True)
+
+    @classmethod
+    def tearDownClass(cls):
+        for dt, name in [
+            ("AC Asset Category", cls.cat.name),
+            ("AC Department", cls.dept.name),
+            ("AC Location", cls.loc.name),
+        ]:
+            frappe.delete_doc(dt, name, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def _make_asset(self, warranty, suffix=""):
+        """Insert AC Asset (bypass workflow) với ``warranty_expiry_date`` tuỳ ý.
+
+        ``warranty=None`` → KHÔNG set field (branch null/rỗng → warranty_expired False).
+        """
+        import uuid
+        tag = f"{suffix.lstrip('-') or 'w'}-{uuid.uuid4().hex[:8]}"
+        data = {
+            "doctype": "AC Asset",
+            "asset_name": f"Philips IntelliVue MX450 — {tag}",
+            "asset_category": self.cat.name,
+            "department": self.dept.name,
+            "location": self.loc.name,
+            "purchase_date": "2023-01-10",
+            "in_service_date": "2023-01-15",
+            "commissioning_date": "2023-01-15",
+            "manufacturer_sn": f"MX450-{tag}",
+            "medical_device_class": "Class II",
+            "risk_classification": "High",
+            "lifecycle_status": "Commissioned",
+        }
+        if warranty is not None:
+            data["warranty_expiry_date"] = warranty
+        return _insert_asset_bypass_workflow(data)
+
+    def test_get_asset_exposes_warranty_expired_true_when_past(self):
+        from assetcore.api.imm00 import get_asset
+        asset = self._make_asset(add_days(nowdate(), -1), suffix="-past")
+        try:
+            res = get_asset(asset.name)
+            self.assertTrue(res["success"])
+            self.assertIs(res["data"]["warranty_expired"], True)
+        finally:
+            _purge_asset(asset.name)
+
+    def test_get_asset_warranty_expired_false_when_future(self):
+        from assetcore.api.imm00 import get_asset
+        asset = self._make_asset(add_days(nowdate(), 30), suffix="-fut")
+        try:
+            res = get_asset(asset.name)
+            self.assertIs(res["data"]["warranty_expired"], False)
+        finally:
+            _purge_asset(asset.name)
+
+    def test_get_asset_warranty_expired_false_when_null(self):
+        from assetcore.api.imm00 import get_asset
+        asset = self._make_asset(None, suffix="-null")
+        try:
+            res = get_asset(asset.name)
+            # KHÔNG None / KHÔNG raise — server-flag degrade an toàn về False.
+            self.assertIs(res["data"]["warranty_expired"], False)
+        finally:
+            _purge_asset(asset.name)
+
+    def test_get_asset_warranty_expiry_date_is_iso_string(self):
+        from assetcore.api.imm00 import get_asset
+        asset = self._make_asset(add_days(nowdate(), 30), suffix="-iso")
+        try:
+            res = get_asset(asset.name)
+            val = res["data"]["warranty_expiry_date"]
+            self.assertIsNotNone(val)
+            self.assertIsInstance(val, str)
+            self.assertRegex(val, r"^\d{4}-\d{2}-\d{2}$")
+        finally:
+            _purge_asset(asset.name)
+
+    def test_get_asset_warranty_expiry_date_null_when_absent(self):
+        from assetcore.api.imm00 import get_asset
+        asset = self._make_asset(None, suffix="-nulliso")
+        try:
+            res = get_asset(asset.name)
+            self.assertIsNone(res["data"]["warranty_expiry_date"])
+        finally:
+            _purge_asset(asset.name)
+
+    def test_get_asset_warranty_parity_with_scan_info(self):
+        """SSoT anti-drift: get_asset ≡ build_asset_scan_info cho CÙNG 1 asset."""
+        from assetcore.api.imm00 import get_asset
+        from assetcore.services.imm00 import build_asset_scan_info
+        asset = self._make_asset(add_days(nowdate(), -5), suffix="-parity")
+        try:
+            detail = get_asset(asset.name)["data"]
+            scan = build_asset_scan_info(asset.name)
+            self.assertEqual(detail["warranty_expired"], scan["warranty_expired"])
+            self.assertEqual(detail["warranty_expiry_date"], scan["warranty_expiry_date"])
         finally:
             _purge_asset(asset.name)
 
@@ -1452,46 +1591,11 @@ def _insert_asset_bypass_workflow(data: dict):
         frappe.flags.in_install = prev
 
 
-def _purge_asset(asset_name: str) -> None:
-    """Force-delete an AC Asset for fixture cleanup (LL-TEST-17).
-
-    ``AC Asset.on_trash`` (WR-03) blocks hard-delete while audit / lifecycle /
-    operational records exist, and ``force=True`` does NOT bypass a custom
-    ``on_trash``. ``IMM Audit Trail`` and ``Asset Lifecycle Event`` additionally
-    throw in their own ``on_trash`` (ISO 13485:7.5.9 / append-only), so they must
-    be purged via raw SQL. Operational dependents have no guard → ORM delete.
-    """
-    if not frappe.db.exists("AC Asset", asset_name):
-        return
-    # 1) Append-only records — raw SQL (ORM delete always throws, even force=True)
-    frappe.db.sql(
-        "DELETE FROM `tabIMM Audit Trail` "
-        "WHERE asset=%s OR (ref_doctype='AC Asset' AND ref_name=%s)",
-        (asset_name, asset_name),
-    )
-    frappe.db.sql("DELETE FROM `tabAsset Lifecycle Event` WHERE asset=%s", (asset_name,))
-    # 2) Operational dependents — ORM (cancel submitted docs first)
-    for dt, fld in [
-        ("PM Work Order", "asset_ref"),
-        ("CM Work Order", "asset_ref"),
-        ("IMM Calibration Schedule", "asset"),
-        ("IMM Calibration Order", "asset_ref"),
-        ("Incident Report", "asset"),
-        ("Asset Document", "asset_ref"),
-        ("Asset Transfer", "asset"),
-        ("AC Asset Downtime Log", "asset"),
-    ]:
-        if not frappe.db.table_exists(dt) or not frappe.db.has_column(dt, fld):
-            continue
-        for child in frappe.get_all(dt, filters={fld: asset_name}, pluck="name"):
-            doc = frappe.get_doc(dt, child)
-            if doc.docstatus == 1:
-                doc.cancel()
-            frappe.delete_doc(dt, child, force=True, ignore_permissions=True,
-                              delete_permanently=True)
-    frappe.db.commit()
-    # 3) Asset now deletes cleanly
-    frappe.delete_doc("AC Asset", asset_name, force=True, ignore_permissions=True)
+# Teardown asset dùng CHUNG `_asset_cleanup.purge_asset` — KHÔNG tự viết lại.
+# Bản sao cục bộ trước đây thiếu `Asset Decommission` trong danh sách dependent
+# nên mỗi lần chạy suite để lại phiếu thanh lý mồ côi trên site (nguồn tái sinh
+# rác test). Hợp đồng này được khoá bởi `test_fixture_cleanup_contract.py`.
+_purge_asset = purge_asset
 
 
 def _purge_category(category_name: str) -> None:
@@ -4879,6 +4983,15 @@ class TestWarrantyInScanInfo(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         frappe.set_user("Administrator")
+        # AC Asset Category autoname=CAT-#### → collision phải dọn theo CATEGORY_NAME
+        # (KHÔNG theo name). Dọn bản leak từ lần chạy trước (setUpClass/tearDownClass
+        # lỗi giữa chừng) để setup idempotent, tránh Duplicate entry 'category_name'.
+        for nm in frappe.get_all(
+            "AC Asset Category",
+            filters={"category_name": "Thiết bị Warranty (V48)"}, pluck="name",
+        ):
+            frappe.delete_doc("AC Asset Category", nm, force=True,
+                              ignore_permissions=True)
         cls.cat = frappe.get_doc({
             "doctype": "AC Asset Category",
             "category_name": "Thiết bị Warranty (V48)",
@@ -14394,6 +14507,195 @@ class TestNeg09GuardRaisesLive(unittest.TestCase):
             # đưa về Active để asset còn ở trạng thái xoá-được (teardown _purge_asset).
             frappe.db.set_value("AC Asset", self.asset.name, "lifecycle_status",
                                 _AssetStatus.ACTIVE, update_modified=False)
+
+
+class TestConfirmReceiptIdempotency(unittest.TestCase):
+    """CR-24 (write-family closure): receive_transfer / confirm_receipt idempotency dedup.
+
+    Re-drain custody receipt (mobile write-outbox, mất mạng giữa request↔response) CÙNG
+    ``client_request_id`` KHÔNG được nhân đôi vết custody (Lifecycle Event 'transferred'
+    + IMM Audit Trail) — NĐ98 audit integrity. Drive qua service path THẬT
+    (create_transfer_request → approve_transfer_request → confirm_receipt), KHÔNG pre-seed
+    'Asset Transfer' fixture.
+
+    LƯU Ý (delta-assert, KHÔNG absolute==1): ``approve_transfer_request`` gọi
+    ``transfer_asset`` (imm00.py:2925-2940) tự phát 1 Lifecycle Event event_type='transferred'
+    + 1 IMM Audit Trail với root_record/ref_name = <phiếu> làm BASELINE. Vì vậy "không nhân
+    đôi khi replay" được chứng minh bằng DELTA quanh bước confirm_receipt = 1 (real thêm 1,
+    replay thêm 0), KHÔNG bằng absolute count==1. (Doc TDD literal "len==1" bỏ sót baseline
+    approve → flag BA reconcile docs/imm-00.)
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": "Máy thở (Receive-Idem test)",
+            "default_pm_interval_days": 90,
+        }).insert(ignore_permissions=True)
+        cls.dept_from = frappe.get_doc({
+            "doctype": "AC Department",
+            "department_name": "Khoa Hồi sức tích cực (Receive-Idem nguồn)",
+        }).insert(ignore_permissions=True)
+        cls.dept_to = frappe.get_doc({
+            "doctype": "AC Department",
+            "department_name": "Khoa Nội tổng hợp (Receive-Idem đích)",
+        }).insert(ignore_permissions=True)
+        cls.loc = frappe.get_doc({
+            "doctype": "AC Location",
+            "location_name": "Phòng 305 (Receive-Idem)",
+            "location_type": "Room",
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        for dt, name in [
+            ("AC Location", cls.loc.name),
+            ("AC Department", cls.dept_from.name),
+            ("AC Department", cls.dept_to.name),
+            ("AC Asset Category", cls.cat.name),
+        ]:
+            frappe.delete_doc(dt, name, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    # ── helpers ──────────────────────────────────────────────────────────────
+    def _make_asset(self, suffix=""):
+        import uuid
+        u = uuid.uuid4().hex[:8]
+        asset = _insert_asset_bypass_workflow({
+            "doctype": "AC Asset",
+            "asset_name": f"Dräger Evita V500 (Receive-Idem{suffix}-{u})",
+            "asset_category": self.cat.name,
+            "department": self.dept_from.name,
+            "location": self.loc.name,
+            "lifecycle_status": "Commissioned",
+        })
+        self.addCleanup(_purge_asset, asset.name)
+        return asset.name
+
+    def _approved_transfer(self, asset_name):
+        """create + approve → phiếu ở trạng thái Approved (asset đã di chuyển)."""
+        from assetcore.services.imm00 import (
+            create_transfer_request, approve_transfer_request,
+        )
+        res = create_transfer_request({
+            "asset": asset_name,
+            "transfer_type": "Internal",
+            "to_department": self.dept_to.name,
+            "to_location": self.loc.name,
+            "reason": "Điều chuyển phục vụ nhu cầu khoa Nội tổng hợp",
+        })
+        t = res["name"]
+        approve_transfer_request(t)
+        return t
+
+    def _provenance_counts(self, t):
+        lc = frappe.db.count("Asset Lifecycle Event",
+                             {"root_record": t, "event_type": "transferred"})
+        au = frappe.db.count("IMM Audit Trail",
+                             {"ref_doctype": "Asset Transfer", "ref_name": t})
+        return lc, au
+
+    # ── tests ────────────────────────────────────────────────────────────────
+    def test_replay_same_key_returns_verbatim_and_no_double_custody(self):
+        from assetcore.services.imm00 import confirm_receipt
+        asset = self._make_asset("-replay")
+        t = self._approved_transfer(asset)
+        lc0, au0 = self._provenance_counts(t)
+
+        r1 = confirm_receipt(t, client_request_id="k1")
+        r2 = confirm_receipt(t, client_request_id="k1")   # re-drain CÙNG key
+
+        # replay envelope VERBATIM (byte-đối-byte) — KHÔNG throw BAD_STATE
+        self.assertEqual(r1, r2)
+        self.assertEqual(r1["name"], t)
+        self.assertEqual(r1["status"], "Received")
+        self.assertEqual(r1["received_by"], "Administrator")
+
+        # KHÔNG nhân đôi vết custody: bước receive+replay chỉ thêm ĐÚNG 1 lifecycle + 1 audit
+        lc1, au1 = self._provenance_counts(t)
+        self.assertEqual(lc1 - lc0, 1,
+                         "receive+replay CÙNG key phải thêm đúng 1 Lifecycle 'transferred'")
+        self.assertEqual(au1 - au0, 1,
+                         "receive+replay CÙNG key phải thêm đúng 1 IMM Audit Trail")
+
+    def test_header_x_idempotency_key_dedup_when_body_param_empty(self):
+        from unittest import mock
+        from assetcore.services.imm00 import confirm_receipt
+        asset = self._make_asset("-header")
+        t2 = self._approved_transfer(asset)
+        lc0, au0 = self._provenance_counts(t2)
+
+        def _hdr(key, default=None):
+            return "k2" if key == "X-Idempotency-Key" else (default or "")
+
+        with mock.patch("frappe.get_request_header", side_effect=_hdr):
+            r1 = confirm_receipt(t2)              # body param rỗng → header resolve 'k2'
+            r2 = confirm_receipt(t2)             # replay qua header
+        self.assertEqual(r1, r2)
+        self.assertEqual(r1["status"], "Received")
+        lc1, au1 = self._provenance_counts(t2)
+        self.assertEqual(lc1 - lc0, 1)
+        self.assertEqual(au1 - au0, 1)
+
+    def test_no_key_is_noop_legacy_state_guard_intact(self):
+        from assetcore.services.imm00 import confirm_receipt
+        asset = self._make_asset("-noop")
+        t3 = self._approved_transfer(asset)
+
+        r1 = confirm_receipt(t3)                  # KHÔNG key, KHÔNG header ctx
+        self.assertEqual(r1["status"], "Received")
+        # lần 2 KHÔNG key → NO-OP dedup → state-guard legacy ném ValidationError
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            confirm_receipt(t3)
+        self.assertIn("Approved", str(ctx.exception))
+
+    def test_distinct_scopes_do_not_swallow_each_other(self):
+        from assetcore.services.imm00 import confirm_receipt
+        asset_a = self._make_asset("-scopeA")
+        asset_b = self._make_asset("-scopeB")
+        t4 = self._approved_transfer(asset_a)
+        t5 = self._approved_transfer(asset_b)
+
+        r4 = confirm_receipt(t4, client_request_id="kA")
+        r5 = confirm_receipt(t5, client_request_id="kB")
+        self.assertEqual(r4["name"], t4)
+        self.assertEqual(r5["name"], t5)
+        self.assertEqual(r4["status"], "Received")
+        self.assertEqual(r5["status"], "Received")
+
+        # replay t4/kA trả ĐÚNG payload t4 (cache scope (t4,kA) KHÔNG nuốt chéo t5)
+        r4b = confirm_receipt(t4, client_request_id="kA")
+        self.assertEqual(r4b, r4)
+        self.assertEqual(r4b["name"], t4)
+
+    def test_resolve_idempotency_key_unit(self):
+        from unittest import mock
+        from assetcore.utils.idempotency import resolve_idempotency_key
+
+        # body param present → wins (không cần request ctx)
+        self.assertEqual(resolve_idempotency_key("body"), "body")
+        self.assertEqual(resolve_idempotency_key("  body  "), "body")   # strip
+
+        # body rỗng + header present → header
+        def _hdr(key, default=None):
+            return "hdr" if key == "X-Idempotency-Key" else (default or "")
+        with mock.patch("frappe.get_request_header", side_effect=_hdr):
+            self.assertEqual(resolve_idempotency_key(""), "hdr")
+            # param + header đồng thời → param THẮNG
+            self.assertEqual(resolve_idempotency_key("kX"), "kX")
+
+        # alias 'Idempotency-Key' (không tiền tố X-) khi X- vắng
+        def _hdr_alias(key, default=None):
+            return "alias" if key == "Idempotency-Key" else (default or "")
+        with mock.patch("frappe.get_request_header", side_effect=_hdr_alias):
+            self.assertEqual(resolve_idempotency_key(""), "alias")
+
+        # ngoài request-context (get_request_header raise) → '' KHÔNG raise
+        with mock.patch("frappe.get_request_header",
+                        side_effect=RuntimeError("outside request context")):
+            self.assertEqual(resolve_idempotency_key(""), "")
 
 
 def run_all():

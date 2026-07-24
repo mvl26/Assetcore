@@ -59,7 +59,10 @@ export interface AcAsset extends AcAssetListItem {
   supplier_name?: string
   purchase_date?: string
   gross_purchase_amount?: number
-  warranty_expiry_date?: string
+  // CR-38 (parity BẢO HÀNH với get_asset_scan_info): get_asset chuẩn-hoá
+  // warranty_expiry_date qua _date_str_or_none → str 'YYYY-MM-DD' | null (KHÔNG
+  // leak datetime thô). null khi rỗng/None → FE render placeholder, KHÔNG vỡ.
+  warranty_expiry_date?: string | null
   device_model?: string
   device_model_name?: string
   responsible_technician_name?: string
@@ -102,6 +105,13 @@ export interface AcAsset extends AcAssetListItem {
   // clock (tz-drift). Cùng kết luận overdue với màn quét-QR (AssetScanInfo).
   pm_overdue?: boolean
   calibration_overdue?: boolean
+  // CR-38 — Cờ HẾT BẢO HÀNH derive SERVER-SIDE (timezone-safe) qua CHÍNH
+  // _is_warranty_expired (SSoT chung get_asset_scan_info). true ⟺
+  // warranty_expiry_date quá khứ (STRICT < NGÀY server); null/hôm-nay/tương-lai
+  // → false. ĐỘC LẬP lifecycle_status (KHÁC pm/cal overdue — bảo hành là sự kiện
+  // HỢP ĐỒNG: Out of Service / Decommissioned VẪN có thể còn/hết bảo hành). FE
+  // CHỈ render cờ — TUYỆT ĐỐI KHÔNG so ngày bằng client clock (tz-drift).
+  warranty_expired?: boolean
   // Server-driven CTA lifecycle (CR-WF-00-LIFECYCLE-SURFACE, Trục A). get_asset
   // emit tập trạng-thái-đích CTA-surfaceable (SSoT BE asset_allowed_transitions:
   // _VALID_ASSET_TRANSITIONS − EXCEPTION − terminal Decommissioned) đã LỌC theo

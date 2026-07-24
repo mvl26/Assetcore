@@ -15,6 +15,7 @@ from assetcore.utils.lifecycle import (
     verify_audit_chain as _verify_audit_chain,
 )
 from assetcore.utils.email import get_role_emails, safe_sendmail
+from assetcore.utils.idempotency import resolve_idempotency_key
 from assetcore.services.shared import AssetStatus
 from assetcore.services.shared import ServiceError, ErrorCode
 from assetcore.services.shared import rbac
@@ -2773,8 +2774,49 @@ def reject_transfer_request(name: str, rejection_reason: str) -> dict:
     return {"name": name, "status": _TRANSFER_STATUS_REJECTED}
 
 
-def confirm_receipt(name: str, handover_notes: str = "") -> dict:
-    """Bên nhận xác nhận đã tiếp nhận thiết bị (status → Received)."""
+# ─── CR-24 (write-family closure): confirm_receipt idempotency dedup (mobile outbox) ──
+#
+# confirm_receipt là write KHÔNG idempotent: set_value(status→Received) + 1 audit +
+# 1 Lifecycle Event 'transferred'. Mobile write-outbox re-drain (mất mạng giữa
+# request↔response) có thể gọi LẠI CÙNG phiếu ⇒ vết custody TRÙNG (2 Lifecycle + 2
+# Audit) → vi phạm truy vết NĐ98. Mirror imm12.report_incident (services/imm12.py:492-497)
+# + imm11.add_measurement (services/imm11.py:1161-1187): store = frappe.cache() KHÔNG
+# DocField ⇒ KHÔNG bench migrate. Key scoped (transfer_name, resolved_key) ⇒ 2 khoá /
+# 2 phiếu = 2 scope dedup độc lập. TTL 24h = cửa sổ re-drain. ADR-IMM11-07.
+_TRANSFER_RECEIPT_IDEMPOTENCY_TTL = 86400  # giây (24h)
+
+
+def _transfer_receipt_cache_key(transfer_name: str, resolved_key: str) -> str:
+    """Khoá cache dedup confirm_receipt — scoped theo (transfer_name, resolved_key)."""
+    return f"transfer_receive::{transfer_name}::{resolved_key}"
+
+
+def _receipt_cache_get(cache_key: str) -> "dict | None":
+    # BẮT BUỘC expires=True: bypass layer frappe.local.cache — pre-check MISS nhét None
+    # vào local, set_value(expires_in_sec) chỉ ghi Redis ⇒ re-drain CÙNG process / test
+    # trả None-shadow nếu đọc mặc-định (mirror services/imm11.py:1178-1183).
+    return frappe.cache().get_value(cache_key, expires=True)
+
+
+def _receipt_cache_set(cache_key: str, payload: dict) -> None:
+    frappe.cache().set_value(
+        cache_key, payload, expires_in_sec=_TRANSFER_RECEIPT_IDEMPOTENCY_TTL,
+    )
+
+
+def confirm_receipt(name: str, handover_notes: str = "",
+                    client_request_id: str = "") -> dict:
+    """Bên nhận xác nhận đã tiếp nhận thiết bị (status → Received).
+
+    CR-24 (write-family closure — mirror imm12.report_incident / imm11.add_measurement):
+    ``client_request_id`` (body param THẮNG header ``X-Idempotency-Key``, ADR-IMM11-07)
+    truthy ⇒ dedup qua ``frappe.cache()`` scoped (name, key), TTL 24h. Pre-check HIT đứng
+    SAU existence + rbac (parity 403/404 với call gốc) NHƯNG TRƯỚC status-guard ⇒ replay
+    trả VERBATIM ``{name, status, received_by}`` lần-đầu, KHÔNG throw BAD_STATE /
+    set_value / lifecycle / audit lần 2 (KHÔNG nhân đôi vết custody NĐ98). Rỗng (cả param
+    lẫn header vắng) ⇒ ``cache_key=None`` ⇒ NO-OP dedup: hành vi legacy y nguyên (web-desk
+    / client-cũ 100% backward-compat). Store = frappe.cache() ⇒ KHÔNG bench migrate.
+    """
     if not frappe.db.exists(_DT_TRANSFER, name):
         frappe.throw(_(_ERR_TRANSFER_NOT_FOUND).format(name))
 
@@ -2783,8 +2825,24 @@ def confirm_receipt(name: str, handover_notes: str = "") -> dict:
     # (403), KHÔNG rò trạng thái phiếu cho user không đủ quyền.
     rbac.require(_TRANSFER_RECEIVE_CAP)
 
+    # CR-24: pre-check cache HIT đứng SAU existence + rbac NHƯNG TRƯỚC status-guard ⇒ replay
+    #   không bao giờ throw BAD_STATE. Rỗng key ⇒ cache_key=None ⇒ bỏ toàn bộ dedup (NO-OP).
+    resolved_key = resolve_idempotency_key(client_request_id)
+    cache_key = _transfer_receipt_cache_key(name, resolved_key) if resolved_key else None
+    if cache_key:
+        cached = _receipt_cache_get(cache_key)
+        if cached is not None:
+            return cached
+
     doc = frappe.get_doc(_DT_TRANSFER, name)
     if doc.status != _TRANSFER_STATUS_APPROVED:
+        # Winner-reread race: một re-drain concurrent CÙNG khoá đã set_value+cache GIỮA
+        #   pre-check và đây → khớp khoá → trả idempotent thay BAD_STATE. KHÔNG khoá /
+        #   không khớp ⇒ giữ guard cũ (mirror services/imm11.py:1228-1236).
+        if cache_key:
+            cached = _receipt_cache_get(cache_key)
+            if cached is not None:
+                return cached
         frappe.throw(_("Phiếu phải ở trạng thái 'Approved' trước khi xác nhận tiếp nhận"))
 
     updates: dict = {
@@ -2809,7 +2867,12 @@ def confirm_receipt(name: str, handover_notes: str = "") -> dict:
         notes=f"Tiếp nhận hoàn tất bởi {frappe.session.user}",
     )
     frappe.db.commit()
-    return {"name": name, "status": _TRANSFER_STATUS_RECEIVED, "received_by": frappe.session.user}
+    payload = {"name": name, "status": _TRANSFER_STATUS_RECEIVED,
+               "received_by": frappe.session.user}
+    # CR-24: cache_set SAU commit (chỉ khi có khoá) ⇒ re-drain cùng khoá replay verbatim.
+    if cache_key:
+        _receipt_cache_set(cache_key, payload)
+    return payload
 
 
 def cancel_transfer_request(name: str) -> dict:
@@ -3003,6 +3066,11 @@ _DT_COMMISSIONING = "Asset Commissioning"
 def count_pending_approvals(user: str | None = None, scope: str = "mine") -> int:
     """Đếm số Asset Commissioning đang chờ duyệt.
 
+    ADR-IMM00-APPROVAL-INBOX (C): hàm này GIỮ SSoT cho KPI dashboard
+    ``pending_commissioning`` (imm04-mine ONLY); inbox gộp
+    ``get_pending_approvals_inbox`` (CR-32) là SUPERSET by-design (thêm nguồn
+    transfer/allocation) — KHÔNG thay thế con số KPI này.
+
     Args:
         user: user để filter (default = ``frappe.session.user``).
         scope:
@@ -3174,3 +3242,498 @@ def cascade_category_gmdn(category_name: str, old_code: str, new_code: str) -> d
         "assets_changed": assets_changed,
         "skipped_overrides": skipped,
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# APPROVAL-INBOX-CR32 — Inbox gộp "Phiếu chờ tôi duyệt" xuyên module (IMM-00).
+#
+# Gộp 3 nguồn TÁI DÙNG SSoT sẵn có (KHÔNG hardcode role-name mới — chống
+# anti-pattern RBAC dead-gate):
+#   (a) Asset Commissioning  — imm04.list_my_pending_approvals (scope đích danh
+#       pending_approver == session user; KHÔNG cần cap-gate).
+#   (b) Asset Transfer       — status='Pending Approval', CHỈ khi caller đạt
+#       _TRANSFER_APPROVE_CAP (commissioning.submit — cùng cap mà
+#       approve_transfer_request enforce @:2719 ⇒ inbox hiển thị ⇔ duyệt được).
+#   (c) IMM Spare Allocation — allocation_status='Requested' (CHÍNH predicate mà
+#       approve_allocation kiểm @services/imm15.py:297), CHỈ khi caller đạt
+#       _CAP_APPROVE imm15 (inventory.submit).
+#   (d) Asset Repair 'Pending Inspection' (CR-42, Nghiệm thu CM) — CHỈ khi caller đạt
+#       repair.submit (cap confirm_inspection enforce @services/imm09.py:1806); SoD
+#       (đối xứng CR-41) loại phiếu mà chính session-user tự đóng (_resolve_wo_closer),
+#       unknown-closer → FAIL-OPEN. module='imm09'.
+#
+# Fail-soft theo spec: thiếu cap nguồn nào → nguồn đó EXCLUDE im lặng; 0 cap →
+# items=[] (KHÔNG lỗi). Inbox chỉ ĐỌC + điều hướng — hành động Duyệt vẫn nằm ở
+# detail view theo allowed_transitions server-driven (GATE-8).
+# ─────────────────────────────────────────────────────────────────────────────
+
+_INBOX_SOURCE_CAP_TRANSFER = _TRANSFER_APPROVE_CAP   # alias đọc-rõ (SSoT phía trên)
+# (d) CR-42 — cùng cap-gate với confirm_inspection (rbac.require("repair.submit")
+# @services/imm09.py:1806): inbox hiển thị phiếu CM chờ nghiệm thu ⇔ user duyệt được.
+# Cap SSoT của chính action confirm (KHÔNG hardcode role-name → chống RBAC dead-gate),
+# đối xứng nguồn transfer (commissioning.submit) / allocation (inventory.submit).
+_INBOX_SOURCE_CAP_INSPECT = "repair.submit"
+_DT_REPAIR = "Asset Repair"
+# Bound cứng mỗi nguồn — parity limit list_my_pending_approvals (services/imm04.py,
+# limit_page_length=50); lấy oldest-first TRƯỚC khi cap → phiếu chờ lâu nhất luôn hiện
+# (Core Doc IMM-00 §III.22).
+_INBOX_LIMIT_PER_SOURCE = 50
+
+# CR-44 — hard-cap độ dài field `summary` VI (server-built) mỗi item inbox.
+_INBOX_SUMMARY_MAX_LEN = 120
+# SSoT bậc nghiệm thu = Select opts `approval_stage` @asset_commissioning.json
+# (Doc Verify → Facility Check → Baseline Review → Clinical Release). stage_total =
+# len, stage_index = vị trí 1-based; KHÔNG field stage_index/stage_total riêng ⇒
+# derive migrate-free (LL-BE-58: cite field+doctype nguồn, KHÔNG đoán).
+_COMMISSIONING_APPROVAL_STAGES = (
+    "Doc Verify", "Facility Check", "Baseline Review", "Clinical Release",
+)
+
+
+def _inbox_item(*, doctype: str, name: str, module: str, title: str,
+                asset: str, requested_by: str, pending_since: str,
+                route: str, summary: str = "") -> dict:
+    """Item shape thống nhất 11-key của inbox (hợp đồng BE↔FE↔mobile).
+
+    ``asset_name``/``requested_by_name``/``summary`` được batch-enrich SAU (tránh
+    N+1 — LL-BE-2); khởi tạo rỗng để shape LUÔN đủ key (coalesce '' — KHÔNG None).
+    ``summary`` (CR-44) = tóm tắt VI 'cái đang được duyệt' do server dựng (≤120 ký
+    tự) — chấm dứt "duyệt mù" vết custody NĐ98; set ở ``_build_inbox_summaries``.
+    """
+    return {
+        "doctype": doctype,
+        "name": name,
+        "module": module,
+        "title": title or "",
+        "asset": asset or "",
+        "asset_name": "",
+        "requested_by": requested_by or "",
+        "requested_by_name": "",
+        "pending_since": pending_since or "",
+        "route": route,
+        "summary": summary or "",
+    }
+
+
+def get_pending_approvals_inbox() -> dict:
+    """Inbox gộp mọi phiếu đang chờ CHÍNH session user duyệt, xuyên 3 module.
+
+    Session-scoped (KHÔNG nhận tham số user — chống spoof; controller
+    ``api/imm00.get_pending_approvals_inbox(**_ignore)`` nuốt kwargs lạ).
+    Permission-aware theo cap SSoT CÓ SẴN của từng action duyệt; nguồn thiếu
+    cap bị exclude IM LẶNG (0 cap → items=[], KHÔNG lỗi).
+
+    Returns:
+        dict: ``{items: [...], total: int, by_module: {imm00, imm04, imm15, imm09}}``
+            — items sort ``pending_since`` asc; mỗi item shape 11-key
+            ``{doctype, name, module, title, asset, asset_name, requested_by,
+            requested_by_name, pending_since, route, summary}``. ``summary``
+            (CR-44) = tóm tắt VI 'cái đang được duyệt' server-built ≤120 ký tự
+            (LUÔN emit — coalesce ''). ``imm09`` = phiếu CM 'Pending Inspection'
+            chờ nghiệm thu (CR-42; SoD loại self-closed).
+    """
+    items: list[dict] = []
+    # Aux imm04: (index item, asset_description, master_item) — dùng ở bước enrich
+    # để thay id model bằng model_name trong title/asset_name (LL-BE-13, no-N+1).
+    comm_aux: list[tuple[int, str, str]] = []
+    # CR-44 — spec dựng field `summary` per-item (batch-resolve ở _build_inbox_summaries,
+    # no-N+1): mỗi entry {idx, kind, ...raw} theo nguồn; denorm (tên khoa/vị trí,
+    # phụ tùng) gom 1 query/loại SAU khi gộp đủ items.
+    summary_specs: list[dict] = []
+
+    # (a) Asset Commissioning — tái dùng NGUYÊN service imm04 (scope đích danh
+    #     pending_approver == session user AND docstatus != 2 — identity-based,
+    #     KHÔNG cap: filter chính là scope). Lazy-import chống circular import.
+    from assetcore.services import imm04 as _imm04
+    for r in _imm04.list_my_pending_approvals():
+        desc = _str_or_blank(r.get("asset_description"))
+        model = _str_or_blank(r.get("master_item"))
+        items.append(_inbox_item(
+            doctype="Asset Commissioning",
+            name=r.get("name"),
+            module="imm04",
+            # title = asset_description → master_item (enrich model_name sau) → name.
+            title=desc or model or _str_or_blank(r.get("name")),
+            # Phiếu nghiệm thu CHƯA có AC Asset trước khi đăng ký → thường ''.
+            asset=r.get("final_asset"),
+            requested_by=r.get("owner"),
+            pending_since=str(r.get("approval_submitted_at")
+                              or r.get("creation") or ""),
+            route=f"/commissioning/{r.get('name')}",
+        ))
+        comm_aux.append((len(items) - 1, desc, model))
+        # (a) summary = 'Nghiệm thu ban đầu · bậc <index>/<total>' (approval_stage).
+        summary_specs.append({
+            "idx": len(items) - 1, "kind": "commissioning",
+            "stage": r.get("approval_stage"),
+        })
+
+    # (b) Asset Transfer — cùng cap-gate với approve_transfer_request (SSoT).
+    if rbac.can(_INBOX_SOURCE_CAP_TRANSFER):
+        for r in frappe.get_all(
+            _DT_TRANSFER,
+            filters={"status": _TRANSFER_STATUS_PENDING},
+            # CR-44: thêm from/to department + location cho summary nguồn→đích
+            # (batch-resolve tên khoa/vị trí ở _build_inbox_summaries, no-N+1).
+            fields=["name", "asset", "reason", "transfer_type", "owner", "creation",
+                    "from_department", "to_department", "from_location", "to_location"],
+            order_by="creation asc",
+            limit_page_length=_INBOX_LIMIT_PER_SOURCE,
+        ):
+            items.append(_inbox_item(
+                doctype=_DT_TRANSFER,
+                name=r.get("name"),
+                module="imm00",
+                title=_str_or_blank(r.get("reason"))
+                      or _str_or_blank(r.get("transfer_type")),
+                asset=r.get("asset"),
+                requested_by=r.get("owner"),  # doctype KHÔNG có field requested_by
+                pending_since=str(r.get("creation") or ""),
+                route=f"/asset-transfers/{r.get('name')}",
+            ))
+            # (b) summary = '<khoa/vị trí nguồn> → <khoa/vị trí đích> · <asset_name>'.
+            summary_specs.append({
+                "idx": len(items) - 1, "kind": "transfer",
+                "from_department": r.get("from_department"),
+                "to_department": r.get("to_department"),
+                "from_location": r.get("from_location"),
+                "to_location": r.get("to_location"),
+            })
+
+    # (c) IMM Spare Allocation — cùng cap-gate + predicate với approve_allocation.
+    from assetcore.services import imm15 as _imm15
+    if rbac.can(_imm15._CAP_APPROVE):
+        for r in frappe.get_all(
+            "IMM Spare Allocation",
+            filters={"allocation_status": _imm15.AllocationStatus.REQUESTED},
+            fields=["name", "asset", "work_order_ref", "work_order_doctype",
+                    "requested_by", "owner", "creation"],
+            order_by="creation asc",
+            limit_page_length=_INBOX_LIMIT_PER_SOURCE,
+        ):
+            wo_ref = _str_or_blank(r.get("work_order_ref"))
+            items.append(_inbox_item(
+                doctype="IMM Spare Allocation",
+                name=r.get("name"),
+                module="imm15",
+                title=wo_ref or _str_or_blank(r.get("name")),
+                asset=r.get("asset"),
+                requested_by=r.get("requested_by") or r.get("owner"),
+                pending_since=str(r.get("creation") or ""),
+                # Phiếu cấp phát KHÔNG có detail view riêng → WO-drill theo
+                # work_order_doctype (Core Doc §III.22 / ADR-IMM00-APPROVAL-INBOX B):
+                # PM WO → /pm/work-orders; Asset Repair (CM) → /cm/work-orders;
+                # thiếu ref → dashboard kho /inventory. route LUÔN non-empty.
+                route=_allocation_drill_route(
+                    wo_ref, _str_or_blank(r.get("work_order_doctype"))),
+            ))
+            # (c) summary = '<item_name> ×<qty> <uom>' (đa dòng → dòng đầu + ' …+N');
+            #     child rows (IMM Spare Allocation Item) batch-fetch theo parent.
+            summary_specs.append({
+                "idx": len(items) - 1, "kind": "allocation",
+                "alloc": r.get("name"),
+            })
+
+    # (d) Asset Repair 'Pending Inspection' — CR-42 (Nghiệm thu CM). Cùng cap-gate
+    #     với confirm_inspection (SSoT repair.submit) ⇒ inbox hiển thị ⇔ duyệt được.
+    #     SoD (đối xứng CR-41): loại phiếu mà CHÍNH session-user tự đóng
+    #     (closer==session.user) → KHÔNG tạo dòng "duyệt mù" click→422. Closer resolve
+    #     migrate-free từ Asset Lifecycle Event 'repair_pending_inspection'
+    #     (mirror predicate imm09._resolve_wo_closer) — BATCH 1 query no-N+1; unknown
+    #     closer (0 event) → FAIL-OPEN (vẫn hiện, đối xứng confirm_inspection).
+    if rbac.can(_INBOX_SOURCE_CAP_INSPECT):
+        from assetcore.services import imm09 as _imm09  # lazy — chống circular import
+        repair_rows = frappe.get_all(
+            _DT_REPAIR,
+            filters={"status": _imm09.RepairStatus.PENDING_INSPECTION, "docstatus": 0},
+            fields=["name", "asset_ref", "repair_summary", "failure_description",
+                    "assigned_to", "requested_by", "owner", "modified"],
+            order_by="modified asc",
+            limit_page_length=_INBOX_LIMIT_PER_SOURCE,
+        )
+        closer_meta = _batch_resolve_pending_inspection_meta(
+            [r["name"] for r in repair_rows])
+        session_user = frappe.session.user
+        for r in repair_rows:
+            meta = closer_meta.get(r["name"])
+            closer = meta[0] if meta else ""
+            # SoD: người tự đóng phiếu KHÔNG tự nghiệm thu → ẩn khỏi inbox của họ.
+            if closer and closer == session_user:
+                continue
+            # ADR-IMM00-APPROVAL-INBOX(2): requested_by = closer (người đóng phiếu =
+            #   người đề nghị nghiệm thu); unknown-closer fail-open → fallback
+            #   assigned_to → owner (LUÔN non-empty).
+            requested_by = (closer or _str_or_blank(r.get("assigned_to"))
+                            or _str_or_blank(r.get("owner")))
+            # ADR-IMM00-APPROVAL-INBOX(3): pending_since = ts event
+            #   repair_pending_inspection; fallback modified khi closer unknown.
+            pending_since = (meta[1] if meta and meta[1]
+                             else str(r.get("modified") or ""))
+            items.append(_inbox_item(
+                doctype=_DT_REPAIR,
+                name=r["name"],
+                module="imm09",
+                # title = repair_summary → failure_description → name (LL-BE-13).
+                title=_str_or_blank(r.get("repair_summary"))
+                      or _str_or_blank(r.get("failure_description"))
+                      or _str_or_blank(r.get("name")),
+                asset=r.get("asset_ref"),
+                requested_by=requested_by,
+                pending_since=pending_since,
+                route=f"/cm/work-orders/{r['name']}",
+            ))
+            # (d) summary = '<failure_description|repair_summary rút gọn> · <asset_name>'.
+            summary_specs.append({
+                "idx": len(items) - 1, "kind": "repair",
+                "text": _str_or_blank(r.get("failure_description"))
+                        or _str_or_blank(r.get("repair_summary")),
+            })
+
+    _enrich_inbox_items(items, comm_aux)
+    # CR-44 — dựng field `summary` SAU enrich (dùng asset_name đã resolve). No-N+1:
+    # denorm tên khoa/vị trí + phụ tùng batch 1 query/loại (LL-BE-2/42).
+    _build_inbox_summaries(items, summary_specs)
+    # Sort server-side (SSoT): pending_since asc, tie-break name asc.
+    items.sort(key=lambda i: (i["pending_since"], i["name"] or ""))
+    by_module = {"imm00": 0, "imm04": 0, "imm15": 0, "imm09": 0}
+    for i in items:
+        by_module[i["module"]] = by_module.get(i["module"], 0) + 1
+    # BR-00-INBOX-02: total == len(items) == sum(by_module.values()) — cùng 1
+    # predicate, KHÔNG phát count DB riêng lệch drill (LL-BE-42/49).
+    return {"items": items, "total": len(items), "by_module": by_module}
+
+
+def _allocation_drill_route(wo_ref: str, wo_doctype: str) -> str:
+    """Deep-link cho phiếu cấp phát (KHÔNG có detail view riêng) — WO-drill.
+
+    Map Core Doc §III.22: work_order_doctype chứa "PM" → ``/pm/work-orders/{ref}``;
+    "Asset Repair"/chứa "CM" (mặc định) → ``/cm/work-orders/{ref}``; thiếu ref →
+    ``/inventory`` (dashboard kho). Luôn trả route non-empty.
+    """
+    if not wo_ref:
+        return "/inventory"
+    if "PM" in wo_doctype.upper():
+        return f"/pm/work-orders/{wo_ref}"
+    return f"/cm/work-orders/{wo_ref}"
+
+
+def _batch_resolve_pending_inspection_meta(
+        names: list[str]) -> dict[str, tuple[str, str]]:
+    """CR-42 batch (no-N+1): map WO name → (closer_email, pending_since_ts).
+
+    Mirror ĐÚNG predicate ``imm09._resolve_wo_closer`` (event_type=
+    'repair_pending_inspection', root_doctype='Asset Repair', event MỚI NHẤT per WO
+    theo ``creation desc``) nhưng RESOLVE 1 LẦN cho nhiều WO thay vì 1-query/phiếu
+    (chống N+1, skill assetcore-perf). Đọc từ Asset Lifecycle Event hiện có ⇒ 0 field
+    DocType mới, migrate-free.
+
+    Returns:
+        ``{wo_name: (actor, creation)}`` cho WO CÓ event. WO không có event → KHÔNG
+        có trong map → caller FAIL-OPEN (đối xứng ``_resolve_wo_closer`` trả None).
+    """
+    if not names:
+        return {}
+    rows = frappe.get_all(
+        "Asset Lifecycle Event",
+        filters={
+            "event_type": "repair_pending_inspection",
+            "root_doctype": _DT_REPAIR,
+            "root_record": ["in", names],
+        },
+        fields=["root_record", "actor", "creation"],
+        order_by="creation desc",
+    )
+    out: dict[str, tuple[str, str]] = {}
+    for r in rows:
+        # creation desc → dòng ĐẦU gặp per root_record = event mới nhất (latest wins).
+        rec = r.get("root_record")
+        if rec and rec not in out:
+            out[rec] = (_str_or_blank(r.get("actor")), str(r.get("creation") or ""))
+    return out
+
+
+def _enrich_inbox_items(items: list[dict],
+                        comm_aux: list[tuple[int, str, str]]) -> None:
+    """Batch-enrich display name cho inbox — 3 query cố định, KHÔNG N+1 (LL-BE-2).
+
+    - ``asset_name`` từ AC Asset (mọi item có ``asset`` — kể cả imm04 final_asset).
+    - ``requested_by_name`` từ User.full_name (fallback chính id).
+    - imm04 (Asset Commissioning): title/asset_name derive theo Core Doc §III.22 —
+      ``asset_description → master_item(model_name) → name`` (LL-BE-13: KHÔNG để
+      Link-id trần trong field user nhìn).
+    Dangling FK → display fallback rỗng/raw id (LL-BE-12).
+    """
+    asset_ids = {i["asset"] for i in items if i["asset"]}
+    if asset_ids:
+        asset_map = dict(frappe.get_all(
+            _DOCTYPE_ASSET, filters={"name": ["in", list(asset_ids)]},
+            fields=["name", "asset_name"], as_list=True,
+        ))
+        for i in items:
+            if i["asset"]:
+                i["asset_name"] = _str_or_blank(asset_map.get(i["asset"]))
+
+    user_ids = {i["requested_by"] for i in items if i["requested_by"]}
+    if user_ids:
+        user_map = dict(frappe.get_all(
+            "User", filters={"name": ["in", list(user_ids)]},
+            fields=["name", "full_name"], as_list=True,
+        ))
+        for i in items:
+            if i["requested_by"]:
+                i["requested_by_name"] = _str_or_blank(
+                    user_map.get(i["requested_by"])) or i["requested_by"]
+
+    model_ids = {model for _, _, model in comm_aux if model}
+    model_map: dict = {}
+    if model_ids:
+        model_map = dict(frappe.get_all(
+            _DOCTYPE_DEVICE_MODEL, filters={"name": ["in", list(model_ids)]},
+            fields=["name", "model_name"], as_list=True,
+        ))
+    for idx, desc, model in comm_aux:
+        it = items[idx]
+        model_display = _str_or_blank(model_map.get(model)) or model
+        # title: desc đã set ở builder; nếu title đang là raw model-id → model_name.
+        if it["title"] == model and model:
+            it["title"] = model_display
+        # asset_name fallback (phiếu chưa có AC Asset): desc → model_name.
+        if not it["asset_name"]:
+            it["asset_name"] = desc or model_display
+
+
+def _truncate_summary(text, limit: int = _INBOX_SUMMARY_MAX_LEN) -> str:
+    """Cắt an toàn field `summary` về ≤ ``limit`` ký tự, kèm '…' khi cắt.
+
+    Python str = unicode ⇒ slice theo KÝ TỰ (UTF-8 safe, KHÔNG cắt giữa codepoint).
+    Coalesce None/non-str → '' qua ``_str_or_blank``. Chuỗi ≤ limit trả nguyên; dài
+    hơn → ``s[:limit-1] + '…'`` (tổng đúng ``limit`` ký tự).
+    """
+    s = _str_or_blank(text)
+    if len(s) <= limit:
+        return s
+    return s[: max(0, limit - 1)] + "…"
+
+
+def _fmt_qty(value) -> str:
+    """Format số lượng phụ tùng: số nguyên bỏ '.0' (×2 KHÔNG ×2.0); lỗi → '0'."""
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return "0"
+    return str(int(f)) if f == int(f) else f"{f:g}"
+
+
+def _batch_name_map(doctype: str, ids: set, display_field: str) -> dict:
+    """Batch-resolve {name → display_field} cho 1 doctype (no-N+1, 1 query).
+
+    ``ids`` rỗng → {} (KHÔNG phát query). Dangling FK → key vắng ⇒ caller coalesce.
+    """
+    if not ids:
+        return {}
+    return dict(frappe.get_all(
+        doctype, filters={"name": ["in", list(ids)]},
+        fields=["name", display_field], as_list=True,
+    ))
+
+
+def _build_inbox_summaries(items: list[dict], specs: list[dict]) -> None:
+    """CR-44 — dựng field `summary` VI (≤120) mỗi item, batch no-N+1 (LL-BE-2/42).
+
+    Denorm gom 1 query/loại (tên AC Department/Location cho transfer; child phụ tùng
+    IMM Spare Allocation Item gộp theo parent) — KHÔNG lookup trong loop N item.
+    Commissioning-stage + repair-text KHÔNG cần query (đọc thẳng từ spec/item).
+    Thiếu dữ liệu (null/dangling) → phần lấy được hoặc '' (coalesce, KHÔNG raise) —
+    Core Doc IMM-00 §III.22. Server hard-cap 120 ký tự qua ``_truncate_summary``.
+
+    Template per-nguồn (ADR-IMM00-APPROVAL-INBOX / CR-44):
+      transfer      = '<khoa/vị trí nguồn> → <khoa/vị trí đích> · <asset_name>'
+      allocation    = '<item_name> ×<qty> <uom>'  (đa dòng → dòng đầu + ' …+N')
+      commissioning = 'Nghiệm thu ban đầu · bậc <index>/<total>'
+      repair (CM)   = '<failure_description|repair_summary rút gọn> · <asset_name>'
+    """
+    if not specs:
+        return
+
+    # 1) Gom id cần denorm (transfer: khoa/vị trí; allocation: parent phụ tùng).
+    dept_ids: set[str] = set()
+    loc_ids: set[str] = set()
+    alloc_names: set[str] = set()
+    for sp in specs:
+        if sp["kind"] == "transfer":
+            for k in ("from_department", "to_department"):
+                if sp.get(k):
+                    dept_ids.add(sp[k])
+            for k in ("from_location", "to_location"):
+                if sp.get(k):
+                    loc_ids.add(sp[k])
+        elif sp["kind"] == "allocation" and sp.get("alloc"):
+            alloc_names.add(sp["alloc"])
+
+    dept_map = _batch_name_map("AC Department", dept_ids, "department_name")
+    loc_map = _batch_name_map("AC Location", loc_ids, "location_name")
+
+    # 2) Batch child phụ tùng cấp phát → gộp theo parent, giữ thứ tự idx.
+    #    part_name denorm sẵn (fetch_from spare_part.part_name); uom = AC UOM name
+    #    (autoname field:uom_name ⇒ hiển thị được, KHÔNG lookup thêm).
+    alloc_lines: dict[str, list[tuple[str, object, str]]] = {}
+    if alloc_names:
+        for row in frappe.get_all(
+            "IMM Spare Allocation Item",
+            filters={"parenttype": "IMM Spare Allocation",
+                     "parent": ["in", list(alloc_names)]},
+            fields=["parent", "part_name", "spare_part", "qty_requested", "uom", "idx"],
+            order_by="parent asc, idx asc",
+        ):
+            alloc_lines.setdefault(row["parent"], []).append((
+                _str_or_blank(row.get("part_name")) or _str_or_blank(row.get("spare_part")),
+                row.get("qty_requested"),
+                _str_or_blank(row.get("uom")),
+            ))
+
+    # 3) Dựng summary từng item theo nguồn (coalesce '' khi thiếu; hard-cap 120).
+    for sp in specs:
+        it = items[sp["idx"]]
+        kind = sp["kind"]
+        if kind == "transfer":
+            src = (dept_map.get(sp.get("from_department"))
+                   or loc_map.get(sp.get("from_location")) or "")
+            dst = (dept_map.get(sp.get("to_department"))
+                   or loc_map.get(sp.get("to_location")) or "")
+            summary = f"{src} → {dst}"
+            if it["asset_name"]:
+                summary = f"{summary} · {it['asset_name']}"
+        elif kind == "allocation":
+            lines = alloc_lines.get(sp.get("alloc") or "", [])
+            if lines:
+                part, qty, uom = lines[0]
+                head = f"{part} ×{_fmt_qty(qty)}"
+                if uom:
+                    head = f"{head} {uom}"
+                extra = len(lines) - 1
+                summary = f"{head} …+{extra}" if extra > 0 else head
+            else:
+                summary = ""  # 0 dòng phụ tùng → coalesce blank (non-crash).
+        elif kind == "commissioning":
+            stage = _str_or_blank(sp.get("stage"))
+            total = len(_COMMISSIONING_APPROVAL_STAGES)
+            if stage in _COMMISSIONING_APPROVAL_STAGES:
+                index = _COMMISSIONING_APPROVAL_STAGES.index(stage) + 1
+                summary = f"Nghiệm thu ban đầu · bậc {index}/{total}"
+            else:
+                # Stage null/lạ → giữ nhãn gốc (coalesce, KHÔNG bịa bậc).
+                summary = "Nghiệm thu ban đầu"
+        elif kind == "repair":
+            text = _str_or_blank(sp.get("text"))
+            an = it["asset_name"]
+            if an:
+                # Chừa chỗ cho ' · <asset_name>' trong 120 → asset_name luôn còn.
+                suffix = f" · {an}"
+                budget = _INBOX_SUMMARY_MAX_LEN - len(suffix)
+                head = _truncate_summary(text, budget) if budget > 0 else ""
+                summary = f"{head}{suffix}" if head else an
+            else:
+                summary = text
+        else:
+            summary = ""
+        it["summary"] = _truncate_summary(summary)

@@ -327,7 +327,8 @@ export async function printAssetLabelsPdf(
   // LỖI nghiệp vụ (HTTP-200 + JSON envelope): đọc text → parse → ApiError VI.
   // Frappe bọc return value whitelist dưới `message`; _err shape {success,error,code,http_status}.
   const text = await blobText(blob)
-  let env: PdfErrorEnvelope = {}
+  // Không khởi tạo {} — nhánh catch luôn throw nên `env` chắc chắn được gán.
+  let env: PdfErrorEnvelope
   try {
     const parsed = JSON.parse(text) as { message?: PdfErrorEnvelope } & PdfErrorEnvelope
     env = (parsed.message ?? parsed) as PdfErrorEnvelope
@@ -721,6 +722,68 @@ export function approveTransfer(name: string): Promise<{ name: string; approved_
   return frappePost(`${BASE}.approve_transfer`, { name })
 }
 
+// ─── Pending Approvals Inbox — xuyên module (CR-32 / APPROVAL-INBOX-CR32) ─────
+// Mirror BE `assetcore.api.imm00.get_pending_approvals_inbox` (naming contract).
+// Session-scoped (KHÔNG nhận param user — BE scope theo frappe.session.user).
+// Gộp 3 nguồn phiếu chờ duyệt: Asset Commissioning (imm04, pending_approver ==
+// session user) + Asset Transfer (imm00, cap duyệt điều chuyển) + IMM Spare
+// Allocation (imm15, cap duyệt cấp phát). User thiếu cap nguồn nào → nguồn đó
+// EXCLUDE im lặng; 0 cap → items=[] (success, KHÔNG lỗi).
+// Item.route do BE cấp (SSoT điều hướng) — FE có fallback map theo doctype
+// (xem PendingApprovalsView). Sort pending_since asc (phiếu chờ lâu nhất trước).
+
+/** 1 phiếu đang chờ session-user duyệt (shape thống nhất xuyên doctype). */
+export interface PendingApprovalItem {
+  /** DocType nguồn: 'Asset Commissioning' | 'Asset Transfer' | 'IMM Spare Allocation' | 'Asset Repair' (CR-42) */
+  doctype: string
+  /** ID phiếu (Link id — hiển thị mono sub-text, KHÔNG làm nhãn chính) */
+  name: string
+  /** Mã module nguồn: 'imm04' | 'imm00' | 'imm15' | 'imm09' (CR-42 — chờ nghiệm thu CM) */
+  module: string
+  /** Tiêu đề đọc được của phiếu (BE dựng sẵn) */
+  title: string
+  /**
+   * Tóm tắt VI 'cái đang được duyệt' — SERVER-BUILT (CR-44), ≤120 ký tự, LUÔN
+   * có mặt (coalesce '' — KHÔNG null). Theo nguồn:
+   *   • Asset Transfer      → '<nguồn> → <đích> · <asset_name>'
+   *   • IMM Spare Allocation → '<item_name> ×<qty> <uom>'
+   *   • Asset Commissioning → 'Nghiệm thu ban đầu · bậc X/Y'
+   *   • Asset Repair (CM)   → '<mô tả hỏng/tóm tắt sửa> · <asset_name>'
+   * FE render VERBATIM dưới title — KHÔNG dựng lại, KHÔNG so client-clock.
+   * Rỗng '' → FE ẩn dòng summary (v-if). Mirror OAS PendingApprovalItem.summary
+   * (required). Chấm dứt 'duyệt mù' trên vết custody NĐ98.
+   */
+  summary: string
+  /** Link id thiết bị liên quan (có thể rỗng) */
+  asset: string
+  /** Tên thiết bị hiển thị (companion của asset) */
+  asset_name: string
+  /** User id người gửi phiếu (KHÔNG render trực tiếp — dùng requested_by_name) */
+  requested_by: string
+  /** Tên hiển thị người gửi phiếu */
+  requested_by_name: string
+  /** Thời điểm phiếu bắt đầu chờ duyệt (ISO datetime) */
+  pending_since: string
+  /** Route FE detail do BE cấp (vd '/commissioning/ACM-...') */
+  route: string
+}
+
+export interface PendingApprovalsInbox {
+  items: PendingApprovalItem[]
+  total: number
+  /** Đếm theo module nguồn, vd { imm04: 1, imm00: 2, imm15: 0, imm09: 1 } (imm09 = CR-42 chờ nghiệm thu CM) */
+  by_module: Record<string, number>
+}
+
+/**
+ * Hộp thư "Phiếu chờ tôi duyệt" xuyên module — session-scoped, permission-aware.
+ * GET, không param. frappeGet đã unwrap envelope {message:{success,data}} → trả
+ * thẳng PendingApprovalsInbox.
+ */
+export function getPendingApprovalsInbox(): Promise<PendingApprovalsInbox> {
+  return frappeGet(`${BASE}.get_pending_approvals_inbox`)
+}
+
 // ─── PM Schedule CRUD ────────────────────────────────────────────────────────
 
 export interface PmSchedule {
@@ -1058,3 +1121,4 @@ export async function bulkRegenerateScheduleByCategory(
   return frappePost<BulkRegenerateResult>(
     `${BASE}.bulk_regenerate_schedule_by_category`, { category_name })
 }
+

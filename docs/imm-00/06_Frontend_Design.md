@@ -196,7 +196,7 @@ Các routes dưới đây đánh dấu `[BUILT]` nếu có Vue component, `[SPEC
 /capa/new                   → CAPA Form (Create)                            [SPEC]
 /capa/:name                 → CAPA Detail + workflow bar                    [SPEC]
 /audit-trail                → AuditTrailListView.vue                        [BUILT — views/audit/]
-/pending-approvals          → PendingApprovalsView.vue                      [BUILT — views/audit/]
+/approvals/pending          → PendingApprovalsView.vue (inbox 3-module, §III.11) [BUILT — views/audit/]
 /inventory                  → Inventory Dashboard                           [SPEC]
 /print/:doctype/:name       → Print-friendly view                           [SPEC]
 /login                      → Frappe login (redirect)                       [BUILT — Frappe native]
@@ -1282,6 +1282,61 @@ Trên `DepreciationView.vue`, nút global gọi `computeAllDepreciation()`. Sau 
 
 > **API client:** `listAssets` thêm optional `byt_status?: 'expiring' \| 'expired'` (xem §V.1). BE: [imm-00/05 `list_assets`](./05_API_Specification.md) + INVARIANT count==drill; SoT predicate: [imm-00/04 §III.1a](./04_Backend_Design.md); compliance NĐ98: [imm-05/02 KPI-05](../imm-05/02_Analysis_Design.md).
 > **DoD FE:** vue-tsc 0 lỗi; vitest GREEN (tile click → route `byt_status`; chip render VI từ SSoT; header "Tổng N" == tile value; clear chip bỏ param; tone neutral khi value==0 vẫn drill). KHÔNG raw-EN leak.
+
+---
+
+## III.11. Phiếu chờ tôi duyệt — `PendingApprovalsView.vue` đa-module (CR-32 APPROVAL-INBOX / BR-00-INBOX-01)
+
+> **Hiện trạng:** view `frontend/src/views/audit/PendingApprovalsView.vue` CHỈ hiện phiếu Nghiệm thu (nguồn `listMyPendingApprovals` @`api/imm04.ts:349`, cột stage-specific, row-click hardcode `/commissioning/{name}`). **Nâng cấp:** đổi nguồn sang endpoint gộp `get_pending_approvals_inbox` ([05 §III.22](./05_API_Specification.md)) — **4 loại phiếu (CR-32: 3 · CR-42: +imm09)**: Nghiệm thu (imm04) · Điều chuyển (imm00) · Xuất kho phụ tùng (imm15) · **Nghiệm thu CM (imm09)**. BE spec + ADR: [`ADR-IMM00-APPROVAL-INBOX.md`](./ADR-IMM00-APPROVAL-INBOX.md).
+
+### API client (`frontend/src/api/imm00.ts`)
+
+```ts
+export interface PendingApprovalItem {
+  doctype: 'Asset Commissioning' | 'Asset Transfer' | 'IMM Spare Allocation' | 'Asset Repair' // CR-42 +Asset Repair
+  name: string
+  module: 'imm04' | 'imm00' | 'imm15' | 'imm09'  // CR-42 +imm09
+  title: string
+  asset: string            // '' khi chưa có (imm04)
+  asset_name: string
+  requested_by: string
+  requested_by_name: string
+  pending_since: string    // datetime string — server đã sort asc
+  route: string            // deep-link server-computed, LUÔN non-empty (imm09 → /cm/work-orders/{name})
+}
+export interface PendingApprovalsInbox {
+  items: PendingApprovalItem[]
+  total: number
+  by_module: { imm04: number; imm00: number; imm15: number; imm09: number }  // CR-42 +imm09
+}
+export const getPendingApprovalsInbox = () =>
+  frappeGet<PendingApprovalsInbox>(`${BASE}.get_pending_approvals_inbox`)
+```
+
+> **🔺 CR-42 (nguồn thứ 4 imm09 — Nghiệm thu CM).** FE bổ sung nhãn `MODULE_LABEL.imm09 = 'Nghiệm thu CM'` (hoặc 'Chờ nghiệm thu CM') + `MODULE_CLASS.imm09` (badge màu phân biệt) — KHÔNG leak khóa `imm09`/EN doctype ra UI (LL-FE-53). Row-click GIỮ `router.push(item.route)` server-driven (`/cm/work-orders/{name}` đã có route `router/index.ts:360`, 0 hardcode). SoD (WO tự-đóng bị ẩn) do BE lọc — FE KHÔNG cần biết. `by_module` chip nếu render = 4 loại (số PHẢI lấy từ `by_module`). Subtitle header cập nhật để phủ 4 loại (xem Empty state bên dưới). **FE = slice sau (Bước-4) sau khi BE land nguồn-d live.**
+
+`api/imm04.ts` `listMyPendingApprovals` + `PendingApprovalRow` **GIỮ NGUYÊN** (endpoint BE vẫn LIVE, không breaking); cleanup nếu hết consumer = [ROADMAP].
+
+### View — hành vi
+
+| Mục | Spec |
+|---|---|
+| Nguồn dữ liệu | `getPendingApprovalsInbox()` — 1 call; KHÔNG gọi thêm list imm04 riêng. |
+| Nhãn module (VI) | `MODULE_LABEL: Record<module, string> = { imm04: 'Nghiệm thu', imm00: 'Điều chuyển', imm15: 'Xuất kho phụ tùng', imm09: 'Nghiệm thu CM' }` (CR-42 +imm09) + badge màu `MODULE_CLASS` phân biệt 4 loại (pattern STAGE_LABEL/STAGE_CLASS hiện có). KHÔNG leak khóa `imm04`/`imm09`/doctype EN ra UI (LL-FE-53). |
+| Cột | Mã phiếu (`name`) · Loại phiếu (badge `MODULE_LABEL[module]`) · Nội dung (`title`, truncate + `:title` tooltip) · Thiết bị (`asset_name` fallback `asset` fallback '—') · Người yêu cầu (`requested_by_name` fallback `requested_by`) · Chờ từ (`formatDt(pending_since)` vi-VN — helper hiện có). |
+| Deep-link | Row-click → `router.push(item.route)` — **server-driven** (ADR-…-B); FE KHÔNG tự map doctype→route, KHÔNG hardcode `/commissioning/`. |
+| Sort | GIỮ thứ tự server (pending_since asc — phiếu chờ lâu nhất trên đầu); FE KHÔNG re-sort. |
+| Hành động | **KHÔNG nút duyệt inline** — inbox chỉ đọc + điều hướng; Duyệt/Từ chối nằm ở detail view theo `allowed_transitions`/CTA-flag server-driven (GATE-8/LL-FE-51). |
+| Empty state | Giữ pattern hiện có ("Không có phiếu nào đang chờ bạn duyệt"); subtitle header cập nhật (CR-42, phủ 4 loại): "Các phiếu nghiệm thu, điều chuyển, xuất kho phụ tùng, nghiệm thu sửa chữa (CM) đã được gửi đến bạn để duyệt." |
+| Tổng/badge | Có thể hiện `total` + breakdown `by_module` (chip đếm theo loại) — optional, nếu render thì số PHẢI lấy từ `by_module` (KHÔNG tự đếm lại items). |
+
+### Gate route/sidebar — GIỮ NGUYÊN
+
+- Route `/approvals/pending` meta `{ requiresAuth: true }` (KHÔNG `requiredCapabilities`) @`router/index.ts:769` và sidebar item 'Phê duyệt chờ' (0 cap) @`constants/sidebarNav.ts:205` **KHÔNG ĐỔI** — user 0-quyền-duyệt thấy inbox rỗng success (BR-00-INBOX-01, không phải bug). Parity guard `sidebarRouteParity.test.ts` phải GIỮ XANH (0 cap ⇔ 0 cap — không tạo dead-gate/leak mới).
+
+### DoD FE
+
+- vue-tsc 0 lỗi; vitest FULL GREEN. Test mới (đề xuất `views/audit/pendingApprovalsInbox.test.ts`): render đủ **4 nhãn VI** (CR-42 +imm09='Nghiệm thu CM'; KHÔNG raw `imm04`/`imm09`/EN doctype leak) · row-click push ĐÚNG `item.route` (server-driven, không hardcode; imm09 → `/cm/work-orders/{name}`) · empty-state khi `items:[]` · không re-sort client (thứ tự render == thứ tự items).
 
 ---
 
