@@ -43,3 +43,5 @@ assetcore.patches.v3_2.008_backfill_asset_qr_token
 assetcore.patches.v3_2.009_backfill_base_role
 # ── Audit L-18b ── Seed master data khởi tạo (UOM/Khoa/Vị trí/Danh mục) — idempotent
 assetcore.patches.v3_2.010_seed_master_data
+# ── ADR-CORE-01 ── Đồng bộ workflow_state ← status (workflow engine thành SSoT trạng thái)
+assetcore.patches.v3_2.011_backfill_workflow_state
