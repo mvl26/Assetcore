@@ -10,6 +10,9 @@
 // • PM / CM / Calibration assert qua props SmartSelect (parity): modelValue=id,
 //   disabled=true, badge giữ nguyên. (TC-PM/CM/CAL-PARITY-01)
 // • TC-NOLEAK-01: text render KHÔNG chứa raw qr_token / status enum EN đứng một mình.
+import fs from 'node:fs'
+import path from 'node:path'
+
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
@@ -174,8 +177,8 @@ describe('TC-CAL-PARITY-01 — CalibrationCreateView', () => {
 // CHÚ Ý: chỉ soi thân hàm loadAssetMeta() — các loader KHÁC (calibration-schedule,
 // PM-template checklist) vẫn được phép dùng frappe.client.get/get_value (ngoài scope).
 describe('TC-PARITY-NO-CLIENTGETVALUE-4VIEW — loader asset-meta 4 view không còn frappe.client.get_value', () => {
-  const fs = require('node:fs') as typeof import('node:fs')
-  const path = require('node:path') as typeof import('node:path')
+  // fs/path import tĩnh ở đầu file (ESM) — `require()` không hợp lệ trong ESM
+  // và bị @typescript-eslint/no-require-imports chặn.
   // CM/Cal/PM có hàm loadAssetMeta() → soi thân hàm. Incident KHÔNG có panel
   // asset-meta riêng (chỉ SmartSelect label-resolution) → assert whole-file sạch.
   const LOADER_VIEWS: Record<string, string> = {

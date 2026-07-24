@@ -24,6 +24,19 @@ export default [
   },
 
   {
+    // Script build/dev chạy bằng Node, KHÔNG phải trình duyệt → global khác hẳn.
+    files: ['scripts/**/*.{js,mjs,cjs}'],
+    languageOptions: {
+      globals: {
+        process: 'readonly',
+        __dirname: 'readonly',
+        __filename: 'readonly',
+        Buffer: 'readonly',
+      },
+    },
+  },
+
+  {
     languageOptions: {
       globals: {
         // Browser
@@ -49,8 +62,10 @@ export default [
         HTMLElement: 'readonly',
         HTMLDivElement: 'readonly',
         HTMLImageElement: 'readonly',
+        HTMLVideoElement: 'readonly',
         MouseEvent: 'readonly',
         KeyboardEvent: 'readonly',
+        DragEvent: 'readonly',
         Element: 'readonly',
         Node: 'readonly',
         confirm: 'readonly',
@@ -83,6 +98,11 @@ export default [
       'vue/html-indent': 'off',
       'vue/html-closing-bracket-newline': 'off',
       'vue/attributes-order': 'warn',
+      // Repo truyền CONTEXT của composable xuống làm prop (vd `ctx: ImportWizardCtx`
+      // = object chứa ref). Ghi `ctx.someRef.value = x` là mutate GIÁ TRỊ của ref,
+      // KHÔNG phải gán đè prop → không phải anti-pattern. `shallowOnly` giữ rule
+      // bắt đúng lỗi thật (gán đè chính prop) mà bỏ false-positive này.
+      'vue/no-mutating-props': ['error', { shallowOnly: true }],
 
       // ── Style / safety ────────────────────────────────────────────────────
       'no-console': ['warn', { allow: ['warn', 'error'] }],

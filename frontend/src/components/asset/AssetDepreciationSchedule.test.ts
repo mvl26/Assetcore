@@ -325,7 +325,7 @@ describe('AssetDepreciationSchedule — asset Decommissioned: kỳ Pending → C
     const wrapper = mount(AssetDepreciationSchedule, { props: { assetName: 'ACC-ASS-DECOM' } })
     await flushPromises()
 
-    const text = wrapper.text().replace(/ /g, ' ')
+    const text = wrapper.text().replace(/\u00A0/g, ' ')
     // 1/3 kỳ đã chạy (executed_periods=1, total_periods=3).
     expect(text).toContain('1/3 kỳ')
     // Giá trị còn lại chốt tại thời điểm hủy = 96tr (KHÔNG drop về 0 khi hủy Pending).
@@ -481,7 +481,7 @@ describe('AssetDepreciationSchedule — Out of Service: kỳ Pending được d�
     const wrapper = mount(AssetDepreciationSchedule, { props: { assetName: 'ACC-ASS-OOS' } })
     await flushPromises()
 
-    const text = wrapper.text().replace(/ /g, ' ')
+    const text = wrapper.text().replace(/\u00A0/g, ' ')
     // 2/5 kỳ đã chạy — tiến độ chốt theo Executed, KHÔNG đổi vì dời Pending.
     expect(text).toContain('2/5 kỳ')
     // Book value chốt sau 2 kỳ Executed = 80tr (BẤT BIẾN suốt window OoS — no phantom).
