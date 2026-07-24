@@ -138,6 +138,71 @@ def _drop_orphan_user_link_fields() -> None:
             )
 
 
+def _prune_broken_link_customfields() -> int:
+    """Gỡ MỌI Custom Field Link/Table trỏ tới DocType KHÔNG tồn tại (bất kỳ host nào).
+
+    Tổng quát hoá `_drop_orphan_user_link_fields` (vốn chỉ quét `User` + field của
+    AssetCore) sang MỌI doctype để dọn orphan do APP KHÁC để lại. Điển hình: ERPNext
+    bolt Custom Field `company` (Link → `Company`) lên doctype LÕI Frappe khi cài
+    (`erpnext/setup/install.py`: Email Account, Communication). Trên site KHÔNG cài
+    ERPNext (AssetCore chỉ cần Frappe) các field này thành orphan → mở form báo
+    `Field company is referring to non-existing doctype Company. Please delete the
+    field from Email Account-company or add the required doctype.`
+    (frappe/desk/form/meta.py::add_search_fields → get_meta(options) → DoesNotExist).
+
+    An toàn — chỉ xoá khi DocType đích THỰC SỰ thiếu: một Link/Table trỏ doctype không
+    tồn tại là hỏng với MỌI app (crash form), không app nào dùng được → xoá chỉ chữa,
+    không mất chức năng. Chạy trong after_migrate SAU `sync_all()` nên mọi doctype của
+    app ĐANG cài đều đã sync → chỉ bắt orphan thật (từ app đã gỡ / chưa cài). Idempotent,
+    no-op trên site khỏe (site có ERPNext → `Company` tồn tại → 0 xoá). Nếu về sau cài
+    lại ERPNext, `after_migrate` của nó tự tạo lại field (target `Company` đã có).
+
+    Trả số Custom Field đã xoá.
+    """
+    removed = 0
+    candidates = frappe.get_all(
+        "Custom Field",
+        filters={"fieldtype": ["in", list(_LINK_LIKE_FIELDTYPES)]},
+        fields=["name", "dt", "fieldname", "options"],
+    )
+    for cf in candidates:
+        options = cf.get("options")
+        if not options or frappe.db.exists("DocType", options):
+            continue
+        frappe.delete_doc(
+            "Custom Field", cf["name"], ignore_permissions=True, force=True
+        )
+        removed += 1
+        print(
+            f"[AssetCore] Gỡ orphan Custom Field {cf['dt']}.{cf['fieldname']} "
+            f"(DocType đích {options!r} không tồn tại — form khỏi crash)."
+        )
+    if removed:
+        frappe.db.commit()
+    return removed
+
+
+def prune_orphan_link_customfields() -> int:
+    """Entrypoint `bench execute` dọn NGAY orphan Link Custom Field (không cần migrate).
+
+        bench --site <site> execute assetcore.setup.install.prune_orphan_link_customfields
+
+    Dùng khi site đang lỗi `Field <x> is referring to non-existing doctype <Y>` mà chưa
+    tới kỳ migrate. Best-effort: lỗi ghi Error Log, KHÔNG raise. Trả số field đã gỡ."""
+    try:
+        n = _prune_broken_link_customfields()
+        print(
+            f"[AssetCore] prune_orphan_link_customfields: đã gỡ {n} orphan Custom Field."
+        )
+        return n
+    except Exception:
+        frappe.log_error(
+            frappe.get_traceback(),
+            "AssetCore prune_orphan_link_customfields failed",
+        )
+        return 0
+
+
 def create_user_custom_fields() -> None:
     """Tạo toàn bộ custom fields cho User nếu chưa có."""
     # Dọn field orphan TRƯỚC: tránh `Missing DocType` crash khi target chưa sync.
@@ -279,6 +344,7 @@ def after_install() -> None:
     _seed_role_profiles()
     _seed_module_profiles()
     _apply_core_permissions()
+    prune_orphan_link_customfields()
     _build_frontend(force=True)
 
 
@@ -398,7 +464,24 @@ def after_migrate() -> None:
     _apply_core_permissions()
     _install_notifications()
     _bust_capability_cache()
+    prune_orphan_link_customfields()
+    _configure_email()
     _build_frontend(force=False)
+
+
+def _configure_email() -> None:
+    """ISS-002 — cấu hình Email Account gửi đi (SMTP) từ ``apps/assetcore/.env``.
+
+    Idempotent + env-guarded: site nào KHÔNG có ``ASSETCORE_SMTP_*`` thì
+    ``configure_outgoing_email`` trả ``skipped`` (an toàn cho CI/dev). Lỗi cấu
+    hình email chỉ được log — KHÔNG được phép làm hỏng cả ``bench migrate``.
+    """
+    from assetcore.setup import email as ac_email
+
+    try:
+        ac_email.configure_outgoing_email()
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "after_migrate: configure email failed")
 
 
 def _reconcile_asset_repair_override() -> None:
