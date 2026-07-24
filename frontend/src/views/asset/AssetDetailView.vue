@@ -182,7 +182,7 @@ const lifecycleLabel: Record<string, string> = {
   'Decommissioned': 'Đã thanh lý',
 }
 
-function formatDate(d?: string) {
+function formatDate(d?: string | null) {
   if (!d) return '—'
   return new Date(d).toLocaleDateString('vi-VN')
 }
@@ -345,7 +345,9 @@ async function confirmDecommission() {
   // TÁCH create ≠ approve: nếu create THÀNH CÔNG nhưng approve LỖI (vd 403 create-only /
   // gate), hồ sơ draft KHÔNG được để mồ côi câm → điều hướng tới biên bản để
   // user/approver mở lại duyệt hoặc thu hồi (GATE-8/LL-FE-51).
-  let created: CreateDecommissionResult | null = null
+  // Không khởi tạo null: nhánh catch đầu `return` nên `created` chắc chắn đã gán
+  // ở mọi đường đi tới đây (bỏ luôn `| null` để không phải null-check giả).
+  let created: CreateDecommissionResult
   try {
     created = await createDecommission({
       asset: store.currentAsset.name,
@@ -724,6 +726,28 @@ onMounted(async () => {
               <!-- SSoT: đọc cờ server calibration_overdue (KHÔNG so ngày client) — exempt Out of Service -->
               <dd :class="store.currentAsset.calibration_overdue ? 'text-red-600 font-semibold' : 'text-slate-800'">
                 {{ formatDate(store.currentAsset.next_calibration_date) }}
+              </dd>
+            </div>
+            <div class="flex justify-between items-center gap-2">
+              <dt class="text-slate-400 shrink-0">Bảo hành</dt>
+              <!-- CR-38: badge server-flag warranty_expired (SSoT get_asset_scan_info) —
+                   CHỈ render cờ, TUYỆT ĐỐI KHÔNG so ngày client. date null → placeholder. -->
+              <dd class="text-right">
+                <span
+                  v-if="store.currentAsset.warranty_expiry_date"
+                  data-testid="warranty-badge"
+                  :class="[
+                    'inline-flex items-center rounded px-2 py-0.5 text-xs font-medium',
+                    store.currentAsset.warranty_expired
+                      ? 'bg-red-100 text-red-700'
+                      : 'bg-emerald-100 text-emerald-700',
+                  ]"
+                >
+                  {{ store.currentAsset.warranty_expired
+                    ? `Hết hạn (${formatDate(store.currentAsset.warranty_expiry_date)})`
+                    : `Còn hạn (${formatDate(store.currentAsset.warranty_expiry_date)})` }}
+                </span>
+                <span v-else class="text-slate-400">—</span>
               </dd>
             </div>
           </dl>
