@@ -11,6 +11,17 @@ export interface AssetRepair {
   asset_name: string
   asset_category: string
   risk_class: string
+  /**
+   * CR-51 — phơi TOP-LEVEL từ `get_repair_work_order` = verbatim
+   * `AC Asset.risk_classification` ∈ {Low, Medium, High, Critical, ''}. Đây là
+   * PHÂN LOẠI RỦI RO THIẾT BỊ (NĐ98) — nhãn hiển thị 'Phân loại rủi ro' map qua
+   * SSoT `riskClassificationLabel` (Thấp/Trung bình/Cao/Nghiêm trọng). KHÁC hoàn
+   * toàn với `risk_class` (Class I/II/III) ở trên — đó là đầu vào ma trận SLA, KHÔNG
+   * render cho người dùng. Asset chưa phân loại → '' (KHÔNG suy diễn, KHÔNG default).
+   * Optional (forward-compat: trước khi BE flatten → undefined; view fallback
+   * `asset_info.risk_classification` là cùng giá trị nguồn, KHÔNG vỡ).
+   */
+  risk_classification?: string
   department_name?: string
   location_name?: string
   asset_info?: AssetInfo
@@ -195,6 +206,12 @@ export function closeWorkOrder(payload: {
   checklist_results: RepairChecklistRow[]
   cannot_repair?: boolean
   cannot_repair_reason?: string
+  // CR-24 idempotency (parity IMM-08 submit_pm_result / IMM-11 record_result):
+  // khoá do client sinh, chỉ điều khiển dedup ở BE (mobile write-outbox re-drain +
+  // web desk double-submit). BE unwrap → replay success-envelope thay vì 422-giả khi
+  // WO đã sang Pending Inspection. Bỏ trống ⇒ hành vi legacy (không dedup). Field body
+  // `client_request_id` khớp signature BE api/imm09.close_work_order; KHÔNG lọt vào doc.
+  client_request_id?: string
 }): Promise<{ name: string; status: string; mttr_hours: number; sla_breached: boolean }> {
   return frappePost<{ name: string; status: string; mttr_hours: number; sla_breached: boolean }>(
     `${BASE}.close_work_order`,

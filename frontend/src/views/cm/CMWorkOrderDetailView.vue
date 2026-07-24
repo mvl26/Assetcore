@@ -4,9 +4,11 @@ import { useImm09Store } from '@/stores/imm09'
 import { useRouter } from 'vue-router'
 import { useNotify } from '@/composables/useNotify'
 import { MSG } from '@/i18n/messages'
-import { cmStatusLabel, cmStatusClass, priorityLabel, priorityClass, rootCauseLabel, repairTypeLabel, resultLabel, lifecycleStatusLabel, lifecycleStatusClass } from '@/constants/labels'
+import { cmStatusLabel, cmStatusClass, priorityLabel, priorityClass, rootCauseLabel, repairTypeLabel, resultLabel, lifecycleStatusLabel, lifecycleStatusClass, riskClassificationLabel } from '@/constants/labels'
 import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
 import { useCapabilities } from '@/composables/useCapabilities'
+
+import RelatedRecords from '@/components/common/RelatedRecords.vue'
 
 const props = defineProps<{ id: string }>()
 const store = useImm09Store()
@@ -64,6 +66,20 @@ function startTimer() {
 }
 
 const wo = computed(() => store.currentWO)
+
+// ─── Phân loại rủi ro thiết bị (NĐ98) — nhãn VN, KHÔNG leak raw code ─────────────
+// Nguồn = `risk_classification` verbatim của AC Asset ∈ {Low,Medium,High,Critical,''}
+// (CR-51: BE flatten top-level qua get_repair_work_order; fallback `asset_info.
+// risk_classification` = CÙNG giá trị nguồn, robust khi BE chưa flatten). Map sang VI
+// qua SSoT `riskClassificationLabel` (Thấp/Trung bình/Cao/Nghiêm trọng) — KHÔNG dùng
+// `risk_class` (Class I/II/III = đầu vào ma trận SLA, KHÔNG phải nhãn người dùng).
+// Presence-aware (parity CMCreate/CalibrationCreate/AssetScanInfo): rỗng/whitespace/
+// absent → 'Chưa phân loại' (phân biệt 'chưa phân loại' vs Class B — KHÔNG '—', KHÔNG
+// default); drift ngoài enum → 'Khác' (riskClassificationLabel — KHÔNG leak EN thô).
+const riskText = computed(() => {
+  const raw = (wo.value?.risk_classification ?? wo.value?.asset_info?.risk_classification ?? '').trim()
+  return raw ? riskClassificationLabel(raw) : 'Chưa phân loại'
+})
 
 // ─── SSoT server-driven CTA (GATE-8 / LL-FE-51 · mirror IncidentDetailView R3 +
 // CalibrationDetailView) ──────────────────────────────────────────────────────
@@ -160,6 +176,14 @@ const slaTextColor = computed(() => {
 // badge VI giải thích đồng hồ đang dừng. KHÔNG tự tính lại — chỉ trình bày trạng thái.
 const isOnPartsHold = computed(() => wo.value?.status === 'Pending Parts')
 
+// ─── LIVE vượt SLA (CR-37 · BR-09-07 LIVE, INV parity list↔detail) ─────────────
+// Badge/indicator đọc cờ LIVE `is_sla_breached ?? sla_breached` (live ưu tiên,
+// fallback cờ thô STORED — forward-compat, đối xứng list CM đã dùng LIVE +
+// cmSlaBreachedDivergence.test.ts case (C)). Chặn badge "Cam kết dịch vụ vi phạm"
+// đọc cờ STORED `sla_breached` trễ 1 nhịp scheduler khi WO open-overdue vượt hạn
+// nhưng cron chưa stamp (cận an-toàn người bệnh). WO đã đóng: live == cờ thô (equiv).
+const isSlaBreached = computed(() => wo.value?.is_sla_breached ?? !!wo.value?.sla_breached)
+
 // Actions
 async function doAssign() {
   submitting.value = true
@@ -171,6 +195,9 @@ async function doAssign() {
 
 async function doCannotRepair() {
   submitting.value = true
+  // CR-24 idempotency: khoá 1 lần cho mỗi lần bấm "Không thể sửa" (cùng endpoint
+  // close_work_order). Ổn định qua auto-retry, đổi khi user chủ động thử lại.
+  const clientRequestId = globalThis.crypto.randomUUID()
   const ok = await store.doCloseWorkOrder({
     name: wo.value!.name,
     repair_summary: '',
@@ -179,6 +206,7 @@ async function doCannotRepair() {
     checklist_results: [],
     cannot_repair: true,
     cannot_repair_reason: cannotReason.value,
+    client_request_id: clientRequestId,
   })
   submitting.value = false
   notifyResult(ok, MSG.UI_SAVE_SUCCESS, { entity: 'trạng thái “Không thể sửa”' })
@@ -219,7 +247,7 @@ async function doConfirmInspection() {
           <span class="font-mono text-lg font-bold text-slate-900">{{ wo?.name }}</span>
           <span v-if="wo" :class="['px-2.5 py-1 rounded-full text-xs font-semibold', cmStatusClass(wo.status)]">{{ cmStatusLabel(wo.status) }}</span>
           <span v-if="wo?.is_repeat_failure" class="px-2 py-0.5 rounded-full text-xs bg-amber-100 text-amber-700 font-medium">Tái hỏng</span>
-          <span v-if="wo?.sla_breached" class="px-2 py-0.5 rounded-full text-xs bg-red-100 text-red-700 font-semibold">Cam kết dịch vụ vi phạm</span>
+          <span v-if="isSlaBreached" data-testid="cm-sla-breach-badge" class="px-2 py-0.5 rounded-full text-xs bg-red-100 text-red-700 font-semibold">Cam kết dịch vụ vi phạm</span>
           <!-- Trạng thái vòng đời THỰC của thiết bị (BR-09-09) — bind giá trị thật, không hardcode -->
           <span
             v-if="assetLifecycleStatus"
@@ -265,7 +293,7 @@ async function doConfirmInspection() {
             <div v-if="wo.department_name"><span class="text-slate-500">Khoa:</span> <span class="font-medium">{{ wo.department_name }}</span></div>
             <div v-if="wo.location_name"><span class="text-slate-500">Vị trí:</span> <span class="font-medium">{{ wo.location_name }}</span></div>
             <div><span class="text-slate-500">Số serial:</span> <span class="font-mono text-xs">{{ wo.serial_no || '—' }}</span></div>
-            <div><span class="text-slate-500">Phân loại rủi ro:</span> <span class="font-medium">{{ wo.risk_class }}</span></div>
+            <div><span class="text-slate-500">Phân loại rủi ro:</span> <span class="font-medium" data-testid="wo-risk-classification">{{ riskText }}</span></div>
             <div><span class="text-slate-500">Loại sửa chữa:</span> <span class="font-medium">{{ repairTypeLabel(wo.repair_type) }}</span></div>
             <div>
               <span class="text-slate-500">Ưu tiên:</span>
@@ -416,16 +444,16 @@ Phiếu bảo trì {{ wo.source_pm_wo }} →
               <span class="text-xs text-slate-500">Mục tiêu cam kết mức dịch vụ</span>
             </div>
             <div class="flex items-center justify-between mb-3">
-              <span :class="['text-xl font-bold font-mono', wo.sla_breached ? 'text-red-600' : 'text-emerald-600']">
+              <span :class="['text-xl font-bold font-mono', isSlaBreached ? 'text-red-600' : 'text-emerald-600']">
                 {{ wo.mttr_hours != null ? `${wo.mttr_hours}h` : '—' }}
               </span>
               <span class="text-slate-400 text-sm">/</span>
               <span class="text-xl font-bold font-mono text-slate-700">{{ wo.sla_target_hours ?? '—' }}h</span>
             </div>
             <div class="flex items-center justify-center gap-2 py-2 rounded-lg"
-                 :class="wo.sla_breached ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'">
+                 :class="isSlaBreached ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'">
               <span class="text-base font-semibold">
-                {{ wo.sla_breached ? '✗ Vi phạm cam kết dịch vụ' : '✓ Đạt cam kết dịch vụ' }}
+                {{ isSlaBreached ? '✗ Vi phạm cam kết dịch vụ' : '✓ Đạt cam kết dịch vụ' }}
               </span>
             </div>
             <div v-if="wo.status !== 'Completed'" class="text-xs text-center text-slate-400 mt-2">
@@ -493,7 +521,7 @@ Phiếu bảo trì {{ wo.source_pm_wo }} →
             </div>
             <div v-if="wo.mttr_hours" class="flex justify-between">
               <span class="text-slate-500">Thời gian sửa chữa:</span>
-              <span :class="['font-semibold', wo.sla_breached ? 'text-red-600' : 'text-green-600']">{{ wo.mttr_hours }}h</span>
+              <span :class="['font-semibold', isSlaBreached ? 'text-red-600' : 'text-green-600']">{{ wo.mttr_hours }}h</span>
             </div>
           </div>
 
@@ -652,6 +680,9 @@ Phiếu bảo trì {{ wo.source_pm_wo }} →
       </div>
     </div>
     </Transition>
+
+    <!-- Bản ghi liên quan: nội dung do đồ thị liên kết ở backend quyết định. -->
+    <RelatedRecords v-if="wo" class="mt-4" doctype="Asset Repair" :name="wo.name" />
 
     <!-- Cannot Repair Modal -->
     <Transition name="fade">

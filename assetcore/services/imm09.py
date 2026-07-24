@@ -24,6 +24,7 @@ from assetcore.services.imm00 import (
     transition_asset_status,
 )
 from assetcore.utils.lifecycle import create_lifecycle_event as _create_lifecycle_event
+from assetcore.utils.idempotency import resolve_idempotency_key
 from assetcore.services.shared import AssetStatus, ServiceError
 from assetcore.services.shared import rbac
 from assetcore.services.shared.filters import pop_search
@@ -48,6 +49,49 @@ class RepairStatus:
 
     ACTIVE = (OPEN, ASSIGNED, DIAGNOSING, PENDING_PARTS, IN_REPAIR, PENDING_INSPECTION)
     CANNOT_START = (COMPLETED, CANNOT_REPAIR, CANCELLED)
+
+
+# ─── CR-50 (ADR-IMM09-SEED-CHECKLIST): danh mục Repair Checklist chuẩn ─────────
+#
+# SoT danh mục nghiệm thu sau sửa chữa (BA chốt — 04_Backend_Design §3.7, N=6).
+# Mỗi phiếu CM mới seed 6 dòng vào `repair_checklist` — `test_description` +
+# `test_category` (∈ enum child `Repair Checklist.test_category` =
+# Electrical/Mechanical/Software/Safety/Performance) điền sẵn, `result` để TRỐNG
+# cho KTV nhập (Pass/Fail/N/A). Phủ đủ 5 giá trị test_category (Safety ×2 — an
+# toàn điện + an toàn vận hành). Nội dung là ĐỊNH NGHĨA DOMAIN VT-TB (CR-50: app
+# hiện trường KHÔNG bịa nội dung mục). Ground theo enum schema + WHO HTM chương
+# Maintenance (verification-after-repair); KHÔNG cite IEC/60601 cụ thể ([UNVERIFIED]).
+_STANDARD_REPAIR_CHECKLIST: list[dict] = [
+    {"test_description": "Kiểm tra nguồn điện và khởi động thiết bị (power-on self-test)",
+     "test_category": "Electrical"},
+    {"test_description": "Đo dòng rò và điện trở tiếp đất bảo vệ (an toàn điện)",
+     "test_category": "Safety"},
+    {"test_description": "Kiểm tra cơ khí: vỏ máy, kết cấu, đầu nối, bộ phận chuyển động",
+     "test_category": "Mechanical"},
+    {"test_description": "Xác nhận phiên bản firmware/phần mềm và cấu hình vận hành",
+     "test_category": "Software"},
+    {"test_description": "Chạy chức năng chính, đối chiếu thông số kỹ thuật thiết bị",
+     "test_category": "Performance"},
+    {"test_description": "Kiểm tra hệ thống cảnh báo và khóa an toàn (alarm & safety interlock)",
+     "test_category": "Safety"},
+]
+
+
+def _standard_repair_checklist_rows() -> list[dict]:
+    """Bản COPY MỚI của `_STANDARD_REPAIR_CHECKLIST` (CR-50, §3.7).
+
+    Mỗi phiếu nhận list dict RIÊNG (tránh chia sẻ mutable reference giữa các doc).
+    `result`/`expected_value`/`measured_value` để trống — KTV/model điền. Dùng bởi
+    `create_work_order` (seed lúc tạo) + `backfill_repair_checklists` (gỡ phiếu kẹt).
+
+    ⚠️ `result=""` TƯỜNG MINH (KHÔNG bỏ trống): Select `Repair Checklist.result`
+    (`Pass\\nFail\\nN/A`) KHÔNG bắt đầu bằng dòng trống ⇒ Frappe `_set_defaults()`
+    tự điền OPTION ĐẦU ("Pass") khi field is None lúc insert → dòng seed auto-Pass
+    (false-green: BR-09-04 không chặn, thiết bị trả lâm sàng KHÔNG kiểm tra — vi
+    phạm NĐ98). Set "" (falsy, KHÁC None) ⇒ `update_if_missing` (`is None`) BỎ QUA
+    → giữ trống. KHÔNG sửa options doctype (tránh `bench migrate` — HARD-STOP).
+    """
+    return [dict(row, result="") for row in _STANDARD_REPAIR_CHECKLIST]
 
 
 # ─── SoT: terminal-state predicate cho "Asset Repair đang mở" (BR-09-08) ──────
@@ -1095,6 +1139,14 @@ def get_work_order(name: str) -> dict:
     data["asset_info"] = asset_info
     # Flatten tên hiển thị lên top-level cho FE dùng trực tiếp
     data["asset_name"] = asset_info.get("asset_name") or doc.asset_ref
+    # [CR-51] Phơi TOP-LEVEL `risk_classification` = giá trị VERBATIM của
+    # AC Asset.risk_classification ({Low,Medium,High,Critical} hoặc '' nếu chưa phân
+    # loại) — nguồn cổng ảnh bằng chứng NĐ98 Class C/D cho phiếu CM mobile
+    # (BR-09-15/16). ⚠️ LL-BE-58: KHÁC DOMAIN với `risk_class` (Class I/II/III = đầu
+    # vào _SLA_MATRIX, derived qua _risk_map @create_work_order) — KHÔNG suy diễn/thay
+    # thế. Asset CHƯA phân loại → '' verbatim (KHÔNG default). asset_info ĐÃ đọc field
+    # này (fields list @~1135) ⇒ KHÔNG query thêm (no N+1). GIỮ `risk_class` nguyên.
+    data["risk_classification"] = asset_info.get("risk_classification") or ""
     dept_id = asset_info.get("department")
     loc_id  = asset_info.get("location")
     data["department_name"] = (
@@ -1114,6 +1166,15 @@ def get_work_order(name: str) -> dict:
     # Server-driven CTA (mirror imm12.py:778 R3 + imm08.py:651 R21): client render
     # nút workflow trên màn repair-detail theo SERVER (KHÔNG hardcode status→button).
     data["allowed_transitions"] = _REPAIR_VALID_TRANSITIONS.get(doc.status, [])
+    # CR-37 (mobile parity list↔detail, cận an-toàn người bệnh): phơi cờ LIVE
+    # `is_sla_breached` (Python bool) BÊN CẠNH cờ thô STORED `sla_breached` — badge
+    # 'Vi phạm SLA' màn repair-detail KHÔNG trễ tới đầu-giờ-kế của scheduler
+    # `check_repair_sla_breach`. DÙNG CHUNG SoT predicate `_enrich_sla_breach` với
+    # list-item (cờ thô OR live-overdue clock-stop) ⇒ cờ detail == cờ list-item cùng
+    # record (INVARIANT). `data` = doc.as_dict() đã có đủ field predicate đọc
+    # (sla_breached/status/open_datetime/sla_target_hours/risk_class/priority/
+    # parts_hold_hours/parts_hold_started). GIỮ cờ thô `sla_breached` nguyên.
+    _enrich_sla_breach([data])
     return data
 
 
@@ -1159,12 +1220,25 @@ def _repair_photo_validation_error(msg: str) -> ServiceError:
     return ServiceError(ErrorCode.VALIDATION, msg, http_status=422, fields={"file": msg})
 
 
+def _repair_photo_envelope(file_url: str, file_name: str, checklist_item_idx) -> dict:
+    """Envelope success DUY NHẤT của attach_repair_checklist_photo (EXACT 3-key OAS closed).
+
+    Dùng CHUNG cho insert-path THẬT, dedupe-replay (pre-check HIT) VÀ race-winner
+    re-read ⇒ shape byte-đối-byte KHÔNG lệch (mirror winner-reread imm12/imm08)."""
+    return {
+        "file_url": file_url,
+        "file_name": file_name,
+        "checklist_item_idx": int(checklist_item_idx),
+    }
+
+
 def attach_repair_checklist_photo(
     work_order_name: str,
     checklist_item_idx: int,
     filedata: bytes | None = None,
     filename: str = "",
     content_type: str = "",
+    client_request_id: str = "",
 ) -> dict:
     """BR-09-15/16 (mobile CR-15/G6): đính ảnh bằng chứng cho MỘT mục checklist sửa
     chữa (NĐ98 Class C/D).
@@ -1182,12 +1256,23 @@ def attach_repair_checklist_photo(
     → File.insert + set_value rollback (chưa commit) ⇒ KHÔNG orphan File, KHÔNG silent
     (đối xứng incident_photo_attached / pm_checklist_photo_attached).
 
+    BR-09-16-IDEMP (CR-24 §4 photo-level closure · mirror ADR-IMM12-10 / imm08): `client_
+    request_id` non-empty → dedupe theo composite scoped key `f"{wo}::{idx}::{key}"` trên
+    Custom Field `File.ac_client_request_id` (unique NULL-store): lớp-1 pre-check SAU
+    permission+idx-validation / TRƯỚC validation ladder (replay ảnh đã đính phải trả success
+    kể cả khi mục đã đủ MAX=1 ảnh) — trúng ⇒ early-return envelope File ĐÃ đính (0 insert /
+    0 lifecycle); lớp-2 race-handler `UniqueValidationError` → re-read winner (kẻ thua raise
+    TRƯỚC set_value + emit ⇒ 0 event trùng). Scope namespace theo record+mục: cùng key KHÁC
+    wo/idx → composite KHÁC → KHÔNG dedupe chéo. Rỗng/thiếu → mỗi call 1 File (at-least-once).
+
     Args:
         work_order_name: Asset Repair đang mở.
         checklist_item_idx: Frappe child `idx` (1-based) của hàng repair_checklist.
         filedata: bytes ảnh (API đọc `frappe.request.files["file"].stream.read()`).
         filename: tên tệp gốc (File.file_name).
         content_type: MIME client gửi (validate jpg/png).
+        client_request_id: idempotency key per-ảnh (mobile write-outbox re-drain);
+            rỗng → behavior at-least-once cũ nguyên vẹn.
 
     Returns: `{"file_url", "file_name", "checklist_item_idx"}`.
     Raises: ServiceError NOT_FOUND | FORBIDDEN | VALIDATION (Decision-B qua API tier).
@@ -1199,6 +1284,18 @@ def attach_repair_checklist_photo(
     row = _find_repair_checklist_row(wo, checklist_item_idx)
     if row is None:
         raise _repair_photo_validation_error(_MSG_REPAIR_PHOTO_IDX_NOT_FOUND)
+    # BR-09-16-IDEMP lớp-1: dedupe pre-check — SAU permission+idx / TRƯỚC validation ladder.
+    scoped_key = (
+        f"{work_order_name}::{int(checklist_item_idx)}::{client_request_id}"
+        if client_request_id else ""
+    )
+    if scoped_key:
+        existing = frappe.db.get_value(
+            _DT_FILE, {"ac_client_request_id": scoped_key},
+            ["file_url", "file_name"], as_dict=True)
+        if existing:
+            return _repair_photo_envelope(
+                existing.file_url, existing.file_name, checklist_item_idx)
     if not filedata:
         raise _repair_photo_validation_error(_MSG_REPAIR_PHOTO_MISSING)
     ct = (content_type or "").split(";")[0].strip().lower()
@@ -1209,16 +1306,34 @@ def attach_repair_checklist_photo(
     if len(_repair_checklist_item_photos(row)) >= MAX_REPAIR_CHECKLIST_PHOTOS:
         raise _repair_photo_validation_error(_MSG_REPAIR_PHOTO_MAX)
 
+    file_payload = {
+        "doctype": _DT_FILE,
+        "file_name": filename,
+        "attached_to_doctype": _DT_ASSET_REPAIR,
+        "attached_to_name": work_order_name,
+        "is_private": 1,
+        "content": filedata,
+        "decode": False,
+    }
+    # BR-09-16-IDEMP: persist scoped key CHỈ khi truthy (NULL-store — nhiều NULL hợp lệ trên
+    # unique index ⇒ backward-compat nguyên vẹn).
+    if scoped_key:
+        file_payload["ac_client_request_id"] = scoped_key
     try:
-        file_doc = frappe.get_doc({
-            "doctype": _DT_FILE,
-            "file_name": filename,
-            "attached_to_doctype": _DT_ASSET_REPAIR,
-            "attached_to_name": work_order_name,
-            "is_private": 1,
-            "content": filedata,
-            "decode": False,
-        }).insert(ignore_permissions=True)
+        file_doc = frappe.get_doc(file_payload).insert(ignore_permissions=True)
+    except frappe.UniqueValidationError:
+        # BR-09-16-IDEMP lớp-2 race: re-drain concurrent đã insert CÙNG scoped_key giữa
+        # pre-check và insert (unique index tabFile chặn kẻ thua). Kẻ thua raise TRƯỚC
+        # set_value + create_lifecycle_event ⇒ 0 event trùng. Dọn msgprint "must be unique"
+        # thừa, re-read winner rồi return idempotent (parity attach_incident_photo).
+        frappe.clear_last_message()
+        winner = frappe.db.get_value(
+            _DT_FILE, {"ac_client_request_id": scoped_key},
+            ["file_url", "file_name"], as_dict=True)
+        if winner:
+            return _repair_photo_envelope(
+                winner.file_url, winner.file_name, checklist_item_idx)
+        raise
     except (UnidentifiedImageError, OSError) as exc:
         # ẢNH HỎNG/ĐỨT TRUYỀN: bytes không giải mã được dù content-type hợp lệ. Frappe
         # File.before_insert → strip_exif → PIL.Image.open ném UnidentifiedImageError
@@ -1253,11 +1368,8 @@ def attach_repair_checklist_photo(
         notes=f"Đính ảnh bằng chứng mục #{checklist_item_idx}: {filename}",
     )
     frappe.db.commit()
-    return {
-        "file_url": file_doc.file_url,
-        "file_name": file_doc.file_name,
-        "checklist_item_idx": int(checklist_item_idx),
-    }
+    return _repair_photo_envelope(
+        file_doc.file_url, file_doc.file_name, checklist_item_idx)
 
 
 def _assert_valid_create_links(incident_report: str, source_pm_wo: str) -> None:
@@ -1344,6 +1456,13 @@ def create_work_order(*, asset_ref: str, repair_type: str, priority: str,
         "risk_class": risk_class,
         "open_datetime": now_datetime(),
     })
+    # CR-50 (ADR-IMM09-SEED-CHECKLIST §3.7): seed danh mục Repair Checklist chuẩn
+    # SAU get_doc, TRƯỚC insert ⇒ MỌI phiếu CM (mobile & web) có N=6 dòng để KTV
+    # điền (test_description + test_category điền sẵn, result TRỐNG) → gỡ deadlock
+    # confirm_inspection 422 (checklist rỗng) cho 100% phiếu CM mobile. BR-09-04
+    # NGUYÊN VẸN (seed KHÔNG tự-Pass — result trống ⇒ chưa submit được đến khi điền).
+    for _row in _standard_repair_checklist_rows():
+        doc.append("repair_checklist", _row)
     doc.flags.ignore_links = True
     doc.insert(ignore_permissions=True)
 
@@ -1516,19 +1635,73 @@ def request_spare_parts(name: str, parts: list[dict]) -> dict:
             "allocation": allocation_name}
 
 
+# ─── CR-24 op#5/5: idempotency dedup cho close_work_order (mobile write-outbox) ─
+#
+# close_work_order (nhánh happy IN_REPAIR→PENDING_INSPECTION) là write KHÔNG
+# idempotent: RepairRepo.save(doc) + 1 Lifecycle Event repair_pending_inspection.
+# Mobile write-outbox re-drain (mất mạng giữa request↔response) gọi LẠI cùng phiếu ⇒
+# cần khoá idempotency. Mirror CR-24 imm08 (_pm_submit_cache_* :996) NHƯNG store =
+# frappe.cache() (KHÔNG DocField ⇒ KHÔNG bench migrate). Key scoped
+# (wo_name, resolved_key) ⇒ 2 WO / 2 key độc lập. TTL 24h = cửa sổ re-drain. Khoá
+# resolve qua shared resolve_idempotency_key (body param THẮNG header X-Idempotency-
+# Key/Idempotency-Key; NO-OP khi cả hai vắng). Scope = nhánh happy;
+# cannot_repair/_mark_cannot_repair NGOÀI scope vòng này (guard riêng, backlog).
+_CM_CLOSE_IDEMPOTENCY_TTL = 86400  # giây (24h)
+
+
+def _cm_close_cache_key(wo_name: str, resolved_key: str) -> str:
+    """Khoá cache idempotency close_work_order — scoped theo (wo_name, resolved_key)."""
+    return f"cm_close_wo::{wo_name}::{resolved_key}"
+
+
+def _cm_close_cache_get(cache_key: str) -> dict | None:
+    """Đọc payload đã cache (None = MISS). Seam nội-bộ (KHÔNG inline
+    frappe.cache().get_value) để test race winner-reread ép được pre-check MISS
+    đúng-1-lần mà KHÔNG đụng cache dùng chung bởi rbac caps.
+
+    BẮT BUỘC `expires=True`: get_value mặc-định (expires=False) ghi kết-quả vào
+    `frappe.local.cache` (request-local); một pre-check MISS nhét None vào layer local,
+    còn set_value(expires_in_sec) CHỈ ghi Redis (KHÔNG cập nhật local) ⇒ get sau TRONG
+    CÙNG request/process trả None-cũ (shadow) dù Redis đã có. Prod tách request nên vô
+    hại, nhưng re-drain cùng process / test sẽ vỡ idempotency. `expires=True` bỏ qua
+    layer local → luôn đọc Redis (mirror imm08 _pm_submit_cache_get)."""
+    return frappe.cache().get_value(cache_key, expires=True)
+
+
+def _cm_close_cache_set(cache_key: str, payload: dict) -> None:
+    frappe.cache().set_value(cache_key, payload, expires_in_sec=_CM_CLOSE_IDEMPOTENCY_TTL)
+
+
 def close_work_order(name: str, *, repair_summary: str, root_cause_category: str,
                      dept_head_name: str, checklist_results: list | None = None,
                      spare_parts: list | None = None, firmware_updated: int = 0,
                      firmware_change_request: str = "", cannot_repair: int = 0,
-                     cannot_repair_reason: str = "") -> dict:
+                     cannot_repair_reason: str = "", client_request_id: str = "") -> dict:
     """KTV hoàn thành sửa chữa → WO chuyển sang 'Pending Inspection'.
 
     Đây KHÔNG phải bước cuối: WO dừng ở 'Pending Inspection' chờ nghiệm thu
     (xem confirm_inspection). Trước đây hàm này submit() ngay → complete_repair()
     nhảy thẳng 'Completed', khiến state 'Pending Inspection' trong workflow + FE
     không bao giờ tới được.
+
+    CR-24 op#5/5 (mobile write-outbox idempotency): `client_request_id` do client
+    sinh — resolve qua shared resolve_idempotency_key (body param THẮNG header
+    X-Idempotency-Key/Idempotency-Key; NO-OP khi cả hai vắng). Truthy → dedup cache:
+    pre-check HIT trả envelope VERBATIM TRƯỚC mọi mutation (re-drain KHÔNG nhân đôi
+    Lifecycle Event / hết false-error markFailed). Rỗng ⇒ legacy path y nguyên (0
+    dedup, NULL-semantics). CHỈ nhánh happy IN_REPAIR→PENDING_INSPECTION (cannot_repair
+    ngoài scope).
     """
     rbac.require("repair.create")
+
+    # Pre-check ĐẦU hàm (khi resolved truthy): cache HIT → replay envelope VERBATIM
+    #   TRƯỚC mọi mutation / RepairRepo.get. Rỗng ⇒ 0 tương tác cache (legacy).
+    resolved_key = resolve_idempotency_key(client_request_id)
+    if resolved_key:
+        cached = _cm_close_cache_get(_cm_close_cache_key(name, resolved_key))
+        if cached is not None:
+            return cached
+
     doc = RepairRepo.get(name)
     if not doc:
         nthrow(MSG.IMM09_NOT_FOUND, name=name)
@@ -1541,6 +1714,14 @@ def close_work_order(name: str, *, repair_summary: str, root_cause_category: str
         return _mark_cannot_repair(doc, name, cannot_repair_reason)
 
     if doc.status != RepairStatus.IN_REPAIR:
+        # Race re-drain (winner CÙNG key đã close + set cache GIỮA pre-check và đây):
+        #   re-read cache khớp key ⇒ trả replay idempotent thay vì BAD_STATE (chống
+        #   false-error markFailed). Key KHÁC/rỗng ⇒ MISS ⇒ GIỮ 422 BAD_STATE (guard
+        #   thật, KHÔNG bị nuốt).
+        if resolved_key:
+            cached = _cm_close_cache_get(_cm_close_cache_key(name, resolved_key))
+            if cached is not None:
+                return cached
         nthrow(MSG.IMM09_BAD_STATE, state=doc.status,
                expected=RepairStatus.IN_REPAIR)
 
@@ -1572,7 +1753,7 @@ def close_work_order(name: str, *, repair_summary: str, root_cause_category: str
         root_record=name,
     )
 
-    return {
+    ret = {
         "name": name,
         "status": RepairStatus.PENDING_INSPECTION,
         "mttr_hours": doc.mttr_hours,
@@ -1584,6 +1765,37 @@ def close_work_order(name: str, *, repair_summary: str, root_cause_category: str
         # để 2 nhánh close_work_order khớp contract CloseWorkOrderResponse.
         "asset_status": AssetRepo.get_value(doc.asset_ref, "lifecycle_status"),
     }
+    # CR-24 op#5/5: chỉ set cache khi resolved truthy (NULL-semantics khi rỗng ⇒ 0
+    #   dedup legacy). SAU RepairRepo.save + _log_lifecycle_event thành công, TRƯỚC
+    #   return ⇒ re-drain cùng key replay đúng envelope {name,status,mttr_hours,
+    #   sla_breached,asset_status}.
+    if resolved_key:
+        _cm_close_cache_set(_cm_close_cache_key(name, resolved_key), ret)
+    return ret
+
+
+def _resolve_wo_closer(name: str) -> str | None:
+    """CR-41 (AC3, migrate-free): người ĐÓNG phiếu = actor của Asset Lifecycle Event
+    'repair_pending_inspection' mới nhất cho WO này (ghi tại close_work_order với
+    actor=frappe.session.user). Đọc từ audit-trail hiện có ⇒ 0 field DocType mới,
+    0 bench migrate.
+
+    Returns:
+        email người đóng, hoặc None khi KHÔNG có event (legacy/nuốt-lỗi) → caller
+        FAIL-OPEN (không đủ dữ liệu để chặn tự-nghiệm-thu, KHÔNG crash).
+    """
+    rows = frappe.get_all(
+        "Asset Lifecycle Event",
+        filters={
+            "event_type": "repair_pending_inspection",
+            "root_doctype": RepairRepo.DOCTYPE,
+            "root_record": name,
+        },
+        fields=["actor"],
+        order_by="creation desc",
+        limit=1,
+    )
+    return rows[0].actor if rows else None
 
 
 def confirm_inspection(name: str) -> dict:
@@ -1592,6 +1804,12 @@ def confirm_inspection(name: str) -> dict:
     Submit document → on_submit hook gọi complete_repair() (tính MTTR, SLA,
     đưa Asset về Active, hook recalibration IMM-11). Yêu cầu quyền phê duyệt
     cấp khoa/QA — đây là bước kiểm soát chất lượng cuối.
+
+    CR-41 segregation-of-duties: người nghiệm thu PHẢI KHÁC người đóng phiếu
+    (close_work_order) — chặn 1 người vừa tự-sửa vừa tự-nghiệm-thu. Người-đóng
+    đọc migrate-free từ Asset Lifecycle Event 'repair_pending_inspection'
+    (_resolve_wo_closer). Unknown-closer (None) → FAIL-OPEN (cho nghiệm thu +
+    log debug; BA ratify fail-open vs fail-closed).
     """
     rbac.require("repair.submit")
     doc = RepairRepo.get(name)
@@ -1600,6 +1818,17 @@ def confirm_inspection(name: str) -> dict:
     if doc.status != RepairStatus.PENDING_INSPECTION:
         nthrow(MSG.IMM09_BAD_STATE, state=doc.status,
                expected=RepairStatus.PENDING_INSPECTION)
+
+    # CR-41: thứ tự guard NOT_FOUND → BAD_STATE → self-inspect (self-check SAU
+    #   state-guard). closer==session.user → chặn; None → fail-open (log debug).
+    closer = _resolve_wo_closer(name)
+    if closer:
+        if closer == frappe.session.user:
+            nthrow(MSG.IMM09_SELF_INSPECT_FORBIDDEN)
+    else:
+        frappe.logger("imm09").debug(
+            f"confirm_inspection {name}: closer unknown (no repair_pending_inspection "
+            "lifecycle event) — fail-open self-inspect check")
 
     doc.dept_head_confirmation_datetime = now_datetime()
     doc.flags.ignore_links = True
@@ -1661,14 +1890,23 @@ def _apply_checklist(doc, results: list[dict]) -> None:
         if "description" in r and "test_description" not in r:
             r["test_description"] = r.pop("description")
     if not doc.repair_checklist:
+        # Dead-path cho phiếu SEEDED (CR-50 luôn có 6 dòng ⇒ non-empty). CHỈ còn dùng
+        # cho phiếu legacy CHƯA backfill (0 dòng) đóng qua web với checklist_results
+        # mang sẵn test_description. `test_category` là reqd=1 của child ⇒ PHẢI kèm
+        # (fallback 'Performance') để save không MandatoryError (§3.7 note).
         for r in results:
             doc.append("repair_checklist", {
                 "test_description": r.get("test_description", ""),
+                "test_category": r.get("test_category") or "Performance",
                 "result": r.get("result", ""),
                 "measured_value": r.get("measured_value", ""),
                 "notes": r.get("notes", ""),
             })
         return
+    # AC4 (CR-50): phiếu seeded → LUÔN nhánh idx-update. Ghi result/measured_value/
+    # notes theo idx 1-based; KHÔNG chạm test_category/test_description (bảo toàn dòng
+    # seed) + KHÔNG append (len giữ nguyên). `r` thiếu idx / idx∉[1..N] → KHÔNG match
+    # → result giữ trống → BR-09-04 chặn (fail-loud, đúng ý đồ).
     for r in results:
         for row in doc.repair_checklist:
             if row.idx == r.get("idx"):
@@ -1680,6 +1918,52 @@ def _apply_checklist(doc, results: list[dict]) -> None:
 def _apply_spare_parts(doc, parts: list[dict]) -> None:
     for p in parts:
         doc.append("spare_parts_used", p)
+
+
+def backfill_repair_checklists(dry_run: int = 1) -> dict:
+    """CR-50 (§3.7 AC5): append danh mục Repair Checklist chuẩn cho phiếu CM ĐANG
+    KẸT (0 dòng, chưa đóng) — gỡ deadlock `confirm_inspection` 422 cho phiếu tạo
+    TRƯỚC khi seeding land. User-invoke qua
+    `bench --site <site> execute assetcore.setup.backfill_repair_checklists.run`
+    (pattern `backfill_workflow_admin.run` — KHÔNG patch / KHÔNG `bench migrate`).
+
+    Quét `Asset Repair` với `status NOT IN (Completed, Cannot Repair, Cancelled)`
+    VÀ `docstatus == 0` (phiếu CHƯA đóng — còn callable). Với mỗi WO 0-dòng →
+    append `_standard_repair_checklist_rows()` (KHÔNG submit). IDEMPOTENT: bỏ qua
+    phiếu đã có >=1 dòng + bỏ qua phiếu đã đóng/submitted (filter status+docstatus).
+    Chạy lần 2 → 0 thêm.
+
+    Args:
+        dry_run: 1 (mặc định) = chỉ ĐẾM, KHÔNG ghi. 0 = áp thật (commit cuối).
+
+    Returns:
+        {"scanned", "backfilled", "skipped_has_rows"} — parity `backfill_workflow_admin`.
+    """
+    candidates = frappe.get_all(
+        RepairRepo.DOCTYPE,
+        filters={"status": ["not in", sorted(REPAIR_TERMINAL_STATES)], "docstatus": 0},
+        fields=["name"],
+    )
+    scanned = len(candidates)
+    backfilled = 0
+    skipped_has_rows = 0
+    for c in candidates:
+        doc = RepairRepo.get(c["name"])
+        if not doc:
+            continue
+        if doc.repair_checklist:  # đã có >=1 dòng → idempotent skip
+            skipped_has_rows += 1
+            continue
+        if not int(dry_run):
+            for _row in _standard_repair_checklist_rows():
+                doc.append("repair_checklist", _row)
+            doc.flags.ignore_links = True
+            RepairRepo.save(doc)
+        backfilled += 1
+    if not int(dry_run):
+        frappe.db.commit()
+    return {"scanned": scanned, "backfilled": backfilled,
+            "skipped_has_rows": skipped_has_rows}
 
 
 # ─── Reports / KPIs ──────────────────────────────────────────────────────────
@@ -1722,6 +2006,10 @@ def get_kpis(year: int, month: int) -> dict:
             {"category": k, "count": v}
             for k, v in sorted(root_cause_count.items(), key=lambda x: -x[1])
         ],
+        # CR-36 (Mobile-BE Dashboard KPI / IMM-07): ECHO kỳ báo-cáo server-resolve
+        # (year/month) → FE/mobile render header kỳ KHÔNG client-clock. Đối-xứng
+        # imm08.get_dashboard_stats + imm11.get_kpis (đã có period @imm11.py:1295).
+        "period": {"year": year, "month": month},
     }
 
 

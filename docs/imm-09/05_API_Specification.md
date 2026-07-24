@@ -252,6 +252,8 @@ curl -G "https://acme.local/api/method/assetcore.api.imm09.list_repair_work_orde
 }
 ```
 
+**`is_sla_breached` — cờ LIVE vi-phạm-SLA (CR-37, mobile parity list↔detail):** `boolean` DERIVED Python-bool tại `get_work_order` qua **CÙNG predicate `_enrich_sla_breach`** của list-item (`bool(sla_breached)` OR `_row_is_live_overdue`; BR-09-10: elapsed clock-stop trừ `parts_hold` ⇒ WO ở Pending Parts KHÔNG live-overdue oan). Emit BÊN CẠNH cờ thô STORED `sla_breached` (`Check` → wire int `0/1`), **GIỮ boolean** (KHÔNG int-0/1 — derived). Badge "Vi phạm SLA" màn detail đọc cờ LIVE này ⇒ KHÔNG trễ tới đầu-giờ-kế của scheduler `check_repair_sla_breach`. **INVARIANT parity:** cờ `is_sla_breached` trên detail == cờ trên list-item cùng record.
+
 **`allowed_transitions[]` (server-driven CTA — mirror Incident R3 / PM R21):** danh sách **trạng-thái-kế hợp lệ** từ `status` hiện tại (ở ví dụ trên `status="In Repair"` → `[Pending Inspection, Cannot Repair, Cancelled]`). FE render nút workflow trên màn repair-detail **theo field này** — KHÔNG hardcode `status → button`. SSoT = `_REPAIR_VALID_TRANSITIONS` (`services/imm09.py`), grounded edge-by-edge `imm_09_repair_workflow.json` (9 state / 15 transition). Terminal `Completed`/`Cannot Repair`/`Cancelled` → `[]` (read-only, không nút). Field **optional** (emit-luôn nhưng KHÔNG trong `required`); client cũ bỏ qua an toàn. Chi tiết map + ADR-IMM09-CTA: xem `04_Backend_Design.md §3.1`.
 
 | `status` | `allowed_transitions[]` |
@@ -303,10 +305,13 @@ curl -G "https://acme.local/api/method/assetcore.api.imm09.list_repair_work_orde
 **Side-effects:**
 1. Validate BR-09-01 (nguồn) + BR-09-05 (kiểm tra duplicate WO active).
 2. Tính `sla_target_hours` qua `get_sla_target(risk_class, priority)`.
-3. Insert Asset Repair với `status = "Open"`, `open_datetime = now()`.
-4. `frappe.db.set_value("Asset", asset_ref, "status", "Under Repair")`.
-5. Tạo Asset Lifecycle Event `event_type = "repair_opened"`.
-6. `frappe.db.commit()`.
+3. **Seed `repair_checklist` 6 dòng danh mục chuẩn (CR-50, ADR-IMM09-SEED-CHECKLIST):** SAU `get_doc({...})` TRƯỚC `insert` → append 6 dòng `{test_description, test_category}` điền sẵn, `result` TRỐNG (KTV nhập sau). Gỡ deadlock `confirm_inspection` 422 cho phiếu CM mobile (checklist không còn rỗng). Xem `04_Backend_Design.md §3.7`.
+4. Insert Asset Repair với `status = "Open"`, `open_datetime = now()`.
+5. `frappe.db.set_value("Asset", asset_ref, "status", "Under Repair")`.
+6. Tạo Asset Lifecycle Event `event_type = "repair_opened"`.
+7. `frappe.db.commit()`.
+
+> Response GIỮ shape `{name, status, sla_target_hours}` — seed checklist KHÔNG thêm key vào response (đọc 6 dòng qua `get_repair_work_order`).
 
 **Response 200:**
 
@@ -545,7 +550,7 @@ curl -G "https://acme.local/api/method/assetcore.api.imm09.list_repair_work_orde
 | `repair_summary` | string | Có* | Tóm tắt kết quả sửa chữa (mode Completed) |
 | `root_cause_category` | string | Có* | Phân loại nguyên nhân gốc rễ |
 | `dept_head_name` | string | Có* | Họ tên trưởng khoa phòng xác nhận (BR-09-04) |
-| `checklist_results` | JSON string | Có* | List `[{idx, test_description, result, measured_value}]` |
+| `checklist_results` | JSON string | Có* | List `[{idx, result, measured_value?, notes?}]` — **key theo `idx` 1-based** (CR-50, AC4): cập nhật dòng seed sẵn (KHÔNG append trùng), bảo toàn `test_description`/`test_category` dòng seed. Client gửi `result` (Pass/Fail/N/A) cho ĐỦ 6 dòng seed. |
 | `spare_parts` | JSON string | Không | Cập nhật bổ sung vật tư (list SparePartRow) |
 | `firmware_updated` | int | Không | `1` = có cập nhật firmware |
 | `firmware_change_request` | string | Không | FCR name (bắt buộc nếu `firmware_updated=1`) |
@@ -573,7 +578,7 @@ curl -G "https://acme.local/api/method/assetcore.api.imm09.list_repair_work_orde
 ```
 
 **Side-effects (mode `cannot_repair=0`):**
-1. Set các trường từ body (`repair_summary`, `root_cause_category`, `dept_head_name`, `checklist_results`, `spare_parts`, `firmware_*`).
+1. Set các trường từ body (`repair_summary`, `root_cause_category`, `dept_head_name`, `checklist_results`, `spare_parts`, `firmware_*`). `_apply_checklist` cập nhật dòng seed **theo `idx`** (phiếu seeded luôn non-empty ⇒ idx-update, KHÔNG append; giữ `len==6` + bảo toàn `test_category`/`test_description` — CR-50 AC4).
 2. `status = "Pending Inspection"` — **WO chưa submit ở bước này**.
 3. ALE `event_type = "repair_pending_inspection"`.
 4. **Đọc `asset_status` LIVE** cho response (KHÔNG đổi trạng thái asset ở bước này) — xem "Response contract (parity shape)" bên dưới.
@@ -675,10 +680,13 @@ Không nhánh nào được thiếu/thừa khoá so với contract. Bảng chi t
 { "name": "WO-CM-2026-00042" }
 ```
 
+**Tiền điều kiện (BR-09-04 — checklist nghiệm thu):** submit CHỈ thành công khi `repair_checklist` **KHÔNG rỗng** và **MỌI dòng `result == "Pass"`** (`validate_repair_checklist_complete` chạy trong `before_submit`). Phiếu CM mới đã được seed 6 dòng chuẩn tại `create_work_order` (CR-50) ⇒ chỉ cần KTV điền hết Pass qua `close_work_order` là submit được (hết deadlock 422 `IMM09_CHECKLIST_INCOMPLETE`). Dòng `result` để trống → `IMM09_CHECKLIST_INCOMPLETE` (422); dòng `result == "Fail"` → `IMM09_CHECKLIST_FAILED` (422). Xem `04_Backend_Design.md §3.7` + AC2/AC3.
+
 **Side-effects:**
 1. Kiểm tra status = "Pending Inspection", role `CAN_APPROVE_DEP`.
+1-bis. **Segregation-of-duties (BR-09-SOD, CR-41):** đọc "người đóng phiếu" = `actor` của Asset Lifecycle Event mới nhất (`event_type='repair_pending_inspection'`, `root_doctype='Asset Repair'`, `root_record=name`, ORDER BY creation DESC LIMIT 1). Nếu `session.user == closer` (và caller KHÔNG bypass `AssetCore Super Admin`) → **STOP, trả Error `FORBIDDEN` 403** (WO GIỮ Pending Inspection, KHÔNG submit). Check nằm SAU status-gate (BAD_STATE), TRƯỚC `doc.submit()` (INV-CM-SOD-1). `closer` không đọc được (legacy) → fail-open, tiếp tục (INV-CM-SOD-2). Migrate-free — 0 field DocType mới. Xem `04 §5 ADR-IMM09-SOD-INSPECT`.
 2. Set `dept_head_confirmation_datetime = now()`.
-3. `doc.submit()` → `before_submit` (validate BR-09-02/03/04) → `on_submit` → `complete_repair()`.
+3. `doc.submit()` → `before_submit` (validate BR-09-02/03/04 — **BR-09-04: checklist non-empty + 100% Pass**) → `on_submit` → `complete_repair()`.
 4. `complete_repair()`: set `completion_datetime`; **BR-09-10 (clock-stop):** nếu `parts_hold_started` còn non-null (đóng WO khi đang Pending Parts) → `exit_parts_hold(doc, until=completion_datetime)` chốt khoảng hold cuối TRƯỚC (INV-CM-HOLD-5); rồi `mttr_hours = repair_elapsed_hours(doc, completion_datetime)` (= `(completion−open) − parts_hold_hours`, KHÔNG phải calendar time thô) + `sla_breached = is_sla_breached(elapsed, sla_target) OR sla_breached`; **restore Asset có điều kiện (BR-09-09):** đọc `prev_status` → (A) `Under Repair` → transition Active; (B) `Out of Service`/prev khác → giữ nguyên (không override hold); (C) `Decommissioned` → bỏ qua restore (terminal, không raise). MỌI nhánh ghi 1 ALE `repair_completed`. KHÔNG nhánh nào làm vỡ `on_submit` (INV-09-RESTORE-1).
 5. Nếu `root_cause_category` chứa từ khóa lặp lại ("lặp lại", "recurring", "chronic"...) → tự động gọi `imm12.detect_chronic_failures()` (non-blocking).
 6. BR-11: nếu thiết bị yêu cầu hiệu chuẩn → tạo CAL WO recalibration (`create_post_repair_calibration`, non-blocking) — GIỮ NGUYÊN.
@@ -703,7 +711,16 @@ Không nhánh nào được thiếu/thừa khoá so với contract. Bảng chi t
 |---|---|---|
 | `NOT_FOUND` | 404 | WO không tồn tại (`IMM09_NOT_FOUND` `services/imm09.py:1101`; `messages.py:639`) |
 | `BAD_STATE` | 409 | WO không ở trạng thái "Pending Inspection" (`IMM09_BAD_STATE` `services/imm09.py:1102`; `messages.py:646` — xung-đột TRẠNG THÁI, KHÔNG 422) |
-| `FORBIDDEN` | 403 | Không có quyền `repair.submit` (cap-gate `rbac.require` `api/imm09.py:105`) |
+| `CHECKLIST_INCOMPLETE` | 422 | BR-09-04 — `repair_checklist` rỗng HOẶC có dòng `result` chưa điền (`IMM09_CHECKLIST_INCOMPLETE`, raise trong `before_submit` qua `validate_repair_checklist_complete`). Sau CR-50 seed, "rỗng" chỉ còn ở phiếu legacy chưa backfill. |
+| `CHECKLIST_FAILED` | 422 | BR-09-04 — có dòng `result == "Fail"` (`IMM09_CHECKLIST_FAILED`). |
+| `FORBIDDEN` | 403 | **(cap-gate)** Không có quyền `repair.submit` (`rbac.require` `api/imm09.py`) — thiếu năng lực phê duyệt. |
+| `FORBIDDEN` | 403 | **(business-rule, BR-09-SOD)** Tự-nghiệm-thu: `session.user` == người đã `close_work_order` (`MSG.IMM09_SELF_INSPECTION`, message VN "Người nghiệm thu phải khác người đóng phiếu."). In-handler HTTP-200 + Error envelope; WO GIỮ Pending Inspection/docstatus=0. |
+
+> **Hai flavor `FORBIDDEN`/403 tại endpoint này** — cùng `code`/`http_status`, KHÁC `message_code`: (1) cap-gate `repair.submit` (thiếu quyền); (2) business-rule SoD (đủ quyền nhưng là chính người đóng phiếu). FE phân nhánh UX qua `message_code`/`message`, KHÔNG chỉ `code`. Cả hai đều là **in-handler HTTP-200 Error** (`nthrow`/`rbac.require` → `handle`), KHÁC dispatcher-403 (guest/no-token, POST @whitelist KHÔNG `allow_guest`).
+
+> 🔗 **Cross-ref IMM-00 Approval Inbox (CR-42) — phiếu 'Pending Inspection' surface trong "Phiếu chờ tôi duyệt".** WO CM ở `Pending Inspection` (docstatus 0) là **nguồn thứ 4 (`imm09`)** của endpoint gộp `get_pending_approvals_inbox` ([`docs/imm-00/05 §III.22`](../imm-00/05_API_Specification.md) + [`ADR-IMM00-APPROVAL-INBOX §D`](../imm-00/ADR-IMM00-APPROVAL-INBOX.md)). Inbox áp **SoD đối xứng ở tầng list** (BR-00-INBOX-03): ẩn WO mà chính `session.user` tự đóng — **tái dùng SSoT `_resolve_wo_closer`** (`services/imm09.py:1769`, CÙNG hàm CR-41 dùng ở đây); closer None → fail-open (vẫn hiện). Gate cap = `repair.submit` (đối xứng cap `confirm_inspection` enforce @`services/imm09.py:1806`). **§BE task (Bước-4, application code):** tạo hằng SSoT `_CAP_SUBMIT = "repair.submit"` @`services/imm09.py` (hiện hardcode 2 chỗ: `services/imm09.py:1806` + `api/imm09.py:182`) + helper batch `_resolve_wo_closers(names)` (1 `get_all` `root_record IN [...]`, no N+1) để imm00 lazy-import. `confirm_inspection` guard (self-inspect) **GIỮ NGUYÊN** — inbox chỉ ẩn dòng, không thay chốt chặn handler (2 tầng độc lập).
+
+> **OAS bất biến (AC6):** `code='FORBIDDEN'` ∈ `Error.code` enum + `403` ∈ `Error.http_status` enum sẵn có trong [`assetcore-mobile.openapi.yaml`](../mobile/openapi/assetcore-mobile.openapi.yaml) (verified) ⇒ nhánh Error mới đã phủ bởi `200 = oneOf [ConfirmInspectionEnvelope, Error]` — **KHÔNG schema/path/tag mới**, `test_mobile_oas` + `oas_baseline` count KHÔNG đổi. (KHÔNG chạm IMM-10 baseline đỏ pre-existing.)
 
 > 📱 **Cross-ref Mobile-BE contract (flow-5 acceptance):** endpoint này được surface trong OpenAPI mobile [`docs/mobile/openapi/assetcore-mobile.openapi.yaml`](../mobile/openapi/assetcore-mobile.openapi.yaml) tại path `/api/method/assetcore.api.imm09.confirm_inspection` (opId **`confirmInspection`**, POST-only). Đây là **action TERMINAL-THẬT** đóng dead-end CUỐI chuỗi repair: `closeWorkOrder` chỉ đưa WO về `Pending Inspection` (NON-terminal); `getRepairWorkOrder.allowed_transitions[]` surface CTA `Completed` nhưng KHÔNG có endpoint để thực thi → `confirmInspection` lấp. 200 = `oneOf [ConfirmInspectionEnvelope, Error]` (route-by-VALUE `body.success`, 0 discriminator); `data` = **`ConfirmInspectionResponse`** closed 4-key `{name, status, mttr_hours, sla_breached}` (`required[name,status]`), `status.enum=[Completed]` (single-value INVARIANT), `sla_breached` integer enum[0,1] (KHÔNG boolean). **Schema RIÊNG, KHÔNG reuse `CloseWorkOrderResponse`** — C3-split cross-action: `status` 1-value `[Completed]` ≠ 2-value `[Pending Inspection, Cannot Repair]`; **và sau CR-13b** `CloseWorkOrderResponse` mang 5-key (thêm `asset_status`) trong khi `ConfirmInspectionResponse` giữ 4-key `{name,status,mttr_hours,sla_breached}` (KHÔNG `asset_status`) ⇒ shape KHÁC hẳn, càng KHÔNG reuse. Cap-gate `repair.submit` (phê-duyệt-chất-lượng) **KHÁC `repair.create`** (KTV). 2 lỗi nghiệp vụ in-handler (`IMM09_NOT_FOUND` 404 + `IMM09_BAD_STATE` 409) arrive **HTTP-200 + Error envelope** (quirk §5, KHÔNG status-line). Chi tiết hợp đồng + ADR: [`docs/mobile/04-api-contract.md §8.20`](../mobile/04-api-contract.md) + [`ADR-MOBILE-009.md`](../mobile/ADR-MOBILE-009.md).
 

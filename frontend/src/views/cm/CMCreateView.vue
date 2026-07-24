@@ -68,7 +68,9 @@ async function onFaultImageChange(e: Event) {
   uploadingImage.value = true
   uploadImageError.value = ''
   try {
-    const res = await uploadDocumentFile(file)
+    const res = await uploadDocumentFile(file, {
+      doctype: 'Asset Repair', fieldname: 'fault_image',
+    })
     form.value.fault_image = res.file_url
   } catch (err: unknown) {
     uploadImageError.value = err instanceof Error ? err.message : 'Tải ảnh lên thất bại'

@@ -56,7 +56,7 @@ def get_repair_work_order(name: str):
 
 @frappe.whitelist(methods=["POST"])
 def attach_repair_checklist_photo(work_order_name: str = "", checklist_item_idx: str = "",
-                                 **_ignore) -> dict:
+                                 client_request_id: str = "", **_ignore) -> dict:
     """POST (multipart) /api/method/assetcore.api.imm09.attach_repair_checklist_photo
 
     BR-09-15/16 (mobile CR-15/G6): đính ảnh bằng chứng cho MỘT mục checklist sửa chữa
@@ -66,7 +66,14 @@ def attach_repair_checklist_photo(work_order_name: str = "", checklist_item_idx:
     attach_pm_checklist_photo (imm08) — KHÁC module/doctype/discriminator (Frappe child
     `idx`).
 
-    `**_ignore` nuốt kwargs spoof. Guest/no-token → dispatcher-403 (POST @whitelist
+    `client_request_id` (CR-24 §4 photo-level closure · BR-09-16-IDEMP idempotency): khoá
+    per-ảnh do client (mobile write-outbox PHA-2) sinh, ổn định qua re-drain của CÙNG ảnh.
+    Non-empty + cùng (wo, idx) gọi lặp ⇒ trả File ĐÃ đính (KHÔNG File/event trùng — dedupe
+    composite scoped key `{wo}::{idx}::{key}` trên `File.ac_client_request_id`). Rỗng/thiếu
+    ⇒ hành vi at-least-once cũ. Param TƯỜNG MINH (multipart form part — KHÔNG bị `**_ignore`
+    nuốt câm); default `""` (KHÔNG None — tránh HTTP-417 coercion).
+
+    `**_ignore` nuốt kwargs spoof KHÁC. Guest/no-token → dispatcher-403 (POST @whitelist
     KHÔNG allow_guest); permission (assignee OR repair.write) + validation ở service →
     Decision-B HTTP-200 qua `handle`. `checklist_item_idx` parse int ở boundary; giá trị
     lỗi/không-tồn-tại → service trả VALIDATION (reject TRƯỚC File.insert).
@@ -92,6 +99,7 @@ def attach_repair_checklist_photo(work_order_name: str = "", checklist_item_idx:
         filedata=filedata,
         filename=filename,
         content_type=content_type,
+        client_request_id=client_request_id,
     )
 
 
@@ -142,8 +150,19 @@ def close_work_order(name: str, repair_summary: str, root_cause_category: str,
                      dept_head_name: str, checklist_results: str = "[]",
                      spare_parts: str = "[]", firmware_updated: int = 0,
                      firmware_change_request: str = "", cannot_repair: int = 0,
-                     cannot_repair_reason: str = ""):
-    rbac.require("repair.submit")
+                     cannot_repair_reason: str = "", client_request_id: str = ""):
+    # CR-24 op#5/5: `client_request_id` (str='' KHÔNG str|None → tránh HTTP 417
+    #   pydantic-coercion) pass-through xuống service cho idempotency dedup mobile
+    #   write-outbox re-drain. Optional ⇒ 0 whitelist/tag mới (oas_baseline bất biến).
+    # ISS-005: close_work_order = hành động KTV (RACI 'Sửa chữa+checklist' = KTV HTM
+    #   R/A) → chuyển 'Pending Inspection', KHÔNG doc.submit (service imm09:1617-1690).
+    #   Gate `repair.create` — KHỚP EXACT cả FE (CMWorkOrderDetailView canCompleteRepair
+    #   = can('repair.create'), :81/:106) LẪN service (imm09:1637) ⇒ contract 3-lớp
+    #   nhất quán. KHÔNG `repair.submit`: đó là gate của confirm_inspection (nghiệm thu
+    #   = doc.submit → Completed, Trưởng khoa/QA) — giữ SoD 2-actor. Trước đây API gate
+    #   repair.submit (lệch FE+service) ⇒ Repair User (submit=0) bấm 'Hoàn thành sửa
+    #   chữa' (nút FE bật vì repair.create) → 403 câm.
+    rbac.require("repair.create")
     checklist = parse_json(checklist_results, field_name="checklist_results", default=[])
     parts = parse_json(spare_parts, field_name="spare_parts", default=[])
     return handle(
@@ -153,6 +172,7 @@ def close_work_order(name: str, repair_summary: str, root_cause_category: str,
         spare_parts=parts, firmware_updated=int(firmware_updated),
         firmware_change_request=firmware_change_request,
         cannot_repair=int(cannot_repair), cannot_repair_reason=cannot_repair_reason,
+        client_request_id=client_request_id,
     )
 
 

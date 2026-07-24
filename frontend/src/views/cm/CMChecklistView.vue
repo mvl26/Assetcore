@@ -23,14 +23,14 @@ onMounted(async () => {
     await store.fetchWorkOrder(props.id)
   }
   if (store.currentWO) {
+    // CR-50: repair_checklist được BE seed sẵn danh mục chuẩn tại create_work_order
+    // (mỗi phiếu CM mới có >=N dòng test_description + test_category, result TRỐNG cho
+    // KTV nhập). KTV chỉ điền kết quả trên các dòng THẬT — KHÔNG fabricate dòng ở FE.
+    // (Trước đây FE tự chèn 1 dòng "pass" generic khi rỗng để né deadlock BR-09-04 —
+    //  đó là lỗ FE-side của chính BR-09-04, đã bỏ vì BE seed rows là SoT. Phiếu 0 dòng
+    //  còn kẹt do khởi tạo trước fix → backfill_repair_checklists() ở BE xử lý, KHÔNG
+    //  cho FE dựng pass giả — bảo toàn bất biến vacuous-pass: mọi 'Đạt' ⟺ dòng THẬT.)
     checklist.value = store.currentWO.repair_checklist.map(r => ({ ...r }))
-    // BR-09-04: If no checklist rows defined, auto-add a default completion confirmation row
-    // so the service's validate_repair_checklist_complete() does not block submit.
-    if (checklist.value.length === 0) {
-      checklist.value = [
-        { idx: 1, test_description: 'Xác nhận thiết bị hoạt động bình thường sau sửa chữa', result: null, measured_value: '', notes: '' } as RepairChecklistRow,
-      ]
-    }
   }
 })
 
@@ -43,6 +43,10 @@ const hasAnyFail = computed(() => checklist.value.some(r => r.result === 'Fail')
 const allAnswered = computed(() => checklist.value.every(r => r.result !== null))
 
 const canComplete = computed(() =>
+  // totalCount>0: checklist rỗng ⇒ allAnswered vacuous-true → phải chặn ở đây, nếu không
+  // nút bật rồi close_work_order/confirm_inspection 422 CHECKLIST_INCOMPLETE (BR-09-04).
+  // BE seed rows nên phiếu CM mới luôn có dòng; guard này chỉ đỡ phiếu 0-dòng chưa backfill.
+  totalCount.value > 0 &&
   allAnswered.value &&
   !hasAnyFail.value &&
   deptHeadName.value.trim() !== ''
@@ -120,6 +124,11 @@ async function handleComplete() {
   if (!canComplete.value) return
   submitting.value = true
   error.value = null
+  // CR-24 idempotency: sinh khoá 1 lần cho mỗi lần bấm "Hoàn thành sửa chữa".
+  // Ổn định qua auto-retry (axios/interceptor replay CÙNG request → CÙNG khoá →
+  // BE replay success-envelope, không tạo transition/Lifecycle Event trùng); đổi
+  // khi user chủ động bấm lại (handler chạy lại → khoá mới).
+  const clientRequestId = globalThis.crypto.randomUUID()
   try {
     const ok = await store.doCloseWorkOrder({
       name: props.id,
@@ -127,6 +136,7 @@ async function handleComplete() {
       root_cause_category: store.currentWO?.root_cause_category ?? '',
       dept_head_name: `${deptHeadName.value} — ${deptHeadTitle.value}`,
       checklist_results: checklist.value,
+      client_request_id: clientRequestId,
     })
     if (ok) {
       notify.show({ code: MSG.UI_SAVE_SUCCESS, ctx: { entity: 'hoàn thành sửa chữa' } })
@@ -190,8 +200,19 @@ async function handleComplete() {
       </div>
 
       <!-- Checklist items -->
-      <div v-if="checklist.length === 0" class="card text-center text-slate-400 text-sm py-8">
-        Không có mục checklist nào cho phiếu sửa chữa này.
+      <div v-if="checklist.length === 0" class="card text-center py-8">
+        <p class="text-sm font-medium text-slate-600">Phiếu sửa chữa này chưa có mục nghiệm thu nào.</p>
+        <p class="mt-1 text-xs text-slate-400">
+          Danh mục nghiệm thu chuẩn được tạo tự động khi mở phiếu. Nếu phiếu cũ chưa có,
+          liên hệ quản trị để bổ sung danh mục trước khi nghiệm thu.
+        </p>
+        <button
+          type="button"
+          class="mt-4 px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+          @click="router.push(`/cm/work-orders/${id}`)"
+        >
+          Quay lại phiếu sửa chữa
+        </button>
       </div>
 
       <div v-else class="space-y-3">
