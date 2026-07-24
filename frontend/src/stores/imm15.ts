@@ -21,7 +21,8 @@ import type {
   DashboardStats, LowStockAlert, ForecastMethod,
   Pagination, UrgencyLevel,
 } from '@/api/imm15'
-import { ApiError, toApiError } from '@/api/errors'
+import type { ApproveForecastResult } from '@/api/imm15'
+import { ApiError, ErrorCode, toApiError } from '@/api/errors'
 
 const DEFAULT_PAGINATION: Pagination = { total: 0, page: 1, page_size: 20, total_pages: 1 }
 
@@ -180,10 +181,38 @@ export const useImm15Store = defineStore('imm15', () => {
     return res
   }
 
-  async function approveForecastAction(name: string) {
-    const res = await approveForecast(name)
-    await fetchForecasts()
-    return res
+  // Duyệt dự báo — lái UI theo `workflow_state` THỰC server trả về (đọc-lại DB
+  // sau submit), KHÔNG optimistic flip. Chỉ coi thành công khi
+  // `workflow_state === 'Approved'`; mọi giá trị khác (submit lỗi / rollback) ⇒
+  // surface blocked (lastApiError) + trả null để view KHÔNG lật row sang Approved.
+  // Mọi nhánh đều refetch list → row phản ánh state THỰC (chống duyệt-giả).
+  async function approveForecastAction(name: string): Promise<ApproveForecastResult | null> {
+    error.value = null
+    lastApiError.value = null
+    try {
+      const res = await approveForecast(name)
+      if (res.workflow_state !== 'Approved') {
+        // BE trả 200 nhưng state không phải Approved → CHƯA duyệt được.
+        _setErr(new ApiError(
+          `Chưa duyệt được dự báo — trạng thái hiện tại: ${res.workflow_state || 'Bản nháp'}.`,
+          {
+            code: ErrorCode.BAD_STATE,
+            severity: 'warning',
+            title: 'Chưa duyệt được dự báo',
+            actionHint: 'Chỉ dự báo ở trạng thái Bản nháp mới được duyệt. Vui lòng tải lại danh sách.',
+          },
+        ))
+        await fetchForecasts()
+        return null
+      }
+      await fetchForecasts()
+      return res
+    } catch (e: unknown) {
+      _setErr(e)
+      // Refresh để phản ánh state THỰC (BE đã rollback — KHÔNG claim Approved).
+      await fetchForecasts()
+      return null
+    }
   }
 
   // ─── Watchlist ────────────────────────────────────────────────────────────

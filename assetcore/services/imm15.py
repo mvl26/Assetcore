@@ -1008,34 +1008,74 @@ def generate_spare_forecast(horizon_months: int = 3,
 
 
 def approve_forecast(forecast: str) -> dict:
-    """Duyệt forecast: Draft → Approved (§3.9)."""
+    """Duyệt forecast: Draft → Approved (§3.9).
+
+    Fail-loud (chặn duyệt-giả):
+      - Guard BAD_STATE: CHỈ forecast Draft (docstatus 0, chưa Approved) mới được duyệt;
+        re-approve → ServiceError(BAD_STATE) rõ ràng, KHÔNG rò Frappe UpdateAfterSubmit.
+      - `doc.submit()` để lỗi PROPAGATE (bọc savepoint + rollback → không claim duyệt khi
+        submit lỗi), KHÔNG `except: pass` nuốt lỗi.
+      - Trả `workflow_state`/`docstatus` ĐỌC-LẠI từ DB sau submit — KHÔNG hardcode.
+    """
     _require_any_role(_CAP_APPROVE,
                       "Chỉ Workshop Lead / Operations Manager mới được duyệt forecast")
     doc = SparePartForecastRepo.get(forecast)
     if not doc:
         raise ServiceError(ErrorCode.NOT_FOUND,
                            f"IMM Spare Part Forecast {forecast} không tồn tại")
+    # Guard BAD_STATE — chỉ Draft mới duyệt (chặn re-approve → UpdateAfterSubmit thô).
+    if doc.docstatus != 0 or doc.workflow_state == ForecastState.APPROVED:
+        raise ServiceError(
+            ErrorCode.BAD_STATE,
+            f"Forecast {forecast} đã được duyệt / không ở trạng thái Draft")
+    # docstatus 0 → set field an toàn; submit() persist CÙNG LÚC (không double-write /
+    # không doc.save() riêng trước submit → tránh UpdateAfterSubmit). workflow_state LÀ
+    # schema field chắc chắn → set trực tiếp (bỏ guard hasattr field-ảo).
     doc.approved_by = frappe.session.user
-    if hasattr(doc, "workflow_state"):
-        doc.workflow_state = ForecastState.APPROVED
-    SparePartForecastRepo.save(doc)
-    if doc.docstatus == 0:
-        try:
-            doc.submit()
-        except Exception:
-            pass
+    doc.workflow_state = ForecastState.APPROVED
+    savepoint = "imm15_approve_forecast"
+    frappe.db.savepoint(savepoint)
+    try:
+        doc.submit()
+    except Exception as e:
+        # Rollback partial write (db_update viết docstatus=1 TRƯỚC on_submit) → không
+        # claim duyệt; re-raise (BẮT BUỘC, tuyệt đối không pass).
+        frappe.db.rollback(save_point=savepoint)
+        raise ServiceError(
+            ErrorCode.BUSINESS_RULE,
+            f"Duyệt forecast thất bại: {e}") from e
+    # Re-read state THỰC từ DB (no-hardcode) — nguồn duy nhất cho response.
+    saved = SparePartForecastRepo.get(forecast)
     reorder_count = sum(
-        1 for it in (doc.items or [])
+        1 for it in (saved.items or [])
         if (it.recommended_action or "") == "Reorder"
     )
+    # publish_realtime CHỈ sau khi persist thành công (không bắn khi submit lỗi).
     try:
         frappe.publish_realtime("imm15_forecast_approved",
                                 {"name": forecast, "reorder_count": reorder_count})
     except Exception:
-        pass
+        frappe.log_error(frappe.get_traceback(),
+                         "imm15.approve_forecast.publish_realtime")
     frappe.db.commit()
-    return {"name": forecast, "workflow_state": ForecastState.APPROVED,
-            "reorder_recommendations": reorder_count}
+    return {"name": forecast, "workflow_state": saved.workflow_state,
+            "docstatus": saved.docstatus, "reorder_recommendations": reorder_count}
+
+
+def record_forecast_approval(doc) -> None:
+    """on_submit hook (IMMSparePartForecast): ghi nhận người duyệt + trạng thái Approved.
+
+    Gọi khi forecast được submit qua BẤT KỲ đường nào — service ``approve_forecast``
+    HOẶC submit trực tiếp trên desk. Trước đây hàm này KHÔNG tồn tại → controller
+    on_submit ném ImportError, bị ``approve_forecast`` cũ nuốt bằng ``except: pass``
+    (root-cause của duyệt-giả). Idempotent: chỉ set field còn trống → không đè người
+    duyệt đã ghi. on_submit chạy SAU db_update nên persist qua ``db_set`` (KHÔNG
+    ``doc.save()`` trên submitted doc → tránh UpdateAfterSubmit).
+    """
+    if not doc.approved_by:
+        doc.db_set("approved_by", frappe.session.user, update_modified=False)
+    if doc.workflow_state != ForecastState.APPROVED:
+        doc.db_set("workflow_state", ForecastState.APPROVED, update_modified=False)
 
 
 # ─── Watchlist ────────────────────────────────────────────────────────────────

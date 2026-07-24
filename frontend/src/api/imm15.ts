@@ -286,10 +286,22 @@ export const generateSpareForecast = (horizon_months = 3, method: ForecastMethod
     { horizon_months, method, forecast_period },
   )
 
+// Kết quả duyệt dự báo — state THỰC đọc-lại từ DB sau khi submit (BE
+// `approve_forecast` sau fix "chặn duyệt-giả"). FE lái UI theo `workflow_state`
+// trường này, KHÔNG optimistic flip:
+//   'Approved' + docstatus 1  → duyệt thành công (persist thật)
+//   bất kỳ giá trị nào khác     → CHƯA duyệt (submit lỗi / rollback) → surface blocked
+export interface ApproveForecastResult {
+  name: string
+  workflow_state: string
+  // docstatus THỰC (0 Draft · 1 Submitted · 2 Cancelled) — companion khẳng định
+  // persist. Optional để tương thích ngược nếu server chưa echo trường này.
+  docstatus?: 0 | 1 | 2
+  reorder_recommendations: number
+}
+
 export const approveForecast = (forecast: string) =>
-  frappePost<{ name: string; workflow_state: string; reorder_recommendations: number }>(
-    `${BASE}.approve_forecast`, { forecast },
-  )
+  frappePost<ApproveForecastResult>(`${BASE}.approve_forecast`, { forecast })
 
 // ─── Watchlist ────────────────────────────────────────────────────────────────
 
