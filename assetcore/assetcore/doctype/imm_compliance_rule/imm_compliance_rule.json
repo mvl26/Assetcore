@@ -52,7 +52,7 @@
    "fieldname": "source_module",
    "fieldtype": "Select",
    "label": "Module nguồn",
-   "options": "\nIMM-04\nIMM-05\nIMM-06\nIMM-07\nIMM-08\nIMM-09\nIMM-10\nIMM-11\nIMM-12\nIMM-13\nIMM-14\nIMM-15",
+   "options": "\nIMM-04\nIMM-05\nIMM-06\nIMM-07\nIMM-08\nIMM-09\nIMM-10\nIMM-11\nIMM-12\nIMM-13\nIMM-14\nIMM-15\nIMM-16",
    "reqd": 1,
    "in_list_view": 1
   },

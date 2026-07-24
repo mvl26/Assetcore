@@ -6,7 +6,6 @@
  "creation": "2026-04-18 00:00:00.000000",
  "doctype": "DocType",
  "engine": "InnoDB",
- "is_submittable": 1,
  "field_order": [
   "section_basic",
   "naming_series",
@@ -68,7 +67,8 @@
    "fieldtype": "Data",
    "label": "Số CAPA",
    "read_only": 1,
-   "in_list_view": 1
+   "in_list_view": 1,
+   "in_global_search": 1
   },
   {
    "fieldname": "asset",
@@ -100,7 +100,8 @@
    "reqd": 1,
    "default": "Open",
    "search_index": 1,
-   "in_list_view": 1
+   "in_list_view": 1,
+   "read_only": 1
   },
   {
    "fieldname": "workflow_state",
@@ -255,9 +256,9 @@
   },
   {
    "fieldname": "imm_effectiveness_evidence",
-   "fieldtype": "Data",
+   "fieldtype": "Attach",
    "label": "Bằng chứng hiệu quả",
-   "description": "Link hoặc mô tả bằng chứng kiểm tra hiệu quả"
+   "description": "Tệp bằng chứng kiểm tra hiệu quả (tải lên, không gõ đường dẫn)"
   },
   {
    "fieldname": "section_imm16",
@@ -305,6 +306,7 @@
    "print_hide": 1
   }
  ],
+ "is_submittable": 1,
  "links": [],
  "modified": "2026-04-18 00:00:00.000000",
  "modified_by": "Administrator",
@@ -373,8 +375,10 @@
    "share": 0
   }
  ],
+ "search_fields": "asset,capa_number,status",
  "sort_field": "modified",
  "sort_order": "DESC",
- "track_changes": 1,
- "states": []
+ "states": [],
+ "title_field": "capa_number",
+ "track_changes": 1
 }

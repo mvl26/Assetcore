@@ -4,7 +4,6 @@
  "creation": "2026-04-20 00:00:00.000000",
  "doctype": "DocType",
  "engine": "InnoDB",
- "is_submittable": 1,
  "field_order": [
   "section_basic",
   "naming_series",
@@ -78,7 +77,8 @@
    "reqd": 1,
    "default": "RCA Required",
    "search_index": 1,
-   "in_list_view": 1
+   "in_list_view": 1,
+   "read_only": 1
   },
   {
    "fieldname": "workflow_state",
@@ -221,6 +221,7 @@
    "print_hide": 1
   }
  ],
+ "is_submittable": 1,
  "links": [],
  "modified": "2026-04-21 00:00:00.000000",
  "modified_by": "Administrator",
@@ -291,6 +292,6 @@
  ],
  "sort_field": "modified",
  "sort_order": "DESC",
- "track_changes": 1,
- "states": []
+ "states": [],
+ "track_changes": 1
 }

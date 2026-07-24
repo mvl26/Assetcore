@@ -51,7 +51,7 @@
    "fieldname": "event_type",
    "fieldtype": "Select",
    "label": "Loại sự kiện",
-   "options": "commissioned\nactivated\npm_started\npm_completed\nrepair_opened\nrepair_completed\nparts_hold_started\nparts_hold_resumed\ncalibration_started\ncalibration_passed\ncalibration_failed\nincident_reported\nout_of_service\nrestored\ndecommissioned\ntransferred\nregistered\ndepreciated\ndepreciation_rules_inherited\ndepreciation_stopped\nqr_generated\nlabel_printed\nqr_regenerated\nincident_photo_attached\npm_checklist_photo_attached\nrepair_checklist_photo_attached\nfirmware_cr_approved\nfirmware_deployed\nfirmware_rolled_back",
+   "options": "commissioned\nactivated\npm_started\npm_completed\nrepair_opened\nrepair_pending_inspection\nrepair_completed\nparts_hold_started\nparts_hold_resumed\ncalibration_started\ncalibration_passed\ncalibration_failed\nincident_reported\nout_of_service\nrestored\ndecommissioned\ntransferred\nregistered\ndepreciated\ndepreciation_rules_inherited\ndepreciation_stopped\nqr_generated\nlabel_printed\nqr_regenerated\nincident_photo_attached\npm_checklist_photo_attached\nrepair_checklist_photo_attached\nfirmware_cr_approved\nfirmware_deployed\nfirmware_rolled_back",
    "reqd": 1,
    "search_index": 1,
    "in_list_view": 1,
