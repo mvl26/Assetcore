@@ -11,7 +11,9 @@ from frappe.rate_limiter import rate_limit
 from frappe.utils import validate_email_address
 
 from assetcore.utils.response import _ok, _err
-from assetcore.utils.helpers import _get_role_emails, _safe_sendmail
+from assetcore.utils.helpers import _get_role_emails, _safe_sendmail, fe_url
+from assetcore.utils.email_template import render_email
+from assetcore.utils import password_policy
 from assetcore.services.shared import rbac
 
 # Email-by-role lookup (data, KHONG phai gate) — remap persona -> role moi.
@@ -341,6 +343,152 @@ def change_password(old_password: str, new_password: str) -> dict:
     return _ok({"message": "Đổi mật khẩu thành công"})
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# ISS-002 — TỰ ĐẶT MẬT KHẨU QUA LINK TRONG EMAIL (màn hình của AssetCore)
+#
+# Người dùng mới nhận email chào mừng → bấm "Đặt mật khẩu" → mở
+# ``/assetcore/set-password?key=...`` (UI AssetCore, KHÔNG phải form
+# ``/update-password`` của Frappe desk). Hai endpoint dưới phục vụ màn hình đó;
+# cả hai đều allow_guest vì user CHƯA có mật khẩu để đăng nhập.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_MSG_KEY_INVALID = (
+    "Liên kết đặt mật khẩu không hợp lệ hoặc đã được sử dụng. "
+    "Vui lòng liên hệ quản trị viên để được cấp lại."
+)
+_MSG_KEY_EXPIRED = (
+    "Liên kết đặt mật khẩu đã hết hạn. "
+    "Vui lòng liên hệ quản trị viên để được cấp lại liên kết mới."
+)
+_MSG_ACCOUNT_DISABLED = (
+    "Tài khoản chưa được kích hoạt hoặc đã bị vô hiệu hoá. "
+    "Vui lòng liên hệ quản trị viên."
+)
+_MIN_PASSWORD_LEN = 8
+
+
+def _resolve_password_key(key: str) -> tuple[str | None, dict | None]:
+    """Đổi key thô trong link lấy tên user — hoặc trả envelope lỗi.
+
+    Cùng ngữ nghĩa với Frappe (``_get_user_for_update_password``): key lưu trên
+    User dưới dạng sha256, hết hạn theo System Settings
+    ``reset_password_link_expiry_duration``.
+
+    Bảo mật: key sai / đã dùng / không tồn tại đều trả CÙNG một thông điệp
+    (không phân biệt được tài khoản nào tồn tại → không enumeration).
+
+    Returns:
+        ``(user_name, None)`` khi hợp lệ; ``(None, _err(...))`` khi không.
+    """
+    from datetime import timedelta
+
+    from frappe.utils import cint, now_datetime
+    from frappe.utils.data import sha256_hash
+
+    key = (key or "").strip()
+    if not key:
+        return None, _err(_MSG_KEY_INVALID, 400, extra={"reason": "invalid"})
+
+    row = frappe.db.get_value(
+        "User",
+        {"reset_password_key": sha256_hash(key)},
+        ["name", "enabled", "full_name", "last_reset_password_key_generated_on"],
+        as_dict=True,
+    )
+    if not row:
+        return None, _err(_MSG_KEY_INVALID, 400, extra={"reason": "invalid"})
+
+    expiry = cint(
+        frappe.db.get_single_value("System Settings", "reset_password_link_expiry_duration")
+    )
+    generated_on = row.get("last_reset_password_key_generated_on")
+    if expiry and generated_on and now_datetime() > generated_on + timedelta(seconds=expiry):
+        return None, _err(_MSG_KEY_EXPIRED, 400, extra={"reason": "expired"})
+
+    if not cint(row.get("enabled")):
+        return None, _err(_MSG_ACCOUNT_DISABLED, 403, extra={"reason": "disabled"})
+
+    return row["name"], None
+
+
+def _validate_new_password(password: str, user_name: str) -> dict | None:
+    """Kiểm tra độ mạnh mật khẩu; trả ``None`` nếu đạt, envelope lỗi nếu không.
+
+    Tôn trọng chính sách của site (System Settings ``enable_password_policy`` +
+    ``minimum_password_score``) — nếu tắt policy thì chỉ còn ràng buộc độ dài.
+    """
+    if len(password or "") < _MIN_PASSWORD_LEN:
+        return _err(
+            f"Mật khẩu phải có tối thiểu {_MIN_PASSWORD_LEN} ký tự",
+            400,
+            fields={"new_password": f"Tối thiểu {_MIN_PASSWORD_LEN} ký tự"},
+        )
+
+    # Trước đây hàm này nối THẲNG `feedback["suggestions"]` của zxcvbn vào thông
+    # điệp → lọt tiếng Anh ("All-uppercase is almost as easy to guess…").
+    # `password_policy` dịch trọn tập chuỗi đóng của Frappe sang tiếng Việt.
+    weak = password_policy.check_password(password, user_name)
+    if weak:
+        return _err(weak, 400, fields={"new_password": weak})
+    return None
+
+
+@frappe.whitelist(allow_guest=True, methods=["POST"])
+@rate_limit(key="key", limit=10, seconds=60, ip_based=True)
+def verify_password_key(key: str) -> dict:
+    """Kiểm tra link đặt mật khẩu còn hiệu lực (màn hình AssetCore gọi khi mở).
+
+    Cho phép UI hiển thị "Xin chào <tên>" + tên đăng nhập trước khi user nhập,
+    và báo lỗi rõ ràng (hết hạn / đã dùng) thay vì để user điền xong mới biết.
+    Chỉ người cầm key (chủ hộp thư) mới nhận được danh tính này.
+    """
+    user_name, err = _resolve_password_key(key)
+    if err:
+        return err
+    return _ok({
+        "user": user_name,
+        "full_name": frappe.db.get_value("User", user_name, "full_name") or user_name,
+        "login_url": fe_url("/login"),
+    })
+
+
+@frappe.whitelist(allow_guest=True, methods=["POST"])
+@rate_limit(key="key", limit=5, seconds=60, ip_based=True)
+def set_password_with_key(key: str, new_password: str) -> dict:
+    """Đặt mật khẩu lần đầu bằng key trong email chào mừng.
+
+    Key dùng MỘT LẦN: đặt xong là xoá khỏi User → link cũ vô hiệu (chống replay
+    khi email bị chuyển tiếp/lộ về sau). Mật khẩu không đạt policy KHÔNG tiêu
+    key để user còn thử lại được.
+    """
+    from frappe.utils.password import update_password
+
+    user_name, err = _resolve_password_key(key)
+    if err:
+        return err
+
+    invalid = _validate_new_password(new_password, user_name)
+    if invalid:
+        return invalid
+
+    update_password(user_name, new_password)
+    frappe.db.set_value(
+        "User",
+        user_name,
+        {"reset_password_key": "", "last_reset_password_key_generated_on": None},
+        update_modified=False,
+    )
+    frappe.db.commit()
+    frappe.logger("assetcore.auth").info(
+        {"event": "set_password_with_key", "user": user_name}
+    )
+    return _ok({
+        "user": user_name,
+        "login_url": fe_url("/login"),
+        "message": "Đặt mật khẩu thành công. Bạn có thể đăng nhập ngay.",
+    })
+
+
 @frappe.whitelist()
 def get_capabilities() -> dict:
     """Trả map capability đã resolve cho user hiện tại — FE cache 1 lần sau
@@ -373,11 +521,17 @@ def _notify_admins_registration(email: str, full_name: str, department: str) -> 
     _safe_sendmail(
         recipients=recipients,
         subject=f"[AssetCore] Đăng ký mới — {full_name}",
-        message=(
-            f"<p>Người dùng mới vừa đăng ký:</p>"
-            f"<ul><li><b>Email:</b> {email}</li>"
-            f"<li><b>Họ tên:</b> {full_name}</li>"
-            f"<li><b>Khoa/Phòng:</b> {department or '(chưa chọn)'}</li></ul>"
-            f"<p>Vào <b>Quản lý Người dùng IMM</b> để duyệt tài khoản.</p>"
+        message=render_email(
+            title="Có người dùng mới chờ duyệt",
+            body_html=(
+                f"<p>Người dùng mới vừa đăng ký tài khoản:</p>"
+                f"<p><b>Email:</b> {frappe.utils.escape_html(email)}<br />"
+                f"<b>Họ tên:</b> {frappe.utils.escape_html(full_name)}<br />"
+                f"<b>Khoa/Phòng:</b> "
+                f"{frappe.utils.escape_html(department) or '(chưa chọn)'}</p>"
+                f"<p>Vào <b>Quản lý Người dùng IMM</b> để duyệt tài khoản.</p>"
+            ),
+            cta_label="Mở màn hình duyệt người dùng",
+            cta_url=fe_url("/user-profiles"),
         ),
     )
