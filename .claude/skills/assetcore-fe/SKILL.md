@@ -338,6 +338,14 @@ grep -rnE "<option>[^<]*[A-Za-zÀ-ỹ]{3}" frontend/src/views/<your-domain>/
 # user). Output PHẢI = 0. Mỗi match → đổi sang
 # <ApproverSelect context="user|repair|pm|calibration|incident|commissioning">.
 grep -rnE 'doctype="User"' frontend/src/views/
+
+# GATE-9: Field đính kèm bị render bằng ô GÕ ĐƯỜNG DẪN (→ LL-FE-54). Output PHẢI = 0.
+# "Điền file" = TẢI LÊN + lưu vào hệ thống, KHÔNG phải gõ/dán '/files/...' hay URL.
+grep -rn "placeholder=\"[^\"]*/files/" frontend/src            # ô gõ path (trừ FileUploadField.vue)
+grep -rniE '<input[^>]*v-model[^>]*(attachment|_doc|_proof|evidence|certificate_file|file_url)' frontend/src
+grep -rn "upload_file" frontend/src/api                          # /api/method/upload_file TRẦN
+# Mỗi match → thay bằng <FileUploadField v-model="..." doctype="..." fieldname="..."
+#   [parent-doctype="..." khi doctype là bảng con] :docname="..." />
 ```
 
 **GATE-1/GATE-2 scope (BẮT BUỘC mở rộng — KHÔNG chỉ ListView):** chạy GATE-1 (EN-enum) + GATE-2 (raw-code) thêm trên **DetailView + dashboard card** (`{{ ...status }}` trong `KpiCard`/donut), không chỉ ListView. Bug Wave2 IMM-12-A (dashboard cards 'Open'/'In Progress') + IMM-11-B (Cal detail 'Scheduled' dù list đã 'Đã lên lịch') lọt vì detail+card quên áp map dù list đúng. Bồi thêm key thiếu vào audit-list LL-FE-30: `Under Maintenance`→'Đang bảo trì', `Scheduled`→'Đã lên lịch', `Locked`, `Evaluated`, `Contract Signed`, `Weekly`, `Minor`.
@@ -412,6 +420,7 @@ View cha có `<style scoped> .modal-body input {…} </style>`. Đổi 1 raw `<i
 | "`{{ row.status }}` raw cho nhanh, sửa sau" | English-enum leak (GATE-1). Mọi status/frequency/severity qua label map; áp cả DetailView + dashboard card, không chỉ ListView. |
 | "Cứ dịch hết mọi acronym cho đồng bộ" | Cùng token khác nghĩa theo ngữ cảnh (`TB`=thiết bị vs trung bình; `PM`/`QA` có thể là KEY/value/tên Role Profile BE). Đọc DATA bind + GIỮ value/enum/key/i18n-generated. Policy keep/translate + glossary: §UI copy / [[LL-FE-53]]. |
 | "Sửa chuỗi hiển thị rồi, test cùng thư mục xanh là xong" | 1 nhãn SSoT (RCA/SLA) đổi vỡ ≥5 file test ở module KHÁC (incident/cm/utils/constants). Grep literal CŨ toàn repo + full `vitest run`, KHÔNG chỉ colocated (LL-FE-53). |
+| "Cho gõ đường dẫn file cũng được, người dùng tự upload chỗ khác" | Tệp KHÔNG vào hệ thống: không có bản ghi `File`, không quyền, không vết audit, gõ sai = hồ sơ NĐ98 rỗng bằng chứng. "Điền file" LUÔN = upload (GATE-9 / LL-FE-54). |
 | "Lookup nhanh bằng `frappe.client.get_value`" | Bypass permission-aware endpoint (GATE-4 / LL-FE-40) — output PHẢI = 0. Dùng endpoint AssetCore whitelisted. |
 | "Render structural/vitest xanh là UI xong" | UI "xong" = RENDER THẬT chứng minh (LL-FE-46); `overflow:hidden` cắt chữ mà DOM-test vẫn PASS (GATE-6d/LL-FE-48). Verify bằng ảnh thật. |
 | "Toast `error('literal')` cho lỗi nghiệp vụ là đủ" | Vi phạm notification contract — success/error đều qua `useNotify`. KHÔNG để action thành công mà user không nhận phản hồi. |
@@ -427,6 +436,7 @@ View cha có `<style scoped> .modal-body input {…} </style>`. Đổi 1 raw `<i
 - `{{ row.status }}` / status / severity / frequency raw không qua label map (GATE-1).
 - Cell hiển thị `name` (mã `WO-RP-*`/`SUP-*`/`ACC-ASS-*`) hoặc email thay vì `_name`/`full_name` (GATE-2).
 - `frappe.client.get_value|get_list|get` ở FE (GATE-4 / LL-FE-40) — output phải = 0.
+- Ô nhập tệp là `<input type="text">` / placeholder `/files/...` / nhãn "(file URL)" / hint "upload trước rồi dán đường dẫn" (GATE-9 / LL-FE-54) — dùng `FileUploadField.vue`.
 - View thiếu tri-branch `v-if="loading"` / `v-else-if="error"` / `v-else` → lỗi bị nuốt, user thấy empty.
 - `TRANSITIONS_BY_STATE` thiếu state có outgoing transition (kể cả Draft/Open/Planned) → user kẹt.
 - List page không có action button; Detail page read-only hoàn toàn dù chưa Closed/Cancelled.
@@ -442,6 +452,7 @@ Trước khi khai báo FE "xong" — phải có BẰNG CHỨNG (không "có vẻ
 - [ ] `cd frontend && npm run typecheck && npm run lint` xanh (`vue-tsc --noEmit`) — paste output.
 - [ ] PRE-DONE GREP GATE-1..5 chạy trên view/component vừa sửa, mọi output đã xử lý (GATE-4 = 0).
 - [ ] GATE-1/GATE-2 chạy thêm trên **DetailView + dashboard card**, không chỉ ListView.
+- [ ] GATE-9 (không còn ô gõ đường dẫn tệp) chạy trên view/component vừa sửa — output = 0.
 - [ ] Manual GATE-6a (qr-scan prefill parity) / 6b (form 0-state) / 6c (control không dead) / 6d (render ảnh thật khổ cố định) đã chạy.
 - [ ] List page: có nút "Tạo mới", row click → detail đúng URL, filter cập nhật table, pagination, empty-state CTA, loading + error banner.
 - [ ] Detail page: đủ fields, workflow buttons đúng state, nút "Quay lại" + "Sửa", tabs (KPI/Audit) có data thật (không 0/empty giả).
