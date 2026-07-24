@@ -119,9 +119,14 @@
             <ApproverSelect v-model="awardForm.board_approver" context="user" required placeholder="Chọn người phê duyệt..." />
           </label>
         </div>
-        <label>Đường dẫn file hợp đồng (nếu có)
-          <input v-model="awardForm.contract_doc" type="text" placeholder="/tep/hop-dong-2026-001.pdf" />
-        </label>
+        <FileUploadField
+          v-model="awardForm.contract_doc"
+          label="Tệp hợp đồng (nếu có)"
+          doctype="IMM Procurement Decision"
+          fieldname="contract_doc"
+          :docname="store.currentDecision?.name || ''"
+          hint="Bấm để tải tệp hợp đồng (pdf, doc — tối đa 10MB)"
+        />
         <label>Ghi chú
           <input v-model="awardForm.remarks" type="text" />
         </label>
@@ -145,9 +150,14 @@
             <DateInput v-model="contractForm.signed_date" class="form-input w-full" />
           </label>
         </div>
-        <label>Đường dẫn file hợp đồng đã ký
-          <input v-model="contractForm.contract_doc" type="text" />
-        </label>
+        <FileUploadField
+          v-model="contractForm.contract_doc"
+          label="Tệp hợp đồng đã ký"
+          doctype="IMM Procurement Decision"
+          fieldname="contract_doc"
+          :docname="store.currentDecision?.name || ''"
+          hint="Bấm để tải bản hợp đồng đã ký (pdf, doc — tối đa 10MB)"
+        />
         <div class="form-actions">
           <button type="submit" class="btn btn-primary" :disabled="!contractForm.contract_no">
             Ghi nhận
@@ -177,6 +187,7 @@ import { useImm03Store } from '@/stores/imm03'
 import CurrencyInput from '@/components/common/CurrencyInput.vue'
 import DateInput from '@/components/common/DateInput.vue'
 import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
+import FileUploadField from '@/components/common/FileUploadField.vue'
 import {
   getEvaluation, awardDecision, recordContract, transitionDecisionWorkflow,
 } from '@/api/imm03'

@@ -13,6 +13,7 @@ import StatusBadge from '@/components/common/StatusBadge.vue'
 import BaseModal from '@/components/common/BaseModal.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import DateInput from '@/components/common/DateInput.vue'
+import FileUploadField from '@/components/common/FileUploadField.vue'
 import RecordHistory from '@/components/common/RecordHistory.vue'
 import { sanitizeHtml } from '@/utils/sanitizeHtml'
 import { translateStatus } from '@/utils/formatters'
@@ -362,8 +363,14 @@ onMounted(load)
           </select>
         </div>
         <div class="form-group">
-          <label class="form-label">Bằng chứng</label>
-          <input v-model="effEvidence" class="form-input" placeholder="/files/evidence-...pdf" />
+          <FileUploadField
+            v-model="effEvidence"
+            label="Bằng chứng"
+            doctype="IMM CAPA Record"
+            fieldname="imm_effectiveness_evidence"
+            :docname="name"
+            hint="Bấm để tải bằng chứng xác minh hiệu quả (pdf, doc, ảnh — tối đa 10MB)"
+          />
         </div>
         <p class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2" role="alert" aria-live="polite">
           VR-07: chỉ "Hiệu quả" mới đóng được hành động khắc phục/phòng ngừa. Khác → tăng số lần mở lại + về "Mở lại".

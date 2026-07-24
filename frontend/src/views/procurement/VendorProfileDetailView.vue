@@ -4,12 +4,14 @@
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getVendorProfile, addVendorCert } from '@/api/imm03'
-import { avlStatusLabel } from '@/constants/labels'
+import { avlStatusLabel, CERT_STATUS_LABELS, tLabel } from '@/constants/labels'
 import DateInput from '@/components/common/DateInput.vue'
+import FileUploadField from '@/components/common/FileUploadField.vue'
 
 interface VendorCert {
   cert_type: string; cert_number: string; issued_by?: string
   issued_date?: string; expiry_date?: string; status?: string
+  attachment?: string
 }
 interface AvlEntry {
   name: string; device_category: string; status: string; valid_from?: string; valid_to?: string
@@ -140,6 +142,7 @@ onMounted(load)
               <th>Ngày cấp</th>
               <th>Ngày hết hạn</th>
               <th>Trạng thái</th>
+              <th>Tệp đính kèm</th>
             </tr>
           </thead>
           <tbody>
@@ -149,10 +152,17 @@ onMounted(load)
               <td>{{ c.issued_by || '—' }}</td>
               <td>{{ c.issued_date || '—' }}</td>
               <td>{{ c.expiry_date || '—' }}</td>
-              <td>{{ c.status || '—' }}</td>
+              <td>{{ tLabel(CERT_STATUS_LABELS, c.status) }}</td>
+              <td>
+                <a
+                  v-if="c.attachment" :href="c.attachment" target="_blank"
+                  rel="noopener" class="text-blue-600 hover:underline"
+                >Xem tệp</a>
+                <span v-else class="muted">—</span>
+              </td>
             </tr>
             <tr v-if="!(profile.imm_certifications || []).length">
-              <td colspan="6" class="muted text-center">Chưa có chứng chỉ.</td>
+              <td colspan="7" class="muted text-center">Chưa có chứng chỉ.</td>
             </tr>
           </tbody>
         </table>
@@ -209,7 +219,15 @@ onMounted(load)
         <label>Cấp bởi: <input v-model="newCert.issued_by" /></label>
         <label>Ngày cấp: <DateInput v-model="newCert.issued_date" class="form-input w-full" /></label>
         <label>Ngày hết hạn: <DateInput v-model="newCert.expiry_date" class="form-input w-full" /></label>
-        <label>Tệp đính kèm: <input v-model="newCert.attachment" placeholder="/files/..." /></label>
+        <FileUploadField
+          v-model="newCert.attachment"
+          label="Tệp đính kèm"
+          doctype="Vendor Cert"
+          parent-doctype="AC Supplier"
+          fieldname="attachment"
+          :docname="profile?.name || ''"
+          hint="Bấm để tải bản chụp/bản mềm chứng chỉ (pdf, doc, ảnh — tối đa 10MB)"
+        />
         <div class="modal-actions">
           <button class="btn btn-outline" @click="showCertModal = false" :disabled="certBusy">Huỷ</button>
           <button class="btn btn-primary"

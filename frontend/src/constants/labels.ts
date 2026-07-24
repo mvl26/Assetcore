@@ -184,6 +184,13 @@ export const CONTRACT_STATUS_LABELS: Record<string, string> = {
   Cancelled: 'Đã hủy',
 }
 
+// ─── Trạng thái chứng chỉ nhà cung cấp (Vendor Cert.status) ──────────────────
+export const CERT_STATUS_LABELS: Record<string, string> = {
+  Active: 'Còn hiệu lực',
+  Expiring: 'Sắp hết hạn',
+  Expired: 'Đã hết hạn',
+}
+
 // ─── Helper tra cứu chung ─────────────────────────────────────────────────────
 /**
  * Tra cứu nhãn tiếng Việt cho một giá trị enum.

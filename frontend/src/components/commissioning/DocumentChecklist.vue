@@ -2,10 +2,13 @@
 import { computed, ref } from 'vue'
 import type { DocumentRecord } from '@/types/imm04'
 import DateInput from '@/components/common/DateInput.vue'
+import FileUploadField from '@/components/common/FileUploadField.vue'
 
 const props = defineProps<{
   documents: DocumentRecord[]
   readonly?: boolean
+  /** Tên phiếu nghiệm thu — để gắn tệp tải lên vào đúng hồ sơ (rỗng khi tạo mới) */
+  commissioningName?: string
   /** Phiếu này đã được mark "thiếu hồ sơ" — UI hiển thị banner cảnh báo */
   incompleteFlag?: 0 | 1
 }>()
@@ -251,17 +254,17 @@ function expiryLabel(d?: string): string {
             </p>
           </div>
           <div>
-            <label class="block text-xs text-slate-500 mb-0.5">File đính kèm (URL)</label>
-            <input
-              type="text"
-              :value="doc.file_url || ''"
+            <label class="block text-xs text-slate-500 mb-0.5">Tệp đính kèm</label>
+            <FileUploadField
+              :model-value="doc.file_url || ''"
+              doctype="Commissioning Document Record"
+              parent-doctype="Asset Commissioning"
+              fieldname="file_url"
+              :docname="commissioningName"
               :disabled="readonly"
-              class="form-input text-sm w-full font-mono"
-              placeholder="/files/..."
-              @change="updateField(doc.idx, 'file_url', ($event.target as HTMLInputElement).value)"
+              hint="Bấm để tải hồ sơ (pdf, doc, ảnh — tối đa 10MB)"
+              @update:model-value="updateField(doc.idx, 'file_url', $event)"
             />
-            <a v-if="doc.file_url" :href="doc.file_url" target="_blank" rel="noopener"
-               class="text-blue-600 text-xs hover:underline mt-1 inline-block">📎 Mở file</a>
           </div>
           <div class="md:col-span-2">
             <label class="block text-xs text-slate-500 mb-0.5">Ghi chú</label>

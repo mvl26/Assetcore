@@ -24,13 +24,14 @@
       </div>
 
       <div class="field-group">
-        <label>Văn bản miễn đăng ký (file URL) <span class="req">*</span></label>
-        <input
+        <label>Văn bản miễn đăng ký <span class="req">*</span></label>
+        <FileUploadField
           v-model="form.exempt_proof"
-          class="input"
-          placeholder="/files/mien-dang-ky-xxx.pdf"
+          doctype="Asset Document"
+          fieldname="exempt_proof"
+          :docname="modelValue.name"
+          hint="Bấm để tải văn bản miễn đăng ký (pdf, doc, ảnh — tối đa 10MB)"
         />
-        <small class="hint">Upload file trước qua Files, rồi dán đường dẫn vào đây.</small>
       </div>
 
       <div v-if="error" class="alert-danger">{{ error }}</div>
@@ -42,7 +43,7 @@
           :disabled="!form.exempt_reason || !form.exempt_proof || loading"
           @click="handleSubmit"
         >
-          {{ loading ? 'Đang xử lý...' : 'Xác nhận Exempt' }}
+          {{ loading ? 'Đang xử lý...' : 'Xác nhận miễn đăng ký' }}
         </button>
       </div>
     </div>
@@ -53,6 +54,7 @@
 import { reactive, ref } from 'vue'
 import { markExempt } from '@/api/imm05'
 import type { AssetDocumentItem } from '@/api/imm05'
+import FileUploadField from '@/components/common/FileUploadField.vue'
 
 const props = defineProps<{ modelValue: AssetDocumentItem }>()
 const emit = defineEmits<{ close: []; exempted: [docName: string] }>()

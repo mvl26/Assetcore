@@ -1,7 +1,7 @@
 // Copyright (c) 2026, AssetCore Team
 // API calls cho Module IMM-05 — Asset Document Repository
 
-import api from './axios'
+import { uploadAttachment } from './files'
 import { frappeGet, frappePost } from './helpers'
 
 const BASE = '/api/method/assetcore.api.imm05'
@@ -18,38 +18,25 @@ export interface FrappeFileUploadResult {
 }
 
 /**
- * Upload file lên Frappe File DocType (standalone — không gắn docname).
- * Frappe ném lỗi "Attached To Name must be a string or an integer" khi doctype
- * được truyền mà docname trống. Vì vậy khi chưa có docname, upload như file
- * độc lập rồi lưu file_url vào Asset Document sau.
+ * Upload tệp cho một hồ sơ AssetCore — shim mỏng quanh `api/files.ts`.
  *
- * Nếu docname đã có (edit mode), truyền vào để Frappe gắn File record vào doc.
+ * TRƯỚC 2026-07-22 hàm này POST thẳng `/api/method/upload_file`:
+ *  - không gate được quyền theo nghiệp vụ;
+ *  - `isPrivate:false` ⇒ hồ sơ tuân thủ thành tệp CÔNG KHAI đoán được URL;
+ *  - hardcode `doctype: 'Asset Document'` cho MỌI caller ⇒ phiếu hiệu chuẩn gắn
+ *    tệp vào một Asset Document không tồn tại ⇒ không ai đọc lại được.
+ * Nay uỷ quyền cho endpoint gate quyền; caller PHẢI khai đúng doctype/fieldname.
  */
 export async function uploadDocumentFile(
   file: File,
-  opts: { docname?: string; isPrivate?: boolean } = {},
+  opts: { doctype?: string; fieldname?: string; docname?: string } = {},
 ): Promise<FrappeFileUploadResult> {
-  const form = new FormData()
-  form.append('file', file, file.name)
-  form.append('is_private', opts.isPrivate ? '1' : '0')
-  form.append('folder', 'Home/Attachments')
-
-  // Chỉ gắn doctype + docname khi đã có record (tránh lỗi Frappe validation)
-  if (opts.docname) {
-    form.append('doctype', 'Asset Document')
-    form.append('docname', opts.docname)
-    form.append('fieldname', 'file_attachment')
-  }
-
-  // axios tự set Content-Type: multipart/form-data + boundary khi data là FormData
-  const res = await api.post<{ message: FrappeFileUploadResult }>(
-    '/api/method/upload_file',
-    form,
-    { headers: { 'Content-Type': undefined as unknown as string } },
-  )
-  const result = res.data?.message
-  if (!result?.file_url) throw new Error('Upload thất bại: không nhận được file_url từ server')
-  return result
+  const res = await uploadAttachment(file, {
+    doctype: opts.doctype || 'Asset Document',
+    fieldname: opts.fieldname || 'file_attachment',
+    docname: opts.docname,
+  })
+  return { ...res, is_private: res.is_private ?? 1 }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
