@@ -182,6 +182,15 @@ fixtures = [
 # Document Events — IMM-00 v3
 # ──────────────────────────────────────────────
 doc_events = {
+    # ─── Tệp đính kèm — gắn File mồ côi vào hồ sơ vừa lưu ───────────────────
+    # Màn hình "tạo mới" tải tệp lên TRƯỚC khi hồ sơ có tên ⇒ File riêng tư
+    # không gắn hồ sơ ⇒ CHỈ người tải lên đọc được (Frappe File.has_permission).
+    # Hook này gắn lại theo giá trị field Attach/Attach Image → quyền đọc tệp
+    # thừa hưởng quyền đọc hồ sơ. No-op với doctype không có field đính kèm.
+    "*": {
+        "after_insert": "assetcore.utils.attachments.link_uploaded_files",
+        "on_update": "assetcore.utils.attachments.link_uploaded_files",
+    },
     "Asset Commissioning": {
         "on_submit": [
             "assetcore.services.imm08.create_pm_schedule_from_commissioning",

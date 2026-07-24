@@ -1,0 +1,17 @@
+[
+  {
+    "doctype": "Custom Field",
+    "dt": "File",
+    "fieldname": "ac_client_request_id",
+    "fieldtype": "Data",
+    "label": "AC Client Request ID",
+    "insert_after": "attached_to_name",
+    "unique": 1,
+    "hidden": 1,
+    "read_only": 1,
+    "no_copy": 1,
+    "module": "AssetCore",
+    "description": "BR-12-26 / ADR-IMM12-10 (CR-24 phần dư · B-rel-3): idempotency key composite scoped `{incident_name}::{client_request_id}` cho attach_incident_photo — unique NULL-store (chỉ set khi client gửi key; File thường = NULL). Module-tag AssetCore để uninstall dọn sạch (tránh orphan custom-field trên site dùng chung).",
+    "name": "File-ac_client_request_id"
+  }
+]
