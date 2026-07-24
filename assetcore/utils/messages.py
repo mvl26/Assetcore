@@ -96,6 +96,11 @@ class MSG:
     IMM04_BASELINE_FAILED = "IMM04-BASELINE-FAILED"
     IMM04_OPEN_NC = "IMM04-OPEN-NC"
     IMM04_BOARD_APPROVER_REQUIRED = "IMM04-BOARD-APPROVER-REQUIRED"
+    # BR-04-12 (ADR-IMM-04-03): pre-check in-handler khi transition VÀO Clinical
+    # Release thiếu approver → Decision-B envelope (KHÔNG 417). Mã RIÊNG (không tái
+    # dùng IMM04-BOARD-APPROVER-REQUIRED) vì mang context={missing:[...]} cho FE map
+    # đúng control; entry cũ GIỮ NGUYÊN cho hook save-time validate_gate_g05_g06.
+    IMM04_GATE_G06_APPROVER = "IMM04-GATE-G06-APPROVER"
     IMM04_CANCEL_ASSET_ACTIVE = "IMM04-CANCEL-ASSET-ACTIVE"
 
     # ── IMM-05 Registration / Document Repository ───────────────────────────────
@@ -118,6 +123,8 @@ class MSG:
     IMM08_BAD_STATE = "IMM08-BAD-STATE"
     IMM08_ALREADY_SUBMITTED = "IMM08-ALREADY-SUBMITTED"
     IMM08_CHECKLIST_INCOMPLETE = "IMM08-CHECKLIST-INCOMPLETE"
+    IMM08_CHECKLIST_EMPTY = "IMM08-CHECKLIST-EMPTY"
+    IMM08_CHECKLIST_IDX_UNKNOWN = "IMM08-CHECKLIST-IDX-UNKNOWN"
     IMM08_DURATION_REQUIRED = "IMM08-DURATION-REQUIRED"
     IMM08_STICKER_REQUIRED = "IMM08-STICKER-REQUIRED"
     IMM08_PHOTO_REQUIRED = "IMM08-PHOTO-REQUIRED"
@@ -141,6 +148,9 @@ class MSG:
     IMM09_CHECKLIST_FAILED = "IMM09-CHECKLIST-FAILED"
     IMM09_ASSET_NOT_FOUND = "IMM09-ASSET-NOT-FOUND"
     IMM09_DEPT_HEAD_REQUIRED = "IMM09-DEPT-HEAD-REQUIRED"
+    # CR-41 segregation-of-duties: người nghiệm thu (confirm_inspection) PHẢI khác
+    # người đóng phiếu (close_work_order). http_status=403 → bucket FORBIDDEN.
+    IMM09_SELF_INSPECT_FORBIDDEN = "IMM09-SELF-INSPECT-FORBIDDEN"
     # R25 dispatch-validation gate (assign_technician): technician không hợp lệ
     # (User không tồn tại / disabled / không có role repair-capable). Chặn ghi
     # dữ liệu rác qua ignore_links=True. Xem ADR-IMM09-VALIDATE-TECH (docs/imm-09/04 §3.3).
@@ -179,6 +189,10 @@ class MSG:
     IMM12_CLOSE_RCA_REQUIRED = "IMM12-CLOSE-RCA-REQUIRED"
     IMM12_CLOSE_RCA_INCOMPLETE = "IMM12-CLOSE-RCA-INCOMPLETE"
     IMM12_REPORT_SUCCESS = "IMM12-REPORT-SUCCESS"
+
+    # ── IMM-06 Training & Competency (BR-06-08 anti nghiệm-thu-giả) ──────────────
+    IMM06_SESSION_NO_SCORE = "IMM06-SESSION-NO-SCORE"
+    IMM06_RESULT_UNKNOWN_USER = "IMM06-RESULT-UNKNOWN-USER"
 
     # ── IMM-11 Calibration ──────────────────────────────────────────────────────
     # Sprint chuẩn hoá thông báo 2026-05-29 vòng 4 — docs/imm-11 §11.2
@@ -495,6 +509,14 @@ MESSAGES: dict[str, MessageEntry] = {
         "severity": "warning",
         "http_status": 422,
     },
+    MSG.IMM04_GATE_G06_APPROVER: {
+        "title": "Chưa chọn người phê duyệt Ban Giám đốc",
+        "template": "Gate G06: Phải chọn Người Phê duyệt Ban Giám đốc (board_approver) "
+                    "trước khi Phát hành Lâm sàng.",
+        "action_hint": "Chọn người phê duyệt Ban Giám đốc rồi gửi lại yêu cầu phát hành.",
+        "severity": "warning",
+        "http_status": 422,
+    },
     MSG.IMM04_CANCEL_ASSET_ACTIVE: {
         "title": "Không thể hủy nghiệm thu",
         "template": "Không thể hủy vì Tài sản '{asset}' đã được kích hoạt.",
@@ -608,6 +630,26 @@ MESSAGES: dict[str, MessageEntry] = {
         "title": "Checklist chưa hoàn tất",
         "template": "Tất cả mục checklist phải có kết quả trước khi hoàn thành bảo trì định kỳ. Mục '{item}' chưa điền.",
         "action_hint": "Điền kết quả cho mọi mục checklist rồi thử lại.",
+        "severity": "warning",
+        "http_status": 422,
+    },
+    MSG.IMM08_CHECKLIST_EMPTY: {
+        "title": "Bảng kiểm chưa có mục nào",
+        "template": (
+            "Không thể hoàn thành bảo trì định kỳ: bảng kiểm chưa có mục nào "
+            "(thiếu bảng kiểm mẫu). Vui lòng gắn bảng kiểm mẫu trước khi nghiệm thu."
+        ),
+        "action_hint": "Gắn bảng kiểm mẫu (checklist template) cho lịch bảo trì, tạo lại lệnh rồi thử lại.",
+        "severity": "warning",
+        "http_status": 422,
+    },
+    MSG.IMM08_CHECKLIST_IDX_UNKNOWN: {
+        "title": "Mục bảng kiểm không hợp lệ",
+        "template": (
+            "Kết quả gửi lên tham chiếu mục bảng kiểm không tồn tại trong lệnh bảo trì "
+            "(thứ tự: {bad_idx}). Không thể ghi nhận để tránh bỏ sót kết quả."
+        ),
+        "action_hint": "Tải lại lệnh bảo trì để lấy đúng danh sách mục bảng kiểm rồi gửi lại.",
         "severity": "warning",
         "http_status": 422,
     },
@@ -753,6 +795,17 @@ MESSAGES: dict[str, MessageEntry] = {
         "action_hint": "Nhập tên người nghiệm thu rồi thử lại.",
         "severity": "warning",
         "http_status": 400,
+    },
+    # CR-41 segregation-of-duties (phân tách trách nhiệm): người nghiệm thu PHẢI
+    # khác người đóng phiếu (close_work_order). http_status=403 ⇒ _HTTP_TO_BUCKET →
+    # ErrorCode.FORBIDDEN ⇒ envelope code='FORBIDDEN'. Người-đóng đọc từ Asset
+    # Lifecycle Event 'repair_pending_inspection' (AC3 migrate-free).
+    MSG.IMM09_SELF_INSPECT_FORBIDDEN: {
+        "title": "Không thể tự nghiệm thu",
+        "template": "Người nghiệm thu phải khác người đóng phiếu.",
+        "action_hint": "Yêu cầu người khác (có quyền nghiệm thu) thực hiện bước nghiệm thu.",
+        "severity": "error",
+        "http_status": 403,
     },
     # R25 dispatch-validation gate — chặn giao việc cho kỹ thuật viên không hợp lệ
     # (User không tồn tại / disabled / không có quyền sửa chữa). http_status=422 (đầu
@@ -930,6 +983,27 @@ MESSAGES: dict[str, MessageEntry] = {
         "action_hint": "",
         "severity": "success",
         "http_status": 200,
+    },
+
+    # ── IMM-06 Training & Competency (BR-06-08 anti nghiệm-thu-giả) ──────────────
+    # message FROZEN theo docs/imm-06/05_API_Specification.md §B.5 guard (a)/(b).
+    MSG.IMM06_SESSION_NO_SCORE: {
+        "title": "Chưa chấm điểm học viên",
+        "template": ("Phải chấm điểm ít nhất 1 học viên trước khi hoàn thành "
+                     "buổi học (BR-06-08)"),
+        "action_hint": ("Nhập điểm lý thuyết/thực hành cho ít nhất một học viên "
+                        "rồi bấm Hoàn thành."),
+        "severity": "warning",
+        "http_status": 422,
+    },
+    MSG.IMM06_RESULT_UNKNOWN_USER: {
+        "title": "Học viên không thuộc buổi học",
+        "template": ("Học viên {user} không thuộc buổi đào tạo này — không thể "
+                     "chấm điểm (BR-06-08)"),
+        "action_hint": ("Chỉ chấm điểm cho học viên đã ghi danh vào buổi học này. "
+                        "Gỡ người không thuộc buổi khỏi danh sách kết quả."),
+        "severity": "warning",
+        "http_status": 422,
     },
 
     # ── IMM-11 Calibration ─────────────────────────────────────────────────────
