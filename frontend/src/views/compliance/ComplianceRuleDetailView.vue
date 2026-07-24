@@ -3,7 +3,7 @@
 // Chi tiết Quy tắc tuân thủ (BUG-16-02): xem toàn bộ field + version history,
 // Sửa, Ngừng/Kích hoạt, Tạo phiên bản mới (change-control QMS — CLAUDE.md §12).
 import { ref, computed, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useImm16Store } from '@/stores/imm16'
 import { useApi } from '@/composables/useApi'
 import type { ComplianceRule } from '@/api/imm16'
@@ -12,25 +12,38 @@ import StatusBadge from '@/components/common/StatusBadge.vue'
 import BaseModal from '@/components/common/BaseModal.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import RecordHistory from '@/components/common/RecordHistory.vue'
+import DetailLoadError from '@/components/common/DetailLoadError.vue'
+import { loadErrorKind, toApiError } from '@/api/errors'
 import { translateFrequency } from '@/utils/formatters'
 
 const route = useRoute()
+const router = useRouter()
 const store = useImm16Store()
 const api = useApi()
 const name = route.params.id as string
 
 const rule = ref<ComplianceRule | null>(null)
 const loading = ref(true)
+// '' = nạp OK; 'notfound' = mã quy tắc không tồn tại (404); 'unknown' = lỗi khác.
+const loadFailed = ref<'' | 'notfound' | 'unknown'>('')
+const loadErrMsg = ref('')
 const historyRef = ref<InstanceType<typeof RecordHistory> | null>(null)
 
 const CATEGORIES = ['Document', 'PM', 'Calibration', 'Training', 'Stock', 'SLA', 'Safety']
 // Khớp BE ground truth (imm_compliance_rule.evaluation_frequency).
 const FREQS = ['Realtime', 'Hourly', 'Daily', 'Weekly', 'Monthly', 'Quarterly']
 
+// Mã quy tắc sai / đã xoá ⇒ 404: KHÔNG để ApiError nổi lên console và KHÔNG dừng
+// ở dòng chữ đỏ cụt — render empty-state chuẩn kèm lối về danh sách quy tắc.
 async function load() {
   loading.value = true
+  loadFailed.value = ''
   try {
     rule.value = await store.fetchRule(name)
+  } catch (e: unknown) {
+    loadFailed.value = loadErrorKind(e)
+    loadErrMsg.value = toApiError(e).message
+    rule.value = null
   } finally {
     loading.value = false
   }
@@ -132,7 +145,16 @@ onMounted(load)
 <template>
   <div class="page-container animate-fade-in space-y-5">
     <div v-if="loading" class="p-6"><SkeletonLoader variant="form" :rows="6" /></div>
-    <div v-else-if="!rule" class="text-center text-red-500 py-12">Không tìm thấy quy tắc</div>
+    <DetailLoadError
+      v-else-if="!rule"
+      :kind="loadFailed || 'notfound'"
+      entity-label="quy tắc tuân thủ"
+      :record-id="name"
+      :message="loadErrMsg"
+      back-label="Về danh sách quy tắc"
+      @retry="load()"
+      @back="router.push('/compliance/rules')"
+    />
 
     <template v-else>
       <PageHeader

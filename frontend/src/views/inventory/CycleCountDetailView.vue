@@ -20,6 +20,8 @@ import WorkflowStepper from '@/components/common/WorkflowStepper.vue'
 import BaseModal from '@/components/common/BaseModal.vue'
 import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
+import DetailLoadError from '@/components/common/DetailLoadError.vue'
+import { loadErrorKind } from '@/api/errors'
 import { useApi } from '@/composables/useApi'
 import { formatCurrency, formatDate } from '@/utils/formatters'
 import {
@@ -33,10 +35,14 @@ const route = useRoute()
 const router = useRouter()
 const store = useImm15Store()
 const api = useApi()
-const { cycleCountDetail, cycleCountDetailLoading, error } = storeToRefs(store)
+const { cycleCountDetail, cycleCountDetailLoading, error, lastApiError } = storeToRefs(store)
 
 const name = computed(() => route.params.name as string)
 const detail = computed(() => cycleCountDetail.value)
+// Mã phiếu kiểm kê sai / đã xoá ⇒ 404: empty-state "không tìm thấy" + lối về danh
+// sách (trước chỉ có nút "Thử lại" — vô nghĩa với mã sai, và không có lối thoát).
+const loadFailed = computed<'' | 'notfound' | 'unknown'>(() =>
+  detail.value ? '' : (error.value ? loadErrorKind(lastApiError.value) : ''))
 const status = computed(() => detail.value?.status ?? '')
 const items = computed<CycleCountItem[]>(() => detail.value?.items ?? [])
 
@@ -151,10 +157,16 @@ onMounted(load)
     <div v-if="cycleCountDetailLoading && !detail" class="card p-6">
       <SkeletonLoader variant="table" :rows="5" />
     </div>
-    <div v-else-if="error && !detail" class="card p-8 flex flex-col items-center gap-3">
-      <p class="text-sm text-red-600">{{ error }}</p>
-      <button class="btn-secondary" @click="load">Thử lại</button>
-    </div>
+    <DetailLoadError
+      v-else-if="loadFailed"
+      :kind="loadFailed"
+      entity-label="phiếu kiểm kê"
+      :record-id="name"
+      :message="error ?? ''"
+      back-label="Về danh sách kiểm kê"
+      @retry="load()"
+      @back="router.push('/inventory/cycle-counts')"
+    />
 
     <template v-else-if="detail">
       <!-- Header + workflow -->

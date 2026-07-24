@@ -22,6 +22,8 @@ import { MSG } from '@/i18n/messages'
 import { getDecommission, approveDecommission, type DecommissionRecord } from '@/api/imm14'
 import PageHeader from '@/components/common/PageHeader.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
+import DetailLoadError from '@/components/common/DetailLoadError.vue'
+import { loadErrorKind } from '@/api/errors'
 import {
   disposalMethodLabel,
   decommissionStateLabel,
@@ -38,9 +40,13 @@ const notify = useNotify()
 
 const record = ref<DecommissionRecord | null>(null)
 const errorMsg = ref<string | null>(null)
+// Mã hồ sơ sai / đã xoá ⇒ 404: empty-state "không tìm thấy" + lối về danh sách
+// (trước chỉ "Thử lại" — retry vô nghĩa với mã sai/đã xoá ⇒ dead-end).
+const loadFailed = ref<'' | 'notfound' | 'unknown'>('')
 
 async function load() {
   errorMsg.value = null
+  loadFailed.value = ''
   const res = await api.run(() => getDecommission(props.id), {
     silentSuccess: true,
     silentError: true,
@@ -48,6 +54,7 @@ async function load() {
   if (res) {
     record.value = res
   } else {
+    loadFailed.value = loadErrorKind(api.lastError.value)
     errorMsg.value = api.lastError.value?.message
       ?? 'Không tải được hồ sơ giải nhiệm.'
   }
@@ -127,13 +134,16 @@ onMounted(load)
     <div v-if="api.loading.value && !record" class="card p-6">
       <SkeletonLoader variant="form" :rows="6" />
     </div>
-    <div v-else-if="errorMsg" class="card flex flex-col items-center justify-center py-16 gap-3">
-      <p class="text-sm text-red-600">{{ errorMsg }}</p>
-      <button
-        class="btn-secondary focus-visible:ring-2 focus-visible:ring-emerald-500"
-        @click="load"
-      >Thử lại</button>
-    </div>
+    <DetailLoadError
+      v-else-if="errorMsg"
+      :kind="loadFailed || 'unknown'"
+      entity-label="hồ sơ giải nhiệm"
+      :record-id="props.id"
+      :message="errorMsg"
+      back-label="Về danh sách giải nhiệm"
+      @retry="load()"
+      @back="router.push('/decommissions')"
+    />
 
     <template v-else-if="record">
       <!-- Header hồ sơ + badge trạng thái -->

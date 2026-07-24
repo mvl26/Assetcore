@@ -12,6 +12,8 @@ import PageHeader from '@/components/common/PageHeader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import BaseModal from '@/components/common/BaseModal.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
+import DetailLoadError from '@/components/common/DetailLoadError.vue'
+import { loadErrorKind, toApiError } from '@/api/errors'
 
 const props = defineProps<{ id: string }>()
 const router = useRouter()
@@ -20,13 +22,23 @@ const api = useApi()
 
 const audit = ref<InternalAudit | null>(null)
 const loading = ref(false)
+// '' = nạp OK; 'notfound' = mã kiểm toán không tồn tại (404); 'unknown' = lỗi khác.
+const loadFailed = ref<'' | 'notfound' | 'unknown'>('')
+const loadErrMsg = ref('')
 const activeTab = ref<'overview' | 'checklist' | 'report'>('overview')
 
+// Mã kiểm toán sai / đã xoá ⇒ 404: trước đây load() không catch (ApiError ra
+// console) VÀ template không có nhánh v-else ⇒ TRANG TRẮNG. Nay: empty-state chuẩn.
 async function load() {
   loading.value = true
+  loadFailed.value = ''
   try {
     audit.value = await getAudit(props.id)
     hydrateChecklist()
+  } catch (e: unknown) {
+    loadFailed.value = loadErrorKind(e)
+    loadErrMsg.value = toApiError(e).message
+    audit.value = null
   } finally { loading.value = false }
 }
 
@@ -175,7 +187,18 @@ onMounted(load)
   <div class="page-container animate-fade-in space-y-5">
     <div v-if="loading" class="p-6"><SkeletonLoader variant="form" :rows="6" /></div>
 
-    <template v-else-if="audit">
+    <DetailLoadError
+      v-else-if="!audit"
+      :kind="loadFailed || 'notfound'"
+      entity-label="cuộc kiểm toán nội bộ"
+      :record-id="props.id"
+      :message="loadErrMsg"
+      back-label="Về danh sách kiểm toán"
+      @retry="load()"
+      @back="router.push('/compliance/audits')"
+    />
+
+    <template v-else>
       <PageHeader
         :back-to="'/compliance/audits'"
         :title="audit.audit_code"

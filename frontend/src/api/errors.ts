@@ -142,3 +142,15 @@ export function toApiError(e: unknown): ApiError {
   if (e instanceof Error) return new ApiError(e.message || 'Lỗi không xác định', ErrorCode.UNKNOWN)
   return new ApiError(String(e), ErrorCode.UNKNOWN)
 }
+
+/**
+ * Phân loại lỗi NẠP bản ghi trên màn chi tiết → khoá render `DetailLoadError`.
+ *
+ * 'notfound' = mã sai / bản ghi đã xoá (BE trả http_status 404 trong envelope, HTTP
+ * vẫn 200 — xem in-handler 404 của Frappe RPC) ⇒ empty-state, KHÔNG mời thử lại.
+ * Mọi lỗi khác (mạng, 403, 500…) → 'unknown' ⇒ hiện message server + nút Thử lại.
+ */
+export function loadErrorKind(e: unknown): 'notfound' | 'unknown' {
+  const err = toApiError(e)
+  return (err.httpStatus === 404 || err.code === ErrorCode.NOT_FOUND) ? 'notfound' : 'unknown'
+}
