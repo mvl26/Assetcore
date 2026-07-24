@@ -107,6 +107,10 @@ const stubs = {
   SmartSelect: true,
   AssetDowntimeWidget: true,
   AssetDepreciationSchedule: true,
+  // Widget con tự gọi API và có trạng thái tải riêng (test riêng ở
+  // components/common/RelatedRecords.test.ts) — stub như 2 widget trên để khẳng định
+  // "trang không kẹt ở Đang tải" vẫn nói về CHÍNH trang này.
+  RelatedRecords: true,
   'router-link': { template: '<a><slot /></a>' },
 }
 

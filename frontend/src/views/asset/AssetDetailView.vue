@@ -22,6 +22,7 @@ import {
 import AssetDowntimeWidget from '@/components/asset/AssetDowntimeWidget.vue'
 import AssetDepreciationSchedule from '@/components/asset/AssetDepreciationSchedule.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
+import RelatedRecords from '@/components/common/RelatedRecords.vue'
 import BaseModal from '@/components/common/BaseModal.vue'
 import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
 import type { AssetLifecycleEvent, AssetKpi, ChainVerifyResult, LifecycleStatus } from '@/types/imm00'
@@ -632,6 +633,13 @@ onMounted(async () => {
       <!-- Tab: Info -->
       <div v-if="activeTab === 'info'" class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <AssetDowntimeWidget class="md:col-span-2" :asset-name="store.currentAsset.name" />
+        <!-- Bản ghi liên quan: nội dung do đồ thị liên kết ở backend quyết định
+             (ac_asset_dashboard.py) — KHÔNG khai lại danh sách doctype ở FE. -->
+        <RelatedRecords
+          class="md:col-span-2"
+          doctype="AC Asset"
+          :name="store.currentAsset.name"
+        />
         <div class="card p-4">
           <h3 class="text-sm font-semibold text-slate-700 mb-3">Thông tin chung</h3>
           <dl class="space-y-2 text-sm">
