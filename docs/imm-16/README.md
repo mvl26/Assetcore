@@ -6,7 +6,7 @@
 | Wave | 2 — IMPLEMENTED (feature/hieuc/wave-2) |
 | Trạng thái | ✅ Stable — BE + FE đã merge; chờ UAT |
 | Số file | 9 (README + 02-09; nguồn gốc đã archive) |
-| Cập nhật cuối | 2026-07-15 (CR-27b — curate `getInternalAudit` mobile OAS detail-sibling, [ADR-MOBILE-052](../mobile/ADR-MOBILE-052.md); PREV CR-27a `listInternalAudits`, ADR-MOBILE-051) |
+| Cập nhật cuối | 2026-07-19 (CR-27d — spec bật THẬT auto-sinh `IMM Compliance Finding` từ Major/Minor NC trong `complete_audit_checklist`: canonical rule get-or-create `AUDIT-INTERNAL-NC` + fail-loud + `findings_created`=persist THỰC, [ADR-IMM-16-11](./04_Backend_Design.md) / BR-16-14 / 04 §III.C.1c; PREV CR-27b `getInternalAudit` mobile OAS, ADR-MOBILE-052) |
 | Khối kiến trúc | C. KHỐI 3 |
 | Đợt triển khai | 2 |
 | Owner | Tổ HC-QLCL & Risk |

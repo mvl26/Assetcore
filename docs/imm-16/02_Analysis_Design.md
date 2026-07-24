@@ -423,11 +423,39 @@ Scenario: Plan audit
   Then audit.status="Planned"
   And scheduler check_audit_milestones cảnh báo 7 ngày trước planned_start
 
-Scenario: Execute checklist + ghi Audit Finding
+Scenario: Execute checklist + auto-sinh Compliance Finding THẬT (CR-27d)
   Given audit ở "In Progress"
   When complete_audit_checklist với 1 item finding_status="Major NC"
-  Then sinh IMM Compliance Finding tự động
-  And ghi 1 row Audit Finding với severity=Major, imm_finding_link=finding.name
+  Then findings_created == 1
+  And ĐÚNG 1 IMM Compliance Finding persist (query source_record=<audit>,
+      source_record_doctype="IMM Internal Audit") với severity="High",
+      rule="AUDIT-INTERNAL-NC" (KHÔNG rỗng), detected_date + evaluation_date hợp lệ
+
+Scenario: 2 dòng NC (1 Major + 1 Minor) → findings_created == 2 (CR-27d)
+  Given audit ở "In Progress"
+  When complete_audit_checklist(items=[{idx:1, finding_status:"Major NC"},
+                                       {idx:2, finding_status:"Minor NC"}])
+  Then findings_created == 2   # baseline HIỆN TẠI = 0 (no-op câm) — RED-first
+  And ĐÚNG 2 IMM Compliance Finding persist với severity [High, Medium]
+  # KHÔNG dedup: 2 NC cùng audit/ngày ra 2 Finding, KHÔNG gộp 1
+
+Scenario: Payload hỗn hợp [Compliant, Major NC, Minor NC] → chỉ NC sinh Finding
+  Given audit ở "In Progress"
+  When complete_audit_checklist(items=[{idx:1, finding_status:"Compliant"},
+                                       {idx:2, finding_status:"Major NC"},
+                                       {idx:3, finding_status:"Minor NC"}])
+  Then findings_created == 2    # Compliant/N/A KHÔNG sinh Finding
+
+Scenario: Canonical rule get-or-create idempotent (chạy complete 2 lần)
+  Given 2 audit khác nhau, mỗi audit 1 Major NC
+  When complete_audit_checklist lần lượt cho cả 2
+  Then CHỈ 1 IMM Compliance Rule rule_code="AUDIT-INTERNAL-NC" tồn tại (không nhân bản)
+
+Scenario: Finding create thất bại THẬT → fail-loud (không success-giả)
+  Given rule create hỏng vì lý do THẬT (vd DB error)
+  When complete_audit_checklist với 1 Major NC
+  Then raise ServiceError (in-handler HTTP-200 Error envelope), abort trước commit
+  And KHÔNG return findings_created > số persist thật
 
 Scenario: Complete checklist → chuyển Reporting (khôi phục state chết)
   Given audit ở "In Progress"
@@ -673,6 +701,7 @@ Acceptance:
 | BR-16-10 | Mọi thay đổi Finding/CAPA/Audit/Scorecard ghi `IMM Audit Trail` (hash chain) + Frappe Version. **Vòng đời Internal Audit ghi ĐÚNG 1 record/thao tác**: `start_audit`→`audit_started`, `complete_audit_checklist`→`audit_checklist_completed`, `close_audit`→`audit_closed` (mỗi record `asset=''`, `ref_doctype='IMM Internal Audit'`, `ref_name`, `from_status`/`to_status`). | `track_changes=1` + `utils.lifecycle.log_audit_event` | NĐ 98 · CLAUDE.md §5 |
 | BR-16-11 | Compliance-rate chỉ tính trên finding ĐÃ phân định (adjudicated). `compliant` = Resolved/Waived/Closed; `non_compliant` = Confirmed NC; `pending` = Open/Under Review → KHÔNG vào mẫu số. False Positive đã loại từ filter. `score_pct = round(compliant/(compliant+non_compliant)*100, 2)`; nếu adjudicated=0 → 100.0. Scorecard + Heatmap CÙNG gọi 1 SoT `compute_compliance_rate()` (không nhân bản công thức inline). | `services/imm16.py::compute_compliance_rate()` gọi bởi `generate_scorecard()` + `get_compliance_heatmap()` | ISO 13485 §8.4 (data analysis) |
 | BR-16-13 | **Verdict từng mục checklist persist QUA `result` (round-trip) — CR-27b.** `complete_audit_checklist` map DTO `finding_status` → child `result` bằng SSoT `_FINDING_STATUS_TO_RESULT` (`Compliant→Conforming`, `Minor NC`/`Major NC`→`Non-Conforming`, `N/A→Not Applicable`); unknown/thiếu → giữ `result` cũ. Mọi value ∈ options Select `result`. Cấm assign `child.finding_status`/`child.clause_ref` (field không tồn tại → no-op câm → verdict mất). Re-fetch `get_audit` PHẢI trả `checklist_items[i].result` = giá trị map (KHÔNG rỗng). | `services/imm16.py::complete_audit_checklist` + dict `_FINDING_STATUS_TO_RESULT`; child `imm_audit_checklist_item.result` | ISO 13485 §8.2.4 (internal audit records) |
+| BR-16-14 | **Auto-sinh `IMM Compliance Finding` THẬT cho Major/Minor NC — CR-27d.** `complete_audit_checklist` tạo 1 Finding cho MỖI dòng `finding_status ∈ {Major NC, Minor NC}` (Compliant/N/A/lạ → KHÔNG sinh): `severity=High`(Major)/`Medium`(Minor); `rule` = get-or-create canonical `AUDIT-INTERNAL-NC` (idempotent — `autoname=field:rule_code` unique ⇒ 2 lần complete vẫn 1 rule); `source_record_doctype='IMM Internal Audit'` + `source_record=<audit>`; `status=Open`; `detected_date`(Datetime)+`evaluation_date`(Date) hợp lệ. `findings_created` = số doc persist THỰC (KHÔNG `len(payload)`). **Fail-loud:** create hỏng → raise (HTTP-200 Error envelope) abort trước commit — KHÔNG nuốt lỗi thành success-giả. **KHÔNG dedup** `find_existing` (mỗi dòng NC là vi phạm riêng). | `services/imm16.py::complete_audit_checklist` + `_resolve_audit_nc_rule()`; enum `source_module += IMM-16` (`imm_compliance_rule.json`, handoff BE) | ISO 13485 §8.2.4 · NĐ98 Art.67 |
 | BR-16-12 | **Period-anchor canonical = `evaluation_date`.** MỌI view lọc finding theo kỳ (YYYY-MM) PHẢI lọc trên `evaluation_date` — KHÔNG dùng `detected_date`. Lý do: `evaluation_date` (Date) là ngày assessment khớp chu kỳ review tháng của Scorecard VÀ là thành phần khóa idempotency `(rule, source_record, evaluation_date)` = định nghĩa hệ thống "finding thuộc kỳ nào"; `detected_date` (Datetime) là event-timestamp có thể lệch kỳ do lag adjudication (vd phát hiện T2, đánh giá/xác nhận T3). Hệ quả nếu vi phạm: Scorecard và Heatmap cùng module/kỳ chọn 2 TẬP finding KHÁC nhau → `score_pct` lệch, vi phạm BR-16-11 ("CÙNG dataset CÙNG 1 score"). | `services/imm16.py::generate_scorecard()` (đã đúng `evaluation_date`) + `get_compliance_heatmap()` (PHẢI đổi từ `detected_date` → `evaluation_date`) | ISO 13485 §8.4 |
 
 ## IV.2. Validation Rules

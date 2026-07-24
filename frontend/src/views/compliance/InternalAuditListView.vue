@@ -37,6 +37,16 @@ const STATUSES: { value: string; label: string }[] = [
   { value: 'Closed',      label: 'Đã đóng' },
 ]
 
+// GATE-1/LL-FE-53: dịch audit_type sang tiếng Việt ở list (parity với detail view;
+// trước đây render thô 'Internal'/'External'/... rò ra người dùng).
+const AUDIT_TYPE_LABELS: Record<string, string> = {
+  Internal: 'Nội bộ',
+  'Self-assessment': 'Tự đánh giá',
+  Surveillance: 'Giám sát',
+  External: 'Bên ngoài',
+}
+const auditTypeLabel = (t: string) => AUDIT_TYPE_LABELS[t] ?? t
+
 const chips = computed(() => {
   const c: { key: string; label: string }[] = []
   if (filterStatus.value) {
@@ -154,7 +164,7 @@ onMounted(() => load(1))
             </div>
             <p class="text-sm font-medium text-slate-900 truncate">{{ a.audit_code }}</p>
             <div class="flex flex-wrap gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
-              <span>{{ a.audit_type }}</span>
+              <span>{{ auditTypeLabel(a.audit_type) }}</span>
               <span>· {{ formatDate(a.planned_start) }}</span>
               <span v-if="(a as any).lead_auditor_name || a.lead_auditor">· {{ (a as any).lead_auditor_name || a.lead_auditor }}</span>
             </div>
@@ -183,7 +193,7 @@ onMounted(() => load(1))
                 <div class="font-medium text-slate-900">{{ a.audit_code }}</div>
                 <div class="font-mono text-xs text-brand-700 mt-0.5">{{ a.name }}</div>
               </td>
-              <td class="table-cell text-slate-600">{{ a.audit_type }}</td>
+              <td class="table-cell text-slate-600">{{ auditTypeLabel(a.audit_type) }}</td>
               <td class="table-cell text-slate-600">{{ formatDate(a.planned_start) }}</td>
               <td class="table-cell text-slate-600">{{ formatDate(a.planned_end) }}</td>
               <td class="table-cell text-slate-600">{{ (a as any).lead_auditor_name || a.lead_auditor || '—' }}</td>

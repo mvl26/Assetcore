@@ -522,13 +522,156 @@ class TestAuditServerDrivenLifecycle(TestImm16Base):
         # đúng 1 audit-event/thao tác (delta, append-only trail).
         self.assertEqual(
             self._count_audit_events(name, "audit_checklist_completed"), ev0 + 1)
-        # findings_created KHÔNG đổi bởi fix result-mapping. Giá trị hiện tại = 0
-        # vì nhánh sinh Finding tạo IMM Compliance Finding với rule="" (child
-        # KHÔNG có field rule_ref → getattr trả "" → MandatoryError bị nuốt bởi
-        # except). Đây là NO-OP CÂM RIÊNG (cùng lớp anti-pattern), OUT-OF-SCOPE
-        # CR-27b (Task-BE: "GIỮ NGUYÊN nhánh Finding") → BACKLOG. Guard 0-hồi-quy:
-        # fix result-mapping KHÔNG được làm số này khác baseline.
-        self.assertEqual(res["findings_created"], 0)
+        # CR-27d: nhánh NC nay auto-sinh IMM Compliance Finding THỰC (rule đã
+        # resolve — clause_ref→rule đang có, else fallback IMM-16-AUDIT-NC).
+        # 2 NC (Major+Minor) ⇒ 2 Finding persist. Guard 0-hồi-quy: fix result-
+        # mapping (CR-27b) song song vẫn giữ verdict→child.result đúng.
+        self.assertEqual(res["findings_created"], 2)
+
+    # CR-27c (bug-fix hiện trường): audit tạo qua flow THẬT có 0 checklist_items
+    # (create_internal_audit/start_audit KHÔNG seed child). Trước fix:
+    # complete_audit_checklist loop qua 0 row → verdict + notes MẤT TRẮNG câm,
+    # items_count=len(payload) success-giả. Sau fix: APPEND child từ payload
+    # idx chưa-match → verdict persist vào child.result, count phản ánh THỰC.
+    def test_complete_checklist_appends_rows_when_audit_unseeded(self):
+        name = self._mk_audit("TEST-AUDSD-APPEND", status="Planned")
+        svc.start_audit(name)  # Planned → In Progress; KHÔNG seed child row nào
+        res = svc.complete_audit_checklist(name, [
+            {"idx": 1, "finding_status": "Compliant", "notes": "Dat"},
+            {"idx": 2, "finding_status": "Major NC", "notes": "Thieu ho so",
+             "clause_ref": "7.5.9"},
+            {"idx": 3, "finding_status": "Minor NC", "notes": "Nhan mo"},
+        ])
+        rows = sorted(svc.get_audit(name)["checklist_items"],
+                      key=lambda r: r["idx"])
+        # verdict KHÔNG còn mất trắng: 3 row persist với result mapped.
+        self.assertEqual(len(rows), 3,
+                         "checklist rows phải APPEND khi audit chưa seed child")
+        self.assertEqual([r.get("result") for r in rows],
+                         ["Conforming", "Non-Conforming", "Non-Conforming"])
+        self.assertEqual([r.get("notes") for r in rows],
+                         ["Dat", "Thieu ho so", "Nhan mo"])
+        # item_description reqd=1 → phải điền (fallback clause_ref / 'Mục kiểm tra N').
+        self.assertTrue(all(r.get("item_description") for r in rows),
+                        "item_description (reqd) phải được điền khi append")
+        # items_count phản ánh số THỰC persist (hết success-giả).
+        self.assertEqual(res["items_count"], 3)
+        self.assertEqual(res["status"], svc.AuditStatus.REPORTING)
+
+    # ── CR-27d: auto-sinh IMM Compliance Finding từ Major/Minor NC ──────────
+    # Nhánh NC trước đây NO-OP CÂM: rule="" (child KHÔNG có rule_ref → getattr
+    # trả "") → MandatoryError bị except nuốt → findings_created=0. Fix: resolve
+    # rule (clause_ref → rule đang có, else fallback IMM-16-AUDIT-NC) + create
+    # THỰC; findings_created LUÔN == số IMM Compliance Finding doc persist.
+    @staticmethod
+    def _audit_findings(audit_name, fields=None):
+        return frappe.get_all(
+            "IMM Compliance Finding",
+            filters={"source_record_doctype": "IMM Internal Audit",
+                     "source_record": audit_name},
+            fields=fields or ["name", "severity", "rule"],
+            order_by="creation asc",
+        )
+
+    def test_complete_checklist_creates_findings_from_nc(self):
+        """RED-first (flip guard): 1 Major + 1 Minor NC ⇒ findings_created==2.
+        FAIL trên code cũ (trả 0 — no-op câm) TRƯỚC khi fix."""
+        name = self._mk_audit_with_items("TEST-AUDSD-NCFIND", item_count=2,
+                                         status="In Progress")
+        res = svc.complete_audit_checklist(name, [
+            {"idx": 1, "finding_status": "Major NC",
+             "notes": "Thiếu hồ sơ hiệu chuẩn"},
+            {"idx": 2, "finding_status": "Minor NC", "notes": "Nhãn UDI mờ"},
+        ])
+        self.assertEqual(res["findings_created"], 2)
+
+    def test_findings_actually_persist_in_db(self):
+        """Persist THẬT (không đếm len payload): sau complete, đúng 2 IMM
+        Compliance Finding tồn tại theo source_record; severity High + Medium
+        (Major NC→High, Minor NC→Medium)."""
+        name = self._mk_audit_with_items("TEST-AUDSD-PERSIST", item_count=2,
+                                         status="In Progress")
+        svc.complete_audit_checklist(name, [
+            {"idx": 1, "finding_status": "Major NC", "notes": "NC lớn"},
+            {"idx": 2, "finding_status": "Minor NC", "notes": "NC nhỏ"},
+        ])
+        rows = self._audit_findings(name)
+        self.assertEqual(len(rows), 2, "đúng 2 Finding THỰC persist trong DB")
+        self.assertEqual(sorted(r["severity"] for r in rows), ["High", "Medium"])
+
+    def test_finding_has_nonempty_resolved_rule(self):
+        """Mỗi Finding sinh ra có rule != '' và rule đó tồn tại trong IMM
+        Compliance Rule (chống MandatoryError câm khi rule rỗng)."""
+        name = self._mk_audit_with_items("TEST-AUDSD-RULE", item_count=1,
+                                         status="In Progress")
+        svc.complete_audit_checklist(name, [
+            {"idx": 1, "finding_status": "Major NC", "notes": "NC"},
+        ])
+        rows = self._audit_findings(name)
+        self.assertEqual(len(rows), 1)
+        rule = rows[0]["rule"]
+        self.assertTrue(rule, "rule PHẢI non-empty (đã resolve)")
+        self.assertTrue(frappe.db.exists("IMM Compliance Rule", rule),
+                        "rule đã resolve PHẢI tồn tại trong IMM Compliance Rule")
+
+    def test_compliant_na_do_not_create_finding(self):
+        """Compliant / N/A KHÔNG sinh Finding; payload hỗn hợp
+        [Compliant, N/A, Major NC] ⇒ findings_created==1; chỉ 1 doc persist."""
+        name = self._mk_audit_with_items("TEST-AUDSD-MIX", item_count=3,
+                                         status="In Progress")
+        res = svc.complete_audit_checklist(name, [
+            {"idx": 1, "finding_status": "Compliant"},
+            {"idx": 2, "finding_status": "N/A"},
+            {"idx": 3, "finding_status": "Major NC", "notes": "NC"},
+        ])
+        self.assertEqual(res["findings_created"], 1)
+        self.assertEqual(len(self._audit_findings(name)), 1,
+                         "chỉ dòng NC sinh Finding")
+
+    def test_fallback_rule_idempotent(self):
+        """Get-or-create fallback IMM-16-AUDIT-NC idempotent: complete trên 2
+        audit khác nhau (mỗi cái 1 NC) ⇒ CHỈ 1 doc rule fallback (không nhân
+        bản, không DuplicateEntryError trên create thứ 2)."""
+        a = self._mk_audit_with_items("TEST-AUDSD-IDEMPA", item_count=1,
+                                      status="In Progress")
+        b = self._mk_audit_with_items("TEST-AUDSD-IDEMPB", item_count=1,
+                                      status="In Progress")
+        r1 = svc.complete_audit_checklist(a, [
+            {"idx": 1, "finding_status": "Major NC", "notes": "NC A"}])
+        r2 = svc.complete_audit_checklist(b, [
+            {"idx": 1, "finding_status": "Minor NC", "notes": "NC B"}])
+        self.assertEqual(r1["findings_created"], 1)
+        self.assertEqual(r2["findings_created"], 1)
+        self.assertEqual(
+            frappe.db.count("IMM Compliance Rule", {"name": "IMM-16-AUDIT-NC"}),
+            1, "fallback rule KHÔNG được nhân bản qua nhiều lần complete")
+
+    def test_clause_ref_resolves_specific_rule(self):
+        """clause_ref khớp rule_code của IMM Compliance Rule đang có ⇒
+        Finding.rule trỏ đúng rule đó (KHÔNG rơi về fallback)."""
+        _ensure(
+            "IMM Compliance Rule", "7.5.9",
+            {
+                "rule_code": "7.5.9",
+                "rule_name": "ISO 13485 §7.5.9 — Truy xuất nguồn gốc",
+                "source_module": "IMM-08",
+                "category": "Document",
+                "severity": "Medium",
+                "evaluation_frequency": "Quarterly",
+                "is_active": 1,
+                "version": "1.0",
+            },
+        )
+        name = self._mk_audit_with_items("TEST-AUDSD-CLAUSE", item_count=1,
+                                         status="In Progress")
+        svc.complete_audit_checklist(name, [
+            {"idx": 1, "finding_status": "Major NC", "notes": "NC",
+             "clause_ref": "7.5.9"},
+        ])
+        rows = self._audit_findings(name)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["rule"], "7.5.9",
+                         "clause_ref khớp rule_code → dùng rule đó, không fallback")
 
     @classmethod
     def tearDownClass(cls):
@@ -537,10 +680,28 @@ class TestAuditServerDrivenLifecycle(TestImm16Base):
         # 13485:7.5.9) → KHÔNG xoá được, để nguyên (asset='' + ref autoname,
         # KHÔNG match R-9 %test%).
         frappe.set_user("Administrator")
-        for nm in frappe.get_all(
+        audit_names = frappe.get_all(
             "IMM Internal Audit",
             filters={"audit_code": ("like", "TEST-AUDSD-%")}, pluck="name",
-        ):
+        )
+        # CR-27d: auto-sinh Finding commit nội bộ → xoá TRƯỚC rule (FK reqd) &
+        # audit. Gom Finding theo audit source_record + theo rule test-seed.
+        finding_names: set[str] = set()
+        if audit_names:
+            finding_names.update(frappe.get_all(
+                "IMM Compliance Finding",
+                filters={"source_record_doctype": "IMM Internal Audit",
+                         "source_record": ("in", audit_names)}, pluck="name"))
+        for rn in ("IMM-16-AUDIT-NC", "7.5.9"):
+            finding_names.update(frappe.get_all(
+                "IMM Compliance Finding", filters={"rule": rn}, pluck="name"))
+        for nm in finding_names:
+            with suppress(Exception):
+                frappe.delete_doc("IMM Compliance Finding", nm, force=True,
+                                  ignore_permissions=True, ignore_on_trash=True)
+        for rn in ("IMM-16-AUDIT-NC", "7.5.9"):
+            _delete_if_exists("IMM Compliance Rule", rn)
+        for nm in audit_names:
             with suppress(Exception):
                 frappe.delete_doc("IMM Internal Audit", nm, force=True,
                                   ignore_permissions=True, ignore_on_trash=True)
