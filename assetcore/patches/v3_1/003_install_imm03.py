@@ -31,6 +31,11 @@ _WORKFLOWS = (
 )
 
 
+#: Custom Field của AssetCore PHẢI gắn `module` — field `module=None` bị các đợt
+#: quét "orphan custom field" site-wide (app khác gỡ dirty) xoá nhầm, kéo theo mất
+#: cột DB và làm list_vendor_profiles vỡ với SQL 1054. Xem _verify_columns() bên dưới.
+_MODULE = "AssetCore"
+
 _AC_SUPPLIER_CFIELDS = [
     {
         "fieldname": "section_imm_avl",
@@ -79,22 +84,17 @@ def execute() -> None:
         except Exception:
             frappe.log_error(frappe.get_traceback(), f"IMM-03 reload_doc {dt} failed")
 
-    # 2. Custom fields
-    try:
-        create_custom_fields(
-            {"AC Supplier": _AC_SUPPLIER_CFIELDS},
-            ignore_validate=True, update=True,
-        )
-    except Exception:
-        frappe.log_error(frappe.get_traceback(), "IMM-03 AC Supplier cfields failed")
-
-    try:
-        create_custom_fields(
-            {"AC Purchase": _AC_PURCHASE_CFIELDS},
-            ignore_validate=True, update=True,
-        )
-    except Exception:
-        frappe.log_error(frappe.get_traceback(), "IMM-03 AC Purchase cfields failed")
+    # 2. Custom fields — idempotent, self-healing (chạy lại sẽ dựng lại field đã mất)
+    for dt, cfields in (("AC Supplier", _AC_SUPPLIER_CFIELDS),
+                        ("AC Purchase", _AC_PURCHASE_CFIELDS)):
+        try:
+            create_custom_fields(
+                {dt: [{**cf, "module": _MODULE} for cf in cfields]},
+                ignore_validate=True, update=True,
+            )
+        except Exception:
+            frappe.log_error(frappe.get_traceback(), f"IMM-03 {dt} cfields failed")
+        _verify_columns(dt, cfields)
 
     # 3. Workflows
     wf_dir = frappe.get_app_path("assetcore", "assetcore", "workflow")
@@ -108,6 +108,22 @@ def execute() -> None:
         _upsert_workflow(data, wf_name)
 
     frappe.clear_cache()
+
+
+def _verify_columns(doctype: str, cfields: list[dict]) -> None:
+    """Fail loud nếu cột DB vẫn thiếu sau create_custom_fields.
+
+    Không có bước này thì lỗi bị nuốt bởi except ở trên → patch log 'đã chạy'
+    trong khi schema rỗng, và bug chỉ lộ ra ở tầng API dưới dạng SQL 1054.
+    """
+    expected = [cf["fieldname"] for cf in cfields
+                if cf["fieldtype"] not in ("Section Break", "Column Break", "Table")]
+    missing = [fn for fn in expected if not frappe.db.has_column(doctype, fn)]
+    if missing:
+        frappe.log_error(
+            f"IMM-03: {doctype} thiếu cột sau khi cài custom field: {missing}",
+            "IMM-03 cfields incomplete",
+        )
 
 
 def _upsert_workflow(data: dict, wf_name: str) -> None:
