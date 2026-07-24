@@ -3,8 +3,14 @@ import DateInput from '@/components/common/DateInput.vue'
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { getCalibration, updateCalibration } from '@/api/imm11'
-import type { AssetCalibration, CalibrationMeasurement } from '@/api/imm11'
+import type {
+  AssetCalibration, CalibrationMeasurement,
+  CalibrationMeasurementInput, CalibrationUpdatePatch,
+} from '@/api/imm11'
 import { uploadDocumentFile } from '@/api/imm05'
+import { toApiError, loadErrorKind } from '@/api/errors'
+import DetailLoadError from '@/components/common/DetailLoadError.vue'
+import RelatedRecords from '@/components/common/RelatedRecords.vue'
 import { useToast } from '@/composables/useToast'
 import { useNotify } from '@/composables/useNotify'
 import { useImm11Store } from '@/stores/imm11'
@@ -28,6 +34,10 @@ const saving = ref(false)
 const submitting = ref(false)
 const err = ref('')
 const uploadingCert = ref(false)
+// Kết quả nạp phiếu: '' = OK, 'notfound' = mã phiếu không tồn tại (404),
+// 'unknown' = lỗi mạng/khác. Quyết định render empty-state thay vì thân chi tiết.
+const loadFailed = ref<'' | 'notfound' | 'unknown'>('')
+const loadErrMsg = ref('')
 
 // BUG-007: Gate UI bằng capability (đồng bộ BE rbac.require ở api/imm11.py).
 // `calibration.write` cấp cho KTV Hiệu chuẩn (Calibration User/Manager) — bao
@@ -96,7 +106,7 @@ const startingCal = ref(false)
 async function doStartCal() {
   startingCal.value = true; err.value = ''
   try {
-    await updateCalibration(props.id, { status: 'In Progress' } as Partial<AssetCalibration>)
+    await updateCalibration(props.id, { status: 'In Progress' })
     notify.show({ code: MSG.UI_SAVE_SUCCESS, ctx: { entity: 'phiếu hiệu chuẩn' } })
     await load()
   } catch (e: unknown) {
@@ -143,7 +153,9 @@ async function uploadCertificateFile(event: Event) {
   uploadingCert.value = true
   err.value = ''
   try {
-    const result = await uploadDocumentFile(file, { docname: props.id, isPrivate: true })
+    const result = await uploadDocumentFile(file, {
+      doctype: 'IMM Asset Calibration', fieldname: 'certificate_file', docname: props.id,
+    })
     recvData.value.certificate_file = result.file_url
     toast.success(`Đã tải lên "${file.name}"`)
   } catch (e: unknown) {
@@ -238,19 +250,49 @@ const showPermissionHint = computed(() =>
   !loading.value && !isSubmitted.value && !hasAnyAction.value,
 )
 
+// Mã phiếu sai / phiếu đã bị xoá ⇒ BE trả 404 IMM11_CAL_NOT_FOUND. KHÔNG để lỗi
+// nổi lên console (unhandled rejection) và KHÔNG render khung chi tiết RỖNG (mọi
+// field '—' + panel nhập kết quả) — người dùng sẽ tưởng phiếu tồn tại mà "mất dữ
+// liệu". Mirror pattern errorKind của AssetScanInfoView (404/403/khác).
 async function load() {
   loading.value = true
+  loadFailed.value = ''
   try {
     const res = await getCalibration(props.id) as unknown as AssetCalibration
     if (res) form.value = { ...res }
+  } catch (e: unknown) {
+    loadFailed.value = loadErrorKind(e)
+    loadErrMsg.value = toApiError(e).message
+    form.value = {}
   } finally { loading.value = false }
 }
 
 async function save() {
   saving.value = true; err.value = ''
   try {
-    await updateCalibration(props.id, form.value as AssetCalibration)
+    // Gửi CHỈ field scalar editable (mirror BE _UPDATE_ALLOWED) + measurements raw-only.
+    // KHÔNG gửi pass_fail/out_of_tolerance (server tính, SSoT — không tin badge client).
+    const patch: CalibrationUpdatePatch = {
+      actual_date: form.value.actual_date,
+      sent_date: form.value.sent_date,
+      lab_contract_ref: form.value.lab_contract_ref,
+      lab_accreditation_number: form.value.lab_accreditation_number,
+      certificate_number: form.value.certificate_number,
+      certificate_date: form.value.certificate_date,
+      reference_standard_serial: form.value.reference_standard_serial,
+      traceability_reference: form.value.traceability_reference,
+      technician_notes: form.value.technician_notes,
+    }
+    // CÓ key measurements ⇒ BE replace-set (reload_count == payload_count). Chỉ đính khi
+    // đã load thành mảng — nếu measurements chưa nạp (undefined) thì BỎ key ⇒ đi nhánh
+    // backward-compat scalar-only (chống xoá nhầm dòng đo đang có trên server).
+    if (Array.isArray(form.value.measurements)) {
+      patch.measurements = form.value.measurements.map(toMeasurementInput)
+    }
+    await updateCalibration(props.id, patch)
     notify.show({ code: MSG.UI_SAVE_SUCCESS, ctx: { entity: 'phiếu hiệu chuẩn' } })
+    // Refetch → render pass_fail/out_of_tolerance do SERVER tính (authoritative). Badge
+    // computeResult chỉ là preview khi CHƯA lưu; sau reload luôn ưu tiên m.pass_fail server.
     await load()
   } catch (e: unknown) {
     store._captureError(e)
@@ -295,6 +337,23 @@ function removeMeasurement(i: number) {
   form.value.measurements?.splice(i, 1)
 }
 
+// Map dòng đo → CHỈ raw field gửi BE (parameter_name/unit/nominal/tolerance/measured).
+// pass_fail + out_of_tolerance BỎ HẲN — server là nguồn duy nhất (imm_asset_calibration
+// ._compute_measurement_results). Ngăn client "nói dối" kết quả qua payload.
+function toMeasurementInput(m: CalibrationMeasurement): CalibrationMeasurementInput {
+  return {
+    parameter_name: m.parameter_name,
+    unit: m.unit,
+    nominal_value: m.nominal_value,
+    tolerance_positive: m.tolerance_positive,
+    tolerance_negative: m.tolerance_negative,
+    measured_value: m.measured_value,
+  }
+}
+
+// PREVIEW hiển thị TRƯỚC khi lưu (badge tạm) — KHÔNG phải nguồn authoritative. Sau khi
+// lưu + reload, template ưu tiên m.pass_fail (server). Dùng CÙNG công thức % với BE
+// (_compute_measurement_results) để preview khớp kết quả server ở happy path.
 function computeResult(m: CalibrationMeasurement) {
   if (m.measured_value === null || m.measured_value === undefined) return null
   const base = Math.abs(m.nominal_value || 0)
@@ -334,8 +393,20 @@ onMounted(load)
       <WorkflowStepper :steps="calStepperSteps" :current="form.status" :label-for="calibrationStatusLabel" />
     </div>
 
-    <div v-if="err" class="alert-error">{{ err }}</div>
+    <div v-if="err && !loadFailed" class="alert-error">{{ err }}</div>
     <div v-if="loading" class="card p-8 text-center text-slate-400">Đang tải...</div>
+
+    <!-- Phiếu không tồn tại / lỗi nạp — empty-state CHUNG, có lối thoát (KHÔNG dead-end) -->
+    <DetailLoadError
+      v-else-if="loadFailed"
+      :kind="loadFailed"
+      entity-label="phiếu hiệu chuẩn"
+      :record-id="props.id"
+      :message="loadErrMsg"
+      back-label="Về danh sách hiệu chuẩn"
+      @retry="load()"
+      @back="router.push('/calibration')"
+    />
 
     <template v-else>
       <!-- Info Grid -->
@@ -557,6 +628,9 @@ v-if="!isSubmitted && canExecuteCal" class="btn-ghost text-sm" :disabled="saving
           </div>
         </div>
       </div>
+      <!-- Bản ghi liên quan: nội dung do đồ thị liên kết ở backend quyết định. -->
+      <RelatedRecords class="mt-4" doctype="IMM Asset Calibration" :name="props.id" />
+
     </template>
 
     <!-- Send to Lab Modal -->

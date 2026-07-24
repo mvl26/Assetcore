@@ -182,6 +182,8 @@ File `assetcore/tests/test_imm11.py` (✅ Live — `unittest.TestCase`, helper `
 | `TestCalibrationFailDueNow` | `handle_calibration_fail` → Schedule due-now (BR-11-08b) | Decision Table + BVA + Path | 7 method (TC-CAL-FAIL-DUE-01..07; RED-prove 01/02/04) + FE `calFailDueNow.test.ts` 10 | ✅ Live |
 | `TestLookback` | `perform_lookback_assessment` | EP (Active/Decommissioned) + Path | 1 / 2 | ⬜ Planned |
 | `TestAddMeasurement` | `add_measurement` auto Pass/Fail | BVA tolerance | 2 / 1 | ⬜ Planned |
+| `TestUpdateCalibrationMeasurements` | `update_calibration` `measurements` child-diff replace-set (BR-11-16, data-loss fix) | Decision Table + BVA + Error guessing | 5 / 4 (TC-11-MEASDIFF-01..10; RED-first 01) | ⬜ Planned |
+| `TestSubmitCalibrationIdempotency` | `submit_calibration` idempotency dedup — replay THẮNG state-guard (BR-11-17 / CR-24-CAL-SUBMIT op#6) | Decision Table + Error guessing | 6 / 6 (TC-11-IDEMP-SUBMIT-01..06; RED-first 01/02/03) | ⬜ Planned |
 | `TestSchedulerDueWOs` | `create_due_calibration_wos` idempotent | Use Case | 1 / 1 (duplicate guard) | ⬜ Planned |
 | `TestExpiryCheck` | `check_calibration_expiry` | EP (On Schedule/Due Soon/Overdue) | 3 / 0 | ⬜ Planned |
 | `TestSendReceiveLab` | `send_to_lab` / `receive_certificate` | State Transition | 2 / 1 | ⬜ Planned |
@@ -355,6 +357,13 @@ bench --site miyano run-tests --module assetcore.tests.test_workflows
 | US-11-01 | AC-11-11 Mint-gap (next_calibration_date NULL vẫn đếm) | `TestCalibrationCountDrillParity::test_mint_only_schedule` | Unit | ⬜ Planned |
 | US-11-02 | AC-01 in-tolerance Pass | `TestAddMeasurement::test_in_tolerance_pass` | Unit | ⬜ Planned |
 | US-11-02 | AC-02 OOT Fail | `TestAddMeasurement::test_oot_fail` | Unit | ⬜ Planned |
+| US-11-03 | AC-11-34 persist (data-loss fix, RED-first) | `TestUpdateCalibrationMeasurements::TC-11-MEASDIFF-01` | Unit + API | ⬜ Planned |
+| US-11-03 | AC-11-35 SSoT server-compute (không tin client) | `TestUpdateCalibrationMeasurements::TC-11-MEASDIFF-02/03a` | Unit | ⬜ Planned |
+| US-11-03 | AC-11-36 replace-set count==payload | `TestUpdateCalibrationMeasurements::TC-11-MEASDIFF-04/05` | Unit | ⬜ Planned |
+| US-11-03 | AC-11-37/38 guard submit/status (409) | `TestUpdateCalibrationMeasurements::TC-11-MEASDIFF-06/07` | Unit | ⬜ Planned |
+| US-11-03 | AC-11-39 backward-compat / NO_FIELDS | `TestUpdateCalibrationMeasurements::TC-11-MEASDIFF-08a/b/c` | Unit | ⬜ Planned |
+| US-11-03 | AC-11-40 idempotent replace-set | `TestUpdateCalibrationMeasurements::TC-11-MEASDIFF-09` | Unit | ⬜ Planned |
+| US-11-03 | FE persist + re-fetch server pass_fail | `CalibrationDetailView` vitest (real store) | FE Unit | ⬜ Planned |
 
 ## IV.2. BR → Test mapping
 
@@ -374,6 +383,7 @@ bench --site miyano run-tests --module assetcore.tests.test_workflows
 | BR-11-11 | FAILED-preserve terminal (OoS) | `TestCheckCalibrationExpiryRollup` (TC-11-ROLLUP-FAILED*) | Decision Table | 1 / 2 |
 | BR-11-12 | Recalibration OoS-restore governance guard (chủ-hold == calibration ∧ 0 hold khác) | `TestCalibrationRestoreGuard` (TC-11-RESTORE-*) | Decision Table + Path | 2 / 3 |
 | BR-11-13 | PASS → Asset-cache rollup đa-lịch (worst-of-all + MIN next_due; ROLLUP-CONSISTENCY với scheduler; happy 1-lịch bất biến) | `TestCalibrationPassRollup` (TC-11-PASS-ROLLUP-01..07 + N1; RED-prove 01/03) + FE verify §06 §7c-quater | Decision Table + BVA + Path | 5 / 3 |
+| BR-11-16 | `update_calibration` `measurements` child-diff replace-set (data-loss fix + SSoT server-compute + guard docstatus/status + backward-compat) | `TestUpdateCalibrationMeasurements` (TC-11-MEASDIFF-01..10; RED-first 01) + FE `CalibrationDetailView` vitest (§06 §3.3-bis) | Decision Table + BVA + Error guessing | 5 / 4 |
 
 ### BR-11-12 — test cases bắt buộc (recalibration OoS-restore governance guard)
 
@@ -465,6 +475,40 @@ bench --site miyano run-tests --module assetcore.tests.test_workflows
 | TC-11-CALFLAG-SHARED | grep-guard / call-graph | `list_calibrations`/`get_calibration` gọi | dùng CHUNG `is_calibration_overdue`/`is_calibration_due_soon` (KHÔNG so-ngày inline mới); 0 query DB thêm (mock/assert repo-call-count không tăng) | AC-11-26, INV-CALFLAG-3 |
 
 > No-regression bắt buộc: `test_imm11` (kể cả `TestCalibrationAllowedTransitions`, list-mine `TestCalibrationListMineScope`) GREEN; `test_mobile_oas` (contract-shape 2 property × 2 schema `integer enum[0,1]`) + `test_mobile_docset` (reconcile `_GUARD_SUITE_SUM`/`_MOBILE_OAS_TOTAL`) GREEN. SoT helper + predicate thuần KHÔNG đổi (chỉ THÊM call-site) → KPI/dashboard/drill parity (BR-11-08/09) không regress. Consumer-audit: `grep` FE/mobile không có nơi so `next_calibration_date` với client-clock (server-flag SSoT).
+
+### BR-11-16 — test cases bắt buộc (`update_calibration` `measurements` child-diff · data-loss fix)
+
+> **Class mới `TestUpdateCalibrationMeasurements` (`tests/test_imm11.py`).** **RED-first (chứng minh data-loss):** với code hiện tại (`_UPDATE_ALLOWED` KHÔNG có `measurements` → strip), `update_calibration(name, {measurements:[N]})` trên draft → `get_calibration(name).measurements` = **0 dòng** → TC-11-MEASDIFF-01 FAIL (data bốc hơi). Sau khi thêm nhánh child-diff replace-set (§04 §4.1.10) → GREEN. Fixture: asset prefix `_Test` + phiếu draft `status ∈ ACTIVE_STATUSES`; `_purge_asset_with_deps` teardown.
+
+| TC ID | Given | When | Then | Map |
+|---|---|---|---|---|
+| TC-11-MEASDIFF-01 (RED-first / persist) | phiếu draft (`docstatus=0`, `status='In Progress'`), 0 dòng đo | `update_calibration(name, {measurements:[2 dòng valid]})` → `get_calibration(name)` | `.measurements` = **2 dòng** với `measured_value`/`nominal_value`/`tolerance_*` đúng payload | AC-11-34, BR-11-16 |
+| TC-11-MEASDIFF-02 (SSoT compute — không tin client) | 1 dòng `nominal=7.5, tol±3%, measured=8.0`, client CỐ gửi `pass_fail='Pass'`/`out_of_tolerance=0` | lưu → reload | dòng có `pass_fail=='Fail'` ∧ `out_of_tolerance==1` (server strip + recompute) | AC-11-35, BR-11-16 |
+| TC-11-MEASDIFF-03a (in-tolerance Pass) | 1 dòng `nominal=7.5, tol±3%, measured=7.6` | lưu → reload | `pass_fail=='Pass'` ∧ `out_of_tolerance==0` | AC-11-35 |
+| TC-11-MEASDIFF-04 (replace-set — remove) | phiếu có 3 dòng | lưu `measurements`=2 dòng (bỏ 1) → reload | count == **2** (dòng bị bỏ → removed) | AC-11-36, BR-11-16 |
+| TC-11-MEASDIFF-05 (replace-set — add) | phiếu có 2 dòng | lưu `measurements`=4 dòng → reload | count == **4** | AC-11-36 |
+| TC-11-MEASDIFF-06 (guard submit) | phiếu `docstatus=1`, có sẵn M dòng | `update_calibration(name, {measurements:[khác]})` | `ServiceError` code `CONFLICT` msg `IMM11_ALREADY_SUBMITTED` (http_status 409); reload `.measurements` == M dòng cũ (KHÔNG mutate) | AC-11-37, BR-11-16 |
+| TC-11-MEASDIFF-07 (guard status) | phiếu `docstatus=0`, `status='Cancelled'` | `update_calibration(name, {measurements:[...]})` | `ServiceError` code `CONFLICT` msg `IMM11_MEASUREMENTS_NOT_EDITABLE` (409); child table KHÔNG đổi | AC-11-38, BR-11-16 |
+| TC-11-MEASDIFF-08a (backward-compat scalar) | phiếu draft | `update_calibration(name, {technician_notes:'x'})` (KHÔNG `measurements`) | hành vi cũ: `technician_notes` set, return `{name,status}`; `measurements` KHÔNG đụng; 0 regression | AC-11-39, BR-11-16 |
+| TC-11-MEASDIFF-08b (measurements-only ≠ NO_FIELDS) | phiếu draft | `update_calibration(name, {measurements:[1 dòng]})` (0 scalar) | KHÔNG raise `IMM11_NO_FIELDS`; dòng persist (count==1) | AC-11-39, BR-11-16 |
+| TC-11-MEASDIFF-08c (empty patch = NO_FIELDS) | phiếu draft | `update_calibration(name, {})` (0 scalar ∧ 0 key `measurements`) | raise `IMM11_NO_FIELDS` (hành vi cũ giữ) | AC-11-39 |
+| TC-11-MEASDIFF-09 (idempotent replace-set) | phiếu draft | lưu CÙNG mảng [N] hai lần liên tiếp → reload | count == **N** (KHÔNG nhân đôi; KHÔNG cần `client_request_id`) | AC-11-40, BR-11-16 |
+| TC-11-MEASDIFF-10 (unmeasured row draft-valid) | phiếu draft | lưu 1 dòng `measured_value=None` (chưa đo) → reload | dòng persist; `pass_fail` None (skip compute); submit sau vẫn chặn bởi BR-11-08 IMM11_MEASUREMENT_VALUE_REQUIRED | AC-11-34, BR-11-16 |
+
+> **DoD BR-11-16:** `bench --site miyano run-tests` module-isolated `assetcore.tests.test_imm11` XANH THẬT (`Ran N OK`, N tăng đúng số TC mới); RED-first TC-11-MEASDIFF-01 chuyển GREEN. No-regression: `TestUpdateCalibration`(scalar cũ) + `TestAddMeasurement`(per-row) + `TestCalibrationSubmitGate` GREEN. **0 OAS coupling** (`update_calibration` không mobile-mirror + `**kwargs`) → `test_mobile_oas`/`test_mobile_docset` KHÔNG cần đổi. FE vitest `CalibrationDetailView` (real store + re-fetch) GREEN. Sửa `services/imm11.py` (+ `utils/messages.py` MSG mới) dưới `--preload` → USER reload cho HTTP-live (HARD-STOP); DoD authoritative = `bench run-tests` (KHÔNG curl).
+
+### TC-11-IDEMP-SUBMIT — `submit_calibration` idempotency dedup (BR-11-17 / CR-24-CAL-SUBMIT op#6)
+
+| Test ID | Given | When | Then | AC |
+|---|---|---|---|---|
+| TC-11-IDEMP-SUBMIT-01 (RED-first — replay wins) | phiếu đủ measurement, `submit_calibration(name, client_request_id='K1')` gọi lần 1 (success, `docstatus→1`) | gọi LẦN 2 CÙNG `K1` | trả `{name,status,overall_result,next_calibration_date}` **byte-đối-byte** == lần 1; KHÔNG raise `IMM11_ALREADY_SUBMITTED`; `docstatus` giữ 1; `CalibrationRepo.submit`/`_lockstep` KHÔNG chạy lần 2 (mock/spy assert 1 lần) | AC-11-41 |
+| TC-11-IDEMP-SUBMIT-02 (RED-first — no-op) | `submit_calibration(name)` KHÔNG khoá (header vắng + body rỗng), gọi lần 1 success | gọi LẦN 2 KHÔNG khoá | `ServiceError` code CONFLICT msg `IMM11_ALREADY_SUBMITTED` (backward-compat y hệt hôm nay) | AC-11-42 |
+| TC-11-IDEMP-SUBMIT-03 (RED-first — distinct key) | lần 1 `client_request_id='K1'` success | gọi LẦN 2 `client_request_id='K2'` (≠K1) | `IMM11_ALREADY_SUBMITTED` (cache MISS cho K2 → state-guard giữ; KHÔNG nuốt câm) | AC-11-43 |
+| TC-11-IDEMP-SUBMIT-04 (source-precedence) | body `client_request_id='Kb'` + header `X-Idempotency-Key='Kh'` (Kb≠Kh) | 2 call cùng cặp | dedup theo **Kb** (body thắng); riêng header-only (body rỗng) → dedup theo Kh (`resolve_idempotency_key` SHARED) | AC-11-44 |
+| TC-11-IDEMP-SUBMIT-05 (not-found intact) | phiếu `∄` | `submit_calibration(name=∄, client_request_id='K')` | `IMM11_CAL_NOT_FOUND` (pre-check MISS → get → not-found) | AC-11-45 |
+| TC-11-IDEMP-SUBMIT-06 (race winner-reread) | `docstatus==1` + winner concurrent CÙNG khoá đã cache GIỮA pre-check và guard (giả lập cache HIT tại guard-recheck) | call CÙNG khoá | trả cached (KHÔNG raise); khoá không khớp → `IMM11_ALREADY_SUBMITTED` | AC-11-46/AC-11-41 |
+
+> **DoD BR-11-17:** `bench --site miyano run-tests` module-isolated `assetcore.tests.test_imm11` XANH THẬT (`Ran N OK`); RED-first TC-11-IDEMP-SUBMIT-01/02/03 chuyển GREEN. No-regression: `TestCalibrationSubmitGate` (submit gate) + `TestAddMeasurement` (§4.1.9 dedup) GREEN. **COUPLED OAS slice (KHÁC BR-11-16):** `submit_calibration` CÓ mobile-mirror + live-sig guard EXACT ⇒ `test_mobile_oas` PHẢI đổi (`_SUBMIT_CAL_REQUEST_PROPS {name}→{name,client_request_id}` + prop-optional TC + `_EXPECTED_TEST_COUNT`) + `test_mobile_docset` (`_GUARD_SUITE_SUM`/`_MOBILE_OAS_TOTAL`/`_GUARD_SUITE_EXPECTED`) + OAS `SubmitCalibrationRequest` +prop — land **cùng lượt** với `.py` (Self-Correction: acceptance "test_mobile_oas unchanged" SAI — xem `05 §0.1.4-IDEMP-SUBMIT`). `oas_baseline.BASELINE_TOTAL` GIỮ (0 whitelist mới) → `test_oas_baseline` XANH KHÔNG đổi. Sửa `api/imm11.py`+`services/imm11.py` dưới `--preload` → USER reload cho HTTP-live (HARD-STOP); DoD authoritative = `bench run-tests` (KHÔNG curl — gunicorn `--preload` stale, LL-DEPLOY-07).
 
 DoD: mọi BR có ≥ 1 happy + ≥ 1 negative. `TestCalibrationSubmitGate` (✅ Live) đã cover gate before_submit (CAL-004).
 

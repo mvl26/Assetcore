@@ -189,6 +189,18 @@ Hai luồng: **In-House** (`Scheduled → In Progress → Passed/Failed/Conditio
 
 > BR-11-02: `Failed` → tự sinh CM Work Order (IMM-09) + lookback. Nút "Không đạt" phải cảnh báo trước khi commit.
 
+#### 3.3-bis. Persist bảng đo qua `save()` — child-diff `measurements` (BR-11-16 · data-loss fix)
+
+> **Bối cảnh:** `CalibrationDetailView.save()` (`frontend/src/views/calibration/CalibrationDetailView.vue:249-252`) đã gọi `updateCalibration(props.id, form.value)` với `form.value.measurements` (mảng dòng đo KTV nhập). Trước fix BE, mảng này bị `_UPDATE_ALLOWED` strip → mất dữ liệu. Sau BR-11-16 (§04 §4.1.10), BE nhận `measurements` theo replace-set + server-compute `pass_fail`.
+
+**Contract FE (khi BE BR-11-16 đã live):**
+- **Gửi**: `save()` gửi `measurements` = mảng dòng lưới với 6 field input `{parameter_name, unit, nominal_value, tolerance_positive, tolerance_negative, measured_value}`. KHÔNG cần gửi `pass_fail`/`out_of_tolerance` (server tính; nếu có gửi → server strip). KHÔNG cần `client_request_id` (replace-set idempotent).
+- **Re-fetch BẮT BUỘC sau Lưu**: `updateCalibration` trả `{name, status}` (KHÔNG có measurements/pass_fail). FE PHẢI invalidate + re-fetch `getCalibration(id)` sau `save()` để render `pass_fail`/`out_of_tolerance` **server-computed** (SSoT). KHÔNG hiển thị verdict từ `computeResult(m)` client như kết-quả-đã-lưu.
+- **`computeResult(m)` (`:298`) = PREVIEW client-side ONLY** — chỉ tô màu/gợi ý lúc gõ; KHÔNG phải nguồn sự thật. Sau reload, cột "Kết quả" đọc `m.pass_fail` từ server (đã có nhánh `v-if="m.pass_fail"` @`:475`); server thắng preview.
+- **Gate lưới nhập**: `canEnterResults` (`:91`) gate theo `!isSubmitted` + cap `calibration.write`. Khớp guard BE: measurements editable ⟺ `docstatus==0` ∧ `status ∈ ACTIVE_STATUSES`. Phiếu đã submit / draft Cancelled → lưới read-only; nếu FE lỡ gửi → BE trả `IMM11_ALREADY_SUBMITTED` / `IMM11_MEASUREMENTS_NOT_EDITABLE` (toast qua notification contract).
+
+**Acceptance FE (guard test `CalibrationDetailView` — vitest):** nhập 2 dòng → `save()` → (mock `updateCalibration` resolve + re-fetch `getCalibration` trả 2 dòng server pass_fail) → render đúng **2 dòng** với `pass_fail` từ server (KHÔNG mất dòng, KHÔNG dùng `computeResult` làm verdict cuối). Dùng **real store**, KHÔNG mock trả tay bỏ qua re-fetch.
+
 ---
 
 ## 4. Component custom của module

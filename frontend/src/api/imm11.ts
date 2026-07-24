@@ -28,6 +28,43 @@ export interface CalibrationMeasurement {
   pass_fail?: 'Pass' | 'Fail' | null
 }
 
+/**
+ * Raw measurement fields KTV nhập — tập DUY NHẤT được gửi lên BE khi lưu phiếu.
+ * `pass_fail` / `out_of_tolerance` do SERVER tính (SSoT = controller cha
+ * `_compute_measurement_results`, imm_asset_calibration.py) → FE KHÔNG BAO GIỜ gửi
+ * hai field này (không tin payload client), chỉ render lại sau khi reload. Dùng
+ * `Pick` để lệ thuộc DUY NHẤT nguồn field CalibrationMeasurement.
+ */
+export type CalibrationMeasurementInput = Pick<
+  CalibrationMeasurement,
+  'parameter_name' | 'unit' | 'nominal_value'
+  | 'tolerance_positive' | 'tolerance_negative' | 'measured_value'
+>
+
+/**
+ * Patch cho update_calibration — CHỈ field scalar editable (mirror BE
+ * `_UPDATE_ALLOWED`) + `measurements` child-diff (raw-only). CÓ key `measurements`
+ * ⇒ BE replace-set theo parameter_name/idx + tính lại pass_fail server-side;
+ * VẮNG key ⇒ backward-compat scalar-only (hành vi cũ, 0 regression caller cũ).
+ * Transport: `updateCalibration` JSON.stringify `measurements` theo convention
+ * imm08/imm09 (BE `parse_json`).
+ */
+export interface CalibrationUpdatePatch {
+  status?: AssetCalibration['status']
+  actual_date?: string | null
+  lab_supplier?: string | null
+  lab_accreditation_number?: string | null
+  lab_contract_ref?: string | null
+  sent_date?: string | null
+  certificate_number?: string | null
+  certificate_date?: string | null
+  reference_standard_serial?: string | null
+  traceability_reference?: string | null
+  technician_notes?: string | null
+  amendment_reason?: string | null
+  measurements?: CalibrationMeasurementInput[]
+}
+
 export interface AssetCalibration {
   name: string
   asset: string
@@ -134,8 +171,16 @@ export async function createCalibration(payload: {
   return frappePost<{ name: string; status: string }>(`${BASE}.create_calibration`, payload as Record<string, unknown>)
 }
 
-export async function updateCalibration(name: string, data: Partial<AssetCalibration>) {
-  return frappePost<{ name: string; status: string }>(`${BASE}.update_calibration`, { name, ...data } as Record<string, unknown>)
+export async function updateCalibration(name: string, data: CalibrationUpdatePatch) {
+  // Serialize child-diff theo convention imm08/imm09: nested-array param = JSON string,
+  // BE `parse_json`. CHỈ stringify khi CÓ key `measurements` ⇒ giữ backward-compat
+  // (vắng key = scalar-only, không đụng bảng con) — caller scalar (vd doStartCal chỉ gửi
+  // {status}) KHÔNG kèm `measurements`, đi đúng nhánh cũ.
+  const body: Record<string, unknown> = { name, ...data }
+  if (data.measurements !== undefined) {
+    body.measurements = JSON.stringify(data.measurements)
+  }
+  return frappePost<{ name: string; status: string }>(`${BASE}.update_calibration`, body)
 }
 
 export async function submitCalibration(name: string) {

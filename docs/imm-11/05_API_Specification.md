@@ -26,7 +26,7 @@
 | 6 | `assetcore.api.imm11.list_calibrations` | GET | List IMM Asset Calibration + pagination (+ `mine=1` self-scope `technician` — tab "Phiếu hiệu chuẩn của tôi" MVP-5d) | All | ✓ | US-11-07 |
 | 7 | `assetcore.api.imm11.get_calibration` | GET | Chi tiết 1 Calibration | All | ✓ | US-11-07 |
 | 8 | `assetcore.api.imm11.create_calibration` | POST | Tạo Calibration WO | Workshop Lead, Technician | ✗ | US-11-02 |
-| 9 | `assetcore.api.imm11.update_calibration` | POST | Update fields (allowed list) | Technician | ✓ | US-11-02 |
+| 9 | `assetcore.api.imm11.update_calibration` | POST | Update scalar fields (allowed list) **+ `measurements` child-diff replace-set** (persist phép đo web, server-compute pass_fail — §9 / BR-11-16) | Technician | ✓ | US-11-02, US-11-03 |
 | 10 | `assetcore.api.imm11.submit_calibration` | POST | Submit → trigger Pass/Fail handler | Technician | ✗ | US-11-02 |
 | 11 | `assetcore.api.imm11.add_measurement` | POST | Thêm tham số đo vào child table | Technician | ✗ | US-11-02 |
 | 12 | `assetcore.api.imm11.get_calibration_kpis` | GET | KPI theo tháng | Ops Manager+ | ✓ | US-11-05 |
@@ -98,7 +98,7 @@
 | Handler | `api/imm11.py:115` `submit_calibration(name)` → `rbac.require("calibration.submit")` (`api/imm11.py:116`) → `handle(svc.submit_calibration, name)` |
 | Cap | `calibration.submit` (in-handler `rbac.require` @`api/imm11.py:116`) |
 | Lifecycle | COMPLETION/TERMINAL — `docstatus 0 → 1`; controller `on_submit` → `handle_calibration_pass` / `handle_calibration_fail`; `status → Passed / Failed / Conditionally Passed` (xem §10) |
-| requestBody | `application/json` `$ref SubmitCalibrationRequest` — **closed `{name string}` REQUIRED, `additionalProperties:false`, 0 optional** — khớp signature `submit_calibration(name)` @`services/imm11.py:1047` (chỉ 1 positional, 0 default) |
+| requestBody | `application/json` `$ref SubmitCalibrationRequest` — closed `additionalProperties:false`, `name` REQUIRED. **DELTA CR-24-CAL-SUBMIT (§0.1.4-IDEMP-SUBMIT):** += 1 optional prop `client_request_id` (`type:string default:'' ∉ required`) ⇒ khớp signature `submit_calibration(name, client_request_id="")` sau khi coupled-slice land (mirror `SubmitPmResultRequest`). Live-sig guard `_SUBMIT_CAL_REQUEST_PROPS` đổi `{name}→{name, client_request_id}` cùng lượt. |
 | Response 200 | `oneOf [SubmitCalibrationEnvelope, Error]` Ở TẦNG response-content-schema (route-by-VALUE `body.success`, **0 discriminator** — pattern C6/C7, mirror `closeWorkOrder`/`submitPmResult`); cả 2 nhánh `additionalProperties:false` + disjoint required-set |
 | Status codes | 200 / 401 (`Unauthorized401` — bearer hết-hạn/invalid → HTTP-401 THẬT) / 403 **SINGLE-SHAPE** `Forbidden` |
 
@@ -113,7 +113,7 @@
 
 - **Always**: `additionalProperties:false` (closed) ở cả `SubmitCalibrationEnvelope` (`required[success,data]`, `success.enum[true]`, `data = $ref SubmitCalibrationResponse`) lẫn `SubmitCalibrationResponse` (4-key đều `required` — service luôn trả đủ 4 key @`:1054-1059`); `SubmitCalibrationRequest` `required[name]` đúng 1 prop.
 - **Always**: path vào `_MVP_BUSINESS_PATHS` **VÀ** `_MVP_ACTION_ENVELOPE` (map `→ #/components/schemas/SubmitCalibrationEnvelope`) ⇒ 401/403 symmetry set **tự +1** (test so SET, KHÔNG literal).
-- **Never**: KHÔNG reuse `PmSubmitResultResponse` / `CloseWorkOrderResponse` / `Resolve/IncidentActionResponse` — **C3-split cross-domain** (field-set `{name,status,overall_result,next_calibration_date}` ≠ mọi action khác; `overall_result` là field Calibration-riêng). KHÔNG thêm optional vào request (signature 0 default). KHÔNG nhồi `mttr_hours`/`is_late`/`rca_created` (không thuộc return Calibration).
+- **Never**: KHÔNG reuse `PmSubmitResultResponse` / `CloseWorkOrderResponse` / `Resolve/IncidentActionResponse` — **C3-split cross-domain** (field-set `{name,status,overall_result,next_calibration_date}` ≠ mọi action khác; `overall_result` là field Calibration-riêng). KHÔNG nhồi `mttr_hours`/`is_late`/`rca_created` (không thuộc return Calibration). ⚠️ **SUPERSEDED bởi CR-24-CAL-SUBMIT (§0.1.4-IDEMP-SUBMIT):** clause cũ "KHÔNG thêm optional vào request (signature 0 default)" **KHÔNG còn đúng** — op#6 thêm ĐÚNG 1 optional `client_request_id` (idempotency, ∉ required). Vẫn giữ cấm mọi optional KHÁC (chỉ `client_request_id` được phép).
 - **Never**: KHÔNG để `status` lọt vào request body (server-derived qua controller on_submit — client KHÔNG set).
 
 **403 = SINGLE-SHAPE `Forbidden` (KHÁC `reportIncident` DUAL-403):**
@@ -131,6 +131,35 @@
 - **Consequences**: +1 schema-pair (`SubmitCalibrationResponse`/`SubmitCalibrationEnvelope`) + path 31; test `TestMobileSubmitCalibrationContract` guard C3-split (assert response field-set ≠ Pm/Repair/Incident). Nhất quán với ADR-MOBILE-007 (close/submit action RIÊNG-schema) + `C3-split` family. **0 đụng** `api/imm11.py` + `services/imm11.py` (handler + cap-gate + return-shape đã sẵn @source) ⇒ KHÔNG reload gunicorn / migrate / commit.
 
 > **Acceptance contract (chock cho BE/Test — Bước 4)**: YAML `30 → 31` path / `31` operationId (`submitCalibration` mới, unique camelCase, 0 dangling `$ref`). Test `assetcore.tests.test_mobile_oas` XANH; `_EXPECTED_TEST_COUNT 265 → 274` (+9 TC `TestMobileSubmitCalibrationContract a..i`, gồm live-signature parity TC-i `inspect.signature(imm11.submit_calibration) == {name}`). `test_mobile_docset` re-run THẬT (KHÔNG tin doc — phiên trước có 1 FAIL orphan ADR). Working-tree để USER review.
+
+#### 0.1.4-IDEMP-SUBMIT. Idempotency dedup cho `submitCalibration` (CR-24-CAL-SUBMIT — op#6 write-family CLOSURE, mobile write-outbox re-drain)
+
+> **Bối cảnh:** `submit_calibration` nâng `docstatus 0→1` + chốt Pass/Fail/CAPA/ALE — **KHÔNG idempotent**. Response rớt mạng ⇒ mobile write-outbox re-POST CÙNG phiếu ⇒ hiện tại call#2 **raise `IMM11_ALREADY_SUBMITTED`** (guard `docstatus==1` @`services/imm11.py:1205`) → app coi là lỗi thật dù call#1 đã thành công. Fix = khoá idempotency (client-gen); **replay CÙNG khoá THẮNG state-guard**, trả cached response verbatim. **Op CUỐI họ CR-24** — mirror IMM-08 CR-24-PM `submit_result` cache-store (**KHÔNG DocField, KHÔNG `bench migrate`**). Full BR + Boundaries: `02_Analysis_Design.md §BR-11-17`; service write-path + ADR: `04_Backend_Design.md §4.1.11` + **ADR-IMM11-09**.
+
+| Khía cạnh | Hợp đồng |
+|---|---|
+| Nguồn khoá `resolved_key` | **SHARED `assetcore.utils.idempotency.resolve_idempotency_key`** — body param `client_request_id` **THẮNG** header `X-Idempotency-Key` (alias `Idempotency-Key`, `X-` ưu tiên); cả hai vắng/rỗng → `""` → NO-OP. KHÁC §0.1.4-IDEMP (`add_measurement` helper cục-bộ) — op này dùng thẳng util chung (imm08/09/12/00 đã dùng) |
+| Dedup store | `frappe.cache()` key `cal_submit::{name}::{resolved_key}`, TTL 86400s (24h); đọc `get_value(..., expires=True)` (bypass `frappe.local.cache` shadow) |
+| Replay (khoá khớp) | trả VERBATIM `{name, status, overall_result, next_calibration_date}` lần-đầu; KHÔNG re-submit, KHÔNG double `_lockstep`/ALE, `docstatus` giữ 1 |
+| Guard `docstatus==1` — **replay THẮNG** | có-khoá + cache khớp → return cached (winner-reread khi race); **KHÔNG khoá** (backward-compat) → vẫn `IMM11_ALREADY_SUBMITTED`; khoá KHÁC (`K2≠K1`) → cache MISS → vẫn `IMM11_ALREADY_SUBMITTED` (dedup CHỈ replay đúng-khoá, KHÔNG nuốt câm re-submit khác khoá) |
+
+**⚠️ Self-Correction (BA — acceptance ↔ ground-truth sai lệch):** đề mục op#6 ghi *"response shape KHÔNG đổi ⇒ KHÔNG sửa openapi.yaml; test_mobile_oas GIỮ XANH (unchanged)"* — **SAI CĂN CỨ**. Ground-truth: (1) `submit_calibration` CÓ mặt trong mobile OAS (`SubmitCalibrationRequest` closed, props `{name}` — `docs/mobile/openapi/assetcore-mobile.openapi.yaml:5994`); (2) guard `test_mobile_oas` TC-i `test_mob_oas_submitcal_i_request_body_matches_live_signature` (`assetcore/tests/test_mobile_oas.py:19478`) assert `set(inspect.signature(imm11.submit_calibration).parameters) == _SUBMIT_CAL_REQUEST_PROPS` với `_SUBMIT_CAL_REQUEST_PROPS = {"name"}` (`:1460`) — **EXACT set-equality**. Frappe `get_newargs` NUỐT kwarg lạ (LL-BE-63) ⇒ muốn đọc body `client_request_id` thì signature **BẮT BUỘC** nhận param → `params == {"name","client_request_id"} ≠ {"name"}` → **TC-i ĐỎ** trừ khi cập nhật OAS + guard. `response shape` (SubmitCalibrationResponse) đúng là KHÔNG đổi, nhưng **request schema PHẢI +prop**. ⇒ đây là **coupled slice BE-owned** (mirror `submit_pm_result` CR-24-PM đã +prop + guard), **KHÔNG phải contract-unchanged**. `oas_baseline.BASELINE_TOTAL` GIỮ (0 whitelist mới) là đúng; `test_mobile_oas` XANH **chỉ SAU** khi guard+OAS đổi đồng bộ với `.py`.
+
+**OAS delta (BE-owned coupled slice — land cùng `.py`, KHÔNG đóng ở Bước-2 doc-layer):** `SubmitCalibrationRequest` += prop `client_request_id` (`type:string`, `default:''`, ∉ `required`, closed `additionalProperties:false` GIỮ; description mirror `SubmitPmResultRequest.client_request_id`). `SubmitCalibrationResponse`/`SubmitCalibrationEnvelope`/path/opId/verb **KHÔNG đổi** (dedup không lọt response). Guard `test_mobile_oas`: `_SUBMIT_CAL_REQUEST_PROPS {name}→{name, client_request_id}` (TC-b request-props + TC-i live-sig; TC-i giữ assert `name` no-default ⇒ `required==[name]`, `client_request_id` default `''` ⇒ optional).
+
+- **Always**: khoá qua SHARED `resolve_idempotency_key` (body thắng header); cache-store TTL 24h; replay verbatim 4-key; replay THẮNG guard CHỈ khi khoá khớp; `expires=True`.
+- **Never**: ❌ nới guard `IMM11_ALREADY_SUBMITTED` khi **không-khoá** hoặc **khác-khoá** (INV-IDEMP-SUBMIT-2/3). ❌ đổi shape response `{name,status,overall_result,next_calibration_date}` (Hyrum). ❌ thêm DocField/`bench migrate`. ❌ dedup theo params (cùng khoá luôn trả cached-đầu). ❌ re-run `_lockstep`/on_submit/ALE trên replay. ❌ đưa `client_request_id` vào `required` hay vào response. ❌ đọc cache thiếu `expires=True`. ❌ dùng helper cục-bộ `_resolve_measurement_idempotency_key` (op này dùng SHARED util).
+
+#### ADR-IMM11-MOB-06 — `submitCalibration` idempotency = cache-store replay-wins-state-guard, SHARED `resolve_idempotency_key`, +1 optional `client_request_id`
+
+- **Status**: Accepted
+- **Date**: 2026-07-20
+- **Context**: op CUỐI họ CR-24 write-family. `submit_calibration` COMPLETION nâng `docstatus 0→1` — write KHÔNG idempotent; mobile write-outbox re-drain → call#2 raise `IMM11_ALREADY_SUBMITTED` (false-error). Cần dedup mà (a) KHÔNG đổi response shape, (b) replay CÙNG khoá THẮNG state-guard, (c) no-key/khác-khoá y nguyên (backward-compat + chống dedup quá rộng). Ground-truth: `submitCalibration` ĐÃ trong OAS với live-sig guard EXACT `{name}` ⇒ +param = coupled slice (KHÁC acceptance "no OAS change").
+- **Decision**: **cache-store mirror IMM-08 `submit_pm_result` (CR-24-PM)** — action-on-existing-doc, replay-wins-state-guard. Nguồn khoá = **SHARED `resolve_idempotency_key`** (body `client_request_id` THẮNG header) — op khép họ nên dùng util chung, KHÔNG helper cục-bộ. OAS `SubmitCalibrationRequest` += 1 optional `client_request_id` + guard `_SUBMIT_CAL_REQUEST_PROPS` {name}→{name,client_request_id}. `expires=True`.
+- **Alternatives bác**: (a) **giữ acceptance "no OAS / header-only"** → `get_newargs` nuốt body kwarg ⇒ KHÔNG đọc được body `client_request_id` (acceptance đòi body-thắng) + `resolve_idempotency_key("")` chỉ còn header (vi phạm "body thắng"). (b) **nới guard return-success không-khoá** → nuốt câm re-submit của 2 KTV khác (INV-2/3 vỡ). (c) **DocField unique** → `bench migrate` + doc submitted khó amend; cache-store nhẹ hơn. (d) **`**kwargs`** → live-sig guard vẫn ĐỎ + không né OAS coupling.
+- **Consequences**: +1 optional prop OAS + guard 1→2 param + `.py` param — 3 file land cùng lượt (coupled BE-owned). `oas_baseline.BASELINE_TOTAL` GIỮ (0 whitelist mới); `SubmitCalibrationResponse`/Envelope/path/opId/verb GIỮ. Nhất quán họ CR-24 (imm08 submit-family cache-store). Sửa `api/imm11.py` dưới `--preload` → USER reload (HARD-STOP). SUPERSEDE clause "signature 0 default" của ADR-IMM11-MOB-02 (§10 Never) — nay cho phép ĐÚNG 1 optional `client_request_id`.
+
+> **Acceptance contract (chốt cho BE/Test — Bước 4)**: (1) `api/imm11.py submit_calibration` += param `client_request_id: str = ""` (POST-only GIỮ; `rbac.require('calibration.submit')` GIỮ) truyền xuống `svc.submit_calibration`; `services/imm11.py` import SHARED `resolve_idempotency_key` + helper `_cal_submit_cache_key/get/set` (TTL 86400, `expires=True`) + bọc dedup (pre-check HIT return-cached TRƯỚC `CalibrationRepo.get` → guard `docstatus==1` winner-reread [khoá khớp→cached, else→`IMM11_ALREADY_SUBMITTED`] → `CalibrationRepo.submit`+`_lockstep` → cache-set → return). (2) OAS `SubmitCalibrationRequest` += `client_request_id` (`type:string default:'' ∉ required`, closed GIỮ); `SubmitCalibrationResponse`/Envelope/path/opId/verb KHÔNG đổi; `safe_load` OK, 0 dangling `$ref`, `info.version` GIỮ. (3) Guard XANH @source (`bench --site miyano run-tests`): **`test_imm11` += `TestSubmitCalibrationIdempotency`** (RED→GREEN) phủ INV-IDEMP-SUBMIT-1..6 (§4.1.11): replay-wins-state-guard(byte-verbatim, docstatus giữ 1, no double-submit/lockstep) · no-op-empty-key(call#2 raise ALREADY) · distinct-key K2≠K1(raise ALREADY) · source-precedence(body>header) · not-found-intact · race-winner-reread → `Ran N OK`; **`test_mobile_oas`** += TC prop `client_request_id` ∈ props ∧ ∉ required (`SubmitCalibrationRequest`) + `_SUBMIT_CAL_REQUEST_PROPS {name}→{name,client_request_id}` (TC-b+TC-i live-sig) + reconcile `_EXPECTED_TEST_COUNT`; **`test_mobile_docset`** reconcile `_GUARD_SUITE_SUM`/`_MOBILE_OAS_TOTAL`/`_GUARD_SUITE_EXPECTED`. (4) **DONE-gate:** lỗi nghiệp vụ = in-handler HTTP-200 + Error envelope (KHÔNG raise 4xx); replay KHÔNG sinh audit/lifecycle/`_lockstep` mới; envelope call#1==call#2 byte. (5) RED-before/GREEN-after cho MỌI TC mới. **BE sửa `api/imm11.py` dưới gunicorn `--preload` ⇒ USER reload cho HTTP-live (HARD-STOP); DoD = `bench run-tests --module test_imm11` XANH, KHÔNG curl (LL-DEPLOY-07).** Working-tree để USER review.
 
 ### 0.1.3. Read-detail binding — `getCalibration.allowed_transitions[]` (server-driven CTA, MVP-flow-5 detail)
 
@@ -180,7 +209,7 @@
 | Response 200 | `oneOf [AddMeasurementEnvelope, Error]` Ở TẦNG response-content-schema (route-by-VALUE `body.success`, **0 discriminator** — pattern C6/C7); cả 2 nhánh `additionalProperties:false` + disjoint required-set |
 | Status codes | 200 / 401 (`Unauthorized401` bearer hết-hạn/invalid → HTTP-401 THẬT) / 403 **SINGLE-SHAPE** `Forbidden` |
 
-**`AddMeasurementRequest` — closed, required EXACT 6 + optional `measured_value` (GROUNDED signature @`api/imm11.py:121-123` + svc @`services/imm11.py:1107-1109`):**
+**`AddMeasurementRequest` — closed, required EXACT 6 + 2 optional (`measured_value`, `client_request_id`) (GROUNDED signature @`api/imm11.py:121-123` + svc @`services/imm11.py:1107-1109`; `client_request_id` = delta CR-24-CAL §0.1.4-IDEMP):**
 
 | # | Field | type | Required? | Ghi chú |
 |---|---|---|---|---|
@@ -191,6 +220,7 @@
 | 5 | `tolerance_positive` | number | ✓ required | Dung-sai dương (+) |
 | 6 | `tolerance_negative` | number | ✓ required | Dung-sai âm (−) |
 | 7 | `measured_value` | number `nullable:true` | optional | Giá-trị đo thực-tế — `measured_value: float = None` @`api/imm11.py:123` (KTV có thể ghi tham-số trước, đo sau) |
+| 8 | `client_request_id` | string (`default:''`) | optional | **CR-24-CAL idempotency (BR-11-15)** — khoá do client (mobile write-outbox) sinh (vd UUID `item.id`). Truthy ⇒ server dedup qua `frappe.cache()` scoped `(name, resolved_key)` TTL 24h: re-drain CÙNG khoá trả VERBATIM `{name, measurement_count}` lần-đầu (KHÔNG append dòng đo #2, `measurement_count` KHÔNG tăng). Rỗng/absent ⇒ NO-OP legacy (mỗi call append). Nguồn khoá: **param NÀY thắng** header `X-Idempotency-Key` (§0.1.4-IDEMP). KHÔNG lọt vào response (chỉ điều-khiển dedup). Mirror `SubmitPmResultRequest.client_request_id` (§8.14a) |
 
 **`AddMeasurementResponse` — RIÊNG, closed EXACT 2-key (GROUNDED return @`services/imm11.py:1124`):**
 
@@ -199,7 +229,7 @@
 | 1 | `name` | string (**required**) | PK echo input (`doc.name`). CAL-YYYY-##### |
 | 2 | `measurement_count` | **integer** (**required**) | `len(doc.measurements)` — số row child-table SAU append. **GENUINE integer count** (có thể >1 — N điểm-đo), **KHÔNG `enum[0,1]`** (không phải Check-field; precedent `updated`/`requestSpareParts` ADR-MOBILE-010). Client hiển thị "đã ghi N điểm-đo" |
 
-- **Always**: `additionalProperties:false` (closed) ở cả `AddMeasurementEnvelope` (`required[success,data]`, `success.enum[true]`, `data = $ref AddMeasurementResponse`) lẫn `AddMeasurementResponse` (2-key đều `required`) lẫn `AddMeasurementRequest`; request `required` EXACT 6, `measured_value` optional.
+- **Always**: `additionalProperties:false` (closed) ở cả `AddMeasurementEnvelope` (`required[success,data]`, `success.enum[true]`, `data = $ref AddMeasurementResponse`) lẫn `AddMeasurementResponse` (2-key đều `required`) lẫn `AddMeasurementRequest`; request `required` EXACT 6, `measured_value` + `client_request_id` optional (∉ required).
 - **Always**: path vào `_MVP_BUSINESS_PATHS` **VÀ** `_MVP_ACTION_ENVELOPE` (map `→ #/components/schemas/AddMeasurementEnvelope`) ⇒ 401/403 symmetry set **tự +1** (test so SET).
 - **Never**: KHÔNG reuse `SubmitCalibrationResponse` 4-key / `*ActionResponse` 2-key `{name,status}` — **C3-split** (field-set `{name,measurement_count}` ≠ mọi action khác; `add_measurement` KHÔNG trả `status`/`overall_result`). KHÔNG khai `measurement_count` là `integer enum[0,1]` (số đếm thật, >1 hợp lệ). KHÔNG đưa `measured_value` vào `required`. KHÔNG bịa status-line 404/409 (xem dưới).
 
@@ -218,6 +248,36 @@
 - **Consequences**: +1 schema-pair (`AddMeasurementResponse`/`AddMeasurementEnvelope`) + 1 request-schema + 1 requestBody-component + path 43. **⚠️ ĐỤNG 1 dòng `api/imm11.py:120`** (verb-flip) ⇒ shift runtime get/post stat (get 235→234 / post 253→254) → **re-baseline @source** `test_oas_d12`/`d17` (KHÔNG tin tuyệt đối số acceptance). Nhất quán ADR-MOBILE-011 + C3-split family. Sau flip cần USER reload gunicorn `--preload` (LIVE reject GET 405) — guard in-process KHÔNG cần. KHÔNG migrate/commit (HARD-STOP USER).
 
 > **Acceptance contract (chốt cho BE/Test — Bước 4)**: (1) flip `api/imm11.py:120` bare→`@frappe.whitelist(methods=['POST'])` (ĐÚNG 1 dòng; signature/body/`rbac.require('calibration.write')` UNCHANGED). (2) YAML `42 → 43` path / `43` operationId (`addMeasurement` mới, unique camelCase, tag `calibration`, 0 dangling `$ref`, `info.version` GIỮ `0.1.0-skeleton`, `safe_load` OK). (3) Guard XANH @source (`bench --site miyano run-tests`): `test_mobile_oas` `_EXPECTED_TEST_COUNT` **bump từ 397** (+ `TestMobileAddMeasurementContract a..j`, gồm TC-i live-signature parity 7-param + TC-j git-diff-1-dòng + `_PARITY_VERB_ALLOWLIST`==set()); re-baseline `test_oas_d12` (`_BASELINE_GET 235→234`) + `test_oas_d17` (`get_count 235→234`/`post_count 253→254`) + re-verify ALL 13 `test_oas_*`; `test_mobile_docset` (9, reconcile `_GUARD_SUITE_SUM`/`_MOBILE_OAS_TOTAL`/`_GUARD_SUITE_EXPECTED`) + `test_mobile_security_gate` (no-regress) + `test_imm11` (no-regress). (4) RED-before/GREEN-after chứng minh cho MỌI TC mới. Live HTTP cần USER reload (`--preload`) — KHÔNG curl-verify LIVE (LL-DEPLOY-07). Working-tree để USER review.
+
+#### 0.1.4-IDEMP. Idempotency dedup cho `addMeasurement` (CR-24-CAL / HANDOFF HIGH-2 — mobile write-outbox re-drain)
+
+> **Bối cảnh (ca sắc nhất write-outbox):** `add_measurement` append 1 dòng đo + save — **KHÔNG idempotent** (N call = N dòng). Response rớt mạng ⇒ app re-drain re-POST CÙNG dòng ⇒ **dòng đo TRÙNG** → `submit_calibration` tính `overall_result`/`out_of_tolerance` trên dữ liệu nhiễu (vi phạm truy vết ISO 17025 §7.8 / NĐ98). Fix = khoá idempotency (client-gen) chặn append lần-2, trả cached response. **Mirror IMM-08 CR-24-PM cache-store** (`04-api-contract.md §8.14a` / `services/imm08.py:974-1105`) — **KHÔNG DocField, KHÔNG `bench migrate`** (khác `report_incident`/CR-24 §8.3b DocField-unique). Full BR + Boundaries: `02_Analysis_Design.md §BR-11-15`; service write-path + ADR: `04_Backend_Design.md §4.1.9` + **ADR-IMM11-07**.
+
+| Mục | Giá trị |
+|---|---|
+| Nguồn khoá `resolved_key` | param `client_request_id` (body) **THẮNG** header `X-Idempotency-Key`; header đọc `frappe.get_request_header("X-Idempotency-Key")` (case-insensitive) + alias `Idempotency-Key` (component A6, `X-` ưu tiên — ADR-IMM11-07); cả hai vắng/rỗng → NO-OP |
+| Dedup store | `frappe.cache()` key `cal_add_measurement::{name}::{resolved_key}`, TTL 24h; đọc `get_value(..., expires=True)` (bypass `frappe.local.cache` shadow) |
+| Payload cache | ĐÚNG dict return `{name, measurement_count}` lần-đầu → replay VERBATIM ⇒ envelope byte-đối-byte |
+| Pre-check HIT | trả cached **TRƯỚC** `CalibrationRepo.get` ⇒ 0 side-effect / 0 append / 0 save / 0 audit; `measurement_count` KHÔNG tăng |
+| Guard `docstatus==1` | KHÔNG-khoá → `IMM11_ALREADY_SUBMITTED` (**KHÔNG nới**); có-khoá + cache khớp → winner-reread trả cached; không khớp → giữ lỗi |
+| Backward-compat | khoá rỗng/absent → NO-OP (web-desk/client-cũ append mỗi call — y hệt hôm nay); shape return KHÔNG đổi |
+
+**OAS delta (BE-owned coupled slice — KHÔNG contract-only):** `AddMeasurementRequest` += prop `client_request_id` (`type:string`, `default:''`, ∉ `required`, closed `additionalProperties:false` GIỮ). Mirror `SubmitPmResultRequest.client_request_id` (OAS `~L6562`). Vì thêm param vào signature `add_measurement` ⇒ live-sig guard `test_mobile_oas` (`inspect.signature(imm11.add_measurement)` 7→8 param + HANDLER-PARITY prop∈live) phải cập nhật **cùng lượt** `.py` → **[BE]-owned** (không đóng ở Bước-2 doc-layer). `AddMeasurementResponse`/`AddMeasurementEnvelope`/path/opId/verb **KHÔNG đổi** (dedup không lọt response).
+
+**Boundaries:**
+- **Always**: dedup theo `(name, resolved_key)` — KHÔNG theo giá-trị params (1 outbox-item = 1 khoá cố định). param thắng header. cache đọc `expires=True`. cache-set SAU save TRƯỚC return. guard `docstatus==1` giữ nguyên. TTL 24h. store `frappe.cache()`.
+- **Never**: ❌ đổi shape return `{name, measurement_count}` (Hyrum — OAS + web/mobile). ❌ nới `IMM11_ALREADY_SUBMITTED` khi không-khoá. ❌ thêm DocField / `bench migrate`. ❌ dedup theo params (cùng khoá + params khác vẫn trả cached-đầu). ❌ log audit/lifecycle mới trên replay. ❌ đưa `client_request_id` vào `required` hay vào response. ❌ đọc cache thiếu `expires=True`.
+
+#### ADR-IMM11-MOB-05 — `addMeasurement` idempotency = cache-store, param `client_request_id` thắng header `X-Idempotency-Key`
+
+- **Status**: Accepted
+- **Date**: 2026-07-19
+- **Context**: `add_measurement` (mắt-xích lặp N-lần/phiên đo) write KHÔNG idempotent — mobile write-outbox re-drain tạo dòng đo TRÙNG (CR-24-CAL / HANDOFF HIGH-2). Cần dedup mà KHÔNG đổi shape return, KHÔNG nới guard submitted, backward-compat web-desk. 2 tiền lệ CR-24: imm12 DocField-unique+migrate (dedup tạo-doc-mới) vs imm08 `frappe.cache()` cache-store (dedup replay action-on-existing).
+- **Decision**: chọn **cache-store mirror IMM-08** (action-on-existing-doc, response ổn định để replay). Khoá `(cal_name, resolved_key)` TTL 24h. Nguồn: **param `client_request_id` THẮNG** header `X-Idempotency-Key` (param = transport chính/nhất-quán json+form per ADR-MOBILE-047; header = forward-compat drain middleware-based A6 §3). `expires=True`.
+- **Alternatives bác**: (a) DocField-unique trên child `IMM Calibration Measurement` → cần migrate + unique index child (child KHÔNG naming ổn định) + reject-DB thay replay-response; cache-store nhẹ hơn. (b) chỉ-header (bỏ param) → nghịch ADR-MOBILE-047 + acceptance yêu cầu param. (c) chỉ-param (bỏ header) → mất forward-compat §9/A6. (d) dedup theo hash(params) → chặn nhầm phép đo lặp hợp lệ (sai hợp đồng write-outbox).
+- **Consequences**: +param `client_request_id` (api+service) ⇒ OAS +prop + live-sig guard 7→8 (BE-owned). KHÔNG DocField/migrate. **Naming-divergence:** acceptance/Stripe = `X-Idempotency-Key`; component A6 (`parameters/IdempotencyKey`) hiện `Idempotency-Key` (∅ `X-`) → BE đọc CẢ hai (`X-` ưu tiên); **backlog A6 reconcile 1 tên**. Sửa `api/imm11.py` dưới `--preload` → USER reload (HARD-STOP). Nhất quán họ CR-24.
+
+> **Acceptance contract (chốt cho BE/Test — Bước 4)**: (1) `api/imm11.py add_measurement` += param `client_request_id: str = ""` (POST-only GIỮ; `rbac.require('calibration.write')` GIỮ) truyền xuống `svc.add_measurement`; service += helper `_cal_measurement_cache_key/get/set` + `_resolve_measurement_idempotency_key` (param>header X-Idempotency-Key>'') + bọc dedup (pre-check HIT return-cached TRƯỚC get → append+save → cache-set → return); guard `docstatus==1` no-key GIỮ `IMM11_ALREADY_SUBMITTED` + winner-reread khi có-khoá. (2) OAS `AddMeasurementRequest` += `client_request_id` (`type:string default:'' ∉ required`, closed GIỮ); `AddMeasurementResponse`/Envelope/path/opId/verb KHÔNG đổi; `safe_load` OK, 0 dangling `$ref`, `info.version` GIỮ. (3) Guard XANH @source (`bench --site miyano run-tests`): **`test_imm11` += `TestAddMeasurementIdempotency`** (RED→GREEN) phủ INV-IDEMP-1..7 (§4.1.9): replay-same-key(1 dòng, count không tăng, no-save-2) · no-op-empty-key(2 dòng) · distinct-keys(2 dòng) · source-precedence(param>header) · guard-submitted-intact · race-winner-reread · dedup-by-key-not-params → `Ran N OK`; **`test_mobile_oas`** += TC prop `client_request_id` ∈ props ∧ ∉ required (`AddMeasurementRequest`) + live-sig parity 7→8 + reconcile `_EXPECTED_TEST_COUNT`; **`test_mobile_docset`** reconcile `_GUARD_SUITE_SUM`/`_MOBILE_OAS_TOTAL`/`_GUARD_SUITE_EXPECTED`. (4) **DONE-gate:** lỗi nghiệp vụ = in-handler HTTP-200 + Error envelope (KHÔNG raise 4xx); replay KHÔNG sinh audit/lifecycle mới; envelope lần1==lần2 byte. (5) RED-before/GREEN-after cho MỌI TC mới. **BE sửa `api/imm11.py` dưới gunicorn `--preload` ⇒ USER reload cho HTTP-live (HARD-STOP); DoD = `bench run-tests --module test_imm11` XANH, KHÔNG curl (LL-DEPLOY-07).** Working-tree để USER review.
 
 ---
 
@@ -585,6 +645,60 @@ FE đọc `response.data.data` (axios + Frappe lớp ngoài đã wrap).
 
 ---
 
+### 9. update_calibration — Patch scalar + `measurements` child-diff (persist phép đo web · BR-11-16) ✅ LIVE
+
+> **Bối cảnh (data-loss fix — RC-MEAS-DATALOSS):** lưới nhập phép đo trên web (`CalibrationDetailView.save()`) gửi CẢ mảng `measurements` trong `updateCalibration(id, form)`. Trước fix, service lọc patch qua `_UPDATE_ALLOWED` (KHÔNG có `measurements`) ⇒ mảng bị DROP CÂM → KTV nhập N dòng, reload 0 dòng (bốc hơi). Endpoint này KHÔNG có mặt trong mobile OAS ⇒ slice BR/service/FE thuần (0 OAS/0 live-sig coupling). Full BR + Boundaries: `02_Analysis_Design.md §BR-11-16`; write-path + ADR: `04_Backend_Design.md §4.1.10` + **ADR-IMM11-08**.
+
+| Thuộc tính | Giá trị |
+|---|---|
+| HTTP method / path | `POST /api/method/assetcore.api.imm11.update_calibration` |
+| Handler | `api/imm11.py:117` `update_calibration(name, **kwargs)` → `rbac.require("calibration.write")` → `handle(svc.update_calibration, name, kwargs)` |
+| Cap-gate | `calibration.write` (in-handler; 403 cap-403 same-shape khi thiếu quyền) |
+| Guard state | `docstatus==1` → `IMM11_ALREADY_SUBMITTED` (409); `docstatus==0` ∧ `status ∉ ACTIVE_STATUSES` (Cancelled/verdict) + có key `measurements` → `IMM11_MEASUREMENTS_NOT_EDITABLE` (409); phiếu∄ → `IMM11_CAL_NOT_FOUND` (404) |
+| Lifecycle | scalar patch + child-diff **replace-set** trên `measurements`; **KHÔNG đổi `docstatus`** (giữ draft 0) |
+
+**Request body (`updateCalibration` — scalar keys tuỳ ý ∈ `_UPDATE_ALLOWED` + optional key `measurements`):**
+
+```jsonc
+{
+  "name": "CAL-2026-00001",          // required — phiếu draft
+  "technician_notes": "...",          // optional scalar (∈ _UPDATE_ALLOWED)
+  "measurements": [                    // optional — nếu có → child-diff replace-set (BR-11-16)
+    { "parameter_name": "SpO2", "unit": "%", "nominal_value": 95,
+      "tolerance_positive": 3, "tolerance_negative": 3, "measured_value": 96 },
+    { "parameter_name": "HR", "unit": "bpm", "nominal_value": 80,
+      "tolerance_positive": 2, "tolerance_negative": 2, "measured_value": 90 }
+  ]
+}
+```
+
+**Semantics `measurements` (replace-set — BR-11-16):**
+- Mảng payload = TẬP đầy-đủ mong-muốn: dòng còn → upsert (identity idx/parameter_name); dòng bị bỏ → remove ⇒ **reload `get_calibration(name).measurements` count == payload count**.
+- Server **STRIP** mọi field ngoài 6 input `{parameter_name, unit, nominal_value, tolerance_positive, tolerance_negative, measured_value}`. `pass_fail`/`out_of_tolerance` client gửi bị BỎ — server tính qua SSoT `_compute_measurement_results` (CÙNG `add_measurement`): dòng ngoài ±tolerance → `pass_fail='Fail'`/`out_of_tolerance=1` dù client gửi `Pass`.
+- Dòng `measured_value=null` (chưa đo) hợp lệ ở draft; submit vẫn enforce đủ (BR-11-08).
+- Replace-set **tự idempotent** (lưu lại cùng mảng = cùng count) — KHÔNG cần `client_request_id` (khác `add_measurement` append §0.1.4-IDEMP).
+
+**Response (shape KHÔNG đổi — backward-compat):**
+```jsonc
+{ "success": true, "data": { "name": "CAL-2026-00001", "status": "In Progress" } }
+```
+> `measurement_count` KHÔNG trả về (giữ Hyrum-safe). **FE PHẢI re-fetch `get_calibration(name)`** sau khi Lưu để render `pass_fail`/`out_of_tolerance` server-computed (06_Frontend_Design).
+
+**Boundaries:**
+- **Always**: `measurements` xử lý nhánh RIÊNG ngoài `_UPDATE_ALLOWED`; replace-set count==payload; server-compute verdict (strip client); guard `docstatus==0`∧`status∈ACTIVE_STATUSES`. Patch chỉ-`measurements` (0 scalar) KHÔNG bị `IMM11_NO_FIELDS`.
+- **Never**: ❌ thêm `measurements` vào `_UPDATE_ALLOWED`. ❌ tin `pass_fail`/`out_of_tolerance` client. ❌ đổi return-shape `{name,status}` (thêm `measurement_count` = Hyrum drift). ❌ đổi đường scalar khi `measurements` vắng (0 regression AC-11-39). ❌ DocField/`bench migrate`. ❌ curate endpoint này vào mobile OAS trong slice-này (không thuộc scope MVP mobile).
+
+**Errors (in-handler HTTP-200 + Error envelope — KHÔNG raise→4xx):**
+| Code (BE) | Code (FE) | `http_status` | Khi nào |
+|---|---|---|---|
+| `NOT_FOUND` | `NOT_FOUND` | 404 | `IMM11_CAL_NOT_FOUND` — phiếu∄ |
+| `CONFLICT` | `CONFLICT` | 409 | `IMM11_ALREADY_SUBMITTED` — `docstatus==1` (measurements KHÔNG mutate) |
+| `CONFLICT` | `CONFLICT` | 409 | `IMM11_MEASUREMENTS_NOT_EDITABLE` — draft `status ∉ ACTIVE_STATUSES` + có `measurements` |
+| `VALIDATION` | `VALIDATION_ERROR` | 422 | `IMM11_NO_FIELDS` — patch rỗng (0 scalar ∧ 0 key `measurements`) |
+| `FORBIDDEN` | `FORBIDDEN` | 403 | thiếu cap `calibration.write` (cap-403 same-shape) |
+
+---
+
 ### 10. submit_calibration — Submit kết quả (quan trọng nhất) ✅ LIVE
 
 > **Tên thực tế là `submit_calibration` (không phải `submit_calibration_results`).** Kết quả Pass/Fail được xác định bởi `overall_result` field trên DocType — tính từ measurements trước khi submit.
@@ -816,6 +930,7 @@ Severity tuân quy tắc §11.5. Tái dùng mã hệ thống (`AUTH_FORBIDDEN`,
 | `IMM11_ASSET_BLOCKED` | `IMM11-ASSET-BLOCKED` | warning | 409 | Thiết bị không thể hiệu chuẩn | Thiết bị đang ở trạng thái không cho phép tạo phiếu hiệu chuẩn (CAL-008). | Chuyển thiết bị về trạng thái hoạt động hoặc dùng tái hiệu chuẩn. |
 | `IMM11_NO_FIELDS` | `IMM11-NO-FIELDS` | warning | 400 | Không có thay đổi | Không có trường hợp lệ nào để cập nhật. | Chọn ít nhất một trường để cập nhật rồi thử lại. |
 | `IMM11_ALREADY_SUBMITTED` | `IMM11-ALREADY-SUBMITTED` | warning | 409 | Phiếu hiệu chuẩn đã chốt | Phiếu hiệu chuẩn này đã được chốt — không thể thao tác lại. | Không cần thao tác lại — dùng Amend nếu cần điều chỉnh. |
+| `IMM11_MEASUREMENTS_NOT_EDITABLE` | `IMM11-MEASUREMENTS-NOT-EDITABLE` | warning | 409 | Không thể sửa bảng đo | Không thể sửa bảng tham số đo khi phiếu ở trạng thái '{state}' (chỉ sửa khi phiếu đang thực hiện, chưa chốt — BR-11-16). | Chỉ nhập/sửa phép đo khi phiếu ở trạng thái Đã lên lịch / Đang xử lý / Đã gửi lab / Đã nhận chứng chỉ. |
 | `IMM11_SCHEDULE_HAS_SUBMITTED` | `IMM11-SCHEDULE-HAS-SUBMITTED` | warning | 409 | Lịch còn phiếu đã chốt | Không thể xoá lịch hiệu chuẩn đang có phiếu đã chốt. | Huỷ hoặc lưu trữ các phiếu liên quan trước khi xoá lịch. |
 | `IMM11_NOT_EXTERNAL` | `IMM11-NOT-EXTERNAL` | warning | 422 | Chỉ áp dụng cho hiệu chuẩn ngoài | Thao tác này chỉ áp dụng cho phiếu hiệu chuẩn External (gửi lab). | Chọn phiếu có loại hiệu chuẩn External rồi thử lại. |
 | `IMM11_SEND_LAB_BAD_STATE` | `IMM11-SEND-LAB-BAD-STATE` | warning | 409 | Không thể gửi lab | Không thể gửi lab khi phiếu đang ở trạng thái '{state}'. | Chỉ gửi lab khi phiếu ở trạng thái Đã lên lịch hoặc Đang xử lý. |

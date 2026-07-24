@@ -117,19 +117,29 @@ def create_calibration(asset: str, calibration_type: str, scheduled_date: str,
 @frappe.whitelist()
 def update_calibration(name: str, **kwargs) -> dict:
     rbac.require("calibration.write")
+    # CR-24-WEB: `measurements` (child-diff nhập-đo web) đến dạng list (JSON body) HOẶC
+    # JSON-string (form-encoded — mobile_be form_dict oneOf json+form). parse_json idempotent
+    # cho list ⇒ chuẩn hoá về list-of-dict trước khi xuống service. parse_json malformed →
+    # ServiceError(INVALID_PARAMS) envelope (KHÔNG traceback 500).
+    if "measurements" in kwargs:
+        kwargs["measurements"] = parse_json(
+            kwargs["measurements"], default=[], field_name="measurements")
     return handle(svc.update_calibration, name, kwargs)
 
 
 @frappe.whitelist(methods=["POST"])
-def submit_calibration(name: str) -> dict:
+def submit_calibration(name: str, client_request_id: str = "") -> dict:
+    # CR-24-CAL-SUBMIT (op#6): client_request_id optional (mobile write-outbox idempotency;
+    # body THẮNG header). Default str="" (KHÔNG None → tránh 417). rbac.require GIỮ.
     rbac.require("calibration.submit")
-    return handle(svc.submit_calibration, name)
+    return handle(svc.submit_calibration, name,
+                  client_request_id=str(client_request_id or ""))
 
 
 @frappe.whitelist(methods=["POST"])
 def add_measurement(name: str, parameter_name: str, unit: str, nominal_value: float,
                      tolerance_positive: float, tolerance_negative: float,
-                     measured_value: float = None) -> dict:
+                     measured_value: float = None, client_request_id: str = "") -> dict:
     rbac.require("calibration.write")
     return handle(
         svc.add_measurement, name,
@@ -138,6 +148,7 @@ def add_measurement(name: str, parameter_name: str, unit: str, nominal_value: fl
         tolerance_positive=float(tolerance_positive),
         tolerance_negative=float(tolerance_negative),
         measured_value=float(measured_value) if measured_value is not None else None,
+        client_request_id=str(client_request_id or ""),
     )
 
 
