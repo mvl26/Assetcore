@@ -13,10 +13,12 @@ import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
 import { useMasterDataStore } from '@/stores/masterData'
+import { useAcUserStore } from '@/stores/acUsers'
 import { useApi } from '@/composables/useApi'
 import { useAuthStore } from '@/stores/auth'
 
 const masterStore = useMasterDataStore()
+const acUsers = useAcUserStore()
 const apiCall = useApi()
 const auth = useAuthStore()
 // Quyền tạo lịch PM — chỉ phụ thuộc capability từ auth store, KHÔNG phụ thuộc sidebar/module-context hydration.
@@ -79,7 +81,7 @@ async function load() {
       search: filters.value.search.trim() || undefined,
     }),
     masterStore.fetchDoctype('AC Asset'),
-    masterStore.fetchDoctype('User'),
+    acUsers.prefetch(),
     masterStore.fetchDoctype('PM Checklist Template'),
   ]), { errorMessage: 'Không tải được danh sách lịch bảo trì định kỳ' })
   loading.value = false
@@ -121,9 +123,10 @@ watch(() => form.value.pm_type, (newType, oldType) => {
   }
 })
 
+// Tên KTV lấy từ danh bạ AssetCore (base role) — KHÔNG qua masterData/
+// search_link doctype=User (xổ toàn bộ user của site).
 function technicianLabel(id?: string): string {
-  if (!id) return '—'
-  return masterStore.getItemById('User', id)?.name || id
+  return acUsers.label(id)
 }
 
 const fieldErrors = ref<Record<string, string>>({})

@@ -19,7 +19,7 @@ import { useMasterDataStore, type MasterItem } from '@/stores/masterData'
 type DocType =
   | 'AC Asset' | 'AC Department' | 'AC Location' | 'AC Supplier'
   | 'AC Asset Category' | 'IMM Device Model' | 'IMM Calibration Schedule'
-  | 'Purchase Order' | 'User' | 'AC Warehouse'
+  | 'Purchase Order' | 'AC Warehouse'
   | 'AC Spare Part Category' | 'AC Spare Part' | 'AC Vendor' | 'AC Purchase' | 'UOM' | 'AC UOM'
   | 'PM Checklist Template' | 'IMM Trainer'
 

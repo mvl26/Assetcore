@@ -8,18 +8,18 @@ import {
 import type { ImmSlaPolicy, Priority, RiskClass } from '@/types/imm00'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
-import { useMasterDataStore } from '@/stores/masterData'
+import { useAcUserStore } from '@/stores/acUsers'
 import { formatDate, isCheckOn } from '@/utils/formatters'
 import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
 const toast = useToast()
-const masterStore = useMasterDataStore()
+const acUsers = useAcUserStore()
 
+// Tên người dùng lấy từ danh bạ AssetCore (base role) — KHÔNG qua
+// masterData/search_link doctype=User (xổ toàn bộ user của site).
 function userLabel(userId?: string | null): string {
-  if (!userId) return '—'
-  const item = masterStore.getItemById('User', userId)
-  return item?.name || userId
+  return acUsers.label(userId)
 }
 
 const policies = ref<ImmSlaPolicy[]>([])
@@ -121,7 +121,7 @@ async function openDetail(name: string) {
   // Prefetch User cache song song với fetch detail — chỉ load khi user thực sự mở modal
   const [res] = await Promise.all([
     getSlaPolicy(name),
-    masterStore.fetchDoctype('User'),
+    acUsers.prefetch(),
   ])
   if (res) detail.value = res
   showDetail.value = true

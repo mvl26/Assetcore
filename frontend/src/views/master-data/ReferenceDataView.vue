@@ -17,6 +17,7 @@ import type { AcLocation, AcDepartment, AcAssetCategory } from '@/types/imm00'
 import type { ImportPreviewResult, ImportResult, ImportStep, ImportMode, RefDataDoctype } from '@/types/import'
 import { translateDepreciationMethod } from '@/utils/formatters'
 import api from '@/api/axios'
+import { getAcUserBrief } from '@/api/user'
 import SmartSelect from '@/components/common/SmartSelect.vue'
 import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
 const toast = useToast()
@@ -96,20 +97,12 @@ const phoneFetchState = ref<'idle' | 'loading' | 'found' | 'empty'>('idle')
 // Flag chặn auto-fetch khi đang load dữ liệu edit (tránh ghi đè contact_phone đã lưu trong DB)
 let skipPhoneFetch = false
 
+// Đọc user qua endpoint AssetCore (`get_ac_user_brief`) — KHÔNG gọi thẳng
+// `frappe.client.get_value doctype=User` (nguồn user phải thống nhất, xem
+// api/user.ts). Ưu tiên phone, fallback mobile_no nếu phone trống.
 async function fetchUserMobile(userEmail: string): Promise<string> {
-  const res = await api.get<{ message: { phone?: string; mobile_no?: string } | null }>(
-    '/api/method/frappe.client.get_value',
-    {
-      params: {
-        doctype: 'User',
-        filters: JSON.stringify({ name: userEmail }),
-        fieldname: JSON.stringify(['phone', 'mobile_no']),
-      },
-    },
-  )
-  // Ưu tiên phone, fallback mobile_no nếu phone trống
-  const m = res.data?.message
-  return m?.phone || m?.mobile_no || ''
+  const brief = await getAcUserBrief(userEmail)
+  return brief?.phone || brief?.mobile_no || ''
 }
 
 // Khi đổi người phụ trách → tự fetch mobile_no, ghi đè contact_phone.

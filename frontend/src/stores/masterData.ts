@@ -21,7 +21,7 @@ export interface MasterItem {
 type DocType =
   | 'AC Asset' | 'AC Department' | 'AC Location' | 'AC Supplier'
   | 'AC Asset Category' | 'IMM Device Model' | 'IMM Calibration Schedule'
-  | 'Purchase Order' | 'User' | 'AC Warehouse'
+  | 'Purchase Order' | 'AC Warehouse'
   | 'AC Spare Part Category' | 'AC Spare Part' | 'AC Vendor' | 'AC Purchase' | 'UOM' | 'AC UOM'
   | 'PM Checklist Template' | 'IMM Trainer'
 
@@ -218,7 +218,9 @@ export const useMasterDataStore = defineStore('masterData', () => {
   const fetchLocations = (opts?: { forceRefresh?: boolean }) => fetchDoctype('AC Location', opts)
   const fetchSuppliers = (opts?: { forceRefresh?: boolean }) => fetchDoctype('AC Supplier', opts)
   const fetchDeviceModels = (opts?: { forceRefresh?: boolean }) => fetchDoctype('IMM Device Model', opts)
-  const fetchUsers = (opts?: { forceRefresh?: boolean }) => fetchDoctype('User', opts)
+  // GỠ 2026-07-22: `fetchUsers` (search_link doctype=User) xổ toàn bộ user của
+  // site. Chọn người → <ApproverSelect> (api.user.list_assignable_users);
+  // đọc 1 user → api/user.ts::getAcUserBrief.
 
   return {
     cache,
@@ -228,7 +230,6 @@ export const useMasterDataStore = defineStore('masterData', () => {
     fetchLocations,
     fetchSuppliers,
     fetchDeviceModels,
-    fetchUsers,
     fetchFiltered,
     getFilteredItems,
     isLoadingFiltered,

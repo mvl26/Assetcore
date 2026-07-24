@@ -63,8 +63,9 @@ def count_email_delivery(ref_doctypes: frozenset[str], days: int) -> dict[str, i
 def count_email_opt_out() -> dict[str, int]:
     """Đếm tổng user nhận email vs số đã opt-out email (toàn hệ thống).
 
-    `total_users` = `User` với `enabled = 1 AND user_type = 'System User'`,
-    loại Administrator (system account, không tính vào độ phủ thông báo).
+    `total_users` = user AssetCore (base role — SSoT `services.shared.ac_users`)
+    đang hoạt động. KHÔNG đếm thô `tabUser`: user của ERPNext/CRM trên site dùng
+    chung không nhận thông báo AssetCore, tính vào mẫu số sẽ dìm tỷ lệ opt-out.
 
     `opted_out` = trong số đó, user có `Notification Settings` với
     `enable_email_notifications = 0` OR `enabled = 0` (tắt toàn bộ notification).
@@ -74,11 +75,15 @@ def count_email_opt_out() -> dict[str, int]:
     Returns:
         {"total_users": int, "opted_out": int} — raw count, KHÔNG tính tỷ lệ.
     """
-    total = int(
-        frappe.db.count(
-            "User", {"enabled": 1, "user_type": "System User", "name": ["!=", "Administrator"]}
-        )
-    )
+    from assetcore.services.shared.ac_users import ac_user_names
+
+    names = sorted(ac_user_names())
+    if not names:
+        return {"total_users": 0, "opted_out": 0}
+
+    total = int(frappe.db.count(
+        "User", {"name": ["in", names], "enabled": 1, "user_type": "System User"}
+    ))
     if total == 0:
         return {"total_users": 0, "opted_out": 0}
 
@@ -89,9 +94,10 @@ def count_email_opt_out() -> dict[str, int]:
         INNER JOIN `tabNotification Settings` ns ON ns.name = u.name
         WHERE u.enabled = 1
           AND u.user_type = 'System User'
-          AND u.name != 'Administrator'
+          AND u.name IN %(names)s
           AND (ns.enable_email_notifications = 0 OR ns.enabled = 0)
         """,
+        {"names": names},
         as_dict=True,
     )
     opted_out = int((row[0].get("opted_out") if row else 0) or 0)

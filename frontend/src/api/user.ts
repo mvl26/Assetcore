@@ -64,11 +64,17 @@ export interface CreateUserPayload {
   imm_roles?: Array<{ role: string }>
 }
 
-export interface FrappeUserItem {
+/** Thông tin hiển thị của 1 user (read-by-id) — `get_ac_user_brief`. */
+export interface AcUserBrief {
   name: string
   full_name: string
   email: string
+  phone?: string | null
+  mobile_no?: string | null
   user_image?: string | null
+  enabled: number
+  /** false = user cũ không còn thuộc AssetCore → FE gắn badge "(Đã rời AssetCore)". */
+  is_ac_user: boolean
 }
 
 interface Paginated<T> {
@@ -87,6 +93,26 @@ export const listUsers = (params: {
   page?: number
   page_size?: number
 } = {}) => frappeGet<Paginated<IMMUserListItem>>(`${BASE}.list_users`, params as Record<string, unknown>)
+
+/** Trần số trang kéo về — chặn vòng lặp vô hạn nếu BE trả `total` bất thường. */
+const MAX_USER_PAGES = 50
+const USER_PAGE_SIZE = 100
+
+/**
+ * Kéo TOÀN BỘ user AssetCore (đi hết các trang, BE cap page_size = 100).
+ *
+ * Dùng cho màn cần danh sách đầy đủ (gán role, map id → tên hiển thị). Không
+ * cắt ngầm: lặp tới khi đủ `pagination.total`.
+ */
+export async function listAllUsers(): Promise<IMMUserListItem[]> {
+  const out: IMMUserListItem[] = []
+  for (let page = 1; page <= MAX_USER_PAGES; page++) {
+    const res = await listUsers({ page, page_size: USER_PAGE_SIZE })
+    out.push(...res.items)
+    if (res.items.length === 0 || out.length >= res.pagination.total) break
+  }
+  return out
+}
 
 export const getUserInfo = (user: string) =>
   frappeGet<IMMUser>(`${BASE}.get_user_info`, { user })
@@ -111,7 +137,13 @@ export const approveRegistration = (
   })
 
 export const createSystemUser = (payload: CreateUserPayload) =>
-  frappePost<{ user: string; full_name: string }>(`${BASE}.create_system_user`, {
+  frappePost<{
+    user: string
+    full_name: string
+    // ISS-002: trạng thái gửi email chào mừng (chỉ có khi tick "Gửi email chào mừng").
+    welcome_email_sent?: boolean
+    welcome_email_error?: string
+  }>(`${BASE}.create_system_user`, {
     ...payload,
     imm_roles: payload.imm_roles ? JSON.stringify(payload.imm_roles) : '[]',
   } as Record<string, unknown>)
@@ -147,8 +179,15 @@ export const assignRoleProfile = (user: string, role_profile: string) =>
     { user, role_profile },
   )
 
-export const listFrappeUsers = (search: string = '', limit = 30) =>
-  frappeGet<FrappeUserItem[]>(`${BASE}.list_frappe_users`, { search, limit })
+/**
+ * Thông tin hiển thị tối thiểu của 1 user (read-by-id) — thay cho gọi thẳng
+ * `frappe.client.get_value` với doctype User ở view.
+ *
+ * Vẫn trả user KHÔNG còn thuộc AssetCore (record cũ phải render được tên) kèm
+ * cờ `is_ac_user=false` để hiện badge "(Đã rời AssetCore)".
+ */
+export const getAcUserBrief = (user: string) =>
+  frappeGet<AcUserBrief>(`${BASE}.get_ac_user_brief`, { user })
 
 /** User AssetCore đủ năng lực cho 1 ngữ cảnh phân công (picker KTV…). */
 export interface AssignableUserItem {

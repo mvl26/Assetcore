@@ -7,6 +7,7 @@
 
 import { frappeGet, frappePost } from './helpers'
 import api from './axios'
+import { listAllUsers as listAllAcUsers } from './user'
 
 export interface AssignableRole {
   name: string
@@ -27,24 +28,16 @@ export function listAssignableRoles(): Promise<AssignableRole[]> {
   return frappeGet<AssignableRole[]>(`${BASE}.list_assignable_roles`)
 }
 
-/** Liệt kê System Users (enabled, không phải Website User). */
+/**
+ * Liệt kê user AssetCore để gán role.
+ *
+ * Nguồn = `assetcore.api.user.list_users` (lọc base role `AssetCore System User`)
+ * — KHÔNG gọi `frappe.client.get_list doctype=User`: trên site cài chung
+ * ERPNext/CRM lối đó xổ cả user không thuộc app (sự cố 2026-07-22).
+ */
 export async function listUsers(): Promise<SimpleUser[]> {
-  const res = await api.get<{ message: SimpleUser[] }>(
-    '/api/method/frappe.client.get_list',
-    {
-      params: {
-        doctype: 'User',
-        filters: JSON.stringify([
-          ['enabled', '=', 1],
-          ['user_type', '!=', 'Website User'],
-        ]),
-        fields: JSON.stringify(['name', 'full_name']),
-        order_by: 'full_name asc',
-        limit_page_length: 0,
-      },
-    },
-  )
-  return res.data.message ?? []
+  const rows = await listAllAcUsers()
+  return rows.map((u) => ({ name: u.name, full_name: u.full_name }))
 }
 
 /** Roles hiện tại của 1 user (kết quả Has Role trên User). */
