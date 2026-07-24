@@ -60,7 +60,7 @@ def get_pm_work_order(name: str) -> dict:
 
 @frappe.whitelist(methods=["POST"])
 def attach_pm_checklist_photo(work_order_name: str = "", checklist_item_idx: str = "",
-                             **_ignore) -> dict:
+                             client_request_id: str = "", **_ignore) -> dict:
     """POST (multipart) /api/method/assetcore.api.imm08.attach_pm_checklist_photo
 
     BR-08-14 (mobile CR-14/G6): đính ảnh bằng chứng cho MỘT mục checklist PM (NĐ98
@@ -69,7 +69,14 @@ def attach_pm_checklist_photo(work_order_name: str = "", checklist_item_idx: str
     tạo + link File (robust, KHÔNG orphan như 2-bước upload→file_url). ĐỐI XỨNG
     attach_incident_photo (imm12) — KHÁC module/doctype/field.
 
-    `**_ignore` nuốt kwargs spoof. Guest/no-session → dispatcher-403 (POST @whitelist
+    `client_request_id` (CR-24 §4 photo-level closure · BR-08-14-IDEMP idempotency): khoá
+    per-ảnh do client (mobile write-outbox PHA-2) sinh, ổn định qua mọi re-drain của CÙNG
+    ảnh. Non-empty + cùng (wo, idx) gọi lặp ⇒ trả File ĐÃ đính (KHÔNG File/event trùng —
+    dedupe composite scoped key `{wo}::{idx}::{key}` trên `File.ac_client_request_id`).
+    Rỗng/thiếu ⇒ hành vi at-least-once cũ. Param TƯỜNG MINH (multipart form part — KHÔNG bị
+    `**_ignore` nuốt câm); default `""` (KHÔNG None — tránh HTTP-417 coercion).
+
+    `**_ignore` nuốt kwargs spoof KHÁC. Guest/no-session → dispatcher-403 (POST @whitelist
     không allow_guest); permission (assignee OR pm.write) + validation ở service →
     Decision-B HTTP-200 qua `handle`. `checklist_item_idx` parse int ở boundary; giá
     trị lỗi/không-tồn-tại → service trả VALIDATION (reject TRƯỚC File.insert).
@@ -95,6 +102,7 @@ def attach_pm_checklist_photo(work_order_name: str = "", checklist_item_idx: str
         filedata=filedata,
         filename=filename,
         content_type=content_type,
+        client_request_id=client_request_id,
     )
 
 
@@ -111,7 +119,13 @@ def assign_technician(name: str, technician: str, scheduled_date: str = None) ->
 @frappe.whitelist(methods=["POST"])
 def submit_pm_result(name: str, checklist_results: str = "[]",
                       overall_result: str = "Pass", technician_notes: str = "",
-                      pm_sticker_attached: int = 0, duration_minutes: int = 0) -> dict:
+                      pm_sticker_attached: int = 0, duration_minutes: int = 0,
+                      client_request_id: str = "") -> dict:
+    # CR-24-PM: `client_request_id` = khoá idempotency do client (mobile write-outbox)
+    #   sinh — optional default str="" (NULL-semantics: rỗng ⇒ 0 dedup, legacy y nguyên;
+    #   KHÔNG None → tránh 417 khi form gửi rỗng). Anti-spoof: KHÔNG nhận `user`.
+    #   Nguồn khoá (HANDOFF §2.1 header-parity, parity imm09/imm00/imm11): body param
+    #   THẮNG header X-Idempotency-Key / alias Idempotency-Key; cả hai vắng ⇒ NO-OP dedup.
     rbac.require("pm.submit")
     try:
         results = parse_json(checklist_results, field_name="checklist_results", default=[])
@@ -123,6 +137,7 @@ def submit_pm_result(name: str, checklist_results: str = "[]",
         technician_notes=technician_notes,
         pm_sticker_attached=int(pm_sticker_attached),
         duration_minutes=int(duration_minutes),
+        client_request_id=str(client_request_id or ""),
     )
 
 

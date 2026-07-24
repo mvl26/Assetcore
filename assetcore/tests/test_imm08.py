@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import unittest
+from unittest.mock import patch
 
 import frappe
 from frappe.utils import add_days, getdate, nowdate
@@ -1173,6 +1174,133 @@ class TestListPmOverdueLiveFilter(unittest.TestCase):
                          "CHỈ OVD7-live (live-overdue) + OVD7-stamp (status=Overdue) = 2")
 
 
+# ─── CR-37: cờ LIVE `is_overdue` trên WO DETAIL (parity list↔detail) ──────────
+
+class TestPmDetailOverdueLiveFlag(unittest.TestCase):
+    """CR-37 (mobile, cận an-toàn người bệnh) — `get_work_order(name)` PHẢI phơi cờ
+    LIVE `is_overdue` (Python bool) BÊN CẠNH cờ STORED `is_late`, DÙNG CHUNG predicate
+    `_enrich_pm_overdue` với list-item.
+
+    GATE chính (phân kỳ LIVE vs STORED): PM WO có due_date < nowdate(), status Open
+    (KHÔNG phải Overdue — cron nightly chưa stamp), completion_date rỗng, is_late=0
+    (chưa hoàn thành trễ) → `is_overdue == True` TRONG KHI `is_late == False`. Nếu
+    detail đọc cột STORED status==Overdue (trễ 1 nhịp scheduler) → badge 'Quá hạn' ẩn
+    dù WO đã quá hạn LIVE = mismatch phá niềm tin KTV. RED trước fix (KeyError), GREEN sau.
+
+    INVARIANT parity list↔detail: cờ LIVE trên detail == cờ LIVE trên list-item cùng
+    record (≥1 quá-hạn + ≥1 trong-hạn; trong-hạn ⇒ False cả 2).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.cat = _ensure_cat("_TestCatIMM08OvdDetail")
+        cls.asset = _make_asset("-ovddet")
+        cls.asset.asset_category = cls.cat
+        cls.asset.save(ignore_permissions=True)
+        tmpl = _make_template(cls.cat)
+        cls.template_name = tmpl["name"]
+        cls.schedule_name = _make_schedule(cls.asset.name, cls.template_name)["name"]
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        for wo in frappe.get_all(
+            "PM Work Order", filters={"asset_ref": cls.asset.name}, fields=["name"]
+        ):
+            frappe.delete_doc("PM Work Order", wo.name, force=True, ignore_permissions=True)
+        for sc in frappe.get_all(
+            "PM Schedule", filters={"asset_ref": cls.asset.name}, fields=["name"]
+        ):
+            frappe.delete_doc("PM Schedule", sc.name, force=True, ignore_permissions=True)
+        frappe.delete_doc(
+            "PM Checklist Template", cls.template_name, force=True, ignore_permissions=True)
+        purge_asset(cls.asset.name)
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        for wo in frappe.get_all(
+            "PM Work Order", filters={"asset_ref": self.asset.name}, fields=["name"]
+        ):
+            frappe.delete_doc("PM Work Order", wo.name, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def _mk_wo(self, *, status: str, due_offset_days: int, is_late: int = 0,
+               completion_date=None) -> str:
+        """PM WO fixture: insert hợp lệ (Open/tương-lai) rồi db.set_value status +
+        due_date + is_late + completion_date SAU insert (bypass controller — chỉ cần
+        giá trị cột cho predicate). Mirror TestListPmOverdueLiveFilter._mk_wo."""
+        wo = frappe.get_doc({
+            "doctype": "PM Work Order",
+            "asset_ref": self.asset.name,
+            "pm_schedule": self.schedule_name,
+            "pm_type": "Quarterly",
+            "wo_type": "Preventive",
+            "status": "Open",
+            "due_date": add_days(nowdate(), 7),
+            "assigned_to": "Administrator",
+        })
+        wo.insert(ignore_permissions=True)
+        frappe.db.set_value("PM Work Order", wo.name, {
+            "status": status,
+            "due_date": add_days(nowdate(), due_offset_days),
+            "is_late": is_late,
+            "completion_date": completion_date,
+        })
+        frappe.db.commit()
+        return wo.name
+
+    def test_detail_is_overdue_live_diverges_from_is_late_stored(self):
+        """[CR-37 RED-first] due<today, status Open, completion rỗng, is_late=0 →
+        detail['is_overdue'] is True VÀ detail['is_late'] is False (LIVE ≠ STORED)."""
+        from assetcore.services.imm08 import get_work_order
+        name = self._mk_wo(status="Open", due_offset_days=-3, is_late=0,
+                           completion_date=None)
+        # tiền đề: cột STORED chưa phản ánh quá hạn (cron chưa stamp; chưa trễ-hoàn-thành).
+        self.assertEqual(
+            frappe.db.get_value("PM Work Order", name, "status"), "Open",
+            "tiền đề: status STORED = Open (cron chưa flip → Overdue)")
+        self.assertEqual(
+            frappe.db.get_value("PM Work Order", name, "is_late"), 0,
+            "tiền đề: is_late = 0 (chưa hoàn thành trễ)")
+        detail = get_work_order(name)
+        self.assertIn("is_overdue", detail,
+                      "get_work_order PHẢI emit khoá 'is_overdue' (cờ LIVE, CR-37)")
+        self.assertIs(detail["is_overdue"], True,
+                      "is_overdue LIVE PHẢI True (due<today ∧ status ∈ source states)")
+        self.assertIs(detail["is_late"], False,
+                      "is_late STORED PHẢI False — chứng minh phân kỳ LIVE vs STORED "
+                      "(is_late GIỮ NGUYÊN, KHÔNG bị is_overdue ghi đè)")
+
+    def test_detail_is_overdue_false_when_in_window(self):
+        """WO due tương lai, status Open → is_overdue False (không phantom-overdue)."""
+        from assetcore.services.imm08 import get_work_order
+        name = self._mk_wo(status="Open", due_offset_days=7)
+        self.assertIs(get_work_order(name)["is_overdue"], False,
+                      "WO trong-hạn (due tương lai) PHẢI is_overdue False")
+
+    def test_parity_detail_matches_list_item(self):
+        """[CR-37 INV parity] cờ LIVE detail == cờ LIVE list-item CÙNG record —
+        ≥1 quá-hạn (True cả 2) + ≥1 trong-hạn (False cả 2)."""
+        from assetcore.services.imm08 import get_work_order, list_work_orders
+        overdue = self._mk_wo(status="Open", due_offset_days=-2)
+        in_window = self._mk_wo(status="Open", due_offset_days=10)
+        listing = list_work_orders({"asset_ref": self.asset.name}, page=1, page_size=100)
+        by_name = {r["name"]: r for r in listing["data"]}
+        for name, expected in ((overdue, True), (in_window, False)):
+            self.assertIn(name, by_name, f"WO {name} PHẢI có trong list")
+            det = get_work_order(name)["is_overdue"]
+            lst = by_name[name].get("is_overdue")
+            self.assertIs(det, expected,
+                          f"detail is_overdue cho {name} PHẢI {expected}")
+            self.assertEqual(
+                det, lst,
+                f"PARITY: detail is_overdue ({det}) == list-item is_overdue ({lst}) "
+                f"CÙNG record {name} (CÙNG predicate _enrich_pm_overdue)")
+
+
 class TestPMCompletionGate(unittest.TestCase):
     """BR-08-08/09/10 — gate hoàn thành PM (checklist rated + labor>0 + tem)."""
 
@@ -1265,6 +1393,606 @@ class TestPMCompletionGate(unittest.TestCase):
         )
         frappe.db.commit()
         self.assertEqual(res["new_status"], "Completed")
+
+    # ── BR-08-08 empty-checklist gate: regressions (AC3/AC4/AC5/AC6 seeded path) ──
+
+    def test_ac3_green_rated_checklist_creates_one_task_log_and_advances_next_pm(self):
+        """AC3: WO có ≥1 checklist item ĐÃ rated + duration>0 + sticker=1 → Completed,
+        ĐÚNG 1 PM Task Log tạo, AC Asset.next_pm_date advance (đọc DB thực)."""
+        from assetcore.services.imm08 import submit_result
+        wo_name = self._make_wo()
+        wo = frappe.get_doc("PM Work Order", wo_name)
+        self.assertTrue(wo.checklist_results, "seeded template PHẢI có checklist item")
+        logs0 = frappe.db.count("PM Task Log", {"pm_work_order": wo_name})
+        next_before = frappe.db.get_value("AC Asset", self.asset.name, "next_pm_date")
+        res = submit_result(
+            wo_name, checklist_results=self._rated_results(wo_name),
+            overall_result="Pass", pm_sticker_attached=1, duration_minutes=45,
+        )
+        frappe.db.commit()
+        self.assertEqual(res["new_status"], "Completed")
+        self.assertEqual(
+            frappe.db.count("PM Task Log", {"pm_work_order": wo_name}), logs0 + 1,
+            "AC3: ĐÚNG 1 PM Task Log mới cho WO green",
+        )
+        next_after = frappe.db.get_value("AC Asset", self.asset.name, "next_pm_date")
+        self.assertTrue(next_after, "AC3: next_pm_date PHẢI được set sau khi hoàn thành")
+        self.assertEqual(
+            str(next_after), res["next_pm_date"],
+            "AC3: AC Asset.next_pm_date persist == payload next_pm_date (1 SoT)",
+        )
+        self.assertNotEqual(
+            str(next_after), str(next_before),
+            "AC3: next_pm_date advance so với trước submit",
+        )
+
+    def test_ac4_unrated_checklist_fires_incomplete_not_swallowed_by_empty_gate(self):
+        """AC4: WO có ≥1 checklist item nhưng result rỗng → gate BR-08-08 CŨ
+        (CHECKLIST_INCOMPLETE) fire — KHÔNG bị empty-gate mới nuốt."""
+        from assetcore.services.imm08 import submit_result
+        wo_name = self._make_wo()
+        wo = frappe.get_doc("PM Work Order", wo_name)
+        self.assertTrue(wo.checklist_results, "seeded template PHẢI có checklist item")
+        with self.assertRaises(ServiceError) as cm:
+            submit_result(
+                wo_name, checklist_results=[], overall_result="Pass",
+                pm_sticker_attached=1, duration_minutes=30,
+            )
+        msg = cm.exception.message or ""
+        self.assertIn(
+            "chưa điền", msg,
+            f"AC4: PHẢI là gate CHECKLIST_INCOMPLETE (item chưa điền), got: {msg!r}",
+        )
+        self.assertNotIn(
+            "chưa có mục nào", msg,
+            "AC4: KHÔNG được là empty-gate — WO có mục, chỉ chưa điền kết quả",
+        )
+        wo2 = frappe.get_doc("PM Work Order", wo_name)
+        self.assertNotEqual(wo2.status, "Completed")
+        self.assertEqual(wo2.docstatus, 0)
+
+    def test_ac5_zero_duration_fires_duration_gate_order_preserved(self):
+        """AC5-regression (BR-08-09): checklist hợp lệ + duration=0 → DURATION_REQUIRED —
+        empty-gate mới KHÔNG đổi thứ tự gate."""
+        from assetcore.services.imm08 import submit_result
+        wo_name = self._make_wo()
+        with self.assertRaises(ServiceError) as cm:
+            submit_result(
+                wo_name, checklist_results=self._rated_results(wo_name),
+                overall_result="Pass", pm_sticker_attached=1, duration_minutes=0,
+            )
+        msg = cm.exception.message or ""
+        self.assertIn(
+            "Thời gian thực hiện", msg,
+            f"AC5: PHẢI là gate DURATION_REQUIRED, got: {msg!r}",
+        )
+
+    def test_ac6_phantom_idx_not_silently_dropped(self):
+        """AC6/BE-3: payload mang idx KHÔNG tồn tại trong child → raise IDX_UNKNOWN,
+        KHÔNG âm thầm thành công; row idx thật KHÔNG đổi; WO GIỮ trạng thái."""
+        from assetcore.services.imm08 import submit_result
+        wo_name = self._make_wo()
+        wo = frappe.get_doc("PM Work Order", wo_name)
+        self.assertTrue(wo.checklist_results, "seeded template PHẢI có checklist item")
+        real_idx = [r.idx for r in wo.checklist_results]
+        self.assertNotIn(99, real_idx, "precondition: child KHÔNG có idx 99")
+        with self.assertRaises(ServiceError) as cm:
+            submit_result(
+                wo_name, checklist_results=[{"idx": 99, "result": "Pass"}],
+                overall_result="Pass", pm_sticker_attached=1, duration_minutes=30,
+            )
+        self.assertEqual(cm.exception.message_code, "IMM08-CHECKLIST-IDX-UNKNOWN")
+        wo2 = frappe.get_doc("PM Work Order", wo_name)
+        self.assertNotEqual(wo2.status, "Completed", "AC6: KHÔNG được hoàn thành giả")
+        self.assertEqual(wo2.docstatus, 0)
+        for r in wo2.checklist_results:
+            self.assertFalse(r.result, "AC6: row thật KHÔNG bị mutate bởi payload phantom")
+
+    def test_ac6b_mixed_valid_plus_phantom_idx_blocks_silent_success(self):
+        """AC6 (case nguy hiểm): payload gồm idx hợp lệ ĐÃ rated + 1 idx phantom →
+        KHÔNG được complete giả (drop câm idx phantom rồi báo thành công)."""
+        from assetcore.services.imm08 import submit_result
+        wo_name = self._make_wo()
+        rows = self._rated_results(wo_name)  # tất cả idx hợp lệ, đã rated
+        self.assertTrue(rows, "seeded template PHẢI có checklist item")
+        payload = rows + [{"idx": 99, "result": "Pass"}]
+        with self.assertRaises(ServiceError) as cm:
+            submit_result(
+                wo_name, checklist_results=payload, overall_result="Pass",
+                pm_sticker_attached=1, duration_minutes=30,
+            )
+        self.assertEqual(cm.exception.message_code, "IMM08-CHECKLIST-IDX-UNKNOWN")
+        wo2 = frappe.get_doc("PM Work Order", wo_name)
+        self.assertNotEqual(
+            wo2.status, "Completed",
+            "AC6b: idx phantom bị drop câm + báo thành công = anti-pattern, PHẢI chặn",
+        )
+        self.assertEqual(wo2.docstatus, 0)
+
+
+class TestPMEmptyChecklistGate(unittest.TestCase):
+    """BR-08-08 (fix chính) — chặn nghiệm-thu-giả khi bảng kiểm RỖNG.
+
+    Root-cause: vòng ``for item in doc.checklist_results`` là VACUOUS trên list rỗng
+    → bỏ qua toàn bộ kiểm tra → WO template-less (0 checklist row) hoàn thành GIẢ
+    (Completed + PM Task Log KHÔNG có bằng chứng công việc). Reproduce path: PM
+    Checklist Template có 0 item (thiếu bảng kiểm mẫu) → schedule → create_adhoc_work_order
+    → WO có checklist_results == []. Gate SSoT đặt ở validate_work_order (mọi path
+    save status=Completed đều qua đây)."""
+
+    @classmethod
+    def setUpClass(cls):
+        from assetcore.services.imm08 import create_schedule, create_template
+        frappe.set_user("Administrator")
+        cls.cat = _ensure_cat("_TestCatIMM08Empty")
+        cls.asset = _make_asset("-empty")
+        cls.asset.asset_category = cls.cat
+        cls.asset.save(ignore_permissions=True)
+        # Template RỖNG (0 checklist item) — reproduce "thiếu bảng kiểm mẫu".
+        tmpl = create_template({
+            "template_name": "_Test Empty Template",
+            "asset_category": cls.cat,
+            "pm_type": "Quarterly",
+            "checklist_items": [],
+        })
+        cls.template_name = tmpl["name"]
+        sched = create_schedule({
+            "asset_ref": cls.asset.name,
+            "pm_type": "Quarterly",
+            "pm_interval_days": 90,
+            "checklist_template": cls.template_name,
+            "status": "Active",
+        })
+        cls.schedule_name = sched["name"]
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        for wo in frappe.get_all(
+            "PM Work Order", filters={"asset_ref": cls.asset.name}, fields=["name"]
+        ):
+            d = frappe.get_doc("PM Work Order", wo.name)
+            if d.docstatus == 1:
+                d.cancel()
+            frappe.delete_doc("PM Work Order", wo.name, force=True, ignore_permissions=True)
+        frappe.delete_doc("PM Schedule", cls.schedule_name, force=True, ignore_permissions=True)
+        frappe.delete_doc(
+            "PM Checklist Template", cls.template_name, force=True, ignore_permissions=True
+        )
+        purge_asset(cls.asset.name)
+        cat_name = frappe.db.get_value(
+            "AC Asset Category", {"category_name": "_TestCatIMM08Empty"}, "name"
+        )
+        if cat_name:
+            frappe.delete_doc("AC Asset Category", cat_name, force=True, ignore_permissions=True)
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+
+    def _make_empty_wo(self):
+        res = create_adhoc_work_order({
+            "asset_ref": self.asset.name,
+            "pm_schedule": self.schedule_name,
+            "due_date": add_days(nowdate(), 7),
+            "assigned_to": "Administrator",
+        })
+        frappe.db.commit()
+        return res["name"]
+
+    def test_be4_template_less_path_yields_zero_checklist_rows(self):
+        """BE-4: xác nhận đường tạo WO template-less thực sự cho 0 checklist row —
+        reproduce path cho AC1/AC2."""
+        wo_name = self._make_empty_wo()
+        wo = frappe.get_doc("PM Work Order", wo_name)
+        self.assertEqual(
+            len(wo.checklist_results or []), 0,
+            "reproduce: WO tạo từ template rỗng PHẢI có checklist_results == []",
+        )
+
+    def test_ac1_submit_on_empty_checklist_raises_and_stays_open(self):
+        """AC1 (RED→GREEN): submit_result trên WO checklist rỗng → raise ServiceError
+        (VALIDATION, message VI 'bảng kiểm chưa có mục nào'); WO GIỮ trạng thái
+        (≠ Completed), docstatus vẫn 0."""
+        from assetcore.services.imm08 import submit_result
+        wo_name = self._make_empty_wo()
+        status_before = frappe.db.get_value("PM Work Order", wo_name, "status")
+        with self.assertRaises(ServiceError) as cm:
+            submit_result(
+                wo_name, checklist_results=[], overall_result="Pass",
+                pm_sticker_attached=1, duration_minutes=45,
+            )
+        self.assertEqual(cm.exception.code, ErrorCode.VALIDATION)
+        msg = cm.exception.message or ""
+        self.assertIn(
+            "bảng kiểm chưa có mục nào", msg,
+            f"AC1: message VI PHẢI nêu bảng kiểm rỗng, got: {msg!r}",
+        )
+        wo = frappe.get_doc("PM Work Order", wo_name)
+        self.assertNotEqual(wo.status, "Completed", "AC1: WO KHÔNG được Completed giả")
+        self.assertEqual(wo.status, status_before, "AC1: status GIỮ nguyên")
+        self.assertEqual(wo.docstatus, 0, "AC1: docstatus vẫn 0 (chưa submit)")
+
+    def test_ac2_no_persist_side_effects_after_blocked_submit(self):
+        """AC2 (persist-thật, đọc DB thực): sau AC1 — KHÔNG tạo PM Task Log mới,
+        AC Asset.next_pm_date & last_pm_date KHÔNG đổi (KHÔNG tin return payload)."""
+        from assetcore.services.imm08 import submit_result
+        wo_name = self._make_empty_wo()
+        logs_before = frappe.db.count("PM Task Log", {"pm_work_order": wo_name})
+        next_before = frappe.db.get_value("AC Asset", self.asset.name, "next_pm_date")
+        last_before = frappe.db.get_value("AC Asset", self.asset.name, "last_pm_date")
+        with self.assertRaises(ServiceError):
+            submit_result(
+                wo_name, checklist_results=[], overall_result="Pass",
+                pm_sticker_attached=1, duration_minutes=45,
+            )
+        frappe.db.rollback()
+        self.assertEqual(
+            frappe.db.count("PM Task Log", {"pm_work_order": wo_name}), logs_before,
+            "AC2: KHÔNG tạo PM Task Log mới khi submit bị chặn",
+        )
+        self.assertEqual(
+            frappe.db.get_value("AC Asset", self.asset.name, "next_pm_date"), next_before,
+            "AC2: AC Asset.next_pm_date KHÔNG đổi (đọc DB thực)",
+        )
+        self.assertEqual(
+            frappe.db.get_value("AC Asset", self.asset.name, "last_pm_date"), last_before,
+            "AC2: AC Asset.last_pm_date KHÔNG đổi (đọc DB thực)",
+        )
+
+
+class TestPMSubmitResultIdempotency(unittest.TestCase):
+    """CR-24-PM — idempotency `client_request_id` cho submit_result (mobile write-outbox
+    re-drain). Mở rộng CR-24 (imm12 report_incident) sang submit_pm_result NHƯNG store =
+    frappe.cache() thay DocField (KHÔNG field mới ⇒ KHÔNG bench migrate).
+
+    Khoá truthy → side-effect áp ĐÚNG 1 lần (WO Completed 1 lần, completion_date +
+    next_pm_date KHÔNG drift, CM WO KHÔNG double); replay trả CÙNG payload verbatim,
+    KHÔNG raise. Rỗng ⇒ legacy path y nguyên (0 dedup, NULL-semantics). Key scoped
+    (wo_name, client_request_id) ⇒ 2 WO / 2 key độc lập.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.cat = _ensure_cat("_TestCatIMM08Idem")
+        cls.asset = _make_asset("-idem")
+        cls.asset.asset_category = cls.cat
+        cls.asset.save(ignore_permissions=True)
+        tmpl = _make_template(cls.cat)
+        cls.template_name = tmpl["name"]
+        sched = _make_schedule(cls.asset.name, cls.template_name)
+        cls.schedule_name = sched["name"]
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        # Idempotency cache là Redis-backed (TTL 24h) — dọn để test hermetic giữa run.
+        frappe.cache().delete_keys("pm_submit_result::*")
+        for wo in frappe.get_all(
+            "PM Work Order", filters={"asset_ref": cls.asset.name}, fields=["name"]
+        ):
+            d = frappe.get_doc("PM Work Order", wo.name)
+            if d.docstatus == 1:
+                d.cancel()
+            frappe.delete_doc("PM Work Order", wo.name, force=True, ignore_permissions=True)
+        frappe.delete_doc("PM Schedule", cls.schedule_name, force=True, ignore_permissions=True)
+        frappe.delete_doc(
+            "PM Checklist Template", cls.template_name, force=True, ignore_permissions=True
+        )
+        purge_asset(cls.asset.name)
+        cat_name = frappe.db.get_value(
+            "AC Asset Category", {"category_name": "_TestCatIMM08Idem"}, "name"
+        )
+        if cat_name:
+            frappe.delete_doc("AC Asset Category", cat_name, force=True, ignore_permissions=True)
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+
+    # ── fixture helpers ────────────────────────────────────────────────────────
+    def _make_wo(self):
+        res = create_adhoc_work_order({
+            "asset_ref": self.asset.name,
+            "pm_schedule": self.schedule_name,
+            "due_date": add_days(nowdate(), 7),
+            "assigned_to": "Administrator",
+        })
+        frappe.db.commit()
+        return res["name"]
+
+    def _rated_results(self, wo_name):
+        wo = frappe.get_doc("PM Work Order", wo_name)
+        return [
+            {"idx": r.idx, "result": "Pass", "measured_value": None, "notes": ""}
+            for r in (wo.checklist_results or [])
+        ]
+
+    def _results_one_fail_minor(self, wo_name):
+        rows = self._rated_results(wo_name)
+        self.assertTrue(rows, "template PHẢI có checklist item để test escalation")
+        # Flip dòng cuối (item non-critical) → Fail–Minor: has_minor → 1 CM WO Medium,
+        # WO GIỮ status Completed (elif branch KHÔNG halt) — @services/imm08.py:406-407.
+        rows[-1]["result"] = "Fail–Minor"
+        return rows
+
+    def _cm_count(self, wo_name):
+        return frappe.db.count(
+            "PM Work Order", {"source_pm_wo": wo_name, "wo_type": "Corrective"}
+        )
+
+    def _completion_date(self, wo_name):
+        return frappe.db.get_value("PM Work Order", wo_name, "completion_date")
+
+    def _task_log_count(self, wo_name):
+        return frappe.db.count("PM Task Log", {"pm_work_order": wo_name})
+
+    # ── acceptance tests ───────────────────────────────────────────────────────
+    def test_submit_pm_result_idempotent_replay_same_key(self):
+        from assetcore.services.imm08 import submit_result
+        wo = self._make_wo()
+        # Baseline delta (PM Task Log = immutable audit, KHÔNG purge + naming-series có thể
+        # recycle tên WO ⇒ đếm tuyệt-đối = môi-trường; invariant THẬT = replay tạo 0 log mới).
+        logs0 = self._task_log_count(wo)
+        p1 = submit_result(
+            wo, checklist_results=self._rated_results(wo), overall_result="Pass",
+            pm_sticker_attached=1, duration_minutes=30, client_request_id="k1",
+        )
+        frappe.db.commit()
+        cd1 = self._completion_date(wo)
+        self.assertEqual(self._task_log_count(wo), logs0 + 1, "call 1 tạo ĐÚNG 1 PM Task Log")
+        p2 = submit_result(
+            wo, checklist_results=self._rated_results(wo), overall_result="Pass",
+            pm_sticker_attached=1, duration_minutes=30, client_request_id="k1",
+        )
+        self.assertEqual(p2, p1, "replay cùng key PHẢI trả payload verbatim")
+        self.assertEqual(p2["new_status"], "Completed")
+        self.assertEqual(self._completion_date(wo), cd1, "completion_date KHÔNG drift lần 2")
+        self.assertEqual(p2["next_pm_date"], p1["next_pm_date"], "next_pm_date persist 1 lần")
+        self.assertEqual(self._task_log_count(wo), logs0 + 1, "replay KHÔNG tạo PM Task Log mới")
+
+    def test_submit_pm_result_idempotent_no_duplicate_cm_wo(self):
+        from assetcore.services.imm08 import submit_result
+        wo = self._make_wo()
+        p1 = submit_result(
+            wo, checklist_results=self._results_one_fail_minor(wo), overall_result="Fail",
+            pm_sticker_attached=1, duration_minutes=30, client_request_id="k1",
+        )
+        frappe.db.commit()
+        self.assertEqual(self._cm_count(wo), 1, "lần 1 escalate ĐÚNG 1 CM WO")
+        self.assertIsNotNone(p1["cm_wo_created"], "payload PHẢI echo CM WO name")
+        p2 = submit_result(
+            wo, checklist_results=self._results_one_fail_minor(wo), overall_result="Fail",
+            pm_sticker_attached=1, duration_minutes=30, client_request_id="k1",
+        )
+        self.assertEqual(self._cm_count(wo), 1, "lần 2 KHÔNG tạo CM WO trùng")
+        self.assertEqual(p2["cm_wo_created"], p1["cm_wo_created"], "cm_wo_created cùng name")
+        self.assertEqual(p2, p1, "replay payload verbatim (kể cả nhánh escalate)")
+
+    def test_submit_pm_result_legacy_no_key_unchanged(self):
+        from assetcore.services.imm08 import submit_result
+        wo = self._make_wo()
+        p1 = submit_result(
+            wo, checklist_results=self._rated_results(wo), overall_result="Pass",
+            pm_sticker_attached=1, duration_minutes=30,
+        )
+        frappe.db.commit()
+        self.assertEqual(p1["new_status"], "Completed")
+        # KHÔNG key ⇒ 0 dedup ⇒ gọi lại raise ALREADY_SUBMITTED (hành vi legacy nguyên vẹn).
+        with self.assertRaises(ServiceError) as cm:
+            submit_result(
+                wo, checklist_results=self._rated_results(wo), overall_result="Pass",
+                pm_sticker_attached=1, duration_minutes=30,
+            )
+        self.assertEqual(cm.exception.message_code, "IMM08-ALREADY-SUBMITTED")
+
+    def test_submit_pm_result_distinct_keys_isolated(self):
+        from assetcore.services.imm08 import submit_result
+        wo_a = self._make_wo()
+        wo_b = self._make_wo()
+        pa = submit_result(
+            wo_a, checklist_results=self._rated_results(wo_a), overall_result="Pass",
+            pm_sticker_attached=1, duration_minutes=30, client_request_id="kSame",
+        )
+        pb = submit_result(
+            wo_b, checklist_results=self._rated_results(wo_b), overall_result="Pass",
+            pm_sticker_attached=1, duration_minutes=30, client_request_id="kSame",
+        )
+        frappe.db.commit()
+        self.assertNotEqual(pa["name"], pb["name"], "2 WO khác nhau")
+        # CÙNG client_request_id nhưng key scoped theo wo_name ⇒ KHÔNG nhiễm chéo:
+        # replay từng cái trả ĐÚNG payload của chính nó.
+        ra = submit_result(
+            wo_a, checklist_results=self._rated_results(wo_a), overall_result="Pass",
+            pm_sticker_attached=1, duration_minutes=30, client_request_id="kSame",
+        )
+        rb = submit_result(
+            wo_b, checklist_results=self._rated_results(wo_b), overall_result="Pass",
+            pm_sticker_attached=1, duration_minutes=30, client_request_id="kSame",
+        )
+        self.assertEqual(ra, pa, "replay wo_a trả payload wo_a (KHÔNG payload wo_b)")
+        self.assertEqual(rb, pb, "replay wo_b trả payload wo_b")
+        self.assertEqual(ra["name"], wo_a)
+        self.assertEqual(rb["name"], wo_b)
+
+    def test_submit_pm_result_race_same_key_single_effect(self):
+        from assetcore.services import imm08
+        from assetcore.services.imm08 import submit_result
+        wo = self._make_wo()
+        key = "krace"
+        # Winner A: submit đầy đủ + set cache.
+        p1 = submit_result(
+            wo, checklist_results=self._rated_results(wo), overall_result="Pass",
+            pm_sticker_attached=1, duration_minutes=30, client_request_id=key,
+        )
+        frappe.db.commit()
+        cd1 = self._completion_date(wo)
+        logs1 = self._task_log_count(wo)
+        # Loser B đã qua pre-check TRƯỚC khi A cache (race window): ép cache-get MISS
+        # đúng lần đầu → chạm nhánh docstatus==1 + winner-reread (re-read cache thật,
+        # trả idempotent thay vì raise 'already completed'). Patch seam nội-bộ
+        # (_pm_submit_cache_get) — KHÔNG đụng frappe.cache() dùng chung bởi rbac.
+        real_get = imm08._pm_submit_cache_get
+        state = {"first": True}
+
+        def _miss_first(cache_key):
+            if state["first"]:
+                state["first"] = False
+                return None
+            return real_get(cache_key)
+
+        with patch.object(imm08, "_pm_submit_cache_get", side_effect=_miss_first):
+            p2 = submit_result(
+                wo, checklist_results=self._rated_results(wo), overall_result="Pass",
+                pm_sticker_attached=1, duration_minutes=30, client_request_id=key,
+            )
+        self.assertEqual(p2, p1, "winner-reread PHẢI trả cùng payload, KHÔNG raise")
+        self.assertEqual(self._completion_date(wo), cd1, "side-effect chỉ áp 1 lần")
+        self.assertEqual(self._task_log_count(wo), logs1, "KHÔNG double PM Task Log")
+
+    def test_submit_pm_result_invariants_intact(self):
+        # Bất biến API layer: signature KHÔNG có `user` (anti-spoof), client_request_id
+        # optional default str='' (KHÔNG None), POST-only @source, rbac.require('pm.submit').
+        import inspect
+        from assetcore.api.imm08 import submit_pm_result
+
+        sig = inspect.signature(submit_pm_result)
+        self.assertNotIn("user", sig.parameters, "anti-spoof: signature KHÔNG nhận `user`")
+        self.assertIn("client_request_id", sig.parameters, "PHẢI có param idempotency")
+        self.assertEqual(
+            sig.parameters["client_request_id"].default, "",
+            "optional PHẢI default str='' (NULL-semantics, KHÔNG None → tránh 417)",
+        )
+        # POST-ONLY-ENFORCED-AT-SOURCE (registry introspect, gate THẬT dispatcher).
+        allowed = set(
+            frappe.allowed_http_methods_for_whitelisted_func.get(submit_pm_result) or []
+        )
+        self.assertEqual(allowed, {"POST"}, f"submit_pm_result PHẢI POST-only, got {allowed}")
+        # rbac.require('pm.submit'): Guest thiếu cap → PermissionError (chặn TRƯỚC handle).
+        try:
+            frappe.set_user("Guest")
+            with self.assertRaises(frappe.PermissionError):
+                submit_pm_result(name="PM-WO-GUARD-NOPE")
+        finally:
+            frappe.set_user("Administrator")
+
+    # ── CR-24 §2.1 header-parity (HANDOFF): honor X-Idempotency-Key / Idempotency-Key ──
+    @staticmethod
+    def _hdr_factory(mapping):
+        def _hdr(key, default=None):
+            return mapping.get(key, default or "")
+        return _hdr
+
+    def test_submit_result_header_only_replay(self):
+        """RED-first: header X-Idempotency-Key GIỐNG nhau, body client_request_id rỗng →
+        lần 2 REPLAY envelope lần 1 VERBATIM (WO Completed đúng 1 lần, next_pm_date KHÔNG
+        drift, KHÔNG double CM escalation). Hiện ĐỎ trước fix (cache key chỉ dùng body
+        param → lần 2 rơi ALREADY_SUBMITTED)."""
+        from unittest import mock
+        from assetcore.services.imm08 import submit_result
+        wo = self._make_wo()
+        key = "hdr-only-k1"
+        logs0 = self._task_log_count(wo)
+        with mock.patch("frappe.get_request_header",
+                        side_effect=self._hdr_factory({"X-Idempotency-Key": key})):
+            p1 = submit_result(
+                wo, checklist_results=self._rated_results(wo), overall_result="Pass",
+                pm_sticker_attached=1, duration_minutes=30, client_request_id="",
+            )
+            frappe.db.commit()
+            cd1 = self._completion_date(wo)
+            self.assertEqual(self._task_log_count(wo), logs0 + 1, "call 1 tạo ĐÚNG 1 PM Task Log")
+            p2 = submit_result(
+                wo, checklist_results=self._rated_results(wo), overall_result="Pass",
+                pm_sticker_attached=1, duration_minutes=30, client_request_id="",
+            )
+        self.assertEqual(p2, p1, "header-only replay PHẢI trả payload verbatim")
+        self.assertEqual(p2["new_status"], "Completed")
+        self.assertEqual(self._completion_date(wo), cd1, "completion_date KHÔNG drift lần 2")
+        self.assertEqual(self._task_log_count(wo), logs0 + 1, "replay KHÔNG tạo PM Task Log mới")
+
+    def test_submit_result_header_only_no_double_cm_wo(self):
+        from unittest import mock
+        from assetcore.services.imm08 import submit_result
+        wo = self._make_wo()
+        key = "hdr-only-cm"
+        with mock.patch("frappe.get_request_header",
+                        side_effect=self._hdr_factory({"X-Idempotency-Key": key})):
+            p1 = submit_result(
+                wo, checklist_results=self._results_one_fail_minor(wo), overall_result="Fail",
+                pm_sticker_attached=1, duration_minutes=30, client_request_id="",
+            )
+            frappe.db.commit()
+            self.assertEqual(self._cm_count(wo), 1, "lần 1 escalate ĐÚNG 1 CM WO")
+            p2 = submit_result(
+                wo, checklist_results=self._results_one_fail_minor(wo), overall_result="Fail",
+                pm_sticker_attached=1, duration_minutes=30, client_request_id="",
+            )
+        self.assertEqual(self._cm_count(wo), 1, "header-only replay KHÔNG tạo CM WO thứ 2")
+        self.assertEqual(p2, p1, "replay payload verbatim (nhánh escalate)")
+
+    def test_submit_result_body_wins_over_header(self):
+        """body='B' + header='H' ⇒ dedup theo body 'B' (cache keyed 'B', KHÔNG 'H')."""
+        from unittest import mock
+        from assetcore.services import imm08 as _svc
+        from assetcore.services.imm08 import submit_result
+        wo = self._make_wo()
+        with mock.patch("frappe.get_request_header",
+                        side_effect=self._hdr_factory({"X-Idempotency-Key": "H"})):
+            p1 = submit_result(
+                wo, checklist_results=self._rated_results(wo), overall_result="Pass",
+                pm_sticker_attached=1, duration_minutes=30, client_request_id="B",
+            )
+            frappe.db.commit()
+            p2 = submit_result(
+                wo, checklist_results=self._rated_results(wo), overall_result="Pass",
+                pm_sticker_attached=1, duration_minutes=30, client_request_id="B",
+            )
+        self.assertEqual(p2, p1, "body 'B' THẮNG header → replay theo 'B' HIT verbatim")
+        self.assertIsNotNone(
+            _svc._pm_submit_cache_get(_svc._pm_submit_cache_key(wo, "B")),
+            "cache PHẢI keyed theo body 'B' (body wins over header)")
+        self.assertIsNone(
+            _svc._pm_submit_cache_get(_svc._pm_submit_cache_key(wo, "H")),
+            "cache KHÔNG được keyed theo header 'H' khi body present")
+
+    def test_submit_result_alias_idempotency_key_replay(self):
+        """alias 'Idempotency-Key' (KHÔNG tiền tố X-) cũng honor cho dedup."""
+        from unittest import mock
+        from assetcore.services.imm08 import submit_result
+        wo = self._make_wo()
+        with mock.patch("frappe.get_request_header",
+                        side_effect=self._hdr_factory({"Idempotency-Key": "alias-k"})):
+            p1 = submit_result(
+                wo, checklist_results=self._rated_results(wo), overall_result="Pass",
+                pm_sticker_attached=1, duration_minutes=30, client_request_id="",
+            )
+            frappe.db.commit()
+            p2 = submit_result(
+                wo, checklist_results=self._rated_results(wo), overall_result="Pass",
+                pm_sticker_attached=1, duration_minutes=30, client_request_id="",
+            )
+        self.assertEqual(p2, p1, "alias Idempotency-Key (no X-) cũng replay verbatim")
+        self.assertEqual(p2["new_status"], "Completed")
+
+    def test_submit_result_no_key_no_header_legacy_already_submitted(self):
+        """cả body param LẪN header vắng ⇒ NO-OP dedup: lần 2 raise ALREADY_SUBMITTED
+        (legacy path byte-identical)."""
+        from unittest import mock
+        from assetcore.services.imm08 import submit_result
+        wo = self._make_wo()
+        with mock.patch("frappe.get_request_header", side_effect=self._hdr_factory({})):
+            p1 = submit_result(
+                wo, checklist_results=self._rated_results(wo), overall_result="Pass",
+                pm_sticker_attached=1, duration_minutes=30, client_request_id="",
+            )
+            frappe.db.commit()
+            self.assertEqual(p1["new_status"], "Completed")
+            with self.assertRaises(ServiceError) as cm:
+                submit_result(
+                    wo, checklist_results=self._rated_results(wo), overall_result="Pass",
+                    pm_sticker_attached=1, duration_minutes=30, client_request_id="",
+                )
+        self.assertEqual(cm.exception.message_code, "IMM08-ALREADY-SUBMITTED")
 
 
 class TestLLBE1PMStats417(unittest.TestCase):
@@ -3145,6 +3873,182 @@ class TestPMChecklistPhotoAttach(unittest.TestCase):
         self.assertEqual(self._file_count(wo), 0)
 
 
+# ─── BR-08-14-IDEMP: attach_pm_checklist_photo idempotency (CR-24 §4 photo-level) ──
+
+
+class TestPMChecklistPhotoIdempotency(unittest.TestCase):
+    """CR-24 §4 photo-level closure · mirror ADR-IMM12-10: idempotency `client_request_id`
+    đóng cửa sổ re-drain outbox tạo File TRÙNG cho MỘT mục checklist PM.
+
+    Re-drain PHA-2 re-POST cùng ảnh (response rớt mạng SAU khi server đã tạo File) → File
+    TRÙNG + lifecycle `pm_checklist_photo_attached` TRÙNG (bẩn evidence-trail NĐ98). Dedupe
+    theo composite scoped key `{wo}::{idx}::{key}` trên Custom Field `File.ac_client_request_id`
+    (unique NULL-store):
+      - replay cùng (wo, idx, key) → 1 File + 1 lifecycle; response#2 == #1 (byte-đối-byte),
+        THẮNG max-count (pre-check TRƯỚC validation ladder — replay dù mục đã đủ MAX=1 ảnh).
+      - empty/thiếu key → at-least-once CŨ (mỗi call 1 insert THẬT, field NULL; KHÔNG dedupe).
+      - scope namespace record+mục: cùng key KHÁC idx / KHÁC wo → composite KHÁC → 2 File
+        (KHÔNG collision chéo — chống nuốt ảnh mục/phiếu khác).
+
+    LƯU Ý domain: max ảnh/mục = 1 (BR-08-14, row.photo Attach ĐƠN) ⇒ 2 ảnh KHÁC nhau CÙNG
+    (wo, idx) là BẤT KHẢ (call thứ 2 bị max-count reject) — idx đưa vào scoped key CHÍNH để
+    N ảnh của N mục/phiếu KHÔNG bị nuốt (test scope-by-idx + scope-by-wo dưới đây).
+
+    Precondition: Custom Field `File.ac_client_request_id` (fixtures/file_custom_fields.json).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.cat = _ensure_cat("_TestCatIMM08PhotoIdemp")
+        cls.asset = TestPMChecklistPhotoAttach._make_asset_in_cat("-photoidemp", cls.cat)
+        tpl = _make_template(cls.cat)
+        cls.template_name = tpl["name"]
+        sched = _make_schedule(cls.asset.name, tpl["name"])
+        cls.schedule_name = sched["name"]
+        cls._wos: list[str] = []
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        for wo in cls._wos:
+            try:
+                for f in frappe.get_all(
+                    "File", filters={"attached_to_doctype": "PM Work Order",
+                                     "attached_to_name": wo}, pluck="name"):
+                    frappe.delete_doc("File", f, force=True, ignore_permissions=True)
+            except Exception:
+                pass
+            try:
+                frappe.delete_doc("PM Work Order", wo, force=True,
+                                  ignore_permissions=True, delete_permanently=True)
+            except Exception:
+                pass
+        try:
+            frappe.delete_doc("PM Schedule", cls.schedule_name, force=True,
+                              ignore_permissions=True)
+        except Exception:
+            pass
+        purge_asset(cls.asset.name)
+        try:
+            frappe.delete_doc("PM Checklist Template", cls.template_name, force=True,
+                              ignore_permissions=True)
+        except Exception:
+            pass
+        try:
+            frappe.delete_doc("AC Asset Category", cls.cat, force=True,
+                              ignore_permissions=True)
+        except Exception:
+            pass
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+
+    _seq = 0
+
+    def _new_wo(self) -> str:
+        res = create_adhoc_work_order({
+            "asset_ref": self.asset.name,
+            "pm_schedule": self.schedule_name,
+            "due_date": add_days(nowdate(), 7),
+            "assigned_to": "Administrator",
+        })
+        frappe.db.commit()
+        self._wos.append(res["name"])
+        self.assertGreaterEqual(res["checklist_items_count"], 2,
+                                "WO fixture PHẢI có ≥2 mục checklist (scope-by-idx test)")
+        return res["name"]
+
+    def _key(self, tag: str) -> str:
+        import time
+        return f"pmk-{tag}-{int(time.time() * 1000)}"
+
+    @classmethod
+    def _unique_jpg_bytes(cls) -> bytes:
+        """JPEG THẬT KHÁC nhau mỗi call (đổi màu) — tránh Frappe reuse file_url khi trùng
+        content_hash (2 File riêng nhưng URL chung → assert URL-khác false-fail)."""
+        import io
+
+        from PIL import Image
+        cls._seq += 1
+        buf = io.BytesIO()
+        Image.new("RGB", (8, 8),
+                  (cls._seq % 256, (cls._seq * 7) % 256, 40)).save(buf, format="JPEG")
+        return buf.getvalue()
+
+    def _attach(self, wo: str, idx: int, key: str = "", filename: str = "pm.jpg") -> dict:
+        from assetcore.services.imm08 import attach_pm_checklist_photo
+        return attach_pm_checklist_photo(
+            wo, idx, filedata=self._unique_jpg_bytes(),
+            filename=filename, content_type="image/jpeg", client_request_id=key)
+
+    def _file_count(self, wo: str) -> int:
+        return frappe.db.count("File", {
+            "attached_to_doctype": "PM Work Order",
+            "attached_to_name": wo, "is_private": 1})
+
+    def _event_count(self, wo: str) -> int:
+        return frappe.db.count("Asset Lifecycle Event", {
+            "event_type": "pm_checklist_photo_attached", "root_record": wo})
+
+    # ── replay same key → 1 File + 1 lifecycle + response byte-đối-byte (RED-first) ──
+    def test_replay_same_key_single_file_event_same_response(self):
+        wo = self._new_wo()
+        key = self._key("replay")
+        res1 = self._attach(wo, 1, key=key)
+        res2 = self._attach(wo, 1, key=key)
+        self.assertEqual(
+            frappe.db.count("File", {"ac_client_request_id": f"{wo}::1::{key}"}), 1,
+            "CÙNG (wo, idx, key) → CHỈ 1 ROW File mang scoped key")
+        self.assertEqual(self._file_count(wo), 1, "replay KHÔNG được insert File thứ 2")
+        self.assertEqual(self._event_count(wo), 1,
+                         "replay KHÔNG được emit lifecycle lần 2 (NĐ98)")
+        self.assertEqual(res2, res1,
+                         "response replay PHẢI == lần 1 (file_url/file_name/idx byte-đối-byte)")
+        self.assertEqual(set(res2.keys()), {"file_url", "file_name", "checklist_item_idx"},
+                         f"shape EXACT 3-key KHÔNG đổi (OAS closed), nhận: {res2}")
+
+    # ── empty key → 2 File riêng (at-least-once CŨ), NULL key — dùng 2 mục (max=1/mục) ──
+    def test_empty_key_backward_compat_two_files_null_key(self):
+        wo = self._new_wo()
+        self._attach(wo, 1, key="", filename="nk1.jpg")
+        self._attach(wo, 2, key="", filename="nk2.jpg")
+        self.assertEqual(self._file_count(wo), 2,
+                         "KHÔNG key → mỗi call = 1 File THẬT (hành vi cũ nguyên vẹn)")
+        keys = frappe.get_all(
+            "File", filters={"attached_to_doctype": "PM Work Order",
+                             "attached_to_name": wo, "is_private": 1},
+            pluck="ac_client_request_id")
+        self.assertTrue(all(not k for k in keys),
+                        f"File không-khoá PHẢI lưu NULL/empty, nhận: {keys}")
+
+    # ── scope-by-idx: cùng key KHÁC mục → 2 File (idx ∈ scoped key, KHÔNG nuốt ảnh mục khác) ──
+    def test_same_key_different_idx_two_files(self):
+        wo = self._new_wo()
+        key = self._key("byidx")
+        r1 = self._attach(wo, 1, key=key, filename="i1.jpg")
+        r2 = self._attach(wo, 2, key=key, filename="i2.jpg")
+        self.assertNotEqual(r1["file_url"], r2["file_url"],
+                            "cùng key KHÁC idx → 2 File riêng (scoped key {wo}::{idx}::{key} khác)")
+        self.assertEqual(self._file_count(wo), 2, "2 mục KHÁC → đúng 2 File")
+        self.assertEqual(self._event_count(wo), 2, "2 File thật → đúng 2 lifecycle")
+
+    # ── scope-by-record: cùng key KHÁC WO → 2 File (KHÔNG collision chéo phiếu) ──
+    def test_same_key_different_wo_no_cross_dedupe(self):
+        wo_a = self._new_wo()
+        wo_b = self._new_wo()
+        key = self._key("bywo")
+        res_a = self._attach(wo_a, 1, key=key, filename="a.jpg")
+        res_b = self._attach(wo_b, 1, key=key, filename="b.jpg")
+        self.assertNotEqual(res_a["file_url"], res_b["file_url"],
+                            "cùng key KHÁC WO → 2 File riêng (composite khác)")
+        self.assertEqual(self._file_count(wo_a), 1)
+        self.assertEqual(self._file_count(wo_b), 1)
+        self.assertEqual(self._event_count(wo_a), 1)
+        self.assertEqual(self._event_count(wo_b), 1)
+
+
 # ─── F8 "Nhắc việc" — get_due_pm_schedules (mobile CR-28b) ─────────────────────
 class TestDuePmSchedules(unittest.TestCase):
     """ROOT-CAUSE GUARD — ``get_due_pm_schedules`` (mobile F8 "Nhắc việc") ĐỐI XỨNG
@@ -3307,3 +4211,47 @@ class TestDuePmSchedules(unittest.TestCase):
         self.assertEqual(row["asset_name"], "_Test Asset IMM08-shape",
                          "asset_name enriched từ AC Asset.asset_name")
         self.assertEqual(row["days_left"], 7, "days_left server-derived signed")
+
+
+class TestPMDashboardPeriodEcho(unittest.TestCase):
+    """CR-36 (Mobile-BE Dashboard KPI / IMM-07) — get_pm_dashboard_stats phải ECHO
+    kỳ báo-cáo `period: {year, month}` = ĐÚNG kỳ service tính (server-resolve, KHÔNG
+    đồng-hồ client). Đối-xứng imm11.get_kpis (đã có period) + imm09.get_kpis.
+
+    Bất biến:
+      - period = kỳ service THẬT tính (year/month keyword của get_dashboard_stats).
+      - api-tier no-param → period echo {getdate(nowdate()).year, .month} (resolve
+        tại wrapper api/imm08.py — KHÔNG client-clock).
+      - kpis + trend_6months GIỮ NGUYÊN (chỉ THÊM period, KHÔNG đổi/xoá field cũ).
+    """
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+
+    def test_service_period_echoes_explicit_year_month(self):
+        """get_dashboard_stats(year=2026, month=7) → period == {'year':2026,'month':7}."""
+        from assetcore.services.imm08 import get_dashboard_stats
+        res = get_dashboard_stats(year=2026, month=7)
+        self.assertEqual(res["period"], {"year": 2026, "month": 7},
+                         "period PHẢI echo ĐÚNG kỳ service tính (year=2026, month=7).")
+
+    def test_service_period_no_regression_kpis_trend(self):
+        """THÊM period KHÔNG mất field cũ — kpis + trend_6months vẫn present."""
+        from assetcore.services.imm08 import get_dashboard_stats
+        res = get_dashboard_stats(year=2026, month=7)
+        self.assertIn("kpis", res, "kpis PHẢI vẫn present (no-regression).")
+        self.assertIn("trend_6months", res, "trend_6months PHẢI vẫn present (no-regression).")
+        self.assertIsInstance(res["trend_6months"], list, "trend_6months vẫn là list.")
+        # kpis giữ nguyên 7-key VERBATIM (INV-PM-KPI) — period KHÔNG chui vào kpis.
+        self.assertNotIn("period", res["kpis"],
+                         "period PHẢI ở TOP-LEVEL, KHÔNG lẫn vào kpis.")
+
+    def test_api_tier_default_period_echoes_server_resolved_today(self):
+        """api-tier get_pm_dashboard_stats() KHÔNG param → period = server-resolve
+        {getdate(nowdate()).year, .month} (chứng minh echo kỳ server, KHÔNG client-clock)."""
+        from assetcore.api.imm08 import get_pm_dashboard_stats
+        today = getdate(nowdate())
+        resp = get_pm_dashboard_stats()
+        self.assertTrue(resp.get("success"), f"phải success envelope, nhận: {resp}")
+        self.assertEqual(resp["data"]["period"], {"year": today.year, "month": today.month},
+                         "period no-param PHẢI echo kỳ server-resolve today (api/imm08.py:169).")

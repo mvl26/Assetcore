@@ -20,7 +20,7 @@
 | 1 | `assetcore.api.imm08.list_pm_work_orders` | GET | List PM WO với filter (`filters` JSON-blob + **`mine`** + **`search`**) + pagination. `mine=1` scope `assigned_to==session.user` (tab "Phiếu PM của tôi" MVP-5a); `search` OR-LIKE `name`/`asset_code`/`asset_name` toàn tập (CR-18 — §2 #1 "free-text search" + BR-08-17 + ADR-IMM08-SEARCH-01) | All IMM roles | ✓ | US-08-01 |
 | 2 | `assetcore.api.imm08.get_pm_work_order` | GET | Chi tiết 1 WO + checklist | All IMM roles | ✓ | — |
 | 3 | `assetcore.api.imm08.assign_technician` | POST | Phân công Kỹ thuật viên cho WO Open/Overdue | Workshop Head, CMMS Admin | ✗ | US-08-06 |
-| 4 | `assetcore.api.imm08.submit_pm_result` | POST | Kỹ thuật viên nộp kết quả PM (submit WO) | HTM Technician, Workshop Head | ✗ | US-08-02 |
+| 4 | `assetcore.api.imm08.submit_pm_result` | POST | Kỹ thuật viên nộp kết quả PM (submit WO). **Idempotent replay khi có `client_request_id`** (mobile write-outbox — BR-08-18 / ADR-IMM08-IDEMPOTENCY-01) | HTM Technician, Workshop Head | ✗ legacy · ✓ replay khi có `client_request_id` | US-08-02 |
 | 5 | `assetcore.api.imm08.report_major_failure` | POST | Dừng PM + tạo CM khẩn + Asset OOS | HTM Technician, Workshop Head | ✗ | US-08-03 |
 | 6 | `assetcore.api.imm08.reschedule_pm` | POST | Hoãn lịch PM (lý do bắt buộc) | Workshop Head, CMMS Admin | ✗ | US-08-06 |
 | 7 | `assetcore.api.imm08.create_pm_work_order` | POST | Tạo PM WO thủ công (ad-hoc) | Workshop Head, CMMS Admin | ✗ | — |
@@ -347,7 +347,7 @@ CẤM trả raw traceback / SQL error.
 |---|---|---|
 | `NOT_FOUND` | Record không tồn tại | `IMM08-WO-NOT-FOUND` / `IMM08-SCHEDULE-NOT-FOUND` / `IMM08-TEMPLATE-NOT-FOUND` |
 | `FORBIDDEN` | Không có role phù hợp | `AUTH-403` |
-| `VALIDATION` | Input validation fail | `IMM08-CHECKLIST-INCOMPLETE` / `IMM08-DURATION-REQUIRED` / `IMM08-STICKER-REQUIRED` / `IMM08-PHOTO-REQUIRED` / `IMM08-SOURCE-PM-REQUIRED` |
+| `VALIDATION` | Input validation fail | `IMM08-CHECKLIST-EMPTY` (BR-08-19, bảng kiểm 0 mục) / `IMM08-CHECKLIST-IDX-UNKNOWN` (BR-08-20, idx payload lệch — OPTIONAL) / `IMM08-CHECKLIST-INCOMPLETE` / `IMM08-DURATION-REQUIRED` / `IMM08-STICKER-REQUIRED` / `IMM08-PHOTO-REQUIRED` / `IMM08-SOURCE-PM-REQUIRED` |
 | `BAD_STATE` | State machine fail (vd WO đã submitted) | `IMM08-BAD-STATE` |
 | `CONFLICT` | Concurrent modify / đã submit | `IMM08-ALREADY-SUBMITTED` |
 | `INVALID_PARAMS` | JSON parse fail | `VAL-INVALID-PARAMS` |
@@ -608,6 +608,7 @@ export interface PMDashboardStats {
     "completion_date": null,
     "assigned_to": "ktv1@bv.vn",
     "is_late": false,
+    "is_overdue": true,
     "allowed_transitions": ["Completed", "Halted–Major Failure", "Pending–Device Busy", "Cancelled"],
     "checklist_results": [
       {
@@ -623,6 +624,8 @@ export interface PMDashboardStats {
   }
 }
 ```
+
+**`is_overdue` — cờ LIVE quá-hạn (CR-37, mobile parity list↔detail):** `boolean` DERIVED Python-bool tại `get_work_order` qua **CÙNG predicate `_enrich_pm_overdue`** của list-item (`status == "Overdue"` OR `is_pm_overdue`: `due_date < today` ∧ `status ∈ {Open, In Progress, Pending–Device Busy}`). Emit BÊN CẠNH `is_late` (STORED, `Check` → wire cờ trễ-hoàn-thành), 2 cờ KHÁC nghĩa. **GIỮ boolean** (KHÔNG int-0/1 — derived, KHÔNG raw Check). Badge "Bảo trì quá hạn" màn detail đọc cờ LIVE này ⇒ KHÔNG trễ 1 nhịp cron `check_pm_overdue`. **INVARIANT parity:** cờ `is_overdue` trên detail == cờ `is_overdue` trên list-item cùng record.
 
 **`allowed_transitions[]` — server-driven CTA (Boundaries Always/Never):** detail emit tập trạng-thái-kế hợp-lệ từ `status` hiện tại → màn detail render nút workflow theo server.
 - **Always:** giá trị = `_PM_VALID_TRANSITIONS.get(status, [])` (`services/imm08.py`) — SSoT duy nhất, **GROUNDED** workflow `imm_08_pm_workflow.json` (7 state / 13 transition):
@@ -685,8 +688,8 @@ export interface PMDashboardStats {
 |---|---|
 | Method | POST |
 | Path | `/api/method/assetcore.api.imm08.submit_pm_result` |
-| Role | HTM Technician, Workshop Head |
-| Idempotent | No |
+| Role | HTM Technician, Workshop Head (cap `pm.submit` — `api/imm08.py:115`) |
+| Idempotent | No (legacy) · **Yes-replay khi có `client_request_id`** (BR-08-18) |
 
 **Request:**
 
@@ -697,7 +700,8 @@ export interface PMDashboardStats {
   "overall_result": "Pass",
   "technician_notes": "Sticker đã gắn",
   "pm_sticker_attached": 1,
-  "duration_minutes": 52
+  "duration_minutes": 52,
+  "client_request_id": "a3f1c0de-…-outbox-uuid"   // optional — mobile write-outbox key (BR-08-18); rỗng/absent ⇒ legacy no-dedup
 }
 ```
 
@@ -718,6 +722,31 @@ export interface PMDashboardStats {
 
 > **`next_pm_date` (BR-08-03 — SoT contract).** Trường này = `compute_next_pm_date(wo.completion_date, sched_interval)` (services/imm08.py §4.2), kiểu **string** `YYYY-MM-DD`. Anchor LUÔN là `completion_date` của WO (KHÔNG `nowdate()`) → khi PM hoàn thành trễ/backdated, giá trị API trả về **bằng byte-for-byte** với `PM Schedule.next_due_date` đã persist, `AC Asset.next_pm_date`, và `PM Task Log.next_pm_date`. Khi `pm_interval_days` rỗng/0 → mặc định `+90` ngày (`PM_DEFAULT_INTERVAL_DAYS`). FE hiển thị **verbatim** field này, KHÔNG tự tính lại.
 
+#### 4.1 Idempotency `client_request_id` (BR-08-18 / ADR-IMM08-IDEMPOTENCY-01 — mobile write-outbox)
+
+> **Bản chất**: đóng cửa sổ *re-drain outbox tạo side-effect PM TRÙNG* khi response `submit_pm_result` rớt mạng (server ĐÃ complete WO nhưng client chưa persist payload → re-POST cùng body). Client gửi kèm khoá bền `client_request_id` (= `item.id` outbox, UUID mint-1-lần, ổn định qua mọi re-drain) → server replay idempotent. **KHÁC CR-24 (report_incident)**: KHÔNG DocField mới, KHÔNG `bench migrate` — idempotency neo trên **terminal-state của chính PM Work Order** (xem ADR-IMM08-IDEMPOTENCY-01, `04 §4`).
+
+| Trường hợp | Hành vi |
+|---|---|
+| `client_request_id` **rỗng / absent** | **Legacy no-dedup (byte-identical hiện trạng)**. Submit lần 2 lên WO `docstatus==1` → Error envelope `IMM08_ALREADY_SUBMITTED` (in-handler HTTP-200). NULL-semantics. |
+| `client_request_id` **non-empty**, WO CHƯA submit | Áp side-effect BÌNH THƯỜNG → complete WO → trả payload 5-key. |
+| `client_request_id` **non-empty**, WO ĐÃ Completed (replay) | **Idempotent replay**: re-read state terminal → dựng lại **CÙNG payload 5-key** `{name,new_status,is_late,next_pm_date,cm_wo_created}` (byte-for-byte == lần 1) → return success, **KHÔNG raise**, **KHÔNG áp lại side-effect**. `completion_date`/`next_pm_date` KHÔNG drift; `cm_wo_created` re-đọc `find_one(source_pm_wo, Corrective)` ⇒ **CM WO count KHÔNG tăng**. |
+| **Race** — 2 request gần-đồng-thời CÙNG key, CÙNG WO `docstatus==0` | Đúng **1 winner** commit `wo.submit()`; loser bắt exception va-chạm (stale-doc / `DocstatusTransitionError` / duplicate) → convert sang re-read terminal → trả payload winner. **KHÔNG double CM WO**, **KHÔNG rò** `IMM08_ALREADY_SUBMITTED`/'must be unique' ra caller. |
+| 2 `client_request_id` khác nhau trên 2 WO khác nhau | Độc lập — dedup scope theo natural key `(wo_name, client_request_id)`, KHÔNG nhiễm chéo. |
+
+**⚠️ Self-Correction (payload shape — KHÔNG đổi).** Acceptance đề mục liệt kê payload `{name,new_status,completion_date,next_pm_date,cm_wo_created}` là **KHÔNG chính xác**: payload authoritative của `submit_pm_result` là **5-key `{name, new_status, is_late, next_pm_date, cm_wo_created}`** (có `is_late`, KHÔNG `completion_date`) — khoá bởi `services/imm08.py:1020-1026` + OAS closed schema `PmSubmitResultResponse` required-EXACT-5 + FE type `frontend/src/api/imm08.ts:131` + guard `test_mob_oas_submitpm_f/_i` (`_SUBMIT_PM_RESULT_DATA_KEYS`). **KHÔNG thêm `completion_date` vào payload** (sẽ vỡ closed-schema guard + lệch FE type + là contract-change ngoài scope). Bất biến "`completion_date` KHÔNG drift" được **quan sát gián tiếp** qua (a) field `completion_date` persist trên WO (đọc bằng `get_pm_work_order`) không đổi + (b) `next_pm_date` trong payload (derive từ completion_date, BR-08-03) không đổi.
+
+**Bất biến giữ nguyên**: `rbac.require("pm.submit")` (`api/imm08.py:115`) + `@frappe.whitelist(methods=["POST"])` (`:111`) + anti-spoof (signature KHÔNG nhận `user`) + envelope Decision-B (`handle`/`_ok`). Không schema/DocField mới ⇒ **KHÔNG `bench migrate`** (deploy = worker reload `--preload`, HARD-STOP user).
+
+> **Mobile-BE binding (BE-owned atomic slice — CHƯA land round này).** Đóng contract cần **3 artifact land ATOMIC** (như CR-24 attach-photo) — vì guard `test_mob_oas_submitpm_i` introspect **LIVE `inspect.signature(imm08.submit_pm_result)`**: nếu curate OAS trước khi `.py` có param ⇒ suite RED. BE Bước-4 land cùng lượt:
+> 1. **`api/imm08.py::submit_pm_result`** — thêm param CUỐI `client_request_id: str = ""` (KHÔNG `str|None` → tránh 417), truyền xuống `handle(svc.submit_result, name, …, client_request_id=client_request_id)`.
+> 2. **`services/imm08.py::submit_result`** — thêm kwarg `client_request_id: str = ""`; gate nhánh `docstatus==1` (replay vs legacy-raise) + race-catch → re-read terminal (§4.1).
+> 3. **OAS `docs/mobile/openapi/assetcore-mobile.openapi.yaml`** — `SubmitPmResultRequest.properties` **+`client_request_id`** (`type: string`, `default: ''`, description nêu 'idempotency'/'mobile write-outbox'); GIỮ `additionalProperties: false`; GIỮ `required: [name]` (client_request_id **optional**, KHÔNG vào required). `PmSubmitResultResponse` **KHÔNG đổi** (5-key). Path/opId/`oas_baseline` KHÔNG đổi (0 endpoint mới).
+> 4. **Guard `assetcore/tests/test_mobile_oas.py`** — `_SUBMIT_PM_RESULT_REQUEST_PROPS` **6→7** (thêm `"client_request_id"`) ⇒ CẢ guard `_c` (OAS props EXACT) LẪN `_i` (live-sig EXACT) tự khớp; `_SUBMIT_PM_RESULT_REQUEST_REQUIRED` GIỮ `["name"]`. **KHÔNG TC mới** ⇒ `_EXPECTED_TEST_COUNT` / `_GUARD_SUITE_*` / `_MOBILE_OAS_TOTAL` **KHÔNG đổi** (khác CR-24 vốn +3 TC vì schema OPEN; schema PM CLOSED nên prop-set 6→7 đủ enforce).
+> 5. **Runtime guard `assetcore/tests/test_imm08.py`** — class idempotency mới (`TestPmResultIdempotency`, RED-before/GREEN-after) TC-PM-IDEM-01..06: (01) same-key×2 → WO Completed 1 lần + payload lần2==lần1 + KHÔNG raise; (02) next_pm_date/completion_date KHÔNG drift (WO backdated); (03) escalate CM → CM WO count KHÔNG tăng lần 2; (04) key rỗng → lần 2 Error `IMM08_ALREADY_SUBMITTED` (legacy); (05) race cùng key → 1 winner + loser re-read cùng payload + KHÔNG double CM + KHÔNG leak lỗi; (06) scope `(wo_name, client_request_id)` — 2 WO/2 key độc lập.
+>
+> Cross-link mobile contract: khi land, mirror thêm 1 mục §8.x vào [`docs/mobile/04-api-contract.md`](../mobile/04-api-contract.md) (cạnh CR-24 §8.3b) — SSoT contract vẫn là mục này (`05 §4.1`). ⚠️ Sau land: **USER reload gunicorn `--preload`** cho HTTP live (LL-DEPLOY-07 — KHÔNG curl-verify LIVE trước reload).
+
 **Response error:**
 
 ```jsonc
@@ -734,14 +763,18 @@ export interface PMDashboardStats {
 |---|---|
 | `NOT_FOUND` | WO không tồn tại |
 | `INVALID_PARAMS` | `checklist_results` không phải JSON |
-| `ALREADY_SUBMITTED` | WO đã docstatus=1 VR-08-10 |
-| `VALIDATION` | BR-08-06 hoặc BR-08-08 fail |
+| `ALREADY_SUBMITTED` | WO đã docstatus=1 VR-08-10 — **CHỈ khi `client_request_id` rỗng** (legacy). Có `client_request_id` ⇒ nhánh này thay bằng idempotent replay (§4.1), KHÔNG raise |
+| `VALIDATION` | BR-08-06 (ảnh) / **BR-08-19 bảng kiểm RỖNG `IMM08-CHECKLIST-EMPTY`** / BR-08-08 thiếu-result `IMM08-CHECKLIST-INCOMPLETE` / BR-08-20 idx payload lệch `IMM08-CHECKLIST-IDX-UNKNOWN` (OPTIONAL) / BR-08-09 duration / BR-08-10 sticker. Precedence: EMPTY > IDX_UNKNOWN > INCOMPLETE. |
 
-**Side effects:**
+**Side effects (áp ĐÚNG 1 lần / WO — replay KHÔNG lặp lại, §4.1):**
 - PM Task Log immutable tạo
 - PM Schedule `last_pm_date`, `next_due_date` advance (BR-08-03)
 - Asset `custom_last_pm_date`, `custom_next_pm_date` sync
 - CM Work Order tạo nếu Fail-Minor/Major (BR-08-09)
+
+**Boundaries (BR-08-18):**
+- **Always**: replay (key non-empty, WO Completed) trả CÙNG payload 5-key byte-for-byte + KHÔNG áp lại side-effect; race → 1 winner + loser re-read; dedup scope theo `(wo_name, client_request_id)`; `client_request_id=""` ⇒ hành vi legacy byte-identical; giữ `rbac.require("pm.submit")` + POST-only + anti-spoof + envelope Decision-B.
+- **Never**: thêm DocField/schema mới hay `bench migrate`; đổi payload shape (thêm `completion_date` vào `data`); drift `completion_date`/`next_pm_date` trên replay; tạo CM WO thứ 2 trên replay; rò `IMM08_ALREADY_SUBMITTED`/'must be unique' khi có key; nhận `str|None` cho param (417); nhận `user` trong signature; commit / reload / migrate (HARD-STOP user).
 
 ---
 
@@ -1238,6 +1271,8 @@ qua `nthrow(MSG.IMM08_*)`; DocType `validate` hook (BR-08-06/08/09/10/02) raise 
 | `IMM08_TEMPLATE_NOT_FOUND` | `IMM08-TEMPLATE-NOT-FOUND` | warning | 404 | Không tìm thấy mẫu checklist | Không tìm thấy mẫu checklist PM: {name}. | Kiểm tra lại mã mẫu trong danh sách. |
 | `IMM08_BAD_STATE` | `IMM08-BAD-STATE` | warning | 409 | Sai trạng thái lệnh PM | Không thể thực hiện hành động khi lệnh PM đang ở trạng thái '{state}'. | Chỉ thực hiện hành động hợp lệ với trạng thái hiện tại. |
 | `IMM08_ALREADY_SUBMITTED` | `IMM08-ALREADY-SUBMITTED` | warning | 409 | Lệnh PM đã chốt | Lệnh bảo trì định kỳ này đã được hoàn thành và chốt. | Không cần thao tác lại — lệnh PM đã chốt. |
+| `IMM08_CHECKLIST_EMPTY` _(bổ sung BR-08-19)_ | `IMM08-CHECKLIST-EMPTY` | warning | 422 | Chưa gắn bảng kiểm | Không thể hoàn thành PM: bảng kiểm chưa có mục nào (thiếu bảng kiểm mẫu) — vui lòng gắn bảng kiểm trước khi nghiệm thu. | Gắn bảng kiểm mẫu (PM Checklist Template) cho lệnh này rồi thử lại. |
+| `IMM08_CHECKLIST_IDX_UNKNOWN` _(bổ sung BR-08-20, OPTIONAL)_ | `IMM08-CHECKLIST-IDX-UNKNOWN` | warning | 422 | Mục bảng kiểm không hợp lệ | Kết quả gửi lên tham chiếu mục bảng kiểm không tồn tại (idx {idx}) — không có mục nào được ghi nhận. | Tải lại lệnh để đồng bộ bảng kiểm rồi gửi lại. |
 | `IMM08_CHECKLIST_INCOMPLETE` | `IMM08-CHECKLIST-INCOMPLETE` | warning | 422 | Checklist chưa hoàn tất | Tất cả mục checklist phải có kết quả trước khi hoàn thành PM. Mục '{item}' chưa điền. | Điền kết quả cho mọi mục checklist rồi thử lại. |
 | `IMM08_DURATION_REQUIRED` | `IMM08-DURATION-REQUIRED` | warning | 422 | Thiếu thời gian thực hiện | Thời gian thực hiện (phút) phải lớn hơn 0 trước khi hoàn thành PM. | Nhập thời gian thực hiện rồi thử lại. |
 | `IMM08_STICKER_REQUIRED` | `IMM08-STICKER-REQUIRED` | warning | 422 | Chưa gắn tem bảo trì | Phải xác nhận đã gắn tem bảo trì trước khi hoàn thành PM. | Gắn tem bảo trì và tích xác nhận rồi thử lại. |
@@ -1255,6 +1290,13 @@ qua `nthrow(MSG.IMM08_*)`; DocType `validate` hook (BR-08-06/08/09/10/02) raise 
   checklist, BR-08-09 duration, BR-08-10 sticker, BR-08-06 photo, BR-08-02 source PM)
   → `nthrow_in_hook(MSG.IMM08_*)` tương ứng. Đây là DocType `validate` hook → BẮT BUỘC
   dùng `nthrow_in_hook` (không phải `nthrow`).
+- **BR-08-19 (Vòng 3, bịt lỗ vacuous-pass):** trong CÙNG hook, THÊM guard TRƯỚC vòng lặp
+  thiếu-result — `if not (doc.checklist_results or []): nthrow_in_hook(MSG.IMM08_CHECKLIST_EMPTY)`.
+  Thêm `MSG.IMM08_CHECKLIST_EMPTY` vào `utils/messages.py` (bảng §11.2) + regen
+  `frontend/src/i18n/messages.ts` (`python scripts/gen_fe_messages.py`). `submit_result`
+  KHÔNG cần sửa (`wo.save()` → validate → ValidationError → `except` line ~1043 wrap
+  `ServiceError(VALIDATION)`; status giữ + docstatus=0). **OPTIONAL BR-08-20:** guard idx-drift
+  trong `submit_result` (khi WO ≥1 dòng) + `MSG.IMM08_CHECKLIST_IDX_UNKNOWN`.
 - `services/imm08.py` service layer: các `raise ServiceError(ErrorCode.NOT_FOUND, ...)`
   cho PM WO / Schedule / Template → `nthrow(MSG.IMM08_WO_NOT_FOUND / _SCHEDULE_NOT_FOUND
   / _TEMPLATE_NOT_FOUND, name=...)`. `ErrorCode.CONFLICT` "đã Submit" →

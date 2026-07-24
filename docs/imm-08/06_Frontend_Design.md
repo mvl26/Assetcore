@@ -225,6 +225,11 @@ Screenshots thực tế lưu tại: `docs/imm-08/screenshots/` (thêm sau khi bu
 - **1 ảnh/mục — write-once** (server chặn ảnh thứ 2 → `"Mỗi mục checklist chỉ đính 1 ảnh"`, KHÔNG ghi đè; xem ADR-IMM08-PHOTO-03). `checklist_results[idx].photo` = ảnh đã đính làm thumbnail. Sau khi đính, control chuyển sang trạng thái "đã có ảnh" (KHÔNG cho chọn lại). Multi-photo/mục + đổi-ảnh-có-audit (`remove_pm_checklist_photo`) = `[ROADMAP]`.
 - **Ảnh iPhone (HEIC/HEIF):** app mobile PHẢI transcode → JPEG trước upload (ADR-IMM08-PHOTO-04); web-FE chỉ pre-hint đuôi jpg/png. Chọn HEIC trên web → server reject `"Tệp phải là ảnh JPG hoặc PNG"` (hiển thị dưới control `fields.file`).
 
+**UX flow — chặn nghiệm-thu-giả khi bảng kiểm RỖNG (BR-08-19, ADR-IMM08-CHECKLIST-EMPTY-01):**
+- Khi WO có **0 mục checklist** (`checklist_results.length === 0` — WO tạo template-less / template 0 mục): banner amber "Chưa gắn bảng kiểm mẫu — không thể nghiệm thu" + **disable nút "Xác nhận hoàn thành"** (`canSubmit &&= checklist_results.length > 0`). Server VẪN là enforcer cuối: submit lọt → Decision-B HTTP-200 `message_code=IMM08-CHECKLIST-EMPTY` → toast VI đúng registry (KHÔNG tự chế message).
+- **Phân biệt 2 mã** (KHÔNG trộn UX): `IMM08-CHECKLIST-EMPTY` (0 mục) → hint "gắn bảng kiểm mẫu" (lỗi cấu hình, KTV không tự sửa được → gợi báo Workshop Head); `IMM08-CHECKLIST-INCOMPLETE` (còn mục thiếu result) → hint "điền nốt các mục" + highlight dòng thiếu. `ChecklistProgress total===0` → render trạng thái rỗng riêng, KHÔNG hiện "0/0 hoàn tất" (đánh lừa đã xong).
+- **KHÔNG success-giả:** chỉ báo "Đã hoàn thành" khi envelope `success===true`; mọi `VALIDATION` (EMPTY/IDX_UNKNOWN/INCOMPLETE) → giữ nút, hiện lỗi, KHÔNG điều hướng rời trang.
+
 ---
 
 ## 4. Component custom của module

@@ -68,7 +68,9 @@ Toàn bộ artefact test được của module IMM-08. Mỗi dòng → ≥ 1 tes
 | BR-08-05 | `is_late = completion_date > due_date` | `handle_work_order_submit` | BVA (date boundary) |
 | BR-08-06 | Class III/C/D bắt buộc ảnh trước/sau PM | `validate_work_order` | Decision Table / EP |
 | BR-08-07 | Mỗi pm_type là 1 PM Schedule riêng (naming `PMS-{asset}-{pm_type}`) | `create_schedule` | EP |
-| BR-08-08 | Checklist 100% có result trước Submit | `validate_work_order` | BVA (coverage 99% vs 100%) |
+| BR-08-08 | Checklist 100% có result trước Submit (≥1 dòng thiếu → `IMM08-CHECKLIST-INCOMPLETE`) | `validate_work_order` | BVA (coverage 99% vs 100%) |
+| BR-08-19 | **Bảng kiểm RỖNG (0 dòng) → block Submit `IMM08-CHECKLIST-EMPTY`** (bịt lỗ vacuous-pass, chống nghiệm-thu-giả) | `validate_work_order` (guard rỗng TRƯỚC vòng lặp) | BVA (0 vs ≥1 dòng) + persist-thật |
+| BR-08-20 | **Idx payload lệch → block `IMM08-CHECKLIST-IDX-UNKNOWN`** (OPTIONAL BE-2, chống drop câm) | `submit_result` (idx-drift guard) | Invariant (applied==khớp-thực) |
 | BR-08-09 | Fail-Minor → CM Medium; Fail-Major → CM Critical + Out of Service | `_create_cm_wo_from_failure` | Decision Table |
 | BR-08-10 | PM Task Log immutable (`in_create=1`, no write/delete perm) | PM Task Log DocPerm | EP + Error guessing |
 
@@ -256,6 +258,10 @@ Bổ sung: PM Task Log immutable — `frappe.db.set_value("PM Task Log", name, .
 | `test_assign_technician_happy` | `assign_technician` | status==In Progress, assigned_to set | Use Case |
 | `test_assign_technician_wrong_state` | `assign_technician` (Completed WO) | `code=BAD_STATE` | EP |
 | `test_submit_pm_result_happy` | `submit_pm_result` (all Pass, Class II) | `success=true`, new_status=Completed | Use Case |
+| **TC-PM-EMPTY-01** `test_complete_blocked_when_checklist_empty` | `submit_result` trên WO **0 dòng** checklist (tạo template-less, KHÔNG pre-seed) | `raise ServiceError(VALIDATION)` message_code `IMM08-CHECKLIST-EMPTY` + message VI "bảng kiểm chưa có mục nào…"; đọc DB: `status != Completed`, `docstatus == 0` (BR-08-19, AC1) | BVA (0 vs ≥1 dòng) |
+| **TC-PM-EMPTY-02** `test_empty_checklist_no_side_effects` | sau TC-PM-EMPTY-01 — verify persist THẬT (đọc DB, KHÔNG tin return) | KHÔNG PM Task Log mới; `AC Asset.next_pm_date`/`last_pm_date` bất biến; PM Schedule KHÔNG advance (BR-08-19, AC2) | Invariant (persist-thật) |
+| **TC-PM-EMPTY-03** `test_incomplete_still_fires_with_rows` | `submit_result` WO ≥1 dòng, để 1 dòng trống result | `IMM08-CHECKLIST-INCOMPLETE` (KHÔNG bị guard rỗng nuốt — precedence đúng) (BR-08-08, AC4) | Decision Table |
+| **TC-PM-IDX-01** `test_unknown_idx_not_silent_success` *(OPTIONAL — chỉ khi làm BE-2)* | `submit_result` WO ≥1 dòng, payload mang `idx` KHÔNG tồn tại trong `wo.checklist_results` | `IMM08-CHECKLIST-IDX-UNKNOWN` (KHÔNG success câm); `applied` == số idx khớp thực; RED bắt drift (BR-08-20, AC5) | Invariant (anti-drop) |
 | `test_submit_pm_result_incomplete_checklist` | `submit_pm_result` (1 empty) | `code=VALIDATION` BR-08-08 | BVA |
 | `test_submit_pm_result_class3_no_photo` | `submit_pm_result` (Class III no photo) | `code=VALIDATION` BR-08-06 | Decision Table |
 | `test_report_major_failure` | `report_major_failure` | WO Halted, Asset Out of Service, CM WO created | Use Case |

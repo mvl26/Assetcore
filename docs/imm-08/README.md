@@ -6,7 +6,7 @@
 | Wave | 1 |
 | Trạng thái | Mature |
 | Số file hiện có | 14 |
-| Cập nhật cuối | 2026-07-15 (CR-28b — mobile-contract `getDuePmSchedules` read-list KHÔNG-pagination, màn "Nhắc việc" F8 nửa-PM · §05 §0.1.5 + ADR-IMM08-DUEPM + ADR-MOBILE-054) |
+| Cập nhật cuối | 2026-07-19 (BR-08-19 — chống nghiệm-thu-giả PM khi bảng kiểm RỖNG: guard 0-dòng TRƯỚC vòng lặp trong `validate_work_order`, mã MỚI `IMM08-CHECKLIST-EMPTY` ≠ INCOMPLETE · BR-08-20 anti-drop idx `IMM08-CHECKLIST-IDX-UNKNOWN` OPTIONAL · ADR-IMM08-CHECKLIST-EMPTY-01 · reload-only KHÔNG migrate · BE handoff) · 2026-07-18 (CR-24-PM — idempotency `submit_pm_result` qua `client_request_id` cho mobile write-outbox · terminal-state re-read, KHÔNG DocField/migrate · BR-08-18 + ADR-IMM08-IDEMPOTENCY-01 · §05 §4.1 · BE-owned atomic slice CHƯA land) · 2026-07-15 (CR-28b — mobile-contract `getDuePmSchedules` read-list KHÔNG-pagination, màn "Nhắc việc" F8 nửa-PM · §05 §0.1.5 + ADR-IMM08-DUEPM + ADR-MOBILE-054) |
 | Khối kiến trúc | C. KHỐI 3 |
 | Đợt triển khai | 1 |
 | Owner | PTP Khối 2 · Workshop / Nhóm TBYT |

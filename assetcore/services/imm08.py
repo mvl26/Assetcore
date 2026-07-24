@@ -20,6 +20,7 @@ from assetcore.repositories.pm_repo import (
 from assetcore.repositories.repair_repo import RepairRepo
 from assetcore.services.shared import AssetStatus, ErrorCode, ServiceError
 from assetcore.services.shared.errors import validation
+from assetcore.utils.idempotency import resolve_idempotency_key
 from assetcore.services.shared.filters import pop_search
 from assetcore.utils.helpers import _get_role_emails, _safe_sendmail
 from assetcore.utils.messages import MSG
@@ -336,6 +337,13 @@ def validate_work_order(doc) -> None:
     BR-08-02: corrective WO must reference an originating PM WO.
     """
     if doc.status in ("Completed", "Halted–Major Failure"):
+        # BR-08-08 (fix chính): bảng kiểm RỖNG → chặn nghiệm-thu-giả. Guard PHẢI đứng
+        # TRƯỚC vòng for — trên list rỗng vòng for là VACUOUS (không kiểm gì) nên WO
+        # template-less (0 checklist row) sẽ hoàn thành GIẢ (Completed + PM Task Log
+        # không có bằng chứng công việc). Đây là lưới an toàn SSoT: mọi path save
+        # status=Completed đều qua validate() → không cần ép template ở create.
+        if not (doc.checklist_results or []):
+            nthrow_in_hook(MSG.IMM08_CHECKLIST_EMPTY)
         for item in (doc.checklist_results or []):
             if not item.result:
                 # BR-08-08
@@ -774,6 +782,15 @@ def get_work_order(name: str) -> dict:
         for r in (wo.checklist_results or [])
     ]
 
+    # CR-37 (mobile parity list↔detail, cận an-toàn người bệnh): phơi cờ LIVE
+    # `is_overdue` (Python bool) BÊN CẠNH `is_late` (STORED) — badge 'Quá hạn' màn
+    # PM-detail KHÔNG trễ 1 nhịp cron `check_pm_overdue`. DÙNG CHUNG SoT predicate
+    # `_enrich_pm_overdue` với list-item (status==Overdue OR is_pm_overdue LIVE) ⇒
+    # cờ detail == cờ list-item cùng record (INVARIANT). Predicate đọc ĐÚNG 2 field
+    # {status, due_date} → dựng 1 row rồi enrich (KHÔNG fork định nghĩa quá hạn).
+    _ovd_row = {"status": wo.status, "due_date": wo.due_date}
+    _enrich_pm_overdue([_ovd_row])
+
     return {
         "name": wo.name,
         "asset_ref": wo.asset_ref,
@@ -794,6 +811,10 @@ def get_work_order(name: str) -> dict:
         "technician_notes": wo.technician_notes,
         "pm_sticker_attached": bool(wo.pm_sticker_attached),
         "is_late": bool(wo.is_late),
+        # CR-37: cờ LIVE quá-hạn (Python bool, CÙNG predicate _enrich_pm_overdue của
+        # list-item). GIỮ is_late (STORED) nguyên — 2 cờ khác nghĩa (trễ-hoàn-thành
+        # vs chưa-xong-quá-hạn).
+        "is_overdue": _ovd_row["is_overdue"],
         "duration_minutes": wo.duration_minutes,
         "source_pm_wo": wo.source_pm_wo,
         # Server-driven CTA (mirror imm12.get_incident_detail:778) — màn PM-detail
@@ -841,12 +862,25 @@ def _pm_photo_validation_error(msg: str) -> ServiceError:
     return ServiceError(ErrorCode.VALIDATION, msg, http_status=422, fields={"file": msg})
 
 
+def _pm_photo_envelope(file_url: str, file_name: str, checklist_item_idx) -> dict:
+    """Envelope success DUY NHẤT của attach_pm_checklist_photo (EXACT 3-key OAS closed).
+
+    Dùng CHUNG cho insert-path THẬT, dedupe-replay (pre-check HIT) VÀ race-winner
+    re-read ⇒ shape byte-đối-byte KHÔNG lệch (mirror winner-reread imm12)."""
+    return {
+        "file_url": file_url,
+        "file_name": file_name,
+        "checklist_item_idx": int(checklist_item_idx),
+    }
+
+
 def attach_pm_checklist_photo(
     work_order_name: str,
     checklist_item_idx: int,
     filedata: bytes | None = None,
     filename: str = "",
     content_type: str = "",
+    client_request_id: str = "",
 ) -> dict:
     """BR-08-14 (mobile CR-14/G6): đính ảnh bằng chứng cho MỘT mục checklist PM (NĐ98).
 
@@ -861,12 +895,23 @@ def attach_pm_checklist_photo(
     Nếu event throw → File.insert + set_value rollback (chưa commit) ⇒ KHÔNG orphan File,
     KHÔNG silent (đối xứng incident_photo_attached).
 
+    BR-08-14-IDEMP (CR-24 §4 photo-level closure · mirror ADR-IMM12-10): `client_request_id`
+    non-empty → dedupe theo composite scoped key `f"{wo}::{idx}::{key}"` trên Custom Field
+    `File.ac_client_request_id` (unique NULL-store): lớp-1 pre-check SAU permission+idx-
+    validation / TRƯỚC validation ladder (replay ảnh đã đính phải trả success kể cả khi mục
+    đã đủ MAX=1 ảnh) — trúng ⇒ early-return envelope File ĐÃ đính (0 insert / 0 lifecycle);
+    lớp-2 race-handler `UniqueValidationError` → re-read winner (kẻ thua raise TRƯỚC set_value
+    + emit ⇒ 0 event trùng). Scope namespace theo record+mục: cùng key KHÁC wo/idx → composite
+    KHÁC → KHÔNG dedupe chéo. Rỗng/thiếu → mỗi call 1 File mới (at-least-once CŨ, field NULL).
+
     Args:
         work_order_name: PM Work Order đang mở.
         checklist_item_idx: STT mục checklist (`pm_checklist_result.checklist_item_idx`).
         filedata: bytes ảnh (API đọc `frappe.request.files["file"].stream.read()`).
         filename: tên tệp gốc (File.file_name).
         content_type: MIME client gửi (validate jpg/png).
+        client_request_id: idempotency key per-ảnh (mobile write-outbox re-drain);
+            rỗng → behavior at-least-once cũ nguyên vẹn.
 
     Returns: `{"file_url", "file_name", "checklist_item_idx"}`.
     Raises: ServiceError NOT_FOUND | FORBIDDEN | VALIDATION (Decision-B qua API tier).
@@ -878,6 +923,18 @@ def attach_pm_checklist_photo(
     row = _find_checklist_row(wo, checklist_item_idx)
     if row is None:
         raise _pm_photo_validation_error(_MSG_PM_PHOTO_IDX_NOT_FOUND)
+    # BR-08-14-IDEMP lớp-1: dedupe pre-check — SAU permission+idx / TRƯỚC validation ladder.
+    scoped_key = (
+        f"{work_order_name}::{int(checklist_item_idx)}::{client_request_id}"
+        if client_request_id else ""
+    )
+    if scoped_key:
+        existing = frappe.db.get_value(
+            _DT_FILE, {"ac_client_request_id": scoped_key},
+            ["file_url", "file_name"], as_dict=True)
+        if existing:
+            return _pm_photo_envelope(
+                existing.file_url, existing.file_name, checklist_item_idx)
     if not filedata:
         raise _pm_photo_validation_error(_MSG_PM_PHOTO_MISSING)
     ct = (content_type or "").split(";")[0].strip().lower()
@@ -888,16 +945,34 @@ def attach_pm_checklist_photo(
     if len(_checklist_item_photos(row)) >= MAX_PM_CHECKLIST_PHOTOS:
         raise _pm_photo_validation_error(_MSG_PM_PHOTO_MAX)
 
+    file_payload = {
+        "doctype": _DT_FILE,
+        "file_name": filename,
+        "attached_to_doctype": _DT_PM_WO,
+        "attached_to_name": work_order_name,
+        "is_private": 1,
+        "content": filedata,
+        "decode": False,
+    }
+    # BR-08-14-IDEMP: persist scoped key CHỈ khi truthy (NULL-store — File thường lưu NULL,
+    # MariaDB unique index cho phép nhiều NULL ⇒ backward-compat nguyên vẹn).
+    if scoped_key:
+        file_payload["ac_client_request_id"] = scoped_key
     try:
-        file_doc = frappe.get_doc({
-            "doctype": _DT_FILE,
-            "file_name": filename,
-            "attached_to_doctype": _DT_PM_WO,
-            "attached_to_name": work_order_name,
-            "is_private": 1,
-            "content": filedata,
-            "decode": False,
-        }).insert(ignore_permissions=True)
+        file_doc = frappe.get_doc(file_payload).insert(ignore_permissions=True)
+    except frappe.UniqueValidationError:
+        # BR-08-14-IDEMP lớp-2 race: request re-drain concurrent đã insert CÙNG scoped_key
+        # giữa pre-check và insert này (unique index tabFile chặn kẻ thua). Kẻ thua raise
+        # TRƯỚC set_value + create_lifecycle_event ⇒ 0 event trùng. Dọn msgprint "must be
+        # unique" thừa, re-read winner rồi return idempotent (parity attach_incident_photo).
+        frappe.clear_last_message()
+        winner = frappe.db.get_value(
+            _DT_FILE, {"ac_client_request_id": scoped_key},
+            ["file_url", "file_name"], as_dict=True)
+        if winner:
+            return _pm_photo_envelope(
+                winner.file_url, winner.file_name, checklist_item_idx)
+        raise
     except (UnidentifiedImageError, OSError) as exc:
         # ẢNH HỎNG/ĐỨT TRUYỀN: bytes không giải mã được dù content-type hợp lệ. Frappe
         # File.before_insert → strip_exif → PIL.Image.open ném UnidentifiedImageError
@@ -931,11 +1006,7 @@ def attach_pm_checklist_photo(
         notes=f"Đính ảnh bằng chứng mục #{checklist_item_idx}: {filename}",
     )
     frappe.db.commit()
-    return {
-        "file_url": file_doc.file_url,
-        "file_name": file_doc.file_name,
-        "checklist_item_idx": int(checklist_item_idx),
-    }
+    return _pm_photo_envelope(file_doc.file_url, file_doc.file_name, checklist_item_idx)
 
 
 def assign_technician(name: str, *, technician: str, scheduled_date: str | None = None) -> dict:
@@ -964,16 +1035,87 @@ def assign_technician(name: str, *, technician: str, scheduled_date: str | None 
     return {"name": wo.name, "status": wo.status, "assigned_to": wo.assigned_to}
 
 
+# CR-24-PM (mobile write-outbox idempotency): submit_result là write KHÔNG idempotent
+#   (WO→Completed + advance PM Schedule + PM Task Log + escalate CM WO). Mobile re-drain
+#   write-outbox có thể gọi LẠI cùng phiếu ⇒ cần khoá idempotency. Mirror CR-24 imm12
+#   _dedupe_lookup + winner-reread (services/imm12.py:450/557) NHƯNG store = frappe.cache()
+#   thay DocField ⇒ KHÔNG field mới, KHÔNG bench migrate. Key scoped (wo_name,
+#   client_request_id) ⇒ 2 WO / 2 key độc lập. TTL 24h = cửa sổ re-drain write-outbox.
+_PM_SUBMIT_IDEMPOTENCY_TTL = 86400  # giây (24h)
+
+
+def _pm_submit_cache_key(wo_name: str, client_request_id: str) -> str:
+    """Khoá cache idempotency submit_result — scoped theo (wo_name, client_request_id)."""
+    return f"pm_submit_result::{wo_name}::{client_request_id}"
+
+
+def _pm_submit_cache_get(cache_key: str) -> dict | None:
+    """Đọc payload đã cache cho khoá idempotency (None = chưa có / MISS).
+
+    Seam nội-bộ (KHÔNG inline frappe.cache().get_value) để test race winner-reread
+    ép được pre-check MISS đúng-1-lần mà KHÔNG đụng cache dùng chung bởi rbac caps.
+
+    BẮT BUỘC `expires=True`: get_value mặc-định (expires=False) ghi kết-quả vào
+    `frappe.local.cache` (request-local); một pre-check MISS sẽ nhét None vào layer
+    local, còn set_value(expires_in_sec) CHỈ ghi Redis (KHÔNG cập nhật local) ⇒ lần
+    get sau TRONG CÙNG request/process trả None-cũ (shadow) dù Redis đã có. Prod tách
+    request nên vô hại, nhưng re-drain cùng process / test sẽ vỡ idempotency. `expires=
+    True` bỏ qua layer local → luôn đọc Redis (mirror api/openapi.py:1379).
+    """
+    return frappe.cache().get_value(cache_key, expires=True)
+
+
+def _pm_submit_cache_set(cache_key: str, payload: dict) -> None:
+    frappe.cache().set_value(cache_key, payload, expires_in_sec=_PM_SUBMIT_IDEMPOTENCY_TTL)
+
+
 def submit_result(name: str, *, checklist_results: list[dict], overall_result: str,
                   technician_notes: str = "", pm_sticker_attached: int = 0,
-                  duration_minutes: int = 0) -> dict:
+                  duration_minutes: int = 0, client_request_id: str = "") -> dict:
+    # CR-24-PM idempotency (HANDOFF §2.1 header-parity): resolve khoá qua shared
+    #   resolve_idempotency_key — body param `client_request_id` THẮNG header
+    #   X-Idempotency-Key / alias Idempotency-Key (parity imm09/imm00/imm11); cả hai vắng
+    #   ⇒ "" ⇒ cache_key=None ⇒ NO-OP dedup (legacy path y nguyên, NULL-semantics).
+    #   Truthy → dedupe qua cache: HIT trả payload cũ VERBATIM (KHÔNG mutate/submit lần 2
+    #   ⇒ WO Completed 1 lần, next_pm_date KHÔNG drift, CM WO KHÔNG double).
+    resolved_key = resolve_idempotency_key(client_request_id)
+    cache_key = _pm_submit_cache_key(name, resolved_key) if resolved_key else None
+    if cache_key:
+        cached = _pm_submit_cache_get(cache_key)
+        if cached is not None:
+            return cached
+
     wo = PMWorkOrderRepo.get(name)
     if not wo:
         nthrow(MSG.IMM08_WO_NOT_FOUND, name=name)
     if wo.docstatus == 1:
+        # Race re-drain: winner concurrent CÙNG key đã submit + set cache GIỮA pre-check
+        #   và đây → re-read cache khớp ⇒ trả idempotent thay vì ALREADY_SUBMITTED. KHÔNG
+        #   khớp key ⇒ người khác đã đóng phiếu (không cùng key) → giữ lỗi cũ (đúng nghĩa).
+        if cache_key:
+            cached = _pm_submit_cache_get(cache_key)
+            if cached is not None:
+                return cached
         nthrow(MSG.IMM08_ALREADY_SUBMITTED)
 
     result_map = {r["idx"]: r for r in checklist_results if "idx" in r}
+    # BE-3 (chống drop âm thầm): payload có thể chứa idx KHÔNG tồn tại trong child
+    #   (client stale / drift). Nếu update-loop chỉ khớp theo idx thì idx phantom bị
+    #   BỎ QUA CÂM → khi các idx hợp lệ còn lại đã rated, WO complete GIẢ (drop 1 mục
+    #   mà vẫn báo thành công). Chặn: idx phantom = lỗi VALIDATION rõ ràng, KHÔNG nuốt.
+    valid_idx = {row.idx for row in (wo.checklist_results or [])}
+    unknown_idx = sorted(set(result_map) - valid_idx)
+    if unknown_idx:
+        frappe.logger("imm08").warning(
+            "pm_submit_result.checklist_idx_unknown",
+            extra={
+                "work_order": name,
+                "unknown_idx": unknown_idx,
+                "valid_idx_count": len(valid_idx),
+                "payload_idx_count": len(result_map),
+            },
+        )
+        nthrow(MSG.IMM08_CHECKLIST_IDX_UNKNOWN, bad_idx=", ".join(str(i) for i in unknown_idx))
     for row in (wo.checklist_results or []):
         if row.idx in result_map:
             r = result_map[row.idx]
@@ -1017,13 +1159,19 @@ def submit_result(name: str, *, checklist_results: list[dict], overall_result: s
         fields=["name"],
     )
 
-    return {
+    payload = {
         "name": wo.name,
         "new_status": wo.status,
         "is_late": bool(wo.is_late),
         "next_pm_date": str(next_pm_date),
         "cm_wo_created": cm_wo["name"] if cm_wo else None,
     }
+    # CR-24-PM: lưu payload SAU mọi side-effect → re-drain trả VERBATIM (không drift).
+    #   Shape 5-key GIỮ NGUYÊN (Hyrum's Law — mobile/FE phụ thuộc; OAS PmSubmitResultResponse
+    #   closed). client_request_id CHỈ điều khiển dedup, KHÔNG lọt payload.
+    if cache_key:
+        _pm_submit_cache_set(cache_key, payload)
+    return payload
 
 
 def report_major_failure(pm_wo_name: str, *, failure_description: str) -> dict:
@@ -1290,6 +1438,10 @@ def get_dashboard_stats(*, year: int, month: int) -> dict:
             "avg_days_late": avg_days_late,
         },
         "trend_6months": trend,
+        # CR-36 (Mobile-BE Dashboard KPI / IMM-07): ECHO kỳ báo-cáo server-resolve
+        # (year/month keyword-only) → FE/mobile render header kỳ KHÔNG client-clock.
+        # Đối-xứng imm09.get_kpis + imm11.get_kpis (đã có period @imm11.py:1295).
+        "period": {"year": year, "month": month},
     }
 
 

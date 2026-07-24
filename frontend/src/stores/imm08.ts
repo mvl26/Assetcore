@@ -9,7 +9,7 @@ import {
   getPMDashboardStats, reschedulePM, getAssetPMHistory,
   type PMWorkOrder, type PMCalendarEvent, type PMDashboardStats,
 } from '@/api/imm08'
-import { ApiError, toApiError } from '@/api/errors'
+import { ApiError, ErrorCode, toApiError } from '@/api/errors'
 
 export const useImm08Store = defineStore('imm08', () => {
   // --- State ---
@@ -102,19 +102,33 @@ export const useImm08Store = defineStore('imm08', () => {
     }
   }
 
-  async function doSubmitResult(summary: string, stickerAttached: boolean, durationMin: number): Promise<{ success: boolean; cmWoCreated?: string | null }> {
+  async function doSubmitResult(summary: string, stickerAttached: boolean, durationMin: number): Promise<{ success: boolean; newStatus?: string; cmWoCreated?: string | null }> {
     if (!currentWO.value) return { success: false }
+    const name = currentWO.value.name
     try {
       const res = await submitPMResult({
-        name: currentWO.value.name,
+        name,
         checklist_results: currentWO.value.checklist_results,
         overall_result: hasMajorFailure.value ? 'Fail' : hasMinorFailure.value ? 'Pass with Minor Issues' : 'Pass',
         technician_notes: summary,
         pm_sticker_attached: stickerAttached,
         duration_minutes: durationMin,
       })
-      await fetchWorkOrder(currentWO.value.name)
-      return { success: true, cmWoCreated: res.cm_wo_created }
+      // FE-2 (không lạc quan): CHỈ coi là thành công khi BE XÁC NHẬN status thực =
+      // 'Completed' (đọc từ response — KHÔNG suy ra "thành công" chỉ vì POST không ném).
+      // BE submit_result trả new_status = PMStatus.COMPLETED khi nghiệm thu thật.
+      const completed = res.new_status === 'Completed'
+      await fetchWorkOrder(name)
+      if (!completed) {
+        // POST resolve nhưng WO CHƯA Completed (bất thường) → coi là thất bại, dựng
+        // ApiError để view surface qua notify.fromError (không báo thành-công-giả).
+        _captureError(new ApiError(
+          `Nghiệm thu PM chưa hoàn tất (trạng thái hiện tại: ${res.new_status})`,
+          ErrorCode.BAD_STATE,
+        ))
+        return { success: false, newStatus: res.new_status }
+      }
+      return { success: true, newStatus: res.new_status, cmWoCreated: res.cm_wo_created }
     } catch (e: unknown) {
       _captureError(e)
       return { success: false }

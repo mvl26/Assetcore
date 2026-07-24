@@ -23,6 +23,17 @@ export interface PMWorkOrder {
   technician_notes: string
   pm_sticker_attached: boolean
   is_late: boolean
+  /**
+   * Live-truth quá hạn (CR-37 · BR-08-11 LIVE) — `get_pm_work_order` enrich detail
+   * per-WO CÙNG predicate `_enrich_pm_overdue` của list-item:
+   * `is_overdue = (status == Overdue) OR is_pm_overdue(status, due_date, today)`.
+   * Banner/computed đọc `is_overdue ?? (status === 'Overdue')` (live ưu tiên,
+   * fallback status thô — forward-compat: trước khi BE emit → undefined → fallback,
+   * KHÔNG vỡ). Chặn badge Quá-hạn đọc cờ STORED `is_late`/`status` trễ 1 nhịp
+   * scheduler (cận an-toàn người bệnh). BÊN CẠNH `is_late` (STORED — hoàn-thành-trễ,
+   * quá khứ) — GIỮ nguyên. Optional. Đối xứng `is_sla_breached ?? sla_breached` (imm09).
+   */
+  is_overdue?: boolean
   duration_minutes: number | null
   source_pm_wo: string | null
   checklist_results: ChecklistResult[]

@@ -3,6 +3,7 @@ import { useNotify } from '@/composables/useNotify'
 import { useToast } from '@/composables/useToast'
 import { MSG } from '@/i18n/messages'
 import DateInput from '@/components/common/DateInput.vue'
+import RelatedRecords from '@/components/common/RelatedRecords.vue'
 import { onMounted, computed, ref } from 'vue'
 import { useImm08Store } from '@/stores/imm08'
 import { useRouter } from 'vue-router'
@@ -57,6 +58,11 @@ const progressPct = computed(() =>
 // Lý do không thể hoàn thành (FE mirror của gate BE BR-08-08/09/10).
 const completionBlockReason = computed(() => {
   if (!canSubmitPM.value) return 'Bạn không có quyền hoàn thành bảo trì'
+  // BR-08-08 (chặn nghiệm-thu-giả): bảng kiểm RỖNG (thiếu bảng kiểm mẫu) → không có
+  // bằng chứng công việc ⇒ chặn hoàn thành. Hint RIÊNG, khác "chưa chấm hết" — mirror
+  // gate BE IMM08_CHECKLIST_EMPTY. PHẢI kiểm trước checklistComplete (rỗng cũng làm
+  // checklistComplete=false nhưng thông điệp phải chỉ đúng nguyên nhân).
+  if (totalCount.value === 0) return 'Chưa có mục bảng kiểm — không thể nghiệm thu PM'
   if (!store.checklistComplete) return 'Phải chấm kết quả cho tất cả mục checklist trước khi hoàn thành'
   if (durationMin.value <= 0) return 'Thời gian thực hiện phải lớn hơn 0 phút'
   if (!stickerAttached.value) return 'Phải xác nhận đã gắn tem bảo trì'
@@ -86,7 +92,12 @@ const canResume = computed(() =>
   (allowedTransitions.value.includes('In Progress') || allowedTransitions.value.includes('Pending–Device Busy')),
 )
 
-const isOverdue = computed(() => wo.value?.status === 'Overdue')
+// LIVE quá hạn (CR-37 · BR-08-11 LIVE) — đọc cờ SERVER `is_overdue` do
+// get_pm_work_order enrich (CÙNG predicate _enrich_pm_overdue của list-item), ưu
+// tiên hơn cờ STORED. Fallback `status === 'Overdue'` (forward-compat: BE chưa emit
+// → undefined). Chặn banner Quá-hạn trễ 1 nhịp scheduler khi WO đã vượt due_date
+// nhưng status chưa được cron stamp sang Overdue. Đối xứng list badge + is_sla_breached.
+const isOverdue = computed(() => wo.value?.is_overdue ?? (wo.value?.status === 'Overdue'))
 
 // Compute overdue days from due_date
 const overdueDays = computed(() => {
@@ -268,7 +279,10 @@ async function handleStart() {
           </div>
           <div>
             <span class="text-slate-500">Đến hạn:</span>
-            <span :class="wo.is_late ? 'font-semibold text-red-600 ml-1' : 'font-medium ml-1'">{{ wo.due_date }}</span>
+            <!-- Red-highlight đọc cờ LIVE `isOverdue` (đang quá hạn) HỢP với `is_late`
+                 (STORED — hoàn-thành-trễ, giữ tín hiệu lịch sử cho phiếu đã Hoàn thành).
+                 Live-overdue mở (is_late=0) vẫn đỏ, không trễ nhịp scheduler. -->
+            <span :class="(isOverdue || wo.is_late) ? 'font-semibold text-red-600 ml-1' : 'font-medium ml-1'">{{ wo.due_date }}</span>
           </div>
           <div><span class="text-slate-500">Loại bảo trì:</span> <span class="font-medium ml-1">{{ pmTypeLabel(wo.pm_type) }}</span></div>
           <div><span class="text-slate-500">Kỹ thuật viên:</span> <span class="font-medium ml-1">{{ wo.assigned_to_name || wo.assigned_to || '—' }}</span></div>
@@ -437,6 +451,9 @@ async function handleStart() {
           <div class="text-sm">Kết quả: {{ overallResultLabel(wo.overall_result) }} · Ngày: {{ wo.completion_date }}</div>
         </div>
       </div>
+      <!-- Bản ghi liên quan: nội dung do đồ thị liên kết ở backend quyết định. -->
+      <RelatedRecords class="mt-4" doctype="PM Work Order" :name="wo.name" />
+
     </template>
 
     <!-- Reschedule Modal (from Overdue banner) -->
