@@ -25,13 +25,13 @@
   },
   {
    "allow_edit": "AssetCore Super Admin",
-   "doc_status": "1",
+   "doc_status": "0",
    "state": "Minutes Approved",
    "type": "Success"
   },
   {
    "allow_edit": "AssetCore Super Admin",
-   "doc_status": "1",
+   "doc_status": "0",
    "state": "Closed",
    "type": "Success"
   }
@@ -89,6 +89,27 @@
   {
    "action": "Đóng",
    "allowed": "System Manager",
+   "next_state": "Closed",
+   "state": "Minutes Approved",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Đánh dấu Đã họp",
+   "allowed": "Compliance User",
+   "next_state": "Held",
+   "state": "Draft",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Phê duyệt Biên bản",
+   "allowed": "Compliance User",
+   "next_state": "Minutes Approved",
+   "state": "Held",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Đóng",
+   "allowed": "Compliance User",
    "next_state": "Closed",
    "state": "Minutes Approved",
    "allow_self_approval": 1

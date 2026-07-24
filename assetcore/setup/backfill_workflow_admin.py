@@ -146,6 +146,78 @@ def run(dry_run: int = 0) -> dict:
     return result
 
 
+def sync_state_doc_status(dry_run: int = 0) -> dict:
+    """Sync ``doc_status`` của Workflow Document State trên site LIVE về đúng SoT
+    (fixtures/workflow.json) — CHỈ 22 workflow AssetCore, idempotent.
+
+    VÌ SAO (WF-ADMIN-E2E 2026-07-16): 5 doctype KHÔNG submittable (Asset Document,
+    IMM Training Session, IMM Compliance Finding, IMM Internal Audit,
+    IMM Management Review) từng khai state ``doc_status="1"`` CHẾT — Frappe
+    ``has_permission(ptype="submit")`` trả False vô điều kiện khi
+    ``meta.is_submittable == 0`` (frappe/permissions.py) ⇒ MỌI user (trừ
+    Administrator) bị PermissionError khi apply_workflow bước duyệt cuối.
+    Fixtures + workflow JSON nguồn đã sửa về "0"; hàm này đưa live DB về khớp
+    (không cần ``bench migrate``). Live data vốn đã docstatus=0 ở các state đó
+    (service layer set_value bypass) → chỉnh metadata KHÔNG đổi dữ liệu phiếu.
+
+    Scope guard y hệt ``run()``: chỉ ``_assetcore_workflow_names()`` — TUYỆT ĐỐI
+    không chạm workflow app khác trên site multi-app.
+
+    Args:
+        dry_run: 1 = chỉ đếm, KHÔNG ghi. 0 = áp dụng thật (default).
+
+    Returns:
+        {dry_run, updated, workflows_touched, per_workflow}
+    """
+    dry = bool(int(dry_run))
+    path = frappe.get_app_path("assetcore", "fixtures", "workflow.json")
+    with open(path, encoding="utf-8") as fh:
+        fixtures = json.load(fh)
+    sot: dict[str, dict[str, str]] = {
+        d["name"]: {s.get("state"): str(s.get("doc_status") or "0")
+                    for s in d.get("states", [])}
+        for d in fixtures if d.get("doctype") == "Workflow"
+    }
+
+    updated_total = 0
+    per_workflow: dict[str, int] = {}
+    for wf in sorted(_assetcore_workflow_names()):
+        if not frappe.db.exists("Workflow", wf):
+            continue
+        want = sot.get(wf) or {}
+        doc = frappe.get_doc("Workflow", wf)
+        dirty = 0
+        for s in doc.states:
+            target = want.get(s.state)
+            if target is not None and str(s.doc_status) != target:
+                s.doc_status = target
+                dirty += 1
+        if not dirty:
+            continue
+        per_workflow[wf] = dirty
+        updated_total += dirty
+        if dry:
+            continue
+        doc.flags.ignore_links = True
+        doc.flags.ignore_mandatory = True
+        doc.flags.ignore_permissions = True
+        doc.save(ignore_permissions=True)
+
+    if not dry:
+        frappe.db.commit()
+        frappe.clear_cache()
+
+    result = {
+        "dry_run": dry,
+        "updated": updated_total,
+        "workflows_touched": len(per_workflow),
+        "per_workflow": per_workflow,
+    }
+    frappe.logger().info(f"backfill_workflow_admin.sync_state_doc_status: {result}")
+    print(result)
+    return result
+
+
 def _clone_appended_admin_rows(transitions) -> list:
     """Xác định đúng các row admin-role mà `run()` đã clone-append vào 1 workflow.
 

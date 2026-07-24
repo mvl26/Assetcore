@@ -120,6 +120,27 @@
    "next_state": "Posted",
    "state": "Reviewed",
    "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu đếm",
+   "allowed": "Inventory User",
+   "next_state": "Counting",
+   "state": "Planned",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hoàn tất đếm",
+   "allowed": "Inventory User",
+   "next_state": "Reviewed",
+   "state": "Counting",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Sửa đếm lại",
+   "allowed": "Inventory User",
+   "next_state": "Counting",
+   "state": "Reviewed",
+   "allow_self_approval": 1
   }
  ]
 }

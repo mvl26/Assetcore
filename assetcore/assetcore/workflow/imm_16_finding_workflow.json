@@ -31,25 +31,25 @@
   },
   {
    "allow_edit": "System Manager",
-   "doc_status": "1",
+   "doc_status": "0",
    "state": "False Positive",
    "type": "Inverse"
   },
   {
    "allow_edit": "System Manager",
-   "doc_status": "1",
+   "doc_status": "0",
    "state": "Waived",
    "type": "Inverse"
   },
   {
    "allow_edit": "System Manager",
-   "doc_status": "1",
+   "doc_status": "0",
    "state": "Resolved",
    "type": "Success"
   },
   {
    "allow_edit": "System Manager",
-   "doc_status": "1",
+   "doc_status": "0",
    "state": "Closed",
    "type": "Success"
   }
@@ -225,6 +225,62 @@
   {
    "action": "Đóng finding",
    "allowed": "System Manager",
+   "next_state": "Closed",
+   "state": "Resolved",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu xem xét",
+   "allowed": "Compliance User",
+   "next_state": "Under Review",
+   "state": "Open",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Xác nhận vi phạm",
+   "allowed": "Compliance User",
+   "next_state": "Confirmed NC",
+   "state": "Under Review",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Xác nhận không vi phạm",
+   "allowed": "Compliance User",
+   "next_state": "False Positive",
+   "state": "Under Review",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Miễn trừ",
+   "allowed": "Compliance User",
+   "next_state": "Waived",
+   "state": "Under Review",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Đánh dấu đã giải quyết",
+   "allowed": "Compliance User",
+   "next_state": "Resolved",
+   "state": "Confirmed NC",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Đóng finding",
+   "allowed": "Compliance User",
+   "next_state": "Closed",
+   "state": "False Positive",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Đóng finding",
+   "allowed": "Compliance User",
+   "next_state": "Closed",
+   "state": "Waived",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Đóng finding",
+   "allowed": "Compliance User",
    "next_state": "Closed",
    "state": "Resolved",
    "allow_self_approval": 1

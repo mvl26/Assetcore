@@ -210,6 +210,48 @@
    "next_state": "Investigating",
    "state": "Re-opened",
    "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu điều tra",
+   "allowed": "Compliance User",
+   "next_state": "Investigating",
+   "state": "Open",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Lập kế hoạch hành động",
+   "allowed": "Compliance User",
+   "next_state": "Action Plan",
+   "state": "Investigating",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu thực thi",
+   "allowed": "Compliance User",
+   "next_state": "Implementation",
+   "state": "Action Plan",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Chuyển sang xác minh",
+   "allowed": "Compliance User",
+   "next_state": "Verification",
+   "state": "Implementation",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Mở lại do chưa hiệu quả",
+   "allowed": "Compliance User",
+   "next_state": "Re-opened",
+   "state": "Verification",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu điều tra lại",
+   "allowed": "Compliance User",
+   "next_state": "Investigating",
+   "state": "Re-opened",
+   "allow_self_approval": 1
   }
  ]
 }

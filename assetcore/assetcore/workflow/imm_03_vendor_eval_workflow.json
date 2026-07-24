@@ -154,6 +154,20 @@
    "action": "Huỷ Eval",
    "allowed": "System Manager",
    "allow_self_approval": 1
+  },
+  {
+   "action": "Mở RFQ",
+   "allowed": "Procurement User",
+   "next_state": "Open RFQ",
+   "state": "Draft",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Nhận báo giá xong",
+   "allowed": "Procurement User",
+   "next_state": "Quotation Received",
+   "state": "Open RFQ",
+   "allow_self_approval": 1
   }
  ]
 }

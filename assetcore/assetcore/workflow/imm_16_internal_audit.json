@@ -31,7 +31,7 @@
   },
   {
    "allow_edit": "AssetCore Super Admin",
-   "doc_status": "1",
+   "doc_status": "0",
    "state": "Closed",
    "type": "Success"
   }
@@ -99,6 +99,27 @@
    "allow_self_approval": 1,
    "state": "Reporting",
    "next_state": "Closed"
+  },
+  {
+   "action": "Bắt đầu Audit",
+   "allowed": "Compliance User",
+   "next_state": "In Progress",
+   "state": "Planned",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Chuyển sang Báo cáo",
+   "allowed": "Compliance User",
+   "next_state": "Reporting",
+   "state": "In Progress",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Đóng Audit",
+   "allowed": "Compliance User",
+   "next_state": "Closed",
+   "state": "Reporting",
+   "allow_self_approval": 1
   }
  ]
 }

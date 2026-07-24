@@ -299,6 +299,55 @@
    "action": "Yêu cầu chỉnh dự toán",
    "allowed": "System Manager",
    "allow_self_approval": 1
+  },
+  {
+   "action": "Gửi đề xuất",
+   "allowed": "Needs User",
+   "next_state": "Submitted",
+   "state": "Draft",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Tiếp nhận rà soát",
+   "allowed": "Needs User",
+   "next_state": "Reviewing",
+   "state": "Submitted",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Yêu cầu bổ sung",
+   "allowed": "Needs User",
+   "next_state": "Draft",
+   "state": "Submitted",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hoàn tất chấm điểm",
+   "allowed": "Needs User",
+   "next_state": "Prioritized",
+   "state": "Reviewing",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hoàn tất dự toán",
+   "allowed": "Needs User",
+   "next_state": "Budgeted",
+   "state": "Prioritized",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Trình BGĐ",
+   "allowed": "Needs User",
+   "next_state": "Pending Approval",
+   "state": "Budgeted",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Yêu cầu chỉnh dự toán",
+   "allowed": "Needs User",
+   "next_state": "Budgeted",
+   "state": "Pending Approval",
+   "allow_self_approval": 1
   }
  ]
 }
