@@ -72,19 +72,72 @@ rồi đọc ``x-assetcore-stats``. KHÔNG tin số học — luôn đếm @sour
    sót bump SỐ TOTAL/GET này → lockstep-drift RED d10/d12/d15/d17 (đúng LỚP lỗi guard sinh
    ra để bắt). get/guest/json_param GIỮ (chỉ +1 GET authed → typed==total bất biến).
   RE-VERIFY @source: total=507 get=238 post=269 guest=5 typed=507 json_param=64.
+2026-07-16 APPROVAL-INBOX-CR32 507→508 / get 238→239 / typed 507→508 (== total):
+  +1 GET @whitelist imm00.get_pending_approvals_inbox (inbox gộp "Phiếu chờ tôi duyệt"
+   xuyên module: imm04 commissioning pending_approver==session user + imm00 transfer
+   'Pending Approval' [cap commissioning.submit] + imm15 allocation 'Requested'
+   [cap inventory.submit]; session-scoped signature **_ignore — 0 param, không
+   parse_json, không guest → get/guest/json_param GIỮ nguyên trừ +1 GET). Endpoint
+   LEGIT đầy đủ: BE service+api (tests/test_imm00_approvals_inbox.py
+   TC-BE-1..5) · mobile OAS mirror +1 path getPendingApprovalsInbox (test_mobile_oas
+   CR-32) · FE /approvals/pending đổi nguồn sang endpoint gộp.
+  RE-VERIFY @source: total=508 get=239 post=269 guest=5 typed=508 json_param=64.
+2026-07-18 IMM10-RECALL-CR26 508→509 / get 239→240 / typed 508→509 (== total):
+  +1 GET @whitelist imm10.check_asset_recall (tra cứu Recall/FSCA của 1 asset theo
+   token/asset — params str query, allow_guest=False, không parse_json, không guest
+   → post/guest/json_param GIỮ nguyên trừ +1 GET). Endpoint LEGIT đầy đủ: DocType
+   IMM Recall Notice + BE service+api (assetcore/api/imm10.py, services/imm10.py) ·
+   test_imm10.py · mobile OAS mirror path checkAssetRecall (test_mobile_oas CR-26).
+   Round-1 né bump (coi imm10 = "contract phiên khác"); IMM-10 nay là phần hợp lệ của
+   tree → lockstep-sync SỐ @source để d10/d12/d15/d17 khỏi RED-drift.
+  RE-VERIFY @source: total=509 get=240 post=269 guest=5 typed=509 json_param=64.
+2026-07-21 ISS-002-SET-PASSWORD 509→511 / post 269→271 / guest 5→7 / typed 509→511:
+  +2 POST @whitelist(allow_guest=True) auth.verify_password_key + auth.set_password_with_key
+   — màn tự đặt mật khẩu của UI AssetCore (/assetcore/set-password) thay form
+   /update-password của Frappe desk; user CHƯA có mật khẩu nên KHÔNG thể authed ⇒ bề
+   mặt guest tăng có CHỦ ĐÍCH 5→7 (ledger D11 `_EXPECTED_GUEST_TAILS` cập nhật cùng).
+   Bảo mật bù lại: key sha256 một-lần + hết hạn theo System Settings + rate_limit
+   ip_based + thông điệp lỗi không enumeration. params key/new_password đều str
+   (không parse_json) → json_param GIỮ; không GET mới → get GIỮ. Endpoint LEGIT đầy đủ:
+   BE api/auth.py · tests/test_imm00_set_password.py · FE SetPasswordView.vue
+   (+ SetPasswordView.test.ts) · email chào mừng trỏ link vào UI AssetCore.
+  RE-VERIFY @source: total=511 get=240 post=271 guest=7 typed=511 json_param=64.
+2026-07-22 CORE-REFINEMENT-CONN 511→512 / get 240→241 / typed 511→512 (== total):
+  +1 GET @whitelist connections.get_connections(doctype, name) — endpoint CHUNG trả
+   "bản ghi liên quan" cho MỌI doctype, đọc cùng SSoT với tab Connections của Desk
+   (``Meta.get_dashboard_data`` → ``<doctype>_dashboard.py::get_data()``). Thay cho
+   việc mỗi màn chi tiết tự viết API liên kết riêng (33 màn = 33 chỗ khai trùng).
+   params doctype/name đều str (không parse_json) → json_param GIỮ 64; authed →
+   responses {200,401,403,default} ⇒ typed==total GIỮ; không POST mới → post GIỮ.
+   Tag cross-cut MỚI "Bản ghi liên quan" (khai trong `_CROSSCUT_TAG_MAP` +
+   `_TAG_LABEL_VI`, có mô tả VI → D9-TAGS không leak raw-slug). Endpoint LEGIT đầy đủ:
+   BE api/connections.py · tests/test_connections.py (11 TC) · guard
+   tests/test_doctype_connectivity.py · SPEC/PLAN docs/architecture/.
+  RE-VERIFY @source: total=512 get=241 post=271 guest=7 typed=512 json_param=64.
+2026-07-23 FILES-UPLOAD-ATTACHMENT 512→513 / post 271→272 / typed 512→513: +1 POST
+  files.upload_attachment (SSoT tải tệp đính kèm dùng chung cho MỌI field Attach/Attach
+  Image — memory file_attachment_upload_ssot). POST-only @frappe.whitelist(methods=["POST"]),
+  allow_guest=False; 4 param str (doctype/fieldname/docname/parent_doctype) đều KHÔNG
+  parse_json ⇒ get/guest/json_param GIỮ (241/7/64); authed → responses {200,401,403,default}
+  ⇒ typed==total GIỮ. Tag cross-cut MỚI "Tệp đính kèm" khai trong `_CROSSCUT_TAG_MAP` +
+  `_TAG_LABEL_VI` (có mô tả VI → D9-TAGS không leak raw-slug 'files'). Endpoint LEGIT đầy đủ:
+  BE api/files.py · tests/test_attachment_upload.py · hook File-orphan · FE FileUploadField.vue
+  (memory file_attachment_upload_ssot). Trước fix: generate_spec() RAISE KeyError 'files chưa
+  map canonical tag' (fail-fast T4) ⇒ toàn bộ OAS test surface đỏ; nay khai tag → xanh.
+  RE-VERIFY @source: total=513 get=241 post=272 guest=7 typed=513 json_param=64.
 ─────────────────────────────────────────────────────────────────────────────
 """
 
 from __future__ import annotations
 
 # Số lượng operation (path×verb; mỗi path AssetCore = 1 verb) trong spec.
-BASELINE_TOTAL: int = 507
+BASELINE_TOTAL: int = 513
 # GET operation (bare @whitelist → mọi verb → coi GET; đọc dữ liệu).
-BASELINE_GET: int = 238
+BASELINE_GET: int = 241
 # POST operation (@whitelist(methods=["POST"]) → mutating write-action).
-BASELINE_POST: int = 269
+BASELINE_POST: int = 272
 # guest operation (allow_guest=True → security==[]). Bề mặt guest THẬT bất biến.
-BASELINE_GUEST: int = 5
+BASELINE_GUEST: int = 7
 # json_param operation-param dùng parse_json (JSON-string query param).
 BASELINE_JSON_PARAM: int = 64
 # error_responses_typed_count == total: mọi op authed có ≥1 status 4xx (401/403)

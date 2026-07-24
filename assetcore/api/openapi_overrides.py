@@ -391,6 +391,7 @@ _MODULE_LABEL_VI: dict[str, str] = {
     "imm06": "Đào tạo & chuyển giao (IMM-06)",
     "imm08": "Bảo trì định kỳ (IMM-08)",
     "imm09": "Sửa chữa khắc phục (IMM-09)",
+    "imm10": "Thu hồi & cảnh báo an toàn thiết bị (IMM-10)",
     "imm11": "Hiệu chuẩn (IMM-11)",
     "imm12": "Sự cố & khắc phục (IMM-12)",
     "imm14": "Thanh lý & kết thúc vòng đời (IMM-14)",
@@ -410,7 +411,7 @@ _MODULE_LABEL_VI: dict[str, str] = {
 #   - 13 module imm-named (immXX có endpoint) → "IMM-XX" uppercase (`f"IMM-{slug[-2:]}"`).
 #     DẪN XUẤT bằng quy tắc ⟹ KHỚP `enrich_meta_for` (imm00/04/12 trả CÙNG "IMM-XX" ⟹
 #     idempotent: KHÔNG double-tag, KHÔNG đổi enriched_count).
-#   - 9 cross-cut + openapi → domain-tag VI canonical (`_CROSSCUT_TAG_MAP`).
+#   - 10 cross-cut + openapi → domain-tag VI canonical (`_CROSSCUT_TAG_MAP`, 11 value).
 #   - module CHƯA-map (cross-cut mới) → raise KeyError (fail-fast T4 — KHÔNG fallback raw-slug
 #     im lặng → no silent leak; guard test bắt thêm-module-mới).
 # ══════════════════════════════════════════════════════════════════════════════
@@ -419,7 +420,9 @@ _IMM_SLUG_RE = re.compile(r"imm[0-9]{2}")
 # Cross-cut + openapi (không mã IMM) → TÊN tag VI canonical (SSoT NAME — cột 4 D9-MAP).
 _CROSSCUT_TAG_MAP: dict[str, str] = {
     "auth": "Xác thực",
+    "connections": "Bản ghi liên quan",
     "dashboard": "Bảng điều khiển",
+    "files": "Tệp đính kèm",
     "import_data": "Nhập liệu",
     "inventory": "Kho",
     "layout": "Bố cục",
@@ -459,15 +462,16 @@ def canonical_tag(module_short: str) -> str:
 
 
 # ── D8/D9 root tags[] — SSoT mô tả VI per CANONICAL tag (Swagger UI nhóm endpoint kèm mô tả) ─
-# Sau D9, tag NAME ở operation = tập canonical (13 "IMM-XX" + 9 domain-VI). `tag_description_for`
+# Sau D9, tag NAME ở operation = tập canonical (13 "IMM-XX" + 11 domain-VI). `tag_description_for`
 # phủ CẢ 2 dạng để KHÔNG tag mồ côi (mọi tag dùng → có entry mô tả VI non-empty).
 #
-# 13 tag "IMM-XX" DẪN XUẤT từ `_MODULE_LABEL_VI` (SSoT chung D6 — KHÔNG khai lại chuỗi). 9 tag
+# 13 tag "IMM-XX" DẪN XUẤT từ `_MODULE_LABEL_VI` (SSoT chung D6 — KHÔNG khai lại chuỗi). 11 tag
 # domain-VI cross-cut keyed-by-CANONICAL-NAME (== value `_CROSSCUT_TAG_MAP`). Tag lạ → fallback
 # an toàn VI (KHÔNG vỡ, KHÔNG leak raw key) qua `_TAG_FALLBACK_VI`.
 _TAG_LABEL_VI: dict[str, str] = {
     # Cross-cut / nền tảng — KEY = canonical tag NAME (== value _CROSSCUT_TAG_MAP), KHÔNG slug.
     "Xác thực": "Xác thực & tài khoản người dùng",
+    "Bản ghi liên quan": "Bản ghi liên quan giữa các hồ sơ (đồ thị liên kết)",
     "Bảng điều khiển": "Bảng điều khiển & chỉ số",
     "Nhập liệu": "Nhập dữ liệu hàng loạt",
     "Kho": "Kho & vật tư (nền tảng)",
@@ -476,6 +480,7 @@ _TAG_LABEL_VI: dict[str, str] = {
     "Mua sắm": "Mua hàng & đơn đặt hàng",
     "Người dùng": "Quản trị người dùng & phân quyền",
     "Tài liệu API": "Tài liệu OpenAPI (tự sinh)",
+    "Tệp đính kèm": "Tệp đính kèm & tải lên tài liệu",
 }
 _TAG_FALLBACK_VI = "Nhóm chức năng AssetCore"
 

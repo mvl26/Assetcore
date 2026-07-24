@@ -26,9 +26,14 @@ import unittest
 from assetcore.api import openapi
 from assetcore.api import openapi_overrides as _ovr
 
-# Tập domain-tag VI canonical cho 9 module cross-cut + openapi (cột 4 D9-MAP).
+# Tập domain-tag VI canonical cho 11 module cross-cut + openapi (cột 4 D9-MAP).
+# 2026-07-22 +1 "Bản ghi liên quan" (api/connections.py — đồ thị liên kết dùng chung
+# Desk+Vue). 2026-07-23 +1 "Tệp đính kèm" (api/files.py::upload_attachment — SSoT tải
+# tệp đính kèm). Tập này là BẢN CHÉP của `openapi_overrides._CROSSCUT_TAG_MAP.values()`,
+# giữ literal có chủ đích (tripwire: đổi bề mặt tag phải là sửa đổi CÓ Ý THỨC).
 _CANONICAL_CROSSCUT_TAGS = {
     "Xác thực",
+    "Bản ghi liên quan",
     "Bảng điều khiển",
     "Nhập liệu",
     "Kho",
@@ -37,11 +42,14 @@ _CANONICAL_CROSSCUT_TAGS = {
     "Mua sắm",
     "Người dùng",
     "Tài liệu API",
+    "Tệp đính kèm",
 }
 # Tập raw cross-cut slug PHẢI biến mất khỏi spec sau D9 (leak nội bộ).
 _RAW_CROSSCUT_SLUGS = {
     "auth",
+    "connections",
     "dashboard",
+    "files",
     "import_data",
     "inventory",
     "layout",
@@ -333,3 +341,123 @@ class TestOasD9Tags(unittest.TestCase):
         """
         with self.assertRaises((KeyError, ValueError)):
             _ovr.canonical_tag("ghostmod")
+
+
+# Path (dotted-tail) của endpoint SSoT tải tệp đính kèm — cross-cut mới 2026-07-23.
+_FILES_UPLOAD_PATH = "/api/method/assetcore.api.files.upload_attachment"
+
+
+class TestOasD9FilesUploadTag(unittest.TestCase):
+    """FILES-UPLOAD (2026-07-23) — regression cho crash generate_spec khi module cross-cut
+    `files` chưa map canonical tag. TDD viết TRƯỚC fix (RED: KeyError 'files' tại
+    canonical_tag → setUpClass error). Sau khi khai 'files'→'Tệp đính kèm' trong
+    `_CROSSCUT_TAG_MAP` + `_TAG_LABEL_VI` → GREEN.
+
+    api/files.py::upload_attachment = SSoT DUY NHẤT tải tệp cho mọi field Attach/Attach Image
+    (memory file_attachment_upload_ssot). POST-only, không allow_guest, 4 param str
+    (doctype/fieldname/docname/parent_doctype) không parse_json.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.spec = openapi.generate_spec()
+
+    def test_generate_spec_no_keyerror_on_files(self):
+        """Regression: generate_spec() chạy TRỌN, KHÔNG raise KeyError 'files' (fail-fast T4
+        đúng — nhưng module `files` PHẢI đã map để pipeline không vỡ)."""
+        try:
+            spec = openapi.generate_spec()
+        except KeyError as exc:  # pragma: no cover - chỉ RED khi files chưa map
+            self.fail(
+                f"generate_spec() raise KeyError (module cross-cut chưa map canonical tag): {exc}"
+            )
+        self.assertIn(
+            _FILES_UPLOAD_PATH,
+            spec["paths"],
+            "upload_attachment PHẢI xuất hiện trong spec (SSoT tải tệp đính kèm).",
+        )
+
+    def test_files_upload_attachment_tagged(self):
+        """upload_attachment mang ĐÚNG tag canonical VI ['Tệp đính kèm'] — KHÔNG raw slug 'files'."""
+        self.assertIn(_FILES_UPLOAD_PATH, self.spec["paths"])
+        item = self.spec["paths"][_FILES_UPLOAD_PATH]
+        # POST-only (@frappe.whitelist(methods=["POST"])).
+        self.assertIn("post", item, "upload_attachment PHẢI là POST-only.")
+        op = item["post"]
+        self.assertEqual(
+            op.get("tags"),
+            ["Tệp đính kèm"],
+            "upload_attachment PHẢI tag ['Tệp đính kèm'] (canonical VI, no raw-slug).",
+        )
+        self.assertNotIn("files", op.get("tags", []), "KHÔNG leak raw slug 'files'.")
+
+    def test_no_raw_files_slug_leak(self):
+        """KHÔNG operation nào trong spec mang tag raw 'files' (mở rộng d9 _RAW_CROSSCUT_SLUGS)."""
+        op_tags = _tags_in_operations(self.spec["paths"])
+        self.assertNotIn(
+            "files", op_tags, "LEAK raw cross-cut slug 'files' ra public spec (phải 'Tệp đính kèm')."
+        )
+
+    def test_crosscut_tag_parity_11(self):
+        """set(_CANONICAL_CROSSCUT_TAGS) == set(_CROSSCUT_TAG_MAP.values()) và len == 11.
+
+        11 = 10 cũ + 'Tệp đính kèm'. Giữ tripwire tag-surface đồng bộ SSoT (test ↔ overrides).
+        """
+        self.assertEqual(
+            set(_CANONICAL_CROSSCUT_TAGS),
+            set(_ovr._CROSSCUT_TAG_MAP.values()),
+            "Tập tag cross-cut trong test PHẢI == _CROSSCUT_TAG_MAP.values() (SSoT, no drift).",
+        )
+        self.assertEqual(
+            len(_CANONICAL_CROSSCUT_TAGS), 11, "Phải ĐÚNG 11 tag cross-cut (10 cũ + 'Tệp đính kèm')."
+        )
+        self.assertEqual(
+            len(_ovr._CROSSCUT_TAG_MAP), 11, "_CROSSCUT_TAG_MAP phải ĐÚNG 11 module cross-cut."
+        )
+        self.assertIn("files", _ovr._CROSSCUT_TAG_MAP, "'files' PHẢI có mặt trong _CROSSCUT_TAG_MAP.")
+        self.assertEqual(_ovr._CROSSCUT_TAG_MAP["files"], "Tệp đính kèm")
+
+    def test_files_tag_has_vi_desc(self):
+        """'Tệp đính kèm' có nhãn VI riêng trong _TAG_LABEL_VI (KHÔNG rơi vào fallback chung)."""
+        self.assertIn(
+            "Tệp đính kèm", _ovr._TAG_LABEL_VI, "'Tệp đính kèm' PHẢI có entry trong _TAG_LABEL_VI."
+        )
+        desc = _ovr.tag_description_for("Tệp đính kèm")
+        self.assertTrue(desc, "tag_description_for('Tệp đính kèm') KHÔNG được rỗng.")
+        self.assertNotEqual(
+            desc,
+            getattr(_ovr, "_TAG_FALLBACK_VI", "Nhóm chức năng AssetCore"),
+            "'Tệp đính kèm' rơi vào fallback chung → thiếu nhãn VI riêng.",
+        )
+
+    def test_baseline_matches_source_after_files(self):
+        """BASELINE_TOTAL == len(paths) @source và BASELINE_POST == post_count @source (tripwire).
+
+        Sau khi thêm +1 POST upload_attachment, SSoT oas_baseline PHẢI khớp con số THẬT của spec
+        (RE-VERIFY @source, KHÔNG assume số học) → d10/d12/d15/d17 tripwire xanh.
+        """
+        from assetcore.tests.oas_baseline import (
+            BASELINE_GUEST,
+            BASELINE_JSON_PARAM,
+            BASELINE_POST,
+            BASELINE_TOTAL,
+        )
+
+        stats = self.spec["x-assetcore-stats"]
+        self.assertEqual(
+            BASELINE_TOTAL, len(self.spec["paths"]), "BASELINE_TOTAL PHẢI == len(paths) @source."
+        )
+        self.assertEqual(
+            BASELINE_TOTAL, stats["total_endpoints"], "BASELINE_TOTAL PHẢI == stats.total_endpoints."
+        )
+        self.assertEqual(
+            BASELINE_POST, stats["post_count"], "BASELINE_POST PHẢI == stats.post_count @source."
+        )
+        # Bất biến: chỉ +1 POST → guest/json_param KHÔNG đổi.
+        self.assertEqual(BASELINE_GUEST, stats["guest_count"], "guest BẤT BIẾN (upload không guest).")
+        self.assertEqual(
+            BASELINE_JSON_PARAM,
+            stats["json_param_count"],
+            "json_param BẤT BIẾN (4 param str, không parse_json).",
+        )
