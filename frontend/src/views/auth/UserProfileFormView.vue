@@ -15,10 +15,12 @@ import type {
 import { ROLE_GROUP_LABEL, BASE_ROLE, type RoleGroup } from '@/constants/roles'
 import { personaForRoleProfile } from '@/constants/personas'
 import { useFormDraft } from '@/composables/useFormDraft'
+import { useToast } from '@/composables/useToast'
 
 const props = defineProps<{ user?: string }>()
 const router = useRouter()
 const auth = useAuthStore()
+const toast = useToast()
 const isEdit = computed(() => !!props.user)
 
 const saving = ref(false)
@@ -265,6 +267,17 @@ async function saveNew() {
     const res = await createSystemUser(newUser.value)
     if (res) {
       clearNewUserDraft()
+      // ISS-002: phản hồi trạng thái email chào mừng cho admin (truy vết).
+      if (newUser.value.send_welcome_email) {
+        if (res.welcome_email_sent === false) {
+          toast.warning(
+            res.welcome_email_error ||
+              'Tài khoản đã tạo nhưng KHÔNG gửi được email chào mừng — kiểm tra cấu hình email.',
+          )
+        } else if (res.welcome_email_sent === true) {
+          toast.success('Đã gửi email chào mừng đến người dùng mới.')
+        }
+      }
       router.push(`/user-profiles/${encodeURIComponent(res.user)}`)
     }
   } catch (e: unknown) {
@@ -347,13 +360,13 @@ id="new-email" v-model="newUser.email" type="email" placeholder="ktv@hospital.vn
               class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
           </div>
           <div>
-            <label for="new-first-name" class="block text-xs font-medium text-gray-600 mb-1">Họ tên <span class="text-red-500">*</span></label>
+            <label for="new-first-name" class="block text-xs font-medium text-gray-600 mb-1">Họ và tên đệm <span class="text-red-500">*</span></label>
             <input
 id="new-first-name" v-model="newUser.first_name" type="text" placeholder="Nguyễn Văn"
               class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
           </div>
           <div>
-            <label for="new-last-name" class="block text-xs font-medium text-gray-600 mb-1">Tên đệm / tên</label>
+            <label for="new-last-name" class="block text-xs font-medium text-gray-600 mb-1">Tên</label>
             <input
 id="new-last-name" v-model="newUser.last_name" type="text" placeholder="A"
               class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
@@ -489,8 +502,8 @@ id="edit-phone" v-model="editFields.phone" type="text" placeholder="0901234567"
         <!-- Role Profile (Frappe core) — pick 1 profile, auto-sync roles -->
         <div v-if="auth.isSystemAdmin" class="bg-white rounded-xl border border-blue-200 p-5 space-y-3">
           <div class="flex items-baseline justify-between">
-            <h2 class="text-sm font-semibold text-blue-900 uppercase tracking-wide">Role Profile (persona)</h2>
-            <p class="text-xs text-gray-400">Chọn theo persona — Frappe tự đồng bộ roles</p>
+            <h2 class="text-sm font-semibold text-blue-900 uppercase tracking-wide">Role Profile</h2>
+            <p class="text-xs text-gray-400">Hệ thống tự động gán nhóm quyền tương ứng</p>
           </div>
           <div v-if="selectedPersona" class="flex items-center gap-2">
             <span
