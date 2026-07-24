@@ -1,12 +1,31 @@
 # ADR — `status` vs `workflow_state` (dual-track state fields)
 
+> ## ⛔ SUPERSEDED (2026-07-22)
+>
+> ADR này **đã bị thay thế** bởi [`ADR-CORE-01_workflow_is_ssot.md`](ADR-CORE-01_workflow_is_ssot.md)
+> — "Workflow engine của Frappe là SSoT trạng thái duy nhất".
+>
+> **Giữ lại làm hồ sơ lịch sử. KHÔNG dùng làm căn cứ thiết kế mới.**
+>
+> Lý do thay thế (chi tiết + số liệu ở ADR-CORE-01 §Bối cảnh): quyết định "không hợp nhất"
+> dưới đây đã dẫn tới 75 chỗ bảng transition chép tay ở 10 file service, các invariant test
+> dual-track chỉ để canh lệch, lớp vá "lockstep sync" (ADR-IMM-16-05), 84 chỗ
+> `frappe.db.set_value` bỏ qua workflow engine, và bug "QTV đủ quyền vẫn không duyệt được".
+>
+> Hai khẳng định dưới đây cũng **sai về mặt dữ kiện** khi đo lại ngày 2026-07-22:
+> - "Mô hình 1 — `workflow_state` vestigial": thực tế **cả 4 workflow của Mô hình 1 đều
+>   `is_active = 1`** (`imm_08/09/11/12_*.json`) và giá trị enum `status` **trùng khớp
+>   hoàn toàn** tên state của workflow ⇒ đây là **desync**, không phải "hai mô hình".
+> - Bảng ADR không nhắc `AC Asset`, trong khi `ac_asset_lifecycle_workflow.json` bind
+>   `workflow_state_field = "lifecycle_status"` ⇒ AC Asset có **3** trục trạng thái.
+
 | Mục | Giá trị |
 |---|---|
 | Loại | Architecture Decision Record (cross-cutting) |
 | Phạm vi | 10 doctype mang ĐỒNG THỜI `status` + `workflow_state` |
-| Trạng thái | Accepted |
+| Trạng thái | ~~Accepted~~ → **Superseded by ADR-CORE-01** (2026-07-22) |
 | Quyết định bởi | BA + Tech Lead (Software Factory vòng 19) |
-| Cập nhật | 2026-06-02 |
+| Cập nhật | 2026-06-02 · superseded 2026-07-22 |
 
 ## Bối cảnh
 
