@@ -25,7 +25,22 @@ from assetcore.services.imm05 import (
     update_document,
 )
 from assetcore.services.shared import ServiceError
-from assetcore.tests._asset_cleanup import purge_asset
+from assetcore.tests._asset_cleanup import purge_asset, purge_assets_created_after
+
+
+#: Mốc bắt đầu module — lưới an toàn purge asset sinh sau mốc này.
+_MODULE_START = None
+
+
+def setUpModule():
+    global _MODULE_START
+    frappe.set_user("Administrator")
+    _MODULE_START = frappe.utils.now_datetime()
+
+
+def tearDownModule():
+    """Lưới an toàn: không để asset fixture nào sống sót ra site."""
+    purge_assets_created_after(_MODULE_START)
 
 
 # ─── Fixtures ────────────────────────────────────────────────────────────────
@@ -64,37 +79,11 @@ def _make_doc(asset_ref: str, state: str = DocState.DRAFT) -> str:
     return doc.name
 
 
-def _purge_asset(name: str | None) -> None:
-    """Fully remove a test AC Asset and everything that blocks its on_trash guard.
-
-    ``force=True`` does NOT bypass ``AC Asset.on_trash`` (WR-03) nor
-    ``IMM Audit Trail.on_trash`` (ISO 13485:7.5.9). Audit rows must therefore be
-    purged with raw SQL, operational dependents via the ORM, before the asset
-    itself can be deleted. See LL-TEST-17.
-    """
-    if not name:
-        return
-    frappe.set_user("Administrator")
-    # 1) IMM Audit Trail — raw SQL (ORM delete always throws the ISO guard).
-    frappe.db.sql(
-        "DELETE FROM `tabIMM Audit Trail` "
-        "WHERE asset=%s OR (ref_doctype='AC Asset' AND ref_name=%s)",
-        (name, name),
-    )
-    # 2) Operational dependents — raw delete; several (Asset Document) carry their
-    #    own audit-protection on_trash guards that ``delete_doc`` cannot bypass.
-    for dt, fld in (
-        ("Asset Document", "asset_ref"),
-        ("Asset Lifecycle Event", "asset"),
-        ("AC Asset Downtime Log", "asset"),
-        ("Asset Transfer", "asset"),
-    ):
-        if frappe.db.table_exists(dt):
-            frappe.db.delete(dt, {fld: name})
-    frappe.db.commit()
-    # 3) The asset is now free of blockers.
-    frappe.delete_doc("AC Asset", name, force=True, ignore_permissions=True)
-    frappe.db.commit()
+# Teardown asset dùng CHUNG `_asset_cleanup.purge_asset` — KHÔNG tự viết lại.
+# Bản sao cục bộ trước đây chỉ dọn 4 dependent (thiếu Asset Decommission, PM
+# Work Order, Asset Repair, IMM Asset Calibration…) nên mỗi lần chạy module này
+# để lại 6 asset trên site. Hợp đồng khoá bởi `test_fixture_cleanup_contract.py`.
+_purge_asset = purge_asset
 
 
 # ─── _resolve_alert_level ─────────────────────────────────────────────────────
@@ -411,11 +400,11 @@ class TestDepreciationDefaults(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        # `frappe.delete_doc` trần LUÔN thất bại ở đây: `AC Asset.on_trash`
+        # (WR-03) chặn khi còn audit trail, và `except: pass` nuốt lỗi → asset
+        # rò ra site im lặng. Phải đi qua `purge_asset` (dọn dependent trước).
         for name in cls._cleanup_assets:
-            try:
-                frappe.delete_doc("AC Asset", name, force=1, ignore_permissions=True)
-            except Exception:
-                pass
+            purge_asset(name)
         for name in cls._cleanup_categories:
             try:
                 frappe.delete_doc(
@@ -488,11 +477,10 @@ class TestGenerateScheduleZeroPrice(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        # Xem ghi chú ở tearDownClass phía trên: delete_doc trần + except:pass
+        # = rò asset im lặng (WR-03 chặn). Dùng purge_asset.
         for name in cls._cleanup_assets:
-            try:
-                frappe.delete_doc("AC Asset", name, force=1, ignore_permissions=True)
-            except Exception:
-                pass
+            purge_asset(name)
 
     def _new_asset(self, **overrides) -> str:
         payload = {
