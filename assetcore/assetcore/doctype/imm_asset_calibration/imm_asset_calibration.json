@@ -1,15 +1,10 @@
 {
  "actions": [],
+ "autoname": "CAL-.YYYY.-.#####",
  "creation": "2026-04-19 09:00:00.000000",
  "doctype": "DocType",
  "document_type": "Document",
  "engine": "InnoDB",
- "module": "AssetCore",
- "name": "IMM Asset Calibration",
- "autoname": "CAL-.YYYY.-.#####",
- "naming_rule": "Expression (old style)",
- "is_submittable": 1,
- "track_changes": 1,
  "field_order": [
   "asset",
   "device_model",
@@ -194,7 +189,8 @@
   {
    "fieldname": "certificate_number",
    "fieldtype": "Data",
-   "label": "Số chứng chỉ"
+   "label": "Số chứng chỉ",
+   "in_global_search": 1
   },
   {
    "fieldname": "col_break4",
@@ -303,6 +299,13 @@
    "hidden": 1
   }
  ],
+ "is_submittable": 1,
+ "modified": "2026-04-19 09:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "AssetCore",
+ "name": "IMM Asset Calibration",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
  "permissions": [
   {
    "role": "AssetCore Super Admin",
@@ -339,7 +342,7 @@
    "read": 1,
    "write": 1,
    "create": 1,
-   "submit": 0,
+   "submit": 1,
    "cancel": 0,
    "delete": 0,
    "amend": 0,
@@ -365,9 +368,9 @@
    "share": 0
   }
  ],
+ "search_fields": "asset,certificate_number,status",
  "sort_field": "scheduled_date",
  "sort_order": "DESC",
- "modified": "2026-04-19 09:00:00.000000",
- "modified_by": "Administrator",
- "owner": "Administrator"
+ "title_field": "asset",
+ "track_changes": 1
 }

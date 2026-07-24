@@ -1,15 +1,10 @@
 {
  "actions": [],
+ "autoname": "PM-WO-.YYYY.-.#####",
  "creation": "2026-04-17 09:00:00.000000",
  "doctype": "DocType",
  "document_type": "Document",
  "engine": "InnoDB",
- "module": "AssetCore",
- "name": "PM Work Order",
- "autoname": "PM-WO-.YYYY.-.#####",
- "naming_rule": "Expression (old style)",
- "is_submittable": 1,
- "track_changes": 1,
  "field_order": [
   "asset_ref",
   "pm_schedule",
@@ -45,7 +40,8 @@
    "options": "AC Asset",
    "reqd": 1,
    "in_list_view": 1,
-   "search_index": 1
+   "search_index": 1,
+   "in_global_search": 1
   },
   {
    "fieldname": "pm_schedule",
@@ -193,8 +189,12 @@
    "hidden": 1
   }
  ],
+ "is_submittable": 1,
  "modified": "2026-04-17 09:00:00.000000",
  "modified_by": "Administrator",
+ "module": "AssetCore",
+ "name": "PM Work Order",
+ "naming_rule": "Expression (old style)",
  "owner": "Administrator",
  "permissions": [
   {
@@ -232,7 +232,7 @@
    "read": 1,
    "write": 1,
    "create": 1,
-   "submit": 0,
+   "submit": 1,
    "cancel": 0,
    "delete": 0,
    "amend": 0,
@@ -272,5 +272,8 @@
    "email": 0,
    "share": 0
   }
- ]
+ ],
+ "search_fields": "asset_ref,status,due_date",
+ "title_field": "asset_ref",
+ "track_changes": 1
 }

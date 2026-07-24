@@ -225,6 +225,38 @@ class TestDocPermInvariants(unittest.TestCase):
             self.assertGreaterEqual(mgr.get(k, 0), usr.get(k, 0))
         self.assertEqual(mgr.get("delete"), 1)
 
+    def test_pm_user_can_submit_pm_completion(self):
+        """ISS-005: PM User (Kỹ thuật viên) PHẢI có submit trên PM Work Order.
+
+        Core Doc IMM-08 (02_Analysis_Design.md:39,348-362) chỉ định PM User là
+        actor CHÍNH của `submit_pm_result` (hoàn thành PM); FE persist checklist
+        CHỈ qua submit_pm_result (imm08.ts:88-92 = local-only) ⇒ đúng KTV thực
+        hiện mới có dữ liệu để hoàn thành. submit=0 ⇒ nút 'Hoàn thành bảo trì'
+        chết ('Bạn không có quyền hoàn thành bảo trì') cho MỌI KTV. cancel/amend
+        GIỮ 0 — un-complete/amend vẫn là quyền manager (không nới SoD)."""
+        perms = {p["role"]: p for p in self._perms("pm_work_order")}
+        self.assertEqual(perms["PM User"].get("submit"), 1,
+                         "PM User PHẢI submit=1 (hoàn thành PM) — Core Doc IMM-08")
+        self.assertEqual(perms["PM User"].get("cancel", 0), 0,
+                         "PM User KHÔNG cancel (un-complete = manager)")
+        self.assertEqual(perms["PM User"].get("amend", 0), 0,
+                         "PM User KHÔNG amend (sửa phiếu đã nghiệm thu = manager)")
+
+    def test_calibration_user_can_submit_completion(self):
+        """ISS-005 (sibling IMM-11): Calibration User (KTV hiệu chuẩn) PHẢI có
+        submit trên IMM Asset Calibration.
+
+        Core Doc IMM-11 (02_Analysis_Design.md:44,285,306-309) chỉ định Calibration
+        User là actor CHÍNH của `submit_calibration` (nhập measurement → nộp phiếu
+        → docstatus=1 terminal, KHÔNG có bước nghiệm thu người-thứ-2 như IMM-09).
+        submit=0 ⇒ KTV không nộp được phiếu hiệu chuẩn. cancel GIỮ 0 (huỷ phiếu =
+        manager)."""
+        perms = {p["role"]: p for p in self._perms("imm_asset_calibration")}
+        self.assertEqual(perms["Calibration User"].get("submit"), 1,
+                         "Calibration User PHẢI submit=1 — Core Doc IMM-11")
+        self.assertEqual(perms["Calibration User"].get("cancel", 0), 0,
+                         "Calibration User KHÔNG cancel (huỷ phiếu = manager)")
+
     def test_system_user_can_read_shared_core(self):
         perms = {p["role"]: p for p in self._perms("ac_asset")}
         self.assertEqual(perms["AssetCore System User"].get("read"), 1)
@@ -907,6 +939,103 @@ class TestOpsmgrReadOnlyOversight(unittest.TestCase):
                         "corrective.write", "corrective.create", "corrective.delete"):
                 self.assertFalse(rbac.can(cap),
                                  f"opsmgr KHÔNG được có {cap} (read-only oversight)")
+        finally:
+            frappe.set_user("Administrator")
+            try:
+                frappe.delete_doc("User", u, force=True, ignore_permissions=True)
+            except Exception:
+                pass
+
+
+class TestRepairTechnicianCanClose(unittest.TestCase):
+    """ISS-005 sibling IMM-09: `close_work_order` là hành động KTV (RACI 'Sửa chữa
+    + checklist' = KTV HTM R/A; → Pending Inspection, KHÔNG doc.submit — service
+    imm09:1617-1690). Phải gate `repair.create` (KHỚP FE canCompleteRepair
+    + service imm09:1637), KHÔNG `repair.submit`. Nghiệm thu `confirm_inspection`
+    (doc.submit → Completed) MỚI cần `repair.submit` (Trưởng khoa/Manager) — SoD 2-actor."""
+
+    def test_ktv_passes_close_work_order_permission_gate(self):
+        from assetcore.setup.role_profile_catalog import roles_for_profile
+        from assetcore.api import imm09
+        u = _ensure_role_user("_test_repair_ktv@assetcore.test",
+                              roles_for_profile("Kỹ thuật viên"))
+        try:
+            frappe.set_user(u)
+            self.assertTrue(rbac.can("repair.create"),
+                            "KTV phải có repair.create (gate close_work_order)")
+            # Gọi với WO không tồn tại: nếu QUA gate → NOT_FOUND envelope (handle
+            # nuốt ServiceError), KHÔNG raise PermissionError. Trước fix (repair.
+            # submit) → rbac.require raise PermissionError TRƯỚC handle.
+            raised_permission = False
+            try:
+                imm09.close_work_order(
+                    name="_NONEXISTENT_CM_WO_", repair_summary="x",
+                    root_cause_category="x", dept_head_name="x")
+            except frappe.PermissionError:
+                raised_permission = True
+            except Exception:
+                pass  # lỗi khác (NOT_FOUND…) = đã qua gate quyền
+            self.assertFalse(raised_permission,
+                             "KTV bị chặn quyền ở close_work_order (ISS-005 IMM-09)")
+        finally:
+            frappe.set_user("Administrator")
+            try:
+                frappe.delete_doc("User", u, force=True, ignore_permissions=True)
+            except Exception:
+                pass
+
+    def test_ktv_cannot_confirm_inspection(self):
+        """SoD giữ nguyên: nghiệm thu (confirm_inspection = doc.submit) VẪN cần
+        repair.submit ⇒ KTV (Repair User submit=0) KHÔNG tự nghiệm thu phiếu sửa."""
+        from assetcore.setup.role_profile_catalog import roles_for_profile
+        u = _ensure_role_user("_test_repair_ktv2@assetcore.test",
+                              roles_for_profile("Kỹ thuật viên"))
+        try:
+            frappe.set_user(u)
+            self.assertFalse(rbac.can("repair.submit"),
+                             "KTV KHÔNG được có repair.submit (nghiệm thu = manager)")
+        finally:
+            frappe.set_user("Administrator")
+            try:
+                frappe.delete_doc("User", u, force=True, ignore_permissions=True)
+            except Exception:
+                pass
+
+
+class TestPmTechnicianCanComplete(unittest.TestCase):
+    """ISS-005: KTV được phân công PHẢI hoàn thành được PM (pm.submit runtime).
+
+    Đối chứng với SoD: oversight read-only (Trưởng phòng VT-TTBYT) VẪN không
+    hoàn thành được PM sau fix. Runtime = đọc tabDocPerm THẬT (không phải JSON)."""
+
+    def test_ktv_profile_resolves_pm_submit(self):
+        from assetcore.setup.role_profile_catalog import roles_for_profile
+        roles = roles_for_profile("Kỹ thuật viên")
+        u = _ensure_role_user("_test_pm_ktv@assetcore.test", roles)
+        try:
+            frappe.set_user(u)
+            self.assertTrue(rbac.can("pm.write"),
+                            "KTV phải có pm.write (thực hiện bảo trì)")
+            self.assertTrue(rbac.can("pm.submit"),
+                            "KTV (PM User) PHẢI có pm.submit — hoàn thành PM (ISS-005)")
+            # Sibling IMM-11: KTV hiệu chuẩn nộp phiếu (terminal submit, không nghiệm-thu 2-bước).
+            self.assertTrue(rbac.can("calibration.submit"),
+                            "KTV (Calibration User) PHẢI có calibration.submit (ISS-005 sibling)")
+        finally:
+            frappe.set_user("Administrator")
+            try:
+                frappe.delete_doc("User", u, force=True, ignore_permissions=True)
+            except Exception:
+                pass
+
+    def test_oversight_still_cannot_submit_pm(self):
+        from assetcore.setup.role_profile_catalog import roles_for_profile
+        roles = roles_for_profile("Trưởng phòng VT-TTBYT")
+        u = _ensure_role_user("_test_pm_ovs@assetcore.test", roles)
+        try:
+            frappe.set_user(u)
+            self.assertFalse(rbac.can("pm.submit"),
+                             "oversight read-only KHÔNG được hoàn thành PM (giữ SoD)")
         finally:
             frappe.set_user("Administrator")
             try:
