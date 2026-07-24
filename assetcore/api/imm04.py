@@ -90,10 +90,13 @@ def generate_handover_pdf(name: str) -> dict:
 # ─── Write Endpoints ──────────────────────────────────────────────────────────
 
 @frappe.whitelist(methods=["POST"])
-def transition_state(name: str, action: str) -> dict:
+def transition_state(name: str, action: str, board_approver: str = "") -> dict:
     # AUTH-02 — workflow transition needs write capability on commissioning.
+    # BR-04-12: `board_approver` optional passthrough — cấp người duyệt 4-mắt atomic
+    # khi transition đưa phiếu vào Clinical Release (gỡ deadlock G06). Non-CR-bound:
+    # bị bỏ qua ở service (backward-compat). Default str="" (KHÔNG None → tránh 417).
     rbac.require("commissioning.write")
-    return _handle(svc.transition_state, name, action)
+    return _handle(svc.transition_state, name, action, board_approver)
 
 
 @frappe.whitelist(methods=["POST"])

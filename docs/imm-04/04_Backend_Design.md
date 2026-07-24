@@ -71,7 +71,7 @@ Side Effects:
 | `internal_tag_qr` | Data | — | auto-sinh BV-DEPT-YYYY-SEQ | read_only |
 | `is_radiation_device` | Check | — | 0 | read_only, fetch_from item |
 | `risk_class` | Select A/B/C/D/Radiation | — | — | VR-05 warning khi đổi |
-| `board_approver` | Link User | YES (before Submit) | — | G06 |
+| `board_approver` | Link User | YES (before Clinical Release) | — | G06 — cấp atomic qua `transition_state(…, board_approver=…)` khi transition CR-bound (BR-04-12, §5.4); 4-eyes SoD |
 | `qa_license_doc` | Attach | COND | — | reqd nếu radiation (VR-07) |
 | `final_asset` | Link AC Asset | — | — | set by create_ac_asset() on submit |
 | `baseline_tests` | Table Commissioning Checklist | YES | — | G03: 100% Pass/N/A |
@@ -163,7 +163,7 @@ def overdue_commissioning_filter(today: str | None = None) -> dict:
 | `Clinical Hold` → `Clinical Release` | Gỡ giữ lâm sàng |
 | `Non Conformance` → `Return To Vendor` | Trả lại NCC |
 
-> Bảng trên **rút gọn** (12/15 cạnh). File `imm_04_workflow.json` = **11 state, 45 transition-row → 15 cạnh distinct** (`(state, action, next_state)`). Verify: `python3 -c "import json;print(len(json.load(open('assetcore/assetcore/workflow/imm_04_workflow.json'))['transitions']))"` = **45**. 3 cạnh không có trong bảng rút gọn: `Non Conformance → To Be Installed` (Khắc phục xong), `Re Inspection → Clinical Release` (Phê duyệt sau tái kiểm), `Initial Inspection → Re Inspection` (Báo cáo lỗi baseline) — có đủ ở State Machine `02 §IV.3`.
+> Bảng trên **rút gọn** (12/15 cạnh). File `imm_04_workflow.json` = **11 state, 71 transition-row → 15 cạnh distinct** (`(state, action, next_state)`). Verify: `python3 -c "import json;print(len(json.load(open('assetcore/assetcore/workflow/imm_04_workflow.json'))['transitions']))"` = **71** (45 → **71 transition-row** (2026-07-22, ADR-CORE-01: +26 row cấp transition cho `Commissioning Manager`/`Commissioning User` — 2 vai trò CÓ DocPerm write/submit nhưng trước đó vắng mặt ở MỌI transition; **số cạnh distinct GIỮ 15**)). 3 cạnh không có trong bảng rút gọn: `Non Conformance → To Be Installed` (Khắc phục xong), `Re Inspection → Clinical Release` (Phê duyệt sau tái kiểm), `Initial Inspection → Re Inspection` (Báo cáo lỗi baseline) — có đủ ở State Machine `02 §IV.3`.
 
 ### 3.1. INVARIANT — Workflow-Surface Integrity (CR-WF-04-SURFACE · silent-CTA-loss guard)
 
@@ -194,7 +194,7 @@ def _get_workflow_transitions(doc_name: str) -> list[dict]:
 | ID | Invariant | Ground |
 |---|---|---|
 | **INV-04-WF-1** (resolve + document_type) | `frappe.get_doc("Workflow", "IMM-04 Workflow")` KHÔNG raise **VÀ** `workflow.document_type == assetcore.services.imm04._DT` (`== "Asset Commissioning"`). Bắt cả rename lẫn drift `_DT`. | `services/imm04.py:34,671` |
-| **INV-04-WF-2** (admin-override mọi cạnh) | MỌI distinct `(state, action, next_state)` trong `imm_04_workflow.json` (**45 transition-row → 15 cạnh distinct**) có `"AssetCore Super Admin"` ∈ tập `allowed`. QTV duyệt được mọi cạnh nghiệm thu. Verified 15/15 (2026-07-14). | `imm_04_workflow.json` |
+| **INV-04-WF-2** (admin-override mọi cạnh) | MỌI distinct `(state, action, next_state)` trong `imm_04_workflow.json` (**71 transition-row → 15 cạnh distinct**) có `"AssetCore Super Admin"` ∈ tập `allowed`. QTV duyệt được mọi cạnh nghiệm thu. Verified 15/15 (2026-07-14). | `imm_04_workflow.json` |
 | **INV-04-WF-3** (live-wiring emit⊆file) | `_get_workflow_transitions(<phiếu Draft>)` gọi bởi `AssetCore Super Admin` → list **KHÁC rỗng**, và **mọi** `entry.next_state ∈` tập Draft-out next_states parse từ file (`{"Pending Doc Verify"}`). Emit service khớp file, không stale. | `services/imm04.py:667` ⇄ file |
 | **INV-04-WF-4** (không false-permissive) | User **role-nghèo** (không role nào ∈ `allowed` của cạnh Draft-out) → `_get_workflow_transitions` trả **subset chặt** (⊆ tập của Super Admin, thường rỗng). CTA không rò rỉ vượt quyền. | filter `t.allowed in user_roles` |
 
@@ -256,7 +256,9 @@ class AssetCommissioning(Document):
 | `validate_commissioning(doc)` | Document | None | Chạy VR-01 → VR-07 + Gate checks |
 | `validate_gate_g01(doc)` | Document | None | Raise ServiceError nếu mandatory docs không đủ |
 | `validate_gate_g03(doc)` | Document | None | Raise nếu có baseline Fail |
-| `validate_gate_g05_g06(doc)` | Document | None | Raise nếu Open NC tồn tại hoặc thiếu board_approver |
+| `validate_gate_g05_g06(doc)` | Document | None | Save-time hook (defense-in-depth): raise nếu Open NC tồn tại hoặc thiếu board_approver (`nthrow_in_hook` → 417 legacy). Pre-check Decision-B ở `transition_state` chặn TRƯỚC cho path trực tiếp — xem §5.4 |
+| `transition_state(name, action, board_approver="")` | string + optional | dict | Áp workflow transition. **BR-04-12:** khi transition có `next_state == Clinical Release` → pre-check `board_approver` (thiếu ⇒ ServiceError `IMM04-GATE-G06-APPROVER` Decision-B) + 4-eyes `assert_distinct_signers` (cấp mới) + set field TRƯỚC `apply_workflow`/`save`. Action không CR-bound ⇒ tham số bỏ qua (backward-compat). Response +key `board_approver`. Xem §5.4 |
+| `submit_commissioning(name)` | string | dict | Guard `Clinical Release` + `commissioning.submit` cap → `doc.submit()` (docstatus=1). `on_submit` + `hooks.py` doc_events phát PM (IMM-08) + Calibration (IMM-11) schedule. Đích cuối mạch `Needs→Operation` |
 | `check_auto_clinical_hold(doc)` | Document | bool | Trả True nếu risk_class ∈ {C,D,Radiation} |
 | `log_lifecycle_event(doc, event_type, from_s, to_s, remarks)` | Document + strings | None | Append lifecycle event row |
 | `handle_commissioning_cancel(doc)` | Document | None | Block cancel nếu final_asset tồn tại |
@@ -501,6 +503,199 @@ today = nowdate()
 
 ---
 
+### 5.3. Baseline verdict — chặn Pass-giả + UPSERT-by-parameter (BR-04-04 · silent-completion lens)
+
+**Bài toán (lỗi thiết kế gốc — Self-Correction).** `submit_baseline_checklist` (`services/imm04.py:1437-1456`) chốt nghiệm thu Initial Inspection. Bản cũ có **2 lỗ silent-completion**:
+
+1. **Pass-giả với 0 phép đo.** Nếu `doc.baseline_tests` rỗng (phiếu tạo KHÔNG pre-seed child) AND `results` rỗng → vòng lặp update không chạy, `fails == []` → nhảy thẳng `overall_inspection_result = "Pass"`. Phiếu **Pass mà chưa đo gì** — false-success câm. (Spec-root: EC-04-06 cũ ghi "*không block submit nếu không có test nào*" — nay đảo, xem 02 §IV.5.)
+2. **Drop câm parameter chưa seed.** Vòng lặp chỉ duyệt `doc.baseline_tests` **có sẵn** rồi map theo `parameter`; `result` cho parameter **chưa có row** bị **bỏ qua hoàn toàn** — không append, không persist. KTV đo tại hiện trường (phiếu không pre-seed) → kết quả biến mất câm.
+
+Ngoài ra response chỉ trả 3-key, không có tín hiệu *đã ghi bao nhiêu phép đo thực* → FE/mobile không phân biệt "Pass thật (N đo)" vs "Pass rỗng".
+
+**Fix — 4 vế (BR-04-04a..d), thứ tự bắt buộc:**
+
+```python
+def submit_baseline_checklist(name: str, results: list) -> dict:
+    doc = CommissioningRepo.get(name)
+    if not doc:
+        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy: {name}")
+    if doc.workflow_state != _STATE_INITIAL_INSPECTION:                       # 2 loại 403: cap-403 ở api-layer (rbac.require) — đây là state-guard 200-Error
+        raise ServiceError(ErrorCode.INVALID_PARAMS,
+            f"Chỉ submit checklist khi ở {_STATE_INITIAL_INSPECTION}")
+
+    # BR-04-04a — chặn Pass-giả: phải có ÍT NHẤT 1 nguồn phép đo (row seeded HOẶC result gửi lên).
+    if not (doc.baseline_tests or results):
+        raise ServiceError(ErrorCode.VALIDATION,
+            "BR-04-04: Không thể nghiệm thu — chưa có phép đo baseline nào. "
+            "Nhập kết quả đo trước khi nộp.")
+
+    # BR-04-04b — UPSERT-by-parameter: áp result vào row có sẵn; parameter CHƯA có row → APPEND.
+    existing = {row.parameter: row for row in (doc.baseline_tests or [])}
+    for r in results:
+        param = (r.get("parameter") or "").strip()
+        if not param:                                    # parameter reqd=1 → skip rỗng (tránh mandatory-fail on save)
+            continue
+        target = existing.get(param)
+        if target is None:
+            target = doc.append("baseline_tests", {"parameter": param})
+            existing[param] = target
+        target.measured_val = r.get("measured_val")      # Float — Frappe coerce; KHÔNG ép "" (khác bản cũ)
+        target.test_result = r.get("test_result", "")
+        target.fail_note = r.get("fail_note", "")
+
+    # Persist upsert TRƯỚC verdict → re-get thấy measured_val+test_result cho MỌI nhánh (kể cả Fail), không mất dữ liệu đo.
+    doc.save(ignore_permissions=True)
+
+    # tests_recorded = số row THỰC có test_result (Pass/Fail/N/A) — KHÔNG len(results) mù.
+    recorded = [row for row in (doc.baseline_tests or []) if (row.test_result or "").strip()]
+    tests_recorded = len(recorded)
+
+    # BR-04-04c — Fail bất kỳ (kể cả row vừa append) → raise, liệt kê parameter, KHÔNG set Pass.
+    fails = [row.parameter for row in recorded if row.test_result == "Fail"]
+    if fails:
+        raise ServiceError(ErrorCode.VALIDATION,
+            f"BR-04-04: Thông số sau không đạt: {', '.join(fails)}. Phiếu phải chuyển về Re Inspection.")
+
+    # BR-04-04d — overall 'Pass' CHỈ khi tests_recorded > 0 (đóng auto-Pass câm cho phiếu có row nhưng 0 row ghi test_result).
+    if tests_recorded == 0:
+        raise ServiceError(ErrorCode.VALIDATION,
+            "BR-04-04: Không thể nghiệm thu Pass — 0 phép đo được ghi nhận.")
+
+    is_high_risk = check_auto_clinical_hold(doc)
+    doc.overall_inspection_result = "Pass"
+    doc.save(ignore_permissions=True)
+    return {"name": doc.name, "overall_result": "Pass",
+            "tests_recorded": tests_recorded, "clinical_hold_required": is_high_risk}
+```
+
+**Grounding (verified, KHÔNG đoán):**
+- Child DocType `Commissioning Checklist` (istable=1): `parameter` **reqd=1** ⇒ `doc.append(..., {"parameter": param})` với `param` non-empty là hợp lệ; **skip `param` rỗng** để không vỡ mandatory khi `doc.save`. `test_result` = Select `""/Pass/Fail/N/A` (giá trị chuẩn là **`N/A`**, không phải "N-A"). `measured_val` = **Float** ⇒ truyền `r.get("measured_val")` (số hoặc None) — KHÔNG ép `""` như bản cũ (`:1447`).
+- `check_auto_clinical_hold(doc)` (`services/imm04.py:405`) trả `bool` (Class C/D/Radiation) — bất biến.
+- **Persist-trước-verdict** là chủ ý: ServiceError lỗi-nghiệp-vụ được api-handler bắt → **HTTP-200 + Error envelope** (Decision-B, KHÔNG raise→4xx), request kết thúc "thành công" ⇒ `doc.save` đã chạy được commit → re-get thấy dữ liệu đo ở **cả** nhánh Fail lẫn Pass. Nhánh Fail giữ `overall_inspection_result` ≠ `Pass`.
+
+**Boundaries:**
+- **Always:** giữ state-guard `_STATE_INITIAL_INSPECTION`; append CHỈ khi `parameter` non-empty; `overall_inspection_result='Pass'` ⟺ `tests_recorded > 0`; response 4-key `{name, overall_result, tests_recorded, clinical_hold_required}`; audit entry `baseline_test` ghi kèm `tests_recorded`.
+- **Never:** set `Pass` khi `tests_recorded==0`; drop `result` có parameter chưa seed; trả `tests_recorded = len(results)` mù; đổi `overall_inspection_result` sang `Pass` khi còn `Fail`; thêm `@frappe.whitelist` mới (endpoint `submit_baseline_checklist` ĐÃ tồn tại `api/imm04.py:155` — **0 whitelist mới** ⇒ `test_oas_baseline` KHÔNG bị đụng).
+
+#### ADR-IMM-04-02: Baseline verdict UPSERT + `tests_recorded` là SSoT thay vì tin `len(results)`
+- **Status**: Accepted
+- **Date**: 2026-07-19
+- **Context**: Nghiệm thu là **cổng an toàn NĐ98 / WHO HTM §5.1.2** (incoming inspection) — Pass = thiết bị được đưa vào lâm sàng. Phiếu có thể vào Initial Inspection với `baseline_tests` **rỗng** (transition Identification→Initial Inspection không seed child; KTV đo phát sinh tại hiện trường). Logic cũ (update-in-place các row seeded) vừa auto-Pass khi rỗng, vừa drop câm đo mới.
+- **Decision**: (1) Verdict `Pass` phải gắn với **số phép đo thực ghi** — dùng `tests_recorded` (đếm row có `test_result`) làm SSoT, `Pass` ⟺ `tests_recorded > 0`. (2) Áp **UPSERT-by-parameter**: parameter chưa có row → append + persist. (3) Persist upsert **trước** khi phán verdict để dữ liệu đo không mất ở nhánh Fail.
+- **Alternatives**: (a) *Seed `baseline_tests` từ Device Model spec khi vào Initial Inspection* — loại: cần master-data spec đầy đủ mọi model (chưa có), và không phủ đo phát sinh ngoài spec; (b) *Trả `tests_recorded = len(results)`* — loại: `results` chứa param rỗng/trùng/không ghi verdict ⇒ đếm phồng, tái tạo false-success ở tầng số liệu.
+- **Consequences**: Response +1 key `tests_recorded` (additive — client cũ bỏ qua field mới). Mobile OAS mirror (`SubmitBaselineChecklistResponse` hiện CLOSED 3-key, cite `imm04.py:1456`) cần **re-mirror thành 4-key sau khi BE land** (owner mobile-mirror; grounded-argspec: chỉ curate khi field có ở `@source`). KHÔNG schema migration (child field đã có). KHÔNG whitelist mới.
+
+---
+
+### 5.4. Gỡ deadlock `board_approver` — cấp người duyệt 4-mắt NGAY trong transition (BR-04-12 · Self-Correction vòng 5)
+
+**Bài toán (lỗi thiết kế gốc — deadlock không lối thoát cho path trực tiếp / mobile):**
+
+Gate **G06** yêu cầu `board_approver` non-empty tại **thời điểm** `workflow_state` trở thành `Clinical Release`. Gate này chạy trong `validate()` hook (`validate_gate_g05_g06`, `services/imm04.py:391`) — tức **lúc `doc.save()`**. Nhưng con đường trực tiếp duy nhất để chuyển phiếu vào Clinical Release là `transition_state(name, action)` — **KHÔNG có tham số `board_approver`**. Đường duy nhất để *ghi* `board_approver` là `approve_clinical_release(commissioning, board_approver, …)`, mà hàm này lại **đòi phiếu ĐÃ ở `Clinical Release`** (`imm04.py:1520`). ⇒ Vòng chết:
+
+```
+transition → Clinical Release  ──(save)──►  gate G06: "board_approver là bắt buộc" → 417 thô
+approve_clinical_release        ──(guard)──►  "phiếu phải ở Clinical Release" → không thể tới
+```
+
+Hệ quả: KTV/app mobile gọi `transition_state("Phê duyệt phát hành")` từ `Initial Inspection` với baseline 100% Pass/N/A, 0 NC Open → **luôn `417` (nút chết)**. Thiết bị KHÔNG BAO GIỜ vào lâm sàng qua path trực tiếp ⇒ AC Asset không sinh ⇒ **PM schedule (IMM-08) + Calibration schedule (IMM-11) không được phát** ⇒ đứt mạch `Needs→Operation`, vi phạm quản trị vòng đời + NĐ98 (thiết bị vận hành không có governance bảo trì/hiệu chuẩn).
+
+> Đường vòng `submit_for_approval → approve_pending` (Wave-2 inbox) CÓ set `board_approver = current_user` trước `apply_workflow` (`imm04.py:1810`), nhưng đòi 2 lượt API + có `pending_approver` được gán — KHÔNG phải path mà mobile/`transition_state` dùng. Deadlock vẫn tồn tại cho path trực tiếp.
+
+**Fix — `transition_state(name, action, board_approver="")` cấp người duyệt ATOMIC ngay trong transition. 5 vế (BR-04-12a..e), thứ tự bắt buộc:**
+
+```python
+def transition_state(name: str, action: str, board_approver: str = "") -> dict:
+    # ... (NOT_FOUND + has_permission("write") + allowed-action check GIỮ NGUYÊN) ...
+    allowed = _get_workflow_transitions(name)          # đã có: list[dict]{action,next_state,allowed_role}
+    # ... action ∈ allowed_actions else INVALID_PARAMS (giữ nguyên) ...
+    doc = frappe.get_doc(_DT, name)
+
+    # BR-04-12: CHỈ xử lý board_approver khi transition đưa phiếu VÀO Clinical Release.
+    #           next_state đọc từ chính transition đang thực thi (KHÔNG hardcode action).
+    target_state = next((t["next_state"] for t in allowed if t["action"] == action), None)
+    is_cr_bound = target_state == _STATE_CLINICAL_RELEASE
+
+    if is_cr_bound:
+        effective_approver = board_approver or doc.board_approver          # BR-04-12a
+        if not effective_approver:                                        # BR-04-12b — STRUCTURED, KHÔNG 417
+            raise ServiceError(
+                ErrorCode.VALIDATION,
+                render(MSG.IMM04_GATE_G06_APPROVER)[1],                   # message VI đã render
+                http_status=422,
+                message_code=MSG.IMM04_GATE_G06_APPROVER,                 # "IMM04-GATE-G06-APPROVER"
+                context={"missing": ["board_approver"]},
+            )
+        if board_approver:                                                # BR-04-12c — 4-eyes CHỈ khi caller cấp mới
+            assert_distinct_signers(                                      # raise FORBIDDEN → state KHÔNG đổi, field KHÔNG ghi
+                doc, "clinical_head", "qa_officer", "owner", "pending_approver",
+                candidate_user=board_approver, candidate_field="board_approver",
+            )
+            doc.board_approver = board_approver                           # BR-04-12d — set TRƯỚC apply_workflow/save
+    # else: board_approver BỎ QUA hoàn toàn (BR-04-12e — backward-compat)
+
+    prev_state = doc.workflow_state
+    frappe.model.workflow.apply_workflow(doc, action)                     # gate G06 lúc save GIỜ pass (approver đã set)
+    log_lifecycle_event(doc, action, prev_state, doc.workflow_state)
+    _stamp_commissioning_date(doc)
+    doc.save(ignore_permissions=False)
+    # ... auto-mint create_ac_asset khi Clinical Release (GIỮ NGUYÊN) ...
+    return {"name": name, "action_applied": action,
+            "new_state": doc.workflow_state, "docstatus": doc.docstatus,
+            "final_asset": doc.final_asset, "board_approver": doc.board_approver}
+```
+
+**Registry — MSG entry MỚI (additive, `utils/messages.py`):**
+
+```python
+# class MSG:
+IMM04_GATE_G06_APPROVER = "IMM04-GATE-G06-APPROVER"
+# MESSAGES dict:
+MSG.IMM04_GATE_G06_APPROVER: {
+    "title": "Chưa chọn người phê duyệt Ban Giám đốc",
+    "template": "Gate G06: Phải chọn Người Phê duyệt Ban Giám đốc (board_approver) "
+                "trước khi Phát hành Lâm sàng.",
+    "action_hint": "Chọn người phê duyệt Ban Giám đốc rồi gửi lại yêu cầu phát hành.",
+    "severity": "warning",
+    "http_status": 422,
+},
+```
+
+> Vì sao entry MỚI (không tái dùng `IMM04_BOARD_APPROVER_REQUIRED = "IMM04-BOARD-APPROVER-REQUIRED"`): acceptance chốt `message_code == "IMM04-GATE-G06-APPROVER"` + `context={missing:['board_approver']}` để FE map đúng control người-duyệt. Entry cũ (`IMM04-BOARD-APPROVER-REQUIRED`) vẫn do **hook save-time** `validate_gate_g05_g06` dùng (defense-in-depth cho write-path khác) — **GIỮ NGUYÊN, KHÔNG đổi value** (tránh vỡ FE/test tham chiếu chuỗi cũ).
+
+**Hai tầng cổng G06 (in-handler pre-check vs save-time hook) — phân vai rõ:**
+
+| Tầng | Vị trí | Khi nào fire | Kết quả |
+|---|---|---|---|
+| **Pre-check (MỚI)** | `transition_state` (command, trước `apply_workflow`) | Mọi action CR-bound qua path trực tiếp/mobile | **ServiceError → Decision-B HTTP-200 `success:false`** `message_code=IMM04-GATE-G06-APPROVER`, `context.missing=['board_approver']` |
+| **Save-time hook (GIỮ)** | `validate_gate_g05_g06` (`validate()`) | Bất kỳ write-path nào đưa phiếu vào Clinical Release mà thiếu approver (last-resort) | `nthrow_in_hook(IMM04_BOARD_APPROVER_REQUIRED)` → 417 legacy |
+
+Ở happy-path direct/mobile, pre-check chặn TRƯỚC `save` ⇒ hook 417 **không bao giờ chạm** cho case thiếu approver. Hook chỉ còn là lưới an toàn cho path không đi qua `transition_state`.
+
+**Grounding (verified, KHÔNG đoán):**
+- `board_approver` = `Link User`, **đã tồn tại** trên DocType (`04 §2.1`, `asset_commissioning.json`) ⇒ **KHÔNG schema migration**.
+- `_get_workflow_transitions` (`imm04.py:664`) trả `{"action","next_state","allowed_role"}` ⇒ `next_state` đọc trực tiếp, KHÔNG hardcode. 3 cạnh CR-bound (verify workflow JSON): `Initial Inspection→"Phê duyệt phát hành"`, `Clinical Hold→"Gỡ giữ lâm sàng"`, `Re Inspection→"Phê duyệt sau tái kiểm"` — cả 3 hưởng fix.
+- `assert_distinct_signers` (`services/shared/scope.py:17`) raise `ServiceError(FORBIDDEN)` + bypass `AssetCore Super Admin`; signer_fields khớp `approve_clinical_release` (`imm04.py:1529`): `clinical_head, qa_officer, owner, pending_approver` (candidate_field=`board_approver` được loại khỏi self-check).
+- Envelope Decision-B: `api_handler.handle` bắt `ServiceError` → `_err` trả dict `success:false` **trong body HTTP-200** (KHÔNG set `frappe.local.response.http_status_code`) ⇒ đúng "in-handler HTTP-200 + Error envelope", KHÔNG raw 4xx/417.
+- Path end-to-end: sau `Clinical Release`, `submit_commissioning(name)` → `doc.submit()` → `docstatus==1` → `on_submit` (`asset_commissioning.py:47`) + **`hooks.py:194-197` doc_events `on_submit`** phát `imm08.create_pm_schedule_from_commissioning` + `imm11.create_calibration_schedule_from_commissioning`. Deadlock gỡ ⇒ mạch `Needs→Operation` thông.
+
+**Boundaries:**
+- **Always:** chỉ chạm `board_approver` khi `target_state == _STATE_CLINICAL_RELEASE`; set approver **TRƯỚC** `apply_workflow`/`save`; 4-eyes `assert_distinct_signers` chạy **TRƯỚC** khi ghi field (fail ⇒ state bất biến + field KHÔNG ghi); lỗi thiếu approver = **ServiceError Decision-B** (`message_code=IMM04-GATE-G06-APPROVER`, `context.missing=['board_approver']`), HTTP-200 `success:false`; `next_state` đọc từ transition đang chạy; response thêm key `board_approver` (additive).
+- **Never:** dùng `frappe.throw`/`nthrow_in_hook` cho case thiếu approver ở path này (→ 417 thô — cấm); ghi `board_approver` khi action KHÔNG CR-bound (backward-compat: param bị bỏ qua); bỏ qua 4-eyes khi caller cấp approver mới; đổi value chuỗi `IMM04-BOARD-APPROVER-REQUIRED` cũ; thêm `@frappe.whitelist` mới (endpoint `transition_state` ĐÃ tồn tại `api/imm04.py:92` — **0 whitelist mới**); đụng mobile OAS (op `transition_state` KHÔNG có trong `assetcore-mobile.openapi.yaml` — op-count baseline & `test_mobile_oas` **KHÔNG đổi**).
+
+#### ADR-IMM-04-03: Cấp `board_approver` atomic trong `transition_state` (in-handler pre-check) thay vì tách RPC 2-bước
+- **Status**: Accepted
+- **Date**: 2026-07-23
+- **Context**: Gate G06 (`board_approver` reqd) chạy ở `validate()` (save-time), nhưng path trực tiếp/mobile chỉ có `transition_state(name, action)` không mang approver; `approve_clinical_release` lại đòi đã-ở-Clinical-Release ⇒ deadlock (thiết bị không vào lâm sàng ⇒ IMM-08/11 schedule không phát ⇒ đứt vòng đời + hở NĐ98). Là **cổng nghiệm thu NĐ98 / WHO HTM Commissioning-Acceptance**: buộc giữ 4-mắt (SoD) đồng thời phải phá deadlock.
+- **Decision**: Thêm tham số **optional** `board_approver` vào `transition_state`; khi (và CHỈ khi) transition đang thực thi có `next_state == Clinical Release` thì (a) pre-check presence → thiếu ⇒ ServiceError Decision-B `IMM04-GATE-G06-APPROVER`; (b) 4-eyes `assert_distinct_signers` nếu cấp mới; (c) ghi `board_approver` TRƯỚC `apply_workflow`/`save` để gate hook pass cùng lượt. Ngoài CR-bound: bỏ qua tham số (backward-compat).
+- **Alternatives**:
+  - (a) *Nới `approve_clinical_release` bỏ guard "phải ở Clinical Release" để nó tự transition* — loại: nó `doc.submit()` luôn (gộp release+submit), phá tách bạch "vào Clinical Release" ↔ "Submit sinh Asset"; và nó là endpoint riêng, không giải cho caller `transition_state` (mobile) hiện hữu.
+  - (b) *Bỏ gate G06 khỏi `validate()`, chỉ enforce ở `submit_commissioning`* — loại: mất defense-in-depth; phiếu có thể nằm ở Clinical Release thiếu approver (state không nhất quán với BR).
+  - (c) *Bắt buộc luôn đi qua inbox `submit_for_approval → approve_pending`* — loại: ép 2 lượt API + gán `pending_approver` cho luồng nghiệm thu-tại-hiện-trường mobile; UX nút-chết vẫn còn nếu KTV muốn tự chọn người duyệt.
+- **Consequences**: `transition_state` +1 tham số optional (additive — caller cũ không truyền ⇒ hành vi non-CR y hệt; CR-bound thiếu approver **nâng cấp** 417→Decision-B, KHÔNG coi là breaking vì là lỗi nghiệp vụ). Response +1 key `board_approver` (additive). +1 MSG entry registry. `api/imm04.py:92` `transition_state` thêm param passthrough (0 whitelist mới). KHÔNG migration, KHÔNG OAS. Hai tầng G06 (pre-check + hook) cùng tồn tại — pre-check thắng ở path trực tiếp.
+
+---
+
 ## 6. Audit Trail
 
 | Trigger | Entry type | Actor | Payload lưu |
@@ -508,7 +703,7 @@ today = nowdate()
 | `create_commissioning` | `commissioning_created` | session.user | from=None, to=Draft |
 | Transition state | `state_transition` | session.user | from=prev_state, to=new_state, action |
 | `assign_identification` | `identification` | session.user | vendor_serial_no, internal_tag_qr |
-| `submit_baseline_checklist` | `baseline_test` | session.user | overall_result |
+| `submit_baseline_checklist` | `baseline_test` | session.user | overall_result, tests_recorded |
 | `approve_clinical_release` → Submit | `release` | session.user | final_asset, commissioning_date |
 | NC created | `non_conformance` | session.user | nc_name, nc_type |
 | NC closed | `nc_closed` | session.user | nc_name, resolution_note |

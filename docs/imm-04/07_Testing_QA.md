@@ -24,7 +24,7 @@ Toàn bộ artefact test được của IMM-04. Mỗi dòng → ≥ 1 test class
 | 1 | `Asset Commissioning` | DocType | `asset_commissioning/asset_commissioning.json` | Integration (lifecycle) |
 | 2 | `Asset QA Non Conformance` | DocType | `asset_qa_non_conformance/*.json` | Integration |
 | 3 | `Commissioning Checklist` / `Commissioning Document Record` | Child DocType | `commissioning_checklist`, `commissioning_document_record` | Integration |
-| 4 | `IMM-04 Workflow` | Workflow | `workflow/imm_04_workflow.json` (11 state, **45 transition-row → 15 cạnh distinct**) | Integration (state transition) + surface-integrity guard (§III.4a) |
+| 4 | `IMM-04 Workflow` | Workflow | `workflow/imm_04_workflow.json` (11 state, **71 transition-row → 15 cạnh distinct**) | Integration (state transition) + surface-integrity guard (§III.4a) |
 | 5 | `initialize_commissioning`, `create_ac_asset`, `log_lifecycle_event`, `check_auto_clinical_hold` | Service function | `services/imm04.py` | Unit |
 | 6 | `validate_gate_g01`, `validate_gate_g03`, `validate_gate_g05_g06` | Gate validator | `services/imm04.py` | Unit (Decision Table / BVA) |
 | 7 | `_vr01_unique_serial_number`, `_vr05_risk_class_change_warning`, `_vr06_immutable_lifecycle_events`, `_validate_document_expiry` | Field validator | `services/imm04.py` | Unit (BVA/EP) |
@@ -63,6 +63,7 @@ Mỗi US/BR/Activity phải có ≥ 1 test ở Phần III và xuất hiện tron
 | BR-04-05 (VR-07) | Class C/D/Radiation → Clinical Hold + license bắt buộc | `check_auto_clinical_hold` | Decision Table / EP |
 | BR-04-06 (VR-04/G05) | No Open NC trước Release | `validate_gate_g05_g06` | Decision Table |
 | BR-04-07 (G06) | `board_approver` bắt buộc trước Submit/Release | `validate_gate_g05_g06` | EP (present/absent) |
+| BR-04-12 (G06 · gỡ deadlock) | Cấp `board_approver` atomic trong `transition_state(…, board_approver=…)` khi transition CR-bound; thiếu ⇒ ServiceError `IMM04-GATE-G06-APPROVER` Decision-B (KHÔNG 417); 4-mắt `assert_distinct_signers`; non-CR ⇒ param bỏ qua | `transition_state`, `assert_distinct_signers`, MSG `IMM04_GATE_G06_APPROVER` | State Transition + EP + SoD (§III.4c) |
 | BR-04-08 (GW-2) | Asset có CN ĐK lưu hành Active/Exempt trước Submit | `_validate_document_expiry` + GW-2 check | Decision Table |
 | BR-04-11 | Stamp `commissioning_date` tại Clinical Release (idempotent, 3 write-path) + KPI `released_this_month` đếm theo `commissioning_date ∈ tháng` (KHÔNG `modified`) | `_stamp_commissioning_date`, `get_dashboard_stats` | Invariant + Idempotency + BVA (biên tháng) |
 
@@ -93,7 +94,7 @@ Mỗi US/BR/Activity phải có ≥ 1 test ở Phần III và xuất hiện tron
 
 ## I.4. Scope
 
-- **In-scope**: gate logic G01/G03/G05/G06 (I.1 #6), validator VR-01/05/06 (#7), workflow 45 transition-row / 15 cạnh + surface-integrity guard (#4, §III.4a), auto-mint Asset + audit chain (#5,#9), API permission matrix (#8).
+- **In-scope**: gate logic G01/G03/G05/G06 (I.1 #6), validator VR-01/05/06 (#7), workflow 71 transition-row / 15 cạnh + surface-integrity guard (#4, §III.4a), auto-mint Asset + audit chain (#5,#9), API permission matrix (#8).
 - **Out-of-scope**: Performance test (giao Phần III.8); Penetration test (giao Phần VI.10); cross-module với IMM-05 (Asset Document set) và IMM-08 (PM auto-create) chỉ smoke — IMM-08 listener còn deferred (xem IMM04-BUG-032).
 - **Assumptions**: master data (Device Model, Vendor, PO) đã seed qua `scripts/uat/uat_imm04.py`; test users đã tạo đủ role; browser Chrome ≥ 120.
 
@@ -110,7 +111,7 @@ Mỗi US/BR/Activity phải có ≥ 1 test ở Phần III và xuất hiện tron
 | **Equivalence Partitioning (EP)** | Input có miền giá trị chia nhóm | `risk_class` Select (A/B/C/D/Radiation), `overall_inspection_result` (Pass/Fail/Conditional Pass), permission partition theo role | 1 test/partition |
 | **Boundary Value Analysis (BVA)** | Numeric/date/length có biên | `reception_date` (today vs tomorrow), `_validate_document_expiry` (past/today/<30d/future), SN length, file size (≤ 20 MB) | 2-3 test/biên |
 | **Decision Table** | Multi-condition gate | G01 (mandatory × status), G03 (pass × critical), G05/G06 (NC open × approver set), VR-07 (risk_class → hold) | 2^N rút gọn |
-| **State Transition Testing** | Workflow FSM | `imm_04_workflow.json` 45 transition-row / 15 cạnh (11 state) | mỗi transition + invalid |
+| **State Transition Testing** | Workflow FSM | `imm_04_workflow.json` 71 transition-row / 15 cạnh (11 state) | mỗi transition + invalid |
 | **Use Case Testing** | End-to-end actor flow | UAT golden scenario, API integration | 1/main + 1/alt + 1/exception |
 | **Error Guessing** | null, empty, SN unicode, double-submit | `assign_identification`, `submit_commissioning` (idempotent), `_vr01` empty SN | Bổ sung |
 
@@ -247,6 +248,47 @@ File: `tests/test_imm04.py` → class **`TestImm04WorkflowSurfaceGuard`** (⬜ P
 4. **Đối chứng lỗ toàn cục:** với vector A hoặc B, `test_workflow_admin_override` vẫn **GREEN** (glob JSON, không kiểm hằng-lookup) → chứng minh guard module-local là cần thiết.
 
 **Boundary (Never):** KHÔNG sửa `services/imm04.py:667-680` để test xanh. Nếu thêm `log_error` thay `return []` (observability) = thay đổi runtime → **HARD-STOP USER reload worker**, tách khỏi CR test-only này, `[ROADMAP]`.
+
+## III.4b. Baseline verdict — chặn Pass-giả + UPSERT (BR-04-04 · silent-completion lens)
+
+File: `tests/test_imm04.py` → class **`TestImm04BaselineVerdict`** (⬜ Planned). Spec: `04 §5.3` + BR-04-04a..d + ADR-IMM-04-02. **Flow THẬT bắt buộc** (KHÔNG shortcut set `workflow_state` trực tiếp, KHÔNG pre-seed `baseline_tests` ở `create_commissioning`): `create_commissioning(...)` **không** child `baseline_tests` → chạy các transition qua `svc.transition_state` / `apply_workflow` tới **Initial Inspection** → gọi `svc.submit_baseline_checklist(name, results)`. Re-get bằng `CommissioningRepo.get(name)` (fresh) để kiểm persist. Đây là điều kiện tái tạo bug gốc (phiếu vào Initial Inspection với `baseline_tests` rỗng).
+
+| TC | Vế BR | Setup (flow thật) | Assertion (chính xác) | Bắt lỗi |
+|---|---|---|---|---|
+| **TC-04-BASELINE-01** | 04a — Pass-giả 0 đo | phiếu @Initial Inspection, `baseline_tests` rỗng | `submit_baseline_checklist(name, [])` → `assertRaises(ServiceError)` code `VALIDATION`; **re-get** `overall_inspection_result != "Pass"` (rỗng/None) | auto-Pass câm (bug gốc) |
+| **TC-04-BASELINE-02** | 04b — UPSERT append + persist | phiếu @Initial Inspection, `baseline_tests` rỗng | `submit_baseline_checklist(name, [{parameter:"Leakage Current", measured_val:0.08, test_result:"Pass"}])` → success; **re-get**: `len(baseline_tests)==1`, row `parameter=="Leakage Current"` + `measured_val≈0.08` + `test_result=="Pass"` (KHÔNG drop câm) | drop-câm parameter chưa seed |
+| **TC-04-BASELINE-03** | 04d — tests_recorded THỰC + Pass | như 02 nhưng 2 param Pass/N/A (1 mới append + 1 append) | return `overall_result=="Pass"` + **`tests_recorded == 2`** (số row thực ghi, KHÔNG `len(results)` mù); re-get `overall_inspection_result=="Pass"` | `tests_recorded` = len(payload) mù |
+| **TC-04-BASELINE-04** | 04c — Fail (kể cả row vừa append) | phiếu @Initial Inspection rỗng, `results=[{parameter:"Earth Resistance", test_result:"Fail", fail_note:"Vượt 0.1Ω"}]` | `assertRaises` `VALIDATION`, message chứa `"Earth Resistance"`; re-get `overall_inspection_result != "Pass"`; **row Fail vẫn persist** (`len(baseline_tests)==1`, `test_result=="Fail"`) | set Pass khi có Fail · mất dữ liệu Fail |
+| **TC-04-BASELINE-05** | Green path cũ giữ nguyên | phiếu @Initial Inspection với `baseline_tests` **seed sẵn** N row, `results` all Pass/N/A cho từng param | success `overall_result=="Pass"`, **`tests_recorded == N`** (== số row seed); re-get `overall_inspection_result=="Pass"` | regress luồng seed-sẵn |
+| **TC-04-BASELINE-06** | 04a — có row nhưng 0 ghi verdict | phiếu @Initial Inspection có row seed nhưng `test_result` rỗng, `results=[]` | `assertRaises` `VALIDATION` (`tests_recorded==0`); re-get `overall_inspection_result != "Pass"` | Pass-giả biến thể (row rỗng verdict) |
+
+**RED-before / GREEN-after (BẮT BUỘC — chứng minh test bắt bug thật):**
+1. **RED:** chạy 6 TC trên code hiện tại (`services/imm04.py:1437-1456`) → TC-04-BASELINE-01/03/06 **FAIL** (bản cũ auto-Pass + không có `tests_recorded`), TC-04-BASELINE-02 **FAIL** (drop câm, `len==0`). Chứng minh test có giá trị.
+2. **GREEN:** sau khi BE land `04 §5.3` → `bench --site miyano run-tests --module assetcore.tests.test_imm04` → `Ran N OK` (0 fail / 0 error), module-isolated.
+3. **Guard OAS:** `grep -c '^@frappe.whitelist' api/imm04.py` bất biến (endpoint đã tồn tại) ⇒ `test_oas_baseline` (owner IMM-10 Blocker#3) KHÔNG bị đụng.
+
+**Boundary (Never):** KHÔNG set `workflow_state` trực tiếp để bỏ qua transition (test giả); KHÔNG pre-seed `baseline_tests` ở `create_commissioning` cho TC-01..04 (phải tái tạo phiếu rỗng); KHÔNG assert `tests_recorded == len(results)` (đó chính là bug cần chặn).
+
+## III.4c. Gỡ deadlock board_approver — 4-mắt trong transition (BR-04-12 · Self-Correction vòng 5)
+
+File: `tests/test_imm04.py` → class **`TestImm04BoardApproverTransition`** (⬜ Planned). Spec: `04 §5.4` + BR-04-12a..e + ADR-IMM-04-03 + `05 §15`. **Flow THẬT bắt buộc** (KHÔNG shortcut set `workflow_state`): `create_commissioning(...)` → chạy transition qua `svc.transition_state` tới **Initial Inspection** với baseline 100% Pass/N/A (dùng `submit_baseline_checklist`, KHÔNG NC Open) → gọi `svc.transition_state(name, "Phê duyệt phát hành", board_approver=…)`. Re-get bằng `CommissioningRepo.get(name)` / `frappe.db.get_value` (fresh) để kiểm persist. Cần ≥2 user phân biệt cho 4-eyes: người-tạo/submit vs `board_approver`.
+
+| TC | Vế | Kịch bản (Given → When) | Then | Bug chặn |
+|---|---|---|---|---|
+| **TC-04-BA-01** | 12a/12d — DEADLOCK GỠ | phiếu @Initial Inspection, baseline 100% Pass/N/A, 0 NC Open | `transition_state(name, "Phê duyệt phát hành", board_approver=<user hợp lệ ≠ owner>)` → success; re-get `workflow_state == "Clinical Release"` + `board_approver == <user>` persist | deadlock 417 (bất khả trước fix) |
+| **TC-04-BA-02** | 12b — STRUCTURED, KHÔNG 417 | như 01 nhưng `board_approver=""` VÀ `doc.board_approver` rỗng | gọi qua **API layer** `api.imm04.transition_state` → envelope `success==false`, `code=="VALIDATION"`, `message_code=="IMM04-GATE-G06-APPROVER"`, `context["missing"]==["board_approver"]`; **KHÔNG** raise `frappe.ValidationError`/417; re-get `workflow_state == "Initial Inspection"` (state bất biến) | 417 thô (nthrow_in_hook) |
+| **TC-04-BA-03** | 12c — 4-eyes: trùng owner/submitter | phiếu @Initial Inspection do `user_A` tạo | `transition_state(..., board_approver="user_A")` → `assertRaises(ServiceError)` code `FORBIDDEN` (`assert_distinct_signers`); re-get `workflow_state == "Initial Inspection"` + `board_approver` rỗng (KHÔNG ghi) | self-approval rubber-stamp (NĐ98 SoD) |
+| **TC-04-BA-04** | 12c — 4-eyes: đã đeo hat khác | phiếu @Initial Inspection với `clinical_head=user_B` (hoặc `qa_officer`/`pending_approver`) | `transition_state(..., board_approver="user_B")` → `ServiceError` FORBIDDEN; state bất biến, field KHÔNG ghi | 1 người ký ≥2 vai |
+| **TC-04-BA-05** | 12e — BACKWARD-COMPAT (non-CR ignore) | phiếu @To Be Installed | `transition_state(name, "Bắt đầu lắp đặt", board_approver="user_X")` → success; re-get `board_approver` rỗng (param BỎ QUA, không lọt field khác), `workflow_state` đổi đúng theo action | param rò sang field khác / đổi state ngoài ý |
+| **TC-04-BA-06** | 12e — caller cũ (không truyền param) | phiếu @To Be Installed | `transition_state(name, "Bắt đầu lắp đặt")` (2-arg, chữ ký cũ) → success y hệt hôm nay | vỡ chữ ký cũ |
+| **TC-04-BA-07** | PATH END-TO-END | sau TC-04-BA-01 (đã @Clinical Release, board_approver set), user có `commissioning.submit` cap | `submit_commissioning(name)` → re-get `docstatus==1`; assert `on_submit` phát ĐỦ: ≥1 PM schedule (`imm08.create_pm_schedule_from_commissioning`) + ≥1 Calibration schedule (`imm11.create_calibration_schedule_from_commissioning`) cho asset (`final_asset`) | nút chết Needs→Operation |
+
+**RED-before / GREEN-after (BẮT BUỘC):**
+1. **RED:** chạy TC-04-BA-01/02 trên code hiện tại (`transition_state` 2-arg, `services/imm04.py:1100`) → TC-04-BA-01 **FAIL/ERROR** (deadlock: gate G06 raise lúc save → 417), TC-04-BA-02 **FAIL** (chưa có `message_code=IMM04-GATE-G06-APPROVER`, hiện là 417). Chứng minh test bắt bug thật.
+2. **GREEN:** sau khi BE land `04 §5.4` (service `transition_state` +param · `api/imm04.py:92` passthrough · MSG entry `IMM04_GATE_G06_APPROVER`) → `bench --site miyano run-tests --module assetcore.tests.test_imm04` → `Ran N OK` (0 fail / 0 error), module-isolated. ⚠️ `services/imm04.py` + `api/imm04.py` dưới gunicorn `--preload` ⇒ live-HTTP CHỜ USER reload; DoD = run-tests XANH, **KHÔNG** curl.
+3. **Guard OAS:** `grep -c '^@frappe.whitelist' api/imm04.py` bất biến (endpoint `transition_state` đã tồn tại — **0 whitelist mới**); mobile OAS KHÔNG có op `transition_state` ⇒ `test_mobile_oas` + op-count baseline KHÔNG đụng.
+
+**Boundary (Never):** KHÔNG set `workflow_state` trực tiếp bỏ qua transition; KHÔNG dùng `frappe.throw`/`nthrow_in_hook` cho case thiếu approver ở path `transition_state` (đó là bug 417 cần chặn); KHÔNG cấp cùng user cho owner và board_approver trong TC happy-path (4-eyes sẽ FORBIDDEN); KHÔNG thêm `@frappe.whitelist` / op OAS mới.
 
 ## III.5. Integration — Audit chain integrity
 

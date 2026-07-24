@@ -16,7 +16,7 @@ from assetcore.services.shared import (
     assert_not_self_submitter,
 )
 from assetcore.services.shared import rbac
-from assetcore.utils.notify import MSG, nthrow, nthrow_in_hook
+from assetcore.utils.notify import MSG, nthrow, nthrow_in_hook, render
 from assetcore.utils.pagination import paginate
 
 # AUTH-05 — 4-eyes / Separation-of-Duties signer fields on Asset Commissioning.
@@ -177,12 +177,9 @@ _ALLOWED_SEARCH_DOCTYPES: dict[str, dict] = {
         "filters": {},
         "extra_fields": ["category_name"],
     },
-    "User": {
-        "label_field": "full_name",
-        "search_fields": ["name", "full_name", "email"],
-        "filters": {"enabled": 1},
-        "extra_fields": ["full_name", "email"],
-    },
+    # GỠ 2026-07-22: `search_link doctype="User"` xổ TOÀN BỘ user enabled của site
+    # (kể cả user ERPNext/CRM). Field chọn người dùng `api.user.list_assignable_users`
+    # (FE: <ApproverSelect>) — nguồn duy nhất là base role AssetCore.
     "AC Warehouse": {
         "label_field": "warehouse_name",
         "search_fields": ["name", "warehouse_name", "warehouse_code"],
@@ -1100,7 +1097,7 @@ def get_po_details(po_name: str) -> dict:
 
 # ─── Command Functions ────────────────────────────────────────────────────────
 
-def transition_state(name: str, action: str) -> dict:
+def transition_state(name: str, action: str, board_approver: str = "") -> dict:
     if not frappe.db.exists(_DT, name):
         raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy phiếu '{name}'")
     try:
@@ -1116,6 +1113,31 @@ def transition_state(name: str, action: str) -> dict:
             f"Hành động '{action}' không hợp lệ từ '{current_state}'. Cho phép: {allowed_actions}",
         )
     doc = frappe.get_doc(_DT, name)
+
+    # BR-04-12 (ADR-IMM-04-03): cấp `board_approver` 4-mắt ATOMIC ngay trong
+    # transition — gỡ deadlock (gate G06 save-time đòi approver mà KHÔNG có đường
+    # ghi approver trước khi phiếu tới Clinical Release). CHỈ can thiệp khi transition
+    # đang thực thi đưa phiếu VÀO Clinical Release; `next_state` đọc từ chính
+    # transition đang chạy (KHÔNG hardcode action). Xem docs/imm-04/04_Backend_Design.md §5.4.
+    target_state = next((t["next_state"] for t in allowed if t["action"] == action), None)
+    if target_state == _STATE_CLINICAL_RELEASE:
+        effective_approver = board_approver or doc.board_approver          # BR-04-12a
+        if not effective_approver:                                         # BR-04-12b — STRUCTURED, KHÔNG 417
+            raise ServiceError(
+                ErrorCode.VALIDATION,
+                render(MSG.IMM04_GATE_G06_APPROVER)[1],
+                http_status=422,
+                message_code=MSG.IMM04_GATE_G06_APPROVER,
+                context={"missing": ["board_approver"]},
+            )
+        if board_approver:                                                 # BR-04-12c — 4-eyes CHỈ khi caller cấp mới
+            assert_distinct_signers(                                       # raise FORBIDDEN → state KHÔNG đổi, field KHÔNG ghi
+                doc, "clinical_head", "qa_officer", "owner", "pending_approver",
+                candidate_user=board_approver, candidate_field="board_approver",
+            )
+            doc.board_approver = board_approver                            # BR-04-12d — set TRƯỚC apply_workflow/save
+    # else / non-CR-bound: board_approver BỎ QUA hoàn toàn (BR-04-12e — backward-compat)
+
     prev_state = doc.workflow_state
     frappe.model.workflow.apply_workflow(doc, action)
     log_lifecycle_event(doc, action, prev_state, doc.workflow_state)
@@ -1149,6 +1171,8 @@ def transition_state(name: str, action: str) -> dict:
         "name": name, "action_applied": action,
         "new_state": doc.workflow_state, "docstatus": doc.docstatus,
         "final_asset": doc.final_asset,
+        # BR-04-12: key additive — caller cũ bỏ qua; CR-bound path đọc approver đã cấp.
+        "board_approver": doc.board_approver,
     }
 
 
@@ -1440,20 +1464,44 @@ def submit_baseline_checklist(name: str, results: list) -> dict:
         raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy: {name}")
     if doc.workflow_state != _STATE_INITIAL_INSPECTION:
         raise ServiceError(ErrorCode.INVALID_PARAMS, f"Chỉ submit checklist khi ở {_STATE_INITIAL_INSPECTION}")
-    result_map = {r.get("parameter"): r for r in results}
-    for row in doc.baseline_tests or []:
-        if row.parameter in result_map:
-            r = result_map[row.parameter]
-            row.measured_val = r.get("measured_val", "")
-            row.test_result = r.get("test_result", "")
-            row.fail_note = r.get("fail_note", "")
+    # UPSERT-by-parameter: dòng có sẵn → update; parameter KTV tự thêm (chưa seed)
+    # → APPEND (cùng lớp seed-child-missing đã fix ở IMM-16). Trước đây chỉ update
+    # dòng trùng → phép đo tự thêm bị DROP CÂM (mất dữ liệu + 'Thêm dòng' vô dụng).
+    existing = {row.parameter: row for row in (doc.baseline_tests or [])}
+    tests_recorded = 0
+    for r in results:
+        param = (r.get("parameter") or "").strip()
+        if not param:
+            continue
+        row = existing.get(param)
+        if row is None:
+            row = doc.append("baseline_tests", {"parameter": param})
+            existing[param] = row
+        row.measured_val = r.get("measured_val", "")
+        row.test_result = r.get("test_result", "")
+        row.fail_note = r.get("fail_note", "")
+        if row.test_result:
+            tests_recorded += 1
     fails = [r.parameter for r in (doc.baseline_tests or []) if r.test_result == "Fail"]
     if fails:
         raise ServiceError(ErrorCode.VALIDATION, f"BR-04-04: Thông số sau không đạt: {', '.join(fails)}")
+    # BR-04-04 (a+d) — silent-completion guard: overall 'Pass' ⟺ tests_recorded > 0.
+    # 0 phép đo THỰC (results rỗng, HOẶC sau upsert không row nào ghi test_result) ⇒
+    # chặn Pass-giả. Raise TRƯỚC doc.save() → KHÔNG persist Pass, workflow_state giữ
+    # Initial Inspection. Xem docs/imm-04/04_Backend_Design.md §5.3 + ADR-IMM-04-02.
+    if tests_recorded == 0:
+        raise ServiceError(
+            ErrorCode.VALIDATION,
+            "BR-04-04: Chưa ghi nhận kết quả kiểm tra baseline nào — không thể "
+            "nghiệm thu Pass. Nhập ≥1 phép đo (test_result) trước khi nộp.",
+        )
     is_high_risk = check_auto_clinical_hold(doc)
     doc.overall_inspection_result = "Pass"
     doc.save(ignore_permissions=True)
-    return {"name": doc.name, "overall_result": "Pass", "clinical_hold_required": is_high_risk}
+    # tests_recorded = SỐ DÒNG THỰC ghi test_result (server đếm) — FE (api/imm04.ts)
+    # gate banner thành công theo key này; thiếu ⇒ banner chết với mọi user.
+    return {"name": doc.name, "overall_result": "Pass",
+            "tests_recorded": tests_recorded, "clinical_hold_required": is_high_risk}
 
 
 def clear_clinical_hold(name: str, license_no: str = "") -> dict:
@@ -1818,13 +1866,19 @@ def approve_pending(commissioning: str, decision: str, remarks: str = "") -> dic
 
 
 def list_my_pending_approvals() -> list[dict]:
-    """Commissioning records where current user is the pending_approver."""
+    """Commissioning records where current user is the pending_approver.
+
+    APPROVAL-INBOX-CR32 (Core Doc IMM-00 §III.22): bổ sung ADDITIVE 3 field
+    ``final_asset`` / ``asset_description`` / ``creation`` cho inbox gộp
+    (imm00.get_pending_approvals_inbox) derive asset/title/pending_since —
+    Hyrum-safe (chỉ thêm key, KHÔNG đổi/bỏ key cũ).
+    """
     items = frappe.get_all(
         _DT,
         filters={"pending_approver": frappe.session.user, "docstatus": ["!=", 2]},
         fields=["name", "workflow_state", "master_item", "vendor", "clinical_dept",
                 "approval_stage", "approval_submitted_at", "approval_remarks",
-                "owner", "modified"],
+                "owner", "modified", "final_asset", "asset_description", "creation"],
         order_by="approval_submitted_at desc",
         limit_page_length=50,
     )

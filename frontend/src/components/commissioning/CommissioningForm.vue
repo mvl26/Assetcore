@@ -4,6 +4,7 @@ import { ref, computed, watch, reactive } from 'vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import WorkflowActions from '@/components/commissioning/WorkflowActions.vue'
 import BaselineTestTable from '@/components/commissioning/BaselineTestTable.vue'
+import BaselineChecklistEditor from '@/components/commissioning/BaselineChecklistEditor.vue'
 import DocumentChecklist from '@/components/commissioning/DocumentChecklist.vue'
 import QRLabel from '@/components/commissioning/QRLabel.vue'
 import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
@@ -28,6 +29,7 @@ const emit = defineEmits<{
   (e: 'submit'): void
   (e: 'saved'): void
   (e: 'refresh-imm05'): void
+  (e: 'baseline-submitted'): void
 }>()
 
 const store = useCommissioningStore()
@@ -280,6 +282,12 @@ const showOverallInspectionResult = computed(() => {
 })
 
 const showQaOfficer = computed(() => isHighRisk.value)
+
+// Gate nộp bảng kiểm baseline: chỉ ở 'Initial Inspection' (mirror BE
+// _STATE_INITIAL_INSPECTION) và phiếu chưa khoá. Ngoài trạng thái này → xem read-only.
+const canRecordBaseline = computed(
+  () => !props.doc.is_locked && props.doc.workflow_state === 'Initial Inspection',
+)
 </script>
 
 <template>
@@ -673,6 +681,7 @@ Xem đơn hàng →
       <DocumentChecklist
         :documents="displayDocs"
         :readonly="isReadonly"
+        :commissioning-name="doc.name || ''"
         :incomplete-flag="doc.documents_incomplete"
         @update="onDocUpdate"
         @add="onDocAdd"
@@ -715,7 +724,16 @@ Xem đơn hàng →
     <!-- Tab: Kiểm tra an toàn -->
     <div v-show="activeTab === 'safety'" class="card">
       <h3 class="text-base font-semibold text-gray-900 pb-2 border-b mb-4">Lưới Đo kiểm An toàn Điện</h3>
+      <!-- Ở 'Nghiệm thu ban đầu': editor cho phép ghi/THÊM phép đo + Nộp bảng kiểm (gate). -->
+      <BaselineChecklistEditor
+        v-if="canRecordBaseline"
+        :commissioning="doc.name"
+        :tests="doc.baseline_tests"
+        @submitted="emit('baseline-submitted')"
+      />
+      <!-- Ngoài trạng thái nộp: bảng chỉ đọc (display). -->
       <BaselineTestTable
+        v-else
         :tests="doc.baseline_tests"
         :readonly="isReadonly"
         @update="onTestUpdate"

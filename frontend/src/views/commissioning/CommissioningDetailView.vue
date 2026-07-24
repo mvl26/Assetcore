@@ -132,8 +132,15 @@ async function load() {
   await Promise.all([store.fetchDetail(props.id), loadGateStatus()])
 }
 
+// CR-54 §1 — deadlock board_approver: đưa người ký BGĐ đã chọn vào chính lượt
+// transition (1 call) cho action dẫn tới 'Clinical Release'. BE bỏ qua param với
+// action không phát hành (backward-compat) → truyền vô điều kiện là an toàn.
+function boardApproverForTransition(): string | undefined {
+  return store.currentDoc?.board_approver || undefined
+}
+
 async function handleTransition(action: string) {
-  const ok = await store.transitionState(props.id, action)
+  const ok = await store.transitionState(props.id, action, boardApproverForTransition())
   if (ok) {
     toast.success('Đã chuyển trạng thái thành công.')
     await loadGateStatus()
@@ -144,7 +151,7 @@ async function handleTransition(action: string) {
 
 async function handleTransitionFromPanel(action: string) {
   panelSaving.value = true
-  const ok = await store.transitionState(props.id, action)
+  const ok = await store.transitionState(props.id, action, boardApproverForTransition())
   panelSaving.value = false
   if (ok) {
     toast.success('Đã chuyển trạng thái thành công.')
@@ -498,6 +505,7 @@ v-if="store.loading"
             @transition="handleTransition"
             @submit="handleSubmit"
             @saved="handleSaved"
+            @baseline-submitted="loadGateStatus"
             @refresh-imm05="finalAsset ? fetchImm05Status(finalAsset) : undefined"
           />
         </div>

@@ -1350,11 +1350,18 @@ class TestImm04WorkflowSurfaceIntegrity(unittest.TestCase):
     # ── TC-3 (INV-04-WF-2) ────────────────────────────────────────────────────
     def test_imm04_every_workflow_edge_grants_super_admin(self):
         """MỌI distinct (state, action, next_state) trong imm_04_workflow.json
-        (45 row → 15 cạnh) có 'AssetCore Super Admin' ∈ allowed → QTV duyệt được
-        mọi cạnh nghiệm thu. RED nếu 1 edit rớt Super Admin khỏi 1 cạnh."""
+        (71 row → 15 cạnh) có 'AssetCore Super Admin' ∈ allowed → QTV duyệt được
+        mọi cạnh nghiệm thu. RED nếu 1 edit rớt Super Admin khỏi 1 cạnh.
+
+        2026-07-22 (ADR-CORE-01): 45 → 71 row. +26 row do
+        ``setup/backfill_workflow_domain_roles`` cấp transition cho
+        ``Commissioning Manager``/``Commissioning User`` — hai vai trò CÓ DocPerm
+        write/submit trên Asset Commissioning nhưng trước đó vắng mặt ở MỌI
+        transition, tức không bấm được nút nào. Số CẠNH distinct GIỮ NGUYÊN 15
+        (chỉ thêm vai trò vào cạnh sẵn có, không mở cạnh mới)."""
         self.assertEqual(
-            len(self._wf_json["transitions"]), 45,
-            "Số transition-row đổi khỏi 45 — cập nhật oracle + doc §3.1 INV-04-WF-2")
+            len(self._wf_json["transitions"]), 71,
+            "Số transition-row đổi khỏi 71 — cập nhật oracle + doc §3.1 INV-04-WF-2")
         self.assertEqual(
             len(self._edges), 15,
             "Số cạnh distinct đổi khỏi 15 — cập nhật doc §3.1")
@@ -1405,6 +1412,468 @@ class TestImm04WorkflowSurfaceIntegrity(unittest.TestCase):
             len(poor_set), len(super_set),
             "role-nghèo (Vendor Engineer) phải bị filter chặt hơn Super Admin ở "
             "Draft (kỳ vọng rỗng) — bằng nhau ⇒ filter t.allowed không hoạt động")
+
+
+# ─── BR-04-04 (silent-completion): chặn vacuous-Pass ở nghiệm thu Initial Inspection ──
+# Core Doc: docs/imm-04/04_Backend_Design.md §5.3 + ADR-IMM-04-02 + 02_Analysis_Design.md
+# BR-04-04(a..d). submit_baseline_checklist chỉ set overall_inspection_result='Pass'
+# KHI tests_recorded > 0 (số row THỰC có test_result). 0 phép đo → ServiceError
+# (ErrorCode.VALIDATION / http_status 422), KHÔNG persist Pass, workflow_state giữ
+# 'Initial Inspection'. Flow THẬT (07 §III.4b): phiếu vào Initial Inspection với
+# baseline_tests rỗng, KTV đo phát sinh tại hiện trường → clause (b) UPSERT-append.
+
+def _first_link(dt: str) -> str | None:
+    names = frappe.get_all(dt, limit=1, pluck="name")
+    return names[0] if names else None
+
+
+class TestBaselineVacuousPassGuard(unittest.TestCase):
+    """TC-04-BASELINE-01..05 — BR-04-04 guard (a+d) + clause (b)/(c) regression.
+
+    Dùng phiếu Asset Commissioning THẬT ở workflow_state 'Initial Inspection', re-get
+    fresh (CommissioningRepo.get) để kiểm persist — KHÔNG stub doc, đúng ADR-IMM-04-02.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.po = _first_link("AC Purchase")
+        cls.model = _first_link("IMM Device Model")
+        cls.vendor = _first_link("AC Supplier")
+        cls._created: list[str] = []
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        for n in cls._created:
+            try:
+                frappe.delete_doc("Asset Commissioning", n, force=True, ignore_permissions=True)
+            except Exception:
+                pass
+        frappe.db.commit()
+
+    def setUp(self):
+        if not (self.po and self.model and self.vendor):
+            self.skipTest(
+                "Thiếu master data (AC Purchase / IMM Device Model / AC Supplier) "
+                "để tạo phiếu Asset Commissioning hợp lệ cho save()")
+        frappe.set_user("Administrator")
+
+    def _make_comm(self, seeded_rows: list | None = None) -> str:
+        """Tạo phiếu THẬT ở Initial Inspection (mandatory-link đủ để service save())."""
+        doc = frappe.get_doc({
+            "doctype": "Asset Commissioning",
+            "po_reference": self.po,
+            "master_item": self.model,
+            "vendor": self.vendor,
+            "risk_class": "B",
+            # Bypass Gate G01 hợp lệ (documents_incomplete + note) — phiếu tới mà
+            # CO/CQ chậm; test tập trung nghiệm thu baseline, KHÔNG hồ sơ pháp lý.
+            "documents_incomplete": 1,
+            "documents_incomplete_note": "Hồ sơ CO/CQ bổ sung sau — test baseline verdict",
+            "workflow_state": "Draft",
+        }).insert(ignore_permissions=True, ignore_mandatory=True)
+        if seeded_rows:
+            for row in seeded_rows:
+                doc.append("baseline_tests", row)
+            # Save ở Draft → VR-03 (validate_checklist_completion) skip state Draft,
+            # nên seed row thiếu test_result vẫn persist được.
+            doc.save(ignore_permissions=True)
+        # Chuyển sang Initial Inspection qua db_set (né workflow transition validation).
+        doc.db_set("workflow_state", "Initial Inspection", update_modified=False)
+        type(self)._created.append(doc.name)
+        return doc.name
+
+    # ── TC-04-BASELINE-01 (RED-first): 0 phép đo, baseline rỗng → VALIDATION, KHÔNG Pass ──
+    def test_baseline_01_empty_results_blocks_vacuous_pass(self):
+        from assetcore.services.imm04 import submit_baseline_checklist
+        from assetcore.services.shared import ErrorCode
+        from assetcore.repositories.commissioning_repo import CommissioningRepo
+
+        name = self._make_comm()
+        with self.assertRaises(ServiceError) as ctx:
+            submit_baseline_checklist(name, [])
+        self.assertEqual(ctx.exception.code, ErrorCode.VALIDATION,
+                         "0 phép đo phải raise ErrorCode.VALIDATION (BR-04-04)")
+        self.assertIn("BR-04-04", ctx.exception.message)
+        reloaded = CommissioningRepo.get(name)
+        self.assertNotEqual(reloaded.overall_inspection_result, "Pass",
+                            "vacuous submit KHÔNG được set overall_inspection_result='Pass'")
+        self.assertEqual(reloaded.workflow_state, "Initial Inspection",
+                         "phiếu KHÔNG được advance khỏi Initial Inspection")
+
+    # ── TC-04-BASELINE-02: seeded rows nhưng results chỉ measured_val → tests_recorded==0 ──
+    def test_baseline_02_seeded_rows_no_test_result_blocks(self):
+        from assetcore.services.imm04 import submit_baseline_checklist
+        from assetcore.services.shared import ErrorCode
+        from assetcore.repositories.commissioning_repo import CommissioningRepo
+
+        name = self._make_comm(seeded_rows=[
+            {"parameter": "Dòng rò điện vỏ máy"},
+            {"parameter": "Điện trở tiếp đất"},
+        ])
+        # results khớp parameter nhưng KHÔNG gửi test_result (chỉ measured_val).
+        with self.assertRaises(ServiceError) as ctx:
+            submit_baseline_checklist(name, [
+                {"parameter": "Dòng rò điện vỏ máy", "measured_val": "0.12"},
+                {"parameter": "Điện trở tiếp đất", "measured_val": "0.05"},
+            ])
+        self.assertEqual(ctx.exception.code, ErrorCode.VALIDATION)
+        reloaded = CommissioningRepo.get(name)
+        self.assertNotEqual(reloaded.overall_inspection_result, "Pass")
+        self.assertEqual(reloaded.workflow_state, "Initial Inspection")
+
+    # ── TC-04-BASELINE-03: ≥1 row test_result='Pass' → Pass + tests_recorded==1 ──
+    def test_baseline_03_one_pass_row_sets_pass(self):
+        from assetcore.services.imm04 import submit_baseline_checklist
+        from assetcore.repositories.commissioning_repo import CommissioningRepo
+
+        name = self._make_comm()
+        res = submit_baseline_checklist(name, [
+            {"parameter": "Dòng rò điện vỏ máy", "measured_val": "0.10", "test_result": "Pass"},
+        ])
+        self.assertEqual(res["overall_result"], "Pass")
+        self.assertEqual(res["tests_recorded"], 1,
+                         "tests_recorded = số row THỰC ghi test_result, KHÔNG len(results) mù")
+        reloaded = CommissioningRepo.get(name)
+        self.assertEqual(reloaded.overall_inspection_result, "Pass")
+
+    # ── TC-04-BASELINE-04 (clause b regression): parameter chưa có row → APPEND + persist ──
+    def test_baseline_04_upsert_appends_new_parameter(self):
+        from assetcore.services.imm04 import submit_baseline_checklist
+        from assetcore.repositories.commissioning_repo import CommissioningRepo
+
+        # Seed 1 row (đã có kết quả) để phiếu hợp lệ; gửi result cho parameter MỚI.
+        name = self._make_comm(seeded_rows=[
+            {"parameter": "Dòng rò điện vỏ máy", "test_result": "Pass", "measured_val": "0.10"},
+        ])
+        submit_baseline_checklist(name, [
+            {"parameter": "Áp suất khí nén", "measured_val": "2.5", "test_result": "Pass"},
+        ])
+        reloaded = CommissioningRepo.get(name)
+        appended = [r for r in reloaded.baseline_tests if r.parameter == "Áp suất khí nén"]
+        self.assertEqual(len(appended), 1,
+                         "parameter chưa có row phải được APPEND (KHÔNG drop câm)")
+        self.assertEqual(appended[0].test_result, "Pass")
+        self.assertEqual(str(appended[0].measured_val), "2.5")
+
+    # ── TC-04-BASELINE-05 (clause c regression): Fail bất kỳ → VALIDATION nêu param, KHÔNG Pass ──
+    def test_baseline_05_fail_row_blocks_and_lists_parameter(self):
+        from assetcore.services.imm04 import submit_baseline_checklist
+        from assetcore.services.shared import ErrorCode
+        from assetcore.repositories.commissioning_repo import CommissioningRepo
+
+        name = self._make_comm()
+        with self.assertRaises(ServiceError) as ctx:
+            submit_baseline_checklist(name, [
+                {"parameter": "Dòng rò điện vỏ máy", "measured_val": "9.9",
+                 "test_result": "Fail", "fail_note": "Vượt ngưỡng 0.5mA"},
+            ])
+        self.assertEqual(ctx.exception.code, ErrorCode.VALIDATION)
+        self.assertIn("Dòng rò điện vỏ máy", ctx.exception.message,
+                      "message phải liệt kê parameter Fail")
+        reloaded = CommissioningRepo.get(name)
+        self.assertNotEqual(reloaded.overall_inspection_result, "Pass")
+
+
+# ─── BR-04-12: Gỡ deadlock board_approver trong transition_state ──────────────
+# Core Doc: docs/imm-04/04_Backend_Design.md §5.4 + ADR-IMM-04-03.
+# Deadlock gốc: Gate G06 đòi board_approver tại lúc save vào Clinical Release,
+# nhưng transition_state(name, action) KHÔNG có param approver, còn
+# approve_clinical_release lại đòi ĐÃ ở Clinical Release → 417 nút chết cho path
+# trực tiếp/mobile. Fix: transition_state(name, action, board_approver="") cấp
+# approver 4-mắt ATOMIC ngay trong transition khi (và chỉ khi) next_state ==
+# Clinical Release; thiếu approver → ServiceError Decision-B (message_code
+# IMM04-GATE-G06-APPROVER), KHÔNG raw 417.
+
+_GATE_G06_CODE = "IMM04-GATE-G06-APPROVER"
+
+
+class TestTransitionBoardApprover(unittest.TestCase):
+    """BR-04-12 (a..e): board_approver atomic trong transition_state.
+
+    Real-DB fixtures (né mock service): phiếu ở Initial Inspection với baseline
+    100% Pass, 0 NC Open, documents_incomplete bypass Gate G01. Device model +
+    PM Checklist Template cho full-path (submit → PM/Calibration schedule).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        from assetcore.tests._asset_cleanup import purge_asset  # noqa: PLC0415
+        cls._purge_asset = staticmethod(purge_asset)
+        frappe.set_user("Administrator")
+        cls._comms: list[str] = []
+        cls._assets: list[str] = []
+        cls._asset_docs: list[str] = []
+
+        # Approver hợp lệ (khác owner=Administrator) — user THẬT, không super-admin.
+        cls.approver = "_test_imm04_board@assetcore.test"
+        cls.dup_user = "_test_imm04_dup@assetcore.test"
+        for email, fn in ((cls.approver, "imm04board"), (cls.dup_user, "imm04dup")):
+            if not frappe.db.exists("User", email):
+                u = frappe.get_doc({
+                    "doctype": "User", "email": email, "first_name": fn,
+                    "send_welcome_email": 0, "enabled": 1,
+                }).insert(ignore_permissions=True)
+            else:
+                u = frappe.get_doc("User", email)
+            if "Maintenance User" not in {r.role for r in u.get("roles", [])}:
+                u.append("roles", {"role": "Maintenance User"})
+                u.save(ignore_permissions=True)
+
+        # Device Model yêu cầu PM + Calibration → full-path sinh cả 2 schedule.
+        cls._cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": "_TEST BR0412 Category",
+        }).insert(ignore_permissions=True)
+        cls.model = frappe.get_doc({
+            "doctype": "IMM Device Model",
+            "model_name": "_TEST BR0412 Ventilator",
+            "manufacturer": "_TEST BR0412 Mfr",
+            "asset_category": cls._cat.name,
+            "medical_device_class": "Class II",
+            "is_pm_required": 1,
+            "pm_interval_days": 180,
+            "is_calibration_required": 1,
+            "calibration_interval_days": 365,
+            "default_calibration_type": "External",
+        }).insert(ignore_permissions=True)
+        cls._template = frappe.get_doc({
+            "doctype": "PM Checklist Template",
+            "template_name": "_TEST BR0412 PM Template",
+            "asset_category": cls._cat.name,
+            "pm_type": "Semi-Annual",
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        for name in cls._comms:
+            for dt, flt in (
+                ("Asset QA Non Conformance", {"ref_commissioning": name}),
+                ("IMM Audit Trail", {"ref_name": name}),
+            ):
+                try:
+                    frappe.db.delete(dt, flt)
+                except Exception:
+                    pass
+            try:
+                frappe.db.set_value("Asset Commissioning", name, "docstatus", 0)
+                frappe.delete_doc("Asset Commissioning", name, force=True, ignore_permissions=True)
+            except Exception:
+                pass
+        for asset in cls._assets:
+            for dt, flt in (
+                ("PM Schedule", {"asset_ref": asset}),
+                ("IMM Calibration Schedule", {"asset": asset}),
+                ("PM Work Order", {"asset_ref": asset}),
+            ):
+                try:
+                    frappe.db.delete(dt, flt)
+                except Exception:
+                    pass
+            try:
+                cls._purge_asset(asset)
+            except Exception:
+                pass
+        for name in cls._asset_docs:
+            try:
+                frappe.delete_doc("Asset Document", name, force=True, ignore_permissions=True)
+            except Exception:
+                pass
+        for ref, dt in (
+            (getattr(cls, "_template", None), "PM Checklist Template"),
+            (getattr(cls, "model", None), "IMM Device Model"),
+            (getattr(cls, "_cat", None), "AC Asset Category"),
+            (cls.approver, "User"), (cls.dup_user, "User"),
+        ):
+            name = ref.name if hasattr(ref, "name") else ref
+            if not name:
+                continue
+            try:
+                frappe.delete_doc(dt, name, force=True, ignore_permissions=True)
+            except Exception:
+                pass
+        frappe.db.commit()
+
+    # ── factory ────────────────────────────────────────────────────────────────
+    def _seed_comm(self, workflow_state="Initial Inspection", master_item=None, owner=None):
+        """Phiếu THẬT ở `workflow_state` (db_set né workflow-validation), baseline
+        100% Pass, documents_incomplete=1 bypass Gate G01."""
+        payload = {
+            "doctype": "Asset Commissioning",
+            "workflow_state": "Draft",
+            "risk_class": "B",
+            "is_radiation_device": 0,
+            "documents_incomplete": 1,
+            "documents_incomplete_note": "Hồ sơ CO/CQ bổ sung trong 7 ngày (fixture nghiệm thu).",
+            "baseline_tests": [
+                {"parameter": "Dòng rò vỏ máy (chassis leakage)", "measured_val": "0.10",
+                 "unit": "mA", "test_result": "Pass"},
+                {"parameter": "Điện trở nối đất bảo vệ", "measured_val": "0.05",
+                 "unit": "Ohm", "test_result": "Pass"},
+            ],
+        }
+        if master_item:
+            payload["master_item"] = master_item
+        doc = frappe.get_doc(payload).insert(
+            ignore_permissions=True, ignore_mandatory=True, ignore_links=True
+        )
+        doc.db_set("workflow_state", workflow_state, update_modified=False)
+        if owner:
+            doc.db_set("owner", owner, update_modified=False)
+        frappe.db.commit()
+        type(self)._comms.append(doc.name)
+        return doc.name
+
+    def _make_active_registration(self, asset: str) -> str:
+        """GW-2: Asset Document 'Chứng nhận đăng ký lưu hành' Active để submit qua
+        cổng compliance IMM-05 (`_gw2_check_document_compliance`)."""
+        d = frappe.get_doc({
+            "doctype": "Asset Document",
+            "asset_ref": asset,
+            "doc_category": "Legal",
+            "doc_type_detail": "Chứng nhận đăng ký lưu hành",
+            "doc_number": "ĐKLH-TEST-BR0412",
+            "version": "1.0",
+            "issued_date": nowdate(),
+        }).insert(ignore_permissions=True, ignore_mandatory=True, ignore_links=True)
+        d.db_set("workflow_state", "Active", update_modified=False)
+        frappe.db.commit()
+        type(self)._asset_docs.append(d.name)
+        return d.name
+
+    # ── tests ──────────────────────────────────────────────────────────────────
+    def test_transition_to_clinical_release_with_board_approver_succeeds(self):
+        """BR-04-12d (deadlock GỠ): Initial Inspection + baseline Pass + 0 NC +
+        board_approver hợp lệ → Clinical Release THÀNH CÔNG + approver persist.
+        Trước fix: ValidationError 'board_approver là bắt buộc' (417)."""
+        from assetcore.services import imm04 as svc
+
+        name = self._seed_comm("Initial Inspection")
+        res = svc.transition_state(name, "Phê duyệt phát hành", board_approver=self.approver)
+        self.assertEqual(res["new_state"], "Clinical Release")
+        self.assertEqual(res["board_approver"], self.approver)
+        if res.get("final_asset"):
+            type(self)._assets.append(res["final_asset"])
+        doc = frappe.get_doc("Asset Commissioning", name)
+        self.assertEqual(doc.workflow_state, "Clinical Release")
+        self.assertEqual(doc.board_approver, self.approver)
+
+    def test_transition_to_clinical_release_without_approver_returns_structured_error(self):
+        """BR-04-12b (STRUCTURED, KHÔNG 417): board_approver='' và doc.board_approver=''
+        → ServiceError message_code IMM04-GATE-G06-APPROVER + context.missing;
+        KHÔNG frappe.ValidationError, state KHÔNG đổi."""
+        from assetcore.services import imm04 as svc
+        from assetcore.services.shared import ErrorCode
+
+        name = self._seed_comm("Initial Inspection")
+        with self.assertRaises(ServiceError) as ctx:
+            svc.transition_state(name, "Phê duyệt phát hành", board_approver="")
+        e = ctx.exception
+        self.assertEqual(e.message_code, _GATE_G06_CODE)
+        self.assertEqual(e.code, ErrorCode.VALIDATION)
+        self.assertEqual(e.context, {"missing": ["board_approver"]})
+        # KHÔNG raw ValidationError (417) — phải là ServiceError nghiệp vụ.
+        self.assertNotIsInstance(e, frappe.ValidationError)
+        self.assertEqual(
+            frappe.db.get_value("Asset Commissioning", name, "workflow_state"),
+            "Initial Inspection", "state KHÔNG được đổi khi thiếu approver",
+        )
+
+    def test_transition_board_approver_four_eyes_rejected(self):
+        """BR-04-12c (NĐ98 SoD): board_approver == owner (không super-admin) →
+        ServiceError FORBIDDEN (assert_distinct_signers); state bất biến,
+        board_approver KHÔNG ghi."""
+        from assetcore.services import imm04 as svc
+        from assetcore.services.shared import ErrorCode
+
+        name = self._seed_comm("Initial Inspection", owner=self.dup_user)
+        with self.assertRaises(ServiceError) as ctx:
+            svc.transition_state(name, "Phê duyệt phát hành", board_approver=self.dup_user)
+        self.assertEqual(ctx.exception.code, ErrorCode.FORBIDDEN)
+        self.assertEqual(
+            frappe.db.get_value("Asset Commissioning", name, "workflow_state"),
+            "Initial Inspection",
+        )
+        self.assertFalse(
+            frappe.db.get_value("Asset Commissioning", name, "board_approver"),
+            "board_approver KHÔNG được ghi khi 4-eyes reject",
+        )
+
+    def test_full_commissioning_path_reaches_submit_and_generates_schedules(self):
+        """PATH END-TO-END: transition(board_approver) → Clinical Release →
+        submit_commissioning → docstatus==1 + PM schedule (IMM-08) + Calibration
+        schedule (IMM-11) sinh ra ⇒ mạch Needs→Operation thông (không nút chết)."""
+        from assetcore.services import imm04 as svc
+
+        name = self._seed_comm("Initial Inspection", master_item=self.model.name)
+        res = svc.transition_state(name, "Phê duyệt phát hành", board_approver=self.approver)
+        self.assertEqual(res["new_state"], "Clinical Release")
+        final_asset = res.get("final_asset")
+        self.assertTrue(final_asset, "Clinical Release phải auto-mint AC Asset (final_asset)")
+        type(self)._assets.append(final_asset)
+
+        # GW-2 compliance: cấp Chứng nhận ĐK lưu hành Active trước submit.
+        self._make_active_registration(final_asset)
+
+        sres = svc.submit_commissioning(name)
+        self.assertEqual(sres["docstatus"], 1, "phiếu phải Submit được (docstatus==1)")
+
+        pm = frappe.db.count("PM Schedule", {"asset_ref": final_asset})
+        cal = frappe.db.count("IMM Calibration Schedule", {"asset": final_asset})
+        self.assertGreaterEqual(pm, 1, "IMM-08 PM schedule phải sinh từ path nghiệm thu")
+        self.assertGreaterEqual(cal, 1, "IMM-11 Calibration schedule phải sinh từ path nghiệm thu")
+
+    def test_transition_non_release_action_ignores_board_approver(self):
+        """BR-04-12e (backward-compat): action KHÔNG dẫn tới Clinical Release +
+        truyền board_approver → param BỎ QUA, transition chạy như cũ, approver
+        KHÔNG ghi, 0 side-effect."""
+        from assetcore.services import imm04 as svc
+
+        name = self._seed_comm("Initial Inspection")
+        res = svc.transition_state(name, "Báo cáo lỗi baseline", board_approver=self.approver)
+        self.assertEqual(res["new_state"], "Re Inspection")
+        self.assertFalse(
+            frappe.db.get_value("Asset Commissioning", name, "board_approver"),
+            "board_approver KHÔNG được ghi ở transition non-CR-bound (backward-compat)",
+        )
+        self.assertFalse(res.get("board_approver") or "")
+
+
+class TestTransitionBoardApproverOASContract(unittest.TestCase):
+    """OAS mirror guard: op `transition_state` (commissioning) KHÔNG có trong
+    mobile OAS surface (ADR-IMM-04-03: 0 whitelist mới, KHÔNG đụng mobile OAS).
+    Guard chống vô tình thêm operation mới (op-count baseline & test_mobile_oas
+    KHÔNG đổi). Nếu BA sau này đưa transition_state vào mobile OAS, test này PHẢI
+    cập nhật để assert board_approver optional + error IMM04-GATE-G06-APPROVER."""
+
+    def test_mobile_oas_transition_documents_board_approver(self):
+        import yaml
+        from pathlib import Path
+
+        oas_path = Path(frappe.get_app_path("assetcore")).parent / "docs" / "mobile" / "openapi" / "assetcore-mobile.openapi.yaml"
+        if not oas_path.exists():
+            self.skipTest("mobile OAS không tồn tại trên site này")
+        spec = yaml.safe_load(oas_path.read_text(encoding="utf-8"))
+        paths = spec.get("paths", {})
+
+        transition_path = "/api/method/assetcore.api.imm04.transition_state"
+        if transition_path in paths:
+            # Nếu op ĐƯỢC đưa vào mobile OAS → PHẢI document board_approver optional
+            # + error IMM04-GATE-G06-APPROVER (KHÔNG thành required, KHÔNG whitelist mới).
+            op = paths[transition_path]
+            body = str(op)
+            self.assertIn("board_approver", body,
+                          "op transition_state trong OAS phải document field board_approver")
+            self.assertIn(_GATE_G06_CODE, body,
+                          "op transition_state trong OAS phải document error IMM04-GATE-G06-APPROVER")
+        else:
+            # Trạng thái hiện tại (Core Doc §5.4 Boundaries): op KHÔNG có trong mobile
+            # OAS ⇒ thay đổi board_approver là hợp đồng service/web, op-count GIỮ NGUYÊN.
+            self.assertNotIn(transition_path, paths,
+                             "0 whitelist mới: transition_state không được thêm vào mobile OAS")
 
 
 if __name__ == "__main__":

@@ -55,12 +55,24 @@ export async function listCommissioning(
 
 /**
  * Thực hiện workflow transition.
+ *
+ * CR-54 §1 — deadlock board_approver: một số action dẫn tới 'Clinical Release'
+ * (Phê duyệt phát hành / Phê duyệt sau tái kiểm / Gỡ giữ lâm sàng) đòi
+ * `board_approver` (gate G06 · 4-eyes NĐ98). Truyền `boardApprover` để BE set
+ * người ký NGAY trong cùng transition (1 call) thay vì save trước (bị gate chặn).
+ *
+ * `board_approver` CHỈ được đưa vào body khi có giá trị → transition không-phát-hành
+ * và caller cũ (không truyền tham số) gửi body y hệt trước đây (backward-compat;
+ * BE bỏ qua param cho action không dẫn tới Clinical Release).
  */
 export async function transitionState(
   name: string,
   action: string,
+  boardApprover?: string,
 ): Promise<{ name: string; action_applied: string; new_state: string; docstatus: number; message: string }> {
-  return frappePost(`${BASE}.transition_state`, { name, action })
+  const body: Record<string, unknown> = { name, action }
+  if (boardApprover) body.board_approver = boardApprover
+  return frappePost(`${BASE}.transition_state`, body)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -199,10 +211,30 @@ export async function generateInternalQr(
 // ─────────────────────────────────────────────────────────────────────────────
 // 14. SUBMIT BASELINE CHECKLIST
 // ─────────────────────────────────────────────────────────────────────────────
+/** Một dòng kết quả đo kiểm baseline gửi lên gate Nghiệm thu ban đầu. */
+export interface BaselineResultInput {
+  parameter: string
+  test_result: string
+  measured_val?: string | number
+  fail_note?: string
+}
+
+/**
+ * Phản hồi từ gate nộp bảng kiểm baseline.
+ * `tests_recorded` = SỐ DÒNG THỰC ghi test_result (server đếm, KHÔNG mù len(payload)).
+ * `overall_result` chỉ 'Pass' khi `tests_recorded > 0` — đóng false-success (silent-completion).
+ */
+export interface BaselineSubmitResult {
+  name: string
+  overall_result: string
+  tests_recorded: number
+  clinical_hold_required: boolean
+}
+
 export async function submitBaselineChecklist(
   name: string,
-  results: Array<{ parameter: string; test_result: string; measured_val?: number; fail_note?: string }>,
-): Promise<{ name: string; overall_result: string; clinical_hold_required: boolean }> {
+  results: BaselineResultInput[],
+): Promise<BaselineSubmitResult> {
   return frappePost(`${BASE}.submit_baseline_checklist`, {
     name,
     results: JSON.stringify(results),

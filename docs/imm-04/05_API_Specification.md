@@ -30,7 +30,7 @@
 | 12 | `get_gate_status` | GET | Trạng thái G01–G06 gate cho phiếu | ✓ |
 | 13 | `list_my_pending_approvals` | GET | Phiếu tôi cần duyệt | ✓ |
 | 14 | `get_commissioning_origin` | GET | Truy xuất nguồn gốc commissioning của asset | ✓ |
-| 15 | `transition_state` | POST | Workflow transition | ✗ |
+| 15 | `transition_state` | POST | Workflow transition (+`board_approver` optional khi CR-bound · BR-04-12) | ✗ |
 | 16 | `submit_commissioning` | POST | Submit phiếu (docstatus 0→1) | ✗ |
 | 17 | `save_commissioning` | POST | Lưu field inline | ✓ |
 | 18 | `create_commissioning` | POST | Tạo phiếu mới | ✗ |
@@ -63,7 +63,7 @@
 | 01 | POST | /api/method/assetcore.api.imm04.create_commissioning | Tạo phiếu nghiệm thu mới | Primary |
 | 02 | POST | /api/method/assetcore.api.imm04.create_from_purchase | Tạo phiếu từ AC Purchase (link) | Primary |
 | 03 | POST | /api/method/assetcore.api.imm04.save_commissioning | Lưu inline field (Draft/edit) | Primary |
-| 04 | POST | /api/method/assetcore.api.imm04.transition_state | Workflow transition (G01–G06) | Primary |
+| 04 | POST | /api/method/assetcore.api.imm04.transition_state | Workflow transition (G01–G06) + cấp `board_approver` 4-mắt khi CR-bound (BR-04-12 · §5b) | Primary |
 | 05 | POST | /api/method/assetcore.api.imm04.submit_commissioning | Submit phiếu (docstatus 0→1, mint Asset) | Primary |
 | 06 | POST | /api/method/assetcore.api.imm04.assign_identification | Gán SN + sinh QR | Primary |
 | 07 | POST | /api/method/assetcore.api.imm04.submit_baseline_checklist | Nộp kết quả đo kiểm IQ/OQ/PQ | Primary |
@@ -218,6 +218,23 @@ export interface WorkflowTransition {
   action: string
   next_state: WorkflowState
   allowed_role: string
+}
+
+// transition_state — BR-04-12 (04 §5.4). board_approver optional; CHỈ honor khi
+// next_state của `action` == 'Clinical Release', ngược lại bị bỏ qua (backward-compat).
+export interface TransitionStateRequest {
+  name: string
+  action: string
+  board_approver?: string          // reqd khi transition CR-bound; 4-eyes SoD
+}
+
+export interface TransitionResult {
+  name: string
+  action_applied: string
+  new_state: WorkflowState
+  docstatus: 0 | 1 | 2
+  final_asset: string
+  board_approver: string           // additive — persist sau CR-bound transition
 }
 ```
 
@@ -374,6 +391,101 @@ curl -X POST 'http://site/api/method/assetcore.api.imm04.create_commissioning' \
 
 ---
 
+### 15. transition_state — Workflow transition (+ cấp `board_approver` 4-mắt khi CR-bound · BR-04-12, 04 §5.4)
+
+> Catalog #15 (§0). Đặt cạnh `submit_commissioning` (#6) theo trình tự nghiệp vụ: transition → Clinical Release → Submit.
+
+| Mục | Giá trị |
+|---|---|
+| Method | POST |
+| Path | `/api/method/assetcore.api.imm04.transition_state` |
+| Role | Theo `Workflow Transition.allowed` của state hiện tại (server-driven; `allowed_transitions[]`) |
+| Idempotent | No |
+| Type Response | `TransitionResult` |
+
+**Signature:** `transition_state(name: str, action: str, board_approver: str = "")`
+
+`board_approver` **optional**, **CHỈ có tác dụng** khi `action` là transition có `next_state == "Clinical Release"` (3 cạnh: `Phê duyệt phát hành` từ Initial Inspection · `Gỡ giữ lâm sàng` từ Clinical Hold · `Phê duyệt sau tái kiểm` từ Re Inspection). Với mọi action khác → tham số **bị bỏ qua** (backward-compat, không ghi vào field nào).
+
+**Request (CR-bound — gỡ deadlock):**
+```jsonc
+{"name": "ACC-26-04-00001", "action": "Phê duyệt phát hành", "board_approver": "director@hospital.vn"}
+```
+
+**Request (non-CR — param bỏ qua):**
+```jsonc
+{"name": "ACC-26-04-00001", "action": "Bắt đầu lắp đặt"}
+```
+
+**Response success:**
+```jsonc
+{
+  "success": true,
+  "data": {
+    "name": "ACC-26-04-00001",
+    "action_applied": "Phê duyệt phát hành",
+    "new_state": "Clinical Release",
+    "docstatus": 0,
+    "final_asset": "AC-ASSET-2026-00001",
+    "board_approver": "director@hospital.vn"
+  }
+}
+```
+
+**Response error — thiếu người duyệt (Decision-B, HTTP-200 `success:false`, KHÔNG raw 417):**
+```jsonc
+{
+  "success": false,
+  "error": "Gate G06: Phải chọn Người Phê duyệt Ban Giám đốc (board_approver) trước khi Phát hành Lâm sàng.",
+  "code": "VALIDATION",
+  "http_status": 422,
+  "message_code": "IMM04-GATE-G06-APPROVER",
+  "context": {"missing": ["board_approver"]},
+  "severity": "warning",
+  "title": "Chưa chọn người phê duyệt Ban Giám đốc",
+  "action_hint": "Chọn người phê duyệt Ban Giám đốc rồi gửi lại yêu cầu phát hành."
+}
+```
+
+**Response error — vi phạm 4-mắt (NĐ98 SoD):**
+```jsonc
+{
+  "success": false,
+  "error": "Separation-of-duties (4-eyes): bạn (...) đã ký ở vai trò `clinical_head` trên phiếu này; không thể đồng thời ký thêm vai khác.",
+  "code": "FORBIDDEN",
+  "http_status": 403
+}
+```
+→ phiếu **KHÔNG đổi state**, `board_approver` **KHÔNG bị ghi**.
+
+**Errors có thể:**
+| Code (BE) | Code (FE) | Khi nào |
+|---|---|---|
+| `NOT_FOUND` | `NOT_FOUND` | Phiếu không tồn tại |
+| `FORBIDDEN` | `FORBIDDEN` | (a) thiếu quyền `write`; (b) 4-eyes: `board_approver` trùng `owner`/`clinical_head`/`qa_officer`/`pending_approver` (`assert_distinct_signers`) |
+| `INVALID_PARAMS` | `VALIDATION_ERROR` | `action` không hợp lệ từ state hiện tại |
+| `VALIDATION` | `VALIDATION_ERROR` | **CR-bound thiếu `board_approver`** (`message_code=IMM04-GATE-G06-APPROVER`, `context.missing=['board_approver']`) — Decision-B, thay cho 417 legacy |
+
+**Side effects (CR-bound):**
+- Ghi `board_approver` (khi caller cấp mới) TRƯỚC `apply_workflow` → gate G06 save-time pass cùng lượt.
+- `apply_workflow` → `workflow_state = Clinical Release`.
+- Stamp `commissioning_date` (BR-04-11, idempotent).
+- Auto-mint `AC Asset` (`create_ac_asset`, idempotent theo `final_asset` — best-effort, không chặn transition nếu lỗi).
+
+**Boundaries:** xem 04 §5.4. Điểm chốt cho FE: đọc `allowed_transitions[]` từ `CommissioningDetail` (GATE-8, server-driven CTA) — với transition CR-bound, thu `board_approver` (dùng `ApproverSelect context="user"` / `list_assignable_users`, **KHÔNG** `SmartSelect doctype="User"` trần) rồi truyền vào `transition_state`; nếu `message_code == IMM04-GATE-G06-APPROVER` → highlight control người-duyệt (đọc `context.missing`).
+
+**Curl:**
+```bash
+curl -X POST 'http://site/api/method/assetcore.api.imm04.transition_state' \
+  -H 'Authorization: token key:secret' \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"ACC-26-04-00001","action":"Phê duyệt phát hành","board_approver":"director@hospital.vn"}'
+```
+
+> ⚠️ Mobile OAS (`docs/mobile/openapi/assetcore-mobile.openapi.yaml`) **KHÔNG** expose `transition_state` như write-op (IMM-04 mobile hiện chỉ read: `list`/`detail` + `allowed_transitions[]`). Curate write-op cho mobile = **[ROADMAP]** mobile-BE round riêng (giữ op-count baseline; `test_mobile_oas` KHÔNG đụng vòng này).
+
+---
+
 ### 6. submit_commissioning — Submit phiếu
 
 | Mục | Giá trị |
@@ -424,6 +536,7 @@ curl -X POST 'http://site/api/method/assetcore.api.imm04.create_commissioning' \
 - **Stamp `commissioning_date = nowdate()` nếu còn NULL** (BR-04-11 — `_stamp_commissioning_date`; idempotent, không ghi đè). Bảo hiểm cho phiếu vào Clinical Release từ trước fix mà chưa stamp.
 - Tạo `Asset` record (`final_asset`)
 - Auto-import hồ sơ sang IMM-05 (`create_initial_document_set`)
+- **`on_submit` doc_events (`hooks.py:194-197`) phát lịch bảo trì + hiệu chuẩn** — `imm08.create_pm_schedule_from_commissioning` (PM schedule) + `imm11.create_calibration_schedule_from_commissioning` (Calibration schedule). Đây là mắt xích `Commissioning → Operation`: sau gỡ deadlock (§5.4 / BR-04-12), phiếu tới được `Clinical Release` → Submit → 2 lịch được phát ⇒ mạch `Needs→Operation` không còn nút chết.
 - Publish realtime `imm04_asset_released`
 - Notify Purchase User role
 
@@ -507,23 +620,38 @@ curl -X POST 'http://site/api/method/assetcore.api.imm04.submit_commissioning' \
 }
 ```
 
-**Response success (all pass):**
+> **Ngữ nghĩa (BR-04-04 · silent-completion guard — xem `04_Backend_Design.md §5.3`, ADR-IMM-04-02):**
+> - **UPSERT-by-parameter:** `result` cho parameter **chưa có** row trong `baseline_tests` → BE **append** row mới + persist (phiếu tạo không pre-seed child vẫn ghi được đo hiện trường). KHÔNG drop câm.
+> - **`tests_recorded`** = số row THỰC ghi `test_result` (Pass/Fail/N/A) sau upsert — KHÔNG `len(results)` mù. `overall_result='Pass'` ⟺ `tests_recorded > 0`.
+> - **0 phép đo** (`results` rỗng AND `baseline_tests` rỗng, hoặc 0 row có `test_result`) → **KHÔNG auto-Pass**; trả Error `VALIDATION` (BR-04-04a). `overall_inspection_result` KHÔNG set `Pass`.
+
+**Response success (all pass, N phép đo):**
 ```jsonc
 {
   "success": true,
   "data": {
     "name": "ACC-26-04-00001",
     "overall_result": "Pass",
+    "tests_recorded": 2,
     "clinical_hold_required": true
   }
 }
 ```
 
-**Response error (có Fail):**
+**Response error (có Fail — BR-04-04c):**
 ```jsonc
 {
   "success": false,
   "error": "BR-04-04: Thông số sau không đạt: Earth Resistance. Phiếu phải chuyển về Re Inspection.",
+  "code": "VALIDATION"
+}
+```
+
+**Response error (0 phép đo — BR-04-04a, chặn Pass-giả):**
+```jsonc
+{
+  "success": false,
+  "error": "BR-04-04: Không thể nghiệm thu — chưa có phép đo baseline nào. Nhập kết quả đo trước khi nộp.",
   "code": "VALIDATION"
 }
 ```
@@ -1032,6 +1160,8 @@ CommissioningDetailEnvelope:
 | 3 | `clinical_hold_required` | **boolean** | **Boolean THẬT** (`check_auto_clinical_hold(doc)` return `bool` `services/imm04.py:405-410` — Class C/D/Radiation). **KHÔNG** Check int-0/1 ⇒ **KHÔNG** áp CR-01 coercion `type:integer`; đây là `type: boolean` như `is_locked`/`is_late` (phân biệt với 4 cờ Check `type:integer` của `CommissioningDetail` §21). |
 
 **`SubmitBaselineChecklistEnvelope`** (CLOSED, `additionalProperties: false`, `required: [success, data]`): `success: {type: boolean, enum: [true]}` + `data: $ref SubmitBaselineChecklistResponse`. Mirror `PmSubmitResultEnvelope` (`yaml:6264`).
+
+> 🔜 **POST-BE re-mirror (backlog mobile-mirror owner — CR-25c-followup):** BR-04-04 hardening (`04_Backend_Design.md §5.3` · ADR-IMM-04-02) đổi `submit_baseline_checklist` service trả **4-key** thêm `tests_recorded` (integer, số phép đo THỰC ghi). Response hiện mirror ở đây = CLOSED **3-key** cite `imm04.py:1456` (chữ ký cũ). Khi BE land: re-introspect `@source` (dòng return mới) → thêm `tests_recorded: {type: integer}` vào `SubmitBaselineChecklistResponse` + `required` → bump guard `TestMobileSubmitBaselineChecklistContract` (d) 3-prop → 4-prop. **Chưa curate ngay** (grounded-argspec: chỉ mirror field khi ĐÃ có ở `@source`; hiện service vẫn 3-key). Additive → không breaking codegen. **0 whitelist mới** ⇒ `test_oas_baseline` bất biến.
 
 **Nhánh Error 200-oneOf** gom mọi **lỗi nghiệp vụ in-handler đến HTTP-200** (Decision-B, KHÔNG status-line): `NOT_FOUND` (phiếu∄ `:1440`) · `INVALID_PARAMS` (sai state `:1442`) · **`VALIDATION` BR-04-04** (còn thông số Fail `:1452`) · malformed JSON (`_parse_json` `api/imm04.py:161`). 2 nhánh phân biệt MÁY-ĐỌC bằng closed-schema + disjoint required-set (`Env req[success,data]` vs `Error req[success,error,code,http_status]`) — KHÔNG discriminator (§5c).
 

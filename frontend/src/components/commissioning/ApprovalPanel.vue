@@ -164,17 +164,27 @@ function actionClass(action: string): string {
   return 'btn-secondary disabled:opacity-50 disabled:cursor-not-allowed'
 }
 
+// CR-54 §1 / gate G06: action phát hành lâm sàng đòi board_approver. Nếu chưa
+// chỉ định (gate G06 fail) → CHẶN click ngay ở FE (disable + lý do) thay vì để
+// BE trả IMM04-GATE-G06-APPROVER (tránh nút chết / 417 thô rơi ra).
+function isApproveBlocked(action: string): boolean {
+  return isApproveAction(action) && !props.gateStatus.g06_approver
+}
+
 function handleTransitionClick(action: string) {
+  // Defense-in-depth: không emit khi thiếu người ký (nút cũng đã disable).
+  if (props.saving || isApproveBlocked(action)) return
   // 'Phê duyệt phát hành' / 'Phê duyệt sau tái kiểm' là workflow transition
   // (không phải approve_clinical_release — endpoint đó chỉ chạy khi đã ở
   // Clinical Release). Emit transition để store gọi transition_state với
-  // đúng chuỗi action khớp workflow JSON.
+  // đúng chuỗi action khớp workflow JSON — board_approver được đính kèm 1-call
+  // ở tầng view (handleTransitionFromPanel → store.transitionState).
   emit('transition', action)
 }
 
 // Warn if trying to approve without G06 set
 const approveGateWarning = computed(() => {
-  if (!props.gateStatus.g06_approver) return 'Chưa chỉ định Người phê duyệt BGĐ (G06). Vui lòng chỉ định trước khi phê duyệt.'
+  if (!props.gateStatus.g06_approver) return 'Chưa chỉ định Người phê duyệt Ban Giám đốc (G06). Vui lòng chỉ định ở mục "Phân công người phê duyệt" trước khi phê duyệt phát hành.'
   return null
 })
 
@@ -407,7 +417,9 @@ const uniqueTransitions = computed(() => {
           v-for="t in uniqueTransitions"
           :key="t.action"
           :class="actionClass(t.action)"
-          :disabled="saving"
+          :disabled="saving || isApproveBlocked(t.action)"
+          :aria-disabled="saving || isApproveBlocked(t.action) ? 'true' : undefined"
+          :title="isApproveBlocked(t.action) ? (approveGateWarning ?? undefined) : undefined"
           @click="handleTransitionClick(t.action)"
         >
           <span class="flex items-center gap-1.5">

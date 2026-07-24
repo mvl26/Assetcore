@@ -226,7 +226,7 @@ flowchart TD
 | G03 — Baseline gate | Kết quả đo kiểm đạt? | 100% Pass/N/A; nếu Fail → Re Inspection |
 | G04 — Clinical Hold | Class nguy cơ cao? | risk_class ∈ {C, D, Radiation} → QA phải upload license |
 | G05 — NC gate | Còn NC chưa đóng? | resolution_status="Open" bất kỳ → block Release |
-| G06 — Board approver | Đã chỉ định BGĐ ký? | `board_approver` bắt buộc trước Submit |
+| G06 — Board approver | Đã chỉ định BGĐ ký? | `board_approver` bắt buộc để **vào** Clinical Release — cấp **atomic** qua `transition_state(…, board_approver=…)` khi transition CR-bound (BR-04-12, gỡ deadlock); giữ 4-mắt NĐ98 (`board_approver` ≠ owner/clinical_head/qa_officer/pending_approver). Thiếu ⇒ ServiceError `IMM04-GATE-G06-APPROVER` (Decision-B HTTP-200), KHÔNG 417 thô. Xem `04 §5.4` |
 
 ## II.6. Process metrics
 
@@ -494,7 +494,7 @@ UC08 ..> UC09 : <<include>>
 | BR-04-01 | Asset chỉ tạo qua `mint_core_asset()` trong `on_submit` | `AssetCommissioning.on_submit()` | TC-04-02 |
 | BR-04-02 (G01) | CO/CQ/Manual mandatory phải Received/Waived trước rời Pending Doc Verify | `validate_gate_g01()` | TC-04-05, 06 |
 | BR-04-03 (VR-01) | `vendor_serial_no` UNIQUE trên Asset + Commissioning | `_vr01_unique_serial_number()` | TC-04-03, 04 |
-| BR-04-04 (G03) | 100% baseline Pass/N/A; Fail → Re Inspection | `validate_gate_g03()` | TC-04-15..18 |
+| BR-04-04 (G03 — baseline verdict · silent-completion guard) | **Nghiệm thu Initial Inspection chỉ `Pass` khi có phép đo THỰC.** 4 vế: **(a)** 0 phép đo (`results` rỗng AND `baseline_tests` rỗng — hoặc sau upsert 0 row có `test_result`) → **BLOCK** `VALIDATION`, `overall_inspection_result` KHÔNG set `Pass` (đóng auto-Pass câm). **(b)** UPSERT-by-parameter — `result` cho parameter chưa có row → **APPEND row mới** + persist thực (KHÔNG drop câm). **(c)** bất kỳ `test_result=='Fail'` (kể cả row vừa append) → `VALIDATION` liệt kê parameter fail, KHÔNG set `Pass`. **(d)** `overall_inspection_result='Pass'` ⟺ `tests_recorded > 0` (số row THỰC ghi `test_result`, KHÔNG `len(results)` mù). Chi tiết + ADR-IMM-04-02 ở `04_Backend_Design.md §5.3` | `submit_baseline_checklist()` (`services/imm04.py`) | TC-04-15..18 · TC-04-BASELINE-01..06 (07 §III.4b) |
 | BR-04-05 (VR-07) | Bức xạ → `qa_license_doc` bắt buộc trước Release | `validate_radiation_hold()` | TC-04-19..21 |
 | BR-04-06 (VR-04/G05) | No Open NC trước Release | `validate_gate_g05_g06()` | TC-04-22..24 |
 | BR-04-07 (G06) | `board_approver` bắt buộc trước Submit | `validate_gate_g05_g06()` | TC-04-25 |
@@ -581,8 +581,9 @@ stateDiagram-v2
 | EC-04-03 | Submit khi `workflow_state` ≠ `"Clinical Release"` | Block với `WRONG_STATE` | `BAD_STATE` |
 | EC-04-04 | Upload doc có `expiry_date < today` | Block với VR-DocExpiry message | `VALIDATION` |
 | EC-04-05 | Đổi `risk_class` sau Initial Inspection | Warning msgprint (không block) — VR-05 | `BUSINESS_RULE` (cảnh báo) |
-| EC-04-06 | `baseline_tests` empty khi vào Initial Inspection | Warning FE; không block submit nếu không có test nào | `VALIDATION` |
+| EC-04-06 *(Self-Correction 2026-07-19)* | `submit_baseline_checklist` với **0 phép đo** (`results` rỗng AND `baseline_tests` rỗng — hoặc 0 row nào có `test_result`) | **BLOCK** — raise `VALIDATION` (BR-04-04a); `overall_inspection_result` KHÔNG được set `Pass`. FE cảnh báo "chưa nhập phép đo nào". ⚠️ Spec cũ ghi "*không block submit nếu không có test nào*" = **lỗi thiết kế gốc** đã tạo auto-Pass câm (Pass với 0 đo) — nay ĐẢO lại: 0 đo ⇒ tuyệt đối KHÔNG Pass. | `VALIDATION` |
 | EC-04-07 | PO đã được dùng cho phiếu khác (concurrent) | Không block — 1 PO có thể nhiều phiếu (nhiều item) | — |
+| EC-04-08 *(UPSERT-by-parameter)* | `result` gửi parameter **chưa có** row trong `baseline_tests` (phiếu tạo KHÔNG pre-seed child, đo phát sinh tại hiện trường) | **UPSERT** — append row mới từ payload (`parameter`+`measured_val`+`test_result`+`fail_note`) + persist; re-get phải thấy row. KHÔNG drop câm (bản cũ chỉ update in-place các row seeded sẵn). | — |
 
 ## IV.6. Out of scope & Open issues
 
