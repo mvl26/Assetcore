@@ -75,7 +75,7 @@ const mkBars = computed(() => {
 
 <template>
   <PersonaDashboardShell
-    title="Bảng điều khiển — Trưởng phòng VT-TTBYT"
+    title="Bảng điều khiển"
     subtitle="Tổng quan thiết bị, bảo trì, sự cố, tuân thủ"
     :kpis="kpis"
     :loading="isLoading"
