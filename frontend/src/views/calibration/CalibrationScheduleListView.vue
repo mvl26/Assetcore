@@ -2,7 +2,7 @@
 import { useToast } from '@/composables/useToast'
 import DateInput from '@/components/common/DateInput.vue'
 import { ref, computed, onMounted, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import {
   listCalibrationSchedules, createCalibrationSchedule,
   updateCalibrationSchedule, deleteCalibrationSchedule,
@@ -37,6 +37,7 @@ const err = ref('')
 
 // Filters
 const route = useRoute()
+const router = useRouter()
 const showFilters = ref(false)
 // R6 §9.4.3 + BR-11-08 — pre-apply từ KPI drill:
 //   ?overdue=1   → overdue_only (next_due_date < today, card calib_overdue);
@@ -46,19 +47,33 @@ const showFilters = ref(false)
 // Toàn bộ lọc/tìm-kiếm/drill chạy SERVER-SIDE (BE list_schedules: pop_search trên
 // ['name','asset'] + link_search asset_name + virtual overdue/due_soon/due_before).
 // FE KHÔNG còn lọc client-side — tránh divergence total vs rows và miss rows >page_size.
+// AC-CR-94 — thêm khoá thứ 4: `?asset=<mã>` (deep-link «Xem tất cả» từ ô «Lịch hiệu
+// chuẩn» trong tab «Bản ghi liên quan» của một thiết bị). `asset` là điều kiện ĐỘC LẬP,
+// GIAO (AND) với ưu tiên overdue > due_soon > due_before — KHÔNG nằm trong chuỗi else-if
+// đó (nếu nhét vào, một trong hai điều kiện sẽ bị mất tuỳ thứ tự). BE lọc theo cột
+// `asset`, KHÔNG tự thêm `is_active` ⇒ lịch tạm dừng vẫn hiện, khớp count ô liên quan.
 const filters = ref({
   calibration_type: '', is_active: '' as '' | '1' | '0',
   overdue_only: route.query.overdue === '1',
   due_soon: route.query.due_soon === '1',
   due_before: (route.query.due_before as string) || '',
+  asset: (route.query.asset as string) || '',
   search: '',
 })
 
 const TYPE_LABEL: Record<string, string> = { External: 'Bên ngoài', 'In-House': 'Nội bộ' }
 
-interface FilterChip { key: 'calibration_type' | 'is_active' | 'overdue_only' | 'due_soon' | 'due_before' | 'search'; label: string }
+interface FilterChip { key: 'calibration_type' | 'is_active' | 'overdue_only' | 'due_soon' | 'due_before' | 'asset' | 'search'; label: string }
+// Nhãn chip thiết bị: tên đọc được của dòng đầu khớp mã (BE list_schedules enrich
+// `asset_name`), lùi về MÃ khi chưa có tên — chip không bao giờ rỗng.
+const assetChipLabel = computed(() => {
+  const code = filters.value.asset
+  if (!code) return ''
+  return items.value.find(s => s.asset === code)?.asset_name || code
+})
 const activeChips = computed<FilterChip[]>(() => {
   const chips: FilterChip[] = []
+  if (filters.value.asset) chips.push({ key: 'asset', label: `Thiết bị: ${assetChipLabel.value}` })
   if (filters.value.calibration_type) chips.push({ key: 'calibration_type', label: TYPE_LABEL[filters.value.calibration_type] || filters.value.calibration_type })
   if (filters.value.is_active === '1') chips.push({ key: 'is_active', label: 'Đang hoạt động' })
   if (filters.value.is_active === '0') chips.push({ key: 'is_active', label: 'Tạm dừng' })
@@ -75,17 +90,30 @@ function quickFilter(key: 'calibration_type', value: string) {
   filters.value[key] = value
   showFilters.value = false
 }
+/** Xoá khoá `asset` khỏi URL — để lại thì F5/back là lọc lại đúng cái user vừa bỏ. */
+function dropAssetQuery() {
+  if (!route.query.asset) return
+  const query = { ...route.query }
+  delete query.asset
+  router.replace({ query })
+}
 function clearChip(key: string) {
   if (key === 'is_active') filters.value.is_active = ''
   else if (key === 'overdue_only') filters.value.overdue_only = false
   else if (key === 'due_soon') filters.value.due_soon = false
   else if (key === 'due_before') filters.value.due_before = ''
   else (filters.value as Record<string, unknown>)[key] = ''
+  // Bỏ chip thiết bị dọn LUÔN query (chỉ khoá asset — drill quá hạn/sắp hạn giữ nguyên).
+  if (key === 'asset') dropAssetQuery()
   // search-chip không nằm trong watch → reload thủ công (watched keys tự reload).
   if (key === 'search') load(1)
 }
 function resetFilters() {
-  filters.value = { calibration_type: '', is_active: '', overdue_only: false, due_soon: false, due_before: '', search: '' }
+  filters.value = {
+    calibration_type: '', is_active: '', overdue_only: false, due_soon: false,
+    due_before: '', asset: '', search: '',
+  }
+  dropAssetQuery()
   load(1)
 }
 
@@ -105,6 +133,9 @@ function buildFilters(): Record<string, unknown> {
   if (filters.value.overdue_only) f.overdue = 1
   else if (filters.value.due_soon) f.due_soon = 1
   else if (filters.value.due_before) f.due_before = filters.value.due_before
+  // ĐỘC LẬP với chuỗi ưu tiên trên (deep-link thiết bị GIAO với drill hạn, không
+  // clobber và không bị clobber). BE giao `asset` với tập SoT của nhánh virtual.
+  if (filters.value.asset) f.asset = filters.value.asset
   const q = filters.value.search.trim()
   if (q) f.search = q
   return f
@@ -128,13 +159,16 @@ async function load(toPage = page.value) {
 // ListFilterBar @apply). Drill ?overdue/?due_soon/?due_before set ref rồi load() server-side.
 watch(
   () => [filters.value.calibration_type, filters.value.is_active,
-    filters.value.overdue_only, filters.value.due_soon, filters.value.due_before],
+    filters.value.overdue_only, filters.value.due_soon, filters.value.due_before,
+    filters.value.asset],
   () => load(1),
 )
 // Sync drill query khi điều hướng từ dashboard (giống PMWorkOrderListView).
 watch(() => route.query.overdue, (v) => { filters.value.overdue_only = v === '1' })
 watch(() => route.query.due_soon, (v) => { filters.value.due_soon = v === '1' })
 watch(() => route.query.due_before, (v) => { filters.value.due_before = (v as string) || '' })
+// Deep-link «Xem tất cả» tới CÙNG route (thiết bị khác) không remount ⇒ sync query → ref.
+watch(() => route.query.asset, (v) => { filters.value.asset = (v as string) || '' })
 
 const paginationMeta = computed(() => ({
   page: page.value, page_size: PAGE_SIZE, total: total.value, total_pages: totalPages.value,
@@ -226,7 +260,8 @@ function calStatus(date: string | null | undefined) {
 
 onMounted(() => {
   // R6 §9.3 — drill-down từ dashboard: mở panel filter để user thấy + xoá được.
-  if (filters.value.overdue_only || filters.value.due_soon || filters.value.due_before) showFilters.value = true
+  if (filters.value.overdue_only || filters.value.due_soon || filters.value.due_before
+    || filters.value.asset) showFilters.value = true
   load(1)
 })
 </script>

@@ -1,13 +1,12 @@
 <script setup lang="ts">
 import { useToast } from '@/composables/useToast'
 import { ref, computed, watch, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import {
   listFirmwareCrs, getFirmwareCr, createFirmwareCr, updateFirmwareCr, deleteFirmwareCr,
-  type FirmwareCR,
+  getAssetActionMeta, type FirmwareCR,
 } from '@/api/imm00'
 import { listRepairWorkOrders } from '@/api/imm09'
-import { frappeGet } from '@/api/helpers'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
@@ -17,6 +16,7 @@ import { lifecycleStatusLabel } from '@/constants/labels'
 
 const toast = useToast()
 const router = useRouter()
+const route = useRoute()
 
 const items = ref<FirmwareCR[]>([])
 const total = ref(0)
@@ -27,8 +27,16 @@ const form = ref<Partial<FirmwareCR> & Record<string, unknown>>({})
 const err = ref('')
 
 // Filter state
+// AC-CR-95 — deep-link «Xem tất cả» từ tab «Bản ghi liên quan» của một thiết bị:
+// `/cm/firmware?asset=<mã>`. `asset` là khoá màn ĐÍCH đọc (khớp
+// `DOCTYPE_LIST_TARGET['Firmware Change Request'].queryKey`, khoá bằng
+// `router/connectionsListParity.test.ts`); BE `list_firmware_crs` dịch sang cột
+// `asset_ref` (api/imm00.py:2902). Seed NGAY tại khai báo — nếu để `onMounted` nạp
+// trống rồi mới lọc lại thì người dùng thấy danh sách toàn viện nhấp nháy trước, và
+// ô vừa hứa "3 bản ghi" mất nghĩa. KHÔNG kèm status mặc định: ô liên quan đếm MỌI
+// yêu cầu của thiết bị (kể cả Draft/Rolled Back).
 const showFilters = ref(false)
-const filters = ref({ status: '', asset: '', search: '' })
+const filters = ref({ status: '', asset: (route.query.asset as string) || '', search: '' })
 
 const STATUS_KEYS = ['Draft', 'Pending Approval', 'Approved', 'Applied', 'Rollback Required', 'Rolled Back']
 const STATUS_LABELS: Record<string, string> = {
@@ -48,18 +56,29 @@ function statusColor(s?: string) {
 }
 
 // ─── Asset metadata (loaded on selection via SmartSelect) ────────────────────
-interface AssetMeta { asset_name?: string; device_model?: string; lifecycle_status?: string; location?: string }
+// Nạp qua `get_asset_action_meta` — endpoint AssetCore NẠC, permission-aware (DocPerm
+// read + vendor-IDOR gate ở BE) và chỉ 6 field meta. TUYỆT ĐỐI KHÔNG `frappe.client.
+// get_value` (LL-FE-40): nó bỏ qua lớp gate của AssetCore và trả field bất kỳ, kể cả
+// giá mua / khấu hao / qr_token. Reuse mẫu IncidentCreateView/CMCreateView — KHÔNG fork.
+// Lỗi (403/404/mạng) → assetMeta = null (fail-safe): panel ẩn, KHÔNG vỡ trang.
+interface AssetMeta {
+  asset_name?: string
+  device_model_name?: string
+  lifecycle_status?: string
+  location_name?: string
+}
 const assetMeta = ref<AssetMeta | null>(null)
 
 async function loadAssetMeta() {
   if (!form.value.asset_ref) { assetMeta.value = null; return }
   try {
-    const r = await frappeGet<AssetMeta>('/api/method/frappe.client.get_value', {
-      doctype: 'AC Asset',
-      filters: form.value.asset_ref,
-      fieldname: JSON.stringify(['asset_name', 'device_model', 'lifecycle_status', 'location']),
-    })
-    assetMeta.value = r ?? null
+    const a = await getAssetActionMeta(form.value.asset_ref as string)
+    assetMeta.value = {
+      asset_name: a.asset_name,
+      device_model_name: a.device_model_name,
+      lifecycle_status: a.lifecycle_status,
+      location_name: a.location_name,
+    }
   } catch { assetMeta.value = null }
 }
 
@@ -94,10 +113,18 @@ function closeWoDropdown() { window.setTimeout(() => { woDropdownOpen.value = fa
 // ─── Filters (SERVER-SIDE — BE list_firmware_crs áp status/asset/search + phân
 // trang; KHÔNG lọc client trên trang bị cắt) ───────────────────────────────────
 interface FilterChip { key: 'status' | 'asset' | 'search'; label: string }
+// Nhãn chip thiết bị: tên đọc được của dòng khớp mã (BE `list_firmware_crs` đã enrich
+// `asset_name`), lùi về MÃ khi chưa có tên. TUYỆT ĐỐI không in fieldname `asset_ref`
+// ra giao diện (LL-FE-53) — mã kỹ thuật chỉ dùng để lọc.
+const assetChipLabel = computed(() => {
+  const code = filters.value.asset
+  if (!code) return ''
+  return items.value.find(f => f.asset_ref === code)?.asset_name || code
+})
 const activeChips = computed<FilterChip[]>(() => {
   const chips: FilterChip[] = []
+  if (filters.value.asset) chips.push({ key: 'asset', label: `Thiết bị: ${assetChipLabel.value}` })
   if (filters.value.status) chips.push({ key: 'status', label: STATUS_LABELS[filters.value.status] || filters.value.status })
-  if (filters.value.asset) chips.push({ key: 'asset', label: `Thiết bị: ${filters.value.asset}` })
   if (filters.value.search.trim()) chips.push({ key: 'search', label: `"${filters.value.search.trim()}"` })
   return chips
 })
@@ -106,8 +133,28 @@ function quickFilter(key: 'status' | 'asset', value: string) {
   if (!value || filters.value[key] === value) return
   filters.value[key] = value; showFilters.value = false
 }
-function clearChip(key: string) { (filters.value as Record<string, string>)[key] = '' }
-function resetFilters() { filters.value = { status: '', asset: '', search: '' } }
+/**
+ * Rút khoá `asset` khỏi URL; trả `true` khi thật sự đã điều hướng (xem chú thích cùng
+ * tên ở `views/incident/CAPAListView.vue`): URL là SSoT của bộ lọc thiết bị, URL đổi thì
+ * watcher/remount đã nạp lại — nạp thêm ở call-site = request y hệt lần thứ hai.
+ */
+function dropAssetQuery(): boolean {
+  if (!route.query.asset) return false
+  const query = { ...route.query }
+  delete query.asset
+  router.replace({ query })
+  return true
+}
+function clearChip(key: string) {
+  if (key === 'asset' && dropAssetQuery()) return
+  ;(filters.value as Record<string, string>)[key] = ''
+  applyNow()
+}
+function resetFilters() {
+  filters.value = { status: '', asset: '', search: '' }
+  dropAssetQuery()
+  applyNow()
+}
 
 // ─── Load (server-side filter + pagination) ────────────────────────────────────
 const page = ref(1)
@@ -126,10 +173,30 @@ async function load() {
 }
 // Debounce đổi filter → về trang 1 + reload server (search gõ liên tục).
 let filterTimer: ReturnType<typeof setTimeout>
+// Điều hướng deep-link tới CÙNG route không remount component ⇒ phải nạp lại NGAY, chứ
+// debounce 300ms của ô tìm-kiếm không áp cho một cú bấm «Xem tất cả». Cờ dưới đây được
+// TIÊU THỤ bởi đúng một lần chạy của watcher deep (job của nó được xếp sau callback này),
+// nên deep-watch không huỷ mất lần nạp tức thì rồi thay bằng bản debounce.
+let skipDebounceOnce = false
+/** Nạp lại NGAY (bấm chip / đặt lại / deep-link) — debounce chỉ dành cho ô gõ tìm kiếm. */
+function applyNow() {
+  skipDebounceOnce = true
+  clearTimeout(filterTimer)
+  page.value = 1
+  load()
+}
 watch(filters, () => {
+  if (skipDebounceOnce) { skipDebounceOnce = false; return }
   clearTimeout(filterTimer)
   filterTimer = setTimeout(() => { page.value = 1; load() }, 300)
 }, { deep: true })
+// Drill lần 2 cùng route (bấm «Xem tất cả» ở thiết bị KHÁC) — đồng bộ query → ref.
+watch(() => route.query.asset, (v) => {
+  const next = (v as string) || ''
+  if (filters.value.asset === next) return
+  filters.value.asset = next
+  applyNow()
+})
 function prevPage() { if (page.value > 1) { page.value--; load() } }
 function nextPage() { if (page.value * PAGE_SIZE < total.value) { page.value++; load() } }
 
@@ -339,7 +406,7 @@ onMounted(load)
                   <span class="text-slate-500">Tên:</span> <b>{{ assetMeta.asset_name || '—' }}</b>
                 </div>
                 <div class="bg-slate-50 rounded px-2 py-1.5">
-                  <span class="text-slate-500">Model:</span> {{ assetMeta.device_model || '—' }}
+                  <span class="text-slate-500">Mẫu thiết bị:</span> {{ assetMeta.device_model_name || '—' }}
                 </div>
                 <div
                   :class="['rounded px-2 py-1.5', assetMeta.lifecycle_status === 'Decommissioned' ? 'bg-red-50 text-red-700' : 'bg-slate-50']"

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import {
   listPmSchedules, getPmSchedule, createPmSchedule, updatePmSchedule, deletePmSchedule,
   type PmSchedule,
@@ -21,10 +22,18 @@ const masterStore = useMasterDataStore()
 const acUsers = useAcUserStore()
 const apiCall = useApi()
 const auth = useAuthStore()
+const route = useRoute()
+const router = useRouter()
 // Quyền tạo lịch PM — chỉ phụ thuộc capability từ auth store, KHÔNG phụ thuộc sidebar/module-context hydration.
 const canCreatePm = computed(() => auth.can('pm.create'))
 const showFilters = ref(false)
-const filters = ref({ pm_type: '', status: '', search: '' })
+// AC-CR-94 — deep-link «Xem tất cả» từ tab «Bản ghi liên quan» của một thiết bị:
+// `/pm/schedules?asset=<mã>`. Khoá `asset` là khoá màn ĐÍCH đọc (khớp
+// `DOCTYPE_LIST_TARGET['PM Schedule'].queryKey`, khoá bằng
+// `router/connectionsListParity.test.ts`); BE `list_pm_schedules` dịch sang cột
+// `asset_ref`. TUYỆT ĐỐI KHÔNG kèm status/pm_type mặc định — ô liên quan đếm MỌI
+// lịch của thiết bị (kể cả Paused/Suspended); thêm lọc ẩn ⇒ ô báo 3 mà bảng ra 2.
+const filters = ref({ pm_type: '', status: '', search: '', asset: (route.query.asset as string) || '' })
 
 const PM_TYPES = ['Quarterly', 'Semi-Annual', 'Annual', 'Ad-hoc']
 // Nhãn pm_type: dùng SSoT translatePmType (@/utils/formatters) — không map cục bộ.
@@ -32,9 +41,18 @@ const STATUS_OPTIONS = ['Active', 'Paused', 'Suspended']
 
 // Lọc SERVER-SIDE: BE list_pm_schedules áp pm_type/status/search + phân trang.
 // KHÔNG lọc client trên trang bị cắt (bug cũ: chỉ lọc 30 dòng đầu).
-interface FilterChip { key: 'pm_type' | 'status' | 'search'; label: string }
+interface FilterChip { key: 'pm_type' | 'status' | 'search' | 'asset'; label: string }
+// Nhãn chip thiết bị: tên đọc được của dòng đầu khớp mã (BE list_pm_schedules đã enrich
+// `asset_name`), lùi về MÃ khi chưa có tên — không bao giờ để chip rỗng/lộ fieldname.
+const assetChipLabel = computed(() => {
+  const code = filters.value.asset
+  if (!code) return ''
+  const hit = items.value.find(s => s.asset_ref === code)
+  return hit?.asset_name || hit?.asset_code || code
+})
 const activeChips = computed<FilterChip[]>(() => {
   const chips: FilterChip[] = []
+  if (filters.value.asset) chips.push({ key: 'asset', label: `Thiết bị: ${assetChipLabel.value}` })
   if (filters.value.pm_type) chips.push({ key: 'pm_type', label: translatePmType(filters.value.pm_type) })
   if (filters.value.status) chips.push({ key: 'status', label: translateStatus(filters.value.status) })
   if (filters.value.search.trim()) chips.push({ key: 'search', label: `"${filters.value.search.trim()}"` })
@@ -46,8 +64,21 @@ function quickFilter(key: 'pm_type' | 'status', value: string) {
   filters.value[key] = value
   showFilters.value = false
 }
-function clearChip(key: string) { (filters.value as Record<string, string>)[key] = '' }
-function resetFilters() { filters.value = { pm_type: '', status: '', search: '' } }
+/** Xoá khoá `asset` khỏi URL — nếu để lại, F5 (hoặc back) là lọc lại đúng cái user vừa bỏ. */
+function dropAssetQuery() {
+  if (!route.query.asset) return
+  const query = { ...route.query }
+  delete query.asset
+  router.replace({ query })
+}
+function clearChip(key: string) {
+  (filters.value as Record<string, string>)[key] = ''
+  if (key === 'asset') dropAssetQuery()
+}
+function resetFilters() {
+  filters.value = { pm_type: '', status: '', search: '', asset: '' }
+  dropAssetQuery()
+}
 
 // Default chu kỳ (ngày) theo loại PM — gợi ý cho form, user có thể override.
 const PM_TYPE_INTERVAL: Record<string, number> = {
@@ -72,34 +103,45 @@ const loadError = ref<string | null>(null)
 async function load() {
   loading.value = true
   loadError.value = null
-  // silentError: lỗi load list render fallback "Thử lại" inline; vẫn toast nhẹ.
-  const res = await apiCall.run(() => Promise.all([
-    listPmSchedules({
-      page: page.value, page_size: PAGE_SIZE,
-      pm_type: filters.value.pm_type || undefined,
-      status: filters.value.status || undefined,
-      search: filters.value.search.trim() || undefined,
-    }),
+  // Lỗi load list render fallback "Thử lại" inline; vẫn toast nhẹ.
+  // DỮ LIỆU CHÍNH tách khỏi prefetch phụ (LL-FE-45): trước đây cả 4 lời gọi nằm trong
+  // MỘT `Promise.all` ⇒ một nhánh phụ 403 (vd người dùng đến từ deep-link «Xem tất cả»
+  // không có quyền đọc `PM Checklist Template`) làm `run()` trả null ⇒ trang trắng kèm
+  // "Thử lại" DÙ danh sách đã tải xong. Đúng lúc bất biến count == drill cần bảng hiện
+  // ra nhất thì nó biến mất.
+  const res = await apiCall.run(() => listPmSchedules({
+    page: page.value, page_size: PAGE_SIZE,
+    asset: filters.value.asset || undefined,
+    pm_type: filters.value.pm_type || undefined,
+    status: filters.value.status || undefined,
+    search: filters.value.search.trim() || undefined,
+  }), { errorMessage: 'Không tải được danh sách lịch bảo trì định kỳ' })
+  // Tham chiếu PHỤ (nhãn KTV + danh mục cho form): allSettled ⇒ hỏng một nhánh chỉ mất
+  // nhãn/gợi ý, KHÔNG mất danh sách.
+  await Promise.allSettled([
     masterStore.fetchDoctype('AC Asset'),
     acUsers.prefetch(),
     masterStore.fetchDoctype('PM Checklist Template'),
-  ]), { errorMessage: 'Không tải được danh sách lịch bảo trì định kỳ' })
+  ])
   loading.value = false
 
   if (res === null) {
     loadError.value = apiCall.lastError.value?.message || 'Không tải được dữ liệu'
     return
   }
-  const d = res[0]
   // BE trả envelope phẳng { items, total } (KHÔNG { data, pagination }).
-  if (d) { items.value = d.items || []; total.value = d.total || 0 }
+  items.value = res.items || []
+  total.value = res.total || 0
 }
-// Đổi filter (pm_type/status/search) → về trang 1 + reload server (debounce search).
+// Đổi filter (asset/pm_type/status/search) → về trang 1 + reload server (debounce search).
 let filterTimer: ReturnType<typeof setTimeout>
 watch(filters, () => {
   clearTimeout(filterTimer)
   filterTimer = setTimeout(() => { page.value = 1; load() }, 300)
 }, { deep: true })
+// Điều hướng deep-link tới CÙNG route (bấm «Xem tất cả» ở thiết bị khác) không remount
+// component ⇒ phải đồng bộ query → ref, giống 3 watch drill của màn lịch hiệu chuẩn.
+watch(() => route.query.asset, (v) => { filters.value.asset = (v as string) || '' })
 function prevPage() { if (page.value > 1) { page.value--; load() } }
 function nextPage() { if (page.value * PAGE_SIZE < total.value) { page.value++; load() } }
 
@@ -419,10 +461,11 @@ onMounted(load)
           </div>
           <div>
             <label class="block text-sm font-medium text-slate-700 mb-1">Trạng thái</label>
+            <!-- Nhãn qua SSoT translateStatus: form và badge/ô lọc cùng màn KHÔNG được
+                 nói hai giọng cho cùng một giá trị (trước đây Suspended = "Đình chỉ" ở
+                 form nhưng "Tạm ngưng" ở badge). Value giữ nguyên chuỗi DocType. -->
             <select v-model="form.status" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
-              <option value="Active">Đang hoạt động</option>
-              <option value="Paused">Tạm dừng</option>
-              <option value="Suspended">Đình chỉ</option>
+              <option v-for="s in STATUS_OPTIONS" :key="s" :value="s">{{ translateStatus(s) }}</option>
             </select>
           </div>
           <div class="col-span-2">

@@ -43,6 +43,14 @@ const form = ref({
 
 const { clear: clearDraft } = useFormDraft('document-create', form)
 
+// Draft cũ trong localStorage KHÔNG được che mất ngữ cảnh vừa điều hướng tới: người
+// dùng bấm «Tải lên hồ sơ thiết bị» trên đúng một thiết bị (hoặc «Tải phiên bản mới»
+// trên đúng một hồ sơ) thì form phải mở ra với chính hồ sơ đó — prefill bị nuốt là
+// prefill giả (khoá bằng `router/connectionsCreateParity.test.ts`).
+if (initialAsset) form.value.asset_ref = initialAsset
+if (initialDocType) form.value.doc_type_detail = initialDocType
+if (route.query.version) form.value.version = initialVersion
+
 // File upload state
 const selectedFile = ref<File | null>(null)
 const fileError = ref('')

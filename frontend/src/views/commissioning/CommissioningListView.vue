@@ -20,11 +20,18 @@ const route  = useRoute()
 const store  = useCommissioningStore()
 
 const showFilters = ref(false)
+// AC-CR-95 — deep-link «Xem tất cả» từ tab «Bản ghi liên quan» của một thiết bị:
+// `/commissioning?asset=<mã>`. Khoá URL là `asset` (khớp
+// `DOCTYPE_LIST_TARGET['Asset Commissioning'].queryKey`) nhưng khoá BE là `final_asset`
+// — ĐÂY LÀ PHÉP DỊCH, không phải trùng tên: `final_asset` mới là Link → AC Asset trên
+// `Asset Commissioning`, và nó đã nằm trong `services/imm04._ALLOWED_FILTER_KEYS`.
+// Seed NGAY tại khai báo: `onMounted` gọi `cleanFilters()` nên lần nạp ĐẦU đã lọc.
 const filters = ref<CommissioningFilters>({
   workflow_state: (route.query.workflow_state as WorkflowState) || '',
   vendor_serial_no: '',
   master_item:  '',
   clinical_dept: '',
+  final_asset: (route.query.asset as string) || '',
   overdue: route.query.filter === 'overdue',
 })
 
@@ -43,10 +50,16 @@ const WORKFLOW_STATES: { value: WorkflowState | ''; label: string }[] = [
   { value: 'Return To Vendor', label: 'Trả nhà cung cấp' },
 ]
 
-type ChipKey = 'workflow_state' | 'vendor_serial_no' | 'master_item' | 'clinical_dept' | 'overdue'
+type ChipKey = 'workflow_state' | 'vendor_serial_no' | 'master_item' | 'clinical_dept'
+  | 'final_asset' | 'overdue'
 interface Chip { key: ChipKey; label: string }
 const activeChips = computed<Chip[]>(() => {
   const chips: Chip[] = []
+  // Nhãn chip thiết bị = MÃ thiết bị (BE list chưa enrich tên cho `final_asset`).
+  // TUYỆT ĐỐI không in chữ `final_asset` ra giao diện (LL-FE-53).
+  if (filters.value.final_asset?.trim()) {
+    chips.push({ key: 'final_asset', label: `Thiết bị: ${filters.value.final_asset.trim()}` })
+  }
   if (filters.value.workflow_state) {
     const s = WORKFLOW_STATES.find(x => x.value === filters.value.workflow_state)
     chips.push({ key: 'workflow_state', label: s?.label ?? filters.value.workflow_state })
@@ -60,11 +73,49 @@ const activeChips = computed<Chip[]>(() => {
 })
 const activeFilterCount = computed(() => activeChips.value.length)
 
+/**
+ * Rút khoá `asset` khỏi URL; trả `true` khi thật sự đã điều hướng (xem chú thích cùng
+ * tên ở `views/incident/CAPAListView.vue`): URL là SSoT của bộ lọc thiết bị, URL đổi thì
+ * watcher/remount đã nạp lại — nạp thêm ở call-site = request y hệt lần thứ hai.
+ */
+function dropAssetQuery(): boolean {
+  if (!route.query.asset) return false
+  const query = { ...route.query }
+  delete query.asset
+  router.replace({ query })
+  return true
+}
+
 function clearChip(key: string) {
+  if (key === 'final_asset' && dropAssetQuery()) return
   if (key === 'overdue') filters.value.overdue = false
   else (filters.value as Record<string, unknown>)[key] = ''
   applyFilters()
 }
+
+/**
+ * Mã thiết bị đang giới hạn danh sách. SSoT là URL (`?asset=`) chứ KHÔNG phải
+ * `filters.final_asset`: sau `router.replace` cái ref còn lệch một tick, mà empty-state
+ * theo ngữ cảnh phải tắt NGAY khi khoá rời URL (nếu không sẽ nhá lại câu "không có phiếu
+ * nào của thiết bị …" trong lúc danh sách đầy đủ đang nạp).
+ */
+const assetScope = computed(() => ((route.query.asset as string) || '').trim())
+
+/**
+ * A9 — 0 dòng VÌ đang giới hạn theo một thiết bị. Từ AC-CR-98/106, Vendor Engineer
+ * deep-link một thiết bị NGOÀI phạm vi được giao sẽ ra 0 dòng thật (trước đây rò toàn bộ
+ * phiếu của mọi thiết bị được giao); vẽ khối rỗng vô danh ở đây là dựng lại đúng cái
+ * "bấm ô đếm → màn trống không nói vì sao" mà vòng này đang diệt.
+ */
+const isScopedEmpty = computed(() => assetScope.value !== '' && store.list.length === 0)
+
+/**
+ * FE-2 — «Xoá bộ lọc thiết bị» đi CÙNG một đường với nút bỏ chip «Thiết bị: …»
+ * (`clearChip('final_asset')` → `dropAssetQuery()` → `router.replace` bỏ ĐÚNG khoá
+ * `asset`, giữ mọi khoá khác) để không có hai luồng xoá lệch nhau, và nạp lại ĐÚNG một
+ * lần: watcher `route.query.asset` là nơi duy nhất phát request sau khi URL đổi.
+ */
+function clearAssetScope() { clearChip('final_asset') }
 
 function cleanFilters(): CommissioningFilters {
   const f: CommissioningFilters = {}
@@ -72,6 +123,7 @@ function cleanFilters(): CommissioningFilters {
   if (filters.value.vendor_serial_no?.trim()) f.vendor_serial_no = filters.value.vendor_serial_no.trim()
   if (filters.value.master_item?.trim())      f.master_item      = filters.value.master_item.trim()
   if (filters.value.clinical_dept?.trim())    f.clinical_dept    = filters.value.clinical_dept.trim()
+  if (filters.value.final_asset?.trim())      f.final_asset      = filters.value.final_asset.trim()
   // Chỉ đính kèm cờ overdue khi bật → AND với các filter khác ở BE (không clobber).
   if (filters.value.overdue)                  f.overdue          = true
   return f
@@ -80,7 +132,11 @@ function cleanFilters(): CommissioningFilters {
 function applyFilters() { store.fetchList(cleanFilters(), 1, store.pagination.page_size) }
 
 function resetFilters() {
-  filters.value = { workflow_state: '', vendor_serial_no: '', master_item: '', clinical_dept: '', overdue: false }
+  filters.value = {
+    workflow_state: '', vendor_serial_no: '', master_item: '', clinical_dept: '',
+    final_asset: '', overdue: false,
+  }
+  dropAssetQuery()
   store.fetchList({}, 1)
 }
 
@@ -110,6 +166,33 @@ function quickFilter(key: 'workflow_state' | 'clinical_dept', value: string) {
 
 function goToPage(page: number) { store.fetchList(cleanFilters(), page, store.pagination.page_size) }
 
+/**
+ * FE-2 / TC-FE-COMM-SE-08 — «đang ở trang 3 mà tổng còn 0» KHÔNG được kẹt.
+ *
+ * `assetcore/utils/pagination.paginate` (`:45-53`) **echo** tham số `page` và KHÔNG kẹp về
+ * `total_pages`, nên khi phạm vi được xem co lại giữa hai lần nạp (phiếu bị huỷ, thiết bị
+ * ra ngoài phạm vi được giao — chính ca AC-CR-98/106) máy chủ trả về đúng
+ * `{page: 3, total: 0, total_pages: 0}`. Thanh phân trang tự ẩn (`total_pages > 1`), nên
+ * con trỏ trang mắc ở 3 mà KHÔNG còn nút nào để về 1: mọi lần nạp sau đó
+ * (`refreshList` của nút «Thử lại», hay lần lọc kế) vẫn đọc offset 40 ⇒ danh sách rỗng
+ * vĩnh viễn, lối thoát duy nhất là tải lại trang.
+ *
+ * Vì vậy: hết nạp mà con trỏ trang vượt số trang thật ⇒ nạp lại trang 1, GIỮ nguyên bộ
+ * lọc. `pageReclaimed` chặn lặp (đúng MỘT lần cho mỗi lần lệch) và tự mở lại khi con trỏ
+ * đã hợp lệ, để lần co dữ liệu sau vẫn được tự sửa.
+ */
+const pageReclaimed = ref(false)
+watch(
+  () => [store.listLoading, store.pagination.page, store.pagination.total_pages] as const,
+  ([loading, page, totalPages]) => {
+    if (loading) return
+    if (page <= 1 || page <= totalPages) { pageReclaimed.value = false; return }
+    if (pageReclaimed.value) return
+    pageReclaimed.value = true
+    goToPage(1)
+  },
+)
+
 // KPI strip (Core Doc docs/imm-04/06_Frontend_Design.md §3.1 · docs/fe/04-commissioning/commissioning-list.html)
 // Source: get_dashboard_stats (store.fetchDashboardStats). Display-only, reuses WorkOrderKpiStrip (IMM-08/09 pattern).
 const kpiItems = computed<CommissioningKpiItem[]>(() => commissioningKpiItems(store.dashboardStats?.kpis))
@@ -123,6 +206,15 @@ onMounted(() => {
 
 watch(() => route.query.workflow_state, (val) => {
   filters.value.workflow_state = (val as WorkflowState) || ''
+  applyFilters()
+})
+
+// Drill lần 2 CÙNG route (bấm «Xem tất cả» ở thiết bị KHÁC) không remount component ⇒
+// đồng bộ query → ref rồi nạp lại; `applyFilters` đã reset về trang 1.
+watch(() => route.query.asset, (val) => {
+  const next = (val as string) || ''
+  if ((filters.value.final_asset || '') === next) return
+  filters.value.final_asset = next
   applyFilters()
 })
 </script>
@@ -194,10 +286,53 @@ stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
 
     <!-- Table -->
     <template v-else>
+      <!-- A9 — Empty-state CÓ NGỮ CẢNH: 0 dòng VÌ đang giới hạn theo một thiết bị.
+           Một khối dùng CHUNG cho mobile+desktop (một `data-testid`) và THAY hai khối
+           rỗng vô danh bên dưới — hiện cả hai cùng lúc là hai câu trả lời khác nhau cho
+           cùng câu hỏi "vì sao trống". Mã thiết bị in ra là mã người dùng vừa bấm ở tab
+           «Bản ghi liên quan», không phải khoá kỹ thuật (LL-FE-53). -->
+      <div
+        v-if="isScopedEmpty"
+        data-testid="list-empty-scoped"
+        role="status"
+        aria-live="polite"
+        class="card flex flex-col items-center gap-3 py-12 text-center"
+      >
+        <svg class="w-10 h-10 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <path
+stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+        </svg>
+        <p class="text-sm text-slate-600">
+          Không có phiếu nghiệm thu lắp đặt nào của thiết bị
+          <span class="code-pill-lg">{{ assetScope }}</span>
+          trong phạm vi bạn được xem.
+        </p>
+        <p class="max-w-md text-xs text-slate-400">
+          Thiết bị này có thể chưa có phiếu nào, hoặc phiếu của nó nằm ngoài phạm vi bạn được giao.
+        </p>
+        <div class="flex flex-wrap items-center justify-center gap-2">
+          <button type="button" class="btn-secondary text-sm" @click="clearAssetScope">
+            Xoá bộ lọc thiết bị
+          </button>
+          <button
+            v-if="activeFilterCount > 1"
+            type="button"
+            class="btn-ghost text-sm"
+            @click="resetFilters"
+          >
+            Xoá tất cả bộ lọc
+          </button>
+        </div>
+      </div>
+
       <!-- Mobile cards (< sm) -->
-      <div class="mobile-card-list sm:hidden">
+      <div v-if="!isScopedEmpty" class="mobile-card-list sm:hidden">
         <div class="flex items-center justify-between text-xs text-slate-500 pb-1">
-          <span>Hiển thị <strong class="text-slate-700">{{ store.list.length }}</strong> / {{ store.pagination.total }} phiếu</span>
+          <!-- Tổng LUÔN là `pagination.total` do máy chủ đếm cùng engine với các dòng
+               (`services/imm04.list_commissioning` → `count_with_or`, AC-CR-98) — KHÔNG
+               phải `store.list.length` (đó là số dòng của TRANG đang xem). -->
+          <span data-testid="list-count">Hiển thị <strong class="text-slate-700">{{ store.list.length }}</strong> / {{ store.pagination.total }} phiếu</span>
           <button v-if="activeFilterCount > 0" class="text-red-500 font-medium" @click="resetFilters">Xóa tất cả</button>
         </div>
         <div
@@ -231,10 +366,11 @@ stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
       </div>
 
       <!-- Desktop table (sm+) -->
-      <div class="hidden sm:block table-wrapper animate-slide-up" style="animation-delay: 80ms">
+      <div v-if="!isScopedEmpty" class="hidden sm:block table-wrapper animate-slide-up" style="animation-delay: 80ms">
         <!-- Info row -->
         <div class="flex items-center justify-between px-4 py-2.5 border-b border-slate-100 bg-slate-50/60 text-xs text-slate-500">
-          <span>Hiển thị <strong class="text-slate-700">{{ store.list.length }}</strong> / {{ store.pagination.total }} phiếu</span>
+          <!-- Cùng nguồn tổng với bố cục điện thoại: `pagination.total` (xem chú thích trên). -->
+          <span data-testid="list-count">Hiển thị <strong class="text-slate-700">{{ store.list.length }}</strong> / {{ store.pagination.total }} phiếu</span>
           <button v-if="activeFilterCount > 0" class="text-red-500 hover:text-red-700 font-medium" @click="resetFilters">Xóa tất cả</button>
         </div>
         <table class="min-w-full divide-y divide-slate-100">
@@ -322,6 +458,9 @@ stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
       </div>
     </template>
 
-    <BasePagination :pagination="store.pagination" @page-change="goToPage" />
+    <!-- Không vẽ thanh phân trang khi màn đang là empty-state theo ngữ cảnh: 0 dòng thì
+         không có trang nào để chuyển, mà `pagination` có thể còn số trang cũ (vd lần nạp
+         sau lỗi mạng) ⇒ nút trang dưới màn trống chỉ nạp lại đúng cái rỗng đó. -->
+    <BasePagination v-if="!isScopedEmpty" :pagination="store.pagination" @page-change="goToPage" />
 </div>
 </template>

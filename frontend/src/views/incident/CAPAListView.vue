@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useCapaStore } from '@/stores/imm00'
 import type { CapaStatus } from '@/types/imm00'
@@ -19,7 +19,16 @@ const statusFilter = ref<CapaStatus | ''>((route.query.status as CapaStatus) || 
 // R10 §9.4.8 — drill từ KPI qa: ?not_closed=1 (capa_open) / ?overdue=1 (capa_overdue).
 const notClosed = ref<boolean>(route.query.not_closed === '1')
 const overdueOnly = ref<boolean>(route.query.overdue === '1')
-const showFilters = ref<boolean>(!!(route.query.status || route.query.not_closed || route.query.overdue))
+// AC-CR-95 — deep-link «Xem tất cả» từ tab «Bản ghi liên quan» của một thiết bị:
+// `/capas?asset=<mã>`. `asset` là khoá màn ĐÍCH đọc (khớp
+// `DOCTYPE_LIST_TARGET['IMM CAPA Record'].queryKey`) VÀ cũng là tên tham số BE
+// (`api/imm00.list_capas(asset=…)`) — trùng tên là ngẫu nhiên, không phải quy tắc.
+// Seed NGAY tại khai báo: `onMounted` gọi `applyFilter()` nên lần nạp ĐẦU đã mang khoá,
+// không nạp-toàn-viện-rồi-lọc-lại.
+const assetFilter = ref<string>((route.query.asset as string) || '')
+const showFilters = ref<boolean>(
+  !!(route.query.status || route.query.not_closed || route.query.overdue || route.query.asset),
+)
 
 // Dropdown options cho <select> lọc trạng thái. Nhãn derive qua translateStatus
 // SSoT (formatters.ts) — KHỚP badge StatusBadge trên list/detail, KHÔNG drift.
@@ -28,9 +37,17 @@ const STATUS_CODES: (CapaStatus | '')[] = ['', 'Open', 'In Progress', 'Pending V
 const STATUSES = computed<{ value: CapaStatus | ''; label: string }[]>(() =>
   STATUS_CODES.map(v => ({ value: v, label: v === '' ? 'Tất cả' : translateStatus(v) })))
 
-interface Chip { key: 'status' | 'notClosed' | 'overdue'; label: string }
+interface Chip { key: 'status' | 'notClosed' | 'overdue' | 'asset'; label: string }
+// Nhãn chip thiết bị: tên đọc được của dòng khớp mã (BE enrich `asset_name`), lùi về MÃ
+// khi danh sách chưa có dòng nào. KHÔNG in fieldname ra giao diện (LL-FE-53).
+const assetChipLabel = computed(() => {
+  const code = assetFilter.value
+  if (!code) return ''
+  return store.capas.find(c => c.asset === code)?.asset_name || code
+})
 const activeChips = computed<Chip[]>(() => {
   const chips: Chip[] = []
+  if (assetFilter.value) chips.push({ key: 'asset', label: `Thiết bị: ${assetChipLabel.value}` })
   if (overdueOnly.value) chips.push({ key: 'overdue', label: 'Quá hạn' })
   else if (notClosed.value) chips.push({ key: 'notClosed', label: 'Chưa đóng' })
   if (statusFilter.value) {
@@ -40,8 +57,31 @@ const activeChips = computed<Chip[]>(() => {
 })
 const activeFilterCount = computed(() => activeChips.value.length)
 
+/**
+ * Rút khoá `asset` khỏi URL; trả `true` khi thật sự đã điều hướng.
+ *
+ * Để khoá lại trong URL thì F5 (hoặc back) là lọc lại đúng cái người dùng vừa bỏ.
+ * Giá trị trả về quan trọng: URL là **SSoT** của bộ lọc thiết bị, nên khi URL đã đổi thì
+ * việc nạp lại đã có người làm — `watch(route.query.asset)` dưới đây, hoặc chính việc
+ * `App.vue` remount view (`<component :key="route.fullPath">`). Gọi thêm `applyFilter()`
+ * ở call-site chỉ tạo request thứ hai y hệt (đo thật trên dev server 2026-07-28: 2 lần
+ * `list_capas` cho một cú bấm bỏ chip).
+ */
+function dropAssetQuery(): boolean {
+  if (!route.query.asset) return false
+  const query = { ...route.query }
+  delete query.asset
+  router.replace({ query })
+  return true
+}
+
 function clearChip(key: string) {
-  if (key === 'status') statusFilter.value = ''
+  if (key === 'asset') {
+    // Bộ lọc đến TỪ URL ⇒ chỉ sửa URL, để watcher/remount đồng bộ state + nạp lại.
+    if (dropAssetQuery()) return
+    // Không đến từ URL (lọc tay) ⇒ tự dọn + tự nạp.
+    assetFilter.value = ''
+  } else if (key === 'status') statusFilter.value = ''
   else if (key === 'notClosed') notClosed.value = false
   else if (key === 'overdue') overdueOnly.value = false
   applyFilter()
@@ -51,7 +91,11 @@ function resetFilters() {
   statusFilter.value = ''
   notClosed.value = false
   overdueOnly.value = false
-  store.fetchList()
+  assetFilter.value = ''
+  dropAssetQuery()
+  // `fetchList()` TRƠN sẽ bỏ mất mọi khoá đang có (kể cả `asset` vừa xoá khỏi URL nhưng
+  // còn trong ref nếu thứ tự đổi) — luôn đi qua buildParams để 1 nguồn sự thật.
+  applyFilter()
 }
 
 function quickFilter(_key: 'status', value: string) {
@@ -64,6 +108,7 @@ function quickFilter(_key: 'status', value: string) {
 function buildParams(extra: Record<string, unknown> = {}) {
   return {
     status: statusFilter.value || undefined,
+    asset: assetFilter.value || undefined,
     not_closed: notClosed.value ? 1 : undefined,
     overdue: overdueOnly.value ? 1 : undefined,
     ...extra,
@@ -87,6 +132,15 @@ function isOverdue(date?: string) {
   if (!date) return false
   return new Date(date) < new Date()
 }
+
+// Drill lần 2 CÙNG route (bấm «Xem tất cả» ở thiết bị KHÁC) không remount component ⇒
+// đồng bộ query → ref rồi nạp lại; `buildParams` không mang `page` nên BE về trang 1.
+watch(() => route.query.asset, (v) => {
+  const next = (v as string) || ''
+  if (assetFilter.value === next) return
+  assetFilter.value = next
+  applyFilter()
+})
 
 onMounted(() => applyFilter())
 </script>
