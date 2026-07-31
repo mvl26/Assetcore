@@ -357,6 +357,11 @@ Kèm 4 manual check không tự động được:
 - **GATE-6b — form 0-state** (→ LL-FE-44): mỗi form có required-dropdown dựa list endpoint chạy test-case `total:0` → có banner + ≥1 lối thoát actionable, KHÔNG chỉ disabled.
 - **GATE-6c — control mới (dropdown/toggle/radio)** (→ LL-FE-47): test **param phát đi (body/query/store) == UI-selection** (chọn option B → spy nhận B), chống dead-control — KHÔNG để giá trị hardcode ở call-site, KHÔNG chỉ assert "render đủ N option".
 - **GATE-6d — output in/khổ cố định** (→ LL-FE-48): verify bằng RENDER ẢNH thật (pdftoppm/screenshot → đọc bằng mắt), KHÔNG chỉ DOM-assert text-trong-DOM (`overflow:hidden` cắt chữ âm thầm mà DOM-test vẫn PASS).
+- **GATE-10 — khoá payload BE phải GREP THẤY TRÊN ĐĨA trước khi bind** (→ LL-FE-55). [BE] chạy SONG SONG trong factory ⇒ khoá trong spec có thể chưa tồn tại. Với MỖI khoá/endpoint mới đọc từ BE: `grep -rn "<khoá>" assetcore/` — **0 hit ⇒ code fail-safe + khai `contract_unverified` + KHÔNG tuyên bố acceptance đạt**. Vitest KHÔNG bao giờ bắt được lỗi này (payload test dựng tay luôn có khoá) ⇒ thêm 1 TC dựng payload **THIẾU** khoá đó, assert UI vẫn dùng được. Gate kiểm-được:
+  ```bash
+  # mỗi khoá mới tiêu thụ trong api/*.ts phải có ít nhất 1 hit ở BE
+  grep -rn "create_prefill\|<khoá-mới>" ../assetcore/ | head   # 0 dòng = hợp đồng CHẾT, dừng lại
+  ```
 - **GATE-8 — workflow *Detail view render nút theo BE `allowed_transitions` (server-driven CTA), KHÔNG hardcode `status === 'X'`** (→ LL-FE-51). BE emit `allowed_transitions = _VALID_TRANSITIONS.get(status, [])` cho 4 *Detail (Incident imm12 R3 · PM imm08 R21 · CM/Repair imm09 R22 · Calibration imm11). FE gate `canXxx = capability && allowedTransitions.includes('<NextState>')` (mirror `IncidentDetailView`) — KHÔNG `form.value.status === 'X'` (hardcode = trộn luồng + lộ nút sai pha). Với 4 view này nguồn là SERVER, mạnh hơn map client "TRANSITIONS_BY_STATE" ở trên. Gate kiểm-được (AT phải >0 cho CẢ 4):
   ```bash
   for v in IncidentDetailView PMWorkOrderDetailView CMWorkOrderDetailView CalibrationDetailView; do
@@ -443,6 +448,7 @@ View cha có `<style scoped> .modal-body input {…} </style>`. Đổi 1 raw `<i
 - `Promise.all` cho prefetch ref/lookup PHỤ (1×403 blank cả trang — phải `Promise.allSettled`, GATE-5/LL-FE-45).
 - Workflow action label / status key FE không khớp EXACT BE (tiếng Việt có dấu) → 422.
 - Tuyên bố "xong" chỉ dựa vitest/structural mà không RENDER ẢNH thật (LL-FE-46/48).
+- Bind vào khoá payload BE **chưa grep thấy** trong `assetcore/` (GATE-10 / LL-FE-55) — hợp đồng chết: nút bấm được, màn hình trống, vitest vẫn xanh.
 - Icon-only button thiếu `aria-label`; `focus:outline-none` không kèm focus ring; status chỉ phân biệt bằng màu (vi phạm **WCAG 2.1 AA** — xem Engineering principles).
 - Hex thô / `style="padding:13px"` / đổi primary sang indigo-purple thay vì token Tailwind (`emerald-600`/`neutral-*`) — phá **design system**.
 
@@ -453,6 +459,7 @@ Trước khi khai báo FE "xong" — phải có BẰNG CHỨNG (không "có vẻ
 - [ ] PRE-DONE GREP GATE-1..5 chạy trên view/component vừa sửa, mọi output đã xử lý (GATE-4 = 0).
 - [ ] GATE-1/GATE-2 chạy thêm trên **DetailView + dashboard card**, không chỉ ListView.
 - [ ] GATE-9 (không còn ô gõ đường dẫn tệp) chạy trên view/component vừa sửa — output = 0.
+- [ ] GATE-10: mọi khoá payload BE mới tiêu thụ đã `grep` thấy trong `assetcore/` (0 hit ⇒ fail-safe + khai `contract_unverified`, KHÔNG khai "xong").
 - [ ] Manual GATE-6a (qr-scan prefill parity) / 6b (form 0-state) / 6c (control không dead) / 6d (render ảnh thật khổ cố định) đã chạy.
 - [ ] List page: có nút "Tạo mới", row click → detail đúng URL, filter cập nhật table, pagination, empty-state CTA, loading + error banner.
 - [ ] Detail page: đủ fields, workflow buttons đúng state, nút "Quay lại" + "Sửa", tabs (KPI/Audit) có data thật (không 0/empty giả).

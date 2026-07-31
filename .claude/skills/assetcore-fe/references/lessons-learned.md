@@ -1092,3 +1092,15 @@ Cross-ref: SKILL §GATE-8; `_CAL_VALID_TRANSITIONS`/`_VALID_TRANSITIONS` (BE ser
 **Rule (kiểm được):** doc tổng-hợp (Procurement Plan ← Needs Request approved; allocation ← lines…) → modal create PHẢI: (1) `openCreateModal()` fetch candidate ĐÃ DUYỆT (`listNeedsRequests({workflow_state:'Approved'},1,100)`), (2) bảng checkbox chọn + đếm "Đã chọn N", (3) submit `:disabled="selected.size===0"` (gate ≥1), (4) gọi `create*(..., Array.from(selectedIds))` truyền MẢNG id. KHÔNG tạo-rỗng-rồi-thêm. DONE-gate: component test — 0 chọn→submit disabled + KHÔNG gọi API; ≥1 chọn→spy nhận đúng mảng id (LL-FE-47 param == lựa chọn); render-verify browser: modal nạp candidate + gate disabled↔enabled.
 
 Cross-ref: LL-FE-47 (control không dead — param == lựa chọn), BE LL-BE-62 (precondition ≥1 line TRƯỚC workflow); `views/needs/ProcurementPlanListView.vue` proposal-first modal; session 2026-06-29.
+
+### LL-FE-55: [BE] chạy SONG SONG — cấm bind vào khoá chưa grep thấy trên đĩa (2026-07-28)
+
+**Triệu chứng→nguyên nhân:** trong factory, [BE] và [FE] của cùng một vòng chạy **đồng thời**; khi FE code, thư mục BE có thể chưa có gì. Thực tế đã xảy ra 2 lần trong 1 run: (a) FE khai kiểu `ConnectionCell` VERBATIM theo spec trong khi `services/connections.py` + `services/shared/connection_meta.py` **chưa tồn tại** (`ls` báo No such file); (b) FE ship consumer `create_prefill` mà BE **0 hit** ⇒ nút «+ Tạo …» mở màn tạo TRỐNG. Cả hai đều **không thể bị vitest bắt**: test FE dựng payload bằng tay nên khoá luôn "có". Hệ quả là state chết sống sót qua nhiều vòng và được báo cáo là đã xong.
+
+**Rule (kiểm được):**
+1. **Grep trước khi bind:** `grep -rn "<khoá>" assetcore/` cho mọi khoá payload / endpoint / hằng số của BE mà bạn đọc. 0 hit ⇒ **(a)** code fail-safe (thiếu khoá KHÔNG vỡ UI), **(b)** khai vào `contract_unverified`, **(c)** KHÔNG tuyên bố acceptance đó đạt, **(d)** ghi `open_issues` "hợp đồng chưa land".
+2. **Khai kiểu theo spec thì được, coi là đã chạy thì không.** `?:` optional + fallback là bắt buộc cho khoá chưa verify.
+3. **Test chống khoá-ma:** với khoá mới, thêm 1 TC dựng payload **THIẾU** khoá đó và assert UI vẫn dùng được (fail-safe) — payload-đầy-đủ-dựng-tay một mình luôn xanh giả.
+4. `landed_symbols` chỉ ghi thứ chính bạn vừa grep lại thấy (`symbol → file:line`).
+
+Cross-ref: [[LL-BE-69]] (phía phát), [[LL-AUDIT-22]] (claim ≠ đĩa), LL-FE-47 (control không dead); session run-3 2026-07-28.

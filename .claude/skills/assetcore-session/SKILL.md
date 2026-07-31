@@ -102,6 +102,8 @@ Tất cả nằm **TRONG repo** nhưng **GITIGNORED** → user thấy được t
 Mỗi checkpoint (rẻ — STATE gọn + bồi file phiên):
 
 1. **Cập nhật `STATE.md`** (cây gậy bàn giao) — GHI ĐÈ thành sự thật hiện tại (Write/Edit). Quy tắc:
+   - **"DONE" chỉ được ghi khi ĐÃ GREP THẤY TRÊN ĐĨA.** Báo cáo của agent/factory là GIẢ THUYẾT — mọi symbol/khoá/endpoint viết vào STATE phải kèm bằng chứng (`file:line` hoặc số đếm vừa đo). Tuyên bố chưa verify được ⇒ ghi vào 🔴 dạng "**CHƯA LAND** — 0 hit", TUYỆT ĐỐI không ghi như đã hoàn thành (RED 2026-07-28: agent chết giữa vòng, STATE suýt bàn giao `create_prefill` + gate `create_incident` là xong trong khi đĩa 0 hit ⇒ run kế lặp lại nguyên đề mục — xem `assetcore-audit` LL-AUDIT-22).
+   - **Mọi CON SỐ đưa vào STATE phải đo lại từ đĩa** (test count, guard sum, số path OAS, số file). Số kế thừa từ prompt/handoff luôn có thể stale do phiên song song (LL-TEST-31).
    - Việc DONE & đã commit → BỎ khỏi Open threads (lịch sử thuộc file phiên).
    - Việc còn dở / chờ duyệt → giữ ở 🟡/🔴 với **next concrete step**.
    - Frontmatter `updated:` = hôm nay, `branch:` = branch hiện tại.
@@ -121,7 +123,7 @@ updated: 2026-06-03
 branch: feature/hieuc/core-refinement
 ---
 # AssetCore — Session STATE (cây gậy bàn giao xuyên phiên)
-### 🔴 Blockers / chờ user duyệt      ← đọc đầu tiên; destructive/approval
+### 🔴 Blockers / chờ user duyệt      ← đọc đầu tiên; destructive/approval + việc CHƯA LAND
 ### 🟡 Open threads (việc đang dở)     ← mỗi item kèm next step
 ### ▶️ Next step                       ← mở phiên sau làm gì TRƯỚC
 ### 🧠 Decisions chờ promote lên memory/

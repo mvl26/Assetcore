@@ -587,3 +587,16 @@ Cross-ref: bổ trợ LL-AUDIT-11 tầng 4 (escalation gate); `memory/` role_sec
 
 **Rule (kiểm được):** trước khi PM chọn / BE sửa 1 task: ĐỌC source + yaml + checklist HIỆN TẠI (KHÔNG tin STATE/đề-mục cũ tuyệt đối) → bỏ qua phần đã DONE, chỉ làm phần còn thiếu. Verdict/report phải verify TRÊN ĐĨA (git status + grep), KHÔNG chỉ tin return của agent. Cross-ref: LL-AUDIT-20; session run50 verify-before-trust.
 
+
+### LL-AUDIT-22: Agent CHẾT giữa chừng ⇒ báo cáo run VẪN ghi "xong" — claim là GIẢ THUYẾT tới khi grep (2026-07-28)
+
+**Triệu chứng→nguyên nhân:** factory run-3 (`wf_858af0c2-63a`, 5 vòng) trả `<failures>[R4·BE] failed: API Error: Connection closed mid-response`, đồng thời `items_done` vẫn liệt kê đầy đủ đề mục vòng 4 — «`can_create` thành gương của enforcement + khoá `create_prefill` điền sẵn tài sản cha + bịt lỗ ghi `api/imm00.create_incident`». Grep tay: `create_prefill` **0 hit trong `assetcore/`**; `api/imm00.create_incident` vẫn 0 cap-gate, 0 kiểm tra asset tồn tại. Ba tầng cùng hụt: (1) `parallel()` biến agent throw thành `null`, engine đọc `null` như "không có việc BE"; (2) đề mục được đẩy vào `items_done` **ngay khi PM chọn**, trước khi ai code; (3) không ai grep lại. Hệ quả dây chuyền: FE vòng đó đã ship consumer của khoá không tồn tại, run-4 phải lặp lại **y nguyên** focus của run-3 vì "mới đóng một nửa", và STATE bàn giao ghi sai là đã xong.
+
+**Rule (kiểm được):**
+1. **Đọc `<failures>` / `dead_agents` TRƯỚC `items_done`.** Vòng có agent chết ⇒ mọi tuyên bố của vòng đó là NGHI NGỜ; test xanh chỉ chứng minh "không hỏng thêm", KHÔNG chứng minh đã làm.
+2. **Chấm bằng đĩa, không bằng văn bản:** mỗi symbol/khoá/endpoint được tuyên bố ⇒ `grep -rn "<symbol>" assetcore/ frontend/src/` (+ `ls` file mới, `python3 -m py_compile` cho BE). **0 hit = CHƯA LAND**, bất kể report/handoff/STATE ghi gì.
+3. **Report phải tách 3 nhóm** khi thuật lại: đã verify trên đĩa · tuyên bố nhưng CHƯA land (kèm bằng chứng 0 hit) · đỏ có trước không do run này. Không chép `items_done` thành lời khẳng định.
+4. **Đề mục hụt = Closure-first**, không phải "làm lại từ đầu": grep xem phần nào đã có, chỉ làm phần THIẾU (tránh run sau lặp nguyên focus).
+5. Engine đã cứng hoá phần cơ học (`dead_agents`, `items_unfinished`, `items_unlanded`, pha `Verify`) — guard: `node .claude/scripts/test-factory-engine.js` (8 bất biến) chạy sau MỌI lần sửa `.claude/workflows/assetcore-factory.js`.
+
+Cross-ref: LL-AUDIT-20/21 (verify-before-trust), [[LL-BE-69]] (emit trước khi hứa), [[LL-FE-55]] (grep trước khi bind), `[[factory_engine_crash_schema_cap]]`; session run-3 2026-07-28.
