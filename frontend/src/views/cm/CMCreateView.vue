@@ -7,7 +7,7 @@ import { useApi } from '@/composables/useApi'
 import { useNotify } from '@/composables/useNotify'
 import { MSG } from '@/i18n/messages'
 import { getIncident } from '@/api/imm12'
-import { searchSpareParts } from '@/api/imm09'
+import { searchSpareParts, type SparePartSuggestion } from '@/api/imm09'
 import { uploadDocumentFile } from '@/api/imm05'
 import { getAssetActionMeta } from '@/api/imm00'
 import { lifecycleStatusLabel, riskClassificationLabel, incidentSeverityLabel } from '@/constants/labels'
@@ -24,8 +24,17 @@ interface AssetMeta {
   location_name?: string
 }
 
+/**
+ * Dòng phụ tùng dự kiến người dùng đã chọn.
+ * `spare_part` = KHOÁ THẬT (PK `AC Spare Part`) do BE cấp qua gợi ý — KHÔNG bịa.
+ * Các field `*_name`/`manufacturer_part_no` chỉ để HIỂN THỊ (không hiện mã trần).
+ */
 interface PartRow {
   spare_part: string
+  item_code?: string
+  item_name?: string
+  manufacturer_part_no?: string
+  device_model_name?: string
   qty: number
   remarks?: string
 }
@@ -81,7 +90,7 @@ async function onFaultImageChange(e: Event) {
 
 const preRequestParts = ref<PartRow[]>([])
 const partSearch = ref('')
-const partResults = ref<Array<{ name: string; part_name: string; stock_qty?: number }>>([])
+const partResults = ref<SparePartSuggestion[]>([])
 
 const { clear: clearDraft } = useFormDraft('cm-create', form)
 
@@ -91,6 +100,11 @@ const _queryAsset = (route.query.asset as string) || ''
 if (_queryAsset) form.value.asset_ref = _queryAsset
 const _queryIncident = (route.query.incident as string) || ''
 if (_queryIncident) form.value.incident_report = _queryIncident
+// Điều hướng «Tạo phiếu sửa chữa» từ tab «Bản ghi liên quan» của một phiếu bảo trì:
+// nguồn cha đi qua ?pm_wo=. Draft cũ KHÔNG được che mất nó, y hệt asset/sự cố —
+// prefill bị nuốt là prefill giả (khoá bằng `router/connectionsCreateParity.test.ts`).
+const _queryPmWo = (route.query.pm_wo as string) || ''
+if (_queryPmWo) form.value.source_pm_wo = _queryPmWo
 
 // Deep-link từ màn quét QR (D3): query hằng = {asset, source}. Field nội bộ CM = asset_ref.
 // Provenance: chỉ 'qr-scan' mới coi là quét QR; mọi giá trị khác (kể cả thiếu) → manual.
@@ -203,18 +217,51 @@ watch(partSearch, (q) => {
   }
   searchTimer = setTimeout(async () => {
     try {
-      // justified cast: BE search_spare_parts trả {name, part_name, stock_qty}
-      // nhưng api/imm09.ts khai báo SparePartRow[] (mismatch sẵn có ở API layer,
-      // ngoài scope của cleanup này — không sửa endpoint).
-      const rows = await searchSpareParts(q) as unknown as Array<{ name: string; part_name: string; stock_qty?: number }>
-      partResults.value = rows
+      // CR-73(a): kiểu đến THẲNG từ SparePartSuggestion (13 khoá) — KHÔNG ép kiểu.
+      partResults.value = await searchSpareParts(q)
     } catch { partResults.value = [] }
   }, 300)
 })
 
-function addPart(p: { name: string; part_name: string }) {
-  if (preRequestParts.value.some(x => x.spare_part === p.name)) return
-  preRequestParts.value.push({ spare_part: p.name, qty: 1 })
+/**
+ * Khoá THẬT của một gợi ý (CR-73a).
+ *
+ * `p.spare_part` là PK `AC Spare Part` do BE resolve — khoá duy nhất tra được
+ * `AC Spare Part Stock` để tạo allocation.
+ *  - `''`        ⇒ BE mới, KHÔNG resolve được ⇒ phụ tùng chưa có trong danh mục kho
+ *                  ⇒ KHÔNG cho chọn (chọn cũng không bao giờ cấp phát được).
+ *  - `undefined` ⇒ BE CHƯA nạp bản 13 khoá (cửa sổ blocked-reload) ⇒ tạm lùi về
+ *                  `item_code` để không chặn người dùng; hành vi = như trước CR-73a.
+ */
+function suggestionKey(p: SparePartSuggestion): string {
+  return (p.spare_part ?? p.item_code) || ''
+}
+
+function isSelectable(p: SparePartSuggestion): boolean {
+  return suggestionKey(p) !== ''
+}
+
+/** Tên model thiết bị để HIỂN THỊ — fallback PK khi BE chưa có `model_name`. */
+function deviceModelLabel(p: SparePartSuggestion): string {
+  return p.device_model_name || p.device_model || ''
+}
+
+function addPart(p: SparePartSuggestion) {
+  const key = suggestionKey(p)
+  // Gợi ý không resolve được `spare_part` ⇒ dòng vô nghĩa với kho ⇒ chặn tại UI
+  // (đã hiển thị disabled + lý do), KHÔNG đẩy im lặng vào danh sách.
+  if (!key) return
+  // De-dup theo KHOÁ THẬT (trước đây so `x.spare_part === p.name` =
+  // `undefined === undefined` ⇒ chặn MỌI dòng thứ 2 — bug E3).
+  if (preRequestParts.value.some(x => x.spare_part === key)) return
+  preRequestParts.value.push({
+    spare_part: key,
+    item_code: p.item_code,
+    item_name: p.item_name,
+    manufacturer_part_no: p.manufacturer_part_no,
+    device_model_name: deviceModelLabel(p),
+    qty: 1,
+  })
   partSearch.value = ''
   partResults.value = []
 }
@@ -244,7 +291,13 @@ async function handleSubmit() {
   if (preRequestParts.value.length) {
     const { requestSpareParts } = await import('@/api/imm09')
     try {
-      await requestSpareParts(name, preRequestParts.value as unknown as Parameters<typeof requestSpareParts>[1])
+      // Gửi ĐÚNG khoá BE đọc (`spare_part` ưu tiên, `item_code` dự phòng) —
+      // KHÔNG ép kiểu sang shape dòng phiếu.
+      await requestSpareParts(name, preRequestParts.value.map(p => ({
+        spare_part: p.spare_part,
+        item_code: p.item_code,
+        qty: p.qty,
+      })))
     } catch (e) {
       console.warn('Pre-request parts failed', e)
     }
@@ -437,22 +490,62 @@ onMounted(() => {
       <div>
         <h2 class="font-semibold text-slate-700 mb-2">Phụ tùng dự kiến (tùy chọn)</h2>
         <div class="relative">
-          <input v-model="partSearch" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" placeholder="Tìm phụ tùng theo tên/code..." />
+          <label for="cm-part-search" class="block text-sm text-slate-600 mb-1">Tìm phụ tùng</label>
+          <input
+            id="cm-part-search"
+            v-model="partSearch"
+            class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-emerald-500"
+            placeholder="Nhập tên phụ tùng hoặc mã nhà sản xuất..."
+          />
           <ul v-if="partResults.length" class="absolute z-10 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-56 overflow-y-auto">
-            <li v-for="p in partResults" :key="p.name"
-                class="px-3 py-2 text-sm hover:bg-blue-50 cursor-pointer flex justify-between"
-                @click="addPart(p)">
-              <span><b>{{ p.name }}</b> — {{ p.part_name }}</span>
-              <span class="text-xs text-slate-500">Kho: {{ p.stock_qty ?? '—' }}</span>
+            <!-- Khoá render = khoá THẬT + model thiết bị: 2 model khác nhau cùng tên
+                 phụ tùng là 2 dòng HỢP LỆ, không được coi là trùng (CR-73a). -->
+            <li v-for="p in partResults" :key="`${suggestionKey(p)}|${p.device_model ?? ''}`">
+              <button
+                type="button"
+                :disabled="!isSelectable(p)"
+                class="w-full text-left px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-emerald-500"
+                :class="isSelectable(p) ? 'hover:bg-blue-50 cursor-pointer' : 'opacity-60 cursor-not-allowed'"
+                @click="addPart(p)"
+              >
+                <span class="flex justify-between gap-2">
+                  <b>{{ p.item_name }}</b>
+                  <span v-if="p.manufacturer_part_no || p.item_code" class="text-xs text-slate-500 font-mono shrink-0">
+                    {{ p.manufacturer_part_no || p.item_code }}
+                  </span>
+                </span>
+                <span v-if="deviceModelLabel(p)" class="block text-xs text-slate-500">
+                  Model thiết bị: {{ deviceModelLabel(p) }}
+                </span>
+                <span v-if="!isSelectable(p)" class="block text-xs text-amber-600">
+                  Chưa có trong danh mục kho — không thể yêu cầu cấp phát
+                </span>
+              </button>
             </li>
           </ul>
         </div>
         <ul v-if="preRequestParts.length" class="mt-2 space-y-1.5">
-          <li v-for="(p, i) in preRequestParts" :key="p.spare_part"
-              class="flex items-center gap-2 bg-slate-50 rounded px-2 py-1.5 text-sm">
-            <span class="flex-1">{{ p.spare_part }}</span>
-            <input v-model.number="p.qty" type="number" min="1" class="w-16 border border-slate-300 rounded px-2 py-1 text-sm" />
-            <button class="text-red-500 hover:text-red-700" @click="removePart(i)">×</button>
+          <li
+            v-for="(p, i) in preRequestParts"
+            :key="p.spare_part"
+            class="flex items-center gap-2 bg-slate-50 rounded px-2 py-1.5 text-sm"
+          >
+            <span class="flex-1">
+              <span>{{ p.item_name || p.spare_part }}</span>
+              <span v-if="p.device_model_name" class="block text-xs text-slate-500">
+                Model thiết bị: {{ p.device_model_name }}
+              </span>
+            </span>
+            <label :for="`cm-part-qty-${i}`" class="sr-only">Số lượng {{ p.item_name || p.spare_part }}</label>
+            <input :id="`cm-part-qty-${i}`" v-model.number="p.qty" type="number" min="1" class="w-16 border border-slate-300 rounded px-2 py-1 text-sm" />
+            <button
+              type="button"
+              :aria-label="`Bỏ phụ tùng ${p.item_name || p.spare_part}`"
+              class="text-red-500 hover:text-red-700 focus-visible:ring-2 focus-visible:ring-emerald-500 rounded"
+              @click="removePart(i)"
+            >
+              ×
+            </button>
           </li>
         </ul>
       </div>

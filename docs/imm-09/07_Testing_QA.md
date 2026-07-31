@@ -290,6 +290,35 @@ Dẫn từ artefact phân tích (02_Analysis_Design.md) sang test layer. Mỗi U
 
 > **Mẹo thực thi**: dùng `SimpleNamespace` cho test thuần công thức (`get_sla_target`, `repair_elapsed_hours` — pure, no DB) — chạy ms-level, không cần fixture cleanup. `TestCmSlaBreachLiveSoT` + `TestSlaClockStop` (TC-03/05/06) cần fixture Asset Repair thật (open_datetime/parts_hold backdated) + teardown `_purge` (prefix `_Test CM-SLA%` / `_Test CM-HOLD%`). **RED-prove (BR-09-07 LIVE):** revert `cm_sla_breached` về `_count({sla_breached:1})` + bỏ `_enrich_sla_breach` ⇒ INV-CM-SLA-1/5 FAIL (`0!=1` card, `None!=true` badge); restore ⇒ GREEN. **RED-prove (BR-09-10):** TC-09-HOLD-01 — thay `repair_elapsed_hours` bằng `(completion−open)` thô ⇒ `mttr==80 != 40`, `sla_breached==1 != 0` FAIL; restore SoT ⇒ GREEN.
 
+**TestSearchSparePartsIdentity — khoá nhận dạng gợi ý phụ tùng (CR-73a, BR-09-21/22) 🔴 RED-first, chốt 2026-07-25:**
+
+**Fixture bắt buộc (chính xác — nếu sai, TC-CM-SPARE-01 xanh giả):** 2 bản ghi `IMM Device Model` KHÁC NHAU (vd `_Test Model VENT-A`, `_Test Model VENT-B`), MỖI model có 1 dòng `spare_parts_list` với **`part_name` GIỐNG HỆT** (`'Van PEEP'`) **và `manufacturer_part_no` GIỐNG HỆT** **và `estimated_cost` GIỐNG HỆT**. Ba trường phải trùng cả ba thì `SELECT DISTINCT` hiện tại mới gộp còn 1 dòng — nếu để `manufacturer_part_no` khác nhau, code cũ đã trả 2 dòng và test **không đỏ** (vacuous). Thêm: 1 `AC Spare Part` `is_active=1` khớp `manufacturer_part_no` đó + 1 `AC Spare Part Stock` trỏ nó với `warehouse` là `AC Warehouse` `is_active=1`.
+
+| TC | Setup | Action | Expect | AC |
+|----|-------|--------|--------|----|
+| **TC-CM-SPARE-01** *(khử nhập nhằng — RED trên code hiện tại)* | 2 model như fixture trên | `search_spare_parts('Van PEEP')` | **ĐÚNG 2 dòng**; `device_model` của 2 dòng **KHÁC NHAU**; `device_model_name` mỗi dòng == `model_name` của model tương ứng | A2 |
+| **TC-CM-SPARE-02** *(13 khoá, đủ mặt, đúng kiểu)* | như trên | `search_spare_parts('Van PEEP')` | mỗi row có **đúng 13 khoá** (`set(row) == <13 khoá>`); `device_model`/`device_model_name`/`spare_part` đều `isinstance(str)`; **KHÔNG `None`**, **KHÔNG thiếu khoá** | A1 |
+| **TC-CM-SPARE-03** *(10 khoá cũ bất biến)* | 1 phụ tùng đơn giản, 1 model | so sánh 10 khoá cũ với giá trị kỳ vọng cũ (`item_code`, `item_name`, `manufacturer_part_no`, `qty==1`, `uom=='Cái'`, `unit_cost`, `total_cost`, `stock_entry_ref==''`, `notes==''`, `idx==0`) | trùng khớp **từng khoá** (thuần ADDITIVE, 0 regression consumer cũ) | A1 |
+| **TC-CM-SPARE-04** *(resolve ưu tiên MPN)* | `AC Spare Part` X khớp `manufacturer_part_no`; `AC Spare Part` Y khớp `part_name` (khác X) | `search_spare_parts(...)` | `spare_part == X.name` (MPN thắng `part_name`) | A4 |
+| **TC-CM-SPARE-05** *(fallback + `is_active` + tie-break)* | 0 bản ghi khớp MPN; 2 bản ghi khớp `part_name` `is_active=1` + 1 bản ghi khớp nhưng `is_active=0` | `search_spare_parts(...)` | `spare_part` == `name` **nhỏ nhất theo `order_by name asc`** trong 2 bản ghi active; bản ghi `is_active=0` **KHÔNG BAO GIỜ** được chọn | A4 |
+| **TC-CM-SPARE-06** *(0 khớp ⇒ chuỗi rỗng)* | phụ tùng không có `AC Spare Part` nào khớp | `search_spare_parts(...)` | `spare_part == ''` (**KHÔNG `None`**, khoá vẫn có mặt) | A1/A4 |
+| **TC-CM-SPARE-07** *(không N+1)* | ≥ 5 dòng thuộc ≥ 2 model, có cả nhánh MPN lẫn fallback | monkeypatch counter lên `frappe.get_all`/`frappe.db.get_value`/`frappe.db.sql` | tổng truy vấn **phụ** (ngoài 1 SQL chính) **≤ 3**; số dòng tăng ⇒ số truy vấn **KHÔNG tăng** | A5 |
+| **TC-CM-SPARE-08a** *(gate — thiếu quyền)* | user CHỈ role `Repair User` (**KHÔNG** `AssetCore System User`) ⇒ 0 DocPerm read `IMM Device Model` | `search_spare_parts('Van')` | raise `ServiceError` `code=FORBIDDEN`, `http_status=403`; **KHÔNG** HTTP-500; **KHÔNG** rò dòng nào (không trả `[]` câm — assert bằng exception, không bằng list rỗng) | A6 |
+| **TC-CM-SPARE-08b** *(gate — persona thật KHÔNG bị khoá)* | user = `AssetCore System User` + `Repair User` (persona "Kỹ thuật viên") | `search_spare_parts('Van PEEP')` | kết quả **non-empty**; `spare_part` **non-empty** trên fixture có `AC Spare Part` | A6 |
+| **TC-CM-SPARE-ALLOC-01** *(A3-a — hết "allocation câm", quyền đầy đủ)* | fixture đủ `AC Spare Part` + `AC Spare Part Stock`; chạy bằng `Administrator` | lấy `spare_part` từ gợi ý → `request_spare_parts(wo, [{spare_part, qty:1}])` | `allocation` **NON-NULL**; bản ghi `IMM Spare Allocation` tồn tại, `allocation_status == 'Requested'` | A3 |
+| **TC-CM-SPARE-ALLOC-02** *(A3-b — persona THẬT, chống xanh giả)* | như trên; chạy bằng persona KTV (`AssetCore System User` + `Repair User`) | như trên | `allocation` **NON-NULL**. **Nếu đỏ vì `inventory.write`** ⇒ thực thi ADR-IMM09-SPARE-03 (kèm `test_imm15` vào DoD) **HOẶC** báo ngược [PM]. **CẤM** đổi test sang `Administrator` để né | A3-bis |
+| **TC-CM-SPARE-ALLOC-03** *(null hợp lệ)* | phụ tùng có `AC Spare Part` nhưng **không** có `AC Spare Part Stock` | `request_spare_parts(...)` | `success == true`, `allocation is None`, `updated` đúng; **0** `IMM Spare Allocation` mới | BR-09-22 |
+
+**Thực thi 2026-07-25 (BE Bước-4) — TC ↔ test method THẬT:** `assetcore/tests/test_imm09.py::TestSearchSparePartsIdentity` (TC-01 `test_search_spare_parts_distinguishes_by_device_model` · TC-02 `..._row_has_exact_13_string_keys` · TC-03 `..._legacy_10_keys_unchanged` + `..._short_query_returns_empty` · fallback-nhãn `..._device_model_name_fallback_to_id` · TC-04 `..._resolves_spare_part_by_manufacturer_part_no` · TC-05 `..._resolves_spare_part_fallback_by_part_name` · TC-06 `..._unmatched_resolves_to_empty_string` · TC-07 `..._no_n_plus_one`) · `::TestRequestSparePartsAllocation` (ALLOC-01 `test_request_spare_parts_creates_allocation_with_resolved_key` · **ALLOC-02** `..._creates_allocation_as_technician_persona` · ALLOC-03 `..._allocation_null_when_no_stock`) · `assetcore/tests/test_rowscope_docperm_gate.py::TestSearchSparePartsRoleGate` (08a `test_search_spare_parts_requires_read_on_device_model` · 08b `..._technician_persona_still_gets_results`) · `assetcore/tests/test_mobile_oas.py::TestMobileSearchSparePartItemIdentity` (6 TC `cr73a_a..f`, gồm **parity AST BE↔OAS** và **chống cite-rot**). ⚠️ **ALLOC-02 ĐỎ trước khi thực thi ADR-IMM09-SPARE-03** (dù E2 đã sửa) ⇒ K4 đã được thực thi trong vòng, `test_imm15` vào DoD.
+
+**Bẫy hạ-tầng test đã gặp (ghi lại để vòng sau không mất giờ):** (1) token fixture PHẢI **rời nhau** — đặt tên phụ tùng chứa token của TC khác (`NPLUS1<TOKEN>`) làm fixture TC này lọt vào `LIKE %TOKEN%` của TC kia ⇒ TC-01 "đúng 2 dòng" vỡ **theo thứ tự chạy**; (2) teardown phải xoá `AC Spare Part Stock` **TRƯỚC** `AC Spare Part` (Link) — sai thứ tự thì `LinkExistsError` bị nuốt ⇒ bản ghi rò sang lần chạy sau và **thắng** quy tắc `order_by name asc`; (3) fixture `IMM Device Model` phải idempotent (unique-guard model_name+manufacturer) vì `setUpClass` đổ giữa chừng sẽ không chạy `tearDownClass`; (4) 1 thiết bị chỉ được có 1 phiếu sửa chữa đang mở ⇒ ca persona cần **asset riêng**.
+
+**Mutation-check bắt buộc (chống vacuous-green, A9):** hoàn nguyên **đúng 1 dòng** enrich (bỏ khoá `spare_part` khỏi row-dict, **hoặc** trả lại `SELECT DISTINCT`) ⇒ TC-CM-SPARE-01/02 (hoặc 04–06) phải **ĐỎ**; khôi phục ⇒ XANH. Ghi kết quả mutation vào báo cáo vòng.
+
+**Mẹo thực thi:** teardown purge theo prefix `_Test Model VENT-%` (models) + `_Test SP-%` (`AC Spare Part`/`AC Spare Part Stock`) + WO test; dùng `frappe.set_user` cho 2 ca gate rồi `frappe.set_user("Administrator")` trong `finally`. User test tạo bằng helper sẵn có (`_ensure_user` kiểu `test_rowscope_docperm_gate.py:63-85`) — **KHÔNG** gán role bằng cách sửa Role Profile (sẽ ảnh hưởng user thật).
+
+**Suite phải XANH trong vòng (A9):** `bench --site miyano run-tests --module assetcore.tests.test_imm09` · `…test_mobile_oas` · `…test_mobile_docset` · `…test_rowscope_docperm_gate` · `npm run test -- CMCreateView` · `npx vue-tsc --noEmit`. Nếu thực thi ADR-IMM09-SPARE-03 ⇒ **thêm** `…test_imm15`. Nếu thực thi K3 (`"search_"` vào `_ENTRYPOINT_PREFIXES`) ⇒ **thêm** `…test_rowscope_scope_guard`.
+
 ## III.3. Integration — DocType lifecycle
 
 **File**: `assetcore/tests/test_imm09.py` (hợp nhất — xem §III.2). Cover hook `validate / before_insert / on_submit / on_update_after_submit`.
@@ -383,6 +412,41 @@ Status: ⬜ Planned (chưa có test method trong `test_imm09.py` hiện tại).
 
 > Endpoint khác cần cover: `submit_diagnosis`, `start_repair`, `request_spare_parts`, `get_asset_repair_history`, `search_spare_parts`, `get_mttr_report`.
 
+### III.6-bis. Contract guard — OpenAPI mobile (CR-65, `repair_checklist[]` typed)
+
+**File**: `assetcore/tests/test_mobile_oas.py::TestMobileRepairChecklistItemTyped` — guard **tầng hợp đồng** (thuần-shape: đọc yaml + DocType json, **không** đụng DB/`.py` production). Xem spec: [`05_API_Specification.md` §3.2 + ADR-IMM09-CHECKLIST-WIRE-01](./05_API_Specification.md).
+
+| TC | Verify | Kỹ thuật | Status |
+|---|---|---|---|
+| `cr65_a_detail_repair_checklist_array_ref` | `RepairWorkOrderDetail.repair_checklist` = `array` + `items.$ref` → `RepairChecklistItem` (không dangling) | Contract shape | ✅ Live |
+| `cr65_b_item_open_object_mirror_pm_precedent` | `RepairChecklistItem` `object` + `additionalProperties:true`; precedent `PmChecklistResultItem` cũng mở; không khai `required` | Mirror-precedent | ✅ Live |
+| `cr65_c_seven_domain_fields_grounded_no_invention` | Khai ĐỦ 7 field domain đọc TRỰC TIẾP `repair_checklist.json` + `idx`/`name`; **0 field bịa** | Grounding chống-bịa | ✅ Live |
+| `cr65_d_idx_integer_join_parity_with_attach_photo` | `idx:integer` **cùng kiểu** `checklist_item_idx` ở CẢ request lẫn response `attachRepairChecklistPhoto` (3-way); `idx` không nullable | Invariant (khoá join) | ✅ Live |
+| `cr65_e_result_no_hard_enum_seed_empty_allowed` | `result` không `enum` cứng (nếu có phải chứa `""`); grounding: options doctype `[Pass,Fail,N/A]` không mở đầu dòng trống ⇒ seed `""` sẽ bị enum cấm | EP + RED-prove | ✅ Live |
+| `cr65_f_photo_single_attach_string_not_array` | `photo` = `string` nullable (KHÔNG array); grounding fieldtype `Attach` @doctype; BR-09-16 `MAX_REPAIR_CHECKLIST_PHOTOS=1` | Contract shape | ✅ Live |
+| `cr65_g_zero_footprint_detail_open_envelope_closed` | Payload GIỮ `additionalProperties:true` + `required:[name]`; envelope GIỮ CLOSED `{success,data}` + 0 discriminator; `RepairChecklistItem` được `$ref` ≥1 (0 orphan) | Zero-footprint | ✅ Live |
+
+> **RED-before (đo được):** xoá property `repair_checklist` hoặc schema `RepairChecklistItem` khỏi yaml ⇒ `cr65_a`/`cr65_b` FAIL. Khai `result.enum: [Pass, Fail, N/A]` ⇒ `cr65_e` FAIL (đúng lớp lỗi sẽ reject 100% phiếu CM mới seed `result=""`).
+>
+> **DoD:** `bench --site miyano run-tests --module assetcore.tests.test_mobile_oas` → **Ran 905 tests … OK** và `--module assetcore.tests.test_mobile_docset` → **Ran 9 tests … OK** (2026-07-25). Đổi số test PHẢI sync 4 counter: `_EXPECTED_TEST_COUNT` (+2 assert literal trong `test_mob_oas_cancelcal_j…`/`test_mob_oas_receivecert_j…`) @`test_mobile_oas.py`, và `_GUARD_SUITE_EXPECTED["test_mobile_oas.py"]` / `_GUARD_SUITE_SUM` / `_MOBILE_OAS_TOTAL` + Δ transition-baseline @`test_mobile_docset.py`.
+
+### III.6-ter. Contract guard — OpenAPI mobile (CR-73a, `SearchSparePartItem` 10→13 prop) 🔴 Planned (Bước-4)
+
+**File**: `assetcore/tests/test_mobile_oas.py::TestMobileSearchSparePartItemIdentity` — guard **thuần-shape** (đọc yaml, KHÔNG đụng DB/`.py`). Spec: [`05_API_Specification.md §3.13-bis(8)`](./05_API_Specification.md).
+
+| TC (gợi ý) | Verify |
+|---|---|
+| `cr73a_a_three_new_properties_present` | `SearchSparePartItem.properties` chứa `device_model`, `device_model_name`, `spare_part`, cả 3 `type: string` |
+| `cr73a_b_required_covers_all_thirteen` | `required` == đúng 13 khoá (thiếu 1 ⇒ client codegen rớt field vì `additionalProperties:false`) |
+| `cr73a_c_no_nullable_no_extra_type` | 3 property mới **KHÔNG** `nullable: true`, KHÔNG `oneOf`/`type: [string, "null"]` (hợp đồng "vắng = `\"\"`") |
+| `cr73a_d_schema_stays_closed` | `additionalProperties: false` GIỮ NGUYÊN; `SearchSparePartsEnvelope` GIỮ `required[success,data]` + `data` = array `$ref` |
+| `cr73a_e_zero_new_path_or_operation` | Tổng path/opId GIỮ **105**; `components.schemas` **+0** schema mới |
+| `cr73a_f_cite_refreshed_not_rotted` | Mô tả schema/property KHÔNG còn chuỗi cite cũ đã rot (`imm09.py:1237-1246` / `:1223-1248`) |
+
+> **RED-before (đo được):** bỏ 1 trong 3 property khỏi yaml ⇒ `cr73a_a` FAIL; khai property nhưng quên thêm vào `required` ⇒ `cr73a_b` FAIL.
+>
+> **Counters — cộng theo DELTA, đọc tại chỗ:** thêm **N** TC ⇒ `_EXPECTED_TEST_COUNT` @`test_mobile_oas.py` **+N**, và `_GUARD_SUITE_EXPECTED["test_mobile_oas.py"]` / `_GUARD_SUITE_SUM` / `_MOBILE_OAS_TOTAL` @`test_mobile_docset.py` **+N**. Giá trị lúc chốt spec: `911` / `1054` / `1080` — **nếu file đã khác thì tin file** (CR khác có thể landed xen giữa; chấm theo delta, KHÔNG theo số tuyệt đối).
+
 ## III.7. E2E browser (Playwright)
 
 Dùng cho flow UI khó cover bằng API: dropdown cascade (Asset → auto-fill risk_class/serial), modal "Không sửa được" yêu cầu lý do, workflow button visibility theo role, banner Repeat Failure, badge SLA breach. Golden scenario: IR → Tạo CM WO → Assign → Diagnose → Parts → In Repair → Checklist → Complete → verify MTTR hiển thị.
@@ -464,6 +528,9 @@ bench --site assetcore.local run-tests --module assetcore.tests.test_workflows
 | BR-09-05 | Asset status transitions + chặn WO trùng | `TestRepairWOCreation::test_duplicate_open_wo_raises_conflict` (✅ Live) + `TestComplete`/`TestCannotRepair` (⬜ Planned) | State Transition | 1 / 1 (live) |
 | BR-09-06 | Repeat failure 30 ngày | `TestRepeatFailure` | BVA | 1 / 2 ⬜ Planned |
 | BR-09-07 | MTTR > SLA → breach | `TestSlaMatrix` (✅ Live, matrix) + `TestComplete`/`TestScheduler` (⬜ Planned) | BVA + Decision Table | 4 live (matrix) |
+| BR-09-21 | Gợi ý phụ tùng mang khoá nhận dạng (13 khoá; khử nhập nhằng; resolve deterministic; ≤3 query phụ; role-gate) | `TestSearchSparePartsIdentity` — TC-CM-SPARE-01..08b | EP + Decision Table + Invariant (đếm query) + Pairwise persona | 6 / 3 🔴 RED-first (CR-73a) |
+| BR-09-22 | Gate-2 → IMM-15: `allocation:null` không che lỗi | `TestSearchSparePartsIdentity` — TC-CM-SPARE-ALLOC-01..03 | State + Invariant (persona pair) | 2 / 1 🔴 RED-first (CR-73a) |
+| BR-09-23 | **Cổng ảnh bằng chứng NĐ98 (Class C/D) khi đóng/nghiệm thu phiếu CM** — 1 predicate SSoT cho enforcement + advertise + read; in-envelope HTTP-200; không ghi nửa chừng; miễn trừ `cannot_repair=1`; `""` không phải nguy cơ cao | `TestCmEvidencePhotoGate` — TC-CM-EVID-01..12 (`test_imm09.py`) + `TestMobileRepairEvidencePhotoContract` cr84_a..i (`test_mobile_oas.py`, ✅ XANH Bước-2) | Decision Table + EP (enum risk) + Invariant (parity predicate) + State (không ghi nửa chừng) | 12 / 3 🔴 RED-first (AC-CR-84) |
 
 ## IV.3. Component → Test mapping
 
@@ -828,3 +895,325 @@ Gắn screenshot SonarQube + Lighthouse vào file 09 §Release Notes khi báo c�
 - [ ] Lighthouse ≥ target — chưa chạy
 - [ ] Bundle size ≤ budget — chưa đo
 - [ ] Screenshot báo cáo gắn vào file 09 — chưa có
+
+## VIII. CR-74 — Read-gate CHI TIẾT (getRepairWorkOrder) · bộ TC bắt buộc (2026-07-25)
+
+> Spec: [`05_API_Specification.md` §12](./05_API_Specification.md) · SSoT: [ADR-IMM00-LIST-SCOPE §9](../imm-00/ADR-IMM00-LIST-SCOPE.md).
+> **Suite:** `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_imm09` (+ `test_rowscope_docperm_gate` · `test_rowscope_invariant` · `test_rowscope_scope_guard`). **DoD = suite XANH, KHÔNG curl** (`.py` prod dirty dưới gunicorn `--preload` ⇒ BLOCKED-RELOAD).
+
+### VIII.1 Fixture tối thiểu (dựng 1 lần, dùng chung 6 TC)
+
+| Ký hiệu | Là gì | Ràng buộc |
+|---|---|---|
+| `USER_NOPERM` | user **đăng nhập được** nhưng **0 DocPerm read** trên `Asset Repair` | vd persona `PM User` / `Calibration User` (0 DocPerm read trên `Asset Repair` — bảng ADR §8.5). **KHÔNG** dùng Guest (Guest → dispatcher-403/401, sai loại lỗi) |
+| `USER_OWNER` | persona `Repair User` — `assigned_to` == chính mình | phải có DocPerm read |
+| `USER_OTHER` | persona `Repair User` khác — **không** được giao phiếu đang test | phải có DocPerm read (để phân biệt trục ROW với trục ROLE) |
+| `USER_SENIOR` | `Repair Manager` hoặc `AssetCore Auditor` | chứng minh 0 regress |
+| `REC_OWNED` | 1 bản ghi `Asset Repair` có `assigned_to` = `USER_OWNER` | |
+| `REC_FOREIGN` | 1 bản ghi `Asset Repair` có `assigned_to` = `USER_OWNER`, dùng khi đăng nhập `USER_OTHER` | |
+| `NAME_GHOST` | chuỗi PK **không tồn tại** (vd `"AC-REPAIR-9999-99999"`) | dùng cho cặp TC existence-oracle |
+
+> 🔴 **BẮT BUỘC `frappe.set_user(...)` cho MỌI TC** + `frappe.set_user("Administrator")` trong `tearDown`. `frappe/permissions.py:107-109` trả `True` ngay cho Administrator ⇒ chạy bằng Administrator = **xanh giả** (đúng bài học INV-ROWSCOPE-4/6).
+
+### VIII.2 Bộ TC
+
+| TC | User | Input | Kỳ vọng (assert) | INV |
+|---|---|---|---|---|
+| `TC-CM-DETAILGATE-01` | `USER_NOPERM` | `REC_OWNED` | `env["success"] is False` · `env["code"] == "FORBIDDEN"` · `env["http_status"] == 403` · **KHÔNG raise** · `set(env) & {"asset_ref", "repair_summary", "mttr_hours", "root_cause_category", "asset_info"} == set()` | INV-DETAIL-1 |
+| `TC-CM-DETAILGATE-02` | `USER_OTHER` | `REC_FOREIGN` | `code == "FORBIDDEN"` · `http_status == 403` | INV-DETAIL-2 |
+| `TC-CM-DETAILGATE-03` | `USER_SENIOR` | `REC_OWNED` | `env["success"] is True` · payload **byte-identical** snapshot baseline (so khoá + giá trị) | INV-DETAIL-4 |
+| `TC-CM-DETAILGATE-04` | `USER_NOPERM` | `NAME_GHOST` | envelope **giống hệt** `TC-CM-DETAILGATE-01` (cùng `code` + `http_status`) ⇒ 0 existence-oracle | INV-DETAIL-5 |
+| `TC-CM-DETAILGATE-05` | `USER_OWNER` | `NAME_GHOST` | `code == "NOT_FOUND"` · `http_status == 404` — **GIỮ NGUYÊN** | INV-DETAIL-6 |
+| `TC-CM-DETAILGATE-06` | `Vendor Engineer` ngoài scope | `REC_OWNED` | `code == "FORBIDDEN"` · **KHÔNG** 500 · **KHÔNG** traceback ⇒ chứng minh lớp `assert_vendor_can_access` vẫn sống | INV-DETAIL-7 |
+
+### VIII.3 Chống vacuous (BẮT BUỘC ghi bằng chứng vào báo cáo vòng)
+
+1. **Mutation gate:** gỡ `assert_doctype_read_permission` khỏi `services/imm09.py::get_work_order` ⇒ `TC-CM-DETAILGATE-01` và `TC-CM-DETAILGATE-04` PHẢI **ĐỎ**. Hoàn nguyên ⇒ xanh.
+2. **Mutation guard tĩnh:** cùng thao tác trên ⇒ `test_rowscope_scope_guard::TestRowScopeStaticGuard` **G5** PHẢI **ĐỎ**.
+3. **Anti-false-green:** TC-01 phải assert **cả 3** (`success`/`code`/`http_status`) — chỉ assert `success is False` sẽ **không** phân biệt 403 với 404/422.
+4. **Anti-leak:** TC-01/02 assert **tập khoá** của envelope, KHÔNG chỉ `"asset_ref" not in env` (khoá lồng trong `data` vẫn rò nếu quên).
+
+### VIII.4 `TC-CM-DETAILGATE-07` — BẢNG CHÂN TRỊ 2×2 (đóng P0 read-vs-write, INV-DETAIL-3)
+
+TC **quan trọng nhất** của CR-74. Với **CÙNG** doctype `Asset Repair`, chạy đủ **4 tổ hợp** và assert **3 đường kết luận GIỐNG NHAU**:
+
+| # | Persona | Phiếu | `list_work_orders` | `get_repair_work_order` | `attach_repair_checklist_photo` |
+|---|---|---|---|---|---|
+| 1 | `USER_OWNER` | `REC_OWNED` | **CÓ** trong rows | **200 success** | **thành công** |
+| 2 | `USER_OWNER` | `REC_OTHER` (của `USER_OTHER`) | **KHÔNG** trong rows | **403** | **403** |
+| 3 | `USER_OTHER` | `REC_OTHER` | **CÓ** trong rows | **200 success** | **thành công** |
+| 4 | `USER_OTHER` | `REC_OWNED` | **KHÔNG** trong rows | **403** | **403** |
+
+Assert dạng **bảng** (KHÔNG 3 TC rời): với mỗi ô, quy về boolean `allowed` rồi
+`self.assertEqual(allowed_list, allowed_detail)` **và** `self.assertEqual(allowed_list, allowed_attach)`
+kèm message nêu rõ tổ hợp lệch. **0/4 tổ hợp được phép lệch** ⇒ hết trạng thái "đọc được nhưng không đính được ảnh".
+
+> Ràng buộc fixture: 2 phiếu ở trạng thái **cho phép đính ảnh** (nếu trạng thái chặn thì `attach` trả `VALIDATION`/`BAD_STATE`, **không phải** 403 ⇒ bảng mất ý nghĩa). Kiểm tra `_REPAIR_VALID_TRANSITIONS` + gate `_assert_can_attach_repair_photo` (`services/imm09.py:1419-1429`) trước khi chốt fixture.
+
+
+---
+
+## IX. AC-CR-78 — `spare_parts_used[]` typed + trạng thái phiếu xuất kho · bộ TC bắt buộc (2026-07-27)
+
+> **SSoT hợp đồng:** [`05_API_Specification.md §13`](05_API_Specification.md) ·
+> code-shape [`04_Backend_Design.md §3.8`](04_Backend_Design.md) · FE [`06 §SparePartsStockEntry`](06_Frontend_Design.md).
+> **Mục tiêu đo được của vòng:** **INV-PARTS-1** — badge hiển thị ⟺ validator BR-09-02.
+
+### IX.1 Fixture tối thiểu (dựng 1 lần, dùng chung)
+
+| Ký hiệu | Là gì | Ràng buộc |
+|---|---|---|
+| `SM_REAL` | 1 bản ghi **`AC Stock Movement`** THẬT | `frappe.db.exists("AC Stock Movement", SM_REAL)` là `True`. **KHÔNG** dùng ERPNext `Stock Entry` (sai DocType) |
+| `SM_GHOST` | chuỗi PK **không tồn tại** (vd `"SM-9999-99999"`) | dùng cho nhánh `NOT_FOUND` |
+| `WO_MIX` | `Asset Repair` **docstatus=0** với **3 dòng** `spare_parts_used`: idx1 `stock_entry_ref=SM_REAL` · idx2 `stock_entry_ref=""` · idx3 `stock_entry_ref=SM_GHOST` | 9 khoá domain điền đủ (`item_code`/`item_name`/`qty`/`uom`/`unit_cost` là `reqd:1`) |
+| `WO_EMPTY` | `Asset Repair` **0 dòng** phụ tùng | cho INV-PARTS-3 + nhánh 0-query |
+| `WO_ALL_OK` | `Asset Repair` mọi dòng ref = `SM_REAL` | cho chiều ⟸ của INV-PARTS-1 |
+| `USER_OWNER` / `USER_NOPERM` | tái dùng §VIII.1 | cho TC-08 (403 + enrich không chạy) |
+
+> 🔴 `tearDownClass` **phải** dọn `AC Stock Movement` + `Asset Repair` đã tạo. **Mọi `bench run-tests` đặt
+> `timeout` tool ≥ 600000ms** — kill giữa chừng ⇒ teardown không chạy ⇒ nhiễm DB ⇒ **suite đỏ giả**.
+
+### IX.2 Bộ TC BE — `test_imm09.py::TestSparePartsStockEntryStatus` (**9 TC**, 221 → **≥230**)
+
+| TC | Input | Kỳ vọng (assert) | INV |
+|---|---|---|---|
+| `TC-CM-PARTS-01` | `get_work_order(WO_EMPTY)` | `"spare_parts_used" in data` · `data["spare_parts_used"] == []` (**KHÔNG** `None`, **KHÔNG** thiếu khoá) · `data["parts_pending_stock_entry"] == 0` | INV-PARTS-3 |
+| `TC-CM-PARTS-02` | `get_work_order(WO_MIX)` | 3 dòng có `stock_entry_status` lần lượt `OK`/`MISSING`/`NOT_FOUND` · `stock_entry_ok` `1`/`0`/`0` · **mỗi giá trị `isinstance(v, int) and not isinstance(v, bool)`** (quirk CR-01) · `parts_pending_stock_entry == 2` | INV-PARTS-2 |
+| `TC-CM-PARTS-03` | `WO_MIX` | `[r["idx"] for r in rows] == sorted(...)` **tăng dần** | A1 |
+| `TC-CM-PARTS-04` | `WO_MIX` | mỗi dòng chứa **đủ 9 khoá domain** (`item_code`, `item_name`, `manufacturer_part_no`, `qty`, `uom`, `unit_cost`, `total_cost`, `stock_entry_ref`, `notes`) và **giá trị KHỚP** row đọc thẳng DB | A1 |
+| `TC-CM-PARTS-05` | `WO_ALL_OK` | `parts_pending_stock_entry == 0` **và** `validate_spare_parts_stock_entries(doc)` **KHÔNG raise** | **INV-PARTS-1 (⟸)** |
+| `TC-CM-PARTS-06` | `WO_MIX` + biến thể chỉ-`MISSING` + biến thể chỉ-`NOT_FOUND` | `parts_pending_stock_entry > 0` **và** `validate_spare_parts_stock_entries(doc)` **raise** — kiểm **cả 2 nhánh** (`MSG.IMM09_SPARE_NO_STOCK_ENTRY` · `MSG.IMM09_STOCK_ENTRY_NOT_FOUND`), mã lỗi + thứ tự raise **GIỮ NGUYÊN** | **INV-PARTS-1 (⟹)** |
+| `TC-CM-PARTS-07` | đếm query | wrap `frappe.get_all` (mirror `test_imm00_approvals_inbox.py:488-500` wrap `frappe.db.sql`), đếm call có `doctype == "AC Stock Movement"`: `WO_EMPTY` ⇒ **0** · `WO_MIX` ⇒ **1** · phiếu 10 dòng ⇒ **1** (KHÔNG tăng theo N) | INV-PARTS-4 |
+| `TC-CM-PARTS-08` | no-regress + gate | (a) `set(baseline_keys) ⊆ set(data)` (chỉ ADDITIVE) · (b) `allowed_transitions` / `risk_classification` / `is_sla_breached` / `asset_info` **giữ nguyên giá trị** · (c) `USER_NOPERM` ⇒ `code=="FORBIDDEN"` · `http_status==403` trên **HTTP-200** **và** `"spare_parts_used" not in env` · `"parts_pending_stock_entry" not in env` | INV-PARTS-5 / A5 |
+| `TC-CM-PARTS-09` | phiếu **25 dòng**, **tất cả** ref = 25 `AC Stock Movement` THẬT khác nhau | **cả 25** dòng `stock_entry_status == "OK"` · `parts_pending_stock_entry == 0` — chống bẫy `limit_page_length` mặc định 20 của `get_list` (dòng 21+ sẽ bị gán nhầm `NOT_FOUND` = **badge đỏ giả**) | INV-PARTS-6 |
+
+> ⚠️ `TC-CM-PARTS-08(c)` **BẮT BUỘC `frappe.set_user(USER_NOPERM)`** — Administrator được
+> `frappe/permissions.py:107-109` trả `True` ngay ⇒ chạy bằng Administrator là **xanh giả**.
+
+### IX.3 Guard hợp đồng OAS — `test_mobile_oas.py::TestMobileRepairSparePartsContract` **8 TC** `cr78_a..h`
+
+Chi tiết từng TC: [`05_API_Specification.md §13.7`](05_API_Specification.md). Điểm dễ sai:
+
+- `cr78_b` đọc **`field_order` THẬT** của `spare_parts_used.json` — không hardcode 9 tên trong test.
+- `cr78_g` **import THẬT** `assetcore.services.imm09._STOCK_ENTRY_STATUS` (mirror `cr77_i`; tên ĐÃ LAND — xem `04 §3.8.2`),
+  không so với literal chép tay.
+- `cr78_h` quét **`components.schemas`** — `cr74_g` chỉ quét `description` của **operation** nên
+  **không** chạm tới schema mới (đúng bẫy AC-CR-77 đã gặp).
+
+### IX.4 Test FE (CÙNG VÒNG — A8)
+
+`frontend/src/views/cm/CMWorkOrderDetailView.sparePartsStockEntry.test.ts` — **7 TC render**
+`FE-CM-PARTS-01..07`, chi tiết ở [`06_Frontend_Design.md §SparePartsStockEntry`](06_Frontend_Design.md).
+Bắt buộc **mount thật + assert text đã render** (không assert store/type) — chống "state chết" như CR-69.
+
+### IX.5 Chống vacuous (BẮT BUỘC ghi bằng chứng vào báo cáo vòng)
+
+1. **Mutation parity:** đổi trong `_spare_row_stock_status` (tên ĐÃ LAND — `04 §3.8.2`) nhánh
+   `NOT_FOUND` → `"OK"` ⇒ `TC-CM-PARTS-03`, `TC-CM-PARTS-04` PHẢI **ĐỎ**. Hoàn nguyên ⇒ xanh.
+2. **Mutation SSoT:** thay lời gọi helper trong `validate_spare_parts_stock_entries` bằng phép so sánh
+   viết tay ⇒ TC vẫn xanh (predicate trùng), nhưng **guard tĩnh** phải bắt: guard đếm số lần xuất hiện
+   literal `"AC Stock Movement"` trong `services/imm09.py` — **chỉ được 1** (hằng `_DT_STOCK_MOVEMENT`).
+   >1 ⇒ ĐỎ. **ĐÃ LAND** = `TC-CM-PARTS-09` (`test_imm09.py`).
+3. **Mutation cite:** rot 1 cite `services/imm09.py:<dòng> <symbol>` trong `description` ⇒ `cr78_h` ĐỎ.
+4. **Mutation counter:** thêm 1 TC mà không sync 7 counter ⇒ `test_mobile_docset` ĐỎ (đúng thiết kế).
+5. **Mutation FE:** hoàn nguyên cột về `v-if="p.stock_entry_ref"` ⇒ `FE-CM-PARTS-03` ĐỎ.
+
+### IX.6 DoD vòng
+
+| Suite | Trước | Sau |
+|---|---|---|
+| `bench --site miyano run-tests --module assetcore.tests.test_imm09` | 221 OK | **229 OK** (+8 TC `TestRepairSparePartsStockEntryStatus` TC-CM-PARTS-01..08) |
+| `… --module assetcore.tests.test_mobile_oas` | 951 OK | **959 OK** |
+| `… --module assetcore.tests.test_mobile_docset` | 9 OK | **9 OK** (không đổi số TC) |
+| `… --module assetcore.tests.test_rowscope_docperm_gate` / `test_rowscope_invariant` | xanh | **xanh** (0 regress CR-74) |
+| FE `vue-tsc --noEmit` · `vitest run` | xanh | **xanh** |
+
+> 🔴 **Mọi `run-tests` đặt `timeout` tool ≥ 600000ms.** Kill giữa chừng = nhiễm DB, **không phải** bug sản phẩm.
+> 🔴 **KHÔNG curl** để chấm DoD — gunicorn `--preload` chưa reload ⇒ stale worker / phantom 417 (LL-DEPLOY-07).
+
+---
+
+## X. AC-CR-79 — Whitelist khoá `filters` (`list_repair_work_orders`) · bộ TC bắt buộc (2026-07-27) 🔴 SPEC
+
+> Khuôn canonical + guard OAS `cr79_a..h` + mutation + DoD: [`../imm-08/07 §X`](../imm-08/07_Testing_QA.md).
+> **KHÔNG lặp lại** — dưới đây chỉ là bộ TC BE riêng của IMM-09.
+
+### X.1 Fixture
+
+1 `AC Asset` + 1 `Asset Repair` `status="Open"`, `priority="Normal"`, `assigned_to` = KTV test.
+Persona **KTV nội bộ** (có DocPerm read `Asset Repair`) — **KHÔNG `Administrator`**. Teardown
+`tests/_asset_cleanup.py` (đã từng rò 101 `Asset Repair` làm suite ĐỎ giả).
+
+### X.2 Bộ TC BE — `test_imm09.py::TestCmFilterKeyWhitelist`
+
+| TC | Kịch bản | Assert |
+|---|---|---|
+| **TC-CMFK-01** | `list_repair_work_orders(filters='{"khong_ton_tai_abc":"x"}')` qua API tier | `success is False` · `error.code == "INVALID_PARAMS"` · `http_status == 400` · `message_code == "VAL-INVALID-FILTER-KEY"` · **KHÔNG raise** |
+| **TC-CMFK-02** | như trên | message nêu `khong_ton_tai_abc` + ≥3 khoá hợp lệ |
+| **TC-CMFK-03** | như trên — **assert phủ định** | không chứa `Unknown column` / `tabAsset Repair` / `tabPM Work Order` / `OperationalError` / `SELECT` |
+| **TC-CMFK-04** | **AC2(a)**: lặp TỪNG khoá của `services.imm09._ALLOWED_FILTER_KEYS` (**import THẲNG**) | mỗi khoá ⇒ `success is True`; `set(_PROBE_VALUES) == _ALLOWED_FILTER_KEYS`; `assertGreaterEqual(len(...), 18)` chống vacuous |
+| **TC-CMFK-05** | **AC4**: `_VENDOR_SCOPE_FIELD_MAP["Asset Repair"]` (đọc từ `services.shared.scope`) ∈ whitelist | xanh, **không** hardcode `"asset_ref"` |
+| **TC-CMFK-06** | `filters='{}'` / absent | `success is True`, rows == baseline |
+| **TC-CMFK-07** | JSON hỏng | `VAL-INVALID-PARAMS` (đường cũ), không bị nuốt |
+| **TC-CMFK-08** | **AC3 — 0 regression** 7 khoá: `status`, `asset_ref`, `assigned_to`(`mine=1`), `priority`, `open`, `sla_breached_live`, `search` | rows + `pagination` **y hệt** snapshot trước-thay-đổi |
+| **TC-CMFK-09** | **AC5 — ngữ nghĩa khoá ảo không đổi**: `{"open":"1","status":"Completed"}` | `status` đơn lẻ **THẮNG** `open` (`_apply_open_drill:1081`) — kết quả y hệt baseline |
+| **TC-CMFK-10** | **INV-ROWSCOPE** persona KTV + filter hợp lệ | `pagination.total == len(data["data"])` |
+| **TC-CMFK-11** | 6 khoá web-FE thật (`CMWorkOrderListView.buildFilters` `:104-115`) gửi **cùng lúc** | `success is True` — chốt "FE hiện tại KHÔNG bịa khoá nào" |
+| **TC-CMFK-12** | `{"parts_hold_started": "2026-01-01"}` (cột THẬT nhưng **CỐ Ý** ngoài whitelist) | `success is False` + `VAL-INVALID-FILTER-KEY` — chốt quyết định "cột nội bộ không quảng cáo" |
+| **TC-CMFK-13** *(QA bổ sung)* | `filters` KHÔNG phải object: `'[["asset_ref","=","X"]]'`, `'123'`, `'"abc"'` | envelope `success is False` + `http_status 400` + `code INVALID_PARAMS`, **KHÔNG raise** — mirror `TC-PMFK-14` (SSoT `shared/filters.py::assert_allowed_filter_keys` SHAPE-GATE) |
+
+### X.3 Chống vacuous
+
+1. **RED-before**: `TC-CMFK-01` hiện **raise `OperationalError (1054, 'tabAsset Repair.khong_ton_tai_abc')`**.
+2. `TC-CMFK-08`/`TC-CMFK-09` phải so **snapshot THẬT** trong cùng lần chạy, không so "có > 0 dòng".
+3. `TC-CMFK-11` phải đọc bộ khoá **từ hằng số/hiện vật**, không chép 6 chuỗi rời — nếu FE thêm điều khiển mới
+   mà quên whitelist, TC này phải **ĐỎ**.
+
+### X.4 DoD vòng — xem bảng đầy đủ ở [`../imm-08/07 §X.5`](../imm-08/07_Testing_QA.md)
+
+`test_imm09` baseline **230 `def test`** → **≥242**. Đọc lại số trên đĩa trước khi sửa; **chấm theo DELTA**.
+
+---
+
+## XI. AC-CR-82 — `available_actions[]` 6 CTA server-driven · bộ TC bắt buộc (2026-07-27)
+
+Hợp đồng: [`05_API_Specification.md §15`](./05_API_Specification.md) · builder: [`04_Backend_Design.md §3.1-ter`](./04_Backend_Design.md) · FE: [`06_Frontend_Design.md`](./06_Frontend_Design.md) «CMWorkOrderDetail — 6 CTA server-driven».
+
+### XI.1 Fixture tối thiểu
+
+1 `AC Asset` + **1 phiếu `Asset Repair` cho MỖI status** trong 9 state (`Open` … `Cancelled`). 2 status `Completed`/`Cannot Repair` có `docstatus=1` ⇒ **dựng bằng `db_set`/`frappe.db.set_value` trên bản ghi đã submit**, KHÔNG `doc.save()` (không tái-validate). Dọn sạch ở `tearDownClass` (`tests/_asset_cleanup.py`).
+
+3 persona kiểm quyền: **đủ cap** (`Repair Manager`) · **chỉ `repair.write`, không `repair.create`** (dựng bằng cách gỡ `create` khỏi DocPerm **trong test**, khôi phục ở teardown) · **không cap nào** (`AssetCore Auditor`).
+
+### XI.2 Bộ TC BE — `test_imm09.py::TestCmAvailableActionsParity` (baseline **243 `def test`** đếm tĩnh 2026-07-27 — **ĐỌC LẠI trước khi sửa**, chấm theo **DELTA +12**, KHÔNG số tuyệt đối)
+
+| TC | Kỳ vọng | Bất biến |
+|---|---|---|
+| `TC-CM-CTA-01` | `get_work_order` trả khoá `available_actions` với **ĐÚNG 6** phần tử, **đúng thứ tự** `_REPAIR_ACTION_SPECS`, mỗi phần tử **đúng 5 khoá**, `route == ""` — cho **cả 9** status | INV-CMCTA-3 |
+| `TC-CM-CTA-02` | **PARAMETRIC 54 ô** (9 status × 6 action) — `enabled == 1` ⟹ gọi service tương ứng **KHÔNG** ném `IMM09_BAD_STATE` | **INV-CMCTA-1a** (soundness, 54/54) |
+| `TC-CM-CTA-03` | **PARAMETRIC 45 ô** (trừ 9 ô `request_spare_parts`) — `enabled == 0` ∧ đủ cap ∧ không SoD ⟹ service **CÓ** ném `IMM09_BAD_STATE` | **INV-CMCTA-1b** + allowlist `_ADVERTISE_NARROWER_THAN_ENFORCE` **chỉ-giảm** (assert `== {"request_spare_parts"}` — thêm phần tử ⇒ ĐỎ) |
+| `TC-CM-CTA-04` | `enabled is False ⟹ reason != ""` ∧ `enabled is True ⟹ reason == ""` trên **cả 54 ô**; `reason ∈ {3 hằng}` | **INV-CMCTA-9 (D9)** + INV-CMCTA-2 |
+| `TC-CM-CTA-05` | status **rỗng** `""` và mã lạ `"Đang bay"` ⇒ 6 phần tử, cả 6 `enabled=false`, cả 6 reason = **bậc transition** | D9 biên |
+| `TC-CM-CTA-06` | Persona **chỉ `repair.write`** (không `create`) ⇒ 4 action đầu `enabled=false` + reason **capability** (nếu chỉ lấy cap lớp API thì test này XANH GIẢ ⇒ phải assert reason == `_REPAIR_ACTION_REASON_CAPABILITY`) | **INV-CMCTA-5** / ADR-IMM09-CTA-03 |
+| `TC-CM-CTA-07` | AST-parse `api/imm09.py` + `services/imm09.py`: tập cap advertise của mỗi action == **hợp** mọi `rbac.require(...)` trên đường gọi | INV-CMCTA-5 (anti-drift) |
+| `TC-CM-CTA-08` | Mỗi `spec["endpoint"]` resolve ĐỘNG trong `assetcore.api.imm09` **và** `f"assetcore.api.imm09.{endpoint}" in frappe.whitelisted` (hoặc tương đương v15) | INV-CMCTA-4 |
+| `TC-CM-CTA-09` | **SoD**: phiếu `Pending Inspection`, closer == `session.user` ⇒ `confirm_inspection.enabled=0` + reason SoD; closer khác ⇒ `1`; **không** có event `repair_pending_inspection` ⇒ `1` (**FAIL-OPEN**) | A5 / §15.5 |
+| `TC-CM-CTA-10` | **READ-ONLY**: đếm `Asset Lifecycle Event` + `modified` của doc **trước/sau** `get_work_order` ⇒ **bằng nhau**; `_resolve_wo_closer` **không** được gọi khi status ≠ `Pending Inspection` (patch/spy) | **INV-CMCTA-10** |
+| `TC-CM-CTA-11` | Key-set payload **⊇** key-set trước CR (đặc biệt `allowed_transitions`, `spare_parts_used`, `parts_pending_stock_entry`, `repair_checklist`, `is_sla_breached`) | **INV-CMCTA-11** (thuần additive) |
+| `TC-CM-CTA-12` | 6 guard service dùng **đúng hằng** `*_FROM` (grep/AST: 0 tuple literal status trong 6 thân hàm) | SSoT §15.2 |
+
+### XI.3 Guard hợp đồng OAS — `test_mobile_oas.py::TestMobileRepairAvailableActionsParity` **8 TC** `cr82_a..h` ✅ ĐÃ LAND (Bước-2, XANH)
+
+Bảng TC: [`05 §15.7`](./05_API_Specification.md). BE Bước-4 bồi thêm **`cr82_i`** (parity `_REPAIR_ACTION_SPECS` import THẬT ↔ 6 key OAS, mirror `cr77_i`) ⇒ `_EXPECTED_TEST_COUNT` **991 → 992** + sync 3 counter docset (`05 §15.8`).
+
+### XI.4 Test FE (CÙNG VÒNG — A9)
+
+`frontend/src/views/cm/cmDetailCtaGating.test.ts` — **7 TC** `FE-CMCTA-1..7`, bảng ở [`06_Frontend_Design.md`](./06_Frontend_Design.md). TC **`FE-CMCTA-2`** là invariant A9: *không nút CTA nào enabled mà `key` ∉ tập `available_actions` enabled*.
+
+### XI.5 Chống vacuous (BẮT BUỘC ghi bằng chứng vào báo cáo vòng)
+
+1. **Mutation transition:** thêm `RepairStatus.OPEN` vào `_DIAGNOSIS_FROM` ⇒ `TC-CM-CTA-02` **ĐỎ** (advertise rộng hơn enforce). Hoàn nguyên ⇒ xanh.
+2. **Mutation cap:** đổi `caps` của `assign_technician` thành `(_CAP_REPAIR_WRITE,)` ⇒ `TC-CM-CTA-06`/`TC-CM-CTA-07` **ĐỎ**.
+3. **Mutation reason:** trả `reason=""` khi `enabled=false` ⇒ `TC-CM-CTA-04` **ĐỎ** (D9).
+4. **Mutation SoD:** đổi fail-open thành fail-closed (`closer is None ⇒ enabled=0`) ⇒ `TC-CM-CTA-09` **ĐỎ** — chứng minh test khoá **đúng** hành vi enforcement hiện hành, không phải mong muốn.
+5. **Mutation read-only:** thêm `frappe.db.set_value` bất kỳ vào builder ⇒ `TC-CM-CTA-10` **ĐỎ**.
+6. **Mutation cite:** rot 1 cite `services|api/imm09.py:<dòng> <symbol>` trong `description` ⇒ `cr82_h` **ĐỎ** *(đã verify khuôn này ở `cr78_h`/`cr81_c`)*.
+7. **Mutation counter:** thêm TC mà không sync 4 counter ⇒ `test_mobile_docset` **ĐỎ**.
+8. **Mutation FE:** hoàn nguyên 1 nút về `v-if="canAssign"` (bỏ trục server) ⇒ `FE-CMCTA-2` **ĐỎ**.
+
+### XI.6 DoD vòng
+
+| Suite | Trước | Sau |
+|---|---|---|
+| `bench --site miyano run-tests --module assetcore.tests.test_imm09` | baseline hiện hành (đếm tĩnh **243** `def test` @2026-07-27) | **baseline + 12 OK** — chấm **DELTA**, đọc lại số thật trước khi sửa (đa-phiên ⇒ số tuyệt đối luôn có thể stale) |
+| `… --module assetcore.tests.test_mobile_oas` | 983 OK | **991 OK** *(Bước-2 — ĐÃ ĐẠT)* → **992 OK** sau `cr82_i` |
+| `… --module assetcore.tests.test_mobile_docset` | 9 OK | **9 OK** *(Bước-2 — ĐÃ ĐẠT)* |
+| FE `vue-tsc --noEmit` · `vitest run` | xanh | **xanh** (+7 TC `cmDetailCtaGating`) |
+
+> 🔴 **Mọi `run-tests` đặt `timeout` tool ≥ 600000ms.** Kill giữa chừng = nhiễm DB, **không phải** bug sản phẩm.
+> 🔴 **KHÔNG curl** để chấm DoD (LL-DEPLOY-07/08) · **KHÔNG `bench migrate`** (CR này 0 DocType/field mới).
+
+---
+
+## XII. AC-CR-84 — Cổng **ảnh bằng chứng NĐ98** (BR-09-23) · bộ TC bắt buộc (2026-07-27) 🔴 RED-first
+
+> Hợp đồng: [`05 §16`](./05_API_Specification.md) · recipe BE: [`04 §3.10`](./04_Backend_Design.md) · FE: [`06 §CMEvidencePhoto`](./06_Frontend_Design.md).
+> **Nguyên tắc chấm:** mọi con số suite ghi theo **DELTA** — baseline tuyệt đối luôn có thể stale do đa-phiên; **ĐỌC LẠI** trước khi sửa.
+
+### XII.1 Fixture tối thiểu (dựng 1 lần, dùng chung)
+
+| Ký hiệu | Nội dung |
+|---|---|
+| `A_CRIT` | `AC Asset` với `risk_classification = "Critical"` |
+| `A_HIGH` | `AC Asset` với `risk_classification = "High"` |
+| `A_LOW` / `A_MED` / `A_BLANK` | `risk_classification` = `"Low"` / `"Medium"` / `""` (**chưa phân loại**) |
+| `WO(asset)` | `Asset Repair` tạo qua `create_work_order` ⇒ **seed 6 dòng** `repair_checklist` (CR-50), đưa về `In Repair` bằng đường hợp lệ |
+| `photo(wo, idx)` | Đính ảnh 1 mục qua `attach_repair_checklist_photo` (**đường THẬT**, không `db.set_value` tay — để test đi qua đúng cửa mà người dùng đi) |
+
+🔴 **Chống vacuous:** mỗi TC chặn PHẢI kèm **đối chứng dương** (cùng fixture, đính đủ ảnh ⇒ thao tác THÀNH CÔNG). Test chỉ khẳng định "bị chặn" là test không phân biệt được *cổng hoạt động* với *mọi thứ đều hỏng*.
+
+### XII.2 Bộ TC BE — `test_imm09.py::TestCmEvidencePhotoGate` (**≥12 TC**, chấm DELTA **+12**)
+
+| TC | Điều kiện | Kỳ vọng |
+|---|---|---|
+| `TC-CM-EVID-01` | `A_CRIT`, 6 dòng, ảnh ở idx 1,3,4,6 → `close_work_order(cannot_repair=0)` | `success=false`, `message_code == "IMM09-EVIDENCE-PHOTO-REQUIRED"`, `http_status == 422`, `context.missing_count == 2`, `context.missing_idxs == [2, 5]`, `fields` có khoá **`repair_checklist`** (**A1**) |
+| `TC-CM-EVID-02` | Sau TC-01: **đọc lại doc TỪ DB** (`frappe.get_doc`, KHÔNG dùng biến in-memory) | `status == "In Repair"`; `repair_summary`/`root_cause_category`/`dept_head_name` **y nguyên** giá trị trước lời gọi; `docstatus == 0` (**A2 · INV-CMEVID-5**) |
+| `TC-CM-EVID-03` | Cùng fixture TC-01 → `get_work_order(WO).available_actions` | phần tử `close_work_order`: `enabled is False`, `reason == _REPAIR_ACTION_REASON_EVIDENCE_PHOTO` (**so với HẰNG import từ service**, không so chuỗi chép tay) (**A3**) |
+| `TC-CM-EVID-04` | Đính nốt ảnh idx 2,5 → `get_work_order` rồi `close_work_order` | `available_actions[close_work_order].enabled is True` **và** đóng phiếu **THÀNH CÔNG** → `Pending Inspection` (**A3 đối chứng dương**) |
+| `TC-CM-EVID-05` | **Parity** `A_CRIT` thiếu ảnh: so `get_work_order().evidence_photo_missing_idxs` với `context.missing_idxs` của `close_work_order` | **BẰNG NHAU** (**INV-CMEVID-1**). Lặp cho 3 cấu hình ảnh khác nhau (0 ảnh · 1 ảnh · 5 ảnh) |
+| `TC-CM-EVID-06` | `A_LOW`, `A_MED`, `A_BLANK` — mỗi thứ 1 phiếu, **0 ảnh** | `close_work_order` **THÀNH CÔNG** → `Pending Inspection`; `evidence_photo_required == 0`; `missing_idxs == []`; `total_required == 0` (**A4 · INV-CMEVID-2/7**) |
+| `TC-CM-EVID-07` | `A_CRIT`, 0 ảnh → `close_work_order(cannot_repair=1, cannot_repair_reason=…)` | **KHÔNG bị chặn**: `status == "Cannot Repair"`, asset → `Out of Service` (**A5**) |
+| `TC-CM-EVID-08` | `A_CRIT` thiếu ảnh, ép `status='Pending Inspection'` bằng `frappe.db.set_value` (bỏ qua `close_work_order`) → `confirm_inspection` | Raise **`ServiceError`** với `message_code == "IMM09-EVIDENCE-PHOTO-REQUIRED"`; **KHÔNG** `frappe.ValidationError`; `docstatus` vẫn `0` (**A6 · INV-CMEVID-6**) |
+| `TC-CM-EVID-09` | Như TC-08 nhưng **đính đủ ảnh** trước | `confirm_inspection` **THÀNH CÔNG** → `Completed` (đối chứng dương của A6) |
+| `TC-CM-EVID-10` | `get_work_order` trên `A_CRIT` (6 dòng, 2 thiếu) | 3 khoá có mặt, đúng kiểu: `evidence_photo_required == 1` (**int**, `assertIsInstance(v, int)` + `assertNotIsInstance(v, bool)`), `missing_idxs == [2,5]` (**list[int]**, tăng dần), `total_required == 6` (**A7 · INV-CMEVID-3**) |
+| `TC-CM-EVID-11` | Phiếu **legacy 0 dòng** checklist, `A_CRIT`, đóng kèm `checklist_results` (3 mục) | `close_work_order` **THÀNH CÔNG** (dòng vừa append **chưa lưu** ⇒ không tính — **ADR-IMM09-EVIDENCE-02**); 3 dòng SAU ĐÓ đã lưu. ⚠️ **CẢI CHÍNH BE Bước-4 (đo được, không suy luận):** ở bước nghiệm thu kế tiếp phiếu bị chặn bởi **CỔNG ẢNH** (`IMM09-EVIDENCE-PHOTO-REQUIRED`) chứ **KHÔNG** phải BR-09-04 như bảng này dự đoán ban đầu — hệ quả TẤT YẾU của thứ tự guard **INV-CMEVID-6** (evidence chạy TRƯỚC `doc.submit()`, còn BR-09-04 nằm ở `before_submit`). Vẫn **không deadlock**: 3 dòng đã có định danh ⇒ đính ảnh rồi nghiệm thu. Test BE khẳng định phần ĐO ĐƯỢC (close thành công + 3 dòng đã lưu); [BA] cần ratify câu chữ kỳ vọng ở bước 2 |
+| `TC-CM-EVID-12` | i18n sweep: gom `message` + `action_hint` + `fields.repair_checklist` + `_REPAIR_ACTION_REASON_EVIDENCE_PHOTO` | **0** lần xuất hiện `High`/`Critical`/`In Repair`/`Pending Inspection`/tên vai trò EN; **0** ký tự ASCII-only-token nào ngoài `#<số>` (**A10 · INV-CMEVID-8**) |
+
+**[AC-CR-85] Bổ sung 5 TC sau khi QA phát hiện dư âm (vòng 3) — `test_imm09.py`, ĐÃ XANH 2026-07-27:**
+
+| TC | Tình huống | Kỳ vọng |
+|---|---|---|
+| `TC-CM-EVID-15` | Đóng phiếu khi thiết bị còn `Low` (0 ảnh, hợp lệ) → **rà soát NĐ98 tái phân loại** asset lên `Critical` → đọc `get_work_order` + gọi `confirm_inspection` | `evidence_photo_missing_idxs == [1..6]`; `confirm_inspection` ném `IMM09-EVIDENCE-PHOTO-REQUIRED` với **CÙNG** `missing_idxs`; `available_actions[confirm_inspection].enabled == false` ∧ `reason == _REPAIR_ACTION_REASON_EVIDENCE_PHOTO_INSPECT`; `docstatus` GIỮ 0 (**INV-CMEVID-4b · D9**) |
+| `TC-CM-EVID-16` | Cùng fixture, đính đủ 6 ảnh **ở trạng thái 'Pending Inspection'** | Đính ảnh ĐƯỢC PHÉP (đường khắc phục còn mở — P5 không chặn state này); CTA bật lại + `reason == ""`; `confirm_inspection` → `Completed`, `docstatus=1` (đối chứng dương, chống vacuous) |
+| `TC-CM-EVID-17` | Đính ảnh vào phiếu **đã nghiệm thu** (`docstatus=1`) **và** phiếu **'Cannot Repair'** (`docstatus=0` — nhánh chỉ bắt được nếu guard đọc CẢ `status`) | Cả 2 nhánh: `ServiceError` VALIDATION 422 + `fields.file`; `row.photo` **0 byte** đổi (**INV-CMEVID-9**) |
+| `TC-CM-EVID-18` | Re-drain write-outbox: đính ảnh có `client_request_id` khi phiếu đang mở → đóng + nghiệm thu → **gọi lại CÙNG khoá** | Trả envelope **VERBATIM** như lần đầu (0 false-error → `markFailed`), `File` **không** nhân đôi ⇒ guard P5 KHÔNG phá BR-09-16-IDEMP |
+| `TC-CR82-B3` | Meta-guard AST: quét mọi hằng `_REPAIR_ACTION_REASON_*` mà `_build_repair_available_actions` dùng | Mỗi hằng phải ánh xạ tới mã lỗi ∈ `_CR82_ADVERTISED_GATE_CODES` ⇒ thêm bậc business mới mà quên bồi oracle = **ĐỎ NGAY** (bài học: oracle 54 ô chỉ đếm `IMM09_BAD_STATE` nên **mù** với H1) |
+
+> **Mutation-verify AC-CR-85 (đã chạy 2026-07-27):** (a) thay nhánh `elif _repair_evidence_missing_idxs(...)` trong builder bằng `elif False` ⇒ `TC-CM-EVID-15` **ĐỎ** với đúng thông điệp "NÚT CHẾT … advertise BẬT nhưng service ném IMM09_EVIDENCE_PHOTO_REQUIRED"; (b) gỡ `_REPAIR_ACTION_REASON_EVIDENCE_PHOTO_INSPECT` khỏi bảng ánh xạ của meta-guard ⇒ `TC-CR82-B3` **ĐỎ**; hoàn nguyên ⇒ XANH. ⚠️ Ghi nhận thành thật: parity 54 ô **KHÔNG** ĐỎ dưới đột biến (a) vì fixture của nó dùng asset **chưa phân loại** ⇒ cổng ảnh không kích hoạt; đó chính là lý do phải có `TC-CM-EVID-15` (fixture nghiệp vụ) **cộng** meta-guard `TC-CR82-B3` (cấu trúc), chứ không dựa vào ma trận 54 ô.
+
+**Mutation-verify (BẮT BUỘC ghi bằng chứng vào báo cáo vòng — chống test vacuous):**
+
+> ✅ **ĐÃ CHẠY Bước-4 (2026-07-27), 7/7 đột biến ĐỎ đúng thiết kế** — mỗi lần đột biến 1 chỗ trên bản sao, chạy TC đích, rồi khôi phục nguyên trạng (md5 xác nhận): M1→`TC-CM-EVID-05` ĐỎ · M2→`TC-06` ĐỎ · M3 (dời guard xuống SAU `RepairRepo.save`)→`TC-02` ĐỎ · M4 (gỡ pre-check nghiệm thu)→`TC-08` ĐỎ · M5 (builder suy từ `risk_class` = CHÍNH bug CR-51)→`TC-03` ĐỎ · M6 (emit `bool`)→`TC-10` ĐỎ · M7 (chặn cả nhánh `cannot_repair=1`)→`TC-07` ĐỎ. Ngoài ra `TC-CR84-13` (mutation-probe THƯỜNG TRỰC trong suite) ép predicate trả `[]` ⇒ phiếu đóng được, khôi phục ⇒ chặn lại — giữ tính không-vacuous ở MỌI vòng sau, không chỉ vòng này.
+
+| # | Đột biến tạm | TC phải ĐỎ |
+|---|---|---|
+| M1 | Đổi `_EVIDENCE_HIGH_RISK` thành `{"Critical"}` | `TC-CM-EVID-01` (fixture `A_HIGH`) |
+| M2 | Coi `""` là nguy cơ cao (`strip() not in {"Low","Medium"}`) | `TC-CM-EVID-06` |
+| M3 | Dời guard **xuống sau** `RepairRepo.save(doc)` | `TC-CM-EVID-02` |
+| M4 | Bỏ pre-check ở `confirm_inspection` | `TC-CM-EVID-08` |
+| M5 | Builder tự tính lại (predicate thứ hai) rồi lệch 1 dòng | `TC-CM-EVID-03`/`05` |
+| M6 | Emit `evidence_photo_required` kiểu `bool` | `TC-CM-EVID-10` |
+| M7 | Chặn cả nhánh `cannot_repair=1` | `TC-CM-EVID-07` |
+
+### XII.3 Guard hợp đồng OAS — `test_mobile_oas.py::TestMobileRepairEvidencePhotoContract` **9 TC** `cr84_a..i` ✅ ĐÃ LAND (Bước-2, XANH)
+
+`cr84_a` kiểu (int enum[0,1] · array<integer≥1> · integer≥0) · `cr84_b` additive/optional + `required` GIỮ `['name']` + 2 câu chống-suy-sai · `cr84_c` 0 delta cấu trúc (109/287/38) + AP:true · `cr84_d` **INV-CMEVID-1** tuyên bố trong hợp đồng · `cr84_e` nguồn `risk_classification` (phủ định `risk_class`, `""` ⇒ 0) · `cr84_f` 2 op ghi khai mã lỗi + HTTP-200 + `KHÔNG 417` + miễn trừ + lý do pre-check · `cr84_g` advertise↔enforce trong `available_actions` · `cr84_h` cite-drift (schema + 2 op, 6 symbol bắt buộc) · `cr84_i` **PENDING-BE**.
+
+> ⚠️ **`cr84_i` PHẢI được LẬT ở Bước-4.** Nó đang khẳng định `services.imm09._repair_evidence_missing_idxs` **chưa** tồn tại và `IMM09-EVIDENCE-PHOTO-REQUIRED` **chưa** vào `MESSAGES`. BE land ⇒ **ĐỎ ĐÚNG THIẾT KẾ** ⇒ đổi thành `cr84_j` parity đầy đủ: (1) predicate tồn tại & callable; (2) `MESSAGES[mã]["http_status"] == 422` ∧ `template` khác rỗng ∧ **không** chứa `High`/`Critical`; (3) `_REPAIR_ACTION_REASON_EVIDENCE_PHOTO` khác rỗng. **Lật ≠ thêm TC** ⇒ counter `test_mobile_oas` **KHÔNG đổi** (1008). Đồng thời **REFRESH CITE** `services/imm09.py` trong OAS (dòng dịch sau khi land) — `cr84_h` sẽ ĐỎ nếu quên.
+
+### XII.4 Test FE (CÙNG VÒNG — A8) — `FE-CM-EVID-01..07`
+
+Chi tiết ở [`06 §CMEvidencePhoto`](./06_Frontend_Design.md). Bắt buộc **RENDER thật** (không chỉ type-check), có TC "3 khoá vắng ⇒ không khẳng định gì" và TC "tooltip == `reason` nguyên văn".
+
+### XII.5 DoD vòng
+
+| Suite | Trước | Sau |
+|---|---|---|
+| `bench --site miyano run-tests --module assetcore.tests.test_imm09` | **259 OK** (đếm THẬT ngay trước Bước-4) | **273 OK** ✅ ĐÃ ĐẠT 2026-07-27 (DELTA **+14** = 12 TC `§XII.2` + `TC-CR84-13` mutation-probe thường trực + `TC-CR84-14` biên predicate thuần) → **278 OK** sau **AC-CR-85** (DELTA **+5** = `TC-CM-EVID-15..18` + meta-guard `TC-CR82-B3`) |
+| `… --module assetcore.tests.test_mobile_oas` | 999 OK | **1008 OK** *(Bước-2 — ĐÃ ĐẠT)*; Bước-4 lật `cr84_i` ⇒ **GIỮ 1008** |
+| `… --module assetcore.tests.test_mobile_docset` | 9 OK | **9 OK** *(Bước-2 — ĐÃ ĐẠT)* |
+| `python scripts/gen_fe_messages.py --check` | xanh | **xanh** (bắt buộc — thiếu ⇒ FE render `SYS-500`) |
+| FE `vue-tsc --noEmit` · `npm run test` | xanh | **xanh** (+7 TC `FE-CM-EVID-*`) |
+
+> 🔴 **Mọi `run-tests` đặt `timeout` tool ≥ 600000ms.** Kill giữa chừng = nhiễm DB, **không phải** bug sản phẩm.
+> 🔴 **KHÔNG curl** để chấm DoD (LL-DEPLOY-07/08) · **KHÔNG `bench migrate`** (0 DocType/field mới) · **KHÔNG `npm run build`** (= deploy live).

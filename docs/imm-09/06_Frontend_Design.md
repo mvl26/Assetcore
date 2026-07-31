@@ -533,6 +533,8 @@ const display = computed(() => {
 
 ### RepairActionBar — Action mapping theo status
 
+> ⚠️ **SUPERSEDED bởi «CMWorkOrderDetail — 6 CTA server-driven» (AC-CR-82, 2026-07-27) — giữ lại làm dấu vết lịch sử, KHÔNG implement theo.** `ACTION_MAP` dưới đây gate bằng **tên vai trò** (`roles: ['KTV HTM']`) và **hardcode `status → button`** — đúng 2 anti-pattern mà GATE-8/LL-FE-51 cấm (RBAC dead-gate + drift 2 nơi). Nguồn sự thật mới = `available_actions[]` do server phát.
+
 ```typescript
 // ACTION_MAP: RepairStatus → list of action buttons
 import type { RepairStatus } from '@/types/imm09'
@@ -559,6 +561,59 @@ const ACTION_MAP: Record<RepairStatus, ActionButton[]> = {
   'Cancelled':          [],
 }
 ```
+
+### CMWorkOrderDetail — 6 CTA server-driven TỪ `available_actions[]` (AC-CR-82, GATE-8 · LL-FE-51) 🔴 SPEC (FE Bước-4)
+
+**Nguồn dữ liệu.** `get_repair_work_order` trả `available_actions`: mảng **đúng 6** phần tử, thứ tự cố định `[assign_technician, submit_diagnosis, request_spare_parts, start_repair, close_work_order, confirm_inspection]`, shape `{key, label, route, enabled, reason}` (`route` luôn `""` — CTA nằm **trong** màn, KHÔNG deep-link). `enabled`/`reason` do **SERVER** quyết (hợp đồng [`05 §15`](./05_API_Specification.md)) — FE **chỉ render**.
+
+**Mirror 1:1 `PMWorkOrderDetailView.vue`** (AC-CR-77 đã LIVE): tái dùng **nguyên** khuôn `serverActions` / `isServerDriven` / `actionEnabled` / `actionReason` / `blockedActions` — **không** phát minh khuôn thứ hai.
+
+```typescript
+// frontend/src/views/cm/CMWorkOrderDetailView.vue
+const serverActions = computed<AvailableAction[] | null>(() => {
+  const list = wo.value?.available_actions
+  return Array.isArray(list) && list.length > 0 ? list : null
+})
+const isServerDriven = computed(() => serverActions.value !== null)
+```
+
+**Bảng nối nút ↔ khoá server (7 nút / 6 khoá — `Cannot Repair` KHÔNG phải khoá thứ 7):**
+
+| `data-testid` | `key` server | Hành vi khi bấm | Ghi chú |
+|---|---|---|---|
+| `cta-assign` | `assign_technician` | mở modal phân công | giữ nguyên |
+| `cta-diagnose` | `submit_diagnosis` | `navigateDiagnose()` | nhãn lấy **từ `label` server** — bỏ `diagnoseLabel` client (hết suy "Bắt đầu" vs "Cập nhật" từ `allowed_transitions`) |
+| `cta-parts` | `request_spare_parts` | `navigateParts()` | |
+| **`cta-start-repair`** | `start_repair` | `store.doStartRepair(id)` | **NÚT MỚI** — đóng dead-end D-CM-3 (endpoint `api/imm09.py:136` LIVE nhưng màn Chi tiết chưa có đường vào; trước đây chỉ tới được từ `CMPartsView.vue:122`) |
+| `cta-complete` | `close_work_order` | `navigateChecklist()` | |
+| `cta-cannot-repair` | `close_work_order` | mở modal "không thể sửa" | **DÙNG CHUNG khoá** (cùng endpoint, cờ `cannot_repair=1`) ⇒ enable/disable **theo cùng** action object |
+| `cta-confirm-inspection` | `confirm_inspection` | `doConfirmInspection()` | tooltip mang `reason` SoD khi bị khoá |
+
+**Quy tắc render (Always):**
+
+| | |
+|---|---|
+| Map action | `const actionMap = computed(() => Object.fromEntries((serverActions.value ?? []).map(a => [a.key, a])))` |
+| Bật/tắt | `:disabled="!actionEnabled(a) || actionBusy(a)"` — **KHÔNG** tự tính lại từ `status`/`allowed_transitions` khi đã có `available_actions` |
+| Lý do | `:title="actionReason(a) || undefined"` + `:aria-label` + danh sách `blockedActions` dạng **chữ** (`🔒 <label>: <reason>`) — nút `disabled` không nhận focus nên screen-reader không đọc được `title` |
+| Nhãn | lấy **từ `label` server** (đã là tiếng Việt đầy đủ) — FE **KHÔNG** bịa chuỗi, KHÔNG dịch lại, KHÔNG hiển thị mã trạng thái thô |
+| Terminal | `Completed`/`Cannot Repair`/`Cancelled` ⇒ cả 6 `enabled=false`: **ẩn cụm CTA**, giữ nhãn tĩnh hiện có ("Đã hoàn thành" / "Không thể sửa chữa" / "Đã huỷ") — tránh 6 nút xám vô nghĩa |
+| **Fallback bắt buộc** | payload **thiếu** `available_actions` (BE chưa reload / client cũ) ⇒ rơi về **đúng logic hiện tại** (`can(...) && allowedTransitions.includes(...)`, `CMWorkOrderDetailView.vue:113-138`) — **KHÔNG nút nào biến mất**, KHÔNG màn trắng |
+| Trục cục bộ | chỉ được **SIẾT thêm** bằng điều kiện SERVER KHÔNG THẤY (form chưa lưu) — **KHÔNG nới** |
+
+**Test bắt buộc — `frontend/src/views/cm/cmDetailCtaGating.test.ts` (mirror `sessionDetailCtaGating.test.ts`):**
+
+| TC | Kỳ vọng |
+|---|---|
+| `FE-CMCTA-1` | `available_actions` có `assign_technician.enabled=false` + `reason` ⇒ nút `cta-assign` **hiện**, `disabled`, `title` == `reason` (đọc từ **DOM**, không từ store) |
+| `FE-CMCTA-2` | **INVARIANT A9** — với 9 payload (mỗi status 1 payload): **không** `data-testid^="cta-"` nào ở trạng thái enabled mà `key` tương ứng ∉ tập `available_actions` có `enabled=true` |
+| `FE-CMCTA-3` | `start_repair.enabled=true` ⇒ `cta-start-repair` **hiện & bấm được**; click gọi `store.doStartRepair` **đúng 1 lần** |
+| `FE-CMCTA-4` | payload **KHÔNG** có `available_actions` ⇒ 6 nút cũ vẫn render theo đường fallback (0 nút biến mất) |
+| `FE-CMCTA-5` | `available_actions` **không** chứa key `cancel`/`cannot_repair` ⇒ màn **không** render nút hủy phiếu; `cta-cannot-repair` bám `close_work_order` |
+| `FE-CMCTA-6` | status terminal (`Completed`) ⇒ 0 nút CTA render, nhãn tĩnh "Đã hoàn thành" hiện |
+| `FE-CMCTA-7` | `confirm_inspection.enabled=false` + reason SoD ⇒ chuỗi reason xuất hiện **dạng chữ** trong DOM (không chỉ tooltip) |
+
+**Never (FE):** ❌ tự tính lại `enabled` từ `status`/`allowed_transitions` khi đã có `available_actions` · ❌ ẩn nút disabled (mất thông tin lý do) · ❌ gate bằng **tên vai trò** · ❌ hardcode nhãn/tooltip tiếng Anh hoặc mã trạng thái thô · ❌ render nút hủy phiếu (server không phát ⇒ FE không được vẽ).
 
 ### FirmwareCrDetailView — gate nút theo `allowed_transitions` + `can_approve` (BR-09-20, GATE-8 · LL-FE-51)
 
@@ -615,6 +670,39 @@ const searchParts = useDebounceFn(async (query: string) => {
 }, 300)
 ```
 
+### SparePartSuggestion — hợp đồng gợi ý phụ tùng 13 khoá + bỏ cast bịa (CR-73a, 2026-07-25)
+
+> 🔴 SPEC CHỐT 2026-07-25 ([BA] Bước-2) — FE thực thi ở **Bước-4**. Nguồn: [`05_API_Specification.md §3.13-bis`](./05_API_Specification.md) + BR-09-21 + ADR-IMM09-SPARE-01.
+> ⚠️ Snippet `PartSearchCombobox` phía trên là **mockup cũ** — khoá `qty_in_stock` **KHÔNG tồn tại** trong response. Giữ để truy vết, KHÔNG dùng làm hợp đồng.
+
+**Kiểu (SSoT `frontend/src/api/imm09.ts`):** thêm `SparePartSuggestion` **13 khoá** (xem `05 §6`). **KHÔNG** nhồi 3 field mới vào `SparePartRow` — `SparePartRow` là row `spare_parts_used` của phiếu (`CMPartsView.addPart` dựng bằng spread), thêm field bắt buộc vào đó sẽ vỡ mọi nơi dựng row. `searchSpareParts()` đổi kiểu trả về `Promise<SparePartRow[]>` → `Promise<SparePartSuggestion[]>`.
+
+**Bug đang có (E3) — `CMCreateView.vue:206-218`:**
+
+```typescript
+// ❌ HIỆN TẠI — ép kiểu sang shape KHÔNG TỒN TẠI ({name, part_name, stock_qty})
+const rows = await searchSpareParts(q) as unknown as Array<{ name: string; part_name: string; stock_qty?: number }>
+…
+function addPart(p: { name: string; part_name: string }) {
+  preRequestParts.value.push({ spare_part: p.name, qty: 1 })   // p.name === undefined
+}
+```
+
+`p.name` luôn `undefined` ⇒ `preRequestParts` chứa `{spare_part: undefined}` ⇒ `request_spare_parts` lọc bỏ dòng đó (`if (p.get("spare_part") or p.get("item_code"))`) ⇒ **yêu cầu phụ tùng biến mất im lặng**, người dùng không nhận cảnh báo nào.
+
+**Hợp đồng sau CR-73a:**
+
+| Ràng buộc | Chi tiết |
+|---|---|
+| **0 cast** | `grep -c "as unknown as" quanh searchSpareParts` = **0**. Kiểu đến thẳng từ `SparePartSuggestion`. `vue-tsc --noEmit` XANH. |
+| **Khoá chọn** | `addPart(p: SparePartSuggestion)` đẩy `{ spare_part: p.spare_part, qty: 1 }` — **`p.spare_part`**, KHÔNG `p.name`. |
+| **Chống trùng** | Khoá de-dup = **`p.spare_part`** khi non-empty; khi `spare_part === ''` de-dup theo cặp **`(device_model, item_code)`** (2 model cùng tên phụ tùng ⇒ 2 dòng hợp lệ, KHÔNG được coi là trùng). |
+| **Gợi ý không resolve** | `spare_part === ''` ⇒ **KHÔNG được đẩy vào `preRequestParts`** (dòng đó chắc chắn không tạo được allocation). Hiển thị dòng ở trạng thái *disabled* + nhãn ngắn "Chưa có trong danh mục kho" thay vì im lặng bỏ qua. |
+| **Hiển thị 1 dòng gợi ý** | 3 phần, đủ để phân biệt: **tên tiếng Việt** (`item_name`) · **mã NSX** (`manufacturer_part_no`, ẩn nếu rỗng) · **tên model thiết bị** (`device_model_name`; fallback `device_model` nếu rỗng). Chữ hiển thị **tiếng Việt đầy đủ** — không để lộ mã kỹ thuật thô làm nhãn chính. |
+| **Áp cho cả 2 view** | `CMCreateView.vue` (pre-request lúc tạo phiếu) **và** `CMPartsView.vue` (thêm vật tư vào phiếu đang mở — hiện nhận `SparePartRow`, phải đổi sang `SparePartSuggestion` rồi map sang row phiếu). |
+
+**Never:** ép kiểu để "cho qua" `vue-tsc` · lọc/suy đoán `spare_part` phía client (khoá do BE cấp) · hiển thị `device_model` (PK thô) làm nhãn chính · dùng `item_code` làm khoá de-dup khi có `spare_part`.
+
 ### RepairSlaIndicator — Màu progress bar động
 
 ```typescript
@@ -666,6 +754,221 @@ const validateSource = (): boolean => {
   return true   // sourceMode === 'standalone' luôn hợp lệ
 }
 ```
+
+### ListTotal — "Tổng" đọc TỪ `pagination.total`, KHÔNG fallback client-count (INV-ROWSCOPE-FE, 2026-07-25)
+
+> **SSoT:** [`ADR-IMM00-LIST-SCOPE.md` §8.8](../imm-00/ADR-IMM00-LIST-SCOPE.md) · BE contract: `BR-09-LISTSCOPE` (`05_API_Specification.md` §3.1).
+
+**Hiện trạng (bug):** `frontend/src/views/cm/CMWorkOrderListView.vue:165`
+
+```vue
+:subtitle="`Tổng ${store.pagination.total ?? store.workOrders.length} lệnh`"   <!-- ❌ -->
+```
+
+**Chốt:**
+
+| Nhãn | Nguồn | Ngữ nghĩa |
+|---|---|---|
+| **"Tổng N lệnh"** (PageHeader subtitle, dòng 165) | `store.pagination.total ?? 0` | **Tổng TOÀN TẬP mọi trang** — SSoT là server (`pagination.total`) |
+| **"Hiển thị X lệnh"** (mobile-card dòng ~227, desktop-table dòng ~286) | `store.workOrders.length` — **GIỮ NGUYÊN** | Số dòng **trang hiện tại** |
+
+**Vì sao bỏ fallback `?? store.workOrders.length`** — đây là **fallback nói dối**, hỏng 2 đường:
+
+1. **Sai về phân trang:** `page_size = 20`, 137 phiếu, BE lỗi/chưa nạp `pagination` ⇒ header báo "Tổng 20" (số dòng trang 1) như thể là tổng toàn tập.
+2. **Che chính bug row-scope:** trước fix INV-ROWSCOPE, BE trả `total = 2` (đã scope) nhưng 40 rows (chưa scope). Fallback không kích hoạt (total có giá trị) nên header đúng "Tổng 2" — trong khi bảng 40 dòng. Nếu FE quay lại dùng `.length` thì header thành "Tổng 40" ⇒ **bug BE bị che hoàn toàn**, không ai phát hiện rò dữ liệu.
+
+`?? 0` là **fail-visible**: chưa nạp/lỗi ⇒ "Tổng 0" — hiển nhiên sai, người dùng và QA thấy ngay, thay vì một con số hợp lý-giả.
+
+**Guard vitest (BẮT BUỘC — chống fallback quay lại):** `frontend/src/views/cm/` — cùng nhóm với `cmSlaBreachedDivergence.test.ts`.
+
+| TC | Setup | Assert |
+|---|---|---|
+| FE-RS-01 | `pagination.total = 2`, `workOrders.length = 40` | header chứa `Tổng 2`, **KHÔNG** chứa `Tổng 40` |
+| FE-RS-02 | `pagination` chưa nạp (`total` undefined), `workOrders.length = 5` | header chứa `Tổng 0` (KHÔNG `Tổng 5`) |
+| FE-RS-03 | như FE-RS-01 | vùng info-row vẫn chứa `Hiển thị 40` (**không** đổi nhầm "Hiển thị" sang `total`) |
+
+> **Áp cho các list view khác:** cùng quy tắc "Tổng = server / Hiển thị = trang" áp cho `PMWorkOrderListView`, `CalibrationListView`, `AssetListView`… — vòng này CHỈ sửa `CMWorkOrderListView` (đề mục), rà phần còn lại = **[BACKLOG-P2]**.
+
+---
+
+### AssetHistoryTruncation — 3 tab lịch sử thiết bị đọc `total`/`truncated` (CR-69, 2026-07-25)
+
+> **SSoT:** BE `assetcore/services/shared/truncation.py::truncation_meta` · CR ledger [`05_API_Specification.md` §10.4](05_API_Specification.md) · OAS mirror `docs/mobile/openapi/assetcore-mobile.openapi.yaml` (3 envelope `AssetPmHistoryEnvelope` / `AssetRepairHistoryEnvelope` / `AssetIncidentHistoryEnvelope`).
+
+**Bối cảnh.** 3 endpoint lịch sử của màn hồ sơ vận hành thiết bị đều cắt cứng theo `limit` (mặc định 10) và **KHÔNG phân trang**. Trước CR-69 chúng cắt **IM LẶNG** — client không có cách nào biết còn phiếu chưa hiển thị. CR-69 bổ sung 2 khoá ADDITIVE cho cả 3.
+
+| Endpoint | rows-key | asset-key | `total` đếm trên |
+|---|---|---|---|
+| `imm08.get_asset_pm_history` | `history` | `asset_ref` | `PM Task Log` `{asset_ref}` |
+| `imm09.get_asset_repair_history` | `history` | `asset_ref` | `Asset Repair` `{asset_ref, docstatus: 1}` |
+| `imm12.get_asset_incident_history` | `items` | `asset` | `Incident Report` `{asset}` |
+
+**Hợp đồng FE (đã ship vòng này — chưa dựng UI):**
+
+1. **Kiểu khai OPTIONAL, KHÔNG non-optional.** `total?: number` + `truncated?: 0 | 1` trong `api/imm08.ts` · `api/imm09.ts` · `api/imm12.ts`. Lý do: worker gunicorn `--preload` chưa reload vẫn trả shape CŨ thiếu 2 khoá — khai non-optional là **tái lập đúng lỗi mà CR-69 đi dẹp** (`api/imm08.ts` từng khai `total: number` trong khi BE chưa bao giờ trả ⇒ `undefined` runtime, `vue-tsc` im lặng).
+2. **Đọc phòng thủ ở store.** `total ?? rows.length`, `Number(truncated) === 1 ? 1 : 0`. Dùng `Number(...)` chứ **KHÔNG** `=== 1`: nếu BE lỡ regress sang `bool`, `true === 1` là `false` ⇒ dải cảnh báo biến mất âm thầm (bẫy int-vs-bool CR-01).
+3. **State đã bộc lộ:** `useImm08Store` → `pmHistoryTotal` / `pmHistoryTruncated`; `useImm09Store` → `repairHistoryTotal` / `repairHistoryTruncated`. IMM-12 chưa có store → view tương lai đọc thẳng API client.
+
+**Quy tắc CÂU CHỮ cho vòng sau (khi dựng dải cảnh báo) — LL-FE-53, tiếng Việt đầy đủ, i18n SSoT:**
+
+| Tình huống | Copy ĐƯỢC dùng | Copy CẤM |
+|---|---|---|
+| `truncated === 1` | "Đang xem 10 lần gần nhất" · "Chỉ hiển thị 10 bản ghi gần nhất — thiết bị còn lịch sử cũ hơn" | ❌ "Thiết bị đã sửa 10 lần" · ❌ "Toàn bộ lịch sử sửa chữa" · ❌ bất kỳ khẳng định TỔNG nào suy ra từ `rows.length` |
+| `truncated === 0` | Được nêu con số: "Tổng 3 lần sửa chữa" (`truncated === 0 ⇒ total === rows.length`, bất biến BE) | ❌ Hiện dải cảnh báo cắt (báo cắt oan khi vừa khít trần) |
+| 2 khoá vắng (worker cũ) | Im lặng — KHÔNG banner, KHÔNG con số tổng | ❌ Crash · ❌ suy diễn "đã cắt" |
+
+> ⚠️ **Vì sao cấm khẳng định số lần sửa khi `truncated === 1`:** con số đó đi vào quyết định lâm sàng/thanh lý (thiết bị hỏng lặp lại theo NĐ98). Nói "đã sửa 10 lần" trong khi thực tế 40 lần là **nói dối có hậu quả**, không phải lỗi hiển thị.
+
+**Phạm vi vòng này (CỐ Ý không mở rộng):** chưa `.vue` nào render 3 tab lịch sử ⇒ **KHÔNG dựng UI mới** (tránh scope creep). Guard vitest: `frontend/src/stores/assetHistoryTruncation.test.ts` (11 TC — đủ khoá / thiếu khoá / vừa khít trần / regress bool / naming-contract imm12).
+
+---
+
+### SparePartsStockEntry — cột "Phiếu xuất kho" 3 trạng thái + dải cảnh báo (AC-CR-78, 2026-07-27)
+
+> **SSoT hợp đồng:** [`05_API_Specification.md §13`](05_API_Specification.md) · predicate BE
+> [`04_Backend_Design.md §3.8`](04_Backend_Design.md) (ADR-IMM09-PARTS-01/02/03).
+> **Đóng CÙNG VÒNG với BE (A8)** — không để lại "state chết" như CR-69.
+
+**Bối cảnh (lỗi đang sống).** `frontend/src/views/cm/CMWorkOrderDetailView.vue:376` render:
+
+```vue
+<span v-if="p.stock_entry_ref" class="text-emerald-700 …">{{ p.stock_entry_ref }}</span>
+<span v-else class="text-red-600 text-xs">Chưa có</span>
+```
+
+⇒ chỉ 2 nhánh. Một `stock_entry_ref` **treo** (trỏ `AC Stock Movement` đã xoá / gõ sai) hiển thị **mã
+màu XANH y hệt phiếu hợp lệ** — trong khi validator BR-09-02 sẽ **chặn submit**. Người dùng thấy "đủ
+chứng từ", bấm hoàn tất, rồi ăn 422 không hiểu vì sao. Đây là **badge XANH GIẢ**, đúng class-of-bug
+display ⇔ enforcement.
+
+#### 1. Kiểu — khai OPTIONAL (bài học CR-69 §AssetHistoryTruncation)
+
+`frontend/src/api/imm09.ts`:
+
+| Kiểu | Khoá thêm | Bắt buộc |
+|---|---|---|
+| `SparePartRow` | `stock_entry_status?: 'OK' \| 'MISSING' \| 'NOT_FOUND'` · `stock_entry_ok?: 0 \| 1` | **optional** — worker gunicorn `--preload` chưa reload vẫn trả shape CŨ |
+| `RepairWorkOrder` | `parts_pending_stock_entry?: number` | **optional** — cùng lý do |
+
+- Đặt cạnh `SparePartRow` hiện có; **KHÔNG** nhồi vào `SparePartSuggestion` (kiểu của `searchSpareParts`,
+  vòng đời khác — CR-73a đã tách có chủ đích).
+- Đọc phòng thủ: `Number(p.stock_entry_ok) === 1`, `Number(wo.parts_pending_stock_entry) > 0` —
+  **KHÔNG** `=== 1` trần trên giá trị có thể là bool (bẫy int-vs-bool CR-01).
+
+#### 2. Cột "Phiếu xuất kho" — 3 nhánh, tiếng Việt ĐẦY ĐỦ (LL-FE-53)
+
+| `stock_entry_status` | Hiển thị | Kiểu chữ |
+|---|---|---|
+| `OK` | **mã phiếu** (`{{ p.stock_entry_ref }}`) | mono, xanh (emerald) |
+| `MISSING` | **"Chưa có phiếu xuất kho"** | amber/đỏ nhạt |
+| `NOT_FOUND` | **"Phiếu xuất kho không tồn tại"** + mã treo hiện nhỏ bên dưới (`{{ p.stock_entry_ref }}`, gạch ngang) | đỏ đậm + icon cảnh báo |
+| `undefined` (worker cũ) | fallback hành vi CŨ: `p.stock_entry_ref ? mã : "Chưa có phiếu xuất kho"` | như trước — **KHÔNG crash, KHÔNG suy diễn "không tồn tại"** |
+
+- **Header cột đổi** `Phiếu XK` → **`Phiếu xuất kho`** (LL-FE-53: viết đủ tiếng Việt, không viết tắt tự chế).
+- Nhánh `MISSING` giữ nguyên ngữ nghĩa cũ nhưng **đủ chữ**: "Chưa có" → "Chưa có phiếu xuất kho".
+- ❌ **CẤM** suy diễn lại trạng thái từ `stock_entry_ref` khi BE đã trả `stock_entry_status`
+  (đó là viết lại predicate lần 2 — INV-PARTS-1).
+
+#### 3. Dải cảnh báo trên khối "Vật tư sử dụng"
+
+Hiện khi `Number(wo.parts_pending_stock_entry) > 0`:
+
+> ⚠️ **Còn {N} dòng vật tư chưa có phiếu xuất kho hợp lệ — chưa thể hoàn tất phiếu.**
+
+| Điều kiện | Hành vi |
+|---|---|
+| `parts_pending_stock_entry > 0` | Hiện dải cảnh báo (amber), nêu **đúng N** (KHÔNG tự đếm lại ở FE) |
+| `parts_pending_stock_entry === 0` | Không dải cảnh báo |
+| `undefined` (worker cũ) | **Im lặng** — KHÔNG banner, KHÔNG suy diễn |
+| `spare_parts_used.length === 0` | Khối "Vật tư sử dụng" giữ nguyên `v-if` hiện có (không hiện khối rỗng); banner không áp dụng |
+
+- Copy CẤM: ❌ "Thiếu chứng từ" (mơ hồ) · ❌ "Invalid stock entry" (leak EN) · ❌ "Lỗi dữ liệu".
+- ⚠️ Dải cảnh báo là **cảnh báo**, KHÔNG phải khoá nút: gate nút workflow vẫn theo
+  `allowed_transitions` (GATE-8 / LL-FE-51) — **KHÔNG** thêm điều kiện `parts_pending_stock_entry`
+  vào điều kiện hiển thị nút (server là nơi chặn; FE chỉ báo trước).
+
+#### 4. Test RENDER bắt buộc (chống "state chết" như CR-69)
+
+`frontend/src/views/cm/CMWorkOrderDetailView.sparePartsStockEntry.test.ts` — mount THẬT
+(mirror `CMWorkOrderDetailView.riskClassification.test.ts`: mock `vue-router` / `useNotify` /
+`useCapabilities` / store `imm09`), assert trên **text đã render**, KHÔNG assert store/type:
+
+| TC | Dữ liệu | Kỳ vọng |
+|---|---|---|
+| `FE-CM-PARTS-01` | 1 dòng `stock_entry_status: 'OK'`, ref `SM-2026-00042` | text chứa `SM-2026-00042`; KHÔNG chứa "Chưa có phiếu xuất kho"/"không tồn tại" |
+| `FE-CM-PARTS-02` | `MISSING` | text chứa **"Chưa có phiếu xuất kho"** |
+| `FE-CM-PARTS-03` | `NOT_FOUND`, ref `SM-2026-99999` | text chứa **"Phiếu xuất kho không tồn tại"** (và mã treo vẫn hiện để tra) — **chống revert**: nếu ai đó quay lại `v-if="p.stock_entry_ref"` thì TC này ĐỎ |
+| `FE-CM-PARTS-04` | 3 dòng mix + `parts_pending_stock_entry: 2` | dải cảnh báo hiện, text chứa **"Còn 2 dòng vật tư chưa có phiếu xuất kho hợp lệ"** |
+| `FE-CM-PARTS-05` | `parts_pending_stock_entry: 0` | **KHÔNG** dải cảnh báo |
+| `FE-CM-PARTS-06` | thiếu cả 3 khoá mới (worker cũ) | fallback 2 nhánh cũ, **0 banner**, không crash |
+| `FE-CM-PARTS-07` | header bảng | text chứa **"Phiếu xuất kho"** (không còn "Phiếu XK") |
+
+**DoD FE:** `vue-tsc --noEmit` 0 lỗi · `vitest run` xanh · ❌ **KHÔNG** `npm run build`
+(ghi thẳng `assetcore/public/frontend` + `emptyOutDir` = deploy live trong khi BE còn stale — LL-DEPLOY-09).
+
+---
+
+### CMEvidencePhoto — trạng thái ẢNH BẰNG CHỨNG NĐ98 trên màn Chi tiết CM (AC-CR-84, 2026-07-27) 🔴 SPEC (FE Bước-4)
+
+> **SSoT hợp đồng:** [`05_API_Specification.md §16`](05_API_Specification.md) · recipe BE
+> [`04_Backend_Design.md §3.10`](04_Backend_Design.md) · ADR-IMM09-EVIDENCE-01..05.
+> **Đóng CÙNG VÒNG với BE (A8)** — BE chặn mà FE không hiển thị = người dùng ăn lỗi ở bước cuối.
+
+**Bối cảnh (lỗi đang sống).** Web FE đã có predicate ĐÚNG nguồn — `isHighRiskClassification`
+(`frontend/src/constants/labels.ts:430-445`, đọc `risk_classification` ∈ {High, Critical}) — nhưng chỉ
+dùng để **tô màu** dòng "Phân loại rủi ro"; **0 chỗ** liên hệ nó với ảnh checklist. Client mobile thì có
+gate nhưng nuôi bằng `risk_class` (Class I/II/III) nên gate **không bao giờ** bật (mobile CR-51). Sau
+AC-CR-84 server mới là nơi chặn — FE **không** được tự phát minh predicate thứ hai, chỉ **đọc** 3 khoá.
+
+#### 1. Kiểu — khai OPTIONAL (bài học CR-69 · AC-CR-82)
+
+`frontend/src/api/imm09.ts` — bồi vào `AssetRepair` (KHÔNG mint interface mới):
+
+```ts
+  /** [AC-CR-84] 1 ⟺ thiết bị nguy cơ cao ⇒ cổng ảnh bằng chứng NĐ98 ÁP DỤNG. int 0|1 (KHÔNG boolean). */
+  evidence_photo_required?: number
+  /** [AC-CR-84] idx (1-based) các mục checklist còn THIẾU ảnh — ĐÚNG tập server từ chối (INV-CMEVID-1). */
+  evidence_photo_missing_idxs?: number[]
+  /** [AC-CR-84] Mẫu số: số mục PHẢI có ảnh (0 khi cổng không áp dụng). */
+  evidence_photo_total_required?: number
+```
+
+⚠️ **Vắng khoá (worker cũ) ⇒ KHÔNG được suy "không có cổng"** — đó chính là hình thái bug CR-51. Quy tắc
+render: 3 khoá **cùng vắng** ⇒ **ẩn toàn bộ khối bằng chứng** (không khẳng định gì), **KHÔNG** hiện
+"Đã đủ ảnh". Nút hoàn thành vẫn theo `available_actions` (server đã hạ `enabled` nếu thiếu).
+
+#### 2. Hiển thị — 3 chỗ, tất cả đều là **tấm gương** của server
+
+| # | Vị trí | Nội dung (tiếng Việt đầy đủ) |
+|---|---|---|
+| **U1** | Dải trên bảng checklist (chỉ khi `evidence_photo_required === 1`) | Đủ ảnh: *"Bằng chứng NĐ98: đã có ảnh 6/6 mục"* (nền xanh). Thiếu: *"Bằng chứng NĐ98: còn 2/6 mục chưa có ảnh — cần đính đủ trước khi hoàn thành sửa chữa"* (nền hổ phách) |
+| **U2** | Từng dòng checklist thuộc `evidence_photo_missing_idxs` | Chip *"Chưa có ảnh"* + nút **"Đính ảnh"** gọi `attachRepairChecklistPhoto(name, row.idx, file)` — dùng `FileUploadField` (GATE-9: **ô upload**, KHÔNG ô gõ đường dẫn) |
+| **U3** | Tooltip nút "Hoàn thành sửa chữa" khi `enabled === false` | Hiển thị **`reason` từ server** nguyên văn — **KHÔNG** tự chế câu; nút disabled do `available_actions`, không do FE tự tính |
+
+**Nguồn số liệu duy nhất:** `N = total_required − missing_idxs.length`. **KHÔNG** đếm lại từ
+`repair_checklist[].photo` phía client (sinh bản diễn giải thứ hai — đúng class-of-bug đang đóng).
+
+#### 3. Xử lý lỗi khi bấm "Hoàn thành sửa chữa"
+
+Envelope `IMM09-EVIDENCE-PHOTO-REQUIRED` (HTTP-**200**, `success:false`) ⇒ interceptor hiện có đã dựng
+`ApiError`; FE cần thêm: (a) toast dùng `message` từ registry (đã regen sang `i18n/messages.ts`);
+(b) neo `fields.repair_checklist` **dưới bảng checklist**; (c) **refetch** phiếu để `missing_idxs` cập
+nhật (người dùng có thể vừa đính ảnh ở tab khác); (d) **KHÔNG** logout, **KHÔNG** coi là lỗi hệ thống.
+
+#### 4. Test FE bắt buộc (CÙNG VÒNG — RENDER thật, không chỉ type-check)
+
+| TC | Fixture | Kỳ vọng |
+|---|---|---|
+| `FE-CM-EVID-01` | `required:1, total:6, missing:[2,5]` | DOM chứa **"còn 2/6 mục chưa có ảnh"**; đúng **2** chip "Chưa có ảnh" ở dòng idx 2 và 5 |
+| `FE-CM-EVID-02` | `required:1, total:6, missing:[]` | DOM chứa **"đã có ảnh 6/6 mục"**; **0** chip "Chưa có ảnh" |
+| `FE-CM-EVID-03` | `required:0` (thiết bị Low/`""`) | **KHÔNG** render khối bằng chứng (0 dải, 0 chip) |
+| `FE-CM-EVID-04` | 3 khoá **vắng** (worker cũ) | **KHÔNG** render khối; **KHÔNG** crash; **KHÔNG** hiện "Đã đủ ảnh" |
+| `FE-CM-EVID-05` | `available_actions[close_work_order] = {enabled:false, reason:"Thiết bị nguy cơ cao — …"}` | Nút "Hoàn thành sửa chữa" **disabled** + tooltip == `reason` **nguyên văn** (chống chế câu) |
+| `FE-CM-EVID-06` | mock lỗi `IMM09-EVIDENCE-PHOTO-REQUIRED` khi bấm hoàn thành | Thông điệp VI hiện **dưới bảng checklist**; **0** chuỗi tiếng Anh/mã lỗi thô trong DOM; store gọi refetch |
+| `FE-CM-EVID-07` | i18n sweep khối mới | DOM **0** ký tự của `High`/`Critical`/`Pending Inspection` (INV-CMEVID-8 · LL-FE-53) |
+
+**DoD FE:** `vue-tsc --noEmit` 0 lỗi · `npm run test` xanh · ❌ **KHÔNG** `npm run build`
+(ghi thẳng `assetcore/public/frontend` + `emptyOutDir` = deploy live — LL-DEPLOY-09).
 
 ---
 
@@ -740,6 +1043,34 @@ không có nút. Chi tiết transitions: `assignTechnician → submitDiagnosis �
 | `incident_report` | Điền sẵn `failure_description` từ IR |
 | `risk_class` × `priority` | Hiển thị SLA target dự kiến |
 | `needs_parts = 1` | Chuyển hướng sang `/imm-09/:name/parts` sau khi lưu chẩn đoán |
+
+---
+
+### FilterKeyError — banner lỗi bộ lọc **KHÔNG thay thế bảng** (AC-CR-79, 2026-07-27) 🔴 SPEC
+
+> Hợp đồng BE: [`05_API_Specification.md §14`](./05_API_Specification.md) · khuôn FE canonical:
+> [`../imm-08/06 §7e`](../imm-08/06_Frontend_Design.md). Ở đây chỉ ghi phần KHÁC của IMM-09.
+
+**Khác IMM-08:** `CMWorkOrderListView.vue::buildFilters()` (`:104-115`) gửi **6 khoá đều HỢP LỆ**
+(`status`, `priority`, `asset_ref`, `sla_breached`, `is_repeat_failure`, `open` — probe đối chứng `OK`,
+`05 §14.1`) ⇒ **KHÔNG sửa `buildFilters()`**. Chỉ còn 1 việc:
+
+| # | Chỗ | Sửa |
+|---|---|---|
+| **F1** | `views/cm/CMWorkOrderListView.vue:219` | `v-else-if="store.error"` đang **thay thế** khối bảng ⇒ đổi sang **banner cộng-thêm** khi `store.workOrders.length > 0`; khối lỗi chiếm-chỗ chỉ khi chưa có dữ liệu. Cấu trúc y hệt `../imm-08/06 §7e.3`. |
+
+**Bảo tồn (KHÔNG được "sửa"):** `stores/imm09.ts:65-67` — `catch` chỉ `_captureError`, **không** xoá
+`workOrders`. Message hiển thị lấy **nguyên văn từ BE** (`store.error`). **KHÔNG logout** (400 ≠ 401).
+**0 lỗi console**.
+
+**Test RENDER bắt buộc** — `frontend/src/views/cm/cmFilterKeyError.test.ts`:
+
+| TC | Kịch bản | Assert |
+|---|---|---|
+| FE-CMFK-1 | `workOrders` = 3 dòng → `fetchWorkOrders` reject `ApiError(msg,'INVALID_PARAMS',400)` | 3 dòng **vẫn render** + banner chứa `msg` |
+| FE-CMFK-2 | như trên | không logout/redirect · `console.error` spy = 0 |
+| FE-CMFK-3 | `workOrders` rỗng + lỗi | khối lỗi hiện + nút "Thử lại", không crash |
+| FE-CMFK-4 | `buildFilters()` với đủ 6 điều khiển | tập khoá trả ra ⊆ `_ALLOWED_FILTER_KEYS` của IMM-09 (chống hồi quy "FE bịa khoá" như F2 bên IMM-08) |
 
 ---
 

@@ -27,10 +27,15 @@ from assetcore.utils.lifecycle import create_lifecycle_event as _create_lifecycl
 from assetcore.utils.idempotency import resolve_idempotency_key
 from assetcore.services.shared import AssetStatus, ServiceError
 from assetcore.services.shared import rbac
-from assetcore.services.shared.filters import pop_search
+from assetcore.services.shared.filters import (assert_allowed_filter_keys,
+                                                count_with_or, pop_search)
+from assetcore.services.shared.permissions import (assert_can_read_doc,
+                                                   assert_doctype_read_permission,
+                                                   rowscoped, run_rowscoped)
+from assetcore.services.shared.truncation import truncation_meta
 from assetcore.utils.notify import nthrow, nthrow_in_hook
 from assetcore.utils.messages import MSG
-from assetcore.utils.pagination import _MAX_PAGE_SIZE, paginate
+from assetcore.utils.pagination import _MAX_PAGE_SIZE, clamp_page_size, paginate
 from assetcore.utils.response import ErrorCode
 
 
@@ -157,6 +162,308 @@ _REPAIR_VALID_TRANSITIONS: dict[str, list[str]] = {
 }
 
 
+# ─── SoT: tập trạng-thái-NGUỒN của 6 hành động ghi (AC-CR-82) ────────────────
+#
+# 6 hằng dưới đây là SSoT của câu hỏi «hành động X hợp lệ từ trạng thái nào?».
+# CHÍNH service guard đọc chúng để chặn `MSG.IMM09_BAD_STATE`, và CHÍNH builder
+# `_build_repair_available_actions` đọc chúng để quyết định `enabled` ⇒ advertise
+# (nút) là TẤM GƯƠNG của enforcement (validator), KHÔNG phải bản diễn giải thứ hai
+# (class-of-bug display⇔enforcement parity: CR-54 G05 · CR-76 G01/G03 · AC-CR-77 PM).
+# Chứng minh bằng test parity 54 ô `test_imm09.TestCmAvailableActionsParity`, KHÔNG
+# phải bằng tuyên bố trong tài liệu.
+#
+# ⚠️ KHÁC `_REPAIR_VALID_TRANSITIONS`: bảng đó mô tả MÁY TRẠNG THÁI (tầng emit
+# `allowed_transitions`), còn 6 hằng này mô tả HÀNH ĐỘNG NGƯỜI DÙNG BẤM ĐƯỢC. Hai
+# tập KHÔNG trùng — `submit_diagnosis` hợp lệ từ 'Assigned' nhưng đích 'Pending
+# Parts' KHÔNG có trong bảng transition của 'Assigned' (D-CM-2, `05 §15.1`) ⇒ suy
+# CTA từ bảng transition là SAI PHA (ADR-IMM09-CTA-01).
+_ASSIGN_FROM: frozenset[str] = frozenset({RepairStatus.OPEN})
+_DIAGNOSIS_FROM: frozenset[str] = frozenset({
+    RepairStatus.ASSIGNED, RepairStatus.DIAGNOSING,
+})
+_START_FROM: frozenset[str] = frozenset({
+    RepairStatus.ASSIGNED, RepairStatus.DIAGNOSING, RepairStatus.PENDING_PARTS,
+})
+# DẪN XUẤT (KHÔNG danh sách literal thứ hai): xin phụ tùng có nghĩa ở mọi trạng thái
+# «đang sửa» = tập bắt-đầu-sửa ∪ {In Repair}.
+_PARTS_FROM: frozenset[str] = _START_FROM | {RepairStatus.IN_REPAIR}
+_CLOSE_FROM: frozenset[str] = frozenset({RepairStatus.IN_REPAIR})
+# Nhánh «không thể sửa» (`close_work_order(cannot_repair=1)`) — enforcement hiện
+# hành RỘNG HƠN máy trạng thái (workflow JSON chỉ có cạnh In Repair→Cannot Repair):
+# D-CM-5 / backlog B3 `05 §15.10`. Tách hằng RIÊNG để guard không lặp literal, KHÔNG
+# đổi hành vi vòng này; CTA `close_work_order` advertise theo `_CLOSE_FROM` (hẹp).
+_CANNOT_REPAIR_FROM: frozenset[str] = frozenset({
+    RepairStatus.ASSIGNED, RepairStatus.DIAGNOSING, RepairStatus.PENDING_PARTS,
+    RepairStatus.IN_REPAIR,
+})
+_CONFIRM_FROM: frozenset[str] = frozenset({RepairStatus.PENDING_INSPECTION})
+
+# SSoT cap của 6 CTA — `has_cap` là HỘI (∩) của MỌI `rbac.require` trên ĐƯỜNG GỌI:
+# lớp API (`api/imm09.py`) và lớp service có thể gate KHÁC nhau (4 endpoint ghi:
+# API `repair.write` vs service `repair.create` — D-CM-1). Suy 1 tầng = advertise
+# RỘNG HƠN enforce ⇒ nút bật → 403 câm (ADR-IMM09-CTA-03). Guard AST
+# `test_imm09.TestCmAvailableActionsParity.test_cr82_c2_...` đọc CẢ 2 module ⇒ đổi
+# cap 1 lớp mà quên lớp kia là ĐỎ, không phải lỗi câm ở production.
+_CAP_REPAIR_WRITE = "repair.write"
+_CAP_REPAIR_CREATE = "repair.create"
+_CAP_REPAIR_SUBMIT = "repair.submit"
+
+# Reason VI (CHỈ khi enabled=False) — 3 bậc ưu tiên transition > capability >
+# business. HẰNG, KHÔNG f-string: nội suy mã trạng thái ('In Repair', 'Pending
+# Inspection'…) hay tên vai trò = rò tiếng Anh ra UI (INV-CMCTA-2, chính sách ngôn
+# ngữ `06_Frontend_Design.md §7`).
+_REPAIR_ACTION_REASON_TRANSITION = (
+    "Không thể thực hiện thao tác này ở trạng thái hiện tại của phiếu")
+_REPAIR_ACTION_REASON_CAPABILITY = "Bạn không có quyền thực hiện thao tác này"
+_REPAIR_ACTION_REASON_SELF_INSPECT = (
+    "Người nghiệm thu phải khác người đóng phiếu — bạn là người đã đóng phiếu này")
+# [AC-CR-84 / BR-09-23] Bậc BUSINESS thứ hai: cổng ảnh bằng chứng NĐ98 (Class C/D).
+# HẰNG (KHÔNG f-string) — nội suy 'High'/'Critical'/mã trạng thái = rò tiếng Anh ra UI
+# (INV-CMCTA-2 / INV-CMEVID-8). Xem `05 §16.5`.
+_REPAIR_ACTION_REASON_EVIDENCE_PHOTO = (
+    "Thiết bị nguy cơ cao — cần đính đủ ảnh bằng chứng cho các mục nghiệm thu "
+    "trước khi hoàn thành sửa chữa")
+# [AC-CR-85] CÙNG cổng ảnh nhưng ở bước NGHIỆM THU (`confirm_inspection`). Câu RIÊNG vì
+# hành động người dùng khác hẳn: người phê duyệt đọc "trước khi hoàn thành sửa chữa" sẽ
+# đi tìm nút sai bước. Vì sao cần bậc business này: `risk_classification` là thuộc tính
+# của THIẾT BỊ, không đóng băng theo phiếu ⇒ thiết bị tái phân loại lên High/Critical
+# SAU khi phiếu đã sang 'Pending Inspection' làm cổng P2 chặn nghiệm thu, trong khi CTA
+# vẫn bật (nút chết + vỡ D9). HẰNG, KHÔNG f-string (INV-CMCTA-2 / INV-CMEVID-8).
+_REPAIR_ACTION_REASON_EVIDENCE_PHOTO_INSPECT = (
+    "Thiết bị nguy cơ cao — cần đính đủ ảnh bằng chứng cho các mục nghiệm thu "
+    "trước khi xác nhận nghiệm thu")
+
+# SSoT 6 CTA (thứ tự = thứ tự render FE). `endpoint` = tên hàm THẬT trong
+# `assetcore/api/imm09.py` — guard INV-CMCTA-4 resolve ĐỘNG + kiểm `fn in
+# frappe.whitelisted`. KHÔNG có endpoint ⇒ KHÔNG có CTA: đó là lý do 'Cancelled'
+# VẮNG MẶT dù là đích hợp lệ từ 6 trạng thái trong `_REPAIR_VALID_TRANSITIONS`
+# (0 endpoint hủy), và 'Cannot Repair' KHÔNG phải khoá thứ 7 (cùng endpoint
+# `close_work_order` với cờ `cannot_repair=1`) — ADR-IMM09-CTA-01.
+_REPAIR_ACTION_SPECS: tuple[dict, ...] = (
+    {"key": "assign_technician", "label": "Phân công kỹ thuật viên",
+     "endpoint": "assign_technician", "from": _ASSIGN_FROM,
+     "caps": (_CAP_REPAIR_WRITE, _CAP_REPAIR_CREATE)},
+    {"key": "submit_diagnosis", "label": "Ghi nhận chẩn đoán",
+     "endpoint": "submit_diagnosis", "from": _DIAGNOSIS_FROM,
+     "caps": (_CAP_REPAIR_WRITE, _CAP_REPAIR_CREATE)},
+    {"key": "request_spare_parts", "label": "Yêu cầu phụ tùng",
+     "endpoint": "request_spare_parts", "from": _PARTS_FROM,
+     "caps": (_CAP_REPAIR_WRITE, _CAP_REPAIR_CREATE)},
+    {"key": "start_repair", "label": "Bắt đầu sửa chữa",
+     "endpoint": "start_repair", "from": _START_FROM,
+     "caps": (_CAP_REPAIR_WRITE, _CAP_REPAIR_CREATE)},
+    {"key": "close_work_order", "label": "Hoàn thành sửa chữa",
+     "endpoint": "close_work_order", "from": _CLOSE_FROM,
+     "caps": (_CAP_REPAIR_CREATE,)},
+    {"key": "confirm_inspection", "label": "Xác nhận nghiệm thu",
+     "endpoint": "confirm_inspection", "from": _CONFIRM_FROM,
+     "caps": (_CAP_REPAIR_SUBMIT,)},
+)
+
+# ADR-IMM09-CTA-02 — allowlist CHỈ-GIẢM: action mà advertise CỐ Ý HẸP HƠN
+# enforcement. `request_spare_parts` @source KHÔNG có state-guard nào ⇒ parity 2
+# chiều sẽ buộc quảng cáo hành động trên phiếu 'Completed'/'Cannot Repair'
+# (docstatus=1) — bấm vào là lỗi Frappe "Cannot edit submitted document" (KHÔNG
+# phải lỗi nghiệp vụ in-envelope), tệ hơn nút chết. Bất biến hợp đồng vì vậy là
+# SOUNDNESS 1 chiều (INV-CMCTA-1a, 54/54); completeness (1b) áp cho 5 action còn
+# lại. Đây là HỢP ĐỒNG NỢ: khi backlog B1 land (thêm guard `_PARTS_FROM` vào
+# `request_spare_parts`), XOÁ phần tử ⇒ guard tự siết về 54/54.
+_ADVERTISE_NARROWER_THAN_ENFORCE: frozenset[str] = frozenset({"request_spare_parts"})
+
+
+def _build_repair_available_actions(wo, *, risk_classification: str | None = None) -> list[dict]:
+    """AC-CR-82 — 6 CTA server-driven cho màn Chi tiết phiếu sửa chữa (CM).
+
+    Mirror ``imm08._build_pm_available_actions`` (nửa PM của mobile CR-74) /
+    ``imm12._build_incident_available_actions`` ⇒ 3 màn Chi tiết (PM/CM/Sự cố)
+    dùng CHUNG 1 từ vựng CTA ``AvailableAction``.
+
+    Lặp SSoT ``_REPAIR_ACTION_SPECS`` (thứ tự CỐ ĐỊNH = thứ tự render FE, LUÔN đủ
+    6 phần tử kể cả ở trạng thái terminal — khi đó cả 6 ``enabled=False``).
+    ``enabled = transition_allowed ∩ has_cap ∩ business_gate``:
+
+    * ``transition_allowed`` — ``wo.status ∈ spec['from']``, tức CHÍNH hằng mà
+      service guard đọc để ném ``MSG.IMM09_BAD_STATE``. **KHÔNG** suy từ
+      ``_REPAIR_VALID_TRANSITIONS``: bảng trạng-thái-kế là TẦNG EMIT, không phải
+      predicate hành động (ADR-IMM09-CTA-01; ca D-CM-2 ``submit_diagnosis`` từ
+      'Assigned' có đích 'Pending Parts' KHÔNG nằm trong bảng ⇒ suy từ bảng là sai pha).
+    * ``has_cap`` — ``all(rbac.can(c) for c in spec['caps'])``, với ``caps`` là HỘI
+      của MỌI ``rbac.require`` trên đường gọi (lớp API ∩ lớp service —
+      ADR-IMM09-CTA-03). Đọc theo DocPerm, **KHÔNG** suy từ tên vai trò
+      (chống anti-pattern *RBAC dead-gate*).
+    * ``business_gate`` — 3 gate: (a) ``confirm_inspection``: phân tách trách nhiệm (SoD,
+      CR-41). Người-đóng-phiếu (``_resolve_wo_closer``, tái dùng NGUYÊN hàm mà
+      enforcement dùng) == người đang đăng nhập ⇒ tắt + reason SoD riêng;
+      closer KHÔNG xác định được ⇒ **FAIL-OPEN** (bật), khớp ĐÚNG enforcement hiện
+      hành. Đổi enforcement ⇒ phải đổi builder CÙNG LÚC (1 predicate, 2 nơi đọc).
+      (b) [AC-CR-84] ``close_work_order``: cổng ẢNH BẰNG CHỨNG NĐ98 (Class C/D) —
+      đọc CHÍNH ``_repair_evidence_missing_idxs`` mà ``close_work_order`` dùng để
+      ném ``MSG.IMM09_EVIDENCE_PHOTO_REQUIRED`` ⇒ nút tắt ĐÚNG LÚC validator chặn
+      (INV-CMEVID-4, KHÔNG diễn giải thứ hai). Nhánh ``cannot_repair=1`` KHÔNG bị
+      cổng này chi phối — nhưng nó đi CÙNG khoá CTA nên ô ``In Repair × close`` là
+      «✓ có điều kiện» (`05 §16.3-P3`).
+      (c) [AC-CR-85] ``confirm_inspection``: CÙNG cổng ảnh, cho điểm tiêu thụ **P2**
+      (`confirm_inspection` cũng ném mã đó TRƯỚC ``doc.submit()``). Thiếu gate này thì
+      thiết bị TÁI PHÂN LOẠI lên High/Critical sau khi phiếu đã ở 'Pending Inspection'
+      tạo NÚT CHẾT + vỡ D9 — advertise RỘNG HƠN enforce. Thứ tự trong CTA:
+      SoD → evidence (mirror INV-CMEVID-6).
+
+    ``reason`` chỉ set khi disabled, 3 bậc ưu tiên transition > capability >
+    business, 100% tiếng Việt lấy từ HẰNG (0 nội suy mã trạng thái/tên vai trò).
+    Bậc transition phủ luôn ``status`` rỗng/mã lạ ngoài máy trạng thái
+    (``status ∉ spec['from']``) ⇒ BẤT BIẾN D9 (INV-CMCTA-9):
+    ``enabled is False ⟹ reason != ""``; ``enabled is True ⟹ reason == ""``.
+
+    Shape phần tử = ``AvailableAction`` ``{key, label, route, enabled, reason}`` với
+    ``route=""`` (cả 6 CTA nằm TRONG màn Chi tiết, KHÔNG deep-link).
+
+    READ-ONLY tuyệt đối (INV-CMCTA-10): chỉ đọc ``wo.status`` / ``wo.name`` /
+    ``wo.repair_checklist`` (đã nạp cùng doc) + ``rbac.can`` — 0 ``save()``, 0
+    Lifecycle Event, 0 audit record; **≤1** truy vấn thêm và CHỈ khi
+    ``status == 'Pending Inspection'`` (nhánh SoD). Cổng ảnh KHÔNG thêm truy vấn khi
+    caller truyền sẵn ``risk_classification`` (``get_work_order`` LUÔN truyền) — chỉ
+    caller gọi TRỰC TIẾP với ``risk_classification=None`` mới tốn thêm ≤1 truy vấn
+    (``AssetRepo.get_value``), và chỉ ở 2 trạng thái 'In Repair'/'Pending Inspection'.
+
+    Args:
+        wo: doc ``Asset Repair`` đã nạp (``get_work_order`` L1) hoặc doc-like có
+            ``status``/``name``.
+        risk_classification: giá trị ``AC Asset.risk_classification`` caller ĐÃ đọc.
+            ``None`` = "chưa tra" ⇒ predicate tự tra (≤1 truy vấn, chỉ khi cần).
+            ``""`` = "đã tra, thiết bị chưa phân loại" ⇒ KHÔNG tra lại (A4).
+
+    Returns:
+        list[dict]: ĐÚNG 6 action theo thứ tự ``[assign_technician,
+        submit_diagnosis, request_spare_parts, start_repair, close_work_order,
+        confirm_inspection]``.
+    """
+    status = wo.status or ""
+    actions: list[dict] = []
+    for spec in _REPAIR_ACTION_SPECS:
+        transition_ok = status in spec["from"]
+        has_cap = all(rbac.can(cap) for cap in spec["caps"])
+        business_ok, business_reason = True, ""
+        # SoD chỉ tính khi 2 gate trước đã đạt ⇒ ≤1 truy vấn thêm, 0 truy vấn ở 8
+        # trạng thái còn lại (INV-CMCTA-10).
+        if spec["key"] == "confirm_inspection" and transition_ok and has_cap:
+            closer = _resolve_wo_closer(wo.name)
+            if closer and closer == frappe.session.user:
+                business_ok, business_reason = False, _REPAIR_ACTION_REASON_SELF_INSPECT
+            # [AC-CR-85] Bậc business THỨ HAI của cùng CTA — thứ tự PHẢI mirror
+            # enforcement `confirm_inspection` (INV-CMEVID-6: SoD TRƯỚC evidence) để
+            # reason nói đúng cái chặn TRƯỚC.
+            elif _repair_evidence_missing_idxs(wo, risk_classification):
+                business_ok, business_reason = (
+                    False, _REPAIR_ACTION_REASON_EVIDENCE_PHOTO_INSPECT)
+        # [AC-CR-84 / BR-09-23] Cổng ảnh bằng chứng NĐ98 — CÙNG predicate SSoT mà
+        # close_work_order dùng để chặn (INV-CMEVID-4). Chỉ tính khi 2 gate trước đã
+        # đạt ⇒ 0 chi phí ở 8 trạng thái còn lại.
+        if spec["key"] == "close_work_order" and transition_ok and has_cap:
+            if _repair_evidence_missing_idxs(wo, risk_classification):
+                business_ok, business_reason = False, _REPAIR_ACTION_REASON_EVIDENCE_PHOTO
+        enabled = bool(transition_ok and has_cap and business_ok)
+        if enabled:
+            reason = ""
+        elif not transition_ok:
+            reason = _REPAIR_ACTION_REASON_TRANSITION
+        elif not has_cap:
+            reason = _REPAIR_ACTION_REASON_CAPABILITY
+        else:
+            # business-gate chặn — fallback bậc transition giữ bất biến D9 nếu về
+            # sau thêm gate mà quên hằng reason (KHÔNG bao giờ để reason rỗng).
+            reason = business_reason or _REPAIR_ACTION_REASON_TRANSITION
+        actions.append({
+            "key": spec["key"],
+            "label": spec["label"],
+            "route": "",
+            "enabled": enabled,
+            "reason": reason,
+        })
+    return actions
+
+
+# ─── AC-CR-84 / BR-09-23: cổng ẢNH BẰNG CHỨNG NĐ98 (Class C/D) — predicate SSoT ─
+#
+# Đóng mobile CR-51 (kèm phần enforcement còn nợ của CR-15). TRƯỚC vòng này cổng
+# "thiết bị nguy cơ cao phải có ảnh bằng chứng cho TỪNG mục nghiệm thu" là CODE CHẾT:
+# nó chỉ sống ở client mobile, và ở đó cũng không bao giờ kích hoạt vì client suy nhóm
+# nguy cơ từ `risk_class` (Class I/II/III — ánh xạ MẤT MÁT `_risk_map`) ⇒ hồ sơ NĐ98
+# của thiết bị Class C/D đóng được KHÔNG kèm bức ảnh nào.
+#
+# MỘT định nghĩa — BỐN nơi đọc (`05 §16.3`): P1 `close_work_order` (enforce) · P2
+# `confirm_inspection` (enforce chống lách) · P3 `_build_repair_available_actions`
+# (advertise) · P4 `get_work_order` (read 3 khoá `evidence_photo_*`) ⇒ **INV-CMEVID-1**:
+# mảng client thấy == ĐÚNG tập server từ chối. Predicate **KHÔNG NÉM** — caller ném
+# (nó còn chạy trên đường advertise; ném ở đó biến nút thành lỗi).
+#
+# ⚠️ LL-BE-58 (enum TRÙNG TÊN ≠ TRÙNG DOMAIN): nguồn DUY NHẤT là
+# `AC Asset.risk_classification` ∈ {Low, Medium, High, Critical, ''} — KHÔNG phải
+# `Asset Repair.risk_class` ({Class I,II,III} = đầu vào `_SLA_MATRIX`). Chuỗi RỖNG
+# ("chưa phân loại") KHÔNG được suy thành nguy cơ cao, cũng KHÔNG suy thành Class B.
+_EVIDENCE_HIGH_RISK: frozenset[str] = frozenset({"High", "Critical"})
+
+# Câu field-level (envelope `fields.repair_checklist`) — neo thông điệp dưới ĐÚNG bảng
+# checklist, nơi có nút đính ảnh (ADR-IMM09-EVIDENCE-05). Tiếng Việt HẰNG; chỉ nội suy
+# mã mục dạng `#<số>` (0 rò enum/trạng thái EN — INV-CMEVID-8).
+_MSG_REPAIR_EVIDENCE_FIELD = "Các mục chưa có ảnh bằng chứng: {idxs}."
+
+
+def _repair_evidence_gate_applies(risk_classification: str | None) -> bool:
+    """True ⟺ thiết bị thuộc nhóm nguy cơ cao ⇒ cổng ảnh bằng chứng ÁP DỤNG.
+
+    ``None`` / rỗng / khoảng trắng / giá trị lạ ⇒ False (A4: "chưa phân loại" KHÔNG
+    được suy thành nguy cơ cao). So khớp VERBATIM (case-sensitive) với enum Select
+    `AC Asset.risk_classification` — 'high'/'CRITICAL' KHÔNG phải giá trị hợp lệ của
+    field nên KHÔNG được nhận nhầm (chỉ `.strip()` khoảng trắng thừa).
+    """
+    return (risk_classification or "").strip() in _EVIDENCE_HIGH_RISK
+
+
+def _repair_row_is_persisted(row) -> bool:
+    """Dòng checklist ĐÃ có định danh trong DB (⇒ đính ảnh được).
+
+    Frappe gắn ``__islocal = 1`` cho child row `doc.append` khi row chưa có ``name``
+    (`frappe/model/base_document.py`) ⇒ dùng discriminator CHUẨN của framework, KHÔNG
+    tự chế cờ mới. Vì sao cần: `_apply_checklist` có nhánh **append** cho phiếu legacy
+    0 dòng; ảnh chỉ đính được vào dòng đã có `name` (`attach_repair_checklist_photo`
+    ghi `frappe.db.set_value("Repair Checklist", row.name, …)`) ⇒ tính dòng chưa lưu
+    sẽ tạo lỗi KHÔNG CÓ ĐƯỜNG KHẮC PHỤC (ADR-IMM09-EVIDENCE-02).
+    """
+    return bool(getattr(row, "name", None)) and not row.get("__islocal")
+
+
+def _repair_evidence_missing_idxs(wo, risk_classification: str | None = None) -> list[int]:
+    """SSoT: tập ``idx`` (1-based) dòng ``repair_checklist`` CÒN THIẾU ảnh bằng chứng.
+
+    ĐỌC-THUẦN: 0 save, 0 lifecycle, 0 mutation. ``[]`` ⟺ cổng ảnh KHÔNG chặn (dù vì
+    thiết bị ngoài nhóm nguy cơ cao, vì phiếu chưa có dòng nào đã lưu, hay vì đã đủ ảnh).
+
+    Đếm ảnh qua ``_repair_checklist_item_photos(row)`` — CÙNG SoT mà `get_work_order`
+    hiển thị và mà max-count của `attach_repair_checklist_photo` đọc ⇒ "số cổng đếm ==
+    số hiển thị == số chặn ảnh-thứ-2" (KHÔNG đọc ``row.photo`` lần thứ hai).
+
+    Args:
+        wo: doc ``Asset Repair`` đã nạp (child ``repair_checklist`` đến cùng doc ⇒ 0
+            truy vấn cho phần đếm ảnh).
+        risk_classification: ``None`` = "CHƯA TRA" ⇒ tự tra (≤1 truy vấn);
+            ``""`` = "ĐÃ TRA, thiết bị chưa phân loại" ⇒ KHÔNG tra lại (A4).
+
+    Returns:
+        list[int]: ``idx`` 1-based **đã sắp tăng dần** (deterministic — client render
+        theo thứ tự này, test so bằng ``==``).
+    """
+    rc = (risk_classification
+          if risk_classification is not None
+          else (AssetRepo.get_value(wo.asset_ref, "risk_classification") or ""))
+    if not _repair_evidence_gate_applies(rc):
+        return []
+    return sorted(
+        int(row.idx)
+        for row in (wo.repair_checklist or [])
+        if _repair_row_is_persisted(row) and not _repair_checklist_item_photos(row)
+    )
+
+
 # ─── BR-09-15/16: đính ảnh bằng chứng theo TỪNG mục checklist sửa chữa (NĐ98) ──
 #
 # Mobile CR-15/G6 (Vòng 3). ĐỐI XỨNG attach_pm_checklist_photo (imm08) /
@@ -183,6 +490,9 @@ _MSG_REPAIR_PHOTO_TOO_LARGE = "Ảnh vượt quá dung lượng cho phép (tối
 _MSG_REPAIR_PHOTO_MAX = "Mỗi mục checklist chỉ đính 1 ảnh"
 _MSG_REPAIR_PHOTO_FORBIDDEN = "Không có quyền đính ảnh cho lệnh sửa chữa này"
 _MSG_REPAIR_PHOTO_IDX_NOT_FOUND = "Không tìm thấy mục checklist trong lệnh sửa chữa này"
+# [AC-CR-85] Phiếu ĐÃ KẾT THÚC ⇒ hồ sơ bằng chứng NĐ98 đã chốt, KHÔNG bồi ảnh về sau.
+_MSG_REPAIR_PHOTO_WO_FINISHED = (
+    "Phiếu sửa chữa đã kết thúc — không thể đính thêm ảnh bằng chứng")
 # Ảnh HỎNG/ĐỨT TRUYỀN: content-type hợp lệ nhưng bytes không giải mã được (KTV chụp
 # hiện trường wifi/4G chập chờn) → PIL ném UnidentifiedImageError/OSError khi strip EXIF.
 _MSG_REPAIR_PHOTO_CORRUPT = "Tệp ảnh bị lỗi hoặc không đọc được, vui lòng chụp/chọn lại."
@@ -598,7 +908,12 @@ def cm_sla_breach_count() -> int:
     scheduler stamp cờ → WO rời (2) (vì `sla_breached=0` không còn match) và vào
     (1). Tổng KHÔNG đổi. 2 nhánh phân hoạch theo cờ (1 vs 0) ⇒ KHÔNG bao giờ chồng.
     """
-    flagged = RepairRepo.count({"sla_breached": 1})
+    # D7 (ADR-IMM00-LIST-SCOPE §8.4b): card PHẢI cùng chế độ scope với drill của nó.
+    # Nhánh (2) đi `_fetch_all_repair_rows(scope="user")` ⇒ nhánh (1) KHÔNG được
+    # dùng `RepairRepo.count` (→ frappe.db.count, KHÔNG permission-aware) nữa —
+    # nếu để nguyên, card trộn global (nhánh 1) + scoped (nhánh 2) = con số vô
+    # nghĩa và lệch với drill `?sla_breached_live=1`.
+    flagged = count_with_or(RepairRepo.DOCTYPE, {"sla_breached": 1}, None)
     now = now_datetime()
     # ⚠ UNCLAMPED loop-paginate (KHÔNG page_size khổng lồ — bị `paginate` clamp im
     # lặng về _MAX_PAGE_SIZE=100 ⇒ undercount khi >100 phiếu mở-quá-hạn = card <
@@ -606,6 +921,9 @@ def cm_sla_breach_count() -> int:
     # được), phải quét TOÀN tập candidate cờ=0 (INV-CM-SLA-5 card == Σ drill).
     candidates = _fetch_all_repair_rows(
         open_repair_filter({"sla_breached": 0}),
+        # R3a (D7): card này pair với drill `?sla_breached_live=1` (đã scope="user")
+        # ⇒ PHẢI cùng chế độ, nếu không card ≠ số dòng người dùng bấm vào.
+        scope="user",
         fields=["name", "status", "open_datetime", "sla_target_hours",
                 "risk_class", "priority", "sla_breached",
                 # BR-09-10: clock-stop SoT cần hold data per-row (no N+1).
@@ -671,13 +989,83 @@ def check_repeat_failure(asset_ref: str) -> bool:
     })
 
 
+# ─── AC-CR-78 (INV-PARTS-1): SSoT trạng thái phiếu xuất kho của dòng vật tư ────
+#
+# MỘT predicate DUY NHẤT phục vụ HAI mặt của cùng một sự thật:
+#   * ENFORCEMENT — `validate_spare_parts_stock_entries` (BR-09-02, @before_submit);
+#   * DISPLAY     — `get_work_order` enrich `stock_entry_status`/`stock_entry_ok`
+#                   (mobile `getRepairWorkOrder` + màn CM-detail web).
+# Viết predicate lần thứ hai cho phía hiển thị chính là class-of-bug đã nổ 2 lần
+# (CR-54 thẻ G05, CR-76 thẻ G01/G03): badge nói "đạt" trong khi validator vẫn chặn.
+# ⇒ INVARIANT đo được: `parts_pending_stock_entry == 0` ⟺ validator KHÔNG raise.
+#
+# ⚠️ CỐ Ý **KHÔNG** `.strip()` giá trị `stock_entry_ref`: predicate phải mirror
+# BYTE-FOR-BYTE hành vi cũ (`if not row.stock_entry_ref` → MISSING; ngược lại tra
+# `frappe.db.exists`). Ref toàn khoảng trắng vẫn là NOT_FOUND như trước — đổi sang
+# MISSING sẽ đổi message-code observable của một nhánh đang chạy production.
+_DT_STOCK_MOVEMENT = "AC Stock Movement"
+_STOCK_ENTRY_STATUS = ("OK", "MISSING", "NOT_FOUND")
+
+
+def _spare_row_ref(row) -> str:
+    """`stock_entry_ref` của 1 dòng — nhận CẢ child Document lẫn dict (`as_dict`)."""
+    val = row.get("stock_entry_ref") if isinstance(row, dict) else getattr(
+        row, "stock_entry_ref", None)
+    return val or ""
+
+
+def _resolve_known_stock_entries(rows) -> set[str]:
+    """Tập `AC Stock Movement` CÓ THẬT trong các ref của `rows` — ĐÚNG 1 truy vấn.
+
+    Thay `frappe.db.exists` trong vòng lặp (N+1) bằng 1 `in`-batch. Tập ref rỗng ⇒
+    trả `set()` NGAY (0 truy vấn) — phiếu chưa dùng vật tư là ca phổ biến nhất.
+
+    Dùng `frappe.get_all` (KHÔNG permission-aware) CÓ CHỦ Ý: đây là existence-check
+    hạ tầng, đối xứng `frappe.db.exists` cũ. Chạy permission-aware sẽ tạo dead-gate —
+    KTV không có DocPerm trên `AC Stock Movement` sẽ thấy MỌI dòng là NOT_FOUND
+    (badge đỏ oan) trong khi test chạy Administrator vẫn xanh giả.
+    """
+    refs = {_spare_row_ref(r) for r in (rows or [])}
+    refs.discard("")
+    if not refs:
+        return set()
+    return set(frappe.get_all(_DT_STOCK_MOVEMENT,
+                              filters={"name": ["in", sorted(refs)]}, pluck="name"))
+
+
+def _spare_row_stock_status(row, known_refs: set[str]) -> str:
+    """Trạng thái phiếu xuất kho của MỘT dòng vật tư ∈ `_STOCK_ENTRY_STATUS`.
+
+    `MISSING`   — chưa có mã phiếu xuất kho (KTV chưa lĩnh vật tư).
+    `NOT_FOUND` — có mã nhưng bản ghi `AC Stock Movement` KHÔNG tồn tại (ref treo:
+                  phiếu bị xoá / gõ tay sai). Từ phía client, ref treo nhìn Y HỆT
+                  ref hợp lệ ⇒ chỉ server phân biệt được.
+    `OK`        — mã trỏ tới phiếu CÓ THẬT.
+    """
+    ref = _spare_row_ref(row)
+    if not ref:
+        return "MISSING"
+    if ref not in known_refs:
+        return "NOT_FOUND"
+    return "OK"
+
+
 def validate_spare_parts_stock_entries(doc) -> None:
-    """BR-09-02: Mỗi dòng Spare Parts phải có stock_entry_ref trỏ đến AC Stock Movement."""
-    for row in (doc.spare_parts_used or []):
-        if not row.stock_entry_ref:
+    """BR-09-02: Mỗi dòng Spare Parts phải có stock_entry_ref trỏ đến AC Stock Movement.
+
+    AC-CR-78: chuyển sang predicate SSoT `_spare_row_stock_status` (dùng CHUNG với
+    lớp hiển thị) — hành vi observable GIỮ NGUYÊN 100%: cùng 2 message-code, cùng
+    context, cùng thứ tự raise theo `idx` tăng dần (dòng SAI ĐẦU TIÊN là dòng được
+    báo). Khác biệt duy nhất: 1 truy vấn batched thay cho N lần `frappe.db.exists`.
+    """
+    rows = list(doc.spare_parts_used or [])
+    known_refs = _resolve_known_stock_entries(rows)
+    for row in rows:
+        status = _spare_row_stock_status(row, known_refs)
+        if status == "MISSING":
             nthrow_in_hook(MSG.IMM09_SPARE_NO_STOCK_ENTRY,
                            item_name=row.item_name, idx=row.idx)
-        if not frappe.db.exists("AC Stock Movement", row.stock_entry_ref):
+        if status == "NOT_FOUND":
             nthrow_in_hook(MSG.IMM09_STOCK_ENTRY_NOT_FOUND,
                            stock_entry_ref=row.stock_entry_ref)
 
@@ -847,6 +1235,9 @@ def _log_lifecycle_event(*, asset: str, event_type: str, from_status: str,
 def check_repair_sla_breach() -> None:
     """Hourly: kiểm tra WO đang vượt SLA."""
     active_wos, _ = RepairRepo.list(
+        # R1 (ADR §8.4 + §8.3b): scheduler hourly — KHÔNG có session-user, phải quét
+        # TOÀN viện ⇒ "internal" (bỏ CẢ role-gate; job không chạy dưới danh tính user).
+        scope="internal",
         filters={"status": ("in", [RepairStatus.ASSIGNED, RepairStatus.DIAGNOSING,
                                     RepairStatus.PENDING_PARTS, RepairStatus.IN_REPAIR]),
                  "docstatus": 0},
@@ -881,6 +1272,9 @@ def check_repair_overdue() -> None:
     """Daily 07:00: tổng hợp WO chưa hoàn thành quá 7 ngày."""
     cutoff = add_days(nowdate(), -7)
     overdue, _ = RepairRepo.list(
+        # R2 (ADR §8.4 + §8.3b): scheduler daily 07:00 — gửi mail Repair Manager, quét
+        # toàn viện ⇒ "internal" (cùng lý do R1).
+        scope="internal",
         filters={"status": ("in", [RepairStatus.OPEN, RepairStatus.ASSIGNED, RepairStatus.PENDING_PARTS]),
                  "open_datetime": ("<", cutoff),
                  "docstatus": 0},
@@ -1009,6 +1403,28 @@ _LIST_WO_FIELDS = [
     "parts_hold_hours", "parts_hold_started",
 ]
 
+# AC-CR-79 — SSoT DUY NHẤT tập khoá `filters` được honor bởi `list_work_orders`.
+# Khoá ngoài tập này ⇒ 400 IN-ENVELOPE (KHÔNG còn OperationalError 1054 → HTTP-500
+# lộ `tabAsset Repair.<cột>`). OAS `RepairWorkOrderFilters` + guard `cr79_*` ĐỌC/SO
+# THẲNG hằng này. Mỗi khoá có consumer THẬT (`05 §14.2`).
+# CỐ Ý loại: `parts_hold_hours`/`parts_hold_started` (nội bộ đồng-hồ-dừng BR-09-10 —
+# `parts_hold_started` còn bị `_finalize_list_row` POP khỏi payload ⇒ cho filter theo
+# nó là quảng cáo một khoá client không bao giờ thấy), workflow_state, incident_report,
+# is_warranty_claim, warranty_claim_ref, firmware_updated, firmware_change_request,
+# serial_no, asset_category, requested_by, assigned_by, assigned_datetime, dept_head_*,
+# total_parts_cost, cannot_repair_reason, source_pm_wo + 3 child table.
+_ALLOWED_FILTER_KEYS = frozenset({
+    # ── cột THẬT trên `Asset Repair` (đều ∈ `_LIST_WO_FIELDS`) ───────────────
+    "name", "status", "asset_ref", "asset_name", "assigned_to",
+    "priority", "repair_type", "risk_class", "root_cause_category",
+    "sla_breached", "sla_target_hours", "is_repeat_failure",
+    "open_datetime", "completion_datetime", "mttr_hours",
+    # ── khoá ẢO (bị pop/dịch TRƯỚC khi xuống `frappe.get_list`) ─────────────
+    "open",                # → `_apply_open_drill` → `open_repair_filter` (BR-09-08)
+    "sla_breached_live",   # → `_list_sla_breached_live` (chip mobile "Quá hạn SLA")
+    "search",              # → `pop_search` (OR-LIKE name/asset_ref + asset_name)
+})
+
 
 def _finalize_list_row(r: dict) -> None:
     """Post-enrich per-row list Asset Repair (dùng chung path chính + filter LIVE):
@@ -1019,7 +1435,7 @@ def _finalize_list_row(r: dict) -> None:
     r.pop("parts_hold_started", None)
 
 
-def _fetch_all_repair_rows(filters: dict, *, fields: list[str],
+def _fetch_all_repair_rows(filters: dict, *, fields: list[str], scope: str,
                            order_by: str = "open_datetime desc",
                            or_filters: list | None = None) -> list[dict]:
     """Fetch TOÀN tập Asset Repair khớp `filters` — UNCLAMPED (loop-paginate qua
@@ -1032,12 +1448,17 @@ def _fetch_all_repair_rows(filters: dict, *, fields: list[str],
     total đã đếm tầng Repo) ⇒ predicate LIVE (`_row_is_live_overdue` /
     `_enrich_sla_breach`) áp trên TOÀN tập permission/vendor-scoped (scope nằm
     trong `filters` — caller đã `_normalize_filters`/`open_repair_filter`). Mirror
-    imm08 `_fetch_all_pm_rows` (pattern đã de-risked)."""
+    imm08 `_fetch_all_pm_rows` (pattern đã de-risked).
+
+    R3 (ADR-IMM00-LIST-SCOPE §8.4): `scope` là **keyword BẮT BUỘC, KHÔNG default
+    ẩn** — helper này phục vụ cả card KPI lẫn chip list nên caller phải khai tường
+    minh; default ẩn ở đây = nguồn lệch card-vs-drill âm thầm (D7)."""
     all_rows: list[dict] = []
     page = 1
     total_pages = 1
     while page <= total_pages:
         rows, pg = RepairRepo.list(
+            scope=scope,
             filters=filters,
             or_filters=or_filters,
             fields=fields,
@@ -1071,6 +1492,9 @@ def _list_sla_breached_live(base_filters: dict, *, or_filters: list | None = Non
     """
     all_rows = _fetch_all_repair_rows(
         _normalize_filters(_apply_open_drill(base_filters)),
+        # R3b (ADR §8.4): chip LIVE = endpoint list NGƯỜI DÙNG (membership == badge)
+        # ⇒ row-scoped như path chính `list_work_orders`.
+        scope="user",
         fields=_LIST_WO_FIELDS,
         order_by="open_datetime desc",
         or_filters=or_filters,
@@ -1086,6 +1510,27 @@ def _list_sla_breached_live(base_filters: dict, *, or_filters: list | None = Non
 
 
 def list_work_orders(filters: dict, *, page: int = 1, page_size: int = 20) -> dict:
+    """Entrypoint list phiếu CM — BR-00-ROWSCOPE-403 boundary.
+
+    Rows đi `scope="user"` (D4) ⇒ persona KHÔNG có DocPerm read trên `Asset Repair`
+    (Calibration/Corrective/PM User, Vendor Engineer — ADR §8.5) sẽ làm
+    `frappe.get_list` raise `PermissionError`. `run_rowscoped` chuyển nó thành
+    **HTTP-200 + Error envelope 403**, KHÔNG để bubble thành 500 câm và KHÔNG trả
+    list rỗng giả (silent-empty che RBAC misconfig).
+
+    AC-CR-79: khoá `filters` ngoài `_ALLOWED_FILTER_KEYS` ⇒ **400 IN-ENVELOPE**
+    (trước đây `OperationalError 1054` bubble → HTTP-500 lộ `tabAsset Repair.<cột>`).
+    """
+    # AC-CR-79: validate TRƯỚC pop `sla_breached_live` / `pop_search` /
+    # `_apply_open_drill` / `_normalize_filters` ⇒ 3 khoá ảo còn nguyên lúc kiểm
+    # (nên PHẢI ∈ whitelist) và ngữ nghĩa KHÔNG đổi — `open` vẫn thua `status`
+    # đơn lẻ. Đặt NGOÀI `run_rowscoped` vì `ServiceError` ≠ `PermissionError`
+    # ⇒ không bị nhánh 403 nuốt.
+    assert_allowed_filter_keys(filters, _ALLOWED_FILTER_KEYS)
+    return run_rowscoped(_list_work_orders, filters, page=page, page_size=page_size)
+
+
+def _list_work_orders(filters: dict, *, page: int = 1, page_size: int = 20) -> dict:
     # POP cờ ảo `sla_breached_live` TRƯỚC _normalize_filters (mirror _apply_open_drill
     # pop `open`) — tránh đẩy 1 cột KHÔNG tồn tại vào frappe.get_all. Truthy → nhánh
     # membership LIVE (chip 'Quá hạn SLA'); absent/falsy → path CŨ byte-identical.
@@ -1106,6 +1551,9 @@ def list_work_orders(filters: dict, *, page: int = 1, page_size: int = 20) -> di
     if str(want_sla_live) in ("1", "True", "true"):
         return _list_sla_breached_live(base, or_filters=or_filters, page=page, page_size=page_size)
     rows, pg = RepairRepo.list(
+        # R4 (ADR §8.4): endpoint list NGƯỜI DÙNG — row-scoped `assigned_to` (D4),
+        # KHỚP write-gate `_assert_can_attach_repair_photo` (đọc được ⇒ ghi được).
+        scope="user",
         filters=_normalize_filters(_apply_open_drill(base)),
         or_filters=or_filters,
         fields=_LIST_WO_FIELDS,
@@ -1125,11 +1573,46 @@ def list_work_orders(filters: dict, *, page: int = 1, page_size: int = 20) -> di
     return {"data": rows, "pagination": pg}
 
 
+@rowscoped
 def get_work_order(name: str) -> dict:
-    doc = RepairRepo.get(name)
+    """Chi tiết 1 Asset Repair (màn CM-detail web + mobile `getRepairWorkOrder`).
+
+    CR-74 (ADR-IMM00-LIST-SCOPE §9.4) — khuôn 3 lớp **ROLE → EXISTS → ROW**. Đây là op
+    ĐÓNG P0 "đọc được nhưng không đính được ảnh": L2 dùng ĐÚNG predicate
+    `frappe.has_permission('Asset Repair', doc=…)` mà `list_work_orders` (scope="user",
+    qua `asset_repair_query`) và write-gate `_assert_can_attach_repair_photo` đang dùng
+    ⇒ INVARIANT **thấy-trong-list ⇔ đọc-được ⇔ đính-ảnh-được** (INV-DETAIL-3).
+    L2 chạy trên doc ĐÃ load ở L1 ⇒ 0 query thêm; phần enrich phía dưới GIỮ NGUYÊN 100%
+    (payload success byte-identical — A7).
+    """
+    assert_doctype_read_permission(_DT_ASSET_REPAIR)   # L0 ROLE (trước exists — D9)
+    doc = RepairRepo.get(name)                         # L1 EXISTS
     if not doc:
         nthrow(MSG.IMM09_NOT_FOUND, name=name)
+    assert_can_read_doc(_DT_ASSET_REPAIR, doc)         # L2 ROW (hook has_permission)
     data = doc.as_dict()
+    # [AC-CR-78 / INV-PARTS-1] Vật tư đã dùng: phơi trạng thái phiếu xuất kho THẬT.
+    # Dòng vật tư đến qua `as_dict()` (child table nhúng sẵn) — trước vòng này client
+    # chỉ thấy `stock_entry_ref` thô ⇒ ref TREO hiển thị Y HỆT ref hợp lệ (badge xanh
+    # giả) trong khi `on_submit` vẫn chặn 422. Hai khoá derived tính bằng CÙNG predicate
+    # SSoT với validator BR-09-02 (`_spare_row_stock_status`) ⇒ thẻ hiển thị là TẤM
+    # GƯƠNG của enforcement, không phải bản diễn giải thứ hai (bài học CR-54/CR-76).
+    # Chi phí: ĐÚNG 1 truy vấn batched cho toàn phiếu, 0 truy vấn khi bảng rỗng.
+    # ⚠️ ĐẶT SAU khuôn 3 lớp CR-74 (ROLE→EXISTS→ROW) — persona không đọc được nhận
+    # 403 in-envelope TRƯỚC KHI enrich chạy ⇒ body 403 không bao giờ chở dòng vật tư.
+    parts_rows = data.get("spare_parts_used") or []
+    known_stock_entries = _resolve_known_stock_entries(doc.spare_parts_used or [])
+    parts_pending = 0
+    for part_row in parts_rows:
+        status = _spare_row_stock_status(part_row, known_stock_entries)
+        part_row["stock_entry_status"] = status
+        # int THUẦN 0|1 (quirk CR-01) — bool serialize thành true/false ⇒ codegen
+        # Dart/Kotlin khai `integer enum[0,1]` sẽ parse-fail (LL-BE-50).
+        part_row["stock_entry_ok"] = 1 if status == "OK" else 0
+        parts_pending += 0 if status == "OK" else 1
+    data["spare_parts_used"] = parts_rows
+    # Tổng hợp cho client cảnh báo TRƯỚC khi bấm hoàn tất (thay vì ăn 422 ở on_submit).
+    data["parts_pending_stock_entry"] = parts_pending
     asset_info = AssetRepo.get_value(
         doc.asset_ref,
         ["asset_name", "asset_category", "lifecycle_status", "risk_classification",
@@ -1166,6 +1649,27 @@ def get_work_order(name: str) -> dict:
     # Server-driven CTA (mirror imm12.py:778 R3 + imm08.py:651 R21): client render
     # nút workflow trên màn repair-detail theo SERVER (KHÔNG hardcode status→button).
     data["allowed_transitions"] = _REPAIR_VALID_TRANSITIONS.get(doc.status, [])
+    # [AC-CR-82 / INV-CMCTA-1] 6 CTA server-driven — ĐÓNG nửa CM của mobile CR-74
+    # (nửa PM = AC-CR-77). Thuần ADDITIVE cạnh `allowed_transitions` (2 khoá cùng tồn
+    # tại với 2 NGỮ NGHĨA khác nhau: bảng trạng-thái-kế vs hành động bấm được). Hết
+    # cảnh client TỰ DIỄN GIẢI bảng transition thành nút ⇒ hết "nút hiện cho mọi
+    # người rồi để BE từ chối". READ-ONLY (0 save/lifecycle/audit; ≤1 truy vấn thêm
+    # và CHỈ ở 'Pending Inspection' — nhánh SoD).
+    # [AC-CR-84 / BR-09-23] 3 khoá cổng ẢNH BẰNG CHỨNG NĐ98 — emit VÔ ĐIỀU KIỆN (mọi
+    # phiếu, mọi trạng thái; vắng khoá KHÔNG có nghĩa "không có cổng"). Dùng CHÍNH
+    # predicate mà `close_work_order`/`confirm_inspection` ném theo ⇒ **INV-CMEVID-1**:
+    # mảng client thấy == ĐÚNG tập server từ chối (không diễn giải thứ hai). `_rc` đã đọc
+    # từ `asset_info` ở trên ⇒ **0 truy vấn thêm** (INV-CMCTA-10 giữ ngưỡng ≤1).
+    # `evidence_photo_required` là int THUẦN 0|1 — bool serialize thành true/false ⇒
+    # codegen Dart/Kotlin khai `integer enum[0,1]` sẽ parse-fail (quirk CR-01 / LL-BE-50).
+    _rc = data["risk_classification"]
+    data["evidence_photo_required"] = 1 if _repair_evidence_gate_applies(_rc) else 0
+    data["evidence_photo_missing_idxs"] = _repair_evidence_missing_idxs(doc, _rc)
+    data["evidence_photo_total_required"] = (
+        sum(1 for r in (doc.repair_checklist or []) if _repair_row_is_persisted(r))
+        if data["evidence_photo_required"] else 0)
+    data["available_actions"] = _build_repair_available_actions(
+        doc, risk_classification=_rc)
     # CR-37 (mobile parity list↔detail, cận an-toàn người bệnh): phơi cờ LIVE
     # `is_sla_breached` (Python bool) BÊN CẠNH cờ thô STORED `sla_breached` — badge
     # 'Vi phạm SLA' màn repair-detail KHÔNG trễ tới đầu-giờ-kế của scheduler
@@ -1220,6 +1724,27 @@ def _repair_photo_validation_error(msg: str) -> ServiceError:
     return ServiceError(ErrorCode.VALIDATION, msg, http_status=422, fields={"file": msg})
 
 
+def _assert_repair_photo_attachable(wo) -> None:
+    """[AC-CR-85] Chặn đính ảnh vào phiếu ĐÃ KẾT THÚC (hồ sơ NĐ98 đã chốt).
+
+    Vì sao cần guard RIÊNG: `attach_repair_checklist_photo` ghi bằng
+    ``frappe.db.set_value("Repair Checklist", …)`` (cố ý — anti-pattern #10, tránh
+    `wo.save()` re-run gate BR-09-04) ⇒ nó đi VÒNG QUA bất biến immutability của Frappe
+    và bồi được ảnh vào phiếu ``docstatus=1``. Hai nhánh PHẢI cùng chặn:
+
+    * ``docstatus != 0`` — phiếu đã submit (nghiệm thu xong) hoặc đã cancel;
+    * ``status ∈ REPAIR_TERMINAL_STATES`` — 'Cannot Repair' đóng phiếu bằng
+      ``RepairRepo.save`` nên ``docstatus`` VẪN 0 (đọc docstatus thôi là hở).
+
+    'Pending Inspection' **KHÔNG** bị chặn: đó là đường khắc phục DUY NHẤT khi thiết bị
+    được tái phân loại lên nhóm nguy cơ cao sau khi phiếu đã đóng (AC-CR-85 / TC-16).
+
+    Lỗi VALIDATION Decision-B (`fields.file`) ⇒ HTTP-200 + envelope, KHÔNG 417/500 thô.
+    """
+    if int(wo.docstatus or 0) != 0 or (wo.status or "") in REPAIR_TERMINAL_STATES:
+        raise _repair_photo_validation_error(_MSG_REPAIR_PHOTO_WO_FINISHED)
+
+
 def _repair_photo_envelope(file_url: str, file_name: str, checklist_item_idx) -> dict:
     """Envelope success DUY NHẤT của attach_repair_checklist_photo (EXACT 3-key OAS closed).
 
@@ -1246,7 +1771,9 @@ def attach_repair_checklist_photo(
     ĐỐI XỨNG VERBATIM thứ tự reject-before-insert của `attach_pm_checklist_photo`
     (imm08) — KHÁC module/doctype/discriminator. Mọi nhánh reject TRƯỚC `File.insert`:
     exists(WO) NOT_FOUND → permission (assignee/repair.write) FORBIDDEN → idx hợp lệ
-    (row khớp Frappe child `idx` trong wo.repair_checklist) VALIDATION → file present →
+    (row khớp Frappe child `idx` trong wo.repair_checklist) VALIDATION → [AC-CR-85]
+    phiếu CHƯA kết thúc (`_assert_repair_photo_attachable`, SAU dedupe pre-check) →
+    file present →
     content-type ∈ {jpg,png} → size ≤ cap → max-count/mục → `File.insert(is_private=1,
     attached_to='Asset Repair'/WO)` → set `row.photo=file_url` (`frappe.db.set_value` —
     KHÔNG `wo.save()` re-run validate_repair_checklist_complete/gate BR-09-04 giữa lúc
@@ -1296,6 +1823,11 @@ def attach_repair_checklist_photo(
         if existing:
             return _repair_photo_envelope(
                 existing.file_url, existing.file_name, checklist_item_idx)
+    # [AC-CR-85] Guard phiếu-đã-kết-thúc — SAU dedupe pre-check, TRƯỚC validation ladder.
+    # Vị trí là một phần hợp đồng: re-drain write-outbox của ảnh ĐÃ đính (client mất mạng,
+    # đồng bộ lại sau khi phiếu đã nghiệm thu) vẫn trả success VERBATIM (0 false-error →
+    # markFailed), trong khi ảnh MỚI trên phiếu đã chốt bị từ chối IN-ENVELOPE.
+    _assert_repair_photo_attachable(wo)
     if not filedata:
         raise _repair_photo_validation_error(_MSG_REPAIR_PHOTO_MISSING)
     ct = (content_type or "").split(";")[0].strip().lower()
@@ -1523,7 +2055,10 @@ def assign_technician(name: str, *, technician: str, priority: str = "") -> dict
     doc = RepairRepo.get(name)
     if not doc:
         nthrow(MSG.IMM09_NOT_FOUND, name=name)
-    if doc.status != RepairStatus.OPEN:
+    # AC-CR-82: đọc SSoT `_ASSIGN_FROM` (CÙNG hằng builder advertise) — KHÔNG lặp
+    # literal status ở 2 nơi. Message-code + context `expected` GIỮ NGUYÊN VERBATIM
+    # (hành vi observable không đổi).
+    if doc.status not in _ASSIGN_FROM:
         nthrow(MSG.IMM09_BAD_STATE, state=doc.status, expected=RepairStatus.OPEN)
     # R25 dispatch-validation gate (BR-09-DISPATCH): chặn giao việc cho technician
     # không hợp lệ (không tồn tại / disabled / không repair-capable) TRƯỚC khi set
@@ -1547,7 +2082,8 @@ def submit_diagnosis(name: str, *, diagnosis_notes: str, needs_parts: int = 0) -
     doc = RepairRepo.get(name)
     if not doc:
         nthrow(MSG.IMM09_NOT_FOUND, name=name)
-    if doc.status not in (RepairStatus.ASSIGNED, RepairStatus.DIAGNOSING):
+    # AC-CR-82: SSoT `_DIAGNOSIS_FROM` (CÙNG hằng builder advertise).
+    if doc.status not in _DIAGNOSIS_FROM:
         nthrow(MSG.IMM09_BAD_STATE, state=doc.status,
                expected="Assigned/Diagnosing")
     doc.diagnosis_notes = diagnosis_notes
@@ -1571,7 +2107,8 @@ def start_repair(name: str) -> dict:
     doc = RepairRepo.get(name)
     if not doc:
         nthrow(MSG.IMM09_NOT_FOUND, name=name)
-    if doc.status not in (RepairStatus.ASSIGNED, RepairStatus.DIAGNOSING, RepairStatus.PENDING_PARTS):
+    # AC-CR-82: SSoT `_START_FROM` (CÙNG hằng builder advertise).
+    if doc.status not in _START_FROM:
         nthrow(MSG.IMM09_BAD_STATE, state=doc.status,
                expected="Assigned/Diagnosing/Pending Parts")
     # BR-09-10 EXIT hold: rời Pending Parts ⇒ chốt khoảng hold vào parts_hold_hours,
@@ -1607,7 +2144,13 @@ def request_spare_parts(name: str, parts: list[dict]) -> dict:
     # Gate 2 — IMM-09 → IMM-15: tạo allocation Requested để spare-parts truy về kho
     allocation_name: str | None = None
     try:
-        from assetcore.services.imm15 import create_allocation  # noqa: PLC0415
+        # ADR-IMM09-SPARE-03: seam KHÔNG-whitelist gate bằng capability PHÍA LỆNH
+        # CÔNG VIỆC (`repair.create`) thay vì `inventory.write` — persona "Kỹ thuật
+        # viên" không có role kho, dùng `create_allocation` sẽ FORBIDDEN rồi bị
+        # `except` dưới nuốt ⇒ `success:true` + `allocation:null` ("allocation câm").
+        # Xuất kho thật (approve/issue/reject) VẪN giữ nguyên gate `inventory.*`.
+        from assetcore.services.imm15 import (  # noqa: PLC0415
+            create_allocation_for_work_order as create_allocation)
         items = [
             {"spare_part": p.get("spare_part") or p.get("item_code"),
              "qty_requested": p.get("qty") or p.get("qty_requested") or 1}
@@ -1707,13 +2250,15 @@ def close_work_order(name: str, *, repair_summary: str, root_cause_category: str
         nthrow(MSG.IMM09_NOT_FOUND, name=name)
 
     if int(cannot_repair):
-        if doc.status not in (RepairStatus.IN_REPAIR, RepairStatus.DIAGNOSING,
-                              RepairStatus.PENDING_PARTS, RepairStatus.ASSIGNED):
+        # AC-CR-82: SSoT `_CANNOT_REPAIR_FROM` (D-CM-5 — enforcement RỘNG HƠN
+        # workflow JSON, backlog B3). CTA advertise theo `_CLOSE_FROM` (hẹp hơn).
+        if doc.status not in _CANNOT_REPAIR_FROM:
             nthrow(MSG.IMM09_BAD_STATE, state=doc.status,
                    expected="In Repair/Diagnosing/Pending Parts/Assigned")
         return _mark_cannot_repair(doc, name, cannot_repair_reason)
 
-    if doc.status != RepairStatus.IN_REPAIR:
+    # AC-CR-82: SSoT `_CLOSE_FROM` (CÙNG hằng builder advertise).
+    if doc.status not in _CLOSE_FROM:
         # Race re-drain (winner CÙNG key đã close + set cache GIỮA pre-check và đây):
         #   re-read cache khớp key ⇒ trả replay idempotent thay vì BAD_STATE (chống
         #   false-error markFailed). Key KHÁC/rỗng ⇒ MISS ⇒ GIỮ 422 BAD_STATE (guard
@@ -1737,6 +2282,28 @@ def close_work_order(name: str, *, repair_summary: str, root_cause_category: str
         doc.firmware_change_request = firmware_change_request
     if checklist_results:
         _apply_checklist(doc, checklist_results)
+
+    # ─── [AC-CR-84 / BR-09-23] Cổng ẢNH BẰNG CHỨNG NĐ98 (Class C/D) ───────────
+    # VỊ TRÍ LÀ MỘT PHẦN HỢP ĐỒNG (`05 §16.3-P1`):
+    #   • SAU `_apply_checklist` — phiếu legacy 0 dòng được append dòng TẠI ĐÓ; chạy
+    #     trước thì predicate nhìn nhầm "checklist rỗng ⇒ không chặn".
+    #   • TRƯỚC mọi lệnh lưu (`_apply_spare_parts`/`doc.status=`/`RepairRepo.save`) ⇒
+    #     bị chặn = **0 byte ghi DB** (INV-CMEVID-5): đọc lại doc vẫn 'In Repair', 4
+    #     field chưa ghi. Guard đứng trước nên KHÔNG cần rollback thủ công.
+    #   • KHÔNG set cache idempotency ở nhánh bị chặn — envelope lỗi không phải kết
+    #     quả để replay.
+    # Nhánh `cannot_repair=1` đã `return _mark_cannot_repair(...)` phía trên ⇒ MIỄN cổng
+    # này. Đó là QUYẾT ĐỊNH (ADR-IMM09-EVIDENCE-04: thiết bị không sửa được thì không có
+    # bằng chứng nghiệm thu để chụp; ép ảnh = ngõ cụt cho đúng ca xấu nhất), KHÔNG phải sót.
+    _missing = _repair_evidence_missing_idxs(doc)
+    if _missing:
+        nthrow(
+            MSG.IMM09_EVIDENCE_PHOTO_REQUIRED,
+            fields={"repair_checklist": _MSG_REPAIR_EVIDENCE_FIELD.format(
+                idxs=", ".join(f"#{i}" for i in _missing))},
+            missing_count=len(_missing), missing_idxs=_missing,
+        )
+
     if spare_parts:
         _apply_spare_parts(doc, spare_parts)
 
@@ -1815,7 +2382,8 @@ def confirm_inspection(name: str) -> dict:
     doc = RepairRepo.get(name)
     if not doc:
         nthrow(MSG.IMM09_NOT_FOUND, name=name)
-    if doc.status != RepairStatus.PENDING_INSPECTION:
+    # AC-CR-82: SSoT `_CONFIRM_FROM` (CÙNG hằng builder advertise).
+    if doc.status not in _CONFIRM_FROM:
         nthrow(MSG.IMM09_BAD_STATE, state=doc.status,
                expected=RepairStatus.PENDING_INSPECTION)
 
@@ -1829,6 +2397,22 @@ def confirm_inspection(name: str) -> dict:
         frappe.logger("imm09").debug(
             f"confirm_inspection {name}: closer unknown (no repair_pending_inspection "
             "lifecycle event) — fail-open self-inspect check")
+
+    # ─── [AC-CR-84 / BR-09-23] Pre-check CHỐNG LÁCH, TRƯỚC doc.submit() ───────
+    # Vì sao cần bậc riêng dù `close_work_order` đã gác (`05 §16.3-P2`): `status` có thể
+    # bị đưa về 'Pending Inspection' KHÔNG QUA `close_work_order` (Desk, `_generic_update`,
+    # script) ⇒ cổng P1 bị vòng qua. Cùng lớp lỗ mà BR-09-19b đã phải bịt cho FCR.
+    # KHÔNG đẩy xuống hook `before_submit`: hook ném qua `nthrow_in_hook` →
+    # `frappe.ValidationError` → **HTTP-417 THÔ**, ra ngoài envelope (bài học AC-CR-83).
+    # Thứ tự guard INV-CMEVID-6: NOT_FOUND → BAD_STATE → SoD → **evidence** → submit().
+    _missing = _repair_evidence_missing_idxs(doc)
+    if _missing:
+        nthrow(
+            MSG.IMM09_EVIDENCE_PHOTO_REQUIRED,
+            fields={"repair_checklist": _MSG_REPAIR_EVIDENCE_FIELD.format(
+                idxs=", ".join(f"#{i}" for i in _missing))},
+            missing_count=len(_missing), missing_idxs=_missing,
+        )
 
     doc.dept_head_confirmation_datetime = now_datetime()
     doc.flags.ignore_links = True
@@ -2013,33 +2597,168 @@ def get_kpis(year: int, month: int) -> dict:
     }
 
 
+@rowscoped
 def get_asset_history(asset_ref: str, *, limit: int = 10) -> dict:
-    history, _ = RepairRepo.list(
+    history, pg = RepairRepo.list(
+        # R5 (ADR §8.4 / D6 device-centric): lịch sử sửa chữa CỦA THIẾT BỊ — traceability
+        # WHO HTM gắn với vòng đời THIẾT BỊ, không gắn danh tính người thực hiện (KTV sắp
+        # sửa máy PHẢI đọc được hỏng hóc đồng nghiệp xử lý trước). Payload read-only,
+        # KHÔNG nút hành động, KHÔNG dùng làm căn cứ cấp quyền.
+        scope="system",
         filters={"asset_ref": asset_ref, "docstatus": 1},
         fields=["name", "repair_type", "priority", "open_datetime", "completion_datetime",
                 "mttr_hours", "sla_breached", "root_cause_category", "repair_summary"],
         order_by="open_datetime desc",
-        page_size=int(limit),
+        # PARITY `limit` giữa 3 tab cùng màn hồ-sơ-thiết-bị (imm08/imm09/imm12):
+        # CLAMP bằng SSoT `clamp_page_size` với default **10 = default CỦA CHÍNH
+        # ENDPOINT NÀY**. Truyền `int(limit)` thô thì `limit=0` (falsy) rơi vào
+        # default **20 của `paginate`**, lệch với imm12 (clamp default 10) ⇒ cùng
+        # `limit=0` mà 2 tab trả số dòng khác nhau. `pg["page_size"]` sau đó ==
+        # giá trị đã clamp (idempotent) nên vẫn là SSoT trần THỰC ÁP.
+        page_size=clamp_page_size(limit, 10),
     )
-    return {"asset_ref": asset_ref, "history": history}
+    # CR-69 hợp đồng TRUNG THỰC khi cắt: KTV/kỹ sư trưởng đọc chính tab này để
+    # quyết định SỬA TIẾP hay ĐỀ NGHỊ THANH LÝ — thấy 10 lần hỏng ≠ biết máy đã
+    # hỏng 34 lần ⇒ phải công bố total/truncated thay vì cắt IM LẶNG.
+    # `pg["total"]` = COUNT DB trên ĐÚNG filter {asset_ref, docstatus:1} (CÙNG
+    # predicate với rows — phiếu Draft KHÔNG lọt vào total, nếu không sẽ báo cắt
+    # OAN) và CÙNG engine scope="system" (count_ignore_permissions + get_all,
+    # repositories/base.py:161-172) ⇒ ZERO query COUNT thêm.
+    # Cap = `pg["page_size"]` (paginate CLAMP [1,100]), KHÔNG phải `limit` thô.
+    total, truncated = truncation_meta(
+        len(history), int(pg["page_size"]), lambda: int(pg["total"]))
+    return {"asset_ref": asset_ref, "history": history,
+            "total": total, "truncated": truncated}
 
 
+#: DocType cha của child table `IMM Device Spare Part` (danh mục phụ tùng THEO MODEL).
+#: Child table KHÔNG có DocPerm riêng ⇒ quyền đọc thừa kế từ parent DocType này.
+_DT_DEVICE_MODEL = "IMM Device Model"
+#: Master phụ tùng kho — chỉ dùng để resolve KHOÁ CHÍNH (`name`), xem ADR-IMM09-SPARE-02.
+_DT_AC_SPARE_PART = "AC Spare Part"
+
+
+def _batch_device_model_names(parents: list[str]) -> dict[str, str]:
+    """P1 §3.13-bis(5) — 1 truy vấn cho TOÀN BỘ trang: `device_model` → `model_name`.
+
+    Fallback (caller): model không đọc được / `model_name` rỗng ⇒ dùng chính ID model
+    làm nhãn — dòng gợi ý MẤT nhãn sẽ quay lại đúng trạng thái nhập nhằng mà CR-73a xoá.
+    """
+    if not parents:
+        return {}
+    return {
+        m["name"]: (m.get("model_name") or "")
+        for m in frappe.get_all(_DT_DEVICE_MODEL, filters={"name": ["in", parents]},
+                                fields=["name", "model_name"])
+    }
+
+
+def _batch_resolve_spare_parts(rows: list[dict]) -> dict[tuple[str, str], str]:
+    """P2+P3 §3.13-bis(4)(5) — resolve `AC Spare Part.name` cho CẢ trang, ≤2 truy vấn.
+
+    Quy tắc DETERMINISTIC đã ratify (A4, ADR-IMM09-SPARE-01/02):
+      1. Ưu tiên `manufacturer_part_no` (định danh 1-1 với vật tư thật).
+      2. Fallback `part_name` (chuỗi mô tả người nhập gõ ⇒ trùng lặp cao) — CHỈ khi (1)
+         không cho kết quả hoặc MPN rỗng.
+      3. `is_active = 1` cả 2 nhánh (phụ tùng ngừng dùng ⇒ allocation không bao giờ cấp được).
+      4. Nhiều khớp ⇒ `order_by name asc`, lấy phần tử ĐẦU TIÊN (ổn định, không phụ
+         thuộc thứ tự DB trả về). 0 khớp ⇒ `""`.
+      5. EXACT equality, KHÔNG `LIKE`, KHÔNG `LOWER()` (sẽ phá index).
+
+    **System-scope có chủ đích** (ADR-IMM09-SPARE-02): persona "Kỹ thuật viên" KHÔNG có
+    DocPerm trên `AC Spare Part`/`AC Spare Part Stock`; resolve permission-aware sẽ trả
+    `""` cho ĐÚNG người dùng chính (dead-gate) trong khi test chạy `Administrator` vẫn
+    xanh giả. Bù lại, hàm chỉ phát KHOÁ CHÍNH opaque — **0 trường nghiệp vụ** (giá kho,
+    nhà cung cấp, tồn kho, specifications).
+
+    Returns:
+        map `(manufacturer_part_no, part_name)` → `AC Spare Part.name` (khoá đúng CẶP
+        của row ⇒ 2 row cùng MPN nhưng khác tên vẫn resolve độc lập).
+    """
+    mpns = sorted({(r.get("manufacturer_part_no") or "").strip() for r in rows} - {""})
+    by_mpn: dict[str, str] = {}
+    if mpns:
+        # `order_by name asc` + `setdefault` ⇒ giữ bản ghi đầu tiên = name nhỏ nhất.
+        for sp in frappe.get_all(_DT_AC_SPARE_PART,
+                                 filters={"manufacturer_part_no": ["in", mpns], "is_active": 1},
+                                 fields=["name", "manufacturer_part_no"],
+                                 order_by="name asc"):
+            by_mpn.setdefault(sp["manufacturer_part_no"], sp["name"])
+
+    fallback_names = sorted({
+        (r.get("part_name") or "").strip() for r in rows
+        if not by_mpn.get((r.get("manufacturer_part_no") or "").strip())
+    } - {""})
+    by_name: dict[str, str] = {}
+    if fallback_names:  # BỎ QUA hẳn truy vấn khi mọi row đã resolve bằng MPN (≤2 phụ).
+        for sp in frappe.get_all(_DT_AC_SPARE_PART,
+                                 filters={"part_name": ["in", fallback_names], "is_active": 1},
+                                 fields=["name", "part_name"], order_by="name asc"):
+            by_name.setdefault(sp["part_name"], sp["name"])
+
+    resolved: dict[tuple[str, str], str] = {}
+    for r in rows:
+        mpn = (r.get("manufacturer_part_no") or "").strip()
+        pname = (r.get("part_name") or "").strip()
+        resolved[(mpn, pname)] = by_mpn.get(mpn) or by_name.get(pname) or ""
+    return resolved
+
+
+@rowscoped
 def search_spare_parts(query: str, *, limit: int = 10) -> list[dict]:
+    """Gợi ý phụ tùng cho phiếu CM — EXACT 13 khoá (CR-73a, BR-09-21).
+
+    Khoá nhận dạng của một gợi ý là **cặp `(device_model, phụ tùng)`**, KHÔNG phải
+    `part_name` (ADR-IMM09-SPARE-01): danh mục phụ tùng thiết bị y tế trùng tên là
+    chuyện thường ("Van PEEP", "Cảm biến SpO2") nhưng linh kiện của model A KHÔNG lắp
+    được cho model B — gộp `DISTINCT` ⇒ KTV cấp sai vật tư mà không truy vết được.
+
+    Gate quyền (§3.13-bis(6)): ROLE-scope trên ``IMM Device Model`` — child table
+    ``IMM Device Spare Part`` không có DocPerm riêng, và truy vấn dưới đây là
+    ``frappe.db.sql`` THÔ (0 permission tự động) ⇒ không gate thì mọi user (kể cả
+    ``Vendor Engineer``) đọc được toàn bộ danh mục phụ tùng + giá ước tính của mọi
+    model. ROW-scope KHÔNG áp (master data, ``IMM Device Model`` không có
+    ``permission_query_conditions``). ``@rowscoped`` chuyển ``PermissionError`` →
+    HTTP-200 + Error envelope ``FORBIDDEN`` (KHÔNG 500, KHÔNG list rỗng câm).
+
+    Args:
+        query: chuỗi tìm theo ``part_name`` hoặc ``manufacturer_part_no``; < 2 ký tự ⇒ ``[]``.
+        limit: trần **cặp (model, phụ tùng)** — KHÔNG còn là "số tên phụ tùng khác nhau"
+            (hệ quả có chủ đích của việc bỏ ``DISTINCT``, xem release note §3.13-bis(3)).
+
+    Returns:
+        list row-dict 13 khoá; 3 khoá nhận dạng (``device_model``, ``device_model_name``,
+        ``spare_part``) LUÔN có mặt, kiểu ``str``, vắng = ``""`` (KHÔNG ``None`` — OAS
+        ``SearchSparePartItem`` là closed-schema ``required`` đủ 13).
+    """
+    assert_doctype_read_permission(_DT_DEVICE_MODEL)
     if not query or len(query) < 2:
         return []
     rows = frappe.db.sql(
+        # KHÔNG `DISTINCT`: `parent` vào SELECT ⇒ 1 dòng / cặp (model, phụ tùng).
+        # `parenttype` lọc dữ liệu mồ côi (row của parent khác thì 2 khoá model vô nghĩa).
+        # Tie-break `parent ASC` ⇒ `LIMIT` cắt ỔN ĐỊNH giữa 2 lần gọi (không thì test
+        # flaky + UX nhảy dòng).
         """
-        SELECT DISTINCT part_name, manufacturer_part_no, estimated_cost
-        FROM `tabIMM Device Spare Part`
-        WHERE part_name LIKE %(q)s OR manufacturer_part_no LIKE %(q)s
-        ORDER BY part_name ASC
+        SELECT sp.parent AS device_model,
+               sp.part_name, sp.manufacturer_part_no, sp.estimated_cost
+        FROM `tabIMM Device Spare Part` sp
+        WHERE sp.parenttype = 'IMM Device Model'
+          AND (sp.part_name LIKE %(q)s OR sp.manufacturer_part_no LIKE %(q)s)
+        ORDER BY sp.part_name ASC, sp.parent ASC
         LIMIT %(lim)s
         """,
         {"q": f"%{query}%", "lim": int(limit)},
         as_dict=True,
     )
+    if not rows:
+        return []
+    model_names = _batch_device_model_names(
+        sorted({r.get("device_model") or "" for r in rows} - {""}))
+    spare_parts = _batch_resolve_spare_parts(rows)
     return [
         {
+            # ── 10 khoá cũ: GIỮ NGUYÊN tên + giá trị (A1 thuần ADDITIVE) ──────────
             "item_code": r.get("manufacturer_part_no") or r.get("part_name") or "",
             "item_name": r.get("part_name") or "",
             "manufacturer_part_no": r.get("manufacturer_part_no") or "",
@@ -2047,6 +2766,13 @@ def search_spare_parts(query: str, *, limit: int = 10) -> list[dict]:
             "unit_cost": float(r.get("estimated_cost") or 0),
             "total_cost": float(r.get("estimated_cost") or 0),
             "stock_entry_ref": "", "notes": "", "idx": 0,
+            # ── 3 khoá nhận dạng MỚI (CR-73a) ────────────────────────────────────
+            "device_model": r.get("device_model") or "",
+            "device_model_name": (model_names.get(r.get("device_model") or "")
+                                  or r.get("device_model") or ""),
+            "spare_part": spare_parts.get(
+                ((r.get("manufacturer_part_no") or "").strip(),
+                 (r.get("part_name") or "").strip()), ""),
         }
         for r in rows
     ]

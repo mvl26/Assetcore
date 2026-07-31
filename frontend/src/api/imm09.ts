@@ -4,6 +4,12 @@
 import { frappeGet, frappePost, type ApiResponse } from './helpers'
 import axiosClient from './axios'
 import { ApiError, ErrorCode, type ErrorCodeType } from './errors'
+import type { AvailableAction } from './imm00'
+
+// Re-export để consumer của IMM-09 (view/store/test) KHÔNG phải với sang api/imm00
+// lấy shape dùng chung. KHÔNG khai lại interface — một shape = một khai báo (nguồn:
+// `api/imm00.ts`, mirror schema OAS `AvailableAction`; IMM-08 làm y hệt sau AC-CR-77).
+export type { AvailableAction }
 
 export interface AssetRepair {
   name: string
@@ -70,7 +76,49 @@ export interface AssetRepair {
   dept_head_name: string
   total_parts_cost: number
   spare_parts_used: SparePartRow[]
+  /**
+   * AC-CR-78 / INV-PARTS-1 — SỐ DÒNG vật tư chưa có phiếu xuất kho HỢP LỆ
+   * (= số dòng `stock_entry_ok === 0`, gộp cả `MISSING` lẫn `NOT_FOUND`).
+   * Invariant BE: `= 0` ⟺ validator BR-09-02 KHÔNG chặn submit ⇒ FE cảnh báo TRƯỚC
+   * khi người dùng bấm hoàn tất thay vì để họ ăn 422 tại `on_submit`.
+   * Optional (worker chưa reload → undefined → KHÔNG hiện dải cảnh báo, KHÔNG vỡ).
+   */
+  parts_pending_stock_entry?: number
   repair_checklist: RepairChecklistRow[]
+  /**
+   * AC-CR-84 — CỔNG ẢNH BẰNG CHỨNG NĐ98 (đóng mobile CR-51, kèm CR-15). Cổng CÓ ÁP DỤNG
+   * cho phiếu này hay không: `1` ⟺ `risk_classification` ∈ {High, Critical} (nhóm nguy cơ
+   * cao). INTEGER `0|1` — KHÔNG boolean (quirk CR-01 / LL-BE-50: hợp đồng mobile khai
+   * integer; codegen Dart/Kotlin parse-fail nếu server phát true/false).
+   *
+   * ⚠️ Nguồn DUY NHẤT là `risk_classification` (verbatim `AC Asset.risk_classification`),
+   * KHÔNG phải `risk_class` (Class I/II/III — đầu vào ma trận SLA; ánh xạ MẤT MÁT: High và
+   * Critical cùng ra Class III, thiết bị CHƯA phân loại mặc định Class II). Chính vì suy từ
+   * `risk_class` mà cổng ảnh trước đây là CODE CHẾT trên client (LL-BE-58).
+   * Chuỗi rỗng '' (chưa phân loại) ⇒ `0` — 'chưa phân loại' KHÔNG suy thành nguy cơ cao.
+   *
+   * Optional — CỐ Ý (forward-compat, bài học CR-69 / AC-CR-82): worker BE chưa reload ⇒
+   * `undefined` ⇒ FE ẩn TOÀN BỘ khối bằng chứng (KHÔNG khẳng định "đã đủ ảnh", cũng KHÔNG
+   * suy "không có cổng" — cổng an toàn nằm ở SERVER, client chỉ HIỂN THỊ).
+   */
+  evidence_photo_required?: 0 | 1
+  /**
+   * AC-CR-84 / INV-CMEVID-1 — tập `idx` (1-based, CÙNG khoá `repair_checklist[].idx` dùng
+   * làm `checklist_item_idx` của `attach_repair_checklist_photo`) các mục nghiệm thu CÒN
+   * THIẾU ảnh bằng chứng. Đây là ĐÚNG tập mà `close_work_order` từ chối
+   * (`context.missing_idxs` của envelope `IMM09-EVIDENCE-PHOTO-REQUIRED`) — MỘT predicate
+   * SSoT, nhiều nơi đọc; FE KHÔNG được đếm lại từ `repair_checklist[].photo` (đó là bản
+   * diễn giải thứ hai — chính class-of-bug advertise≠enforce đang đóng).
+   * Rỗng `[]` ⟺ cổng ảnh KHÔNG chặn hoàn thành phiếu. Optional cùng lý do forward-compat.
+   */
+  evidence_photo_missing_idxs?: number[]
+  /**
+   * AC-CR-84 — MẪU SỐ: số mục nghiệm thu PHẢI có ảnh (= số dòng `repair_checklist` đã lưu
+   * khi cổng áp dụng; `0` khi cổng không áp dụng). Tiến độ hiển thị =
+   * `evidence_photo_total_required − evidence_photo_missing_idxs.length` / mẫu số này.
+   * Optional cùng lý do forward-compat.
+   */
+  evidence_photo_total_required?: number
   /**
    * SSoT server-driven CTA (GATE-8 / LL-FE-51): danh sách trạng thái-đích hợp lệ
    * kế tiếp mà BE cho phép, do `get_repair_work_order` emit =
@@ -78,8 +126,38 @@ export interface AssetRepair {
    * bằng `capability && allowed_transitions.includes('<đích>')` — KHÔNG tự suy diễn
    * theo `status === 'X'`. Terminal (Completed/Cannot Repair/Cancelled) → []. Optional
    * (forward-compat: trước khi BE enrich → undefined → 0 nút CTA, KHÔNG vỡ).
+   *
+   * ⚠️ GIỮ NGUYÊN sau AC-CR-82 (back-compat): `available_actions` là SUPERSET, KHÔNG
+   * thay thế — đây vẫn là đường FALLBACK khi worker BE chưa phát `available_actions`.
    */
   allowed_transitions?: string[]
+  /**
+   * AC-CR-82 — CTA SERVER-DRIVEN cho màn chi tiết phiếu sửa chữa (nửa CM của mobile
+   * CR-74; mirror AC-CR-77 nửa PM). ĐÚNG 6 phần tử, thứ tự CỐ ĐỊNH
+   * `[assign_technician, submit_diagnosis, request_spare_parts, start_repair,
+   * close_work_order, confirm_inspection]` — đủ 6 kể cả ở trạng thái terminal
+   * (khi đó `enabled=false` toàn bộ). Mỗi khoá ánh xạ 1-1 tới endpoint CÓ THẬT của
+   * `assetcore/api/imm09.py` (`assign_technician:122` · `submit_diagnosis:128` ·
+   * `request_spare_parts:142` · `start_repair:136` · `close_work_order:149` ·
+   * `confirm_inspection:180`).
+   *
+   * • `enabled` = `transition_allowed ∩ has_cap ∩ business_gate` do SERVER quyết —
+   *   FE KHÔNG nhân bản `can('repair.*') && allowed_transitions.includes(...)` cho 6
+   *   khoá này (đó chính là nguồn "nút chết": bấm được nhưng BE từ chối).
+   * • `reason` = chuỗi TIẾNG VIỆT server trả, bất biến D9: `enabled === false ⟺
+   *   reason !== ""`. FE render NGUYÊN VĂN (tooltip + danh sách chữ) — KHÔNG bịa chuỗi.
+   * • `route` = "" (CTA nằm TRONG màn chi tiết — modal/điều hướng nội bộ, không deep-link).
+   * • `Cancelled` KHÔNG BAO GIỜ là action (0 endpoint) ⇒ server không phát ⇒ FE không
+   *   thể vẽ nút huỷ phiếu; `Cannot Repair` KHÔNG là khoá thứ 7 — dùng CHUNG
+   *   `close_work_order` (cùng endpoint, cờ `cannot_repair=1`).
+   *
+   * Optional — CỐ Ý: worker BE chưa reload (`--preload` staleness) hoặc client cũ vẫn
+   * trả shape CŨ ⇒ `undefined` ⇒ view rơi về đường FALLBACK (`allowed_transitions` +
+   * capability), KHÔNG nút nào biến mất, KHÔNG màn trắng.
+   *
+   * Hợp đồng: `docs/imm-09/05_API_Specification.md §15` (ADR-IMM09-CTA-01/02/03).
+   */
+  available_actions?: AvailableAction[]
 }
 
 /**
@@ -106,12 +184,85 @@ export interface SparePartRow {
   idx: number
   item_code: string
   item_name: string
+  /** Mã nhà sản xuất — field `spare_parts_used.manufacturer_part_no` (BE có thể chưa trả). */
+  manufacturer_part_no?: string
   qty: number
   uom: string
   unit_cost: number
   total_cost: number
   stock_entry_ref: string
   notes: string
+  /**
+   * CR-73(a) — KHOÁ THẬT `AC Spare Part` mang theo từ gợi ý (KHÔNG có field tương ứng
+   * trong child DocType `spare_parts_used` ⇒ chỉ tồn tại trong phiên làm việc FE).
+   * `request_spare_parts` đọc khoá này để tra `AC Spare Part Stock` → tạo allocation;
+   * thiếu nó BE lùi về `item_code` (= mã NSX) ⇒ "allocation câm".
+   */
+  spare_part?: string
+  /**
+   * AC-CR-78 / INV-PARTS-1 — trạng thái THẬT của phiếu xuất kho gắn với dòng vật tư,
+   * do BE derive bằng CÙNG helper SSoT với validator BR-09-02
+   * (`services/imm09.py::validate_spare_parts_stock_entries`):
+   *   • `'OK'`        — `stock_entry_ref` trỏ `AC Stock Movement` CÓ THẬT.
+   *   • `'MISSING'`   — `stock_entry_ref` rỗng (chưa xuất kho).
+   *   • `'NOT_FOUND'` — có mã nhưng bản ghi KHÔNG tồn tại (ref treo/dangling).
+   *
+   * FE KHÔNG tự suy diễn: từ phía client ref treo nhìn y hệt ref hợp lệ ⇒ trước vòng này
+   * dòng treo hiển thị như HỢP LỆ (badge xanh giả) trong khi `on_submit` vẫn chặn 422.
+   * Optional (forward-compat: worker chưa reload → undefined → view giữ nguyên hành vi cũ).
+   */
+  stock_entry_status?: 'OK' | 'MISSING' | 'NOT_FOUND'
+  /**
+   * AC-CR-78 — dạng số của `stock_entry_status` (`1` ⟺ `'OK'`). INTEGER 0|1 theo quirk
+   * CR-01 của hợp đồng mobile (KHÔNG boolean). Optional cùng lý do forward-compat.
+   */
+  stock_entry_ok?: 0 | 1
+}
+
+/**
+ * CR-73(a) — GỢI Ý phụ tùng trả về từ `search_spare_parts` (13 khoá, ADDITIVE).
+ *
+ * KIỂU RIÊNG, KHÔNG nhồi 3 khoá mới vào `SparePartRow`: `SparePartRow` là dòng
+ * `spare_parts_used` của phiếu (`CMPartsView` dựng bằng spread) — thêm field bắt buộc
+ * vào đó sẽ vỡ mọi nơi dựng row. Xem `docs/imm-09/06_Frontend_Design.md`
+ * §SparePartSuggestion + `05_API_Specification.md §3.13-bis`.
+ *
+ * 3 khoá nhận dạng (BE cam kết LUÔN có mặt, kiểu string, `""` khi không resolve —
+ * KHÔNG `null`, KHÔNG thiếu khoá):
+ *  - `device_model`      PK `IMM Device Model` — khử gợi-ý-trùng-chữ giữa 2 model.
+ *  - `device_model_name` `model_name` để HIỂN THỊ (fallback = `device_model`).
+ *  - `spare_part`        PK `AC Spare Part` — khoá THẬT để `request_spare_parts`
+ *                        tra `AC Spare Part Stock` → tạo allocation (hết "allocation câm").
+ *                        `""` ⇒ phụ tùng chưa có trong danh mục kho ⇒ KHÔNG chọn được.
+ */
+export interface SparePartSuggestion {
+  idx: number
+  item_code: string
+  item_name: string
+  manufacturer_part_no: string
+  qty: number
+  uom: string
+  unit_cost: number
+  total_cost: number
+  stock_entry_ref: string
+  notes: string
+  device_model: string
+  device_model_name: string
+  spare_part: string
+}
+
+/**
+ * Dòng YÊU CẦU phụ tùng gửi lên `request_spare_parts` (BE đọc `spare_part` /
+ * `item_code` / `qty` — `services/imm09.py::request_spare_parts`). Tách khỏi
+ * `SparePartRow` để không phải bịa `uom`/`unit_cost`/`idx` cho một yêu cầu.
+ */
+export interface SparePartRequestLine {
+  /** PK `AC Spare Part` — khoá tra kho. Rỗng ⇒ BE fallback `item_code`. */
+  spare_part: string
+  item_code?: string
+  qty: number
+  stock_entry_ref?: string
+  notes?: string
 }
 
 export interface RepairChecklistRow {
@@ -236,11 +387,26 @@ export function getRepairKPIs(year?: number, month?: number): Promise<RepairKPIs
   return frappeGet<RepairKPIs>(`${BASE}.get_repair_kpis`, { year, month })
 }
 
+/**
+ * Lịch sử sửa chữa của 1 thiết bị (cắt cứng theo `limit`, KHÔNG phân trang).
+ *
+ * Hợp đồng cắt danh sách TRUNG THỰC (CR-69, SSoT `services/shared/truncation.py`):
+ * `total` = COUNT DB thật trên ĐÚNG filter-set `{asset_ref, docstatus: 1}`
+ * @`Asset Repair` TRƯỚC khi cắt — CÙNG predicate với truy vấn lấy rows, nên phiếu
+ * nháp (`docstatus = 0`) KHÔNG được tính vào `total`. `truncated` = int 0/1 (parity
+ * CR-01 — KHÔNG bool) = `len(history) >= limit ∧ total > limit`; vừa khít trần
+ * (`total === limit`) ⇒ `0`.
+ *
+ * ⚠️ Cả hai OPTIONAL — worker BE chưa reload (`--preload` staleness) trả shape CŨ
+ * thiếu 2 khoá → caller PHẢI đọc phòng thủ (`total ?? history.length`,
+ * `truncated ?? 0`), KHÔNG khai non-optional rồi để `undefined` lọt runtime.
+ * `asset_ref`/`history` GIỮ NGUYÊN (ADDITIVE, 0 breaking).
+ */
 export function getAssetRepairHistory(
   assetRef: string,
   limit = 10,
-): Promise<{ asset_ref: string; history: AssetRepair[] }> {
-  return frappeGet<{ asset_ref: string; history: AssetRepair[] }>(
+): Promise<{ asset_ref: string; history: AssetRepair[]; total?: number; truncated?: 0 | 1 }> {
+  return frappeGet<{ asset_ref: string; history: AssetRepair[]; total?: number; truncated?: 0 | 1 }>(
     `${BASE}.get_asset_repair_history`,
     { asset_ref: assetRef, limit },
   )
@@ -273,9 +439,9 @@ export function startRepair(name: string): Promise<{ name: string; status: strin
 
 export function requestSpareParts(
   name: string,
-  parts: SparePartRow[],
-): Promise<{ name: string; updated: number }> {
-  return frappePost<{ name: string; updated: number }>(
+  parts: SparePartRequestLine[] | SparePartRow[],
+): Promise<{ name: string; status?: string; updated: number; allocation?: string | null }> {
+  return frappePost<{ name: string; status?: string; updated: number; allocation?: string | null }>(
     `${BASE}.request_spare_parts`,
     { name, parts: JSON.stringify(parts) },
   )
@@ -285,8 +451,8 @@ export function getMttrReport(year: number, month: number): Promise<MttrReport> 
   return frappeGet<MttrReport>(`${BASE}.get_mttr_report`, { year, month })
 }
 
-export async function searchSpareParts(query: string): Promise<SparePartRow[]> {
-  const res = await frappeGet<SparePartRow[]>(`${BASE}.search_spare_parts`, { query })
+export async function searchSpareParts(query: string): Promise<SparePartSuggestion[]> {
+  const res = await frappeGet<SparePartSuggestion[]>(`${BASE}.search_spare_parts`, { query })
   return res ?? []
 }
 

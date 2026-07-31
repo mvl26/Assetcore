@@ -56,6 +56,36 @@ function setResult(item: RepairChecklistRow, result: 'Pass' | 'Fail' | 'N/A') {
   item.result = result
 }
 
+// ─── AC-CR-84 · CỔNG ẢNH BẰNG CHỨNG NĐ98 ngay tại màn nghiệm thu (U1/U2) ───────
+// Đây là nơi người dùng bấm «Hoàn thành sửa chữa» ⇒ lý do chặn phải hiện Ở ĐÂY, kèm
+// đúng nút tải ảnh của từng mục (đường khắc phục tại chỗ). SERVER là SSoT:
+// `evidence_photo_missing_idxs` = ĐÚNG tập mà `close_work_order` từ chối (INV-CMEVID-1)
+// ⇒ FE KHÔNG đếm lại từ `item.photo` (bản diễn giải thứ hai) và KHÔNG tự khoá nút
+// (validator server mới là cổng — nút giữ nguyên điều kiện nghiệp vụ cũ).
+// Sau mỗi lần đính ảnh, `onPhotoSelected` đã refetch phiếu ⇒ tập này tự cập nhật.
+const evidenceGateApplies = computed(() => store.currentWO?.evidence_photo_required === 1)
+const evidenceMissingIdxs = computed<number[]>(() => {
+  const raw = store.currentWO?.evidence_photo_missing_idxs
+  return Array.isArray(raw)
+    ? raw.filter((n): n is number => typeof n === 'number' && Number.isFinite(n))
+    : []
+})
+const evidenceTotalRequired = computed(() => {
+  const n = store.currentWO?.evidence_photo_total_required
+  return typeof n === 'number' && Number.isFinite(n) && n > 0 ? Math.trunc(n) : 0
+})
+const evidenceDoneCount = computed(() =>
+  Math.max(0, evidenceTotalRequired.value - evidenceMissingIdxs.value.length),
+)
+const evidenceComplete = computed(
+  () => evidenceGateApplies.value && evidenceMissingIdxs.value.length === 0,
+)
+function isEvidenceMissing(idx: number): boolean {
+  return evidenceGateApplies.value && evidenceMissingIdxs.value.includes(Number(idx))
+}
+/** Thông điệp lỗi server neo DƯỚI bảng checklist (envelope `fields.repair_checklist`). */
+const checklistFieldError = ref<string | null>(null)
+
 // ── Ảnh bằng chứng mỗi mục checklist (NĐ98 Class C/D — mobile CR-15/G6) ────────
 // Đối xứng IncidentDetailView. Tối đa 1 ảnh/mục (Attach ĐƠN, BE là SoT).
 const uploadingIdx = ref<number | null>(null)              // idx mục đang upload
@@ -124,6 +154,7 @@ async function handleComplete() {
   if (!canComplete.value) return
   submitting.value = true
   error.value = null
+  checklistFieldError.value = null
   // CR-24 idempotency: sinh khoá 1 lần cho mỗi lần bấm "Hoàn thành sửa chữa".
   // Ổn định qua auto-retry (axios/interceptor replay CÙNG request → CÙNG khoá →
   // BE replay success-envelope, không tạo transition/Lifecycle Event trùng); đổi
@@ -144,6 +175,15 @@ async function handleComplete() {
     } else {
       notify.fromError(store.lastApiError)
       error.value = store.error ?? 'Không thể hoàn thành sửa chữa'
+      // AC-CR-84 §3: envelope từ chối vì thiếu ảnh bằng chứng neo `fields.repair_checklist`
+      // ⇒ (b) hiện thông điệp SERVER ngay dưới bảng nghiệm thu (đúng chỗ khắc phục) và
+      // (c) refetch phiếu để tập mục-thiếu-ảnh cập nhật (người dùng có thể vừa đính ảnh ở
+      // tab khác). KHÔNG coi là lỗi hệ thống, KHÔNG đăng xuất.
+      const fieldMsg = store.lastApiError?.fields?.repair_checklist
+      if (fieldMsg) {
+        checklistFieldError.value = fieldMsg
+        await store.fetchWorkOrder(props.id)
+      }
     }
   } finally {
     submitting.value = false
@@ -197,6 +237,32 @@ async function handleComplete() {
           <span v-if="hasAnyFail" class="text-red-600 font-medium">Có mục Không đạt — không thể hoàn thành</span>
           <span v-else-if="allAnswered && progressPct === 100" class="text-emerald-600 font-medium">Tất cả đã Đạt</span>
         </div>
+      </div>
+
+      <!-- AC-CR-84 (U1) — dải trạng thái ảnh bằng chứng NĐ98, CHỈ khi server báo cổng áp
+           dụng (`evidence_photo_required === 1` = thiết bị nhóm nguy cơ cao). Số liệu
+           NGUYÊN VĂN từ server; FE không đếm lại từ `item.photo`. Vắng khoá (worker BE
+           chưa reload) ⇒ ẩn hoàn toàn, KHÔNG khẳng định "đã đủ ảnh". -->
+      <div
+        v-if="evidenceGateApplies"
+        data-testid="cm-checklist-evidence-banner"
+        role="status"
+        :class="[
+          'card border',
+          evidenceComplete ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50',
+        ]"
+      >
+        <p :class="['text-sm font-medium', evidenceComplete ? 'text-emerald-800' : 'text-amber-900']">
+          <template v-if="evidenceComplete">
+            Bằng chứng NĐ98: đã có ảnh {{ evidenceDoneCount }}/{{ evidenceTotalRequired }} mục
+          </template>
+          <template v-else>
+            Bằng chứng NĐ98: còn {{ evidenceMissingIdxs.length }}/{{ evidenceTotalRequired }} mục chưa có ảnh — cần đính đủ trước khi hoàn thành sửa chữa
+          </template>
+        </p>
+        <p v-if="!evidenceComplete" class="mt-1 text-xs text-amber-800">
+          Đã có {{ evidenceDoneCount }}/{{ evidenceTotalRequired }} mục có ảnh. Dùng nút “Đính ảnh” ở từng mục bên dưới để bổ sung.
+        </p>
       </div>
 
       <!-- Checklist items -->
@@ -299,6 +365,15 @@ async function handleComplete() {
               <span v-else-if="uploadingIdx === item.idx">Đang tải lên...</span>
               <span v-else>+ Đính ảnh (JPG hoặc PNG)</span>
             </button>
+            <!-- AC-CR-84 (U2) — mục nằm trong tập SERVER báo thiếu ảnh: nhãn CHỮ, không
+                 chỉ phân biệt bằng màu; nguồn `evidence_photo_missing_idxs`. -->
+            <span
+              v-if="isEvidenceMissing(item.idx)"
+              data-testid="cm-checklist-evidence-chip"
+              class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800"
+            >
+              Chưa có ảnh bằng chứng (bắt buộc)
+            </span>
           </div>
           <!-- Lỗi VALIDATION inline VN dưới control -->
           <p v-if="photoErrors[item.idx]" class="mt-1.5 text-xs text-red-600" role="alert">
@@ -306,6 +381,17 @@ async function handleComplete() {
           </p>
         </div>
       </div>
+
+      <!-- AC-CR-84 §3(b) — lỗi server neo Ở ĐÚNG bảng nghiệm thu (envelope
+           `fields.repair_checklist`), thông điệp NGUYÊN VĂN tiếng Việt của server. -->
+      <p
+        v-if="checklistFieldError"
+        data-testid="cm-checklist-field-error"
+        role="alert"
+        class="px-4 py-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700"
+      >
+        {{ checklistFieldError }}
+      </p>
 
       <!-- Dept head confirmation -->
       <div class="card">

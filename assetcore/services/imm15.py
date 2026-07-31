@@ -26,10 +26,12 @@ from assetcore.repositories.allocation_repo import (
     StockMovementRepo,
 )
 from assetcore.services.shared import ErrorCode, ServiceError, normalize_filters
+from assetcore.services.shared.errors import forbidden
 from assetcore.services.shared import rbac
 from assetcore.utils.lifecycle import log_audit_event
 from assetcore.utils.messages import MSG
 from assetcore.utils.notify import nthrow
+from assetcore.services.shared.permissions import rowscoped
 
 
 def _safe_get_value(doctype: str, name: str, field: str | list, *, as_dict: bool = False):
@@ -203,6 +205,7 @@ def _enrich_display_names(rows: list[dict], mapping: dict[str, tuple[str, str]])
 
 # ─── Spare Allocation: List / Create / Approve / Issue / Return / Cancel ─────
 
+@rowscoped
 def list_allocations(filters: dict, *, page: int = 1, page_size: int = 20) -> dict:
     """List allocations với display names cho asset / warehouse / requester."""
     rows, pg = AllocationRepo.list(
@@ -248,8 +251,51 @@ def get_allocation(name: str) -> dict:
 def create_allocation(work_order_ref: str, items: list[dict],
                       asset: str = "", warehouse: str = "",
                       urgency: str = "Routine") -> dict:
-    """Tạo phiếu cấp phát (state=Requested)."""
+    """Tạo phiếu cấp phát (state=Requested) — entrypoint whitelisted, gate `inventory.write`.
+
+    Hành vi KHÔNG đổi (ADR-IMM09-SPARE-03): gate cũ giữ nguyên, thân hàm tách xuống
+    :func:`_insert_allocation` để cross-module tái dùng mà KHÔNG phải nới quyền của
+    endpoint này.
+    """
     _require_storekeeper_or_tech()
+    return _insert_allocation(work_order_ref, items, asset=asset,
+                              warehouse=warehouse, urgency=urgency)
+
+
+def create_allocation_for_work_order(work_order_ref: str, items: list[dict],
+                                     asset: str = "", warehouse: str = "",
+                                     urgency: str = "Routine") -> dict:
+    """Seam cross-module: người ĐANG SỬA MÁY tự **yêu cầu** vật tư (ADR-IMM09-SPARE-03).
+
+    KHÔNG `@frappe.whitelist` — chỉ IMM-08/IMM-09 gọi từ trong tiến trình xử lý một
+    Work Order đã tồn tại.
+
+    Vì sao tách gate: "tạo phiếu **yêu cầu** (`Requested`)" và "**xuất kho**" là hai
+    quyền khác nhau. `create_allocation` gate `inventory.write` →
+    `AC Stock Movement.write`, mà persona "Kỹ thuật viên"
+    (`AssetCore System User` + `PM/Repair/Calibration/Corrective User`) KHÔNG có ⇒
+    `request_spare_parts` của IMM-09 luôn nuốt FORBIDDEN và trả `allocation:null`
+    kèm `success:true` ("allocation câm" — nguyên nhân thứ 3, §3.6-bis). Ở đây gate
+    bằng capability PHÍA LỆNH CÔNG VIỆC; mọi bước làm **dịch chuyển tồn thật**
+    (`approve`/`issue`/`reject`) GIỮ NGUYÊN gate `inventory.*`.
+
+    Raises:
+        ServiceError: FORBIDDEN nếu user không có `repair.create` lẫn `pm.write`.
+    """
+    if not (rbac.can("repair.create") or rbac.can("pm.write")):
+        raise forbidden("Không có quyền yêu cầu cấp phát phụ tùng cho lệnh công việc")
+    return _insert_allocation(work_order_ref, items, asset=asset,
+                              warehouse=warehouse, urgency=urgency)
+
+
+def _insert_allocation(work_order_ref: str, items: list[dict],
+                       asset: str = "", warehouse: str = "",
+                       urgency: str = "Routine") -> dict:
+    """Thân dựng phiếu cấp phát `Requested` — KHÔNG gate (caller PHẢI gate trước).
+
+    Luôn ép `allocation_status = Requested`: mọi lối vào chỉ tạo được YÊU CẦU, không
+    lối nào tạo thẳng phiếu đã duyệt/đã xuất.
+    """
     _vr_05_urgency_valid(urgency)
     if not items:
         raise ServiceError(ErrorCode.VALIDATION,
@@ -550,6 +596,7 @@ def _allocation_allowed_transitions(status: str) -> list[str]:
 
 # ─── Cycle Count: Create / Post ──────────────────────────────────────────────
 
+@rowscoped
 def list_cycle_counts(filters: dict, *, page: int = 1, page_size: int = 20) -> dict:
     rows, pg = CycleCountRepo.list(
         filters=normalize_filters(filters),
@@ -890,6 +937,7 @@ def recount_cycle_count(count_name: str, reason: str = "") -> dict:
 
 # ─── Forecast ─────────────────────────────────────────────────────────────────
 
+@rowscoped
 def list_spare_forecasts(filters: dict, *, page: int = 1, page_size: int = 20) -> dict:
     rows, pg = SparePartForecastRepo.list(
         filters=normalize_filters(filters),
@@ -1080,6 +1128,7 @@ def record_forecast_approval(doc) -> None:
 
 # ─── Watchlist ────────────────────────────────────────────────────────────────
 
+@rowscoped
 def list_watchlist(filters: dict, *, page: int = 1, page_size: int = 50) -> dict:
     rows, pg = CriticalWatchlistRepo.list(
         filters=normalize_filters(filters),

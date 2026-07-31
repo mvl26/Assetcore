@@ -160,9 +160,14 @@ watch(() => route.query.asset, (val) => {
 
 <template>
   <div class="page-container animate-fade-in">
+    <!-- INV-ROWSCOPE / A8: "Tổng" LUÔN lấy từ pagination.total (SoT permission-aware
+         của BE — count và rows nay dùng CÙNG 1 predicate row-scope). Fallback cũ
+         `?? store.workOrders.length` che giấu drift count-vs-rows (đếm được N phiếu
+         nhưng chỉ đọc được M) ⇒ đã bỏ, chỉ còn `?? 0` chống undefined.
+         "Hiển thị X" bên dưới mới là số dòng của TRANG hiện tại (.length). -->
     <PageHeader
       title="Lệnh Sửa chữa"
-      :subtitle="`Tổng ${store.pagination.total ?? store.workOrders.length} lệnh`"
+      :subtitle="`Tổng ${store.pagination.total ?? 0} lệnh`"
       :breadcrumb="[{ label: 'IMM-09 · Sửa chữa', to: '/cm/dashboard' }, { label: 'Danh sách' }]"
     >
       <template #actions>
@@ -204,6 +209,30 @@ watch(() => route.query.asset, (val) => {
         </div>
       </template>
     </ListFilterBar>
+
+    <!-- AC-CR-79 — Bộ lọc không hợp lệ: BE từ chối khoá lọc lạ bằng lỗi 400 TRONG
+         envelope (HTTP-200). Đây là CẢNH BÁO, không phải sự cố nạp dữ liệu ⇒ bảng
+         bên dưới GIỮ NGUYÊN dữ liệu đang xem (không trắng trang, không đăng xuất).
+         Nội dung hiển thị là message tiếng Việt do BE trả về — FE KHÔNG dựng lại
+         danh sách khoá hợp lệ (SSoT nằm ở services/imm09.py). -->
+    <div
+      v-if="store.filterError"
+      class="alert-warning"
+      role="alert"
+      data-test="cm-filter-error"
+    >
+      <svg class="w-4 h-4 shrink-0" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+      </svg>
+      <span class="flex-1">{{ store.filterError }}</span>
+      <button
+        type="button"
+        class="text-xs font-semibold underline hover:no-underline rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+        @click="resetFilters"
+      >
+        Đặt lại bộ lọc
+      </button>
+    </div>
 
     <!-- Loading -->
     <div v-if="store.loading" class="table-wrapper">
