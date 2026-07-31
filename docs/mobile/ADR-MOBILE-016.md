@@ -24,6 +24,8 @@ Màn **`MyWorkOrdersView`** (mobile MVP-flow-5) có tab **"Phiếu PM của tôi
 - `svc.list_work_orders(filters, page, page_size)` (`services/imm08.py:558`) → `PMWorkOrderRepo.list(filters=_normalize_filters(filters), …)` (`:559-566`).
 - `_normalize_filters` (`services/imm08.py:238`) pass-through key thường (`assigned_to` string → `out["assigned_to"]=v`, nhánh `else`); CHỈ biến đổi virtual key `due_before`/`overdue`.
 - `BaseRepository.list` (`repositories/base.py:48`): `total = count_with_or(DOCTYPE, filters, or_filters)` (`:65`) + `rows = frappe.get_all(DOCTYPE, filters=filters, …)` (`:67-71`) — **CÙNG** `filters` dict ⇒ count==rows. `list_pm_work_orders` KHÔNG truyền `or_filters` ⇒ `count_with_or` = `frappe.db.count` thuần.
+
+> ⚠️ **CẢI CHÍNH (BA Self-Correction 2026-07-25 — quyết định `mine` KHÔNG đổi):** *"`count_with_or` = `frappe.db.count` thuần"* **SAI** kể từ ADR-IMM00-LIST-SCOPE §4b — nay LUÔN `frappe.get_list(limit_page_length=0)` (`services/shared/filters.py:275-281`). Vì `rows` vẫn là `frappe.get_all` (**KHÔNG** áp `permission_query_conditions`) trong khi `total` có áp `pm_work_order_query` (`permissions.py:123-131`), **count==rows KHÔNG tự đúng** cho persona row-scoped (KTV thấy phiếu người khác + "Tổng" lệch). Bất biến đó nay do **INV-ROWSCOPE** bảo đảm ([ADR-IMM00-LIST-SCOPE §8](../imm-00/ADR-IMM00-LIST-SCOPE.md) — `BaseRepository.list(scope="user")`), xem `docs/imm-08/05_API_Specification.md` BR-08-LISTSCOPE.
 - `assigned_to` là field thật trên PM WO (đã trả trong list-item `services/imm08.py:561,594`, set bởi `assign_technician` `:672,679`).
 
 ## Decision

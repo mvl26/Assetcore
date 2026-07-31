@@ -125,17 +125,37 @@ rồi đọc ``x-assetcore-stats``. KHÔNG tin số học — luôn đếm @sour
   (memory file_attachment_upload_ssot). Trước fix: generate_spec() RAISE KeyError 'files chưa
   map canonical tag' (fail-fast T4) ⇒ toàn bộ OAS test surface đỏ; nay khai tag → xanh.
   RE-VERIFY @source: total=513 get=241 post=272 guest=7 typed=513 json_param=64.
+2026-07-28 IMM11-RESCHEDULE-CALIBRATION 513→514 / post 272→273 / typed 513→514: +1 POST
+  imm11.reschedule_calibration (AC-CR-86 / BR-11-19) — đường HỢP LỆ DUY NHẤT để đổi
+  `scheduled_date`: `update_calibration` từ chối tường minh khoá đó (BR-11-20, `_UPDATE_ALLOWED`)
+  nên trước đó người dùng buộc phải hủy + tạo lại phiếu ⇒ đẻ phiếu `Cancelled` rác vào hồ sơ
+  NĐ98 và mất lịch sử. POST-only @frappe.whitelist(methods=["POST"]), allow_guest=False;
+  3 param str (name/new_date/reason) đều KHÔNG parse_json ⇒ get/guest/json_param GIỮ
+  (241/7/64); authed → responses {200,401,403,default} ⇒ typed==total GIỮ. KHÔNG tag
+  cross-cut mới (dùng lại tag IMM-11 sẵn có) ⇒ D9-TAGS không đổi. Cap-gate
+  `calibration.write` đặt ở SERVICE (`_require_cal_reschedule_cap`) chứ KHÔNG `rbac.require`
+  ở handler ⇒ 403 đi TRONG envelope (HTTP-200) và đường gọi thẳng service cũng bị chặn
+  (một đường gate DUY NHẤT — ADR-IMM11-12). Endpoint LEGIT đầy đủ: BE api/imm11.py:131 →
+  services/imm11.py:1217 · tests/test_imm11.py (136 TC) + tests/test_mobile_oas.py class
+  TestMobileRescheduleCalibrationContract (cr86_a..i) · OAS op `rescheduleCalibration`
+  (paths 109→110, schemas 287→290, parameters GIỮ 38) · FE calibrationRescheduleCta.test.ts ·
+  docs/imm-11/04,05,07. LÝ DO ledger vào MUỘN: endpoint land ở BE Bước-4 (2026-07-27 18:23)
+  và chỉ 2/3 bộ đếm SSoT được bồi (test_mobile_oas 1024 · test_mobile_docset 1167/1193),
+  BỎ SÓT oas_baseline ⇒ 6 TC đỏ ở 5 module d9/d10/d12(×2)/d15/d17 (LL-TEST-27: sửa SSoT
+  introspect-được PHẢI chạy LẠI MỌI suite assert nó).
+  RE-VERIFY @source 2026-07-28 (generate_spec() LIVE trên site miyano):
+  total=514 get=241 post=273 guest=7 typed=514 json_param=64.
 ─────────────────────────────────────────────────────────────────────────────
 """
 
 from __future__ import annotations
 
 # Số lượng operation (path×verb; mỗi path AssetCore = 1 verb) trong spec.
-BASELINE_TOTAL: int = 513
+BASELINE_TOTAL: int = 514
 # GET operation (bare @whitelist → mọi verb → coi GET; đọc dữ liệu).
 BASELINE_GET: int = 241
 # POST operation (@whitelist(methods=["POST"]) → mutating write-action).
-BASELINE_POST: int = 272
+BASELINE_POST: int = 273
 # guest operation (allow_guest=True → security==[]). Bề mặt guest THẬT bất biến.
 BASELINE_GUEST: int = 7
 # json_param operation-param dùng parse_json (JSON-string query param).

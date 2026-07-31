@@ -27,6 +27,12 @@ Màn **`MyWorkOrdersView`** (mobile MVP-flow-5) có tab **"Phiếu CM của tôi
 - `_apply_open_drill` (`services/imm09.py:701`) CHỈ đụng virtual key `open` (pop + `open_repair_filter`); key `status` đơn ƯU TIÊN hơn `open`. KHÔNG đụng `assigned_to`.
 - `_normalize_filters` (`services/imm09.py:1312`) pass-through key thường (`assigned_to` string → `out["assigned_to"]=v`, nhánh `else`); CHỈ bọc list value (non-operator) thành `["in",[...]]`.
 - `BaseRepository.list` (`repositories/base.py:48`): `total = count_with_or(DOCTYPE, filters, or_filters)` (`:65`) + `rows = frappe.get_all(DOCTYPE, filters=filters, …)` (`:67-71`) — **CÙNG** `filters` dict ⇒ count==rows. `list_repair_work_orders` KHÔNG truyền `or_filters` ⇒ `count_with_or` = `frappe.db.count` thuần. Cả 2 áp `permission_query_conditions` "Asset Repair" (`asset_repair_query` `permissions.py:115`).
+
+> ⚠️ **CẢI CHÍNH 2 FACT TRONG DÒNG TRÊN (BA Self-Correction 2026-07-25 — cite đã rot, quyết định `mine` KHÔNG đổi):**
+> 1. *"`count_with_or` = `frappe.db.count` thuần"* — **SAI kể từ ADR-IMM00-LIST-SCOPE §4b**: `count_with_or` nay LUÔN đếm bằng `frappe.get_list(..., limit_page_length=0)` cho **cả** nhánh search lẫn non-search (`services/shared/filters.py:275-281`).
+> 2. *"Cả 2 áp `permission_query_conditions`"* — **SAI**: `frappe.get_all` **KHÔNG** áp `permission_query_conditions`; chỉ `frappe.get_list` áp. ⇒ `total` (scoped) và `rows` (thô) chạy **2 predicate KHÁC nhau** ⇒ **count < rows + rò phiếu người khác** cho persona row-scoped — đây chính là finding CRITICAL đóng bởi **INV-ROWSCOPE** ([ADR-IMM00-LIST-SCOPE §8](../imm-00/ADR-IMM00-LIST-SCOPE.md), `BaseRepository.list(scope="user")`).
+>
+> **Quyết định của ADR-017 (query-param `mine`) KHÔNG đổi** — `mine` vẫn là filter ứng-dụng, đúng như §Consequences đã ghi. Chỉ **cơ sở "count==rows đã đúng sẵn"** là sai; bất biến đó nay do INV-ROWSCOPE bảo đảm chứ không phải do `filters` dict dùng chung.
 - `assigned_to` là field thật (Link → User, `asset_repair.json:234`), đã trả trong list-item (`services/imm09.py:719`) + enrich `assigned_to_name`, set bởi `assign_technician` (`services/imm09.py:449`).
 
 ## Decision
