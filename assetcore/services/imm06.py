@@ -17,9 +17,11 @@ from assetcore.repositories.training_repo import (
 )
 from assetcore.services.shared import ErrorCode, ServiceError, normalize_filters
 from assetcore.services.shared import rbac
+from assetcore.services.shared.truncation import truncation_meta
 from assetcore.utils.lifecycle import log_audit_event
 from assetcore.utils.messages import MSG
 from assetcore.utils.notify import nthrow
+from assetcore.services.shared.permissions import rowscoped
 
 
 # ─── Status constants ────────────────────────────────────────────────────────
@@ -256,6 +258,7 @@ def compute_competency_dates(achieved_date, validity_months: int) -> dict:
 
 # ─── Training Program ─────────────────────────────────────────────────────────
 
+@rowscoped
 def list_training_programs(filters: dict, *, page: int = 1,
                             page_size: int = 20) -> dict:
     """Liệt kê chương trình đào tạo với phân trang.
@@ -304,6 +307,7 @@ def get_training_program(name: str) -> dict:
 
 # ─── Training Session ─────────────────────────────────────────────────────────
 
+@rowscoped
 def list_training_sessions(filters: dict, *, page: int = 1,
                             page_size: int = 20) -> dict:
     """Liệt kê buổi đào tạo."""
@@ -467,6 +471,7 @@ def _create_competency_record(participant, session_doc, program_doc) -> str | No
 
 # ─── User Competency ─────────────────────────────────────────────────────────
 
+@rowscoped
 def list_user_competencies(filters: dict, *, page: int = 1,
                             page_size: int = 20) -> dict:
     """Liệt kê hồ sơ năng lực."""
@@ -1554,6 +1559,7 @@ def _enrich_competency_display_names(items: list[dict]) -> None:
         it["training_program_name"]  = prog_map.get(it.get("training_program"))
 
 
+@rowscoped
 def get_user_competencies(user: str = "") -> dict:
     """Lấy tất cả hồ sơ năng lực của một nhân viên.
 
@@ -1561,21 +1567,30 @@ def get_user_competencies(user: str = "") -> dict:
         user: email/tên user. Mặc định là session user.
 
     Returns:
-        dict với "user" và "items".
+        dict với "user", "items", "total", "truncated" (CR-47 — hợp đồng TRUNG THỰC
+        khi cắt: total = COUNT thật hồ-sơ của user TRƯỚC trần ngầm page_size=500;
+        truncated int 0/1 = len(items)≥500 ∧ total>500).
     """
     target_user = user or frappe.session.user
+    _CAP = 500
+    _user_filters = {"user": target_user}
     rows, _ = UserCompetencyRepo.list(
-        filters={"user": target_user},
+        filters=_user_filters,
         fields=["name", "device_model", "training_program", "competency_level",
                 "workflow_state", "achieved_date", "expiry_date",
                 "days_until_expiry", "is_expired", "last_assessment_score"],
         order_by="expiry_date asc",
-        page_size=500,
+        page_size=_CAP,
     )
     # Bồi display-name per item[] (device_model_name + training_program_name +
     # user_full_name) — reuse SSoT helper, chống rò Link-ID thô ra mobile (Spec 45).
     _enrich_competency_display_names(rows)
-    return {"user": target_user, "items": rows}
+    # CR-47: total = COUNT thật (predicate {user}) TRƯỚC trần 500; ZERO-COST —
+    # count_fn CHỈ chạy khi len(rows)≥500 (ca thường N<500 ⇒ total==len(items)).
+    total, truncated = truncation_meta(
+        len(rows), _CAP, lambda: UserCompetencyRepo.count(_user_filters))
+    return {"user": target_user, "items": rows,
+            "total": total, "truncated": truncated}
 
 
 def get_competency(name: str) -> dict:

@@ -68,6 +68,27 @@ from assetcore.services.shared import ErrorCode, ServiceError
 
 # ─── Fixtures ────────────────────────────────────────────────────────────────
 
+def _admin_add_roles(*roles: str) -> None:
+    """Cấp role cho Administrator — BỎ QUA link-validate dòng `Has Role` mồ côi.
+
+    Vì sao cần (fix setUpClass đỏ 2026-07-25, KHÔNG phải bug nghiệp vụ): site dùng
+    chung `miyano` còn 3 dòng ``Has Role`` mồ côi trên **Administrator** trỏ role
+    của một app đã gỡ (``WFC Admin/Manager/Staff`` — 0 bản ghi ``Role`` tương ứng).
+    ``User.add_roles()`` gọi ``doc.save()`` ⇒ ``_validate_links()`` re-validate
+    TOÀN BỘ ~80 dòng role ⇒ **1 dòng rác abort cả setUpClass**
+    (``LinkValidationError: Could not find Row #1: Role: WFC Admin``) dù test không
+    liên quan gì tới role đó. ``flags.ignore_links = True`` là cách chuẩn của
+    Frappe cho tình huống này (cùng lesson với patch backfill dùng
+    ``doc.flags.ignore_links``: re-validate link CŨ làm hỏng thao tác MỚI).
+
+    Dọn dữ liệu rác (xoá 3 dòng ``Has Role`` mồ côi) là thao tác DB ⇒ **HARD-STOP,
+    thuộc quyền USER** — test chỉ tự bảo vệ, KHÔNG tự sửa dữ liệu site.
+    """
+    doc = frappe.get_doc("User", "Administrator")
+    doc.flags.ignore_links = True
+    doc.add_roles(*roles)
+
+
 def _make_asset(device_model: str = "") -> str:
     doc = frappe.get_doc({
         "doctype": "AC Asset",
@@ -493,6 +514,87 @@ class TestGetUserCompetenciesEnrichment(unittest.TestCase):
         )
 
 
+# ─── get_user_competencies — total/truncated (CR-47) ──────────────────────────
+
+class TestGetUserCompetenciesTotalTruncated(unittest.TestCase):
+    """T9 (CR-47 hợp đồng TRUNG THỰC khi cắt): ``get_user_competencies`` trả THÊM
+    ``total`` + ``truncated`` (trần ngầm page_size=500); ``user`` + ``items`` GIỮ.
+
+    User có N < 500 hồ-sơ ⇒ KHÔNG chạm trần ⇒ ``truncated == 0`` ∧ ``total ==
+    len(items) == N`` (zero-cost: KHÔNG phát COUNT). User RIÊNG (fresh email) để N
+    xác định — không nhiễm data dev."""
+
+    USER = "_test_imm06_totals@assetcore.test"
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        if not frappe.db.exists("User", cls.USER):
+            frappe.get_doc({
+                "doctype": "User", "email": cls.USER,
+                "first_name": "IMM06 Totals", "send_welcome_email": 0,
+                "user_type": "System User",
+            }).insert(ignore_permissions=True)
+        cls._models: list[str] = []
+        cls._created: list[str] = []
+        # 2 hồ-sơ trên 2 model RIÊNG (né uniqueness user+model nếu có).
+        for i in range(2):
+            m = frappe.get_doc({
+                "doctype": "IMM Device Model",
+                "model_name": f"_Test Model IMM06 Totals {i}",
+                "manufacturer": "Test Manufacturer",
+                "medical_device_class": "Class II",
+            })
+            m.flags.ignore_mandatory = True
+            m.flags.ignore_links = True
+            m.insert(ignore_permissions=True)
+            cls._models.append(m.name)
+            prog = _ensure_test_program()
+            c = frappe.get_doc({
+                "doctype": "IMM User Competency",
+                "user": cls.USER, "device_model": m.name, "training_program": prog,
+                "workflow_state": CompetencyStatus.PENDING,
+                "achieved_date": nowdate(), "validity_months": 24,
+                "competency_level": "Operator",
+            })
+            c.flags.ignore_mandatory = True
+            c.flags.ignore_links = True
+            c.insert(ignore_permissions=True)
+            cls._created.append(c.name)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        # on_trash guard (BR-06-09) chặn ORM delete → raw purge.
+        if cls._created:
+            frappe.db.delete("IMM User Competency", {"name": ["in", cls._created]})
+            frappe.db.delete(
+                "IMM Audit Trail",
+                {"ref_doctype": "IMM User Competency", "ref_name": ["in", cls._created]})
+        for m in cls._models:
+            if frappe.db.exists("IMM Device Model", m):
+                frappe.delete_doc("IMM Device Model", m, force=True, ignore_permissions=True)
+        if frappe.db.exists("User", cls.USER):
+            frappe.delete_doc("User", cls.USER, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+
+    def test_user_competencies_total_and_truncated(self):
+        res = get_user_competencies(self.USER)
+        self.assertEqual(res["user"], self.USER, "khoá user GIỮ")
+        self.assertIn("items", res, "khoá items GIỮ")
+        n = len(res["items"])
+        self.assertEqual(n, 2, "user RIÊNG có ĐÚNG 2 hồ-sơ seed")
+        self.assertIsInstance(res["total"], int)
+        self.assertNotIsInstance(res["total"], bool)
+        self.assertEqual(res["total"], n, "dưới trần 500 ⇒ total == len(items) == N")
+        self.assertEqual(res["truncated"], 0, "N<500 ⇒ truncated=0")
+        self.assertNotIsInstance(res["truncated"], bool, "truncated int 0/1 (KHÔNG bool)")
+
+
 # ─── archive_old_competency ───────────────────────────────────────────────────
 
 class TestArchiveOldCompetency(unittest.TestCase):
@@ -623,8 +725,7 @@ class TestEnrollParticipants(unittest.TestCase):
             if not frappe.db.exists("Role", r):
                 frappe.get_doc({"doctype": "Role", "role_name": r}
                                ).insert(ignore_permissions=True)
-        frappe.get_doc("User", "Administrator").add_roles(
-            "AssetCore Super Admin", "Training Manager")
+        _admin_add_roles("AssetCore Super Admin", "Training Manager")
         cls.prog = _make_program()
         cls._sessions: list[str] = []
 
@@ -1595,8 +1696,7 @@ class TestSessionAllowedTransitions(unittest.TestCase):
             if not frappe.db.exists("Role", r):
                 frappe.get_doc({"doctype": "Role", "role_name": r}
                                ).insert(ignore_permissions=True)
-        frappe.get_doc("User", "Administrator").add_roles(
-            "AssetCore Super Admin", "Training Manager")
+        _admin_add_roles("AssetCore Super Admin", "Training Manager")
         cls.prog = _make_program()
         cls._sessions: list[str] = []
 
@@ -1804,8 +1904,7 @@ class TestCompleteTrainingSessionBR0608(unittest.TestCase):
             if not frappe.db.exists("Role", r):
                 frappe.get_doc({"doctype": "Role", "role_name": r}
                                ).insert(ignore_permissions=True)
-        frappe.get_doc("User", "Administrator").add_roles(
-            "AssetCore Super Admin", "Training Manager")
+        _admin_add_roles("AssetCore Super Admin", "Training Manager")
         cls.prog = _make_program()
         cls.trainee2 = cls._ensure_user("_test-trainee2-imm06@assetcore.test")
         cls._sessions: list[str] = []
@@ -1946,8 +2045,7 @@ class TestCompetencyAllowedTransitions(unittest.TestCase):
             if not frappe.db.exists("Role", r):
                 frappe.get_doc({"doctype": "Role", "role_name": r}
                                ).insert(ignore_permissions=True)
-        frappe.get_doc("User", "Administrator").add_roles(
-            "AssetCore Super Admin", "Training Manager")
+        _admin_add_roles("AssetCore Super Admin", "Training Manager")
         cls._comps: list[str] = []
 
     @classmethod
@@ -2190,8 +2288,7 @@ class TestCompetencySuspendRestore(unittest.TestCase):
             if not frappe.db.exists("Role", r):
                 frappe.get_doc({"doctype": "Role", "role_name": r}
                                ).insert(ignore_permissions=True)
-        frappe.get_doc("User", "Administrator").add_roles(
-            "AssetCore Super Admin", "Training Manager")
+        _admin_add_roles("AssetCore Super Admin", "Training Manager")
         cls._comps: list[str] = []
 
     @classmethod
@@ -2310,8 +2407,7 @@ class TestCompetencyRbacGate(unittest.TestCase):
             if not frappe.db.exists("Role", r):
                 frappe.get_doc({"doctype": "Role", "role_name": r}
                                ).insert(ignore_permissions=True)
-        frappe.get_doc("User", "Administrator").add_roles(
-            "AssetCore Super Admin", "Training Manager")
+        _admin_add_roles("AssetCore Super Admin", "Training Manager")
         # User thiếu quyền: chỉ base role, KHÔNG training.submit (không delete IMM Training Session).
         cls.plain_user = f"_test_imm06_rbac_{frappe.generate_hash()[:8]}@test.local"
         if not frappe.db.exists("User", cls.plain_user):

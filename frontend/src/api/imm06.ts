@@ -294,10 +294,17 @@ export async function listCompetencies(
   })
 }
 
+/**
+ * Hồ sơ năng lực của 1 user. Hợp đồng cắt danh sách TRUNG THỰC (CR-43/46/47):
+ * `total` = COUNT thật trên đúng filter set (trần ngầm page_size=500); `truncated`
+ * = int 0/1 (parity CR-01, KHÔNG bool). Cả hai OPTIONAL — worker BE chưa reload trả
+ * shape cũ thiếu 2 khoá → caller phải backward-compatible. `user`/`competencies`/
+ * `summary` GIỮ NGUYÊN shape.
+ */
 export async function getUserCompetencies(
   user?: string,
-): Promise<{ user: string; competencies: UserCompetency[]; summary: Record<string, unknown> }> {
-  return frappeGet<{ user: string; competencies: UserCompetency[]; summary: Record<string, unknown> }>(
+): Promise<{ user: string; competencies: UserCompetency[]; summary: Record<string, unknown>; total?: number; truncated?: number }> {
+  return frappeGet<{ user: string; competencies: UserCompetency[]; summary: Record<string, unknown>; total?: number; truncated?: number }>(
     `${BASE}.get_user_competencies`,
     user ? { user } : {},
   )

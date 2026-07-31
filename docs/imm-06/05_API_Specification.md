@@ -730,12 +730,26 @@ FE gate mỗi CTA bằng `allowed_transitions.includes('<next-state>') && <capab
         "is_expired": 0,
         "last_assessment_score": 88.5
       }
-    ]
+    ],
+    "total": 1,
+    "truncated": 0
   }
 }
 ```
 
 **Item = 10 field** (đúng field-select `UserCompetencyRepo.list`): `name` · `device_model` (Link id RAW, nullable) · `training_program` (Link id RAW, nullable) · `competency_level` (Select `[Trainee/Operator/Senior Operator/Trainer]`, nullable) · `workflow_state` (`[Pending Assessment/Active/Expiring/Expired/Suspended/Revoked]`) · `achieved_date`/`expiry_date` (date, nullable) · `days_until_expiry` (integer **SIGNED** — âm=quá hạn) · `is_expired` (integer **0/1** — Check-quirk READ) · `last_assessment_score` (number, nullable). `items` RỖNG hợp-lệ (user 0 năng lực). Order: `expiry_date asc`, `page_size=500` (KHÔNG pagination-param).
+
+#### CR-47 — Hợp đồng TRUNG THỰC khi cắt (`total` + `truncated`)
+
+> **Quyết định: đối xứng CR-43 (inbox IMM-00 §III.22) + CR-46 (due-list IMM-08/11) — cùng khối "hợp đồng TRUNG THỰC khi cắt danh sách mobile".** `get_user_competencies` cắt ở **trần ngầm `page_size=500`** (@`services/imm06.py:1573`) NHƯNG KHÔNG cho client biết có hồ-sơ chưa hiển thị. Thực tế 1 user hiếm có >500 năng-lực ⇒ `truncated` gần-như-luôn `0`, nhưng công bố sự thật cắt là **bất biến hợp đồng** (KHÔNG cắt im lặng). ⚠️ **Thay đổi bản chất slice: C.2 gốc CONTRACT-ONLY (service LIVE `{user, items}`); CR-47 THÊM `total`/`truncated` ⇒ BE PHẢI sửa `services/imm06.py` (application code, [BE] Bước-4, worker reload = HARD-STOP user).** Slice **contract (OAS + shape-guard `test_mobile_oas` đã verify `Ran 893 OK`) đóng ở Bước-2 (BA)**.
+
+| Khóa | Kiểu | Ngữ nghĩa |
+|---|---|---|
+| `total` | int ≥ 0 | **COUNT THẬT** filter `{user: target_user}` (cùng predicate `UserCompetencyRepo.list`) **TRƯỚC** trần ngầm 500. **KHI `truncated==0` thì `total == len(items)`.** |
+| `truncated` | int ∈ {0,1} | `= int(len(items) >= 500 ∧ total > 500)`. **int, KHÔNG bool/None** (parity CR-01). |
+
+- **ADDITIVE-OPTIONAL:** `UserCompetenciesData` giờ **4 khóa** `{user, items, total, truncated}` nhưng `required` **GIỮ `[user, items]`** byte-identical (backward-compat). `additionalProperties:false` GIỮ; `user` + `items` GIỮ NGUYÊN.
+- **§BE task:** trong `get_user_competencies` @`services/imm06.py`: `total = UserCompetencyRepo.count({"user": target_user})`; `truncated = int(len(rows) >= 500 and total > 500)`; `return {"user": target_user, "items": rows, "total": total, "truncated": truncated}`. **COUNT vô-điều-kiện** (1 query rẻ).
 
 **Errors:** guest → dispatcher-403 (status-line); lỗi khác → HTTP-200 body `Error` (`_run` `_err`).
 
