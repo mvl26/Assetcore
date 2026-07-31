@@ -5,6 +5,7 @@ import { approvePending, type GateStatus } from '@/api/imm04'
 import { useAuthStore } from '@/stores/auth'
 import ApproverSelect from './ApproverSelect.vue'
 import SubmitForApprovalModal from './SubmitForApprovalModal.vue'
+import { resolveG04Applicable, g04StatusLabel, g04Description } from './g04Gate'
 
 // ─── Props & Emits ────────────────────────────────────────────────────────────
 
@@ -12,6 +13,12 @@ const props = defineProps<{
   doc: CommissioningDoc
   gateStatus: GateStatus
   saving: boolean
+  /**
+   * CR-76 — thông báo tiếng Việt khi KHÔNG tải được trạng thái cổng (vd người
+   * dùng không có quyền đọc phiếu: backend trả 403 trong envelope trên HTTP-200).
+   * Có giá trị ⇒ hiện thông báo thay cho danh sách cổng, KHÔNG vẽ 6 thẻ đỏ giả.
+   */
+  gateError?: string | null
 }>()
 
 const emit = defineEmits<{
@@ -89,33 +96,133 @@ const showQaOfficer = computed(() =>
 
 // ─── Gate helper ─────────────────────────────────────────────────────────────
 
+// CR-76 — thẻ cổng phải NÓI ĐÚNG cổng thật. Ngữ nghĩa của mỗi khoá là
+// BLOCKING-PARITY: `true` = cổng KHÔNG chặn phát hành lâm sàng (predicate chặn ở
+// `services/imm04.py` cho phiếu này đi qua), KHÔNG có nghĩa "đã hoàn tất mọi việc".
+// Vì vậy mô tả từng cổng được sinh THEO TRẠNG THÁI THẬT, không phải câu cố định.
+
+/** Các khoá cổng hiển thị — `g01_waived`/`g04_applicable` là khoá phụ, không phải thẻ riêng. */
+type GateKey = Exclude<keyof GateStatus, 'g01_waived' | 'g04_applicable'>
+
 interface Gate {
-  key: keyof GateStatus
+  key: GateKey
   label: string
-  description: string
+  /** Cổng này có enforcement chặn phát hành ở backend hay không. */
+  blocking: boolean
   na: boolean // whether N/A concept applies (radiation)
 }
 
 const GATES: Gate[] = [
-  { key: 'g01_docs',      label: 'Hồ sơ đi kèm',          description: 'Tất cả hồ sơ bắt buộc đã được xác nhận',     na: false },
-  { key: 'g02_facility',  label: 'Cơ sở hạ tầng',          description: 'Đã xác nhận cơ sở hạ tầng đạt yêu cầu',      na: false },
-  { key: 'g03_baseline',  label: 'An toàn điện',            description: '100% thông số Pass / N/A',                    na: false },
-  { key: 'g04_radiation', label: 'Phóng xạ / Giấy phép',   description: 'Có giấy phép Bộ Y tế (N/A nếu không phải phóng xạ)', na: true },
-  { key: 'g05_nc',        label: 'Không có sự không phù hợp mở',         description: 'Không có phiếu không phù hợp đang mở',                  na: false },
-  { key: 'g06_approver',  label: 'Người phê duyệt BGĐ',    description: 'Đã chỉ định người phê duyệt',                na: false },
+  { key: 'g01_docs',      label: 'Hồ sơ đi kèm',                 blocking: true,  na: false },
+  { key: 'g02_facility',  label: 'Cơ sở hạ tầng',                blocking: false, na: false },
+  { key: 'g03_baseline',  label: 'Đo kiểm nền (an toàn điện)',   blocking: true,  na: false },
+  { key: 'g04_radiation', label: 'Bức xạ / Giấy phép',           blocking: true,  na: true  },
+  { key: 'g05_nc',        label: 'Không có sự không phù hợp mở', blocking: true,  na: false },
+  { key: 'g06_approver',  label: 'Người phê duyệt BGĐ',          blocking: true,  na: false },
 ]
 
-// G04 is N/A when device is not radiation
+/**
+ * AC-CR-85 — cổng G04 có áp dụng không: đọc THẲNG khoá `g04_applicable` của
+ * `getGateStatus` (chính predicate `gate_g04_applies` mà VR-07 dùng để chặn),
+ * KHÔNG suy từ nguồn thứ hai `doc.is_radiation_device` nữa. Khoá vắng (backend
+ * cũ) ⇒ rơi về đúng hành vi cũ.
+ */
+const g04Applicable = computed(() => resolveG04Applicable(props.gateStatus, props.doc))
+
+// Cổng chỉ áp dụng cho thiết bị bức xạ (G04) → "Không áp dụng" với thiết bị thường.
 function isGateNa(gate: Gate): boolean {
-  return gate.key === 'g04_radiation' && !props.doc.is_radiation_device
+  return gate.na && !g04Applicable.value
 }
 
 function gateValue(gate: Gate): boolean {
-  return props.gateStatus[gate.key]
+  return Boolean(props.gateStatus[gate.key])
 }
 
-const allGatesPassed = computed(() =>
-  GATES.every(g => isGateNa(g) || gateValue(g))
+/** Nội dung giải trình thiếu hồ sơ (nếu phiếu có) — dùng cho chú thích cổng G01. */
+const g01WaiverNote = computed(() => (props.doc.documents_incomplete_note ?? '').trim())
+
+/** Sự kiện trên PHIẾU: đã đánh dấu thiếu hồ sơ + có ghi chú giải trình. */
+const g01WaiverOnDoc = computed(
+  () => Boolean(props.doc.documents_incomplete) && Boolean(g01WaiverNote.value),
+)
+
+/**
+ * G01 qua được NHỜ giải trình thiếu hồ sơ (không phải vì đã đủ hồ sơ).
+ * Ưu tiên khoá `g01_waived` của backend; nếu backend chưa nạp phiên bản mới
+ * (khoá vắng mặt) thì suy ra từ chính phiếu.
+ */
+const isG01Waived = computed<boolean>(() => {
+  if (props.gateStatus.g01_waived !== undefined) return Boolean(props.gateStatus.g01_waived)
+  return g01WaiverOnDoc.value
+})
+
+/** Nhãn trạng thái ngắn đặt cạnh tên cổng (rỗng = không cần nhãn riêng). */
+function gateStateChip(gate: Gate): string {
+  // G04 nói đủ 3 trạng thái: không áp dụng / đã có giấy phép / chưa có giấy phép.
+  if (gate.key === 'g04_radiation') {
+    return g04StatusLabel(g04Applicable.value, gateValue(gate))
+  }
+  if (isGateNa(gate)) return 'Không áp dụng'
+  if (!gate.blocking) return 'Tham khảo'
+  if (gate.key === 'g01_docs' && gateValue(gate) && isG01Waived.value) {
+    return 'Đạt — có giải trình thiếu hồ sơ'
+  }
+  return ''
+}
+
+function gateChipClass(gate: Gate): string {
+  if (isGateNa(gate)) return 'bg-slate-100 text-slate-500'
+  if (gate.key === 'g04_radiation') {
+    return gateValue(gate) ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
+  }
+  if (!gate.blocking) return 'bg-sky-100 text-sky-700'
+  return 'bg-amber-100 text-amber-800'
+}
+
+/** Mô tả đúng trạng thái thật của cổng (không khẳng định điều chưa xảy ra). */
+function gateDescription(gate: Gate): string {
+  // G04 — nguồn duy nhất là `g04_applicable` (AC-CR-85), gồm cả câu «không áp dụng».
+  if (gate.key === 'g04_radiation') {
+    return g04Description(g04Applicable.value, gateValue(gate))
+  }
+  if (isGateNa(gate)) return 'Thiết bị không phát bức xạ nên cổng này không áp dụng.'
+  const passed = gateValue(gate)
+  switch (gate.key) {
+    case 'g01_docs':
+      if (passed && isG01Waived.value) {
+        return 'Vẫn còn hồ sơ bắt buộc chưa xác nhận, nhưng đã có giải trình được ghi nhận '
+          + 'nên cổng này không chặn phát hành.'
+      }
+      if (passed) return 'Không còn hồ sơ bắt buộc nào chưa được xác nhận.'
+      // Phiếu ĐÃ có giải trình mà cổng vẫn báo chặn ⇒ nói đúng hiện trạng, KHÔNG
+      // khẳng định oan "chưa có giải trình".
+      return g01WaiverOnDoc.value
+        ? 'Còn hồ sơ bắt buộc chưa xác nhận. Đã có giải trình trên phiếu nhưng hệ thống vẫn ghi nhận cổng này đang chặn phát hành.'
+        : 'Còn hồ sơ bắt buộc chưa xác nhận và chưa có giải trình — cổng này đang chặn phát hành.'
+    case 'g02_facility':
+      return passed
+        ? 'Đã ghi nhận kiểm tra cơ sở hạ tầng đạt yêu cầu. Cổng tham khảo — không chặn phát hành lâm sàng.'
+        : 'Chưa ghi nhận kết quả kiểm tra cơ sở hạ tầng. Cổng tham khảo — không chặn phát hành lâm sàng.'
+    case 'g03_baseline':
+      return passed
+        ? 'Mọi phép đo nền đều Đạt hoặc Không áp dụng.'
+        : 'Còn phép đo nền chưa đạt, hoặc phiếu chưa có phép đo nào — cổng này đang chặn phát hành.'
+    case 'g05_nc':
+      return passed
+        ? 'Không còn phiếu không phù hợp nào đang mở.'
+        : 'Còn phiếu không phù hợp đang mở — cổng này đang chặn phát hành.'
+    case 'g06_approver':
+      return passed
+        ? 'Đã chỉ định người phê duyệt Ban Giám đốc.'
+        : 'Chưa chỉ định người phê duyệt Ban Giám đốc — cổng này đang chặn phát hành.'
+    default:
+      return ''
+  }
+}
+
+/** Chỉ các cổng CÓ enforcement mới quyết định "còn chặn phát hành hay không". */
+const blockingGatesPassed = computed(() =>
+  GATES.filter(g => g.blocking && !isGateNa(g)).every(g => gateValue(g)),
 )
 
 // ─── Transition label & color map ─────────────────────────────────────────────
@@ -167,8 +274,15 @@ function actionClass(action: string): string {
 // CR-54 §1 / gate G06: action phát hành lâm sàng đòi board_approver. Nếu chưa
 // chỉ định (gate G06 fail) → CHẶN click ngay ở FE (disable + lý do) thay vì để
 // BE trả IMM04-GATE-G06-APPROVER (tránh nút chết / 417 thô rơi ra).
+// CR-76: khi KHÔNG đọc được trạng thái cổng (403 trong envelope) thì `g06_approver`
+// mặc định `false` — không được vì thế mà kết luận oan "chưa có người ký". Lấy thêm
+// chính phiếu làm nguồn; backend vẫn là nơi quyết định cuối cùng.
+const boardApproverAssigned = computed(
+  () => Boolean(props.gateStatus.g06_approver) || Boolean(props.doc.board_approver),
+)
+
 function isApproveBlocked(action: string): boolean {
-  return isApproveAction(action) && !props.gateStatus.g06_approver
+  return isApproveAction(action) && !boardApproverAssigned.value
 }
 
 function handleTransitionClick(action: string) {
@@ -184,7 +298,7 @@ function handleTransitionClick(action: string) {
 
 // Warn if trying to approve without G06 set
 const approveGateWarning = computed(() => {
-  if (!props.gateStatus.g06_approver) return 'Chưa chỉ định Người phê duyệt Ban Giám đốc (G06). Vui lòng chỉ định ở mục "Phân công người phê duyệt" trước khi phê duyệt phát hành.'
+  if (!boardApproverAssigned.value) return 'Chưa chỉ định Người phê duyệt Ban Giám đốc (G06). Vui lòng chỉ định ở mục "Phân công người phê duyệt" trước khi phê duyệt phát hành.'
   return null
 })
 
@@ -284,69 +398,105 @@ const uniqueTransitions = computed(() => {
       <div class="flex items-center justify-between pb-3 border-b mb-4">
         <h3 class="text-base font-semibold text-slate-900">Kiểm tra điều kiện phát hành (G01–G06)</h3>
         <span
+          v-if="!gateError"
           class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold"
-          :class="allGatesPassed ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'"
+          :class="blockingGatesPassed ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'"
         >
-          <svg v-if="allGatesPassed" class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+          <svg v-if="blockingGatesPassed" class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" aria-hidden="true">
             <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
           </svg>
-          <svg v-else class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+          <svg v-else class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" aria-hidden="true">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01" />
           </svg>
-          {{ allGatesPassed ? 'Tất cả điều kiện đạt' : 'Chưa đủ điều kiện' }}
+          {{ blockingGatesPassed ? 'Không còn cổng nào chặn phát hành' : 'Còn cổng đang chặn phát hành' }}
         </span>
       </div>
 
-      <ul class="divide-y divide-slate-50">
-        <li
-          v-for="(gate, idx) in GATES"
-          :key="gate.key"
-          class="flex items-start gap-3 py-2.5"
-        >
-          <!-- Gate number -->
-          <span class="text-xs font-mono font-bold text-slate-400 shrink-0 w-8 pt-0.5">
-            G0{{ idx + 1 }}
-          </span>
+      <!-- Không đọc được trạng thái cổng (vd thiếu quyền đọc phiếu): báo rõ bằng
+           tiếng Việt, KHÔNG vẽ 6 thẻ đỏ giả và KHÔNG để trống màn hình. -->
+      <div
+        v-if="gateError"
+        role="alert"
+        data-test="gate-error"
+        class="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-800"
+      >
+        <svg class="w-4 h-4 shrink-0 mt-0.5 text-amber-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+        </svg>
+        <span>{{ gateError }}</span>
+      </div>
 
-          <!-- Icon -->
-          <template v-if="isGateNa(gate)">
+      <template v-else>
+        <p class="text-xs text-slate-500 mb-3">
+          Dấu tích nghĩa là cổng đó <b>không chặn</b> phát hành lâm sàng — không đồng nghĩa
+          mọi việc đã hoàn tất.
+        </p>
+
+        <ul class="divide-y divide-slate-50">
+          <li
+            v-for="(gate, idx) in GATES"
+            :key="gate.key"
+            :data-test="`gate-${gate.key}`"
+            class="flex items-start gap-3 py-2.5"
+          >
+            <!-- Gate number -->
+            <span class="text-xs font-mono font-bold text-slate-400 shrink-0 w-8 pt-0.5">
+              G0{{ idx + 1 }}
+            </span>
+
+            <!-- Icon (kèm chữ cho trình đọc màn hình — không phân biệt chỉ bằng màu) -->
             <span class="shrink-0 mt-0.5">
-              <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <svg v-if="isGateNa(gate)" class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M18 12H6" />
               </svg>
-            </span>
-          </template>
-          <template v-else-if="gateValue(gate)">
-            <span class="shrink-0 mt-0.5">
-              <svg class="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+              <svg v-else-if="gateValue(gate)" class="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" aria-hidden="true">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
               </svg>
-            </span>
-          </template>
-          <template v-else>
-            <span class="shrink-0 mt-0.5">
-              <svg class="w-4 h-4 text-red-500" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+              <svg v-else-if="!gate.blocking" class="w-4 h-4 text-sky-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <svg v-else class="w-4 h-4 text-red-500" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" aria-hidden="true">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
               </svg>
+              <span class="sr-only">
+                {{ isGateNa(gate)
+                  ? 'Không áp dụng'
+                  : gateValue(gate)
+                    ? 'Không chặn phát hành'
+                    : gate.blocking ? 'Đang chặn phát hành' : 'Chưa ghi nhận, không chặn phát hành' }}
+              </span>
             </span>
-          </template>
 
-          <!-- Text -->
-          <div class="flex-1 min-w-0">
-            <p
-              class="text-sm font-medium"
-              :class="{
-                'text-emerald-700': !isGateNa(gate) && gateValue(gate),
-                'text-red-600': !isGateNa(gate) && !gateValue(gate),
-                'text-slate-400': isGateNa(gate),
-              }"
-            >
-{{ gate.label }}
-</p>
-            <p class="text-xs text-slate-500 mt-0.5">{{ gate.description }}</p>
-          </div>
-        </li>
-      </ul>
+            <!-- Text -->
+            <div class="flex-1 min-w-0">
+              <p
+                class="text-sm font-medium flex flex-wrap items-center gap-x-2 gap-y-1"
+                :class="{
+                  'text-emerald-700': !isGateNa(gate) && gateValue(gate),
+                  'text-red-600': !isGateNa(gate) && !gateValue(gate) && gate.blocking,
+                  'text-slate-600': !isGateNa(gate) && !gateValue(gate) && !gate.blocking,
+                  'text-slate-400': isGateNa(gate),
+                }"
+              >
+                <span>{{ gate.label }}</span>
+                <span
+                  v-if="gateStateChip(gate)"
+                  class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold"
+                  :class="gateChipClass(gate)"
+                  :title="gate.key === 'g01_docs' && isG01Waived && g01WaiverNote ? g01WaiverNote : undefined"
+                >{{ gateStateChip(gate) }}</span>
+              </p>
+              <p class="text-xs text-slate-500 mt-0.5">{{ gateDescription(gate) }}</p>
+              <p
+                v-if="gate.key === 'g01_docs' && g01WaiverOnDoc"
+                class="text-xs italic text-amber-700 mt-1 bg-amber-50 border border-amber-100 rounded px-2 py-1"
+              >
+                Giải trình: {{ g01WaiverNote }}
+              </p>
+            </div>
+          </li>
+        </ul>
+      </template>
     </div>
 
     <!-- ─── B. Approver Assignment ─────────────────────────────────────────── -->

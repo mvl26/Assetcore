@@ -171,7 +171,8 @@ File hiện tại: `assetcore/tests/test_imm04.py`. Mỗi test class trace về 
 | `TestGateG03` | `validate_gate_g03` | Decision Table | 4 (all pass, N/A=pass, one fail blocks, skip non-release state) | ✅ Live |
 | `TestGateG05G06` | `validate_gate_g05_g06` | Decision Table | 3 (no NC + approver pass, no approver blocks, skip non-release) | ✅ Live |
 | `TestVR01UniqueSerial` | `_vr01_unique_serial_number` | EP + Error guessing | 2 (empty SN skip, new SN pass) | ✅ Live |
-| `TestVR07ClinicalHold` | `check_auto_clinical_hold` | EP/Decision Table | 6 (A/B no hold, C/D/Radiation hold, radiation flag) | ✅ Live |
+| `TestVR07ClinicalHold` | `check_auto_clinical_hold` | EP/Decision Table | 6 (A/B no hold, C/D/Radiation hold, radiation flag) | ✅ Live — ⚠️ **AC-CR-85 phải viết lại `test_radiation_class_sets_flag`** (đang assert chính side-effect bị gỡ; đo qua `gate_g04_applies` — xem §III.4f.3 bẫy 5) |
+| `TestGateG04Applicability` | `gate_g04_applies` · `gate_g04_ok` · `evaluate_gate_status` · VR-07 | Decision Table + Invariant (bảng chân trị) + Mutation | **13** (ma trận A 12 ô không-suy-giảm + ma trận B 10 ô INV-G04-1 + ô gỡ deadlock phiếu THẬT + mutation-probe thường trực TC-13) | ✅ Live (AC-CR-85 — §III.4f; `test_imm04` 97 → **110 OK**) |
 | `TestLogLifecycleEvent` | `log_lifecycle_event` | Use Case | 2 (event appended, no-attr noop) | ✅ Live |
 | `TestRC05AuditTrailNotEmpty` | `log_lifecycle_event` → audit trail | Integration | 1 (writes audit trail row) | ✅ Live |
 | `TestAUTH05FourEyes` | four-eyes approval guard | Decision Table | 4 (same-user block, distinct pass, self-submitter block, other approve) | ✅ Live |
@@ -229,7 +230,7 @@ File: `tests/test_imm04_workflow.py` (⬜ Planned). Workflow `imm_04_workflow.js
 
 ## III.4a. Guard — Workflow-Surface Integrity (CR-WF-04-SURFACE · silent-CTA-loss)
 
-File: `tests/test_imm04.py` → class **`TestImm04WorkflowSurfaceGuard`** (⬜ Planned, **test-only** — 0 chạm runtime `.py`, 0 reload/migrate). Khoá 4 invariant INV-04-WF-1..4 (spec: `04 §3.1` + BR-04-24 + ADR-IMM-04-01). Đóng lỗ mà guard toàn cục `test_workflow_admin_override` **KHÔNG** bắt (glob JSON, không kiểm hằng-lookup service `services/imm04.py:671`).
+File: `tests/test_imm04.py` → class **`TestImm04WorkflowSurfaceGuard`** (⬜ Planned, **test-only** — 0 chạm runtime `.py`, 0 reload/migrate). Khoá 4 invariant INV-04-WF-1..4 (spec: `04 §3.1` + BR-04-24 + ADR-IMM-04-01). Đóng lỗ mà guard toàn cục `test_workflow_admin_override` **KHÔNG** bắt (glob JSON, không kiểm hằng-lookup service `services/imm04.py:727`).
 
 **Oracle độc lập:** parse file `assetcore/assetcore/workflow/imm_04_workflow.json` (JSON) + `import assetcore.services.imm04 as svc` (đọc `svc._DT`, gọi `svc._get_workflow_transitions`); assert trên workflow **live** (DB) + emit service **live**.
 
@@ -243,11 +244,11 @@ File: `tests/test_imm04.py` → class **`TestImm04WorkflowSurfaceGuard`** (⬜ P
 
 **RED-before / GREEN-after (chứng minh giá trị — BẮT BUỘC verify, KHÔNG false-green):**
 1. **GREEN baseline:** `bench --site miyano run-tests --module assetcore.tests.test_imm04` → `Ran 62 OK` (57 cũ + 5 mới), 0 fail / 0 error.
-2. **RED vector A (hằng lookup):** tạm đổi `services/imm04.py:671` `"IMM-04 Workflow"` → `"IMM-04 Workflow-X"` → chạy lại → **TC-04-WF-SURFACE-03** FAIL (`emit == []`) → revert.
+2. **RED vector A (hằng lookup):** tạm đổi `services/imm04.py:727` `"IMM-04 Workflow"` → `"IMM-04 Workflow-X"` → chạy lại → **TC-04-WF-SURFACE-03** FAIL (`emit == []`) → revert.
 3. **RED vector B (rename file):** tạm đổi `name` trong `imm_04_workflow.json` → chạy lại → **TC-04-WF-SURFACE-05** FAIL (`file_name ∉ DB live`) → revert.
 4. **Đối chứng lỗ toàn cục:** với vector A hoặc B, `test_workflow_admin_override` vẫn **GREEN** (glob JSON, không kiểm hằng-lookup) → chứng minh guard module-local là cần thiết.
 
-**Boundary (Never):** KHÔNG sửa `services/imm04.py:667-680` để test xanh. Nếu thêm `log_error` thay `return []` (observability) = thay đổi runtime → **HARD-STOP USER reload worker**, tách khỏi CR test-only này, `[ROADMAP]`.
+**Boundary (Never):** KHÔNG sửa `services/imm04.py:723-736` để test xanh. Nếu thêm `log_error` thay `return []` (observability) = thay đổi runtime → **HARD-STOP USER reload worker**, tách khỏi CR test-only này, `[ROADMAP]`.
 
 ## III.4b. Baseline verdict — chặn Pass-giả + UPSERT (BR-04-04 · silent-completion lens)
 
@@ -258,12 +259,12 @@ File: `tests/test_imm04.py` → class **`TestImm04BaselineVerdict`** (⬜ Planne
 | **TC-04-BASELINE-01** | 04a — Pass-giả 0 đo | phiếu @Initial Inspection, `baseline_tests` rỗng | `submit_baseline_checklist(name, [])` → `assertRaises(ServiceError)` code `VALIDATION`; **re-get** `overall_inspection_result != "Pass"` (rỗng/None) | auto-Pass câm (bug gốc) |
 | **TC-04-BASELINE-02** | 04b — UPSERT append + persist | phiếu @Initial Inspection, `baseline_tests` rỗng | `submit_baseline_checklist(name, [{parameter:"Leakage Current", measured_val:0.08, test_result:"Pass"}])` → success; **re-get**: `len(baseline_tests)==1`, row `parameter=="Leakage Current"` + `measured_val≈0.08` + `test_result=="Pass"` (KHÔNG drop câm) | drop-câm parameter chưa seed |
 | **TC-04-BASELINE-03** | 04d — tests_recorded THỰC + Pass | như 02 nhưng 2 param Pass/N/A (1 mới append + 1 append) | return `overall_result=="Pass"` + **`tests_recorded == 2`** (số row thực ghi, KHÔNG `len(results)` mù); re-get `overall_inspection_result=="Pass"` | `tests_recorded` = len(payload) mù |
-| **TC-04-BASELINE-04** | 04c — Fail (kể cả row vừa append) | phiếu @Initial Inspection rỗng, `results=[{parameter:"Earth Resistance", test_result:"Fail", fail_note:"Vượt 0.1Ω"}]` | `assertRaises` `VALIDATION`, message chứa `"Earth Resistance"`; re-get `overall_inspection_result != "Pass"`; **row Fail vẫn persist** (`len(baseline_tests)==1`, `test_result=="Fail"`) | set Pass khi có Fail · mất dữ liệu Fail |
+| ~~**TC-04-BASELINE-04**~~ | ~~04c — Fail~~ | — | **⛔ SUPERSEDED 2026-07-24 → TC-04-BLFAIL-01 (§III.4d).** TC cũ đòi `assertRaises(VALIDATION)` **đồng thời** đòi "row Fail vẫn persist" — **hai vế mâu thuẫn**: service raise TRƯỚC `doc.save()` nên không bao giờ persist được. Vế BR-04-04c đã bị thay bởi BR-04-04e (verdict dẫn xuất, KHÔNG raise). | mâu thuẫn nội tại của TC cũ |
 | **TC-04-BASELINE-05** | Green path cũ giữ nguyên | phiếu @Initial Inspection với `baseline_tests` **seed sẵn** N row, `results` all Pass/N/A cho từng param | success `overall_result=="Pass"`, **`tests_recorded == N`** (== số row seed); re-get `overall_inspection_result=="Pass"` | regress luồng seed-sẵn |
 | **TC-04-BASELINE-06** | 04a — có row nhưng 0 ghi verdict | phiếu @Initial Inspection có row seed nhưng `test_result` rỗng, `results=[]` | `assertRaises` `VALIDATION` (`tests_recorded==0`); re-get `overall_inspection_result != "Pass"` | Pass-giả biến thể (row rỗng verdict) |
 
 **RED-before / GREEN-after (BẮT BUỘC — chứng minh test bắt bug thật):**
-1. **RED:** chạy 6 TC trên code hiện tại (`services/imm04.py:1437-1456`) → TC-04-BASELINE-01/03/06 **FAIL** (bản cũ auto-Pass + không có `tests_recorded`), TC-04-BASELINE-02 **FAIL** (drop câm, `len==0`). Chứng minh test có giá trị.
+1. **RED:** chạy 6 TC trên code hiện tại (`services/imm04.py:1493-1512`) → TC-04-BASELINE-01/03/06 **FAIL** (bản cũ auto-Pass + không có `tests_recorded`), TC-04-BASELINE-02 **FAIL** (drop câm, `len==0`). Chứng minh test có giá trị.
 2. **GREEN:** sau khi BE land `04 §5.3` → `bench --site miyano run-tests --module assetcore.tests.test_imm04` → `Ran N OK` (0 fail / 0 error), module-isolated.
 3. **Guard OAS:** `grep -c '^@frappe.whitelist' api/imm04.py` bất biến (endpoint đã tồn tại) ⇒ `test_oas_baseline` (owner IMM-10 Blocker#3) KHÔNG bị đụng.
 
@@ -284,11 +285,200 @@ File: `tests/test_imm04.py` → class **`TestImm04BoardApproverTransition`** (�
 | **TC-04-BA-07** | PATH END-TO-END | sau TC-04-BA-01 (đã @Clinical Release, board_approver set), user có `commissioning.submit` cap | `submit_commissioning(name)` → re-get `docstatus==1`; assert `on_submit` phát ĐỦ: ≥1 PM schedule (`imm08.create_pm_schedule_from_commissioning`) + ≥1 Calibration schedule (`imm11.create_calibration_schedule_from_commissioning`) cho asset (`final_asset`) | nút chết Needs→Operation |
 
 **RED-before / GREEN-after (BẮT BUỘC):**
-1. **RED:** chạy TC-04-BA-01/02 trên code hiện tại (`transition_state` 2-arg, `services/imm04.py:1100`) → TC-04-BA-01 **FAIL/ERROR** (deadlock: gate G06 raise lúc save → 417), TC-04-BA-02 **FAIL** (chưa có `message_code=IMM04-GATE-G06-APPROVER`, hiện là 417). Chứng minh test bắt bug thật.
+1. **RED:** chạy TC-04-BA-01/02 trên code hiện tại (`transition_state` 2-arg, `services/imm04.py:1156`) → TC-04-BA-01 **FAIL/ERROR** (deadlock: gate G06 raise lúc save → 417), TC-04-BA-02 **FAIL** (chưa có `message_code=IMM04-GATE-G06-APPROVER`, hiện là 417). Chứng minh test bắt bug thật.
 2. **GREEN:** sau khi BE land `04 §5.4` (service `transition_state` +param · `api/imm04.py:92` passthrough · MSG entry `IMM04_GATE_G06_APPROVER`) → `bench --site miyano run-tests --module assetcore.tests.test_imm04` → `Ran N OK` (0 fail / 0 error), module-isolated. ⚠️ `services/imm04.py` + `api/imm04.py` dưới gunicorn `--preload` ⇒ live-HTTP CHỜ USER reload; DoD = run-tests XANH, **KHÔNG** curl.
 3. **Guard OAS:** `grep -c '^@frappe.whitelist' api/imm04.py` bất biến (endpoint `transition_state` đã tồn tại — **0 whitelist mới**); mobile OAS KHÔNG có op `transition_state` ⇒ `test_mobile_oas` + op-count baseline KHÔNG đụng.
 
 **Boundary (Never):** KHÔNG set `workflow_state` trực tiếp bỏ qua transition; KHÔNG dùng `frappe.throw`/`nthrow_in_hook` cho case thiếu approver ở path `transition_state` (đó là bug 417 cần chặn); KHÔNG cấp cùng user cho owner và board_approver trong TC happy-path (4-eyes sẽ FORBIDDEN); KHÔNG thêm `@frappe.whitelist` / op OAS mới.
+
+## III.4d. Fail-path baseline — ghi nhận KHÔNG ĐẠT · Tái kiểm · gate G03 structured (BR-04-04e/f · BR-04-13 · BR-04-14)
+
+File **MỚI**: `tests/test_imm04_baseline_fail_path.py` → class **`TestImm04BaselineFailPath`** (⬜ Planned). Spec: `04 §5.5` + ADR-IMM-04-04/05 + `05 §10/§5`.
+
+**Flow THẬT bắt buộc** (KHÔNG shortcut set `workflow_state` trực tiếp): `create_commissioning(...)` → transition qua `svc.transition_state` tới **Initial Inspection** → `svc.submit_baseline_checklist(...)`. Re-get fresh bằng `CommissioningRepo.get(name)` / `doc.reload()`.
+
+> ⚠️ **BẪY FIXTURE (đọc trước khi viết test — 2 gate KHÁC chạy cùng `doc.save()`):**
+> 1. **G01 `validate_gate_g01`** (`services/imm04.py:349`) — `nthrow_in_hook(IMM04_DOCS_INCOMPLETE)` ⇒ **417** ở MỌI state ≠ `{Draft, Pending Doc Verify}` nếu còn `commissioning_documents` mandatory chưa `Received/Waived`. `initialize_commissioning` **tự seed** bộ hồ sơ mandatory ⇒ fixture PHẢI set `status="Received"`/`"Waived"` cho chúng, **hoặc** set `documents_incomplete=1` + `documents_incomplete_note="<lý do>"`. Bỏ qua bước này ⇒ test đỏ vì **G01**, dễ chẩn nhầm thành lỗi baseline.
+> 2. **VR-03a `validate_checklist_completion`** (`asset_commissioning.py:111-123`) — MỌI dòng `baseline_tests` phải có `test_result`, và dòng `Fail` phải có `fail_note`. Fixture nộp verdict cho **mọi** dòng.
+> 3. `_vr01_unique_serial_number` — `vendor_serial_no` phải duy nhất; dùng suffix ngẫu nhiên + teardown purge (`tests/_asset_cleanup.py`).
+
+| TC | AC | Setup (flow thật) | Assertion (chính xác) | Bug chặn |
+|---|---|---|---|---|
+| **TC-04-BLFAIL-01** | AC1 — ghi nhận được KHÔNG ĐẠT | phiếu @Initial Inspection, `baseline_tests` rỗng | `submit_baseline_checklist(name, [{parameter:"Earth Resistance", measured_val:0.12, test_result:"Fail", fail_note:"Vượt 0.1Ω"}])` → **KHÔNG raise**; `doc.reload()`: dòng `Earth Resistance` **TỒN TẠI** với `test_result=="Fail"` + `measured_val≈0.12` + `fail_note` non-rỗng; `overall_inspection_result == "Fail"` (**KHÔNG** `"Pass"`); `workflow_state == "Initial Inspection"` (bất biến) | mất bằng chứng KHÔNG ĐẠT (raise trước save) |
+| **TC-04-BLFAIL-02** | AC1 — response 5-key | như 01, 2 dòng (1 Pass + 1 Fail) | return `{"overall_result":"Fail", "tests_recorded":2, "failed_parameters":["Earth Resistance"], ...}`; `set(return) ⊇ {name, overall_result, tests_recorded, failed_parameters, clinical_hold_required}` | thiếu key ⇒ FE/mobile banner chết |
+| **TC-04-BLFAIL-03** | AC2 — nộp được ở Re Inspection | phiếu @Re Inspection (đến qua `transition_state(name,"Báo cáo lỗi baseline")` sau TC-01) | `submit_baseline_checklist(...)` **KHÔNG** raise `INVALID_PARAMS` | dead-end vĩnh viễn (state-guard chỉ Initial Inspection) |
+| **TC-04-BLFAIL-04** | AC2 — đo lại Fail→Pass | @Re Inspection, dòng `Earth Resistance` đang `Fail` | `submit_baseline_checklist(name, [{parameter:"Earth Resistance", measured_val:0.05, test_result:"Pass", fail_note:""}])` → `overall_result=="Pass"`, `failed_parameters==[]`; `doc.reload()`: **vẫn 1 dòng** (upsert-by-`parameter`, KHÔNG nhân đôi), `test_result=="Pass"`; `overall_inspection_result=="Pass"`; `workflow_state=="Re Inspection"` | append trùng dòng · verdict không cập nhật |
+| **TC-04-BLFAIL-05** | AC3 — nút hết chết | phiếu @Initial Inspection sau TC-01 (≥1 dòng `Fail` đã persist, mọi dòng có verdict, `Fail` có `fail_note`, hồ sơ G01 sạch) | gọi qua **API layer** `api.imm04.transition_state(name, "Báo cáo lỗi baseline")` → envelope `success==true`, `data["new_state"]=="Re Inspection"`; **KHÔNG** `frappe.ValidationError`/417; sinh **1** bản ghi **`IMM Audit Trail`** filter `{ref_doctype:"Asset Commissioning", ref_name:<name>, to_status:"Re Inspection"}` — ⚠️ **KHÔNG** assert `Asset Lifecycle Event` (IMM-04 không có child table đó, xem `04 §5.5.0 SC#4`) | 417 câm ở đúng tình huống duy nhất cần nút |
+| **TC-04-BLFAIL-06** | AC4 — cổng KHÔNG nới (Initial Inspection) | phiếu @Initial Inspection còn ≥1 dòng `Fail` | `api.imm04.transition_state(name, "Phê duyệt phát hành", board_approver=<hợp lệ>)` → `success==false`, `code=="VALIDATION"`, `http_status==422`, `message_code=="IMM04-GATE-G03-BASELINE"`, `context["failed"]` chứa parameter Fail; re-get `workflow_state=="Initial Inspection"` **và** `docstatus==0` **và** `board_approver` rỗng | nới cổng an toàn · 417 câm · ghi approver khi bị chặn |
+| **TC-04-BLFAIL-07** | AC4 — cổng KHÔNG nới (Re Inspection) | phiếu @Re Inspection còn ≥1 dòng `Fail` | `api.imm04.transition_state(name, "Phê duyệt sau tái kiểm", board_approver=<hợp lệ>)` → cùng envelope như TC-06; `workflow_state=="Re Inspection"`, `docstatus==0` | đường vòng qua Tái kiểm lọt cổng |
+| **TC-04-BLFAIL-08** | AC4 — G03 chạy TRƯỚC G06 | phiếu @Initial Inspection còn `Fail`, **KHÔNG** truyền `board_approver` | `message_code == "IMM04-GATE-G03-BASELINE"` (**KHÔNG** phải `IMM04-GATE-G06-APPROVER`) | thứ tự gate sai ⇒ user bị hỏi người duyệt cho thiết bị chưa đạt |
+| **TC-04-BLFAIL-09** | AC5 — guard cũ còn hiệu lực | phiếu @Initial Inspection | (a) `submit_baseline_checklist(name, [])` → `assertRaises(ServiceError)` `VALIDATION`; (b) phiếu có row seed nhưng `test_result` rỗng + `results=[]` → cùng raise; cả 2: re-get `overall_inspection_result` **KHÔNG** `"Pass"` và **KHÔNG** `"Fail"` | tái mở lỗ silent-completion khi sửa Fail-path |
+| **TC-04-BLFAIL-10** | AC6 — parity message-code | — | `from assetcore.utils.messages import MSG, MESSAGES`: `MSG.IMM04_GATE_G03_BASELINE in MESSAGES`; đọc `frontend/src/i18n/messages.ts` → chuỗi `IMM04-GATE-G03-BASELINE` **có mặt** | FE rơi về toast `SYS-500` "liên hệ IT" |
+
+**RED-before / GREEN-after (BẮT BUỘC):**
+1. **RED (trên code hiện tại):** TC-01/02 **FAIL** (`ServiceError` VALIDATION, 0 dòng persist) · TC-03 **FAIL** (`INVALID_PARAMS`) · TC-05 **ERROR/417** · TC-06/07/08 **FAIL** (chưa có `IMM04-GATE-G03-BASELINE`; hiện 417 hoặc lọt cổng) · TC-10 **FAIL** (code chưa tồn tại). TC-04/09 phụ thuộc TC trước. Chứng minh test bắt bug thật.
+2. **GREEN (sau khi BE land `04 §5.5`):** cả **3 module** phải `Ran N OK`, module-isolated:
+   ```bash
+   bench --site miyano run-tests --module assetcore.tests.test_imm04_baseline_fail_path
+   bench --site miyano run-tests --module assetcore.tests.test_imm04_baseline_silent_completion
+   bench --site miyano run-tests --module assetcore.tests.test_imm04
+   ```
+   ⚠️ **KHÔNG dùng curl** để nghiệm thu: `services/imm04.py` + `api/imm04.py` chạy dưới gunicorn `--preload` ⇒ HTTP live stale tới khi USER reload (LL-DEPLOY-07 — 417 phantom). **DoD = run-tests XANH.**
+3. **KHÔNG `bench migrate`:** delta chỉ chạm `.py` + `messages.ts` (generated) + `docs/`; **0** thay đổi `asset_commissioning.json` / `commissioning_checklist.json` / `imm_04_workflow.json` — verify bằng `git status --porcelain | grep -E '\.json$'` = rỗng cho 3 file đó.
+4. **Regression guard bắt buộc XANH (không được sửa để "cho xanh"):** `test_imm04_baseline_silent_completion` — 7 TC assert `validate_checklist_completion()` **CÓ** raise ở `Initial Inspection` (checklist rỗng · dòng chưa đo · `Fail` thiếu note). Nếu ai đó nới `validate_checklist_completion` để "sửa 417" ⇒ suite này **ĐỎ** ⇒ **sai hướng, dừng lại** (xem `04 §5.5.0 SC#3`: chỉ cần sửa service là đủ mở nút).
+
+**Boundary (Never):** ❌ set `workflow_state` trực tiếp bỏ qua transition (test giả); ❌ sửa `validate_checklist_completion` / `test_imm04_baseline_silent_completion` cho "xanh"; ❌ assert `overall_result` luôn `"Pass"`; ❌ mock `doc.save` trong TC-01/04 (persist chính là điều cần chứng minh — mock = false-green); ❌ dùng curl làm bằng chứng DoD; ❌ thêm `@frappe.whitelist` mới.
+
+## III.4e. Thẻ cổng ⟺ enforcement parity + read-gate 3 lớp (BR-04-15 · BR-04-16 · CR-76)
+
+File: `tests/test_imm04.py` → class **`TestGateStatusEnforcementParity`** (mở rộng `TestGateG05CardValidatorParity` đã live) + `tests/test_rowscope_docperm_gate.py` / `test_rowscope_invariant.py` cho lớp quyền. Spec: `04 §5.6` + ADR-IMM-04-06/07 + `05 §24`.
+
+**Ma trận fixture (ĐẶT PHIẾU Ở TRẠNG THÁI CỔNG ĐƯỢC GÁC — xem `04 §5.6.1` cột 4).** Mỗi hàng chạy **2 phép đo**: giá trị thẻ (`get_gate_status(name).data[gXX]`) và enforcement (raise / không raise).
+
+| TC | Cổng | Fixture | Thẻ kỳ vọng | Enforcement kỳ vọng | Lỗi bị chặn |
+|---|---|---|---|---|---|
+| **TC-04-GATE-01** | G01 | **0 dòng** `commissioning_documents` `is_mandatory` (xoá sạch bộ seed của `initialize_commissioning`), state `To Be Installed` | `g01_docs is True`, `g01_waived is False` | `validate_gate_g01(doc)` **không raise** | **E1 báo oan** — hiện hằng `False` @`api/imm04.py:257` |
+| **TC-04-GATE-02** | G01 | ≥1 hồ sơ bắt buộc `Pending` **+** `documents_incomplete=1` + `documents_incomplete_note="CO/CQ về sau"` | `g01_docs is True`, **`g01_waived is True`** | không raise (msgprint cảnh báo) | **E2 báo oan** — thẻ không biết nhánh giải trình |
+| **TC-04-GATE-03** | G01 | ≥1 hồ sơ bắt buộc `Pending`, **không** giải trình | `g01_docs is False`, `g01_waived is False` | `assertRaises(frappe.ValidationError)` | nới cổng khi sửa E1/E2 |
+| **TC-04-GATE-04** | G01 | mọi hồ sơ bắt buộc `Received`; **thêm** 1 hồ sơ **không** bắt buộc `Pending` | `g01_docs is True`, `g01_waived is False` | không raise | tính nhầm hồ sơ tuỳ chọn vào cổng |
+| **TC-04-GATE-05** | G01 | ≥1 hồ sơ bắt buộc `Pending` + `documents_incomplete=1` + note **rỗng/chỉ khoảng trắng** | `g01_docs is False`, `g01_waived is False` | raise | waiver "rỗng" lọt cổng (predicate phải `.strip()`) |
+| **TC-04-GATE-06** | G03 | `baseline_tests` **rỗng**, state `Initial Inspection` | `g03_baseline is False` | pre-check BR-04-13 raise `IMM04-GATE-G03-BASELINE` khi `transition_state(..., "Phê duyệt phát hành")` | `bool(tests)` bị bỏ khi refactor |
+| **TC-04-GATE-07** | G03 | 2 dòng `Pass` + 1 dòng `N/A` | `g03_baseline is True` | không raise (nhánh G03) | thu hẹp `_G03_PASSING` câm |
+| **TC-04-GATE-08** | G03 | 1 dòng `Fail` (có `fail_note`) | `g03_baseline is False` | raise, `context["failed"]` chứa parameter đó | — |
+| **TC-04-GATE-09** | G03 | 1 dòng `test_result = " Pass"` (thừa khoảng trắng) | `g03_baseline is True` | không raise | **E3** — thẻ cũ không `.strip()` ⇒ lệch với pre-check |
+| **TC-04-GATE-10** | G03 | `grep -n '"Pass", "N/A"' assetcore/api/imm04.py` | **0 hit** | — | literal tái sinh ở tầng api (AC3) |
+| **TC-04-GATE-11** | G05 | 1 NC `Open` | `g05_nc is False` | `validate_gate_g05_g06` raise | *(đã live — giữ)* |
+| **TC-04-GATE-12** | G05 | 1 NC `Resolved` + 1 `Under Review` + 1 `Transferred` (0 `Open`) | `g05_nc is True` | không raise | regress CR-54 §3 |
+| **TC-04-GATE-13** | G06 | `board_approver` rỗng, state `Clinical Release` | `g06_approver is False` | raise `IMM04_BOARD_APPROVER_REQUIRED` | — |
+| **TC-04-GATE-14** | G06 | `board_approver` đã set | `g06_approver is True` | không raise (nhánh G06) | — |
+| **TC-04-GATE-15** | quyền | persona **0 DocPerm read** `Asset Commissioning`, `name` **có thật** | envelope `success is False`, `code == "FORBIDDEN"`, `http_status == 403`; `set(data or {}) ∩ {khoá bắt đầu "g0"} == ∅` | — | **E4 IDOR-đọc** |
+| **TC-04-GATE-16** | quyền | persona **0 DocPerm read**, `name` **bịa** | **cùng** envelope FORBIDDEN như TC-15 (byte-identical `code`/`http_status`) | — | existence-oracle (L0 phải chạy TRƯỚC EXISTS) |
+| **TC-04-GATE-17** | quyền | persona **đủ quyền**, `name` **bịa** | `code == "NOT_FOUND"`, `message_code == "IMM04-NOT-FOUND"` | — | mất 404 cho người có quyền |
+| **TC-04-GATE-18** | quyền | persona **đủ quyền**, `name` có thật | 200, `set(data)` == **8 khoá** (6 cũ + `g01_waived` + `g04_applicable` — cập nhật AC-CR-85); mọi khoá cũ giữ **nguyên tên + kiểu `bool`** | — | vỡ hợp đồng cũ (additive) |
+| **TC-04-GATE-19** | quyền | guard tĩnh | cặp `("services/imm04.py", "evaluate_gate_status")` **KHÔNG** ∈ `_DETAIL_READ_UNGATED_BACKLOG`; **CÓ** ∈ vế *named* (`_CR76_NAMED_DETAIL_GATES`); `test_rowscope_scope_guard` G5a/G5b **xanh** | — | thêm dòng allowlist để "cho xanh" = mở lại lỗ (AC5) |
+
+**Quy tắc chấm parity (INV-GATE-PARITY):** với mỗi hàng TC-01..14, hai phép đo phải **đồng dấu**: `card is True ⟺ enforcement không raise`. Test viết dạng **bảng chân trị** (một helper `_assert_parity(gate_key, expect_pass)`), **KHÔNG** viết 2 assert rời rạc — mục đích là chứng minh *tương đương*, không phải *hai sự thật độc lập*.
+
+**Bẫy fixture (kế thừa III.4d + mới):**
+1. **G01 chạy ở MỌI state ≠ `{Draft, Pending Doc Verify}`** ⇒ fixture cho TC G03/G05/G06 phải làm sạch G01 trước (Received/Waived **hoặc** waiver), nếu không đỏ vì nhầm cổng.
+2. **TC-15/16/17 PHẢI chạy dưới session user THẬT** (`frappe.set_user(<persona>)`): `Administrator` short-circuit `frappe/permissions.py:107-109` ⇒ **xanh giả**.
+3. Ma trận G01 cần **xoá** bộ hồ sơ mandatory do `initialize_commissioning` tự seed (TC-01) — dùng `doc.set("commissioning_documents", [])` rồi `db_update`, KHÔNG sửa `initialize_commissioning`.
+4. `tearDown` **phải** purge NC + phiếu (mirror `TestGateG05CardValidatorParity`) — fixture rơi ⇒ TC khác đỏ oan (LL: mọi `bench run-tests` đặt `timeout` tool ≥ **600000ms**, kill giữa chừng = nhiễm DB).
+
+**RED-before / GREEN-after (BẮT BUỘC — chống xanh giả, AC8):**
+1. **RED trên code hiện tại:** TC-01 (thẻ `False`, validator không raise) · TC-02 (thẻ `False`) · TC-09 (thẻ `False`) · TC-15/16 (hiện **200 + đủ khoá** cho persona 0 quyền) · TC-17 (hiện `code` là `404` số, không `NOT_FOUND` envelope) · TC-18 (thiếu `g01_waived`) · TC-19 (chưa có vế named).
+2. **Mutation-verified sau khi xanh:** hoàn nguyên nhánh **no-mandatory-docs** ⇒ TC-01 **ĐỎ**; hoàn nguyên nhánh **waiver** ⇒ TC-02 **ĐỎ**; gỡ `assert_can_read_doc` ⇒ TC-15/TC-19 **ĐỎ**; rot 1 cite OAS ⇒ TC cite-parity `test_mobile_oas` **ĐỎ**; hoàn nguyên tất cả ⇒ **XANH**. Ghi bằng chứng vào báo cáo vòng.
+3. **Suite phải XANH THẬT (module-isolated):**
+   ```bash
+   bench --site miyano run-tests --module assetcore.tests.test_imm04
+   bench --site miyano run-tests --module assetcore.tests.test_imm04_baseline_fail_path
+   bench --site miyano run-tests --module assetcore.tests.test_rowscope_scope_guard
+   bench --site miyano run-tests --module assetcore.tests.test_rowscope_docperm_gate
+   bench --site miyano run-tests --module assetcore.tests.test_rowscope_invariant
+   bench --site miyano run-tests --module assetcore.tests.test_mobile_oas
+   bench --site miyano run-tests --module assetcore.tests.test_mobile_docset
+   ```
+   FE: `npx vitest run src/components/commissioning/ApprovalPanel.gate.test.ts` + `npx vue-tsc --noEmit` (0 lỗi).
+   ⚠️ **KHÔNG curl** (gunicorn `--preload` ⇒ stale worker, LL-DEPLOY-07). **DoD = run-tests XANH.**
+4. **Zero-behavior-change (AC7):** `git diff` các hàm `transition_state` / `validate_gate_g01` / `validate_gate_g05_g06` / `AssetCommissioning.validate` chỉ được chứa **trích xuất predicate** — **0** nhánh `raise`/`nthrow*` thêm/bớt/đổi điều kiện. Reviewer đọc diff theo tiêu chí này trước khi chấm xong.
+
+**Boundary (Never):** ❌ gọi validator trong `try/except` để dựng thẻ (side-effect `msgprint` + state-guard — xem ADR-IMM-04-06 alternative (b)); ❌ copy state-guard vào thẻ (sinh "xanh rồi đỏ"); ❌ assert bằng `Administrator` cho TC quyền; ❌ thêm dòng vào `_DETAIL_READ_UNGATED_BACKLOG`; ❌ sửa `_count_open_ncs` sang `!= 'Closed'` (chưa ratify); ❌ đụng `validate_gate_g03` / `validate_radiation_hold` (backlog C1/C2).
+
+## III.4f. Cổng G04 gác ĐÚNG 1 domain — predicate SSoT + gỡ deadlock (BR-04-17 · AC-CR-85)
+
+File: `tests/test_imm04.py` → class **`TestGateG04Applicability`** (đã land, 13 TC) + cập nhật `TestVR07ClinicalHold` (`test_imm04.py:335-375` — TC cuối đổi tên thành `test_radiation_class_is_gated_by_g04`).
+Spec: `02 §IV.2` BR-04-17 · `04 §5.7` · `05 §24.6` · ADR-IMM-04-08 / ADR-IMM-04-09.
+**Baseline trước vòng này (đo thật 2026-07-27):** `test_imm04` = **97 OK**.
+
+### III.4f.1. Ma trận A — `check_auto_clinical_hold` KHÔNG suy giảm (**12 ô**, không phải 10)
+
+⚠️ **Self-Correction so với acceptance:** ma trận `5 risk_class × 2 cờ` **bỏ sót nhánh fallback**. Biểu thức là `doc.risk_class in (...) if doc.risk_class else bool(doc.is_radiation_device)` ⇒ với **mọi** giá trị enum, `risk_class` luôn truthy nên nhánh `else` **không bao giờ chạy**. Nếu chỉ chốt 10 ô thì ai đó xoá nhánh fallback vẫn xanh 10/10 — test rỗng đúng thứ A10 muốn cấm. Phải có **6** giá trị `risk_class` (5 enum + **rỗng**).
+
+| TC | `risk_class` | `is_radiation_device` | Trả về | Nhánh |
+|---|---|---|---|---|
+| TC-04-G04-01 | `A` | 0 → `False` · 1 → `False` | `False` | enum |
+| TC-04-G04-02 | `B` | 0 → `False` · 1 → `False` | `False` | enum |
+| TC-04-G04-03 | `C` | 0 → `True` · 1 → `True` | `True` | enum |
+| TC-04-G04-04 | `D` | 0 → `True` · 1 → `True` | `True` | enum |
+| TC-04-G04-05 | `Radiation` | 0 → `True` · 1 → `True` | `True` | enum |
+| **TC-04-G04-06** | **`''` (rỗng)** | **0 → `False` · 1 → `True`** | theo cờ | **fallback — 2 ô mà 5×2 bỏ sót** |
+
+Assert: giá trị **giống hệt** hành vi trước fix ở cả **12/12** ô ⇒ `clinical_hold_required` (`services/imm04.py:1774`) và Clinical Hold routing **bất biến**.
+
+### III.4f.2. Ma trận B — INV-G04-1 hai chiều (**10 ô**: 5 `risk_class` × 2 `qa_license_doc`)
+
+Mỗi ô chạy **3 phép đo** trên **cùng** một phiếu: `gate_g04_applies(doc)` · `evaluate_gate_status(name)["g04_applicable"]`/`["g04_radiation"]` · VR-07 (`validate_radiation_hold`, state `Clinical Release`).
+
+| TC | Fixture | Kỳ vọng |
+|---|---|---|
+| **TC-04-G04-07** | Device Model `is_radiation_device=0`, `risk_class ∈ {A,B,C,D}`, `qa_license_doc` rỗng | `applies=False` · `g04_applicable is False` · `g04_radiation is True` · VR-07 **không raise** |
+| **TC-04-G04-08** | như trên nhưng **có** `qa_license_doc` | `g04_applicable is False` · `g04_radiation is True` · không raise (giấy phép thừa không đổi kết quả) |
+| **TC-04-G04-09** | Model `is_radiation_device=1` (⇒ `risk_class='Radiation'` do `_autofill_from_device_model`), `qa_license_doc` **rỗng** | `applies=True` · `g04_applicable is True` · `g04_radiation is False` · VR-07 **raise** |
+| **TC-04-G04-10** | như TC-09 nhưng **có** `qa_license_doc` | `g04_applicable is True` · `g04_radiation is True` · không raise |
+| **TC-04-G04-11** | Model `is_radiation_device=0` **nhưng** người dùng đặt `risk_class='Radiation'`, `qa_license_doc` rỗng | `applies=True` · `g04_radiation is False` · VR-07 **raise** — **chống suy giảm an toàn**: đây chính là ô mà bỏ vế `risk_class == 'Radiation'` sẽ mất cổng |
+| **TC-04-G04-12** | **Ô người dùng thật (gỡ deadlock, A6)** — `risk_class='C'`, Model **không** bức xạ, `qa_license_doc` **rỗng**, `workflow_state='Clinical Release'` | `doc.save()` **KHÔNG** throw «…Giấy phép của Cục An toàn Bức xạ Hạt nhân»; đọc lại DB `frappe.db.get_value('Asset Commissioning', name, 'is_radiation_device') == 0` (A1) |
+
+**Quy tắc chấm (INV-G04-1):** `g04_applicable is False ⇒ g04_radiation is True` **và** VR-07 không raise, ở **mọi** ô; ô `{False, False}` không được xuất hiện lần nào.
+
+### III.4f.3. Bẫy fixture (đọc trước khi viết test — tránh xanh giả / đỏ oan)
+
+1. **`_autofill_from_device_model` ghi đè `risk_class` ở `before_insert`** (`services/imm04.py:250-268`): khi `is_new()`, `medical_device_class` được map `Class I/II/III → A/B/C`; nếu model gắn cờ bức xạ thì `risk_class` bị ép `'Radiation'`. ⇒ Muốn phiếu có `risk_class='C'` với model Class III thì map đã cho đúng `C`; muốn `'D'` hoặc `''` thì **set sau khi insert rồi `save()`**, đừng truyền vào lúc tạo rồi assert.
+2. **`fetch_from` chạy TRƯỚC `validate()`** (`frappe/model/document.py:302/309/413/414` → `_validate_links` → `set_fetch_from_value`): sau khi gỡ ghi đè, `is_radiation_device` **luôn** bằng giá trị Device Model tại mỗi lần lưu. Assert **phải đọc lại từ DB** (`frappe.db.get_value`), **không** assert trên object trong bộ nhớ.
+3. **VR-07 chỉ gác ở `{Clinical Release, Pending Release}`** — fixture ở state khác sẽ "không raise" vì **sai state**, không phải vì predicate đúng ⇒ xanh giả. Ma trận B **phải** đặt state đúng.
+4. **G01/G03 chạy trước trong `validate()`** (`asset_commissioning.py:36-47`) ⇒ phiếu dùng cho ma trận B phải sạch hồ sơ bắt buộc + có baseline hợp lệ, nếu không đỏ vì **nhầm cổng**.
+5. `TestVR07ClinicalHold::test_radiation_class_sets_flag` (`test_imm04.py:355-358`) **assert chính cái side-effect đang bị gỡ** ⇒ **phải viết lại**: thay `assertEqual(doc.is_radiation_device, 1)` bằng `assertTrue(gate_g04_applies(doc))` (giữ nguyên ý định "phiếu Radiation vẫn bị cổng G04 gác", bỏ cách đo qua side-effect). Đây là **sửa test theo spec mới**, không phải "sửa test cho khớp code".
+6. `tearDown` purge phiếu + Device Model tạm (`memory/test_session_*` — fixture rơi = nhiễm suite khác). Mọi `bench run-tests` đặt `timeout` tool ≥ **600000ms**.
+
+### III.4f.4. RED-before / GREEN-after + mutation (chống test rỗng — A10)
+
+**RED trên code hiện tại (phải đỏ TRƯỚC khi sửa):** TC-04-G04-07 (hiện `g04_applicable` chưa tồn tại; với `risk_class='C'` server bơm cờ ⇒ `g04_radiation is False`) · TC-04-G04-12 (hiện **throw** VR-07 + DB đọc ra `1`) · guard `cr85_g` nhánh parity.
+
+**Mutation-probe (chạy SAU khi xanh, khôi phục nguyên trạng + verify `md5sum`):**
+
+| # | Đột biến | Phải làm ĐỎ |
+|---|---|---|
+| M1 | `gate_g04_applies` → `return True` | ≥ 3 TC: TC-04-G04-07, TC-04-G04-08, TC-04-G04-12 (+ ma trận thẻ) |
+| M2 | `gate_g04_applies` → `return False` | TC-04-G04-09, TC-04-G04-10, TC-04-G04-11 |
+| M3 | Bỏ vế `or doc.get("risk_class") == "Radiation"` | **TC-04-G04-11** (ô chống suy giảm an toàn) |
+| M4 | Xoá khoá `g04_applicable` khỏi `evaluate_gate_status` | TC-04-GATE-18 + guard OAS `cr85_g` |
+| M5 | Khôi phục `doc.is_radiation_device = 1` trong `check_auto_clinical_hold` | TC-04-G04-12 (đọc DB) + `cr85_g` |
+| M6 | VR-07 quay lại đọc `self.is_radiation_device` | TC-04-G04-11 vẫn xanh nhưng **TC-04-G04-12 ĐỎ** ⇒ chứng minh parity là **hai chiều**, không chỉ một |
+| M7 | Xoá nhánh fallback `else bool(doc.is_radiation_device)` | **TC-04-G04-06** (2 ô mà ma trận 5×2 bỏ sót) |
+
+#### III.4f.4-bis. KẾT QUẢ THẬT sau land (BE Bước-4, 2026-07-27 — `md5sum` khôi phục khớp 2/2 file)
+
+Baseline `test_imm04` = **97 OK** → sau land **110 OK** (+13: TC-04-G04-01..13; `TestVR07ClinicalHold::test_radiation_class_sets_flag` **đổi tên** `test_radiation_class_is_gated_by_g04`, đo qua `gate_g04_applies` — bẫy 5).
+
+**RED-before (đo thật, dựng shim predicate rồi chạy):** 5 FAIL + 12 ERROR — TC-04-G04-03/04/05 (side-effect ghi cờ), TC-04-G04-07/08/09/10/11/13 (`g04_applicable` chưa tồn tại ⇒ KeyError), **TC-04-G04-12 FAIL với chính chuỗi «Giấy phép của Cục An toàn Bức xạ Hạt nhân»** (deadlock tái hiện trên phiếu THẬT), TC-04-GATE-18 (key-set 7→8).
+
+| # | Kỳ vọng (spec) | ĐỎ THẬT | Khớp? |
+|---|---|---|---|
+| M1 | ≥3 TC | TC-07 (×4 subTest) · TC-08 (×4) · TC-12 · TC-13 (+2 ERROR ở `TestTransitionBoardApprover` — phiếu thật không release được) | ✅ |
+| M2 | TC-09/10/11 | TC-09 · TC-10 · TC-11 · `test_radiation_class_is_gated_by_g04` | ✅ |
+| M3 | TC-11 | TC-11 · `test_radiation_class_is_gated_by_g04` | ✅ |
+| M4 | TC-04-GATE-18 + `cr85_g` | TC-GATE-18 + 13 ERROR + `cr85_g` **(chỉ sau khi siết guard — xem dưới)** | ⚠️ self-correction |
+| M5 | TC-12 + `cr85_g` | TC-03 · TC-04 · TC-05 · TC-12 + `cr85_g` | ✅ (rộng hơn kỳ vọng) |
+| M6 | «TC-11 xanh, TC-12 ĐỎ» | **TC-11 ĐỎ · TC-13 ĐỎ · `cr85_g` ĐỎ; TC-12 XANH** | ⚠️ self-correction |
+| M7 | TC-06 | TC-06 · `test_radiation_hold` | ✅ |
+
+**2 self-correction so với bảng dự kiến (ghi lại vì cả hai đều là bài học chống test rỗng):**
+
+1. **M4 KHÔNG làm đỏ `cr85_g` ở lần chạy đầu** — guard đo `emits` bằng `ast.dump` **cả hàm**, mà docstring `evaluate_gate_status` có nhắc tên khoá ⇒ xoá khoá khỏi `return` vẫn XANH (vacuous). Đã **SIẾT** (không nới): đọc **khoá thật của dict `return`**; đồng thời khẳng định "tính qua predicate SSoT" chuyển sang đo `ast.Call` (helper `_cr85_called_names`) thay vì tìm chuỗi trong dump. Chạy lại M4 ⇒ ĐỎ. Số TC **giữ 1015** (siết assertion ≠ thêm TC).
+2. **M6 làm đỏ TC-11/TC-13 chứ không phải TC-12.** Dự đoán cũ giả định ghi-đè cờ VẪN còn; sau khi A1 gỡ ghi đè, phiếu Class C giữ cờ `0` nên VR-07-đọc-cờ cũng không chặn ⇒ TC-12 không phân biệt được M6. Chiều "advertise ⊇ enforce" nay do **TC-04-G04-11** (phiếu người dùng phân loại `Radiation`, cờ model = 0) và **TC-04-G04-13** (mutation-probe thường trực) bắt. Parity vẫn 2 chiều, chỉ đổi TC gác.
+
+**Suite phải XANH THẬT (module-isolated, `timeout` ≥ 600000ms):**
+
+```bash
+bench --site miyano run-tests --module assetcore.tests.test_imm04              # 97 → 110 OK (+13)
+bench --site miyano run-tests --module assetcore.tests.test_imm04_baseline_fail_path
+bench --site miyano run-tests --module assetcore.tests.test_imm04_baseline_silent_completion
+bench --site miyano run-tests --module assetcore.tests.test_mobile_oas         # 1015 OK
+bench --site miyano run-tests --module assetcore.tests.test_mobile_docset      # 9 OK
+```
+
+FE: `npm run test` + `npx vue-tsc --noEmit`. **TUYỆT ĐỐI 0 `bench migrate`** (không sửa DocType JSON — mọi field đã tồn tại). **KHÔNG curl** (gunicorn `--preload` ⇒ stale worker, LL-DEPLOY-07): DoD = `run-tests` xanh.
+
+**Boundary (Never) — §III.4f:** ❌ đo "1 diễn giải" bằng `grep -c` toàn file (8 hit hợp lệ ngoài vùng cổng — dùng AST-scoped như `cr85_g`); ❌ sửa `validate_gate_g01`/`validate_gate_g05_g06`/pre-check BR-04-13 để "cho khớp"; ❌ sửa `_autofill_from_device_model` (writer hợp lệ, ngoài scope); ❌ nới guard kiến trúc (`_DETAIL_READ_UNGATED_BACKLOG`, key-set contract) để hợp spec; ❌ viết patch backfill dữ liệu cũ (B-CR85-1 — cần USER duyệt).
 
 ## III.5. Integration — Audit chain integrity
 
@@ -420,6 +610,9 @@ CI fail nếu coverage < target hoặc bất kỳ test nào fail.
 | BR-04-08 (GW-2) | CN ĐK lưu hành Active/Exempt | `TestDocumentExpiry` | Decision Table | ⬜ Planned |
 | BR-04-10 | Overdue SoT drillable (anchor `reception_date`, `OVERDUE_DAYS=30`, KPI==drill) | `TestOverdueSoT` (TC-04-30..32) | Invariant + EP | 2 / 1 ⬜ Planned |
 | BR-04-11 | Stamp `commissioning_date` tại Clinical Release (idempotent) + KPI `released_this_month` re-anchor `modified`→`commissioning_date` (card==count cùng cửa sổ tháng) | `tests/test_imm04_commissioning_date_kpi.py` (12 test) + FE `commissioningKpi.test.ts` (8) | Invariant + EP + BVA + idempotency | ✅ Done (BE 12 + FE 8 GREEN; no-regression test_imm04 39 / test_workflows 8 / test_dashboard 55; vue-tsc 0) |
+| BR-04-15 | Thẻ cổng G01–G06 = CHÍNH predicate enforcement (BLOCKING-parity · `g01_waived` additive · `_G03_PASSING` SSoT · G02 tham khảo) | `TestGateStatusEnforcementParity` TC-04-GATE-01..14 (§III.4e) + FE `ApprovalPanel.gate.test.ts` | Decision Table + Invariant (bảng chân trị) + Mutation | ⬜ Planned (RED-before ở TC-01/02/09) |
+| BR-04-17 | Cổng G04 gác ĐÚNG 1 domain — predicate SSoT `gate_g04_applies` + `g04_applicable` + INV-G04-1 (AC-CR-85) | `TestGateG04Applicability` TC-04-G04-01..13 (§III.4f) + `TestMobileGateStatusApplicability` cr85_a..g + FE `ApprovalPanel` FE-G04-1..7 | Decision Table + Invariant + Mutation (M1–M7) | ✅ 13/13 (RED-before đo thật ở TC-03/04/05/07..13 + TC-GATE-18; mutation 7/7 ĐỎ — §III.4f.4-bis) |
+| BR-04-16 | Read-gate 3 lớp ROLE→EXISTS→ROW cho `get_gate_status`; 403 in-envelope trên HTTP-200; 0 existence-oracle | TC-04-GATE-15..19 (§III.4e) + `test_rowscope_docperm_gate` / `test_rowscope_invariant` / `test_rowscope_scope_guard` G5a/G5b | Invariant + Guard tĩnh (AST) | ⬜ Planned (RED-before ở TC-15/16/18/19) |
 
 ## IV.3. Component → Test mapping
 
@@ -702,6 +895,149 @@ Gắn screenshot SonarQube + Lighthouse vào file 09 §Release Notes khi báo c�
 **Expected (negative role)**: PermissionError / FORBIDDEN
 **Expected (gate fail)**: ServiceError(code=BUSINESS_RULE, message contains "<Gx>")
 ```
+
+---
+
+## VIII. AC-CR-98 + AC-CR-106 — `list_commissioning` MỘT ENGINE + vendor-scope là PHÉP GIAO (chốt 2026-07-30)
+
+> **SSoT quyết định:** [`../imm-00/ADR-IMM00-LIST-SCOPE.md §10`](../imm-00/ADR-IMM00-LIST-SCOPE.md) (`ADR-IMM00-LIST-SCOPE-04/05` · `INV-COMM-SCOPE-1..4` · `INV-VENDORSCOPE-1..4` · enforce `INV-CONN-21`/`INV-CONN-27`) · BE `§10.4/§10.5` · FE [`06 §11`](./06_Frontend_Design.md).
+>
+> **QA đọc TRƯỚC khi chấm — 3 đính chính so với đề mục** (§10.1 RC-10.3): (1) shape trả về là `{"items", "pagination"}`, `total` nằm **trong** `pagination` — **không có** `res['total']`/`res['records']`; (2) persona rò dữ liệu là **`Vendor Engineer` + `Commissioning User`** (vendor **thuần** không có DocPerm read ⇒ nhận **Error envelope**, không phải danh sách); (3) yêu cầu "0 hit `frappe.get_all` trong thân hàm" áp cho **DocType row-scoped** (`Asset Commissioning`, `AC Asset`) — 4 lookup **nhãn** trên DocType không-row-scoped **giữ** `get_all`, đổi chúng sẽ **mất nhãn** hiển thị.
+
+### VIII.1 BE — bảng test case (đỏ TRƯỚC / xanh SAU, KHÔNG "xanh suông")
+
+| TC | Bất biến | Nơi đặt | Phát biểu chấm được |
+|---|---|---|---|
+| **TC-IMM04-SCOPE-01** | INV-COMM-SCOPE-1 | `test_rowscope_scope_guard.py` (delta) | AST thân `list_commissioning`: **0** `frappe.get_all`/`frappe.db.count`/`frappe.db.get_all` trên DocType ∈ `hooks.permission_query_conditions`; 4 lookup nhãn (`IMM Device Model`·`AC Supplier`·`AC Department`·`AC Purchase`) **được phép** tồn tại |
+| **TC-IMM04-SCOPE-02** | INV-COMM-SCOPE-4 | `test_rowscope_scope_guard.py` (delta) | `("services/imm04.py","list_commissioning") not in _RAW_QUERY_UNGATED_BACKLOG` ∧ `len(_RAW_QUERY_UNGATED_BACKLOG) <= 16` (cấm thăng-hạng-ngược) ∧ `test_raw_queries_on_rowscoped_doctypes_are_gated` XANH |
+| **TC-IMM04-SCOPE-03** | INV-COMM-SCOPE-2 | class mới trong `test_rowscope_invariant.py` | `frappe.set_user(<vendor+commissioning>)`; seed 2 phiếu (1 `owner`=persona, 1 `owner`=người khác) ⇒ phiếu người khác **vắng** ở CẢ `items` LẪN `pagination.total`. **ĐỎ trước fix** (hôm nay có mặt ở cả hai) |
+| **TC-IMM04-SCOPE-04** | INV-COMM-SCOPE-3 | 〃 | 3 persona (§10.2): `pagination.total == len(items)` khi tổng ≤ `page_size` |
+| **TC-IMM04-SCOPE-05** | INV-COMM-SCOPE-3 (vế > trang) | 〃 | seed ≥ `page_size+2` phiếu, gọi `page_size=2` ⇒ `total` == số dòng **row-scoped** đếm qua cùng predicate (**không** phải `COUNT(*)` toàn bảng); `len(items) == 2` |
+| **TC-IMM04-SCOPE-06** | §10.6 | 〃 | `Vendor Engineer` **thuần** ⇒ **HTTP-200 + Error envelope** `FORBIDDEN` (chấm qua `api/imm04.list_commissioning`, KHÔNG qua service) — **không** phải `items: []` |
+| **TC-IMM04-SCOPE-07** | INV-CONN-27 (enforce) | 〃 | **cùng session, cùng thiết bị X**, cho **3 persona**: `cell.total == len(drill.items) + #{docstatus==2}` ∧ `cell.total_capped == 0` ∧ **mọi** dòng drill có `final_asset == X`. Dung sai phải khai **tường minh** trong assert kèm cite `AC-CR-99` |
+| **TC-IMM04-SCOPE-08** | INV-CONN-27 (không vacuous) | 〃 | seed cả `docstatus` 0 **và** 1 cho X ⇒ công thức không vacuous; ô «Phiếu nghiệm thu lắp đặt» **có mặt** (`assertIn` **trước** khi so số — cấm `dict.get(k, default)`) |
+| **TC-VSCOPE-01..08** | INV-VENDORSCOPE-1 | **file MỚI** `test_vendor_scope_intersect.py` | đủ **8 dòng** bảng đại số §10.4 (absent · vô hướng trong/ngoài phạm vi · `=` · `in` · list literal · `!=` · `not in` · op không tính được ⇒ `__none__`) |
+| **TC-VSCOPE-09** | INV-VENDORSCOPE-1 (phủ 5 doctype) | 〃 | chạy đại số cho **cả 5** khoá `_VENDOR_SCOPE_FIELD_MAP` với đúng field của từng doctype (`name`/`asset_ref`/`asset`) |
+| **TC-VSCOPE-10** | INV-VENDORSCOPE-2 | 〃 | dict-in ⇒ **dict**-out; shape ra **luôn** `["in", <list>]`; `type(out) is dict` |
+| **TC-VSCOPE-11** | INV-VENDORSCOPE-2 (liên thông) | 〃 | `imm11._extract_asset_in_scope(out["asset"])` trả đúng IN-list ⇒ chứng minh `services/imm11.py:916` **không cần** đổi |
+| **TC-VSCOPE-12** | INV-VENDORSCOPE-3 | 〃 | non-vendor · Guest · doctype ngoài map · bypass-role ⇒ **passthrough byte-identical** (`out is filters` hoặc `out == filters` + không thêm khoá) |
+| **TC-VSCOPE-13** | INV-VENDORSCOPE-3 (0 hồi quy) | `test_rbac.py` | `test_apply_vendor_scope_*` (`:570-604`) XANH **không sửa một dòng** |
+| **TC-VSCOPE-14** | §10.4 nhánh list | 〃 | `filters` dạng **list** ⇒ trả **list**, có thêm đúng 1 điều kiện `[<doctype thật>, field, "in", assigned]`; nhãn doctype **không** được là alias `Calibration Schedule`/`Calibration Record` (hoặc: test chứng minh nhánh list **không** tới được từ 5 call site — `AC-CR-109`) |
+| **TC-VSCOPE-15** | INV-CONN-21 (enforce) | class mới trong `test_rowscope_invariant.py` | Vendor Engineer + deep-link 1 thiết bị: `list_calibration_schedules('{"asset":X}')`, `list_pm_work_orders('{"asset_ref":X}')`, `list_repair_work_orders('{"asset_ref":X}')` ⇒ **chỉ** dòng của X; thiết bị Y (cũng được giao) **vắng**. **ĐỎ trước fix** |
+| **TC-IMM04-SCOPE-09** | INV-VENDORSCOPE-4 | `test_imm04.py` (chạy lại, **không sửa**) | `TestOverdueSlaLiveInvariant` (`:724+`, gồm `list_commissioning({"overdue":1})` `:786` và `{"overdue":1,"workflow_state":…}` `:861`) XANH ⇒ đường **filter-list form** đi qua engine đếm mới không hồi quy |
+| **TC-IMM04-SCOPE-10** | ADR-…-05 D3 | `test_vendor_scope_intersect.py` hoặc guard | `count_with_or` annotation là `dict | list | None` ∧ gọi được với **list** filters (không `TypeError`) ∧ thân hàm **không** đổi logic |
+
+### VIII.2 FE — xem [`06 §11.4`](./06_Frontend_Design.md): `TC-FE-COMM-SE-01..06` (file mới `commissioningScopedEmpty.test.ts`).
+
+### VIII.3 Ràng buộc chấm (BẮT BUỘC — vi phạm = kết quả vô nghĩa)
+
+- **Session user THẬT** `frappe.set_user(...)` cho mọi TC row-scope — `Administrator` bypass `permission_query_conditions` ⇒ **XANH GIẢ**.
+- **CẤM** mock `frappe.get_list` / `frappe.db.count`: mock chứng minh chữ ký, không chứng minh predicate.
+- **CẤM** phụ thuộc `vendor_engineer_name` khớp email (là field `Data`, không phải `Link → User` — nợ `AC-CR-108`); dùng `owner` để dựng ca "trong phạm vi".
+- Fixture master **uuid-suffix** + `tearDownClass` dọn sạch (tên cố định tự chặn chính nó sau crash).
+- Asset mới **luôn** có sẵn 1 `Asset Lifecycle Event` `qr_generated` (`ac_asset.py:83`) — đừng giả định "asset mới = 0 event".
+- **DoD chấm bằng test module-isolated, KHÔNG curl** (blocked-reload gunicorn `--preload` — LL-DEPLOY-07/08); `timeout` tool **≥ 600000 ms**; chấm theo **DELTA đo từ đĩa** (baseline trong prompt/STATE luôn có thể stale).
+- `QueryDeadlockError` do đa-phiên = **ĐỎ GIẢ** ⇒ chờ quiescence rồi chạy lại, **KHÔNG** "sửa cho xanh".
+- **Run list:** `test_rowscope_scope_guard` · `test_rowscope_invariant` · `test_vendor_scope_intersect` (mới) · `test_imm04` · `test_rbac` · `test_connections_tree` · `test_connections_list_filter_parity` · `test_imm08` · `test_imm09` · `test_imm11` · `test_imm00`.
+- `.py` prod đổi vòng này (`services/imm04.py`, `services/shared/scope.py`, `services/shared/filters.py`) ⇒ **bồi vào danh sách chờ `bench restart`** (blocker #1 STATE). **KHÔNG** `git commit` / `bench migrate` / `bench restart` / xoá dữ liệu prod.
+
+---
+
+## IX. AC-CR-112 — ĐÓNG NỢ VERIFY của §VIII: chạy thật 5+3 module + bịt nhánh `overdue=1` dưới row-scope (chốt 2026-07-30)
+
+> **SSoT quyết định:** [`../imm-00/ADR-IMM00-LIST-SCOPE.md §11`](../imm-00/ADR-IMM00-LIST-SCOPE.md) (`ADR-IMM00-LIST-SCOPE-06/07` · `INV-COMM-SCOPE-5/6` · hạ cấp `INV-VENDORSCOPE-4` → `SMOKE-VENDORSCOPE-4`) · FE [`06 §11.5`](./06_Frontend_Design.md) · BE [`04 §11.1`](./04_Backend_Design.md).
+>
+> **Vòng này KHÔNG thiết kế lại gì.** Mã prod của AC-CR-98/AC-CR-106 đã có trên đĩa. Việc phải làm: **chạy** những gì §VIII prescribe (4 file test **chưa từng chạy**) và **thêm 2 TC BE + 2 TC FE** cho nhánh predicate duy nhất còn hở.
+
+### IX.0 Baseline **đo từ đĩa 2026-07-30** — chấm theo DELTA (số trong prompt/STATE luôn có thể stale)
+
+| Module / file | Baseline (đĩa) | Sau vòng này (kỳ vọng) | Git |
+|---|---|---|---|
+| `assetcore.tests.test_vendor_scope_intersect` | **18** `def test_` | ≥ 18 (0 TC mới) | untracked |
+| `assetcore.tests.test_rowscope_scope_guard` | **11** | ≥ 11 (0 TC mới) | untracked |
+| `assetcore.tests.test_rowscope_invariant` | **28** | **30** (+`TC-IMM04-OVD-01/02`) | untracked |
+| `assetcore.tests.test_rowscope_docperm_gate` | **22** | ≥ 22 (0 TC mới) | untracked |
+| `assetcore.tests.test_imm04` | **110** | ≥ 110 (0 TC mới) | tracked |
+| `assetcore.tests.test_imm08` · `test_imm09` · `test_imm11` | **196** · **278** · **136** | ≥ nguyên trạng | tracked |
+| `commissioningScopedEmpty.test.ts` | **8** `it()` (8/8 PASS 14:59) | **≥ 10** (+`TC-FE-COMM-SE-07/08`) | untracked |
+| Tổng file test FE | **287** `*.test.ts` | ≥ 287 | — |
+
+**Số TC chạy được của mỗi module PHẢI ≥ baseline** — module chạy ra ít TC hơn = có TC bị skip/mất, **không** phải "chạy nhanh hơn".
+
+### IX.1 Nghi thức chạy (A1 + A2) — **module-isolated**, `timeout` tool ≥ **600000 ms** MỖI lần
+
+```bash
+# A1 — 5 suite cốt lõi (GATE: 0 failures ∧ 0 errors ∧ N ≥ baseline cho CẢ 5)
+bench --site miyano run-tests --module assetcore.tests.test_vendor_scope_intersect
+bench --site miyano run-tests --module assetcore.tests.test_rowscope_scope_guard
+bench --site miyano run-tests --module assetcore.tests.test_rowscope_invariant
+bench --site miyano run-tests --module assetcore.tests.test_rowscope_docperm_gate
+bench --site miyano run-tests --module assetcore.tests.test_imm04
+# A2 — 3 suite CALL-SITE của apply_vendor_scope (GÁN→GIAO chạm 5 call site:
+#   api/imm00.py:413 · api/imm08.py:39 · api/imm09.py:36 · api/imm11.py:30 + :83)
+bench --site miyano run-tests --module assetcore.tests.test_imm08
+bench --site miyano run-tests --module assetcore.tests.test_imm09
+bench --site miyano run-tests --module assetcore.tests.test_imm11
+```
+
+- **Bằng chứng bắt buộc:** dán **nguyên văn** dòng `Ran N tests in …s` + `OK` của **từng** module. Không có dòng đó ⇒ coi như **chưa chạy** (`ADR-IMM00-LIST-SCOPE-06`).
+- **A2-bis (khuyến nghị, KHÔNG chặn):** `test_rbac` · `test_connections_tree` · `test_connections_list_filter_parity` · `test_imm00` — 4 module còn lại của DoD §VIII.3 mà cũng chưa có bằng chứng chạy. Chạy nếu còn thời gian; **không** được ghi «§VIII DoD đạt đủ» khi chưa chạy chúng.
+- **KHÔNG `curl`** để chấm (gunicorn `--preload` ⇒ HTTP lệch đĩa — LL-DEPLOY-07/08). **KHÔNG** `bench restart` / `bench migrate` / `git commit`.
+- `QueryDeadlockError` (đa-phiên) = **ĐỎ GIẢ** ⇒ chờ quiescence rồi chạy lại; ghi rõ trong báo cáo, **KHÔNG** "sửa cho xanh".
+
+### IX.2 BE — 2 TC MỚI (A3): nhánh `overdue=1` **list-form** dưới persona row-scoped
+
+**Nơi đặt:** **class MỚI** `TestCommissioningOverdueRowScope` trong `assetcore/tests/test_rowscope_invariant.py` (read-fresh rồi **append** — file đang dirty ở phiên khác). **CẤM** sửa/dùng lại fixture của `TestCommissioningOneEngineScope` (`:776`) vì fixture đó **không** set `reception_date` và 3 TC của nó khẳng định tập dòng chính xác ⇒ thêm phiếu vào đó = làm ĐỎ TC đang xanh.
+
+**Fixture bắt buộc (uuid-suffix, `tearDownClass` dọn sạch; `_OVERDUE_ANCHOR="reception_date"` `services/imm04.py:64` · `OVERDUE_DAYS=30` `:63`):**
+
+| Phiếu | `owner` | `workflow_state` | `reception_date` | Vai trò trong assert |
+|---|---|---|---|---|
+| `own_overdue_1` | persona | `To Be Installed` | `today-35` | **đếm** (trong phạm vi ∧ quá hạn) |
+| `own_overdue_hold` | persona | `Clinical Hold` | `today-35` | đếm ∧ ca conjoin `workflow_state` |
+| `own_in_window` | persona | `Installing` | `today-1` | **loại** ⇒ predicate overdue thật sự lọc (chống vacuous) |
+| `own_terminal` | persona | `Clinical Release` | `today-35` | **loại** ⇒ `workflow_state not in` còn sống |
+| `foreign_overdue` | `Administrator` | `To Be Installed` | `today-35` | **loại** ⇒ mutation M1/M2 ĐỎ có thật (nếu thiếu dòng này, `db.count` có thể tình cờ bằng ⇒ mutation không ĐỎ) |
+
+> Persona = user MỚI có `AssetCore System User` + **`Commissioning User`** + **`Vendor Engineer`** (§VIII.3: vendor **thuần** không có DocPerm read ⇒ dừng ở lớp ROLE, không kiểm được row-scope). Phiếu "trong phạm vi" dựng bằng **`owner`** (`frappe.set_user` khi insert) — **CẤM** dựa vào `vendor_engineer_name` khớp email (`AC-CR-108`).
+
+| TC | Bất biến | Phát biểu chấm được |
+|---|---|---|
+| **TC-IMM04-OVD-01** | **INV-COMM-SCOPE-5** | `frappe.set_user(persona)`; `svc.list_commissioning({"overdue": 1}, page=1, page_size=100)` ⇒ (a) `pagination.total == len(items)`; (b) `foreign_overdue ∉ items`; (c) `{own_overdue_1, own_overdue_hold} ⊆ items` ∧ `own_in_window ∉` ∧ `own_terminal ∉`; (d) lặp `page_size=1` ⇒ `len(items) == 1` ∧ `pagination.total ==` số dòng row-scoped (2 trong fixture), **KHÔNG** phải tổng toàn bảng |
+| **TC-IMM04-OVD-02** | **INV-COMM-SCOPE-6** | cùng persona; `{"overdue": 1, "workflow_state": "Clinical Hold"}` ⇒ chỉ `own_overdue_hold`; `pagination.total == len(items)`; mọi dòng có `workflow_state == "Clinical Hold"`; `own_overdue_1 ∉` (chứng minh **AND**, không clobber). Assert **≥1** dòng (chống vacuous) |
+
+**Ràng buộc chấm:** session user THẬT (`Administrator` bypass hook `permissions.py:140` ⇒ XANH GIẢ) · **CẤM** mock `frappe.get_list`/`frappe.db.count` · assert dùng **delta trên tập fixture** (`& set(fixture_names)`) vì DB dev là data-live, nhưng (a) và (d) phải so trên **toàn bộ** `pagination.total`/`items` mới bắt được count thừa.
+
+### IX.3 Proof-by-mutation (A3/A5 — thiếu = DoD KHÔNG đạt)
+
+| # | Mutate mã prod | Kỳ vọng | Ghi lại |
+|---|---|---|---|
+| **M1** | `services/imm04.py:1113` → `total = frappe.db.count(_DT, query_filters)` | **ĐỎ** TC-IMM04-OVD-01 | **dán nguyên văn** output ĐỎ. `db.count` nổ với list-form ⇒ ĐỎ dạng *error* — vẫn tính, ghi rõ loại |
+| **M2** | 〃 → `total = count_ignore_permissions(_DT, query_filters, None)` | **ĐỎ** TC-IMM04-OVD-01 (cùng shape ⇒ cô lập nguyên nhân row-scope) | 1 dòng kết luận |
+| **M3** | `services/imm04.py:1102` → bỏ list-form, `safe_filters.update(overdue_commissioning_filter())` | **ĐỎ** TC-IMM04-OVD-02 | 1 dòng |
+| **M4** | `CommissioningListView.vue:199` → `Tổng ${store.list.length} phiếu` | **ĐỎ** TC-FE-COMM-SE-07 | dán nguyên văn |
+
+Sau mỗi mutation: **hoàn nguyên** (`git diff` phải sạch phần mutation) rồi chạy lại ⇒ XANH.
+
+### IX.4 A4 — 7 TC đang có phải XANH THẬT (không sửa một ký tự)
+
+| TC (file `test_rowscope_invariant.py`) | Dòng | Phát biểu phải giữ |
+|---|---|---|
+| `test_inv_conn_21_pm_deep_link_returns_only_that_asset` | `:1111` | deep-link 1 thiết bị ⇒ chỉ phiếu PM của **chính** thiết bị đó |
+| `test_inv_conn_21_repair_deep_link_returns_only_that_asset` | `:1123` | 〃 cho phiếu sửa chữa |
+| `test_inv_conn_21_calibration_schedule_deep_link_returns_only_that_asset` | `:1131` | 〃 cho lịch hiệu chuẩn |
+| `test_inv_conn_21_out_of_scope_asset_yields_zero_rows_not_403` | `:1144` | thiết bị ngoài phạm vi ⇒ **0 dòng**, **KHÔNG 403**, **KHÔNG** "mọi thiết bị của tôi" (ratify §11.4) |
+| `test_inv_comm_scope_2_vendor_never_sees_foreign_commissioning` | `:929` | hết rò dữ liệu |
+| `test_inv_comm_scope_3_total_equals_rows_all_personas` | `:946` | `count == rows` 3 persona, 2 nhánh phân trang |
+| `test_inv_conn_27_cell_total_equals_drill_plus_cancelled` | `:977` | ô đếm == drill + `#{docstatus==2}` (dung sai `AC-CR-99`) |
+
+### IX.5 FE (A5) — xem [`06 §11.5`](./06_Frontend_Design.md): `TC-FE-COMM-SE-07/08` (8 → **≥10** `it()`); `npx vitest run` toàn bộ **0 fail** + `npx vue-tsc --noEmit` **0 error**.
+
+### IX.6 ĐỎ **CẤM SỬA** vòng này (chỉ báo cáo + backlog, kèm bằng chứng `grep`)
+
+alias `Calibration Record`/`Calibration Schedule` (`AC-CR-109`) · vendor-IDOR IMM-11 · `assert_vendor_can_access` · `_VENDOR_SCOPE_FIELD_MAP` · `http_status` 400-vs-403 · whitelist `filters` IMM-11 · cổng G01–G06 · mobile OAS · notification.
+
+**OUT-OF-SCOPE (0 đổi):** 3 counter `test_mobile_oas` (`_EXPECTED_TEST_COUNT` / `_GUARD_SUITE_SUM` / `_MOBILE_OAS_TOTAL` — vòng này **0** đổi OAS ⇒ **0** đổi counter) · tiebreaker ALE `api/imm00.py:293` (`AC-CR-100`) · `AC-CR-99` · Việt hoá `PREVIEW_FIELDS` · tab «Bản ghi liên quan» · 403 ba nhánh vận hành · prefill nháp. **AC-CR-112 KHÔNG vào sổ `docs/imm-09/05 §10.4`** (sổ đó dành cho CR contract/OAS mobile; vòng này 0 đổi OAS).
 
 ---
 

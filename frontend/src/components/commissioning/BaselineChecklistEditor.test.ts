@@ -18,6 +18,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { setActivePinia, createPinia, type Pinia } from 'pinia'
 import { ApiError, ErrorCode } from '@/api/errors'
+import type { BaselineOverallResult, BaselineSubmitResult } from '@/api/imm04'
 import type { BaselineTest } from '@/types/imm04'
 
 // ─── Mock CHỈ tầng api (real store) ───────────────────────────────────────────
@@ -48,8 +49,11 @@ vi.mock('@/api/imm04', () => ({
 vi.mock('@/api/helpers', () => ({ frappeGet: vi.fn(), frappePost: vi.fn() }))
 
 const toastSuccessSpy = vi.fn()
+const toastWarningSpy = vi.fn()
 vi.mock('@/composables/useToast', () => ({
-  useToast: () => ({ success: toastSuccessSpy, error: vi.fn(), warning: vi.fn(), info: vi.fn(), show: vi.fn() }),
+  useToast: () => ({
+    success: toastSuccessSpy, error: vi.fn(), warning: toastWarningSpy, info: vi.fn(), show: vi.fn(),
+  }),
 }))
 
 const fromErrorSpy = vi.fn()
@@ -72,6 +76,7 @@ const SEL = {
   submit: '[data-testid="submit-baseline"]',
   addRow: '[data-testid="add-baseline-row"]',
   success: '[data-testid="baseline-success"]',
+  fail: '[data-testid="baseline-fail"]',
   hint: '[data-testid="baseline-hint"]',
   row: '[data-testid="baseline-row"]',
 }
@@ -86,12 +91,17 @@ function mountEditor(tests: BaselineTest[]) {
 }
 
 /** BE-shape phản hồi từ submit_baseline_checklist (snake_case) — store map sang camelCase. */
-function beResult(tests_recorded: number, overall_result: string) {
+function beResult(
+  tests_recorded: number,
+  overall_result: BaselineOverallResult,
+  failed_parameters: string[] = [],
+): BaselineSubmitResult {
   return {
     name: 'AC-COMM-2026-0001',
     overall_result,
     tests_recorded,
     clinical_hold_required: false,
+    failed_parameters,
   }
 }
 
@@ -122,9 +132,10 @@ describe('BaselineChecklistEditor — silent-completion gate (real store)', () =
   })
 
   it('tests_recorded=0 kèm success (200 trần) → KHÔNG toast success + render hint + KHÔNG notify (defense-in-depth)', async () => {
-    // Server "thành công" nhưng ghi 0 phép đo → store ok=true, testsRecorded=0.
-    // Component PHẢI KHÔNG celebrate (không toast/banner success) và KHÔNG notify lỗi (ok=true).
-    vi.mocked(api.submitBaselineChecklist).mockResolvedValue(beResult(0, ''))
+    // Server "thành công" (thậm chí khai overall_result='Pass') nhưng ghi 0 phép đo →
+    // store ok=true, testsRecorded=0. Component PHẢI KHÔNG celebrate (không toast/banner
+    // success) và KHÔNG notify lỗi (ok=true).
+    vi.mocked(api.submitBaselineChecklist).mockResolvedValue(beResult(0, 'Pass'))
     const wrapper = mountEditor([makeTest({ test_result: 'Pass' })])
 
     await wrapper.find(SEL.submit).trigger('click')
@@ -159,6 +170,56 @@ describe('BaselineChecklistEditor — silent-completion gate (real store)', () =
     expect(store.lastApiError?.code).toBe(ErrorCode.VALIDATION)
     expect(fromErrorSpy).toHaveBeenCalledWith(store.lastApiError)
     expect(wrapper.emitted('submitted')).toBeUndefined()
+  })
+
+  // ── CR-54 §2 — phép đo KHÔNG ĐẠT vẫn LƯU được (TDD-7) ──────────────────────
+  it('overall_result="Fail" → banner nói KHÔNG ĐẠT + nêu đích danh thông số, KHÔNG banner/toast đạt', async () => {
+    vi.mocked(api.submitBaselineChecklist).mockResolvedValue(
+      beResult(3, 'Fail', ['Dòng rò điện vỏ máy']),
+    )
+    const wrapper = mountEditor([makeTest({ test_result: 'Fail', fail_note: 'Vượt ngưỡng' })])
+
+    await wrapper.find(SEL.submit).trigger('click')
+    await flushPromises()
+
+    const fail = wrapper.find(SEL.fail)
+    expect(fail.exists(), 'phải render banner kết quả không đạt').toBe(true)
+    const text = fail.text()
+    expect(text).toContain('KHÔNG ĐẠT')
+    expect(text).toContain('Dòng rò điện vỏ máy')
+    expect(text).toContain('Kiểm tra lại')
+    // KHÔNG chữ nào khẳng định đạt / thành công (false-pass với người dùng)
+    expect(text).not.toContain('Đạt')
+    expect(text).not.toContain('thành công')
+    // KHÔNG lộ enum thô ra giao diện (LL-FE-52/53)
+    expect(text).not.toContain('Fail')
+    expect(text).not.toContain('Pass')
+
+    expect(wrapper.find(SEL.success).exists()).toBe(false)
+    expect(wrapper.find(SEL.hint).exists()).toBe(false)
+    expect(toastSuccessSpy).not.toHaveBeenCalled()
+    expect(toastWarningSpy).toHaveBeenCalledTimes(1)
+    expect(fromErrorSpy).not.toHaveBeenCalled()
+    // Phiếu ĐÃ lưu ⇒ vẫn báo cho view cha refresh, kèm SSoT kết quả tổng.
+    expect(wrapper.emitted('submitted')?.[0]?.[0]).toMatchObject({
+      testsRecorded: 3,
+      overallResult: 'Fail',
+      failedParameters: ['Dòng rò điện vỏ máy'],
+    })
+  })
+
+  it('overall_result="Pass" → banner đạt (không rơi nhầm sang nhánh không đạt)', async () => {
+    vi.mocked(api.submitBaselineChecklist).mockResolvedValue(beResult(2, 'Pass'))
+    const wrapper = mountEditor([makeTest({ test_result: 'Pass' })])
+
+    await wrapper.find(SEL.submit).trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find(SEL.success).exists()).toBe(true)
+    expect(wrapper.find(SEL.success).text()).toContain('Đã ghi 2 phép đo')
+    expect(wrapper.find(SEL.fail).exists()).toBe(false)
+    expect(toastWarningSpy).not.toHaveBeenCalled()
+    expect(wrapper.emitted('submitted')?.[0]?.[0]).toMatchObject({ overallResult: 'Pass' })
   })
 
   it('baseline_tests rỗng → nút Nộp disabled; thêm dòng + nhập kết quả → enabled', async () => {

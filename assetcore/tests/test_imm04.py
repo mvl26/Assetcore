@@ -10,12 +10,17 @@ import unittest
 import frappe
 from frappe.utils import nowdate, add_days
 
+from assetcore.api.imm04 import get_gate_status
 from assetcore.services.imm04 import (
     check_auto_clinical_hold,
+    evaluate_gate_status,
+    gate_g04_applies,
+    gate_g04_ok,
     log_lifecycle_event,
     validate_gate_g01,
     validate_gate_g03,
     validate_gate_g05_g06,
+    _count_open_ncs,
     _vr01_unique_serial_number,
 )
 from assetcore.services.shared import ServiceError
@@ -164,6 +169,154 @@ class TestGateG05G06(unittest.TestCase):
         validate_gate_g05_g06(doc)  # no raise
 
 
+# ─── Gate G05 card⟺validator parity (CR-54 §3, BR-04-13) ──────────────────────
+# Guard the display⟺enforcement invariant: the G05 gate CARD (api.get_gate_status
+# .g05_nc) and the ENFORCEMENT validator (services.validate_gate_g05_g06) must both
+# derive "no open NC" from the SAME SSoT predicate `_count_open_ncs` ('Open'-only).
+# Before the fix the card counted resolution_status != 'Closed' → falsely blocked
+# non-Open NCs (Resolved / Under Review / Transferred) the validator lets through.
+_NC_STATES = ("Open", "Under Review", "Resolved", "Closed", "Transferred")
+
+
+class TestGateG05CardValidatorParity(unittest.TestCase):
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        if not frappe.db.exists("Asset Commissioning", "_TEST-COMM-G05"):
+            frappe.db.sql(
+                "INSERT INTO `tabAsset Commissioning` (name, docstatus, workflow_state) "
+                "VALUES ('_TEST-COMM-G05', 0, 'Clinical Release')"
+            )
+        frappe.db.commit()
+
+    def tearDown(self):
+        frappe.db.delete("Asset QA Non Conformance", {"ref_commissioning": "_TEST-COMM-G05"})
+        frappe.db.delete("Asset Commissioning", {"name": "_TEST-COMM-G05"})
+        frappe.db.commit()
+
+    # ── helpers ───────────────────────────────────────────────────────────────
+    def _reset_ncs(self):
+        frappe.db.delete("Asset QA Non Conformance", {"ref_commissioning": "_TEST-COMM-G05"})
+        frappe.db.commit()
+
+    def _insert_nc(self, status: str) -> str:
+        nc = frappe.get_doc({
+            "doctype": "Asset QA Non Conformance",
+            "ref_commissioning": "_TEST-COMM-G05",
+            "nc_type": "Technical",
+            "resolution_status": status,
+            "description": "G05 parity fixture NC",
+        })
+        nc.insert(ignore_permissions=True)
+        frappe.db.commit()
+        return nc.name
+
+    def _card_g05_nc(self) -> bool:
+        resp = get_gate_status("_TEST-COMM-G05")
+        self.assertTrue(resp.get("success"), resp)
+        return resp["data"]["g05_nc"]
+
+    def _validator_raises(self) -> bool:
+        # board_approver set so G06 always passes → G05 (NC) is the sole variable.
+        doc = _make_doc(name="_TEST-COMM-G05", workflow_state="Clinical Release",
+                        board_approver="Administrator")
+        try:
+            validate_gate_g05_g06(doc)
+            return False
+        except frappe.ValidationError:
+            return True
+
+    # ── tests ─────────────────────────────────────────────────────────────────
+    def test_g05_nc_open_blocks_and_card_fails(self):
+        """AC3: NC 'Open' → card g05_nc False AND validator raises (parity: both block)."""
+        self._insert_nc("Open")
+        self.assertFalse(self._card_g05_nc())
+        self.assertTrue(self._validator_raises())
+
+    def test_g05_nc_resolved_card_passes_matches_validator(self):
+        """AC2: NC 'Resolved' (non-Open) → card g05_nc True AND validator no-raise.
+
+        RED before fix: old card counted !='Closed' → returned False (false block).
+        """
+        self._insert_nc("Resolved")
+        self.assertTrue(self._card_g05_nc())
+        self.assertFalse(self._validator_raises())
+
+    def test_g05_nc_under_review_passes(self):
+        """AC2: NC 'Under Review' (non-Open) → card g05_nc True AND validator no-raise."""
+        self._insert_nc("Under Review")
+        self.assertTrue(self._card_g05_nc())
+        self.assertFalse(self._validator_raises())
+
+    def test_g05_nc_no_nc_passes(self):
+        """Baseline: 0 NC → card g05_nc True AND validator no-raise."""
+        self._reset_ncs()
+        self.assertTrue(self._card_g05_nc())
+        self.assertFalse(self._validator_raises())
+
+    def test_g05_nc_invariant_card_iff_validator(self):
+        """AC1/AC4: for ALL 5 resolution_status, (card g05_nc True) ⟺ (validator no-raise).
+
+        Guards the display⟺enforcement bi-conditional so a predicate divergence can
+        never structurally reappear (both sides call the single SSoT _count_open_ncs).
+        """
+        for status in _NC_STATES:
+            with self.subTest(resolution_status=status):
+                self._reset_ncs()
+                self._insert_nc(status)
+                card_passes = self._card_g05_nc()
+                validator_passes = not self._validator_raises()
+                self.assertEqual(
+                    card_passes, validator_passes,
+                    f"Divergence at resolution_status={status!r}: "
+                    f"card g05_nc={card_passes} but validator_passes={validator_passes}",
+                )
+                # Only 'Open' should block; the other four pass.
+                self.assertEqual(card_passes, status != "Open")
+
+
+class TestCountOpenNcsSSoT(unittest.TestCase):
+    """AC4 root-cause: single predicate counts ONLY resolution_status='Open'."""
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        if not frappe.db.exists("Asset Commissioning", "_TEST-COMM-G05"):
+            frappe.db.sql(
+                "INSERT INTO `tabAsset Commissioning` (name, docstatus, workflow_state) "
+                "VALUES ('_TEST-COMM-G05', 0, 'Clinical Release')"
+            )
+        frappe.db.commit()
+
+    def tearDown(self):
+        frappe.db.delete("Asset QA Non Conformance", {"ref_commissioning": "_TEST-COMM-G05"})
+        frappe.db.delete("Asset Commissioning", {"name": "_TEST-COMM-G05"})
+        frappe.db.commit()
+
+    def _insert_nc(self, status: str):
+        frappe.get_doc({
+            "doctype": "Asset QA Non Conformance",
+            "ref_commissioning": "_TEST-COMM-G05",
+            "nc_type": "Technical",
+            "resolution_status": status,
+            "description": "G05 SSoT fixture NC",
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    def test_counts_only_open(self):
+        self._insert_nc("Open")
+        self._insert_nc("Resolved")
+        self._insert_nc("Under Review")
+        self._insert_nc("Closed")
+        self._insert_nc("Transferred")
+        # Exactly one 'Open' → the SSoT must ignore the other four non-Open states.
+        self.assertEqual(_count_open_ncs("_TEST-COMM-G05"), 1)
+
+    def test_zero_when_no_open(self):
+        self._insert_nc("Resolved")
+        self._insert_nc("Closed")
+        self.assertEqual(_count_open_ncs("_TEST-COMM-G05"), 0)
+
+
 # ─── VR-01 Unique Serial ──────────────────────────────────────────────────────
 
 class TestVR01UniqueSerial(unittest.TestCase):
@@ -202,10 +355,22 @@ class TestVR07ClinicalHold(unittest.TestCase):
         doc = _make_doc(risk_class="", is_radiation_device=1)
         self.assertTrue(check_auto_clinical_hold(doc))
 
-    def test_radiation_class_sets_flag(self):
+    def test_radiation_class_is_gated_by_g04(self):
+        """AC-CR-85: phiếu `risk_class='Radiation'` VẪN bị cổng G04 gác.
+
+        TC này TRƯỚC ĐÂY tên `test_radiation_class_sets_flag` và assert chính
+        **side-effect đã bị gỡ** (`doc.is_radiation_device = 1` trong
+        `check_auto_clinical_hold`). Ý ĐỊNH nghiệp vụ giữ nguyên — "phiếu phân loại
+        Radiation phải bị cổng giấy phép bức xạ gác" — nhưng phép ĐO đổi sang predicate
+        SSoT `gate_g04_applies` (07 §III.4f.3 bẫy 5). Đây là **sửa test theo spec mới**
+        (BR-04-17), KHÔNG phải "sửa test cho khớp code".
+        """
         doc = _make_doc(risk_class="Radiation", is_radiation_device=0)
-        check_auto_clinical_hold(doc)
-        self.assertEqual(doc.is_radiation_device, 1)
+        self.assertTrue(check_auto_clinical_hold(doc),
+                        "Radiation vẫn thuộc nhóm CẦN Clinical Hold (BR-04-05a)")
+        self.assertTrue(gate_g04_applies(doc),
+                        "Cổng G04 PHẢI áp dụng cho phiếu risk_class='Radiation' dù Device "
+                        "Model chưa gắn cờ — bỏ vế này là suy giảm an toàn thật.")
 
 
 # ─── log_lifecycle_event ─────────────────────────────────────────────────────
@@ -1427,6 +1592,18 @@ def _first_link(dt: str) -> str | None:
     return names[0] if names else None
 
 
+def _get_or_create(doctype: str, filters: dict, payload: dict):
+    """Fixture idempotent: tái dùng bản ghi rò từ lần chạy hỏng trước thay vì 1062.
+
+    Cần cho doctype autoname sinh mã (vd `AC Asset Category` = CAT-####) — `name`
+    khác nhau mỗi lần nhưng field nghiệp vụ (`category_name`) là unique-key THẬT.
+    """
+    existing = frappe.db.get_value(doctype, filters, "name")
+    if existing:
+        return frappe.get_doc(doctype, existing)
+    return frappe.get_doc(payload).insert(ignore_permissions=True)
+
+
 class TestBaselineVacuousPassGuard(unittest.TestCase):
     """TC-04-BASELINE-01..05 — BR-04-04 guard (a+d) + clause (b)/(c) regression.
 
@@ -1557,23 +1734,28 @@ class TestBaselineVacuousPassGuard(unittest.TestCase):
         self.assertEqual(appended[0].test_result, "Pass")
         self.assertEqual(str(appended[0].measured_val), "2.5")
 
-    # ── TC-04-BASELINE-05 (clause c regression): Fail bất kỳ → VALIDATION nêu param, KHÔNG Pass ──
-    def test_baseline_05_fail_row_blocks_and_lists_parameter(self):
+    # ── TC-04-BASELINE-05 → SUPERSEDED bởi BR-04-04e (2026-07-24, 07 §III.4b) ──────
+    # Vế cũ (BR-04-04c) đòi raise VALIDATION khi có dòng `Fail` ⇒ raise TRƯỚC doc.save()
+    # ⇒ 0 dòng persist ⇒ MẤT bằng chứng KHÔNG ĐẠT (WHO HTM §5.1.2 / NĐ98). Nay: verdict
+    # DẪN XUẤT — ghi nhận luôn, cổng an toàn chuyển lên ranh giới Clinical Release
+    # (BR-04-13, xem tests/test_imm04_baseline_fail_path.py::TC-04-BLFAIL-06/07).
+    def test_baseline_05_fail_row_is_recorded_not_rejected(self):
         from assetcore.services.imm04 import submit_baseline_checklist
-        from assetcore.services.shared import ErrorCode
         from assetcore.repositories.commissioning_repo import CommissioningRepo
 
         name = self._make_comm()
-        with self.assertRaises(ServiceError) as ctx:
-            submit_baseline_checklist(name, [
-                {"parameter": "Dòng rò điện vỏ máy", "measured_val": "9.9",
-                 "test_result": "Fail", "fail_note": "Vượt ngưỡng 0.5mA"},
-            ])
-        self.assertEqual(ctx.exception.code, ErrorCode.VALIDATION)
-        self.assertIn("Dòng rò điện vỏ máy", ctx.exception.message,
-                      "message phải liệt kê parameter Fail")
+        res = submit_baseline_checklist(name, [
+            {"parameter": "Dòng rò điện vỏ máy", "measured_val": "9.9",
+             "test_result": "Fail", "fail_note": "Vượt ngưỡng 0.5mA"},
+        ])
+        self.assertEqual(res["overall_result"], "Fail")
+        self.assertEqual(res["failed_parameters"], ["Dòng rò điện vỏ máy"])
         reloaded = CommissioningRepo.get(name)
-        self.assertNotEqual(reloaded.overall_inspection_result, "Pass")
+        self.assertEqual(reloaded.overall_inspection_result, "Fail",
+                         "verdict dẫn xuất 'Fail' — KHÔNG được set 'Pass'")
+        row = next(r for r in reloaded.baseline_tests if r.parameter == "Dòng rò điện vỏ máy")
+        self.assertEqual(row.test_result, "Fail")
+        self.assertTrue((row.fail_note or "").strip(), "bằng chứng KHÔNG ĐẠT phải persist")
 
 
 # ─── BR-04-12: Gỡ deadlock board_approver trong transition_state ──────────────
@@ -1622,11 +1804,13 @@ class TestTransitionBoardApprover(unittest.TestCase):
                 u.save(ignore_permissions=True)
 
         # Device Model yêu cầu PM + Calibration → full-path sinh cả 2 schedule.
-        cls._cat = frappe.get_doc({
+        # get-or-create: AC Asset Category autoname=CAT-#### nên `category_name` là
+        # unique-key THẬT — fixture rò từ lần chạy hỏng trước sẽ gây 1062 nếu insert mù.
+        cls._cat = _get_or_create("AC Asset Category", {"category_name": "_TEST BR0412 Category"}, {
             "doctype": "AC Asset Category",
             "category_name": "_TEST BR0412 Category",
-        }).insert(ignore_permissions=True)
-        cls.model = frappe.get_doc({
+        })
+        cls.model = _get_or_create("IMM Device Model", {"model_name": "_TEST BR0412 Ventilator"}, {
             "doctype": "IMM Device Model",
             "model_name": "_TEST BR0412 Ventilator",
             "manufacturer": "_TEST BR0412 Mfr",
@@ -1637,13 +1821,21 @@ class TestTransitionBoardApprover(unittest.TestCase):
             "is_calibration_required": 1,
             "calibration_interval_days": 365,
             "default_calibration_type": "External",
-        }).insert(ignore_permissions=True)
-        cls._template = frappe.get_doc({
-            "doctype": "PM Checklist Template",
-            "template_name": "_TEST BR0412 PM Template",
-            "asset_category": cls._cat.name,
-            "pm_type": "Semi-Annual",
-        }).insert(ignore_permissions=True)
+        })
+        cls._template = _get_or_create(
+            "PM Checklist Template", {"template_name": "_TEST BR0412 PM Template"}, {
+                "doctype": "PM Checklist Template",
+                "template_name": "_TEST BR0412 PM Template",
+                "asset_category": cls._cat.name,
+                "pm_type": "Semi-Annual",
+            })
+        # Fixture rò từ lần chạy hỏng trước có thể trỏ Nhóm tài sản đã bị xoá (dangling
+        # link) → re-point về category hiện hành, nếu không mint AC Asset sẽ 1054/link err.
+        for doc_ref, field in ((cls.model, "asset_category"), (cls._template, "asset_category")):
+            if doc_ref.get(field) != cls._cat.name:
+                doc_ref.db_set(field, cls._cat.name, update_modified=False)
+        cls.po = _first_link("AC Purchase")
+        cls.vendor = _first_link("AC Supplier")
         frappe.db.commit()
 
     @classmethod
@@ -1701,9 +1893,15 @@ class TestTransitionBoardApprover(unittest.TestCase):
     def _seed_comm(self, workflow_state="Initial Inspection", master_item=None, owner=None):
         """Phiếu THẬT ở `workflow_state` (db_set né workflow-validation), baseline
         100% Pass, documents_incomplete=1 bypass Gate G01."""
+        # po_reference / master_item / vendor là mandatory: `apply_workflow` →
+        # `doc.save()` re-validate mandatory ở mỗi hop ⇒ KHÔNG thể dựa vào
+        # `ignore_mandatory` lúc insert (MandatoryError giữa chừng transition).
         payload = {
             "doctype": "Asset Commissioning",
             "workflow_state": "Draft",
+            "po_reference": self.po,
+            "master_item": self.model.name,
+            "vendor": self.vendor,
             "risk_class": "B",
             "is_radiation_device": 0,
             "documents_incomplete": 1,
@@ -1717,9 +1915,9 @@ class TestTransitionBoardApprover(unittest.TestCase):
         }
         if master_item:
             payload["master_item"] = master_item
-        doc = frappe.get_doc(payload).insert(
-            ignore_permissions=True, ignore_mandatory=True, ignore_links=True
-        )
+        if not (self.po and self.vendor):
+            self.skipTest("Thiếu master data (AC Purchase / AC Supplier) cho phiếu hợp lệ")
+        doc = frappe.get_doc(payload).insert(ignore_permissions=True)
         doc.db_set("workflow_state", workflow_state, update_modified=False)
         if owner:
             doc.db_set("owner", owner, update_modified=False)
@@ -1737,6 +1935,10 @@ class TestTransitionBoardApprover(unittest.TestCase):
             "doc_type_detail": "Chứng nhận đăng ký lưu hành",
             "doc_number": "ĐKLH-TEST-BR0412",
             "version": "1.0",
+            # VR-04 + VR-07 (IMM-05): tài liệu Pháp lý BẮT BUỘC có Cơ quan cấp và
+            # Ngày hết hạn (chứng nhận đăng ký lưu hành).
+            "issuing_authority": "Bộ Y tế",
+            "expiry_date": add_days(nowdate(), 365),
             "issued_date": nowdate(),
         }).insert(ignore_permissions=True, ignore_mandatory=True, ignore_links=True)
         d.db_set("workflow_state", "Active", update_modified=False)
@@ -1818,8 +2020,14 @@ class TestTransitionBoardApprover(unittest.TestCase):
         # GW-2 compliance: cấp Chứng nhận ĐK lưu hành Active trước submit.
         self._make_active_registration(final_asset)
 
-        sres = svc.submit_commissioning(name)
-        self.assertEqual(sres["docstatus"], 1, "phiếu phải Submit được (docstatus==1)")
+        # State 'Clinical Release' khai doc_status=1 ⇒ `apply_workflow` ĐÃ submit phiếu
+        # và bắn on_submit (mint asset + PM/Calibration schedule). Gọi lại
+        # `submit_commissioning` phải là no-op an toàn — KHÔNG double-mint/double-schedule.
+        docstatus = frappe.db.get_value("Asset Commissioning", name, "docstatus")
+        self.assertEqual(docstatus, 1, "transition vào Clinical Release phải Submit phiếu")
+        with self.assertRaises(ServiceError) as ctx:
+            svc.submit_commissioning(name)
+        self.assertIn("Submit", ctx.exception.message)
 
         pm = frappe.db.count("PM Schedule", {"asset_ref": final_asset})
         cal = frappe.db.count("IMM Calibration Schedule", {"asset": final_asset})
@@ -1874,6 +2082,745 @@ class TestTransitionBoardApproverOASContract(unittest.TestCase):
             # OAS ⇒ thay đổi board_approver là hợp đồng service/web, op-count GIỮ NGUYÊN.
             self.assertNotIn(transition_path, paths,
                              "0 whitelist mới: transition_state không được thêm vào mobile OAS")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CR-76 — Thẻ cổng G01–G06 ⟺ enforcement parity (BR-04-15 · 04 §5.6 · 07 §III.4e)
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# Bất biến chấm điểm (INV-GATE-PARITY): với MỖI fixture, hai phép đo phải ĐỒNG DẤU
+#
+#     get_gate_status(name).data[gXX] is True   ⟺   enforcement tương ứng KHÔNG chặn
+#
+# — hai chiều. Test viết dạng BẢNG CHÂN TRỊ (helper `_assert_parity`), KHÔNG hai
+# assert rời rạc: mục tiêu là chứng minh TƯƠNG ĐƯƠNG, không phải "hai sự thật độc lập"
+# (ADR-IMM-04-06). Thẻ mang ngữ nghĩa **pre-flight / as-if-armed** ⇒ fixture PHẢI đặt
+# phiếu ở trạng thái mà cổng thật sự được gác (04 §5.6.1 cột 4), nếu không so sánh
+# với một validator đang return sớm = parity vô nghĩa.
+#
+# Fixture dựng bằng RAW SQL (KHÔNG `doc.insert()/doc.save()`) vì:
+#   * `Asset Commissioning.validate` GỌI CHÍNH `validate_gate_g01` ⇒ dựng fixture
+#     "thiếu hồ sơ" bằng `save()` là bất khả (enforcement chặn ngay lúc seed);
+#   * `insert()` kéo theo mandatory link (po_reference/master_item/vendor) không liên
+#     quan tới cổng đang đo — nhiễu, chậm, và dễ rơi rác khi bị ngắt giữa chừng.
+_CR76_COMM = "_TEST-COMM-CR76"
+_CR76_DT = "Asset Commissioning"
+_CR76_DOC_MANDATORY = "CO - Chứng nhận Xuất xứ"
+_CR76_DOC_OPTIONAL = "Manual / HDSD"
+_CR76_ACTION_RELEASE = "Phê duyệt phát hành"      # Initial Inspection → Clinical Release
+_CR76_STATE_G01_ARMED = "To Be Installed"        # G01 gác ở MỌI state ≠ Draft/Pending Doc Verify
+_CR76_STATE_INITIAL = "Initial Inspection"
+_CR76_STATE_RELEASE = "Clinical Release"
+_CR76_LEGACY_KEYS = ("g01_docs", "g02_facility", "g03_baseline",
+                     "g04_radiation", "g05_nc", "g06_approver")
+
+
+class TestGateStatusEnforcementParity(unittest.TestCase):
+    """TC-04-GATE-01..14 — thẻ «Điều kiện bàn giao» nói ĐÚNG cổng thật."""
+
+    # ── fixture plumbing ──────────────────────────────────────────────────────
+    @staticmethod
+    def _purge() -> None:
+        frappe.db.delete("Commissioning Document Record", {"parent": _CR76_COMM})
+        frappe.db.delete("Commissioning Checklist", {"parent": _CR76_COMM})
+        frappe.db.delete("Asset QA Non Conformance", {"ref_commissioning": _CR76_COMM})
+        frappe.db.delete(_CR76_DT, {"name": _CR76_COMM})
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self._purge()
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+        self._purge()
+
+    def _seed(self, **fields) -> None:
+        """Tạo phiếu stub. `workflow_state` mặc định = trạng thái G01 được gác."""
+        frappe.db.sql(
+            """
+            INSERT INTO `tabAsset Commissioning`
+                (name, creation, modified, owner, modified_by, docstatus, idx,
+                 workflow_state, documents_incomplete, documents_incomplete_note,
+                 facility_checklist_pass, is_radiation_device, qa_license_doc,
+                 board_approver)
+            VALUES (%(name)s, NOW(), NOW(), 'Administrator', 'Administrator', 0, 0,
+                    %(workflow_state)s, %(documents_incomplete)s,
+                    %(documents_incomplete_note)s, %(facility_checklist_pass)s,
+                    %(is_radiation_device)s, %(qa_license_doc)s, %(board_approver)s)
+            """,
+            {
+                "name": _CR76_COMM,
+                "workflow_state": fields.get("workflow_state", _CR76_STATE_G01_ARMED),
+                "documents_incomplete": int(fields.get("documents_incomplete", 0)),
+                "documents_incomplete_note": fields.get("documents_incomplete_note", ""),
+                "facility_checklist_pass": int(fields.get("facility_checklist_pass", 0)),
+                "is_radiation_device": int(fields.get("is_radiation_device", 0)),
+                "qa_license_doc": fields.get("qa_license_doc", ""),
+                "board_approver": fields.get("board_approver", ""),
+            },
+        )
+        frappe.db.commit()
+
+    def _add_doc_row(self, *, is_mandatory: int, status: str, idx: int = 1,
+                     doc_type: str = _CR76_DOC_MANDATORY) -> None:
+        frappe.db.sql(
+            """
+            INSERT INTO `tabCommissioning Document Record`
+                (name, creation, modified, owner, modified_by, docstatus, idx,
+                 parent, parentfield, parenttype, doc_type, is_mandatory, status)
+            VALUES (%(name)s, NOW(), NOW(), 'Administrator', 'Administrator', 0, %(idx)s,
+                    %(parent)s, 'commissioning_documents', 'Asset Commissioning',
+                    %(doc_type)s, %(is_mandatory)s, %(status)s)
+            """,
+            {
+                "name": frappe.generate_hash(length=12),
+                "idx": idx, "parent": _CR76_COMM, "doc_type": doc_type,
+                "is_mandatory": int(is_mandatory), "status": status,
+            },
+        )
+        frappe.db.commit()
+
+    def _add_baseline_row(self, *, parameter: str, test_result: str, idx: int = 1) -> None:
+        frappe.db.sql(
+            """
+            INSERT INTO `tabCommissioning Checklist`
+                (name, creation, modified, owner, modified_by, docstatus, idx,
+                 parent, parentfield, parenttype, parameter, test_result)
+            VALUES (%(name)s, NOW(), NOW(), 'Administrator', 'Administrator', 0, %(idx)s,
+                    %(parent)s, 'baseline_tests', 'Asset Commissioning',
+                    %(parameter)s, %(test_result)s)
+            """,
+            {
+                "name": frappe.generate_hash(length=12), "idx": idx,
+                "parent": _CR76_COMM, "parameter": parameter, "test_result": test_result,
+            },
+        )
+        frappe.db.commit()
+
+    def _insert_nc(self, status: str) -> None:
+        frappe.get_doc({
+            "doctype": "Asset QA Non Conformance", "ref_commissioning": _CR76_COMM,
+            "nc_type": "Technical", "resolution_status": status,
+            "description": "CR-76 parity fixture NC",
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    # ── phép đo 1: THẺ ────────────────────────────────────────────────────────
+    def _card(self) -> dict:
+        resp = get_gate_status(_CR76_COMM)
+        self.assertTrue(resp.get("success"),
+                        f"get_gate_status phải trả 200 envelope cho phiếu fixture: {resp}")
+        return resp["data"]
+
+    # ── phép đo 2: ENFORCEMENT (nơi thật sự CHẶN — 04 §5.6.1 cột 3) ───────────
+    def _g01_enforcement_blocks(self) -> bool:
+        doc = frappe.get_doc(_CR76_DT, _CR76_COMM)
+        try:
+            validate_gate_g01(doc)
+            return False
+        except frappe.ValidationError:
+            return True
+
+    def _g03_enforcement_blocks(self) -> bool:
+        """Pre-check BR-04-13 trong `transition_state` — cổng G03 THẬT.
+
+        Fixture G03 LUÔN để `board_approver` rỗng ⇒ nhánh "G03 cho qua" chắc chắn
+        dừng ở pre-check G06 kế tiếp (KHÔNG chạm `apply_workflow`/`doc.save`) ⇒ đo
+        được ĐÚNG một cổng, 0 side-effect lên workflow_state.
+        """
+        from assetcore.services import imm04 as _svc
+        from assetcore.utils.messages import MSG as _MSG
+
+        try:
+            _svc.transition_state(_CR76_COMM, _CR76_ACTION_RELEASE)
+        except ServiceError as exc:
+            return exc.message_code == _MSG.IMM04_GATE_G03_BASELINE
+        self.fail("transition_state KHÔNG raise — fixture G03 phải dừng ở pre-check "
+                  "G03 hoặc G06, KHÔNG được đi tiếp vào apply_workflow")
+
+    def _g05_g06_enforcement_blocks(self) -> bool:
+        doc = frappe.get_doc(_CR76_DT, _CR76_COMM)
+        try:
+            validate_gate_g05_g06(doc)
+            return False
+        except frappe.ValidationError:
+            return True
+
+    # ── chấm parity (bảng chân trị — KHÔNG 2 assert rời) ─────────────────────
+    def _assert_parity(self, gate_key: str, expect_pass: bool, enforcement, label: str) -> None:
+        card = self._card()
+        self.assertIn(gate_key, card, f"[{label}] thẻ thiếu khoá `{gate_key}`: {sorted(card)}")
+        blocked = enforcement()
+        self.assertIs(
+            card[gate_key], expect_pass,
+            f"[{label}] thẻ `{gate_key}`={card[gate_key]!r}, kỳ vọng {expect_pass!r}.",
+        )
+        self.assertEqual(
+            card[gate_key], not blocked,
+            f"[{label}] LỆCH display⟺enforcement (BR-04-15): thẻ `{gate_key}`="
+            f"{card[gate_key]!r} nhưng enforcement {'CHẶN' if blocked else 'CHO QUA'}. "
+            f"Thẻ PHẢI dùng CHÍNH predicate mà server dùng để chặn.",
+        )
+
+    # ── G01 ───────────────────────────────────────────────────────────────────
+    def test_tc_gate_01_no_mandatory_docs_passes(self):
+        """TC-04-GATE-01 (E1 báo oan): 0 dòng hồ sơ bắt buộc ⇒ thẻ XANH, validator cho qua."""
+        self._seed()
+        self._assert_parity("g01_docs", True, self._g01_enforcement_blocks, "0 hồ sơ bắt buộc")
+        self.assertIs(self._card()["g01_waived"], False,
+                      "0 hồ sơ bắt buộc ⇒ KHÔNG phải nhánh giải trình")
+
+    def test_tc_gate_02_waiver_passes_and_flags(self):
+        """TC-04-GATE-02 (E2 báo oan): thiếu hồ sơ + giải trình hợp lệ ⇒ XANH + `g01_waived`."""
+        self._seed(documents_incomplete=1, documents_incomplete_note="CO/CQ về sau")
+        self._add_doc_row(is_mandatory=1, status="Pending")
+        self._assert_parity("g01_docs", True, self._g01_enforcement_blocks, "thiếu + giải trình")
+        self.assertIs(
+            self._card()["g01_waived"], True,
+            "`g01_waived` PHẢI True ⇒ UI nói 'Đạt — có giải trình thiếu hồ sơ', "
+            "KHÔNG nói 'đã đủ hồ sơ' (nói sai với người duyệt).",
+        )
+
+    def test_tc_gate_03_missing_without_waiver_blocks(self):
+        """TC-04-GATE-03 (chiều ngược): thiếu hồ sơ, KHÔNG giải trình ⇒ ĐỎ + validator raise."""
+        self._seed()
+        self._add_doc_row(is_mandatory=1, status="Pending")
+        self._assert_parity("g01_docs", False, self._g01_enforcement_blocks, "thiếu, 0 giải trình")
+        self.assertIs(self._card()["g01_waived"], False)
+
+    def test_tc_gate_04_optional_doc_not_counted(self):
+        """TC-04-GATE-04: hồ sơ TUỲ CHỌN `Pending` KHÔNG được tính vào cổng."""
+        self._seed()
+        self._add_doc_row(is_mandatory=1, status="Received", idx=1)
+        self._add_doc_row(is_mandatory=0, status="Pending", idx=2, doc_type=_CR76_DOC_OPTIONAL)
+        self._assert_parity("g01_docs", True, self._g01_enforcement_blocks, "tuỳ chọn Pending")
+        self.assertIs(self._card()["g01_waived"], False)
+
+    def test_tc_gate_05_blank_waiver_note_does_not_pass(self):
+        """TC-04-GATE-05: `documents_incomplete=1` + note toàn khoảng trắng ⇒ KHÔNG phải giải trình."""
+        self._seed(documents_incomplete=1, documents_incomplete_note="   ")
+        self._add_doc_row(is_mandatory=1, status="Pending")
+        self._assert_parity("g01_docs", False, self._g01_enforcement_blocks, "waiver rỗng")
+        self.assertIs(self._card()["g01_waived"], False,
+                      "predicate giải trình PHẢI `.strip()` — note trắng = KHÔNG giải trình")
+
+    def test_tc_gate_g01_truth_table(self):
+        """Bảng bất biến G01 — 4 fixture, `g01_docs == (validator KHÔNG raise)` từng dòng."""
+        cases = (
+            ("đủ hồ sơ bắt buộc", [(1, "Received")], {}, True, False),
+            ("0 hồ sơ bắt buộc", [], {}, True, False),
+            ("thiếu + giải trình", [(1, "Pending")],
+             {"documents_incomplete": 1, "documents_incomplete_note": "CO/CQ về sau"}, True, True),
+            ("thiếu + 0 giải trình", [(1, "Pending")], {}, False, False),
+        )
+        for label, rows, parent_fields, expect_pass, expect_waived in cases:
+            with self.subTest(fixture=label):
+                self._purge()
+                self._seed(**parent_fields)
+                for idx, (mand, status) in enumerate(rows, start=1):
+                    self._add_doc_row(is_mandatory=mand, status=status, idx=idx)
+                self._assert_parity("g01_docs", expect_pass, self._g01_enforcement_blocks, label)
+                self.assertIs(self._card()["g01_waived"], expect_waived, f"[{label}] g01_waived")
+
+    # ── G03 ───────────────────────────────────────────────────────────────────
+    def test_tc_gate_06_empty_baseline_blocks(self):
+        """TC-04-GATE-06: baseline RỖNG ⇒ thẻ ĐỎ và pre-check BR-04-13 chặn."""
+        self._seed(workflow_state=_CR76_STATE_INITIAL)
+        self._assert_parity("g03_baseline", False, self._g03_enforcement_blocks, "baseline rỗng")
+
+    def test_tc_gate_07_all_pass_or_na_passes(self):
+        """TC-04-GATE-07: 2 `Pass` + 1 `N/A` ⇒ thẻ XANH và pre-check KHÔNG chặn vì G03."""
+        self._seed(workflow_state=_CR76_STATE_INITIAL)
+        self._add_baseline_row(parameter="Điện trở nối đất", test_result="Pass", idx=1)
+        self._add_baseline_row(parameter="Dòng rò vỏ máy", test_result="Pass", idx=2)
+        self._add_baseline_row(parameter="Cảnh báo âm thanh", test_result="N/A", idx=3)
+        self._assert_parity("g03_baseline", True, self._g03_enforcement_blocks, "Pass + N/A")
+
+    def test_tc_gate_08_one_fail_blocks(self):
+        """TC-04-GATE-08: 1 dòng `Fail` ⇒ thẻ ĐỎ và pre-check chặn."""
+        self._seed(workflow_state=_CR76_STATE_INITIAL)
+        self._add_baseline_row(parameter="Điện trở nối đất", test_result="Pass", idx=1)
+        self._add_baseline_row(parameter="Dòng rò vỏ máy", test_result="Fail", idx=2)
+        self._assert_parity("g03_baseline", False, self._g03_enforcement_blocks, "1 Fail")
+
+    def test_tc_gate_09_unmeasured_row_blocks(self):
+        """TC-04-GATE-09: dòng CHƯA ĐO (`test_result` rỗng) ⇒ chặn ở CẢ hai phía."""
+        self._seed(workflow_state=_CR76_STATE_INITIAL)
+        self._add_baseline_row(parameter="Điện trở nối đất", test_result="Pass", idx=1)
+        self._add_baseline_row(parameter="Dòng rò vỏ máy", test_result="", idx=2)
+        self._assert_parity("g03_baseline", False, self._g03_enforcement_blocks, "1 dòng chưa đo")
+
+    def test_tc_gate_09b_whitespace_pass_still_passes(self):
+        """TC-04-GATE-09 (E3): `" Pass"` thừa khoảng trắng — pre-check `.strip()`, thẻ PHẢI theo."""
+        self._seed(workflow_state=_CR76_STATE_INITIAL)
+        self._add_baseline_row(parameter="Điện trở nối đất", test_result=" Pass", idx=1)
+        self._assert_parity("g03_baseline", True, self._g03_enforcement_blocks, "' Pass' có space")
+
+    def test_tc_gate_10_no_duplicated_literal_in_api_tier(self):
+        """TC-04-GATE-10 (AC3): literal `("Pass", "N/A")` KHÔNG được tái sinh ở tầng api."""
+        import pathlib
+
+        api_src = (pathlib.Path(frappe.get_app_path("assetcore")) / "api" / "imm04.py").read_text(
+            encoding="utf-8")
+        self.assertNotIn(
+            '"Pass", "N/A"', api_src,
+            "Tầng api chép lại tập kết quả đạt ⇒ thêm/bớt 1 giá trị ở `_G03_PASSING` "
+            "làm thẻ và cổng lệch CÂM. Dùng predicate SSoT của services/imm04.py.",
+        )
+
+    # ── G05 ───────────────────────────────────────────────────────────────────
+    def test_tc_gate_12_non_open_ncs_do_not_block(self):
+        """TC-04-GATE-12: NC `Resolved` + `Under Review` + `Transferred` (0 `Open`) ⇒ XANH."""
+        self._seed(workflow_state=_CR76_STATE_RELEASE, board_approver="Administrator")
+        for status in ("Resolved", "Under Review", "Transferred"):
+            self._insert_nc(status)
+        self._assert_parity("g05_nc", True, self._g05_g06_enforcement_blocks, "3 NC non-Open")
+
+    def test_tc_gate_11_open_nc_blocks(self):
+        """TC-04-GATE-11: 1 NC `Open` ⇒ ĐỎ ở CẢ hai phía (regression CR-54 §3)."""
+        self._seed(workflow_state=_CR76_STATE_RELEASE, board_approver="Administrator")
+        self._insert_nc("Open")
+        self._assert_parity("g05_nc", False, self._g05_g06_enforcement_blocks, "1 NC Open")
+
+    # ── G06 ───────────────────────────────────────────────────────────────────
+    def test_tc_gate_13_missing_approver_blocks(self):
+        """TC-04-GATE-13: `board_approver` rỗng ở `Clinical Release` ⇒ ĐỎ + validator raise."""
+        self._seed(workflow_state=_CR76_STATE_RELEASE)
+        self._assert_parity("g06_approver", False, self._g05_g06_enforcement_blocks, "0 approver")
+
+    def test_tc_gate_14_approver_set_passes(self):
+        """TC-04-GATE-14: đã chỉ định `board_approver` ⇒ XANH + validator cho qua."""
+        self._seed(workflow_state=_CR76_STATE_RELEASE, board_approver="Administrator")
+        self._assert_parity("g06_approver", True, self._g05_g06_enforcement_blocks, "có approver")
+
+    # ── hợp đồng khoá (additive) ─────────────────────────────────────────────
+    def test_tc_gate_18_contract_eight_boolean_keys(self):
+        """TC-04-GATE-18: ĐÚNG 8 khoá `bool` — 6 khoá cũ NGUYÊN vẹn + `g01_waived` + `g04_applicable`.
+
+        AC-CR-85 cập nhật 7 → 8 (khoá `g04_applicable` LUÔN emit — khuôn `g01_waived`).
+        """
+        self._seed()
+        card = self._card()
+        self.assertEqual(
+            sorted(card), sorted(_CR76_LEGACY_KEYS + ("g01_waived", "g04_applicable")),
+            "Hợp đồng phải ADDITIVE: 6 khoá cũ nguyên vẹn (Hyrum — FE/mobile đã bind), "
+            f"chỉ THÊM `g01_waived` (CR-76) + `g04_applicable` (AC-CR-85). Thực tế: {sorted(card)}",
+        )
+        for key, value in card.items():
+            self.assertIsInstance(
+                value, bool,
+                f"`{key}` PHẢI bool THẬT (KHÔNG int 0/1 — strict-deser Dart/Kotlin nổ): "
+                f"{value!r} ({type(value).__name__})",
+            )
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# AC-CR-85 · BR-04-17 — Cổng G04 gác ĐÚNG 1 domain (predicate SSoT `gate_g04_applies`)
+# ═════════════════════════════════════════════════════════════════════════════
+# Spec: `02 §IV.2` BR-04-17 · `04 §5.7` (ADR-IMM-04-08/09) · `05 §24.6` · `07 §III.4f`.
+#
+# Bug gốc (verify @source 2026-07-27): `check_auto_clinical_hold` làm HAI việc không liên
+# quan nhau — (1) trả về "phiếu có thuộc nhóm nguy cơ cao không" (ĐÚNG, giữ) và (2) GHI ĐÈ
+# `doc.is_radiation_device = 1` cho MỌI phiếu `risk_class ∈ {C,D}` kể cả thiết bị KHÔNG hề
+# phát bức xạ (SAI, gỡ). Hệ quả: VR-07 đòi «Giấy phép Cục An toàn Bức xạ Hạt nhân» cho máy
+# không bức xạ — giấy phép đó KHÔNG THỂ tồn tại ⇒ deadlock, lối thoát duy nhất của người
+# dùng là upload giấy tờ SAI vào hồ sơ pháp lý NĐ98. Hai domain pháp lý bị gộp:
+#   * Class C/D  → NĐ 98/2021 Điều 28-32 «Chứng nhận đăng ký lưu hành» — gác bởi GW-2;
+#   * phát bức xạ → NĐ 142/2020 Điều 25-27 «Giấy phép Cục ATBXHN» (`qa_license_doc`) — VR-07.
+#
+# Bẫy fixture (07 §III.4f.3 — đọc trước khi sửa test):
+#   1. `_autofill_from_device_model` ghi `risk_class` ở `before_insert` (Class I/II/III → A/B/C).
+#   2. `fetch_from` chạy TRƯỚC `validate()` (`base_document.py:848-851` trong `_validate_links`)
+#      ⇒ mọi assert về `is_radiation_device` phải ĐỌC LẠI TỪ DB, không đọc object bộ nhớ.
+#   3. VR-07 chỉ gác ở `{Clinical Release, Pending Release}` — fixture sai state = xanh GIẢ.
+#   4. G01/G03 chạy trước trong `validate()` ⇒ phiếu ma trận B phải sạch hồ sơ + có baseline.
+_G04_DT = "Asset Commissioning"
+_G04_COMM = "_TEST-COMM-G04-CR85"
+_G04_STATE_RELEASE = "Clinical Release"
+_G04_LICENSE = "/files/_test_cr85_atbxhn_license.pdf"
+_G04_VR07_TOKEN = "An toàn Bức xạ"      # chuỗi message VR-07 (giữ NGUYÊN — i18n đã dịch)
+# Ma trận A (07 §III.4f.1) — hằng số ĐÓNG BĂNG hành vi TRƯỚC fix của `check_auto_clinical_hold`.
+# Viết tường minh 12 ô, KHÔNG tái sinh bằng chính biểu thức đang đo (test rỗng).
+# 6 giá trị `risk_class` (5 enum + RỖNG) × 2 cờ — ô `risk_class=''` là nhánh fallback mà ma
+# trận 5×2 của acceptance bỏ sót hoàn toàn (xoá nhánh đó vẫn xanh 10/10 nếu chỉ chốt 10 ô).
+_G04_HOLD_MATRIX: tuple[tuple[str, int, bool], ...] = (
+    ("A", 0, False), ("A", 1, False),
+    ("B", 0, False), ("B", 1, False),
+    ("C", 0, True), ("C", 1, True),
+    ("D", 0, True), ("D", 1, True),
+    ("Radiation", 0, True), ("Radiation", 1, True),
+    ("", 0, False), ("", 1, True),
+)
+
+
+class TestGateG04Applicability(unittest.TestCase):
+    """TC-04-G04-01..13 (`07 §III.4f`) — cổng G04 gác ĐÚNG 1 domain + gỡ deadlock Class C/D.
+
+    Boundaries khoá bằng test: **Always** `check_auto_clinical_hold` bất biến 12/12 ô ·
+    `gate_g04_applies` là predicate DUY NHẤT (VR-07 + verdict + thẻ đọc CHUNG) · INV-G04-1
+    hai chiều ở mọi ô. **Never** `check_auto_clinical_hold` GHI `is_radiation_device` ·
+    VR-07 chặn phiếu Class C/D không bức xạ · bỏ vế `risk_class == 'Radiation'` (mất cổng
+    thật cho phiếu do người dùng phân loại).
+    """
+
+    # ── fixture plumbing ─────────────────────────────────────────────────────
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls._real_comms: list[str] = []
+        cls.po = _first_link_g04("AC Purchase")
+        cls.vendor = _first_link_g04("AC Supplier")
+        # Pre-clean idempotent: lần chạy trước bị ngắt (timeout/SIGTERM) SAU commit nhưng
+        # TRƯỚC tearDownClass để lại model/category mồ côi. `AC Asset Category` autoname
+        # `CAT-####` ⇒ quét theo `category_name`, KHÔNG theo `name`.
+        cls._purge_master()
+        cls._cat = frappe.get_doc({
+            "doctype": "AC Asset Category", "category_name": "_TEST CR85 Category",
+        }).insert(ignore_permissions=True)
+        cls.model_nonrad = frappe.get_doc({
+            "doctype": "IMM Device Model",
+            "model_name": "_TEST CR85 NonRad Analyzer",
+            "manufacturer": "_TEST CR85 Mfr",
+            "asset_category": cls._cat.name,
+            "medical_device_class": "Class III",   # → risk_class 'C', KHÔNG bức xạ
+            "is_radiation_device": 0,
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        for name in getattr(cls, "_real_comms", []):
+            try:
+                frappe.db.delete("IMM Audit Trail", {"ref_name": name})
+                frappe.db.set_value(_G04_DT, name, "docstatus", 0)
+                frappe.delete_doc(_G04_DT, name, force=True, ignore_permissions=True)
+            except Exception:
+                pass
+        cls._purge_master()
+        frappe.db.commit()
+
+    @classmethod
+    def _purge_master(cls):
+        for model in frappe.get_all("IMM Device Model",
+                                    filters={"model_name": "_TEST CR85 NonRad Analyzer"},
+                                    pluck="name"):
+            try:
+                frappe.delete_doc("IMM Device Model", model, force=True, ignore_permissions=True)
+            except Exception:
+                pass
+        for cat in frappe.get_all("AC Asset Category",
+                                  filters={"category_name": "_TEST CR85 Category"},
+                                  pluck="name"):
+            try:
+                frappe.delete_doc("AC Asset Category", cat, force=True, ignore_permissions=True)
+            except Exception:
+                pass
+
+    @staticmethod
+    def _purge_stub() -> None:
+        frappe.db.delete("Commissioning Checklist", {"parent": _G04_COMM})
+        frappe.db.delete("Commissioning Document Record", {"parent": _G04_COMM})
+        frappe.db.delete(_G04_DT, {"name": _G04_COMM})
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self._purge_stub()
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+        self._purge_stub()
+
+    def _seed_stub(self, *, risk_class: str, is_radiation_device: int,
+                   qa_license_doc: str = "",
+                   workflow_state: str = _G04_STATE_RELEASE) -> str:
+        """Phiếu stub bằng RAW SQL — `insert()` kéo theo mandatory link (po/model/vendor)
+        hoàn toàn không liên quan tới cổng đang đo (nhiễu + chậm + dễ rơi rác)."""
+        frappe.db.sql(
+            """
+            INSERT INTO `tabAsset Commissioning`
+                (name, creation, modified, owner, modified_by, docstatus, idx,
+                 workflow_state, risk_class, is_radiation_device, qa_license_doc,
+                 board_approver, documents_incomplete, documents_incomplete_note,
+                 facility_checklist_pass)
+            VALUES (%(name)s, NOW(), NOW(), 'Administrator', 'Administrator', 0, 0,
+                    %(workflow_state)s, %(risk_class)s, %(is_radiation_device)s,
+                    %(qa_license_doc)s, 'Administrator', 0, '', 0)
+            """,
+            {
+                "name": _G04_COMM, "workflow_state": workflow_state,
+                "risk_class": risk_class,
+                "is_radiation_device": int(is_radiation_device),
+                "qa_license_doc": qa_license_doc,
+            },
+        )
+        frappe.db.commit()
+        return _G04_COMM
+
+    # ── 3 phép đo trên CÙNG một phiếu (07 §III.4f.2) ──────────────────────────
+    def _vr07_error(self, name: str) -> str | None:
+        """Enforcement THẬT: `AssetCommissioning.validate_radiation_hold()` (VR-07)."""
+        doc = frappe.get_doc(_G04_DT, name)
+        try:
+            doc.validate_radiation_hold()
+        except frappe.ValidationError as exc:
+            return str(exc)
+        return None
+
+    def _measure(self, name: str) -> dict:
+        from assetcore.repositories.commissioning_repo import CommissioningRepo
+
+        doc = CommissioningRepo.get(name)
+        card = evaluate_gate_status(name)
+        return {
+            "applies": gate_g04_applies(doc),
+            "verdict_fn": gate_g04_ok(doc),
+            "card_applicable": card["g04_applicable"],
+            "card_verdict": card["g04_radiation"],
+            "vr07": self._vr07_error(name),
+        }
+
+    def _assert_inv_g04_1(self, m: dict, label: str) -> None:
+        """INV-G04-1 (2 chiều) — chấm ở MỌI ô, không chỉ ô "thú vị"."""
+        self.assertIs(
+            m["card_applicable"], m["applies"],
+            f"[{label}] thẻ `g04_applicable` PHẢI == predicate SSoT `gate_g04_applies` "
+            f"(thẻ là TẤM GƯƠNG của enforcement, không phải diễn giải thứ hai).",
+        )
+        self.assertIs(
+            m["card_verdict"], m["verdict_fn"],
+            f"[{label}] thẻ `g04_radiation` PHẢI == `gate_g04_ok`.",
+        )
+        if not m["card_applicable"]:
+            self.assertIs(
+                m["card_verdict"], True,
+                f"[{label}] INV-G04-1: `g04_applicable=False` ⇒ `g04_radiation` LUÔN True. "
+                f"Tổ hợp {{False, False}} là BẤT KHẢ.",
+            )
+            self.assertIsNone(
+                m["vr07"],
+                f"[{label}] INV-G04-1: cổng KHÔNG áp dụng ⇒ VR-07 KHÔNG BAO GIỜ được chặn "
+                f"(advertise == enforce). Thực tế: {m['vr07']}",
+            )
+
+    # ── Ma trận A — `check_auto_clinical_hold` KHÔNG suy giảm (12 ô) ──────────
+    def _assert_hold_cells(self, risk_class: str) -> None:
+        cells = [c for c in _G04_HOLD_MATRIX if c[0] == risk_class]
+        self.assertEqual(len(cells), 2, "mỗi `risk_class` phải có ĐỦ 2 ô cờ 0/1")
+        for _rc, flag, expected in cells:
+            doc = _make_doc(risk_class=risk_class, is_radiation_device=flag)
+            self.assertIs(
+                check_auto_clinical_hold(doc), expected,
+                f"A2 SUY GIẢM AN TOÀN: risk_class={risk_class!r} × is_radiation_device={flag} "
+                f"⇒ Clinical Hold routing phải GIỮ NGUYÊN {expected!r} như trước fix.",
+            )
+            # A1: hàm quyết định Clinical Hold KHÔNG được ghi đè cờ bức xạ (side-effect đã gỡ).
+            self.assertEqual(
+                int(doc.is_radiation_device or 0), int(flag),
+                "A1: `check_auto_clinical_hold` KHÔNG được GHI `doc.is_radiation_device` — "
+                "field khai read_only + fetch_from master_item ⇒ ghi đè là đảo ngược chính "
+                "SSoT của nó, và người dùng KHÔNG có đường sửa lại.",
+            )
+
+    def test_tc_04_g04_01_class_a_hold_unchanged(self):
+        """TC-04-G04-01: `risk_class='A'` × cờ 0/1 ⇒ `False` (nhánh enum)."""
+        self._assert_hold_cells("A")
+
+    def test_tc_04_g04_02_class_b_hold_unchanged(self):
+        """TC-04-G04-02: `risk_class='B'` × cờ 0/1 ⇒ `False`."""
+        self._assert_hold_cells("B")
+
+    def test_tc_04_g04_03_class_c_hold_unchanged(self):
+        """TC-04-G04-03: `risk_class='C'` × cờ 0/1 ⇒ `True` — Clinical Hold GIỮ, chỉ cờ bức xạ bị gỡ."""
+        self._assert_hold_cells("C")
+
+    def test_tc_04_g04_04_class_d_hold_unchanged(self):
+        """TC-04-G04-04: `risk_class='D'` × cờ 0/1 ⇒ `True`."""
+        self._assert_hold_cells("D")
+
+    def test_tc_04_g04_05_class_radiation_hold_unchanged(self):
+        """TC-04-G04-05: `risk_class='Radiation'` × cờ 0/1 ⇒ `True`."""
+        self._assert_hold_cells("Radiation")
+
+    def test_tc_04_g04_06_empty_risk_class_falls_back_to_flag(self):
+        """TC-04-G04-06: `risk_class=''` ⇒ theo cờ (`False`/`True`) — NHÁNH FALLBACK.
+
+        2 ô mà ma trận 5×2 bỏ sót: mọi giá trị enum đều truthy nên `else` không bao giờ
+        chạy; xoá nhánh fallback vẫn xanh 10/10 nếu chỉ chốt 10 ô (M7).
+        """
+        self._assert_hold_cells("")
+
+    # ── Ma trận B — INV-G04-1 hai chiều (10 ô) ────────────────────────────────
+    def test_tc_04_g04_07_non_radiation_gate_not_applicable(self):
+        """TC-04-G04-07: model KHÔNG bức xạ × `risk_class ∈ {A,B,C,D}`, chưa có giấy phép.
+
+        `applies=False` · `g04_applicable=False` · `g04_radiation=True` · VR-07 KHÔNG chặn.
+        Trước fix, ô `C`/`D` cho `g04_radiation=False` + VR-07 CHẶN (deadlock).
+        """
+        for rc in ("A", "B", "C", "D"):
+            with self.subTest(risk_class=rc):
+                self._purge_stub()
+                name = self._seed_stub(risk_class=rc, is_radiation_device=0)
+                m = self._measure(name)
+                self.assertIs(m["applies"], False,
+                              f"Class {rc} KHÔNG phát bức xạ ⇒ cổng G04 KHÔNG áp dụng "
+                              f"(nghĩa vụ NĐ98 của Class C/D do GW-2 gác).")
+                self.assertIs(m["card_applicable"], False)
+                self.assertIs(m["card_verdict"], True)
+                self.assertIsNone(m["vr07"])
+                self._assert_inv_g04_1(m, f"non-rad {rc}")
+
+    def test_tc_04_g04_08_non_radiation_with_license_unchanged(self):
+        """TC-04-G04-08: như TC-07 nhưng ĐÃ có `qa_license_doc` ⇒ kết quả KHÔNG đổi.
+
+        Giấy phép thừa không biến cổng "không áp dụng" thành "đã đạt".
+        """
+        for rc in ("A", "B", "C", "D"):
+            with self.subTest(risk_class=rc):
+                self._purge_stub()
+                name = self._seed_stub(risk_class=rc, is_radiation_device=0,
+                                       qa_license_doc=_G04_LICENSE)
+                m = self._measure(name)
+                self.assertIs(m["card_applicable"], False)
+                self.assertIs(m["card_verdict"], True)
+                self.assertIsNone(m["vr07"])
+                self._assert_inv_g04_1(m, f"non-rad+license {rc}")
+
+    def test_tc_04_g04_09_radiation_device_without_license_blocks(self):
+        """TC-04-G04-09 (regression an toàn THẬT): thiết bị bức xạ, chưa có giấy phép ⇒ VR-07 CHẶN."""
+        name = self._seed_stub(risk_class="Radiation", is_radiation_device=1)
+        m = self._measure(name)
+        self.assertIs(m["applies"], True)
+        self.assertIs(m["card_applicable"], True)
+        self.assertIs(m["card_verdict"], False, "chưa có giấy phép ⇒ cổng ĐANG CHẶN")
+        self.assertIsNotNone(m["vr07"], "VR-07 PHẢI vẫn chặn thiết bị bức xạ thiếu giấy phép")
+        self.assertIn(_G04_VR07_TOKEN, m["vr07"],
+                      "chuỗi message VR-07 giữ NGUYÊN (người dùng đã quen, i18n đã dịch)")
+        self._assert_inv_g04_1(m, "radiation no-license")
+
+    def test_tc_04_g04_10_radiation_device_with_license_passes(self):
+        """TC-04-G04-10: thiết bị bức xạ ĐÃ có giấy phép ⇒ `g04_radiation=True`, không chặn."""
+        name = self._seed_stub(risk_class="Radiation", is_radiation_device=1,
+                               qa_license_doc=_G04_LICENSE)
+        m = self._measure(name)
+        self.assertIs(m["card_applicable"], True)
+        self.assertIs(m["card_verdict"], True)
+        self.assertIsNone(m["vr07"])
+        self._assert_inv_g04_1(m, "radiation +license")
+
+    def test_tc_04_g04_11_user_classified_radiation_still_gated(self):
+        """TC-04-G04-11 (chống suy giảm an toàn): model chưa gắn cờ NHƯNG người dùng phân
+        loại `risk_class='Radiation'` ⇒ cổng VẪN áp dụng và VẪN chặn.
+
+        Đây chính là ô mà bỏ vế `risk_class == 'Radiation'` khỏi predicate sẽ MẤT cổng (M3).
+        """
+        name = self._seed_stub(risk_class="Radiation", is_radiation_device=0)
+        m = self._measure(name)
+        self.assertIs(m["applies"], True,
+                      "phân loại Radiation là nguồn HỢP LỆ thứ hai của cổng G04")
+        self.assertIs(m["card_applicable"], True)
+        self.assertIs(m["card_verdict"], False)
+        self.assertIsNotNone(m["vr07"])
+        self._assert_inv_g04_1(m, "user-classified radiation")
+
+    # ── Ô người dùng THẬT — gỡ deadlock (A6) ──────────────────────────────────
+    def test_tc_04_g04_12_class_c_non_radiation_saves_at_clinical_release(self):
+        """TC-04-G04-12 (A1 + A6): phiếu THẬT Class C, model không bức xạ, chưa có giấy
+        phép, ở `Clinical Release` ⇒ `doc.save()` KHÔNG throw VR-07 và DB đọc lại cờ = 0.
+
+        TRƯỚC fix: throw «…Giấy phép của Cục An toàn Bức xạ Hạt nhân» — giấy phép KHÔNG THỂ
+        tồn tại cho máy không phát bức xạ ⇒ lối thoát duy nhất là nộp giấy tờ SAI vào hồ sơ
+        pháp lý NĐ98. Phép đo `is_radiation_device` ĐỌC LẠI TỪ DB (bẫy 2: `fetch_from` chạy
+        trước `validate()` nên object bộ nhớ không chứng minh được gì).
+        """
+        if not (self.po and self.vendor):
+            self.skipTest("Thiếu master data (AC Purchase / AC Supplier) để tạo phiếu thật")
+        doc = frappe.get_doc({
+            "doctype": _G04_DT,
+            "workflow_state": "Draft",
+            "po_reference": self.po,
+            "master_item": self.model_nonrad.name,
+            "vendor": self.vendor,
+            "board_approver": "Administrator",
+            "documents_incomplete": 1,
+            "documents_incomplete_note": "Hồ sơ CO/CQ bổ sung sau — fixture AC-CR-85.",
+            "baseline_tests": [
+                {"parameter": "Điện trở nối đất bảo vệ", "measured_val": "0.05",
+                 "test_result": "Pass"},
+            ],
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+        type(self)._real_comms.append(doc.name)
+        self.assertEqual(doc.risk_class, "C",
+                         "fixture phải là Class C (map từ `medical_device_class='Class III'`)")
+
+        # Đặt state bằng db_set CÓ CHỦ Ý: đối tượng đo là `validate()` ở `Clinical Release`,
+        # KHÔNG phải tính hợp lệ của chuỗi transition (đã có suite riêng). `_doc_before_save`
+        # sau reload == state hiện tại ⇒ `validate_workflow` không coi đây là transition
+        # (`frappe/model/workflow.py:196`).
+        frappe.db.set_value(_G04_DT, doc.name, "workflow_state", _G04_STATE_RELEASE,
+                            update_modified=False)
+        frappe.db.commit()
+
+        fresh = frappe.get_doc(_G04_DT, doc.name)
+        try:
+            fresh.save(ignore_permissions=True)
+        except frappe.ValidationError as exc:
+            self.assertNotIn(
+                _G04_VR07_TOKEN, str(exc),
+                "DEADLOCK: phiếu Class C KHÔNG phát bức xạ bị VR-07 đòi Giấy phép Cục "
+                "ATBXHN — hồ sơ đó KHÔNG THỂ tồn tại; người dùng chỉ còn cách nộp giấy tờ "
+                "SAI vào hồ sơ NĐ98.",
+            )
+            raise
+        frappe.db.commit()
+
+        self.assertEqual(
+            frappe.db.get_value(_G04_DT, doc.name, "is_radiation_device"), 0,
+            "A1: đọc LẠI từ DB phải bằng 0 — `is_radiation_device` khai `read_only` + "
+            "`fetch_from: master_item.is_radiation_device` nên SSoT là Device Model.",
+        )
+        self.assertIs(evaluate_gate_status(doc.name)["g04_applicable"], False)
+
+    # ── Mutation-probe thường trực (A10) ──────────────────────────────────────
+    def test_tc_04_g04_13_consumers_wired_to_ssot_predicate(self):
+        """TC-04-G04-13: 3 điểm tiêu thụ đọc CHÍNH `gate_g04_applies`, không diễn giải lại.
+
+        Đột biến predicate → `True` phải làm ĐỔI hành vi ở CẢ ba (verdict · thẻ · VR-07)
+        trên một phiếu không bức xạ. Nếu bất kỳ điểm nào tự đọc `is_radiation_device` thì
+        đột biến không tới được nó ⇒ TC ĐỎ (chống "test rỗng" + chống tái sinh diễn giải
+        thứ hai, 04 §5.7.3).
+        """
+        from unittest.mock import patch
+
+        from assetcore.repositories.commissioning_repo import CommissioningRepo
+        from assetcore.services import imm04 as _svc
+
+        name = self._seed_stub(risk_class="C", is_radiation_device=0)
+        base = self._measure(name)
+        self.assertIs(base["card_applicable"], False, "tiền đề: cổng đang KHÔNG áp dụng")
+
+        with patch.object(_svc, "gate_g04_applies", lambda doc: True):
+            doc = CommissioningRepo.get(name)
+            self.assertIs(
+                _svc.gate_g04_ok(doc), False,
+                "P1 `gate_g04_ok` KHÔNG gọi predicate SSoT — verdict đang có diễn giải riêng.",
+            )
+            self.assertIs(
+                _svc.evaluate_gate_status(name)["g04_applicable"], True,
+                "P2 thẻ KHÔNG tính bằng predicate SSoT — thẻ là bản diễn giải thứ hai.",
+            )
+            self.assertIsNotNone(
+                self._vr07_error(name),
+                "P3 VR-07 KHÔNG đọc predicate SSoT — advertise và enforce sẽ trôi khỏi nhau.",
+            )
+
+
+def _first_link_g04(dt: str) -> str | None:
+    names = frappe.get_all(dt, limit=1, pluck="name")
+    return names[0] if names else None
 
 
 if __name__ == "__main__":

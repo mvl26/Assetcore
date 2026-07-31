@@ -23,7 +23,7 @@ import {
   cancelCommissioning as apiCancel,
   getPoDetails as apiGetPoDetails,
 } from '@/api/imm04'
-import type { BaselineResultInput } from '@/api/imm04'
+import type { BaselineResultInput, BaselineOverallResult } from '@/api/imm04'
 import { frappeGet } from '@/api/helpers'
 import { ApiError, toApiError } from '@/api/errors'
 import { useAuthStore } from './auth'
@@ -427,14 +427,23 @@ export const useCommissioningStore = defineStore('commissioning', () => {
   }
 
   /**
-   * Nộp kết quả baseline (gate Nghiệm thu ban đầu).
+   * Nộp kết quả baseline (gate Nghiệm thu ban đầu / Kiểm tra lại).
    * Trả `testsRecorded` = số dòng THỰC server ghi test_result (silent-completion lens):
-   * View chỉ được coi là thành công khi `ok && testsRecorded > 0`, KHÔNG tin HTTP-200 trần.
+   * View chỉ được coi là ĐÃ GHI khi `ok && testsRecorded > 0`, KHÔNG tin HTTP-200 trần.
+   * `overallResult` là SSoT của SERVER ('Pass' | 'Fail'): phép đo KHÔNG ĐẠT vẫn được
+   * LƯU (CR-54 §2) nên `ok=true` KHÔNG đồng nghĩa "đạt" — view phải đọc `overallResult`
+   * + `failedParameters` để hiển thị đúng, KHÔNG suy diễn từ HTTP-200.
    */
   async function submitBaselineChecklist(
     name: string,
     results: BaselineResultInput[],
-  ): Promise<{ ok: boolean; testsRecorded: number; overallResult: string; clinicalHoldRequired?: boolean }> {
+  ): Promise<{
+    ok: boolean
+    testsRecorded: number
+    overallResult: BaselineOverallResult | ''
+    failedParameters: string[]
+    clinicalHoldRequired?: boolean
+  }> {
     loading.value = true
     error.value = null
     try {
@@ -445,14 +454,15 @@ export const useCommissioningStore = defineStore('commissioning', () => {
           ok: true,
           testsRecorded: typeof res.tests_recorded === 'number' ? res.tests_recorded : 0,
           overallResult: res.overall_result ?? '',
+          failedParameters: Array.isArray(res.failed_parameters) ? res.failed_parameters : [],
           clinicalHoldRequired: res.clinical_hold_required,
         }
       }
       error.value = 'Không thể nộp kết quả'
-      return { ok: false, testsRecorded: 0, overallResult: '' }
+      return { ok: false, testsRecorded: 0, overallResult: '', failedParameters: [] }
     } catch (e) {
       _captureError(e)
-      return { ok: false, testsRecorded: 0, overallResult: '' }
+      return { ok: false, testsRecorded: 0, overallResult: '', failedParameters: [] }
     } finally {
       loading.value = false
     }

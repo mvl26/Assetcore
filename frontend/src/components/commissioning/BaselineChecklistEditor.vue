@@ -1,12 +1,16 @@
 <script setup lang="ts">
-// BaselineChecklistEditor — gate "Nghiệm thu ban đầu" (IMM-04).
-// Đóng 2 lỗ silent-completion:
+// BaselineChecklistEditor — gate "Nghiệm thu ban đầu" / "Kiểm tra lại" (IMM-04).
+// Đóng 3 lỗ:
 //   1. Cho phép technician THÊM dòng phép đo khi baseline_tests rỗng (seed-child gap).
-//   2. Chỉ báo thành công khi server ghi THỰC (tests_recorded > 0) — KHÔNG tin HTTP-200 trần.
+//   2. Chỉ báo ĐÃ GHI khi server ghi THỰC (tests_recorded > 0) — KHÔNG tin HTTP-200 trần.
+//   3. CR-54 §2: phép đo KHÔNG ĐẠT vẫn LƯU được ⇒ banner phải nói rõ "KHÔNG ĐẠT" +
+//      lối đi tiếp (Kiểm tra lại), TUYỆT ĐỐI không báo đạt. Đọc `overallResult` của
+//      SERVER (SSoT), KHÔNG tự suy từ HTTP-200 hay từ lựa chọn trên lưới.
 import { ref, computed, watch } from 'vue'
 import { useCommissioningStore } from '@/stores/imm04'
 import { useToast } from '@/composables/useToast'
 import { useNotify } from '@/composables/useNotify'
+import type { BaselineOverallResult } from '@/api/imm04'
 import type { BaselineTest, TestResult } from '@/types/imm04'
 
 const props = defineProps<{
@@ -17,7 +21,16 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  (e: 'submitted', payload: { testsRecorded: number; clinicalHoldRequired?: boolean }): void
+  (
+    e: 'submitted',
+    payload: {
+      testsRecorded: number
+      /** SSoT server: 'Fail' = còn phép đo không đạt (phiếu VẪN được lưu). */
+      overallResult: BaselineOverallResult | ''
+      failedParameters: string[]
+      clinicalHoldRequired?: boolean
+    },
+  ): void
 }>()
 
 const store  = useCommissioningStore()
@@ -41,7 +54,7 @@ interface EditorRow {
 let _keySeq = 0
 const rows = ref<EditorRow[]>([])
 const submitting = ref(false)
-const feedback = ref<{ type: 'success' | 'hint'; text: string } | null>(null)
+const feedback = ref<{ type: 'success' | 'fail' | 'hint'; text: string } | null>(null)
 
 function initRows(source: BaselineTest[]): void {
   rows.value = (source ?? []).map((t) => ({
@@ -94,6 +107,20 @@ function buildResults() {
     }))
 }
 
+/**
+ * Câu thông báo khi kết quả tổng KHÔNG ĐẠT (CR-54 §2).
+ * Nêu ĐÍCH DANH thông số không đạt + lối đi tiếp; KHÔNG chữ nào khẳng định đạt,
+ * KHÔNG lộ enum thô 'Fail' ra giao diện.
+ */
+function failText(failed: string[], recorded: number): string {
+  const n = failed.length || recorded
+  const names = failed.length ? `: ${failed.join(', ')}` : ''
+  return (
+    `Đã ghi nhận ${n} phép đo KHÔNG ĐẠT${names}. ` +
+    'Nhấn “Báo cáo lỗi baseline” để chuyển phiếu sang Kiểm tra lại và đo lại các thông số này.'
+  )
+}
+
 async function onSubmit(): Promise<void> {
   if (submitDisabled.value) return
   submitting.value = true
@@ -101,12 +128,25 @@ async function onSubmit(): Promise<void> {
   const res = await store.submitBaselineChecklist(props.commissioning, buildResults())
   submitting.value = false
 
-  // Silent-completion lens: THÀNH CÔNG chỉ khi server ghi thực (tests_recorded > 0).
+  // Silent-completion lens: chỉ coi là ĐÃ GHI khi server ghi thực (tests_recorded > 0).
   if (res.ok && res.testsRecorded > 0) {
-    const text = `Đã ghi ${res.testsRecorded} phép đo`
-    feedback.value = { type: 'success', text }
-    toast.success(text)
-    emit('submitted', { testsRecorded: res.testsRecorded, clinicalHoldRequired: res.clinicalHoldRequired })
+    // Kết quả tổng do SERVER quyết. 'Fail' ⇒ phiếu ĐÃ lưu nhưng CHƯA đạt —
+    // tuyệt đối không dùng banner/toast "thành công" (false-pass với người dùng).
+    if (res.overallResult === 'Fail') {
+      const text = failText(res.failedParameters, res.testsRecorded)
+      feedback.value = { type: 'fail', text }
+      toast.warning(text)
+    } else {
+      const text = `Đã ghi ${res.testsRecorded} phép đo`
+      feedback.value = { type: 'success', text }
+      toast.success(text)
+    }
+    emit('submitted', {
+      testsRecorded: res.testsRecorded,
+      overallResult: res.overallResult,
+      failedParameters: res.failedParameters,
+      clinicalHoldRequired: res.clinicalHoldRequired,
+    })
     return
   }
   // 0 phép đo (VALIDATION hoặc 200-trần) → hint + surface lỗi BE nếu có.
@@ -127,6 +167,19 @@ async function onSubmit(): Promise<void> {
     >
       <svg class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+      </svg>
+      <span>{{ feedback.text }}</span>
+    </div>
+    <!-- Kết quả tổng KHÔNG ĐẠT: đã lưu nhưng CHƯA đạt — không bao giờ dùng màu/chữ "đạt" -->
+    <div
+      v-else-if="feedback?.type === 'fail'"
+      data-testid="baseline-fail"
+      role="status"
+      aria-live="polite"
+      class="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-800"
+    >
+      <svg class="mt-0.5 h-4 w-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
       </svg>
       <span>{{ feedback.text }}</span>
     </div>

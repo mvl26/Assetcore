@@ -66,11 +66,13 @@ class AssetCommissioning(Document):
 		imm04_svc.log_lifecycle_event(self, "Cancel", self.workflow_state, "Cancelled", "Commissioning bị hủy")
 
 	# ──────────────────────────────────────────────
-	# BR-04-05: SYNC risk_class → is_radiation_device
+	# BR-04-05a: risk_class ∈ {C,D,Radiation} ⇒ CẦN Clinical Hold (QUYẾT ĐỊNH, 0 side-effect)
+	# BR-04-05b: `is_radiation_device` CHỈ đến từ IMM Device Model (fetch_from) hoặc
+	#            risk_class='Radiation' — KHÔNG suy từ Class C/D (AC-CR-85, 04 §5.7)
 	# ──────────────────────────────────────────────
 
 	def _check_auto_clinical_hold(self) -> bool:
-		"""Delegate to service layer: sync risk_class → is_radiation_device."""
+		"""Delegate to service layer: phiếu có cần Clinical Hold không (BR-04-05a)."""
 		return imm04_svc.check_auto_clinical_hold(self)
 
 	# ──────────────────────────────────────────────
@@ -78,9 +80,16 @@ class AssetCommissioning(Document):
 	# ──────────────────────────────────────────────
 
 	def validate_radiation_hold(self):
-		"""VR-07: Thiết bị bức xạ mà chưa có giấy phép thì không được Release."""
+		"""VR-07: Thiết bị bức xạ mà chưa có giấy phép thì không được Release.
+
+		AC-CR-85 (BR-04-17): điều kiện "có phát bức xạ" đọc predicate SSoT
+		`imm04_svc.gate_g04_applies` — CÙNG hàm mà verdict `gate_g04_ok` và thẻ
+		`evaluate_gate_status().g04_applicable` dùng ⇒ advertise == enforce (INV-G04-1).
+		KHÔNG đọc thẳng cờ bức xạ trên phiếu (diễn giải thứ hai — guard `cr85_g` quét AST
+		của hàm này). State-guard và câu message giữ NGUYÊN — người dùng đã quen, i18n đã dịch.
+		"""
 		if (
-			self.is_radiation_device
+			imm04_svc.gate_g04_applies(self)
 			and self.workflow_state in (_STATE_CLINICAL_RELEASE, "Pending Release")
 			and not self.qa_license_doc
 		):

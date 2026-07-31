@@ -6,22 +6,53 @@ import WorkflowActions from '@/components/commissioning/WorkflowActions.vue'
 import BaselineTestTable from '@/components/commissioning/BaselineTestTable.vue'
 import BaselineChecklistEditor from '@/components/commissioning/BaselineChecklistEditor.vue'
 import DocumentChecklist from '@/components/commissioning/DocumentChecklist.vue'
+import DocumentDossierCard from '@/components/commissioning/DocumentDossierCard.vue'
 import QRLabel from '@/components/commissioning/QRLabel.vue'
 import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
 import SmartSelect from '@/components/common/SmartSelect.vue'
 import { useCommissioningStore } from '@/stores/imm04'
 import type { CommissioningDoc, WorkflowState, DocumentRecord, BaselineTest } from '@/types/imm04'
+import type { AssetDossierDocItem } from '@/api/imm05'
 import { formatDatetime } from '@/utils/docUtils'
+import { resolveG04Applicable } from '@/components/commissioning/g04Gate'
 
 const props = defineProps<{
   doc: CommissioningDoc
   /** Khi false (mặc định): hiển thị read-only. Khi true: cho phép chỉnh sửa. */
   editMode?: boolean
-  // compliance props (optional — graceful khi chưa deploy)
+  // Hồ sơ pháp lý IMM-05 (CR-75) — optional để graceful khi BE chưa deploy.
+  // `imm05IsCompliant` do view cha suy ra từ khoá SỐ `is_compliant`; `undefined`
+  // = CHƯA BIẾT (không kết luận "không tuân thủ").
   imm05DocStatus?: string | null
   imm05Pct?: number
   imm05Missing?: string[]
   imm05IsCompliant?: boolean
+  /**
+   * Khoá SỐ `is_compliant` NGUYÊN BẢN (0|1); `null` = server chưa nói. Tách khỏi
+   * `imm05IsCompliant` (đã "làm tròn" unknown→true để KHÔNG chặn workflow) vì thẻ
+   * hồ sơ phải phân biệt "chưa biết" với "đủ" — nói dối là lỗi CR-75 đang khử.
+   */
+  imm05CompliantFlag?: number | null
+  imm05ExpiredRequired?: string[]
+  imm05ExpiringRequired?: string[]
+  imm05RequiredTotal?: number | null
+  imm05RequiredSatisfied?: number | null
+  imm05HiddenCount?: number
+  /**
+   * Dòng hồ sơ đã LỌC QUYỀN, nhóm theo `doc_category` (AC-CR-81) — để thẻ hồ sơ
+   * phơi TỆP THẬT (nút «Mở tệp» / nhãn «Chưa đính kèm tệp»). Vắng ⇒ thẻ chỉ hiện
+   * phần tổng hợp như trước (0 regress cho consumer cũ).
+   */
+  imm05Documents?: Record<string, AssetDossierDocItem[]>
+  /**
+   * AC-CR-85 — cổng G04 có áp dụng cho phiếu này không (khoá `g04_applicable`
+   * của `getGateStatus`, tính bằng chính predicate mà VR-07 dùng để chặn).
+   * `undefined` = backend chưa nạp phiên bản mới ⇒ rơi về hành vi cũ (suy từ
+   * `doc.is_radiation_device`). Cảnh báo «bắt buộc giấy phép» PHẢI theo cờ này,
+   * KHÔNG theo nguồn thứ hai — nếu không, phiếu Class C không phát bức xạ bị đòi
+   * giấy phép Cục An toàn Bức xạ Hạt nhân không thể tồn tại.
+   */
+  g04Applicable?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -257,9 +288,19 @@ watch(
 const isReadonly = computed(() => props.doc.is_locked || !props.editMode)
 const hasAsset = computed(() => Boolean(props.doc.final_asset))
 
+/** AC-CR-85 — CÙNG nguồn với thẻ cổng G04 (`g04_applicable`), không suy nguồn thứ hai. */
+const g04Applicable = computed(() =>
+  resolveG04Applicable({ g04_applicable: props.g04Applicable }, props.doc),
+)
+
+/** Cảnh báo đỏ «bắt buộc giấy phép» chỉ hiện khi cổng G04 THẬT SỰ áp dụng. */
+const showLicenseRequired = computed(
+  () => g04Applicable.value && !props.doc.qa_license_doc,
+)
+
 const showRadiationWarning = computed(
   () =>
-    props.doc.is_radiation_device &&
+    g04Applicable.value &&
     !['Clinical Release', 'Return To Vendor'].includes(props.doc.workflow_state),
 )
 
@@ -283,10 +324,14 @@ const showOverallInspectionResult = computed(() => {
 
 const showQaOfficer = computed(() => isHighRisk.value)
 
-// Gate nộp bảng kiểm baseline: chỉ ở 'Initial Inspection' (mirror BE
-// _STATE_INITIAL_INSPECTION) và phiếu chưa khoá. Ngoài trạng thái này → xem read-only.
+// Gate nộp bảng kiểm baseline: 'Initial Inspection' (nghiệm thu lần đầu) VÀ
+// 'Re Inspection' (đo lại sau khi báo lỗi — CR-54 §2), phiếu chưa khoá. Mirror BE
+// `_BASELINE_ENTRY_STATES` trong services/imm04.py: thiếu 'Re Inspection' thì phiếu
+// vào Kiểm tra lại là KẸT VĨNH VIỄN (không màn nào sửa được baseline_tests).
+// Ngoài 2 trạng thái này → bảng chỉ đọc.
+const BASELINE_SUBMIT_STATES = ['Initial Inspection', 'Re Inspection']
 const canRecordBaseline = computed(
-  () => !props.doc.is_locked && props.doc.workflow_state === 'Initial Inspection',
+  () => !props.doc.is_locked && BASELINE_SUBMIT_STATES.includes(props.doc.workflow_state ?? ''),
 )
 </script>
 
@@ -598,7 +643,7 @@ Xem đơn hàng →
             :disabled="uploading"
             @change="handleFileUpload($event, 'qa_license_doc')"
           />
-          <p v-if="doc.is_radiation_device && !doc.qa_license_doc" class="text-xs text-red-600 mt-1">
+          <p v-if="showLicenseRequired" data-test="g04-license-required" class="text-xs text-red-600 mt-1">
             Bắt buộc cho thiết bị bức xạ
           </p>
         </div>
@@ -629,6 +674,15 @@ Xem đơn hàng →
         <label class="flex items-center gap-2 cursor-default">
           <input type="checkbox" :checked="Boolean(doc.is_radiation_device)" disabled class="rounded text-yellow-600" />
           <span class="text-sm text-gray-700">Thiết bị phát bức xạ / tia X</span>
+          <!-- AC-CR-85: ô này lấy theo model thiết bị. Cổng G04 còn áp dụng khi phân
+               loại rủi ro là «Phóng xạ» ⇒ nói rõ lý do thay vì để người dùng đoán. -->
+          <span
+            v-if="g04Applicable && !doc.is_radiation_device"
+            data-test="g04-applies-by-risk-class"
+            class="text-xs text-amber-700"
+          >
+            (cổng giấy phép an toàn bức xạ vẫn áp dụng do phân loại rủi ro «Phóng xạ»)
+          </span>
         </label>
         <label class="flex items-center gap-2 cursor-default">
           <input type="checkbox" :checked="Boolean(doc.doa_incident)" disabled class="rounded text-red-600" />
@@ -780,62 +834,21 @@ Xem đơn hàng →
           Tài sản sẽ được tạo tự động sau khi phiếu được Duyệt ở trạng thái Phát hành lâm sàng.
         </div>
 
-        <!-- Compliance Widget (chỉ hiện khi có final_asset) -->
+        <!-- Hồ sơ pháp lý thiết bị (IMM-05 · CR-75) — mọi kết luận từ server -->
         <div v-if="hasAsset && imm05DocStatus !== undefined" class="mt-4">
-          <div
-            class="rounded-lg border p-4"
-            :class="{
-              'bg-green-50 border-green-200': imm05IsCompliant,
-              'bg-yellow-50 border-yellow-200': !imm05IsCompliant && imm05DocStatus === 'Expiring_Soon',
-              'bg-red-50 border-red-200': !imm05IsCompliant && imm05DocStatus !== 'Expiring_Soon',
-            }"
-          >
-            <div class="flex items-center justify-between mb-2">
-              <span class="text-sm font-semibold text-gray-700">Trạng thái Hồ sơ</span>
-              <span
-                class="text-xs font-bold px-2 py-0.5 rounded-full"
-                :class="{
-                  'bg-green-100 text-green-800': imm05IsCompliant,
-                  'bg-yellow-100 text-yellow-800': !imm05IsCompliant && imm05DocStatus === 'Expiring_Soon',
-                  'bg-red-100 text-red-800': !imm05IsCompliant && imm05DocStatus !== 'Expiring_Soon',
-                }"
-              >
-                {{ imm05DocStatus ?? 'Chưa có dữ liệu' }}
-              </span>
-            </div>
-
-            <!-- Progress bar -->
-            <div class="flex items-center gap-3 mb-2">
-              <div class="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
-                <div
-                  class="h-full rounded-full transition-all"
-                  :class="imm05IsCompliant ? 'bg-green-500' : 'bg-red-500'"
-                  :style="`width: ${imm05Pct ?? 0}%`"
-                />
-              </div>
-              <span class="text-xs text-gray-600 font-mono w-10 text-right">{{ imm05Pct ?? 0 }}%</span>
-            </div>
-
-            <!-- Thiếu hồ sơ -->
-            <div v-if="imm05Missing && imm05Missing.length > 0" class="mt-2">
-              <p class="text-xs text-red-700 font-medium mb-1">Thiếu hồ sơ bắt buộc:</p>
-              <ul class="text-xs text-red-600 space-y-0.5 list-disc list-inside">
-                <li v-for="m in imm05Missing" :key="m">{{ m }}</li>
-              </ul>
-            </div>
-
-            <div class="mt-3 flex items-center justify-between">
-              <p v-if="!imm05IsCompliant" class="text-xs text-red-700 font-medium">
-                ⚠ Cần bổ sung hồ sơ trước khi Submit phiếu
-              </p>
-              <button
-                class="text-xs text-blue-600 hover:underline ml-auto"
-                @click="emit('refresh-imm05')"
-              >
-                Làm mới
-              </button>
-            </div>
-          </div>
+          <DocumentDossierCard
+            :document-status="imm05DocStatus"
+            :is-compliant="imm05CompliantFlag == null ? null : imm05CompliantFlag === 1"
+            :completeness-pct="imm05Pct ?? 0"
+            :required-total="imm05RequiredTotal ?? null"
+            :required-satisfied="imm05RequiredSatisfied ?? null"
+            :missing-required="imm05Missing ?? []"
+            :expired-required="imm05ExpiredRequired ?? []"
+            :expiring-required="imm05ExpiringRequired ?? []"
+            :hidden-count="imm05HiddenCount ?? 0"
+            :documents="imm05Documents ?? {}"
+            @refresh="emit('refresh-imm05')"
+          />
         </div>
       </div>
 

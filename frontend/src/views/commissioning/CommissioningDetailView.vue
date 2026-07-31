@@ -14,6 +14,9 @@ import StatusBadge from '@/components/common/StatusBadge.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import { getGateStatus } from '@/api/imm04'
 import type { GateStatus } from '@/api/imm04'
+import { gateStatusErrorMessage } from '@/components/commissioning/gateStatusError'
+import { dossierStatusLabel } from '@/constants/labels'
+import type { AssetDossierDocItem } from '@/api/imm05'
 
 const props  = defineProps<{ id: string }>()
 const router = useRouter()
@@ -97,33 +100,56 @@ const activeTab = computed(() => {
 const imm05DocStatus   = ref<string | null>(null)
 const imm05Pct         = ref(0)
 const imm05Missing     = ref<string[]>([])
+const imm05Expired     = ref<string[]>([])
+const imm05Expiring    = ref<string[]>([])
+const imm05ReqTotal    = ref<number | null>(null)
+const imm05ReqSatisfied = ref<number | null>(null)
+const imm05Hidden      = ref(0)
+/** Dòng hồ sơ đã LỌC QUYỀN của server, nhóm theo `doc_category` (AC-CR-81). */
+const imm05Documents   = ref<Record<string, AssetDossierDocItem[]>>({})
+/** `is_compliant` của server (0|1); `null` = chưa tải xong / BE chưa có CR-75. */
+const imm05CompliantFlag = ref<number | null>(null)
 const finalAsset       = computed(() => store.currentDoc?.final_asset ?? null)
-const imm05IsCompliant = computed(() =>
-  imm05DocStatus.value === null ||
-  imm05DocStatus.value === 'Compliant' ||
-  imm05DocStatus.value === 'Compliant (Exempt)',
+// CR-75: quyết định bằng khoá SỐ `is_compliant`, KHÔNG so chuỗi `document_status`
+// (so chuỗi làm nhánh `Expiring_Soon` chết và báo đỏ nhầm khi BE phát 'Complete').
+// `null` = chưa biết ⇒ vẫn coi hợp lệ để không nháy đỏ giả (06 §4.4 điểm 1).
+const imm05IsCompliant = computed(
+  () => imm05CompliantFlag.value === null || Number(imm05CompliantFlag.value) === 1,
 )
 
 async function fetchImm05Status(asset: string) {
   await imm05.fetchAssetDocuments(asset)
-  imm05DocStatus.value = imm05.assetDocumentStatus || null
-  imm05Pct.value       = imm05.assetCompletenessPct
-  imm05Missing.value   = imm05.missingRequired
+  imm05DocStatus.value    = imm05.assetDocumentStatus || null
+  imm05Pct.value          = imm05.assetCompletenessPct
+  imm05Missing.value      = imm05.missingRequired
+  imm05Expired.value      = imm05.assetExpiredRequired
+  imm05Expiring.value     = imm05.assetExpiringRequired
+  imm05ReqTotal.value     = imm05.assetRequiredTotal
+  imm05ReqSatisfied.value = imm05.assetRequiredSatisfied
+  imm05Hidden.value       = imm05.assetHiddenCount
+  imm05CompliantFlag.value = imm05.assetIsCompliant
+  imm05Documents.value    = imm05.assetDocuments
 }
 
 // ─── Gate status ─────────────────────────────────────────────────────────────
 const defaultGateStatus: GateStatus = {
-  g01_docs: false, g02_facility: false, g03_baseline: false,
+  g01_docs: false, g01_waived: false, g02_facility: false, g03_baseline: false,
   g04_radiation: false, g05_nc: false, g06_approver: false,
 }
 const gateStatus  = ref<GateStatus>({ ...defaultGateStatus })
+/** CR-76 — thông báo tiếng Việt khi không đọc được trạng thái cổng (rỗng = bình thường). */
+const gateError   = ref<string | null>(null)
 const panelSaving = ref(false)
 
 async function loadGateStatus() {
   try {
     gateStatus.value = await getGateStatus(props.id)
-  } catch {
+    gateError.value = null
+  } catch (e: unknown) {
+    // Backend gác quyền 3 lớp và trả 403/404 TRONG envelope trên HTTP-200 ⇒ không
+    // có chuyện đăng xuất ở đây; chỉ thay 6 thẻ cổng bằng một câu tiếng Việt.
     gateStatus.value = { ...defaultGateStatus }
+    gateError.value = gateStatusErrorMessage(e)
   }
 }
 
@@ -383,9 +409,16 @@ stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                 d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
         </svg>
         <div class="flex-1">
-          <span class="font-semibold text-amber-800">Hồ sơ:</span>
+          <span class="font-semibold text-amber-800">Hồ sơ pháp lý:</span>
           <span class="text-amber-700 ml-1">
-            {{ imm05DocStatus }} — {{ imm05Pct }}% đầy đủ.
+            <!-- Nhãn TIẾNG VIỆT (LL-FE-53) + % THẬT kèm mẫu số, không in enum EN -->
+            {{ dossierStatusLabel(imm05DocStatus) }} — {{ imm05Pct }}% đầy đủ<span
+              v-if="imm05ReqTotal !== null && imm05ReqSatisfied !== null"
+            > ({{ imm05ReqSatisfied }}/{{ imm05ReqTotal }} loại bắt buộc)</span>.
+            <span v-if="imm05Expired.length">
+              Hết hạn: {{ imm05Expired.slice(0, 2).join(', ') }}
+              <span v-if="imm05Expired.length > 2"> +{{ imm05Expired.length - 2 }} hồ sơ khác</span>.
+            </span>
             <span v-if="imm05Missing.length">
               Thiếu: {{ imm05Missing.slice(0, 2).join(', ') }}
               <span v-if="imm05Missing.length > 2"> +{{ imm05Missing.length - 2 }} hồ sơ khác</span>.
@@ -502,6 +535,14 @@ v-if="store.loading"
             :imm05-pct="imm05Pct"
             :imm05-missing="imm05Missing"
             :imm05-is-compliant="imm05IsCompliant"
+            :imm05-compliant-flag="imm05CompliantFlag"
+            :imm05-expired-required="imm05Expired"
+            :imm05-expiring-required="imm05Expiring"
+            :imm05-required-total="imm05ReqTotal"
+            :imm05-required-satisfied="imm05ReqSatisfied"
+            :imm05-hidden-count="imm05Hidden"
+            :imm05-documents="imm05Documents"
+            :g04-applicable="gateStatus.g04_applicable"
             @transition="handleTransition"
             @submit="handleSubmit"
             @saved="handleSaved"
@@ -515,6 +556,7 @@ v-if="store.loading"
           <ApprovalPanel
             :doc="store.currentDoc"
             :gate-status="gateStatus"
+            :gate-error="gateError"
             :saving="panelSaving"
             @transition="handleTransitionFromPanel"
             @update-field="handleFieldUpdate"

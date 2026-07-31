@@ -11,6 +11,7 @@ import LinkInfoCard from '@/components/common/LinkInfoCard.vue'
 import type { DeviceModelDetails } from '@/types/imm04'
 import type { MasterItem } from '@/stores/masterData'
 import PageHeader from '@/components/common/PageHeader.vue'
+import { measurementTypeLabel } from '@/constants/labels'
 
 const router = useRouter()
 const store  = useCommissioningStore()
@@ -618,7 +619,7 @@ stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                     :title="row.is_critical ? 'Quan trọng' : 'Không quan trọng'"
                   />
                 </td>
-                <td class="table-cell text-slate-500 text-xs">{{ row.measurement_type }}</td>
+                <td class="table-cell text-slate-500 text-xs">{{ measurementTypeLabel(row.measurement_type) }}</td>
                 <td class="table-cell text-xs font-mono text-slate-500">
                   <template v-if="row.expected_min != null || row.expected_max != null">
                     {{ row.expected_min ?? '—' }} ~ {{ row.expected_max ?? '∞' }}
