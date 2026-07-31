@@ -402,8 +402,9 @@ defineExpose({ clearChip, activeChips, toggleSelect, selectedNames, clearSelecti
           </div>
           <p class="text-sm font-medium text-slate-900 truncate">{{ asset.asset_name }}</p>
           <div class="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
-            <span v-if="asset.asset_category_name || asset.category_name || asset.asset_category">
-              {{ asset.asset_category_name || asset.category_name || asset.asset_category }}
+            <!-- category_name = SSoT (parity get_asset + OpenAPI AssetListItem). asset_category_name = fallback TẠM cho worker chưa reload; gỡ sau khi BE emit category_name ổn định (backlog). -->
+            <span v-if="asset.category_name || asset.asset_category_name || asset.asset_category">
+              {{ asset.category_name || asset.asset_category_name || asset.asset_category }}
             </span>
             <span v-if="asset.department_name || asset.department" class="text-slate-300">·</span>
             <span>{{ asset.department_name || asset.department }}</span>
@@ -471,7 +472,7 @@ defineExpose({ clearChip, activeChips, toggleSelect, selectedNames, clearSelecti
                     v-if="asset.asset_category"
                     class="text-left text-slate-700 hover:text-blue-600 hover:underline decoration-dotted underline-offset-2 transition-colors"
                     @click.stop="quickFilter('asset_category', asset.asset_category!)"
-                  >{{ asset.asset_category_name || asset.category_name || asset.asset_category }}</button>
+                  >{{ asset.category_name || asset.asset_category_name || asset.asset_category }}</button>
                   <span v-else class="text-slate-400">—</span>
                 </td>
                 <td class="table-cell">
