@@ -466,7 +466,11 @@ def list_assets(
         limit_page_length=pag["page_size"],
         order_by=_ORDER_MODIFIED_DESC,
     )
-    _enrich(items, "asset_category", _DT_ASSET_CATEGORY, "category_name")
+    # out_field="category_name" (CR-64): LIST phát CÙNG key với DETAIL get_asset
+    # (:508) và OAS AssetListItem.category_name (additionalProperties:false). Mặc định
+    # out_field=f"{field}_name" sẽ ra "asset_category_name" — key KHÔNG khai trong OAS
+    # ⇒ FE/mobile mất tên nhóm VN + drift runtime↔contract. Các _enrich khác GIỮ NGUYÊN.
+    _enrich(items, "asset_category", _DT_ASSET_CATEGORY, "category_name", out_field="category_name")
     _enrich(items, "department", _DT_DEPARTMENT, "department_name")
     _enrich(items, "location", _DT_LOCATION, "location_name")
     _enrich(items, "supplier", _DT_SUPPLIER, "supplier_name")
@@ -1196,7 +1200,17 @@ def transition_status(name: str, to_status: str, reason: str = ""):
 
 @frappe.whitelist()
 def get_asset_timeline(name: str, page: int = 1, page_size: int = 50):
-    """GET /api/method/assetcore.api.imm00.get_asset_timeline"""
+    """GET /api/method/assetcore.api.imm00.get_asset_timeline
+
+    Mỗi ``items[]`` phơi (CR-60, trục lifecycle NĐ98 — tab "Lịch sử vòng đời"):
+      - ``root_doctype`` / ``root_record``: DocType + name phiếu nguồn (PM Work Order /
+        Asset Repair / IMM Asset Calibration…) — parity 2 field cùng tên trên DocType
+        Asset Lifecycle Event (populate tại emit-site imm04/08/09/11). Cho phép deep-link
+        chạm-sự-kiện → hồ-sơ-gốc. Event legacy thiếu root ⇒ '' (KHÔNG None / KHÔNG KeyError).
+      - ``actor_name``: ``User.full_name`` của actor thay email thô (UI-FIX-05); User∄ ⇒
+        fallback raw actor; actor rỗng (event hệ thống) ⇒ ''. BATCH lookup — đúng 1 truy
+        vấn User cho cả trang (KHÔNG N+1 per-row, precedent CR-40).
+    """
     if not frappe.db.exists(_DT_ASSET, name):
         return _err(_(_ERR_ASSET_NOT_FOUND), 404)
     page, page_size = int(page), int(page_size)
@@ -1205,11 +1219,31 @@ def get_asset_timeline(name: str, page: int = 1, page_size: int = 50):
     items = frappe.get_list(
         _DT_LIFECYCLE_EVENT,
         filters={"asset": name},
-        fields=["name", "event_type", "actor", "from_status", "to_status", "timestamp", "notes"],
+        fields=[
+            "name", "event_type", "actor", "from_status", "to_status",
+            "timestamp", "notes", "root_doctype", "root_record",
+        ],
         limit_start=pag["offset"],
         limit_page_length=pag["page_size"],
         order_by=_ORDER_EVENT_TS_DESC,
     )
+    # actor_name: BATCH resolve User.full_name (đúng 1 truy vấn/trang — chống N+1).
+    actor_ids = list({it["actor"] for it in items if it.get("actor")})
+    name_map = {}
+    if actor_ids:
+        name_map = {
+            u["name"]: u["full_name"]
+            for u in frappe.get_all(
+                "User", filters={"name": ["in", actor_ids]}, fields=["name", "full_name"],
+            )
+        }
+    for it in items:
+        # root_* (Data / Dynamic-Link) có thể None với event legacy → normalize ''
+        # để MỌI item LUÔN có khóa (deep-link resolvable, KHÔNG null-crash FE).
+        it["root_doctype"] = it.get("root_doctype") or ""
+        it["root_record"] = it.get("root_record") or ""
+        actor = it.get("actor") or ""
+        it["actor_name"] = name_map.get(actor) or actor or ""
     return _ok({"pagination": pag, "items": items})
 
 

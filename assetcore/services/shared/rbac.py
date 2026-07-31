@@ -146,6 +146,23 @@ CAPABILITY_MAP.update({
     # Thêm cap → CAP_SET_VERSION đổi → FE auto-invalidate persisted-caps stale +
     # after_migrate invalidate_capabilities().
     "firmware.approve":     ("Firmware Change Request", "submit"),
+    # AC-CR-119 (ADR-IMM00-ASSET-OP-HISTORY §11.2 D-OPH-21): nhánh «Lịch sử bảo trì»
+    # của hồ sơ thiết bị đọc **`PM Task Log`** (`api/imm08.py::get_asset_pm_history` →
+    # `services/imm08.py::get_asset_history` → `PMTaskLogRepo`), KHÔNG phải
+    # `PM Work Order`. Cap auto-gen `pm.read` bind `_DOMAIN_PRIMARY["PM"]` =
+    # ("PM Work Order","read") ⇒ dùng `pm.read` để gate nhánh này là vị-từ **KHÔNG
+    # SOUND**: hai DocType có HAI bảng DocPerm khác nhau — `Commissioning Manager`
+    # CÓ read `PM Work Order` (pm_work_order.json) nhưng KHÔNG có dòng nào trên
+    # `PM Task Log` (pm_task_log.json chỉ 4 role) ⇒ `can("pm.read")` True mà endpoint
+    # vẫn 403 ⇒ FE mở nhánh rồi ăn 403 + nút «Thử lại» CHẾT (LL-FE-47).
+    # THÊM cap, KHÔNG đổi binding `pm.read` (nó vẫn đúng cho route-guard /pm/*,
+    # sidebar, list_pm_work_orders — đổi binding = vỡ 3 nơi khác).
+    # SSoT nhánh→(cap, doctype): `services/shared/connection_meta.py::
+    # OP_HISTORY_BRANCH_GATE` (guard parity: tests/test_asset_op_history_acl.py).
+    # Thêm cap ⇒ CAP_SET_VERSION ĐỔI (104→105) → FE auto-invalidate persisted-caps
+    # stale (lesson IMM-14) + after_migrate invalidate_capabilities(); CẦN
+    # `bench restart` + `clear-cache` để cap xuất hiện trong caps (KHÔNG cần migrate).
+    "pm.read_history":      ("PM Task Log", "read"),
 })
 
 

@@ -10,6 +10,7 @@ import {
   LABEL_PDF_PRESETS, LABEL_PDF_PRESET, labelPdfPresetLabel, type LabelPdfPreset,
 } from '@/api/imm00'
 import { usePdfLabelPrint } from '@/composables/usePdfLabelPrint'
+import { detailRouteForDoctype } from '@/api/connections'
 import { getCommissioningOrigin, type CommissioningOrigin } from '@/api/imm04'
 import {
   createDecommission, approveDecommission,
@@ -23,9 +24,12 @@ import AssetDowntimeWidget from '@/components/asset/AssetDowntimeWidget.vue'
 import AssetDepreciationSchedule from '@/components/asset/AssetDepreciationSchedule.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import RelatedRecords from '@/components/common/RelatedRecords.vue'
+import AssetOperationalHistory from '@/components/asset/AssetOperationalHistory.vue'
 import BaseModal from '@/components/common/BaseModal.vue'
 import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
-import type { AssetLifecycleEvent, AssetKpi, ChainVerifyResult, LifecycleStatus } from '@/types/imm00'
+import type {
+  AssetLifecycleEvent, AssetKpi, ChainVerifyResult, LifecycleStatus, PaginatedResponse,
+} from '@/types/imm00'
 import { translateFrequency, translateDepreciationMethod, translateLifecycleEvent, translateStatus } from '@/utils/formatters'
 import { useCapabilities } from '@/composables/useCapabilities'
 import { useNotify } from '@/composables/useNotify'
@@ -41,7 +45,24 @@ const notify = useNotify()
 const toast = useToast()
 const auth = useAuthStore()
 
+// ── AC-CR-96 — dòng thời gian vòng đời: TỔNG THẬT + «Tải thêm» ────────────────
+// `timelineTotal` là TỔNG của SERVER (`pagination.total`) — KHÔNG bao giờ suy ra
+// từ `timeline.length` (đó chính là lỗi "cắt im lặng"). `timelinePage` = trang
+// CUỐI đã nạp thành công (0 = chưa nạp) ⇒ «Tải thêm» xin trang kế, KHÔNG nạp lại
+// trang 1 và KHÔNG reset mảng.
 const timeline = ref<AssetLifecycleEvent[]>([])
+const timelineTotal = ref(0)
+const timelinePage = ref(0)
+const timelineLoading = ref(false)
+const timelineError = ref<string | null>(null)
+// Server đã hết dòng để trả dù `total` còn lớn hơn (lệch count/rows) → ngừng mời
+// «Tải thêm» thay vì để nút bấm-mãi-không-đổi (dead control).
+const timelineExhausted = ref(false)
+// Trần trang của BE (`utils/pagination.py:11 _MAX_PAGE_SIZE = 100`). Gửi lớn hơn thì
+// BE CLAMP im lặng về 100 ⇒ FE tưởng "đã lấy hết" trong khi còn dữ liệu. Giữ ĐÚNG 100
+// và GIỮ NGUYÊN giữa các trang (offset của BE tính từ page_size này).
+const TIMELINE_PAGE_SIZE = 100
+const TIMELINE_ERROR_MSG = 'Không tải được dòng thời gian, thử lại sau'
 const kpi = ref<AssetKpi | null>(null)
 const origin = ref<CommissioningOrigin | null>(null)
 const chain = ref<ChainVerifyResult | null>(null)
@@ -49,7 +70,7 @@ const transitioning = ref(false)
 const showTransitionModal = ref(false)
 const targetStatus = ref<LifecycleStatus | ''>('')
 const transitionReason = ref('')
-const activeTab = ref<'info' | 'depreciation' | 'timeline' | 'kpi' | 'audit'>('info')
+const activeTab = ref<'info' | 'depreciation' | 'timeline' | 'kpi' | 'audit' | 'related'>('info')
 
 // ── A3-PDF (ADR-IMM00-LABEL-PDF): in nhãn QR PDF khổ tem 60×100mm (phương án A) ──
 // Vòng 24: đường in nhãn HTML legacy (modal preview HTML + in qua trình duyệt) ĐÃ
@@ -197,9 +218,63 @@ function isPmOverdue(date?: string) {
   return new Date(date) < new Date()
 }
 
-async function loadTimeline() {
-  const res = await getAssetTimeline(props.id, 1, 100) as unknown as { items?: typeof timeline.value }
-  if (res?.items) timeline.value = res.items
+// AC-CR-96 — tab «Lịch sử» HẾT CẮT IM LẶNG.
+//
+// Trước đây hàm này CAST MÙ (ép sang kiểu ẩn danh `{ items?: … }`) và VỨT `pagination`:
+// asset 137 sự kiện chỉ render 100 dòng mà không dấu hiệu nào ⇒ người dùng kết
+// luận "thiết bị chỉ có 100 sự kiện" (hồ sơ NĐ98 thiếu vết mà không ai biết).
+// Nay dùng ĐÚNG kiểu `PaginatedResponse<AssetLifecycleEvent>` (`api/imm00.ts:71`)
+// và công bố TỔNG THẬT từ SERVER + phân trang «Tải thêm».
+//
+// page 1 ⇒ GÁN; page > 1 ⇒ APPEND (KHÔNG reset) + dedupe theo `name`: khi có event
+// mới chèn đầu giữa 2 lần gọi, cửa sổ trượt 1 dòng ⇒ trang sau trả lại dòng cuối
+// của trang trước; không dedupe sẽ nhân bản dòng.
+async function loadTimeline(page = 1) {
+  if (timelineLoading.value) return
+  timelineLoading.value = true
+  timelineError.value = null
+  try {
+    const res: PaginatedResponse<AssetLifecycleEvent> =
+      await getAssetTimeline(props.id, page, TIMELINE_PAGE_SIZE)
+    const items = res?.items ?? []
+    if (page <= 1) {
+      timeline.value = items
+      timelineExhausted.value = false
+    } else {
+      const seen = new Set(timeline.value.map((e) => e.name))
+      timeline.value = [...timeline.value, ...items.filter((e) => !seen.has(e.name))]
+      // Trang kế trả 0 dòng (hoặc chỉ dòng đã có) trong khi `total` còn lớn hơn ⇒
+      // lệch count/rows ở BE (COUNT không lọc quyền mà rows có lọc — đúng lớp bug
+      // "count != drill"). Đánh dấu ĐÃ HẾT để «Tải thêm» KHÔNG thành nút chết bấm
+      // mãi không đổi (LL-FE-47); dải "Đang xem X/Y" vẫn giữ TỔNG THẬT, không giả
+      // vờ đã xem hết.
+      if (!items.length) timelineExhausted.value = true
+    }
+    // TỔNG THẬT = COUNT không phân trang của SERVER (guard BE: total ≠ len(items)).
+    // Fallback CHỈ khi envelope không có `pagination` — giữ dải tổng khớp số dòng
+    // đang render thay vì tự tin báo 0 khi đang hiện dữ liệu.
+    timelineTotal.value = res?.pagination?.total ?? timeline.value.length
+    timelinePage.value = res?.pagination?.page ?? page
+  } catch {
+    // "chưa tải được" ≠ "chưa có": báo dải lỗi tiếng Việt trung tính (KHÔNG leak
+    // traceback/mã lỗi thô) và GIỮ NGUYÊN dữ liệu đã tải để «Thử lại» tiếp được.
+    timelineError.value = TIMELINE_ERROR_MSG
+  } finally {
+    timelineLoading.value = false
+  }
+}
+
+// CR-60: người thực hiện — ưu tiên full_name (actor_name), fallback raw actor (email).
+// Cả hai rỗng (event hệ thống) → '' → dòng "bởi …" ẩn (v-if). KHÔNG lộ email thô.
+function eventActor(event: AssetLifecycleEvent): string {
+  return event.actor_name || event.actor || ''
+}
+
+// CR-60: deep-link chạm sự kiện → hồ sơ gốc. Chỉ trả path khi có ĐỦ root_doctype +
+// root_record VÀ doctype có màn chi tiết; event legacy (root rỗng) → null → ẩn link.
+function rootPath(event: AssetLifecycleEvent): string | null {
+  if (!event.root_doctype || !event.root_record) return null
+  return detailRouteForDoctype(event.root_doctype, event.root_record)
 }
 
 async function loadKpi() {
@@ -619,29 +694,27 @@ onMounted(async () => {
         </div>
       </div>
 
-      <!-- Tabs — P4: cuộn ngang mobile (overflow-x-auto + shrink-0) → tab cuối 'audit' reachable, KHÔNG cắt. -->
-      <div class="flex gap-1 mb-4 border-b border-slate-200 overflow-x-auto">
+      <!-- Tabs — P4: cuộn ngang mobile (overflow-x-auto + shrink-0) → tab cuối reachable, KHÔNG cắt.
+           A11y: role tablist/tab + aria-selected (giữ hợp đồng chung với DetailTabBar). -->
+      <div role="tablist" class="flex gap-1 mb-4 border-b border-slate-200 overflow-x-auto">
         <button
-          v-for="tab in (['info', 'depreciation', 'timeline', 'kpi', 'audit'] as const)"
+          v-for="tab in (['info', 'depreciation', 'timeline', 'kpi', 'audit', 'related'] as const)"
           :key="tab"
+          type="button"
+          role="tab"
+          :aria-selected="activeTab === tab ? 'true' : 'false'"
+          :data-testid="`tab-${tab}`"
           class="shrink-0 whitespace-nowrap px-4 py-2 text-sm font-medium transition-colors"
           :class="activeTab === tab ? 'text-blue-600 border-b-2 border-blue-600 -mb-px' : 'text-slate-500 hover:text-slate-800'"
           @click="onTabChange(tab)"
         >
-          {{ { info: 'Thông tin', depreciation: 'Khấu hao', timeline: 'Lịch sử', kpi: 'chỉ số hiệu suất', audit: 'Nhật ký truy vết' }[tab] }}
+          {{ { info: 'Thông tin', depreciation: 'Khấu hao', timeline: 'Lịch sử', kpi: 'chỉ số hiệu suất', audit: 'Nhật ký truy vết', related: 'Bản ghi liên quan' }[tab] }}
         </button>
       </div>
 
       <!-- Tab: Info -->
       <div v-if="activeTab === 'info'" class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <AssetDowntimeWidget class="md:col-span-2" :asset-name="store.currentAsset.name" />
-        <!-- Bản ghi liên quan: nội dung do đồ thị liên kết ở backend quyết định
-             (ac_asset_dashboard.py) — KHÔNG khai lại danh sách doctype ở FE. -->
-        <RelatedRecords
-          class="md:col-span-2"
-          doctype="AC Asset"
-          :name="store.currentAsset.name"
-        />
         <div class="card p-4">
           <h3 class="text-sm font-semibold text-slate-700 mb-3">Thông tin chung</h3>
           <dl class="space-y-2 text-sm">
@@ -807,14 +880,66 @@ onMounted(async () => {
         />
       </div>
 
-      <!-- Tab: Timeline -->
+      <!-- Tab: Timeline — AC-CR-96: TỔNG THẬT (pagination.total) + «Tải thêm» phân trang.
+           3 trạng thái TÁCH BẠCH, không lẫn: dải LỖI (chưa tải được) ≠ empty-state
+           (chưa có sự kiện) ≠ dải "Đang xem X/Y" (đã tải một phần). -->
       <div v-if="activeTab === 'timeline'">
-        <div v-if="!timeline.length" class="card p-8 text-center text-slate-400 text-sm">
+        <!-- Dải lỗi ĐỘC LẬP với danh sách: lỗi khi tải trang 2 KHÔNG được xoá
+             100 dòng đã tải (dữ liệu giữ nguyên, chỉ báo phần chưa tải được). -->
+        <div
+          v-if="timelineError"
+          data-testid="timeline-error"
+          role="alert"
+          class="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md border-l-4 border-red-400 bg-red-50 px-4 py-3"
+        >
+          <p class="text-sm text-red-700">{{ timelineError }}</p>
+          <button
+            type="button"
+            data-testid="timeline-retry"
+            class="rounded px-2.5 py-1 text-xs font-medium text-red-700 underline hover:text-red-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+            :disabled="timelineLoading"
+            @click="loadTimeline(timelinePage + 1)"
+          >
+            Thử lại
+          </button>
+        </div>
+
+        <!-- TỔNG THẬT của SERVER. Ẩn khi vừa chưa tải được vừa chưa có dòng nào
+             (không khẳng định "0 sự kiện" khi thực ra CHƯA BIẾT). -->
+        <div
+          v-if="timelineTotal > 0 || timeline.length > 0"
+          class="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1"
+        >
+          <span data-testid="timeline-total" class="text-sm font-medium text-slate-700">
+            {{ timelineTotal }} sự kiện
+          </span>
+          <span
+            v-if="timeline.length < timelineTotal"
+            data-testid="timeline-viewing"
+            class="text-xs text-slate-500"
+          >
+            Đang xem {{ timeline.length }}/{{ timelineTotal }}
+          </span>
+        </div>
+
+        <div v-if="timelineLoading && !timeline.length" data-testid="timeline-loading" class="card p-8 text-center text-slate-400 text-sm">
+          Đang tải dòng thời gian…
+        </div>
+        <div
+          v-else-if="!timelineError && timelineTotal === 0 && !timeline.length"
+          class="card p-8 text-center text-slate-400 text-sm"
+        >
           Chưa có sự kiện vòng đời
         </div>
-        <div v-else class="relative">
+        <div v-else-if="timeline.length" class="relative">
           <div class="absolute left-5 top-0 bottom-0 w-0.5 bg-slate-200"></div>
-          <div v-for="event in timeline" :key="event.name" class="relative flex gap-4 mb-4">
+          <div
+            v-for="event in timeline"
+            :key="event.name"
+            data-testid="timeline-event"
+            :data-name="event.name"
+            class="relative flex gap-4 mb-4"
+          >
             <div class="shrink-0 w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center z-10">
               <svg class="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -823,15 +948,46 @@ onMounted(async () => {
             <div class="card flex-1 p-3">
               <div class="flex justify-between items-start">
                 <span class="font-semibold text-sm text-slate-800" data-testid="ale-event-type">{{ translateLifecycleEvent(event.event_type) }}</span>
-                <span class="text-xs text-slate-400">{{ formatDateTime(event.event_timestamp) }}</span>
+                <span class="text-xs text-slate-400">{{ formatDateTime(event.timestamp ?? event.event_timestamp) }}</span>
               </div>
               <p v-if="event.from_status || event.to_status" class="text-xs text-slate-500 mt-1" data-testid="ale-status-transition">
                 {{ translateStatus(event.from_status) }} → {{ translateStatus(event.to_status) }}
               </p>
               <p v-if="event.notes" class="text-xs text-slate-600 mt-1">{{ event.notes }}</p>
-              <p class="text-xs text-slate-400 mt-1">bởi {{ event.actor }}</p>
+              <p v-if="eventActor(event)" class="text-xs text-slate-400 mt-1" data-testid="ale-actor">bởi {{ eventActor(event) }}</p>
+              <!-- CR-60: deep-link chạm sự kiện → hồ sơ gốc (chỉ hiện khi có nguồn resolvable) -->
+              <router-link
+                v-if="rootPath(event)"
+                :to="rootPath(event)!"
+                data-testid="ale-root-link"
+                class="mt-1.5 inline-flex items-center gap-1 rounded text-xs font-medium text-blue-600 hover:text-blue-700 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+                :aria-label="`Mở hồ sơ gốc ${event.root_record}`"
+              >
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                </svg>
+                Xem hồ sơ gốc
+                <span class="font-mono text-slate-500">{{ event.root_record }}</span>
+              </router-link>
             </div>
           </div>
+        </div>
+
+        <!-- «Tải thêm» tồn tại ⟺ CÒN dữ liệu (length < total). Đã tải hết ⇒ nút
+             biến mất ⇒ số dòng render == tổng ⇒ bất biến count == drill giữ.
+             `timelineExhausted`: server hết dòng dù total lớn hơn ⇒ ẩn nút (không
+             để nút chết) nhưng GIỮ dải "Đang xem X/Y" để không che phần thiếu. -->
+        <div v-if="timeline.length < timelineTotal && !timelineExhausted" class="mt-1 text-center">
+          <button
+            type="button"
+            data-testid="timeline-load-more"
+            class="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+            :disabled="timelineLoading"
+            :aria-label="`Tải thêm sự kiện vòng đời (đang xem ${timeline.length} trên ${timelineTotal})`"
+            @click="loadTimeline(timelinePage + 1)"
+          >
+            {{ timelineLoading ? 'Đang tải…' : 'Tải thêm' }}
+          </button>
         </div>
       </div>
 
@@ -881,6 +1037,34 @@ onMounted(async () => {
         <p v-else class="text-xs text-slate-400 mb-3">Chưa xác minh chuỗi</p>
         <button v-if="!chain" class="btn-ghost text-xs mb-4" @click="loadChain">Xác minh chuỗi kiểm toán</button>
         <p class="text-sm text-slate-500 italic">Xem nhật ký truy vết chi tiết tại tab Lịch sử hoặc truy vấn API.</p>
+      </div>
+
+      <!-- Tab: Bản ghi liên quan — mount LƯỜI (v-if) ⇒ mở thiết bị KHÔNG còn bắn
+           `get_connections`. Nội dung do đồ thị liên kết ở backend quyết định
+           (ac_asset_dashboard.py) — KHÔNG khai lại danh sách doctype ở FE. -->
+      <div v-if="activeTab === 'related'" data-testid="tab-panel-related">
+        <!-- KHỐI 1 — BẢN GHI THẬT của chính thiết bị (bảo trì · sửa chữa · sự cố).
+             Đứng TRƯỚC khối ô chức năng (AC-CR-115 · D-OPH-18): đây là câu người dùng
+             hỏi trước («máy này bảo trì ra sao / đã sửa mấy lần / từng gây sự cố gì»),
+             còn ô đếm chỉ là LỐI ĐI tới chức năng — đặt lối đi lên trước dữ liệu chính
+             là hình dạng bố cục của khiếu nại gốc. THU mặc định ⇒ vào tab KHÔNG phát
+             sinh request nào; bung nhánh nào mới gọi API của nhánh đó. Tiêu đề khối
+             nằm TRONG component. KHÔNG thêm tab mới. -->
+        <AssetOperationalHistory :asset="store.currentAsset.name" />
+
+        <!-- KHỐI 2 — LỐI ĐI tới chức năng (ô đếm + «Xem tất cả»). Tiêu đề đặt Ở ĐÂY,
+             KHÔNG trong RelatedRecords.vue: component đó dùng chung 5 màn chi tiết ⇒
+             tiêu đề là thuộc tính của CHỖ ĐẶT, không phải của component (4 màn kia sẽ
+             nhận tiêu đề sai ngữ cảnh). Đường kẻ trên nằm GIỮA hai khối. -->
+        <div class="mt-6 border-t border-slate-200 pt-4 dark:border-slate-700">
+          <h3
+            data-testid="related-block-heading"
+            class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
+          >
+            Liên kết nhanh theo chức năng
+          </h3>
+          <RelatedRecords doctype="AC Asset" :name="store.currentAsset.name" />
+        </div>
       </div>
     </template>
 

@@ -15,8 +15,8 @@ Mức guard (chủ ý — KHÔNG re-implement gate):
   - Khẳng định **mỗi cap TỒN TẠI trong CAPABILITY_MAP** (import rbac.py SSoT) + binding
     `(DocType, ptype)` KHỚP ĐÚNG matrix. Cap thiếu / đổi-binding = hard-fail (= drift
     hợp đồng quyền).
-  - Anti-cap-creep: 0 cap MỚI vì mobile — `len(CAPABILITY_MAP)==98` + cap-set version
-    == 'v104.e46d05d9a66d' (bench-verified) ⇒ mọi cap mobile dùng ⊆ tập hiện hữu (chống
+  - Anti-cap-creep: 0 cap MỚI vì mobile — `len(CAPABILITY_MAP)==105` + cap-set version
+    == 'v105.b50a24e5f62f' (bench-verified) ⇒ mọi cap mobile dùng ⊆ tập hiện hữu (chống
     'hệ quyền thứ 2' — ADR-MOBILE-001 (b)).
   - Drift-guard 2 chiều doc↔source: version đóng băng trong test = version doc 11
     §1/§3/§4/§Tham-chiếu. Nếu cap-set đổi (thêm/bớt/đổi cap) → test ĐỎ → buộc [BA]
@@ -43,14 +43,18 @@ from assetcore.services.shared.rbac import (
 # Giá trị NÀY PHẢI khớp doc `docs/mobile/11-phase-a-exit.md` (§1 legend · A-5 · §4
 # row 'Capability khớp SSoT' · §Tham chiếu chéo) VÀ `03-auth-oauth2.md §3 / §3.2`.
 # @source bench-verified: `bench --site miyano execute
-#   assetcore.services.shared.rbac._compute_cap_set_version` → "v104.e46d05d9a66d"
+#   assetcore.services.shared.rbac._compute_cap_set_version` → "v105.b50a24e5f62f"
 # (= rbac.py:144-153 _compute_cap_set_version → f"v{len(MAP)}.{sha256(sorted keys)[:12]}").
 # Đổi cap-set (thêm/bớt/đổi cap) ⇒ version đổi ⇒ test ĐỎ ⇒ buộc [BA] cập nhật
 # matrix 11 §1 + version trong các doc trên + dòng dưới TRƯỚC khi qua.
 # Re-freeze IMM-03 vòng 19 (ADR-IMM-03-05): +6 cap purchase.{read,write,create,
 # delete,submit,cancel} bind AC Purchase → 98→104 (bench-verified, KHÔNG bịa hash).
-_EXPECTED_CAP_SET_VERSION = "v104.e46d05d9a66d"
-_EXPECTED_CAP_COUNT = 104
+# Re-freeze AC-CR-119 (ADR-IMM00-ASSET-OP-HISTORY §11.2 D-OPH-21 / §11.9 blast-radius):
+# +1 cap `pm.read_history` bind ("PM Task Log","read") — vị-từ SOUND cho nhánh «Lịch sử
+# bảo trì» của hồ sơ thiết bị (`pm.read` bind PM Work Order ⇒ KHÔNG sound) → 104→105.
+# Guard này VẪN nguyên độ chặt: KHÔNG nới assert, chỉ cập nhật giá trị ĐO TỪ ĐĨA.
+_EXPECTED_CAP_SET_VERSION = "v105.b50a24e5f62f"
+_EXPECTED_CAP_COUNT = 105
 
 # ── Ma trận endpoint MVP → capability (11 §1, 6 flow) ───────────────────────────
 # Mỗi dòng: dotted-path endpoint → (capability, (DocType, ptype) kỳ vọng).
@@ -129,7 +133,8 @@ class TestMobileCapabilityMap(unittest.TestCase):
                     f"hợp đồng quyền → cập nhật matrix 11 §1 + bảng này cùng lúc.",
                 )
 
-    # AC#3 — anti-cap-creep: 0 cap MỚI vì mobile (len==97).
+    # AC#3 — anti-cap-creep: 0 cap MỚI vì mobile (len == _EXPECTED_CAP_COUNT — giá
+    # trị ĐO TỪ ĐĨA ở :57, KHÔNG literal rải rác để không sinh cite-drift lần sau).
     def test_mob_cap_03_no_cap_creep_count(self):
         self.assertEqual(
             len(CAPABILITY_MAP), _EXPECTED_CAP_COUNT,

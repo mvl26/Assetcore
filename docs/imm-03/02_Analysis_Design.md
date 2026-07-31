@@ -653,7 +653,7 @@ INVARIANT:  decision_count(S) == len(decision_list(S))   ∀ S ∈ {Awarded, Pen
 | ID | Bất biến | Test |
 |---|---|---|
 | INV-PUR-CAP | `CAPABILITY_MAP["purchase.submit"] == ("AC Purchase","submit")`; 6 cap `purchase.*` tồn tại & bind `("AC Purchase", ptype)` | `test_purchase.py` (kiểu `test_imm01.py:332`) |
-| INV-PUR-COUNT | `len(CAPABILITY_MAP)==104` và `CAP_SET_VERSION==` giá trị recompute (re-freeze); prefix `v104.` | `test_mobile_capability_map.py` (cập nhật freeze) |
+| INV-PUR-COUNT | `len(CAPABILITY_MAP)==105` và `CAP_SET_VERSION==` giá trị recompute (re-freeze); prefix `v105.` — *cập nhật 2026-07-30 bởi `AC-CR-119` (+`pm.read_history`, 104→105); trước đó `==104`/`v104.`* | `test_mobile_capability_map.py` (cập nhật freeze) |
 | INV-PUR-GATE | Mỗi endpoint ghi/đổi-trạng-thái gọi `rbac.require('purchase.<ptype>')` TRƯỚC khi ghi; thiếu quyền → `PermissionError` (403), KHÔNG doc nào bị tạo/đổi | `test_purchase.py` (monkeypatch `rbac.require`, kiểu `test_create_calls_rbac_require_before_insert`) |
 | INV-PUR-NODBSET | `mark_received` KHÔNG chứa `db_set(`; status='Received' qua `doc.save()`; `modified_by` cập nhật | `test_purchase.py` (assert source KHÔNG có db_set + save path) |
 | INV-PUR-FLAGS | `get_purchase` trả `can_submit`/`can_receive`/`can_cancel` (+`can_create_receipt`/`can_edit`/`can_delete`) đúng công thức state × capability | `test_purchase.py` |

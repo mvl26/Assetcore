@@ -352,10 +352,18 @@ export interface AssetLifecycleEvent {
   name: string
   event_type: string
   actor: string
+  // CR-60: full_name của actor (User.full_name). BE fallback == raw actor (email)
+  // khi User∄; == '' cho event hệ thống (actor rỗng). FE render actor_name ?? actor
+  // để KHÔNG bao giờ lộ email thô trên tab Lịch sử vòng đời. Optional: degrade an
+  // toàn khi BE chưa reload (undefined → fallback event.actor).
+  actor_name?: string
   from_status?: string
   to_status?: string
   timestamp: string
   event_timestamp?: string  // legacy alias
+  // CR-60: nguồn sự kiện (parity DocType Asset Lifecycle Event root_*). Có nguồn ⇒
+  // root_doctype == DocType nguồn (vd 'Asset Repair'), root_record == mã phiếu nguồn
+  // ⇒ deep-link chạm-sự-kiện → hồ-sơ-gốc (detailRouteForDoctype). Event legacy: '' cả 2.
   root_doctype?: string
   root_record?: string
   notes?: string

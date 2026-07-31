@@ -19,6 +19,7 @@ from assetcore.utils.idempotency import resolve_idempotency_key
 from assetcore.services.shared import AssetStatus
 from assetcore.services.shared import ServiceError, ErrorCode
 from assetcore.services.shared import rbac
+from assetcore.services.shared.truncation import truncation_meta
 
 
 _DOCTYPE_ASSET = "AC Asset"
@@ -978,8 +979,8 @@ _LBL_ERR_QR_EMPTY = "Không tạo được mã QR"
 # NHẤT: CẢ HAI endpoint tham chiếu hằng này (KHÔNG literal 200 lặp ở API layer).
 # Vượt cap → API trả _err(_ERR_BATCH_TOO_LARGE, 413) (bucket RIÊNG, KHÔNG 404/403/429),
 # SAU rbac.require('asset.print') (D6 phương án B — chỉ user đã-auth-print mới tới,
-# không lộ giới hạn cho khách). CAP_SET_VERSION hiện hành v104.e46d05d9a66d (sau D6
-# tách asset.print/asset.qr.rotate). Xem ADR-001 §B + ADR-IMM00-QR-SCAN-ACTION §D6.
+# không lộ giới hạn cho khách). CAP_SET_VERSION hiện hành v105.b50a24e5f62f
+# (AC-CR-119 +pm.read_history — AC-CR-119). Xem ADR-001 §B + ADR-IMM00-QR-SCAN-ACTION §D6.
 # Vòng 15 — CAP đo TRÊN list ĐÃ DEDUP: `_coerce_asset_names` (SSoT API) dedup
 # within-call TRƯỚC khi đếm ⇒ `len(names) > _MAX_LABEL_BATCH` đo trên UNIQUE.
 # 300 phần tử thô / <200 unique → QUA cap; >200 UNIQUE → vẫn 413 (đếm sau dedup).
@@ -3278,6 +3279,22 @@ _DT_REPAIR = "Asset Repair"
 # limit_page_length=50); lấy oldest-first TRƯỚC khi cap → phiếu chờ lâu nhất luôn hiện
 # (Core Doc IMM-00 §III.22).
 _INBOX_LIMIT_PER_SOURCE = 50
+# Trần nội-bộ của imm04.list_my_pending_approvals (services/imm04.py:1949
+# limit_page_length=50) — KHÔNG dùng _INBOX_LIMIT_PER_SOURCE (nguồn imm04 fetch bên
+# trong imm04, KHÔNG chịu monkeypatch _INBOX_LIMIT_PER_SOURCE). Để phát hiện imm04
+# chạm trần (CR-43 truncated) ta so len(rows) >= hằng này.
+_INBOX_IMM04_FETCH_LIMIT = 50
+
+
+def _inbox_source_count(doctype: str, filters: dict) -> int:
+    """COUNT DB uncapped 1 nguồn inbox (CR-43) — predicate GỐC (PRE-SoD với imm09).
+
+    Tách hàm module-level RIÊNG (KHÔNG inline ``frappe.db.count``) để:
+      (a) zero-cost test giám sát được (monkeypatch assert-not-called ca không cắt);
+      (b) đếm CÙNG cơ chế no-permission như ``frappe.get_all`` lấy rows (parity
+          count==predicate). CHỈ được gọi qua ``truncation_meta`` khi nguồn chạm trần.
+    """
+    return frappe.db.count(doctype, filters)
 
 # CR-44 — hard-cap độ dài field `summary` VI (server-built) mỗi item inbox.
 _INBOX_SUMMARY_MAX_LEN = 120
@@ -3324,14 +3341,37 @@ def get_pending_approvals_inbox() -> dict:
     cap bị exclude IM LẶNG (0 cap → items=[], KHÔNG lỗi).
 
     Returns:
-        dict: ``{items: [...], total: int, by_module: {imm00, imm04, imm15, imm09}}``
-            — items sort ``pending_since`` asc; mỗi item shape 11-key
-            ``{doctype, name, module, title, asset, asset_name, requested_by,
-            requested_by_name, pending_since, route, summary}``. ``summary``
-            (CR-44) = tóm tắt VI 'cái đang được duyệt' server-built ≤120 ký tự
-            (LUÔN emit — coalesce ''). ``imm09`` = phiếu CM 'Pending Inspection'
-            chờ nghiệm thu (CR-42; SoD loại self-closed).
+        dict: ``{items, total, by_module, truncated, totals_uncapped,
+            excluded_modules}``.
+            - ``items`` sort ``pending_since`` asc; mỗi item shape 11-key
+              ``{doctype, name, module, title, asset, asset_name, requested_by,
+              requested_by_name, pending_since, route, summary}``. ``summary``
+              (CR-44) = tóm tắt VI 'cái đang được duyệt' server-built ≤120 ký tự.
+            - ``total == len(items) == sum(by_module.values())`` (BR-00-INBOX-02);
+              ``by_module`` LUÔN đủ 4 khoá imm00/imm04/imm15/imm09.
+            - ``truncated`` (CR-43) = int 0/1 — 1 nếu ÍT NHẤT một nguồn chạm trần
+              và tổng thật > số hiển thị (∃ m: totals_uncapped[m] > by_module[m]).
+            - ``totals_uncapped`` (CR-43) = dict 4 khoá int; ZERO-COST = by_module[m]
+              khi nguồn KHÔNG chạm trần (KHÔNG phát COUNT), = COUNT DB cùng predicate
+              khi chạm trần. ⚠️ ``totals_uncapped['imm09']`` khi chạm trần là cận-trên
+              **PRE-SoD** (COUNT predicate ``{status: Pending Inspection, docstatus: 0}``
+              TRƯỚC bước loại self-closer CR-41) ⇒ có thể > số phiếu duyệt-được thật.
+            - ``excluded_modules`` (CR-43) = list[str] ⊆ {imm00, imm15, imm09} — nguồn
+              cap-based bị LOẠI vì caller THIẾU cap; imm04 identity-based KHÔNG bao giờ
+              có mặt. Phân biệt 'không có việc' (by_module=0, không excluded) vs 'không
+              có quyền' (excluded_modules chứa mã).
     """
+    limit = _INBOX_LIMIT_PER_SOURCE
+    session_user = frappe.session.user
+    # CR-43 per-source tracking: raw rows lấy được (PRE-SoD với imm09), trần áp, và
+    # count_fn uncapped (lazy — chỉ chạy khi nguồn chạm trần). excluded_modules gom
+    # nguồn cap-based bị loại vì thiếu cap (fail-soft im lặng + báo qua field).
+    _fetched: dict[str, int] = {"imm00": 0, "imm04": 0, "imm15": 0, "imm09": 0}
+    _limits: dict[str, int] = {"imm00": limit, "imm04": _INBOX_IMM04_FETCH_LIMIT,
+                               "imm15": limit, "imm09": limit}
+    _count_fns: dict[str, "callable"] = {}
+    excluded_modules: list[str] = []
+
     items: list[dict] = []
     # Aux imm04: (index item, asset_description, master_item) — dùng ở bước enrich
     # để thay id model bằng model_name trong title/asset_name (LL-BE-13, no-N+1).
@@ -3345,7 +3385,14 @@ def get_pending_approvals_inbox() -> dict:
     #     pending_approver == session user AND docstatus != 2 — identity-based,
     #     KHÔNG cap: filter chính là scope). Lazy-import chống circular import.
     from assetcore.services import imm04 as _imm04
-    for r in _imm04.list_my_pending_approvals():
+    _comm_rows = _imm04.list_my_pending_approvals()
+    # CR-43: imm04 identity-based (KHÔNG cap-gate) ⇒ KHÔNG BAO GIỜ vào excluded_modules;
+    # nhưng VẪN đếm truncation (trần nội-bộ imm04=50). count_fn = predicate GỐC của
+    # list_my_pending_approvals (pending_approver==session_user ∧ docstatus!=2).
+    _fetched["imm04"] = len(_comm_rows)
+    _count_fns["imm04"] = lambda: _inbox_source_count(
+        _DT_COMMISSIONING, {"pending_approver": session_user, "docstatus": ["!=", 2]})
+    for r in _comm_rows:
         desc = _str_or_blank(r.get("asset_description"))
         model = _str_or_blank(r.get("master_item"))
         items.append(_inbox_item(
@@ -3370,7 +3417,7 @@ def get_pending_approvals_inbox() -> dict:
 
     # (b) Asset Transfer — cùng cap-gate với approve_transfer_request (SSoT).
     if rbac.can(_INBOX_SOURCE_CAP_TRANSFER):
-        for r in frappe.get_all(
+        _transfer_rows = frappe.get_all(
             _DT_TRANSFER,
             filters={"status": _TRANSFER_STATUS_PENDING},
             # CR-44: thêm from/to department + location cho summary nguồn→đích
@@ -3378,8 +3425,12 @@ def get_pending_approvals_inbox() -> dict:
             fields=["name", "asset", "reason", "transfer_type", "owner", "creation",
                     "from_department", "to_department", "from_location", "to_location"],
             order_by="creation asc",
-            limit_page_length=_INBOX_LIMIT_PER_SOURCE,
-        ):
+            limit_page_length=limit,
+        )
+        _fetched["imm00"] = len(_transfer_rows)
+        _count_fns["imm00"] = lambda: _inbox_source_count(
+            _DT_TRANSFER, {"status": _TRANSFER_STATUS_PENDING})
+        for r in _transfer_rows:
             items.append(_inbox_item(
                 doctype=_DT_TRANSFER,
                 name=r.get("name"),
@@ -3399,18 +3450,27 @@ def get_pending_approvals_inbox() -> dict:
                 "from_location": r.get("from_location"),
                 "to_location": r.get("to_location"),
             })
+    else:
+        # CR-43: thiếu cap duyệt điều chuyển → nguồn imm00 bị loại (KHÔNG query) →
+        # báo qua excluded_modules (phân biệt 'không có việc' vs 'không có quyền').
+        excluded_modules.append("imm00")
 
     # (c) IMM Spare Allocation — cùng cap-gate + predicate với approve_allocation.
     from assetcore.services import imm15 as _imm15
+    _ALLOC_FILTERS = {"allocation_status": _imm15.AllocationStatus.REQUESTED}
     if rbac.can(_imm15._CAP_APPROVE):
-        for r in frappe.get_all(
+        _alloc_rows = frappe.get_all(
             "IMM Spare Allocation",
-            filters={"allocation_status": _imm15.AllocationStatus.REQUESTED},
+            filters=_ALLOC_FILTERS,
             fields=["name", "asset", "work_order_ref", "work_order_doctype",
                     "requested_by", "owner", "creation"],
             order_by="creation asc",
-            limit_page_length=_INBOX_LIMIT_PER_SOURCE,
-        ):
+            limit_page_length=limit,
+        )
+        _fetched["imm15"] = len(_alloc_rows)
+        _count_fns["imm15"] = lambda: _inbox_source_count(
+            "IMM Spare Allocation", _ALLOC_FILTERS)
+        for r in _alloc_rows:
             wo_ref = _str_or_blank(r.get("work_order_ref"))
             items.append(_inbox_item(
                 doctype="IMM Spare Allocation",
@@ -3433,6 +3493,9 @@ def get_pending_approvals_inbox() -> dict:
                 "idx": len(items) - 1, "kind": "allocation",
                 "alloc": r.get("name"),
             })
+    else:
+        # CR-43: thiếu cap duyệt cấp phát (inventory.submit) → nguồn imm15 bị loại.
+        excluded_modules.append("imm15")
 
     # (d) Asset Repair 'Pending Inspection' — CR-42 (Nghiệm thu CM). Cùng cap-gate
     #     với confirm_inspection (SSoT repair.submit) ⇒ inbox hiển thị ⇔ duyệt được.
@@ -3443,17 +3506,23 @@ def get_pending_approvals_inbox() -> dict:
     #     closer (0 event) → FAIL-OPEN (vẫn hiện, đối xứng confirm_inspection).
     if rbac.can(_INBOX_SOURCE_CAP_INSPECT):
         from assetcore.services import imm09 as _imm09  # lazy — chống circular import
+        _REPAIR_FILTERS = {"status": _imm09.RepairStatus.PENDING_INSPECTION,
+                           "docstatus": 0}
         repair_rows = frappe.get_all(
             _DT_REPAIR,
-            filters={"status": _imm09.RepairStatus.PENDING_INSPECTION, "docstatus": 0},
+            filters=_REPAIR_FILTERS,
             fields=["name", "asset_ref", "repair_summary", "failure_description",
                     "assigned_to", "requested_by", "owner", "modified"],
             order_by="modified asc",
-            limit_page_length=_INBOX_LIMIT_PER_SOURCE,
+            limit_page_length=limit,
         )
+        # CR-43: raw fetch (PRE-SoD) — by_module['imm09'] < len(repair_rows) khi SoD
+        # loại self-closer. count_fn = predicate GỐC {Pending Inspection, docstatus:0}
+        # ⇒ totals_uncapped['imm09'] khi chạm trần là cận-trên PRE-SoD (docstring).
+        _fetched["imm09"] = len(repair_rows)
+        _count_fns["imm09"] = lambda: _inbox_source_count(_DT_REPAIR, _REPAIR_FILTERS)
         closer_meta = _batch_resolve_pending_inspection_meta(
             [r["name"] for r in repair_rows])
-        session_user = frappe.session.user
         for r in repair_rows:
             meta = closer_meta.get(r["name"])
             closer = meta[0] if meta else ""
@@ -3488,6 +3557,9 @@ def get_pending_approvals_inbox() -> dict:
                 "text": _str_or_blank(r.get("failure_description"))
                         or _str_or_blank(r.get("repair_summary")),
             })
+    else:
+        # CR-43: thiếu cap nghiệm thu CM (repair.submit) → nguồn imm09 bị loại.
+        excluded_modules.append("imm09")
 
     _enrich_inbox_items(items, comm_aux)
     # CR-44 — dựng field `summary` SAU enrich (dùng asset_name đã resolve). No-N+1:
@@ -3498,9 +3570,31 @@ def get_pending_approvals_inbox() -> dict:
     by_module = {"imm00": 0, "imm04": 0, "imm15": 0, "imm09": 0}
     for i in items:
         by_module[i["module"]] = by_module.get(i["module"], 0) + 1
+    # CR-43 hợp đồng TRUNG THỰC khi cắt (per-source uncapped total + truncated).
+    # ZERO-COST (AC2): truncation_meta gọi count_fn CHỈ khi nguồn chạm trần
+    # (_fetched[m] >= _limits[m]); ngược lại KHÔNG COUNT. Untruncated total = by_module[m]
+    # (count==rows, KHÔNG dùng raw fetched — đặc biệt imm09 post-SoD < raw). Truncated
+    # total = COUNT DB predicate gốc (PRE-SoD cận-trên cho imm09).
+    totals_uncapped: dict[str, int] = {}
+    truncated = 0
+    for m in ("imm00", "imm04", "imm15", "imm09"):
+        fetched, mlimit = _fetched[m], _limits[m]
+        display = by_module[m]
+        total_m, _t = truncation_meta(
+            fetched, mlimit, _count_fns.get(m) or (lambda: 0))
+        totals_uncapped[m] = total_m if fetched >= mlimit else display
+        if totals_uncapped[m] > display:
+            truncated = 1
     # BR-00-INBOX-02: total == len(items) == sum(by_module.values()) — cùng 1
     # predicate, KHÔNG phát count DB riêng lệch drill (LL-BE-42/49).
-    return {"items": items, "total": len(items), "by_module": by_module}
+    return {
+        "items": items,
+        "total": len(items),
+        "by_module": by_module,
+        "truncated": truncated,
+        "totals_uncapped": totals_uncapped,
+        "excluded_modules": excluded_modules,
+    }
 
 
 def _allocation_drill_route(wo_ref: str, wo_doctype: str) -> str:
