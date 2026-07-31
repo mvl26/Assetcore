@@ -250,4 +250,59 @@ describe('PendingApprovalsView — inbox đa-module (CR-32)', () => {
     expect(w.text()).toContain('ACM-2026-0001')
     expect(w.findAll('tbody tr').length).toBe(1)
   })
+
+  // ─── CR-43/46/47 — hợp đồng CẮT DANH SÁCH trung thực (truncated + excluded_modules) ──
+  it('CR-43: truncated === 1 → hiện dải cảnh báo tiếng Việt (KHÔNG nêu con số)', async () => {
+    getPendingApprovalsInbox.mockResolvedValue({ ...INBOX_3, truncated: 1 })
+    const w = await mountView()
+    const banner = w.find('[data-testid="truncated-banner"]')
+    expect(banner.exists()).toBe(true)
+    expect(banner.text()).toContain('một phần')
+    // Cờ là CẬN-TRÊN → dải cảnh báo KHÔNG được lộ con số phiếu nào.
+    expect(banner.text()).not.toMatch(/\d/)
+  })
+
+  it('CR-43: truncated === 0 → KHÔNG hiện dải cảnh báo', async () => {
+    getPendingApprovalsInbox.mockResolvedValue({ ...INBOX_3, truncated: 0 })
+    const w = await mountView()
+    expect(w.find('[data-testid="truncated-banner"]').exists()).toBe(false)
+  })
+
+  it('CR-46/47: excluded_modules=[imm15] → dòng thiếu-quyền hiện tên nghiệp vụ VN, KHÔNG leak mã module', async () => {
+    getPendingApprovalsInbox.mockResolvedValue({ ...INBOX_3, excluded_modules: ['imm15'] })
+    const w = await mountView()
+    const note = w.find('[data-testid="excluded-modules-note"]')
+    expect(note.exists()).toBe(true)
+    expect(note.text()).toContain('Cấp phát phụ tùng')
+    expect(note.text()).not.toContain('imm15')
+  })
+
+  it('CR-46/47: nhiều excluded_modules → map đủ tên nghiệp vụ VN (imm00 + imm09), KHÔNG leak mã', async () => {
+    getPendingApprovalsInbox.mockResolvedValue({ ...INBOX_3, excluded_modules: ['imm00', 'imm09'] })
+    const w = await mountView()
+    const note = w.find('[data-testid="excluded-modules-note"]')
+    expect(note.exists()).toBe(true)
+    expect(note.text()).toContain('Điều chuyển thiết bị')
+    expect(note.text()).toContain('Nghiệm thu sau sửa chữa')
+    expect(note.text()).not.toContain('imm00')
+    expect(note.text()).not.toContain('imm09')
+  })
+
+  it('CR-46/47: excluded_modules chứa mã lạ → lọc bỏ, KHÔNG leak mã thô ra UI', async () => {
+    getPendingApprovalsInbox.mockResolvedValue({ ...INBOX_3, excluded_modules: ['imm99'] })
+    const w = await mountView()
+    // Không có tên nghiệp vụ khớp → không render dòng thiếu-quyền, KHÔNG leak 'imm99'.
+    expect(w.find('[data-testid="excluded-modules-note"]').exists()).toBe(false)
+    expect(w.text()).not.toContain('imm99')
+  })
+
+  it('backward-compat: response CŨ (thiếu truncated/excluded_modules) → KHÔNG banner, KHÔNG note, KHÔNG crash', async () => {
+    // INBOX_3 KHÔNG có 3 khoá mới → mô phỏng worker BE chưa reload (--preload staleness).
+    getPendingApprovalsInbox.mockResolvedValue(INBOX_3)
+    const w = await mountView()
+    expect(w.find('[data-testid="truncated-banner"]').exists()).toBe(false)
+    expect(w.find('[data-testid="excluded-modules-note"]').exists()).toBe(false)
+    // Vẫn render bảng phiếu bình thường.
+    expect(w.text()).toContain('ACM-2026-0001')
+  })
 })

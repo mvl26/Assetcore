@@ -131,6 +131,20 @@ export interface ScanAction {
   enabled: boolean
   reason: string
 }
+
+/**
+ * Tên CANONICAL của shape CTA server-driven — mirror 1-1 schema OAS
+ * `AvailableAction` (`docs/mobile/openapi/assetcore-mobile.openapi.yaml`).
+ *
+ * `ScanAction` là tên LỊCH SỬ (màn quét QR imm00, ra đời trước). AC-CR-77 tái dùng
+ * ĐÚNG shape này cho `available_actions` của phiếu bảo trì định kỳ (`api/imm08.ts`)
+ * ⇒ khai alias thay vì mint interface trùng shape ở module thứ hai (một shape = một
+ * khai báo; đổi hợp đồng chỉ sửa 1 chỗ). Khác biệt DUY NHẤT theo ngữ cảnh:
+ *   • imm00 (quét QR): `route` = TÊN route vue-router (điều hướng sang màn tạo phiếu).
+ *   • imm08 (chi tiết phiếu PM): `route` = "" — CTA mở modal TẠI CHỖ, không điều hướng.
+ * Bất biến D9 dùng chung: `enabled === false ⟺ reason !== ""`, `reason` là tiếng Việt.
+ */
+export type AvailableAction = ScanAction
 export interface AssetScanInfo {
   name: string
   asset_code: string
@@ -773,6 +787,31 @@ export interface PendingApprovalsInbox {
   total: number
   /** Đếm theo module nguồn, vd { imm04: 1, imm00: 2, imm15: 0, imm09: 1 } (imm09 = CR-42 chờ nghiệm thu CM) */
   by_module: Record<string, number>
+
+  // ─── Hợp đồng cắt danh sách TRUNG THỰC (CR-43/46/47) — 3 khoá ADDITIVE ─────────
+  // Đều OPTIONAL: worker BE chưa reload (--preload staleness) sẽ trả shape CŨ thiếu
+  // 3 khoá này → FE phải backward-compatible (KHÔNG banner, KHÔNG crash).
+  //
+  /**
+   * Cờ CẬN-TRÊN: ≥1 nguồn chạm trần `_INBOX_LIMIT_PER_SOURCE` khi gom (int 0/1,
+   * KHÔNG bool/None — parity CR-01). 1 ⟺ danh sách đang bị cắt bớt. FE hiện dải
+   * cảnh báo tiếng Việt KHÔNG nêu con số (cờ là cận-trên, không phải số phiếu thật).
+   */
+  truncated?: number
+  /**
+   * Tổng CHƯA cắt (COUNT DB thật) theo 4 khoá module imm00/imm04/imm15/imm09 — CHỈ
+   * chạy COUNT cho nguồn chạm trần (zero-cost ca thường: == by_module khi không cắt).
+   * ⚠️ totals_uncapped['imm09'] là cận-trên PRE-SoD (đếm TRƯỚC bước loại self-closer
+   * CR-41). Giá trị int. FE hiện KHÔNG bind trực tiếp — dành cho mobile/telemetry.
+   */
+  totals_uncapped?: Record<string, number>
+  /**
+   * Nguồn bị LOẠI vì THIẾU quyền duyệt (list mã module ⊆ {imm00, imm15, imm09};
+   * imm04 identity-based nên KHÔNG bao giờ có mặt). Phân biệt 'không có việc' (nguồn
+   * vắng khỏi by_module) vs 'không có quyền' (nguồn ở đây). FE hiện dòng "Bạn không
+   * có quyền xem nhóm …" với TÊN nghiệp vụ tiếng Việt — KHÔNG leak mã module thô.
+   */
+  excluded_modules?: string[]
 }
 
 /**

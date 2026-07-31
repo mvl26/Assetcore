@@ -67,6 +67,31 @@ const moduleChips = computed(() => {
     .map(([mod, n]) => ({ label: MODULE_LABEL[mod] || 'Khác', count: n }))
 })
 
+// ─── Hợp đồng cắt danh sách TRUNG THỰC (CR-43/46/47) ──────────────────────────
+// `truncated`/`excluded_modules` là 3 khoá ADDITIVE + OPTIONAL — worker BE chưa
+// reload trả shape CŨ (thiếu khoá) ⇒ cả 2 computed = false/[] (backward-compatible,
+// KHÔNG banner, KHÔNG crash). Cờ là int 0/1 (parity CR-01) — dùng `=== 1` để undefined
+// (shape cũ) rơi về false.
+
+/** ≥1 nguồn chạm trần → danh sách bị cắt. Cờ là CẬN-TRÊN → banner KHÔNG nêu con số. */
+const truncated = computed<boolean>(() => inbox.value?.truncated === 1)
+
+// Tên nghiệp vụ tiếng Việt ĐẦY ĐỦ cho nhóm bị loại vì THIẾU quyền (AC9 / LL-FE-53 —
+// KHÔNG leak mã module thô ra UI). Nguồn có thể bị loại vì thiếu cap ⊆ {imm00, imm15,
+// imm09} (imm04 identity-based nên KHÔNG bao giờ có mặt).
+const EXCLUDED_MODULE_LABEL: Record<string, string> = {
+  imm00: 'Điều chuyển thiết bị',
+  imm15: 'Cấp phát phụ tùng',
+  imm09: 'Nghiệm thu sau sửa chữa',
+}
+
+/** Tên nghiệp vụ VI của nguồn bị loại — lọc mã lạ (KHÔNG render mã module thô). */
+const excludedModuleNames = computed<string[]>(() =>
+  (inbox.value?.excluded_modules ?? [])
+    .map((m) => EXCLUDED_MODULE_LABEL[m])
+    .filter((v): v is string => Boolean(v)),
+)
+
 // ─── Deep-link route detail THẬT từng doctype ─────────────────────────────────
 // BE cấp item.route (SSoT điều hướng); fallback FE map theo doctype — 2 path
 // dưới VERIFIED khớp router/index.ts: /commissioning/:id + /asset-transfers/:id.
@@ -117,6 +142,35 @@ function formatDt(s: string): string {
         {{ c.label }}
         <span class="rounded-full bg-white px-1.5 font-semibold text-slate-800">{{ c.count }}</span>
       </span>
+    </div>
+
+    <!-- Dải cảnh báo CẮT DANH SÁCH (truncated) — LL-FE-53: tiếng Việt đầy đủ, KHÔNG
+         nêu con số (cờ là cận-trên). Chỉ hiện khi đã tải xong, không lỗi. -->
+    <div
+      v-if="!loading && !error && truncated"
+      data-testid="truncated-banner"
+      role="status"
+      class="mb-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+    >
+      <span aria-hidden="true" class="mt-0.5">⚠️</span>
+      <p>
+        Danh sách chỉ đang hiển thị một phần các phiếu chờ duyệt do số lượng quá lớn.
+        Vui lòng xử lý bớt các phiếu để những phiếu còn lại được hiển thị đầy đủ.
+      </p>
+    </div>
+
+    <!-- Nhóm bị LOẠI vì thiếu quyền (excluded_modules) — hiển thị TÊN nghiệp vụ tiếng
+         Việt, KHÔNG leak mã module thô (GATE-1 / LL-FE-53). -->
+    <div
+      v-if="!loading && !error && excludedModuleNames.length"
+      data-testid="excluded-modules-note"
+      role="status"
+      class="mb-4 flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600"
+    >
+      <span aria-hidden="true" class="mt-0.5">🔒</span>
+      <p>
+        Bạn không có quyền xem nhóm: {{ excludedModuleNames.join(', ') }}.
+      </p>
     </div>
 
     <div class="card p-0 overflow-hidden">

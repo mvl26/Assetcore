@@ -723,5 +723,208 @@ class TestInboxPendingInspectionCR42(unittest.TestCase):
         self.assertLessEqual(len(s), _SUMMARY_MAX)
 
 
+class TestInboxTruncationContract(unittest.TestCase):
+    """CR-43 — hợp đồng TRUNG THỰC khi cắt inbox: get_pending_approvals_inbox trả
+    THÊM ``truncated`` (int 0/1) + ``totals_uncapped`` (4 khoá int) + ``excluded_modules``
+    (list[str] ⊆ {imm00, imm15, imm09}); 3 khoá cũ items/total/by_module GIỮ shape.
+
+    TDD viết TRƯỚC implement (CLAUDE.md §17). Nguồn cap-based (imm00/imm15/imm09)
+    thiếu cap → excluded IM LẶNG + báo qua excluded_modules; imm04 identity-based
+    KHÔNG bao giờ excluded. Zero-cost (AC2): KHÔNG COUNT nào chạy ca không-cắt.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls._users: list[str] = []
+        cls._transfers: list[str] = []
+        cls._assets: list[str] = []
+
+        # QTV đủ CẢ 3 cap duyệt (transfer=commissioning.submit / allocation=
+        # inventory.submit / inspect=repair.submit) → excluded_modules==[].
+        cls.qtv = _mk_user("_test_inbox_trunc_qtv@assetcore.test",
+                           ["AssetCore System User", "AssetCore Super Admin",
+                            "Repair Manager"], cls._users)
+        # Base user 0 cap duyệt → 3 nguồn cap-based excluded.
+        cls.base = _mk_user("_test_inbox_trunc_base@assetcore.test",
+                            ["AssetCore System User"], cls._users)
+
+        cls.cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": "_TestCat InboxTrunc CR43",
+        }).insert(ignore_permissions=True)
+        cls.dept = frappe.get_doc({
+            "doctype": "AC Department",
+            "department_name": "_TestDept InboxTrunc CR43",
+        }).insert(ignore_permissions=True)
+
+        # 2 Asset Transfer 'Pending Approval' (creation 2020 → oldest, fetched-first
+        # với order creation asc bất kể data dev). 2 asset RIÊNG (né guard 1-pending/asset).
+        prev = frappe.flags.in_install
+        frappe.flags.in_install = "frappe"
+        try:
+            for i in range(2):
+                a = frappe.get_doc({
+                    "doctype": "AC Asset",
+                    "asset_name": f"_Test Asset InboxTrunc {i}",
+                    "asset_category": cls.cat.name,
+                    "manufacturer_sn": f"SN-TRUNC-{int(time.time() * 1000) % 10_000_000}-{i}",
+                    "lifecycle_status": "Commissioned",
+                }).insert(ignore_permissions=True)
+                cls._assets.append(a.name)
+                td = frappe.get_doc({
+                    "doctype": "Asset Transfer",
+                    "asset": a.name,
+                    "transfer_type": "Internal",
+                    "transfer_date": nowdate(),
+                    "to_department": cls.dept.name,
+                    "reason": f"Kiểm thử truncation inbox #{i}",
+                })
+                td.insert(ignore_permissions=True)
+                frappe.db.set_value("Asset Transfer", td.name, {
+                    "status": "Pending Approval",
+                    "creation": f"2020-01-0{i + 1} 08:00:00",
+                }, update_modified=False)
+                cls._transfers.append(td.name)
+        finally:
+            frappe.flags.in_install = prev
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        for name in cls._transfers:
+            if frappe.db.exists("Asset Transfer", name):
+                frappe.delete_doc("Asset Transfer", name, force=True,
+                                  ignore_permissions=True)
+        for a in cls._assets:
+            purge_asset(a)
+        for dt, nm in [("AC Department", cls.dept.name),
+                       ("AC Asset Category", cls.cat.name)]:
+            if frappe.db.exists(dt, nm):
+                frappe.delete_doc(dt, nm, force=True, ignore_permissions=True)
+        for email in cls._users:
+            if frappe.db.exists("User", email):
+                frappe.delete_doc("User", email, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+
+    def _inbox_as(self, user: str) -> dict:
+        from assetcore.services.imm00 import get_pending_approvals_inbox
+        frappe.set_user(user)
+        try:
+            return get_pending_approvals_inbox()
+        finally:
+            frappe.set_user("Administrator")
+
+    # ── T1: dưới trần, đủ cap → truncated=0, totals_uncapped==by_module, excluded==[]
+    def test_inbox_untruncated_totals_equal_by_module(self):
+        from unittest.mock import patch
+        from assetcore.services import imm00 as svc
+        # Trần khổng lồ ⇒ KHÔNG nguồn nào chạm trần (deterministic bất kể data dev).
+        with patch.object(svc, "_INBOX_LIMIT_PER_SOURCE", 10 ** 6):
+            data = self._inbox_as(self.qtv)
+        self.assertEqual(data["truncated"], 0, "không nguồn nào chạm trần ⇒ truncated=0")
+        self.assertEqual(data["totals_uncapped"], data["by_module"],
+                         "không cắt ⇒ totals_uncapped[m]==by_module[m] cho MỌI m")
+        self.assertEqual(data["excluded_modules"], [],
+                         "QTV đủ 3 cap ⇒ excluded_modules rỗng")
+
+    # ── T2: zero-cost — KHÔNG COUNT nào chạy ca không-cắt (AC2)
+    def test_inbox_no_extra_count_query_when_untruncated(self):
+        from unittest.mock import patch
+        from assetcore.services import imm00 as svc
+        calls = {"n": 0}
+        real = svc._inbox_source_count
+
+        def _spy(*a, **k):
+            calls["n"] += 1
+            return real(*a, **k)
+
+        with patch.object(svc, "_INBOX_LIMIT_PER_SOURCE", 10 ** 6), \
+                patch.object(svc, "_inbox_source_count", _spy):
+            self._inbox_as(self.qtv)
+        self.assertEqual(calls["n"], 0,
+                         "ca không-cắt PHẢI 0 COUNT (zero-cost — count_fn lazy)")
+
+    # ── T3: nguồn chạm trần → truncated=1, by_module cắt, totals_uncapped=COUNT thật
+    def test_inbox_truncated_flag_and_uncapped_count(self):
+        from unittest.mock import patch
+        from assetcore.services import imm00 as svc
+        calls = {"n": 0}
+        real = svc._inbox_source_count
+
+        def _spy(*a, **k):
+            calls["n"] += 1
+            return real(*a, **k)
+
+        pending_total = frappe.db.count("Asset Transfer",
+                                        {"status": "Pending Approval"})
+        self.assertGreaterEqual(pending_total, 2, "≥2 transfer Pending (2 seed)")
+        with patch.object(svc, "_INBOX_LIMIT_PER_SOURCE", 1), \
+                patch.object(svc, "_inbox_source_count", _spy):
+            data = self._inbox_as(self.qtv)
+        self.assertEqual(data["truncated"], 1, "∃ nguồn chạm trần ⇒ truncated=1")
+        self.assertEqual(data["by_module"]["imm00"], 1,
+                         "limit=1 ⇒ CHỈ 1 item transfer (count==rows GIỮ)")
+        self.assertEqual(data["totals_uncapped"]["imm00"], pending_total,
+                         "totals_uncapped[imm00] = COUNT DB cùng predicate (≥2)")
+        self.assertGreater(data["totals_uncapped"]["imm00"], data["by_module"]["imm00"],
+                           "uncapped > hiển thị ⇒ chính là nguồn khiến truncated=1")
+        self.assertGreaterEqual(calls["n"], 1,
+                                "nguồn chạm trần PHẢI gọi COUNT (đúng nguồn đó)")
+
+    # ── T4: thiếu cap → excluded_modules; imm04 identity KHÔNG bao giờ excluded
+    def test_inbox_excluded_modules_when_missing_cap(self):
+        out = None
+        from assetcore.api.imm00 import get_pending_approvals_inbox as _api
+        frappe.set_user(self.base)
+        try:
+            out = _api()
+        finally:
+            frappe.set_user("Administrator")
+        self.assertTrue(out.get("success"), f"envelope PHẢI success (fail-soft): {out}")
+        data = out["data"]
+        ex = set(data["excluded_modules"])
+        self.assertEqual(ex, {"imm00", "imm15", "imm09"},
+                         "base user 0 cap ⇒ 3 nguồn cap-based excluded")
+        self.assertNotIn("imm04", data["excluded_modules"],
+                         "imm04 identity-based KHÔNG bao giờ excluded")
+        mods = {i["module"] for i in data["items"]}
+        self.assertFalse(mods & {"imm00", "imm15", "imm09"},
+                         "items KHÔNG chứa module đã excluded")
+
+    # ── T5: kiểu cờ int (KHÔNG bool/None) — parity CR-01
+    def test_inbox_flag_types_int_not_bool(self):
+        data = self._inbox_as(self.qtv)
+        t = data["truncated"]
+        self.assertIsInstance(t, int)
+        self.assertNotIsInstance(t, bool, "truncated int (KHÔNG bool)")
+        self.assertIn(t, (0, 1), "truncated ∈ {0,1}")
+        self.assertEqual(set(data["totals_uncapped"].keys()),
+                         {"imm00", "imm04", "imm15", "imm09"},
+                         "totals_uncapped đủ 4 khoá")
+        for m, v in data["totals_uncapped"].items():
+            self.assertIsInstance(v, int, f"totals_uncapped[{m}] int")
+            self.assertNotIsInstance(v, bool, f"totals_uncapped[{m}] KHÔNG bool")
+            self.assertGreaterEqual(v, 0, f"totals_uncapped[{m}] ≥ 0")
+        self.assertIsInstance(data["excluded_modules"], list)
+        for m in data["excluded_modules"]:
+            self.assertIsInstance(m, str, "excluded_modules là list[str]")
+
+    # ── T6: legacy shape non-regression (BR-00-INBOX-02)
+    def test_inbox_legacy_shape_non_regression(self):
+        data = self._inbox_as(self.qtv)
+        self.assertEqual(data["total"], len(data["items"]),
+                         "total == len(items)")
+        self.assertEqual(data["total"], sum(data["by_module"].values()),
+                         "total == sum(by_module.values())")
+        for it in data["items"]:
+            self.assertEqual(set(it.keys()), _ITEM_KEYS,
+                             f"item GIỮ đủ 11 khoá cũ: {sorted(it.keys())}")
+
+
 if __name__ == "__main__":
     unittest.main()
