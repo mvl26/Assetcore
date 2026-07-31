@@ -121,8 +121,8 @@ HEADER = """// AUTO-GENERATED from assetcore/utils/messages.py — DO NOT EDIT M
 """
 
 
-def _emit_types(out_path: Path) -> None:
-    content = (
+def _render_types() -> str:
+    return (
         HEADER
         + """
 /** Severity — đồng bộ với `assetcore/utils/messages.py:Severity`. */
@@ -141,14 +141,12 @@ export interface MessageEntry {
 export type MessageCode = string
 """
     )
-    out_path.write_text(content, encoding="utf-8")
 
 
-def _emit_messages(
-    out_path: Path,
+def _render_messages(
     msg_constants: dict[str, str],
     messages_dict: dict[str, dict],
-) -> None:
+) -> str:
     # Sort theo key để diff stable
     sorted_consts = sorted(msg_constants.items())
     sorted_messages = sorted(messages_dict.items())
@@ -178,7 +176,7 @@ def _emit_messages(
     lines.append("export type { MessageEntry, MessageCode, Severity } from './messages.types'")
     lines.append("")
 
-    out_path.write_text("\n".join(lines), encoding="utf-8")
+    return "\n".join(lines)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -186,7 +184,9 @@ def _emit_messages(
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    args = list(sys.argv[1:] if argv is None else argv)
+    check_only = "--check" in args
     if not SOURCE_FILE.exists():
         print(f"ERROR: source file not found: {SOURCE_FILE}", file=sys.stderr)
         return 1
@@ -204,10 +204,33 @@ def main() -> int:
         print("ERROR: no MESSAGES entries found", file=sys.stderr)
         return 1
 
+    wanted = {
+        OUT_TYPES: _render_types(),
+        OUT_MESSAGES: _render_messages(msg_constants, messages_dict),
+    }
+
+    if check_only:
+        # CI/parity guard: KHÔNG ghi — chỉ so sánh. Trước đây `--check` bị NUỐT câm
+        # (script luôn ghi rồi exit 0) ⇒ guard xanh giả trong khi FE vẫn lệch registry
+        # → toast SYS-500 "liên hệ IT". Nay drift = exit 1 + liệt kê file lệch.
+        drifted = [
+            p for p, content in wanted.items()
+            if not p.exists() or p.read_text(encoding="utf-8") != content
+        ]
+        if drifted:
+            print("DRIFT: FE i18n lệch registry BE — chạy `python scripts/gen_fe_messages.py`:",
+                  file=sys.stderr)
+            for p in drifted:
+                print(f"  ✗ {p.relative_to(REPO_ROOT)}", file=sys.stderr)
+            return 1
+        print(f"OK (--check): FE i18n khớp registry — {len(msg_constants)} MSG / "
+              f"{len(messages_dict)} MESSAGES, 0 drift")
+        return 0
+
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     try:
-        _emit_types(OUT_TYPES)
-        _emit_messages(OUT_MESSAGES, msg_constants, messages_dict)
+        for path, content in wanted.items():
+            path.write_text(content, encoding="utf-8")
     except OSError as e:
         print(f"ERROR: write output: {e}", file=sys.stderr)
         return 2

@@ -126,6 +126,11 @@ type FrappeErrorData = {
   // Phase 1 notification framework — present when raised qua nthrow_in_hook
   message_code?: string
   context?: Record<string, unknown>
+  // Lỗi FIELD-LEVEL (khoá field → câu tiếng Việt). ĐÃ có sẵn trong envelope
+  // Decision-B (`helpers.ts::ApiResponse.fields`); khai ở đây để nhánh HTTP
+  // 417/422 (hook backstop `nthrow_in_hook` ghi vào `frappe.local.response`)
+  // KHÔNG đánh rơi nó. FE chỉ ĐỌC — không sinh hợp đồng mới.
+  fields?: Record<string, string>
 }
 
 function parseServerMessages(data: FrappeErrorData): string {
@@ -249,6 +254,10 @@ function handle429(): never {
 function makeBusinessRuleError(data: FrappeErrorData | undefined, status: number): ApiError {
   const messageCode = data?.message_code
   const context = data?.context
+  // `fields` đi cùng lỗi nghiệp vụ để form gắn thông điệp vào ĐÚNG ô (AC-CR-83).
+  // Nhánh in-envelope đã có (`helpers.ts::hydrateApiError`); nhánh status-line
+  // 417/422 trước đây LÀM RƠI khoá này ⇒ lỗi hook backstop chỉ còn toast chung.
+  const fields = data?.fields && Object.keys(data.fields).length ? data.fields : undefined
   const entry = messageCode ? MESSAGES[messageCode] : undefined
   if (entry) {
     const rendered = entry.template.replace(/\{(\w+)\}/g, (_, k: string) =>
@@ -257,6 +266,7 @@ function makeBusinessRuleError(data: FrappeErrorData | undefined, status: number
     return new ApiError(rendered, {
       code: ErrorCode.BUSINESS_RULE,
       httpStatus: status,
+      fields,
       messageCode,
       context,
       actionHint: entry.action_hint || undefined,
@@ -267,6 +277,7 @@ function makeBusinessRuleError(data: FrappeErrorData | undefined, status: number
   return new ApiError(parseServerMessages(data ?? {}), {
     code: ErrorCode.BUSINESS_RULE,
     httpStatus: status,
+    fields,
   })
 }
 
