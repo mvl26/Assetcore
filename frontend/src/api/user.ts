@@ -192,15 +192,69 @@ export const getAcUserBrief = (user: string) =>
 /** User AssetCore đủ năng lực cho 1 ngữ cảnh phân công (picker KTV…). */
 export interface AssignableUserItem {
   name: string
-  full_name: string
-  email: string
+  /** Có thể null trên tài khoản cũ → mọi chỗ hiển thị PHẢI fallback về `name`. */
+  full_name: string | null
+  email: string | null
   user_image?: string | null
+}
+
+/**
+ * Trang người-được-phép + meta cắt (AC-CR-80).
+ *
+ * `total` = tổng người ĐƯỢC PHÉP (đếm SAU lọc năng lực, TRƯỚC khi cắt);
+ * `limit` = trần ĐÃ CLAMP do BE echo (không phải số client gửi);
+ * `truncated` = 0|1 dạng SỐ (KHÔNG boolean — parity CR-01, chống crash codegen).
+ */
+export interface AssignableUserPage {
+  items: AssignableUserItem[]
+  total: number
+  truncated: 0 | 1
+  limit: number
+}
+
+/** Bí danh theo tên hợp đồng trong bàn giao AC-CR-80 (cùng một kiểu). */
+export type AssignableUserListResponse = AssignableUserPage
+
+/**
+ * Chuẩn hoá phản hồi về `AssignableUserPage` — SSoT cho mọi nơi tiêu thụ.
+ *
+ * ADR-IMM00-ASSIGN-04 (tolerant reader): trong cửa sổ `gunicorn --preload` chưa
+ * reload, BE cũ vẫn trả MẢNG TRẦN. Không bọc ở đây thì picker TRẮNG suốt cửa sổ
+ * đó — hồi quy nặng hơn chính lỗi đang sửa.
+ *
+ * KHÔNG suy `truncated` từ `items.length >= limit`: client không biết trần SAU
+ * khi BE clamp, đoán ở FE sẽ báo cắt sai (D5).
+ */
+export function normalizeAssignableUserPage(
+  res: AssignableUserPage | AssignableUserItem[] | null | undefined,
+  limit: number,
+): AssignableUserPage {
+  if (Array.isArray(res)) return { items: res, total: res.length, truncated: 0, limit }
+  if (!res || !Array.isArray(res.items)) return { items: [], total: 0, truncated: 0, limit }
+  return {
+    items: res.items,
+    total: typeof res.total === 'number' ? res.total : res.items.length,
+    truncated: res.truncated ? 1 : 0,
+    limit: typeof res.limit === 'number' ? res.limit : limit,
+  }
 }
 
 /**
  * Liệt kê user AssetCore (có base role) ĐỦ NĂNG LỰC cho `context` phân công.
  * `context` = khoá allowlist BE (vd "repair"); BE lọc theo capability/DocPerm
  * (mirror _is_repair_capable) → chỉ hiện người hợp lệ để chọn.
+ *
+ * Trả `{items,total,truncated,limit}`: danh sách bị cắt ở `limit` được CÔNG BỐ
+ * (AC-CR-80) để FE nói "đang hiển thị N/M" thay vì cắt im lặng.
  */
-export const listAssignableUsers = (context: string, search = '', limit = 20) =>
-  frappeGet<AssignableUserItem[]>(`${BASE}.list_assignable_users`, { context, search, limit })
+export const listAssignableUsers = async (
+  context: string,
+  search = '',
+  limit = 20,
+): Promise<AssignableUserPage> => {
+  const res = await frappeGet<AssignableUserPage | AssignableUserItem[]>(
+    `${BASE}.list_assignable_users`,
+    { context, search, limit },
+  )
+  return normalizeAssignableUserPage(res, limit)
+}

@@ -28,6 +28,7 @@ from assetcore.utils import password_policy
 
 from assetcore.services.shared.constants import Roles, ROLE_METADATA
 from assetcore.services.shared.ac_users import count_ac_users, get_ac_users, is_ac_user
+from assetcore.services.shared.truncation import truncation_meta
 from assetcore.setup.role_profile_catalog import BASE_ROLE
 
 # Single source of truth — đồng bộ với fixtures/role.json
@@ -1042,6 +1043,15 @@ _ASSIGNABLE_CONTEXTS: dict[str, tuple[str, str]] = {
     "commissioning": ("Asset Commissioning", "write"),   # KTV lắp đặt/nghiệm thu (IMM-04)
 }
 
+# Tập ngữ cảnh HỢP LỆ — hằng PUBLIC, nguồn DUY NHẤT cho: (1) nhánh validate
+# `context` bên dưới, (2) enum `context` của mirror mobile `listAssignableUsers`
+# (guard `tests/test_mobile_oas::cr80_b` IMPORT hằng này thay vì chép enum tay ⇒
+# thêm/bớt 1 ngữ cảnh ở BE mà quên OAS là ĐỎ NGAY). Thêm ngữ cảnh = thêm 1 khoá
+# `_ASSIGNABLE_CONTEXTS` (hằng này tự bắt kịp) + cập enum OAS CÙNG VÒNG.
+ASSIGNABLE_CONTEXT_KEYS: tuple[str, ...] = (
+    _ANY_USER_CONTEXT, *sorted(_ASSIGNABLE_CONTEXTS)
+)
+
 
 @frappe.whitelist()
 def list_assignable_users(context: str, search: str = "", limit: int = 20) -> dict:
@@ -1056,12 +1066,37 @@ def list_assignable_users(context: str, search: str = "", limit: int = 20) -> di
     Context "user" = BẤT KỲ user AssetCore (chỉ cần base role, KHÔNG lọc năng lực)
     — dùng cho field mô tả người (giám sát, thủ kho, leo thang SLA…).
 
+    HONESTY-CONTRACT (AC-CR-80, ADR-IMM00-TRUNCATION-SSOT §7): danh sách bị cắt ở
+    `limit` PHẢI công bố phần bị giấu. Trước đây hàm trả `capable[:limit]` — cắt IM
+    LẶNG ⇒ picker "khẳng định" không còn ai đủ năng lực trong khi thật ra chỉ là bị
+    cắt (người dùng ở giường bệnh không có cách nào biết). Nay trả OBJECT
+    `{items, total, truncated, limit}`; FE render dải "Đang hiển thị N/M người — gõ
+    tên để tìm thêm" khi `truncated == 1`.
+
     Args:
         context: "user" (mọi user AssetCore) HOẶC khoá `_ASSIGNABLE_CONTEXTS` (vd "repair").
-        search:  lọc theo full_name / email.
-        limit:   trần kết quả (cap 100).
+            Tập hợp lệ = `ASSIGNABLE_CONTEXT_KEYS`; giá trị lạ ⇒ lỗi 400 IN-ENVELOPE
+            trên HTTP-200 (KHÔNG raise ⇒ KHÔNG status-line, client KHÔNG logout oan).
+        search:  lọc theo full_name / email (LIKE `%search%`, OR-filter, server-side).
+        limit:   trần kết quả, CLAMP về 1..100.
+
+    Returns:
+        `_ok({"items": list[dict], "total": int, "truncated": int, "limit": int})`:
+
+        * `items`  — tối đa `limit` phần tử `{name, full_name, email, user_image}`.
+        * `total`  — tổng người ĐƯỢC PHÉP, đếm **SAU** lọc năng lực và **TRƯỚC** khi
+          cắt (đếm trước lọc sẽ thổi phồng ⇒ dải cảnh báo nói dối).
+        * `truncated` — **int** 0|1 (KHÔNG bool: client Dart/Kotlin sinh từ OAS khai
+          `integer` sẽ crash lúc parse nếu server phát `true/false` — parity CR-01).
+        * `limit`  — trần ĐÃ CLAMP (không phải số client gửi), để client không tự suy
+          `truncated` sai.
+
+        Lỗi: `_err(..., 400)` ⇒ `{success: False, code: "VALIDATION_ERROR",
+        http_status: 400}`; message tiếng Việt, KHÔNG lộ tên DocType/cột/SQL.
     """
-    if context != _ANY_USER_CONTEXT and context not in _ASSIGNABLE_CONTEXTS:
+    if context not in ASSIGNABLE_CONTEXT_KEYS:
+        # Echo lại giá trị client gửi (giúp sửa nhanh) nhưng TUYỆT ĐỐI không nêu
+        # GIÁ TRỊ của `_ASSIGNABLE_CONTEXTS` (tên DocType) — đó là bề mặt phân quyền.
         return _err(f"Ngữ cảnh phân công không hợp lệ: {context}", 400)
     limit = max(1, min(int(limit), 100))
 
@@ -1091,4 +1126,12 @@ def list_assignable_users(context: str, search: str = "", limit: int = 20) -> di
             u for u in candidates
             if frappe.has_permission(doctype, ptype, user=u["name"])
         ]
-    return _ok(capable[:limit])
+
+    items = capable[:limit]
+    # SSoT truncation (ADR-IMM00-TRUNCATION-SSOT D1) — KHÔNG tự đếm tay. `count_fn`
+    # đếm SAU lọc năng lực (ADR-IMM00-ASSIGN-02): `capable` đã nằm trong bộ nhớ ⇒ 0
+    # query thêm; dùng `count_ac_users()` ở đây sẽ đếm CẢ người KHÔNG đủ năng lực ⇒
+    # `total` phóng đại (tái sinh lỗi count != rows). `limit` truyền vào là bản ĐÃ
+    # CLAMP ở trên (INV-TRUNC-LIMIT).
+    total, truncated = truncation_meta(len(items), limit, lambda: len(capable))
+    return _ok({"items": items, "total": total, "truncated": truncated, "limit": limit})

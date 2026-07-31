@@ -53,3 +53,39 @@ describe('nguồn user thống nhất — không truy cập doctype User trực 
     expect(offenders).toEqual([])
   })
 })
+
+// AC-CR-80: shape của endpoint đổi (mảng trần → `{items,total,truncated,limit}`)
+// nhưng ĐƯỜNG lấy người KHÔNG được đổi. Ghim để lần sửa sau không "tiện tay"
+// mở đường thứ hai (SmartSelect doctype="User" / gọi endpoint từ view).
+describe('AC-CR-80 — ApproverSelect + list_assignable_users là đường DUY NHẤT chọn người', () => {
+  const ENDPOINT = 'list_assignable_users'
+
+  it('ApproverSelect.vue lấy người qua api/user.ts::listAssignableUsers', () => {
+    const src = readFileSync(join(SRC, 'components/commissioning/ApproverSelect.vue'), 'utf8')
+    expect(src).toMatch(/import\s*\{[^}]*listAssignableUsers[^}]*\}\s*from\s*['"]@\/api\/user['"]/)
+    expect(src).toContain('listAssignableUsers(')
+  })
+
+  it('chuỗi endpoint chỉ khai Ở MỘT NƠI trong mã sản phẩm (api/user.ts)', () => {
+    const declaring: string[] = []
+    for (const file of walk(SRC)) {
+      const rel = relative(SRC, file)
+      if (/\.test\.ts$/.test(rel)) continue
+      const hit = readFileSync(file, 'utf8').split('\n').some(line => {
+        const t = line.trimStart()
+        // Nhắc tới endpoint trong chú thích (vd masterData.ts ghi lý do đã gỡ
+        // `fetchUsers`) KHÔNG phải là đường lấy user thứ hai.
+        if (t.startsWith('//') || t.startsWith('*')) return false
+        return line.includes(ENDPOINT)
+      })
+      if (hit) declaring.push(rel)
+    }
+    expect(declaring).toEqual(['api/user.ts'])
+  })
+
+  it('ApproverSelect đọc shape page (.items) — không quay lại mảng trần', () => {
+    const src = readFileSync(join(SRC, 'components/commissioning/ApproverSelect.vue'), 'utf8')
+    expect(src).toContain('.items')
+    expect(src).toMatch(/truncated/)
+  })
+})
