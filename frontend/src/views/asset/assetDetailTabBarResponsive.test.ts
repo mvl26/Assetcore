@@ -10,11 +10,18 @@ const SRC = readFileSync(
   'utf8',
 )
 
+/**
+ * Danh sách tab literal trong `AssetDetailView.vue`.
+ * AC-CR-87 vòng 3: thêm tab thứ 6 «Bản ghi liên quan» (breakage ĐÃ LƯỜNG TRƯỚC —
+ * cập nhật literal là hợp lệ, TUYỆT ĐỐI KHÔNG nới lỏng assert overflow-x-auto/shrink-0).
+ */
+const TAB_LIST_LITERAL = "'info', 'depreciation', 'timeline', 'kpi', 'audit', 'related'"
+
 describe('TC-RWD-07 — AssetDetailView tab-bar cuộn ngang (F4)', () => {
-  it('tab-bar container (border-b chứa 5 tab) có overflow-x-auto', () => {
-    // Tab-bar = <div ...> bọc v-for tab info/depreciation/timeline/kpi/audit.
+  it('tab-bar container (border-b chứa 6 tab) có overflow-x-auto', () => {
+    // Tab-bar = <div ...> bọc v-for tab info/depreciation/timeline/kpi/audit/related.
     // Tìm dòng <div ...> ngay trước cụm tab list literal.
-    const tabListIdx = SRC.indexOf("'info', 'depreciation', 'timeline', 'kpi', 'audit'")
+    const tabListIdx = SRC.indexOf(TAB_LIST_LITERAL)
     expect(tabListIdx).toBeGreaterThan(-1)
     // Container div phải nằm trước cụm v-for và phải có overflow-x-auto trong class.
     const before = SRC.slice(0, tabListIdx)
@@ -29,11 +36,17 @@ describe('TC-RWD-07 — AssetDetailView tab-bar cuộn ngang (F4)', () => {
     expect(SRC).toContain('Nhật ký truy vết')
   })
 
+  it("tab 'related' (tab thứ 6, AC-CR-87) hiện diện + nhãn tiếng Việt", () => {
+    expect(SRC).toContain("'related'")
+    expect(SRC).toContain('Bản ghi liên quan')
+  })
+
   it('mỗi tab shrink-0 để không bị co (giữ 1 hàng cuộn)', () => {
-    const tabBtnIdx = SRC.indexOf("v-for=\"tab in (['info', 'depreciation', 'timeline', 'kpi', 'audit']")
+    const tabBtnIdx = SRC.indexOf(`v-for="tab in ([${TAB_LIST_LITERAL}]`)
     expect(tabBtnIdx).toBeGreaterThan(-1)
-    // class static của <button> tab chứa shrink-0 / whitespace-nowrap
-    const btnBlock = SRC.slice(tabBtnIdx, tabBtnIdx + 400)
-    expect(/shrink-0|whitespace-nowrap/.test(btnBlock)).toBe(true)
+    // class static của <button> tab chứa CẢ shrink-0 lẫn whitespace-nowrap
+    const btnBlock = SRC.slice(tabBtnIdx, tabBtnIdx + 600)
+    expect(btnBlock).toContain('shrink-0')
+    expect(btnBlock).toContain('whitespace-nowrap')
   })
 })
