@@ -21,6 +21,7 @@ from assetcore.repositories.compliance_repo import (
 from assetcore.services.shared import ErrorCode, ServiceError, normalize_filters
 from assetcore.services.shared import rbac
 from assetcore.utils.lifecycle import log_audit_event
+from assetcore.services.shared.permissions import rowscoped
 
 
 # ─── Status constants ────────────────────────────────────────────────────────
@@ -209,6 +210,7 @@ class RuleCategory:
 
 # ─── Compliance Rules ─────────────────────────────────────────────────────────
 
+@rowscoped
 def list_compliance_rules(filters: dict, *, page: int = 1,
                            page_size: int = 20) -> dict:
     """Liệt kê quy tắc tuân thủ."""
@@ -248,6 +250,7 @@ def create_compliance_rule(data: dict) -> dict:
 
 # ─── Compliance Findings ──────────────────────────────────────────────────────
 
+@rowscoped
 def list_compliance_findings(filters: dict, *, page: int = 1,
                               page_size: int = 20) -> dict:
     """Liệt kê temuan kepatuhan."""
@@ -357,6 +360,7 @@ def close_finding(finding_name: str, capa_ref: str, resolution_note: str) -> dic
 
 # ─── Internal Audit ───────────────────────────────────────────────────────────
 
+@rowscoped
 def list_internal_audits(filters: dict, *, page: int = 1,
                           page_size: int = 20) -> dict:
     """Liệt kê audit nội bộ."""
@@ -2249,6 +2253,7 @@ def reopen_capa(name: str, reason: str = "") -> dict:
 
 # ─── Scorecard (canonical) ───────────────────────────────────────────────────
 
+@rowscoped
 def list_scorecards(filters: dict, *, page: int = 1, page_size: int = 20) -> dict:
     rows, pg = ComplianceScorecardRepo.list(
         filters=normalize_filters(filters),
@@ -2313,6 +2318,7 @@ def publish_scorecard(name: str) -> dict:
 
 # ─── Management Review (canonical) ───────────────────────────────────────────
 
+@rowscoped
 def list_management_reviews(filters: dict, *, page: int = 1,
                              page_size: int = 20) -> dict:
     rows, pg = ManagementReviewRepo.list(

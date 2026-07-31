@@ -93,15 +93,17 @@ def _scoped_helper(fn, default: int = 0) -> int:
     dưới persona scoped.
 
     Các helper service layer (imm08/09/00/11) đếm qua ``frappe.db.count`` /
-    ``Repo.list`` trên doctype CÓ hook NHƯNG chưa permission-aware (SoT riêng,
-    BA-gated — KHÔNG sửa trong scope này). Dưới persona thiếu DocPerm read chúng
+    ``Repo.list`` trên doctype CÓ hook. Dưới persona thiếu DocPerm read chúng
     raise ``PermissionError`` → crash cả get_overview (trả VALIDATION_ERROR thay
     vì payload scoped). Wrap để degrade về ``default`` (0) — persona scoped thấy
     0 (đúng: họ không drill được vào tập đó) thay vì vỡ dashboard. Read-all
     persona (admin/internal/auditor) KHÔNG raise ⇒ giá trị y như trước (no-change).
 
-    ▶️ TODO (BA-gated): đồng bộ các helper này sang permission-aware để vendor
-    thấy đúng SUBSET (thay vì 0) — cần BA chốt scope service layer trước.
+    ✅ TODO BA-gated ĐÃ ĐÓNG (ADR-IMM00-LIST-SCOPE §8.4b, D7 chốt 2026-07-25):
+    ``cm_sla_breach_count`` (imm09) + ``count_overdue_pm`` (imm08) nay đếm qua
+    ``count_with_or`` (permission-aware) ⇒ persona row-scoped thấy đúng SUBSET của
+    mình, KHỚP số dòng drill-list (đã ``scope="user"``). Wrapper này GIỮ vai trò
+    lưới an toàn cho persona thiếu hẳn DocPerm read (0 == drill 0 dòng).
     """
     try:
         return int(fn())
