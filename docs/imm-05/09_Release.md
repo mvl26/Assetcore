@@ -377,7 +377,16 @@ bench --site assetcore.local execute assetcore.tasks.update_asset_completeness
 | BR-05-04 | Rule | Auto-import từ IMM-04 | Module Overview §7 | `create_initial_document_set()` | `test_auto_import_from_imm04_on_submit` | UAT-IMM05-06 | #imm05-core | v2.0.0 | ✅ |
 | BR-05-05 | Rule | Required Document Type completeness | Module Overview §7 | `update_asset_completeness()` | `TestUpdateAssetCompleteness: test_incomplete` | UAT-IMM05-09 | #imm05-core | v2.0.0 | ✅ |
 | BR-05-07 | Rule | GW-2 gate block commissioning | Module Overview §7 | `_gw2_check_document_compliance()` | `test_gw2_gate_blocks_commissioning` | UAT-IMM05-10 | #imm05-core | v2.0.0 | ✅ |
-| BR-05-08 | Rule | Exempt → Compliant (Exempt) | Module Overview §7 | `_compute_document_status()` | `TestExemptComputation: test_exempt_status` | UAT-IMM05-08 | #imm05-core | v2.0.0 | ✅ |
+| BR-05-08 | Rule | Exempt → Compliant (Exempt) | Module Overview §7 | `_compute_document_status()` | `TestExemptComputation: test_exempt_status` | UAT-IMM05-08 | #imm05-core | v2.0.0 | ⚠️ *(CR-75: test này KHÔNG tồn tại trong repo — trước CR-75 hàm có **0 lời gọi runtime**; nay được `get_asset_documents` gọi, cover bởi `TestAssetDossierTruth` #13/#14, [07 §III.2.a](./07_Testing_QA.md))* |
+| BR-05-17 | Rule | Mẫu số = loại bắt buộc **áp dụng** cho nhóm thiết bị; `required_total==0 ⇒ pct=100` | 02 §IV.2 | `services/imm05.py::get_asset_documents` | `TestAssetDossierTruth` #01/#03/#04/#05 | *(bổ sung UAT CR-75)* | #imm05-core | *(chưa release)* | ⬜ |
+| BR-05-18 | Rule | Satisfied = CÓ MẶT ∧ CÒN HIỆU LỰC; `expired_required[]` tách khỏi `missing_required[]` | 02 §IV.2 | `services/imm05.py::is_expired_row` (song sinh `expired_filter()`) | `TestAssetDossierTruth` #06/#15/#17 (INV-DOC-2, INV-EXP-2) | *(bổ sung UAT CR-75)* | #imm05-core | *(chưa release)* | ⬜ |
+| BR-05-19 | Rule | Một bộ từ vựng 5 giá trị + khoá máy-đọc `is_compliant` | 02 §IV.2 | `_compute_document_status()` gọi với `is_exempt` thu hẹp (ADR-IMM05-02) | `TestAssetDossierTruth` #07/#13/#14/#16 (INV-DOC-3) | *(bổ sung UAT CR-75)* | #imm05-core | *(chưa release)* | ⬜ |
+| BR-05-20 | Rule | Tuân thủ tính trên tập ĐẦY ĐỦ; hiển thị vẫn lọc quyền + `hidden_count` | 02 §IV.2 | `get_asset_documents` query V (`user`) → query C (`internal`) | `TestAssetDossierTruth` #18 | *(bổ sung UAT CR-75)* | #imm05-core | *(chưa release)* | ⬜ |
+| BR-05-21 | Rule | `is_expired`/`days_until_expiry` dẫn xuất lúc đọc (server flag) | 02 §IV.2 | `get_asset_documents` (không đọc cột đã lưu) | `TestAssetDossierTruth` #10/#11/#12 | *(bổ sung UAT CR-75)* | #imm05-core | *(chưa release)* | ⬜ |
+| BR-05-22 | Rule | 5 khoá TỆP luôn có trên mỗi dòng hồ sơ (`file_url`/`file_name`/`file_size`/`is_private`/`has_file`, cờ là int) | 02 §IV.2 | `get_asset_documents` nhánh hiển thị V | `TestAssetDossierFileMeta` #01/#04/#05 | *(bổ sung UAT AC-CR-81)* | #imm05-core | *(chưa release)* | ⬜ |
+| BR-05-23 | Rule | KHÔNG phát LINK CHẾT — link mồ côi ⇒ `has_file=0` ∧ `file_url=""`; `file_attachment` thô không ra response | 02 §IV.2 | `_resolve_file_meta()` + `pop("file_attachment")` | `TestAssetDossierFileMeta` #02/#03/#12 | *(bổ sung UAT AC-CR-81)* | #imm05-core | *(chưa release)* | ⬜ |
+| BR-05-24 | Rule | Metadata tệp resolve theo LÔ — 1 truy vấn `File` cho toàn payload (0 khi tập rỗng) | 02 §IV.2 | `_resolve_file_meta(urls)` gọi ngoài vòng lặp | `TestAssetDossierFileMeta` #06/#07/#08 | *(bổ sung UAT AC-CR-81)* | #imm05-core | *(chưa release)* | ⬜ |
+| BR-05-25 | Rule | Tập URL resolve CHỈ từ dòng ĐƯỢC XEM ⇒ 0 rò `file_url` của bản bị ẩn | 02 §IV.2 | `get_asset_documents` (tập V) | `TestAssetDossierFileMeta` #10 | *(bổ sung UAT AC-CR-81)* | #imm05-core | *(chưa release)* | ⬜ |
 | BR-05-09 | Rule | change_summary bắt buộc v > 1.0 | Module Overview §7 | VR-09 trong `validate()` | `TestChangeSummary: test_v2_requires_summary` | UAT-IMM05-07 | #imm05-core | v2.0.0 | ✅ |
 | BR-05-10 | Rule | Internal_Only ẩn non-internal roles | Module Overview §7 | `_apply_visibility_filter()` | `TestVisibilityFilter: test_clinical_cannot_see_internal` | UAT-IMM05-08 | #imm05-core | v2.0.0 | ✅ |
 | NĐ98/Điều 15.2 | Compliance | Lưu trữ ≥ 5 năm | 08 §II.2 | BR-05-02: `on_trash()` | UAT-IMM05-04 | UAT-IMM05-04 | #imm05-core | v2.0.0 | ✅ |
@@ -434,7 +443,9 @@ Trace: `Asset ACC-ASS-2026-00001 → IMM-05 list filter asset + doc_type=License
 
 **Auditor hỏi:** "Máy thở Drager có đủ hồ sơ theo yêu cầu không?"
 
-Trace: `Asset.custom_document_status = "Compliant" → custom_doc_completeness_pct = 100% → get_asset_documents?asset=ACC-... → group theo category, completeness per Required Document Type`
+Trace (CR-75): `get_asset_documents?asset=ACC-... → required_total (loại bắt buộc ÁP DỤNG cho nhóm thiết bị) / required_satisfied (có bản Active CÒN HIỆU LỰC) → completeness_pct + document_status + is_compliant → missing_required[] · expired_required[] · expiring_required[] → drill documents[category][]`
+
+> *Sửa trace cũ:* hai field cache `AC Asset.custom_document_status` / `custom_doc_completeness_pct` **đã bị bỏ khỏi DocType từ v3** — tuân thủ tính on-the-fly, không còn cache trên Asset.
 
 ---
 

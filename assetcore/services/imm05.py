@@ -18,6 +18,7 @@ from assetcore.repositories.document_repo import (
 from assetcore.services.shared import ErrorCode, ServiceError
 from assetcore.services.shared import rbac
 from assetcore.utils.notify import MSG, nthrow
+from assetcore.services.shared.permissions import rowscoped
 
 # ─── Constants cho visibility / workflow states ───────────────────────────────
 
@@ -60,6 +61,14 @@ _DOC_VALID_TRANSITIONS: dict[str, list[str]] = {
 
 
 _ALERT_THRESHOLDS = [(7, "Danger"), (30, "Critical"), (60, "Warning"), (90, "Info")]
+
+# Ngưỡng "sắp hết hạn" của hồ sơ pháp lý (CR-75 §2.7.a B4) = tier `Critical` của
+# `_ALERT_THRESHOLDS` — DẪN XUẤT, KHÔNG khai hằng số thứ hai (đổi tier ⇒ đổi theo).
+_EXPIRING_SOON_DAYS = next(days for days, level in _ALERT_THRESHOLDS if level == "Critical")
+
+# `document_status` nào coi là "còn tuân thủ" (CR-75 §2.7.a B7). `Expiring_Soon` là
+# CẢNH BÁO, KHÔNG phải vi phạm ⇒ VẪN compliant.
+_COMPLIANT_STATUSES = frozenset({"Compliant", "Compliant (Exempt)", "Expiring_Soon"})
 
 # ─── SoT predicate "Đã hết hạn" (BR-05-16 / INV-EXP-1) ────────────────────────
 # RC-EXP (count-vs-drill divergence): KPI 'expired_not_renewed' và drill
@@ -106,6 +115,26 @@ def expired_filter(today: str | None = None) -> list[list]:
         ["expiry_date", "<", today or nowdate()],
         ["workflow_state", "not in", _EXPIRED_EXCLUDED_STATES],
     ]
+
+
+def is_expired_row(row: dict, today: str | None = None) -> bool:
+    """Cặp song sinh Python của `expired_filter()` — cho row ĐÃ nạp (INV-EXP-2).
+
+    Ba mệnh đề, ĐÚNG thứ tự và ĐÚNG ngữ nghĩa của `expired_filter()`:
+    ``expiry_date`` có giá trị (NULL-guard) ∧ ``expiry_date < today`` ∧
+    ``workflow_state ∉ {Archived, Rejected}``. Đặt ngay dưới `expired_filter()` để
+    hai predicate nằm cạnh nhau — đọc là thấy lệch (04 §4.4).
+
+    **Never:** viết ``date_diff(...) < 0`` ở nơi khác · đọc cột đã lưu
+    ``Asset Document.is_expired`` (stale từ lần save cuối) · để FE/mobile so ngày
+    bằng đồng hồ máy (SSoT overdue = server flag).
+    """
+    expiry = row.get("expiry_date")
+    if not expiry:
+        return False
+    if row.get("workflow_state") in _EXPIRED_EXCLUDED_STATES:
+        return False
+    return getdate(expiry) < getdate(today or nowdate())
 
 
 def _dict_to_conditions(filters: dict) -> list[list]:
@@ -209,6 +238,7 @@ _LIST_FIELDS = [
 ]
 
 
+@rowscoped
 def list_documents(filters: dict, *, page: int = 1, page_size: int = 20) -> dict:
     f = dict(filters or {})
     # BR-05-16: marker semantic `expiry_status` (KHÔNG phải field DB) → BE là nơi
@@ -229,6 +259,13 @@ def list_documents(filters: dict, *, page: int = 1, page_size: int = 20) -> dict
     asset_ids = {r.get("asset_ref") for r in rows if r.get("asset_ref")}
     if asset_ids:
         arows, _ = AssetRepo.list(
+            # A5 (ADR-IMM00-LIST-SCOPE §8.4 + §8.3b): denorm-enrich tên hiển thị cho row
+            # ĐÃ scoped ở tầng cha — lookup, KHÔNG phải bề mặt phân quyền (nếu "user",
+            # Vendor Engineer mất tên thiết bị trên row họ ĐƯỢC xem = over-block).
+            # "internal" (KHÔNG "system"): gate DocPerm read AC Asset ở đây cũng
+            # over-block y hệt — persona đọc được Asset Document chưa chắc có DocPerm
+            # read AC Asset, mà thứ trả ra chỉ là NHÃN của row họ đã được phép xem.
+            scope="internal",
             filters={"name": ("in", list(asset_ids))},
             fields=["name", "asset_name"],
             page_size=len(asset_ids),
@@ -395,45 +432,283 @@ def archive_document(name: str, reason: str = "") -> dict:
 
 # ─── Asset-centric views ──────────────────────────────────────────────────────
 
+#: Field của DocItem trả về trong `documents` (05 §2.7 — 12 field DB + `is_expired`
+#: dẫn xuất). `days_until_expiry` ĐƯỢC select nhưng LUÔN bị ghi đè bằng giá trị dẫn
+#: xuất lúc đọc (BR-05-21); `is_expired` cột DB KHÔNG select (chống nhầm cột stale).
+#: AC-CR-81: `file_attachment` (Attach, giá trị THÔ) được select CHỈ để tra `File` —
+#: nó bị `pop` khỏi dòng trước khi trả (INV-FILE-8), KHÔNG BAO GIỜ ra response.
+_DOSSIER_ROW_FIELDS = [
+    "name", "doc_category", "doc_type_detail", "doc_number", "version",
+    "workflow_state", "expiry_date", "days_until_expiry", "visibility",
+    "is_exempt", "approved_by", "approval_date", "file_attachment",
+]
+
+#: Field tối thiểu cho truy vấn C (tính toán) — KHÔNG select `is_expired`.
+#: ⚠ AC-CR-81 KHÔNG đụng danh sách này (AC4): 5 khoá tệp sinh HOÀN TOÀN trên nhánh V.
+_DOSSIER_COMPUTE_FIELDS = ["doc_type_detail", "workflow_state", "expiry_date", "is_exempt"]
+
+_DT_FILE = "File"
+
+#: Khoá tệp phát ra MỖI dòng hồ sơ (AC-CR-81). Giá trị RỖNG là "" / 0 — KHÔNG None.
+_EMPTY_FILE_META: dict = {
+    "file_url": "", "file_name": "", "file_size": 0, "is_private": 0, "has_file": 0,
+}
+
+
+def _resolve_file_meta(urls: set[str]) -> dict[str, dict]:
+    """{file_url → metadata} cho tập URL ĐÃ DEDUP — ĐÚNG 1 query `File` (INV-FILE-4).
+
+    Hợp đồng: 05 §2.7.c F2/F3 · thực thi 04 §4.4-bis.
+
+    `urls` PHẢI là URL của các dòng ĐƯỢC XEM (tập **V** đã lọc visibility) — KHÔNG bao
+    giờ của tập **C** (INV-FILE-6: URL hồ sơ nội bộ không được rò qua khe tệp). Query
+    chạy system-scope (`ignore_permissions=True`) vì `File` có mô hình quyền riêng
+    (theo `attached_to_*`): persona KTV không có DocPerm `File` ⇒ query permission-aware
+    trả rỗng và MỌI dòng sẽ `has_file=0` cho đúng nhóm dùng chính — dead-gate, cùng
+    class-of-bug ADR-IMM09-SPARE-02. Chỉ đọc 4 field METADATA, KHÔNG đọc nội dung tệp,
+    và chỉ cho URL người gọi ĐƯỢC XEM ⇒ không nới quyền.
+
+    Args:
+        urls: tập `file_attachment` non-empty của các dòng hiển thị (đã dedup).
+
+    Returns:
+        dict — CHỈ chứa URL có `File` doc thật. URL vắng mặt ⇒ **link mồ côi** ⇒
+        call-site rơi về `_EMPTY_FILE_META` (`has_file=0` ∧ `file_url=""`).
+    """
+    if not urls:
+        return {}                      # KHÔNG phát `IN ()` — 0 query khi tập rỗng
+    rows = frappe.get_all(
+        _DT_FILE,
+        filters={"file_url": ["in", sorted(urls)]},
+        fields=["file_url", "file_name", "file_size", "is_private"],
+        order_by="creation asc",       # 2 File cùng URL ⇒ bản đầu tiên THẮNG (tất định)
+        limit_page_length=0,
+        ignore_permissions=True,
+    )
+    meta: dict[str, dict] = {}
+    for r in rows:
+        # `setdefault` giữ bản `creation` sớm nhất (đã sort) — KHÔNG ghi đè.
+        meta.setdefault(r["file_url"], {
+            "file_url": r["file_url"],
+            # F4 — SSoT là `File.file_name`, KHÔNG phải cột denorm `file_name_display`
+            # (cột đó tính lúc save từ chuỗi URL nên stale khi tệp bị thay).
+            "file_name": r.get("file_name") or r["file_url"].rsplit("/", 1)[-1],
+            # int() tường minh: bool lọt vào JSON không bị bắt lỗi nhưng làm vỡ
+            # strict-deser Dart/Kotlin (INV-FILE-7, quirk CR-01).
+            "file_size": int(r.get("file_size") or 0),
+            "is_private": int(r.get("is_private") or 0),
+            "has_file": 1,
+        })
+    return meta
+
+
+def _applicable_required_types(asset_category: str | None) -> list[str]:
+    """Mẫu số BR-05-17: loại hồ sơ **bắt buộc ÁP DỤNG** cho nhóm thiết bị của asset.
+
+    ``applies(t, asset) ⟺ (not t.applies_to_asset_category)              # rỗng ⇒ mọi nhóm
+                          or t.applies_to_asset_category == asset.asset_category``
+
+    Trả list **đã sort A→Z** (output tất định — 3 mảng dẫn xuất kế thừa thứ tự này).
+
+    [ROADMAP CR-75b] `applies_when_radiation` **KHÔNG** tham gia mẫu số vòng này:
+    dữ liệu bức xạ nằm ở `AC Asset Category.has_radiation` (KHÔNG trên `AC Asset`)
+    nên mở rộng sẽ đổi mẫu số của nhóm không bức xạ ⇒ ngoài phạm vi (05 §2.7.a B1).
+    Tới lúc đó loại có `applies_when_radiation=1` xử lý NHƯ loại thường.
+    """
+    rows, _pg = RequiredDocumentTypeRepo.list(
+        filters={"is_mandatory": 1},
+        fields=["type_name", "applies_to_asset_category"],
+        page_size=500,
+    )
+    return sorted({
+        r["type_name"] for r in rows
+        if not r.get("applies_to_asset_category")
+        or r["applies_to_asset_category"] == asset_category
+    })
+
+
+def _dossier_compliance(docs: list[dict], required_types: list[str],
+                        today: str | None = None) -> dict:
+    """Thuật toán chuẩn CR-75 (05 §2.7.a B3–B6) trên tập doc ĐÃ NẠP — 0 query.
+
+    ``live(t) = {d : d.doc_type_detail == t ∧ d.workflow_state == 'Active'
+                     ∧ ¬is_expired_row(d)}``
+
+    ===============================================  ==========================
+    Điều kiện                                        Kết quả
+    ===============================================  ==========================
+    ``live(t) ≠ ∅``                                  ``t`` satisfied
+    ``live(t) = ∅`` ∧ ∃ d Active đã quá hạn          ``t ∈ expired_required``
+    ``live(t) = ∅`` ∧ không có bản Active nào        ``t ∈ missing_required``
+    ===============================================  ==========================
+
+    INV-DOC-2: ``missing ∩ expired = ∅`` ∧ ``|missing| + |expired| = total − satisfied``.
+
+    ⚠ **Đối số THU HẸP tại call-site** (chặn dương-tính-giả, 04 §4.3 "Never sửa hàm
+    SSoT"): `has_expiring`/`is_exempt` trả về ở đây ĐÃ được thu hẹp bằng điều kiện
+    "hồ sơ đủ" (`satisfied == total` ∧ không có loại quá hạn) nên
+    `_compute_document_status` giữ nguyên thứ tự nhánh mà vẫn thoả INV-DOC-3
+    (`is_compliant ⟺ pct == 100`):
+      * KHÔNG thu hẹp `has_expiring` ⇒ hồ sơ THIẾU (pct 50) mà có 1 loại sắp hết hạn
+        sẽ báo `Expiring_Soon` (nhánh `has_expiring` đứng TRƯỚC `pct >= 100`) ⇒
+        `is_compliant = 1` cho hồ sơ chưa đủ — đúng loại lỗi CR-75 phải khử.
+      * `expiring_required[]` VẪN phát đầy đủ (dữ liệu không mất, chỉ đổi mức ưu tiên
+        của *trạng thái tổng*: thiếu hồ sơ nặng hơn sắp-hết-hạn).
+    """
+    today = today or nowdate()
+    by_type: dict[str, list[dict]] = {}
+    for d in docs:
+        by_type.setdefault(d.get("doc_type_detail") or "", []).append(d)
+
+    satisfied: list[str] = []
+    missing: list[str] = []
+    expired: list[str] = []
+    expiring: list[str] = []
+    exempt_cover = False
+
+    for t in required_types:
+        actives = [d for d in by_type.get(t, [])
+                   if d.get("workflow_state") == DocState.ACTIVE]
+        live = [d for d in actives if not is_expired_row(d, today)]
+        if not live:
+            (expired if actives else missing).append(t)
+            continue
+        satisfied.append(t)
+        # B4 — cover(t) = max(days) trên live; bản KHÔNG có expiry_date ⇒ +∞
+        # (không bao giờ "sắp hết hạn") nên chỉ xét khi MỌI bản live đều có hạn.
+        covers = [date_diff(d["expiry_date"], today) for d in live if d.get("expiry_date")]
+        if len(covers) == len(live) and max(covers) <= _EXPIRING_SOON_DAYS:
+            expiring.append(t)
+        if any(int(d.get("is_exempt") or 0) for d in live):
+            exempt_cover = True
+
+    total = len(required_types)
+    satisfied_count = len(satisfied)
+    # B5 — mẫu số rỗng ⇒ 100 (KHÔNG chia 0).
+    pct = 100 if total == 0 else int(round(satisfied_count / total * 100))
+    full_cover = total > 0 and satisfied_count == total and not expired
+
+    return {
+        "required_total": total,
+        "required_satisfied": satisfied_count,
+        "completeness_pct": pct,
+        "missing_required": sorted(missing),
+        "expired_required": sorted(expired),
+        "expiring_required": sorted(expiring),
+        "has_expired": bool(expired),
+        "has_expiring": bool(expiring) and full_cover,
+        "is_exempt": bool(exempt_cover) and full_cover and not expiring,
+    }
+
+
+@rowscoped
 def get_asset_documents(asset: str) -> dict:
+    """Hồ sơ pháp lý theo Asset — mức đầy đủ TÍNH THẬT + trạng thái XÉT HIỆU LỰC.
+
+    CR-75 (05 §2.7/§2.7.a, 04 §4.4). Trước CR-75 hàm trả `completeness_pct` hằng 0
+    và `document_status ∈ {Complete, Incomplete}` chỉ đo SỰ-CÓ-MẶT ⇒ hồ sơ bắt buộc
+    ĐÃ QUÁ HẠN vẫn báo "Complete" (dương-tính-giả NĐ98 Điều 41).
+
+    Thứ tự truy vấn BẮT BUỘC (B8): **V trước C**.
+      * **V** (hiển thị, `scope="user"`) giữ role-gate/row-scope ⇒ user thiếu DocPerm
+        read nhận `PermissionError` **trước** khi tới C ⇒ `@rowscoped` trả 403
+        in-envelope trên HTTP-200 (KHÔNG 4xx/500 câm).
+      * **C** (tính toán, `scope="internal"`) là aggregate org-truth: tỷ lệ tuân thủ
+        KHÔNG phụ thuộc người xem (BR-05-20 / ADR-IMM05-03). `hidden_count = |C| − |V|`
+        bộc lộ số bản bị ẩn (minh bạch phân quyền).
+
+    Args:
+        asset: `AC Asset.name`.
+
+    Returns:
+        dict — MỌI khoá luôn xuất hiện (kể cả mảng rỗng): `asset`, `required_total`,
+        `required_satisfied`, `completeness_pct` (0..100), `document_status`
+        (enum SSoT 5 giá trị), `is_compliant` (0|1), `missing_required`,
+        `expired_required`, `expiring_required`, `hidden_count`, `documents`
+        (grouped-object theo `doc_category`, mỗi dòng có `is_expired` 0|1 và
+        `days_until_expiry` DẪN XUẤT lúc đọc).
+
+        AC-CR-81 (05 §2.7.c) — MỖI dòng còn có ĐỦ 5 khoá TỆP `file_url` (str, ""),
+        `file_name` (str, ""), `file_size` (int BYTE, 0), `is_private` (int 0|1),
+        `has_file` (int 0|1), batch-resolve 1 lần qua `_resolve_file_meta`. Link mồ
+        côi ⇒ `has_file=0` ∧ `file_url=""` (KHÔNG phát link chết); `file_attachment`
+        THÔ bị `pop`, không bao giờ ra response.
+    """
     if not AssetRepo.exists(asset):
         nthrow(MSG.IMM05_ASSET_NOT_FOUND, asset=asset)
 
-    filters = _apply_visibility_filter({"asset_ref": asset})
-    docs, _pg = DocumentRepo.list(
-        filters=filters,
-        fields=["name", "doc_category", "doc_type_detail", "doc_number",
-                "version", "workflow_state", "expiry_date", "days_until_expiry",
-                "visibility", "is_exempt", "approved_by", "approval_date"],
+    today = nowdate()
+
+    # (V) hiển thị — permission-aware, LỌC visibility.
+    visible, _pg = DocumentRepo.list(
+        filters=_apply_visibility_filter({"asset_ref": asset}),
+        fields=_DOSSIER_ROW_FIELDS,
         order_by="doc_category asc, workflow_state asc",
         page_size=500,
     )
 
-    grouped: dict = {}
-    for d in docs:
-        cat = d.get("doc_category") or "Other"
-        grouped.setdefault(cat, []).append(d)
-
-    required_rows, _ = RequiredDocumentTypeRepo.list(
-        filters={"is_mandatory": 1},
-        fields=["type_name"],
+    # (C) tính toán — KHÔNG lọc visibility (aggregate org-truth, ADR-IMM05-03).
+    all_docs, _pg_all = DocumentRepo.list(
+        filters={"asset_ref": asset},
+        fields=_DOSSIER_COMPUTE_FIELDS,
         page_size=500,
+        scope="internal",
     )
-    required_types = [r["type_name"] for r in required_rows]
-    active_types = {d["doc_type_detail"] for d in docs if d["workflow_state"] == DocState.ACTIVE}
-    missing = [t for t in required_types if t not in active_types]
+
+    # 1 query cho nhóm thiết bị (KHÔNG N+1 — mọi phân loại chạy trên tập đã nạp).
+    asset_category = frappe.db.get_value("AC Asset", asset, "asset_category")
+    compliance = _dossier_compliance(all_docs, _applicable_required_types(asset_category), today)
+
+    # SSoT enum 5 giá trị — lazy-import (Pattern B cross-module, tránh circular).
+    from assetcore.assetcore.doctype.asset_document.asset_document import (
+        _compute_document_status,
+    )
+    document_status = _compute_document_status(
+        compliance["completeness_pct"],
+        compliance["has_expiring"],
+        compliance["has_expired"],
+        compliance["is_exempt"],
+    )
+
+    # AC-CR-81 (05 §2.7.c F2) — batch-resolve tệp: ĐÚNG 1 query `File` cho toàn payload,
+    # tập vào là URL của tập **V** (đã lọc visibility) ⇒ 0 rò URL dòng bị ẩn (INV-FILE-6).
+    file_meta = _resolve_file_meta(
+        {(d.get("file_attachment") or "").strip() for d in visible} - {""}
+    )
+
+    grouped: dict = {}
+    for d in visible:
+        row = dict(d)
+        # THÔ không bao giờ ra response (INV-FILE-8 + closed-schema OAS).
+        raw_url = (row.pop("file_attachment", "") or "").strip()
+        # Mồ côi / chưa đính ⇒ 5 khoá RỖNG — KHÔNG phát link chết (INV-FILE-2/3).
+        row.update(file_meta.get(raw_url) or _EMPTY_FILE_META)
+        # BR-05-21 — dẫn xuất LÚC ĐỌC (server clock), KHÔNG đọc cột đã lưu.
+        row["is_expired"] = int(is_expired_row(row, today))
+        row["days_until_expiry"] = (
+            date_diff(row["expiry_date"], today) if row.get("expiry_date") else None
+        )
+        grouped.setdefault(row.get("doc_category") or "Other", []).append(row)
 
     return {
         "asset": asset,
-        "completeness_pct": 0,
-        "document_status": "Incomplete" if missing else "Complete",
+        "required_total": compliance["required_total"],
+        "required_satisfied": compliance["required_satisfied"],
+        "completeness_pct": compliance["completeness_pct"],
+        "document_status": document_status,
+        # Khoá MÁY-ĐỌC: consumer KHÔNG phải so chuỗi (khử class-of-bug dead-branch).
+        "is_compliant": int(document_status in _COMPLIANT_STATUSES),
+        "missing_required": compliance["missing_required"],
+        "expired_required": compliance["expired_required"],
+        "expiring_required": compliance["expiring_required"],
+        "hidden_count": max(len(all_docs) - len(visible), 0),
         "documents": grouped,
-        "missing_required": missing,
     }
 
 
 # ─── Dashboards & KPIs ────────────────────────────────────────────────────────
 
+@rowscoped
 def get_dashboard_stats() -> dict:
     total_active = DocumentRepo.count({"workflow_state": DocState.ACTIVE})
     # RC-EXP: KPI "Đã hết hạn" đếm theo SoT predicate `expired_filter()` —
@@ -502,6 +777,7 @@ def get_dashboard_stats() -> dict:
     }
 
 
+@rowscoped
 def get_expiring_documents(days: int = 90) -> dict:
     days = min(365, max(1, int(days)))
     target = add_days(nowdate(), days)
@@ -622,6 +898,7 @@ def create_document_request(*, asset_ref: str, doc_type_required: str,
     return {"name": req.name, "status": req.status}
 
 
+@rowscoped
 def get_document_requests(asset_ref: str = "", status: str = "") -> dict:
     filters: dict = {}
     if asset_ref:

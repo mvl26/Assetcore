@@ -92,6 +92,93 @@ export interface AssetDocumentDetail extends AssetDocumentItem {
   can_approve?: number
 }
 
+// ─── Hồ sơ pháp lý theo THIẾT BỊ (`get_asset_documents` — CR-75) ──────────────
+
+/** Enum SSoT do BE `_compute_document_status()` phát (ĐÚNG 5 giá trị). */
+export type AssetDossierStatus =
+  | 'Compliant'
+  | 'Compliant (Exempt)'
+  | 'Expiring_Soon'
+  | 'Non-Compliant'
+  | 'Incomplete'
+
+/**
+ * Dòng tài liệu bên trong `documents[category][]`.
+ *
+ * KHÔNG extend `AssetDocumentItem`: `get_asset_documents` chỉ select 12 cột (không
+ * có `asset_ref` / `asset_name` / `modified`) — extend sẽ khiến type nói dối.
+ */
+export interface AssetDossierDocItem {
+  name: string
+  doc_category: string
+  doc_type_detail: string
+  doc_number?: string
+  version?: string
+  workflow_state: string
+  expiry_date: string | null
+  /** Dẫn xuất SERVER lúc đọc (BR-05-21) — FE KHÔNG so ngày bằng đồng hồ máy. */
+  days_until_expiry: number | null
+  /**
+   * 0|1 — server dẫn xuất theo predicate SSoT `expired_filter()`
+   * (`expiry_date` is set ∧ `< today` ∧ state ∉ {Archived, Rejected}).
+   * Vắng mặt = BE chưa deploy CR-75 ⇒ coi như "chưa biết", KHÔNG tự suy ra.
+   */
+  is_expired?: 0 | 1
+  visibility?: 'Public' | 'Internal_Only'
+  is_exempt?: 0 | 1
+  approved_by?: string | null
+  approval_date?: string | null
+
+  // ─── Tệp đính kèm THẬT (AC-CR-81) ──────────────────────────────────────────
+  // BE batch-resolve `file_attachment` → DocType `File` (1 query/payload). Link
+  // MỒ CÔI (URL không còn File doc) ⇒ `has_file=0` ∧ `file_url=''`: endpoint
+  // KHÔNG phát link chết. 5 khoá luôn có mặt sau khi BE deploy; để `?:` vì bản
+  // BE cũ chưa có ⇒ consumer degrade an toàn (KHÔNG kết luận "chưa đính kèm").
+  /** URL tệp đã XÁC MINH tồn tại; `''` = không có tệp. KHÔNG hiển thị thô ra UI. */
+  file_url?: string
+  /** Tên tệp đọc-được (hiển thị thay cho URL); `''` = không có tệp. */
+  file_name?: string
+  /** Kích thước tệp tính bằng byte; `0` = không có tệp / chưa biết. */
+  file_size?: number
+  /** 0|1 — tệp nằm trong vùng riêng tư (cần đăng nhập để mở). KHÔNG boolean (CR-01). */
+  is_private?: 0 | 1
+  /**
+   * 0|1 — khoá QUYẾT ĐỊNH duy nhất để gate nút mở tệp. `1` ⟺ `file_attachment`
+   * non-empty ∧ File doc còn tồn tại. VẮNG MẶT = BE chưa deploy ⇒ "chưa biết".
+   */
+  has_file?: 0 | 1
+}
+
+/**
+ * Hợp đồng `get_asset_documents` (docs/imm-05/05_API_Specification.md §2.7).
+ *
+ * Các khoá CR-75 để `?:` cho tới khi BE lên bản mới: consumer phải degrade an
+ * toàn (chưa biết ⇒ KHÔNG kết luận "không tuân thủ"), KHÔNG được `as unknown as`.
+ */
+export interface AssetDossier {
+  asset: string
+  /** Mẫu số: số loại bắt buộc ÁP DỤNG cho nhóm thiết bị (BR-05-17). */
+  required_total?: number
+  /** Tử số: loại có ≥1 bản Active CÒN HIỆU LỰC (BR-05-18). */
+  required_satisfied?: number
+  /** 0..100 = round(satisfied / total × 100); `required_total === 0` ⇒ 100. */
+  completeness_pct: number
+  /** Enum SSoT; hợp đồng CŨ (trước CR-75) còn phát `'Complete'`/`'Incomplete'`. */
+  document_status: AssetDossierStatus | string
+  /** Khoá MÁY-ĐỌC 0|1 — consumer gate theo khoá này, KHÔNG so chuỗi. */
+  is_compliant?: 0 | 1
+  /** Loại bắt buộc chưa có bản Active nào ⇒ hành động "bổ sung mới". */
+  missing_required: string[]
+  /** Loại bắt buộc CÓ bản Active nhưng ĐÃ QUÁ HẠN ⇒ hành động "gia hạn". */
+  expired_required?: string[]
+  /** Còn hiệu lực nhưng hết hạn trong ≤ 30 ngày (cảnh báo, KHÔNG chặn). */
+  expiring_required?: string[]
+  /** Số tài liệu bị ẩn khỏi `documents` do phân quyền (BR-05-20). */
+  hidden_count?: number
+  /** Grouped OBJECT theo `doc_category` (KHÔNG phải mảng). */
+  documents: Record<string, AssetDossierDocItem[]>
+}
+
 export interface DocumentFilters {
   doc_category?: string
   /** Plain match (`'Active'`) or Frappe operator tuple (`['not in', ['Archived','Rejected']]`). */
@@ -236,13 +323,7 @@ export function archiveDocument(name: string, reason = '') {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function getAssetDocuments(asset: string) {
-  return frappeGet<{
-    asset: string
-    completeness_pct: number
-    document_status: string
-    documents: Record<string, AssetDocumentItem[]>
-    missing_required: string[]
-  }>(`${BASE}.get_asset_documents`, { asset })
+  return frappeGet<AssetDossier>(`${BASE}.get_asset_documents`, { asset })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

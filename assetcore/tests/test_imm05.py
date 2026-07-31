@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
@@ -15,6 +16,7 @@ from frappe.utils import add_days, nowdate
 
 from assetcore.services.imm05 import (
     DocState,
+    Visibility,
     _DOC_VALID_TRANSITIONS,
     _resolve_alert_level,
     approve_document,
@@ -1043,6 +1045,898 @@ class TestGetDocumentCanApprove(unittest.TestCase):
         with patch("assetcore.services.imm05.rbac.can", return_value=True):
             data = get_document(self.name)
         self.assertIsInstance(data.get("can_approve"), int)
+
+
+# ─── CR-75 — Hồ sơ pháp lý NÓI THẬT (get_asset_documents) ─────────────────────
+#   Core Doc: docs/imm-05/05_API_Specification.md §2.7 + §2.7.a (B1..B9),
+#   docs/imm-05/04_Backend_Design.md §4.3/§4.4, docs/imm-05/07_Testing_QA.md §III.2.a.
+#   Trước CR-75: `completeness_pct` là literal 0 (stub) và `document_status` chỉ đo
+#   SỰ-CÓ-MẶT (missing rỗng ⇒ "Complete") nên hồ sơ bắt buộc ĐÃ QUÁ HẠN vẫn báo
+#   "Complete" (dương-tính-giả NĐ98 Điều 41) + từ vựng phân kỳ với enum SSoT 5 giá
+#   trị `_compute_document_status()`. Bộ test này viết TRƯỚC code (TDD, CLAUDE.md §17).
+class _DossierFixtureMixin:
+    """Fixture dùng CHUNG cho 2 bộ ca dossier: CR-75 (số học) + AC-CR-81 (tệp).
+
+    Tách thành mixin thay vì copy-paste: 07 §III.2.b yêu cầu `TestAssetDossierFileMeta`
+    **tái dùng** `_mk_asset`/`_mk_type`/`_mk_doc` của `TestAssetDossierTruth`; 2 bộ ca
+    dựng CÙNG một loại dữ liệu nên fixture phân kỳ = 2 sự thật về "dossier trông thế nào".
+    Mixin KHÔNG kế thừa `unittest.TestCase` ⇒ runner không thu thập nó như 1 bộ ca.
+    """
+
+    _PREFIX = "_Test CR75 "
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        frappe.set_user("Administrator")
+        cls._assets: list[str] = []
+        cls._categories: list[str] = []
+        cls._types: list[str] = []
+
+    @classmethod
+    def tearDownClass(cls):
+        for name in cls._assets:
+            purge_asset(name)
+        for name in cls._types:
+            try:
+                frappe.delete_doc("Required Document Type", name,
+                                  force=1, ignore_permissions=True)
+            except Exception:
+                pass
+        for name in cls._categories:
+            try:
+                frappe.delete_doc("AC Asset Category", name,
+                                  force=1, ignore_permissions=True)
+            except Exception:
+                pass
+        frappe.db.commit()
+        super().tearDownClass()
+
+    # ── fixtures ─────────────────────────────────────────────────────────────
+
+    def _mk_category(self) -> str:
+        cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": f"_TestCR75Cat-{frappe.generate_hash(length=6)}",
+            "category_code": f"C75{frappe.generate_hash(length=4)}",
+        })
+        cat.flags.ignore_mandatory = True
+        cat.insert(ignore_permissions=True)
+        type(self)._categories.append(cat.name)
+        return cat.name
+
+    def _mk_asset(self, category: str | None = None) -> str:
+        _ensure_uom()
+        payload = {
+            "doctype": "AC Asset",
+            "asset_name": f"_Test Asset CR75 {frappe.generate_hash(length=6)}",
+        }
+        if category:
+            payload["asset_category"] = category
+        doc = frappe.get_doc(payload)
+        doc.flags.ignore_mandatory = True
+        doc.insert(ignore_permissions=True)
+        type(self)._assets.append(doc.name)
+        return doc.name
+
+    def _mk_type(self, *, mandatory: int = 1, category: str = "") -> str:
+        """Tạo `Required Document Type` tạm (autoname field:type_name ⇒ tên = PK)."""
+        type_name = f"{self._PREFIX}{frappe.generate_hash(length=8)}"
+        doc = frappe.get_doc({
+            "doctype": "Required Document Type",
+            "type_name": type_name,
+            "doc_category": "Technical",
+            "is_mandatory": mandatory,
+            "applies_to_asset_category": category or "",
+        })
+        doc.flags.ignore_mandatory = True
+        doc.insert(ignore_permissions=True)
+        type(self)._types.append(doc.name)
+        return type_name
+
+    def _mk_doc(self, asset: str, type_name: str, state: str = DocState.ACTIVE,
+                *, expiry: str | None = None, visibility: str = Visibility.PUBLIC,
+                is_exempt: int = 0, stale_days: int | None = None,
+                stale_expired: int | None = None,
+                attach: str | None = "/files/dummy-test.pdf",
+                doc_category: str = "Technical") -> str:
+        """Seed 1 `Asset Document`.
+
+        Insert ở Draft rồi `db.set_value` sang state đích: bỏ qua
+        `archive_old_versions` (BR-01 tự Archive bản Active cùng loại) + VR-05/VR-06,
+        cho phép dựng CHÍNH XÁC tổ hợp (state × expiry) mà predicate cần.
+
+        ⚠ `attach` mặc định `/files/dummy-test.pdf` — chuỗi này KHÔNG có `File` doc nào
+        ⇒ mọi ca CR-75 cũ là ca **LINK MỒ CÔI** sẵn có (AC-CR-81 §2.7.c F1 nhóm 2).
+        """
+        issued = add_days(expiry, -365) if expiry else add_days(nowdate(), -400)
+        doc = frappe.get_doc({
+            "doctype": "Asset Document",
+            "asset_ref": asset,
+            "doc_category": doc_category,
+            "doc_type_detail": type_name,
+            "doc_number": f"DOC-CR75-{frappe.generate_hash(length=8)}",
+            "version": "1.0",
+            "issued_date": issued,
+            "expiry_date": expiry,
+            "file_attachment": attach,
+            "visibility": visibility,
+            "workflow_state": DocState.DRAFT,
+        })
+        doc.flags.ignore_mandatory = True
+        doc.insert(ignore_permissions=True)
+        patch: dict = {"workflow_state": state}
+        if is_exempt:
+            # VR-10/VR-11 chặn is_exempt qua doc.save (chỉ cho 2 loại NĐ98 + bắt
+            # buộc exempt_reason/proof) → set thẳng cột: ca thử đo READ-PATH.
+            patch["is_exempt"] = 1
+        if stale_days is not None:
+            patch["days_until_expiry"] = stale_days
+        if stale_expired is not None:
+            patch["is_expired"] = stale_expired
+        frappe.db.set_value("Asset Document", doc.name, patch, update_modified=False)
+        frappe.db.commit()
+        return doc.name
+
+    @staticmethod
+    def _dossier(asset: str) -> dict:
+        from assetcore.services.imm05 import get_asset_documents
+        return get_asset_documents(asset)
+
+    @staticmethod
+    def _rows(data: dict) -> list[dict]:
+        return [r for rows in (data.get("documents") or {}).values() for r in rows]
+
+    def _row_of(self, data: dict, name: str) -> dict:
+        row = next((r for r in self._rows(data) if r["name"] == name), None)
+        self.assertIsNotNone(row, f"Không thấy dòng {name} trong documents.")
+        return row
+
+
+class TestAssetDossierTruth(_DossierFixtureMixin, unittest.TestCase):
+    """CR-75 — BR-05-17..BR-05-21 cho `get_asset_documents`.
+
+    Kỹ thuật: BVA (biên hạn today/-1/+30/+31) · Decision Table (5 giá trị enum) ·
+    Invariant (INV-DOC-2/3, INV-EXP-2) · Counterexample (Archived quá hạn).
+
+    ⚠ Quyết định thiết kế test (chống dương-tính-giả do master data):
+    `Required Document Type` là **master data site-wide**; loại bắt buộc có
+    `applies_to_asset_category` rỗng áp cho MỌI asset ⇒ mẫu số của asset fixture
+    KHÔNG thể cô lập bằng fixture. Vì vậy:
+      * ca kiểm SỐ HỌC (mẫu số/pct/enum) `patch` `_applicable_required_types` để
+        chốt ĐÚNG tập loại của ca thử ⇒ số kỳ vọng tất định, khớp literal spec;
+      * ca kiểm MẪU SỐ (B1 — #03/#04/#05) chạy helper THẬT, assert theo
+        membership (∈ / ∉) nên miễn nhiễm master data có sẵn.
+    """
+
+    # ── #01 — mẫu số rỗng ⇒ KHÔNG chia 0 (TC-05-DOSSIER-01) ──────────────────
+
+    def test_cr75_01_no_applicable_required_types_is_compliant_100(self):
+        """required_total==0 ⇒ pct=100 (B5), 'Compliant', is_compliant=1, 3 mảng rỗng."""
+        asset = self._mk_asset()
+        with patch("assetcore.services.imm05._applicable_required_types", return_value=[]):
+            data = self._dossier(asset)
+        self.assertEqual(data["required_total"], 0)
+        self.assertEqual(data["required_satisfied"], 0)
+        self.assertEqual(data["completeness_pct"], 100,
+                         "required_total==0 PHẢI ⇒ pct=100 (không chia 0).")
+        self.assertEqual(data["document_status"], "Compliant")
+        self.assertEqual(data["is_compliant"], 1)
+        self.assertEqual(data["missing_required"], [])
+        self.assertEqual(data["expired_required"], [])
+        self.assertEqual(data["expiring_required"], [])
+
+    # ── #02 — nửa bộ hồ sơ ⇒ số THẬT (TC-05-DOSSIER-02) ──────────────────────
+
+    def test_cr75_02_half_dossier_returns_real_pct(self):
+        """4 loại bắt buộc, 2 loại có bản Active còn hiệu lực ⇒ pct=50, Incomplete.
+
+        RED trước fix: `completeness_pct` là literal 0.
+        """
+        asset = self._mk_asset()
+        t = [self._mk_type() for _ in range(4)]
+        self._mk_doc(asset, t[0], expiry=add_days(nowdate(), 365))
+        self._mk_doc(asset, t[1], expiry=None)
+        with patch("assetcore.services.imm05._applicable_required_types",
+                   return_value=sorted(t)):
+            data = self._dossier(asset)
+        self.assertEqual(data["required_total"], 4)
+        self.assertEqual(data["required_satisfied"], 2)
+        self.assertEqual(data["completeness_pct"], 50,
+                         "pct PHẢI = round(2/4*100) = 50 (KHÔNG stub 0).")
+        self.assertEqual(data["document_status"], "Incomplete")
+        self.assertEqual(data["is_compliant"], 0)
+        self.assertEqual(sorted(data["missing_required"]), sorted([t[2], t[3]]))
+        self.assertEqual(data["expired_required"], [])
+
+    # ── #03/#04/#05 — mẫu số ÁP DỤNG theo nhóm thiết bị (B1) ─────────────────
+
+    def test_cr75_03_type_of_other_category_excluded_from_denominator(self):
+        """Loại bắt buộc có applies_to_asset_category ≠ nhóm asset ⇒ NGOÀI mẫu số.
+
+        RED trước fix: mọi loại is_mandatory=1 đều bị đếm.
+        """
+        cat_a = self._mk_category()
+        cat_b = self._mk_category()
+        asset = self._mk_asset(cat_a)
+        foreign = self._mk_type(category=cat_b)
+        data = self._dossier(asset)
+        self.assertNotIn(foreign, data["missing_required"],
+                         "Loại thuộc nhóm KHÁC không được vào missing_required.")
+        self.assertNotIn(foreign, data["expired_required"])
+
+    def test_cr75_04_type_of_same_category_included_in_denominator(self):
+        """Loại bắt buộc có applies_to_asset_category == nhóm asset ⇒ TRONG mẫu số."""
+        cat = self._mk_category()
+        asset = self._mk_asset(cat)
+        mine = self._mk_type(category=cat)
+        data = self._dossier(asset)
+        self.assertIn(mine, data["missing_required"],
+                      "Loại cùng nhóm PHẢI vào mẫu số (và thiếu ⇒ missing_required).")
+        self.assertGreaterEqual(data["required_total"], 1)
+
+    def test_cr75_05_type_without_category_applies_to_every_asset(self):
+        """applies_to_asset_category rỗng ⇒ áp MỌI nhóm (kể cả asset không có nhóm)."""
+        asset = self._mk_asset()
+        glob = self._mk_type(category="")
+        data = self._dossier(asset)
+        self.assertIn(glob, data["missing_required"])
+
+    def test_cr75_05b_non_mandatory_type_never_counted(self):
+        """is_mandatory=0 ⇒ KHÔNG bao giờ vào mẫu số (B1)."""
+        asset = self._mk_asset()
+        optional = self._mk_type(mandatory=0)
+        data = self._dossier(asset)
+        self.assertNotIn(optional, data["missing_required"])
+        self.assertNotIn(optional, data["expired_required"])
+
+    # ── #06 — BUG LÕI: bắt buộc Active QUÁ HẠN (TC-05-DOSSIER-03) ────────────
+
+    def test_cr75_06_expired_mandatory_is_non_compliant(self):
+        """Mọi loại bắt buộc CÓ bản Active nhưng 1 loại hết hạn hôm qua ⇒
+        'Non-Compliant', loại đó ∈ expired_required ∧ ∉ missing_required, pct < 100.
+
+        RED trước fix: document_status == 'Complete' (chỉ đo sự-có-mặt).
+        """
+        asset = self._mk_asset()
+        t_ok, t_bad = self._mk_type(), self._mk_type()
+        self._mk_doc(asset, t_ok, expiry=add_days(nowdate(), 365))
+        self._mk_doc(asset, t_bad, expiry=add_days(nowdate(), -1))
+        with patch("assetcore.services.imm05._applicable_required_types",
+                   return_value=sorted([t_ok, t_bad])):
+            data = self._dossier(asset)
+        self.assertEqual(data["document_status"], "Non-Compliant")
+        self.assertEqual(data["is_compliant"], 0)
+        self.assertIn(t_bad, data["expired_required"])
+        self.assertNotIn(t_bad, data["missing_required"])
+        self.assertEqual(data["required_satisfied"], 1)
+        self.assertEqual(data["completeness_pct"], 50)
+        self.assertLess(data["completeness_pct"], 100)
+
+    # ── #07/#08/#09 — biên ngày (BVA) ────────────────────────────────────────
+
+    def test_cr75_07_expiry_today_is_not_expired(self):
+        """expiry == today ⇒ CHƯA hết hạn (`expired_filter` dùng `<`) ⇒ satisfied +
+        expiring ⇒ 'Expiring_Soon' ∧ is_compliant == 1 ∧ is_expired dòng == 0."""
+        asset = self._mk_asset()
+        t = self._mk_type()
+        name = self._mk_doc(asset, t, expiry=nowdate())
+        with patch("assetcore.services.imm05._applicable_required_types",
+                   return_value=[t]):
+            data = self._dossier(asset)
+        self.assertEqual(data["required_satisfied"], 1)
+        self.assertEqual(data["completeness_pct"], 100)
+        self.assertEqual(data["document_status"], "Expiring_Soon")
+        self.assertEqual(data["is_compliant"], 1,
+                         "Expiring_Soon là CẢNH BÁO — KHÔNG kéo is_compliant xuống 0.")
+        self.assertIn(t, data["expiring_required"])
+        self.assertEqual(self._row_of(data, name)["is_expired"], 0)
+
+    def test_cr75_08_expiry_plus_30_days_is_expiring_soon(self):
+        """Biên +30 ngày (tier Critical của _ALERT_THRESHOLDS) ⇒ Expiring_Soon."""
+        asset = self._mk_asset()
+        t = self._mk_type()
+        self._mk_doc(asset, t, expiry=add_days(nowdate(), 30))
+        with patch("assetcore.services.imm05._applicable_required_types",
+                   return_value=[t]):
+            data = self._dossier(asset)
+        self.assertEqual(data["document_status"], "Expiring_Soon")
+        self.assertEqual(data["is_compliant"], 1)
+        self.assertEqual(data["completeness_pct"], 100)
+
+    def test_cr75_09_expiry_plus_31_days_is_compliant(self):
+        """Biên +31 ngày ⇒ NGOÀI ngưỡng 30 ⇒ 'Compliant', expiring_required rỗng."""
+        asset = self._mk_asset()
+        t = self._mk_type()
+        self._mk_doc(asset, t, expiry=add_days(nowdate(), 31))
+        with patch("assetcore.services.imm05._applicable_required_types",
+                   return_value=[t]):
+            data = self._dossier(asset)
+        self.assertEqual(data["document_status"], "Compliant")
+        self.assertEqual(data["expiring_required"], [])
+        self.assertEqual(data["is_compliant"], 1)
+
+    # ── #10/#11 — counterexample: KHÔNG đọc cột đã lưu ───────────────────────
+
+    def test_cr75_10_archived_overdue_row_is_not_expired(self):
+        """Archived quá hạn 100 ngày + cột DB is_expired=1 ⇒ dòng trả về is_expired==0
+        (predicate loại Archived) — chứng minh KHÔNG đọc cột đã lưu."""
+        asset = self._mk_asset()
+        t = self._mk_type()
+        name = self._mk_doc(asset, t, state=DocState.ARCHIVED,
+                            expiry=add_days(nowdate(), -100), stale_expired=1)
+        data = self._dossier(asset)
+        self.assertEqual(self._row_of(data, name)["is_expired"], 0)
+
+    def test_cr75_11_rejected_overdue_row_is_not_expired(self):
+        """Rejected quá hạn ⇒ is_expired == 0 (cùng predicate `expired_filter`)."""
+        asset = self._mk_asset()
+        t = self._mk_type()
+        name = self._mk_doc(asset, t, state=DocState.REJECTED,
+                            expiry=add_days(nowdate(), -100), stale_expired=1)
+        data = self._dossier(asset)
+        self.assertEqual(self._row_of(data, name)["is_expired"], 0)
+
+    def test_cr75_11b_active_overdue_row_is_expired(self):
+        """Active quá hạn ⇒ is_expired == 1 (mặt còn lại của #10/#11)."""
+        asset = self._mk_asset()
+        t = self._mk_type()
+        name = self._mk_doc(asset, t, expiry=add_days(nowdate(), -3), stale_expired=0)
+        data = self._dossier(asset)
+        row = self._row_of(data, name)
+        self.assertEqual(row["is_expired"], 1)
+        self.assertIsInstance(row["is_expired"], int)
+
+    # ── #12 — days_until_expiry dẫn xuất lúc đọc (BR-05-21) ──────────────────
+
+    def test_cr75_12_days_until_expiry_derived_not_stale_column(self):
+        """Cột DB bịa 999 ⇒ response trả giá trị tính theo today (server clock)."""
+        asset = self._mk_asset()
+        t = self._mk_type()
+        name = self._mk_doc(asset, t, expiry=add_days(nowdate(), 10), stale_days=999)
+        data = self._dossier(asset)
+        row = self._row_of(data, name)
+        self.assertEqual(row["days_until_expiry"], 10,
+                         "days_until_expiry PHẢI dẫn xuất lúc đọc, KHÔNG đọc cột stale.")
+
+    def test_cr75_12b_null_expiry_row_has_null_days(self):
+        """expiry_date NULL ⇒ days_until_expiry None ∧ is_expired 0 (không crash)."""
+        asset = self._mk_asset()
+        t = self._mk_type()
+        name = self._mk_doc(asset, t, expiry=None)
+        data = self._dossier(asset)
+        row = self._row_of(data, name)
+        self.assertIsNone(row["days_until_expiry"])
+        self.assertEqual(row["is_expired"], 0)
+
+    # ── #13/#14 — miễn đăng ký (BR-05-08 + ADR-IMM05-02 narrowed exempt) ─────
+
+    def test_cr75_13_exempt_covering_full_dossier(self):
+        """Đủ loại bắt buộc + 1 bản is_exempt=1 (không expiring) ⇒
+        'Compliant (Exempt)' ∧ is_compliant == 1."""
+        asset = self._mk_asset()
+        t = self._mk_type()
+        self._mk_doc(asset, t, expiry=add_days(nowdate(), 365), is_exempt=1)
+        with patch("assetcore.services.imm05._applicable_required_types",
+                   return_value=[t]):
+            data = self._dossier(asset)
+        self.assertEqual(data["document_status"], "Compliant (Exempt)")
+        self.assertEqual(data["is_compliant"], 1)
+        self.assertEqual(data["completeness_pct"], 100)
+
+    def test_cr75_14_exempt_does_not_mask_missing_type(self):
+        """ANTI-LIE: 1 bản is_exempt=1 nhưng còn 1 loại bắt buộc THIẾU ⇒
+        'Incomplete' (KHÔNG 'Compliant (Exempt)') ∧ is_compliant == 0."""
+        asset = self._mk_asset()
+        t_ok, t_missing = self._mk_type(), self._mk_type()
+        self._mk_doc(asset, t_ok, expiry=add_days(nowdate(), 365), is_exempt=1)
+        with patch("assetcore.services.imm05._applicable_required_types",
+                   return_value=sorted([t_ok, t_missing])):
+            data = self._dossier(asset)
+        self.assertEqual(data["document_status"], "Incomplete")
+        self.assertEqual(data["is_compliant"], 0)
+        self.assertIn(t_missing, data["missing_required"])
+
+    # ── #15/#16 — invariant ──────────────────────────────────────────────────
+
+    def test_cr75_15_inv_doc_2_partition(self):
+        """INV-DOC-2: |missing| + |expired| == total − satisfied ∧ 2 mảng RỜI NHAU."""
+        asset = self._mk_asset()
+        t_ok, t_exp, t_missing, t_null = (self._mk_type() for _ in range(4))
+        self._mk_doc(asset, t_ok, expiry=add_days(nowdate(), 365))
+        self._mk_doc(asset, t_exp, expiry=add_days(nowdate(), -2))
+        self._mk_doc(asset, t_null, expiry=None)
+        with patch("assetcore.services.imm05._applicable_required_types",
+                   return_value=sorted([t_ok, t_exp, t_missing, t_null])):
+            data = self._dossier(asset)
+        missing, expired = set(data["missing_required"]), set(data["expired_required"])
+        self.assertEqual(missing & expired, set(), "2 mảng PHẢI rời nhau.")
+        self.assertEqual(
+            len(missing) + len(expired),
+            data["required_total"] - data["required_satisfied"],
+            "INV-DOC-2: |missing| + |expired| == total − satisfied.")
+
+    def test_cr75_16_inv_doc_3_is_compliant_equivalence(self):
+        """INV-DOC-3: is_compliant == int(satisfied == total) == int(pct == 100)
+        ∧ is_compliant == 1 ⟺ status ∈ {Compliant, Compliant (Exempt), Expiring_Soon}."""
+        compliant_set = {"Compliant", "Compliant (Exempt)", "Expiring_Soon"}
+        asset = self._mk_asset()
+        t_ok, t_exp, t_missing = (self._mk_type() for _ in range(3))
+        self._mk_doc(asset, t_ok, expiry=add_days(nowdate(), 365))
+        self._mk_doc(asset, t_exp, expiry=add_days(nowdate(), -2))
+        cases = [
+            sorted([t_ok, t_exp, t_missing]),   # hỗn hợp
+            [t_ok],                             # đủ
+            [t_missing],                        # thiếu
+            [],                                 # mẫu số rỗng
+        ]
+        for required in cases:
+            with self.subTest(required=len(required)):
+                with patch("assetcore.services.imm05._applicable_required_types",
+                           return_value=required):
+                    data = self._dossier(asset)
+                self.assertEqual(
+                    data["is_compliant"],
+                    int(data["required_satisfied"] == data["required_total"]))
+                self.assertEqual(data["is_compliant"], int(data["completeness_pct"] == 100))
+                self.assertEqual(data["is_compliant"],
+                                 int(data["document_status"] in compliant_set))
+
+    # ── #17 — INV-EXP-2: cặp song sinh predicate (mutation target) ───────────
+
+    def test_cr75_17_inv_exp_2_row_predicate_matches_expired_filter(self):
+        """`is_expired_row` (row đã nạp) trùng KHÍT `expired_filter()` (query) trên
+        tập ≥6 doc phủ mọi state × (NULL / quá hạn / còn hạn)."""
+        from assetcore.services.imm05 import expired_filter, is_expired_row
+        asset = self._mk_asset()
+        t = self._mk_type()
+        names = [
+            self._mk_doc(asset, t, state=DocState.ACTIVE, expiry=add_days(nowdate(), -5)),
+            self._mk_doc(asset, t, state=DocState.DRAFT, expiry=add_days(nowdate(), -5)),
+            self._mk_doc(asset, t, state=DocState.PENDING_REVIEW, expiry=add_days(nowdate(), -5)),
+            self._mk_doc(asset, t, state=DocState.ARCHIVED, expiry=add_days(nowdate(), -5)),
+            self._mk_doc(asset, t, state=DocState.REJECTED, expiry=add_days(nowdate(), -5)),
+            self._mk_doc(asset, t, state=DocState.ACTIVE, expiry=None),
+            self._mk_doc(asset, t, state=DocState.ACTIVE, expiry=add_days(nowdate(), 5)),
+        ]
+        rows = frappe.get_all(
+            "Asset Document", filters={"asset_ref": asset},
+            fields=["name", "workflow_state", "expiry_date"], limit_page_length=0)
+        by_python = {r["name"] for r in rows if is_expired_row(r)}
+        by_query = {
+            r["name"] for r in frappe.get_all(
+                "Asset Document",
+                filters=expired_filter() + [["asset_ref", "=", asset]],
+                fields=["name"], limit_page_length=0)
+        }
+        self.assertEqual(by_python, by_query,
+                         "INV-EXP-2: predicate Python PHẢI trùng khít predicate query.")
+        self.assertEqual(len(names), 7)
+
+    # ── #18 — BR-05-20: tính trên tập ĐẦY ĐỦ, hiển thị vẫn lọc quyền ─────────
+
+    def test_cr75_18_completeness_computed_on_full_set_display_filtered(self):
+        """Persona thiếu `document.read`: `documents` chỉ còn bản Public (+ hidden_count>0)
+        NHƯNG required_total/pct/status BẰNG kết quả chạy dưới Administrator."""
+        asset = self._mk_asset()
+        t_pub, t_int = self._mk_type(), self._mk_type()
+        self._mk_doc(asset, t_pub, expiry=add_days(nowdate(), 365))
+        self._mk_doc(asset, t_int, expiry=add_days(nowdate(), 365),
+                     visibility=Visibility.INTERNAL_ONLY)
+        required = sorted([t_pub, t_int])
+        with patch("assetcore.services.imm05._applicable_required_types",
+                   return_value=required):
+            full = self._dossier(asset)
+            with patch("assetcore.services.imm05._can_see_internal", return_value=False):
+                limited = self._dossier(asset)
+        for key in ("required_total", "required_satisfied", "completeness_pct",
+                    "document_status", "is_compliant"):
+            self.assertEqual(limited[key], full[key],
+                             f"'{key}' PHẢI tính trên tập ĐẦY ĐỦ (BR-05-20), không theo visibility.")
+        self.assertEqual(full["hidden_count"], 0)
+        self.assertGreater(limited["hidden_count"], 0,
+                           "hidden_count PHẢI lộ số bản bị ẩn (minh bạch phân quyền).")
+        self.assertLess(len(self._rows(limited)), len(self._rows(full)))
+        self.assertEqual(limited["completeness_pct"], 100)
+
+    def test_cr75_18b_visibility_filtered_rows_are_public_only(self):
+        """No-leak: persona thiếu `document.read` KHÔNG thấy bản Internal_Only, KHÔNG 500."""
+        asset = self._mk_asset()
+        t = self._mk_type()
+        self._mk_doc(asset, t, expiry=add_days(nowdate(), 365),
+                     visibility=Visibility.INTERNAL_ONLY)
+        with patch("assetcore.services.imm05._can_see_internal", return_value=False):
+            data = self._dossier(asset)
+        self.assertTrue(
+            all(r.get("visibility") in (Visibility.PUBLIC, "", None)
+                for r in self._rows(data)),
+            "Chỉ tài liệu Public được hiển thị cho persona thiếu document.read.")
+
+    # ── 0-regress hợp đồng + guard nguồn ─────────────────────────────────────
+
+    def test_cr75_19_legacy_keys_and_grouped_shape_preserved(self):
+        """5 khoá cũ còn nguyên + `documents` VẪN là grouped-object theo doc_category."""
+        asset = self._mk_asset()
+        t = self._mk_type()
+        self._mk_doc(asset, t, expiry=add_days(nowdate(), 365))
+        data = self._dossier(asset)
+        for key in ("asset", "completeness_pct", "document_status",
+                    "documents", "missing_required"):
+            self.assertIn(key, data, f"Khoá cũ '{key}' KHÔNG được biến mất (backward-compat).")
+        for key in ("required_total", "required_satisfied", "is_compliant",
+                    "expired_required", "expiring_required", "hidden_count"):
+            self.assertIn(key, data, f"Khoá mới CR-75 '{key}' phải LUÔN xuất hiện.")
+        self.assertEqual(data["asset"], asset)
+        self.assertIsInstance(data["documents"], dict,
+                              "`documents` PHẢI là grouped-object keyed doc_category.")
+        self.assertIn("Technical", data["documents"])
+        self.assertIsInstance(data["documents"]["Technical"], list)
+        self.assertIsInstance(data["is_compliant"], int)
+        self.assertNotIsInstance(data["is_compliant"], bool)
+        self.assertIsInstance(data["completeness_pct"], int)
+
+    def test_cr75_20_no_stub_literal_in_source(self):
+        """Guard A1: literal `"completeness_pct": 0` KHÔNG còn trong services/imm05.py."""
+        src = Path(__file__).resolve().parents[1] / "services" / "imm05.py"
+        text = src.read_text(encoding="utf-8")
+        self.assertNotIn(
+            '"completeness_pct": 0', text,
+            "Stub hồi quy: completeness_pct KHÔNG được là hằng 0 (CR-75 A1).")
+
+    def test_cr75_21_document_status_never_uses_legacy_vocabulary(self):
+        """Hết phân kỳ từ vựng: 'Complete' KHÔNG còn là giá trị document_status."""
+        allowed = {"Compliant", "Compliant (Exempt)", "Expiring_Soon",
+                   "Non-Compliant", "Incomplete"}
+        asset = self._mk_asset()
+        t = self._mk_type()
+        self._mk_doc(asset, t, expiry=add_days(nowdate(), 365))
+        data = self._dossier(asset)
+        self.assertIn(data["document_status"], allowed,
+                      "document_status PHẢI thuộc enum SSoT 5 giá trị của "
+                      "_compute_document_status() — KHÔNG 'Complete'/'Incomplete' riêng.")
+
+
+# ─── AC-CR-81 — mỗi dòng hồ sơ phơi TỆP THẬT ─────────────────────────────────
+#   Core Doc: docs/imm-05/05_API_Specification.md §2.7.c (F0–F6 + INV-FILE-1..8),
+#   docs/imm-05/04_Backend_Design.md §4.4-bis, docs/imm-05/07_Testing_QA.md §III.2.b.
+#   Trước AC-CR-81: CR-75 CỐ Ý không phát `file_url` ⇒ màn "Hồ sơ pháp lý thiết bị" là
+#   STATE CHẾT — người dùng thấy "Giấy phép nhập khẩu · Active · còn 300 ngày" mà KHÔNG
+#   có đường nào mở tờ giấy phép (NĐ98 Điều 41: bằng chứng không truy xuất được ≈ không
+#   có bằng chứng). Bộ ca này viết TRƯỚC code (TDD, CLAUDE.md §17).
+class TestAssetDossierFileMeta(_DossierFixtureMixin, unittest.TestCase):
+    """AC-CR-81 — 5 khoá TỆP trên MỖI dòng `documents[<doc_category>][]`.
+
+    Kỹ thuật: Decision Table (có tệp / mồ côi / rỗng) · Invariant (INV-FILE-1..8) ·
+    Counterexample (link mồ côi KHÔNG được phát ra UI) · Đo-số-query (chống N+1).
+
+    ⚠ Fixture `_mk_doc` mặc định gán `file_attachment = "/files/dummy-test.pdf"` mà
+    KHÔNG có `File` doc ⇒ mọi ca CR-75 cũ tự rơi nhánh `has_file = 0` — đây là TÍNH
+    NĂNG (0 sửa fixture cũ) và là lý do ca #03 phải khẳng định tường minh.
+    """
+
+    _PREFIX = "_Test CR81 "
+
+    _FILE_KEYS = ("file_url", "file_name", "file_size", "is_private", "has_file")
+
+    #: Tiền tố `File.file_name` của bộ ca — teardown quét THEO TIỀN TỐ, không theo
+    #: danh sách đã tạo: hook `link_uploaded_files` (`hooks.py::doc_events["*"]`) NHÂN
+    #: BẢN File cho mỗi `Asset Document` trỏ tới cùng URL ⇒ danh sách tự-ghi bỏ sót
+    #: bản sao và để rác trên site (class-of-bug fixture-leak đã dọn 2026-05-29).
+    _FILE_PREFIX = "_test_cr81_"
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls._files: list[str] = []
+
+    @classmethod
+    def tearDownClass(cls):
+        # Xoá Asset Document/asset TRƯỚC (super) rồi mới xoá File: File còn bị doc
+        # tham chiếu sẽ vướng `validate_attachment_references`.
+        super().tearDownClass()
+        cls._purge_test_files()
+
+    @classmethod
+    def _purge_test_files(cls) -> None:
+        """Xoá MỌI `File` fixture của bộ ca (kể cả bản sao do hook sinh) + tệp trên đĩa."""
+        # `_` là ký tự đại diện của LIKE ⇒ bọc `%…%` thay vì ghép tiền tố thô.
+        names = frappe.get_all(
+            "File", filters={"file_name": ["like", f"%{cls._FILE_PREFIX}%"]},
+            pluck="name", limit_page_length=0)
+        for name in names:
+            try:
+                frappe.delete_doc("File", name, force=1, ignore_permissions=True,
+                                  delete_permanently=True)
+            except Exception:
+                pass
+        frappe.db.commit()
+        for scope in ("public", "private"):
+            folder = Path(frappe.get_site_path(scope, "files"))
+            for leftover in folder.glob(f"*{cls._FILE_PREFIX}*"):
+                try:
+                    leftover.unlink()
+                except OSError:
+                    pass
+
+    # ── fixtures ─────────────────────────────────────────────────────────────
+
+    def _mk_file(self, *, private: int = 0, size: int = 64) -> dict:
+        """Tạo `File` doc THẬT (ghi bytes xuống đĩa) — xoá trong tearDownClass.
+
+        Đuôi `.docx`: VR-08 (`asset_document.py`) chỉ nhận PDF/JPG/PNG/DOCX, còn
+        `File.check_content` quét nội dung bằng pypdf khi `file_type == "PDF"` nên bytes
+        rác + đuôi `.pdf` ném `PdfStreamError` (xem `test_attachment_upload.py`).
+        Nội dung có tiền tố NGẪU NHIÊN: `File.validate_duplicate_entry` gộp 2 file trùng
+        `content_hash` về CÙNG `file_url` ⇒ nội dung giống nhau sẽ phá ca #06 (6 URL riêng).
+        """
+        content = (frappe.generate_hash(length=16) + "x" * max(size - 16, 0)).encode()
+        doc = frappe.get_doc({
+            "doctype": "File",
+            "file_name": f"_test_cr81_{frappe.generate_hash(length=8)}.docx",
+            "is_private": private,
+            "content": content,
+            "decode": False,
+        }).insert(ignore_permissions=True)
+        type(self)._files.append(doc.name)
+        return {
+            "url": doc.file_url,
+            "file_name": doc.file_name,
+            "file_size": int(doc.file_size or 0),
+            "is_private": int(doc.is_private or 0),
+        }
+
+    @contextmanager
+    def _count_queries(self):
+        """Đếm `frappe.get_all` THEO doctype (07 §III.2.b) — không phụ thuộc log SQL.
+
+        Yield list `[(doctype, filters), …]`; ca #06/#07/#08 lọc `doctype == "File"`.
+        """
+        calls: list[tuple] = []
+        real = frappe.get_all
+
+        def spy(doctype, *args, **kwargs):
+            calls.append((doctype, kwargs.get("filters")))
+            return real(doctype, *args, **kwargs)
+
+        with patch("assetcore.services.imm05.frappe.get_all", side_effect=spy):
+            yield calls
+
+    @staticmethod
+    def _file_calls(calls: list[tuple]) -> list[tuple]:
+        return [c for c in calls if c[0] == "File"]
+
+    def _assert_empty_file_meta(self, row: dict, why: str) -> None:
+        """INV-FILE-1/2/3 — 5 khoá CÓ MẶT và ở giá trị RỖNG chuẩn ("", 0)."""
+        for key in self._FILE_KEYS:
+            self.assertIn(key, row, f"{why}: khoá `{key}` PHẢI luôn có mặt (INV-FILE-1).")
+            self.assertIsNotNone(row[key], f"{why}: `{key}` KHÔNG được None (AC1).")
+        self.assertEqual(row["has_file"], 0, why)
+        self.assertEqual(row["file_url"], "", f"{why}: KHÔNG phát link chết (INV-FILE-2).")
+        self.assertEqual(row["file_name"], "", f"{why} (INV-FILE-3).")
+        self.assertEqual(row["file_size"], 0, f"{why} (INV-FILE-3).")
+        self.assertEqual(row["is_private"], 0, f"{why} (INV-FILE-3).")
+
+    # ── #01 — 5 khoá LUÔN có mặt (TC-05-FILE-01, INV-FILE-1/AC1) ─────────────
+
+    def test_cr81_01_five_file_keys_always_present(self):
+        """Dòng CHƯA đính tệp vẫn có ĐỦ 5 khoá, 0 giá trị None (client không null-check)."""
+        asset = self._mk_asset()
+        t = self._mk_type()
+        name = self._mk_doc(asset, t, expiry=add_days(nowdate(), 365), attach="")
+        row = self._row_of(self._dossier(asset), name)
+        self._assert_empty_file_meta(row, "Dòng chưa đính tệp")
+
+    # ── #02 — tệp THẬT (TC-05-FILE-02, AC2) ──────────────────────────────────
+
+    def test_cr81_02_real_file_resolves_all_four_metadata_keys(self):
+        """`file_attachment` trỏ File doc TỒN TẠI ⇒ has_file=1 + 4 khoá khớp ĐÚNG File doc."""
+        asset = self._mk_asset()
+        t = self._mk_type()
+        f = self._mk_file(size=128)
+        name = self._mk_doc(asset, t, expiry=add_days(nowdate(), 365), attach=f["url"])
+        row = self._row_of(self._dossier(asset), name)
+        self.assertEqual(row["has_file"], 1,
+                         "File doc TỒN TẠI ⇒ has_file PHẢI = 1 (AC2).")
+        self.assertEqual(row["file_url"], f["url"])
+        self.assertEqual(row["file_name"], f["file_name"],
+                         "file_name PHẢI lấy từ `File.file_name` (SSoT), KHÔNG phải cột "
+                         "denorm `file_name_display` (F4).")
+        self.assertEqual(row["file_size"], f["file_size"])
+        self.assertGreater(row["file_size"], 0)
+        self.assertIn(row["is_private"], (0, 1))
+
+    # ── #03 — LINK MỒ CÔI (TC-05-FILE-03, INV-FILE-2/3 — khoá nghiệp vụ F3) ──
+
+    def test_cr81_03_orphan_link_never_leaves_a_dead_url(self):
+        """`file_attachment` trỏ URL KHÔNG còn File doc ⇒ has_file=0 ∧ 5 khoá RỖNG.
+
+        Counterexample: nút «Mở tệp» dẫn 404 giữa ca trực khiến KTV/thanh tra tin rằng
+        bệnh viện MẤT hồ sơ NĐ98, trong khi sự thật là bản ghi trỏ sai.
+        """
+        asset = self._mk_asset()
+        t = self._mk_type()
+        orphan = f"/files/khong-ton-tai-{frappe.generate_hash(length=8)}.pdf"
+        name = self._mk_doc(asset, t, expiry=add_days(nowdate(), 365), attach=orphan)
+        data = self._dossier(asset)
+        row = self._row_of(data, name)
+        self._assert_empty_file_meta(row, "Link mồ côi")
+        self.assertNotIn(orphan, json.dumps(data, default=str),
+                         "URL mồ côi KHÔNG được xuất hiện ở BẤT KỲ đâu trong payload.")
+
+    # ── #04 — rỗng / None (TC-05-FILE-04) ────────────────────────────────────
+
+    def test_cr81_04_empty_and_null_attachment_both_safe(self):
+        """`file_attachment` "" và None ⇒ như #01, KHÔNG KeyError (2 biến thể)."""
+        asset = self._mk_asset()
+        t = self._mk_type()
+        n_empty = self._mk_doc(asset, t, expiry=add_days(nowdate(), 365), attach="")
+        n_null = self._mk_doc(asset, t, expiry=add_days(nowdate(), 365), attach=None)
+        data = self._dossier(asset)
+        self._assert_empty_file_meta(self._row_of(data, n_empty), 'attach = ""')
+        self._assert_empty_file_meta(self._row_of(data, n_null), "attach = None")
+
+    # ── #05 — cờ là int THUẦN (TC-05-FILE-05, INV-FILE-7 / quirk CR-01) ──────
+
+    def test_cr81_05_flags_are_plain_int_not_bool(self):
+        """`has_file`/`is_private` PHẢI là int thuần — bool lọt vào làm vỡ strict-deser
+        Dart/Kotlin (bool là subclass của int ⇒ phải assertNotIsInstance riêng)."""
+        asset = self._mk_asset()
+        t = self._mk_type()
+        f = self._mk_file(private=1)
+        name = self._mk_doc(asset, t, expiry=add_days(nowdate(), 365), attach=f["url"])
+        row = self._row_of(self._dossier(asset), name)
+        for key in ("has_file", "is_private", "file_size"):
+            self.assertIs(type(row[key]), int, f"`{key}` PHẢI là int thuần (INV-FILE-7).")
+            self.assertNotIsInstance(row[key], bool,
+                                     f"`{key}` KHÔNG được là bool (quirk CR-01).")
+
+    # ── #06 — chống N+1 (TC-05-FILE-06, INV-FILE-4/AC3) ──────────────────────
+
+    def test_cr81_06_batch_resolve_is_exactly_one_file_query(self):
+        """12 dòng / 3 doc_category, 6 dòng có tệp ⇒ ĐÚNG 1 truy vấn `File` toàn payload.
+
+        Mutation: chuyển `_resolve_file_meta` vào trong vòng lặp dòng ⇒ ca này ĐỎ.
+        """
+        asset = self._mk_asset()
+        t = self._mk_type()
+        # 3 nhóm KHÔNG kích VR-04 (`Legal` bắt buộc `issuing_authority`) — ca này đo
+        # SỐ QUERY, không đo validator.
+        categories = ["Technical", "Certification", "Training"]
+        for i in range(12):
+            attach = self._mk_file()["url"] if i % 2 == 0 else ""
+            self._mk_doc(asset, t, expiry=add_days(nowdate(), 365),
+                         attach=attach, doc_category=categories[i % 3])
+        with self._count_queries() as calls:
+            data = self._dossier(asset)
+        self.assertEqual(len(self._file_calls(calls)), 1,
+                         "PHẢI ĐÚNG 1 truy vấn `File` bất kể số dòng (INV-FILE-4). "
+                         f"Thực tế: {len(self._file_calls(calls))}.")
+        self.assertEqual(len(self._rows(data)), 12)
+        self.assertEqual(sum(r["has_file"] for r in self._rows(data)), 6)
+
+    # ── #07 — tập rỗng ⇒ 0 query (TC-05-FILE-07) ─────────────────────────────
+
+    def test_cr81_07_no_attachment_means_zero_file_query(self):
+        """Mọi dòng rỗng ⇒ 0 truy vấn `File` (KHÔNG phát `IN ()` vô nghĩa)."""
+        asset = self._mk_asset()
+        t = self._mk_type()
+        for _ in range(3):
+            self._mk_doc(asset, t, expiry=add_days(nowdate(), 365), attach="")
+        with self._count_queries() as calls:
+            data = self._dossier(asset)
+        self.assertEqual(self._file_calls(calls), [],
+                         "Tập URL rỗng ⇒ KHÔNG được chạy truy vấn `File` nào.")
+        self.assertTrue(all(r["has_file"] == 0 for r in self._rows(data)))
+
+    # ── #08 — dedup (TC-05-FILE-08) ──────────────────────────────────────────
+
+    def test_cr81_08_same_url_on_three_rows_is_deduped(self):
+        """3 dòng dùng CÙNG `file_url` ⇒ 1 query, đối số `in` có ĐÚNG 1 phần tử."""
+        asset = self._mk_asset()
+        t = self._mk_type()
+        f = self._mk_file()
+        for _ in range(3):
+            self._mk_doc(asset, t, expiry=add_days(nowdate(), 365), attach=f["url"])
+        with self._count_queries() as calls:
+            data = self._dossier(asset)
+        file_calls = self._file_calls(calls)
+        self.assertEqual(len(file_calls), 1)
+        urls = (file_calls[0][1] or {}).get("file_url")
+        self.assertEqual(urls[0], "in", f"filters PHẢI dùng toán tử `in`: {urls}")
+        self.assertEqual(len(urls[1]), 1,
+                         f"Tập URL PHẢI dedup trước khi query (F2): {urls[1]}")
+        rows = self._rows(data)
+        self.assertEqual(len(rows), 3)
+        self.assertTrue(all(r["has_file"] == 1 for r in rows))
+
+    # ── #09 — 0 REGRESS nhánh tuân thủ (TC-05-FILE-09, INV-FILE-5/AC4) ───────
+
+    def test_cr81_09_compliance_branch_is_untouched(self):
+        """Ca CR-75 #02 (pct 50) chạy lại: 9 khoá F6 y hệt giá trị kỳ vọng CR-75."""
+        asset = self._mk_asset()
+        t = [self._mk_type() for _ in range(4)]
+        self._mk_doc(asset, t[0], expiry=add_days(nowdate(), 365),
+                     attach=self._mk_file()["url"])
+        self._mk_doc(asset, t[1], expiry=None, attach="")
+        with patch("assetcore.services.imm05._applicable_required_types",
+                   return_value=sorted(t)):
+            data = self._dossier(asset)
+        self.assertEqual(data["required_total"], 4)
+        self.assertEqual(data["required_satisfied"], 2)
+        self.assertEqual(data["completeness_pct"], 50,
+                         "AC4: nhánh tính toán (C) KHÔNG được đụng khi bồi khoá tệp.")
+        self.assertEqual(data["document_status"], "Incomplete")
+        self.assertEqual(data["is_compliant"], 0)
+        self.assertEqual(sorted(data["missing_required"]), sorted([t[2], t[3]]))
+        self.assertEqual(data["expired_required"], [])
+        self.assertEqual(data["expiring_required"], [])
+        self.assertEqual(data["hidden_count"], 0)
+
+    # ── #10 — 0 RÒ QUYỀN (TC-05-FILE-10, INV-FILE-6/AC5) ─────────────────────
+
+    def test_cr81_10_hidden_row_url_never_reaches_payload(self):
+        """Persona thiếu `document.read`: dòng Internal_Only vắng khỏi `documents` VÀ
+        URL tệp của nó KHÔNG xuất hiện ở bất kỳ đâu trong payload; hidden_count == 1.
+
+        Mutation: đổi tập vào của batch từ V (đã lọc visibility) sang C ⇒ ca này ĐỎ.
+        """
+        asset = self._mk_asset()
+        t_pub, t_int = self._mk_type(), self._mk_type()
+        f_pub, f_int = self._mk_file(), self._mk_file()
+        n_pub = self._mk_doc(asset, t_pub, expiry=add_days(nowdate(), 365),
+                             attach=f_pub["url"])
+        n_int = self._mk_doc(asset, t_int, expiry=add_days(nowdate(), 365),
+                             attach=f_int["url"], visibility=Visibility.INTERNAL_ONLY)
+        with patch("assetcore.services.imm05._can_see_internal", return_value=False):
+            data = self._dossier(asset)
+        names = {r["name"] for r in self._rows(data)}
+        self.assertIn(n_pub, names)
+        self.assertNotIn(n_int, names, "Dòng Internal_Only PHẢI bị lọc khỏi `documents`.")
+        self.assertEqual(data["hidden_count"], 1,
+                         "hidden_count PHẢI vẫn đếm đúng số bản bị ẩn (AC5).")
+        blob = json.dumps(data, default=str)
+        self.assertNotIn(f_int["url"], blob,
+                         "RÒ QUYỀN: URL tệp của dòng bị ẩn KHÔNG BAO GIỜ được ra response "
+                         "(INV-FILE-6) — batch PHẢI chạy trên tập V, KHÔNG phải tập C.")
+        self.assertEqual(self._row_of(data, n_pub)["file_url"], f_pub["url"])
+
+    # ── #11 — tệp riêng tư (TC-05-FILE-11, F5) ───────────────────────────────
+
+    def test_cr81_11_private_file_flag_and_path(self):
+        """`File.is_private = 1` ⇒ is_private == 1 ∧ file_url bắt đầu `/private/files/`."""
+        asset = self._mk_asset()
+        t = self._mk_type()
+        f = self._mk_file(private=1)
+        name = self._mk_doc(asset, t, expiry=add_days(nowdate(), 365), attach=f["url"])
+        row = self._row_of(self._dossier(asset), name)
+        self.assertEqual(row["is_private"], 1)
+        self.assertTrue(row["file_url"].startswith("/private/files/"),
+                        f"Tệp riêng tư phục vụ qua /private/files/…: {row['file_url']}")
+        self.assertEqual(row["has_file"], 1)
+
+    # ── #12 — key-set ĐÚNG 18 (TC-05-FILE-12, INV-FILE-8) ────────────────────
+
+    def test_cr81_12_row_keyset_is_exactly_eighteen_keys(self):
+        """13 khoá CR-75 + 5 khoá tệp; `file_attachment` THÔ KHÔNG lọt (closed-schema OAS).
+
+        Mutation: bỏ `row.pop("file_attachment")` ⇒ ca này ĐỎ (khoá thứ 19 làm vỡ
+        codegen client vì `additionalProperties: false`).
+        """
+        expected = sorted([
+            "approval_date", "approved_by", "days_until_expiry", "doc_category",
+            "doc_number", "doc_type_detail", "expiry_date", "is_exempt", "is_expired",
+            "name", "version", "visibility", "workflow_state",
+            *self._FILE_KEYS,
+        ])
+        asset = self._mk_asset()
+        t = self._mk_type()
+        f = self._mk_file()
+        name = self._mk_doc(asset, t, expiry=add_days(nowdate(), 365), attach=f["url"])
+        row = self._row_of(self._dossier(asset), name)
+        self.assertEqual(sorted(row.keys()), expected,
+                         "Key-set mỗi dòng PHẢI ĐÚNG 18 khoá (INV-FILE-8).")
+        self.assertNotIn("file_attachment", row,
+                         "`file_attachment` THÔ KHÔNG BAO GIỜ ra response (F3).")
 
 
 if __name__ == "__main__":

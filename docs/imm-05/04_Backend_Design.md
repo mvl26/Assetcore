@@ -439,23 +439,155 @@ def vr_07_legal_requires_expiry(self):
 >
 > **⚠️ Bug VR-03:** `vr_03_file_required_for_review()` trong controller kiểm tra `workflow_state == "Pending_Review"` (underscore) thay vì `"Pending Review"` (space) — VR-03 không được kích hoạt khi nào cả. Cần sửa: `"Pending_Review"` → `"Pending Review"` trước khi deploy.
 
-### §4.3 `_compute_document_status` logic
+### §4.3 `_compute_document_status` — enum SSoT 5 giá trị
+
+**Ground truth** (`assetcore/assetcore/doctype/asset_document/asset_document.py`, module-level function — KHÔNG phải method):
 
 ```python
-def _compute_document_status(self, pct: float, is_exempt: bool,
-                              has_expired: bool, days_min: int) -> str:
+def _compute_document_status(pct: float, has_expiring: bool, has_expired: bool, is_exempt: bool) -> str:
+    """Tính custom_document_status enum cho Asset."""
     if is_exempt:
         return "Compliant (Exempt)"
     if has_expired:
         return "Non-Compliant"
-    if 0 <= days_min <= 30:
+    if has_expiring:
         return "Expiring_Soon"
     if pct >= 100:
         return "Compliant"
     return "Incomplete"
 ```
 
+> **Self-Correction CR-75:** snippet cũ ở mục này ghi sai chữ ký (`self`, thứ tự `is_exempt, has_expired, days_min`, so sánh `0 <= days_min <= 30` bên trong hàm). Chữ ký thật là 4 tham số **thuần** `(pct, has_expiring, has_expired, is_exempt)` và ngưỡng 30 ngày do **call-site** quyết định. Đã đồng bộ theo code.
+
+**Trạng thái trước CR-75:** hàm này có **0 lời gọi runtime** (dead SSoT) — enum 5 giá trị chỉ tồn tại trong docs/trace (BR-05-08, [09 §Traceability](./09_Release.md)) trong khi `get_asset_documents` tự phát bộ từ vựng thứ hai `Complete|Incomplete`. CR-75 **kích hoạt lại** hàm: `services/imm05.py::get_asset_documents` **lazy-import** và gọi nó (Pattern B cross-module — import trong thân hàm, tránh circular ở app-load):
+
+```python
+from assetcore.assetcore.doctype.asset_document.asset_document import _compute_document_status
+```
+
+**Boundaries:** **Always** — chỉ MỘT nơi sinh 5 giá trị này (hàm trên). **Never** — copy 5 literal sang `services/imm05.py`, đổi thứ tự nhánh, hay thêm giá trị thứ 6. Cần chặn dương-tính-giả ⇒ **thu hẹp đối số tại call-site** (§4.4 B6), KHÔNG sửa hàm.
+
 > **v3 change:** Compliance không còn cache trên AC Asset fields `custom_document_status` / `custom_doc_completeness_pct`. Tính on-the-fly bằng SQL EXISTS trên `tabAsset Document.workflow_state` trong `api/imm05.get_compliance_by_dept`.
+
+### §4.4 `get_asset_documents` — hợp đồng service (CR-75)
+
+Đặc tả nghiệp vụ đầy đủ + ví dụ payload: [05 §2.7 / §2.7.a](./05_API_Specification.md). Mục này chốt phần **thực thi**.
+
+**Chữ ký & bố cục (giữ nguyên vị trí `services/imm05.py`, khối "Asset-centric views"):**
+
+```python
+@rowscoped
+def get_asset_documents(asset: str) -> dict: ...
+```
+
+**Helper mới — cặp song sinh Python của `expired_filter()`:**
+
+```python
+def is_expired_row(row: dict, today: str | None = None) -> bool:
+    """SSoT 'Đã hết hạn' cho row ĐÃ nạp — PHẢI trùng khít `expired_filter()` (INV-EXP-2)."""
+```
+
+- Đặt **ngay dưới** `expired_filter()` để hai predicate nằm cạnh nhau (đọc là thấy lệch).
+- Ba mệnh đề, đúng thứ tự và đúng ngữ nghĩa của `expired_filter()`: `expiry_date` có giá trị (NULL-guard) ∧ `getdate(expiry_date) < getdate(today or nowdate())` ∧ `workflow_state not in _EXPIRED_EXCLUDED_STATES`.
+- **Never:** viết `date_diff(...) < 0` ở nơi khác; đọc cột đã lưu `is_expired`; để FE/mobile so ngày.
+
+**Truy vấn (thứ tự bắt buộc — xem 05 §2.7.a B8):**
+
+| # | Repo call | `scope` | Vì sao |
+|---|---|---|---|
+| 1 | `AssetRepo.exists(asset)` | — | 404 `MSG.IMM05_ASSET_NOT_FOUND` (giữ nguyên) |
+| 2 | **V** `DocumentRepo.list(_apply_visibility_filter({...}), ...)` | mặc định `"user"` | giữ role-gate + row-scope ⇒ 403 in-envelope phát ra TRƯỚC bước 3 |
+| 3 | **C** `DocumentRepo.list({"asset_ref": asset}, scope=LIST_SCOPE_INTERNAL, ...)` | `"internal"` | aggregate org-truth (ADR-IMM05-03) — khai `internal` để **ý-định-hiện-ra-mặt-chữ**, KHÔNG mượn `"system"` |
+| 4 | `RequiredDocumentTypeRepo.list({"is_mandatory": 1}, fields=["type_name", "applies_to_asset_category"])` | mặc định `"user"` | master data; `AssetCore System User` đã có DocPerm read ⇒ không phát sinh 403 mới |
+
+`fields` của C tối thiểu: `["doc_type_detail", "workflow_state", "expiry_date", "is_exempt"]` (KHÔNG select `is_expired` — chống nhầm cột stale). `page_size` ≥ 500 như hiện tại.
+
+**Hiệu năng:** +1 query (C) + 1 `get_value` (asset_category) so với bản cũ; không N+1 (mọi phân loại chạy trên tập đã nạp). Ngân sách [02 §V.1](./02_Analysis_Design.md) P95 < 1.5s giữ nguyên.
+
+**Migration:** **KHÔNG** đổi DocType, **KHÔNG** field mới, **KHÔNG** fixture ⇒ **KHÔNG `bench migrate`**. Toàn bộ CR-75 là read-path.
+
+**Boundaries (Always / Never) — CR-75:**
+
+- **Always:** dẫn xuất tại thời điểm đọc; MỘT predicate hết-hạn; mọi khoá luôn xuất hiện (kể cả mảng rỗng); mảng sort A→Z; lỗi nghiệp vụ = envelope trên HTTP-200.
+- **Never:** trả cột đã lưu `is_expired`; tính completeness trên tập đã lọc visibility; đổi `expired_filter()` / `list_documents` / `get_dashboard_stats` (BR-05-16 đã chốt, ngoài phạm vi); thêm `applies_when_radiation` vào mẫu số (CR-75b); ~~thêm `file_url` (CR-61(b), họ G6)~~ → **SUPERSEDED bởi AC-CR-81, xem §4.4-bis**; `bench migrate`.
+- **Ask first:** đổi ngưỡng 30 ngày; đổi nghĩa `hidden_count`; bỏ khoá cũ nào.
+
+---
+
+### §4.4-bis `get_asset_documents` — 5 khoá TỆP batch-resolve (AC-CR-81)
+
+Hợp đồng nghiệp vụ đầy đủ: [05 §2.7.c](./05_API_Specification.md). Mục này chốt **thực thi** (BE Bước-4).
+
+> ✅ **ĐÃ HIỆN THỰC (2026-07-27, BE Bước-4)** đúng code-shape dưới đây: `_DT_FILE` @`services/imm05.py:450` · `_EMPTY_FILE_META` @`:453-455` · `_resolve_file_meta` @`:458-502` · `_DOSSIER_ROW_FIELDS` += `file_attachment` @`:443` · call-site batch @`:675-678` · `pop`+`update` @`:683-685`. `_DOSSIER_COMPUTE_FIELDS` @`:448` **0 ký tự đổi** (AC4). Test: `test_imm05.py::TestAssetDossierFileMeta` 12 TC ⇒ module **91 OK**; mutation ×4 ĐỎ-đúng-chỗ (xem [07 §III.2.b](./07_Testing_QA.md)). ⚠️ **BLOCKED-RELOAD** — HTTP live cần USER reload gunicorn `--preload`.
+
+**Helper mới — batch-resolve, đặt NGAY TRÊN `get_asset_documents` trong khối "Asset-centric views":**
+
+```python
+_DT_FILE = "File"
+
+#: Khoá tệp phát ra MỖI dòng hồ sơ (AC-CR-81). Giá trị RỖNG là "" / 0 — KHÔNG None.
+_EMPTY_FILE_META: dict = {
+    "file_url": "", "file_name": "", "file_size": 0, "is_private": 0, "has_file": 0,
+}
+
+
+def _resolve_file_meta(urls: set[str]) -> dict[str, dict]:
+    """{file_url → metadata} cho tập URL ĐÃ DEDUP — ĐÚNG 1 query `File` (INV-FILE-4).
+
+    `urls` PHẢI là URL của các dòng ĐƯỢC XEM (tập V đã lọc visibility) — KHÔNG bao giờ
+    của tập C (INV-FILE-6). Query chạy system-scope (`ignore_permissions=True`) vì `File`
+    có mô hình quyền riêng: persona KTV không có DocPerm `File` ⇒ query permission-aware
+    trả rỗng và MỌI dòng sẽ `has_file=0` cho đúng nhóm dùng chính (dead-gate — cùng
+    class-of-bug ADR-IMM09-SPARE-02). Chỉ đọc 4 field METADATA, KHÔNG đọc nội dung tệp.
+    """
+    if not urls:
+        return {}                      # KHÔNG phát `IN ()` — 0 query khi tập rỗng
+    rows = frappe.get_all(
+        _DT_FILE,
+        filters={"file_url": ["in", sorted(urls)]},
+        fields=["file_url", "file_name", "file_size", "is_private"],
+        order_by="creation asc",       # 2 File cùng URL ⇒ bản đầu tiên THẮNG (tất định)
+        limit_page_length=0,
+        ignore_permissions=True,
+    )
+    meta: dict[str, dict] = {}
+    for r in rows:
+        meta.setdefault(r["file_url"], {
+            "file_url": r["file_url"],
+            "file_name": r.get("file_name") or r["file_url"].rsplit("/", 1)[-1],
+            "file_size": int(r.get("file_size") or 0),
+            "is_private": int(r.get("is_private") or 0),
+            "has_file": 1,
+        })
+    return meta
+```
+
+**Thay đổi trong `get_asset_documents` (chỉ nhánh hiển thị V):**
+
+1. `_DOSSIER_ROW_FIELDS` += `"file_attachment"` — **13 field select**. `_DOSSIER_COMPUTE_FIELDS` **KHÔNG đụng** (AC4).
+2. Trước vòng group: `file_meta = _resolve_file_meta({(d.get("file_attachment") or "").strip() for d in visible} - {""})`.
+3. Trong vòng group, ngay sau `row = dict(d)`:
+
+```python
+raw_url = (row.pop("file_attachment", "") or "").strip()   # THÔ KHÔNG BAO GIỜ ra response
+row.update(file_meta.get(raw_url) or _EMPTY_FILE_META)      # mồ côi ⇒ 5 khoá rỗng (INV-FILE-2/3)
+```
+
+> `row.update(_EMPTY_FILE_META)` dùng **bản sao** giá trị (dict literal phẳng, chỉ scalar) — nếu đổi sang cấu trúc lồng thì PHẢI `dict(_EMPTY_FILE_META)` để không chia sẻ tham chiếu giữa các dòng.
+
+**Vì sao `pop` chứ không "đừng select":** cần chính giá trị thô để tra `file_meta`, nhưng nó **không được** ra response (INV-FILE-8 + closed-schema OAS `additionalProperties:false` ⇒ khoá thứ 19 làm vỡ codegen client).
+
+**Kiểu dữ liệu:** ép `int(...)` tường minh cho `file_size` / `is_private` / `has_file`. Frappe trả `Check` là `int`, nhưng `bool` lọt vào (vd `bool(...)`) sẽ **không** bị JSON bắt lỗi và làm `type(x) is int` sai — INV-FILE-7 (quirk CR-01).
+
+**Hiệu năng:** +**1** query/lượt gọi (hoặc 0 khi không dòng nào đính tệp) — **không** phụ thuộc số dòng. Ngân sách P95 < 1.5s ([02 §V.1](./02_Analysis_Design.md)) giữ nguyên.
+
+**Migration:** 0 DocType, 0 field mới, 0 fixture ⇒ **KHÔNG `bench migrate`**. Read-path thuần (nhưng **BLOCKED-RELOAD**: sửa `.py` ⇒ cần user reload gunicorn `--preload` mới thấy trên HTTP live).
+
+**Boundaries — §4.4-bis:**
+
+- **Always:** 1 helper SSoT `_resolve_file_meta`; tập vào = URL của tập **V**; `pop` `file_attachment`; ép `int`.
+- **Ask first:** khoá thứ 6; endpoint stream tệp; áp cùng khuôn cho `list_documents`/`get_document`.
+- **Never:** gọi `_resolve_file_meta` **trong** vòng lặp dòng (N+1); truyền tập **C** vào; đọc `file_name_display`; chạm `_dossier_compliance`; để `file_attachment` lọt vào response.
 
 ---
 
