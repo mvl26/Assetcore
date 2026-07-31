@@ -1,8 +1,8 @@
 <script setup lang="ts">
 // Copyright (c) 2026, AssetCore Team — RCA List (route /rca)
 // Mockup: docs/fe/12-incident/rca-list.html. BE: assetcore.api.imm12.list_rcas.
-import { ref, onMounted, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, onMounted, computed, watch } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { useImm12Store } from '@/stores/imm12'
 import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
@@ -12,11 +12,23 @@ import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import { rcaStatusLabel, rcaStatusClass, rcaTriggerLabel } from '@/constants/labels'
 
 const router = useRouter()
+const route = useRoute()
 const store = useImm12Store()
 
 const methodFilter = ref('')
 const statusFilter = ref('')
-const showFilters = ref(false)
+// Lọc theo thiết bị — drill từ «Xem tất cả» trong tab «Bản ghi liên quan» của một thiết
+// bị (?asset=<mã>, AC-CR-91). Khoá ĐỘC LẬP với method/status: cộng dồn (AND).
+// Đường xuống BE đã sẵn: store.fetchRcas({asset}) → api/imm12.listRcas → list_rcas(asset=…).
+const assetFilter = ref<string>(_queryAsset())
+const showFilters = ref<boolean>(!!_queryAsset())
+
+/** Giá trị `?asset=` hiện tại (chuỗi rỗng nếu không có) — Vue Router có thể trả mảng. */
+function _queryAsset(): string {
+  const raw = route.query.asset
+  const val = Array.isArray(raw) ? raw[0] : raw
+  return typeof val === 'string' ? val : ''
+}
 
 const METHODS = [
   { value: '', label: 'Tất cả phương pháp' },
@@ -33,7 +45,7 @@ const STATUSES = [
   { value: 'Cancelled', label: 'Đã hủy' },
 ]
 
-interface Chip { key: 'method' | 'status'; label: string }
+interface Chip { key: 'method' | 'status' | 'asset'; label: string }
 const activeChips = computed<Chip[]>(() => {
   const chips: Chip[] = []
   if (methodFilter.value) {
@@ -44,6 +56,10 @@ const activeChips = computed<Chip[]>(() => {
     const s = STATUSES.find(x => x.value === statusFilter.value)
     chips.push({ key: 'status', label: s?.label ?? statusFilter.value })
   }
+  // Người dùng phải THẤY mình đang lọc theo thiết bị và bỏ lọc được (ADR D-CR5-7 vế 3).
+  if (assetFilter.value) {
+    chips.push({ key: 'asset', label: `Thiết bị: ${assetFilter.value}` })
+  }
   return chips
 })
 const activeFilterCount = computed(() => activeChips.value.length)
@@ -52,6 +68,7 @@ function applyFilter(page = 1) {
   store.fetchRcas({
     method: methodFilter.value || undefined,
     status: statusFilter.value || undefined,
+    asset: assetFilter.value || undefined,
     page,
   })
 }
@@ -59,16 +76,28 @@ function applyFilter(page = 1) {
 function resetFilters() {
   methodFilter.value = ''
   statusFilter.value = ''
+  assetFilter.value = ''
   store.fetchRcas()
 }
 
 function clearChip(key: string) {
   if (key === 'method') methodFilter.value = ''
+  else if (key === 'asset') assetFilter.value = ''
   else statusFilter.value = ''
   applyFilter()
 }
 
-onMounted(() => store.fetchRcas())
+// Drill lần 2 trên CÙNG route (bấm «Xem tất cả» từ thiết bị B khi đang lọc theo A):
+// không có watch này thì màn hình không đổi gì — im lặng và khó chẩn đoán nhất.
+watch(() => route.query.asset, () => {
+  assetFilter.value = _queryAsset()
+  if (assetFilter.value) showFilters.value = true
+  applyFilter()
+})
+
+// Lọc NGAY từ lần nạp đầu (không nạp-rồi-lọc-lại: hai lời gọi mạng + một nhịp nháy
+// dữ liệu sai) — ADR D-CR5-7 vế 1.
+onMounted(() => applyFilter())
 </script>
 
 <template>
@@ -94,16 +123,25 @@ onMounted(() => store.fetchRcas())
     >
       <template #fields>
         <div class="form-group">
-          <label class="form-label">Phương pháp</label>
-          <select v-model="methodFilter" class="form-select">
+          <label class="form-label" for="rca-filter-method">Phương pháp</label>
+          <select id="rca-filter-method" v-model="methodFilter" class="form-select">
             <option v-for="m in METHODS" :key="m.value" :value="m.value">{{ m.label }}</option>
           </select>
         </div>
         <div class="form-group">
-          <label class="form-label">Trạng thái</label>
-          <select v-model="statusFilter" class="form-select">
+          <label class="form-label" for="rca-filter-status">Trạng thái</label>
+          <select id="rca-filter-status" v-model="statusFilter" class="form-select">
             <option v-for="s in STATUSES" :key="s.value" :value="s.value">{{ s.label }}</option>
           </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="rca-filter-asset">Thiết bị</label>
+          <input
+            id="rca-filter-asset"
+            v-model="assetFilter"
+            class="form-input"
+            placeholder="Mã thiết bị…"
+          />
         </div>
       </template>
     </ListFilterBar>

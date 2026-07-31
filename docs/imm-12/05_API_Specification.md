@@ -7,7 +7,7 @@
 | Owner | BE Lead |
 | Base URL | `/api/method/assetcore.api.imm12.<function>` |
 | Auth | Frappe session HOẶC `Authorization: token <key>:<secret>` |
-| Cập nhật | 2026-05-27 |
+| Cập nhật | 2026-07-27 |
 | Trạng thái | ✅ Live — `assetcore/api/imm12.py` deployed (14 endpoint) |
 
 ---
@@ -214,6 +214,7 @@ FE đọc `response.data.data` (axios + Frappe lớp ngoài đã wrap).
 | 422 | `IMM12-OCCURRED-DATETIME-FUTURE` | `BUSINESS_RULE_VIOLATION` | **G1/CR-16:** `occurred_datetime` ở tương lai (`services/imm12.py:378-379`; `messages.py:801`) — nguồn 422 thứ 2 trên path, KHÔNG status mới |
 | 422 | `VALIDATION` | `VALIDATION_ERROR` | Thiếu required fields |
 | 404 | `NOT_FOUND` | `NOT_FOUND` | Asset không tồn tại |
+| **422** | `IMM12-ASSET-DECOMMISSIONED` | `BUSINESS_RULE_VIOLATION` | 🆕 **AC-CR-90 / BR-12-29 — land EC-12-05**: thiết bị `lifecycle_status == 'Decommissioned'`. Kiểm ngay **sau** guard `NOT_FOUND`, **trước** mọi phép gán ⇒ **0** bản ghi / **0** lifecycle event / **0** audit khi bị chặn. **CHỈ** chặn `Decommissioned` — `Out of Service` **vẫn báo được** sự cố (đó thường là lý do thiết bị ngừng dùng) |
 
 **Side effects (mọi severity — V4 D2):**
 - `imm00.create_lifecycle_event(asset, "incident_reported", root_doctype="Incident Report", root_record=<IR>, notes="Báo hỏng ({source_label}) — …")` — canonical lifecycle event + provenance.
@@ -911,6 +912,104 @@ allowed     = is_reporter OR has_write
 
 ---
 
+### 20. get_asset_incident_history — hợp đồng TRUNG THỰC khi cắt: `+total` `+truncated` (CR-69) ✅ BE IMPLEMENTED (2026-07-25)
+> 🔌 **CONSUMER (từ 2026-07-30 — AC-CR-102):** caller THẬT ở web-FE = section «Sự cố đã ghi nhận» trong tab «Bản ghi liên quan» màn Chi tiết tài sản (IMM-00) — xem [`docs/imm-00/05 §III.26`](../imm-00/05_API_Specification.md) + [`ADR-IMM00-ASSET-OP-HISTORY`](../imm-00/ADR-IMM00-ASSET-OP-HISTORY.md). **Bất đối xứng khoá là load-bearing**: rows-key **`items`** + asset-key **`asset`** (KHÁC `history`/`asset_ref` của imm08/imm09) — store IMM-12 đọc `res.items`; "đồng bộ hoá" khoá cho đẹp ⇒ FE rỗng **câm** (guard `TC-OPH-B2`). Endpoint **KHÔNG** lọc `docstatus` ⇒ `total` **BẰNG** `count` ô connections (`INV-OPH-16`); đổi điều đó (vd loại `docstatus==2` theo `AC-CR-99`) phải cập nhật cả hai đầu + `docs/imm-00/05 §III.26.4`.
+
+
+> ✅ **BE Bước-4 ĐÃ LAND** (`services/imm12.py::get_asset_incident_history` — gate quyền §20.1, clamp `cap = clamp_page_size(limit, 10)`, `truncation_meta(len(rows), cap, lambda: frappe.db.count(_DT_INCIDENT, incident_filters))`; **`incident_filters` là CÙNG một object** truyền cho rows ⇒ count KHÔNG THỂ lệch predicate). Khuyến nghị SSoT clamp đã thực hiện: helper `assetcore/utils/pagination.py::clamp_page_size` và `paginate` gọi chính helper đó ⇒ literal `100` ĐÚNG 1 nơi.
+>
+> 🔁 **DELTA 2026-07-25 (vòng sửa lỗi CR-69):** (1) **GATE quyền** `assert_doctype_read_permission` + `@rowscoped` — xem **§20.1** (lỗ OWASP A01: persona 0-DocPerm-read vẫn đọc được sự cố + `total`); (2) **hist_07 hết vacuous** — seed 12 → **101** (12 < 100 và 12 < 500 cho kết quả y hệt ⇒ TC cũ không phân biệt được có/không clamp); (3) **hist_08 MỚI** phủ nửa cắt của INV-INCH-5 (25 sự cố, `limit=0`); (4) **parity `limit=0` sửa THẬT** ở imm08/imm09 (trước đó doc hứa parity mà code lệch 20-vs-10).
+>
+> Guard: `assetcore/tests/test_imm12.py::TestAssetIncidentHistoryTruncation` (**9 TC** — HIST-01/02/03 + int-parity + zero-cost spy `frappe.db.count` 0-lần/1-lần + clamp `limit=0` (2 nhánh) + `limit=500` trên fixture 101) + `assetcore/tests/test_rowscope_docperm_gate.py` (3 TC gate) + `assetcore/tests/test_rowscope_scope_guard.py::G4` (guard tĩnh). FE `.ts` = việc của Bước-4 [FE] (song song).
+
+> **Mục tiêu (CR-69):** tab **"Sự cố"** của màn hồ-sơ-vận-hành thiết bị đang **cắt IM LẶNG** theo `limit` (mặc định 10). Người dùng thấy 10 sự cố và tưởng đã xem hết trong khi máy có 30 — làm hỏng đúng 2 quyết định mà tab này sinh ra để phục vụ: **chronic failure** (BR-12-12, ≥3 sự cố cùng `fault_code`/90 ngày) và hồ sơ theo dõi thiết bị (NĐ98). Quyết định gốc: [`ADR-IMM00-TRUNCATION-SSOT`](../imm-00/ADR-IMM00-TRUNCATION-SSOT.md) (EXTENDS CR-43/46/47).
+
+**Endpoint KHÔNG đổi:** `GET assetcore.api.imm12.get_asset_incident_history` (`api/imm12.py:232` → `services/imm12.py::get_asset_incident_history` `:1521-1530`). Auth/param **GIỮ NGUYÊN**.
+
+> ✅ **`AC-CR-119` (2026-07-30) — cap SOUND của endpoint này là `corrective.read`** → `("Incident Report","read")` (`services/shared/rbac.py`), **khớp đúng** DocType mà truy vấn đọc (`services/imm12.py::_DT_INCIDENT`, gate `assert_doctype_read_permission(_DT_INCIDENT)` `:1731`) ⇒ **KHÔNG cần cap mới** cho IMM-12. Khai chính thức 1 lần ở SSoT `services/shared/connection_meta.py::OP_HISTORY_BRANCH_GATE["incident"] = ("corrective.read", "Incident Report")`, khoá bằng guard `CAPABILITY_MAP[cap] == (doctype, "read")` (`INV-OPH-32`, `assetcore/tests/test_asset_op_history_acl.py`). **Hai loại lỗi quyền phải phân biệt ở FE**: handler chặn `Guest` ⇒ **401** envelope (`api/imm12.py:234-235`, FE redirect login); thiếu DocPerm ⇒ **403 in-envelope trên HTTP-200** (FE **KHÔNG** logout, hiện **trạng thái KHOÁ** `[op-history-locked]`, 0 «Thử lại»). Envelope BE **KHÔNG đổi 1 ký tự**; xem [`docs/imm-00/05 §III.26.7`](../imm-00/05_API_Specification.md) + [`ADR-IMM00-ASSET-OP-HISTORY §11`](../imm-00/ADR-IMM00-ASSET-OP-HISTORY.md).
+
+**Response — 2 khoá MỚI (ADDITIVE) trong `data`:**
+
+```jsonc
+{
+  "success": true,
+  "data": {
+    "asset": "AC-ASSET-2026-00042",
+    "items": [ /* ≤ limit dòng, mới→cũ — KHÔNG đổi */ ],
+    "total": 30,      // COUNT thật trên {asset} @Incident Report TRƯỚC khi cắt
+    "truncated": 1
+  }
+}
+```
+
+| Field | Kiểu wire | Nguồn (SSoT) | Ràng buộc |
+|---|---|---|---|
+| `total` | `integer` ≥ 0 | `frappe.db.count(_DT_INCIDENT, {"asset": asset})` — **lazy**, chỉ chạy khi chạm trần | Cùng predicate + cùng engine (`get_all` raw) với rows |
+| `truncated` | `integer` ∈ `{0,1}` | `truncation_meta(len(rows), cap, count_fn)` — `cap = clamp_page_size(limit, 10)` | KHÔNG `boolean`, KHÔNG `None` (CR-01) |
+
+**BE Bước-4 delta** (`services/imm12.py::get_asset_incident_history`) — ✅ đã land:
+
+1. Import SSoT `from assetcore.services.shared.truncation import truncation_meta`.
+2. **Chuẩn hoá trần TRƯỚC truy vấn** — `cap = clamp_page_size(limit, 10)` (helper SSoT `assetcore/utils/pagination.py`; `paginate` gọi CHÍNH helper đó ⇒ literal `100` đúng 1 nơi). Tham số thứ 2 = `10` = default của CHÍNH endpoint này (KHÔNG `20` của `paginate`). Dùng `cap` cho **CẢ** `limit_page_length` **LẪN** đối số thứ 2 của `truncation_meta`.
+3. `total, truncated = truncation_meta(len(rows), cap, lambda: frappe.db.count(_DT_INCIDENT, incident_filters))` — `incident_filters` là **CÙNG một object** đã truyền cho rows ⇒ count KHÔNG THỂ lệch predicate.
+4. `return {"asset": asset, "items": rows, "total": total, "truncated": truncated}`.
+5. **GATE quyền (bổ sung 2026-07-25 — xem §20.1)**: `@rowscoped` + `assert_doctype_read_permission(_DT_INCIDENT)` chạy TRƯỚC mọi truy vấn.
+
+> ⚠️ **Bẫy RIÊNG của imm12 — khác imm08/imm09 (INV-TRUNC-LIMIT / ADR §D5):** endpoint này **KHÔNG** đi qua `BaseRepository.list`/`paginate` mà gọi thẳng `frappe.get_all(limit_page_length=limit)`. Frappe hiểu **`limit_page_length=0` là KHÔNG GIỚI HẠN**. Nếu truyền `limit` thô vào `truncation_meta`: `len(rows)=N < 0` là `False` ⇒ gọi `count_fn` ⇒ `total=N > 0` ⇒ **`truncated=1` trong khi KHÔNG dòng nào bị cắt** — báo cắt oan, đúng chiều ngược lại của bẫy imm08. Vì vậy `eff_limit` phải được clamp **trước** truy vấn.
+>
+> 📌 **Đây là thay đổi hành vi nhỏ, CỐ Ý (ghi để không ai coi là regression):** sau CR-69, `limit=0` **không còn** trả toàn bộ sự cố mà rơi về default `10` (và `limit>100` bị chặn ở `100`). Lý do: (a) 3 tab cùng một màn phải có **cùng ngữ nghĩa `limit`** cho client mobile; (b) `limit_page_length=0` trên thiết bị nhiều sự cố là một đường list **không trần** — rủi ro tải. Không caller nào hiện truyền `0` (`frontend/src/api/imm12.ts::getAssetIncidentHistory` default `10`; OAS khai `default: 10`).
+>
+> ⚖️ **Parity `limit=0` — CẢI CHÍNH 2026-07-25 (trước đó là lời hứa SAI):** bản đầu §20 viết "đúng như 2 endpoint anh em vốn đã hành xử qua `paginate`". ĐO THẬT: `clamp_page_size(0, 10)` = **10** (imm12) trong khi imm08/imm09 truyền `page_size=int(limit)` → `paginate(total, 1, 0)` → `clamp_page_size(0, **20**)` = **20** ⇒ CÙNG `limit=0` mà tab PM/Sửa-chữa trả **20** dòng còn tab Sự-cố trả **10**. Đã sửa ROOT CAUSE: cả 3 endpoint nay clamp bằng **cùng một** lời gọi `clamp_page_size(limit, 10)` trước khi truyền xuống repo (`services/imm08.py::get_asset_history`, `services/imm09.py::get_asset_history`). Guard: `test_imm08::test_tc_be_08_hist_07` + `test_imm09::test_tc_be_09_hist_05` + `test_imm12::test_tc_be_12_hist_08` (cả 3 ĐỎ khi hoàn nguyên clamp — đã verify bằng mutation).
+>
+> ✅ Khuyến nghị "tách hằng clamp thành helper SSoT" **ĐÃ THỰC HIỆN**: `assetcore/utils/pagination.py::clamp_page_size` và `paginate` gọi chính helper đó ⇒ literal `100` (`_MAX_PAGE_SIZE`) chỉ còn **một** nơi.
+
+### 20.1 GATE quyền (bổ sung 2026-07-25 — đóng lỗ OWASP A01, `assetcore/services/imm12.py`)
+
+**Lỗ đã có (chứng cứ probe thật):** user `roles=[All, Guest, Desk User, Repair User]` ⇒ `frappe.has_permission('Incident Report','read') == False` và `frappe.get_list('Incident Report', {asset})` **RAISE** `PermissionError`, NHƯNG `get_asset_incident_history(asset, limit=10)` vẫn trả `{'items': 1, 'total': 1}`. Nguyên nhân: endpoint gọi THẲNG `frappe.get_all` ⇒ bỏ **CẢ HAI** trục quyền, trong khi 2 anh em cùng bộ-ba đã gate (imm08 → `ServiceError[FORBIDDEN]`; imm09 → `assert_doctype_read_permission('Asset Repair')`). `Incident Report` chỉ có **5 role** DocPerm read (Auditor / Super Admin / Commissioning Manager / Corrective User / Corrective Manager) ⇒ mọi persona khác đọc lọt. CR-69 làm nặng thêm: `frappe.db.count` cũng không qua permission ⇒ lộ **TỔNG SỐ** sự cố thật vượt ngoài `limit`.
+
+**Hợp đồng sau fix** (ADR-IMM00-LIST-SCOPE §8.3b — ngữ nghĩa `scope="system"`):
+
+| Trục | Trạng thái | Cơ chế |
+|---|---|---|
+| ROLE-scope (DocPerm `read` trên `Incident Report`) | ✔ **enforce** | `assert_doctype_read_permission(_DT_INCIDENT)` chạy TRƯỚC mọi truy vấn |
+| ROW-scope (`permissions.py::incident_report_query`) | ✘ nới **có chủ đích** | D6 device-centric: lịch sử sự cố CỦA THIẾT BỊ (WHO HTM/NĐ98), read-only, KHÔNG nút hành động, KHÔNG dùng làm căn cứ cấp quyền |
+| Lỗi quyền | 403 **trên HTTP-200** | `@rowscoped` → `MSG.AUTH_FORBIDDEN` (BR-00-ROWSCOPE-403). KHÔNG 500 câm, KHÔNG list rỗng giả |
+
+- **KHÔNG** chuyển sang `IncidentRepo.list(scope="system")` dù repo tự chạy gate: repo tính `total` **EAGER** (`count_ignore_permissions`) ⇒ phá hợp đồng ZERO-COST của `truncation_meta` (INV-INCH-1: 0 query COUNT khi chưa chạm trần) và làm đỏ TC zero-cost hiện có. Gate tường minh cấp đúng tác dụng còn thiếu, giữ nguyên đường truy vấn lazy.
+- **Vendor isolation:** hiện GIỮ được nhưng **chỉ nhờ** DocPerm (Vendor Engineer có 0 read trên `Incident Report`) — clause `asset IN (SELECT … responsible_technician = user)` KHÔNG chạy trên `frappe.get_all`. Guard `test_rowscope_docperm_gate::test_incident_history_vendor_isolated` ghim bất biến này ⇒ nếu [BA] cấp DocPerm read cho Vendor Engineer, test ĐỎ (fail-loud) và endpoint PHẢI chuyển sang row-scope thật.
+- **[BA] cần ratify:** (a) xác nhận D6 device-centric áp cho `Incident Report` (đối xứng R5 `imm09.get_asset_history`); (b) nếu muốn KTV nội bộ (PM/Repair/Calibration User) đọc được tab "Sự cố" thì lời giải đúng là **cấp DocPerm read** (như B2 §8.10 của ADR), KHÔNG mở lại lỗ A01.
+
+**Boundaries (Always / Never):**
+- **Always:** derive qua SSoT `truncation_meta` · `count_fn` **lazy** (`frappe.db.count` chỉ chạy khi `len(rows) >= cap`) · `count_fn` dùng **ĐÚNG** filter `{asset}` (không thêm/bớt điều kiện so với rows) · `truncated` là `int` · `data.required` GIỮ `[asset, items]` · gate `assert_doctype_read_permission` chạy **TRƯỚC** truy vấn (§20.1).
+- **Never:** KHÔNG lọc thêm `status != 'Cancelled'` (hoặc bất kỳ predicate nào) **chỉ ở COUNT** — rows hiện KHÔNG lọc; lệch predicate ⇒ `total` sai im lặng · KHÔNG COUNT vô điều kiện · KHÔNG thêm param/path/opId · KHÔNG đưa 2 khoá vào `required`.
+
+**BẤT BIẾN ĐO ĐƯỢC (test `test_imm12`):**
+
+| Invariant | Kiểm chứng |
+|---|---|
+| **INV-INCH-1** | 3 sự cố, `limit=10` ⇒ `len(items)==3` ∧ `total==3` ∧ `truncated==0` ∧ **0 query COUNT** phát sinh |
+| **INV-INCH-2** | 12 sự cố, `limit=5` ⇒ `len==5` ∧ `total==12` ∧ `truncated==1` |
+| **INV-INCH-3** (vừa khít) | ĐÚNG 5 sự cố, `limit=5` ⇒ `total==5` ∧ **`truncated==0`** |
+| **INV-INCH-4** (kiểu wire) | `type(total) is int` ∧ `type(truncated) is int` (KHÔNG `isinstance` — `bool ⊂ int` ⇒ false-green) |
+| **INV-INCH-5** (clamp `limit=0` — chống báo-cắt-oan) | asset có 3 sự cố, `limit=0` ⇒ `len==3` ∧ `total==3` ∧ **`truncated==0`** (`hist_06`; công thức thô sẽ cho `truncated==1` — báo oan). **Và** asset có 25 sự cố, `limit=0` ⇒ `len(items)==10` ∧ `total==25` ∧ `truncated==1` (`hist_08` — ghim CON SỐ default 10, cũng là parity với imm08/imm09) |
+| **INV-INCH-6** (clamp trần trên) | asset có **101** sự cố, `limit=500` ⇒ `len(items)==100` ∧ `total==101` ∧ `truncated==1` (`hist_07`). Fixture PHẢI **> 100**: dưới trần thì "có clamp"/"không clamp" cho kết quả y hệt ⇒ TC vacuous (bản trước seed 12 — false-green, LL-TEST-26) |
+| **INV-INCH-7** (additive) | `asset` + `items` GIỮ NGUYÊN key/nội dung (0 breaking) |
+| **INV-INCH-8** (gate quyền §20.1) | persona KHÔNG có DocPerm read `Incident Report` (vd `PM User`, `Vendor Engineer`) ⇒ envelope `success:false` (403), **KHÔNG** `items` chứa sự cố, **KHÔNG** khoá `total` (không lộ tổng), **KHÔNG** `PermissionError` trần. Guard: `tests/test_rowscope_docperm_gate.py` (3 TC) + guard tĩnh G4 `tests/test_rowscope_scope_guard.py` (raw `frappe.get_all`/`frappe.db.count` trên DocType row-scoped ở endpoint đọc phải gate) |
+
+**FE Bước-4 delta — `frontend/src/api/imm12.ts:386-390`:**
+
+```ts
+export function getAssetIncidentHistory(asset: string, limit = 10) {
+  return frappeGet<{ asset: string; items: IncidentDetail[]; total?: number; truncated?: 0 | 1 }>(
+    `${BASE}.get_asset_incident_history`, { asset, limit },
+  )
+}
+```
+
+Quy tắc render + lý do 2 khoá là **optional**: xem `../imm-08/05_API_Specification.md §9.2` mục *FE Bước-4 delta* — áp dụng y nguyên, dải cảnh báo "Đang xem một phần lịch sử sự cố — thiết bị có tổng {total} sự cố." **Never:** `any` · `truncated: boolean` · tự suy "còn nữa" bằng `items.length < total`.
+
+---
+
 ## 7. Smoke test playbook
 
 ```bash
@@ -986,6 +1085,7 @@ message Frappe ra FE. Class `IncidentError` bị loại bỏ — service raise q
 | `IMM12_INCIDENT_NOT_FOUND` | `IMM12-INCIDENT-NOT-FOUND` | warning | 404 | Không tìm thấy sự cố | Không tìm thấy báo cáo sự cố: {name}. | Kiểm tra lại mã sự cố trong danh sách. |
 | `IMM12_RCA_NOT_FOUND` | `IMM12-RCA-NOT-FOUND` | warning | 404 | Không tìm thấy RCA | Không tìm thấy bản phân tích nguyên nhân gốc: {name}. | Kiểm tra lại mã RCA trong danh sách. |
 | `IMM12_ASSET_NOT_FOUND` | `IMM12-ASSET-NOT-FOUND` | warning | 404 | Không tìm thấy thiết bị | Không tìm thấy thiết bị: {asset}. | Kiểm tra lại mã thiết bị trong danh mục tài sản. |
+| `IMM12_ASSET_DECOMMISSIONED` | `IMM12-ASSET-DECOMMISSIONED` | warning | 422 | Thiết bị đã thanh lý | Không thể báo sự cố cho thiết bị đã thanh lý: {asset}. | Chọn thiết bị đang trong danh mục sử dụng. | 🆕 **AC-CR-90 / BR-12-29** — land EC-12-05 |
 | `IMM12_CLINICAL_IMPACT_REQUIRED` | `IMM12-CLINICAL-IMPACT-REQUIRED` | critical | 422 | Thiếu mô tả tác động lâm sàng | Sự cố mức Critical bắt buộc mô tả tác động lâm sàng. | Nhập tác động lâm sàng trước khi báo cáo sự cố nghiêm trọng. |
 | `IMM12_RESOLUTION_NOTES_REQUIRED` | `IMM12-RESOLUTION-NOTES-REQUIRED` | warning | 422 | Thiếu ghi chú giải quyết | Cần nhập ghi chú giải quyết khi chuyển sự cố sang Đã xử lý. | Nhập ghi chú giải quyết rồi thử lại. |
 | `IMM12_CANCEL_REASON_REQUIRED` | `IMM12-CANCEL-REASON-REQUIRED` | warning | 422 | Thiếu lý do hủy | Cần nhập lý do khi hủy sự cố. | Nhập lý do hủy rồi thử lại. |
@@ -1066,6 +1166,316 @@ message Frappe ra FE. Class `IncidentError` bị loại bỏ — service raise q
 **Regression gate:** BE `test_imm12` + `test_dashboard` GREEN; FE `vue-tsc` 0 + vitest toàn bộ; KHÔNG English/raw-code leak (GATE-1).
 
 ---
+
+## §21 CR-74 — Read-gate CHI TIẾT báo hỏng (Incident) (`getIncident`) — in-handler 403, ĐÓNG IDOR-đọc
+
+> **SSoT quyết định:** [ADR-IMM00-LIST-SCOPE §9 — INV-ROWSCOPE-DETAIL (CR-74)](../imm-00/ADR-IMM00-LIST-SCOPE.md) · ADR-IMM00-DETAIL-READ-01/02/03 (D8/D9/D10).
+> **Trạng thái:** ✅ **RESOLVED-BE 2026-07-25 (Bước-4)** — khuôn 3 lớp LANDED @`services/imm12.py:1406-1491` (`@rowscoped` :1406 · L0 `assert_doctype_read_permission(_DT_INCIDENT)` :1435 · L1 `_get_incident` :1436 · L2 `assert_can_read_doc` :1437 — L0/L2 đặt TRONG `get_incident_detail`, **KHÔNG** trong helper `_get_incident:329` vì helper còn phục vụ đường GHI đã có gate riêng). **0 delta shape** (0 endpoint / 0 param / 0 field / 0 DocType / 0 DocPerm / 0 cap). Test: `test_rowscope_docperm_gate::TestDetailReadGateCR74` + `test_rowscope_invariant::...::test_cr74_02c_*` + guard tĩnh **G5b named** (G5a mù với op này vì doc load qua helper) — `test_imm12` **184 OK**. 🟡 Còn lại: **[FE] B13**.
+
+### §21.1 Vấn đề (verify @source 2026-07-25)
+
+`services/imm12.py:1405` `get_incident_detail` nạp bản ghi bằng `IncidentRepo.get(name)` → `frappe.get_doc` (`repositories/base.py:53-57`). **`frappe.get_doc` KHÔNG kiểm tra quyền** (`frappe/model/document.py:36`; kiểm tra nằm ở `Document.check_permission:227` — không đường nào chạm tới). Gate duy nhất đang có là `assert_vendor_can_access` ở API tier (`api/imm12.py:283-294`), mà hàm này **no-op cho mọi user KHÔNG mang role `Vendor Engineer`** (`services/shared/scope.py:192-193`).
+
+⟹ Hệ quả: (a) persona **0 DocPerm read** trên `Incident Report` vẫn đọc trọn hồ sơ qua URL trực tiếp; (b) KTV **có** DocPerm read vẫn mở được sự cố do người khác báo/được giao — trong khi hook đã đăng ký sẵn ở `hooks.py:450` nhưng **không đường nào gọi tới**.
+
+### §21.2 Hợp đồng SAU CR-74 — 3 lớp theo thứ tự BẮT BUỘC (D9)
+
+| Lớp | Gọi gì | Khi hỏng | Vì sao thứ tự này |
+|---|---|---|---|
+| **L0 · ROLE** | `assert_doctype_read_permission("Incident Report")` | `frappe.PermissionError` → `@rowscoped` → **HTTP-200** + `Error{success:false, code:"FORBIDDEN", http_status:403}` | Chạy **TRƯỚC** `exists` ⇒ thiếu quyền thì `name` bịa và `name` thật trả **cùng một** 403 ⇒ 0 existence-oracle (tiền lệ `api/imm00.py:483-509`) |
+| **L1 · EXISTS** | `IncidentRepo.get(name)` → không có ⇒ `nthrow(`MSG.IMM12_INCIDENT_NOT_FOUND`)` | **HTTP-200** + `Error{code:"NOT_FOUND", http_status:404}` — **GIỮ NGUYÊN** | Chỉ người **CÓ** DocPerm read mới tới được đây ⇒ 404 không còn là kênh dò |
+| **L2 · ROW** | `assert_can_read_doc("Incident Report", doc)` → `frappe.has_permission("Incident Report", ptype="read", doc=doc)` | như L0 (**403 in-envelope**) | Dispatch hook `hooks.py:450` (`incident_report_has_permission` `permissions.py:202-220` — KTV chỉ đọc phiếu `reported_by` **hoặc** `assigned_to` == mình; NCC theo `responsible_technician` của asset; senior/auditor `True`) — dùng **doc đã load ở L1** ⇒ **0 query thêm** |
+
+**Bất biến giữ nguyên (A5 — KHÔNG gỡ, KHÔNG thay):** `assert_vendor_can_access("Incident Report", name)` ở API tier **giữ nguyên vị trí + thứ tự**. Hai lớp cùng tồn tại: isolation NCC (API) ∧ read-gate (service). Vendor ngoài scope vẫn **403 in-envelope**, KHÔNG rơi nhánh 500.
+
+### §21.3 Ma trận persona (KHÔNG đổi DocPerm — chỉ mô tả hệ quả)
+
+| Persona | DocPerm read `Incident Report` | Phiếu `reported_by`/`assigned_to` | Kết quả sau CR-74 |
+|---|---|---|---|
+| `AssetCore Super Admin` / `Corrective Manager` (senior `permissions.py:34-51`) | ✔ | bất kỳ | **200 success** — payload **byte-identical** trước/sau |
+| `AssetCore Auditor` | ✔ (read-only) | bất kỳ | **200 success** |
+| `Corrective User` (`_TECHNICIAN_ROLES` `permissions.py:50`) | ✔ | **của mình** | **200 success** |
+| `Corrective User` | ✔ | **của người khác** | **403 in-envelope** (hook `permissions.py:202-220`) — trước CR-74: **200 + đọc trọn** |
+| Persona thiếu DocPerm read (vd `PM User`, `Calibration User`, `Repair User`, `Vendor Engineer`) | ✘ | bất kỳ | **403 in-envelope** (trước CR-74: đọc được trọn hồ sơ) |
+| `Vendor Engineer` ngoài scope | (xem B2) | bất kỳ | **403** — lớp API tier, GIỮ NGUYÊN |
+
+> ⚠️ **KHÔNG được "chữa" bằng cách cấp DocPerm/role.** Persona nào **cần** đọc thì mở riêng bằng ratify B2 (ADR §9.9), KHÔNG sửa trong vòng CR-74.
+
+### §21.4 Envelope 403 — hợp đồng client (BR-00-DETAIL-403)
+
+```json
+{ "success": false, "error": "Không đủ quyền", "code": "FORBIDDEN", "http_status": 403 }
+```
+
+- **HTTP status-line = 200**; client route **theo GIÁ TRỊ** `body.success` / `body.http_status` — **KHÔNG** theo status-line.
+- Client **PHẢI hiển thị message** và **KHÔNG logout** (phân biệt dispatcher-403 = hết phiên → re-auth).
+- Body **KHÔNG** được chứa bất kỳ field nghiệp vụ nào (`asset` · `clinical_impact` · `severity` · `rca{}` · `scene_photos[]`) — chỉ khoá của `Error` envelope.
+- Message hằng `MSG.AUTH_FORBIDDEN` (`utils/messages.py:61` = `"AUTH-403"`) — **KHÔNG** mã lỗi mới.
+
+### §21.5 Test bắt buộc (DoD — `bench --site miyano run-tests --module ...`, KHÔNG curl)
+
+| TC | Điều kiện | Kỳ vọng | INV |
+|---|---|---|---|
+| `TC-INC-DETAILGATE-01` | user đăng nhập, **0 DocPerm read** `Incident Report` | `success:false` · `code:"FORBIDDEN"` · `http_status:403` trên **HTTP-200**; 0 field nghiệp vụ | INV-DETAIL-1 |
+| `TC-INC-DETAILGATE-02` | `Corrective User` có DocPerm read, sự cố `reported_by`/`assigned_to` **của người khác** | **403 in-envelope** (hook row-scope) | INV-DETAIL-2 |
+| `TC-INC-DETAILGATE-03` | senior/auditor có DocPerm read | **200**, payload **byte-identical** baseline | INV-DETAIL-4 |
+| `TC-INC-DETAILGATE-04` | 0 DocPerm read + `name` **KHÔNG tồn tại** | **403 y hệt** TC-01 (0 existence-oracle) | INV-DETAIL-5 |
+| `TC-INC-DETAILGATE-05` | **có** DocPerm read + `name` **KHÔNG tồn tại** | **404 GIỮ NGUYÊN** (`MSG.IMM12_INCIDENT_NOT_FOUND`) | INV-DETAIL-6 |
+| `TC-INC-DETAILGATE-06` | vendor ngoài scope | **403** từ API tier, KHÔNG 500 ⇒ 2 lớp cùng tồn tại | INV-DETAIL-7 |
+
+> **BẮT BUỘC `frappe.set_user(<persona thật>)`** — `frappe/permissions.py:107-109` cho Administrator `return True` ngay ⇒ chạy bằng Administrator là **xanh giả**.
+
+### §21.6 Boundaries
+
+**Always** — gate ROLE trước `exists`; gate ROW trên doc đã load; lỗi quyền = HTTP-200 + Error envelope; test bằng persona thật.
+**Ask-first** — cấp DocPerm read cho persona đang bị chặn (B2); vendor isolation `Incident Report` hiện dựa HOÀN TOÀN vào DocPerm (B9 §8.10).
+**Never** — ❌ sửa `permissions.py` / DocPerm / role JSON để test xanh · ❌ gỡ `assert_vendor_can_access` · ❌ trả `data` rỗng hay 404 thay 403 · ❌ dùng `doc.check_permission()` (msgprint rò `_server_messages`) · ❌ thêm path/opId/param/schema OAS · ❌ đổi shape payload success · ❌ `git commit/push` · `bench migrate` · reload gunicorn (HARD-STOP USER).
+
+## §22 AC-CR-83 — `submit_rca`: 3 ràng buộc hồ sơ RCA HẾT thoát envelope thành **HTTP-417 thô** (đóng mobile **CR-52 §3+§4**, quirk 3 "cao") 🟢 CONTRACT ĐÓNG Bước-2 · 🟢 **BE ĐÃ LAND Bước-4** · FE còn lại
+
+> **Trạng thái:** hợp đồng (OAS mirror + guard `cr83_a..g`) **XANH**; **BE Bước-4 ĐÃ LAND 2026-07-27** — `utils/notify.py` (`nthrow(..., fields=…)`), `utils/messages.py` (+3 entry), `services/imm12.py` (3 predicate SSoT + 2 adapter + PRE-CHECK trong `submit_rca`), `assetcore/doctype/imm_rca_record/imm_rca_record.py` (**6 → 0** `frappe.throw`), `frontend/src/i18n/messages.ts` (regen).
+> **Bằng chứng test (verbatim):** `test_imm12` **Ran 198 OK** · `test_mobile_oas` **Ran 999 OK** · `test_mobile_docset` **Ran 9 OK** · `gen_fe_messages.py --check` **0 drift**. RED-before đo được: `frappe.exceptions.ValidationError: Bước 3: phải điền đầy đủ câu hỏi và câu trả lời.` (thoát qua `handle` từ `imm_rca_record.py:69`).
+> **CÒN LẠI (FE Bước-4):** `frontend/src/views/incident/RCADetailView.vue` đọc `ApiError.fields` và render dưới đúng control — xem `06_Frontend_Design.md §7`.
+
+### §22.0 Bằng chứng lỗi (verify `@source` 2026-07-27 — KHÔNG phải giả định)
+
+| # | Sự thật đo được | Vị trí |
+|---|---|---|
+| E1 | `submit_rca` gọi `rca.save()` ⇒ chạy hook `validate` của `IMM RCA Record` | `assetcore/services/imm12.py:1093` |
+| E2 | `IMMRCARecord.validate()` chạy **3** validator: `_validate_assignment` · `_validate_five_why_when_method_5why` · `_validate_completion_requirements` | `assetcore/assetcore/doctype/imm_rca_record/imm_rca_record.py:14-16` |
+| E3 | Cả 3 validator dùng **`frappe.throw` TRẦN** (6 lời gọi, kể cả `on_submit`): dòng `30`, `54`, `64`, `69`, `77`, `79` | `imm_rca_record.py` |
+| E4 | `handle()` **CHỈ** bắt `ServiceError`; docstring nói rõ "KHÔNG bắt Exception chung" | `assetcore/utils/api_handler.py:44,52-53` |
+| E5 | ⇒ `frappe.ValidationError` bay lên dispatcher Frappe → **HTTP-417 THÔ**: không `body.success`, không `code`, không `message_code`, không `fields` | hệ quả của E3+E4 |
+| E6 | `create_rca` **seed sẵn 5 bước** với `why_answer=""` ⇒ hồ sơ nào cũng ở trạng thái "đủ 5 bước, rỗng câu trả lời" | `assetcore/services/imm12.py:962-963` |
+| E7 | ⇒ **ca phổ biến NHẤT** (KTV bấm «Hoàn thành» khi còn 1 ô Why trống) rơi ĐÚNG vào E5 | E6 + `imm_rca_record.py:66-71` |
+| E8 | FE hiện **không** đọc `fields` ở màn RCA: `submit()` chỉ set `err.value = e.message` | `frontend/src/views/incident/RCADetailView.vue:105-126` |
+
+**Vì sao đây là lỗi hạng "cao" chứ không phải phiền toái UX:** thông điệp 417 đi qua `makeBusinessRuleError` (`frontend/src/api/axios.ts:249-271`); không có `message_code` ⇒ rơi nhánh `parseServerMessages` ⇒ **echo chuỗi máy chủ thô** ra dải đỏ. Cùng lớp bug với backlog P1 "sanitize 417/422 không có `message_code`".
+
+### §22.1 Scope
+
+**Trong phạm vi:** endpoint `assetcore.api.imm12.submit_rca` · 3 ràng buộc hồ sơ RCA (5-Why · phân công · hoàn tất) · registry thông điệp · hook backstop của `IMM RCA Record` · hợp đồng mobile (`submitRca`) · hiển thị lỗi field-level trên `RCADetailView.vue`.
+
+**Ngoài phạm vi (KHÔNG đụng vòng này):** `create_rca` / `start_rca` / `cancel_rca` / `get_rca` (0 ký tự đổi) · chuỗi auto-CAPA + `on_rca_completed` · workflow `IMM RCA Record` · DocType schema (0 field mới) · quyền/DocPerm.
+
+### §22.2 Hợp đồng endpoint `submit_rca` (SAU AC-CR-83)
+
+`POST /api/method/assetcore.api.imm12.submit_rca` — `@frappe.whitelist(methods=["POST"])` `api/imm12.py:195`.
+
+**Cap = HỘI 2 tầng** (thiếu BẤT KỲ tầng nào ⇒ 403 **IN-ENVELOPE** trên HTTP-200):
+
+| Tầng | Capability | Vị trí |
+|---|---|---|
+| API (in-handler) | `incident.acknowledge` (`_CAP_INVESTIGATE`) | `api/imm12.py:206-207` · hằng `services/imm12.py:265` |
+| Service | `corrective.write` (`_CAP_RCA_MANAGE`) | `services/imm12.py:1068` → `_require_rca_cap` `:366-374` |
+
+**Request** (3 bắt buộc positional + 3 optional có default — khớp chữ ký THẬT):
+
+| Field | Kiểu | Bắt buộc | Ghi chú |
+|---|---|---|---|
+| `name` | str | ✅ | mã hồ sơ RCA |
+| `root_cause` | str | ✅ | rỗng sau `.strip()` ⇒ `IMM12-RCA-ROOT-CAUSE-REQUIRED` |
+| `corrective_action` | str | ✅ | **tên tham số GHI** (ghi vào field ĐỌC `corrective_action_summary`) |
+| `preventive_action` | str | — | rỗng ⇒ GIỮ giá trị cũ |
+| `five_why_steps` | JSON-array | — | rỗng/absent ⇒ dùng bước đang có trên hồ sơ |
+| `rca_notes` | str | — | rỗng ⇒ GIỮ giá trị cũ |
+
+> ⚠️ **Bất đối xứng ĐỌC ≠ GHI (CR-52 quirk 2)** — tham số ghi `corrective_action`, field đọc `corrective_action_summary` (`services/imm12.py:1083`). **Khoá `fields` dùng TÊN THAM SỐ GHI.** Lý do: `fields` tồn tại để client neo thông điệp vào **ô nhập**, mà ô nhập trên form gửi đi bằng tên tham số ghi. Dùng tên đọc = neo vào ô không tồn tại = lỗi lại "tàng hình".
+
+**Response success (HTTP-200):** `{"success": true, "data": {"name", "status": "Completed", "linked_capa": <str|null>}}` — `services/imm12.py:1120`. `linked_capa` **nullable**: hồ sơ không gắn incident, hoặc chuỗi CAPA lỗi (đã nuốt + log `:1109-1110`) ⇒ RCA **vẫn** Completed.
+
+**Response lỗi nghiệp vụ — TẤT CẢ trên HTTP-200 + Error envelope** (`utils/response.py::_err`):
+
+| # | `message_code` | `http_status` | `fields` | Nguồn |
+|---|---|---|---|---|
+| 1 | `IMM12-RCA-FIVE-WHY-INCOMPLETE` 🆕 | 422 | `{"five_why_steps": …}` (thiếu bước) **hoặc** `{"five_why_steps.<why_number>": …}` cho **MỖI** bước khuyết | predicate SSoT §22.3 |
+| 2 | `IMM12-RCA-ROOT-CAUSE-REQUIRED` | 422 | `{"root_cause": …}` | `services/imm12.py:1075-1076` (+ `fields`) |
+| 3 | `IMM12-RCA-CORRECTIVE-REQUIRED` | 422 | `{"corrective_action": …}` | `services/imm12.py:1077-1078` (+ `fields`) |
+| 4 | `IMM12-RCA-ASSIGNEE-REQUIRED` 🆕 | 422 | `{"assigned_to": …}` | predicate SSoT §22.3 |
+| 5 | `IMM12-RCA-ALREADY-COMPLETED` | 409 | — (không phải lỗi của một ô nhập) | `services/imm12.py:1071-1072` |
+
+Hai lỗi **không** thuộc nhóm "ràng buộc hồ sơ" và **không** kèm `fields`: `IMM12-RCA-NOT-FOUND` (404 in-envelope) · `BAD_STATE` (409 in-envelope, **không** `message_code` — `_MSG_RCA_SUBMIT_BAD_STATE`).
+
+**Bất biến `count`-đa-lỗi:** với ca "nhiều bước Why khuyết", `fields` chứa **một khoá cho mỗi bước khuyết** (1 `message_code` duy nhất). Ca "thiếu bước" trả **đúng một** khoá `five_why_steps` (không kèm khoá con) — xem INV-RCA-4.
+
+### §22.3 SSoT predicate — 3 hàm dùng chung service ⇄ hook (AC-4)
+
+Đặt trong `assetcore/services/imm12.py` (khối "RCA validation — SSoT dùng chung với controller hook"). **Hook import chính 3 hàm này**; controller **KHÔNG** còn vòng lặp/điều kiện kiểm tra riêng.
+
+```python
+def validate_five_why_payload(method: str, steps: list[dict] | None) -> dict | None: ...
+def validate_rca_assignment(status: str, assigned_to: str) -> dict | None: ...
+def validate_rca_completion(status: str, root_cause: str, corrective_action: str,
+                            linked_capa: str = "", *,
+                            allow_capa_substitute: bool = True) -> dict | None: ...
+```
+
+**Kiểu trả về (giống nhau cho cả 3):** `None` = hợp lệ; vi phạm ⇒
+`{"message_code": <MSG.…>, "fields": {<khoá>: <câu VI>}, "context": {<biến template>}}`.
+
+Hai adapter mỏng (cũng trong `services/imm12.py`) để **1 vi phạm ra 2 đường**:
+
+| Adapter | Dùng ở | Hành vi |
+|---|---|---|
+| `_nthrow_violation(v)` | **service** (`submit_rca`) | `nthrow(v["message_code"], fields=v["fields"], **v["context"])` ⇒ `ServiceError` ⇒ envelope Decision-B **có** `fields` |
+| `_nthrow_violation_in_hook(v)` | **controller hook** | `nthrow_in_hook(v["message_code"], **v["context"])` ⇒ `ValidationError` **có** `message_code` (không có `fields` — giới hạn của kênh hook) |
+
+**Ngữ nghĩa từng predicate** (giữ **NGUYÊN VẸN** hành vi hiện hành — không mở rộng phạm vi enforcement):
+
+1. `validate_five_why_payload(method, steps)`
+   - `"why" not in (method or "").lower()` ⇒ `None` (giữ đúng điều kiện `imm_rca_record.py:57-59`).
+   - `len(steps) < 5` ⇒ `IMM12_RCA_FIVE_WHY_INCOMPLETE`, `fields = {"five_why_steps": "Phương pháp 5 Whys yêu cầu đủ 5 bước phân tích. Hiện có {count}."}`, `context = {"count": len(steps)}`. **Dừng ở đây** (không xét tiếp từng bước).
+   - Ngược lại: gom **mọi** bước thiếu `why_question` hoặc `why_answer` ⇒ `fields = {f"five_why_steps.{n}": "Bước {n}: phải điền đầy đủ câu hỏi và câu trả lời."}`, với `n = step["why_number"] or <vị trí 1-based>`; `context = {"steps": "<danh sách n, phân tách dấu phẩy>"}`. Rỗng ⇒ `None`.
+   - **Predicate KHÔNG nhận `status`** — cổng trạng thái nằm ở **call-site** (hook đọc `doc.status`, service luôn áp vì đích là `Completed`).
+2. `validate_rca_assignment(status, assigned_to)` — `status ∈ {"RCA In Progress","Completed"} ∧ not assigned_to` ⇒ `IMM12_RCA_ASSIGNEE_REQUIRED`, `fields = {"assigned_to": …}`.
+3. `validate_rca_completion(...)` — chỉ áp khi `status == "Completed"`; `not root_cause` ⇒ `IMM12_RCA_ROOT_CAUSE_REQUIRED` + `fields.root_cause`; `not corrective_action` **và** (`not allow_capa_substitute` **hoặc** `not linked_capa`) ⇒ `IMM12_RCA_CORRECTIVE_REQUIRED` + `fields.corrective_action`.
+
+**Thứ tự kiểm tra trong `submit_rca`** (fail-fast, một vi phạm mỗi lượt — xem ADR-IMM12-15):
+
+```
+_require_rca_cap  →  _get_rca  →  guard trạng thái (đã có)
+   →  ① validate_rca_assignment(_RCA_COMPLETED, rca.assigned_to)
+   →  ② validate_rca_completion(_RCA_COMPLETED, root_cause, corrective_action,
+                                linked_capa="", allow_capa_substitute=False)
+   →  ③ validate_five_why_payload(rca.rca_method, five_why_steps or <bước đang có>)
+   →  ▸ CHỈ SAU KHI cả 3 hợp lệ mới bắt đầu gán rca.status/root_cause/... (dòng 1080+)
+```
+
+**Tập bước hiệu lực (③):** `five_why_steps` nếu **truthy**, ngược lại `[row.as_dict() for row in rca.five_why_steps]` — **giống hệt** ngữ nghĩa `if five_why_steps:` mà `services/imm12.py:1088` đang dùng để quyết định có thay bảng con hay không (một quy tắc, không hai).
+
+### §22.4 Registry thông điệp — delta (`assetcore/utils/messages.py`)
+
+3 mã **mới** (2 cho `fields`, 1 cho hook `on_submit`); 2 mã cũ **giữ nguyên message_code + template** (chỉ được bổ sung `fields` ở tầng raise — hợp đồng cũ KHÔNG đổi, AC-3):
+
+| Hằng | Mã | `http_status` | `severity` | `title` | `template` |
+|---|---|---|---|---|---|
+| `IMM12_RCA_FIVE_WHY_INCOMPLETE` | `IMM12-RCA-FIVE-WHY-INCOMPLETE` | 422 | `warning` | Hồ sơ 5 Whys chưa đầy đủ | `Phân tích 5 Whys chưa đầy đủ: {detail}.` |
+| `IMM12_RCA_ASSIGNEE_REQUIRED` | `IMM12-RCA-ASSIGNEE-REQUIRED` | 422 | `warning` | Chưa phân công người phụ trách | `Phải gán người phụ trách phân tích nguyên nhân gốc trước khi tiến hành.` |
+| `IMM12_RCA_SUBMIT_NOT_COMPLETED` | `IMM12-RCA-SUBMIT-NOT-COMPLETED` | 409 | `warning` | Chưa thể chốt hồ sơ | `Chỉ chốt được hồ sơ phân tích nguyên nhân gốc khi đã hoàn thành. Hiện tại: {status}.` |
+
+> `IMM12_RCA_SUBMIT_NOT_COMPLETED` **chỉ** phục vụ hook `on_submit` (`imm_rca_record.py:29-32`) — đường Desk/`doc.submit()`, không nằm trên đường `submit_rca` API.
+
+### §22.5 `nthrow(..., fields=...)` — mở rộng tối thiểu (`assetcore/utils/notify.py`)
+
+Hiện `nthrow(message_code, *, error_code=None, **context)` **không** truyền được `fields`, dù `ServiceError` và `_service_error_to_envelope` đã hỗ trợ đầy đủ (`services/shared/errors.py:43,50` · `utils/api_handler.py:57`). Bổ sung **một** tham số keyword-only:
+
+```python
+def nthrow(message_code: str, *, error_code: str | None = None,
+           fields: dict | None = None, **context: Any) -> None
+```
+
+⇒ chuyển thẳng vào `ServiceError(..., fields=fields)`. **Backward-compatible** (mặc định `None` = hành vi cũ). Ghi chú BE: `fields` trở thành **tên dành riêng**, không dùng được làm biến template `{fields}` — hiện **0** entry registry dùng biến đó.
+
+### §22.6 Controller `IMM RCA Record` — hết `frappe.throw` trần (AC-5)
+
+`assetcore/assetcore/doctype/imm_rca_record/imm_rca_record.py`: **6 → 0** lời gọi `frappe.throw(`.
+
+| Dòng hiện tại | Sau AC-CR-83 |
+|---|---|
+| `:30` `on_submit` status ≠ Completed | `nthrow_in_hook(MSG.IMM12_RCA_SUBMIT_NOT_COMPLETED, status=self.status)` |
+| `:54` thiếu `assigned_to` | `v = validate_rca_assignment(self.status, self.assigned_to)` → `_nthrow_violation_in_hook(v)` |
+| `:64` `< 5` bước | `v = validate_five_why_payload(self.rca_method, self.get("five_why_steps"))` (chỉ chạy khi `self.status ∈ {"RCA In Progress","Completed"}`) → `_nthrow_violation_in_hook(v)` |
+| `:69` bước thiếu Q/A | *(gộp vào cùng predicate trên — hết vòng lặp riêng)* |
+| `:77` thiếu `root_cause` | `v = validate_rca_completion(self.status, self.root_cause, self.corrective_action_summary, self.linked_capa)` → `_nthrow_violation_in_hook(v)` |
+| `:79` thiếu corrective/CAPA | *(gộp vào cùng predicate trên)* |
+
+**Import bắt buộc là lazy-import trong thân hàm** (`from assetcore.services.imm12 import …`) — top-level import từ controller sang service gây circular `ImportError` lúc `bench start` (Pattern B, `assetcore-doc` §Cross-module). Tiền lệ đang chạy: `imm_rca_record.py:41` đã lazy-import `on_rca_completed`.
+
+### §22.7 Bất biến (INV)
+
+| ID | Bất biến |
+|---|---|
+| INV-RCA-1 | Mọi lỗi nghiệp vụ của `submit_rca` đến trên **HTTP-200** + Error envelope. **0** `frappe.ValidationError` thoát ra HTTP-417. |
+| INV-RCA-2 | **Một** predicate cho mỗi ràng buộc; service và hook **import cùng symbol**. Sửa 1 chỗ ⇒ cả 2 đổi. |
+| INV-RCA-3 | Khoá `fields` cho hành động khắc phục là `corrective_action` (tên **GHI**), không bao giờ là `corrective_action_summary`. |
+| INV-RCA-4 | Ca thiếu bước ⇒ `fields` **đúng 1** khoá `five_why_steps`. Ca bước khuyết ⇒ `fields` có **đúng** `k` khoá `five_why_steps.<n>` với `k` = số bước khuyết. |
+| INV-RCA-5 | **KHÔNG-MUTATE**: khi bị từ chối, `status` / `root_cause` / `corrective_action_summary` / `completed_by` / `completed_date` giữ **nguyên giá trị trước lệnh** (pre-check chạy trước phép gán đầu tiên). |
+| INV-RCA-6 | Hợp đồng cũ bất biến: `IMM12-RCA-ROOT-CAUSE-REQUIRED` / `IMM12-RCA-CORRECTIVE-REQUIRED` **giữ nguyên** `message_code`, `http_status`, `template`; chỉ **thêm** `fields`. |
+| INV-RCA-7 | `enabled/allowed_transitions` của `get_rca` **không đổi** — AC-CR-83 không chạm tầng CTA. |
+| INV-RCA-8 | Happy path bất biến: 5 bước đủ Q+A ⇒ `Completed` + auto-CAPA + `on_rca_completed` chạy **y như trước**. |
+| INV-RCA-9 | Controller RCA có **0** lời gọi `frappe.throw(`; mọi lỗi tối thiểu mang `message_code` + câu tiếng Việt từ registry SSoT. |
+
+### §22.8 Divergence đã biết (ghi nhận — KHÔNG sửa vòng này)
+
+| ID | Divergence | Quyết định |
+|---|---|---|
+| **D-RCA-1** | Cap `submit_rca` là **hội 2 tầng khác nhau** (`incident.acknowledge` ở API ∩ `corrective.write` ở service) — không phải một capability duy nhất | **Giữ**. Ghi vào hợp đồng để client không suy 1 tầng (advertise rộng hơn enforce). |
+| **D-RCA-2** | Hook cho phép `linked_capa` **thay thế** `corrective_action_summary`; service **luôn** đòi `corrective_action` | **Giữ, có chủ đích** (`allow_capa_substitute=False` ở service). API `submit_rca` chính là nơi **nhập** tóm tắt khắc phục; lối thoát `linked_capa` chỉ dành cho hồ sơ Desk đã gắn CAPA sẵn. Đổi = phá AC-3. |
+| **D-RCA-3** | `rca_method` Select có **3** giá trị `5-Why / Fishbone / Both`, nhưng predicate `"why" in method.lower()` **chỉ khớp `5-Why`** ⇒ hồ sơ chọn **`Both`** (= 5-Why *và* Fishbone) **không** bị kiểm 5-Why | **KHÔNG sửa vòng này** — mở rộng enforcement làm hồ sơ đang hợp lệ trở thành không hợp lệ (vi phạm AC-6 "không regress"). Tách **AC-CR-83b** (§22.11), cần ratify nghiệp vụ trước. |
+| **D-RCA-4** | `start_rca` cố tình dùng `frappe.db.set_value` để **bỏ qua** `validate` (`services/imm12.py:996-1000`) ⇒ hồ sơ có thể vào `RCA In Progress` mà chưa có `assigned_to` | **Giữ** (đúng nghiệp vụ: bắt đầu phân tích thì chưa điền Why). Chính vì vậy `validate_rca_assignment` **phải** được gọi ở service `submit_rca`, không thể trông vào `start_rca`. |
+
+### §22.9 ADR
+
+#### ADR-IMM12-13: Predicate ràng buộc RCA nâng lên **service**, hook giữ vai **backstop**
+- **Status**: Accepted — **Date**: 2026-07-27
+- **Context**: 3 ràng buộc chỉ sống trong controller hook ⇒ mọi đường API rơi vào `frappe.throw` trần → HTTP-417 ngoài envelope (E1–E5). Không thể vá bằng cách bắt `ValidationError` trong `handle()`: sẽ nuốt **mọi** lỗi hệ thống thành lỗi nghiệp vụ (mất phân biệt 500 thật), và vẫn không có `fields`.
+- **Decision**: Tách predicate thành **hàm thuần** trong `services/imm12.py`; `submit_rca` **pre-check** trước khi gán; controller hook **import chính hàm đó** làm backstop cho đường Desk/`doc.save()` trực tiếp.
+- **Alternatives**: (a) bắt `ValidationError` trong `api_handler` — loại: nuốt lỗi hệ thống, không có `fields`, không có `message_code`. (b) Bỏ hẳn validator ở controller — loại: mất backstop cho Desk, vi phạm "mọi nghiệp vụ phải có record + enforcement" (CLAUDE.md §19).
+- **Consequences**: 1 predicate / 2 điểm gọi ⇒ hết "luật thứ hai". Hook **không** truyền được `fields` (giới hạn kênh `frappe.throw`) — chấp nhận: đường Desk không có form mobile để neo lỗi.
+
+#### ADR-IMM12-14: Khoá `fields` dùng **tên tham số GHI**, không dùng tên field ĐỌC
+- **Status**: Accepted — **Date**: 2026-07-27
+- **Context**: `corrective_action` (ghi) ≠ `corrective_action_summary` (đọc) — CR-52 quirk 2.
+- **Decision**: `fields` luôn khoá theo **tên trong request** (`corrective_action`), và với bảng con thì theo **số hiển thị** (`five_why_steps.<why_number>`).
+- **Alternatives**: khoá theo tên field DocType — loại: client không có ô nào tên đó, thông điệp rơi vào hư vô. Khoá theo chỉ số mảng 0-based — loại: lệch 1 với nhãn «Why N» người dùng nhìn thấy.
+- **Consequences**: FE map thẳng khoá → `id` control (`rca-corrective`, `why-a-<n>`) không cần bảng dịch. Nếu BE đổi tên tham số ⇒ hợp đồng + FE phải đổi **cùng lúc** (guard `cr83_f` khoá bằng `inspect.signature`).
+
+#### ADR-IMM12-15: Fail-fast **một vi phạm** mỗi lượt, nhưng **gom đủ dòng Why khuyết**
+- **Status**: Accepted — **Date**: 2026-07-27
+- **Context**: Ba nhóm ràng buộc độc lập; báo cả ba cùng lúc nghe hấp dẫn nhưng buộc phải mint một `message_code` tổng hợp và phá hợp đồng cũ (INV-RCA-6).
+- **Decision**: Trả **một** `message_code` (theo thứ tự phân công → hoàn tất → 5-Why); riêng trong nhóm 5-Why thì `fields` gom **mọi** dòng khuyết.
+- **Alternatives**: gom cả 3 nhóm vào một envelope — loại: đổi `message_code` cũ = breaking cho client đang route theo mã.
+- **Consequences**: KTV bỏ trống 3 ô Why thấy **cả 3** dòng đỏ trong một lần bấm (không phải sửa-thử-lại 3 vòng), nhưng nếu thiếu cả nguyên nhân gốc thì thấy lỗi đó trước.
+
+### §22.10 Hợp đồng mobile (đã land Bước-2)
+
+`docs/mobile/openapi/assetcore-mobile.openapi.yaml` — **paths 108 → 109** · **schemas 283 → 287** · **parameters GIỮ 38**.
+
+| Thành phần | Nội dung |
+|---|---|
+| Path / opId | `/api/method/assetcore.api.imm12.submit_rca` → `submitRca` (POST-only) |
+| Schema mới (4) | `SubmitRcaRequest` (CLOSED, required 3) · `RcaFiveWhyStepInput` (CLOSED, 3 field) · `SubmitRcaResponse` (CLOSED 3-key, `linked_capa` nullable) · `SubmitRcaEnvelope` |
+| Slot response | **CHỈ** `{200, 401, 403}` — 404/409/417/422 đến trên HTTP-200 in-envelope ⇒ khai status-line = nhánh chết cho codegen |
+| 200 | `oneOf [SubmitRcaEnvelope, Error]` closed-schema, disjoint required-set, **0 discriminator** |
+| Mô tả bắt buộc nêu | 5 `message_code` · 5 khoá `fields` khả dĩ · bất đối xứng đọc≠ghi · bất biến **KHÔNG-MUTATE** · **417** (điều không còn xảy ra) |
+
+**Guard** `assetcore/tests/test_mobile_oas.py::TestMobileSubmitRcaContract` — `cr83_a..f`:
+
+| TC | Khoá điều gì |
+|---|---|
+| `cr83_a` | path + opId + POST-only + đếm 109/287/38 |
+| `cr83_b` | request CLOSED · required đúng 3 · **`corrective_action_summary` KHÔNG là property** nhưng **phải được nêu trong mô tả** · `five_why_steps` ∉ required · step CLOSED 3 field |
+| `cr83_c` | 200 = `oneOf` đúng 2 nhánh · 0 discriminator · envelope closed · `linked_capa` nullable · slot đúng `{200,401,403}` |
+| `cr83_d` | mô tả nêu đủ 5 `message_code` + 5 khoá `fields` + `KHÔNG-MUTATE` + `HTTP-200` + `417` (doc-layer thuần) |
+| `cr83_g` 🆕 | **parity ĐẦY ĐỦ hợp đồng ⇄ registry LIVE** (Bước-4 lật từ `cr83_d`): 5/5 `message_code` ∈ `MESSAGES`; `http_status` == 422 cho 4 mã field-level, == 409 cho `IMM12-RCA-ALREADY-COMPLETED`; `template` khác rỗng |
+| `cr83_e` | cite-drift: mọi cite `api|services/imm12.py:<dòng> <symbol>` nằm đúng vùng AST; bắt buộc nêu đích danh `submit_rca`, `create_rca`, `_require_rca_cap` |
+| `cr83_f` | live-signature parity `inspect.signature(api.imm12.submit_rca)` == property-set hợp đồng; tập không-default == `required` |
+
+> ✅ **Bước-4 ĐÃ THỰC HIỆN (2026-07-27):** `cr83_d` đã LẬT thành `cr83_g` (parity đầy đủ 5/5 mã ∈ registry LIVE + `http_status` + `template` khác rỗng) ⇒ `_EXPECTED_TEST_COUNT` 998 → **999** (+2 echo trong `cancelcal_j`/`receivecert_j`), `_GUARD_SUITE_EXPECTED['test_mobile_oas.py']` → **999**, `_GUARD_SUITE_SUM` 1141 → **1142**, `_MOBILE_OAS_TOTAL` 1167 → **1168**, `cr83_submit_rca_envelope_delta` 6 → **7**.
+> ✅ Cite `services/imm12.py` trong OAS **đã refresh** theo dòng THẬT (predicate + pre-check làm dịch dòng) — `cr83_e` XANH; kèm 2 cite lân cận cùng module (`get_incident_detail` → `1579-1663`, `get_asset_incident_history` → `1709-1763`).
+
+**Counters đã đồng bộ (Bước-2):** `_EXPECTED_TEST_COUNT` 992 → **998** (+2 echo trong `cancelcal_j`/`receivecert_j`) · `_GUARD_SUITE_EXPECTED['test_mobile_oas.py']` 992 → **998** · `_GUARD_SUITE_SUM` 1135 → **1141** · `_MOBILE_OAS_TOTAL` 1161 → **1167** · `cr83_submit_rca_envelope_delta = 6`.
+
+### §22.11 Handoff
+
+**[BE] Bước-4 — ✅ HOÀN TẤT 2026-07-27** (tất cả 6 gạch đầu dòng): `services/imm12.py` (3 predicate `:974/:1028/:1043` + 2 adapter `:1074/:1080` + pre-check `submit_rca:1236-1250` + `fields` cho 2 nhánh cũ) · `utils/notify.py` (`nthrow(fields=…)`) · `utils/messages.py` (3 hằng + 3 entry) · `assetcore/doctype/imm_rca_record/imm_rca_record.py` (6 `frappe.throw` → **0**) · `assetcore/tests/test_imm12.py` (13 TC: `TestRcaSubmitEnvelope` 11 + `TestRcaValidatorSsot` 3, trừ TC-FE) · **refresh cite OAS** + lật `cr83_d` → `cr83_g`. ⚠️ **HARD-STOP còn lại:** `.py` API đã đổi ⇒ **USER phải `bench restart`** (gunicorn `--preload`) trước khi live-verify bằng curl/app.
+
+**[FE] Bước-4** — `RCADetailView.vue` đọc `ApiError.fields` (đã có sẵn đường dẫn: `helpers.ts::hydrateApiError` → `ApiError.fields`) và render dưới đúng control; xem `06_Frontend_Design.md §7`.
+
+**Backlog sinh ra từ vòng này:**
+
+- **AC-CR-83b** *(ratify nghiệp vụ trước)* — `rca_method = "Both"` hiện thoát kiểm 5-Why (D-RCA-3). Cần chốt: `Both` có bắt buộc đủ 5-Why không? Nếu có ⇒ đổi predicate sang **danh sách phương pháp** (`_FIVE_WHY_METHODS = {"5-Why", "Both"}`) + migration cho hồ sơ đang mở.
+- **[P2 — BE]** `_MSG_RCA_SUBMIT_BAD_STATE` (409) hiện **không** có `message_code` ⇒ FE không hydrate được `title`/`action_hint`. Cấp mã `IMM12-RCA-SUBMIT-BAD-STATE` trong vòng dọn dẹp riêng (đổi 1 hợp đồng lỗi = 1 CR).
+- **[P2 — BE]** Quét cùng khuôn cho 3 controller RCA-adjacent còn `frappe.throw` trần (`imm_capa_record`, `incident_report`, `asset_repair`) — cùng class-of-bug.
+
+### §22.12 Boundaries
+
+**Always** — predicate là **hàm thuần** (không đọc `frappe.session`, không truy vấn DB) để service và hook dùng chung · pre-check chạy **trước** phép gán đầu tiên · `fields` khoá theo **tên tham số GHI** · lỗi nghiệp vụ = HTTP-200 + Error envelope · mọi lỗi tối thiểu có `message_code`.
+
+**Ask-first** — mở rộng phạm vi 5-Why sang `Both` (D-RCA-3) · cấp `message_code` cho `BAD_STATE` · đổi tên tham số `corrective_action` · thêm ràng buộc thứ 4 cho hồ sơ RCA.
+
+**Never** — ❌ bắt `Exception`/`ValidationError` chung trong `handle()` · ❌ dùng `corrective_action_summary` làm khoá `fields` · ❌ để controller giữ bản kiểm tra thứ hai · ❌ đổi `message_code`/`template` của 2 mã cũ · ❌ khai 417/422/409/404 thành slot status-line trong OAS · ❌ gán giá trị lên `rca` rồi mới kiểm tra · ❌ top-level import `services` từ controller · ❌ `git commit/push` · `bench migrate` · reload gunicorn (HARD-STOP USER).
+
 
 ## DoD — File 05 hoàn chỉnh
 

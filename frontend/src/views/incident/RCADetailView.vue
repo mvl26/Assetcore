@@ -8,6 +8,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getRca, submitRca, startRca, cancelRca } from '@/api/imm12'
 import type { RCADetail } from '@/api/imm12'
+import { toApiError } from '@/api/errors'
 import { rcaStatusLabel, rcaStatusClass } from '@/constants/labels'
 import { useToast } from '@/composables/useToast'
 import BaseModal from '@/components/common/BaseModal.vue'
@@ -48,9 +49,109 @@ const isTerminal = computed(() => !loading.value && !!rca.value.status && allowe
 // Form 5-Why/nguyên nhân chỉ nhập được khi có thể Hoàn thành (đang phân tích + đủ quyền).
 const canEdit = computed(() => canComplete.value)
 
+// ─── Lỗi FIELD-LEVEL từ envelope submit_rca (AC-CR-83) ─────────────────────────
+// BE trả `fields = {<khoá field>: <câu tiếng Việt>}`; FE CHỈ ĐỌC và gắn câu đó vào
+// ĐÚNG ô — KHÔNG tự dựng luật, KHÔNG dịch lại, KHÔNG in mã kỹ thuật.
+// Khoá dùng TÊN THAM SỐ GHI (`corrective_action`), không phải tên field đọc
+// (`corrective_action_summary`) — bất đối xứng đọc≠ghi, xem `api/imm12.ts`.
+const fieldErrors = ref<Record<string, string>>({})
+
+const _WHY_KEY_RE = /^five_why_steps\.(\d+)$/
+
+/** `five_why_steps.<n>` → chỉ số bước; khoá khác → null. */
+function whyKeyIndex(key: string): number | null {
+  const m = _WHY_KEY_RE.exec(key)
+  return m ? Number(m[1]) : null
+}
+
+/**
+ * Ánh xạ khoá lỗi bước 5-Why → DÒNG đang render.
+ * Ưu tiên khớp `why_number` (BE đánh số 1..5 theo nghiệp vụ); nếu không có dòng
+ * nào mang số đó thì mới rơi về vị trí trong mảng — để không đánh rơi thông điệp.
+ */
+const whyErrorEntries = computed<Record<number, { key: string; message: string }>>(() => {
+  const out: Record<number, { key: string; message: string }> = {}
+  for (const [key, message] of Object.entries(fieldErrors.value)) {
+    const idx = whyKeyIndex(key)
+    if (idx === null) continue
+    const row = fiveWhy.value.find(s => s.why_number === idx)
+      ?? fiveWhy.value[idx - 1]
+      ?? fiveWhy.value[idx]
+    if (row) out[row.why_number] = { key, message }
+  }
+  return out
+})
+
+function whyError(n: number): string | undefined {
+  return whyErrorEntries.value[n]?.message
+}
+
+const rootCauseError = computed(() => fieldErrors.value.root_cause)
+const correctiveError = computed(() => fieldErrors.value.corrective_action)
+const preventiveError = computed(() => fieldErrors.value.preventive_action)
+const notesError = computed(() => fieldErrors.value.rca_notes)
+/** Lỗi cả khối 5-Why (thiếu/thừa bước) — không gắn được vào 1 dòng cụ thể. */
+const fiveWhyBlockError = computed(() => fieldErrors.value.five_why_steps)
+/** Hồ sơ chưa phân công người phụ trách → banner (không có ô nhập trên màn này). */
+const assigneeError = computed(() => fieldErrors.value.assigned_to)
+
+const _MAPPED_KEYS = new Set([
+  'root_cause', 'corrective_action', 'preventive_action', 'rca_notes',
+  'assigned_to', 'five_why_steps',
+])
+
+/**
+ * Khoá BE gửi mà màn này chưa có ô tương ứng → vẫn PHẢI hiện (banner gom).
+ * Nuốt im lặng = người dùng bấm mãi không hiểu vì sao không gửi được.
+ */
+const unmappedFieldErrors = computed<string[]>(() =>
+  Object.entries(fieldErrors.value)
+    .filter(([k]) => !_MAPPED_KEYS.has(k) && whyKeyIndex(k) === null)
+    .map(([, v]) => v),
+)
+
+const hasFieldErrors = computed(() => Object.keys(fieldErrors.value).length > 0)
+
+function clearFieldError(key: string): void {
+  if (key in fieldErrors.value) delete fieldErrors.value[key]
+}
+
+/** Người dùng sửa 1 ô Why → xoá lỗi của chính dòng đó + lỗi cả khối. */
+function onWhyAnswerInput(n: number): void {
+  const entry = whyErrorEntries.value[n]
+  if (entry) clearFieldError(entry.key)
+  clearFieldError('five_why_steps')
+}
+
+// ─── Pre-gate client — MIRROR predicate BE, KHÔNG phải luật thứ hai ─────────────
+// Cùng 1 ràng buộc `services/imm12.py::validate_five_why_payload`: phương pháp có
+// chứa 'why' ⇒ MỖI bước phải đủ CẢ câu hỏi VÀ câu trả lời. Chỉ để tránh 1 vòng
+// round-trip vô ích + nói trước lý do; SERVER vẫn là SSoT: phương pháp KHÁC 5-Why
+// (hoặc BE đổi luật) ⇒ nút vẫn bấm được và lỗi server vẫn hiển thị đúng ô.
+const isFiveWhyMethod = computed(() => (rca.value.rca_method ?? '').toLowerCase().includes('why'))
+const missingWhyNumbers = computed<number[]>(() =>
+  isFiveWhyMethod.value
+    ? fiveWhy.value
+      .filter(s => !s.why_question.trim() || !s.why_answer.trim())
+      .map(s => s.why_number)
+    : [],
+)
+
+/** Lý do tiếng Việt khiến nút «Hoàn thành» đang tắt — rỗng nghĩa là bấm được. */
+const completeBlockedReason = computed<string>(() => {
+  if (!rootCause.value.trim()) return 'Cần nhập Nguyên nhân gốc trước khi hoàn thành.'
+  if (!correctiveAction.value.trim()) return 'Cần nhập Hành động khắc phục trước khi hoàn thành.'
+  if (missingWhyNumbers.value.length) {
+    return `Còn ${missingWhyNumbers.value.length} bước chưa điền đủ câu hỏi/câu trả lời `
+      + `(Why ${missingWhyNumbers.value.join(', ')}).`
+  }
+  return ''
+})
+
 async function load() {
   loading.value = true
   err.value = ''
+  fieldErrors.value = {}
   try {
     const res = await getRca(name.value)
     rca.value = res
@@ -103,12 +204,21 @@ async function doCancel() {
 }
 
 async function submit() {
-  if (!rootCause.value.trim() || !correctiveAction.value.trim()) {
-    err.value = 'Bắt buộc nhập Nguyên nhân gốc và Hành động khắc phục'
+  // Pre-gate client (mirror BE): gắn ngay vào ĐÚNG ô, không banner chung chung.
+  const pre: Record<string, string> = {}
+  if (!rootCause.value.trim()) pre.root_cause = 'Vui lòng nhập nguyên nhân gốc.'
+  if (!correctiveAction.value.trim()) pre.corrective_action = 'Vui lòng nhập hành động khắc phục.'
+  for (const n of missingWhyNumbers.value) {
+    pre[`five_why_steps.${n}`] = `Bước ${n}: vui lòng điền đủ câu hỏi và câu trả lời.`
+  }
+  if (Object.keys(pre).length) {
+    fieldErrors.value = pre
+    err.value = ''
     return
   }
   saving.value = true
   err.value = ''
+  fieldErrors.value = {}
   try {
     await submitRca({
       name: name.value,
@@ -121,7 +231,18 @@ async function submit() {
     toast.success('Đã hoàn thành phân tích nguyên nhân gốc và tạo hành động khắc phục/phòng ngừa')
     await load()
   } catch (e: unknown) {
-    err.value = e instanceof Error ? e.message : 'Lỗi khi gửi phân tích nguyên nhân gốc'
+    // SERVER là SSoT: có `fields` ⇒ hiển thị TỪNG Ô (không nhân đôi banner);
+    // không có ⇒ giữ nhánh thông điệp chung như cũ. Chỉ đọc message đã curate ở
+    // BE — KHÔNG bao giờ echo traceback/_server_messages thô.
+    const apiErr = toApiError(e)
+    const fields = apiErr.fields
+    if (fields && Object.keys(fields).length) {
+      fieldErrors.value = { ...fields }
+      err.value = ''
+    } else {
+      fieldErrors.value = {}
+      err.value = apiErr.message || 'Lỗi khi gửi phân tích nguyên nhân gốc'
+    }
   } finally { saving.value = false }
 }
 
@@ -150,11 +271,30 @@ onMounted(load)
     </div>
 
     <div v-if="err" role="alert" class="bg-red-50 text-red-700 p-3 rounded-lg text-sm">{{ err }}</div>
+
+    <!-- Tóm tắt lỗi field-level: chỉ dẫn hướng, câu chi tiết nằm ngay dưới từng ô -->
+    <div
+      v-if="hasFieldErrors"
+      data-testid="rca-field-error-summary"
+      role="alert"
+      class="bg-amber-50 text-amber-800 p-3 rounded-lg text-sm space-y-1">
+      <p>Chưa gửi được hồ sơ phân tích nguyên nhân gốc. Vui lòng kiểm tra các ô được đánh dấu bên dưới.</p>
+      <p v-if="assigneeError" data-testid="rca-error-assigned-to" class="font-medium">{{ assigneeError }}</p>
+      <p v-for="(msg, i) in unmappedFieldErrors" :key="`unmapped-${i}`" data-testid="rca-error-unmapped">{{ msg }}</p>
+    </div>
+
     <div v-if="loading" class="text-center text-slate-400 py-12">Đang tải...</div>
 
     <div v-else class="bg-white rounded-xl border border-slate-200 divide-y divide-slate-100">
       <div class="p-6">
         <div class="text-sm font-semibold text-slate-800 mb-3">Phân tích 5-Why</div>
+        <p
+          v-if="fiveWhyBlockError"
+          data-testid="rca-error-five-why-steps"
+          role="alert"
+          class="mb-3 text-sm text-red-600">
+{{ fiveWhyBlockError }}
+</p>
         <div class="space-y-3">
           <div v-for="step in fiveWhy" :key="step.why_number" class="grid grid-cols-12 gap-2 items-start">
             <div class="col-span-1 pt-2 text-center text-sm font-mono text-indigo-600">#{{ step.why_number }}</div>
@@ -169,8 +309,20 @@ onMounted(load)
               <label :for="`why-a-${step.why_number}`" class="sr-only">Câu trả lời Why {{ step.why_number }}</label>
               <textarea
 :id="`why-a-${step.why_number}`" v-model="step.why_answer" :disabled="!canEdit" rows="2"
-                class="w-full border border-slate-300 rounded-lg px-2 py-1.5 text-sm disabled:bg-slate-50"
-                placeholder="Câu trả lời Why..."></textarea>
+                :aria-invalid="whyError(step.why_number) ? 'true' : undefined"
+                :aria-describedby="whyError(step.why_number) ? `why-a-err-${step.why_number}` : undefined"
+                :class="['w-full border rounded-lg px-2 py-1.5 text-sm disabled:bg-slate-50',
+                         whyError(step.why_number) ? 'border-red-400' : 'border-slate-300']"
+                placeholder="Câu trả lời Why..."
+                @input="onWhyAnswerInput(step.why_number)"></textarea>
+              <p
+                v-if="whyError(step.why_number)"
+                :id="`why-a-err-${step.why_number}`"
+                :data-testid="`rca-error-why-${step.why_number}`"
+                role="alert"
+                class="mt-1 text-xs text-red-600">
+{{ whyError(step.why_number) }}
+</p>
             </div>
           </div>
         </div>
@@ -184,28 +336,64 @@ onMounted(load)
           <label for="rca-root-cause" class="block text-sm font-medium text-slate-700 mb-1">Nguyên nhân gốc <span class="text-red-500">*</span></label>
           <textarea
 id="rca-root-cause" v-model="rootCause" :disabled="!canEdit" rows="2"
-            class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm disabled:bg-slate-50"
-            placeholder="Nguyên nhân gốc rễ xác định được..."></textarea>
+            :aria-invalid="rootCauseError ? 'true' : undefined"
+            :aria-describedby="rootCauseError ? 'rca-root-cause-err' : undefined"
+            :class="['w-full border rounded-lg px-3 py-2 text-sm disabled:bg-slate-50',
+                     rootCauseError ? 'border-red-400' : 'border-slate-300']"
+            placeholder="Nguyên nhân gốc rễ xác định được..."
+            @input="clearFieldError('root_cause')"></textarea>
+          <p
+            v-if="rootCauseError" id="rca-root-cause-err" data-testid="rca-error-root-cause"
+            role="alert" class="mt-1 text-xs text-red-600">
+{{ rootCauseError }}
+</p>
         </div>
         <div>
           <label for="rca-corrective" class="block text-sm font-medium text-slate-700 mb-1">Hành động khắc phục <span class="text-red-500">*</span></label>
           <textarea
 id="rca-corrective" v-model="correctiveAction" :disabled="!canEdit" rows="3"
-            class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm disabled:bg-slate-50"
-            placeholder="Hành động khắc phục cụ thể..."></textarea>
+            :aria-invalid="correctiveError ? 'true' : undefined"
+            :aria-describedby="correctiveError ? 'rca-corrective-err' : undefined"
+            :class="['w-full border rounded-lg px-3 py-2 text-sm disabled:bg-slate-50',
+                     correctiveError ? 'border-red-400' : 'border-slate-300']"
+            placeholder="Hành động khắc phục cụ thể..."
+            @input="clearFieldError('corrective_action')"></textarea>
+          <p
+            v-if="correctiveError" id="rca-corrective-err" data-testid="rca-error-corrective-action"
+            role="alert" class="mt-1 text-xs text-red-600">
+{{ correctiveError }}
+</p>
         </div>
         <div>
           <label for="rca-preventive" class="block text-sm font-medium text-slate-700 mb-1">Hành động phòng ngừa</label>
           <textarea
 id="rca-preventive" v-model="preventiveAction" :disabled="!canEdit" rows="3"
-            class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm disabled:bg-slate-50"
-            placeholder="Hành động phòng ngừa tái diễn..."></textarea>
+            :aria-invalid="preventiveError ? 'true' : undefined"
+            :aria-describedby="preventiveError ? 'rca-preventive-err' : undefined"
+            :class="['w-full border rounded-lg px-3 py-2 text-sm disabled:bg-slate-50',
+                     preventiveError ? 'border-red-400' : 'border-slate-300']"
+            placeholder="Hành động phòng ngừa tái diễn..."
+            @input="clearFieldError('preventive_action')"></textarea>
+          <p
+            v-if="preventiveError" id="rca-preventive-err" data-testid="rca-error-preventive-action"
+            role="alert" class="mt-1 text-xs text-red-600">
+{{ preventiveError }}
+</p>
         </div>
         <div>
           <label for="rca-notes" class="block text-sm font-medium text-slate-700 mb-1">Ghi chú</label>
           <textarea
 id="rca-notes" v-model="rcaNotes" :disabled="!canEdit" rows="2"
-            class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm disabled:bg-slate-50"></textarea>
+            :aria-invalid="notesError ? 'true' : undefined"
+            :aria-describedby="notesError ? 'rca-notes-err' : undefined"
+            :class="['w-full border rounded-lg px-3 py-2 text-sm disabled:bg-slate-50',
+                     notesError ? 'border-red-400' : 'border-slate-300']"
+            @input="clearFieldError('rca_notes')"></textarea>
+          <p
+            v-if="notesError" id="rca-notes-err" data-testid="rca-error-rca-notes"
+            role="alert" class="mt-1 text-xs text-red-600">
+{{ notesError }}
+</p>
         </div>
       </div>
 
@@ -215,7 +403,15 @@ id="rca-notes" v-model="rcaNotes" :disabled="!canEdit" rows="2"
       </div>
 
       <!-- CTA server-driven: chỉ render đích ∈ allowed_transitions ∧ can_manage_rca -->
-      <div v-if="canStart || canComplete || canCancel" class="p-6 flex flex-wrap justify-end gap-2">
+      <div v-if="canStart || canComplete || canCancel" class="p-6 flex flex-wrap items-center justify-end gap-2">
+        <p
+          v-if="canComplete && completeBlockedReason"
+          id="rca-complete-blocked-hint"
+          data-testid="rca-complete-blocked-hint"
+          role="status"
+          class="mr-auto text-xs text-slate-500">
+{{ completeBlockedReason }}
+</p>
         <button
           v-if="canCancel"
           data-testid="cta-cancel-rca"
@@ -235,7 +431,9 @@ id="rca-notes" v-model="rcaNotes" :disabled="!canEdit" rows="2"
         <button
           v-if="canComplete"
           data-testid="cta-complete-rca"
-          :disabled="saving || !rootCause.trim() || !correctiveAction.trim()"
+          :disabled="saving || !!completeBlockedReason"
+          :title="completeBlockedReason || undefined"
+          :aria-describedby="completeBlockedReason ? 'rca-complete-blocked-hint' : undefined"
           class="btn-primary focus-visible:ring-2 focus-visible:ring-emerald-500"
           @click="submit">
           {{ saving ? 'Đang gửi...' : 'Hoàn thành RCA' }}

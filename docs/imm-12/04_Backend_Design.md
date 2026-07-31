@@ -715,7 +715,11 @@ def _row_is_breached(row: dict, kind: str, now) -> int:
 | `create_rca(incident_name, rca_method)` | `dict {name, status, due_date}` | IMM-12 | Idempotent: 409 `IMM12_RCA_ALREADY_EXISTS` khi RCA **CÒN SỐNG** (`_has_live_rca`=True, status ∈ {Required, In Progress, Completed}). **BR-12-27 / ADR-IMM12-11 (CR-55)**: rca_record trỏ RCA `Cancelled` ⇒ `_has_live_rca`=False ⇒ TẠO RCA MỚI + `set_value(rca_record=<mới>)` re-point Incident; RCA Cancelled cũ GIỮ NGUYÊN (audit NĐ98). Guard đổi `if doc.rca_record and exists` → `if _has_live_rca(doc)` |
 | `get_rca(name)` | `dict` | IMM-12 | includes `incident_severity` **+ `allowed_transitions: list[str]` = `_RCA_VALID_TRANSITIONS.get(status, [])` + `can_manage_rca: int(0/1)` = `rbac.can("corrective.write")` (BR-12-19, server-driven CTA — parity `get_work_order` imm09.py:917)** |
 | `start_rca(name)` | `dict {name, status}` | IMM-12 | **BR-12-20** — `RCA Required → RCA In Progress`; status ≠ `RCA Required` → `nthrow(MSG.IMM12_RCA_START_INVALID_STATE)` (VN inline, 409). Audit `_log(...)` change_summary token **`rca_started`**. Gate cap `corrective.write` ở API tier |
-| `submit_rca(name, root_cause, corrective_action, preventive_action, five_why_steps, rca_notes)` | `dict {name, status, linked_capa}` | IMM-12 | BR-12-06: auto `create_capa()` via IMM-00. **BR-12-21** — CHỈ thành công từ `RCA In Progress`; status == `RCA Required` → `nthrow(MSG.IMM12_RCA_SUBMIT_INVALID_STATE)` (chặn nhảy-cóc bỏ `RCA In Progress` — hành vi cũ = BUG). Audit token **`rca_completed`** |
+| `submit_rca(name, root_cause, corrective_action, preventive_action, five_why_steps, rca_notes)` | `dict {name, status, linked_capa}` | IMM-12 | **AC-CR-83 / BR-12-28** — PRE-CHECK 3 ràng buộc hồ sơ RCA **TRƯỚC MỌI PHÉP GÁN** (thứ tự: `validate_rca_assignment` → `validate_rca_completion(allow_capa_substitute=False)` → `validate_five_why_payload(rca.rca_method, five_why_steps or <bước đang có>)`) ⇒ hết `frappe.throw` trần thoát ra HTTP-417; hồ sơ bị từ chối GIỮ NGUYÊN status/root_cause/corrective_action_summary/completed_by/completed_date (INV-RCA-5). 2 nhánh có sẵn `root_cause`/`corrective_action` bồi thêm `fields` (message_code CŨ giữ nguyên — INV-RCA-6). BR-12-06: auto `create_capa()` via IMM-00. **BR-12-21** — CHỈ thành công từ `RCA In Progress`; status == `RCA Required` → `nthrow(MSG.IMM12_RCA_SUBMIT_INVALID_STATE)` (chặn nhảy-cóc bỏ `RCA In Progress` — hành vi cũ = BUG). Audit token **`rca_completed`** |
+| `validate_five_why_payload(method, steps)` | `dict \| None` | IMM-12 | **AC-CR-83 / BR-12-28 — SSoT #1.** Hàm THUẦN (0 DB, 0 session). `"why" not in method.lower()` ⇒ `None`. `<5` bước ⇒ `{"message_code": MSG.IMM12_RCA_FIVE_WHY_INCOMPLETE, "fields": {"five_why_steps": …}, "context": {"count": n}}` (dừng, KHÔNG xét từng bước). Ngược lại gom MỌI bước thiếu `why_question`/`why_answer` ⇒ 1 khoá `five_why_steps.<why_number>` cho MỖI bước khuyết. **KHÔNG nhận `status`** — cổng trạng thái ở call-site. Xem `05 §22.3` |
+| `validate_rca_assignment(status, assigned_to)` | `dict \| None` | IMM-12 | **AC-CR-83 / BR-12-28 — SSoT #2.** `status ∈ {RCA In Progress, Completed} ∧ not assigned_to` ⇒ `MSG.IMM12_RCA_ASSIGNEE_REQUIRED` + `fields.assigned_to`. Bắt buộc gọi ở `submit_rca` vì `start_rca` cố tình bypass `validate` (D-RCA-4) |
+| `validate_rca_completion(status, root_cause, corrective_action, linked_capa="", *, allow_capa_substitute=True)` | `dict \| None` | IMM-12 | **AC-CR-83 / BR-12-28 — SSoT #3.** Chỉ áp khi `status == Completed`. `not root_cause` ⇒ `MSG.IMM12_RCA_ROOT_CAUSE_REQUIRED` + `fields.root_cause`; `not corrective_action ∧ (not allow_capa_substitute ∨ not linked_capa)` ⇒ `MSG.IMM12_RCA_CORRECTIVE_REQUIRED` + `fields.corrective_action` (**tên tham số GHI**, ADR-IMM12-14). Service gọi với `allow_capa_substitute=False` (D-RCA-2); hook gọi mặc định `True` |
+| `_nthrow_violation(v)` / `_nthrow_violation_in_hook(v)` | `NoReturn` | IMM-12 | **AC-CR-83** — 2 adapter mỏng đưa CÙNG 1 vi phạm ra 2 kênh: service → `nthrow(code, fields=…, **ctx)` (envelope Decision-B CÓ `fields`); hook → `nthrow_in_hook(code, **ctx)` (ValidationError CÓ `message_code`, KHÔNG `fields` — giới hạn kênh hook) |
 | `cancel_rca(name, reason)` | `dict {name, status}` | IMM-12 | **BR-12-22** — `{RCA Required, RCA In Progress} → Cancelled`; status ∈ `{Completed, Cancelled}` → `nthrow(MSG.IMM12_RCA_CANCEL_INVALID_STATE)` (VN inline, 409). `reason` required. Audit token **`rca_cancelled`**. Gate cap `corrective.write` ở API tier |
 | `list_incidents(status, severity, asset, page, page_size)` | `dict {pagination, items}` | IMM-12 | — |
 | `get_incident_detail(name)` | `dict` | IMM-12 | includes `allowed_transitions` + nested `rca` + `is_response_breached`/`is_resolution_breached` (BR-12-13 LIVE) + `scene_photos: [{file_url, file_name}]` (BR-12-18 parity mobile+web; `[]` khi chưa có; derive `_scene_photos(name)`) **+ `available_actions: [6×AvailableAction]`** (CR-39 server-driven CTA; derive `_build_incident_actions(doc)`, READ-ONLY; §3.0.4 + `05 §18`) **+ `reporter_name`/`assigned_to_name`** (CR-40 REUSE `_enrich_asset_names`, `User.full_name` fallback raw-id) **+ `asset_lifecycle_status`** (CR-40 `AC Asset.lifecycle_status` LIVE song song `asset_name`; §3.0.5 + `05 §19`) |
@@ -966,6 +970,65 @@ INCIDENT_ESCALATION_OPS: list[str] = OPS_MANAGER    # ["Maintenance Manager"]
 | Chronic detection | Idempotent | Guard: `frappe.db.exists("IMM RCA Record", {status in ["RCA Required", "RCA In Progress"]})` |
 | Logging | All errors logged to Frappe error log | `frappe.log_error()` in `_handle()` |
 | Performance | List query < 500ms p95 | Index on `(asset, fault_code, reported_at)` + `(severity, status)` |
+
+---
+
+## 4.3 AC-CR-83 — code-shape: controller `IMM RCA Record` hết `frappe.throw` trần 🟢 **ĐÃ LAND (BE Bước-4, 2026-07-27)**
+
+> **Trạng thái thực tế trên đĩa (verify `@source` 2026-07-27):** controller **0** `frappe.throw(`; 3 validator lazy-import và gọi CHÍNH 3 predicate SSoT của `services/imm12.py`; `on_submit` dùng `nthrow_in_hook(MSG.IMM12_RCA_SUBMIT_NOT_COMPLETED, status=…)`.
+> Vị trí THẬT sau khi land: `validate_five_why_payload` `services/imm12.py:974-1025` · `validate_rca_assignment` `:1028-1040` · `validate_rca_completion` `:1043-1071` · `_nthrow_violation` `:1074-1077` · `_nthrow_violation_in_hook` `:1080-1086` · PRE-CHECK trong `submit_rca` `:1236-1250` (NGAY SAU guard trạng thái `:1230`, TRƯỚC phép gán đầu tiên `:1253`).
+> Guard đang xanh: `test_imm12::TestRcaSubmitEnvelope` (11 TC) + `TestRcaValidatorSsot` (3 TC) — `bench --site miyano run-tests --module assetcore.tests.test_imm12` ⇒ **Ran 198 OK**.
+
+
+**File:** `assetcore/assetcore/doctype/imm_rca_record/imm_rca_record.py` — **6 → 0** lời gọi `frappe.throw(`.
+
+```python
+# ── validations (SAU AC-CR-83) ────────────────────────────────────────────────
+def _validate_assignment(self) -> None:
+    from assetcore.services.imm12 import (          # lazy — chống circular ImportError
+        _nthrow_violation_in_hook, validate_rca_assignment,
+    )
+    v = validate_rca_assignment(self.status, self.assigned_to)
+    if v:
+        _nthrow_violation_in_hook(v)
+
+def _validate_five_why_when_method_5why(self) -> None:
+    if self.status not in ("RCA In Progress", "Completed"):
+        return                                       # cổng trạng thái Ở CALL-SITE
+    from assetcore.services.imm12 import (
+        _nthrow_violation_in_hook, validate_five_why_payload,
+    )
+    v = validate_five_why_payload(self.rca_method, self.get("five_why_steps"))
+    if v:
+        _nthrow_violation_in_hook(v)                 # KHÔNG còn vòng lặp kiểm tra riêng
+
+def _validate_completion_requirements(self) -> None:
+    from assetcore.services.imm12 import (
+        _nthrow_violation_in_hook, validate_rca_completion,
+    )
+    v = validate_rca_completion(self.status, self.root_cause,
+                                self.corrective_action_summary, self.linked_capa)
+    if v:
+        _nthrow_violation_in_hook(v)
+```
+
+`on_submit` (`imm_rca_record.py:29-32`) đổi sang `nthrow_in_hook(MSG.IMM12_RCA_SUBMIT_NOT_COMPLETED, status=self.status)`.
+
+**3 điều KHÔNG được làm khi land:**
+
+1. ❌ **Top-level import** `from assetcore.services.imm12 import …` ở đầu controller — circular `ImportError` lúc `bench start` (tiền lệ đang chạy: `imm_rca_record.py:41` đã lazy-import `on_rca_completed`).
+2. ❌ Giữ lại **bản kiểm tra thứ hai** trong controller (vòng lặp/điều kiện riêng) — chính là class-of-bug "luật thứ hai" mà INV-RCA-2 cấm; guard `TestRcaValidatorSsot` sẽ đỏ.
+3. ❌ Đổi predicate `"why" in method.lower()` để bắt thêm `"Both"` — đó là **AC-CR-83b**, cần ratify (D-RCA-3, `05 §22.8`); mở rộng ở vòng này làm hồ sơ đang hợp lệ hoá không hợp lệ (vi phạm AC-6).
+
+**Thay đổi kèm theo (ngoài `services/imm12.py`):**
+
+| File | Delta |
+|---|---|
+| `assetcore/utils/notify.py` | `nthrow(message_code, *, error_code=None, **fields=None**, **context)` → chuyển thẳng vào `ServiceError(..., fields=fields)`. Backward-compatible; `fields` thành **tên dành riêng** (0 entry registry đang dùng biến template `{fields}`) |
+| `assetcore/utils/messages.py` | +3 hằng & entry: `IMM12_RCA_FIVE_WHY_INCOMPLETE` (422) · `IMM12_RCA_ASSIGNEE_REQUIRED` (422) · `IMM12_RCA_SUBMIT_NOT_COMPLETED` (409) — bảng đầy đủ ở `05 §22.4`. **KHÔNG** đụng 2 entry cũ (INV-RCA-6) |
+| `docs/mobile/openapi/…yaml` | ✅ cite `services/imm12.py:*` **ĐÃ refresh** theo dòng THẬT sau khi predicate + pre-check land (`963→1116 create_rca` · `1070→1230` · `1075/1077→1240` · `1081→1253` · `1083→1255` · `1084→1256` · `1085→1257` · `1088→1260` · `1091→1265` · `1099→1272` · `1109→1282` · `1118→1290` · `1120→1292`; kèm 2 cite lân cận cùng module `get_incident_detail`→`1579-1663`, `get_asset_incident_history`→`1709-1763`) ⇒ `cr83_e` XANH |
+
+> 📌 **Nguồn hợp đồng đầy đủ** (envelope · 5 `message_code` · khoá `fields` · 9 invariant · 4 divergence · 3 ADR · handoff): [`05_API_Specification.md §22`](./05_API_Specification.md).
 
 ---
 

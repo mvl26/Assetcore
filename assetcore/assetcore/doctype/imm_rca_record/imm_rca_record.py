@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import frappe
-from frappe import _
 from frappe.model.document import Document
 from frappe.utils import today
 
@@ -27,9 +26,9 @@ class IMMRCARecord(Document):
 
     def on_submit(self) -> None:
         if self.status != "Completed":
-            frappe.throw(
-                _("RCA chỉ có thể submit khi đã ở trạng thái Completed. Hiện tại: {0}").format(self.status)
-            )
+            from assetcore.utils.messages import MSG
+            from assetcore.utils.notify import nthrow_in_hook
+            nthrow_in_hook(MSG.IMM12_RCA_SUBMIT_NOT_COMPLETED, status=self.status)
         self._mark_incident_rca_done()
         self._log_lifecycle_event()
         self._trigger_capa_and_incident_chain()
@@ -49,34 +48,41 @@ class IMMRCARecord(Document):
 
     # ───────── validations ─────────
 
+    # AC-CR-83 (docs/imm-12/04_Backend_Design.md §4.3): 3 validator dưới đây là
+    # BACKSTOP cho đường Desk/`doc.save()` trực tiếp. Luật nghiệp vụ nằm ở
+    # predicate SSoT trong `services/imm12.py` — controller KHÔNG giữ bản kiểm tra
+    # thứ hai (INV-RCA-2). Import LAZY trong thân hàm: top-level import service từ
+    # controller gây circular ImportError lúc `bench start` (tiền lệ: lazy-import
+    # `on_rca_completed` bên dưới).
+
     def _validate_assignment(self) -> None:
-        if self.status in ("RCA In Progress", "Completed") and not self.assigned_to:
-            frappe.throw(_("Phải gán người phụ trách RCA (assigned_to) trước khi tiến hành phân tích."))
+        from assetcore.services.imm12 import (
+            _nthrow_violation_in_hook, validate_rca_assignment,
+        )
+        v = validate_rca_assignment(self.status, self.assigned_to)
+        if v:
+            _nthrow_violation_in_hook(v)
 
     def _validate_five_why_when_method_5why(self) -> None:
-        method = (self.rca_method or "").lower()
-        if "why" not in method:
-            return
         if self.status not in ("RCA In Progress", "Completed"):
-            return
-        steps = self.get("five_why_steps") or []
-        if len(steps) < 5:
-            frappe.throw(
-                _("Phương pháp 5 Whys yêu cầu đủ 5 bước phân tích. Hiện có {0}.").format(len(steps))
-            )
-        for row in steps:
-            if not (row.why_question and row.why_answer):
-                frappe.throw(
-                    _("Bước {0}: phải điền đầy đủ câu hỏi và câu trả lời.").format(row.why_number or row.idx)
-                )
+            return                                   # cổng trạng thái Ở CALL-SITE
+        from assetcore.services.imm12 import (
+            _nthrow_violation_in_hook, validate_five_why_payload,
+        )
+        v = validate_five_why_payload(self.rca_method, self.get("five_why_steps"))
+        if v:
+            _nthrow_violation_in_hook(v)
 
     def _validate_completion_requirements(self) -> None:
-        if self.status != "Completed":
-            return
-        if not self.root_cause:
-            frappe.throw(_("Không thể đánh dấu hoàn thành: thiếu Root Cause."))
-        if not (self.corrective_action_summary or self.linked_capa):
-            frappe.throw(_("Không thể đánh dấu hoàn thành: cần CAPA hoặc tóm tắt hành động khắc phục."))
+        from assetcore.services.imm12 import (
+            _nthrow_violation_in_hook, validate_rca_completion,
+        )
+        # allow_capa_substitute mặc định True (D-RCA-2): hồ sơ Desk đã gắn CAPA
+        # được miễn tóm tắt khắc phục — KHÁC service submit_rca (False).
+        v = validate_rca_completion(self.status, self.root_cause,
+                                    self.corrective_action_summary, self.linked_capa)
+        if v:
+            _nthrow_violation_in_hook(v)
 
     # ───────── side-effects ─────────
 

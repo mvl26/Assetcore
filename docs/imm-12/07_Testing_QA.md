@@ -876,3 +876,149 @@ Gắn screenshot SonarQube + Lighthouse vào file 09 §Release Notes khi báo c�
 - [ ] Lighthouse ≥ target — chưa có evidence
 - [ ] Bundle size ≤ budget — chưa đo
 - [ ] Screenshot báo cáo gắn vào file 09 — ⬜ Pending
+
+## VIII. CR-74 — Read-gate CHI TIẾT (getIncident) · bộ TC bắt buộc (2026-07-25)
+
+> Spec: [`05_API_Specification.md` §21](./05_API_Specification.md) · SSoT: [ADR-IMM00-LIST-SCOPE §9](../imm-00/ADR-IMM00-LIST-SCOPE.md).
+> **Suite:** `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_imm12` (+ `test_rowscope_docperm_gate` · `test_rowscope_invariant` · `test_rowscope_scope_guard`). **DoD = suite XANH, KHÔNG curl** (`.py` prod dirty dưới gunicorn `--preload` ⇒ BLOCKED-RELOAD).
+
+### VIII.1 Fixture tối thiểu (dựng 1 lần, dùng chung 6 TC)
+
+| Ký hiệu | Là gì | Ràng buộc |
+|---|---|---|
+| `USER_NOPERM` | user **đăng nhập được** nhưng **0 DocPerm read** trên `Incident Report` | vd persona `PM User` / `Calibration User` (0 DocPerm read trên `Incident Report`). **KHÔNG** dùng Guest (Guest → dispatcher-403/401, sai loại lỗi) |
+| `USER_OWNER` | persona `Corrective User` — `reported_by`/`assigned_to` == chính mình | phải có DocPerm read |
+| `USER_OTHER` | persona `Corrective User` khác — **không** được giao phiếu đang test | phải có DocPerm read (để phân biệt trục ROW với trục ROLE) |
+| `USER_SENIOR` | `Corrective Manager` hoặc `AssetCore Auditor` | chứng minh 0 regress |
+| `REC_OWNED` | 1 bản ghi `Incident Report` có `reported_by`/`assigned_to` = `USER_OWNER` | |
+| `REC_FOREIGN` | 1 bản ghi `Incident Report` có `reported_by`/`assigned_to` = `USER_OWNER`, dùng khi đăng nhập `USER_OTHER` | |
+| `NAME_GHOST` | chuỗi PK **không tồn tại** (vd `"IR-9999-99999"`) | dùng cho cặp TC existence-oracle |
+
+> 🔴 **BẮT BUỘC `frappe.set_user(...)` cho MỌI TC** + `frappe.set_user("Administrator")` trong `tearDown`. `frappe/permissions.py:107-109` trả `True` ngay cho Administrator ⇒ chạy bằng Administrator = **xanh giả** (đúng bài học INV-ROWSCOPE-4/6).
+
+### VIII.2 Bộ TC
+
+| TC | User | Input | Kỳ vọng (assert) | INV |
+|---|---|---|---|---|
+| `TC-INC-DETAILGATE-01` | `USER_NOPERM` | `REC_OWNED` | `env["success"] is False` · `env["code"] == "FORBIDDEN"` · `env["http_status"] == 403` · **KHÔNG raise** · `set(env) & {"asset", "clinical_impact", "severity", "rca", "scene_photos"} == set()` | INV-DETAIL-1 |
+| `TC-INC-DETAILGATE-02` | `USER_OTHER` | `REC_FOREIGN` | `code == "FORBIDDEN"` · `http_status == 403` (hook `incident_report_has_permission` — cả `reported_by` LẪN `assigned_to` đều KHÁC `USER_OTHER`) | INV-DETAIL-2 |
+| `TC-INC-DETAILGATE-03` | `USER_SENIOR` | `REC_OWNED` | `env["success"] is True` · payload **byte-identical** snapshot baseline (so khoá + giá trị) | INV-DETAIL-4 |
+| `TC-INC-DETAILGATE-04` | `USER_NOPERM` | `NAME_GHOST` | envelope **giống hệt** `TC-INC-DETAILGATE-01` (cùng `code` + `http_status`) ⇒ 0 existence-oracle | INV-DETAIL-5 |
+| `TC-INC-DETAILGATE-05` | `USER_OWNER` | `NAME_GHOST` | `code == "NOT_FOUND"` · `http_status == 404` — **GIỮ NGUYÊN** | INV-DETAIL-6 |
+| `TC-INC-DETAILGATE-06` | `Vendor Engineer` ngoài scope | `REC_OWNED` | `code == "FORBIDDEN"` · **KHÔNG** 500 · **KHÔNG** traceback ⇒ chứng minh lớp `assert_vendor_can_access` vẫn sống | INV-DETAIL-7 |
+
+### VIII.3 Chống vacuous (BẮT BUỘC ghi bằng chứng vào báo cáo vòng)
+
+1. **Mutation gate:** gỡ `assert_doctype_read_permission` khỏi `services/imm12.py::get_incident_detail` ⇒ `TC-INC-DETAILGATE-01` và `TC-INC-DETAILGATE-04` PHẢI **ĐỎ**. Hoàn nguyên ⇒ xanh.
+2. **Mutation guard tĩnh:** cùng thao tác trên ⇒ `test_rowscope_scope_guard::TestRowScopeStaticGuard` **G5** PHẢI **ĐỎ**.
+3. **Anti-false-green:** TC-01 phải assert **cả 3** (`success`/`code`/`http_status`) — chỉ assert `success is False` sẽ **không** phân biệt 403 với 404/422.
+4. **Anti-leak:** TC-01/02 assert **tập khoá** của envelope, KHÔNG chỉ `"asset_ref" not in env` (khoá lồng trong `data` vẫn rò nếu quên).
+
+> ⚠️ **Riêng IMM-12:** `api/imm12.py:286-287` có guest-check **in-handler** trả `http_status:401` trên HTTP-200. TC-01 dùng user **đăng nhập thật** (không phải Guest) ⇒ phải nhận **403**, KHÔNG phải 401. Nếu TC-01 nhận 401 nghĩa là fixture chưa `set_user` đúng.
+
+
+---
+
+## IX. AC-CR-83 — `submit_rca` hết thoát envelope thành HTTP-417 · bộ TC bắt buộc (2026-07-27)
+
+> Hợp đồng: [`05_API_Specification.md §22`](./05_API_Specification.md) · code-shape: [`04_Backend_Design.md §4.3`](./04_Backend_Design.md) · FE: [`06_Frontend_Design.md §7.1`](./06_Frontend_Design.md).
+> Bộ này **phải** land cùng application code ở Bước-4. Chạy: `bench --site miyano run-tests --module assetcore.tests.test_imm12` (⚠️ timeout tool ≥ 600000ms — kill giữa chừng ⇒ `tearDownClass` không chạy ⇒ fixture mồ côi ⇒ **đỏ giả**).
+
+### IX.1 Fixture tối thiểu
+
+| Tên | Nội dung |
+|---|---|
+| `RCA_INPROG` | Hồ sơ RCA `status='RCA In Progress'`, `rca_method='5-Why'`, `assigned_to=<KTV>`, 5 bước seed sẵn `why_answer=''` (tạo qua `create_rca` rồi `start_rca` — **giống hệt** đường người dùng thật) |
+| `USER_RCA` | Persona có **cả** `incident.acknowledge` **và** `corrective.write` (hội 2 tầng, D-RCA-1) |
+| `STEPS_OK` | 5 dict `{why_number, why_question, why_answer}` đầy đủ |
+| `STEPS_HOLE3` | như `STEPS_OK` nhưng `why_number=3` có `why_answer=''` |
+
+> **BẮT BUỘC `frappe.set_user(USER_RCA)`** — chạy bằng Administrator là **xanh giả** (`frappe/permissions.py:107-109` `return True` ngay).
+
+### IX.2 Bộ TC BE (gọi qua **tầng API** `assetcore.api.imm12.submit_rca`, KHÔNG gọi thẳng service)
+
+| TC | Input | Kỳ vọng (assert) | AC / INV |
+|---|---|---|---|
+| `TC-12-RCA83-01` | `STEPS_HOLE3` | Trả **dict** (KHÔNG raise `frappe.ValidationError`) · `success is False` · `code == 'BUSINESS_RULE'` · `http_status == 422` · `message_code == 'IMM12-RCA-FIVE-WHY-INCOMPLETE'` · `fields == {'five_why_steps.3': <câu VI>}` | AC-1 / INV-RCA-1,4 |
+| `TC-12-RCA83-02` | 3 bước (`<5`) | CÙNG `message_code` · `fields` **đúng 1 khoá** `five_why_steps` (KHÔNG khoá con) · câu VI nêu **số bước hiện có** | AC-2 / INV-RCA-4 |
+| `TC-12-RCA83-03` | như `TC-…-02`, đọc lại hồ sơ **sau** lỗi | `status == 'RCA In Progress'` · `root_cause` / `corrective_action_summary` / `completed_by` / `completed_date` **bằng giá trị trước lệnh** | AC-2 / INV-RCA-5 |
+| `TC-12-RCA83-04` | `root_cause=''`, steps đủ | `message_code == 'IMM12-RCA-ROOT-CAUSE-REQUIRED'` (**KHÔNG đổi**) · `fields == {'root_cause': …}` | AC-3 / INV-RCA-6 |
+| `TC-12-RCA83-05` | `corrective_action=''`, steps đủ | `message_code == 'IMM12-RCA-CORRECTIVE-REQUIRED'` · `fields` khoá **`corrective_action`** · `'corrective_action_summary' not in fields` | AC-3 / INV-RCA-3 |
+| `TC-12-RCA83-06` | hồ sơ `assigned_to=''` (set qua `db.set_value`, mô phỏng D-RCA-4) | `message_code == 'IMM12-RCA-ASSIGNEE-REQUIRED'` · `fields == {'assigned_to': …}` | AC-2 |
+| `TC-12-RCA83-07` | 3 bước Why trống (2, 3, 5) | `fields` có **đúng 3** khoá `five_why_steps.2/.3/.5`; **1** `message_code` | INV-RCA-4 |
+| `TC-12-RCA83-08` | `STEPS_OK` + đủ nguyên nhân/khắc phục | `success is True` · `data.status == 'Completed'` · CAPA sinh ra · `on_rca_completed` chain chạy | AC-6 / INV-RCA-8 |
+| `TC-12-RCA83-09` | gọi lại `TC-…-08` lần 2 | `message_code == 'IMM12-RCA-ALREADY-COMPLETED'` · `http_status == 409` · **không** `fields` | §22.2 |
+| `TC-12-RCA83-10` | user thiếu `corrective.write` | `code == 'FORBIDDEN'` · `http_status == 403` **in-envelope** (HTTP-200) · message **không** chứa chuỗi `corrective.write` | D-RCA-1 |
+| `TC-12-RCA83-11` *(guard SSoT)* | AST/grep `imm_rca_record.py` | **0** lời gọi `frappe.throw(` ∧ file **import** `validate_five_why_payload` / `validate_rca_assignment` / `validate_rca_completion` ∧ **0** vòng lặp kiểm 5-Why định nghĩa riêng | AC-4, AC-5 / INV-RCA-2,9 |
+| `TC-12-RCA83-12` *(parity 2 kênh)* | `doc.save()` **trực tiếp** trên hồ sơ có `STEPS_HOLE3` | raise `frappe.ValidationError` **có** `message_code == 'IMM12-RCA-FIVE-WHY-INCOMPLETE'` trong `frappe.local.response` ⇒ hook backstop dùng **cùng** predicate | AC-4 / INV-RCA-2 |
+| `TC-12-RCA83-13` *(non-regress)* | `rca_method='Fishbone'`, 0 bước | `success is True` — predicate **không** áp cho phương pháp không chứa "why" (D-RCA-3 giữ nguyên) | AC-6 |
+
+### IX.3 Bộ TC FE (`RCADetailView.vue` — **test RENDER**, không chỉ unit computed)
+
+| TC | Mock | Kỳ vọng DOM |
+|---|---|---|
+| `TC-FE-RCA83-01` | envelope AC-1 (`fields['five_why_steps.3']`) | `[data-testid="rca-field-error-why-3"]` **tồn tại** và nằm **sau** `#why-a-3` trong DOM order · text == câu VI |
+| `TC-FE-RCA83-02` | như trên | nút `[data-testid="cta-complete-rca"]` **vẫn hiển thị** (không mất sau lỗi) | 
+| `TC-FE-RCA83-03` | như trên | `document.body.textContent` **KHÔNG** chứa `Traceback` / `ValidationError` / `_server_messages` |
+| `TC-FE-RCA83-04` | `fields.corrective_action` | lỗi hiện dưới `#rca-corrective`; **KHÔNG** có phần tử lỗi nào gắn `corrective_action_summary` |
+| `TC-FE-RCA83-05` | `fields.five_why_steps` (thiếu bước) | lỗi hiện ở `[data-testid="rca-field-error-five-why"]`, **không** neo vào dòng Why nào |
+| `TC-FE-RCA83-06` | lỗi lần 1 → submit lại thành công | mọi `rca-field-error-*` **bị xoá** khỏi DOM |
+| `TC-FE-RCA83-07` | `fields` có khoá lạ `five_why_steps.99` | thông điệp **rơi xuống dải tổng** (không nuốt im lặng) |
+
+### IX.4 Chống vacuous (BẮT BUỘC ghi bằng chứng vào báo cáo vòng)
+
+1. **RED-before:** chạy `TC-12-RCA83-01` **trước** khi land predicate ⇒ phải **ĐỎ** với `frappe.ValidationError` (chính là bug). Ghi traceback vào báo cáo.
+2. **Mutation #1:** dời pre-check xuống **sau** `rca.status = _RCA_COMPLETED` ⇒ `TC-12-RCA83-03` PHẢI **ĐỎ**.
+3. **Mutation #2:** đổi khoá `corrective_action` → `corrective_action_summary` ⇒ `TC-12-RCA83-05` **và** `TC-FE-RCA83-04` PHẢI **ĐỎ**.
+4. **Mutation #3:** cho controller giữ lại vòng lặp kiểm 5-Why riêng ⇒ `TC-12-RCA83-11` PHẢI **ĐỎ** (chống "luật thứ hai").
+5. **Anti-false-green:** `TC-…-01` phải assert **cả 4** (`success` · `code` · `message_code` · `fields`) — chỉ assert `success is False` **không** phân biệt được lỗi 5-Why với lỗi thiếu quyền.
+
+### IX.5 Kết quả Bước-4 (BE land — 2026-07-27) ✅
+
+| Bộ | Lệnh | Kết quả verbatim |
+|---|---|---|
+| BE IMM-12 | `bench --site miyano run-tests --module assetcore.tests.test_imm12` | **Ran 198 tests … OK** |
+| Guard hợp đồng | `… --module assetcore.tests.test_mobile_oas` | **Ran 999 tests … OK** |
+| Guard docset | `… --module assetcore.tests.test_mobile_docset` | **Ran 9 tests … OK** |
+| Coupling BE↔FE | `python3 scripts/gen_fe_messages.py --check` | **OK — 149 MSG / 149 MESSAGES, 0 drift** |
+| Không regress lân cận | `test_imm16` · `test_workflows` · `test_capa_open_sot` · `test_notification_framework` · `test_imm12_notify` | **112 / 11 / 5 / 19 / 12 OK** |
+
+**Ánh xạ TC → tên hàm đã land** (`assetcore/tests/test_imm12.py`, 2 class `TestRcaSubmitEnvelope` + `TestRcaValidatorSsot`):
+
+| TC (§IX.2) | Hàm test |
+|---|---|
+| TC-12-RCA83-01 | `test_tc_12_rca83_01_five_why_missing_answer_returns_envelope_not_417` |
+| TC-12-RCA83-02 | `test_tc_12_rca83_02_five_why_fewer_than_five_steps` |
+| TC-12-RCA83-03 | `test_tc_12_rca83_03_failed_submit_does_not_mutate_doc` |
+| TC-12-RCA83-04 | `test_tc_12_rca83_04_root_cause_required_now_carries_fields` |
+| TC-12-RCA83-05 | `test_tc_12_rca83_05_corrective_required_field_key_is_write_param_name` |
+| TC-12-RCA83-06 | `test_tc_12_rca83_06_assignee_required_envelope` |
+| TC-12-RCA83-07 | `test_tc_12_rca83_07_multiple_holes_yield_one_code_and_all_field_keys` |
+| TC-12-RCA83-08 | `test_tc_12_rca83_08_happy_path_completes_and_creates_capa` |
+| TC-12-RCA83-09 | `test_tc_12_rca83_09_second_submit_is_already_completed_without_fields` |
+| TC-12-RCA83-10 | `test_tc_12_rca83_10_missing_capability_is_403_in_envelope` |
+| TC-12-RCA83-11 | `test_tc_12_rca83_11_no_bare_frappe_throw_in_rca_controller` |
+| TC-12-RCA83-12 | `test_tc_12_rca83_12_hook_backstop_shares_predicate` (+ `…_12b_hook_calls_shared_predicate_symbol` — patch symbol ⇒ hook đổi hành vi) |
+| TC-12-RCA83-13 | `test_tc_12_rca83_13_non_five_why_method_is_untouched` |
+
+**Chống vacuous — bằng chứng ĐO ĐƯỢC (§IX.4 đã chạy đủ 4/5, mục 5 là thiết kế assert):**
+
+1. **RED-before** (trước khi land predicate): `TC-12-RCA83-01` ĐỎ với
+   `frappe.exceptions.ValidationError: Bước 3: phải điền đầy đủ câu hỏi và câu trả lời.`
+   — traceback đi qua `api_handler.py:49 handle` → `services/imm12.py rca.save()` →
+   `imm_rca_record.py:69 frappe.throw` (đúng E1–E5 của `05 §22.0`).
+2. **Mutation #1** (dời pre-check xuống SAU `rca.status = _RCA_COMPLETED` + `rca.save()`):
+   `TC-12-RCA83-03` **ĐỎ** (`ValidationError` từ hook, hồ sơ đã bị ghi nửa chừng). Hoàn nguyên ⇒ xanh.
+3. **Mutation #2** (khoá `fields` đổi sang `corrective_action_summary`): `TC-12-RCA83-05` **ĐỎ**
+   (`AssertionError: 'corrective_action' not found in {'corrective_action_summary': …}`). Hoàn nguyên ⇒ xanh.
+4. **Mutation #3** (controller giữ lại vòng lặp kiểm 5-Why riêng + `frappe.throw`):
+   `TC-12-RCA83-11` **ĐỎ** (`[74] != []`). Hoàn nguyên ⇒ xanh (`grep -c 'frappe.throw(' imm_rca_record.py` ⇒ **0**).
+
+> ⚠️ **TC FE (§IX.3) CHƯA land** — thuộc [FE] Bước-4 (`RCADetailView.vue` + `rcaSubmitFieldErrors.test.ts`).
+> ⚠️ **Live-verify bằng curl/app CHƯA hợp lệ** cho tới khi USER `bench restart` (gunicorn `--preload` ⇒ worker giữ bản `.py` cũ; LL-DEPLOY-07/08). DoD vòng này chấm bằng `run-tests` module-isolated.
+
+### IX.6 Guard hợp đồng (đã XANH ở Bước-2, Bước-4 lật `cr83_d` → `cr83_g`)
+
+`assetcore/tests/test_mobile_oas.py::TestMobileSubmitRcaContract` `cr83_a..g` (7 TC sau Bước-4) — **999 OK**; `test_mobile_docset` — **9 OK**. Mutation-verified ×3 ở Bước-2 (rot cite ⇒ `cr83_e` đỏ · lọt `corrective_action_summary` vào body ⇒ `cr83_b` đỏ · thêm slot `422` ⇒ `cr83_c` đỏ; hoàn nguyên ⇒ xanh).
+
+> ✅ **Bước-4 ĐÃ LÀM:** `cr83_d` (nay chỉ khoá doc-layer) + `cr83_g` MỚI parity đầy đủ 5/5 mã ∈ registry LIVE (`http_status` 422 ×4 field-level, 409 cho `IMM12-RCA-ALREADY-COMPLETED`, `template` khác rỗng) ⇒ `_EXPECTED_TEST_COUNT` **999** · `_GUARD_SUITE_EXPECTED['test_mobile_oas.py']` **999** · `_GUARD_SUITE_SUM` **1142** · `_MOBILE_OAS_TOTAL` **1168** · `cr83_submit_rca_envelope_delta` **7**. Cite `services/imm12.py` trong OAS đã refresh (predicate + pre-check làm dịch dòng) ⇒ `cr83_e` XANH.

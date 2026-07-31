@@ -25,24 +25,31 @@ const { can } = useCapabilities()
 
 /**
  * Core Doc §9.3 / §9.4.6 — đọc route.query (drill-down từ dashboard) → áp vào filter.
- * Keys hỗ trợ: severity, status, open. Trả true nếu có filter set từ query.
+ * Keys hỗ trợ: severity, status, open, asset. Trả true nếu có filter set từ query.
  *
  * open=1 (cờ ảo "đang mở", SoT BE open_incident_filter) chỉ áp khi KHÔNG có status
  * đơn lẻ — status ưu tiên hơn open (mutually-exclusive, khớp BE _build_incident_filters).
+ *
+ * `asset` (AC-CR-91 — «Xem tất cả» từ tab «Bản ghi liên quan» của một thiết bị) là
+ * khoá ĐỘC LẬP: cộng dồn (AND) với severity/status/open, KHÔNG loại trừ nhau.
  */
 function applyQueryToFilters(): boolean {
   let touched = false
   const sev = route.query.severity
   const st = route.query.status
   const op = route.query.open
+  const at = route.query.asset
   const sevVal = Array.isArray(sev) ? sev[0] : sev
   const stVal = Array.isArray(st) ? st[0] : st
   const opVal = Array.isArray(op) ? op[0] : op
+  const atVal = Array.isArray(at) ? at[0] : at
   openFilter.value = false
+  assetFilter.value = ''
   if (typeof sevVal === 'string' && sevVal) { severityFilter.value = sevVal; touched = true }
   if (typeof stVal === 'string' && stVal) { statusFilter.value = stVal; touched = true }
   // open=1 chỉ có hiệu lực khi không kèm status đơn lẻ (status ưu tiên hơn).
   if (opVal === '1' && !(typeof stVal === 'string' && stVal)) { openFilter.value = true; touched = true }
+  if (typeof atVal === 'string' && atVal) { assetFilter.value = atVal; touched = true }
   if (touched) showFilters.value = true
   return touched
 }
@@ -76,6 +83,9 @@ const severityFilter = ref('')
 const statusFilter = ref('')
 // Cờ ảo "đang mở" (open=1) — drill-down từ dashboard donut/card. Khác status đơn lẻ.
 const openFilter = ref(false)
+// Lọc theo thiết bị — drill từ «Xem tất cả» trong tab «Bản ghi liên quan» của một
+// thiết bị (?asset=<mã>). Truyền thẳng xuống BE list_incidents(asset=…).
+const assetFilter = ref('')
 const showFilters = ref(false)
 
 const SEVERITIES = [
@@ -109,7 +119,7 @@ function formatDateTime(d?: string) {
   return new Date(d).toLocaleString('vi-VN')
 }
 
-interface Chip { key: 'severity' | 'status' | 'open'; label: string }
+interface Chip { key: 'severity' | 'status' | 'open' | 'asset'; label: string }
 const activeChips = computed<Chip[]>(() => {
   const chips: Chip[] = []
   if (severityFilter.value) {
@@ -124,6 +134,11 @@ const activeChips = computed<Chip[]>(() => {
   if (openFilter.value && !statusFilter.value) {
     chips.push({ key: 'open', label: INCIDENT_OPEN_FILTER_LABEL })
   }
+  // Người dùng phải THẤY mình đang ở trạng thái lọc theo thiết bị và thoát ra được —
+  // danh sách lọc câm trông y hệt "hệ thống mất dữ liệu" (ADR D-CR5-7 vế 3).
+  if (assetFilter.value) {
+    chips.push({ key: 'asset', label: `Thiết bị: ${assetFilter.value}` })
+  }
   return chips
 })
 
@@ -132,6 +147,7 @@ const activeFilterCount = computed(() => activeChips.value.length)
 function clearChip(key: string) {
   if (key === 'severity') severityFilter.value = ''
   else if (key === 'open') openFilter.value = false
+  else if (key === 'asset') assetFilter.value = ''
   else statusFilter.value = ''
   applyFilter()
 }
@@ -140,6 +156,7 @@ function resetFilters() {
   severityFilter.value = ''
   statusFilter.value = ''
   openFilter.value = false
+  assetFilter.value = ''
   store.fetchList()
 }
 
@@ -150,6 +167,7 @@ function applyFilter() {
     severity: severityFilter.value || undefined,
     status: statusFilter.value || undefined,
     open: openFilter.value && !statusFilter.value ? 1 : undefined,
+    asset: assetFilter.value || undefined,
   })
 }
 
@@ -167,6 +185,7 @@ function goToPage(page: number) {
     severity: severityFilter.value || undefined,
     status: statusFilter.value || undefined,
     open: openFilter.value && !statusFilter.value ? 1 : undefined,
+    asset: assetFilter.value || undefined,
     page,
   })
 }
@@ -215,16 +234,25 @@ watch(
     >
       <template #fields>
         <div class="form-group">
-          <label class="form-label">Mức độ</label>
-          <select v-model="severityFilter" class="form-select">
+          <label class="form-label" for="ir-filter-severity">Mức độ</label>
+          <select id="ir-filter-severity" v-model="severityFilter" class="form-select">
             <option v-for="s in SEVERITIES" :key="s.value" :value="s.value">{{ s.label }}</option>
           </select>
         </div>
         <div class="form-group">
-          <label class="form-label">Trạng thái</label>
-          <select v-model="statusFilter" class="form-select">
+          <label class="form-label" for="ir-filter-status">Trạng thái</label>
+          <select id="ir-filter-status" v-model="statusFilter" class="form-select">
             <option v-for="s in STATUSES" :key="s.value" :value="s.value">{{ s.label }}</option>
           </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="ir-filter-asset">Thiết bị</label>
+          <input
+            id="ir-filter-asset"
+            v-model="assetFilter"
+            class="form-input"
+            placeholder="Mã thiết bị…"
+          />
         </div>
       </template>
     </ListFilterBar>

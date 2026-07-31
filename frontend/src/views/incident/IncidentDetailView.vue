@@ -9,11 +9,14 @@ import { ApiError } from '@/api/errors'
 import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
 import WorkflowStepper from '@/components/common/WorkflowStepper.vue'
 import RelatedRecords from '@/components/common/RelatedRecords.vue'
+import DetailTabBar from '@/components/common/DetailTabBar.vue'
 import SlaBreachBadge from '@/components/incident/SlaBreachBadge.vue'
 import { useToast } from '@/composables/useToast'
 import { useNotify } from '@/composables/useNotify'
 import { useAuthStore } from '@/stores/auth'
 import { useCapabilities } from '@/composables/useCapabilities'
+import { useDetailAccess } from '@/composables/useDetailAccess'
+import DetailLoadError from '@/components/common/DetailLoadError.vue'
 import { sanitizeHtml } from '@/utils/sanitizeHtml'
 import { incidentStatusLabel, incidentStatusClass, incidentSeverityLabel, incidentSeverityClass, incidentTypeLabel, rcaStatusLabel } from '@/constants/labels'
 
@@ -27,6 +30,14 @@ const notify = useNotify()
 const auth = useAuthStore()
 const { can } = useCapabilities()
 const name = computed(() => route.params.id as string)
+
+// Tab màn chi tiết — «Bản ghi liên quan» mount LƯỜI (panel v-if) nên mở phiếu KHÔNG
+// còn bắn `get_connections`; panel chính dùng v-show để giữ nguyên dữ liệu đang nhập.
+const activeTab = ref<'detail' | 'related'>('detail')
+const DETAIL_TABS = [
+  { key: 'detail', label: 'Chi tiết' },
+  { key: 'related', label: 'Bản ghi liên quan' },
+]
 
 // BR-12-02 hint (SSoT tiếng Việt) — hiển thị khi nút "Đóng sự cố" bị chặn vì yêu cầu RCA.
 const RCA_CLOSE_HINT = 'Sự cố Nghiêm trọng/Nặng: bắt buộc có RCA Hoàn thành trước khi đóng (BR-12-02)'
@@ -45,6 +56,19 @@ const canManageRca = computed(() => can('corrective.write'))
 const form = ref<Partial<IncidentDetail>>({})
 const loading = ref(false)
 const err = ref('')
+
+// ─── CR-74 · quyền ĐỌC phiếu (403 in-envelope, HTTP-200) ────────────────────────
+// Lỗi NẠP phiếu tách khỏi `err` (lỗi thao tác): nạp hỏng ⇒ render empty-state CHUNG
+// thay vì khung chi tiết toàn '—' + panel đính ảnh (dead-control). get_incident nay
+// gate bằng CÙNG predicate với list/mutate ⇒ thiếu DocPerm read hoặc phiếu chưa giao
+// cho mình → {success:false, code:'FORBIDDEN'} ⇒ hiện message THẬT của server,
+// KHÔNG logout/redirect login (đó là dispatcher-403 của axios interceptor).
+const loadErr = ref<unknown>(null)
+const {
+  kind: loadErrorKindRef,
+  blocked: loadBlocked,
+  message: loadErrMsg,
+} = useDetailAccess(() => loadErr.value)
 
 // Workflow action modals
 const showAckModal = ref(false)
@@ -139,10 +163,14 @@ function onKeydown(e: KeyboardEvent) { if (e.key === 'Escape' && lightboxUrl.val
 async function load() {
   loading.value = true
   err.value = ''
+  loadErr.value = null
   try {
     form.value = await getIncident(name.value)
   } catch (e: unknown) {
-    err.value = e instanceof Error ? e.message : 'Không tải được phiếu sự cố'
+    // CR-74: XOÁ dữ liệu đang giữ + ghi lỗi NẠP riêng ⇒ empty-state có lối thoát,
+    // 0 CTA (kể cả "Đính ảnh hiện trường" vốn chỉ gate theo capability).
+    form.value = {}
+    loadErr.value = e
   } finally { loading.value = false }
 }
 
@@ -384,7 +412,9 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
       <div>
         <button class="text-sm text-slate-500 hover:text-slate-700 mb-1" @click="router.push('/incidents/list')">← Danh sách Sự cố</button>
         <h1 class="text-xl font-semibold text-slate-800">{{ name }}</h1>
-        <div class="flex items-center gap-2 mt-1 flex-wrap">
+        <!-- CR-74: phiếu bị từ chối đọc ⇒ KHÔNG render badge rỗng (mức độ/trạng thái
+             trống trơn trông như "phiếu mất dữ liệu" thay vì "không có quyền"). -->
+        <div v-if="!loadBlocked" class="flex items-center gap-2 mt-1 flex-wrap">
           <span :class="['px-2 py-0.5 rounded text-xs font-medium', incidentSeverityClass(form.severity ?? '')]">{{ incidentSeverityLabel(form.severity ?? '') }}</span>
           <span :class="['px-2 py-0.5 rounded text-xs font-medium', incidentStatusClass(form.status ?? '')]">
             {{ incidentStatusLabel(form.status ?? '') }}
@@ -399,8 +429,10 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
         </div>
       </div>
 
-      <!-- Workflow actions -->
-      <div class="flex gap-2 flex-wrap">
+      <!-- Workflow actions — CR-74: nạp phiếu bị từ chối (403/404) ⇒ KHÔNG render
+           bất kỳ CTA nào (chặn dead-control ngay ở cấp container, không phụ thuộc
+           từng canXxx nhớ kiểm tra). -->
+      <div v-if="!loadBlocked" class="flex gap-2 flex-wrap">
         <button
 v-if="canAcknowledge"
           class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
@@ -470,10 +502,12 @@ Xóa
       <WorkflowStepper :steps="stepperSteps" :current="form.status" :label-for="incidentStatusLabel" />
     </div>
 
-    <!-- SLA + NĐ98 banner khi ảnh hưởng bệnh nhân -->
-    <!-- Bản ghi liên quan: nội dung do đồ thị liên kết ở backend quyết định. -->
-    <RelatedRecords v-if="!loading && form.status" class="mt-4" doctype="Incident Report" :name="name" />
+    <!-- Thanh tab: GIỮ NGUYÊN điều kiện gác cũ của khối liên quan (`!loading && form.status`)
+         ⇒ chưa tải xong / bị chặn đọc thì KHÔNG có nút tab chết. -->
+    <DetailTabBar v-if="!loading && form.status" v-model="activeTab" :tabs="DETAIL_TABS" />
 
+    <div v-show="activeTab === 'detail'" data-testid="tab-panel-detail" class="space-y-5">
+    <!-- SLA + NĐ98 banner khi ảnh hưởng bệnh nhân -->
     <div v-if="!loading && form.patient_affected" class="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-800 space-y-1">
       <div><strong>Ảnh hưởng bệnh nhân:</strong> {{ form.patient_impact_description || 'Có ảnh hưởng (chưa mô tả chi tiết)' }}</div>
       <div v-if="form.linked_repair_wo">Đã sinh lệnh sửa chữa: <strong>{{ form.linked_repair_wo }}</strong> — thiết bị chuyển Ngừng sử dụng.</div>
@@ -482,6 +516,19 @@ Xóa
 
     <div v-if="err" class="bg-red-50 text-red-700 p-3 rounded-lg text-sm">{{ err }}</div>
     <div v-if="loading" class="text-center text-slate-400 py-12">Đang tải...</div>
+
+    <!-- Nạp thất bại (403 thiếu quyền / 404 / lỗi khác) — empty-state CHUNG, có lối
+         thoát, 0 CTA render (CR-74 · chống dead-control). -->
+    <DetailLoadError
+      v-else-if="loadBlocked"
+      :kind="loadErrorKindRef || 'unknown'"
+      entity-label="phiếu sự cố"
+      :record-id="name"
+      :message="loadErrMsg"
+      back-label="Về danh sách sự cố"
+      @retry="load()"
+      @back="router.push('/incidents/list')"
+    />
 
     <!-- Detail card -->
     <div v-else class="bg-white rounded-xl border border-slate-200 divide-y divide-slate-100">
@@ -677,6 +724,13 @@ v-if="needsRca" :disabled="rcaCreating"
           </button>
         </div>
       </div>
+    </div>
+    </div>
+
+    <!-- Bản ghi liên quan: TAB RIÊNG, mount LƯỜI (v-if) — nội dung do đồ thị liên kết
+         ở backend quyết định. -->
+    <div v-if="activeTab === 'related'" data-testid="tab-panel-related">
+      <RelatedRecords doctype="Incident Report" :name="name" />
     </div>
 
     <!-- Acknowledge modal -->

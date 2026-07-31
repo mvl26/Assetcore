@@ -32,9 +32,14 @@ from PIL import UnidentifiedImageError
 from assetcore.repositories.repair_repo import IncidentRepo, RCARepo
 from assetcore.services import imm00 as svc00
 from assetcore.services.shared import ServiceError, ErrorCode, rbac
+from assetcore.services.shared.permissions import (assert_can_read_doc,
+                                                   assert_doctype_read_permission,
+                                                   rowscoped)
+from assetcore.services.shared.truncation import truncation_meta
 from assetcore.utils.idempotency import resolve_idempotency_key
 from assetcore.utils.notify import nthrow, nthrow_in_hook
 from assetcore.utils.messages import MSG
+from assetcore.utils.pagination import clamp_page_size
 
 _DT_INCIDENT = "Incident Report"
 _DT_RCA = "IMM RCA Record"
@@ -928,6 +933,159 @@ def request_rca(name: str, rca_reason: str) -> dict:
     return {"name": name, "status": _RCA_REQUIRED, "rca_record": rca_record}
 
 
+# ─── RCA validation — SSoT dùng chung với controller hook (AC-CR-83) ──────────
+# Hợp đồng: docs/imm-12/05_API_Specification.md §22.3 · ADR-IMM12-13/14/15.
+#
+# VÌ SAO tồn tại: 3 ràng buộc hồ sơ RCA trước đây CHỈ sống trong controller hook
+# (`imm_rca_record.py`) dưới dạng `frappe.throw` TRẦN. `utils/api_handler.handle`
+# chỉ bắt `ServiceError` ⇒ ValidationError bay lên dispatcher = HTTP-417 THÔ
+# (không `success`/`code`/`message_code`/`fields`). Nâng predicate lên service để
+# `submit_rca` PRE-CHECK trước mọi phép gán; hook GIỮ vai backstop (đường Desk/
+# `doc.save()` trực tiếp) bằng cách import CHÍNH 3 hàm này — 1 luật, 2 điểm gọi
+# (INV-RCA-2, chống class-of-bug "luật thứ hai" display⇔enforcement).
+#
+# 3 hàm là HÀM THUẦN: 0 truy vấn DB, 0 `frappe.session` — điều kiện để hook (chạy
+# trong `validate`) và service (chạy trước khi gán) dùng chung an toàn.
+# Kiểu trả về: None = hợp lệ; vi phạm ⇒
+#   {"message_code": MSG.…, "fields": {<khoá>: <câu VI>}, "context": {<biến>}}
+# Khoá `fields` = TÊN THAM SỐ GHI của endpoint (ADR-IMM12-14), bảng con dùng SỐ
+# HIỂN THỊ `five_why_steps.<why_number>` (lệch-1 với index 0-based = neo sai dòng).
+
+_RCA_ASSIGNMENT_STATUSES = (_RCA_IN_PROGRESS, _RCA_COMPLETED)
+_MSG_FIELD_FIVE_WHY_COUNT = (
+    "Phương pháp 5 Whys yêu cầu đủ 5 bước phân tích. Hiện có {count}.")
+_MSG_FIELD_FIVE_WHY_STEP = "Bước {n}: phải điền đầy đủ câu hỏi và câu trả lời."
+_MSG_FIELD_ASSIGNEE = (
+    "Phải gán người phụ trách phân tích nguyên nhân gốc trước khi tiến hành.")
+_MSG_FIELD_ROOT_CAUSE = (
+    "Cần nhập nguyên nhân gốc rễ để hoàn thành phân tích nguyên nhân gốc.")
+_MSG_FIELD_CORRECTIVE = (
+    "Cần nhập hành động khắc phục để hoàn thành phân tích nguyên nhân gốc.")
+_FIVE_WHY_REQUIRED_STEPS = 5
+
+
+def _row_get(row, key: str):
+    """Đọc 1 khoá từ dict payload HOẶC child-row Document (2 nguồn của cùng predicate)."""
+    if isinstance(row, dict):
+        return row.get(key)
+    return getattr(row, key, None)
+
+
+def validate_five_why_payload(rca_method: str, steps: list | None) -> dict | None:
+    """SSoT #1 — kiểm hồ sơ 5-Why (AC-CR-83 / BR-12-28). Hàm THUẦN.
+
+    Ngữ nghĩa GIỮ NGUYÊN hành vi hook cũ (`imm_rca_record.py:56-71` trước CR):
+      - `"why" not in method.lower()` ⇒ None (D-RCA-3: 'Both' KHÔNG bị kiểm —
+        mở rộng = AC-CR-83b, cần ratify nghiệp vụ trước).
+      - `< 5` bước ⇒ 1 khoá `five_why_steps` (DỪNG, không xét từng bước).
+      - Ngược lại gom MỌI bước thiếu `why_question`/`why_answer` ⇒ 1 khoá
+        `five_why_steps.<why_number>` cho MỖI bước khuyết (ADR-IMM12-15).
+
+    KHÔNG nhận `status`: cổng trạng thái nằm ở CALL-SITE (hook đọc `doc.status`;
+    service luôn áp vì đích là 'Completed').
+
+    Args:
+        rca_method: giá trị field `rca_method` của hồ sơ RCA.
+        steps: list dict payload (từ API) HOẶC list child-row (từ doc).
+
+    Returns:
+        None khi hợp lệ; dict {message_code, fields, context} khi vi phạm.
+    """
+    if "why" not in (rca_method or "").lower():
+        return None
+    rows = list(steps or [])
+    if len(rows) < _FIVE_WHY_REQUIRED_STEPS:
+        return {
+            "message_code": MSG.IMM12_RCA_FIVE_WHY_INCOMPLETE,
+            "fields": {
+                "five_why_steps": _MSG_FIELD_FIVE_WHY_COUNT.format(count=len(rows)),
+            },
+            "context": {
+                "count": len(rows),
+                "detail": f"mới có {len(rows)}/{_FIVE_WHY_REQUIRED_STEPS} bước",
+            },
+        }
+    fields: dict[str, str] = {}
+    missing: list[str] = []
+    for idx, row in enumerate(rows, start=1):
+        if _row_get(row, "why_question") and _row_get(row, "why_answer"):
+            continue
+        n = _row_get(row, "why_number") or idx
+        fields[f"five_why_steps.{n}"] = _MSG_FIELD_FIVE_WHY_STEP.format(n=n)
+        missing.append(str(n))
+    if not fields:
+        return None
+    return {
+        "message_code": MSG.IMM12_RCA_FIVE_WHY_INCOMPLETE,
+        "fields": fields,
+        "context": {
+            "steps": ", ".join(missing),
+            "detail": f"thiếu câu hỏi/câu trả lời ở bước {', '.join(missing)}",
+        },
+    }
+
+
+def validate_rca_assignment(status: str, assigned_to: str) -> dict | None:
+    """SSoT #2 — hồ sơ đang/đã phân tích PHẢI có người phụ trách. Hàm THUẦN.
+
+    Bắt buộc gọi ở `submit_rca`: `start_rca` CỐ Ý dùng `frappe.db.set_value` để
+    bỏ qua `validate` (D-RCA-4) ⇒ hồ sơ có thể vào 'RCA In Progress' mà chưa gán.
+    """
+    if status in _RCA_ASSIGNMENT_STATUSES and not assigned_to:
+        return {
+            "message_code": MSG.IMM12_RCA_ASSIGNEE_REQUIRED,
+            "fields": {"assigned_to": _MSG_FIELD_ASSIGNEE},
+            "context": {},
+        }
+    return None
+
+
+def validate_rca_completion(status: str, root_cause: str, corrective_action: str,
+                            linked_capa: str = "", *,
+                            allow_capa_substitute: bool = True) -> dict | None:
+    """SSoT #3 — điều kiện hoàn thành hồ sơ RCA. Hàm THUẦN.
+
+    `allow_capa_substitute` (D-RCA-2): hook Desk cho phép `linked_capa` THAY THẾ
+    tóm tắt khắc phục (hồ sơ đã gắn CAPA sẵn); service `submit_rca` gọi với
+    `False` vì endpoint này CHÍNH LÀ nơi nhập tóm tắt khắc phục.
+
+    Khoá `fields` là `corrective_action` (TÊN THAM SỐ GHI) — KHÔNG BAO GIỜ là
+    `corrective_action_summary` (tên field ĐỌC): client không có ô nào tên đó
+    ⇒ thông điệp rơi vào hư vô (INV-RCA-3 / CR-52 quirk 2).
+    """
+    if status != _RCA_COMPLETED:
+        return None
+    if not (root_cause or "").strip():
+        return {
+            "message_code": MSG.IMM12_RCA_ROOT_CAUSE_REQUIRED,
+            "fields": {"root_cause": _MSG_FIELD_ROOT_CAUSE},
+            "context": {},
+        }
+    if not (corrective_action or "").strip() and (
+            not allow_capa_substitute or not linked_capa):
+        return {
+            "message_code": MSG.IMM12_RCA_CORRECTIVE_REQUIRED,
+            "fields": {"corrective_action": _MSG_FIELD_CORRECTIVE},
+            "context": {},
+        }
+    return None
+
+
+def _nthrow_violation(violation: dict) -> None:
+    """Adapter SERVICE — 1 vi phạm → ServiceError Decision-B CÓ `fields`."""
+    nthrow(violation["message_code"], fields=violation.get("fields") or None,
+           **(violation.get("context") or {}))
+
+
+def _nthrow_violation_in_hook(violation: dict) -> None:
+    """Adapter HOOK — 1 vi phạm → ValidationError CÓ `message_code`.
+
+    Kênh hook (`frappe.throw`) KHÔNG mang được `fields` — chấp nhận (ADR-IMM12-13):
+    đường Desk không có form mobile để neo lỗi field-level.
+    """
+    nthrow_in_hook(violation["message_code"], **(violation.get("context") or {}))
+
+
 # ─── RCA orchestration ────────────────────────────────────────────────────────
 
 def create_rca(incident_name: str, rca_method: str = "5-Why") -> dict:
@@ -1059,6 +1217,13 @@ def submit_rca(
 
     AC3: CHỈ hoàn thành từ 'RCA In Progress' — chặn nhảy-cóc từ 'RCA Required'
     (bỏ qua bước phân tích = bug). Đã Completed → giữ thông điệp already-completed.
+
+    AC-CR-83 (05 §22.3): PRE-CHECK 3 ràng buộc hồ sơ RCA bằng predicate SSoT
+    (dùng chung với controller hook) NGAY TRƯỚC phép gán đầu tiên. Trước CR, 3
+    ràng buộc chỉ nổ ở `rca.save()` → hook `frappe.throw` TRẦN → HTTP-417 THÔ
+    ngoài envelope. Thứ tự fail-fast: phân công → hoàn tất → 5-Why (ADR-IMM12-15).
+    Đặt TRƯỚC mọi phép gán ⇒ hồ sơ bị từ chối GIỮ NGUYÊN status/root_cause/
+    corrective_action_summary/completed_by/completed_date (INV-RCA-5).
     """
     _require_rca_cap(_CAP_RCA_MANAGE)
     rca = _get_rca(name)
@@ -1067,10 +1232,22 @@ def submit_rca(
             nthrow(MSG.IMM12_RCA_ALREADY_COMPLETED)
         raise ServiceError(
             ErrorCode.BAD_STATE, _MSG_RCA_SUBMIT_BAD_STATE, http_status=409)
-    if not root_cause.strip():
-        nthrow(MSG.IMM12_RCA_ROOT_CAUSE_REQUIRED)
-    if not corrective_action.strip():
-        nthrow(MSG.IMM12_RCA_CORRECTIVE_REQUIRED)
+
+    # ① phân công (D-RCA-4: start_rca cố ý bypass validate ⇒ không thể trông vào nó)
+    violation = validate_rca_assignment(_RCA_COMPLETED, rca.assigned_to)
+    # ② điều kiện hoàn tất — allow_capa_substitute=False (D-RCA-2: endpoint này
+    #    CHÍNH LÀ nơi nhập tóm tắt khắc phục, không cho lối thoát linked_capa)
+    violation = violation or validate_rca_completion(
+        _RCA_COMPLETED, root_cause, corrective_action,
+        linked_capa="", allow_capa_substitute=False)
+    # ③ 5-Why trên GIÁ TRỊ SẼ GHI: payload nếu truthy, ngược lại bước đang có trên
+    #    hồ sơ — CÙNG điều kiện `if five_why_steps:` quyết định thay bảng con bên
+    #    dưới (một quy tắc, không hai).
+    violation = violation or validate_five_why_payload(
+        rca.rca_method,
+        five_why_steps if five_why_steps else (rca.get("five_why_steps") or []))
+    if violation:
+        _nthrow_violation(violation)
 
     actor = frappe.session.user
     rca.status = _RCA_COMPLETED
@@ -1398,8 +1575,16 @@ def _build_incident_available_actions(doc, rca_status: str) -> list[dict]:
     return actions
 
 
+@rowscoped
 def get_incident_detail(name: str) -> dict:
     """Chi tiết 1 Incident Report (màn Chi tiết web + mobile).
+
+    CR-74 (ADR-IMM00-LIST-SCOPE §9.4) — khuôn 3 lớp **ROLE → EXISTS → ROW** đặt TRONG
+    hàm này (KHÔNG trong helper `_get_incident:329` — helper còn phục vụ các đường GHI
+    đã có gate riêng; siết ở đó sẽ siết nhầm cả write-path). L2 kích hoạt hook
+    `incident_report_has_permission` (hooks.py:450) ⇒ KTV chỉ đọc sự cố mà
+    `reported_by`/`assigned_to` là mình; vendor chỉ đọc sự cố của thiết bị mình phụ
+    trách. Thiếu quyền ⇒ Error envelope FORBIDDEN/403 trên **HTTP-200** (KHÔNG logout).
 
     Ngoài field gốc (`doc.as_dict()`) response còn THÊM:
     - `is_response_breached` / `is_resolution_breached` (0|1, DERIVED LIVE qua
@@ -1419,7 +1604,9 @@ def get_incident_detail(name: str) -> dict:
         `asset_name`); '' khi phiếu KHÔNG gắn asset. KTV rút máy khỏi vận hành thấy trạng
         thái thiết bị LIVE (U1 / BR-12-04: acknowledge High/Critical → Out of Service).
     """
-    doc = _get_incident(name)
+    assert_doctype_read_permission(_DT_INCIDENT)       # L0 ROLE (trước exists — D9)
+    doc = _get_incident(name)                          # L1 EXISTS (404 GIỮ NGUYÊN)
+    assert_can_read_doc(_DT_INCIDENT, doc)             # L2 ROW (hook has_permission)
     data = doc.as_dict()
     if doc.asset:
         data["asset_name"] = frappe.db.get_value(_DT_ASSET, doc.asset, "asset_name")
@@ -1518,16 +1705,62 @@ def get_incident_stats() -> dict:
     }
 
 
+@rowscoped
 def get_asset_incident_history(asset: str, limit: int = 10) -> dict:
+    # ── GATE quyền (OWASP A01) — PHẢI đứng TRƯỚC mọi truy vấn ────────────────
+    # Endpoint này gọi THẲNG `frappe.get_all` ⇒ KHÔNG có BaseRepository chạy gate
+    # hộ: bỏ CẢ ROW-scope (`permission_query_conditions['Incident Report']` =
+    # permissions.py::incident_report_query — clause vendor "asset mình phụ trách"
+    # + clause KTV "reported_by = tôi") LẪN DocPerm read cấp vai-trò. Trước fix,
+    # persona 0-DocPerm-read (vd `PM User`, `Vendor Engineer`) đọc được TOÀN BỘ
+    # sự cố của mọi thiết bị, và `frappe.db.count` của CR-69 còn lộ thêm TỔNG SỐ
+    # thật vượt ngoài `limit`.
+    #
+    # Ngữ nghĩa chọn = ĐÚNG `scope="system"` của ADR-IMM00-LIST-SCOPE §8.3b (bảng
+    # 3 chế độ): **giữ ROLE-scope, nới ROW-scope** — D6 device-centric, y hệt anh
+    # em `imm09.get_asset_history` (R5): lịch sử sự cố CỦA THIẾT BỊ phục vụ quyết
+    # định sửa-tiếp-hay-thanh-lý (WHO HTM / NĐ98), KTV sắp sửa máy PHẢI đọc được
+    # sự cố đồng nghiệp ghi nhận trước. Payload read-only, KHÔNG nút hành động,
+    # KHÔNG dùng làm căn cứ cấp quyền.
+    #
+    # KHÔNG chuyển sang `IncidentRepo.list(scope="system")`: repo tính `total`
+    # EAGER (count_ignore_permissions) ⇒ phá hợp đồng ZERO-COST của
+    # `truncation_meta` (COUNT chỉ chạy khi chạm trần — INV-INCH-1). Gate tường
+    # minh cho đúng một tác dụng còn thiếu, giữ nguyên đường truy vấn lazy.
+    # `@rowscoped` chuyển `frappe.PermissionError` → Error envelope 403 trên
+    # HTTP-200 (BR-00-ROWSCOPE-403) — KHÔNG 500 câm, KHÔNG list rỗng giả.
+    assert_doctype_read_permission(_DT_INCIDENT)
+    # CR-69 / INV-TRUNC-LIMIT: CLAMP trần TRƯỚC truy vấn (SSoT clamp_page_size).
+    # Endpoint này KHÔNG đi qua BaseRepository.list/paginate mà gọi thẳng
+    # frappe.get_all — mà Frappe hiểu `limit_page_length=0` là KHÔNG GIỚI HẠN:
+    # truyền `limit` thô vào truncation_meta thì `len(rows)=N < 0` là False ⇒ COUNT
+    # rồi kết luận truncated=1 trong khi KHÔNG dòng nào bị cắt (báo cắt oan).
+    # Hệ quả CỐ Ý (docs/imm-12/05_API_Specification.md §20): limit=0 KHÔNG còn trả
+    # toàn bộ mà rơi về default 10; limit>100 chặn ở 100 — cùng ngữ nghĩa `limit`
+    # với 2 tab anh em: imm08/imm09 nay CŨNG gọi `clamp_page_size(limit, 10)`
+    # trước khi truyền `page_size` xuống repo. (Trước đó 2 tab kia truyền `limit`
+    # thô ⇒ `paginate` thay falsy bằng default 20 CỦA CHÍNH NÓ ⇒ cùng `limit=0`
+    # mà tab PM/Sửa-chữa trả 20 dòng còn tab Sự-cố trả 10 — parity chỉ là lời nói.)
+    cap = clamp_page_size(limit, 10)
+    incident_filters = {"asset": asset}
     rows = frappe.get_all(
         _DT_INCIDENT,
-        filters={"asset": asset},
+        filters=incident_filters,
         fields=["name", "incident_type", "severity", "status", "reported_at",
                 "fault_code", "closed_date", "linked_capa", "rca_record"],
         order_by=_ORDER_REPORTED_AT,
-        limit_page_length=limit,
+        limit_page_length=cap,
     )
-    return {"asset": asset, "items": rows}
+    # CR-69 hợp đồng TRUNG THỰC khi cắt: hồ-sơ-vận-hành thiết bị (sau quét QR)
+    # dùng lịch sử sự cố để đánh giá thiết bị hay hỏng ⇒ KHÔNG cắt IM LẶNG.
+    # `incident_filters` là CÙNG một object truyền cho rows ⇒ count KHÔNG THỂ
+    # lệch predicate; `frappe.db.count` cũng bỏ permission như `frappe.get_all`
+    # ⇒ cùng engine (count == rows-engine). ZERO-COST: truncation_meta CHỈ gọi
+    # count_fn khi len(rows) >= cap (lazy).
+    total, truncated = truncation_meta(
+        len(rows), cap, lambda: frappe.db.count(_DT_INCIDENT, incident_filters))
+    return {"asset": asset, "items": rows,
+            "total": total, "truncated": truncated}
 
 
 def get_chronic_failures() -> list:

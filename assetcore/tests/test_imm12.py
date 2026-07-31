@@ -5290,3 +5290,538 @@ class TestIncidentAvailableActionsReopenCollision(unittest.TestCase):
         self.assertFalse(actions["reopen"]["enabled"],
                          "reopen KHÔNG được mở tại Acknowledged (chỉ start_work)")
         self.assertTrue(actions["start_work"]["enabled"], "start_work mở tại Acknowledged")
+
+
+# ─── CR-69 · Hợp đồng TRUNG THỰC khi cắt — lịch sử SỰ CỐ của thiết bị ─────────
+
+class TestAssetIncidentHistoryTruncation(unittest.TestCase):
+    """TC-BE-12-HIST-01..05 (CR-69): ``get_asset_incident_history`` PHẢI công bố
+    ``total`` + ``truncated`` thay vì cắt IM LẶNG theo ``limit``.
+
+    KHÁC IMM-08/09 ở shape: rows-key là ``items``, asset-key là ``asset``.
+    Nguồn rows là ``frappe.get_all`` trần ⇒ ``count_fn`` phải là ``frappe.db.count``
+    trên ĐÚNG filter ``{asset}`` (cùng predicate VÀ cùng engine với rows).
+    """
+
+    _assets: list[str] = []
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls._assets = []
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        for a in cls._assets:
+            purge_asset(a)
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+
+    def _seed(self, n: int, tag: str) -> str:
+        asset = _make_asset(f"-cr69{tag}")
+        type(self)._assets.append(asset.name)
+        for i in range(n):
+            frappe.get_doc({
+                "doctype": "Incident Report",
+                "asset": asset.name,
+                "incident_type": "Malfunction",
+                "severity": "Low",
+                "description": f"_Test CR-69 incident {tag}-{i}",
+                "reported_by": "Administrator",
+                "status": "Open",
+            }).insert(ignore_permissions=True)
+        frappe.db.commit()
+        return asset.name
+
+    # ── TC-BE-12-HIST-01: quá trần → total thật + truncated=1 ────────────────
+    def test_tc_be_12_hist_01_over_limit_exposes_real_total(self):
+        from assetcore.services.imm12 import get_asset_incident_history
+        asset = self._seed(12, "01")
+        res = get_asset_incident_history(asset, limit=10)
+        self.assertEqual(len(res["items"]), 10,
+                         "limit=10 ⇒ CHỈ 10 dòng trả về (trần giữ nguyên).")
+        self.assertEqual(res["total"], 12,
+                         "total = COUNT DB thật trên {asset} TRƯỚC khi cắt (12).")
+        self.assertEqual(res["truncated"], 1, "12 > 10 ∧ chạm trần ⇒ truncated=1.")
+        self.assertEqual(res["asset"], asset, "asset echo GIỮ NGUYÊN (KHÔNG asset_ref).")
+        self.assertIsInstance(res["items"], list, "items[] GIỮ NGUYÊN (KHÔNG history).")
+
+    # ── TC-BE-12-HIST-02: dưới trần → truncated=0 ∧ total == len(rows) ───────
+    def test_tc_be_12_hist_02_under_limit_no_truncation(self):
+        from assetcore.services.imm12 import get_asset_incident_history
+        asset = self._seed(3, "02")
+        res = get_asset_incident_history(asset, limit=10)
+        self.assertEqual(res["total"], 3, "3 sự cố ⇒ total=3.")
+        self.assertEqual(res["truncated"], 0, "3 < 10 ⇒ KHÔNG cắt.")
+        self.assertEqual(res["total"], len(res["items"]),
+                         "Bất biến: truncated==0 ⇒ total == len(items).")
+
+    # ── TC-BE-12-HIST-03 (biên): vừa khít trần ⇒ KHÔNG báo cắt oan ───────────
+    def test_tc_be_12_hist_03_exactly_at_limit_not_truncated(self):
+        from assetcore.services.imm12 import get_asset_incident_history
+        asset = self._seed(10, "03")
+        res = get_asset_incident_history(asset, limit=10)
+        self.assertEqual(len(res["items"]), 10, "10 sự cố, limit=10 ⇒ 10 dòng.")
+        self.assertEqual(res["total"], 10, "total=10 (COUNT thật).")
+        self.assertEqual(res["truncated"], 0,
+                         "total == limit ⇒ vừa khít trần, KHÔNG báo cắt oan.")
+
+    # ── TC-BE-12-HIST-04 (type-parity CR-01): int thuần, KHÔNG bool/None ─────
+    def test_tc_be_12_hist_04_int_parity_not_bool(self):
+        from assetcore.services.imm12 import get_asset_incident_history
+        asset = self._seed(1, "04")
+        res = get_asset_incident_history(asset, limit=10)
+        self.assertIs(type(res["truncated"]), int,
+                      "truncated PHẢI là int THUẦN — bool là subclass của int nên "
+                      "assertEqual(x, 0) KHÔNG bắt được; codegen Dart/Kotlin crash.")
+        self.assertIs(type(res["total"]), int, "total PHẢI là int thuần.")
+        self.assertIn(res["truncated"], (0, 1), "truncated ∈ {0,1}.")
+
+    # ── TC-BE-XX-HIST-05 (ZERO-COST): count_fn lazy ─────────────────────────
+    def test_tc_be_12_hist_05_zero_cost_no_count_below_limit(self):
+        """``len(rows) < limit`` ⇒ KHÔNG phát thêm query COUNT (SSoT lazy)."""
+        from assetcore.services.imm12 import get_asset_incident_history
+        asset = self._seed(3, "05")
+        real_count = frappe.db.count
+        calls: list[tuple] = []
+
+        def _spy(*a, **kw):
+            calls.append((a, kw))
+            return real_count(*a, **kw)
+
+        with patch.object(frappe.db, "count", side_effect=_spy):
+            res = get_asset_incident_history(asset, limit=10)
+        self.assertEqual(len(calls), 0,
+                         "3 < 10 ⇒ đã lấy hết, count_fn KHÔNG được gọi "
+                         "(zero-cost: truncation_meta lazy).")
+        self.assertEqual(res["total"], 3, "total = len(items) khi không cắt.")
+
+    def test_tc_be_12_hist_05b_count_called_exactly_once_at_limit(self):
+        """``len(rows) >= limit`` ⇒ count_fn gọi ĐÚNG 1 lần (không N+1)."""
+        from assetcore.services.imm12 import get_asset_incident_history
+        asset = self._seed(12, "05b")
+        real_count = frappe.db.count
+        calls: list[tuple] = []
+
+        def _spy(*a, **kw):
+            calls.append((a, kw))
+            return real_count(*a, **kw)
+
+        with patch.object(frappe.db, "count", side_effect=_spy):
+            res = get_asset_incident_history(asset, limit=10)
+        self.assertEqual(len(calls), 1,
+                         "chạm trần ⇒ ĐÚNG 1 query COUNT (không lặp/không N+1).")
+        # count PHẢI dùng ĐÚNG filter {asset} như query rows (chống lệch predicate).
+        args, kwargs = calls[0]
+        flt = kwargs.get("filters", args[1] if len(args) > 1 else None)
+        self.assertEqual(flt, {"asset": asset},
+                         "count_fn PHẢI dùng ĐÚNG filter {asset} như rows.")
+        self.assertEqual(res["total"], 12, "total = COUNT thật.")
+
+    # ── INV-INCH (bẫy clamp riêng imm12): limit=0 = KHÔNG GIỚI HẠN của Frappe ─
+    def test_tc_be_12_hist_06_limit_zero_falls_back_to_default_no_false_cut(self):
+        """`limit_page_length=0` trong Frappe = KHÔNG GIỚI HẠN ⇒ nếu truyền `limit`
+        thô vào truncation_meta thì `len(rows) < 0` là False ⇒ COUNT rồi báo cắt
+        OAN. Sau CR-69: clamp TRƯỚC truy vấn (0 → default 10).
+        """
+        from assetcore.services.imm12 import get_asset_incident_history
+        asset = self._seed(3, "06")
+        res = get_asset_incident_history(asset, limit=0)
+        self.assertEqual(len(res["items"]), 3, "3 sự cố ⇒ 3 dòng (trần 10).")
+        self.assertEqual(res["total"], 3, "total=3.")
+        self.assertEqual(res["truncated"], 0,
+                         "KHÔNG dòng nào bị cắt ⇒ truncated=0 (chống báo cắt oan "
+                         "khi limit=0).")
+
+    def test_tc_be_12_hist_07_limit_above_cap_clamped_and_truthful(self):
+        """INV-INCH-6: `limit=500` ⇒ rows bị clamp về trần hệ thống 100, `total`
+        vẫn là COUNT THẬT (>100) ∧ `truncated=1`.
+
+        Fixture PHẢI có > 100 sự cố: với fixture 12 dòng thì `12 < 100` và
+        `12 < 500` cho kết quả Y HỆT nhau ⇒ TC không phân biệt được "có clamp"
+        với "không clamp" (vacuous / false-green — LL-TEST-26). Đối xứng
+        `test_imm08::test_tc_be_08_hist_06` (seed 105).
+        """
+        from assetcore.services.imm12 import get_asset_incident_history
+        asset = self._seed(101, "07")
+        res = get_asset_incident_history(asset, limit=500)
+        self.assertEqual(len(res["items"]), 100,
+                         "trần hệ thống _MAX_PAGE_SIZE=100 vẫn áp cho rows "
+                         "(clamp TRƯỚC truy vấn), KHÔNG trả 101 dòng theo limit thô.")
+        self.assertEqual(res["total"], 101,
+                         "total = COUNT thật (101), KHÔNG phải số dòng đã clamp.")
+        self.assertEqual(res["truncated"], 1,
+                         "101 > 100 (trần THỰC ÁP) ⇒ PHẢI khai báo bị cắt.")
+
+    # ── INV-INCH-5 (nửa CẮT): limit=0 trên thiết bị nhiều sự cố ──────────────
+    def test_tc_be_12_hist_08_limit_zero_cuts_at_default_and_tells_truth(self):
+        """INV-INCH-5 nửa sau: 25 sự cố, `limit=0` ⇒ `len==10` ∧ `total==25` ∧
+        `truncated==1`.
+
+        hist_06 chỉ phủ nhánh KHÔNG cắt (3 sự cố) nên không chứng minh được
+        default thực áp là 10 (mọi default ≥ 3 đều xanh). TC này ghim CON SỐ
+        default: đây cũng là parity `limit=0` với 2 tab anh em imm08/imm09
+        (cùng `clamp_page_size(limit, 10)`).
+        """
+        from assetcore.services.imm12 import get_asset_incident_history
+        asset = self._seed(25, "08")
+        res = get_asset_incident_history(asset, limit=0)
+        self.assertEqual(len(res["items"]), 10,
+                         "limit=0 ⇒ rơi về default 10 của CHÍNH endpoint (KHÔNG "
+                         "'không giới hạn' của Frappe, KHÔNG 20 của paginate).")
+        self.assertEqual(res["total"], 25, "total = COUNT thật (25).")
+        self.assertEqual(res["truncated"], 1, "25 > 10 ⇒ PHẢI khai báo bị cắt.")
+
+
+# ─── AC-CR-83 — submit_rca: 3 ràng buộc hồ sơ RCA HẾT thoát envelope thành 417 ────
+# Hợp đồng: docs/imm-12/05_API_Specification.md §22 · TC: 07_Testing_QA.md §IX.
+# Gọi qua TẦNG API (assetcore.api.imm12.submit_rca) — KHÔNG gọi thẳng service: bug
+# gốc nằm ĐÚNG ở ranh giới api↔hook (frappe.throw trần thoát khỏi `handle`).
+
+_RCA83_MC_FIVE_WHY = "IMM12-RCA-FIVE-WHY-INCOMPLETE"
+_RCA83_MC_ROOT_CAUSE = "IMM12-RCA-ROOT-CAUSE-REQUIRED"
+_RCA83_MC_CORRECTIVE = "IMM12-RCA-CORRECTIVE-REQUIRED"
+_RCA83_MC_ASSIGNEE = "IMM12-RCA-ASSIGNEE-REQUIRED"
+_RCA83_MC_ALREADY = "IMM12-RCA-ALREADY-COMPLETED"
+
+
+def _rca83_steps(holes: tuple[int, ...] = (), count: int = 5) -> list[dict]:
+    """STEPS_OK (mặc định) / STEPS_HOLE<N> — bước ∈ `holes` có why_answer rỗng."""
+    return [
+        {
+            "why_number": i,
+            "why_question": f"Vì sao tầng {i}?",
+            "why_answer": "" if i in holes else f"Nguyên nhân tầng {i}",
+        }
+        for i in range(1, count + 1)
+    ]
+
+
+def _rca83_make_inprogress(asset_name: str, method: str = "5-Why") -> tuple[str, str]:
+    """(incident, rca) ở 'RCA In Progress' qua ĐÚNG đường người dùng thật.
+
+    report_incident → create_rca (seed 5 bước why_answer='') → start_rca.
+    Đây chính là hồ sơ mà ca lỗi phổ biến nhất (E6/E7 §22.0) rơi vào.
+    """
+    inc = report_incident(
+        asset=asset_name,
+        incident_type="Malfunction",
+        severity="Low",
+        description="_Test AC-CR-83 incident description for RCA envelope",
+    )
+    frappe.db.commit()
+    rca = create_rca(inc["name"], rca_method=method)
+    frappe.db.commit()
+    start_rca(rca["name"])
+    frappe.db.commit()
+    return inc["name"], rca["name"]
+
+
+def _rca83_api_submit(name: str, *, root_cause: str = "Nguyên nhân gốc rễ đã xác định",
+                      corrective_action: str = "Thay bo mạch nguồn và hiệu chỉnh lại",
+                      steps: list[dict] | None = None,
+                      preventive_action: str = "", rca_notes: str = "") -> dict:
+    """Gọi tầng API THẬT — five_why_steps đi dạng JSON-string như FE gửi."""
+    from assetcore.api.imm12 import submit_rca as api_submit_rca
+    return api_submit_rca(
+        name,
+        root_cause=root_cause,
+        corrective_action=corrective_action,
+        preventive_action=preventive_action,
+        five_why_steps=json.dumps(steps if steps is not None else []),
+        rca_notes=rca_notes,
+    )
+
+
+class TestRcaSubmitEnvelope(unittest.TestCase):
+    """AC-CR-83 — 3 ràng buộc hồ sơ RCA trả Error envelope Decision-B + `fields`.
+
+    INV-RCA-1 (0 ValidationError thoát ra 417) · INV-RCA-3 (khoá `fields` = tên
+    tham số GHI) · INV-RCA-4 (đếm khoá) · INV-RCA-5 (KHÔNG-MUTATE) · INV-RCA-6
+    (message_code cũ bất biến) · INV-RCA-8 (happy path).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.asset = _make_asset("-rca83")
+        # USER_RCA: HỘI 2 tầng cap (incident.acknowledge ∩ corrective.write).
+        cls.user_rca = _ensure_role_user(
+            "_rca83_user@assetcore.test", ["AssetCore Super Admin"])
+        # USER_NOCAP: base role — thiếu corrective.write (TC-10).
+        cls.user_nocap = _ensure_role_user(
+            "_rca83_nocap@assetcore.test", ["AssetCore System User"])
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        purge_asset(cls.asset.name)
+        for u in (cls.user_rca, cls.user_nocap):
+            try:
+                frappe.delete_doc("User", u, force=True, ignore_permissions=True)
+            except Exception:
+                pass
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self.incident, self.rca = _rca83_make_inprogress(self.asset.name)
+        # BẮT BUỘC chạy dưới persona thật: Administrator bypass permission
+        # (frappe/permissions.py return True) ⇒ xanh giả.
+        frappe.set_user(self.user_rca)
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+
+    # ── TC-12-RCA83-01 — ca PHỔ BIẾN NHẤT: 1 ô Why trống ────────────────────
+    def test_tc_12_rca83_01_five_why_missing_answer_returns_envelope_not_417(self):
+        """AC-1: bước 3 thiếu câu trả lời ⇒ DICT envelope, KHÔNG raise 417."""
+        env = _rca83_api_submit(self.rca, steps=_rca83_steps(holes=(3,)))
+        self.assertIsInstance(env, dict,
+                              "submit_rca PHẢI trả envelope — raise ValidationError = "
+                              "HTTP-417 THÔ (không success/code/message_code/fields).")
+        self.assertIs(env.get("success"), False)
+        self.assertEqual(env.get("code"), ErrorCode.BUSINESS_RULE)
+        self.assertEqual(env.get("http_status"), 422)
+        self.assertEqual(env.get("message_code"), _RCA83_MC_FIVE_WHY)
+        self.assertEqual(list((env.get("fields") or {}).keys()), ["five_why_steps.3"],
+                         "fields PHẢI neo ĐÚNG dòng «Why 3» (INV-RCA-4).")
+        self.assertTrue((env["fields"]["five_why_steps.3"] or "").strip(),
+                        "Câu tiếng Việt KHÔNG được rỗng — FE render nguyên văn.")
+        for leak in ("Traceback", "ValidationError", "_server_messages"):
+            self.assertNotIn(leak, json.dumps(env, ensure_ascii=False),
+                             f"Envelope KHÔNG được lộ chuỗi kỹ thuật `{leak}`.")
+
+    # ── TC-12-RCA83-02 — thiếu bước ─────────────────────────────────────────
+    def test_tc_12_rca83_02_five_why_fewer_than_five_steps(self):
+        """AC-2: 3 bước ⇒ CÙNG message_code, ĐÚNG 1 khoá `five_why_steps`."""
+        env = _rca83_api_submit(self.rca, steps=_rca83_steps(count=3))
+        self.assertIs(env.get("success"), False)
+        self.assertEqual(env.get("message_code"), _RCA83_MC_FIVE_WHY)
+        self.assertEqual(list((env.get("fields") or {}).keys()), ["five_why_steps"],
+                         "Ca thiếu bước ⇒ ĐÚNG 1 khoá bảng (KHÔNG khoá con) — INV-RCA-4.")
+        self.assertIn("3", env["fields"]["five_why_steps"],
+                      "Câu VI PHẢI nêu SỐ BƯỚC HIỆN CÓ để người dùng biết còn thiếu mấy.")
+
+    # ── TC-12-RCA83-03 — KHÔNG-MUTATE ───────────────────────────────────────
+    def test_tc_12_rca83_03_failed_submit_does_not_mutate_doc(self):
+        """INV-RCA-5: pre-check chạy TRƯỚC mọi phép gán ⇒ hồ sơ giữ nguyên."""
+        frappe.set_user("Administrator")
+        before = frappe.db.get_value(
+            "IMM RCA Record", self.rca,
+            ["status", "root_cause", "corrective_action_summary",
+             "completed_by", "completed_date"], as_dict=True)
+        frappe.set_user(self.user_rca)
+        env = _rca83_api_submit(self.rca, steps=_rca83_steps(count=3))
+        self.assertIs(env.get("success"), False)
+        frappe.set_user("Administrator")
+        after = frappe.db.get_value(
+            "IMM RCA Record", self.rca,
+            ["status", "root_cause", "corrective_action_summary",
+             "completed_by", "completed_date"], as_dict=True)
+        self.assertEqual(after.status, "RCA In Progress",
+                         "Hồ sơ bị từ chối PHẢI giữ 'RCA In Progress'.")
+        self.assertEqual(dict(after), dict(before),
+                         "KHÔNG-MUTATE: 5 field PHẢI y nguyên giá trị trước lệnh "
+                         "(ghi-nửa-chừng = hồ sơ NĐ98 sai sự thật).")
+
+    # ── TC-12-RCA83-04 — hợp đồng cũ + fields mới ───────────────────────────
+    def test_tc_12_rca83_04_root_cause_required_now_carries_fields(self):
+        """AC-3 / INV-RCA-6: message_code CŨ giữ nguyên, chỉ THÊM `fields`."""
+        env = _rca83_api_submit(self.rca, root_cause="   ", steps=_rca83_steps())
+        self.assertEqual(env.get("message_code"), _RCA83_MC_ROOT_CAUSE,
+                         "KHÔNG được đổi message_code cũ (client đang route theo).")
+        self.assertEqual(env.get("http_status"), 422)
+        self.assertEqual(list((env.get("fields") or {}).keys()), ["root_cause"])
+
+    # ── TC-12-RCA83-05 — khoá `fields` = tên tham số GHI ────────────────────
+    def test_tc_12_rca83_05_corrective_required_field_key_is_write_param_name(self):
+        """INV-RCA-3 (CR-52 quirk 2): `corrective_action`, KHÔNG `..._summary`."""
+        env = _rca83_api_submit(self.rca, corrective_action="", steps=_rca83_steps())
+        self.assertEqual(env.get("message_code"), _RCA83_MC_CORRECTIVE)
+        fields = env.get("fields") or {}
+        self.assertIn("corrective_action", fields,
+                      "Khoá PHẢI là TÊN THAM SỐ GHI — client neo vào ô nhập.")
+        self.assertNotIn("corrective_action_summary", fields,
+                         "Tên field ĐỌC = ô không tồn tại trên form ⇒ lỗi 'tàng hình'.")
+
+    # ── TC-12-RCA83-06 — thiếu phân công ────────────────────────────────────
+    def test_tc_12_rca83_06_assignee_required_envelope(self):
+        """D-RCA-4: start_rca bypass validate ⇒ service PHẢI tự kiểm assigned_to."""
+        frappe.set_user("Administrator")
+        frappe.db.set_value("IMM RCA Record", self.rca, "assigned_to", "",
+                            update_modified=False)
+        frappe.db.commit()
+        frappe.set_user(self.user_rca)
+        env = _rca83_api_submit(self.rca, steps=_rca83_steps())
+        self.assertIs(env.get("success"), False)
+        self.assertEqual(env.get("message_code"), _RCA83_MC_ASSIGNEE)
+        self.assertEqual(env.get("http_status"), 422)
+        self.assertEqual(list((env.get("fields") or {}).keys()), ["assigned_to"])
+
+    # ── TC-12-RCA83-07 — gom ĐỦ dòng khuyết (ADR-IMM12-15) ──────────────────
+    def test_tc_12_rca83_07_multiple_holes_yield_one_code_and_all_field_keys(self):
+        """INV-RCA-4: 3 ô trống ⇒ 3 khoá con, 1 message_code (không sửa-thử 3 vòng)."""
+        env = _rca83_api_submit(self.rca, steps=_rca83_steps(holes=(2, 3, 5)))
+        self.assertEqual(env.get("message_code"), _RCA83_MC_FIVE_WHY)
+        self.assertEqual(sorted((env.get("fields") or {}).keys()),
+                         ["five_why_steps.2", "five_why_steps.3", "five_why_steps.5"])
+
+    # ── TC-12-RCA83-08 — happy path (AC-6 / INV-RCA-8) ──────────────────────
+    def test_tc_12_rca83_08_happy_path_completes_and_creates_capa(self):
+        """5 bước đủ ⇒ Completed + auto-CAPA + chuỗi on_rca_completed y như trước."""
+        env = _rca83_api_submit(self.rca, steps=_rca83_steps())
+        self.assertIs(env.get("success"), True, f"Happy path PHẢI xanh: {env}")
+        self.assertEqual((env.get("data") or {}).get("status"), "Completed")
+        self.assertNotIn("fields", env,
+                         "Envelope thành công KHÔNG được kèm `fields` (chống vacuous).")
+        frappe.set_user("Administrator")
+        self.assertEqual(
+            frappe.db.get_value("IMM RCA Record", self.rca, "status"), "Completed")
+        self.assertTrue(
+            frappe.db.exists("IMM CAPA Record", {"linked_incident": self.incident}),
+            "BR-12-06: RCA hoàn tất PHẢI sinh CAPA gắn sự cố (chuỗi không regress).")
+
+    # ── TC-12-RCA83-09 — gọi lại lần 2 ──────────────────────────────────────
+    def test_tc_12_rca83_09_second_submit_is_already_completed_without_fields(self):
+        """§22.2 hàng 5: 409 + KHÔNG `fields` (không phải lỗi của một ô nhập)."""
+        first = _rca83_api_submit(self.rca, steps=_rca83_steps())
+        self.assertIs(first.get("success"), True, f"Lần 1 phải xanh: {first}")
+        env = _rca83_api_submit(self.rca, steps=_rca83_steps())
+        self.assertEqual(env.get("message_code"), _RCA83_MC_ALREADY)
+        self.assertEqual(env.get("http_status"), 409)
+        self.assertNotIn("fields", env)
+
+    # ── TC-12-RCA83-10 — thiếu quyền (D-RCA-1) ──────────────────────────────
+    def test_tc_12_rca83_10_missing_capability_is_403_in_envelope(self):
+        """403 IN-ENVELOPE trên HTTP-200, message KHÔNG leak chuỗi capability."""
+        frappe.set_user(self.user_nocap)
+        try:
+            env = _rca83_api_submit(self.rca, steps=_rca83_steps())
+        finally:
+            frappe.set_user("Administrator")
+        self.assertIsInstance(env, dict)
+        self.assertEqual(env.get("code"), ErrorCode.FORBIDDEN)
+        self.assertEqual(env.get("http_status"), 403)
+        self.assertNotIn("corrective.write", json.dumps(env, ensure_ascii=False))
+        self.assertEqual(
+            frappe.db.get_value("IMM RCA Record", self.rca, "status"),
+            "RCA In Progress", "Thiếu quyền ⇒ KHÔNG transition.")
+
+    # ── TC-12-RCA83-13 — non-regress phương pháp khác (D-RCA-3) ─────────────
+    def test_tc_12_rca83_13_non_five_why_method_is_untouched(self):
+        """rca_method='Fishbone' + 0 bước ⇒ vẫn hoàn thành (không mở rộng luật)."""
+        frappe.set_user("Administrator")
+        _inc, rca = _rca83_make_inprogress(self.asset.name, method="Fishbone")
+        # Xoá sạch bảng con: chứng minh predicate KHÔNG áp cho phương pháp khác
+        # (0 bước mà vẫn hoàn thành = D-RCA-3 giữ nguyên, không mở rộng luật).
+        frappe.db.sql("DELETE FROM `tabIMM RCA Five Why Step` WHERE parent=%s", (rca,))
+        frappe.db.commit()
+        frappe.set_user(self.user_rca)
+        env = _rca83_api_submit(rca, steps=[])
+        self.assertIs(env.get("success"), True,
+                      f"Phương pháp không chứa 'why' KHÔNG bị kiểm 5-Why: {env}")
+
+
+class TestRcaValidatorSsot(unittest.TestCase):
+    """AC-4 / AC-5 — MỘT predicate cho service + hook; controller 0 `frappe.throw`."""
+
+    _CONTROLLER = "assetcore/assetcore/doctype/imm_rca_record/imm_rca_record.py"
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.asset = _make_asset("-rca83ssot")
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        purge_asset(cls.asset.name)
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+
+    def _controller_source(self) -> str:
+        import assetcore.assetcore.doctype.imm_rca_record.imm_rca_record as mod
+        return open(mod.__file__, encoding="utf-8").read()
+
+    # ── TC-12-RCA83-11 (GUARD tĩnh) ─────────────────────────────────────────
+    def test_tc_12_rca83_11_no_bare_frappe_throw_in_rca_controller(self):
+        """INV-RCA-9: 0 `frappe.throw(` ∧ dùng CHUNG 3 predicate ∧ 0 luật thứ hai."""
+        import ast
+
+        src = self._controller_source()
+        tree = ast.parse(src)
+        throws = [
+            n for n in ast.walk(tree)
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+            and n.func.attr == "throw"
+            and isinstance(n.func.value, ast.Name) and n.func.value.id == "frappe"
+        ]
+        self.assertEqual(
+            [n.lineno for n in throws], [],
+            "Controller RCA PHẢI 0 `frappe.throw(` — mọi lỗi tối thiểu mang "
+            "message_code (đi qua nthrow_in_hook).")
+        imported = {
+            alias.name for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)
+            for alias in n.names
+        }
+        for sym in ("validate_five_why_payload", "validate_rca_assignment",
+                    "validate_rca_completion"):
+            self.assertIn(sym, imported,
+                          f"Hook PHẢI import CHÍNH `{sym}` từ services.imm12 (SSoT).")
+        # 0 "luật thứ hai": validator 5-Why của controller KHÔNG được tự lặp trên
+        # bảng con hay tự so số bước — chỉ ủy quyền cho predicate SSoT.
+        # (`before_save` VẪN được đọc `why_answer` để suy root_cause — đó là phép
+        # DẪN XUẤT, không phải luật kiểm tra.)
+        fn = next((n for n in ast.walk(tree)
+                   if isinstance(n, ast.FunctionDef)
+                   and n.name == "_validate_five_why_when_method_5why"), None)
+        self.assertIsNotNone(fn, "Hook backstop 5-Why PHẢI còn (defense-in-depth).")
+        self.assertEqual(
+            [n for n in ast.walk(fn) if isinstance(n, (ast.For, ast.While))], [],
+            "Vòng lặp kiểm 5-Why trong controller = bản kiểm tra THỨ HAI "
+            "(class-of-bug display⇔enforcement) — phải gọi predicate SSoT.")
+        self.assertEqual(
+            [c for c in ast.walk(fn)
+             if isinstance(c, ast.Constant) and c.value == 5], [],
+            "Controller KHÔNG được tự khẳng định 'đủ 5 bước' — hằng số đó thuộc "
+            "predicate SSoT (sửa 1 chỗ ⇒ cả 2 đổi).")
+        called = {c.func.id for c in ast.walk(fn)
+                  if isinstance(c, ast.Call) and isinstance(c.func, ast.Name)}
+        self.assertIn("validate_five_why_payload", called,
+                      "Hook PHẢI GỌI chính predicate SSoT.")
+
+    # ── TC-12-RCA83-12 (parity 2 kênh) ──────────────────────────────────────
+    def test_tc_12_rca83_12_hook_backstop_shares_predicate(self):
+        """AC-4: doc.save() trực tiếp ⇒ ValidationError CÓ message_code cùng mã."""
+        _inc, rca = _rca83_make_inprogress(self.asset.name)
+        doc = frappe.get_doc("IMM RCA Record", rca)
+        doc.status = "RCA In Progress"
+        for row in doc.get("five_why_steps") or []:
+            row.why_answer = "" if row.why_number == 3 else f"Đáp án {row.why_number}"
+        frappe.local.response.pop("message_code", None)
+        with self.assertRaises(frappe.ValidationError):
+            doc.save(ignore_permissions=True)
+        self.assertEqual(frappe.local.response.get("message_code"), _RCA83_MC_FIVE_WHY,
+                         "Hook backstop PHẢI dùng CÙNG predicate/CÙNG mã với service "
+                         "(patch 1 chỗ ⇒ cả 2 đổi — INV-RCA-2).")
+
+    def test_tc_12_rca83_12b_hook_calls_shared_predicate_symbol(self):
+        """INV-RCA-2 (mutation-proof): patch symbol service ⇒ hook đổi hành vi."""
+        from unittest.mock import patch as _patch
+
+        _inc, rca = _rca83_make_inprogress(self.asset.name)
+        doc = frappe.get_doc("IMM RCA Record", rca)
+        doc.status = "RCA In Progress"
+        for row in doc.get("five_why_steps") or []:
+            row.why_answer = f"Đáp án {row.why_number}"
+        with _patch("assetcore.services.imm12.validate_five_why_payload",
+                    return_value={"message_code": MSG.IMM12_RCA_FIVE_WHY_INCOMPLETE,
+                                  "fields": {"five_why_steps": "x"},
+                                  "context": {"detail": "x"}}):
+            with self.assertRaises(frappe.ValidationError):
+                doc.save(ignore_permissions=True)

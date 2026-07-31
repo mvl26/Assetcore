@@ -552,6 +552,33 @@ watch(() => form.severity, (val) => {
 
 ---
 
+## 7.1 AC-CR-83 — lỗi hồ sơ RCA hiển thị **dưới đúng ô nhập** (`RCADetailView.vue`)
+
+**Hiện trạng (verify 2026-07-27):** `submit()` (`frontend/src/views/incident/RCADetailView.vue:105-126`) chỉ làm `err.value = e.message` ⇒ mọi lỗi rơi vào **một** dải đỏ ở đầu trang; KTV bỏ trống ô «Why 3» không biết ô nào sai. Đường dẫn dữ liệu **đã sẵn sàng**: `helpers.ts::hydrateApiError` gán `ApiError.fields` từ envelope; `frappePost` ném đúng `ApiError` đó. FE chỉ chưa **đọc** nó.
+
+### Hợp đồng render
+
+| Khoá `fields` | Neo vào | `data-testid` |
+|---|---|---|
+| `five_why_steps.<n>` | ngay **dưới** textarea `#why-a-<n>` (dòng «Why n») | `rca-field-error-why-<n>` |
+| `five_why_steps` | dưới **tiêu đề** khối "Phân tích 5-Why" | `rca-field-error-five-why` |
+| `root_cause` | dưới `#rca-root-cause` | `rca-field-error-root-cause` |
+| `corrective_action` | dưới `#rca-corrective` (**tên tham số GHI** — KHÔNG `corrective_action_summary`) | `rca-field-error-corrective` |
+| `assigned_to` | dải cảnh báo trên cụm CTA (hồ sơ chưa phân công) | `rca-field-error-assigned-to` |
+
+### Quy tắc bắt buộc
+
+1. **State riêng** `fieldErrors = ref<Record<string,string>>({})`; `submit()` set từ `e instanceof ApiError ? (e.fields ?? {}) : {}`; **xoá** ở đầu mỗi lần submit và khi `load()` thành công.
+2. **Nút «Hoàn thành RCA» KHÔNG được biến mất** sau lỗi — chỉ `saving=false`. (Nút hiện gate bằng `canComplete` từ `allowed_transitions`; lỗi field-level KHÔNG chạm gate đó — INV-RCA-7.)
+3. **Không đánh mất thông điệp tổng**: `err.value` vẫn hiện `e.message` (câu tiếng Việt từ registry). `fields` là **bổ sung**, không thay thế.
+4. **Cấm rò chuỗi kỹ thuật**: DOM sau lỗi KHÔNG được chứa `Traceback`, `ValidationError`, `_server_messages`, tên module Python. Chỉ echo `ApiError.message` khi có `code` (envelope Decision-B); shape lạ ⇒ câu chung "Có lỗi máy chủ, vui lòng thử lại." (parity `attachIncidentPhoto`, `api/imm12.ts:214-231`).
+5. **`aria-describedby`**: mỗi textarea có lỗi phải trỏ tới id của thông điệp (`why-a-<n>-error`, …) + `role="alert"` để screen-reader đọc ngay.
+6. **Neo theo `why_number`, KHÔNG theo chỉ số mảng** — nhãn người dùng thấy là «Why n» (ADR-IMM12-14). Khoá lạ / `n` không khớp dòng nào ⇒ **đẩy xuống dải tổng**, tuyệt đối không nuốt im lặng.
+
+> ⚠️ Khoá `corrective_action` là **tên tham số GHI**. FE đang bind `v-model="correctiveAction"` rồi gửi `corrective_action` — đúng; nhưng field **đọc** khi `load()` là `res.corrective_action_summary` (`RCADetailView.vue:62`). Đừng "thống nhất" 2 tên: đó là bất đối xứng CÓ THẬT của BE (CR-52 quirk 2).
+
+---
+
 ## 8. Accessibility
 
 - Severity badges: icon + text label (không chỉ màu) — WCAG AA contrast
