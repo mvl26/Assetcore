@@ -199,6 +199,9 @@ const STATUS_MAP: Record<string, string> = {
   Expiring:             'Sắp hết hạn',
   Revoked:              'Đã thu hồi',
   Suspended:            'Tạm ngưng',
+  // PM Schedule.status (Active/Paused/Suspended) — thiếu 'Paused' ⇒ badge + ô lọc của
+  // `/pm/schedules` render THÔ chữ "Paused" (GATE-1). Nhãn khớp form cùng màn.
+  Paused:               'Tạm dừng',
 
   // ── IMM-02 Tech Spec / Vendor Evaluation (Wave 2) ────────────────────
   Benchmarked:          'Đã so sánh thị trường',
@@ -479,6 +482,7 @@ const STATUS_COLOR: Record<string, string> = {
   Expiring:           COLOR_ORANGE,
   Revoked:            COLOR_RED,
   Suspended:          COLOR_ORANGE,
+  Paused:             COLOR_YELLOW,
 
   // ── IMM-02 Tech Spec / Vendor Evaluation (Wave 2) ─────────────────────
   Benchmarked:         COLOR_BLUE,
@@ -619,4 +623,30 @@ export function parseThousands(s: string | number | null | undefined): number | 
 export function formatPercent(v?: number | null): string {
   if (v == null) return '—'
   return `${v}%`
+}
+
+/**
+ * SSoT kích thước tệp (bytes → chuỗi đọc-được kiểu Việt Nam) — AC-CR-81.
+ *
+ * - Dấu THẬP PHÂN là dấu PHẨY ("1,2 MB") theo quy ước VI; phần nguyên tròn thì
+ *   bỏ hẳn phần thập phân ("1 KB", KHÔNG "1,0 KB").
+ * - Đơn vị giữ ký hiệu chuẩn `B/KB/MB/GB` (LL-FE-53: ký hiệu đơn vị được GIỮ);
+ *   KHÔNG in chữ "bytes" (chuỗi tiếng Anh).
+ * - `0` / null / undefined / rác (âm, NaN, Infinity) → `''` để nơi gọi tự chọn
+ *   cách nói ("Chưa đính kèm tệp"), thay vì rò "0 B"/"NaN" ra UI.
+ */
+export function formatFileSize(bytes?: number | null): string {
+  if (bytes == null) return ''
+  const n = Number(bytes)
+  if (!Number.isFinite(n) || n <= 0) return ''
+  const UNITS = ['B', 'KB', 'MB', 'GB', 'TB'] as const
+  let value = n
+  let unit = 0
+  while (value >= 1024 && unit < UNITS.length - 1) {
+    value /= 1024
+    unit += 1
+  }
+  // B là số nguyên (không có "0,5 B"); các bậc trên lấy 1 chữ số thập phân.
+  const rounded = unit === 0 ? Math.round(value) : Math.round(value * 10) / 10
+  return `${String(rounded).replace('.', ',')} ${UNITS[unit]}`
 }

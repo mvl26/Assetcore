@@ -70,6 +70,63 @@ export const DOC_STATUS_LABELS: Record<string, string> = {
   Exempt: 'Miễn đăng ký',
 }
 
+// ─── Loại đo lường trong bảng kiểm (IMM-04 / IMM-08) ─────────────────────────
+// Value giữ NGUYÊN chuỗi DocType Select (`Numeric` / `Pass/Fail` / `Visual` /
+// `Text`) — chỉ đổi lớp HIỂN THỊ (LL-FE-52/53).
+export const MEASUREMENT_TYPE_LABELS: Record<string, string> = {
+  Numeric: 'Số đo',
+  'Pass/Fail': 'Đạt/Không đạt',
+  Pass_Fail: 'Đạt/Không đạt',
+  Visual: 'Quan sát',
+  Text: 'Ghi chú',
+}
+
+export function measurementTypeLabel(v?: string | null): string {
+  if (!v) return '—'
+  return MEASUREMENT_TYPE_LABELS[v] ?? v.replaceAll('_', ' ')
+}
+
+// ─── Mức đầy đủ hồ sơ pháp lý của THIẾT BỊ (IMM-05 · CR-75) ───────────────────
+// Khác `DOC_STATUS_LABELS` (trạng thái của MỘT tài liệu): đây là trạng thái tổng
+// hợp của cả bộ hồ sơ một thiết bị, do BE `_compute_document_status()` phát ra —
+// enum SSoT ĐÚNG 5 giá trị (docs/imm-05/05_API_Specification.md §2.7).
+export const ASSET_DOSSIER_STATUS_LABELS: Record<string, string> = {
+  Compliant: 'Đầy đủ',
+  'Compliant (Exempt)': 'Đầy đủ (miễn đăng ký lưu hành)',
+  Expiring_Soon: 'Sắp hết hạn',
+  'Non-Compliant': 'Hết hiệu lực',
+  Incomplete: 'Thiếu hồ sơ bắt buộc',
+}
+
+/**
+ * Nhãn tiếng Việt cho `document_status` của bộ hồ sơ thiết bị (LL-FE-53).
+ *
+ * KHÔNG dùng `tLabel()` cho enum này: `tLabel` fallback về chính chuỗi gốc nên
+ * giá trị lạ (vd `"Complete"` của hợp đồng cũ trước CR-75) sẽ RÒ tiếng Anh ra UI.
+ * Ở đây degrade an toàn về "Chưa có dữ liệu" — thà nói "chưa biết" còn hơn nói sai.
+ */
+export function dossierStatusLabel(status?: string | null): string {
+  if (!status) return 'Chưa có dữ liệu'
+  return ASSET_DOSSIER_STATUS_LABELS[status] ?? 'Chưa có dữ liệu'
+}
+
+// ─── Nhóm hồ sơ tài liệu (`Asset Document.doc_category`) ─────────────────────
+// SSoT cho nhãn nhóm hồ sơ; khớp EXACT `options` của DocType (giá trị kỹ thuật
+// GIỮ NGUYÊN, chỉ đổi lớp hiển thị — LL-FE-52/53).
+export const DOC_CATEGORY_LABEL: Record<string, string> = {
+  Legal: 'Pháp lý',
+  Technical: 'Kỹ thuật',
+  Certification: 'Kiểm định',
+  Training: 'Đào tạo',
+  QA: 'Chất lượng',
+}
+
+/** Nhãn tiếng Việt của nhóm hồ sơ; giá trị lạ → giữ nguyên để không mất thông tin. */
+export function docCategoryLabel(v?: string | null): string {
+  if (!v) return 'Khác'
+  return DOC_CATEGORY_LABEL[v] ?? v
+}
+
 // ─── Trạng thái tài sản (AC Asset lifecycle_status) ───────────────────────────
 export const ASSET_STATUS_LABELS: Record<string, string> = {
   Draft: 'Nháp',
