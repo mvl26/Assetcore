@@ -5,6 +5,7 @@ import { useRouter } from 'vue-router'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import { formatPercent } from '@/utils/formatters'
+import { pmTypeLabel } from '@/constants/labels'
 
 const store  = useImm08Store()
 const router = useRouter()
@@ -233,7 +234,8 @@ v-if="upcomingWOs.length === 0"
           >
             <div class="min-w-0">
               <p class="text-sm font-medium text-slate-800 truncate">{{ wo.asset_name || wo.asset_ref }}</p>
-              <p class="text-[11px] text-slate-400 mt-0.5">{{ wo.pm_type }}</p>
+              <!-- GATE-1: pm_type là enum BE (Quarterly/Semi-Annual/…) → nhãn VI. -->
+              <p class="text-[11px] text-slate-400 mt-0.5">{{ pmTypeLabel(wo.pm_type) }}</p>
             </div>
             <div class="text-right shrink-0 ml-3">
               <span class="text-[11px] font-semibold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">

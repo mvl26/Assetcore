@@ -230,6 +230,58 @@ Screenshots thực tế lưu tại: `docs/imm-08/screenshots/` (thêm sau khi bu
 - **Phân biệt 2 mã** (KHÔNG trộn UX): `IMM08-CHECKLIST-EMPTY` (0 mục) → hint "gắn bảng kiểm mẫu" (lỗi cấu hình, KTV không tự sửa được → gợi báo Workshop Head); `IMM08-CHECKLIST-INCOMPLETE` (còn mục thiếu result) → hint "điền nốt các mục" + highlight dòng thiếu. `ChecklistProgress total===0` → render trạng thái rỗng riêng, KHÔNG hiện "0/0 hoàn tất" (đánh lừa đã xong).
 - **KHÔNG success-giả:** chỉ báo "Đã hoàn thành" khi envelope `success===true`; mọi `VALIDATION` (EMPTY/IDX_UNKNOWN/INCOMPLETE) → giữ nút, hiện lỗi, KHÔNG điều hướng rời trang.
 
+#### 3.4.a Server-driven CTA — render 4 nút vòng đời TỪ `available_actions[]` (AC-CR-77, GATE-8 / LL-FE-51) 🟡 SPEC (FE Bước-4)
+
+> Hợp đồng BE: [`05 §13`](./05_API_Specification.md). Nguyên tắc: **FE chỉ render, KHÔNG tự suy** — nhãn, trạng thái disabled và tooltip đều do **server** quyết.
+
+**Nguồn dữ liệu.** `get_pm_work_order` trả `available_actions`: mảng **đúng 4** phần tử, thứ tự cố định `[start_work, submit_result, reschedule, report_major_failure]`, shape `{key, label, route, enabled, reason}` (`route` luôn `""` — CTA nằm trong màn, KHÔNG deep-link).
+
+**Type (`frontend/src/api/imm08.ts`)** — thêm, KHÔNG sửa type cũ:
+
+```ts
+/** 1 CTA server-driven màn chi tiết phiếu PM (AC-CR-77) — mirror BE
+ *  `_build_pm_available_actions` (services/imm08.py). enabled/reason do SERVER
+ *  tính (transition ∩ capability ∩ business gate); FE KHÔNG tự suy lại. */
+export interface AvailableAction {
+  key: string
+  label: string
+  route: string
+  enabled: boolean
+  reason: string
+}
+// trong interface PMWorkOrder — OPTIONAL để tương thích payload cũ (fallback đường cũ):
+available_actions?: AvailableAction[]
+```
+
+**Quy tắc render (`PMWorkOrderDetailView.vue`):**
+
+| Điều | Bắt buộc |
+|---|---|
+| Map action | `const actionMap = computed(() => Object.fromEntries((wo.value?.available_actions ?? []).map(a => [a.key, a])))` |
+| **Bỏ nhân bản predicate** | 4 computed `canStart` / `canCompleteRender` / `canReschedule` / `canReportMajor` **KHÔNG** còn ghép `can('pm.*') && allowedTransitions.includes(...)` — đọc thẳng `actionMap[key]` |
+| Nhãn nút | dùng `action.label` của server (**KHÔNG** hardcode chuỗi ở FE — hết drift nhãn BE↔FE) |
+| Disabled | `:disabled="!action.enabled"` — nút **vẫn hiển thị**, KHÔNG ẩn (người dùng thấy được vì sao không bấm được) |
+| Tooltip | `action.reason` (đã là tiếng Việt do BE trả) |
+| Lớp 2 form (chỉ `submit_result`) | `disabled = !action.enabled || completionBlockReason !== ''`; tooltip = `action.reason || completionBlockReason`. **GIỮ** `completionBlockReason` cho 3 cổng form (mục chưa chấm / thời lượng / tem) — server không đánh giá được (ADR-IMM08-CTA-03) |
+| **Fallback bắt buộc** | payload **thiếu** `available_actions` (client cũ / BE chưa reload) ⇒ rơi về **đúng logic hiện tại** (`can(...) && allowed_transitions.includes(...)`) — **KHÔNG nút nào biến mất** (A8) |
+| `data-testid` | GIỮ NGUYÊN `cta-start` / `cta-complete` / `cta-reschedule` / `cta-major` (test cũ không gãy) |
+
+**Đổi vị trí có chủ đích — «Hoãn lịch»:** hiện nút chỉ nằm **trong banner quá hạn** (`v-if="isOverdue"`), nên phiếu *Open*/*Đang thực hiện* chưa quá hạn **không thấy nút** dù server cho phép (lỗ D-3, `05 §13.1`). Sau AC-CR-77, «Hoãn lịch» render ở **cụm nút hành động** theo `available_actions.reschedule` (banner quá hạn giữ **shortcut** cũng đọc CÙNG action object — 1 nguồn, 2 chỗ hiển thị).
+
+**Test render bắt buộc (`frontend/src/views/pm/pmWorkOrderServerDrivenCta.test.ts` — mới):**
+
+| TC | Kỳ vọng |
+|---|---|
+| `FE-PMCTA-1` | payload có `available_actions` với `start_work.enabled=false` + `reason` ⇒ nút `cta-start` **hiện**, `disabled`, tooltip == `reason` (đọc từ DOM, **không** đọc từ store) |
+| `FE-PMCTA-2` | `submit_result.enabled=true` nhưng `completionBlockReason` non-empty ⇒ vẫn `disabled` + tooltip = reason form (lớp 2 không bị nuốt) |
+| `FE-PMCTA-3` | nhãn nút == `label` server (đổi `label` trong payload ⇒ DOM đổi theo) — chống hardcode |
+| `FE-PMCTA-4` | payload **KHÔNG** có `available_actions` ⇒ 4 nút vẫn render theo đường cũ (0 nút biến mất) |
+| `FE-PMCTA-5` | `available_actions` **không** chứa key `cancel` ⇒ màn hình **không** render nút hủy phiếu nào |
+
+**Never (FE):** ❌ tự tính lại `enabled` từ `status`/`allowed_transitions` khi đã có `available_actions` · ❌ ẩn nút disabled (mất thông tin lý do) · ❌ hardcode nhãn/tooltip tiếng Anh · ❌ hiển thị mã trạng thái thô trong tooltip.
+
+**Ghi nhận (KHÔNG thuộc AC-CR-77 — backlog `05 §13.10` B2):** nút "Tiếp tục bảo trì" (`cta-resume`) hiện chỉ gọi `store.fetchWorkOrder(props.id)` = **dead control** (không đổi trạng thái gì, vì chưa có endpoint resume). Xử lý ở vòng riêng sau khi ratify B1.
+
 ---
 
 ## 4. Component custom của module
@@ -421,6 +473,78 @@ watch(assetRef, () => {
   // reload PM Schedules for this asset
 })
 ```
+
+---
+
+## 7e. FilterKeyError — banner lỗi bộ lọc **KHÔNG thay thế bảng** (AC-CR-79, 2026-07-27) 🔴 SPEC
+
+> Hợp đồng BE: [`05_API_Specification.md §14`](./05_API_Specification.md). Mục này là phần FE bắt buộc **cùng vòng**.
+
+### 7e.1 Hai lỗi FE đo được (verify @source 2026-07-27)
+
+| # | Chỗ | Vấn đề |
+|---|---|---|
+| **F1** | `views/pm/PMWorkOrderListView.vue:251` | `v-else-if="store.error"` nằm **cùng chuỗi `v-if`** với `<template v-else>` chứa bảng ⇒ **có lỗi là bảng biến mất**. Người dùng đang xem 20 phiếu, đổi 1 bộ lọc sai → **trắng nội dung**. Đây đúng cái AC6 cấm. |
+| **F2** | `views/pm/PMWorkOrderListView.vue:72-73` | `f.due_date_from = [dateFrom.value]` / `f.due_date_to = [dateTo.value]` — **2 khoá KHÔNG tồn tại ở BE** ⇒ mọi lần lọc khoảng ngày là **HTTP-500 THẬT** (probe P3, `05 §14.1`). Bộ lọc này **chưa từng chạy**. |
+
+### 7e.2 Sửa F2 — dùng toán tử Frappe trên `due_date` (khoá ĐÃ whitelist)
+
+```ts
+// AC-CR-79 / ADR-IMM08-FILTERKEY-03: BE KHÔNG có khoá `due_date_from`/`due_date_to`
+//   (gửi đi = HTTP-500 `Unknown column 'tabPM Work Order.due_date_from'`). Khoảng
+//   ngày đi bằng toán tử trên cột THẬT `due_date` — `_normalize_filters` cho lọt
+//   nguyên dạng mọi `[<op>, <v>]` với op ∈ _OP_TOKENS (services/imm08.py:447).
+if (dateFrom.value && dateTo.value) f.due_date = ['between', [dateFrom.value, dateTo.value]]
+else if (dateFrom.value)           f.due_date = ['>=', dateFrom.value]
+else if (dateTo.value)             f.due_date = ['<=', dateTo.value]
+```
+
+⚠️ Đặt **sau** nhánh `overdue`/`due_before` hiện có và **chỉ khi** 2 nhánh đó không chạy — `overdue` và
+`due_before` cũng ghi `due_date`/`status` ở BE; 2 nguồn cùng ghi 1 cột = kết quả không đoán được.
+Kiểu `buildFilters()` phải nới thành `Record<string, string | string[] | (string | string[])[]>`.
+
+### 7e.3 Sửa F1 — banner **cộng thêm**, không thay thế
+
+| Điều kiện | Hiển thị |
+|---|---|
+| `store.error` **và** `store.workOrders.length > 0` | **Banner** `alert-error` phía **TRÊN** bảng · bảng **giữ nguyên dữ liệu cũ** · nút "Thử lại" |
+| `store.error` **và** `store.workOrders.length === 0` | Khối lỗi chiếm-chỗ như hiện tại (không có gì để giữ) |
+| `store.loading` | Skeleton (không đổi) |
+
+```
+<div v-if="store.loading">…skeleton…</div>
+<template v-else>
+  <div v-if="store.error" class="alert-error" role="alert">…{{ store.error }}… [Thử lại]</div>
+  <div v-if="store.error && store.workOrders.length" class="text-xs …">
+    Dữ liệu bên dưới là kết quả của lần lọc gần nhất thành công.
+  </div>
+  <ErrorBlock v-if="store.error && !store.workOrders.length" />
+  <template v-else>…bảng + mobile card…</template>
+</template>
+```
+
+**Bắt buộc:**
+- Dùng **message của BE** (`store.error` = `err.message`, `stores/imm08.ts:36-40`) — **KHÔNG** chuỗi tự chế,
+  **KHÔNG** map lại theo `code` (message BE đã nêu khoá sai + tập khoá hợp lệ, tiếng Việt).
+- **KHÔNG logout** — `error.http_status = 400`, không phải 401; interceptor không được đụng.
+- **KHÔNG** thêm `workOrders.value = []` vào `catch` của `fetchWorkOrders` (`stores/imm08.ts:74-76` hiện
+  **đúng** — chỉ `_captureError`). Đây là hành vi phải **bảo tồn**, không phải sửa.
+- **0 lỗi console**.
+
+### 7e.4 Test RENDER bắt buộc (không chỉ test store)
+
+`frontend/src/views/pm/pmFilterKeyError.test.ts`:
+
+| TC | Kịch bản | Assert |
+|---|---|---|
+| FE-PMFK-1 | mount với `workOrders` = 3 dòng, rồi `fetchWorkOrders` reject `ApiError(msg, 'INVALID_PARAMS', 400)` | **3 dòng vẫn render** trong DOM + banner chứa `msg` |
+| FE-PMFK-2 | như trên | `router.push`/logout **không** được gọi; `console.error` spy = 0 |
+| FE-PMFK-3 | `workOrders` rỗng + lỗi | khối lỗi hiện, **không** crash, có nút "Thử lại" |
+| FE-PMFK-4 | `dateFrom`+`dateTo` → `buildFilters()` | trả `{ due_date: ['between', [from, to]] }`, **không** chứa `due_date_from`/`due_date_to` |
+| FE-PMFK-5 | chỉ `dateFrom` | `{ due_date: ['>=', from] }` |
+
+DoD FE: `vue-tsc --noEmit` **0 lỗi** · `vitest run` **xanh** · **KHÔNG** `npm run build` (ghi thẳng
+`assetcore/public/frontend` + `emptyOutDir` = deploy live trong khi BE còn stale — LL-DEPLOY-09).
 
 ---
 

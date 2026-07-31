@@ -213,6 +213,9 @@ File: `assetcore/services/imm08.py`
 | `attach_pm_checklist_photo(work_order_name, checklist_item_idx, filedata=None, filename="", content_type="")` | str, int, bytes?, str, str | dict `{file_url, file_name, checklist_item_idx}` | **BR-08-15/16 (mobile CR-14/G6)** — đính ảnh bằng chứng per-mục checklist PM (NĐ98 Class C/D). Thứ tự reject TRƯỚC File.insert: exists(WO)→NOT_FOUND · permission (assigned/write)→FORBIDDEN · idx→row VALIDATION · file present/content-type/size/max-count VALIDATION. Success: `File.insert(is_private=1, attached_to='PM Work Order', attached_to_field=f"checklist_results.photo.{idx}")` → `frappe.db.set_value("PM Checklist Result", row.name, "photo", file_url)` (**KHÔNG `wo.save()`** — tránh re-validate BR-08-08/docstatus) → `create_lifecycle_event(pm_checklist_photo_attached)` (hard-req, event throw→rollback) → commit. §05 #11 + ADR-IMM08-PHOTO-01/02. Đối xứng `imm12.attach_incident_photo`. |
 | `_pm_checklist_photos(work_order_name, checklist_item_idx)` | str, int | `list[{file_url, file_name}]` | None — **SoT DUY NHẤT** cho ảnh của 1 mục checklist (mirror `_scene_photos` imm12). Query `File` private theo bộ-3 (`attached_to_doctype="PM Work Order"`, `attached_to_name`, `attached_to_field=f"checklist_results.photo.{idx}"`) `order_by creation asc`, lọc đuôi `.jpg/.jpeg/.png`. CÙNG helper dùng cho max-count check LẪN mọi liệt kê per-item ⇒ invariant **count==rows**. 1 query, KHÔNG N+1. |
 | `_assert_can_attach_pm_photo(wo)` | PM Work Order doc | None | raise `ServiceError(FORBIDDEN)` nếu `wo.assigned_to != session.user` AND KHÔNG `frappe.has_permission("PM Work Order","write",doc=wo)` (BR-08-15; tái dùng IDOR-guard row-level `pm_work_order_has_permission`). |
+| `get_work_order(name)` | str | `dict` | Chi tiết 1 PM WO (màn detail web + mobile `getPmWorkOrder`). CR-74: khuôn 3 lớp ROLE→EXISTS→ROW (`05 §12`). **AC-CR-77:** trả **THÊM** `available_actions: [4×AvailableAction]` (server-driven CTA; derive `_build_pm_available_actions(wo)`, READ-ONLY) **cạnh** `allowed_transitions` (**GIỮ NGUYÊN 100%** — giá trị + thứ tự + overlay CR-45b). Xem §4.3 + `05 §13` |
+| `_build_pm_available_actions(wo)` | PM Work Order doc | `list[dict]` (4× `{key,label,route,enabled,reason}`) | **AC-CR-77** — SSoT 4 CTA server-driven `[start_work, submit_result, reschedule, report_major_failure]`; `enabled = transition_allowed ∩ has_cap ∩ business_gate`; `route=""`; reason VI 3 bậc; READ-ONLY (0 I/O ghi, 0 query thêm). `Cancelled` KHÔNG BAO GIỜ là action (không có endpoint). Xem §4.3.3 + ADR-IMM08-CTA-01/02/03 (`05 §13`) |
+| `_pm_checklist_has_items(doc)` | PM Work Order doc | `bool` | **AC-CR-77** — BR-08-19 boolean SSoT (`len(checklist_results) > 0`). DÙNG CHUNG `validate_work_order` (enforce `IMM08_CHECKLIST_EMPTY`) + `_build_pm_available_actions.submit_result.business_gate` (advertise) ⇒ advertise == enforce. READ-ONLY. Xem §4.3.2 |
 
 ### ADR-IMM08-IDEMPOTENCY-01 — Idempotency `submit_pm_result` neo trên terminal-state của WO (KHÔNG DocField, KHÁC CR-24)
 
@@ -505,6 +508,257 @@ def compute_next_pm_date(completion_date, interval=None) -> str:
 ### 4.2.3 Quan hệ với BR-08-05 (is_late) và overdue (BR-08-11)
 
 `compute_next_pm_date` chỉ tính NGÀY KẾ TIẾP, độc lập với `is_late` (BR-08-05: `is_late = completion_date > due_date`). Khi anchor đã đúng = `completion_date`, asset chỉ bị scheduler coi PM-overdue khi `next_pm_date <= today` THẬT (đến hạn) — không còn overdue-giả do `+0`. Default 90 đảm bảo asset thiếu cấu hình `pm_interval_days` vẫn có chu kỳ hợp lý thay vì kẹt ở hôm nay.
+
+---
+
+## 4.3 `_build_pm_available_actions` — SSoT CTA server-driven màn chi tiết phiếu PM (AC-CR-77) 🟢 ĐÃ LAND (2026-07-26)
+
+> ✅ Land ĐÚNG khuôn dưới đây. Dòng THẬT: hằng `:163-209` · `_pm_checklist_has_items` **:212-229** · `_build_pm_available_actions` **:231-302** · wire `get_work_order` **:1058** · 4 điểm chạm §4.3.4 land ĐỦ (1 emit · 2 `validate_work_order:530` · 3 `reschedule:1501` · 4 `assign_technician:1257`). Test: `test_imm08::TestPmAvailableActions` 14 TC (TC-PMCTA-01..14).
+
+> Hợp đồng đầy đủ + bảng chân trị + bất biến + ADR-IMM08-CTA-01/02/03: [`05 §13`](./05_API_Specification.md). Mục này chỉ mô tả **cấu trúc code** để BE dán vào `assetcore/services/imm08.py`.
+
+### 4.3.1 Hằng + SSoT (module-level, đặt cạnh `_PM_VALID_TRANSITIONS` `:127` / `RESCHEDULE_CTA_STATES` `:153`)
+
+```python
+# services/imm08.py — import BỔ SUNG (hiện CHƯA có): rbac
+from assetcore.services.shared import rbac
+
+# ── SSoT cap của 4 endpoint ghi (advertise & enforce đọc CÙNG 1 chỗ) ──────────
+# GIÁ TRỊ PHẢI == rbac.require(...) trong api/imm08.py (110/120/145/157). CẤM literal thứ 2.
+_CAP_PM_WRITE = "pm.write"          # assign_technician :114 · report_major_failure :151
+_CAP_PM_SUBMIT = "pm.submit"        # submit_pm_result :129
+_CAP_PM_RESCHEDULE = "pm.reschedule"  # reschedule_pm :158
+
+# ── Tập status mà «Hoãn lịch» có nghĩa (ADR-IMM08-CTA-02) ────────────────────
+# = mọi status KHÔNG-terminal, dẫn xuất TỪ SSoT map (thêm state vào map → tự vào đây).
+# DÙNG CHUNG cho advertise (_build_pm_available_actions) LẪN enforce (reschedule()).
+# INVARIANT (test): RESCHEDULE_CTA_STATES ⊆ RESCHEDULE_ACTION_STATES (neo với CR-45b).
+RESCHEDULE_ACTION_STATES = frozenset(_PM_VALID_TRANSITIONS) - {
+    PMStatus.COMPLETED, PMStatus.CANCELLED,
+}
+
+# ── Reason VI (CHỈ khi enabled=False) — 3 bậc: transition > capability > business ──
+# HẰNG, KHÔNG f-string: nội suy mã status ('In Progress'…) = rò tiếng Anh ra UI.
+_PM_ACTION_REASON_TRANSITION = (
+    "Không thể thực hiện thao tác này ở trạng thái hiện tại của phiếu")
+_PM_ACTION_REASON_CAPABILITY = "Bạn không có quyền thực hiện thao tác này"
+_PM_ACTION_REASON_NO_TECHNICIAN = "Phiếu chưa được phân công kỹ thuật viên"
+_PM_ACTION_REASON_CHECKLIST_EMPTY = (
+    "Chưa có mục bảng kiểm — không thể nghiệm thu phiếu bảo trì định kỳ")
+
+# ── SSoT 4 CTA (thứ tự = thứ tự render FE) ───────────────────────────────────
+# `endpoint` = tên hàm THẬT trong assetcore/api/imm08.py — guard INV-PMCTA-4 resolve
+# ĐỘNG + kiểm `fn in frappe.whitelisted`. Không có endpoint ⇒ KHÔNG có CTA (vì sao
+# 'Cancelled' vắng mặt dù là đích hợp lệ trong _PM_VALID_TRANSITIONS — ADR-IMM08-CTA-01).
+_PM_ACTION_SPECS: tuple[dict, ...] = (
+    {"key": "start_work", "label": "Bắt đầu bảo trì", "endpoint": "assign_technician",
+     "target": PMStatus.IN_PROGRESS, "from": (PMStatus.OPEN, PMStatus.OVERDUE),
+     "cap": _CAP_PM_WRITE},
+    {"key": "submit_result", "label": "Hoàn thành bảo trì", "endpoint": "submit_pm_result",
+     "target": PMStatus.COMPLETED, "from": (PMStatus.IN_PROGRESS,),
+     "cap": _CAP_PM_SUBMIT},
+    {"key": "reschedule", "label": "Hoãn lịch", "endpoint": "reschedule_pm",
+     "target": PMStatus.PENDING_BUSY, "from": tuple(sorted(RESCHEDULE_ACTION_STATES)),
+     "cap": _CAP_PM_RESCHEDULE},
+    {"key": "report_major_failure", "label": "Báo lỗi nghiêm trọng",
+     "endpoint": "report_major_failure", "target": PMStatus.HALTED_MAJOR,
+     "from": (PMStatus.IN_PROGRESS,), "cap": _CAP_PM_WRITE},
+)
+```
+
+### 4.3.2 Predicate dùng chung advertise ⇔ enforce
+
+```python
+def _pm_checklist_has_items(doc) -> bool:
+    """BR-08-19 boolean SSoT — phiếu có ≥1 mục bảng kiểm.
+
+    DÙNG CHUNG: validate_work_order (ENFORCE — `if not _pm_checklist_has_items(doc):
+    nthrow_in_hook(MSG.IMM08_CHECKLIST_EMPTY)`, thay guard inline `:379-380`) và
+    _build_pm_available_actions.submit_result.business_gate (ADVERTISE) ⇒ thẻ/nút là
+    TẤM GƯƠNG của validator, không phải bản diễn giải thứ hai.
+    """
+    return bool(doc.checklist_results or [])
+```
+
+### 4.3.3 `_build_pm_available_actions(wo) -> list[dict]`
+
+```python
+def _build_pm_available_actions(wo) -> list[dict]:
+    """AC-CR-77 — 4 CTA server-driven; enabled = transition ∩ cap ∩ business.
+
+    Mirror imm12._build_incident_available_actions / imm00._build_available_actions.
+    READ-ONLY: chỉ đọc wo.status / wo.assigned_to / wo.checklist_results + rbac.can.
+    Bất biến D9: enabled False ⟹ reason != "" (mọi status, kể cả '' và mã lạ);
+    enabled True ⟹ reason == "". Shape = AvailableAction {key,label,route,enabled,reason}.
+    """
+    status = wo.status or ""
+    valid_targets = _PM_VALID_TRANSITIONS.get(status, [])
+    actions: list[dict] = []
+    for spec in _PM_ACTION_SPECS:
+        if spec["key"] == "reschedule":
+            # ADR-IMM08-CTA-02: service-action NGOÀI workflow ⇒ KHÔNG xét target ∈ map
+            # (workflow không có Open→Pending / Overdue→Pending) và KHÔNG đọc overlay.
+            transition_ok = status in RESCHEDULE_ACTION_STATES
+        else:
+            transition_ok = spec["target"] in valid_targets and status in spec["from"]
+        has_cap = rbac.can(spec["cap"])
+        business_ok, business_reason = True, ""
+        if spec["key"] == "start_work" and not wo.assigned_to:
+            business_ok, business_reason = False, _PM_ACTION_REASON_NO_TECHNICIAN
+        elif spec["key"] == "submit_result" and not _pm_checklist_has_items(wo):
+            business_ok, business_reason = False, _PM_ACTION_REASON_CHECKLIST_EMPTY
+        enabled = bool(transition_ok and has_cap and business_ok)
+        if enabled:
+            reason = ""
+        elif not transition_ok:
+            reason = _PM_ACTION_REASON_TRANSITION
+        elif not has_cap:
+            reason = _PM_ACTION_REASON_CAPABILITY
+        else:
+            reason = business_reason or _PM_ACTION_REASON_TRANSITION  # fallback an toàn
+        actions.append({"key": spec["key"], "label": spec["label"], "route": "",
+                        "enabled": enabled, "reason": reason})
+    return actions
+```
+
+### 4.3.4 Điểm chạm còn lại (4 chỗ — nhỏ, KHÔNG đổi hành vi công khai)
+
+| # | Chỗ sửa | Nội dung | Rủi ro |
+|---|---|---|---|
+| 1 | `get_work_order` (`:895-903`) | thêm `"available_actions": _build_pm_available_actions(wo)` **cạnh** `allowed_transitions`. `allowed_transitions` **KHÔNG đổi 1 ký tự** (A6) | 0 — additive |
+| 2 | `validate_work_order` (`:379-380`) | thay `if not (doc.checklist_results or []):` bằng `if not _pm_checklist_has_items(doc):` | 0 — cùng biểu thức |
+| 3 | `reschedule` (`:1335-1336`) | thay `if wo.status in (PMStatus.COMPLETED, PMStatus.CANCELLED):` bằng `if wo.status not in RESCHEDULE_ACTION_STATES:` (giữ nguyên `validation(...)` + literal message) | 0 — **cùng tập status bị chặn**, verify bằng INV-PMCTA-8 |
+| 4 | `assign_technician` (`:1092`) | thêm ngay sau load: `if not (technician or "").strip(): raise validation("Phải chọn kỹ thuật viên trước khi bắt đầu bảo trì")` ⇒ khớp `business_gate` của `start_work` (advertise == enforce) | thấp — hiện call rỗng **âm thầm** flip WO sang `In Progress` với `assigned_to` trống (lỗ dữ liệu). KHÔNG dùng MSG-code mới (né coupling `gen_fe_messages`) |
+
+**Không làm trong vòng này:** nới `assign_technician` cho `Pending–Device Busy`/`Halted–Major Failure` (B1) · guard status cho `report_major_failure` (B3) · chặn `reschedule` ở `Halted–Major Failure` (B4) — xem `05 §13.10`.
+
+---
+
+## 4.4 `_ALLOWED_FILTER_KEYS` — SSoT khoá `filters` của `list_pm_work_orders` (AC-CR-79) 🔴 SPEC
+
+> Hợp đồng đầy đủ + 3 ADR: [`05_API_Specification.md §14`](./05_API_Specification.md). Mục này chỉ là **code-shape**.
+
+### 4.4.1 Helper CHUNG — `assetcore/services/shared/filters.py` (cạnh `pop_search`)
+
+**Một** nơi biết cách raise; **mỗi module** tự khai tập khoá của mình ⇒ không có bản chép tay thứ hai.
+
+```python
+_MAX_ECHOED_KEYS = 5
+_SAFE_KEY_RE = re.compile(r"\A[A-Za-z0-9_]{1,64}\Z")
+
+
+def _safe_key(k: str) -> str:
+    """Chuẩn hoá khoá do CLIENT gửi trước khi ĐƯA VÀO message trả về.
+
+    Khoá lọc hợp lệ luôn là identifier. Bất kỳ thứ gì khác (chuỗi rỗng, khoảng
+    trắng, ký tự SQL/HTML, >64 ký tự) ⇒ KHÔNG phản chiếu nguyên văn — tránh biến
+    message lỗi thành kênh reflected-content.
+    """
+    s = str(k)
+    return s if _SAFE_KEY_RE.match(s) else "<khoá không hợp lệ>"
+
+
+def assert_allowed_filter_keys(f: dict | None, allowed: frozenset[str]) -> None:
+    """Chặn khoá `filters` KHÔNG thuộc whitelist của module — 400 IN-ENVELOPE.
+
+    Vì sao tồn tại: `frappe.get_list(filters={<khoá lạ>: …})` ném
+    `OperationalError(1054, "Unknown column 'tab<DocType>.<khoá>' in 'WHERE'")`,
+    mà `utils/api_handler.handle` CỐ Ý không bắt Exception chung (`:44-49`) ⇒ lỗi
+    INPUT thoát ra **HTTP-500 KHÔNG có `body.success`** và **lộ tên bảng/cột SQL**.
+
+    Args:
+        f: filter dict SAU parse_json/vendor-scope/mine/search injection.
+        allowed: whitelist của module (`_ALLOWED_FILTER_KEYS`).
+
+    Raises:
+        ServiceError: `code=INVALID_PARAMS`, `http_status=400`,
+            `message_code=MSG.VAL_INVALID_FILTER_KEY`.
+    """
+    unknown = sorted(set(f or {}) - allowed)
+    if not unknown:
+        return
+    shown = [_safe_key(k) for k in unknown[:_MAX_ECHOED_KEYS]]
+    if len(unknown) > _MAX_ECHOED_KEYS:
+        shown.append(f"(và {len(unknown) - _MAX_ECHOED_KEYS} khoá khác)")
+    nthrow(
+        MSG.VAL_INVALID_FILTER_KEY,
+        invalid_keys=", ".join(shown),
+        allowed_keys=", ".join(sorted(allowed)),
+    )
+```
+
+- **`sorted()`** cả 2 vế ⇒ message **DETERMINISTIC** (test/diff/cache ổn định — cùng lý do `open_repair_filter` dùng `sorted`).
+- **Không** echo giá trị filter (chỉ tên khoá) — giá trị có thể là dữ liệu người bệnh/thiết bị.
+- `nthrow` import **trong thân hàm** hoặc top-file tuỳ vòng-import hiện có của `filters.py` — **kiểm tra circular trước** (`shared/filters.py` đang không import `utils.notify`).
+
+### 4.4.2 Hằng SSoT — `services/imm08.py` (module-level, đặt cạnh `_PM_LIST_FIELDS` `:783`)
+
+```python
+# AC-CR-79 — SSoT DUY NHẤT tập khoá `filters` được honor bởi `list_work_orders`.
+# Khoá ngoài tập này ⇒ 400 IN-ENVELOPE (KHÔNG còn OperationalError 1054 → HTTP-500
+# lộ `tabPM Work Order.<cột>`). OAS `PmWorkOrderFilters` + guard `cr79_*` ĐỌC/SO
+# THẲNG hằng này — KHÔNG chép tay lần hai. Mỗi khoá có consumer THẬT (`05 §14.3`);
+# thêm khoá CHỈ khi có consumer + TC.
+_ALLOWED_FILTER_KEYS = frozenset({
+    # ── cột THẬT trên `PM Work Order` ────────────────────────────────────────
+    "name", "status", "asset_ref", "assigned_to", "supervisor",
+    "pm_type", "wo_type", "due_date", "completion_date",
+    "overall_result", "is_late", "source_pm_wo",
+    # ── khoá ẢO (bị pop/dịch TRƯỚC khi xuống `frappe.get_list`) ─────────────
+    "overdue",        # → `_normalize_filters` :461 → status == Overdue
+    "due_before",     # → `due_soon_filter` (BR-08-12) → cửa-sổ `due_date`
+    "overdue_live",   # → `_list_pm_overdue_live` :931 (chip mobile "Quá hạn")
+    "search",         # → `pop_search` (OR-LIKE name/asset_ref + asset_name)
+})
+```
+
+**Khoảng ngày KHÔNG có khoá riêng** — dùng toán tử `_OP_TOKENS` (`:447`) trên `due_date`:
+`{"due_date": ["between", ["2026-01-01","2026-12-31"]]}` (ADR-IMM08-FILTERKEY-03).
+
+### 4.4.3 Điểm cắm — **1 dòng**, TRƯỚC `run_rowscoped`
+
+```python
+def list_work_orders(filters: dict, *, page: int = 1, page_size: int = 20) -> dict:
+    # AC-CR-79: validate khoá TRƯỚC pop `overdue_live` / `pop_search` /
+    # `_normalize_filters` ⇒ 4 khoá ảo còn nguyên trong dict lúc kiểm (nên chúng
+    # PHẢI ∈ whitelist) và ngữ nghĩa của chúng KHÔNG đổi (AC5). Đặt NGOÀI
+    # `run_rowscoped` vì `ServiceError` ≠ `PermissionError` — không bị nhánh 403 nuốt.
+    assert_allowed_filter_keys(filters, _ALLOWED_FILTER_KEYS)
+    return run_rowscoped(_list_work_orders, filters, page=page, page_size=page_size)
+```
+
+`_list_work_orders` (`:928`) **KHÔNG đổi 1 dòng nào** ⇒ payload success byte-identical (INV-FKEY-1).
+
+### 4.4.4 MSG registry — `assetcore/utils/messages.py`
+
+```python
+    VAL_INVALID_FILTER_KEY = "VAL-INVALID-FILTER-KEY"   # cạnh VAL_INVALID_PARAMS :70
+```
+
+```python
+    MSG.VAL_INVALID_FILTER_KEY: {
+        "title": "Bộ lọc không hợp lệ",
+        "template": ("Bộ lọc chứa khoá không được hỗ trợ: {invalid_keys}. "
+                     "Các khoá hợp lệ: {allowed_keys}."),
+        "action_hint": ("Bỏ các khoá lọc không hợp lệ rồi thử lại. Nếu bạn không tự "
+                        "đặt bộ lọc này, hãy tải lại trang."),
+        "severity": "warning",
+        "http_status": 400,
+    },
+```
+
+`http_status=400` ⇒ `_bucket_for` (`utils/notify.py:53`) map sang **`ErrorCode.INVALID_PARAMS`** — **không**
+thêm bucket mới (ADR-IMM08-FILTERKEY-02). Sau khi thêm: chạy `python3 scripts/gen_fe_messages.py` rồi
+`python3 scripts/gen_fe_messages.py --check` phải **OK** (parity `frontend/src/i18n/messages.ts`).
+
+### 4.4.5 Ranh giới đo được
+
+| Bất biến | Kiểm bằng |
+|---|---|
+| `filters` rỗng/absent ⇒ **không** lỗi | INV-FKEY-4 |
+| malformed JSON vẫn `VAL-INVALID-PARAMS` (đường `parse_json` cũ) | INV-FKEY-5 |
+| khoá `apply_vendor_scope` bơm ∈ whitelist, **tính TỪ** `_VENDOR_SCOPE_FIELD_MAP` | INV-FKEY-3 / AC4 |
+| message **không** chứa `Unknown column` / `tabPM Work Order` / `OperationalError` / `SELECT` | AC1 assert phủ định |
 
 ---
 

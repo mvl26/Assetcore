@@ -911,3 +911,173 @@ Screenshot SonarQube + Lighthouse gắn vào `09_Release.md` §Release Notes khi
 - [ ] Lighthouse ≥ target — chưa chạy
 - [ ] Bundle size ≤ budget — chưa đo
 - [x] Screenshot báo cáo gắn vào file 09 — quy trình documented
+
+## VIII. CR-74 — Read-gate CHI TIẾT (getPmWorkOrder) · bộ TC bắt buộc (2026-07-25)
+
+> Spec: [`05_API_Specification.md` §12](./05_API_Specification.md) · SSoT: [ADR-IMM00-LIST-SCOPE §9](../imm-00/ADR-IMM00-LIST-SCOPE.md).
+> **Suite:** `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_imm08` (+ `test_rowscope_docperm_gate` · `test_rowscope_invariant` · `test_rowscope_scope_guard`). **DoD = suite XANH, KHÔNG curl** (`.py` prod dirty dưới gunicorn `--preload` ⇒ BLOCKED-RELOAD).
+
+### VIII.1 Fixture tối thiểu (dựng 1 lần, dùng chung 6 TC)
+
+| Ký hiệu | Là gì | Ràng buộc |
+|---|---|---|
+| `USER_NOPERM` | user **đăng nhập được** nhưng **0 DocPerm read** trên `PM Work Order` | vd persona `Calibration User` / `Corrective User` (0 DocPerm read trên `PM Work Order` — bảng ADR §8.5). **KHÔNG** dùng Guest (Guest → dispatcher-403/401, sai loại lỗi) |
+| `USER_OWNER` | persona `PM User` — `assigned_to` == chính mình | phải có DocPerm read |
+| `USER_OTHER` | persona `PM User` khác — **không** được giao phiếu đang test | phải có DocPerm read (để phân biệt trục ROW với trục ROLE) |
+| `USER_SENIOR` | `PM Manager` hoặc `AssetCore Auditor` | chứng minh 0 regress |
+| `REC_OWNED` | 1 bản ghi `PM Work Order` có `assigned_to` = `USER_OWNER` | |
+| `REC_FOREIGN` | 1 bản ghi `PM Work Order` có `assigned_to` = `USER_OWNER`, dùng khi đăng nhập `USER_OTHER` | |
+| `NAME_GHOST` | chuỗi PK **không tồn tại** (vd `"PMWO-9999-99999"`) | dùng cho cặp TC existence-oracle |
+
+> 🔴 **BẮT BUỘC `frappe.set_user(...)` cho MỌI TC** + `frappe.set_user("Administrator")` trong `tearDown`. `frappe/permissions.py:107-109` trả `True` ngay cho Administrator ⇒ chạy bằng Administrator = **xanh giả** (đúng bài học INV-ROWSCOPE-4/6).
+
+### VIII.2 Bộ TC
+
+| TC | User | Input | Kỳ vọng (assert) | INV |
+|---|---|---|---|---|
+| `TC-PM-DETAILGATE-01` | `USER_NOPERM` | `REC_OWNED` | `env["success"] is False` · `env["code"] == "FORBIDDEN"` · `env["http_status"] == 403` · **KHÔNG raise** · `set(env) & {"asset_ref", "overall_result", "technician_notes", "checklist_results"} == set()` | INV-DETAIL-1 |
+| `TC-PM-DETAILGATE-02` | `USER_OTHER` | `REC_FOREIGN` | `code == "FORBIDDEN"` · `http_status == 403` (hook `pm_work_order_has_permission` — `assigned_to` **và** `supervisor` đều KHÁC `USER_OTHER`) | INV-DETAIL-2 |
+| `TC-PM-DETAILGATE-03` | `USER_SENIOR` | `REC_OWNED` | `env["success"] is True` · payload **byte-identical** snapshot baseline (so khoá + giá trị) | INV-DETAIL-4 |
+| `TC-PM-DETAILGATE-04` | `USER_NOPERM` | `NAME_GHOST` | envelope **giống hệt** `TC-PM-DETAILGATE-01` (cùng `code` + `http_status`) ⇒ 0 existence-oracle | INV-DETAIL-5 |
+| `TC-PM-DETAILGATE-05` | `USER_OWNER` | `NAME_GHOST` | `code == "NOT_FOUND"` · `http_status == 404` — **GIỮ NGUYÊN** | INV-DETAIL-6 |
+| `TC-PM-DETAILGATE-06` | `Vendor Engineer` ngoài scope | `REC_OWNED` | `code == "FORBIDDEN"` · **KHÔNG** 500 · **KHÔNG** traceback ⇒ chứng minh lớp `assert_vendor_can_access` vẫn sống | INV-DETAIL-7 |
+
+### VIII.3 Chống vacuous (BẮT BUỘC ghi bằng chứng vào báo cáo vòng)
+
+1. **Mutation gate:** gỡ `assert_doctype_read_permission` khỏi `services/imm08.py::get_work_order` ⇒ `TC-PM-DETAILGATE-01` và `TC-PM-DETAILGATE-04` PHẢI **ĐỎ**. Hoàn nguyên ⇒ xanh.
+2. **Mutation guard tĩnh:** cùng thao tác trên ⇒ `test_rowscope_scope_guard::TestRowScopeStaticGuard` **G5** PHẢI **ĐỎ**.
+3. **Anti-false-green:** TC-01 phải assert **cả 3** (`success`/`code`/`http_status`) — chỉ assert `success is False` sẽ **không** phân biệt 403 với 404/422.
+4. **Anti-leak:** TC-01/02 assert **tập khoá** của envelope, KHÔNG chỉ `"asset_ref" not in env` (khoá lồng trong `data` vẫn rò nếu quên).
+
+---
+
+## IX. AC-CR-77 — `available_actions[]` server-driven 4 CTA · bộ TC bắt buộc (2026-07-26)
+
+> Hợp đồng: [`05 §13`](./05_API_Specification.md) · code-shape: [`04 §4.3`](./04_Backend_Design.md) · FE: [`06 §3.4.a`](./06_Frontend_Design.md).
+> **Lệnh chấm (DoD):** `bench --site miyano run-tests --module assetcore.tests.test_imm08` · `...test_mobile_oas` · `...test_mobile_docset` — **timeout tool ≥ 600000 ms**, module-isolated. **KHÔNG curl** (BLOCKED-RELOAD gunicorn `--preload` — worker chưa nạp `.py` mới; 417/403 lúc curl là **stale worker**, KHÔNG phải bug). **KHÔNG `bench migrate`**, **KHÔNG `npm run build`**.
+
+### IX.1 Fixture tối thiểu (dựng 1 lần, dùng chung)
+
+| Fixture | Nội dung |
+|---|---|
+| `WO_BY_STATUS[s]` | 1 PM Work Order cho **mỗi** trong 7 status (`Open`, `In Progress`, `Pending–Device Busy`, `Overdue`, `Completed`, `Halted–Major Failure`, `Cancelled`) — `assigned_to` **set**, bảng kiểm **≥1 mục** (để cô lập tầng `transition`) |
+| `WO_NO_TECH` | `Open`, `assigned_to` **rỗng** |
+| `WO_EMPTY_CHECKLIST` | `In Progress`, **0** dòng `checklist_results` |
+| `WO_BOGUS_STATUS` | dict/doc giả với `status = ""` và `status = "BOGUS"` (không cần persist nếu builder nhận doc-like) |
+| Personas | `USER_FULL` (đủ `pm.write` + `pm.submit` + `pm.reschedule`) · `USER_NOCAP` (0 cap PM nhưng **có** DocPerm read) — **BẮT BUỘC `frappe.set_user(...)`**, chạy bằng Administrator = **xanh giả** |
+
+> ♻️ **Dọn dẹp:** mọi fixture phải xoá ở `tearDownClass` (bài học: tool-timeout kill giữa chừng ⇒ rác DB ⇒ suite ĐỎ giả). Đặt timeout ≥600000ms.
+
+### IX.2 Bộ TC — `assetcore/tests/test_imm08.py::TestPmAvailableActions`
+
+| TC | Điều kiện | Kỳ vọng | INV |
+|---|---|---|---|
+| `TC-PMCTA-01` | `USER_FULL`, mọi WO | `len(available_actions) == 4` · `keys == [start_work, submit_result, reschedule, report_major_failure]` (đúng thứ tự) · mỗi phần tử **đúng 5 khoá** `{key,label,route,enabled,reason}` · `route == ""` | INV-PMCTA-3 |
+| `TC-PMCTA-02` | `USER_FULL`, **7 status + `""` + `"BOGUS"`** | bảng chân trị `05 §13.5` khớp **9/9 hàng × 4 cột** | INV-PMCTA-7 |
+| `TC-PMCTA-03` | như trên | `enabled is False` ⟹ `reason != ""`; `enabled is True` ⟹ `reason == ""` — **mọi** ô | INV-PMCTA-1 |
+| `TC-PMCTA-04` | như trên | mọi `reason` ∈ 4 hằng VI (`05 §13.4`); **0** ký tự EN rò (assert `reason` không chứa mã status thô: `"In Progress"`, `"Halted"`, `"Pending"`, `"Completed"`, `"Cancelled"`, `"Overdue"`, `"Open"`) | INV-PMCTA-2 |
+| `TC-PMCTA-05` | resolve động | với mỗi spec: `fn = getattr(assetcore.api.imm08, spec["endpoint"])` **tồn tại** ∧ `fn in frappe.whitelisted`; **`"cancel"` ∉ keys** ∧ `"Cancelled" ∉ {s["target"] for s in _PM_ACTION_SPECS}` | INV-PMCTA-4 |
+| `TC-PMCTA-06` | AST `assetcore/api/imm08.py` | với 4 endpoint: literal trong `rbac.require("…")` == `spec["cap"]` (parse AST, **KHÔNG** chép tay) ⇒ `pm.write`/`pm.submit`/`pm.reschedule`/`pm.write` | INV-PMCTA-5 |
+| `TC-PMCTA-07` | `USER_NOCAP`, WO `Open` | `start_work.enabled is False` · `reason == _PM_ACTION_REASON_CAPABILITY` (**không** phải reason transition — chứng minh đúng bậc ưu tiên) | INV-PMCTA-1/2 |
+| `TC-PMCTA-08` **(A5)** | `USER_FULL`, `WO_EMPTY_CHECKLIST` | `submit_result.enabled is False` · `reason == _PM_ACTION_REASON_CHECKLIST_EMPTY`; **thêm 1 mục** ⇒ `enabled is True` · `reason == ""` | INV-PMCTA-6 |
+| `TC-PMCTA-09` **(A5 parity)** | cùng WO 0-mục | ép `status='Completed'` + `save()` ⇒ raise `IMM08_CHECKLIST_EMPTY` **⟺** `submit_result.enabled is False` (advertise == enforce, **cùng điều kiện**) | INV-PMCTA-6 |
+| `TC-PMCTA-10` | `USER_FULL`, `WO_NO_TECH` | `start_work.enabled is False` · `reason == _PM_ACTION_REASON_NO_TECHNICIAN`; gán `assigned_to` ⇒ `enabled is True` | INV-PMCTA-1 |
+| `TC-PMCTA-11` | `USER_FULL`, 7 status | `reschedule.enabled` ⟺ `reschedule(name, new_date, reason)` **không** raise guard terminal — **7/7 khớp** | INV-PMCTA-8 |
+| `TC-PMCTA-12` | hằng | `RESCHEDULE_CTA_STATES ⊆ RESCHEDULE_ACTION_STATES` ∧ `RESCHEDULE_ACTION_STATES == set(_PM_VALID_TRANSITIONS) - {Completed, Cancelled}` | ADR-IMM08-CTA-02 |
+| `TC-PMCTA-13` **(A6)** | 7 status | `allowed_transitions` **byte-identical** baseline (giá trị **+ thứ tự**, gồm overlay `+Pending–Device Busy` ở Open/Overdue) · key-set cũ của payload bất biến, **chỉ thêm** `available_actions` | INV-PMCTA-9 |
+| `TC-PMCTA-14` | gọi `get_work_order` ×3 | `count(IMM Audit Trail)` và `count(Asset Lifecycle Event)` **before == after**; `modified` của WO không đổi | INV-PMCTA-10 |
+
+### IX.3 Guard hợp đồng OAS — `test_mobile_oas.py::TestMobilePmAvailableActionsParity` (9 TC `cr77_a..i`)
+
+Danh sách TC + 4 counter cần cộng **delta +9**: xem `05 §13.9`. **Đọc số tại chỗ trước khi sửa** (số tuyệt đối trong doc có thể stale nếu CR khác landed xen giữa) — chấm theo **delta**, không theo số tuyệt đối.
+
+### IX.4 FE (vitest) — `frontend/src/views/pm/pmWorkOrderServerDrivenCta.test.ts`
+
+`FE-PMCTA-1..5` (`06 §3.4.a`) + `vue-tsc --noEmit` **0 lỗi**. Test phải đọc **DOM** (nút/disabled/tooltip), KHÔNG chỉ đọc store — state không được render = state chết.
+
+### IX.5 Chống vacuous (BẮT BUỘC ghi bằng chứng vào báo cáo vòng)
+
+1. **RED-before bắt buộc ≥2 TC:** `TC-PMCTA-05` (trước khi có `_PM_ACTION_SPECS` → ĐỎ vì thiếu khoá) và `TC-PMCTA-08` (trước khi có business_gate → `enabled` True dù bảng kiểm rỗng).
+2. **Mutation gate cap:** đổi `_CAP_PM_SUBMIT` thành `"pm.write"` ⇒ `TC-PMCTA-06` PHẢI **ĐỎ**. Hoàn nguyên ⇒ xanh.
+3. **Mutation gate cite:** rot 1 chữ số trong cite `services/imm08.py:<dòng> _build_pm_available_actions` (OAS) ⇒ `cr77_h` PHẢI **ĐỎ**.
+4. **Mutation gate A6:** thêm 1 phần tử vào `allowed_transitions` ⇒ `TC-PMCTA-13` PHẢI **ĐỎ**.
+5. **Anti-false-green:** `TC-PMCTA-02` phải so **cả `enabled` lẫn `reason`** — chỉ so `enabled` sẽ không bắt được reason rỗng/EN.
+6. **KHÔNG chạy bằng Administrator** (`frappe/permissions.py:107-109` `return True` sớm ⇒ `rbac.can` luôn True ⇒ tầng capability **vacuous**).
+
+
+---
+
+## X. AC-CR-79 — Whitelist khoá `filters` (`list_pm_work_orders`) · bộ TC bắt buộc (2026-07-27) 🔴 SPEC
+
+> Hợp đồng: [`05_API_Specification.md §14`](./05_API_Specification.md) · code-shape: [`04 §4.4`](./04_Backend_Design.md).
+> IMM-09 có bộ TC **đối xứng** ở [`../imm-09/07 §X`](../imm-09/07_Testing_QA.md).
+
+### X.1 Fixture tối thiểu (dựng 1 lần, dùng chung)
+
+1. 1 `AC Asset` + 1 `PM Work Order` `status="Open"`, `due_date` = hôm nay + 7, `assigned_to` = KTV test.
+2. 1 persona **KTV nội bộ** (có DocPerm read `PM Work Order`) — **KHÔNG chạy bằng `Administrator`**
+   (`frappe/permissions.py:107-109` `return True` sớm ⇒ mọi tầng quyền **vacuous**).
+3. Teardown dùng `tests/_asset_cleanup.py` (fixture-leak đã từng làm suite ĐỎ giả).
+
+### X.2 Bộ TC BE — `test_imm08.py::TestPmFilterKeyWhitelist`
+
+| TC | Kịch bản | Assert |
+|---|---|---|
+| **TC-PMFK-01** | `list_pm_work_orders(filters='{"khong_ton_tai_abc":"x"}')` **qua API tier** (`assetcore.api.imm08`) | `resp["success"] is False` · `resp["error"]["code"] == "INVALID_PARAMS"` · `error["http_status"] == 400` · `error["message_code"] == "VAL-INVALID-FILTER-KEY"` · **KHÔNG raise** |
+| **TC-PMFK-02** | như trên | message chứa **`khong_ton_tai_abc`** *và* chứa ≥3 khoá hợp lệ (vd `asset_ref`, `status`, `search`) |
+| **TC-PMFK-03** | như trên — **assert phủ định (AC1)** | `json.dumps(resp, ensure_ascii=False)` **KHÔNG** chứa bất kỳ chuỗi nào trong `("Unknown column", "tabPM Work Order", "tabAsset Repair", "OperationalError", "SELECT")` |
+| **TC-PMFK-04** | **AC2(a) — parity honor**, lặp qua **TỪNG** khoá của `_ALLOWED_FILTER_KEYS` **import THẲNG từ `services.imm08`** | mỗi khoá ⇒ `success is True` (**không** 400). Bảng giá trị probe `_PROBE_VALUES` phải thoả `set(_PROBE_VALUES) == _ALLOWED_FILTER_KEYS` (thêm khoá BE mà quên probe ⇒ **ĐỎ**, không im lặng bỏ qua) |
+| **TC-PMFK-05** | **AC4 — vendor**: `assertIn(_VENDOR_SCOPE_FIELD_MAP["PM Work Order"], _ALLOWED_FILTER_KEYS)`, **đọc map từ `services.shared.scope`** | xanh; **KHÔNG hardcode** `"asset_ref"` trong test |
+| **TC-PMFK-06** | `filters='{}'` và `filters` absent (INV-FKEY-4) | `success is True`, rows == baseline |
+| **TC-PMFK-07** | `filters='{khong-phai-json'` (INV-FKEY-5) | `message_code == "VAL-INVALID-PARAMS"` (đường `parse_json` cũ), **không** bị AC-CR-79 nuốt |
+| **TC-PMFK-08** | **AC3 — 0 regression**: 8 khoá `status`/`asset_ref`/`assigned_to`(qua `mine=1`)/`due_date`/`due_before`/`overdue`/`overdue_live`/`search` | rows + `pagination` **y hệt** snapshot chụp TRƯỚC khi thêm validate |
+| **TC-PMFK-09** | **INV-ROWSCOPE** với persona KTV + filter hợp lệ | `pagination.total == len(data["data"])` |
+| **TC-PMFK-10** | khoảng ngày kiểu mới `{"due_date": ["between", ["<hôm nay>", "<+30d>"]]}` (ADR-…-03) | `success is True` · phiếu fixture **có** trong kết quả |
+| **TC-PMFK-11** | khoá cũ FE bịa `{"due_date_from": "2026-01-01"}` | `success is False` + `VAL-INVALID-FILTER-KEY` (**KHÔNG** còn `OperationalError`) — chốt Self-Correction |
+| **TC-PMFK-12** | 3 khoá lạ cùng lúc + 1 khoá lạ ký tự bẩn (`"a b'; DROP--"`) | message liệt kê **sorted**, khoá bẩn hiện `<khoá không hợp lệ>`; assert phủ định X.2/TC-03 vẫn đúng |
+| **TC-PMFK-13** *(QA bổ sung)* | mọi khoá `PMWorkOrderListView.buildFilters()` (đọc **từ hiện vật** `.vue`) | tất cả ∈ `_ALLOWED_FILTER_KEYS` + gửi **cùng lúc** ⇒ `success is True` — đối xứng `TC-CMFK-11`; mutation-verified (đổi lại `f.due_date_from` ⇒ ĐỎ) |
+| **TC-PMFK-14** *(QA bổ sung)* | `filters` KHÔNG phải object: `'[["asset_ref","=","X"]]'` (dạng canonical Frappe), `'123'`, `'"abc"'` | envelope `success is False` + `http_status 400` + `code INVALID_PARAMS`, **KHÔNG raise** (trước fix: `TypeError` → HTTP-500 mất `body.success`) |
+
+### X.3 Guard hợp đồng OAS — `test_mobile_oas.py::TestMobileWorkOrderFilterKeysContract` (**8 TC** `cr79_a..h`)
+
+| TC | Assert |
+|---|---|
+| `cr79_a` | tồn tại `components.parameters.PmWorkOrderFilters` + `RepairWorkOrderFilters`; shape `name=filters`, `in=query`, `required=false`, `schema.type=string`, `schema.default='{}'` |
+| `cr79_b` | `listPmWorkOrders` $ref `PmWorkOrderFilters` · `listRepairWorkOrders` $ref `RepairWorkOrderFilters` · **cả hai KHÔNG còn** $ref `WorkOrderFilters` |
+| `cr79_c` | `listCalibrations` **VẪN** $ref `WorkOrderFilters` (KHÔNG kéo IMM-11 vào) và description của nó chứa cảnh báo "CHƯA whitelist" |
+| **`cr79_d`** | **AC2(b) parity PM**: parse marker `KHOÁ HỢP LỆ listPmWorkOrders (N): …` ⇒ tập parse == `services.imm08._ALLOWED_FILTER_KEYS` (**import THẬT**) và `N == len(tập)` |
+| **`cr79_e`** | **AC2(b) parity CM**: tương tự với `services.imm09._ALLOWED_FILTER_KEYS` |
+| `cr79_f` | description của **cả 2** component chứa câu hành vi: `400 IN-ENVELOPE` + `HTTP-200` + `INVALID_PARAMS` + `VAL-INVALID-FILTER-KEY` + `KHÔNG HTTP-500` |
+| `cr79_g` | **cite-parity AST** (khuôn `cr73a_e`/`cr74_g`/`cr76_h`/`cr78_e`): cite `services/imm08.py:<dòng> _ALLOWED_FILTER_KEYS` / `services/imm09.py:…` nằm **trong `description`** (KHÔNG comment YAML) và dòng thuộc vùng AST của symbol |
+| `cr79_h` | bất biến tổng: `paths == 107` · `components.schemas == 281` (param ≠ schema) |
+
+**Mutation-verified (BẮT BUỘC ghi bằng chứng vào báo cáo vòng):**
+
+1. Thêm 1 khoá vào `services/imm08._ALLOWED_FILTER_KEYS` mà **quên** OAS ⇒ `cr79_d` **ĐỎ**. Hoàn nguyên ⇒ xanh.
+2. Đổi tên 1 khoá (vd `overdue_live` → `overdue_livee`) ⇒ `cr79_d` **ĐỎ** *và* `TC-PMFK-04` **ĐỎ**.
+3. Đổi `_VENDOR_SCOPE_FIELD_MAP["PM Work Order"]` `"asset_ref"` → `"asset"` ⇒ `TC-PMFK-05` **ĐỎ**.
+4. Rot 1 chữ số trong cite ⇒ `cr79_g` **ĐỎ**.
+
+### X.4 Chống vacuous
+
+1. **RED-before bắt buộc ≥2 TC**: `TC-PMFK-01` (hiện **raise `OperationalError`**, không trả envelope) và
+   `TC-PMFK-11` (hiện raise 1054 `due_date_from`). Ghi log RED vào báo cáo vòng.
+2. `TC-PMFK-04` **không được** dùng danh sách khoá chép tay — phải `import` hằng; nếu ai đó xoá cả whitelist
+   thì TC-04 sẽ **vacuous-pass** (0 vòng lặp) ⇒ thêm `self.assertGreaterEqual(len(_ALLOWED_FILTER_KEYS), 16)`.
+3. `TC-PMFK-08` phải so **snapshot THẬT** (chụp trước/sau trong cùng lần chạy), không so "có > 0 dòng".
+4. **KHÔNG chạy bằng `Administrator`** cho TC-09.
+
+### X.5 DoD vòng
+
+| Suite | Trước (đọc lại trên đĩa!) | Sau |
+|---|---|---|
+| `bench --site miyano run-tests --module assetcore.tests.test_imm08` | **182 `def test`** | ✅ **194 OK** (12 TC mới, đo 2026-07-27) |
+| `… --module assetcore.tests.test_imm09` | **230** | ✅ **242 OK** |
+| `… --module assetcore.tests.test_mobile_oas` | **959 OK** | ✅ **967 OK** |
+| `… --module assetcore.tests.test_mobile_docset` | **9 OK** | ✅ **9 OK** (không đổi số TC) |
+| `… --module assetcore.tests.test_rowscope_invariant` | xanh | ✅ **21 OK** (0 regress) |
+| FE `vue-tsc --noEmit` · `vitest run` | xanh | **xanh** (+2 file test mới) |
+
+> 🔴 **Mọi `run-tests` đặt `timeout` tool ≥ 600000ms** — kill giữa chừng = nhiễm DB, **không phải** bug sản phẩm.
+> 🔴 **KHÔNG curl** để chấm DoD (gunicorn `--preload` stale · phantom 417 — LL-DEPLOY-07) · **KHÔNG `bench migrate`** · **KHÔNG `npm run build`**.
+> 🔴 Con số "Trước" **có thể stale** (phiên khác land giữa spec↔exec) ⇒ **chấm theo DELTA**, không theo số tuyệt đối.

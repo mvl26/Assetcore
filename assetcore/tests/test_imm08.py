@@ -478,16 +478,21 @@ class TestPMAllowedTransitions(unittest.TestCase):
         frappe.db.commit()
         name = res["name"]
         try:
-            # Open (as created) → key present + đúng codomain (3 next).
+            from assetcore.services.imm08 import RESCHEDULE_CTA_STATES
+            # Open (as created) → key present + workflow-mirror ∪ reschedule-CTA-overlay
+            # (CR-45b ADR-IMM08-RESCHED-CTA): map[Open] + Pending–Device Busy (CTA «Dời lịch»).
             detail = get_work_order(name)
             self.assertIn(
                 "allowed_transitions", detail,
                 "get_work_order PHẢI emit key 'allowed_transitions' (server-driven CTA).")
             self.assertEqual(
-                detail["allowed_transitions"], _PM_VALID_TRANSITIONS[PMStatus.OPEN],
-                "Open → [In Progress, Overdue, Cancelled].")
+                detail["allowed_transitions"],
+                _PM_VALID_TRANSITIONS[PMStatus.OPEN] + [PMStatus.PENDING_BUSY],
+                "Open → map ∪ overlay [In Progress, Overdue, Cancelled, Pending–Device Busy] (CR-45b).")
+            self.assertIn(PMStatus.OPEN, RESCHEDULE_CTA_STATES,
+                          "Open ∈ RESCHEDULE_CTA_STATES (overlay áp CTA «Dời lịch»).")
 
-            # In Progress → 4 next (flip status trực tiếp; KHÔNG drive workflow-engine).
+            # In Progress → 4 next (∉ RESCHEDULE_CTA_STATES ⇒ overlay no-op; Pending SẴN từ workflow).
             PMWorkOrderRepo.set_values(name, {"status": PMStatus.IN_PROGRESS})
             frappe.db.commit()
             self.assertEqual(
@@ -759,6 +764,162 @@ class TestPMListMineScope(unittest.TestCase):
             "mine=1 ⇒ pagination.total PHẢI == len(rows) (count-vs-rows drift guard).",
         )
         self.assertEqual(data["pagination"]["total"], 3, "CHỈ 3 WO của session.user.")
+
+
+# ─── CR-62d: get_pm_calendar mine=1 scope server-resolve (Lịch PM tháng) ──────
+
+class TestPMCalendarMineScope(unittest.TestCase):
+    """CR-62d (mobile Spec 62 "Lịch PM tháng") — api/imm08.get_pm_calendar mine=1 scope
+    events[] + summary về assigned_to == session.user. Email do SERVER giải (client KHÔNG
+    truyền email) → toggle "Chỉ việc của tôi" hết phải tự-suy email KTV client-side.
+
+    Mirror imm09.py:37 / imm11.py:84 (mine THẮNG technician). FENCE: mine=0/absent ⇒
+    response BYTE-IDENTICAL baseline (2 WO đều hiện) — param additive default 0, 0 regression
+    web-FE PMDashboard/Calendar. CR-62b: events[].is_late kiểu int 0/1 (KHÔNG bool).
+    """
+
+    OTHER_USER = "_test_imm08_cal_other@example.com"
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.cat = _ensure_cat("_TestCatIMM08Cal")
+        cls.asset = _make_asset("-cal")
+        cls.asset.asset_category = cls.cat
+        cls.asset.save(ignore_permissions=True)
+        tmpl = _make_template(cls.cat)
+        cls.template_name = tmpl["name"]
+        cls.schedule_name = _make_schedule(cls.asset.name, cls.template_name)["name"]
+        if not frappe.db.exists("User", cls.OTHER_USER):
+            frappe.get_doc({
+                "doctype": "User",
+                "email": cls.OTHER_USER,
+                "first_name": "IMM08 Calendar Other",
+                "send_welcome_email": 0,
+            }).insert(ignore_permissions=True)
+        # Ngày due CỐ ĐỊNH trong tháng đang xét (15) → luôn thuộc [start,end] window,
+        # KHÔNG spill sang tháng kế (add_days near month-end race).
+        today = getdate(nowdate())
+        cls.year = today.year
+        cls.month = today.month
+        cls.due_date = f"{cls.year:04d}-{cls.month:02d}-15"
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        for wo in frappe.get_all(
+            "PM Work Order", filters={"asset_ref": cls.asset.name}, fields=["name"]
+        ):
+            frappe.delete_doc("PM Work Order", wo.name, force=True, ignore_permissions=True)
+        for sc in frappe.get_all(
+            "PM Schedule", filters={"asset_ref": cls.asset.name}, fields=["name"]
+        ):
+            frappe.delete_doc("PM Schedule", sc.name, force=True, ignore_permissions=True)
+        frappe.delete_doc(
+            "PM Checklist Template", cls.template_name, force=True, ignore_permissions=True
+        )
+        purge_asset(cls.asset.name)
+        if frappe.db.exists("User", cls.OTHER_USER):
+            frappe.delete_doc("User", cls.OTHER_USER, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        for wo in frappe.get_all(
+            "PM Work Order", filters={"asset_ref": self.asset.name}, fields=["name"]
+        ):
+            frappe.delete_doc("PM Work Order", wo.name, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def _make_wo(self, assigned_to: str) -> str:
+        wo = frappe.get_doc({
+            "doctype": "PM Work Order",
+            "asset_ref": self.asset.name,
+            "pm_schedule": self.schedule_name,
+            "pm_type": "Quarterly",
+            "wo_type": "Preventive",
+            "status": "Open",
+            "due_date": self.due_date,
+            "assigned_to": assigned_to,
+        })
+        wo.insert(ignore_permissions=True)
+        frappe.db.commit()
+        return wo.name
+
+    def _calendar(self, *, mine=None, technician=None) -> dict:
+        from assetcore.api.imm08 import get_pm_calendar
+        kwargs = {
+            "year": self.year, "month": self.month,
+            "asset_ref": self.asset.name,
+        }
+        if technician is not None:
+            kwargs["technician"] = technician
+        if mine is not None:
+            kwargs["mine"] = mine
+        env = get_pm_calendar(**kwargs)
+        self.assertTrue(env.get("success"), f"envelope KHÔNG success: {env}")
+        return env["data"]
+
+    def test_get_pm_calendar_mine_scopes_to_session_user(self):
+        """mine=1 → events CHỈ chứa WO assigned_to == session.user; summary tính đúng
+        trên tập đã lọc (total==1)."""
+        mine_wo = self._make_wo("Administrator")
+        other_wo = self._make_wo(self.OTHER_USER)
+        data = self._calendar(mine=1)
+        names = {e["name"] for e in data["events"]}
+        self.assertIn(mine_wo, names, "WO của session.user PHẢI hiện khi mine=1.")
+        self.assertNotIn(other_wo, names, "WO của user khác PHẢI bị loại khi mine=1.")
+        for e in data["events"]:
+            self.assertEqual(
+                e["assigned_to"], "Administrator",
+                "mine=1 ⇒ MỌI event assigned_to == session.user.",
+            )
+        self.assertEqual(data["summary"]["total"], 1,
+                         "summary.total PHẢI tính trên tập ĐÃ LỌC (chỉ 1 WO của session.user).")
+
+    def test_get_pm_calendar_mine_zero_is_baseline(self):
+        """mine=0 và mine absent ⇒ 2 response identical VÀ chứa CẢ 2 WO (additive,
+        0 regression web-FE)."""
+        mine_wo = self._make_wo("Administrator")
+        other_wo = self._make_wo(self.OTHER_USER)
+        data0 = self._calendar(mine=0)
+        data_absent = self._calendar()
+        self.assertEqual(data0, data_absent,
+                         "mine=0 PHẢI == mine absent (default 0 — byte-identical baseline).")
+        names0 = {e["name"] for e in data0["events"]}
+        self.assertIn(mine_wo, names0, "baseline chứa WO session.user.")
+        self.assertIn(other_wo, names0, "baseline chứa WO user khác (fence — KHÔNG lọc).")
+        self.assertEqual(data0["summary"]["total"], 2, "baseline summary.total == 2 (cả 2 WO).")
+
+    def test_get_pm_calendar_mine_overrides_technician(self):
+        """mine=1 + technician=<email khác> → vẫn scope về session.user (technician
+        truyền bị override — mine THẮNG, khớp imm09.py:37 / imm11.py:84)."""
+        mine_wo = self._make_wo("Administrator")
+        other_wo = self._make_wo(self.OTHER_USER)
+        data = self._calendar(mine=1, technician=self.OTHER_USER)
+        names = {e["name"] for e in data["events"]}
+        self.assertEqual(
+            names, {mine_wo},
+            "mine=1 THẮNG technician=<other> ⇒ CHỈ WO session.user (technician bị override).",
+        )
+        self.assertNotIn(other_wo, names)
+        self.assertEqual(data["summary"]["total"], 1)
+
+    def test_get_pm_calendar_is_late_is_int(self):
+        """CR-62b: events[].is_late kiểu int 0/1 (assertIsInstance int, KHÔNG bool —
+        Check field né strict-deser mobile Dart/Kotlin)."""
+        self._make_wo("Administrator")
+        data = self._calendar(mine=1)
+        self.assertTrue(data["events"], "PHẢI có ≥1 event để soi is_late.")
+        for e in data["events"]:
+            self.assertIn("is_late", e, "event PHẢI khai is_late.")
+            self.assertIsInstance(e["is_late"], int, "is_late PHẢI là int.")
+            self.assertNotIsInstance(
+                e["is_late"], bool,
+                "is_late PHẢI int THUẦN (0/1), KHÔNG bool (bool ⊂ int nhưng codegen crash).",
+            )
+            self.assertIn(e["is_late"], (0, 1), "is_late ∈ {0,1}.")
 
 
 # ─── CR-18: free-text search server-side cho list PM Work Order ────────────────
@@ -4191,26 +4352,276 @@ class TestDuePmSchedules(unittest.TestCase):
                          "asc: quá-hạn-nặng-nhất (next_due_date nhỏ nhất) lên đầu")
 
     def test_due_pm_07_shape_and_row_fields(self):
-        """TC-DUE-PM-07: shape == {'items':[...],'threshold_days':30}; mỗi row đủ 9
-        field gồm asset_name enriched + days_left."""
+        """TC-DUE-PM-07: shape == {'items':[...],'threshold_days':30}; mỗi row đủ 11
+        field gồm asset_name enriched + days_left + [CR-45] next_wo_ref/next_wo_status."""
         from assetcore.services.imm08 import get_due_pm_schedules
         name = self._new_schedule("-shape", next_due_date=add_days(nowdate(), 7))
         due = get_due_pm_schedules(days=30, limit=100)
-        self.assertEqual(set(due.keys()), {"items", "threshold_days"},
-                         "shape ĐÚNG 2 key {items, threshold_days} (KHÔNG pagination)")
+        self.assertEqual(
+            set(due.keys()), {"items", "threshold_days", "total", "truncated"},
+            "shape ĐÚNG 4 key {items, threshold_days, total, truncated} (CR-46 "
+            "additive; KHÔNG pagination)")
         self.assertEqual(due["threshold_days"], 30, "threshold_days echo param days")
         row = next((r for r in due["items"] if r["name"] == name), None)
         self.assertIsNotNone(row)
         expected_fields = {
             "name", "asset_ref", "asset_name", "pm_type", "status",
             "next_due_date", "last_pm_date", "responsible_technician", "days_left",
+            "next_wo_ref", "next_wo_status",
         }
         self.assertEqual(set(row.keys()), expected_fields,
-                         f"row PHẢI ĐÚNG 9 field: thừa={set(row.keys()) - expected_fields} "
+                         f"row PHẢI ĐÚNG 11 field (9 cũ + CR-45 next_wo_ref/next_wo_status): "
+                         f"thừa={set(row.keys()) - expected_fields} "
                          f"thiếu={expected_fields - set(row.keys())}")
         self.assertEqual(row["asset_name"], "_Test Asset IMM08-shape",
                          "asset_name enriched từ AC Asset.asset_name")
         self.assertEqual(row["days_left"], 7, "days_left server-derived signed")
+
+    def test_due_pm_schedules_total_and_truncated(self):
+        """T7 (CR-46 hợp đồng TRUNG THỰC khi cắt): ``total`` = COUNT thật trên ĐÚNG
+        filter-set TRƯỚC khi cắt; ``truncated`` = int 0/1 = (len(items) ≥ limit ∧
+        total > limit). Seed 2 lịch due → limit=1 ⇒ 1 item, total==2, truncated==1;
+        limit=100 ⇒ truncated==0, total==len(items); items/threshold_days GIỮ.
+
+        Isolation: 2 lịch trên 2 asset RIÊNG với next_due_date lệch nhau; count DÙNG
+        CÙNG filter (status=Active ∧ next_due_date is-set ∧ ≤ threshold) nên robust
+        với data dev khác — assert theo QUAN HỆ (total == COUNT DB, ≥ 2) chứ không
+        cứng ==2 khi site có lịch due khác."""
+        from assetcore.services.imm08 import get_due_pm_schedules
+        a = self._new_schedule("-t7-a", next_due_date=add_days(nowdate(), -2))
+        b = self._new_schedule("-t7-b", next_due_date=add_days(nowdate(), 3))
+        mine = {a, b}
+
+        # limit=1 → cắt xuống 1 item nhưng total = COUNT thật (≥2), truncated=1.
+        cut = get_due_pm_schedules(days=30, limit=1)
+        self.assertEqual(len(cut["items"]), 1, "limit=1 ⇒ ĐÚNG 1 item")
+        self.assertIsInstance(cut["total"], int)
+        self.assertFalse(isinstance(cut["total"], bool), "total là int, KHÔNG bool")
+        self.assertGreaterEqual(cut["total"], 2, "total ≥ 2 (≥ 2 lịch seed due)")
+        self.assertEqual(cut["truncated"], 1, "len(items)≥limit ∧ total>limit ⇒ truncated=1")
+        self.assertNotIsInstance(cut["truncated"], bool, "truncated int 0/1 (KHÔNG bool)")
+        self.assertIn("items", cut)
+        self.assertEqual(cut["threshold_days"], 30, "threshold_days GIỮ")
+
+        # limit=100 → không cắt: truncated=0, total==len(items); 2 lịch seed đều hiện.
+        full = get_due_pm_schedules(days=30, limit=100)
+        self.assertEqual(full["truncated"], 0, "đủ chỗ ⇒ truncated=0")
+        self.assertEqual(full["total"], len(full["items"]),
+                         "không cắt ⇒ total == len(items)")
+        got = {r["name"] for r in full["items"]}
+        self.assertTrue(mine <= got, "cả 2 lịch seed due PHẢI hiện khi limit rộng")
+
+
+class TestPMNextWoAndRescheduleGuard(unittest.TestCase):
+    """CR-45 (mobile Spec 52 — F8 «Nhắc việc» → phiếu). Đóng luồng «Dời lịch PM»:
+
+    (b) ``get_due_pm_schedules`` enrich ``next_wo_ref``/``next_wo_status`` (PK + status của
+        phiếu PM Work Order MỞ gần hạn nhất của lịch, null nếu 0 phiếu mở) — 1-BATCH, no N+1.
+    (c) ``allowed_transitions`` (get_work_order) cho Open/Overdue CHỨA 'Pending–Device Busy'
+        (khớp hành vi ``reschedule`` ĐÃ CÓ → mobile render CTA «Dời lịch»).
+    guard ``reschedule`` chặn phiếu terminal (Completed/Cancelled) → 422 VALIDATION, KHÔNG
+        ghi đè ``due_date`` (vá lỗ ghi im lặng lên phiếu đã đóng).
+
+    OPEN_STATUSES enrich = {Open, Overdue, In Progress, Pending–Device Busy}.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.cat = _ensure_cat()
+        cls.template_name = _make_template(cls.cat)["name"]
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self._assets: list[str] = []
+
+    def tearDown(self):
+        for asset in self._assets:
+            for s in frappe.get_all(
+                "PM Schedule", filters={"asset_ref": asset}, pluck="name"
+            ):
+                for wo in frappe.get_all(
+                    "PM Work Order", filters={"pm_schedule": s}, pluck="name"
+                ):
+                    frappe.delete_doc("PM Work Order", wo, force=True, ignore_permissions=True)
+                frappe.delete_doc("PM Schedule", s, force=True, ignore_permissions=True)
+            purge_asset(asset)
+        frappe.db.commit()
+
+    def _new_schedule(self, suffix: str, *, next_due_date) -> tuple[str, str]:
+        """asset + PM Schedule Active với next_due_date ép chính xác (interval 3650 để
+        né auto-WO window, mirror TestDuePmSchedules._new_schedule)."""
+        asset = _make_asset(suffix)
+        self._assets.append(asset.name)
+        det = f"PMS-{asset.name}-Quarterly"
+        if frappe.db.exists("PM Schedule", det):
+            frappe.delete_doc("PM Schedule", det, force=True, ignore_permissions=True)
+        sched = frappe.get_doc({
+            "doctype": "PM Schedule",
+            "asset_ref": asset.name,
+            "pm_type": "Quarterly",
+            "pm_interval_days": 3650,
+            "checklist_template": self.template_name,
+            "status": "Active",
+        }).insert(ignore_permissions=True)
+        frappe.db.set_value("PM Schedule", sched.name,
+                            {"next_due_date": next_due_date}, update_modified=False)
+        frappe.db.commit()
+        return asset.name, sched.name
+
+    def _make_wo(self, asset: str, sched: str, *, status: str, scheduled_date,
+                 due_date=None) -> str:
+        """Tạo phiếu Open (create_adhoc) rồi ép status+scheduled_date qua set_value
+        (bypass validate() gate hoàn-thành cho status terminal — mirror _make_overdue_wo)."""
+        res = create_adhoc_work_order({
+            "asset_ref": asset,
+            "pm_schedule": sched,
+            "due_date": str(due_date or scheduled_date),
+            "assigned_to": "Administrator",
+        })
+        name = res["name"]
+        frappe.db.set_value("PM Work Order", name,
+                            {"status": status, "scheduled_date": scheduled_date},
+                            update_modified=False)
+        frappe.db.commit()
+        return name
+
+    # ── AC1/AC2 — next_wo_ref/next_wo_status enrich ────────────────────────────
+
+    def test_t1_next_wo_ref_overdue_happy(self):
+        """T1 (AC1/AC2 happy): lịch có 1 phiếu Overdue → next_wo_ref==WO, status=='Overdue'."""
+        from assetcore.services.imm08 import get_due_pm_schedules
+        asset, sched = self._new_schedule("-nwo-t1", next_due_date=add_days(nowdate(), 5))
+        wo = self._make_wo(asset, sched, status="Overdue",
+                           scheduled_date=add_days(nowdate(), 3))
+        due = get_due_pm_schedules(days=30, limit=100)
+        row = next((r for r in due["items"] if r["name"] == sched), None)
+        self.assertIsNotNone(row, "lịch due PHẢI ∈ items")
+        self.assertEqual(row["next_wo_ref"], wo, "next_wo_ref = PK phiếu mở của lịch")
+        self.assertEqual(row["next_wo_status"], "Overdue", "next_wo_status khớp phiếu")
+
+    def test_t2_completed_cancelled_or_zero_wo_null(self):
+        """T2 (AC2 null): lịch chỉ có phiếu Completed/Cancelled HOẶC 0 phiếu → cả 2 = None."""
+        from assetcore.services.imm08 import get_due_pm_schedules
+        a1, s1 = self._new_schedule("-nwo-t2a", next_due_date=add_days(nowdate(), 5))
+        self._make_wo(a1, s1, status="Completed", scheduled_date=add_days(nowdate(), 3))
+        a2, s2 = self._new_schedule("-nwo-t2b", next_due_date=add_days(nowdate(), 6))
+        self._make_wo(a2, s2, status="Cancelled", scheduled_date=add_days(nowdate(), 3))
+        a3, s3 = self._new_schedule("-nwo-t2c", next_due_date=add_days(nowdate(), 7))  # 0 phiếu
+        due = get_due_pm_schedules(days=30, limit=100)
+        for sched in (s1, s2, s3):
+            row = next((r for r in due["items"] if r["name"] == sched), None)
+            self.assertIsNotNone(row, f"{sched} PHẢI ∈ items")
+            self.assertIsNone(row["next_wo_ref"],
+                              f"{sched}: 0 phiếu MỞ ⇒ next_wo_ref None (không đoán bừa)")
+            self.assertIsNone(row["next_wo_status"], f"{sched}: next_wo_status None")
+
+    def test_t3_order_nearest_and_single_batch_query(self):
+        """T3 (AC2 order + no-N+1): 2 phiếu mở (Open xa + Overdue gần) → next_wo_ref =
+        phiếu scheduled_date gần nhất (asc); enrich WO CHỈ 1 query (đếm qua spy)."""
+        from assetcore.services.imm08 import get_due_pm_schedules
+        asset, sched = self._new_schedule("-nwo-t3", next_due_date=add_days(nowdate(), 5))
+        self._make_wo(asset, sched, status="Open", scheduled_date=add_days(nowdate(), 20))
+        near = self._make_wo(asset, sched, status="Overdue",
+                             scheduled_date=add_days(nowdate(), 2))
+        orig_get_all = frappe.get_all
+        wo_calls = {"n": 0}
+
+        def _spy(doctype, *a, **k):
+            if doctype == "PM Work Order":
+                wo_calls["n"] += 1
+            return orig_get_all(doctype, *a, **k)
+
+        with patch.object(frappe, "get_all", side_effect=_spy):
+            due = get_due_pm_schedules(days=30, limit=100)
+        row = next((r for r in due["items"] if r["name"] == sched), None)
+        self.assertIsNotNone(row)
+        self.assertEqual(row["next_wo_ref"], near,
+                         "phiếu scheduled_date gần hạn nhất (asc) = next_wo_ref")
+        self.assertEqual(row["next_wo_status"], "Overdue")
+        self.assertEqual(wo_calls["n"], 1,
+                         "enrich next_wo PHẢI 1 batch query PM Work Order (no N+1)")
+
+    def test_t7_contract_shape_every_item_has_next_wo_keys(self):
+        """T7 (AC1 contract-shape): keys == {items, threshold_days, total, truncated};
+        MỌI item có key next_wo_ref + next_wo_status (kể cả null) — chặn drift shape."""
+        from assetcore.services.imm08 import get_due_pm_schedules
+        asset, sched = self._new_schedule("-nwo-t7", next_due_date=add_days(nowdate(), 5))
+        self._make_wo(asset, sched, status="Open", scheduled_date=add_days(nowdate(), 3))
+        due = get_due_pm_schedules(days=30, limit=100)
+        self.assertEqual(set(due.keys()),
+                         {"items", "threshold_days", "total", "truncated"})
+        for r in due["items"]:
+            self.assertIn("next_wo_ref", r,
+                          "MỌI item PHẢI có key next_wo_ref (kể cả null)")
+            self.assertIn("next_wo_status", r,
+                          "MỌI item PHẢI có key next_wo_status (kể cả null)")
+
+    # ── AC3 — allowed_transitions Open/Overdue chứa Pending–Device Busy ────────
+
+    def test_t4_allowed_transitions_open_overdue_contain_pending_busy(self):
+        """T4 (AC3): get_work_order Open/Overdue → allowed_transitions chứa 'Pending–Device
+        Busy' (CTA «Dời lịch» khớp hành vi reschedule)."""
+        from assetcore.services.imm08 import get_work_order, PMStatus
+        asset, sched = self._new_schedule("-nwo-t4", next_due_date=add_days(nowdate(), 5))
+        wo = self._make_wo(asset, sched, status=PMStatus.OPEN,
+                           scheduled_date=add_days(nowdate(), 3))
+        self.assertIn(PMStatus.PENDING_BUSY, get_work_order(wo)["allowed_transitions"],
+                      "Open → allowed_transitions PHẢI chứa Pending–Device Busy")
+        frappe.db.set_value("PM Work Order", wo, "status", PMStatus.OVERDUE,
+                            update_modified=False)
+        frappe.db.commit()
+        self.assertIn(PMStatus.PENDING_BUSY, get_work_order(wo)["allowed_transitions"],
+                      "Overdue → allowed_transitions PHẢI chứa Pending–Device Busy")
+
+    # ── AC4 — reschedule terminal guard + regression ──────────────────────────
+
+    def test_t5_reschedule_terminal_guard_422_due_date_preserved(self):
+        """T5 (AC4 guard): reschedule phiếu Completed/Cancelled → 422 VALIDATION;
+        due_date KHÔNG bị ghi đè (vá lỗ ghi im lặng lên phiếu terminal)."""
+        from assetcore.services.imm08 import reschedule, PMStatus
+        from assetcore.services.shared import ErrorCode
+        reason = "Thiết bị đang dùng cho ca cấp cứu, dời lịch sang tuần sau"
+        new_date = str(add_days(nowdate(), 14))
+        for terminal in (PMStatus.COMPLETED, PMStatus.CANCELLED):
+            due_before = str(add_days(nowdate(), 3))
+            asset, sched = self._new_schedule(
+                f"-nwo-t5{terminal[:3].lower()}", next_due_date=add_days(nowdate(), 5))
+            wo = self._make_wo(asset, sched, status=terminal,
+                               scheduled_date=due_before, due_date=due_before)
+            with self.assertRaises(ServiceError) as cm:
+                reschedule(wo, new_date=new_date, reason=reason)
+            self.assertEqual(cm.exception.code, ErrorCode.VALIDATION,
+                             f"{terminal}: guard PHẢI raise VALIDATION")
+            self.assertEqual(cm.exception.http_status, 422, f"{terminal}: http 422")
+            self.assertEqual(
+                str(frappe.db.get_value("PM Work Order", wo, "due_date")), due_before,
+                f"{terminal}: due_date KHÔNG bị ghi đè (guard TRƯỚC mutate)")
+            self.assertEqual(
+                frappe.db.get_value("PM Work Order", wo, "status"), terminal,
+                f"{terminal}: status GIỮ terminal (KHÔNG flip Pending–Device Busy)")
+
+    def test_t6_reschedule_open_overdue_success_regression(self):
+        """T6 (AC4 regression): reschedule phiếu Open/Overdue (reason hợp lệ) → thành công,
+        status → 'Pending–Device Busy', due_date = new_date (giữ hành vi cũ ca hợp lệ)."""
+        from assetcore.services.imm08 import reschedule, PMStatus
+        reason = "Thiết bị bận ca mổ, dời lịch bảo trì sang tuần sau"
+        for start in (PMStatus.OPEN, PMStatus.OVERDUE):
+            asset, sched = self._new_schedule(
+                f"-nwo-t6{start[:3].lower()}", next_due_date=add_days(nowdate(), 5))
+            wo = self._make_wo(asset, sched, status=start,
+                               scheduled_date=add_days(nowdate(), 3))
+            new_date = str(add_days(nowdate(), 21))
+            res = reschedule(wo, new_date=new_date, reason=reason)
+            frappe.db.commit()
+            self.assertEqual(res["status"], PMStatus.PENDING_BUSY,
+                             f"{start}: reschedule hợp lệ → Pending–Device Busy")
+            self.assertEqual(
+                frappe.db.get_value("PM Work Order", wo, "status"),
+                PMStatus.PENDING_BUSY, f"{start}: status persisted Pending–Device Busy")
+            self.assertEqual(
+                str(frappe.db.get_value("PM Work Order", wo, "due_date")), new_date,
+                f"{start}: due_date = new_date")
 
 
 class TestPMDashboardPeriodEcho(unittest.TestCase):
@@ -4255,3 +4666,985 @@ class TestPMDashboardPeriodEcho(unittest.TestCase):
         self.assertTrue(resp.get("success"), f"phải success envelope, nhận: {resp}")
         self.assertEqual(resp["data"]["period"], {"year": today.year, "month": today.month},
                          "period no-param PHẢI echo kỳ server-resolve today (api/imm08.py:169).")
+
+
+# ─── CR-69 · Hợp đồng TRUNG THỰC khi cắt — lịch sử PM của thiết bị ────────────
+
+class TestAssetPmHistoryTruncation(unittest.TestCase):
+    """TC-BE-08-HIST-01/02/03 (CR-69): ``get_asset_history`` PHẢI công bố
+    ``total`` + ``truncated`` thay vì cắt IM LẶNG theo ``limit``.
+
+    Vì sao nghiệp vụ: màn hồ-sơ-vận-hành thiết bị dùng chính danh sách này để
+    quyết định "sửa tiếp hay đề nghị thanh lý" (WHO HTM Decommission / hồ sơ
+    NĐ98). Thấy 10 lần bảo trì ≠ biết máy đã bảo trì 34 lần.
+
+    Bất biến kiểm được:
+      * ``truncated == 1`` ⟺ (``len(history) >= limit`` ∧ ``total > limit``)
+      * ``truncated == 0`` ⇒ ``total == len(history)``
+      * vừa khít trần (``total == limit``) ⇒ ``truncated == 0`` (KHÔNG báo cắt oan)
+      * ``total``/``truncated`` LUÔN là ``int`` Python (parity CR-01 — chống
+        int-vs-bool crash khi codegen Dart/Kotlin)
+    """
+
+    _assets: list[str] = []
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls._assets = []
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        for a in cls._assets:
+            # PM Task Log KHÔNG nằm trong _ASSET_DEPENDENTS (immutable audit) →
+            # xoá tường minh TRƯỚC purge_asset, nếu không fixture rò lại DB.
+            for log in frappe.get_all("PM Task Log", filters={"asset_ref": a},
+                                      pluck="name"):
+                frappe.delete_doc("PM Task Log", log, force=True,
+                                  ignore_permissions=True)
+            purge_asset(a)
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+
+    def _seed(self, n: int, tag: str) -> str:
+        """Tạo asset mới + ``n`` PM Task Log gắn asset đó. Trả asset_ref."""
+        asset = _make_asset(f"-hist{tag}")
+        type(self)._assets.append(asset.name)
+        for i in range(n):
+            doc = frappe.get_doc({
+                "doctype": "PM Task Log",
+                "asset_ref": asset.name,
+                # pm_work_order reqd (Link PM Work Order) — fixture KHÔNG dựng cả
+                # chuỗi Template→Schedule→WO vì test chỉ đo semantics đếm/cắt;
+                # ignore_links bỏ validate link (giống fixture backdate IMM-09).
+                "pm_work_order": f"PM-WO-CR69-{tag}-{i:03d}",
+                "pm_type": "Quarterly",
+                "completion_date": add_days(nowdate(), -i),
+                "overall_result": "Pass",
+                "summary": f"_Test CR-69 PM log {i}",
+            })
+            doc.flags.ignore_links = True
+            doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+        return asset.name
+
+    # ── TC-BE-08-HIST-01: quá trần → total thật + truncated=1 ────────────────
+    def test_tc_be_08_hist_01_over_limit_exposes_real_total(self):
+        from assetcore.services.imm08 import get_asset_history
+        asset = self._seed(12, "01")
+        res = get_asset_history(asset, limit=10)
+        self.assertEqual(len(res["history"]), 10,
+                         "limit=10 ⇒ CHỈ 10 dòng trả về (trần giữ nguyên).")
+        self.assertEqual(res["total"], 12,
+                         "total = COUNT DB thật trên {asset_ref} TRƯỚC khi cắt (12), "
+                         "KHÔNG phải số dòng đã cắt.")
+        self.assertEqual(res["truncated"], 1,
+                         "12 > 10 ∧ chạm trần ⇒ truncated=1 (danh sách BỊ cắt).")
+        # ADDITIVE — 2 khoá cũ GIỮ NGUYÊN (0 breaking, Hyrum's Law).
+        self.assertEqual(res["asset_ref"], asset, "asset_ref echo GIỮ NGUYÊN.")
+        self.assertIsInstance(res["history"], list, "history[] GIỮ NGUYÊN.")
+
+    # ── TC-BE-08-HIST-02: dưới trần → truncated=0 ∧ total == len(rows) ───────
+    def test_tc_be_08_hist_02_under_limit_no_truncation(self):
+        from assetcore.services.imm08 import get_asset_history
+        asset = self._seed(3, "02")
+        res = get_asset_history(asset, limit=10)
+        self.assertEqual(res["total"], 3, "3 log ⇒ total=3.")
+        self.assertEqual(res["truncated"], 0, "3 < 10 ⇒ KHÔNG cắt.")
+        self.assertEqual(res["total"], len(res["history"]),
+                         "Bất biến: truncated==0 ⇒ total == len(history).")
+
+    # ── TC-BE-08-HIST-03 (biên): vừa khít trần ⇒ KHÔNG báo cắt oan ───────────
+    def test_tc_be_08_hist_03_exactly_at_limit_not_truncated(self):
+        from assetcore.services.imm08 import get_asset_history
+        asset = self._seed(10, "03")
+        res = get_asset_history(asset, limit=10)
+        self.assertEqual(len(res["history"]), 10, "10 log, limit=10 ⇒ 10 dòng.")
+        self.assertEqual(res["total"], 10, "total=10 (COUNT thật).")
+        self.assertEqual(res["truncated"], 0,
+                         "total == limit ⇒ vừa khít trần, KHÔNG báo cắt oan "
+                         "(len(rows)>=limit CHƯA đủ, phải total>limit).")
+
+    # ── Type-parity CR-01: int thuần, KHÔNG bool/None ────────────────────────
+    def test_tc_be_08_hist_04_int_parity_not_bool(self):
+        from assetcore.services.imm08 import get_asset_history
+        asset = self._seed(1, "04")
+        res = get_asset_history(asset, limit=10)
+        self.assertIs(type(res["truncated"]), int,
+                      "truncated PHẢI là int THUẦN (bool là subclass của int → "
+                      "codegen Dart/Kotlin crash int-vs-bool).")
+        self.assertIs(type(res["total"]), int, "total PHẢI là int thuần.")
+        self.assertIn(res["truncated"], (0, 1), "truncated ∈ {0,1}.")
+
+    # ── INV-PMH-6 (bẫy clamp D5): limit > trần hệ thống ─────────────────────
+    def test_tc_be_08_hist_06_limit_above_cap_still_truthful(self):
+        """`limit=500` ⇒ rows bị `paginate` clamp về 100; nếu so `len(rows)` với
+        `limit` THÔ (500) thì 100 < 500 ⇒ kết luận "không cắt" và total=100 —
+        ĐÚNG lời nói dối CR-69 sinh ra để xoá. Trần THỰC ÁP = `pg["page_size"]`.
+        """
+        from assetcore.services.imm08 import get_asset_history
+        asset = self._seed(105, "06")
+        res = get_asset_history(asset, limit=500)
+        self.assertEqual(len(res["history"]), 100,
+                         "trần hệ thống _MAX_PAGE_SIZE=100 vẫn áp cho rows.")
+        self.assertEqual(res["total"], 105,
+                         "total = COUNT thật (105), KHÔNG phải số dòng đã clamp.")
+        self.assertEqual(res["truncated"], 1,
+                         "105 > 100 (trần THỰC ÁP) ⇒ PHẢI khai báo bị cắt.")
+
+    # ── INV-PMH-7 (parity `limit=0` giữa 3 tab cùng màn hồ-sơ-thiết-bị) ─────
+    def test_tc_be_08_hist_07_limit_zero_falls_back_to_endpoint_default_10(self):
+        """`limit=0` ⇒ default **10 của endpoint**, KHÔNG 20 của `paginate`.
+
+        Trước fix: `page_size=int(limit)` → `paginate(..., 0)` → `clamp_page_size(0,
+        20)` = 20 ⇒ cùng `limit=0` mà tab PM trả 20 dòng còn tab Sự cố (imm12)
+        trả 10 — lệch ngữ nghĩa giữa 3 tab cùng một màn (client mobile dùng chung
+        1 tham số). Sau fix: cả 3 dùng `clamp_page_size(limit, 10)`.
+        """
+        from assetcore.services.imm08 import get_asset_history
+        asset = self._seed(12, "07")
+        res = get_asset_history(asset, limit=0)
+        self.assertEqual(len(res["history"]), 10,
+                         "limit=0 ⇒ default 10 CỦA ENDPOINT (KHÔNG 20 của paginate).")
+        self.assertEqual(res["total"], 12, "total = COUNT thật (12).")
+        self.assertEqual(res["truncated"], 1, "12 > 10 ⇒ khai báo bị cắt.")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# AC-CR-77 — `get_pm_work_order` += `available_actions[]` server-driven 4 CTA
+# Hợp đồng: docs/imm-08/05 §13 · code-shape: docs/imm-08/04 §4.3 · TC: 07 §IX.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_CTA_USER_FULL = "pmcta_full@example.invalid"      # PM User → pm.write/submit/reschedule
+_CTA_USER_NOCAP = "pmcta_nocap@example.invalid"    # Auditor → read-only, 0 cap PM
+
+# Mã trạng thái THÔ (tiếng Anh) — reason KHÔNG được chứa bất kỳ chuỗi nào ở đây
+# (INV-PMCTA-2: nội suy status vào reason = rò EN ra UI).
+_EN_STATUS_TOKENS = (
+    "In Progress", "Halted", "Pending", "Completed", "Cancelled", "Overdue", "Open",
+)
+
+
+def _ensure_cta_user(email: str, first_name: str, *roles: str) -> str:
+    """Persona test sạch (xoá + tạo lại) — BẮT BUỘC set_user, chạy Administrator = xanh giả."""
+    if frappe.db.exists("User", email):
+        frappe.delete_doc("User", email, force=True, ignore_permissions=True)
+    u = frappe.get_doc({
+        "doctype": "User", "email": email, "first_name": first_name,
+        "send_welcome_email": 0, "enabled": 1,
+    }).insert(ignore_permissions=True)
+    if roles:
+        u.add_roles(*roles)
+    return u.name
+
+
+class TestPmAvailableActions(unittest.TestCase):
+    """AC-CR-77 — 4 CTA server-driven: hết "nút chết" + hết CTA ma `Cancelled`.
+
+    `enabled = transition_allowed ∩ has_cap ∩ business_gate`; `reason` VI 3 bậc
+    (transition > capability > business). Bảng chân trị oracle = `05 §13.5`.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.cat = _ensure_cat()
+        cls.asset = _make_asset("-cta")
+        cls.template_name = _make_template(cls.cat)["name"]
+        cls.schedule_name = _make_schedule(cls.asset.name, cls.template_name)["name"]
+        cls.user_full = _ensure_cta_user(
+            _CTA_USER_FULL, "PMCTA Full", "PM User", "AssetCore System User")
+        cls.user_nocap = _ensure_cta_user(
+            _CTA_USER_NOCAP, "PMCTA NoCap", "AssetCore Auditor", "AssetCore System User")
+        # WO chính: assigned_to = USER_FULL (row-scope PM User) + bảng kiểm ≥1 mục
+        # (từ template 2 mục) ⇒ cô lập tầng `transition` trong bảng chân trị.
+        cls.wo_name = create_adhoc_work_order({
+            "asset_ref": cls.asset.name,
+            "pm_schedule": cls.schedule_name,
+            "due_date": add_days(nowdate(), 7),
+            "assigned_to": cls.user_full,
+        })["name"]
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        for wo in frappe.get_all(
+            "PM Work Order", filters={"asset_ref": cls.asset.name}, pluck="name"
+        ):
+            frappe.delete_doc("PM Work Order", wo, force=True, ignore_permissions=True)
+        frappe.delete_doc("PM Schedule", cls.schedule_name, force=True, ignore_permissions=True)
+        frappe.delete_doc(
+            "PM Checklist Template", cls.template_name, force=True, ignore_permissions=True)
+        purge_asset(cls.asset.name)
+        for email in (_CTA_USER_FULL, _CTA_USER_NOCAP):
+            if frappe.db.exists("User", email):
+                frappe.delete_doc("User", email, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+
+    # ── helpers ──────────────────────────────────────────────────────────────
+    def _wo_doc(self):
+        from assetcore.repositories.pm_repo import PMWorkOrderRepo
+        return PMWorkOrderRepo.get(self.wo_name)
+
+    def _actions_for_status(self, status: str, *, user: str, doc=None) -> dict:
+        """Map key→action của builder cho 1 status (doc IN-MEMORY, KHÔNG ghi DB)."""
+        from assetcore.services.imm08 import _build_pm_available_actions
+        wo = doc if doc is not None else self._wo_doc()
+        wo.status = status
+        frappe.set_user(user)
+        try:
+            return {a["key"]: a for a in _build_pm_available_actions(wo)}
+        finally:
+            frappe.set_user("Administrator")
+
+    @staticmethod
+    def _all_statuses() -> list:
+        from assetcore.services.imm08 import _PM_VALID_TRANSITIONS
+        return list(_PM_VALID_TRANSITIONS) + ["", "BOGUS"]
+
+    # ── TC-PMCTA-01 (A1 shape/order) ─────────────────────────────────────────
+    def test_pmcta_01_shape_order_route(self):
+        """`get_work_order` trả `available_actions`: ĐÚNG 4, thứ tự cố định, 5 khoá, route=""."""
+        from assetcore.services.imm08 import get_work_order
+        frappe.set_user(self.user_full)
+        try:
+            detail = get_work_order(self.wo_name)
+        finally:
+            frappe.set_user("Administrator")
+        self.assertIn("available_actions", detail,
+                      "get_work_order PHẢI emit `available_actions` (server-driven CTA).")
+        actions = detail["available_actions"]
+        self.assertEqual(len(actions), 4, "LUÔN đủ 4 CTA kể cả khi enabled=false.")
+        self.assertEqual(
+            [a["key"] for a in actions],
+            ["start_work", "submit_result", "reschedule", "report_major_failure"],
+            "Thứ tự CỐ ĐỊNH = thứ tự render FE.")
+        for a in actions:
+            self.assertEqual(
+                set(a), {"key", "label", "route", "enabled", "reason"},
+                f"Shape phần tử PHẢI == AvailableAction (5 khoá), thấy {sorted(a)}.")
+            self.assertEqual(a["route"], "", "CTA nằm TRONG màn ⇒ route rỗng.")
+            self.assertIsInstance(a["enabled"], bool, "enabled PHẢI là bool.")
+            self.assertTrue(a["label"].strip(), "label VI KHÔNG được rỗng.")
+
+    # ── TC-PMCTA-02 (bảng chân trị 9×4) ──────────────────────────────────────
+    def test_pmcta_02_truth_table_9_rows(self):
+        """Bảng chân trị `05 §13.5` — 9 hàng × 4 cột (enabled ∧ bậc reason)."""
+        from assetcore.services.imm08 import (
+            PMStatus, _PM_ACTION_REASON_TRANSITION,
+        )
+        T, X = True, False
+        expected = {
+            PMStatus.OPEN: (T, X, T, X),
+            PMStatus.OVERDUE: (T, X, T, X),
+            PMStatus.IN_PROGRESS: (X, T, T, T),
+            PMStatus.PENDING_BUSY: (X, X, T, X),
+            PMStatus.HALTED_MAJOR: (X, X, T, X),
+            PMStatus.COMPLETED: (X, X, X, X),
+            PMStatus.CANCELLED: (X, X, X, X),
+            "": (X, X, X, X),
+            "BOGUS": (X, X, X, X),
+        }
+        keys = ["start_work", "submit_result", "reschedule", "report_major_failure"]
+        for status, row in expected.items():
+            acts = self._actions_for_status(status, user=self.user_full)
+            for key, want in zip(keys, row):
+                got = acts[key]
+                self.assertEqual(
+                    got["enabled"], want,
+                    f"[{status or '<rỗng>'}] {key}: enabled={got['enabled']} ≠ {want}.")
+                if not want:
+                    # ô ❌ ở bảng gốc đều là bậc TRANSITION (cap đủ, assigned_to set,
+                    # bảng kiểm ≥1 mục) ⇒ so CẢ reason (chống false-green chỉ so enabled).
+                    self.assertEqual(
+                        got["reason"], _PM_ACTION_REASON_TRANSITION,
+                        f"[{status or '<rỗng>'}] {key}: phải là reason bậc TRANSITION.")
+
+    # ── TC-PMCTA-03 (INV-PMCTA-1 bất biến D9) ────────────────────────────────
+    def test_pmcta_03_invariant_reason_iff_disabled(self):
+        """`enabled False ⟺ reason != ""` với MỌI status × {có cap, không cap}."""
+        for user in (self.user_full, self.user_nocap):
+            for status in self._all_statuses():
+                for key, a in self._actions_for_status(status, user=user).items():
+                    if a["enabled"]:
+                        self.assertEqual(
+                            a["reason"], "",
+                            f"[{user}|{status or '<rỗng>'}] {key}: enabled ⇒ reason rỗng.")
+                    else:
+                        self.assertNotEqual(
+                            a["reason"].strip(), "",
+                            f"[{user}|{status or '<rỗng>'}] {key}: disabled PHẢI có lý do.")
+
+    # ── TC-PMCTA-04 (INV-PMCTA-2 VI 100%) ────────────────────────────────────
+    def test_pmcta_04_reason_vietnamese_no_en_leak(self):
+        """Mọi reason ∈ 4 hằng VI; 0 mã trạng thái EN rò ra UI."""
+        from assetcore.services.imm08 import (
+            _PM_ACTION_REASON_CAPABILITY, _PM_ACTION_REASON_CHECKLIST_EMPTY,
+            _PM_ACTION_REASON_NO_TECHNICIAN, _PM_ACTION_REASON_TRANSITION,
+        )
+        allowed = {
+            "", _PM_ACTION_REASON_TRANSITION, _PM_ACTION_REASON_CAPABILITY,
+            _PM_ACTION_REASON_NO_TECHNICIAN, _PM_ACTION_REASON_CHECKLIST_EMPTY,
+        }
+        for user in (self.user_full, self.user_nocap):
+            for status in self._all_statuses():
+                for key, a in self._actions_for_status(status, user=user).items():
+                    self.assertIn(
+                        a["reason"], allowed,
+                        f"[{status or '<rỗng>'}] {key}: reason ngoài 4 hằng VI.")
+                    for token in _EN_STATUS_TOKENS:
+                        self.assertNotIn(
+                            token, a["reason"],
+                            f"[{status or '<rỗng>'}] {key}: rò mã trạng thái EN '{token}'.")
+
+    # ── TC-PMCTA-05 (INV-PMCTA-4 key ↔ endpoint THẬT, 0 CTA ma) ──────────────
+    def test_pmcta_05_every_key_maps_to_whitelisted_endpoint(self):
+        """Mỗi key resolve ĐỘNG ra callable whitelisted; `Cancelled` KHÔNG là action."""
+        import assetcore.api.imm08 as api08
+        from assetcore.services.imm08 import PMStatus, _PM_ACTION_SPECS
+
+        for spec in _PM_ACTION_SPECS:
+            fn = getattr(api08, spec["endpoint"], None)
+            self.assertTrue(
+                callable(fn),
+                f"CTA '{spec['key']}' trỏ endpoint '{spec['endpoint']}' KHÔNG tồn tại.")
+            self.assertIn(
+                fn, frappe.whitelisted,
+                f"Endpoint '{spec['endpoint']}' của CTA '{spec['key']}' chưa @whitelist.")
+        keys = {s["key"] for s in _PM_ACTION_SPECS}
+        self.assertNotIn("cancel", keys, "CTA 'cancel' KHÔNG có endpoint ⇒ không được advertise.")
+        self.assertNotIn(
+            PMStatus.CANCELLED, {s["target"] for s in _PM_ACTION_SPECS},
+            "'Cancelled' là đích hợp lệ trong transition map NHƯNG 0 endpoint ⇒ 0 action.")
+        # Đích của mọi CTA phải là state THẬT (không bịa ngoài enum).
+        enum = {
+            getattr(PMStatus, a) for a in dir(PMStatus)
+            if not a.startswith("_") and isinstance(getattr(PMStatus, a), str)
+        }
+        for spec in _PM_ACTION_SPECS:
+            self.assertIn(spec["target"], enum, f"target '{spec['target']}' ∉ PMStatus enum.")
+
+    # ── TC-PMCTA-06 (INV-PMCTA-5 cap parity advertise ↔ enforce, đọc AST) ────
+    def test_pmcta_06_cap_parity_with_endpoint_ast(self):
+        """`spec.cap` == literal `rbac.require("…")` trong api/imm08.py (AST, KHÔNG chép tay)."""
+        import ast
+        import inspect
+
+        import assetcore.api.imm08 as api08
+        from assetcore.services.imm08 import _PM_ACTION_SPECS
+
+        tree = ast.parse(inspect.getsource(api08))
+        caps_by_fn: dict[str, list[str]] = {}
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.FunctionDef):
+                continue
+            found = []
+            for call in ast.walk(node):
+                if (isinstance(call, ast.Call)
+                        and isinstance(call.func, ast.Attribute)
+                        and call.func.attr == "require"
+                        and isinstance(call.func.value, ast.Name)
+                        and call.func.value.id == "rbac"
+                        and call.args
+                        and isinstance(call.args[0], ast.Constant)):
+                    found.append(call.args[0].value)
+            caps_by_fn[node.name] = found
+
+        for spec in _PM_ACTION_SPECS:
+            self.assertEqual(
+                caps_by_fn.get(spec["endpoint"]), [spec["cap"]],
+                f"CTA '{spec['key']}': cap advertise '{spec['cap']}' ≠ rbac.require của "
+                f"'{spec['endpoint']}' ({caps_by_fn.get(spec['endpoint'])}) — gate nói dối.")
+
+    # ── TC-PMCTA-07 (bậc capability) ─────────────────────────────────────────
+    def test_pmcta_07_nocap_persona_gets_capability_reason(self):
+        """Persona 0 cap PM, phiếu Open ⇒ disabled bậc CAPABILITY (không phải transition)."""
+        from assetcore.services.imm08 import (
+            PMStatus, _PM_ACTION_REASON_CAPABILITY,
+        )
+        acts = self._actions_for_status(PMStatus.OPEN, user=self.user_nocap)
+        for key in ("start_work", "reschedule"):
+            self.assertFalse(acts[key]["enabled"], f"{key}: thiếu cap ⇒ disabled.")
+            self.assertEqual(
+                acts[key]["reason"], _PM_ACTION_REASON_CAPABILITY,
+                f"{key}: transition OK nhưng thiếu cap ⇒ reason bậc CAPABILITY.")
+
+    # ── TC-PMCTA-08 / 09 (A5 display ⇔ enforcement · bảng kiểm rỗng) ─────────
+    def test_pmcta_08_checklist_empty_business_gate(self):
+        """`In Progress` + 0 mục bảng kiểm ⇒ submit_result disabled; thêm 1 mục ⇒ enabled."""
+        from assetcore.services.imm08 import (
+            PMStatus, _PM_ACTION_REASON_CHECKLIST_EMPTY,
+        )
+        wo = self._wo_doc()
+        wo.checklist_results = []
+        acts = self._actions_for_status(PMStatus.IN_PROGRESS, user=self.user_full, doc=wo)
+        self.assertFalse(acts["submit_result"]["enabled"],
+                         "0 mục bảng kiểm ⇒ KHÔNG nghiệm thu được (BR-08-19).")
+        self.assertEqual(acts["submit_result"]["reason"], _PM_ACTION_REASON_CHECKLIST_EMPTY)
+        wo.append("checklist_results", {
+            "checklist_item_idx": 1, "description": "_Test mục bảng kiểm",
+            "measurement_type": "Pass/Fail",
+        })
+        acts2 = self._actions_for_status(PMStatus.IN_PROGRESS, user=self.user_full, doc=wo)
+        self.assertTrue(acts2["submit_result"]["enabled"], "≥1 mục ⇒ nghiệm thu được.")
+        self.assertEqual(acts2["submit_result"]["reason"], "")
+
+    def test_pmcta_09_advertise_equals_enforcement_checklist_empty(self):
+        """CÙNG điều kiện: thẻ nói disabled ⟺ validator chặn `IMM08-CHECKLIST-EMPTY`."""
+        from assetcore.services.imm08 import PMStatus
+        from assetcore.repositories.pm_repo import PMWorkOrderRepo
+
+        res = create_adhoc_work_order({
+            "asset_ref": self.asset.name,
+            "pm_schedule": self.schedule_name,
+            "due_date": add_days(nowdate(), 7),
+            "assigned_to": self.user_full,
+        })
+        name = res["name"]
+        frappe.db.commit()
+        try:
+            wo = PMWorkOrderRepo.get(name)
+            wo.set("checklist_results", [])
+            wo.save(ignore_permissions=True)
+            frappe.db.commit()
+
+            wo = PMWorkOrderRepo.get(name)
+            acts = self._actions_for_status(PMStatus.IN_PROGRESS, user=self.user_full, doc=wo)
+            self.assertFalse(acts["submit_result"]["enabled"],
+                             "ADVERTISE: thẻ phải nói KHÔNG nghiệm thu được.")
+
+            # ENFORCE: gọi THẬT đường ghi mà CTA `submit_result` trỏ tới ⇒ chứng
+            # minh thẻ nói ĐÚNG điều validator chặn (message = SSoT registry
+            # MSG.IMM08_CHECKLIST_EMPTY, KHÔNG literal chép tay).
+            from assetcore.services.imm08 import submit_result
+            from assetcore.utils.messages import MESSAGES, MSG
+            with self.assertRaises(ServiceError) as cm:
+                submit_result(name, checklist_results=[], overall_result="Pass",
+                              pm_sticker_attached=1, duration_minutes=45)
+            self.assertEqual(cm.exception.code, ErrorCode.VALIDATION)
+            self.assertIn(
+                MESSAGES[MSG.IMM08_CHECKLIST_EMPTY]["template"].split(":")[0],
+                cm.exception.message or "",
+                "ENFORCE: validator PHẢI chặn bằng MSG.IMM08_CHECKLIST_EMPTY.")
+        finally:
+            frappe.db.rollback()
+            frappe.set_user("Administrator")
+            frappe.delete_doc("PM Work Order", name, force=True, ignore_permissions=True)
+            frappe.db.commit()
+
+    # ── TC-PMCTA-10 (business-gate no-technician) ────────────────────────────
+    def test_pmcta_10_no_technician_business_gate(self):
+        """Phiếu Open chưa phân công KTV ⇒ start_work disabled + reason no-technician."""
+        from assetcore.services.imm08 import (
+            PMStatus, _PM_ACTION_REASON_NO_TECHNICIAN,
+        )
+        wo = self._wo_doc()
+        wo.assigned_to = None
+        acts = self._actions_for_status(PMStatus.OPEN, user=self.user_full, doc=wo)
+        self.assertFalse(acts["start_work"]["enabled"], "Chưa có KTV ⇒ không dispatch được.")
+        self.assertEqual(acts["start_work"]["reason"], _PM_ACTION_REASON_NO_TECHNICIAN)
+        wo.assigned_to = self.user_full
+        acts2 = self._actions_for_status(PMStatus.OPEN, user=self.user_full, doc=wo)
+        self.assertTrue(acts2["start_work"]["enabled"])
+        self.assertEqual(acts2["start_work"]["reason"], "")
+
+    # ── TC-PMCTA-11 (INV-PMCTA-8 reschedule display == enforcement) ──────────
+    def test_pmcta_11_reschedule_display_equals_enforcement(self):
+        """7 status: `reschedule.enabled` ⟺ `reschedule()` KHÔNG raise guard terminal."""
+        from assetcore.services.imm08 import (
+            _PM_VALID_TRANSITIONS, reschedule,
+        )
+        from assetcore.repositories.pm_repo import PMWorkOrderRepo
+        from assetcore.services.shared import ServiceError
+
+        res = create_adhoc_work_order({
+            "asset_ref": self.asset.name,
+            "pm_schedule": self.schedule_name,
+            "due_date": add_days(nowdate(), 7),
+            "assigned_to": self.user_full,
+        })
+        name = res["name"]
+        frappe.db.commit()
+        try:
+            for status in _PM_VALID_TRANSITIONS:
+                PMWorkOrderRepo.set_values(name, {"status": status})
+                frappe.db.commit()
+                wo = PMWorkOrderRepo.get(name)
+                advertised = self._actions_for_status(
+                    status, user=self.user_full, doc=wo)["reschedule"]["enabled"]
+                blocked = False
+                try:
+                    reschedule(name, new_date=add_days(nowdate(), 14),
+                               reason="Máy đang bận điều trị người bệnh")
+                except ServiceError:
+                    blocked = True
+                self.assertEqual(
+                    advertised, not blocked,
+                    f"[{status}] advertise={advertised} nhưng enforcement "
+                    f"{'CHẶN' if blocked else 'CHO PHÉP'} — display ≠ enforcement.")
+        finally:
+            frappe.set_user("Administrator")
+            frappe.delete_doc("PM Work Order", name, force=True, ignore_permissions=True)
+            frappe.db.commit()
+
+    # ── TC-PMCTA-12 (ADR-IMM08-CTA-02 hằng) ──────────────────────────────────
+    def test_pmcta_12_reschedule_action_states_constant(self):
+        """`RESCHEDULE_ACTION_STATES` = map − terminal, ⊇ `RESCHEDULE_CTA_STATES` (CR-45b)."""
+        from assetcore.services.imm08 import (
+            PMStatus, RESCHEDULE_ACTION_STATES, RESCHEDULE_CTA_STATES,
+            _PM_VALID_TRANSITIONS,
+        )
+        self.assertEqual(
+            set(RESCHEDULE_ACTION_STATES),
+            set(_PM_VALID_TRANSITIONS) - {PMStatus.COMPLETED, PMStatus.CANCELLED},
+            "Dẫn xuất TỪ SSoT map (thêm state vào map ⇒ tự vào đây).")
+        self.assertTrue(
+            set(RESCHEDULE_CTA_STATES) <= set(RESCHEDULE_ACTION_STATES),
+            "Neo với CR-45b: overlay CTA ⊆ tập status «Hoãn lịch» có nghĩa.")
+
+    # ── TC-PMCTA-13 (A6 back-compat) ─────────────────────────────────────────
+    def test_pmcta_13_allowed_transitions_unchanged_superset_payload(self):
+        """`allowed_transitions` byte-identical baseline; payload chỉ THÊM 1 khoá."""
+        from assetcore.services.imm08 import PMStatus, get_work_order
+        from assetcore.repositories.pm_repo import PMWorkOrderRepo
+
+        baseline = {
+            PMStatus.OPEN: [PMStatus.IN_PROGRESS, PMStatus.OVERDUE, PMStatus.CANCELLED,
+                            PMStatus.PENDING_BUSY],
+            PMStatus.OVERDUE: [PMStatus.IN_PROGRESS, PMStatus.CANCELLED,
+                               PMStatus.PENDING_BUSY],
+            PMStatus.IN_PROGRESS: [PMStatus.COMPLETED, PMStatus.HALTED_MAJOR,
+                                   PMStatus.PENDING_BUSY, PMStatus.CANCELLED],
+            PMStatus.PENDING_BUSY: [PMStatus.IN_PROGRESS, PMStatus.CANCELLED],
+            PMStatus.HALTED_MAJOR: [PMStatus.IN_PROGRESS, PMStatus.CANCELLED],
+            PMStatus.COMPLETED: [],
+            PMStatus.CANCELLED: [],
+        }
+        legacy_keys = {
+            "name", "asset_ref", "asset_name", "asset_category", "risk_class", "pm_type",
+            "wo_type", "status", "due_date", "scheduled_date", "completion_date",
+            "assigned_to", "assigned_to_name", "supervisor", "supervisor_name",
+            "overall_result", "technician_notes", "pm_sticker_attached", "is_late",
+            "is_overdue", "duration_minutes", "source_pm_wo", "allowed_transitions",
+            "checklist_results",
+        }
+        for status, want in baseline.items():
+            PMWorkOrderRepo.set_values(self.wo_name, {"status": status})
+            frappe.db.commit()
+            frappe.set_user(self.user_full)
+            try:
+                detail = get_work_order(self.wo_name)
+            finally:
+                frappe.set_user("Administrator")
+            self.assertEqual(
+                detail["allowed_transitions"], want,
+                f"[{status}] allowed_transitions PHẢI giữ nguyên 100% (giá trị + thứ tự).")
+            self.assertEqual(
+                set(detail), legacy_keys | {"available_actions"},
+                f"[{status}] payload chỉ được THÊM `available_actions` (superset).")
+        PMWorkOrderRepo.set_values(self.wo_name, {"status": PMStatus.OPEN})
+        frappe.db.commit()
+
+    # ── TC-PMCTA-14 (INV-PMCTA-10 READ-ONLY) ─────────────────────────────────
+    def test_pmcta_14_get_work_order_is_read_only(self):
+        """3 lần đọc ⇒ 0 audit trail / 0 lifecycle event mới, `modified` bất biến."""
+        from assetcore.services.imm08 import get_work_order
+
+        before_audit = frappe.db.count("IMM Audit Trail")
+        before_evt = frappe.db.count("Asset Lifecycle Event")
+        before_mod = frappe.db.get_value("PM Work Order", self.wo_name, "modified")
+        frappe.set_user(self.user_full)
+        try:
+            for _ in range(3):
+                get_work_order(self.wo_name)
+        finally:
+            frappe.set_user("Administrator")
+        self.assertEqual(frappe.db.count("IMM Audit Trail"), before_audit,
+                         "get_work_order KHÔNG được ghi audit trail.")
+        self.assertEqual(frappe.db.count("Asset Lifecycle Event"), before_evt,
+                         "get_work_order KHÔNG được sinh lifecycle event.")
+        self.assertEqual(
+            frappe.db.get_value("PM Work Order", self.wo_name, "modified"), before_mod,
+            "get_work_order KHÔNG được save/modify phiếu.")
+
+
+# ─── AC-CR-79: whitelist khoá `filters` cho list_pm_work_orders (07 §X.2) ─────
+
+class TestPmFilterKeyWhitelist(unittest.TestCase):
+    """AC-CR-79 — khoá `filters` ngoài `_ALLOWED_FILTER_KEYS` ⇒ **400 IN-ENVELOPE**.
+
+    RED-before (probe LIVE 2026-07-27, `bench --site miyano console`):
+    `imm08.list_work_orders({"khong_ton_tai_abc":"x"})` RAISE
+    `OperationalError (1054, "Unknown column 'tabPM Work Order.khong_ton_tai_abc' in 'WHERE'")`
+    → `utils/api_handler.handle` CỐ Ý không bắt Exception chung (`:44-49`) ⇒ thoát ra
+    **HTTP-500 KHÔNG có `body.success`** + **lộ tên bảng/cột SQL**.
+
+    Boundaries khoá bằng test: **Always** envelope `success:false` + `INVALID_PARAMS` +
+    `http_status=400` + `message_code=VAL-INVALID-FILTER-KEY` · message VI nêu khoá sai +
+    tập hợp lệ · whitelist là SSoT DUY NHẤT (mọi TC **import THẲNG** hằng, KHÔNG chép tay) ·
+    khoá `apply_vendor_scope` bơm ∈ whitelist (tính TỪ `_VENDOR_SCOPE_FIELD_MAP`).
+    **Never** raise → HTTP-4xx/5xx · echo tên bảng/cột SQL · đổi ngữ nghĩa 4 khoá ảo ·
+    đổi rows/pagination của khoá hợp lệ (INV-FKEY-1).
+
+    Hợp đồng: `docs/imm-08/05_API_Specification.md §14` · TC: `docs/imm-08/07 §X.2`.
+    """
+
+    # Chuỗi TUYỆT ĐỐI KHÔNG được xuất hiện trong envelope (AC1 assert phủ định).
+    LEAK_TOKENS = ("Unknown column", "tabPM Work Order", "tabAsset Repair",
+                   "OperationalError", "SELECT")
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.cat = _ensure_cat("_TestCatIMM08FKey")
+        cls.asset = _make_asset("-fkey")
+        cls.asset.asset_category = cls.cat
+        cls.asset.save(ignore_permissions=True)
+        tmpl = _make_template(cls.cat)
+        cls.template_name = tmpl["name"]
+        cls.schedule_name = _make_schedule(cls.asset.name, cls.template_name)["name"]
+        cls.wo_name = cls._make_wo()
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        for wo in frappe.get_all("PM Work Order", filters={"asset_ref": cls.asset.name},
+                                 pluck="name"):
+            frappe.delete_doc("PM Work Order", wo, force=True, ignore_permissions=True)
+        for sc in frappe.get_all("PM Schedule", filters={"asset_ref": cls.asset.name},
+                                 pluck="name"):
+            frappe.delete_doc("PM Schedule", sc, force=True, ignore_permissions=True)
+        frappe.delete_doc("PM Checklist Template", cls.template_name, force=True,
+                          ignore_permissions=True)
+        purge_asset(cls.asset.name)
+        frappe.db.commit()
+
+    @classmethod
+    def _make_wo(cls) -> str:
+        wo = frappe.get_doc({
+            "doctype": "PM Work Order",
+            "asset_ref": cls.asset.name,
+            "pm_schedule": cls.schedule_name,
+            "pm_type": "Quarterly",
+            "wo_type": "Preventive",
+            "status": "Open",
+            "due_date": add_days(nowdate(), 7),
+            "assigned_to": "Administrator",
+        }).insert(ignore_permissions=True)
+        return wo.name
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+
+    # ── helpers ──────────────────────────────────────────────────────────────
+    @staticmethod
+    def _allowed() -> frozenset:
+        """Whitelist ĐỌC THẲNG từ service (SSoT) — KHÔNG chép tay (AC2)."""
+        from assetcore.services.imm08 import _ALLOWED_FILTER_KEYS
+        return _ALLOWED_FILTER_KEYS
+
+    def _probe_values(self) -> dict:
+        """Giá trị hợp lệ theo fieldtype cho TỪNG khoá whitelist (TC-PMFK-04).
+
+        `set(...) == _ALLOWED_FILTER_KEYS` được assert riêng ⇒ thêm khoá ở BE mà
+        quên probe ⇒ ĐỎ (không im lặng bỏ qua).
+        """
+        return {
+            # cột THẬT trên `PM Work Order`
+            "name": self.wo_name,
+            "status": "Open",
+            "asset_ref": self.asset.name,
+            "assigned_to": "Administrator",
+            "supervisor": "Administrator",
+            "pm_type": "Quarterly",
+            "wo_type": "Preventive",
+            "due_date": add_days(nowdate(), 7),
+            "completion_date": nowdate(),
+            "overall_result": "Pass",
+            "is_late": 0,
+            "source_pm_wo": self.wo_name,
+            # khoá ẢO
+            "overdue": "1",
+            "due_before": add_days(nowdate(), 7),
+            "overdue_live": "1",
+            "search": "_ZZ_NO_MATCH_TOKEN_",
+        }
+
+    def _call(self, filters, **kw) -> dict:
+        from assetcore.api.imm08 import list_pm_work_orders
+        payload = filters if isinstance(filters, str) else json.dumps(filters)
+        return list_pm_work_orders(filters=payload, page=1, page_size=100, **kw)
+
+    # ── TC-PMFK-01 — khoá lạ = lỗi TYPED, KHÔNG raise ────────────────────────
+    def test_pmfk_01_unknown_key_returns_typed_envelope_not_500(self):
+        """Khoá lạ ⇒ HTTP-200 + envelope INVALID_PARAMS/400/VAL-INVALID-FILTER-KEY."""
+        try:
+            env = self._call({"khong_ton_tai_abc": "x"})
+        except Exception as exc:  # noqa: BLE001 — chính là hồi quy cần chặn
+            self.fail(
+                f"Khoá lạ PHẢI trả envelope, KHÔNG raise ({type(exc).__name__}: {exc}). "
+                "`api_handler.handle` không bắt Exception chung ⇒ raise = HTTP-500 thô.")
+        self.assertIs(env.get("success"), False, f"PHẢI success=False. env={env}")
+        # Envelope FLAT (`utils/response._err` — OAS `Error` closed-schema:
+        # {success, error:<string>, code, http_status, message_code, …}).
+        self.assertEqual(env.get("code"), "INVALID_PARAMS",
+                         "bucket PHẢI tái dùng INVALID_PARAMS (ADR-IMM08-FILTERKEY-02).")
+        self.assertEqual(env.get("http_status"), 400, "lỗi INPUT ⇒ 400, KHÔNG 5xx.")
+        self.assertEqual(env.get("message_code"), "VAL-INVALID-FILTER-KEY",
+                         "message_code PHẢI phân biệt với malformed-JSON VAL-INVALID-PARAMS.")
+        self.assertIsInstance(env.get("error"), str,
+                              "`error` là CHUỖI (Hyrum: đổi shape = breaking mọi client).")
+
+    # ── TC-PMFK-02 — message nêu khoá sai + tập khoá hợp lệ ──────────────────
+    def test_pmfk_02_message_names_bad_key_and_allowed_set(self):
+        """Message TIẾNG VIỆT nêu tên khoá sai + liệt kê khoá hợp lệ (AC1)."""
+        env = self._call({"khong_ton_tai_abc": "x"})
+        msg = env.get("error") or ""
+        self.assertIn("khong_ton_tai_abc", msg,
+                      "Message PHẢI nêu ĐÍCH DANH khoá sai (người dùng mới sửa được).")
+        for good in ("asset_ref", "status", "search"):
+            self.assertIn(good, msg, f"Message PHẢI liệt kê khoá hợp lệ `{good}`.")
+
+    # ── TC-PMFK-03 — assert PHỦ ĐỊNH: 0 rò rỉ schema/SQL ─────────────────────
+    def test_pmfk_03_envelope_leaks_no_sql_schema(self):
+        """Envelope KHÔNG chứa tên bảng/cột SQL hay dấu vết OperationalError."""
+        env = self._call({"khong_ton_tai_abc": "x"})
+        blob = json.dumps(env, ensure_ascii=False)
+        for token in self.LEAK_TOKENS:
+            self.assertNotIn(token, blob,
+                             f"RÒ RỈ SCHEMA: envelope chứa `{token}`. Lỗi INPUT không "
+                             f"được phơi cấu trúc CSDL ra client.")
+
+    # ── TC-PMFK-04 — AC2(a): MỌI khoá whitelist đều được honor ───────────────
+    def test_pmfk_04_every_allowed_key_is_honored(self):
+        """Lặp TỪNG khoá ∈ `_ALLOWED_FILTER_KEYS` (import THẬT) ⇒ success:true."""
+        allowed = self._allowed()
+        self.assertGreaterEqual(len(allowed), 16,
+                                "Whitelist < 16 khoá ⇒ TC này vacuous-pass. Đọc `05 §14.3`.")
+        probes = self._probe_values()
+        self.assertEqual(
+            set(probes), set(allowed),
+            "DRIFT probe↔whitelist: thêm/đổi khoá ở BE mà quên bảng probe ⇒ khoá đó "
+            "KHÔNG bao giờ được kiểm honor. "
+            f"thiếu={sorted(set(allowed) - set(probes))} thừa={sorted(set(probes) - set(allowed))}")
+        for key, value in sorted(probes.items()):
+            with self.subTest(key=key):
+                env = self._call({key: value})
+                self.assertIs(env.get("success"), True,
+                              f"Khoá whitelist `{key}` bị chặn oan: {env.get('error')}")
+
+    # ── TC-PMFK-05 — AC4: vendor-scope KHÔNG bị 400 oan ──────────────────────
+    def test_pmfk_05_vendor_scope_injected_key_is_whitelisted(self):
+        """Khoá `apply_vendor_scope` bơm ∈ whitelist — tính TỪ `_VENDOR_SCOPE_FIELD_MAP`."""
+        from assetcore.services.shared.scope import _VENDOR_SCOPE_FIELD_MAP
+        injected = _VENDOR_SCOPE_FIELD_MAP["PM Work Order"]
+        self.assertIn(
+            injected, self._allowed(),
+            f"Vendor Engineer sẽ nhận 400 OAN: `apply_vendor_scope` bơm khoá `{injected}` "
+            "nhưng khoá đó KHÔNG ∈ whitelist. Sửa whitelist — KHÔNG sửa map để test xanh.")
+
+    # ── TC-PMFK-06 — INV-FKEY-4: filters rỗng/absent KHÔNG lỗi ───────────────
+    def test_pmfk_06_empty_and_absent_filters_are_ok(self):
+        """`'{}'` và `filters` absent ⇒ success (whitelist chỉ chặn khoá LẠ)."""
+        from assetcore.api.imm08 import list_pm_work_orders
+        env_empty = self._call({})
+        self.assertIs(env_empty.get("success"), True, f"filters='{{}}' phải OK: {env_empty}")
+        env_absent = list_pm_work_orders(page=1, page_size=100)
+        self.assertIs(env_absent.get("success"), True, f"filters absent phải OK: {env_absent}")
+        self.assertEqual(
+            env_absent["data"]["pagination"]["total"],
+            env_empty["data"]["pagination"]["total"],
+            "filters absent PHẢI == filters '{}' (default '{}' — 0 regression).")
+
+    # ── TC-PMFK-07 — INV-FKEY-5: malformed JSON giữ mã cũ ────────────────────
+    def test_pmfk_07_malformed_json_stays_distinguishable(self):
+        """JSON hỏng vẫn đi đường `parse_json` CŨ và PHÂN BIỆT được với khoá-lạ.
+
+        ⚠ Hành vi THẬT (đo 2026-07-27): `api_handler.parse_json` raise ServiceError
+        **legacy KHÔNG có `message_code`** ⇒ envelope chỉ có `code=INVALID_PARAMS`.
+        Bất biến load-bearing là **phân biệt được 2 cách hỏng của CÙNG tham số
+        `filters`**, KHÔNG phải một chuỗi `message_code` cụ thể. (`05 §14.6`
+        INV-FKEY-5 ghi "VAL-INVALID-PARAMS" — sai với `parse_json` hiện hành;
+        đã ghi open-issue cho BA.) KHÔNG bồi `message_code` vào `parse_json` ở vòng
+        này: helper đó dùng chung MỌI endpoint ⇒ thêm khoá envelope = blast-radius
+        toàn app (Hyrum), phải có CR riêng.
+        """
+        env = self._call('{khong-phai-json')
+        self.assertIs(env.get("success"), False)
+        self.assertEqual(env.get("code"), "INVALID_PARAMS")
+        self.assertEqual(env.get("http_status"), 400)
+        self.assertNotEqual(
+            env.get("message_code"), "VAL-INVALID-FILTER-KEY",
+            "malformed JSON KHÔNG được AC-CR-79 nuốt — 2 lỗi khác nhau phải phân biệt được.")
+        self.assertIn("JSON", env.get("error") or "",
+                      "Message phải nói rõ tham số không phải JSON hợp lệ.")
+
+    # ── TC-PMFK-08 — AC3: 0 regression trên 8 khoá đang dùng thật ────────────
+    def test_pmfk_08_no_regression_on_real_world_filters(self):
+        """8 combo baseline: rows + `pagination` Y HỆT path CHƯA-validate.
+
+        So sánh trong CÙNG lần chạy giữa entrypoint công khai (ĐÃ cắm validate) và
+        `_list_work_orders` (path CŨ, KHÔNG validate) ⇒ nếu validate lỡ pop/sửa dict
+        thì lệch lộ ra ngay (INV-FKEY-1). KHÔNG so "có > 0 dòng" (vacuous).
+        """
+        from assetcore.services.imm08 import _list_work_orders
+        combos = [
+            {"status": "Open"},
+            {"asset_ref": self.asset.name},
+            {"assigned_to": "Administrator"},
+            {"due_date": add_days(nowdate(), 7)},
+            {"due_before": add_days(nowdate(), 30)},
+            {"overdue": "1"},
+            {"overdue_live": "1"},
+            {"search": self.wo_name},
+            {"status": "Open", "asset_ref": self.asset.name},
+        ]
+        for combo in combos:
+            with self.subTest(combo=combo):
+                baseline = _list_work_orders(dict(combo), page=1, page_size=100)
+                env = self._call(combo)
+                self.assertIs(env.get("success"), True, f"{combo} → {env.get('error')}")
+                self.assertEqual(env["data"]["pagination"], baseline["pagination"],
+                                 f"pagination LỆCH baseline cho {combo}.")
+                self.assertEqual([r["name"] for r in env["data"]["data"]],
+                                 [r["name"] for r in baseline["data"]],
+                                 f"rows LỆCH baseline cho {combo}.")
+
+    # ── TC-PMFK-09 — INV-ROWSCOPE giữ nguyên (persona KTV, KHÔNG Administrator) ──
+    def test_pmfk_09_rowscope_invariant_holds_for_technician(self):
+        """`pagination.total == len(data)` dưới persona row-scoped + filter hợp lệ."""
+        ktv = "_test_imm08_fkey_ktv@example.invalid"
+        if not frappe.db.exists("User", ktv):
+            u = frappe.get_doc({
+                "doctype": "User", "email": ktv, "first_name": "IMM08 FKey KTV",
+                "send_welcome_email": 0, "enabled": 1,
+            }).insert(ignore_permissions=True)
+            u.add_roles("PM User")
+        frappe.db.set_value("PM Work Order", self.wo_name, "assigned_to", ktv,
+                            update_modified=False)
+        frappe.db.commit()
+        try:
+            frappe.set_user(ktv)
+            env = self._call({"status": "Open"})
+            self.assertIs(env.get("success"), True, f"KTV bị chặn: {env.get('error')}")
+            data = env["data"]
+            self.assertEqual(
+                data["pagination"]["total"], len(data["data"]),
+                "INV-ROWSCOPE vỡ: count và rows dùng predicate KHÁC nhau.")
+        finally:
+            frappe.set_user("Administrator")
+            frappe.db.set_value("PM Work Order", self.wo_name, "assigned_to",
+                                "Administrator", update_modified=False)
+            frappe.delete_doc("User", ktv, force=True, ignore_permissions=True)
+            frappe.db.commit()
+
+    # ── TC-PMFK-10 — ADR-…-03: khoảng ngày = toán tử trên `due_date` ─────────
+    def test_pmfk_10_date_range_uses_operator_on_due_date(self):
+        """`{"due_date": ["between", [today, +30d]]}` hợp lệ và TRÚNG phiếu fixture."""
+        env = self._call({"due_date": ["between", [nowdate(), add_days(nowdate(), 30)]]})
+        self.assertIs(env.get("success"), True, f"between bị chặn: {env.get('error')}")
+        names = {r["name"] for r in env["data"]["data"]}
+        self.assertIn(self.wo_name, names,
+                      "Phiếu fixture (due_date = +7d) PHẢI nằm trong cửa-sổ [today, +30d].")
+
+    # ── TC-PMFK-11 — Self-Correction: khoá FE tự bịa bị chặn TYPED ───────────
+    def test_pmfk_11_fe_invented_due_date_from_is_rejected_typed(self):
+        """`due_date_from` (FE tự bịa, `PMWorkOrderListView.vue:72`) ⇒ 400, KHÔNG 1054."""
+        env = self._call({"due_date_from": "2026-01-01", "due_date_to": "2026-12-31"})
+        self.assertIs(env.get("success"), False,
+                      "`due_date_from`/`due_date_to` CHƯA TỪNG tồn tại ở BE ⇒ phải bị chặn.")
+        self.assertEqual(env.get("message_code"), "VAL-INVALID-FILTER-KEY")
+        self.assertIn("due_date_from", env.get("error") or "")
+        self.assertNotIn("Unknown column", json.dumps(env, ensure_ascii=False))
+
+    # ── TC-PMFK-13 — web-FE PM thật KHÔNG bịa khoá nào (đọc TỪ hiện vật .vue) ──
+    def test_pmfk_13_web_fe_filter_keys_are_all_whitelisted(self):
+        """Mọi khoá `buildFilters()` của `PMWorkOrderListView.vue` ∈ whitelist.
+
+        [QA] Bổ sung ĐỐI XỨNG với TC-CMFK-11 (`test_imm09.py`). Nghịch lý trước vòng
+        này: guard đọc-hiện-vật CHỈ tồn tại ở IMM-09 — module KHÔNG có bug — trong khi
+        bug THẬT (`due_date_from`/`due_date_to` → `Unknown column` → HTTP-500) nằm ở
+        IMM-08. TC-PMFK-11 chỉ ghim ĐÚNG 2 chuỗi đã biết ⇒ điều khiển lọc PM MỚI thêm
+        sau này (hoặc đổi tên khoá) tái sinh cùng class-of-bug mà suite KHÔNG thấy.
+        Đọc TỪ HIỆN VẬT (parse .vue) ⇒ FE thêm `f.<khoá>` mới mà quên whitelist ⇒ ĐỎ.
+        """
+        import pathlib
+        import re
+        vue = (pathlib.Path(frappe.get_app_path("assetcore")).parent
+               / "frontend" / "src" / "views" / "pm" / "PMWorkOrderListView.vue")
+        self.assertTrue(vue.exists(), f"Không thấy hiện vật FE: {vue}")
+        src = vue.read_text(encoding="utf-8")
+        body = re.search(r"function buildFilters\(\)[^{]*\{(.*?)\n\}", src, re.S)
+        self.assertIsNotNone(body, "Không parse được `buildFilters()` — cập regex/hiện vật.")
+        keys = set(re.findall(r"\bf\.(\w+)\s*=", body.group(1)))
+        self.assertGreaterEqual(len(keys), 5,
+                                f"Parse được {len(keys)} khoá (<5) ⇒ TC vacuous. keys={keys}")
+        missing = sorted(keys - set(self._allowed()))
+        self.assertEqual(
+            missing, [],
+            f"Web-FE PM gửi khoá KHÔNG ∈ whitelist: {missing} ⇒ màn danh sách sẽ báo lỗi "
+            "lọc (trước AC-CR-79 là HTTP-500 lộ `tabPM Work Order`). Hoặc bồi khoá vào "
+            "whitelist (kèm consumer + TC), hoặc sửa FE dùng cột THẬT + toán tử Frappe.")
+        # Gửi CÙNG LÚC mọi khoá FE dựng được (trừ 2 khoá ảo loại trừ nhau overdue /
+        # due_before — FE cũng không bao giờ gửi kèm) ⇒ 0 khoá nào bị chặn oan.
+        probes = self._probe_values()
+        combo = {k: probes[k] for k in sorted(keys) if k != "overdue"}
+        env = self._call(combo)
+        self.assertIs(env.get("success"), True,
+                      f"Khoá web-FE PM gửi CÙNG LÚC bị chặn ({sorted(combo)}): {env.get('error')}")
+
+    # ── TC-PMFK-14 — `filters` KHÔNG phải object ⇒ vẫn 400 IN-ENVELOPE ───────
+    def test_pmfk_14_non_object_filters_stay_in_envelope(self):
+        """`filters` là MẢNG/số ⇒ envelope 400, KHÔNG raise (HTTP-500 không envelope).
+
+        [QA] Đo LIVE 2026-07-27 trước fix: `filters='[["asset_ref","=","X"]]'` (dạng
+        filter CANONICAL của Frappe, client mobile rất dễ gửi) ⇒
+        `TypeError: unhashable type: 'list'` NGAY TẠI `assert_allowed_filter_keys`
+        (`set(f)`); `filters='123'` ⇒ `TypeError: 'int' object is not iterable`. Cả hai
+        thoát khỏi `api_handler.handle` (cố ý không bắt Exception chung) ⇒ **HTTP-500
+        KHÔNG có `body.success`** = ĐÚNG class-of-bug mà AC-CR-79 hứa đóng, chỉ khác
+        đường vào. Client mobile route theo `body.success` nên vẫn hỏng như cũ.
+        """
+        for raw in ('[["asset_ref","=","X"]]', '[["asset_ref","X"]]', "123", '"abc"'):
+            with self.subTest(filters=raw):
+                try:
+                    env = self._call(raw)
+                except Exception as exc:  # noqa: BLE001 — chính là hồi quy cần chặn
+                    self.fail(
+                        f"`filters={raw}` PHẢI trả envelope, KHÔNG raise "
+                        f"({type(exc).__name__}: {exc}). `handle` không bắt Exception "
+                        "chung ⇒ raise = HTTP-500 thô, mất `body.success`.")
+                self.assertIsInstance(env, dict)
+                self.assertIs(env.get("success"), False, f"env={env}")
+                self.assertEqual(env.get("http_status"), 400,
+                                 "Lỗi INPUT ⇒ 400 trong BODY, KHÔNG 5xx.")
+                self.assertEqual(env.get("code"), "INVALID_PARAMS")
+                blob = json.dumps(env, ensure_ascii=False)
+                for token in self.LEAK_TOKENS:
+                    self.assertNotIn(token, blob, f"RÒ RỈ SCHEMA với filters={raw}")
+
+    # ── TC-PMFK-12 — nhiều khoá lạ + khoá ký tự bẩn ─────────────────────────
+    def test_pmfk_12_multiple_and_dirty_keys_sanitized_and_sorted(self):
+        """3 khoá lạ + 1 khoá bẩn ⇒ liệt kê SORTED, khoá bẩn KHÔNG phản chiếu nguyên văn."""
+        env = self._call({"zzz_bad": 1, "aaa_bad": 2, "mmm_bad": 3, "a b'; DROP--": 4})
+        self.assertIs(env.get("success"), False)
+        msg = env.get("error") or ""
+        pos = [msg.find(k) for k in ("aaa_bad", "mmm_bad", "zzz_bad")]
+        self.assertTrue(all(p >= 0 for p in pos), f"Thiếu khoá lạ trong message: {msg}")
+        self.assertEqual(pos, sorted(pos), "Danh sách khoá PHẢI sorted (message deterministic).")
+        self.assertNotIn("DROP--", msg,
+                         "Khoá ký tự bẩn KHÔNG được phản chiếu nguyên văn (reflected-content).")
+        blob = json.dumps(env, ensure_ascii=False)
+        for token in self.LEAK_TOKENS:
+            self.assertNotIn(token, blob)

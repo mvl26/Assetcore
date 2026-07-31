@@ -2,6 +2,12 @@
 // API client cho Module IMM-08 — Preventive Maintenance
 
 import { frappeGet, frappePost } from './helpers'
+import type { AvailableAction } from './imm00'
+
+// Re-export để consumer của IMM-08 (view/store/test) KHÔNG phải với sang api/imm00
+// lấy shape dùng chung. KHÔNG khai lại interface — một shape = một khai báo (nguồn:
+// `api/imm00.ts`, mirror schema OAS `AvailableAction`).
+export type { AvailableAction }
 
 export interface PMWorkOrder {
   name: string
@@ -44,8 +50,32 @@ export interface PMWorkOrder {
    * `capability && allowed_transitions.includes('<đích>')` — KHÔNG tự suy diễn theo
    * `status === 'X'`. Chuỗi đích khớp EXACT PMStatus (en-dash: 'Halted–Major Failure',
    * 'Pending–Device Busy'). Terminal (Completed/Cancelled) → []. Optional (forward-compat).
+   *
+   * ⚠️ GIỮ NGUYÊN sau AC-CR-77 (back-compat A6): `available_actions` là SUPERSET,
+   * KHÔNG thay thế. Đây vẫn là nguồn của các nút KHÔNG nằm trong 4 CTA (vd «Tiếp tục
+   * bảo trì») và là đường FALLBACK khi worker BE chưa phát `available_actions`.
    */
   allowed_transitions?: string[]
+  /**
+   * AC-CR-77 — CTA SERVER-DRIVEN cho màn chi tiết phiếu PM. ĐÚNG 4 phần tử, thứ tự
+   * CỐ ĐỊNH `[start_work, submit_result, reschedule, report_major_failure]`; mỗi phần
+   * tử ánh xạ 1-1 tới endpoint CÓ THẬT của `assetcore/api/imm08.py`
+   * (`assign_technician` · `submit_pm_result` · `reschedule_pm` · `report_major_failure`).
+   *
+   * • `enabled` = `transition_allowed ∩ has_cap ∩ business_gate` do SERVER quyết —
+   *   FE KHÔNG nhân bản `can('pm.*') && allowed_transitions.includes(...)` cho 4 nút
+   *   này (đó chính là nguồn "nút chết": bấm được nhưng BE từ chối).
+   * • `reason` = chuỗi TIẾNG VIỆT server trả, bất biến D9: `enabled === false ⟺
+   *   reason !== ""`. FE render nguyên văn làm tooltip — KHÔNG bịa chuỗi FE.
+   * • `route` = "" (CTA mở modal tại chỗ, không điều hướng — khác imm00 scan CTA).
+   * • `Cancelled` CÓ trong `_PM_VALID_TRANSITIONS` nhưng KHÔNG có endpoint ⇒ BE
+   *   KHÔNG BAO GIỜ phát dưới dạng action (hết CTA ma trên màn chi tiết).
+   *
+   * Optional — CỐ Ý: worker BE chưa reload (`--preload` staleness) hoặc client cũ vẫn
+   * trả shape CŨ ⇒ `undefined` ⇒ view rơi về đường FALLBACK (`allowed_transitions` +
+   * capability), KHÔNG nút nào biến mất, KHÔNG màn trắng.
+   */
+  available_actions?: AvailableAction[]
 }
 
 export interface ChecklistResult {
@@ -202,11 +232,63 @@ export function reschedulePM(
   )
 }
 
+/**
+ * Một dòng lịch sử bảo trì của thiết bị — mirror ĐÚNG `fields=[...]` mà BE
+ * `services/imm08.py::get_asset_history` chọn trên **`PM Task Log`** (10 field).
+ *
+ * ⚠️ KHÔNG phải `PMWorkOrder` (kiểu cũ khai sai, AC-CR-102): đây là bản ghi
+ * NHẬT KÝ TÁC VỤ, có `pm_work_order`/`technician`/`days_late`/`next_pm_date`/
+ * `summary` mà `PMWorkOrder` KHÔNG có, và KHÔNG có `status`/`asset_name`/
+ * `checklist_results`/`due_date` mà `PMWorkOrder` hứa. Khai `PMWorkOrder[]` là
+ * hứa thừa ⇒ view đọc `row.status` compile XANH rồi `undefined` lúc chạy.
+ *
+ * `PM Task Log` KHÔNG có màn chi tiết ⇒ liên kết dòng phải dựng từ
+ * **`pm_work_order`** (doctype `PM Work Order`), TUYỆT ĐỐI không từ `name`.
+ * `pm_work_order` có thể rỗng (Link nullable) ⇒ caller render text tĩnh.
+ *
+ * `is_late` là Check ⇒ int 0/1 (KHÔNG bool) — đọc `Number(is_late) === 1`.
+ * `technician` là Link `User` và BE KHÔNG kèm `technician_name` ⇒ **KHÔNG render
+ * thô** (rò mã/email người dùng — GATE-2); chờ BE bổ sung companion field.
+ */
+export interface PMTaskLogHistoryItem {
+  /** Mã bản ghi `PM Task Log` — dùng làm `:key`, KHÔNG dùng dựng URL chi tiết. */
+  name: string
+  /** Mã `PM Work Order` nguồn — SSoT để mở đúng bản ghi. Rỗng/null = không có link. */
+  pm_work_order: string | null
+  pm_type: string | null
+  completion_date: string | null
+  /** Link `User` — KHÔNG render thô (thiếu `technician_name` companion). */
+  technician: string | null
+  /** Select `Pass` / `Pass with Minor Issues` / `Fail` — render qua `overallResultLabel`. */
+  overall_result: string | null
+  /** Check → 0/1. */
+  is_late: 0 | 1
+  days_late: number | null
+  next_pm_date: string | null
+  summary: string | null
+}
+
+/**
+ * Lịch sử bảo trì định kỳ của 1 thiết bị (cắt cứng theo `limit`, KHÔNG phân trang).
+ *
+ * Hợp đồng cắt danh sách TRUNG THỰC (CR-69, cùng SSoT `services/shared/truncation.py`
+ * với CR-43/46/47): `total` = COUNT DB thật trên ĐÚNG filter-set `{asset_ref}`
+ * @`PM Task Log` TRƯỚC khi cắt; `truncated` = int 0/1 (parity CR-01 — KHÔNG bool,
+ * KHÔNG None; tránh trap int-vs-bool khi codegen Dart/Kotlin) = `len(history) >= limit
+ * ∧ total > limit`. Vừa khít trần (`total == limit`) ⇒ `truncated === 0` (không báo
+ * cắt oan).
+ *
+ * ⚠️ Cả hai OPTIONAL — CỐ Ý. Trước CR-69 kiểu này khai `total: number` NON-optional
+ * trong khi BE CHƯA BAO GIỜ trả khoá đó ⇒ `undefined` lúc chạy mà TS không cảnh báo
+ * (chính class-of-bug mà CR-69 dẹp). Worker BE chưa reload (`--preload` staleness)
+ * vẫn trả shape CŨ thiếu 2 khoá → caller PHẢI đọc phòng thủ
+ * (`total ?? history.length`, `truncated ?? 0`). `asset_ref`/`history` GIỮ NGUYÊN.
+ */
 export function getAssetPMHistory(
   assetRef: string,
   limit = 10,
-): Promise<{ asset_ref: string; total: number; history: PMWorkOrder[] }> {
-  return frappeGet<{ asset_ref: string; total: number; history: PMWorkOrder[] }>(
+): Promise<{ asset_ref: string; history: PMTaskLogHistoryItem[]; total?: number; truncated?: 0 | 1 }> {
+  return frappeGet<{ asset_ref: string; history: PMTaskLogHistoryItem[]; total?: number; truncated?: 0 | 1 }>(
     `${BASE}.get_asset_pm_history`,
     { asset_ref: assetRef, limit },
   )

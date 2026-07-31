@@ -18,16 +18,26 @@ from assetcore.repositories.pm_repo import (
     PMWorkOrderRepo,
 )
 from assetcore.repositories.repair_repo import RepairRepo
-from assetcore.services.shared import AssetStatus, ErrorCode, ServiceError
+from assetcore.services.shared import AssetStatus, ErrorCode, ServiceError, rbac
 from assetcore.services.shared.errors import validation
+from assetcore.services.shared.truncation import truncation_meta
 from assetcore.utils.idempotency import resolve_idempotency_key
-from assetcore.services.shared.filters import pop_search
+from assetcore.services.shared.filters import (assert_allowed_filter_keys,
+                                                count_with_or, pop_search)
+from assetcore.services.shared.permissions import (assert_can_read_doc,
+                                                   assert_doctype_read_permission,
+                                                   rowscoped, run_rowscoped)
 from assetcore.utils.helpers import _get_role_emails, _safe_sendmail
 from assetcore.utils.messages import MSG
 from assetcore.utils.notify import nthrow, nthrow_in_hook
-from assetcore.utils.pagination import _MAX_PAGE_SIZE, paginate
+from assetcore.utils.pagination import _MAX_PAGE_SIZE, clamp_page_size, paginate
 
 _DT_PM_WO = "PM Work Order"
+# AC-CR-119 (ADR-IMM00-ASSET-OP-HISTORY §11.8 D-OPH-27): DocType THẬT của nhánh
+# «Lịch sử bảo trì» trên hồ sơ thiết bị — KHÁC `_DT_PM_WO`, hai bảng DocPerm khác
+# nhau. SSoT nhánh→(cap, doctype): `services/shared/connection_meta.py::
+# OP_HISTORY_BRANCH_GATE` (cap `pm.read_history`).
+_DT_PM_TASK_LOG = "PM Task Log"
 _DT_AC_ASSET = "AC Asset"
 _DT_PM_CHECKLIST_ROW = "PM Checklist Result"
 _DT_FILE = "File"
@@ -94,6 +104,19 @@ OVERDUE_SOURCE_STATES = frozenset({
 OVERDUE_SOURCE_STATUSES = tuple(OVERDUE_SOURCE_STATES)
 
 
+# SoT (CR-45 / F8 "Nhắc việc"): tập status "phiếu PM còn MỞ" — phiếu đang treo/chờ xử
+# lý mà màn Nhắc việc cần deep-link vào. Dùng để enrich next_wo_ref/next_wo_status cho
+# get_due_pm_schedules. KHÁC OVERDUE_SOURCE_STATES (tập-nguồn cron flip → Overdue, KHÔNG
+# gồm Overdue): ở đây Overdue LÀ 1 phiếu-mở (đã trễ nhưng vẫn cần vào để dời lịch/thực
+# hiện). Terminal Completed/Cancelled + Halted–Major Failure ⇒ KHÔNG "mở".
+PM_OPEN_WO_STATUSES = frozenset({
+    PMStatus.OPEN,
+    PMStatus.OVERDUE,
+    PMStatus.IN_PROGRESS,
+    PMStatus.PENDING_BUSY,
+})
+
+
 # ─── State machine (server-driven CTA) ─────────────────────────────────────────
 # SSoT trạng-thái-kế-hợp-lệ cho PM Work Order — GROUNDED CHÍNH XÁC
 # assetcore/assetcore/workflow/imm_08_pm_workflow.json (7 state / 13 transition).
@@ -121,6 +144,168 @@ _PM_VALID_TRANSITIONS: dict[str, list[str]] = {
     PMStatus.COMPLETED: [],
     PMStatus.CANCELLED: [],
 }
+
+
+# CR-45b (ADR-IMM08-RESCHED-CTA): tập status mà CTA «Dời lịch» (reschedule) áp DỤNG.
+# `reschedule()` là SERVICE action (KHÔNG đi qua Frappe workflow transition) → set
+# status → Pending–Device Busy từ Open/Overdue/In Progress kèm new_date+reason. Workflow
+# JSON KHÔNG mô-hình-hoá Open→Pending / Overdue→Pending (chỉ In Progress→Pending) ⇒ nếu
+# allowed_transitions chỉ mirror workflow, mobile/web KHÔNG render được CTA «Dời lịch» ở ca
+# PHỔ BIẾN NHẤT (phiếu Open/Overdue chưa ai bắt đầu). Overlay CHỈ ở tầng emit get_work_order
+# đưa Pending–Device Busy vào tập CTA cho Open/Overdue (In Progress ĐÃ có sẵn từ workflow ⇒
+# overlay no-op). `_PM_VALID_TRANSITIONS` + workflow JSON + parity-guard GIỮ NGUYÊN (KHÔNG
+# migrate). Never: thêm transition Open→Pending/Overdue→Pending vào workflow JSON (đổi hành
+# vi Frappe workflow thật + reschedule vẫn KHÔNG đi qua transition = sai mô hình).
+RESCHEDULE_CTA_STATES = frozenset({PMStatus.OPEN, PMStatus.OVERDUE})
+
+
+# ─── AC-CR-77: SSoT 4 CTA server-driven màn Chi tiết phiếu PM ─────────────────
+# Hợp đồng: docs/imm-08/05 §13 (ADR-IMM08-CTA-01/02/03) · code-shape: 04 §4.3.
+#
+# SSoT cap của 4 endpoint ghi — GIÁ TRỊ PHẢI == `rbac.require(...)` trong
+# assetcore/api/imm08.py (assign_technician :114 · submit_pm_result :129 ·
+# report_major_failure :151 · reschedule_pm :158). CẤM literal cap thứ 2: advertise
+# (available_actions) và enforce (endpoint) đọc CÙNG 1 chỗ, lệch = "gate nói dối".
+# Guard AST: test_imm08::TestPmAvailableActions::test_pmcta_06 (INV-PMCTA-5).
+_CAP_PM_WRITE = "pm.write"
+_CAP_PM_SUBMIT = "pm.submit"
+_CAP_PM_RESCHEDULE = "pm.reschedule"
+
+# ADR-IMM08-CTA-02: tập status mà «Hoãn lịch» CÓ NGHĨA = mọi status KHÔNG-terminal,
+# DẪN XUẤT từ SSoT `_PM_VALID_TRANSITIONS` (thêm state vào map ⇒ tự vào đây, KHÔNG
+# phải bảo trì 2 danh sách). DÙNG CHUNG advertise (`_build_pm_available_actions`)
+# LẪN enforce (`reschedule()` :1335) ⇒ display == enforcement 7/7 status (INV-PMCTA-8).
+# KHÁC `RESCHEDULE_CTA_STATES` (CR-45b, chỉ {Open, Overdue}) — đó là overlay TẦNG EMIT
+# của `allowed_transitions`, KHÔNG phải predicate; INVARIANT neo 2 hằng:
+# RESCHEDULE_CTA_STATES ⊆ RESCHEDULE_ACTION_STATES (test_pmcta_12).
+RESCHEDULE_ACTION_STATES = frozenset(_PM_VALID_TRANSITIONS) - {
+    PMStatus.COMPLETED, PMStatus.CANCELLED,
+}
+
+# Reason VI (CHỈ khi enabled=False) — 3 bậc ưu tiên transition > capability >
+# business. HẰNG, KHÔNG f-string: nội suy mã status ('In Progress', 'Halted–Major
+# Failure'…) = rò tiếng Anh ra UI (INV-PMCTA-2, chính sách ngôn ngữ 06 §7).
+_PM_ACTION_REASON_TRANSITION = (
+    "Không thể thực hiện thao tác này ở trạng thái hiện tại của phiếu")
+_PM_ACTION_REASON_CAPABILITY = "Bạn không có quyền thực hiện thao tác này"
+_PM_ACTION_REASON_NO_TECHNICIAN = "Phiếu chưa được phân công kỹ thuật viên"
+_PM_ACTION_REASON_CHECKLIST_EMPTY = (
+    "Chưa có mục bảng kiểm — không thể nghiệm thu phiếu bảo trì định kỳ")
+
+# SSoT 4 CTA (thứ tự = thứ tự render FE). `endpoint` = tên hàm THẬT trong
+# assetcore/api/imm08.py — guard INV-PMCTA-4 resolve ĐỘNG + kiểm `fn in
+# frappe.whitelisted`. KHÔNG có endpoint ⇒ KHÔNG có CTA: đó là lý do 'Cancelled'
+# VẮNG MẶT dù là đích hợp lệ từ 5 status trong `_PM_VALID_TRANSITIONS`
+# (ADR-IMM08-CTA-01 — action = tập CÓ ĐƯỜNG THỰC THI, KHÔNG mirror bảng transition).
+# `start_work` → `assign_technician` là ĐÚNG: "bắt đầu bảo trì" trên màn chi tiết =
+# dispatch (gán KTV + Open/Overdue→In Progress + asset Under Maintenance), VERB-FLIP R35.
+_PM_ACTION_SPECS: tuple[dict, ...] = (
+    {"key": "start_work", "label": "Bắt đầu bảo trì", "endpoint": "assign_technician",
+     "target": PMStatus.IN_PROGRESS, "from": (PMStatus.OPEN, PMStatus.OVERDUE),
+     "cap": _CAP_PM_WRITE},
+    {"key": "submit_result", "label": "Hoàn thành bảo trì", "endpoint": "submit_pm_result",
+     "target": PMStatus.COMPLETED, "from": (PMStatus.IN_PROGRESS,),
+     "cap": _CAP_PM_SUBMIT},
+    {"key": "reschedule", "label": "Hoãn lịch", "endpoint": "reschedule_pm",
+     "target": PMStatus.PENDING_BUSY, "from": tuple(sorted(RESCHEDULE_ACTION_STATES)),
+     "cap": _CAP_PM_RESCHEDULE},
+    {"key": "report_major_failure", "label": "Báo lỗi nghiêm trọng",
+     "endpoint": "report_major_failure", "target": PMStatus.HALTED_MAJOR,
+     "from": (PMStatus.IN_PROGRESS,), "cap": _CAP_PM_WRITE},
+)
+
+
+def _pm_checklist_has_items(doc) -> bool:
+    """BR-08-19 boolean SSoT — phiếu PM có ≥1 mục bảng kiểm?
+
+    DÙNG CHUNG 1 predicate cho:
+      * ENFORCE — ``validate_work_order`` chặn nghiệm-thu-giả bằng
+        ``MSG.IMM08_CHECKLIST_EMPTY`` khi phiếu 0 mục;
+      * ADVERTISE — ``_build_pm_available_actions`` tắt CTA ``submit_result``.
+    ⇒ thẻ/nút là TẤM GƯƠNG của validator, KHÔNG phải bản diễn giải thứ hai
+    (class-of-bug display⇔enforcement parity). Sửa định nghĩa = sửa 1 chỗ.
+
+    Args:
+        doc: PM Work Order doc (hoặc doc-like có ``checklist_results``).
+
+    Returns:
+        True nếu có ≥1 dòng ``checklist_results``.
+    """
+    return bool(doc.checklist_results or [])
+
+
+def _build_pm_available_actions(wo) -> list[dict]:
+    """AC-CR-77 — 4 CTA server-driven cho màn Chi tiết phiếu PM.
+
+    Mirror ``imm12._build_incident_available_actions`` / ``imm00._build_available_actions``.
+    Lặp SSoT ``_PM_ACTION_SPECS`` (thứ tự CỐ ĐỊNH = thứ tự render FE, LUÔN đủ 4 phần
+    tử kể cả khi disabled). ``enabled = transition_allowed ∩ has_cap ∩ business_gate``:
+
+    * ``transition_allowed`` — mặc định ``spec['target'] ∈ _PM_VALID_TRANSITIONS[status]``
+      ∧ ``status ∈ spec['from']`` (``from`` khử ca "đích hợp lệ nhưng CTA khác": ví dụ
+      'In Progress' là đích từ 4 status mà ``assign_technician`` chỉ nhận Open/Overdue —
+      chính là lỗ NÚT CHẾT D-1). RIÊNG ``reschedule``: ``status ∈ RESCHEDULE_ACTION_STATES``
+      vì ``reschedule()`` là service action NGOÀI Frappe workflow (workflow JSON không
+      mô-hình-hoá Open→Pending/Overdue→Pending) — KHÔNG suy từ overlay
+      ``allowed_transitions`` (overlay là tầng emit, không phải predicate — ADR-IMM08-CTA-02).
+    * ``has_cap`` — ``rbac.can(spec['cap'])`` với cap ĐÚNG BẰNG cap endpoint ghi
+      (``_CAP_PM_*``). KHÔNG suy từ role-name.
+    * ``business_gate`` — ``start_work``: phiếu phải có ``assigned_to`` (dispatch cần
+      KTV); ``submit_result``: ``_pm_checklist_has_items`` (BR-08-19, CÙNG predicate
+      validator ``IMM08-CHECKLIST-EMPTY``); 2 CTA còn lại: True.
+
+    ``reason`` chỉ set khi disabled, 3 bậc ưu tiên transition > capability > business,
+    100% tiếng Việt (hằng, không nội suy mã status). Bậc transition phủ luôn ``status``
+    rỗng/mã lạ (``map.get(status, [])`` rỗng ∧ ``status ∉ from``) ⇒ BẤT BIẾN D9:
+    ``enabled is False ⟹ reason != ""``; ``enabled is True ⟹ reason == ""``.
+
+    Shape phần tử = ``AvailableAction`` ``{key, label, route, enabled, reason}`` với
+    ``route=""`` (4 CTA nằm TRONG màn Chi tiết, KHÔNG deep-link).
+
+    READ-ONLY tuyệt đối: chỉ đọc ``wo.status`` / ``wo.assigned_to`` /
+    ``wo.checklist_results`` + ``rbac.can`` — 0 query thêm (doc đã nạp), 0 audit,
+    0 lifecycle, 0 ``save()`` (INV-PMCTA-10).
+
+    Args:
+        wo: PM Work Order doc đã nạp (``get_work_order`` L1).
+
+    Returns:
+        list[dict]: ĐÚNG 4 action theo thứ tự
+        ``[start_work, submit_result, reschedule, report_major_failure]``.
+    """
+    status = wo.status or ""
+    valid_targets = _PM_VALID_TRANSITIONS.get(status, [])
+    actions: list[dict] = []
+    for spec in _PM_ACTION_SPECS:
+        if spec["key"] == "reschedule":
+            transition_ok = status in RESCHEDULE_ACTION_STATES
+        else:
+            transition_ok = spec["target"] in valid_targets and status in spec["from"]
+        has_cap = rbac.can(spec["cap"])
+        business_ok, business_reason = True, ""
+        if spec["key"] == "start_work" and not wo.assigned_to:
+            business_ok, business_reason = False, _PM_ACTION_REASON_NO_TECHNICIAN
+        elif spec["key"] == "submit_result" and not _pm_checklist_has_items(wo):
+            business_ok, business_reason = False, _PM_ACTION_REASON_CHECKLIST_EMPTY
+        enabled = bool(transition_ok and has_cap and business_ok)
+        if enabled:
+            reason = ""
+        elif not transition_ok:
+            reason = _PM_ACTION_REASON_TRANSITION
+        elif not has_cap:
+            reason = _PM_ACTION_REASON_CAPABILITY
+        else:
+            # business-gate chặn — fallback bậc transition giữ bất biến D9 nếu
+            # về sau thêm gate mà quên hằng reason (KHÔNG bao giờ để reason rỗng).
+            reason = business_reason or _PM_ACTION_REASON_TRANSITION
+        actions.append({
+            "key": spec["key"],
+            "label": spec["label"],
+            "route": "",
+            "enabled": enabled,
+            "reason": reason,
+        })
+    return actions
 
 
 def is_pm_overdue(status: str, due_date, ref_date=None) -> bool:
@@ -257,7 +442,11 @@ def count_overdue_pm(user: str | None = None) -> int:
     filters: dict = {"status": PMStatus.OVERDUE}
     if user:
         filters["assigned_to"] = user
-    return PMWorkOrderRepo.count(filters)
+    # D7 (ADR-IMM00-LIST-SCOPE §8.4b): docstring ngay trên khẳng định "KPI == drill-down
+    # _normalize_filters(overdue=1), KHÔNG divergence". Drill nay chạy scope="user"
+    # (permission-aware) ⇒ card PHẢI permission-aware theo, nếu không card global sẽ
+    # phá chính lời khẳng định đó (PMWorkOrderRepo.count → frappe.db.count = thô).
+    return count_with_or(_DT_PM_WO, filters, None)
 
 _MEASUREMENT_PASS_FAIL = "Pass/Fail"
 
@@ -342,7 +531,9 @@ def validate_work_order(doc) -> None:
         # template-less (0 checklist row) sẽ hoàn thành GIẢ (Completed + PM Task Log
         # không có bằng chứng công việc). Đây là lưới an toàn SSoT: mọi path save
         # status=Completed đều qua validate() → không cần ép template ở create.
-        if not (doc.checklist_results or []):
+        # AC-CR-77: predicate DÙNG CHUNG với `_build_pm_available_actions` (advertise)
+        # ⇒ nút "Hoàn thành bảo trì" tắt ĐÚNG lúc validator chặn (0 diễn giải thứ hai).
+        if not _pm_checklist_has_items(doc):
             nthrow_in_hook(MSG.IMM08_CHECKLIST_EMPTY)
         for item in (doc.checklist_results or []):
             if not item.result:
@@ -601,6 +792,29 @@ _PM_LIST_FIELDS = [
     "overall_result", "is_late", "source_pm_wo",
 ]
 
+# AC-CR-79 — SSoT DUY NHẤT tập khoá `filters` được honor bởi `list_work_orders`.
+# Khoá ngoài tập này ⇒ 400 IN-ENVELOPE (KHÔNG còn OperationalError 1054 → HTTP-500
+# lộ `tabPM Work Order.<cột>`). OAS `PmWorkOrderFilters` + guard `cr79_*` ĐỌC/SO
+# THẲNG hằng này — KHÔNG chép tay lần hai. Mỗi khoá có consumer THẬT (`05 §14.3`);
+# thêm khoá CHỈ khi có consumer + TC.
+# CỐ Ý loại (có trên DocType nhưng 0 consumer): workflow_state, pm_schedule,
+# scheduled_date, assigned_by, duration_minutes, pm_sticker_attached,
+# technician_notes + 2 child table (không filter được ở `get_list` parent).
+_ALLOWED_FILTER_KEYS = frozenset({
+    # ── cột THẬT trên `PM Work Order` (đều ∈ `_PM_LIST_FIELDS`) ──────────────
+    "name", "status", "asset_ref", "assigned_to", "supervisor",
+    "pm_type", "wo_type", "due_date", "completion_date",
+    "overall_result", "is_late", "source_pm_wo",
+    # ── khoá ẢO (bị pop/dịch TRƯỚC khi xuống `frappe.get_list`) ─────────────
+    "overdue",        # → `_normalize_filters` → status == Overdue
+    "due_before",     # → `due_soon_filter` (BR-08-12) → cửa-sổ `due_date`
+    "overdue_live",   # → `_list_pm_overdue_live` (chip mobile "Quá hạn")
+    "search",         # → `pop_search` (OR-LIKE name/asset_ref + asset_name)
+})
+# Khoảng ngày KHÔNG có khoá riêng — dùng toán tử `_OP_TOKENS` trên `due_date`:
+# `{"due_date": ["between", ["2026-01-01","2026-12-31"]]}` (ADR-IMM08-FILTERKEY-03).
+# KHÔNG hợp thức hoá `due_date_from`/`due_date_to` (2 khoá web-FE tự bịa ⇒ 500 THẬT).
+
 
 def _enrich_pm_list_rows(rows: list[dict]) -> None:
     """Enrich list PM WO rows với asset_name/location_name/assigned_to_name/
@@ -660,7 +874,8 @@ def _enrich_pm_overdue(rows: list[dict], ref_date=None) -> None:
         )
 
 
-def _fetch_all_pm_rows(filters: dict, *, or_filters: list | None = None) -> list[dict]:
+def _fetch_all_pm_rows(filters: dict, *, scope: str,
+                       or_filters: list | None = None) -> list[dict]:
     """Fetch TOÀN tập PM Work Order khớp ``filters`` (+ ``or_filters`` free-text
     search) — UNCLAMPED (loop-paginate qua từng trang ``_MAX_PAGE_SIZE`` tới hết
     tập).
@@ -675,12 +890,17 @@ def _fetch_all_pm_rows(filters: dict, *, or_filters: list | None = None) -> list
     quá hạn). Loop tích luỹ + termination theo ``pg["total_pages"]`` (từ total đã
     đếm ở tầng Repo) ⇒ predicate LIVE áp trên TOÀN tập permission/vendor-scoped
     (scope nằm trong ``filters`` — đã ``_normalize_filters`` ở call-site). Order
-    ``due_date asc`` khớp path chính ``list_work_orders``."""
+    ``due_date asc`` khớp path chính ``list_work_orders``.
+
+    P1 (ADR-IMM00-LIST-SCOPE §8.4): ``scope`` là **keyword BẮT BUỘC, KHÔNG default
+    ẩn** — mirror ``imm09._fetch_all_repair_rows``; default ẩn = nguồn lệch
+    card-vs-drill âm thầm (D7)."""
     all_rows: list[dict] = []
     page = 1
     total_pages = 1
     while page <= total_pages:
         rows, pg = PMWorkOrderRepo.list(
+            scope=scope,
             filters=filters,
             or_filters=or_filters,
             fields=_PM_LIST_FIELDS,
@@ -711,7 +931,10 @@ def _list_pm_overdue_live(base_filters: dict, *, or_filters: list | None = None,
     ``_normalize_filters``) → enrich → filter LIVE → paginate IN-PYTHON trên tập ĐÃ
     LỌC (``pagination.total`` == số overdue thực, KHÔNG cap 100). Order ``due_date
     asc`` như path chính."""
-    all_rows = _fetch_all_pm_rows(_normalize_filters(base_filters), or_filters=or_filters)
+    # P1 caller (ADR §8.4): chip LIVE 'Quá hạn' = endpoint list NGƯỜI DÙNG
+    # (membership == badge) ⇒ row-scoped như path chính ``list_work_orders``.
+    all_rows = _fetch_all_pm_rows(_normalize_filters(base_filters), scope="user",
+                                  or_filters=or_filters)
     _enrich_pm_overdue(all_rows)
     overdue = [r for r in all_rows if r.get("is_overdue")]
     pg = paginate(len(overdue), page, page_size)
@@ -721,6 +944,25 @@ def _list_pm_overdue_live(base_filters: dict, *, or_filters: list | None = None,
 
 
 def list_work_orders(filters: dict, *, page: int = 1, page_size: int = 20) -> dict:
+    """Entrypoint list phiếu PM — BR-00-ROWSCOPE-403 boundary (đối xứng imm09).
+
+    Rows đi `scope="user"` (D4) ⇒ persona KHÔNG có DocPerm read trên `PM Work Order`
+    (Calibration/Corrective/Repair User, Vendor Engineer — ADR §8.5) làm
+    `frappe.get_list` raise `PermissionError`. `run_rowscoped` chuyển thành
+    **HTTP-200 + Error envelope 403**, KHÔNG 500 câm, KHÔNG list rỗng giả.
+
+    AC-CR-79: khoá `filters` ngoài `_ALLOWED_FILTER_KEYS` ⇒ **400 IN-ENVELOPE**
+    (trước đây `OperationalError 1054` bubble → HTTP-500 lộ `tabPM Work Order.<cột>`).
+    """
+    # AC-CR-79: validate khoá TRƯỚC pop `overdue_live` / `pop_search` /
+    # `_normalize_filters` ⇒ 4 khoá ảo còn nguyên trong dict lúc kiểm (nên chúng
+    # PHẢI ∈ whitelist) và ngữ nghĩa của chúng KHÔNG đổi (AC5). Đặt NGOÀI
+    # `run_rowscoped` vì `ServiceError` ≠ `PermissionError` — không bị nhánh 403 nuốt.
+    assert_allowed_filter_keys(filters, _ALLOWED_FILTER_KEYS)
+    return run_rowscoped(_list_work_orders, filters, page=page, page_size=page_size)
+
+
+def _list_work_orders(filters: dict, *, page: int = 1, page_size: int = 20) -> dict:
     # POP cờ ảo `overdue_live` TRƯỚC _normalize_filters (mirror imm09
     # list_work_orders POP `sla_breached_live`) — tránh đẩy 1 cột KHÔNG tồn tại
     # (`overdue_live`) vào frappe.get_all. Truthy → nhánh membership LIVE (chip
@@ -742,6 +984,9 @@ def list_work_orders(filters: dict, *, page: int = 1, page_size: int = 20) -> di
     if str(want_overdue_live) in ("1", "True", "true", "yes"):
         return _list_pm_overdue_live(base, or_filters=or_filters, page=page, page_size=page_size)
     rows, pg = PMWorkOrderRepo.list(
+        # P2 (ADR §8.4): endpoint list NGƯỜI DÙNG — row-scoped `assigned_to` (D4),
+        # KHỚP write-gate phiếu PM (đọc được ⇒ ghi được).
+        scope="user",
         filters=_normalize_filters(base),
         or_filters=or_filters,
         fields=_PM_LIST_FIELDS,
@@ -756,10 +1001,24 @@ def list_work_orders(filters: dict, *, page: int = 1, page_size: int = 20) -> di
     return {"data": rows, "pagination": pg}
 
 
+@rowscoped
 def get_work_order(name: str) -> dict:
-    wo = PMWorkOrderRepo.get(name)
+    """Chi tiết 1 PM Work Order (màn PM-detail web + mobile `getPmWorkOrder`).
+
+    CR-74 (ADR-IMM00-LIST-SCOPE §9.4) — khuôn 3 lớp **ROLE → EXISTS → ROW**:
+      * L0 ROLE chạy **TRƯỚC** `exists` ⇒ persona thiếu DocPerm read nhận CÙNG một 403
+        cho `name` có thật lẫn `name` bịa (D9: 0 existence-oracle trên naming-series);
+      * L1 EXISTS giữ nguyên 404 `IMM08_WO_NOT_FOUND` cho người CÓ quyền;
+      * L2 ROW kích hoạt hook `pm_work_order_has_permission` (hooks.py:452) trên doc ĐÃ
+        load ⇒ 0 query thêm; KTV chỉ đọc phiếu `assigned_to`/`supervisor` là mình.
+    `@rowscoped` chuyển `frappe.PermissionError` → Error envelope FORBIDDEN/403 trên
+    **HTTP-200** (client hiển thị message, KHÔNG logout — khác dispatcher-403 hết phiên).
+    """
+    assert_doctype_read_permission(_DT_PM_WO)          # L0 ROLE (trước exists — D9)
+    wo = PMWorkOrderRepo.get(name)                     # L1 EXISTS
     if not wo:
         nthrow(MSG.IMM08_WO_NOT_FOUND, name=name)
+    assert_can_read_doc(_DT_PM_WO, wo)                 # L2 ROW (hook has_permission)
 
     asset = AssetRepo.get_value(
         wo.asset_ref,
@@ -791,6 +1050,14 @@ def get_work_order(name: str) -> dict:
     _ovd_row = {"status": wo.status, "due_date": wo.due_date}
     _enrich_pm_overdue([_ovd_row])
 
+    # CR-45b (ADR-IMM08-RESCHED-CTA): allowed_transitions = workflow-mirror ∪ reschedule-CTA-
+    # overlay. Copy list (KHÔNG mutate SSoT map), append Pending–Device Busy CHỈ cho Open/Overdue
+    # (đích của action «Dời lịch» = reschedule() — service action ngoài workflow). In Progress ĐÃ
+    # có Pending–Device Busy từ workflow ⇒ guard `not in` giữ overlay no-op (KHÔNG trùng lặp).
+    allowed_transitions = list(_PM_VALID_TRANSITIONS.get(wo.status, []))
+    if wo.status in RESCHEDULE_CTA_STATES and PMStatus.PENDING_BUSY not in allowed_transitions:
+        allowed_transitions.append(PMStatus.PENDING_BUSY)
+
     return {
         "name": wo.name,
         "asset_ref": wo.asset_ref,
@@ -817,9 +1084,15 @@ def get_work_order(name: str) -> dict:
         "is_overdue": _ovd_row["is_overdue"],
         "duration_minutes": wo.duration_minutes,
         "source_pm_wo": wo.source_pm_wo,
-        # Server-driven CTA (mirror imm12.get_incident_detail:778) — màn PM-detail
-        # render nút workflow theo tập này, KHÔNG hardcode status→button client-side.
-        "allowed_transitions": _PM_VALID_TRANSITIONS.get(wo.status, []),
+        # Server-driven CTA (mirror imm12.get_incident_detail:778) — màn PM-detail render
+        # nút workflow theo tập này, KHÔNG hardcode status→button client-side. = workflow-
+        # mirror ∪ reschedule-CTA-overlay (CR-45b, xem RESCHEDULE_CTA_STATES ở trên).
+        "allowed_transitions": allowed_transitions,
+        # AC-CR-77: 4 CTA server-driven (enabled + reason do SERVER quyết) — FE/mobile
+        # CHỈ render, KHÔNG tự ghép `can(cap) && allowed_transitions.includes(...)`.
+        # ADDITIVE cạnh `allowed_transitions` (giữ nguyên 100% — A6/INV-PMCTA-9);
+        # `Cancelled` KHÔNG bao giờ là action (có transition, KHÔNG có endpoint).
+        "available_actions": _build_pm_available_actions(wo),
         "checklist_results": checklist,
     }
 
@@ -1013,6 +1286,13 @@ def assign_technician(name: str, *, technician: str, scheduled_date: str | None 
     wo = PMWorkOrderRepo.get(name)
     if not wo:
         nthrow(MSG.IMM08_WO_NOT_FOUND, name=name)
+    # AC-CR-77 (04 §4.3.4-4): khớp business_gate của CTA `start_work` (phiếu phải có
+    # KTV để dispatch). Trước đây call với `technician` rỗng ÂM THẦM flip WO sang
+    # In Progress + đặt thiết bị Under Maintenance với `assigned_to` TRỐNG (lỗ dữ
+    # liệu: không ai chịu trách nhiệm phiếu). Dùng helper validation() (422) —
+    # KHÔNG thêm MSG-code mới (né coupling gen_fe_messages).
+    if not (technician or "").strip():
+        raise validation("Phải chọn kỹ thuật viên trước khi bắt đầu bảo trì")
     if wo.status not in (PMStatus.OPEN, PMStatus.OVERDUE):
         nthrow(MSG.IMM08_BAD_STATE, state=wo.status)
     if wo.asset_ref and not frappe.db.exists(_DT_AC_ASSET, wo.asset_ref):
@@ -1246,6 +1526,17 @@ def reschedule(name: str, *, new_date: str, reason: str) -> dict:
     wo = PMWorkOrderRepo.get(name)
     if not wo:
         nthrow(MSG.IMM08_WO_NOT_FOUND, name=name)
+    # CR-45 (b): guard phiếu TERMINAL — phiếu đã Completed/Cancelled KHÔNG còn nghĩa vụ dời
+    # lịch. Trước đây thiếu guard ⇒ ghi IM LẶNG due_date + flip status → Pending–Device Busy
+    # lên phiếu đã đóng (lệch máy trạng thái + sai vết audit). Raise 422 VALIDATION (literal
+    # qua helper validation() — KHÔNG thêm MSG-code mới ⇒ né gen_fe_messages/SYS-500), NGAY
+    # sau load, TRƯỚC mọi mutate ⇒ due_date KHÔNG bị ghi đè. Ca hợp lệ (Open/Overdue/In
+    # Progress) vẫn dời lịch được như cũ.
+    # AC-CR-77 (ADR-IMM08-CTA-02): guard đọc CÙNG hằng mà `available_actions.reschedule`
+    # dùng để advertise ⇒ display == enforcement 7/7 status (INV-PMCTA-8). Tập status BỊ
+    # CHẶN không đổi ({Completed, Cancelled} + mã lạ ngoài máy trạng thái) — cùng message.
+    if wo.status not in RESCHEDULE_ACTION_STATES:
+        raise validation("Không thể hoãn lịch phiếu bảo trì đã hoàn tất hoặc đã hủy")
     was_in_progress = wo.status == PMStatus.IN_PROGRESS
     old_date = str(wo.due_date)
     wo.due_date = new_date
@@ -1316,6 +1607,7 @@ def create_adhoc_work_order(data: dict) -> dict:
 
 # ─── Calendar & Dashboard ────────────────────────────────────────────────────
 
+@rowscoped
 def get_calendar(*, year: int, month: int,
                  asset_ref: str | None = None,
                  technician: str | None = None) -> dict:
@@ -1327,6 +1619,9 @@ def get_calendar(*, year: int, month: int,
         filters["assigned_to"] = technician
 
     wos, _ = PMWorkOrderRepo.list(
+        # P3 (ADR §8.4 / D6 plan-centric): lịch PM TOÀN VIỆN phục vụ điều phối ca
+        # trực — đã có param `technician` để tự thu hẹp. Read-only, KHÔNG nút hành động.
+        scope="system",
         filters=filters,
         fields=["name", "asset_ref", "pm_type", "due_date", "status", "assigned_to", "is_late"],
         order_by="due_date asc",
@@ -1355,9 +1650,12 @@ def get_calendar(*, year: int, month: int,
     }
 
 
+@rowscoped
 def get_dashboard_stats(*, year: int, month: int) -> dict:
     start_date, end_date, _ld = _month_range(year, month)
     wos, _ = PMWorkOrderRepo.list(
+        # P4 (ADR §8.4): KPI tổng hợp theo KỲ báo cáo — không phơi danh tính từng phiếu.
+        scope="system",
         filters={"due_date": ["between", [start_date, end_date]]},
         fields=["name", "status", "is_late", "completion_date", "due_date"],
         page_size=5000,
@@ -1410,6 +1708,8 @@ def get_dashboard_stats(*, year: int, month: int) -> dict:
             y -= 1
         s, e, _ = _month_range(y, m)
         month_wos, _ = PMWorkOrderRepo.list(
+            # P5 (ADR §8.4): trend 6 tháng — CÙNG mẫu KPI tổng hợp với P4 (INV-PM-KPI-6).
+            scope="system",
             filters={"due_date": ["between", [s, e]]},
             fields=["status", "is_late"],
             page_size=5000,
@@ -1445,20 +1745,57 @@ def get_dashboard_stats(*, year: int, month: int) -> dict:
     }
 
 
+@rowscoped
 def get_asset_history(asset_ref: str, *, limit: int = 10) -> dict:
-    logs, _ = PMTaskLogRepo.list(
+    # ── GATE quyền L0 ROLE (AC-CR-119 · ADR §11.8 D-OPH-27) — TRƯỚC mọi truy vấn ──
+    # Hôm nay 403 vẫn đúng, nhưng đến từ **tác dụng phụ**: `PMTaskLogRepo.list` chạy
+    # `scope="user"` (KHÔNG thuộc `_ROLE_GATED_SCOPES` — repositories/base.py:37) nên
+    # DocPerm chỉ được enforce nhờ `count_with_or` tình cờ dùng `frappe.get_list`.
+    # Chính lớp phụ thuộc đó đã một lần sinh finding CRITICAL A01 (nguyên văn
+    # services/shared/permissions.py:57-62: tham-số-hoá `scope` gỡ mất tác dụng phụ
+    # mà không ai thay bằng gate tường minh), và recipe tối ưu COUNT đã ghi sẵn trong
+    # repo (`filters.py` → `fields=["count(name) as _c"]`) là đúng loại thay đổi sẽ
+    # IM LẶNG gỡ cái 403 này. Gate tường minh ⇒ biconditional D-OPH-21
+    # (`rbac.can("pm.read_history") ⟺ endpoint KHÔNG 403`) đúng THEO CẤU TẠO, không
+    # theo may mắn; và 3 nhánh dùng CÙNG một khuôn gate (imm09 qua repo
+    # scope="system", imm12 tường minh, imm08 tường minh).
+    # 0 đổi hành vi: `frappe.PermissionError` → `@rowscoped` → CÙNG envelope 403 trên
+    # HTTP-200 với CÙNG message hằng `MSG.AUTH_FORBIDDEN`; chỉ SỚM hơn một truy vấn
+    # (bớt 1 query cho user bị chặn). Ai CÓ quyền: đường đi không đổi 1 bit.
+    assert_doctype_read_permission(_DT_PM_TASK_LOG)
+    logs, pg = PMTaskLogRepo.list(
         filters={"asset_ref": asset_ref},
         fields=["name", "pm_work_order", "pm_type", "completion_date",
                 "technician", "overall_result", "is_late", "days_late",
                 "next_pm_date", "summary"],
         order_by="completion_date desc",
-        page_size=int(limit),
+        # PARITY `limit` giữa 3 tab cùng màn hồ-sơ-thiết-bị (imm08/imm09/imm12):
+        # CLAMP bằng SSoT `clamp_page_size` với default **10 = default CỦA CHÍNH
+        # ENDPOINT NÀY**. Truyền `int(limit)` thô thì `limit=0` (falsy) rơi vào
+        # default **20 của `paginate`** ⇒ cùng một tham số mà tab PM trả 20 dòng
+        # còn tab Sự cố trả 10 (imm12 clamp default 10) — client mobile dùng CHUNG
+        # 1 hằng `limit` cho cả 3 tab nên lệch này là lỗi hợp đồng, không phải
+        # tiểu tiết. `pg["page_size"]` sau đó == giá trị đã clamp (idempotent).
+        page_size=clamp_page_size(limit, 10),
     )
-    return {"asset_ref": asset_ref, "history": logs}
+    # CR-69 hợp đồng TRUNG THỰC khi cắt: màn hồ-sơ-vận-hành thiết bị dùng danh
+    # sách này để quyết định sửa-tiếp-hay-thanh-lý (WHO HTM Decommission / NĐ98)
+    # ⇒ KHÔNG được cắt IM LẶNG. `pg["total"]` = COUNT DB thật trên ĐÚNG filter
+    # {asset_ref} TRƯỚC khi cắt, do BaseRepository.list ĐÃ tính bằng CÙNG engine
+    # với rows (count_with_or + get_list — repositories/base.py:146-160) ⇒ tái
+    # dùng, ZERO query COUNT thêm.
+    # Cap dùng `pg["page_size"]` (paginate CLAMP [1,100]) chứ KHÔNG phải `limit`
+    # thô: client gửi limit=500 ⇒ rows bị clamp còn 100 mà len(rows) < 500 sẽ kết
+    # luận "không cắt" và total=100 — đúng lời nói dối CR-69 xoá bỏ.
+    total, truncated = truncation_meta(
+        len(logs), int(pg["page_size"]), lambda: int(pg["total"]))
+    return {"asset_ref": asset_ref, "history": logs,
+            "total": total, "truncated": truncated}
 
 
 # ─── PM Schedule CRUD ─────────────────────────────────────────────────────────
 
+@rowscoped
 def list_schedules(*, asset_ref: str | None = None, status: str | None = None,
                    page: int = 1, page_size: int = 20) -> dict:
     filters: dict = {}
@@ -1479,6 +1816,7 @@ def list_schedules(*, asset_ref: str | None = None, status: str | None = None,
     return {"data": rows, "pagination": pg}
 
 
+@rowscoped
 def get_due_pm_schedules(days: int = 30, limit: int = 50) -> dict:
     """Danh sách PM Schedule due_soon/overdue (≤ N ngày) — màn "Nhắc việc" (mobile F8).
 
@@ -1498,26 +1836,68 @@ def get_due_pm_schedules(days: int = 30, limit: int = 50) -> dict:
 
     ``days_left = date_diff(next_due_date, today)`` signed int (ÂM = quá hạn) —
     server-derived (client KHÔNG re-derive / so ngày client-clock).
+
+    CR-45 (b): mỗi row THÊM ``next_wo_ref`` (PK phiếu PM Work Order MỞ gần hạn nhất
+    của lịch — status ∈ PM_OPEN_WO_STATUSES, order ``scheduled_date asc``; None nếu
+    0 phiếu mở) + ``next_wo_status`` (status phiếu đó / None). Enrich 1-BATCH (filter
+    ``pm_schedule IN [...]``) — mở đường từ màn Nhắc việc vào phiếu, KHÔNG N+1. Shape
+    envelope + 9 field cũ + threshold_days/total/truncated GIỮ NGUYÊN (additive).
     """
     today = nowdate()
     threshold = add_days(today, int(days))
+    # SSoT filter-set (BR-08 due-list) — DÙNG CHUNG cho fetch VÀ count uncapped (CR-46).
+    # Guard `is set` BẮT BUỘC nằm trong CẢ HAI để COUNT không đếm nhầm NULL bị Frappe
+    # ép '0001-01-01' (lịch chưa-có-ngày ≠ 'đến hạn').
+    due_filters = [
+        ["status", "=", PMScheduleStatus.ACTIVE],
+        ["next_due_date", "is", "set"],
+        ["next_due_date", "<=", threshold],
+    ]
+    cap = int(limit)
     rows, _ = PMScheduleRepo.list(
-        filters=[
-            ["status", "=", PMScheduleStatus.ACTIVE],
-            ["next_due_date", "is", "set"],
-            ["next_due_date", "<=", threshold],
-        ],
+        filters=due_filters,
         fields=["name", "asset_ref", "pm_type", "status",
                 "next_due_date", "last_pm_date", "responsible_technician"],
         order_by="next_due_date asc",
-        page_size=int(limit),
+        page_size=cap,
     )
+    # CR-45 (b): enrich next_wo_ref/next_wo_status — mở đường TỪ màn Nhắc việc VÀO phiếu.
+    # 1-BATCH DUY NHẤT (filter pm_schedule IN [<schedule names đã cắt>] ∧ status ∈
+    # PM_OPEN_WO_STATUSES) → build map schedule→phiếu-mở-gần-hạn-nhất. KHÔNG N+1 (1 query
+    # frappe.get_all cho TOÀN bộ rows, mirror _enrich_pm_list_rows). Order `scheduled_date
+    # asc, name asc` (tie-break ổn định, khớp OAS DuePmScheduleListItem) ⇒ setdefault giữ
+    # phiếu ĐẦU TIÊN = gần hạn nhất. Lịch 0 phiếu mở (chỉ Completed/Cancelled/Halted hoặc
+    # chưa có phiếu) ⇒ cả 2 field None (không đoán bừa).
+    sched_names = [r["name"] for r in rows]
+    wo_map: dict = {}
+    if sched_names:
+        open_wos = frappe.get_all(
+            _DT_PM_WO,
+            filters=[
+                ["pm_schedule", "in", sched_names],
+                ["status", "in", list(PM_OPEN_WO_STATUSES)],
+            ],
+            fields=["name", "pm_schedule", "status", "scheduled_date"],
+            order_by="scheduled_date asc, name asc",
+            limit_page_length=0,
+        )
+        for w in open_wos:
+            wo_map.setdefault(w["pm_schedule"], w)
+
     today_d = getdate(today)
     for r in rows:
         r["asset_name"] = AssetRepo.get_value(r["asset_ref"], "asset_name") or ""
         nd = r.get("next_due_date")
         r["days_left"] = date_diff(nd, today_d) if nd else None
-    return {"items": rows, "threshold_days": int(days)}
+        w = wo_map.get(r["name"])
+        r["next_wo_ref"] = w["name"] if w else None
+        r["next_wo_status"] = w["status"] if w else None
+    # CR-46 hợp đồng TRUNG THỰC khi cắt: total = COUNT thật trên ĐÚNG due_filters
+    # TRƯỚC cắt; truncated = int 0/1. ZERO-COST — count_fn CHỈ chạy khi len(rows)≥cap.
+    total, truncated = truncation_meta(
+        len(rows), cap, lambda: PMScheduleRepo.count(due_filters))
+    return {"items": rows, "threshold_days": int(days),
+            "total": total, "truncated": truncated}
 
 
 def get_schedule(name: str) -> dict:
@@ -1592,6 +1972,7 @@ def delete_schedule(name: str) -> dict:
 
 # ─── PM Checklist Template CRUD ───────────────────────────────────────────────
 
+@rowscoped
 def list_templates(*, asset_category: str | None = None, pm_type: str | None = None,
                    page: int = 1, page_size: int = 20) -> dict:
     filters: dict = {}
@@ -1926,6 +2307,13 @@ def create_pm_schedule_from_commissioning(
     interval = int(model.get("pm_interval_days") or 365)
     alert_days = int(model.get("pm_alert_days") or 7)
     pm_type = next((t for days, t in _PM_TYPE_FROM_INTERVAL if interval <= days), "Annual")
+    # IDEMPOTENT (bắt buộc cho doc_event): `AC Asset.after_insert` →
+    # `create_pm_schedule_from_asset` ĐÃ tạo lịch cho asset vừa mint ở
+    # `mint_core_asset`; hook on_submit này chạy ngay sau đó trong CÙNG luồng ⇒ thiếu
+    # guard là DuplicateEntryError 1062 (`PMS-<asset>-<pm_type>` là primary key) làm vỡ
+    # cả transition vào Clinical Release. Guard giống hệt bản asset-side (imm08:1856).
+    if PMScheduleRepo.exists({"asset_ref": asset, "pm_type": pm_type}):
+        return None
     base_date = commissioning_doc.commissioning_date or nowdate()
 
     # checklist_template là BẮT BUỘC (PMSchedule.validate throw nếu trống) — phải

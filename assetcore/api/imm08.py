@@ -169,7 +169,18 @@ def create_pm_work_order() -> dict:
 
 @frappe.whitelist()
 def get_pm_calendar(year: int, month: int, asset_ref: str = None,
-                     technician: str = None) -> dict:
+                     technician: str = None, mine: int = 0) -> dict:
+    # C-LISTREAD-MINE-PM (CR-62d — toggle "Chỉ việc của tôi" trên Lịch PM tháng,
+    #   mobile Spec 62 / docs/features/62-lich-pm-thang-imm08.md): mine=1 → scope
+    #   events[] + summary về assigned_to == session.user. Email do SERVER giải
+    #   (client KHÔNG truyền email) → override technician đã truyền BẤT KỂ giá trị
+    #   (mine THẮNG, khớp precedent imm09.py:37 / imm11.py:84; PM domain field =
+    #   assigned_to). Inject TRƯỚC svc.get_calendar (service pipe technician →
+    #   filters['assigned_to'], KHÔNG thêm business rule). mine=0/absent ⇒ nhánh gọi
+    #   BYTE-IDENTICAL baseline (web-FE PMDashboard/Calendar KHÔNG regress — param
+    #   additive default 0, 0 regression).
+    if int(mine or 0):
+        technician = frappe.session.user
     return handle(svc.get_calendar,
                    year=int(year), month=int(month),
                    asset_ref=asset_ref, technician=technician)

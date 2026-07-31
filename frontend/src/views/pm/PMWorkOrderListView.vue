@@ -61,7 +61,7 @@ const PM_STATUSES = [
 ]
 
 function buildFilters() {
-  const f: Record<string, string | string[]> = {}
+  const f: Record<string, unknown> = {}
   // R6: overdue/due_before là virtual key — BE imm08._normalize_filters dịch sang
   // status=Overdue / due_date BETWEEN [today, X] (due_soon_filter, cận dưới = hôm
   // nay để WO quá hạn KHÔNG leak vào drill — SSOT, list khớp KPI). overdue thắng
@@ -69,8 +69,20 @@ function buildFilters() {
   if (overdueOnly.value) f.overdue = '1'
   else if (dueBefore.value) f.due_before = dueBefore.value
   if (statusFilter.value && !overdueOnly.value) f.status = [statusFilter.value]
-  if (dateFrom.value) f.due_date_from = [dateFrom.value]
-  if (dateTo.value) f.due_date_to = [dateTo.value]
+  // AC-CR-79 — SỬA BUG THẬT: 2 khoá `due_date_from`/`due_date_to` là do FE tự bịa,
+  // BE CHƯA TỪNG có (không phải cột `PM Work Order`, không được `_normalize_filters`
+  // dịch) ⇒ rơi thẳng xuống SQL: `Unknown column 'tabPM Work Order.due_date_from'`
+  // = HTTP-500. Nghĩa là bộ lọc "Từ ngày / Đến ngày" của màn này CHƯA BAO GIỜ chạy.
+  // Dạng ĐÚNG (ADR-IMM08-FILTERKEY-03): cột THẬT `due_date` + toán tử Frappe —
+  // `_normalize_filters` giữ nguyên cặp [op, value] khi op ∈ _OP_TOKENS.
+  // KHÔNG gửi kèm `due_before`: nhánh due_before của BE GHI ĐÈ `due_date` ⇒ khoảng
+  // ngày sẽ bị nuốt IM LẶNG. Với `overdue` thì an toàn (BE chỉ set `status`).
+  const sendingDueBefore = !overdueOnly.value && !!dueBefore.value
+  if (!sendingDueBefore) {
+    if (dateFrom.value && dateTo.value) f.due_date = ['between', [dateFrom.value, dateTo.value]]
+    else if (dateFrom.value) f.due_date = ['>=', dateFrom.value]
+    else if (dateTo.value) f.due_date = ['<=', dateTo.value]
+  }
   if (assetFilter.value) f.asset_ref = assetFilter.value
   return f
 }
@@ -176,9 +188,13 @@ function quickFilter(_key: 'status', value: string) {
 
 <template>
   <div class="page-container animate-fade-in">
+    <!-- INV-ROWSCOPE / A5 (đối xứng CM): "Tổng" LUÔN từ pagination.total (SoT
+         permission-aware của BE). Fallback cũ `?? store.workOrders.length` che giấu
+         drift count-vs-rows (đếm N nhưng chỉ đọc được M) ⇒ bỏ, chỉ còn `?? 0`.
+         "Hiển thị X" bên dưới vẫn là số dòng TRANG hiện tại (.length). -->
     <PageHeader
       title="Phiếu Bảo trì định kỳ"
-      :subtitle="`Tổng ${store.pagination.total ?? store.workOrders.length} phiếu`"
+      :subtitle="`Tổng ${store.pagination.total ?? 0} phiếu`"
       :breadcrumb="[{ label: 'IMM-08 · Bảo trì', to: '/pm/dashboard' }, { label: 'Danh sách' }]"
     >
       <template #actions>
@@ -237,6 +253,30 @@ function quickFilter(_key: 'status', value: string) {
         </div>
       </template>
     </ListFilterBar>
+
+    <!-- AC-CR-79 — Bộ lọc không hợp lệ: BE từ chối khoá lọc lạ bằng lỗi 400 TRONG
+         envelope (HTTP-200). Đây là CẢNH BÁO, không phải sự cố nạp dữ liệu ⇒ bảng
+         bên dưới GIỮ NGUYÊN dữ liệu đang xem (không trắng trang, không đăng xuất).
+         Nội dung hiển thị là message tiếng Việt do BE trả về — FE KHÔNG dựng lại
+         danh sách khoá hợp lệ (SSoT nằm ở services/imm08.py). -->
+    <div
+      v-if="store.filterError"
+      class="alert-warning"
+      role="alert"
+      data-test="pm-filter-error"
+    >
+      <svg class="w-4 h-4 shrink-0" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+      </svg>
+      <span class="flex-1">{{ store.filterError }}</span>
+      <button
+        type="button"
+        class="text-xs font-semibold underline hover:no-underline rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+        @click="resetFilters"
+      >
+        Đặt lại bộ lọc
+      </button>
+    </div>
 
     <!-- Loading skeleton -->
     <div v-if="store.loading" class="table-wrapper">
