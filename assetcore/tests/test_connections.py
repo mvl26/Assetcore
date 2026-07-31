@@ -9,8 +9,14 @@ Kiểm 4 nhóm bất biến:
   3. **Phân quyền THẬT**: chạy dưới session user, KHÔNG ``ignore_permissions``. Doctype
      ngoài quyền bị ẩn hẳn; row ngoài scope không được đếm. Đây là phần dễ hỏng nhất —
      một endpoint "chỉ đếm" vẫn rò rỉ được quy mô dữ liệu toàn viện nếu đếm sai đường.
-  4. **Hợp đồng với FE**: mỗi ô trả ``filters`` đủ để FE tự dựng link drill, không phải
-     đoán tên field.
+  4. **Hợp đồng với FE**: mỗi ô trả ``deep_link_filters`` đủ để FE tự dựng link drill,
+     không phải đoán tên field.
+
+AC-CR-92 (ADR §17 · bảng migration §17.2.2) **DỜI** assert legacy sang khoá cùng tính
+chất (``count`` → ``total`` · ``assertFalse(capped)`` → ``total_capped == 0`` ·
+``filters`` → ``deep_link_filters``) — 0 TC bị xoá, và
+``test_counts_run_under_session_user_not_administrator`` giữ **0 dòng sửa** vì nó là
+bằng chứng RATIFY cổng I/O (D-CR92-6).
 
 Run:
   bench --site miyano run-tests --app assetcore --module assetcore.tests.test_connections
@@ -140,13 +146,15 @@ class TestGetConnections(FrappeTestCase):
         items = self._items_by_doctype(res["data"])
 
         self.assertIn("Incident Report", items)
-        self.assertEqual(items["Incident Report"]["count"], 2)
-        self.assertFalse(items["Incident Report"]["capped"])
+        self.assertEqual(items["Incident Report"]["total"], 2)
+        # AC-CR-92: `capped` (bool) → `total_capped` (int 0|1) — 2 < trần ⇒ `total` là con
+        # số CHÍNH XÁC, không phải cận dưới (badge "2", KHÔNG "2+").
+        self.assertEqual(items["Incident Report"]["total_capped"], 0)
 
         # ``AC Asset.after_insert`` phát 1 sự kiện vòng đời (qr_generated) cho MỖI tài
         # sản ⇒ 1 là con số ĐÚNG, không phải nhiễu. Khẳng định tường minh để lần sau
         # ai đó đổi hành vi đó thì test này chỉ thẳng vào nguyên nhân.
-        self.assertEqual(items["Asset Lifecycle Event"]["count"], 1)
+        self.assertEqual(items["Asset Lifecycle Event"]["total"], 1)
         self.assertEqual(res["data"]["total"], 3)
 
     def test_counts_do_not_bleed_across_records(self) -> None:
@@ -154,8 +162,15 @@ class TestGetConnections(FrappeTestCase):
         self.assertTrue(res["success"], res)
         items = self._items_by_doctype(res["data"])
         # Tài sản này KHÔNG có sự cố nào — sự cố của tài sản kia không được lọt sang.
-        self.assertEqual(items.get("Incident Report", {}).get("count", 0), 0)
-        self.assertEqual(items["Asset Lifecycle Event"]["count"], 1)
+        #
+        # INV-CONN-22: `assertIn` TRƯỚC rồi mới kiểm giá trị. `items.get(dt, {}).get(...)`
+        # xanh CẢ KHI ô biến mất hoàn toàn khỏi payload ⇒ mutation "thôi liệt kê ô rỗng"
+        # sống sót, trong khi hợp đồng là ô rỗng VẪN có mặt (người dùng phải thấy
+        # "0 sự cố", không phải một khoảng trắng không giải thích).
+        self.assertIn("Incident Report", items,
+                      "Ô rỗng PHẢI vẫn có mặt trong payload (ADR §D1)")
+        self.assertEqual(items["Incident Report"]["total"], 0)
+        self.assertEqual(items["Asset Lifecycle Event"]["total"], 1)
         self.assertEqual(res["data"]["total"], 1)
 
     def test_groups_carry_vietnamese_labels(self) -> None:
@@ -171,15 +186,19 @@ class TestGetConnections(FrappeTestCase):
         res = get_connections("AC Asset", self.asset)
         items = self._items_by_doctype(res["data"])
         self.assertIn("PM Work Order", items)
-        self.assertEqual(items["PM Work Order"]["filters"], {"asset_ref": self.asset})
+        self.assertEqual(items["PM Work Order"]["deep_link_filters"],
+                         {"asset_ref": self.asset})
 
     def test_filters_let_frontend_drill(self) -> None:
         res = get_connections("AC Asset", self.asset)
         items = self._items_by_doctype(res["data"])
-        self.assertEqual(items["Incident Report"]["filters"], {"asset": self.asset})
-        # Filter trả về phải dùng được THẬT: query lại đúng số bản ghi đã đếm.
-        rows = frappe.get_all("Incident Report", filters=items["Incident Report"]["filters"])
-        self.assertEqual(len(rows), items["Incident Report"]["count"])
+        drill = items["Incident Report"]["deep_link_filters"]
+        self.assertEqual(drill, {"asset": self.asset})
+        # Bất biến count == drill (ADR-IMM00-LIST-SCOPE §4b): bộ lọc trả về phải dùng
+        # được THẬT — query lại ra ĐÚNG số bản ghi ô đã báo. AC-CR-92 chỉ đổi TÊN khoá
+        # (`filters` → `deep_link_filters`); bỏ vế query lại là mất chính oracle này.
+        rows = frappe.get_all("Incident Report", filters=drill)
+        self.assertEqual(len(rows), items["Incident Report"]["total"])
 
     # ── 3. Phân quyền ─────────────────────────────────────────────────────────
     def test_hides_doctypes_the_user_cannot_read(self) -> None:
