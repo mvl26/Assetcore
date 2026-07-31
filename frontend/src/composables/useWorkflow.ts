@@ -2,7 +2,6 @@
 // Composable: workflow transitions, state colors, permission checks
 
 import { computed } from 'vue'
-import { useAuthStore } from '@/stores/auth'
 import type { WorkflowState, WorkflowTransition } from '@/types/imm04'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -216,8 +215,6 @@ export function useWorkflow(
   currentState: () => WorkflowState | undefined,
   allowedTransitions: () => WorkflowTransition[],
 ) {
-  const auth = useAuthStore()
-
   /** Config của state hiện tại */
   const stateConfig = computed<StateConfig | null>(() => {
     const state = currentState()
@@ -235,19 +232,27 @@ export function useWorkflow(
   const isTerminalState = computed(() => stateConfig.value?.isTerminal ?? false)
 
   /**
-   * Danh sách actions được phép (có filtered theo role user hiện tại).
-   * Backend đã filter, nhưng composable filter lại cho an toàn UI.
+   * Danh sách hành động workflow render ra nút — SERVER-DRIVEN (GATE-8 / LL-FE-51).
+   *
+   * BE `services/imm04._get_workflow_transitions()` ĐÃ lọc `t.allowed in frappe.get_roles(user)`
+   * ⇒ `allowed_transitions` là SSoT: mọi phần tử trả về đều là hành động user hiện tại
+   * được phép. TUYỆT ĐỐI KHÔNG lọc lại bằng TÊN ROLE ở client (`auth.roles.includes(...)`):
+   * bộ lọc đó chỉ có thể TRỪ BỚT, và `auth.roles` là bản CACHE trong localStorage
+   * (persona "thiu" khi quản trị đổi role/role-profile giữa phiên) — nguồn khác với
+   * `frappe.get_roles()` mà BE vừa dùng. Lệch một mắt xích ⇒ nút biến mất ÂM THẦM
+   * (anti-pattern RBAC dead-gate: gate bằng role-name → fail không thông báo), đúng ca
+   * CTA "Báo cáo lỗi baseline" (CR-54 §2) — hành động DUY NHẤT thoát baseline không đạt.
+   * Quyền thật vẫn do BE chặn ở `transition_state`; FE chỉ render đúng cái BE đã cho.
+   *
+   * Chỉ giữ de-dup theo `action` (1 action có nhiều dòng transition cho nhiều role).
    */
   const filteredActions = computed<WorkflowTransition[]>(() => {
-    const userRoles = auth.roles
     const seen = new Set<string>()
-    return allowedTransitions()
-      .filter((t) => userRoles.includes(t.allowed_role))
-      .filter((t) => {
-        if (seen.has(t.action)) return false
-        seen.add(t.action)
-        return true
-      })
+    return allowedTransitions().filter((t) => {
+      if (seen.has(t.action)) return false
+      seen.add(t.action)
+      return true
+    })
   })
 
   /** Lấy config của một action */
