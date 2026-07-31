@@ -23,7 +23,7 @@ import { getDecommission, approveDecommission, type DecommissionRecord } from '@
 import PageHeader from '@/components/common/PageHeader.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import DetailLoadError from '@/components/common/DetailLoadError.vue'
-import { loadErrorKind } from '@/api/errors'
+import { loadErrorKind, type DetailLoadKind } from '@/api/errors'
 import {
   disposalMethodLabel,
   decommissionStateLabel,
@@ -42,7 +42,7 @@ const record = ref<DecommissionRecord | null>(null)
 const errorMsg = ref<string | null>(null)
 // Mã hồ sơ sai / đã xoá ⇒ 404: empty-state "không tìm thấy" + lối về danh sách
 // (trước chỉ "Thử lại" — retry vô nghĩa với mã sai/đã xoá ⇒ dead-end).
-const loadFailed = ref<'' | 'notfound' | 'unknown'>('')
+const loadFailed = ref<'' | DetailLoadKind>('')
 
 async function load() {
   errorMsg.value = null

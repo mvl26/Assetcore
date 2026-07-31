@@ -10,7 +10,7 @@ import StatusBadge from '@/components/common/StatusBadge.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import SmartSelect from '@/components/common/SmartSelect.vue'
 import DetailLoadError from '@/components/common/DetailLoadError.vue'
-import { loadErrorKind } from '@/api/errors'
+import { loadErrorKind, type DetailLoadKind } from '@/api/errors'
 
 const props = defineProps<{ name?: string }>()
 const router = useRouter()
@@ -22,7 +22,7 @@ const { currentProgram, loading, error, lastApiError } = storeToRefs(store)
 
 // Mã chương trình sai / đã xoá ⇒ 404: hiện empty-state "không tìm thấy" + lối về
 // danh sách, KHÔNG phải banner đỏ + "Thử lại" (retry vô nghĩa) hay dòng chữ cụt.
-const loadFailed = computed<'' | 'notfound' | 'unknown'>(() => {
+const loadFailed = computed<'' | DetailLoadKind>(() => {
   if (isCreateMode.value || currentProgram.value) return ''
   if (error.value) return loadErrorKind(lastApiError.value ?? new Error(error.value))
   return 'notfound'

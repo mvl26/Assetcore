@@ -20,7 +20,7 @@ import DateInput from '@/components/common/DateInput.vue'
 import FileUploadField from '@/components/common/FileUploadField.vue'
 import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
 import DetailLoadError from '@/components/common/DetailLoadError.vue'
-import { loadErrorKind, toApiError } from '@/api/errors'
+import { loadErrorKind, toApiError, type DetailLoadKind } from '@/api/errors'
 
 const route = useRoute()
 const router = useRouter()
@@ -31,7 +31,7 @@ const name = route.params.id as string
 const mr = ref<ManagementReview | null>(null)
 const loading = ref(true)
 // '' = nạp OK; 'notfound' = mã cuộc soát xét không tồn tại (404); 'unknown' = lỗi khác.
-const loadFailed = ref<'' | 'notfound' | 'unknown'>('')
+const loadFailed = ref<'' | DetailLoadKind>('')
 const loadErrMsg = ref('')
 const historyRef = ref<InstanceType<typeof RecordHistory> | null>(null)
 

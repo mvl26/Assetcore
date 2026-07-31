@@ -21,7 +21,7 @@ import BaseModal from '@/components/common/BaseModal.vue'
 import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import DetailLoadError from '@/components/common/DetailLoadError.vue'
-import { loadErrorKind } from '@/api/errors'
+import { loadErrorKind, type DetailLoadKind } from '@/api/errors'
 import { useApi } from '@/composables/useApi'
 import { formatCurrency, formatDate } from '@/utils/formatters'
 import {
@@ -41,7 +41,7 @@ const name = computed(() => route.params.name as string)
 const detail = computed(() => cycleCountDetail.value)
 // Mã phiếu kiểm kê sai / đã xoá ⇒ 404: empty-state "không tìm thấy" + lối về danh
 // sách (trước chỉ có nút "Thử lại" — vô nghĩa với mã sai, và không có lối thoát).
-const loadFailed = computed<'' | 'notfound' | 'unknown'>(() =>
+const loadFailed = computed<'' | DetailLoadKind>(() =>
   detail.value ? '' : (error.value ? loadErrorKind(lastApiError.value) : ''))
 const status = computed(() => detail.value?.status ?? '')
 const items = computed<CycleCountItem[]>(() => detail.value?.items ?? [])

@@ -14,7 +14,7 @@ import SmartSelect from '@/components/common/SmartSelect.vue'
 import DateInput from '@/components/common/DateInput.vue'
 import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
 import DetailLoadError from '@/components/common/DetailLoadError.vue'
-import { loadErrorKind } from '@/api/errors'
+import { loadErrorKind, type DetailLoadKind } from '@/api/errors'
 
 
 const props = defineProps<{ name?: string }>()
@@ -31,7 +31,7 @@ const isCreateMode = computed(() => !props.name)
 
 // Mã buổi đào tạo sai / đã xoá ⇒ 404: empty-state "không tìm thấy" + lối về danh
 // sách (thay banner đỏ + "Thử lại" và dòng chữ cụt cuối template — dead-end).
-const loadFailed = computed<'' | 'notfound' | 'unknown'>(() => {
+const loadFailed = computed<'' | DetailLoadKind>(() => {
   if (isCreateMode.value || currentSession.value) return ''
   if (error.value) return loadErrorKind(lastApiError.value ?? new Error(error.value))
   return 'notfound'

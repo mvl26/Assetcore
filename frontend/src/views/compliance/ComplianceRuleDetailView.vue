@@ -13,7 +13,7 @@ import BaseModal from '@/components/common/BaseModal.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import RecordHistory from '@/components/common/RecordHistory.vue'
 import DetailLoadError from '@/components/common/DetailLoadError.vue'
-import { loadErrorKind, toApiError } from '@/api/errors'
+import { loadErrorKind, toApiError, type DetailLoadKind } from '@/api/errors'
 import { translateFrequency } from '@/utils/formatters'
 
 const route = useRoute()
@@ -25,7 +25,7 @@ const name = route.params.id as string
 const rule = ref<ComplianceRule | null>(null)
 const loading = ref(true)
 // '' = nạp OK; 'notfound' = mã quy tắc không tồn tại (404); 'unknown' = lỗi khác.
-const loadFailed = ref<'' | 'notfound' | 'unknown'>('')
+const loadFailed = ref<'' | DetailLoadKind>('')
 const loadErrMsg = ref('')
 const historyRef = ref<InstanceType<typeof RecordHistory> | null>(null)
 

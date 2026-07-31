@@ -13,7 +13,7 @@ import StatusBadge from '@/components/common/StatusBadge.vue'
 import BaseModal from '@/components/common/BaseModal.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import DetailLoadError from '@/components/common/DetailLoadError.vue'
-import { loadErrorKind, toApiError } from '@/api/errors'
+import { loadErrorKind, toApiError, type DetailLoadKind } from '@/api/errors'
 
 const props = defineProps<{ id: string }>()
 const router = useRouter()
@@ -23,7 +23,7 @@ const api = useApi()
 const audit = ref<InternalAudit | null>(null)
 const loading = ref(false)
 // '' = nạp OK; 'notfound' = mã kiểm toán không tồn tại (404); 'unknown' = lỗi khác.
-const loadFailed = ref<'' | 'notfound' | 'unknown'>('')
+const loadFailed = ref<'' | DetailLoadKind>('')
 const loadErrMsg = ref('')
 const activeTab = ref<'overview' | 'checklist' | 'report'>('overview')
 
