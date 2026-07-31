@@ -31,6 +31,7 @@ import unittest
 import frappe
 from frappe.utils import add_days, nowdate
 
+from assetcore.tests._asset_cleanup import purge_asset
 from assetcore.services.imm00 import (
     _open_capa_filter,
     _overdue_capa_filter,
@@ -94,7 +95,10 @@ class TestCapaDrilldownConjoin(unittest.TestCase):
                 frappe.delete_doc(_DT_CAPA, n, force=True, ignore_permissions=True,
                                   delete_permanently=True)
         frappe.db.sql("DELETE FROM `tabIMM Audit Trail` WHERE asset=%s", (cls._asset.name,))
-        frappe.delete_doc("AC Asset", cls._asset.name, force=True, ignore_permissions=True)
+        # LL-TEST-17: `AC Asset.on_trash` (WR-03) CHẶN hard-delete khi còn Lifecycle
+        # Event/audit (force=True KHÔNG bypass on_trash tuỳ biến) ⇒ teardown đỏ +
+        # rò asset test. Dùng helper dùng chung thay `delete_doc` trần.
+        purge_asset(cls._asset.name)
         frappe.delete_doc("AC Asset Category", cls._cat.name, force=True, ignore_permissions=True)
         frappe.db.commit()
 
