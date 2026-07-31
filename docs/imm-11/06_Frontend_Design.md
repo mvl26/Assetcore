@@ -201,6 +201,53 @@ Hai luồng: **In-House** (`Scheduled → In Progress → Passed/Failed/Conditio
 
 **Acceptance FE (guard test `CalibrationDetailView` — vitest):** nhập 2 dòng → `save()` → (mock `updateCalibration` resolve + re-fetch `getCalibration` trả 2 dòng server pass_fail) → render đúng **2 dòng** với `pass_fail` từ server (KHÔNG mất dòng, KHÔNG dùng `computeResult` làm verdict cuối). Dùng **real store**, KHÔNG mock trả tay bỏ qua re-fetch.
 
+#### 3.3-ter. Nút «Dời lịch hiệu chuẩn» — server-driven, 0 nút chết (BR-11-19 · AC-CR-86)
+
+> **Bối cảnh:** trước CR, ngày hẹn (`scheduled_date`) không sửa được ở đâu cả — `updateCalibration` **nuốt im lặng** khoá đó. Người dùng phải hủy phiếu rồi tạo lại ⇒ hồ sơ NĐ98 đầy phiếu `Cancelled` rác. Nay có op riêng `reschedule_calibration` (05 §2 #13).
+
+**Nguồn sự thật gating — 1 và chỉ 1:**
+
+```ts
+// frontend/src/constants/calibration.ts  (MỚI — hằng dùng chung, KHÔNG rải trong template)
+/** Trạng thái CHO PHÉP dời lịch — mirror services/imm11.py::RESCHEDULE_CAL_STATES.
+ *  CHỈ dùng làm FALLBACK khi server chưa phát cờ `can_reschedule` (server cũ).  */
+export const RESCHEDULE_CAL_STATES = ['Scheduled', 'In Progress'] as const
+```
+
+```ts
+// CalibrationDetailView.vue — 1 computed DUY NHẤT, đặt cạnh canSendToLab/canCancel (:83-:96)
+const canReschedule = computed(() => {
+  const flag = form.value.can_reschedule            // cờ SERVER (ADR-IMM11-13) — ưu tiên
+  if (typeof flag === 'boolean') return flag
+  return canExecuteCal.value && !isSubmitted.value  // fallback server-cũ
+    && RESCHEDULE_CAL_STATES.includes(form.value.status as never)
+})
+```
+
+| Điều | Quy tắc |
+|---|---|
+| Vị trí nút | Cụm hành động phiếu, cạnh «Hủy phiếu». `data-testid="cta-reschedule-cal"` |
+| Nhãn | **«Dời lịch hiệu chuẩn»** (VI đầy đủ — LL-FE-53) |
+| Điều kiện render | `v-if="canReschedule"` — **KHÔNG** `status === 'Scheduled'` rải rác trong template |
+| Modal | 2 ô: **Ngày hẹn mới** (`type="date"`, `min = today`) + **Lý do dời lịch** (textarea, hint "tối thiểu 5 ký tự"). Nút xác nhận `disabled` khi 1 trong 2 ô rỗng — nhưng **KHÔNG** thay thế validate server |
+| Sau thành công | Toast `IMM11_RESCHEDULE_SUCCESS` + **re-fetch `getCalibration(id)`** (ngày mới + `amendment_reason` mới + `can_reschedule` mới đến từ server, KHÔNG patch cục bộ) |
+| Lỗi in-envelope | Hiện **nguyên văn** thông điệp VI của server (`notify.fromError(store.lastApiError)`), KHÔNG phơi `code`/`message_code`/HTTP number cho người dùng |
+| Lỗi field-level | `fields.reason` / `fields.new_date` → neo câu VI **ngay dưới đúng ô** trong modal (khuôn AC-CR-83), không chỉ bung dải đỏ trên đầu |
+| 403 in-envelope | Hiện message, **KHÔNG logout**, KHÔNG điều hướng (đây là cap-403 in-handler, không phải phiên hết hạn) |
+
+**Ô ngày hẹn ở form Lưu phiếu:** `scheduled_date` là **read-only** trên form chính. Nếu người dùng vẫn gửi (client cũ), server trả `IMM11_SCHEDULED_DATE_READONLY` + `fields.scheduled_date` ⇒ FE neo câu "Dùng chức năng «Dời lịch hiệu chuẩn»…" ngay dưới ô ngày. **Không** tự ý strip khoá ở client để "cho êm" — sẽ tái tạo đúng lỗi nuốt-im-lặng ở phía FE.
+
+**Acceptance FE (vitest render test — `calibrationDetailRescheduleCta.test.ts`):**
+
+| ID | Test |
+|---|---|
+| TC-FE-11-RS-01 | phiếu `Scheduled` + cap `calibration.write` (server trả `can_reschedule: true`) ⇒ DOM **CÓ** `[data-testid="cta-reschedule-cal"]` |
+| TC-FE-11-RS-02 | phiếu `Passed` (`can_reschedule: false`) ⇒ DOM **VẮNG** nút |
+| TC-FE-11-RS-03 | phiếu `Cancelled` (`can_reschedule: false`) ⇒ DOM **VẮNG** nút |
+| TC-FE-11-RS-04 | server **KHÔNG** trả khoá `can_reschedule` (server cũ) + `status='Scheduled'` + có cap ⇒ nút **CÓ** (fallback hằng); `status='Sent to Lab'` ⇒ **VẮNG** |
+| TC-FE-11-RS-05 | mock lỗi 422 `fields={'reason': 'Nhập lý do dời lịch (tối thiểu 5 ký tự).'}` ⇒ câu đó render **trong modal, dưới ô lý do**; DOM **KHÔNG** chứa `IMM11-RESCHEDULE-REASON-REQUIRED` / `422` / `VALIDATION` |
+| TC-FE-11-RS-06 | grep-guard: `CalibrationDetailView.vue` **KHÔNG** chứa chuỗi `status === 'Scheduled'` (chống hardcode rải rác quay lại) |
+
 ---
 
 ## 4. Component custom của module

@@ -62,6 +62,11 @@ const { clear: clearDraft } = useFormDraft('calibration-create', form)
 // KHI và CHỈ KHI đến từ quét QR + có asset prefill (no regression khi tạo thủ công).
 const queryAsset = (route.query.asset as string) || ''
 if (queryAsset) form.value.asset = queryAsset
+// Điều hướng «Tạo phiếu hiệu chuẩn» từ tab «Bản ghi liên quan» của một lịch hiệu chuẩn:
+// lịch cha đi qua ?schedule=. Draft cũ KHÔNG được che mất nó (prefill bị nuốt = prefill
+// giả — khoá bằng `router/connectionsCreateParity.test.ts`).
+const querySchedule = (route.query.schedule as string) || ''
+if (querySchedule) form.value.calibration_schedule = querySchedule
 const querySource = route.query.source === 'qr-scan' ? 'qr-scan' : 'manual'
 const lockedFromScan = computed(() => querySource === 'qr-scan' && !!queryAsset)
 

@@ -128,6 +128,33 @@ def update_calibration(name: str, **kwargs) -> dict:
 
 
 @frappe.whitelist(methods=["POST"])
+def reschedule_calibration(name: str, new_date: str, reason: str) -> dict:
+    """POST /api/method/assetcore.api.imm11.reschedule_calibration — BR-11-19.
+
+    Dời ngày hẹn của phiếu hiệu chuẩn (`Scheduled`/`In Progress`, `docstatus=0`) —
+    GIỮ NGUYÊN trạng thái, lý do bắt buộc (≥5 ký tự), sinh ĐÚNG 1 vết audit. Đây là
+    đường HỢP LỆ DUY NHẤT để đổi `scheduled_date`: `update_calibration` từ chối tường
+    minh khoá đó (BR-11-20).
+
+    KHÔNG `rbac.require`: cap-gate `calibration.write` nằm ở SERVICE
+    (`_require_cal_reschedule_cap`) để 403 đi TRONG envelope (HTTP-200) — client hiển
+    thị thông báo, KHÔNG bị đá ra đăng nhập; và để đường gọi thẳng service (test/script)
+    cũng bị chặn (một đường gate DUY NHẤT — ADR-IMM11-12).
+
+    Args:
+        name: mã phiếu `IMM Asset Calibration`.
+        new_date: ngày hẹn mới `YYYY-MM-DD` (≥ hôm nay).
+        reason: lý do dời lịch (≥ 5 ký tự sau strip).
+
+    Returns:
+        Envelope `{success, data{name, old_date, new_date, status}}`; lỗi nghiệp vụ
+        (403/404/409/422) đến TRÊN HTTP-200 trong Error envelope.
+    """
+    return handle(svc.reschedule_calibration, name,
+                  new_date=str(new_date or ""), reason=str(reason or ""))
+
+
+@frappe.whitelist(methods=["POST"])
 def submit_calibration(name: str, client_request_id: str = "") -> dict:
     # CR-24-CAL-SUBMIT (op#6): client_request_id optional (mobile write-outbox idempotency;
     # body THẮNG header). Default str="" (KHÔNG None → tránh 417). rbac.require GIỮ.

@@ -187,6 +187,7 @@ File `assetcore/tests/test_imm11.py` (✅ Live — `unittest.TestCase`, helper `
 | `TestSchedulerDueWOs` | `create_due_calibration_wos` idempotent | Use Case | 1 / 1 (duplicate guard) | ⬜ Planned |
 | `TestExpiryCheck` | `check_calibration_expiry` | EP (On Schedule/Due Soon/Overdue) | 3 / 0 | ⬜ Planned |
 | `TestSendReceiveLab` | `send_to_lab` / `receive_certificate` | State Transition | 2 / 1 | ⬜ Planned |
+| `TestSendToLabCertGuard` | `send_to_lab` chặn gửi-lại phiếu ĐÃ có chứng chỉ — bảo toàn vết `sent_date` NĐ98 (BR-11-18 / CR-59) | State Transition + Error guessing | 2 / 1 (TC-11-SENDLAB-CERTGUARD-01/02; RED-first 01) | ⬜ Planned |
 
 ## III.3. Integration — DocType lifecycle
 
@@ -364,6 +365,8 @@ bench --site miyano run-tests --module assetcore.tests.test_workflows
 | US-11-03 | AC-11-39 backward-compat / NO_FIELDS | `TestUpdateCalibrationMeasurements::TC-11-MEASDIFF-08a/b/c` | Unit | ⬜ Planned |
 | US-11-03 | AC-11-40 idempotent replace-set | `TestUpdateCalibrationMeasurements::TC-11-MEASDIFF-09` | Unit | ⬜ Planned |
 | US-11-03 | FE persist + re-fetch server pass_fail | `CalibrationDetailView` vitest (real store) | FE Unit | ⬜ Planned |
+| US-11-03 | AC-11-47 CERTGUARD chặn gửi-lại phiếu ĐÃ có chứng chỉ + vết nguyên trạng (409) | `TestSendToLabCertGuard::TC-11-SENDLAB-CERTGUARD-01` (RED-first) | Unit + API | ⬜ Planned |
+| US-11-03 | AC-11-48 regression — `Scheduled` (`certificate_file` rỗng) VẪN gửi-lab OK | `TestSendToLabCertGuard::TC-11-SENDLAB-CERTGUARD-02` | Unit | ⬜ Planned |
 
 ## IV.2. BR → Test mapping
 
@@ -384,6 +387,7 @@ bench --site miyano run-tests --module assetcore.tests.test_workflows
 | BR-11-12 | Recalibration OoS-restore governance guard (chủ-hold == calibration ∧ 0 hold khác) | `TestCalibrationRestoreGuard` (TC-11-RESTORE-*) | Decision Table + Path | 2 / 3 |
 | BR-11-13 | PASS → Asset-cache rollup đa-lịch (worst-of-all + MIN next_due; ROLLUP-CONSISTENCY với scheduler; happy 1-lịch bất biến) | `TestCalibrationPassRollup` (TC-11-PASS-ROLLUP-01..07 + N1; RED-prove 01/03) + FE verify §06 §7c-quater | Decision Table + BVA + Path | 5 / 3 |
 | BR-11-16 | `update_calibration` `measurements` child-diff replace-set (data-loss fix + SSoT server-compute + guard docstatus/status + backward-compat) | `TestUpdateCalibrationMeasurements` (TC-11-MEASDIFF-01..10; RED-first 01) + FE `CalibrationDetailView` vitest (§06 §3.3-bis) | Decision Table + BVA + Error guessing | 5 / 4 |
+| BR-11-18 | `send_to_lab` chặn gửi-lại phiếu ĐÃ có chứng chỉ — bảo toàn vết `sent_date` NĐ98 (guard `certificate_file`-presence, 409, raise-before-mutate; KHÔNG chặn `Scheduled`) | `TestSendToLabCertGuard` (TC-11-SENDLAB-CERTGUARD-01/02; RED-first 01) | State Transition + Error guessing | 2 / 1 |
 
 ### BR-11-12 — test cases bắt buộc (recalibration OoS-restore governance guard)
 
@@ -511,6 +515,17 @@ bench --site miyano run-tests --module assetcore.tests.test_workflows
 > **DoD BR-11-17:** `bench --site miyano run-tests` module-isolated `assetcore.tests.test_imm11` XANH THẬT (`Ran N OK`); RED-first TC-11-IDEMP-SUBMIT-01/02/03 chuyển GREEN. No-regression: `TestCalibrationSubmitGate` (submit gate) + `TestAddMeasurement` (§4.1.9 dedup) GREEN. **COUPLED OAS slice (KHÁC BR-11-16):** `submit_calibration` CÓ mobile-mirror + live-sig guard EXACT ⇒ `test_mobile_oas` PHẢI đổi (`_SUBMIT_CAL_REQUEST_PROPS {name}→{name,client_request_id}` + prop-optional TC + `_EXPECTED_TEST_COUNT`) + `test_mobile_docset` (`_GUARD_SUITE_SUM`/`_MOBILE_OAS_TOTAL`/`_GUARD_SUITE_EXPECTED`) + OAS `SubmitCalibrationRequest` +prop — land **cùng lượt** với `.py` (Self-Correction: acceptance "test_mobile_oas unchanged" SAI — xem `05 §0.1.4-IDEMP-SUBMIT`). `oas_baseline.BASELINE_TOTAL` GIỮ (0 whitelist mới) → `test_oas_baseline` XANH KHÔNG đổi. Sửa `api/imm11.py`+`services/imm11.py` dưới `--preload` → USER reload cho HTTP-live (HARD-STOP); DoD authoritative = `bench run-tests` (KHÔNG curl — gunicorn `--preload` stale, LL-DEPLOY-07).
 
 DoD: mọi BR có ≥ 1 happy + ≥ 1 negative. `TestCalibrationSubmitGate` (✅ Live) đã cover gate before_submit (CAL-004).
+
+### TC-11-SENDLAB-CERTGUARD — `send_to_lab` chặn gửi-lại phiếu ĐÃ có chứng chỉ (BR-11-18 / CR-59)
+
+> **Class mới `TestSendToLabCertGuard` (`tests/test_imm11.py`).** **RED-first (chứng minh corruption):** với code hiện tại (`send_to_lab` KHÔNG kiểm `certificate_file`), tạo phiếu External → `send_to_lab` (`sent_date=D0`) → `receive_certificate` (`certificate_file` set, `status='In Progress'`) → `send_to_lab` LẦN 2 → `sent_date` bị **ghi đè** ≠ D0 ⇒ TC-11-SENDLAB-CERTGUARD-01 FAIL (vết NĐ98 corrupt). Sau khi thêm guard `if doc.certificate_file` (§04 §ADR-IMM11-CERTGUARD) → GREEN (409 + vết nguyên trạng). Fixture: asset prefix `_Test` + phiếu External; `_purge_asset_with_deps` teardown.
+
+| TC | Given | When | Then | AC |
+|---|---|---|---|---|
+| TC-11-SENDLAB-CERTGUARD-01 (RED-first — chặn + vết nguyên trạng) | phiếu **External** đã `send_to_lab` (`sent_date=D0`) + `receive_certificate` (`certificate_file` set, `certificate_date=Dc`, `status='In Progress'`) | `send_to_lab(name)` LẦN 2 | `ServiceError`/Error-envelope code `IMM11_SEND_LAB_ALREADY_CERTIFIED` (`http_status=409`, `body.message_code='IMM11-SEND-LAB-ALREADY-CERTIFIED'`); reload DB `sent_date==D0` ∧ `certificate_file` unchanged ∧ `status=='In Progress'` (0 mutate) | AC-11-47, BR-11-18 |
+| TC-11-SENDLAB-CERTGUARD-02 (regression — luồng hợp lệ) | phiếu **External** `status='Scheduled'` (`certificate_file` **rỗng**) | `send_to_lab(name)` | thành công → reload `status=='Sent to Lab'` ∧ `sent_date` set (guard KHÔNG chặn phiếu chưa-có-chứng-chỉ) | AC-11-48, BR-11-18 |
+
+> **DoD BR-11-18:** `bench --site miyano run-tests --module assetcore.tests.test_imm11` module-isolated XANH (`Ran N OK`) gồm ≥2 test mới; RED-first TC-11-SENDLAB-CERTGUARD-01 chuyển GREEN sau guard. No-regression: `TestSendReceiveLab` GREEN. **KHÔNG `bench migrate`** (field `certificate_file`/`sent_date`/`status` đã tồn tại). **Coupled FE-regen:** MSG code mới ⇒ `python scripts/gen_fe_messages.py` → `messages.ts` (chống SYS-500). **OAS mirror:** đã curate (op `sendToLab`, mã mới trong 200-oneOf Error branch) — `test_mobile_oas` 893 OK / `test_mobile_docset` 9 OK (BA verified, 0 baseline bump). Sửa `services/imm11.py`+`utils/messages.py` dưới `--preload` → USER reload; DoD authoritative = `run-tests` (KHÔNG curl — LL-DEPLOY-07).
 
 ## IV.3. Component → Test mapping
 
@@ -856,3 +871,102 @@ Gắn screenshot SonarQube + Lighthouse vào file 09 §Release Notes khi báo c�
 - [ ] Lighthouse ≥ target — chưa chạy
 - [ ] Bundle size ≤ budget — chưa đo
 - [ ] Screenshot báo cáo gắn vào file 09 — chưa có
+
+## VIII. CR-74 — Read-gate CHI TIẾT (getCalibration) · bộ TC bắt buộc (2026-07-25)
+
+> Spec: [`05_API_Specification.md` §12](./05_API_Specification.md) · SSoT: [ADR-IMM00-LIST-SCOPE §9](../imm-00/ADR-IMM00-LIST-SCOPE.md).
+> **Suite:** `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_imm11` (+ `test_rowscope_docperm_gate` · `test_rowscope_invariant` · `test_rowscope_scope_guard`). **DoD = suite XANH, KHÔNG curl** (`.py` prod dirty dưới gunicorn `--preload` ⇒ BLOCKED-RELOAD).
+
+### VIII.1 Fixture tối thiểu (dựng 1 lần, dùng chung 6 TC)
+
+| Ký hiệu | Là gì | Ràng buộc |
+|---|---|---|
+| `USER_NOPERM` | user **đăng nhập được** nhưng **0 DocPerm read** trên `Calibration Record` | vd persona `PM User` / `Repair User` (0 DocPerm read trên `Calibration Record`). **KHÔNG** dùng Guest (Guest → dispatcher-403/401, sai loại lỗi) |
+| `USER_OWNER` | persona `Calibration User` — `technician` == chính mình | phải có DocPerm read |
+| `USER_OTHER` | persona `Calibration User` khác — **không** được giao phiếu đang test | phải có DocPerm read (để phân biệt trục ROW với trục ROLE) |
+| `USER_SENIOR` | `Calibration Manager` hoặc `AssetCore Auditor` | chứng minh 0 regress |
+| `REC_OWNED` | 1 bản ghi `Calibration Record` có `technician` = `USER_OWNER` | |
+| `REC_FOREIGN` | 1 bản ghi `Calibration Record` có `technician` = `USER_OWNER`, dùng khi đăng nhập `USER_OTHER` | |
+| `NAME_GHOST` | chuỗi PK **không tồn tại** (vd `"CAL-9999-99999"`) | dùng cho cặp TC existence-oracle |
+
+> 🔴 **BẮT BUỘC `frappe.set_user(...)` cho MỌI TC** + `frappe.set_user("Administrator")` trong `tearDown`. `frappe/permissions.py:107-109` trả `True` ngay cho Administrator ⇒ chạy bằng Administrator = **xanh giả** (đúng bài học INV-ROWSCOPE-4/6).
+
+### VIII.2 Bộ TC
+
+| TC | User | Input | Kỳ vọng (assert) | INV |
+|---|---|---|---|---|
+| `TC-CAL-DETAILGATE-01` | `USER_NOPERM` | `REC_OWNED` | `env["success"] is False` · `env["code"] == "FORBIDDEN"` · `env["http_status"] == 403` · **KHÔNG raise** · `set(env) & {"asset", "measurements", "overall_result", "certificate_no"} == set()` | INV-DETAIL-1 |
+| `TC-CAL-DETAILGATE-02` | `USER_OTHER` | `REC_FOREIGN` | **`success is True` (200)** — D10: `Calibration Record` CHƯA có hook row-scope ⇒ TC này **ghim hành vi hiện tại** (0 regress). ⚠️ KHÔNG viết kỳ vọng 403 ở đây; muốn siết phải ratify hook riêng (ADR §9.6 Ask-first) | INV-DETAIL-2 |
+| `TC-CAL-DETAILGATE-03` | `USER_SENIOR` | `REC_OWNED` | `env["success"] is True` · payload **byte-identical** snapshot baseline (so khoá + giá trị) | INV-DETAIL-4 |
+| `TC-CAL-DETAILGATE-04` | `USER_NOPERM` | `NAME_GHOST` | envelope **giống hệt** `TC-CAL-DETAILGATE-01` (cùng `code` + `http_status`) ⇒ 0 existence-oracle | INV-DETAIL-5 |
+| `TC-CAL-DETAILGATE-05` | `USER_OWNER` | `NAME_GHOST` | `code == "NOT_FOUND"` · `http_status == 404` — **GIỮ NGUYÊN** | INV-DETAIL-6 |
+| `TC-CAL-DETAILGATE-06` | `Vendor Engineer` ngoài scope | `REC_OWNED` | `code == "FORBIDDEN"` · **KHÔNG** 500 · **KHÔNG** traceback ⇒ chứng minh lớp `assert_vendor_can_access` vẫn sống | INV-DETAIL-7 |
+
+### VIII.3 Chống vacuous (BẮT BUỘC ghi bằng chứng vào báo cáo vòng)
+
+1. **Mutation gate:** gỡ `assert_doctype_read_permission` khỏi `services/imm11.py::get_calibration` ⇒ `TC-CAL-DETAILGATE-01` và `TC-CAL-DETAILGATE-04` PHẢI **ĐỎ**. Hoàn nguyên ⇒ xanh.
+2. **Mutation guard tĩnh:** cùng thao tác trên ⇒ `test_rowscope_scope_guard::TestRowScopeStaticGuard` **G5** PHẢI **ĐỎ**.
+3. **Anti-false-green:** TC-01 phải assert **cả 3** (`success`/`code`/`http_status`) — chỉ assert `success is False` sẽ **không** phân biệt 403 với 404/422.
+4. **Anti-leak:** TC-01/02 assert **tập khoá** của envelope, KHÔNG chỉ `"asset_ref" not in env` (khoá lồng trong `data` vẫn rò nếu quên).
+
+
+---
+
+## IX. AC-CR-86 — Dời lịch hiệu chuẩn (`reschedule_calibration`) · bộ TC bắt buộc (2026-07-27)
+
+> Spec: `02 §BR-11-19` + `§BR-11-20` + US-11-04 (AC-11-49…60). Write-path: `04 §4.1.12` + `§4.1.13`. API: `05 §0.1.11` + `§2 #13`.
+> **DoD chấm bằng `bench --site miyano run-tests --module assetcore.tests.test_imm11` (module-isolated, `timeout` tool ≥ 600000ms) — KHÔNG curl** (LL-DEPLOY-07/08: dưới gunicorn `--preload`, `.py` mới cần USER reload; 417/traceback từ curl = worker cũ, KHÔNG phải bug).
+
+### IX.1 Fixture tối thiểu (dựng 1 lần, dùng chung)
+
+| Fixture | Nội dung |
+|---|---|
+| `ASSET_RS` | 1 `AC Asset` Active + `AC Asset.next_calibration_date = D1` (ghi nhận để assert AC-11-57) |
+| `SCHED_RS` | 1 `IMM Calibration Schedule` `is_active=1`, `next_due_date = D2` |
+| `CAL_SCHEDULED` | `IMM Asset Calibration` `status='Scheduled'`, `docstatus=0`, `scheduled_date=X` |
+| `CAL_INPROGRESS` | như trên, `status='In Progress'` |
+| `CAL_SENTLAB` / `CAL_PASSED` / `CAL_CANCELLED` | 3 phiếu ở trạng thái NGOÀI `RESCHEDULE_CAL_STATES` |
+| `CAL_SUBMITTED` | phiếu `docstatus=1` |
+| `USER_CAL` | user có `calibration.write` · `USER_BASE` = user chỉ có base role `AssetCore System User` |
+
+> 🔴 `frappe.set_user(...)` cho MỌI TC + `frappe.set_user("Administrator")` trong `tearDown`. Teardown purge đủ phiếu/asset/schedule đã tạo (LL-TEST: fixture mồ côi ⇒ suite ĐỎ GIẢ ở vòng sau).
+
+### IX.2 Bộ TC backend (`tests/test_imm11.py` — class `TestCalibrationReschedule`)
+
+| TC | Input | Kỳ vọng (assert) | AC / INV |
+|---|---|---|---|
+| `TC-CAL-RS-01` | `CAL_SCHEDULED`, `new_date=X+7`, `reason` hợp lệ | đọc lại DB: `scheduled_date == X+7` ∧ `status == 'Scheduled'` ∧ `docstatus == 0`; `data == {name, old_date: X, new_date: X+7, status: 'Scheduled'}` (so **4 khoá**, không chỉ 1) | AC-11-49 · INV-CALRS-1 |
+| `TC-CAL-RS-02` | `CAL_INPROGRESS` dời hợp lệ | `scheduled_date` đổi ∧ `status == 'In Progress'` | AC-11-50 · INV-CALRS-1 |
+| `TC-CAL-RS-03` | dời **2 lần** trên cùng phiếu | `IMM Audit Trail` (`ref_doctype='IMM Asset Calibration'`, `ref_name`, `event_type='Calibration'`) tăng **ĐÚNG 2**; mỗi `change_summary` chứa ngày cũ **và** ngày mới **và** lý do; `amendment_reason` có **2 dòng** `[Dời lịch …]`; số phiếu `status='Cancelled'` sinh thêm == **0** | AC-11-51 · INV-CALRS-2 |
+| `TC-CAL-RS-04` | `CAL_SENTLAB` / `CAL_PASSED` / `CAL_CANCELLED` (3 sub-case) | `code == 'BAD_STATE'` ∧ `http_status == 409` ∧ **đọc lại DB `scheduled_date` == giá trị cũ** | AC-11-52 · INV-CALRS-4 |
+| `TC-CAL-RS-05` | `CAL_SUBMITTED` (`docstatus=1`) | như TC-04 (cùng mã) | AC-11-52 |
+| `TC-CAL-RS-06` | `reason=''` và `reason='  ab '` | `http_status == 422` ∧ `'reason' in fields` ∧ `'new_date' not in fields`; `scheduled_date` KHÔNG đổi | AC-11-53 |
+| `TC-CAL-RS-07` | `new_date=''` và `new_date='32/13/2026'` | `422` ∧ `'new_date' in fields`; `scheduled_date` KHÔNG đổi | AC-11-54 |
+| `TC-CAL-RS-08` | `new_date = today - 1` | `422` ∧ `'new_date' in fields`; **và** `new_date == today` ⇒ **THÀNH CÔNG** (biên inclusive) | AC-11-55 |
+| `TC-CAL-RS-09` | `USER_BASE` gọi **thẳng service** | `ServiceError` `code=='FORBIDDEN'` ∧ `http_status==403`; `scheduled_date` KHÔNG đổi. `USER_CAL`/Super Admin ⇒ pass | AC-11-56 |
+| `TC-CAL-RS-10` | sau khi dời lịch thành công | `AC Asset.next_calibration_date == D1` ∧ `IMM Calibration Schedule.next_due_date == D2` (đọc lại DB); `get_due_calibrations` vẫn liệt kê asset y như trước | AC-11-57 · INV-CALRS-6 |
+| `TC-CAL-RS-11` | `update_calibration(name, {'scheduled_date': X+7})` **và** `{'technician_notes':'x','scheduled_date':X+7}` | `422` ∧ `'scheduled_date' in fields`; `scheduled_date` **và** `technician_notes` đều KHÔNG đổi (0 ghi từng phần) | AC-11-58 |
+| `TC-CAL-RS-12` | `update_calibration` với patch chỉ gồm khoá ∈ `_UPDATE_ALLOWED` (`technician_notes`, `status`, `certificate_number`) **và** 1 khoá lạ khác (vd `foo`) | success; ghi đủ khoá hợp lệ; khoá lạ bị bỏ qua **im lặng** như cũ; return-shape 4 khoá `{name,status,measurement_count,overall_result}` KHÔNG đổi | AC-11-59 |
+| `TC-CAL-RS-13` | `get_calibration` trên **mỗi** phiếu fixture × (USER_CAL, USER_BASE) | `can_reschedule` TRUE ⟺ `reschedule_calibration` KHÔNG trả `BAD_STATE`/`FORBIDDEN` (parity **2 chiều**, lặp qua ma trận) | AC-11-60 · INV-CALRS-5 |
+| `TC-CAL-RS-14` | phiếu ∄ | `code=='NOT_FOUND'` ∧ `http_status==404` (KHÔNG bị BAD_STATE che) | INV-CALRS-3 |
+| `TC-CAL-RS-15` | payload sai **ĐÔI** (`CAL_PASSED` + `reason=''`) | nhận **`BAD_STATE`** (trạng thái xét TRƯỚC ô nhập) — khoá thứ tự hợp đồng | INV-CALRS-3 |
+
+### IX.3 Chống vacuous (BẮT BUỘC ghi bằng chứng vào báo cáo vòng)
+
+1. **Mutation — guard trạng thái:** đổi `RESCHEDULE_CAL_STATES` thành `{Scheduled, In Progress, Passed}` ⇒ `TC-CAL-RS-04` **PHẢI ĐỎ**. Nếu vẫn xanh ⇒ TC đang assert exception chung chung, không assert giá trị.
+2. **Mutation — audit:** comment dòng `log_audit_event` ⇒ `TC-CAL-RS-03` **PHẢI ĐỎ**.
+3. **Mutation — append:** đổi `amendment_reason` từ append sang ghi đè ⇒ `TC-CAL-RS-03` **PHẢI ĐỎ** (đếm 2 dòng).
+4. **Mutation — flip trạng thái:** thêm `"status": CalibrationResult.SCHEDULED` vào `update_fields` ⇒ `TC-CAL-RS-02` **PHẢI ĐỎ**.
+5. **Mutation — cap:** đổi `_require_cal_reschedule_cap` thành `pass` ⇒ `TC-CAL-RS-09` **PHẢI ĐỎ**.
+6. **Mutation — nuốt im lặng:** gỡ guard `scheduled_date` khỏi `update_calibration` ⇒ `TC-CAL-RS-11` **PHẢI ĐỎ**.
+7. **Anti-false-green:** mọi TC từ chối phải assert **cả 3** (`success is False` + `code` + `http_status`) **và** đọc lại `scheduled_date` từ DB — chỉ `assertRaises` là **KHÔNG đủ** (không chứng minh 0-mutate).
+8. **Đếm audit theo DELTA**, không theo tổng tuyệt đối (site có dữ liệu sẵn — blocker STATE #13).
+
+### IX.4 Guard hợp đồng (doc-layer — ĐÃ ĐÓNG ở Bước-2)
+
+- `assetcore/tests/test_mobile_oas.py::TestMobileRescheduleCalibrationContract` — 9 TC `cr86_a..i` (path/opId/POST-only · body CLOSED 3 khoá + `minLength:5` + `format:date` · 200-oneOf 2 nhánh + `data` 4 khoá · slot `{200,401,403}` + đủ 6 `message_code` + 2 khoá `fields` · cite-drift AST · `can_reschedule` trên `CalibrationDetail` · KHÔNG reuse `ReschedulePm*` · PENDING-BE parity · meta self-count).
+- `assetcore/tests/test_mobile_docset.py` — 3 counter đồng bộ theo **DELTA +9**.
+- ✅ **Bước-4 BE ĐÃ LÀM ĐỦ 3 việc trên guard (2026-07-28)** — handler LIVE `api/imm11.py:131` (POST-only) → `services/imm11.py:1217`:
+  1. **LẬT** `cr86_h` → `test_mob_oas_cr86_h_message_code_registry_parity`: parity **3 tầng** hợp đồng ⇄ registry ⇄ @source — 6/6 mã ∈ `MESSAGES` LIVE, `http_status` khớp (`IMM11-CAL-NOT-FOUND` 404 · `IMM11-RESCHEDULE-BAD-STATE` 409 · 4 mã field-level 422), **và** 5 mã mới phải có call-site `MSG.<CODE>` THẬT trong `services/imm11.py` (mã có registry mà 0 nơi ném = hợp đồng khai một lỗi không bao giờ tới).
+  2. **REFRESH** cite trong `description` (comment YAML KHÔNG được — guard chỉ soi spec đã parse): `_UPDATE_ALLOWED` `1155→1298` (3 chỗ), `get_calibration` `1079-1111→1082-1120`, và bồi cite numeric `@api/imm11.py:131-154` / `@services/imm11.py:1217-1295 reschedule_calibration` + `1171-1174 RESCHEDULE_CAL_STATES` + `1204-1214 _can_reschedule_cal` + `1190-1201 _require_cal_reschedule_cap`.
+  3. **CHUYỂN** path `_PENDING_BE_PATHS` (nay **∅**, giữ cơ chế cho CR doc-first sau) → `_MVP_BUSINESS_PATHS` + `_MVP_ACTION_ENVELOPE` (c5 **98→99** ×8 chỗ, `_PARITY_BUSINESS_PATHS` **98→99** ×5 chỗ) và bật `_assert_post_only_at_source` trong `cr86_a`. Kết quả: `test_mobile_oas` **1024/1024 XANH** (counter GIỮ 1024 — lật ≠ thêm TC), `test_mobile_docset` 9/9 XANH.

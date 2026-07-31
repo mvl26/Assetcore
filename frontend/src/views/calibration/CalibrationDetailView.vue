@@ -2,15 +2,17 @@
 import DateInput from '@/components/common/DateInput.vue'
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { getCalibration, updateCalibration } from '@/api/imm11'
+import { getCalibration, updateCalibration, isRescheduleCalStatus } from '@/api/imm11'
 import type {
   AssetCalibration, CalibrationMeasurement,
   CalibrationMeasurementInput, CalibrationUpdatePatch,
 } from '@/api/imm11'
+import { normalizeFieldErrors } from '@/utils/fieldErrors'
 import { uploadDocumentFile } from '@/api/imm05'
-import { toApiError, loadErrorKind } from '@/api/errors'
+import { toApiError, loadErrorKind, type DetailLoadKind } from '@/api/errors'
 import DetailLoadError from '@/components/common/DetailLoadError.vue'
 import RelatedRecords from '@/components/common/RelatedRecords.vue'
+import DetailTabBar from '@/components/common/DetailTabBar.vue'
 import { useToast } from '@/composables/useToast'
 import { useNotify } from '@/composables/useNotify'
 import { useImm11Store } from '@/stores/imm11'
@@ -19,7 +21,7 @@ import { useCapabilities } from '@/composables/useCapabilities'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import WorkflowStepper from '@/components/common/WorkflowStepper.vue'
 import { calibrationStatusLabel } from '@/constants/labels'
-import { calFlagBadge } from '@/utils/calibrationStatus'
+import { calFlagBadge, todayIsoDate } from '@/utils/calibrationStatus'
 
 const props = defineProps<{ id: string }>()
 const router = useRouter()
@@ -28,6 +30,14 @@ const notify = useNotify()
 const store = useImm11Store()
 const { can } = useCapabilities()
 
+// Tab màn chi tiết — «Bản ghi liên quan» mount LƯỜI (panel v-if) nên mở phiếu KHÔNG
+// còn bắn `get_connections`; panel chính dùng v-show để giữ nguyên dữ liệu đang nhập.
+const activeTab = ref<'detail' | 'related'>('detail')
+const DETAIL_TABS = [
+  { key: 'detail', label: 'Chi tiết' },
+  { key: 'related', label: 'Bản ghi liên quan' },
+]
+
 const form = ref<Partial<AssetCalibration> & { measurements?: CalibrationMeasurement[] }>({})
 const loading = ref(false)
 const saving = ref(false)
@@ -35,8 +45,9 @@ const submitting = ref(false)
 const err = ref('')
 const uploadingCert = ref(false)
 // Kết quả nạp phiếu: '' = OK, 'notfound' = mã phiếu không tồn tại (404),
+// 'forbidden' = thiếu quyền đọc (403 TRONG envelope, CR-74 — KHÔNG logout),
 // 'unknown' = lỗi mạng/khác. Quyết định render empty-state thay vì thân chi tiết.
-const loadFailed = ref<'' | 'notfound' | 'unknown'>('')
+const loadFailed = ref<'' | DetailLoadKind>('')
 const loadErrMsg = ref('')
 
 // BUG-007: Gate UI bằng capability (đồng bộ BE rbac.require ở api/imm11.py).
@@ -216,6 +227,60 @@ async function doCancel() {
   }
 }
 
+// ─── AC-CR-86 · Dời lịch hiệu chuẩn ────────────────────────────────────────
+// Gate nút bằng HẰNG SSoT `RESCHEDULE_CAL_STATES` (api/imm11.ts, mirror hằng
+// module-level cùng tên ở services/imm11.py) — KHÔNG hardcode `status === 'Scheduled'`.
+// Dời lịch KHÔNG đổi trạng thái ⇒ KHÔNG nằm trong `allowed_transitions` (GATE-8 chỉ
+// áp cho nút CHUYỂN trạng thái). Thêm 2 guard mirror BE: capability `calibration.write`
+// (cap-gate service, AC5) + phiếu chưa submit (`docstatus !== 1`, AC3).
+const canRescheduleCal = computed(() =>
+  canExecuteCal.value && !isSubmitted.value && isRescheduleCalStatus(form.value.status),
+)
+/** Độ dài tối thiểu của lý do — mirror validate BE (AC4a). */
+const RESCHEDULE_REASON_MIN = 5
+const showRescheduleModal = ref(false)
+const rescheduleDate = ref('')
+const rescheduleReason = ref('')
+const rescheduleError = ref('')
+// Lỗi gắn theo Ô (từ `fields` của envelope) — hỗ trợ cả dạng list ['reason'] lẫn dict.
+const rescheduleFieldErrors = ref<Record<string, string>>({})
+const rescheduling = ref(false)
+const todayIso = todayIsoDate()
+const rescheduleReasonLen = computed(() => rescheduleReason.value.trim().length)
+const rescheduleReadyToSend = computed(() =>
+  !!rescheduleDate.value && rescheduleReasonLen.value >= RESCHEDULE_REASON_MIN,
+)
+
+function openRescheduleModal() {
+  rescheduleDate.value = form.value.scheduled_date ?? ''
+  rescheduleReason.value = ''
+  rescheduleError.value = ''
+  rescheduleFieldErrors.value = {}
+  showRescheduleModal.value = true
+}
+
+async function doRescheduleCal() {
+  if (!rescheduleReadyToSend.value) return
+  rescheduling.value = true
+  rescheduleError.value = ''
+  rescheduleFieldErrors.value = {}
+  const res = await store.doReschedule(props.id, rescheduleDate.value, rescheduleReason.value.trim())
+  rescheduling.value = false
+  if (res) {
+    showRescheduleModal.value = false
+    rescheduleDate.value = ''
+    rescheduleReason.value = ''
+    notify.show({ code: MSG.UI_SAVE_SUCCESS, ctx: { entity: 'lịch hiệu chuẩn' } })
+    // Đọc lại phiếu từ server (SSoT) — trạng thái KHÔNG đổi, chỉ ngày dự kiến đổi.
+    await load()
+  } else {
+    // Hiển thị NGUYÊN VĂN câu tiếng Việt của server + gắn lỗi vào đúng ô theo `fields`.
+    rescheduleError.value = store.error ?? ''
+    rescheduleFieldErrors.value = normalizeFieldErrors(store.lastApiError)
+    notify.fromError(store.lastApiError)
+  }
+}
+
 const showSubmitModal = ref(false)
 
 // IMM-11-E (FE mirror của gate BE before_submit): cần ≥1 tham số đo + mọi
@@ -244,7 +309,7 @@ const canSubmitCal = computed(() => submitBlockReason.value === '')
 // BUG-007: Khi user không có quyền nào — show hint để hiểu vì sao panel trống.
 const hasAnyAction = computed(() =>
   canCancel.value || canStartCal.value || canSendToLab.value ||
-  canReceiveCert.value || (canExecuteCal.value && !isSubmitted.value),
+  canReceiveCert.value || canRescheduleCal.value || (canExecuteCal.value && !isSubmitted.value),
 )
 const showPermissionHint = computed(() =>
   !loading.value && !isSubmitted.value && !hasAnyAction.value,
@@ -254,11 +319,15 @@ const showPermissionHint = computed(() =>
 // nổi lên console (unhandled rejection) và KHÔNG render khung chi tiết RỖNG (mọi
 // field '—' + panel nhập kết quả) — người dùng sẽ tưởng phiếu tồn tại mà "mất dữ
 // liệu". Mirror pattern errorKind của AssetScanInfoView (404/403/khác).
+//
+// CR-74: thiếu quyền đọc ⇒ FORBIDDEN 403 TRONG envelope (HTTP-200) → loadErrorKind
+// trả 'forbidden' ⇒ empty-state hiện MESSAGE THẬT của server, KHÔNG nút Thử lại,
+// KHÔNG logout/redirect. `form.value = {}` ⇒ allowedTransitions rỗng ⇒ 0 CTA render.
 async function load() {
   loading.value = true
   loadFailed.value = ''
   try {
-    const res = await getCalibration(props.id) as unknown as AssetCalibration
+    const res = await getCalibration(props.id)
     if (res) form.value = { ...res }
   } catch (e: unknown) {
     loadFailed.value = loadErrorKind(e)
@@ -409,6 +478,11 @@ onMounted(load)
     />
 
     <template v-else>
+      <!-- Thanh tab: gác theo CÙNG nhánh v-else (phiếu đã tải, không lỗi nạp) ⇒ bị chặn
+           đọc thì KHÔNG có nút tab chết. -->
+      <DetailTabBar v-model="activeTab" :tabs="DETAIL_TABS" />
+
+      <div v-show="activeTab === 'detail'" data-testid="tab-panel-detail" class="space-y-5">
       <!-- Info Grid -->
       <div class="card p-5">
         <h2 class="text-sm font-semibold text-slate-700 mb-4 pb-2 border-b">Thông tin chung</h2>
@@ -590,6 +664,14 @@ v-if="canCancel" class="bg-slate-500 hover:bg-slate-600 text-white px-4 py-2 rou
           @click="showCancelModal = true">
 Hủy phiếu
 </button>
+        <!-- Dời lịch: KHÔNG đổi trạng thái phiếu (khác các nút transition bên cạnh) →
+             gate bằng hằng SSoT RESCHEDULE_CAL_STATES, không qua allowed_transitions. -->
+        <button
+v-if="canRescheduleCal" data-testid="cta-reschedule-calibration"
+          class="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-sm focus-visible:ring-2 focus-visible:ring-amber-500"
+          @click="openRescheduleModal">
+Dời lịch hiệu chuẩn
+</button>
         <button
 v-if="canStartCal" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50"
           :disabled="startingCal"
@@ -628,9 +710,13 @@ v-if="!isSubmitted && canExecuteCal" class="btn-ghost text-sm" :disabled="saving
           </div>
         </div>
       </div>
-      <!-- Bản ghi liên quan: nội dung do đồ thị liên kết ở backend quyết định. -->
-      <RelatedRecords class="mt-4" doctype="IMM Asset Calibration" :name="props.id" />
+      </div>
 
+      <!-- Bản ghi liên quan: TAB RIÊNG, mount LƯỜI (v-if) — nội dung do đồ thị liên kết
+           ở backend quyết định. -->
+      <div v-if="activeTab === 'related'" data-testid="tab-panel-related">
+        <RelatedRecords doctype="IMM Asset Calibration" :name="props.id" />
+      </div>
     </template>
 
     <!-- Send to Lab Modal -->
@@ -719,6 +805,91 @@ v-if="!isSubmitted && canExecuteCal" class="btn-ghost text-sm" :disabled="saving
           <button class="px-4 py-2 text-sm border rounded-lg" @click="showCancelModal = false">Quay lại</button>
           <button :disabled="actionLoading || !cancelReason.trim()" class="px-4 py-2 text-sm bg-slate-600 text-white rounded-lg hover:bg-slate-700 disabled:opacity-50" @click="doCancel">
             {{ actionLoading ? 'Đang hủy...' : 'Xác nhận hủy' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Reschedule Modal (AC-CR-86) — dời lịch GIỮ NGUYÊN phiếu + trạng thái,
+         thay đường vòng "hủy + tạo lại" (đẻ phiếu Cancelled rác vào hồ sơ NĐ98). -->
+    <div
+      v-if="showRescheduleModal"
+      class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4"
+      @click.self="showRescheduleModal = false"
+      @keydown.esc="showRescheduleModal = false"
+    >
+      <div
+        class="bg-white rounded-xl p-6 w-full max-w-md space-y-4 shadow-xl"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="cal-reschedule-title"
+      >
+        <h2 id="cal-reschedule-title" class="font-semibold text-slate-800">Dời lịch hiệu chuẩn</h2>
+        <p class="text-xs text-slate-500">
+          Phiếu giữ nguyên trạng thái hiện tại; ngày cũ, ngày mới và lý do được ghi vào nhật ký thay đổi.
+        </p>
+
+        <!-- Lỗi in-envelope: hiển thị NGUYÊN VĂN câu tiếng Việt server trả về -->
+        <div v-if="rescheduleError" data-testid="reschedule-error" class="alert-error text-sm" role="alert">
+          {{ rescheduleError }}
+        </div>
+
+        <div>
+          <label for="cal-reschedule-date" class="block text-sm font-medium mb-1">
+            Ngày hiệu chuẩn mới <span class="text-red-500">*</span>
+          </label>
+          <DateInput
+            id="cal-reschedule-date"
+            v-model="rescheduleDate"
+            :min="todayIso"
+            class="form-input w-full text-sm"
+            :aria-invalid="!!rescheduleFieldErrors.new_date"
+            :aria-describedby="rescheduleFieldErrors.new_date ? 'cal-reschedule-date-err' : 'cal-reschedule-date-hint'"
+          />
+          <p
+            v-if="rescheduleFieldErrors.new_date"
+            id="cal-reschedule-date-err"
+            data-testid="reschedule-error-new_date"
+            class="text-xs text-red-600 mt-1"
+          >{{ rescheduleFieldErrors.new_date }}</p>
+          <p v-else id="cal-reschedule-date-hint" class="text-xs text-slate-400 mt-1">
+            Không được chọn ngày trong quá khứ.
+          </p>
+        </div>
+
+        <div>
+          <label for="cal-reschedule-reason" class="block text-sm font-medium mb-1">
+            Lý do dời lịch <span class="text-red-500">*</span>
+          </label>
+          <textarea
+            id="cal-reschedule-reason"
+            v-model="rescheduleReason"
+            rows="3"
+            class="form-input w-full text-sm"
+            placeholder="Ví dụ: thiết bị đang phục vụ ca bệnh, chưa thể ngừng hoạt động"
+            :aria-invalid="!!rescheduleFieldErrors.reason"
+            :aria-describedby="rescheduleFieldErrors.reason ? 'cal-reschedule-reason-err' : 'cal-reschedule-reason-hint'"
+          ></textarea>
+          <p
+            v-if="rescheduleFieldErrors.reason"
+            id="cal-reschedule-reason-err"
+            data-testid="reschedule-error-reason"
+            class="text-xs text-red-600 mt-1"
+          >{{ rescheduleFieldErrors.reason }}</p>
+          <p v-else id="cal-reschedule-reason-hint" class="text-xs text-slate-400 mt-1">
+            Tối thiểu {{ RESCHEDULE_REASON_MIN }} ký tự — đã nhập {{ rescheduleReasonLen }}.
+          </p>
+        </div>
+
+        <div class="flex justify-end gap-2">
+          <button class="px-4 py-2 text-sm border rounded-lg" @click="showRescheduleModal = false">Quay lại</button>
+          <button
+            data-testid="reschedule-confirm"
+            :disabled="rescheduling || !rescheduleReadyToSend"
+            class="px-4 py-2 text-sm bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-50"
+            @click="doRescheduleCal"
+          >
+            {{ rescheduling ? 'Đang dời lịch...' : 'Xác nhận dời lịch' }}
           </button>
         </div>
       </div>

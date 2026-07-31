@@ -32,7 +32,12 @@ vi.mock('@/stores/imm11', () => ({
   }),
 }))
 vi.mock('@/api/imm05', () => ({ uploadDocumentFile: vi.fn() }))
-vi.mock('@/api/imm11', () => ({ getCalibration: vi.fn(), updateCalibration: vi.fn() }))
+// importOriginal: giữ NGUYÊN các export HẰNG của module (vd RESCHEDULE_CAL_STATES /
+// isRescheduleCalStatus — SSoT gate nút dời lịch) và CHỈ mock hàm gọi mạng.
+vi.mock('@/api/imm11', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/api/imm11')>()),
+  getCalibration: vi.fn(), updateCalibration: vi.fn(),
+}))
 
 import { getCalibration, updateCalibration } from '@/api/imm11'
 import CalibrationDetailView from './CalibrationDetailView.vue'

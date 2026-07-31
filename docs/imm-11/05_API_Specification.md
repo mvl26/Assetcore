@@ -36,6 +36,7 @@
 | 16 | `assetcore.api.imm11.receive_certificate` | POST | External: → In Progress (cert received) | Technician | ✓ | US-11-03 |
 | 17 | `assetcore.api.imm11.cancel_calibration` | POST | Hủy phiếu chưa submit | Workshop Lead | ✗ | US-11-08 |
 | 18 | `assetcore.api.imm11.get_due_calibrations` | GET | Thiết bị due ≤ N ngày (filter `AC Asset.next_calibration_date` = MIN-lịch, BR-11-13 → asset multi-schedule KHÔNG rớt) | All | ✓ | US-11-01, AC-11-21 |
+| 19 | `assetcore.api.imm11.reschedule_calibration` | POST | **[AC-CR-86 — ✅ LIVE @`api/imm11.py:131` → `services/imm11.py:1217` (BE Bước-4, 2026-07-28)]** Dời ngày hẹn phiếu (`Scheduled`/`In Progress`, `docstatus=0`) — GIỮ trạng thái, `reason` bắt buộc ≥5 ký tự, đúng 1 vết audit. Cap `calibration.write` gate ở **service**. §0.1.11 + §2 #13 | Calibration User/Manager | ✗ (đổi `scheduled_date`) | US-11-04 |
 
 > **Round 18 — CR-WF-11-CAL — dual-track lockstep (BE-only, KHÔNG đổi contract):** các endpoint transition (`create_calibration`/`update_calibration`/`send_to_lab`/`receive_certificate`/`cancel_calibration`/`submit_calibration`) THÊM side-effect nội bộ `frappe.db.set_value(..., {"workflow_state": status}, update_modified=False)` để đóng desync `workflow_state` đọng state khởi tạo (`04_Backend_Design.md §3.2` + ADR-IMM11-06). **Envelope + request/response shape KHÔNG đổi** — `workflow_state` là field nội bộ (desk workflow-engine), KHÔNG vào return-shape, KHÔNG lộ FE. DONE-gate spec-contract giữ nguyên: lỗi nghiệp vụ = **in-handler HTTP-200 + Error envelope** (`nthrow`, KHÔNG raise→4xx); 2 loại 403 = dispatcher-403 (guest/no-token) + in-handler cap-403 (thiếu quyền, đã phủ trong Error-envelope 200-oneOf). 0 endpoint mới, 0 verb đổi.
 
@@ -312,28 +313,30 @@
 | Mục | Giá trị |
 |---|---|
 | Mobile operationId | `sendToLab` (POST, path 63/63 mới), tag `calibration` |
-| Handler LIVE | `assetcore.api.imm11.send_to_lab` def@`api/imm11.py:169-170` (`@whitelist(methods=["POST"])`@168, `rbac.require("cal.send_lab")`@171 → `("IMM Asset Calibration","write")` `rbac.py:109`, `handle(svc.send_to_lab,…)`@172-176) |
-| Service LIVE | `services/imm11.py:1270` — 4-nhánh ladder + patch + asset-transition + audit; `return {name,status,sent_date}`@1304 EXACT 3-key |
+| Handler LIVE | `assetcore.api.imm11.send_to_lab` def@`api/imm11.py:180-181` (`@whitelist(methods=["POST"])`@179, `rbac.require("cal.send_lab")`@182 → `("IMM Asset Calibration","write")`, `handle(svc.send_to_lab,…)`@183-187) |
+| Service LIVE | `services/imm11.py:1502` — ladder guard (NOT_FOUND/ALREADY_SUBMITTED/NOT_EXTERNAL/BAD_STATE) **+ CERTGUARD BR-11-18 (BE Bước-4, SAU BAD_STATE @1514)** + patch + asset-transition + audit; `return {name,status,sent_date}`@1537 EXACT 3-key |
 | requestBody | 2 media-type `application/json` + `application/x-www-form-urlencoded` (Frappe RPC `form_dict` §9) cùng `$ref SendToLabRequest` — **∈ `_REQBODY_PATHS`**, subject sweep `_RPC_FORM_JSON_MEDIA` (**KHÁC 3 path multipart** ∉ `_REQBODY_PATHS` + có hằng exempt) |
 
-**`SendToLabRequest`** — CLOSED (`additionalProperties:false`) `required[name]` EXACT **4 prop** khớp HỆT signature @169-170 (chỉ `name` bắt buộc):
+**`SendToLabRequest`** — CLOSED (`additionalProperties:false`) `required[name]` EXACT **4 prop** khớp HỆT signature @180-181 (chỉ `name` bắt buộc):
 
 | # | Field | Type | Ground |
 |---|---|---|---|
-| 1 | `name` | string (**required**) | name IMM Asset Calibration (phiếu External đang mở). @169 `form_dict` |
-| 2 | `sent_date` | string, nullable | absent/`null` ⇒ service default `nowdate()` @1285. `sent_date=None` @169 optional |
+| 1 | `name` | string (**required**) | name IMM Asset Calibration (phiếu External đang mở). @180 `form_dict` |
+| 2 | `sent_date` | string, nullable | absent/`null` ⇒ service default `nowdate()` @1518. `sent_date=None` @180 optional |
 | 3 | `lab_supplier` | string, nullable | NCC/lab nhận (Link Supplier, mô hình `string`); absent ⇒ KHÔNG patch. optional |
 | 4 | `lab_contract_ref` | string, nullable | tham chiếu HĐ/PO gửi lab (free-text); absent ⇒ KHÔNG patch. optional |
 
-**`SendToLabResponse`** (data) — CLOSED `required[name,status,sent_date]` EXACT **3 prop** (GROUNDED `return {name,status,sent_date}` @1304):
+**`SendToLabResponse`** (data) — CLOSED `required[name,status,sent_date]` EXACT **3 prop** (GROUNDED `return {name,status,sent_date}` @1537):
 
 | # | Field | Type | Ground |
 |---|---|---|---|
-| 1 | `name` | string (**required**) | echo name phiếu @1304 |
-| 2 | `status` | string **enum 8-canonical** `[Scheduled, Sent to Lab, In Progress, Certificate Received, Passed, Failed, Conditionally Passed, Cancelled]` (**required**) | `patch["status"]` @1304 = `CalibrationResult.SENT_TO_LAB` @1285 (`constants.py:123`). **Giá-trị trả LUÔN `"Sent to Lab"`** — khai đủ 8 (Select 1:1) để codegen sinh đúng máy-trạng-thái |
-| 3 | `sent_date` | string (date) (**required**) | `patch["sent_date"]` @1304 = `sent_date or nowdate()` @1285 (LUÔN resolved) |
+| 1 | `name` | string (**required**) | echo name phiếu @1537 |
+| 2 | `status` | string **enum 8-canonical** `[Scheduled, Sent to Lab, In Progress, Certificate Received, Passed, Failed, Conditionally Passed, Cancelled]` (**required**) | `patch["status"]` @1537 = `CalibrationResult.SENT_TO_LAB` @1517 (`constants.py:123`). **Giá-trị trả LUÔN `"Sent to Lab"`** — khai đủ 8 (Select 1:1) để codegen sinh đúng máy-trạng-thái |
+| 3 | `sent_date` | string (date) (**required**) | `patch["sent_date"]` @1537 = `sent_date or nowdate()` @1518 (LUÔN resolved) |
 
-**200 = oneOf [`SendToLabResponseEnvelope`, `Error`]** (Decision-B route-by-VALUE `body.success`, 0 discriminator). Nhánh `Error` gom **4 nhánh service** ARRIVE HTTP-200 `Error.http_status` ⊇ **{404,409,422}**: NOT_FOUND 404 (doc∄ @1276) → CONFLICT 409 (docstatus==1 đã-chốt @1278) → VALIDATION 422 (không-External @1280) → CONFLICT 409 (sai-state ∉{Scheduled,In Progress} @1282) — grounded `messages.py` (404@904/409@939/422@953/409@960).
+**200 = oneOf [`SendToLabResponseEnvelope`, `Error`]** (Decision-B route-by-VALUE `body.success`, 0 discriminator). Nhánh `Error` gom **5 nhánh service** ARRIVE HTTP-200 `Error.http_status` ⊇ **{404,409,422}**: NOT_FOUND 404 (doc∄ @1508) → CONFLICT 409 (docstatus==1 đã-chốt @1510) → VALIDATION 422 (không-External @1512) → CONFLICT 409 (sai-state ∉{Scheduled,In Progress} @1514) → **CONFLICT 409 `IMM11_SEND_LAB_ALREADY_CERTIFIED` (`certificate_file` ĐÃ set — phiếu External đã có chứng chỉ; chặn gửi-lại lab bảo toàn vết `sent_date` NĐ98 · CR-59 / BR-11-18 · guard MỚI chèn SAU BAD_STATE @1514, TRƯỚC patch @1516 — BE Bước-4)** — grounded `messages.py` (mã mới BE thêm cùng slice, entry 409).
+
+> **§0.1.6-CERTGUARD — CR-59 (chặn gửi-lại lab phiếu ĐÃ có chứng chỉ · bảo toàn vết `sent_date` NĐ98)**: Guard server ĐANG THIẾU ⇒ mọi caller (mobile write-outbox re-drain, double-tap nút "Gửi lab", script) gọi `send_to_lab` LẠI trên phiếu External `status='In Progress'` hậu-`receive_certificate` (`certificate_file` đã set) ⇒ ghi đè `sent_date`/`sent_by` + re-transition asset + ALE trùng → **corrupt vết metrological** (chứng chỉ cấp theo `sent_date` gốc; ghi đè ⇒ `sent_date > certificate_date`, chuỗi truy xuất vô hiệu — vi phạm NĐ98/ISO-17025). **Fix (BE Bước-4):** `if doc.certificate_file: nthrow(MSG.IMM11_SEND_LAB_ALREADY_CERTIFIED)` (`http_status=409`, HTTP-200 + Error envelope Decision-B, `body.message_code='IMM11-SEND-LAB-ALREADY-CERTIFIED'`) — đặt SAU `IMM11_SEND_LAB_BAD_STATE`, TRƯỚC `patch` (**raise-before-mutate** ⇒ đọc lại DB `sent_date`/`certificate_file`/`status` KHÔNG đổi, AC-11-47). **KHÔNG chặn luồng hợp lệ:** phiếu `Scheduled` (`certificate_file` rỗng) VẪN gửi-lab OK → `status='Sent to Lab'` + `sent_date` set (AC-11-48). Guard trên **`certificate_file`-presence** (NĐ98-material fact), KHÔNG trên `status` enum — xem `04 §ADR-IMM11-CERTGUARD`. **Coupled slice (BE-owned):** +MSG code @`utils/messages.py` ⇒ BẮT BUỘC `python scripts/gen_fe_messages.py` → `messages.ts` (chống SYS-500). Field `certificate_file`/`sent_date`/`status` **đã tồn tại** ⇒ **KHÔNG `bench migrate`**. OAS mirror `sendToLab` (op) đã curate: mã mới trong **200-oneOf Error branch sẵn có** — **0 +path/+opId/+schema** (`test_mobile_oas` 893 OK / `test_mobile_docset` 9 OK — BA verified). DoD BE = `bench --site miyano run-tests --module assetcore.tests.test_imm11` XANH gồm ≥2 test mới (`TC-11-SENDLAB-CERTGUARD-*` = AC-11-47/48), KHÔNG curl (BLOCKED-RELOAD `--preload`).
 
 #### ADR-IMM11-SENDLAB — `sendToLab` write-ACTION json+form + `SendToLabResponse` RIÊNG 3-prop + 403 SINGLE qua `rbac.require` same-shape
 - **Status**: Accepted · **Date**: 2026-07-11
@@ -395,30 +398,30 @@
 
 > **Bối cảnh (HOÀN TẤT bộ-ba External)**: Nhánh **External/NGOẠI KIỂM** = `createCalibration(External)`→**`sendToLab`** (§0.1.6, mở)→**`receiveCertificate`** (§0.1.7, giữa)→`submitCalibration` (chốt). `cancelCalibration` là **escape-hatch/abort** cho MỌI phiếu hiệu chuẩn còn **DRAFT** (In-House lẫn External) — false-alarm / thiết bị decommissioned / lập nhầm (BR-11-08): `status`→**`Cancelled`** (`amendment_reason="[Cancelled] {reason}"`) + nếu asset đang `CALIBRATING` trả về `ACTIVE` + audit `Calibration`. Cross-link SSoT `docs/mobile/openapi/assetcore-mobile.openapi.yaml` (3.0.3, hiện **64 path → +1 = 65** sau round này — số grounded @source 2026-07-12 sau ADR-032/receiveCertificate, **BE grep-verify TRƯỚC bump**) + [`docs/mobile/ADR-MOBILE-033.md`](../mobile/ADR-MOBILE-033.md) + [`04-api-contract.md §8.39`](../mobile/04-api-contract.md) — **KHÔNG nhân đôi schema**; mọi sửa field đồng bộ 2 nơi. **BỘ-BA ACTION EXTERNAL-CALIBRATION HOÀN TẤT** (sendToLab → receiveCertificate → cancelCalibration).
 
-> **⚠️ ĐIỂM KHÁC CỐT-LÕI (403 cap-branch REACHABLE — shape KHÔNG đổi):** `sendToLab`/`receiveCertificate` gate cap permtype **`write`** mà `Calibration User` **CÓ** (`write=1`) → cap-403 gần-như-không-trip cho KTV thường. `cancelCalibration` gate cap `calibration.cancel` → permtype **`cancel`** mà `Calibration User` **cancel=0** (DocPerm `imm_asset_calibration.json`: `cancel=1` chỉ `AssetCore Super Admin`+`Calibration Manager`) ⇒ cap-403 (`rbac.require("calibration.cancel")` @197 chạy **TRƯỚC** `handle()`) là **HTTP-403 status-line THẬT** và **REACHABLE** cho một KTV cố hủy phiếu — action IMM-11 ĐẦU TIÊN mà cap-403 trip trong luồng vận-hành bình-thường. SHAPE **VẪN SINGLE `Forbidden`** (cap-403 CÙNG raw-403 status-line dispatcher-403 → collapse 1 component). KHÁC-BIỆT ở **reachability/UX** (app gate nút "Hủy phiếu" theo `calibration.cancel` — chống nút-chết), KHÔNG ở schema. **403 KHÔNG đi qua 200-oneOf Error branch.**
+> **⚠️ ĐIỂM KHÁC CỐT-LÕI (403 cap-branch REACHABLE — shape KHÔNG đổi):** `sendToLab`/`receiveCertificate` gate cap permtype **`write`** mà `Calibration User` **CÓ** (`write=1`) → cap-403 gần-như-không-trip cho KTV thường. `cancelCalibration` gate cap `calibration.cancel` → permtype **`cancel`** mà `Calibration User` **cancel=0** (DocPerm `imm_asset_calibration.json`: `cancel=1` chỉ `AssetCore Super Admin`+`Calibration Manager`) ⇒ cap-403 (`rbac.require("calibration.cancel")` @208 chạy **TRƯỚC** `handle()`) là **HTTP-403 status-line THẬT** và **REACHABLE** cho một KTV cố hủy phiếu — action IMM-11 ĐẦU TIÊN mà cap-403 trip trong luồng vận-hành bình-thường. SHAPE **VẪN SINGLE `Forbidden`** (cap-403 CÙNG raw-403 status-line dispatcher-403 → collapse 1 component). KHÁC-BIỆT ở **reachability/UX** (app gate nút "Hủy phiếu" theo `calibration.cancel` — chống nút-chết), KHÔNG ở schema. **403 KHÔNG đi qua 200-oneOf Error branch.**
 
 | Mục | Giá trị |
 |---|---|
 | Mobile operationId | `cancelCalibration` (POST, path 65/65 mới), tag `calibration` |
-| Handler LIVE | `assetcore.api.imm11.cancel_calibration` def@`api/imm11.py:195-198` (`@whitelist(methods=["POST"])`@195, `rbac.require("calibration.cancel")`@197 → `("IMM Asset Calibration","cancel")` **auto-gen** `rbac.py:100-103`, `handle(svc.cancel_calibration, name, reason)`@198) |
-| Service LIVE | `services/imm11.py:1343` — 4-nhánh ladder + patch status=`Cancelled` + `amendment_reason` @1355-1358 + asset `CALIBRATING`→`ACTIVE` NẾU applicable @1359-1362 + audit `Calibration` @1363-1367; `return {name,status}`@1368 EXACT 2-key |
+| Handler LIVE | `assetcore.api.imm11.cancel_calibration` def@`api/imm11.py:207` (`@whitelist(methods=["POST"])`@206, `rbac.require("calibration.cancel")`@208 → `("IMM Asset Calibration","cancel")` **auto-gen** `rbac.py:100-103`, `handle(svc.cancel_calibration, name, reason)`@209) |
+| Service LIVE | `services/imm11.py:1577` — 4-nhánh ladder + patch status=`Cancelled` + `amendment_reason` @1590-1591 + asset `CALIBRATING`→`ACTIVE` NẾU applicable @1595-1596 + audit `Calibration` @1597-1600; `return {name,status}`@1603 EXACT 2-key |
 | requestBody | 2 media-type `application/json` + `application/x-www-form-urlencoded` (Frappe RPC `form_dict` §9) cùng `$ref CancelCalibrationRequest` — **∈ `_REQBODY_PATHS`**, subject sweep `_RPC_FORM_JSON_MEDIA` (mirror `sendToLab`/`receiveCertificate`, **KHÁC 3 path multipart** ∉ `_REQBODY_PATHS`) |
 
-**`CancelCalibrationRequest`** — CLOSED (`additionalProperties:false`) `required[name, reason]` EXACT **2 prop** khớp HỆT signature @196 (**2 bắt buộc** — `reason` KHÁC `sendToLab` chỉ `name`):
+**`CancelCalibrationRequest`** — CLOSED (`additionalProperties:false`) `required[name, reason]` EXACT **2 prop** khớp HỆT signature @207 (**2 bắt buộc** — `reason` KHÁC `sendToLab` chỉ `name`):
 
 | # | Field | Type | Ground |
 |---|---|---|---|
-| 1 | `name` | string (**required**) | name IMM Asset Calibration (phiếu DRAFT cần hủy). @196 `form_dict` |
-| 2 | `reason` | string (**required**) | lý do hủy — bắt buộc (BR-11-08); service `nthrow IMM11_CANCEL_REASON_REQUIRED` @1353 nếu rỗng/whitespace; lưu `amendment_reason="[Cancelled] {reason}"` @1357. @196 |
+| 1 | `name` | string (**required**) | name IMM Asset Calibration (phiếu DRAFT cần hủy). @207 `form_dict` |
+| 2 | `reason` | string (**required**) | lý do hủy — bắt buộc (BR-11-08); service `nthrow IMM11_CANCEL_REASON_REQUIRED` @1587 nếu rỗng/whitespace; lưu `amendment_reason="[Cancelled] {reason}"` @1591. @207 |
 
-**`CancelCalibrationResponse`** (data) — CLOSED `required[name, status]` EXACT **2 prop** (GROUNDED `return {name,status}` @1368):
+**`CancelCalibrationResponse`** (data) — CLOSED `required[name, status]` EXACT **2 prop** (GROUNDED `return {name,status}` @1603):
 
 | # | Field | Type | Ground |
 |---|---|---|---|
-| 1 | `name` | string (**required**) | echo name phiếu @1368 |
-| 2 | `status` | **string** (KHÔNG enum) (**required**) | `CalibrationResult.CANCELLED` @1368 (`constants.py:119`). **Giá-trị trả LUÔN `"Cancelled"`** (state đơn-trị — plain string mirror `receiveCertificate`, KHÁC `sendToLab` enum-8-canonical). **ANTI-DRIFT: KHÔNG `sent_date` (SendToLab) / `certificate_number` (ReceiveCertificate) / `amendment_reason` (chỉ lưu server)** |
+| 1 | `name` | string (**required**) | echo name phiếu @1603 |
+| 2 | `status` | **string** (KHÔNG enum) (**required**) | `CalibrationResult.CANCELLED` @1590,1603 (`constants.py:119`). **Giá-trị trả LUÔN `"Cancelled"`** (state đơn-trị — plain string mirror `receiveCertificate`, KHÁC `sendToLab` enum-8-canonical). **ANTI-DRIFT: KHÔNG `sent_date` (SendToLab) / `certificate_number` (ReceiveCertificate) / `amendment_reason` (chỉ lưu server)** |
 
-**200 = oneOf [`CancelCalibrationResponseEnvelope`, `Error`]** (Decision-B route-by-VALUE `body.success`, 0 discriminator). Nhánh `Error` gom **4 nhánh service** ARRIVE HTTP-200 `Error.http_status` ⊇ **{404,409,422}**: NOT_FOUND 404 (doc∄ @1347) → CONFLICT 409 (docstatus==1 đã-chốt @1349) → CONFLICT 409 (đã-hủy @1351) → VALIDATION 422 (thiếu lý do @1353) — grounded `messages.py` (404@917/409@1001/409@1008/422@994). **KHÁC `sendToLab`/`receiveCertificate` KHÔNG có `NOT_EXTERNAL`/state-guard** — cancel áp MỌI DRAFT (guard #2 chặn docstatus==1, #3 chặn đã-hủy). **KHÔNG có 403** trong 200-Error (cap-403 đi raw status-line — xem Slot).
+**200 = oneOf [`CancelCalibrationResponseEnvelope`, `Error`]** (Decision-B route-by-VALUE `body.success`, 0 discriminator). Nhánh `Error` gom **4 nhánh service** ARRIVE HTTP-200 `Error.http_status` ⊇ **{404,409,422}**: NOT_FOUND 404 (doc∄ @1581) → CONFLICT 409 (docstatus==1 đã-chốt @1583) → CONFLICT 409 (đã-hủy @1585) → VALIDATION 422 (thiếu lý do @1587) — grounded `messages.py`. **KHÁC `sendToLab`/`receiveCertificate` KHÔNG có `NOT_EXTERNAL`/state-guard** — cancel áp MỌI DRAFT (guard #2 chặn docstatus==1, #3 chặn đã-hủy). **KHÔNG có 403** trong 200-Error (cap-403 đi raw status-line — xem Slot).
 
 #### ADR-IMM11-CANCELCAL — `cancelCalibration` write-ACTION json+form + `CancelCalibrationResponse` RIÊNG 2-prop `{name,status}` + status plain-string + 403 SINGLE `Forbidden` REACHABLE (cap `cancel`, Calibration User cancel=0)
 - **Status**: Accepted · **Date**: 2026-07-12
@@ -426,7 +429,7 @@
 - **Decision**: Curate 1 path POST, requestBody 2 media-type (json+form §9, KHÔNG multipart — action state-machine), **3 schema RIÊNG** (`CancelCalibrationRequest` req-2/2-prop · `CancelCalibrationResponse` 2-prop `{name,status}` · Envelope), 200 = oneOf [Env, Error], **403 SINGLE-SHAPE `Forbidden` — description GHI RÕ REACHABLE** cho Calibration User (cap `calibration.cancel`, DocPerm cancel=0). `status` = **plain string KHÔNG enum** (đơn-trị `Cancelled`, mirror `receiveCertificate`). `reason` bắt buộc (BR-11-08). Tag `calibration`. Path 64→65.
 - **Alternatives (loại)**: multipart body (action KHÔNG upload, đọc `form_dict`) · dual-403 (cap-403 REACHABLE NHƯNG CÙNG shape dispatcher — reachability ≠ shape, ghi ở description KHÔNG đổi schema) · SINGLE-200 (giấu 4 nhánh Error) · reuse `CreateCalibrationResponse` 2-prop (field-set khác → `additionalProperties:false` FAIL) · `status` enum-8-canonical (acceptance chọn plain string đơn-trị, mirror receiveCertificate) · `required[name]` only (`reason` positional KHÔNG default — bắt buộc) · KHÔNG ghi reachability 403 (app render nút-chết cho KTV cancel=0).
 - **Consequences**: +1 path +3 schema RIÊNG (PURE-YAML). **0 đụng** `api/imm11.py`+`services/imm11.py` (handler+service+cap-gate+return-shape đã sẵn @source) ⇒ KHÔNG reload/migrate/commit. C3-split family (module 5 response-shape: create-2/send-lab-3{sent_date}/receive-cert-3{certificate_number}/**cancel-2{name,status}**/submit-4). **403 REACHABLE documented** (cap `cancel` Calibration User cancel=0 — action ĐẦU TIÊN cap-403 trip vận-hành thường; shape VẪN SINGLE `Forbidden` same-shape collapse). Test `TestMobileCancelCalibrationContract` guard response field-set 2-prop ≠ SendToLab/ReceiveCert/Submit/Create + status-plain-string-no-enum + naming-guard + cap-map-grounded.
-- **Self-Correction from-state**: acceptance ghi "Scheduled/In Progress → Cancelled" NHƯNG guard THẬT service @1346-1353 = `docstatus!=1` (DRAFT) AND `status!=Cancelled` — KHÔNG whitelist `{Scheduled, In Progress}`; MỌI phiếu DRAFT (Scheduled/Sent to Lab/In Progress/Certificate Received) hủy được. "Scheduled/In Progress" là case điển-hình. Contract KHÔNG khai from-state (request `{name, reason}`) — nhưng ghi để BE/FE KHÔNG thêm client-guard hẹp hơn server (chặn nhầm phiếu External `Sent to Lab` đáng-hủy).
+- **Self-Correction from-state**: acceptance ghi "Scheduled/In Progress → Cancelled" NHƯNG guard THẬT service @1580-1587 = `docstatus!=1` (DRAFT) AND `status!=Cancelled` — KHÔNG whitelist `{Scheduled, In Progress}`; MỌI phiếu DRAFT (Scheduled/Sent to Lab/In Progress/Certificate Received) hủy được. "Scheduled/In Progress" là case điển-hình. Contract KHÔNG khai from-state (request `{name, reason}`) — nhưng ghi để BE/FE KHÔNG thêm client-guard hẹp hơn server (chặn nhầm phiếu External `Sent to Lab` đáng-hủy).
 
 > **Acceptance contract (chốt cho BE/Test — Bước 4)**: (1) YAML `64 → 65` path / `65` operationId (`cancelCalibration` mới, unique camelCase, tag `calibration`, 0 dangling `$ref`, `safe_load` OK); requestBody `required:true` content 2 media-type json+form cùng `$ref CancelCalibrationRequest`; 200 oneOf [`CancelCalibrationResponseEnvelope`, Error]; slot `{200,401,403}` (`401 Unauthorized401` + **`403 Forbidden` SINGLE-SHAPE** — KHÔNG dual; **description path GHI RÕ 403 REACHABLE** cho Calibration User cap `calibration.cancel`). (2) +3 schema closed (`CancelCalibrationRequest` `req[name, reason]` 2-prop cả-2-required — KHÁC `sendToLab` 1 · `CancelCalibrationResponse` `req[name, status]` 2-prop `status` **plain string KHÔNG enum** · `CancelCalibrationResponseEnvelope`) tái-dùng `Unauthorized401`/`Forbidden`/`Error`; naming-guard `CancelCalibration*` ∩ (`SendToLab*`∪`ReceiveCertificate*`∪`SubmitCalibration*`∪`CreateCalibration*`∪`AddMeasurement*`) == ∅. (3) Guard XANH @source (`bench --site miyano run-tests --app assetcore --module assetcore.tests.test_mobile_oas`): `_EXPECTED_TEST_COUNT` **591→601** (+10 TC `TestMobileCancelCalibrationContract a..j`, gồm TC-d req-2-required[name,reason], TC-g response-2-prop-status-plain-string-NO-enum anti-drift vs SendToLab enum/sent_date + ReceiveCert certificate_number, TC-h 403-SINGLE + reachability, TC-i naming-guard + cap-map `calibration.cancel→(IMM Asset Calibration,cancel)`, TC-j live-signature parity `inspect.signature(imm11.cancel_calibration)=={name, reason}` + git-diff-0-hunk pure-yaml) + c5 **53→54** + membership `_MVP_ACTION_ENVELOPE`+`_REQBODY_PATHS`; `test_mobile_docset` **Ran 9 OK** (reconcile `_GUARD_SUITE_SUM` **734→744** + `_MOBILE_OAS_TOTAL` **760→770**); `test_mobile_security_gate` GREEN; `test_oas_d12/d15/d17` **UNCHANGED** (pure mobile-yaml — KHÔNG đụng `generate_spec`). ⚠️ Baseline 591/64/53/734/760 grounded @source 2026-07-12 sau ADR-032 — **BE grep-verify @source TRƯỚC bump** (đa-phiên race). (4) **CONTRACT-ONLY**: `git diff` `api/imm11.py`+`services/imm11.py` vùng `cancel_calibration` = 0 hunk MỚI (registry-resolvability KHÔNG HEAD-diff). RED-before/GREEN-after cho MỌI TC mới. KHÔNG reload/migrate/commit (HARD-STOP USER — working-tree để USER review).
 
@@ -443,7 +446,7 @@
 | Service LIVE | `services/imm11.py:1393` `get_due_calibrations(days=30, limit=50)` — `AssetRepo.list` filter 3-clause (`lifecycle_status not in [DECOMMISSIONED]` + **`next_calibration_date is set`@1409** + `next_calibration_date <= threshold`) `fields=[name,asset_name,device_model,location,next_calibration_date,calibration_status]`@1412-1413 `page_size=int(limit)`; loop bồi `days_left = date_diff(nd, today_d) if nd else None`@1420; `return {items, threshold_days}`@1421 EXACT 2-key |
 | Params | **2 typed query-param INLINE** (mirror `year` CR-05/CR-11b, KHÔNG `$ref`): `days` (`integer`, **default 30**, `in:query` `required:false`) — cửa-sổ ngày tính "due" (`threshold = add_days(today, days)`@1408) · `limit` (`integer`, **default 50**, `in:query` `required:false`) — cap số dòng (`page_size`). Signature `get_due_calibrations(days=30, limit=50)` — 2 param CÓ default ⇒ CẢ 2 `required:false`. **0 param JSON-filters, 0 param `mine`, 0 param `page`.** |
 | Response 200 | `oneOf [DueCalibrationListEnvelope, Error]` Ở TẦNG response-content-schema của response-component (Decision-B route-by-VALUE `body.success`, **0 discriminator**, đối xứng `listCommissioning`). ∈ `_MVP_LIST_ENVELOPE` (map `→ #/components/schemas/DueCalibrationListEnvelope`) |
-| Status codes | 200 / 401 (`Unauthorized401` — bearer hết-hạn = dispatcher) / **403 SINGLE-SHAPE `Forbidden`** — **dispatcher-ONLY** (guest/no-token, `@whitelist` no `allow_guest`). **KHÔNG có 403-cap-branch REACHABLE** (bare `@whitelist`, 0 `rbac.require` — KHÁC `sendToLab`/`cancelCalibration`). Mirror `listTransfers`/`listDepartments`/`listLocations` (bare-@whitelist read, 403 dispatcher-only). Path ∈ `_MVP_BUSINESS_PATHS` ⇒ 401/403 symmetry set tự +1 (test so SET). |
+| Status codes | 200 / 401 (`Unauthorized401` — bearer hết-hạn = dispatcher) / **403 SINGLE-SHAPE `Forbidden`** — **dispatcher-ONLY** ở tầng *status-line* (guest/no-token, `@whitelist` no `allow_guest`). Path ∈ `_MVP_BUSINESS_PATHS` ⇒ 401/403 symmetry set tự +1 (test so SET). **⚠️ CẢI CHÍNH 2026-07-25 (ADR [§8.3b](../imm-00/ADR-IMM00-LIST-SCOPE.md), chờ [BA] ratify):** claim cũ *"KHÔNG có 403-cap-branch REACHABLE"* nay **KHÔNG còn đúng ở tầng ENVELOPE**: `AssetRepo.list(scope="system")` gate DocPerm `read` trên `AC Asset` và service bọc `@rowscoped` ⇒ persona thiếu DocPerm read nhận **HTTP-200 + Error envelope** `{code:FORBIDDEN, http_status:403}` (BR-00-ROWSCOPE-403) — vẫn là **nhánh Error của 200-oneOf sẵn có**, **0 delta OpenAPI** (KHÔNG thêm response 403 mới, KHÔNG đụng counter). Client route theo **status-line**: 403-line = dispatcher raw → re-auth; 200-line + `success:false` → show-message. |
 
 **`DueCalibrationListItem`** — CLOSED (`additionalProperties:false`) **EXACT 7 prop** = 6 field `AssetRepo.list` @`services/imm11.py:1412-1413` ∪ `days_left` bồi @`:1420`. **0 field thừa/thiếu** (VERBATIM service; SSoT DocType = `ac_asset.json`):
 
@@ -457,7 +460,20 @@
 | 6 | `calibration_status` | string enum `['', Not Required, On Schedule, Due Soon, Overdue, Calibration Failed]` | `AC Asset.calibration_status` (Select 6-value, leading-blank). Cache rollup worst-of (`check_calibration_expiry`, §0.1.5/§6.1). **String Select — KHÔNG Check ⇒ KHÔNG integer-enum** |
 | 7 | `days_left` | **`integer`** signed (**KHÔNG `nullable`**, KHÔNG enum) | Bồi @`:1420` `date_diff(next_calibration_date, today)`. **Âm = quá hạn** (vd `-3` = quá hạn 3 ngày), `0` = đến hạn hôm nay, dương = còn N ngày. Client DÙNG TRỰC TIẾP để sort/ưu-tiên — **KHÔNG re-derive** vs client-clock (server-flag SSoT, `memory/overdue_server_flag_ssot.md`) |
 
-- **Always**: `additionalProperties:false` (closed) ở CẢ `DueCalibrationListEnvelope` (`required[success,data]`, `success.enum[true]`, `data = $ref DueCalibrationListPage`), `DueCalibrationListPage` (`required[items,threshold_days]`) LẪN `DueCalibrationListItem` (`required[name]`, 6 field khác optional). `days_left` = `type:integer` NON-nullable (dead-branch — xem ADR).
+#### CR-46 — Hợp đồng TRUNG THỰC khi cắt (`total` + `truncated`)
+
+> **Quyết định: đối xứng CR-43 (inbox IMM-00 §III.22) + CR-46 nửa-PM (IMM-08 §0.1.5) + CR-47 (competencies IMM-06 C.2) — cùng khối "hợp đồng TRUNG THỰC khi cắt danh sách mobile".** `getDueCalibrations` cắt ở `page_size=int(limit)` (default 50) NHƯNG KHÔNG cho client biết còn bao nhiêu thiết bị due chưa hiển thị → KTV tưởng đã xem hết. ⚠️ **Thay đổi bản chất slice: §0.1.9 gốc là CONTRACT-ONLY (service LIVE `{items, threshold_days}`); CR-46 THÊM `total`/`truncated` ⇒ BE PHẢI sửa `services/imm11.py` (application code, [BE] Bước-4, worker reload = HARD-STOP user).** Slice **contract (OAS + shape-guard `test_mobile_oas` đã verify `Ran 893 OK`) đóng ở Bước-2 (BA)**.
+
+| Khóa | Kiểu | Ngữ nghĩa |
+|---|---|---|
+| `total` | int ≥ 0 | **COUNT THẬT** trên ĐÚNG filter-set (`lifecycle_status not in [Decommissioned]` ∧ `next_calibration_date is set` ∧ `<= threshold`) **TRƯỚC khi cắt** `limit` — cùng predicate `AssetRepo.list` @`:1618-1623`. **KHI `truncated==0` thì `total == len(items)`.** |
+| `truncated` | int ∈ {0,1} | `= int(len(items) >= limit ∧ total > limit)`. **int, KHÔNG bool/None** (parity CR-01). FE hiện dải "đang xem một phần" (KHÔNG nêu con số). |
+
+- **ADDITIVE-OPTIONAL:** `DueCalibrationListPage` giờ **4 khóa** `{items, threshold_days, total, truncated}` nhưng `required` **GIỮ `[items, threshold_days]`** byte-identical (backward-compat). `additionalProperties:false` GIỮ.
+- **AC4 test (BE Bước-4):** seed 2 thiết bị due → `limit=1` ⇒ `len(items)==1 ∧ total==2 ∧ truncated==1`; `limit=100` ⇒ `truncated==0 ∧ total==len(items)`.
+- **§BE task:** trong `get_due_calibrations` @`services/imm11.py`: sau khi build filters (3-clause) → `total = AssetRepo.count(<same predicate>)` (hoặc `frappe.db.count("AC Asset", <filter tương đương>)` — PHẢI CÙNG predicate với `list`, gồm guard is-set); sau khi có `rows` → `truncated = int(len(rows) >= int(limit) and total > int(limit))`; `return {"items": rows, "threshold_days": int(days), "total": total, "truncated": truncated}`. **COUNT vô-điều-kiện chấp nhận** (1-nguồn, 1 query rẻ — KHÁC inbox 4-nguồn zero-cost CR-43).
+
+- **Always**: `additionalProperties:false` (closed) ở CẢ `DueCalibrationListEnvelope` (`required[success,data]`, `success.enum[true]`, `data = $ref DueCalibrationListPage`), `DueCalibrationListPage` (`required[items,threshold_days]` — **CR-46: +`total`/`truncated` ADDITIVE-OPTIONAL, 4 key tổng, required GIỮ 2 key**) LẪN `DueCalibrationListItem` (`required[name]`, 6 field khác optional). `days_left` = `type:integer` NON-nullable (dead-branch — xem ADR). `total`/`truncated` = `type:integer` (`truncated` `enum[0,1]`).
 - **Always**: path vào `_MVP_BUSINESS_PATHS` (401/403 symmetry) **VÀ** `_MVP_LIST_ENVELOPE` (`→ DueCalibrationListEnvelope`, oneOf-bucket) ⇒ 2 set tự +1 (test so SET, KHÔNG literal).
 - **Never**: KHÔNG thêm `pagination` vào `DueCalibrationListPage` (service KHÔNG `paginate()` — chỉ limit-cap; thêm = payload BE KHÔNG khớp closed-schema). KHÔNG khai `days_left` `nullable:true` (dead-branch `else None` không đạt-tới). KHÔNG khai `calibration_status`/bất kỳ field nào là `integer enum[0,1]` — 0 Check field ở list-item này (KHÁC `listCalibrations` `is_recalibration`/`is_overdue`/`is_due_soon`). KHÔNG nhồi field financial. KHÔNG thêm `mine`/`page`/JSON-`filters` param (signature chỉ `days,limit`). KHÔNG thêm slot 403 dual-shape (cap-403 KHÔNG reachable — bare `@whitelist`).
 
@@ -521,6 +537,43 @@
 - **Consequences**: +1 path +3 schema RIÊNG (PURE-YAML). **0 đụng** `api/imm11.py`+`services/imm11.py` (handler+service đã sẵn @source) ⇒ KHÔNG reload/migrate/commit. Bộ Dashboard-KPI nay 2 endpoint: `getPmDashboardStats` ({kpis 7-key + trend_6months}, nullable `compliance_rate_pct`) / **`getCalibrationKpis` ({kpis 6-key} SINGLE-khối, NON-null `pass_rate_pct`)** — cross-ref surface CÙNG FE-composition, KHÁC shape có-chủ-đích. **+ Self-Correction §12**: example `get_calibration_kpis` cũ (7-key compliance-report + `period` + `overdue_assets[]` LIST) STALE → cập-nhật 6-key LIVE (đồng-bộ §6.1 vốn đã đúng — xem §12). Test `TestMobileGetCalibrationKpisContract a..i` guard 6-field VERBATIM + `pass_rate_pct` NON-null + `trend_6months`-absent + overdue/due_soon integer-scalar + oneOf + naming-guard + live-signature parity.
 
 > **Acceptance contract (chốt cho BE/Test — Bước 4)**: (1) YAML `87 → 88` path / `88` operationId (`getCalibrationKpis` mới, unique camelCase `^[a-z][a-zA-Z0-9]*$`, tag `calibration`, method GET, 0 dangling `$ref`, `safe_load`/parse OK); 2 typed query-param INLINE `year`+`month` (`integer`, `in:query`, `required:false`, **KHÔNG `default` key**); 200 = inline oneOf [`CalibrationKpisEnvelope`, `Error`]; slot `{200,401,403}` (`401 Unauthorized401` + **`403 Forbidden` SINGLE-SHAPE dispatcher-only** — description GHI RÕ bare-@whitelist 0 cap-403). (2) +3 schema CLOSED (`additionalProperties:false`): `CalibrationKpis` `required` = **CẢ 6-prop** {total_this_month,completed,failed,pass_rate_pct,overdue_assets,due_soon_assets} — 0 field thừa/thiếu, 5 `integer` + `pass_rate_pct` `number` **NON-nullable** (0 field nullable), `overdue_assets`/`due_soon_assets` `type:integer` (COUNT, KHÔNG array), 0 Check integer-enum · `CalibrationKpisData` `required[kpis]` **CHÍNH XÁC 1-key KHÔNG `trend_6months`** (`kpis:$ref CalibrationKpis`) · `CalibrationKpisEnvelope` `{success:enum[true], data:$ref CalibrationKpisData}`; tái-dùng `Unauthorized401`/`Forbidden`/`Error`; naming-guard `CalibrationKpis*` ∩ (`CalibrationDetail*`∪`DueCalibration*`∪`SubmitCalibration*`∪`CreateCalibration*`∪`CancelCalibration*`∪`SendToLab*`∪`ReceiveCertificate*`∪`AddMeasurement*`) == ∅. (3) Guard XANH @source (`bench --site miyano run-tests --app assetcore --module assetcore.tests.test_mobile_oas`): `_EXPECTED_TEST_COUNT` **792→801** (+9 TC `TestMobileGetCalibrationKpisContract a..i`: a=path+opId 88+GET+tag calibration+∈`_MVP_READ_ENVELOPE`+∉`_MVP_LIST_ENVELOPE`, b=2-typed-param year/month integer-required:false-KHÔNG-default-key, c=Kpis-CLOSED-EXACT-6-field + required==6 + 5-integer/1-number, d=`pass_rate_pct`-NON-nullable-∈required (anti false-null, đối-nghịch PM) + 0-nullable + overdue/due_soon-integer-scalar-KHÔNG-array + 0-Check, e=`CalibrationKpisData`-CLOSED-req[kpis] + `trend_6months`-ABSENT (anti-drift vs PmDashboardStats), f=`CalibrationKpisEnvelope`-CLOSED-{success:[true],data}, g=200-oneOf[Env,Error]-0-discr + slot{200,401,403}, h=3-schema-KHÔNG-orphan+0-dangling+count-reconcile, i=naming-guard-disjoint + live-signature parity `inspect.signature(imm11.get_calibration_kpis)=={year,month}` + git-diff-0-hunk pure-yaml) + `_MVP_READ_ENVELOPE` +1 (ĐỊNH NGHĨA `_CALIBRATION_KPIS_PATH` const + entry) + c5 **76→77** + `_MVP_LIST_ENVELOPE` **GIỮ 13** + membership `_MVP_BUSINESS_PATHS` (401/403 symmetry tự +1); `test_mobile_docset` **Ran 9 OK** THẬT (reconcile `_GUARD_SUITE_EXPECTED["test_mobile_oas.py"]` **792→801** + `_GUARD_SUITE_SUM` **935→944** + `_MOBILE_OAS_TOTAL` **961→970** + delta var `calibration_kpis_delta=9`) — KHÔNG skip/xfail. `test_mobile_security_gate`/`test_oas_*` UNCHANGED (pure mobile-yaml). ⚠️ Baseline 87/792/76/13/935/961 grounded @source 2026-07-15 sau CR-31a/ADR-056 — **BE grep-verify @source TRƯỚC bump** (đa-phiên race). (4) **CONTRACT-ONLY**: `git diff` CHỈ `docs/mobile/openapi/assetcore-mobile.openapi.yaml` + `assetcore/tests/test_mobile_oas.py` + `assetcore/tests/test_mobile_docset.py` (+ docs md); `api/imm11.py`+`services/imm11.py` = **0 hunk** (0 worker-reload, 0 bench migrate). RED-before/GREEN-after cho MỌI TC mới. KHÔNG reload/migrate/commit (HARD-STOP USER — working-tree để USER review).
+
+---
+
+### 0.1.11. Write-action binding — `rescheduleCalibration` (DỜI LỊCH, đóng mobile CR-81 · AC-CR-86)
+
+> **Bối cảnh (mobile CR-81, VERIFIED @mirror 2026-07-27):** màn "Nhắc việc" của mobile gộp **PM + Hiệu chuẩn** cạnh nhau, nhưng dòng PM dời lịch được (`reschedulePm`) còn dòng hiệu chuẩn **chỉ đọc** — `grep -i reschedule + calib` trên mirror = 0 hit. Hai dòng trông giống nhau, hành xử khác nhau, app không có cách nào giải thích. Đường vòng `cancelCalibration` + `createCalibration` **KHÔNG dùng**: đẻ phiếu `Cancelled` rác vào hồ sơ NĐ98 + mất lịch sử phiếu. BR: `02_Analysis_Design.md §BR-11-19`. Write-path + ADR: `04_Backend_Design.md §4.1.12` + **ADR-IMM11-10..13**.
+
+| Mục | Giá trị |
+|---|---|
+| Mobile operationId | `rescheduleCalibration` (UNIQUE — parity `reschedulePm` của IMM-08) |
+| Path | `/api/method/assetcore.api.imm11.reschedule_calibration` — **POST-only** (`@frappe.whitelist(methods=["POST"])`) |
+| Handler | `api/imm11.py::reschedule_calibration(name, new_date, reason)` → `handle(svc.reschedule_calibration, name, new_date=…, reason=…)` — **KHÔNG `rbac.require`** (ADR-IMM11-12) |
+| Service | `services/imm11.py::reschedule_calibration` (`RESCHEDULE_CAL_STATES` + `_require_cal_reschedule_cap`) |
+| requestBody | `RescheduleCalibrationRequest` — `additionalProperties:false`, **ĐÚNG 3 property**, `required:[name,new_date,reason]`; `reason.minLength:5`; `new_date.format:date`. `content` oneOf `application/json` + `application/x-www-form-urlencoded` (Frappe RPC đọc `form_dict`) |
+| Response 200 | `oneOf [RescheduleCalibrationEnvelope, Error]` — CLOSED-SCHEMA + disjoint required-set (KHÔNG `discriminator`; `success` boolean ⇒ illegal). Route theo `body.success` / `body.http_status`, **KHÔNG** HTTP status-line |
+| `data` | `RescheduleCalibrationResponse` = **4 khoá** `{name, old_date, new_date, status}` — RIÊNG, KHÔNG reuse `ReschedulePmResponse` (shape trùng nhưng `status` thuộc enum **CalibrationResult**, KHÔNG PMStatus; enum-trùng-tên ≠ domain) |
+| Slot status | CHỈ `{200, 401, 403}` |
+| Idempotent | ✗ — mỗi lần gọi ghi thêm 1 vết audit + 1 dòng `amendment_reason`. **KHÔNG** có `client_request_id` ở vòng này (backlog **B-11-22** nếu mobile write-outbox cần) |
+
+**Ba giá trị quan sát được mà client PHẢI route theo (KHÔNG suy từ HTTP status-line):**
+
+| `message_code` | `code` | `http_status` (trong body) | Khi nào | `fields` |
+|---|---|---|---|---|
+| `IMM11-CAL-NOT-FOUND` | `NOT_FOUND` | 404 | phiếu ∄ | — |
+| `IMM11-RESCHEDULE-BAD-STATE` | `BAD_STATE` | 409 | `status ∉ {Scheduled, In Progress}` **hoặc** `docstatus==1` | — |
+| `IMM11-RESCHEDULE-REASON-REQUIRED` | `VALIDATION` | 422 | `reason` sau strip < 5 ký tự | `{"reason": …}` |
+| `IMM11-RESCHEDULE-DATE-INVALID` | `VALIDATION` | 422 | `new_date` rỗng / không parse được ngày | `{"new_date": …}` |
+| `IMM11-RESCHEDULE-DATE-PAST` | `VALIDATION` | 422 | `new_date < today` | `{"new_date": …}` |
+| _(không có message_code)_ | `FORBIDDEN` | 403 | thiếu cap `calibration.write` — **in-handler, in-envelope trên HTTP-200** | — |
+
+> ⚠️ **HAI LOẠI 403 — client PHẢI phân biệt:** (a) **dispatcher-403** (guest / no-token / bearer hỏng) = HTTP-403 **THẬT** + `FrappeRawError` body → đi re-auth; (b) **in-handler cap-403** (thiếu `calibration.write`) = **HTTP-200 + Error envelope** `code='FORBIDDEN'`, `http_status=403` → **hiển thị message, KHÔNG logout**. Slot `403` trong OAS chỉ giữ (a); (b) nằm trong nhánh `Error` của 200-oneOf.
+
+**Đọc kèm — cờ `can_reschedule` trên `getCalibration` (ADR-IMM11-13):** `CalibrationDetail` += property `can_reschedule` (boolean derived; `required` GIỮ `['name']`, `additionalProperties` GIỮ `true`). TRUE ⟺ `status ∈ RESCHEDULE_CAL_STATES ∧ docstatus==0 ∧ cap('calibration.write')`. Client render nút theo **cờ này**, KHÔNG tự so `status` — nếu tự so sẽ thành bản diễn giải thứ hai của luật (drift âm thầm) và không biết capability ⇒ **nút chết**.
+
+**Boundaries:**
+- **Always**: POST-only · body CLOSED 3 khoá · 200-oneOf 2 nhánh closed-schema · slot chỉ `{200,401,403}` · mọi lỗi nghiệp vụ **arrive HTTP-200** · `status` trong `data` == trạng thái **trước** khi dời (không đổi) · cite `@services/imm11.py:<dòng>` nằm trong `description` (comment YAML KHÔNG vào spec đã parse ⇒ guard cite-drift không bắt được).
+- **Never**: ❌ khai `404`/`409`/`422` thành slot status-line (codegen sinh nhánh CHẾT) · ❌ reuse `ReschedulePm*` schema · ❌ `discriminator` trên `success` · ❌ thêm `status` mới vào enum · ❌ để `reason` optional · ❌ curate `update_calibration` vào OAS (ngoài scope MVP mobile — BR-11-20 là slice BE/FE thuần).
 
 ---
 
@@ -685,7 +738,7 @@ FE đọc `response.data.data` (axios + Frappe lớp ngoài đã wrap).
 > `measurement_count` KHÔNG trả về (giữ Hyrum-safe). **FE PHẢI re-fetch `get_calibration(name)`** sau khi Lưu để render `pass_fail`/`out_of_tolerance` server-computed (06_Frontend_Design).
 
 **Boundaries:**
-- **Always**: `measurements` xử lý nhánh RIÊNG ngoài `_UPDATE_ALLOWED`; replace-set count==payload; server-compute verdict (strip client); guard `docstatus==0`∧`status∈ACTIVE_STATUSES`. Patch chỉ-`measurements` (0 scalar) KHÔNG bị `IMM11_NO_FIELDS`.
+- **Always**: `measurements` xử lý nhánh RIÊNG ngoài `_UPDATE_ALLOWED`; replace-set count==payload; server-compute verdict (strip client); guard `docstatus==0`∧`status∈ACTIVE_STATUSES`. Patch chỉ-`measurements` (0 scalar) KHÔNG bị `IMM11_NO_FIELDS`. **(AC-CR-86)** khoá `scheduled_date` → từ chối TƯỜNG MINH `IMM11_SCHEDULED_DATE_READONLY` + `fields=['scheduled_date']`; khoá lạ **khác** vẫn bỏ qua im lặng như cũ (KHÔNG siết thêm — né Hyrum-break web-FE, backlog B-11-21).
 - **Never**: ❌ thêm `measurements` vào `_UPDATE_ALLOWED`. ❌ tin `pass_fail`/`out_of_tolerance` client. ❌ đổi return-shape `{name,status}` (thêm `measurement_count` = Hyrum drift). ❌ đổi đường scalar khi `measurements` vắng (0 regression AC-11-39). ❌ DocField/`bench migrate`. ❌ curate endpoint này vào mobile OAS trong slice-này (không thuộc scope MVP mobile).
 
 **Errors (in-handler HTTP-200 + Error envelope — KHÔNG raise→4xx):**
@@ -695,6 +748,7 @@ FE đọc `response.data.data` (axios + Frappe lớp ngoài đã wrap).
 | `CONFLICT` | `CONFLICT` | 409 | `IMM11_ALREADY_SUBMITTED` — `docstatus==1` (measurements KHÔNG mutate) |
 | `CONFLICT` | `CONFLICT` | 409 | `IMM11_MEASUREMENTS_NOT_EDITABLE` — draft `status ∉ ACTIVE_STATUSES` + có `measurements` |
 | `VALIDATION` | `VALIDATION_ERROR` | 422 | `IMM11_NO_FIELDS` — patch rỗng (0 scalar ∧ 0 key `measurements`) |
+| `VALIDATION` | `VALIDATION_ERROR` | 422 | **`IMM11_SCHEDULED_DATE_READONLY` (BR-11-20 · AC-CR-86)** — patch chứa khoá `scheduled_date`; envelope kèm `fields={'scheduled_date': …}` trỏ sang «Dời lịch hiệu chuẩn» (§2 #13). Guard đặt **SAU** `docstatus==1`, **TRƯỚC** `clean_patch` ⇒ patch hỗn hợp bị từ chối NGUYÊN KHỐI, 0 ghi từng phần. Trước CR: khoá này bị **NUỐT IM LẶNG** (success + 0 thay đổi). |
 | `FORBIDDEN` | `FORBIDDEN` | 403 | thiếu cap `calibration.write` (cap-403 same-shape) |
 
 ---
@@ -823,6 +877,61 @@ GET /api/method/assetcore.api.imm11.get_calibration_kpis?year=2026&month=4
 
 ---
 
+### 13. reschedule_calibration — Dời lịch phiếu hiệu chuẩn (BR-11-19 · AC-CR-86) ✅ LIVE (BE Bước-4 — 2026-07-28)
+
+> **Bối cảnh (nuốt-im-lặng):** `_UPDATE_ALLOWED` (`services/imm11.py:1298-1304`) KHÔNG chứa `scheduled_date` ⇒ `update_calibration` **trả success trong khi bỏ qua khoá** (0 thay đổi). Người dùng buộc hủy + tạo lại → đẻ phiếu `Cancelled` rác vào hồ sơ NĐ98 + mất lịch sử. Endpoint này là **đường hợp lệ DUY NHẤT** để dời lịch; `update_calibration` từ nay **từ chối tường minh** khoá `scheduled_date` (BR-11-20 / §2 #9).
+
+| Thuộc tính | Giá trị |
+|---|---|
+| HTTP method / path | `POST /api/method/assetcore.api.imm11.reschedule_calibration` |
+| Handler | `api/imm11.py::reschedule_calibration(name, new_date, reason)` — **KHÔNG `rbac.require`** → `handle(svc.reschedule_calibration, name, new_date=…, reason=…)` |
+| Cap-gate | `calibration.write`, kiểm ở **SERVICE** (`_require_cal_reschedule_cap`, khuôn `_require_rca_cap` `services/imm12.py:366`) ⇒ 403 **trong envelope** (ADR-IMM11-12) |
+| Guard state | `docstatus==1` ∨ `status ∉ RESCHEDULE_CAL_STATES` → `IMM11_RESCHEDULE_BAD_STATE` (`code='BAD_STATE'`, 409). Phiếu ∄ → `IMM11_CAL_NOT_FOUND` (404) |
+| Lifecycle | ghi **ĐÚNG 2 field**: `scheduled_date` + `amendment_reason` (append). `status` / `docstatus` / `workflow_state` **KHÔNG đổi**; `AC Asset.next_calibration_date` + `IMM Calibration Schedule.next_due_date` **KHÔNG đụng** |
+| Audit | **ĐÚNG 1** `log_audit_event(event_type='Calibration', ref_doctype='IMM Asset Calibration', ref_name=<phiếu>)` mỗi lần dời; `change_summary` chứa ngày cũ + ngày mới + lý do; `from_status == to_status` |
+
+**Request:**
+
+```jsonc
+{
+  "name": "CAL-2026-00001",
+  "new_date": "2026-08-15",                       // required — ISO date, ≥ today
+  "reason": "Phòng mổ trưng dụng thiết bị tới 14/08"   // required — ≥ 5 ký tự sau strip
+}
+```
+
+**Response success:**
+
+```jsonc
+{
+  "success": true,
+  "data": {
+    "name": "CAL-2026-00001",
+    "old_date": "2026-08-08",
+    "new_date": "2026-08-15",
+    "status": "Scheduled"          // GIỮ NGUYÊN — KHÔNG flip (ADR-IMM11-11)
+  }
+}
+```
+
+**Errors (in-handler HTTP-200 + Error envelope — KHÔNG raise→HTTP-4xx). Thứ tự kiểm tra là HỢP ĐỒNG (INV-CALRS-3): cap → 404 → BAD_STATE → `reason` → `new_date` parse → `new_date` quá khứ.**
+
+| `code` | `message_code` | `http_status` | `fields` | Khi nào |
+|---|---|---|---|---|
+| `FORBIDDEN` | — | 403 | — | thiếu cap `calibration.write` (in-envelope, KHÔNG logout) |
+| `NOT_FOUND` | `IMM11-CAL-NOT-FOUND` | 404 | — | phiếu ∄ |
+| `BAD_STATE` | `IMM11-RESCHEDULE-BAD-STATE` | 409 | — | `status ∉ {Scheduled, In Progress}` hoặc `docstatus==1` |
+| `VALIDATION` | `IMM11-RESCHEDULE-REASON-REQUIRED` | 422 | `reason` | lý do rỗng / < 5 ký tự sau strip |
+| `VALIDATION` | `IMM11-RESCHEDULE-DATE-INVALID` | 422 | `new_date` | ngày rỗng / không parse được |
+| `VALIDATION` | `IMM11-RESCHEDULE-DATE-PAST` | 422 | `new_date` | ngày mới < hôm nay (chống quá-hạn GIẢ) |
+
+> Mọi nhánh từ chối xảy ra **TRƯỚC** mutate ⇒ đọc lại DB `scheduled_date` bằng giá trị cũ (INV-CALRS-4). Test phải assert **bằng giá trị**, không chỉ bằng exception.
+
+**Boundaries:**
+- **Always**: `reason` bắt buộc · guard đọc `RESCHEDULE_CAL_STATES` · đúng 1 audit record · append `amendment_reason` · cap-gate ở service · 403/404/409/422 **in-envelope**.
+- **Never**: ❌ flip `status` · ❌ thêm `scheduled_date` vào `_UPDATE_ALLOWED` · ❌ đụng 2 nguồn tuân thủ (`AC Asset.next_calibration_date`, `IMM Calibration Schedule.next_due_date`) · ❌ ghi đè `amendment_reason` · ❌ sinh phiếu `Cancelled` · ❌ emit Lifecycle Event · ❌ `rbac.require` ở API · ❌ DocField mới / `bench migrate`.
+
+
 ## 6.1 Canonical-value rule — KPI calibration due/overdue == drill (BR-11-08/09)
 
 Số trên KPI card PHẢI bằng số dòng khi click drill (cùng SoT, không lệch). 1 nguồn predicate (`services/imm11.py §4.1`), dùng chung dashboard + module.
@@ -849,6 +958,37 @@ Số trên KPI card PHẢI bằng số dòng khi click drill (cùng SoT, không 
 **Drill `overdue=1` vs `due_before`:** `_normalize_schedule_filters` đã dịch `overdue=1` → `next_due_date < today` và `due_before=X` → `next_due_date <= X` trên `IMM Calibration Schedule` (is_active=1). Drill list trả theo SCHEDULE ROW; KPI card đếm theo ASSET (de-dup) → khi 1 asset có >1 schedule overdue, FE hiển thị nhiều row drill nhưng KPI đếm 1; doc-of-record: **KPI = #asset, drill list có thể >#asset nhưng tập asset của drill == tập KPI**. FE render BE count/list verbatim (KHÔNG inline compute).
 
 **Mint-gap:** asset tạo trực tiếp với `is_calibration_required` (`create_calibration_schedule_from_asset`) set `Schedule.next_due_date` → xuất hiện đồng nhất ở CẢ dashboard VÀ module (trước fix: chỉ dashboard thấy).
+
+---
+## 6.2 Bộ lọc **`asset`** của `list_calibration_schedules` — SỬA LỖI BỎ-RƠI CÂM + GIAO với 3 nhánh drill (AC-CR-94, 2026-07-28)
+
+> Quyết định gốc (IMM-00 cross-cutting): [`../imm-00/ADR-IMM00-CONNECTIONS-TREE.md` §15](../imm-00/ADR-IMM00-CONNECTIONS-TREE.md) **D-CR94-3/4/5 · INV-CONN-19/20/21** · hợp đồng drill của ô «Lịch hiệu chuẩn»: [`../imm-00/05 §III.24.8`](../imm-00/05_API_Specification.md) · test: [`../imm-00/07 §XVIII.9`](../imm-00/07_Testing_QA.md) TC-CONN-T-26.
+
+**Khiếm khuyết (verify @source 2026-07-28, ĐỎ trước khi sửa):** `_normalize_schedule_filters` (`services/imm11.py:885`) `pop("asset")` **vô điều kiện** rồi chỉ tiêm lại giá trị mà `_extract_asset_in_scope` (`:915-931`) trả về; helper đó nhận **2** shape (`("in", [...])` và list literal) nhưng **không** nhận shape **vô hướng** `"AC-ASSET-X"` ⇒ trả `None` ⇒ nhánh `elif caller_asset_in is not None` (`:906`) không chạy ⇒ **khoá `asset` biến mất** ⇒ endpoint trả **TOÀN BỘ** lịch của mọi thiết bị. Đây là *bỏ rơi câm* (caller tin mình đã lọc), tệ hơn từ chối tường minh, và ảnh hưởng **mọi** caller — không riêng deep-link «Xem tất cả».
+
+**Bằng chứng chạy thật** (`bench --site miyano execute assetcore.services.imm11._normalize_schedule_filters`, tiến trình mới — không phụ thuộc worker stale, 2026-07-28): `{'asset':'AC-ASSET-TEST-X'}` → **`{}`** (bộ lọc biến mất) · đối chứng `{'asset':['in',['AC-ASSET-TEST-X']]}` → giữ nguyên · đối chứng `{'calibration_type':'External'}` → giữ nguyên.
+
+**Hợp đồng SAU khi sửa (1 nhánh trong `_extract_asset_in_scope`, KHÔNG đổi signature, KHÔNG thêm tham số endpoint):**
+
+| `filters` gửi lên | Tập trả về | Ghi chú |
+|---|---|---|
+| `{"asset": "X"}` | **mọi** lịch của X — **gồm cả `is_active = 0`** | nhánh "không virtual": **cấm** tiêm `is_active`/ngày (BR-00-CONN-44) ⇒ giữ `count == drill` với ô «Lịch hiệu chuẩn» |
+| `{"asset": "X", "overdue": 1}` | lịch của X **∩** `_overdue_asset_ids()` (+ `next_due < today`, `is_active=1`) | GIAO qua `_scoped_asset_list` — **không** clobber theo cả hai chiều |
+| `{"asset": "X", "due_soon": 1}` | lịch của X **∩** `_due_soon_asset_ids()` (+ cửa-sổ-2-biên, `is_active=1`) | ưu tiên `overdue > due_soon > due_before` **giữ nguyên**; `asset` **không** xếp vào chuỗi đó |
+| `{"asset": "X", "due_before": "D"}` | lịch của X, `next_due <= D`, `is_active=1`, loại asset thanh lý | `caller_asset_in` nay khác `None` ⇒ đi nhánh "giữ scope", **không** rơi về `("not in", decom)` |
+| `{"overdue": 1}` (không `asset`) | y như trước vòng này | **0 regression** — 3 nhánh drill của §6.1 không đổi một chữ |
+| `{"asset": ["in", [...]]}` / list literal | y như trước | 2 shape cũ **giữ nguyên** (vendor-scope) |
+
+**Boundaries**
+- **Always**: dạy shape ở **cổng duy nhất** `_extract_asset_in_scope` (sửa ở đó ⇒ **cả 4** nhánh tự GIAO đúng); giao (`&`) chứ không gán; rỗng ⇒ `[""]` để `IN` không match-all.
+- **Never**: ❌ thêm tham số `asset=` cho `list_calibration_schedules` (kênh `filters` JSON đã là hợp đồng công bố — hai đường vào một sự thật là mầm `count != drill` mới) · ❌ tiêm `is_active` ở nhánh chỉ-có-`asset` · ❌ sửa nhánh cuối thay vì sửa helper (chỉ chữa 1/4 ca ⇒ vỡ INV-CONN-20) · ❌ đụng `services/shared/scope.py::apply_vendor_scope` (dùng chung nhiều endpoint → **AC-CR-96**) · ❌ đổi chuỗi ưu tiên §6.1.
+
+**~~Nợ khai tên (AC-CR-96 · INV-CONN-21)~~ → ĐÃ ĐÓNG bằng `AC-CR-106` (2026-07-30):** `apply_vendor_scope` trước đây **gán** `filters["asset"] = ["in", assigned]` (dòng vi phạm `services/shared/scope.py:174`) ⇒ **ghi đè** khoá `asset` do caller gửi ⇒ deep-link 1 thiết bị vẫn trả mọi thiết bị được giao (`count != drill` cho persona đó; không phải lỗ an ninh vì vẫn ⊆ phạm vi). Nay hàm **GIAO** giá trị caller với `assigned`, shape ra **luôn** `["in", <list>]`, giao rỗng ⇒ `["in", ["__none__"]]`.
+> **Hệ quả cho IMM-11 = 0 dòng mã phải đổi** (chủ ý — `ADR-IMM00-LIST-SCOPE-04` D2): `_extract_asset_in_scope` (`services/imm11.py:916`) đã nhận shape `["in", [...]]` từ trước, và 2 comment giả định tại `:881`/`:950` vẫn đúng. Đại số 8 shape + boundaries + acceptance: [`../imm-00/ADR-IMM00-LIST-SCOPE.md §10.4/§10.8`](../imm-00/ADR-IMM00-LIST-SCOPE.md). Bất biến mới phải chấm: **`TC-VSCOPE-11`** (`_extract_asset_in_scope` tiêu thụ đúng đầu ra mới) + **`TC-VSCOPE-15`** (Vendor Engineer deep-link 1 thiết bị ⇒ chỉ dòng của thiết bị đó) — [`../imm-04/07 §VIII.1`](../imm-04/07_Testing_QA.md).
+> ⚠️ Dòng **Never** ngay trên («❌ đụng `apply_vendor_scope`») áp cho **vòng AC-CR-94**, KHÔNG còn áp từ AC-CR-106 — vòng đó đã được cấp phép sửa đúng hàm này kèm test cho **cả 5** call site.
+> **Nợ CÒN MỞ (`AC-CR-109`):** khoá `'Calibration Schedule'`/`'Calibration Record'` trong `_VENDOR_SCOPE_FIELD_MAP` (`scope.py:111-118`) là **alias API**, DocType thật là `IMM Calibration Schedule`/`IMM Asset Calibration` ⇒ nhánh list-form của `apply_vendor_scope` và `assert_vendor_can_access` (`:214-217`) còn rủi ro với persona Vendor Engineer.
+
+**Test bắt buộc (RED-before / GREEN-after):** `../imm-00/07 §XVIII.9` **TC-CONN-T-26** (cross-endpoint `count == drill` + vế ⊆ cho `asset+overdue`) và no-regress `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_imm11` (3 nhánh drill + vendor-scope). **KHÔNG curl** trước khi USER `bench restart` (gunicorn `--preload`).
 
 ---
 
@@ -934,6 +1074,7 @@ Severity tuân quy tắc §11.5. Tái dùng mã hệ thống (`AUTH_FORBIDDEN`,
 | `IMM11_SCHEDULE_HAS_SUBMITTED` | `IMM11-SCHEDULE-HAS-SUBMITTED` | warning | 409 | Lịch còn phiếu đã chốt | Không thể xoá lịch hiệu chuẩn đang có phiếu đã chốt. | Huỷ hoặc lưu trữ các phiếu liên quan trước khi xoá lịch. |
 | `IMM11_NOT_EXTERNAL` | `IMM11-NOT-EXTERNAL` | warning | 422 | Chỉ áp dụng cho hiệu chuẩn ngoài | Thao tác này chỉ áp dụng cho phiếu hiệu chuẩn External (gửi lab). | Chọn phiếu có loại hiệu chuẩn External rồi thử lại. |
 | `IMM11_SEND_LAB_BAD_STATE` | `IMM11-SEND-LAB-BAD-STATE` | warning | 409 | Không thể gửi lab | Không thể gửi lab khi phiếu đang ở trạng thái '{state}'. | Chỉ gửi lab khi phiếu ở trạng thái Đã lên lịch hoặc Đang xử lý. |
+| `IMM11_SEND_LAB_ALREADY_CERTIFIED` | `IMM11-SEND-LAB-ALREADY-CERTIFIED` | warning | 409 | Phiếu đã có chứng chỉ | Phiếu hiệu chuẩn đã có chứng chỉ — không thể gửi lại lab (bảo toàn ngày gửi mẫu, tuân thủ NĐ98). | Không cần gửi lại; phiếu đã nhận chứng chỉ. Nhập kết quả đo rồi chốt phiếu. |
 | `IMM11_RECEIVE_CERT_BAD_STATE` | `IMM11-RECEIVE-CERT-BAD-STATE` | warning | 409 | Không thể nhận chứng chỉ | Chỉ nhận chứng chỉ khi phiếu ở trạng thái Đã gửi lab. | Gửi phiếu cho lab trước khi nhận chứng chỉ. |
 | `IMM11_CERT_FIELDS_REQUIRED` | `IMM11-CERT-FIELDS-REQUIRED` | warning | 422 | Thiếu thông tin chứng chỉ | Cần đủ tệp chứng chỉ, số chứng chỉ và ngày cấp. | Điền đủ ba thông tin chứng chỉ rồi thử lại. |
 | `IMM11_CANCEL_REASON_REQUIRED` | `IMM11-CANCEL-REASON-REQUIRED` | warning | 422 | Thiếu lý do huỷ | Bắt buộc nhập lý do khi huỷ phiếu hiệu chuẩn. | Nhập lý do huỷ rồi thử lại. |
@@ -948,6 +1089,12 @@ Severity tuân quy tắc §11.5. Tái dùng mã hệ thống (`AUTH_FORBIDDEN`,
 | `IMM11_LAB_ACCRED_NUMBER_REQUIRED` | `IMM11-LAB-ACCRED-NUMBER-REQUIRED` | warning | 422 | Thiếu số công nhận | Vui lòng nhập số công nhận ISO/IEC 17025 (VR-11-04). | Nhập số công nhận của lab rồi thử lại. |
 | `IMM11_REF_STANDARD_REQUIRED` | `IMM11-REF-STANDARD-REQUIRED` | warning | 422 | Thiếu thiết bị chuẩn | Hiệu chuẩn nội bộ bắt buộc nhập serial thiết bị chuẩn (VR-11-06). | Nhập serial thiết bị chuẩn rồi thử lại. |
 | `IMM11_CERT_DATE_FUTURE` | `IMM11-CERT-DATE-FUTURE` | warning | 422 | Ngày chứng chỉ không hợp lệ | Ngày cấp chứng chỉ không thể nằm trong tương lai (VR-11-07). | Chọn lại ngày cấp chứng chỉ. |
+| `IMM11_RESCHEDULE_BAD_STATE` | `IMM11-RESCHEDULE-BAD-STATE` | warning | 409 | Không thể dời lịch phiếu này | Chỉ dời lịch được khi phiếu ở trạng thái Đã lên lịch hoặc Đang thực hiện và chưa chốt (hiện tại: '{state}'). | Kiểm tra lại trạng thái phiếu; phiếu đã gửi lab, đã có kết quả hoặc đã hủy thì không dời lịch được. |
+| `IMM11_RESCHEDULE_REASON_REQUIRED` | `IMM11-RESCHEDULE-REASON-REQUIRED` | warning | 422 | Thiếu lý do dời lịch | Bắt buộc nhập lý do khi dời lịch hiệu chuẩn (tối thiểu 5 ký tự). | Nhập lý do dời lịch rồi thử lại. |
+| `IMM11_RESCHEDULE_DATE_INVALID` | `IMM11-RESCHEDULE-DATE-INVALID` | warning | 422 | Ngày hẹn mới không hợp lệ | Ngày hẹn mới không hợp lệ. | Chọn lại ngày hẹn mới rồi thử lại. |
+| `IMM11_RESCHEDULE_DATE_PAST` | `IMM11-RESCHEDULE-DATE-PAST` | warning | 422 | Ngày hẹn mới ở quá khứ | Ngày hẹn mới không được nằm trong quá khứ. | Chọn ngày từ hôm nay trở đi rồi thử lại. |
+| `IMM11_SCHEDULED_DATE_READONLY` | `IMM11-SCHEDULED-DATE-READONLY` | warning | 422 | Không đổi ngày hẹn ở đây | Không đổi được ngày hẹn khi lưu phiếu — dùng chức năng «Dời lịch hiệu chuẩn» (có lý do) để giữ vết theo NĐ98. | Bấm «Dời lịch hiệu chuẩn», nhập ngày mới và lý do. |
+| _(success)_ `IMM11_RESCHEDULE_SUCCESS` | `IMM11-RESCHEDULE-SUCCESS` | success | 200 | Đã dời lịch hiệu chuẩn | Đã dời lịch phiếu {name} sang ngày {new_date}. | — |
 | _(success)_ `IMM11_CREATE_SUCCESS` | `IMM11-CREATE-SUCCESS` | success | 200 | Đã tạo phiếu hiệu chuẩn | Đã tạo phiếu hiệu chuẩn {name} cho thiết bị {asset}. | — |
 | _(success)_ `IMM11_SUBMIT_SUCCESS` | `IMM11-SUBMIT-SUCCESS` | success | 200 | Đã chốt phiếu hiệu chuẩn | Đã ghi nhận kết quả hiệu chuẩn {name}. | — |
 | _(success)_ `IMM11_SCHEDULE_CREATE_SUCCESS` | `IMM11-SCHEDULE-CREATE-SUCCESS` | success | 200 | Đã tạo lịch hiệu chuẩn | Đã tạo lịch hiệu chuẩn cho thiết bị, đến hạn {next_due_date}. | — |
@@ -999,6 +1146,72 @@ Severity tuân quy tắc §11.5. Tái dùng mã hệ thống (`AUTH_FORBIDDEN`,
 > (submit vẫn THÀNH CÔNG, severity success), không phải lỗi chặn user.
 
 ---
+
+## §12 CR-74 — Read-gate CHI TIẾT phiếu hiệu chuẩn (`getCalibration`) — in-handler 403, ĐÓNG IDOR-đọc
+
+> **SSoT quyết định:** [ADR-IMM00-LIST-SCOPE §9 — INV-ROWSCOPE-DETAIL (CR-74)](../imm-00/ADR-IMM00-LIST-SCOPE.md) · ADR-IMM00-DETAIL-READ-01/02/03 (D8/D9/D10).
+> **Trạng thái:** ✅ **RESOLVED-BE 2026-07-25 (Bước-4)** — khuôn 3 lớp LANDED @`services/imm11.py:1082-1120` (`@rowscoped` :1078 · L0 `assert_doctype_read_permission(_DT_CAL)` :1092 · L1 `CalibrationRepo.get` :1093 · L2 `assert_can_read_doc` :1096). **0 delta shape** (0 endpoint / 0 param / 0 field / 0 DocType / 0 DocPerm / 0 cap). Test: `test_rowscope_docperm_gate::TestDetailReadGateCR74::test_cr74_01c_*` + `test_rowscope_invariant::...::test_cr74_03c_*` (ghim hành vi ROW **KHÔNG đổi** theo D10) — `test_imm11` **120 OK**.
+>
+> ⚠️ **CẢI CHÍNH TÊN DOCTYPE (BE Bước-4, verify @source 2026-07-25):** §12 dưới đây viết `Calibration Record` — **DocType đó KHÔNG tồn tại**. Tên THẬT là **`IMM Asset Calibration`** (`assetcore/repositories/calibration_repo.py:12`; folder `assetcore/assetcore/doctype/imm_asset_calibration/`; hằng `_DT_CAL` @`services/imm11.py:39`). `"Calibration Record"` chỉ là **khoá alias vendor-scope** trong `_VENDOR_SCOPE_FIELD_MAP` (`services/shared/scope.py:117`) mà `api/imm11.py:90` truyền cho `assert_vendor_can_access` — code BE dùng `_DT_CAL` (tên thật), OAS đã sửa theo. Mọi chỗ đọc `Calibration Record` trong §12 hiểu là `IMM Asset Calibration`. **[BA] cần ratify** việc alias vendor-scope trỏ tên không tồn tại (backlog — xem `open_issues`).
+
+### §12.1 Vấn đề (verify @source 2026-07-25)
+
+`services/imm11.py:1076` `get_calibration` nạp bản ghi bằng `CalibrationRepo.get(name)` → `frappe.get_doc` (`repositories/base.py:53-57`). **`frappe.get_doc` KHÔNG kiểm tra quyền** (`frappe/model/document.py:36`; kiểm tra nằm ở `Document.check_permission:227` — không đường nào chạm tới). Gate duy nhất đang có là `assert_vendor_can_access` ở API tier (`api/imm11.py:90-95`), mà hàm này **no-op cho mọi user KHÔNG mang role `Vendor Engineer`** (`services/shared/scope.py:192-193`).
+
+⟹ Hệ quả: (a) persona **0 DocPerm read** trên `Calibration Record` vẫn đọc trọn hồ sơ qua URL trực tiếp; (b) **KHÔNG có lớp ROW nào tồn tại hôm nay** cho `Calibration Record` ⇒ CR-74 ở IMM-11 **chỉ siết trục ROLE**; hành vi của KTV hiệu chuẩn **có** DocPerm read **KHÔNG đổi**.
+
+### §12.2 Hợp đồng SAU CR-74 — 3 lớp theo thứ tự BẮT BUỘC (D9)
+
+| Lớp | Gọi gì | Khi hỏng | Vì sao thứ tự này |
+|---|---|---|---|
+| **L0 · ROLE** | `assert_doctype_read_permission("Calibration Record")` | `frappe.PermissionError` → `@rowscoped` → **HTTP-200** + `Error{success:false, code:"FORBIDDEN", http_status:403}` | Chạy **TRƯỚC** `exists` ⇒ thiếu quyền thì `name` bịa và `name` thật trả **cùng một** 403 ⇒ 0 existence-oracle (tiền lệ `api/imm00.py:483-509`) |
+| **L1 · EXISTS** | `CalibrationRepo.get(name)` → không có ⇒ `nthrow(`MSG.IMM11_CAL_NOT_FOUND`)` | **HTTP-200** + `Error{code:"NOT_FOUND", http_status:404}` — **GIỮ NGUYÊN** | Chỉ người **CÓ** DocPerm read mới tới được đây ⇒ 404 không còn là kênh dò |
+| **L2 · ROW** | `assert_can_read_doc("Calibration Record", doc)` → `frappe.has_permission("Calibration Record", ptype="read", doc=doc)` | như L0 (**403 in-envelope**) | Dispatch hook `hooks.py:447-456` — **`Calibration Record` HIỆN KHÔNG có hook** (`hooks.py:447-456` liệt kê 6 DocType khác) ⇒ L2 rút gọn về DocPerm + User Permission. **VẪN dán L2** theo **D10**: hôm nay no-op về ROW (⇒ **0 regress**), mai thêm hook thì tự động có hiệu lực — dùng **doc đã load ở L1** ⇒ **0 query thêm** |
+
+**Bất biến giữ nguyên (A5 — KHÔNG gỡ, KHÔNG thay):** `assert_vendor_can_access("Calibration Record", name)` ở API tier **giữ nguyên vị trí + thứ tự**. Hai lớp cùng tồn tại: isolation NCC (API) ∧ read-gate (service). Vendor ngoài scope vẫn **403 in-envelope**, KHÔNG rơi nhánh 500.
+
+### §12.3 Ma trận persona (KHÔNG đổi DocPerm — chỉ mô tả hệ quả)
+
+| Persona | DocPerm read `Calibration Record` | Phiếu `technician` | Kết quả sau CR-74 |
+|---|---|---|---|
+| `AssetCore Super Admin` / `Calibration Manager` (senior `permissions.py:34-51`) | ✔ | bất kỳ | **200 success** — payload **byte-identical** trước/sau |
+| `AssetCore Auditor` | ✔ (read-only) | bất kỳ | **200 success** |
+| `Calibration User` (`_TECHNICIAN_ROLES` `permissions.py:50`) | ✔ | **của mình** | **200 success** |
+| `Calibration User` | ✔ | **của người khác** | **200 GIỮ NGUYÊN** (D10 — chưa có hook row-scope cho `Calibration Record`; muốn siết phải ratify riêng, xem Ask-first) |
+| Persona thiếu DocPerm read (vd `PM User`, `Repair User`, `Corrective User` — persona 0 DocPerm read trên `Calibration Record`) | ✘ | bất kỳ | **403 in-envelope** (trước CR-74: đọc được trọn hồ sơ) |
+| `Vendor Engineer` ngoài scope | (xem B2) | bất kỳ | **403** — lớp API tier, GIỮ NGUYÊN |
+
+> ⚠️ **KHÔNG được "chữa" bằng cách cấp DocPerm/role.** Persona nào **cần** đọc thì mở riêng bằng ratify B2 (ADR §9.9), KHÔNG sửa trong vòng CR-74.
+
+### §12.4 Envelope 403 — hợp đồng client (BR-00-DETAIL-403)
+
+```json
+{ "success": false, "error": "Không đủ quyền", "code": "FORBIDDEN", "http_status": 403 }
+```
+
+- **HTTP status-line = 200**; client route **theo GIÁ TRỊ** `body.success` / `body.http_status` — **KHÔNG** theo status-line.
+- Client **PHẢI hiển thị message** và **KHÔNG logout** (phân biệt dispatcher-403 = hết phiên → re-auth).
+- Body **KHÔNG** được chứa bất kỳ field nghiệp vụ nào (`asset` · `measurements[]` · `overall_result` · `certificate_no` · `technician`) — chỉ khoá của `Error` envelope.
+- Message hằng `MSG.AUTH_FORBIDDEN` (`utils/messages.py:61` = `"AUTH-403"`) — **KHÔNG** mã lỗi mới.
+
+### §12.5 Test bắt buộc (DoD — `bench --site miyano run-tests --module ...`, KHÔNG curl)
+
+| TC | Điều kiện | Kỳ vọng | INV |
+|---|---|---|---|
+| `TC-CAL-DETAILGATE-01` | user đăng nhập, **0 DocPerm read** `Calibration Record` | `success:false` · `code:"FORBIDDEN"` · `http_status:403` trên **HTTP-200**; 0 field nghiệp vụ | INV-DETAIL-1 |
+| `TC-CAL-DETAILGATE-02` | `Calibration User` có DocPerm read, phiếu `technician` **của người khác** | **200 GIỮ NGUYÊN** — D10: `Calibration Record` chưa có hook row-scope ⇒ TC này **ghim hành vi hiện tại** (0 regress), KHÔNG phải kỳ vọng 403 | INV-DETAIL-2 |
+| `TC-CAL-DETAILGATE-03` | senior/auditor có DocPerm read | **200**, payload **byte-identical** baseline | INV-DETAIL-4 |
+| `TC-CAL-DETAILGATE-04` | 0 DocPerm read + `name` **KHÔNG tồn tại** | **403 y hệt** TC-01 (0 existence-oracle) | INV-DETAIL-5 |
+| `TC-CAL-DETAILGATE-05` | **có** DocPerm read + `name` **KHÔNG tồn tại** | **404 GIỮ NGUYÊN** (`MSG.IMM11_CAL_NOT_FOUND`) | INV-DETAIL-6 |
+| `TC-CAL-DETAILGATE-06` | vendor ngoài scope | **403** từ API tier, KHÔNG 500 ⇒ 2 lớp cùng tồn tại | INV-DETAIL-7 |
+
+> **BẮT BUỘC `frappe.set_user(<persona thật>)`** — `frappe/permissions.py:107-109` cho Administrator `return True` ngay ⇒ chạy bằng Administrator là **xanh giả**.
+
+### §12.6 Boundaries
+
+**Always** — gate ROLE trước `exists`; gate ROW trên doc đã load; lỗi quyền = HTTP-200 + Error envelope; test bằng persona thật.
+**Ask-first** — cấp DocPerm read cho persona đang bị chặn (B2); thêm hook `has_permission` cho `Calibration Record` (D10 hiện cố ý để trống).
+**Never** — ❌ sửa `permissions.py` / DocPerm / role JSON để test xanh · ❌ gỡ `assert_vendor_can_access` · ❌ trả `data` rỗng hay 404 thay 403 · ❌ dùng `doc.check_permission()` (msgprint rò `_server_messages`) · ❌ thêm path/opId/param/schema OAS · ❌ đổi shape payload success · ❌ `git commit/push` · `bench migrate` · reload gunicorn (HARD-STOP USER).
 
 ## DoD — File 05 hoàn chỉnh
 

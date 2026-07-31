@@ -11,6 +11,7 @@ import {
   cancelCalibration,
   sendToLab,
   receiveCertificate,
+  rescheduleCalibration,
 } from '@/api/imm11'
 import type { AssetCalibration, CalibrationSchedule, CalibrationKpis, DueCalibrationItem } from '@/api/imm11'
 import { ApiError, toApiError } from '@/api/errors'
@@ -139,6 +140,33 @@ export const useImm11Store = defineStore('imm11', () => {
     }
   }
 
+  /**
+   * AC-CR-86 — dời lịch phiếu hiệu chuẩn (status GIỮ NGUYÊN, có vết audit BE).
+   *
+   * Envelope Decision-B: `success:false` ⇒ `frappePost` throw `ApiError` (đã hydrate
+   * message VI + `code` + `fields`) → `_captureError` giữ nguyên trong `lastApiError`
+   * để view (a) hiện NGUYÊN VĂN câu VI của server, (b) gắn lỗi vào đúng ô qua `fields`.
+   * Trả `null` khi lỗi ⇒ view KHÔNG đóng modal, KHÔNG refetch.
+   *
+   * Thành công ⇒ trả `data {name, old_date, new_date, status}`; view **refetch phiếu**
+   * bằng `getCalibration` (đọc lại từ DB = SSoT) — store này giữ state DANH SÁCH, còn
+   * state phiếu chi tiết thuộc về `CalibrationDetailView` (4-layer: không nhân bản
+   * nguồn dữ liệu chi tiết ở 2 nơi).
+   */
+  async function doReschedule(name: string, newDate: string, reason: string) {
+    try {
+      const res = await rescheduleCalibration(name, newDate, reason)
+      // Đồng bộ dòng tương ứng trong danh sách đang mở (nếu có) THEO GIÁ TRỊ SERVER
+      // trả về — không tự tính, không đổi `status`.
+      const row = calibrations.value.find(c => c.name === res.name)
+      if (row) row.scheduled_date = res.new_date
+      return res
+    } catch (e: unknown) {
+      _captureError(e)
+      return null
+    }
+  }
+
   async function doReceiveCertificate(name: string, payload: Parameters<typeof receiveCertificate>[1]) {
     try {
       return await receiveCertificate(name, payload)
@@ -154,7 +182,7 @@ export const useImm11Store = defineStore('imm11', () => {
     kpis, kpisLoading,
     dueItems,
     fetchList, fetchSchedules, fetchKpis, fetchDue,
-    doCreate, doSubmit, doCancel, doSendToLab, doReceiveCertificate,
+    doCreate, doSubmit, doCancel, doSendToLab, doReceiveCertificate, doReschedule,
     _captureError,
   }
 })

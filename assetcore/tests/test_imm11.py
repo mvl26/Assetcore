@@ -2505,6 +2505,44 @@ class TestGetDueCalibrationsNullExclusion(unittest.TestCase):
             "due-list KHÔNG chứa item next_calibration_date NULL",
         )
 
+    def test_due_calibrations_total_and_truncated(self):
+        """T8 (CR-46 hợp đồng TRUNG THỰC khi cắt) — đối xứng T7 imm08 trên
+        ``next_calibration_date``: seed 2 asset due → limit=1 ⇒ 1 item, total==COUNT
+        thật (≥2), truncated==1; limit=100 ⇒ truncated==0, total==len(items).
+
+        Guard NULL-coerce ĐỒNG THỜI trong filter LẪN count: asset next_calibration_date
+        NULL KHÔNG được lọt ``total`` (nếu count bỏ guard ``is set`` → NULL bị ép
+        '0001-01-01' và đếm nhầm ⇒ total phình sai)."""
+        from assetcore.services import imm11 as svc
+        a = self._new_asset("-t8-a")
+        b = self._new_asset("-t8-b")
+        null_asset = self._new_asset("-t8-null")   # KHÔNG set next_calibration_date
+        for asset, offset in ((a, -5), (b, 4)):
+            frappe.db.set_value("AC Asset", asset.name, "next_calibration_date",
+                                add_days(nowdate(), offset), update_modified=False)
+        frappe.db.commit()
+        self.assertIsNone(
+            frappe.db.get_value("AC Asset", null_asset.name, "next_calibration_date"),
+            "tiền đề: asset NULL-date")
+
+        cut = svc.get_due_calibrations(days=30, limit=1)
+        self.assertEqual(len(cut["items"]), 1, "limit=1 ⇒ ĐÚNG 1 item")
+        self.assertIsInstance(cut["total"], int)
+        self.assertNotIsInstance(cut["total"], bool)
+        self.assertGreaterEqual(cut["total"], 2, "total ≥ 2 (2 asset seed due)")
+        self.assertEqual(cut["truncated"], 1, "len(items)≥limit ∧ total>limit ⇒ 1")
+        self.assertNotIsInstance(cut["truncated"], bool, "truncated int (KHÔNG bool)")
+        self.assertEqual(cut["threshold_days"], 30, "threshold_days GIỮ")
+
+        full = svc.get_due_calibrations(days=30, limit=100)
+        self.assertEqual(full["truncated"], 0, "đủ chỗ ⇒ truncated=0")
+        self.assertEqual(full["total"], len(full["items"]),
+                         "không cắt ⇒ total == len(items)")
+        # NULL-date asset KHÔNG lọt total (guard is-set nằm trong CẢ filter lẫn count).
+        names = {r["name"] for r in full["items"]}
+        self.assertNotIn(null_asset.name, names, "asset NULL-date KHÔNG 'đến hạn'")
+        self.assertTrue({a.name, b.name} <= names, "2 asset due PHẢI hiện (limit rộng)")
+
 
 class TestCalibrationAllowedTransitions(unittest.TestCase):
     """Server-driven CTA (mirror imm12 R3 + imm08 R21 + imm09 R22): get_calibration emit
@@ -3064,6 +3102,129 @@ class TestCalibrationWorkflowLockstep(unittest.TestCase):
         self.assertEqual(self._wf_state(name), self._status(name))
 
 
+# ─── CR-59 / BR-11 — send_to_lab guard: chặn gửi-lại lab phiếu ĐÃ có chứng chỉ ───
+
+class TestSendToLabCertifiedGuard(unittest.TestCase):
+    """CR-59 / BR-11 — send_to_lab TỪ CHỐI phiếu External ĐÃ có certificate_file.
+
+    Bug gốc: state-check (services/imm11.py:1513) cho phép status 'In Progress'; nhưng
+    External-cal CHỈ tới 'In Progress' QUA receive_certificate (đã set certificate_file +
+    certificate_date). Thiếu guard ⇒ send_to_lab lần 2 GHI ĐÈ sent_date (vết NĐ98 / ISO
+    17025 §7.8 bị corrupt) + đẩy status ngược 'Sent to Lab'. Guard MỚI chặn precise bằng
+    `certificate_file` (CHỈ receive_certificate set field này ⇒ an toàn cho Scheduled).
+    Groundtruth: CR-59 + services/imm11.py:1502-1537 (send_to_lab).
+    RED-before: send_to_lab lần 2 KHÔNG raise → overwrite sent_date → assertion ĐỎ.
+    GREEN-after: raise IMM11-SEND-LAB-ALREADY-CERTIFIED (409), DB nguyên trạng.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.asset = _make_asset("-certguard")
+        cls.lab = _ensure_cal_lab()
+
+    @classmethod
+    def tearDownClass(cls):
+        for c in frappe.get_all(
+            "IMM Asset Calibration", filters={"asset": cls.asset.name}, fields=["name"]
+        ):
+            frappe.db.delete("IMM Calibration Measurement", {"parent": c.name})
+            frappe.db.delete("IMM Asset Calibration", {"name": c.name})
+        _purge_asset_with_deps(cls.asset.name)
+        if cls.lab and frappe.db.exists("AC Supplier", cls.lab):
+            try:
+                frappe.delete_doc("AC Supplier", cls.lab, force=True, ignore_permissions=True)
+            except Exception:
+                pass
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+
+    def _make_external(self) -> str:
+        res = create_calibration(
+            asset=self.asset.name, calibration_type="External",
+            scheduled_date=add_days(nowdate(), 7), technician="Administrator",
+            lab_supplier=self.lab,
+        )
+        frappe.db.commit()
+        return res["name"]
+
+    def _receive_cert(self, name: str, *, cert_no: str, cert_date: str) -> None:
+        from assetcore.services.imm11 import receive_certificate
+        receive_certificate(
+            name, certificate_file="/files/_test_cert_certguard.pdf",
+            certificate_number=cert_no, certificate_date=cert_date,
+        )
+        frappe.db.commit()
+
+    def test_send_to_lab_rejected_when_already_certified(self):
+        """CR-59 AC1: send_to_lab lần 2 trên phiếu ĐÃ có cert ⇒ IMM11-SEND-LAB-ALREADY-CERTIFIED
+        (409); reload DB — sent_date / certificate_file / status KHÔNG đổi (vết NĐ98 nguyên trạng)."""
+        from assetcore.services.imm11 import send_to_lab
+        name = self._make_external()
+        send_to_lab(name, lab_supplier=self.lab)              # Scheduled → Sent to Lab
+        frappe.db.commit()
+        self._receive_cert(name, cert_no="CERT-CG-001", cert_date=nowdate())  # → In Progress + cert
+
+        before = frappe.db.get_value(
+            "IMM Asset Calibration", name,
+            ["sent_date", "certificate_file", "status"], as_dict=True)
+        self.assertEqual(before.status, CalibrationResult.IN_PROGRESS)
+        self.assertTrue(before.certificate_file, "precondition: certificate_file phải set.")
+
+        with self.assertRaises(ServiceError) as cm:
+            send_to_lab(name)                                 # gửi-lại lần 2 → phải bị chặn
+        self.assertEqual(cm.exception.message_code, "IMM11-SEND-LAB-ALREADY-CERTIFIED")
+        self.assertEqual(cm.exception.http_status, 409)
+
+        after = frappe.db.get_value(
+            "IMM Asset Calibration", name,
+            ["sent_date", "certificate_file", "status"], as_dict=True)
+        self.assertEqual(str(after.sent_date), str(before.sent_date),
+                         "sent_date GỐC không được ghi đè (vết NĐ98).")
+        self.assertEqual(after.certificate_file, before.certificate_file)
+        self.assertEqual(after.status, CalibrationResult.IN_PROGRESS,
+                         "status vẫn 'In Progress' — guard chặn TRƯỚC mutate.")
+
+    def test_send_to_lab_scheduled_still_succeeds(self):
+        """CR-59 AC2 (regression): External 'Scheduled' (certificate_file rỗng) → send_to_lab
+        VẪN thành công → status='Sent to Lab' + sent_date set. Guard KHÔNG chặn luồng hợp lệ."""
+        from assetcore.services.imm11 import send_to_lab
+        name = self._make_external()
+        self.assertFalse(
+            frappe.db.get_value("IMM Asset Calibration", name, "certificate_file"),
+            "precondition: Scheduled chưa bao giờ có certificate_file.")
+
+        res = send_to_lab(name, lab_supplier=self.lab)
+        frappe.db.commit()
+        self.assertEqual(res["status"], CalibrationResult.SENT_TO_LAB)
+        self.assertTrue(res.get("sent_date"), "sent_date phải được set.")
+        doc = frappe.db.get_value(
+            "IMM Asset Calibration", name, ["status", "sent_date"], as_dict=True)
+        self.assertEqual(doc.status, CalibrationResult.SENT_TO_LAB)
+        self.assertTrue(doc.sent_date)
+
+    def test_send_to_lab_preserves_original_sent_date(self):
+        """CR-59 AC3: capture sent_date sau send_to_lab lần 1; sau receive_certificate gọi
+        send_to_lab lần 2 (bị chặn) → DB sent_date == GỐC — chứng minh vết NĐ98 không bị ghi đè."""
+        from assetcore.services.imm11 import send_to_lab
+        name = self._make_external()
+        send_to_lab(name, sent_date=add_days(nowdate(), -3), lab_supplier=self.lab)
+        frappe.db.commit()
+        original_sent_date = frappe.db.get_value("IMM Asset Calibration", name, "sent_date")
+        self.assertTrue(original_sent_date)
+        self._receive_cert(name, cert_no="CERT-CG-PRES", cert_date=nowdate())
+
+        with self.assertRaises(ServiceError) as cm:
+            send_to_lab(name, sent_date=nowdate())            # cố ghi đè bằng ngày mới
+        self.assertEqual(cm.exception.message_code, "IMM11-SEND-LAB-ALREADY-CERTIFIED")
+
+        after = frappe.db.get_value("IMM Asset Calibration", name, "sent_date")
+        self.assertEqual(str(after), str(original_sent_date),
+                         "sent_date GỐC phải bất biến sau lần gửi-lại bị chặn.")
+
+
 # ─── CR-24-CAL / BR-11-15 — add_measurement idempotency dedup ───────────────────
 
 class _FakeRequest:
@@ -3462,3 +3623,466 @@ class TestCalibrationKpisPeriodEcho(unittest.TestCase):
         self.assertTrue(resp.get("success"), f"phải success envelope, nhận: {resp}")
         self.assertEqual(resp["data"]["period"], {"year": today.year, "month": today.month},
                          "period no-param PHẢI echo kỳ server-resolve today (api/imm11.py:148).")
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  AC-CR-86 — DỜI LỊCH HIỆU CHUẨN (BR-11-19 + BR-11-20) · TC-CAL-RS-01..15
+#  Spec: docs/imm-11/02 §BR-11-19/§BR-11-20 + US-11-04 (AC-11-49…60) ·
+#        04 §4.1.12/§4.1.13 (+ADR-IMM11-10..13) · 05 §0.1.11 + §2 #13 · 07 §IX.2
+#
+#  Vì sao bộ TC này tồn tại: `_UPDATE_ALLOWED` KHÔNG chứa `scheduled_date` ⇒
+#  `update_calibration` NUỐT IM LẶNG khoá đó (trả success + 0 thay đổi) ⇒ người
+#  dùng buộc hủy + tạo lại phiếu → đẻ phiếu `Cancelled` rác vào hồ sơ NĐ98 + đứt
+#  lịch sử. MỌI TC từ chối PHẢI assert cả 3 (code + http_status + đọc lại DB
+#  `scheduled_date` bằng GIÁ TRỊ CŨ) — chỉ `assertRaises` KHÔNG chứng minh
+#  0-mutate (07 §IX.3 điểm 7).
+# ═════════════════════════════════════════════════════════════════════════════
+
+def _ensure_role_user(email: str, roles: list[str]) -> str:
+    """Tạo/ensure 1 User với đúng roles cho test capability (mirror test_imm12)."""
+    if not frappe.db.exists("User", email):
+        doc = frappe.get_doc({
+            "doctype": "User", "email": email, "first_name": email.split("@")[0],
+            "send_welcome_email": 0, "enabled": 1,
+        }).insert(ignore_permissions=True)
+    else:
+        doc = frappe.get_doc("User", email)
+    existing = {r.role for r in doc.get("roles", [])}
+    for r in roles:
+        if r not in existing:
+            doc.append("roles", {"role": r})
+    doc.save(ignore_permissions=True)
+    frappe.db.commit()
+    return email
+
+
+class TestCalibrationReschedule(unittest.TestCase):
+    """AC-CR-86 · BR-11-19/BR-11-20 — TC-CAL-RS-01..15 (07 §IX.2)."""
+
+    _DT = "IMM Asset Calibration"
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.asset = _make_asset("-resched")
+        # 2 nguồn tuân thủ PHẢI bất động sau dời lịch (AC-11-57 / INV-CALRS-6).
+        cls.d1 = add_days(nowdate(), 10)   # AC Asset.next_calibration_date
+        cls.d2 = add_days(nowdate(), 12)   # IMM Calibration Schedule.next_due_date
+        frappe.db.set_value("AC Asset", cls.asset.name,
+                            {"next_calibration_date": cls.d1}, update_modified=False)
+        cls.sched = frappe.get_doc({
+            "doctype": "IMM Calibration Schedule",
+            "asset": cls.asset.name,
+            "calibration_type": "In-House",
+            "interval_days": 365,
+            "next_due_date": cls.d2,
+            "is_active": 1,
+        }).insert(ignore_permissions=True)
+        cls.user_cal = _ensure_role_user(
+            "_cal_rs_user@assetcore.test",
+            ["AssetCore System User", "Calibration User"])
+        cls.user_base = _ensure_role_user(
+            "_cal_rs_base@assetcore.test", ["AssetCore System User"])
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        for cal in frappe.get_all(cls._DT, filters={"asset": cls.asset.name},
+                                  fields=["name"]):
+            try:
+                frappe.delete_doc(cls._DT, cal.name, force=True, ignore_permissions=True)
+            except Exception:
+                pass
+        try:
+            frappe.delete_doc("IMM Calibration Schedule", cls.sched.name,
+                              force=True, ignore_permissions=True)
+        except Exception:
+            pass
+        _purge_asset_with_deps(cls.asset.name)
+        for u in (cls.user_cal, cls.user_base):
+            try:
+                frappe.delete_doc("User", u, force=True, ignore_permissions=True)
+            except Exception:
+                pass
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+
+    # ── helpers ──────────────────────────────────────────────────────────────
+    def _mk_cal(self, *, status: str = CalibrationResult.SCHEDULED,
+                offset_days: int = 3, docstatus: int = 0) -> str:
+        """Phiếu fixture ở ĐÚNG trạng thái cần test (status/docstatus set trực tiếp
+        — đây là fixture, KHÔNG phải đường nghiệp vụ)."""
+        res = create_calibration(
+            asset=self.asset.name,
+            calibration_type="In-House",
+            scheduled_date=add_days(nowdate(), offset_days),
+            technician="Administrator",
+            reference_standard_serial="STD-RS-001",
+        )
+        name = res["name"]
+        patch = {}
+        if status != CalibrationResult.SCHEDULED:
+            patch.update({"status": status, "workflow_state": status})
+        if docstatus:
+            patch["docstatus"] = docstatus
+        if patch:
+            frappe.db.set_value(self._DT, name, patch, update_modified=False)
+        frappe.db.commit()
+        return name
+
+    def _sched_date(self, name: str) -> str:
+        return str(frappe.db.get_value(self._DT, name, "scheduled_date"))
+
+    def _audit_count(self, name: str) -> int:
+        return frappe.db.count("IMM Audit Trail", {
+            "ref_doctype": self._DT, "ref_name": name, "event_type": "Calibration"})
+
+    def _cancelled_count(self) -> int:
+        return frappe.db.count(self._DT, {
+            "asset": self.asset.name, "status": CalibrationResult.CANCELLED})
+
+    # ── TC-CAL-RS-01 — happy path (AC-11-49 · INV-CALRS-1) ───────────────────
+    def test_tc_cal_rs_01_happy_date_changes_status_kept(self):
+        from assetcore.services.imm11 import reschedule_calibration
+        name = self._mk_cal()
+        old = self._sched_date(name)
+        new = add_days(nowdate(), 10)
+        res = reschedule_calibration(name, new_date=new, reason="Thiết bị đang phục vụ ca bệnh")
+        frappe.db.commit()
+        self.assertEqual(self._sched_date(name), str(new),
+                         "scheduled_date PHẢI đổi trong DB (đọc lại, không tin return).")
+        self.assertEqual(
+            frappe.db.get_value(self._DT, name, "status"), CalibrationResult.SCHEDULED,
+            "status PHẢI GIỮ NGUYÊN — KHÔNG flip như reschedule_pm (ADR-IMM11-11).")
+        self.assertEqual(int(frappe.db.get_value(self._DT, name, "docstatus") or 0), 0)
+        self.assertEqual(
+            res, {"name": name, "old_date": old, "new_date": str(new),
+                  "status": CalibrationResult.SCHEDULED},
+            "data PHẢI ĐÚNG 4 khoá {name, old_date, new_date, status} (so cả 4).")
+
+    # ── TC-CAL-RS-02 — In Progress cũng dời được (AC-11-50) ──────────────────
+    def test_tc_cal_rs_02_in_progress_reschedulable_without_flip(self):
+        from assetcore.services.imm11 import reschedule_calibration
+        name = self._mk_cal(status=CalibrationResult.IN_PROGRESS)
+        new = add_days(nowdate(), 15)
+        res = reschedule_calibration(name, new_date=new, reason="KTV bận ca trực đêm")
+        frappe.db.commit()
+        self.assertEqual(self._sched_date(name), str(new))
+        self.assertEqual(
+            frappe.db.get_value(self._DT, name, "status"), CalibrationResult.IN_PROGRESS,
+            "phiếu đang đo KHÔNG được rơi về 'Scheduled' (mất thông tin công việc).")
+        self.assertEqual(res["status"], CalibrationResult.IN_PROGRESS)
+
+    # ── TC-CAL-RS-03 — vết audit đếm được + append (AC-11-51 · INV-CALRS-2) ──
+    def test_tc_cal_rs_03_audit_trail_two_records_and_append(self):
+        from assetcore.services.imm11 import reschedule_calibration
+        name = self._mk_cal()
+        before_audit = self._audit_count(name)
+        before_cancelled = self._cancelled_count()
+        d_old_1 = self._sched_date(name)
+        d_new_1 = str(add_days(nowdate(), 8))
+        reschedule_calibration(name, new_date=d_new_1, reason="Phòng mổ trưng dụng thiết bị")
+        frappe.db.commit()
+        d_new_2 = str(add_days(nowdate(), 20))
+        reschedule_calibration(name, new_date=d_new_2, reason="Lab báo hoãn lịch nhận mẫu")
+        frappe.db.commit()
+        # DELTA (không tổng tuyệt đối — site có dữ liệu sẵn, 07 §IX.3 điểm 8).
+        self.assertEqual(self._audit_count(name) - before_audit, 2,
+                         "2 lần dời ⇒ ĐÚNG 2 bản ghi IMM Audit Trail (đếm theo delta).")
+        rows = frappe.get_all(
+            "IMM Audit Trail",
+            filters={"ref_doctype": self._DT, "ref_name": name, "event_type": "Calibration"},
+            fields=["change_summary", "actor", "from_status", "to_status"],
+            order_by="creation asc")
+        summaries = [r["change_summary"] or "" for r in rows]
+        # Neo theo CẶP `cũ → mới`, KHÔNG theo một ngày lẻ: trong chuỗi dời lịch, ngày MỚI
+        # của lần 1 CHÍNH LÀ ngày CŨ của lần 2 (2026-08-05 xuất hiện ở CẢ HAI dòng) ⇒ lọc
+        # bằng `d_new_1 in s` khớp nhầm dòng và test đỏ giả tuỳ thứ tự trả về của
+        # `get_all` (mặc định `modified desc` = mới nhất trước). Cặp mũi tên là định danh
+        # DUY NHẤT của một lần dời — và cũng là thứ kiểm chặt hơn: đúng chiều cũ→mới.
+        pair1 = f"{d_old_1} → {d_new_1}"      # @services/imm11.py:1290 change_summary
+        pair2 = f"{d_new_1} → {d_new_2}"
+        s1 = [s for s in summaries if pair1 in s]
+        s2 = [s for s in summaries if pair2 in s]
+        self.assertTrue(s1 and "Phòng mổ trưng dụng thiết bị" in s1[0],
+                        f"change_summary lần 1 PHẢI chứa `{pair1}` + lý do: {summaries}")
+        self.assertTrue(s2 and "Lab báo hoãn lịch nhận mẫu" in s2[0],
+                        f"change_summary lần 2 PHẢI chứa `{pair2}` + lý do: {summaries}")
+        self.assertEqual([len(s1), len(s2)], [1, 1],
+                         "MỖI lần dời sinh ĐÚNG 1 vết mang cặp ngày của chính nó (2 vết KHÔNG "
+                         f"được trùng nội dung): {summaries}")
+        for r in rows:
+            self.assertEqual(r["actor"], "Administrator", "actor PHẢI là người thao tác.")
+            self.assertEqual(r["from_status"], r["to_status"],
+                             "from_status == to_status — ghi tường minh 'trạng thái KHÔNG đổi'.")
+        amendment = frappe.db.get_value(self._DT, name, "amendment_reason") or ""
+        self.assertEqual(amendment.count("[Dời lịch"), 2,
+                         f"amendment_reason PHẢI APPEND 2 dòng (KHÔNG ghi đè): {amendment!r}")
+        self.assertIn("Phòng mổ trưng dụng thiết bị", amendment,
+                      "lý do lần 1 KHÔNG được bị ghi đè bởi lần 2.")
+        self.assertEqual(self._cancelled_count() - before_cancelled, 0,
+                         "Dời lịch KHÔNG được đẻ phiếu `Cancelled` rác vào hồ sơ NĐ98.")
+
+    # ── TC-CAL-RS-04 — guard trạng thái (AC-11-52 · INV-CALRS-4) ─────────────
+    def test_tc_cal_rs_04_bad_state_rejected_without_mutation(self):
+        from assetcore.services.imm11 import reschedule_calibration
+        for status in (CalibrationResult.SENT_TO_LAB, CalibrationResult.CERT_RECEIVED,
+                       CalibrationResult.PASSED, CalibrationResult.FAILED,
+                       CalibrationResult.COND_PASSED, CalibrationResult.CANCELLED):
+            with self.subTest(status=status):
+                name = self._mk_cal(status=status)
+                before = self._sched_date(name)
+                with self.assertRaises(ServiceError) as cm:
+                    reschedule_calibration(name, new_date=add_days(nowdate(), 9),
+                                           reason="Cố dời phiếu ngoài trạng thái cho phép")
+                self.assertEqual(cm.exception.code, ErrorCode.BAD_STATE,
+                                 f"{status}: code PHẢI BAD_STATE.")
+                self.assertEqual(cm.exception.http_status, 409)
+                self.assertEqual(self._sched_date(name), before,
+                                 f"{status}: scheduled_date PHẢI BẰNG GIÁ TRỊ CŨ (0-mutate).")
+
+    # ── TC-CAL-RS-05 — guard docstatus==1 (AC-11-52) ─────────────────────────
+    def test_tc_cal_rs_05_submitted_doc_rejected_without_mutation(self):
+        from assetcore.services.imm11 import reschedule_calibration
+        name = self._mk_cal(docstatus=1)   # status vẫn 'Scheduled' ⇒ cô lập nhánh docstatus
+        before = self._sched_date(name)
+        with self.assertRaises(ServiceError) as cm:
+            reschedule_calibration(name, new_date=add_days(nowdate(), 11),
+                                   reason="Cố dời phiếu đã chốt")
+        self.assertEqual(cm.exception.code, ErrorCode.BAD_STATE)
+        self.assertEqual(cm.exception.http_status, 409)
+        self.assertEqual(self._sched_date(name), before)
+
+    # ── TC-CAL-RS-06 — validate reason (AC-11-53) ────────────────────────────
+    def test_tc_cal_rs_06_reason_required_field_level(self):
+        from assetcore.services.imm11 import reschedule_calibration
+        for reason in ("", "  ab "):
+            with self.subTest(reason=reason):
+                name = self._mk_cal()
+                before = self._sched_date(name)
+                before_audit = self._audit_count(name)
+                with self.assertRaises(ServiceError) as cm:
+                    reschedule_calibration(name, new_date=add_days(nowdate(), 9), reason=reason)
+                self.assertEqual(cm.exception.http_status, 422)
+                self.assertIn("reason", cm.exception.fields,
+                              "422 PHẢI kèm `fields` khoá `reason` (neo dưới đúng ô nhập).")
+                self.assertNotIn("new_date", cm.exception.fields,
+                                 "KHÔNG được gắn lỗi vào ô KHÁC (ô sai là `reason`).")
+                self.assertEqual(self._sched_date(name), before)
+                self.assertEqual(self._audit_count(name), before_audit,
+                                 "nhánh từ chối KHÔNG được ghi vết audit.")
+
+    # ── TC-CAL-RS-07 — validate new_date parse (AC-11-54) ────────────────────
+    def test_tc_cal_rs_07_new_date_invalid_field_level(self):
+        from assetcore.services.imm11 import reschedule_calibration
+        for bad in ("", "32/13/2026"):
+            with self.subTest(new_date=bad):
+                name = self._mk_cal()
+                before = self._sched_date(name)
+                before_audit = self._audit_count(name)
+                with self.assertRaises(ServiceError) as cm:
+                    reschedule_calibration(name, new_date=bad,
+                                           reason="Lý do hợp lệ đủ dài")
+                self.assertEqual(cm.exception.http_status, 422)
+                self.assertIn("new_date", cm.exception.fields)
+                self.assertEqual(self._sched_date(name), before)
+                self.assertEqual(self._audit_count(name), before_audit)
+
+    # ── TC-CAL-RS-08 — chống quá-hạn GIẢ + biên today (AC-11-55) ─────────────
+    def test_tc_cal_rs_08_past_date_rejected_today_allowed(self):
+        from assetcore.services.imm11 import reschedule_calibration
+        name = self._mk_cal()
+        before = self._sched_date(name)
+        with self.assertRaises(ServiceError) as cm:
+            reschedule_calibration(name, new_date=add_days(nowdate(), -1),
+                                   reason="Cố lùi ngày về quá khứ")
+        self.assertEqual(cm.exception.http_status, 422)
+        self.assertIn("new_date", cm.exception.fields,
+                      "lùi ngày = BỊA phiếu 'đã quá hạn' trên hồ sơ NĐ98 ⇒ chặn ở ô `new_date`.")
+        self.assertEqual(self._sched_date(name), before)
+        # biên INCLUSIVE: new_date == today ⇒ THÀNH CÔNG.
+        res = reschedule_calibration(name, new_date=nowdate(), reason="Dời về hôm nay được phép")
+        frappe.db.commit()
+        self.assertEqual(res["new_date"], str(nowdate()))
+        self.assertEqual(self._sched_date(name), str(nowdate()))
+
+    # ── TC-CAL-RS-09 — cap-gate ở SERVICE (AC-11-56) ─────────────────────────
+    def test_tc_cal_rs_09_cap_gate_at_service_403_in_envelope(self):
+        from assetcore.services.imm11 import reschedule_calibration
+        name = self._mk_cal()
+        before = self._sched_date(name)
+        frappe.set_user(self.user_base)
+        try:
+            with self.assertRaises(ServiceError) as cm:
+                reschedule_calibration(name, new_date=add_days(nowdate(), 9),
+                                       reason="User base cố dời lịch")
+            self.assertEqual(cm.exception.code, ErrorCode.FORBIDDEN,
+                             "cap-gate PHẢI trả ServiceError(FORBIDDEN) — KHÔNG PermissionError thô.")
+            self.assertEqual(cm.exception.http_status, 403)
+            self.assertNotIn("calibration.write", cm.exception.message,
+                             "message KHÔNG được leak chuỗi capability thô.")
+        finally:
+            frappe.set_user("Administrator")
+        self.assertEqual(self._sched_date(name), before)
+        # user CÓ cap ⇒ pass.
+        frappe.set_user(self.user_cal)
+        try:
+            res = reschedule_calibration(name, new_date=add_days(nowdate(), 9),
+                                         reason="KTV hiệu chuẩn dời lịch hợp lệ")
+            frappe.db.commit()
+        finally:
+            frappe.set_user("Administrator")
+        self.assertEqual(res["new_date"], str(add_days(nowdate(), 9)))
+
+    # ── TC-CAL-RS-10 — 2 nguồn tuân thủ bất động (AC-11-57 · INV-CALRS-6) ────
+    def test_tc_cal_rs_10_compliance_sources_untouched(self):
+        from assetcore.services.imm11 import reschedule_calibration, get_due_calibrations
+        name = self._mk_cal()
+
+        def _due_entry() -> dict | None:
+            items = get_due_calibrations(days=30, limit=2000)["items"]
+            return next((r for r in items if r["name"] == self.asset.name), None)
+
+        before_due = _due_entry()
+        self.assertIsNotNone(before_due, "fixture asset PHẢI nằm trong due-list TRƯỚC khi dời.")
+        reschedule_calibration(name, new_date=add_days(nowdate(), 25),
+                               reason="Dời lịch phiếu, KHÔNG đụng nghĩa vụ thiết bị")
+        frappe.db.commit()
+        self.assertEqual(
+            str(frappe.db.get_value("AC Asset", self.asset.name, "next_calibration_date")),
+            str(self.d1),
+            "AC Asset.next_calibration_date PHẢI BẤT ĐỘNG (chỉ set khi HOÀN TẤT hiệu chuẩn).")
+        self.assertEqual(
+            str(frappe.db.get_value("IMM Calibration Schedule", self.sched.name, "next_due_date")),
+            str(self.d2),
+            "IMM Calibration Schedule.next_due_date PHẢI BẤT ĐỘNG (SoT nghĩa vụ pháp lý).")
+        after_due = _due_entry()
+        self.assertIsNotNone(after_due, "dời lịch phiếu KHÔNG được làm thiết bị biến khỏi due-list.")
+        self.assertEqual(after_due["days_left"], before_due["days_left"],
+                         "days_left PHẢI y như trước — dời lịch 1 phiếu KHÔNG che quá hạn thiết bị.")
+
+    # ── TC-CAL-RS-11 — bịt nhánh NUỐT IM LẶNG (AC-11-58 / BR-11-20) ──────────
+    def test_tc_cal_rs_11_update_calibration_rejects_scheduled_date(self):
+        from assetcore.services.imm11 import update_calibration
+        for patch_label, patch_fn in (
+            ("chỉ scheduled_date", lambda d: {"scheduled_date": d}),
+            ("hỗn hợp", lambda d: {"technician_notes": "_rs_mixed", "scheduled_date": d}),
+        ):
+            with self.subTest(patch=patch_label):
+                name = self._mk_cal()
+                before = self._sched_date(name)
+                before_notes = frappe.db.get_value(self._DT, name, "technician_notes") or ""
+                with self.assertRaises(ServiceError) as cm:
+                    update_calibration(name, patch_fn(add_days(nowdate(), 10)))
+                self.assertEqual(cm.exception.http_status, 422,
+                                 "PHẢI từ chối TƯỜNG MINH (trước CR: success + 0 thay đổi).")
+                self.assertIn("scheduled_date", cm.exception.fields)
+                self.assertEqual(self._sched_date(name), before)
+                self.assertEqual(
+                    frappe.db.get_value(self._DT, name, "technician_notes") or "",
+                    before_notes,
+                    "patch hỗn hợp bị từ chối NGUYÊN KHỐI — 0 ghi từng phần.")
+
+    # ── TC-CAL-RS-12 — regression BẤT BIẾN `_UPDATE_ALLOWED` (AC-11-59) ──────
+    def test_tc_cal_rs_12_update_calibration_allowlist_behaviour_unchanged(self):
+        from assetcore.services.imm11 import update_calibration
+        name = self._mk_cal()
+        before = self._sched_date(name)
+        res = update_calibration(name, {
+            "technician_notes": "_rs_notes", "status": CalibrationResult.IN_PROGRESS,
+            "certificate_number": "CERT-RS-01",
+            "foo_khoa_la": "giá trị lạ",   # khoá lạ KHÁC scheduled_date → bỏ qua IM LẶNG như cũ
+        })
+        frappe.db.commit()
+        self.assertEqual(sorted(res.keys()),
+                         ["measurement_count", "name", "overall_result", "status"],
+                         "return-shape 4 khoá KHÔNG được đổi (Hyrum — web FE đang dùng).")
+        self.assertEqual(frappe.db.get_value(self._DT, name, "technician_notes"), "_rs_notes")
+        self.assertEqual(frappe.db.get_value(self._DT, name, "status"),
+                         CalibrationResult.IN_PROGRESS)
+        self.assertEqual(frappe.db.get_value(self._DT, name, "certificate_number"), "CERT-RS-01")
+        self.assertEqual(self._sched_date(name), before,
+                         "khoá lạ KHÔNG được ghi; scheduled_date vẫn nguyên.")
+
+    # ── TC-CAL-RS-13 — parity 2 chiều can_reschedule (AC-11-60 · INV-CALRS-5) ─
+    def test_tc_cal_rs_13_can_reschedule_flag_matches_write_guard(self):
+        from assetcore.services.imm11 import get_calibration, reschedule_calibration
+        cases = [
+            ("scheduled", self._mk_cal(), True),
+            ("in_progress", self._mk_cal(status=CalibrationResult.IN_PROGRESS), True),
+            ("sent_to_lab", self._mk_cal(status=CalibrationResult.SENT_TO_LAB), False),
+            ("passed", self._mk_cal(status=CalibrationResult.PASSED), False),
+            ("cancelled", self._mk_cal(status=CalibrationResult.CANCELLED), False),
+            ("submitted", self._mk_cal(docstatus=1), False),
+        ]
+        for user, cap_expected in ((self.user_cal, True), (self.user_base, False)):
+            for label, name, state_ok in cases:
+                with self.subTest(user=user, case=label):
+                    frappe.set_user(user)
+                    try:
+                        try:
+                            flag = bool(get_calibration(name).get("can_reschedule"))
+                        except ServiceError:
+                            # base user không đọc được phiếu ⇒ cờ không quan sát được = KHÔNG hiện nút.
+                            flag = False
+                        try:
+                            reschedule_calibration(
+                                name, new_date=add_days(nowdate(), 9),
+                                reason="Parity 2 chiều display == enforcement")
+                            write_ok = True
+                        except ServiceError as exc:
+                            self.assertIn(exc.code, (ErrorCode.BAD_STATE, ErrorCode.FORBIDDEN),
+                                          f"{label}: lỗi PHẢI là BAD_STATE/FORBIDDEN, nhận {exc.code}")
+                            write_ok = False
+                    finally:
+                        frappe.set_user("Administrator")
+                    frappe.db.commit()
+                    self.assertEqual(
+                        flag, state_ok and cap_expected,
+                        f"{label}/{user}: can_reschedule PHẢI == (trạng thái hợp lệ ∧ có cap).")
+                    self.assertEqual(
+                        flag, write_ok,
+                        f"{label}/{user}: cờ ĐỌC phải TRÙNG guard GHI (chống nút chết + ẩn oan).")
+
+    # ── TC-CAL-RS-14 — phiếu ∄ → NOT_FOUND (INV-CALRS-3) ─────────────────────
+    def test_tc_cal_rs_14_missing_record_is_not_found(self):
+        from assetcore.services.imm11 import reschedule_calibration
+        from assetcore.utils.messages import MSG
+        with self.assertRaises(ServiceError) as cm:
+            reschedule_calibration("CAL-KHONG-TON-TAI", new_date=add_days(nowdate(), 5),
+                                   reason="Phiếu không tồn tại")
+        self.assertEqual(cm.exception.code, ErrorCode.NOT_FOUND,
+                         "404 KHÔNG được bị BAD_STATE che (thứ tự: cap → 404 → state).")
+        self.assertEqual(cm.exception.http_status, 404)
+        self.assertEqual(cm.exception.message_code, MSG.IMM11_CAL_NOT_FOUND)
+
+    # ── TC-CAL-RS-15 — thứ tự kiểm tra là HỢP ĐỒNG (INV-CALRS-3) ─────────────
+    def test_tc_cal_rs_15_state_checked_before_field_validation(self):
+        from assetcore.services.imm11 import reschedule_calibration
+        name = self._mk_cal(status=CalibrationResult.PASSED)
+        before = self._sched_date(name)
+        with self.assertRaises(ServiceError) as cm:
+            reschedule_calibration(name, new_date="", reason="")   # sai ĐÔI
+        self.assertEqual(cm.exception.code, ErrorCode.BAD_STATE,
+                         "payload sai ĐÔI ⇒ nhận BAD_STATE (trạng thái xét TRƯỚC ô nhập).")
+        self.assertEqual(cm.exception.http_status, 409)
+        self.assertEqual(self._sched_date(name), before)
+
+    # ── invariant enum — RESCHEDULE_CAL_STATES ⊆ Select options DocType ──────
+    def test_tc_cal_rs_16_states_subset_of_doctype_enum(self):
+        """Chặn drift: ai đó đổi enum DocType mà quên hằng service (hoặc ngược lại)."""
+        import os
+        from assetcore.services.imm11 import RESCHEDULE_CAL_STATES
+        path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "assetcore", "doctype", "imm_asset_calibration", "imm_asset_calibration.json")
+        with open(path, encoding="utf-8") as fh:
+            schema = json.load(fh)
+        options = next(f["options"] for f in schema["fields"] if f["fieldname"] == "status")
+        allowed = {o.strip() for o in options.split("\n") if o.strip()}
+        self.assertTrue(
+            set(RESCHEDULE_CAL_STATES) <= allowed,
+            f"RESCHEDULE_CAL_STATES {RESCHEDULE_CAL_STATES} ⊄ Select options {allowed}.")
