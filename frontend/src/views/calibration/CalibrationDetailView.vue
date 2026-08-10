@@ -9,10 +9,9 @@ import type {
 } from '@/api/imm11'
 import { normalizeFieldErrors } from '@/utils/fieldErrors'
 import { uploadDocumentFile } from '@/api/imm05'
-import { toApiError, loadErrorKind, type DetailLoadKind } from '@/api/errors'
-import DetailLoadError from '@/components/common/DetailLoadError.vue'
+import { useDetailAccess } from '@/composables/useDetailAccess'
 import RelatedRecords from '@/components/common/RelatedRecords.vue'
-import DetailTabBar from '@/components/common/DetailTabBar.vue'
+import DetailPageShell from '@/components/common/DetailPageShell.vue'
 import { useToast } from '@/composables/useToast'
 import { useNotify } from '@/composables/useNotify'
 import { useImm11Store } from '@/stores/imm11'
@@ -32,23 +31,24 @@ const { can } = useCapabilities()
 
 // Tab màn chi tiết — «Bản ghi liên quan» mount LƯỜI (panel v-if) nên mở phiếu KHÔNG
 // còn bắn `get_connections`; panel chính dùng v-show để giữ nguyên dữ liệu đang nhập.
-const activeTab = ref<'detail' | 'related'>('detail')
+// `ref<string>` (bẫy 13.9.3): prop/emit `active-tab` của shell khai `string`.
+const activeTab = ref<string>('detail')
 const DETAIL_TABS = [
   { key: 'detail', label: 'Chi tiết' },
   { key: 'related', label: 'Bản ghi liên quan' },
 ]
 
 const form = ref<Partial<AssetCalibration> & { measurements?: CalibrationMeasurement[] }>({})
-const loading = ref(false)
+const loading = ref(true)                        // INV-UX4-8 — chống nháy 404 một nhịp
 const saving = ref(false)
 const submitting = ref(false)
 const err = ref('')
 const uploadingCert = ref(false)
-// Kết quả nạp phiếu: '' = OK, 'notfound' = mã phiếu không tồn tại (404),
-// 'forbidden' = thiếu quyền đọc (403 TRONG envelope, CR-74 — KHÔNG logout),
-// 'unknown' = lỗi mạng/khác. Quyết định render empty-state thay vì thân chi tiết.
-const loadFailed = ref<'' | DetailLoadKind>('')
-const loadErrMsg = ref('')
+// Lỗi của LƯỢT NẠP — ref RIÊNG, giữ NGUYÊN đối tượng để SSoT `useDetailAccess` phân loại
+// (thay bản `loadErrorKind` cục bộ — AC-UX-053, ADR-UX-27). `err` bên trên vẫn là lỗi
+// HÀNH ĐỘNG (lưu / gửi duyệt / tải chứng chỉ) và KHÔNG được thay cả trang (bẫy 13.9.7).
+const loadError = ref<unknown>(null)
+const { kind: loadKind, message: loadMsg, blocked: loadFailed } = useDetailAccess(() => loadError.value)
 
 // BUG-007: Gate UI bằng capability (đồng bộ BE rbac.require ở api/imm11.py).
 // `calibration.write` cấp cho KTV Hiệu chuẩn (Calibration User/Manager) — bao
@@ -324,15 +324,14 @@ const showPermissionHint = computed(() =>
 // trả 'forbidden' ⇒ empty-state hiện MESSAGE THẬT của server, KHÔNG nút Thử lại,
 // KHÔNG logout/redirect. `form.value = {}` ⇒ allowedTransitions rỗng ⇒ 0 CTA render.
 async function load() {
+  loadError.value = null                         // INV-UX4-7 — xoá lỗi ở DÒNG ĐẦU
   loading.value = true
-  loadFailed.value = ''
   try {
     const res = await getCalibration(props.id)
-    if (res) form.value = { ...res }
+    form.value = res ? { ...res } : {}
   } catch (e: unknown) {
-    loadFailed.value = loadErrorKind(e)
-    loadErrMsg.value = toApiError(e).message
-    form.value = {}
+    loadError.value = e                          // nguyên đối tượng ⇒ phân loại được kind
+    form.value = {}                              // ⇒ allowedTransitions rỗng ⇒ 0 CTA
   } finally { loading.value = false }
 }
 
@@ -442,45 +441,43 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="page-container animate-fade-in space-y-5">
-    <div class="flex items-center justify-between">
-      <div class="flex items-center gap-3">
-        <button class="btn-ghost text-sm" @click="router.push('/calibration')">← Quay lại</button>
-        <div>
-          <p class="text-xs text-slate-400">Phiếu hiệu chuẩn</p>
-          <h1 class="text-xl font-bold text-slate-900">{{ form.name }}</h1>
+  <DetailPageShell
+    :loading="loading"
+    :error-kind="loadKind"
+    :error-message="loadMsg"
+    :doc="form.name ? form : null"
+    entity-label="phiếu hiệu chuẩn"
+    :record-id="props.id"
+    back-label="Về danh sách hiệu chuẩn"
+    :tabs="DETAIL_TABS"
+    v-model:active-tab="activeTab"
+    @retry="load()"
+    @back="router.push('/calibration')">
+    <template #title>
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <button class="btn-ghost text-sm" @click="router.push('/calibration')">← Quay lại</button>
+          <div>
+            <p class="text-xs text-slate-400">Phiếu hiệu chuẩn</p>
+            <h1 class="text-xl font-bold text-slate-900">{{ form.name || props.id }}</h1>
+          </div>
+        </div>
+        <div class="flex items-center gap-2">
+          <StatusBadge v-if="form.status" :state="form.status" size="md" />
+          <StatusBadge v-if="isSubmitted && form.overall_result" :state="form.overall_result" size="md" />
         </div>
       </div>
-      <div class="flex items-center gap-2">
-        <StatusBadge v-if="form.status" :state="form.status" size="md" />
-        <StatusBadge v-if="isSubmitted && form.overall_result" :state="form.overall_result" size="md" />
+    </template>
+
+    <!-- Thanh tab HOISTING lên prop shell (ADR-UX-25) ⇒ nằm trong nhánh `content`. -->
+    <template v-if="form.name">
+      <!-- Workflow stepper -->
+      <div v-if="form.status && form.status !== 'Cancelled'" class="card p-4">
+        <WorkflowStepper :steps="calStepperSteps" :current="form.status" :label-for="calibrationStatusLabel" />
       </div>
-    </div>
 
-    <!-- Workflow stepper -->
-    <div v-if="!loading && form.status && form.status !== 'Cancelled'" class="card p-4">
-      <WorkflowStepper :steps="calStepperSteps" :current="form.status" :label-for="calibrationStatusLabel" />
-    </div>
-
-    <div v-if="err && !loadFailed" class="alert-error">{{ err }}</div>
-    <div v-if="loading" class="card p-8 text-center text-slate-400">Đang tải...</div>
-
-    <!-- Phiếu không tồn tại / lỗi nạp — empty-state CHUNG, có lối thoát (KHÔNG dead-end) -->
-    <DetailLoadError
-      v-else-if="loadFailed"
-      :kind="loadFailed"
-      entity-label="phiếu hiệu chuẩn"
-      :record-id="props.id"
-      :message="loadErrMsg"
-      back-label="Về danh sách hiệu chuẩn"
-      @retry="load()"
-      @back="router.push('/calibration')"
-    />
-
-    <template v-else>
-      <!-- Thanh tab: gác theo CÙNG nhánh v-else (phiếu đã tải, không lỗi nạp) ⇒ bị chặn
-           đọc thì KHÔNG có nút tab chết. -->
-      <DetailTabBar v-model="activeTab" :tabs="DETAIL_TABS" />
+      <!-- Lỗi HÀNH ĐỘNG — kênh riêng, KHÔNG thay cả trang (bẫy 13.9.7). -->
+      <div v-if="err && !loadFailed" class="alert-error">{{ err }}</div>
 
       <div v-show="activeTab === 'detail'" data-testid="tab-panel-detail" class="space-y-5">
       <!-- Info Grid -->
@@ -635,7 +632,7 @@ v-else-if="m.measured_value !== null && m.measured_value !== undefined" class="t
 
       <!-- CAPA Alert on Fail -->
       <div v-if="isSubmitted && isFailed && form.capa_record" class="card p-4 bg-red-50 border-red-200 flex items-center gap-3">
-        <svg class="w-5 h-5 text-red-500 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <svg class="w-5 h-5 text-danger-500 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
         </svg>
         <div>
@@ -749,7 +746,7 @@ v-if="!isSubmitted && canExecuteCal" class="btn-ghost text-sm" :disabled="saving
       <div class="bg-white rounded-xl p-6 w-full max-w-md space-y-4 shadow-xl">
         <h2 class="font-semibold text-slate-800">Nhận chứng chỉ hiệu chuẩn</h2>
         <div>
-          <label for="recv-file" class="block text-sm font-medium mb-1">File chứng chỉ <span class="text-red-500">*</span></label>
+          <label for="recv-file" class="block text-sm font-medium mb-1">File chứng chỉ <span class="text-danger-500">*</span></label>
           <div class="flex items-center gap-2">
             <input
               id="recv-file"
@@ -768,11 +765,11 @@ v-if="!isSubmitted && canExecuteCal" class="btn-ghost text-sm" :disabled="saving
         </div>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
-            <label for="recv-num" class="block text-sm font-medium mb-1">Số chứng chỉ <span class="text-red-500">*</span></label>
+            <label for="recv-num" class="block text-sm font-medium mb-1">Số chứng chỉ <span class="text-danger-500">*</span></label>
             <input id="recv-num" v-model="recvData.certificate_number" type="text" class="form-input w-full text-sm" />
           </div>
           <div>
-            <label for="recv-date" class="block text-sm font-medium mb-1">Ngày cấp <span class="text-red-500">*</span></label>
+            <label for="recv-date" class="block text-sm font-medium mb-1">Ngày cấp <span class="text-danger-500">*</span></label>
             <DateInput id="recv-date" v-model="recvData.certificate_date" class="form-input w-full text-sm" />
           </div>
         </div>
@@ -798,7 +795,7 @@ v-if="!isSubmitted && canExecuteCal" class="btn-ghost text-sm" :disabled="saving
       <div class="bg-white rounded-xl p-6 w-full max-w-md space-y-4 shadow-xl">
         <h2 class="font-semibold text-slate-800">Hủy phiếu hiệu chuẩn</h2>
         <div>
-          <label for="cal-cancel-reason" class="block text-sm font-medium mb-1">Lý do <span class="text-red-500">*</span></label>
+          <label for="cal-cancel-reason" class="block text-sm font-medium mb-1">Lý do <span class="text-danger-500">*</span></label>
           <textarea id="cal-cancel-reason" v-model="cancelReason" rows="3" class="form-input w-full text-sm" placeholder="Lý do hủy phiếu..."></textarea>
         </div>
         <div class="flex justify-end gap-2">
@@ -836,7 +833,7 @@ v-if="!isSubmitted && canExecuteCal" class="btn-ghost text-sm" :disabled="saving
 
         <div>
           <label for="cal-reschedule-date" class="block text-sm font-medium mb-1">
-            Ngày hiệu chuẩn mới <span class="text-red-500">*</span>
+            Ngày hiệu chuẩn mới <span class="text-danger-500">*</span>
           </label>
           <DateInput
             id="cal-reschedule-date"
@@ -859,7 +856,7 @@ v-if="!isSubmitted && canExecuteCal" class="btn-ghost text-sm" :disabled="saving
 
         <div>
           <label for="cal-reschedule-reason" class="block text-sm font-medium mb-1">
-            Lý do dời lịch <span class="text-red-500">*</span>
+            Lý do dời lịch <span class="text-danger-500">*</span>
           </label>
           <textarea
             id="cal-reschedule-reason"
@@ -919,5 +916,5 @@ v-if="!isSubmitted && canExecuteCal" class="btn-ghost text-sm" :disabled="saving
         </div>
       </div>
     </div>
-  </div>
+  </DetailPageShell>
 </template>

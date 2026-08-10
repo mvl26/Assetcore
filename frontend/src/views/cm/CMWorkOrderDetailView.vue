@@ -11,8 +11,7 @@ import { useCapabilities } from '@/composables/useCapabilities'
 import { useDetailAccess } from '@/composables/useDetailAccess'
 
 import RelatedRecords from '@/components/common/RelatedRecords.vue'
-import DetailTabBar from '@/components/common/DetailTabBar.vue'
-import DetailLoadError from '@/components/common/DetailLoadError.vue'
+import DetailPageShell from '@/components/common/DetailPageShell.vue'
 
 const props = defineProps<{ id: string }>()
 const store = useImm09Store()
@@ -28,7 +27,8 @@ function notifyResult(ok: boolean, successCode: string, ctx: Record<string, unkn
 
 // Tab màn chi tiết — «Bản ghi liên quan» mount LƯỜI (panel v-if) nên mở phiếu KHÔNG
 // còn bắn `get_connections`; panel chính dùng v-show để giữ nguyên dữ liệu đang nhập.
-const activeTab = ref<'detail' | 'related'>('detail')
+// `ref<string>` (bẫy 13.9.3): prop/emit `active-tab` của shell khai `string`.
+const activeTab = ref<string>('detail')
 const DETAIL_TABS = [
   { key: 'detail', label: 'Chi tiết' },
   { key: 'related', label: 'Bản ghi liên quan' },
@@ -87,9 +87,10 @@ const wo = computed(() => store.currentWO)
 // nhận {success:false, code:'FORBIDDEN'} ⇒ trang hiện message THẬT của server, ẩn
 // TOÀN BỘ CTA (không còn cảnh "mở được phiếu, bấm đính ảnh mới báo không có quyền").
 // KHÔNG logout/redirect — đó là dispatcher-403 (axios interceptor), khác loại.
+// Destructure ĐỔI TÊN (bẫy 13.9.1). `blocked` không còn cần ở template: nhánh `content`
+// của shell CHÍNH LÀ điều kiện đó ⇒ «0 nút chết» đúng bằng CẤU TRÚC.
 const {
   kind: loadErrorKindRef,
-  blocked: loadBlocked,
   message: loadErrMsg,
 } = useDetailAccess(() => (store.currentWO ? null : store.lastApiError))
 
@@ -490,7 +491,19 @@ function runServerCta(spec: CmCtaSpec): void {
 </script>
 
 <template>
-  <div class="p-6">
+  <DetailPageShell
+    :loading="store.loading && !wo"
+    :error-kind="loadErrorKindRef"
+    :error-message="loadErrMsg"
+    :doc="wo"
+    entity-label="lệnh sửa chữa"
+    :record-id="props.id"
+    back-label="Về danh sách sửa chữa"
+    :tabs="DETAIL_TABS"
+    v-model:active-tab="activeTab"
+    @retry="store.fetchWorkOrder(props.id)"
+    @back="router.push('/cm/work-orders')">
+    <template #title>
     <!-- Header -->
     <div class="flex items-center gap-3 mb-5">
       <button class="text-slate-400 hover:text-slate-600" @click="router.push('/cm/work-orders')">
@@ -517,33 +530,11 @@ function runServerCta(spec: CmCtaSpec): void {
         <div class="text-sm text-slate-500 mt-0.5">{{ wo?.asset_name || wo?.asset_ref }}</div>
       </div>
     </div>
+    </template>
 
-    <div v-if="store.loading && !wo" class="space-y-4">
-      <div class="bg-white rounded-xl border p-5 animate-pulse">
-        <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
-          <div v-for="i in 6" :key="i" class="h-5 bg-slate-100 rounded" />
-        </div>
-      </div>
-      <div class="bg-white rounded-xl border p-5 animate-pulse h-40" />
-    </div>
-    <!-- Nạp thất bại (403 thiếu quyền / 404 / lỗi khác) — empty-state CHUNG, có lối
-         thoát, 0 CTA render (CR-74 · chống dead-control). -->
-    <DetailLoadError
-      v-else-if="loadBlocked"
-      :kind="loadErrorKindRef || 'unknown'"
-      entity-label="lệnh sửa chữa"
-      :record-id="props.id"
-      :message="loadErrMsg"
-      back-label="Về danh sách sửa chữa"
-      @retry="store.fetchWorkOrder(props.id)"
-      @back="router.push('/cm/work-orders')"
-    />
-    <template v-else-if="wo">
-      <!-- Thanh tab: gác theo CÙNG điều kiện `wo` như khối liên quan cũ ⇒ chưa tải xong
-           hoặc bị chặn đọc thì KHÔNG có nút tab chết. Modal nằm NGOÀI 2 panel (nếu nằm
-           trong panel v-show sẽ bị display:none nuốt mất). -->
-      <DetailTabBar v-model="activeTab" :tabs="DETAIL_TABS" />
-
+    <!-- Thanh tab HOISTING lên prop shell (ADR-UX-25). Modal nằm NGOÀI 2 panel (nếu nằm
+         trong panel `v-show` sẽ bị `display:none` nuốt mất). -->
+    <template v-if="wo">
       <div v-show="activeTab === 'detail'" data-testid="tab-panel-detail" class="grid grid-cols-1 md:grid-cols-5 gap-6">
       <!-- LEFT PANEL (60%) -->
       <div class="md:col-span-3 space-y-5">
@@ -643,7 +634,7 @@ Phiếu bảo trì {{ wo.source_pm_wo }} →
                   </template>
                   <template v-else-if="partStockStatus(p) === 'NOT_FOUND'">
                     <span class="text-red-700 text-xs font-semibold">Phiếu xuất kho không tồn tại</span>
-                    <span class="block text-red-500 text-xs font-mono line-through">{{ p.stock_entry_ref }}</span>
+                    <span class="block text-danger-500 text-xs font-mono line-through">{{ p.stock_entry_ref }}</span>
                   </template>
                   <!-- Worker BE chưa reload (thiếu khoá derived) → giữ ĐÚNG hành vi trước vòng. -->
                   <template v-else>
@@ -937,7 +928,7 @@ Phiếu bảo trì {{ wo.source_pm_wo }} →
                     {{ spec.busy ? 'Đang xử lý…' : ctaLabel(spec) }}
                   </button>
                   <p v-if="spec.testid === 'cta-confirm-inspection'" class="text-[11px] text-center text-slate-400">
-                    Yêu cầu quyền phê duyệt cấp khoa/đảm bảo chất lượng. Sau bước này thời gian sửa chữa trung bình &amp; cam kết dịch vụ được chốt.
+                    Yêu cầu quyền phê duyệt cấp khoa/đảm bảo chất lượng. Sau bước này thời gian sửa chữa trung bình và cam kết dịch vụ được chốt.
                   </p>
                 </template>
               </div>
@@ -1128,7 +1119,7 @@ Phiếu bảo trì {{ wo.source_pm_wo }} →
       </div>
     </div>
     </Transition>
-  </div>
+  </DetailPageShell>
 </template>
 
 <style scoped>

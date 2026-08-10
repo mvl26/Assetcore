@@ -7,15 +7,31 @@ import { useRoute, useRouter } from 'vue-router'
 import { getTransferFull, updateTransfer, approveTransfer } from '@/api/imm00'
 import { frappePost } from '@/api/helpers'
 import { transferTypeLabel } from '@/constants/labels'
+import DetailPageShell from '@/components/common/DetailPageShell.vue'
+import { loadErrorKind, toApiError, type DetailLoadKind } from '@/api/errors'
+// AC-UX-065 (ADR-UX-16, docs/ui-ux/06 §5): hộp thoại xác nhận SSoT thay `confirm()`
+// trần — `confirm()` chặn vòng lặp sự kiện (từng treo trình duyệt khi tự động hoá),
+// không bẫy focus và nhãn nút do TRÌNH DUYỆT vẽ nên không Việt hoá được (LL-FE-53).
+// View gọi hàng đợi qua `useNotify().confirm()` — KHÔNG gọi tầng hàng đợi trực tiếp.
+import { useNotify } from '@/composables/useNotify'
 
 const route  = useRoute()
 const router = useRouter()
+const notify  = useNotify()
 const name   = computed(() => route.params.id as string)
 
 const form    = ref<Record<string, string | number | null | undefined>>({})
-const loading = ref(false)
+const loading = ref(true)
 const saving  = ref(false)
+/**
+ * `err` = lỗi HÀNH ĐỘNG (lưu / phê duyệt / từ chối / tiếp nhận / hủy) — banner riêng
+ * trong nội dung. TUYỆT ĐỐI KHÔNG nối vào `:error-kind`: một cú bấm hỏng sẽ thay CẢ
+ * MÀN bằng trang lỗi và người dùng mất luôn phiếu đang xem.
+ */
 const err     = ref('')
+/** Lỗi NẠP — ref MỚI, tách hẳn khỏi `err`. */
+const loadKind = ref<'' | DetailLoadKind>('')
+const loadMsg  = ref('')
 const rejectionReason = ref('')
 const handoverNotes   = ref('')
 const showRejectModal = ref(false)
@@ -87,10 +103,16 @@ const STATUS_LABEL: Record<string, string> = {
 }
 
 async function load() {
+  loadKind.value = ''   // DÒNG ĐẦU — xoá lỗi lượt trước (INV-UX4-7)
+  loadMsg.value = ''
   loading.value = true
   try {
     const r = await getTransferFull(name.value) as unknown as Record<string, string | number | null> | null
-    if (r) form.value = { ...r }
+    form.value = r ? { ...r } : {}
+  } catch (e: unknown) {
+    loadKind.value = loadErrorKind(e)
+    loadMsg.value = toApiError(e).message
+    form.value = {}
   } finally { loading.value = false }
 }
 
@@ -111,7 +133,13 @@ async function save() {
 }
 
 async function approve() {
-  if (!confirm('Phê duyệt phiếu luân chuyển này? Vị trí thiết bị sẽ được cập nhật ngay.')) return
+  const ok = await notify.confirm({
+    title: 'Phê duyệt luân chuyển',
+    body: 'Phê duyệt phiếu luân chuyển này? Vị trí thiết bị sẽ được cập nhật ngay.',
+    tone: 'warning',
+    confirmText: 'Phê duyệt',
+  })
+  if (!ok) return
   err.value = ''
   try { await approveTransfer(name.value); await load() }
   catch (e: unknown) { err.value = (e as Error).message || 'Lỗi phê duyệt' }
@@ -134,7 +162,13 @@ async function reject() {
 }
 
 async function confirmReceipt() {
-  if (!confirm('Xác nhận đã tiếp nhận thiết bị tại vị trí mới?')) return
+  const ok = await notify.confirm({
+    title: 'Xác nhận tiếp nhận',
+    body: 'Xác nhận đã tiếp nhận thiết bị tại vị trí mới?',
+    tone: 'warning',
+    confirmText: 'Đã tiếp nhận',
+  })
+  if (!ok) return
   err.value = ''
   try {
     await frappePost('/api/method/assetcore.api.imm00.receive_transfer', {
@@ -146,7 +180,13 @@ async function confirmReceipt() {
 }
 
 async function cancel() {
-  if (!confirm(`Hủy phiếu "${name.value}"?`)) return
+  const ok = await notify.confirm({
+    title: 'Huỷ phiếu luân chuyển',
+    body: `Huỷ phiếu "${name.value}"?`,
+    tone: 'error',
+    confirmText: 'Huỷ phiếu',
+  })
+  if (!ok) return
   err.value = ''
   try {
     await frappePost('/api/method/assetcore.api.imm00.delete_transfer', { name: name.value })
@@ -158,47 +198,66 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="page-container animate-fade-in space-y-5">
-<!-- Header -->
-    <div class="flex flex-wrap items-start justify-between gap-3">
+  <DetailPageShell
+    :loading="loading"
+    :error-kind="loadKind"
+    :error-message="loadMsg"
+    :doc="form"
+    :not-found="!form.name"
+    entity-label="phiếu luân chuyển"
+    :record-id="name"
+    back-label="Về danh sách phiếu luân chuyển"
+    @retry="load()"
+    @back="router.push('/asset-transfers')">
+    <!-- #title hiện ở MỌI trạng thái: `name` là route param, không deref bản ghi. -->
+    <template #title>
       <div>
         <p class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-1">Phiếu Luân chuyển</p>
         <h1 class="text-xl font-semibold text-gray-800">{{ name }}</h1>
-        <p class="text-xs text-gray-500 mt-1">{{ transferTypeLabel(form.transfer_type as string) }} · {{ form.transfer_date }}</p>
       </div>
-      <div class="flex flex-wrap items-center gap-3">
-        <span v-if="status" class="text-xs font-semibold px-2.5 py-1 rounded-full" :class="STATUS_COLOR[status]">
-          {{ STATUS_LABEL[status] || status }}
-        </span>
-        <!-- Action buttons — gate 100% theo cờ capability server-driven
-             (CR-WF-00-TRANSFER-AUTHZ + CANCEL-AUTHZ). Phê duyệt/Từ chối chỉ khi
-             isPending && canApprove; Xác nhận tiếp nhận chỉ khi isApproved && canReceive;
-             Hủy phiếu chỉ khi canCancel (BE dẫn xuất từ CÙNG rbac.can mà delete_transfer
-             enforce). Cờ undefined → 0 nút (fail-closed), KHÔNG suy nút từ status thô. -->
-        <template v-if="isPending && canApprove">
-          <button data-testid="cta-approve" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500" @click="approve">
-            Phê duyệt
-          </button>
-          <button data-testid="cta-reject" class="bg-red-50 hover:bg-red-100 text-red-600 px-4 py-2 rounded-lg text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500" @click="showRejectModal = true">
-            Từ chối
-          </button>
-        </template>
-        <button v-if="canCancel" data-testid="cta-cancel" class="text-gray-400 hover:text-gray-600 text-sm rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400" @click="cancel">Hủy phiếu</button>
-        <template v-if="isApproved && canReceive">
-          <button data-testid="cta-receive" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500" @click="confirmReceipt">
-            Xác nhận tiếp nhận
-          </button>
-        </template>
-        <span v-if="showNoActionsHint" data-testid="transfer-no-actions-hint" class="text-xs text-gray-500 italic">
-          Bạn không có quyền thao tác phiếu này
-        </span>
-      </div>
-    </div>
+    </template>
 
+    <template #header>
+      <template v-if="form.name">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <p class="text-xs text-gray-500">{{ transferTypeLabel(form.transfer_type as string) }} · {{ form.transfer_date }}</p>
+          <span v-if="status" class="text-xs font-semibold px-2.5 py-1 rounded-full" :class="STATUS_COLOR[status]">
+            {{ STATUS_LABEL[status] || status }}
+          </span>
+        </div>
+      </template>
+    </template>
+
+    <!-- Action buttons — gate 100% theo cờ capability server-driven
+         (CR-WF-00-TRANSFER-AUTHZ + CANCEL-AUTHZ). Phê duyệt/Từ chối chỉ khi
+         isPending && canApprove; Xác nhận tiếp nhận chỉ khi isApproved && canReceive;
+         Hủy phiếu chỉ khi canCancel (BE dẫn xuất từ CÙNG rbac.can mà delete_transfer
+         enforce). Cờ undefined → 0 nút (fail-closed), KHÔNG suy nút từ status thô.
+         Nằm trong slot #actions ⇒ shell TẮT cả cụm ở error/loading/notfound. -->
+    <template #actions>
+      <template v-if="isPending && canApprove">
+        <button data-testid="cta-approve" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500" @click="approve">
+          Phê duyệt
+        </button>
+        <button data-testid="cta-reject" class="bg-red-50 hover:bg-red-100 text-red-600 px-4 py-2 rounded-lg text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500" @click="showRejectModal = true">
+          Từ chối
+        </button>
+      </template>
+      <button v-if="canCancel" data-testid="cta-cancel" class="text-gray-400 hover:text-gray-600 text-sm rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400" @click="cancel">Hủy phiếu</button>
+      <template v-if="isApproved && canReceive">
+        <button data-testid="cta-receive" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500" @click="confirmReceipt">
+          Xác nhận tiếp nhận
+        </button>
+      </template>
+      <span v-if="showNoActionsHint" data-testid="transfer-no-actions-hint" class="text-xs text-gray-500 italic">
+        Bạn không có quyền thao tác phiếu này
+      </span>
+    </template>
+
+    <!-- Lỗi HÀNH ĐỘNG — banner riêng, KHÔNG thay cả màn. -->
     <div v-if="err" class="bg-red-50 text-red-700 p-3 rounded-lg text-sm">{{ err }}</div>
-    <div v-if="loading" class="text-center text-gray-400 py-12">Đang tải...</div>
 
-    <div v-else class="space-y-4">
+    <div class="space-y-4">
 <!-- Main form -->
       <div class="bg-white rounded-xl border border-gray-200 p-6 space-y-5">
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -245,7 +304,7 @@ onMounted(load)
           </div>
           <!-- Đến (đích): sửa được (Pending) → picker hiển-thị-tên; ngược lại chỉ-đọc tên -->
           <div class="space-y-3">
-            <h3 class="font-semibold text-sm text-gray-700">Đến (đích) <span class="text-red-500">*</span></h3>
+            <h3 class="font-semibold text-sm text-gray-700">Đến (đích) <span class="text-danger-500">*</span></h3>
             <template v-if="isEditable">
               <div>
                 <label for="to_location" class="block text-xs font-medium text-gray-500 mb-1">Vị trí mới</label>
@@ -278,7 +337,7 @@ onMounted(load)
         </div>
 
         <div class="border-t pt-4">
-          <label for="transfer-reason" class="block text-sm font-medium text-gray-700 mb-1">Lý do chuyển <span class="text-red-500">*</span></label>
+          <label for="transfer-reason" class="block text-sm font-medium text-gray-700 mb-1">Lý do chuyển <span class="text-danger-500">*</span></label>
           <textarea id="transfer-reason" data-testid="field-reason" v-model="form.reason" :disabled="!isEditable" rows="2" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm disabled:bg-gray-50" />
         </div>
         <div>
@@ -329,7 +388,7 @@ onMounted(load)
       <div v-if="showRejectModal" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
         <div class="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md mx-4">
           <h3 class="text-base font-semibold text-gray-800 mb-4">Từ chối phiếu luân chuyển</h3>
-          <label for="rejection_reason" class="block text-sm font-medium text-gray-700 mb-1">Lý do từ chối <span class="text-red-500">*</span></label>
+          <label for="rejection_reason" class="block text-sm font-medium text-gray-700 mb-1">Lý do từ chối <span class="text-danger-500">*</span></label>
           <textarea id="rejection_reason" v-model="rejectionReason" rows="3" placeholder="Nêu rõ lý do (tối thiểu 5 ký tự)..." class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm mb-4" />
           <div class="flex justify-end gap-2">
             <button class="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50" @click="showRejectModal = false; rejectionReason = ''">Hủy</button>
@@ -338,5 +397,5 @@ onMounted(load)
         </div>
       </div>
     </Teleport>
-</div>
+  </DetailPageShell>
 </template>

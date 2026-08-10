@@ -23,6 +23,9 @@ import {
 import AssetDowntimeWidget from '@/components/asset/AssetDowntimeWidget.vue'
 import AssetDepreciationSchedule from '@/components/asset/AssetDepreciationSchedule.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
+import DetailPageShell from '@/components/common/DetailPageShell.vue'
+import { type DetailTab } from '@/components/common/DetailTabBar.vue'
+import { useDetailAccess } from '@/composables/useDetailAccess'
 import RelatedRecords from '@/components/common/RelatedRecords.vue'
 import AssetOperationalHistory from '@/components/asset/AssetOperationalHistory.vue'
 import BaseModal from '@/components/common/BaseModal.vue'
@@ -70,7 +73,23 @@ const transitioning = ref(false)
 const showTransitionModal = ref(false)
 const targetStatus = ref<LifecycleStatus | ''>('')
 const transitionReason = ref('')
-const activeTab = ref<'info' | 'depreciation' | 'timeline' | 'kpi' | 'audit' | 'related'>('info')
+// ── Thanh tab — markup do SSoT `DetailTabBar` vẽ (AC-UX-068, docs/ui-ux/07 §4.1) ──
+// Thứ tự mảng CŨNG là hợp đồng: người dùng nhớ vị trí tab, đổi thứ tự là đổi UI.
+const ASSET_TAB_KEYS = ['info', 'depreciation', 'timeline', 'kpi', 'audit', 'related'] as const
+type AssetTabKey = (typeof ASSET_TAB_KEYS)[number]
+const ASSET_TAB_LABEL: Record<AssetTabKey, string> = {
+  info: 'Thông tin',
+  depreciation: 'Khấu hao',
+  timeline: 'Lịch sử',
+  kpi: 'Chỉ số hiệu suất',
+  audit: 'Nhật ký truy vết',
+  related: 'Bản ghi liên quan',
+}
+const ASSET_TABS: DetailTab[] = ASSET_TAB_KEYS.map(k => ({ key: k, label: ASSET_TAB_LABEL[k] }))
+function isAssetTabKey(v: string): v is AssetTabKey {
+  return (ASSET_TAB_KEYS as readonly string[]).includes(v)
+}
+const activeTab = ref<AssetTabKey>('info')
 
 // ── A3-PDF (ADR-IMM00-LABEL-PDF): in nhãn QR PDF khổ tem 60×100mm (phương án A) ──
 // Vòng 24: đường in nhãn HTML legacy (modal preview HTML + in qua trình duyệt) ĐÃ
@@ -455,44 +474,81 @@ async function confirmDecommission() {
   }
 }
 
-async function onTabChange(tab: typeof activeTab.value) {
+// SSoT thanh tab phát ra `string` (nó không biết miền khoá của từng màn) ⇒ chặn đầu
+// bằng type-guard, KHÔNG `as AssetTabKey` (cast mù là nợ đã ghi sổ AC-CR-101).
+//
+// Đây là NƠI DUY NHẤT ghi `activeTab` khi bấm tab — vì thế template truyền
+// `:model-value` + `@update:model-value` chứ KHÔNG `v-model`: `v-model` sẽ ghi state
+// một lần trước rồi hàm này ghi lần nữa, và nạp lười trở nên khó lần vết.
+async function onTabChange(tab: string) {
+  if (!isAssetTabKey(tab)) return
   activeTab.value = tab
   if (tab === 'timeline' && !timeline.value.length) await loadTimeline()
   if (tab === 'kpi' && !kpi.value) await loadKpi()
   if (tab === 'audit' && !chain.value) await loadChain()
 }
 
-onMounted(async () => {
-  await store.fetchOne(props.id)
+// Lỗi của LƯỢT NẠP (lô 2, nhóm N4). `stores/imm00` chỉ giữ `error` dạng CHUỖI ⇒ 403, 404
+// và mất mạng trước đây ra CÙNG một dải `.alert-error` không lối thoát — không nút «Thử lại»,
+// không lối về danh sách. View tự `try/catch` và giữ ref riêng (KHÔNG sửa `stores/`, §13.3).
+const loadError = ref<unknown>(null)
+const { kind: loadKind, message: loadMsg } = useDetailAccess(() => loadError.value)
+
+async function loadAsset(): Promise<void> {
+  loadError.value = null                         // INV-UX4-7 — xoá lỗi ở DÒNG ĐẦU
+  try {
+    await store.fetchOne(props.id)
+  } catch (e: unknown) {
+    loadError.value = e
+    return
+  }
+  if (!store.currentAsset && store.error) loadError.value = new Error(store.error)
+  // Nguồn PHỤ: nguồn gốc tiếp nhận. Hỏng ở đây KHÔNG được làm trắng cả màn (LL-FE-45).
   try { origin.value = await getCommissioningOrigin(props.id) } catch { origin.value = null }
-})
+}
+
+onMounted(loadAsset)
 </script>
 
 <template>
-  <div class="page-container animate-fade-in">
-    <PageHeader
-      back-to="/assets"
-      back-label="← Danh sách thiết bị"
-      :title="store.currentAsset?.asset_name || 'Chi tiết thiết bị'"
-      :subtitle="store.currentAsset ? `Mã: ${store.currentAsset.asset_code || store.currentAsset.name}` : ''"
-      :breadcrumb="[
-        { label: 'Thiết bị', to: '/assets' },
-        { label: store.currentAsset?.asset_name || id },
-      ]"
-    >
-      <template #actions>
-        <!-- Nút Chỉnh sửa gate asset.write (sửa asset). In nhãn gate asset.print,
-             Sinh-lại QR gate asset.qr.rotate (D6 phương án B — tách quyền). -->
-        <button v-if="store.currentAsset && can('asset.write')" class="btn-ghost text-sm" @click="router.push(`/assets/${id}/edit`)">Chỉnh sửa</button>
-        <!-- asset.delete là DocPerm delete RIÊNG — KHÔNG dùng chung asset.write. -->
-        <button v-if="store.currentAsset && can('asset.delete')" class="text-red-600 hover:text-red-800 text-sm font-medium px-3 py-1.5" @click="remove">Xóa</button>
-      </template>
-    </PageHeader>
+  <DetailPageShell
+    :loading="store.loading"
+    :error-kind="loadKind"
+    :error-message="loadMsg"
+    :doc="store.currentAsset"
+    entity-label="hồ sơ thiết bị"
+    :record-id="props.id"
+    back-label="Về danh sách thiết bị"
+    :tabs="ASSET_TABS"
+    :active-tab="activeTab"
+    @update:active-tab="onTabChange"
+    @retry="loadAsset()"
+    @back="router.push('/assets')">
+    <template #title>
+      <PageHeader
+        back-to="/assets"
+        back-label="← Danh sách thiết bị"
+        :title="store.currentAsset?.asset_name || 'Chi tiết thiết bị'"
+        :subtitle="store.currentAsset ? `Mã: ${store.currentAsset.asset_code || store.currentAsset.name}` : ''"
+        :breadcrumb="[
+          { label: 'Thiết bị', to: '/assets' },
+          { label: store.currentAsset?.asset_name || id },
+        ]"
+      />
+    </template>
 
-    <div v-if="store.loading" class="card p-8 text-center text-slate-400">Đang tải...</div>
-    <div v-else-if="store.error" class="alert-error">{{ store.error }}</div>
+    <!-- CTA — CHỈ tồn tại ở trạng thái content (AC-UX-053). Thanh tab đi qua cặp
+         `:active-tab` + `@update:active-tab` (KHÔNG `v-model`): `onTabChange` phải là
+         NƠI DUY NHẤT ghi state, nếu không nạp lười chạy hai lần và khó lần vết. -->
+    <template #actions>
+      <!-- Nút Chỉnh sửa gate asset.write (sửa asset). In nhãn gate asset.print,
+           Sinh-lại QR gate asset.qr.rotate (D6 phương án B — tách quyền). -->
+      <button v-if="store.currentAsset && can('asset.write')" data-testid="cta-edit" class="btn-ghost text-sm" @click="router.push(`/assets/${id}/edit`)">Chỉnh sửa</button>
+      <!-- asset.delete là DocPerm delete RIÊNG — KHÔNG dùng chung asset.write. -->
+      <button v-if="store.currentAsset && can('asset.delete')" data-testid="cta-delete" class="text-red-600 hover:text-red-800 text-sm font-medium px-3 py-1.5" @click="remove">Xóa</button>
+    </template>
 
-    <template v-else-if="store.currentAsset">
+    <template v-if="store.currentAsset">
       <!-- Asset Header -->
       <div class="card p-5 mb-5">
         <div class="flex items-start justify-between">
@@ -694,23 +750,9 @@ onMounted(async () => {
         </div>
       </div>
 
-      <!-- Tabs — P4: cuộn ngang mobile (overflow-x-auto + shrink-0) → tab cuối reachable, KHÔNG cắt.
-           A11y: role tablist/tab + aria-selected (giữ hợp đồng chung với DetailTabBar). -->
-      <div role="tablist" class="flex gap-1 mb-4 border-b border-slate-200 overflow-x-auto">
-        <button
-          v-for="tab in (['info', 'depreciation', 'timeline', 'kpi', 'audit', 'related'] as const)"
-          :key="tab"
-          type="button"
-          role="tab"
-          :aria-selected="activeTab === tab ? 'true' : 'false'"
-          :data-testid="`tab-${tab}`"
-          class="shrink-0 whitespace-nowrap px-4 py-2 text-sm font-medium transition-colors"
-          :class="activeTab === tab ? 'text-blue-600 border-b-2 border-blue-600 -mb-px' : 'text-slate-500 hover:text-slate-800'"
-          @click="onTabChange(tab)"
-        >
-          {{ { info: 'Thông tin', depreciation: 'Khấu hao', timeline: 'Lịch sử', kpi: 'chỉ số hiệu suất', audit: 'Nhật ký truy vết', related: 'Bản ghi liên quan' }[tab] }}
-        </button>
-      </div>
+      <!-- Thanh tab HOISTING lên prop shell (ADR-UX-25): a11y + cuộn ngang mobile
+           (TC-RWD-07) sống ở MỘT nơi, và nó nằm trong nhánh `content` ⇒ hồ sơ 403/404
+           KHÔNG còn dải tab bấm-không-tới-đâu. Nạp lười vẫn qua `onTabChange`. -->
 
       <!-- Tab: Info -->
       <div v-if="activeTab === 'info'" class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1187,7 +1229,7 @@ onMounted(async () => {
         <!-- Phương thức xử lý -->
         <div>
           <label class="block text-xs font-medium text-slate-600 mb-1">
-            Phương thức xử lý <span class="text-red-500">*</span>
+            Phương thức xử lý <span class="text-danger-500">*</span>
           </label>
           <select
             v-model="decomForm.disposal_method"
@@ -1231,7 +1273,7 @@ onMounted(async () => {
         <!-- Lý do giải nhiệm -->
         <div>
           <label class="block text-xs font-medium text-slate-600 mb-1">
-            Lý do giải nhiệm <span class="text-red-500">*</span>
+            Lý do giải nhiệm <span class="text-danger-500">*</span>
           </label>
           <textarea
             v-model="decomForm.decommission_reason"
@@ -1240,7 +1282,7 @@ onMounted(async () => {
             placeholder="Mô tả lý do giải nhiệm (hết khấu hao, sửa chữa không kinh tế, có quyết định thanh lý...)"
             data-testid="decom-reason"
           />
-          <p class="text-xs mt-1" :class="decomReasonLen < REASON_MIN_LEN ? 'text-red-500' : 'text-slate-400'">
+          <p class="text-xs mt-1" :class="decomReasonLen < REASON_MIN_LEN ? 'text-danger-500' : 'text-slate-400'">
             {{ decomReasonLen }}/{{ REASON_MIN_LEN }} ký tự tối thiểu
           </p>
         </div>
@@ -1248,7 +1290,7 @@ onMounted(async () => {
         <!-- Người chịu trách nhiệm -->
         <div>
           <label for="decom-responsible" class="block text-xs font-medium text-slate-600 mb-1">
-            Người chịu trách nhiệm <span class="text-red-500">*</span>
+            Người chịu trách nhiệm <span class="text-danger-500">*</span>
           </label>
           <ApproverSelect
             id="decom-responsible"
@@ -1263,7 +1305,7 @@ onMounted(async () => {
         <div class="pt-2 border-t border-slate-100">
           <label class="block text-xs font-medium text-slate-600 mb-1">
             Gõ mã thiết bị <span class="font-mono text-slate-800">{{ store.currentAsset?.name }}</span>
-            để xác nhận <span class="text-red-500">*</span>
+            để xác nhận <span class="text-danger-500">*</span>
           </label>
           <input
             v-model="decomForm.confirm_name"
@@ -1288,5 +1330,5 @@ onMounted(async () => {
         </button>
       </template>
     </BaseModal>
-</div>
+  </DetailPageShell>
 </template>

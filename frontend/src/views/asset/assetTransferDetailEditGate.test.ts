@@ -12,6 +12,7 @@
 //   • Non-Pending (Approved/Received…) → khóa-đọc mặc nhiên, KHÔNG hint thừa.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
+import { resetModalQueue } from '@/test/confirmHarness'
 
 vi.mock('vue-router', () => ({
   useRoute: () => ({ params: { id: 'AT-2026-0001' }, query: {}, path: '/asset-transfers/AT-2026-0001' }),
@@ -70,8 +71,12 @@ beforeEach(() => {
   approveTransferMock.mockClear()
   updateTransferMock.mockClear()
   frappePostMock.mockClear()
-  vi.stubGlobal('confirm', vi.fn(() => true))
 })
+
+// Hành động DUY NHẤT mà file này bấm là «Lưu thay đổi» (`save()`), vốn KHÔNG hỏi xác
+// nhận — nên không cần harness hộp thoại. lệnh giả lập `confirm` cũ ở đây là
+// tàn dư, gỡ đi để không ai tưởng view còn dùng hộp thoại `confirm()` của trình duyệt (AC-UX-066).
+afterEach(() => { resetModalQueue() })
 
 describe('AssetTransferDetail — isEditable server-driven (can_edit)', () => {
   it('can_edit=1 + Pending → nút "Lưu thay đổi" HIỂN THỊ + ô "Lý do" bật', async () => {
