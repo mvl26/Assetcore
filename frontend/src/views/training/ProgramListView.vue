@@ -11,13 +11,14 @@ import StatusBadge from '@/components/common/StatusBadge.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
+import ListPageShell from '@/components/ui/ListPageShell.vue'
 
 const router = useRouter()
 const store = useImm06Store()
 const api = useApi()
 const { can } = useCapabilities()
 
-const { programs, programPagination, loading, error } = storeToRefs(store)
+const { programs, programPagination, loading } = storeToRefs(store)
 
 const filterType = ref('')
 const filterActive = ref('')
@@ -63,18 +64,48 @@ function resetFilters() {
   load(1)
 }
 
+// ── Trạng thái nạp danh sách (AC-UX-047 lô 3 · biến thể D — 02 §14.2, khuôn §13.2) ─────────
+// `stores/imm06.ts:40` dùng CHUNG một ô `error` cho 3 danh sách + MỌI hành động ghi.
+// Thêm một bẫy riêng của nhóm IMM-06: `api.run(() => store.fetchXxx())` chỉ bắt được
+// EXCEPTION, mà kho trạng thái đã `catch` rồi ⇒ `api.lastError` LUÔN null khi danh sách hỏng.
+// Đọc lỗi từ `api.lastError` = luôn thấy "không lỗi". Vì vậy phải CHỤP `store.error` ngay sau
+// `await` rồi trả ô dùng chung về sạch (INV-UX3-28).
+const loadError = ref<string | null>(null)
+
+function _captureLoadError() {
+  loadError.value = store.error ?? null
+  if (loadError.value) store.error = null
+}
+
+// Chữ trạng thái rỗng — SSoT là bảng copy 02 §14.4 (LL-FE-53: 100% tiếng Việt).
+const emptyTitle = computed(() =>
+  activeFilterCount.value > 0 ? 'Không có chương trình đào tạo nào phù hợp' : 'Chưa có chương trình đào tạo nào',
+)
+const emptyHint = 'Chương trình đào tạo là khuôn nội dung; buổi đào tạo được mở theo chương trình.'
+
 async function load(page = 1) {
+  loadError.value = null
+  store.error = null
   const filters: Record<string, unknown> = {}
   if (filterType.value) filters.training_type = filterType.value
   if (filterActive.value !== '') filters.is_active = Number(filterActive.value)
   await api.run(() => store.fetchPrograms(filters, page))
+  _captureLoadError()
 }
 
 onMounted(() => load())
 </script>
 
 <template>
-  <div class="page-container animate-fade-in space-y-5">
+  <div>
+    <ListPageShell
+      :loading="loading"
+      :error-message="loadError"
+      :is-empty="!programs.length"
+      :empty-title="emptyTitle"
+      :empty-hint="emptyHint"
+      @retry="load()">
+      <template #header>
     <PageHeader
       title="Chương trình đào tạo"
       :subtitle="`Tổng ${programPagination.total} chương trình`"
@@ -94,6 +125,9 @@ onMounted(() => load())
         </button>
       </template>
     </PageHeader>
+      </template>
+
+      <template #filters>
 
     <ListFilterBar
       :show="showFilters"
@@ -120,30 +154,25 @@ onMounted(() => load())
         </div>
       </template>
     </ListFilterBar>
+      </template>
 
-    <div class="table-wrapper">
+      <template #skeleton><SkeletonLoader variant="table" :rows="6" /></template>
+
+      <template #empty-action>
+        <button v-if="activeFilterCount > 0" class="text-xs text-brand-600 hover:text-brand-700 font-medium underline" @click="resetFilters">
+          Xóa bộ lọc để xem tất cả
+        </button>
+        <button v-else-if="canManage" class="btn-primary" @click="router.push('/imm06/programs/new')">Tạo chương trình đào tạo</button>
+      </template>
+
+      <template #toolbar>
       <div class="flex items-center justify-between px-4 py-2.5 border-b border-slate-100 bg-slate-50/60 text-xs text-slate-500">
         <span>Hiển thị <strong class="text-slate-700">{{ programs?.length ?? 0 }}</strong> / {{ programPagination.total }} chương trình</span>
         <button v-if="activeFilterCount > 0" class="text-red-500 hover:text-red-700 font-medium" @click="resetFilters">Xóa tất cả</button>
       </div>
 
-      <div v-if="loading" class="p-4">
-        <SkeletonLoader variant="table" :rows="6" />
-      </div>
-      <div v-else-if="error" class="m-4 rounded border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700 flex items-center gap-3">
-        <span class="flex-1">{{ error }}</span>
-        <button class="text-sm underline" @click="load()">Thử lại</button>
-      </div>
-      <div v-else-if="!programs.length" class="flex flex-col items-center justify-center py-16 text-slate-400">
-        <svg class="w-10 h-10 mb-3 text-slate-300" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
-        </svg>
-        <p class="text-sm font-medium">Chưa có chương trình đào tạo nào</p>
-        <button v-if="activeFilterCount > 0" class="text-xs text-blue-500 hover:text-blue-700 underline mt-2" @click="resetFilters">
-          Xóa bộ lọc để xem tất cả
-        </button>
-      </div>
-      <template v-else>
+      </template>
+
         <!-- Mobile cards -->
         <div class="mobile-card-list sm:hidden">
           <div
@@ -164,9 +193,6 @@ onMounted(() => load())
               <span v-if="p.duration_hours != null">· {{ p.duration_hours }}h</span>
               <span>· Đạt: {{ p.passing_score_pct }}%</span>
             </div>
-          </div>
-          <div v-if="programs.length === 0" class="py-12 text-center text-slate-400">
-            <p class="text-sm">Không có dữ liệu</p>
           </div>
         </div>
 
@@ -214,9 +240,10 @@ onMounted(() => load())
             </tbody>
           </table>
         </div>
-      </template>
-    </div>
 
-    <BasePagination :pagination="programPagination" @page-change="load" />
+      <template #pagination>
+        <BasePagination :pagination="programPagination" @page-change="load" />
+      </template>
+    </ListPageShell>
   </div>
 </template>

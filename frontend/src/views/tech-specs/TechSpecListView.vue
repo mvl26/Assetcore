@@ -10,6 +10,8 @@ import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar, { type FilterChip } from '@/components/common/ListFilterBar.vue'
 import KpiCard from '@/components/common/KpiCard.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
+import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
+import ListPageShell from '@/components/ui/ListPageShell.vue'
 
 const router = useRouter()
 const store  = useImm02Store()
@@ -57,13 +59,33 @@ function buildPayload(): Record<string, unknown> {
   // lock_in_bucket áp dụng filter phía client trên kết quả
   return f
 }
-function applyFilters() { store.fetchList(buildPayload()) }
+// ── Trạng thái nạp danh sách (AC-UX-047 lô 2 · biến thể D — 02 §13.2) ──
+// `stores/imm02.ts` dùng CHUNG ô `error` cho `fetchList` VÀ `fetchKpis` (`:45` gọi cùng
+// `_setError`) ⇒ bind thẳng thì một lần nạp chỉ-số hỏng sẽ xoá trắng danh sách. Phải
+// CHỤP lỗi ngay sau `await` của lượt nạp DANH SÁCH rồi trả ô dùng chung về sạch.
+const loadError = ref<string | null>(null)
+
+async function applyFilters() {
+  loadError.value = null
+  store.error = null
+  await store.fetchList(buildPayload())
+  loadError.value = store.error ?? null
+  if (loadError.value) store.error = null
+}
+
+/** Điểm vào DUY NHẤT của «Thử lại» — giữ nguyên bộ lọc hiện tại. */
+function reload() { return applyFilters() }
+
+const emptyTitle = computed(() =>
+  activeChips.value.length > 0 ? 'Không có hồ sơ kỹ thuật nào phù hợp' : 'Chưa có hồ sơ kỹ thuật nào',
+)
+const emptyHint = 'Hãy tạo hồ sơ kỹ thuật mới hoặc xoá bộ lọc để xem tất cả.'
 function resetFilters() {
   filters.workflow_state = ''
   filters.lock_in_bucket = ''
   filters.device_model_ref = ''
   filters.search = ''
-  store.fetchList()
+  applyFilters()   // qua ĐÚNG đường chụp lỗi: reset khi đang lỗi phải thoát được lỗi
 }
 function clearChip(key: string) {
   ;(filters as Record<string, string>)[key] = ''
@@ -97,11 +119,20 @@ function lockInClass(score?: number): string {
 function goDetail(n: string) { router.push({ name: 'TechSpecDetail', params: { id: n } }) }
 function goCreate() { router.push({ name: 'TechSpecCreate' }) }
 
-onMounted(() => { store.fetchList(); store.fetchKpis() })
+// TUẦN TỰ, không `Promise.all`: lỗi của `fetchKpis` không được cướp trạng thái danh sách.
+onMounted(async () => { await applyFilters(); store.fetchKpis() })
 </script>
 
 <template>
-  <div class="page-container animate-fade-in">
+  <div>
+    <ListPageShell
+      :loading="store.loading"
+      :error-message="loadError"
+      :is-empty="!filteredSpecs.length"
+      :empty-title="emptyTitle"
+      :empty-hint="emptyHint"
+      @retry="reload">
+      <template #header>
     <PageHeader
       title="Hồ sơ kỹ thuật"
       :subtitle="`Tổng ${store.specs.length} hồ sơ — quản lý yêu cầu kỹ thuật, so sánh thị trường, đánh giá phụ thuộc nhà cung cấp.`"
@@ -116,7 +147,9 @@ onMounted(() => { store.fetchList(); store.fetchKpis() })
         </button>
       </template>
     </PageHeader>
+      </template>
 
+      <template #filters>
     <ListFilterBar
       v-model:search="filters.search"
       :show="showFilters"
@@ -137,7 +170,17 @@ onMounted(() => { store.fetchList(); store.fetchKpis() })
         </select>
       </template>
     </ListFilterBar>
+      </template>
 
+      <template #skeleton><SkeletonLoader variant="table" :rows="6" /></template>
+
+      <template #empty-action>
+        <button v-if="activeChips.length > 0" class="text-xs text-brand-600 hover:text-brand-700 font-medium underline" @click="resetFilters">
+          Xóa bộ lọc để xem tất cả
+        </button>
+      </template>
+
+      <template #summary>
     <div v-if="store.kpis" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
       <KpiCard label="Đã chốt hồ sơ" :value="totalLocked" color="success" />
       <KpiCard
@@ -151,13 +194,9 @@ onMounted(() => { store.fetchList(); store.fetchKpis() })
         :color="store.kpis.avg_lock_in_score > 3.5 ? 'danger' : store.kpis.avg_lock_in_score > 2.5 ? 'warning' : 'success'"
       />
     </div>
+      </template>
 
-    <div v-if="store.error" class="alert-error mb-4">
-      <strong>Lỗi:</strong> {{ store.error }}
-      <button class="alert-close" @click="store.clearError()">×</button>
-    </div>
-
-    <div class="card overflow-hidden">
+      <template #toolbar>
       <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50/60">
         <span class="text-xs text-slate-500">
           <span v-if="activeChips.length > 0">Kết quả lọc: <strong class="text-slate-700">{{ filteredSpecs.length }}</strong> hồ sơ</span>
@@ -165,9 +204,8 @@ onMounted(() => { store.fetchList(); store.fetchKpis() })
         </span>
         <button v-if="activeChips.length > 0" class="text-xs text-red-500 hover:text-red-700 font-medium" @click="resetFilters">Xóa tất cả</button>
       </div>
+      </template>
 
-      <div v-if="store.loading" class="p-6 text-sm text-slate-500">Đang tải...</div>
-      <template v-else-if="filteredSpecs.length">
         <!-- Mobile cards -->
         <div class="mobile-card-list sm:hidden">
           <div
@@ -241,14 +279,7 @@ v-if="s.device_model_ref" class="link-cell" :title="`Lọc: ${s.device_model_ref
           </tbody>
         </table>
         </div>
-      </template>
-      <div v-else class="flex flex-col items-center justify-center py-16 text-slate-400">
-        <p class="text-sm">Không có hồ sơ kỹ thuật phù hợp</p>
-        <button v-if="activeChips.length > 0" class="mt-3 text-xs text-blue-500 hover:text-blue-700 underline" @click="resetFilters">
-          Xóa bộ lọc để xem tất cả
-        </button>
-      </div>
-    </div>
+    </ListPageShell>
   </div>
 </template>
 

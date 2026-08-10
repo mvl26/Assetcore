@@ -13,6 +13,7 @@ import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
+import ListPageShell from '@/components/ui/ListPageShell.vue'
 import { useMasterDataStore } from '@/stores/masterData'
 import { useAcUserStore } from '@/stores/acUsers'
 import { useApi } from '@/composables/useApi'
@@ -229,11 +230,32 @@ function overdueColor(d?: string) {
   return days < 0 ? 'text-red-600 font-semibold' : days < 14 ? 'text-yellow-600' : 'text-slate-600'
 }
 
+// Chữ trạng thái rỗng — SSoT là bảng copy 02 §14.4 (LL-FE-53: 100% tiếng Việt).
+const emptyTitle = computed(() =>
+  activeFilterCount.value > 0
+    ? 'Không có lịch bảo trì định kỳ nào phù hợp với bộ lọc'
+    : 'Chưa có lịch bảo trì định kỳ nào',
+)
+const emptyHint =
+  'Lịch bảo trì định kỳ quyết định khi nào phiếu bảo trì được sinh cho từng thiết bị.'
+
+// `err` (lỗi HỘP THOẠI tạo/sửa) và `loadError` (lỗi NẠP) phải TÁCH BẠCH — chỉ `loadError`
+// được nối vào `:error-message` (INV-UX3-13/28). Phơi `err` cho test khẳng định tách bạch.
+defineExpose({ err })
+
 onMounted(load)
 </script>
 
 <template>
-  <div class="page-container animate-fade-in">
+  <div>
+    <ListPageShell
+      :loading="loading"
+      :error-message="loadError"
+      :is-empty="!items.length"
+      :empty-title="emptyTitle"
+      :empty-hint="emptyHint"
+      @retry="load">
+      <template #header>
     <PageHeader
       title="Lịch bảo trì định kỳ"
       :subtitle="`Tổng ${total} lịch`"
@@ -254,7 +276,9 @@ onMounted(load)
         </button>
       </template>
     </PageHeader>
+      </template>
 
+      <template #filters>
     <ListFilterBar
       :show="showFilters"
       :chips="activeChips"
@@ -280,9 +304,18 @@ onMounted(load)
         </div>
       </template>
     </ListFilterBar>
+      </template>
 
-    <!-- Table -->
-    <div class="card overflow-hidden">
+      <template #skeleton>
+        <SkeletonLoader v-for="i in 5" :key="i" class="h-10 mb-3" />
+      </template>
+
+      <template #empty-action>
+        <button v-if="activeFilterCount > 0" class="btn-ghost" @click="resetFilters">Xóa bộ lọc</button>
+        <button v-else class="btn-primary" :disabled="!canCreatePm" @click="openCreate">+ Thêm lịch bảo trì định kỳ</button>
+      </template>
+
+      <template #toolbar>
       <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50/60 text-xs text-slate-500">
         <span v-if="activeFilterCount > 0">
           Kết quả lọc: <strong class="text-slate-700">{{ items.length }}</strong> / {{ total }} lịch
@@ -292,24 +325,8 @@ onMounted(load)
         </span>
         <button v-if="activeFilterCount > 0" class="text-red-500 hover:text-red-700 font-medium" @click="resetFilters">Xóa tất cả</button>
       </div>
+      </template>
 
-      <div v-if="loading" class="p-6">
-        <SkeletonLoader v-for="i in 5" :key="i" class="h-10 mb-3" />
-      </div>
-      <div v-else-if="loadError" class="text-center py-12 px-6">
-        <svg class="w-10 h-10 mx-auto mb-2 text-red-400" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/></svg>
-        <p class="text-sm text-red-700 mb-4">{{ loadError }}</p>
-        <button class="btn-primary" @click="load">Thử lại</button>
-      </div>
-      <div v-else-if="items.length === 0" class="text-center py-12 px-6">
-        <svg class="w-10 h-10 mx-auto mb-2 text-slate-300" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-        <p class="text-sm text-slate-500 mb-4">
-          {{ activeFilterCount > 0 ? 'Không có lịch bảo trì định kỳ nào phù hợp với bộ lọc.' : 'Chưa có lịch bảo trì định kỳ nào.' }}
-        </p>
-        <button v-if="activeFilterCount > 0" class="btn-ghost" @click="resetFilters">Xóa bộ lọc</button>
-        <button v-else class="btn-primary" :disabled="!canCreatePm" @click="openCreate">+ Thêm lịch bảo trì định kỳ</button>
-      </div>
-      <template v-else>
         <!-- Mobile cards -->
         <div class="mobile-card-list sm:hidden">
           <div
@@ -393,9 +410,8 @@ onMounted(load)
         </tbody>
       </table>
         </div>
-      </template>
 
-      <!-- Pagination -->
+      <template #pagination>
       <div v-if="total > PAGE_SIZE" class="flex items-center justify-between px-4 py-3 border-t border-slate-100 text-sm text-slate-500">
         <span>{{ (page - 1) * PAGE_SIZE + 1 }}–{{ Math.min(page * PAGE_SIZE, total) }} / {{ total }}</span>
         <div class="flex gap-2">
@@ -403,8 +419,10 @@ onMounted(load)
           <button :disabled="page * PAGE_SIZE >= total" class="px-3 py-1 rounded border border-slate-300 disabled:opacity-40 hover:bg-slate-50" aria-label="Trang sau" @click="nextPage">›</button>
         </div>
       </div>
-    </div>
+      </template>
+    </ListPageShell>
 
+    <!-- Hộp thoại tạo/sửa — NGOÀI ListPageShell (02 §14.3) -->
     <div v-if="showForm" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="showForm = false">
       <div class="bg-white rounded-xl p-6 w-[560px] max-w-full space-y-4">
         <h2 class="text-lg font-semibold">{{ editingName ? 'Sửa' : 'Thêm' }} lịch bảo trì</h2>

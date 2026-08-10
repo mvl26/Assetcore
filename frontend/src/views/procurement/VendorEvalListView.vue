@@ -12,6 +12,8 @@ import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar, { type FilterChip } from '@/components/common/ListFilterBar.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
+import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
+import ListPageShell from '@/components/ui/ListPageShell.vue'
 
 const router = useRouter()
 const store  = useImm03Store()
@@ -48,13 +50,34 @@ function buildPayload(): Record<string, unknown> {
   if (filters.search.trim())         f.search = filters.search.trim()
   return f
 }
-function applyFilters() { store.fetchEvaluations(buildPayload()) }
+// ── Trạng thái nạp danh sách (AC-UX-047 lô 2 · biến thể D — 02 §13.2) ──
+// `stores/imm03.ts` dùng CHUNG một ô `error` cho mọi lời gọi (danh sách, chỉ-số,
+// transition) ⇒ bind thẳng thì một lần transition hỏng sẽ xoá trắng danh sách. Phải
+// CHỤP lỗi ngay sau `await` của lượt nạp DANH SÁCH rồi trả ô dùng chung về sạch.
+// Lỗi hộp thoại tạo đi đường riêng (`createError`) — KHÔNG nối vào đây (INV-UX3-13).
+const loadError = ref<string | null>(null)
+
+async function applyFilters() {
+  loadError.value = null
+  store.error = null
+  await store.fetchEvaluations(buildPayload())
+  loadError.value = store.error ?? null
+  if (loadError.value) store.error = null
+}
+
+/** Điểm vào DUY NHẤT của «Thử lại» — giữ nguyên bộ lọc hiện tại. */
+function reload() { return applyFilters() }
+
+const emptyTitle = computed(() =>
+  activeChips.value.length > 0 ? 'Không có phiếu đánh giá nào phù hợp' : 'Chưa có phiếu đánh giá nhà cung cấp nào',
+)
+const emptyHint = 'Phiếu đánh giá được tạo từ hồ sơ kỹ thuật đã chốt.'
 function resetFilters() {
   filters.workflow_state = ''
   filters.spec_ref = ''
   filters.recommended_candidate = ''
   filters.search = ''
-  store.fetchEvaluations()
+  applyFilters()   // qua ĐÚNG đường chụp lỗi: reset khi đang lỗi phải thoát được lỗi
 }
 function clearChip(key: string) {
   ;(filters as Record<string, string>)[key] = ''
@@ -102,11 +125,19 @@ async function submitCreate() {
   }
 }
 
-onMounted(() => store.fetchEvaluations())
+onMounted(() => applyFilters())
 </script>
 
 <template>
-  <div class="page-container animate-fade-in">
+  <div>
+    <ListPageShell
+      :loading="store.loading"
+      :error-message="loadError"
+      :is-empty="!store.evaluations.length"
+      :empty-title="emptyTitle"
+      :empty-hint="emptyHint"
+      @retry="reload">
+      <template #header>
     <PageHeader
       title="Đánh giá nhà cung cấp"
       :subtitle="`Tổng ${store.evaluations.length} phiếu đánh giá theo hồ sơ kỹ thuật.`"
@@ -118,7 +149,9 @@ onMounted(() => store.fetchEvaluations())
         </button>
       </template>
     </PageHeader>
+      </template>
 
+      <template #filters>
     <ListFilterBar
       v-model:search="filters.search"
       :show="showFilters"
@@ -135,13 +168,17 @@ onMounted(() => store.fetchEvaluations())
         </select>
       </template>
     </ListFilterBar>
+      </template>
 
-    <div v-if="store.error" class="alert-error mb-4">
-      <strong>Lỗi:</strong> {{ store.error }}
-      <button class="alert-close" @click="store.clearError()">×</button>
-    </div>
+      <template #skeleton><SkeletonLoader variant="table" :rows="6" /></template>
 
-    <div class="card overflow-hidden">
+      <template #empty-action>
+        <button v-if="activeChips.length > 0" class="text-xs text-brand-600 hover:text-brand-700 font-medium underline" @click="resetFilters">
+          Xóa bộ lọc để xem tất cả
+        </button>
+      </template>
+
+      <template #toolbar>
       <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50/60">
         <span class="text-xs text-slate-500">
           <span v-if="activeChips.length > 0">Kết quả lọc: <strong class="text-slate-700">{{ store.evaluations.length }}</strong> phiếu</span>
@@ -149,9 +186,8 @@ onMounted(() => store.fetchEvaluations())
         </span>
         <button v-if="activeChips.length > 0" class="text-xs text-red-500 hover:text-red-700 font-medium" @click="resetFilters">Xóa tất cả</button>
       </div>
+      </template>
 
-      <div v-if="store.loading" class="p-6 text-sm text-slate-500">Đang tải...</div>
-      <template v-else-if="store.evaluations.length">
         <!-- Mobile cards -->
         <div class="mobile-card-list sm:hidden">
           <div
@@ -169,9 +205,6 @@ onMounted(() => store.fetchEvaluations())
               <span v-if="ev.draft_date">{{ formatVnDate(ev.draft_date) }}</span>
               <span v-if="ev.recommended_candidate">· {{ ev.vendor_name || ev.recommended_candidate }}</span>
             </div>
-          </div>
-          <div v-if="store.evaluations.length === 0" class="py-12 text-center text-slate-400">
-            <p class="text-sm">Không có dữ liệu</p>
           </div>
         </div>
 
@@ -222,16 +255,9 @@ onMounted(() => store.fetchEvaluations())
             </tbody>
           </table>
         </div>
-      </template>
-      <div v-else class="flex flex-col items-center justify-center py-16 text-slate-400">
-        <p class="text-sm">Không có phiếu đánh giá nào phù hợp</p>
-        <button v-if="activeChips.length > 0" class="mt-3 text-xs text-blue-500 hover:text-blue-700 underline" @click="resetFilters">
-          Xóa bộ lọc để xem tất cả
-        </button>
-      </div>
-    </div>
+    </ListPageShell>
 
-    <!-- Modal: tạo phiếu đánh giá từ Hồ sơ kỹ thuật (Locked) -->
+    <!-- Modal: tạo phiếu đánh giá từ Hồ sơ kỹ thuật (Locked) — NGOÀI shell (02 §13.3) -->
     <div v-if="showCreate" class="modal-overlay" @click.self="showCreate = false">
       <div class="modal-panel max-w-md">
         <h3 class="text-base font-semibold mb-1">Tạo phiếu đánh giá nhà cung cấp</h3>

@@ -194,7 +194,11 @@ describe('PMWorkOrderListView — AC-CR-79 banner khoá lọc không hợp lệ'
     await flushPromises()
 
     expect(w.find('[data-test="pm-filter-error"]').exists()).toBe(false)
-    expect(w.find('.alert-error').exists()).toBe(true)
+    // AC-UX-047 lô 3 (2026-08-04): nhánh lỗi NẠP nay do `ui/ListPageShell` → `ui/ErrorState`
+    // render (một nguồn cho cả 40 màn danh sách), thay cho dải `.alert-error` tự chế của màn.
+    // Bất biến được canh giữ KHÔNG đổi: lỗi 500 đi nhánh LỖI, không bị nuốt thành cảnh báo lọc.
+    expect(w.find('[data-testid="ui-error"]').exists()).toBe(true)
+    expect(w.find('[data-testid="list-page-shell"]').attributes('data-state')).toBe('error')
   })
 
   it('[hợp đồng gửi đi] khoảng ngày dùng cột THẬT due_date + toán tử — hết khoá bịa due_date_from/to', async () => {

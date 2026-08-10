@@ -10,6 +10,7 @@ import ListFilterBar from '@/components/common/ListFilterBar.vue'
 import BasePagination from '@/components/common/BasePagination.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import WorkOrderKpiStrip, { type WoKpiItem } from '@/components/common/WorkOrderKpiStrip.vue'
+import ListPageShell from '@/components/ui/ListPageShell.vue'
 import { useCapabilities } from '@/composables/useCapabilities'
 import { pmTypeLabel } from '@/constants/labels'
 
@@ -91,12 +92,44 @@ function buildFilters() {
 // thiết bị / tên thiết bị). Search phủ TOÀN tập mọi trang — KHÔNG lọc client-side
 // page-limited. `search` là param độc lập AND cùng các filter khác (status/asset/
 // overdue). Gửi undefined khi rỗng ⇒ baseline byte-identical (BE bỏ qua).
-function reload(page = 1) {
-  store.fetchWorkOrders(buildFilters(), page, search.value.trim() || undefined)
+// ── Trạng thái nạp danh sách (AC-UX-047 lô 3 · biến thể D — 02 §14.2, khuôn §13.2) ─────────
+// `stores/imm08.ts:205 fetchDashboardStats` ghi vào CÙNG ô `error` VÀ CÙNG cờ `loading` với
+// lượt nạp danh sách. Bind thẳng `store.error`/`store.loading` ⇒ một lượt nạp thẻ chỉ số hỏng
+// sẽ xoá trắng bảng đang xem, và cờ `loading` của nó làm bảng nháy về khung xương
+// (INV-UX3-28). Vì vậy view sở hữu cờ + ô lỗi RIÊNG cho lượt nạp danh sách và CHỤP lỗi ngay
+// sau `await` rồi trả ô dùng chung về sạch. `store.filterError` KHÔNG vào đây — đó là CẢNH
+// BÁO bộ lọc, bảng vẫn giữ dữ liệu (INV-UX3-13).
+const listLoading = ref(false)
+const loadError = ref<string | null>(null)
+const currentPage = ref(1)
+
+async function reload(page = 1) {
+  currentPage.value = page
+  listLoading.value = true
+  loadError.value = null
+  store.error = null
+  await store.fetchWorkOrders(buildFilters(), page, search.value.trim() || undefined)
+  loadError.value = store.error ?? null
+  if (loadError.value) store.error = null
+  listLoading.value = false
 }
 
-onMounted(() => {
-  reload()
+/** Điểm vào DUY NHẤT của «Thử lại» — giữ nguyên bộ lọc VÀ trang đang xem. */
+function retryLoad() { return reload(currentPage.value) }
+
+// Chữ trạng thái rỗng — SSoT là bảng copy 02 §14.4 (LL-FE-53: 100% tiếng Việt).
+const emptyTitle = computed(() =>
+  activeFilterCount.value > 0
+    ? 'Không tìm thấy phiếu bảo trì định kỳ nào phù hợp'
+    : 'Chưa có phiếu bảo trì định kỳ nào',
+)
+const emptyHint =
+  'Phiếu bảo trì định kỳ được sinh từ lịch bảo trì hoặc tạo thủ công cho một thiết bị.'
+
+onMounted(async () => {
+  // TUẦN TỰ (02 §14.4): danh sách trước, thẻ chỉ số sau — chạy song song thì cờ `loading`
+  // dùng chung của lượt nạp chỉ số làm nháy trạng thái danh sách.
+  await reload()
   store.fetchDashboardStats()
 })
 
@@ -187,7 +220,15 @@ function quickFilter(_key: 'status', value: string) {
 </script>
 
 <template>
-  <div class="page-container animate-fade-in">
+  <div>
+    <ListPageShell
+      :loading="listLoading"
+      :error-message="loadError"
+      :is-empty="!store.workOrders.length"
+      :empty-title="emptyTitle"
+      :empty-hint="emptyHint"
+      @retry="retryLoad">
+      <template #header>
     <!-- INV-ROWSCOPE / A5 (đối xứng CM): "Tổng" LUÔN từ pagination.total (SoT
          permission-aware của BE). Fallback cũ `?? store.workOrders.length` che giấu
          drift count-vs-rows (đếm N nhưng chỉ đọc được M) ⇒ bỏ, chỉ còn `?? 0`.
@@ -207,9 +248,13 @@ function quickFilter(_key: 'status', value: string) {
         </button>
       </template>
     </PageHeader>
+      </template>
 
-    <WorkOrderKpiStrip :items="kpiItems" />
+      <!-- Dải chỉ số — `#summary` CHỈ render ở trạng thái rỗng/có-dữ-liệu ⇒ hết cảnh in
+           `0`/«Đúng tiến độ» khi lượt nạp danh sách hỏng (INV-UX3-27). -->
+      <template #summary><WorkOrderKpiStrip :items="kpiItems" /></template>
 
+      <template #filters>
     <!-- Hint cửa-sổ due-soon: khớp invariant disjoint (drill == KPI pm_due_7d).
          PM quá hạn KHÔNG nằm trong danh sách này — xem thẻ "PM quá hạn". -->
     <div
@@ -277,29 +322,32 @@ function quickFilter(_key: 'status', value: string) {
         Đặt lại bộ lọc
       </button>
     </div>
+      </template>
 
-    <!-- Loading skeleton -->
-    <div v-if="store.loading" class="table-wrapper">
-      <SkeletonLoader variant="table" :rows="6" />
-    </div>
+      <template #skeleton><SkeletonLoader variant="table" :rows="6" /></template>
 
-    <!-- Error -->
-    <div v-else-if="store.error" class="alert-error">
-      <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-      <span class="flex-1">{{ store.error }}</span>
-      <button class="text-xs font-semibold underline hover:no-underline" @click="reload()">Thử lại</button>
-    </div>
+      <template #empty-action>
+        <button
+          v-if="activeFilterCount > 0"
+          class="text-xs text-brand-600 hover:text-brand-700 font-medium underline"
+          @click="resetFilters"
+        >Xóa bộ lọc để xem tất cả</button>
+        <button
+          v-else-if="can('pm.create')"
+          class="btn-primary"
+          @click="router.push('/pm/work-orders/new')"
+        >Tạo phiếu bảo trì định kỳ</button>
+      </template>
 
-    <!-- Table -->
-    <template v-else>
+      <template #toolbar>
+        <div class="flex items-center justify-between px-4 py-2.5 border-b border-slate-100 bg-slate-50/60 text-xs text-slate-500">
+          <span>Hiển thị <strong class="text-slate-700">{{ store.workOrders.length }}</strong> / {{ store.pagination.total ?? 0 }} phiếu</span>
+          <button v-if="activeFilterCount > 0" class="text-red-500 hover:text-red-700 font-medium" @click="resetFilters">Xóa tất cả</button>
+        </div>
+      </template>
+
       <!-- Mobile cards (< sm) -->
       <div class="mobile-card-list sm:hidden">
-        <div class="flex items-center justify-between text-xs text-slate-500 pb-1">
-          <span>Hiển thị <strong class="text-slate-700">{{ store.workOrders.length }}</strong> phiếu</span>
-          <button v-if="activeFilterCount > 0" class="text-red-500 font-medium" @click="resetFilters">Xóa tất cả</button>
-        </div>
         <div
           v-for="wo in store.workOrders"
           :key="wo.name"
@@ -320,9 +368,6 @@ function quickFilter(_key: 'status', value: string) {
             <span :class="wo.is_late ? 'text-red-600 font-semibold' : ''">{{ wo.due_date || '—' }}</span>
             <span v-if="wo.is_late" class="text-red-500">Quá hạn</span>
           </div>
-        </div>
-        <div v-if="store.workOrders.length === 0" class="py-12 text-center text-slate-400">
-          <p class="text-sm font-medium">Không tìm thấy phiếu bảo trì</p>
         </div>
       </div>
 
@@ -378,25 +423,14 @@ function quickFilter(_key: 'status', value: string) {
                 >{{ translateStatus(wo.status) }}</button>
               </td>
             </tr>
-
-            <!-- Empty state -->
-            <tr v-if="store.workOrders.length === 0">
-              <td colspan="6" class="py-16 text-center">
-                <div class="flex flex-col items-center gap-3 text-slate-400">
-                  <svg class="w-12 h-12 text-slate-200" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                  </svg>
-                  <p class="text-sm font-medium text-slate-500">Không tìm thấy phiếu bảo trì</p>
-                  <p class="text-xs text-slate-400">Thử thay đổi bộ lọc hoặc từ khóa tìm kiếm</p>
-                </div>
-              </td>
-            </tr>
           </tbody>
         </table>
       </div>
-    </template>
 
-    <BasePagination :pagination="store.pagination" @page-change="p => reload(p)" />
+      <template #pagination>
+        <BasePagination :pagination="store.pagination" @page-change="p => reload(p)" />
+      </template>
+    </ListPageShell>
   </div>
 </template>
 

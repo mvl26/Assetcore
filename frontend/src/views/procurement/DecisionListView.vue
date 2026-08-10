@@ -10,6 +10,8 @@ import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar, { type FilterChip } from '@/components/common/ListFilterBar.vue'
 import KpiCard from '@/components/common/KpiCard.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
+import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
+import ListPageShell from '@/components/ui/ListPageShell.vue'
 
 const router = useRouter()
 const route  = useRoute()
@@ -67,7 +69,41 @@ function buildPayload(): Record<string, unknown> {
   if (filters.search.trim())   f.search = filters.search.trim()
   return f
 }
-function applyFilters() { store.fetchDecisions(buildPayload()) }
+// ── Trạng thái nạp danh sách (AC-UX-047 lô 2 · biến thể D — 02 §13.2) ──
+// `stores/imm03.ts` dùng CHUNG một ô `error` cho mọi lời gọi (danh sách + chỉ-số +
+// transition) ⇒ bind thẳng thì một lần nạp chỉ-số hỏng sẽ xoá trắng danh sách. Phải
+// CHỤP lỗi ngay sau `await` của lượt nạp DANH SÁCH rồi trả ô dùng chung về sạch.
+const loadError = ref<string | null>(null)
+
+/**
+ * Bọc MỘT lượt nạp danh sách: dọn ô lỗi trước, chụp lỗi sau, trả ô dùng chung về sạch.
+ * Nhận `fn` thay vì tự gọi để GIỮ NGUYÊN chữ ký lời gọi của từng nhánh —
+ * `fetchDecisions()` (không lọc) ≠ `fetchDecisions({})`; `DecisionListView.test.ts:286`
+ * khoá đúng sự phân biệt đó.
+ */
+async function runLoad(fn: () => Promise<unknown>) {
+  loadError.value = null
+  store.error = null
+  await fn()
+  loadError.value = store.error ?? null
+  if (loadError.value) store.error = null
+}
+
+function applyFilters() { return runLoad(() => store.fetchDecisions(buildPayload())) }
+
+// «Thử lại» = nạp lại ĐÚNG bộ lọc hiện tại, giữ đúng nhánh có-lọc / không-lọc.
+// KHÔNG gọi `applyQueryToFilters(true)` — nó ghi đè bộ lọc người dùng vừa chọn bằng URL.
+function reload() {
+  const payload = buildPayload()
+  return Object.keys(payload).length
+    ? runLoad(() => store.fetchDecisions(payload))
+    : runLoad(() => store.fetchDecisions())
+}
+
+const emptyTitle = computed(() =>
+  activeChips.value.length > 0 ? 'Không có quyết định mua sắm nào phù hợp' : 'Chưa có quyết định mua sắm nào',
+)
+const emptyHint = 'Quyết định mua sắm được tạo sau khi chốt đánh giá nhà cung cấp.'
 function resetFilters() {
   filters.workflow_state = ''
   filters.winner_supplier = ''
@@ -75,7 +111,8 @@ function resetFilters() {
   filters.envelope_bucket = ''
   filters.search = ''
   syncStateToUrl('')  // xoá ?state khỏi URL
-  store.fetchDecisions()
+  // qua ĐÚNG đường chụp lỗi: reset khi đang lỗi phải thoát được lỗi (giữ lời gọi trần)
+  runLoad(() => store.fetchDecisions())
 }
 function clearChip(key: string) {
   ;(filters as Record<string, string>)[key] = ''
@@ -121,7 +158,7 @@ function syncStateToUrl(state: string) {
 // `force=false` (từ watch): bỏ qua nếu filter đã khớp URL — tránh double-fetch khi
 // chính các hàm filter của view đã đẩy state lên URL (toggle/quick/reset gọi fetch
 // trực tiếp). `force=true` (onMounted): luôn fetch lần đầu (deep-link/refresh).
-function applyQueryToFilters(force = false) {
+async function applyQueryToFilters(force = false) {
   const raw = route.query.state
   const val = Array.isArray(raw) ? raw[0] : raw
   const next = (typeof val === 'string' && (URL_DRILL_STATES as string[]).includes(val))
@@ -129,8 +166,9 @@ function applyQueryToFilters(force = false) {
     : ''
   if (!force && next === filters.workflow_state) return  // đã đồng bộ — no-op
   filters.workflow_state = next
-  if (next) store.fetchDecisions(buildPayload())
-  else store.fetchDecisions()  // load all (no filter)
+  // đi qua CÙNG đường chụp lỗi để deep-link hỏng cũng có «Thử lại»; giữ nguyên 2 nhánh
+  if (next) await runLoad(() => store.fetchDecisions(buildPayload()))
+  else await runLoad(() => store.fetchDecisions())
 }
 
 const filteredDecisions = computed(() => {
@@ -159,7 +197,8 @@ function envClass(pct?: number): string {
 
 function goDetail(n: string) { router.push({ name: 'ProcurementDecisionDetail', params: { id: n } }) }
 
-onMounted(() => { applyQueryToFilters(true); store.fetchKpis() })
+// TUẦN TỰ, không song song: lỗi của `fetchKpis` không được cướp trạng thái danh sách.
+onMounted(async () => { await applyQueryToFilters(true); store.fetchKpis() })
 
 // Drill lần 2 cùng route (?state khác) → re-apply filter không cần reload trang
 // (parity AssetListView watch route.query). Chỉ theo dõi key 'state' canonical.
@@ -171,7 +210,15 @@ watch(() => route.query.state, () => {
 </script>
 
 <template>
-  <div class="page-container animate-fade-in">
+  <div>
+    <ListPageShell
+      :loading="store.loading"
+      :error-message="loadError"
+      :is-empty="!filteredDecisions.length"
+      :empty-title="emptyTitle"
+      :empty-hint="emptyHint"
+      @retry="reload">
+      <template #header>
     <PageHeader
       title="Quyết định mua sắm"
       :subtitle="`Tổng ${store.decisionTotal} quyết định — trao thầu, ký hợp đồng, phát hành đơn hàng.`"
@@ -180,7 +227,9 @@ watch(() => route.query.state, () => {
         <FilterToggleButton v-model="showFilters" :count="activeChips.length" />
       </template>
     </PageHeader>
+      </template>
 
+      <template #filters>
     <ListFilterBar
       v-model:search="filters.search"
       :show="showFilters"
@@ -201,7 +250,18 @@ watch(() => route.query.state, () => {
         </select>
       </template>
     </ListFilterBar>
+      </template>
 
+      <template #skeleton><SkeletonLoader variant="table" :rows="6" /></template>
+
+      <template #empty-action>
+        <button v-if="activeChips.length > 0" class="text-xs text-brand-600 hover:text-brand-700 font-medium underline" @click="resetFilters">
+          Xóa bộ lọc để xem tất cả
+        </button>
+      </template>
+
+      <!-- Dải chỉ số chỉ render ở trạng thái rỗng/có-dữ-liệu ⇒ hết cảnh in `0` khi API hỏng -->
+      <template #summary>
     <div v-if="store.kpis" class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
       <button
         type="button"
@@ -248,13 +308,9 @@ watch(() => route.query.state, () => {
         />
       </button>
     </div>
+      </template>
 
-    <div v-if="store.error" class="alert-error mb-4">
-      <strong>Lỗi:</strong> {{ store.error }}
-      <button class="alert-close" @click="store.clearError()">×</button>
-    </div>
-
-    <div class="card overflow-hidden">
+      <template #toolbar>
       <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50/60">
         <span class="text-xs text-slate-500">
           <span v-if="activeChips.length > 0">Kết quả lọc: <strong class="text-slate-700">{{ displayCount }}</strong> quyết định</span>
@@ -262,9 +318,8 @@ watch(() => route.query.state, () => {
         </span>
         <button v-if="activeChips.length > 0" class="text-xs text-red-500 hover:text-red-700 font-medium" @click="resetFilters">Xóa tất cả</button>
       </div>
+      </template>
 
-      <div v-if="store.loading" class="p-6 text-sm text-slate-500">Đang tải...</div>
-      <template v-else-if="filteredDecisions.length">
         <!-- Mobile cards -->
         <div class="mobile-card-list sm:hidden">
           <div
@@ -283,9 +338,6 @@ watch(() => route.query.state, () => {
               <span>· {{ formatVnd(d.awarded_price) }}</span>
               <span v-if="d.envelope_check_pct">· <span :class="envClass(d.envelope_check_pct)">{{ d.envelope_check_pct.toFixed(1) }}%</span></span>
             </div>
-          </div>
-          <div v-if="filteredDecisions.length === 0" class="py-12 text-center text-slate-400">
-            <p class="text-sm">Không có dữ liệu</p>
           </div>
         </div>
 
@@ -348,14 +400,7 @@ watch(() => route.query.state, () => {
             </tbody>
           </table>
         </div>
-      </template>
-      <div v-else class="flex flex-col items-center justify-center py-16 text-slate-400">
-        <p class="text-sm">Không có quyết định mua sắm phù hợp</p>
-        <button v-if="activeChips.length > 0" class="mt-3 text-xs text-blue-500 hover:text-blue-700 underline" @click="resetFilters">
-          Xóa bộ lọc để xem tất cả
-        </button>
-      </div>
-    </div>
+    </ListPageShell>
   </div>
 </template>
 
