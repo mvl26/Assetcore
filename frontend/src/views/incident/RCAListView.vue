@@ -9,6 +9,7 @@ import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
 import BasePagination from '@/components/common/BasePagination.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
+import ListPageShell from '@/components/ui/ListPageShell.vue'
 import { rcaStatusLabel, rcaStatusClass, rcaTriggerLabel } from '@/constants/labels'
 
 const router = useRouter()
@@ -64,6 +65,15 @@ const activeChips = computed<Chip[]>(() => {
 })
 const activeFilterCount = computed(() => activeChips.value.length)
 
+// AC-UX-047 (lô 1, biến thể C) — nguồn lỗi là `store.rcaError` của `stores/imm12.ts`
+// (đã xoá đầu lượt, gán trong `catch`) ⇒ KHÔNG sửa kho. Dải `.alert-error` cũ đã bỏ:
+// nó hiện SONG SONG với khối «Chưa có hồ sơ phân tích nguyên nhân gốc nào».
+const emptyTitle = computed(() =>
+  activeFilterCount.value > 0
+    ? 'Không có hồ sơ phân tích nào phù hợp'
+    : 'Chưa có hồ sơ phân tích nguyên nhân gốc nào')
+const EMPTY_HINT = 'Phân tích nguyên nhân gốc được tạo tự động từ sự cố mức Cao/Nghiêm trọng hoặc lỗi lặp lại.'
+
 function applyFilter(page = 1) {
   store.fetchRcas({
     method: methodFilter.value || undefined,
@@ -101,19 +111,32 @@ onMounted(() => applyFilter())
 </script>
 
 <template>
-  <div class="page-container animate-fade-in">
-    <PageHeader
-      title="Phân tích nguyên nhân gốc"
-      :subtitle="`${store.rcaPagination.total} hồ sơ phân tích nguyên nhân gốc · Bắt buộc cho sự cố nghiêm trọng / lặp lại`"
-      :breadcrumb="[{ label: 'IMM-12 · Sự cố', to: '/incidents/dashboard' }, { label: 'Phân tích nguyên nhân gốc' }]"
-    >
-      <template #actions>
-        <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
-        <button class="btn-ghost" @click="router.push('/incidents/list')">Danh sách sự cố</button>
-      </template>
-    </PageHeader>
+  <!--
+    AC-UX-047 (lô 1) — khuôn 4 trạng thái loại trừ (ui/ListPageShell). «Thử lại» gọi
+    `applyFilter()` ⇒ nạp lại TRANG 1 với bộ lọc hiện hành (có chủ đích, ghi rõ cho QA).
+  -->
+  <ListPageShell
+    :loading="store.rcaLoading"
+    :error-message="store.rcaError"
+    :is-empty="!store.rcaListItems.length"
+    :empty-title="emptyTitle"
+    :empty-hint="EMPTY_HINT"
+    @retry="applyFilter">
+    <template #header>
+      <PageHeader
+        title="Phân tích nguyên nhân gốc"
+        :subtitle="`${store.rcaPagination.total} hồ sơ phân tích nguyên nhân gốc · Bắt buộc cho sự cố nghiêm trọng / lặp lại`"
+        :breadcrumb="[{ label: 'IMM-12 · Sự cố', to: '/incidents/dashboard' }, { label: 'Phân tích nguyên nhân gốc' }]"
+      >
+        <template #actions>
+          <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
+          <button class="btn-ghost" @click="router.push('/incidents/list')">Danh sách sự cố</button>
+        </template>
+      </PageHeader>
+    </template>
 
-    <ListFilterBar
+    <template #filters>
+      <ListFilterBar
       :show="showFilters"
       :chips="activeChips"
       :show-search="false"
@@ -144,17 +167,24 @@ onMounted(() => applyFilter())
           />
         </div>
       </template>
-    </ListFilterBar>
+      </ListFilterBar>
+    </template>
 
-    <div v-if="store.rcaError" class="alert-error mb-4">{{ store.rcaError }}</div>
-
-    <div v-if="store.rcaLoading" class="table-wrapper">
+    <template #skeleton>
       <SkeletonLoader variant="table" :rows="6" />
-    </div>
+    </template>
 
-    <div v-else class="table-wrapper">
+    <template #empty-action>
+      <button v-if="activeFilterCount > 0" class="text-xs text-blue-500 hover:text-blue-700 underline" @click="resetFilters">
+        Xóa bộ lọc để xem tất cả
+      </button>
+      <button v-else class="btn-ghost text-xs" @click="router.push('/incidents/list')">
+        Đi tới danh sách sự cố
+      </button>
+    </template>
+
       <!-- Mobile cards (< sm) — P1 table→card: mỗi RCA 1 card (mã/sự cố/thiết bị/trạng thái). -->
-      <div v-if="store.rcaListItems.length" class="mobile-card-list sm:hidden">
+      <div class="mobile-card-list sm:hidden">
         <div
           v-for="rca in store.rcaListItems"
           :key="rca.name"
@@ -184,7 +214,7 @@ onMounted(() => applyFilter())
       </div>
 
       <!-- Desktop table (sm+) — P3: giữ overflow-x-auto quanh bảng. -->
-      <div v-if="store.rcaListItems.length" class="hidden sm:block overflow-x-auto">
+      <div class="hidden sm:block overflow-x-auto">
         <table class="min-w-full divide-y divide-slate-100">
           <thead>
             <tr>
@@ -230,18 +260,9 @@ onMounted(() => applyFilter())
           </tbody>
         </table>
       </div>
-      <div v-else class="flex flex-col items-center justify-center py-16 text-slate-400">
-        <p class="text-sm font-medium text-slate-500">Chưa có hồ sơ phân tích nguyên nhân gốc nào</p>
-        <p class="text-xs mt-1">Phân tích nguyên nhân gốc được tạo tự động từ sự cố mức Cao/Nghiêm trọng hoặc lỗi lặp lại.</p>
-        <button v-if="activeFilterCount > 0" class="text-xs text-blue-500 hover:text-blue-700 underline mt-2" @click="resetFilters">
-          Xóa bộ lọc để xem tất cả
-        </button>
-        <button v-else class="btn-ghost text-xs mt-3" @click="router.push('/incidents/list')">
-          Đi tới danh sách sự cố
-        </button>
-      </div>
-    </div>
 
-    <BasePagination :pagination="store.rcaPagination" @page-change="applyFilter" />
-  </div>
+    <template #pagination>
+      <BasePagination :pagination="store.rcaPagination" @page-change="applyFilter" />
+    </template>
+  </ListPageShell>
 </template>

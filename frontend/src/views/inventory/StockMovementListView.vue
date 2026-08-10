@@ -9,6 +9,7 @@ import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
+import ListPageShell from '@/components/ui/ListPageShell.vue'
 import { stockReferenceTypeLabel } from '@/constants/labels'
 
 const router = useRouter()
@@ -18,6 +19,10 @@ const total = ref(0)
 const page = ref(1)
 const PAGE_SIZE = 30
 const loading = ref(false)
+// AC-UX-047 (lô 1) — trước đây `load()` có `try … finally` nhưng KHÔNG `catch`: API 500
+// để `rows` = [] ⇒ màn in «Chưa có phiếu kho phù hợp» (lỗi giả dạng rỗng). Nay lỗi có
+// trạng thái RIÊNG và có đường nạp lại. Ref này CHỈ dành cho lượt nạp danh sách.
+const loadError = ref<string | null>(null)
 const showFilters = ref(false)
 
 const typeFilter = ref<MovementType | ''>('')
@@ -70,8 +75,13 @@ function quickFilter(key: 'type' | 'status', value: string) {
   page.value = 1; load()
 }
 
+const emptyTitle = computed(() =>
+  activeFilterCount.value > 0 ? 'Không có phiếu kho nào phù hợp' : 'Chưa có phiếu kho nào')
+const EMPTY_HINT = 'Hãy tạo phiếu kho mới hoặc xoá bộ lọc để xem tất cả.'
+
 async function load() {
   loading.value = true
+  loadError.value = null                       // INV-UX3-4 — xoá lỗi ĐẦU lượt
   try {
     const r = await listStockMovements({
       page: page.value, page_size: PAGE_SIZE,
@@ -80,6 +90,9 @@ async function load() {
     })
     rows.value = r?.items || []
     total.value = r?.pagination?.total || 0
+  } catch (e: unknown) {
+    loadError.value = e instanceof Error ? e.message : String(e)
+    rows.value = []; total.value = 0           // INV-UX3-5
   } finally { loading.value = false }
 }
 
@@ -98,24 +111,38 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="page-container animate-fade-in">
-    <PageHeader
-      title="Phiếu xuất / nhập kho"
-      :subtitle="`IMM-15 · Tồn kho phụ tùng — Tổng ${total} phiếu`"
-      :breadcrumb="[{ label: 'IMM-15 · Tồn kho phụ tùng', to: '/inventory/dashboard' }, { label: 'Phiếu kho' }]"
-    >
-      <template #actions>
-        <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
-        <button v-if="can('inventory.write')" class="btn-primary shrink-0" @click="router.push('/stock-movements/new')">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
-          </svg>
-          Tạo phiếu mới
-        </button>
-      </template>
-    </PageHeader>
+  <!--
+    AC-UX-047 (lô 1) — khuôn 4 trạng thái loại trừ (ui/ListPageShell): lỗi KHÔNG còn
+    giả dạng rỗng. Chữ rỗng là literal ở prop `empty-title`/`empty-hint`, KHÔNG còn
+    nhánh `v-else-if="rows.length === 0"` tự chế.
+  -->
+  <ListPageShell
+    :loading="loading"
+    :error-message="loadError"
+    :is-empty="!rows.length"
+    :empty-title="emptyTitle"
+    :empty-hint="EMPTY_HINT"
+    @retry="load">
+    <template #header>
+      <PageHeader
+        title="Phiếu xuất / nhập kho"
+        :subtitle="`IMM-15 · Tồn kho phụ tùng — Tổng ${total} phiếu`"
+        :breadcrumb="[{ label: 'IMM-15 · Tồn kho phụ tùng', to: '/inventory/dashboard' }, { label: 'Phiếu kho' }]"
+      >
+        <template #actions>
+          <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
+          <button v-if="can('inventory.write')" class="btn-primary shrink-0" @click="router.push('/stock-movements/new')">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+            Tạo phiếu mới
+          </button>
+        </template>
+      </PageHeader>
+    </template>
 
-    <ListFilterBar
+    <template #filters>
+      <ListFilterBar
       :show="showFilters"
       :chips="activeChips"
       :show-search="false"
@@ -144,28 +171,28 @@ onMounted(load)
           </select>
         </div>
       </template>
-    </ListFilterBar>
+      </ListFilterBar>
+    </template>
 
-    <div class="card overflow-hidden">
-      <!-- Info row -->
+    <template #skeleton>
+      <SkeletonLoader variant="table" :rows="6" />
+    </template>
+
+    <template #empty-action>
+      <button v-if="activeFilterCount > 0" class="text-xs text-brand-600 hover:text-brand-700 font-medium underline" @click="resetFilters">
+        Xóa bộ lọc để xem tất cả
+      </button>
+      <button v-else-if="can('inventory.write')" class="btn-primary" @click="router.push('/stock-movements/new')">Tạo phiếu kho đầu tiên</button>
+    </template>
+
+    <template #toolbar>
       <div class="flex items-center justify-between px-4 py-2.5 border-b border-slate-100 bg-slate-50/60 text-xs text-slate-500">
         <span>Hiển thị <strong class="text-slate-700">{{ rows.length }}</strong> / {{ total }} phiếu</span>
         <button v-if="activeFilterCount > 0" class="text-red-500 hover:text-red-700 font-medium" @click="resetFilters">Xóa tất cả</button>
       </div>
+    </template>
 
-      <div v-if="loading && !rows.length" class="p-6">
-        <SkeletonLoader variant="table" :rows="6" />
-      </div>
-      <div v-else-if="rows.length === 0" class="flex flex-col items-center justify-center py-16">
-        <p class="text-sm text-slate-500">Chưa có phiếu kho phù hợp.</p>
-        <button v-if="activeFilterCount > 0" class="text-xs text-brand-600 hover:text-brand-700 font-medium underline mt-2" @click="resetFilters">
-          Xóa bộ lọc để xem tất cả
-        </button>
-        <button v-else-if="can('inventory.write')" class="btn-primary mt-3" @click="router.push('/stock-movements/new')">Tạo phiếu kho đầu tiên</button>
-      </div>
-
-      <template v-else>
-        <!-- Mobile cards (< sm) -->
+    <!-- Mobile cards (< sm) -->
         <div class="mobile-card-list sm:hidden">
           <div
             v-for="m in rows"
@@ -200,9 +227,6 @@ onMounted(load)
               <span v-if="m.total_value" class="text-slate-300">·</span>
               <span v-if="m.total_value">{{ vnd(m.total_value) }}</span>
             </div>
-          </div>
-          <div v-if="rows.length === 0" class="py-12 text-center text-slate-400">
-            <p class="text-sm font-medium">Không có dữ liệu</p>
           </div>
         </div>
 
@@ -266,8 +290,8 @@ onMounted(load)
             </tbody>
           </table>
         </div>
-      </template>
 
+    <template #pagination>
       <div v-if="total > PAGE_SIZE" class="flex items-center justify-between px-4 py-3 border-t border-slate-100 text-sm text-slate-500">
         <span>{{ (page - 1) * PAGE_SIZE + 1 }}–{{ Math.min(page * PAGE_SIZE, total) }} / {{ total }}</span>
         <div class="flex gap-2">
@@ -275,6 +299,6 @@ onMounted(load)
           <button :disabled="page * PAGE_SIZE >= total" class="px-3 py-1 rounded border border-slate-200 disabled:opacity-40 hover:bg-slate-50" @click="nextPage">Sau</button>
         </div>
       </div>
-    </div>
-  </div>
+    </template>
+  </ListPageShell>
 </template>

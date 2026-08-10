@@ -10,10 +10,14 @@ import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
+import ListPageShell from '@/components/ui/ListPageShell.vue'
 
 const router = useRouter()
 const rows = ref<Warehouse[]>([])
 const loading = ref(false)
+// AC-UX-047 (lô 1) — lỗi của LƯỢT NẠP danh sách (trước đây `load()` không có `catch`
+// ⇒ API hỏng in «Chưa có kho phù hợp»). Lỗi lưu/ngừng-kho đi lối `toast` riêng.
+const loadError = ref<string | null>(null)
 const showFilters = ref(false)
 const showForm = ref(false)
 const editing = ref<Warehouse | null>(null)
@@ -55,11 +59,19 @@ function quickFilter(active: boolean) {
   showFilters.value = false
 }
 
+const emptyTitle = computed(() =>
+  activeFilterCount.value > 0 ? 'Không có kho nào phù hợp' : 'Chưa có kho nào')
+const EMPTY_HINT = 'Hãy tạo kho mới hoặc xoá bộ lọc để xem tất cả.'
+
 async function load() {
   loading.value = true
+  loadError.value = null                       // INV-UX3-4 — xoá lỗi ĐẦU lượt
   try {
     const r = await listWarehouses({ active_only: 0, page_size: 100 })
     rows.value = r?.items || []
+  } catch (e: unknown) {
+    loadError.value = e instanceof Error ? e.message : String(e)
+    rows.value = []                            // INV-UX3-5
   } finally { loading.value = false }
 }
 
@@ -114,26 +126,36 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="page-container animate-fade-in">
-    <PageHeader
-      title="Danh sách kho"
-      :subtitle="`IMM-15 · Tồn kho phụ tùng — Tổng ${rows.length} kho`"
-      :breadcrumb="[{ label: 'IMM-15 · Tồn kho phụ tùng', to: '/inventory/dashboard' }, { label: 'Kho' }]"
-    >
-      <template #actions>
-        <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
-        <button class="btn-primary shrink-0" @click="openCreate">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
-          </svg>
-          Tạo kho
-        </button>
-      </template>
-    </PageHeader>
+  <!-- AC-UX-047 (lô 1) — khuôn 4 trạng thái loại trừ (ui/ListPageShell). -->
+  <ListPageShell
+    :loading="loading"
+    :error-message="loadError"
+    :is-empty="!filteredRows.length"
+    :empty-title="emptyTitle"
+    :empty-hint="EMPTY_HINT"
+    @retry="load">
+    <template #header>
+      <PageHeader
+        title="Danh sách kho"
+        :subtitle="`IMM-15 · Tồn kho phụ tùng — Tổng ${rows.length} kho`"
+        :breadcrumb="[{ label: 'IMM-15 · Tồn kho phụ tùng', to: '/inventory/dashboard' }, { label: 'Kho' }]"
+      >
+        <template #actions>
+          <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
+          <button class="btn-primary shrink-0" @click="openCreate">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+            Tạo kho
+          </button>
+        </template>
+      </PageHeader>
+      <!-- Dải phản hồi lưu/ngừng-kho sống ở CẢ 4 trạng thái (INV-UX3-17). -->
+      <div v-if="toast" class="mb-4 px-4 py-3 rounded-lg bg-emerald-50 text-emerald-700 text-sm">{{ toast }}</div>
+    </template>
 
-    <div v-if="toast" class="mb-4 px-4 py-3 rounded-lg bg-emerald-50 text-emerald-700 text-sm">{{ toast }}</div>
-
-    <ListFilterBar
+    <template #filters>
+      <ListFilterBar
       :show="showFilters"
       :chips="activeChips"
       :show-search="false"
@@ -151,28 +173,28 @@ onMounted(load)
           </select>
         </div>
       </template>
-    </ListFilterBar>
+      </ListFilterBar>
+    </template>
 
-    <div class="card overflow-hidden">
-      <!-- Info row -->
+    <template #skeleton>
+      <SkeletonLoader variant="table" :rows="6" />
+    </template>
+
+    <template #empty-action>
+      <button v-if="activeFilterCount > 0" class="text-xs text-brand-600 hover:text-brand-700 font-medium underline" @click="resetFilters">
+        Xóa bộ lọc để xem tất cả
+      </button>
+      <button v-else class="btn-primary" @click="openCreate">Tạo kho đầu tiên</button>
+    </template>
+
+    <template #toolbar>
       <div class="flex items-center justify-between px-4 py-2.5 border-b border-slate-100 bg-slate-50/60 text-xs text-slate-500">
         <span>Hiển thị <strong class="text-slate-700">{{ filteredRows.length }}</strong> / {{ rows.length }} kho</span>
         <button v-if="activeFilterCount > 0" class="text-red-500 hover:text-red-700 font-medium" @click="resetFilters">Xóa tất cả</button>
       </div>
+    </template>
 
-      <div v-if="loading" class="p-6">
-        <SkeletonLoader variant="table" :rows="6" />
-      </div>
-      <div v-else-if="filteredRows.length === 0" class="flex flex-col items-center justify-center py-16">
-        <p class="text-sm text-slate-500">Chưa có kho phù hợp.</p>
-        <button v-if="activeFilterCount > 0" class="text-xs text-brand-600 hover:text-brand-700 font-medium underline mt-2" @click="resetFilters">
-          Xóa bộ lọc để xem tất cả
-        </button>
-        <button v-else class="btn-primary mt-3" @click="openCreate">Tạo kho đầu tiên</button>
-      </div>
-
-      <template v-else>
-        <!-- Mobile cards (< sm) -->
+    <!-- Mobile cards (< sm) -->
         <div class="mobile-card-list sm:hidden">
           <div
             v-for="w in filteredRows"
@@ -200,9 +222,6 @@ onMounted(load)
               <button class="text-xs text-brand-600 font-medium" @click="openEdit(w)">Chỉnh sửa</button>
               <button v-if="w.is_active" class="text-xs text-red-600 font-medium" @click="doDelete(w)">Ngừng</button>
             </div>
-          </div>
-          <div v-if="filteredRows.length === 0" class="py-12 text-center text-slate-400">
-            <p class="text-sm font-medium">Không có dữ liệu</p>
           </div>
         </div>
 
@@ -257,11 +276,10 @@ onMounted(load)
             </tbody>
           </table>
         </div>
-      </template>
-    </div>
+  </ListPageShell>
 
-    <!-- Modal form -->
-    <Transition name="fade">
+  <!-- Hộp thoại đặt NGOÀI khuôn: mở được ở CẢ 4 trạng thái (INV-UX3-17). -->
+  <Transition name="fade">
       <div
 v-if="showForm" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
            @click.self="showForm = false">
@@ -316,8 +334,7 @@ id="wh-active" v-model="form.is_active" type="checkbox" :true-value="1" :false-v
           </div>
         </div>
       </div>
-    </Transition>
-  </div>
+  </Transition>
 </template>
 
 <style scoped>

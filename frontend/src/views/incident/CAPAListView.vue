@@ -9,6 +9,7 @@ import ListFilterBar from '@/components/common/ListFilterBar.vue'
 import BasePagination from '@/components/common/BasePagination.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
+import ListPageShell from '@/components/ui/ListPageShell.vue'
 import { translateStatus } from '@/utils/formatters'
 
 const router = useRouter()
@@ -115,9 +116,20 @@ function buildParams(extra: Record<string, unknown> = {}) {
   }
 }
 
+// ── Trạng thái nạp danh sách (AC-UX-047 lô 2 · biến thể C — 02 §13.2) ──
+// `useCapaStore` có ô `error` RIÊNG cho lượt nạp danh sách và tự dọn ở đầu lượt
+// (`stores/imm00.ts:111`, `:116`) ⇒ bind thẳng `store.error` là đúng, không cần chụp.
+// «Thử lại» = `applyFilter()`: giữ nguyên bộ lọc, về trang 1 (URL là SSoT của `asset`).
 function applyFilter() {
   store.fetchList(buildParams())
 }
+
+const emptyTitle = computed(() =>
+  activeFilterCount.value > 0
+    ? 'Không có hành động khắc phục/phòng ngừa nào phù hợp'
+    : 'Chưa có hành động khắc phục/phòng ngừa nào',
+)
+const emptyHint = 'Hành động khắc phục/phòng ngừa được mở từ sự cố, phát hiện không phù hợp hoặc kết quả hiệu chuẩn không đạt.'
 
 function goToPage(page: number) {
   store.fetchList(buildParams({ page }))
@@ -146,9 +158,17 @@ onMounted(() => applyFilter())
 </script>
 
 <template>
-  <div class="page-container animate-fade-in">
+  <div>
+    <ListPageShell
+      :loading="store.loading"
+      :error-message="store.error"
+      :is-empty="!store.capas.length"
+      :empty-title="emptyTitle"
+      :empty-hint="emptyHint"
+      @retry="applyFilter">
+      <template #header>
     <PageHeader
-      title="Hành động Khắc phục &amp; Phòng ngừa"
+      title="Hành động Khắc phục và Phòng ngừa"
       :subtitle="`Tổng ${store.pagination.total} hồ sơ`"
     >
       <template #actions>
@@ -158,7 +178,9 @@ onMounted(() => applyFilter())
         <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
       </template>
     </PageHeader>
+      </template>
 
+      <template #filters>
     <ListFilterBar
       :show="showFilters"
       :chips="activeChips"
@@ -176,26 +198,23 @@ onMounted(() => applyFilter())
         </div>
       </template>
     </ListFilterBar>
+      </template>
 
-    <div v-if="store.error" class="alert-error mb-4">{{ store.error }}</div>
+      <template #skeleton><SkeletonLoader variant="table" :rows="6" /></template>
 
-    <div class="card overflow-hidden">
-      <!-- Info row -->
+      <template #empty-action>
+        <button v-if="activeFilterCount > 0" class="text-xs text-brand-600 hover:text-brand-700 font-medium underline" @click="resetFilters">
+          Xóa bộ lọc để xem tất cả
+        </button>
+      </template>
+
+      <template #toolbar>
       <div class="flex items-center justify-between px-4 py-2.5 border-b border-slate-100 bg-slate-50/60 text-xs text-slate-500">
         <span>Hiển thị <strong class="text-slate-700">{{ store.capas.length }}</strong> / {{ store.pagination.total }} hồ sơ</span>
         <button v-if="activeFilterCount > 0" class="text-red-500 hover:text-red-700 font-medium" @click="resetFilters">Xóa tất cả</button>
       </div>
+      </template>
 
-      <div v-if="store.loading" class="p-6">
-        <SkeletonLoader variant="table" :rows="6" />
-      </div>
-      <div v-else-if="!store.capas.length" class="flex flex-col items-center justify-center py-16 text-slate-400">
-        <p class="text-sm">Không có hành động khắc phục/phòng ngừa nào</p>
-        <button v-if="activeFilterCount > 0" class="text-xs text-blue-500 hover:text-blue-700 underline mt-2" @click="resetFilters">
-          Xóa bộ lọc để xem tất cả
-        </button>
-      </div>
-      <template v-else>
         <!-- Mobile cards (< sm) -->
         <div class="mobile-card-list sm:hidden">
           <div
@@ -219,9 +238,6 @@ onMounted(() => applyFilter())
                 {{ formatDate(capa.due_date) }}
               </span>
             </div>
-          </div>
-          <div v-if="store.capas.length === 0" class="py-12 text-center text-slate-400">
-            <p class="text-sm font-medium">Không có dữ liệu</p>
           </div>
         </div>
 
@@ -270,9 +286,10 @@ onMounted(() => applyFilter())
             </tbody>
           </table>
         </div>
-      </template>
-    </div>
 
-    <BasePagination :pagination="store.pagination" @page-change="goToPage" />
+      <template #pagination>
+        <BasePagination :pagination="store.pagination" @page-change="goToPage" />
+      </template>
+    </ListPageShell>
   </div>
 </template>
