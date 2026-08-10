@@ -5,8 +5,12 @@
 // PHẢI == remaining_value của dòng schedule status='Executed' cuối cùng; và
 // KHÔNG render 0 khi residual > 0. Logic do BE ghi (read-only) — FE chỉ verify
 // hiển thị + đảm bảo refetch (emit 'updated') sau khi chạy/sinh lại khấu hao.
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
+// AC-UX-066: component đã bỏ hộp thoại `confirm()` của trình duyệt → `useModal()`. Hàng đợi là singleton
+// module-level ⇒ mount đơn lẻ sẽ treo ở `await modal.confirm(...)`; phải mount kèm
+// `NotificationModal` và bấm nút trả lời THẬT.
+import { mountWithConfirm, resetModalQueue } from '@/test/confirmHarness'
 import type { DepreciationScheduleResponse } from '@/api/imm00'
 
 const getScheduleSpy = vi.fn<() => Promise<DepreciationScheduleResponse>>()
@@ -22,6 +26,9 @@ vi.mock('@/api/imm00', () => ({
 // translateFrequency/translateDepreciationMethod là SSoT thực — không mock,
 // để bắt luôn i18n leak nếu có.
 import AssetDepreciationSchedule from './AssetDepreciationSchedule.vue'
+
+// Hàng đợi hộp thoại là singleton: không dọn ⇒ hộp thoại của test trước rò sang test sau.
+afterEach(() => { resetModalQueue() })
 
 // Asset đã khấu hao hết: gross 100tr, residual 10tr. Kỳ cuối (Executed) có
 // remaining_value = 10tr == current_book_value header. KHÔNG = 0.
@@ -94,14 +101,16 @@ describe('AssetDepreciationSchedule — INV-DEP-3 book value khớp dòng schedu
   it("emit 'updated' sau khi chạy cron có dòng thực thi → cha refetch header", async () => {
     getScheduleSpy.mockResolvedValue(fullyDepreciated())
     runDueSpy.mockResolvedValue({ executed_rows: 2, updated_assets: 1 })
-    // confirm() trả true để qua gate (component dùng confirm native — ngoài scope task này).
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
 
-    const wrapper = mount(AssetDepreciationSchedule, { props: { assetName: 'ACC-ASS-0001' } })
+    const h = mountWithConfirm(AssetDepreciationSchedule, { props: { assetName: 'ACC-ASS-0001' } })
+    const wrapper = h.wrapper
     await flushPromises()
 
     await wrapper.find('button.btn-ghost').trigger('click')
     await flushPromises()
+    // Hộp thoại xác nhận mở TRƯỚC — API chưa chạy.
+    expect(runDueSpy).not.toHaveBeenCalled()
+    await h.answerConfirm(true)
 
     expect(runDueSpy).toHaveBeenCalledOnce()
     // 1 emit 'updated' để view cha refetch asset → header không stale.
@@ -112,13 +121,14 @@ describe('AssetDepreciationSchedule — INV-DEP-3 book value khớp dòng schedu
   it("KHÔNG emit 'updated' khi cron không thực thi dòng nào (executed_rows=0, idempotent)", async () => {
     getScheduleSpy.mockResolvedValue(fullyDepreciated())
     runDueSpy.mockResolvedValue({ executed_rows: 0, updated_assets: 0 })
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
 
-    const wrapper = mount(AssetDepreciationSchedule, { props: { assetName: 'ACC-ASS-0001' } })
+    const h = mountWithConfirm(AssetDepreciationSchedule, { props: { assetName: 'ACC-ASS-0001' } })
+    const wrapper = h.wrapper
     await flushPromises()
 
     await wrapper.find('button.btn-ghost').trigger('click')
     await flushPromises()
+    await h.answerConfirm(true)
 
     expect(runDueSpy).toHaveBeenCalledOnce()
     // Không có dòng nào đổi → không refetch thừa (tránh flicker header).
@@ -176,7 +186,6 @@ describe('AssetDepreciationSchedule — per-asset "Sinh lịch khấu hao" self-
     getScheduleSpy.mockReset()
     runDueSpy.mockReset()
     regenSpy.mockReset()
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
   })
 
   // [TDD-FE-1] BE 200 (sau self-heal) → bảng reload, KHÔNG toast lỗi.
@@ -188,7 +197,8 @@ describe('AssetDepreciationSchedule — per-asset "Sinh lịch khấu hao" self-
       .mockResolvedValueOnce(healedSchedule())
     regenSpy.mockResolvedValue({ asset: 'ACC-OLD-0001', periods: 60, total_depreciable: 108_000_000 })
 
-    const wrapper = mount(AssetDepreciationSchedule, { props: { assetName: 'ACC-OLD-0001' } })
+    const h = mountWithConfirm(AssetDepreciationSchedule, { props: { assetName: 'ACC-OLD-0001' } })
+    const wrapper = h.wrapper
     await flushPromises()
 
     // Empty-state: nút sinh lịch hiển thị, bảng chưa có dòng.
@@ -198,6 +208,8 @@ describe('AssetDepreciationSchedule — per-asset "Sinh lịch khấu hao" self-
 
     await genBtn.trigger('click')
     await flushPromises()
+    expect(regenSpy).not.toHaveBeenCalled()   // hộp thoại mở trước
+    await h.answerConfirm(true)
 
     // Gọi đúng signature regenerate(assetName, 1) — KHÔNG đổi.
     expect(regenSpy).toHaveBeenCalledWith('ACC-OLD-0001', 1)
@@ -219,11 +231,13 @@ describe('AssetDepreciationSchedule — per-asset "Sinh lịch khấu hao" self-
     const beMsg = 'Không đủ thông tin để sinh lịch khấu hao. Thiếu: Số tháng khấu hao (total_depreciation_months).'
     regenSpy.mockRejectedValue(new Error(beMsg))
 
-    const wrapper = mount(AssetDepreciationSchedule, { props: { assetName: 'ACC-OLD-0001' } })
+    const h = mountWithConfirm(AssetDepreciationSchedule, { props: { assetName: 'ACC-OLD-0001' } })
+    const wrapper = h.wrapper
     await flushPromises()
 
     await wrapper.find('button.btn-primary').trigger('click')
     await flushPromises()
+    await h.answerConfirm(true)
 
     const html = wrapper.html()
     // Toast lỗi VI render từ message BE — đúng format round-1 (nhãn VI + field trong ngoặc).

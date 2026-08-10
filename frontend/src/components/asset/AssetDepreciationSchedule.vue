@@ -8,8 +8,14 @@ import {
 // Nhãn tần suất khấu hao: dùng SSoT translateFrequency (@/utils/formatters) —
 // KHÔNG render raw English (chống i18n leak 'Monthly' ra UI, anti-pattern A).
 import { translateFrequency, translateDepreciationMethod } from '@/utils/formatters'
+// AC-UX-065 (ADR-UX-16, docs/ui-ux/06 §5): hộp thoại xác nhận SSoT thay `confirm()`
+// trần — `confirm()` chặn vòng lặp sự kiện (từng treo trình duyệt khi tự động hoá),
+// không bẫy focus và nhãn nút do TRÌNH DUYỆT vẽ nên không Việt hoá được (LL-FE-53).
+// View gọi hàng đợi qua `useNotify().confirm()` — KHÔNG gọi tầng hàng đợi trực tiếp.
+import { useNotify } from '@/composables/useNotify'
 
 const props = defineProps<{ assetName: string }>()
+const notify = useNotify()
 // INV-DEP-3 (FE): sau khi thực thi/sinh lại khấu hao, header asset cha
 // (current_book_value) sẽ stale vì nó đọc từ store.currentAsset, không phải
 // data.asset_info ở đây. Emit 'updated' để view cha refetch asset → header
@@ -32,7 +38,13 @@ async function load() {
 onMounted(load)
 
 async function regenerate() {
-  if (!confirm('Xóa lịch hiện tại và sinh lại từ đầu?')) return
+  const ok = await notify.confirm({
+    title: 'Sinh lại lịch khấu hao',
+    body: 'Xoá lịch hiện tại và sinh lại từ đầu?',
+    tone: 'error',
+    confirmText: 'Sinh lại',
+  })
+  if (!ok) return
   acting.value = true
   try {
     const res = await regenerateDepreciationSchedule(props.assetName, 1)
@@ -45,7 +57,13 @@ async function regenerate() {
 }
 
 async function runNow() {
-  if (!confirm('Chạy ngay các kỳ khấu hao đến hạn? (chỉ cho phép System Manager)')) return
+  const ok = await notify.confirm({
+    title: 'Chạy khấu hao đến hạn',
+    body: 'Chạy ngay các kỳ khấu hao đến hạn? (chỉ Quản trị hệ thống được phép)',
+    tone: 'warning',
+    confirmText: 'Chạy ngay',
+  })
+  if (!ok) return
   acting.value = true
   try {
     const res = await runDueDepreciationNow()
