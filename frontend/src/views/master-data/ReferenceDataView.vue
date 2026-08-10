@@ -9,6 +9,7 @@ import {
   type BulkRegenerateResult,
 } from '@/api/imm00'
 import BaseModal from '@/components/common/BaseModal.vue'
+import ModalInlineError from '@/components/common/ModalInlineError.vue'
 import {
   previewRefImport, importRefData, buildErrorReport,
   getExportUrl, getTemplateUrl, initImportFolders,
@@ -17,6 +18,7 @@ import type { AcLocation, AcDepartment, AcAssetCategory } from '@/types/imm00'
 import type { ImportPreviewResult, ImportResult, ImportStep, ImportMode, RefDataDoctype } from '@/types/import'
 import { translateDepreciationMethod } from '@/utils/formatters'
 import api from '@/api/axios'
+import { toApiError } from '@/api/errors'
 import { getAcUserBrief } from '@/api/user'
 import SmartSelect from '@/components/common/SmartSelect.vue'
 import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
@@ -172,7 +174,11 @@ async function save() {
     }
     showForm.value = false
     await load()
-  } catch (e: unknown) { err.value = e instanceof Error ? e.message : 'Lỗi lưu' }
+  } catch (e: unknown) {
+    // AC-UX-062/063 đường B: lỗi CHẶN ở lại TRONG hộp thoại (không đóng form),
+    // và lấy chuỗi ĐÃ LÀM SẠCH qua `toApiError` thay vì `e.message` thô của máy chủ.
+    err.value = toApiError(e).message || 'Không lưu được. Vui lòng kiểm tra lại và thử lại.'
+  }
 }
 
 // Áp dụng luật khấu hao của Danh mục cho tất cả tài sản — KHÔNG dùng window.confirm
@@ -500,7 +506,7 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
     <div v-if="showForm" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" @click.self="showForm = false">
       <div class="bg-white rounded-xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto space-y-4">
         <h2 class="text-lg font-semibold">{{ editingName ? 'Sửa' : 'Thêm' }} {{ tabLabel }}</h2>
-        <div v-if="err" class="bg-red-50 text-red-700 text-sm p-3 rounded">{{ err }}</div>
+        <ModalInlineError v-if="err" :message="err" />
 
         <div v-if="tab === 'location'" class="space-y-3">
           <div class="grid grid-cols-2 gap-3">
@@ -969,7 +975,7 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
                       {{ previewData.totalRows - totalSkip }} dòng hợp lệ
                     </p>
                     <p class="text-xs text-gray-600">
-                      Tải báo cáo lỗi sau khi import xong để sửa &amp; import lại các dòng đã bỏ qua.
+                      Tải báo cáo lỗi sau khi import xong để sửa và import lại các dòng đã bỏ qua.
                     </p>
                   </div>
                 </label>

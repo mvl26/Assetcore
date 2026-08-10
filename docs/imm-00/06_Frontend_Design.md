@@ -3296,6 +3296,142 @@ Test này **vẫn XANH** sau vòng này (`new Error(...)` trần ⇒ `isForbidde
 
 ---
 
+## VIII.17. AC-UX-062/063 — lỗi CHẶN hiện **INLINE trong hộp thoại** + làm sạch câu lỗi tại `axios` (spec cho **[FE] Bước-4**)
+
+> **Spec đầy đủ (hợp đồng, delta từng dòng, bảng test, ADR-UX-13/14/15):** [`docs/ui-ux/05_MODAL_INLINE_ERROR.md`](../ui-ux/05_MODAL_INLINE_ERROR.md).
+> Mục này là bản rút gọn cấp module — hai SSoT bị chạm đều thuộc IMM-00, **19** file `.vue` của IMM-01/03/05/07/10/11/12/16 thừa hưởng.
+
+### VIII.17.1 Hiện trạng (đo từ đĩa 2026-08-03 — mẫu số chấm DELTA)
+
+| Số đo | Giá trị |
+|---|---|
+| File `.vue` tiêu thụ `BaseModal` | **19** |
+| Trong đó **0** vùng lỗi inline (0 `role="alert"` **và** 0 `data-testid="modal-error"`) | **15** |
+| `data-testid="modal-error"` toàn FE | **0** |
+| `grep -c setTimeout frontend/src/components/common/BaseModal.vue` | **0** (phải giữ **0**) |
+| Kênh báo lỗi hiện hành | toast tự tắt sau **4000 ms** — `composables/useToast.ts:33` → `:45` |
+| Cửa trả chữ thô của máy chủ | `api/axios.ts:182` (`handle400`) · `:277` (`makeBusinessRuleError` fallback, ném ở `:310`) — **cả hai** qua `parseServerMessages` `:136-146` |
+
+### VIII.17.2 Business rules
+
+| Mã | Luật |
+|---|---|
+| **BR-00-MODERR-01** | Lỗi làm **thất bại thao tác** đang thực hiện trong hộp thoại phải hiện **trong chính hộp thoại đó**: `data-testid="modal-error"` + `role="alert"` + `aria-live="assertive"`, đặt ở **đầu** `data-testid="modal-body"`, **không hẹn giờ tự tắt**, và hộp thoại **KHÔNG đóng**. Toast chỉ cho thông báo **không chặn**. |
+| **BR-00-MODERR-02** | Một lỗi ⇒ **đúng một** kênh hiển thị và **đúng một** hộp thoại trên màn: `api.run(..., { silentError: true })` (hoặc gỡ `toast.*`/`notify.fromError` ở nhánh lỗi khi không dùng `useApi`) để `useNotify.fromError` không mở `useModal.alert` chồng lên (`useNotify.ts:65-73`, `:93-101`). Đo: `findAll('[data-testid="modal-card"]').length === 1`. |
+| **BR-00-MODERR-03** | Vùng lỗi không tự tắt ⇒ phải xoá tường minh khi **mở lại**, **thử lại**, **đóng**. Nhánh lỗi **tuyệt đối không** set `show*Modal = false`. |
+| **BR-00-MODERR-04** | Mọi chuỗi lỗi của máy chủ đi ra giao diện phải qua **một cửa** `sanitizeBusinessMessage` (bọc `parseServerMessages`). Khớp dấu hiệu kỹ thuật (traceback · `File "` · `line N, in ` · `<class '` · `cannot import name` · cặp từ khoá SQL · `tab<ChữHoa>` · `pymysql`/`OperationalError`/`ProgrammingError`/`IntegrityError` · `frappe.exceptions` · đuôi `.py` · thẻ `<…>` còn sót) ⇒ thay bằng **đúng một** câu VI trung tính: «Không thực hiện được thao tác do quy tắc nghiệp vụ. Vui lòng kiểm tra lại dữ liệu hoặc liên hệ quản trị hệ thống.» Câu VI sạch đi qua **nguyên văn**. |
+| **BR-00-MODERR-05** | Chuỗi thô chỉ được ghi `console.debug` bọc `if (import.meta.env.DEV)`. DEV=false ⇒ không log **và** chuỗi thô không xuất hiện trong `ApiError.message`. Nhánh có `message_code` (`axios.ts:262-276`, đã render từ registry VI) **không** đi qua sanitizer. |
+
+### VIII.17.3 Delta hợp đồng (CHỈ THÊM — bất biến 0-churn)
+
+- `components/common/BaseModal.vue`: thêm prop tuỳ chọn `error?: string \| null` + `errorTitle?: string`; render `<ModalInlineError v-if="error" …>` ở đầu `modal-body`. **Giữ tuyệt đối** prop `title`/`size`/`danger` · emit `close` · testid `modal-card`/`modal-close`/`modal-body`/`modal-footer` · **toàn bộ chuỗi class**.
+- `components/common/ModalInlineError.vue` (**MỚI**, tier-1 thuần trình bày) — nguồn DUY NHẤT của markup vùng lỗi; overlay **lai** (chưa được phép di trú sang `BaseModal`) tiêu thụ trực tiếp component này thay vì copy markup (ADR-UX-14).
+- `api/axios.ts`: thêm `export function sanitizeBusinessMessage(raw: string): string` + bọc `parseServerMessages`.
+
+### VIII.17.4 Boundaries
+
+- **Always**: lỗi chặn → inline trong hộp thoại đang mở · một lỗi một kênh · xoá lỗi cũ khi mở/thử lại · làm sạch tại một cửa.
+- **Ask first**: đổi bất kỳ prop/emit/testid/class **đã có** của `BaseModal` · di trú overlay tự vẽ sang `BaseModal` (**AC-UX-055/056**, không thuộc vòng này) · mở rộng bộ dấu hiệu kỹ thuật.
+- **Never**: `setTimeout`/tự-ẩn cho vùng lỗi · `show*Modal = false` trong `catch` · toast **song song** với vùng inline · hộp thoại thứ hai chồng lên · echo traceback/SQL/`.py` ra giao diện · sửa 4 tệp test đã có (`BaseModalDialog` · `BaseModalA11y` · `BaseModalResponsive` · `modalOverlayHygiene`) cho vừa mã.
+
+### VIII.17.5 DoD FE (đo được — baseline đọc TỪ ĐĨA, chấm DELTA)
+
+1. `grep -c setTimeout frontend/src/components/common/BaseModal.vue` ⇒ **0**.
+2. Bất biến 0-churn: `md5sum` 4 tệp test ở Boundaries **khớp 4/4** giá trị chốt ở [`05 §2.3`](../ui-ux/05_MODAL_INLINE_ERROR.md) và cả 4 **XANH**. **KHÔNG** dùng `git diff --stat` (3/4 tệp untracked ⇒ luôn rỗng = xanh giả).
+3. Lô 1 = **5 file / 8 hộp thoại** (danh sách đóng băng ở `05 §5`): mỗi hộp thoại có test render «thất bại ⇒ còn mở + có `modal-error` + đúng 1 `modal-card`».
+4. Guard CHỈ-GIẢM `modalInlineErrorAdoption.test.ts` (MỚI): tập file tiêu thụ `BaseModal` **thiếu** vùng lỗi inline là **tập con** của allowlist đóng băng **15** và kích thước **== 10** sau lô 1 (`05 §6`).
+5. `sanitizeBusinessMessage` có test riêng phủ **14 ca** ở `05 §7.5` (gồm 2 ca khoá `import.meta.env.DEV` hai chiều và 1 ca `message_code` giữ nguyên văn).
+6. `npx vitest run` **0 ĐỎ**; số file test ≥ **335** + số tệp test mới (đo lại từ đĩa: `find frontend/src -name '*.test.ts' | wc -l`).
+7. 4 guard parity (`uiAuditDocParity` · `uiFixPlanParity` · `uiListShellLot1Parity` · `uiDetailShellLot1Parity`) **XANH**.
+8. `npx vue-tsc --noEmit` ⇒ **0 lỗi**. **KHÔNG** `npm run build` (`emptyOutDir` = deploy live — LL-DEPLOY-09), **KHÔNG** commit/push (HARD-STOP USER), `git status -- '*.py'` ⇒ **rỗng**.
+
+### VIII.17.6 Năm đính chính của [BA] so với đề mục đóng băng (chấm theo bản này)
+
+| # | Đĩa nói | Quyết định |
+|---|---|---|
+| SC-1 | `CalibrationScheduleListView.vue:441` và `ReferenceDataView.vue:500` là **overlay tự vẽ**, `save()` **không** dùng `useApi` | Giữ trong lô 1 nhưng đi **đường B** (dùng `ModalInlineError` + gỡ kênh toast), **không** di trú overlay |
+| SC-2 | `UserProfileFormView.vue` không có hộp thoại «lưu»; hộp thoại chặn thật là «Từ chối tài khoản» (`:632`), lỗi ghi vào banner **trang** `:231` nằm dưới lớp phủ | Đổi mục tiêu sang `confirmReject` `:217`; lô 1 vẫn **5 file / 8 hộp thoại** |
+| SC-3 | Với thiết kế SSoT, file đường A chỉ chứa `:error="…"` ⇒ phép đo `grep -c 'modal-error'` **luôn = 0** | Phép đo chuẩn = vị ngữ 3 dạng ở `05 §6.1` do guard thực thi + test render |
+| SC-4 | Câu VI hợp lệ có thể chứa chữ «update»; BE có dùng `<b>`/`<br>` khi định dạng | SQL dò theo **cặp** từ khoá; thẻ trình bày lành tính bị **gỡ** (giữ chữ), chỉ thẻ **còn sót** mới là dấu hiệu |
+| SC-5 | 3/4 tệp test «0-churn» là **untracked** ⇒ `git diff --stat` luôn rỗng kể cả khi tệp bị sửa | Đo bất biến 0-churn bằng **md5 chốt** (`05 §2.3`), không bằng `git diff --stat` |
+
+---
+
+## VIII.18. AC-UX-064/065/066 — diệt `confirm()` trần, một SSoT hộp thoại xác nhận (spec cho **[FE] Bước-4**)
+
+> **Spec đầy đủ (hợp đồng, delta từng dòng, bảng copy 21 call-site, bảng test, ADR-UX-16/17/18):** [`docs/ui-ux/06_CONFIRM_DIALOG_SSOT.md`](../ui-ux/06_CONFIRM_DIALOG_SSOT.md).
+> Mục này là bản rút gọn cấp module. SSoT bị chạm thuộc IMM-00; view hưởng lợi thuộc IMM-03/05/07/08/10/15.
+
+### VIII.18.1 Hiện trạng (đo từ đĩa 2026-08-04 — mẫu số chấm DELTA)
+
+| Số đo | Giá trị |
+|---|---|
+| `confirm(` trần — quét thô `grep -rn "[^.a-zA-Z_]confirm(" src/views src/components --include=*.vue` | **47** / **31** file |
+| … trừ **5** dòng chú thích ⇒ **call-site THẬT** | **42** / **28** file |
+| Lô 1 (7 file nặng nhất) | **21** call-site = **50,0%** nợ |
+| Còn lại sau lô 1 | **21** call-site / **21** file |
+| `notify.confirm(` đang dùng đúng | **7** call-site / **5** view |
+| View gọi `useModal()` trực tiếp | **0** (đúng — xem ADR-UX-16) |
+| `NotificationModal.vue` | tự vẽ overlay `:48` · tự nghe `keydown` `:39` |
+
+> **Đính chính số liệu:** «44/31» ở `04 §1.2/§10.6/§16` và `00 §6` đếm **thiếu strip-comment** và đã cũ; «49/33» của run-6 đếm thô trên cây bẩn. Mọi con số nợ trong doc từ nay phải kèm **công thức tái lập được**, và công thức đếm mã nguồn **phải strip comment**.
+
+### VIII.18.2 Hai khuôn xác nhận HỢP LỆ — không mâu thuẫn với §II.3e / §III.10b-bis / §III.10d
+
+Cả hai đều **cấm tuyệt đối** `confirm()` / `window.confirm()` trần. Chọn khuôn theo **nội dung hộp thoại**, không theo sở thích:
+
+| Khuôn | Dùng khi | Tiền lệ trong repo |
+|---|---|---|
+| **P-A — `<BaseModal>` đặt ngay trong view** | Hộp thoại cần **UI thêm**: vùng lỗi chặn inline (AC-UX-062), ô nhập, xem trước, danh sách, trạng thái đang gửi | §II.3e (sinh lại QR) · §III.10b-bis (`DepreciationView`) · §III.10d (`ReferenceDataView`) |
+| **P-B — `await useNotify().confirm({…})`** | Hộp thoại **chỉ có một câu hỏi có/không** trên một câu văn | `eol/DecommissionDetailView.vue:90` · `document/FirmwareCrDetailView.vue:54`/`:68` · `procurement/DecisionDetailView.vue:316`/`:360` |
+
+**Toàn bộ 21 call-site của lô 1 thuộc P-B.** P-A **không bị** ADR-UX-16 thay thế — ADR-UX-16 chỉ cấm view nhập thẳng `useModal` (tầng hàng đợi).
+
+### VIII.18.3 Ba delta trên SSoT
+
+| Tệp | Delta | Ràng buộc |
+|---|---|---|
+| `components/common/NotificationModal.vue` | Render **qua `<BaseModal v-if="current">`**; **xoá** `onKey` + `onMounted`/`onBeforeUnmount` (`:35-40`); `tone ∈ {critical,error}` → `:danger`; nút vào slot `#footer` theo thứ tự **phụ trước, chính sau**; `@close="onCancel"` | `BaseModal` **không** có `v-if` nội tại — thiếu `v-if` ⇒ nền mờ phủ toàn app |
+| `components/common/BaseModal.vue` | **THÊM** prop tuỳ chọn `layer?: 'default' \| 'system'` (mặc định `'default'` ⇒ `z-50` y hệt hôm nay; `'system'` ⇒ `z-[10000]`) | 19 file tiêu thụ **0 dòng đổi**; hai chuỗi class phải là **literal** (bẫy Tailwind JIT) |
+| `composables/useNotify.ts` | **THÊM** `tone?` vào `ConfirmOpts` (`:31-40`) + chuyển tiếp 1 dòng ở `modal.confirm({…})` | Không truyền ⇒ giữ mặc định `'warning'` ⇒ 7 call-site đang có: 0 dòng đổi |
+| `composables/useModal.ts` | **0 dòng đổi** — hợp đồng đối ngoại giữ nguyên tuyệt đối | `git diff --stat` cho tệp này phải **rỗng** |
+
+### VIII.18.4 Lỗi P1 phải đóng: ESC kép **nuốt hộp thoại kế tiếp**
+
+`useFocusTrap` nghe trên `document`, `NotificationModal` nghe trên `globalThis` ⇒ một lần nhấn `Escape` chạy **cả hai**; giữa hai nhịp, `current` (computed) **đã trỏ sang phần tử kế tiếp** của hàng đợi ⇒ phần tử đó bị `resolve(false)` **dù chưa từng hiển thị**.
+
+> **Đính chính:** đây **không** phải «resolve 2 lần» — `dismiss` bất biến theo `id` (`useModal.ts:70-76`, `idx < 0` ⇒ thoát), nên hàng đợi 1 phần tử vẫn resolve đúng 1 lần. Test viết theo mô tả «2 lần» sẽ **XANH GIẢ**. Ca chứng minh là **hàng đợi 2 phần tử** (TC-UX6-02 ở `06 §4.3`): nhấn ESC 1 lần ⇒ A resolve `false`, **B còn nguyên**, `queue.length === 1`. Revert bản sửa ⇒ TC-UX6-02 phải ĐỎ.
+
+### VIII.18.5 Boundaries
+
+- **Always**: mọi xác nhận đi qua chuỗi `view → useNotify → useModal → NotificationModal → BaseModal` · một hộp thoại **đúng 1 chủ sở hữu `Escape`** · 100% chuỗi tiếng Việt, nút mặc định «Xác nhận»/«Huỷ» (LL-FE-53) · hành động phá huỷ ⇒ `tone: 'error'` ⇒ `danger`.
+- **Ask first**: đổi prop/emit/testid/class **đã có** của `BaseModal` · đổi hợp đồng đối ngoại `useModal()` · di trú file ngoài 7 file lô 1 · gỡ overlay tự vẽ của 5 file lô 1 (đó là **AC-UX-055**).
+- **Never**: `confirm(`/`window.confirm(`/`globalThis.confirm(` trần trong `.vue` · view import `useModal` · `NotificationModal` giữ `addEventListener('keydown'…)` · **thêm** dòng vào `ALLOWLIST_SELF_DRAWN` hoặc bản đồ `bareConfirmBudget` (cả hai CHỈ-GIẢM) · đổi **nghĩa** câu xác nhận đang có · sinh chuỗi tiếng Anh mới · dùng `vi.stubGlobal('confirm', …)` trong test mới.
+
+### VIII.18.6 DoD FE (đo được — baseline đọc TỪ ĐĨA, chấm DELTA)
+
+1. `grep -c 'fixed inset-0' frontend/src/components/common/NotificationModal.vue` ⇒ **0**; `grep -c "addEventListener('keydown'" …/NotificationModal.vue` ⇒ **0**; `git diff --stat -- frontend/src/composables/useModal.ts` ⇒ **rỗng**.
+2. Nợ `confirm(` trần (công thức **có strip comment**, `06 §1.1`) ⇒ **21** call-site / **21** file; **7 file lô 1 = 0**.
+3. `ALLOWLIST_SELF_DRAWN` của `modalOverlayHygiene.test.ts` **30 → 29** — xoá **đúng** dòng `NotificationModal.vue`, và hạ **3** chỗ số ở `:126` (`toHaveLength`), `:127` (`toBe`), `:141` (`toBeLessThanOrEqual`). Suite XANH.
+4. Guard MỚI `components/common/bareConfirmBudget.test.ts`: bản đồ **(file, số lần)** = **21 file × 1**; ĐỎ khi tổng tăng · file lạ · vượt hạn mức · **và khi giảm mà quên hạ sổ** (INV-UXCONF-1…5, `06 §6.4`).
+5. Bốn tệp test cũ: `grep -c "stubGlobal('confirm'" <file>` ⇒ **0** ở cả 4 (**KHÔNG** dùng `grep 'window.confirm'` — chuỗi đó chỉ nằm trong chú thích, phép đo vô nghĩa). Mỗi tệp thêm ≥ **2** ca: xác nhận ⇒ API gọi 1 lần · **huỷ ⇒ API KHÔNG gọi**.
+6. `npx vitest run` **0 ĐỎ**; DELTA ≥ **+2 tệp test** / **+25 TC** so với baseline đĩa **340** (`find frontend/src -name '*.test.ts' | wc -l`).
+7. 4 guard `uiAuditDocParity` · `uiFixPlanParity` · `modalOverlayHygiene` · `uiPrimitiveHygiene` **XANH**.
+8. `npx vue-tsc --noEmit` ⇒ **0** lỗi. **KHÔNG** `npm run build` (`emptyOutDir` = deploy live — LL-DEPLOY-09), **KHÔNG** commit/push (HARD-STOP USER), `git status -- '*.py'` ⇒ **rỗng** (⇒ **không** cần restart gunicorn, **không** `bench migrate`).
+
+### VIII.18.7 Bốn đính chính của [BA] so với đề mục đóng băng (chấm theo bản này)
+
+| # | Đề mục ghi | Đĩa nói | Quyết định |
+|---|---|---|---|
+| SC-1 | baseline **42 call-site / 29 file** | **42 / 28** — 3 tệp chỉ chứa chú thích (`ProcurementPlanDetailView`, `CalibrationDetailView`, `NotificationModal`) ⇒ 31 − 3 = 28 | Chấm theo **42/28**; đích sau lô 1 = **21/21** |
+| SC-2 | ESC kép ⇒ «`resolve` gọi **2 lần**» | `dismiss` bất biến theo `id` ⇒ hàng đợi 1 phần tử vẫn resolve **1 lần** | Ca chứng minh đổi sang **hàng đợi 2 phần tử** (TC-UX6-02); test theo mô tả cũ là **xanh giả** |
+| SC-3 | nghiệm thu `grep -c 'window.confirm' <4 tệp>` = 0 | Đã **= 0** trước khi sửa (stub thật viết `vi.stubGlobal('confirm', …)`; chuỗi `window.confirm` chỉ ở chú thích, 1 hit ở 2 tệp) | Lệnh đúng = `grep -c "stubGlobal('confirm'"`. Thêm: `AssetDepreciationSchedule.test.ts` **không hề stub** ⇒ nhánh xác nhận **chưa từng được kiểm thử** (lỗ phủ, không phải test sẽ đỏ) |
+| SC-4 | SSoT = `composables/useModal.ts`, view gọi `useModal().confirm` | `useNotify.ts:127-144` **đã** uỷ nhiệm cho `modal.confirm`; **7** call-site ở 5 view đã dùng `notify.confirm` và có test | View gọi **`useNotify().confirm()`** (ADR-UX-16); `useModal` là tầng hàng đợi, view **không** nhập. `ConfirmOpts` thêm `tone?` để nối `danger` |
+
+> **Chặn thêm (đã gỡ ở bước BA):** `uiAuditDocParity.test.ts:35` `ROUND_VALUES` trước đó chỉ nhận `{2,3,4,5,6}` ⇒ ghi «vòng 7» cho mục mới làm guard ĐỎ — **đã nới thành `{2,…,7}`**. Và `:220` đối chiếu dòng «**Tổng: N mục**» ⇒ **đã sửa 63 → 66** cùng lượt với 3 mục mới. [FE] **không** cần chạm 2 chỗ này nữa.
+
+---
+
 ## DoD — File 06 hoàn chỉnh
 
 ### I. Design System Tokens
@@ -3341,3 +3477,24 @@ Test này **vẫn XANH** sau vòng này (`new Error(...)` trần ⇒ `isForbidde
 ### VIII. Tech stack & directory
 - [x] Full tech stack list
 - [x] Directory structure
+
+---
+
+## Khuôn trạng thái màn danh sách — `AC-UX-047` lô 3 (cross-cutting, 2026-08-04)
+
+Màn danh sách của module này áp **khuôn dùng chung** `frontend/src/components/ui/ListPageShell.vue`
+(4 trạng thái LOẠI TRỪ: đang tải / lỗi + «Thử lại» / rỗng + hướng dẫn / có dữ liệu). Đặc tả **KHÔNG** lặp
+ở đây — SSoT là Core Doc UI/UX:
+
+| Mục | Nơi chốt |
+|---|---|
+| Hợp đồng props/slots/`data-testid` | [`docs/ui-ux/02_LIST_PAGE_SHELL.md §3`](../ui-ux/02_LIST_PAGE_SHELL.md) |
+| Sổ lô 3 + delta từng file + bảng copy tiếng Việt | [`§14.2` / `§14.4`](../ui-ux/02_LIST_PAGE_SHELL.md) |
+| Bất biến `INV-UX3-24…29` + test `TC-UX3-35 / TC-UX3-37` | [`§14.5` / `§14.6`](../ui-ux/02_LIST_PAGE_SHELL.md) |
+| Guard adoption CHỈ-GIẢM (`AC-UX-070`) | `frontend/src/views/listShellAdoption.test.ts` |
+
+- **Route thuộc lô 3 của module này:** `/audit-trail` · `/service-contracts`
+- **File view:** `views/audit/AuditTrailListView.vue` · `views/purchase/ServiceContractListView.vue`
+- **Ràng buộc riêng phải giữ:** xem cột «Bẫy riêng theo màn» ở [`§14.4`](../ui-ux/02_LIST_PAGE_SHELL.md) —
+  lỗi **lượt nạp danh sách** là nguồn DUY NHẤT của `:error-message`; lỗi biểu mẫu / cảnh báo bộ lọc /
+  hành động ghi **không** được lật trạng thái danh sách (`ADR-UX-24`).

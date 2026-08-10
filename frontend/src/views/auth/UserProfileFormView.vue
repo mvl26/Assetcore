@@ -16,6 +16,7 @@ import { ROLE_GROUP_LABEL, BASE_ROLE, type RoleGroup } from '@/constants/roles'
 import { personaForRoleProfile } from '@/constants/personas'
 import { useFormDraft } from '@/composables/useFormDraft'
 import { useToast } from '@/composables/useToast'
+import { toApiError } from '@/api/errors'
 
 const props = defineProps<{ user?: string }>()
 const router = useRouter()
@@ -203,14 +204,19 @@ async function doApprove() {
 const showRejectModal = ref(false)
 const rejectReason = ref('')
 const rejectReasonError = ref('')
+// AC-UX-062: lỗi CHẶN của hộp thoại phải ở TRONG hộp thoại. Trước đây ghi vào
+// `error.value` — banner của TRANG, nằm DƯỚI lớp phủ ⇒ người dùng không bao giờ thấy.
+const rejectModalError = ref<string | null>(null)
 
 function openRejectModal() {
   rejectReason.value = ''
   rejectReasonError.value = ''
+  rejectModalError.value = null
   showRejectModal.value = true
 }
 
 function closeRejectModal() {
+  rejectModalError.value = null
   showRejectModal.value = false
 }
 
@@ -221,14 +227,17 @@ async function confirmReject() {
     rejectReasonError.value = 'Vui lòng nhập lý do từ chối.'
     return
   }
-  saving.value = true; error.value = ''
+  saving.value = true; error.value = ''; rejectModalError.value = null
   try {
     await approveRegistration(props.user, 'reject', [], reason)
     success.value = 'Đã từ chối tài khoản.'
     showRejectModal.value = false
     await load()
   } catch (e: unknown) {
-    error.value = e instanceof Error ? e.message : 'Lỗi khi từ chối'
+    // Hộp thoại KHÔNG đóng; lý do hiện inline ngay trong hộp thoại (không phải
+    // banner trang bị lớp phủ che). Chuỗi đã qua sanitizer của `axios` (AC-UX-063).
+    rejectModalError.value = toApiError(e).message
+      || 'Không từ chối được tài khoản. Vui lòng kiểm tra lại và thử lại.'
   } finally { saving.value = false }
 }
 
@@ -634,6 +643,7 @@ type="submit" :disabled="saving"
       title="Từ chối tài khoản"
       size="md"
       danger
+      :error="rejectModalError"
       @close="closeRejectModal"
     >
       <div class="space-y-3">
