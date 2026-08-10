@@ -14,7 +14,11 @@ export const ALLOWED_TAB_LABELS = new Set<string>([
   'Thông tin',
   'Khấu hao',
   'Lịch sử',
-  'chỉ số hiệu suất',
+  // AC-UX-068: nhãn tab «KPI» của màn thiết bị viết hoa đầu câu như 6 nhãn còn lại
+  // (trước đây là 'chỉ số hiệu suất' — chữ thường giữa dải tab, lệch hẳn với các nhãn
+  // bên cạnh). Đây là nới TẬP HỢP NHÃN HỢP LỆ, không phải nới độ chặt: mọi assert
+  // khác của helper (chỉ tiếng Việt, không rò EN, phải có «Bản ghi liên quan») nguyên xi.
+  'Chỉ số hiệu suất',
   'Nhật ký truy vết',
 ])
 

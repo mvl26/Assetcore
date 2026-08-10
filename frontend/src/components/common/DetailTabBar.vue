@@ -15,10 +15,32 @@ export interface DetailTab {
   key: string
   /** Nhãn hiển thị — LUÔN tiếng Việt đầy đủ (LL-FE-53). */
   label: string
+  /**
+   * Số/chữ đếm phụ hiện NGAY TRONG nút tab (vd số phiếu không phù hợp còn mở).
+   *
+   * Thêm ở AC-UX-067 theo lối CHỈ-THÊM (ADR-UX-19): trước đó một nhu cầu nhỏ như
+   * «Không phù hợp × 3» đủ để một màn giữ nguyên thanh tab tự chế — và bản fork ấy
+   * mất sạch role/aria + không cuộn ngang được. Nay nó có chỗ đứng chính thức.
+   *
+   * KHÔNG render khi: undefined · null · '' · 0 · '0' (khớp `v-if="openNcCount > 0"` cũ).
+   */
+  badge?: string | number
 }
 
 defineProps<{ tabs: DetailTab[]; modelValue: string }>()
 defineEmits<{ (e: 'update:modelValue', value: string): void }>()
+
+/**
+ * Badge rỗng ⇒ KHÔNG có phần tử trong DOM (không phải `display:none`): trình đọc màn
+ * hình không đọc con số «0» vô nghĩa, và test đếm được phần tử.
+ *
+ * Cố ý KHÔNG dùng `v-if="tab.badge"`: chuỗi `'0'` là truthy ⇒ sẽ hiện badge «0».
+ */
+function hasBadge(badge?: string | number | null): boolean {
+  if (badge === undefined || badge === null) return false
+  const s = String(badge).trim()
+  return s !== '' && s !== '0'
+}
 </script>
 
 <template>
@@ -37,6 +59,15 @@ defineEmits<{ (e: 'update:modelValue', value: string): void }>()
       @click="$emit('update:modelValue', tab.key)"
     >
       {{ tab.label }}
+      <!-- Badge NẰM TRONG nút (B1): ngoài nút thì vùng bấm và vòng focus lệch nhau,
+           và trình đọc màn hình đọc con số rời khỏi nhãn. Chỉ `<span>` — thêm
+           button/a/tabindex ở đây là đẻ một tab-stop giữa dải tab (B2).
+           Cố ý KHÔNG `aria-hidden`: con số là thông tin, không phải trang trí. -->
+      <span
+        v-if="hasBadge(tab.badge)"
+        :data-testid="`tab-badge-${tab.key}`"
+        class="ml-1.5 inline-flex items-center justify-center min-w-[1rem] h-4 px-1 rounded-full bg-red-500 text-white text-[10px] font-bold align-middle"
+      >{{ tab.badge }}</span>
     </button>
   </div>
 </template>

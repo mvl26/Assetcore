@@ -93,3 +93,113 @@ describe('TC-CONNTAB-03 — hợp đồng cuộn ngang mobile (giữ TC-RWD-07)'
     }
   })
 })
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// AC-UX-067 (docs/ui-ux/07 §3) — DELTA CHỈ-THÊM: trường tuỳ chọn `badge`.
+//
+// Vì sao mở rộng chứ không để màn tự vẽ: `/commissioning/:id` cần một con số ngay
+// trong nút tab («Không phù hợp» × N). Trước vòng này đó chính là LÝ DO màn ấy giữ
+// một thanh tab tự chế — một nhu cầu hiển thị nhỏ đã đẻ ra cả một bản fork không có
+// `role="tablist"`, không `aria-selected`, không cuộn ngang được trên mobile.
+//
+// 3 describe PHÍA TRÊN không được sửa một ký tự nào: nếu phải sửa thì delta đã KHÔNG
+// còn là CHỈ-THÊM (ADR-UX-19).
+// ═══════════════════════════════════════════════════════════════════════════════
+const TABS_BADGE = [
+  { key: 'detail', label: 'Chi tiết phiếu' },
+  { key: 'nc', label: 'Không phù hợp', badge: 3 },
+  { key: 'timeline', label: 'Lịch sử' },
+]
+
+describe('TC-CONNTAB-05 — badge render BÊN TRONG nút tab', () => {
+  it('badge: 3 ⇒ đúng 1 phần tử [data-testid="tab-badge-nc"] chứa «3»', () => {
+    const w = mount(DetailTabBar, { props: { tabs: TABS_BADGE, modelValue: 'detail' } })
+    const badges = w.findAll('[data-testid="tab-badge-nc"]')
+    expect(badges).toHaveLength(1)
+    expect(badges[0].text()).toBe('3')
+  })
+
+  it('phần tử badge NẰM TRONG button[role=tab] của đúng tab đó (B1)', () => {
+    const w = mount(DetailTabBar, { props: { tabs: TABS_BADGE, modelValue: 'detail' } })
+    const btn = w.find('[data-testid="tab-nc"]')
+    expect(btn.exists()).toBe(true)
+    // Tìm badge TỪ TRONG nút — nằm ngoài nút thì find() này rỗng.
+    expect(btn.find('[data-testid="tab-badge-nc"]').exists()).toBe(true)
+    // Tên khả truy cập gộp nhãn + số (cố ý KHÔNG aria-hidden: con số là thông tin).
+    expect(btn.text().replace(/\s+/g, ' ')).toBe('Không phù hợp 3')
+  })
+
+  it('badge dạng chuỗi cũng render (vd "12+")', () => {
+    const w = mount(DetailTabBar, {
+      props: { tabs: [{ key: 'nc', label: 'Không phù hợp', badge: '12+' }], modelValue: 'nc' },
+    })
+    expect(w.find('[data-testid="tab-badge-nc"]').text()).toBe('12+')
+  })
+})
+
+describe('TC-CONNTAB-06 — badge RỖNG ⇒ KHÔNG có phần tử trong DOM (B4)', () => {
+  // 5 ca: 0 (số) · '0' (chuỗi — bẫy truthy) · '' · undefined tường minh · thiếu hẳn trường.
+  const EMPTY_CASES: { name: string; badge?: string | number }[] = [
+    { name: 'badge: 0 (số)', badge: 0 },
+    { name: "badge: '0' (chuỗi — v-if=\"tab.badge\" SAI ở ca này)", badge: '0' },
+    { name: "badge: '' (chuỗi rỗng)", badge: '' },
+    { name: 'badge: undefined tường minh', badge: undefined },
+    { name: 'thiếu hẳn trường badge' },
+  ]
+
+  for (const c of EMPTY_CASES) {
+    it(`${c.name} ⇒ 0 phần tử badge (không phải display:none)`, () => {
+      const tab: Record<string, unknown> = { key: 'nc', label: 'Không phù hợp' }
+      if ('badge' in c) tab.badge = c.badge
+      const w = mount(DetailTabBar, {
+        props: { tabs: [tab as { key: string; label: string }], modelValue: 'nc' },
+      })
+      expect(w.findAll('[data-testid="tab-badge-nc"]')).toHaveLength(0)
+      // Nhãn vẫn nguyên vẹn — badge biến mất KHÔNG được kéo theo chữ nào.
+      expect(w.find('[data-testid="tab-nc"]').text().trim()).toBe('Không phù hợp')
+    })
+  }
+})
+
+describe('TC-CONNTAB-07 — badge KHÔNG đụng hợp đồng cũ', () => {
+  it('số tab-stop không đổi: [role=tab] vẫn = số tab, mọi nút vẫn type="button"', () => {
+    const w = mount(DetailTabBar, { props: { tabs: TABS_BADGE, modelValue: 'detail' } })
+    const tabs = w.findAll('[role="tab"]')
+    expect(tabs).toHaveLength(3)
+    for (const t of tabs) expect(t.attributes('type')).toBe('button')
+  })
+
+  it('aria-selected vẫn đúng 2 chiều khi có badge', () => {
+    const w = mount(DetailTabBar, { props: { tabs: TABS_BADGE, modelValue: 'nc' } })
+    expect(w.find('[data-testid="tab-nc"]').attributes('aria-selected')).toBe('true')
+    expect(w.find('[data-testid="tab-detail"]').attributes('aria-selected')).toBe('false')
+  })
+
+  it('bấm tab CÓ badge vẫn chỉ emit 1 lần với đúng key (badge không nuốt sự kiện)', async () => {
+    const w = mount(DetailTabBar, { props: { tabs: TABS_BADGE, modelValue: 'detail' } })
+    await w.find('[data-testid="tab-badge-nc"]').trigger('click')
+    const emitted = w.emitted('update:modelValue')
+    expect(emitted).toHaveLength(1)
+    expect(emitted?.[0]).toEqual(['nc'])
+  })
+})
+
+describe('TC-CONNTAB-08 — badge giữ hợp đồng cuộn ngang mobile (TC-RWD-07)', () => {
+  it('container vẫn overflow-x-auto, nút có badge vẫn shrink-0 ∧ whitespace-nowrap', () => {
+    const w = mount(DetailTabBar, { props: { tabs: TABS_BADGE, modelValue: 'detail' } })
+    expect(w.find('[role="tablist"]').classes().join(' ')).toContain('overflow-x-auto')
+    const cls = w.find('[data-testid="tab-nc"]').classes().join(' ')
+    expect(cls).toContain('shrink-0')
+    expect(cls).toContain('whitespace-nowrap')
+  })
+})
+
+describe('TC-CONNTAB-09 — badge KHÔNG đẻ tab-stop lồng nhau (B2)', () => {
+  it('trong nút tab không có <button>/<a>/[tabindex] lồng nhau', () => {
+    const w = mount(DetailTabBar, { props: { tabs: TABS_BADGE, modelValue: 'detail' } })
+    const btn = w.find('[data-testid="tab-nc"]')
+    expect(btn.findAll('button')).toHaveLength(0)
+    expect(btn.findAll('a')).toHaveLength(0)
+    expect(btn.findAll('[tabindex]')).toHaveLength(0)
+  })
+})
