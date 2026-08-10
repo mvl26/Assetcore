@@ -14,12 +14,11 @@ import { formatDate } from '@/utils/formatters'
 import PageHeader from '@/components/common/PageHeader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import BaseModal from '@/components/common/BaseModal.vue'
-import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
+import DetailPageShell from '@/components/common/DetailPageShell.vue'
 import RecordHistory from '@/components/common/RecordHistory.vue'
 import DateInput from '@/components/common/DateInput.vue'
 import FileUploadField from '@/components/common/FileUploadField.vue'
 import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
-import DetailLoadError from '@/components/common/DetailLoadError.vue'
 import { loadErrorKind, toApiError, type DetailLoadKind } from '@/api/errors'
 
 const route = useRoute()
@@ -70,7 +69,10 @@ const showNoActionHint = computed(() =>
 // chuẩn có lối về danh sách, thay dòng chữ đỏ cụt (dead-end).
 async function load() {
   loading.value = true
+  // Xoá lỗi ở ĐẦU lượt (INV-UX4-7) — nếu không, banner lỗi cũ đứng nguyên trong lúc
+  // request mới đang bay ⇒ nút nạp lại trông như chết.
   loadFailed.value = ''
+  loadErrMsg.value = ''
   try {
     mr.value = await getManagementReview(name)
   } catch (e: unknown) {
@@ -201,21 +203,20 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="page-container animate-fade-in space-y-5">
-    <div v-if="loading" class="p-6"><SkeletonLoader variant="form" :rows="6" /></div>
-    <DetailLoadError
-      v-else-if="!mr"
-      :kind="loadFailed || 'notfound'"
-      entity-label="cuộc soát xét quản lý"
-      :record-id="name"
-      :message="loadErrMsg"
-      back-label="Về danh sách soát xét"
-      @retry="load()"
-      @back="router.push('/compliance/mr')"
-    />
-
-    <template v-else>
+  <DetailPageShell
+    :loading="loading"
+    :error-kind="loadFailed"
+    :error-message="loadErrMsg"
+    :doc="mr"
+    entity-label="cuộc soát xét quản lý"
+    :record-id="name"
+    back-label="Về danh sách soát xét"
+    @retry="load()"
+    @back="router.push('/compliance/mr')"
+  >
+    <template #header>
       <PageHeader
+        v-if="mr"
         :title="`Soát xét quản lý ${mr.quarter}`"
         :subtitle="`IMM-16 · ${mr.name}`"
         :breadcrumb="[
@@ -223,31 +224,35 @@ onMounted(load)
           { label: 'Soát xét quản lý', to: '/compliance/mr' },
           { label: mr.quarter },
         ]"
-      >
-        <template #actions>
-          <button v-if="editable" class="btn-secondary text-sm" @click="openEdit">Sửa nội dung</button>
-          <button
-            v-if="canAdvance"
-            data-testid="cta-advance"
-            class="btn-primary text-sm"
-            :disabled="api.loading.value"
-            @click="advance"
-          >{{ advanceStep?.label }}</button>
-          <button
-            v-if="canClose"
-            data-testid="cta-close"
-            class="btn-primary text-sm"
-            :disabled="api.loading.value"
-            @click="openClose"
-          >Đóng và xuất biên bản</button>
-          <span
-            v-if="showNoActionHint"
-            data-testid="no-actions-hint"
-            class="text-xs text-slate-500 italic max-w-xs text-right"
-          >Bạn không có quyền chuyển trạng thái cuộc soát xét này. Liên hệ quản trị viên hoặc Quản lý chất lượng để duyệt/đóng.</span>
-        </template>
-      </PageHeader>
+      />
+    </template>
 
+    <!-- Panel thao tác — chỉ render ở trạng thái content (INV-UX4-5): không còn
+         cảnh nút "Đóng và xuất biên bản" hiện trên khung chi tiết rỗng. -->
+    <template #actions>
+      <button v-if="editable" class="btn-secondary text-sm" @click="openEdit">Sửa nội dung</button>
+      <button
+        v-if="canAdvance"
+        data-testid="cta-advance"
+        class="btn-primary text-sm"
+        :disabled="api.loading.value"
+        @click="advance"
+      >{{ advanceStep?.label }}</button>
+      <button
+        v-if="canClose"
+        data-testid="cta-close"
+        class="btn-primary text-sm"
+        :disabled="api.loading.value"
+        @click="openClose"
+      >Đóng và xuất biên bản</button>
+      <span
+        v-if="showNoActionHint"
+        data-testid="no-actions-hint"
+        class="text-xs text-slate-500 italic max-w-xs text-right"
+      >Bạn không có quyền chuyển trạng thái cuộc soát xét này. Liên hệ quản trị viên hoặc Quản lý chất lượng để duyệt/đóng.</span>
+    </template>
+
+    <template v-if="mr">
       <div class="card p-5 space-y-4">
         <div class="flex flex-wrap items-center gap-2">
           <StatusBadge :state="mr.status" />
@@ -398,5 +403,5 @@ onMounted(load)
         <button class="btn-primary" data-testid="cta-close-confirm" :disabled="api.loading.value" @click="submitClose">Đóng soát xét</button>
       </template>
     </BaseModal>
-  </div>
+  </DetailPageShell>
 </template>

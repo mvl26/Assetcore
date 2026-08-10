@@ -12,6 +12,8 @@ import { toApiError } from '@/api/errors'
 import { rcaStatusLabel, rcaStatusClass } from '@/constants/labels'
 import { useToast } from '@/composables/useToast'
 import BaseModal from '@/components/common/BaseModal.vue'
+import DetailPageShell from '@/components/common/DetailPageShell.vue'
+import { useDetailAccess } from '@/composables/useDetailAccess'
 
 const route = useRoute()
 const router = useRouter()
@@ -19,11 +21,18 @@ const toast = useToast()
 const name = computed(() => route.params.id as string)
 
 const rca = ref<Partial<RCADetail>>({})
-const loading = ref(false)
+// INV-UX4-8 — khởi tạo `true`: nếu để `false`, khung 404 nháy đúng một nhịp trước lượt nạp.
+const loading = ref(true)
 const saving = ref(false)
 const starting = ref(false)
 const cancelling = ref(false)
+// `err` giữ nguyên nhiệm vụ CŨ: lỗi HÀNH ĐỘNG (bắt đầu / hoàn thành / huỷ). Nối nó vào
+// `:error-kind` sẽ khiến một cú bấm «Huỷ» hỏng THAY CẢ TRANG bằng banner lỗi và người dùng
+// mất luôn hồ sơ 5-Why đang gõ dở (bẫy 13.9.7).
 const err = ref('')
+// Lỗi của riêng LƯỢT NẠP — giữ NGUYÊN đối tượng để `useDetailAccess` phân loại được kind.
+const loadError = ref<unknown>(null)
+const { kind: loadKind, message: loadMsg } = useDetailAccess(() => loadError.value)
 
 // Hủy RCA — modal thay window.confirm (lý do bắt buộc, audit ở BE).
 const showCancel = ref(false)
@@ -149,6 +158,7 @@ const completeBlockedReason = computed<string>(() => {
 })
 
 async function load() {
+  loadError.value = null // INV-UX4-7 — xoá lỗi ở DÒNG ĐẦU
   loading.value = true
   err.value = ''
   fieldErrors.value = {}
@@ -164,7 +174,8 @@ async function load() {
     preventiveAction.value = res.preventive_action_summary || ''
     rcaNotes.value = res.rca_notes || ''
   } catch (e: unknown) {
-    err.value = e instanceof Error ? e.message : 'Không tải được phân tích nguyên nhân gốc'
+    loadError.value = e
+    rca.value = {} // dọn ảnh chụp cũ — không để thao tác trên dữ liệu của lượt trước
   } finally { loading.value = false }
 }
 
@@ -255,21 +266,80 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="page-container animate-fade-in space-y-5">
-    <div class="flex items-start justify-between flex-wrap gap-3">
-      <div>
-        <button class="text-sm text-slate-500 hover:text-slate-700 mb-1 focus-visible:ring-2 focus-visible:ring-emerald-500 rounded" @click="router.push(rca?.incident_report ? `/incidents/${rca.incident_report}` : '/incidents/list')">← Quay lại</button>
-        <h1 class="text-xl font-semibold text-slate-800">{{ name }}</h1>
-        <div class="flex items-center gap-2 mt-1">
-          <span data-testid="rca-status-badge" :class="['text-xs px-2 py-0.5 rounded', rcaStatusClass(rca.status ?? '')]">{{ rcaStatusLabel(rca.status ?? '') }}</span>
-          <span v-if="rca.rca_method" class="text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-700">{{ rca.rca_method }}</span>
-          <button v-if="rca.incident_report" class="text-xs text-blue-600 hover:underline font-mono focus-visible:ring-2 focus-visible:ring-emerald-500 rounded" @click="router.push(`/incidents/${rca.incident_report}`)">
-            ← {{ rca.incident_report }}
-          </button>
+  <DetailPageShell
+    :loading="loading"
+    :error-kind="loadKind"
+    :error-message="loadMsg"
+    :doc="rca.name ? rca : null"
+    entity-label="hồ sơ phân tích nguyên nhân gốc"
+    :record-id="name"
+    back-label="Về danh sách sự cố"
+    @retry="load()"
+    @back="router.push('/incidents/list')">
+    <!-- Vùng DUY NHẤT hiện ở mọi trạng thái: người dùng luôn biết đang mở hồ sơ nào. -->
+    <template #title>
+      <div class="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <button class="text-sm text-slate-500 hover:text-slate-700 mb-1 focus-visible:ring-2 focus-visible:ring-emerald-500 rounded" @click="router.push(rca?.incident_report ? `/incidents/${rca.incident_report}` : '/incidents/list')">← Quay lại</button>
+          <h1 class="text-xl font-semibold text-slate-800">{{ name }}</h1>
+          <div v-if="rca.name" class="flex items-center gap-2 mt-1">
+            <span data-testid="rca-status-badge" :class="['text-xs px-2 py-0.5 rounded', rcaStatusClass(rca.status ?? '')]">{{ rcaStatusLabel(rca.status ?? '') }}</span>
+            <span v-if="rca.rca_method" class="text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-700">{{ rca.rca_method }}</span>
+            <button v-if="rca.incident_report" class="text-xs text-blue-600 hover:underline font-mono focus-visible:ring-2 focus-visible:ring-emerald-500 rounded" @click="router.push(`/incidents/${rca.incident_report}`)">
+              ← {{ rca.incident_report }}
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+    </template>
 
+    <!-- CTA vòng đời — server-driven (allowed_transitions ∧ can_manage_rca), và CHỈ tồn tại
+         ở trạng thái content: bản ghi không đọc được ⇒ 0 nút (AC-UX-053). -->
+    <template #actions>
+      <template v-if="canStart || canComplete || canCancel">
+        <p
+          v-if="canComplete && completeBlockedReason"
+          id="rca-complete-blocked-hint"
+          data-testid="rca-complete-blocked-hint"
+          role="status"
+          class="mr-auto text-xs text-slate-500">{{ completeBlockedReason }}</p>
+        <button
+          v-if="canCancel"
+          data-testid="cta-cancel-rca"
+          :disabled="cancelling"
+          class="btn-secondary focus-visible:ring-2 focus-visible:ring-emerald-500"
+          @click="openCancel">
+          Hủy RCA
+        </button>
+        <button
+          v-if="canStart"
+          data-testid="cta-start-rca"
+          :disabled="starting"
+          class="btn-primary focus-visible:ring-2 focus-visible:ring-emerald-500"
+          @click="doStart">
+          {{ starting ? 'Đang bắt đầu...' : 'Bắt đầu phân tích RCA' }}
+        </button>
+        <button
+          v-if="canComplete"
+          data-testid="cta-complete-rca"
+          :disabled="saving || !!completeBlockedReason"
+          :title="completeBlockedReason || undefined"
+          :aria-describedby="completeBlockedReason ? 'rca-complete-blocked-hint' : undefined"
+          class="btn-primary focus-visible:ring-2 focus-visible:ring-emerald-500"
+          @click="submit">
+          {{ saving ? 'Đang gửi...' : 'Hoàn thành RCA' }}
+        </button>
+      </template>
+      <div
+        v-else-if="isTerminal"
+        data-testid="rca-terminal-banner"
+        :class="['w-full rounded-lg p-3 text-sm', rca.completed_date ? 'alert-success' : 'bg-slate-50 text-slate-600']">
+        Phân tích nguyên nhân gốc: {{ rcaStatusLabel(rca.status ?? '') }}<span v-if="rca.completed_date"> (hoàn thành ngày {{ rca.completed_date }})</span>
+      </div>
+      <p v-else class="text-sm text-slate-400">Không có hành động khả dụng cho vai trò hiện tại</p>
+    </template>
+
+    <!-- Lỗi HÀNH ĐỘNG — kênh riêng, KHÔNG thay cả trang (bẫy 13.9.7). -->
     <div v-if="err" role="alert" class="bg-red-50 text-red-700 p-3 rounded-lg text-sm">{{ err }}</div>
 
     <!-- Tóm tắt lỗi field-level: chỉ dẫn hướng, câu chi tiết nằm ngay dưới từng ô -->
@@ -283,9 +353,7 @@ onMounted(load)
       <p v-for="(msg, i) in unmappedFieldErrors" :key="`unmapped-${i}`" data-testid="rca-error-unmapped">{{ msg }}</p>
     </div>
 
-    <div v-if="loading" class="text-center text-slate-400 py-12">Đang tải...</div>
-
-    <div v-else class="bg-white rounded-xl border border-slate-200 divide-y divide-slate-100">
+    <div class="bg-white rounded-xl border border-slate-200 divide-y divide-slate-100">
       <div class="p-6">
         <div class="text-sm font-semibold text-slate-800 mb-3">Phân tích 5-Why</div>
         <p
@@ -333,7 +401,7 @@ onMounted(load)
 
       <div class="p-6 space-y-4">
         <div>
-          <label for="rca-root-cause" class="block text-sm font-medium text-slate-700 mb-1">Nguyên nhân gốc <span class="text-red-500">*</span></label>
+          <label for="rca-root-cause" class="block text-sm font-medium text-slate-700 mb-1">Nguyên nhân gốc <span class="text-danger-500">*</span></label>
           <textarea
 id="rca-root-cause" v-model="rootCause" :disabled="!canEdit" rows="2"
             :aria-invalid="rootCauseError ? 'true' : undefined"
@@ -349,7 +417,7 @@ id="rca-root-cause" v-model="rootCause" :disabled="!canEdit" rows="2"
 </p>
         </div>
         <div>
-          <label for="rca-corrective" class="block text-sm font-medium text-slate-700 mb-1">Hành động khắc phục <span class="text-red-500">*</span></label>
+          <label for="rca-corrective" class="block text-sm font-medium text-slate-700 mb-1">Hành động khắc phục <span class="text-danger-500">*</span></label>
           <textarea
 id="rca-corrective" v-model="correctiveAction" :disabled="!canEdit" rows="3"
             :aria-invalid="correctiveError ? 'true' : undefined"
@@ -402,60 +470,13 @@ id="rca-notes" v-model="rcaNotes" :disabled="!canEdit" rows="2"
         <button class="text-purple-600 hover:underline font-mono focus-visible:ring-2 focus-visible:ring-emerald-500 rounded" @click="router.push(`/capas/${rca.linked_capa}`)">{{ rca.linked_capa }}</button>
       </div>
 
-      <!-- CTA server-driven: chỉ render đích ∈ allowed_transitions ∧ can_manage_rca -->
-      <div v-if="canStart || canComplete || canCancel" class="p-6 flex flex-wrap items-center justify-end gap-2">
-        <p
-          v-if="canComplete && completeBlockedReason"
-          id="rca-complete-blocked-hint"
-          data-testid="rca-complete-blocked-hint"
-          role="status"
-          class="mr-auto text-xs text-slate-500">
-{{ completeBlockedReason }}
-</p>
-        <button
-          v-if="canCancel"
-          data-testid="cta-cancel-rca"
-          :disabled="cancelling"
-          class="btn-secondary focus-visible:ring-2 focus-visible:ring-emerald-500"
-          @click="openCancel">
-          Hủy RCA
-        </button>
-        <button
-          v-if="canStart"
-          data-testid="cta-start-rca"
-          :disabled="starting"
-          class="btn-primary focus-visible:ring-2 focus-visible:ring-emerald-500"
-          @click="doStart">
-          {{ starting ? 'Đang bắt đầu...' : 'Bắt đầu phân tích RCA' }}
-        </button>
-        <button
-          v-if="canComplete"
-          data-testid="cta-complete-rca"
-          :disabled="saving || !!completeBlockedReason"
-          :title="completeBlockedReason || undefined"
-          :aria-describedby="completeBlockedReason ? 'rca-complete-blocked-hint' : undefined"
-          class="btn-primary focus-visible:ring-2 focus-visible:ring-emerald-500"
-          @click="submit">
-          {{ saving ? 'Đang gửi...' : 'Hoàn thành RCA' }}
-        </button>
-      </div>
-      <div v-else-if="isTerminal" class="p-6">
-        <div
-          data-testid="rca-terminal-banner"
-          :class="['rounded-lg p-3 text-sm', rca.completed_date ? 'alert-success' : 'bg-slate-50 text-slate-600']">
-          Phân tích nguyên nhân gốc: {{ rcaStatusLabel(rca.status ?? '') }}<span v-if="rca.completed_date"> (hoàn thành ngày {{ rca.completed_date }})</span>
-        </div>
-      </div>
-      <div v-else class="p-6 text-sm text-slate-400">
-        Không có hành động khả dụng cho vai trò hiện tại
-      </div>
     </div>
 
     <BaseModal v-if="showCancel" title="Hủy phân tích nguyên nhân gốc" size="md" danger @close="showCancel = false">
       <div class="space-y-3">
         <p class="text-sm text-slate-600">Nhập lý do hủy. Hành động này được ghi vào nhật ký hệ thống và không thể hoàn tác.</p>
         <div>
-          <label for="rca-cancel-reason" class="block text-sm font-medium text-slate-700 mb-1">Lý do hủy <span class="text-red-500">*</span></label>
+          <label for="rca-cancel-reason" class="block text-sm font-medium text-slate-700 mb-1">Lý do hủy <span class="text-danger-500">*</span></label>
           <textarea
             id="rca-cancel-reason" v-model="cancelReason" rows="3"
             class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-emerald-500"
@@ -473,5 +494,5 @@ id="rca-notes" v-model="rcaNotes" :disabled="!canEdit" rows="2"
         </button>
       </template>
     </BaseModal>
-  </div>
+  </DetailPageShell>
 </template>

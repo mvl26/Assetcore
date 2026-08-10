@@ -21,9 +21,8 @@ import { useNotify } from '@/composables/useNotify'
 import { MSG } from '@/i18n/messages'
 import { getDecommission, approveDecommission, type DecommissionRecord } from '@/api/imm14'
 import PageHeader from '@/components/common/PageHeader.vue'
-import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
-import DetailLoadError from '@/components/common/DetailLoadError.vue'
-import { loadErrorKind, type DetailLoadKind } from '@/api/errors'
+import DetailPageShell from '@/components/common/DetailPageShell.vue'
+import { useDetailAccess } from '@/composables/useDetailAccess'
 import {
   disposalMethodLabel,
   decommissionStateLabel,
@@ -39,24 +38,31 @@ const api = useApi()
 const notify = useNotify()
 
 const record = ref<DecommissionRecord | null>(null)
-const errorMsg = ref<string | null>(null)
-// Mã hồ sơ sai / đã xoá ⇒ 404: empty-state "không tìm thấy" + lối về danh sách
-// (trước chỉ "Thử lại" — retry vô nghĩa với mã sai/đã xoá ⇒ dead-end).
-const loadFailed = ref<'' | DetailLoadKind>('')
+const loading = ref(true)                        // INV-UX4-8 — chống nháy 404 một nhịp
+// Lỗi của LƯỢT NẠP — giữ NGUYÊN đối tượng `ApiError` để `useDetailAccess` phân loại kind
+// (mạng / 403-in-envelope / 404), thay bản `loadErrorKind` cục bộ (AC-UX-053).
+const loadError = ref<unknown>(null)
+const { kind: loadKind, message: loadMsg } = useDetailAccess(() => loadError.value)
 
 async function load() {
-  errorMsg.value = null
-  loadFailed.value = ''
-  const res = await api.run(() => getDecommission(props.id), {
-    silentSuccess: true,
-    silentError: true,
-  })
-  if (res) {
-    record.value = res
-  } else {
-    loadFailed.value = loadErrorKind(api.lastError.value)
-    errorMsg.value = api.lastError.value?.message
-      ?? 'Không tải được hồ sơ giải nhiệm.'
+  loadError.value = null                         // INV-UX4-7 — xoá lỗi ở DÒNG ĐẦU
+  loading.value = true
+  try {
+    const res = await api.run(() => getDecommission(props.id), {
+      silentSuccess: true,
+      silentError: true,
+    })
+    if (res) {
+      record.value = res
+    } else {
+      // `api.run` NUỐT lỗi (silentError) ⇒ chỉ `api.lastError` mới nói được đây là lỗi THẬT.
+      // Không có lỗi mà vẫn rỗng = bản ghi không tồn tại ⇒ để shell rẽ nhánh `notfound`,
+      // KHÔNG bịa một lỗi `unknown` (sẽ mời «Thử lại» cho một mã vĩnh viễn không có).
+      loadError.value = api.lastError.value ?? null
+      record.value = null                        // dọn ảnh chụp cũ
+    }
+  } finally {
+    loading.value = false
   }
 }
 
@@ -117,35 +123,63 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="page-container animate-fade-in">
-    <PageHeader
-      back-to="/decommissions"
-      back-label="← Biên bản giải nhiệm"
-      title="Hồ sơ giải nhiệm"
-      :subtitle="record ? `Số hồ sơ: ${record.name}` : ''"
-      :breadcrumb="[
-        { label: 'IMM-14 · Giải nhiệm thiết bị' },
-        { label: 'Biên bản giải nhiệm', to: '/decommissions' },
-        { label: record?.name || id },
-      ]"
-    />
+  <DetailPageShell
+    :loading="loading"
+    :error-kind="loadKind"
+    :error-message="loadMsg"
+    :doc="record"
+    entity-label="hồ sơ giải nhiệm"
+    :record-id="props.id"
+    back-label="Về danh sách giải nhiệm"
+    @retry="load()"
+    @back="router.push('/decommissions')">
+    <template #title>
+      <PageHeader
+        back-to="/decommissions"
+        back-label="← Biên bản giải nhiệm"
+        title="Hồ sơ giải nhiệm"
+        :subtitle="record ? `Số hồ sơ: ${record.name}` : ''"
+        :breadcrumb="[
+          { label: 'IMM-14 · Giải nhiệm thiết bị' },
+          { label: 'Biên bản giải nhiệm', to: '/decommissions' },
+          { label: record?.name || id },
+        ]"
+      />
+    </template>
 
-    <!-- Tri-branch: loading / error / data -->
-    <div v-if="api.loading.value && !record" class="card p-6">
-      <SkeletonLoader variant="form" :rows="6" />
-    </div>
-    <DetailLoadError
-      v-else-if="errorMsg"
-      :kind="loadFailed || 'unknown'"
-      entity-label="hồ sơ giải nhiệm"
-      :record-id="props.id"
-      :message="errorMsg"
-      back-label="Về danh sách giải nhiệm"
-      @retry="load()"
-      @back="router.push('/decommissions')"
-    />
+    <!-- CTA duyệt (server-driven `can_approve`) — CHỈ tồn tại ở trạng thái content. -->
+    <template #actions>
+      <button
+        class="text-sm text-brand-600 hover:text-brand-700 font-medium underline focus-visible:ring-2 focus-visible:ring-emerald-500 rounded"
+        data-testid="cta-open-asset"
+        aria-label="Mở hồ sơ thiết bị liên quan"
+        @click="goAsset"
+      >Xem hồ sơ thiết bị →</button>
 
-    <template v-else-if="record">
+      <div class="ml-auto flex items-center gap-3">
+        <div v-if="canApprove" class="flex flex-col items-end gap-1">
+          <button
+            class="btn-primary text-sm focus-visible:ring-2 focus-visible:ring-emerald-500"
+            data-testid="cta-approve"
+            aria-describedby="cta-approve-desc"
+            :disabled="api.loading.value"
+            @click="approve"
+          >Duyệt giải nhiệm</button>
+          <p id="cta-approve-desc" class="text-xs text-slate-400">
+            Duyệt sẽ chuyển thiết bị sang trạng thái Đã thanh lý (không thể hoàn tác).
+          </p>
+        </div>
+        <!-- Không đủ điều kiện duyệt → hint lý do (no dead-control). -->
+        <p
+          v-else-if="showNoActionsHint"
+          class="text-sm text-slate-500 italic max-w-md text-right"
+          data-testid="no-actions-hint"
+          role="note"
+        >{{ approveBlockedReason }}</p>
+      </div>
+    </template>
+
+    <template v-if="record">
       <!-- Header hồ sơ + badge trạng thái -->
       <div class="card p-5 mb-5">
         <div class="flex flex-wrap items-start justify-between gap-3">
@@ -197,39 +231,6 @@ onMounted(load)
           </div>
         </dl>
       </div>
-
-      <!-- Hành động duyệt (server-driven) + liên kết phụ tới thiết bị -->
-      <div class="card p-5 flex flex-wrap items-center justify-between gap-3">
-        <!-- Liên kết phụ: mở hồ sơ thiết bị (KHÔNG lộ mã asset thô làm nhãn) -->
-        <button
-          class="text-sm text-brand-600 hover:text-brand-700 font-medium underline focus-visible:ring-2 focus-visible:ring-emerald-500 rounded"
-          aria-label="Mở hồ sơ thiết bị liên quan"
-          @click="goAsset"
-        >Xem hồ sơ thiết bị →</button>
-
-        <div class="flex items-center gap-3">
-          <!-- CTA duyệt: CHỈ khi can_approve===1 (server-driven). -->
-          <div v-if="canApprove" class="flex flex-col items-end gap-1">
-            <button
-              class="btn-primary text-sm focus-visible:ring-2 focus-visible:ring-emerald-500"
-              data-testid="cta-approve"
-              aria-describedby="cta-approve-desc"
-              :disabled="api.loading.value"
-              @click="approve"
-            >Duyệt giải nhiệm</button>
-            <p id="cta-approve-desc" class="text-xs text-slate-400">
-              Duyệt sẽ chuyển thiết bị sang trạng thái Đã thanh lý (không thể hoàn tác).
-            </p>
-          </div>
-          <!-- Không đủ điều kiện duyệt → hint lý do (no dead-control). -->
-          <p
-            v-else-if="showNoActionsHint"
-            class="text-sm text-slate-500 italic max-w-md text-right"
-            data-testid="no-actions-hint"
-            role="note"
-          >{{ approveBlockedReason }}</p>
-        </div>
-      </div>
     </template>
-  </div>
+  </DetailPageShell>
 </template>

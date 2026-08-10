@@ -11,7 +11,8 @@ import { useApi } from '@/composables/useApi'
 import type { CapaDetail, CapaWorkflowState } from '@/api/imm16'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import BaseModal from '@/components/common/BaseModal.vue'
-import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
+import DetailPageShell from '@/components/common/DetailPageShell.vue'
+import { loadErrorKind, toApiError, type DetailLoadKind } from '@/api/errors'
 import DateInput from '@/components/common/DateInput.vue'
 import FileUploadField from '@/components/common/FileUploadField.vue'
 import RecordHistory from '@/components/common/RecordHistory.vue'
@@ -77,13 +78,25 @@ const showNoActionsHint = computed(() => !isClosed.value && !hasWorkflowActions.
 // Fallback về wfState nếu BE chưa trả status (an toàn, không vỡ layout cũ).
 const lifecycleStatus = computed<string>(() => capa.value?.status || wfState.value)
 
-const loadError = ref('')
+// Phân loại lỗi nạp THẬT (CR-74 / vòng 4): 403 in-envelope ⇒ 'forbidden' (không nút
+// nạp lại — quyền không đổi khi bấm lại), 404/mã sai ⇒ 'notfound', mạng/500 ⇒ 'unknown'.
+// Trước đây mọi lỗi bị gộp thành MỘT chuỗi phẳng rồi dán nhãn "Không tìm thấy" ⇒ mất
+// mạng cũng báo như mã sai, lại không có lối thoát nào.
+// '' = nạp OK.
+const loadFailed = ref<'' | DetailLoadKind>('')
+const loadErrMsg = ref('')
 async function load() {
   loading.value = true
+  // Xoá lỗi ở ĐẦU lượt (INV-UX4-7): lỗi thắng loading nên nếu không xoá, nút nạp lại
+  // trông như chết (banner cũ đứng yên trong lúc request mới đang bay).
+  loadFailed.value = ''
+  loadErrMsg.value = ''
   try {
     capa.value = await store.fetchCapaDetail(name)
-  } catch (e) {
-    loadError.value = e instanceof Error ? e.message : 'Không tải được hành động khắc phục/phòng ngừa'
+  } catch (e: unknown) {
+    loadFailed.value = loadErrorKind(e)
+    loadErrMsg.value = toApiError(e).message
+    capa.value = null
   } finally {
     loading.value = false
   }
@@ -170,18 +183,27 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="page-container animate-fade-in space-y-5">
-    <div class="flex items-center gap-3">
-      <button class="text-slate-500 hover:text-slate-700 text-sm" @click="router.push('/capas')">← Quay lại</button>
-      <h1 class="text-xl font-semibold text-slate-800">Chi tiết hành động khắc phục/phòng ngừa</h1>
-    </div>
+  <DetailPageShell
+    :loading="loading"
+    :error-kind="loadFailed"
+    :error-message="loadErrMsg"
+    :doc="capa"
+    entity-label="hành động khắc phục/phòng ngừa"
+    :record-id="name"
+    back-label="Về danh sách hành động khắc phục/phòng ngừa"
+    @retry="load()"
+    @back="router.push('/capas')"
+  >
+    <!-- Tiêu đề — hiện ở MỌI trạng thái ⇒ tuyệt đối KHÔNG deref `capa` (INV-UX4-12). -->
+    <template #title>
+      <div class="flex items-center gap-3">
+        <button class="text-slate-500 hover:text-slate-700 text-sm" @click="router.push('/capas')">← Quay lại</button>
+        <h1 class="text-xl font-semibold text-slate-800">Chi tiết hành động khắc phục/phòng ngừa</h1>
+      </div>
+    </template>
 
-    <div v-if="loading" class="p-6"><SkeletonLoader variant="form" :rows="6" /></div>
-    <div v-else-if="!capa" class="text-center text-red-500 py-12">{{ loadError || 'Không tìm thấy hành động khắc phục/phòng ngừa' }}</div>
-
-    <template v-else>
-      <!-- Header -->
-      <div class="card p-5 space-y-3">
+    <template #header>
+      <div v-if="capa" class="card p-5 space-y-3">
         <div class="flex items-start justify-between gap-4">
           <div>
             <p class="text-xs text-slate-400 font-mono">{{ capa.name }}</p>
@@ -239,9 +261,13 @@ onMounted(load)
           </div>
         </div>
       </div>
+    </template>
 
-      <!-- Actions bar — server-driven CTA (allowed_transitions), KHÔNG hardcode -->
-      <div class="card p-4 flex flex-wrap items-center gap-2">
+    <!-- Panel thao tác — server-driven CTA (allowed_transitions), KHÔNG hardcode.
+         Shell CHỈ render slot này ở trạng thái content ⇒ không còn cảnh bấm nút vòng
+         đời trên bản ghi không tồn tại (nợ ghi trong DetailLoadError.vue:7). -->
+    <template #actions>
+      <template v-if="capa">
         <button v-if="isEditable" class="btn-secondary text-sm" data-testid="cta-edit" @click="openEdit">Sửa nội dung</button>
         <button
           v-for="t in transitions" :key="t.target"
@@ -255,8 +281,10 @@ onMounted(load)
         <button v-if="canReopenCapa" class="btn-ghost text-sm" data-testid="cta-reopen" :disabled="api.loading.value" @click="effResult = 'Not Effective'; showEffectiveness = true">Mở lại do chưa hiệu quả</button>
         <span v-if="isClosed" class="text-sm text-green-700 bg-green-50 border border-green-200 rounded px-3 py-1">Hành động khắc phục/phòng ngừa đã đóng — {{ formatDate(capa.closed_date) }}</span>
         <span v-else-if="showNoActionsHint" class="text-sm text-slate-500 bg-slate-50 border border-slate-200 rounded px-3 py-1" data-testid="no-actions-hint">Không có thao tác khả dụng ở trạng thái này (hoặc bạn không đủ quyền).</span>
-      </div>
+      </template>
+    </template>
 
+    <template v-if="capa">
       <!-- QMS content -->
       <div class="card p-5 grid grid-cols-1 md:grid-cols-2 gap-5">
         <div>
@@ -386,5 +414,5 @@ onMounted(load)
         >{{ effResult === 'Effective' ? 'Xác nhận & Đóng hành động khắc phục/phòng ngừa' : 'Xác nhận (Mở lại)' }}</button>
       </template>
     </BaseModal>
-  </div>
+  </DetailPageShell>
 </template>

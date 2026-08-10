@@ -10,10 +10,9 @@ import type { ComplianceRule } from '@/api/imm16'
 import PageHeader from '@/components/common/PageHeader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import BaseModal from '@/components/common/BaseModal.vue'
-import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import RecordHistory from '@/components/common/RecordHistory.vue'
-import DetailLoadError from '@/components/common/DetailLoadError.vue'
-import { loadErrorKind, toApiError, type DetailLoadKind } from '@/api/errors'
+import DetailPageShell from '@/components/common/DetailPageShell.vue'
+import { useDetailAccess } from '@/composables/useDetailAccess'
 import { translateFrequency } from '@/utils/formatters'
 
 const route = useRoute()
@@ -24,9 +23,10 @@ const name = route.params.id as string
 
 const rule = ref<ComplianceRule | null>(null)
 const loading = ref(true)
-// '' = nạp OK; 'notfound' = mã quy tắc không tồn tại (404); 'unknown' = lỗi khác.
-const loadFailed = ref<'' | DetailLoadKind>('')
-const loadErrMsg = ref('')
+// Lỗi của LƯỢT NẠP — ref RIÊNG, giữ NGUYÊN đối tượng lỗi để `useDetailAccess` phân loại
+// được kind (mạng / 403-in-envelope / 404). KHÔNG dùng chung với lỗi hành động.
+const loadError = ref<unknown>(null)
+const { kind: loadKind, message: loadMsg } = useDetailAccess(() => loadError.value)
 const historyRef = ref<InstanceType<typeof RecordHistory> | null>(null)
 
 const CATEGORIES = ['Document', 'PM', 'Calibration', 'Training', 'Stock', 'SLA', 'Safety']
@@ -36,13 +36,12 @@ const FREQS = ['Realtime', 'Hourly', 'Daily', 'Weekly', 'Monthly', 'Quarterly']
 // Mã quy tắc sai / đã xoá ⇒ 404: KHÔNG để ApiError nổi lên console và KHÔNG dừng
 // ở dòng chữ đỏ cụt — render empty-state chuẩn kèm lối về danh sách quy tắc.
 async function load() {
+  loadError.value = null // INV-UX4-7 — xoá lỗi ở DÒNG ĐẦU, nếu không nút «Thử lại» trông như chết
   loading.value = true
-  loadFailed.value = ''
   try {
     rule.value = await store.fetchRule(name)
   } catch (e: unknown) {
-    loadFailed.value = loadErrorKind(e)
-    loadErrMsg.value = toApiError(e).message
+    loadError.value = e
     rule.value = null
   } finally {
     loading.value = false
@@ -143,40 +142,45 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="page-container animate-fade-in space-y-5">
-    <div v-if="loading" class="p-6"><SkeletonLoader variant="form" :rows="6" /></div>
-    <DetailLoadError
-      v-else-if="!rule"
-      :kind="loadFailed || 'notfound'"
-      entity-label="quy tắc tuân thủ"
-      :record-id="name"
-      :message="loadErrMsg"
-      back-label="Về danh sách quy tắc"
-      @retry="load()"
-      @back="router.push('/compliance/rules')"
-    />
-
-    <template v-else>
+  <DetailPageShell
+    :loading="loading"
+    :error-kind="loadKind"
+    :error-message="loadMsg"
+    :doc="rule"
+    entity-label="quy tắc tuân thủ"
+    :record-id="name"
+    back-label="Về danh sách quy tắc"
+    @retry="load()"
+    @back="router.push('/compliance/rules')">
+    <!-- Vùng DUY NHẤT hiện ở mọi trạng thái ⇒ luôn biết đang ở màn nào, kể cả khi 404. -->
+    <template #title>
       <PageHeader
-        :title="rule.rule_name"
-        :subtitle="`IMM-16 · Quy tắc tuân thủ — ${rule.rule_code}`"
+        :title="rule?.rule_name || 'Chi tiết quy tắc tuân thủ'"
+        :subtitle="`IMM-16 · Quy tắc tuân thủ — ${rule?.rule_code || name}`"
         :breadcrumb="[
           { label: 'IMM-16 · Theo dõi tuân thủ', to: '/compliance/scorecard' },
           { label: 'Quy tắc', to: '/compliance/rules' },
-          { label: rule.rule_code },
+          { label: rule?.rule_code || name },
         ]"
-      >
-        <template #actions>
-          <button class="btn-secondary text-sm" @click="openEdit">Sửa</button>
-          <button class="btn-primary text-sm" @click="openVersion">Tạo phiên bản mới</button>
-          <button
-            class="text-sm font-medium px-3 py-1.5 rounded-lg border"
-            :class="rule.is_active ? 'text-red-600 border-red-200 hover:bg-red-50' : 'text-emerald-700 border-emerald-200 hover:bg-emerald-50'"
-            @click="toggleActive"
-          >{{ rule.is_active ? 'Ngừng áp dụng' : 'Kích hoạt lại' }}</button>
-        </template>
-      </PageHeader>
+      />
+    </template>
 
+    <!-- CHỈ render ở trạng thái content ⇒ 0 nút chết khi bản ghi không đọc được. -->
+    <template #actions>
+      <button class="btn-secondary text-sm" data-testid="cta-edit" @click="openEdit">Sửa</button>
+      <button class="btn-primary text-sm" data-testid="cta-new-version" @click="openVersion">
+        Tạo phiên bản mới
+      </button>
+      <button
+        v-if="rule"
+        class="text-sm font-medium px-3 py-1.5 rounded-lg border"
+        data-testid="cta-toggle-active"
+        :class="rule.is_active ? 'text-red-600 border-red-200 hover:bg-red-50' : 'text-emerald-700 border-emerald-200 hover:bg-emerald-50'"
+        @click="toggleActive"
+      >{{ rule.is_active ? 'Ngừng áp dụng' : 'Kích hoạt lại' }}</button>
+    </template>
+
+    <template v-if="rule">
       <div class="card p-5 space-y-4">
         <div class="flex flex-wrap items-center gap-2">
           <StatusBadge :state="rule.severity" />
@@ -213,7 +217,8 @@ onMounted(load)
       <RecordHistory ref="historyRef" ref-doctype="IMM Compliance Rule" :ref-name="rule.name" />
     </template>
 
-    <!-- Edit modal -->
+    <!-- Edit modal — nằm TRONG nhánh content: hộp thoại chỉ mở được từ CTA, mà CTA
+         không tồn tại ngoài trạng thái có-dữ-liệu. -->
     <BaseModal v-if="showEdit" title="Sửa quy tắc" size="lg" @close="showEdit = false">
       <div class="space-y-3">
         <div class="form-group">
@@ -277,5 +282,5 @@ onMounted(load)
         <button class="btn-primary" :disabled="api.loading.value" @click="saveVersion">Tạo phiên bản</button>
       </template>
     </BaseModal>
-  </div>
+  </DetailPageShell>
 </template>

@@ -8,6 +8,8 @@ import StatusBadge from '@/components/common/StatusBadge.vue'
 import BaseModal from '@/components/common/BaseModal.vue'
 import { useApi } from '@/composables/useApi'
 import { useNotify } from '@/composables/useNotify'
+import DetailPageShell from '@/components/common/DetailPageShell.vue'
+import { loadErrorKind, toApiError, type DetailLoadKind } from '@/api/errors'
 
 const props = defineProps<{ id: string }>()
 const router = useRouter()
@@ -15,15 +17,24 @@ const { run, loading: acting } = useApi()
 const notify = useNotify()
 
 const fcr = ref<FirmwareCR | null>(null)
-const loading = ref(false)
-const err = ref('')
+const loading = ref(true)
+/**
+ * Thay `err` phẳng cũ: một chuỗi không phân biệt được 404 (mã sai) / 403 (thiếu quyền)
+ * / mạng ⇒ người dùng nhận cùng một dòng chữ đỏ cụt, không có lối nạp lại.
+ */
+const loadKind = ref<'' | DetailLoadKind>('')
+const loadMsg = ref('')
 
 async function load() {
-  loading.value = true; err.value = ''
+  loadKind.value = ''   // DÒNG ĐẦU — xoá lỗi lượt trước (INV-UX4-7)
+  loadMsg.value = ''
+  loading.value = true
   try {
     fcr.value = await getFirmwareCr(props.id)
   } catch (e: unknown) {
-    err.value = e instanceof Error ? e.message : 'Không tải được dữ liệu'
+    loadKind.value = loadErrorKind(e)
+    loadMsg.value = toApiError(e).message
+    fcr.value = null
   } finally { loading.value = false }
 }
 
@@ -115,27 +126,83 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="page-container animate-fade-in space-y-5">
-    <PageHeader
-      :title="fcr ? `Cập nhật Firmware — ${fcr.asset_name || fcr.asset_ref}` : (props.id ?? 'Yêu cầu cập nhật firmware')"
-      :subtitle="fcr ? fcr.name : 'Yêu cầu cập nhật firmware'"
-      :back-to="'/cm/firmware'"
-      back-label="← Danh sách yêu cầu thay đổi firmware"
-      :breadcrumb="[
-        { label: 'IMM-09 · Sửa chữa', to: '/cm/dashboard' },
-        { label: 'Firmware', to: '/cm/firmware' },
-        { label: props.id },
-      ]"
-    >
-      <template #actions>
-        <StatusBadge v-if="fcr?.status" :state="fcr.status" size="md" />
-      </template>
-    </PageHeader>
+  <DetailPageShell
+    :loading="loading"
+    :error-kind="loadKind"
+    :error-message="loadMsg"
+    :doc="fcr"
+    entity-label="yêu cầu thay đổi firmware"
+    :record-id="props.id"
+    back-label="Về danh sách yêu cầu thay đổi firmware"
+    @retry="load()"
+    @back="router.push('/cm/firmware')">
+    <!-- Tiêu đề null-safe (chỉ `props.id` khi chưa có bản ghi) ⇒ đặt ở #title để hiện
+         ở MỌI trạng thái: người dùng luôn biết đang mở mã nào, kể cả khi 404. -->
+    <template #title>
+      <PageHeader
+        :title="fcr ? `Cập nhật Firmware — ${fcr.asset_name || fcr.asset_ref}` : (props.id ?? 'Yêu cầu cập nhật firmware')"
+        :subtitle="fcr ? fcr.name : 'Yêu cầu cập nhật firmware'"
+        :back-to="'/cm/firmware'"
+        back-label="← Danh sách yêu cầu thay đổi firmware"
+        :breadcrumb="[
+          { label: 'IMM-09 · Sửa chữa', to: '/cm/dashboard' },
+          { label: 'Firmware', to: '/cm/firmware' },
+          { label: props.id },
+        ]"
+      >
+        <template #actions>
+          <StatusBadge v-if="fcr?.status" :state="fcr.status" size="md" />
+        </template>
+      </PageHeader>
+    </template>
 
-    <div v-if="loading" class="bg-white rounded-xl border p-10 text-center text-slate-400">Đang tải…</div>
-    <div v-else-if="err" class="bg-red-50 text-red-700 text-sm p-4 rounded-xl border border-red-200">{{ err }}</div>
+    <!-- Actions — gate 100% theo allowed_transitions + can_approve (server-driven,
+         GATE-8/LL-FE-51). KHÔNG hardcode fcr.status==='X' trên nút.
+         Nằm trong #actions ⇒ shell tắt cả cụm ngoài trạng thái có-dữ-liệu. -->
+    <template #actions>
+      <button
+        class="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+        @click="router.push('/cm/firmware')"
+      >
+        Quay lại
+      </button>
+      <button
+        v-if="canRollback"
+        data-testid="cta-rollback"
+        :disabled="acting"
+        class="px-4 py-2 border border-red-300 text-red-700 rounded-lg text-sm hover:bg-red-50 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
+        @click="openRollback"
+      >
+        Khôi phục firmware
+      </button>
+      <button
+        v-if="canApprove"
+        data-testid="cta-approve"
+        :disabled="acting"
+        class="btn-primary text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+        @click="approve"
+      >
+        {{ acting ? 'Đang xử lý…' : 'Phê duyệt' }}
+      </button>
+      <button
+        v-if="canDeploy"
+        data-testid="cta-deploy"
+        :disabled="acting"
+        class="btn-primary text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+        @click="markDeployed"
+      >
+        {{ acting ? 'Đang xử lý…' : 'Đã triển khai' }}
+      </button>
+      <p
+        v-if="!canApprove && !canDeploy && !canRollback"
+        class="text-xs text-gray-400"
+        data-testid="no-actions-hint"
+      >
+        Không có hành động khả dụng cho vai trò / trạng thái hiện tại.
+      </p>
+    </template>
 
-    <template v-else-if="fcr">
+    <template v-if="fcr">
       <!-- Workflow steps card -->
       <div class="bg-white rounded-xl border border-slate-200 p-5">
 
@@ -228,54 +295,8 @@ v-if="idx < workflowSteps.length - 1"
         </div>
       </div>
 
-      <!-- Actions — gate 100% theo allowed_transitions + can_approve (server-driven,
-           GATE-8/LL-FE-51). KHÔNG hardcode fcr.status==='X' trên nút. -->
-      <div class="flex flex-wrap items-center justify-end gap-3">
-        <button
-          class="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
-          @click="router.push('/cm/firmware')"
-        >
-          Quay lại
-        </button>
-        <button
-          v-if="canRollback"
-          data-testid="cta-rollback"
-          :disabled="acting"
-          class="px-4 py-2 border border-red-300 text-red-700 rounded-lg text-sm hover:bg-red-50 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
-          @click="openRollback"
-        >
-          Khôi phục firmware
-        </button>
-        <button
-          v-if="canApprove"
-          data-testid="cta-approve"
-          :disabled="acting"
-          class="btn-primary text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
-          @click="approve"
-        >
-          {{ acting ? 'Đang xử lý…' : 'Phê duyệt' }}
-        </button>
-        <button
-          v-if="canDeploy"
-          data-testid="cta-deploy"
-          :disabled="acting"
-          class="btn-primary text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
-          @click="markDeployed"
-        >
-          {{ acting ? 'Đang xử lý…' : 'Đã triển khai' }}
-        </button>
-        <p
-          v-if="!canApprove && !canDeploy && !canRollback"
-          class="text-xs text-gray-400"
-          data-testid="no-actions-hint"
-        >
-          Không có hành động khả dụng cho vai trò / trạng thái hiện tại.
-        </p>
-      </div>
-    </template>
-
-    <!-- Rollback modal — thu thập lý do khôi phục (audit NĐ98) -->
-    <BaseModal v-if="showRollback" title="Khôi phục firmware" danger @close="showRollback = false">
+      <!-- Rollback modal — thu thập lý do khôi phục (audit NĐ98) -->
+      <BaseModal v-if="showRollback" title="Khôi phục firmware" danger @close="showRollback = false">
       <div class="space-y-3 text-sm">
         <p class="text-gray-600">
           Ghi nhận khôi phục phiên bản firmware về trạng thái trước. Hành động này được
@@ -283,7 +304,7 @@ v-if="idx < workflowSteps.length - 1"
         </p>
         <div>
           <label for="rollback-reason" class="block text-xs font-medium text-gray-500 mb-1">
-            Lý do khôi phục <span class="text-red-500">*</span>
+            Lý do khôi phục <span class="text-danger-500">*</span>
           </label>
           <textarea
             id="rollback-reason"
@@ -313,6 +334,7 @@ v-if="idx < workflowSteps.length - 1"
           {{ acting ? 'Đang xử lý…' : 'Xác nhận khôi phục' }}
         </button>
       </template>
-    </BaseModal>
-  </div>
+      </BaseModal>
+    </template>
+  </DetailPageShell>
 </template>

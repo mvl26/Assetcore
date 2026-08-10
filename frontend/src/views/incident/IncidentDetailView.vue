@@ -9,14 +9,13 @@ import { ApiError } from '@/api/errors'
 import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
 import WorkflowStepper from '@/components/common/WorkflowStepper.vue'
 import RelatedRecords from '@/components/common/RelatedRecords.vue'
-import DetailTabBar from '@/components/common/DetailTabBar.vue'
+import DetailPageShell from '@/components/common/DetailPageShell.vue'
 import SlaBreachBadge from '@/components/incident/SlaBreachBadge.vue'
 import { useToast } from '@/composables/useToast'
 import { useNotify } from '@/composables/useNotify'
 import { useAuthStore } from '@/stores/auth'
 import { useCapabilities } from '@/composables/useCapabilities'
 import { useDetailAccess } from '@/composables/useDetailAccess'
-import DetailLoadError from '@/components/common/DetailLoadError.vue'
 import { sanitizeHtml } from '@/utils/sanitizeHtml'
 import { incidentStatusLabel, incidentStatusClass, incidentSeverityLabel, incidentSeverityClass, incidentTypeLabel, rcaStatusLabel } from '@/constants/labels'
 
@@ -33,7 +32,8 @@ const name = computed(() => route.params.id as string)
 
 // Tab màn chi tiết — «Bản ghi liên quan» mount LƯỜI (panel v-if) nên mở phiếu KHÔNG
 // còn bắn `get_connections`; panel chính dùng v-show để giữ nguyên dữ liệu đang nhập.
-const activeTab = ref<'detail' | 'related'>('detail')
+// `ref<string>` (bẫy 13.9.3): prop/emit `active-tab` của shell khai `string`.
+const activeTab = ref<string>('detail')
 const DETAIL_TABS = [
   { key: 'detail', label: 'Chi tiết' },
   { key: 'related', label: 'Bản ghi liên quan' },
@@ -64,9 +64,10 @@ const err = ref('')
 // cho mình → {success:false, code:'FORBIDDEN'} ⇒ hiện message THẬT của server,
 // KHÔNG logout/redirect login (đó là dispatcher-403 của axios interceptor).
 const loadErr = ref<unknown>(null)
+// Destructure ĐỔI TÊN (bẫy 13.9.1). `blocked` không còn cần ở template: nhánh `content`
+// của shell CHÍNH LÀ điều kiện đó ⇒ «0 nút chết» đúng bằng CẤU TRÚC.
 const {
   kind: loadErrorKindRef,
-  blocked: loadBlocked,
   message: loadErrMsg,
 } = useDetailAccess(() => loadErr.value)
 
@@ -406,15 +407,26 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 </script>
 
 <template>
-  <div class="page-container animate-fade-in space-y-5">
-    <!-- Header -->
-    <div class="flex items-start justify-between flex-wrap gap-3">
+  <DetailPageShell
+    :loading="loading"
+    :error-kind="loadErrorKindRef"
+    :error-message="loadErrMsg"
+    :doc="form.name ? form : null"
+    entity-label="phiếu sự cố"
+    :record-id="name"
+    back-label="Về danh sách sự cố"
+    :tabs="DETAIL_TABS"
+    v-model:active-tab="activeTab"
+    @retry="load()"
+    @back="router.push('/incidents/list')">
+    <template #title>
+      <div class="flex items-start justify-between flex-wrap gap-3">
       <div>
         <button class="text-sm text-slate-500 hover:text-slate-700 mb-1" @click="router.push('/incidents/list')">← Danh sách Sự cố</button>
         <h1 class="text-xl font-semibold text-slate-800">{{ name }}</h1>
         <!-- CR-74: phiếu bị từ chối đọc ⇒ KHÔNG render badge rỗng (mức độ/trạng thái
              trống trơn trông như "phiếu mất dữ liệu" thay vì "không có quyền"). -->
-        <div v-if="!loadBlocked" class="flex items-center gap-2 mt-1 flex-wrap">
+        <div v-if="form.name" class="flex items-center gap-2 mt-1 flex-wrap">
           <span :class="['px-2 py-0.5 rounded text-xs font-medium', incidentSeverityClass(form.severity ?? '')]">{{ incidentSeverityLabel(form.severity ?? '') }}</span>
           <span :class="['px-2 py-0.5 rounded text-xs font-medium', incidentStatusClass(form.status ?? '')]">
             {{ incidentStatusLabel(form.status ?? '') }}
@@ -428,25 +440,30 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
             title="Bắt buộc có RCA Hoàn thành trước khi đóng (BR-12-02)">Cần RCA</span>
         </div>
       </div>
+      </div>
+    </template>
 
-      <!-- Workflow actions — CR-74: nạp phiếu bị từ chối (403/404) ⇒ KHÔNG render
-           bất kỳ CTA nào (chặn dead-control ngay ở cấp container, không phụ thuộc
-           từng canXxx nhớ kiểm tra). -->
-      <div v-if="!loadBlocked" class="flex gap-2 flex-wrap">
+    <!-- CTA vòng đời — nằm trong slot `#actions` nên CHỈ tồn tại ở trạng thái content.
+         `v-if="!loadBlocked"` cũ biến mất: điều kiện đó nay là CẤU TRÚC của shell, không
+         còn là thứ mỗi màn phải nhớ (AC-UX-053). -->
+    <template #actions>
         <button
 v-if="canAcknowledge"
+          data-testid="cta-acknowledge"
           class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
           @click="showAckModal = true">
           Tiếp nhận
         </button>
         <button
 v-if="canStartWork"
+          data-testid="cta-start"
           class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
           @click="showStartModal = true">
           Bắt đầu xử lý
         </button>
         <button
 v-if="canResolve"
+          data-testid="cta-resolve"
           class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
           @click="showResolveModal = true">
           Đánh dấu đã giải quyết
@@ -456,6 +473,7 @@ v-if="canResolve"
              aria-describedby (WCAG). BE close_incident là chốt chặn cuối cùng. -->
         <div v-if="canClose" class="flex flex-col items-end gap-1">
           <button
+            data-testid="cta-close"
             :disabled="rcaGateBlocked"
             :aria-describedby="rcaGateBlocked ? 'close-rca-hint' : undefined"
             :title="rcaGateBlocked ? RCA_CLOSE_HINT : undefined"
@@ -472,66 +490,57 @@ v-if="canResolve"
         </div>
         <button
 v-if="canRequestRca"
+          data-testid="cta-request-rca"
           class="bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-lg text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
           @click="showRequestRcaModal = true">
           Yêu cầu phân tích nguyên nhân gốc
         </button>
         <button
 v-if="canReopen"
+          data-testid="cta-reopen"
           class="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
           @click="showReopenModal = true">
           Mở lại điều tra
         </button>
         <button
 v-if="canCancel"
+          data-testid="cta-cancel"
           class="bg-slate-500 hover:bg-slate-600 text-white px-4 py-2 rounded-lg text-sm font-medium"
           @click="showCancelModal = true">
           Hủy (báo nhầm)
         </button>
         <button
 v-if="canDelete"
-          class="text-red-500 hover:text-red-700 text-sm font-medium px-3 py-2"
+          data-testid="cta-delete"
+          class="text-danger-500 hover:text-danger-700 text-sm font-medium px-3 py-2"
           @click="remove">
 Xóa
 </button>
-      </div>
-    </div>
+    </template>
+
 
     <!-- Workflow stepper -->
-    <div v-if="!loading && form.status" class="bg-white rounded-xl border border-slate-200 p-4">
+    <!-- `!loading &&` cũ đã thừa: cả khối này nằm trong nhánh `content` của shell. -->
+    <div v-if="form.status" class="bg-white rounded-xl border border-slate-200 p-4">
       <WorkflowStepper :steps="stepperSteps" :current="form.status" :label-for="incidentStatusLabel" />
     </div>
 
-    <!-- Thanh tab: GIỮ NGUYÊN điều kiện gác cũ của khối liên quan (`!loading && form.status`)
-         ⇒ chưa tải xong / bị chặn đọc thì KHÔNG có nút tab chết. -->
-    <DetailTabBar v-if="!loading && form.status" v-model="activeTab" :tabs="DETAIL_TABS" />
-
+    <!-- Thanh tab HOISTING lên prop shell (ADR-UX-25). `v-if="!loading && form.status"` cũ
+         BIẾN MẤT: nhánh `content` của shell đã bao hàm đúng điều kiện đó — đừng tái tạo
+         `v-if` bù (bẫy 13.9.10). -->
     <div v-show="activeTab === 'detail'" data-testid="tab-panel-detail" class="space-y-5">
     <!-- SLA + NĐ98 banner khi ảnh hưởng bệnh nhân -->
-    <div v-if="!loading && form.patient_affected" class="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-800 space-y-1">
+    <div v-if="form.patient_affected" class="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-800 space-y-1">
       <div><strong>Ảnh hưởng bệnh nhân:</strong> {{ form.patient_impact_description || 'Có ảnh hưởng (chưa mô tả chi tiết)' }}</div>
       <div v-if="form.linked_repair_wo">Đã sinh lệnh sửa chữa: <strong>{{ form.linked_repair_wo }}</strong> — thiết bị chuyển Ngừng sử dụng.</div>
       <div class="text-red-700"><strong>Cảnh báo NĐ98:</strong> Sự cố ảnh hưởng bệnh nhân — cần báo cáo Bộ Y tế trong 48h nếu xác định lỗi sản phẩm.</div>
     </div>
 
+    <!-- Lỗi HÀNH ĐỘNG — kênh riêng, KHÔNG thay cả trang (bẫy 13.9.7). -->
     <div v-if="err" class="bg-red-50 text-red-700 p-3 rounded-lg text-sm">{{ err }}</div>
-    <div v-if="loading" class="text-center text-slate-400 py-12">Đang tải...</div>
-
-    <!-- Nạp thất bại (403 thiếu quyền / 404 / lỗi khác) — empty-state CHUNG, có lối
-         thoát, 0 CTA render (CR-74 · chống dead-control). -->
-    <DetailLoadError
-      v-else-if="loadBlocked"
-      :kind="loadErrorKindRef || 'unknown'"
-      entity-label="phiếu sự cố"
-      :record-id="name"
-      :message="loadErrMsg"
-      back-label="Về danh sách sự cố"
-      @retry="load()"
-      @back="router.push('/incidents/list')"
-    />
 
     <!-- Detail card -->
-    <div v-else class="bg-white rounded-xl border border-slate-200 divide-y divide-slate-100">
+    <div class="bg-white rounded-xl border border-slate-200 divide-y divide-slate-100">
       <!-- Basic info -->
       <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
@@ -777,7 +786,7 @@ v-if="needsRca" :disabled="rcaCreating"
       <div class="bg-white rounded-xl p-6 w-full max-w-md space-y-4 shadow-xl">
         <h2 class="font-semibold text-slate-800">Đánh dấu đã giải quyết</h2>
         <div>
-          <label for="resolve-notes" class="block text-sm font-medium text-slate-700 mb-1">Ghi chú giải quyết <span class="text-red-500">*</span></label>
+          <label for="resolve-notes" class="block text-sm font-medium text-slate-700 mb-1">Ghi chú giải quyết <span class="text-danger-500">*</span></label>
           <textarea id="resolve-notes" v-model="resolveNotes" rows="3" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400" placeholder="Đã làm gì để giải quyết sự cố..."></textarea>
         </div>
         <div>
@@ -801,7 +810,7 @@ v-if="needsRca" :disabled="rcaCreating"
       <div class="bg-white rounded-xl p-6 w-full max-w-md space-y-4 shadow-xl">
         <h2 class="font-semibold text-slate-800">Hủy sự cố (báo nhầm)</h2>
         <div>
-          <label for="cancel-reason" class="block text-sm font-medium text-slate-700 mb-1">Lý do hủy <span class="text-red-500">*</span></label>
+          <label for="cancel-reason" class="block text-sm font-medium text-slate-700 mb-1">Lý do hủy <span class="text-danger-500">*</span></label>
           <textarea id="cancel-reason" v-model="cancelReason" rows="3" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400" placeholder="Lý do (vd: báo cáo nhầm, không phải sự cố...)"></textarea>
         </div>
         <div class="flex justify-end gap-2">
@@ -836,7 +845,7 @@ v-if="needsRca" :disabled="rcaCreating"
         <h2 class="font-semibold text-slate-800">Mở lại điều tra sự cố</h2>
         <p class="text-xs text-slate-500">Đưa phiếu từ "Đã giải quyết" về "Đang xử lý" để điều tra tiếp. Thao tác được ghi vào nhật ký kiểm toán.</p>
         <div>
-          <label for="reopen-reason" class="block text-sm font-medium text-slate-700 mb-1">Lý do mở lại <span class="text-red-500">*</span></label>
+          <label for="reopen-reason" class="block text-sm font-medium text-slate-700 mb-1">Lý do mở lại <span class="text-danger-500">*</span></label>
           <textarea id="reopen-reason" v-model="reopenReason" rows="3" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" placeholder="Vì sao cần mở lại điều tra (vd: sự cố tái phát, phát hiện nguyên nhân mới...)"></textarea>
         </div>
         <div class="flex justify-end gap-2">
@@ -877,7 +886,7 @@ v-if="needsRca" :disabled="rcaCreating"
         <img :src="lightboxUrl" alt="Ảnh hiện trường phóng to" class="max-w-full max-h-[85vh] rounded-lg object-contain">
       </div>
     </div>
-  </div>
+  </DetailPageShell>
 </template>
 
 <style scoped>

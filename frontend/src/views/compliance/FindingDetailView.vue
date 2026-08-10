@@ -13,8 +13,9 @@ import PageHeader from '@/components/common/PageHeader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import BaseModal from '@/components/common/BaseModal.vue'
 import DateInput from '@/components/common/DateInput.vue'
-import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import RecordHistory from '@/components/common/RecordHistory.vue'
+import DetailPageShell from '@/components/common/DetailPageShell.vue'
+import { loadErrorKind, toApiError, type DetailLoadKind } from '@/api/errors'
 
 const props = defineProps<{ id: string }>()
 const router = useRouter()
@@ -23,14 +24,24 @@ const api = useApi()
 const { can } = useCapabilities()
 
 const finding = ref<ComplianceFinding | null>(null)
-const loading = ref(false)
+const loading = ref(true)
+/**
+ * Trước vòng này `catch` chỉ ghi ra bảng điều khiển trình duyệt ⇒ người dùng nhận
+ * TRANG TRẮNG khi mã sai / thiếu quyền / mất mạng. Nay phân loại 3 nhánh có lối thoát.
+ */
+const loadKind = ref<'' | DetailLoadKind>('')
+const loadMsg = ref('')
 
 async function load() {
+  loadKind.value = ''   // DÒNG ĐẦU — xoá lỗi lượt trước (INV-UX4-7)
+  loadMsg.value = ''
   loading.value = true
   try {
     finding.value = await getFinding(props.id)
-  } catch (e) {
-    console.error(e)
+  } catch (e: unknown) {
+    loadKind.value = loadErrorKind(e)
+    loadMsg.value = toApiError(e).message
+    finding.value = null
   } finally {
     loading.value = false
   }
@@ -145,30 +156,44 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="page-container animate-fade-in space-y-5">
-    <div v-if="loading" class="p-6"><SkeletonLoader variant="form" :rows="6" /></div>
+  <DetailPageShell
+    :loading="loading"
+    :error-kind="loadKind"
+    :error-message="loadMsg"
+    :doc="finding"
+    entity-label="phát hiện tuân thủ"
+    :record-id="props.id"
+    back-label="Về danh sách phát hiện"
+    skeleton-variant="form"
+    :skeleton-rows="6"
+    @retry="load()"
+    @back="router.push('/compliance/findings')">
+    <template #header>
+      <template v-if="finding">
+        <PageHeader
+          :back-to="'/compliance/findings'"
+          :title="finding.name"
+          :subtitle="`IMM-16 · Theo dõi tuân thủ — Quy tắc ${finding.rule_name || finding.rule}`"
+          :breadcrumb="[
+            { label: 'IMM-16 · Theo dõi tuân thủ', to: '/compliance/scorecard' },
+            { label: 'Phát hiện', to: '/compliance/findings' },
+            { label: finding.name },
+          ]"
+        />
+      </template>
+    </template>
 
-    <template v-else-if="finding">
-      <PageHeader
-        :back-to="'/compliance/findings'"
-        :title="finding.name"
-        :subtitle="`IMM-16 · Theo dõi tuân thủ — Quy tắc ${finding.rule_name || finding.rule}`"
-        :breadcrumb="[
-          { label: 'IMM-16 · Theo dõi tuân thủ', to: '/compliance/scorecard' },
-          { label: 'Phát hiện', to: '/compliance/findings' },
-          { label: finding.name },
-        ]"
-      >
-        <template #actions>
-          <button v-if="canStartReview" data-testid="cta-start-review" class="btn-secondary text-sm" @click="showStartReview = true">Bắt đầu xem xét</button>
-          <button v-if="canConfirm" data-testid="cta-confirm" class="btn-primary text-sm" @click="showConfirm = true">Xác nhận sự không phù hợp</button>
-          <button v-if="canMarkFalse" data-testid="cta-mark-false" class="btn-secondary text-sm" @click="showFP = true">Đánh dấu sai</button>
-          <button v-if="canWaive" data-testid="cta-waive" class="btn-ghost text-sm" @click="showWaive = true">Miễn áp dụng</button>
-          <button v-if="canCreateCapa" data-testid="cta-create-capa" class="btn-primary text-sm" @click="showCreateCapa = true">Tạo hành động khắc phục/phòng ngừa</button>
-          <button v-if="canLinkCapa" data-testid="cta-link-capa" class="btn-secondary text-sm" @click="showLinkCapa = true">Liên kết hành động khắc phục/phòng ngừa</button>
-        </template>
-      </PageHeader>
+    <!-- 6 CTA vòng đời — dời khỏi PageHeader #actions để shell TẮT ở error/notfound. -->
+    <template #actions>
+      <button v-if="canStartReview" data-testid="cta-start-review" class="btn-secondary text-sm" @click="showStartReview = true">Bắt đầu xem xét</button>
+      <button v-if="canConfirm" data-testid="cta-confirm" class="btn-primary text-sm" @click="showConfirm = true">Xác nhận sự không phù hợp</button>
+      <button v-if="canMarkFalse" data-testid="cta-mark-false" class="btn-secondary text-sm" @click="showFP = true">Đánh dấu sai</button>
+      <button v-if="canWaive" data-testid="cta-waive" class="btn-ghost text-sm" @click="showWaive = true">Miễn áp dụng</button>
+      <button v-if="canCreateCapa" data-testid="cta-create-capa" class="btn-primary text-sm" @click="showCreateCapa = true">Tạo hành động khắc phục/phòng ngừa</button>
+      <button v-if="canLinkCapa" data-testid="cta-link-capa" class="btn-secondary text-sm" @click="showLinkCapa = true">Liên kết hành động khắc phục/phòng ngừa</button>
+    </template>
 
+    <template v-if="finding">
       <!-- Summary card -->
       <div class="card p-5 space-y-4">
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -244,9 +269,8 @@ onMounted(load)
 
       <!-- BUG-16-05: audit trail / history -->
       <RecordHistory ref-doctype="IMM Compliance Finding" :ref-name="finding.name" />
-    </template>
 
-    <!-- Start Review Modal -->
+      <!-- Start Review Modal -->
     <BaseModal v-if="showStartReview" title="Bắt đầu xem xét" size="md" @close="showStartReview = false">
       <div class="space-y-3">
         <p class="text-sm text-slate-600">Chuyển phát hiện sang trạng thái “Đang xem xét” để phân công cán bộ đánh giá trước khi kết luận.</p>
@@ -359,6 +383,7 @@ onMounted(load)
         <button class="btn-ghost" @click="showCreateCapa = false">Huỷ</button>
         <button class="btn-primary" :disabled="api.loading.value" @click="doCreateCapa">Tạo hành động khắc phục/phòng ngừa</button>
       </template>
-    </BaseModal>
-  </div>
+      </BaseModal>
+    </template>
+  </DetailPageShell>
 </template>

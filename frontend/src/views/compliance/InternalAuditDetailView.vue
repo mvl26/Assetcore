@@ -11,8 +11,8 @@ import { formatDate } from '@/utils/formatters'
 import PageHeader from '@/components/common/PageHeader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import BaseModal from '@/components/common/BaseModal.vue'
-import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
-import DetailLoadError from '@/components/common/DetailLoadError.vue'
+import KpiCard from '@/components/common/KpiCard.vue'
+import DetailPageShell from '@/components/common/DetailPageShell.vue'
 import { loadErrorKind, toApiError, type DetailLoadKind } from '@/api/errors'
 
 const props = defineProps<{ id: string }>()
@@ -21,17 +21,31 @@ const store = useImm16Store()
 const api = useApi()
 
 const audit = ref<InternalAudit | null>(null)
-const loading = ref(false)
-// '' = nạp OK; 'notfound' = mã kiểm toán không tồn tại (404); 'unknown' = lỗi khác.
+// ⚠️ KHỞI TẠO `true` (AC-UX-050): với `false`, lượt render TRƯỚC khi onMounted chạy
+// rơi vào nhánh notfound ⇒ NHÁY 404 một nhịp rồi mới ra khung xương.
+const loading = ref(true)
+// '' = nạp OK; 'notfound' = mã kiểm toán không tồn tại (404); 'forbidden' = thiếu
+// quyền đọc (403 in-envelope); 'unknown' = lỗi mạng/khác.
 const loadFailed = ref<'' | DetailLoadKind>('')
 const loadErrMsg = ref('')
-const activeTab = ref<'overview' | 'checklist' | 'report'>('overview')
+// Kiểu `string` (KHÔNG union hẹp): `v-model:active-tab` của shell phát `string`.
+const activeTab = ref<string>('overview')
+
+// Nhãn tab — GIỮ NGUYÊN chuỗi (test cũ tìm nút bằng đúng `b.text() === 'Bảng kiểm'`).
+const AUDIT_TABS = [
+  { key: 'overview', label: 'Tổng quan' },
+  { key: 'checklist', label: 'Bảng kiểm' },
+  { key: 'report', label: 'Báo cáo & Phát hiện' },
+]
 
 // Mã kiểm toán sai / đã xoá ⇒ 404: trước đây load() không catch (ApiError ra
 // console) VÀ template không có nhánh v-else ⇒ TRANG TRẮNG. Nay: empty-state chuẩn.
 async function load() {
   loading.value = true
+  // Xoá lỗi ở ĐẦU lượt (INV-UX4-7) — lỗi thắng loading nên banner cũ không được
+  // đứng lại làm nút nạp lại trông như chết.
   loadFailed.value = ''
+  loadErrMsg.value = ''
   try {
     audit.value = await getAudit(props.id)
     hydrateChecklist()
@@ -149,6 +163,12 @@ const persistedChecklist = computed<AuditChecklistItemRow[]>(
 )
 const hasPersistedChecklist = computed(() => persistedChecklist.value.length > 0)
 
+// Dải chỉ số — 0 field mới, tất cả đã có trong `get_audit` (findings_count +
+// checklist_items). Số mục KHÔNG phù hợp là con số kiểm toán viên cần thấy ngay.
+const nonConformingCount = computed(
+  () => persistedChecklist.value.filter((r) => r.result === 'Non-Conforming').length,
+)
+
 function addChecklistRow() {
   checklistItems.value.push({ idx: checklistItems.value.length + 1, finding_status: 'Compliant', notes: '', clause_ref: '' })
 }
@@ -184,22 +204,22 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="page-container animate-fade-in space-y-5">
-    <div v-if="loading" class="p-6"><SkeletonLoader variant="form" :rows="6" /></div>
-
-    <DetailLoadError
-      v-else-if="!audit"
-      :kind="loadFailed || 'notfound'"
-      entity-label="cuộc kiểm toán nội bộ"
-      :record-id="props.id"
-      :message="loadErrMsg"
-      back-label="Về danh sách kiểm toán"
-      @retry="load()"
-      @back="router.push('/compliance/audits')"
-    />
-
-    <template v-else>
+  <DetailPageShell
+    v-model:active-tab="activeTab"
+    :loading="loading"
+    :error-kind="loadFailed"
+    :error-message="loadErrMsg"
+    :doc="audit"
+    entity-label="cuộc kiểm toán nội bộ"
+    :record-id="props.id"
+    back-label="Về danh sách kiểm toán"
+    :tabs="AUDIT_TABS"
+    @retry="load()"
+    @back="router.push('/compliance/audits')"
+  >
+    <template #header>
       <PageHeader
+        v-if="audit"
         :back-to="'/compliance/audits'"
         :title="audit.audit_code"
         :subtitle="`IMM-16 · Theo dõi tuân thủ — ${auditTypeDisplay} · ${formatDate(audit.planned_start)} → ${formatDate(audit.planned_end)}`"
@@ -208,16 +228,27 @@ onMounted(load)
           { label: 'Kiểm toán', to: '/compliance/audits' },
           { label: audit.audit_code },
         ]"
-      >
-        <template #actions>
-          <button v-if="canStart" data-testid="cta-start" class="btn-primary text-sm" @click="doStart">Bắt đầu kiểm toán</button>
-          <button v-if="canClose" data-testid="cta-close" class="btn-secondary text-sm" @click="showClose = true">Đóng kiểm toán</button>
-          <span v-if="showNoActionHint" data-testid="no-actions-hint" class="text-xs text-slate-500 italic max-w-xs text-right">
-            {{ noActionHint }}
-          </span>
-        </template>
-      </PageHeader>
+      />
+    </template>
 
+    <!-- Panel thao tác — chỉ render ở trạng thái content (INV-UX4-5). -->
+    <template #actions>
+      <button v-if="canStart" data-testid="cta-start" class="btn-primary text-sm" @click="doStart">Bắt đầu kiểm toán</button>
+      <button v-if="canClose" data-testid="cta-close" class="btn-secondary text-sm" @click="showClose = true">Đóng kiểm toán</button>
+      <span v-if="showNoActionHint" data-testid="no-actions-hint" class="text-xs text-slate-500 italic max-w-xs text-right">
+        {{ noActionHint }}
+      </span>
+    </template>
+
+    <template #kpi>
+      <template v-if="audit">
+        <KpiCard label="Số phát hiện" :value="audit.findings_count ?? 0" color="warning" />
+        <KpiCard label="Số mục bảng kiểm" :value="persistedChecklist.length" color="info" />
+        <KpiCard label="Mục không phù hợp" :value="nonConformingCount" color="danger" />
+      </template>
+    </template>
+
+    <template v-if="audit">
       <!-- Summary card -->
       <div class="card p-5">
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -240,29 +271,7 @@ onMounted(load)
         </div>
       </div>
 
-      <!-- Tabs -->
-      <div class="border-b border-slate-200">
-        <nav class="-mb-px flex gap-6">
-          <button
-:class="['py-2 px-1 border-b-2 text-sm font-medium transition-colors',
-            activeTab === 'overview' ? 'border-brand-600 text-brand-700' : 'border-transparent text-slate-500 hover:text-slate-700']"
-            @click="activeTab = 'overview'">
-            Tổng quan
-          </button>
-          <button
-:class="['py-2 px-1 border-b-2 text-sm font-medium transition-colors',
-            activeTab === 'checklist' ? 'border-brand-600 text-brand-700' : 'border-transparent text-slate-500 hover:text-slate-700']"
-            @click="activeTab = 'checklist'">
-            Bảng kiểm
-          </button>
-          <button
-:class="['py-2 px-1 border-b-2 text-sm font-medium transition-colors',
-            activeTab === 'report' ? 'border-brand-600 text-brand-700' : 'border-transparent text-slate-500 hover:text-slate-700']"
-            @click="activeTab = 'report'">
-            Báo cáo & Phát hiện
-          </button>
-        </nav>
-      </div>
+      <!-- Thanh tab do shell sở hữu (prop-driven, DetailTabBar) — không tự chế lại. -->
 
       <!-- Tab content -->
       <div v-if="activeTab === 'overview'" class="card p-5">
@@ -400,5 +409,5 @@ Xoá
         </button>
       </template>
     </BaseModal>
-  </div>
+  </DetailPageShell>
 </template>
