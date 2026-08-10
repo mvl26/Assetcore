@@ -1,12 +1,15 @@
 <script setup lang="ts">
-// CommandPalette — ⌘K (ADR-IMM00-CMDK D5). Component RIÊNG (KHÔNG BaseModal).
+// CommandPalette — ⌘K (ADR-IMM00-CMDK D5). Component RIÊNG (không dùng khuôn hộp thoại chung).
 // A11y: role=dialog aria-modal + input combobox + listbox option. Keyboard:
-// Arrow(wrap)/Enter/Escape/Home/End + focus-trap tự viết + return-focus về gốc.
+// Arrow(wrap)/Enter/Escape/Home/End + bẫy focus + return-focus về gốc.
+// Bẫy focus/return-focus đã DI TRÚ sang `@/composables/useFocusTrap` (no-fork — docs/ui-ux/04 §4):
+// mã Tab-wrap tự viết + biến giữ phần tử trả focus cũ đã XOÁ, giờ chỉ còn 1 nguồn duy nhất.
 // Mobile full-screen (đồng bộ ADR Responsive). Lệnh đã GATE qua store (D2).
-import { ref, computed, watch, nextTick, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useCommandPaletteStore } from '@/stores/commandPalette'
+import { useFocusTrap } from '@/composables/useFocusTrap'
 import type { CommandItem } from '@/types/command'
 
 const router = useRouter()
@@ -16,8 +19,10 @@ const { open, query } = storeToRefs(store)
 const inputEl = ref<HTMLInputElement | null>(null)
 const dialogEl = ref<HTMLElement | null>(null)
 const activeIndex = ref(0)
-// Element đang focus TRƯỚC khi mở — return-focus khi đóng (D5).
-let returnFocusEl: HTMLElement | null = null
+
+// KHÔNG truyền `onEscape`: palette đã tự xử lý Escape trong `switch` bên dưới. Truyền thêm
+// ⇒ 2 handler ⇒ `closePalette()` chạy 2 lần. Một hộp thoại chỉ có ĐÚNG 1 chủ phím Escape.
+const trap = useFocusTrap({ container: dialogEl, initialFocus: () => inputEl.value })
 
 const LISTBOX_ID = 'ac-cmdk-listbox'
 const optionId = (i: number) => `ac-cmdk-option-${i}`
@@ -57,19 +62,13 @@ function clampActive(): void {
 watch(query, () => { activeIndex.value = 0 })
 watch(flatItems, () => clampActive())
 
-// Mở → lưu focus gốc, focus input. Đóng → return-focus.
-watch(open, async (isOpen, was) => {
+// Mở → composable lưu focus gốc + focus input. Đóng → composable trả focus về gốc.
+watch(open, (isOpen, was) => {
   if (isOpen) {
-    returnFocusEl = (document.activeElement as HTMLElement) ?? null
     activeIndex.value = 0
-    await nextTick()
-    inputEl.value?.focus()
+    void trap.activate()
   } else if (was) {
-    // return-focus về element gốc nếu còn trong DOM.
-    if (returnFocusEl && document.contains(returnFocusEl)) {
-      returnFocusEl.focus()
-    }
-    returnFocusEl = null
+    trap.deactivate()
   }
 })
 
@@ -105,14 +104,6 @@ function onPinToggle(cmd: CommandItem, e: Event): void {
   store.togglePin(cmd.id)
 }
 
-// ── Focus-trap tự viết (D5) — KHÔNG dep ngoài ───────────────────────────────
-function tabbables(): HTMLElement[] {
-  if (!dialogEl.value) return []
-  const sel = 'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'
-  return Array.from(dialogEl.value.querySelectorAll<HTMLElement>(sel))
-    .filter((el) => el.offsetParent !== null || el === inputEl.value)
-}
-
 function onKeydown(e: KeyboardEvent): void {
   switch (e.key) {
     case 'Escape':
@@ -129,27 +120,16 @@ function onKeydown(e: KeyboardEvent): void {
       e.preventDefault(); activeIndex.value = Math.max(0, flatItems.value.length - 1); void scrollActiveIntoView(); break
     case 'Enter':
       e.preventDefault(); selectActive(); break
-    case 'Tab': {
-      const items = tabbables()
-      if (items.length === 0) { e.preventDefault(); break }
-      const first = items[0]
-      const last = items[items.length - 1]
-      const activeEl = document.activeElement as HTMLElement
-      if (e.shiftKey && activeEl === first) {
-        e.preventDefault(); last.focus()
-      } else if (!e.shiftKey && activeEl === last) {
-        e.preventDefault(); first.focus()
-      }
+    case 'Tab':
+      // Bẫy focus dùng chung — xem `@/composables/useFocusTrap` (no-fork).
+      trap.handleTabKey(e)
       break
-    }
     default:
       break
   }
 }
 
 function onBackdrop(): void { store.closePalette() }
-
-onBeforeUnmount(() => { returnFocusEl = null })
 </script>
 
 <template>
