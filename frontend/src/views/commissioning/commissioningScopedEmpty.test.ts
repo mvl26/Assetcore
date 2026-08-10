@@ -78,8 +78,16 @@ const stubs = {
 }
 
 const ASSET = 'AC-ASSET-2026-00042'
-const GENERIC_EMPTY = 'Không tìm thấy phiếu nào phù hợp.'
+// AC-UX-047 lô 3 (2026-08-04) — màn đã áp `ui/ListPageShell`: chữ rỗng nay có ĐÚNG MỘT nguồn
+// (`EmptyState` của khuôn) và ĐỔI NỘI DUNG theo nguyên nhân, thay cho 3 khối rỗng cũ. Vì vậy:
+//   · câu rỗng CHUNG lấy theo bảng copy SSoT `docs/ui-ux/02 §14.4` (bỏ dấu chấm cuối);
+//   · `list-empty-scoped` GIỮ NGUYÊN tên (02 §14.3 cấm đổi) nhưng nay bọc phần HÀNH ĐỘNG,
+//     còn câu giải thích + mã thiết bị nằm ở `ui-empty-title` / `ui-empty-description`.
+// Bất biến được canh giữ KHÔNG đổi: rỗng-do-lọc-thiết-bị phải nêu mã thiết bị, phải có lối
+// bỏ lọc, và câu rỗng vô danh KHÔNG được hiện cùng lúc.
+const GENERIC_EMPTY = 'Chưa có phiếu nghiệm thu lắp đặt nào'
 const SCOPED = '[data-testid="list-empty-scoped"]'
+const EMPTY_BOX = '[data-testid="ui-empty"]'
 const COUNT = '[data-testid="list-count"]'
 
 /** Một dòng danh sách tối thiểu nhưng ĐỦ nhãn hiển thị (không leak mã ra ô tên). */
@@ -131,8 +139,9 @@ describe('AC-CR-98 · A9 — /commissioning empty-state CÓ NGỮ CẢNH', () =>
 
     const scoped = w.find(SCOPED)
     expect(scoped.exists(), 'thiếu empty-state có ngữ cảnh ⇒ màn trống vô danh').toBe(true)
-    expect(scoped.text(), 'empty-state không nêu mã thiết bị đang lọc').toContain(ASSET)
-    expect(scoped.text()).toContain('Không có phiếu nghiệm thu lắp đặt nào của thiết bị')
+    const box = w.find(EMPTY_BOX)
+    expect(box.text(), 'empty-state không nêu mã thiết bị đang lọc').toContain(ASSET)
+    expect(box.text()).toContain('Không có phiếu nghiệm thu lắp đặt nào của thiết bị')
     expect(
       buttonByLabel(w, 'Xoá bộ lọc thiết bị'),
       'empty-state không có lối thoát «Xoá bộ lọc thiết bị»',
@@ -218,7 +227,7 @@ describe('AC-CR-98 · A9 — /commissioning empty-state CÓ NGỮ CẢNH', () =>
     const w = mountView()
     await flushPromises()
 
-    const html = w.find(SCOPED).html()
+    const html = w.find(EMPTY_BOX).html()
     for (const leak of ['final_asset', 'workflow_state', 'Asset Commissioning', 'Clinical Release']) {
       expect(html, `rò khoá/tên kỹ thuật: ${leak}`).not.toContain(leak)
     }
@@ -230,9 +239,10 @@ describe('AC-CR-98 · A9 — /commissioning empty-state CÓ NGỮ CẢNH', () =>
     const w = mountView()
     await flushPromises()
 
-    const scoped = w.find(SCOPED)
-    expect(scoped.attributes('role')).toBe('status')
-    expect(scoped.attributes('aria-live')).toBe('polite')
+    // vùng thông báo nay là `EmptyState` của khuôn (`role="status"`, ADR-UX-04) —
+    // một nơi giữ hợp đồng a11y cho MỌI màn danh sách thay vì mỗi màn tự khai.
+    expect(w.find(SCOPED).exists()).toBe(true)
+    expect(w.find(EMPTY_BOX).attributes('role')).toBe('status')
     const btn = buttonByLabel(w, 'Xoá bộ lọc thiết bị')!
     expect(btn.element.tagName).toBe('BUTTON')
     expect(btn.attributes('type')).toBe('button')
@@ -255,8 +265,10 @@ describe('AC-CR-98 · A9 — /commissioning empty-state CÓ NGỮ CẢNH', () =>
     expect(head, 'tiêu đề đọc số dòng của trang thay vì tổng do máy chủ đếm').toContain('Tổng 7 phiếu')
     expect(head, 'tiêu đề lấy items.length làm tổng').not.toContain('Tổng 2 phiếu')
 
+    // Khuôn `ListPageShell` phát ô đếm MỘT lần ở `#toolbar` (dùng chung cho cả hai bố cục),
+    // thay cho hai bản sao mobile/desktop cũ — một nguồn số, hết cơ hội trôi lệch.
     const counters = w.findAll(COUNT)
-    expect(counters.length, 'thiếu ô đếm ở một trong hai bố cục (điện thoại / máy tính)').toBe(2)
+    expect(counters.length, 'thiếu ô đếm ở dải công cụ của khuôn danh sách').toBe(1)
     for (const c of counters) {
       expect(squash(c.text()), 'ô đếm không tách «đang xem» khỏi «tổng»').toBe('Hiển thị 2 / 7 phiếu')
     }
@@ -300,7 +312,7 @@ describe('AC-CR-98 · A9 — /commissioning empty-state CÓ NGỮ CẢNH', () =>
 
     const scoped = w.find(SCOPED)
     expect(scoped.exists(), 'trang rỗng không nói vì sao trống').toBe(true)
-    expect(scoped.text()).toContain(ASSET)
+    expect(w.find(EMPTY_BOX).text()).toContain(ASSET)
     expect(buttonByLabel(w, 'Xoá bộ lọc thiết bị'), 'empty-state thiếu lối ra').toBeTruthy()
     expect(w.text(), 'khối rỗng vô danh vẫn hiện cạnh empty-state có ngữ cảnh').not.toContain(GENERIC_EMPTY)
     expect(squash(w.text()), 'còn vẽ thanh phân trang trên màn 0 dòng').not.toContain('Trang 1/')

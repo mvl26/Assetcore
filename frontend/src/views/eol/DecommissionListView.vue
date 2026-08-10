@@ -24,6 +24,7 @@ import {
 import type { DisposalMethod, DecommissionState } from '@/api/imm14'
 import PageHeader from '@/components/common/PageHeader.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
+import ListPageShell from '@/components/ui/ListPageShell.vue'
 import { formatDate } from '@/utils/formatters'
 import {
   disposalMethodLabel,
@@ -149,17 +150,35 @@ function goAsset(row: DecommissionRow) {
   router.push(`/assets/${row.asset}`)
 }
 
+// Chữ trạng thái rỗng — SSoT là bảng copy 02 §14.4 (LL-FE-53: 100% tiếng Việt).
+const emptyTitle = computed(() =>
+  activeFilterCount.value > 0
+    ? 'Không có biên bản giải nhiệm nào phù hợp'
+    : 'Chưa có biên bản giải nhiệm nào',
+)
+const emptyHint = 'Biên bản giải nhiệm được lập từ hồ sơ thiết bị (nút «Giải nhiệm»).'
+
 onMounted(load)
 </script>
 
 <template>
-  <div class="page-container animate-fade-in">
+  <div>
+    <ListPageShell
+      :loading="api.loading.value && !rows.length"
+      :error-message="errorMsg"
+      :is-empty="!rows.length"
+      :empty-title="emptyTitle"
+      :empty-hint="emptyHint"
+      @retry="load">
+      <template #header>
     <PageHeader
       title="Biên bản giải nhiệm"
       :subtitle="`IMM-14 · Giải nhiệm thiết bị — Tổng ${total} biên bản`"
       :breadcrumb="[{ label: 'IMM-14 · Giải nhiệm thiết bị' }, { label: 'Biên bản giải nhiệm' }]"
     />
+      </template>
 
+      <template #filters>
     <!-- Dải chip «đang lọc» (AC-CR-95): deep-link «Xem tất cả» phải NÓI nó đang lọc gì và
          cho một đường ra. Danh sách lọc câm bị người dùng đọc thành "mất dữ liệu".
          Khuôn chip mượn từ ListFilterBar/PmScheduleListView cho nhất quán thị giác. -->
@@ -203,40 +222,30 @@ onMounted(load)
         </button>
       </div>
     </div>
+      </template>
 
-    <div class="card overflow-hidden">
-      <div class="flex items-center justify-between px-4 py-2.5 border-b border-slate-100 bg-slate-50/60 text-xs text-slate-500">
-        <span>Hiển thị <strong class="text-slate-700">{{ rows.length }}</strong> / {{ total }} biên bản</span>
-      </div>
+      <template #skeleton><SkeletonLoader variant="table" :rows="6" /></template>
 
-      <!-- Tri-branch: loading / error / (empty|data) -->
-      <div v-if="api.loading.value && !rows.length" class="p-6">
-        <SkeletonLoader variant="table" :rows="6" />
-      </div>
-      <div v-else-if="errorMsg" class="flex flex-col items-center justify-center py-16 gap-3">
-        <p class="text-sm text-red-600">{{ errorMsg }}</p>
-        <button
-          class="btn-secondary focus-visible:ring-2 focus-visible:ring-emerald-500"
-          @click="load"
-        >Thử lại</button>
-      </div>
-      <div v-else-if="rows.length === 0" class="flex flex-col items-center justify-center py-16 gap-2">
-        <p class="text-sm text-slate-500">Chưa có biên bản giải nhiệm phù hợp.</p>
+      <template #empty-action>
         <button
           v-if="activeFilterCount > 0"
           class="text-xs text-brand-600 hover:text-brand-700 font-medium underline focus-visible:ring-2 focus-visible:ring-emerald-500"
           @click="resetFilters"
         >Xóa bộ lọc để xem tất cả</button>
-        <template v-else>
-          <p class="text-xs text-slate-400">Biên bản giải nhiệm được lập từ hồ sơ thiết bị (nút "Giải nhiệm").</p>
-          <button
-            class="btn-secondary mt-1 text-sm focus-visible:ring-2 focus-visible:ring-emerald-500"
-            @click="router.push('/assets')"
-          >Đến danh sách thiết bị</button>
-        </template>
-      </div>
+        <button
+          v-else
+          class="btn-secondary text-sm focus-visible:ring-2 focus-visible:ring-emerald-500"
+          @click="router.push('/assets')"
+        >Đến danh sách thiết bị</button>
+      </template>
 
-      <div v-else class="overflow-x-auto">
+      <template #toolbar>
+        <div class="flex items-center justify-between px-4 py-2.5 border-b border-slate-100 bg-slate-50/60 text-xs text-slate-500">
+          <span>Hiển thị <strong class="text-slate-700">{{ rows.length }}</strong> / {{ total }} biên bản</span>
+        </div>
+      </template>
+
+      <div class="overflow-x-auto">
         <table class="w-full text-sm">
           <thead class="bg-slate-50 border-b border-slate-100">
             <tr>
@@ -284,6 +293,7 @@ onMounted(load)
         </table>
       </div>
 
+      <template #pagination>
       <div v-if="total > PAGE_SIZE" class="flex items-center justify-between px-4 py-3 border-t border-slate-100 text-sm text-slate-500">
         <span>{{ (page - 1) * PAGE_SIZE + 1 }}–{{ Math.min(page * PAGE_SIZE, total) }} / {{ total }}</span>
         <div class="flex gap-2">
@@ -299,6 +309,7 @@ onMounted(load)
           >Sau</button>
         </div>
       </div>
-    </div>
+      </template>
+    </ListPageShell>
   </div>
 </template>

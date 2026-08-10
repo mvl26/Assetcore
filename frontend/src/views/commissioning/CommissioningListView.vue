@@ -11,6 +11,7 @@ import { commissioningKpiItems, type CommissioningKpiItem } from './commissionin
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
 import BasePagination from '@/components/common/BasePagination.vue'
+import ListPageShell from '@/components/ui/ListPageShell.vue'
 import { formatDate } from '@/utils/docUtils'
 import type { CommissioningFilters, WorkflowState } from '@/types/imm04'
 
@@ -129,7 +130,24 @@ function cleanFilters(): CommissioningFilters {
   return f
 }
 
-function applyFilters() { store.fetchList(cleanFilters(), 1, store.pagination.page_size) }
+// ── Trạng thái nạp danh sách (AC-UX-047 lô 3 · biến thể D — 02 §14.2, khuôn §13.2) ─────────
+// `stores/imm04.ts:73` dùng CHUNG một ô `error` cho ~20 hành động GHI (`_captureError`) ⇒ bind
+// thẳng `store.error` sẽ để một lần duyệt/huỷ hỏng xoá trắng danh sách đang xem (INV-UX3-28).
+// CHỤP lỗi ngay sau `await` của lượt nạp danh sách rồi trả ô dùng chung về sạch.
+const loadError = ref<string | null>(null)
+
+async function load(filters: CommissioningFilters, page = 1, pageSize = store.pagination.page_size) {
+  loadError.value = null
+  store.error = null
+  await store.fetchList(filters, page, pageSize)
+  loadError.value = store.error ?? null
+  if (loadError.value) store.error = null
+}
+
+/** Điểm vào DUY NHẤT của «Thử lại» — giữ nguyên bộ lọc VÀ trang đang xem. */
+function reload() { return load(cleanFilters(), store.pagination.page) }
+
+function applyFilters() { return load(cleanFilters(), 1, store.pagination.page_size) }
 
 function resetFilters() {
   filters.value = {
@@ -137,7 +155,7 @@ function resetFilters() {
     final_asset: '', overdue: false,
   }
   dropAssetQuery()
-  store.fetchList({}, 1)
+  load({}, 1)
 }
 
 /** Click KPI card → drill. Overdue card bật cờ overdue + reload; thẻ state khác giữ quickFilter. */
@@ -164,7 +182,7 @@ function quickFilter(key: 'workflow_state' | 'clinical_dept', value: string) {
   applyFilters()
 }
 
-function goToPage(page: number) { store.fetchList(cleanFilters(), page, store.pagination.page_size) }
+function goToPage(page: number) { return load(cleanFilters(), page, store.pagination.page_size) }
 
 /**
  * FE-2 / TC-FE-COMM-SE-08 — «đang ở trang 3 mà tổng còn 0» KHÔNG được kẹt.
@@ -197,8 +215,25 @@ watch(
 // Source: get_dashboard_stats (store.fetchDashboardStats). Display-only, reuses WorkOrderKpiStrip (IMM-08/09 pattern).
 const kpiItems = computed<CommissioningKpiItem[]>(() => commissioningKpiItems(store.dashboardStats?.kpis))
 
+// Chữ trạng thái rỗng — SSoT là bảng copy 02 §14.4 (LL-FE-53: 100% tiếng Việt).
+// BA nhánh: rỗng-theo-ngữ-cảnh-thiết-bị (A9) ≠ rỗng-do-lọc ≠ rỗng-thật. Ba câu KHÁC nhau vì
+// ba nguyên nhân khác nhau; gộp lại là dựng lại đúng cái «màn trống không nói vì sao».
+const emptyTitle = computed(() => {
+  if (isScopedEmpty.value) {
+    return `Không có phiếu nghiệm thu lắp đặt nào của thiết bị ${assetScope.value} trong phạm vi bạn được xem.`
+  }
+  return activeFilterCount.value > 0
+    ? 'Không tìm thấy phiếu nào phù hợp'
+    : 'Chưa có phiếu nghiệm thu lắp đặt nào'
+})
+const emptyHint = computed(() =>
+  isScopedEmpty.value
+    ? 'Thiết bị này có thể chưa có phiếu nào, hoặc phiếu của nó nằm ngoài phạm vi bạn được giao.'
+    : 'Phiếu nghiệm thu lắp đặt được lập khi nhà cung cấp bàn giao thiết bị tại khoa.',
+)
+
 onMounted(() => {
-  store.fetchList(cleanFilters(), 1)
+  load(cleanFilters(), 1)
   // KPI fetch is non-blocking: store.fetchDashboardStats swallows its own errors
   // (no shared error.value pollution) so a KPI failure can't hide/hijack the list.
   store.fetchDashboardStats()
@@ -220,7 +255,15 @@ watch(() => route.query.asset, (val) => {
 </script>
 
 <template>
-  <div class="page-container animate-fade-in">
+  <div>
+    <ListPageShell
+      :loading="store.listLoading"
+      :error-message="loadError"
+      :is-empty="!store.list.length"
+      :empty-title="emptyTitle"
+      :empty-hint="emptyHint"
+      @retry="reload">
+      <template #header>
     <PageHeader
       title="Phiếu Tiếp nhận và lắp đặt"
       :subtitle="`Tổng ${store.pagination.total} phiếu`"
@@ -236,10 +279,16 @@ watch(() => route.query.asset, (val) => {
         </router-link>
       </template>
     </PageHeader>
+      </template>
 
-    <!-- KPI strip: docs/imm-04/06_Frontend_Design.md §3.1 — "Quá hạn SLA" clickable → drill overdue -->
-    <WorkOrderKpiStrip :items="kpiItems" @kpi-click="onKpiClick" />
+      <!-- KPI strip: docs/imm-04/06_Frontend_Design.md §3.1 — "Quá hạn SLA" clickable → drill
+           overdue. Đặt ở `#summary` ⇒ CHỈ render ở trạng thái rỗng/có-dữ-liệu, hết cảnh in số
+           của một lượt nạp hỏng (INV-UX3-27). -->
+      <template #summary>
+        <WorkOrderKpiStrip :items="kpiItems" @kpi-click="onKpiClick" />
+      </template>
 
+      <template #filters>
     <ListFilterBar
       :show="showFilters"
       :chips="activeChips"
@@ -269,49 +318,19 @@ watch(() => route.query.asset, (val) => {
         </div>
       </template>
     </ListFilterBar>
+      </template>
 
-    <!-- Loading -->
-    <SkeletonLoader v-if="store.listLoading" variant="table" :rows="8" />
+      <template #skeleton><SkeletonLoader variant="table" :rows="8" /></template>
 
-    <!-- Error -->
-    <div v-else-if="store.error" class="alert-error">
-      <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path
-stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-              d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-      <span class="flex-1">{{ store.error }}</span>
-      <button class="text-xs font-semibold underline hover:no-underline" @click="store.refreshList">Thử lại</button>
-    </div>
-
-    <!-- Table -->
-    <template v-else>
-      <!-- A9 — Empty-state CÓ NGỮ CẢNH: 0 dòng VÌ đang giới hạn theo một thiết bị.
-           Một khối dùng CHUNG cho mobile+desktop (một `data-testid`) và THAY hai khối
-           rỗng vô danh bên dưới — hiện cả hai cùng lúc là hai câu trả lời khác nhau cho
-           cùng câu hỏi "vì sao trống". Mã thiết bị in ra là mã người dùng vừa bấm ở tab
-           «Bản ghi liên quan», không phải khoá kỹ thuật (LL-FE-53). -->
-      <div
-        v-if="isScopedEmpty"
-        data-testid="list-empty-scoped"
-        role="status"
-        aria-live="polite"
-        class="card flex flex-col items-center gap-3 py-12 text-center"
-      >
-        <svg class="w-10 h-10 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-          <path
-stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-        </svg>
-        <p class="text-sm text-slate-600">
-          Không có phiếu nghiệm thu lắp đặt nào của thiết bị
-          <span class="code-pill-lg">{{ assetScope }}</span>
-          trong phạm vi bạn được xem.
-        </p>
-        <p class="max-w-md text-xs text-slate-400">
-          Thiết bị này có thể chưa có phiếu nào, hoặc phiếu của nó nằm ngoài phạm vi bạn được giao.
-        </p>
-        <div class="flex flex-wrap items-center justify-center gap-2">
+      <!-- A9 — LỐI THOÁT của trạng thái rỗng. Chữ giải thích nằm ở `empty-title`/`empty-hint`
+           (một nguồn duy nhất, INV-UX3-26); ở đây chỉ còn hành động. `list-empty-scoped` giữ
+           NGUYÊN tên vì `commissioningScopedEmpty.test.ts` đang khoá nó (02 §14.3). -->
+      <template #empty-action>
+        <div
+          v-if="isScopedEmpty"
+          data-testid="list-empty-scoped"
+          class="flex flex-wrap items-center justify-center gap-2"
+        >
           <button type="button" class="btn-secondary text-sm" @click="clearAssetScope">
             Xoá bộ lọc thiết bị
           </button>
@@ -324,17 +343,21 @@ stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
             Xoá tất cả bộ lọc
           </button>
         </div>
-      </div>
+        <button
+          v-else-if="activeFilterCount > 0"
+          class="text-xs text-brand-600 hover:text-brand-700 font-medium underline"
+          @click="resetFilters"
+        >Xóa bộ lọc để xem tất cả</button>
+        <router-link
+          v-else-if="can('commissioning.create')"
+          to="/commissioning/new"
+          class="btn-primary"
+        >Tạo phiếu nghiệm thu</router-link>
+      </template>
 
+    <template #default>
       <!-- Mobile cards (< sm) -->
-      <div v-if="!isScopedEmpty" class="mobile-card-list sm:hidden">
-        <div class="flex items-center justify-between text-xs text-slate-500 pb-1">
-          <!-- Tổng LUÔN là `pagination.total` do máy chủ đếm cùng engine với các dòng
-               (`services/imm04.list_commissioning` → `count_with_or`, AC-CR-98) — KHÔNG
-               phải `store.list.length` (đó là số dòng của TRANG đang xem). -->
-          <span data-testid="list-count">Hiển thị <strong class="text-slate-700">{{ store.list.length }}</strong> / {{ store.pagination.total }} phiếu</span>
-          <button v-if="activeFilterCount > 0" class="text-red-500 font-medium" @click="resetFilters">Xóa tất cả</button>
-        </div>
+      <div class="mobile-card-list sm:hidden">
         <div
           v-for="item in store.list"
           :key="item.name"
@@ -359,20 +382,10 @@ stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
             <span v-if="item.vendor_serial_no" class="font-mono">{{ item.vendor_serial_no }}</span>
           </div>
         </div>
-        <div v-if="!store.list.length" class="py-12 text-center text-slate-400">
-          <p class="text-sm font-medium">Không tìm thấy phiếu nào phù hợp.</p>
-          <button v-if="activeFilterCount > 0" class="text-xs text-blue-500 underline mt-2" @click="resetFilters">Xóa bộ lọc để xem tất cả</button>
-        </div>
       </div>
 
       <!-- Desktop table (sm+) -->
-      <div v-if="!isScopedEmpty" class="hidden sm:block table-wrapper animate-slide-up" style="animation-delay: 80ms">
-        <!-- Info row -->
-        <div class="flex items-center justify-between px-4 py-2.5 border-b border-slate-100 bg-slate-50/60 text-xs text-slate-500">
-          <!-- Cùng nguồn tổng với bố cục điện thoại: `pagination.total` (xem chú thích trên). -->
-          <span data-testid="list-count">Hiển thị <strong class="text-slate-700">{{ store.list.length }}</strong> / {{ store.pagination.total }} phiếu</span>
-          <button v-if="activeFilterCount > 0" class="text-red-500 hover:text-red-700 font-medium" @click="resetFilters">Xóa tất cả</button>
-        </div>
+      <div class="hidden sm:block table-wrapper animate-slide-up" style="animation-delay: 80ms">
         <table class="min-w-full divide-y divide-slate-100">
           <thead>
             <tr>
@@ -439,28 +452,27 @@ stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
               </td>
               <td class="table-cell text-slate-400 text-xs">{{ formatDate(item.modified) }}</td>
             </tr>
-            <tr v-if="!store.list.length">
-              <td colspan="9" class="px-5 py-16 text-center">
-                <div class="flex flex-col items-center gap-3 text-slate-400">
-                  <svg class="w-10 h-10 opacity-25" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-                          d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                  <p class="text-sm">Không tìm thấy phiếu nào phù hợp.</p>
-                  <button v-if="activeFilterCount > 0" class="text-xs text-blue-500 hover:text-blue-700 underline" @click="resetFilters">
-                    Xóa bộ lọc để xem tất cả
-                  </button>
-                </div>
-              </td>
-            </tr>
           </tbody>
         </table>
       </div>
     </template>
 
-    <!-- Không vẽ thanh phân trang khi màn đang là empty-state theo ngữ cảnh: 0 dòng thì
-         không có trang nào để chuyển, mà `pagination` có thể còn số trang cũ (vd lần nạp
-         sau lỗi mạng) ⇒ nút trang dưới màn trống chỉ nạp lại đúng cái rỗng đó. -->
-    <BasePagination v-if="!isScopedEmpty" :pagination="store.pagination" @page-change="goToPage" />
+      <!-- Dòng đếm — `#toolbar` CHỈ render ở trạng thái có dữ liệu. Tổng LUÔN là
+           `pagination.total` do máy chủ đếm cùng engine với các dòng
+           (`services/imm04.list_commissioning` → `count_with_or`, AC-CR-98) — KHÔNG phải
+           `store.list.length` (đó là số dòng của TRANG đang xem). -->
+      <template #toolbar>
+        <div class="flex items-center justify-between px-4 py-2.5 border-b border-slate-100 bg-slate-50/60 text-xs text-slate-500">
+          <span data-testid="list-count">Hiển thị <strong class="text-slate-700">{{ store.list.length }}</strong> / {{ store.pagination.total }} phiếu</span>
+          <button v-if="activeFilterCount > 0" class="text-red-500 hover:text-red-700 font-medium" @click="resetFilters">Xóa tất cả</button>
+        </div>
+      </template>
+
+      <!-- `#pagination` chỉ render ở trạng thái có dữ liệu ⇒ điều kiện `!isScopedEmpty` cũ
+           thành thừa, GIỮ để không đổi hành vi khi danh sách có dòng (02 §14.4). -->
+      <template #pagination>
+        <BasePagination v-if="!isScopedEmpty" :pagination="store.pagination" @page-change="goToPage" />
+      </template>
+    </ListPageShell>
 </div>
 </template>

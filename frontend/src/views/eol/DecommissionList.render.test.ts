@@ -100,7 +100,10 @@ describe('DecommissionListView render', () => {
       data: [], pagination: { total: 0, page: 1, page_size: 20, total_pages: 0 },
     })
     const w = await mountList()
-    expect(w.text()).toContain('Chưa có biên bản giải nhiệm phù hợp.')
+    // AC-UX-047 lô 3 (2026-08-04): màn đã áp `ui/ListPageShell` ⇒ chữ rỗng lấy theo bảng copy
+    // SSoT `docs/ui-ux/02 §14.4` và render qua `ui/EmptyState` (một nguồn cho cả 40 màn).
+    expect(w.find('[data-testid="ui-empty-title"]').text()).toBe('Chưa có biên bản giải nhiệm nào')
+    expect(w.find('[data-testid="ui-error"]').exists()).toBe(false)
   })
 
   it('filter reload — đổi dropdown Trạng thái → gọi lại listDecommissions kèm filter đúng', async () => {

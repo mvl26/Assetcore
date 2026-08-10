@@ -13,6 +13,7 @@ import ListFilterBar from '@/components/common/ListFilterBar.vue'
 import BasePagination from '@/components/common/BasePagination.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
+import ListPageShell from '@/components/ui/ListPageShell.vue'
 import BaseModal from '@/components/common/BaseModal.vue'
 import { translateFrequency } from '@/utils/formatters'
 
@@ -56,9 +57,30 @@ function buildFilters() {
   return f
 }
 
+// ── Trạng thái nạp danh sách (AC-UX-047 lô 2 · biến thể D — 02 §13.2) ──
+// `stores/imm16.ts` dùng CHUNG một ô `error` cho 5 danh sách + mọi hành động ghi và
+// KHÔNG dọn ô đó ở đầu lượt ⇒ phải CHỤP lỗi ngay sau `await` rồi trả ô về sạch.
+// Lỗi của `createRule`/`deactivateRule`/`reactivateRule` (đường GHI) KHÔNG được vào
+// `:error-message` — một lần lưu hỏng không được xoá trắng danh sách (INV-UX3-13).
+const loadError = ref<string | null>(null)
+const currentPage = ref(1)
+
 async function load(page = 1) {
+  currentPage.value = page
+  loadError.value = null
+  store.error = null
   await store.fetchRules(buildFilters(), page, 20)
+  loadError.value = store.error ?? null
+  if (loadError.value) store.error = null
 }
+
+/** Điểm vào DUY NHẤT của «Thử lại» — giữ nguyên bộ lọc + trang hiện tại. */
+function reload() { return load(currentPage.value) }
+
+const emptyTitle = computed(() =>
+  activeFilterCount.value > 0 ? 'Không có quy tắc tuân thủ nào phù hợp' : 'Chưa có quy tắc tuân thủ nào',
+)
+const emptyHint = 'Hãy tạo quy tắc mới hoặc xoá bộ lọc để xem tất cả.'
 
 function clearChip(key: string) {
   if (key === 'active') filterActive.value = ''
@@ -125,7 +147,15 @@ onMounted(() => load(1))
 </script>
 
 <template>
-  <div class="page-container animate-fade-in space-y-5">
+  <div>
+    <ListPageShell
+      :loading="loading"
+      :error-message="loadError"
+      :is-empty="!items.length"
+      :empty-title="emptyTitle"
+      :empty-hint="emptyHint"
+      @retry="reload">
+      <template #header>
     <PageHeader
       title="Quy tắc tuân thủ"
       :subtitle="`IMM-16 · Theo dõi tuân thủ — Tổng ${pagination.total} quy tắc`"
@@ -141,7 +171,9 @@ onMounted(() => load(1))
         </button>
       </template>
     </PageHeader>
+      </template>
 
+      <template #filters>
     <ListFilterBar
       :show="showFilters" :chips="chips" :show-search="false"
       @reset="resetFilters" @clear-chip="clearChip" @apply="load(1)"
@@ -171,24 +203,24 @@ onMounted(() => load(1))
         </div>
       </template>
     </ListFilterBar>
+      </template>
 
-    <div class="table-wrapper">
+      <template #skeleton><SkeletonLoader variant="table" :rows="6" /></template>
+
+      <template #empty-action>
+        <button v-if="activeFilterCount > 0" class="text-xs text-brand-600 hover:text-brand-700 font-medium underline" @click="resetFilters">
+          Xóa bộ lọc để xem tất cả
+        </button>
+        <button v-else class="btn-primary" @click="openCreate">Tạo quy tắc đầu tiên</button>
+      </template>
+
+      <template #toolbar>
       <div class="flex items-center justify-between px-4 py-2.5 border-b border-slate-100 bg-slate-50/60 text-xs text-slate-500">
         <span>Hiển thị <strong class="text-slate-700">{{ items.length }}</strong> / {{ pagination.total }} quy tắc</span>
         <button v-if="activeFilterCount > 0" class="text-red-500 hover:text-red-700 font-medium" @click="resetFilters">Xóa tất cả</button>
       </div>
+      </template>
 
-      <div v-if="loading" class="p-4">
-        <SkeletonLoader variant="table" :rows="6" />
-      </div>
-      <div v-else-if="!items.length" class="flex flex-col items-center justify-center py-16">
-        <p class="text-sm text-slate-500">Chưa có quy tắc tuân thủ phù hợp.</p>
-        <button v-if="activeFilterCount > 0" class="text-xs text-brand-600 hover:text-brand-700 font-medium underline mt-2" @click="resetFilters">
-          Xóa bộ lọc để xem tất cả
-        </button>
-        <button v-else class="btn-primary mt-3" @click="openCreate">Tạo quy tắc đầu tiên</button>
-      </div>
-      <template v-else>
         <!-- Mobile cards -->
         <div class="mobile-card-list sm:hidden">
           <div
@@ -261,12 +293,13 @@ onMounted(() => load(1))
           </tbody>
         </table>
         </div>
+
+      <template #pagination>
+        <BasePagination :pagination="pagination" @page-change="load" />
       </template>
-    </div>
+    </ListPageShell>
 
-    <BasePagination :pagination="pagination" @page-change="load" />
-
-    <!-- Create Modal -->
+    <!-- Create Modal — NGOÀI shell (02 §13.3) -->
     <BaseModal v-if="showCreate" title="Tạo quy tắc tuân thủ" size="lg" @close="showCreate = false">
       <div class="space-y-3">
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
