@@ -7,6 +7,8 @@ import type { Warehouse, StockRow } from '@/types/inventory'
 import SmartSelect from '@/components/common/SmartSelect.vue'
 import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
+import DetailPageShell from '@/components/common/DetailPageShell.vue'
+import { loadErrorKind, toApiError, type DetailLoadKind } from '@/api/errors'
 
 const props = defineProps<{ name: string }>()
 const router = useRouter()
@@ -14,17 +16,33 @@ const router = useRouter()
 type WarehouseDetail = Warehouse & { stock_items: StockRow[]; total_value: number }
 
 const wh = ref<WarehouseDetail | null>(null)
-const loading = ref(false)
+const loading = ref(true)
 const showEdit = ref(false)
 const saving = ref(false)
+/**
+ * `toast` = phản hồi HÀNH ĐỘNG (lưu / ngừng hoạt động) — render trong dải MÀU XANH
+ * thành công. Lỗi NẠP KHÔNG được đi kênh này nữa: trước vòng này `catch` của `load()`
+ * gán câu lỗi tự chế vào đây ⇒ hệ thống hỏng mà người dùng thấy dải xanh "thành công".
+ */
 const toast = ref('')
+/** Lỗi NẠP — kênh riêng, do `DetailPageShell` render bằng `DetailLoadError`. */
+const loadKind = ref<'' | DetailLoadKind>('')
+const loadMsg = ref('')
 const form = ref<Partial<Warehouse>>({})
 
 async function load() {
+  loadKind.value = ''   // DÒNG ĐẦU — xoá lỗi lượt trước (INV-UX4-7)
+  loadMsg.value = ''
   loading.value = true
-  try { wh.value = await getWarehouse(props.name) as WarehouseDetail }
-  catch (e: unknown) { toast.value = (e as Error).message || 'Lỗi tải kho' }
-  finally { loading.value = false }
+  try {
+    wh.value = await getWarehouse(props.name) as WarehouseDetail
+  } catch (e: unknown) {
+    loadKind.value = loadErrorKind(e)
+    loadMsg.value = toApiError(e).message
+    wh.value = null
+  } finally {
+    loading.value = false
+  }
 }
 
 function openEdit() {
@@ -77,26 +95,27 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="page-container animate-fade-in">
-    <div v-if="toast" class="mb-4 px-4 py-3 rounded-lg bg-emerald-50 text-emerald-700 text-sm">{{ toast }}</div>
+  <DetailPageShell
+    :loading="loading"
+    :error-kind="loadKind"
+    :error-message="loadMsg"
+    :doc="wh"
+    entity-label="kho"
+    :record-id="props.name"
+    back-label="Về danh sách kho"
+    @retry="load()"
+    @back="router.push('/warehouses')">
+    <template #header>
+      <template v-if="wh">
+        <PageHeader
+          :back-to="'/warehouses'"
+          :title="wh.warehouse_name"
+          :subtitle="`IMM-15 · Tồn kho phụ tùng — ${wh.warehouse_code || wh.name}`"
+          :breadcrumb="[{ label: 'IMM-15 · Tồn kho phụ tùng', to: '/inventory/dashboard' }, { label: 'Kho', to: '/warehouses' }, { label: wh.warehouse_name }]"
+        />
 
-    <div v-if="loading && !wh" class="text-center py-20 text-slate-400">Đang tải…</div>
-
-    <div v-else-if="wh">
-      <PageHeader
-        :back-to="'/warehouses'"
-        :title="wh.warehouse_name"
-        :subtitle="`IMM-15 · Tồn kho phụ tùng — ${wh.warehouse_code || wh.name}`"
-        :breadcrumb="[{ label: 'IMM-15 · Tồn kho phụ tùng', to: '/inventory/dashboard' }, { label: 'Kho', to: '/warehouses' }, { label: wh.warehouse_name }]"
-      >
-        <template #actions>
-          <button class="btn-secondary" @click="openEdit">Chỉnh sửa</button>
-          <button v-if="wh.is_active" class="btn-ghost text-red-600 hover:bg-red-50" @click="doDeactivate">Ngừng hoạt động</button>
-        </template>
-      </PageHeader>
-
-      <!-- Summary -->
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <!-- Summary -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <div class="kpi-card p-4" style="--kpi-color: #2563eb">
           <p class="t-eyebrow mb-2">Số mã hàng</p>
           <p class="t-metric tabular-nums">{{ wh.stock_count || wh.stock_items.length }}</p>
@@ -114,10 +133,22 @@ onMounted(load)
           <span v-if="wh.is_active" class="text-[11px] px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-medium border border-emerald-100">Đang hoạt động</span>
           <span v-else class="text-[11px] px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600 font-medium border border-slate-200">Đã ngừng</span>
         </div>
-      </div>
+        </div>
+      </template>
+    </template>
+
+    <!-- CTA vòng đời — chỉ hiện ở trạng thái `content` (shell quyết bằng CẤU TRÚC). -->
+    <template #actions>
+      <button class="btn-secondary" @click="openEdit">Chỉnh sửa</button>
+      <button v-if="wh?.is_active" class="btn-ghost text-red-600 hover:bg-red-50" @click="doDeactivate">Ngừng hoạt động</button>
+    </template>
+
+    <template v-if="wh">
+      <!-- Dải XANH: CHỈ phản hồi hành động (lưu / ngừng hoạt động) — không bao giờ là lỗi nạp. -->
+      <div v-if="toast" class="px-4 py-3 rounded-lg bg-emerald-50 text-emerald-700 text-sm">{{ toast }}</div>
 
       <!-- Notes -->
-      <div v-if="wh.notes" class="card p-4 mb-6">
+      <div v-if="wh.notes" class="card p-4">
         <p class="text-xs text-slate-500 mb-1">Ghi chú</p>
         <p class="text-sm text-slate-700 whitespace-pre-wrap">{{ wh.notes }}</p>
       </div>
@@ -172,9 +203,8 @@ v-for="s in wh.stock_items" :key="s.spare_part"
           </table>
         </div>
       </div>
-    </div>
 
-    <!-- Edit modal -->
+      <!-- Edit modal -->
     <Transition name="fade">
       <div
 v-if="showEdit" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
@@ -224,8 +254,9 @@ id="wh-edit-active" v-model="form.is_active" type="checkbox" :true-value="1" :fa
           </div>
         </div>
       </div>
-    </Transition>
-  </div>
+      </Transition>
+    </template>
+  </DetailPageShell>
 </template>
 
 <style scoped>

@@ -6,24 +6,52 @@ import { getStockMovement, submitStockMovement, cancelStockMovement, deleteStock
 import type { StockMovement } from '@/types/inventory'
 import PageHeader from '@/components/common/PageHeader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
+import DetailPageShell from '@/components/common/DetailPageShell.vue'
+import { loadErrorKind, toApiError, type DetailLoadKind } from '@/api/errors'
+// AC-UX-065 (ADR-UX-16, docs/ui-ux/06 §5): hộp thoại xác nhận SSoT thay `confirm()`
+// trần — `confirm()` chặn vòng lặp sự kiện (từng treo trình duyệt khi tự động hoá),
+// không bẫy focus và nhãn nút do TRÌNH DUYỆT vẽ nên không Việt hoá được (LL-FE-53).
+// View gọi hàng đợi qua `useNotify().confirm()` — KHÔNG gọi tầng hàng đợi trực tiếp.
+import { useNotify } from '@/composables/useNotify'
 
 const props = defineProps<{ name: string }>()
 const router = useRouter()
+const notify = useNotify()
 
 const doc = ref<StockMovement | null>(null)
-const loading = ref(false)
+// `true` ngay từ đầu (INV-UX4-8): `false` khiến shell rơi vào `notfound` một nhịp
+// trước lượt nạp đầu ⇒ nháy "Không tìm thấy" rồi mới ra dữ liệu.
+const loading = ref(true)
+/** Lỗi NẠP bản ghi — tách hẳn khỏi `toast` (lỗi/thành công của HÀNH ĐỘNG). */
+const loadKind = ref<'' | DetailLoadKind>('')
+const loadMsg = ref('')
 const acting = ref(false)
 const toast = ref('')
 
 async function load() {
+  loadKind.value = ''   // DÒNG ĐẦU — xoá lỗi lượt trước (INV-UX4-7), nếu không nút nạp lại trông như chết
+  loadMsg.value = ''
   loading.value = true
-  try { doc.value = await getStockMovement(props.name) }
-  finally { loading.value = false }
+  try {
+    doc.value = await getStockMovement(props.name)
+  } catch (e: unknown) {
+    loadKind.value = loadErrorKind(e)
+    loadMsg.value = toApiError(e).message
+    doc.value = null
+  } finally {
+    loading.value = false
+  }
 }
 
 async function doSubmit() {
   if (!doc.value) return
-  if (!confirm('Xác nhận duyệt phiếu này? Tồn kho sẽ được cập nhật.')) return
+  const ok = await notify.confirm({
+    title: 'Duyệt phiếu kho',
+    body: 'Xác nhận duyệt phiếu này? Tồn kho sẽ được cập nhật.',
+    tone: 'warning',
+    confirmText: 'Duyệt',
+  })
+  if (!ok) return
   acting.value = true
   try {
     await submitStockMovement(doc.value.name)
@@ -36,7 +64,13 @@ async function doSubmit() {
 
 async function doDelete() {
   if (!doc.value) return
-  if (!confirm('Xoá phiếu nháp này? Hành động không thể hoàn tác.')) return
+  const ok = await notify.confirm({
+    title: 'Xoá phiếu nháp',
+    body: 'Xoá phiếu nháp này? Hành động không thể hoàn tác.',
+    tone: 'error',
+    confirmText: 'Xoá',
+  })
+  if (!ok) return
   acting.value = true
   try {
     await deleteStockMovement(doc.value.name)
@@ -50,7 +84,13 @@ async function doDelete() {
 
 async function doCancel() {
   if (!doc.value) return
-  if (!confirm('Xác nhận huỷ phiếu? Tồn kho sẽ được hoàn nguyên.')) return
+  const ok = await notify.confirm({
+    title: 'Huỷ phiếu kho',
+    body: 'Xác nhận huỷ phiếu? Tồn kho sẽ được hoàn nguyên.',
+    tone: 'error',
+    confirmText: 'Huỷ phiếu',
+  })
+  if (!ok) return
   acting.value = true
   try {
     await cancelStockMovement(doc.value.name)
@@ -83,39 +123,52 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="page-container animate-fade-in">
-    <div v-if="loading && !doc" class="text-center py-20 text-slate-400">Đang tải…</div>
+  <DetailPageShell
+    :loading="loading"
+    :error-kind="loadKind"
+    :error-message="loadMsg"
+    :doc="doc"
+    entity-label="phiếu kho"
+    :record-id="props.name"
+    back-label="Về danh sách phiếu kho"
+    @retry="load()"
+    @back="router.push('/stock-movements')">
+    <template #header>
+      <template v-if="doc">
+        <PageHeader
+          :back-to="'/stock-movements'"
+          :title="doc.name"
+          :subtitle="`IMM-15 · Tồn kho phụ tùng — ${TYPE_LABELS[doc.movement_type] || doc.movement_type}`"
+          :breadcrumb="[{ label: 'IMM-15 · Tồn kho phụ tùng', to: '/inventory/dashboard' }, { label: 'Phiếu kho', to: '/stock-movements' }, { label: doc.name }]"
+        />
+        <div class="flex items-center gap-2">
+          <span
+            class="text-[11px] px-2.5 py-0.5 rounded-full font-medium border"
+            :class="doc.movement_type === 'Receipt' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' :
+                    doc.movement_type === 'Issue' ? 'bg-red-50 text-red-700 border-red-100' :
+                    doc.movement_type === 'Transfer' ? 'bg-blue-50 text-blue-700 border-blue-100' :
+                                                       'bg-amber-50 text-amber-700 border-amber-100'"
+          >{{ TYPE_LABELS[doc.movement_type] }}</span>
+          <StatusBadge :state="doc.status" />
+        </div>
+      </template>
+    </template>
 
-    <div v-else-if="doc">
-      <PageHeader
-        :back-to="'/stock-movements'"
-        :title="doc.name"
-        :subtitle="`IMM-15 · Tồn kho phụ tùng — ${TYPE_LABELS[doc.movement_type] || doc.movement_type}`"
-        :breadcrumb="[{ label: 'IMM-15 · Tồn kho phụ tùng', to: '/inventory/dashboard' }, { label: 'Phiếu kho', to: '/stock-movements' }, { label: doc.name }]"
-      >
-        <template #actions>
-          <button v-if="doc.docstatus === 0" class="btn-secondary" :disabled="acting" @click="router.push(`/stock-movements/${doc.name}/edit`)">Chỉnh sửa</button>
-          <button v-if="doc.docstatus === 0" class="btn-ghost text-red-600 hover:bg-red-50" :disabled="acting" @click="doDelete">Xoá</button>
-          <button v-if="doc.docstatus === 0" class="btn-primary" :disabled="acting" @click="doSubmit">
-            {{ acting ? 'Đang xử lý…' : 'Duyệt phiếu' }}
-          </button>
-          <button v-if="doc.docstatus === 1" class="btn-ghost text-red-600 hover:bg-red-50" :disabled="acting" @click="doCancel">
-            {{ acting ? 'Đang xử lý…' : 'Huỷ phiếu' }}
-          </button>
-        </template>
-      </PageHeader>
-      <div class="flex items-center gap-2 mb-5">
-        <span
-          class="text-[11px] px-2.5 py-0.5 rounded-full font-medium border"
-          :class="doc.movement_type === 'Receipt' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' :
-                  doc.movement_type === 'Issue' ? 'bg-red-50 text-red-700 border-red-100' :
-                  doc.movement_type === 'Transfer' ? 'bg-blue-50 text-blue-700 border-blue-100' :
-                                                     'bg-amber-50 text-amber-700 border-amber-100'"
-        >{{ TYPE_LABELS[doc.movement_type] }}</span>
-        <StatusBadge :state="doc.status" />
-      </div>
+    <!-- CTA vòng đời — shell chỉ render slot này ở trạng thái `content`
+         ⇒ hết bấm Duyệt/Huỷ/Xoá trên bản ghi không tồn tại. -->
+    <template #actions>
+      <button v-if="doc?.docstatus === 0" class="btn-secondary" :disabled="acting" @click="router.push(`/stock-movements/${doc.name}/edit`)">Chỉnh sửa</button>
+      <button v-if="doc?.docstatus === 0" class="btn-ghost text-red-600 hover:bg-red-50" :disabled="acting" @click="doDelete">Xoá</button>
+      <button v-if="doc?.docstatus === 0" class="btn-primary" :disabled="acting" @click="doSubmit">
+        {{ acting ? 'Đang xử lý…' : 'Duyệt phiếu' }}
+      </button>
+      <button v-if="doc?.docstatus === 1" class="btn-ghost text-red-600 hover:bg-red-50" :disabled="acting" @click="doCancel">
+        {{ acting ? 'Đang xử lý…' : 'Huỷ phiếu' }}
+      </button>
+    </template>
 
-      <div v-if="toast" class="mb-4 px-4 py-3 rounded-lg bg-emerald-50 text-emerald-700 text-sm">{{ toast }}</div>
+    <template v-if="doc">
+      <div v-if="toast" class="px-4 py-3 rounded-lg bg-emerald-50 text-emerald-700 text-sm">{{ toast }}</div>
 
       <!-- Info -->
       <div class="card p-5 mb-4">
@@ -217,6 +270,6 @@ v-if="r.stock_qty !== undefined && r.conversion_factor && r.conversion_factor !=
           </table>
         </div>
       </div>
-    </div>
-  </div>
+    </template>
+  </DetailPageShell>
 </template>

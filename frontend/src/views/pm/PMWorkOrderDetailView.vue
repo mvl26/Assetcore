@@ -4,8 +4,7 @@ import { useToast } from '@/composables/useToast'
 import { MSG } from '@/i18n/messages'
 import DateInput from '@/components/common/DateInput.vue'
 import RelatedRecords from '@/components/common/RelatedRecords.vue'
-import DetailTabBar from '@/components/common/DetailTabBar.vue'
-import DetailLoadError from '@/components/common/DetailLoadError.vue'
+import DetailPageShell from '@/components/common/DetailPageShell.vue'
 import { onMounted, computed, ref } from 'vue'
 import { useImm08Store } from '@/stores/imm08'
 import { useRouter } from 'vue-router'
@@ -23,7 +22,10 @@ const { can } = useCapabilities()
 
 // Tab màn chi tiết — «Bản ghi liên quan» mount LƯỜI (panel v-if) nên mở phiếu KHÔNG
 // còn bắn `get_connections`; panel chính dùng v-show để giữ nguyên dữ liệu đang nhập.
-const activeTab = ref<'detail' | 'related'>('detail')
+// `ref<string>` chứ KHÔNG `ref<'detail'|'related'>`: prop/emit `active-tab` của shell khai
+// `string` ⇒ union hẹp làm `vue-tsc` báo `string not assignable` (bẫy 13.9.3). Khoá tab vẫn
+// được giữ chặt trong hằng `DETAIL_TABS: DetailTab[]`.
+const activeTab = ref<string>('detail')
 const DETAIL_TABS = [
   { key: 'detail', label: 'Chi tiết' },
   { key: 'related', label: 'Bản ghi liên quan' },
@@ -64,9 +66,12 @@ const wo = computed(() => store.currentWO)
 // message THẬT của server + ẩn toàn bộ CTA; TUYỆT ĐỐI KHÔNG logout/redirect login
 // (đó là việc của dispatcher-403 trong axios interceptor). Handler dùng CHUNG cho
 // 4 màn detail (PM/CM/Hiệu chuẩn/Sự cố) — xem composables/useDetailAccess.ts.
+// Destructure ĐỔI TÊN (khuôn §13.4.0): truyền `access.kind` nguyên ref vào prop shell sẽ
+// đưa cả object truthy sang ⇒ MÀN NÀO CŨNG kẹt ở trạng thái `error` (bẫy 13.9.1).
+// `blocked` không còn cần ở template: nhánh `content` của shell ĐÃ là điều kiện đó — CTA
+// nằm trong nhánh ấy nên «0 nút chết» đúng bằng CẤU TRÚC, không bằng một `v-if` phải nhớ.
 const {
   kind: loadErrorKindRef,
-  blocked: loadBlocked,
   message: loadErrMsg,
 } = useDetailAccess(() => (store.currentWO ? null : store.lastApiError))
 
@@ -341,7 +346,19 @@ function runServerAction(a: AvailableAction): void {
 </script>
 
 <template>
-  <div class="page-container animate-fade-in">
+  <DetailPageShell
+    :loading="store.loading"
+    :error-kind="loadErrorKindRef"
+    :error-message="loadErrMsg"
+    :doc="wo"
+    entity-label="phiếu bảo trì định kỳ"
+    :record-id="props.id"
+    back-label="Về danh sách bảo trì định kỳ"
+    :tabs="DETAIL_TABS"
+    v-model:active-tab="activeTab"
+    @retry="store.fetchWorkOrder(props.id)"
+    @back="router.push('/pm/work-orders')">
+    <template #title>
     <!-- Back + Header -->
     <div class="flex items-center gap-3 mb-5">
       <button class="text-slate-400 hover:text-slate-700 transition-colors" aria-label="Quay lại danh sách" @click="router.push('/pm/work-orders')">
@@ -360,39 +377,12 @@ function runServerAction(a: AvailableAction): void {
         <h1 class="text-xl font-semibold text-slate-900 mt-1 truncate">{{ wo?.asset_name || wo?.asset_ref || 'Phiếu bảo trì' }}</h1>
       </div>
     </div>
+    </template>
 
-    <!-- Loading Skeleton -->
-    <div v-if="store.loading" class="space-y-4">
-      <div class="card-sm animate-pulse">
-        <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
-          <div v-for="i in 6" :key="i" class="h-5 bg-slate-100 rounded" />
-        </div>
-      </div>
-      <div class="card-sm animate-pulse space-y-3">
-        <div class="h-4 bg-slate-100 rounded w-48" />
-        <div class="h-2 bg-slate-100 rounded-full" />
-        <div v-for="i in 4" :key="i" class="h-20 bg-slate-100 rounded-lg" />
-      </div>
-    </div>
-
-    <!-- Nạp thất bại (403 thiếu quyền / 404 / lỗi khác) — empty-state CHUNG, có lối
-         thoát, 0 CTA render (CR-74 · chống dead-control). -->
-    <DetailLoadError
-      v-else-if="loadBlocked"
-      :kind="loadErrorKindRef || 'unknown'"
-      entity-label="phiếu bảo trì định kỳ"
-      :record-id="props.id"
-      :message="loadErrMsg"
-      back-label="Về danh sách bảo trì định kỳ"
-      @retry="store.fetchWorkOrder(props.id)"
-      @back="router.push('/pm/work-orders')"
-    />
-
-    <template v-else-if="wo">
-      <!-- Thanh tab: gác theo CÙNG điều kiện `wo` như khối liên quan cũ ⇒ chưa tải xong
-           hoặc bị chặn đọc thì KHÔNG có nút tab chết. -->
-      <DetailTabBar v-model="activeTab" :tabs="DETAIL_TABS" />
-
+    <!-- Thanh tab HOISTING lên prop shell (ADR-UX-25): shell là nơi DUY NHẤT vẽ thanh tab,
+         và nó nằm trong nhánh `content` ⇒ phiếu bị chặn đọc KHÔNG có nút tab chết, đúng
+         bằng CẤU TRÚC (không cần `v-if` bù — bẫy 13.9.10). -->
+    <template v-if="wo">
       <div v-show="activeTab === 'detail'" data-testid="tab-panel-detail">
       <!-- Overdue Warning Banner -->
       <Transition
@@ -406,7 +396,7 @@ function runServerAction(a: AvailableAction): void {
           class="alert-error mb-5 flex-col sm:flex-row sm:items-center sm:justify-between"
         >
           <div class="flex items-start gap-3">
-            <svg class="w-5 h-5 text-red-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <svg class="w-5 h-5 text-danger-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-2.694-.833-3.464 0L3.34 16.5C2.57 18.333 3.532 20 5.07 20z" />
             </svg>
             <div>
@@ -669,11 +659,11 @@ function runServerAction(a: AvailableAction): void {
           <div class="space-y-4">
             <div v-if="rescheduleError" class="alert-error text-sm">{{ rescheduleError }}</div>
             <div class="form-group">
-              <label for="reschedule-date" class="form-label">Ngày mới <span class="text-red-500">*</span></label>
+              <label for="reschedule-date" class="form-label">Ngày mới <span class="text-danger-500">*</span></label>
               <DateInput id="reschedule-date" v-model="rescheduleDate" class="form-input !text-sm" />
             </div>
             <div class="form-group">
-              <label for="reschedule-reason" class="form-label">Lý do hoãn <span class="text-red-500">*</span></label>
+              <label for="reschedule-reason" class="form-label">Lý do hoãn <span class="text-danger-500">*</span></label>
               <textarea
                 id="reschedule-reason"
                 v-model="rescheduleReason"
@@ -748,7 +738,7 @@ function runServerAction(a: AvailableAction): void {
         </div>
       </div>
     </Transition>
-  </div>
+  </DetailPageShell>
 </template>
 
 <style scoped>

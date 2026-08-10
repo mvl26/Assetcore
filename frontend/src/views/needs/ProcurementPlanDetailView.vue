@@ -8,14 +8,22 @@ import type { ProcurementPlanDetail } from '@/api/imm01'
 import { formatVnd, stateLabel, stateSlug } from '@/utils/wave2Labels'
 import type { NeedsRequestListItem } from '@/types/imm01'
 import CurrencyInput from '@/components/common/CurrencyInput.vue'
+import DetailPageShell from '@/components/common/DetailPageShell.vue'
+import { useDetailAccess } from '@/composables/useDetailAccess'
 
 const route = useRoute()
 const router = useRouter()
 const props = defineProps<{ id?: string }>()
 
 const plan = ref<ProcurementPlanDetail | null>(null)
-const loading = ref(false)
+const loading = ref(true)                        // INV-UX4-8 — chống nháy 404 một nhịp
+// `error` giữ nhiệm vụ CŨ: lỗi của 5 HÀNH ĐỘNG (gom đề xuất / duyệt / kích hoạt / đóng kỳ /
+// đặt ngân sách). Nối nó vào `:error-kind` ⇒ một cú bấm hỏng THAY CẢ TRANG bằng banner và
+// người dùng mất bảng đề xuất đang xem (bẫy 13.9.7) ⇒ lượt nạp có ref RIÊNG.
 const error = ref<string | null>(null)
+const loadError = ref<unknown>(null)
+const { kind: loadKind, message: loadMsg } = useDetailAccess(() => loadError.value)
+const planId = computed<string>(() => props.id || (route.params.id as string) || '')
 const showRollModal = ref(false)
 const candidateNeeds = ref<NeedsRequestListItem[]>([])
 const selectedIds = ref<Set<string>>(new Set())
@@ -64,14 +72,15 @@ function cancelPendingAction() {
 }
 
 async function loadPlan() {
-  const name = props.id || (route.params.id as string)
-  if (!name) return
+  loadError.value = null                         // INV-UX4-7 — xoá lỗi ở DÒNG ĐẦU
+  const name = planId.value
+  if (!name) { loading.value = false; return }
   loading.value = true
-  error.value = null
   try {
     plan.value = await getProcurementPlan(name)
   } catch (e: unknown) {
-    error.value = e instanceof Error ? e.message : String(e)
+    loadError.value = e                          // nguyên đối tượng ⇒ phân loại được kind
+    plan.value = null                            // dọn ảnh chụp cũ
   } finally {
     loading.value = false
   }
@@ -144,47 +153,61 @@ onMounted(loadPlan)
 </script>
 
 <template>
-  <div class="page-container animate-fade-in">
-    <div v-if="loading" class="loading">Đang tải kế hoạch...</div>
-    <div v-else-if="error" class="alert-error">
-      <strong>Lỗi:</strong> {{ error }}
-    </div>
-    <div v-else-if="plan">
+  <DetailPageShell
+    :loading="loading"
+    :error-kind="loadKind"
+    :error-message="loadMsg"
+    :doc="plan"
+    entity-label="kế hoạch mua sắm"
+    :record-id="planId"
+    back-label="Về danh sách kế hoạch mua sắm"
+    @retry="loadPlan()"
+    @back="router.push('/procurement-plans')">
+    <template #title>
       <div class="page-header">
         <div>
           <h1>
-            {{ plan.name }}
-            <span :class="['badge', 'state-' + stateSlug(plan.workflow_state as string)]">
+            {{ plan?.name || planId }}
+            <span v-if="plan" :class="['badge', 'state-' + stateSlug(plan.workflow_state as string)]">
               {{ stateLabel(plan.workflow_state as string) }}
             </span>
           </h1>
-          <div class="meta">
+          <div v-if="plan" class="meta">
             Kỳ {{ plan.plan_period }} · Năm {{ plan.plan_year }}
           </div>
         </div>
-        <div class="header-actions">
-          <button class="btn btn-outline" @click="router.back()">← Quay lại</button>
-          <button class="btn btn-outline" @click="openRollModal"
-                  v-if="plan.workflow_state === 'Draft'">
-            Đưa đề xuất vào kế hoạch
-          </button>
-          <button class="btn btn-primary" :disabled="actioning"
-                  v-if="canDo('Phê duyệt kế hoạch')" data-testid="cta-approve"
-                  @click="requestAction(approvePlan, 'Phê duyệt kế hoạch này?')">
-            {{ actioning ? 'Đang xử lý...' : 'Phê duyệt' }}
-          </button>
-          <button class="btn btn-primary" :disabled="actioning"
-                  v-if="canDo('Kích hoạt')" data-testid="cta-activate"
-                  @click="requestAction(activatePlan, 'Kích hoạt kế hoạch? Kế hoạch sẽ chuyển sang trạng thái Đang hiệu lực.')">
-            {{ actioning ? 'Đang xử lý...' : 'Kích hoạt' }}
-          </button>
-          <button class="btn btn-outline btn-danger" :disabled="actioning"
-                  v-if="canDo('Đóng kỳ kế hoạch')" data-testid="cta-close"
-                  @click="requestAction(closePlan, 'Đóng kế hoạch? Hành động không thể hoàn tác.')">
-            {{ actioning ? 'Đang xử lý...' : 'Đóng kế hoạch' }}
-          </button>
-        </div>
       </div>
+    </template>
+
+    <!-- CTA vòng đời — CHỈ tồn tại ở trạng thái content (AC-UX-053).
+         5 chỗ gate `workflow_state === 'Draft'` giữ NGUYÊN ở lô này: chúng cần cờ server
+         `can_edit`, là hard-dependency BE ⇒ AC-UX-049, ngoài phạm vi lô 2. -->
+    <template #actions>
+      <button class="btn btn-outline" data-testid="cta-back" @click="router.back()">← Quay lại</button>
+      <button class="btn btn-outline" data-testid="cta-roll-in" @click="openRollModal"
+              v-if="plan && plan.workflow_state === 'Draft'">
+        Đưa đề xuất vào kế hoạch
+      </button>
+      <button class="btn btn-primary" :disabled="actioning"
+              v-if="canDo('Phê duyệt kế hoạch')" data-testid="cta-approve"
+              @click="requestAction(approvePlan, 'Phê duyệt kế hoạch này?')">
+        {{ actioning ? 'Đang xử lý...' : 'Phê duyệt' }}
+      </button>
+      <button class="btn btn-primary" :disabled="actioning"
+              v-if="canDo('Kích hoạt')" data-testid="cta-activate"
+              @click="requestAction(activatePlan, 'Kích hoạt kế hoạch? Kế hoạch sẽ chuyển sang trạng thái Đang hiệu lực.')">
+        {{ actioning ? 'Đang xử lý...' : 'Kích hoạt' }}
+      </button>
+      <button class="btn btn-outline btn-danger" :disabled="actioning"
+              v-if="canDo('Đóng kỳ kế hoạch')" data-testid="cta-close"
+              @click="requestAction(closePlan, 'Đóng kế hoạch? Hành động không thể hoàn tác.')">
+        {{ actioning ? 'Đang xử lý...' : 'Đóng kế hoạch' }}
+      </button>
+    </template>
+
+    <template v-if="plan">
+      <!-- Lỗi HÀNH ĐỘNG — kênh riêng, KHÔNG thay cả trang (bẫy 13.9.7). -->
+      <div v-if="error" role="alert" class="alert-error"><strong>Lỗi:</strong> {{ error }}</div>
 
       <div class="grid-3col">
         <div class="card">
@@ -239,7 +262,7 @@ onMounted(loadPlan)
               <td class="num">{{ formatVnd((it.allocated_budget as number) || (it.allocated_capex as number) || 0) }}</td>
               <td class="num">{{ formatVnd((it.tco_5y as number) || 0) }}</td>
               <td v-if="plan.workflow_state === 'Draft'" class="text-right">
-                <button class="text-xs text-red-500 hover:text-red-700"
+                <button class="text-xs text-danger-500 hover:text-danger-700"
                         :disabled="removingNr === (it.needs_request as string)"
                         @click="doRemoveNr(it.needs_request as string)">
                   {{ removingNr === (it.needs_request as string) ? '...' : 'Xóa' }}
@@ -252,7 +275,7 @@ onMounted(loadPlan)
           Chưa có đề xuất nào — nhấn "+ Thêm đề xuất" để gom đề xuất đã duyệt vào kế hoạch.
         </div>
       </div>
-    </div>
+    </template>
 
     <!-- Confirmation modal (replaces native confirm() which froze the browser) -->
     <div v-if="pendingAction" class="modal-backdrop" @click.self="cancelPendingAction">
@@ -307,11 +330,10 @@ onMounted(loadPlan)
         </div>
       </div>
     </div>
-  </div>
+  </DetailPageShell>
 </template>
 
 <style scoped>
-.page-container { padding: 1.5rem; }
 .page-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem; }
 .header-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 .meta { color: #6b7280; font-size: 0.85rem; }

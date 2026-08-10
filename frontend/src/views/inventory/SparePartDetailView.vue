@@ -11,6 +11,8 @@ import SmartSelect from '@/components/common/SmartSelect.vue'
 import CurrencyInput from '@/components/common/CurrencyInput.vue'
 import UomConverter from '@/components/common/UomConverter.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
+import DetailPageShell from '@/components/common/DetailPageShell.vue'
+import { loadErrorKind, toApiError, type DetailLoadKind } from '@/api/errors'
 
 const props = defineProps<{ name: string }>()
 const router = useRouter()
@@ -24,23 +26,36 @@ type PartDetail = SparePart & {
 
 const part = ref<PartDetail | null>(null)
 const partPurchases = ref<PartPurchaseRow[]>([])
-const loading = ref(false)
+const loading = ref(true)
 const showEdit = ref(false)
 const saving = ref(false)
+/** Phản hồi HÀNH ĐỘNG (lưu / ngừng sử dụng) — KHÔNG dùng cho lỗi nạp. */
 const toast = ref('')
+/** Lỗi NẠP bản ghi — kênh riêng do `DetailPageShell` render. */
+const loadKind = ref<'' | DetailLoadKind>('')
+const loadMsg = ref('')
 const form = ref<Partial<SparePart>>({})
 
 async function load() {
+  loadKind.value = ''   // DÒNG ĐẦU — xoá lỗi lượt trước (INV-UX4-7)
+  loadMsg.value = ''
   loading.value = true
   try {
+    // Nguồn phụ `getPartPurchases` cố ý nằm chung lượt (bẫy §7.16): hỏng ⇒ vào nhánh
+    // lỗi có nút nạp lại, KHÔNG nuốt câm. Tách nguồn phụ là việc của AC-UX-053.
     const [p, purchases] = await Promise.all([
       getSparePart(props.name) as Promise<PartDetail>,
       getPartPurchases(props.name),
     ])
     part.value = p
     partPurchases.value = purchases
+  } catch (e: unknown) {
+    loadKind.value = loadErrorKind(e)
+    loadMsg.value = toApiError(e).message
+    part.value = null
+  } finally {
+    loading.value = false
   }
-  finally { loading.value = false }
 }
 
 function openEdit() {
@@ -110,26 +125,27 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="page-container animate-fade-in">
-    <div v-if="toast" class="mb-4 px-4 py-3 rounded-lg bg-emerald-50 text-emerald-700 text-sm">{{ toast }}</div>
+  <DetailPageShell
+    :loading="loading"
+    :error-kind="loadKind"
+    :error-message="loadMsg"
+    :doc="part"
+    entity-label="phụ tùng"
+    :record-id="props.name"
+    back-label="Về danh mục phụ tùng"
+    @retry="load()"
+    @back="router.push('/spare-parts')">
+    <template #header>
+      <template v-if="part">
+        <PageHeader
+          :back-to="'/spare-parts'"
+          :title="part.part_name"
+          :subtitle="`IMM-15 · Tồn kho phụ tùng — ${part.part_code || part.name}`"
+          :breadcrumb="[{ label: 'IMM-15 · Tồn kho phụ tùng', to: '/inventory/dashboard' }, { label: 'Phụ tùng', to: '/spare-parts' }, { label: part.part_name }]"
+        />
 
-    <div v-if="loading && !part" class="text-center py-20 text-slate-400">Đang tải…</div>
-
-    <div v-else-if="part">
-      <PageHeader
-        :back-to="'/spare-parts'"
-        :title="part.part_name"
-        :subtitle="`IMM-15 · Tồn kho phụ tùng — ${part.part_code || part.name}`"
-        :breadcrumb="[{ label: 'IMM-15 · Tồn kho phụ tùng', to: '/inventory/dashboard' }, { label: 'Phụ tùng', to: '/spare-parts' }, { label: part.part_name }]"
-      >
-        <template #actions>
-          <button class="btn-secondary" @click="openEdit">Chỉnh sửa</button>
-          <button v-if="part.is_active" class="btn-ghost text-red-600 hover:bg-red-50" @click="doDeactivate">Ngừng sử dụng</button>
-        </template>
-      </PageHeader>
-
-      <!-- Summary card -->
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <!-- Summary card -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <div class="kpi-card p-4" style="--kpi-color: #2563eb">
           <p class="t-eyebrow mb-2">Tổng tồn</p>
           <p class="t-metric tabular-nums">{{ part.total_stock || 0 }} <span class="text-sm font-normal text-slate-400">{{ part.stock_uom }}</span></p>
@@ -147,10 +163,21 @@ onMounted(load)
           <p class="text-sm font-semibold text-slate-900 truncate">{{ part.manufacturer || '—' }}</p>
           <p v-if="part.manufacturer_part_no" class="font-mono text-xs text-brand-700 mt-0.5">{{ part.manufacturer_part_no }}</p>
         </div>
-      </div>
+        </div>
+      </template>
+    </template>
+
+    <!-- CTA vòng đời — dời khỏi `PageHeader #actions` để shell TẮT được ở error/notfound. -->
+    <template #actions>
+      <button class="btn-secondary" @click="openEdit">Chỉnh sửa</button>
+      <button v-if="part?.is_active" class="btn-ghost text-red-600 hover:bg-red-50" @click="doDeactivate">Ngừng sử dụng</button>
+    </template>
+
+    <template v-if="part">
+      <div v-if="toast" class="px-4 py-3 rounded-lg bg-emerald-50 text-emerald-700 text-sm">{{ toast }}</div>
 
       <!-- Stock by warehouse -->
-      <div class="card p-5 mb-6">
+      <div class="card p-5">
         <h3 class="text-sm font-semibold text-slate-700 mb-4">Tồn theo kho</h3>
         <div v-if="part.stock_by_warehouse.length === 0" class="text-center py-6 text-sm text-slate-400">
           Chưa có tồn ở bất kỳ kho nào
@@ -234,13 +261,13 @@ class="text-xs px-2 py-0.5 rounded-full font-medium"
       </div>
 
       <!-- Specs -->
-      <div v-if="part.specifications" class="card p-5 mt-6">
+      <div v-if="part.specifications" class="card p-5">
         <h3 class="text-sm font-semibold text-slate-700 mb-2">Thông số kỹ thuật</h3>
         <p class="text-sm text-slate-600 whitespace-pre-wrap">{{ part.specifications }}</p>
       </div>
 
       <!-- Purchase history -->
-      <div class="card p-5 mt-6">
+      <div class="card p-5">
         <div class="flex items-center justify-between mb-4 pb-2 border-b border-slate-100">
           <h3 class="text-sm font-semibold text-slate-700">Lịch sử đơn hàng mua</h3>
           <div class="flex items-center gap-3">
@@ -298,13 +325,12 @@ class="text-xs px-2 py-0.5 rounded-full font-medium"
       </div>
 
       <!-- UOM Converter -->
-      <div class="card p-5 mt-6">
+      <div class="card p-5">
         <h3 class="text-sm font-semibold text-slate-700 mb-4">Quy đổi đơn vị tính</h3>
         <UomConverter :spare-part="part.name" />
       </div>
-    </div>
 
-    <!-- Edit modal -->
+      <!-- Edit modal -->
     <Transition name="fade">
       <div
 v-if="showEdit" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
@@ -380,8 +406,9 @@ v-if="showEdit" class="fixed inset-0 z-50 flex items-center justify-center bg-bl
           </div>
         </div>
       </div>
-    </Transition>
-  </div>
+      </Transition>
+    </template>
+  </DetailPageShell>
 </template>
 
 <style scoped>
