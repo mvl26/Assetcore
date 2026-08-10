@@ -56,6 +56,19 @@ const STATUS_MAP: Record<string, string> = {
   'Pending Verification': 'Chờ xác minh',
   Pending_Verification:   'Chờ xác minh',
 
+  // ── IMM-16 Management Review status (SSoT nhãn badge) ──────────────
+  // Ground truth BE: `assetcore/hooks.py:97` + `assetcore/tests/test_imm16.py`
+  // `_MR_VALID_STATES` = Draft / Held / Minutes Approved / Closed (Draft & Closed
+  // đã có ở khối chung phía trên — nên thiếu 2 khoá này rất dễ lọt).
+  // Thiếu ⇒ `<StatusBadge :state="mr.status" />` in NGUYÊN tiếng Anh «Held» /
+  // «Minutes Approved» ở /compliance/mr và /compliance/mr/<id> (AC-UX-003, LL-FE-53).
+  // Nhãn phải TRÙNG TUYỆT ĐỐI `MR_STATUSES` của `ManagementReviewListView.vue` —
+  // khoá bằng guard parity `views/compliance/managementReviewStatusLabelParity.test.ts`.
+  // Biến thể gạch dưới: Frappe trả raw ở vài đường (khuôn đã có cho Pending_Verification).
+  Held:                'Đã họp',
+  'Minutes Approved':  'Biên bản đã duyệt',
+  Minutes_Approved:    'Biên bản đã duyệt',
+
   // ── IMM-12 Incident status backstop (R20) ─────────────────────────
   // StatusBadge-path (translateStatus → STATUS_MAP) THIẾU 2 mã này → raw-EN leak
   // ở IncidentListView (2/4 OPEN-state của open_incident_filter). Backstop khớp
@@ -406,6 +419,12 @@ const STATUS_COLOR: Record<string, string> = {
   Assigned: COLOR_BLUE,
   Reviewing: COLOR_BLUE,
   Prioritized: COLOR_BLUE,   Budgeted: COLOR_BLUE,
+  // IMM-16 Soát xét lãnh đạo (AC-UX-003): vòng đời Bản nháp → Đã họp → Biên bản đã
+  // duyệt → Đã đóng. Gán màu CHỦ Ý, không để rơi về COLOR_GRAY mặc định — «đã họp» là
+  // đang xử lý (cùng tông In Progress), «biên bản đã duyệt» là mốc đã duyệt (tông
+  // Approved). Draft/Closed giữ COLOR_GRAY sẵn có ở khối xám phía dưới.
+  Held: COLOR_BLUE,
+  'Minutes Approved': COLOR_GREEN, Minutes_Approved: COLOR_GREEN,
   // vàng — chờ
   Pending: COLOR_YELLOW,   'Pending Approval': COLOR_YELLOW,
   Pending_Approval: COLOR_YELLOW, Pending_Review: COLOR_YELLOW, 'Pending Review': COLOR_YELLOW,

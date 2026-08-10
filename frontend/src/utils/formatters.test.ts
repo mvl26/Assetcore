@@ -405,3 +405,56 @@ describe('formatCurrencyShort — L-16 SSoT compact VND (tr/tỷ)', () => {
     expect(formatCurrencyShort(-1_500_000_000)).toBe('-1.5 tỷ')
   })
 })
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// AC-UX-003 ĐÓNG (docs/ui-ux/07 §7) — nhãn trạng thái Soát xét lãnh đạo (IMM-16).
+//
+// Triệu chứng: `/compliance/mr` và `/compliance/mr/<id>` in nguyên «Held» / «Minutes
+// Approved» vì `<StatusBadge :state="mr.status" />` đi qua `translateStatus` →
+// `STATUS_MAP`, mà STATUS_MAP thiếu đúng 2 khoá này (Draft/Closed thì có sẵn ở khối
+// chung nên không ai để ý). Vi phạm LL-FE-53 — UI phải 100% tiếng Việt.
+//
+// Ground truth BE: `assetcore/hooks.py:97` + `assetcore/tests/test_imm16.py`
+// `_MR_VALID_STATES` = Draft / Held / Minutes Approved / Closed.
+// ═══════════════════════════════════════════════════════════════════════════════
+const MR_STATES = ['Draft', 'Held', 'Minutes Approved', 'Closed'] as const
+const COLOR_GRAY = 'bg-slate-100 text-slate-600 border border-slate-200'
+
+describe('TC-UXMR-01 — translateStatus phủ đủ 4 state Soát xét lãnh đạo', () => {
+  it("translateStatus('Held') === 'Đã họp'", () => {
+    expect(translateStatus('Held')).toBe('Đã họp')
+  })
+  it("translateStatus('Minutes Approved') === 'Biên bản đã duyệt'", () => {
+    expect(translateStatus('Minutes Approved')).toBe('Biên bản đã duyệt')
+  })
+  it("biến thể gạch dưới: translateStatus('Minutes_Approved') === 'Biên bản đã duyệt'", () => {
+    // Frappe trả raw có gạch dưới ở vài đường (khuôn đã có cho Pending_Verification / RCA_Required).
+    expect(translateStatus('Minutes_Approved')).toBe('Biên bản đã duyệt')
+  })
+})
+
+describe('TC-UXMR-03 — 0 rò tiếng Anh trên badge trạng thái Soát xét lãnh đạo', () => {
+  for (const s of MR_STATES) {
+    it(`«${s}» được dịch (khác chính nó) và không còn dấu gạch dưới`, () => {
+      const label = translateStatus(s)
+      expect(label).not.toBe(s)
+      expect(label).not.toContain('_')
+      // Không còn từ tiếng Anh của vòng đời MR nào lọt ra nhãn.
+      expect(/\b(Draft|Held|Minutes|Approved|Closed)\b/.test(label)).toBe(false)
+    })
+  }
+})
+
+describe('TC-UXMR-04 — màu badge gán CHỦ Ý, không rơi về mặc định xám', () => {
+  it('Held → xanh dương (đang xử lý), khác COLOR_GRAY', () => {
+    expect(getStatusColor('Held')).not.toBe(COLOR_GRAY)
+    expect(getStatusColor('Held')).toBe('bg-blue-100 text-blue-800 border border-blue-200')
+  })
+  it('Minutes Approved (+ biến thể gạch dưới) → xanh lá (mốc đã duyệt)', () => {
+    expect(getStatusColor('Minutes Approved')).toBe(COLOR_GREEN)
+    expect(getStatusColor('Minutes_Approved')).toBe(COLOR_GREEN)
+  })
+  it('cả 4 state đều có màu (không rỗng)', () => {
+    for (const s of MR_STATES) expect(getStatusColor(s)).not.toBe('')
+  })
+})

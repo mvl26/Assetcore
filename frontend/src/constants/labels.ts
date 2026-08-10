@@ -779,14 +779,27 @@ export function formatStatus(v: string | undefined | null): string {
 // ─── R24: doctype-aware label resolver cho audit-trail/history dùng chung ─────
 // RecordHistory hiển thị from_status → to_status cho NHIỀU doctype. Map theo
 // ref_doctype để chọn đúng từ điển; fallback formatStatus() rồi raw-debar.
+// AC-UX-003: vòng đời Soát xét lãnh đạo (IMM-16 Management Review). Thiếu doctype này
+// ⇒ chip «from → to» của `RecordHistory` in nguyên «Held → Minutes Approved» ngay dưới
+// badge trạng thái vừa được Việt hoá (phát hiện khi render-verify /compliance/mr/<id>).
+// Nhãn TRÙNG TUYỆT ĐỐI `STATUS_MAP` (utils/formatters.ts) — khoá bằng parity test.
+export const MANAGEMENT_REVIEW_STATUS_LABEL: Record<string, string> = {
+  Draft:               'Bản nháp',
+  Held:                'Đã họp',
+  'Minutes Approved':  'Biên bản đã duyệt',
+  Minutes_Approved:    'Biên bản đã duyệt',
+  Closed:              'Đã đóng',
+}
+
 const _HISTORY_STATE_MAP: Record<string, Record<string, string>> = {
-  'Incident Report':       INCIDENT_STATUS_LABEL,
-  'IMM RCA Record':        RCA_STATUS_LABEL,
-  'IMM CAPA Record':       CAPA_WORKFLOW_LABEL,
-  'Asset Commissioning':   COMMISSIONING_STATE_LABELS,
-  'PM Work Order':         PM_STATUS_LABEL,
-  'Asset Repair':          CM_STATUS_LABEL,
-  'IMM Asset Calibration': CALIBRATION_STATUS_LABELS,
+  'Incident Report':        INCIDENT_STATUS_LABEL,
+  'IMM RCA Record':         RCA_STATUS_LABEL,
+  'IMM CAPA Record':        CAPA_WORKFLOW_LABEL,
+  'Asset Commissioning':    COMMISSIONING_STATE_LABELS,
+  'PM Work Order':          PM_STATUS_LABEL,
+  'Asset Repair':           CM_STATUS_LABEL,
+  'IMM Asset Calibration':  CALIBRATION_STATUS_LABELS,
+  'IMM Management Review':  MANAGEMENT_REVIEW_STATUS_LABEL,
 }
 export function historyStateLabel(refDoctype: string | undefined | null, v?: string | null): string {
   if (!v) return '—'
