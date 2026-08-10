@@ -6,15 +6,23 @@ import { getCompetency, signoffCompetency, revokeCompetency, recertifyCompetency
 import type { UserCompetency } from '@/api/imm06'
 import PageHeader from '@/components/common/PageHeader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
+import DetailPageShell from '@/components/common/DetailPageShell.vue'
+import { useDetailAccess } from '@/composables/useDetailAccess'
+import { useRouter } from 'vue-router'
 import { competencyEffectiveState } from './competencyStatus'
 
 const props = defineProps<{ name: string }>()
 const { can } = useCapabilities()
 const api = useApi()
+const router = useRouter()
 
 const competency = ref<UserCompetency | null>(null)
-const loading = ref(false)
+const loading = ref(true)                        // INV-UX4-8 — chống nháy 404 một nhịp
+// `error` giữ nhiệm vụ CŨ (lỗi HÀNH ĐỘNG: phê duyệt / thu hồi / tái chứng nhận…). Lỗi của
+// LƯỢT NẠP đi ref RIÊNG — nối chung sẽ khiến một cú «Thu hồi» hỏng THAY CẢ TRANG (bẫy 13.9.7).
 const error = ref<string | null>(null)
+const loadError = ref<unknown>(null)
+const { kind: loadKind, message: loadMsg } = useDetailAccess(() => loadError.value)
 
 const showRevokeModal = ref(false)
 const revokeReason = ref('')
@@ -108,13 +116,14 @@ function formatDays(days: number | null): string {
 }
 
 async function load() {
+  loadError.value = null                         // INV-UX4-7 — xoá lỗi ở DÒNG ĐẦU
   loading.value = true
   error.value = null
   try {
     // Server-driven: get_competency trả record + allowed_transitions + cờ capability.
     competency.value = await getCompetency(props.name)
   } catch (e: unknown) {
-    error.value = e instanceof Error ? e.message : String(e)
+    loadError.value = e                          // nguyên đối tượng ⇒ phân loại được kind
     competency.value = null
   } finally {
     loading.value = false
@@ -184,19 +193,32 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="page-container animate-fade-in space-y-5">
-    <PageHeader
-      :title="competency?.user_full_name ?? props.name"
-      :subtitle="`Năng lực · ${props.name}`"
-      :back-to="'/imm06/competencies'"
-      back-label="← Danh sách năng lực"
-      :breadcrumb="[
-        { label: 'IMM-06 · Đào tạo & Năng lực', to: '/imm06/competencies' },
-        { label: 'Năng lực', to: '/imm06/competencies' },
-        { label: props.name },
-      ]"
-    >
-      <template #actions>
+  <DetailPageShell
+    :loading="loading"
+    :error-kind="loadKind"
+    :error-message="loadMsg"
+    :doc="competency"
+    entity-label="hồ sơ năng lực"
+    :record-id="props.name"
+    back-label="Về danh sách năng lực"
+    @retry="load()"
+    @back="router.push('/imm06/competencies')">
+    <template #title>
+      <PageHeader
+        :title="competency?.user_full_name ?? props.name"
+        :subtitle="`Năng lực · ${props.name}`"
+        :back-to="'/imm06/competencies'"
+        back-label="← Danh sách năng lực"
+        :breadcrumb="[
+          { label: 'IMM-06 · Đào tạo & Năng lực', to: '/imm06/competencies' },
+          { label: 'Năng lực', to: '/imm06/competencies' },
+          { label: props.name },
+        ]"
+      />
+    </template>
+
+    <!-- CTA vòng đời — CHỈ tồn tại ở trạng thái content (AC-UX-053). -->
+    <template #actions>
         <StatusBadge
           v-if="competency"
           :state="competencyEffectiveState(competency.workflow_state, competency.days_until_expiry)"
@@ -250,17 +272,12 @@ onMounted(load)
         >
           Thu hồi
         </button>
-      </template>
-    </PageHeader>
+    </template>
 
-    <div v-if="loading" class="card p-8 text-center text-slate-400">Đang tải…</div>
+    <!-- Lỗi HÀNH ĐỘNG — kênh riêng, KHÔNG thay cả trang (bẫy 13.9.7). -->
+    <div v-if="error" role="alert" class="card border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700 text-sm">{{ error }}</div>
 
-    <div v-else-if="error && !competency" class="card border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700 flex items-center gap-3">
-      <span class="flex-1">{{ error }}</span>
-      <button class="text-sm underline focus-visible:ring-2 focus-visible:ring-rose-500 rounded" @click="load()">Thử lại</button>
-    </div>
-
-    <template v-else-if="competency">
+    <template v-if="competency">
       <!-- GATE-8: state CÓ hành động ở server nhưng user thiếu quyền → hint "không đủ quyền" -->
       <div
         v-if="showPermissionHint"
@@ -321,7 +338,7 @@ onMounted(load)
           </div>
           <div>
             <p class="text-xs text-slate-400 mb-1">Ngày hết hạn</p>
-            <p :class="competency.is_expired ? 'text-red-500 font-medium' : ''">{{ competency.expiry_date ?? '—' }}</p>
+            <p :class="competency.is_expired ? 'text-danger-500 font-medium' : ''">{{ competency.expiry_date ?? '—' }}</p>
           </div>
           <div>
             <p class="text-xs text-slate-400 mb-1">Thời hạn còn lại</p>
@@ -398,7 +415,7 @@ onMounted(load)
           Sau khi thu hồi, nhân viên cần hoàn thành đào tạo lại để lấy lại năng lực.
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">Lý do thu hồi <span class="text-red-500">*</span></label>
+          <label class="block text-sm font-medium mb-1">Lý do thu hồi <span class="text-danger-500">*</span></label>
           <textarea
             v-model="revokeReason"
             rows="3"
@@ -437,7 +454,7 @@ onMounted(load)
           Liên kết hồ sơ năng lực này với một buổi đào tạo nhắc lại (Refresher) để tái chứng nhận.
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">Mã buổi đào tạo <span class="text-red-500">*</span></label>
+          <label class="block text-sm font-medium mb-1">Mã buổi đào tạo <span class="text-danger-500">*</span></label>
           <input v-model="recertSession" type="text" class="form-input w-full text-sm" placeholder="TRN-2026-XXXXX" />
         </div>
         <div class="flex justify-end gap-2">
@@ -467,7 +484,7 @@ onMounted(load)
           Sau khi tạm ngưng, nhân viên không được vận hành thiết bị cho tới khi năng lực được khôi phục.
         </div>
         <div>
-          <label for="suspend-reason" class="block text-sm font-medium mb-1">Lý do tạm ngưng <span class="text-red-500">*</span></label>
+          <label for="suspend-reason" class="block text-sm font-medium mb-1">Lý do tạm ngưng <span class="text-danger-500">*</span></label>
           <textarea
             id="suspend-reason"
             v-model="suspendReason"
@@ -520,5 +537,5 @@ onMounted(load)
         </div>
       </div>
     </div>
-  </div>
+  </DetailPageShell>
 </template>

@@ -11,14 +11,25 @@ import { createCommissioningFromPurchase } from '@/api/imm04'
 import SmartSelect from '@/components/common/SmartSelect.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import { formatStatus } from '@/constants/labels'
+// AC-UX-065 (ADR-UX-16, docs/ui-ux/06 §5): hộp thoại xác nhận SSoT thay `confirm()`
+// trần — `confirm()` chặn vòng lặp sự kiện (từng treo trình duyệt khi tự động hoá),
+// không bẫy focus và nhãn nút do TRÌNH DUYỆT vẽ nên không Việt hoá được (LL-FE-53).
+// View gọi hàng đợi qua `useNotify().confirm()` — KHÔNG gọi tầng hàng đợi trực tiếp.
+import { useNotify } from '@/composables/useNotify'
+import DetailPageShell from '@/components/common/DetailPageShell.vue'
+import { useDetailAccess } from '@/composables/useDetailAccess'
 
 const props = defineProps<{ name: string }>()
 const router = useRouter()
+const notify = useNotify()
 
 const doc = ref<Purchase | null>(null)
 const movements = ref<LinkedMovement[]>([])
 const commissionings = ref<LinkedCommissioning[]>([])
-const loading = ref(false)
+const loading = ref(true)                        // INV-UX4-8 — chống nháy 404 một nhịp
+// Lỗi của LƯỢT NẠP — trước đây lỗi này đi `toast` (dải chữ tự tắt sau 3,5 giây) rồi để lại
+// một trang trắng không lối thoát; nay là nguồn `:error-kind` của shell.
+const loadError = ref<unknown>(null)
 const acting = ref(false)
 const toast = ref('')
 const toastError = ref(false)
@@ -38,6 +49,9 @@ const canDelete = computed(() => doc.value?.can_delete === true)
 // Nút "+ Tạo phiếu nhập kho": dùng cờ riêng nếu BE emit, else theo can_receive.
 const canCreateReceipt = computed(() => doc.value?.can_create_receipt ?? canReceive.value)
 
+// SSoT phân loại lỗi nạp (AC-UX-053, ADR-UX-27).
+const { kind: loadKind, message: loadMsg } = useDetailAccess(() => loadError.value)
+
 // Flow summary
 const deviceCommissioningDone = computed(() =>
   (doc.value?.devices || []).filter(d => d.commissioning_ref).length,
@@ -53,17 +67,23 @@ const receiptAutoSubmit = ref(false)
 const creatingReceipt = ref(false)
 
 async function load() {
+  loadError.value = null                         // INV-UX4-7 — xoá lỗi ở DÒNG ĐẦU
   loading.value = true
   try {
-    const [d, m, c] = await Promise.all([
-      getPurchase(props.name),
-      getPurchaseMovements(props.name),
-      getPurchaseCommissionings(props.name),
-    ])
-    doc.value = d
-    movements.value = m
-    commissionings.value = c
+    doc.value = await getPurchase(props.name)
+  } catch (e: unknown) {
+    loadError.value = e                          // nguyên đối tượng ⇒ phân loại được kind
+    doc.value = null                             // dọn ảnh chụp cũ
+    return
   } finally { loading.value = false }
+  // Hai nguồn PHỤ: `allSettled` chứ KHÔNG `all` — 1×403 ở phiếu nhập kho / phiếu tiếp nhận
+  // không được làm trắng cả màn đơn mua hàng (LL-FE-45).
+  const [m, c] = await Promise.allSettled([
+    getPurchaseMovements(props.name),
+    getPurchaseCommissionings(props.name),
+  ])
+  movements.value = m.status === 'fulfilled' ? m.value : []
+  commissionings.value = c.status === 'fulfilled' ? c.value : []
 }
 
 function showToast(msg: string, error = false) {
@@ -77,7 +97,13 @@ async function createCommissioning(deviceIdx: number) {
   if (doc.value.docstatus !== 1) {
     showToast('Phải duyệt đơn hàng trước khi tiếp nhận thiết bị', true); return
   }
-  if (!confirm('Tạo phiếu tiếp nhận cho thiết bị này?')) return
+  const ok = await notify.confirm({
+    title: 'Tạo phiếu tiếp nhận',
+    body: 'Tạo phiếu tiếp nhận cho thiết bị này?',
+    tone: 'warning',
+    confirmText: 'Tạo phiếu',
+  })
+  if (!ok) return
   acting.value = true
   try {
     const res = await createCommissioningFromPurchase(doc.value.name, deviceIdx)
@@ -89,7 +115,14 @@ async function createCommissioning(deviceIdx: number) {
 }
 
 async function doSubmit() {
-  if (!doc.value || !confirm('Xác nhận duyệt đơn hàng này?')) return
+  if (!doc.value) return
+  const ok = await notify.confirm({
+    title: 'Duyệt đơn hàng',
+    body: 'Xác nhận duyệt đơn hàng này?',
+    tone: 'warning',
+    confirmText: 'Duyệt',
+  })
+  if (!ok) return
   acting.value = true
   try { await submitPurchase(doc.value.name); showToast('Đã duyệt đơn hàng'); await load() }
   catch (e: unknown) { showToast((e as Error).message || 'Lỗi duyệt đơn', true) }
@@ -97,7 +130,14 @@ async function doSubmit() {
 }
 
 async function doMarkReceived() {
-  if (!doc.value || !confirm('Xác nhận đã nhận đủ hàng?')) return
+  if (!doc.value) return
+  const ok = await notify.confirm({
+    title: 'Xác nhận nhận hàng',
+    body: 'Xác nhận đã nhận đủ hàng?',
+    tone: 'warning',
+    confirmText: 'Đã nhận đủ',
+  })
+  if (!ok) return
   acting.value = true
   try { await markReceived(doc.value.name); showToast('Đã xác nhận nhận hàng'); await load() }
   catch (e: unknown) { showToast((e as Error).message || 'Lỗi xác nhận', true) }
@@ -105,7 +145,14 @@ async function doMarkReceived() {
 }
 
 async function doCancel() {
-  if (!doc.value || !confirm('Xác nhận huỷ đơn hàng này?')) return
+  if (!doc.value) return
+  const ok = await notify.confirm({
+    title: 'Huỷ đơn hàng',
+    body: 'Xác nhận huỷ đơn hàng này?',
+    tone: 'error',
+    confirmText: 'Huỷ đơn',
+  })
+  if (!ok) return
   acting.value = true
   try { await cancelPurchase(doc.value.name); showToast('Đã huỷ đơn hàng'); await load() }
   catch (e: unknown) { showToast((e as Error).message || 'Lỗi huỷ đơn', true) }
@@ -113,7 +160,14 @@ async function doCancel() {
 }
 
 async function doDelete() {
-  if (!doc.value || !confirm('Xoá đơn nháp này? Hành động không thể hoàn tác.')) return
+  if (!doc.value) return
+  const ok = await notify.confirm({
+    title: 'Xoá đơn nháp',
+    body: 'Xoá đơn nháp này? Hành động không thể hoàn tác.',
+    tone: 'error',
+    confirmText: 'Xoá',
+  })
+  if (!ok) return
   acting.value = true
   try { await deletePurchase(doc.value.name); router.push('/purchases') }
   catch (e: unknown) { showToast((e as Error).message || 'Lỗi xoá đơn', true); acting.value = false }
@@ -166,38 +220,44 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="page-container animate-fade-in">
-    <PageHeader
-      back-to="/purchases"
-      :title="doc?.name || 'Chi tiết đơn mua hàng'"
-      subtitle="Đơn mua hàng"
-      :breadcrumb="[
-        { label: 'Đơn mua hàng', to: '/purchases' },
-        { label: doc?.name || 'Chi tiết' },
-      ]"
-    />
-
-    <div v-if="loading && !doc" class="text-center py-20 text-slate-400">Đang tải...</div>
-
-    <div v-else-if="doc">
+  <DetailPageShell
+    :loading="loading && !doc"
+    :error-kind="loadKind"
+    :error-message="loadMsg"
+    :doc="doc"
+    entity-label="đơn mua hàng"
+    :record-id="props.name"
+    back-label="Về danh sách đơn mua hàng"
+    @retry="load()"
+    @back="router.push('/purchases')">
+    <template #title>
       <PageHeader
-        :title="doc.name"
-        :breadcrumb="[{ label: 'Mua hàng', to: '/purchases' }, { label: doc.name }]"
-      >
-        <template #actions>
-          <button v-if="canEdit" data-testid="cta-edit" class="btn-ghost" :disabled="acting" @click="router.push(`/purchases/${doc.name}/edit`)">Sửa</button>
-          <button v-if="canDelete" data-testid="cta-delete" class="btn-ghost text-red-600" :disabled="acting" @click="doDelete">Xoá</button>
-          <button v-if="canSubmit" data-testid="cta-submit" class="btn-primary" :disabled="acting" @click="doSubmit">
-            {{ acting ? '...' : 'Duyệt đơn' }}
-          </button>
-          <button v-if="canReceive" data-testid="cta-receive" class="btn-secondary" :disabled="acting" @click="doMarkReceived">
-            {{ acting ? '...' : 'Xác nhận nhận hàng' }}
-          </button>
-          <button v-if="canCancel" data-testid="cta-cancel" class="btn-secondary text-red-600" :disabled="acting" @click="doCancel">
-            {{ acting ? '...' : 'Huỷ đơn' }}
-          </button>
-        </template>
-      </PageHeader>
+        back-to="/purchases"
+        :title="doc?.name || 'Chi tiết đơn mua hàng'"
+        subtitle="Đơn mua hàng"
+        :breadcrumb="[
+          { label: 'Đơn mua hàng', to: '/purchases' },
+          { label: doc?.name || 'Chi tiết' },
+        ]"
+      />
+    </template>
+
+    <!-- CTA server-driven (cờ can_* do BE derive) — CHỈ tồn tại ở content (AC-UX-053). -->
+    <template #actions>
+      <button v-if="canEdit" data-testid="cta-edit" class="btn-ghost" :disabled="acting" @click="router.push(`/purchases/${doc!.name}/edit`)">Sửa</button>
+      <button v-if="canDelete" data-testid="cta-delete" class="btn-ghost text-red-600" :disabled="acting" @click="doDelete">Xoá</button>
+      <button v-if="canSubmit" data-testid="cta-submit" class="btn-primary" :disabled="acting" @click="doSubmit">
+        {{ acting ? '...' : 'Duyệt đơn' }}
+      </button>
+      <button v-if="canReceive" data-testid="cta-receive" class="btn-secondary" :disabled="acting" @click="doMarkReceived">
+        {{ acting ? '...' : 'Xác nhận nhận hàng' }}
+      </button>
+      <button v-if="canCancel" data-testid="cta-cancel" class="btn-secondary text-red-600" :disabled="acting" @click="doCancel">
+        {{ acting ? '...' : 'Huỷ đơn' }}
+      </button>
+    </template>
+
+    <template v-if="doc">
       <div class="mb-5">
         <span class="text-xs px-2.5 py-1 rounded-full font-medium" :class="STATUS_CLASS[doc.status] || 'bg-slate-100 text-slate-600'">
           {{ STATUS_LABELS[doc.status] || doc.status }}
@@ -502,9 +562,9 @@ class="text-xs px-2 py-0.5 rounded-full"
           </table>
         </div>
       </div>
-    </div>
+    </template>
 
-    <!-- Receipt creation modal -->
+    <!-- Receipt creation modal — chỉ mở được từ CTA, mà CTA không tồn tại ngoài content. -->
     <Teleport to="body">
       <div
 v-if="showReceiptModal"
@@ -548,5 +608,5 @@ class="btn-primary" :disabled="creatingReceipt || !receiptWarehouse"
         </div>
       </div>
     </Teleport>
-  </div>
+  </DetailPageShell>
 </template>

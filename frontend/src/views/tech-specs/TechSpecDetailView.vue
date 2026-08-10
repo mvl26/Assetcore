@@ -1,18 +1,46 @@
 <template>
-  <div class="tech-spec-detail" v-if="store.currentSpec">
-    <div class="page-header">
-      <div>
-        <h1>{{ store.currentSpec.name }} <span class="muted">phiên bản {{ store.currentSpec.version }}</span></h1>
-        <div class="meta">
-          Mẫu {{ (store.currentSpec as any).device_model_name || store.currentSpec.device_model_ref }} ·
-          Số lượng {{ store.currentSpec.quantity }} ·
-          Đề xuất {{ store.currentSpec.source_needs_request }} ·
-          Kế hoạch {{ store.currentSpec.source_plan }}
+  <DetailPageShell
+    :loading="loading"
+    :error-kind="loadKind"
+    :error-message="loadMsg"
+    :doc="store.currentSpec"
+    entity-label="hồ sơ yêu cầu kỹ thuật"
+    :record-id="specId"
+    back-label="Về danh sách hồ sơ yêu cầu kỹ thuật"
+    @retry="loadSpec()"
+    @back="router.push('/tech-specs')">
+    <template #title>
+      <div class="page-header">
+        <div>
+          <h1>{{ store.currentSpec?.name || specId }} <span v-if="store.currentSpec" class="muted">phiên bản {{ store.currentSpec.version }}</span></h1>
+          <div v-if="store.currentSpec" class="meta">
+            Mẫu {{ (store.currentSpec as any).device_model_name || store.currentSpec.device_model_ref }} ·
+            Số lượng {{ store.currentSpec.quantity }} ·
+            Đề xuất {{ store.currentSpec.source_needs_request }} ·
+            Kế hoạch {{ store.currentSpec.source_plan }}
+          </div>
         </div>
+        <button class="btn btn-outline" @click="$router.back()">← Quay lại</button>
       </div>
-      <button class="btn btn-outline" @click="$router.back()">← Quay lại</button>
-    </div>
+    </template>
 
+    <!-- CTA vòng đời — CHỈ tồn tại ở trạng thái content (AC-UX-053). -->
+    <template #actions>
+      <!-- CTA workflow TRUNG GIAN server-driven (GATE-8 / LL-FE-51): 1 nút / mỗi
+           action do BE emit `allowed_actions` (spec_allowed_actions đã lọc theo vai
+           trò). Nhãn = action tiếng Việt trực tiếp. ZERO so-sánh `workflow_state ===`.
+           Cụm tự ẩn khi `allowed_actions` rỗng/vắng (v-for trên `|| []`). 2 cạnh
+           'Phê duyệt spec'/'Rút spec' KHÔNG ở đây → nút lock/withdraw dưới xử lý. -->
+      <button v-for="a in store.currentSpec?.allowed_actions || []" :key="a"
+              :data-testid="`cta-wf-${slug(a)}`" class="btn btn-outline" @click="onWf(a)">
+        {{ a }}
+      </button>
+      <button v-if="canLock" data-testid="cta-lock" class="btn btn-success" @click="doLock">Chốt hồ sơ</button>
+      <button v-if="canWithdraw" data-testid="cta-withdraw" class="btn btn-danger" @click="doWithdraw">Rút hồ sơ</button>
+      <button v-if="canReissue" data-testid="cta-reissue" class="btn btn-primary" @click="doReissue">Phát hành lại (phiên bản mới)</button>
+    </template>
+
+    <template v-if="store.currentSpec">
     <div class="stepper">
       <span v-for="(s, i) in WORKFLOW_STATES" :key="s" :class="['step', stepClass(s, i)]">
         {{ stateLabel(s) }}
@@ -185,25 +213,8 @@
       </div>
     </section>
 
-    <!-- Hành động -->
-    <div class="action-bar">
-      <!-- CTA workflow TRUNG GIAN server-driven (GATE-8 / LL-FE-51): 1 nút / mỗi
-           action do BE emit `allowed_actions` (spec_allowed_actions đã lọc theo vai
-           trò). Nhãn = action tiếng Việt trực tiếp. ZERO so-sánh `workflow_state ===`.
-           Cụm tự ẩn khi `allowed_actions` rỗng/vắng (v-for trên `|| []`). 2 cạnh
-           'Phê duyệt spec'/'Rút spec' KHÔNG ở đây → nút lock/withdraw dưới xử lý. -->
-      <button v-for="a in store.currentSpec?.allowed_actions || []" :key="a"
-              :data-testid="`cta-wf-${slug(a)}`" class="btn btn-outline" @click="onWf(a)">
-        {{ a }}
-      </button>
-      <button v-if="canLock" data-testid="cta-lock" class="btn btn-success" @click="doLock">Chốt hồ sơ</button>
-      <button v-if="canWithdraw" data-testid="cta-withdraw" class="btn btn-danger" @click="doWithdraw">Rút hồ sơ</button>
-      <button v-if="canReissue" data-testid="cta-reissue" class="btn btn-primary" @click="doReissue">Phát hành lại (phiên bản mới)</button>
-    </div>
-  </div>
-
-  <div v-else-if="store.loading" class="loading">Đang tải...</div>
-  <div v-else class="loading muted">Không có dữ liệu</div>
+    </template>
+  </DetailPageShell>
 </template>
 
 <script setup lang="ts">
@@ -220,12 +231,37 @@ import RequirementTable from '@/components/tech-specs/RequirementTable.vue'
 import { submitBenchmark, submitLockInAssessment } from '@/api/imm02'
 import { useNotify } from '@/composables/useNotify'
 import { MSG } from '@/i18n/messages'
+import DetailPageShell from '@/components/common/DetailPageShell.vue'
+import { useDetailAccess } from '@/composables/useDetailAccess'
 
 const props = defineProps<{ id: string }>()
 const route = useRoute()
 const router = useRouter()
 const store = useImm02Store()
 const notify = useNotify()
+
+// ── Lượt NẠP hồ sơ (lô 2, nhóm N4) ────────────────────────────────────────────
+// `onMounted` cũ gọi `store.fetchOne(...)` **không có catch nào**: 404/403/mất mạng đều rơi
+// xuống nhánh `v-else` in «Không có dữ liệu» — đúng thể loại *lỗi giả dạng rỗng* đã diệt ở
+// lớp danh sách. `stores/imm02` chỉ giữ `error` dạng CHUỖI ⇒ không phân loại được kind, nên
+// view tự `try/catch` và giữ ref lỗi của riêng nó (KHÔNG sửa `stores/`, §13.3).
+const loading = ref(true)                      // INV-UX4-8 — chống nháy 404 một nhịp
+const loadError = ref<unknown>(null)
+const { kind: loadKind, message: loadMsg } = useDetailAccess(() => loadError.value)
+
+const specId = computed<string>(() => props.id || (route.params.id as string))
+
+async function loadSpec(): Promise<void> {
+  loadError.value = null                       // INV-UX4-7 — xoá lỗi ở DÒNG ĐẦU
+  loading.value = true
+  try {
+    await store.fetchOne(specId.value)
+  } catch (e: unknown) {
+    loadError.value = e
+  } finally {
+    loading.value = false
+  }
+}
 
 // data-testid ổn định cho nút CTA workflow: bỏ dấu tiếng Việt + kebab-case.
 // 'Gửi rà soát' → 'gui-ra-soat'. Chỉ dùng cho testid, KHÔNG là value gửi BE.
@@ -359,7 +395,7 @@ async function doReissue() {
   router.push({ name: 'TechSpecDetail', params: { id: res.name } })
 }
 
-onMounted(() => { store.fetchOne(props.id || (route.params.id as string)) })
+onMounted(loadSpec)
 </script>
 
 <style scoped>

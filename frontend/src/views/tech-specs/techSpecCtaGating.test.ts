@@ -158,7 +158,9 @@ describe('TechSpecDetailView — CTA gating server-driven (can_lock/can_withdraw
     expect(has(w, 'cta-withdraw')).toBe(false)
     expect(has(w, 'cta-reissue')).toBe(false)
     // action-bar vẫn tồn tại (không crash), chỉ rỗng nút.
-    expect(w.find('.action-bar').exists()).toBe(true)
+    // Lô 2: panel thao tác nay là slot `#actions` của DetailPageShell (selector đổi,
+    // KỲ VỌNG giữ nguyên — §13.9.9).
+    expect(w.find('[data-testid="detail-actions"]').exists()).toBe(true)
   })
 
   it('cờ VẮNG (worker cũ / field thiếu) → CTA ẩn, KHÔNG crash console', async () => {

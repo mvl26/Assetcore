@@ -155,7 +155,9 @@ describe('TechSpecDetailView — CTA workflow trung gian server-driven (allowed_
   it('allowed_actions=[] → 0 nút cta-wf (cụm tự ẩn), action-bar vẫn tồn tại', async () => {
     const w = await render(spec({ workflow_state: 'Draft', allowed_actions: [] }))
     expect(wfButtons(w)).toHaveLength(0)
-    expect(w.find('.action-bar').exists()).toBe(true)
+    // Lô 2: panel thao tác nay là slot `#actions` của DetailPageShell (selector đổi,
+    // KỲ VỌNG giữ nguyên — §13.9.9).
+    expect(w.find('[data-testid="detail-actions"]').exists()).toBe(true)
   })
 
   it('allowed_actions VẮNG (worker cũ / field thiếu) → 0 nút cta-wf, KHÔNG crash', async () => {

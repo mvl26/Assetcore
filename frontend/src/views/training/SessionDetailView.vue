@@ -13,8 +13,8 @@ import StatusBadge from '@/components/common/StatusBadge.vue'
 import SmartSelect from '@/components/common/SmartSelect.vue'
 import DateInput from '@/components/common/DateInput.vue'
 import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
-import DetailLoadError from '@/components/common/DetailLoadError.vue'
-import { loadErrorKind, type DetailLoadKind } from '@/api/errors'
+import DetailPageShell from '@/components/common/DetailPageShell.vue'
+import { useDetailAccess } from '@/composables/useDetailAccess'
 
 
 const props = defineProps<{ name?: string }>()
@@ -29,13 +29,17 @@ const { currentSession, loading, error, lastApiError } = storeToRefs(store)
 
 const isCreateMode = computed(() => !props.name)
 
-// Mã buổi đào tạo sai / đã xoá ⇒ 404: empty-state "không tìm thấy" + lối về danh
-// sách (thay banner đỏ + "Thử lại" và dòng chữ cụt cuối template — dead-end).
-const loadFailed = computed<'' | DetailLoadKind>(() => {
-  if (isCreateMode.value || currentSession.value) return ''
-  if (error.value) return loadErrorKind(lastApiError.value ?? new Error(error.value))
-  return 'notfound'
-})
+// SSoT phân loại lỗi nạp (AC-UX-053, ADR-UX-27) — thay bản `loadErrorKind` cục bộ.
+// Màn LƯỠNG DỤNG tạo/sửa (§13.4.3): chế độ TẠO không có lượt nạp ⇒ không bao giờ có lỗi nạp,
+// và `:doc` phải nhận `createForm` để shell không rơi vào `notfound` nuốt mất biểu mẫu tạo.
+const { kind: loadKind, message: loadMsg } = useDetailAccess(() =>
+  isCreateMode.value || currentSession.value
+    ? null
+    // `?.` KHÔNG thừa: nhiều test cũ mock `useImm06Store` KHÔNG khai `lastApiError`/`error`,
+    // `storeToRefs` khi đó trả `undefined` và computed này chạy cả sau khi component unmount
+    // (flushJobs) ⇒ unhandled rejection làm bẩn cả suite dù test vẫn xanh.
+    : (lastApiError?.value ?? (error?.value ? new Error(error.value) : null)),
+)
 
 // Create form state
 const createForm = ref({
@@ -242,19 +246,33 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="page-container animate-fade-in space-y-5">
-    <PageHeader
-      :title="isCreateMode ? 'Tạo buổi đào tạo mới' : (props.name ?? '')"
-      :subtitle="isCreateMode ? 'Khai báo buổi đào tạo mới' : 'Buổi đào tạo'"
-      :back-to="'/imm06/sessions'"
-      back-label="← Danh sách buổi"
-      :breadcrumb="[
-        { label: 'IMM-06 · Đào tạo & Năng lực', to: '/imm06/sessions' },
-        { label: 'Buổi đào tạo', to: '/imm06/sessions' },
-        { label: isCreateMode ? 'Tạo mới' : (props.name ?? '') },
-      ]"
-    >
-      <template #actions>
+  <DetailPageShell
+    :loading="isCreateMode ? false : loading"
+    :error-kind="isCreateMode ? '' : loadKind"
+    :error-message="isCreateMode ? '' : loadMsg"
+    :doc="isCreateMode ? createForm : currentSession"
+    :not-found="!isCreateMode && !loading && !currentSession"
+    entity-label="buổi đào tạo"
+    :record-id="props.name"
+    back-label="Về danh sách buổi đào tạo"
+    @retry="load()"
+    @back="router.push('/imm06/sessions')">
+    <template #title>
+      <PageHeader
+        :title="isCreateMode ? 'Tạo buổi đào tạo mới' : (props.name ?? '')"
+        :subtitle="isCreateMode ? 'Khai báo buổi đào tạo mới' : 'Buổi đào tạo'"
+        :back-to="'/imm06/sessions'"
+        back-label="← Danh sách buổi"
+        :breadcrumb="[
+          { label: 'IMM-06 · Đào tạo & Năng lực', to: '/imm06/sessions' },
+          { label: 'Buổi đào tạo', to: '/imm06/sessions' },
+          { label: isCreateMode ? 'Tạo mới' : (props.name ?? '') },
+        ]"
+      />
+    </template>
+
+    <!-- CTA vòng đời — CHỈ tồn tại ở trạng thái content (AC-UX-053). -->
+    <template #actions>
         <StatusBadge v-if="currentSession" :state="currentSession.workflow_state" size="md" />
 
         <button
@@ -269,6 +287,7 @@ onMounted(load)
 
         <button
           v-if="isCreateMode"
+          data-testid="cta-create"
           class="btn-primary text-sm"
           :disabled="api.loading.value"
           @click="doCreate"
@@ -326,8 +345,7 @@ onMounted(load)
         >
           Hủy buổi
         </button>
-      </template>
-    </PageHeader>
+    </template>
 
     <!-- BUG-006: Permission hint khi user không có quyền hành động trên buổi -->
     <div
@@ -365,11 +383,11 @@ onMounted(load)
       <h2 class="text-sm font-semibold text-slate-700 pb-2 border-b">Thông tin buổi đào tạo</h2>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
         <div>
-          <label class="form-label">Chương trình đào tạo <span class="text-red-500">*</span></label>
+          <label class="form-label">Chương trình đào tạo <span class="text-danger-500">*</span></label>
           <input v-model="createForm.training_program" type="text" class="form-input w-full" placeholder="Mã chương trình..." />
         </div>
         <div>
-          <label class="form-label">Ngày tổ chức <span class="text-red-500">*</span></label>
+          <label class="form-label">Ngày tổ chức <span class="text-danger-500">*</span></label>
           <DateInput v-model="createForm.session_date" class="form-input w-full" />
         </div>
         <div>
@@ -411,19 +429,6 @@ onMounted(load)
       </div>
       <p class="text-xs text-slate-400">* Phải có ít nhất một trong hai giảng viên.</p>
     </div>
-
-    <div v-else-if="loading" class="card p-8 text-center text-slate-400">Đang tải…</div>
-
-    <DetailLoadError
-      v-else-if="loadFailed"
-      :kind="loadFailed"
-      entity-label="buổi đào tạo"
-      :record-id="props.name"
-      :message="error ?? ''"
-      back-label="Về danh sách buổi đào tạo"
-      @retry="load()"
-      @back="router.push('/imm06/sessions')"
-    />
 
     <template v-else-if="currentSession">
       <!-- Session Info -->
@@ -568,7 +573,7 @@ onMounted(load)
                 <td v-if="canManage" class="table-cell text-right">
                   <button
                     type="button"
-                    class="text-red-500 hover:text-red-700 text-xs font-medium"
+                    class="text-danger-500 hover:text-danger-700 text-xs font-medium"
                     title="Xóa học viên"
                     @click="doRemoveParticipant(p)"
                   >
@@ -588,7 +593,7 @@ onMounted(load)
       <div class="bg-white rounded-xl p-6 w-full max-w-md space-y-4 shadow-xl">
         <h2 class="font-semibold text-slate-800">Hủy buổi đào tạo</h2>
         <div>
-          <label class="block text-sm font-medium mb-1">Lý do hủy <span class="text-red-500">*</span></label>
+          <label class="block text-sm font-medium mb-1">Lý do hủy <span class="text-danger-500">*</span></label>
           <textarea
             v-model="cancelReason"
             rows="3"
@@ -608,5 +613,5 @@ onMounted(load)
         </div>
       </div>
     </div>
-  </div>
+  </DetailPageShell>
 </template>

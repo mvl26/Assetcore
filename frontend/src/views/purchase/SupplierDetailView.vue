@@ -6,6 +6,8 @@ import PageHeader from '@/components/common/PageHeader.vue'
 import { listPurchases } from '@/api/purchase'
 import type { AcSupplier } from '@/types/imm00'
 import type { Purchase } from '@/api/purchase'
+import DetailPageShell from '@/components/common/DetailPageShell.vue'
+import { loadErrorKind, toApiError, type DetailLoadKind } from '@/api/errors'
 
 const route = useRoute()
 const router = useRouter()
@@ -15,7 +17,14 @@ const supplier = ref<AcSupplier | null>(null)
 const purchases = ref<Purchase[]>([])
 const purchasesTotal = ref(0)
 const loading = ref(true)
+/**
+ * `error` giờ CHỈ phục vụ `remove()` (lỗi HÀNH ĐỘNG xoá). Dùng chung với lượt nạp thì
+ * một cú bấm Xoá hỏng sẽ xoá trắng cả bản ghi đang xem khi nối vào `:error-kind`.
+ */
 const error = ref('')
+/** Lỗi NẠP — ref MỚI. */
+const loadKind = ref<'' | DetailLoadKind>('')
+const loadMsg = ref('')
 
 const VENDOR_TYPE_LABEL: Record<string, string> = {
   Manufacturer: 'Nhà sản xuất',
@@ -35,8 +44,9 @@ const STATUS_CLASS: Record<string, string> = {
 }
 
 async function load() {
+  loadKind.value = ''   // DÒNG ĐẦU — xoá lỗi lượt trước (INV-UX4-7)
+  loadMsg.value = ''
   loading.value = true
-  error.value = ''
   try {
     const [s, pur] = await Promise.all([
       getSupplier(name.value),
@@ -46,7 +56,9 @@ async function load() {
     purchases.value = pur.data
     purchasesTotal.value = pur.total
   } catch (e: unknown) {
-    error.value = (e as Error).message || 'Không thể tải nhà cung cấp'
+    loadKind.value = loadErrorKind(e)
+    loadMsg.value = toApiError(e).message
+    supplier.value = null
   } finally {
     loading.value = false
   }
@@ -85,35 +97,44 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="page-container animate-fade-in space-y-5">
-    <PageHeader
-      back-to="/suppliers"
-      :title="supplier?.supplier_name || 'Chi tiết nhà cung cấp'"
-      :subtitle="supplier ? `Mã: ${supplier.name}` : ''"
-      :breadcrumb="[
-        { label: 'Nhà cung cấp', to: '/suppliers' },
-        { label: supplier?.supplier_name || name },
-      ]"
-    >
-      <template #actions>
-        <button
-          v-if="supplier"
-          class="px-4 py-2 text-sm border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50 font-medium"
-          @click="router.push(`/suppliers/${supplier.name}/edit`)"
-        >Sửa</button>
-        <button
-          v-if="supplier"
-          class="px-4 py-2 text-sm border border-red-300 text-red-700 rounded-lg hover:bg-red-50 font-medium"
-          @click="remove"
-        >Xóa</button>
-      </template>
-    </PageHeader>
+  <DetailPageShell
+    :loading="loading"
+    :error-kind="loadKind"
+    :error-message="loadMsg"
+    :doc="supplier"
+    entity-label="nhà cung cấp"
+    :record-id="name"
+    back-label="Về danh sách nhà cung cấp"
+    @retry="load()"
+    @back="router.push('/suppliers')">
+    <!-- Tiêu đề null-safe ⇒ hiện ở MỌI trạng thái (kể cả 404). -->
+    <template #title>
+      <PageHeader
+        back-to="/suppliers"
+        :title="supplier?.supplier_name || 'Chi tiết nhà cung cấp'"
+        :subtitle="supplier ? `Mã: ${supplier.name}` : ''"
+        :breadcrumb="[
+          { label: 'Nhà cung cấp', to: '/suppliers' },
+          { label: supplier?.supplier_name || name },
+        ]"
+      />
+    </template>
 
-    <div v-if="error" class="bg-red-50 text-red-700 p-3 rounded-lg text-sm">{{ error }}</div>
-    <div v-if="loading" class="text-center text-gray-400 py-12">Đang tải...</div>
-    <div v-else-if="!supplier" class="text-center text-gray-400 py-12">Không tìm thấy nhà cung cấp.</div>
+    <template #actions>
+      <button
+        class="px-4 py-2 text-sm border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50 font-medium"
+        @click="router.push(`/suppliers/${supplier!.name}/edit`)"
+      >Sửa</button>
+      <button
+        class="px-4 py-2 text-sm border border-red-300 text-red-700 rounded-lg hover:bg-red-50 font-medium"
+        @click="remove"
+      >Xóa</button>
+    </template>
 
-    <template v-else>
+    <template v-if="supplier">
+      <!-- Lỗi HÀNH ĐỘNG (xoá) — banner riêng, KHÔNG thay cả màn. -->
+      <div v-if="error" class="bg-red-50 text-red-700 p-3 rounded-lg text-sm">{{ error }}</div>
+
       <!-- Thông tin chính -->
       <div class="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
         <div class="flex items-start justify-between pb-4 border-b border-gray-100">
@@ -231,5 +252,5 @@ onMounted(load)
         </div>
       </div>
     </template>
-  </div>
+  </DetailPageShell>
 </template>
