@@ -13,6 +13,7 @@ import { usePersona } from '@/composables/usePersona'
 import { useCapabilities } from '@/composables/useCapabilities'
 import { useAuthStore } from '@/stores/auth'
 import { SUPERUSER_ROLES } from '@/constants/personas'
+import { APP_VERSION_FULL_LABEL } from '@/constants/appVersion'
 import { buildSidebarGroupsForRoles, type NavItem, type SidebarGroup } from '@/constants/sidebarNav'
 import {
   GROUPS_STORAGE_KEY,
@@ -305,7 +306,7 @@ function goHome() { router.push('/dashboard') }
 
     <!-- ── Footer ──────────────────────────────────────────────────────────── -->
     <div class="sidebar-footer px-3 py-2.5 shrink-0">
-      <p v-if="!collapsed" class="text-[10.5px] font-medium text-center side-foot-text">AssetCore v0.1.0</p>
+      <p v-if="!collapsed" data-testid="sidebar-app-version" class="text-[10.5px] font-medium text-center side-foot-text">{{ APP_VERSION_FULL_LABEL }}</p>
     </div>
   </aside>
 </template>

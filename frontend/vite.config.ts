@@ -4,7 +4,14 @@ import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
 import { createReadStream, existsSync, statSync } from 'node:fs'
 import { extname } from 'node:path'
+import { createRequire } from 'node:module'
 import type { ClientRequest, IncomingMessage } from 'node:http'
+
+// Phiên bản app — đọc thẳng `package.json` (SSoT phía FE) thay vì
+// `process.env.npm_package_version`: biến env đó CHỈ tồn tại khi chạy qua npm
+// script, nên `vite build` gọi trực tiếp sẽ rơi về fallback và ship sai version.
+// `vitest.config.ts` khai lại y hệt (config độc lập, không thừa kế `define`).
+const pkg = createRequire(import.meta.url)('./package.json') as { version: string }
 
 export default defineConfig(({ command, mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
@@ -148,8 +155,9 @@ export default defineConfig(({ command, mode }) => {
     base: command === 'build' ? '/assets/assetcore/frontend/' : '/',
 
     define: {
-      // Đảm bảo define version an toàn
-      __APP_VERSION__: JSON.stringify(process.env.npm_package_version || '0.0.3'),
+      // Nguồn duy nhất cho mọi chỗ hiển thị phiên bản trên UI — xem
+      // `src/constants/appVersion.ts`. KHÔNG hardcode chuỗi version ở view.
+      __APP_VERSION__: JSON.stringify(pkg.version),
       __APP_BASE__: JSON.stringify(command === 'build' ? '/assetcore' : ''),
     },
   }
