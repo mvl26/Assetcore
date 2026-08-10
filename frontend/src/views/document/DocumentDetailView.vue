@@ -10,9 +10,12 @@ import { useNotify } from '@/composables/useNotify'
 import { MSG } from '@/i18n/messages'
 import { toApiError } from '@/api/errors'
 import { formatDate } from '@/utils/docUtils'
-import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
+import DetailPageShell from '@/components/common/DetailPageShell.vue'
+import { useDetailAccess } from '@/composables/useDetailAccess'
 import StatusBadge from '@/components/common/StatusBadge.vue'
+// AC-UX-065 (ADR-UX-16, docs/ui-ux/06 §5): xác nhận đi qua `notify.confirm()` — SSoT
+// hộp thoại. `useNotify` đã được import sẵn ở trên cho luồng thông báo.
 const toast = useToast()
 
 const props = defineProps<{ name: string }>()
@@ -28,7 +31,11 @@ const notify = useNotify()
 
 const doc = computed(() => store.currentDocument)
 const loading = computed(() => store.loading)
+// `error` giữ nhiệm vụ CŨ: CHUỖI lỗi dùng chung (kể cả lỗi hành động lưu/duyệt). Lỗi của
+// LƯỢT NẠP đi ref RIÊNG và giữ NGUYÊN đối tượng ⇒ phân loại được kind (bẫy 13.9.7).
 const error = ref<string | null>(null)
+const loadError = ref<unknown>(null)
+const { kind: loadKind, message: loadMsg } = useDetailAccess(() => loadError.value)
 const rejectReason = ref('')
 const showRejectInput = ref(false)
 const actionLoading = ref(false)
@@ -67,9 +74,17 @@ const canUploadNewVersion = computed(() =>
 )
 
 async function load(): Promise<void> {
+  loadError.value = null                         // INV-UX4-7 — xoá lỗi ở DÒNG ĐẦU
   error.value = null
-  await store.fetchDocument(props.name)
-  if (store.error) error.value = store.error
+  try {
+    await store.fetchDocument(props.name)
+  } catch (e: unknown) {
+    loadError.value = e
+    return
+  }
+  // `stores/imm05` NUỐT lỗi thành chuỗi ⇒ ưu tiên `lastApiError` (còn nguyên kind), chỉ
+  // rơi về `new Error(chuỗi)` khi store không phơi đối tượng lỗi.
+  if (store.error) loadError.value = store.lastApiError ?? new Error(store.error)
 }
 
 async function loadDocument(): Promise<void> {
@@ -188,12 +203,13 @@ const expiryDateClass = computed(() => expiryDisplay.value.cssClass)
 // Gate hiển thị nút = allowedTransitions.includes('Archived') && canApprove (dưới).
 async function handleArchive(): Promise<void> {
   if (!doc.value) return
-  if (
-    !confirm(
-      'Lưu trữ tài liệu này theo NĐ98 (lưu trữ 10 năm, không thể xóa). Tiếp tục?',
-    )
-  )
-    return
+  const ok = await notify.confirm({
+    title: 'Lưu trữ tài liệu',
+    body: 'Lưu trữ tài liệu này theo NĐ98 (lưu trữ 10 năm, không thể xoá). Tiếp tục?',
+    tone: 'error',
+    confirmText: 'Lưu trữ',
+  })
+  if (!ok) return
   actionLoading.value = true
   try {
     await apiArchiveDocument(doc.value.name)
@@ -208,7 +224,13 @@ async function handleArchive(): Promise<void> {
 
 async function handleApprove(): Promise<void> {
   if (!doc.value) return
-  if (!confirm('Phê duyệt tài liệu này sẽ tự động lưu trữ phiên bản cũ. Tiếp tục?')) return
+  const confirmed = await notify.confirm({
+    title: 'Phê duyệt tài liệu',
+    body: 'Phê duyệt tài liệu này sẽ tự động lưu trữ phiên bản cũ. Tiếp tục?',
+    tone: 'warning',
+    confirmText: 'Phê duyệt',
+  })
+  if (!confirmed) return
   actionLoading.value = true
   const ok = await store.approveDocument(doc.value.name)
   actionLoading.value = false
@@ -237,53 +259,46 @@ async function handleReject(): Promise<void> {
 </script>
 
 <template>
-  <div class="page-container animate-fade-in">
-    <PageHeader
-      :title="doc?.name ?? props.name"
-      :subtitle="doc ? (doc.asset_name || doc.asset_ref) : 'Đang tải hồ sơ…'"
-      :back-to="'/documents'"
-      back-label="← Danh sách hồ sơ"
-      :breadcrumb="[
-        { label: 'IMM-05 · Hồ sơ', to: '/documents' },
-        { label: 'Danh sách', to: '/documents' },
-        { label: doc?.name ?? props.name },
-      ]"
-    >
-      <template #actions>
-        <StatusBadge v-if="doc" :state="doc.workflow_state" size="md" />
-        <span
-          v-if="doc?.is_exempt === 1"
-          class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-teal-100 text-teal-700"
-        >Miễn NĐ98</span>
-      </template>
-    </PageHeader>
-
-    <!-- Loading skeleton -->
-    <div v-if="loading" class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-      <SkeletonLoader :rows="8" :cols="2" />
-    </div>
-
-    <!-- Error state -->
-    <div v-else-if="error" class="bg-white rounded-xl shadow-sm border border-red-200 p-6 text-center">
-      <svg class="w-12 h-12 text-red-400 mx-auto mb-3" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
-      </svg>
-      <p class="text-red-600 font-medium mb-1">Không thể tải tài liệu</p>
-      <p class="text-gray-500 text-sm mb-4">{{ error }}</p>
-      <button
-        class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 transition-colors"
-        @click="load"
+  <DetailPageShell
+    :loading="loading"
+    :error-kind="loadKind"
+    :error-message="loadMsg"
+    :doc="doc"
+    entity-label="hồ sơ tài liệu"
+    :record-id="props.name"
+    back-label="Về danh sách hồ sơ"
+    :skeleton-rows="8"
+    @retry="load()"
+    @back="router.push('/documents')">
+    <template #title>
+      <PageHeader
+        :title="doc?.name ?? props.name"
+        :subtitle="doc ? (doc.asset_name || doc.asset_ref) : 'Hồ sơ tài liệu'"
+        :back-to="'/documents'"
+        back-label="← Danh sách hồ sơ"
+        :breadcrumb="[
+          { label: 'IMM-05 · Hồ sơ', to: '/documents' },
+          { label: 'Danh sách', to: '/documents' },
+          { label: doc?.name ?? props.name },
+        ]"
       >
-        Thử lại
-      </button>
-    </div>
+        <template #actions>
+          <StatusBadge v-if="doc" :state="doc.workflow_state" size="md" />
+          <span
+            v-if="doc?.is_exempt === 1"
+            class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-teal-100 text-teal-700"
+          >Miễn NĐ98</span>
+        </template>
+      </PageHeader>
+    </template>
 
     <!-- Document detail -->
-    <template v-else-if="doc">
+    <template v-if="doc">
       <!-- Actions card — server-driven CTA: nút chuyển trạng thái gate theo
            (allowedTransitions BE + capability doc.approve), KHÔNG hardcode
-           doc.workflow_state === 'X' (GATE-8 / LL-FE-51). -->
-      <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 mb-4">
+           doc.workflow_state === 'X' (GATE-8 / LL-FE-51). Cụm nằm TRONG nhánh content
+           của shell ⇒ 403/404 ⇒ 0 nút, đúng bằng CẤU TRÚC. -->
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 mb-4" data-testid="doc-actions">
         <div class="flex flex-wrap gap-3">
           <!-- Phê duyệt (→ Active) — allowedTransitions + capability doc.approve -->
           <button
@@ -589,5 +604,5 @@ async function handleReject(): Promise<void> {
         </div>
       </div>
     </template>
-  </div>
+  </DetailPageShell>
 </template>

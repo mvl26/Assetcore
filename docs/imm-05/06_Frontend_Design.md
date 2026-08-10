@@ -264,6 +264,103 @@ function getExpiryClass(days: number | null): string {
 }
 ```
 
+### §4.4 Thẻ "Trạng thái Hồ sơ" (consumer IMM-04) — CR-75
+
+**Vị trí:** `frontend/src/views/commissioning/CommissioningDetailView.vue` (state + fetch) → `frontend/src/components/commissioning/CommissioningForm.vue` (render thẻ) → `WorkflowActions.vue` (nhận `imm05-is-compliant`). Nguồn dữ liệu: `stores/imm05.ts::fetchAssetDocuments` → `api/imm05.ts::getAssetDocuments` ([05 §2.7](./05_API_Specification.md)).
+
+**Lỗi đang có (phải khử):**
+
+| # | Hiện trạng | Hệ quả |
+|---|---|---|
+| 1 | `imm05IsCompliant` **so chuỗi** `status === 'Compliant' \|\| 'Compliant (Exempt)'` (`CommissioningDetailView.vue`) | BE trả `Complete` ⇒ **không khớp giá trị nào** ⇒ hồ sơ đủ vẫn hiện đỏ "⚠ Cần bổ sung hồ sơ" |
+| 2 | Nhánh vàng `!imm05IsCompliant && imm05DocStatus === 'Expiring_Soon'` | **dead-branch** — BE cũ không bao giờ phát `Expiring_Soon` |
+| 3 | Thanh % đọc `completeness_pct` (hằng 0) | luôn "0% đầy đủ" dù hồ sơ đủ |
+| 4 | Badge in **thẳng** `document_status` (chuỗi tiếng Anh) | rò từ khoá EN ra UI (vi phạm LL-FE-53) |
+
+**Hợp đồng FE sau CR-75:**
+
+1. **Nguồn quyết định = `is_compliant` (số), KHÔNG so chuỗi.**
+   `const imm05IsCompliant = computed(() => imm05Data.value === null || imm05Data.value.is_compliant === 1)` — chưa tải xong (`null`) vẫn coi là hợp lệ để không nháy đỏ giả (giữ hành vi hiện tại).
+2. **Tông màu 3 nhánh** (nhánh vàng hết dead vì `Expiring_Soon` nay có `is_compliant = 1`):
+
+| Điều kiện | Tông | Ý nghĩa |
+|---|---|---|
+| `is_compliant === 1 && document_status === 'Expiring_Soon'` | **vàng** | còn hiệu lực nhưng sắp hết hạn |
+| `is_compliant === 1` (còn lại) | **xanh** | đủ & còn hiệu lực |
+| `is_compliant === 0` | **đỏ** | thiếu hoặc đã hết hiệu lực |
+
+3. **Nhãn tiếng Việt bắt buộc (LL-FE-53)** — bảng ánh xạ đặt cùng chỗ với các map nhãn IMM-05 hiện có, KHÔNG in raw enum:
+
+| `document_status` | Nhãn hiển thị |
+|---|---|
+| `Compliant` | **Đầy đủ** |
+| `Compliant (Exempt)` | **Đầy đủ (miễn đăng ký lưu hành)** |
+| `Expiring_Soon` | **Sắp hết hạn** |
+| `Non-Compliant` | **Hết hiệu lực** |
+| `Incomplete` | **Thiếu hồ sơ bắt buộc** |
+| `null` / giá trị lạ | **Chưa có dữ liệu** (degrade an toàn, KHÔNG in chuỗi lạ) |
+
+4. **Thanh %:** hiển thị `completeness_pct` thật kèm `required_satisfied/required_total`, ví dụ `75% (3/4 loại bắt buộc)`. Khi `required_total === 0` ⇒ **không** khoe "100% đầy đủ" mà ghi *"Không có loại hồ sơ bắt buộc áp dụng cho nhóm thiết bị này"* (BR-05-17).
+5. **Dòng "Hết hạn":** khi `expired_required.length > 0` render khối đỏ riêng *"Hết hạn: <danh sách loại>"* — **tách khỏi** khối *"Thiếu hồ sơ bắt buộc: …"* (`missing_required`) vì hai loại vi phạm cần hai hành động khác nhau (gia hạn ≠ bổ sung mới). Khi `expiring_required.length > 0` (tuỳ chọn) render dòng vàng *"Sắp hết hạn: …"*.
+6. **Không so ngày ở client:** cấm `new Date()` để suy ra hết hạn; dùng `is_expired` của từng dòng và các mảng roll-up từ server (SSoT overdue server-flag).
+7. **`hidden_count > 0`:** chú thích nhỏ *"(N tài liệu bị ẩn theo phân quyền)"* để giải thích vì sao danh sách ít hơn số liệu tổng hợp (BR-05-20).
+8. **Store:** `stores/imm05.ts` giữ nguyên các ref cũ và **bổ sung** ref cho `is_compliant` / `required_total` / `required_satisfied` / `expired_required` / `expiring_required` / `hidden_count`; type `getAssetDocuments` trong `api/imm05.ts` cập nhật đúng shape [05 §2.7](./05_API_Specification.md) (không `as unknown as`).
+
+**Boundaries:** **Always** — quyết định tông/CTA bằng khoá số của server. **Never** — so chuỗi `document_status` để gate; tự tính % ở client; in enum tiếng Anh ra UI; đổi hành vi `WorkflowActions` ngoài việc nhận `imm05-is-compliant` đã đúng.
+
+---
+
+### §4.4-bis Danh sách hồ sơ + nút «Mở tệp» trong thẻ (AC-CR-81)
+
+Hợp đồng BE: [05 §2.7.c](./05_API_Specification.md). Mục này chốt phần **web FE**.
+
+**Lỗi đang có (phải khử):** `stores/imm05.ts::assetDocuments` **đã** giữ grouped-object `Record<doc_category, AssetDossierDocItem[]>` (gán tại `fetchAssetDocuments`) nhưng **0 component nào render** — `DocumentDossierCard.vue` chỉ nhận các prop tổng hợp. Đây là **state chết** ở tầng FE, đúng cặp với state chết ở tầng hợp đồng mà AC-CR-81 khử: dữ liệu đã về tới máy người dùng mà vẫn không mở được tệp.
+
+**1. Type (`frontend/src/api/imm05.ts::AssetDossierDocItem`)** — bổ sung 5 khoá, để `?:` (tolerant reader) vì cửa sổ `gunicorn --preload` chưa reload: thiếu khoá ⇒ coi như **không có tệp**, KHÔNG dựng link.
+
+```ts
+  /** AC-CR-81 — đường dẫn mở tệp THẬT; "" khi chưa đính hoặc link mồ côi. */
+  file_url?: string
+  file_name?: string
+  /** BYTE (không phải KB/MB). */
+  file_size?: number
+  /** 0|1 — tệp riêng tư `/private/files/…`, chỉ mở được trong cùng phiên đăng nhập. */
+  is_private?: 0 | 1
+  /** 0|1 — SSoT nhánh render; KHÔNG suy từ `file_url !== ''`. */
+  has_file?: 0 | 1
+```
+
+**2. Predicate SSoT phía FE (display ⇔ enforcement parity):**
+
+```ts
+const canOpenFile = (row: AssetDossierDocItem) => row.has_file === 1 && !!row.file_url
+```
+
+`&& !!row.file_url` là **null-guard**, không phải nguồn sự thật thứ hai: server đã bảo đảm INV-FILE-2, guard này chỉ chặn `href` rỗng nếu hợp đồng bị vi phạm.
+
+**3. `DocumentDossierCard.vue` — prop mới + khối danh sách:**
+
+| Prop | Kiểu | Mặc định | Ghi chú |
+|---|---|---|---|
+| `documents` | `Record<string, AssetDossierDocItem[]>` | `() => ({})` | grouped-object y như BE trả; rỗng ⇒ **không render** khối danh sách (thẻ tổng hợp giữ nguyên hành vi cũ) |
+
+Render mỗi dòng: **tên loại hồ sơ** (`doc_type_detail`) · số hiệu (`doc_number`) · nhãn trạng thái VI · hạn (dùng `is_expired`/`days_until_expiry` của server) · **hành động tệp** theo đúng 2 nhánh:
+
+| Điều kiện | Render | `data-testid` |
+|---|---|---|
+| `has_file === 1` | `<a :href="row.file_url" target="_blank" rel="noopener noreferrer">Mở tệp</a>` (+ tuỳ chọn: tên tệp, dung lượng quy đổi từ `file_size`, chú thích *"Tệp riêng tư — cần đăng nhập"* khi `is_private === 1`) | `dossier-file-open` |
+| `has_file !== 1` | nhãn/nút **disabled** *"Chưa đính kèm tệp"* (KHÔNG `href`, KHÔNG click handler) | `dossier-file-missing` |
+
+Tiêu đề nhóm dùng nhãn tiếng Việt của `doc_category` (Pháp lý / Kỹ thuật / Chứng nhận / Đào tạo / Chất lượng / Khác) — KHÔNG in raw enum (LL-FE-53).
+
+**4. Consumer:** `CommissioningForm.vue` truyền `:documents="imm05Documents ?? {}"`; `CommissioningDetailView.vue` lấy từ `imm05.assetDocuments` (store đã có, chỉ cần expose xuống prop). KHÔNG thêm lời gọi API mới — cùng một payload `get_asset_documents` đã fetch.
+
+**5. Boundaries — §4.4-bis:**
+
+- **Always:** route nhánh bằng `has_file` · `rel="noopener noreferrer"` cho link mở tab mới · nhãn tiếng Việt đầy đủ · test **RENDER** cho CẢ HAI nhánh (không chỉ test store).
+- **Ask first:** tải tệp trong app (blob/`fetch`) thay vì mở tab · hiển thị ảnh thu nhỏ (preview) · nút "Tải xuống" riêng.
+- **Never:** dựng URL từ `file_name` · vẽ nút mở khi `has_file === 0` (nút chết) · `new Date()` để suy hạn · in `file_attachment` thô (BE không phát) · dùng `file_size` như KB/MB mà không quy đổi.
+
 ---
 
 ## §5 — Pinia Store

@@ -46,6 +46,27 @@ export default {
           100: '#c9d1d9',
           50:  '#f0f6fc',
         },
+
+        // ── Token màu NGỮ NGHĨA (AC-UX-032 · docs/ui-ux/01_DESIGN_SYSTEM.md §2.1) ──
+        // Bậc 500 = màu nền tảng ĐANG CHẠY (khoá cứng, bằng đúng --color-* trong
+        // main.css) ⇒ 0 đổi màu hiển thị. Bậc 50 = nền nhạt (badge/alert),
+        // bậc 700 = chữ đậm trên nền nhạt.
+        // Mỗi token PHẢI có --ac-color-<họ>-<bậc> đối ứng trong main.css :root —
+        // guard 2 chiều: src/design/tokens.parity.test.ts.
+        // ⚠️ Bẫy deep-merge: khai `neutral` KHÔNG thay bảng neutral mặc định của
+        // Tailwind (xám ấm) mà TRỘN vào ⇒ trong components/ui/*.vue chỉ được dùng
+        // đúng 3 bậc khai ở đây (khoá bởi INV-UI-4).
+        success: { 50: '#ecfdf5', 500: '#059669', 700: '#047857' },
+        warning: { 50: '#fffbeb', 500: '#d97706', 700: '#b45309' },
+        danger:  { 50: '#fef2f2', 500: '#dc2626', 700: '#b91c1c' },
+        info:    { 50: '#eff6ff', 500: '#2563eb', 700: '#1d4ed8' },
+        neutral: { 50: '#f8fafc', 500: '#64748b', 700: '#334155' },
+      },
+
+      // Bán kính đặt tên theo biến sẵn có trong main.css :root — KHÔNG đổi giá trị.
+      borderRadius: {
+        card: '10px',   // --radius-card
+        btn:  '7px',    // --radius-btn
       },
       animation: {
         'fade-in':      'fadeIn 0.25s ease-out both',

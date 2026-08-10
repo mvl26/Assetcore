@@ -11,6 +11,7 @@
 // Anti-dead-control (GATE-6c/LL-FE-47): click nút → gọi ĐÚNG endpoint tương ứng.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
+import { mountWithConfirm, resetModalQueue } from '@/test/confirmHarness'
 
 vi.mock('vue-router', () => ({
   useRoute: () => ({ params: { id: 'AT-2026-0001' }, query: {}, path: '/asset-transfers/AT-2026-0001' }),
@@ -56,13 +57,25 @@ function baseTransfer(over: Record<string, unknown> = {}): Record<string, unknow
   }
 }
 
+// AC-UX-066: view đã bỏ hộp thoại `confirm()` của trình duyệt → dùng `useModal()`. Hàng đợi hộp thoại là
+// SINGLETON module-level ⇒ mount view ĐƠN LẺ sẽ treo ở `await modal.confirm(...)` và API
+// không bao giờ được gọi (test "xanh" giả). `mountWithConfirm` mount kèm
+// `NotificationModal`; `answerConfirm` bấm nút THẬT trong DOM.
+let harness: ReturnType<typeof mountWithConfirm<typeof AssetTransferDetailView>> | null = null
+
 async function mountWith(extra: Record<string, unknown>) {
   transferPayload = baseTransfer(extra)
-  const wrapper = mount(AssetTransferDetailView, {
+  harness = mountWithConfirm(AssetTransferDetailView, {
     global: { stubs: { SmartSelect: true, ApproverSelect: true, DateInput: true } },
   })
   await flushPromises()
-  return wrapper
+  return harness.wrapper
+}
+
+/** Trả lời hộp thoại xác nhận đang mở (bấm «Xác nhận» / «Huỷ» thật trong DOM). */
+async function answerConfirm(ok: boolean) {
+  if (!harness) throw new Error('mountWith() chưa chạy')
+  await harness.answerConfirm(ok)
 }
 
 beforeEach(() => {
@@ -70,8 +83,14 @@ beforeEach(() => {
   approveTransferMock.mockClear()
   updateTransferMock.mockClear()
   frappePostMock.mockClear()
-  // View dùng window.confirm() trước khi gọi API — mặc định cho phép để test click.
-  vi.stubGlobal('confirm', vi.fn(() => true))
+  harness = null
+})
+
+afterEach(() => {
+  // KHÔNG reset ⇒ hộp thoại của test trước còn treo trong hàng đợi singleton.
+  resetModalQueue()
+  harness?.unmount()
+  harness = null
 })
 
 describe('AssetTransferDetail CTA — Phê duyệt/Từ chối (isPending && can_approve)', () => {
@@ -158,6 +177,9 @@ describe('AssetTransferDetail CTA — Hủy phiếu (server-driven can_cancel)',
     const w = await mountWith({ status: 'Pending Approval', can_cancel: 1 })
     await w.find('[data-testid="cta-cancel"]').trigger('click')
     await flushPromises()
+    // Hộp thoại xác nhận mở TRƯỚC, API chưa được gọi.
+    expect(frappePostMock).not.toHaveBeenCalled()
+    await answerConfirm(true)
     expect(frappePostMock).toHaveBeenCalledTimes(1)
     expect(frappePostMock).toHaveBeenCalledWith(
       '/api/method/assetcore.api.imm00.delete_transfer',
@@ -172,6 +194,9 @@ describe('AssetTransferDetail CTA — anti-dead-control: click phát đúng endp
     expect(getTransferFullMock).toHaveBeenCalledTimes(1)
     await w.find('[data-testid="cta-approve"]').trigger('click')
     await flushPromises()
+    // Hộp thoại xác nhận mở TRƯỚC, API chưa được gọi.
+    expect(approveTransferMock).not.toHaveBeenCalled()
+    await answerConfirm(true)
     expect(approveTransferMock).toHaveBeenCalledTimes(1)
     expect(approveTransferMock).toHaveBeenCalledWith('AT-2026-0001')
     expect(getTransferFullMock).toHaveBeenCalledTimes(2) // refetch sau duyệt
@@ -181,6 +206,9 @@ describe('AssetTransferDetail CTA — anti-dead-control: click phát đúng endp
     const w = await mountWith({ status: 'Approved', can_receive: 1 })
     await w.find('[data-testid="cta-receive"]').trigger('click')
     await flushPromises()
+    // Hộp thoại xác nhận mở TRƯỚC, API chưa được gọi.
+    expect(frappePostMock).not.toHaveBeenCalled()
+    await answerConfirm(true)
     expect(frappePostMock).toHaveBeenCalledTimes(1)
     expect(frappePostMock).toHaveBeenCalledWith(
       '/api/method/assetcore.api.imm00.receive_transfer',

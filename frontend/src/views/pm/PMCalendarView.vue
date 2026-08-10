@@ -5,7 +5,7 @@ import { useImm08Store } from '@/stores/imm08'
 import { useRouter } from 'vue-router'
 import type { PMCalendarEvent } from '@/api/imm08'
 import { formatAssetDisplay, translateStatus } from '@/utils/formatters'
-import { pmStatusLabel } from '@/constants/labels'
+import { pmStatusLabel, pmTypeLabel } from '@/constants/labels'
 
 const store = useImm08Store()
 const router = useRouter()
@@ -377,7 +377,8 @@ v-if="formatAssetDisplay(selectedEvent.asset_name, selectedEvent.asset_ref).hasB
           <!-- PM Type -->
           <div>
             <p class="text-xs text-slate-400 mb-0.5">Loại bảo trì định kỳ</p>
-            <p class="text-slate-700">{{ selectedEvent.pm_type }}</p>
+            <!-- GATE-1: pm_type là enum BE (Quarterly/Semi-Annual/…) → nhãn VI. -->
+            <p class="text-slate-700">{{ pmTypeLabel(selectedEvent.pm_type) }}</p>
           </div>
 
           <!-- Status Badge -->

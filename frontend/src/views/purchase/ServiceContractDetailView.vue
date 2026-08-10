@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { frappeGet, frappePost } from '@/api/helpers'
 import type { ServiceContract } from '@/types/imm00'
 import PageHeader from '@/components/common/PageHeader.vue'
 import SmartSelect from '@/components/common/SmartSelect.vue'
 import CurrencyInput from '@/components/common/CurrencyInput.vue'
+import DetailPageShell from '@/components/common/DetailPageShell.vue'
+import { useDetailAccess } from '@/composables/useDetailAccess'
 
 const route = useRoute()
 const router = useRouter()
@@ -13,7 +15,12 @@ const router = useRouter()
 const contract = ref<ServiceContract | null>(null)
 const loading = ref(true)
 const saving = ref(false)
+// `error` giữ nhiệm vụ CŨ: lỗi HÀNH ĐỘNG (lưu / xoá). Nối nó vào `:error-kind` sẽ khiến một
+// cú «Xoá» hỏng THAY CẢ TRANG bằng banner lỗi (bẫy 13.9.7) — nên lượt nạp có ref RIÊNG.
 const error = ref('')
+const loadError = ref<unknown>(null)
+const { kind: loadKind, message: loadMsg } = useDetailAccess(() => loadError.value)
+const contractId = computed<string>(() => route.params.id as string)
 const editing = ref(false)
 
 const BASE = '/api/method/assetcore.api.imm00'
@@ -27,14 +34,17 @@ const CONTRACT_TYPE_LABEL: Record<string, string> = {
 }
 
 async function load() {
+  loadError.value = null                         // INV-UX4-7 — xoá lỗi ở DÒNG ĐẦU
   loading.value = true
   error.value = ''
   try {
-    const name = route.params.id as string
-    const res = await frappeGet<ServiceContract | null>(`${BASE}.get_service_contract`, { name })
+    const res = await frappeGet<ServiceContract | null>(
+      `${BASE}.get_service_contract`, { name: contractId.value },
+    )
     contract.value = res
   } catch (e: unknown) {
-    error.value = (e as Error).message || 'Không thể tải hợp đồng'
+    loadError.value = e                          // nguyên đối tượng ⇒ phân loại được kind
+    contract.value = null                        // dọn ảnh chụp cũ
   } finally {
     loading.value = false
   }
@@ -120,34 +130,45 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="page-container animate-fade-in space-y-5">
-    <PageHeader
-      back-to="/service-contracts"
-      :title="contract?.contract_title || 'Chi tiết hợp đồng dịch vụ'"
-      :subtitle="contract ? `Mã: ${contract.name}` : ''"
-      :breadcrumb="[
-        { label: 'Hợp đồng dịch vụ', to: '/service-contracts' },
-        { label: contract?.name || 'Chi tiết' },
-      ]"
-    >
-      <template #actions>
-        <button
-          v-if="contract && !editing"
-          class="px-4 py-2 text-sm border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50 font-medium"
-          @click="editing = true"
-        >Sửa</button>
-        <button
-          v-if="contract && !editing"
-          class="px-4 py-2 text-sm border border-red-300 text-red-700 rounded-lg hover:bg-red-50 font-medium"
-          @click="remove"
-        >Xóa</button>
-      </template>
-    </PageHeader>
+  <DetailPageShell
+    :loading="loading"
+    :error-kind="loadKind"
+    :error-message="loadMsg"
+    :doc="contract"
+    entity-label="hợp đồng dịch vụ"
+    :record-id="contractId"
+    back-label="Về danh sách hợp đồng dịch vụ"
+    @retry="load()"
+    @back="router.push('/service-contracts')">
+    <template #title>
+      <PageHeader
+        back-to="/service-contracts"
+        :title="contract?.contract_title || 'Chi tiết hợp đồng dịch vụ'"
+        :subtitle="contract ? `Mã: ${contract.name}` : ''"
+        :breadcrumb="[
+          { label: 'Hợp đồng dịch vụ', to: '/service-contracts' },
+          { label: contract?.name || 'Chi tiết' },
+        ]"
+      />
+    </template>
 
-    <div v-if="loading" class="text-center text-gray-400 py-12">Đang tải...</div>
-    <div v-else-if="!contract" class="text-center text-gray-400 py-12">Không tìm thấy hợp đồng.</div>
+    <!-- CTA — CHỈ tồn tại ở trạng thái content (AC-UX-053). -->
+    <template #actions>
+      <button
+        v-if="contract && !editing"
+        data-testid="cta-edit"
+        class="px-4 py-2 text-sm border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50 font-medium"
+        @click="editing = true"
+      >Sửa</button>
+      <button
+        v-if="contract && !editing"
+        data-testid="cta-delete"
+        class="px-4 py-2 text-sm border border-red-300 text-red-700 rounded-lg hover:bg-red-50 font-medium"
+        @click="remove"
+      >Xóa</button>
+    </template>
 
-    <template v-else>
+    <template v-if="contract">
       <div v-if="error" class="text-red-700 text-sm bg-red-50 px-3 py-2 rounded-lg border border-red-200">{{ error }}</div>
 
       <!-- Thông tin hợp đồng -->
@@ -334,5 +355,5 @@ onMounted(load)
         </div>
       </div>
     </template>
-  </div>
+  </DetailPageShell>
 </template>

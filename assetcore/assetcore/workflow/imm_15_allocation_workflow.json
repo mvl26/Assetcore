@@ -237,6 +237,41 @@
    "next_state": "Issued",
    "state": "Returned",
    "allow_self_approval": 1
+  },
+  {
+   "action": "Phê duyệt",
+   "allowed": "Inventory User",
+   "next_state": "Approved",
+   "state": "Requested",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hủy",
+   "allowed": "Inventory User",
+   "next_state": "Cancelled",
+   "state": "Requested",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Pick",
+   "allowed": "Inventory User",
+   "next_state": "Picked",
+   "state": "Approved",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hủy",
+   "allowed": "Inventory User",
+   "next_state": "Cancelled",
+   "state": "Approved",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hủy",
+   "allowed": "Inventory User",
+   "next_state": "Cancelled",
+   "state": "Picked",
+   "allow_self_approval": 1
   }
  ]
 }

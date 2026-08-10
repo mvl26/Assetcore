@@ -9,6 +9,13 @@ import {
   type AcUom, type PartUomRow, type PartMissingUom, type UomInfo,
 } from '@/api/inventory'
 import PageHeader from '@/components/common/PageHeader.vue'
+// AC-UX-065 (ADR-UX-16, docs/ui-ux/06 §5): hộp thoại xác nhận SSoT thay `confirm()`
+// trần — `confirm()` chặn vòng lặp sự kiện (từng treo trình duyệt khi tự động hoá),
+// không bẫy focus và nhãn nút do TRÌNH DUYỆT vẽ nên không Việt hoá được (LL-FE-53).
+// View gọi hàng đợi qua `useNotify().confirm()` — KHÔNG gọi tầng hàng đợi trực tiếp.
+import { useNotify } from '@/composables/useNotify'
+
+const notify = useNotify()
 
 type Tab = 'master' | 'parts' | 'conversions'
 const tab = ref<Tab>('master')
@@ -53,7 +60,13 @@ async function saveUom() {
   } catch (e: unknown) { showToast((e as Error).message || 'Lỗi lưu', true) }
 }
 async function removeUom(name: string) {
-  if (!confirm(`Xóa đơn vị "${name}"?\nNếu đang được dùng sẽ chỉ ngừng sử dụng.`)) return
+  const ok = await notify.confirm({
+    title: 'Xoá đơn vị tính',
+    body: `Xoá đơn vị "${name}"?\nNếu đang được dùng sẽ chỉ ngừng sử dụng.`,
+    tone: 'error',
+    confirmText: 'Xoá',
+  })
+  if (!ok) return
   try {
     const res = await deleteUom(name)
     showToast(res.soft_deleted ? `Đã ngừng sử dụng — ${res.reason}` : 'Đã xóa')
@@ -61,7 +74,13 @@ async function removeUom(name: string) {
   } catch (e: unknown) { showToast((e as Error).message || 'Lỗi xóa', true) }
 }
 async function doSeed() {
-  if (!confirm('Tạo danh mục UOM chuẩn y tế Việt Nam (bỏ qua các UOM đã có)?')) return
+  const ok = await notify.confirm({
+    title: 'Tạo danh mục chuẩn',
+    body: 'Tạo danh mục đơn vị tính chuẩn y tế Việt Nam (bỏ qua các đơn vị đã có)?',
+    tone: 'warning',
+    confirmText: 'Tạo danh mục',
+  })
+  if (!ok) return
   try {
     const res = await seedAcUoms()
     showToast(`Đã tạo ${res.count} UOM mới`)
@@ -109,7 +128,13 @@ async function savePartUom() {
 
 async function doBulkAssign() {
   if (!defaultUomForBulk.value) { showToast('Chọn UOM mặc định', true); return }
-  if (!confirm(`Gán "${defaultUomForBulk.value}" cho ${partsMissing.value.length} phụ tùng thiếu đơn vị tính?`)) return
+  const ok = await notify.confirm({
+    title: 'Gán đơn vị tính mặc định',
+    body: `Gán "${defaultUomForBulk.value}" cho ${partsMissing.value.length} phụ tùng thiếu đơn vị tính?`,
+    tone: 'warning',
+    confirmText: 'Gán',
+  })
+  if (!ok) return
   try {
     const res = await bulkAssignDefaultUom(defaultUomForBulk.value)
     showToast(`Đã gán cho ${res.assigned} phụ tùng`)
@@ -149,7 +174,14 @@ async function addConversion() {
 }
 
 async function deleteConversion(uom: string) {
-  if (!convPart.value || !confirm(`Xóa quy đổi "${uom}"?`)) return
+  if (!convPart.value) return
+  const ok = await notify.confirm({
+    title: 'Xoá quy đổi',
+    body: `Xoá quy đổi "${uom}"?`,
+    tone: 'error',
+    confirmText: 'Xoá',
+  })
+  if (!ok) return
   try {
     await removeUomConversion(convPart.value, uom)
     showToast('Đã xóa')

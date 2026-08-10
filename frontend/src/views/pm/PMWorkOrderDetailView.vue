@@ -3,11 +3,15 @@ import { useNotify } from '@/composables/useNotify'
 import { useToast } from '@/composables/useToast'
 import { MSG } from '@/i18n/messages'
 import DateInput from '@/components/common/DateInput.vue'
+import RelatedRecords from '@/components/common/RelatedRecords.vue'
+import DetailPageShell from '@/components/common/DetailPageShell.vue'
 import { onMounted, computed, ref } from 'vue'
 import { useImm08Store } from '@/stores/imm08'
 import { useRouter } from 'vue-router'
 import { pmStatusLabel, pmStatusClass, resultLabel as _resultLabel, pmTypeLabel, woTypeLabel, overallResultLabel } from '@/constants/labels'
 import { useCapabilities } from '@/composables/useCapabilities'
+import { useDetailAccess } from '@/composables/useDetailAccess'
+import type { AvailableAction } from '@/api/imm08'
 const notify = useNotify()
 const toast = useToast()
 
@@ -16,6 +20,22 @@ const store = useImm08Store()
 const router = useRouter()
 const { can } = useCapabilities()
 
+// Tab màn chi tiết — «Bản ghi liên quan» mount LƯỜI (panel v-if) nên mở phiếu KHÔNG
+// còn bắn `get_connections`; panel chính dùng v-show để giữ nguyên dữ liệu đang nhập.
+// `ref<string>` chứ KHÔNG `ref<'detail'|'related'>`: prop/emit `active-tab` của shell khai
+// `string` ⇒ union hẹp làm `vue-tsc` báo `string not assignable` (bẫy 13.9.3). Khoá tab vẫn
+// được giữ chặt trong hằng `DETAIL_TABS: DetailTab[]`.
+const activeTab = ref<string>('detail')
+const DETAIL_TABS = [
+  { key: 'detail', label: 'Chi tiết' },
+  { key: 'related', label: 'Bản ghi liên quan' },
+]
+
+// ⚠️ ĐƯỜNG FALLBACK DUY NHẤT (AC-CR-77 / FE-3) — 3 computed dưới CHỈ còn dùng khi
+// payload THIẾU `available_actions` (worker BE chưa reload / client cũ). Khi BE phát
+// `available_actions`, trục QUYỀN do SERVER quyết (`enabled`) — FE KHÔNG nhân bản
+// `can('pm.*') && allowedTransitions.includes(...)` cho 4 CTA nữa (nhân bản = nguồn
+// "nút chết": FE cho bấm, BE từ chối).
 // Capability gate khớp EXACT rbac.require BE (api/imm08.py): bắt đầu/báo lỗi lớn =
 // pm.write; hoàn thành (submit_pm_result) = pm.submit; hoãn lịch (reschedule_pm) =
 // pm.reschedule. KHÔNG dùng hasAnyRole(ROLES_PM_*) — các hằng này = [] (LL-FE-22) →
@@ -40,12 +60,45 @@ onMounted(() => store.fetchWorkOrder(props.id))
 
 const wo = computed(() => store.currentWO)
 
+// ─── CR-74 · quyền ĐỌC phiếu (403 in-envelope, HTTP-200) ────────────────────────
+// BE gate get_pm_work_order bằng CÙNG predicate với list/mutate ⇒ thiếu DocPerm read
+// hoặc phiếu chưa giao cho mình → {success:false, code:'FORBIDDEN'}. Ở đây CHỈ hiện
+// message THẬT của server + ẩn toàn bộ CTA; TUYỆT ĐỐI KHÔNG logout/redirect login
+// (đó là việc của dispatcher-403 trong axios interceptor). Handler dùng CHUNG cho
+// 4 màn detail (PM/CM/Hiệu chuẩn/Sự cố) — xem composables/useDetailAccess.ts.
+// Destructure ĐỔI TÊN (khuôn §13.4.0): truyền `access.kind` nguyên ref vào prop shell sẽ
+// đưa cả object truthy sang ⇒ MÀN NÀO CŨNG kẹt ở trạng thái `error` (bẫy 13.9.1).
+// `blocked` không còn cần ở template: nhánh `content` của shell ĐÃ là điều kiện đó — CTA
+// nằm trong nhánh ấy nên «0 nút chết» đúng bằng CẤU TRÚC, không bằng một `v-if` phải nhớ.
+const {
+  kind: loadErrorKindRef,
+  message: loadErrMsg,
+} = useDetailAccess(() => (store.currentWO ? null : store.lastApiError))
+
 // ─── SSoT server-driven CTA (GATE-8 / LL-FE-51 · mirror IncidentDetailView) ──────
 // allowed_transitions do get_pm_work_order emit = _PM_VALID_TRANSITIONS.get(status, [])
 // (imm08.py:652). Nút workflow gate theo (capability && includes('<đích>')) — KHÔNG
 // hardcode `wo.status === 'X'`. Chuỗi đích khớp EXACT PMStatus (en-dash:
 // 'Halted–Major Failure' / 'Pending–Device Busy'). Terminal (Completed/Cancelled) → [].
 const allowedTransitions = computed<string[]>(() => wo.value?.allowed_transitions ?? [])
+
+// ─── AC-CR-77 · CTA SERVER-DRIVEN (`available_actions`) ─────────────────────────
+// `get_pm_work_order` phơi ĐÚNG 4 phần tử, thứ tự CỐ ĐỊNH [start_work, submit_result,
+// reschedule, report_major_failure], shape {key,label,route,enabled,reason} (route="").
+// `enabled` = transition_allowed ∩ has_cap ∩ business_gate do SERVER quyết; `reason`
+// là chuỗi VI SERVER trả (bất biến D9: enabled=false ⟺ reason≠""). FE CHỈ RENDER:
+// nhãn/disabled/tooltip đều từ payload — KHÔNG bịa chuỗi, KHÔNG tự tính quyền.
+//   • hết "nút chết": thiếu capability ⇒ server trả enabled=false + lý do, nút hiện
+//     nhưng KHÔNG bấm được (thay vì bấm rồi ăn 403 câm).
+//   • hết "CTA ma": 'Cancelled' có trong _PM_VALID_TRANSITIONS nhưng KHÔNG có endpoint
+//     ⇒ server không phát ⇒ FE không thể vẽ.
+// Thiếu khoá (BE chưa reload) hoặc mảng rỗng ⇒ null ⇒ rơi về đường FALLBACK bên dưới
+// (`allowed_transitions` + capability) — KHÔNG nút nào biến mất, KHÔNG màn trắng.
+const serverActions = computed<AvailableAction[] | null>(() => {
+  const list = wo.value?.available_actions
+  return Array.isArray(list) && list.length > 0 ? list : null
+})
+const isServerDriven = computed(() => serverActions.value !== null)
 
 // Chỉ đếm mục đã có kết quả (Đạt/Không đạt/N/A) là "đã hoàn thành" (IMM-08-A).
 const filledCount = computed(() => store.ratedCount)
@@ -54,30 +107,46 @@ const progressPct = computed(() =>
   totalCount.value > 0 ? Math.round((filledCount.value / totalCount.value) * 100) : 0
 )
 
-// Lý do không thể hoàn thành (FE mirror của gate BE BR-08-08/09/10).
-const completionBlockReason = computed(() => {
-  if (!canSubmitPM.value) return 'Bạn không có quyền hoàn thành bảo trì'
+// Lý do chặn CỤC BỘ — CHỈ những điều kiện SERVER KHÔNG THẤY ĐƯỢC: form nhập tay chưa
+// lưu (thời lượng / tem / kết quả bảng kiểm đang chấm dở trong bộ nhớ client). Dùng
+// cho CẢ 2 đường (server-driven ∧ fallback): trục quyền/trạng-thái để server quyết,
+// trục dữ-liệu-chưa-gửi để client quyết. CHỈ được SIẾT thêm, KHÔNG nới.
+const localCompletionBlockReason = computed(() => {
+  // BR-08-08 (chặn nghiệm-thu-giả): bảng kiểm RỖNG (thiếu bảng kiểm mẫu) → không có
+  // bằng chứng công việc ⇒ chặn hoàn thành. Hint RIÊNG, khác "chưa chấm hết" — mirror
+  // gate BE IMM08_CHECKLIST_EMPTY (AC-CR-77 A5: server cũng disable submit_result với
+  // CÙNG điều kiện ⇒ display ⇔ enforcement parity). PHẢI kiểm trước checklistComplete
+  // (rỗng cũng làm checklistComplete=false nhưng thông điệp phải chỉ đúng nguyên nhân).
+  if (totalCount.value === 0) return 'Chưa có mục bảng kiểm — không thể nghiệm thu PM'
   if (!store.checklistComplete) return 'Phải chấm kết quả cho tất cả mục checklist trước khi hoàn thành'
   if (durationMin.value <= 0) return 'Thời gian thực hiện phải lớn hơn 0 phút'
   if (!stickerAttached.value) return 'Phải xác nhận đã gắn tem bảo trì'
   if (store.hasMajorFailure) return 'Có lỗi nghiêm trọng — dùng "Báo lỗi nghiêm trọng"'
   return ''
 })
+// Lý do không thể hoàn thành trên đường FALLBACK (FE mirror của gate BE BR-08-08/09/10)
+// — thêm trục QUYỀN cục bộ vì payload cũ không nói được quyền.
+const completionBlockReason = computed(() => {
+  if (!canSubmitPM.value) return 'Bạn không có quyền hoàn thành bảo trì'
+  return localCompletionBlockReason.value
+})
 const canSubmit = computed(() => completionBlockReason.value === '')
 
-// ─── CTA gate theo allowed_transitions (KHÔNG hardcode status) ──────────────────
+// ─── FALLBACK: CTA gate theo allowed_transitions (KHÔNG hardcode status) ────────
+// CHỈ chạy khi payload THIẾU `available_actions` (`!isServerDriven`). Khi BE phát
+// available_actions, cụm CTA server-driven bên dưới thay thế TOÀN BỘ 4 nút này.
 // Báo lỗi nghiêm trọng: In Progress → Halted–Major Failure. Chỉ render khi BE cho phép.
 const canReportMajor = computed(() =>
-  canExecutePM.value && allowedTransitions.value.includes('Halted–Major Failure'),
+  !isServerDriven.value && canExecutePM.value && allowedTransitions.value.includes('Halted–Major Failure'),
 )
 // "Hoàn thành bảo trì" render khi BE cho phép chuyển 'Completed' + chưa có lỗi lớn;
 // điều kiện checklist/quyền/tem/thời-lượng (canSubmit) chi phối trạng thái disabled + tooltip.
 const canCompleteRender = computed(() =>
-  allowedTransitions.value.includes('Completed') && !store.hasMajorFailure,
+  !isServerDriven.value && allowedTransitions.value.includes('Completed') && !store.hasMajorFailure,
 )
 // Hoãn lịch (pm.reschedule) trong banner quá hạn: BE cho phép quay lại In Progress.
 const canReschedule = computed(() =>
-  canManagePM.value &&
+  !isServerDriven.value && canManagePM.value &&
   (allowedTransitions.value.includes('In Progress') || allowedTransitions.value.includes('Pending–Device Busy')),
 )
 // Tiếp tục bảo trì (resume — thao tác thực hiện, pm.write) trong banner quá hạn.
@@ -86,7 +155,12 @@ const canResume = computed(() =>
   (allowedTransitions.value.includes('In Progress') || allowedTransitions.value.includes('Pending–Device Busy')),
 )
 
-const isOverdue = computed(() => wo.value?.status === 'Overdue')
+// LIVE quá hạn (CR-37 · BR-08-11 LIVE) — đọc cờ SERVER `is_overdue` do
+// get_pm_work_order enrich (CÙNG predicate _enrich_pm_overdue của list-item), ưu
+// tiên hơn cờ STORED. Fallback `status === 'Overdue'` (forward-compat: BE chưa emit
+// → undefined). Chặn banner Quá-hạn trễ 1 nhịp scheduler khi WO đã vượt due_date
+// nhưng status chưa được cron stamp sang Overdue. Đối xứng list badge + is_sla_breached.
+const isOverdue = computed(() => wo.value?.is_overdue ?? (wo.value?.status === 'Overdue'))
 
 // Compute overdue days from due_date
 const overdueDays = computed(() => {
@@ -165,10 +239,12 @@ function openRescheduleModal() {
 
 const startError = ref('')
 const starting = ref(false)
-// Bắt đầu bảo trì (→ In Progress): gate theo allowed_transitions BE + guard assigned_to
-// (KHÔNG hardcode status === 'Open'|'Overdue'). Cần capability pm.write (BE assign_technician).
+// FALLBACK — Bắt đầu bảo trì (→ In Progress): gate theo allowed_transitions BE + guard
+// assigned_to (KHÔNG hardcode status === 'Open'|'Overdue'). Cần capability pm.write
+// (BE assign_technician). Tắt hẳn khi payload có `available_actions`.
 const canStart = computed(() =>
-  !!wo.value && canExecutePM.value && allowedTransitions.value.includes('In Progress') && !!wo.value.assigned_to,
+  !isServerDriven.value && !!wo.value && canExecutePM.value &&
+  allowedTransitions.value.includes('In Progress') && !!wo.value.assigned_to,
 )
 
 async function handleStart() {
@@ -185,10 +261,104 @@ async function handleStart() {
     startError.value = store.error || 'Không thể bắt đầu bảo trì định kỳ'
   }
 }
+
+// ─── AC-CR-77 · lớp render cho CTA server-driven ────────────────────────────────
+// Mỗi `key` ánh xạ 1-1 tới ĐÚNG 1 endpoint whitelisted của assetcore/api/imm08.py
+// (start_work→assign_technician · submit_result→submit_pm_result ·
+// reschedule→reschedule_pm · report_major_failure→report_major_failure). Bảng dưới
+// chỉ quyết ĐỊNH DẠNG (testid/lớp CSS/nhãn dự phòng) — KHÔNG quyết enabled.
+const CTA_TESTID: Record<string, string> = {
+  start_work: 'cta-start',
+  submit_result: 'cta-complete',
+  reschedule: 'cta-reschedule',
+  report_major_failure: 'cta-major',
+}
+const CTA_CLASS: Record<string, string> = {
+  start_work: 'btn-primary',
+  submit_result: 'btn-success',
+  reschedule: 'btn-secondary',
+  report_major_failure: 'btn-danger',
+}
+// Nhãn dự phòng CHỈ dùng khi server trả label rỗng (hợp đồng nói luôn có) — KHÔNG
+// phải nguồn nhãn chính: nhãn hiển thị lấy từ `a.label` của server.
+const CTA_LABEL_FALLBACK: Record<string, string> = {
+  start_work: 'Bắt đầu bảo trì',
+  submit_result: 'Hoàn thành bảo trì',
+  reschedule: 'Hoãn lịch',
+  report_major_failure: 'Báo lỗi nghiêm trọng',
+}
+
+// Bảng HÀNH ĐỘNG: key → thao tác FE thực thi. Vừa là nơi dispatch click, vừa là
+// nguồn kiểm "key này có đường thực thi ở FE không" (một map, không hai danh sách).
+const CTA_HANDLERS: Record<string, () => void> = {
+  start_work: () => { void handleStart() },
+  submit_result: () => { showSubmitModal.value = true },
+  reschedule: () => { openRescheduleModal() },
+  report_major_failure: () => {
+    majorFailureDesc.value = ''
+    majorFailureError.value = ''
+    showMajorModal.value = true
+  },
+}
+// Overlay FE (trục "handler-resolvability", song song ROUTE_UNAVAILABLE_REASON của
+// màn quét QR): BE thêm action key MỚI mà bản giao diện này chưa biết ⇒ nút sẽ là
+// no-op câm nếu vẫn cho bấm. Render nhưng KHÓA + nói rõ lý do là failure-mode an toàn.
+const UNSUPPORTED_ACTION_REASON =
+  'Thao tác chưa được hỗ trợ trên phiên bản giao diện này — vui lòng tải lại trang'
+
+function actionLabel(a: AvailableAction): string {
+  return a.label?.trim() || CTA_LABEL_FALLBACK[a.key] || a.key
+}
+
+// Precondition CỤC BỘ (server không thấy): key lạ + dữ liệu chưa gửi + phiếu chưa
+// phân công. CHỈ SIẾT thêm, KHÔNG nới — server nói disabled thì luôn disabled.
+function localBlockReason(a: AvailableAction): string {
+  if (!CTA_HANDLERS[a.key]) return UNSUPPORTED_ACTION_REASON
+  if (a.key === 'start_work' && !wo.value?.assigned_to) {
+    return 'Phiếu chưa được phân công kỹ thuật viên'
+  }
+  if (a.key === 'submit_result') return localCompletionBlockReason.value
+  return ''
+}
+function actionEnabled(a: AvailableAction): boolean {
+  return a.enabled && localBlockReason(a) === ''
+}
+// Tooltip: ƯU TIÊN TUYỆT ĐỐI chuỗi `reason` của SERVER khi server disable (không đè
+// bằng chuỗi FE); chỉ khi server cho phép mới hiện lý do cục bộ.
+function actionReason(a: AvailableAction): string {
+  return a.enabled ? localBlockReason(a) : a.reason
+}
+function actionBusy(a: AvailableAction): boolean {
+  if (a.key === 'start_work') return starting.value
+  if (a.key === 'submit_result') return submitting.value
+  return false
+}
+// Danh sách lý do khoá — hiển thị dạng text (a11y: nút disabled KHÔNG focus được nên
+// `title` một mình không đủ; WCAG 1.4.1 cũng cấm chỉ dựa màu).
+const blockedActions = computed<AvailableAction[]>(() =>
+  (serverActions.value ?? []).filter((a) => !actionEnabled(a) && actionReason(a) !== ''),
+)
+
+function runServerAction(a: AvailableAction): void {
+  if (!actionEnabled(a) || actionBusy(a)) return
+  CTA_HANDLERS[a.key]?.()
+}
 </script>
 
 <template>
-  <div class="page-container animate-fade-in">
+  <DetailPageShell
+    :loading="store.loading"
+    :error-kind="loadErrorKindRef"
+    :error-message="loadErrMsg"
+    :doc="wo"
+    entity-label="phiếu bảo trì định kỳ"
+    :record-id="props.id"
+    back-label="Về danh sách bảo trì định kỳ"
+    :tabs="DETAIL_TABS"
+    v-model:active-tab="activeTab"
+    @retry="store.fetchWorkOrder(props.id)"
+    @back="router.push('/pm/work-orders')">
+    <template #title>
     <!-- Back + Header -->
     <div class="flex items-center gap-3 mb-5">
       <button class="text-slate-400 hover:text-slate-700 transition-colors" aria-label="Quay lại danh sách" @click="router.push('/pm/work-orders')">
@@ -207,28 +377,13 @@ async function handleStart() {
         <h1 class="text-xl font-semibold text-slate-900 mt-1 truncate">{{ wo?.asset_name || wo?.asset_ref || 'Phiếu bảo trì' }}</h1>
       </div>
     </div>
+    </template>
 
-    <!-- Loading Skeleton -->
-    <div v-if="store.loading" class="space-y-4">
-      <div class="card-sm animate-pulse">
-        <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
-          <div v-for="i in 6" :key="i" class="h-5 bg-slate-100 rounded" />
-        </div>
-      </div>
-      <div class="card-sm animate-pulse space-y-3">
-        <div class="h-4 bg-slate-100 rounded w-48" />
-        <div class="h-2 bg-slate-100 rounded-full" />
-        <div v-for="i in 4" :key="i" class="h-20 bg-slate-100 rounded-lg" />
-      </div>
-    </div>
-
-    <!-- Error -->
-    <div v-else-if="store.error && !wo" class="alert-error">
-      <span class="flex-1">{{ store.error }}</span>
-      <button class="text-xs font-semibold underline hover:no-underline" @click="store.fetchWorkOrder(props.id)">Thử lại</button>
-    </div>
-
-    <template v-else-if="wo">
+    <!-- Thanh tab HOISTING lên prop shell (ADR-UX-25): shell là nơi DUY NHẤT vẽ thanh tab,
+         và nó nằm trong nhánh `content` ⇒ phiếu bị chặn đọc KHÔNG có nút tab chết, đúng
+         bằng CẤU TRÚC (không cần `v-if` bù — bẫy 13.9.10). -->
+    <template v-if="wo">
+      <div v-show="activeTab === 'detail'" data-testid="tab-panel-detail">
       <!-- Overdue Warning Banner -->
       <Transition
         enter-active-class="transition duration-200"
@@ -241,7 +396,7 @@ async function handleStart() {
           class="alert-error mb-5 flex-col sm:flex-row sm:items-center sm:justify-between"
         >
           <div class="flex items-start gap-3">
-            <svg class="w-5 h-5 text-red-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <svg class="w-5 h-5 text-danger-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-2.694-.833-3.464 0L3.34 16.5C2.57 18.333 3.532 20 5.07 20z" />
             </svg>
             <div>
@@ -268,7 +423,10 @@ async function handleStart() {
           </div>
           <div>
             <span class="text-slate-500">Đến hạn:</span>
-            <span :class="wo.is_late ? 'font-semibold text-red-600 ml-1' : 'font-medium ml-1'">{{ wo.due_date }}</span>
+            <!-- Red-highlight đọc cờ LIVE `isOverdue` (đang quá hạn) HỢP với `is_late`
+                 (STORED — hoàn-thành-trễ, giữ tín hiệu lịch sử cho phiếu đã Hoàn thành).
+                 Live-overdue mở (is_late=0) vẫn đỏ, không trễ nhịp scheduler. -->
+            <span :class="(isOverdue || wo.is_late) ? 'font-semibold text-red-600 ml-1' : 'font-medium ml-1'">{{ wo.due_date }}</span>
           </div>
           <div><span class="text-slate-500">Loại bảo trì:</span> <span class="font-medium ml-1">{{ pmTypeLabel(wo.pm_type) }}</span></div>
           <div><span class="text-slate-500">Kỹ thuật viên:</span> <span class="font-medium ml-1">{{ wo.assigned_to_name || wo.assigned_to || '—' }}</span></div>
@@ -278,7 +436,8 @@ async function handleStart() {
         </div>
       </div>
 
-      <!-- Start PM banner (Open/Overdue → In Progress) -->
+      <!-- Start PM banner (Open/Overdue → In Progress) — FALLBACK: `canStart` tự tắt
+           khi payload có `available_actions` (nút «bắt đầu» nằm ở cụm CTA server-driven). -->
       <div v-if="canStart" class="alert-info mb-5 sm:items-center sm:justify-between">
         <div>
           <div class="font-semibold">Sẵn sàng bắt đầu bảo trì</div>
@@ -407,8 +566,49 @@ async function handleStart() {
         </div>
       </div>
 
-      <!-- Action Buttons — server-driven CTA: gate theo (capability && allowed_transitions
-           BE), KHÔNG hardcode wo.status === 'X' (GATE-8 / LL-FE-51). -->
+      <!-- AC-CR-77 — CỤM CTA SERVER-DRIVEN. v-for render MỌI phần tử `available_actions`
+           theo ĐÚNG thứ tự BE phát (start_work, submit_result, reschedule,
+           report_major_failure): nhãn = `label` server, disabled = !enabled, tooltip =
+           `reason` server. KHÔNG ẩn nút thiếu quyền (người dùng thấy nút + lý do thay
+           vì bấm rồi ăn 403 câm) và KHÔNG BAO GIỜ vẽ được CTA ma (server không phát
+           'Cancelled' vì không có endpoint). Payload thiếu khoá ⇒ khối này không render
+           và các nút FALLBACK bên dưới/bên trên hiện y như cũ. -->
+      <div v-if="isServerDriven" data-testid="pm-cta-bar" class="card-sm">
+        <div class="flex flex-wrap items-center justify-end gap-2">
+          <button
+            v-for="a in serverActions"
+            :key="a.key"
+            type="button"
+            :data-testid="CTA_TESTID[a.key]"
+            :data-action-key="a.key"
+            :class="CTA_CLASS[a.key] || 'btn-secondary'"
+            :disabled="!actionEnabled(a) || actionBusy(a)"
+            :aria-disabled="actionEnabled(a) ? undefined : 'true'"
+            :title="actionReason(a) || undefined"
+            :aria-label="actionReason(a) ? `${actionLabel(a)} — không khả dụng: ${actionReason(a)}` : actionLabel(a)"
+            :aria-describedby="actionReason(a) ? `pm-cta-reason-${a.key}` : undefined"
+            @click="runServerAction(a)"
+          >
+            {{ actionBusy(a) ? 'Đang xử lý…' : actionLabel(a) }}
+          </button>
+        </div>
+        <!-- Lý do khoá dạng chữ (KHÔNG chỉ tooltip/màu) — nút disabled không nhận
+             focus nên screen-reader không đọc được `title`. -->
+        <ul v-if="blockedActions.length" aria-live="polite" class="mt-3 space-y-1">
+          <li
+            v-for="a in blockedActions"
+            :id="`pm-cta-reason-${a.key}`"
+            :key="`pm-cta-reason-${a.key}`"
+            class="flex items-start gap-1.5 text-xs text-slate-500"
+          >
+            <span aria-hidden="true">🔒</span>
+            <span><span class="font-medium">{{ actionLabel(a) }}:</span> {{ actionReason(a) }}</span>
+          </li>
+        </ul>
+      </div>
+
+      <!-- FALLBACK (payload thiếu available_actions) — gate theo (capability &&
+           allowed_transitions BE), KHÔNG hardcode wo.status === 'X' (GATE-8 / LL-FE-51). -->
       <div v-if="canReportMajor || canCompleteRender" class="flex justify-between items-center">
         <button v-if="canReportMajor" data-testid="cta-major" class="btn-danger" @click="showMajorModal = true; majorFailureDesc = ''; majorFailureError = ''">
           Báo lỗi nghiêm trọng
@@ -437,6 +637,13 @@ async function handleStart() {
           <div class="text-sm">Kết quả: {{ overallResultLabel(wo.overall_result) }} · Ngày: {{ wo.completion_date }}</div>
         </div>
       </div>
+      </div>
+
+      <!-- Bản ghi liên quan: TAB RIÊNG, mount LƯỜI (v-if) — nội dung do đồ thị liên kết
+           ở backend quyết định. -->
+      <div v-if="activeTab === 'related'" data-testid="tab-panel-related">
+        <RelatedRecords doctype="PM Work Order" :name="wo.name" />
+      </div>
     </template>
 
     <!-- Reschedule Modal (from Overdue banner) -->
@@ -452,11 +659,11 @@ async function handleStart() {
           <div class="space-y-4">
             <div v-if="rescheduleError" class="alert-error text-sm">{{ rescheduleError }}</div>
             <div class="form-group">
-              <label for="reschedule-date" class="form-label">Ngày mới <span class="text-red-500">*</span></label>
+              <label for="reschedule-date" class="form-label">Ngày mới <span class="text-danger-500">*</span></label>
               <DateInput id="reschedule-date" v-model="rescheduleDate" class="form-input !text-sm" />
             </div>
             <div class="form-group">
-              <label for="reschedule-reason" class="form-label">Lý do hoãn <span class="text-red-500">*</span></label>
+              <label for="reschedule-reason" class="form-label">Lý do hoãn <span class="text-danger-500">*</span></label>
               <textarea
                 id="reschedule-reason"
                 v-model="rescheduleReason"
@@ -531,7 +738,7 @@ async function handleStart() {
         </div>
       </div>
     </Transition>
-  </div>
+  </DetailPageShell>
 </template>
 
 <style scoped>

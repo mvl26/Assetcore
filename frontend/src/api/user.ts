@@ -64,11 +64,17 @@ export interface CreateUserPayload {
   imm_roles?: Array<{ role: string }>
 }
 
-export interface FrappeUserItem {
+/** Thông tin hiển thị của 1 user (read-by-id) — `get_ac_user_brief`. */
+export interface AcUserBrief {
   name: string
   full_name: string
   email: string
+  phone?: string | null
+  mobile_no?: string | null
   user_image?: string | null
+  enabled: number
+  /** false = user cũ không còn thuộc AssetCore → FE gắn badge "(Đã rời AssetCore)". */
+  is_ac_user: boolean
 }
 
 interface Paginated<T> {
@@ -87,6 +93,26 @@ export const listUsers = (params: {
   page?: number
   page_size?: number
 } = {}) => frappeGet<Paginated<IMMUserListItem>>(`${BASE}.list_users`, params as Record<string, unknown>)
+
+/** Trần số trang kéo về — chặn vòng lặp vô hạn nếu BE trả `total` bất thường. */
+const MAX_USER_PAGES = 50
+const USER_PAGE_SIZE = 100
+
+/**
+ * Kéo TOÀN BỘ user AssetCore (đi hết các trang, BE cap page_size = 100).
+ *
+ * Dùng cho màn cần danh sách đầy đủ (gán role, map id → tên hiển thị). Không
+ * cắt ngầm: lặp tới khi đủ `pagination.total`.
+ */
+export async function listAllUsers(): Promise<IMMUserListItem[]> {
+  const out: IMMUserListItem[] = []
+  for (let page = 1; page <= MAX_USER_PAGES; page++) {
+    const res = await listUsers({ page, page_size: USER_PAGE_SIZE })
+    out.push(...res.items)
+    if (res.items.length === 0 || out.length >= res.pagination.total) break
+  }
+  return out
+}
 
 export const getUserInfo = (user: string) =>
   frappeGet<IMMUser>(`${BASE}.get_user_info`, { user })
@@ -111,7 +137,13 @@ export const approveRegistration = (
   })
 
 export const createSystemUser = (payload: CreateUserPayload) =>
-  frappePost<{ user: string; full_name: string }>(`${BASE}.create_system_user`, {
+  frappePost<{
+    user: string
+    full_name: string
+    // ISS-002: trạng thái gửi email chào mừng (chỉ có khi tick "Gửi email chào mừng").
+    welcome_email_sent?: boolean
+    welcome_email_error?: string
+  }>(`${BASE}.create_system_user`, {
     ...payload,
     imm_roles: payload.imm_roles ? JSON.stringify(payload.imm_roles) : '[]',
   } as Record<string, unknown>)
@@ -147,21 +179,82 @@ export const assignRoleProfile = (user: string, role_profile: string) =>
     { user, role_profile },
   )
 
-export const listFrappeUsers = (search: string = '', limit = 30) =>
-  frappeGet<FrappeUserItem[]>(`${BASE}.list_frappe_users`, { search, limit })
+/**
+ * Thông tin hiển thị tối thiểu của 1 user (read-by-id) — thay cho gọi thẳng
+ * `frappe.client.get_value` với doctype User ở view.
+ *
+ * Vẫn trả user KHÔNG còn thuộc AssetCore (record cũ phải render được tên) kèm
+ * cờ `is_ac_user=false` để hiện badge "(Đã rời AssetCore)".
+ */
+export const getAcUserBrief = (user: string) =>
+  frappeGet<AcUserBrief>(`${BASE}.get_ac_user_brief`, { user })
 
 /** User AssetCore đủ năng lực cho 1 ngữ cảnh phân công (picker KTV…). */
 export interface AssignableUserItem {
   name: string
-  full_name: string
-  email: string
+  /** Có thể null trên tài khoản cũ → mọi chỗ hiển thị PHẢI fallback về `name`. */
+  full_name: string | null
+  email: string | null
   user_image?: string | null
+}
+
+/**
+ * Trang người-được-phép + meta cắt (AC-CR-80).
+ *
+ * `total` = tổng người ĐƯỢC PHÉP (đếm SAU lọc năng lực, TRƯỚC khi cắt);
+ * `limit` = trần ĐÃ CLAMP do BE echo (không phải số client gửi);
+ * `truncated` = 0|1 dạng SỐ (KHÔNG boolean — parity CR-01, chống crash codegen).
+ */
+export interface AssignableUserPage {
+  items: AssignableUserItem[]
+  total: number
+  truncated: 0 | 1
+  limit: number
+}
+
+/** Bí danh theo tên hợp đồng trong bàn giao AC-CR-80 (cùng một kiểu). */
+export type AssignableUserListResponse = AssignableUserPage
+
+/**
+ * Chuẩn hoá phản hồi về `AssignableUserPage` — SSoT cho mọi nơi tiêu thụ.
+ *
+ * ADR-IMM00-ASSIGN-04 (tolerant reader): trong cửa sổ `gunicorn --preload` chưa
+ * reload, BE cũ vẫn trả MẢNG TRẦN. Không bọc ở đây thì picker TRẮNG suốt cửa sổ
+ * đó — hồi quy nặng hơn chính lỗi đang sửa.
+ *
+ * KHÔNG suy `truncated` từ `items.length >= limit`: client không biết trần SAU
+ * khi BE clamp, đoán ở FE sẽ báo cắt sai (D5).
+ */
+export function normalizeAssignableUserPage(
+  res: AssignableUserPage | AssignableUserItem[] | null | undefined,
+  limit: number,
+): AssignableUserPage {
+  if (Array.isArray(res)) return { items: res, total: res.length, truncated: 0, limit }
+  if (!res || !Array.isArray(res.items)) return { items: [], total: 0, truncated: 0, limit }
+  return {
+    items: res.items,
+    total: typeof res.total === 'number' ? res.total : res.items.length,
+    truncated: res.truncated ? 1 : 0,
+    limit: typeof res.limit === 'number' ? res.limit : limit,
+  }
 }
 
 /**
  * Liệt kê user AssetCore (có base role) ĐỦ NĂNG LỰC cho `context` phân công.
  * `context` = khoá allowlist BE (vd "repair"); BE lọc theo capability/DocPerm
  * (mirror _is_repair_capable) → chỉ hiện người hợp lệ để chọn.
+ *
+ * Trả `{items,total,truncated,limit}`: danh sách bị cắt ở `limit` được CÔNG BỐ
+ * (AC-CR-80) để FE nói "đang hiển thị N/M" thay vì cắt im lặng.
  */
-export const listAssignableUsers = (context: string, search = '', limit = 20) =>
-  frappeGet<AssignableUserItem[]>(`${BASE}.list_assignable_users`, { context, search, limit })
+export const listAssignableUsers = async (
+  context: string,
+  search = '',
+  limit = 20,
+): Promise<AssignableUserPage> => {
+  const res = await frappeGet<AssignableUserPage | AssignableUserItem[]>(
+    `${BASE}.list_assignable_users`,
+    { context, search, limit },
+  )
+  return normalizeAssignableUserPage(res, limit)
+}

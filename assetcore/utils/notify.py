@@ -58,13 +58,21 @@ def _bucket_for(entry: MessageEntry, override: str | None = None) -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def nthrow(message_code: str, *, error_code: str | None = None, **context: Any) -> None:
+def nthrow(message_code: str, *, error_code: str | None = None,
+           fields: dict | None = None, **context: Any) -> None:
     """Raise ServiceError chuẩn — entrypoint cho service layer.
 
     Args:
         message_code: MSG.XXX từ registry. Nếu code không tồn tại → fallback SYS-500.
         error_code: override ErrorCode bucket (rare — dùng khi mapping HTTP→bucket
             mặc định không khớp với UX mong muốn của caller).
+        fields: dict {khoá ô nhập: câu tiếng Việt} — lỗi FIELD-LEVEL (AC-CR-83).
+            Truyền thẳng xuống `ServiceError(fields=…)`; `utils/api_handler.handle`
+            đẩy vào envelope `fields` (chỉ khi truthy) → FE neo thông điệp dưới
+            ĐÚNG control. Khoá dùng TÊN THAM SỐ GHI của endpoint (ADR-IMM12-14),
+            KHÔNG dùng tên field DocType để đọc.
+            ⚠️ `fields` là TÊN DÀNH RIÊNG — không dùng được làm biến template
+            `{fields}` (hiện 0 entry registry dùng biến đó).
         **context: biến cho template `{var}` placeholder. Sẽ:
             - render vào message (str.format)
             - propagate xuống FE qua envelope `context` field để i18n hoá
@@ -84,6 +92,7 @@ def nthrow(message_code: str, *, error_code: str | None = None, **context: Any) 
         http_status=entry["http_status"],
         context=context,
         message_code=message_code,
+        fields=fields,
     )
 
 

@@ -101,7 +101,8 @@
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Tên tài sản",
-   "reqd": 1
+   "reqd": 1,
+   "in_global_search": 1
   },
   {
    "default": "Cái",
@@ -116,7 +117,8 @@
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Mã tài sản",
-   "unique": 1
+   "unique": 1,
+   "in_global_search": 1
   },
   {
    "fieldname": "asset_category",
@@ -300,13 +302,15 @@
    "fieldname": "manufacturer_sn",
    "fieldtype": "Data",
    "label": "Số serial hãng sản xuất",
-   "search_index": 1
+   "search_index": 1,
+   "in_global_search": 1
   },
   {
    "fieldname": "udi_code",
    "fieldtype": "Data",
    "label": "Mã UDI",
-   "search_index": 1
+   "search_index": 1,
+   "in_global_search": 1
   },
   {
    "description": "Khóa tra cứu mờ cho QR cấp tài sản (enumeration-safe, sinh tự động, bất biến). Không phải định danh nghiệp vụ.",
@@ -799,8 +803,10 @@
   }
  ],
  "row_format": "Dynamic",
+ "search_fields": "asset_code,manufacturer_sn,udi_code",
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": [],
+ "title_field": "asset_name",
  "track_changes": 1
 }

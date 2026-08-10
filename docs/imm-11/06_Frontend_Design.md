@@ -189,6 +189,65 @@ Hai luồng: **In-House** (`Scheduled → In Progress → Passed/Failed/Conditio
 
 > BR-11-02: `Failed` → tự sinh CM Work Order (IMM-09) + lookback. Nút "Không đạt" phải cảnh báo trước khi commit.
 
+#### 3.3-bis. Persist bảng đo qua `save()` — child-diff `measurements` (BR-11-16 · data-loss fix)
+
+> **Bối cảnh:** `CalibrationDetailView.save()` (`frontend/src/views/calibration/CalibrationDetailView.vue:249-252`) đã gọi `updateCalibration(props.id, form.value)` với `form.value.measurements` (mảng dòng đo KTV nhập). Trước fix BE, mảng này bị `_UPDATE_ALLOWED` strip → mất dữ liệu. Sau BR-11-16 (§04 §4.1.10), BE nhận `measurements` theo replace-set + server-compute `pass_fail`.
+
+**Contract FE (khi BE BR-11-16 đã live):**
+- **Gửi**: `save()` gửi `measurements` = mảng dòng lưới với 6 field input `{parameter_name, unit, nominal_value, tolerance_positive, tolerance_negative, measured_value}`. KHÔNG cần gửi `pass_fail`/`out_of_tolerance` (server tính; nếu có gửi → server strip). KHÔNG cần `client_request_id` (replace-set idempotent).
+- **Re-fetch BẮT BUỘC sau Lưu**: `updateCalibration` trả `{name, status}` (KHÔNG có measurements/pass_fail). FE PHẢI invalidate + re-fetch `getCalibration(id)` sau `save()` để render `pass_fail`/`out_of_tolerance` **server-computed** (SSoT). KHÔNG hiển thị verdict từ `computeResult(m)` client như kết-quả-đã-lưu.
+- **`computeResult(m)` (`:298`) = PREVIEW client-side ONLY** — chỉ tô màu/gợi ý lúc gõ; KHÔNG phải nguồn sự thật. Sau reload, cột "Kết quả" đọc `m.pass_fail` từ server (đã có nhánh `v-if="m.pass_fail"` @`:475`); server thắng preview.
+- **Gate lưới nhập**: `canEnterResults` (`:91`) gate theo `!isSubmitted` + cap `calibration.write`. Khớp guard BE: measurements editable ⟺ `docstatus==0` ∧ `status ∈ ACTIVE_STATUSES`. Phiếu đã submit / draft Cancelled → lưới read-only; nếu FE lỡ gửi → BE trả `IMM11_ALREADY_SUBMITTED` / `IMM11_MEASUREMENTS_NOT_EDITABLE` (toast qua notification contract).
+
+**Acceptance FE (guard test `CalibrationDetailView` — vitest):** nhập 2 dòng → `save()` → (mock `updateCalibration` resolve + re-fetch `getCalibration` trả 2 dòng server pass_fail) → render đúng **2 dòng** với `pass_fail` từ server (KHÔNG mất dòng, KHÔNG dùng `computeResult` làm verdict cuối). Dùng **real store**, KHÔNG mock trả tay bỏ qua re-fetch.
+
+#### 3.3-ter. Nút «Dời lịch hiệu chuẩn» — server-driven, 0 nút chết (BR-11-19 · AC-CR-86)
+
+> **Bối cảnh:** trước CR, ngày hẹn (`scheduled_date`) không sửa được ở đâu cả — `updateCalibration` **nuốt im lặng** khoá đó. Người dùng phải hủy phiếu rồi tạo lại ⇒ hồ sơ NĐ98 đầy phiếu `Cancelled` rác. Nay có op riêng `reschedule_calibration` (05 §2 #13).
+
+**Nguồn sự thật gating — 1 và chỉ 1:**
+
+```ts
+// frontend/src/constants/calibration.ts  (MỚI — hằng dùng chung, KHÔNG rải trong template)
+/** Trạng thái CHO PHÉP dời lịch — mirror services/imm11.py::RESCHEDULE_CAL_STATES.
+ *  CHỈ dùng làm FALLBACK khi server chưa phát cờ `can_reschedule` (server cũ).  */
+export const RESCHEDULE_CAL_STATES = ['Scheduled', 'In Progress'] as const
+```
+
+```ts
+// CalibrationDetailView.vue — 1 computed DUY NHẤT, đặt cạnh canSendToLab/canCancel (:83-:96)
+const canReschedule = computed(() => {
+  const flag = form.value.can_reschedule            // cờ SERVER (ADR-IMM11-13) — ưu tiên
+  if (typeof flag === 'boolean') return flag
+  return canExecuteCal.value && !isSubmitted.value  // fallback server-cũ
+    && RESCHEDULE_CAL_STATES.includes(form.value.status as never)
+})
+```
+
+| Điều | Quy tắc |
+|---|---|
+| Vị trí nút | Cụm hành động phiếu, cạnh «Hủy phiếu». `data-testid="cta-reschedule-cal"` |
+| Nhãn | **«Dời lịch hiệu chuẩn»** (VI đầy đủ — LL-FE-53) |
+| Điều kiện render | `v-if="canReschedule"` — **KHÔNG** `status === 'Scheduled'` rải rác trong template |
+| Modal | 2 ô: **Ngày hẹn mới** (`type="date"`, `min = today`) + **Lý do dời lịch** (textarea, hint "tối thiểu 5 ký tự"). Nút xác nhận `disabled` khi 1 trong 2 ô rỗng — nhưng **KHÔNG** thay thế validate server |
+| Sau thành công | Toast `IMM11_RESCHEDULE_SUCCESS` + **re-fetch `getCalibration(id)`** (ngày mới + `amendment_reason` mới + `can_reschedule` mới đến từ server, KHÔNG patch cục bộ) |
+| Lỗi in-envelope | Hiện **nguyên văn** thông điệp VI của server (`notify.fromError(store.lastApiError)`), KHÔNG phơi `code`/`message_code`/HTTP number cho người dùng |
+| Lỗi field-level | `fields.reason` / `fields.new_date` → neo câu VI **ngay dưới đúng ô** trong modal (khuôn AC-CR-83), không chỉ bung dải đỏ trên đầu |
+| 403 in-envelope | Hiện message, **KHÔNG logout**, KHÔNG điều hướng (đây là cap-403 in-handler, không phải phiên hết hạn) |
+
+**Ô ngày hẹn ở form Lưu phiếu:** `scheduled_date` là **read-only** trên form chính. Nếu người dùng vẫn gửi (client cũ), server trả `IMM11_SCHEDULED_DATE_READONLY` + `fields.scheduled_date` ⇒ FE neo câu "Dùng chức năng «Dời lịch hiệu chuẩn»…" ngay dưới ô ngày. **Không** tự ý strip khoá ở client để "cho êm" — sẽ tái tạo đúng lỗi nuốt-im-lặng ở phía FE.
+
+**Acceptance FE (vitest render test — `calibrationDetailRescheduleCta.test.ts`):**
+
+| ID | Test |
+|---|---|
+| TC-FE-11-RS-01 | phiếu `Scheduled` + cap `calibration.write` (server trả `can_reschedule: true`) ⇒ DOM **CÓ** `[data-testid="cta-reschedule-cal"]` |
+| TC-FE-11-RS-02 | phiếu `Passed` (`can_reschedule: false`) ⇒ DOM **VẮNG** nút |
+| TC-FE-11-RS-03 | phiếu `Cancelled` (`can_reschedule: false`) ⇒ DOM **VẮNG** nút |
+| TC-FE-11-RS-04 | server **KHÔNG** trả khoá `can_reschedule` (server cũ) + `status='Scheduled'` + có cap ⇒ nút **CÓ** (fallback hằng); `status='Sent to Lab'` ⇒ **VẮNG** |
+| TC-FE-11-RS-05 | mock lỗi 422 `fields={'reason': 'Nhập lý do dời lịch (tối thiểu 5 ký tự).'}` ⇒ câu đó render **trong modal, dưới ô lý do**; DOM **KHÔNG** chứa `IMM11-RESCHEDULE-REASON-REQUIRED` / `422` / `VALIDATION` |
+| TC-FE-11-RS-06 | grep-guard: `CalibrationDetailView.vue` **KHÔNG** chứa chuỗi `status === 'Scheduled'` (chống hardcode rải rác quay lại) |
+
 ---
 
 ## 4. Component custom của module

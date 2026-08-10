@@ -22,8 +22,12 @@ from assetcore.api import purchase as api
 from assetcore.services.shared import rbac
 
 # Version đóng băng SAU khi thêm 6 cap purchase.* (bench-verified — KHÔNG bịa hash).
-_EXPECTED_CAP_COUNT = 104
-_EXPECTED_CAP_VERSION_PREFIX = "v104."
+# Re-freeze AC-CR-119 +pm.read_history (AC-CR-119 · ADR-IMM00-ASSET-OP-HISTORY §11.2/§11.9): +1 cap
+# pm.read_history bind ("PM Task Log","read") → 104→105 (bench-verified:
+# `bench --site miyano execute assetcore.services.shared.rbac._compute_cap_set_version`
+# → "v105.b50a24e5f62f"; KHÔNG gõ tay hash).
+_EXPECTED_CAP_COUNT = 105
+_EXPECTED_CAP_VERSION_PREFIX = "v105."
 
 
 def _make_user(roles: list[str]) -> str:

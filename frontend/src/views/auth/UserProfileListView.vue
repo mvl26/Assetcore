@@ -11,6 +11,7 @@ import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
 import SmartSelect from '@/components/common/SmartSelect.vue'
+import ListPageShell from '@/components/ui/ListPageShell.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -42,6 +43,9 @@ function applyQueryToFilters(): boolean {
 
 const users = ref<IMMUserListItem[]>([])
 const loading = ref(false)
+// AC-UX-041 — trước đây view có 0 nhánh `error|catch`: API hỏng ⇒ khung xương quay
+// mãi (cờ loading hạ SAU await) + unhandled rejection. Nay lỗi có trạng thái riêng.
+const errorMessage = ref<string | null>(null)
 const page = ref(1)
 const total = ref(0)
 const PAGE_SIZE = 20
@@ -91,18 +95,24 @@ const ROLE_GROUP_COLORS: Record<string, string> = {
 
 async function load() {
   loading.value = true
-  const res = await listUsers({
-    search: filters.value.search,
-    approval_status: filters.value.approval_status,
-    department: filters.value.department || undefined,
-    role: filters.value.role || undefined,
-    page: page.value,
-    page_size: PAGE_SIZE,
-  })
-  loading.value = false
-  if (res) {
-    users.value = res.items ?? []
-    total.value = res.pagination?.total ?? 0
+  errorMessage.value = null          // INV-UX3-4 — xoá lỗi ĐẦU lượt nạp
+  try {
+    const res = await listUsers({
+      search: filters.value.search,
+      approval_status: filters.value.approval_status,
+      department: filters.value.department || undefined,
+      role: filters.value.role || undefined,
+      page: page.value,
+      page_size: PAGE_SIZE,
+    })
+    users.value = res?.items ?? []
+    total.value = res?.pagination?.total ?? 0
+  } catch (e: unknown) {
+    errorMessage.value = e instanceof Error ? e.message : String(e)
+    users.value = []                 // INV-UX3-5 — không giữ số cũ dưới dải lỗi
+    total.value = 0
+  } finally {
+    loading.value = false            // INV-UX3-3 — luôn hạ cờ
   }
 }
 
@@ -111,7 +121,13 @@ function prevPage() { if (page.value > 1) { page.value--; load() } }
 function nextPage() { if (page.value * PAGE_SIZE < total.value) { page.value++; load() } }
 
 onMounted(async () => {
-  availableRoles.value = (await getAvailableImmRoles()) ?? []
+  // Danh sách vai trò là dữ liệu PHỤ cho bộ lọc — hỏng thì bộ lọc thiếu tuỳ chọn,
+  // KHÔNG được chặn lượt nạp danh sách người dùng (LL-FE-45).
+  try {
+    availableRoles.value = (await getAvailableImmRoles()) ?? []
+  } catch {
+    availableRoles.value = []
+  }
   applyQueryToFilters() // §9.3 pre-apply drill query trước load
   await load()
 })
@@ -128,95 +144,117 @@ const openImport = importWizard.open
 const doExport = importWizard.doExport
 
 const IMPORT_NOTICE = [
-  'Email là khóa — đã tồn tại sẽ <strong>cập nhật</strong> thông tin (upsert).',
-  'Khoa/Phòng (ac_department) điền theo tên hoặc mã hệ thống — hệ thống tự resolve.',
+  'Email là khóa — đã tồn tại sẽ <strong>cập nhật</strong> thông tin (ghi đè).',
+  'Khoa/Phòng (ac_department) điền theo tên hoặc mã hệ thống — hệ thống tự đối chiếu.',
   'Cột Vai trò phân cách bằng dấu phẩy (vd: <code>Asset Manager, Maintenance Technician</code>).',
-  'Chế độ "Bỏ qua dòng lỗi" <strong>không áp dụng</strong> cho User import — phải sửa file trước.',
+  'Chế độ "Bỏ qua dòng lỗi" <strong>không áp dụng</strong> khi nhập người dùng — phải sửa tệp trước.',
 ]
 </script>
 
 <template>
-  <div class="page-container animate-fade-in">
-    <PageHeader title="Quản lý người dùng" :subtitle="`Tổng ${total} người dùng`">
-      <template #actions>
-        <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
-        <button
-          v-if="auth.isSystemAdmin"
-          class="px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600 flex items-center gap-1.5"
-          title="Xuất danh sách người dùng về Excel"
-          @click="doExport"
-        >
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-          </svg>
-          Xuất Excel
-        </button>
-        <button
-          v-if="auth.isSystemAdmin"
-          class="px-3 py-2 text-sm border border-emerald-300 rounded-lg hover:bg-emerald-50 text-emerald-700 flex items-center gap-1.5"
-          @click="openImport"
-        >
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-          </svg>
-          Import
-        </button>
-        <button
-          v-if="auth.isSystemAdmin"
-          class="btn-primary shrink-0"
-          @click="router.push('/user-profiles/new')"
-        >
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
-          </svg>
-          Thêm người dùng
-        </button>
-      </template>
-    </PageHeader>
+  <ListPageShell
+    :loading="loading"
+    :error-message="errorMessage"
+    :is-empty="users.length === 0"
+    empty-title="Chưa có người dùng nào"
+    empty-hint="Hãy đổi bộ lọc hoặc thêm người dùng mới."
+    @retry="load"
+  >
+    <template #header>
+      <PageHeader title="Quản lý người dùng" :subtitle="`Tổng ${total} người dùng`">
+        <template #actions>
+          <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
+          <button
+            v-if="auth.isSystemAdmin"
+            class="px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600 flex items-center gap-1.5"
+            title="Xuất danh sách người dùng về Excel"
+            @click="doExport"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            Xuất Excel
+          </button>
+          <button
+            v-if="auth.isSystemAdmin"
+            class="px-3 py-2 text-sm border border-emerald-300 rounded-lg hover:bg-emerald-50 text-emerald-700 flex items-center gap-1.5"
+            title="Nhập danh sách người dùng từ tệp Excel"
+            @click="openImport"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+            </svg>
+            Nhập từ Excel
+          </button>
+          <button
+            v-if="auth.isSystemAdmin"
+            class="btn-primary shrink-0"
+            @click="router.push('/user-profiles/new')"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+            Thêm người dùng
+          </button>
+        </template>
+      </PageHeader>
+    </template>
 
-    <ListFilterBar
-      :show="showFilters"
-      :chips="activeChips"
-      v-model:search="filters.search"
-      search-placeholder="Tìm theo tên, email..."
-      @reset="resetFilters"
-      @clear-chip="clearChip"
-      @apply="applyFilters"
-    >
-      <template #fields>
-        <div class="form-group">
-          <label class="form-label">Trạng thái duyệt</label>
-          <select v-model="filters.approval_status" class="form-select text-sm" @change="applyFilters">
-            <option value="">Tất cả trạng thái</option>
-            <option value="Approved">Đã duyệt</option>
-            <option value="Pending">Chờ duyệt</option>
-            <option value="Rejected">Từ chối</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Khoa / Phòng</label>
-          <SmartSelect
-            v-model="filters.department"
-            doctype="AC Department"
-            placeholder="Tất cả khoa/phòng..."
-            @select="applyFilters"
-            @clear="applyFilters"
-          />
-        </div>
-        <div class="form-group">
-          <label class="form-label">Vai trò</label>
-          <select v-model="filters.role" class="form-select text-sm" @change="applyFilters">
-            <option value="">Tất cả vai trò</option>
-            <option v-for="r in availableRoles" :key="r.name" :value="r.name">{{ r.label }}</option>
-          </select>
-        </div>
-      </template>
-    </ListFilterBar>
+    <template #filters>
+      <ListFilterBar
+        :show="showFilters"
+        :chips="activeChips"
+        v-model:search="filters.search"
+        search-placeholder="Tìm theo tên, email..."
+        @reset="resetFilters"
+        @clear-chip="clearChip"
+        @apply="applyFilters"
+      >
+        <template #fields>
+          <div class="form-group">
+            <label class="form-label" for="user-filter-approval">Trạng thái duyệt</label>
+            <select id="user-filter-approval" v-model="filters.approval_status" class="form-select text-sm" @change="applyFilters">
+              <option value="">Tất cả trạng thái</option>
+              <option value="Approved">Đã duyệt</option>
+              <option value="Pending">Chờ duyệt</option>
+              <option value="Rejected">Từ chối</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Khoa / Phòng</label>
+            <SmartSelect
+              v-model="filters.department"
+              doctype="AC Department"
+              placeholder="Tất cả khoa/phòng..."
+              @select="applyFilters"
+              @clear="applyFilters"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="user-filter-role">Vai trò</label>
+            <select id="user-filter-role" v-model="filters.role" class="form-select text-sm" @change="applyFilters">
+              <option value="">Tất cả vai trò</option>
+              <option v-for="r in availableRoles" :key="r.name" :value="r.name">{{ r.label }}</option>
+            </select>
+          </div>
+        </template>
+      </ListFilterBar>
+    </template>
 
-    <!-- Table -->
-    <div class="card overflow-hidden">
+    <template #skeleton>
+      <SkeletonLoader v-for="i in 5" :key="i" class="h-10 mb-3" />
+    </template>
+
+    <template #empty-action>
+      <div v-if="activeFilterCount > 0" class="space-y-2">
+        <p class="text-sm text-slate-500">Không có người dùng nào phù hợp với bộ lọc hiện tại.</p>
+        <button class="btn-ghost text-sm" @click="resetFilters">Xóa bộ lọc để xem tất cả</button>
+      </div>
+    </template>
+
+    <template #toolbar>
       <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50/60 text-xs text-slate-500">
         <span v-if="activeFilterCount > 0">
           Kết quả lọc: <strong class="text-slate-700">{{ users.length }}</strong> / {{ total }} người dùng
@@ -226,15 +264,9 @@ const IMPORT_NOTICE = [
         </span>
         <button v-if="activeFilterCount > 0" class="text-red-500 hover:text-red-700 font-medium" @click="resetFilters">Xóa tất cả</button>
       </div>
+    </template>
 
-      <div v-if="loading" class="p-6">
-        <SkeletonLoader v-for="i in 5" :key="i" class="h-10 mb-3" />
-      </div>
-      <div v-else-if="users.length === 0" class="text-center text-slate-400 py-12 text-sm">
-        {{ activeFilterCount > 0 ? 'Không có người dùng nào phù hợp.' : 'Không có dữ liệu.' }}
-      </div>
-      <template v-else>
-        <!-- Mobile cards -->
+    <!-- Mobile cards -->
         <div class="mobile-card-list sm:hidden">
           <div
             v-for="u in users"
@@ -315,8 +347,8 @@ class="text-blue-600 hover:underline text-xs"
           </tbody>
         </table>
         </div>
-      </template>
 
+    <template #pagination>
       <div v-if="total > PAGE_SIZE" class="flex items-center justify-between px-4 py-3 border-t border-gray-200 text-sm text-gray-600">
         <span>Trang {{ page }} · {{ total }} người dùng</span>
         <div class="flex gap-2">
@@ -324,8 +356,9 @@ class="text-blue-600 hover:underline text-xs"
           <button :disabled="page * PAGE_SIZE >= total" class="px-3 py-1 rounded border border-gray-300 disabled:opacity-40" @click="nextPage">Sau →</button>
         </div>
       </div>
-    </div>
+    </template>
+  </ListPageShell>
 
-    <ImportWizardModal :ctx="importWizard" title="Import Người dùng" unit="người dùng" :notice="IMPORT_NOTICE" />
-  </div>
+  <!-- Modal nằm NGOÀI khuôn danh sách (template nhiều gốc) — mở được ở mọi trạng thái. -->
+  <ImportWizardModal :ctx="importWizard" title="Nhập người dùng từ Excel" unit="người dùng" :notice="IMPORT_NOTICE" />
 </template>

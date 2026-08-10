@@ -9,6 +9,8 @@ import type { TrainingProgram } from '@/api/imm06'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import SmartSelect from '@/components/common/SmartSelect.vue'
+import DetailPageShell from '@/components/common/DetailPageShell.vue'
+import { useDetailAccess } from '@/composables/useDetailAccess'
 
 const props = defineProps<{ name?: string }>()
 const router = useRouter()
@@ -16,9 +18,24 @@ const store = useImm06Store()
 const api = useApi()
 const { can } = useCapabilities()
 
-const { currentProgram, loading, error } = storeToRefs(store)
+const { currentProgram, loading, error, lastApiError } = storeToRefs(store)
 
+// Màn LƯỠNG DỤNG tạo/sửa (§13.4.3): router trỏ CÙNG view cho `/imm06/programs/new` và
+// `/imm06/programs/:name`. Nối shell theo lối ngây thơ ⇒ ở chế độ tạo `doc` rỗng ⇒ shell rơi
+// vào `notfound` và BIỂU MẪU TẠO BIẾN MẤT. Vì vậy 4 prop `loading`/`error-kind`/`doc`/`not-found`
+// đều rẽ theo `isCreateMode`, và `:doc` nhận `form` (luôn có) khi đang tạo.
 const isCreateMode = computed(() => !props.name)
+
+// SSoT phân loại lỗi nạp (AC-UX-053, ADR-UX-27) — thay bản `loadErrorKind` cục bộ.
+// Chế độ TẠO MỚI không có lượt nạp nào ⇒ không bao giờ có lỗi nạp (§13.4.3).
+const { kind: loadKind, message: loadMsg } = useDetailAccess(() =>
+  isCreateMode.value || currentProgram.value
+    ? null
+    // `?.` KHÔNG thừa: nhiều test cũ mock `useImm06Store` KHÔNG khai `lastApiError`/`error`,
+    // `storeToRefs` khi đó trả `undefined` và computed này chạy cả sau khi component unmount
+    // (flushJobs) ⇒ unhandled rejection làm bẩn cả suite dù test vẫn xanh.
+    : (lastApiError?.value ?? (error?.value ? new Error(error.value) : null)),
+)
 const editing = ref(false)
 const form = ref<Partial<TrainingProgram>>({
   training_type: 'Initial',
@@ -90,40 +107,46 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="page-container animate-fade-in space-y-5">
-    <PageHeader
-      :title="isCreateMode ? 'Tạo chương trình mới' : (currentProgram?.program_name ?? props.name ?? '')"
-      :subtitle="isCreateMode ? 'Khai báo chương trình đào tạo mới' : 'Chương trình đào tạo'"
-      :back-to="'/imm06/programs'"
-      back-label="← Danh sách chương trình"
-      :breadcrumb="[
-        { label: 'IMM-06 · Đào tạo & Năng lực', to: '/imm06/programs' },
-        { label: 'Chương trình', to: '/imm06/programs' },
-        { label: isCreateMode ? 'Tạo mới' : (currentProgram?.program_name ?? props.name ?? '') },
-      ]"
-    >
-      <template #actions>
-        <StatusBadge v-if="currentProgram && !isCreateMode" :state="currentProgram.is_active ? 'Active' : 'Inactive'" size="md" />
-        <template v-if="canManage && !editing && !isCreateMode">
-          <button class="btn-ghost text-sm" @click="startEdit">Chỉnh sửa</button>
-        </template>
-        <template v-if="editing || isCreateMode">
-          <button v-if="!isCreateMode" class="btn-ghost text-sm" @click="cancelEdit">Hủy</button>
-          <button class="btn-primary text-sm" :disabled="api.loading.value" @click="save">
-            {{ api.loading.value ? 'Đang lưu…' : (isCreateMode ? 'Tạo chương trình' : 'Lưu thay đổi') }}
-          </button>
-        </template>
+  <DetailPageShell
+    :loading="isCreateMode ? false : loading"
+    :error-kind="isCreateMode ? '' : loadKind"
+    :error-message="isCreateMode ? '' : loadMsg"
+    :doc="isCreateMode ? form : currentProgram"
+    :not-found="!isCreateMode && !loading && !currentProgram"
+    entity-label="chương trình đào tạo"
+    :record-id="props.name"
+    back-label="Về danh sách chương trình"
+    @retry="load()"
+    @back="router.push('/imm06/programs')">
+    <template #title>
+      <PageHeader
+        :title="isCreateMode ? 'Tạo chương trình mới' : (currentProgram?.program_name ?? props.name ?? '')"
+        :subtitle="isCreateMode ? 'Khai báo chương trình đào tạo mới' : 'Chương trình đào tạo'"
+        :back-to="'/imm06/programs'"
+        back-label="← Danh sách chương trình"
+        :breadcrumb="[
+          { label: 'IMM-06 · Đào tạo & Năng lực', to: '/imm06/programs' },
+          { label: 'Chương trình', to: '/imm06/programs' },
+          { label: isCreateMode ? 'Tạo mới' : (currentProgram?.program_name ?? props.name ?? '') },
+        ]"
+      />
+    </template>
+
+    <!-- CTA vòng đời — CHỈ tồn tại ở trạng thái content (AC-UX-053). -->
+    <template #actions>
+      <StatusBadge v-if="currentProgram && !isCreateMode" :state="currentProgram.is_active ? 'Active' : 'Inactive'" size="md" />
+      <template v-if="canManage && !editing && !isCreateMode">
+        <button class="btn-ghost text-sm" data-testid="cta-edit" @click="startEdit">Chỉnh sửa</button>
       </template>
-    </PageHeader>
+      <template v-if="editing || isCreateMode">
+        <button v-if="!isCreateMode" class="btn-ghost text-sm" data-testid="cta-cancel-edit" @click="cancelEdit">Hủy</button>
+        <button class="btn-primary text-sm" data-testid="cta-save" :disabled="api.loading.value" @click="save">
+          {{ api.loading.value ? 'Đang lưu…' : (isCreateMode ? 'Tạo chương trình' : 'Lưu thay đổi') }}
+        </button>
+      </template>
+    </template>
 
-    <div v-if="loading" class="card p-8 text-center text-slate-400">Đang tải…</div>
-
-    <div v-else-if="error && !isCreateMode" class="card border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700 flex items-center gap-3">
-      <span class="flex-1">{{ error }}</span>
-      <button class="text-sm underline" @click="load()">Thử lại</button>
-    </div>
-
-    <template v-else-if="currentProgram || isCreateMode">
+    <template v-if="currentProgram || isCreateMode">
       <div v-if="error && isCreateMode" class="card border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700 text-sm">{{ error }}</div>
       <!-- General Info -->
       <div class="card p-5">
@@ -178,14 +201,14 @@ onMounted(load)
         <!-- Edit / Create form -->
         <div v-if="editing || isCreateMode" class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
           <div>
-            <label class="form-label">Mã chương trình <span class="text-red-500">*</span></label>
+            <label class="form-label">Mã chương trình <span class="text-danger-500">*</span></label>
             <input v-model="form.program_code" type="text" class="form-input w-full" placeholder="VD: TRAIN-PB980-INIT" :readonly="!isCreateMode" />
             <p v-if="isCreateMode" class="text-xs text-slate-400 mt-1">
               Mã không đổi sau khi tạo. Gợi ý: <code>TRAIN-&lt;model&gt;-&lt;type&gt;</code> (VD: TRAIN-PB980-INIT).
             </p>
           </div>
           <div>
-            <label class="form-label">Tên chương trình <span class="text-red-500">*</span></label>
+            <label class="form-label">Tên chương trình <span class="text-danger-500">*</span></label>
             <input v-model="form.program_name" type="text" class="form-input w-full" />
           </div>
           <div>
@@ -261,7 +284,7 @@ onMounted(load)
 
       <!-- Content outline -->
       <div class="card p-5">
-        <h2 class="text-sm font-semibold text-slate-700 mb-3 pb-2 border-b">Đề cương nội dung <span v-if="isCreateMode || editing" class="text-red-500">*</span></h2>
+        <h2 class="text-sm font-semibold text-slate-700 mb-3 pb-2 border-b">Đề cương nội dung <span v-if="isCreateMode || editing" class="text-danger-500">*</span></h2>
         <div v-if="!editing && !isCreateMode">
           <p v-if="currentProgram?.content_outline" class="text-sm text-slate-700 whitespace-pre-line">{{ currentProgram.content_outline }}</p>
           <p v-else class="text-sm text-slate-400">Chưa có đề cương.</p>
@@ -277,7 +300,5 @@ onMounted(load)
         <p class="text-sm text-slate-700">{{ currentProgram.instructor_qualification_required }}</p>
       </div>
     </template>
-
-    <div v-else class="card p-8 text-center text-slate-400">Không tìm thấy chương trình.</div>
-  </div>
+  </DetailPageShell>
 </template>

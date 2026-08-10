@@ -68,19 +68,31 @@ def decommission_via_closure(
     return rec
 
 
-def purge_asset(asset_name: str) -> None:
-    """Force-delete an AC Asset and all its dependents for fixture cleanup."""
-    if not frappe.db.exists("AC Asset", asset_name):
-        return
-    # 1) Append-only records — raw SQL (ORM delete always throws, even force=True)
+def _purge_append_only(asset_name: str) -> None:
+    """Xoá các bản ghi append-only của asset bằng raw SQL.
+
+    ORM delete luôn throw (kể cả ``force=True``) vì ``on_trash`` của IMM Audit
+    Trail / Asset Lifecycle Event / Asset Document chặn theo ISO 13485:7.5.9.
+    """
     frappe.db.sql(
         "DELETE FROM `tabIMM Audit Trail` "
         "WHERE asset=%s OR (ref_doctype='AC Asset' AND ref_name=%s)",
         (asset_name, asset_name),
     )
     frappe.db.sql("DELETE FROM `tabAsset Lifecycle Event` WHERE asset=%s", (asset_name,))
-    # Asset Document.on_trash unconditionally throws (append-only) → raw SQL too.
     frappe.db.sql("DELETE FROM `tabAsset Document` WHERE asset_ref=%s", (asset_name,))
+
+
+def purge_asset(asset_name: str | None) -> None:
+    """Force-delete an AC Asset and all its dependents for fixture cleanup.
+
+    No-op khi ``asset_name`` rỗng/None để teardown gọi thẳng được mà không phải
+    tự guard (nhiều test giữ biến asset có thể chưa được tạo).
+    """
+    if not asset_name or not frappe.db.exists("AC Asset", asset_name):
+        return
+    # 1) Append-only records — raw SQL (ORM delete always throws, even force=True)
+    _purge_append_only(asset_name)
     # 2) Operational dependents — ORM (cancel submitted docs first)
     for dt, fld in _ASSET_DEPENDENTS:
         if not frappe.db.table_exists(dt) or not frappe.db.has_column(dt, fld):
@@ -91,8 +103,12 @@ def purge_asset(asset_name: str) -> None:
                 doc.cancel()
             frappe.delete_doc(dt, child, force=True, ignore_permissions=True,
                               delete_permanently=True)
+    # 3) Quét lại append-only: chính việc cancel/delete dependent ở bước 2 lại
+    # SINH audit trail mới (hook ghi vết trên cancel/trash) → nếu không quét lại,
+    # `AC Asset.on_trash` (WR-03) chặn xoá asset với "Audit trail: 1".
+    _purge_append_only(asset_name)
     frappe.db.commit()
-    # 3) Asset now deletes cleanly
+    # 4) Asset now deletes cleanly
     frappe.delete_doc("AC Asset", asset_name, force=True, ignore_permissions=True)
 
 
@@ -114,6 +130,40 @@ def purge_assets_by_name_prefix(*prefixes: str) -> int:
         try:
             purge_asset(name)
         except Exception:  # noqa: BLE001
+            pass
+    frappe.db.commit()
+    return len(rows)
+
+
+def purge_assets_created_after(since) -> int:
+    """Lưới an toàn cuối module: purge mọi AC Asset sinh ra TỪ ``since``.
+
+    Chính xác hơn ``purge_assets_by_name_prefix``: fixture của một module dùng
+    hàng chục tiền tố tên khác nhau (``Máy PDF Nhãn``, ``Máy Nhãn``, ``Máy QR
+    Test``…), liệt kê tay chắc chắn sót — mà nới thành tiền tố ``"Máy "`` thì
+    lại có nguy cơ chạm tài sản THẬT trên site khách. Mốc thời gian bắt đúng
+    "những gì module này tạo ra" mà không đoán tên.
+
+    Dùng trong ``tearDownModule``::
+
+        _T0 = None
+        def setUpModule():
+            global _T0
+            _T0 = frappe.utils.now_datetime()
+        def tearDownModule():
+            purge_assets_created_after(_T0)
+
+    Returns: số asset đã purge.
+    """
+    if not since:
+        return 0
+    rows = frappe.db.sql_list(
+        "SELECT name FROM `tabAC Asset` WHERE creation >= %s", (since,)
+    )
+    for name in rows:
+        try:
+            purge_asset(name)
+        except Exception:  # noqa: BLE001 — teardown không được che lỗi test thật
             pass
     frappe.db.commit()
     return len(rows)

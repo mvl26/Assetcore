@@ -12,6 +12,8 @@ import PageHeader from '@/components/common/PageHeader.vue'
 import CurrencyInput from '@/components/common/CurrencyInput.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import KpiCard from '@/components/common/KpiCard.vue'
+import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
+import ListPageShell from '@/components/ui/ListPageShell.vue'
 import { useCapabilities } from '@/composables/useCapabilities'
 import { computeProcurementPlanKpis } from './procurementPlanKpis'
 
@@ -124,13 +126,27 @@ function buildPayload(): Record<string, unknown> {
   if (filters.search.trim())  f.search = filters.search.trim()
   return f
 }
-function applyFilters() { store.fetchPlans(buildPayload()) }
+// AC-UX-044 — `stores/imm01.ts::fetchPlans` KHÔNG set `loading` và KHÔNG xoá `error`
+// đầu lượt (nhánh `v-if="store.loading"` cũ là mã chết). Vòng 3 cấm sửa `stores/` ⇒
+// view tự giữ cờ nạp và tự xoá lỗi trước mỗi lượt (INV-UX3-3/4).
+const listLoading = ref(false)
+async function loadPlans() {
+  listLoading.value = true
+  store.clearError()
+  try {
+    await store.fetchPlans(buildPayload())
+  } finally {
+    listLoading.value = false
+  }
+}
+
+function applyFilters() { loadPlans() }
 function resetFilters() {
   filters.workflow_state = ''
   filters.plan_period = ''
   filters.plan_year = ''
   filters.search = ''
-  store.fetchPlans()
+  loadPlans()
 }
 function clearChip(key: string) {
   if (key === 'plan_year') filters.plan_year = ''
@@ -143,65 +159,96 @@ function quickFilter(key: 'workflow_state' | 'plan_period' | 'plan_year', value:
   applyFilters()
 }
 
-onMounted(() => store.fetchPlans())
+onMounted(() => loadPlans())
 </script>
 
 <template>
-  <div class="page-container animate-fade-in">
-    <PageHeader title="Kế hoạch mua sắm" :subtitle="`Tổng ${store.plans.length} kế hoạch — gom đề xuất đã duyệt theo quý/năm.`">
-      <template #actions>
-        <FilterToggleButton v-model="showFilters" :count="activeChips.length" />
-        <button v-if="canCreatePlan" class="btn-primary text-sm" @click="openCreateModal()">+ Tạo kế hoạch</button>
-      </template>
-    </PageHeader>
+  <ListPageShell
+    :loading="listLoading"
+    :error-message="store.error"
+    :is-empty="!store.plans.length"
+    empty-title="Chưa có kế hoạch mua sắm nào"
+    empty-hint="Hãy tạo kế hoạch từ đề xuất đã duyệt, hoặc xoá bộ lọc để xem tất cả."
+    @retry="loadPlans"
+  >
+    <template #header>
+      <PageHeader title="Kế hoạch mua sắm" :subtitle="`Tổng ${store.plans.length} kế hoạch — gom đề xuất đã duyệt theo quý/năm.`">
+        <template #actions>
+          <FilterToggleButton v-model="showFilters" :count="activeChips.length" />
+          <button v-if="canCreatePlan" class="btn-primary text-sm" @click="openCreateModal()">+ Tạo kế hoạch</button>
+        </template>
+      </PageHeader>
+    </template>
 
-    <!-- KPI strip — tĩnh, tính client-side từ store.plans (Core Doc 06_FE) -->
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
-      <KpiCard label="Tổng kế hoạch" :value="planKpis.total" color="primary" />
-      <KpiCard
-        label="Đang hoạt động"
-        :value="planKpis.active"
-        :color="planKpis.active > 0 ? 'success' : 'neutral'"
-      />
-      <KpiCard label="Tổng ngân sách" :value="formatVnd(planKpis.totalBudget)" color="info" />
-      <KpiCard
-        label="Tỷ lệ sử dụng thiết bị"
-        :value="`${planKpis.avgUtilization.toFixed(1)}%`"
-        :color="planKpis.avgUtilization >= 80 ? 'warning' : 'primary'"
-      />
-    </div>
+    <template #summary>
+      <!-- KPI strip — tĩnh, tính client-side từ store.plans (Core Doc 06_FE).
+           Ẩn ở trạng thái lỗi: số 0 tính từ tập rỗng là tín hiệu giả (§2.2). -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+        <KpiCard label="Tổng kế hoạch" :value="planKpis.total" color="primary" />
+        <KpiCard
+          label="Đang hoạt động"
+          :value="planKpis.active"
+          :color="planKpis.active > 0 ? 'success' : 'neutral'"
+        />
+        <KpiCard label="Tổng ngân sách" :value="formatVnd(planKpis.totalBudget)" color="info" />
+        <KpiCard
+          label="Tỷ lệ sử dụng thiết bị"
+          :value="`${planKpis.avgUtilization.toFixed(1)}%`"
+          :color="planKpis.avgUtilization >= 80 ? 'warning' : 'primary'"
+        />
+      </div>
+    </template>
 
-    <ListFilterBar
-      v-model:search="filters.search"
-      :show="showFilters"
-      :chips="activeChips"
-      search-placeholder="Tìm theo mã kế hoạch hoặc kỳ kế hoạch..."
-      @apply="applyFilters"
-      @reset="resetFilters"
-      @clear-chip="clearChip"
-    >
-      <template #fields>
-        <select v-model="filters.workflow_state" class="form-select text-sm" @change="applyFilters">
-          <option value="">Tất cả trạng thái</option>
-          <option v-for="s in PLAN_STATES" :key="s" :value="s">{{ stateLabel(s) }}</option>
-        </select>
-        <select v-model="filters.plan_period" class="form-select text-sm" @change="applyFilters">
-          <option value="">Tất cả kỳ</option>
-          <option v-for="p in PLAN_PERIODS" :key="p" :value="p">{{ planPeriodLabel(p) }}</option>
-        </select>
-        <select v-model.number="filters.plan_year" class="form-select text-sm" @change="applyFilters">
-          <option value="">Tất cả năm</option>
-          <option v-for="y in YEARS" :key="y" :value="y">{{ y }}</option>
-        </select>
-      </template>
-    </ListFilterBar>
+    <template #filters>
+      <ListFilterBar
+        v-model:search="filters.search"
+        :show="showFilters"
+        :chips="activeChips"
+        search-placeholder="Tìm theo mã kế hoạch hoặc kỳ kế hoạch..."
+        @apply="applyFilters"
+        @reset="resetFilters"
+        @clear-chip="clearChip"
+      >
+        <template #fields>
+          <label class="sr-only" for="plan-filter-state">Trạng thái kế hoạch</label>
+          <select id="plan-filter-state" v-model="filters.workflow_state" class="form-select text-sm" @change="applyFilters">
+            <option value="">Tất cả trạng thái</option>
+            <option v-for="s in PLAN_STATES" :key="s" :value="s">{{ stateLabel(s) }}</option>
+          </select>
+          <label class="sr-only" for="plan-filter-period">Kỳ kế hoạch</label>
+          <select id="plan-filter-period" v-model="filters.plan_period" class="form-select text-sm" @change="applyFilters">
+            <option value="">Tất cả kỳ</option>
+            <option v-for="p in PLAN_PERIODS" :key="p" :value="p">{{ planPeriodLabel(p) }}</option>
+          </select>
+          <label class="sr-only" for="plan-filter-year">Năm kế hoạch</label>
+          <select id="plan-filter-year" v-model.number="filters.plan_year" class="form-select text-sm" @change="applyFilters">
+            <option value="">Tất cả năm</option>
+            <option v-for="y in YEARS" :key="y" :value="y">{{ y }}</option>
+          </select>
+        </template>
+      </ListFilterBar>
+    </template>
 
-    <div v-if="store.error" class="alert-error mb-4">
-      <strong>Lỗi:</strong> {{ store.error }}
-      <button class="alert-close" @click="store.clearError()">×</button>
-    </div>
+    <template #skeleton>
+      <SkeletonLoader variant="table" :rows="6" />
+    </template>
 
-    <div class="card overflow-hidden">
+    <template #empty-action>
+      <div class="flex flex-wrap items-center justify-center gap-2">
+        <button v-if="activeChips.length > 0" class="btn-ghost text-sm" @click="resetFilters">
+          Xóa bộ lọc để xem tất cả
+        </button>
+        <button
+          v-else-if="canCreatePlan"
+          class="btn-primary text-sm"
+          @click="openCreateModal()"
+        >
+          + Tạo kế hoạch đầu tiên
+        </button>
+      </div>
+    </template>
+
+    <template #toolbar>
       <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50/60">
         <span class="text-xs text-slate-500">
           <span v-if="activeChips.length > 0">Kết quả lọc: <strong class="text-slate-700">{{ store.plans.length }}</strong> kế hoạch</span>
@@ -209,10 +256,9 @@ onMounted(() => store.fetchPlans())
         </span>
         <button v-if="activeChips.length > 0" class="text-xs text-red-500 hover:text-red-700 font-medium" @click="resetFilters">Xóa tất cả</button>
       </div>
+    </template>
 
-      <div v-if="store.loading" class="p-6 text-sm text-slate-500">Đang tải...</div>
-      <template v-else-if="store.plans.length">
-        <!-- Mobile cards -->
+    <!-- Mobile cards -->
         <div class="mobile-card-list sm:hidden">
           <div
             v-for="p in store.plans"
@@ -229,9 +275,6 @@ onMounted(() => store.fetchPlans())
               <span>Ngân sách: {{ formatVnd(p.budget_envelope) }}</span>
               <span>· Sử dụng: <span :class="utilClass(p.utilization_pct)">{{ (p.utilization_pct || 0).toFixed(1) }}%</span></span>
             </div>
-          </div>
-          <div v-if="store.plans.length === 0" class="py-12 text-center text-slate-400">
-            <p class="text-sm">Không có dữ liệu</p>
           </div>
         </div>
 
@@ -293,22 +336,8 @@ onMounted(() => store.fetchPlans())
             </tbody>
           </table>
         </div>
-      </template>
-      <div v-else-if="!store.plans.length" class="flex flex-col items-center justify-center py-16 text-slate-400">
-        <p class="text-sm">Không có kế hoạch nào phù hợp</p>
-        <button v-if="activeChips.length > 0" class="mt-3 text-xs text-blue-500 hover:text-blue-700 underline" @click="resetFilters">
-          Xóa bộ lọc để xem tất cả
-        </button>
-        <button
-          v-else-if="canCreatePlan"
-          class="btn-primary text-sm mt-3"
-          @click="openCreateModal()"
-        >
-          + Tạo kế hoạch đầu tiên
-        </button>
-      </div>
-    </div>
-  </div>
+    <!-- Không có phân trang: `fetchPlans` kéo 1 lượt (page_size=50) — vòng 4 mới chuẩn hoá. -->
+  </ListPageShell>
 
   <!-- Create Plan Modal -->
   <div v-if="showCreateModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40" @click.self="showCreateModal = false">

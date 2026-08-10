@@ -126,9 +126,86 @@ type FrappeErrorData = {
   // Phase 1 notification framework — present when raised qua nthrow_in_hook
   message_code?: string
   context?: Record<string, unknown>
+  // Lỗi FIELD-LEVEL (khoá field → câu tiếng Việt). ĐÃ có sẵn trong envelope
+  // Decision-B (`helpers.ts::ApiResponse.fields`); khai ở đây để nhánh HTTP
+  // 417/422 (hook backstop `nthrow_in_hook` ghi vào `frappe.local.response`)
+  // KHÔNG đánh rơi nó. FE chỉ ĐỌC — không sinh hợp đồng mới.
+  fields?: Record<string, string>
 }
 
-function parseServerMessages(data: FrappeErrorData): string {
+// ─────────────────────────────────────────────────────────────────────────────
+// AC-UX-063 — LÀM SẠCH CÂU LỖI NGHIỆP VỤ (ADR-UX-15, docs/ui-ux/05 §7)
+//
+// Một cửa duy nhất: bọc `parseServerMessages` — cửa chung của CẢ `handle400` LẪN
+// `makeBusinessRuleError` nhánh fallback (417/422 không có `message_code`). Nhánh
+// CÓ `message_code` đã render từ registry VI ⇒ KHÔNG đi qua đây (B5).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Câu VI trung tính duy nhất — không sinh biến thể theo màn. */
+const NEUTRAL_BUSINESS_MESSAGE =
+  'Không thực hiện được thao tác do quy tắc nghiệp vụ. ' +
+  'Vui lòng kiểm tra lại dữ liệu hoặc liên hệ quản trị hệ thống.'
+
+/** Thẻ trình bày lành tính của Frappe — GỠ THẺ, giữ nguyên chữ (B4). */
+const BENIGN_TAG_RE =
+  /<\/?(?:b|strong|i|em|u|p|span|div|ul|ol|li|small)(?:\s[^>]*)?>/gi
+const BR_TAG_RE = /<br\s*\/?>/gi
+
+/**
+ * Dấu hiệu kỹ thuật (docs/ui-ux/05 §7.3). Khớp BẤT KỲ mẫu nào ⇒ thay cả câu.
+ * SQL dò theo CẶP từ khoá, không dò từ đơn — câu VI hợp lệ có thể chứa "update" (B3).
+ */
+const TECHNICAL_SIGNS: readonly RegExp[] = [
+  /Traceback/,                       // traceback Python
+  /File "/,
+  /line \d+, in /,
+  /<class '/,                        // kiểu/đối tượng Python
+  /<module/,
+  /<function/,
+  /<built-in/,
+  /cannot import name/i,             // lỗi import
+  /\bSELECT\b[\s\S]*\bFROM\b/i,      // SQL — cặp từ khoá
+  /\bINSERT\s+INTO\b/i,
+  /\bUPDATE\b[\s\S]*\bSET\b/i,
+  /\bDELETE\s+FROM\b/i,
+  /\btab[A-Z]/,                      // tên bảng Frappe (`tabAC Asset`)
+  /pymysql/i,                        // driver / lỗi DB
+  /OperationalError/,
+  /ProgrammingError/,
+  /IntegrityError/,
+  /frappe\.exceptions/,              // ngoại lệ Frappe
+  /\.py\b/,                          // tệp nguồn
+  /<[^>]+>/,                         // thẻ CÒN SÓT sau bước gỡ (vd <a href='/app/...'>)
+]
+
+/**
+ * Làm sạch chuỗi lỗi máy chủ trước khi tới giao diện. Export để test khoá trực tiếp.
+ *
+ * 3 bước (`05 §7.2`): chuẩn hoá rỗng → gỡ thẻ trình bày lành tính → dò dấu hiệu kỹ
+ * thuật. Câu tiếng Việt sạch đi qua NGUYÊN VĂN (chống sửa quá tay).
+ */
+export function sanitizeBusinessMessage(raw: string): string {
+  const input = typeof raw === 'string' ? raw : String(raw ?? '')
+
+  const stripped = input
+    .replace(BR_TAG_RE, ' ')
+    .replace(BENIGN_TAG_RE, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim()
+
+  const dirty = stripped === '' || TECHNICAL_SIGNS.some((re) => re.test(stripped))
+  if (!dirty) return stripped
+
+  // Chỉ log khi THẬT SỰ thay thế và có gì để đọc — dev vẫn chẩn đoán được, người
+  // dùng cuối không bao giờ thấy chuỗi thô (A8).
+  if (import.meta.env.DEV && input.trim() !== '') {
+    console.debug('[axios] sanitizeBusinessMessage: chuỗi thô bị thay', input)
+  }
+  return NEUTRAL_BUSINESS_MESSAGE
+}
+
+/** Bóc `_server_messages` theo quy ước Frappe — logic gốc, KHÔNG đổi. */
+function rawServerMessage(data: FrappeErrorData): string {
   if (!data._server_messages) return data.message ?? 'Dữ liệu không hợp lệ.'
   try {
     const msgs: string[] = JSON.parse(data._server_messages)
@@ -138,6 +215,10 @@ function parseServerMessages(data: FrappeErrorData): string {
   } catch {
     return data.message ?? 'Dữ liệu không hợp lệ.'
   }
+}
+
+function parseServerMessages(data: FrappeErrorData): string {
+  return sanitizeBusinessMessage(rawServerMessage(data))
 }
 
 async function handle400(
@@ -249,6 +330,10 @@ function handle429(): never {
 function makeBusinessRuleError(data: FrappeErrorData | undefined, status: number): ApiError {
   const messageCode = data?.message_code
   const context = data?.context
+  // `fields` đi cùng lỗi nghiệp vụ để form gắn thông điệp vào ĐÚNG ô (AC-CR-83).
+  // Nhánh in-envelope đã có (`helpers.ts::hydrateApiError`); nhánh status-line
+  // 417/422 trước đây LÀM RƠI khoá này ⇒ lỗi hook backstop chỉ còn toast chung.
+  const fields = data?.fields && Object.keys(data.fields).length ? data.fields : undefined
   const entry = messageCode ? MESSAGES[messageCode] : undefined
   if (entry) {
     const rendered = entry.template.replace(/\{(\w+)\}/g, (_, k: string) =>
@@ -257,6 +342,7 @@ function makeBusinessRuleError(data: FrappeErrorData | undefined, status: number
     return new ApiError(rendered, {
       code: ErrorCode.BUSINESS_RULE,
       httpStatus: status,
+      fields,
       messageCode,
       context,
       actionHint: entry.action_hint || undefined,
@@ -267,6 +353,7 @@ function makeBusinessRuleError(data: FrappeErrorData | undefined, status: number
   return new ApiError(parseServerMessages(data ?? {}), {
     code: ErrorCode.BUSINESS_RULE,
     httpStatus: status,
+    fields,
   })
 }
 

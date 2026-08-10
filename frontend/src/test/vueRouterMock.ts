@@ -33,6 +33,7 @@ const G = globalThis as unknown as {
   __AC_ROUTE_QUERY__?: RouteQuery
   __AC_ROUTE_PARAMS__?: RouteParams
   __AC_ROUTER_PUSH__?: Mock
+  __AC_ROUTER_REPLACE__?: Mock
 }
 
 /** Reset route-state về rỗng + push-spy mới — gọi trong beforeEach mỗi test. */
@@ -40,6 +41,7 @@ export function resetRouteMock(): void {
   G.__AC_ROUTE_QUERY__ = {}
   G.__AC_ROUTE_PARAMS__ = {}
   G.__AC_ROUTER_PUSH__ = vi.fn()
+  G.__AC_ROUTER_REPLACE__ = vi.fn()
 }
 
 /** Đặt route.query mà view sẽ đọc (drill-down từ dashboard). */
@@ -56,6 +58,16 @@ export function setRouteParams(p: RouteParams): void {
 export function routerPushSpy(): Mock {
   if (!G.__AC_ROUTER_PUSH__) G.__AC_ROUTER_PUSH__ = vi.fn()
   return G.__AC_ROUTER_PUSH__
+}
+
+/**
+ * Truy spy replace() — view đồng bộ bộ lọc lên URL bằng `router.replace` (không đẩy
+ * lịch sử). Thiếu hàm này thì mọi `resetFilters`/`syncStateToUrl` nổ
+ * «router.replace is not a function» dù mã chạy đúng trên trình duyệt.
+ */
+export function routerReplaceSpy(): Mock {
+  if (!G.__AC_ROUTER_REPLACE__) G.__AC_ROUTER_REPLACE__ = vi.fn()
+  return G.__AC_ROUTER_REPLACE__
 }
 
 function serializeTo(to: unknown): string {
@@ -89,7 +101,7 @@ export function vueRouterMockFactory() {
       get params() { return G.__AC_ROUTE_PARAMS__ ?? {} },
       path: '/',
     }),
-    useRouter: () => ({ push: routerPushSpy() }),
+    useRouter: () => ({ push: routerPushSpy(), replace: routerReplaceSpy() }),
     RouterLink: RouterLinkStub,
   }
 }

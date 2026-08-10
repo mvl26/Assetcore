@@ -8,6 +8,7 @@ import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
 import BasePagination from '@/components/common/BasePagination.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
+import ListPageShell from '@/components/ui/ListPageShell.vue'
 import WorkOrderKpiStrip, { type WoKpiItem } from '@/components/common/WorkOrderKpiStrip.vue'
 import SlaBreachBadge from '@/components/incident/SlaBreachBadge.vue'
 // SSoT nhãn IMM-12 (R20): status badge dùng incidentStatusLabel/Class — KHÔNG
@@ -25,24 +26,31 @@ const { can } = useCapabilities()
 
 /**
  * Core Doc §9.3 / §9.4.6 — đọc route.query (drill-down từ dashboard) → áp vào filter.
- * Keys hỗ trợ: severity, status, open. Trả true nếu có filter set từ query.
+ * Keys hỗ trợ: severity, status, open, asset. Trả true nếu có filter set từ query.
  *
  * open=1 (cờ ảo "đang mở", SoT BE open_incident_filter) chỉ áp khi KHÔNG có status
  * đơn lẻ — status ưu tiên hơn open (mutually-exclusive, khớp BE _build_incident_filters).
+ *
+ * `asset` (AC-CR-91 — «Xem tất cả» từ tab «Bản ghi liên quan» của một thiết bị) là
+ * khoá ĐỘC LẬP: cộng dồn (AND) với severity/status/open, KHÔNG loại trừ nhau.
  */
 function applyQueryToFilters(): boolean {
   let touched = false
   const sev = route.query.severity
   const st = route.query.status
   const op = route.query.open
+  const at = route.query.asset
   const sevVal = Array.isArray(sev) ? sev[0] : sev
   const stVal = Array.isArray(st) ? st[0] : st
   const opVal = Array.isArray(op) ? op[0] : op
+  const atVal = Array.isArray(at) ? at[0] : at
   openFilter.value = false
+  assetFilter.value = ''
   if (typeof sevVal === 'string' && sevVal) { severityFilter.value = sevVal; touched = true }
   if (typeof stVal === 'string' && stVal) { statusFilter.value = stVal; touched = true }
   // open=1 chỉ có hiệu lực khi không kèm status đơn lẻ (status ưu tiên hơn).
   if (opVal === '1' && !(typeof stVal === 'string' && stVal)) { openFilter.value = true; touched = true }
+  if (typeof atVal === 'string' && atVal) { assetFilter.value = atVal; touched = true }
   if (touched) showFilters.value = true
   return touched
 }
@@ -76,6 +84,9 @@ const severityFilter = ref('')
 const statusFilter = ref('')
 // Cờ ảo "đang mở" (open=1) — drill-down từ dashboard donut/card. Khác status đơn lẻ.
 const openFilter = ref(false)
+// Lọc theo thiết bị — drill từ «Xem tất cả» trong tab «Bản ghi liên quan» của một
+// thiết bị (?asset=<mã>). Truyền thẳng xuống BE list_incidents(asset=…).
+const assetFilter = ref('')
 const showFilters = ref(false)
 
 const SEVERITIES = [
@@ -109,7 +120,7 @@ function formatDateTime(d?: string) {
   return new Date(d).toLocaleString('vi-VN')
 }
 
-interface Chip { key: 'severity' | 'status' | 'open'; label: string }
+interface Chip { key: 'severity' | 'status' | 'open' | 'asset'; label: string }
 const activeChips = computed<Chip[]>(() => {
   const chips: Chip[] = []
   if (severityFilter.value) {
@@ -124,14 +135,27 @@ const activeChips = computed<Chip[]>(() => {
   if (openFilter.value && !statusFilter.value) {
     chips.push({ key: 'open', label: INCIDENT_OPEN_FILTER_LABEL })
   }
+  // Người dùng phải THẤY mình đang ở trạng thái lọc theo thiết bị và thoát ra được —
+  // danh sách lọc câm trông y hệt "hệ thống mất dữ liệu" (ADR D-CR5-7 vế 3).
+  if (assetFilter.value) {
+    chips.push({ key: 'asset', label: `Thiết bị: ${assetFilter.value}` })
+  }
   return chips
 })
 
 const activeFilterCount = computed(() => activeChips.value.length)
 
+// AC-UX-047 (lô 1, biến thể C) — nguồn lỗi là `store.error` của `stores/imm12.ts`
+// (đã xoá đầu lượt tại `:64`, gán tại `:72`) ⇒ KHÔNG sửa kho. Dải `.alert-error` cũ
+// đã bỏ: nó hiện SONG SONG với «Không có sự cố nào được báo cáo» + dải KPI in số 0.
+const emptyTitle = computed(() =>
+  activeFilterCount.value > 0 ? 'Không có sự cố nào phù hợp' : 'Không có sự cố nào được báo cáo')
+const EMPTY_HINT = 'Hãy báo cáo sự cố mới hoặc xoá bộ lọc để xem tất cả.'
+
 function clearChip(key: string) {
   if (key === 'severity') severityFilter.value = ''
   else if (key === 'open') openFilter.value = false
+  else if (key === 'asset') assetFilter.value = ''
   else statusFilter.value = ''
   applyFilter()
 }
@@ -140,6 +164,7 @@ function resetFilters() {
   severityFilter.value = ''
   statusFilter.value = ''
   openFilter.value = false
+  assetFilter.value = ''
   store.fetchList()
 }
 
@@ -150,6 +175,7 @@ function applyFilter() {
     severity: severityFilter.value || undefined,
     status: statusFilter.value || undefined,
     open: openFilter.value && !statusFilter.value ? 1 : undefined,
+    asset: assetFilter.value || undefined,
   })
 }
 
@@ -167,6 +193,7 @@ function goToPage(page: number) {
     severity: severityFilter.value || undefined,
     status: statusFilter.value || undefined,
     open: openFilter.value && !statusFilter.value ? 1 : undefined,
+    asset: assetFilter.value || undefined,
     page,
   })
 }
@@ -186,26 +213,46 @@ watch(
 </script>
 
 <template>
-  <div class="page-container animate-fade-in">
-    <PageHeader
-      title="Sự cố thiết bị"
-      :subtitle="`Tổng ${store.pagination.total} sự cố`"
-      :breadcrumb="[{ label: 'IMM-12 · Sự cố', to: '/incidents/dashboard' }, { label: 'Danh sách' }]"
-    >
-      <template #actions>
-        <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
-        <button v-if="can('corrective.create')" class="btn-primary" @click="router.push('/incidents/new')">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
-          </svg>
-          Báo cáo sự cố
-        </button>
-      </template>
-    </PageHeader>
+  <!--
+    AC-UX-047 (lô 1) — khuôn 4 trạng thái loại trừ (ui/ListPageShell). Dải KPI nằm ở
+    `#summary` nên KHÔNG render ở trạng thái lỗi: số 0 tính từ tập rỗng là tín hiệu
+    giả cùng lớp với lỗi-giả-dạng-rỗng.
+  -->
+  <ListPageShell
+    :loading="store.loading"
+    :error-message="store.error"
+    :is-empty="!store.incidents.length"
+    :empty-title="emptyTitle"
+    :empty-hint="EMPTY_HINT"
+    @retry="applyFilter">
+    <template #header>
+      <PageHeader
+        title="Sự cố thiết bị"
+        :subtitle="`Tổng ${store.pagination.total} sự cố`"
+        :breadcrumb="[{ label: 'IMM-12 · Sự cố', to: '/incidents/dashboard' }, { label: 'Danh sách' }]"
+      >
+        <template #actions>
+          <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
+          <button v-if="can('corrective.create')" class="btn-primary" @click="router.push('/incidents/new')">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+            Báo cáo sự cố
+          </button>
+        </template>
+      </PageHeader>
+    </template>
 
-    <WorkOrderKpiStrip :items="kpiItems" />
+    <template #summary>
+      <WorkOrderKpiStrip :items="kpiItems" />
+      <div class="flex items-center justify-between text-xs text-slate-500 pb-1">
+        <span>Hiển thị <strong class="text-slate-700">{{ store.incidents.length }}</strong> / {{ store.pagination.total }} sự cố</span>
+        <button v-if="activeFilterCount > 0" class="text-red-500 hover:text-red-700 font-medium" @click="resetFilters">Xóa tất cả</button>
+      </div>
+    </template>
 
-    <ListFilterBar
+    <template #filters>
+      <ListFilterBar
       :show="showFilters"
       :chips="activeChips"
       :show-search="false"
@@ -215,33 +262,42 @@ watch(
     >
       <template #fields>
         <div class="form-group">
-          <label class="form-label">Mức độ</label>
-          <select v-model="severityFilter" class="form-select">
+          <label class="form-label" for="ir-filter-severity">Mức độ</label>
+          <select id="ir-filter-severity" v-model="severityFilter" class="form-select">
             <option v-for="s in SEVERITIES" :key="s.value" :value="s.value">{{ s.label }}</option>
           </select>
         </div>
         <div class="form-group">
-          <label class="form-label">Trạng thái</label>
-          <select v-model="statusFilter" class="form-select">
+          <label class="form-label" for="ir-filter-status">Trạng thái</label>
+          <select id="ir-filter-status" v-model="statusFilter" class="form-select">
             <option v-for="s in STATUSES" :key="s.value" :value="s.value">{{ s.label }}</option>
           </select>
         </div>
+        <div class="form-group">
+          <label class="form-label" for="ir-filter-asset">Thiết bị</label>
+          <input
+            id="ir-filter-asset"
+            v-model="assetFilter"
+            class="form-input"
+            placeholder="Mã thiết bị…"
+          />
+        </div>
       </template>
-    </ListFilterBar>
+      </ListFilterBar>
+    </template>
 
-    <div v-if="store.error" class="alert-error mb-4">{{ store.error }}</div>
-
-    <!-- Loading -->
-    <div v-if="store.loading" class="table-wrapper">
+    <template #skeleton>
       <SkeletonLoader variant="table" :rows="6" />
-    </div>
+    </template>
 
-    <template v-else>
-      <!-- Info row (shared) -->
-      <div class="flex items-center justify-between text-xs text-slate-500 pb-1 sm:hidden">
-        <span>Hiển thị <strong class="text-slate-700">{{ store.incidents.length }}</strong> / {{ store.pagination.total }} sự cố</span>
-        <button v-if="activeFilterCount > 0" class="text-red-500 font-medium" @click="resetFilters">Xóa tất cả</button>
-      </div>
+    <template #empty-action>
+      <button v-if="activeFilterCount > 0" class="text-xs text-blue-500 hover:text-blue-700 underline" @click="resetFilters">
+        Xóa bộ lọc để xem tất cả
+      </button>
+      <button v-else-if="can('corrective.create')" class="btn-ghost text-xs" @click="router.push('/incidents/new')">
+        + Báo cáo sự cố đầu tiên
+      </button>
+    </template>
 
       <!-- Mobile cards (< sm) -->
       <div class="mobile-card-list sm:hidden">
@@ -281,18 +337,11 @@ watch(
             />
           </div>
         </div>
-        <div v-if="store.incidents.length === 0" class="py-12 text-center text-slate-400">
-          <p class="text-sm font-medium">Không có sự cố nào được báo cáo</p>
-        </div>
       </div>
 
       <!-- Desktop table (sm+) -->
-      <div class="hidden sm:block table-wrapper">
-        <div class="flex items-center justify-between px-4 py-2.5 border-b border-slate-100 bg-slate-50/60 text-xs text-slate-500">
-          <span>Hiển thị <strong class="text-slate-700">{{ store.incidents.length }}</strong> / {{ store.pagination.total }} sự cố</span>
-          <button v-if="activeFilterCount > 0" class="text-red-500 hover:text-red-700 font-medium" @click="resetFilters">Xóa tất cả</button>
-        </div>
-        <div v-if="store.incidents.length" class="overflow-x-auto">
+      <div class="hidden sm:block">
+        <div class="overflow-x-auto">
           <table class="min-w-full divide-y divide-slate-100">
             <thead>
               <tr>
@@ -358,21 +407,10 @@ watch(
             </tbody>
           </table>
         </div>
-        <div v-else class="flex flex-col items-center justify-center py-16 text-slate-400">
-          <svg class="w-10 h-10 text-slate-200 mb-3" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
-          </svg>
-          <p class="text-sm font-medium text-slate-500">Không có sự cố nào được báo cáo</p>
-          <button v-if="activeFilterCount > 0" class="text-xs text-blue-500 hover:text-blue-700 underline mt-2" @click="resetFilters">
-            Xóa bộ lọc để xem tất cả
-          </button>
-          <button v-else-if="can('corrective.create')" class="btn-ghost text-xs mt-3" @click="router.push('/incidents/new')">
-            + Báo cáo sự cố đầu tiên
-          </button>
-        </div>
       </div>
-    </template>
 
-    <BasePagination :pagination="store.pagination" @page-change="goToPage" />
-  </div>
+    <template #pagination>
+      <BasePagination :pagination="store.pagination" @page-change="goToPage" />
+    </template>
+  </ListPageShell>
 </template>

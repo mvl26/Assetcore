@@ -1,16 +1,38 @@
 <template>
-  <div class="vendor-eval-detail" v-if="store.currentEval">
-    <div class="page-header">
-      <div>
-        <h1>{{ store.currentEval.name }}</h1>
-        <div class="meta">
-          Hồ sơ kỹ thuật: {{ store.currentEval.spec_ref }} ·
-          Ngày khởi tạo: {{ formatVnDate(store.currentEval.draft_date) }}
+  <DetailPageShell
+    :loading="loading"
+    :error-kind="loadKind"
+    :error-message="loadMsg"
+    :doc="store.currentEval"
+    entity-label="hồ sơ đánh giá nhà cung cấp"
+    :record-id="evalId"
+    back-label="Về danh sách đánh giá nhà cung cấp"
+    @retry="loadEvaluation()"
+    @back="router.push('/vendor-evaluations')">
+    <template #title>
+      <div class="page-header">
+        <div>
+          <h1>{{ store.currentEval?.name || evalId }}</h1>
+          <div v-if="store.currentEval" class="meta">
+            Hồ sơ kỹ thuật: {{ store.currentEval.spec_ref }} ·
+            Ngày khởi tạo: {{ formatVnDate(store.currentEval.draft_date) }}
+          </div>
         </div>
+        <button class="btn btn-outline" @click="$router.back()">← Quay lại</button>
       </div>
-      <button class="btn btn-outline" @click="$router.back()">← Quay lại</button>
-    </div>
+    </template>
 
+    <!-- Hành động server-driven (1 nút / action hợp lệ theo allowed_transitions) — CHỈ
+         tồn tại ở trạng thái content ⇒ 0 nút chết trên bản ghi không đọc được. -->
+    <template #actions>
+      <button v-for="action in availableActions" :key="action"
+              class="btn btn-primary" data-testid="workflow-action" :data-action="action"
+              @click="doTransition(action)">
+        {{ action }}
+      </button>
+    </template>
+
+    <template v-if="store.currentEval">
     <!-- Tiến trình -->
     <div class="stepper">
       <span v-for="(s, i) in WORKFLOW_STATES" :key="s" :class="['step', stepClass(i)]">
@@ -238,15 +260,6 @@
       </div>
     </section>
 
-    <!-- Hành động (server-driven — 1 nút / action hợp lệ theo allowed_transitions) -->
-    <div v-if="availableActions.length" class="action-bar">
-      <button v-for="action in availableActions" :key="action"
-              class="btn btn-primary" data-testid="workflow-action" :data-action="action"
-              @click="doTransition(action)">
-        {{ action }}
-      </button>
-    </div>
-
     <!-- Hộp thoại: Thêm nhà cung cấp -->
     <div v-if="showAddCandidate" class="modal-overlay" @click.self="showAddCandidate = false">
       <div class="modal">
@@ -321,15 +334,15 @@
         </div>
       </div>
     </div>
-  </div>
-
-  <div v-else-if="store.loading" class="loading">Đang tải…</div>
-  <div v-else class="loading muted">Không có dữ liệu</div>
+    </template>
+  </DetailPageShell>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
+import DetailPageShell from '@/components/common/DetailPageShell.vue'
+import { useDetailAccess } from '@/composables/useDetailAccess'
 import { useImm03Store } from '@/stores/imm03'
 import CurrencyInput from '@/components/common/CurrencyInput.vue'
 import DateInput from '@/components/common/DateInput.vue'
@@ -371,8 +384,8 @@ async function loadScorecard() {
     scorecard.value = await getVendorScorecard(
       scorecardSupplier.value, scorecardYear.value, scorecardQuarter.value,
     ) as Record<string, any>
-  } catch (e: any) {
-    scorecardError.value = e?.message || String(e)
+  } catch (e: unknown) {
+    scorecardError.value = e instanceof Error ? e.message : String(e)
     scorecard.value = null
   } finally {
     scorecardBusy.value = false
@@ -534,10 +547,36 @@ function isExpired(d?: string): boolean {
   return Boolean(d && new Date(d).getTime() < Date.now())
 }
 
+// ── Lượt NẠP hồ sơ đánh giá (lô 2, nhóm N4) ───────────────────────────────────
+// Mã cũ gọi `store.fetchEvaluation(...)` KHÔNG await, KHÔNG catch ⇒ 403/404/mất mạng rơi
+// xuống nhánh `v-else` in «Không có dữ liệu». `stores/imm03` chỉ giữ `error` dạng CHUỖI ⇒
+// view tự `try/catch` và giữ ref lỗi riêng (KHÔNG sửa `stores/`, §13.3).
+const router = useRouter()
+const evalId = computed<string>(() => props.id || (route.params.id as string))
+const loading = ref(true)                        // INV-UX4-8 — chống nháy 404 một nhịp
+const loadError = ref<unknown>(null)
+const { kind: loadKind, message: loadMsg } = useDetailAccess(() => loadError.value)
+
+async function loadEvaluation(): Promise<void> {
+  loadError.value = null                         // INV-UX4-7 — xoá lỗi ở DÒNG ĐẦU
+  loading.value = true
+  try {
+    await store.fetchEvaluation(evalId.value)
+  } catch (e: unknown) {
+    loadError.value = e
+  } finally {
+    loading.value = false
+  }
+}
+
 onMounted(async () => {
-  store.fetchEvaluation(props.id || (route.params.id as string))
-  const res = await listVendorProfiles({}, 1, 100)
-  supplierOptions.value = (res.items || []) as { name: string; supplier_name: string }[]
+  await loadEvaluation()
+  // Danh sách nhà cung cấp là dữ liệu PHỤ: 1×403 ở đây không được làm hỏng màn chính
+  // (LL-FE-45 — cùng tinh thần allSettled).
+  try {
+    const res = await listVendorProfiles({}, 1, 100)
+    supplierOptions.value = (res.items || []) as { name: string; supplier_name: string }[]
+  } catch { /* danh sách phụ — bỏ qua, ô chọn nhà cung cấp sẽ rỗng */ }
 })
 </script>
 

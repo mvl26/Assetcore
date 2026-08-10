@@ -5,7 +5,6 @@
 from __future__ import annotations
 
 import frappe
-from frappe import _
 
 from assetcore.services import imm04 as svc
 from assetcore.services.shared import ErrorCode, ServiceError
@@ -90,10 +89,13 @@ def generate_handover_pdf(name: str) -> dict:
 # ─── Write Endpoints ──────────────────────────────────────────────────────────
 
 @frappe.whitelist(methods=["POST"])
-def transition_state(name: str, action: str) -> dict:
+def transition_state(name: str, action: str, board_approver: str = "") -> dict:
     # AUTH-02 — workflow transition needs write capability on commissioning.
+    # BR-04-12: `board_approver` optional passthrough — cấp người duyệt 4-mắt atomic
+    # khi transition đưa phiếu vào Clinical Release (gỡ deadlock G06). Non-CR-bound:
+    # bị bỏ qua ở service (backward-compat). Default str="" (KHÔNG None → tránh 417).
     rbac.require("commissioning.write")
-    return _handle(svc.transition_state, name, action)
+    return _handle(svc.transition_state, name, action, board_approver)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -242,43 +244,16 @@ def get_users_by_role(role: str, search: str = "", limit: int = 20) -> dict:
 
 @frappe.whitelist()
 def get_gate_status(name: str) -> dict:
-    """Return G01–G06 gate pass/fail status for a commissioning record."""
-    try:
-        doc = frappe.get_doc("Asset Commissioning", name)
-    except frappe.DoesNotExistError:
-        return _err(_("Không tìm thấy phiếu"), 404)
+    """Thẻ «Điều kiện bàn giao» G01–G06 của 1 phiếu nghiệm thu (mobile `getGateStatus`).
 
-    # G01: all mandatory docs Received or Waived
-    comm_docs = doc.get("commissioning_documents") or []
-    mandatory = [d for d in comm_docs if d.get("is_mandatory")]
-    g01 = all(d.get("status") in ("Received", "Waived") for d in mandatory) if mandatory else False
-
-    # G02: facility checklist pass
-    g02 = bool(doc.get("facility_checklist_pass"))
-
-    # G03: all baseline tests Pass or N/A, at least 1 exists
-    tests = doc.get("baseline_tests") or []
-    g03 = bool(tests) and all(t.get("test_result") in ("Pass", "N/A") for t in tests)
-
-    # G04: not radiation OR (radiation AND qa_license_doc uploaded)
-    g04 = not bool(doc.get("is_radiation_device")) or bool(doc.get("qa_license_doc"))
-
-    # G05: no open Non Conformance records
-    open_nc = frappe.db.count("Asset QA Non Conformance",
-                               filters={"ref_commissioning": name, "resolution_status": ["!=", "Closed"]})
-    g05 = open_nc == 0
-
-    # G06: board_approver set
-    g06 = bool(doc.get("board_approver"))
-
-    return _ok({
-        "g01_docs": g01,
-        "g02_facility": g02,
-        "g03_baseline": g03,
-        "g04_radiation": g04,
-        "g05_nc": g05,
-        "g06_approver": g06,
-    })
+    CR-76 — tầng 1 KHÔNG còn logic cổng: toàn bộ chuyển xuống
+    `services.imm04.evaluate_gate_status` (SSoT hiển thị) để mỗi cổng dùng **CHÍNH**
+    predicate mà server dùng để chặn (BR-04-15) và để read-gate 3 lớp
+    ROLE→EXISTS→ROW chạy TRONG service — call site nội bộ tương lai không đọc trần
+    được (BR-04-16). Hợp đồng **additive**: 6 khoá cũ giữ nguyên tên/kiểu, THÊM
+    `g01_waived`. Lỗi nghiệp vụ (FORBIDDEN/NOT_FOUND) về **trong body trên HTTP-200**.
+    """
+    return _handle(svc.evaluate_gate_status, name)
 
 
 # ─── Submit-for-approval endpoints ────────────────────────────────────────────

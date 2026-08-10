@@ -10,6 +10,7 @@ import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
+import ListPageShell from '@/components/ui/ListPageShell.vue'
 
 const router = useRouter()
 const { can } = useCapabilities()
@@ -17,6 +18,9 @@ const { can } = useCapabilities()
 const rows = ref<Purchase[]>([])
 const total = ref(0)
 const loading = ref(false)
+// AC-UX-041 — trước đây `load()` KHÔNG có `catch`: API 500 để rows=[] ⇒ màn in
+// «Chưa có đơn hàng nào» (lỗi giả dạng rỗng). Nay lỗi có trạng thái riêng.
+const errorMessage = ref<string | null>(null)
 const page = ref(1)
 const PAGE_SIZE = 30
 const showFilters = ref(false)
@@ -79,6 +83,7 @@ function quickFilter(value: string) {
 
 async function load() {
   loading.value = true
+  errorMessage.value = null          // INV-UX3-4 — xoá lỗi ĐẦU lượt nạp
   try {
     const res = await listPurchases({
       page: page.value,
@@ -88,7 +93,13 @@ async function load() {
     })
     rows.value = res.data
     total.value = res.total
-  } finally { loading.value = false }
+  } catch (e: unknown) {
+    errorMessage.value = e instanceof Error ? e.message : String(e)
+    rows.value = []                  // INV-UX3-5 — không giữ số cũ dưới dải lỗi
+    total.value = 0
+  } finally {
+    loading.value = false            // INV-UX3-3 — luôn hạ cờ
+  }
 }
 
 function vnd(v?: number) {
@@ -101,68 +112,84 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="page-container animate-fade-in">
-    <PageHeader
-      title="Đơn mua hàng"
-      :subtitle="`Tổng ${total} đơn hàng`"
-    >
-      <template #actions>
-        <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
-        <button v-if="can('purchase.create')" class="btn-primary shrink-0" @click="router.push('/purchases/new')">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
-          </svg>
-          Tạo đơn hàng
-        </button>
-      </template>
-    </PageHeader>
+  <!--
+    AC-UX-041 — khuôn 4 trạng thái loại trừ (ui/ListPageShell). Chữ rỗng là literal
+    TĨNH ngay trên thẻ shell (không đưa vào computed — bộ dò ui-audit-inventory soi
+    cụm rỗng + từ hướng dẫn trong cửa sổ ±12 dòng của template).
+  -->
+  <ListPageShell
+    :loading="loading"
+    :error-message="errorMessage"
+    :is-empty="!rows.length"
+    empty-title="Chưa có đơn hàng nào"
+    empty-hint="Hãy tạo đơn hàng mới hoặc xoá bộ lọc để xem tất cả."
+    @retry="load"
+  >
+    <template #header>
+      <PageHeader
+        title="Đơn mua hàng"
+        :subtitle="`Tổng ${total} đơn hàng`"
+      >
+        <template #actions>
+          <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
+          <button v-if="can('purchase.create')" class="btn-primary shrink-0" @click="router.push('/purchases/new')">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+            Tạo đơn hàng
+          </button>
+        </template>
+      </PageHeader>
+    </template>
 
-    <ListFilterBar
-      :show="showFilters"
-      :chips="activeChips"
-      :show-search="false"
-      @reset="resetFilters"
-      @clear-chip="clearChip"
-      @apply="() => { page = 1; load() }"
-    >
-      <template #fields>
-        <div class="form-group">
-          <label class="form-label">Trạng thái</label>
-          <select v-model="statusFilter" class="form-select text-sm" @change="() => { page = 1; load() }">
-            <option value="">Tất cả</option>
-            <option v-for="s in STATUSES" :key="s.value" :value="s.value">{{ s.label }}</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Nhà cung cấp</label>
-          <SmartSelect
-            v-model="supplierFilter" doctype="AC Supplier" placeholder="Tất cả nhà cung cấp..."
-            @select="onSupplierSelect"
-            @clear="onSupplierClear"
-          />
-        </div>
-      </template>
-    </ListFilterBar>
+    <template #filters>
+      <ListFilterBar
+        :show="showFilters"
+        :chips="activeChips"
+        :show-search="false"
+        @reset="resetFilters"
+        @clear-chip="clearChip"
+        @apply="() => { page = 1; load() }"
+      >
+        <template #fields>
+          <div class="form-group">
+            <label class="form-label" for="po-filter-status">Trạng thái</label>
+            <select id="po-filter-status" v-model="statusFilter" class="form-select text-sm" @change="() => { page = 1; load() }">
+              <option value="">Tất cả</option>
+              <option v-for="s in STATUSES" :key="s.value" :value="s.value">{{ s.label }}</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Nhà cung cấp</label>
+            <SmartSelect
+              v-model="supplierFilter" doctype="AC Supplier" placeholder="Tất cả nhà cung cấp..."
+              @select="onSupplierSelect"
+              @clear="onSupplierClear"
+            />
+          </div>
+        </template>
+      </ListFilterBar>
+    </template>
 
-    <div class="card overflow-hidden">
+    <template #skeleton>
+      <SkeletonLoader variant="table" :rows="6" />
+    </template>
+
+    <template #empty-action>
+      <button v-if="activeFilterCount > 0" class="btn-ghost text-sm" @click="resetFilters">
+        Xóa bộ lọc để xem tất cả
+      </button>
+    </template>
+
+    <template #toolbar>
       <!-- Info row -->
       <div class="flex items-center justify-between px-4 py-2.5 border-b border-slate-100 bg-slate-50/60 text-xs text-slate-500">
         <span>Hiển thị <strong class="text-slate-700">{{ rows.length }}</strong> / {{ total }} đơn hàng</span>
         <button v-if="activeFilterCount > 0" class="text-red-500 hover:text-red-700 font-medium" @click="resetFilters">Xóa tất cả</button>
       </div>
+    </template>
 
-      <div v-if="loading && !rows.length" class="p-6">
-        <SkeletonLoader variant="table" :rows="6" />
-      </div>
-      <div v-else-if="!rows.length" class="flex flex-col items-center justify-center py-20 text-slate-400">
-        <p class="text-sm">Chưa có đơn hàng nào</p>
-        <button v-if="activeFilterCount > 0" class="text-xs text-blue-500 hover:text-blue-700 underline mt-2" @click="resetFilters">
-          Xóa bộ lọc để xem tất cả
-        </button>
-      </div>
-
-      <template v-else>
-        <!-- Mobile cards -->
+    <!-- Mobile cards -->
         <div class="mobile-card-list sm:hidden">
           <div
             v-for="r in rows"
@@ -235,8 +262,8 @@ v-for="r in rows" :key="r.name"
           </tr>
         </tbody>
       </table>
-      </template>
 
+    <template #pagination>
       <div v-if="total > PAGE_SIZE" class="px-4 py-3 border-t border-slate-100 flex items-center justify-between text-sm text-slate-500">
         <span>{{ (page - 1) * PAGE_SIZE + 1 }}–{{ Math.min(page * PAGE_SIZE, total) }} / {{ total }}</span>
         <div class="flex gap-2">
@@ -245,6 +272,6 @@ v-for="r in rows" :key="r.name"
           <button class="btn-ghost text-xs" :disabled="page * PAGE_SIZE >= total" @click="page++; load()">Sau →</button>
         </div>
       </div>
-    </div>
-  </div>
+    </template>
+  </ListPageShell>
 </template>

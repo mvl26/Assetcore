@@ -1335,3 +1335,15 @@ Cross-ref: [[LL-BE-62]] (`ignore_permissions` KHÔNG bypass validate_workflow), 
 5. ⚠️ **DEPLOY**: sửa `services/*.py` + `hooks.py` → gunicorn `--preload` giữ code cũ → CẦN worker reload. `hooks.py` đổi còn cần `clear-cache` (hooks cache redis). Reload + clear-cache PHẢI đi cùng: clear-cache khi worker còn code cũ = worker thấy hook trỏ hàm CHƯA có trong module đã nạp → `AttributeError` khi transition (risk window). Verify hook wired: `get_hooks("doc_events")` SAU clear-cache trong process mới.
 
 Cross-ref: [[LL-BE-30]]/[[LL-BE-31]] (event-driven resolve động, KHÔNG hard-code state/role), [[LL-BE-32]] (wire hooks + verify get_hooks), [[LL-BE-34]] ("chuông trống" decision tree — nhưng đây là gap THẬT, không phải self-notify); `docs/imm-00/04_Backend_Design §III.1b` (E8 row); session 2026-07-02 notification completeness.
+
+### LL-BE-69: Hứa khoá trong Core Doc/OAS mà KHÔNG emit = hợp đồng chết — FE ship consumer, UI mở màn TRỐNG, test vẫn xanh (2026-07-28)
+
+**Bối cảnh:** vòng «Tạo từ ngữ cảnh cha» (Connections) chốt payload gồm `can_create` + `create_route_hint` + **`create_prefill`** (điền sẵn tài sản cha vào màn tạo). BE land 2 khoá đầu, **`create_prefill` chưa bao giờ được emit** (0 hit trong `assetcore/` suốt 2 run). FE chạy SONG SONG, code theo spec, tiêu thụ fail-safe ⇒ nút «+ Tạo …» bấm được nhưng mở màn tạo **trống trơn**; BE test xanh (không test khoá không tồn tại), FE test xanh (payload dựng tay CÓ khoá), doc vẫn mô tả tính năng như đã có. Cùng lớp lỗi: `available_actions` từng advertise `Cancelled` khi 0 endpoint hủy — **quảng cáo vượt enforcement**.
+
+**Rule (kiểm được):**
+1. **Emit trước khi hứa.** Khoá xuất hiện trong Core Doc/OAS/ADR mà vòng này KHÔNG emit ⇒ đánh dấu doc `[CHƯA CÀI — BE]` + ghi `open_issues` "chưa emit", và **báo cho FE**. Cấm để spec mô tả như đã chạy.
+2. **Grep-back sau khi sửa:** mọi symbol khai đã land phải kèm bằng chứng `symbol → file:line` vừa grep lại. Chưa grep = chưa có.
+3. **Test phải chạm khoá thật:** payload contract cần ≥1 TC assert khoá **từ hàm BE thật** (không phải dict dựng tay), nếu không khoá thiếu sẽ không bao giờ đỏ.
+4. **Đối xứng khi bỏ:** quyết định KHÔNG làm tính năng ⇒ BE phải NGỪNG tính/phát cả họ khoá liên quan (`can_create`/`create_route_hint`/`create_prefill`) — không để lại nửa hợp đồng.
+
+Cross-ref: [[LL-BE-50]] (parity contract ↔ codegen), display⇔enforcement parity (advertise không được rộng hơn enforce), [[LL-FE-55]] (phía tiêu thụ), [[LL-AUDIT-22]]; session run-3/run-4 2026-07-28.

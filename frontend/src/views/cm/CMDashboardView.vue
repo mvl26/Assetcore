@@ -6,7 +6,7 @@ import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import { getMttrReport } from '@/api/imm09'
-import { priorityLabel } from '@/constants/labels'
+import { priorityLabel, rootCauseLabel } from '@/constants/labels'
 
 const store  = useImm09Store()
 const router = useRouter()
@@ -201,8 +201,10 @@ class="h-full rounded-full"
         <h3 class="text-sm font-semibold text-slate-800 mb-5">Phân tích nguyên nhân hỏng</h3>
         <div class="space-y-3">
           <div v-for="rc in rootCauses" :key="rc.category" class="flex items-center gap-3">
-            <div class="w-28 text-xs text-slate-500 text-right shrink-0 truncate" :title="rc.category">
-              {{ rc.category }}
+            <!-- GATE-1: nguyên nhân gốc là enum BE (Mechanical/Electrical/…) — hiển thị
+                 qua rootCauseLabel(), GIỮ value gốc làm :key. -->
+            <div class="w-28 text-xs text-slate-500 text-right shrink-0 truncate" :title="rootCauseLabel(rc.category)">
+              {{ rootCauseLabel(rc.category) }}
             </div>
             <div class="flex-1 h-2 rounded-full overflow-hidden bg-slate-100">
               <div

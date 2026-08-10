@@ -1819,3 +1819,1066 @@ Module có helper thuần trả `list[str]` drift cho từng lát + 1 hàm top-l
 - **RED-before (BẮT BUỘC demo THẬT)**: chạy TC-00-FXSRC-06/07 trên `reconcile()` CHƯA gom đủ lát (vd bỏ helper admin-override) → `assertRaises` FAIL (guard no-op) → thêm lát → GREEN. Chứng minh guard có răng, không nhận suông.
 - **Regression GREEN (không đỏ)**: `test_workflows` (INV-A/B/C), `test_workflow_admin_override`, `test_workflow_admin_override_livedb` — module MỚI là **ADDITIVE**, TUYỆT ĐỐI KHÔNG xoá/làm yếu guard cũ.
 - **0 file runtime `.py` đổi** → 0 gunicorn reload, 0 `bench migrate`, 0 CAP_SET_VERSION. **KHÔNG** `git commit/push`. Working tree để user review.
+
+---
+
+## XVI. ROWSCOPE-INVARIANT — `BaseRepository.list(scope=…)`: rows permission-aware KHỚP count (INV-ROWSCOPE, 2026-07-25)
+
+> **SSoT quyết định:** [`ADR-IMM00-LIST-SCOPE.md` §8](./ADR-IMM00-LIST-SCOPE.md) (D4–D7 + §8.9 bảng bất biến). Module test MỚI: `assetcore/tests/test_rowscope_invariant.py`.
+
+### Bối cảnh (finding CRITICAL vòng trước)
+
+KTV_A (`Repair User`) **ĐỌC được** phiếu `Asset Repair` của KTV_B trên `/cm/work-orders`, nhưng bấm "Đính ảnh" → **403**; và "Tổng N" ≠ số dòng. Root cause: `BaseRepository.list` đếm bằng `frappe.get_list` (permission-aware) nhưng lấy rows bằng `frappe.get_all` (**KHÔNG** áp `permission_query_conditions`) — `repositories/base.py:64-75`.
+
+### ⚠️ Bẫy XANH-GIẢ số 1 — chạy dưới Administrator
+
+`Administrator` / `AssetCore Super Admin` **bypass** `permission_query_conditions` (`permissions.py:113-121` trả `""`) ⇒ mọi assert row-scope sẽ XANH dù bug còn nguyên. **BẮT BUỘC** `frappe.set_user(<ktv_a>)` trong test (fixture user THẬT có role `Repair User`/`PM User`), `addCleanup(frappe.set_user, "Administrator")` để không rò session sang test khác.
+
+### ⚠️ Bẫy XANH-GIẢ số 2 — assert `total == len(rows)` khi cả 2 cùng = 0
+
+Fixture rỗng ⇒ `0 == 0` XANH vacuous. Mỗi TC row-scope phải **seed ≥ 2 phiếu (1 của KTV_A, 1 của KTV_B)** và assert **cả 2 chiều**: (a) `total == len(rows)`, (b) `total >= 1` (non-vacuous) + (c) **0 phiếu của KTV_B** trong kết quả.
+
+### Test matrix
+
+| TC | Test method (INV) | Setup / Assert | Kỹ thuật |
+|---|---|---|---|
+| TC-00-RS-01 | `test_user_scope_total_equals_rows` (INV-ROWSCOPE-1) | Seed ≥2 phiếu; `scope="user"`, `page_size` ≥ total → `pg["total"] == len(rows)`, `total >= 1` | Invariant, non-vacuous |
+| TC-00-RS-02 | `test_system_scope_total_equals_rows` (INV-ROWSCOPE-2) | Cùng dataset, `scope="system"` → `pg["total"] == len(rows)`, `total >= 2` (thấy cả 2 phiếu) | Invariant, non-vacuous |
+| TC-00-RS-03 | `test_invalid_scope_raises` (INV-ROWSCOPE-3) | `scope="System"` / `""` / `None` → `assertRaises(ValueError)` | Fail-fast / RED-proof |
+| TC-00-RS-04 | `test_imm09_list_excludes_other_technician` (INV-ROWSCOPE-4) | `frappe.set_user(KTV_A)`; `api.imm09.list_repair_work_orders()` **KHÔNG** truyền `mine` → `0` row có `assigned_to == KTV_B`; `pagination.total == len(data.data)` | Row-scope + invariant |
+| TC-00-RS-05 | `test_read_implies_write_repair_photo` (INV-ROWSCOPE-5) | ∀ row trong list của KTV_A: `services.imm09._assert_can_attach_repair_photo(RepairRepo.get(name))` KHÔNG raise ⇒ **0 phiếu đọc-được-nhưng-cấm-đính-ảnh** | **Đóng finding CRITICAL** |
+| TC-00-RS-06 | `test_imm08_list_excludes_other_technician` (INV-ROWSCOPE-6) | Đối xứng PM: `api.imm08.list_pm_work_orders()` với KTV_A → 2 assert như TC-00-RS-04 | Row-scope + invariant |
+| TC-00-RS-07 | `test_senior_sees_all` (INV-ROWSCOPE-7) | `frappe.set_user(<Repair Manager>)` → thấy ĐỦ 2 phiếu, `total == 2` (**không over-block**) | Anti-over-block |
+| TC-00-RS-08 | `test_vendor_not_widened` (INV-ROWSCOPE-8) | Vendor Engineer THUẦN → KHÔNG thấy phiếu ngoài scope (D2 bất biến, CLAUDE.md §5) | Isolation no-regress |
+| TC-00-RS-09 | `test_missing_docperm_returns_error_envelope` (INV-ROWSCOPE-9) | Persona thiếu DocPerm `read` (vd `Calibration User` trên `Asset Repair`) gọi list → **HTTP-200 + envelope `success:false`** (KHÔNG 500, KHÔNG list rỗng giả) — BR-00-ROWSCOPE-403 | Error-contract |
+| TC-00-RS-10 | `test_card_equals_drill_per_persona` (INV-ROWSCOPE-10, D7) | KTV_A: `cm_sla_breach_count()` == số row drill `?sla_breached_live=1`; `count_overdue_pm()` == số row drill `?overdue=1` | Card==drill parity |
+| TC-00-RS-FE | vitest `CMWorkOrderListView` | `pagination.total = 2` + `workOrders.length = 40` ⇒ header chứa `Tổng 2`, KHÔNG chứa `Tổng 40`; `pagination` chưa nạp ⇒ `Tổng 0`; "Hiển thị" vẫn `.length` | Guard chống fallback client-count quay lại |
+
+### Fixture contract
+
+- User test: `_rowscope_ktv_a@assetcore.test` (role `Repair User` + `PM User`), `_rowscope_ktv_b@assetcore.test`, `_rowscope_mgr@assetcore.test` (`Repair Manager` + `PM Manager`). Prefix `_` ⇒ nằm trong reserved-prefix exclusion, KHÔNG lẫn data thật.
+- Teardown BẮT BUỘC: xoá phiếu + asset + user seed (reuse `assetcore/tests/_asset_cleanup.py`), `addCleanup(frappe.set_user, "Administrator")`. Fixture-leak = nguồn "full BE suite đỏ" giả.
+
+### DoD (ROWSCOPE-INVARIANT)
+
+- `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_rowscope_invariant` → **`Ran N OK` THẬT** (đọc dòng cuối), N ≥ 10.
+- **RED-before (BẮT BUỘC demo THẬT)**: chạy TC-00-RS-04/05 trên `base.py` CHƯA có `scope` (rows = `frappe.get_all`) → **ĐỎ**; thêm `scope="user"` → XANH. Guard không có răng = không nhận.
+- Regression XANH: `test_imm09`, `test_imm08`, `test_imm11`, `test_imm05`, `test_imm00`, `test_rbac`, `test_list_search_filter`. FE: `npm run test` + `vue-tsc` xanh.
+- **Call site đỏ vì `get_list` strip field `permlevel > 0`** → chuyển ĐÚNG site đó sang `scope="system"` + comment `# [ROWSCOPE-FALLBACK]` + ghi backlog. **TUYỆT ĐỐI KHÔNG nới DocPerm** (ADR §8.7).
+- **KHÔNG** `git commit/push/merge` · **KHÔNG** `reset DB`/`drop site`/`bench restart`/reload gunicorn (HARD-STOP — quyền USER). Working tree để user review.
+
+
+---
+
+## XVII. AC-CR-80 — Picker "người nhận việc": capability-SSoT + hết cắt IM LẶNG (INV-ASSIGN-1..8)
+
+> Spec: [`05_API_Specification.md` §III.23](./05_API_Specification.md) · ADR: [`ADR-IMM00-TRUNCATION-SSOT.md` §7](./ADR-IMM00-TRUNCATION-SSOT.md) · code-shape: [`04_Backend_Design.md` §V.6](./04_Backend_Design.md).
+> Module test: `assetcore/tests/test_imm00_base_role.py` (class `TestListAssignableUsers` — **đã tồn tại**, mở rộng) + guard contract `assetcore/tests/test_mobile_oas.py` (`TestMobileAssignableUsersContract`, **đã LANDED ở Bước-2**).
+
+### XVII.1 TC backend (BE Bước-4)
+
+| TC | Ý đồ | Chấm bằng |
+|---|---|---|
+| **TC-00-ASSIGN-01** | Shape mới: `data` là **dict** có ĐỦ 4 khoá `items/total/truncated/limit` | `set(res["data"]) == {"items","total","truncated","limit"}` |
+| **TC-00-ASSIGN-02** | INV-ASSIGN-1: `len(items) <= limit` với `limit` nhỏ (vd 2) trên tập ≥3 người hợp lệ | seed ≥3 user `repair`-capable |
+| **TC-00-ASSIGN-03** | INV-ASSIGN-3 (cắt): `limit=2` & tập ≥3 ⇒ `truncated == 1` ∧ `total > 2` ∧ `total == len(capable)` | |
+| **TC-00-ASSIGN-04** | INV-ASSIGN-3 (không cắt): `limit=100` ⇒ `truncated == 0` ∧ `total == len(items)` | |
+| **TC-00-ASSIGN-05** | INV-ASSIGN-4: `isinstance(res["data"]["truncated"], bool) is False` ∧ `truncated in (0,1)` ∧ `total`/`limit` là `int` ≥ 0 | **KHÔNG** dùng `assertEqual(truncated, 0)` một mình — `False == 0` là True ⇒ test mù |
+| **TC-00-ASSIGN-06** | INV-ASSIGN-7: `limit=0` ⇒ `data["limit"] == 1`; `limit=500` ⇒ `data["limit"] == 100` ∧ `truncated` tính theo 100 | |
+| **TC-00-ASSIGN-07** | INV-ASSIGN-2: `total` đếm **SAU** lọc năng lực — seed N người capable + M người base-role KHÔNG capable ⇒ `total == N` (KHÔNG N+M) | ca này bắt đúng lỗi `count_ac_users` |
+| **TC-00-ASSIGN-08** | INV-ASSIGN-5 (parity xuôi): ∀ `u ∈ items` với `context='repair'` ⇒ `services.imm09._is_repair_capable(u["name"])` True — thử ở **nhiều** `limit` (2, 20, 100) | 0 dead-pick |
+| **TC-00-ASSIGN-09** | INV-ASSIGN-6 (parity nghịch): user base-role chỉ có vai read-only (vd `Auditor`) KHÔNG bao giờ xuất hiện; gọi `_assert_valid_technician(u)` ⇒ raise, envelope `code='VALIDATION_ERROR'` ∧ `http_status == 422` ∧ `message_code == 'IMM09-INVALID-TECHNICIAN'` | chứng minh picker là **tấm gương** của validator |
+| **TC-00-ASSIGN-10** | INV-ASSIGN-8: `context='bogus'` ⇒ `success is False` ∧ `code == 'VALIDATION_ERROR'` ∧ `http_status == 400`; **KHÔNG** raise (không HTTP-500) | |
+| **TC-00-ASSIGN-11** | INV-ASSIGN-8 (0 leak): message KHÔNG chứa bất kỳ giá trị nào trong `_ASSIGNABLE_CONTEXTS` (tên DocType) và KHÔNG chứa `tab`/`SELECT` | duyệt cả 5 DocType |
+| **TC-00-ASSIGN-12** | `context='user'`: KHÔNG lọc năng lực (user chỉ có `Document User` vẫn hiện) nhưng **vẫn** có đủ 4 khoá + truncation đúng | ghim ngữ nghĩa 2 chế độ |
+
+**Fixture**: dùng khuôn `_insert(suffix, roles)` sẵn có (`test_imm00_base_role.py`), luôn kèm `search='_test_lau_<suffix>'` để **cách ly** khỏi dữ liệu thật; `tearDown` xoá user đã tạo (đang có).
+⚠️ **Regression bắt buộc**: `_names()` (`:301`) hiện đọc `res["data"]` như mảng ⇒ đổi `res["data"]["items"]`, nếu không **7 TC cũ ĐỎ**.
+
+### XVII.2 Guard contract (ĐÃ LANDED — Bước-2, `test_mobile_oas` 967→975)
+
+| Guard | Ghim gì | Mutation đã verify |
+|---|---|---|
+| `cr80_a` | path GET-only + opId + tag + slot {200,401,403} + membership `_MVP_BUSINESS_PATHS`/401/403 | — |
+| `cr80_b` | enum `context` == `{_ANY_USER_CONTEXT}` ∪ keys(`_ASSIGNABLE_CONTEXTS`) — **import THẬT** | ✅ bỏ 1 giá trị enum ⇒ ĐỎ |
+| `cr80_c` | 3 param khớp `inspect.signature` LIVE + clamp `minimum:1`/`maximum:100` | — |
+| `cr80_d` | `data` object closed 4 khoá đều required; `truncated` **integer enum[0,1]** | ✅ đổi sang `boolean` ⇒ ĐỎ |
+| `cr80_e` | cite-parity AST **3 tầng** (`api/user.py`, `services/imm09.py`, `services/shared/truncation.py`) + bắt buộc nêu 6 symbol | ✅ rot cite `:1047`→`:2000` ⇒ ĐỎ |
+| `cr80_f` | item closed 4 khoá, 3 nullable, **0 khoá nhạy cảm** (`roles`/`imm_roles`/`api_key`…) | — |
+| `cr80_g` | mô tả nêu đủ token hành vi (`HTTP-200`, `KHÔNG LOGOUT`, `truncated`, `total`, `Đang hiển thị`, `VALIDATION_ERROR`, `422`) | — |
+| `cr80_h` | 200 = oneOf ĐÚNG 2 nhánh + tổng `paths 108` / `schemas 283` / `parameters 38` + no-orphan | — |
+
+### XVII.3 TC frontend (FE Bước-4)
+
+| TC | Ý đồ |
+|---|---|
+| **TC-FE-ASSIGN-01** | `listAssignableUsers` trả object ⇒ trả nguyên; trả **mảng** (BE chưa reload) ⇒ chuẩn hoá `{items, total=len, truncated:0, limit}` |
+| **TC-FE-ASSIGN-02** | **RENDER**: mock `{items: 20, total: 47, truncated: 1}` ⇒ DOM chứa `Đang hiển thị 20/47 người` |
+| **TC-FE-ASSIGN-03** | **RENDER**: `truncated: 0` ⇒ DOM **KHÔNG** chứa `Đang hiển thị` |
+| **TC-FE-ASSIGN-04** | `full_name: null` ⇒ chip + dòng gợi ý fallback `name`, **không** throw |
+| **TC-FE-ASSIGN-05** | `props`/`emit` của `ApproverSelect` không đổi (mount với `modelValue` + `context`, emit `update:modelValue` như cũ) |
+
+### XVII.4 DoD vòng
+
+- BE: `test_imm00_base_role` · `test_ac_user_source` · `test_imm00_user_approval` · `test_imm09` · `test_imm08` — **OK**.
+- Contract: `test_mobile_oas` **975 OK** · `test_mobile_docset` **9 OK** *(đã đạt ở Bước-2)*.
+- FE: `npx vue-tsc --noEmit` 0 lỗi · `npx vitest run` xanh.
+- ⏱ Mọi lệnh `bench run-tests` đặt timeout tool **≥ 600000ms** — kill giữa chừng = `tearDownClass` không chạy = **nhiễm DB**, KHÔNG phải bug sản phẩm.
+
+---
+
+## XVIII. AC-CR-87 — «Bản ghi liên quan» là CÂY DỮ LIỆU THẬT (INV-CONN-1..17 · §XVIII.4 FE vòng 2 · §XVIII.5 FE vòng 3 · §XVIII.6 BE+FE vòng 4 · **§XVIII.7 FE vòng 5 — deep-link «Xem tất cả» CÓ LỌC** · §XVIII.8 AC-CR-93 chỉ render ô CÓ dữ liệu · **§XVIII.9 AC-CR-94 — deep-link ĐẾN ĐÍCH 2 màn LỊCH + `count == drill` cross-endpoint** · **§XVIII.10 AC-CR-95 — thăng hạng 4 màn đích còn lại, `LIST_TARGET_NO_FILTER` 9→5** · **§XVIII.11 AC-CR-92 — ô 12→9 khoá, `capped: bool`→`total_capped: int`, RATIFY cổng I/O**)
+
+> Spec: [`05 §III.24`](./05_API_Specification.md) · ADR: [`ADR-IMM00-CONNECTIONS-TREE.md`](./ADR-IMM00-CONNECTIONS-TREE.md) · code shape: [`04 §V.7`](./04_Backend_Design.md).
+> **File test MỚI**: `assetcore/tests/test_connections_tree.py`. **`test_connections.py` (11 TC) và `test_doctype_connectivity.py` KHÔNG được sửa một dòng nào** — chúng chính là oracle "không phá FE hiện tại".
+
+### XVIII.1 Fixture tối thiểu (dùng lại khuôn `test_connections.py`)
+
+- 1 `AC Asset Category` + 1 `AC Asset` **A6** (seed **6** `PM Work Order` → chứng minh cắt) + 1 `AC Asset` **A3** (seed **3** PM WO → chứng minh không cắt) + 1 `AC Asset` **A0** (0 liên kết).
+- Insert bỏ qua workflow bằng `frappe.flags.in_install` (khuôn có sẵn); dọn bằng `tests/_asset_cleanup.purge_asset` / `purge_category_by_name` trong `tearDownClass`.
+- 1 user **hạn chế** (chỉ base role `AssetCore System User`) cho nhóm phân quyền.
+
+### XVIII.2 Test case ↔ invariant ↔ acceptance
+
+| TC | Nội dung | INV | Acceptance |
+|---|---|---|---|
+| **TC-CONN-T-01** | Mỗi ô của `get_connections("AC Asset", A6)` có **đủ 12 khoá**; `type(truncated) is int` ∧ `isinstance(truncated, bool) is False` ∧ `truncated ∈ {0,1}` | INV-CONN-1 | A1 |
+| **TC-CONN-T-02** | A6: ô `PM Work Order` ⇒ `total == 6` ∧ `truncated == 1` ∧ `len(items) == 5` | INV-CONN-3/4 | A2 |
+| **TC-CONN-T-03** | A3: ô `PM Work Order` ⇒ `total == 3` ∧ `truncated == 0` ∧ `len(items) == 3` | INV-CONN-3/4 | A2 |
+| **TC-CONN-T-04** | **ZERO-COST**: patch `frappe.db.count` + `frappe.db.sql` bằng mock raise; gọi A3 ⇒ **không** raise. Đồng thời wrap `frappe.get_list` đếm lời gọi ⇒ **đúng 1 lần/ô** | INV-CONN-6 | A2/A3 |
+| **TC-CONN-T-05** | **AST guard** trên `api/connections.py` **và** `services/connections.py`: 0 hit `frappe.db.count`, 0 hit `frappe.get_all`, 0 kwarg `ignore_permissions`; **có** `frappe.get_list` | INV-CONN-5 | A3 |
+| **TC-CONN-T-06** | Bất biến toàn cục: duyệt **mọi ô của mọi hub** trong `_ALLOWED_SOURCE_DOCTYPES` (dùng bản ghi seed hoặc bản ghi thật đầu tiên) ⇒ `len(items) == min(total, preview_limit)` ∧ `count == total` | INV-CONN-2/3 | A3 |
+| **TC-CONN-T-07** | Mỗi phần tử `items[]` có đúng 5 khoá, **không khoá nào `None`**, tất cả `str`; `title != ""`; `date` khớp `^\d{4}-\d{2}-\d{2}$` hoặc `""` | INV-CONN-14 | A4 |
+| **TC-CONN-T-08** | `status_label` VI: PM WO `status='In Progress'` ⇒ `'Đang thực hiện'`; giá trị lạ ⇒ `'Chưa rõ'` (**không** rò chuỗi tiếng Anh) | INV-CONN-13 | A4 |
+| **TC-CONN-T-09** | **Parity lifecycle**: ∀ 8 mã canonical `AC Asset.lifecycle_status` ⇒ `status_label("AC Asset", s) == services.imm00._lifecycle_vi(s)` | INV-CONN-11 | A4 |
+| **TC-CONN-T-10** | **PARITY NHÃN (duyệt module dashboard THẬT)**: import động mọi `assetcore/assetcore/doctype/*/*_dashboard.py`, gom `transactions[].items[]` ⇒ mọi doctype có khoá trong `LABEL_VI` ∧ `LABEL_VI[dt] != dt`. **KHÔNG** hardcode danh sách thứ hai | INV-CONN-7 | A5 |
+| **TC-CONN-T-11** | **PREVIEW_FIELDS hợp lệ**: ∀ field khai ⇒ tồn tại trên `frappe.get_meta(dt)` ∧ `permlevel == 0` ∧ fieldtype đúng vai (status = Select \| Link `Workflow State` \| Data; date = Date \| Datetime) ∧ **không** thuộc họ tài chính/định danh cá nhân | INV-CONN-12 | A4 |
+| **TC-CONN-T-12** | **PHỦ NHÃN TRẠNG THÁI**: ∀ dt ∈ `PREVIEW_FIELDS` có trường status ⇒ mọi giá trị enum có nhãn VI. Nguồn enum: `options` (Select) **hoặc** `states[].state` trong `assetcore/assetcore/workflow/*.json` khớp `document_type` (vì `workflow_state` là **Link**, không phải Select) | INV-CONN-13 | A5 |
+| **TC-CONN-T-13** | Allowlist: `doctype` **rác** ⇒ `NOT_FOUND`; **bản ghi rác** ⇒ `NOT_FOUND` **CÙNG message**; `AC Asset Category` (tồn tại, ∉ allowlist) ⇒ `success == True` ∧ `groups == []` *(đính chính A6 — xem ADR §D6)* | INV-CONN-* | A6 |
+| **TC-CONN-T-14** | `preview_limit` = `0` / `99` / `'abc'` / `-3` ⇒ clamp `[1,10]` (hoặc về `5`), **không** raise; `truncated` tính theo trần **đã clamp** | INV-CONN-14 | A6 |
+| **TC-CONN-T-15** | `deep_link_filters`: mọi khoá ∈ `_ALLOWED_DEEP_LINK_KEYS[dt]`; mọi value `isinstance(v, str)`; ca `internal_links` ⇒ khoá `name` = chuỗi mã nối bằng dấu phẩy; `count > 0 ⇒ deep_link_filters != {}` | INV-CONN-10 | A7 |
+| **TC-CONN-T-16** | `can_create == False ⟺ create_route_hint == ""` (kiểm **hai chiều** trên mọi ô của mọi hub) | INV-CONN-8 | A8 |
+| **TC-CONN-T-17** | Dưới user **hạn chế** (chỉ base role): mọi ô trả về ⇒ `can_create is False` ∧ `create_route_hint == ""` | INV-CONN-9 | A8 |
+| **TC-CONN-T-18** | Nhóm `internal_links` (liên kết **xuôi**, vd `AC Asset` trong đồ thị của `Asset Repair`) ⇒ `can_create is False` dù có quyền tạo | INV-CONN-9 | A8 |
+| **TC-CONN-T-19** | **Cổng vòng đời**: A6 đặt `lifecycle_status = 'Decommissioned'` ⇒ mọi ô `can_create is False`; đặt lại `'Active'` ⇒ ô `PM Work Order` `can_create is True` (dùng **cùng hằng** `AssetStatus.BLOCKED_FOR_WO` với `validate_asset_for_operations`) | INV-CONN-9 | A8 |
+| **TC-CONN-T-20** | **No-regress hợp đồng cũ**: `data.total` vẫn là **tổng cộng dồn `count`**; `filters` giữ dạng cũ (kể cả `["in", [...]]`); `label` vẫn là `_(doctype)`; `capped` vẫn `bool` | INV-CONN-2 | A9/A1 |
+| **TC-CONN-T-21** | **Nhánh CHẠM TRẦN của INV-CONN-2** (fixture ≤ 6 bản ghi không bao giờ chạm ⇒ trước TC này, gỡ hẳn `min(len(rows), CAP)` vẫn 21/21 XANH): tiêm `list_fn` giả (**0 seed, 0 truy vấn đọc dòng**) trả `150` / `CAP+1` / `CAP` dòng ⇒ `count == total == 100` ở cả ba; `capped is True` cho 2 ca đầu và **`False`** cho ca `CAP` chẵn (predicate là `len(rows) > CAP`, **không** `>=`) ⇒ D4: `capped=True` biến `total` thành **cận dưới**, FE render `"100+"` | INV-CONN-2 / D4 | A1 |
+| **TC-CONN-T-22** | **Cổng `has_permission(linked_dt,'read')`**: patch `frappe.has_permission` từ chối đúng `PM Work Order` ⇒ ô **biến mất HẲN** (không phải ô `count: 0`), các ô khác còn nguyên, **0 nhóm rỗng**. Trước TC này mutation M5 (gỡ 2 dòng gate) chỉ bị `test_connections.py` bắt — mà file đó sẽ bị tỉa ở vòng 3 | ADR §D1 luật 1 | A1 |
+
+### XVIII.3 DoD vòng (chấm ĐỎ nếu thiếu bất kỳ mục nào)
+
+- `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_connections` **XANH** (11 TC, **0 assert bị sửa**).
+- `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_connections_tree` **XANH**.
+- `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_doctype_connectivity` **XANH** (không sửa file).
+- `npx vitest run src/components/common/RelatedRecords.test.ts src/api` **XANH**; `npx vue-tsc --noEmit` 0 lỗi.
+- `git diff --name-only` **chỉ** chứa: `assetcore/api/connections.py` · `assetcore/services/connections.py` · `assetcore/services/shared/connection_meta.py` · `assetcore/tests/test_connections_tree.py` · `frontend/src/api/connections.ts` · (nếu suite thật lệch) file guard count · docs vòng này.
+- Guard count (`_EXPECTED_TEST_COUNT` @`tests/test_mobile_oas.py:212` · `_GUARD_SUITE_SUM` @`tests/test_mobile_docset.py:956`): cập theo **DELTA**, đọc số **trên đĩa** ngay trước khi sửa — số trong spec/STATE luôn có thể stale (đọc 2026-07-27: `1024` / `1167`). Endpoint này **không** có mirror OAS ⇒ nếu file test mới không thuộc guard-suite thì **KHÔNG** đụng 3 hằng.
+- ⏱ Mọi lệnh `bench run-tests` đặt timeout tool **≥ 600000ms** — kill giữa chừng = `tearDownClass` không chạy = **nhiễm DB**, KHÔNG phải bug sản phẩm.
+- ⚠️ `--preload`: sửa `api/*.py` **không** có hiệu lực qua HTTP tới khi USER reload ⇒ **chấm bằng `run-tests`, KHÔNG curl** (curl 417/traceback ≠ bug sản phẩm — LL-DEPLOY-07/08).
+
+### XVIII.4 AC-CR-88 (vòng 2/5 — FE): test RENDER cho `RelatedRecords.vue` (INV-CONNFE-1..11)
+
+> Spec thực thi: [`06 §VIII.4.2`](./06_Frontend_Design.md) · quyết định: [`ADR-IMM00-CONNECTIONS-TREE.md` §10](./ADR-IMM00-CONNECTIONS-TREE.md).
+> **File**: `frontend/src/components/common/RelatedRecords.test.ts` (**VIẾT LẠI** — test cũ khoá card chrome + dòng "Tổng 3" nay đã bị D-FE-1 gỡ) · `frontend/src/api/connections.test.ts` (**CHỈ APPEND** ca helper; 4 describe cũ về `DOCTYPE_ROUTE`/`DOCTYPE_DETAIL_ROUTE` **không được sửa một assert nào** — chúng là guard chống link chết).
+> Lệnh chấm: `cd frontend && npx vitest run` (0 fail) + `npx vue-tsc --noEmit` (0 lỗi). **KHÔNG** `npm run build` (= deploy live).
+
+**Fixture chuẩn (dựng trong file test, KHÔNG phải bản đồ sản phẩm):** `PAYLOAD_20` = 1 payload phủ **toàn bộ 20 khoá** của `DOCTYPE_ROUTE`, mỗi ô có `label_vi` tiếng Việt + `total>0` + ≥1 dòng `items[]`. Việc nhãn VI nằm trong fixture là hợp lệ (SSoT thật vẫn là `connection_meta.LABEL_VI` ở BE — INV-CONN-7 canh phía BE).
+
+| TC | Nội dung | INV | Acceptance |
+|---|---|---|---|
+| **TC-CONNFE-01** | Mount với `PAYLOAD_20` ⇒ `∀ dt ∈ Object.keys(DOCTYPE_ROUTE): !wrapper.text().includes(dt)` (loop, **không** liệt kê tay) ∧ text chứa đủ 20 nhãn VI | INV-CONNFE-1 | A1 |
+| **TC-CONNFE-02** | Ô thiếu `label_vi` ⇒ hiện `label`; thiếu **cả hai** ⇒ hiện `doctype`; không ô nào nhãn rỗng | INV-CONNFE-2 | A1 |
+| **TC-CONNFE-03** | Ô `items` 5 dòng ⇒ DOM chứa **5** `title` + **5** `status_label`; **không** chứa `status` thô (fixture đặt `status:'In Progress'` ≠ `status_label:'Đang thực hiện'`); **không** chứa `'undefined'`/`'null'`; ngày khớp `formatDate(row.date)` (**không** hardcode chuỗi ngày — bẫy ICU) | INV-CONNFE-3 | A2 |
+| **TC-CONNFE-04** | `date: ''` ⇒ dòng vẫn render, hiện `'—'`, DOM **không** có `'undefined'`; `status_label: ''` ⇒ **0** chip trạng thái trong dòng đó | INV-CONNFE-3 | A2 |
+| **TC-CONNFE-05** | Click dòng của `Asset Repair`/`AR-2026-0001` ⇒ `push` gọi **đúng 1 lần** với **chuỗi** `/cm/work-orders/AR-2026-0001` | INV-CONNFE-5 | A3 |
+| **TC-CONNFE-06** | Doctype **có** `DOCTYPE_ROUTE` nhưng **không** `DOCTYPE_DETAIL_ROUTE` (vd `Asset Document`) ⇒ dòng là `conn-row-static`, **không** phải `<button>`, click ⇒ `push` **không** được gọi (0 nút chết) | INV-CONNFE-4 | A3 |
+| **TC-CONNFE-07** | Ô `{deep_link_filters:{asset:'AC-ASSET-2026-00001'}}` + route ⇒ có `conn-see-all`; click ⇒ `push({path:'/incidents/list', query:{asset:'AC-ASSET-2026-00001'}})` | INV-CONNFE-6 | A4 |
+| **TC-CONNFE-08** | **Bug người dùng báo**: `{count:7, total:7, deep_link_filters:{}}` ⇒ trong ô đó **0** `conn-see-all` (dù `count > 0`) | INV-CONNFE-7 | A4 |
+| **TC-CONNFE-09** | BE cũ (`deep_link_filters === undefined`): `filters:{name:['in',['A','B']]}` ⇒ **0** nút; `filters:{asset:'X'}` ⇒ có nút với `query:{asset:'X'}`; **không** URL nào chứa `in,A,B` | INV-CONNFE-8 | A4 |
+| **TC-CONNFE-10** | `{total:12, truncated:1, capped:false, items:5}` ⇒ text chứa `Đang xem 5/12`; `{total:3, truncated:0, items:3}` ⇒ **không** chứa `Đang xem` | INV-CONNFE-9 | A5 |
+| **TC-CONNFE-11** | `{count:100, total:100, capped:true, truncated:1, items:5}` ⇒ text chứa `100+` ∧ **không** chứa `còn ` ∧ **không** chứa `95` | INV-CONNFE-9 | A5 |
+| **TC-CONNFE-12** | Ô LEGACY (`items === undefined`, `count:6`) ⇒ hiện nhãn + `6`; **0** `conn-row`; **0** `conn-band` (KHÔNG `Đang xem 0/6`) | INV-CONNFE-9 | A5/A8 |
+| **TC-CONNFE-13** | Hình dạng tab: `wrapper.findAll('section').length === 0` ∧ text **không** chứa `"Bản ghi liên quan"` ∧ `vm.total === payload.total` ∧ `typeof vm.reload === 'function'` | INV-CONNFE-10 | A6 |
+| **TC-CONNFE-14** | Nhóm toàn ô `total:0` ⇒ **0** phần tử bấm được ∧ **0** `conn-row` trong nhóm ∧ có `conn-empty-summary` chứa nhãn **tiếng Việt** của các ô rỗng | INV-CONNFE-2 | A6 |
+| **TC-CONNFE-15** | Ô `{can_create:false, create_route_hint:''}` ⇒ trong **phạm vi ô đó** không tồn tại `[data-testid="conn-create"]` (test còn đúng sau vòng 4) | INV-CONNFE-11 | A7 |
+| **TC-CONNFE-16** | Trạng thái phụ trợ: đang tải ⇒ `conn-loading`; API reject ⇒ `conn-error` + nút «Thử lại» ⇒ click gọi lại `getConnections` và render thành công; `groups: []` ⇒ câu tiếng Việt có nghĩa; **không** exception thoát ra ngoài component | — | A8 |
+| **TC-CONNFE-17** | *(unit, append vào `connections.test.ts`)* `connectionLabel` 3 bậc · `connectionCounts` (badge `100+` · band rỗng khi `shown===0` · `truncated` suy ra khi BE cũ) · `deepLinkQuery` (`{}` giữ nguyên `{}` · loại value mảng · ép `String(number)`) · `canSeeAll` (3 điều kiện) | INV-CONNFE-6..9 | A9 |
+
+**Chống test giả xanh (đọc trước khi khai DONE):**
+- TC-CONNFE-01 phải **loop `Object.keys(DOCTYPE_ROUTE)`**, không liệt kê tay 20 chuỗi — thêm doctype vào bảng route mà quên nhãn phải **đỏ tự động**.
+- TC-CONNFE-08 và -09 chấm trên **phạm vi ô** (`conn-cell` chứa `data-doctype`), không phải toàn wrapper — nút của ô khác sẽ che mất lỗi.
+  > ⚠️ **Đính chính 2026-07-28 (AC-CR-93 · [ADR §14 D-CR93-1](./ADR-IMM00-CONNECTIONS-TREE.md))** — bảng testid ở §XVIII.4/§XVIII.8 **không** còn đồng nhất với đoạn trên: tên **CHỐT** là `conn-item` / `conn-count` / `conn-meta` / `conn-row`; `conn-cell` / `conn-badge` / `conn-band` / `conn-row-static` / `conn-loading` / `conn-error` / `conn-retry` / `conn-empty` **retired**. `data-doctype` **KHÔNG** được thêm (3 TC assert `wrapper.html()` sạch tên DocType) ⇒ chấm theo phạm vi ô bằng **nhãn tiếng Việt** hoặc chỉ số. **SSoT hiện hành = §XVIII.8 (cuối file này)**.
+- Không assert `wrapper.html()` cho A1: `data-doctype` (hợp lệ theo D-FE-2) sẽ làm test đỏ sai.
+- Không hardcode chuỗi ngày (`20/07/2026`): `formatDate` không zero-pad tháng trên ICU chuẩn.
+
+### XVIII.5 AC-CR-89 (vòng 3/5 — FE): TAB riêng + mount lười ở 5 màn Detail (INV-CONNTAB-1..12)
+
+> Quyết định: [`ADR-IMM00-CONNECTIONS-TREE.md` §11](./ADR-IMM00-CONNECTIONS-TREE.md) (D-TAB-1..12) · spec thực thi: [`06 §VIII.5`](./06_Frontend_Design.md) · nghiệp vụ: [`02 §IV.39`](./02_Analysis_Design.md) (FR-00-CONN-02 / BR-00-CONN-18..24).
+> **File test**: `frontend/src/views/detailRelatedTab.test.ts` (**MỚI** — guard vị trí + mount lười + ẩn thân trang + prop + nhãn, dùng chung cho 5 màn) · `frontend/src/components/common/DetailTabBar.test.ts` (**MỚI** — unit a11y/RWD) · `frontend/src/views/asset/assetDetailTabBarResponsive.test.ts` (**CẬP NHẬT** — 6 tab, class chấm trên `DetailTabBar.vue`) · `frontend/src/views/detailReadForbiddenGate.test.ts` (**KHÔNG SỬA MỘT ASSERT NÀO** — nó là bằng chứng A7).
+> Lệnh chấm: `cd frontend && npx vitest run` (0 fail toàn suite) + `npx vue-tsc --noEmit` (0 lỗi). **KHÔNG** `npm run build` (= deploy live).
+
+**Hằng số dùng chung của file test (SSoT của guard — thêm màn Detail thứ 6 phải thêm vào đây):**
+
+```ts
+const DETAIL_VIEWS = [
+  { path: 'src/views/asset/AssetDetailView.vue',              doctype: 'AC Asset' },
+  { path: 'src/views/pm/PMWorkOrderDetailView.vue',           doctype: 'PM Work Order' },
+  { path: 'src/views/cm/CMWorkOrderDetailView.vue',           doctype: 'Asset Repair' },
+  { path: 'src/views/calibration/CalibrationDetailView.vue',  doctype: 'IMM Asset Calibration' },
+  { path: 'src/views/incident/IncidentDetailView.vue',        doctype: 'Incident Report' },
+] as const
+```
+
+| TC | Nội dung | INV | Acceptance |
+|---|---|---|---|
+| **TC-CONNTAB-01** | *(source-scan, loop `DETAIL_VIEWS`)* mỗi file: `<RelatedRecords` xuất hiện **đúng 1** lần ∧ `indexOf('data-testid="tab-panel-related"') < indexOf('<RelatedRecords')` ∧ thẻ mở panel liên quan chứa `v-if` **và không** chứa `v-show` ∧ thẻ mở panel chính chứa `v-show` | INV-CONNTAB-1/2 | A1 |
+| **TC-CONNTAB-02** | Mount `PMWorkOrderDetailView` (phiếu hợp lệ, tab mặc định) ⇒ spy `getConnections` gọi **0** lần ∧ `find('[data-testid="related-records"]').exists() === false` | INV-CONNTAB-3 | A2 |
+| **TC-CONNTAB-03** | Cùng wrapper: `trigger('click')` trên `[data-testid="tab-related"]` + `flushPromises()` ⇒ `getConnections` gọi **đúng 1** lần ∧ `findAll('[data-testid="related-records"]').length === 1` | INV-CONNTAB-4 | A2 |
+| **TC-CONNTAB-04** | Tab liên quan active ⇒ `find('[data-testid="tab-panel-detail"]').attributes('style')` **chứa** `display: none`; bấm về tab chính ⇒ style **không** chứa `display: none` ∧ `[data-testid="tab-panel-related"]` **không tồn tại** | INV-CONNTAB-5/6 | A3 |
+| **TC-CONNTAB-05** | Màn PM: `setValue('ghi chú thử')` vào `#tech-notes` → sang tab liên quan → quay lại ⇒ `element.value === 'ghi chú thử'` (đọc từ DOM, **không** đọc ref) | INV-CONNTAB-7 | A4 |
+| **TC-CONNTAB-06** | Đổi tab qua-lại 1 vòng ⇒ spy nạp chi tiết gọi **đúng 1** lần: PM `fetchWorkOrder`, Sự cố `getIncident` | INV-CONNTAB-8 | A4 |
+| **TC-CONNTAB-07** | *(loop 5 màn, stub `RelatedRecords` ghi lại props)* mở tab liên quan ⇒ `findComponent(Stub).props()` khớp **đúng** cặp: `AC Asset`/`store.currentAsset.name` · `PM Work Order`/`wo.name` · `Asset Repair`/`wo.name` · `IMM Asset Calibration`/`props.id` · `Incident Report`/`name` | INV-CONNTAB-9 | A5 |
+| **TC-CONNTAB-08** | Nhãn tab: `DETAIL_RELATED_TABS` = đúng `[Chi tiết, Bản ghi liên quan]`; DOM tab bar của **cả 5** màn ⇒ text ⊂ tập nhãn VI đã duyệt, **không** chứa bất kỳ `doctype` nào của `DETAIL_VIEWS`, **không** chứa `[A-Za-z]{3,}` ngoài danh sách VI cho phép (ví dụ hợp lệ duy nhất ở màn Tài sản: nhãn cũ giữ nguyên) | INV-CONNTAB-10 | A6 |
+| **TC-CONNTAB-09** | Gác: (a) trạng thái đang tải ⇒ `[data-testid="detail-tab-bar"]` **không tồn tại** ở cả 5 màn; (b) 403 in-envelope (fixture của `detailReadForbiddenGate`) ⇒ **không** tab bar ∧ **không** `related-records`; (c) `detailReadForbiddenGate.test.ts` chạy lại **xanh, 0 assert bị sửa** | INV-CONNTAB-12 | A7 |
+| **TC-CONNTAB-10** | *(unit `DetailTabBar.test.ts`)* `role="tablist"` **1** phần tử; mỗi nút `role="tab"` + `type="button"`; **đúng 1** nút `aria-selected="true"` và nó là tab đang chọn; click nút phát `update:modelValue` với **đúng** `key`; container class chứa `overflow-x-auto`; nút chứa `shrink-0` ∧ `whitespace-nowrap` | INV-CONNTAB-11 | A8 |
+| **TC-CONNTAB-11** | *(cập nhật `assetDetailTabBarResponsive.test.ts`)* `AssetDetailView.vue` khai **6** khoá tab (5 cũ + `related`) ∧ nhãn `Bản ghi liên quan` có mặt; phần class cuộn ngang (`overflow-x-auto` · `shrink-0`/`whitespace-nowrap`) chấm trên **`DetailTabBar.vue`**; bỏ `overflow-x-auto` ở component ⇒ test **phải đỏ** (tự kiểm bằng cách sửa tạm rồi hoàn nguyên) | INV-CONNTAB-11 | A9 |
+| **TC-CONNTAB-12** | *(sentinel biên thay đổi)* `RelatedRecords.vue` **không** chứa `tab-panel` / `DetailTabBar`; `api/connections.ts` **không** chứa `activeTab` — hợp đồng vòng 1+2 còn đóng băng. *(Đây là **proxy**; bằng chứng chính của A10 là `git diff --name-only` ở DoD.)* | — | A10 |
+| **TC-CONNTAB-13** | Màn Tài sản: mount ⇒ tab mặc định `info`, `getConnections` **0** lần (trước vòng này là **1** — đây là điểm đo rõ nhất của cải thiện); mở tab `related` ⇒ **1** lần ∧ panel `info` **không** còn chứa `related-records` | INV-CONNTAB-3/4 | A2 |
+| **TC-CONNTAB-14** | Màn CM: chuỗi `v-if` cũ còn nguyên — `store.loading && !wo` ⇒ khung xương ∧ **0** tab bar; `loadBlocked` ⇒ `detail-load-error` ∧ **0** tab bar; `wo` ⇒ có tab bar ∧ lưới `md:grid-cols-5` nằm **trong** `tab-panel-detail` | INV-CONNTAB-12 | A7 |
+| **TC-CONNTAB-15** | *(ghi nhận hành vi đã ratify D-TAB-8)* mở tab liên quan → về tab chính → mở lại ⇒ `getConnections` gọi **2** lần (nạp lại là CHỦ ĐÍCH, không phải rò rỉ); test này khoá quyết định "không `<KeepAlive>`" | — | A2 |
+
+**Chống test giả xanh (đọc trước khi khai DONE):**
+- **TC-CONNTAB-02/03/13 KHÔNG được stub `RelatedRecords`.** Stub `true` ⇒ spy không bao giờ chạy ⇒ TC-02 xanh **giả** (0 gọi vì bị stub, không phải vì lười) và TC-03 đỏ. Dùng component thật + **partial mock** module: `vi.mock('@/api/connections', async () => ({ ...(await vi.importActual(…)), getConnections: spy }))` — giữ `routeForDoctype`/`detailRouteForDoctype`/`viLabel`/`countBadge`/`previewMeta`/`linkFilters` **thật**, nếu không component sẽ nổ khi render.
+- **TC-CONNTAB-07 mới được stub** `RelatedRecords` (mục đích là đọc prop). Hai mục đích ⇒ hai wrapper/file khác nhau; đừng gộp.
+- **A2 phải đo bằng spy**, không được suy ra từ mã nguồn ("có `v-if` nên chắc là lười") — `v-if` đặt sai nhánh vẫn có thể mount.
+- **Style của `v-show`**: khi panel đang hiện, `attributes('style')` có thể là `undefined` hoặc `''` ⇒ assert `not.toContain('display: none')`, **không** assert bằng `toBe('')`.
+- **TC-CONNTAB-05 đọc `element.value` từ DOM**, không đọc `vm.techNotes`: ref sống sót không chứng minh input còn giá trị nếu panel bị unmount rồi tạo lại.
+- **TC-CONNTAB-01 phải loop `DETAIL_VIEWS`**, không viết 5 `it()` chép tay — thêm màn Detail thứ 6 mà quên tab phải **đỏ tự động** (đó là toàn bộ giá trị của guard này).
+- **TC-CONNTAB-09(c)**: nếu `detailReadForbiddenGate.test.ts` đỏ, **sửa view**, tuyệt đối không sửa assert của nó — đỏ ở đó nghĩa là tab bar đang render trên phiếu bị từ chối đọc (nút tab chết).
+- **Đếm file test**: toàn suite phải đi từ ≥268 lên ≥273 file; suite giảm hoặc đứng yên ⇒ có file bị ghi đè nhầm.
+
+---
+
+### XVIII.6 AC-CR-90 (vòng 4/5 — BE+FE): `can_create` là GƯƠNG của enforcement + `create_prefill` (INV-CONN4-1..10 · INV-CONNFE4-1..5)
+
+> Hợp đồng: [`05 §III.24.7`](./05_API_Specification.md) · quyết định: [ADR §12](./ADR-IMM00-CONNECTIONS-TREE.md) · code shape BE: [`04 §V.8`](./04_Backend_Design.md) · FE: [`06 §VIII.6`](./06_Frontend_Design.md).
+> **File test BE**: `assetcore/tests/test_connections_tree.py` (**append**) + `assetcore/tests/test_connections_create.py` (**MỚI** — parity 3 điểm + oracle ma trận) + `assetcore/tests/test_imm12.py` (**append** — EC-12-05).
+> **`test_connections.py` (11 TC) vẫn KHÔNG được sửa một dòng nào.** TC cũ `TC-CONN-T-19` (cổng vòng đời chặn-tất) **PHẢI đổi kỳ vọng** — đây là **breakage đã khai báo trước**, hợp lệ, xem XVIII.6.4.
+
+#### XVIII.6.1 Fixture
+
+- 3 `AC Asset` **cùng category**, mỗi cái đặt sẵn một `lifecycle_status`: `Active` · `Out of Service` · `Decommissioned` (đặt bằng `frappe.db.set_value` — vòng này test **vị-từ đọc**, không test cỗ máy transition).
+- Mỗi thiết bị **mới tinh**: **0** `Asset Repair` đang mở (nếu không, oracle đỏ vì `IMM09_ASSET_HAS_OPEN_WO` — biến nhiễu, xem D-CR4-6).
+- 1 user **đủ 4 capability** (`pm.create` · `repair.create` · `calibration.create` · `corrective.create`) cho nhóm oracle; 1 user **hạn chế** (chỉ base role) cho nhóm phân quyền.
+- Dọn bằng `tests/_asset_cleanup.purge_asset` / `purge_category_by_name` trong `tearDownClass`; **mọi bản ghi do oracle tạo ra** (PM WO / Asset Repair / Calibration / Incident) phải bị xoá — oracle **tạo thật**, không mock.
+
+#### XVIII.6.2 Test case ↔ invariant ↔ acceptance
+
+| TC | Nội dung | INV | AC |
+|---|---|---|---|
+| **TC-CONN4-01** | Mỗi ô của mọi hub có **đủ 13 khoá**; `create_prefill` là `dict`, mọi value `str` | INV-CONN4-8 | AC1 |
+| **TC-CONN4-02** | **Bất biến BA CHIỀU** trên **toàn bộ** doctype allowlist: `can_create == False ⟺ create_route_hint == "" ∧ create_prefill == {}` — **0 ô vi phạm** | INV-CONN4-1 | AC1 |
+| **TC-CONN4-03** | **Binding token**: `∀ (dt, token) ∈ CREATE_CAPABILITY ⇒ rbac.CAPABILITY_MAP[token] == (dt, "create")` | INV-CONN4-2 | AC2 |
+| **TC-CONN4-04** | **Parity 3 điểm** cho 5 doctype khai token — cả 3 giá trị **derive từ nguồn**: (1) chuỗi cap tại **chính** hàm tạo trong `api/imm08\|imm09\|imm11\|imm12\|purchase.py` (đọc AST/nguồn, **không** chép hằng), (2) `CREATE_CAPABILITY[dt]`, (3) `requiredCapabilities` của route có `path == CREATE_CONTEXT[dt].route` đọc từ `frontend/src/router/index.ts` ⇒ **ba bằng nhau** | INV-CONN4-3 | AC2 |
+| **TC-CONN4-05** | `AC Asset` @ **`Out of Service`** ⇒ `can_create is True` cho «Phiếu sửa chữa» + «Sự cố»; `is False` cho «Phiếu bảo trì (PM)» + «Phiếu hiệu chuẩn» | INV-CONN4-4 | AC3 |
+| **TC-CONN4-06** | `AC Asset` @ **`Decommissioned`** ⇒ `can_create is False` cho **cả 4** | INV-CONN4-5 | AC3 |
+| **TC-CONN4-07** | **ORACLE 4×3** (12 ca): với user đủ cap, `can_create` của ô **==** `(gọi THẬT service tạo tương ứng KHÔNG raise)` — `imm08.create_adhoc_work_order` · `imm09.create_work_order` · `imm11.create_calibration` · `imm12.report_incident`. Ca "không raise" phải **thật sự tạo** rồi dọn; ca "raise" khẳng định **0 bản ghi mới** | INV-CONN4-6 | AC4 |
+| **TC-CONN4-08** | **Anti-false-green cho oracle**: đảo **một** nhánh của `_create_lifecycle_allows` (vd cho `Asset Repair` dùng `BLOCKED_FOR_WO`) ⇒ TC-CONN4-07 **phải đỏ**. Ghi kỹ thuật kiểm chứng vào docstring (không cần commit mutation) | INV-CONN4-6 | AC4 |
+| **TC-CONN4-09** | **Prefill đúng khoá**: `AC Asset` @ `Active` ⇒ ô «Phiếu bảo trì (PM)» `create_prefill == {"asset": <mã thiết bị>}`; ô «Phiếu sửa chữa» tương tự; hub `Incident Report` ⇒ ô «Phiếu sửa chữa» `{"incident": <mã sự cố>}`; hub `PM Work Order` ⇒ ô «Phiếu sửa chữa» `{"pm_wo": <mã phiếu>}` | INV-CONN4-8 | AC5 |
+| **TC-CONN4-10** | **Prefill ⊆ khoá màn ĐỌC**: ∀ (dt, parent) ∈ `query_keys` ⇒ khoá đó xuất hiện dưới dạng `route.query.<key>` trong **chính** file `.vue` của route `CREATE_CONTEXT[dt].route` (đọc `router/index.ts` để lấy đường dẫn component) | INV-CONN4-7 | AC5 |
+| **TC-CONN4-11** | **ZERO-COST không đổi**: wrap `frappe.get_list` ⇒ vẫn **đúng 1 lời gọi/ô**; `frappe.db.count`/`frappe.db.sql` patch raise ⇒ **không** raise; `lifecycle_status` đọc **đúng 1 lần/cây** (đếm lời gọi `frappe.db.get_value` trên `AC Asset`) | INV-CONN4-10 | AC7 |
+| **TC-CONN4-12** | User **hạn chế** (0 cap): mọi ô ⇒ `can_create is False` ∧ `create_route_hint == ""` ∧ `create_prefill == {}` | INV-CONN4-1/2 | AC1 |
+| **TC-CONN4-13** | `api/imm00.create_incident` — thiếu `corrective.create` ⇒ **`frappe.PermissionError`**; `count("Incident Report")` **trước == sau** | INV-CONN4-9 | AC6 |
+| **TC-CONN4-14** | `api/imm00.create_incident` — `asset` **không tồn tại** ⇒ envelope `success is False` ∧ `code == NOT_FOUND` (**HTTP-200 in-envelope**, không raise); `count("Incident Report")` **trước == sau** | INV-CONN4-9 | AC6 |
+| **TC-CONN4-15** | `api/imm00.create_incident` — payload hợp lệ **kèm** khoá độc (`status='Closed'`, `reported_by='x@y.z'`, `reported_to_byt=1`, `docstatus=1`) ⇒ tạo được, nhưng bản ghi **KHÔNG** mang giá trị nào trong số đó (whitelist ăn) | INV-CONN4-9 | AC6 |
+| **TC-CONN4-16** | `services/imm12.report_incident` — asset `Decommissioned` ⇒ lỗi nghiệp vụ mã `IMM12-ASSET-DECOMMISSIONED` (`http_status 422`), **0** bản ghi mới; asset `Out of Service` ⇒ **tạo được** (EC-12-05 chỉ chặn `Decommissioned`) | BR-12-29 | AC3/AC4 |
+| **TC-CONN4-17** | **Registry parity**: `MSG.IMM12_ASSET_DECOMMISSIONED` ∈ registry `utils/messages.py` với đủ `title/template/action_hint/severity/http_status` và có **call-site THẬT** trong `services/imm12.py` | BR-12-29 | AC6 |
+
+> ⚠️ **TC-CONN4-04 phải neo theo TÊN HÀM, không phải "hit đầu tiên trong file"** — cùng một token xuất hiện ở **nhiều** call-site: `pm.create` có **4** call-site trong `api/imm08.py`, `calibration.create` có **2** trong `api/imm11.py` (`create_calibration_schedule` **và** `create_calibration`), `repair.create` có **2** trong `api/imm09.py`. Grep cả file rồi lấy hit đầu = **guard đỏ giả hoặc xanh giả**. Bảng neo (verify @source 2026-07-28):
+>
+> | DocType đích | Module API | **Hàm neo** | Cách đọc |
+> |---|---|---|---|
+> | `PM Work Order` | `api/imm08.py` | `create_pm_work_order` | AST: `rbac.require("<cap>")` **trong thân hàm này** |
+> | `Asset Repair` | `api/imm09.py` | `create_repair_work_order` | như trên |
+> | `IMM Asset Calibration` | `api/imm11.py` | `create_calibration` | như trên (**không** phải `create_calibration_schedule`) |
+> | `Incident Report` | `api/imm12.py` | hằng module `_CAP_REPORT` | AST: gán hằng (`rbac.can` + 403 in-envelope, không `rbac.require`) |
+> | `AC Purchase` | `api/purchase.py` | `create_purchase` | AST: `rbac.require("<cap>")` trong thân hàm |
+>
+> Tương tự, đọc `requiredCapabilities` phải neo theo **`path` khớp `CREATE_CONTEXT[dt].route`**, không phải theo thứ tự xuất hiện. Guard phải chịu được `meta` xuống dòng và nháy đơn/kép; khi đỏ, phân biệt **"đổi cap"** (bug thật) với **"đổi hình thức khai"** (sửa guard).
+
+#### XVIII.6.3 Test FE (`RelatedRecords.test.ts` — append)
+
+| TC | Nội dung | INV |
+|---|---|---|
+| **TC-CONNFE4-01** | `can_create:false` (kể cả khi `create_route_hint`/`create_prefill` bị BE lỗi gửi kèm) ⇒ **0** nút `related-create-*` trong DOM | INV-CONNFE4-1 |
+| **TC-CONNFE4-02** | `create_route_hint` **không phân giải** được trong router giả ⇒ **0** nút (resolve-or-hide) | INV-CONNFE4-1 |
+| **TC-CONNFE4-03** | Click nút ⇒ `router.push` gọi với **`{ path: '/cm/create', query: { asset: 'AC-ASSET-…' } }`** — khẳng định **đối số object**, không phải chuỗi/`path` trần | INV-CONNFE4-2 |
+| **TC-CONNFE4-04** | `create_prefill` thiếu (`undefined`, BE chưa reload) ⇒ `router.push` gọi với `{ path }` (không khoá bịa, không `?` cụt) | INV-CONNFE4-3 |
+| **TC-CONNFE4-05** | Nhãn nút = `Tạo phiếu sửa chữa`; `wrapper.text()` **không** chứa `Asset Repair`, **không** khớp `/\b[a-z]+\.(create|read|write)\b/` | INV-CONNFE4-4 |
+| **TC-CONNFE4-06** | Ô `total: 0` ∧ `can_create: true` ⇒ **vẫn có** nút tạo | INV-CONNFE4-5 |
+
+#### XVIII.6.4 Breakage đã khai báo trước (hợp lệ — QA không chấm là nới guard)
+
+- **`TC-CONN-T-19`** (§XVIII.2) hiện khẳng định *"`Decommissioned` ⇒ **mọi** ô `can_create is False`"* dựa trên cổng chặn-tất `BLOCKED_FOR_WO`. Sau vòng 4, mệnh đề `Decommissioned` **vẫn đúng cho 4 doctype phiếu** nhưng **không còn đúng cho `Asset Document`/`Asset Transfer`/`AC Purchase`/`Service Contract`** (chúng không có cổng vòng đời — gương của service). ⇒ **thu hẹp** TC-CONN-T-19 về 4 doctype phiếu và **thêm** TC-CONN4-05/06 cho ma trận đầy đủ. Sau khi sửa, TC vẫn phải **đỏ** nếu ai bỏ cổng vòng đời của PM/Hiệu chuẩn.
+- **`TC-CONN-T-01`** (đủ 12 khoá) → **13 khoá**.
+- Không TC nào khác của §XVIII.2 được đổi assert.
+
+#### XVIII.6.5 DoD vòng 4 (chấm ĐỎ nếu thiếu bất kỳ mục nào)
+
+- `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_connections` **XANH** (11 TC, **0 assert bị sửa**).
+- `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_connections_tree` **XANH**.
+- `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_connections_create` **XANH** (file MỚI).
+- `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_imm09` **XANH** · `... test_imm12` **XANH**.
+- `cd frontend && npx vitest run` **0 fail**; `npx vue-tsc --noEmit` **0 lỗi**.
+- **Guard count: DELTA = 0.** `_EXPECTED_TEST_COUNT` (`tests/test_mobile_oas.py`) và `_GUARD_SUITE_SUM` (`tests/test_mobile_docset.py`) là counter của **guard-suite MOBILE/OAS 7 module**; vòng này **0 op OAS**, test mới **không** thuộc suite ⇒ **KHÔNG đụng**. Nếu vì lý do nào đó phải đụng: đọc số **trên đĩa** trước (đọc 2026-07-28: `1024` / `1167` / `_MOBILE_OAS_TOTAL 1193`) và chỉ sửa theo delta THẬT.
+- `git diff --name-only` chỉ chứa: `services/shared/connection_meta.py` · `services/connections.py` · `api/imm00.py` · `services/imm12.py` · `utils/messages.py` · 3 file test BE · `frontend/src/api/connections.ts` · `frontend/src/components/common/RelatedRecords.vue` · file test FE · `docs/imm-00/*` · `docs/imm-12/*`.
+- ⏱ Mọi lệnh `bench run-tests` đặt timeout tool **≥ 600000ms** (kill giữa chừng = `tearDownClass` không chạy = **nhiễm DB**, không phải bug sản phẩm).
+- ⚠️ `--preload`: sửa `api/*.py` **không** có hiệu lực qua HTTP tới khi USER reload ⇒ **chấm bằng `run-tests`, KHÔNG curl**.
+
+---
+
+### XVIII.7 AC-CR-91 (vòng 5/5 — FE): «Xem tất cả» dẫn tới danh sách **ĐÃ LỌC** (INV-CONNFE5-1..11 · INV-CONN-16/17)
+
+> Quyết định: [ADR §13](./ADR-IMM00-CONNECTIONS-TREE.md) · spec FE: [`06 §VIII.7`](./06_Frontend_Design.md).
+> **File test FE**: `frontend/src/router/connectionsListParity.test.ts` (**MỚI** — guard tĩnh) + `api/connections.test.ts` (**append** + **1 assert sửa**) + `components/common/RelatedRecords.test.ts` (**append**) + test render 2 màn wire.
+> **File test BE**: `assetcore/tests/test_connections_tree.py` (**chỉ append 2 TC**). **Payload BE 0 thay đổi** ⇒ `test_connections.py` (11 TC) **không sửa một dòng nào**.
+
+#### XVIII.7.1 Vì sao 4 vòng test xanh vẫn để lọt 13/16 ô
+
+`INV-CONNFE-6` chỉ đòi *"ô có ≥ 1 khoá lọc"* — nó đếm **sự tồn tại của khoá**, không hỏi **khoá đó có ai đọc không**. Nút vẫn render, `router.push` vẫn đúng đối số, test vẫn xanh — trong khi màn đích **bỏ qua** query. Đây là *test đúng mệnh đề sai*: mệnh đề cần là **"khoá tới được nơi có người đọc"**.
+
+Vòng 4 đã bịt đúng lỗ này cho nhánh **tạo** (`connectionsCreateParity.test.ts`: đối chiếu khoá ⇄ `route.query.<key>` trong **chính** file view). Vòng 5 mang **nguyên khuôn** đó sang nhánh **danh sách**. Bài học chung: *deep-link chỉ được chấm xanh khi guard đọc tới file view của route đích* — không có đường tắt nào rẻ hơn mà đúng.
+
+#### XVIII.7.2 Guard tĩnh MỚI — `frontend/src/router/connectionsListParity.test.ts`
+
+Mirror `connectionsCreateParity.test.ts`: đọc `src/router/index.ts` bằng phân tích văn bản → cắt block route theo `path: '<p>'` → lấy file view từ `component: () => import('@/…')` → `readFileSync` file view → assert.
+
+| TC | Nội dung | INV |
+|---|---|---|
+| **TC-CONNLIST-01** | ∀ entry ∈ `DOCTYPE_LIST_TARGET`: `path` **có** trong `router/index.ts` ∧ phân giải được ra file view tồn tại | INV-CONNFE5-1 |
+| **TC-CONNLIST-02** | ∀ entry: source file view **chứa** `route.query.<queryKey>` ⇒ không ai khai được khoá mà màn đích không đọc | INV-CONNFE5-2 |
+| **TC-CONNLIST-03** | ∀ doctype ∈ `LIST_TARGET_NO_FILTER`: view của `DOCTYPE_ROUTE[doctype]` **KHÔNG** chứa `route.query.asset` (allowlist **chỉ-giảm**) | INV-CONNFE5-3 |
+| **TC-CONNLIST-04** | `keys(DOCTYPE_ROUTE)` == `keys(DOCTYPE_LIST_TARGET) ∪ LIST_TARGET_NO_FILTER` ∧ giao == ∅ ⇒ **0 doctype vùng xám** (20 = 9 + 11) | INV-CONNFE5-4 |
+| **TC-CONNLIST-05** | ∀ doctype ∈ `DOCTYPE_LIST_TARGET`: `DOCTYPE_LIST_TARGET[dt].path === DOCTYPE_ROUTE[dt]` ⇒ hai bản đồ **không** lệch đường dẫn | INV-CONNFE5-1 |
+
+> ⚠️ **Cách TC-CONNLIST-03 được phép ĐỎ:** một view trong allowlist bắt đầu đọc `route.query.asset` ⇒ **đỏ có chủ đích** ⇒ người sửa phải **thăng hạng** doctype đó sang `DOCTYPE_LIST_TARGET` (allowlist chỉ được **giảm**, không được phình). Đỏ ở đây **không** phải guard hỏng.
+> ⚠️ `routeBlock()` cắt tới `path: '` kế tiếp ⇒ **thứ tự khai route quan trọng**. `/incidents/list` phải được tìm bằng chuỗi **chính xác** `path: '/incidents/list'` (đừng khớp tiền tố `/incidents`), và `/rca` đừng khớp nhầm `/rca/:id`. Dùng so khớp **nguyên chuỗi có nháy đóng**.
+
+#### XVIII.7.3 Test thuần (`api/connections.test.ts` — append + **1 assert sửa**)
+
+| TC | Nội dung | INV |
+|---|---|---|
+| **TC-FE-CONN-30** | **DỊCH khoá**: `{doctype:'PM Work Order', deep_link_filters:{asset_ref:'AC-1'}}` ⇒ `{path:'/pm/work-orders', query:{asset:'AC-1'}}`. Tương tự `Asset Commissioning`/`final_asset` ⇒ **`null`** (không có trong bản đồ) | INV-CONNFE5-5 |
+| **TC-FE-CONN-31** | `deep_link_filters = {name:'a,b,c'}` ⇒ **`null`** (internal_links nhiều bản ghi) | INV-CONNFE5-6 |
+| **TC-FE-CONN-32** | `deep_link_filters = {}` ∧ `filters = {asset_ref:'AC-1'}` ⇒ **`null`** (**KHÔNG** fallback — D-FE-6 quy tắc 1) | INV-CONNFE5-6 |
+| **TC-FE-CONN-33** | `deep_link_filters` **vắng mặt** (`undefined`) ∧ `filters = {asset_ref:'AC-1'}` ⇒ vẫn dịch được (tolerant reader cho backend **thật sự cũ**) | INV-CONNFE5-5 |
+| **TC-FE-CONN-34** | 2 khoá còn lại sau khi loại `name` ⇒ **`null`**; value rỗng/khoảng trắng ⇒ **`null`** | INV-CONNFE5-6 |
+| **TC-FE-CONN-35** | Doctype ∈ `LIST_TARGET_NO_FILTER` (vd `IMM CAPA Record`) ⇒ **`null`** dù có khoá lọc hợp lệ | INV-CONNFE5-6 |
+| **⚠️ SỬA** `linkFilters` | Assert cũ `'deep_link_filters rỗng ⇒ fallback filters (backend cũ)'` ⇒ **đổi kỳ vọng thành `null`** | ADR §13.2 |
+
+> **Breakage đã khai báo trước (hợp lệ — QA KHÔNG chấm là nới guard):** assert `linkFilters({deep_link_filters:{}, filters:{asset:'A1'}}) === {asset:'A1'}` đang **ossify một cài đặt phản D-FE-6**. Hợp đồng đúng từ vòng 2; code lệch; test khoá cái lệch. Sửa **test theo hợp đồng**, không sửa hợp đồng theo test. Chi tiết + hậu quả production: ADR §13.2.
+
+#### XVIII.7.4 Test render (`RelatedRecords.test.ts` — append)
+
+| TC | Nội dung | INV |
+|---|---|---|
+| **TC-CONNFE5-01** | Ô `total > 0`, doctype ∈ `LIST_TARGET_NO_FILTER` ⇒ **0** `[data-testid="conn-see-all"]` trong ô **∧** preview 5 dòng **vẫn render** (mất nút ≠ mất dữ liệu) | INV-CONNFE5-7 |
+| **TC-CONNFE5-02** | Ô `PM Work Order` + `deep_link_filters:{asset_ref:'AC-1'}` ⇒ click ⇒ `router.push` gọi **đúng 1 lần** với `{path:'/pm/work-orders', query:{asset:'AC-1'}}` — khẳng định **object**, và khẳng định **`asset_ref` KHÔNG** có trong đối số | INV-CONNFE5-8 |
+| **TC-CONNFE5-03** | `can` stub trả `false` cho cap của route đích ⇒ **0** nút «Xem tất cả» trong ô đó (dead-gate `/unauthorized`) | INV-CONNFE5-9 |
+| **TC-CONNFE5-04** | Ô `internal_links` (`deep_link_filters:{name:'A,B'}`) ⇒ **0** nút, **0** `router.push` | INV-CONNFE5-7 |
+| **TC-CONNFE5-05** | `wrapper.text()` + `wrapper.html()` **không** chứa `asset_ref` / `final_asset` / `critical_asset` / tên DocType tiếng Anh nào (LL-FE-53) | INV-CONNFE5-11 |
+| **TC-CONNFE5-06** | **Đếm trên payload GIỐNG THẬT** (19 ô của `ac_asset_dashboard`): số ô có `conn-see-all` **== 9**; số nút mà `listTarget` trả `null` **== 0** ⇒ acceptance "≥ 8 lọc / 0 không lọc" được **khoá bằng test**, không chỉ đo tay | AC vòng |
+
+#### XVIII.7.5 Test render 2 màn wire (Incident · RCA)
+
+| TC | Nội dung | INV |
+|---|---|---|
+| **TC-CONNFE5-07** | Mount `IncidentListView` với `route.query = {asset:'AC-1'}` ⇒ `listIncidents` (mock) được gọi **kèm `asset:'AC-1'`** ngay lần nạp **đầu tiên** (không nạp-rồi-lọc-lại) | INV-CONNFE5-10 |
+| **TC-CONNFE5-08** | DOM chứa chip **`Thiết bị: AC-1`** + nút bỏ lọc; bấm bỏ lọc ⇒ gọi lại **không** kèm `asset` | INV-CONNFE5-10 |
+| **TC-CONNFE5-09** | Đổi `route.query.asset` → `AC-2` ⇒ gọi lại kèm `asset:'AC-2'` (drill lần 2 trên cùng route) | INV-CONNFE5-10 |
+| **TC-CONNFE5-10** | `asset` **cộng dồn** với `status`/`severity` (Incident) và `method`/`status` (RCA): đặt lọc thiết bị **không** xoá lọc trạng thái đang có và ngược lại | ADR §D-CR5-7 |
+| **TC-CONNFE5-11** | Cùng bộ TC-07..10 cho `RCAListView` với `listRcas` | INV-CONNFE5-10 |
+
+> ⚠️ **Bẫy xanh-giả số 1:** assert "view đọc `route.query.asset`" **không đủ** — phải assert **đối số gọi API**. Một view đọc query rồi quên truyền xuống store sẽ qua guard tĩnh nhưng người dùng vẫn thấy danh sách đầy đủ.
+> ⚠️ **Bẫy xanh-giả số 2:** mock store trả mảng rỗng cho **mọi** tham số ⇒ "lọc" và "không lọc" nhìn giống nhau. Mock phải phân biệt được: trả **tập khác nhau** theo `params.asset`.
+
+#### XVIII.7.6 Test BE (`test_connections_tree.py` — **chỉ append 2 TC**, payload KHÔNG đổi)
+
+| TC | Nội dung | INV |
+|---|---|---|
+| **TC-CONN-T-23** | ∀ hub ∈ `iter_dashboard_modules()`, ∀ ô: ô **reverse-link** ⇒ `len(deep_link_filters) == 1` ∧ khoá **≠** `"name"`; ô **internal-link** ⇒ khoá **==** `"name"` | **INV-CONN-16** |
+| **TC-CONN-T-24** | Ô **reverse-link**: **giá trị** của khoá `deep_link_filters` **==** mã bản ghi cha (`name` truyền vào `build_connections`) | **INV-CONN-17** |
+
+Hai TC này đóng đinh chính hai giả định mà `listTarget` dựa vào. Vỡ INV-CONN-16 ⇒ FE trả `null` ⇒ **nút biến mất câm lặng**. Vỡ INV-CONN-17 ⇒ dịch khoá giữ nguyên value ⇒ lọc ra **nhầm hồ sơ** (tệ hơn không lọc, vì trông như đã lọc đúng).
+
+> Dùng lại fixture + reader giả sẵn có của file (`list_fn` tiêm vào) ⇒ **0 truy vấn thật**, **0** ảnh hưởng ZERO-COST (INV-CONN-6). **KHÔNG** sửa assert của 23 TC hiện có.
+
+#### XVIII.7.7 DoD vòng 5 (chấm ĐỎ nếu thiếu bất kỳ mục nào)
+
+- `cd frontend && npx vitest run` **0 fail**. Baseline **trước vòng: 278 file / 2591 test, toàn xanh** (đo 2026-07-28) ⇒ báo cáo **trước → sau**.
+- `npx vue-tsc --noEmit` **0 lỗi**.
+- `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_connections_tree` **XANH**. Baseline **trước vòng: 23 TC** (`grep -c '    def test_'`) → **sau: 25**.
+- `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_connections` **XANH** (11 TC, **0 assert bị sửa** — payload BE không đổi).
+- Đo trên tab của **1 AC Asset** (persona đủ capability): ô «Xem tất cả» **đã lọc** ≥ **8** (dự kiến **9**) · nút mở ra danh sách **KHÔNG lọc** = **0** · 404/route chết = **0**.
+- **Guard count: DELTA = 0.** Vòng này **0 op OAS, 0 endpoint mới** ⇒ **KHÔNG đụng** `_EXPECTED_TEST_COUNT` / `_GUARD_SUITE_SUM` / `_MOBILE_OAS_TOTAL`.
+  > 📌 **Giá trị ĐÚNG đọc THẲNG từ đĩa 2026-07-28: `1024` / `1167` / `1193`.** Con số `983 / 1126 / 1152` lưu hành trong prompt/STATE là **STALE** (chụp trước khi AC-CR-80..86 land). Truy nguyên xong ⇒ **không chỉnh số cho khớp bên nào**: vòng này delta 0, cứ để nguyên giá trị trên đĩa. Vòng sau nếu phải sửa counter thì **đọc lại đĩa trước**, đừng tin số trong tài liệu bàn giao.
+- ⏱ Mọi lệnh `bench run-tests` đặt timeout tool **≥ 600000ms**.
+- ⛔ **KHÔNG** `npm run build` (= deploy live) · **KHÔNG** `git commit/push` · **KHÔNG** `bench migrate`.
+
+### XVIII.8 AC-CR-93 (FE): **chỉ render ô có dữ liệu** + ô rỗng gộp một dòng/nhóm (INV-CONNFE6-1..9)
+
+> Quyết định: [ADR §14](./ADR-IMM00-CONNECTIONS-TREE.md) (D-CR93-1..7 · §14.7 danh mục supersede · §14.8 breakage) · spec thực thi: [`06 §VIII.8`](./06_Frontend_Design.md) · nghiệp vụ: [`02 §IV.39`](./02_Analysis_Design.md) (FR-00-CONN-04 / BR-00-CONN-35..41).
+> **File test**: `frontend/src/components/common/RelatedRecords.test.ts` (**append 7 TC + đúng 1 TC sửa** — TC-FE-CONN-10 `:283`, xem §XVIII.8.4) · `frontend/src/api/connections.test.ts` (**chỉ append** 4 TC helper thuần; **0** assert cũ bị sửa).
+> **Quy ước số hiệu (chốt để không sinh hệ thứ ba)**: TC render/unit của họ Connections đánh số **tiếp** theo *file test đã ship* — `TC-FE-CONN-24..30` (render) và `TC-FE-CONN-40..43` (unit). Hệ `TC-CONNFE-xx` / `TC-CONNFE5-xx` ở §XVIII.4/§XVIII.7 là **tên tài liệu của vòng 2/5**, giữ nguyên để truy vết, **không** dùng cho TC mới.
+> Lệnh chấm: `cd frontend && npx vitest run` (0 fail toàn suite) + `npx vue-tsc --noEmit` (0 lỗi). **KHÔNG** `npm run build` (= deploy live) · **KHÔNG** chạy suite BE (vòng FE-thuần; phải chạy = scope sai).
+
+#### XVIII.8.1 Fixture — **giống thật**, không fixture 2 ô cho tiện
+
+```ts
+// PAYLOAD_19: khuôn đồ thị `ac_asset_dashboard` — 19 ô / ĐÚNG 3 ô có dữ liệu / 4 nhóm,
+// trong đó ≥1 nhóm có MỌI ô total:0 (ca AC5). Mỗi ô có label_vi tiếng Việt.
+// Ô rỗng: total:0, truncated:0, items:[]  ·  Ô có dữ liệu: total>0 + ≥1 dòng items[]
+```
+
+Fixture 2 ô **không đủ**: acceptance đòi *giảm ≥ 84%* và *số tiêu đề nhóm == số nhóm có dữ liệu* — cả hai chỉ có nghĩa trên payload nhiều nhóm. Nhãn VI trong fixture là **fixture**, không phải bản đồ sản phẩm (SSoT vẫn là `connection_meta.LABEL_VI` — INV-CONN-7 canh phía BE).
+
+#### XVIII.8.2 Test RENDER (`RelatedRecords.test.ts` — append)
+
+| TC | Nội dung | INV | AC |
+|---|---|---|---|
+| **TC-FE-CONN-24** | Mount `PAYLOAD_19` ⇒ `findAll('[data-testid="conn-item"]').length === 3` (**không** 19) ∧ tỉ lệ giảm `1 - 3/19 ≥ 0.84`. Đếm bằng **`findAll(testid).length`**, KHÔNG bằng `text().includes` | INV-CONNFE6-1 | AC1 |
+| **TC-FE-CONN-25** | **∀ ô `total===0`**: nhãn VI của nó xuất hiện trong **đúng 1** `[data-testid="conn-empty-summary"]` **thuộc chính `conn-group`** của nó ∧ mỗi `conn-group` có **≤1** dòng gộp ∧ dòng gộp khớp `/^Chưa có: /` ∧ `summary.html()` chứa **0** chuỗi ∈ `Object.keys(DOCTYPE_ROUTE)` (**loop**, không liệt kê tay) | INV-CONNFE6-2/3 | AC2 |
+| **TC-FE-CONN-26** | Trong **mỗi** `conn-empty-summary`: `findAll('button')` **0** ∧ `findAll('a')` **0** ∧ `[data-testid="conn-row"]` **0** ∧ `conn-see-all` **0** ∧ `conn-create` **0**; `html()` **không** chứa `role="button"` / `cursor-pointer` | INV-CONNFE6-4 | AC3 |
+| **TC-FE-CONN-27** | (a) Ô LEGACY `{count:6, total:undefined, items:undefined}` ⇒ **có** `conn-item` riêng ∧ nhãn + `6` hiện ra. (b) **∀ ô bị gộp** (nhãn nằm trong dòng gộp): `total ?? count ?? 0 === 0` — tính **từ chính fixture**, khẳng định 0 ô mang dữ liệu bị nuốt | INV-CONNFE6-5 | AC4 |
+| **TC-FE-CONN-28** | Payload 3 nhóm (2 nhóm có ≥1 ô dữ liệu, 1 nhóm toàn rỗng) ⇒ `findAll('[data-testid="conn-group-label"]').length === 2` ∧ trong nhóm toàn rỗng: **0** `conn-item`, **0** `conn-group-label`, **đúng 1** `conn-empty-summary` | INV-CONNFE6-6 | AC5 |
+| **TC-FE-CONN-29** | Payload **mọi** ô `total:0` (groups **không** rỗng) ⇒ **0** `conn-item` ∧ text chứa `Chưa có bản ghi nào liên quan tới hồ sơ này.` ∧ `findAll('[data-testid="conn-empty-summary"]').length >= 1` ∧ `(vm as {total:number}).total === 0` | INV-CONNFE6-7 | AC5 |
+| **TC-FE-CONN-30** | Trạng thái phụ trợ **không** được nói "chưa có": đang tải (promise chưa resolve) ⇒ **0** `conn-empty-summary`; API reject ⇒ **0** `conn-empty-summary` ∧ vẫn có nút «Thử lại»; `groups: []` ⇒ câu VI ∧ **0** `conn-empty-summary` | INV-CONNFE6-7 | AC5 |
+
+#### XVIII.8.3 Test HELPER thuần (`api/connections.test.ts` — chỉ append)
+
+| TC | Nội dung | INV |
+|---|---|---|
+| **TC-FE-CONN-40** | `hasConnectionRecords`: `{total:0}` ⇒ `false` · `{total:undefined, count:3}` ⇒ `true` (ô LEGACY) · `{}` ⇒ `false` · `{total:0, items:[row,row]}` ⇒ `false` (**theo con số**, không theo `items.length`) | INV-CONNFE6-5 |
+| **TC-FE-CONN-41** | `dataCells`: giữ **đúng thứ tự** payload ∧ loại mọi ô rỗng ∧ nhóm `items: []` ⇒ `[]` | INV-CONNFE6-1 |
+| **TC-FE-CONN-42** | `emptyLabels`: ưu tiên `label_vi`, thiếu ⇒ `label`; ô thiếu **cả hai** ⇒ **bị loại** (KHÔNG trả `doctype`) | INV-CONNFE6-3 |
+| **TC-FE-CONN-43** | `emptySummary`: 2 ô rỗng ⇒ **đúng chuỗi** `Chưa có: A, B` (khớp `toBe`, không `toContain`) · 0 ô rỗng ⇒ `''` · mọi nhãn rỗng ⇒ `''` | INV-CONNFE6-2 |
+
+#### XVIII.8.4 Breakage đã khai báo TRƯỚC — **đúng 1** TC (QA KHÔNG chấm là nới guard)
+
+**TC-FE-CONN-10** @`RelatedRecords.test.ts:283`: chuyển phạm vi chấm *"ô count 0 render gọn"* từ `conn-item` (`:300`) sang `[data-testid="conn-empty-summary"]`; **giữ nguyên** `0 button` (`:301`) + `0 conn-row` (`:302`) + 3 assert đầu; **bồi** assert nhãn VI ô rỗng nằm trong dòng gộp. Assert cũ đang khoá một cài đặt **phản hợp đồng** (D-FE-8 vòng 2 nói ô rỗng KHÔNG có ô riêng) ⇒ sửa **test theo hợp đồng**, tiền lệ §XVIII.7.3. **22 TC còn lại: 0 assert bị sửa** (mọi ô trong fixture của chúng đều có số đếm > 0 — soát @source: `:139` `count:2` · `:153` `total:1` · `:247` `total:7` · `:320` `total:1` · `:420`-`:425` `total:1`).
+
+#### XVIII.8.5 Chống test giả xanh (đọc trước khi khai DONE)
+
+1. **Đếm phần tử, không đếm chữ**: `expect(w.findAll('[data-testid="conn-item"]').length).toBe(3)`. `text().includes('Chưa có')` xanh cả khi 19 ô vẫn còn nguyên.
+2. **Chấm dòng gộp theo PHẠM VI NHÓM** (`conn-group`), không toàn wrapper: một dòng gộp ở nhóm khác sẽ che mất nhóm thiếu (đúng bẫy §XVIII.4 hàng 2 đã gặp).
+3. **`html()` cho ca rò tên Anh, `text()` cho ca nhãn VI** — và vì vòng này **cấm** `data-doctype`, `html()` phải sạch **mọi** khoá `DOCTYPE_ROUTE` (loop, không liệt kê tay).
+4. **Ô LEGACY là ca dương** (`count>0`, thiếu `total`): thiếu TC-FE-CONN-27(a) thì một cài đặt dùng `items.length` sẽ **xanh** trong khi nuốt ô có dữ liệu.
+5. **Không assert số tuyệt đối của suite** (278/2591/2649 đều **có thể stale**): báo cáo **trước → sau** đọc từ chính lần chạy, chấm theo **delta ≥ +6**.
+6. **Mutation-check khi land** (guard phải sống): (a) bỏ `v-if` của `conn-group-label` ⇒ TC-28 ĐỎ; (b) đổi vị-từ sang `items.length > 0` ⇒ TC-27/40 ĐỎ; (c) đổi `Chưa có:` thành chuỗi khác ⇒ TC-43 ĐỎ; (d) thêm 1 `<button>` vào dòng gộp ⇒ TC-26 ĐỎ; (e) bỏ lọc `dataCells` ⇒ TC-24 ĐỎ. **5 phép đột biến ⇒ 5 lần đỏ**; không đỏ = test template.
+
+#### XVIII.8.6 DoD vòng AC-CR-93 (chấm ĐỎ nếu thiếu bất kỳ mục nào)
+
+- `cd frontend && npx vitest run` **0 fail** — báo cáo **trước → sau** (ngưỡng **≥ 278 file / ≥ 2591 test**, **+≥6 test mới**; đo trên đĩa 2026-07-28: **280 file**, lần chạy đầy đủ gần nhất **280 file / 2649 test**).
+- `npx vue-tsc --noEmit` **0 lỗi**.
+- 5 phép mutation-check ở §XVIII.8.5 (6) đều **đỏ** đúng chỗ.
+- `git status`: **0** file `.py` thay đổi bởi vòng này; `git diff --name-only` phía FE **chỉ** 4 file ở `06 §VIII.8`; diff của `api/connections.ts` **không** chứa dòng nào thuộc `DOCTYPE_LIST_TARGET` (`:287`) / `LIST_TARGET_NO_FILTER` (`:321`) ⇒ **INV-CONNFE5-4 vẫn phủ kín 20 doctype**.
+- **Guard count DELTA = 0**: `_EXPECTED_TEST_COUNT` **1024** · `_GUARD_SUITE_SUM` **1167** · `_MOBILE_OAS_TOTAL` **1193** · OAS **110 / 290 / 38** (đọc THẲNG từ đĩa 2026-07-28) — **không đụng**, và **không** chạy suite BE.
+- ⛔ **KHÔNG** `npm run build` · **KHÔNG** `git commit/push` · **KHÔNG** `bench migrate`.
+
+### XVIII.9 AC-CR-94 (FE + 1 nhánh BE): deep-link **ĐẾN ĐÍCH** 2 màn LỊCH + `count == drill` **cross-endpoint** (INV-CONN-18..22 · INV-CONNFE7-1..8)
+
+> Quyết định: [`ADR-IMM00-CONNECTIONS-TREE.md` §15](./ADR-IMM00-CONNECTIONS-TREE.md) (D-CR94-1..9) · FE: [`06 §VIII.9`](./06_Frontend_Design.md) · nghiệp vụ: [`02 §IV.39`](./02_Analysis_Design.md) FR-00-CONN-05 / BR-00-CONN-42..49 · hợp đồng drill: [`05 §III.24.8`](./05_API_Specification.md).
+> **File test**: `assetcore/tests/test_connections_tree.py` (**append 2 TC + sửa ĐÚNG 1 assert vacuous**, xem §XVIII.9.4) · `frontend/src/api/connections.test.ts` (**chỉ append**) · `frontend/src/views/pm/pmScheduleListDeepLink.test.ts` + `frontend/src/views/calibration/calibrationScheduleListDeepLink.test.ts` (**MỚI** — hoặc append vào 2 file drilldown có sẵn).
+> **CẤM sửa**: `frontend/src/router/connectionsListParity.test.ts` (guard xanh **là** bằng chứng thăng hạng) · `assetcore/tests/test_connections.py` (11 TC hợp đồng cũ).
+> **Quy ước số hiệu (tiếp theo §XVIII.8, không sinh hệ thứ ba)**: BE `TC-CONN-T-25/26` · FE render `TC-FE-CONN-31..36` · FE unit `TC-FE-CONN-44/45`.
+
+#### XVIII.9.1 Fixture BE — **ràng buộc schema phải tôn trọng, nếu không cháy 1 vòng**
+
+Thêm **một** asset riêng (`ConnTree Asset Sched`) vào `setUpClass` hiện có + purge trong `tearDownClass` (`purge_asset` đã phủ **cả hai** doctype lịch — `tests/_asset_cleanup.py:24-25`):
+
+| Fixture | Ràng buộc **bắt buộc** (verify @source 2026-07-28) | Vi phạm thì |
+|---|---|---|
+| **3 `PM Schedule`** trên cùng asset: `Quarterly`+`Active` · `Semi-Annual`+`Active` · `Annual`+`Paused` | `autoname = format:PMS-{asset_ref}-{pm_type}` (`pm_schedule.json`) ⇒ **3 `pm_type` PHẢI khác nhau** | `DuplicateEntryError` — không thể có 2 lịch cùng loại trên 1 thiết bị |
+| cả 3 dùng `checklist_template = cls.template` | `PMSchedule.validate` đòi `template.asset_category == asset.asset_category` (`pm_schedule.py:29-37`) | `frappe.throw` "Template … không khớp loại thiết bị" |
+| `pm_interval_days = 3650`, **không** set `last_pm_date` | `before_save` ⇒ `next_due_date = today + 3650`; `on_update` chỉ tạo PM WO khi `next_due_date <= today + alert_days` (`pm_schedule.py:39-60`) | lịch `Active` **tự sinh PM Work Order** ⇒ ô `PM Work Order` lệch + fixture mồ côi |
+| **2 `IMM Calibration Schedule`** trên cùng asset: `External`+`is_active=1` · `In-House`+`is_active=0`, `interval_days` reqd, `next_due_date` tương lai | không unique constraint (`autoname` series); controller chỉ điền `device_model` | — |
+
+#### XVIII.9.2 Test BE — `count == drill` gọi **THẬT** cả hai đầu
+
+| TC | Bất biến | Assert (đủ **cả hai** vế) |
+|---|---|---|
+| **TC-CONN-T-25** | **INV-CONN-18** | `total` ô `'PM Schedule'` == **3** == `len(imm00.list_pm_schedules(asset=X, page_size=50)['data']['items'])` ∧ **mọi** dòng `asset_ref == X` ∧ tập chứa **cả** lịch `Paused` (assert có ≥1 dòng `status == 'Paused'`) ∧ ô `count == ô total` |
+| **TC-CONN-T-26** | **INV-CONN-19 + INV-CONN-20** | `total` ô `'IMM Calibration Schedule'` == **2** == `len(imm11.list_calibration_schedules(filters='{"asset":"X"}')['data']['data'])` ∧ mọi dòng `asset == X` ∧ tập chứa **cả** dòng `is_active == 0`; **và** `filters={"asset":X,"overdue":1}` trả tập **⊆** `filters={"asset":X}` (giao, không clobber) |
+
+- Chạy dưới `Administrator` (khớp `setUpClass`) — 2 doctype này **không** có `permission_query_conditions` (`hooks.py:439-447`) nên bất biến **không** phụ thuộc row-scope; ca DocPerm/vendor là **backlog có tên** (ADR §15.8), **cấm** biến TC này thành TC an ninh.
+- **Đọc envelope đúng tầng**: `list_pm_schedules` trả `{success, data:{items,total,…}}`; `list_calibration_schedules` trả `{success, data:{data,pagination}}` (2 shape KHÁC nhau — lấy sai tầng ⇒ `len()` của dict = số khoá = **xanh giả**).
+- **RED-before bắt buộc**: TC-CONN-T-26 phải **ĐỎ** trên mã hiện tại (BE nuốt `asset` ⇒ drill trả mọi lịch của site) và **XANH** sau khi land nhánh vô hướng `_extract_asset_in_scope`. Nếu nó xanh **trước** khi sửa BE ⇒ fixture/tầng envelope sai, KHÔNG phải "BE đã đúng".
+
+#### XVIII.9.3 Test FE
+
+**Unit thuần (`api/connections.test.ts` — append):**
+
+| TC | Assert |
+|---|---|
+| TC-FE-CONN-44 | `listTarget({doctype:'PM Schedule', deep_link_filters:{asset_ref:'AC-ASSET-X'}})` == `{path:'/pm/schedules', query:{asset:'AC-ASSET-X'}}`; `{doctype:'IMM Calibration Schedule', deep_link_filters:{asset:'AC-ASSET-X'}}` == `{path:'/calibration/schedules', query:{asset:'AC-ASSET-X'}}` |
+| TC-FE-CONN-45 | Phân hoạch: `|DOCTYPE_LIST_TARGET| == 11` ∧ `|LIST_TARGET_NO_FILTER| == 9` ∧ 2 doctype mới **không** còn trong `LIST_TARGET_NO_FILTER` ∧ hợp == `keys(DOCTYPE_ROUTE)` (20) ∧ giao == ∅ |
+
+**Render 2 màn lịch (INV-CONNFE7-3..8):**
+
+| TC | Màn | Assert |
+|---|---|---|
+| TC-FE-CONN-31 | `/pm/schedules?asset=X` | `listPmSchedules` được gọi **ngay lần đầu** kèm `asset:'X'` ∧ **không** có `status`/`pm_type` trong tham số (undefined) |
+| TC-FE-CONN-32 | `/pm/schedules?asset=X` | DOM chứa chip `Thiết bị: <asset_name>` (dùng `asset_name` của dòng khớp; fixture 0 dòng ⇒ chip hiện **mã**) |
+| TC-FE-CONN-33 | `/pm/schedules?asset=X` | Bỏ chip ⇒ `router.replace` được gọi với `query` **không** có `asset` ∧ lần gọi API kế tiếp **không** có `asset` |
+| TC-FE-CONN-34 | `/calibration/schedules?asset=X` | `listCalibrationSchedules` nhận `filters` **có** `asset:'X'`; với `?asset=X&overdue=1` ⇒ `filters` có **cả** `asset` và `overdue:1`; tắt `overdue` ⇒ vẫn còn `asset` (và ngược lại) |
+| TC-FE-CONN-35 | `/calibration/schedules?asset=X` | chip `Thiết bị: …` + bỏ chip ⇒ `router.replace` sạch `asset` + refetch **không** có khoá `asset`; `is_active` **không** bị tự thêm |
+| TC-FE-CONN-36 | cả 2 màn | Đổi `route.query.asset` X → Y ⇒ gọi lại kèm **Y** (INV-CONNFE7-7) ∧ DOM **không** chứa `asset_ref` / tên DocType tiếng Anh (INV-CONNFE7-8) |
+
+**Mutation-check khi land (guard sống, không phải template xanh):** (a) bỏ `asset` khỏi `buildFilters()` ⇒ TC-34/35 ĐỎ; (b) thêm `status:'Active'` mặc định ở PM ⇒ TC-31 ĐỎ; (c) bỏ `router.replace` khi bỏ chip ⇒ TC-33/35 ĐỎ; (d) trả 2 entry về `LIST_TARGET_NO_FILTER` ⇒ TC-45 + guard parity ĐỎ.
+
+#### XVIII.9.4 Sửa **đúng 1** assert vacuous (breakage đã khai báo trước — QA KHÔNG chấm là nới guard)
+
+`test_connections_tree.py:579-581` (trong `TC-CONN-T-20`):
+
+- **Đang**: `empty.get("PM Work Order", {}).get("count", 0) == 0` + `.get("items", []) == []` ⇒ xanh **cả khi ô biến mất hoàn toàn** (mutation "xoá ô rỗng khỏi payload" sống sót).
+- **Sau** (BR-00-CONN-49 · INV-CONN-22): `assertIn('PM Work Order', empty)` **trước**, rồi `total == 0` ∧ `type(truncated) is int and truncated == 0` (**không** `bool`) ∧ `label_vi` khác rỗng ∧ `label_vi != 'PM Work Order'`.
+- **Vì sao hợp lệ**: assert cũ không khoá được mệnh đề nó tự nhận; sửa **test theo hợp đồng** (payload luôn liệt kê ô rỗng — D1/§III.24.3), không sửa hợp đồng theo test. Cùng khuôn tiền lệ §13.2 / §14.8.
+- **24 TC còn lại của file: 0 assert được sửa.** `assertEqual(payload["total"], sum(count))` của TC-CONN-T-20 vẫn đúng sau khi thêm fixture (tổng cộng dồn tính theo **cùng** payload).
+
+#### XVIII.9.5 DoD vòng AC-CR-94 (chấm ĐỎ nếu thiếu bất kỳ mục nào)
+
+- **BE, module-isolated, `timeout` tool ≥ 600000ms** (kill giữa chừng ⇒ `tearDownClass` không chạy ⇒ fixture mồ côi ⇒ ĐỎ GIẢ):
+  `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_connections_tree` (25 → **27** OK) và `--module assetcore.tests.test_connections` (**11** OK, file **không** sửa).
+- Nếu BE đã đụng `services/imm11.py` ⇒ chạy thêm `--module assetcore.tests.test_imm11` (no-regress cho 3 nhánh `overdue`/`due_soon`/`due_before` + vendor-scope).
+- **FE**: `npx vitest run` 0 ĐỎ, delta **≥ +5 test** so với baseline **đọc từ đĩa** (đo 2026-07-28: **280 file / 2660 test**); `npx vue-tsc --noEmit` 0 lỗi; guard `connectionsListParity.test.ts` xanh **không sửa**.
+- **DoD chấm bằng test, KHÔNG curl** — `.py` prod vừa đổi mà gunicorn chạy `--preload` ⇒ mọi kết luận HTTP trước khi USER `bench restart` là **vô nghĩa** (LL-DEPLOY-07/08). Liệt kê file `.py` đã đụng trong bàn giao để USER reload.
+- **3 counter guard: delta 0** — `_EXPECTED_TEST_COUNT` / `_GUARD_SUITE_SUM` / `_MOBILE_OAS_TOTAL` chỉ đếm 7 module guard mobile-OAS (`test_mobile_docset.py:499-809`); `test_connections_tree.py` **không** thuộc tập đó ⇒ **chạm vào là sai**.
+- ⛔ **KHÔNG** `git commit/push` · **KHÔNG** `bench migrate` · **KHÔNG** `bench restart` · **KHÔNG** `npm run build`.
+
+---
+
+
+---
+
+### XVIII.10 AC-CR-95 (FE + 1 file test BE): thăng hạng **4 màn đích** còn lại — `LIST_TARGET_NO_FILTER` 9 → **5** (INV-CONN-23..28 · INV-CONNFE8-1..10)
+
+> Quyết định: [ADR §16](./ADR-IMM00-CONNECTIONS-TREE.md) (D-CR95-1..10) · FE: [`06 §VIII.10`](./06_Frontend_Design.md) · hợp đồng drill: [`05 §III.24.9`](./05_API_Specification.md) · nghiệp vụ: [`02 §IV.39`](./02_Analysis_Design.md) BR-00-CONN-50..58.
+>
+> **QA đọc TRƯỚC khi chấm — 4 đính chính của vòng này** (ADR §16.7): (1) `AC-CR-95` = **vòng này**, backlog nút-tạo-ô-rỗng đổi số thành `AC-CR-97`; (2) 3 counter guard **delta = 0**, đề mục ghi "tăng đúng số TC thêm" là **SAI**; (3) khoá ngoại lai của `Firmware Change Request` là **`{name:…}`** (internal-link), **không** phải `{asset_repair_wo:…}`; (4) baseline FE để chấm delta = **282 file / 2682 test** (đo từ đĩa 2026-07-28), không phải 280/2660 hay 278/2591.
+
+#### XVIII.10.1 BE — **1 file test MỚI**, 0 file prod `.py` đổi
+
+File: `assetcore/tests/test_connections_list_promotion.py` (**mới** — **cấm** append vào `test_connections_tree.py`/`test_connections.py`: cả hai đang uncommitted từ vòng trước và là shared-file của phiên song song).
+
+> ⚠️ **DRIFT doc ↔ đĩa (verify 2026-07-30, `ls assetcore/tests/`): file `test_connections_list_promotion.py` KHÔNG TỒN TẠI.** TC-CONN-P-01..08 dưới đây **chưa bao giờ được viết** ⇒ vẫn là **nợ mở**, không phải "đã phủ". Phân hoạch lại từ 2026-07-30:
+> - **TC-CONN-P-04 / P-05 / P-08 → HẤP THU** vào vòng `AC-CR-98`: chuyển thành `TC-IMM04-SCOPE-07/08` + `TC-IMM04-SCOPE-03..06`, đặt trong `assetcore/tests/test_rowscope_invariant.py`, chấm cho **3 persona** thay vì chỉ `Administrator`. Spec: [`../imm-04/07 §VIII`](../imm-04/07_Testing_QA.md) · SSoT: [`ADR-IMM00-LIST-SCOPE §10`](./ADR-IMM00-LIST-SCOPE.md).
+> - **TC-CONN-P-01 / P-02 / P-03 / P-06 / P-07 → VẪN MỞ** (Firmware CR · Decommission · CAPA · deep-link keys · anti-drift schema). Giữ nguyên đặc tả dưới đây; vòng nào viết thì tạo file theo đúng tên trên.
+> - Câu «test chạy dưới `Administrator` và INV-CONN-27 chưa được phủ» của **TC-CONN-P-08** đã **HẾT hiệu lực** — INV-CONN-27 nay là **enforce** ([`05 §III.24.9`](./05_API_Specification.md)). File mới (nếu viết) phải nêu rõ điều này thay vì lặp lại câu cũ.
+
+| TC | Bất biến | Phát biểu chấm được |
+|---|---|---|
+| **TC-CONN-P-01** | INV-CONN-23 | Seed 1 `AC Asset` + ≥2 `Firmware Change Request` (`asset_ref`) + ≥1 FCR của thiết bị KHÁC ⇒ ô `'Firmware Change Request'`.`total` == `len(list_firmware_crs(asset=X).items)` ∧ **mọi** dòng `asset_ref == X` |
+| **TC-CONN-P-02** | INV-CONN-24 | Tương tự cho `Asset Decommission` ⇄ `imm14.list_decommissions(filters={"asset":X})` (đọc `data.data`) |
+| **TC-CONN-P-03** | INV-CONN-25 | `IMM CAPA Record` ⇄ `imm00.list_capas(asset=X)`; **phải** seed ≥1 CAPA `status='Closed'` và assert nó **có** trong cả hai tập (chứng minh drill không tự tiêm `not_closed`) |
+| **TC-CONN-P-04** | INV-CONN-26 | `Asset Commissioning` ⇄ `imm04.list_commissioning({"final_asset":X})`: `cell.total == len(items) + #{docstatus==2}`; seed **cả** trạng thái docstatus 0 và 1 ⇒ công thức **không vacuous** |
+| **TC-CONN-P-05** | INV-CONN-26 (vế predicate) | `list_commissioning` **có** tiêm `docstatus != 2` khi caller không truyền: gọi với `{"final_asset":X}` trên dữ liệu có 1 phiếu `docstatus=2` ⇒ phiếu đó **không** trong `items` |
+| **TC-CONN-P-06** | INV-CONN-28 | 4 khoá ngoại lai đi qua `_safe_deep_link`: `deep_link_keys('Asset Commissioning') ⊇ {final_asset, vendor, master_item, name}` ∧ `deep_link_keys('IMM CAPA Record') ⊇ {asset, linked_incident, capa_record, name}` ∧ `deep_link_keys('Firmware Change Request') ⊇ {asset_ref, name}` — chứng minh nghĩa vụ chặn **thuộc FE** |
+| **TC-CONN-P-07** | ADR §16.1 #10 (anti-drift schema) | 4 anchor mà `ac_asset_dashboard.get_data()` phát == `{FCR: asset_ref, Commissioning: final_asset, Decommission: asset, CAPA: asset}` ∧ **mỗi** anchor là `Link → AC Asset` trong `<slug>.json` ⇒ đổi tên field trong DocType ⇒ ĐỎ ở BE **trước khi** FE ra danh sách rỗng |
+| **TC-CONN-P-08** | ADR §D-CR95-5 (khai session) | Docstring/comment của module **nói rõ** test chạy dưới `Administrator` và INV-CONN-27 (`Asset Commissioning` + Vendor Engineer) **chưa** được phủ ⇒ chấm bằng assert `"Administrator"` xuất hiện trong `setUpClass`/docstring **và** `AC-CR-98` được cite |
+
+**Ràng buộc test BE:**
+- `setUpClass` seed dữ liệu **riêng** với prefix nhận diện được; `tearDownClass` **phải** dọn (fixture mồ côi ⇒ suite ĐỎ GIẢ — xem `_asset_cleanup.py`).
+- Chạy **cùng session** cho cả hai đầu (ô đếm + drill) — khác session là chứng minh khác thứ.
+- **Cấm** mock: mock chứng minh bảng dịch khoá, không chứng minh hai endpoint cùng thấy một tập dòng (ADR §D-CR94-2).
+- **Cấm** `dict.get(k, default)` trong assert "ô có mặt" (assert vacuous — D-CR94-8): `assertIn(<doctype>, cells)` **trước**, rồi so số.
+
+#### XVIII.10.2 FE — 4 file test mount + append 2 test thuần
+
+| TC | Bất biến | Nơi chấm |
+|---|---|---|
+| **TC-CONNFE8-01** | INV-CONNFE8-1 | `router/connectionsListParity.test.ts` xanh **không sửa** + assert `|DOCTYPE_LIST_TARGET| == 15` ∧ `LIST_TARGET_NO_FILTER` == đúng 5 phần tử (tập liệt kê) |
+| **TC-CONNFE8-02** | INV-CONNFE8-2 | `api/connections.test.ts` — `listTarget` cho **cả 4** doctype mới với anchor đúng ⇒ `{path, query:{asset:X}}` |
+| **TC-CONNFE8-03** | INV-CONNFE8-3 | `api/connections.test.ts` — 4 payload **ngoại lai THẬT**: `{name:'FCR-…'}` · `{vendor:'SUP-…'}` · `{master_item:'MODEL-…'}` · `{linked_incident:'INC-…'}` ⇒ **`null`** |
+| **TC-CONNFE8-04** | INV-CONNFE8-4/5/6 | 4 file mount (1/màn): mount với `route.query.asset='AC-ASSET-X'` ⇒ **lời gọi thứ nhất** của spy API/store đã mang khoá đúng (`final_asset` cho `/commissioning`; `asset` cho 3 màn) ∧ **không** mang khoá trạng thái nào của §VIII.10.5 |
+| **TC-CONNFE8-05** | INV-CONNFE8-7 | DOM chứa `Thiết bị: <tên hoặc mã>` — assert **chuỗi tiếng Việt**, không assert riêng mã |
+| **TC-CONNFE8-06** | INV-CONNFE8-8 | Bấm bỏ chip ⇒ `router.replace` được gọi **không** kèm `asset` ∧ lời gọi API kế tiếp **không** mang khoá asset |
+| **TC-CONNFE8-07** | INV-CONNFE8-9 | Đổi `route.query.asset` X → Y (không remount) ⇒ nạp lại kèm **Y** |
+| **TC-CONNFE8-08** | INV-CONNFE8-10 | `wrapper.html()` của 4 màn **không** chứa `final_asset` / `asset_ref` / `critical_asset` |
+
+#### XVIII.10.3 Mutation check (bắt buộc — chứng minh guard SỐNG, không phải template xanh)
+
+| Đột biến | Kỳ vọng |
+|---|---|
+| Xoá `route.query.asset` khỏi **bất kỳ** 1/4 view | **≥2** ĐỎ: (1) guard tĩnh `connectionsListParity.test.ts:68-81` — doctype đã ở `DOCTYPE_LIST_TARGET` mà file view **không** chứa `route.query.asset`; (2) TC-CONNFE8-04 của màn đó (lời gọi đầu không mang khoá) |
+| Đổi `sourceKeys` của `Asset Commissioning` → `['vendor']` | ĐỎ ở `connectionsListParity.test.ts:83-103` (`vendor` là `Link → AC Supplier`, không phải `AC Asset`) |
+| Đưa 1 doctype ngược từ `DOCTYPE_LIST_TARGET` về `LIST_TARGET_NO_FILTER` | ĐỎ ở `:109-118` (allowlist chỉ-giảm: view **đã** đọc `route.query.asset`) |
+| Bỏ `docstatus != 2` khỏi `list_commissioning` | ĐỎ ở TC-CONN-P-05 |
+| Đổi `ac_asset_dashboard` anchor `final_asset` → `asset` | ĐỎ ở TC-CONN-P-07 |
+
+#### XVIII.10.4 DoD vòng AC-CR-95 (chấm ĐỎ nếu thiếu bất kỳ mục nào)
+
+- **BE, module-isolated, `timeout` tool ≥ 600000ms** (kill giữa chừng ⇒ `tearDownClass` không chạy ⇒ fixture mồ côi ⇒ ĐỎ GIẢ):
+  `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_connections_list_promotion` (**8** OK) · `--module assetcore.tests.test_connections_tree` (**27** OK, file **không** sửa) · `--module assetcore.tests.test_connections` (**11** OK, file **không** sửa).
+- **`git diff --name-only` phía BE: 0 file `.py` prod** — chỉ 1 file test mới. Có file prod `.py` trong diff ⇒ ra khỏi A-biên ⇒ ĐỎ.
+- **FE**: `npx vitest run` 0 ĐỎ, delta **≥ +8 test** so với baseline **đọc từ đĩa** (**282 file / 2682 test**, đo 2026-07-28); `npx vue-tsc --noEmit` 0 lỗi; guard `connectionsListParity.test.ts` xanh **không sửa**.
+- **Mutation check §XVIII.10.3 chạy thật ít nhất 2 dòng đầu** và **revert** — báo cáo tên test đã ĐỎ (không chỉ nói "guard sống").
+- **3 counter guard: delta 0** — `_EXPECTED_TEST_COUNT` (1024) / `_GUARD_SUITE_SUM` (1167) / `_MOBILE_OAS_TOTAL` (1193) chỉ đếm 7 module guard mobile-OAS; file test mới **không** thuộc tập đó ⇒ **chạm vào là sai**. Đọc lại 3 số **từ đĩa** trước khi kết luận.
+- **KHÔNG phát sinh blocker `bench restart` mới**: vòng này 0 file `.py` prod ⇒ live-HTTP không đổi. Nợ restart của các vòng **trước** vẫn còn (thuộc USER) — QA **không** được gán lỗi live cũ cho vòng này.
+- ⛔ **KHÔNG** `git commit/push` · **KHÔNG** `bench migrate` · **KHÔNG** `bench restart` · **KHÔNG** `npm run build`.
+
+---
+
+### XVIII.11 AC-CR-92 (BE+FE): ô **12 → 9 khoá**, `capped: bool` → `total_capped: int`, RATIFY cổng I/O (INV-CONN-29..34 · INV-CONNFE9-1..6)
+
+> Quyết định: [ADR §17](./ADR-IMM00-CONNECTIONS-TREE.md) (D-CR92-1..9) · hợp đồng: [`05 §III.24.10`](./05_API_Specification.md) · BE: [`04 §V.9`](./04_Backend_Design.md) + [`04 §V.7.1` NGOẠI LỆ cổng I/O](./04_Backend_Design.md) · FE: [`06 §VIII.12`](./06_Frontend_Design.md) · nghiệp vụ: [`02 §IV.39`](./02_Analysis_Design.md) BR-00-CONN-59..66.
+> **BREAKING** ⇒ BE + FE **cùng vòng**. Fixture: **dùng lại** `test_connections_tree.py` (asset 6 phiếu / 3 phiếu / 0 phiếu) — **0 fixture mới** (nhánh chạm trần tiêm `list_fn` giả).
+
+#### XVIII.11.1 TC backend — `assetcore/tests/test_connections_tree.py`
+
+| TC | Nội dung | Invariant | AC |
+|---|---|---|---|
+| **`t01`** (viết lại) | `set(item) == {doctype, label_vi, total, truncated, total_capped, items, deep_link_filters, can_create, create_route_hint}` — **so sánh TẬP** (`assertEqual`, **KHÔNG** `assertIn`), trên **mọi ô của MỌI hub đã seed**. Kèm kiểu: `type(truncated) is int` ∧ `type(total_capped) is int` ∧ `not isinstance(…, bool)` ∧ `∈ {0,1}`; `total: int`; `can_create: bool`; `create_route_hint: str`; `label_vi: str` | INV-CONN-29 | A1 |
+| **`t21`** (viết lại) | Tiêm `list_fn` giả 3 mốc: **150 dòng** ⇒ `(total=100, total_capped=1)` · **CAP+1** ⇒ `(100, 1)` · **ĐÚNG CAP** ⇒ `(100, **0**)` — predicate `len(rows) > CAP`, **không** `>=`. Thêm vế `total_capped == 1 ⇒ truncated == 1` | INV-CONN-30 / 32 | A2 |
+| **`t20`** (dời assert) | `payload["total"] == sum(it["total"] for it in items)`; ô RỖNG: `assertIn` **trước**, rồi `total == 0` ∧ `items == []` ∧ `truncated == 0` (int thuần) ∧ `total_capped == 0` (int thuần) ∧ `label_vi` khác `""` **và** khác `"PM Work Order"` | INV-CONN-31 · INV-CONN-22 | A3 |
+| **`t27`** (MỚI) | AST `services/connections.py`: **0** lời gọi `frappe.get_list` · `frappe.get_all` · `frappe.db.get_all` · `frappe.db.get_list` · `frappe.db.count` · `frappe.db.sql`. Tên bắt buộc: `test_t27_service_layer_has_zero_row_reading_orm` | INV-CONN-33 | A4(a) |
+| **`t28`** (MỚI) | AST `api/connections.py`: `frappe.get_list` xuất hiện **đúng 1 lần** ∧ nằm **trong thân `_row_scoped_rows`** (đi từ `ast.FunctionDef` tên đó rồi `ast.walk` bên trong — **không** đếm trên cả module). Tên bắt buộc: `test_t28_api_layer_has_exactly_one_get_list_inside_the_port` | INV-CONN-34 | A4(b) |
+| **`t04`** (không đổi) | 1 lời gọi `list_fn`/ô ∧ **0** truy vấn COUNT xuống DB | INV-CONN-6 | A5 |
+| **`t02`/`t03`/`t06`/`t15`/`t15b`/`t22`/`t23`/`t25`/`t26`** (dời khoá) | `item["count"]` → `item["total"]`; `item["filters"]` → `item["deep_link_filters"]`; xoá assert `item["label"] == frappe._(doctype)`. Nội dung nghiệp vụ **không đổi** | INV-CONN-2/6/16/17/18..28 | A5/A6 |
+
+#### XVIII.11.2 TC backend — `assetcore/tests/test_connections.py` (hợp đồng cũ)
+
+| Ràng buộc | Chi tiết |
+|---|---|
+| **Số TC** | GIỮ **ĐÚNG 11** `def test_` — 0 test bị xoá (A6) |
+| **TC ĐÓNG BĂNG** | `test_counts_run_under_session_user_not_administrator` — **0 dòng sửa**. Nó vẫn xanh vì `frappe.get_list` **vẫn ở** `api/connections.py` (D-CR92-6). Nếu ai đó dời ORM xuống service, TC này ĐỎ **đúng thiết kế** (A4(c)) |
+| `test_counts_reflect_declared_graph` | `count` → `total` (2 chỗ); `assertFalse(capped)` → `assertEqual(total_capped, 0)` |
+| `test_counts_do_not_bleed_across_records` | `assertIn("Incident Report", items)` **trước** (chống vacuous), rồi `total == 0`; `Asset Lifecycle Event` `count` → `total` |
+| `test_non_standard_fieldname_is_used_for_filters` | `filters` → `deep_link_filters` == `{"asset_ref": <mã>}` |
+| `test_filters_let_frontend_drill` | `deep_link_filters` == `{"asset": <mã>}` **và** `frappe.get_all("Incident Report", filters=item["deep_link_filters"])` trả **đúng** `item["total"]` — bất biến `count == drill` phải chứng minh THẬT, không chỉ đổi tên khoá |
+| `test_groups_carry_vietnamese_labels` | **KHÔNG đổi** — `g["label"]` là nhãn **NHÓM**, khoá được GIỮ (D-CR92-4) |
+
+#### XVIII.11.3 TC frontend
+
+| TC | Nội dung | Invariant | AC |
+|---|---|---|---|
+| **TC-CONNFE9-01** | `vue-tsc --noEmit` 0 lỗi với `ConnectionItem` đã siết (8 khoá bắt buộc + `doctype`; 4 legacy xoá; `create_prefill?` giữ) | INV-CONNFE9-1 | A7 |
+| **TC-CONNFE9-02** | Guard tĩnh: 0 hit `/\.capped\b/` · `/\bitem\.count\b/` · `/\bitem\.filters\b/` · `/\bscalarFilters\b/` · `/\blinkFilters\b/` trong `frontend/src/**/*.{ts,vue}`; allowlist **duy nhất** `api/imm00.ts` (`totals_uncapped`) | INV-CONNFE9-2 | A10 |
+| **TC-CONNFE9-03** | **MOUNT** `RelatedRecords` với ô `{total:100, total_capped:1, truncated:1, items:5}` ⇒ `[data-testid=conn-count]` === `'100+'` ∧ `[data-testid=conn-meta]` chứa `'Đang xem 5/100+'` ∧ **0** badge `'100'` trần ∧ **0** chuỗi `'95'`/`'còn 95'` | INV-CONNFE9-3 | A8 |
+| **TC-CONNFE9-04** | **MOUNT** ô `{total:7, total_capped:0}` ⇒ badge `'7'` | INV-CONNFE9-4 | A8 |
+| **TC-CONNFE9-05** | `countBadge` với `total_capped` **VẮNG MẶT** ⇒ `'7'` (không crash, không `'7+'`) | INV-CONNFE9-5 | A9 |
+| **TC-CONNFE9-06** | Bỏ `truncated` khỏi ô 5/7 ⇒ dải cắt **MẤT** (chứng minh `previewMeta` không suy từ `items.length`) | INV-CONNFE9-6 | A7 |
+| **TC-CONNFE9-07** | `listTarget` đọc **chỉ** `deep_link_filters` (`undefined` ⇒ `null`); 2 guard parity route xanh **không bị sửa** | INV-CONNFE5-1..4 | A7 |
+
+#### XVIII.11.4 Mutation check — chạy THẬT rồi REVERT (không chỉ khai)
+
+| Mutation | Phải ĐỎ ở |
+|---|---|
+| `total_capped = len(rows) > CAP` (bool) | `t01` (`type is int`) |
+| `>=` thay `>` trong predicate | `t21` mốc "đúng CAP" |
+| Bồi lại khoá `count` vào ô | `t01` (so sánh tập) |
+| Dời `frappe.get_list` xuống service | `t27` **và** `t28` **và** `test_connections.py::test_counts_run_under_session_user_not_administrator` |
+| `payload total` cộng dồn biến thứ hai lệch | `t20` |
+| FE: `countBadge` đọc `item.total_capped` bằng truthiness trên chuỗi `'0'` | TC-CONNFE9-04 |
+
+#### XVIII.11.5 DoD vòng AC-CR-92 (chấm ĐỎ nếu thiếu bất kỳ mục nào)
+
+- **BE, module-isolated, `timeout` tool ≥ 600000ms** (kill giữa chừng ⇒ `tearDownClass` không chạy ⇒ fixture mồ côi ⇒ **ĐỎ GIẢ**): `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_connections` **XANH** (đúng **11** TC) **và** `--module assetcore.tests.test_connections_tree` **XANH**.
+- **FE**: `npx vue-tsc --noEmit` **0 lỗi** · `npm run test:unit` **0 ĐỎ**. **Đọc baseline TỪ ĐĨA trước khi chấm** (số **2591** trong đề mục là baseline cuối run-3, **đã stale** — ADR §13.9 ghi 2649 sau vòng 5, còn AC-CR-93/94/95 bồi thêm) ⇒ chấm **delta ≥ 0** so với số đo trên đĩa, **không** so với 2591.
+- **3 counter guard: delta 0** — `_EXPECTED_TEST_COUNT` **1024** (`tests/test_mobile_oas.py:212`) · `_GUARD_SUITE_SUM` **1167** (`tests/test_mobile_docset.py:956`) · `_MOBILE_OAS_TOTAL` **1193** (`:1145`). Lý do đo được: `test_connections*.py` **không** thuộc `_GUARD_SUITE_EXPECTED` (0 hit `test_connections` trong `test_mobile_docset.py`) và `get_connections` có **0 hit** trong `docs/mobile/openapi/assetcore-mobile.openapi.yaml`. ⇒ QA **không** được chấm vòng này bằng counter, và **không ai** được "cập nhật" counter cho khớp.
+- `git diff --name-only`: BE **4** file (`services/connections.py`, `api/connections.py` — chỉ docstring, 2 file test) · FE **9** file (`api/connections.ts` + 7 fixture test + 1 guard mới). File khác ⇒ ra khỏi biên ⇒ ĐỎ.
+- **Blocker mới phải khai**: đụng `.py` prod ⇒ **1 blocker `bench restart`** (USER, `gunicorn --preload`). QA **KHÔNG** chấm bằng curl/HTTP (LL-DEPLOY-07/08).
+- **A-biên "không làm" là PASS**: **KHÔNG** thêm `create_prefill` (nợ `AC-CR-90(b)`, ADR §17.8) · **KHÔNG** sửa `connection_meta.py` / `*_dashboard.py` / 5 màn Detail / `RelatedRecords.vue` / 2 guard parity route / OAS.
+- ⛔ **KHÔNG** `git commit/push/merge` · **KHÔNG** `bench migrate` / `bench restart` · **KHÔNG** `npm run build` · **KHÔNG** reset DB.
+
+---
+
+## XIX. AC-CR-100 — tab «Lịch sử»: TỔNG THẬT của server + phân trang «Tải thêm» + 3 trạng thái tách rời (INV-TL-1..11)
+
+> **CR**: `AC-CR-100` (đề mục PM gọi «AC-CR-96» — số đã bị chiếm; bảng đối chiếu [ADR §8.0](./ADR-IMM00-TRUNCATION-SSOT.md)). Quyết định: **ADR-IMM00-TRUNCATION-SSOT §8**. FR-00-TL-01 / BR-00-TL-01..09: [02 §IV.40](./02_Analysis_Design.md). API: [05 §III.25](./05_API_Specification.md). FE: [06 §VIII.11](./06_Frontend_Design.md).
+>
+> **Biên test**: **1 file FE mới** `frontend/src/views/asset/assetDetailTimelinePagination.test.ts` + **1 class BE mới** trong `assetcore/tests/test_imm00.py`. **KHÔNG** sửa guard cũ (`relatedRecordsTabParity.test.ts`, `assetDetail*.test.ts`, `test_mobile_oas`, `test_mobile_docset`). 3 counter guard mobile: **delta 0**.
+
+### XIX.1 Fixture tối thiểu (BE)
+
+- 1 `AC Asset` seed qua khuôn `_purge_asset` sẵn có (`tests/_asset_cleanup.py`) — **bắt buộc** teardown, nếu không ⇒ rác fixture (LL-TEST).
+- **≥3** `Asset Lifecycle Event` cho asset đó, trong đó **≥2 event CÙNG `timestamp`** (ép đúng ca mà `ORDER BY` thiếu tiebreaker sẽ vỡ — nếu mọi timestamp khác nhau thì test **xanh giả**).
+- Chạy dưới **session user không phải Administrator** ở TC-TL-B4 (bẫy xanh-giả số 1 của §XVI).
+
+### XIX.2 TC backend (BE Bước-4) — guard chống regress "total = len(items)" + phân trang lặp/sót
+
+| TC | Kịch bản | Kỳ vọng | Invariant |
+|---|---|---|---|
+| TC-TL-B1 | `get_asset_timeline(name, page=1, page_size=2)` trên asset ≥3 ALE | `success` ∧ `len(items) == 2` ∧ `pagination.page_size == 2` | INV-TL-9 |
+| TC-TL-B2 | cùng ca trên | `pagination.total == frappe.db.count("Asset Lifecycle Event", {"asset": name})` ∧ `total >= 3` ∧ `total > len(items)` | INV-TL-9 |
+| TC-TL-B3 | cùng ca trên | `pagination.total_pages == math.ceil(total / 2)` ∧ `pagination.offset == 0` | INV-TL-9 |
+| TC-TL-B4 | gọi `page=1` rồi `page=2` (`page_size=2`) | `set(names(page1)) ∩ set(names(page2)) == ∅` ∧ union ⊆ tập name thật ∧ `len(union) == 4` (khi total ≥4) | INV-TL-9 + BR-00-TL-08 |
+| TC-TL-B5 | **RED-first**: đọc hằng `_ORDER_EVENT_TS_DESC` từ `assetcore.api.imm00` | chuỗi **chứa** dấu `,` và kết thúc bằng tiebreaker (`name desc` hoặc `creation desc`) — assert trên **hằng THẬT** (import, KHÔNG grep chuỗi trong file) | BR-00-TL-08 / D-TL-2 |
+| TC-TL-B6 | `frappe.get_hooks("permission_query_conditions")` | **KHÔNG** chứa khoá `"Asset Lifecycle Event"`; message lỗi nêu rõ: *thêm PQC cho ALE thì `total` phải đổi sang engine permission-aware (`frappe.get_list`) chứ không được giữ `frappe.db.count`* | **INV-TL-10** (D6/INV-ROWSCOPE) |
+| TC-TL-B7 | asset ∄ (`name='AC-ASSET-KHONG-TON-TAI'`) | **HTTP-200** + `success == False` ∧ `code == 404` (in-handler envelope, KHÔNG raise) | hợp đồng lỗi (05 §III.25.1) |
+| TC-TL-B8 | asset tồn tại, **0** ALE | `success` ∧ `items == []` ∧ `pagination.total == 0` ∧ `total_pages == 0` (KHÔNG 404) | phân biệt rỗng-thật vs 404 |
+| TC-TL-B9 | `page_size=100000` | `pagination.page_size == 100` ∧ `len(items) <= 100` (parity TC-00-PS-02, **không** hồi quy) | BR-00-39 / INV-TRUNC-LIMIT |
+
+**⚠️ Bẫy xanh-giả:** TC-TL-B4 **vô nghĩa** nếu fixture không có ALE trùng `timestamp` (thứ tự vô tình ổn định). Fixture §XIX.1 là **điều kiện chấm**, không phải gợi ý.
+
+### XIX.3 TC frontend (FE Bước-4) — test **mount**, không grep
+
+Khuôn: `frontend/src/views/asset/assetDetailTransitionAuthz.test.ts` (mock store/router/capabilities). `getAssetTimeline` là `vi.fn()` **đếm được** + **kiểm tham số**.
+
+| TC | Kịch bản (mock) | Kỳ vọng | Acceptance |
+|---|---|---|---|
+| TC-TL-F1 | mount, `activeTab = 'info'` | `getAssetTimeline` gọi **0** lần; `getConnections` **0** lần | A6 / INV-TL-11 |
+| TC-TL-F2 | mở tab `timeline`; trả `{pagination:{total:137,page:1,page_size:100,total_pages:2,offset:0}, items: 100 dòng}` | `getAssetTimeline` gọi **đúng 1** lần với `(id, 1, 100)`; text `timeline-total` == `137 sự kiện`; `timeline-viewing` == `Đang xem 100/137`; **100** dòng render | A2 / INV-TL-2/4 |
+| TC-TL-F3 | cùng ca F2 | `timeline-load-more` **tồn tại** | A3 / INV-TL-3 |
+| TC-TL-F4 | `total = 7`, trang 1 trả 7 dòng | `timeline-total` == `7 sự kiện`; **KHÔNG** có `timeline-viewing`; **KHÔNG** có `timeline-load-more` | A3 / INV-TL-3/4 |
+| TC-TL-F5 | từ F2, click `timeline-load-more`; trang 2 trả 37 dòng | lời gọi thứ 2 = `(id, 2, 100)` — `page_size` **GIỮ 100**; **137** dòng render (APPEND, không thay thế); nút biến mất; `timeline-viewing` tắt | A4 / INV-TL-3/6 |
+| TC-TL-F6 | trang 2 trả **42** dòng trong đó **5 dòng trùng `name`** với trang 1 | số dòng render == **137** ∧ **0** `name` trùng ∧ nút ẩn ∧ `timeline-viewing` tắt ∧ **không** có `timeline-error`; **không** crash `:key` | A4 / D-TL-5 |
+| TC-TL-F15 | trang 2 trả **37** dòng trong đó 5 trùng ⇒ render **132 < 137** (trang cuối ngắn mà vẫn thiếu) | nút **ẩn** ∧ `timeline-viewing` == `Đang xem 132/137` ∧ `timeline-error` text chứa `đã thay đổi trong lúc tải` ∧ `timeline-retry` gọi `(id, 1, 100)` — **cấm** trạng thái "thiếu mà không có đường lấy" | **INV-TL-8** / D-TL-8 |
+| TC-TL-F7 | mở tab `timeline`, `getAssetTimeline` **reject** | `timeline-error` hiện, text chứa `Không tải được dòng thời gian`; **KHÔNG** có `timeline-empty`; `notify.fromError` gọi 1 lần | A5 / INV-TL-7 |
+| TC-TL-F8 | `total = 0`, `items = []` | `timeline-empty` hiện (chuỗi cũ `Chưa có sự kiện vòng đời`); **KHÔNG** có `timeline-error`; **KHÔNG** có `timeline-total` | A5 / INV-TL-7 |
+| TC-TL-F9 | từ F2, click «Tải thêm» → trang 2 **reject** | 100 dòng **GIỮ NGUYÊN** (không mất); `timeline-error` hiện; click `timeline-retry` ⇒ gọi lại **đúng** `(id, 2, 100)` | D-TL-7 / INV-TL-8 |
+| TC-TL-F10 | từ F2, click «Tải thêm» → trang 2 trả **0 dòng mới** (danh sách đổi) | nút **ẩn**; `timeline-error` text chứa `đã thay đổi trong lúc tải`; `timeline-retry` gọi `(id, 1, 100)` (reset) | D-TL-8 / INV-TL-8 |
+| TC-TL-F11 | mock `pagination.total = 3` trong khi đã render 5 dòng | `timeline-total` == `5 sự kiện` (không bao giờ `M > N`) | INV-TL-5 / D-TL-6 |
+| TC-TL-F12 | asset 0 event: mở tab `timeline` → sang tab `info` → mở lại `timeline` | `getAssetTimeline` **đúng 1** lần (không nạp lại vì `timelinePage > 0`) | D-TL-3 / A6 |
+| TC-TL-F13 | lỗi trang 1 → sang `info` → mở lại `timeline` | có nạp lại (`timelinePage` vẫn 0) ⇒ 2 lần gọi | D-TL-3/7 |
+| TC-TL-F14 | trong lúc `timelineLoading` true, click «Tải thêm» 3 lần | tổng lời gọi thêm **≤ 1** (chống double-fetch) | D-TL-8 (idempotent) |
+
+**Mutation check (chứng minh guard SỐNG — chạy thật ≥2, rồi revert):**
+1. Đổi `timelineTotal` thành `timeline.value.length` ⇒ **TC-TL-F2/F4/F11 ĐỎ**.
+2. Đổi điều kiện `timeline-empty` về `!timeline.length` ⇒ **TC-TL-F7 ĐỎ**.
+3. Đổi `TIMELINE_PAGE_SIZE` thành `200` ⇒ **TC-TL-F5 ĐỎ**.
+4. Xoá `_ORDER_EVENT_TS_DESC` tiebreaker ⇒ **TC-TL-B5 ĐỎ**.
+
+### XIX.4 DoD vòng AC-CR-100 (chấm ĐỎ nếu thiếu bất kỳ mục nào)
+
+- **BE, module-isolated, `timeout` tool ≥ 600000ms** (kill giữa chừng ⇒ `tearDownClass` không chạy ⇒ fixture mồ côi ⇒ **ĐỎ GIẢ**): `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_imm00` **XANH** (baseline + class `TestAssetTimelinePaginationContract` mới, TC-TL-B1..B9).
+- **FE**: `npx vitest run` 0 ĐỎ + `npx vue-tsc --noEmit` 0 lỗi. **Đọc baseline TỪ ĐĨA trước khi chấm** (đo lúc chốt spec 2026-07-28: **283 file** `*.test.ts`; các số 2591/2682 trong đề mục & STATE **đều có thể stale**) ⇒ chấm theo **delta ≥ +10 test** (bộ TC có **15** ca ⇒ ≥15 nếu viết 1 `it` mỗi TC).
+- **3 counter guard: delta 0** — `_EXPECTED_TEST_COUNT` (**1024**, `tests/test_mobile_oas.py:212`) · `_GUARD_SUITE_SUM` (**1167**, `tests/test_mobile_docset.py:956`) · `_MOBILE_OAS_TOTAL` (**1193**, `:1145`). Đọc lại **từ đĩa** trước khi kết luận; **chạm vào là sai** (vòng này 0 OAS delta, file test mới không thuộc 7 module guard mobile).
+- `git diff --name-only`: phía BE **đúng 2** file (`assetcore/api/imm00.py` — **chỉ 1 dòng hằng**, `assetcore/tests/test_imm00.py`); phía FE **đúng 2** file (`AssetDetailView.vue`, test mới). File khác trong diff ⇒ ra khỏi biên ⇒ **ĐỎ**.
+- **Blocker mới phải khai**: vòng này **đụng `.py` prod** ⇒ **1 blocker `bench restart`** (thuộc USER, `gunicorn --preload`). QA **KHÔNG** chấm bằng curl/HTTP (LL-DEPLOY-07/08) và **KHÔNG** gán nợ restart của vòng trước cho vòng này.
+- **A9 (out-of-scope, đo được)**: **0** file ngoài 4 file trên bị sửa; **KHÔNG** render 3 nhánh lịch sử PM/CM/Sự cố lên màn Chi tiết tài sản (nợ có tên `AC-CR-102`, ADR §8.7) — QA chấm việc **không làm** là **PASS**. ⚠️ **HẾT HIỆU LỰC từ `AC-CR-102` (2026-07-30)**: A9 chỉ áp cho **vòng `AC-CR-100`**. Từ `AC-CR-102`, 3 nhánh **PHẢI** render trong tab «Bản ghi liên quan» — QA chấm theo **`§XX` (INV-OPH-1..18)** + [`ADR-IMM00-ASSET-OP-HISTORY §2`](./ADR-IMM00-ASSET-OP-HISTORY.md); **đừng** dùng A9 để chấm vòng sau FAIL.
+- ⛔ **KHÔNG** `git commit/push/merge` · **KHÔNG** `bench migrate` · **KHÔNG** `bench restart` · **KHÔNG** `npm run build` · **KHÔNG** reset DB.
+
+---
+
+## XX. AC-CR-102 — hồ sơ **VẬN HÀNH** của thiết bị render THẬT trong tab «Bản ghi liên quan» (INV-OPH-1..18)
+
+> Spec: [`ADR-IMM00-ASSET-OP-HISTORY`](./ADR-IMM00-ASSET-OP-HISTORY.md) · FR-00-OPH-01 / BR-00-OPH-01..18 ([`02 §IV.41`](./02_Analysis_Design.md)) · hợp đồng ĐỌC [`05 §III.26`](./05_API_Specification.md) · FE [`06 §VIII.13`](./06_Frontend_Design.md).
+>
+> ⚠️ **Đọc trước khi chấm**: `§XIX A9` («KHÔNG render 3 nhánh …») chỉ áp cho vòng `AC-CR-100` và **đã hết hiệu lực**. Từ vòng này, **không render = FAIL**.
+
+### XX.1 Invariants
+
+| ID | Bất biến | Cách chấm |
+|---|---|---|
+| **INV-OPH-1** | Mount `AssetDetailView` → click `[data-testid=tab-related]` ⇒ **đúng 1** `[asset-op-history]` chứa **đúng 3** `[op-history-section]`, `data-branch` = `pm,cm,incident` **theo thứ tự**; ~~`[op-history-title]`~~ → **`.text()` của `[op-history-toggle]`** của 3 section chứa «Kết quả bảo trì» / «Lần sửa chữa đã hoàn thành» / «Sự cố đã ghi nhận». *(⚠️ **CẢI CHÍNH 2026-07-30 / `AC-CR-115`**: testid `op-history-title` **không tồn tại trên đĩa** — chuỗi tiêu đề nằm trong `op-history-toggle` `AssetOperationalHistory.vue:327`. Test hiện có đã chấm đúng cách này (`assetOperationalHistory.test.ts:146`); doc là chỗ sai, không phải mã.)* | vitest render |
+| **INV-OPH-2** | **0 chi phí mở máy**: sau khi vào tab, mỗi mock `getAssetPMHistory`/`getAssetRepairHistory`/`getAssetIncidentHistory` có `toHaveBeenCalledTimes(0)` ∧ `[op-history-row]` = **0**. Bung section *i* ⇒ mock *i* = **1**, hai mock kia = **0**. | vitest + `vi.fn()` |
+| **INV-OPH-3** | **Cache**: bung → thu → bung lại ⇒ mock **vẫn 1**. | vitest |
+| **INV-OPH-4** | **Cache khoá theo thiết bị**: đổi prop `assetName` A→B rồi bung ⇒ mock gọi **lại** (2 lần, tham số lần 2 = B) ∧ **không** còn dòng của A trong DOM. | vitest |
+| **INV-OPH-5** | **Thanh tab GIỮ 6 tab**: tập `data-testid` khớp `tab-info/depreciation/timeline/kpi/audit/related`, **không** có tab thứ 7; `tabLabelParity` xanh. | vitest |
+| **INV-OPH-6** | **0 link chết**: mọi `[op-history-row-link]` có `href` **∈** ảnh của `detailRouteForDoctype` (`/pm/work-orders/<wo>` · `/cm/work-orders/<name>` · `/incidents/<name>`); PM `row.pm_work_order` rỗng/null ⇒ **0 `<a>`** trong dòng đó ∧ `wrapper.html()` **không chứa** `/pm/work-orders/undefined` **và không chứa** `/pm/work-orders/"` (path trần). | vitest |
+| **INV-OPH-7** | Đích PM dựng từ **`pm_work_order`**, **không** từ `name`: fixture `{name:'PMTL-9', pm_work_order:'WO-PM-1'}` ⇒ `href === '/pm/work-orders/WO-PM-1'` ∧ **không** chứa `PMTL-9`. | vitest |
+| **INV-OPH-8** | «Xem tất cả»: **đúng 1** `[op-history-see-all]` / section, `href` == `/pm/work-orders?asset=<TS>` · `/cm/work-orders?asset=<TS>` · `/incidents/list?asset=<TS>`. ~~và **bằng** `listRouteForAsset(<doctype>, <TS>)`~~ *(⚠️ **CẢI CHÍNH 2026-07-30 / `AC-CR-115`**: `listRouteForAsset` **chưa bao giờ được cài** — `grep -rn 'listRouteForAsset' frontend/src` ⇒ **0 hit**; trên đĩa là hàm cục bộ `seeAllHref` (`AssetOperationalHistory.vue:278-282`) đọc `DOCTYPE_LIST_TARGET` trực tiếp và **bỏ** guard `LIST_TARGET_ANCHOR`. Mệnh đề "bằng helper" treo thành nợ **`AC-CR-116`** [P2 — fe]; phần còn lại của INV-OPH-8 **vẫn chấm bình thường**.)* | vitest |
+| **INV-OPH-9** | **Parity route SSoT**: 3 doctype dùng ở khối đều **∈** `DOCTYPE_LIST_TARGET` ∧ `spec.queryKey === 'asset'` ∧ `LIST_TARGET_ANCHOR['asset'] === 'AC Asset'` ∧ `spec.path` phân giải được bằng `router.resolve()` (không 404) ∧ 3 doctype **∈** `DOCTYPE_DETAIL_ROUTE`. Đổi bảng mà quên khối ⇒ **ĐỎ**. | vitest (`assetOpHistoryRouteParity.test.ts`) |
+| **INV-OPH-10** | **0 URL literal**: đọc file `AssetOperationalHistory.vue` bằng `fs.readFileSync` trong test ⇒ **0 match** `/pm/work-orders`, `/cm/work-orders`, `/incidents` (cấm bản đồ route thứ hai, D-CR5-1). | vitest static-read |
+| **INV-OPH-11** | **Đếm trung thực**: fixture `rows=10, total=34` ⇒ ~~`[op-history-heading]`~~ → **`[op-history-count]`** (badge trong `[op-history-toggle]`) `.text()` == **`'34'`** ∧ **không** chứa `10`. *(⚠️ **CẢI CHÍNH 2026-07-30 / `AC-CR-115`**: testid thật là `op-history-count` (`AssetOperationalHistory.vue:332`) và chuỗi là **số trần**, không phải «{total} bản ghi». Từ `AC-CR-115` badge in **`totalDisplay = max(total, rows.length)`** — cùng một số với dải cắt.)* | vitest |
+| **INV-OPH-12** | **3 trạng thái tách**: (a) `total===0` ⇒ có `[op-history-empty]` ∧ **0** `[op-history-see-all]` ∧ 0 `[op-history-row]`; (b) API reject ⇒ có `[op-history-error]` + `[op-history-retry]` ∧ **KHÔNG** có `[op-history-empty]`; (c) chưa bung ⇒ **không** có cả hai; (d) bấm «Thử lại» sau lỗi ⇒ mock gọi **lần 2** (guard cache không chặn retry). | vitest |
+| **INV-OPH-13** | **Không lặp ô connections (6 dấu hiệu)**: DOM render chứa (1) nhãn kết quả VI (`Đạt`/`Không đạt`), (2) «Trễ {N} ngày», (3) «Thời gian khắc phục», (4) «Vượt cam kết thời gian», (5) nhãn mức độ VI (`Nghiêm trọng`…), (6) «Mã lỗi:». **Đủ 6** mới PASS. | vitest |
+| **INV-OPH-14** | **Chữ VI**: `wrapper.text()` **0 match** `/\b(Pass|Fail|Preventive|Critical|High|Warranty Repair|MTTR|SLA)\b/` với fixture phủ **mọi** giá trị enum của 3 field (`overall_result` 3 giá trị · `repair_type` 3 · `severity` 4) ∧ mọi giá trị enum có khoá VI trong map tương ứng (`OVERALL_RESULT_LABEL`/`REPAIR_TYPE_LABEL`/`INCIDENT_SEVERITY_LABEL`) ⇒ **0 fallback EN**. | vitest |
+| **INV-OPH-15** | **Kiểu không dối**: `npx vue-tsc --noEmit` 0 lỗi; `grep -n 'history: PMWorkOrder\[\]' frontend/src/api/imm08.ts` ⇒ **0 hit**; `PMTaskLogHistoryItem` có **đúng 10** khoá khớp `fields` @`services/imm08.py:1747-1749`. | vue-tsc + BE guard (dưới) |
+| **INV-OPH-16** | **Sự cố: 2 số BẰNG NHAU** — cùng asset, `get_asset_incident_history(asset).total == frappe.db.count('Incident Report', {'asset': asset})` (cả hai "mọi docstatus"). | BE `run-tests` |
+| **INV-OPH-17** | **CM: section ⊆ ô** — `get_asset_repair_history(asset).total == frappe.db.count('Asset Repair', {'asset_ref': asset, 'docstatus': 1})` ∧ `≤ frappe.db.count('Asset Repair', {'asset_ref': asset})`. Chứng minh tiêu đề «đã hoàn thành» nói đúng tập. | BE `run-tests` |
+| **INV-OPH-18** | **0 delta BE**: `git diff --stat -- 'assetcore/api/*.py' 'assetcore/services/**/*.py'` **không tăng path** so với đầu vòng; OAS `docs/mobile/openapi/*.yaml` không đổi; 3 counter (1024/1167/1193) **delta 0** — đọc lại **từ đĩa**. | shell |
+
+### XX.2 Test matrix
+
+**FE — `frontend/src/components/asset/assetOperationalHistory.test.ts`** (TC-OPH-F1..F14)
+
+| TC | Nội dung | INV |
+|---|---|---|
+| F1 | Vào tab ⇒ 1 khối · 3 section · đúng 3 tiêu đề VI · đúng thứ tự | 1 |
+| F2 | Vào tab ⇒ 0 dòng ∧ 3 mock đều 0 lần | 2 |
+| F3 | Bung `pm` ⇒ mock pm = 1, cm = 0, incident = 0 (và đối xứng cho `cm`, `incident`) | 2 |
+| F4 | Thu → bung lại ⇒ mock vẫn 1 | 3 |
+| F5 | Đổi `assetName` ⇒ refetch + 0 dòng cũ | 4 |
+| F6 | Thanh tab vẫn 6 tab (không tab thứ 7) | 5 |
+| F7 | 3 dòng → 3 `href` đúng khuôn `detailRouteForDoctype` | 6,7 |
+| F8 | PM `pm_work_order` `''`/`null` ⇒ 0 `<a>` + `op-history-row-static` + 0 `undefined` trong html | 6 |
+| F9 | 1 `see-all`/section, href đúng 3 đích, `total>0` | 8 |
+| F10 | `rows=10 / total=34` ⇒ heading chứa `34`, không chứa `10 bản ghi` | 11 |
+| F11 | `total=0` ⇒ `empty` ∧ 0 `see-all` | 12 |
+| F12 | API reject ⇒ `error` + `retry` ∧ **không** `empty`; bấm retry ⇒ mock lần 2 | 12 |
+| F13 | Đủ **6 dấu hiệu** không-lặp-ô | 13 |
+| F14 | Fixture phủ mọi enum ⇒ 0 chuỗi EN thô (`Pass/Fail/Preventive/Critical/High/Warranty Repair/MTTR/SLA`) | 14 |
+
+**FE — `frontend/src/router/assetOpHistoryRouteParity.test.ts`** (TC-OPH-R1..R4)
+
+| TC | Nội dung | INV |
+|---|---|---|
+| R1 | 3 doctype ∈ `DOCTYPE_LIST_TARGET`, `queryKey==='asset'`, anchor `AC Asset`, `path` resolve được | 9 |
+| R2 | 3 doctype ∈ `DOCTYPE_DETAIL_ROUTE`; `'PM Task Log'` **∉** cả 2 bảng (nếu ai đó thêm ⇒ ĐỎ để buộc xem lại D-OPH-7) | 9 |
+| R3 | `listRouteForAsset` trả `null` khi doctype ngoài bảng / `assetName` rỗng / `queryKey` không neo `AC Asset`; `encodeURIComponent` áp cho mã có ký tự đặc biệt | 8,9 |
+| R4 | Static-read file component ⇒ 0 URL literal | 10 |
+
+**BE — `assetcore/tests/test_asset_operational_history_contract.py`** (TC-OPH-B1..B6, **chỉ đọc, 0 dòng prod đổi**)
+
+| TC | Nội dung | INV |
+|---|---|---|
+| B1 | `fields` thật của 3 service == bảng `05 §III.26.3` (introspect `inspect.getsource` hoặc gọi endpoint trên fixture rồi so **tập khoá** của 1 dòng) | 15 |
+| B2 | Rows-key: imm08/imm09 trả `history` + `asset_ref`; imm12 trả **`items`** + **`asset`** (chống ai đó "đồng bộ" khoá làm FE rỗng câm) | — |
+| B3 | `limit=0` ⇒ **10 dòng tối đa** (không phải toàn bộ) ∧ `limit=500` ⇒ **≤100** cho **cả 3** endpoint (parity `clamp_page_size`) | — |
+| B4 | `total` là COUNT **trước** khi cắt: seed 12 bản ghi, `limit=10` ⇒ `len(rows)==10 ∧ total==12 ∧ truncated==1`; seed 10, `limit=10` ⇒ `truncated==0` (không báo cắt oan) | 11 |
+| B5 | `INV-OPH-16` sự cố: `total == db.count(asset)` | 16 |
+| B6 | `INV-OPH-17` CM: `total == db.count(docstatus=1) ≤ db.count(all)` | 17 |
+
+> Fixture BE **phải** dọn trong `tearDownClass` + tên có **uuid-suffix** (LL-TEST: fixture tên cố định tự chặn chính nó sau crash — xem STATE §DATA-PURGE).
+
+### XX.3 DoD vòng AC-CR-102 (QA chấm — đọc baseline TỪ ĐĨA)
+
+- **BE, module-isolated, `timeout` tool ≥ 600000ms**: `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_asset_operational_history_contract` **XANH**. (Không bắt buộc chạy full suite; nếu chạy, ĐỎ do nhiễm fixture phiên khác **không** tính cho vòng này — LL-TEST-30.)
+- **FE**: `npx vitest run` **0 ĐỎ** + `npx vue-tsc --noEmit` **0 lỗi**; số file `*.test.ts` **284 → ≥286** (đo lúc chốt spec 2026-07-30 = **284**) ⇒ chấm **delta**.
+- **3 counter guard delta 0**: `_EXPECTED_TEST_COUNT` **1024** (`tests/test_mobile_oas.py:212`) · `_GUARD_SUITE_SUM` **1167** (`tests/test_mobile_docset.py:956`) · `_MOBILE_OAS_TOTAL` **1193** (`:1145`).
+- **`git diff --name-only`**: phía FE **đúng 8** file sản phẩm + **2** test mới; phía BE **đúng 1** file (`assetcore/tests/…`, thêm mới). Ngoại lệ duy nhất được phép: `stores/assetHistoryTruncation.test.ts` (guard cache) — phải khai.
+- **`git diff --stat -- 'assetcore/api/*.py' 'assetcore/services/**/*.py'` không tăng path** ⇒ **0 blocker reload mới**. QA **KHÔNG** chấm bằng curl (LL-DEPLOY-07/08) và **KHÔNG** gán nợ `bench restart` của vòng trước cho vòng này.
+- **Ngoài biên — chấm việc KHÔNG làm là PASS**: ~~dải «Đang xem {M}/{N} — còn {N−M} chưa hiển thị» + «Tải thêm» cho 3 section = **VÒNG 5** (khuôn `AC-CR-96`)~~ ⚠️ **HẾT HIỆU LỰC từ `AC-CR-115` (2026-07-30)**: dải **PHẢI** render (chấm theo **§XXII**); «Tải thêm» thì **LOẠI VĨNH VIỄN** (3 endpoint không có `offset` ⇒ nút chết, `D-OPH-19`) ⇒ **không** dựng «Tải thêm» vẫn là **PASS**, còn **không** dựng dải là **FAIL**. Các mục sau **vẫn ngoài biên**: hợp nhất 2 map `REPAIR_TYPE_LABEL(S)` = `AC-CR-103`; «lịch sử cùng thiết bị» trên màn chi tiết PM/CM/Sự cố = `AC-CR-104`; loại `docstatus==2` khỏi ô đếm = `AC-CR-99`.
+- ⛔ **KHÔNG** `git commit/push/merge` · **KHÔNG** `bench migrate` · **KHÔNG** `bench restart` · **KHÔNG** `npm run build` · **KHÔNG** reset DB.
+
+---
+
+## XXI. AC-CR-105 — «Tạo từ ngữ cảnh cha» hết là nút chết: `create_prefill` LIVE + token `CREATE_CAPABILITY` + chip cho ô 0 bản ghi (INV-CONN105-1..4 · INV-CONN4-1/2/3/7/10)
+
+> Quyết định: [ADR §18](./ADR-IMM00-CONNECTIONS-TREE.md) (D-CR105-1..9) · hợp đồng API: [`05 §III.24.11`](./05_API_Specification.md) · code shape BE: [`04 §V.10`](./04_Backend_Design.md) · FE: [`06 §VIII.14`](./06_Frontend_Design.md) · nghiệp vụ: [`02 §IV.42`](./02_Analysis_Design.md) FR-00-CONN-06 / BR-00-CONN-67..76.
+> **File test**: `assetcore/tests/test_connections_tree.py` (**append 6 TC** `t29..t34` + **2** TC hiện có sửa **đã khai trước**) · `frontend/src/components/common/RelatedRecords.test.ts` (**append** + **2 dòng** breakage `:772-773`) · `frontend/src/api/connections.test.ts` (**chỉ append**) · `frontend/src/api/connectionsLegacyKeysRetired.acr92.test.ts` (**9→10** + tập optional **rỗng**).
+> **CẤM sửa**: `assetcore/tests/test_connections.py` (11 TC hợp đồng cũ) · `frontend/src/router/connectionsListParity.test.ts` · `frontend/src/router/connectionsCreateParity.test.ts` · `TC-FE-CONN-24/25/27/28/29/30` · **7 assert in-summary của TC-FE-CONN-26** (`RelatedRecords.test.ts:764-770`) và **hàng TC-FE-CONN-26 ở §XVIII.8.2 — không sửa một chữ**.
+> **Quy ước số hiệu**: BE `t29..t34` (tiếp theo `t28`, tổng **29 → 35** TC). FE render **TC-FE-CONN-60..64**, FE unit **TC-FE-CONN-70..72** — nhảy khoảng cố ý: dải 31..45 đã bị AC-CR-94/95 dùng ở cả doc lẫn mã, chọn dải mới để **không** phải tra chéo khi đọc lỗi đỏ.
+
+### XXI.1 Fixture BE — **tái dùng tối đa**, thêm đúng 1 asset + 1 sự cố
+
+| Fixture | Dùng cho | Ràng buộc (verify @source 2026-07-30) |
+|---|---|---|
+| `cls.asset6` / `cls.asset3` / `cls.asset0` (có sẵn) | hub `AC Asset` — t29/t30/t32 | **0 dòng sửa**; ô `total` của chúng là kỳ vọng của TC khác |
+| `cls.wo6[0]` (có sẵn) | hub `PM Work Order` — t31/t32 | Ô «Phiếu sửa chữa» của hub này **không cần bản ghi nào**: ô vẫn được phát khi `total == 0` (INV-CONN-22) ⇒ prefill vẫn tính |
+| **MỚI** `cls.asset_inc` + `cls.incident` | hub `Incident Report` — t31 | `Incident Report` reqd: `naming_series="IR-.YYYY.-.####"` · `asset` · `incident_type` ∈ {Failure,…} · `severity` ∈ {Low,…} · `description` (Text Editor); `reported_by`/`reported_at`/`status` có default. `is_submittable = 1` ⇒ dùng `_insert_bypassing_workflow` (docstatus 0 là đủ — ô đếm không lọc docstatus) |
+
+- **Teardown**: `purge_asset(cls.asset_inc)` là đủ — `Incident Report` **có** trong `_ASSET_DEPENDENTS` (`tests/_asset_cleanup.py:30`). Bổ sung 1 dòng vào `tearDownClass`, **không** viết teardown riêng.
+- **Serial của asset mới phải có hậu tố băm** (`frappe.generate_hash(length=6)`): fixture tên **cố định** tự chặn chính nó sau một lần crash không chạy teardown (LL-TEST — đã cháy 1 vòng ở run-4).
+- **KHÔNG** gắn sự cố vào `cls.asset0`: TC "không lẫn dữ liệu giữa các bản ghi" đang khẳng định asset đó **0 liên kết**.
+
+### XXI.2 TC backend — append **6**, sửa **2** (đã khai ở ADR §18.5)
+
+| TC | Nội dung (oracle) | INV |
+|---|---|---|
+| **t29** `test_t29_create_keys_are_consistent_and_prefill_is_always_a_dict` | ∀ hub đã seed, ∀ ô: `isinstance(item["create_prefill"], dict)` (**không** `None`) ∧ mọi key/value là `str` non-empty (`type(x) is str`) ∧ **3 mệnh đề D-CR105-2**: (1) `can_create is False ⟺ create_route_hint == ""`; (2) `can_create is False ⇒ create_prefill == {}`; (3) **KHÔNG** assert `can_create is True ⇒ prefill != {}`. Thêm assert **dương** cho vế "không prefill mồ côi": `prefill != {} ⇒ can_create is True and hint != ""` | INV-CONN105-1 · INV-CONN4-1 |
+| **t30** `test_t30_prefill_uses_the_url_query_key_not_the_link_fieldname` | Hub `AC Asset` (`cls.asset6`): 5 ô «Phiếu bảo trì định kỳ» / «Phiếu sửa chữa» / «Phiếu hiệu chuẩn» / «Báo cáo sự cố» / «Hồ sơ thiết bị» ⇒ `create_prefill == {"asset": cls.asset6}` (so **bằng `assertEqual` trên cả dict**, không `assertIn`). **Assert TƯỜNG MINH** khoá cấm: `assertNotIn(k, prefill)` với `k ∈ {"asset_ref","source_pm_wo","incident_report","final_asset","critical_asset"}` — đây là chỗ duy nhất phân biệt "đúng khoá URL" với "vô tình trùng" | INV-CONN105-2 |
+| **t31** `test_t31_prefill_key_follows_the_parent_hub` | Hub `PM Work Order` (`cls.wo6[0]`) ⇒ ô «Phiếu sửa chữa» có `create_prefill == {"pm_wo": cls.wo6[0]}`. Hub `Incident Report` (`cls.incident`) ⇒ ô «Phiếu sửa chữa» có `create_prefill == {"incident": cls.incident}`. **Cùng một doctype đích, ba hub, ba khoá khác nhau** — TC này là thứ duy nhất chứng minh khoá derive từ `source_doctype` chứ không phải hằng `"asset"` | INV-CONN105-2 |
+| **t32** `test_t32_create_screens_without_query_keys_get_empty_prefill` | (a) Ô `Asset Transfer` trên hub `AC Asset` ⇒ `create_prefill == {}` **dù** `can_create` có thể `True` (assert vế prefill; **không** assert `can_create is True` — nó phụ thuộc DocPerm của người chạy test). (b) Ô «Phiếu hiệu chuẩn» trên hub `PM Work Order` ⇒ `create_prefill == {}` (màn `/calibration/new` không đọc `pm_wo`). (c) Ô `internal_links` (hub `PM Work Order` → «Thiết bị», «Lịch bảo trì định kỳ») ⇒ `can_create is False ∧ create_route_hint == "" ∧ create_prefill == {}` | INV-CONN4-1 · D-CR105-4 |
+| **t33** `test_t33_create_capability_tokens_bind_to_the_same_doctype_create` | `len(cmeta.CREATE_CAPABILITY) == 5` ∧ ∀ `(dt, token)`: `rbac.CAPABILITY_MAP[token] == (dt, "create")` ∧ `dt in cmeta.CREATE_CONTEXT` ∧ 3 doctype `{"Asset Document","Asset Transfer","Service Contract"}` **KHÔNG** có trong bảng (khai thêm = ĐỎ, buộc đọc ADR §12.9 trước) | INV-CONN4-2 |
+| **t34** `test_t34_create_capability_parity_three_points` | ∀ 5 doctype: **derive** rồi khẳng định **ba bằng nhau** — (1) chuỗi cap tại **chính hàm tạo** của module API, (2) `CREATE_CAPABILITY[dt]`, (3) `requiredCapabilities` của route `CREATE_CONTEXT[dt].route` đọc từ `frontend/src/router/index.ts`. Bảng neo `(dt) → (module, hàm, dạng)` khai trong TC: `imm08/create_pm_work_order/require` · `imm09/create_repair_work_order/require` · `imm11/create_calibration/require` · `imm12/report_incident/const:_CAP_REPORT` · `purchase/create_purchase/require`. **FAIL-CLOSED**: không tìm thấy hàm / route / không parse được list literal ⇒ **ĐỎ** (tuyệt đối không `skip`/`continue`) | INV-CONN4-3 |
+| **t01** *(SỬA — khai trước)* | `_ITEM_KEYS_V2` **9 → 10** (`+"create_prefill"`), đổi tên TC thành `…exactly_ten_keys…`; **giữ** phép so **TẬP** + phép chặn `_LEGACY_ITEM_KEYS` | INV-CONN-1 |
+| **t04** *(SỬA — khai trước, siết chặt hơn)* | **bồi 1 assert**: `lifecycle_status` được đọc **đúng 1 lần** cho cả cây (spy quanh `frappe.db.get_value`, hoặc đếm truy vấn). Số lời gọi `list_fn` và số COUNT **giữ nguyên con số cũ** — **cấm nới ngưỡng** | INV-CONN4-10 · INV-CONN-6 |
+
+### XXI.3 TC frontend — render (mount, KHÔNG grep) + unit thuần
+
+| TC | Nội dung | INV |
+|---|---|---|
+| **TC-FE-CONN-60** | `payload19({can_create: true, create_route_hint: '/cm/create', create_prefill: {asset: 'AC-ASSET-2026-00001'}})` ⇒ mỗi `conn-group` có ô rỗng qua gate: **đúng 1** `conn-empty-actions`; **mọi** `conn-create` của wrapper nằm **bên trong** một `conn-empty-actions` **hoặc** một `conn-item` (0 chip lang thang); số chip == số ô rỗng qua đủ 3 gate (tính **từ chính fixture**, không hằng số) | INV-CONN105-4 |
+| **TC-FE-CONN-61** | Cùng payload: `conn-empty-summary` **vẫn** `findAll('button') === 0` ∧ `findAll('a') === 0` ∧ `html()` không chứa `role="button"`; và nhãn VI của ô **có chip** **vẫn** xuất hiện trong câu «Chưa có: …» (dư thừa CÓ CHỦ ĐÍCH — D-CR105-7) | INV-CONN105-4 · INV-CONNFE6-2 |
+| **TC-FE-CONN-62** | Bấm chip của ô rỗng `Asset Repair` ⇒ `push` gọi **đúng** `{ path: '/cm/create', query: { asset: 'AC-ASSET-2026-00001' } }`. Ô rỗng có `create_prefill: {}` ⇒ `push({ path: '/cm/create' })` ∧ `hasOwnProperty('query') === false` (URL **không** mọc `?`) | INV-CONN4-1 |
+| **TC-FE-CONN-63** | Gate fail-CLOSED: (a) `caps.delete('repair.create')` ⇒ **0** chip cho ô rỗng đó, **nhưng** nhãn vẫn trong câu gộp; (b) `create_route_hint: '/route/khong-ton-tai'` ⇒ 0 chip; (c) `can_create: false` kèm hint+prefill hợp lệ ⇒ 0 chip ∧ `push` **không** được gọi | INV-CONN105-4 |
+| **TC-FE-CONN-64** | Nhóm **toàn rỗng** có ô qua gate ⇒ `conn-group-label` **vẫn 0** (chip KHÔNG làm mọc tiêu đề — luật §14 giữ nguyên) ∧ `conn-item` 0 ∧ `conn-empty-summary` 1 ∧ `conn-empty-actions` 1 | D-CR105-7 |
+| **TC-FE-CONN-70** | `emptyCells`: phân hoạch — `dataCells(g).length + emptyCells(g).length === g.items.length` trên `payload19` **và** trên nhóm `items: []`; vị-từ đọc `total` (ô `{total: 0, items: [row, row]}` ⇒ thuộc `emptyCells`) | INV-CONN105-3 |
+| **TC-FE-CONN-71** | `emptyLabels` sau refactor: **cùng kết quả** cho 3 ca cũ (ưu tiên `label_vi`; thiếu cả hai ⇒ bị loại) ⇒ chứng minh refactor **0 đổi hành vi** | INV-CONNFE6-3 |
+| **TC-FE-CONN-72** | `createTarget` với `create_prefill` **bắt buộc**: `{}` ⇒ `{path}` (không khoá `query`); khoá ngoài `CREATE_PREFILL_QUERY_KEYS[route]` ⇒ **loại im lặng**; value rỗng/`'   '`/không phải chuỗi ⇒ loại. (Ca `create_prefill: undefined` **giữ nguyên** trong TC-FE-CONN-16 — phòng thủ cửa sổ deploy) | INV-CONN105-2 |
+| **guard `connectionsLegacyKeysRetired.acr92`** | `ConnectionItem` khai **ĐÚNG 10** khoá (so **TẬP**) ∧ tập khoá optional **RỖNG** (`expect(optional).toEqual([])`) ∧ 4 khoá legacy vẫn **0 hit** toàn `src/**` | INV-CONN105-1 |
+
+### XXI.4 Chống test **giả xanh** (đọc trước khi khai DONE)
+
+1. **`assertEqual` trên cả dict prefill, không `assertIn`**: `assertIn("asset", prefill)` xanh cả khi BE gửi kèm `asset_ref` — đúng thứ vòng này cấm. `assertNotIn` cho 5 khoá cấm là **bắt buộc**, không phải tô điểm.
+2. **Mệnh đề (3) của D-CR105-2 KHÔNG được biến thành assert**: viết `can_create is True ⇒ prefill != {}` sẽ ĐỎ ở đúng 3 doctype **hợp lệ** ⇒ người sửa tiếp theo sẽ "chữa" bằng cách bịa khoá prefill (`asset_ref`!) hoặc tắt nút. TC nào đỏ theo kiểu đó ⇒ **sửa TC**, KHÔNG sửa BE.
+3. **Parity 3 điểm phải DERIVE**: viết 3 chuỗi hằng cạnh nhau rồi so với nhau là **chép**, không phải parity — luôn xanh, không bao giờ bắt được drift. Và parser **fail-closed**: "không tìm thấy ⇒ bỏ qua" là guard chết (tiền lệ §XVIII.8.5).
+4. **CẤM Python regex `frontend/src/router/routeAccess.ts`**: `:141` viết `'doc' + 'ument.write'` (nối chuỗi để né lint chặn `document.write`) ⇒ regex literal **không** khớp và guard sẽ kết luận sai. Vế FE-gate đã đóng bằng **import giá trị TS** ở `connectionsCreateParity.test.ts:18` — đừng làm lại ở Python.
+5. **Đếm PHẦN TỬ, không đếm chữ** (FE): `w.text().includes('Tạo phiếu sửa chữa')` xanh cả khi chip nằm sai chỗ (trong `<p>`) hoặc render 16 lần. Đếm `findAll('[data-testid="conn-empty-actions"] [data-testid="conn-create"]').length` và so với số ô tính **từ fixture**.
+6. **`vue-tsc` là một phần của oracle**: bỏ `?` khỏi `create_prefill` mà quên bổ sung fixture ⇒ `vitest` vẫn xanh (runtime không kiểm kiểu) nhưng hợp đồng chưa được siết. `npx vue-tsc --noEmit` **0 lỗi** là điều kiện cần.
+7. **Không assert số tuyệt đối của suite** (**286** file FE / **29** TC BE — đo từ đĩa 2026-07-30; số **284** ở §XX.3 đã stale sau vòng 1 run-5): đo từ đĩa, báo cáo **trước → sau**, chấm theo **delta**.
+8. **Guard FE `connectionsCreateParity.test.ts` PARSE `CREATE_CONTEXT` bằng văn bản** (`:117-128`, cắt tới `'\n}'` cột 0): sau khi thêm `query_keys`, **đếm lại** số route nó parse được (`beRoutes.length` phải là **8**). Guard cắt khối sớm ⇒ kiểm ít route hơn mà **vẫn xanh** — kiểu yếu-đi-âm-thầm không có triệu chứng. Chi tiết luật viết mã: `04 §V.10.3` bẫy 7.
+9. **Mutation-check khi land (BE)**: (a) đổi khoá prefill sang `ctx.parents[source]` ⇒ t30 ĐỎ; (b) tính `prefill` **trước** khi kiểm quyền ⇒ t29 ĐỎ (prefill mồ côi); (c) đổi `CREATE_CAPABILITY["Asset Repair"] = "repair.write"` ⇒ t33 **và** t34 ĐỎ; (d) hardcode khoá `"asset"` cho mọi hub ⇒ t31 ĐỎ; (e) bồi khoá thứ 11 ⇒ t01 ĐỎ. **5 đột biến ⇒ 5 lần đỏ**; không đỏ = test template.
+
+### XXI.5 DoD vòng AC-CR-105 (QA chấm — đọc baseline TỪ ĐĨA, **KHÔNG curl**)
+
+- **BE, module-isolated, `timeout` tool ≥ 600000ms**: `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_connections_tree` **XANH** với **≥ 35 TC** (baseline **29** đo từ đĩa 2026-07-30: `grep -c '    def test_' assetcore/tests/test_connections_tree.py` ⇒ chấm **delta ≥ +6**).
+- **BE hồi quy tối thiểu**: `--module assetcore.tests.test_connections` **XANH** (**11 TC, 0 assert sửa** — payload chỉ **thêm** khoá) và `--module assetcore.tests.test_connections_list_filter_parity` **XANH** (11 TC). ĐỎ do nhiễm fixture phiên khác **không** tính (LL-TEST-30) — chờ quiescence rồi chạy lại.
+- **FE**: `cd frontend && npx vitest run` **0 ĐỎ** + `npx vue-tsc --noEmit` **0 lỗi**. **`personaDashboards.test.ts` ĐỎ 1 TC là PRE-EXISTING** (đã chứng minh ở vòng 1 run-5 bằng revert) ⇒ **KHÔNG** tính vào DoD, và **KHÔNG** ai được "sửa cho xanh" trong vòng này.
+- **0 DocType mới ⇒ 0 `bench migrate`**; 3 counter guard **delta 0**: `_EXPECTED_TEST_COUNT` **1024** (`tests/test_mobile_oas.py:212`) · `_GUARD_SUITE_SUM` **1167** · `_MOBILE_OAS_TOTAL` **1193**; OAS **0 op đụng** (`grep -c connections docs/mobile/openapi/*.yaml` = **0**).
+- **`git diff --name-only`**: BE **đúng 4** path (`services/shared/connection_meta.py` · `services/connections.py` · `api/connections.py` **chỉ docstring** · `tests/test_connections_tree.py`); FE **đúng 5** path (`06 §VIII.14.1`). Path thứ 6 ở mỗi phía = **scope creep**, phải giải thích hoặc revert.
+- **Blocked-reload (LL-DEPLOY-07/08 · LL-QA-15)**: `services/*.py` + `api/connections.py` đổi ⇒ HTTP live **vẫn** trả shape worker cũ cho tới khi **USER** `bench restart`. QA **KHÔNG** chấm bằng `curl`/Playwright trước reload, và **KHÔNG** kết luận "BE chưa land" từ HTTP — bằng chứng được chấp nhận trong vòng này là `run-tests` + `vitest` + `vue-tsc` + đọc mã.
+- **Ngoài biên — chấm việc KHÔNG làm là PASS** (ADR §18.6): P4 vòng đời per-doctype (`AC-CR-90(c)`) ⇒ ô «Phiếu sửa chữa»/«Sự cố» **vẫn tắt** ở `Out of Service`, **INV-CONN4-4/5/6 vẫn `[CHƯA CÀI]`** · lỗ ghi `api/imm00.create_incident` (INV-CONN4-9) · EC-12-05 · nhóm toàn-rỗng giữ danh tính nhóm · loại `docstatus==2` khỏi ô đếm (`AC-CR-99`).
+- ⛔ **KHÔNG** `git commit/push/merge` · **KHÔNG** `bench migrate` · **KHÔNG** `bench restart` · **KHÔNG** `npm run build` · **KHÔNG** reset DB.
+
+---
+
+## XXII. AC-CR-115 — **dải cắt render THẬT** cho 3 nhánh vận hành + **BẢN GHI trước Ô CHỨC NĂNG** (INV-OPH-19..30)
+
+> Spec: [`ADR-IMM00-ASSET-OP-HISTORY §10`](./ADR-IMM00-ASSET-OP-HISTORY.md) (`D-OPH-17..20`) · FR-00-OPH-02 / BR-00-OPH-19..30 ([`02 §IV.43`](./02_Analysis_Design.md)) · hợp đồng đọc [`05 §III.26.6`](./05_API_Specification.md) · FE [`06 §VIII.15`](./06_Frontend_Design.md).
+>
+> ⚠️ **Đọc trước khi chấm — 3 điều dễ chấm sai:**
+> 1. `§XX.3` dòng «Ngoài biên» từng nói dải cắt = **VÒNG 5, không làm là PASS**. **HẾT HIỆU LỰC**: từ vòng này **không có dải = FAIL**. «Tải thêm» thì ngược lại — **có** «Tải thêm» = **FAIL** (`D-OPH-19`).
+> 2. `assetOperationalHistory.test.ts:298-307` **PHẢI được sửa** (nó assert `not.toContain('Đang xem')`). Đây là **đổi hợp đồng có văn bản** (`D-OPH-20`), **KHÔNG** tính là "test cũ chuyển đỏ" của AC9. Danh sách đỏ-dự-kiến khai trước ở [ADR §10.5](./ADR-IMM00-ASSET-OP-HISTORY.md) — file thứ 3 bị sửa = **scope creep**.
+> 3. Vòng này **0 dòng `.py` prod** ⇒ **0 blocker reload mới**. Nếu invariant BE mới ĐỎ ⇒ **bug BE thật**, ghi vào backlog + báo PM/BA; **KHÔNG** ai được sửa `services/*.py` để làm nó xanh (`BR-00-OPH-30`).
+
+### XXII.1 Invariants (INV-OPH-19..30) — chấm được bằng test, không bằng mắt
+
+| ID | Nội dung | Oracle |
+|---|---|---|
+| **INV-OPH-19** | **Cắt ⟺ báo cắt (hai chiều)**: `[op-history-truncation]` tồn tại trong section *i* **⟺** `N_i − M_i > 0`, với `M = số [op-history-row] của nhánh i`, `N = số trong [op-history-count] của nhánh i`. Fixture `rows=10/total=34` ⇒ **đúng 1** dải **trong chính nhánh đó**, text chứa **cả 3** số `10`, `34`, `24` và khớp **nguyên chuỗi** «Đang xem 10/34 — còn 24 chưa hiển thị»; 2 nhánh chưa bung ⇒ **0** dải. | vitest render (AC1) |
+| **INV-OPH-20** | **KHÔNG báo cắt oan**: `total == len(rows)` (vd 7/7) ⇒ **0** `[op-history-truncation]`, **KỂ CẢ** khi payload gửi `truncated: 1`. | vitest (AC2) |
+| **INV-OPH-21** | **KHÔNG che phần thiếu**: `total=34 / rows=10 / truncated=0` ⇒ **VẪN** đúng 1 dải, text vẫn 3 số 10/34/24. | vitest (AC3) |
+| **INV-OPH-22** | **Cờ không cầm lái**: `grep -n 'Truncated' frontend/src/components/asset/AssetOperationalHistory.vue` ⇒ **0 hit** (static-read trong test, khuôn `INV-OPH-10`) ∧ 2 fixture nghịch của INV-OPH-20/21 cho ra đúng **0** và **1** dải. | vitest static-read + render |
+| **INV-OPH-23** | **Rỗng thật không hồi quy**: `total == 0` ⇒ **0** dải ∧ **0** `[op-history-see-all]` ∧ **đúng 1** `[op-history-empty]` (`TC-FE-OPH-12` xanh **không sửa**). | vitest (AC4) |
+| **INV-OPH-24** | **BẢN GHI trước CHỨC NĂNG + 2 tiêu đề**: trong `[tab-panel-related]`, `[asset-op-history]` đứng **trước** `[related-records]` theo **thứ tự DOM** (dùng `panel.element.querySelectorAll('[data-testid=asset-op-history],[data-testid=related-records]')` rồi so `[0]` — **KHÔNG** so `indexOf` trên chuỗi `html()`) ∧ **đúng 2** `[related-block-heading]`, text = «Dữ liệu vận hành của thiết bị» → «Liên kết nhanh theo chức năng» **theo thứ tự**. *(Lưu ý chấm: nhãn NHÓM trong `RelatedRecords.vue:212` dùng testid **`conn-group-label`** — testid KHÁC ⇒ **không** làm số `related-block-heading` vượt 2; nếu đếm ra >2 thì có người đã thêm heading thứ ba, ĐỎ đúng.)* | vitest (AC6) |
+| **INV-OPH-25** | **Lối ra THẬT, 0 dead-control**: nhánh có dải ⇒ **đúng 1** `[op-history-see-all]`; trong `[asset-op-history]` **0** phần tử chứa chuỗi «Tải thêm» ∧ `grep -n 'Tải thêm' <component>` ⇒ **0 hit**. | vitest render + static-read (AC5) |
+| **INV-OPH-26** | **GỌN — diện tích mặc định không tăng**: vào tab ⇒ `[op-history-row]` = **0** ∧ `[op-history-truncation]` = **0** ∧ `getAssetPMHistory`/`getAssetRepairHistory`/`getAssetIncidentHistory` mỗi hàm **0** lần gọi (`TC-FE-OPH-02/03` xanh **không sửa**) ∧ `[role=tab]` = **6**, nhãn 100% VI (`TC-CONNTAB-09` xanh). | vitest (AC7 · AC8) |
+| **INV-OPH-27** | **BE — `total >= len(rows)`** cho **cả 3** endpoint, ở **3 ca**: dưới trần · **vừa khít** trần · trên trần. | `run-tests` |
+| **INV-OPH-28** | **BE — cờ khớp số**: `truncated == (1 if total > len(rows) else 0)` cho cả 3 endpoint, 3 ca như trên. ĐỎ ⇒ **bug BE thật** (báo, không sửa prod). | `run-tests` |
+| **INV-OPH-29** | **BE — số bị che đếm ĐÚNG**: thiết bị có `limit + k` bản ghi hợp lệ (`k=3`, `limit=10`) ⇒ `total − len(rows) == 3` **chính xác**. | `run-tests` |
+| **INV-OPH-30** | **BE — rỗng thật**: thiết bị 0 bản ghi ⇒ `rows == [] ∧ total == 0 ∧ truncated == 0` (cả 3 endpoint). | `run-tests` |
+
+### XXII.2 Test matrix
+
+> **Cách đếm delta (AC9)**: đơn vị là **`it()` block**, không phải hàng TC trong bảng. Bảng dưới cho **8 TC mới** (`TC-FE-OPH-14..21`) ⇒ tối thiểu **8 `it()` mới**; TC nào có ≥2 mệnh đề độc lập (vd `TC-FE-OPH-17`, `TC-FE-OPH-21`) **nên** tách thành 2 `it()` để khi đỏ biết ngay mệnh đề nào chết. `TC-FE-OPH-09` là **SỬA**, không tính vào delta.
+
+**FE — `frontend/src/components/asset/assetOperationalHistory.test.ts`** (sửa 1 TC + thêm `TC-FE-OPH-14..18`, `TC-FE-OPH-21`)
+
+| TC | Nội dung | INV | AC |
+|---|---|---|---|
+| **TC-FE-OPH-09** *(SỬA — `:298-307`)* | Đảo `not.toContain('Đang xem')` → assert **đúng 1** `[op-history-truncation]` **trong nhánh pm**, `.text()` khớp nguyên «Đang xem 10/34 — còn 24 chưa hiển thị»; bỏ chữ «vòng sau» khỏi tên `it()`; giữ nguyên 2 assert cũ (10 dòng · badge `34`) | 19 | AC1 |
+| **TC-FE-OPH-14** | Bung **1** nhánh (rows=10/total=34) ⇒ dải trong **CHÍNH** nhánh đó (`data-branch` khớp) ∧ **toàn khối** chỉ **1** dải (2 nhánh chưa bung: 0) | 19 · 26 | AC1 · AC7 |
+| **TC-FE-OPH-15** | `total=7 / rows=7 / truncated:1` ⇒ **0** dải (số thắng cờ) | 20 · 22 | AC2 |
+| **TC-FE-OPH-16** | `total=34 / rows=10 / truncated:0` ⇒ **1** dải, đủ 3 số | 21 · 22 | AC3 |
+| **TC-FE-OPH-17** | Static-read component: **0 hit** `Truncated` · **0 hit** `Tải thêm` · **0 hit** `vòng sau`; và trong DOM đã bung: **0** phần tử chứa «Tải thêm» | 22 · 25 | AC5 · AC11 |
+| **TC-FE-OPH-18** | Nhánh có dải ⇒ **đúng 1** `[op-history-see-all]` (href mang `?asset=`); nhánh `total=0` ⇒ **0** dải ∧ **0** see-all ∧ **1** `[op-history-empty]` | 23 · 25 | AC4 · AC5 |
+| **TC-FE-OPH-21** | **Một số, một nguồn**: số trong `[op-history-count]` == `N` trong dải (fixture 10/34 ⇒ badge `'34'` ∧ dải chứa `/34`); ca nghịch `total=3 / rows=5` (BE trả tổng nhỏ hơn số dòng) ⇒ badge **`'5'`** ∧ **0** dải (`Math.max` chặn số âm — không bao giờ in «còn -2 chưa hiển thị») | 19 · 22 | AC1 |
+
+**FE — `frontend/src/views/asset/assetDetailRelatedTab.test.ts`** (thêm `TC-FE-OPH-19..20`)
+
+| TC | Nội dung | INV | AC |
+|---|---|---|---|
+| **TC-FE-OPH-19** | Vào tab ⇒ thứ tự DOM `[asset-op-history]` **trước** `[related-records]` (so bằng `querySelectorAll`, không bằng `indexOf(html())`) | 24 | AC6 |
+| **TC-FE-OPH-20** | **Đúng 2** `[related-block-heading]`, text đúng thứ tự + **0 acronym EN chưa dịch** (regex `/\b(PM|CM|WO|SLA|KPI|CAPA|RCA)\b/` ⇒ 0 match trên 2 chuỗi tiêu đề) | 24 | AC6 |
+
+**BE — `assetcore/tests/test_asset_operational_history_contract.py`** (**thêm** `TC-OPH-B7..B10` vào file đã có, **0 dòng prod đổi**)
+
+| TC | Nội dung | INV |
+|---|---|---|
+| B7 | 3 endpoint × 3 ca (dưới/vừa khít/trên trần) ⇒ `total >= len(rows)` | 27 |
+| B8 | 3 endpoint × 3 ca ⇒ `truncated == (1 if total > len(rows) else 0)` | 28 |
+| B9 | `limit + 3` bản ghi ⇒ `total − len(rows) == 3` (cả 3 endpoint) | 29 |
+| B10 | asset sạch ⇒ `rows == [] ∧ total == 0 ∧ truncated == 0` | 30 |
+
+> Fixture BE **phải** dùng asset/bản ghi có hậu tố ngẫu nhiên và dọn trong `tearDown` (LL-TEST-30 + bài học `TestTransferEditAuthzAndFlags`: fixture tên CỐ ĐỊNH tự chặn chính nó sau crash).
+
+### XXII.3 DoD vòng AC-CR-115 (QA chấm — đọc baseline TỪ ĐĨA, chấm DELTA)
+
+- **FE**: `cd frontend && npx vitest run` **0 ĐỎ** (trừ `personaDashboards.test.ts` — **1 TC ĐỎ PRE-EXISTING**, không tính, **không** sửa cho xanh) với **delta ≥ +8 test case mới** ∧ **0 test cũ chuyển đỏ** *(ngoại lệ duy nhất được phép: `TC-FE-OPH-09` bị **sửa** theo `D-OPH-20` — có văn bản, không tính là đỏ)*; `npx vue-tsc --noEmit` **0 lỗi**. Số file `*.test.ts` = **287** đo TỪ ĐĨA 2026-07-30 (số 284/286 ở `§XX.3`/`06 §VIII.14` là snapshot cũ) ⇒ **đo lại, chấm delta**.
+- **BE, module-isolated, `timeout` tool ≥ 600000ms**: `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_asset_operational_history_contract` **XANH** với **≥3 invariant mới** (spec 4: `INV-OPH-27..30`). Không bắt buộc full suite; nếu chạy, ĐỎ do nhiễm fixture phiên khác **không** tính (LL-TEST-30).
+- **`git diff --name-only`**: phía FE **đúng 2** file sản phẩm (`components/asset/AssetOperationalHistory.vue` · `views/asset/AssetDetailView.vue`) + **≤3** file test; phía BE **đúng 1** path (`assetcore/tests/test_asset_operational_history_contract.py`). **`git diff --stat -- 'assetcore/api/*.py' 'assetcore/services/**/*.py'` ⇒ 0 path** ⇒ **0 blocker reload mới** (blocker #1 BLOCKED-RELOAD **không bị chạm**).
+- **3 counter guard delta 0**: `_EXPECTED_TEST_COUNT` **1024** · `_GUARD_SUITE_SUM` **1167** · `_MOBILE_OAS_TOTAL` **1193** (đọc lại từ đĩa) · OAS `docs/mobile/openapi/*.yaml` **0 đổi**.
+- **Cite-drift đóng CÙNG VÒNG (AC11)** — QA grep xác nhận **7 chỗ** ở [ADR §10.7](./ADR-IMM00-ASSET-OP-HISTORY.md): 4 chỗ doc đã supersede (`D-OPH-12` · ADR §7 hàng «VÒNG 5» · ADR §5.3 3 hàng testid · `ADR-IMM00-TRUNCATION-SSOT §8.7` hàng [P2 — fe]) + `06 §VIII.13.2` + `07 §XX` (INV-OPH-1/8/11 + dòng «Ngoài biên» §XX.3) + **mã**: `grep -n 'vòng sau' frontend/src/components/asset/AssetOperationalHistory.vue` ⇒ **0 hit**.
+- **Mutation-check** (5 đột biến ⇒ 5 lần đỏ): xem `06 §VIII.15.5`. Nếu đột biến nào **không** làm đỏ ⇒ test là template, chấm **FAIL**.
+- **Ngoài biên — chấm việc KHÔNG làm là PASS**: `AC-CR-116` (`listRouteForAsset` + guard `LIST_TARGET_ANCHOR`) · `AC-CR-117` (dòng bảo trì render `pm_type` Data tự do) · `AC-CR-118` (chuỗi «Xem tất cả» trần, câu đầy đủ ở `aria-label`) · phân trang thật cho 3 endpoint · `AC-CR-99` (ô đếm chưa loại `docstatus==2`) · `AC-CR-103`/`AC-CR-104`.
+- **KHÔNG chấm bằng `curl`/Playwright** (LL-DEPLOY-07/08 · LL-QA-15): bằng chứng được chấp nhận = `run-tests` + `vitest` + `vue-tsc` + đọc mã.
+- ⛔ **KHÔNG** `git commit/push/merge` · **KHÔNG** `bench migrate` · **KHÔNG** `bench restart` · **KHÔNG** `npm run build` · **KHÔNG** reset DB.
+
+---
+
+## XXIII. AC-CR-119 — **bịt 403 CHẾT** ở 3 nhánh vận hành: cap SOUND ở BE + trạng thái **KHOÁ** ở FE (INV-OPH-31..42)
+
+> Nguồn: [`ADR-IMM00-ASSET-OP-HISTORY §11`](./ADR-IMM00-ASSET-OP-HISTORY.md) (`D-OPH-21..27`) · [`02 §IV.44`](./02_Analysis_Design.md) (`FR-00-OPH-03`, `BR-00-OPH-31..42`) · [`05 §III.26.7`](./05_API_Specification.md) · [`06 §VIII.16`](./06_Frontend_Design.md).
+>
+> **Nguyên tắc chấm của mục này:** soundness của một vị-từ quyền **KHÔNG** được chấm bằng cách đọc mã («cap này trông đúng doctype») — phải chấm bằng **hành vi hai chiều** (cap True ⇒ không 403; cap False ⇒ đúng envelope 403). Đọc mã là cách bug `pm.read`→`PM Work Order` sống sót qua nhiều vòng.
+
+### XXIII.1 Invariants BE — `INV-OPH-31..36`
+
+| Mã | Invariant | Chấm bằng |
+|---|---|---|
+| **INV-OPH-31** | **Soundness 2 CHIỀU, đo bằng HÀNH VI.** ∀ nhánh *b* ∈ {pm, cm, incident}: (a) user có `rbac.can(cap_b) is True` ⇒ gọi endpoint *b* trả `success is True` (**KHÔNG** FORBIDDEN); (b) user có `rbac.can(cap_b) is False` ⇒ trả **ĐÚNG** `{"success": False, "code": "FORBIDDEN", "http_status": 403}` với `message == MSG.AUTH_FORBIDDEN`. **KHÔNG** HTTP-500, **KHÔNG** dispatcher-403, **KHÔNG** `{"success": True, data:{... []}}` (list rỗng giả). | `test_asset_op_history_acl` |
+| **INV-OPH-32** | **Bảng là RÀNG BUỘC.** ∀ `(cap, doctype)` ∈ `connection_meta.OP_HISTORY_BRANCH_GATE.values()`: `CAPABILITY_MAP[cap] == (doctype, "read")`. Và tập khoá **đúng** `{"pm","cm","incident"}` (không thừa, không thiếu). | idem |
+| **INV-OPH-33** | **Doctype khai == doctype truy vấn THẬT** (chống «bảng đúng, mã đọc bảng khác»): `OP_HISTORY_BRANCH_GATE["pm"][1] == PMTaskLogRepo.DOCTYPE` ∧ `["cm"][1] == RepairRepo.DOCTYPE` ∧ `["incident"][1] == imm12._DT_INCIDENT`. So với **hằng của tầng repo/service**, KHÔNG với chuỗi gõ lại. | idem |
+| **INV-OPH-34** | **`pm.read` KHÔNG SOUND — chứng minh bằng user thật.** User mang **duy nhất** role `Commissioning Manager`: `rbac.can("pm.read") is True` **∧** `rbac.can("pm.read_history") is False` **∧** `get_asset_pm_history` trả envelope FORBIDDEN. Đây là **bằng chứng cứng** rằng cap cũ không dùng được để gate nhánh này. | idem |
+| **INV-OPH-35** | **Không leak nội bộ khi 403.** Chuỗi hoá **toàn bộ** payload trả về (`json.dumps(resp, ensure_ascii=False)`) của cả 3 nhánh ở ca 403 **KHÔNG** chứa: `"PM Task Log"`, `"Asset Repair"`, `"Incident Report"`, `"Traceback"`, `"SELECT"`, `"tab"` + tên bảng. Kiểm **cả** `frappe.local.response.get("_server_messages")` (nơi `frappe.throw` sẽ rò — `permissions.py:69-73`). | idem |
+| **INV-OPH-36** | **Khe hở `select`-only không tồn tại.** ∀ dt ∈ 3 doctype: `frappe.only_has_select_perm(dt) is False` cho user test, **và** 0 dòng DocPerm/Custom DocPerm nào trên 3 doctype có `select=1 ∧ read=0`. (Nếu ĐỎ ⇒ cap sẽ khoá quá — **fail-closed, không rò** — nhưng phải báo BA, **không** tự nới.) | idem |
+
+### XXIII.2 Invariants FE — `INV-OPH-37..42`
+
+| Mã | Invariant | Chấm bằng |
+|---|---|---|
+| **INV-OPH-37** | **0 request vô vọng.** `capState(cap) === 'denied'` ⇒ bung nhánh: `fetchPMHistory`/`fetchRepairHistory`/`fetchIncidentHistory` (spy tầng transport `getAssetPMHistory`/`getAssetRepairHistory`/`getAssetIncidentHistory`) được gọi **0** lần; thu rồi bung lại vẫn **0**. | `assetOperationalHistory.test.ts` |
+| **INV-OPH-38** | **Khối `locked` không có lối ra giả.** Trong CHÍNH `[op-history-section]` của nhánh bị khoá: **1** `[op-history-locked]` ∧ **0** `[op-history-retry]` ∧ **0** `[op-history-see-all]` ∧ **0** `[op-history-count]` ∧ **0** `[op-history-error]` ∧ **0** `[op-history-empty]` ∧ **0** `[op-history-row]`. Đếm **trong section**, KHÔNG trong toàn wrapper. | idem |
+| **INV-OPH-39** | **Microcopy trung tính (đo bằng chuỗi).** `.text()` của `[op-history-locked]`: **0** `Lỗi`/`lỗi` · **0** `403` · **0** `FORBIDDEN` · **0** `AUTH-403` · **0** `PM Task Log`/`Asset Repair`/`Incident Report` · **0** `Chưa có` · khớp **nguyên văn** 1 trong 3 câu SSoT + câu 2 dùng chung. | idem |
+| **INV-OPH-40** | **Self-heal caps stale ⇒ CÙNG khối.** cap `granted` mà API reject bằng `new ApiError('…', { code: ErrorCode.FORBIDDEN, httpStatus: 403 })` ⇒ **1** `[op-history-locked]` ∧ **0** `[op-history-error]` ∧ **0** `[op-history-retry]`. Lặp lại với `httpStatus: 403` + `code` khác (vd `UNKNOWN`) ⇒ **vẫn** locked (`isForbiddenError` nhận cả 2 tín hiệu). | idem |
+| **INV-OPH-41** | **Không over-block.** Lỗi **không** 403 (`new Error('lỗi mạng')` · `ApiError code INTERNAL_ERROR httpStatus 500`) ⇒ **1** `[op-history-error]` ∧ **đúng 1** `[op-history-retry]` ∧ **0** `[op-history-locked]`; bấm «Thử lại» ⇒ spy +**1** lần, thành công ⇒ render `[op-history-row]`. | idem |
+| **INV-OPH-42** | **`capState` ⟺ `can`, và version khớp BE.** (a) ∀ cap, ∀ trạng thái store (`{}` · `{cap:false}` · `{cap:true}` · admin): `can(cap) === (capState(cap) === 'granted')`; (b) `capState` trả `'unknown'` **⟺** khoá vắng ∧ không admin; (c) `frontend/src/stores/auth.ts::CAP_SET_VERSION` **khớp byte** giá trị `rbac.CAP_SET_VERSION` đo từ BE. | `auth.capabilities.test.ts` + đối chiếu tay (c) |
+
+### XXIII.3 Test case BE — module MỚI `assetcore/tests/test_asset_op_history_acl.py`
+
+| TC | Loại | Nội dung |
+|---|---|---|
+| TC-OPHACL-01 | unit | `"pm.read_history" in CAPABILITY_MAP` ∧ `CAPABILITY_MAP["pm.read_history"] == ("PM Task Log", "read")` |
+| TC-OPHACL-02 | unit | `OP_HISTORY_BRANCH_GATE` có **đúng** 3 khoá `{"pm","cm","incident"}`; ∀ nhánh `CAPABILITY_MAP[cap] == (doctype, "read")` (`INV-OPH-32`) |
+| TC-OPHACL-03 | unit | doctype khai == hằng tầng repo/service: `PMTaskLogRepo.DOCTYPE` · `RepairRepo.DOCTYPE` · `imm12._DT_INCIDENT` (`INV-OPH-33`) |
+| TC-OPHACL-04 | integration | User **chỉ** role `Commissioning Manager`: `can("pm.read") is True` ∧ `can("pm.read_history") is False` ∧ `api.imm08.get_asset_pm_history(asset)` ⇒ envelope FORBIDDEN 403 (`INV-OPH-34`) |
+| TC-OPHACL-05 | integration | ∀ nhánh, user **thiếu** cap ⇒ envelope `{success:False, code:"FORBIDDEN", http_status:403}` + `message == MSG.AUTH_FORBIDDEN`; **assert phủ định**: `resp.get("success") is not True` ∧ `"data" not in resp or not resp["data"].get(rows_key)` (chống list-rỗng-giả) (`INV-OPH-31b`) |
+| TC-OPHACL-06 | integration | ∀ nhánh, user **có** cap (role miền tương ứng: `PM User` / `Repair User` / `Corrective User`) ⇒ `success is True`, **không** FORBIDDEN (`INV-OPH-31a`) |
+| TC-OPHACL-07 | integration | Ca 403 của cả 3 nhánh: `json.dumps(resp)` + `_server_messages` **không** chứa tên DocType / `Traceback` / `SELECT` (`INV-OPH-35`) |
+| TC-OPHACL-08 | unit | ∀ 3 doctype: 0 dòng DocPerm có `select=1 ∧ read=0`; `frappe.only_has_select_perm(dt) is False` cho user test (`INV-OPH-36`) |
+
+**Fixture — bắt buộc theo lesson đã có trong sổ:**
+- Email user test **có hậu tố `uuid`** (`_test_ophacl_{uuid4().hex[:8]}@assetcore.test`) — fixture tên **CỐ ĐỊNH** tự chặn chính nó sau crash (unique index chặn re-insert khi teardown không chạy).
+- Sau khi gán role: **bắt buộc** `rbac.invalidate_capabilities(email)` (cache 1h theo user — `rbac.py:217`) **trước** khi đọc `can()`; nếu không, test đọc caps của lần chạy trước ⇒ **xanh giả**.
+- `frappe.set_user(u)` trong `try`, `frappe.set_user("Administrator")` trong `finally`; xoá user trong teardown (`force=True, ignore_permissions=True`).
+- Asset dùng làm tham số **không cần tồn tại** cho ca 403 (gate chạy TRƯỚC truy vấn) ⇒ **không** tạo asset rác. Ca 200 (TC-06) dùng asset seed sẵn hoặc asset tạo-rồi-xoá trong cùng test; nhớ **asset mới LUÔN có sẵn 1 ALE `qr_generated`** (`ac_asset.py:83`).
+
+### XXIII.4 Test case FE — `frontend/src/components/asset/assetOperationalHistory.test.ts`
+
+| TC | Nội dung |
+|---|---|
+| TC-FE-OPH-22 | caps `{'pm.read_history': false, 'repair.read': true, 'corrective.read': true}` ⇒ bung nhánh pm: **0** lời gọi cả 3 spy (`INV-OPH-37`) |
+| TC-FE-OPH-23 | idem ⇒ section pm có **1** `[op-history-locked]`, và trong section đó **0** retry / **0** see-all / **0** count / **0** error / **0** empty / **0** row (`INV-OPH-38`) |
+| TC-FE-OPH-24 | Chuỗi `[op-history-locked]` khớp **nguyên văn** SSoT; `not.toMatch(/[Ll]ỗi|403|FORBIDDEN|AUTH-403|PM Task Log|Asset Repair|Incident Report|Chưa có/)` (`INV-OPH-39`) |
+| TC-FE-OPH-25 | 3 nhánh **cùng** bị khoá ⇒ **3** `[op-history-locked]` (1/section, `data-branch` đúng) ∧ **0** request; `[op-history-toggle]` của mỗi nhánh có `data-locked="1"` **trước cả khi bung** |
+| TC-FE-OPH-26 | caps `{'pm.read_history': true}` mà spy reject `ApiError(code FORBIDDEN, httpStatus 403)` ⇒ **1** locked ∧ **0** error ∧ **0** retry (`INV-OPH-40`); biến thể `httpStatus 403` + `code UNKNOWN` ⇒ **vẫn** locked |
+| TC-FE-OPH-27 | caps đủ + `new Error('Không tải được dữ liệu')` ⇒ **1** error ∧ **đúng 1** retry ∧ **0** locked; bấm retry ⇒ spy gọi **2** lần, lần 2 OK ⇒ **2** `[op-history-row]` (`INV-OPH-41`) — **thay thế** `TC-FE-OPH-11` case 1 (xem `06 §VIII.16.5`) |
+| TC-FE-OPH-28 | caps **vắng khoá** (`capabilities = {}`, không admin) ⇒ bung nhánh **VẪN gọi** API **1** lần (`unknown` KHÔNG khoá — `BR-00-OPH-37`); payload OK ⇒ render row bình thường |
+| TC-FE-OPH-29 | **Không hồi quy `AC-CR-102/115`**: caps đủ + fixture `rows=10,total=34` ⇒ **10** `[op-history-row]` ∧ **1** `[op-history-truncation]` («Đang xem 10/34 — còn 24 chưa hiển thị») ∧ `[op-history-count]` = `34` ∧ **1** `[op-history-see-all]` ∧ **0** locked |
+
+**Harness:** `auth` store là Pinia store thật (`setActivePinia(createPinia())` đã có ở `beforeEach:167`) ⇒ set caps bằng `useAuthStore().capabilities = {…}` **trước** `mountBlock()`; ca admin dùng cờ role admin thật, **KHÔNG** stub `can()` (stub sẽ bỏ qua chính `capState` đang test).
+
+### XXIII.5 Test hiện có phải giữ XANH **không sửa** (nếu đỏ ⇒ ra ngoài biên)
+
+- `assetcore/tests/test_asset_operational_history_contract.py` — parity `fields` @source ⇄ `05 §III.26.3`: vòng này **0** đổi `fields`/`filters`/`order_by`/`page_size`/khoá response ⇒ **phải xanh không sửa**. Đỏ = có người đổi hợp đồng đọc ⇒ **ĐỎ VÒNG**.
+- `frontend/src/stores/assetHistoryTruncation.test.ts` — 3 store chỉ **thêm** 1 ref, **không** đổi logic total/truncated ⇒ phải xanh; sửa nó = dấu hiệu đụng ngoài biên.
+- `assetcore/tests/test_rowscope_scope_guard.py` · `test_rowscope_docperm_gate.py` — thêm gate tường minh ở `imm08.get_asset_history` là **cộng** thêm gate, không gỡ ⇒ phải xanh.
+- `assetcore/tests/test_connections_tree.py` — `connection_meta.py` chỉ **thêm** 1 bảng, **0** đổi `LABEL_VI`/`PREVIEW_FIELDS`/`CREATE_CAPABILITY` ⇒ phải xanh.
+
+### XXIII.6 Danh sách **ĐỎ dự kiến** khai TRƯỚC (ngoài danh sách này = scope creep)
+
+Thêm 1 cap ⇒ `len(CAPABILITY_MAP)` **104 → 105** ⇒ `CAP_SET_VERSION` **`v104.e46d05d9a66d` → `v105.<digest>`**. **13 điểm / 4 file** — chi tiết dòng ở [ADR §11.9](./ADR-IMM00-ASSET-OP-HISTORY.md):
+
+| File | Điểm | Xử lý |
+|---|---|---|
+| `tests/test_mobile_capability_map.py` | `:52` `_EXPECTED_CAP_SET_VERSION` · `:53` `_EXPECTED_CAP_COUNT` | giá trị **ĐO** + comment cite `AC-CR-119` |
+| `tests/test_imm00.py` | `:4233` prefix · `:4237` count · **8×** `assertEqual(CAP_SET_VERSION, …)` (`:8974,9601,9913,10207,10569,10939,11102,11405`) | cập nhật giá trị + message ghi thêm lý do |
+| `tests/test_purchase.py` | `:26` `_EXPECTED_CAP_VERSION_PREFIX` | `"v105."` |
+| `frontend/src/stores/auth.ts` | `:51` `CAP_SET_VERSION` (**prod**) | bump theo giá trị ĐO |
+
+⛔ **CẤM nới assert cho xanh** (AC5): `_EXPECTED_CAP_COUNT`/`_EXPECTED_CAP_SET_VERSION` phải là **hằng đo được**, **không** được thay bằng `len(CAPABILITY_MAP)` / regex lỏng / `skip`. Guard đang làm **đúng** việc của nó: đổi cap-set ⇒ buộc BA/BE cập nhật tường minh.
+
+### XXIII.7 DoD vòng `AC-CR-119`
+
+1. `bench --site miyano run-tests` **module-isolated** (timeout tool **≥600000ms** mỗi module) XANH: `assetcore.tests.test_asset_op_history_acl` (**MỚI**) · `test_mobile_capability_map` · `test_imm00` · `test_purchase` · `test_imm08` · `test_imm09` · `test_imm12` · `test_rbac` · `test_connections_tree` · `test_rowscope_scope_guard` · `test_asset_operational_history_contract`.
+2. `npx vitest run` XANH **toàn bộ**; `npx vue-tsc --noEmit` **0 lỗi**.
+3. Cap-set version **ĐO** bằng `bench --site miyano execute assetcore.services.shared.rbac._compute_cap_set_version` — **cùng một** giá trị ở BE test **và** `frontend/src/stores/auth.ts`. **KHÔNG** gõ hash tay.
+4. **Biên file `.py` prod — chấm bằng DELTA so với ĐẦU VÒNG** (working tree đã DIRTY từ các vòng trước ⇒ `git diff` tuyệt đối **không** dùng được làm ngưỡng): tập path `assetcore/api/*.py` **KHÔNG TĂNG** thêm path nào; tập path `assetcore/services/**/*.py` tăng **đúng 3** path và đúng 3 path đó là `shared/rbac.py` · `shared/connection_meta.py` · `imm08.py`. Cách chấm: chụp `git diff --name-only -- 'assetcore/api/*.py' 'assetcore/services/**/*.py' | sort` **trước** khi code, so `diff` với ảnh chụp **sau** khi code. Nội dung 3 file: `rbac.py` +**1** cặp khoá-giá-trị · `connection_meta.py` +**1** bảng (+docstring) · `imm08.py` +**1** hằng +**1** lời gọi gate — **0** đổi `fields`/`filters`/`order_by`/`page_size`/khoá response.
+5. `0` OAS delta (`docs/mobile/openapi/*.yaml` không đổi) · 3 counter `_EXPECTED_TEST_COUNT` / `_GUARD_SUITE_SUM` / `_MOBILE_OAS_TOTAL` **delta 0** (đọc lại **từ đĩa** trước khi chấm).
+6. `0` schema/patch/fixture delta ⇒ **KHÔNG** `bench migrate`.
+7. **Ngoài biên — chấm việc KHÔNG làm là PASS**: `AC-CR-120` (đồng bộ cap-count/version `docs/mobile/`, đang v97) · `AC-CR-121` (OAS khai 403 là dispatcher trong khi in-handler 403 đến trên HTTP-200) · `AC-CR-122` (áp `capState` cho `RelatedRecords.vue` + 5 màn Detail) · nới DocPerm cho role mới (**quyết định cấp quyền — USER/quản trị**) · `AC-CR-116/117/118` · `AC-CR-99` · phân trang thật 3 endpoint.
+8. **KHÔNG chấm bằng `curl`/Playwright** (LL-DEPLOY-07/08 · LL-QA-15): vòng này **THÊM 1 nhu cầu reload** vào blocker BLOCKED-RELOAD (3 file `.py` prod) ⇒ mọi kết luận live **trước** `bench restart` + `bench --site miyano clear-cache` là **vô nghĩa**. Bằng chứng được chấp nhận = `run-tests` + `vitest` + `vue-tsc` + đọc mã.
+9. ⛔ **KHÔNG** `git commit/push/merge` · **KHÔNG** `bench migrate` · **KHÔNG** `bench restart` · **KHÔNG** `bench clear-cache` · **KHÔNG** `npm run build` · **KHÔNG** reset DB (**HARD-STOP — thuộc USER**). Hai lệnh reload phải **ghi vào handoff** cho USER, không tự chạy.

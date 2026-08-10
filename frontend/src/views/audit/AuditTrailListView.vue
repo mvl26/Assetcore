@@ -14,9 +14,12 @@ import { useToast } from '@/composables/useToast'
 import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
+import ListPageShell from '@/components/ui/ListPageShell.vue'
 
 const toast = useToast()
-const fetchError = ref('')
+// AC-UX-047 lô 3 · biến thể A (02 §14.2): ô lỗi CỤC BỘ đã có, chỉ đổi giá trị "không lỗi"
+// từ chuỗi rỗng sang `null` cho khớp kiểu `errorMessage?: string | null` của ListPageShell.
+const fetchError = ref<string | null>(null)
 
 // ─── Filters ────────────────────────────────────────────────────────────────
 const showFilters = ref(false)
@@ -85,7 +88,7 @@ const AUDIT_ENDPOINT = '/api/method/assetcore.api.imm00.list_audit_trail'
 async function fetchTrails() {
   loading.value = true
   verifyResult.value = null
-  fetchError.value = ''
+  fetchError.value = null
   try {
     const params: Record<string, string | number> = {
       page: filters.value.page,
@@ -144,11 +147,28 @@ async function verify() {
 function prevPage() { if (filters.value.page > 1) { filters.value.page--; fetchTrails() } }
 function nextPage() { if (filters.value.page * PAGE_SIZE < totalCount.value) { filters.value.page++; fetchTrails() } }
 
+// Chữ trạng thái rỗng — SSoT là bảng copy 02 §14.4 (LL-FE-53: 100% tiếng Việt).
+const emptyTitle = computed(() =>
+  activeFilterCount.value > 0
+    ? 'Không có bản ghi kiểm toán nào phù hợp'
+    : 'Chưa có bản ghi kiểm toán nào',
+)
+const emptyHint =
+  'Nhật ký kiểm toán được ghi tự động khi có thao tác trên thiết bị, phiếu bảo trì hoặc hồ sơ chất lượng.'
+
 onMounted(fetchTrails)
 </script>
 
 <template>
-  <div class="page-container animate-fade-in">
+  <div>
+    <ListPageShell
+      :loading="loading && !trails.length"
+      :error-message="fetchError"
+      :is-empty="!trails.length"
+      :empty-title="emptyTitle"
+      :empty-hint="emptyHint"
+      @retry="fetchTrails">
+      <template #header>
     <PageHeader
       title="Nhật ký kiểm toán"
       subtitle="Lịch sử không thể sửa đổi (SHA-256)"
@@ -165,7 +185,9 @@ onMounted(fetchTrails)
         </button>
       </template>
     </PageHeader>
+      </template>
 
+      <template #filters>
     <ListFilterBar
       :show="showFilters"
       :chips="activeChips"
@@ -194,22 +216,8 @@ onMounted(fetchTrails)
       </template>
     </ListFilterBar>
 
-    <!-- Fetch error -->
-    <div
-      v-if="fetchError"
-      class="mb-4 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 flex items-start gap-2"
-    >
-      <svg class="w-4 h-4 mt-0.5 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-      </svg>
-      <div class="flex-1">
-        <p class="font-medium">Không tải được nhật ký kiểm toán</p>
-        <p class="text-xs text-red-600 mt-0.5">{{ fetchError }}</p>
-      </div>
-      <button class="text-xs underline hover:text-red-900" @click="fetchTrails">Thử lại</button>
-    </div>
-
-    <!-- Chain verify result -->
+    <!-- Kết quả kiểm tra chuỗi hash — hành động ĐỌC-KIỂM-TRA riêng, ĐỘC LẬP với trạng thái
+         nạp danh sách (02 §14.4): lỗi của nó KHÔNG được vào `:error-message` (INV-UX3-13). -->
     <div
       v-if="verifyResult"
       :class="['rounded-xl border p-4 text-sm font-medium flex items-center gap-2 mb-4',
@@ -219,9 +227,19 @@ onMounted(fetchTrails)
       <span class="text-xs font-normal">({{ verifyResult.count }} bản ghi)</span>
       <span v-if="!verifyResult.valid && verifyResult.broken_at" class="text-xs ml-2">tại: {{ verifyResult.broken_at }}</span>
     </div>
+      </template>
 
-    <!-- Table -->
-    <div class="card overflow-hidden">
+      <template #skeleton><SkeletonLoader variant="table" :rows="6" /></template>
+
+      <template #empty-action>
+        <button
+          v-if="activeFilterCount > 0"
+          class="text-xs text-brand-600 hover:text-brand-700 font-medium underline"
+          @click="resetFilters"
+        >Xóa bộ lọc để xem tất cả</button>
+      </template>
+
+      <template #toolbar>
       <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50/60">
         <span class="text-xs text-slate-500">
           <span v-if="activeFilterCount > 0">
@@ -233,20 +251,8 @@ onMounted(fetchTrails)
         </span>
         <button v-if="activeFilterCount > 0" class="text-xs text-red-500 hover:text-red-700 font-medium" @click="resetFilters">Xóa tất cả</button>
       </div>
+      </template>
 
-      <div v-if="loading && !trails.length" class="p-6">
-        <SkeletonLoader variant="table" :rows="6" />
-      </div>
-      <div v-else-if="trails.length === 0" class="flex flex-col items-center justify-center py-16 text-slate-400">
-        <svg class="w-12 h-12 mb-3 opacity-40" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-        </svg>
-        <p class="text-sm">Không có bản ghi kiểm toán nào phù hợp</p>
-        <button v-if="activeFilterCount > 0" class="mt-3 text-xs text-blue-500 hover:text-blue-700 underline" @click="resetFilters">
-          Xóa bộ lọc để xem tất cả
-        </button>
-      </div>
-      <template v-else>
         <!-- Mobile cards -->
         <div class="mobile-card-list sm:hidden">
           <div
@@ -345,9 +351,8 @@ onMounted(fetchTrails)
           </tbody>
         </table>
         </div>
-      </template>
 
-      <!-- Pagination -->
+      <template #pagination>
       <div v-if="totalCount > PAGE_SIZE" class="flex items-center justify-between px-4 py-3 border-t border-slate-100 text-sm text-slate-500">
         <span>{{ (filters.page - 1) * PAGE_SIZE + 1 }}–{{ Math.min(filters.page * PAGE_SIZE, totalCount) }} / {{ totalCount }}</span>
         <div class="flex gap-2">
@@ -355,9 +360,10 @@ onMounted(fetchTrails)
           <button :disabled="filters.page * PAGE_SIZE >= totalCount" class="px-3 py-1 rounded border border-slate-300 disabled:opacity-40 hover:bg-slate-50" @click="nextPage">Sau ›</button>
         </div>
       </div>
-    </div>
+      </template>
+    </ListPageShell>
 
-    <!-- Detail modal — giữ nguyên -->
+    <!-- Hộp thoại chi tiết — NGOÀI ListPageShell (02 §14.3) -->
     <div
       v-if="selectedTrail"
       class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"

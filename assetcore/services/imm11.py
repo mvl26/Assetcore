@@ -21,13 +21,21 @@ from assetcore.services.shared import (
     AssetStatus,
     CalibrationResult,
     CalibrationStatus,
+    ErrorCode,
+    ServiceError,
+    rbac,
 )
 from assetcore.services.shared.filters import pop_search
+from assetcore.services.shared.permissions import (assert_can_read_doc,
+                                                   assert_doctype_read_permission,
+                                                   rowscoped)
+from assetcore.services.shared.truncation import truncation_meta
 from assetcore.repositories.asset_repo import (
     AssetRepo, DeviceModelRepo, CapaRepo, LifecycleEventRepo,
 )
 from assetcore.repositories.calibration_repo import CalibrationRepo, CalibrationScheduleRepo
 from assetcore.utils.notify import nthrow, MSG
+from assetcore.utils.idempotency import resolve_idempotency_key
 
 _DEFAULT_INTERVAL_DAYS = 365
 _NOT_DECOMMISSIONED = ("not in", [AssetStatus.DECOMMISSIONED])
@@ -257,9 +265,19 @@ def _transition_asset(asset_ref: str, to_status: str, cal_name: str, reason: str
 
 # ─── Hooks từ module khác ─────────────────────────────────────────────────────
 
-def create_calibration_schedule_from_commissioning(commissioning_doc) -> Optional[str]:
-    """Hook: IMM-04 Commissioning on_submit."""
-    asset = commissioning_doc.asset
+def create_calibration_schedule_from_commissioning(
+    commissioning_doc, method: str | None = None
+) -> Optional[str]:
+    """Hook: IMM-04 Commissioning on_submit → tạo Calibration Schedule nếu model yêu cầu.
+
+    ``method`` để tương thích chữ ký doc-event Frappe ``(doc, method)`` — thiếu nó
+    MỌI submit Asset Commissioning nổ TypeError (bug WF-ADMIN-E2E 2026-07-16).
+    Asset đọc từ ``final_asset`` (AC Asset vừa mint ở ``mint_core_asset``, chạy
+    TRƯỚC doc_events) — DocType KHÔNG có field ``asset`` (bug AttributeError cũ).
+    """
+    asset = commissioning_doc.get("final_asset")
+    if not asset:
+        return None
     device_model = AssetRepo.get_value(asset, "device_model")
     if not device_model:
         return None
@@ -272,6 +290,13 @@ def create_calibration_schedule_from_commissioning(commissioning_doc) -> Optiona
         return None
     interval = model.get("calibration_interval_days") or _DEFAULT_INTERVAL_DAYS
     cal_type = model.get("default_calibration_type") or "External"
+    # IDEMPOTENT (bắt buộc cho doc_event): `AC Asset.after_insert` →
+    # `create_calibration_schedule_from_asset` đã tạo lịch cho asset vừa mint; hook
+    # on_submit này chạy sau trong CÙNG luồng ⇒ thiếu guard là lịch hiệu chuẩn TRÙNG
+    # (2 lịch active cho 1 asset ⇒ nhắc hạn 2 lần, KPI đếm đôi). Guard giống bản
+    # asset-side (imm11:328).
+    if CalibrationScheduleRepo.exists({"asset": asset, "is_active": 1}):
+        return None
     base_date = commissioning_doc.commissioning_date or nowdate()
 
     sched = CalibrationScheduleRepo.create({
@@ -799,6 +824,11 @@ def handle_calibration_fail(cal_doc) -> None:
 def perform_lookback_assessment(device_model: str, exclude_asset: str) -> list[str]:
     """BR-11-03 — assets cùng device_model đang Active."""
     rows, _ = AssetRepo.list(
+        # A1 (ADR-IMM00-LIST-SCOPE §8.4 + §8.3b): domain-logic NỘI BỘ (BR-11-03 lookback
+        # tìm asset cùng device_model) — KHÔNG trả ra FE, không phải bề mặt phân quyền
+        # ⇒ "internal": kết luận nghiệp vụ (có/không thiết bị cùng model) KHÔNG được
+        # phụ thuộc DocPerm của người bấm nút, nếu không BR-11-03 chạy khác nhau tùy user.
+        scope="internal",
         filters={
             "device_model": device_model,
             "lifecycle_status": AssetStatus.ACTIVE,
@@ -884,14 +914,14 @@ def _normalize_schedule_filters(f: dict | None) -> dict:
 
 
 def _extract_asset_in_scope(asset_filter) -> list[str] | None:
-    """Trích danh sách asset từ caller-filter `asset` dạng IN-list (vendor-scope).
-
-    Hỗ trợ 2 shape Frappe: ``["in", [...]]`` / ``("in", [...])`` và list literal
-    thuần ``[...]`` (sẽ được normalize thành IN). Shape khác (vd ('=', x)) →
-    None (không can thiệp). Trả None nếu không có scope.
-    """
+    """Ràng buộc-theo-thiết-bị của caller → IN-list, nguồn DUY NHẤT cho 4 nhánh dưới. 3 shape:
+    ``('in',[...])`` vendor-scope · list literal · **vô hướng** ``'AC-ASSET-X'`` (deep-link — 1
+    mã = IN-list 1 phần tử ⇒ GIAO được với SoT ngày; AC-CR-94/D-CR94-5 §15: trước bản này caller
+    ``pop('asset')`` rồi KHÔNG tiêm lại ⇒ lọc BIẾN MẤT câm). Khác/rỗng ⇒ ``None`` như cũ."""
     if asset_filter is None:
         return None
+    if isinstance(asset_filter, str):
+        return [asset_filter.strip()] if asset_filter.strip() else None
     if isinstance(asset_filter, (list, tuple)) and len(asset_filter) == 2 \
             and str(asset_filter[0]).lower() == "in" and isinstance(asset_filter[1], (list, tuple)):
         return [str(x) for x in asset_filter[1]]
@@ -911,6 +941,7 @@ def _scoped_asset_list(sot_ids: set[str], caller_asset_in: list[str] | None) -> 
     return list(sot_ids) or [""]
 
 
+@rowscoped
 def list_schedules(filters: dict | None = None, *, page: int = 1, page_size: int = 20) -> dict:
     # Server-side free-text search: pop the FE `search` key into an OR-LIKE
     # clause over name/asset (parent columns) + asset_name (linked AC Asset
@@ -939,6 +970,11 @@ def list_schedules(filters: dict | None = None, *, page: int = 1, page_size: int
     asset_ids = {r.get("asset") for r in rows if r.get("asset")}
     if asset_ids:
         asset_rows, _ = AssetRepo.list(
+            # A2 (ADR §8.4 + §8.3b): denorm-enrich tên hiển thị cho row ĐÃ scoped ở tầng
+            # cha. PHẢI "internal": nếu "user", Vendor Engineer bị `ac_asset_query` cắt
+            # mất tên ⇒ cột "Thiết bị" TRỐNG trên chính row họ ĐƯỢC PHÉP xem (over-block);
+            # "system" cũng over-block (gate DocPerm AC Asset cho một lookup NHÃN).
+            scope="internal",
             filters={"name": ("in", list(asset_ids))},
             fields=["name", "asset_name"],
             page_size=len(asset_ids),
@@ -994,6 +1030,7 @@ def delete_schedule(name: str) -> dict:
     return {"name": name, "deleted": True}
 
 
+@rowscoped
 def list_calibrations(filters: dict | None = None, *, page: int = 1, page_size: int = 20) -> dict:
     rows, pg = CalibrationRepo.list(
         filters=_normalize_list_filters(filters),
@@ -1009,6 +1046,9 @@ def list_calibrations(filters: dict | None = None, *, page: int = 1, page_size: 
     asset_map: dict = {}
     if asset_ids:
         asset_rows, _ = AssetRepo.list(
+            # A3 (ADR §8.4 + §8.3b): denorm-enrich — cùng lý do A2 (lookup NHÃN, KHÔNG
+            # bề mặt quyền) ⇒ "internal".
+            scope="internal",
             filters={"name": ("in", list(asset_ids))},
             fields=["name", "asset_name"],
             page_size=len(asset_ids),
@@ -1038,10 +1078,25 @@ def list_calibrations(filters: dict | None = None, *, page: int = 1, page_size: 
     return {"data": rows, "pagination": pg}
 
 
+@rowscoped
 def get_calibration(name: str) -> dict:
-    doc = CalibrationRepo.get(name)
+    """Chi tiết 1 phiếu hiệu chuẩn (màn Calibration-detail web + mobile `getCalibration`).
+
+    CR-74 (ADR-IMM00-LIST-SCOPE §9.4 + **D10**) — CÙNG khuôn 3 lớp như 3 op anh em, dù
+    `IMM Asset Calibration` HÔM NAY chưa nằm trong `hooks.permission_query_conditions` /
+    `hooks.has_permission` (hooks.py:440-456):
+      * L0 ROLE là lớp thực sự đóng lỗ "0 DocPerm read vẫn đọc trọn hồ sơ hiệu chuẩn";
+      * L2 ROW hiện suy biến về DocPerm + User Permission (**hành vi row KHÔNG đổi** ⇒
+        0 regress cho KTV hiệu chuẩn), nhưng có mặt sẵn để khi DocType được thêm hook
+        thì gate tự có hiệu lực — không phải nhớ quay lại sửa.
+    ⚠️ Tên DocType THẬT là `IMM Asset Calibration` (`_DT_CAL`) — "Calibration Record"
+    chỉ là alias legacy trong `_VENDOR_SCOPE_FIELD_MAP`, KHÔNG phải DocType tồn tại.
+    """
+    assert_doctype_read_permission(_DT_CAL)            # L0 ROLE (trước exists — D9)
+    doc = CalibrationRepo.get(name)                    # L1 EXISTS
     if not doc:
         nthrow(MSG.IMM11_CAL_NOT_FOUND, name=name)
+    assert_can_read_doc(_DT_CAL, doc)                  # L2 ROW (D10: DocPerm+UserPerm)
     data = doc.as_dict()
     if data.get("asset"):
         data["asset_name"] = frappe.db.get_value("AC Asset", data["asset"], "asset_name") or ""
@@ -1053,6 +1108,12 @@ def get_calibration(name: str) -> dict:
     # client render nút workflow trên màn calibration-detail theo SERVER (KHÔNG hardcode
     # status→button). Thành viên THỨ TƯ & CUỐI — ĐÓNG KÍN ASYMMETRY R3 (4/4 *Detail emit).
     data["allowed_transitions"] = _CAL_VALID_TRANSITIONS.get(doc.status, [])
+    # AC-CR-86 / ADR-IMM11-13 — cờ SERVER "phiếu này có dời lịch được không". `reschedule`
+    # KHÔNG phải transition (không có state đích) ⇒ KHÔNG bao giờ nằm trong
+    # allowed_transitions. CÙNG predicate với guard GHI của reschedule_calibration
+    # (INV-CALRS-5) ⇒ display == enforcement: client render nút theo cờ này, KHÔNG tự so
+    # `status` (tự so = bản diễn giải THỨ HAI của luật + không biết cap ⇒ nút chết).
+    data["can_reschedule"] = _can_reschedule_cal(doc)
     # Cờ derived SERVER-SIDE (CR-02): data=as_dict đã có next_calibration_date.
     # CÙNG helper với list_calibrations → INV parity list==detail (kiểu INV-SLA-5).
     _enrich_calibration_overdue([data])
@@ -1100,6 +1161,140 @@ def create_calibration(*, asset: str, calibration_type: str, scheduled_date: str
     return {"name": doc.name, "status": doc.status}
 
 
+# ─── SSoT trạng thái CHO PHÉP dời lịch (BR-11-19 / AC-CR-86) ─────────────────
+#
+# Guard GHI của `reschedule_calibration` VÀ cờ ĐỌC `can_reschedule` (get_calibration)
+# ĐỀU đọc CHÍNH hằng này ⇒ display == enforcement, KHÔNG 2 bản diễn giải của luật
+# (bài học 3 lần: CR-54 G05 · CR-76 G01/G03 · AC-CR-77). Codomain ⊆ CalibrationResult
+# (KHÔNG literal). `Sent to Lab`/`Certificate Received`: mẫu/chứng chỉ đã ra khỏi tay
+# đơn vị ⇒ "ngày hẹn" hết ý nghĩa điều độ. ADR-IMM11-10/11/12/13, docs/imm-11 §4.1.12.
+RESCHEDULE_CAL_STATES = {
+    CalibrationResult.SCHEDULED,
+    CalibrationResult.IN_PROGRESS,
+}
+
+_CAP_CAL_RESCHEDULE = "calibration.write"   # cap ĐÃ TỒN TẠI (rbac auto-gen) — KHÔNG cap mới
+_MSG_CAL_RESCHEDULE_FORBIDDEN = "Bạn không có quyền dời lịch hiệu chuẩn."
+
+# Câu neo dưới ĐÚNG ô nhập (envelope `fields`) — literal, KHÔNG qua registry MSG
+# (registry giữ câu tổng ở dải lỗi; `fields` giữ câu ngắn cạnh control — AC-CR-83).
+_FIELD_MSG_RESCHEDULE_REASON = "Nhập lý do dời lịch (tối thiểu 5 ký tự)."
+_FIELD_MSG_RESCHEDULE_DATE_INVALID = "Chọn ngày hẹn mới hợp lệ."
+_FIELD_MSG_RESCHEDULE_DATE_PAST = "Ngày hẹn mới không được ở quá khứ."
+_FIELD_MSG_SCHEDULED_DATE_READONLY = (
+    "Dùng chức năng «Dời lịch hiệu chuẩn» để đổi ngày hẹn (kèm lý do)."
+)
+_RESCHEDULE_REASON_MIN_LEN = 5
+
+
+def _require_cal_reschedule_cap() -> None:
+    """Cap-gate dời lịch ở SERVICE (đường DUY NHẤT — API/curl/test đều qua).
+
+    Khuôn `_require_rca_cap` (services/imm12.py:366): trả ServiceError(FORBIDDEN)
+    Decision-B — KHÔNG `rbac.require` (require raise PermissionError THÔ ngoài
+    envelope + leak raw cap vào message). Base `AssetCore System User` → 403
+    in-envelope (HTTP-200 body) ⇒ client hiển thị thông báo, KHÔNG bị đá ra đăng nhập.
+    ADR-IMM11-12.
+    """
+    if not rbac.can(_CAP_CAL_RESCHEDULE):
+        raise ServiceError(ErrorCode.FORBIDDEN, _MSG_CAL_RESCHEDULE_FORBIDDEN,
+                           http_status=403)
+
+
+def _can_reschedule_cal(doc) -> bool:
+    """Cờ ĐỌC cho get_calibration — CÙNG predicate với guard GHI (INV-CALRS-5).
+
+    TRUE ⟺ status ∈ RESCHEDULE_CAL_STATES ∧ docstatus == 0 ∧ cap `calibration.write`.
+    Client render nút «Dời lịch hiệu chuẩn» theo cờ này (ADR-IMM11-13) ⇒ 0 nút chết.
+    """
+    return bool(
+        doc.status in RESCHEDULE_CAL_STATES
+        and int(doc.docstatus or 0) == 0
+        and rbac.can(_CAP_CAL_RESCHEDULE)
+    )
+
+
+def reschedule_calibration(name: str, *, new_date: str, reason: str) -> dict:
+    """Dời ngày hẹn của phiếu hiệu chuẩn — GIỮ NGUYÊN trạng thái (BR-11-19).
+
+    Trước CR này KHÔNG có đường hợp lệ nào để dời lịch: `scheduled_date` không thuộc
+    `_UPDATE_ALLOWED` nên `update_calibration` NUỐT IM LẶNG khoá đó ⇒ người dùng phải
+    hủy + tạo lại phiếu, đẻ phiếu `Cancelled` rác vào hồ sơ tuân thủ NĐ98 và làm đứt
+    lịch sử phiếu (mobile CR-81).
+
+    Thứ tự kiểm tra là HỢP ĐỒNG (INV-CALRS-3): cap → tồn tại → trạng thái → ô nhập →
+    ghi. Mọi nhánh từ chối xảy ra TRƯỚC mutate đầu tiên ⇒ `scheduled_date` bất động
+    (INV-CALRS-4). Ghi ĐÚNG 2 field (`scheduled_date` + `amendment_reason` APPEND) +
+    ĐÚNG 1 vết audit; KHÔNG đụng `AC Asset.next_calibration_date` /
+    `IMM Calibration Schedule.next_due_date` (INV-CALRS-6).
+
+    Args:
+        name: mã phiếu `IMM Asset Calibration`.
+        new_date: ngày hẹn mới (ISO `YYYY-MM-DD`), PHẢI ≥ hôm nay.
+        reason: lý do dời lịch, ≥ 5 ký tự sau `strip()` (bắt buộc — vết tuân thủ).
+
+    Returns:
+        dict 4 khoá `{name, old_date, new_date, status}` — `status` BẰNG trạng thái
+        TRƯỚC khi dời (KHÔNG flip, ADR-IMM11-11).
+
+    Raises:
+        ServiceError: FORBIDDEN(403) thiếu cap · NOT_FOUND(404) phiếu ∄ ·
+            BAD_STATE(409) trạng thái/docstatus không cho dời · VALIDATION(422)
+            `reason`/`new_date` sai (kèm `fields` đúng ô).
+    """
+    _require_cal_reschedule_cap()                       # 1. 403 in-envelope
+    doc = CalibrationRepo.get(name)
+    if not doc:                                         # 2. 404
+        nthrow(MSG.IMM11_CAL_NOT_FOUND, name=name)
+    if int(doc.docstatus or 0) == 1 or doc.status not in RESCHEDULE_CAL_STATES:
+        nthrow(MSG.IMM11_RESCHEDULE_BAD_STATE,          # 3. 409 code=BAD_STATE
+               error_code=ErrorCode.BAD_STATE, state=doc.status)
+    clean_reason = (reason or "").strip()
+    if len(clean_reason) < _RESCHEDULE_REASON_MIN_LEN:  # 4. 422 fields=[reason]
+        nthrow(MSG.IMM11_RESCHEDULE_REASON_REQUIRED,
+               error_code=ErrorCode.VALIDATION,
+               fields={"reason": _FIELD_MSG_RESCHEDULE_REASON})
+    try:                                                # 5. 422 fields=[new_date]
+        parsed = getdate(new_date) if new_date else None
+    except Exception:
+        parsed = None
+    if not parsed:
+        nthrow(MSG.IMM11_RESCHEDULE_DATE_INVALID,
+               error_code=ErrorCode.VALIDATION,
+               fields={"new_date": _FIELD_MSG_RESCHEDULE_DATE_INVALID})
+    if parsed < getdate(nowdate()):                     # 6. 422 fields=[new_date]
+        nthrow(MSG.IMM11_RESCHEDULE_DATE_PAST,
+               error_code=ErrorCode.VALIDATION,
+               fields={"new_date": _FIELD_MSG_RESCHEDULE_DATE_PAST})
+
+    # 7. GHI — ĐÚNG 2 field. `CalibrationRepo.update_fields` (KHÔNG doc.save()) mirror
+    #    cancel_calibration: doc.save() chạy lại validate → _compute_measurement_results
+    #    + validator chứng chỉ trên phiếu đang dở ⇒ dời lịch có thể fail vì lý do KHÔNG
+    #    liên quan, và có thể chạm side-effect ngoài 2 field.
+    old_date = str(doc.scheduled_date or "")
+    new_date_str = str(parsed)
+    note = f"[Dời lịch {old_date} → {new_date_str}]: {clean_reason}"
+    prev = (doc.amendment_reason or "").strip()
+    CalibrationRepo.update_fields(name, {
+        "scheduled_date": new_date_str,
+        "amendment_reason": f"{prev}\n{note}" if prev else note,   # APPEND, KHÔNG ghi đè
+    })
+    # 8. ĐÚNG 1 vết audit / lần dời — gọi TRỰC TIẾP, KHÔNG try/except (nhà-style IMM-11,
+    #    fail-closed): CR này tồn tại VÌ vết audit, nuốt lỗi audit = tái tạo lỗ hổng.
+    #    from_status == to_status ⇒ đọc lại vết thấy ngay đây là dời lịch, không phải
+    #    transition. KHÔNG _lockstep_cal_workflow_state (status không đổi), KHÔNG
+    #    _transition_asset, KHÔNG Lifecycle Event (vòng đời THIẾT BỊ không đổi).
+    log_audit_event(
+        asset=doc.asset, event_type="Calibration",
+        actor=frappe.session.user, ref_doctype=_DT_CAL, ref_name=name,
+        change_summary=(f"Dời lịch hiệu chuẩn {old_date} → {new_date_str}. "
+                        f"Lý do: {clean_reason}")[:200],
+        from_status=doc.status, to_status=doc.status,
+    )
+    return {"name": name, "old_date": old_date,
+            "new_date": new_date_str, "status": doc.status}
+
+
 _UPDATE_ALLOWED = {
     "status", "actual_date", "lab_supplier", "lab_accreditation_number",
     "lab_contract_ref", "sent_date", "sent_by", "certificate_file",
@@ -1108,18 +1303,79 @@ _UPDATE_ALLOWED = {
     "sticker_photo", "pm_work_order", "amendment_reason",
 }
 
+# CR-24-WEB / BR-11-16 — raw field KTV nhập trên bảng đo. TUYỆT ĐỐI KHÔNG chứa
+# pass_fail / out_of_tolerance: hai field đó do SERVER tính (controller
+# _compute_measurement_results ở validate) — chống bịa 'Pass' (NĐ98 / ISO 17025 §7.8).
+_MEASUREMENT_RAW_FIELDS = (
+    "parameter_name", "unit", "nominal_value",
+    "tolerance_positive", "tolerance_negative", "measured_value",
+)
+
+
+def _coerce_measurement_row(row: dict) -> dict:
+    """Chuẩn hoá 1 dòng đo từ payload client → CHỈ raw field.
+
+    KHÔNG copy pass_fail/out_of_tolerance từ client (read_only + server-compute).
+    `measured_value` giữ None nếu rỗng (chưa nhập) — khớp semantics add_measurement.
+    """
+    def _num(v: object) -> float | None:
+        if v in (None, ""):
+            return None
+        return float(v)
+
+    return {
+        "parameter_name": (str(row.get("parameter_name") or "")).strip(),
+        "unit": (str(row.get("unit") or "")).strip(),
+        "nominal_value": _num(row.get("nominal_value")) or 0.0,
+        "tolerance_positive": _num(row.get("tolerance_positive")) or 0.0,
+        "tolerance_negative": _num(row.get("tolerance_negative")) or 0.0,
+        "measured_value": _num(row.get("measured_value")),
+    }
+
+
+def _apply_measurement_child_diff(doc, rows: list) -> None:
+    """Replace-set child-diff (ADR-BA) lên child table `measurements`.
+
+    Tập kết quả = ĐÚNG payload (upsert theo thứ tự payload; dòng bị bỏ → remove) ⇒
+    reload count == payload count. pass_fail/out_of_tolerance được SERVER tính lại ở
+    `doc.save()` → validate → _compute_measurement_results (SSoT, KHÔNG tin client).
+    """
+    doc.set("measurements", [])
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        doc.append("measurements", _coerce_measurement_row(row))
+
 
 def update_calibration(name: str, patch: dict) -> dict:
     doc = CalibrationRepo.get(name)
     if not doc:
         nthrow(MSG.IMM11_CAL_NOT_FOUND, name=name)
+    # Guard docstatus==1 TRƯỚC mọi mutate — phiếu đã chốt: 409, measurements KHÔNG đổi.
     if doc.docstatus == 1:
         nthrow(MSG.IMM11_ALREADY_SUBMITTED)
+    # BR-11-20 (AC-CR-86) — `scheduled_date` KHÔNG thuộc _UPDATE_ALLOWED ⇒ TRƯỚC CR bị
+    # NUỐT IM LẶNG (success + 0 thay đổi, hoặc IMM11_NO_FIELDS "không nói được ô nào sai").
+    # Từ chối TƯỜNG MINH + trỏ sang op có lý do & vết audit. Đặt SAU guard docstatus==1,
+    # TRƯỚC clean_patch ⇒ patch hỗn hợp bị từ chối NGUYÊN KHỐI, 0 ghi từng phần.
+    # KHÔNG siết các khoá lạ KHÁC (né Hyrum-break web-FE — backlog B-11-21).
+    if "scheduled_date" in patch:
+        nthrow(MSG.IMM11_SCHEDULED_DATE_READONLY,
+               error_code=ErrorCode.VALIDATION,
+               fields={"scheduled_date": _FIELD_MSG_SCHEDULED_DATE_READONLY})
+    # Nhánh XỬ LÝ RIÊNG cho 'measurements' (child-diff) — KHÔNG nhét vào blanket
+    # scalar _UPDATE_ALLOWED. patch KHÔNG có key 'measurements' → path cũ nguyên vẹn.
+    has_measurements = "measurements" in patch and patch.get("measurements") is not None
     clean_patch = {k: v for k, v in patch.items() if k in _UPDATE_ALLOWED}
-    if not clean_patch:
+    if not clean_patch and not has_measurements:
         nthrow(MSG.IMM11_NO_FIELDS)
     old_status = doc.status
-    doc = CalibrationRepo.update_fields(name, clean_patch)
+    for field, value in clean_patch.items():
+        doc.set(field, value)
+    if has_measurements:
+        _apply_measurement_child_diff(doc, patch.get("measurements"))
+    # doc.save() → validate → _compute_measurement_results (server-side pass_fail SSoT).
+    CalibrationRepo.save(doc)
     new_status = clean_patch.get("status", old_status)
     if new_status in _CALIBRATING_TRIGGER_STATUSES and old_status not in _CALIBRATING_TRIGGER_STATUSES:
         asset_status = AssetRepo.get_value(doc.asset, "lifecycle_status")
@@ -1127,34 +1383,165 @@ def update_calibration(name: str, patch: dict) -> dict:
             _transition_asset(doc.asset, AssetStatus.CALIBRATING, name,
                               reason=f"Calibration {new_status} — {name}")
     _lockstep_cal_workflow_state(doc.name, doc.status)  # §3.2 dual-track lockstep
-    return {"name": doc.name, "status": doc.status}
+    # measurement_count / overall_result: additive (Hyrum-safe) — FE gate banner "N dòng".
+    return {
+        "name": doc.name,
+        "status": doc.status,
+        "measurement_count": len(doc.measurements or []),
+        "overall_result": doc.overall_result or "",
+    }
 
 
-def submit_calibration(name: str) -> dict:
+# ─── CR-24-CAL-SUBMIT / BR-11-17: submit_calibration idempotency dedup (op#6 CLOSURE) ─
+#
+# Op CUỐI của họ CR-24 write-family. submit_calibration là action COMPLETION nâng
+# docstatus 0→1 (+ _lockstep + controller on_submit Pass/Fail handlers + CAPA/asset/ALE)
+# — write KHÔNG idempotent. Mobile write-outbox re-drain (mất mạng giữa request↔response)
+# gọi LẠI ⇒ call#2 hiện raise IMM11_ALREADY_SUBMITTED (guard docstatus==1) → app coi là
+# lỗi thật dù call#1 đã thành công (bằng chứng ISO 17025 §7.8 / NĐ98 đã ghi). Q7: replay
+# CÙNG khoá phải THẮNG state-guard — đọc cache trả VERBATIM payload lần-đầu (KHÔNG re-
+# submit/_lockstep/ALE). Mirror IMM-08 CR-24-PM submit_result (services/imm08.py:1072-1174).
+# Nguồn khoá = SHARED resolve_idempotency_key (KHÔNG helper cục-bộ §4.1.9 — op khép họ dùng
+# util chung). Store = frappe.cache() TTL 24h, KHÔNG DocField ⇒ KHÔNG bench migrate.
+# ADR-IMM11-09 / ADR-IMM11-MOB-06 (docs/imm-11/04 §4.1.11, 05 §0.1.4-IDEMP-SUBMIT).
+_CAL_SUBMIT_IDEMPOTENCY_TTL = 86400  # giây (24h)
+
+
+def _cal_submit_cache_key(cal_name: str, resolved_key: str) -> str:
+    """Khoá cache dedup submit_calibration — scoped theo (cal_name, resolved_key)."""
+    return f"cal_submit::{cal_name}::{resolved_key}"
+
+
+def _cal_submit_cache_get(cache_key: str) -> Optional[dict]:
+    # BẮT BUỘC expires=True (mirror _cal_measurement_cache_get / imm08:1065): bypass layer
+    # frappe.local.cache — pre-check MISS nhét None vào local, set_value(expires_in_sec) chỉ
+    # ghi Redis ⇒ re-drain CÙNG process trả None-shadow nếu đọc mặc-định. expires=True →
+    # luôn đọc Redis (prod tách request nên vô hại; re-drain same-process/test cần).
+    return frappe.cache().get_value(cache_key, expires=True)
+
+
+def _cal_submit_cache_set(cache_key: str, payload: dict) -> None:
+    frappe.cache().set_value(cache_key, payload, expires_in_sec=_CAL_SUBMIT_IDEMPOTENCY_TTL)
+
+
+def submit_calibration(name: str, client_request_id: str = "") -> dict:
+    # CR-24-CAL-SUBMIT (op#6): resolve khoá qua SHARED resolve_idempotency_key — body param
+    #   `client_request_id` THẮNG header X-Idempotency-Key / alias Idempotency-Key; cả hai
+    #   vắng ⇒ "" ⇒ cache_key=None ⇒ NO-OP dedup (legacy web-desk/client-cũ y nguyên).
+    #   Truthy ⇒ dedup qua frappe.cache() scoped (name, key). Pre-check HIT trả payload cũ
+    #   VERBATIM NGAY (TRƯỚC CalibrationRepo.get + TRƯỚC guard docstatus==1) ⇒ replay THẮNG
+    #   state-guard, KHÔNG re-submit/_lockstep/ALE (docstatus giữ 1).
+    resolved_key = resolve_idempotency_key(client_request_id)
+    cache_key = _cal_submit_cache_key(name, resolved_key) if resolved_key else None
+    if cache_key:
+        cached = _cal_submit_cache_get(cache_key)
+        if cached is not None:
+            return cached
     doc = CalibrationRepo.get(name)
     if not doc:
         nthrow(MSG.IMM11_CAL_NOT_FOUND, name=name)
     if doc.docstatus == 1:
+        # Winner-reread race: re-drain concurrent CÙNG khoá đã submit+cache GIỮA pre-check
+        #   và đây → re-read khớp khoá → trả idempotent thay ALREADY_SUBMITTED. KHÔNG khoá /
+        #   không khớp ⇒ giữ guard cũ (KHÔNG nới — INV-IDEMP-SUBMIT-2/3). Mirror imm08:1091.
+        if cache_key:
+            cached = _cal_submit_cache_get(cache_key)
+            if cached is not None:
+                return cached
         nthrow(MSG.IMM11_ALREADY_SUBMITTED)
     doc = CalibrationRepo.submit(name)
     # §3.2 dual-track lockstep — submit KHÔNG advance status (OoS backlog), sync giá trị
     # hiện tại (thường In Progress). db.set_value an toàn trên doc docstatus=1.
     _lockstep_cal_workflow_state(doc.name, doc.status)
-    return {
+    # Shape 4-key GIỮ NGUYÊN (Hyrum — OAS SubmitCalibrationResponse closed; mobile/FE dựa).
+    # client_request_id CHỈ điều khiển dedup, KHÔNG lọt payload.
+    payload = {
         "name": doc.name,
         "status": doc.status,
         "overall_result": doc.overall_result,
         "next_calibration_date": str(doc.next_calibration_date or ""),
     }
+    # Cache-set SAU mọi side-effect → re-drain trả VERBATIM (không drift).
+    if cache_key:
+        _cal_submit_cache_set(cache_key, payload)
+    return payload
+
+
+# ─── CR-24-CAL / BR-11-15: add_measurement idempotency dedup (mobile write-outbox) ──
+#
+# add_measurement là write KHÔNG idempotent (append 1 child-row + save ⇒ N call = N dòng
+# đo). Mobile write-outbox re-drain (mất mạng giữa request↔response) có thể gọi LẠI CÙNG
+# dòng đo ⇒ DÒNG ĐO TRÙNG → submit_calibration tính overall_result trên dữ liệu nhiễu (vi
+# phạm truy vết ISO 17025 §7.8 / NĐ98). Mirror IMM-08 CR-24-PM (services/imm08.py:974-1107,
+# submit_result cache-store): store = frappe.cache() KHÔNG DocField ⇒ KHÔNG bench migrate.
+# Key scoped (cal_name, resolved_key) ⇒ 2 khoá độc lập = 2 dòng. TTL 24h = cửa sổ re-drain.
+# ADR-IMM11-07 (docs/imm-11/04 §4.1.9).
+_CAL_MEASUREMENT_IDEMPOTENCY_TTL = 86400  # giây (24h)
+
+
+def _cal_measurement_cache_key(cal_name: str, resolved_key: str) -> str:
+    """Khoá cache dedup add_measurement — scoped theo (cal_name, resolved_key)."""
+    return f"cal_add_measurement::{cal_name}::{resolved_key}"
+
+
+def _cal_measurement_cache_get(cache_key: str) -> Optional[dict]:
+    # BẮT BUỘC expires=True: bypass layer frappe.local.cache — pre-check MISS nhét None vào
+    # local, set_value(expires_in_sec) chỉ ghi Redis ⇒ re-drain CÙNG process trả None-shadow
+    # nếu đọc mặc-định (mirror services/imm08.py:988-1001). Prod tách request nên vô hại;
+    # re-drain same-process / test sẽ vỡ idempotency nếu thiếu expires=True.
+    return frappe.cache().get_value(cache_key, expires=True)
+
+
+def _cal_measurement_cache_set(cache_key: str, payload: dict) -> None:
+    frappe.cache().set_value(cache_key, payload, expires_in_sec=_CAL_MEASUREMENT_IDEMPOTENCY_TTL)
+
+
+def _resolve_measurement_idempotency_key(client_request_id: str = "") -> str:
+    """Nguồn khoá idempotency: param `client_request_id` (body) THẮNG header `X-Idempotency-Key`.
+
+    Cả hai vắng/rỗng → '' (NO-OP dedup — legacy web-desk/client-cũ y nguyên). Param là
+    transport chính (ADR-MOBILE-047: body-field nhất quán json+form, mobile outbox thực gửi);
+    header là forward-compat cho drain middleware-based (docs/mobile/07-offline-sync §3 / A6).
+    Header đọc case-insensitive (Werkzeug); alias 'Idempotency-Key' (component A6 KHÔNG có tiền
+    tố X-) đọc thêm, `X-` ưu tiên — ADR-IMM11-07. Đọc an-toàn ngoài request-context
+    (test/scheduler) — get_request_header raise nếu frappe.request là None.
+    """
+    resolved = (client_request_id or "").strip()
+    if resolved:
+        return resolved
+    try:
+        header = (frappe.get_request_header("X-Idempotency-Key")
+                  or frappe.get_request_header("Idempotency-Key") or "")
+    except Exception:
+        header = ""
+    return (header or "").strip()
 
 
 def add_measurement(name: str, *, parameter_name: str, unit: str, nominal_value: float,
                     tolerance_positive: float, tolerance_negative: float,
-                    measured_value: float | None = None) -> dict:
+                    measured_value: float | None = None,
+                    client_request_id: str = "") -> dict:
+    # CR-24-CAL (BR-11-15): resolve khoá idempotency (param THẮNG header). Truthy ⇒ dedup qua
+    #   frappe.cache() scoped (name, key). Pre-check HIT đứng TRƯỚC mọi side-effect + guard
+    #   (0 append / 0 save / 0 audit) ⇒ replay trả VERBATIM {name, measurement_count} lần-đầu.
+    #   RỖNG ⇒ cache_key=None ⇒ bỏ qua toàn bộ dedup (legacy path, NULL-semantics).
+    resolved_key = _resolve_measurement_idempotency_key(client_request_id)
+    cache_key = _cal_measurement_cache_key(name, resolved_key) if resolved_key else None
+    if cache_key:
+        cached = _cal_measurement_cache_get(cache_key)
+        if cached is not None:
+            return cached
     doc = CalibrationRepo.get(name)
     if not doc:
         nthrow(MSG.IMM11_CAL_NOT_FOUND, name=name)
     if doc.docstatus == 1:
+        # Winner-reread race: một re-drain concurrent CÙNG khoá đã append+cache GIỮA pre-check
+        #   và đây → re-read khớp khoá → trả idempotent thay ALREADY_SUBMITTED. KHÔNG khoá /
+        #   không khớp ⇒ giữ guard cũ (KHÔNG nới). Mirror services/imm08.py:1024-1032.
+        if cache_key:
+            cached = _cal_measurement_cache_get(cache_key)
+            if cached is not None:
+                return cached
         nthrow(MSG.IMM11_ALREADY_SUBMITTED)
     doc.append("measurements", {
         "parameter_name": parameter_name,
@@ -1165,7 +1552,12 @@ def add_measurement(name: str, *, parameter_name: str, unit: str, nominal_value:
         "measured_value": float(measured_value) if measured_value is not None else None,
     })
     CalibrationRepo.save(doc)
-    return {"name": doc.name, "measurement_count": len(doc.measurements)}
+    payload = {"name": doc.name, "measurement_count": len(doc.measurements)}
+    # CR-24-CAL: cache-set SAU append+save, TRƯỚC return ⇒ re-drain trả VERBATIM (byte-đối-byte).
+    #   client_request_id CHỈ điều khiển dedup — KHÔNG lọt vào child-row measurement.
+    if cache_key:
+        _cal_measurement_cache_set(cache_key, payload)
+    return payload
 
 
 def get_kpis(year: int, month: int) -> dict:
@@ -1197,10 +1589,17 @@ def get_kpis(year: int, month: int) -> dict:
             "pass_rate_pct": pass_rate,
             "overdue_assets": overdue_assets,
             "due_soon_assets": due_soon,
-        }
+        },
+        # CR-36 (Mobile-BE Dashboard KPI / IMM-07): ECHO kỳ báo-cáo server-resolve
+        # (year/month positional) → FE/mobile render header kỳ KHÔNG client-clock.
+        # Hoàn tất 3-way symmetry với imm08.get_dashboard_stats + imm09.get_kpis.
+        # period = giá trị wrapper api/imm11.get_calibration_kpis đã resolve
+        # (int(year) if year else today) — KHÔNG double-resolve trong service.
+        "period": {"year": year, "month": month},
     }
 
 
+@rowscoped
 def get_dashboard() -> dict:
     """Dashboard IMM-11 — theo docs/imm-11/IMM-11_UI_UX_Guide.md §3.3.
 
@@ -1299,6 +1698,13 @@ def send_to_lab(name: str, *, sent_date: str | None = None,
         nthrow(MSG.IMM11_NOT_EXTERNAL)
     if doc.status not in (CalibrationResult.SCHEDULED, CalibrationResult.IN_PROGRESS):
         nthrow(MSG.IMM11_SEND_LAB_BAD_STATE, state=doc.status)
+    # CR-59 / BR-11 — chặn gửi-LẠI lab phiếu ĐÃ có chứng chỉ. External-cal chỉ tới
+    # 'In Progress' QUA receive_certificate (:1557 set certificate_file) ⇒ certificate_file
+    # là marker PRECISE của "đã nhận cert". Không có guard này, send_to_lab lần 2 sẽ GHI ĐÈ
+    # sent_date (:1518) + đẩy status ngược 'Sent to Lab' → corrupt vết NĐ98 / ISO 17025 §7.8.
+    # An toàn cho Scheduled: state đó chưa bao giờ có certificate_file.
+    if doc.certificate_file:
+        nthrow(MSG.IMM11_SEND_LAB_ALREADY_CERTIFIED)
 
     patch: dict = {
         "status": CalibrationResult.SENT_TO_LAB,
@@ -1390,6 +1796,7 @@ def cancel_calibration(name: str, reason: str) -> dict:
     return {"name": name, "status": CalibrationResult.CANCELLED}
 
 
+@rowscoped
 def get_due_calibrations(days: int = 30, limit: int = 50) -> dict:
     """Danh sách asset due_soon/overdue (≤ N ngày).
 
@@ -1403,24 +1810,38 @@ def get_due_calibrations(days: int = 30, limit: int = 50) -> dict:
     """
     today = nowdate()
     threshold = add_days(today, int(days))
+    # SSoT filter-set (BR-11 due-list) — DÙNG CHUNG cho fetch VÀ count uncapped (CR-46).
+    # Guard `is set` BẮT BUỘC nằm trong CẢ HAI để COUNT không đếm nhầm asset
+    # next_calibration_date NULL (Frappe ép '0001-01-01' ⇒ chưa-có-lịch ≠ 'đến hạn').
+    due_filters = [
+        ["lifecycle_status", "not in", [AssetStatus.DECOMMISSIONED]],
+        ["next_calibration_date", "is", "set"],
+        ["next_calibration_date", "<=", threshold],
+    ]
+    cap = int(limit)
     rows, _ = AssetRepo.list(
-        filters=[
-            ["lifecycle_status", "not in", [AssetStatus.DECOMMISSIONED]],
-            ["next_calibration_date", "is", "set"],
-            ["next_calibration_date", "<=", threshold],
-        ],
+        # A4 (ADR §8.4 / D6 device-centric): danh sách THIẾT BỊ đến hạn hiệu chuẩn
+        # (KHÔNG phải "phiếu-của-tôi"). AC Asset đã read-all cho nội bộ (D1).
+        scope="system",
+        filters=due_filters,
         fields=["name", "asset_name", "device_model", "location",
                 "next_calibration_date", "calibration_status"],
         order_by=_ORDER_NEXT_CAL_ASC,
-        page_size=int(limit),
+        page_size=cap,
     )
     today_d = getdate(today)
     for r in rows:
         nd = r.get("next_calibration_date")
         r["days_left"] = date_diff(nd, today_d) if nd else None
-    return {"items": rows, "threshold_days": int(days)}
+    # CR-46 hợp đồng TRUNG THỰC khi cắt: total = COUNT thật trên ĐÚNG due_filters
+    # TRƯỚC cắt; truncated = int 0/1. ZERO-COST — count_fn CHỈ chạy khi len(rows)≥cap.
+    total, truncated = truncation_meta(
+        len(rows), cap, lambda: AssetRepo.count(due_filters))
+    return {"items": rows, "threshold_days": int(days),
+            "total": total, "truncated": truncated}
 
 
+@rowscoped
 def get_asset_history(asset: str, limit: int = 10) -> dict:
     rows, _ = CalibrationRepo.list(
         filters={"asset": asset},

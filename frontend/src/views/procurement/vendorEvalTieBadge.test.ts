@@ -39,6 +39,8 @@ vi.mock('@/composables/useNotify', () => ({
 
 vi.mock('vue-router', () => ({
   useRoute: () => ({ params: { id: 'VE-0001' } }),
+  // Lô 2: view lấy `router.push` để nối `@back` của DetailPageShell (lối thoát khi 403/404).
+  useRouter: () => ({ push: vi.fn(), back: vi.fn() }),
 }))
 
 import VendorEvalDetailView from './VendorEvalDetailView.vue'

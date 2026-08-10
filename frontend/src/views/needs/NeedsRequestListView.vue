@@ -15,6 +15,7 @@ import BasePagination from '@/components/common/BasePagination.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import KpiCard from '@/components/common/KpiCard.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
+import ListPageShell from '@/components/ui/ListPageShell.vue'
 import { useCapabilities } from '@/composables/useCapabilities'
 
 const { can } = useCapabilities()
@@ -82,7 +83,25 @@ function buildPayload(): NeedsRequestFilters & { search?: string } {
   return f
 }
 
-function applyFilters() { store.fetchNeedsRequests(buildPayload(), 1, store.pageSize) }
+// ── Trạng thái nạp danh sách (AC-UX-047 lô 3 · biến thể D — 02 §14.2, khuôn §13.2) ─────────
+// `stores/imm01.ts:43` dọn ô `error` ở đầu `fetchNeedsRequests`, NHƯNG `fetchKpis` (`:118`)
+// ghi vào CÙNG ô đó. Bind thẳng `store.error` ⇒ một lượt nạp chỉ số hiệu suất hỏng sẽ xoá
+// trắng danh sách đang hiển thị (INV-UX3-28). Vì vậy CHỤP lỗi ngay sau `await` của lượt nạp
+// danh sách rồi trả ô dùng chung về sạch.
+const loadError = ref<string | null>(null)
+
+async function load(p = 1) {
+  loadError.value = null
+  store.error = null
+  await store.fetchNeedsRequests(buildPayload(), p, store.pageSize)
+  loadError.value = store.error ?? null
+  if (loadError.value) store.error = null
+}
+
+/** Điểm vào DUY NHẤT của «Thử lại» — giữ nguyên bộ lọc VÀ trang đang xem (02 §14.4). */
+function reload() { return load(store.page) }
+
+function applyFilters() { return load(1) }
 function clearChip(key: string) {
   if (key === 'overdue') filters.overdue = false
   else (filters as Record<string, string | boolean>)[key] = ''
@@ -95,8 +114,15 @@ function resetFilters() {
   filters.requesting_department = ''
   filters.search = ''
   filters.overdue = false
-  store.fetchNeedsRequests({}, 1, store.pageSize)
+  load(1)
 }
+
+// Chữ trạng thái rỗng — SSoT là bảng copy 02 §14.4 (LL-FE-53: 100% tiếng Việt).
+const emptyTitle = computed(() =>
+  activeChips.value.length > 0 ? 'Không có đề xuất nào phù hợp' : 'Chưa có đề xuất nhu cầu nào',
+)
+const emptyHint =
+  'Đề xuất nhu cầu là bước đầu của vòng đời thiết bị — khoa/phòng lập, phòng vật tư thẩm định.'
 /** KPI "Phiếu tồn quá 30 ngày" bấm được → bật/tắt lọc overdue (SSoT server). */
 function toggleOverdue() {
   filters.overdue = !filters.overdue
@@ -112,24 +138,30 @@ function quickFilter(key: keyof typeof filters, value: string) {
 
 function goCreate()          { router.push({ name: 'NeedsRequestCreate' }) }
 function goDetail(n: string) { router.push({ name: 'NeedsRequestDetail', params: { id: n } }) }
-function goPage(p: number)   { store.fetchNeedsRequests(buildPayload(), p, store.pageSize) }
+function goPage(p: number)   { return load(p) }
 
-onMounted(() => {
+onMounted(async () => {
   // Deep-link từ thông báo escalation "phiếu nhu cầu quá hạn" (?overdue=1) → mở sẵn
   // danh sách đã lọc phiếu quá hạn (điểm đến hành động cho Needs Manager).
-  if (route.query.overdue === '1' || route.query.overdue === 'true') {
-    filters.overdue = true
-    store.fetchNeedsRequests(buildPayload(), 1, store.pageSize)
-  } else {
-    store.fetchNeedsRequests()
-  }
+  if (route.query.overdue === '1' || route.query.overdue === 'true') filters.overdue = true
+  // TUẦN TỰ (02 §14.4): nạp danh sách xong mới nạp chỉ số — chạy song song thì lỗi của chỉ số
+  // có thể rơi vào ô dùng chung ĐÚNG lúc lượt nạp danh sách đang chụp lỗi.
+  await load(1)
   store.fetchKpis()
   refData.fetchAll()
 })
 </script>
 
 <template>
-  <div class="page-container animate-fade-in">
+  <div>
+    <ListPageShell
+      :loading="store.loading"
+      :error-message="loadError"
+      :is-empty="!store.needsRequests.length"
+      :empty-title="emptyTitle"
+      :empty-hint="emptyHint"
+      @retry="reload">
+      <template #header>
     <PageHeader
       title="Đề xuất nhu cầu thiết bị"
       :subtitle="`Tổng ${store.total} đề xuất — tiếp nhận, chấm điểm ưu tiên và lập dự toán.`"
@@ -144,7 +176,9 @@ onMounted(() => {
         </button>
       </template>
     </PageHeader>
+      </template>
 
+      <template #filters>
     <ListFilterBar
       v-model:search="filters.search"
       :show="showFilters"
@@ -173,8 +207,24 @@ onMounted(() => {
         </select>
       </template>
     </ListFilterBar>
+      </template>
 
-    <!-- KPI strip -->
+      <template #skeleton><SkeletonLoader variant="table" :rows="6" /></template>
+
+      <template #empty-action>
+        <button
+          v-if="activeChips.length > 0"
+          class="text-xs text-brand-600 hover:text-brand-700 font-medium underline"
+          @click="resetFilters"
+        >Xóa bộ lọc để xem tất cả</button>
+        <button v-else-if="can('needs.create')" class="btn-primary" @click="goCreate">
+          Tạo đề xuất nhu cầu
+        </button>
+      </template>
+
+      <!-- Dải chỉ số hiệu suất — `#summary` CHỈ render ở trạng thái rỗng/có-dữ-liệu ⇒ hết cảnh
+           in số của một lượt nạp hỏng (INV-UX3-27). -->
+      <template #summary>
     <div v-if="store.kpis" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
       <KpiCard
         :label="'Phiếu tồn quá 30 ngày'"
@@ -205,17 +255,9 @@ onMounted(() => {
         color="success"
       />
     </div>
+      </template>
 
-    <div v-if="store.error" class="alert-error mb-4">
-      <span><strong>Lỗi:</strong> {{ store.error }}</span>
-      <div class="flex items-center gap-2">
-        <button class="text-sm underline text-red-700" @click="applyFilters">Thử lại</button>
-        <button class="alert-close" @click="store.clearError()">×</button>
-      </div>
-    </div>
-
-    <!-- Table -->
-    <div class="card overflow-hidden">
+      <template #toolbar>
       <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50/60">
         <span class="text-xs text-slate-500">
           <span v-if="activeChips.length > 0">
@@ -230,11 +272,8 @@ onMounted(() => {
           <button class="text-xs text-red-500 hover:text-red-700 font-medium" @click="resetFilters">Xóa tất cả</button>
         </div>
       </div>
+      </template>
 
-      <div v-if="store.loading" class="p-6">
-        <SkeletonLoader variant="table" :rows="6" />
-      </div>
-      <template v-else-if="store.needsRequests.length">
         <!-- Mobile cards -->
         <div class="mobile-card-list sm:hidden">
           <div
@@ -256,9 +295,6 @@ onMounted(() => {
               <span v-if="nr.is_overdue" class="nr-age-overdue">· Quá hạn {{ nr.age_days }} ngày ⚠</span>
               <span v-else-if="nr.age_days != null">· {{ nr.age_days }} ngày</span>
             </div>
-          </div>
-          <div v-if="store.needsRequests.length === 0" class="py-12 text-center text-slate-400">
-            <p class="text-sm">Không có dữ liệu</p>
           </div>
         </div>
 
@@ -344,23 +380,15 @@ onMounted(() => {
             </tbody>
           </table>
         </div>
-      </template>
-      <div v-else class="flex flex-col items-center justify-center py-16 text-slate-400">
-        <p class="text-sm">Không có đề xuất nào phù hợp</p>
-        <button
-v-if="activeChips.length > 0" class="mt-3 text-xs text-brand-600 hover:text-brand-700 underline"
-                @click="resetFilters">
-          Xóa bộ lọc để xem tất cả
-        </button>
-      </div>
-    </div>
 
-    <BasePagination :pagination="{ page: store.page, total_pages: totalPages, total: store.total, page_size: store.pageSize }" @page-change="goPage" />
+      <template #pagination>
+        <BasePagination :pagination="{ page: store.page, total_pages: totalPages, total: store.total, page_size: store.pageSize }" @page-change="goPage" />
+      </template>
+    </ListPageShell>
   </div>
 </template>
 
 <style scoped>
-.alert-close { background: none; border: none; cursor: pointer; font-size: 1.25rem; }
 .link-cell { background: none; border: none; padding: 0; color: #334155; cursor: pointer; text-align: left; font: inherit; }
 .link-cell:hover { color: #2563eb; text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 2px; }
 
@@ -384,10 +412,3 @@ v-if="activeChips.length > 0" class="mt-3 text-xs text-brand-600 hover:text-bran
 .nr-age-overdue { color: #b45309; font-weight: 600; }
 </style>
 
-<style>
-.alert-error {
-  display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
-  background: #fef2f2; border: 1px solid #fecaca; padding: 0.75rem 1rem;
-  border-radius: 8px; color: #b91c1c; font-size: 0.875rem;
-}
-</style>

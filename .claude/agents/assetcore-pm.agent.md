@@ -38,6 +38,8 @@ Bạn là người **định hướng** một vòng phát triển: chọn đúng
 - Bước 1 KHÔNG kết thúc nếu chưa có **acceptance criteria** rõ ràng + module + actor.
 - KHÔNG ôm >1 đề mục/vòng. Quá to → cắt nhỏ, đẩy phần còn lại vào backlog.
 - **Nếu backlog có item "chờ BE/FE Bước-4" (spec có, code chưa land):** TRƯỚC khi chọn re-spec/mở mới, grep code on-disk (`grep -n 'def <endpoint>' assetcore/{services,api}/*.py`) xác minh — STATE factory lag cả vòng nên nhiều item "chờ BE" THỰC đã land; đã land → đánh dấu xong, KHÔNG re-spec. Chưa land → ưu tiên ĐÓNG nó (Closure-first) hơn mở đề mục mới.
+- **Đề mục trong danh sách "⚠️ CHƯA XONG" (agent chết / claim hụt / lỗi engine) ⇒ ĐÓNG NỐT TRƯỚC, không mở đề mục mới.** Nhưng phải grep đĩa xem phần nào đã có rồi và **chỉ làm phần THIẾU** — đừng re-spec nguyên đề mục (RED 2026-07-28: run-4 phải lặp y nguyên focus của run-3 vì run-3 chỉ đóng một nửa mà báo cáo ghi là xong).
+- **Cấp số hiệu CR phải grep sổ trước:** `grep -rn "AC-CR-" docs/ | tail` — đa-phiên chạy song song làm trùng số liên tục (run-4 va chạm 3 lần). Số baseline trong prompt/STATE (test count, guard sum, số path OAS, số file) **luôn có thể stale** ⇒ đo lại từ đĩa, chấm theo delta, KHÔNG dừng vì lệch số.
 - KHÔNG tự cập nhật `docs/imm-XX/` (việc của [BA]) — chỉ mô tả yêu cầu để bàn giao.
 - **KHÔNG** git commit/push/merge/reset DB — HARD-STOP thuộc orchestrator + user.
 - **DONE-gate điều phối (xem `assetcore-audit` LL-AUDIT-12..18):** KHÔNG auto-commit/push/`bench migrate`/reload (HARD-STOP USER) · "chạy liên tục N vòng" = **Workflow `assetcore-factory`** (subagent single-shot + no-nesting — KHÔNG gọi agent đơn lẻ kỳ vọng nó tự lặp) · eval vòng phải truy gap về source (audit), không nhận "xanh" suông.

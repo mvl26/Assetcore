@@ -108,3 +108,74 @@ describe('imm08 store — notification contract', () => {
     expect(store.error).toBeNull()
   })
 })
+
+// ─── FE-2 (BR-08-08 chống nghiệm-thu-giả): doSubmitResult KHÔNG báo thành-công-giả ──
+// Chỉ coi là thành công khi BE XÁC NHẬN status thực = 'Completed' (đọc từ response),
+// KHÔNG suy ra "thành công" chỉ vì POST không ném. BE trả lỗi (vd bảng kiểm rỗng
+// IMM08-CHECKLIST-EMPTY) → success=false + giữ lastApiError để view surface qua notify.
+const CHECKLIST_EMPTY = new ApiError(
+  'Không thể hoàn thành PM: bảng kiểm chưa có mục nào (thiếu bảng kiểm mẫu) — vui lòng gắn bảng kiểm trước khi nghiệm thu.',
+  {
+    code: ErrorCode.VALIDATION,
+    httpStatus: 422,
+    messageCode: 'IMM08-CHECKLIST-EMPTY',
+    severity: 'warning',
+    title: 'Chưa gắn bảng kiểm',
+  },
+)
+
+function ratedItem(): api.ChecklistResult {
+  return {
+    idx: 1, checklist_item_idx: 1, description: 'Kiểm tra nguồn điện',
+    measurement_type: 'Pass/Fail', unit: '', result: 'Pass',
+    measured_value: null, notes: '', photo: null,
+  }
+}
+
+describe('imm08 store — FE-2: doSubmitResult không báo thành-công-giả', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.clearAllMocks()
+  })
+
+  async function seededStore(wo: api.PMWorkOrder) {
+    vi.mocked(api.getPMWorkOrder).mockResolvedValue(wo)
+    const store = useImm08Store()
+    await store.fetchWorkOrder(wo.name)
+    return store
+  }
+
+  it('BE trả new_status=Completed → success=true + newStatus=Completed, KHÔNG set lastApiError', async () => {
+    const store = await seededStore(makeWO({ checklist_results: [ratedItem()] }))
+    vi.mocked(api.submitPMResult).mockResolvedValueOnce({
+      name: 'PM-001', new_status: 'Completed', is_late: false,
+      next_pm_date: '2026-09-01', cm_wo_created: null,
+    })
+    const res = await store.doSubmitResult('ghi chú', true, 45)
+    expect(res.success).toBe(true)
+    expect(res.newStatus).toBe('Completed')
+    expect(store.lastApiError).toBeNull()
+  })
+
+  it('BE raise IMM08-CHECKLIST-EMPTY (bảng kiểm rỗng) → success=false + giữ lastApiError, KHÔNG thành công', async () => {
+    const store = await seededStore(makeWO({ checklist_results: [] }))
+    vi.mocked(api.submitPMResult).mockRejectedValueOnce(CHECKLIST_EMPTY)
+    const res = await store.doSubmitResult('', true, 45)
+    expect(res.success).toBe(false)
+    expect(store.lastApiError?.messageCode).toBe('IMM08-CHECKLIST-EMPTY')
+    expect(api.submitPMResult).toHaveBeenCalledTimes(1)
+  })
+
+  it('BE resolve nhưng new_status != Completed (bất thường) → success=false + dựng ApiError (không lạc quan)', async () => {
+    const store = await seededStore(makeWO({ checklist_results: [ratedItem()] }))
+    vi.mocked(api.submitPMResult).mockResolvedValueOnce({
+      name: 'PM-001', new_status: 'In Progress', is_late: false,
+      next_pm_date: '', cm_wo_created: null,
+    })
+    const res = await store.doSubmitResult('ghi chú', true, 45)
+    expect(res.success).toBe(false)
+    expect(res.newStatus).toBe('In Progress')
+    expect(store.lastApiError).not.toBeNull()
+    expect(store.lastApiError?.code).toBe(ErrorCode.BAD_STATE)
+  })
+})

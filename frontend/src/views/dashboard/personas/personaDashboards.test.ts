@@ -41,6 +41,10 @@ vi.mock('@/composables/useDashboard', () => ({
 
 // ─── D-FE-1/2: shell-router render đúng persona view theo currentPersona ──────
 import DashboardView from './../DashboardView.vue'
+// AC-UX-023: D-FE-1 bám ĐỊNH DANH VIEW (findComponent) thay vì một chuỗi copy — commit
+// 44cbff9 đã rút tên persona khỏi tiêu đề (`title="Bảng điều khiển"`) và PageHeader bị
+// stub trong test ⇒ assert theo chữ là test-drift, sẽ đỏ lại mỗi lần đổi nhãn.
+// (OpsmgrDashboardView đã được import sẵn ở phần dưới của file này.)
 
 describe('DashboardView shell-router (D-FE-1, D-FE-2)', () => {
   // Real memory router — persona views nay dùng useRouter() cho drill-down
@@ -56,7 +60,7 @@ describe('DashboardView shell-router (D-FE-1, D-FE-2)', () => {
     personaRef.value = { code: 'opsmgr', label: 'X' }
     const w = mount(DashboardView, mountOpts)
     await flushPromises()
-    expect(w.html()).toContain('Trưởng phòng VT-TTBYT')
+    expect(w.findComponent(OpsmgrDashboardView).exists()).toBe(true)
   })
 
   it('D-FE-2: current=store → render StoreDashboardView', async () => {

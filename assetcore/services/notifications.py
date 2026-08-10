@@ -1105,6 +1105,10 @@ def run_sla_breach_scan() -> None:
         from assetcore.services.imm09 import get_sla_target
 
         wos, _ = RepairRepo.list(
+            # R6 (ADR-IMM00-LIST-SCOPE §8.4 + §8.3b): scheduler hourly notification —
+            # KHÔNG có session-user, phải quét toàn viện ⇒ "internal" (bỏ CẢ role-gate:
+            # job chạy ngoài ngữ cảnh người dùng, gate DocPerm ở đây sẽ giết job).
+            scope="internal",
             filters={
                 "status": ("not in", list(_REPAIR_TERMINAL_STATUS)),
                 "docstatus": 0,

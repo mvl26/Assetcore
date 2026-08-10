@@ -37,20 +37,20 @@ from assetcore.services.imm12 import (
     get_chronic_failures as svc_chronic,
     get_dashboard as svc_dashboard,
     get_incident_stats as svc_stats,
+    _CAP_INVESTIGATE,
+    _CAP_CLOSE,
 )
 
 _MSG_UNAUTHENTICATED = "Chưa đăng nhập"
 _MSG_SERVER_ERROR = "Lỗi server"
 _MSG_FORBIDDEN = "Không có quyền thực hiện hành động này"
 
-# R16 FIX: gate IMM-12 theo CAPABILITY THẬT (DocPerm trên Incident Report) —
-# KHÔNG hardcode role-name không tồn tại trong fixtures/role.json. Trước fix,
-# _ROLES_INVESTIGATE/_ROLES_CLOSE dùng tên bịa ("IMM Workshop Lead"...) nên mọi
-# Corrective Manager/User bị 403 → toàn bộ workflow incident chết. Capability
-# resolve qua frappe.has_permission → tôn trọng Role Profile thật + granular
-# (write = triage/work/resolve/RCA; submit = close). Cùng pattern IMM-09.
-_CAP_INVESTIGATE = "incident.acknowledge"  # → ("Incident Report", "write")
-_CAP_CLOSE = "incident.close"              # → ("Incident Report", "submit")
+# R16 FIX: gate IMM-12 theo CAPABILITY THẬT (DocPerm trên Incident Report) — KHÔNG
+# hardcode role-name bịa. _CAP_INVESTIGATE/_CAP_CLOSE nay là SSoT DÙNG CHUNG với
+# service builder (_build_incident_available_actions) — IMPORT từ services.imm12 ở
+# trên (1 nguồn hằng số, chống drift cap "gate nói dối"). Capability resolve qua
+# frappe.has_permission → tôn trọng Role Profile thật + granular (write =
+# triage/work/resolve/RCA; submit = close). Cùng pattern IMM-09.
 # V4-GATE BÁO-HỎNG (ADR-IMM12-REPORT-FAILURE D1): gate report_incident bằng CÙNG cap
 # 'corrective.create' với route-guard FE (router/index.ts:450 IncidentCreate) +
 # scan-action SSoT (services/imm00.py _SCAN_ACTION_SPECS report_failure) → parity
@@ -108,9 +108,11 @@ def report_incident(
     (KHÔNG str|None → tránh HTTP 417 pydantic-coercion).
 
     `client_request_id` (CR-24 idempotency): khoá do client (mobile write-outbox)
-    sinh — CÙNG khoá + CÙNG reporter gọi 2 lần chỉ tạo 1 phiếu; call trùng trả
-    `name` phiếu đã tạo (KHÔNG insert/audit lần 2 → chống làm bẩn vết audit NĐ98).
-    Rỗng → tạo mới bình thường (backward-compat 100%). str='' (KHÔNG str|None → 417).
+    sinh — CÙNG khoá gọi 2 lần chỉ tạo 1 phiếu; call trùng trả `name` phiếu đã tạo
+    (KHÔNG insert/audit lần 2 → chống làm bẩn vết audit NĐ98). Nguồn khoá (HANDOFF
+    §2.1 header-parity, parity imm09/imm00/imm11): body param THẮNG header
+    `X-Idempotency-Key` / alias `Idempotency-Key`; cả hai vắng ⇒ NO-OP dedup, tạo mới
+    bình thường (backward-compat 100%). str='' (KHÔNG str|None → tránh HTTP 417).
     """
     if frappe.session.user == "Guest":
         return _err(_(_MSG_UNAUTHENTICATED), 401)
@@ -292,7 +294,8 @@ def get_incident(name: str):
 
 
 @frappe.whitelist(methods=["POST"])
-def attach_incident_photo(incident_name: str = "", **_ignore):
+def attach_incident_photo(incident_name: str = "", client_request_id: str = "",
+                          **_ignore):
     """POST (multipart) /api/method/assetcore.api.imm12.attach_incident_photo
 
     BR-12-17/18 (mobile CR-17/G6): đính ảnh bằng chứng hiện trường (NĐ98) vào 1
@@ -300,7 +303,14 @@ def attach_incident_photo(incident_name: str = "", **_ignore):
     Single-step multipart: server đọc `frappe.request.files["file"]`, tự validate +
     tạo + link File (robust, KHÔNG orphan như 2-bước upload→file_url).
 
-    `**_ignore` nuốt kwargs spoof (đối xứng register_device_token). Guest/no-session
+    `client_request_id` (CR-24 phần dư · B-rel-3 / BR-12-26 idempotency): khoá per-ảnh
+    do client (mobile write-outbox PHA-2) sinh, ổn định qua mọi re-drain của CÙNG ảnh.
+    Non-empty + cùng incident gọi lặp ⇒ trả File ĐÃ đính (KHÔNG File/event trùng —
+    dedupe service ADR-IMM12-10). Rỗng/thiếu ⇒ hành vi at-least-once cũ. Param TƯỜNG
+    MINH (multipart form part — KHÔNG còn bị `**_ignore` nuốt câm); default `""`
+    (KHÔNG None — tránh HTTP-417 coercion).
+
+    `**_ignore` nuốt kwargs spoof KHÁC (đối xứng register_device_token). Guest/no-session
     → dispatcher-403 (POST @whitelist không allow_guest); permission (reporter OR
     incident.write) + validation ở service → Decision-B HTTP-200 qua `handle`.
     """
@@ -322,6 +332,7 @@ def attach_incident_photo(incident_name: str = "", **_ignore):
         filedata=filedata,
         filename=filename,
         content_type=content_type,
+        client_request_id=client_request_id,
     )
 
 

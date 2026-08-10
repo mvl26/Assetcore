@@ -16,14 +16,19 @@ import json
 from typing import Any
 
 import frappe
-from frappe.utils import now_datetime, get_url
+from frappe.utils import now_datetime, cint
+from frappe.utils.data import sha256_hash
 
 from assetcore.utils.response import _ok, _err
-from assetcore.utils.helpers import _safe_sendmail
+from assetcore.utils.helpers import _safe_sendmail, fe_url
+from assetcore.utils.email_template import render_email
+from assetcore.utils import password_policy
 
 # ── Hằng số ────────────────────────────────────────────────────────────────────
 
 from assetcore.services.shared.constants import Roles, ROLE_METADATA
+from assetcore.services.shared.ac_users import count_ac_users, get_ac_users, is_ac_user
+from assetcore.services.shared.truncation import truncation_meta
 from assetcore.setup.role_profile_catalog import BASE_ROLE
 
 # Single source of truth — đồng bộ với fixtures/role.json
@@ -138,22 +143,6 @@ def _extract_imm_role_names(raw_roles: list) -> list[str]:
         if name in _IMM_ROLES:
             result.append(name)
     return result
-
-
-def _users_with_role(role: str) -> list[str]:
-    """Tên (email) các User giữ `role` — resolve qua child table Has Role.
-
-    `frappe.db.count` / `get_all` trên User không filter xuyên child table được
-    nên phải resolve danh sách parent trước rồi lọc `name in [...]`.
-    """
-    return [
-        r["parent"]
-        for r in frappe.get_all(
-            "Has Role",
-            filters={"parenttype": "User", "role": role},
-            fields=["parent"],
-        )
-    ]
 
 
 def _profile_lock_error(user_name: str) -> dict | None:
@@ -309,25 +298,18 @@ def list_users(
     page_size = max(1, min(page_size, 100))  # cap chống unbounded-fetch (LL-BE-43)
     offset = (page - 1) * page_size
 
-    filters: dict = {"user_type": "System User", "name": ["!=", "Guest"]}
+    # Chỉ "user AssetCore" (base role) — nguồn DUY NHẤT là services.shared.ac_users;
+    # count & rows dùng CÙNG resolver nên pagination.total luôn khớp số dòng
+    # (LL-BE-42, INVARIANT count == drill với KPI dashboard).
+    filters: dict = {"user_type": "System User"}
     if is_active is not None:
         filters["enabled"] = int(is_active)
     if department and _safe_field("ac_department"):
         filters["ac_department"] = department
     if approval_status and _safe_field("imm_approval_status"):
         filters["imm_approval_status"] = approval_status
-
-    # Chỉ "user AssetCore" — phải giữ base role `AssetCore System User`. Role nằm ở
-    # child table Has Role (parent=User) → resolve danh sách User trước rồi lọc
-    # `name in [...]` (frappe.db.count/get_all không filter xuyên child table).
-    # Loại Administrator/Guest (infra account, không thuộc scope user AssetCore).
-    base_holders = set(_users_with_role(BASE_ROLE)) - {"Administrator", "Guest"}
-    if role and role in _IMM_ROLES:
-        # Lọc thêm theo 1 IMM role cụ thể → giao với tập base-holder.
-        base_holders &= set(_users_with_role(role))
-    # Tập rỗng → ép kết quả rỗng (tránh trả toàn bộ). count & rows dùng CÙNG
-    # filters["name"] nên pagination.total luôn khớp số dòng (LL-BE-42).
-    filters["name"] = ["in", sorted(base_holders) or [""]]
+    # Lọc thêm theo 1 IMM role cụ thể → resolver GIAO với tập base-holder.
+    role_filter = role if role in _IMM_ROLES else ""
 
     or_filters = None
     if search:
@@ -336,7 +318,7 @@ def list_users(
             ["full_name", "like", f"%{search}%"],
         ]
 
-    total = frappe.db.count("User", filters)
+    total = count_ac_users(filters, role=role_filter, or_filters=or_filters)
 
     fields = ["name", "full_name", "email", "enabled", "user_image", "role_profile_name"]
     if _safe_field("imm_approval_status"):
@@ -344,14 +326,13 @@ def list_users(
     if _safe_field("ac_department"):
         fields.append("ac_department")
 
-    users = frappe.get_all(
-        "User",
-        filters=filters,
+    users = get_ac_users(
+        fields,
+        filters,
+        role=role_filter,
         or_filters=or_filters,
-        fields=fields,
         limit_start=offset,
         limit_page_length=page_size,
-        order_by="full_name asc",
     )
 
     dept_ids = {u.get("ac_department") for u in users if u.get("ac_department")}
@@ -549,26 +530,89 @@ def _send_activation_email(user_name: str) -> None:
     try:
         full_name = frappe.db.get_value("User", user_name, "full_name") or user_name
         # FE route đăng nhập là /login (Vue Router history mode dưới site URL).
-        login_url = f"{get_url()}/login"
+        login_url = fe_url("/login")
         _safe_sendmail(
             recipients=[user_name],
             subject="[AssetCore] Tài khoản của bạn đã được kích hoạt",
-            message=(
-                f"<p>Xin chào <b>{frappe.utils.escape_html(full_name)}</b>,</p>"
-                f"<p>Tài khoản AssetCore của bạn đã được quản trị viên "
-                f"<b>kích hoạt</b>. Bạn có thể đăng nhập ngay bây giờ.</p>"
-                f"<p><a href=\"{login_url}\" "
-                f"style=\"display:inline-block;padding:10px 18px;background:#2563eb;"
-                f"color:#fff;border-radius:6px;text-decoration:none\">Đăng nhập</a></p>"
-                f"<p>Hoặc truy cập: <a href=\"{login_url}\">{login_url}</a></p>"
-                f"<p style=\"color:#888;font-size:12px\">Email tự động từ hệ thống "
-                f"AssetCore — vui lòng không trả lời.</p>"
+            message=render_email(
+                title="Tài khoản đã được kích hoạt",
+                greeting=full_name,
+                body_html=(
+                    "<p>Tài khoản AssetCore của bạn đã được quản trị viên "
+                    "<b>kích hoạt</b>. Bạn có thể đăng nhập ngay bây giờ.</p>"
+                ),
+                cta_label="Đăng nhập",
+                cta_url=login_url,
             ),
             reference_doctype="User",
             reference_name=user_name,
+            now=True,
         )
     except Exception:
         frappe.log_error(frappe.get_traceback(), "approve: send activation email failed")
+
+
+def _make_set_password_link(user_name: str) -> str:
+    """Sinh reset-password key (như Frappe ``User._reset_password``) và trả link
+    tự đặt mật khẩu. ISS-002: KHÔNG gửi mật khẩu thô — user tự thiết lập.
+
+    Link trỏ vào màn hình ``/set-password`` của **UI AssetCore** (không phải form
+    ``/update-password`` của Frappe desk): người dùng cuối chỉ biết giao diện
+    AssetCore, và form desk là tiếng Anh + layout khác hẳn hệ thống.
+    """
+    key = frappe.generate_hash()
+    frappe.db.set_value(
+        "User",
+        user_name,
+        {
+            "reset_password_key": sha256_hash(key),
+            "last_reset_password_key_generated_on": now_datetime(),
+        },
+        update_modified=False,
+    )
+    return fe_url(f"/set-password?key={key}")
+
+
+def _send_welcome_email(user_name: str) -> bool:
+    """ISS-002: gửi email chào mừng (tiếng Việt) cho user mới do admin tạo.
+
+    Nội dung tối thiểu theo tiêu chí nghiệm thu: tên hệ thống, URL đăng nhập
+    (FE Vue ``/login``), tên đăng nhập, và link **tự đặt mật khẩu** (không gửi
+    mật khẩu thô). Gửi ``now=True`` để KHÔNG phụ thuộc scheduler/queue → lỗi SMTP
+    hiện tức thì. Trả ``True`` nếu gửi thành công; lỗi được log, KHÔNG raise.
+    """
+    try:
+        full_name = frappe.db.get_value("User", user_name, "full_name") or user_name
+        login_url = fe_url("/login")
+        set_password_url = _make_set_password_link(user_name)
+        return _safe_sendmail(
+            recipients=[user_name],
+            subject="[AssetCore] Chào mừng bạn đến với hệ thống AssetCore",
+            message=render_email(
+                title="Chào mừng bạn đến với AssetCore",
+                greeting=full_name,
+                body_html=(
+                    f"<p>Tài khoản của bạn trên hệ thống <b>AssetCore</b> đã được "
+                    f"quản trị viên tạo.</p>"
+                    f"<p><b>Tên đăng nhập:</b> {frappe.utils.escape_html(user_name)}<br />"
+                    f"<b>Đường dẫn đăng nhập:</b> "
+                    f'<a href="{login_url}" style="color:#2563eb">{login_url}</a></p>'
+                    f"<p>Vì lý do bảo mật, hệ thống <b>không gửi mật khẩu</b> qua email. "
+                    f"Vui lòng bấm nút bên dưới để tự thiết lập mật khẩu cho tài khoản:</p>"
+                ),
+                cta_label="Đặt mật khẩu",
+                cta_url=set_password_url,
+                note="Liên kết đặt mật khẩu có hạn sử dụng và chỉ dùng được một lần.",
+            ),
+            reference_doctype="User",
+            reference_name=user_name,
+            now=True,
+        )
+    except Exception:
+        frappe.log_error(
+            frappe.get_traceback(), "create_system_user: send welcome email failed"
+        )
+        return False
 
 
 def _build_new_user_doc(email: str, first_name: str, data: dict, imm_roles: list) -> Any:
@@ -583,6 +627,11 @@ def _build_new_user_doc(email: str, first_name: str, data: dict, imm_roles: list
     user_doc.send_welcome_email = (
         1 if data.get("send_welcome_email") in (1, "1", True, "true") else 0
     )
+    # ISS-002: AssetCore tự gửi email chào mừng (VI, đúng nội dung + link tự đặt
+    # mật khẩu + URL /login của FE Vue) qua `_send_welcome_email` sau khi insert.
+    # `no_welcome_mail` chặn welcome mail MẶC ĐỊNH của Frappe (tiếng Anh, trỏ
+    # /update-password desk-route) → tránh gửi TRÙNG + sai nội dung.
+    user_doc.flags.no_welcome_mail = True
     if data.get("password"):
         user_doc.new_password = data["password"]
     # Base role bắt buộc cho mọi user tạo từ UI AssetCore (định danh user
@@ -689,12 +738,20 @@ def create_system_user() -> dict:
     if not first_name:
         return _err("Thiếu họ tên", 400)
     password = (data.get("password") or "").strip()
-    if password and len(password) < 10:
-        return _err(
-            "Mật khẩu phải có tối thiểu 10 ký tự. Khuyến nghị kết hợp chữ hoa, "
-            "chữ thường, số và ký tự đặc biệt.",
-            400,
-        )
+    if password:
+        if len(password) < 10:
+            return _err(
+                "Mật khẩu phải có tối thiểu 10 ký tự. Khuyến nghị kết hợp chữ hoa, "
+                "chữ thường, số và ký tự đặc biệt.",
+                400,
+                fields={"password": "Tối thiểu 10 ký tự"},
+            )
+        # Kiểm độ mạnh TRƯỚC khi insert: nếu để `new_password` xuống tới
+        # `User.validate`, Frappe sẽ throw khối HTML tiếng Anh của nó
+        # (handle_password_test_fail) và FE hiện nguyên thẻ <div>/<ul>.
+        weak = password_policy.check_password(password)
+        if weak:
+            return _err(weak, 400, fields={"password": weak})
     # Kiểm tra cả primary key (name) và field email — case-insensitive để tránh
     # false negative khi user nhập IN HOA mà DB lưu thường.
     by_name = frappe.db.exists("User", email)
@@ -725,7 +782,20 @@ def create_system_user() -> dict:
 
     _stamp_imm_approval(email, data.get("ac_department"))
     frappe.db.commit()
-    return _ok({"user": email, "full_name": user_doc.full_name})
+
+    # ISS-002: gửi email chào mừng ĐÚNG 01 lần — chỉ khi admin tick tùy chọn.
+    # Trạng thái gửi trả về FE để hiển thị cảnh báo khi thất bại (truy vết).
+    result = {"user": email, "full_name": user_doc.full_name}
+    if cint(user_doc.send_welcome_email):
+        sent = _send_welcome_email(email)
+        result["welcome_email_sent"] = sent
+        if not sent:
+            result["welcome_email_error"] = (
+                "Tài khoản đã tạo nhưng KHÔNG gửi được email chào mừng. Kiểm tra "
+                "cấu hình email gửi đi (Email Account default_outgoing) và Error Log."
+            )
+        frappe.db.commit()
+    return _ok(result)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -737,7 +807,11 @@ def reset_user_password(user: str, new_password: str) -> dict:
     if not frappe.db.exists("User", user):
         return _err(f"User không tồn tại: {user}", 404)
     if len(new_password) < 10:
-        return _err("Mật khẩu phải tối thiểu 10 ký tự", 400)
+        return _err("Mật khẩu phải tối thiểu 10 ký tự", 400,
+                    fields={"new_password": "Tối thiểu 10 ký tự"})
+    weak = password_policy.check_password(new_password, user)
+    if weak:
+        return _err(weak, 400, fields={"new_password": weak})
 
     from frappe.utils.password import update_password
     update_password(user, new_password)
@@ -752,9 +826,13 @@ def change_my_password(old_password: str, new_password: str) -> dict:
     if user == "Guest":
         return _err(_MSG_NOT_LOGGED_IN, 401)
     if len(new_password) < 8:
-        return _err("Mật khẩu mới phải tối thiểu 8 ký tự", 400)
+        return _err("Mật khẩu mới phải tối thiểu 8 ký tự", 400,
+                    fields={"new_password": "Tối thiểu 8 ký tự"})
     if old_password == new_password:
         return _err("Mật khẩu mới phải khác mật khẩu cũ", 400)
+    weak = password_policy.check_password(new_password, user)
+    if weak:
+        return _err(weak, 400, fields={"new_password": weak})
 
     from frappe.utils.password import check_password, update_password
     try:
@@ -916,27 +994,37 @@ def set_user_roles(user: str, roles=None) -> dict:
     return _ok({"user": user, "roles": final})
 
 
+# GỠ 2026-07-22: `list_frappe_users` trả TOÀN BỘ Frappe System User (kể cả user
+# ERPNext/CRM trên site dùng chung) → không phải "user AssetCore". Mọi field chọn
+# người dùng `list_assignable_users` bên dưới; đọc 1 user dùng `get_ac_user_brief`.
+
+
 @frappe.whitelist()
-def list_frappe_users(search: str = "", limit: int = 30) -> dict:
-    """Autocomplete tìm Frappe System Users theo tên / email."""
-    limit = max(1, min(int(limit), 100))
-    filters: dict = {"enabled": 1, "user_type": ["!=", "Website User"]}
-    or_filters = None
-    if search:
-        or_filters = [
-            ["name", "like", f"%{search}%"],
-            ["full_name", "like", f"%{search}%"],
-            ["email", "like", f"%{search}%"],
-        ]
-    users = frappe.get_all(
-        "User",
-        filters=filters,
-        or_filters=or_filters,
-        fields=["name", "full_name", "email", "user_image"],
-        order_by="full_name asc",
-        limit_page_length=limit,
-    )
-    return _ok(users)
+def get_ac_user_brief(user: str) -> dict:
+    """Thông tin hiển thị tối thiểu của 1 user — thay `frappe.client.get_value` ở FE.
+
+    Dùng cho field read-by-id (vd trưởng khoa lấy từ AC Department, thủ kho...).
+    Trả cả user KHÔNG còn thuộc AssetCore (record cũ vẫn phải render được tên)
+    nhưng gắn cờ `is_ac_user=False` để FE hiện badge "(Đã rời AssetCore)" —
+    BA §0.1.7. KHÔNG trả field nhạy cảm (api key, mật khẩu, quyền).
+
+    Args:
+        user: tên (email) User.
+
+    Returns:
+        `_ok({name, full_name, email, phone, mobile_no, user_image, enabled,
+        is_ac_user})`; `_err(404)` khi user không tồn tại.
+    """
+    user = (user or "").strip()
+    row = frappe.db.get_value(
+        "User", user,
+        ["name", "full_name", "email", "phone", "mobile_no", "user_image", "enabled"],
+        as_dict=True,
+    ) if user else None
+    if not row:
+        return _err("Không tìm thấy người dùng", 404)
+    row["is_ac_user"] = is_ac_user(user)
+    return _ok(row)
 
 
 # Allowlist "ngữ cảnh phân công" → (DocType, ptype) để kiểm capability.
@@ -955,6 +1043,15 @@ _ASSIGNABLE_CONTEXTS: dict[str, tuple[str, str]] = {
     "commissioning": ("Asset Commissioning", "write"),   # KTV lắp đặt/nghiệm thu (IMM-04)
 }
 
+# Tập ngữ cảnh HỢP LỆ — hằng PUBLIC, nguồn DUY NHẤT cho: (1) nhánh validate
+# `context` bên dưới, (2) enum `context` của mirror mobile `listAssignableUsers`
+# (guard `tests/test_mobile_oas::cr80_b` IMPORT hằng này thay vì chép enum tay ⇒
+# thêm/bớt 1 ngữ cảnh ở BE mà quên OAS là ĐỎ NGAY). Thêm ngữ cảnh = thêm 1 khoá
+# `_ASSIGNABLE_CONTEXTS` (hằng này tự bắt kịp) + cập enum OAS CÙNG VÒNG.
+ASSIGNABLE_CONTEXT_KEYS: tuple[str, ...] = (
+    _ANY_USER_CONTEXT, *sorted(_ASSIGNABLE_CONTEXTS)
+)
+
 
 @frappe.whitelist()
 def list_assignable_users(context: str, search: str = "", limit: int = 20) -> dict:
@@ -969,33 +1066,53 @@ def list_assignable_users(context: str, search: str = "", limit: int = 20) -> di
     Context "user" = BẤT KỲ user AssetCore (chỉ cần base role, KHÔNG lọc năng lực)
     — dùng cho field mô tả người (giám sát, thủ kho, leo thang SLA…).
 
+    HONESTY-CONTRACT (AC-CR-80, ADR-IMM00-TRUNCATION-SSOT §7): danh sách bị cắt ở
+    `limit` PHẢI công bố phần bị giấu. Trước đây hàm trả `capable[:limit]` — cắt IM
+    LẶNG ⇒ picker "khẳng định" không còn ai đủ năng lực trong khi thật ra chỉ là bị
+    cắt (người dùng ở giường bệnh không có cách nào biết). Nay trả OBJECT
+    `{items, total, truncated, limit}`; FE render dải "Đang hiển thị N/M người — gõ
+    tên để tìm thêm" khi `truncated == 1`.
+
     Args:
         context: "user" (mọi user AssetCore) HOẶC khoá `_ASSIGNABLE_CONTEXTS` (vd "repair").
-        search:  lọc theo full_name / email.
-        limit:   trần kết quả (cap 100).
+            Tập hợp lệ = `ASSIGNABLE_CONTEXT_KEYS`; giá trị lạ ⇒ lỗi 400 IN-ENVELOPE
+            trên HTTP-200 (KHÔNG raise ⇒ KHÔNG status-line, client KHÔNG logout oan).
+        search:  lọc theo full_name / email (LIKE `%search%`, OR-filter, server-side).
+        limit:   trần kết quả, CLAMP về 1..100.
+
+    Returns:
+        `_ok({"items": list[dict], "total": int, "truncated": int, "limit": int})`:
+
+        * `items`  — tối đa `limit` phần tử `{name, full_name, email, user_image}`.
+        * `total`  — tổng người ĐƯỢC PHÉP, đếm **SAU** lọc năng lực và **TRƯỚC** khi
+          cắt (đếm trước lọc sẽ thổi phồng ⇒ dải cảnh báo nói dối).
+        * `truncated` — **int** 0|1 (KHÔNG bool: client Dart/Kotlin sinh từ OAS khai
+          `integer` sẽ crash lúc parse nếu server phát `true/false` — parity CR-01).
+        * `limit`  — trần ĐÃ CLAMP (không phải số client gửi), để client không tự suy
+          `truncated` sai.
+
+        Lỗi: `_err(..., 400)` ⇒ `{success: False, code: "VALIDATION_ERROR",
+        http_status: 400}`; message tiếng Việt, KHÔNG lộ tên DocType/cột/SQL.
     """
-    if context != _ANY_USER_CONTEXT and context not in _ASSIGNABLE_CONTEXTS:
+    if context not in ASSIGNABLE_CONTEXT_KEYS:
+        # Echo lại giá trị client gửi (giúp sửa nhanh) nhưng TUYỆT ĐỐI không nêu
+        # GIÁ TRỊ của `_ASSIGNABLE_CONTEXTS` (tên DocType) — đó là bề mặt phân quyền.
         return _err(f"Ngữ cảnh phân công không hợp lệ: {context}", 400)
     limit = max(1, min(int(limit), 100))
 
-    # Candidate = base-role holder (user AssetCore), enabled, System User, khớp search.
-    base_holders = set(_users_with_role(BASE_ROLE)) - {"Administrator", "Guest"}
-    if not base_holders:
-        return _ok([])
-
+    # Candidate = user AssetCore (base role, resolver SSoT), enabled, System User,
+    # ĐÃ kích hoạt (không Pending/Rejected — gán việc cho họ là dead-end), khớp search.
     or_filters = None
     if search:
         or_filters = [
             ["full_name", "like", f"%{search}%"],
             ["email", "like", f"%{search}%"],
         ]
-    candidates = frappe.get_all(
-        "User",
-        filters={"name": ["in", sorted(base_holders)], "enabled": 1,
-                 "user_type": "System User"},
+    candidates = get_ac_users(
+        ["name", "full_name", "email", "user_image"],
+        {"enabled": 1, "user_type": "System User"},
+        approved_only=True,
         or_filters=or_filters,
-        fields=["name", "full_name", "email", "user_image"],
-        order_by="full_name asc",
     )
 
     # Context "user": mọi user AssetCore (không lọc năng lực). Context khác: lọc
@@ -1009,4 +1126,12 @@ def list_assignable_users(context: str, search: str = "", limit: int = 20) -> di
             u for u in candidates
             if frappe.has_permission(doctype, ptype, user=u["name"])
         ]
-    return _ok(capable[:limit])
+
+    items = capable[:limit]
+    # SSoT truncation (ADR-IMM00-TRUNCATION-SSOT D1) — KHÔNG tự đếm tay. `count_fn`
+    # đếm SAU lọc năng lực (ADR-IMM00-ASSIGN-02): `capable` đã nằm trong bộ nhớ ⇒ 0
+    # query thêm; dùng `count_ac_users()` ở đây sẽ đếm CẢ người KHÔNG đủ năng lực ⇒
+    # `total` phóng đại (tái sinh lỗi count != rows). `limit` truyền vào là bản ĐÃ
+    # CLAMP ở trên (INV-TRUNC-LIMIT).
+    total, truncated = truncation_meta(len(items), limit, lambda: len(capable))
+    return _ok({"items": items, "total": total, "truncated": truncated, "limit": limit})

@@ -39,3 +39,31 @@ it('Finding C: raw exc (không có success) → generic, KHÔNG echo traceback',
   expect(caught!.message).not.toContain('Traceback')
   expect(caught!.code).toBe(ErrorCode.INTERNAL_ERROR)
 })
+
+// ── IDEMPOTENCY-PHOTO-CR24 (B-rel-3) — TC7: client_request_id trong FormData ──
+// Parity report_incident: key idempotency là FIELD BODY `client_request_id`.
+// Truyền → FormData có field đúng giá trị; không truyền/rỗng → FormData KHÔNG có
+// field (behavior at-least-once cũ giữ nguyên — backward-compat AC3).
+
+const sentForm = () => postSpy.mock.calls[0][1] as FormData
+
+it('IDEMPOTENCY-PHOTO-CR24: truyền clientRequestId → FormData gửi client_request_id đúng giá trị', async () => {
+  resolveMessage({ success: true, data: { file_url: '/private/files/s.jpg', file_name: 's.jpg' } })
+  await attachIncidentPhoto('INC-1', file(), 'key-abc-123')
+  expect(sentForm().get('client_request_id')).toBe('key-abc-123')
+  // Payload còn lại giữ nguyên contract multipart cũ.
+  expect(sentForm().get('incident_name')).toBe('INC-1')
+  expect(sentForm().get('file')).toBeInstanceOf(File)
+})
+
+it('IDEMPOTENCY-PHOTO-CR24: KHÔNG truyền key → FormData KHÔNG có field client_request_id (AC3)', async () => {
+  resolveMessage({ success: true, data: { file_url: '/private/files/s.jpg', file_name: 's.jpg' } })
+  await attachIncidentPhoto('INC-1', file())
+  expect(sentForm().has('client_request_id')).toBe(false)
+})
+
+it('IDEMPOTENCY-PHOTO-CR24: key rỗng → FormData KHÔNG có field client_request_id (AC3)', async () => {
+  resolveMessage({ success: true, data: { file_url: '/private/files/s.jpg', file_name: 's.jpg' } })
+  await attachIncidentPhoto('INC-1', file(), '')
+  expect(sentForm().has('client_request_id')).toBe(false)
+})

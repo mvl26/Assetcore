@@ -189,11 +189,12 @@ CLAUDE.md §17 (TDD mandatory).
 | `TestRcaStateMachine` (Round 9) | `start_rca()`/`submit_rca()`/`cancel_rca()` BR-12-20/21/22 | State Transition + Error guessing | start: `RCA Required→In Progress` OK / status≠Required→`IMM12_RCA_START_INVALID_STATE`(409); **submit từ `RCA Required`→`IMM12_RCA_SUBMIT_INVALID_STATE`(chặn nhảy-cóc)**, từ `In Progress`→Completed+CAPA OK; cancel: active→Cancelled OK / Completed\|Cancelled→`IMM12_RCA_CANCEL_INVALID_STATE`, thiếu reason→422; mỗi transition sinh audit token `rca_started`/`rca_completed`/`rca_cancelled` | ⬜ Planned |
 | `TestRcaCapGate` (Round 9, AC5 axis-A) | cap `corrective.write` gate 3 endpoint | RBAC dead-gate prove | base `AssetCore System User`→cap-403/ServiceError trên start/submit/cancel; `AssetCore Super Admin`→**TẤT CẢ** transition OK (không dead-gate); khớp allowed roles `fixtures/workflow.json` | ⬜ Planned |
 | `TestRcaWorkflowParity` (Round 30, CR-WF-12-RCA) | desk↔endpoint role parity `imm_12_rca_workflow.json` ⇄ `_RCA_VALID_TRANSITIONS` ⇄ `corrective.write` | INVARIANT / SoT-divergence guard | **INV-RCA-PARITY-A**: parse workflow-JSON codomain(state→{next_state}) == `_RCA_VALID_TRANSITIONS` codomain EXACT set (`RCA Required→{RCA In Progress,Cancelled}`; `RCA In Progress→{Completed,Cancelled}`; `Completed→∅`; `Cancelled→∅`) — mirror `TestIncidentAllowedTransitions`. **INV-RCA-PARITY-B**: ∀ action∈{Bắt đầu phân tích RCA, Hoàn thành RCA, Hủy RCA} → `workflow.allowed_role_set(action) ⊇ roles(corrective.write) ∪ {AssetCore Super Admin, System Manager}`; `roles(corrective.write)` resolve ĐỘNG qua `rbac.CAPABILITY_MAP` + DocPerm write=1 (KHÔNG hardcode role-name); dùng **⊇** không `==`. **RED trước fix** (Start/Complete thiếu Corrective Manager). **INV-RCA-PARITY-C**: `fixtures/workflow.json` "IMM-12 RCA Workflow" tuple-set (state,action,next_state,allowed) == source `imm_12_rca_workflow.json`. | ⬜ Planned (RED→GREEN) |
-| `TestCloseGate` (đề xuất) | `validate_incident_close_gate()` BR-12-02 | Decision Table | High + RCA Completed→pass / High + RCA In Progress→raise | ⬜ Planned |
+| `TestCloseRcaLiveSSoT` (Round 4, BR-12-02 / ADR-IMM12-RCA-LIVE-SSoT) | `close_incident()` + `validate_incident_close_gate()` + `_needs_rca()` derive-live | Decision Table + **RED-before** (escalation bypass) | **`TC-12-Close-Escalation-01` (mirror derive-live)**: tạo `severity=Medium` (`rca_required==0`) → set `severity='Critical'` + `doc.save()` → đọc lại `rca_required==1`. **`TC-12-Close-Escalation-02` (downgrade)**: Critical (`rca_required==1`) → hạ `Medium` + save → `rca_required==0`. **`TC-12-Close-Escalation-03` (bug chính — RED-before)**: phiếu escalation Medium→Critical (`rca_required` ban đầu 0), chưa RCA Completed → `close_incident` raise/nthrow `IMM12_CLOSE_RCA_REQUIRED` (envelope success:false). **RED-before proof:** revert gate về `_needs_rca(sev) and doc.rca_required` → TC-03 FAIL (đóng lọt). **`TC-12-Close-Escalation-04`**: Critical có `rca_record` nhưng RCA `status!='Completed'` → `IMM12_CLOSE_RCA_INCOMPLETE`. **`TC-12-Close-Escalation-05` (happy)**: Critical + RCA `Completed` → `close_incident` OK, `status=='Closed'`, asset Out of Service → `Active`. **`TC-12-Close-Escalation-06` (non-regression)**: Low/Medium thực (không escalate, `requires_rca=0`) → resolve+close OK, KHÔNG bắt RCA. **`TC-12-Close-Escalation-07` (2 gate parity)**: cùng phiếu escalated-thiếu-RCA → gate-1 `close_incident` VÀ gate-2 `validate_incident_close_gate` (gọi trực tiếp / qua `doc.save`→Closed) CẢ HAI chặn cùng MSG. **`TC-12-Close-Escalation-08` (manual override)**: `severity=Medium` + `requires_rca=1` thiếu RCA → `close_incident` chặn (predicate OR). | ⬜ Planned (test TRƯỚC, RED→GREEN) |
 | `TestChronicDetect` (đề xuất) | `detect_chronic_failures()` BR-12-03 | BVA + idempotency | 3 IR/90d→RCA / 2 IR→no RCA / RCA mở sẵn→no dup | ⬜ Planned |
 | `TestChronicSoT` (đề xuất) | `chronic_failure_count()` / `get_incident_stats().chronic` BR-12-12 | SoT consolidation + RED-prove | (1) `stats.chronic == len(get_chronic_failures())` (cùng SoT); (2) **RED-prove lifecycle**: 3+ IR aged-out >90d (cờ `chronic_failure_flag=1` còn) ∧ 0 nhóm live ⇒ `stats.chronic == 0` (revert SoT→`_count(chronic_failure_flag=1)` ⇒ FAIL); (3) **invariant 1 payload**: `get_dashboard()` → `stats.chronic == len(dashboard["chronic_failures"])` (data ≤5 nhóm) hoặc == `len(get_chronic_failures())` FULL (data >5); (4) no-regression: badge cờ vẫn set bởi `_process_chronic_group` khi cụm live (BR-12-03 KHÔNG đổi); (5) grep-guard: 0 inline `chronic_failure_flag` cho KPI tile trong `get_incident_stats()` | ⬜ Planned |
 | `TestCriticalOOS` (đề xuất) | `report_incident()` BR-12-04 | Decision Table | Critical→asset OOS / asset đã OOS→skip+audit | ⬜ Planned |
-| `TestIncidentIdempotency` (Round 32, CR-24) | `report_incident()` BR-12-25 idempotency `client_request_id` | State + Error guessing + **RED-before** | **`TC-12-IDEMP-01`** gọi 2× cùng `client_request_id` (cùng reporter) → `frappe.db.count("Incident Report", {client_request_id:crid})==1` ∧ call#2 return `name`==call#1 (KHÔNG insert #2). **`TC-12-IDEMP-02`** sau call trùng #2: `count(Asset Lifecycle Event, event_type="incident_reported", root_record=IR)==1` ∧ `count(IMM Audit Trail cho IR)==1` (0 double — NĐ98). **`TC-12-IDEMP-03`** `client_request_id` rỗng/thiếu, 2 call → **2 phiếu** riêng (backward-compat NGUYÊN VẸN). **`TC-12-IDEMP-04`** 2 `client_request_id` KHÁC nhau → 2 phiếu. **`TC-12-IDEMP-05`** field `client_request_id` persist trên phiếu (đọc lại `db.get_value`) + có DB index (`frappe.db.get_column_index`/`SHOW INDEX` chứa cột — hoặc doctype meta `search_index`). **`TC-12-IDEMP-06`** dedupe-hit return shape == create thường (3-key `{name,status,severity}`). **RED-before proof:** bỏ dedupe guard → TC-01 FAIL (count==2). | ⬜ Planned (RED→GREEN) |
+| `TestIncidentIdempotency` (Round 32, CR-24) | `report_incident()` BR-12-25 idempotency `client_request_id` | State + Error guessing + **RED-before** | **`TC-12-IDEMP-01`** gọi 2× cùng `client_request_id` (cùng reporter) → `frappe.db.count("Incident Report", {client_request_id:crid})==1` ∧ call#2 return `name`==call#1 (KHÔNG insert #2). **`TC-12-IDEMP-02`** sau call trùng #2: `count(Asset Lifecycle Event, event_type="incident_reported", root_record=IR)==1` ∧ `count(IMM Audit Trail cho IR)==1` (0 double — NĐ98). **`TC-12-IDEMP-03`** `client_request_id` rỗng/thiếu, 2 call → **2 phiếu** riêng (backward-compat NGUYÊN VẸN). **`TC-12-IDEMP-04`** 2 `client_request_id` KHÁC nhau → 2 phiếu. **`TC-12-IDEMP-05`** field `client_request_id` persist trên phiếu (đọc lại `db.get_value`) + có DB index (`frappe.db.get_column_index`/`SHOW INDEX` chứa cột — hoặc doctype meta `search_index`). **`TC-12-IDEMP-06`** dedupe-hit return shape == create thường (3-key `{name,status,severity}`). **RED-before proof:** bỏ dedupe guard → TC-01 FAIL (count==2). **[LANDED-DELTA: bản land = GLOBAL-key, KHÔNG điều kiện cùng-reporter + field `unique:1` thay `search_index` — ADR-MOBILE-047 / `04 §2.1a` note; assertion count/name/shape GIỮ nguyên giá trị]** | ✅ Live (landed 2026-07-14) |
+| `TestIncidentPhotoIdempotency` (vòng 3, CR-24 phần dư) | `attach_incident_photo()` BR-12-26 idempotency `client_request_id` | State + Error guessing + **RED-before** | `TC-12-PHOTO-IDEMP-01..07` (bảng chi tiết dưới khối TC-12-PHOTO-EVIDENCE) | ✅ Live (landed 2026-07-16 — 8 TC `test_imm12.py::TestIncidentPhotoIdempotency` [01+02 gộp 1 TC, +LL-BE-54 kwargs-swallow API-tier replay]; RED-before proven: TypeError trước khi service nhận param) |
 | `TestMapSeverity` (đề xuất) | `_map_severity()` / `_needs_rca()` | EP | Low/Medium→no RCA, High/Critical→RCA | ⬜ Planned |
 
 ## III.3. Integration — DocType lifecycle
@@ -253,6 +254,14 @@ Fixture trong `setUp` phải có cleanup — xem `assetcore-test` LL-TEST-17.
 - `TC-12-REQRCA-04` — base `AssetCore System User` / Corrective User / Compliance User (chỉ `compliance.create`) → cap-403 (message == `_MSG_FORBIDDEN`, KHÔNG leak raw cap `compliance.submit`); **Compliance Manager / AssetCore Super Admin → OK** (AC axis-A). Assert cap-403 message KHÔNG chứa chuỗi "compliance.submit".
 - `TC-12-REQRCA-05` — **idempotent RCA reuse:** Incident đã có `rca_record` hợp lệ (vd Critical auto-tạo ở resolve) → `request_rca` KHÔNG tạo RCA trùng (đếm `IMM RCA Record` theo `incident_report` == 1, KHÔNG 2); `rca_record` giữ nguyên; KHÔNG raise 409.
 - `TC-12-REQRCA-06` — **downstream loop:** sau `request_rca` (RCA Required) → `start_rca` → `submit_rca` (RCA Completed) → `_advance_incident_after_rca` auto đẩy Incident → `Closed` (ENTRY↔EXIT khép kín).
+
+**TC-12-RCA-REPLACE-\* — thay hồ sơ RCA đã HỦY (CR-55 / BR-12-27 / ADR-IMM12-11):**
+- `TC-12-RCA-REPLACE-01` — **create_rca thay RCA Cancelled:** Incident (High/Critical) có `rca_record` trỏ RCA đã `cancel_rca`→`Cancelled` → `create_rca(incident)` **KHÔNG raise** `IMM12_RCA_ALREADY_EXISTS`/409; trả RCA MỚI (`name` khác cũ); `Incident.rca_record` cập nhật sang tên mới; RCA cũ GIỮ NGUYÊN `status=="Cancelled"` (đọc lại DB — không sửa/xoá). Đếm `IMM RCA Record` theo `incident_report` == 2 (1 Cancelled + 1 sống).
+- `TC-12-RCA-REPLACE-02` — **REGRESSION-GUARD create_rca RCA sống:** `rca_record` trỏ RCA status ∈ {`RCA Required`, `RCA In Progress`, **`Completed`**} → `create_rca` **VẪN raise** `IMM12_RCA_ALREADY_EXISTS` (409, in-handler HTTP-200 Error envelope); KHÔNG tạo RCA thứ 2 (hành vi idempotent cũ không đổi — assert cho CẢ 3 status, đặc biệt `Completed` bất-khả-thay).
+- `TC-12-RCA-REPLACE-03` — **request_rca dùng cùng vị-từ loại-Cancelled:** phiếu `Resolved` có `rca_record` trỏ RCA `Cancelled` → `request_rca(name, reason)` tạo RCA MỚI (`out["rca_record"]` != tên cũ; đếm RCA-theo-incident == 2); status→`RCA Required`; KHÔNG tái dùng hồ sơ huỷ.
+- `TC-12-RCA-REPLACE-04` — **request_rca precondition bất biến:** status ≠ `Resolved` → `IMM12_REQUEST_RCA_BAD_STATE` (422) giữ nguyên (không bị CR-55 nới lỏng).
+- `TC-12-RCA-REPLACE-05` — **deadlock gỡ end-to-end:** High/Critical với RCA Cancelled → `create_rca` (mới) → `start_rca` → `submit_rca`(`Completed`) → `close_incident` **KHÔNG** raise `IMM12_CLOSE_RCA_INCOMPLETE`; asset `Out of Service` → `Active` (mirror `test_escalated_critical_completed_rca_close_succeeds`).
+- **RED-before:** trước fix, `TC-12-RCA-REPLACE-01/03` FAIL (`create_rca`/`request_rca` raise 409 hoặc reuse hồ sơ Cancelled); sau đổi `if _has_live_rca(doc)` → GREEN. `TC-12-RCA-REPLACE-02` (regression) phải GREEN cả trước-lẫn-sau (bất biến idempotent).
 
 > **Invariant / non-regression (BR-12-24):** `request_rca` **KHÔNG đổi `_VALID_TRANSITIONS` / `imm_12_incident_workflow.json`** (state edge `Resolved→RCA Required` đã reconciled Round 12) ⇒ `TestIncidentAllowedTransitions` (§III.4.a, INV-1/INV-2) GIỮ GREEN + `TestWorkflowAdminOverride` **22/22** GREEN. `test_get_incident_detail_emits_allowed_transitions` (§III.4.a) vốn đã assert `Resolved.allowed_transitions ⊇ {'RCA Required'}` — round này bổ **driver THẬT** (endpoint), KHÔNG đổi assert. **RED-before demo (bắt buộc):** TRƯỚC khi thêm `request_rca` (endpoint chưa tồn tại) → `TC-12-REQRCA-01` FAIL (`AttributeError`/404: CTA advertise `'RCA Required'` nhưng gọi `request_rca` fail) → sau khi thêm → GREEN. Cap ⊆ workflow: assert role-set `compliance.submit` (DocPerm submit `IMM CAPA Record`, resolve ĐỘNG qua `rbac.CAPABILITY_MAP`) ⊆ workflow "Yêu cầu RCA" allowed → KHÔNG false-clickable.
 > **DoD:** `bench --site miyano run-tests --module assetcore.tests.test_imm12` → `Ran N OK` THẬT (đọc dòng cuối, KHÔNG false-green) · `--module assetcore.tests.test_workflows` → `Ran N OK` (admin-override 22/22) · FE `vitest` `IncidentDetailView.requestRca.test.ts` xanh (gating server-driven: cap ∧ status ∧ allowed_transitions; dead-control reason==param; required-reason disable) · live: Compliance Manager mở Incident Resolved THẤY + BẤM được "Yêu cầu phân tích RCA" → refetch stepper nhánh RCA Required + badge cập nhật. **KHÔNG git commit/push — working tree để USER duyệt.**
@@ -330,6 +339,7 @@ Fixture trong `setUp` phải có cleanup — xem `assetcore-test` LL-TEST-17.
 | `test_acknowledge_incident` | `acknowledge_incident` | status=Acknowledged, acknowledged_at set | Use Case | ⬜ Planned |
 | `test_resolve_high_triggers_rca` | `resolve_incident` (High) | RCA Required + RCA created | Use Case | ⬜ Planned |
 | `test_close_high_rca_incomplete` | `close_incident` (High, RCA In Progress) | BUSINESS_RULE (BR-12-02) | Decision Table | ⬜ Planned |
+| `test_close_escalated_critical_blocked` **(Round 4, BR-12-02 LIVE-SSoT / TC-12-Close-Escalation-03)** | `close_incident` — phiếu tạo Medium (`rca_required=0`) → escalate Critical, chưa RCA | in-handler HTTP-200 body `success:false` `IMM12_CLOSE_RCA_REQUIRED` (KHÔNG status-line) — chặn đóng-giả escalation | Decision Table + RED-before | ⬜ Planned |
 | `test_submit_rca` | `submit_rca` (full fields) | success=true, CAPA created | Use Case | ⬜ Planned |
 | `test_get_chronic_failures` | `get_chronic_failures` | list chronic | Use Case | ⬜ Planned |
 | `test_get_dashboard` | `get_dashboard` | MTTA/MTTR/open/critical fields | Use Case | ⬜ Planned |
@@ -413,7 +423,7 @@ Mọi US trong 02 §IV.1 có ≥ 1 dòng. Cột Status không trống.
 | BR ID | Phát biểu (rút gọn) | Test ID | Kỹ thuật | Happy / Negative |
 |---|---|---|---|---|
 | BR-12-01 | Critical → clinical_impact bắt buộc | `test_critical_without_clinical_impact_raises_error` + `test_create_critical_with_clinical_impact_succeeds` | EP | 1 / 1 ✅ |
-| BR-12-02 | High/Critical → RCA Completed trước Close | `TestCloseGate` | Decision Table | ⬜ 1 / 1 Planned |
+| BR-12-02 | High/Critical → RCA Completed trước Close — gate DERIVE-LIVE `severity` (SSoT), chống đóng-giả escalation | `TestCloseRcaLiveSSoT` (TC-12-Close-Escalation-01..08) | Decision Table + RED-before | ⬜ 5 / 3 Planned |
 | BR-12-03 | ≥3/90d → auto RCA + flag | `TestChronicDetect` | BVA | ⬜ 1 / 2 Planned |
 | BR-12-04 | Critical→OOS report; High→OOS acknowledge | `TestCriticalOOS` | Decision Table | ⬜ 1 / 1 Planned |
 | BR-12-05 | Mọi transition → audit (SHA-256) | `test_audit_chain_intact` / `test_audit_chain_breaks_on_tamper` | Use Case | ⬜ 1 / 1 Planned |
@@ -425,6 +435,7 @@ Mọi US trong 02 §IV.1 có ≥ 1 dòng. Cột Status không trống.
 | BR-12-13 | KPI "Vi phạm SLA tiếp nhận/xử lý" = LIVE predicate `sla_breach_filter(kind)` (cờ=1 OR đang-mở∧quá-hạn); kill undercount cửa-sổ-trễ-scheduler; per-row enrich `is_*_breached` (list/dashboard **+ `get_incident_detail`**, mobile CR-21); parity 3 surface (INV-SLA-5) + terminal nhánh cờ (INV-SLA-6); idempotent; grep-guard 1 SoT; FE detail server-flag KHÔNG client-clock | `TC-12-SLA-LIVE-01..06` + `TC-12-SLA-DETAIL-01..04` (xem dưới) + FE `slaBreachLiveTile.test.ts` + `incidentDetailSlaBadge.test.ts` | BVA + State transition + EP | ⬜ Planned (DoD vòng 4 + CR-21) |
 | BR-12-17 | Đính ảnh: permission (reporter/write) + validation (type/size/max-5) + File private; reject KHÔNG tạo File | `TC-12-PHOTO-01..07` (xem dưới) | EP + BVA + Decision Table | ⬜ Planned (DoD vòng này) |
 | BR-12-18 | Bằng chứng NĐ98: đúng 1 lifecycle `incident_photo_attached`/success; `scene_photos` parity count==rows | `TC-12-PHOTO-EVIDENCE-01..03` (xem dưới) | State transition + EP | ⬜ Planned (DoD vòng này) |
+| BR-12-26 | Idempotency ảnh `client_request_id` (CR-24 phần dư): replay cùng `(incident,key)` → 1 File + 1 event; rỗng → at-least-once cũ; khác incident → không dedupe chéo | `TC-12-PHOTO-IDEMP-01..07` (xem dưới) | State + BVA + Error guessing + RED-before | ✅ Live (landed 2026-07-16 — `test_imm12` 139 OK · `test_mobile_oas` 828 OK · `test_mobile_docset` 9 OK) |
 
 **TC-12-PHOTO-* (BR-12-17/18) — bắt buộc cho DoD vòng này (BE `test_imm12`; ảnh giả = bytes JPG/PNG hợp lệ nhỏ + content-type):**
 
@@ -447,6 +458,18 @@ Mọi US trong 02 §IV.1 có ≥ 1 dòng. Cột Status không trống.
 | TC-12-PHOTO-EVIDENCE-03 (reject no-audit) | nhánh FORBIDDEN/VALIDATION bất kỳ (TC-12-PHOTO-03..06) | sau reject | 0 `File` MỚI + 0 `Asset Lifecycle Event` `incident_photo_attached` MỚI (không ghi im lặng nửa vời) |
 
 > **Precondition schema (deploy):** enum `incident_photo_attached` phải có trong Select `Asset Lifecycle Event.event_type` TRƯỚC khi chạy (deploy `bench reload-doctype "Asset Lifecycle Event"`) — nếu thiếu, emit throw ⇒ TC-12-PHOTO-EVIDENCE-01 fail (ValidationError select). Xem `08 §I.5`.
+
+**TC-12-PHOTO-IDEMP-* (BR-12-26 / ADR-IMM12-10 — CR-24 phần dư, vòng 3; precondition: Custom Field `File.ac_client_request_id` đã sync qua fixture/migrate):**
+
+| TC | Precondition | Hành động | Kỳ vọng |
+|---|---|---|---|
+| TC-12-PHOTO-IDEMP-01 (AC2 lõi) | reporter; incident mở; key `K` (UUID) | attach 2× CÙNG `K` + cùng incident + cùng session | **1 ROW File** (`db.count(File, {ac_client_request_id: f"{IR}::{K}"})==1`); call#2 success envelope `{file_url,file_name}` **==** call#1 (KHÔNG insert mới). **RED-before:** chưa có dedupe → FAIL (2 File) |
+| TC-12-PHOTO-IDEMP-02 (AC2 audit) | sau IDEMP-01 | đếm event | `count(Asset Lifecycle Event, event_type='incident_photo_attached', root_record=IR)==1` (0 double — NĐ98) |
+| TC-12-PHOTO-IDEMP-03 (AC3) | reporter; key rỗng/thiếu | attach 2× cùng ảnh | **2 File** riêng (at-least-once CŨ); cả 2 ROW có `ac_client_request_id` NULL |
+| TC-12-PHOTO-IDEMP-04 (AC4) | 2 incident IR-A/IR-B cùng reporter; CÙNG key `K` | attach `K` vào IR-A rồi IR-B | **2 File** riêng (composite khác) — KHÔNG dedupe chéo, KHÔNG UniqueValidation lộ ra client |
+| TC-12-PHOTO-IDEMP-05 (persist+index) | sau IDEMP-01 | đọc lại | File mang `ac_client_request_id == f"{IR}::{K}"`; cột có unique index (`SHOW INDEX`/meta Custom Field `unique==1`) |
+| TC-12-PHOTO-IDEMP-06 (dedupe thắng max-count) | incident đủ 5 ảnh, ảnh #5 mang key `K5` | replay attach với `K5` | success trả File #5 (KHÔNG `VALIDATION "Tối đa 5 ảnh"`) — chứng minh dedupe TRƯỚC max-count |
+| TC-12-PHOTO-IDEMP-07 (permission-before-dedupe) | key `K` đã đính bởi reporter; user KHÁC không-reporter/không-write | replay attach với `K` | `code=FORBIDDEN` Decision-B (KHÔNG leak `file_url` qua dedupe-hit) |
 
 **TC-12-SLA-LIVE-* (BR-12-13) — bắt buộc cho DoD vòng 4 (BE `test_imm12`/`test_dashboard`):**
 
@@ -853,3 +876,149 @@ Gắn screenshot SonarQube + Lighthouse vào file 09 §Release Notes khi báo c�
 - [ ] Lighthouse ≥ target — chưa có evidence
 - [ ] Bundle size ≤ budget — chưa đo
 - [ ] Screenshot báo cáo gắn vào file 09 — ⬜ Pending
+
+## VIII. CR-74 — Read-gate CHI TIẾT (getIncident) · bộ TC bắt buộc (2026-07-25)
+
+> Spec: [`05_API_Specification.md` §21](./05_API_Specification.md) · SSoT: [ADR-IMM00-LIST-SCOPE §9](../imm-00/ADR-IMM00-LIST-SCOPE.md).
+> **Suite:** `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_imm12` (+ `test_rowscope_docperm_gate` · `test_rowscope_invariant` · `test_rowscope_scope_guard`). **DoD = suite XANH, KHÔNG curl** (`.py` prod dirty dưới gunicorn `--preload` ⇒ BLOCKED-RELOAD).
+
+### VIII.1 Fixture tối thiểu (dựng 1 lần, dùng chung 6 TC)
+
+| Ký hiệu | Là gì | Ràng buộc |
+|---|---|---|
+| `USER_NOPERM` | user **đăng nhập được** nhưng **0 DocPerm read** trên `Incident Report` | vd persona `PM User` / `Calibration User` (0 DocPerm read trên `Incident Report`). **KHÔNG** dùng Guest (Guest → dispatcher-403/401, sai loại lỗi) |
+| `USER_OWNER` | persona `Corrective User` — `reported_by`/`assigned_to` == chính mình | phải có DocPerm read |
+| `USER_OTHER` | persona `Corrective User` khác — **không** được giao phiếu đang test | phải có DocPerm read (để phân biệt trục ROW với trục ROLE) |
+| `USER_SENIOR` | `Corrective Manager` hoặc `AssetCore Auditor` | chứng minh 0 regress |
+| `REC_OWNED` | 1 bản ghi `Incident Report` có `reported_by`/`assigned_to` = `USER_OWNER` | |
+| `REC_FOREIGN` | 1 bản ghi `Incident Report` có `reported_by`/`assigned_to` = `USER_OWNER`, dùng khi đăng nhập `USER_OTHER` | |
+| `NAME_GHOST` | chuỗi PK **không tồn tại** (vd `"IR-9999-99999"`) | dùng cho cặp TC existence-oracle |
+
+> 🔴 **BẮT BUỘC `frappe.set_user(...)` cho MỌI TC** + `frappe.set_user("Administrator")` trong `tearDown`. `frappe/permissions.py:107-109` trả `True` ngay cho Administrator ⇒ chạy bằng Administrator = **xanh giả** (đúng bài học INV-ROWSCOPE-4/6).
+
+### VIII.2 Bộ TC
+
+| TC | User | Input | Kỳ vọng (assert) | INV |
+|---|---|---|---|---|
+| `TC-INC-DETAILGATE-01` | `USER_NOPERM` | `REC_OWNED` | `env["success"] is False` · `env["code"] == "FORBIDDEN"` · `env["http_status"] == 403` · **KHÔNG raise** · `set(env) & {"asset", "clinical_impact", "severity", "rca", "scene_photos"} == set()` | INV-DETAIL-1 |
+| `TC-INC-DETAILGATE-02` | `USER_OTHER` | `REC_FOREIGN` | `code == "FORBIDDEN"` · `http_status == 403` (hook `incident_report_has_permission` — cả `reported_by` LẪN `assigned_to` đều KHÁC `USER_OTHER`) | INV-DETAIL-2 |
+| `TC-INC-DETAILGATE-03` | `USER_SENIOR` | `REC_OWNED` | `env["success"] is True` · payload **byte-identical** snapshot baseline (so khoá + giá trị) | INV-DETAIL-4 |
+| `TC-INC-DETAILGATE-04` | `USER_NOPERM` | `NAME_GHOST` | envelope **giống hệt** `TC-INC-DETAILGATE-01` (cùng `code` + `http_status`) ⇒ 0 existence-oracle | INV-DETAIL-5 |
+| `TC-INC-DETAILGATE-05` | `USER_OWNER` | `NAME_GHOST` | `code == "NOT_FOUND"` · `http_status == 404` — **GIỮ NGUYÊN** | INV-DETAIL-6 |
+| `TC-INC-DETAILGATE-06` | `Vendor Engineer` ngoài scope | `REC_OWNED` | `code == "FORBIDDEN"` · **KHÔNG** 500 · **KHÔNG** traceback ⇒ chứng minh lớp `assert_vendor_can_access` vẫn sống | INV-DETAIL-7 |
+
+### VIII.3 Chống vacuous (BẮT BUỘC ghi bằng chứng vào báo cáo vòng)
+
+1. **Mutation gate:** gỡ `assert_doctype_read_permission` khỏi `services/imm12.py::get_incident_detail` ⇒ `TC-INC-DETAILGATE-01` và `TC-INC-DETAILGATE-04` PHẢI **ĐỎ**. Hoàn nguyên ⇒ xanh.
+2. **Mutation guard tĩnh:** cùng thao tác trên ⇒ `test_rowscope_scope_guard::TestRowScopeStaticGuard` **G5** PHẢI **ĐỎ**.
+3. **Anti-false-green:** TC-01 phải assert **cả 3** (`success`/`code`/`http_status`) — chỉ assert `success is False` sẽ **không** phân biệt 403 với 404/422.
+4. **Anti-leak:** TC-01/02 assert **tập khoá** của envelope, KHÔNG chỉ `"asset_ref" not in env` (khoá lồng trong `data` vẫn rò nếu quên).
+
+> ⚠️ **Riêng IMM-12:** `api/imm12.py:286-287` có guest-check **in-handler** trả `http_status:401` trên HTTP-200. TC-01 dùng user **đăng nhập thật** (không phải Guest) ⇒ phải nhận **403**, KHÔNG phải 401. Nếu TC-01 nhận 401 nghĩa là fixture chưa `set_user` đúng.
+
+
+---
+
+## IX. AC-CR-83 — `submit_rca` hết thoát envelope thành HTTP-417 · bộ TC bắt buộc (2026-07-27)
+
+> Hợp đồng: [`05_API_Specification.md §22`](./05_API_Specification.md) · code-shape: [`04_Backend_Design.md §4.3`](./04_Backend_Design.md) · FE: [`06_Frontend_Design.md §7.1`](./06_Frontend_Design.md).
+> Bộ này **phải** land cùng application code ở Bước-4. Chạy: `bench --site miyano run-tests --module assetcore.tests.test_imm12` (⚠️ timeout tool ≥ 600000ms — kill giữa chừng ⇒ `tearDownClass` không chạy ⇒ fixture mồ côi ⇒ **đỏ giả**).
+
+### IX.1 Fixture tối thiểu
+
+| Tên | Nội dung |
+|---|---|
+| `RCA_INPROG` | Hồ sơ RCA `status='RCA In Progress'`, `rca_method='5-Why'`, `assigned_to=<KTV>`, 5 bước seed sẵn `why_answer=''` (tạo qua `create_rca` rồi `start_rca` — **giống hệt** đường người dùng thật) |
+| `USER_RCA` | Persona có **cả** `incident.acknowledge` **và** `corrective.write` (hội 2 tầng, D-RCA-1) |
+| `STEPS_OK` | 5 dict `{why_number, why_question, why_answer}` đầy đủ |
+| `STEPS_HOLE3` | như `STEPS_OK` nhưng `why_number=3` có `why_answer=''` |
+
+> **BẮT BUỘC `frappe.set_user(USER_RCA)`** — chạy bằng Administrator là **xanh giả** (`frappe/permissions.py:107-109` `return True` ngay).
+
+### IX.2 Bộ TC BE (gọi qua **tầng API** `assetcore.api.imm12.submit_rca`, KHÔNG gọi thẳng service)
+
+| TC | Input | Kỳ vọng (assert) | AC / INV |
+|---|---|---|---|
+| `TC-12-RCA83-01` | `STEPS_HOLE3` | Trả **dict** (KHÔNG raise `frappe.ValidationError`) · `success is False` · `code == 'BUSINESS_RULE'` · `http_status == 422` · `message_code == 'IMM12-RCA-FIVE-WHY-INCOMPLETE'` · `fields == {'five_why_steps.3': <câu VI>}` | AC-1 / INV-RCA-1,4 |
+| `TC-12-RCA83-02` | 3 bước (`<5`) | CÙNG `message_code` · `fields` **đúng 1 khoá** `five_why_steps` (KHÔNG khoá con) · câu VI nêu **số bước hiện có** | AC-2 / INV-RCA-4 |
+| `TC-12-RCA83-03` | như `TC-…-02`, đọc lại hồ sơ **sau** lỗi | `status == 'RCA In Progress'` · `root_cause` / `corrective_action_summary` / `completed_by` / `completed_date` **bằng giá trị trước lệnh** | AC-2 / INV-RCA-5 |
+| `TC-12-RCA83-04` | `root_cause=''`, steps đủ | `message_code == 'IMM12-RCA-ROOT-CAUSE-REQUIRED'` (**KHÔNG đổi**) · `fields == {'root_cause': …}` | AC-3 / INV-RCA-6 |
+| `TC-12-RCA83-05` | `corrective_action=''`, steps đủ | `message_code == 'IMM12-RCA-CORRECTIVE-REQUIRED'` · `fields` khoá **`corrective_action`** · `'corrective_action_summary' not in fields` | AC-3 / INV-RCA-3 |
+| `TC-12-RCA83-06` | hồ sơ `assigned_to=''` (set qua `db.set_value`, mô phỏng D-RCA-4) | `message_code == 'IMM12-RCA-ASSIGNEE-REQUIRED'` · `fields == {'assigned_to': …}` | AC-2 |
+| `TC-12-RCA83-07` | 3 bước Why trống (2, 3, 5) | `fields` có **đúng 3** khoá `five_why_steps.2/.3/.5`; **1** `message_code` | INV-RCA-4 |
+| `TC-12-RCA83-08` | `STEPS_OK` + đủ nguyên nhân/khắc phục | `success is True` · `data.status == 'Completed'` · CAPA sinh ra · `on_rca_completed` chain chạy | AC-6 / INV-RCA-8 |
+| `TC-12-RCA83-09` | gọi lại `TC-…-08` lần 2 | `message_code == 'IMM12-RCA-ALREADY-COMPLETED'` · `http_status == 409` · **không** `fields` | §22.2 |
+| `TC-12-RCA83-10` | user thiếu `corrective.write` | `code == 'FORBIDDEN'` · `http_status == 403` **in-envelope** (HTTP-200) · message **không** chứa chuỗi `corrective.write` | D-RCA-1 |
+| `TC-12-RCA83-11` *(guard SSoT)* | AST/grep `imm_rca_record.py` | **0** lời gọi `frappe.throw(` ∧ file **import** `validate_five_why_payload` / `validate_rca_assignment` / `validate_rca_completion` ∧ **0** vòng lặp kiểm 5-Why định nghĩa riêng | AC-4, AC-5 / INV-RCA-2,9 |
+| `TC-12-RCA83-12` *(parity 2 kênh)* | `doc.save()` **trực tiếp** trên hồ sơ có `STEPS_HOLE3` | raise `frappe.ValidationError` **có** `message_code == 'IMM12-RCA-FIVE-WHY-INCOMPLETE'` trong `frappe.local.response` ⇒ hook backstop dùng **cùng** predicate | AC-4 / INV-RCA-2 |
+| `TC-12-RCA83-13` *(non-regress)* | `rca_method='Fishbone'`, 0 bước | `success is True` — predicate **không** áp cho phương pháp không chứa "why" (D-RCA-3 giữ nguyên) | AC-6 |
+
+### IX.3 Bộ TC FE (`RCADetailView.vue` — **test RENDER**, không chỉ unit computed)
+
+| TC | Mock | Kỳ vọng DOM |
+|---|---|---|
+| `TC-FE-RCA83-01` | envelope AC-1 (`fields['five_why_steps.3']`) | `[data-testid="rca-field-error-why-3"]` **tồn tại** và nằm **sau** `#why-a-3` trong DOM order · text == câu VI |
+| `TC-FE-RCA83-02` | như trên | nút `[data-testid="cta-complete-rca"]` **vẫn hiển thị** (không mất sau lỗi) | 
+| `TC-FE-RCA83-03` | như trên | `document.body.textContent` **KHÔNG** chứa `Traceback` / `ValidationError` / `_server_messages` |
+| `TC-FE-RCA83-04` | `fields.corrective_action` | lỗi hiện dưới `#rca-corrective`; **KHÔNG** có phần tử lỗi nào gắn `corrective_action_summary` |
+| `TC-FE-RCA83-05` | `fields.five_why_steps` (thiếu bước) | lỗi hiện ở `[data-testid="rca-field-error-five-why"]`, **không** neo vào dòng Why nào |
+| `TC-FE-RCA83-06` | lỗi lần 1 → submit lại thành công | mọi `rca-field-error-*` **bị xoá** khỏi DOM |
+| `TC-FE-RCA83-07` | `fields` có khoá lạ `five_why_steps.99` | thông điệp **rơi xuống dải tổng** (không nuốt im lặng) |
+
+### IX.4 Chống vacuous (BẮT BUỘC ghi bằng chứng vào báo cáo vòng)
+
+1. **RED-before:** chạy `TC-12-RCA83-01` **trước** khi land predicate ⇒ phải **ĐỎ** với `frappe.ValidationError` (chính là bug). Ghi traceback vào báo cáo.
+2. **Mutation #1:** dời pre-check xuống **sau** `rca.status = _RCA_COMPLETED` ⇒ `TC-12-RCA83-03` PHẢI **ĐỎ**.
+3. **Mutation #2:** đổi khoá `corrective_action` → `corrective_action_summary` ⇒ `TC-12-RCA83-05` **và** `TC-FE-RCA83-04` PHẢI **ĐỎ**.
+4. **Mutation #3:** cho controller giữ lại vòng lặp kiểm 5-Why riêng ⇒ `TC-12-RCA83-11` PHẢI **ĐỎ** (chống "luật thứ hai").
+5. **Anti-false-green:** `TC-…-01` phải assert **cả 4** (`success` · `code` · `message_code` · `fields`) — chỉ assert `success is False` **không** phân biệt được lỗi 5-Why với lỗi thiếu quyền.
+
+### IX.5 Kết quả Bước-4 (BE land — 2026-07-27) ✅
+
+| Bộ | Lệnh | Kết quả verbatim |
+|---|---|---|
+| BE IMM-12 | `bench --site miyano run-tests --module assetcore.tests.test_imm12` | **Ran 198 tests … OK** |
+| Guard hợp đồng | `… --module assetcore.tests.test_mobile_oas` | **Ran 999 tests … OK** |
+| Guard docset | `… --module assetcore.tests.test_mobile_docset` | **Ran 9 tests … OK** |
+| Coupling BE↔FE | `python3 scripts/gen_fe_messages.py --check` | **OK — 149 MSG / 149 MESSAGES, 0 drift** |
+| Không regress lân cận | `test_imm16` · `test_workflows` · `test_capa_open_sot` · `test_notification_framework` · `test_imm12_notify` | **112 / 11 / 5 / 19 / 12 OK** |
+
+**Ánh xạ TC → tên hàm đã land** (`assetcore/tests/test_imm12.py`, 2 class `TestRcaSubmitEnvelope` + `TestRcaValidatorSsot`):
+
+| TC (§IX.2) | Hàm test |
+|---|---|
+| TC-12-RCA83-01 | `test_tc_12_rca83_01_five_why_missing_answer_returns_envelope_not_417` |
+| TC-12-RCA83-02 | `test_tc_12_rca83_02_five_why_fewer_than_five_steps` |
+| TC-12-RCA83-03 | `test_tc_12_rca83_03_failed_submit_does_not_mutate_doc` |
+| TC-12-RCA83-04 | `test_tc_12_rca83_04_root_cause_required_now_carries_fields` |
+| TC-12-RCA83-05 | `test_tc_12_rca83_05_corrective_required_field_key_is_write_param_name` |
+| TC-12-RCA83-06 | `test_tc_12_rca83_06_assignee_required_envelope` |
+| TC-12-RCA83-07 | `test_tc_12_rca83_07_multiple_holes_yield_one_code_and_all_field_keys` |
+| TC-12-RCA83-08 | `test_tc_12_rca83_08_happy_path_completes_and_creates_capa` |
+| TC-12-RCA83-09 | `test_tc_12_rca83_09_second_submit_is_already_completed_without_fields` |
+| TC-12-RCA83-10 | `test_tc_12_rca83_10_missing_capability_is_403_in_envelope` |
+| TC-12-RCA83-11 | `test_tc_12_rca83_11_no_bare_frappe_throw_in_rca_controller` |
+| TC-12-RCA83-12 | `test_tc_12_rca83_12_hook_backstop_shares_predicate` (+ `…_12b_hook_calls_shared_predicate_symbol` — patch symbol ⇒ hook đổi hành vi) |
+| TC-12-RCA83-13 | `test_tc_12_rca83_13_non_five_why_method_is_untouched` |
+
+**Chống vacuous — bằng chứng ĐO ĐƯỢC (§IX.4 đã chạy đủ 4/5, mục 5 là thiết kế assert):**
+
+1. **RED-before** (trước khi land predicate): `TC-12-RCA83-01` ĐỎ với
+   `frappe.exceptions.ValidationError: Bước 3: phải điền đầy đủ câu hỏi và câu trả lời.`
+   — traceback đi qua `api_handler.py:49 handle` → `services/imm12.py rca.save()` →
+   `imm_rca_record.py:69 frappe.throw` (đúng E1–E5 của `05 §22.0`).
+2. **Mutation #1** (dời pre-check xuống SAU `rca.status = _RCA_COMPLETED` + `rca.save()`):
+   `TC-12-RCA83-03` **ĐỎ** (`ValidationError` từ hook, hồ sơ đã bị ghi nửa chừng). Hoàn nguyên ⇒ xanh.
+3. **Mutation #2** (khoá `fields` đổi sang `corrective_action_summary`): `TC-12-RCA83-05` **ĐỎ**
+   (`AssertionError: 'corrective_action' not found in {'corrective_action_summary': …}`). Hoàn nguyên ⇒ xanh.
+4. **Mutation #3** (controller giữ lại vòng lặp kiểm 5-Why riêng + `frappe.throw`):
+   `TC-12-RCA83-11` **ĐỎ** (`[74] != []`). Hoàn nguyên ⇒ xanh (`grep -c 'frappe.throw(' imm_rca_record.py` ⇒ **0**).
+
+> ⚠️ **TC FE (§IX.3) CHƯA land** — thuộc [FE] Bước-4 (`RCADetailView.vue` + `rcaSubmitFieldErrors.test.ts`).
+> ⚠️ **Live-verify bằng curl/app CHƯA hợp lệ** cho tới khi USER `bench restart` (gunicorn `--preload` ⇒ worker giữ bản `.py` cũ; LL-DEPLOY-07/08). DoD vòng này chấm bằng `run-tests` module-isolated.
+
+### IX.6 Guard hợp đồng (đã XANH ở Bước-2, Bước-4 lật `cr83_d` → `cr83_g`)
+
+`assetcore/tests/test_mobile_oas.py::TestMobileSubmitRcaContract` `cr83_a..g` (7 TC sau Bước-4) — **999 OK**; `test_mobile_docset` — **9 OK**. Mutation-verified ×3 ở Bước-2 (rot cite ⇒ `cr83_e` đỏ · lọt `corrective_action_summary` vào body ⇒ `cr83_b` đỏ · thêm slot `422` ⇒ `cr83_c` đỏ; hoàn nguyên ⇒ xanh).
+
+> ✅ **Bước-4 ĐÃ LÀM:** `cr83_d` (nay chỉ khoá doc-layer) + `cr83_g` MỚI parity đầy đủ 5/5 mã ∈ registry LIVE (`http_status` 422 ×4 field-level, 409 cho `IMM12-RCA-ALREADY-COMPLETED`, `template` khác rỗng) ⇒ `_EXPECTED_TEST_COUNT` **999** · `_GUARD_SUITE_EXPECTED['test_mobile_oas.py']` **999** · `_GUARD_SUITE_SUM` **1142** · `_MOBILE_OAS_TOTAL` **1168** · `cr83_submit_rca_envelope_delta` **7**. Cite `services/imm12.py` trong OAS đã refresh (predicate + pre-check làm dịch dòng) ⇒ `cr83_e` XANH.

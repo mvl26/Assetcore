@@ -235,6 +235,27 @@ POST /api/method/assetcore.api.imm15.create_allocation
 {"success": false, "error": "VR-15-13: Kho WH-01 không còn hoạt động", "code": "VALIDATION"}
 ```
 
+#### 3.2-bis Cross-module Gate-2 (IMM-09 / IMM-08 → IMM-15) — 3 khiếm khuyết đã ratify hướng sửa (2026-07-25)
+
+> Nguồn quyết định: [`docs/imm-09/05_API_Specification.md §3.6-bis` + **ADR-IMM09-SPARE-03**](../imm-09/05_API_Specification.md). Ghi ở đây để chủ IMM-15 không bị "sửa ngầm từ module khác".
+>
+> ✅ **K4 ĐÃ THỰC THI (BE Bước-4, 2026-07-25)** — đúng hướng đã ratify, KHÔNG đổi hành vi công khai:
+> - `_insert_allocation(...)` @`services/imm15.py:291` — thân dựng phiếu, **KHÔNG gate** (caller phải gate trước), luôn ép `allocation_status='Requested'`.
+> - `create_allocation(...)` @`:250` — **GIỮ NGUYÊN** `_require_storekeeper_or_tech()` (`inventory.write`) rồi gọi `_insert_allocation` ⇒ endpoint whitelisted `api/imm15.create_allocation` 0 thay đổi quyền/shape.
+> - `create_allocation_for_work_order(...)` @`:265` — **KHÔNG whitelist**, gate `rbac.can("repair.create") or rbac.can("pm.write")`; `services/imm09.py::request_spare_parts` @`:1628` gọi hàm này.
+> - `approve` / `issue` / `reject` **giữ nguyên** gate `inventory.*` (chỉ **yêu cầu** được nới, **xuất kho** thì không).
+> - Bằng chứng: `test_imm09.py::TestRequestSparePartsAllocation::test_request_spare_parts_creates_allocation_as_technician_persona` (persona KTV thật ⇒ `allocation` NON-NULL, `allocation_status='Requested'`) — TC này **ĐỎ trước khi** thực thi K4 dù E2 đã sửa (đúng dự đoán của ADR).
+>
+> **K5 / K6 VẪN MỞ** (P1 backlog, chưa thực thi).
+
+| ID | Khiếm khuyết | `@source` | Hướng đã ratify |
+|---|---|---|---|
+| **K4** | Gate `_require_storekeeper_or_tech()` = `rbac.can("inventory.write")` → `(AC Stock Movement, write)`. Persona **Kỹ thuật viên** (`setup/role_profile_catalog.py:64-67` — base + `PM/Repair/Calibration/Corrective User`) **không có** role kho ⇒ mọi lời gọi Gate-2 từ IMM-09 raise FORBIDDEN, bị caller nuốt ⇒ phiếu cấp phát **không bao giờ được tạo trong thực tế** | `services/imm15.py:254,1528-1535` · `services/shared/rbac.py:65-103` | Tách `_insert_allocation(...)` (không gate). `create_allocation(...)` (whitelisted) = gate cũ + impl ⇒ **hành vi công khai KHÔNG đổi**. Thêm `create_allocation_for_work_order(...)` **không whitelist**, gate `rbac.can("repair.create") or rbac.can("pm.write")`, ép `allocation_status='Requested'`. `approve`/`issue`/`reject` **giữ nguyên** gate `inventory.*`. |
+| **K5** | `warehouse` chỉ tra theo `items[0]`; phụ tùng đầu chưa có `AC Spare Part Stock` ⇒ **cả phiếu** không được cấp phát dù các phụ tùng sau có tồn | `services/imm09.py:1657-1661` (caller) | Duyệt `items` theo thứ tự, lấy `warehouse` của **phụ tùng đầu tiên tra được**; không có phụ tùng nào ⇒ `allocation=null` (hợp lệ) |
+| **K6** | `work_order_doctype` ghi cứng `"IMM PM Work Order" if work_order_ref else None`, trong khi phiếu gọi từ IMM-09 là **`Asset Repair`** ⇒ `work_order_ref` (Dynamic Link) **trỏ sai DocType**; sai lệch bị `doc.flags.ignore_links = True` che | `services/imm15.py:270-271` · `imm_spare_allocation.json` (`work_order_doctype` Select **đã có** option `Asset Repair`) | `create_allocation(..., work_order_doctype: str = "")` — rỗng ⇒ giữ heuristic cũ (**0 regression IMM-08**); IMM-09 truyền `"Asset Repair"`. **Additive, 0 field mới, KHÔNG `bench migrate`.** |
+
+**Boundaries:** **Never** nới gate của endpoint whitelisted `create_allocation` · **Never** đổi shape response · **Always** giữ `approve`/`issue` sau gate `inventory.*` · thực thi K4 ⇒ **bắt buộc** chạy `bench --site miyano run-tests --module assetcore.tests.test_imm15`.
+
 ---
 
 ### 3.3 `approve_allocation`

@@ -8,10 +8,14 @@ import type { IncidentDetail, ScenePhoto } from '@/api/imm12'
 import { ApiError } from '@/api/errors'
 import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
 import WorkflowStepper from '@/components/common/WorkflowStepper.vue'
+import RelatedRecords from '@/components/common/RelatedRecords.vue'
+import DetailPageShell from '@/components/common/DetailPageShell.vue'
 import SlaBreachBadge from '@/components/incident/SlaBreachBadge.vue'
 import { useToast } from '@/composables/useToast'
+import { useNotify } from '@/composables/useNotify'
 import { useAuthStore } from '@/stores/auth'
 import { useCapabilities } from '@/composables/useCapabilities'
+import { useDetailAccess } from '@/composables/useDetailAccess'
 import { sanitizeHtml } from '@/utils/sanitizeHtml'
 import { incidentStatusLabel, incidentStatusClass, incidentSeverityLabel, incidentSeverityClass, incidentTypeLabel, rcaStatusLabel } from '@/constants/labels'
 
@@ -21,9 +25,22 @@ const INCIDENT_STEPS = ['Open', 'Acknowledged', 'In Progress', 'Resolved', 'Clos
 const route = useRoute()
 const router = useRouter()
 const toast = useToast()
+const notify = useNotify()
 const auth = useAuthStore()
 const { can } = useCapabilities()
 const name = computed(() => route.params.id as string)
+
+// Tab màn chi tiết — «Bản ghi liên quan» mount LƯỜI (panel v-if) nên mở phiếu KHÔNG
+// còn bắn `get_connections`; panel chính dùng v-show để giữ nguyên dữ liệu đang nhập.
+// `ref<string>` (bẫy 13.9.3): prop/emit `active-tab` của shell khai `string`.
+const activeTab = ref<string>('detail')
+const DETAIL_TABS = [
+  { key: 'detail', label: 'Chi tiết' },
+  { key: 'related', label: 'Bản ghi liên quan' },
+]
+
+// BR-12-02 hint (SSoT tiếng Việt) — hiển thị khi nút "Đóng sự cố" bị chặn vì yêu cầu RCA.
+const RCA_CLOSE_HINT = 'Sự cố Nghiêm trọng/Nặng: bắt buộc có RCA Hoàn thành trước khi đóng (BR-12-02)'
 
 // LL-FE-12/22: gate qua capability (đồng bộ BE rbac.CAPABILITY_MAP), KHÔNG dùng
 // ROLES_* stub rỗng. incident.acknowledge = write; incident.close = submit.
@@ -39,6 +56,20 @@ const canManageRca = computed(() => can('corrective.write'))
 const form = ref<Partial<IncidentDetail>>({})
 const loading = ref(false)
 const err = ref('')
+
+// ─── CR-74 · quyền ĐỌC phiếu (403 in-envelope, HTTP-200) ────────────────────────
+// Lỗi NẠP phiếu tách khỏi `err` (lỗi thao tác): nạp hỏng ⇒ render empty-state CHUNG
+// thay vì khung chi tiết toàn '—' + panel đính ảnh (dead-control). get_incident nay
+// gate bằng CÙNG predicate với list/mutate ⇒ thiếu DocPerm read hoặc phiếu chưa giao
+// cho mình → {success:false, code:'FORBIDDEN'} ⇒ hiện message THẬT của server,
+// KHÔNG logout/redirect login (đó là dispatcher-403 của axios interceptor).
+const loadErr = ref<unknown>(null)
+// Destructure ĐỔI TÊN (bẫy 13.9.1). `blocked` không còn cần ở template: nhánh `content`
+// của shell CHÍNH LÀ điều kiện đó ⇒ «0 nút chết» đúng bằng CẤU TRÚC.
+const {
+  kind: loadErrorKindRef,
+  message: loadErrMsg,
+} = useDetailAccess(() => loadErr.value)
 
 // Workflow action modals
 const showAckModal = ref(false)
@@ -78,6 +109,27 @@ const canAttachPhoto = computed(() =>
   !isTerminalStatus.value && (can('incident.acknowledge') || isReporter.value),
 )
 
+// ── IDEMPOTENCY-PHOTO-CR24 (B-rel-3): key idempotency per-file, retry-safe ────
+// Mỗi lần chọn file browser tạo File object MỚI → không so identity được; nhận
+// diện "cùng file" bằng fingerprint (incident|name|size|lastModified). Key sinh
+// 1 lần per-file (crypto.randomUUID) và GIỮ NGUYÊN khi user chọn lại cùng file
+// để retry sau lỗi → BE dedupe (cùng key + cùng incident → trả File ĐÃ đính,
+// không insert dup). Xoá key sau khi upload THÀNH CÔNG để lần đính chủ-đích
+// tiếp theo (cùng ảnh) nhận key mới — không bị over-dedupe.
+const photoRequestKeys = new Map<string, string>()
+function photoFingerprint(file: File): string {
+  return `${name.value}|${file.name}|${file.size}|${file.lastModified}`
+}
+function photoRequestKey(file: File): string {
+  const fp = photoFingerprint(file)
+  let key = photoRequestKeys.get(fp)
+  if (!key) {
+    key = globalThis.crypto.randomUUID()
+    photoRequestKeys.set(fp, key)
+  }
+  return key
+}
+
 function triggerPhotoPicker() {
   photoError.value = ''
   fileInput.value?.click()
@@ -90,7 +142,8 @@ async function onPhotoSelected(e: Event) {
   photoError.value = ''
   uploadingPhoto.value = true
   try {
-    await attachIncidentPhoto(name.value, file)
+    await attachIncidentPhoto(name.value, file, photoRequestKey(file))
+    photoRequestKeys.delete(photoFingerprint(file))   // success → key mới cho lần đính sau
     toast.success('Đã đính ảnh hiện trường')
     await load()                                  // refetch → scene_photos +1
   } catch (e2: unknown) {
@@ -111,10 +164,14 @@ function onKeydown(e: KeyboardEvent) { if (e.key === 'Escape' && lightboxUrl.val
 async function load() {
   loading.value = true
   err.value = ''
+  loadErr.value = null
   try {
     form.value = await getIncident(name.value)
   } catch (e: unknown) {
-    err.value = e instanceof Error ? e.message : 'Không tải được phiếu sự cố'
+    // CR-74: XOÁ dữ liệu đang giữ + ghi lỗi NẠP riêng ⇒ empty-state có lối thoát,
+    // 0 CTA (kể cả "Đính ảnh hiện trường" vốn chỉ gate theo capability).
+    form.value = {}
+    loadErr.value = e
   } finally { loading.value = false }
 }
 
@@ -181,9 +238,12 @@ async function doClose() {
     toast.success('Đã đóng sự cố')
     await load()
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : 'Lỗi khi đóng'
-    err.value = msg
-    toast.error(msg)
+    // Contract BE→FE (BR-12-02): close_incident trả VALIDATION (RCA chưa có / chưa Hoàn
+    // thành) → hiển thị qua notify.fromError (render MSG.IMM12_CLOSE_RCA_* từ registry,
+    // severity 'critical' → modal chặn). TUYỆT ĐỐI KHÔNG success toast + KHÔNG reload giả
+    // (giữ nguyên trạng thái phiếu; BE đã từ chối chuyển trạng thái).
+    showCloseModal.value = false
+    notify.fromError(e)
   } finally { actionLoading.value = false }
 }
 
@@ -331,6 +391,15 @@ const canDelete = computed(() =>
 const needsRca = computed(() =>
   (form.value.rca_required === 1) && !form.value.rca_record,
 )
+// BR-12-02 (RCA-gate SSoT): "Đóng sự cố" bị chặn khi phiếu YÊU CẦU RCA nhưng RCA chưa
+// Hoàn thành. Đọc cờ `rca_required` DERIVE-LIVE do BE tính lại theo severity mỗi lần
+// save (get_incident) — KHÔNG so severity thô client-side, KHÔNG đọc cờ stored stale
+// (phiếu escalation Medium→Critical lộ rca_required=1 ngay). `form.rca` chỉ tồn tại khi
+// có rca_record → status === 'Completed' là điều kiện đóng. Gate FE mirror EXACT gate BE
+// close_incident (services/imm12.py:711) ⇒ nhất quán API lẫn desk; BE vẫn là chốt chặn.
+const rcaRequiredLive = computed(() => form.value.rca_required === 1)
+const rcaCompleted = computed(() => form.value.rca?.status === 'Completed')
+const rcaGateBlocked = computed(() => rcaRequiredLive.value && !rcaCompleted.value)
 
 onMounted(load)
 onMounted(() => window.addEventListener('keydown', onKeydown))
@@ -338,91 +407,140 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 </script>
 
 <template>
-  <div class="page-container animate-fade-in space-y-5">
-    <!-- Header -->
-    <div class="flex items-start justify-between flex-wrap gap-3">
+  <DetailPageShell
+    :loading="loading"
+    :error-kind="loadErrorKindRef"
+    :error-message="loadErrMsg"
+    :doc="form.name ? form : null"
+    entity-label="phiếu sự cố"
+    :record-id="name"
+    back-label="Về danh sách sự cố"
+    :tabs="DETAIL_TABS"
+    v-model:active-tab="activeTab"
+    @retry="load()"
+    @back="router.push('/incidents/list')">
+    <template #title>
+      <div class="flex items-start justify-between flex-wrap gap-3">
       <div>
         <button class="text-sm text-slate-500 hover:text-slate-700 mb-1" @click="router.push('/incidents/list')">← Danh sách Sự cố</button>
         <h1 class="text-xl font-semibold text-slate-800">{{ name }}</h1>
-        <div class="flex items-center gap-2 mt-1 flex-wrap">
+        <!-- CR-74: phiếu bị từ chối đọc ⇒ KHÔNG render badge rỗng (mức độ/trạng thái
+             trống trơn trông như "phiếu mất dữ liệu" thay vì "không có quyền"). -->
+        <div v-if="form.name" class="flex items-center gap-2 mt-1 flex-wrap">
           <span :class="['px-2 py-0.5 rounded text-xs font-medium', incidentSeverityClass(form.severity ?? '')]">{{ incidentSeverityLabel(form.severity ?? '') }}</span>
           <span :class="['px-2 py-0.5 rounded text-xs font-medium', incidentStatusClass(form.status ?? '')]">
             {{ incidentStatusLabel(form.status ?? '') }}
           </span>
           <span v-if="form.status === 'RCA Required'" class="px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-800">{{ incidentStatusLabel('RCA Required') }}</span>
+          <!-- BR-12-02: badge "Cần RCA" theo LIVE severity (rca_required derive-live) —
+               phiếu escalated lên Nghiêm trọng/Nặng hiện ngay, ẩn khi RCA đã Hoàn thành. -->
+          <span
+            v-if="rcaGateBlocked"
+            class="px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800"
+            title="Bắt buộc có RCA Hoàn thành trước khi đóng (BR-12-02)">Cần RCA</span>
         </div>
       </div>
+      </div>
+    </template>
 
-      <!-- Workflow actions -->
-      <div class="flex gap-2 flex-wrap">
+    <!-- CTA vòng đời — nằm trong slot `#actions` nên CHỈ tồn tại ở trạng thái content.
+         `v-if="!loadBlocked"` cũ biến mất: điều kiện đó nay là CẤU TRÚC của shell, không
+         còn là thứ mỗi màn phải nhớ (AC-UX-053). -->
+    <template #actions>
         <button
 v-if="canAcknowledge"
+          data-testid="cta-acknowledge"
           class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
           @click="showAckModal = true">
           Tiếp nhận
         </button>
         <button
 v-if="canStartWork"
+          data-testid="cta-start"
           class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
           @click="showStartModal = true">
           Bắt đầu xử lý
         </button>
         <button
 v-if="canResolve"
+          data-testid="cta-resolve"
           class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
           @click="showResolveModal = true">
           Đánh dấu đã giải quyết
         </button>
-        <button
-v-if="canClose"
-          class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
-          @click="showCloseModal = true">
-          Đóng sự cố
-        </button>
+        <!-- BR-12-02 gate: nút "Đóng sự cố" hiển thị theo allowed_transitions (server-driven,
+             GATE-8) nhưng DISABLED khi yêu cầu RCA chưa thỏa (rcaGateBlocked) — kèm hint VI +
+             aria-describedby (WCAG). BE close_incident là chốt chặn cuối cùng. -->
+        <div v-if="canClose" class="flex flex-col items-end gap-1">
+          <button
+            data-testid="cta-close"
+            :disabled="rcaGateBlocked"
+            :aria-describedby="rcaGateBlocked ? 'close-rca-hint' : undefined"
+            :title="rcaGateBlocked ? RCA_CLOSE_HINT : undefined"
+            class="bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500"
+            @click="showCloseModal = true">
+            Đóng sự cố
+          </button>
+          <p
+            v-if="rcaGateBlocked"
+            id="close-rca-hint"
+            class="text-[11px] text-amber-700 max-w-[240px] text-right leading-snug">
+            {{ RCA_CLOSE_HINT }}
+          </p>
+        </div>
         <button
 v-if="canRequestRca"
+          data-testid="cta-request-rca"
           class="bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-lg text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
           @click="showRequestRcaModal = true">
           Yêu cầu phân tích nguyên nhân gốc
         </button>
         <button
 v-if="canReopen"
+          data-testid="cta-reopen"
           class="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
           @click="showReopenModal = true">
           Mở lại điều tra
         </button>
         <button
 v-if="canCancel"
+          data-testid="cta-cancel"
           class="bg-slate-500 hover:bg-slate-600 text-white px-4 py-2 rounded-lg text-sm font-medium"
           @click="showCancelModal = true">
           Hủy (báo nhầm)
         </button>
         <button
 v-if="canDelete"
-          class="text-red-500 hover:text-red-700 text-sm font-medium px-3 py-2"
+          data-testid="cta-delete"
+          class="text-danger-500 hover:text-danger-700 text-sm font-medium px-3 py-2"
           @click="remove">
 Xóa
 </button>
-      </div>
-    </div>
+    </template>
+
 
     <!-- Workflow stepper -->
-    <div v-if="!loading && form.status" class="bg-white rounded-xl border border-slate-200 p-4">
+    <!-- `!loading &&` cũ đã thừa: cả khối này nằm trong nhánh `content` của shell. -->
+    <div v-if="form.status" class="bg-white rounded-xl border border-slate-200 p-4">
       <WorkflowStepper :steps="stepperSteps" :current="form.status" :label-for="incidentStatusLabel" />
     </div>
 
+    <!-- Thanh tab HOISTING lên prop shell (ADR-UX-25). `v-if="!loading && form.status"` cũ
+         BIẾN MẤT: nhánh `content` của shell đã bao hàm đúng điều kiện đó — đừng tái tạo
+         `v-if` bù (bẫy 13.9.10). -->
+    <div v-show="activeTab === 'detail'" data-testid="tab-panel-detail" class="space-y-5">
     <!-- SLA + NĐ98 banner khi ảnh hưởng bệnh nhân -->
-    <div v-if="!loading && form.patient_affected" class="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-800 space-y-1">
+    <div v-if="form.patient_affected" class="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-800 space-y-1">
       <div><strong>Ảnh hưởng bệnh nhân:</strong> {{ form.patient_impact_description || 'Có ảnh hưởng (chưa mô tả chi tiết)' }}</div>
       <div v-if="form.linked_repair_wo">Đã sinh lệnh sửa chữa: <strong>{{ form.linked_repair_wo }}</strong> — thiết bị chuyển Ngừng sử dụng.</div>
       <div class="text-red-700"><strong>Cảnh báo NĐ98:</strong> Sự cố ảnh hưởng bệnh nhân — cần báo cáo Bộ Y tế trong 48h nếu xác định lỗi sản phẩm.</div>
     </div>
 
+    <!-- Lỗi HÀNH ĐỘNG — kênh riêng, KHÔNG thay cả trang (bẫy 13.9.7). -->
     <div v-if="err" class="bg-red-50 text-red-700 p-3 rounded-lg text-sm">{{ err }}</div>
-    <div v-if="loading" class="text-center text-slate-400 py-12">Đang tải...</div>
 
     <!-- Detail card -->
-    <div v-else class="bg-white rounded-xl border border-slate-200 divide-y divide-slate-100">
+    <div class="bg-white rounded-xl border border-slate-200 divide-y divide-slate-100">
       <!-- Basic info -->
       <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
@@ -616,6 +734,13 @@ v-if="needsRca" :disabled="rcaCreating"
         </div>
       </div>
     </div>
+    </div>
+
+    <!-- Bản ghi liên quan: TAB RIÊNG, mount LƯỜI (v-if) — nội dung do đồ thị liên kết
+         ở backend quyết định. -->
+    <div v-if="activeTab === 'related'" data-testid="tab-panel-related">
+      <RelatedRecords doctype="Incident Report" :name="name" />
+    </div>
 
     <!-- Acknowledge modal -->
     <div v-if="showAckModal" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
@@ -661,7 +786,7 @@ v-if="needsRca" :disabled="rcaCreating"
       <div class="bg-white rounded-xl p-6 w-full max-w-md space-y-4 shadow-xl">
         <h2 class="font-semibold text-slate-800">Đánh dấu đã giải quyết</h2>
         <div>
-          <label for="resolve-notes" class="block text-sm font-medium text-slate-700 mb-1">Ghi chú giải quyết <span class="text-red-500">*</span></label>
+          <label for="resolve-notes" class="block text-sm font-medium text-slate-700 mb-1">Ghi chú giải quyết <span class="text-danger-500">*</span></label>
           <textarea id="resolve-notes" v-model="resolveNotes" rows="3" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400" placeholder="Đã làm gì để giải quyết sự cố..."></textarea>
         </div>
         <div>
@@ -685,7 +810,7 @@ v-if="needsRca" :disabled="rcaCreating"
       <div class="bg-white rounded-xl p-6 w-full max-w-md space-y-4 shadow-xl">
         <h2 class="font-semibold text-slate-800">Hủy sự cố (báo nhầm)</h2>
         <div>
-          <label for="cancel-reason" class="block text-sm font-medium text-slate-700 mb-1">Lý do hủy <span class="text-red-500">*</span></label>
+          <label for="cancel-reason" class="block text-sm font-medium text-slate-700 mb-1">Lý do hủy <span class="text-danger-500">*</span></label>
           <textarea id="cancel-reason" v-model="cancelReason" rows="3" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400" placeholder="Lý do (vd: báo cáo nhầm, không phải sự cố...)"></textarea>
         </div>
         <div class="flex justify-end gap-2">
@@ -720,7 +845,7 @@ v-if="needsRca" :disabled="rcaCreating"
         <h2 class="font-semibold text-slate-800">Mở lại điều tra sự cố</h2>
         <p class="text-xs text-slate-500">Đưa phiếu từ "Đã giải quyết" về "Đang xử lý" để điều tra tiếp. Thao tác được ghi vào nhật ký kiểm toán.</p>
         <div>
-          <label for="reopen-reason" class="block text-sm font-medium text-slate-700 mb-1">Lý do mở lại <span class="text-red-500">*</span></label>
+          <label for="reopen-reason" class="block text-sm font-medium text-slate-700 mb-1">Lý do mở lại <span class="text-danger-500">*</span></label>
           <textarea id="reopen-reason" v-model="reopenReason" rows="3" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" placeholder="Vì sao cần mở lại điều tra (vd: sự cố tái phát, phát hiện nguyên nhân mới...)"></textarea>
         </div>
         <div class="flex justify-end gap-2">
@@ -761,7 +886,7 @@ v-if="needsRca" :disabled="rcaCreating"
         <img :src="lightboxUrl" alt="Ảnh hiện trường phóng to" class="max-w-full max-h-[85vh] rounded-lg object-contain">
       </div>
     </div>
-  </div>
+  </DetailPageShell>
 </template>
 
 <style scoped>

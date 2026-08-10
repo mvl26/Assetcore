@@ -1,15 +1,10 @@
 {
  "actions": [],
  "autoname": "WO-CM-.YYYY.-.#####",
- "naming_rule": "Expression (old style)",
  "creation": "2026-04-17 09:00:00.000000",
  "doctype": "DocType",
  "document_type": "Document",
  "engine": "InnoDB",
- "is_submittable": 1,
- "module": "AssetCore",
- "name": "Asset Repair",
- "track_changes": 1,
  "field_order": [
   "asset_ref",
   "asset_name",
@@ -74,7 +69,8 @@
    "fieldtype": "Data",
    "label": "Tên thiết bị",
    "read_only": 1,
-   "fetch_from": "asset_ref.asset_name"
+   "fetch_from": "asset_ref.asset_name",
+   "in_global_search": 1
   },
   {
    "fieldname": "asset_category",
@@ -94,7 +90,8 @@
    "fieldname": "serial_no",
    "fieldtype": "Data",
    "label": "Số serial",
-   "read_only": 1
+   "read_only": 1,
+   "in_global_search": 1
   },
   {
    "fieldname": "col_break_1",
@@ -365,8 +362,12 @@
    "hidden": 1
   }
  ],
+ "is_submittable": 1,
  "modified": "2026-04-17 09:00:00.000000",
  "modified_by": "Administrator",
+ "module": "AssetCore",
+ "name": "Asset Repair",
+ "naming_rule": "Expression (old style)",
  "owner": "Administrator",
  "permissions": [
   {
@@ -444,5 +445,8 @@
    "email": 0,
    "share": 0
   }
- ]
+ ],
+ "search_fields": "asset_ref,serial_no,status",
+ "title_field": "asset_name",
+ "track_changes": 1
 }

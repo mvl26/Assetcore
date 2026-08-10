@@ -11,6 +11,7 @@
 // chưa emit) → 0 nút (degrade an toàn, KHÔNG dead-control 403-khi-bấm).
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
+import { mountWithConfirm, resetModalQueue } from '@/test/confirmHarness'
 import { ref } from 'vue'
 
 vi.mock('vue-router', async () => (await import('@/test/vueRouterMock')).vueRouterMockFactory())
@@ -55,8 +56,14 @@ function makePurchase(over: Purchase = {}): Purchase {
   }
 }
 
+// AC-UX-066: view đã bỏ hộp thoại `confirm()` của trình duyệt → dùng `useModal()`. Hàng đợi hộp thoại là
+// SINGLETON module-level, nên mount view ĐƠN LẺ sẽ treo ở `await modal.confirm(...)`
+// (không ai render để bấm trả lời) ⇒ API không bao giờ được gọi và test "xanh" giả.
+// `mountWithConfirm` mount kèm `NotificationModal`; `answerConfirm` bấm nút THẬT.
+let harness: ReturnType<typeof mountWithConfirm<typeof PurchaseDetailView>> | null = null
+
 async function mountDetail() {
-  const w = mount(PurchaseDetailView, {
+  harness = mountWithConfirm(PurchaseDetailView, {
     props: { name: 'PO-2026-0001' },
     global: {
       // PageHeader phải render slot #actions (nút Duyệt/Nhận hàng/Huỷ nằm trong đó).
@@ -69,7 +76,13 @@ async function mountDetail() {
     },
   })
   await flushPromises()
-  return w
+  return harness.wrapper
+}
+
+/** Trả lời hộp thoại xác nhận đang mở (bấm «Xác nhận» / «Huỷ» thật trong DOM). */
+async function answerConfirm(ok: boolean) {
+  if (!harness) throw new Error('mountDetail() chưa chạy')
+  await harness.answerConfirm(ok)
 }
 
 const APPROVAL_CTA = ['cta-submit', 'cta-receive', 'cta-cancel']
@@ -79,11 +92,16 @@ function approvalCtasShown(w: Awaited<ReturnType<typeof mountDetail>>): string[]
 
 beforeEach(() => {
   currentDoc.value = null
+  harness = null
   vi.clearAllMocks()
-  // View dùng window.confirm — trả true để click chạy tới API call.
-  vi.stubGlobal('confirm', vi.fn(() => true))
 })
-afterEach(() => { vi.unstubAllGlobals() })
+afterEach(() => {
+  // KHÔNG reset ⇒ hộp thoại của test trước còn treo trong hàng đợi singleton và test
+  // sau trả lời nhầm nó ("hộp thoại ma").
+  resetModalQueue()
+  harness?.unmount()
+  harness = null
+})
 
 describe('Purchase CTA gating — hiển thị nút theo can_* server flags', () => {
   it('draft authorized (can_submit=true) → nút "Duyệt đơn" HIỂN THỊ, receive/cancel ẨN', async () => {
@@ -155,6 +173,9 @@ describe('Purchase CTA — click phát đúng action tới đúng endpoint (para
     const w = await mountDetail()
     await w.find('[data-testid="cta-submit"]').trigger('click')
     await flushPromises()
+    // Hộp thoại xác nhận mở TRƯỚC, API chưa được gọi.
+    expect(submitPurchase).not.toHaveBeenCalled()
+    await answerConfirm(true)
     expect(submitPurchase).toHaveBeenCalledTimes(1)
     expect(submitPurchase).toHaveBeenCalledWith('PO-2026-0001')
   })
@@ -166,6 +187,9 @@ describe('Purchase CTA — click phát đúng action tới đúng endpoint (para
     const w = await mountDetail()
     await w.find('[data-testid="cta-receive"]').trigger('click')
     await flushPromises()
+    // Hộp thoại xác nhận mở TRƯỚC, API chưa được gọi.
+    expect(markReceived).not.toHaveBeenCalled()
+    await answerConfirm(true)
     expect(markReceived).toHaveBeenCalledTimes(1)
     expect(markReceived).toHaveBeenCalledWith('PO-2026-0001')
   })
@@ -177,6 +201,9 @@ describe('Purchase CTA — click phát đúng action tới đúng endpoint (para
     const w = await mountDetail()
     await w.find('[data-testid="cta-cancel"]').trigger('click')
     await flushPromises()
+    // Hộp thoại xác nhận mở TRƯỚC, API chưa được gọi.
+    expect(cancelPurchase).not.toHaveBeenCalled()
+    await answerConfirm(true)
     expect(cancelPurchase).toHaveBeenCalledTimes(1)
     expect(cancelPurchase).toHaveBeenCalledWith('PO-2026-0001')
   })

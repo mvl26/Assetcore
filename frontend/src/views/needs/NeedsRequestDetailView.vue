@@ -18,8 +18,10 @@ import {
 import PageHeader from '@/components/common/PageHeader.vue'
 import CurrencyInput from '@/components/common/CurrencyInput.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
+import DetailPageShell from '@/components/common/DetailPageShell.vue'
+import { type DetailTab } from '@/components/common/DetailTabBar.vue'
+import { useDetailAccess } from '@/composables/useDetailAccess'
 import BaseModal from '@/components/common/BaseModal.vue'
-import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
 
 const props = defineProps<{ id?: string }>()
@@ -32,12 +34,18 @@ const api    = useApi()
 const { currentDoc, plans, loading, error } = storeToRefs(store)
 
 // ── tabs ──────────────────────────────────────────────────────────────────────
+// Markup do SSoT `DetailTabBar` vẽ (AC-UX-068, docs/ui-ux/07 §4.3): bản `<nav>` tự chế
+// trước đây có 0 role/aria — với trình đọc màn hình chỉ là ba nút rời rạc.
+// KHÔNG khai `badge` ở màn này: không có số đếm nào để hiện (trường `badge: () => string`
+// của bản cũ là mã chết — chưa từng được render).
 type TabId = 'overview' | 'scoring' | 'budget'
-const TABS: { id: TabId; label: string; badge?: () => string }[] = [
-  { id: 'overview', label: 'Tổng quan' },
-  { id: 'scoring',  label: 'Chấm điểm ưu tiên' },
-  { id: 'budget',   label: 'Dự toán' },
+const NEEDS_TABS: DetailTab[] = [
+  { key: 'overview', label: 'Tổng quan' },
+  { key: 'scoring',  label: 'Chấm điểm ưu tiên' },
+  { key: 'budget',   label: 'Dự toán' },
 ]
+// Đổi tab ở màn này KHÔNG có tác dụng phụ (3 panel dùng `v-show`, dữ liệu đã nạp sẵn)
+// ⇒ `v-model` là hợp lệ, khác `AssetDetailView`/`CommissioningDetailView`.
 const activeTab = ref<TabId>('overview')
 
 // ── workflow stepper ─────────────────────────────────────────────────────────
@@ -213,39 +221,69 @@ function lineTypeLabel(t?: string): string {
 }
 
 // ── approval modal ────────────────────────────────────────────────────────────
+// AC-UX-062: lỗi CHẶN hiện INLINE trong hộp thoại đang mở (`silentError: true` để
+// không bắn song song toast/`useModal.alert` — docs/ui-ux/05 §3). Nhánh lỗi KHÔNG
+// đóng hộp thoại và KHÔNG xoá dữ liệu người dùng vừa nhập.
 const showApproveModal  = ref(false)
 const approverInput     = ref('')
 const approveRemarks    = ref('')
+const approveError      = ref<string | null>(null)
 const showRejectModal   = ref(false)
 const rejectReasonInput = ref('')
+const rejectError       = ref<string | null>(null)
+
+function openApproveModal() {
+  approveError.value = null
+  showApproveModal.value = true
+}
+function closeApproveModal() {
+  approveError.value = null
+  showApproveModal.value = false
+}
+function openRejectModal() {
+  rejectError.value = null
+  showRejectModal.value = true
+}
+function closeRejectModal() {
+  rejectError.value = null
+  showRejectModal.value = false
+}
 
 async function doApprove() {
   if (!currentDoc.value?.name || !approverInput.value.trim()) return
+  approveError.value = null
   const res = await api.run(
     () => store.approve(currentDoc.value!.name!, approverInput.value.trim(), approveRemarks.value),
-    { successMessage: 'Đã phê duyệt đề xuất' },
+    { successMessage: 'Đã phê duyệt đề xuất', silentError: true },
   )
-  if (res) {
-    showApproveModal.value = false
-    approverInput.value = ''
-    approveRemarks.value = ''
-    await store.fetchOne(currentDoc.value.name)
-    await refreshActions()
+  if (!res) {
+    approveError.value = api.lastError.value?.message
+      ?? 'Không phê duyệt được đề xuất. Vui lòng kiểm tra lại và thử lại.'
+    return   // giữ hộp thoại mở + giữ nguyên người duyệt / ghi chú đã nhập
   }
+  showApproveModal.value = false
+  approverInput.value = ''
+  approveRemarks.value = ''
+  await store.fetchOne(currentDoc.value.name)
+  await refreshActions()
 }
 
 async function doReject() {
   if (!currentDoc.value?.name || !rejectReasonInput.value.trim()) return
+  rejectError.value = null
   const res = await api.run(
     () => store.reject(currentDoc.value!.name!, rejectReasonInput.value.trim()),
-    { successMessage: 'Đã bác đề xuất' },
+    { successMessage: 'Đã bác đề xuất', silentError: true },
   )
-  if (res) {
-    showRejectModal.value = false
-    rejectReasonInput.value = ''
-    await store.fetchOne(currentDoc.value.name)
-    await refreshActions()
+  if (!res) {
+    rejectError.value = api.lastError.value?.message
+      ?? 'Không bác được đề xuất. Vui lòng kiểm tra lại và thử lại.'
+    return   // giữ hộp thoại mở + giữ nguyên lý do đã nhập
   }
+  showRejectModal.value = false
+  rejectReasonInput.value = ''
+  await store.fetchOne(currentDoc.value.name)
+  await refreshActions()
 }
 
 // ── generic workflow transition ───────────────────────────────────────────────
@@ -270,35 +308,61 @@ function actionVariant(action: string): string {
 // ── roll into plan modal ──────────────────────────────────────────────────────
 const showRollModal    = ref(false)
 const selectedPlanName = ref('')
+const rollError        = ref<string | null>(null)
 
 async function openRollModal() {
+  rollError.value = null
   showRollModal.value = true
   await store.fetchPlans({ workflow_state: ['in', ['Draft', 'Approved']] }, 1, 50)
+}
+
+function closeRollModal() {
+  rollError.value = null
+  showRollModal.value = false
 }
 
 async function doRollIntoPlan() {
   if (!currentDoc.value?.name || !selectedPlanName.value) return
   const plan = plans.value.find(p => p.name === selectedPlanName.value)
   if (!plan) return
+  rollError.value = null
   const res = await api.run(
     () => rollIntoPlan(plan.plan_year, plan.plan_period, [currentDoc.value!.name!]),
-    { successMessage: `Đã thêm vào kế hoạch ${plan.name}` },
+    { successMessage: `Đã thêm vào kế hoạch ${plan.name}`, silentError: true },
   )
-  if (res) {
-    showRollModal.value = false
-    selectedPlanName.value = ''
-    await store.fetchOne(currentDoc.value.name)
+  if (!res) {
+    rollError.value = api.lastError.value?.message
+      ?? 'Không đưa được đề xuất vào kế hoạch mua sắm. Vui lòng kiểm tra lại và thử lại.'
+    return   // giữ hộp thoại mở + giữ nguyên kế hoạch đã chọn
   }
+  showRollModal.value = false
+  selectedPlanName.value = ''
+  await store.fetchOne(currentDoc.value.name)
 }
 
 // ── init ──────────────────────────────────────────────────────────────────────
 const docName = computed(() => props.id ?? (route.params.id as string) ?? (route.params.name as string))
 
-onMounted(async () => {
+// Lỗi của LƯỢT NẠP (lô 2, nhóm N4). `stores/imm01` chỉ giữ `error` dạng CHUỖI ⇒ không
+// phân loại được kind: mất mạng, 403 và 404 trước đây ra CÙNG một banner hồng «Thử lại»
+// (thử lại vô nghĩa với 404/403). View tự `try/catch` và giữ ref riêng — KHÔNG sửa `stores/`.
+const loadError = ref<unknown>(null)
+const { kind: loadKind, message: loadMsg } = useDetailAccess(() => loadError.value)
+
+async function loadDoc(): Promise<void> {
   if (!docName.value) return
-  await store.fetchOne(docName.value)
+  loadError.value = null                         // INV-UX4-7 — xoá lỗi ở DÒNG ĐẦU
+  try {
+    await store.fetchOne(docName.value)
+  } catch (e: unknown) {
+    loadError.value = e
+    return
+  }
+  if (!currentDoc.value && error.value) loadError.value = new Error(error.value)
   await refreshActions()
-})
+}
+
+onMounted(loadDoc)
 
 watch(currentDoc, (doc) => {
   if (doc) initScoringDraft()
@@ -306,31 +370,32 @@ watch(currentDoc, (doc) => {
 </script>
 
 <template>
-  <!-- Loading -->
-  <div v-if="loading && !currentDoc" class="p-8">
-    <SkeletonLoader variant="form" />
-  </div>
+  <DetailPageShell
+    :loading="loading && !currentDoc"
+    :error-kind="loadKind"
+    :error-message="loadMsg"
+    :doc="currentDoc"
+    entity-label="đề xuất nhu cầu"
+    :record-id="docName"
+    back-label="Về danh sách đề xuất nhu cầu"
+    :tabs="NEEDS_TABS"
+    v-model:active-tab="activeTab"
+    @retry="loadDoc()"
+    @back="router.push('/needs-requests')">
+    <template #title>
+      <PageHeader
+        :title="currentDoc?.name ?? docName ?? ''"
+        :subtitle="currentDoc ? `${requestTypeLabel(currentDoc.request_type)} · ${currentDoc.requesting_department_name || currentDoc.requesting_department} · ${currentDoc.quantity} thiết bị · Năm ${currentDoc.target_year}` : 'Đề xuất nhu cầu'"
+        :breadcrumb="[
+          { label: 'IMM-01 · Đề xuất nhu cầu', to: '/needs-requests' },
+          { label: currentDoc?.name ?? docName ?? '' },
+        ]"
+      />
+    </template>
 
-  <!-- Error -->
-  <div v-else-if="error && !currentDoc"
-       class="m-8 rounded-xl border border-rose-200 bg-rose-50 px-6 py-8 text-center">
-    <p class="text-rose-700 mb-4">{{ error }}</p>
-    <button class="px-4 py-2 rounded-lg bg-rose-100 text-rose-700 text-sm"
-            @click="store.fetchOne(docName)">Thử lại</button>
-  </div>
-
-  <div v-else-if="currentDoc" class="page-container animate-fade-in space-y-5">
-
-    <!-- ── Header ── -->
-    <PageHeader
-      :title="currentDoc.name ?? ''"
-      :subtitle="`${requestTypeLabel(currentDoc.request_type)} · ${currentDoc.requesting_department_name || currentDoc.requesting_department} · ${currentDoc.quantity} thiết bị · Năm ${currentDoc.target_year}`"
-      :breadcrumb="[
-        { label: 'IMM-01 · Đề xuất nhu cầu', to: '/needs-requests' },
-        { label: currentDoc.name ?? '' },
-      ]"
-    >
-      <template #actions>
+    <!-- CTA + huy hiệu — CHỈ tồn tại ở trạng thái content (AC-UX-053). -->
+    <template #actions>
+      <template v-if="currentDoc">
         <StatusBadge :state="currentDoc.workflow_state ?? ''" />
         <span v-if="currentDoc.priority_class"
               :class="[
@@ -342,10 +407,11 @@ watch(currentDoc, (doc) => {
               ]">
           {{ priorityBadge(currentDoc.priority_class) }}
         </span>
-        <button class="btn-secondary text-sm" @click="router.back()">← Quay lại</button>
       </template>
-    </PageHeader>
+      <button class="btn-secondary text-sm" data-testid="cta-back" @click="router.back()">← Quay lại</button>
+    </template>
 
+    <template v-if="currentDoc">
     <!-- ── Workflow stepper ── -->
     <div class="flex items-center gap-0 overflow-x-auto pb-1">
       <template v-for="(s, i) in WORKFLOW_STEPS" :key="s">
@@ -371,22 +437,8 @@ watch(currentDoc, (doc) => {
       <button class="underline" @click="store.clearError()">Đóng</button>
     </div>
 
-    <!-- ── Tabs ── -->
-    <div class="border-b border-neutral-200">
-      <nav class="flex gap-1 -mb-px">
-        <button v-for="t in TABS" :key="t.id"
-                :class="[
-                  'px-4 py-2.5 text-sm font-medium border-b-2 transition-colors',
-                  activeTab === t.id
-                    ? 'border-blue-600 text-blue-700'
-                    : 'border-transparent text-neutral-500 hover:text-neutral-700 hover:border-neutral-300',
-                ]"
-                @click="activeTab = t.id">
-          {{ t.label }}
-        </button>
-      </nav>
-    </div>
-
+    <!-- Thanh tab HOISTING lên prop shell (ADR-UX-25). 3 panel vẫn dùng `v-show` để KHÔNG
+         mất chữ đã gõ ở «Chấm điểm ưu tiên» / «Dự toán» khi đổi tab. -->
     <!-- ═══════════════════════════════════════════════════════ -->
     <!-- Tab 1 — Tổng quan                                       -->
     <!-- ═══════════════════════════════════════════════════════ -->
@@ -744,8 +796,8 @@ watch(currentDoc, (doc) => {
         </button>
 
         <!-- Approve / Reject — gate riêng theo allowed_transitions (server-driven) -->
-        <button v-if="canReject" class="btn-danger text-sm" @click="showRejectModal = true">Bác đề xuất</button>
-        <button v-if="canApprove" class="btn-success text-sm" @click="showApproveModal = true">Phê duyệt ✓</button>
+        <button v-if="canReject" class="btn-danger text-sm" @click="openRejectModal">Bác đề xuất</button>
+        <button v-if="canApprove" class="btn-success text-sm" @click="openApproveModal">Phê duyệt ✓</button>
 
         <!-- Generic workflow transitions -->
         <button v-for="action in genericActions" :key="action"
@@ -762,11 +814,11 @@ watch(currentDoc, (doc) => {
       </div>
     </div>
 
-  </div>
+    </template>
 
   <!-- ── Approve modal ── -->
   <BaseModal v-if="showApproveModal" title="Phê duyệt đề xuất nhu cầu" size="md"
-             @close="showApproveModal = false">
+             :error="approveError" @close="closeApproveModal">
     <div class="p-4 space-y-4">
       <div>
         <label for="nr-board-approver" class="form-label">Người duyệt (tài khoản BGĐ) <span class="text-rose-500">*</span></label>
@@ -781,7 +833,7 @@ watch(currentDoc, (doc) => {
     </div>
     <template #footer>
       <div class="flex justify-end gap-2 px-4 pb-4">
-        <button class="btn-secondary text-sm" @click="showApproveModal = false">Huỷ</button>
+        <button class="btn-secondary text-sm" @click="closeApproveModal">Huỷ</button>
         <button class="btn-success text-sm" :disabled="!approverInput.trim()" @click="doApprove">
           Xác nhận phê duyệt
         </button>
@@ -791,7 +843,7 @@ watch(currentDoc, (doc) => {
 
   <!-- ── Reject modal ── -->
   <BaseModal v-if="showRejectModal" title="Bác đề xuất" size="md" :danger="true"
-             @close="showRejectModal = false">
+             :error="rejectError" @close="closeRejectModal">
     <div class="p-4 space-y-4">
       <p class="text-sm text-neutral-600">
         Vui lòng nhập lý do bác đề xuất <strong>{{ currentDoc?.name }}</strong>.
@@ -806,7 +858,7 @@ watch(currentDoc, (doc) => {
     </div>
     <template #footer>
       <div class="flex justify-end gap-2 px-4 pb-4">
-        <button class="btn-secondary text-sm" @click="showRejectModal = false">Huỷ</button>
+        <button class="btn-secondary text-sm" @click="closeRejectModal">Huỷ</button>
         <button class="btn-danger text-sm" :disabled="!rejectReasonInput.trim()" @click="doReject">
           Xác nhận bác đề xuất
         </button>
@@ -816,7 +868,7 @@ watch(currentDoc, (doc) => {
 
   <!-- ── Roll into Plan modal ── -->
   <BaseModal v-if="showRollModal" title="Đưa vào kế hoạch mua sắm" size="lg"
-             @close="showRollModal = false">
+             :error="rollError" @close="closeRollModal">
     <div class="p-4 space-y-4">
       <p class="text-sm text-neutral-600">
         Chọn kế hoạch mua sắm để thêm đề xuất <strong>{{ currentDoc?.name }}</strong>.
@@ -852,7 +904,7 @@ watch(currentDoc, (doc) => {
     </div>
     <template #footer>
       <div class="flex justify-end gap-2 px-4 pb-4">
-        <button class="btn-secondary text-sm" @click="showRollModal = false">Huỷ</button>
+        <button class="btn-secondary text-sm" @click="closeRollModal">Huỷ</button>
         <button class="btn-primary text-sm" :disabled="!selectedPlanName" @click="doRollIntoPlan">
           Thêm vào kế hoạch này
         </button>
@@ -860,6 +912,7 @@ watch(currentDoc, (doc) => {
     </template>
   </BaseModal>
 
+  </DetailPageShell>
 </template>
 
 <style scoped>

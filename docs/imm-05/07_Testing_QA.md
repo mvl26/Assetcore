@@ -226,8 +226,93 @@ Toàn bộ artefact test được của IMM-05 (đối chiếu 04 §DocType/Serv
 | `TestArchiveDocument` | `archive_document` (#16) | EP | — | ⬜ Planned |
 | `TestMarkExempt` | `mark_exempt` (#25) | Decision Table + role guard | — | ⬜ Planned |
 | `TestGetAssetDocuments` | `get_asset_documents` (#19) | EP (completeness) | — | ⬜ Planned |
+| `TestAssetDossierFileMeta` (AC-CR-81) | `get_asset_documents` (#19) — 5 khoá TỆP, BR-05-22..25 | Decision Table (có tệp / mồ côi / rỗng) + Invariant (INV-FILE-1..8) + Counterexample (link mồ côi) + Đo-số-query (chống N+1) | **12 / 12** (§III.2.b) + 4 FE render | ✅ **Đã hiện thực** (`assetcore/tests/test_imm05.py::TestAssetDossierFileMeta`, module **91 OK** — 79 CR-75 + 12 AC-CR-81; mutation ×4 verified, xem §III.2.b) |
+| `TestAssetDossierTruth` (CR-75) | `get_asset_documents` (#19) + `is_expired_row` — BR-05-17..21 | BVA (biên hạn) + Decision Table (5 trạng thái) + Invariant (INV-DOC-2/3, INV-EXP-2) + Counterexample (Archived quá hạn) | **25 / 25** (18 ca §III.2.a + 7 ca bồi: `05b` loại không bắt buộc · `11b` Active quá hạn ⇒ `is_expired=1` · `12b` expiry NULL ⇒ `days_until_expiry=null` · `18b` no-leak Internal_Only · `19` 0-regress 5 khoá cũ + grouped-object · `20` guard nguồn literal · `21` từ vựng enum) | ✅ **Đã hiện thực** (`assetcore/tests/test_imm05.py::TestAssetDossierTruth`, module 79 OK) |
 
 > Test thuần công thức (`_resolve_alert_level`) dùng `unittest.TestCase` không cần DB — chạy ms-level, không cần fixture cleanup.
+
+### III.2.a. `TestAssetDossierTruth` — bộ ca kiểm thử CR-75 (BE viết theo TDD)
+
+**File:** `assetcore/tests/test_imm05.py` · **Fixture:** dùng `_make_asset()` / `_make_doc()` sẵn có + tạo `Required Document Type` tạm (`autoname = field:type_name` ⇒ **đặt tên có tiền tố `_Test CR75 …`** và purge trong `tearDownClass`; nhớ `AC Asset Category` tạm nếu ca cần category — dọn theo `category_name`, KHÔNG theo `name` (autoname `CAT-####`)).
+
+| # | Ca | Setup | Assert |
+|---|---|---|---|
+| 01 | Không có loại bắt buộc áp dụng | 0 `Required Document Type` áp dụng | `required_total == 0` ∧ `completeness_pct == 100` ∧ `document_status == 'Compliant'` ∧ `is_compliant == 1` ∧ 3 mảng rỗng |
+| 02 | Nửa bộ hồ sơ | 2 loại bắt buộc, 1 có bản Active còn hạn | `pct == 50` ∧ `missing_required == [loại còn lại]` ∧ `Incomplete` ∧ `is_compliant == 0` |
+| 03 | Mẫu số lọc theo nhóm — **loại trừ** | 1 loại có `applies_to_asset_category` ≠ category của asset | loại đó KHÔNG vào `required_total`/`missing_required` |
+| 04 | Mẫu số lọc theo nhóm — **bao gồm** | 1 loại có `applies_to_asset_category` == category của asset | loại đó CÓ trong `required_total` |
+| 05 | `applies_to_asset_category` rỗng | asset bất kỳ | luôn tính vào mẫu số |
+| 06 | Bắt buộc Active **quá hạn** | `expiry_date = today − 1`, state Active | `expired_required == [loại]` ∧ loại KHÔNG trong `missing_required` ∧ `Non-Compliant` ∧ `is_compliant == 0` ∧ không tính `satisfied` |
+| 07 | Biên `expiry_date == today` | Active | KHÔNG expired ⇒ `satisfied` ∧ `expiring_required` chứa loại ∧ `Expiring_Soon` ∧ **`is_compliant == 1`** |
+| 08 | Biên +30 ngày | Active | `Expiring_Soon` ∧ `is_compliant == 1` |
+| 09 | Biên +31 ngày | Active | `Compliant` ∧ `expiring_required == []` |
+| 10 | Archived quá hạn (counterexample) | state `Archived`, `expiry_date = today − 100`, cột DB `is_expired = 1` | dòng trả về có **`is_expired == 0`** (predicate loại `Archived`) — chứng minh KHÔNG đọc cột đã lưu |
+| 11 | Rejected quá hạn | tương tự #10 | `is_expired == 0` |
+| 12 | `days_until_expiry` dẫn xuất | doc lưu từ trước với giá trị cột lệch (`frappe.db.set_value` trực tiếp) | response trả giá trị tính theo `today`, KHÔNG bằng giá trị cột đã bịa |
+| 13 | Miễn đăng ký phủ đủ | tất cả loại bắt buộc satisfied, 1 bản `is_exempt = 1`, không expiring | `document_status == 'Compliant (Exempt)'` ∧ `is_compliant == 1` |
+| 14 | **Anti-lie exempt** | 1 bản `is_exempt = 1` **nhưng** còn 1 loại bắt buộc thiếu | `document_status == 'Incomplete'` (KHÔNG `Compliant (Exempt)`) ∧ `is_compliant == 0` |
+| 15 | **INV-DOC-2** | tập dữ liệu hỗn hợp (đủ/thiếu/quá hạn) | `len(missing) + len(expired) == required_total − required_satisfied` ∧ hai mảng rời nhau |
+| 16 | **INV-DOC-3** | như #15 | `is_compliant == int(required_satisfied == required_total) == int(completeness_pct == 100)` |
+| 17 | **INV-EXP-2** (parity predicate) | ≥6 doc phủ mọi state × (expiry NULL / quá hạn / còn hạn) | `{tên doc mà is_expired_row(row) is True}` == `{tên doc từ DocumentRepo.list(expired_filter() + [asset_ref])}` — **mutation target** |
+| 18 | **BR-05-20 visibility** | 1 loại bắt buộc chỉ có bản `Internal_Only`; chạy dưới persona thiếu `document.read` | `completeness_pct` / `required_total` **bằng** giá trị khi chạy dưới Administrator ∧ `hidden_count > 0` ∧ `documents` ít hơn |
+
+**Guard nguồn (A1):** thêm 1 test đọc `assetcore/services/imm05.py` và assert chuỗi literal `"completeness_pct": 0` **không còn tồn tại** (chống hồi quy stub). Mẫu có sẵn trong repo: guard đọc file nguồn ở `test_imm05.py` (`Path(...)`, đã import).
+
+**Mutation-verified (bắt buộc ≥1 lần, LL-TEST):** (a) đổi `is_expired_row` bỏ mệnh đề `workflow_state not in (...)` ⇒ #10/#11/#17 ĐỎ; (b) đổi call-site truyền `is_exempt=True` thô ⇒ #14 ĐỎ; (c) tính completeness trên tập đã lọc visibility ⇒ #18 ĐỎ. Hoàn nguyên ⇒ XANH.
+
+**Chạy:** `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_imm05` — **đặt timeout tool ≥ 600000 ms** (kill giữa chừng ⇒ tearDown không chạy ⇒ nhiễm DB, không phải bug sản phẩm).
+
+**FE (vitest + `vue-tsc`):** `stores/imm05.test.ts` map đủ khoá mới; test `CommissioningDetailView` — `is_compliant: 1` ⇒ tông xanh/CTA mở, `is_compliant: 0` ⇒ đỏ + hiện khối "Hết hạn: …" khi `expired_required` non-empty; test nhãn **tiếng Việt** (không rò `Compliant`/`Expiring_Soon` ra DOM); test `required_total === 0` ⇒ hiện câu "Không có loại hồ sơ bắt buộc áp dụng…" thay vì "100%".
+
+> **Đã hiện thực (BE, 2026-07-26):** `services/imm05.py` — `is_expired_row` @`:120-137` (cặp song sinh `expired_filter` @`:101-117`) · `_applicable_required_types` @`:448-470` · `_dossier_compliance` @`:473-544` · `get_asset_documents` @`:548-633`. **Mutation-verified:** bỏ mệnh đề `workflow_state not in (Archived, Rejected)` khỏi `is_expired_row` ⇒ ca **#10/#11/#17 ĐỎ**; hoàn nguyên ⇒ XANH. Guard scope `("services/imm05.py", "get_asset_documents", "internal")` đã thêm vào `_ALLOWED_NON_USER_SCOPES` (`tests/test_rowscope_scope_guard.py`) theo ratify 05 §2.7.a B8 — **[BA] cần mirror dòng này vào ma trận ADR-IMM00-LIST-SCOPE §8.4**.
+>
+> **Self-Correction thuật toán (cần [BA] ratify chữ):** B6 ghi `has_expiring = bool(expiring_required)` NHƯNG nhánh `has_expiring` đứng TRƯỚC `pct >= 100` trong `_compute_document_status` ⇒ hồ sơ **THIẾU** mà có 1 loại sắp hết hạn sẽ báo `Expiring_Soon` ⇒ `is_compliant = 1` cho hồ sơ chưa đủ, **mâu thuẫn INV-DOC-3** (`is_compliant ⟺ pct == 100`, ca #16). Hiện thực **thu hẹp đối số tại call-site** (CÙNG kỹ thuật đã ratify cho `is_exempt` ở B6): chỉ truyền `has_expiring=True` khi `required_satisfied == required_total ∧ expired_required == []`. `expiring_required[]` VẪN phát đầy đủ — chỉ mức ưu tiên của *trạng thái tổng* đổi (thiếu hồ sơ nặng hơn sắp-hết-hạn). Xem docstring `_dossier_compliance`.
+
+**OAS guard (`test_mobile_oas.py` / `test_mobile_docset.py`):** op `getAssetDocuments` tồn tại + param `asset` required · `AssetDossier.required` đủ 11 khoá · enum `document_status` đúng 5 giá trị · `is_compliant`/`is_expired`/`is_exempt` là `integer enum [0,1]` (KHÔNG boolean) · `documents` là object `additionalProperties: array` (KHÔNG array) · cite `@source` trỏ vào đúng vùng AST của `get_asset_documents`. Sau khi thêm: **đồng bộ counters** `_EXPECTED_TEST_COUNT`, `_GUARD_SUITE_EXPECTED['test_mobile_oas.py']`, `_GUARD_SUITE_SUM`, `_MOBILE_OAS_TOTAL` theo **delta thực đếm** (số tuyệt đối trong spec có thể stale do phiên/vòng khác landed — chấm theo delta).
+
+### III.2.b. `TestAssetDossierFileMeta` — bộ ca kiểm thử AC-CR-81 (BE viết theo TDD)
+
+**Hợp đồng:** [05 §2.7.c](./05_API_Specification.md) (INV-FILE-1..8) · thực thi [04 §4.4-bis](./04_Backend_Design.md) · FE [06 §4.4-bis](./06_Frontend_Design.md).
+**File:** `assetcore/tests/test_imm05.py` — class MỚI `TestAssetDossierFileMeta` (tái dùng fixture `_mk_asset` / `_mk_type` / `_mk_doc` của `TestAssetDossierTruth`, thêm helper `_mk_file(url, *, private, size)` tạo `File` doc thật và **xoá trong `tearDownClass`**).
+
+> ⚠️ **Fixture hiện hữu là ca MỒ CÔI sẵn:** `_mk_doc` gán `file_attachment = "/files/dummy-test.pdf"` mà **không** có `File` doc ⇒ mọi ca CR-75 cũ tự động rơi vào nhánh `has_file = 0` — đây là **tính năng** (0 sửa fixture cũ), và cũng là lý do ca #03 phải khẳng định tường minh.
+
+| # | TC ID | Ca | Setup | Assert |
+|---|---|---|---|---|
+| 01 | TC-05-FILE-01 | 5 khoá LUÔN có mặt | 1 dòng chưa đính tệp (`file_attachment = ""`) | 5 khoá ∈ `row.keys()`; 0 giá trị `None`; `file_url == ""`, `file_size == 0` (**INV-FILE-1**, AC1) |
+| 02 | TC-05-FILE-02 | Tệp THẬT | `File` doc thật + `file_attachment` = `file_url` của nó | `has_file == 1` ∧ 4 khoá khớp **đúng** giá trị của `File` doc (**AC2**) |
+| 03 | TC-05-FILE-03 | **Link mồ côi** | `file_attachment = "/files/khong-ton-tai.pdf"`, 0 `File` doc | `has_file == 0` ∧ `file_url == ""` ∧ `file_name == ""` ∧ `file_size == 0` ∧ `is_private == 0` — **không phát link chết** (**INV-FILE-2/3**, AC2) |
+| 04 | TC-05-FILE-04 | Rỗng/None | `file_attachment` `""` và `None` | như #01 (2 biến thể, KHÔNG `KeyError`) |
+| 05 | TC-05-FILE-05 | Cờ là **int thuần** | ca #02 | `type(has_file) is int` ∧ `type(is_private) is int`; `assertNotIsInstance(v, bool)` (**INV-FILE-7** — bool là subclass của int nên `isinstance(True, int)` là True, phải bắt riêng) |
+| 06 | TC-05-FILE-06 | **Chống N+1** | 12 dòng / 3 `doc_category`, 6 dòng có tệp | đếm `frappe.get_all` với doctype `File` == **1** bất kể số dòng (**INV-FILE-4**, AC3) |
+| 07 | TC-05-FILE-07 | Tập rỗng ⇒ 0 query | mọi dòng `file_attachment` rỗng | số query `File` == **0** (không phát `IN ()`) |
+| 08 | TC-05-FILE-08 | Dedup | 3 dòng dùng **CÙNG** `file_url` | 1 query; đối số `in` có **1** phần tử; cả 3 dòng `has_file == 1` |
+| 09 | TC-05-FILE-09 | **0 regress** tuân thủ | ca CR-75 #02 (pct 50) chạy lại | 9 khoá F6 **y hệt** giá trị kỳ vọng CR-75 (**INV-FILE-5**, AC4) |
+| 10 | TC-05-FILE-10 | **0 rò quyền** | 1 dòng `Public` có tệp A + 1 dòng `Internal_Only` có tệp B; persona **không** có `document.read` | dòng `Internal_Only` vắng khỏi `documents`; chuỗi URL của tệp B **không** xuất hiện ở bất kỳ đâu trong payload; `hidden_count == 1` (**INV-FILE-6**, AC5) |
+| 11 | TC-05-FILE-11 | Tệp riêng tư | `File` với `is_private = 1` | `is_private == 1` ∧ `file_url` bắt đầu `/private/files/` |
+| 12 | TC-05-FILE-12 | Key-set ĐÚNG 18 | ca #02 | `sorted(row.keys())` == 18 khoá; `"file_attachment" not in row` (**INV-FILE-8** — thô không lọt, closed-schema OAS) |
+
+**Đo số query (ca #06/#07/#08):** patch `assetcore.services.imm05.frappe.get_all` bằng wrapper đếm **theo doctype** (`calls.append(args[0])`) rồi gọi hàm thật — đếm được *đúng* số truy vấn `File` mà không phụ thuộc log SQL. Đây cũng là lý do §04 §4.4-bis bắt buộc `_resolve_file_meta` là **hàm riêng gọi 1 lần**: nếu BE inline vào vòng lặp thì ca #06 ĐỎ ngay.
+
+**Mutation-check bắt buộc (chống test vacuous):** (a) bỏ điều kiện "File doc tồn tại" khỏi `has_file` ⇒ **#03 ĐỎ**; (b) chuyển `_resolve_file_meta` vào trong vòng lặp dòng ⇒ **#06 ĐỎ**; (c) đổi tập vào từ **V** sang **C** ⇒ **#10 ĐỎ**; (d) bỏ `row.pop("file_attachment")` ⇒ **#12 ĐỎ**. Hoàn nguyên ⇒ XANH.
+
+> **Kết quả mutation THẬT (BE Bước-4, 2026-07-27 — chạy trên site `miyano`, hoàn nguyên bằng `md5sum` đối chiếu):**
+> (a) `row.update(file_meta.get(raw_url) or {**_EMPTY_FILE_META, "file_url": raw_url, "has_file": 1})` ⇒ **#03 ĐỎ** (`1 != 0 : Link mồ côi`).
+> (b) `_resolve_file_meta({raw_url})` gọi **trong** vòng lặp ⇒ **#06 ĐỎ** (`6 != 1`) **và #08 ĐỎ** (`4 != 1`).
+> (c) ⚠️ **Cải chính kỹ thuật:** resolve trên tập **C** *một mình* KHÔNG quan sát được ở payload (dòng ẩn vẫn không được emit) ⇒ mutation thực thi là mặt **quan sát được** của cùng bất biến: bỏ `_apply_visibility_filter` khỏi truy vấn **V** ⇒ **#10 ĐỎ** (dòng `Internal_Only` + URL tệp của nó lọt vào `documents`). Vế "chỉ resolve, không emit" được khoá bằng guard TĨNH `cr81_h` (hợp đồng khai `KHÔNG resolve dòng bị ẩn`) — ghi nhận là **giới hạn đo được**, không phải coverage đầy đủ.
+> (d) `row.get("file_attachment")` thay cho `row.pop(...)` ⇒ **#12 ĐỎ** (19 khoá ≠ 18).
+> Guard hợp đồng: rot cite `services/imm05.py:458-502 _resolve_file_meta` → `:2000` ⇒ **`cr81_c` ĐỎ**; hoàn nguyên ⇒ XANH (`test_mobile_oas` **983 OK**).
+
+**FE (vitest + `vue-tsc`) — test RENDER cho CẢ HAI nhánh (AC7):** `frontend/src/components/commissioning/DocumentDossierCard.test.ts`
+
+| # | TC ID | Ca | Assert |
+|---|---|---|---|
+| 01 | TC-FE-DOSSIER-FILE-01 | `has_file: 1` | tồn tại `[data-testid="dossier-file-open"]`, `tagName === 'A'`, `href` **kết thúc bằng** `file_url`, text chứa "Mở tệp", `rel` chứa `noopener` |
+| 02 | TC-FE-DOSSIER-FILE-02 | `has_file: 0` (link mồ côi) | tồn tại `[data-testid="dossier-file-missing"]` với text "Chưa đính kèm tệp"; **KHÔNG** có `dossier-file-open`; DOM **không chứa** chuỗi URL nào |
+| 03 | TC-FE-DOSSIER-FILE-03 | Thiếu khoá (BE chưa reload) | `has_file`/`file_url` `undefined` ⇒ rơi nhánh «Chưa đính kèm tệp», KHÔNG crash, KHÔNG `href="undefined"` |
+| 04 | TC-FE-DOSSIER-FILE-04 | `documents` rỗng / vắng | thẻ tổng hợp render y như trước (0 regress), không có khối danh sách |
+
+**OAS guard AC-CR-81 (`test_mobile_oas.py::TestMobileAssetDossierFileContract`, 8 TC `cr81_a..h`):** 5 khoá có mặt + `required` 18 · kiểu `integer` enum[0,1] cho `has_file`/`is_private` + `file_url`/`file_name` KHÔNG nullable · cite-drift 5 `description` · khai luật mồ côi/batch/route-theo-`has_file` · `paths` 108 + `schemas` 283 KHÔNG đổi · 0 regress `AssetDossier` 11 khoá + grouped-object + `oneOf` · anti-stale câu "file_url ngoài phạm vi" · khai anti-leak dòng bị ẩn. `cr75_g` **SUPERSEDE** (13→18 khoá). Counters đồng bộ theo **delta thực đếm** (+8): xem [05 §2.7.d](./05_API_Specification.md).
 
 ## III.3. Integration — DocType lifecycle
 
@@ -616,6 +701,8 @@ Mỗi scenario theo template Phụ lục A. ID `UAT-IMM-05-NN`.
 | Quyết định exempt | `is_exempt`, `exempt_reason` | Confidential | `_require_exempt_role()` guard |
 | Người phê duyệt | `approved_by` | Internal | DocPerm |
 | Dữ liệu bệnh nhân | Không lưu | N/A | AssetCore KHÔNG lưu patient data |
+| **Đường dẫn tệp hồ sơ** (`documents[].file_url` của `get_asset_documents`, AC-CR-81) | `File.file_url` | **Confidential — chỉ cấp cho dòng ĐƯỢC XEM** | BR-05-25: tập URL đưa vào batch-resolve CHỈ lấy từ tập **V** (đã `_apply_visibility_filter`) ⇒ URL của bản `Internal_Only` bị ẩn KHÔNG bao giờ ra response (INV-FILE-6, ca TC-05-FILE-10). Query `File` chạy system-scope nhưng chỉ đọc **4 field metadata**, KHÔNG đọc nội dung tệp. Quyền **mở** tệp riêng tư (`/private/files/…`) vẫn do Frappe kiểm ở tầng phục vụ tệp (cookie `sid`) — `file_url` không phải bí mật, **nội dung** mới là |
+| **Tên loại hồ sơ bắt buộc** (`missing_required` / `expired_required` / `expiring_required` của `get_asset_documents`) | `Required Document Type.type_name` | **Internal — lộ có chủ ý** | ADR-IMM05-03: chỉ số tuân thủ tính trên tập ĐẦY ĐỦ nên 3 mảng có thể nêu **tên loại** mà người xem không được xem **nội dung/file** (`documents` vẫn lọc `_apply_visibility_filter`, kèm `hidden_count`). Đánh đổi: chống báo động giả "thiếu hồ sơ" cho persona thiếu `document.read`. Ranh giới: **KHÔNG** lộ `name`/`doc_number`/`file_attachment`/`rejection_reason` của bản bị ẩn |
 
 ## VI.6. Vendor isolation
 

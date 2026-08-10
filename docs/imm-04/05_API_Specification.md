@@ -27,10 +27,10 @@
 | 9 | `list_non_conformances` | GET | Danh sách NC theo phiếu | ✓ |
 | 10 | `generate_handover_pdf` | GET | Sinh URL PDF biên bản bàn giao | ✓ |
 | 11 | `get_users_by_role` | GET | Danh sách user theo Frappe role | ✓ |
-| 12 | `get_gate_status` | GET | Trạng thái G01–G06 gate cho phiếu | ✓ |
+| 12 | `get_gate_status` | GET | Trạng thái cổng G01–G06 cho phiếu (**BLOCKING-parity**, +`g01_waived`, gác quyền 3 lớp — §24) | ✓ |
 | 13 | `list_my_pending_approvals` | GET | Phiếu tôi cần duyệt | ✓ |
 | 14 | `get_commissioning_origin` | GET | Truy xuất nguồn gốc commissioning của asset | ✓ |
-| 15 | `transition_state` | POST | Workflow transition | ✗ |
+| 15 | `transition_state` | POST | Workflow transition (+`board_approver` optional khi CR-bound · BR-04-12) | ✗ |
 | 16 | `submit_commissioning` | POST | Submit phiếu (docstatus 0→1) | ✗ |
 | 17 | `save_commissioning` | POST | Lưu field inline | ✓ |
 | 18 | `create_commissioning` | POST | Tạo phiếu mới | ✗ |
@@ -63,7 +63,7 @@
 | 01 | POST | /api/method/assetcore.api.imm04.create_commissioning | Tạo phiếu nghiệm thu mới | Primary |
 | 02 | POST | /api/method/assetcore.api.imm04.create_from_purchase | Tạo phiếu từ AC Purchase (link) | Primary |
 | 03 | POST | /api/method/assetcore.api.imm04.save_commissioning | Lưu inline field (Draft/edit) | Primary |
-| 04 | POST | /api/method/assetcore.api.imm04.transition_state | Workflow transition (G01–G06) | Primary |
+| 04 | POST | /api/method/assetcore.api.imm04.transition_state | Workflow transition (G01–G06) + cấp `board_approver` 4-mắt khi CR-bound (BR-04-12 · §5b) | Primary |
 | 05 | POST | /api/method/assetcore.api.imm04.submit_commissioning | Submit phiếu (docstatus 0→1, mint Asset) | Primary |
 | 06 | POST | /api/method/assetcore.api.imm04.assign_identification | Gán SN + sinh QR | Primary |
 | 07 | POST | /api/method/assetcore.api.imm04.submit_baseline_checklist | Nộp kết quả đo kiểm IQ/OQ/PQ | Primary |
@@ -80,7 +80,7 @@
 | 18 | GET  | /api/method/assetcore.api.imm04.list_non_conformances | NC theo phiếu | Support |
 | 19 | GET  | /api/method/assetcore.api.imm04.list_my_pending_approvals | Phiếu tôi cần duyệt | Support |
 | 20 | GET  | /api/method/assetcore.api.imm04.get_dashboard_stats | KPI dashboard | Support |
-| 21 | GET  | /api/method/assetcore.api.imm04.get_gate_status | Trạng thái G01–G06 cho phiếu | Support |
+| 21 | GET  | /api/method/assetcore.api.imm04.get_gate_status | Trạng thái cổng G01–G06 cho phiếu (§24 — mirror OAS `getGateStatus`) | Support |
 | 22 | GET  | /api/method/assetcore.api.imm04.get_lifecycle_timeline | Timeline `Asset Lifecycle Event` | Support |
 | 23 | GET  | /api/method/assetcore.api.imm04.get_commissioning_origin | Truy xuất phiếu nguồn của Asset | Support |
 | 24 | GET  | /api/method/assetcore.api.imm04.get_po_details | Auto-fill từ AC Purchase | Support |
@@ -219,9 +219,26 @@ export interface WorkflowTransition {
   next_state: WorkflowState
   allowed_role: string
 }
+
+// transition_state — BR-04-12 (04 §5.4). board_approver optional; CHỈ honor khi
+// next_state của `action` == 'Clinical Release', ngược lại bị bỏ qua (backward-compat).
+export interface TransitionStateRequest {
+  name: string
+  action: string
+  board_approver?: string          // reqd khi transition CR-bound; 4-eyes SoD
+}
+
+export interface TransitionResult {
+  name: string
+  action_applied: string
+  new_state: WorkflowState
+  docstatus: 0 | 1 | 2
+  final_asset: string
+  board_approver: string           // additive — persist sau CR-bound transition
+}
 ```
 
-> ⚠️ `allowed_transitions` là **bề mặt CTA nghiệm thu** — sinh server-side bởi `_get_workflow_transitions()` (`services/imm04.py:667`), role-filtered live. Nếu workflow bị rename / hằng-lookup `"IMM-04 Workflow"` sai / `_DT` drift → service `return []` **câm** → FE mất toàn bộ nút nghiệm thu. Bất biến khoá lỗ này (INV-04-WF-1..4) đặc tả ở `04 §3.1` + BR-04-24 + ADR-IMM-04-01, guard `TestImm04WorkflowSurfaceGuard` (`07 §III.4a`). FE **KHÔNG** hardcode nút theo `workflow_state`; luôn render CTA từ `allowed_transitions` server-driven (GATE-8 / `assetcore-fe`).
+> ⚠️ `allowed_transitions` là **bề mặt CTA nghiệm thu** — sinh server-side bởi `_get_workflow_transitions()` (`services/imm04.py:723`), role-filtered live. Nếu workflow bị rename / hằng-lookup `"IMM-04 Workflow"` sai / `_DT` drift → service `return []` **câm** → FE mất toàn bộ nút nghiệm thu. Bất biến khoá lỗ này (INV-04-WF-1..4) đặc tả ở `04 §3.1` + BR-04-24 + ADR-IMM-04-01, guard `TestImm04WorkflowSurfaceGuard` (`07 §III.4a`). FE **KHÔNG** hardcode nút theo `workflow_state`; luôn render CTA từ `allowed_transitions` server-driven (GATE-8 / `assetcore-fe`).
 
 **Lưu ý:** Workflow state values dùng **space** (`Pending Doc Verify`, `Clinical Release`, ...) — đồng bộ giữa workflow fixture, service constants, và TypeScript enum. Tech debt naming cũ (underscore) đã được resolve.
 
@@ -374,6 +391,123 @@ curl -X POST 'http://site/api/method/assetcore.api.imm04.create_commissioning' \
 
 ---
 
+### 15. transition_state — Workflow transition (+ cấp `board_approver` 4-mắt khi CR-bound · BR-04-12, 04 §5.4)
+
+> Catalog #15 (§0). Đặt cạnh `submit_commissioning` (#6) theo trình tự nghiệp vụ: transition → Clinical Release → Submit.
+
+| Mục | Giá trị |
+|---|---|
+| Method | POST |
+| Path | `/api/method/assetcore.api.imm04.transition_state` |
+| Role | Theo `Workflow Transition.allowed` của state hiện tại (server-driven; `allowed_transitions[]`) |
+| Idempotent | No |
+| Type Response | `TransitionResult` |
+
+**Signature:** `transition_state(name: str, action: str, board_approver: str = "")`
+
+`board_approver` **optional**, **CHỈ có tác dụng** khi `action` là transition có `next_state == "Clinical Release"` (3 cạnh: `Phê duyệt phát hành` từ Initial Inspection · `Gỡ giữ lâm sàng` từ Clinical Hold · `Phê duyệt sau tái kiểm` từ Re Inspection). Với mọi action khác → tham số **bị bỏ qua** (backward-compat, không ghi vào field nào).
+
+**Request (CR-bound — gỡ deadlock):**
+```jsonc
+{"name": "ACC-26-04-00001", "action": "Phê duyệt phát hành", "board_approver": "director@hospital.vn"}
+```
+
+**Request (non-CR — param bỏ qua):**
+```jsonc
+{"name": "ACC-26-04-00001", "action": "Bắt đầu lắp đặt"}
+```
+
+**Response success:**
+```jsonc
+{
+  "success": true,
+  "data": {
+    "name": "ACC-26-04-00001",
+    "action_applied": "Phê duyệt phát hành",
+    "new_state": "Clinical Release",
+    "docstatus": 0,
+    "final_asset": "AC-ASSET-2026-00001",
+    "board_approver": "director@hospital.vn"
+  }
+}
+```
+
+**Response error — thiếu người duyệt (Decision-B, HTTP-200 `success:false`, KHÔNG raw 417):**
+```jsonc
+{
+  "success": false,
+  "error": "Gate G06: Phải chọn Người Phê duyệt Ban Giám đốc (board_approver) trước khi Phát hành Lâm sàng.",
+  "code": "VALIDATION",
+  "http_status": 422,
+  "message_code": "IMM04-GATE-G06-APPROVER",
+  "context": {"missing": ["board_approver"]},
+  "severity": "warning",
+  "title": "Chưa chọn người phê duyệt Ban Giám đốc",
+  "action_hint": "Chọn người phê duyệt Ban Giám đốc rồi gửi lại yêu cầu phát hành."
+}
+```
+
+**Response error — vi phạm 4-mắt (NĐ98 SoD):**
+```jsonc
+{
+  "success": false,
+  "error": "Separation-of-duties (4-eyes): bạn (...) đã ký ở vai trò `clinical_head` trên phiếu này; không thể đồng thời ký thêm vai khác.",
+  "code": "FORBIDDEN",
+  "http_status": 403
+}
+```
+→ phiếu **KHÔNG đổi state**, `board_approver` **KHÔNG bị ghi**.
+
+**Response error — chưa đạt cổng đo kiểm G03 (BR-04-13, Decision-B, HTTP-200 `success:false`, KHÔNG raw 417):**
+```jsonc
+{
+  "success": false,
+  "error": "Gate G03: Không thể phát hành lâm sàng — thông số chưa đạt: Earth Resistance.",
+  "code": "VALIDATION",
+  "http_status": 422,
+  "message_code": "IMM04-GATE-G03-BASELINE",
+  "context": {"failed": ["Earth Resistance"]},
+  "severity": "warning",
+  "title": "Chưa đạt cổng đo kiểm cơ sở",
+  "action_hint": "Chuyển phiếu sang Tái kiểm (nút “Báo cáo lỗi baseline”), đo lại các thông số chưa đạt rồi phê duyệt."
+}
+```
+→ phiếu **KHÔNG đổi state**, `docstatus` **KHÔNG đổi**, `board_approver` **KHÔNG bị ghi** (raise TRƯỚC `apply_workflow`).
+`context.failed` gồm **mọi** dòng `test_result ∉ {Pass, N/A}` (cả `Fail` lẫn dòng chưa ghi kết quả); checklist rỗng ⇒ `failed: []`.
+
+**Errors có thể:**
+| Code (BE) | Code (FE) | Khi nào |
+|---|---|---|
+| `NOT_FOUND` | `NOT_FOUND` | Phiếu không tồn tại |
+| `FORBIDDEN` | `FORBIDDEN` | (a) thiếu quyền `write`; (b) 4-eyes: `board_approver` trùng `owner`/`clinical_head`/`qa_officer`/`pending_approver` (`assert_distinct_signers`) |
+| `INVALID_PARAMS` | `VALIDATION_ERROR` | `action` không hợp lệ từ state hiện tại |
+| `VALIDATION` | `VALIDATION_ERROR` | **CR-bound baseline chưa đạt G03** (`message_code=IMM04-GATE-G03-BASELINE`, `context.failed=[...]`) — BR-04-13. **Chạy TRƯỚC G06.** Phủ cả 3 cạnh CR-bound: `Phê duyệt phát hành` · `Phê duyệt sau tái kiểm` · `Gỡ giữ lâm sàng` |
+| `VALIDATION` | `VALIDATION_ERROR` | **CR-bound thiếu `board_approver`** (`message_code=IMM04-GATE-G06-APPROVER`, `context.missing=['board_approver']`) — Decision-B, thay cho 417 legacy |
+
+**Thứ tự pre-check CR-bound (chốt):** `G03 (baseline)` → `G06 (board_approver)` → `4-eyes` → `apply_workflow`. Thiết bị chưa đạt đo kiểm thì không hỏi người duyệt.
+
+**Nhánh non-CR-bound — `Báo cáo lỗi baseline` (`Initial Inspection → Re Inspection`):** KHÔNG gate G03 (đây chính là đường thoát khi baseline `Fail`). Điều kiện thực tế để đi được: `baseline_tests` non-rỗng, **mọi** dòng đã ghi `test_result`, và dòng `Fail` có `fail_note` — nếu không, hook save-time `validate_checklist_completion()` VR-03/VR-03a vẫn `frappe.throw` ⇒ **417 thô** (EC-04-13, residual [ROADMAP] — FE phải chặn ở form).
+
+**Side effects (CR-bound):**
+- Ghi `board_approver` (khi caller cấp mới) TRƯỚC `apply_workflow` → gate G06 save-time pass cùng lượt.
+- `apply_workflow` → `workflow_state = Clinical Release`.
+- Stamp `commissioning_date` (BR-04-11, idempotent).
+- Auto-mint `AC Asset` (`create_ac_asset`, idempotent theo `final_asset` — best-effort, không chặn transition nếu lỗi).
+
+**Boundaries:** xem 04 §5.4. Điểm chốt cho FE: đọc `allowed_transitions[]` từ `CommissioningDetail` (GATE-8, server-driven CTA) — với transition CR-bound, thu `board_approver` (dùng `ApproverSelect context="user"` / `list_assignable_users`, **KHÔNG** `SmartSelect doctype="User"` trần) rồi truyền vào `transition_state`; nếu `message_code == IMM04-GATE-G06-APPROVER` → highlight control người-duyệt (đọc `context.missing`).
+
+**Curl:**
+```bash
+curl -X POST 'http://site/api/method/assetcore.api.imm04.transition_state' \
+  -H 'Authorization: token key:secret' \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"ACC-26-04-00001","action":"Phê duyệt phát hành","board_approver":"director@hospital.vn"}'
+```
+
+> ⚠️ Mobile OAS (`docs/mobile/openapi/assetcore-mobile.openapi.yaml`) **KHÔNG** expose `transition_state` như write-op (IMM-04 mobile hiện chỉ read: `list`/`detail` + `allowed_transitions[]`). Curate write-op cho mobile = **[ROADMAP]** mobile-BE round riêng (giữ op-count baseline; `test_mobile_oas` KHÔNG đụng vòng này).
+
+---
+
 ### 6. submit_commissioning — Submit phiếu
 
 | Mục | Giá trị |
@@ -424,6 +558,7 @@ curl -X POST 'http://site/api/method/assetcore.api.imm04.create_commissioning' \
 - **Stamp `commissioning_date = nowdate()` nếu còn NULL** (BR-04-11 — `_stamp_commissioning_date`; idempotent, không ghi đè). Bảo hiểm cho phiếu vào Clinical Release từ trước fix mà chưa stamp.
 - Tạo `Asset` record (`final_asset`)
 - Auto-import hồ sơ sang IMM-05 (`create_initial_document_set`)
+- **`on_submit` doc_events (`hooks.py:194-197`) phát lịch bảo trì + hiệu chuẩn** — `imm08.create_pm_schedule_from_commissioning` (PM schedule) + `imm11.create_calibration_schedule_from_commissioning` (Calibration schedule). Đây là mắt xích `Commissioning → Operation`: sau gỡ deadlock (§5.4 / BR-04-12), phiếu tới được `Clinical Release` → Submit → 2 lịch được phát ⇒ mạch `Needs→Operation` không còn nút chết.
 - Publish realtime `imm04_asset_released`
 - Notify Purchase User role
 
@@ -507,24 +642,66 @@ curl -X POST 'http://site/api/method/assetcore.api.imm04.submit_commissioning' \
 }
 ```
 
-**Response success (all pass):**
+**Tiền điều kiện state (BR-04-14):** `workflow_state ∈ {"Initial Inspection", "Re Inspection"}`. Ngoài 2 state này → Error `INVALID_PARAMS`. *(Bản trước chỉ chấp nhận `Initial Inspection` ⇒ phiếu vào Tái kiểm kẹt vĩnh viễn.)*
+
+> **Ngữ nghĩa (BR-04-04 · silent-completion guard — xem `04_Backend_Design.md §5.3`, ADR-IMM-04-02):**
+> - **UPSERT-by-parameter:** `result` cho parameter **chưa có** row trong `baseline_tests` → BE **append** row mới + persist (phiếu tạo không pre-seed child vẫn ghi được đo hiện trường). KHÔNG drop câm.
+> - **`tests_recorded`** = số row THỰC ghi `test_result` (Pass/Fail/N/A) sau upsert — KHÔNG `len(results)` mù. Verdict chỉ được đặt khi `tests_recorded > 0`.
+> - **0 phép đo** (`results` rỗng AND `baseline_tests` rỗng, hoặc 0 row có `test_result`) → **KHÔNG auto-Pass**; trả Error `VALIDATION` (BR-04-04a). `overall_inspection_result` KHÔNG set.
+>
+> **Ngữ nghĩa Fail-path (BR-04-04e/f · BR-04-14 — Self-Correction 2026-07-24, xem `04_Backend_Design.md §5.5` + ADR-IMM-04-04):**
+> - Dòng `test_result == "Fail"` **KHÔNG còn là lỗi**. Endpoint là thao tác **ghi nhận dữ liệu đo kiểm**, không phải cổng phê duyệt ⇒ **luôn `doc.save()`**, dòng `Fail` kèm `measured_val` + `fail_note` **PERSIST**.
+> - `overall_result` là **dẫn xuất**: `"Fail"` nếu còn ≥1 dòng `Fail`, ngược lại `"Pass"`. Ghi vào `overall_inspection_result` (Select đã có sẵn option `Fail` — **0 schema change**).
+> - Endpoint **KHÔNG** gọi `apply_workflow` ⇒ `workflow_state` **KHÔNG đổi** (vẫn `Initial Inspection` / `Re Inspection`). Chuyển trạng thái là hành động riêng: `transition_state(name, "Báo cáo lỗi baseline")`.
+> - Cổng an toàn nằm ở `transition_state` vào `Clinical Release` (**BR-04-13**, `IMM04-GATE-G03-BASELINE`) — xem §11 endpoint `transition_state`.
+
+**Response success — KHÔNG ĐẠT (BR-04-04e/f, 5-key):**
+```jsonc
+{
+  "success": true,
+  "data": {
+    "name": "ACC-26-04-00001",
+    "overall_result": "Fail",
+    "tests_recorded": 2,
+    "failed_parameters": ["Earth Resistance"],
+    "clinical_hold_required": true
+  }
+}
+```
+
+**Response success (all pass, N phép đo — 5-key):**
 ```jsonc
 {
   "success": true,
   "data": {
     "name": "ACC-26-04-00001",
     "overall_result": "Pass",
+    "tests_recorded": 2,
+    "failed_parameters": [],
     "clinical_hold_required": true
   }
 }
 ```
 
-**Response error (có Fail):**
+> ⚠️ **Breaking-ish cho client giả định `overall_result` luôn `"Pass"`.** Shape là **additive** (3-key → 5-key, không xoá key), nhưng enum của `overall_result` mở rộng `[Pass] → [Pass, Fail]`. Client PHẢI phân nhánh theo `overall_result`, KHÔNG suy ra thành công từ `success:true`. Mobile OAS `SubmitBaselineChecklistResponse` hiện khai `enum: [Pass]` + 3-prop CLOSED → **phải re-mirror** sau khi BE land (xem §24).
+
+~~**Response error (có Fail — BR-04-04c)**~~ — **BỎ (superseded)**: nhánh này không còn tồn tại; `Fail` nay là **success** với `overall_result: "Fail"`.
+
+**Response error (0 phép đo — BR-04-04a, chặn Pass-giả — GIỮ NGUYÊN):**
 ```jsonc
 {
   "success": false,
-  "error": "BR-04-04: Thông số sau không đạt: Earth Resistance. Phiếu phải chuyển về Re Inspection.",
+  "error": "BR-04-04: Chưa ghi nhận kết quả kiểm tra baseline nào — không thể nghiệm thu. Nhập ≥1 phép đo (test_result) trước khi nộp.",
   "code": "VALIDATION"
+}
+```
+
+**Response error (sai state — BR-04-14):**
+```jsonc
+{
+  "success": false,
+  "error": "Chỉ nộp bảng kiểm khi ở Initial Inspection hoặc Re Inspection. Hiện tại: Installing",
+  "code": "INVALID_PARAMS"
 }
 ```
 
@@ -641,7 +818,7 @@ curl -X POST 'http://site/api/method/assetcore.api.imm04.submit_commissioning' \
 | Method | GET |
 | Path | `/api/method/assetcore.api.imm04.get_commissioning_origin` |
 | Handler | `api/imm04.py:315` → `_handle(svc.get_commissioning_origin, asset_name)` (Decision-B) |
-| Service | `services/imm04.py:1972-1997` (SoT payload) |
+| Service | `services/imm04.py:2028-2053` (SoT payload) |
 | Role | Bare `@whitelist` — permission-aware qua `_handle`; guest → dispatcher-403. KHÔNG `rbac.require` in-handler |
 | Idempotent | Yes (read-only, KHÔNG audit) |
 
@@ -678,14 +855,14 @@ Trả **nguồn-gốc/xuất-xứ** của 1 thiết bị (`AC Asset`) cho tab "N
 
 ### 20. list_commissioning — Mobile LIST-ENTRY màn "Tiếp nhận & Nghiệm thu hiện trường" (📱 Trục B · CR-25a · MỞ NHÁNH IMM-04 F6)
 
-**Actor:** KTV / Commissioning User (mobile) · **Verb:** GET · **Handler:** `assetcore.api.imm04.list_commissioning` (`api/imm04.py:24`) → `svc.list_commissioning` (`services/imm04.py:831`).
+**Actor:** KTV / Commissioning User (mobile) · **Verb:** GET · **Handler:** `assetcore.api.imm04.list_commissioning` (`api/imm04.py:24`) → `svc.list_commissioning` (`services/imm04.py:887`).
 **Deliverable = curate endpoint LIST-ENTRY vào OAS mirror.** Đây là endpoint list phiếu `Asset Commissioning` — màn khởi động luồng field-tech (chọn phiếu để tiếp nhận & nghiệm thu). CONTRACT-ONLY: **backend ĐÃ LIVE** (0 `.py` runtime change / 0 reload / 0 migrate). Curate là **pure-YAML** vào `docs/mobile/openapi/assetcore-mobile.openapi.yaml` + đồng bộ test guard.
 
 > ⚠️ **KHÔNG nhầm** với `getAssetCommissioningOrigin` (§19 — nguồn: `imm04.get_commissioning_origin`, sub-tab Asset Detail #4). Đây là **nguồn khác** (`imm04.list_commissioning`), tag/schema/opId riêng biệt (AC5 blast-radius = 0 với AssetCommissioningOrigin).
 
 #### 20.1. Envelope — Asset-style `data.items[]` (KHÁC PM/calib `data.data[]`)
 
-Service trả `{"items": records, "pagination": pg}` (`services/imm04.py:911`); `helpers._ok(...)` wrap → wire body:
+Service trả `{"items": records, "pagination": pg}` (`services/imm04.py:967`); `helpers._ok(...)` wrap → wire body:
 
 ```jsonc
 {
@@ -699,11 +876,11 @@ Service trả `{"items": records, "pagination": pg}` (`services/imm04.py:911`); 
 
 Rows nằm dưới **`data.items[]`** (mirror `AssetListEnvelope` / `IncidentListEnvelope` — KHÁC `PmWorkOrderListEnvelope`/`CalibrationListEnvelope` dùng `data.data[]`).
 
-> **⚠️ Self-Correction (ambiguity resolve — BA quyết định, đọc kỹ trước khi curate):** AC3 mô tả `CommissioningListPage` là "items=array + pagination=$ref" — đây mô tả **nội dung của khối `data`**, KHÔNG phải toàn bộ schema. Schema `CommissioningListPage` phải là **FULL success envelope** `{success: enum[true], data: {items[], pagination}}` — **mirror `AssetListEnvelope`** (`yaml:2059`) — vì live `helpers._ok` wrap thêm lớp `{success, data}` quanh `{items, pagination}` (`services/imm04.py:911`). Nếu curate `CommissioningListPage = {items, pagination}` TRẦN (thiếu wrapper `success`/`data`) → **SAI live-wire parity** (200-body thật có `success`+`data`). Đặt tên `...ListPage` (thay `...ListEnvelope`) là chủ ý AC, nhưng **vai trò = envelope**.
+> **⚠️ Self-Correction (ambiguity resolve — BA quyết định, đọc kỹ trước khi curate):** AC3 mô tả `CommissioningListPage` là "items=array + pagination=$ref" — đây mô tả **nội dung của khối `data`**, KHÔNG phải toàn bộ schema. Schema `CommissioningListPage` phải là **FULL success envelope** `{success: enum[true], data: {items[], pagination}}` — **mirror `AssetListEnvelope`** (`yaml:2059`) — vì live `helpers._ok` wrap thêm lớp `{success, data}` quanh `{items, pagination}` (`services/imm04.py:967`). Nếu curate `CommissioningListPage = {items, pagination}` TRẦN (thiếu wrapper `success`/`data`) → **SAI live-wire parity** (200-body thật có `success`+`data`). Đặt tên `...ListPage` (thay `...ListEnvelope`) là chủ ý AC, nhưng **vai trò = envelope**.
 
 #### 20.2. Schemas cần curate (2 schema MỚI, closed)
 
-**(a) `CommissioningListItem`** — `additionalProperties: false`, **ĐÚNG 20 property** = 13 `_LIST_FIELDS` (`services/imm04.py:117-123`) + 7 enrich (`services/imm04.py:902-907`). `required: [name]` (mirror `AssetListItem` — chỉ PK bắt buộc, còn lại optional). **KHÔNG có field Check int-0/1** (`is_radiation_device`/`doa_incident` chỉ là filter-key, KHÔNG ∈ `_LIST_FIELDS` → list-item **MIỄN CR-01 coercion**).
+**(a) `CommissioningListItem`** — `additionalProperties: false`, **ĐÚNG 20 property** = 13 `_LIST_FIELDS` (`services/imm04.py:117-123`) + 7 enrich (`services/imm04.py:958-963`). `required: [name]` (mirror `AssetListItem` — chỉ PK bắt buộc, còn lại optional). **KHÔNG có field Check int-0/1** (`is_radiation_device`/`doa_incident` chỉ là filter-key, KHÔNG ∈ `_LIST_FIELDS` → list-item **MIỄN CR-01 coercion**).
 
 | # | Property | Type | Ghi chú (grounding) |
 |---|---|---|---|
@@ -721,9 +898,9 @@ Rows nằm dưới **`data.items[]`** (mirror `AssetListEnvelope` / `IncidentLis
 | 12 | `final_asset` | string, nullable | Link `AC Asset` (asset đã mint) |
 | 13 | `modified` | string | Frappe Datetime `'yyyy-MM-dd HH:mm:ss'` — **KHÔNG `format:date-time`** (space-sep ≠ RFC3339; mirror `AssetDowntimeLog.start_time`) |
 | 14 | `master_item_name` | string | enrich `IMM Device Model.model_name` (default `''`/id) |
-| 15 | `device_model_name` | string | **alias** = `master_item_name` (per DC contract, `services/imm04.py:904`) |
+| 15 | `device_model_name` | string | **alias** = `master_item_name` (per DC contract, `services/imm04.py:960`) |
 | 16 | `vendor_name` | string | enrich `AC Supplier.supplier_name` |
-| 17 | `supplier_name` | string | **alias** = `vendor_name` (`services/imm04.py:906`) |
+| 17 | `supplier_name` | string | **alias** = `vendor_name` (`services/imm04.py:962`) |
 | 18 | `clinical_dept_name` | string | enrich `AC Department.department_name` |
 | 19 | `po_ref_name` | string | enrich `AC Purchase.purchase_name` (fallback id) |
 | 20 | `asset_name` | string | enrich `AC Asset.asset_name` |
@@ -749,16 +926,29 @@ CommissioningListPage:
 
 - **Path:** `GET /api/method/assetcore.api.imm04.list_commissioning` · **operationId:** `listCommissioning` · **tags:** `[commissioning]` (**inline operation-tag MỚI** — mirror `tags: [asset]`; OAS KHÔNG có top-level `tags:` registry nên chỉ cần thêm ở operation, KHÔNG cần đăng ký registry) · **security:** OAuth2/session (mirror `listAssets`).
 - **Params:** `$ref Page` + `$ref PageSize` (REUSE, clamp 1..100 `pagination.py:8`) + **param MỚI `CommissioningFilters`**.
-- **`CommissioningFilters`** (`name: filters`, `in: query`, `required: false`, `type: string` JSON-string, `default: '{}'`) — mirror `WorkOrderFilters` (`yaml:235`). Description liệt kê **12 key ∈ `_ALLOWED_FILTER_KEYS`** (`services/imm04.py:125-130`): `workflow_state · po_reference · master_item · vendor · clinical_dept · docstatus · is_radiation_device · doa_incident · vendor_serial_no · internal_tag_qr · expected_installation_date · final_asset`. Key ngoài whitelist → **bỏ qua** (`services/imm04.py:837`), KHÔNG throw. `example: '{"clinical_dept":"AC-DEPT-0001"}'`.
-  - **BA note (completeness, KHÔNG bắt buộc mở rộng scope):** endpoint còn honor **virtual key `overdue=1`** (BR-04-10, `services/imm04.py:846`) — KHÔNG ∈ `_ALLOWED_FILTER_KEYS` (whitelist ảo riêng `_VIRTUAL_FILTER_KEYS`), AND thêm `overdue_commissioning_filter()`. Vì `filters` là JSON-string opaque, mô tả 12 key là contract chính; **được phép** thêm 1 câu mô tả `overdue` là virtual-key optional (drill "Quá hạn SLA"). KHÔNG khai `overdue` như raw column trong danh sách 12 (giữ đúng `_ALLOWED_FILTER_KEYS`).
+- **`CommissioningFilters`** (`name: filters`, `in: query`, `required: false`, `type: string` JSON-string, `default: '{}'`) — mirror `WorkOrderFilters` (`yaml:235`). Description liệt kê **12 key ∈ `_ALLOWED_FILTER_KEYS`** (`services/imm04.py:125-130`): `workflow_state · po_reference · master_item · vendor · clinical_dept · docstatus · is_radiation_device · doa_incident · vendor_serial_no · internal_tag_qr · expected_installation_date · final_asset`. Key ngoài whitelist → **bỏ qua** (`services/imm04.py:893`), KHÔNG throw. `example: '{"clinical_dept":"AC-DEPT-0001"}'`.
+  - **BA note (completeness, KHÔNG bắt buộc mở rộng scope):** endpoint còn honor **virtual key `overdue=1`** (BR-04-10, `services/imm04.py:902`) — KHÔNG ∈ `_ALLOWED_FILTER_KEYS` (whitelist ảo riêng `_VIRTUAL_FILTER_KEYS`), AND thêm `overdue_commissioning_filter()`. Vì `filters` là JSON-string opaque, mô tả 12 key là contract chính; **được phép** thêm 1 câu mô tả `overdue` là virtual-key optional (drill "Quá hạn SLA"). KHÔNG khai `overdue` như raw column trong danh sách 12 (giữ đúng `_ALLOWED_FILTER_KEYS`).
 - **Responses (slot `{200, 401}`):**
-  - `200`: `oneOf [CommissioningListPage, Error]` — **Decision-B**: lỗi nghiệp vụ (service `raise ServiceError(FORBIDDEN)` khi blanket `has_permission(_DT, read)` fail, `services/imm04.py:833-836`) → `_handle` bắt → `_err` trên **HTTP-200 + Error envelope** (KHÔNG raise→4xx). closed-schema 2 nhánh disjoint (route-by-value, KHÔNG discriminator — read-path).
+  - `200`: `oneOf [CommissioningListPage, Error]` — **Decision-B**: lỗi nghiệp vụ (service `raise ServiceError(FORBIDDEN)` khi blanket `has_permission(_DT, read)` fail, `services/imm04.py:889-892`) → `_handle` bắt → `_err` trên **HTTP-200 + Error envelope** (KHÔNG raise→4xx). closed-schema 2 nhánh disjoint (route-by-value, KHÔNG discriminator — read-path).
   - `401`: `$ref '#/components/responses/Unauthorized401'` (uniform mobile convention — bearer hết hạn → refresh; mirror `listIncidents` slot, `yaml:8908`).
   - **2 loại 403 — KHÔNG wire response 403 riêng:** (1) *dispatcher-403* (guest/no-token, `@frappe.whitelist()` bare) đến TRƯỚC handler = re-auth → phủ bởi 401 flow; (2) *in-handler cap-403* (`FORBIDDEN` khi thiếu quyền read) đến trên **HTTP-200** như nhánh `Error` của 200-oneOf (Decision-B). ⇒ slot `{200,401}` đủ, KHÔNG thêm `403`.
 
 #### 20.4. Invariant · guard bump · RED→GREEN (AC6/AC7)
 
-- **INVARIANT `count == rows`:** `pagination.total = frappe.db.count(_DT, query_filters)` (`services/imm04.py:854`) và `items = frappe.get_all(_DT, filters=query_filters, …)` (`:857-861`) dùng **CÙNG `query_filters`** ⇒ `total == len(items)` **được bảo đảm cấu trúc**. ⚠️ **KHÔNG khai "permission-aware row-level":** `Asset Commissioning` CÓ `permission_query_conditions` (`asset_commissioning_query`, `hooks.py:435`) + `has_permission` hook (`hooks.py:444`), NHƯNG cả `frappe.db.count` lẫn `frappe.get_all` **BỎ QUA** 2 hook đó (chỉ `frappe.get_list` áp) → count & rows **cùng bỏ qua** ⇒ vẫn khớp nhau (đây chính là lý do KHÔNG dính lỗi P1 `count!=rows` của `/assets`). Kiểm-soát-truy-cập của endpoint = **blanket `has_permission(_DT, read)` upfront** (`:833`, Decision-B FORBIDDEN nếu fail), **KHÔNG** row-scope theo `asset_commissioning_query`. Nếu mobile cần row-scope (vd KTV chỉ thấy phiếu khoa mình) → **[ROADMAP] xác nhận với QA/security** — KHÔNG phải deliverable CR-25a này. Description schema chỉ khai `total == len(items)`, KHÔNG khai "permission-aware".
+- **INVARIANT `count == rows`** — ⛔ **ĐOẠN NÀY ĐÃ BỊ SUPERSEDE 2026-07-30 (AC-CR-98).** Bản ratify cũ (giữ lại nguyên văn bên dưới để truy vết) đã **hợp thức hoá một lỗ rò dữ liệu**: nó lập luận rằng vì `frappe.db.count` **và** `frappe.get_all` *cùng* bỏ qua `permission_query_conditions` nên hai con số vẫn khớp — đúng về số học, **sai về nghiệp vụ**: hai cái sai cùng chiều thì `total == len(items)` mà **cả hai đều là tổng toàn bảng**, nên persona bị row-scope (`Vendor Engineer` kiêm `Commissioning User`) đọc được phiếu ngoài phạm vi.
+  **Hợp đồng có hiệu lực (SSoT):** [`../imm-00/ADR-IMM00-LIST-SCOPE.md §10`](../imm-00/ADR-IMM00-LIST-SCOPE.md) — `ADR-IMM00-LIST-SCOPE-05` + `INV-COMM-SCOPE-1..4`:
+  - `total` **và** `items` đi qua **MỘT engine** `frappe.get_list` (SSoT `services/shared/filters.py::count_with_or` `:236`) ⇒ **CÙNG** predicate, **áp** `asset_commissioning_query` (`hooks.py:444`) + DocPerm ⇒ `total == len(items)` **và** cả hai đều **row-scoped**.
+  - Kiểm-soát-truy-cập = **2 lớp cùng tồn tại**: lớp ROLE `frappe.has_permission(_DT,"read",throw=True)` (`services/imm04.py:1055`, Decision-B FORBIDDEN trên HTTP-200 nếu fail) **+** lớp ROW do `get_list` + hook lo. **KHÔNG** có "chế độ đọc lỏng".
+  - Description schema **được** khai `total == len(items)` **và** "permission-aware row-level" sau khi BE land §10.5.
+  - Ba persona chuẩn + hệ quả `Vendor Engineer` **thuần** (không có DocPerm read ⇒ Error envelope): §10.2.
+  - ⚠️ **Line-cite của §20 (viết 2026-07-14) đã DRIFT.** Đúng tại 2026-07-30: `list_commissioning` `services/imm04.py:1053` · ROLE gate `:1055` · whitelist `:1059` · `docstatus!=2` `:1060-1061` · `overdue` `:1067-1072` · đếm `:1076` · đọc `:1079-1083` · trả về `:1133` · `_LIST_FIELDS` `:124-130` · `_ALLOWED_FILTER_KEYS` `:132-137`. Các cite `:887/:910/:857-861/:967/:833/:117-123/:125-130` trong §20 là **STALE** — đọc từ đĩa, đừng tin số.
+  - ⚠️ **DRIFT vòng 2 (đo 2026-07-30, AC-CR-112):** chính dãy số ở dòng trên cũng đã lệch sau khi BE land §10.5. **Bảng cite có hiệu lực DUY NHẤT** = [`04 §11.1`](./04_Backend_Design.md) (`def` `:1055` · ROLE gate `:1088` · `docstatus!=2` `:1093-1094` · `overdue` `:1101-1105` · đếm `:1113` · đọc `:1116-1120` · trả về `:1176`). Không nhân bản dãy số này ra file khác — 3 nơi cùng giữ cite = 3 nơi cùng rot.
+  - **Bổ sung hợp đồng (AC-CR-112 · `ADR-IMM00-LIST-SCOPE-07`):** bất biến `count == rows` áp cho **MỌI SHAPE** của `filters` — bao gồm nhánh **list-form** do tham số ảo `overdue=1` sinh ra. `count_with_or` khai `filters: dict | list | None` (`services/shared/filters.py:236`) chính vì nhánh này. Description schema **được** khai `total == len(items)` cho cả hai nhánh **chỉ sau khi** `INV-COMM-SCOPE-5/6` có bằng chứng chạy + mutation (xem [`../imm-00/ADR-IMM00-LIST-SCOPE.md §11`](../imm-00/ADR-IMM00-LIST-SCOPE.md) và [`07 §IX`](./07_Testing_QA.md)). **0 đổi OAS mirror vòng này** ⇒ **0 đổi** counter `test_mobile_oas`.
+  <details><summary>Bản ratify cũ (2026-07-14 — KHÔNG áp dụng, giữ để truy vết)</summary>
+
+  > `pagination.total = frappe.db.count(_DT, query_filters)` và `items = frappe.get_all(_DT, filters=query_filters, …)` dùng **CÙNG `query_filters`** ⇒ `total == len(items)` **được bảo đảm cấu trúc**. ⚠️ **KHÔNG khai "permission-aware row-level":** … cả `frappe.db.count` lẫn `frappe.get_all` **BỎ QUA** 2 hook đó (chỉ `frappe.get_list` áp) → count & rows **cùng bỏ qua** ⇒ vẫn khớp nhau … Kiểm-soát-truy-cập của endpoint = **blanket `has_permission(_DT, read)` upfront**, **KHÔNG** row-scope theo `asset_commissioning_query`. Nếu mobile cần row-scope → **[ROADMAP]**.
+
+  </details>
 - **Count/opId bump = +1 (KHÔNG hardcode 73→74).** ⚠️ **AC ghi "73→74" là STALE** — baseline **LIVE hiện tại = 75 path / 75 opId** (drift do phiên concurrent: `createTransfer` ADR-MOBILE-046 + khác). **Dev PHẢI đọc baseline LIVE ngay trước khi curate** (`grep -cE '^  /api/method' <yaml>`) rồi bump **live+1**. Delta bất biến: **+1 path · +1 opId · +2 schema (`CommissioningListItem`,`CommissioningListPage`) · +1 param (`CommissioningFilters`) · +N test-case**.
 - **Guard counters đồng bộ (đọc LIVE, cộng delta):** `_EXPECTED_TEST_COUNT` (`tests/test_mobile_oas.py`, hiện 707) += số TC class mới; đồng bộ **3 counter** trong `tests/test_mobile_docset.py`: `_GUARD_SUITE_EXPECTED["test_mobile_oas.py"]` (707) · `_GUARD_SUITE_SUM` (850) · `_MOBILE_OAS_TOTAL` (876 = SUM + preflight 26). Bump theo đúng số TC thêm.
 - **AC5 closed-schema guard:** `additionalProperties:false` trên MỌI schema mới (`CommissioningListItem`, `CommissioningListPage` + khối `data`); global closed-schema guard (`test_mobile_docset`) phải xanh; KHÔNG sửa path/schema hiện có (0 blast-radius).
@@ -777,13 +967,13 @@ CommissioningListPage:
 - **Always:** curate pure-YAML vào `docs/mobile/openapi/assetcore-mobile.openapi.yaml`; đọc baseline count **LIVE** trước bump; REUSE `Pagination`/`Page`/`PageSize`/`Unauthorized401`; `additionalProperties:false` mọi schema mới; ground field-set từ `services/imm04.py` (`_LIST_FIELDS`/enrich/`_ALLOWED_FILTER_KEYS`) — KHÔNG bịa; RED-before/GREEN-after chứng minh.
 - **Never:** ❌ sửa `.py`/reload/migrate (backend LIVE); ❌ đụng `AssetCommissioningOrigin`/`getAssetCommissioningOrigin` (§19, nguồn khác); ❌ sửa path/schema hiện có (0 blast-radius); ❌ khai field Check int-0/1 trong `CommissioningListItem`; ❌ tạo `Pagination` mới; ❌ hardcode `73→74` (đọc live); ❌ nhận "xanh suông" khi test chưa assert path/schema mới.
 
-> 📱 **Mobile OAS contract (tóm tắt):** curate `docs/mobile/openapi/assetcore-mobile.openapi.yaml` — opId `listCommissioning`, tag `commissioning`, 200 = oneOf `[CommissioningListPage, Error]` (Decision-B) + 401 `Unauthorized401`; schema `CommissioningListItem` (20 prop closed) + `CommissioningListPage` (full envelope) + param `CommissioningFilters` (12 key JSON-string). CONTRACT-ONLY (backend LIVE `api/imm04.py:24` / `services/imm04.py:831`, 0 `.py`/reload/migrate). Quyết định đầy đủ: `ADR-MOBILE-048` (dev tạo) + `docs/mobile/04-api-contract.md` (dev thêm §). ⚠️ Path/opId count LIVE-drift — đọc live baseline, bump +1.
+> 📱 **Mobile OAS contract (tóm tắt):** curate `docs/mobile/openapi/assetcore-mobile.openapi.yaml` — opId `listCommissioning`, tag `commissioning`, 200 = oneOf `[CommissioningListPage, Error]` (Decision-B) + 401 `Unauthorized401`; schema `CommissioningListItem` (20 prop closed) + `CommissioningListPage` (full envelope) + param `CommissioningFilters` (12 key JSON-string). CONTRACT-ONLY (backend LIVE `api/imm04.py:24` / `services/imm04.py:887`, 0 `.py`/reload/migrate). Quyết định đầy đủ: `ADR-MOBILE-048` (dev tạo) + `docs/mobile/04-api-contract.md` (dev thêm §). ⚠️ Path/opId count LIVE-drift — đọc live baseline, bump +1.
 
 ---
 
 ### 21. get_form_context — Mobile DETAIL màn "Tiếp nhận & Nghiệm thu hiện trường" (📱 Trục B · CR-25b · MỞ NHÁNH IMM-04 F6 DETAIL)
 
-**Actor:** KTV / Commissioning User (mobile) · **Verb:** GET · **Handler:** `assetcore.api.imm04.get_form_context` (`api/imm04.py:19-21`, bare `@frappe.whitelist()` → nhận GET) → `svc.get_form_context` (`services/imm04.py:796-808`).
+**Actor:** KTV / Commissioning User (mobile) · **Verb:** GET · **Handler:** `assetcore.api.imm04.get_form_context` (`api/imm04.py:19-21`, bare `@frappe.whitelist()` → nhận GET) → `svc.get_form_context` (`services/imm04.py:852-864`).
 **Deliverable = curate endpoint DETAIL-READ vào OAS mirror.** Đây là **sibling DETAIL** của `listCommissioning` (§20 list-entry) — mở phiếu `Asset Commissioning` CHI TIẾT để field-tech tiếp nhận & nghiệm thu (theo precedent list→detail R40→R42 `listAllocations→getAllocation`, R43→R44 `listInternalAudits→getInternalAudit`). CONTRACT-ONLY: **backend ĐÃ LIVE** (`get_form_context`/`_serialize_*` — 0 `.py` runtime change / 0 reload / 0 migrate). Curate là **pure-YAML** vào `docs/mobile/openapi/assetcore-mobile.openapi.yaml` + đồng bộ test guard.
 
 > ⚠️ **KHÔNG nhầm** với `getAssetCommissioningOrigin` (§19 — nguồn `imm04.get_commissioning_origin`, sub-tab Asset Detail #4, wrapper `AssetCommissioningOrigin`). Đây là **nguồn khác** (`imm04.get_form_context`), tag `commissioning`, schema/opId riêng (blast-radius = 0).
@@ -792,8 +982,8 @@ CommissioningListPage:
 
 Acceptance vòng 45 ground **sai 2 điểm** so với code LIVE. Core Doc (sau sửa) là **quyết định cuối** — dev implement theo mục này, KHÔNG theo chữ acceptance gốc:
 
-- **SC#1 (BẮT BUỘC — factual, wire-shape):** acceptance ghi `allowed_transitions` là **`array[string]`**. **SAI.** `get_form_context` gán `result["allowed_transitions"] = _get_workflow_transitions(name)` (`services/imm04.py:807`); helper `_get_workflow_transitions` (`services/imm04.py:667-678`) **return `list[dict]`** = `[{action, next_state, allowed_role}, …]` (role-filtered). Web Core Doc ĐÃ model đúng là `WorkflowTransition[]` (§1.5 `05_API_Specification.md:213,217-221`). ⇒ CONTRACT-ONLY **phải** khai `allowed_transitions` = **`array` of `CommissioningTransitionItem`** (object 3-field), **KHÔNG** `array[string]`. ⚠️ **KHÔNG mirror mù `getInternalAudit`** (imm16 dùng helper KHÁC trả `array[string]` — `allowed_transitions` shape là per-module, PHẢI ground theo helper của IMM-04).
-- **SC#2 (ADR-IMM04-MOBILE-DETAIL-01 — design, OPEN→CLOSED):** acceptance ghi `CommissioningDetail` + 3 child **OPEN** (`additionalProperties:true`) "theo deviation R44". **Áp sai tiền đề.** Deviation R44/R42 (`getInternalAudit`/`getAllocation`/`RepairWorkOrderDetail`) OPEN **CHỈ VÌ** serializer là `doc.as_dict()` — surface rò meta Frappe (`name/owner/creation/idx`; child `parent/parentfield/parenttype`) VƯỢT field nghiệp-vụ enumerable ⇒ closed sẽ "nói dối" → strict codegen crash. **`_serialize_commissioning` (`services/imm04.py:728-791`) + 3 child serializer là CURATED explicit-dict literal** (KHÔNG `as_dict()`) — surface **enumerable đầy đủ, 0 meta leak**, Y HỆT sibling cùng-module `CommissioningListItem` (§20, CLOSED) + `DueCalibrationListItem` (CLOSED). Quy tắc bất biến của codebase: **`as_dict` → OPEN · curated → CLOSED ("Option A", chỉ `name` required)**. R44 áp quy tắc (as_dict→OPEN, sửa acceptance-CLOSED). R45 áp **cùng quy tắc, chiều ngược** (curated→CLOSED, sửa acceptance-OPEN). ⇒ **`CommissioningDetail` + 3 child + `CommissioningTransitionItem` = CLOSED (`additionalProperties:false`)**; chỉ enrich thêm lợi ích: đóng native-pass global closed-schema guard, **KHÔNG** cần thêm vào OPEN-allowlist của `test_mobile_docset`. Chi tiết ở ADR cuối §.
+- **SC#1 (BẮT BUỘC — factual, wire-shape):** acceptance ghi `allowed_transitions` là **`array[string]`**. **SAI.** `get_form_context` gán `result["allowed_transitions"] = _get_workflow_transitions(name)` (`services/imm04.py:863`); helper `_get_workflow_transitions` (`services/imm04.py:723-734`) **return `list[dict]`** = `[{action, next_state, allowed_role}, …]` (role-filtered). Web Core Doc ĐÃ model đúng là `WorkflowTransition[]` (§1.5 `05_API_Specification.md:213,217-221`). ⇒ CONTRACT-ONLY **phải** khai `allowed_transitions` = **`array` of `CommissioningTransitionItem`** (object 3-field), **KHÔNG** `array[string]`. ⚠️ **KHÔNG mirror mù `getInternalAudit`** (imm16 dùng helper KHÁC trả `array[string]` — `allowed_transitions` shape là per-module, PHẢI ground theo helper của IMM-04).
+- **SC#2 (ADR-IMM04-MOBILE-DETAIL-01 — design, OPEN→CLOSED):** acceptance ghi `CommissioningDetail` + 3 child **OPEN** (`additionalProperties:true`) "theo deviation R44". **Áp sai tiền đề.** Deviation R44/R42 (`getInternalAudit`/`getAllocation`/`RepairWorkOrderDetail`) OPEN **CHỈ VÌ** serializer là `doc.as_dict()` — surface rò meta Frappe (`name/owner/creation/idx`; child `parent/parentfield/parenttype`) VƯỢT field nghiệp-vụ enumerable ⇒ closed sẽ "nói dối" → strict codegen crash. **`_serialize_commissioning` (`services/imm04.py:784-847`) + 3 child serializer là CURATED explicit-dict literal** (KHÔNG `as_dict()`) — surface **enumerable đầy đủ, 0 meta leak**, Y HỆT sibling cùng-module `CommissioningListItem` (§20, CLOSED) + `DueCalibrationListItem` (CLOSED). Quy tắc bất biến của codebase: **`as_dict` → OPEN · curated → CLOSED ("Option A", chỉ `name` required)**. R44 áp quy tắc (as_dict→OPEN, sửa acceptance-CLOSED). R45 áp **cùng quy tắc, chiều ngược** (curated→CLOSED, sửa acceptance-OPEN). ⇒ **`CommissioningDetail` + 3 child + `CommissioningTransitionItem` = CLOSED (`additionalProperties:false`)**; chỉ enrich thêm lợi ích: đóng native-pass global closed-schema guard, **KHÔNG** cần thêm vào OPEN-allowlist của `test_mobile_docset`. Chi tiết ở ADR cuối §.
 
 #### 21.0.1. ⚠️ Trạng thái triển khai (vòng 47 — CR-25-FIX · đọc để KHÔNG over-scope) → `ADR-MOBILE-055`
 
@@ -822,7 +1012,7 @@ Acceptance vòng 45 ground **sai 2 điểm** so với code LIVE. Core Doc (sau s
 
 #### 21.2. Schemas cần curate (6 schema MỚI — TẤT CẢ closed)
 
-**(a) `CommissioningTransitionItem`** — `additionalProperties: false`, `required: [action, next_state, allowed_role]` (dict LUÔN đủ 3 key, `services/imm04.py:675`). Grounded `_get_workflow_transitions` (SC#1):
+**(a) `CommissioningTransitionItem`** — `additionalProperties: false`, `required: [action, next_state, allowed_role]` (dict LUÔN đủ 3 key, `services/imm04.py:731`). Grounded `_get_workflow_transitions` (SC#1):
 
 | # | Property | Type | Ghi chú (grounding) |
 |---|---|---|---|
@@ -830,7 +1020,7 @@ Acceptance vòng 45 ground **sai 2 điểm** so với code LIVE. Core Doc (sau s
 | 2 | `next_state` | string | Trạng thái đích sau transition. `t.next_state` `:675` |
 | 3 | `allowed_role` | string | Role được phép (đã role-filter theo session user). `t.allowed` `:675` |
 
-**(b) `BaselineTestItem`** — `additionalProperties: false`, `required: [parameter]` (Data reqd; PK không có ở child). Grounded `_serialize_baseline_tests` (`services/imm04.py:681-694`) + doctype `Commissioning Checklist`. **11 property:**
+**(b) `BaselineTestItem`** — `additionalProperties: false`, `required: [parameter]` (Data reqd; PK không có ở child). Grounded `_serialize_baseline_tests` (`services/imm04.py:737-750`) + doctype `Commissioning Checklist`. **11 property:**
 
 | # | Property | Type | Ghi chú (grounding) |
 |---|---|---|---|
@@ -846,7 +1036,7 @@ Acceptance vòng 45 ground **sai 2 điểm** so với code LIVE. Core Doc (sau s
 | 10 | `expected_max` | number, nullable | Ngưỡng max (Float; nullable) |
 | 11 | `na_applicable` | integer | **Check → int 0\|1** (`or 0`) — **CR-01** |
 
-**(c) `CommissioningDocumentItem`** — `additionalProperties: false`, `required: [doc_type, status]` (2 Select reqd). Grounded `_serialize_comm_documents` (`services/imm04.py:697-709`) + doctype `Commissioning Document Record`. **9 property:**
+**(c) `CommissioningDocumentItem`** — `additionalProperties: false`, `required: [doc_type, status]` (2 Select reqd). Grounded `_serialize_comm_documents` (`services/imm04.py:753-765`) + doctype `Commissioning Document Record`. **9 property:**
 
 | # | Property | Type | Ghi chú (grounding) |
 |---|---|---|---|
@@ -860,7 +1050,7 @@ Acceptance vòng 45 ground **sai 2 điểm** so với code LIVE. Core Doc (sau s
 | 8 | `doc_number` | string | Data (`or ""`) |
 | 9 | `expiry_date` | string | `str(row.get("expiry_date") or "")` → **type:string KHÔNG `format:date`** |
 
-**(d) `CommissioningLifecycleEventItem`** — `additionalProperties: false`, `required: []` (mọi field `or ""`; `lifecycle_events` là mảng inject-runtime `doc.get("lifecycle_events") or []`, KHÔNG child-table persisted của `Asset Commissioning`). Grounded `_serialize_lifecycle_events` (`services/imm04.py:712-725`). **8 property:**
+**(d) `CommissioningLifecycleEventItem`** — `additionalProperties: false`, `required: []` (mọi field `or ""`; `lifecycle_events` là mảng inject-runtime `doc.get("lifecycle_events") or []`, KHÔNG child-table persisted của `Asset Commissioning`). Grounded `_serialize_lifecycle_events` (`services/imm04.py:768-781`). **8 property:**
 
 | # | Property | Type | Ghi chú (grounding) |
 |---|---|---|---|
@@ -873,7 +1063,7 @@ Acceptance vòng 45 ground **sai 2 điểm** so với code LIVE. Core Doc (sau s
 | 7 | `ip_address` | string | IP nguồn (`or ""`) |
 | 8 | `remarks` | string | Ghi chú (`or ""`) |
 
-**(e) `CommissioningDetail`** — `additionalProperties: false`, **`required: [name]`** (Option A — chỉ PK bắt buộc, mirror `CommissioningListItem`). Grounded VERBATIM `_serialize_commissioning` (`services/imm04.py:728-791`, **44 scalar header key**) + `allowed_transitions` (`get_form_context:807`) + 3 child array = **48 property** *(acceptance ghi "45 field header" — conflate `allowed_transitions` vào header; con số chính xác grounded @source = **44 scalar + 4 array**)*.
+**(e) `CommissioningDetail`** — `additionalProperties: false`, **`required: [name]`** (Option A — chỉ PK bắt buộc, mirror `CommissioningListItem`). Grounded VERBATIM `_serialize_commissioning` (`services/imm04.py:784-847`, **44 scalar header key**) + `allowed_transitions` (`get_form_context:807`) + 3 child array = **48 property** *(acceptance ghi "45 field header" — conflate `allowed_transitions` vào header; con số chính xác grounded @source = **44 scalar + 4 array**)*.
 
 **44 scalar header field** (thứ tự source `:744-787`):
 
@@ -949,7 +1139,7 @@ CommissioningDetailEnvelope:
 - **Path:** `GET /api/method/assetcore.api.imm04.get_form_context` · **operationId:** `getCommissioning` (đặt theo **DOMAIN**, mirror `getRepairWorkOrder`/`getAllocation`/`getInternalAudit` — **KHÔNG** theo tên hàm `get_form_context`) · **tags:** `[commissioning]` (REUSE operation-tag đã mở ở §20) · **security:** OAuth2/session.
 - **Params:** **1 param `name`** — `in: query`, `required: true`, `schema.type: string`. Description dẫn nguồn `api/imm04.py:19 get_form_context(name)` (VD `ACC-26-04-00001`). Mirror slot param `getAllocation`/`getInternalAudit` (`name` typed query required).
 - **Responses (slot `{200, 401, 403}` — đối xứng path DETAIL khác `getAllocation`/`getInternalAudit`):**
-  - `200`: `oneOf [CommissioningDetailEnvelope, Error]` — **Decision-B closed-schema** 2 nhánh disjoint required-set (route-by-value `body.success`, **KHÔNG discriminator**). Lỗi nghiệp-vụ đến trên **HTTP-200 + Error** (`Error.code ⊇ {NOT_FOUND, FORBIDDEN}`, `http_status` trong body): (i) **NOT_FOUND** — phiếu∄ → `nthrow(MSG.IMM04_NOT_FOUND, name=name)` (`services/imm04.py:801`, `MSG.IMM04_NOT_FOUND="IMM04-NOT-FOUND"` `utils/messages.py:86`); (ii) **in-handler cap-403 FORBIDDEN** — `frappe.has_permission(_DT, read, doc, throw=True)` fail → `raise ServiceError(FORBIDDEN, …)` (`services/imm04.py:802-805`) → `_handle`→`_err` HTTP-200. ⚠️ **KHÔNG thêm status-line `404`** (not-found về qua Error trên HTTP-200 body, KHÔNG raise→4xx — parity `getAllocation`/`getInternalAudit`).
+  - `200`: `oneOf [CommissioningDetailEnvelope, Error]` — **Decision-B closed-schema** 2 nhánh disjoint required-set (route-by-value `body.success`, **KHÔNG discriminator**). Lỗi nghiệp-vụ đến trên **HTTP-200 + Error** (`Error.code ⊇ {NOT_FOUND, FORBIDDEN}`, `http_status` trong body): (i) **NOT_FOUND** — phiếu∄ → `nthrow(MSG.IMM04_NOT_FOUND, name=name)` (`services/imm04.py:857`, `MSG.IMM04_NOT_FOUND="IMM04-NOT-FOUND"` `utils/messages.py:86`); (ii) **in-handler cap-403 FORBIDDEN** — `frappe.has_permission(_DT, read, doc, throw=True)` fail → `raise ServiceError(FORBIDDEN, …)` (`services/imm04.py:858-861`) → `_handle`→`_err` HTTP-200. ⚠️ **KHÔNG thêm status-line `404`** (not-found về qua Error trên HTTP-200 body, KHÔNG raise→4xx — parity `getAllocation`/`getInternalAudit`).
   - `401`: `$ref '#/components/responses/Unauthorized401'` (bearer hết-hạn/invalid → refresh; uniform mobile convention).
   - `403`: `$ref '#/components/responses/Forbidden'` (**dispatcher-403** — guest/no-token trip TRƯỚC handler vì `@frappe.whitelist()` bare no-`allow_guest`; `FrappeRawError` HTTP-403 status-line THẬT). ⚠️ **2 loại 403 phân biệt rõ:** dispatcher-403 (guest) = slot `403`; in-handler cap-403 (permission read fail) = nhánh `Error` của 200-oneOf (Decision-B, HTTP-200) — KHÔNG double-wire.
 
@@ -988,20 +1178,20 @@ CommissioningDetailEnvelope:
 - **Always:** curate pure-YAML vào `docs/mobile/openapi/assetcore-mobile.openapi.yaml`; đọc baseline count + 4 guard counter **LIVE** trước bump; REUSE `Unauthorized401`/`Forbidden`/`Error`; `additionalProperties:false` MỌI schema mới (6); ground field-set VERBATIM từ `_serialize_commissioning`/`_serialize_baseline_tests`/`_serialize_comm_documents`/`_serialize_lifecycle_events`/`_get_workflow_transitions` — KHÔNG bịa; `allowed_transitions` = array-of-OBJECT (SC#1); RED-before/GREEN-after chứng minh.
 - **Never:** ❌ sửa `.py`/reload/migrate (backend LIVE); ❌ khai `allowed_transitions` là `array[string]` (SC#1 — wire là dict); ❌ để Detail/child OPEN (SC#2 — curated→CLOSED); ❌ hard-enum `workflow_state`/`risk_class`/Select child (leading-blank ⇒ `""`); ❌ `format:date`/`date-time` field serialize `str(x or "")`; ❌ đụng `AssetCommissioningOrigin`/`getAssetCommissioningOrigin` (§19); ❌ thêm status-line `404` (NOT_FOUND về qua Error HTTP-200); ❌ sửa path/schema hiện có (0 blast-radius); ❌ hardcode `83→84`/counter (đọc live); ❌ nhận "xanh suông" khi test chưa assert path/schema/SC#1/SC#2.
 
-> 📱 **Mobile OAS contract (tóm tắt):** curate `docs/mobile/openapi/assetcore-mobile.openapi.yaml` — opId `getCommissioning`, tag `commissioning`, GET param `name` (query required), 200 = oneOf `[CommissioningDetailEnvelope, Error]` (Decision-B) + 401 `Unauthorized401` + 403 `Forbidden`; **6 schema CLOSED** = `CommissioningDetail` (44 header + 4 array) + `BaselineTestItem`/`CommissioningDocumentItem`/`CommissioningLifecycleEventItem` + `CommissioningTransitionItem` + `CommissioningDetailEnvelope`. **⚠️ 2 SELF-CORRECTION:** `allowed_transitions`=array-of-OBJECT (KHÔNG string, SC#1) · Detail+child=CLOSED (curated serializer, KHÔNG OPEN, SC#2). CONTRACT-ONLY (backend LIVE `api/imm04.py:19` / `services/imm04.py:796`, 0 `.py`/reload/migrate). Quyết định đầy đủ: `ADR-MOBILE-053` (dev tạo) + `docs/mobile/04-api-contract.md` (dev thêm §). ⚠️ Path/opId + 4 counter LIVE-drift — đọc live baseline, bump +1/+N.
+> 📱 **Mobile OAS contract (tóm tắt):** curate `docs/mobile/openapi/assetcore-mobile.openapi.yaml` — opId `getCommissioning`, tag `commissioning`, GET param `name` (query required), 200 = oneOf `[CommissioningDetailEnvelope, Error]` (Decision-B) + 401 `Unauthorized401` + 403 `Forbidden`; **6 schema CLOSED** = `CommissioningDetail` (44 header + 4 array) + `BaselineTestItem`/`CommissioningDocumentItem`/`CommissioningLifecycleEventItem` + `CommissioningTransitionItem` + `CommissioningDetailEnvelope`. **⚠️ 2 SELF-CORRECTION:** `allowed_transitions`=array-of-OBJECT (KHÔNG string, SC#1) · Detail+child=CLOSED (curated serializer, KHÔNG OPEN, SC#2). CONTRACT-ONLY (backend LIVE `api/imm04.py:19` / `services/imm04.py:852`, 0 `.py`/reload/migrate). Quyết định đầy đủ: `ADR-MOBILE-053` (dev tạo) + `docs/mobile/04-api-contract.md` (dev thêm §). ⚠️ Path/opId + 4 counter LIVE-drift — đọc live baseline, bump +1/+N.
 
 ---
 
 ### 22. submit_baseline_checklist — Mobile WRITE màn "Tiếp nhận & Nghiệm thu hiện trường" (📱 Trục B · CR-25c · MỞ NHÁNH IMM-04 F6 — WRITE-path ĐẦU TIÊN)
 
-**Actor:** KTV / Commissioning User (mobile) · **Verb:** POST · **Handler:** `assetcore.api.imm04.submit_baseline_checklist` (`api/imm04.py:155-162`, `@frappe.whitelist(methods=["POST"])`) → `svc.submit_baseline_checklist` (`services/imm04.py:1437-1456`).
+**Actor:** KTV / Commissioning User (mobile) · **Verb:** POST · **Handler:** `assetcore.api.imm04.submit_baseline_checklist` (`api/imm04.py:155-162`, `@frappe.whitelist(methods=["POST"])`) → `svc.submit_baseline_checklist` (`services/imm04.py:1493-1512`).
 **Deliverable = curate endpoint WRITE-ACTION vào OAS mirror.** Đây là **nhánh WRITE ĐẦU TIÊN** của màn field-tech "Tiếp nhận & Nghiệm thu hiện trường" — sau `listCommissioning` (§20 list-entry, R35) + `getCommissioning` (§21 detail, R45), field-tech nộp kết quả **checklist đo kiểm cơ sở** (Initial Inspection): mỗi thông số baseline (measured_val / test_result / fail_note) → nếu **không có Fail** thì `overall_inspection_result = "Pass"` + tính `clinical_hold_required` (Class C/D/Radiation). ĐÓNG dead-end flow: KTV mở detail nhưng chưa có endpoint mobile để **hoàn tất đo kiểm**. CONTRACT-ONLY: **backend ĐÃ LIVE** (handler + service — 0 `.py` runtime change / 0 reload / 0 migrate). Curate là **pure-YAML** vào `docs/mobile/openapi/assetcore-mobile.openapi.yaml` + đồng bộ test guard. **Precedent cấu trúc = `submitPmResult`** (`yaml:13628`, action-POST mang child-array `checklist_results[]` + response domain-riêng) — mirror 1:1.
 
 #### 22.0 — Self-Correction (BA quyết định, đọc TRƯỚC khi curate)
 
-- **SC#1 (BẮT BUỘC — factual, wire-type):** acceptance ghi `BaselineChecklistResultInput` **"ĐÚNG 4 prop STRING {parameter, measured_val, test_result, fail_note}"**. **SAI ở `measured_val`.** Field `measured_val` của child doctype `Commissioning Checklist` là **`Float`** (`commissioning_checklist.json`), KHÔNG phải Data/string. Bằng chứng cứng: **OUTPUT schema `BaselineTestItem` (đã LIVE §21, CÙNG module CÙNG field)** khai `measured_val: {type: number, nullable: true}` (ground `_serialize_baseline_tests` `services/imm04.py:685`). Nếu curate INPUT `measured_val: string` → **VỠ read/write parity**: cùng 1 field mà read = `number`, write = `string` ⇒ codegen sinh 2 kiểu Dart/Kotlin lệch cho cùng thuộc-tính → client vỡ. `r.get("measured_val", "")` (`services/imm04.py:1447`) chỉ là **default Python khi absent**, KHÔNG quyết định KIỂU (default `""` gán vào Float, Frappe coerce khi `doc.save`). Web §10 ví dụ cũng gửi số `0.08`. ⇒ **`measured_val` = `type: number, nullable: true`** (KHÔNG string). 3 prop còn lại = string ĐÚNG: `parameter` (Data), `test_result` (Select), `fail_note` (Text). ⇒ **BaselineChecklistResultInput = 3 string + 1 number** (KHÔNG 4 string).
-- **SC#2 (design — match-key required):** acceptance im-lặng về `required` của item. Ground: service lập `result_map = {r.get("parameter"): r for r in results}` (`services/imm04.py:1443`) + match `row.parameter in result_map` (`:1445`) ⇒ **`parameter` = KHOÁ MATCH** (dòng thiếu `parameter` bị key dưới `None`, vô-dụng). Mirror precedent `PmChecklistResultInput` `required: [idx]` (khoá match của PM). ⇒ **`BaselineChecklistResultInput.required = [parameter]`**.
-- **SC#3 (design — test_result KHÔNG hard-enum):** `test_result` là Select `/Pass/Fail/N/A` **leading-blank** (`""` hợp lệ) ⇒ `type: string` **KHÔNG hard-enum** (mirror `BaselineTestItem.test_result` §21 + ADR-MOBILE-051 §2.c.1: hard-enum reject `""` → strict codegen crash). Mô tả liệt kê value Pass/Fail/N/A + ghi rõ `test_result == "Fail"` (`services/imm04.py:1450`) là dòng kích-hoạt gate BR-04-04.
+- **SC#1 (BẮT BUỘC — factual, wire-type):** acceptance ghi `BaselineChecklistResultInput` **"ĐÚNG 4 prop STRING {parameter, measured_val, test_result, fail_note}"**. **SAI ở `measured_val`.** Field `measured_val` của child doctype `Commissioning Checklist` là **`Float`** (`commissioning_checklist.json`), KHÔNG phải Data/string. Bằng chứng cứng: **OUTPUT schema `BaselineTestItem` (đã LIVE §21, CÙNG module CÙNG field)** khai `measured_val: {type: number, nullable: true}` (ground `_serialize_baseline_tests` `services/imm04.py:741`). Nếu curate INPUT `measured_val: string` → **VỠ read/write parity**: cùng 1 field mà read = `number`, write = `string` ⇒ codegen sinh 2 kiểu Dart/Kotlin lệch cho cùng thuộc-tính → client vỡ. `r.get("measured_val", "")` (`services/imm04.py:1503`) chỉ là **default Python khi absent**, KHÔNG quyết định KIỂU (default `""` gán vào Float, Frappe coerce khi `doc.save`). Web §10 ví dụ cũng gửi số `0.08`. ⇒ **`measured_val` = `type: number, nullable: true`** (KHÔNG string). 3 prop còn lại = string ĐÚNG: `parameter` (Data), `test_result` (Select), `fail_note` (Text). ⇒ **BaselineChecklistResultInput = 3 string + 1 number** (KHÔNG 4 string).
+- **SC#2 (design — match-key required):** acceptance im-lặng về `required` của item. Ground: service lập `result_map = {r.get("parameter"): r for r in results}` (`services/imm04.py:1499`) + match `row.parameter in result_map` (`:1445`) ⇒ **`parameter` = KHOÁ MATCH** (dòng thiếu `parameter` bị key dưới `None`, vô-dụng). Mirror precedent `PmChecklistResultInput` `required: [idx]` (khoá match của PM). ⇒ **`BaselineChecklistResultInput.required = [parameter]`**.
+- **SC#3 (design — test_result KHÔNG hard-enum):** `test_result` là Select `/Pass/Fail/N/A` **leading-blank** (`""` hợp lệ) ⇒ `type: string` **KHÔNG hard-enum** (mirror `BaselineTestItem.test_result` §21 + ADR-MOBILE-051 §2.c.1: hard-enum reject `""` → strict codegen crash). Mô tả liệt kê value Pass/Fail/N/A + ghi rõ `test_result == "Fail"` (`services/imm04.py:1506`) là dòng kích-hoạt gate BR-04-04.
 
 #### 22.1 — Request: `SubmitBaselineChecklistRequest` (CLOSED, `required: [name]`)
 
@@ -1009,29 +1199,31 @@ CommissioningDetailEnvelope:
 
 | # | Property | Type | Ground |
 |---|---|---|---|
-| 1 | `name` | string, **required** | Mã phiếu `Asset Commissioning` (positional `api/imm04.py:156`). ∄ ⇒ Error `NOT_FOUND` (`services/imm04.py:1440`); `workflow_state != Initial Inspection` ⇒ Error `INVALID_PARAMS` (`:1442`). |
+| 1 | `name` | string, **required** | Mã phiếu `Asset Commissioning` (positional `api/imm04.py:156`). ∄ ⇒ Error `NOT_FOUND` (`services/imm04.py:1496`); `workflow_state != Initial Inspection` ⇒ Error `INVALID_PARAMS` (`:1442`). |
 | 2 | `results` | array, items `$ref BaselineChecklistResultInput`, **default `[]`** | JSON-string convention (mirror PM `checklist_results`) — client gửi JSON-array, BE `_parse_json(results, field_name="results", default=[])` (`api/imm04.py:159`); malformed ⇒ Error trên HTTP-200 (`_err` `api/imm04.py:161`). |
 
-**`BaselineChecklistResultInput`** (CLOSED, `additionalProperties: false`, **`required: [parameter]`** — SC#2). ĐÚNG **4 property** (3 string + 1 number — SC#1), ground `services/imm04.py:1443-1447`:
+**`BaselineChecklistResultInput`** (CLOSED, `additionalProperties: false`, **`required: [parameter]`** — SC#2). ĐÚNG **4 property** (3 string + 1 number — SC#1), ground `services/imm04.py:1499-1503`:
 
 | # | Property | Type | Ground |
 |---|---|---|---|
-| 1 | `parameter` | string | Thông số kiểm (Data) — **khoá match** `result_map` (`services/imm04.py:1443,1445`). |
-| 2 | `measured_val` | **number, nullable: true** | Giá trị đo (**Float** `commissioning_checklist.json`) — ghi `row.measured_val` (`services/imm04.py:1447`). **SC#1: number KHÔNG string** (parity `BaselineTestItem` §21 output). |
-| 3 | `test_result` | string (Select `Pass\|Fail\|N/A`, **KHÔNG hard-enum** — SC#3) | Ghi `row.test_result` (`services/imm04.py:1448`); `== "Fail"` kích gate BR-04-04 (`:1450`). |
-| 4 | `fail_note` | string | Ghi chú khi Fail (Text) — ghi `row.fail_note` (`services/imm04.py:1449`). |
+| 1 | `parameter` | string | Thông số kiểm (Data) — **khoá match** `result_map` (`services/imm04.py:1499,1501`). |
+| 2 | `measured_val` | **number, nullable: true** | Giá trị đo (**Float** `commissioning_checklist.json`) — ghi `row.measured_val` (`services/imm04.py:1503`). **SC#1: number KHÔNG string** (parity `BaselineTestItem` §21 output). |
+| 3 | `test_result` | string (Select `Pass\|Fail\|N/A`, **KHÔNG hard-enum** — SC#3) | Ghi `row.test_result` (`services/imm04.py:1504`); `== "Fail"` kích gate BR-04-04 (`:1450`). |
+| 4 | `fail_note` | string | Ghi chú khi Fail (Text) — ghi `row.fail_note` (`services/imm04.py:1505`). |
 
 #### 22.2 — Response 200: oneOf `[SubmitBaselineChecklistEnvelope, Error]` (Decision-B, closed disjoint required-set)
 
-**`SubmitBaselineChecklistResponse`** (CLOSED, `additionalProperties: false`, `required: [name, overall_result, clinical_hold_required]`). ĐÚNG **3 property**, ground return `services/imm04.py:1456`:
+**`SubmitBaselineChecklistResponse`** (CLOSED, `additionalProperties: false`, `required: [name, overall_result, clinical_hold_required]`). ĐÚNG **3 property**, ground return `services/imm04.py:1512`:
 
 | # | Property | Type | Ground |
 |---|---|---|---|
-| 1 | `name` | string | Echo `doc.name` (`services/imm04.py:1456`). |
+| 1 | `name` | string | Echo `doc.name` (`services/imm04.py:1512`). |
 | 2 | `overall_result` | string | **HẰNG `"Pass"`** ở nhánh success (`doc.overall_inspection_result = "Pass"` `:1454`, return `"Pass"` `:1456`) — vì bất kỳ Fail nào đã raise VALIDATION TRƯỚC (`:1452`, tương tự `submitPmResult.new_status` luôn `"Completed"`). Mô tả ghi "luôn `Pass` khi success". |
 | 3 | `clinical_hold_required` | **boolean** | **Boolean THẬT** (`check_auto_clinical_hold(doc)` return `bool` `services/imm04.py:405-410` — Class C/D/Radiation). **KHÔNG** Check int-0/1 ⇒ **KHÔNG** áp CR-01 coercion `type:integer`; đây là `type: boolean` như `is_locked`/`is_late` (phân biệt với 4 cờ Check `type:integer` của `CommissioningDetail` §21). |
 
 **`SubmitBaselineChecklistEnvelope`** (CLOSED, `additionalProperties: false`, `required: [success, data]`): `success: {type: boolean, enum: [true]}` + `data: $ref SubmitBaselineChecklistResponse`. Mirror `PmSubmitResultEnvelope` (`yaml:6264`).
+
+> 🔜 **POST-BE re-mirror (backlog mobile-mirror owner — CR-25c-followup):** BR-04-04 hardening (`04_Backend_Design.md §5.3` · ADR-IMM-04-02) đổi `submit_baseline_checklist` service trả **4-key** thêm `tests_recorded` (integer, số phép đo THỰC ghi). Response hiện mirror ở đây = CLOSED **3-key** cite `imm04.py:1456` (chữ ký cũ). Khi BE land: re-introspect `@source` (dòng return mới) → thêm `tests_recorded: {type: integer}` vào `SubmitBaselineChecklistResponse` + `required` → bump guard `TestMobileSubmitBaselineChecklistContract` (d) 3-prop → 4-prop. **Chưa curate ngay** (grounded-argspec: chỉ mirror field khi ĐÃ có ở `@source`; hiện service vẫn 3-key). Additive → không breaking codegen. **0 whitelist mới** ⇒ `test_oas_baseline` bất biến.
 
 **Nhánh Error 200-oneOf** gom mọi **lỗi nghiệp vụ in-handler đến HTTP-200** (Decision-B, KHÔNG status-line): `NOT_FOUND` (phiếu∄ `:1440`) · `INVALID_PARAMS` (sai state `:1442`) · **`VALIDATION` BR-04-04** (còn thông số Fail `:1452`) · malformed JSON (`_parse_json` `api/imm04.py:161`). 2 nhánh phân biệt MÁY-ĐỌC bằng closed-schema + disjoint required-set (`Env req[success,data]` vs `Error req[success,error,code,http_status]`) — KHÔNG discriminator (§5c).
 
@@ -1058,16 +1250,302 @@ CommissioningDetailEnvelope:
 
 - **Status:** Accepted · **Date:** 2026-07-15
 - **Context:** Mobile Trục B mở **nhánh WRITE ĐẦU TIÊN** cho IMM-04 F6 — cần action nộp checklist đo kiểm cơ sở sau list (§20 R35) + detail (§21 R45). Backend `submit_baseline_checklist` đã LIVE (web-FE §10 dùng). Curate contract vào OAS mirror mà 0 đụng `.py`. Acceptance ground 1 điểm sai kiểu vs code LIVE (§22.0 SC#1).
-- **Decision:** (1) **SC#1** — `BaselineChecklistResultInput.measured_val` = **`number` nullable:true** (Float `commissioning_checklist.json` + parity output `BaselineTestItem` §21 `services/imm04.py:685`), **KHÔNG** `string`; giữ read/write contract parity. (2) **SC#2** — item `required: [parameter]` (khoá match `result_map` `:1443`; mirror `PmChecklistResultInput.required:[idx]`). (3) **SC#3** — `test_result` = `type:string` **KHÔNG hard-enum** (Select leading-blank). (4) `clinical_hold_required` = **`type:boolean`** THẬT (`check_auto_clinical_hold` → `bool` `:405-410`) — KHÔNG CR-01 int-coerce. (5) 4 schema mới đều **CLOSED** (`additionalProperties:false`); input schema RIÊNG (KHÔNG reuse output `BaselineTestItem`). (6) Slot `{200,401,403}` Decision-B: NOT_FOUND/INVALID_PARAMS/VALIDATION/malformed qua Error HTTP-200; **403 SINGLE-SHAPE** (`rbac.require` → PermissionError → status-line, cả dispatcher-403 lẫn cap-403), KHÔNG status-line 404. (7) Cấu trúc mirror `submitPmResult` (`yaml:13628`).
+- **Decision:** (1) **SC#1** — `BaselineChecklistResultInput.measured_val` = **`number` nullable:true** (Float `commissioning_checklist.json` + parity output `BaselineTestItem` §21 `services/imm04.py:741`), **KHÔNG** `string`; giữ read/write contract parity. (2) **SC#2** — item `required: [parameter]` (khoá match `result_map` `:1443`; mirror `PmChecklistResultInput.required:[idx]`). (3) **SC#3** — `test_result` = `type:string` **KHÔNG hard-enum** (Select leading-blank). (4) `clinical_hold_required` = **`type:boolean`** THẬT (`check_auto_clinical_hold` → `bool` `:405-410`) — KHÔNG CR-01 int-coerce. (5) 4 schema mới đều **CLOSED** (`additionalProperties:false`); input schema RIÊNG (KHÔNG reuse output `BaselineTestItem`). (6) Slot `{200,401,403}` Decision-B: NOT_FOUND/INVALID_PARAMS/VALIDATION/malformed qua Error HTTP-200; **403 SINGLE-SHAPE** (`rbac.require` → PermissionError → status-line, cả dispatcher-403 lẫn cap-403), KHÔNG status-line 404. (7) Cấu trúc mirror `submitPmResult` (`yaml:13628`).
 - **Alternatives:** (a) `measured_val: string` như acceptance — **loại**: field Float + output đã `number` ⇒ vỡ read/write parity, codegen 2 kiểu lệch. (b) reuse `BaselineTestItem` (§21) làm input — **loại**: 11 field output ⊋ 4 field write-input (idx/unit/is_critical/measurement_type/expected_* thừa) → body "nói dối". (c) hard-enum `test_result` `[Pass,Fail,N/A]` — **loại**: leading-blank `""` hợp lệ → reject-valid crash (ADR-MOBILE-051 §2.c.1). (d) `clinical_hold_required: type:integer` (CR-01) — **loại**: return là Python `bool` THẬT, không phải Check int. (e) khai `403` trong nhánh Error 200-oneOf (dual) — **loại**: `rbac.require` raise → status-line, KHÔNG in-handler `_err(403)` như `reportIncident`.
 - **Consequences:** +1 path/opId (85→86), +4 schema CLOSED, +0 param, +N TC; 0 `.py`/reload/migrate (pure-YAML — [AUTO], KHÔNG HARD-STOP); count-guard (≥13 vị trí) + 4 test-counter bump ĐỒNG BỘ (đọc live); CLOSED ⇒ native-pass global closed-schema guard (KHÔNG OPEN-allowlist). Working tree để USER review (KHÔNG commit).
 
 #### Boundaries (Always / Never)
 
-- **Always:** curate pure-YAML vào `docs/mobile/openapi/assetcore-mobile.openapi.yaml`; đọc baseline path-count + 4 test-counter **LIVE** trước bump; REUSE `Unauthorized401`/`Forbidden`/`Error` + tag `commissioning` (§20/§21); `additionalProperties:false` MỌI schema mới (4); ground field-set VERBATIM từ `services/imm04.py:1437-1456` + `commissioning_checklist.json` — KHÔNG bịa; `measured_val` = **number** (SC#1), item `required:[parameter]` (SC#2); mirror `submitPmResult` (`yaml:13628`); RED-before/GREEN-after chứng minh.
+- **Always:** curate pure-YAML vào `docs/mobile/openapi/assetcore-mobile.openapi.yaml`; đọc baseline path-count + 4 test-counter **LIVE** trước bump; REUSE `Unauthorized401`/`Forbidden`/`Error` + tag `commissioning` (§20/§21); `additionalProperties:false` MỌI schema mới (4); ground field-set VERBATIM từ `services/imm04.py:1493-1512` + `commissioning_checklist.json` — KHÔNG bịa; `measured_val` = **number** (SC#1), item `required:[parameter]` (SC#2); mirror `submitPmResult` (`yaml:13628`); RED-before/GREEN-after chứng minh.
 - **Never:** ❌ sửa `.py`/reload/migrate (backend LIVE); ❌ khai `measured_val` là `string` (SC#1 — Float, output đã number); ❌ hard-enum `test_result` (leading-blank `""`); ❌ `clinical_hold_required: integer` (bool THẬT); ❌ reuse `BaselineTestItem` output làm input; ❌ thêm status-line `404` (NOT_FOUND về qua Error HTTP-200); ❌ khai `403` dual trong nhánh Error 200-oneOf (rbac.require raise = status-line SINGLE); ❌ đụng `AssetCommissioningOrigin`/`listCommissioning`/`getCommissioning` schema hiện có (0 blast-radius); ❌ hardcode `85→86`/counter mù (đọc live); ❌ nhận "xanh suông" khi test chưa assert path/schema/SC#1.
 
-> 📱 **Mobile OAS contract (tóm tắt):** curate `docs/mobile/openapi/assetcore-mobile.openapi.yaml` — opId `submitBaselineChecklist`, tag `commissioning`, POST requestBody `$ref SubmitBaselineChecklistRequest` (required, application/json), 200 = oneOf `[SubmitBaselineChecklistEnvelope, Error]` (Decision-B) + 401 `Unauthorized401` + 403 `Forbidden` (SINGLE-SHAPE). **4 schema CLOSED** = `SubmitBaselineChecklistRequest` (name+results, req:[name]) + `BaselineChecklistResultInput` (parameter/measured_val/test_result/fail_note, req:[parameter], CLOSED) + `SubmitBaselineChecklistResponse` (name/overall_result/clinical_hold_required, req all 3) + `SubmitBaselineChecklistEnvelope`. **⚠️ 1 SELF-CORRECTION chính (SC#1):** `measured_val` = **number** (Float, parity `BaselineTestItem` §21) — **KHÔNG string** như acceptance. `clinical_hold_required` = **boolean THẬT** (KHÔNG CR-01 int). CONTRACT-ONLY (backend LIVE `api/imm04.py:155` / `services/imm04.py:1437`, 0 `.py`/reload/migrate). Cấu trúc mirror `submitPmResult` (`yaml:13628`). Quyết định đầy đủ: `ADR-MOBILE-056` (dev tạo) + `docs/mobile/04-api-contract.md` (dev thêm §). ⚠️ Path/opId 85→86 + 4 counter LIVE-drift — đọc live baseline, bump +1/+N.
+> 📱 **Mobile OAS contract (tóm tắt):** curate `docs/mobile/openapi/assetcore-mobile.openapi.yaml` — opId `submitBaselineChecklist`, tag `commissioning`, POST requestBody `$ref SubmitBaselineChecklistRequest` (required, application/json), 200 = oneOf `[SubmitBaselineChecklistEnvelope, Error]` (Decision-B) + 401 `Unauthorized401` + 403 `Forbidden` (SINGLE-SHAPE). **4 schema CLOSED** = `SubmitBaselineChecklistRequest` (name+results, req:[name]) + `BaselineChecklistResultInput` (parameter/measured_val/test_result/fail_note, req:[parameter], CLOSED) + `SubmitBaselineChecklistResponse` (name/overall_result/clinical_hold_required, req all 3) + `SubmitBaselineChecklistEnvelope`. **⚠️ 1 SELF-CORRECTION chính (SC#1):** `measured_val` = **number** (Float, parity `BaselineTestItem` §21) — **KHÔNG string** như acceptance. `clinical_hold_required` = **boolean THẬT** (KHÔNG CR-01 int). CONTRACT-ONLY (backend LIVE `api/imm04.py:155` / `services/imm04.py:1493`, 0 `.py`/reload/migrate). Cấu trúc mirror `submitPmResult` (`yaml:13628`). Quyết định đầy đủ: `ADR-MOBILE-056` (dev tạo) + `docs/mobile/04-api-contract.md` (dev thêm §). ⚠️ Path/opId 85→86 + 4 counter LIVE-drift — đọc live baseline, bump +1/+N.
+
+---
+
+### 23. `submitBaselineChecklist` — RE-MIRROR OAS sau khi Fail-path land (📱 Trục B · CR-54 §2 · đóng backlog "POST-BE re-mirror" §22 line ~1164)
+
+**Đây là MODIFY một op ĐÃ CÓ, KHÔNG phải curate op mới.** ⇒ **0 path mới · 0 opId mới · 0 param mới · 0 schema mới**. Path-count mirror **KHÔNG đổi** (LIVE `grep -cE '^  /api/method' docs/mobile/openapi/assetcore-mobile.openapi.yaml` = **104** tại 2026-07-24 — ⚠️ đọc lại LIVE trước khi sửa, drift đa-phiên; assert "count không đổi", KHÔNG hardcode 104).
+
+#### 23.0 — ⛔ GATE THỰC THI (grounded-argspec): chỉ sửa YAML **SAU KHI** service land
+
+Quy tắc mirror của dự án: **chỉ khai field khi field đó ĐÃ tồn tại ở `@source`**. Hiện `services/imm04.py:submit_baseline_checklist` vẫn `return` **3-key** và `overall_result` vẫn hằng `"Pass"`. ⇒ **KHÔNG được curate trước BE.** Trình tự bắt buộc trong vòng:
+
+1. **[BE]** land §5.5.1 (service 5-key, `overall_result` ∈ {Pass, Fail}) + §5.5.2 (gate G03) + §5.5.3 (MSG + `gen_fe_messages.py`).
+2. **[BE/doc]** re-introspect `@source` (dòng `return` mới) → áp delta YAML §23.1 + guard §23.2.
+3. Chạy `test_mobile_oas` + `test_mobile_docset` + `test_mobile_preflight` → `Ran N OK`.
+
+Đảo thứ tự = mirror "nói dối" so với code LIVE (đúng lớp lỗi mà §22 SC#1 đã chặn).
+
+#### 23.1 — Delta YAML (verbatim, 2 chỗ)
+
+**(a) `SubmitBaselineChecklistResponse`** (`yaml:~6751`) — `enum` mở + 2 prop → **KHÔNG** 4 prop… chính xác: **3-prop → 5-prop CLOSED**:
+
+```yaml
+        overall_result:
+          type: string
+          enum: [Pass, Fail]
+          description: 'Kết-luận bảng-kiểm — DẪN XUẤT sau upsert (BR-04-04e): ''Fail'' khi còn ≥1 dòng
+            test_result==''Fail'', ngược lại ''Pass''. @services/imm04.py (submit_baseline_checklist,
+            return sau doc.save). ⚠️ KHÔNG còn hằng ''Pass'': dòng KHÔNG ĐẠT nay được PERSIST (bằng chứng
+            incoming inspection) thay vì raise. Client PHẢI phân nhánh theo giá-trị này — success:true
+            KHÔNG có nghĩa là đạt.'
+          example: Fail
+        tests_recorded:
+          type: integer
+          minimum: 1
+          description: 'Số dòng THỰC ghi test_result sau upsert (server đếm, KHÔNG len(results) mù —
+            BR-04-04d). tests_recorded==0 ⇒ handler raise VALIDATION (nhánh Error 200-oneOf), nên
+            giá-trị xuất hiện ở success envelope luôn ≥1.'
+          example: 2
+        failed_parameters:
+          type: array
+          items: {type: string}
+          description: 'Danh sách `parameter` của các dòng test_result==''Fail'' sau upsert (BR-04-04e).
+            [] khi overall_result==''Pass''. Client render danh sách thông số cần đo lại + CTA
+            "Báo cáo lỗi baseline".'
+          example: [Earth Resistance]
+```
+`required: [name, overall_result, tests_recorded, failed_parameters, clinical_hold_required]` · giữ `additionalProperties: false`.
+
+**(b) `description` của operation `submitBaselineChecklist`** (`yaml:~16301`) — 3 chỉnh:
+- Tiền điều kiện state: `workflow_state ∈ {Initial Inspection, Re Inspection}` (BR-04-14) — thay câu cũ "chỉ submit khi Initial Inspection".
+- Bỏ câu *"BR-04-04 raise VALIDATION nếu bất-kỳ dòng test_result=='Fail'"* → thay bằng: *"dòng `Fail` được PERSIST; `overall_inspection_result` = verdict dẫn xuất `Pass|Fail`; endpoint KHÔNG đổi `workflow_state`"*.
+- Nhánh Error 200-oneOf: bỏ `VALIDATION BR-04-04-fail`, **giữ** `NOT_FOUND` · `INVALID_PARAMS` (sai state — nay 2 state hợp lệ) · **`VALIDATION` BR-04-04a/d (0 phép đo)** · malformed JSON.
+
+#### 23.2 — Guard delta (`tests/test_mobile_oas.py`)
+
+Class **ĐÃ CÓ** `TestMobileSubmitBaselineChecklistContract` — sửa TC `(d)`: `3-prop CLOSED` → **`5-prop CLOSED`**, `overall_result.enum == ["Pass","Fail"]`, `failed_parameters.type == "array"` + `items.type == "string"`, `tests_recorded.type == "integer"`, `required` đủ 5. **+1 TC** assert `enum` KHÔNG còn `["Pass"]` (RED-before/GREEN-after).
+⚠️ Nếu số TC của class tăng ⇒ bump ĐỒNG BỘ 4 counter (đọc LIVE trước): `_EXPECTED_TEST_COUNT` (`test_mobile_oas.py`) · `_GUARD_SUITE_EXPECTED["test_mobile_oas.py"]` · `_GUARD_SUITE_SUM` · `_MOBILE_OAS_TOTAL` (`test_mobile_docset.py`).
+
+#### 23.3 — ⚠️ XUNG ĐỘT ĐẶC TẢ: `transitionState` **không tồn tại** trong OAS mirror
+
+Acceptance vòng yêu cầu *"`transitionState` bổ sung 422 `IMM04-GATE-G03-BASELINE`"`. **Không thực hiện được như mô tả** — đã verify: `grep -n "transitionState" docs/mobile/openapi/assetcore-mobile.openapi.yaml` = **0 kết quả**. IMM-04 trên mobile hiện **chỉ read** (`listCommissioning`, `getCommissioning` + `allowed_transitions[]`); `transition_state` chưa từng được curate (đã ghi rõ ở §5 note "Mobile OAS KHÔNG expose `transition_state`"). Phân giải:
+
+- **Vòng này:** mã `IMM04-GATE-G03-BASELINE` được đặc tả ở **web API contract** — §5 (bảng Errors + ví dụ envelope) + §11.3 (bảng message-code). ✅ ĐÃ LÀM.
+- **`[ROADMAP]` mobile:** curate write-op `transitionState` (path + opId + `TransitionStateRequest/Response` + 200-oneOf Decision-B) là **round mobile-BE riêng**; khi đó nhánh `Error` mang `message_code: IMM04-GATE-G03-BASELINE` (+ `IMM04-GATE-G06-APPROVER`) trên **HTTP-200**, KHÔNG status-line 422 (Decision-B — `http_status` là field body).
+- **Never:** khai response `422` status-line cho op Frappe RPC nào (mọi lỗi nghiệp vụ in-handler đến trên **HTTP-200**; chỉ 401/403 là status-line thật).
+
+#### Boundaries (Always / Never) — §23
+
+- **Always:** thực hiện **SAU** khi service land (§23.0); đọc path-count + 4 test-counter **LIVE** trước khi assert/bump; giữ `additionalProperties:false`; ground mô tả VERBATIM theo `return` mới của `services/imm04.py`; assert path-count **KHÔNG đổi**; RED-before/GREEN-after.
+- **Never:** ❌ curate YAML trước khi BE land (mirror nói dối); ❌ thêm path/opId/param mới (đây là MODIFY); ❌ giữ `enum: [Pass]`; ❌ khai `422`/`404` status-line; ❌ sửa `frontend/src/i18n/messages.ts` bằng tay (dùng `gen_fe_messages.py`); ❌ đụng `listCommissioning`/`getCommissioning`/`BaselineTestItem` (0 blast-radius).
+
+---
+
+### 24. `get_gate_status` — Thẻ «Điều kiện bàn giao» G01–G06 (📱 mobile CR-53 nửa 2 · web ApprovalPanel · **CR-76**)
+
+> **Nguồn thiết kế:** BR-04-15 / BR-04-16 (`02 §IV.2`) + `04_Backend_Design.md §5.6` + ADR-IMM-04-06 / ADR-IMM-04-07.
+> **Đổi hợp đồng:** ①  thêm khoá **additive** `g01_waived`; ②  `g01_docs`/`g03_baseline` **đổi giá trị quan sát được** ở 3 ca báo oan (sửa lỗi, KHÔNG nới cổng); ③  thêm **2 nhánh lỗi** `FORBIDDEN` / envelope-hoá `NOT_FOUND`.
+
+#### 24.1. Request
+
+```http
+GET /api/method/assetcore.api.imm04.get_gate_status?name=COMM-2026-00042
+```
+
+| Param | in | Kiểu | Bắt buộc | Ghi chú |
+|---|---|---|---|---|
+| `name` | query | string | ✔ (signature `get_gate_status(name)` không default) | PK `Asset Commissioning` — **KHÔNG** phải mã tài sản/PO (`_DT = "Asset Commissioning"`, `services/imm04.py:34`) |
+
+#### 24.2. Response 200 — success (7 khoá)
+
+```json
+{
+  "success": true,
+  "data": {
+    "g01_docs": true,
+    "g01_waived": true,
+    "g02_facility": false,
+    "g03_baseline": true,
+    "g04_radiation": true,
+    "g05_nc": true,
+    "g06_approver": false
+  }
+}
+```
+
+| Khoá | Kiểu | Ngữ nghĩa (**BLOCKING-parity**) | Enforcement tương ứng |
+|---|---|---|---|
+| `g01_docs` | `boolean` | `true` = cổng hồ sơ **KHÔNG chặn** (đủ hồ sơ **hoặc** đã giải trình hợp lệ) | `validate_gate_g01()` `services/imm04.py:353` |
+| `g01_waived` | `boolean` | **MỚI** — `true` = đạt **NHỜ giải trình** (`documents_incomplete=1` ∧ note không rỗng) trong khi vẫn còn hồ sơ bắt buộc thiếu. UI **phải** hiển thị nhãn khác "đã đủ hồ sơ" | nhánh waiver của `validate_gate_g01()` `:370-377` |
+| `g02_facility` | `boolean` | Cờ ghi nhận hạ tầng — ⚠️ **CỔNG THAM KHẢO**, hiện **KHÔNG** có enforcement nào chặn theo nó | *(không có)* |
+| `g03_baseline` | `boolean` | `true` = có ≥1 phép đo **và** mọi dòng ∈ `_G03_PASSING` (`services/imm04.py:49`). Baseline rỗng ⇒ `false` | pre-check BR-04-13 `services/imm04.py:1212-1225` |
+| `g04_radiation` | `boolean` | `true` = cổng **không áp dụng** (`g04_applicable=false`) **hoặc** đã có `qa_license_doc`. ⚠️ AC-CR-85: đọc **CẶP** với `g04_applicable` — `true` một mình KHÔNG có nghĩa "đã có giấy phép" | VR-07 `validate_radiation_hold()` `asset_commissioning.py:82-100` qua predicate SSoT `gate_g04_applies()` `services/imm04.py:430-455` |
+| `g04_applicable` | `boolean` | **MỚI (AC-CR-85)** — cổng G04 **CÓ áp dụng** cho phiếu này không: `true` ⟺ `is_radiation_device` ∨ `risk_class == 'Radiation'`. `false` ⇒ UI hiển thị «Không áp dụng», **CẤM** hiển thị «Đạt» (giấy phép ATBXHN cho máy không bức xạ là hồ sơ không thể tồn tại). Xem §24.6 | **cùng** predicate `gate_g04_applies()` `services/imm04.py:430-455` (0 diễn giải thứ hai) |
+| `g05_nc` | `boolean` | `true` = **0 NC `Open`** (NC `Under Review`/`Resolved`/`Transferred`/`Closed` **KHÔNG** chặn) | `_count_open_ncs()` `services/imm04.py:402` (dùng bởi `validate_gate_g05_g06()` `:417`) |
+| `g06_approver` | `boolean` | `true` = đã có `board_approver` | `validate_gate_g05_g06()` `:417` + pre-check BR-04-12b `:1170-1177` |
+
+> 🔑 **`true` KHÔNG có nghĩa "đã hoàn tất/đã ký"** — nó có nghĩa **"cổng này không chặn phiếu"**. Client tuyệt đối không suy diễn ngược (vd `g01_docs=true ⇒ hồ sơ đầy đủ` là **SAI** khi `g01_waived=true`).
+> 🔑 Kiểu là **`boolean` THẬT** (Python `bool()`/`all()`), **KHÔNG** phải Frappe Check `integer 0|1` — đừng gộp luật với `can_manage_rca` (CR-52 §1).
+
+#### 24.3. Response 200 — nhánh lỗi (Decision-B: lỗi nghiệp vụ đến **trên HTTP-200**)
+
+| Tình huống | `code` | `http_status` (field **body**) | `message_code` | Payload |
+|---|---|---|---|---|
+| Thiếu DocPerm read `Asset Commissioning` (L0 ROLE) **hoặc** không được đọc chính bản ghi này (L2 ROW) | `FORBIDDEN` | `403` | `AUTH-FORBIDDEN` | **0 khoá `g0*`** |
+| `name` không tồn tại (chỉ với người **có** quyền — L1 EXISTS chạy **sau** L0) | `NOT_FOUND` | `404` | `IMM04-NOT-FOUND` | **0 khoá `g0*`** |
+
+```json
+{ "success": false, "error": "Không đủ quyền", "code": "FORBIDDEN", "http_status": 403,
+  "message_code": "AUTH-FORBIDDEN" }
+```
+
+- **HAI loại 403 — đừng nhầm:** (a) **dispatcher-403/401** (guest / hết token) = status-line thật ⇒ client **đăng xuất/re-auth**; (b) **in-handler cap-403** như ở đây = **HTTP-200 + body `code:"FORBIDDEN"`** ⇒ client **hiển thị thông báo, KHÔNG logout**.
+- **Không existence-oracle:** persona thiếu quyền nhận **cùng một** 403 cho `name` có thật lẫn `name` bịa (L0 chạy **trước** EXISTS — ADR-IMM00-DETAIL-READ-02).
+- Endpoint nay đi qua `api_handler.handle` ⇒ envelope lỗi **có** `message_code`/`context` (trước CR-76 chỉ `_err(msg, 404)` trần — đúng điểm mobile phản ánh ở CR-53 §1).
+
+#### 24.4. Mirror OAS mobile (đóng nửa `getGateStatus` của **CR-53**)
+
+| Mục | Giá trị chốt |
+|---|---|
+| path | `/api/method/assetcore.api.imm04.get_gate_status` |
+| `operationId` | `getGateStatus` |
+| `tags` | `[commissioning]` — cùng taxonomy với `listCommissioning`/`getCommissioning` (màn "Tiếp nhận & Nghiệm thu hiện trường") |
+| param | `name` — `in: query`, `required: true`, `type: string` |
+| `200` | `oneOf [GateStatusEnvelope, Error]` — **closed-schema Decision-B**, KHÔNG `discriminator` (`success` là boolean ⇒ discriminator OAS 3.x illegal) |
+| slot response | `{200, 401, 403}` — **KHÔNG** khai `404`/`422` status-line |
+| schema mới | `GateStatus` (7 property, tất cả `required`, `additionalProperties:false`) · `GateStatusEnvelope` |
+| `paths` | **106 → 107** · `components.schemas` **278 → 280** |
+
+Mô tả trong OAS **bắt buộc nêu rõ 3 điều** (thiếu 1 ⇒ codegen/mobile hiểu sai):
+1. **BLOCKING-parity** — `true` = cổng KHÔNG chặn, **không** phải "đã hoàn tất";
+2. **`g02_facility` là cổng THAM KHẢO** — hiện không có enforcement nào chặn theo nó ⇒ **không** dùng để gate CTA;
+3. **403 in-envelope trên HTTP-200**, KHÔNG status-line ⇒ **không** logout.
+
+**Counter guard — sync ĐỦ 7 chỗ** (arithmetic tính theo baseline **LIVE tại thời điểm thực thi**, KHÔNG chép số trong spec — CR khác có thể land xen kẽ, xem `memory/multi_session_concurrency`):
+
+| # | Hằng | File |
+|---|---|---|
+| 1 | `_EXPECTED_TEST_COUNT` | `tests/test_mobile_oas.py` (khai báo) |
+| 2–3 | 2 echo `assertEqual(_EXPECTED_TEST_COUNT, <N>)` | `tests/test_mobile_oas.py` |
+| 4 | `_GUARD_SUITE_EXPECTED["test_mobile_oas.py"]` | `tests/test_mobile_docset.py` |
+| 5 | `_GUARD_SUITE_SUM` | `tests/test_mobile_docset.py` |
+| 6 | `_MOBILE_OAS_TOTAL` | `tests/test_mobile_docset.py` |
+| 7 | narrative delta (`cr76_gate_status_delta`) | `tests/test_mobile_docset.py` |
+
+> ⚠️ **Cite-parity:** mọi cite dạng `services/imm04.py:<dòng> <symbol>` trong OAS phải trỏ **trong vùng AST** của symbol (guard tái dùng kỹ thuật `cr73a_e`/`cr74_g`). Refactor §5.6.2 **sẽ dịch số dòng** ⇒ BE **bắt buộc refresh cite** ở bước cuối; bỏ qua = suite ĐỎ (đó là mục đích của guard).
+
+#### 24.5. Boundaries (Always / Never) — §24
+
+- **Always:** thẻ dùng **chính** predicate enforcement (BR-04-15) · L0 ROLE trước EXISTS · lỗi nghiệp vụ **in-handler HTTP-200 + Error envelope** · `g01_waived` là **additive** (6 khoá cũ giữ nguyên tên/kiểu) · mô tả OAS ground **@source** với cite `file:line`.
+- **Never:** ❌ thêm/bớt nhánh chặn trong `transition_state`/`validate_gate_*`/`AssetCommissioning.validate` · ❌ để literal `("Pass","N/A")` ở `api/imm04.py` · ❌ trả 6 khoá `false` thay cho 403 (dead-gate) · ❌ khai `404`/`422` status-line trong OAS · ❌ đổi `g0*` sang `integer 0|1` · ❌ dùng `g02_facility` để gate CTA.
+
+---
+
+#### 24.6. **AC-CR-85** — `g04_applicable`: cổng G04 tự mô tả «không áp dụng» ≠ «đã đạt» (đóng mobile **CR-58**)
+
+> **Nguồn thiết kế:** BR-04-17 (`02 §IV.2`) + `04 §5.7` + ADR-IMM-04-08 / ADR-IMM-04-09.
+> **Đổi hợp đồng:** **+1 khoá additive** `g04_applicable`. **7 khoá cũ giữ NGUYÊN tên / kiểu / giá trị.**
+
+##### 24.6.1. Vấn đề hợp đồng (vì sao 7 khoá là không đủ)
+
+`g04_radiation` là khoá **verdict** (BLOCKING-parity) nên nó ra `true` ở **hai tình huống nghĩa khác hẳn nhau**:
+
+| Tình huống | `g04_radiation` | Câu người duyệt cần đọc |
+|---|---|---|
+| Thiết bị bức xạ, **đã** có `qa_license_doc` | `true` | «Đã có giấy phép» |
+| Thiết bị **không** phát bức xạ | `true` | «Không áp dụng» |
+
+Hợp đồng cũ buộc client suy tình huống thứ hai từ **nguồn thứ hai** — `doc.is_radiation_device` trong payload phiếu (`ApprovalPanel.vue:125` đang làm đúng như vậy). Đó vừa là class-of-bug *display ⇔ enforcement parity* (đã đóng 4 lần: CR-54 G05 · CR-76 G01/G03 · AC-CR-77 · AC-CR-78), vừa dựa trên một trường **đang bị server ghi sai** (`04 §5.7.0` H1).
+
+##### 24.6.2. Response 200 — **8 khoá** (thêm `g04_applicable`)
+
+```json
+{
+  "success": true,
+  "data": {
+    "g01_docs": true,
+    "g01_waived": false,
+    "g02_facility": false,
+    "g03_baseline": true,
+    "g04_radiation": true,
+    "g04_applicable": false,
+    "g05_nc": true,
+    "g06_approver": false
+  }
+}
+```
+
+| Khoá | Kiểu | Ngữ nghĩa | Nguồn tính |
+|---|---|---|---|
+| `g04_applicable` | `boolean` | **MỚI (additive)** — cổng G04 **có áp dụng** cho phiếu này không. `true` ⟺ `is_radiation_device` ∨ `risk_class == 'Radiation'` | **chính** predicate SSoT `gate_g04_applies()` mà VR-07 dùng để chặn |
+| `g04_radiation` | `boolean` | *(không đổi)* `true` = cổng **KHÔNG chặn** = cổng không áp dụng **hoặc** đã có `qa_license_doc` | `gate_g04_ok()` = `not gate_g04_applies(doc) or bool(qa_license_doc)` |
+
+##### 24.6.3. LUẬT ĐỌC 3 TRẠNG THÁI (bắt buộc — web + mobile)
+
+| # | `g04_applicable` | `g04_radiation` | Hiển thị | Cấm |
+|---|---|---|---|---|
+| 1 | `false` | `true` | **«Không áp dụng»** (chip xám) | ❌ **TUYỆT ĐỐI không** hiển thị «Đạt» / «Đã có giấy phép» |
+| 2 | `true` | `true` | **«Đã có giấy phép»** | — |
+| 3 | `true` | `false` | **«Chưa có giấy phép — cổng đang chặn phát hành»** | — |
+| 4 | `false` | `false` | **BẤT KHẢ** (INV-G04-1) — coi là **lỗi BE**, hiển thị thông báo lỗi | ❌ không "tự sửa" bằng cách đoán |
+
+**Vì sao ô 1 cấm chữ «Đạt» — đây là ràng buộc pháp lý, không phải khẩu vị UI:** Giấy phép Cục An toàn Bức xạ Hạt nhân cho một thiết bị **không phát bức xạ** là hồ sơ **không thể tồn tại**. In «Đạt» lên thẻ điều kiện bàn giao là khẳng định với người ký duyệt rằng có một giấy tờ pháp lý mà thực tế không có — sai lệch hồ sơ nghiệm thu (ISO 13485 §7.5 / §8.3).
+
+##### 24.6.4. Bất biến INV-G04-1 (2 chiều — hợp đồng, không chỉ ghi chú)
+
+1. `g04_applicable == false` ⇒ `g04_radiation == true` **và** VR-07 **không bao giờ** chặn (mọi `workflow_state`, mọi `qa_license_doc`).
+2. `g04_applicable == true` ⇒ `g04_radiation == bool(qa_license_doc)` **và** VR-07 chặn **đúng khi** `not qa_license_doc` ∧ `workflow_state ∈ {Clinical Release, Pending Release}`.
+
+⇒ **advertise == enforce** trên ma trận 5 `risk_class` × 2 `qa_license_doc` = 10 ô. Client **không** cần và **không được** đọc `is_radiation_device`/`risk_class` của phiếu để dựng thẻ G04.
+
+##### 24.6.5. Delta OAS (`docs/mobile/openapi/assetcore-mobile.openapi.yaml`) — **ĐÃ LAND Bước-2**
+
+| Mục | Trước | Sau |
+|---|---|---|
+| `GateStatus.properties` | 7 | **8** (`+ g04_applicable: boolean`) |
+| `GateStatus.required` | 7 | **8** (khoá **luôn** được emit ⇒ ∈ required, khuôn `g01_waived`) |
+| `paths` · `components.schemas` · `parameters` | 109 · 287 · 38 | **109 · 287 · 38** (property-add thuần — 0 path/schema/param mới) |
+| Mô tả `g04_radiation` | "Client N/A-hoá khi thiết bị không bức xạ" | cross-ref `g04_applicable` + **CẤM** N/A-hoá bằng `is_radiation_device` |
+
+Mô tả OAS **bắt buộc** chứa: LUẬT ĐỌC 3 TRẠNG THÁI · tên bất biến `INV-G04-1` · từ khoá `BẤT KHẢ` · lý do đổi (`deadlock`, `NĐ98`, `ATBXHN`) — cả 4 đều bị guard `cr85_c/d/e` khoá.
+
+##### 24.6.6. Guard đã land (Bước-2) + việc **bắt buộc** của BE ở Bước-4
+
+Class `TestMobileGateStatusApplicability` — **7 TC** `cr85_a..g` (`tests/test_mobile_oas.py`):
+
+| TC | Khoá cái gì |
+|---|---|
+| `cr85_a` | `g04_applicable` có mặt · `boolean` THẬT (không enum `0|1`) · ∈ `required` · schema vẫn closed |
+| `cr85_b` | **NO-REGRESSION**: 7 khoá tiền-CR85 giữ nguyên tên/kiểu/required · thêm **đúng 1** khoá |
+| `cr85_c` | Mô tả `g04_applicable` nêu ĐỦ luật 3 trạng thái + phủ định tường minh chữ `"Đạt"` + nêu đích danh `gate_g04_applies` |
+| `cr85_d` | `INV-G04-1` + `BẤT KHẢ` + `VR-07` có trong mô tả |
+| `cr85_e` | `g04_radiation` cross-ref `g04_applicable` + **cấm** suy từ `is_radiation_device`; mô tả op nêu `AC-CR-85` + `deadlock`/`NĐ98`/`ATBXHN` |
+| `cr85_f` | **CITE tự-lật**: chưa có `gate_g04_applies` ⇒ cite **không** số dòng (giữ `cr76_h` xanh); có rồi ⇒ **bắt buộc** cite numeric trỏ đúng vùng AST |
+| `cr85_g` | **PARITY tự-lật với SOURCE LIVE** (STDLIB AST, không cần DB) — xem dưới |
+
+Counter đã sync (7 chỗ, đúng khuôn §24.4): `_EXPECTED_TEST_COUNT` **1008 → 1015** (+ 2 echo) · `_GUARD_SUITE_EXPECTED["test_mobile_oas.py"]` **1008 → 1015** · `_GUARD_SUITE_SUM` **1151 → 1158** · `_MOBILE_OAS_TOTAL` **1177 → 1184** · narrative `cr85_gate_g04_applicable_delta = 7`.
+
+> ⚠️ **BE Bước-4 — 2 việc BẮT BUỘC, bỏ qua = suite ĐỎ (đúng thiết kế):**
+> 1. **REFRESH CITE**: hợp đồng hiện dùng dạng **không số dòng** `services/imm04.py :: gate_g04_applies`, vì cite numeric trỏ một symbol chưa tồn tại sẽ làm **`cr76_h` ĐỎ** (guard cite-rot quét AST). Ngay khi `gate_g04_applies` land, `cr85_f` **tự lật** sang đòi cite numeric `services/imm04.py:<dòng> gate_g04_applies`.
+> 2. **PARITY 5 điều** (`cr85_g` tự lật khi symbol xuất hiện): (i) `evaluate_gate_status` emit `g04_applicable`; (ii) `gate_g04_ok` **và** `evaluate_gate_status` tính qua `gate_g04_applies`; (iii) hai hàm đó **không** còn nhắc `is_radiation_device`; (iv) `validate_radiation_hold` (controller) đọc `gate_g04_applies`, **không** đọc `self.is_radiation_device`; (v) `check_auto_clinical_hold` **không** còn phép **GHI** `doc.is_radiation_device`.
+> **Lật ≠ thêm TC** ⇒ counter **GIỮ 1015**.
+
+##### 24.6.6-bis. Trạng thái sau BE Bước-4 (land 2026-07-27) — ✅ ĐÓNG
+
+| Việc bắt buộc | Đã làm | Bằng chứng |
+|---|---|---|
+| REFRESH cite `gate_g04_applies` | ✅ `services/imm04.py:430-455 gate_g04_applies` (2 chỗ: mô tả `g04_radiation` + `g04_applicable`) | `cr85_f` nhánh **numeric-parity** xanh; `cr76_h` xanh |
+| REFRESH cite bị dịch do chèn hàm mới | ✅ **146 cite** `services/imm04.py:<dòng>` + **41 dòng** cite rút gọn `@:<dòng>` được ánh xạ bằng `difflib` (old→new, content-based, 0 cite mồ côi) + 2 cite rot sẵn (`check_auto_clinical_hold @:405 → @:616`, `_G03_PASSING :49 → :52`) | `test_mobile_oas` **1015 OK** |
+| PARITY 5 điều `cr85_g` | ✅ tự lật sang nhánh parity | `cr85_g` xanh; M4/M5/M6 làm nó ĐỎ |
+| Counter | **GIỮ 1015** (siết assertion trong `cr85_g` ≠ thêm TC) | `test_mobile_docset` **9 OK** |
+
+⚠️ **Siết `cr85_g` (không nới)**: `emits` từng đo bằng `ast.dump` cả hàm ⇒ docstring nhắc tên khoá làm mutation M4 **vẫn xanh**; nay đọc **khoá thật của dict `return`**, và "tính qua predicate SSoT" đo bằng `ast.Call` (helper `_cr85_called_names`) thay vì tìm chuỗi trong dump. Chi tiết + bảng mutation thật: `07 §III.4f.4-bis` · toạ độ THẬT: `04 §5.7.6`.
+
+##### 24.6.7. Boundaries (Always / Never) — §24.6
+
+- **Always:** `g04_applicable` tính bằng **chính** `gate_g04_applies` (không tính lại) · additive-only · client đọc **cặp** `(g04_applicable, g04_radiation)` · khoá vắng (BE stale) ⇒ FE fallback **không vỡ thẻ** (`06 §G04-3STATE`).
+- **Never:** ❌ đổi `g04_radiation` thành enum 3 giá trị (breaking + phá BLOCKING-parity đồng nhất 6 cổng) · ❌ client suy `applicable` từ `is_radiation_device`/`risk_class` của payload phiếu · ❌ hiển thị «Đạt» khi `g04_applicable=false` · ❌ đưa nghĩa vụ Class C/D (NĐ98 Điều 28-32) vào cổng G04 — đó là việc của **GW-2/BR-04-08** · ❌ `bench migrate` (0 field mới).
+
+##### 24.6.8. Backlog mở ra (KHÔNG làm trong vòng này)
+
+| ID | Nội dung | Vì sao hoãn |
+|---|---|---|
+| **B-CR85-1** | Phiếu cũ đã bị bơm `is_radiation_device = 1` còn tồn trong DB (tự khỏi ở lần `save()` kế tiếp nhờ `fetch_from`). Cần quyết định có patch backfill không | Patch chạm dữ liệu production ⇒ cần USER duyệt; `doc.save()` trong patch còn re-validate mọi link cũ (bẫy `patch_docsave_ignore_links`) |
+| **B-CR85-2** | **GW-2 thoát sớm khi `final_asset` rỗng** (`asset_commissioning.py:325-327`) mà `final_asset` chỉ set trong `on_submit` ⇒ lần đầu vào `Clinical Release` GW-2 **im lặng bỏ qua**. Đây là cổng NĐ98 Điều 18 thật sự của Class C/D | Ngoài scope AC-CR-85 (không do vòng này gây ra), nhưng **phải đóng trước khi tuyên bố Class C/D đã được gác đầy đủ** — xem ADR-IMM-04-08 Consequences |
+| **B-CR85-3** | Ô tick «Thiết bị bức xạ» ở màn tạo phiếu (`CommissioningCreateView.vue:505-517`) là **dead control**: `fetch_from` ghi đè bằng giá trị Device Model ở `_validate_links()` **trước** `validate()` ⇒ lựa chọn thủ công bị nuốt im lặng | Là lỗi FE/UX riêng (LL-FE-47 dead-control), không thuộc cổng G04; sửa đúng = ẩn ô tick hoặc chuyển thành hiển-thị-chỉ-đọc từ Device Model |
+| **B-CR85-4** | `get_barcode_lookup` phơi `device.is_radiation` (`services/imm04.py:1158`) và khoá filter `is_radiation_device` — sau AC-CR-85 dữ liệu trở nên **đúng**, nên cân nhắc thêm TC bảo vệ số đếm "thiết bị bức xạ" | Không phải hồi quy; là cơ hội bồi guard |
 
 ---
 
@@ -1165,7 +1643,8 @@ FE bắt tập trung ở `composables/useApi.ts` → `useNotify.fromError` → t
 | `IMM04-LIFECYCLE-LOCKED` | warning | 422 | VR-06: nhật ký lifecycle không được sửa (ISO 13485 §4.2.5) | lifecycle validate hook |
 | `IMM04-DOC-EXPIRED` | warning | 422 | Tài liệu commissioning đã hết hạn | `_validate_document_expiry` |
 | `IMM04-DOCS-INCOMPLETE` | warning | 422 | VR-02 (Gate G01): thiếu tài liệu bắt buộc | gate G01 |
-| `IMM04-BASELINE-FAILED` | warning | 422 | VR-03 (Gate G03): còn thông số baseline Fail | `validate_gate_g03` |
+| `IMM04-BASELINE-FAILED` | warning | 422 | VR-03 (Gate G03): còn thông số baseline Fail | ⚠️ `validate_gate_g03` = **DEAD CODE** (0 call-site production — xem 04 §5.5.0 SC#3). GIỮ entry (backward-compat, defense-in-depth); **KHÔNG dùng cho gate mới** |
+| `IMM04-GATE-G03-BASELINE` **(MỚI — BR-04-13)** | warning | 422 | Gate G03 pre-check ở transition CR-bound: checklist rỗng hoặc còn dòng `test_result ∉ {Pass, N/A}`. `context={"failed": [...]}` | `transition_state()` pre-check (`services/imm04.py`), Decision-B envelope |
 | `IMM04-OPEN-NC` | warning | 422 | VR-04 (Gate G05): còn NC chưa đóng | `validate_gate_g05_g06` |
 | `IMM04-BOARD-APPROVER-REQUIRED` | warning | 422 | Gate G06: chưa chọn Người phê duyệt BGĐ | `validate_gate_g05_g06` |
 | `IMM04-CANCEL-ASSET-ACTIVE` | warning | 409 | Không thể hủy: Tài sản đã kích hoạt | `handle_commissioning_cancel` |

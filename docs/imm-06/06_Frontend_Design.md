@@ -285,7 +285,17 @@
 **Behavior:**
 - Mỗi cell auto-recompute `overall_result` real-time khi nhập.
 - "Lưu nháp" = update session (chưa chuyển workflow).
-- "Hoàn thành" → `complete_session` API → toast: *"Đã tạo 13 Pending Assessment competency. Đã gửi email supervisor."*
+- "Hoàn thành" → `complete_session` API. Toast thành công phải phản ánh **số THỰC từ server** (`scored_count` + `competencies_created.length`), KHÔNG phải số dòng local: *"Đã chấm {scored_count} học viên · tạo {competencies_created.length} hồ sơ năng lực Pending."*
+
+**§ Gating & anti-success-giả nút "Hoàn thành" (BR-06-17 — SessionDetailView.vue, actual file):**
+
+> ⚠️ Defect gốc `SessionDetailView.vue::doComplete` (line ~140): (1) gửi TOÀN BỘ `participants` bất kể có nhập điểm hay không → BE hiện complete-giả; sau fix BR-06-17 sẽ bị BE reject nếu 0 chấm điểm; (2) `successMessage` hardcode "Đã hoàn thành buổi đào tạo" — success-giả, không phản ánh `scored_count`/`competencies_created` server; (3) nút chỉ gate `canComplete` (state) + `api.loading`, **không** gate theo đã-nhập-điểm.
+
+- **Nút "Hoàn thành" `disabled`** khi `scoredLocalCount === 0` — với `scoredLocalCount` = số participant có nhập `theory_score` HOẶC `practical_score` (giá trị số hợp lệ). Chưa chấm ai → disabled + hint "Chưa nhập điểm cho học viên nào" (tránh gọi API chắc-chắn-fail). Khi `isScoring` (state In Progress + `canConduct`) mới hiện chế độ nhập điểm.
+- **Payload:** chỉ gửi các participant đã nhập điểm (hoặc gửi cả, BE strict-check unmatched — nhưng participant của buổi luôn khớp nên an toàn). KHÔNG gửi user ngoài `currentSession.participants`.
+- **Toast thành công** đọc `result.scored_count` + `result.competencies_created` (server-real), KHÔNG dùng `participants.length`/`len(results)`. Nếu shape `api/imm06.ts::completeSession` còn `participants_summary`/`new_state` → cập nhật type sang `{ name; workflow_state; scored_count; competencies_created }`.
+- **Khi BE raise** (VR-13 `Phải chấm điểm ít nhất 1 học viên…(BR-06-08)` / VR-14 user không thuộc buổi): `api.run` trả falsy → hiển thị **message lỗi từ server** (error toast/banner), state UI giữ nguyên (buổi vẫn In Progress). KHÔNG hiện toast thành công.
+- **Test guard (`sessionDetailCtaGating.test.ts` mở rộng):** (a) 0 điểm nhập → nút "Hoàn thành" `disabled`; (b) ≥1 điểm → enabled; (c) BE trả error envelope VALIDATION → render message lỗi, KHÔNG toast success; (d) BE trả `scored_count`/`competencies_created` → toast chứa đúng số server (không phải số dòng local).
 
 ---
 
@@ -716,3 +726,24 @@ subscribeRealtime() {
 | Dashboard tab | role NOT IN `_DASHBOARD_ROLES` |
 | Gap Report | role NOT IN `_DASHBOARD_ROLES` |
 | Run Mode score editing | role NOT IN {IMM Training Officer, instructor of session, IMM System Admin} |
+
+---
+
+## Khuôn trạng thái màn danh sách — `AC-UX-047` lô 3 (cross-cutting, 2026-08-04)
+
+Màn danh sách của module này áp **khuôn dùng chung** `frontend/src/components/ui/ListPageShell.vue`
+(4 trạng thái LOẠI TRỪ: đang tải / lỗi + «Thử lại» / rỗng + hướng dẫn / có dữ liệu). Đặc tả **KHÔNG** lặp
+ở đây — SSoT là Core Doc UI/UX:
+
+| Mục | Nơi chốt |
+|---|---|
+| Hợp đồng props/slots/`data-testid` | [`docs/ui-ux/02_LIST_PAGE_SHELL.md §3`](../ui-ux/02_LIST_PAGE_SHELL.md) |
+| Sổ lô 3 + delta từng file + bảng copy tiếng Việt | [`§14.2` / `§14.4`](../ui-ux/02_LIST_PAGE_SHELL.md) |
+| Bất biến `INV-UX3-24…29` + test `TC-UX3-44…46` | [`§14.5` / `§14.6`](../ui-ux/02_LIST_PAGE_SHELL.md) |
+| Guard adoption CHỈ-GIẢM (`AC-UX-070`) | `frontend/src/views/listShellAdoption.test.ts` |
+
+- **Route thuộc lô 3 của module này:** `/imm06/programs` · `/imm06/sessions` · `/imm06/competencies`
+- **File view:** `views/training/ProgramListView.vue` · `views/training/SessionListView.vue` · `views/training/CompetencyListView.vue`
+- **Ràng buộc riêng phải giữ:** xem cột «Bẫy riêng theo màn» ở [`§14.4`](../ui-ux/02_LIST_PAGE_SHELL.md) —
+  lỗi **lượt nạp danh sách** là nguồn DUY NHẤT của `:error-message`; lỗi biểu mẫu / cảnh báo bộ lọc /
+  hành động ghi **không** được lật trạng thái danh sách (`ADR-UX-24`).

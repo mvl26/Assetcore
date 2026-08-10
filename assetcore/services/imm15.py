@@ -26,10 +26,12 @@ from assetcore.repositories.allocation_repo import (
     StockMovementRepo,
 )
 from assetcore.services.shared import ErrorCode, ServiceError, normalize_filters
+from assetcore.services.shared.errors import forbidden
 from assetcore.services.shared import rbac
 from assetcore.utils.lifecycle import log_audit_event
 from assetcore.utils.messages import MSG
 from assetcore.utils.notify import nthrow
+from assetcore.services.shared.permissions import rowscoped
 
 
 def _safe_get_value(doctype: str, name: str, field: str | list, *, as_dict: bool = False):
@@ -203,6 +205,7 @@ def _enrich_display_names(rows: list[dict], mapping: dict[str, tuple[str, str]])
 
 # ─── Spare Allocation: List / Create / Approve / Issue / Return / Cancel ─────
 
+@rowscoped
 def list_allocations(filters: dict, *, page: int = 1, page_size: int = 20) -> dict:
     """List allocations với display names cho asset / warehouse / requester."""
     rows, pg = AllocationRepo.list(
@@ -248,8 +251,51 @@ def get_allocation(name: str) -> dict:
 def create_allocation(work_order_ref: str, items: list[dict],
                       asset: str = "", warehouse: str = "",
                       urgency: str = "Routine") -> dict:
-    """Tạo phiếu cấp phát (state=Requested)."""
+    """Tạo phiếu cấp phát (state=Requested) — entrypoint whitelisted, gate `inventory.write`.
+
+    Hành vi KHÔNG đổi (ADR-IMM09-SPARE-03): gate cũ giữ nguyên, thân hàm tách xuống
+    :func:`_insert_allocation` để cross-module tái dùng mà KHÔNG phải nới quyền của
+    endpoint này.
+    """
     _require_storekeeper_or_tech()
+    return _insert_allocation(work_order_ref, items, asset=asset,
+                              warehouse=warehouse, urgency=urgency)
+
+
+def create_allocation_for_work_order(work_order_ref: str, items: list[dict],
+                                     asset: str = "", warehouse: str = "",
+                                     urgency: str = "Routine") -> dict:
+    """Seam cross-module: người ĐANG SỬA MÁY tự **yêu cầu** vật tư (ADR-IMM09-SPARE-03).
+
+    KHÔNG `@frappe.whitelist` — chỉ IMM-08/IMM-09 gọi từ trong tiến trình xử lý một
+    Work Order đã tồn tại.
+
+    Vì sao tách gate: "tạo phiếu **yêu cầu** (`Requested`)" và "**xuất kho**" là hai
+    quyền khác nhau. `create_allocation` gate `inventory.write` →
+    `AC Stock Movement.write`, mà persona "Kỹ thuật viên"
+    (`AssetCore System User` + `PM/Repair/Calibration/Corrective User`) KHÔNG có ⇒
+    `request_spare_parts` của IMM-09 luôn nuốt FORBIDDEN và trả `allocation:null`
+    kèm `success:true` ("allocation câm" — nguyên nhân thứ 3, §3.6-bis). Ở đây gate
+    bằng capability PHÍA LỆNH CÔNG VIỆC; mọi bước làm **dịch chuyển tồn thật**
+    (`approve`/`issue`/`reject`) GIỮ NGUYÊN gate `inventory.*`.
+
+    Raises:
+        ServiceError: FORBIDDEN nếu user không có `repair.create` lẫn `pm.write`.
+    """
+    if not (rbac.can("repair.create") or rbac.can("pm.write")):
+        raise forbidden("Không có quyền yêu cầu cấp phát phụ tùng cho lệnh công việc")
+    return _insert_allocation(work_order_ref, items, asset=asset,
+                              warehouse=warehouse, urgency=urgency)
+
+
+def _insert_allocation(work_order_ref: str, items: list[dict],
+                       asset: str = "", warehouse: str = "",
+                       urgency: str = "Routine") -> dict:
+    """Thân dựng phiếu cấp phát `Requested` — KHÔNG gate (caller PHẢI gate trước).
+
+    Luôn ép `allocation_status = Requested`: mọi lối vào chỉ tạo được YÊU CẦU, không
+    lối nào tạo thẳng phiếu đã duyệt/đã xuất.
+    """
     _vr_05_urgency_valid(urgency)
     if not items:
         raise ServiceError(ErrorCode.VALIDATION,
@@ -550,6 +596,7 @@ def _allocation_allowed_transitions(status: str) -> list[str]:
 
 # ─── Cycle Count: Create / Post ──────────────────────────────────────────────
 
+@rowscoped
 def list_cycle_counts(filters: dict, *, page: int = 1, page_size: int = 20) -> dict:
     rows, pg = CycleCountRepo.list(
         filters=normalize_filters(filters),
@@ -890,6 +937,7 @@ def recount_cycle_count(count_name: str, reason: str = "") -> dict:
 
 # ─── Forecast ─────────────────────────────────────────────────────────────────
 
+@rowscoped
 def list_spare_forecasts(filters: dict, *, page: int = 1, page_size: int = 20) -> dict:
     rows, pg = SparePartForecastRepo.list(
         filters=normalize_filters(filters),
@@ -1008,38 +1056,79 @@ def generate_spare_forecast(horizon_months: int = 3,
 
 
 def approve_forecast(forecast: str) -> dict:
-    """Duyệt forecast: Draft → Approved (§3.9)."""
+    """Duyệt forecast: Draft → Approved (§3.9).
+
+    Fail-loud (chặn duyệt-giả):
+      - Guard BAD_STATE: CHỈ forecast Draft (docstatus 0, chưa Approved) mới được duyệt;
+        re-approve → ServiceError(BAD_STATE) rõ ràng, KHÔNG rò Frappe UpdateAfterSubmit.
+      - `doc.submit()` để lỗi PROPAGATE (bọc savepoint + rollback → không claim duyệt khi
+        submit lỗi), KHÔNG `except: pass` nuốt lỗi.
+      - Trả `workflow_state`/`docstatus` ĐỌC-LẠI từ DB sau submit — KHÔNG hardcode.
+    """
     _require_any_role(_CAP_APPROVE,
                       "Chỉ Workshop Lead / Operations Manager mới được duyệt forecast")
     doc = SparePartForecastRepo.get(forecast)
     if not doc:
         raise ServiceError(ErrorCode.NOT_FOUND,
                            f"IMM Spare Part Forecast {forecast} không tồn tại")
+    # Guard BAD_STATE — chỉ Draft mới duyệt (chặn re-approve → UpdateAfterSubmit thô).
+    if doc.docstatus != 0 or doc.workflow_state == ForecastState.APPROVED:
+        raise ServiceError(
+            ErrorCode.BAD_STATE,
+            f"Forecast {forecast} đã được duyệt / không ở trạng thái Draft")
+    # docstatus 0 → set field an toàn; submit() persist CÙNG LÚC (không double-write /
+    # không doc.save() riêng trước submit → tránh UpdateAfterSubmit). workflow_state LÀ
+    # schema field chắc chắn → set trực tiếp (bỏ guard hasattr field-ảo).
     doc.approved_by = frappe.session.user
-    if hasattr(doc, "workflow_state"):
-        doc.workflow_state = ForecastState.APPROVED
-    SparePartForecastRepo.save(doc)
-    if doc.docstatus == 0:
-        try:
-            doc.submit()
-        except Exception:
-            pass
+    doc.workflow_state = ForecastState.APPROVED
+    savepoint = "imm15_approve_forecast"
+    frappe.db.savepoint(savepoint)
+    try:
+        doc.submit()
+    except Exception as e:
+        # Rollback partial write (db_update viết docstatus=1 TRƯỚC on_submit) → không
+        # claim duyệt; re-raise (BẮT BUỘC, tuyệt đối không pass).
+        frappe.db.rollback(save_point=savepoint)
+        raise ServiceError(
+            ErrorCode.BUSINESS_RULE,
+            f"Duyệt forecast thất bại: {e}") from e
+    # Re-read state THỰC từ DB (no-hardcode) — nguồn duy nhất cho response.
+    saved = SparePartForecastRepo.get(forecast)
     reorder_count = sum(
-        1 for it in (doc.items or [])
+        1 for it in (saved.items or [])
         if (it.recommended_action or "") == "Reorder"
     )
+    # publish_realtime CHỈ sau khi persist thành công (không bắn khi submit lỗi).
     try:
         frappe.publish_realtime("imm15_forecast_approved",
                                 {"name": forecast, "reorder_count": reorder_count})
     except Exception:
-        pass
+        frappe.log_error(frappe.get_traceback(),
+                         "imm15.approve_forecast.publish_realtime")
     frappe.db.commit()
-    return {"name": forecast, "workflow_state": ForecastState.APPROVED,
-            "reorder_recommendations": reorder_count}
+    return {"name": forecast, "workflow_state": saved.workflow_state,
+            "docstatus": saved.docstatus, "reorder_recommendations": reorder_count}
+
+
+def record_forecast_approval(doc) -> None:
+    """on_submit hook (IMMSparePartForecast): ghi nhận người duyệt + trạng thái Approved.
+
+    Gọi khi forecast được submit qua BẤT KỲ đường nào — service ``approve_forecast``
+    HOẶC submit trực tiếp trên desk. Trước đây hàm này KHÔNG tồn tại → controller
+    on_submit ném ImportError, bị ``approve_forecast`` cũ nuốt bằng ``except: pass``
+    (root-cause của duyệt-giả). Idempotent: chỉ set field còn trống → không đè người
+    duyệt đã ghi. on_submit chạy SAU db_update nên persist qua ``db_set`` (KHÔNG
+    ``doc.save()`` trên submitted doc → tránh UpdateAfterSubmit).
+    """
+    if not doc.approved_by:
+        doc.db_set("approved_by", frappe.session.user, update_modified=False)
+    if doc.workflow_state != ForecastState.APPROVED:
+        doc.db_set("workflow_state", ForecastState.APPROVED, update_modified=False)
 
 
 # ─── Watchlist ────────────────────────────────────────────────────────────────
 
+@rowscoped
 def list_watchlist(filters: dict, *, page: int = 1, page_size: int = 50) -> dict:
     rows, pg = CriticalWatchlistRepo.list(
         filters=normalize_filters(filters),

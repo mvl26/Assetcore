@@ -16,6 +16,36 @@ from assetcore.utils.response import _err, _ok  # noqa: F401 (re-export for lega
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# URL CỦA GIAO DIỆN ASSETCORE (SPA Vue)
+# ─────────────────────────────────────────────────────────────────────────────
+
+#: Prefix mà SPA AssetCore được mount trên site Frappe.
+#: COUPLING — phải khớp 3 nơi:
+#:   - ``hooks.py: website_route_rules`` (``/assetcore/<path:app_path>``)
+#:   - ``frontend/vite.config.ts`` (``__APP_BASE__`` khi build)
+#:   - hàm ``fe_url`` dưới đây (mọi link BE gửi ra ngoài: email, thông báo)
+#: Link gửi cho người dùng cuối PHẢI đi qua đây — nếu dùng ``get_url("/login")``
+#: sẽ rơi vào route Frappe desk (404 hoặc form tiếng Anh), KHÔNG phải UI AssetCore.
+FE_BASE = "/assetcore"
+
+
+def fe_url(path: str = "/") -> str:
+    """URL tuyệt đối tới một route của giao diện AssetCore.
+
+    Args:
+        path: route trong Vue Router, vd ``/login``, ``/set-password?key=abc``.
+
+    Returns:
+        URL đầy đủ, vd ``https://site.vn/assetcore/login``.
+    """
+    from frappe.utils import get_url
+
+    if not path.startswith("/"):
+        path = f"/{path}"
+    return get_url(f"{FE_BASE}{path}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # API RESPONSE HELPERS — JSON PARSING (giữ tại đây vì không thuộc envelope)
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -56,10 +86,30 @@ def _get_role_emails(roles: list[str]) -> list[str]:
     return [r.email for r in rows]
 
 
-def _safe_sendmail(**kwargs) -> None:
-    """Wrapper quanh frappe.sendmail — bỏ qua nếu email chưa cấu hình."""
+def _safe_sendmail(**kwargs) -> bool:
+    """Wrapper quanh ``frappe.sendmail`` — KHÔNG raise (không phá transaction).
+
+    ISS-002: trước đây nuốt mọi lỗi bằng ``pass`` (không log) → vi phạm yêu cầu
+    truy vết. Nay **ghi log** khi gửi lỗi và trả cờ đã-gửi để caller biết trạng
+    thái (Sent/Failed). Vẫn bỏ qua khi email bị mute (test/CI).
+
+    Cửa DUY NHẤT mọi email AssetCore đi qua → cũng là nơi tôn trọng công tắc
+    tạm dừng gửi (``setup.email.set_email_delivery``). Tắt ở đây trả ``False``
+    gọn gàng thay vì để SMTP nổ và làm bẩn Error Log.
+
+    Returns:
+        ``True`` nếu đã gửi/enqueue; ``False`` nếu bị mute / đang tạm dừng /
+        gửi lỗi.
+    """
+    if frappe.flags.mute_emails:
+        return False
+    from assetcore.setup.email import is_email_delivery_disabled
+
+    if is_email_delivery_disabled():
+        return False
     try:
-        if not frappe.flags.mute_emails:
-            frappe.sendmail(**kwargs)
+        frappe.sendmail(**kwargs)
+        return True
     except Exception:
-        pass
+        frappe.log_error(frappe.get_traceback(), "_safe_sendmail failed")
+        return False

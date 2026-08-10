@@ -210,12 +210,16 @@ class TestOasD16ConfigBase(unittest.TestCase):
                 f"tag {name}.externalDocs.description KHÔNG được leak slug raw.",
             )
 
-    def test_d16_02_all_23_tags_have_external_docs(self):
-        """0/23 tag thiếu externalDocs; ĐÚNG 23 tag; mọi url khớp pattern path."""
+    def test_d16_02_all_tags_have_external_docs(self):
+        """0 tag thiếu externalDocs; ĐÚNG 26 tag (IMM-10 +1; connections +1; files +1); url khớp pattern.
+
+        Số bỏ khỏi tên method (chống magic-number-in-name drift): count là SSoT động
+        theo số tag canonical, KHÔNG hardcode vào tên (IMM-11+ khỏi phải rename lại).
+        """
         tags = self.spec["tags"]
         missing = [t["name"] for t in tags if "externalDocs" not in t]
         self.assertEqual(missing, [], f"config-base: tag thiếu externalDocs: {missing}.")
-        self.assertEqual(len(tags), 23, f"Phải có ĐÚNG 23 tag canonical, got {len(tags)}.")
+        self.assertEqual(len(tags), 26, f"Phải có ĐÚNG 26 tag canonical, got {len(tags)}.")
         for tag in tags:
             url = tag["externalDocs"]["url"]
             self.assertTrue(url.startswith(f"{_CFG_BASE}/"), f"tag {tag['name']} url theo base.")

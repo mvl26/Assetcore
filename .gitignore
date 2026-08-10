@@ -24,6 +24,9 @@ env/
 
 # Frappe / Bench specific
 node_modules/
+# `bench build` tạo symlink assetcore/public/node_modules → node_modules gốc.
+# Pattern `node_modules/` (có dấu /) chỉ khớp THƯ MỤC nên symlink lọt vào git status.
+assetcore/public/node_modules
 .DS_Store
 *.swp
 *.swo

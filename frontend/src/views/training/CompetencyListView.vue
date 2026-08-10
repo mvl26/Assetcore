@@ -10,6 +10,7 @@ import BasePagination from '@/components/common/BasePagination.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
+import ListPageShell from '@/components/ui/ListPageShell.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import { competencyEffectiveState, EXPIRY_WINDOW_DAYS } from './competencyStatus'
 
@@ -21,7 +22,7 @@ const { can } = useCapabilities()
 
 const canCreateSession = computed(() => can('training.write'))
 
-const { competencies, competencyPagination, loading, error } = storeToRefs(store)
+const { competencies, competencyPagination, loading } = storeToRefs(store)
 
 const filterState = ref('')
 const filterModel = ref('')
@@ -78,11 +79,33 @@ function resetFilters() {
   load(1)
 }
 
+// ── Trạng thái nạp danh sách (AC-UX-047 lô 3 · biến thể D — 02 §14.2, khuôn §13.2) ─────────
+// `stores/imm06.ts:40` dùng CHUNG một ô `error` cho 3 danh sách + MỌI hành động ghi.
+// Thêm một bẫy riêng của nhóm IMM-06: `api.run(() => store.fetchXxx())` chỉ bắt được
+// EXCEPTION, mà kho trạng thái đã `catch` rồi ⇒ `api.lastError` LUÔN null khi danh sách hỏng.
+// Đọc lỗi từ `api.lastError` = luôn thấy "không lỗi". Vì vậy phải CHỤP `store.error` ngay sau
+// `await` rồi trả ô dùng chung về sạch (INV-UX3-28).
+const loadError = ref<string | null>(null)
+
+function _captureLoadError() {
+  loadError.value = store.error ?? null
+  if (loadError.value) store.error = null
+}
+
+// Chữ trạng thái rỗng — SSoT là bảng copy 02 §14.4 (LL-FE-53: 100% tiếng Việt).
+const emptyTitle = computed(() =>
+  activeFilterCount.value > 0 ? 'Không có bản ghi năng lực nào phù hợp' : 'Chưa có bản ghi năng lực nào',
+)
+const emptyHint = 'Bản ghi năng lực sinh ra khi người dùng hoàn thành buổi đào tạo và đạt điểm yêu cầu.'
+
 async function load(page = 1) {
+  loadError.value = null
+  store.error = null
   // Drill 'expiring': dùng predicate SoT của tile (get_expiring_competencies(60))
   // ⇒ số dòng list == giá trị tile (INVARIANT card == drill, BR-06-14).
   if (drillWindow.value === 'expiring') {
     await api.run(() => store.fetchExpiringCompetencies(EXPIRY_WINDOW_DAYS))
+    _captureLoadError()
     return
   }
   const filters: Record<string, unknown> = {}
@@ -90,6 +113,7 @@ async function load(page = 1) {
   if (filterState.value) filters.workflow_state = filterState.value
   if (filterModel.value) filters.device_model = filterModel.value
   await api.run(() => store.fetchCompetencies(filters, page))
+  _captureLoadError()
 }
 
 function clearDrill() {
@@ -119,7 +143,15 @@ onMounted(() => load())
 </script>
 
 <template>
-  <div class="page-container animate-fade-in space-y-5">
+  <div>
+    <ListPageShell
+      :loading="loading"
+      :error-message="loadError"
+      :is-empty="!competencies.length"
+      :empty-title="emptyTitle"
+      :empty-hint="emptyHint"
+      @retry="load()">
+      <template #header>
     <PageHeader
       title="Năng lực nhân viên"
       :subtitle="`Tổng ${competencyPagination.total} bản ghi năng lực`"
@@ -150,6 +182,9 @@ onMounted(() => load())
         </button>
       </template>
     </PageHeader>
+      </template>
+
+      <template #filters>
 
     <!-- Process hint: explain how competencies are generated -->
     <div class="card border border-blue-200 bg-blue-50 px-4 py-3 text-xs text-blue-700 flex items-start gap-3">
@@ -202,48 +237,28 @@ onMounted(() => load())
         </div>
       </template>
     </ListFilterBar>
+      </template>
 
-    <div class="table-wrapper">
+      <template #skeleton><SkeletonLoader variant="table" :rows="6" /></template>
+
+      <template #empty-action>
+        <!-- Rỗng vì đang drill theo thời hạn (?window=expiring|expired) là một NGUYÊN NHÂN
+             khác với rỗng-do-lọc: lối ra phải là bỏ đúng cái drill đó (02 §14.4 dòng 12). -->
+        <button v-if="drillWindow" class="btn-secondary text-sm" @click="clearDrill">Bỏ lọc thời hạn</button>
+        <button v-else-if="activeFilterCount > 0" class="text-xs text-brand-600 hover:text-brand-700 font-medium underline" @click="resetFilters">
+          Xóa bộ lọc để xem tất cả
+        </button>
+        <button v-else-if="canCreateSession" class="btn-primary" @click="router.push('/imm06/sessions/new')">Tạo buổi đào tạo</button>
+      </template>
+
+      <template #toolbar>
       <div class="flex items-center justify-between px-4 py-2.5 border-b border-slate-100 bg-slate-50/60 text-xs text-slate-500">
         <span>Hiển thị <strong class="text-slate-700">{{ competencies?.length ?? 0 }}</strong> / {{ competencyPagination.total }} bản ghi</span>
         <button v-if="activeFilterCount > 0" class="text-red-500 hover:text-red-700 font-medium" @click="resetFilters">Xóa tất cả</button>
       </div>
 
-      <div v-if="loading" class="p-4">
-        <SkeletonLoader variant="table" :rows="6" />
-      </div>
-      <div v-else-if="error" class="m-4 rounded border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700 flex items-center gap-3">
-        <span class="flex-1">{{ error }}</span>
-        <button class="text-sm underline" @click="load()">Thử lại</button>
-      </div>
-      <div v-else-if="!competencies.length" class="flex flex-col items-center justify-center py-16 text-slate-400">
-        <svg class="w-10 h-10 mb-3 text-slate-300" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
-        </svg>
-        <p class="text-sm font-medium">Chưa có bản ghi năng lực nào</p>
-        <p class="text-xs text-slate-500 mt-1 max-w-md text-center">
-          Năng lực được sinh khi học viên hoàn thành buổi đào tạo.
-        </p>
-        <div class="flex gap-2 mt-3">
-          <button v-if="activeFilterCount > 0" class="text-xs text-blue-500 hover:text-blue-700 underline" @click="resetFilters">
-            Xóa bộ lọc
-          </button>
-          <button
-            v-if="canCreateSession"
-            class="text-xs px-3 py-1 rounded-md bg-blue-500 text-white hover:bg-blue-600"
-            @click="router.push('/imm06/sessions/new')"
-          >
-            + Tạo buổi đào tạo
-          </button>
-          <button
-            class="text-xs px-3 py-1 rounded-md border border-slate-300 text-slate-600 hover:bg-slate-50"
-            @click="router.push('/imm06/sessions')"
-          >
-            Xem buổi đào tạo
-          </button>
-        </div>
-      </div>
-      <template v-else>
+      </template>
+
         <!-- Mobile cards -->
         <div class="mobile-card-list sm:hidden">
           <div
@@ -262,9 +277,6 @@ onMounted(() => load())
               <span>· <span class="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700">{{ levelLabel(c.competency_level) }}</span></span>
               <span :class="expiryClass(c.days_until_expiry)">· {{ formatDaysUntilExpiry(c.days_until_expiry) }}</span>
             </div>
-          </div>
-          <div v-if="competencies.length === 0" class="py-12 text-center text-slate-400">
-            <p class="text-sm">Không có dữ liệu</p>
           </div>
         </div>
 
@@ -313,9 +325,10 @@ onMounted(() => load())
             </tbody>
           </table>
         </div>
-      </template>
-    </div>
 
-    <BasePagination :pagination="competencyPagination" @page-change="load" />
+      <template #pagination>
+        <BasePagination :pagination="competencyPagination" @page-change="load" />
+      </template>
+    </ListPageShell>
   </div>
 </template>

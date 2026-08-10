@@ -1,22 +1,35 @@
 <script setup lang="ts">
 // Copyright (c) 2026, AssetCore Team — RCA List (route /rca)
 // Mockup: docs/fe/12-incident/rca-list.html. BE: assetcore.api.imm12.list_rcas.
-import { ref, onMounted, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, onMounted, computed, watch } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { useImm12Store } from '@/stores/imm12'
 import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
 import BasePagination from '@/components/common/BasePagination.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
+import ListPageShell from '@/components/ui/ListPageShell.vue'
 import { rcaStatusLabel, rcaStatusClass, rcaTriggerLabel } from '@/constants/labels'
 
 const router = useRouter()
+const route = useRoute()
 const store = useImm12Store()
 
 const methodFilter = ref('')
 const statusFilter = ref('')
-const showFilters = ref(false)
+// Lọc theo thiết bị — drill từ «Xem tất cả» trong tab «Bản ghi liên quan» của một thiết
+// bị (?asset=<mã>, AC-CR-91). Khoá ĐỘC LẬP với method/status: cộng dồn (AND).
+// Đường xuống BE đã sẵn: store.fetchRcas({asset}) → api/imm12.listRcas → list_rcas(asset=…).
+const assetFilter = ref<string>(_queryAsset())
+const showFilters = ref<boolean>(!!_queryAsset())
+
+/** Giá trị `?asset=` hiện tại (chuỗi rỗng nếu không có) — Vue Router có thể trả mảng. */
+function _queryAsset(): string {
+  const raw = route.query.asset
+  const val = Array.isArray(raw) ? raw[0] : raw
+  return typeof val === 'string' ? val : ''
+}
 
 const METHODS = [
   { value: '', label: 'Tất cả phương pháp' },
@@ -33,7 +46,7 @@ const STATUSES = [
   { value: 'Cancelled', label: 'Đã hủy' },
 ]
 
-interface Chip { key: 'method' | 'status'; label: string }
+interface Chip { key: 'method' | 'status' | 'asset'; label: string }
 const activeChips = computed<Chip[]>(() => {
   const chips: Chip[] = []
   if (methodFilter.value) {
@@ -44,14 +57,28 @@ const activeChips = computed<Chip[]>(() => {
     const s = STATUSES.find(x => x.value === statusFilter.value)
     chips.push({ key: 'status', label: s?.label ?? statusFilter.value })
   }
+  // Người dùng phải THẤY mình đang lọc theo thiết bị và bỏ lọc được (ADR D-CR5-7 vế 3).
+  if (assetFilter.value) {
+    chips.push({ key: 'asset', label: `Thiết bị: ${assetFilter.value}` })
+  }
   return chips
 })
 const activeFilterCount = computed(() => activeChips.value.length)
+
+// AC-UX-047 (lô 1, biến thể C) — nguồn lỗi là `store.rcaError` của `stores/imm12.ts`
+// (đã xoá đầu lượt, gán trong `catch`) ⇒ KHÔNG sửa kho. Dải `.alert-error` cũ đã bỏ:
+// nó hiện SONG SONG với khối «Chưa có hồ sơ phân tích nguyên nhân gốc nào».
+const emptyTitle = computed(() =>
+  activeFilterCount.value > 0
+    ? 'Không có hồ sơ phân tích nào phù hợp'
+    : 'Chưa có hồ sơ phân tích nguyên nhân gốc nào')
+const EMPTY_HINT = 'Phân tích nguyên nhân gốc được tạo tự động từ sự cố mức Cao/Nghiêm trọng hoặc lỗi lặp lại.'
 
 function applyFilter(page = 1) {
   store.fetchRcas({
     method: methodFilter.value || undefined,
     status: statusFilter.value || undefined,
+    asset: assetFilter.value || undefined,
     page,
   })
 }
@@ -59,32 +86,57 @@ function applyFilter(page = 1) {
 function resetFilters() {
   methodFilter.value = ''
   statusFilter.value = ''
+  assetFilter.value = ''
   store.fetchRcas()
 }
 
 function clearChip(key: string) {
   if (key === 'method') methodFilter.value = ''
+  else if (key === 'asset') assetFilter.value = ''
   else statusFilter.value = ''
   applyFilter()
 }
 
-onMounted(() => store.fetchRcas())
+// Drill lần 2 trên CÙNG route (bấm «Xem tất cả» từ thiết bị B khi đang lọc theo A):
+// không có watch này thì màn hình không đổi gì — im lặng và khó chẩn đoán nhất.
+watch(() => route.query.asset, () => {
+  assetFilter.value = _queryAsset()
+  if (assetFilter.value) showFilters.value = true
+  applyFilter()
+})
+
+// Lọc NGAY từ lần nạp đầu (không nạp-rồi-lọc-lại: hai lời gọi mạng + một nhịp nháy
+// dữ liệu sai) — ADR D-CR5-7 vế 1.
+onMounted(() => applyFilter())
 </script>
 
 <template>
-  <div class="page-container animate-fade-in">
-    <PageHeader
-      title="Phân tích nguyên nhân gốc"
-      :subtitle="`${store.rcaPagination.total} hồ sơ phân tích nguyên nhân gốc · Bắt buộc cho sự cố nghiêm trọng / lặp lại`"
-      :breadcrumb="[{ label: 'IMM-12 · Sự cố', to: '/incidents/dashboard' }, { label: 'Phân tích nguyên nhân gốc' }]"
-    >
-      <template #actions>
-        <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
-        <button class="btn-ghost" @click="router.push('/incidents/list')">Danh sách sự cố</button>
-      </template>
-    </PageHeader>
+  <!--
+    AC-UX-047 (lô 1) — khuôn 4 trạng thái loại trừ (ui/ListPageShell). «Thử lại» gọi
+    `applyFilter()` ⇒ nạp lại TRANG 1 với bộ lọc hiện hành (có chủ đích, ghi rõ cho QA).
+  -->
+  <ListPageShell
+    :loading="store.rcaLoading"
+    :error-message="store.rcaError"
+    :is-empty="!store.rcaListItems.length"
+    :empty-title="emptyTitle"
+    :empty-hint="EMPTY_HINT"
+    @retry="applyFilter">
+    <template #header>
+      <PageHeader
+        title="Phân tích nguyên nhân gốc"
+        :subtitle="`${store.rcaPagination.total} hồ sơ phân tích nguyên nhân gốc · Bắt buộc cho sự cố nghiêm trọng / lặp lại`"
+        :breadcrumb="[{ label: 'IMM-12 · Sự cố', to: '/incidents/dashboard' }, { label: 'Phân tích nguyên nhân gốc' }]"
+      >
+        <template #actions>
+          <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
+          <button class="btn-ghost" @click="router.push('/incidents/list')">Danh sách sự cố</button>
+        </template>
+      </PageHeader>
+    </template>
 
-    <ListFilterBar
+    <template #filters>
+      <ListFilterBar
       :show="showFilters"
       :chips="activeChips"
       :show-search="false"
@@ -94,29 +146,45 @@ onMounted(() => store.fetchRcas())
     >
       <template #fields>
         <div class="form-group">
-          <label class="form-label">Phương pháp</label>
-          <select v-model="methodFilter" class="form-select">
+          <label class="form-label" for="rca-filter-method">Phương pháp</label>
+          <select id="rca-filter-method" v-model="methodFilter" class="form-select">
             <option v-for="m in METHODS" :key="m.value" :value="m.value">{{ m.label }}</option>
           </select>
         </div>
         <div class="form-group">
-          <label class="form-label">Trạng thái</label>
-          <select v-model="statusFilter" class="form-select">
+          <label class="form-label" for="rca-filter-status">Trạng thái</label>
+          <select id="rca-filter-status" v-model="statusFilter" class="form-select">
             <option v-for="s in STATUSES" :key="s.value" :value="s.value">{{ s.label }}</option>
           </select>
         </div>
+        <div class="form-group">
+          <label class="form-label" for="rca-filter-asset">Thiết bị</label>
+          <input
+            id="rca-filter-asset"
+            v-model="assetFilter"
+            class="form-input"
+            placeholder="Mã thiết bị…"
+          />
+        </div>
       </template>
-    </ListFilterBar>
+      </ListFilterBar>
+    </template>
 
-    <div v-if="store.rcaError" class="alert-error mb-4">{{ store.rcaError }}</div>
-
-    <div v-if="store.rcaLoading" class="table-wrapper">
+    <template #skeleton>
       <SkeletonLoader variant="table" :rows="6" />
-    </div>
+    </template>
 
-    <div v-else class="table-wrapper">
+    <template #empty-action>
+      <button v-if="activeFilterCount > 0" class="text-xs text-blue-500 hover:text-blue-700 underline" @click="resetFilters">
+        Xóa bộ lọc để xem tất cả
+      </button>
+      <button v-else class="btn-ghost text-xs" @click="router.push('/incidents/list')">
+        Đi tới danh sách sự cố
+      </button>
+    </template>
+
       <!-- Mobile cards (< sm) — P1 table→card: mỗi RCA 1 card (mã/sự cố/thiết bị/trạng thái). -->
-      <div v-if="store.rcaListItems.length" class="mobile-card-list sm:hidden">
+      <div class="mobile-card-list sm:hidden">
         <div
           v-for="rca in store.rcaListItems"
           :key="rca.name"
@@ -146,7 +214,7 @@ onMounted(() => store.fetchRcas())
       </div>
 
       <!-- Desktop table (sm+) — P3: giữ overflow-x-auto quanh bảng. -->
-      <div v-if="store.rcaListItems.length" class="hidden sm:block overflow-x-auto">
+      <div class="hidden sm:block overflow-x-auto">
         <table class="min-w-full divide-y divide-slate-100">
           <thead>
             <tr>
@@ -192,18 +260,9 @@ onMounted(() => store.fetchRcas())
           </tbody>
         </table>
       </div>
-      <div v-else class="flex flex-col items-center justify-center py-16 text-slate-400">
-        <p class="text-sm font-medium text-slate-500">Chưa có hồ sơ phân tích nguyên nhân gốc nào</p>
-        <p class="text-xs mt-1">Phân tích nguyên nhân gốc được tạo tự động từ sự cố mức Cao/Nghiêm trọng hoặc lỗi lặp lại.</p>
-        <button v-if="activeFilterCount > 0" class="text-xs text-blue-500 hover:text-blue-700 underline mt-2" @click="resetFilters">
-          Xóa bộ lọc để xem tất cả
-        </button>
-        <button v-else class="btn-ghost text-xs mt-3" @click="router.push('/incidents/list')">
-          Đi tới danh sách sự cố
-        </button>
-      </div>
-    </div>
 
-    <BasePagination :pagination="store.rcaPagination" @page-change="applyFilter" />
-  </div>
+    <template #pagination>
+      <BasePagination :pagination="store.rcaPagination" @page-change="applyFilter" />
+    </template>
+  </ListPageShell>
 </template>

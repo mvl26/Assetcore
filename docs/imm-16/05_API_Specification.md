@@ -500,12 +500,14 @@ _AUDIT_LEAD_ROLES         = {"Compliance Manager", "Compliance User", "AssetCore
 
 > **Round-trip contract (acceptance CR-27b):** sau `complete_audit_checklist(audit, items=[{idx, finding_status}])` rồi re-fetch `get_audit(audit)` → mỗi `checklist_items[i].result` = giá trị map ở trên, **KHÔNG rỗng**. Trước fix: LUÔN rỗng (2 assign `child.finding_status`/`child.clause_ref` là no-op câm vào field không tồn tại).
 
-**Hành vi cho item finding_status="Major NC"/"Minor NC":**
+**Hành vi cho item finding_status="Major NC"/"Minor NC" (CR-27d — auto-Finding THẬT):**
 1. Map `finding_status → child.result` (Major/Minor NC → `Non-Conforming`).
-2. Sinh `IMM Compliance Finding` với `severity="High"` (Major→High, Minor→Medium) — `findings_created` KHÔNG đổi so với trước (0-regression).
+2. **Sinh `IMM Compliance Finding` THẬT** cho mỗi dòng NC: `severity="High"` (Major) / `"Medium"` (Minor); `rule` = canonical `AUDIT-INTERNAL-NC` (get-or-create idempotent); `source_record_doctype="IMM Internal Audit"` + `source_record=<audit>`; `status="Open"`; `detected_date`+`evaluation_date` set (cả hai reqd). `findings_created` = số doc **persist THỰC** (1 Finding/dòng NC — 2 NC ⇒ 2). Chi tiết + field mapping: `04_Backend_Design.md §III.C.1c` / **ADR-IMM-16-11**.
 3. Cuối thân: **`status = Reporting`** (In Progress → Reporting) — state `Reporting` không còn chết; ghi ĐÚNG 1 audit-event `audit_checklist_completed`.
 
-> 🏷️ **Out-of-scope CR-27b (flag cho backlog):** dòng cũ "Set `item.linked_finding = finding.name`" cũng là **no-op câm** — child KHÔNG có field `linked_finding` (chỉ có `finding_ref`, mà `finding_ref` là Link → `Audit Finding` ≠ `IMM Compliance Finding` vừa tạo → mismatch kiểu). Backlink checklist-item → finding hiện KHÔNG hoạt động. KHÔNG sửa trong CR-27b (chỉ đụng verdict round-trip); tách CR riêng nếu cần backlink.
+> ⚠️ **Fail-loud (CR-27d):** nhánh Finding **KHÔNG** bọc `try/except` nuốt lỗi. Rule/Finding create hỏng vì lý do THẬT → **raise** (in-handler HTTP-200 Error envelope) abort trước commit (all-or-nothing) — KHÔNG âm thầm biến no-op thành success. `findings_created` KHÔNG bao giờ > số persist thật (hết success-giả). **KHÔNG dedup** `find_existing` cho audit-NC (nhiều NC cùng audit/ngày là các vi phạm riêng — dedup sẽ gộp sai).
+
+> 🏷️ **Backlink row→finding — BỎ (CR-27d):** dòng cũ "Set `item.linked_finding = finding.name`" là **no-op câm** (child KHÔNG có `linked_finding`; `finding_ref` là Link → `Audit Finding` ≠ `IMM Compliance Finding` → mismatch doctype). CR-27d LOẠI hẳn assign này; liên kết finding→audit đi qua `source_record` (forward-link SSoT — query Finding theo `source_record=<audit>`). Backlink cấp-dòng = `[ROADMAP]`.
 
 **Response 200:**
 

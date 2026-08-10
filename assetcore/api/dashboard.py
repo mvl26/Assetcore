@@ -8,6 +8,7 @@ import frappe
 from frappe.utils import today, add_days, now_datetime
 
 from assetcore.utils.response import _ok, _err
+from assetcore.services.shared.ac_users import count_ac_users, get_ac_users
 from assetcore.services.imm00 import (
     count_pending_approvals,
     byt_expiry_filter,
@@ -92,15 +93,17 @@ def _scoped_helper(fn, default: int = 0) -> int:
     dưới persona scoped.
 
     Các helper service layer (imm08/09/00/11) đếm qua ``frappe.db.count`` /
-    ``Repo.list`` trên doctype CÓ hook NHƯNG chưa permission-aware (SoT riêng,
-    BA-gated — KHÔNG sửa trong scope này). Dưới persona thiếu DocPerm read chúng
+    ``Repo.list`` trên doctype CÓ hook. Dưới persona thiếu DocPerm read chúng
     raise ``PermissionError`` → crash cả get_overview (trả VALIDATION_ERROR thay
     vì payload scoped). Wrap để degrade về ``default`` (0) — persona scoped thấy
     0 (đúng: họ không drill được vào tập đó) thay vì vỡ dashboard. Read-all
     persona (admin/internal/auditor) KHÔNG raise ⇒ giá trị y như trước (no-change).
 
-    ▶️ TODO (BA-gated): đồng bộ các helper này sang permission-aware để vendor
-    thấy đúng SUBSET (thay vì 0) — cần BA chốt scope service layer trước.
+    ✅ TODO BA-gated ĐÃ ĐÓNG (ADR-IMM00-LIST-SCOPE §8.4b, D7 chốt 2026-07-25):
+    ``cm_sla_breach_count`` (imm09) + ``count_overdue_pm`` (imm08) nay đếm qua
+    ``count_with_or`` (permission-aware) ⇒ persona row-scoped thấy đúng SUBSET của
+    mình, KHỚP số dòng drill-list (đã ``scope="user"``). Wrapper này GIỮ vai trò
+    lưới an toàn cho persona thiếu hẳn DocPerm read (0 == drill 0 dòng).
     """
     try:
         return int(fn())
@@ -892,14 +895,22 @@ def _build_qa(ov: dict) -> dict:
 
 def _build_admin(ov: dict) -> dict:
     a = ov.get("assets", {})
-    total_users = _count("User", {"enabled": 1})
-    disabled_users = _count("User", {"enabled": 0})
-    # Pending: custom field imm_registration_status nếu có; fallback 0 (đọc thật, không bịa)
-    try:
-        pending_users = _count("User", {"imm_registration_status": "Pending"})
-    except Exception:
-        pending_users = 0
-    vendor_engineers = _count("Has Role", {"role": "Vendor Engineer"})
+    # SSoT "user AssetCore" = base role (services.shared.ac_users) — KHÔNG đếm thô
+    # `tabUser`: site cài chung ERPNext/CRM có hàng chục user không thuộc app, số
+    # KPI sẽ thổi phồng và LỆCH với /user-profiles (sự cố 2026-07-22: 29 vs 4).
+    # Cùng resolver với `api.user.list_users` ⇒ INVARIANT count == drill.
+    total_users = count_ac_users()
+    active_users = count_ac_users({"enabled": 1})
+    disabled_users = count_ac_users({"enabled": 0})
+    # Chờ duyệt: custom field `imm_approval_status` (KHÔNG phải imm_registration_status
+    # — tên cũ không tồn tại nên KPI luôn 0, lỗi bị `except` nuốt).
+    pending_users = (
+        count_ac_users({"imm_approval_status": "Pending"})
+        if frappe.db.has_column("User", "imm_approval_status") else 0
+    )
+    # Vendor Engineer: user AssetCore GIAO role — không đếm thô `Has Role` (bảng
+    # đó còn chứa row cấu hình của Role Profile ⇒ đếm trùng).
+    vendor_engineers = count_ac_users(role="Vendor Engineer")
 
     # Audit-chain status: verify từ utils.lifecycle nếu có verifier; nếu không → None.
     audit_status = None
@@ -909,10 +920,15 @@ def _build_admin(ov: dict) -> dict:
     except Exception:
         audit_status = None  # KHÔNG bịa "PASS" — để FE hiển thị "—"
 
-    users_pending = _recent(
-        "User", ["name", "full_name", "email", "creation"],
-        limit=10, order_by="creation desc",
-        filters={"enabled": 0},
+    # Mục "chờ duyệt" = user AssetCore đang Pending; fallback user AssetCore bị vô
+    # hiệu khi site chưa có custom field (vô hiệu ≠ chờ duyệt, nhưng vẫn là việc
+    # cần admin xử lý). Cùng scope base role như KPI ở trên.
+    users_pending = get_ac_users(
+        ["name", "full_name", "email", "creation"],
+        {"imm_approval_status": "Pending"}
+        if frappe.db.has_column("User", "imm_approval_status") else {"enabled": 0},
+        order_by="creation desc",
+        limit_page_length=10,
     )
     audit_recent = ov.get("recent_incidents", [])
 
@@ -921,7 +937,8 @@ def _build_admin(ov: dict) -> dict:
     # query canonical (approval_status=Pending, role=Vendor Engineer) khớp filter list.
     kpis = [
         _kpi("total_users", "Tổng người dùng", total_users,
-             f"{disabled_users} vô hiệu · {pending_users} chờ duyệt", "primary",
+             f"{active_users} hoạt động · {disabled_users} vô hiệu · "
+             f"{pending_users} chờ duyệt", "primary",
              drill=_drill("/user-profiles")),
         _kpi("pending_users", "Chờ phê duyệt", pending_users, "Đăng ký mới", "warn",
              drill=_drill("/user-profiles", approval_status="Pending")),

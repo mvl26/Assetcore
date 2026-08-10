@@ -15,6 +15,8 @@ import unittest
 import frappe
 from frappe.utils import nowdate
 
+from assetcore.tests._asset_cleanup import purge_asset
+
 
 _UID = str(int(time.time()) % 100000)
 
@@ -193,13 +195,11 @@ class TestAssetLifecycleSmoke(unittest.TestCase):
         # DELETE works for fixture purge.
         assets = frappe.get_all("AC Asset", filters={"asset_category": cls._cat.name}, pluck="name")
         for a in assets:
-            frappe.db.sql("DELETE FROM `tabIMM Audit Trail` WHERE asset=%s", (a,))
-            frappe.db.sql("DELETE FROM `tabAsset Lifecycle Event` WHERE asset=%s", (a,))
             if frappe.db.table_exists("AC Asset Downtime Log"):
                 frappe.db.sql(
                     "DELETE FROM `tabAC Asset Downtime Log` WHERE asset=%s", (a,)
                 )
-            frappe.delete_doc("AC Asset", a, force=True, ignore_permissions=True)
+            purge_asset(a)
         frappe.db.commit()
         frappe.delete_doc("AC Asset Category", cls._cat.name, force=True, ignore_permissions=True)
         frappe.db.commit()
@@ -326,10 +326,7 @@ class TestCAPASmoke(unittest.TestCase):
                 doc.cancel()
             frappe.delete_doc("IMM CAPA Record", c, force=True, ignore_permissions=True,
                               delete_permanently=True)
-        frappe.db.sql(
-            "DELETE FROM `tabIMM Audit Trail` WHERE asset=%s", (cls._asset.name,)
-        )
-        frappe.delete_doc("AC Asset", cls._asset.name, force=True, ignore_permissions=True)
+        purge_asset(cls._asset.name)
         frappe.delete_doc("AC Asset Category", cls._cat.name, force=True, ignore_permissions=True)
         frappe.db.commit()
 
@@ -434,10 +431,7 @@ class TestS10_CriticalIncidentNotBlocked(unittest.TestCase):
                 d.cancel()
             frappe.delete_doc("Incident Report", ir, force=True, ignore_permissions=True,
                               delete_permanently=True)
-        frappe.db.sql(
-            "DELETE FROM `tabIMM Audit Trail` WHERE asset=%s", (cls._asset.name,)
-        )
-        frappe.delete_doc("AC Asset", cls._asset.name, force=True, ignore_permissions=True)
+        purge_asset(cls._asset.name)
         frappe.delete_doc("AC Asset Category", cls._cat.name, force=True, ignore_permissions=True)
         frappe.db.commit()
 
@@ -542,10 +536,7 @@ class TestS13_TechnicianScopeFilter(unittest.TestCase):
         if cls._ir and frappe.db.exists("Incident Report", cls._ir.name):
             frappe.delete_doc("Incident Report", cls._ir.name, force=True,
                               ignore_permissions=True)
-        frappe.db.sql(
-            "DELETE FROM `tabIMM Audit Trail` WHERE asset=%s", (cls._asset.name,)
-        )
-        frappe.delete_doc("AC Asset", cls._asset.name, force=True, ignore_permissions=True)
+        purge_asset(cls._asset.name)
         frappe.delete_doc("AC Asset Category", cls._cat.name, force=True, ignore_permissions=True)
         if frappe.db.exists("User", cls.TECH_EMAIL):
             frappe.delete_doc("User", cls.TECH_EMAIL, force=True, ignore_permissions=True)

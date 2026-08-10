@@ -648,3 +648,15 @@ Reference: LL-TEST-25 (`--preload` đông cứng import), `memory/gunicorn_prelo
 2. **Cô lập trước khi quy lỗi**: chạy LẠI module nghi ngờ một mình (`run-tests --module X`); vẫn đỏ ở `setUp`/unique-collision/teardown ⇒ NHIỄM BẨN (leaked fixture), KHÔNG phải bug của bạn. TUYỆT ĐỐI không "sửa cho xanh" cái không phải lỗi mình.
 3. **Việc của bạn vẫn phải xanh KHI chạy isolated** — verify từng module mình đụng chạy riêng (xanh) thay vì tin con số tổng nhiễm bẩn.
 4. Clean BE verification THẬT chỉ khả thi khi **1 phiên duy nhất** + DB đã purge leak → đề xuất user consolidate rồi chạy 1 lần sạch. Cross-ref: LL-TEST-15 (fixture leak), LL-BE-15 (no shared-reuse fixture), `[[multi_session_concurrency]]`; session audit 2026-06-29.
+
+### LL-TEST-31: Guard counter (`_EXPECTED_TEST_COUNT`/guard-sum/số path OAS) ĐỌC TỪ ĐĨA và chấm DELTA — lệch số ≠ đỏ (2026-07-28)
+
+**Triệu chứng→nguyên nhân:** prompt/STATE đầu run ghi `983 / 1126 / 1152`; đĩa thực tế `1024 / 1167 / 1193` (các phiên song song đã land AC-CR-80..86). Agent mất thời gian điều tra "mình làm hỏng gì?", suýt dừng vòng và suýt "sửa cho khớp" con số cũ. Cùng run còn ca ngược: prompt ghi 278 file test FE, đĩa 284. Nguyên nhân cấu trúc: mọi con số baseline đi kèm prompt là **ảnh chụp tại thời điểm soạn**, trong khi working tree bị nhiều phiên ghi đồng thời.
+
+**Rule (kiểm được):**
+1. **Đo lại từ đĩa** trước khi dùng bất kỳ counter nào (`grep -n "_EXPECTED_TEST_COUNT" assetcore/tests/*.py`, đếm file thật) — KHÔNG lấy số trong prompt/STATE/handoff làm chuẩn.
+2. **Chấm DELTA, không chấm tuyệt đối:** câu hỏi đúng là "vòng này làm số đó tăng/giảm bao nhiêu", không phải "số đó có bằng STATE không". Lệch so với STATE = STATE stale ⇒ **cập nhật STATE**, không dừng run, không sửa code cho khớp.
+3. **Chỉ cập nhật counter khi CHÍNH vòng này thêm/bớt test**, và ghi rõ delta trong báo cáo (vd `983 → 1024 (+41, do phiên khác)` ≠ `+3 do vòng này`).
+4. Cùng khuôn với triage đỏ đa-phiên: xác định **chủ sở hữu** trước khi hành động (`git log -S '<symbol>'` + mtime) — LL-TEST-30.
+
+Cross-ref: LL-TEST-30 (đa-phiên nhiễm DB), [[LL-AUDIT-22]] (claim ≠ đĩa), `[[multi_session_concurrency]]`; session run-3 2026-07-28.

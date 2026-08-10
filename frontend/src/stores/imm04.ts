@@ -23,6 +23,7 @@ import {
   cancelCommissioning as apiCancel,
   getPoDetails as apiGetPoDetails,
 } from '@/api/imm04'
+import type { BaselineResultInput, BaselineOverallResult } from '@/api/imm04'
 import { frappeGet } from '@/api/helpers'
 import { ApiError, toApiError } from '@/api/errors'
 import { useAuthStore } from './auth'
@@ -204,13 +205,22 @@ export const useCommissioningStore = defineStore('commissioning', () => {
     }
   }
 
-  /** Thực hiện workflow transition */
-  async function transitionState(name: string, action: string): Promise<boolean> {
+  /**
+   * Thực hiện workflow transition.
+   *
+   * `boardApprover` (CR-54 §1): người ký BGĐ truyền kèm cho action dẫn tới
+   * 'Clinical Release' → BE set trong cùng transition (1 call), gỡ deadlock
+   * gate G06. Không truyền / rỗng → hành vi caller cũ y hệt (BE bỏ qua param
+   * với action không phát hành). Lỗi cấu trúc (IMM04-GATE-G06-APPROVER thiếu
+   * người ký · FORBIDDEN 4-eyes) đi qua `_captureError` → `lastApiError` để
+   * view render bằng `notify.fromError`, KHÔNG để 417 thô rơi ra.
+   */
+  async function transitionState(name: string, action: string, boardApprover?: string): Promise<boolean> {
     loading.value = true
     error.value = null
 
     try {
-      const res = await apiTransition(name, action)
+      const res = await apiTransition(name, action, boardApprover)
       if (res) {
         // Reload chi tiết sau khi transition thành công
         await fetchDetail(name)
@@ -416,24 +426,43 @@ export const useCommissioningStore = defineStore('commissioning', () => {
     }
   }
 
-  /** Nộp kết quả baseline */
+  /**
+   * Nộp kết quả baseline (gate Nghiệm thu ban đầu / Kiểm tra lại).
+   * Trả `testsRecorded` = số dòng THỰC server ghi test_result (silent-completion lens):
+   * View chỉ được coi là ĐÃ GHI khi `ok && testsRecorded > 0`, KHÔNG tin HTTP-200 trần.
+   * `overallResult` là SSoT của SERVER ('Pass' | 'Fail'): phép đo KHÔNG ĐẠT vẫn được
+   * LƯU (CR-54 §2) nên `ok=true` KHÔNG đồng nghĩa "đạt" — view phải đọc `overallResult`
+   * + `failedParameters` để hiển thị đúng, KHÔNG suy diễn từ HTTP-200.
+   */
   async function submitBaselineChecklist(
     name: string,
-    results: Array<{ parameter: string; test_result: string; measured_val?: number; fail_note?: string }>,
-  ): Promise<{ ok: boolean; clinicalHoldRequired?: boolean }> {
+    results: BaselineResultInput[],
+  ): Promise<{
+    ok: boolean
+    testsRecorded: number
+    overallResult: BaselineOverallResult | ''
+    failedParameters: string[]
+    clinicalHoldRequired?: boolean
+  }> {
     loading.value = true
     error.value = null
     try {
       const res = await apiSubmitChecklist(name, results)
       if (res !== undefined && res !== null) {
         await fetchDetail(name)
-        return { ok: true, clinicalHoldRequired: res?.clinical_hold_required }
+        return {
+          ok: true,
+          testsRecorded: typeof res.tests_recorded === 'number' ? res.tests_recorded : 0,
+          overallResult: res.overall_result ?? '',
+          failedParameters: Array.isArray(res.failed_parameters) ? res.failed_parameters : [],
+          clinicalHoldRequired: res.clinical_hold_required,
+        }
       }
       error.value = 'Không thể nộp kết quả'
-      return { ok: false }
+      return { ok: false, testsRecorded: 0, overallResult: '', failedParameters: [] }
     } catch (e) {
       _captureError(e)
-      return { ok: false }
+      return { ok: false, testsRecorded: 0, overallResult: '', failedParameters: [] }
     } finally {
       loading.value = false
     }

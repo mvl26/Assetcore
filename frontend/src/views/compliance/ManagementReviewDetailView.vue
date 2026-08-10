@@ -5,7 +5,7 @@
 // "IMM-16 Management Review Workflow" (Draft → Held → Minutes Approved →
 // Closed). Action labels khớp chính xác workflow.
 import { ref, computed, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useImm16Store } from '@/stores/imm16'
 import { useApi } from '@/composables/useApi'
 import { getManagementReview } from '@/api/imm16'
@@ -14,18 +14,24 @@ import { formatDate } from '@/utils/formatters'
 import PageHeader from '@/components/common/PageHeader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import BaseModal from '@/components/common/BaseModal.vue'
-import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
+import DetailPageShell from '@/components/common/DetailPageShell.vue'
 import RecordHistory from '@/components/common/RecordHistory.vue'
 import DateInput from '@/components/common/DateInput.vue'
+import FileUploadField from '@/components/common/FileUploadField.vue'
 import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
+import { loadErrorKind, toApiError, type DetailLoadKind } from '@/api/errors'
 
 const route = useRoute()
+const router = useRouter()
 const store = useImm16Store()
 const api = useApi()
 const name = route.params.id as string
 
 const mr = ref<ManagementReview | null>(null)
 const loading = ref(true)
+// '' = nạp OK; 'notfound' = mã cuộc soát xét không tồn tại (404); 'unknown' = lỗi khác.
+const loadFailed = ref<'' | DetailLoadKind>('')
+const loadErrMsg = ref('')
 const historyRef = ref<InstanceType<typeof RecordHistory> | null>(null)
 
 // Server-driven CTA (GATE-8 / LL-FE-51, mirror get_capa/get_audit/get_finding):
@@ -59,10 +65,20 @@ const canClose = computed(() =>
 const showNoActionHint = computed(() =>
   !isClosed.value && !canAdvance.value && !canClose.value)
 
+// Mã soát xét sai / đã xoá ⇒ 404: nuốt ApiError (không rò console) + empty-state
+// chuẩn có lối về danh sách, thay dòng chữ đỏ cụt (dead-end).
 async function load() {
   loading.value = true
+  // Xoá lỗi ở ĐẦU lượt (INV-UX4-7) — nếu không, banner lỗi cũ đứng nguyên trong lúc
+  // request mới đang bay ⇒ nút nạp lại trông như chết.
+  loadFailed.value = ''
+  loadErrMsg.value = ''
   try {
     mr.value = await getManagementReview(name)
+  } catch (e: unknown) {
+    loadFailed.value = loadErrorKind(e)
+    loadErrMsg.value = toApiError(e).message
+    mr.value = null
   } finally {
     loading.value = false
   }
@@ -187,12 +203,20 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="page-container animate-fade-in space-y-5">
-    <div v-if="loading" class="p-6"><SkeletonLoader variant="form" :rows="6" /></div>
-    <div v-else-if="!mr" class="text-center text-red-500 py-12">Không tìm thấy cuộc soát xét</div>
-
-    <template v-else>
+  <DetailPageShell
+    :loading="loading"
+    :error-kind="loadFailed"
+    :error-message="loadErrMsg"
+    :doc="mr"
+    entity-label="cuộc soát xét quản lý"
+    :record-id="name"
+    back-label="Về danh sách soát xét"
+    @retry="load()"
+    @back="router.push('/compliance/mr')"
+  >
+    <template #header>
       <PageHeader
+        v-if="mr"
         :title="`Soát xét quản lý ${mr.quarter}`"
         :subtitle="`IMM-16 · ${mr.name}`"
         :breadcrumb="[
@@ -200,31 +224,35 @@ onMounted(load)
           { label: 'Soát xét quản lý', to: '/compliance/mr' },
           { label: mr.quarter },
         ]"
-      >
-        <template #actions>
-          <button v-if="editable" class="btn-secondary text-sm" @click="openEdit">Sửa nội dung</button>
-          <button
-            v-if="canAdvance"
-            data-testid="cta-advance"
-            class="btn-primary text-sm"
-            :disabled="api.loading.value"
-            @click="advance"
-          >{{ advanceStep?.label }}</button>
-          <button
-            v-if="canClose"
-            data-testid="cta-close"
-            class="btn-primary text-sm"
-            :disabled="api.loading.value"
-            @click="openClose"
-          >Đóng và xuất biên bản</button>
-          <span
-            v-if="showNoActionHint"
-            data-testid="no-actions-hint"
-            class="text-xs text-slate-500 italic max-w-xs text-right"
-          >Bạn không có quyền chuyển trạng thái cuộc soát xét này. Liên hệ quản trị viên hoặc Quản lý chất lượng để duyệt/đóng.</span>
-        </template>
-      </PageHeader>
+      />
+    </template>
 
+    <!-- Panel thao tác — chỉ render ở trạng thái content (INV-UX4-5): không còn
+         cảnh nút "Đóng và xuất biên bản" hiện trên khung chi tiết rỗng. -->
+    <template #actions>
+      <button v-if="editable" class="btn-secondary text-sm" @click="openEdit">Sửa nội dung</button>
+      <button
+        v-if="canAdvance"
+        data-testid="cta-advance"
+        class="btn-primary text-sm"
+        :disabled="api.loading.value"
+        @click="advance"
+      >{{ advanceStep?.label }}</button>
+      <button
+        v-if="canClose"
+        data-testid="cta-close"
+        class="btn-primary text-sm"
+        :disabled="api.loading.value"
+        @click="openClose"
+      >Đóng và xuất biên bản</button>
+      <span
+        v-if="showNoActionHint"
+        data-testid="no-actions-hint"
+        class="text-xs text-slate-500 italic max-w-xs text-right"
+      >Bạn không có quyền chuyển trạng thái cuộc soát xét này. Liên hệ quản trị viên hoặc Quản lý chất lượng để duyệt/đóng.</span>
+    </template>
+
+    <template v-if="mr">
       <div class="card p-5 space-y-4">
         <div class="flex flex-wrap items-center gap-2">
           <StatusBadge :state="mr.status" />
@@ -301,7 +329,16 @@ onMounted(load)
           <div class="form-group"><label class="form-label">Chủ tọa</label><ApproverSelect v-model="editForm.chair" context="user" placeholder="Chọn người dùng..." /></div>
           <div class="form-group"><label class="form-label">Tham chiếu bảng điểm</label><input v-model="editForm.scorecard_ref" class="form-input" placeholder="SCR-2026-..." /></div>
           <div class="form-group"><label class="form-label">Họp tiếp theo</label><DateInput v-model="editForm.next_review_date" class="form-input" /></div>
-          <div class="form-group sm:col-span-2"><label class="form-label">URL biên bản</label><input v-model="editForm.minutes_doc" class="form-input" placeholder="https://..." /></div>
+          <div class="form-group sm:col-span-2">
+            <FileUploadField
+              v-model="editForm.minutes_doc"
+              label="Biên bản họp"
+              doctype="IMM Management Review"
+              fieldname="minutes_doc"
+              :docname="name"
+              hint="Bấm để tải biên bản họp (pdf, doc — tối đa 10MB)"
+            />
+          </div>
         </div>
         <div class="form-group"><label class="form-label">Tóm tắt đầu vào</label><textarea v-model="editForm.inputs_summary" rows="2" class="form-input" /></div>
         <div class="form-group"><label class="form-label">Tóm tắt kiểm toán</label><textarea v-model="editForm.audit_summary" rows="2" class="form-input" /></div>
@@ -366,5 +403,5 @@ onMounted(load)
         <button class="btn-primary" data-testid="cta-close-confirm" :disabled="api.loading.value" @click="submitClose">Đóng soát xét</button>
       </template>
     </BaseModal>
-  </div>
+  </DetailPageShell>
 </template>

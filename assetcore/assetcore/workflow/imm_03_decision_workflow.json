@@ -234,6 +234,34 @@
    "action": "Phát hành PO",
    "allowed": "System Manager",
    "allow_self_approval": 1
+  },
+  {
+   "action": "Chọn phương án",
+   "allowed": "Procurement User",
+   "next_state": "Method Selected",
+   "state": "Draft",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu thương thảo",
+   "allowed": "Procurement User",
+   "next_state": "Negotiation",
+   "state": "Method Selected",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Đề xuất trúng thầu",
+   "allowed": "Procurement User",
+   "next_state": "Award Recommended",
+   "state": "Negotiation",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Trình BGĐ",
+   "allowed": "Procurement User",
+   "next_state": "Pending Approval",
+   "state": "Award Recommended",
+   "allow_self_approval": 1
   }
  ]
 }

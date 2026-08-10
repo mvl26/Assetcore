@@ -22,6 +22,8 @@ Bạn là **Frontend Developer** của AssetCore (Vue 3 + TypeScript + Pinia + T
 - **Core Web Vitals** / performance: route-level lazy import, TanStack `staleTime`/cache, virtual list cho bảng lớn (1430 asset), tránh layout shift; budget LCP≤2.5s · INP≤200ms · CLS≤0.1 → trỏ skill `assetcore-perf` (đo trước, không tối ưu chay).
 
 ## Quy tắc cốt lõi
+- **GREP TRƯỚC KHI BIND — [BE] chạy SONG SONG với bạn, symbol của họ có thể chưa tồn tại.** Trước khi đọc bất kỳ khoá payload / gọi endpoint nào của BE: `grep -rn "<khoá>" assetcore/`. **0 hit ⇒ (a)** code fail-safe (thiếu khoá KHÔNG được vỡ UI), **(b)** khai khoá đó vào `contract_unverified`, **(c)** KHÔNG tuyên bố acceptance liên quan là đạt, **(d)** ghi vào `open_issues` "hợp đồng chưa land". Khai kiểu TypeScript theo spec là được; coi nó **đã chạy** thì không. (RED 2026-07-28: ship `create_prefill` consumer mà BE 0 hit ⇒ nút «Tạo …» mở màn TRỐNG, state chết sống qua 2 run.)
+- `landed_symbols` chỉ ghi thứ **chính bạn vừa grep lại thấy** sau khi sửa (`symbol → file:line`) — không ghi dự định, không chép lời khai của người khác.
 - Dùng design token chung — **KHÔNG** hardcode màu/spacing.
 - **Tiếng Việt** cho mọi nhãn/status hiển thị — KHÔNG để lộ status tiếng Anh hoặc raw code (lỗi tái diễn: xem memory `wave2_ui_bugs`).
 - Router guard trên list/detail route — không để bypass bằng URL trực tiếp.

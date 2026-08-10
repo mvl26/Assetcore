@@ -16,7 +16,28 @@
   --color-success:     #059669;
   --color-warning:     #d97706;
   --color-danger:      #dc2626;
+  --color-info:        #2563eb;   /* MỚI — :root trước đây thiếu 'info' dù .alert-info đã dùng họ blue */
   --color-neutral:     #64748b;
+
+  /* Token màu NGỮ NGHĨA — đối ứng 1-1 với theme.extend.colors trong tailwind.config.js.
+     Guard parity 2 chiều: src/design/tokens.parity.test.ts (AC-UX-032).
+     Bậc 500 trùng byte-per-byte với 5 biến --color-* ở trên ⇒ 0 đổi màu hiển thị.
+     Việc di trú các class @layer bên dưới sang var(--ac-color-*) thuộc vòng sau. */
+  --ac-color-success-50:  #ecfdf5;
+  --ac-color-success-500: #059669;
+  --ac-color-success-700: #047857;
+  --ac-color-warning-50:  #fffbeb;
+  --ac-color-warning-500: #d97706;
+  --ac-color-warning-700: #b45309;
+  --ac-color-danger-50:   #fef2f2;
+  --ac-color-danger-500:  #dc2626;
+  --ac-color-danger-700:  #b91c1c;
+  --ac-color-info-50:     #eff6ff;
+  --ac-color-info-500:    #2563eb;
+  --ac-color-info-700:    #1d4ed8;
+  --ac-color-neutral-50:  #f8fafc;
+  --ac-color-neutral-500: #64748b;
+  --ac-color-neutral-700: #334155;
 
   /* Surface */
   --color-bg:          #f4f6fa;

@@ -37,6 +37,13 @@ interface ConfirmOpts {
   actionHint?: string
   confirmText?: string
   cancelText?: string
+  /**
+   * Sắc thái hộp thoại (ADR-UX-16, `06 §5.1`). `'error'`/`'critical'` ⇒ `BaseModal`
+   * bật `danger` — cần cho hành động PHÁ HUỶ (xoá / huỷ đơn / xoá lịch), thứ mà
+   * `ConfirmOpts` trước đây không diễn đạt được.
+   * Không truyền ⇒ `useModal` giữ mặc định `'warning'` ⇒ 7 call-site cũ đổi 0 dòng.
+   */
+  tone?: 'error' | 'warning' | 'info' | 'critical'
 }
 
 /** Render template + entry từ registry. Fallback SYS-500 nếu code không tồn tại. */
@@ -140,6 +147,7 @@ export function useNotify() {
       actionHint,
       confirmText: opts.confirmText,
       cancelText: opts.cancelText,
+      tone: opts.tone,
     })
   }
 

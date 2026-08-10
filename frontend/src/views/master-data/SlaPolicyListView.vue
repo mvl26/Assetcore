@@ -8,18 +8,19 @@ import {
 import type { ImmSlaPolicy, Priority, RiskClass } from '@/types/imm00'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
-import { useMasterDataStore } from '@/stores/masterData'
+import { useAcUserStore } from '@/stores/acUsers'
 import { formatDate, isCheckOn } from '@/utils/formatters'
 import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
+import ListPageShell from '@/components/ui/ListPageShell.vue'
 const toast = useToast()
-const masterStore = useMasterDataStore()
+const acUsers = useAcUserStore()
 
+// Tên người dùng lấy từ danh bạ AssetCore (base role) — KHÔNG qua
+// masterData/search_link doctype=User (xổ toàn bộ user của site).
 function userLabel(userId?: string | null): string {
-  if (!userId) return '—'
-  const item = masterStore.getItemById('User', userId)
-  return item?.name || userId
+  return acUsers.label(userId)
 }
 
 const policies = ref<ImmSlaPolicy[]>([])
@@ -29,7 +30,11 @@ const showDetail = ref(false)
 const detail = ref<ImmSlaPolicy | null>(null)
 const editingName = ref<string | null>(null)
 const form = ref<Partial<ImmSlaPolicy> & Record<string, unknown>>({})
+// `err` = lỗi HỘP THOẠI lưu chính sách — KHÔNG nối vào khuôn danh sách (INV-UX3-13).
 const err = ref('')
+// AC-UX-047 (lô 1) — lỗi của LƯỢT NẠP danh sách (trước đây `load()` không có `catch`
+// ⇒ API hỏng in «Chưa có chính sách cam kết mức dịch vụ.»).
+const loadError = ref<string | null>(null)
 
 const showFilters = ref(false)
 const filters = ref<{ priority: string; risk_class: string; is_active: '' | '1' | '0'; search: string }>({
@@ -96,10 +101,18 @@ function resetFilters() {
   filters.value = { priority: '', risk_class: '', is_active: '', search: '' }
 }
 
+const emptyTitle = computed(() =>
+  activeFilterCount.value > 0 ? 'Không có chính sách nào phù hợp' : 'Chưa có chính sách cam kết mức dịch vụ')
+const EMPTY_HINT = 'Hãy tạo chính sách mới hoặc xoá bộ lọc để xem tất cả.'
+
 async function load() {
   loading.value = true
+  loadError.value = null                       // INV-UX3-4 — xoá lỗi ĐẦU lượt
   try {
     policies.value = await listSlaPolicies()
+  } catch (e: unknown) {
+    loadError.value = e instanceof Error ? e.message : String(e)
+    policies.value = []                        // INV-UX3-5
   } finally { loading.value = false }
 }
 
@@ -121,7 +134,7 @@ async function openDetail(name: string) {
   // Prefetch User cache song song với fetch detail — chỉ load khi user thực sự mở modal
   const [res] = await Promise.all([
     getSlaPolicy(name),
-    masterStore.fetchDoctype('User'),
+    acUsers.prefetch(),
   ])
   if (res) detail.value = res
   showDetail.value = true
@@ -167,23 +180,33 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="page-container animate-fade-in">
-    <PageHeader
-      title="Chính sách cam kết mức dịch vụ"
-      :subtitle="`Tổng ${policies.length} chính sách`"
-    >
-      <template #actions>
-        <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
-        <button class="btn-primary" @click="openCreate">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
-          </svg>
-          Thêm chính sách
-        </button>
-      </template>
-    </PageHeader>
+  <!-- AC-UX-047 (lô 1) — khuôn 4 trạng thái loại trừ (ui/ListPageShell). -->
+  <ListPageShell
+    :loading="loading"
+    :error-message="loadError"
+    :is-empty="!filteredPolicies.length"
+    :empty-title="emptyTitle"
+    :empty-hint="EMPTY_HINT"
+    @retry="load">
+    <template #header>
+      <PageHeader
+        title="Chính sách cam kết mức dịch vụ"
+        :subtitle="`Tổng ${policies.length} chính sách`"
+      >
+        <template #actions>
+          <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
+          <button class="btn-primary" @click="openCreate">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+            Thêm chính sách
+          </button>
+        </template>
+      </PageHeader>
+    </template>
 
-    <ListFilterBar
+    <template #filters>
+      <ListFilterBar
       :show="showFilters"
       :chips="activeChips"
       v-model:search="filters.search"
@@ -215,9 +238,20 @@ onMounted(load)
           </select>
         </div>
       </template>
-    </ListFilterBar>
+      </ListFilterBar>
+    </template>
 
-    <div class="card overflow-hidden">
+    <template #skeleton>
+      <SkeletonLoader v-for="i in 4" :key="i" class="h-10 mb-3" />
+    </template>
+
+    <template #empty-action>
+      <button v-if="activeFilterCount > 0" class="text-xs text-blue-500 hover:text-blue-700 underline" @click="resetFilters">
+        Xóa bộ lọc để xem tất cả
+      </button>
+    </template>
+
+    <template #toolbar>
       <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50/60 text-xs text-slate-500">
         <span v-if="activeFilterCount > 0">
           Kết quả lọc: <strong class="text-slate-700">{{ filteredPolicies.length }}</strong> / {{ policies.length }} chính sách
@@ -227,18 +261,9 @@ onMounted(load)
         </span>
         <button v-if="activeFilterCount > 0" class="text-red-500 hover:text-red-700 font-medium" @click="resetFilters">Xóa tất cả</button>
       </div>
+    </template>
 
-      <div v-if="loading" class="p-6">
-        <SkeletonLoader v-for="i in 4" :key="i" class="h-10 mb-3" />
-      </div>
-      <div v-else-if="filteredPolicies.length === 0" class="flex flex-col items-center justify-center py-16 text-slate-400 text-sm">
-        <p>{{ activeFilterCount > 0 ? 'Không có chính sách nào phù hợp.' : 'Chưa có chính sách cam kết mức dịch vụ.' }}</p>
-        <button v-if="activeFilterCount > 0" class="mt-3 text-xs text-blue-500 hover:text-blue-700 underline" @click="resetFilters">
-          Xóa bộ lọc để xem tất cả
-        </button>
-      </div>
-      <template v-else>
-        <!-- Mobile cards -->
+    <!-- Mobile cards -->
         <div class="mobile-card-list sm:hidden">
           <div
             v-for="p in filteredPolicies"
@@ -313,11 +338,11 @@ onMounted(load)
           </tbody>
         </table>
         </div>
-      </template>
-    </div>
+  </ListPageShell>
 
-    <!-- Detail modal (xem) -->
-    <div v-if="showDetail && detail" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="showDetail = false">
+  <!-- Hộp thoại đặt NGOÀI khuôn: mở được ở CẢ 4 trạng thái (INV-UX3-17). -->
+  <!-- Detail modal (xem) -->
+  <div v-if="showDetail && detail" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="showDetail = false">
       <div class="bg-white rounded-xl p-6 w-[560px] max-w-full space-y-4">
         <div class="flex items-start justify-between">
           <div>
@@ -465,6 +490,5 @@ onMounted(load)
           <button class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700" @click="save">Lưu</button>
         </div>
       </div>
-    </div>
   </div>
 </template>

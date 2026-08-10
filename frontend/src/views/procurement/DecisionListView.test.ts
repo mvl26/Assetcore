@@ -173,7 +173,10 @@ describe('IMM-03 DecisionListView — KPI tile drill (card==drill)', () => {
     expect(store.decisions.length).toBe(0)
     expect(store.error).toBeNull()
     // empty-state hiển thị (không crash)
-    expect(wrapper.html()).toContain('Không có quyết định mua sắm phù hợp')
+    // AC-UX-047 lô 2: khối rỗng tự chế đã nhường cho `EmptyState` của `ListPageShell`;
+    // câu rỗng-có-lọc là SSoT ở `02 §13.4` ⇒ chuỗi đổi theo, ngữ nghĩa giữ nguyên.
+    expect(wrapper.find('[data-testid="ui-empty-title"]').text())
+      .toBe('Không có quyết định mua sắm nào phù hợp')
   })
 
   // ── card == drill: total store khớp số tile sau khi click ─────────────────────

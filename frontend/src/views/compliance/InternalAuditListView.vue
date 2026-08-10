@@ -14,6 +14,7 @@ import ListFilterBar from '@/components/common/ListFilterBar.vue'
 import BasePagination from '@/components/common/BasePagination.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
+import ListPageShell from '@/components/ui/ListPageShell.vue'
 import BaseModal from '@/components/common/BaseModal.vue'
 import DateInput from '@/components/common/DateInput.vue'
 import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
@@ -37,6 +38,16 @@ const STATUSES: { value: string; label: string }[] = [
   { value: 'Closed',      label: 'Đã đóng' },
 ]
 
+// GATE-1/LL-FE-53: dịch audit_type sang tiếng Việt ở list (parity với detail view;
+// trước đây render thô 'Internal'/'External'/... rò ra người dùng).
+const AUDIT_TYPE_LABELS: Record<string, string> = {
+  Internal: 'Nội bộ',
+  'Self-assessment': 'Tự đánh giá',
+  Surveillance: 'Giám sát',
+  External: 'Bên ngoài',
+}
+const auditTypeLabel = (t: string) => AUDIT_TYPE_LABELS[t] ?? t
+
 const chips = computed(() => {
   const c: { key: string; label: string }[] = []
   if (filterStatus.value) {
@@ -55,9 +66,29 @@ function buildFilters() {
   return f
 }
 
+// ── Trạng thái nạp danh sách (AC-UX-047 lô 2 · biến thể D — 02 §13.2) ──
+// `stores/imm16.ts` dùng CHUNG một ô `error` cho 5 danh sách + mọi hành động ghi và
+// KHÔNG dọn ô đó ở đầu lượt ⇒ phải CHỤP lỗi ngay sau `await` rồi trả ô về sạch.
+// Lỗi của `createAudit` (hành động GHI) KHÔNG được vào `:error-message` (INV-UX3-13).
+const loadError = ref<string | null>(null)
+const currentPage = ref(1)
+
 async function load(page = 1) {
+  currentPage.value = page
+  loadError.value = null
+  store.error = null
   await store.fetchAudits(buildFilters(), page, 20)
+  loadError.value = store.error ?? null
+  if (loadError.value) store.error = null
 }
+
+/** Điểm vào DUY NHẤT của «Thử lại» — giữ nguyên bộ lọc + trang hiện tại. */
+function reload() { return load(currentPage.value) }
+
+const emptyTitle = computed(() =>
+  activeFilterCount.value > 0 ? 'Không có đợt kiểm toán nào phù hợp' : 'Chưa có đợt kiểm toán nội bộ nào',
+)
+const emptyHint = 'Hãy tạo đợt kiểm toán mới hoặc xoá bộ lọc để xem tất cả.'
 
 function clearChip(key: string) {
   if (key === 'status') filterStatus.value = ''
@@ -90,7 +121,15 @@ onMounted(() => load(1))
 </script>
 
 <template>
-  <div class="page-container animate-fade-in space-y-5">
+  <div>
+    <ListPageShell
+      :loading="loading"
+      :error-message="loadError"
+      :is-empty="!items.length"
+      :empty-title="emptyTitle"
+      :empty-hint="emptyHint"
+      @retry="reload">
+      <template #header>
     <PageHeader
       title="Kiểm toán nội bộ"
       :subtitle="`IMM-16 · Theo dõi tuân thủ — Tổng ${pagination.total} đợt kiểm toán`"
@@ -106,7 +145,9 @@ onMounted(() => load(1))
         </button>
       </template>
     </PageHeader>
+      </template>
 
+      <template #filters>
     <ListFilterBar
       :show="showFilters" :chips="chips" :show-search="false"
       @reset="resetFilters" @clear-chip="clearChip" @apply="load(1)"
@@ -125,21 +166,24 @@ onMounted(() => load(1))
         </div>
       </template>
     </ListFilterBar>
+      </template>
 
-    <div class="table-wrapper">
+      <template #skeleton><SkeletonLoader variant="table" :rows="6" /></template>
+
+      <template #empty-action>
+        <button v-if="activeFilterCount > 0" class="text-xs text-brand-600 hover:text-brand-700 font-medium underline" @click="resetFilters">
+          Xóa bộ lọc để xem tất cả
+        </button>
+        <button v-else class="btn-primary" @click="openCreate">Tạo đợt kiểm toán đầu tiên</button>
+      </template>
+
+      <template #toolbar>
       <div class="flex items-center justify-between px-4 py-2.5 border-b border-slate-100 bg-slate-50/60 text-xs text-slate-500">
         <span>Hiển thị <strong class="text-slate-700">{{ items.length }}</strong> / {{ pagination.total }}</span>
         <button v-if="activeFilterCount > 0" class="text-red-500 hover:text-red-700 font-medium" @click="resetFilters">Xóa tất cả</button>
       </div>
-      <div v-if="loading" class="p-4"><SkeletonLoader variant="table" :rows="6" /></div>
-      <div v-else-if="!items.length" class="flex flex-col items-center justify-center py-16">
-        <p class="text-sm text-slate-500">Chưa có đợt kiểm toán phù hợp.</p>
-        <button v-if="activeFilterCount > 0" class="text-xs text-brand-600 hover:text-brand-700 font-medium underline mt-2" @click="resetFilters">
-          Xóa bộ lọc để xem tất cả
-        </button>
-        <button v-else class="btn-primary mt-3" @click="openCreate">Tạo đợt kiểm toán đầu tiên</button>
-      </div>
-      <template v-else>
+      </template>
+
         <!-- Mobile cards -->
         <div class="mobile-card-list sm:hidden">
           <div
@@ -154,7 +198,7 @@ onMounted(() => load(1))
             </div>
             <p class="text-sm font-medium text-slate-900 truncate">{{ a.audit_code }}</p>
             <div class="flex flex-wrap gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
-              <span>{{ a.audit_type }}</span>
+              <span>{{ auditTypeLabel(a.audit_type) }}</span>
               <span>· {{ formatDate(a.planned_start) }}</span>
               <span v-if="(a as any).lead_auditor_name || a.lead_auditor">· {{ (a as any).lead_auditor_name || a.lead_auditor }}</span>
             </div>
@@ -183,7 +227,7 @@ onMounted(() => load(1))
                 <div class="font-medium text-slate-900">{{ a.audit_code }}</div>
                 <div class="font-mono text-xs text-brand-700 mt-0.5">{{ a.name }}</div>
               </td>
-              <td class="table-cell text-slate-600">{{ a.audit_type }}</td>
+              <td class="table-cell text-slate-600">{{ auditTypeLabel(a.audit_type) }}</td>
               <td class="table-cell text-slate-600">{{ formatDate(a.planned_start) }}</td>
               <td class="table-cell text-slate-600">{{ formatDate(a.planned_end) }}</td>
               <td class="table-cell text-slate-600">{{ (a as any).lead_auditor_name || a.lead_auditor || '—' }}</td>
@@ -193,11 +237,13 @@ onMounted(() => load(1))
           </tbody>
         </table>
         </div>
+
+      <template #pagination>
+        <BasePagination :pagination="pagination" @page-change="load" />
       </template>
-    </div>
+    </ListPageShell>
 
-    <BasePagination :pagination="pagination" @page-change="load" />
-
+    <!-- Hộp thoại tạo — NGOÀI shell (02 §13.3) -->
     <BaseModal v-if="showCreate" title="Tạo đợt kiểm toán" size="lg" @close="showCreate = false">
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div class="form-group">

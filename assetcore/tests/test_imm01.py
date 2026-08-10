@@ -1586,3 +1586,100 @@ class TestNeedsPlanWorkflowSurfaceInvariant(unittest.TestCase):
             self.assertEqual(
                 api._plan_allowed_transition_actions(dummy), [],
                 "INV-C2: get_transitions raise → _plan surface [] (bare-except graceful)")
+
+
+class TestNeedsRequestWriteApiPath(unittest.TestCase):
+    """CR-33-write — integration REAL API path: create → get_allowed_transitions → transition.
+
+    KHÔNG pre-seed fixture: bản-ghi Needs Request SINH qua endpoint create_needs_request
+    (không frappe.new_doc thủ công). Đi ĐÚNG đường trạng-thái transition_workflow
+    (apply_workflow state-machine) — KHÔNG submit_needs_request/doc.submit() bypass.
+
+    ⚠️ Pin-shape THẬT (RED-first probe api-path): sau 'Gửi đề xuất' Draft→Submitted,
+    docstatus VẪN 0 (KHÔNG 1) — state 'Submitted' của IMM-01 Needs Workflow có
+    doc_status="0" @imm_01_needs_workflow.json:23 ⇒ apply_workflow KHÔNG submit doc.
+    (Task CR-33 giả-định docstatus==1 là SAI theo workflow JSON — dùng giá-trị THẬT.)
+    """
+
+    NR = "IMM Needs Request"
+    ACTION = "Gửi đề xuất"  # canonical Draft→Submitted @imm_01_needs_workflow.json:68
+
+    @classmethod
+    def setUpClass(cls):
+        import frappe
+        frappe.set_user("Administrator")  # System Manager → allowed 'Gửi đề xuất'
+        cls._dept = (frappe.get_all("AC Department", limit=1, pluck="name") or [None])[0]
+        cls._cat = (frappe.get_all("AC Asset Category", limit=1, pluck="name") or [None])[0]
+
+    def setUp(self):
+        if not self._dept or not self._cat:
+            self.skipTest("Thiếu master-data AC Department / AC Asset Category để exercise create path.")
+
+    def tearDown(self):
+        import frappe
+        frappe.set_user("Administrator")
+
+    def _purge_nr(self, name):
+        import frappe
+        frappe.set_user("Administrator")
+        if frappe.db.exists(self.NR, name):
+            frappe.db.set_value(self.NR, name, "docstatus", 0)  # phòng khi state submit
+            frappe.delete_doc(self.NR, name, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def test_create_then_transition_via_api_path(self):
+        import json
+        from assetcore.api import imm01 as api
+
+        # 1) CREATE qua REAL API path (payload 6 field) → Draft + name NR-.YY.-.MM.-.#####
+        payload = json.dumps({
+            "request_type": "New",
+            "requesting_department": self._dept,
+            "device_category": self._cat,
+            "quantity": 1,
+            "target_year": 2027,
+            "clinical_justification": "Đề xuất mua thiết bị phục vụ khoa lâm sàng — luận cứ đủ ký tự mô tả.",
+        })
+        res = api.create_needs_request(payload=payload)
+        self.assertTrue(res.get("success"), f"create_needs_request PHẢI success: {res}")
+        name = res["data"]["name"]
+        self.addCleanup(self._purge_nr, name)
+        self.assertEqual(res["data"]["workflow_state"], "Draft",
+                         "workflow_state sau insert PHẢI 'Draft' (doctype default).")
+        import re
+        self.assertRegex(name, r"^NR-",
+                         f"name PHẢI khớp naming-series ^NR- (NR-.YY.-.MM.-.#####): {name}")
+        self.assertRegex(name, r"^NR-\d{2}-\d{2}-\d{5}$",
+                         f"name PHẢI đúng NR-YY-MM-##### đầy đủ: {name}")
+
+        # 2) get_allowed_transitions → transitions là list[dict] {action,next_state}
+        tr = api.get_allowed_transitions(name=name)
+        self.assertTrue(tr.get("success"), f"get_allowed_transitions PHẢI success: {tr}")
+        transitions = tr["data"]["transitions"]
+        self.assertIsInstance(transitions, list, "transitions PHẢI list.")
+        self.assertTrue(transitions, "transitions KHÔNG được rỗng ở Draft (Administrator có quyền).")
+        for t in transitions:
+            self.assertIsInstance(t, dict,
+                                  f"transitions[] item PHẢI dict {{action,next_state}} — KHÔNG flat-string: {t!r}")
+            self.assertEqual(set(t.keys()), {"action", "next_state"},
+                             f"transitions[] item PHẢI EXACT {{action,next_state}}: {sorted(t)}")
+        pairs = {(t["action"], t["next_state"]) for t in transitions}
+        self.assertIn((self.ACTION, "Submitted"), pairs,
+                      f"PHẢI có transition {{'{self.ACTION}','Submitted'}}: {pairs}")
+
+        # 3) transition_workflow('Gửi đề xuất') → Submitted; docstatus==0 (đường state-machine ĐÚNG)
+        t2 = api.transition_workflow(name=name, action=self.ACTION)
+        self.assertTrue(t2.get("success"), f"transition_workflow PHẢI success: {t2}")
+        self.assertEqual(t2["data"]["name"], name, "name echo phải khớp.")
+        self.assertEqual(t2["data"]["workflow_state"], "Submitted",
+                         "workflow_state sau 'Gửi đề xuất' PHẢI 'Submitted'.")
+        self.assertEqual(t2["data"]["docstatus"], 0,
+                         "docstatus PHẢI 0 (Submitted-state doc_status='0' @workflow.json:23 — apply_workflow "
+                         "KHÔNG submit doc; giá-trị THẬT ≠ giả-định CR-33 docstatus==1).")
+
+        # 4) re-read get_needs_request xác nhận Submitted (đường state-machine, KHÔNG bypass)
+        g = api.get_needs_request(name=name)
+        self.assertTrue(g.get("success"), f"get_needs_request PHẢI success: {g}")
+        self.assertEqual(g["data"]["workflow_state"], "Submitted",
+                         "re-read workflow_state PHẢI 'Submitted' (persist qua state-machine).")
+        self.assertEqual(g["data"]["docstatus"], 0, "re-read docstatus PHẢI 0 (đối xứng transition).")

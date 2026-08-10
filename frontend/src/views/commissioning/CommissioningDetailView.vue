@@ -9,11 +9,16 @@ import { useNotify } from '@/composables/useNotify'
 import { MSG } from '@/i18n/messages'
 import CommissioningForm from '@/components/commissioning/CommissioningForm.vue'
 import ApprovalPanel from '@/components/commissioning/ApprovalPanel.vue'
-import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
+import DetailPageShell from '@/components/common/DetailPageShell.vue'
+import { type DetailTab } from '@/components/common/DetailTabBar.vue'
+import { useDetailAccess } from '@/composables/useDetailAccess'
 import { getGateStatus } from '@/api/imm04'
 import type { GateStatus } from '@/api/imm04'
+import { gateStatusErrorMessage } from '@/components/commissioning/gateStatusError'
+import { dossierStatusLabel } from '@/constants/labels'
+import type { AssetDossierDocItem } from '@/api/imm05'
 
 const props  = defineProps<{ id: string }>()
 const router = useRouter()
@@ -87,53 +92,128 @@ const isCancelled = computed(() => (store.currentDoc?.docstatus ?? -1) === 2)
 const canCancel   = computed(() => isSubmitted.value && (perms.isAdmin.value || perms.isQA.value))
 
 // ─── Tabs ────────────────────────────────────────────────────────────────────
+// Tab của màn này THEO ROUTE, không theo state cục bộ: mỗi tab là một URL riêng nên
+// deep-link và nút Back của trình duyệt đều chạy. Vì vậy `activeTab` phải giữ nguyên
+// dạng `computed` đọc `route.name` — đổi sang `ref` là mất cả hai (ADR-UX-20 / N3),
+// và cũng là lý do BẮT BUỘC dùng `:model-value` + handler thay vì `v-model`
+// (computed không có setter).
 const activeTab = computed(() => {
   if (route.name === 'CommissioningNC')       return 'nc'
   if (route.name === 'CommissioningTimeline') return 'timeline'
   return 'detail'
 })
 
+// Markup thanh tab do SSoT `DetailTabBar` vẽ (AC-UX-068). `badge` = số phiếu không phù
+// hợp còn MỞ; SSoT không render phần tử nào khi giá trị là 0 ⇒ hành vi y hệt
+// `v-if="store.openNcCount > 0"` của bản tự chế cũ, nhưng nay có role/aria + cuộn ngang.
+const COMMISSIONING_TABS = computed<DetailTab[]>(() => [
+  { key: 'detail',   label: 'Chi tiết phiếu' },
+  { key: 'nc',       label: 'Không phù hợp', badge: store.openNcCount },
+  { key: 'timeline', label: 'Lịch sử' },
+])
+
+function onTabSelect(key: string): void {
+  const target: Record<string, string> = {
+    detail:   `/commissioning/${props.id}`,
+    nc:       `/commissioning/${props.id}/nc`,
+    timeline: `/commissioning/${props.id}/timeline`,
+  }
+  const to = target[key]
+  if (to) void router.push(to)
+}
+
 // ─── compliance ───────────────────────────────────────────────────────
 const imm05DocStatus   = ref<string | null>(null)
 const imm05Pct         = ref(0)
 const imm05Missing     = ref<string[]>([])
+const imm05Expired     = ref<string[]>([])
+const imm05Expiring    = ref<string[]>([])
+const imm05ReqTotal    = ref<number | null>(null)
+const imm05ReqSatisfied = ref<number | null>(null)
+const imm05Hidden      = ref(0)
+/** Dòng hồ sơ đã LỌC QUYỀN của server, nhóm theo `doc_category` (AC-CR-81). */
+const imm05Documents   = ref<Record<string, AssetDossierDocItem[]>>({})
+/** `is_compliant` của server (0|1); `null` = chưa tải xong / BE chưa có CR-75. */
+const imm05CompliantFlag = ref<number | null>(null)
 const finalAsset       = computed(() => store.currentDoc?.final_asset ?? null)
-const imm05IsCompliant = computed(() =>
-  imm05DocStatus.value === null ||
-  imm05DocStatus.value === 'Compliant' ||
-  imm05DocStatus.value === 'Compliant (Exempt)',
+// CR-75: quyết định bằng khoá SỐ `is_compliant`, KHÔNG so chuỗi `document_status`
+// (so chuỗi làm nhánh `Expiring_Soon` chết và báo đỏ nhầm khi BE phát 'Complete').
+// `null` = chưa biết ⇒ vẫn coi hợp lệ để không nháy đỏ giả (06 §4.4 điểm 1).
+const imm05IsCompliant = computed(
+  () => imm05CompliantFlag.value === null || Number(imm05CompliantFlag.value) === 1,
 )
 
 async function fetchImm05Status(asset: string) {
   await imm05.fetchAssetDocuments(asset)
-  imm05DocStatus.value = imm05.assetDocumentStatus || null
-  imm05Pct.value       = imm05.assetCompletenessPct
-  imm05Missing.value   = imm05.missingRequired
+  imm05DocStatus.value    = imm05.assetDocumentStatus || null
+  imm05Pct.value          = imm05.assetCompletenessPct
+  imm05Missing.value      = imm05.missingRequired
+  imm05Expired.value      = imm05.assetExpiredRequired
+  imm05Expiring.value     = imm05.assetExpiringRequired
+  imm05ReqTotal.value     = imm05.assetRequiredTotal
+  imm05ReqSatisfied.value = imm05.assetRequiredSatisfied
+  imm05Hidden.value       = imm05.assetHiddenCount
+  imm05CompliantFlag.value = imm05.assetIsCompliant
+  imm05Documents.value    = imm05.assetDocuments
 }
 
 // ─── Gate status ─────────────────────────────────────────────────────────────
 const defaultGateStatus: GateStatus = {
-  g01_docs: false, g02_facility: false, g03_baseline: false,
+  g01_docs: false, g01_waived: false, g02_facility: false, g03_baseline: false,
   g04_radiation: false, g05_nc: false, g06_approver: false,
 }
 const gateStatus  = ref<GateStatus>({ ...defaultGateStatus })
+/** CR-76 — thông báo tiếng Việt khi không đọc được trạng thái cổng (rỗng = bình thường). */
+const gateError   = ref<string | null>(null)
 const panelSaving = ref(false)
 
 async function loadGateStatus() {
   try {
     gateStatus.value = await getGateStatus(props.id)
-  } catch {
+    gateError.value = null
+  } catch (e: unknown) {
+    // Backend gác quyền 3 lớp và trả 403/404 TRONG envelope trên HTTP-200 ⇒ không
+    // có chuyện đăng xuất ở đây; chỉ thay 6 thẻ cổng bằng một câu tiếng Việt.
     gateStatus.value = { ...defaultGateStatus }
+    gateError.value = gateStatusErrorMessage(e)
   }
 }
 
+// Lỗi của LƯỢT NẠP (lô 2, nhóm N4). Trước đây lỗi này đi `toast` — một dải chữ tự tắt —
+// rồi để lại một trang có thanh tab nhưng KHÔNG có nội dung, không phân loại được 403/404.
+// `stores/imm04` chỉ giữ `error` dạng CHUỖI ⇒ view tự bắt và giữ ref riêng (KHÔNG sửa `stores/`).
+const loadError = ref<unknown>(null)
+const { kind: loadKind, message: loadMsg } = useDetailAccess(() => loadError.value)
+
+// Lớp phủ chờ CHỈ dành cho hành động (lưu/chuyển trạng thái), không phải lượt nạp trang.
+const processing = computed(() => store.loading && !!store.currentDoc)
+
 async function load() {
+  loadError.value = null                         // INV-UX4-7 — xoá lỗi ở DÒNG ĐẦU
   editMode.value = false
-  await Promise.all([store.fetchDetail(props.id), loadGateStatus()])
+  try {
+    await store.fetchDetail(props.id)
+  } catch (e: unknown) {
+    loadError.value = e
+  }
+  // `stores/imm04` NUỐT lỗi thành chuỗi ⇒ ưu tiên `lastApiError` (còn nguyên kind).
+  if (!store.currentDoc && store.error) {
+    loadError.value = store.lastApiError ?? new Error(store.error)
+  }
+  // Trạng thái CỔNG là dữ liệu PHỤ: lỗi ở đây KHÔNG được thay cả màn (nó đã có
+  // `gateError` riêng) — vì vậy tách khỏi lượt nạp chính, không `Promise.all` chung.
+  await loadGateStatus()
+}
+
+// CR-54 §1 — deadlock board_approver: đưa người ký BGĐ đã chọn vào chính lượt
+// transition (1 call) cho action dẫn tới 'Clinical Release'. BE bỏ qua param với
+// action không phát hành (backward-compat) → truyền vô điều kiện là an toàn.
+function boardApproverForTransition(): string | undefined {
+  return store.currentDoc?.board_approver || undefined
 }
 
 async function handleTransition(action: string) {
-  const ok = await store.transitionState(props.id, action)
+  const ok = await store.transitionState(props.id, action, boardApproverForTransition())
   if (ok) {
     toast.success('Đã chuyển trạng thái thành công.')
     await loadGateStatus()
@@ -144,7 +224,7 @@ async function handleTransition(action: string) {
 
 async function handleTransitionFromPanel(action: string) {
   panelSaving.value = true
-  const ok = await store.transitionState(props.id, action)
+  const ok = await store.transitionState(props.id, action, boardApproverForTransition())
   panelSaving.value = false
   if (ok) {
     toast.success('Đã chuyển trạng thái thành công.')
@@ -184,7 +264,20 @@ watch(finalAsset, (asset) => { if (asset) fetchImm05Status(asset) }, { immediate
 </script>
 
 <template>
-  <div class="page-container animate-fade-in">
+  <DetailPageShell
+    :loading="store.loading && !store.currentDoc"
+    :error-kind="loadKind"
+    :error-message="loadMsg"
+    :doc="store.currentDoc"
+    entity-label="phiếu tiếp nhận — lắp đặt"
+    :record-id="props.id"
+    back-label="Về danh sách tiếp nhận"
+    :tabs="COMMISSIONING_TABS"
+    :active-tab="activeTab"
+    @update:active-tab="onTabSelect"
+    @retry="load()"
+    @back="router.push('/commissioning')">
+    <template #title>
 <!-- Toast notifications -->
     <Teleport to="body">
       <div class="fixed top-4 right-4 z-[60] flex flex-col gap-2 pointer-events-none">
@@ -376,9 +469,16 @@ stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                 d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
         </svg>
         <div class="flex-1">
-          <span class="font-semibold text-amber-800">Hồ sơ:</span>
+          <span class="font-semibold text-amber-800">Hồ sơ pháp lý:</span>
           <span class="text-amber-700 ml-1">
-            {{ imm05DocStatus }} — {{ imm05Pct }}% đầy đủ.
+            <!-- Nhãn TIẾNG VIỆT (LL-FE-53) + % THẬT kèm mẫu số, không in enum EN -->
+            {{ dossierStatusLabel(imm05DocStatus) }} — {{ imm05Pct }}% đầy đủ<span
+              v-if="imm05ReqTotal !== null && imm05ReqSatisfied !== null"
+            > ({{ imm05ReqSatisfied }}/{{ imm05ReqTotal }} loại bắt buộc)</span>.
+            <span v-if="imm05Expired.length">
+              Hết hạn: {{ imm05Expired.slice(0, 2).join(', ') }}
+              <span v-if="imm05Expired.length > 2"> +{{ imm05Expired.length - 2 }} hồ sơ khác</span>.
+            </span>
             <span v-if="imm05Missing.length">
               Thiếu: {{ imm05Missing.slice(0, 2).join(', ') }}
               <span v-if="imm05Missing.length > 2"> +{{ imm05Missing.length - 2 }} hồ sơ khác</span>.
@@ -393,60 +493,13 @@ class="text-xs font-semibold text-amber-600 hover:text-amber-800 transition-colo
       </div>
     </Transition>
 
-    <!-- Tabs -->
-    <div class="flex items-end gap-0 mb-6 border-b border-slate-200">
-      <button
-        class="relative px-4 py-2.5 text-sm font-medium transition-colors duration-150"
-        :class="activeTab === 'detail' ? 'text-brand-600' : 'text-slate-500 hover:text-slate-700'"
-        @click="router.push(`/commissioning/${id}`)"
-      >
-        Chi tiết phiếu
-        <span v-if="activeTab === 'detail'" class="absolute inset-x-0 bottom-0 h-0.5 rounded-t bg-brand-600" />
-      </button>
-      <button
-        class="relative px-4 py-2.5 text-sm font-medium transition-colors duration-150 flex items-center gap-1.5"
-        :class="activeTab === 'nc' ? 'text-brand-600' : 'text-slate-500 hover:text-slate-700'"
-        @click="router.push(`/commissioning/${id}/nc`)"
-      >
-        Không phù hợp
-        <span
-          v-if="store.openNcCount > 0"
-          class="inline-flex items-center justify-center w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold"
-        >{{ store.openNcCount }}</span>
-        <span v-if="activeTab === 'nc'" class="absolute inset-x-0 bottom-0 h-0.5 rounded-t bg-brand-600" />
-      </button>
-      <button
-        class="relative px-4 py-2.5 text-sm font-medium transition-colors duration-150"
-        :class="activeTab === 'timeline' ? 'text-brand-600' : 'text-slate-500 hover:text-slate-700'"
-        @click="router.push(`/commissioning/${id}/timeline`)"
-      >
-        Lịch sử
-        <span v-if="activeTab === 'timeline'" class="absolute inset-x-0 bottom-0 h-0.5 rounded-t bg-brand-600" />
-      </button>
-    </div>
+    </template>
 
-    <!-- Loading skeleton -->
-    <SkeletonLoader v-if="store.loading && !store.currentDoc" variant="form" />
-
-    <!-- Error -->
-    <div v-else-if="store.error && !store.currentDoc" class="card text-center py-16">
-      <div class="w-12 h-12 rounded-full bg-red-50 flex items-center justify-center mx-auto mb-4">
-        <svg class="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path
-stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-        </svg>
-      </div>
-      <p class="text-base font-semibold text-slate-700 mb-1">Không thể tải phiếu</p>
-      <p class="text-sm text-red-500 mb-6">{{ store.error }}</p>
-      <div class="flex gap-3 justify-center">
-        <button class="btn-secondary" @click="router.push('/commissioning')">Quay lại danh sách</button>
-        <button class="btn-primary" @click="load">Thử lại</button>
-      </div>
-    </div>
-
-    <!-- Main content -->
-    <template v-else-if="store.currentDoc">
+    <!-- Thanh tab HOISTING lên prop shell (ADR-UX-25). Tab của màn này đi THEO ROUTE:
+         `activeTab` là `computed` từ `route.name` (không setter) ⇒ dùng cặp
+         `:active-tab` + `@update:active-tab`, TUYỆT ĐỐI KHÔNG `v-model` (bẫy 13.9.2).
+         Bấm tab vẫn ĐẨY ROUTE qua `onTabSelect` — không sinh state tab cục bộ. -->
+    <template v-if="store.currentDoc">
 <!-- Inline error (after load) -->
       <Transition
         enter-active-class="transition duration-200 ease-out"
@@ -471,9 +524,12 @@ stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
         </div>
       </Transition>
 
-      <!-- Processing overlay -->
+      <!-- Lớp phủ ĐANG XỬ LÝ (lưu / chuyển trạng thái) — KHÁC trạng thái TẢI trang.
+           `store.loading` phục vụ CẢ HAI việc; ở đây phải giao thêm điều kiện «đã có phiếu»,
+           nếu không lượt nạp đầu tiên cũng bật lớp phủ và ta có hai bộ máy trạng thái tải
+           cùng chạy — đúng thứ `DetailPageShell` sinh ra để dẹp (INV-UX4L2-5). -->
       <div
-v-if="store.loading"
+v-if="processing"
            class="fixed inset-0 z-50 flex items-center justify-center"
            style="background: rgba(15,23,42,0.25)">
         <div class="bg-white rounded-xl px-6 py-4 shadow-dropdown flex items-center gap-3">
@@ -495,9 +551,18 @@ v-if="store.loading"
             :imm05-pct="imm05Pct"
             :imm05-missing="imm05Missing"
             :imm05-is-compliant="imm05IsCompliant"
+            :imm05-compliant-flag="imm05CompliantFlag"
+            :imm05-expired-required="imm05Expired"
+            :imm05-expiring-required="imm05Expiring"
+            :imm05-required-total="imm05ReqTotal"
+            :imm05-required-satisfied="imm05ReqSatisfied"
+            :imm05-hidden-count="imm05Hidden"
+            :imm05-documents="imm05Documents"
+            :g04-applicable="gateStatus.g04_applicable"
             @transition="handleTransition"
             @submit="handleSubmit"
             @saved="handleSaved"
+            @baseline-submitted="loadGateStatus"
             @refresh-imm05="finalAsset ? fetchImm05Status(finalAsset) : undefined"
           />
         </div>
@@ -507,6 +572,7 @@ v-if="store.loading"
           <ApprovalPanel
             :doc="store.currentDoc"
             :gate-status="gateStatus"
+            :gate-error="gateError"
             :saving="panelSaving"
             @transition="handleTransitionFromPanel"
             @update-field="handleFieldUpdate"
@@ -515,5 +581,5 @@ v-if="store.loading"
         </div>
       </div>
     </template>
-</div>
+  </DetailPageShell>
 </template>

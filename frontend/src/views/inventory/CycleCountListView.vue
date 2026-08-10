@@ -11,6 +11,7 @@ import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
+import ListPageShell from '@/components/ui/ListPageShell.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import { formatCurrency, formatDate } from '@/utils/formatters'
 import {
@@ -19,7 +20,7 @@ import {
 
 const router = useRouter()
 const store = useImm15Store()
-const { cycleCounts, cycleCountsPagination, cycleCountsLoading, error } = storeToRefs(store)
+const { cycleCounts, cycleCountsPagination, cycleCountsLoading } = storeToRefs(store)
 
 const PAGE_SIZE = 20
 const page = ref(1)
@@ -43,11 +44,22 @@ const activeChips = computed<Chip[]>(() => {
 })
 const activeFilterCount = computed(() => activeChips.value.length)
 
-function load() {
-  store.fetchCycleCounts({
+// ── Trạng thái nạp danh sách (AC-UX-047 lô 3 · biến thể D — 02 §14.2, khuôn §13.2) ─────────
+// `stores/imm15.ts:58` là ô lỗi DÙNG CHUNG cho cấp phát / xuất nhập / kiểm kê ⇒ bind thẳng
+// `store.error` khiến lỗi của MÀN KHÁC tô đỏ màn này (INV-UX3-28). CHỤP lỗi ngay sau `await`
+// của lượt nạp kiểm kê rồi trả ô dùng chung về sạch. `load()` cũ là hàm `void` (không
+// `await`) — nay `async` để chụp được; đây là đổi TRONG VIEW, không đụng kho trạng thái.
+const loadError = ref<string | null>(null)
+
+async function load() {
+  loadError.value = null
+  store.error = null
+  await store.fetchCycleCounts({
     page: page.value, page_size: PAGE_SIZE,
     status: statusFilter.value, warehouse: warehouseFilter.value,
   })
+  loadError.value = store.error ?? null
+  if (loadError.value) store.error = null
 }
 
 function clearChip(key: string) {
@@ -68,8 +80,14 @@ function goDetail(name: string) {
   router.push({ name: 'CycleCountDetail', params: { name } })
 }
 
+// Chữ trạng thái rỗng — SSoT là bảng copy 02 §14.4 (LL-FE-53: 100% tiếng Việt).
+const emptyTitle = computed(() =>
+  activeFilterCount.value > 0 ? 'Không có phiếu kiểm kê nào phù hợp' : 'Chưa có phiếu kiểm kê nào',
+)
+const emptyHint = 'Phiếu kiểm kê dùng để đối chiếu tồn kho thực tế với sổ sách theo từng kho.'
+
 onMounted(async () => {
-  load()
+  await load()
   try {
     const r = await listWarehouses({ page: 1, page_size: 100, active_only: 1 })
     warehouses.value = r?.items || []
@@ -78,7 +96,15 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="page-container animate-fade-in">
+  <div>
+    <ListPageShell
+      :loading="cycleCountsLoading && !cycleCounts.length"
+      :error-message="loadError"
+      :is-empty="!cycleCounts.length"
+      :empty-title="emptyTitle"
+      :empty-hint="emptyHint"
+      @retry="load">
+      <template #header>
     <PageHeader
       title="Kiểm kê tồn kho"
       :subtitle="`IMM-15 · Tồn kho phụ tùng — Tổng ${total} phiếu kiểm kê`"
@@ -97,7 +123,9 @@ onMounted(async () => {
         </button>
       </template>
     </PageHeader>
+      </template>
 
+      <template #filters>
     <ListFilterBar
       :show="showFilters"
       :chips="activeChips"
@@ -123,30 +151,25 @@ onMounted(async () => {
         </div>
       </template>
     </ListFilterBar>
+      </template>
 
-    <div class="card overflow-hidden">
-      <div class="flex items-center justify-between px-4 py-2.5 border-b border-slate-100 bg-slate-50/60 text-xs text-slate-500">
-        <span>Hiển thị <strong class="text-slate-700">{{ cycleCounts.length }}</strong> / {{ total }} phiếu</span>
-        <button v-if="activeFilterCount > 0" class="text-red-500 hover:text-red-700 font-medium" @click="resetFilters">Xóa tất cả</button>
-      </div>
+      <template #skeleton><SkeletonLoader variant="table" :rows="6" /></template>
 
-      <!-- Tri-branch: loading / error / (empty|data) -->
-      <div v-if="cycleCountsLoading && !cycleCounts.length" class="p-6">
-        <SkeletonLoader variant="table" :rows="6" />
-      </div>
-      <div v-else-if="error" class="flex flex-col items-center justify-center py-16 gap-3">
-        <p class="text-sm text-red-600">{{ error }}</p>
-        <button class="btn-secondary" @click="load">Thử lại</button>
-      </div>
-      <div v-else-if="cycleCounts.length === 0" class="flex flex-col items-center justify-center py-16">
-        <p class="text-sm text-slate-500">Chưa có phiếu kiểm kê phù hợp.</p>
-        <button v-if="activeFilterCount > 0" class="text-xs text-brand-600 hover:text-brand-700 font-medium underline mt-2" @click="resetFilters">
+      <template #empty-action>
+        <button v-if="activeFilterCount > 0" class="text-xs text-brand-600 hover:text-brand-700 font-medium underline" @click="resetFilters">
           Xóa bộ lọc để xem tất cả
         </button>
-        <button v-else class="btn-primary mt-3" @click="router.push({ name: 'CycleCountCreate' })">Tạo phiếu kiểm kê đầu tiên</button>
-      </div>
+        <button v-else class="btn-primary" @click="router.push({ name: 'CycleCountCreate' })">Tạo phiếu kiểm kê đầu tiên</button>
+      </template>
 
-      <div v-else class="overflow-x-auto">
+      <template #toolbar>
+        <div class="flex items-center justify-between px-4 py-2.5 border-b border-slate-100 bg-slate-50/60 text-xs text-slate-500">
+          <span>Hiển thị <strong class="text-slate-700">{{ cycleCounts.length }}</strong> / {{ total }} phiếu</span>
+          <button v-if="activeFilterCount > 0" class="text-red-500 hover:text-red-700 font-medium" @click="resetFilters">Xóa tất cả</button>
+        </div>
+      </template>
+
+      <div class="overflow-x-auto">
         <table class="w-full text-sm">
           <thead class="bg-slate-50 border-b border-slate-100">
             <tr>
@@ -185,6 +208,7 @@ onMounted(async () => {
         </table>
       </div>
 
+      <template #pagination>
       <div v-if="total > PAGE_SIZE" class="flex items-center justify-between px-4 py-3 border-t border-slate-100 text-sm text-slate-500">
         <span>{{ (page - 1) * PAGE_SIZE + 1 }}–{{ Math.min(page * PAGE_SIZE, total) }} / {{ total }}</span>
         <div class="flex gap-2">
@@ -192,6 +216,7 @@ onMounted(async () => {
           <button :disabled="page * PAGE_SIZE >= total" class="px-3 py-1 rounded border border-slate-200 disabled:opacity-40 hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-emerald-500" @click="nextPage">Sau</button>
         </div>
       </div>
-    </div>
+      </template>
+    </ListPageShell>
   </div>
 </template>

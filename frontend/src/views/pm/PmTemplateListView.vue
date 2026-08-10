@@ -12,8 +12,15 @@ import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
 import SmartSelect from '@/components/common/SmartSelect.vue'
+import ListPageShell from '@/components/ui/ListPageShell.vue'
 import { translatePmType } from '@/utils/formatters'
+// AC-UX-065 (ADR-UX-16, docs/ui-ux/06 §5): hộp thoại xác nhận SSoT thay `confirm()`
+// trần — `confirm()` chặn vòng lặp sự kiện (từng treo trình duyệt khi tự động hoá),
+// không bẫy focus và nhãn nút do TRÌNH DUYỆT vẽ nên không Việt hoá được (LL-FE-53).
+// View gọi hàng đợi qua `useNotify().confirm()` — KHÔNG gọi tầng hàng đợi trực tiếp.
+import { useNotify } from '@/composables/useNotify'
 const toast = useToast()
+const notify = useNotify()
 
 const items = ref<PmTemplate[]>([])
 const total = ref(0)
@@ -23,7 +30,11 @@ const editingName = ref<string | null>(null)
 const form = ref<Partial<PmTemplate> & { checklist_items: PmChecklistItem[] }>({
   checklist_items: [],
 })
+// `err` = lỗi HỘP THOẠI lưu mẫu — KHÔNG nối vào khuôn danh sách (INV-UX3-13).
 const err = ref('')
+// AC-UX-047 (lô 1) — lỗi của LƯỢT NẠP danh sách (trước đây `load()` không có `catch`
+// ⇒ API hỏng in «Chưa có template.»).
+const loadError = ref<string | null>(null)
 
 // Filter state
 const showFilters = ref(false)
@@ -79,12 +90,22 @@ function newItem(): PmChecklistItem {
   }
 }
 
+const emptyTitle = computed(() =>
+  activeFilterCount.value > 0 ? 'Không có mẫu bảo trì nào phù hợp' : 'Chưa có mẫu bảo trì nào')
+const EMPTY_HINT = 'Hãy tạo mẫu bảo trì mới hoặc xoá bộ lọc để xem tất cả.'
+
 async function load() {
   loading.value = true
+  loadError.value = null                       // INV-UX3-4 — xoá lỗi ĐẦU lượt
   try {
     const r = await listPmTemplates()
+    // BẪY: endpoint này trả `{ data, pagination }` (KHÔNG phải `items`) — giữ nguyên
+    // phép đọc, chỉ bọc thêm try/catch.
     const d = r as unknown as { data: PmTemplate[]; pagination: { total: number } }
     if (d) { items.value = d.data || []; total.value = d.pagination?.total || 0 }
+  } catch (e: unknown) {
+    loadError.value = e instanceof Error ? e.message : String(e)
+    items.value = []; total.value = 0          // INV-UX3-5
   } finally { loading.value = false }
 }
 
@@ -145,7 +166,13 @@ async function save() {
 }
 
 async function remove(name: string) {
-  if (!confirm(`Xóa template "${name}"?`)) return
+  const ok = await notify.confirm({
+    title: 'Xoá mẫu bảo trì',
+    body: `Xoá mẫu bảo trì "${name}"?`,
+    tone: 'error',
+    confirmText: 'Xoá',
+  })
+  if (!ok) return
   try { await deletePmTemplate(name); await load() }
   catch (e: unknown) { toast.error((e as Error).message || 'Không thể xóa') }
 }
@@ -155,9 +182,16 @@ async function applyToCategoryAssets() {
   if (!editingName.value) return
   const cat = form.value.asset_category
   if (!cat) { toast.error('Danh mục tài sản chưa chọn'); return }
-  const msg = `Tạo lịch bảo trì định kỳ cho mọi thiết bị thuộc danh mục "${cat}" theo template "${editingName.value}"?\n\n`
+  // LL-FE-53: «template» là từ kỹ thuật tiếng Anh ⇒ hiển thị «mẫu».
+  const msg = `Tạo lịch bảo trì định kỳ cho mọi thiết bị thuộc danh mục "${cat}" theo mẫu "${editingName.value}"?\n\n`
     + 'Thiết bị đã có lịch cùng loại bảo trì định kỳ sẽ được giữ nguyên.'
-  if (!confirm(msg)) return
+  const ok = await notify.confirm({
+    title: 'Áp mẫu cho danh mục',
+    body: msg,
+    tone: 'warning',
+    confirmText: 'Áp dụng',
+  })
+  if (!ok) return
   applying.value = true
   try {
     const r = await applyPmTemplateToCategory(editingName.value)
@@ -176,24 +210,34 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="page-container animate-fade-in">
-    <PageHeader
-      title="Template checklist bảo trì định kỳ"
-      :subtitle="`Tổng ${total} template`"
-      :breadcrumb="[{ label: 'IMM-08 · Bảo trì', to: '/pm/dashboard' }, { label: 'Template bảo trì định kỳ' }]"
-    >
-      <template #actions>
-        <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
-        <button class="btn-primary" @click="openCreate">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
-          </svg>
-          Thêm template
-        </button>
-      </template>
-    </PageHeader>
+  <!-- AC-UX-047 (lô 1) — khuôn 4 trạng thái loại trừ (ui/ListPageShell). -->
+  <ListPageShell
+    :loading="loading"
+    :error-message="loadError"
+    :is-empty="!filteredItems.length"
+    :empty-title="emptyTitle"
+    :empty-hint="EMPTY_HINT"
+    @retry="load">
+    <template #header>
+      <PageHeader
+        title="Template checklist bảo trì định kỳ"
+        :subtitle="`Tổng ${total} template`"
+        :breadcrumb="[{ label: 'IMM-08 · Bảo trì', to: '/pm/dashboard' }, { label: 'Template bảo trì định kỳ' }]"
+      >
+        <template #actions>
+          <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
+          <button class="btn-primary" @click="openCreate">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+            Thêm template
+          </button>
+        </template>
+      </PageHeader>
+    </template>
 
-    <ListFilterBar
+    <template #filters>
+      <ListFilterBar
       :show="showFilters"
       :chips="activeChips"
       v-model:search="filters.search"
@@ -214,10 +258,20 @@ onMounted(load)
           <SmartSelect v-model="filters.asset_category" doctype="AC Asset Category" placeholder="Chọn danh mục..." />
         </div>
       </template>
-    </ListFilterBar>
+      </ListFilterBar>
+    </template>
 
-    <!-- Table -->
-    <div class="card overflow-hidden">
+    <template #skeleton>
+      <SkeletonLoader v-for="i in 5" :key="i" class="h-10 mb-3" />
+    </template>
+
+    <template #empty-action>
+      <button v-if="activeFilterCount > 0" class="text-xs text-blue-500 hover:text-blue-700 underline" @click="resetFilters">
+        Xóa bộ lọc để xem tất cả
+      </button>
+    </template>
+
+    <template #toolbar>
       <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50/60 text-xs text-slate-500">
         <span v-if="activeFilterCount > 0">
           Kết quả lọc: <strong class="text-slate-700">{{ filteredItems.length }}</strong> / {{ total }} template
@@ -227,15 +281,9 @@ onMounted(load)
         </span>
         <button v-if="activeFilterCount > 0" class="text-red-500 hover:text-red-700 font-medium" @click="resetFilters">Xóa tất cả</button>
       </div>
+    </template>
 
-      <div v-if="loading" class="p-6">
-        <SkeletonLoader v-for="i in 5" :key="i" class="h-10 mb-3" />
-      </div>
-      <div v-else-if="filteredItems.length === 0" class="text-center text-slate-400 py-12 text-sm">
-        {{ activeFilterCount > 0 ? 'Không có template nào phù hợp.' : 'Chưa có template.' }}
-      </div>
-      <template v-else>
-        <!-- Mobile cards -->
+    <!-- Mobile cards -->
         <div class="mobile-card-list sm:hidden">
           <div
             v-for="t in filteredItems"
@@ -312,10 +360,10 @@ onMounted(load)
           </tr>
         </tbody>
       </table>
-      </template>
-    </div>
+  </ListPageShell>
 
-    <div v-if="showForm" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 overflow-y-auto py-6" @click.self="showForm = false">
+  <!-- Hộp thoại đặt NGOÀI khuôn: mở được ở CẢ 4 trạng thái (INV-UX3-17). -->
+  <div v-if="showForm" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 overflow-y-auto py-6" @click.self="showForm = false">
       <div class="bg-white rounded-xl p-6 w-[860px] max-w-full space-y-4 my-auto">
         <h2 class="text-lg font-semibold">{{ editingName ? 'Sửa' : 'Thêm' }} Template Checklist bảo trì định kỳ</h2>
         <div v-if="err" class="bg-red-50 text-red-700 text-sm p-3 rounded">{{ err }}</div>
@@ -392,6 +440,5 @@ onMounted(load)
           <button class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg" @click="save">Lưu</button>
         </div>
       </div>
-    </div>
   </div>
 </template>

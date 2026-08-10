@@ -21,6 +21,7 @@ from assetcore.repositories.compliance_repo import (
 from assetcore.services.shared import ErrorCode, ServiceError, normalize_filters
 from assetcore.services.shared import rbac
 from assetcore.utils.lifecycle import log_audit_event
+from assetcore.services.shared.permissions import rowscoped
 
 
 # ─── Status constants ────────────────────────────────────────────────────────
@@ -209,6 +210,7 @@ class RuleCategory:
 
 # ─── Compliance Rules ─────────────────────────────────────────────────────────
 
+@rowscoped
 def list_compliance_rules(filters: dict, *, page: int = 1,
                            page_size: int = 20) -> dict:
     """Liệt kê quy tắc tuân thủ."""
@@ -248,6 +250,7 @@ def create_compliance_rule(data: dict) -> dict:
 
 # ─── Compliance Findings ──────────────────────────────────────────────────────
 
+@rowscoped
 def list_compliance_findings(filters: dict, *, page: int = 1,
                               page_size: int = 20) -> dict:
     """Liệt kê temuan kepatuhan."""
@@ -357,6 +360,7 @@ def close_finding(finding_name: str, capa_ref: str, resolution_note: str) -> dic
 
 # ─── Internal Audit ───────────────────────────────────────────────────────────
 
+@rowscoped
 def list_internal_audits(filters: dict, *, page: int = 1,
                           page_size: int = 20) -> dict:
     """Liệt kê audit nội bộ."""
@@ -1666,6 +1670,57 @@ def start_audit(name: str) -> dict:
             "actual_start": doc.actual_start}
 
 
+# ── Auto-sinh Finding từ NC checklist item — rule resolver ───────────────────
+# ADR-IMM-16-xx (đề xuất — chờ BA chốt chính thức): child IMM Audit Checklist
+# Item KHÔNG mang ``rule``. Nguồn rule cho Finding sinh từ Major/Minor NC =
+# payload ``clause_ref``: khớp rule_code (== name) / rule_name của IMM
+# Compliance Rule đang có → dùng nó; else get-or-create canonical fallback
+# ``IMM-16-AUDIT-NC``. Text clause_ref lưu vào notes Finding (không mất tính
+# cụ thể). KHÔNG nới ``rule`` sang reqd=0 (giữ toàn vẹn data-model).
+_AUDIT_NC_RULE_CODE = "IMM-16-AUDIT-NC"
+_AUDIT_NC_RULE_NAME = "Không phù hợp phát hiện qua audit nội bộ"
+
+
+def _ensure_audit_nc_fallback_rule() -> str:
+    """Get-or-create canonical fallback rule cho NC phát hiện qua audit nội bộ.
+
+    Idempotent: rule autoname = ``field:rule_code`` (name == rule_code) → check
+    ``exists`` theo tên cố định TRƯỚC create ⇒ gọi nhiều lần CHỈ 1 doc (tránh
+    DuplicateEntryError trên create thứ 2 + không nhân bản). Trả về name.
+    """
+    if ComplianceRuleRepo.exists(_AUDIT_NC_RULE_CODE):
+        return _AUDIT_NC_RULE_CODE
+    doc = ComplianceRuleRepo.create({
+        "rule_code": _AUDIT_NC_RULE_CODE,
+        "rule_name": _AUDIT_NC_RULE_NAME,
+        "source_module": "IMM-16",
+        "category": RuleCategory.DOCUMENT,
+        "severity": "Medium",
+        "evaluation_frequency": "Quarterly",
+        "is_active": 1,
+        "version": "1.0",
+    })
+    return doc.name
+
+
+def _resolve_audit_finding_rule(clause_ref: str) -> str:
+    """Resolve ``rule`` (mandatory) cho Finding sinh từ Major/Minor NC.
+
+    ``clause_ref`` (payload) khớp rule_code (== name) hoặc rule_name của IMM
+    Compliance Rule đang có → dùng rule đó; else fallback ``IMM-16-AUDIT-NC``.
+    LUÔN trả name NON-EMPTY (chống MandatoryError câm khi rule rỗng).
+    """
+    clause_ref = (clause_ref or "").strip()
+    if clause_ref:
+        if ComplianceRuleRepo.exists(clause_ref):
+            return clause_ref
+        by_name = ComplianceRuleRepo.find_one(
+            {"rule_name": clause_ref}, fields=["name"])
+        if by_name:
+            return by_name["name"]
+    return _ensure_audit_nc_fallback_rule()
+
+
 def complete_audit_checklist(audit_name: str, items: list[dict]) -> dict:
     """§3.3.4: Update checklist items + auto-sinh Finding cho Major/Minor NC.
 
@@ -1689,44 +1744,59 @@ def complete_audit_checklist(audit_name: str, items: list[dict]) -> dict:
 
     findings_created = 0
     items = items or []
-    # Build idx -> payload map
-    payload_map = {int(it.get("idx", 0)): it for it in items if it.get("idx")}
+    # CR-27c: iterate PAYLOAD (không chỉ child có sẵn). create_internal_audit/
+    # start_audit KHÔNG seed ``checklist_items`` → audit tạo qua flow thật có 0
+    # child; loop-child-có-sẵn cũ → verdict + notes MẤT TRẮNG câm, items_count=
+    # len(payload) success-giả. Nay: payload idx chưa có child → APPEND row mới
+    # (verdict persist vào ``result``); idx đã có → update. ``persisted`` đếm số
+    # THỰC lưu (hết đánh lừa). item_description reqd=1 → fallback clause_ref/nhãn.
+    existing_by_idx = {int(c.idx): c for c in (doc.checklist_items or [])}
+    persisted = 0
 
-    for child in (doc.checklist_items or []):
-        payload = payload_map.get(int(child.idx))
-        if not payload:
-            continue
+    for payload in sorted(items, key=lambda x: int(x.get("idx") or 0)):
+        idx = int(payload.get("idx") or 0)
         finding_status = payload.get("finding_status")
+        clause_ref = (payload.get("clause_ref") or "").strip()
+        child = existing_by_idx.get(idx)
+        if child is None:
+            child = doc.append("checklist_items", {
+                "item_description": clause_ref or f"Mục kiểm tra {idx or persisted + 1}",
+                "criteria": clause_ref,
+            })
         # CR-27b: map verdict → child.result (child KHÔNG có field
         # ``finding_status``; chỉ có Select ``result`` 3 giá trị). SSoT
-        # ``_FINDING_STATUS_TO_RESULT``. finding_status lạ (∉ map) → giữ nguyên
-        # result cũ. ANTI-PATTERN chống tái phạm: ``hasattr(child, "finding_status")``
-        # LUÔN False vì field không tồn tại → gán cũ là NO-OP CÂM (verdict mất
-        # trắng khi re-fetch). KHÔNG dùng lại pattern hasattr-gán-vào-field-ảo.
+        # ``_FINDING_STATUS_TO_RESULT``. finding_status lạ (∉ map) → giữ result cũ.
         mapped = _FINDING_STATUS_TO_RESULT.get(finding_status)
         if mapped:
             child.result = mapped
         child.notes = payload.get("notes", "")
+        persisted += 1
 
         if finding_status in ("Major NC", "Minor NC"):
             severity = "High" if finding_status == "Major NC" else "Medium"
-            try:
-                finding_doc = ComplianceFindingRepo.create({
-                    "rule": getattr(child, "rule_ref", "") or "",
-                    "source_record_doctype": InternalAuditRepo.DOCTYPE,
-                    "source_record": doc.name,
-                    "detected_date": now_datetime(),
-                    "severity": severity,
-                    "status": FindingStatus.OPEN,
-                    "evaluation_date": nowdate(),
-                    "notes": payload.get("notes", ""),
-                })
-                if hasattr(child, "linked_finding"):
-                    child.linked_finding = finding_doc.name
-                findings_created += 1
-            except Exception:
-                frappe.log_error(frappe.get_traceback(),
-                                 "IMM-16 complete_audit_checklist: finding create failed")
+            # Auto-sinh IMM Compliance Finding THỰC cho Major/Minor NC. ``rule``
+            # (mandatory) resolve từ payload clause_ref → rule đang có, else
+            # canonical fallback IMM-16-AUDIT-NC (chống MandatoryError câm). KHÔNG
+            # nuốt lỗi thành success-giả: create raise vì lý do THẬT → để nổi;
+            # findings_created += 1 CHỈ sau khi doc THỰC persist ⇒ luôn khớp số
+            # doc ghi. clause_ref lưu vào notes Finding (không mất tính cụ thể).
+            # Round này KHÔNG ghi child→finding link (child.finding_ref trỏ
+            # 'Audit Finding' — DOCTYPE khác; Finding truy vấn được theo
+            # source_record). BR-16-10: Finding ref RIÊNG, không chồng số đếm.
+            item_notes = (payload.get("notes") or "").strip()
+            finding_notes = (f"[Điều khoản: {clause_ref}] {item_notes}".strip()
+                             if clause_ref else item_notes)
+            ComplianceFindingRepo.create({
+                "rule": _resolve_audit_finding_rule(clause_ref),
+                "source_record_doctype": InternalAuditRepo.DOCTYPE,
+                "source_record": doc.name,
+                "detected_date": now_datetime(),
+                "severity": severity,
+                "status": FindingStatus.OPEN,
+                "evaluation_date": nowdate(),
+                "notes": finding_notes,
+            })
+            findings_created += 1
 
     doc.findings_count = (doc.findings_count or 0) + findings_created
     # Khôi phục state "Reporting" (trước đây chết — hoàn tất bảng kiểm nhưng KHÔNG
@@ -1742,7 +1812,7 @@ def complete_audit_checklist(audit_name: str, items: list[dict]) -> dict:
         from_status=AuditStatus.IN_PROGRESS, to_status=AuditStatus.REPORTING,
     )
     frappe.db.commit()
-    return {"audit_name": audit_name, "items_count": len(items),
+    return {"audit_name": audit_name, "items_count": persisted,
             "findings_created": findings_created, "status": AuditStatus.REPORTING}
 
 
@@ -2183,6 +2253,7 @@ def reopen_capa(name: str, reason: str = "") -> dict:
 
 # ─── Scorecard (canonical) ───────────────────────────────────────────────────
 
+@rowscoped
 def list_scorecards(filters: dict, *, page: int = 1, page_size: int = 20) -> dict:
     rows, pg = ComplianceScorecardRepo.list(
         filters=normalize_filters(filters),
@@ -2247,6 +2318,7 @@ def publish_scorecard(name: str) -> dict:
 
 # ─── Management Review (canonical) ───────────────────────────────────────────
 
+@rowscoped
 def list_management_reviews(filters: dict, *, page: int = 1,
                              page_size: int = 20) -> dict:
     rows, pg = ManagementReviewRepo.list(

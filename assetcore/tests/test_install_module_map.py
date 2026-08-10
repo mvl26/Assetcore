@@ -25,8 +25,10 @@ from assetcore.setup.install import (
     _drop_orphan_user_link_fields,
     _ensure_app_doctypes_synced,
     _foreign_custom_field_specs,
+    _prune_broken_link_customfields,
     _rebuild_module_map,
     before_install,
+    prune_orphan_link_customfields,
 )
 
 
@@ -114,6 +116,103 @@ class TestInstallModuleMap(unittest.TestCase):
         self.assertNotIn(
             "AC Asset", {dt for (dt, _fn) in specs}
         )
+
+
+class TestPruneOrphanLinkCustomFields(unittest.TestCase):
+    """Dọn orphan Custom Field Link/Table do APP KHÁC để lại (vd ERPNext `company`
+    trên Email Account/Communication khi site KHÔNG cài ERPNext).
+
+    Triệu chứng: `Field company is referring to non-existing doctype Company.
+    Please delete the field from Email Account-company or add the required doctype.`
+    """
+
+    _HOST = "ToDo"  # doctype core LUÔN tồn tại, dùng làm host cho CF test
+    _ABSENT = "AC Zzz Nonexistent Target"  # doctype đích cố tình KHÔNG tồn tại
+
+    def _make_cf(self, fieldname: str, fieldtype: str, options: str) -> str:
+        """Tạo Custom Field trên host; với Link-orphan thì set options tới doctype
+        không tồn tại BẰNG DB trực tiếp (bypass WrongOptionsDoctypeLinkError khi
+        insert) — mô phỏng đúng field còn sót sau khi app định nghĩa target bị gỡ."""
+        cf = frappe.new_doc("Custom Field")
+        cf.dt = self._HOST
+        cf.fieldname = fieldname
+        cf.label = fieldname
+        cf.fieldtype = fieldtype
+        # Insert với options HỢP LỆ (hoặc rỗng) để qua validate, rồi ép thành orphan.
+        cf.options = "User" if fieldtype in ("Link", "Table", "Table MultiSelect") else ""
+        cf.flags.ignore_permissions = True
+        cf.insert(ignore_if_duplicate=True)
+        if options and options != cf.options:
+            frappe.db.set_value("Custom Field", cf.name, "options", options)
+        frappe.db.commit()
+        return cf.name
+
+    def _drop_cf(self, fieldname: str) -> None:
+        cf = frappe.db.exists("Custom Field", {"dt": self._HOST, "fieldname": fieldname})
+        if cf:
+            frappe.delete_doc("Custom Field", cf, ignore_permissions=True, force=True)
+            frappe.db.commit()
+
+    def setUp(self) -> None:
+        self._fields = ["_test_orphan_link", "_test_valid_link", "_test_orphan_data"]
+        for fn in self._fields:
+            self._drop_cf(fn)
+
+    def tearDown(self) -> None:
+        for fn in self._fields:
+            self._drop_cf(fn)
+
+    def test_prunes_link_field_with_absent_target(self) -> None:
+        # Pre: doctype đích không tồn tại → field là orphan.
+        self.assertFalse(frappe.db.exists("DocType", self._ABSENT))
+        self._make_cf("_test_orphan_link", "Link", self._ABSENT)
+        self.assertTrue(
+            frappe.db.exists("Custom Field", {"dt": self._HOST, "fieldname": "_test_orphan_link"})
+        )
+
+        removed = _prune_broken_link_customfields()
+
+        self.assertGreaterEqual(removed, 1)
+        self.assertFalse(
+            frappe.db.exists("Custom Field", {"dt": self._HOST, "fieldname": "_test_orphan_link"}),
+            "orphan Link CF (target thiếu) PHẢI bị gỡ",
+        )
+
+    def test_keeps_link_field_with_existing_target(self) -> None:
+        # Field hợp lệ (Link → User, tồn tại) KHÔNG được đụng.
+        self._make_cf("_test_valid_link", "Link", "User")
+
+        _prune_broken_link_customfields()
+
+        self.assertTrue(
+            frappe.db.exists("Custom Field", {"dt": self._HOST, "fieldname": "_test_valid_link"}),
+            "Link CF có target tồn tại PHẢI được giữ",
+        )
+
+    def test_ignores_non_link_fieldtype(self) -> None:
+        # Field không phải Link/Table (vd Data) dù options lạ cũng KHÔNG bị đụng.
+        self._make_cf("_test_orphan_data", "Data", self._ABSENT)
+
+        _prune_broken_link_customfields()
+
+        self.assertTrue(
+            frappe.db.exists("Custom Field", {"dt": self._HOST, "fieldname": "_test_orphan_data"}),
+            "field non-Link KHÔNG thuộc phạm vi prune",
+        )
+
+    def test_idempotent_second_run_is_noop(self) -> None:
+        self._make_cf("_test_orphan_link", "Link", self._ABSENT)
+        first = _prune_broken_link_customfields()
+        self.assertGreaterEqual(first, 1)
+        # Lần 2: orphan đã sạch → phần của field test không còn gì để gỡ.
+        self.assertFalse(
+            frappe.db.exists("Custom Field", {"dt": self._HOST, "fieldname": "_test_orphan_link"})
+        )
+
+    def test_public_entrypoint_best_effort_returns_count(self) -> None:
+        self._make_cf("_test_orphan_link", "Link", self._ABSENT)
+        n = prune_orphan_link_customfields()
+        self.assertGreaterEqual(n, 1)
 
 
 if __name__ == "__main__":

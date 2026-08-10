@@ -791,7 +791,7 @@ Decision: ☐ Pass / ☐ Pass with conditions / ☐ Fail (block). *(Hiện: có 
 | TC | Loại | Kỳ vọng |
 |---|---|---|
 | TC-PUR-CAP-01 | unit | `rbac.CAPABILITY_MAP["purchase.submit"] == ("AC Purchase","submit")`; 6 cap `purchase.*` bind `("AC Purchase", ptype)` (INV-PUR-CAP / AC3) |
-| TC-PUR-CAP-02 | unit | `len(CAPABILITY_MAP)==104`; `CAP_SET_VERSION` prefix `v104.` — đồng bộ re-freeze `test_mobile_capability_map.py` (INV-PUR-COUNT / AC3) |
+| TC-PUR-CAP-02 | unit | `len(CAPABILITY_MAP)==105`; `CAP_SET_VERSION` prefix `v105.` — đồng bộ re-freeze `test_mobile_capability_map.py` (INV-PUR-COUNT / AC3). *Cập nhật 2026-07-30 bởi `AC-CR-119` (+`pm.read_history`, 104→105); giá trị đóng băng ở `tests/test_purchase.py:26`* |
 | TC-PUR-GATE-CREATE | unit | monkeypatch `rbac.require` raise `PermissionError` → `create_purchase` raise, `frappe.db.count("AC Purchase")` KHÔNG tăng; cap gọi == `purchase.create` (AC1) |
 | TC-PUR-GATE-UPDATE/SUBMIT/CANCEL/DELETE | unit | mỗi endpoint gọi `rbac.require('purchase.<ptype>')` TRƯỚC ghi; thiếu quyền → `PermissionError` (403), không đổi trạng thái (AC1) |
 | TC-PUR-GATE-RECEIVE | unit | `mark_received` gọi `rbac.require('purchase.submit')` TRƯỚC; thiếu → `PermissionError`; status KHÔNG đổi (AC1/AC2) |

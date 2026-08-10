@@ -340,6 +340,12 @@ export interface CommissioningFilters {
   clinical_dept?: string
   docstatus?: 0 | 1 | ''
   vendor_serial_no?: string
+  /**
+   * Thiết bị đã sinh ra từ phiếu (Link → AC Asset). Dùng cho deep-link «Xem tất cả»
+   * (AC-CR-95): `/commissioning?asset=<mã>` → khoá BE `final_asset`, ĐÃ có trong
+   * `services/imm04._ALLOWED_FILTER_KEYS` nên không cần đổi backend.
+   */
+  final_asset?: string
   /** Virtual flag (BR-04-10): khi bật, BE AND thêm SoT overdue filter (quá hạn SLA). */
   overdue?: boolean
 }

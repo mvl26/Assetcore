@@ -20,6 +20,7 @@ import {
 import { ApiError, toApiError } from '@/api/errors'
 import type {
   AssetDocumentItem,
+  AssetDossierDocItem,
   AssetDocumentDetail,
   DocumentFilters,
   Pagination,
@@ -46,11 +47,26 @@ export const useImm05Store = defineStore('imm05', () => {
   })
   const currentFilters = ref<DocumentFilters>({})
 
-  // Asset detail view
-  const assetDocuments = ref<Record<string, AssetDocumentItem[]>>({})
+  // Asset detail view — hồ sơ pháp lý theo thiết bị (CR-75)
+  const assetDocuments = ref<Record<string, AssetDossierDocItem[]>>({})
   const assetCompletenessPct = ref(0)
   const assetDocumentStatus = ref('')
   const missingRequired = ref<string[]>([])
+  /**
+   * Khoá máy-đọc `is_compliant` (0|1) — `null` = CHƯA BIẾT (chưa tải xong hoặc BE
+   * chưa deploy CR-75). Consumer phải phân biệt `null` với `0`: "chưa biết" KHÔNG
+   * được vẽ thành "không tuân thủ" (nháy đỏ giả).
+   */
+  const assetIsCompliant = ref<number | null>(null)
+  /** Loại bắt buộc CÓ bản Active nhưng ĐÃ QUÁ HẠN — cần GIA HẠN (≠ bổ sung mới). */
+  const assetExpiredRequired = ref<string[]>([])
+  /** Còn hiệu lực nhưng hết hạn ≤ 30 ngày — cảnh báo, KHÔNG chặn. */
+  const assetExpiringRequired = ref<string[]>([])
+  /** Mẫu số / tử số mức đầy đủ; `null` = BE chưa cấp (không bịa 0). */
+  const assetRequiredTotal = ref<number | null>(null)
+  const assetRequiredSatisfied = ref<number | null>(null)
+  /** Số tài liệu bị ẩn khỏi `documents` do phân quyền (BR-05-20). */
+  const assetHiddenCount = ref(0)
 
   // Dashboard
   const dashboardStats = ref<DashboardStats | null>(null)
@@ -113,10 +129,23 @@ export const useImm05Store = defineStore('imm05', () => {
     try {
       const res = await getAssetDocuments(asset)
       if (res) {
-        if (res.documents) assetDocuments.value = res.documents
+        // Gán VÔ ĐIỀU KIỆN: payload thiếu `documents` mà giữ lại danh sách của
+        // thiết bị xem trước đó = hiển thị hồ sơ (và tệp) của SAI thiết bị.
+        assetDocuments.value = res.documents ?? {}
         if (res.completeness_pct != null) assetCompletenessPct.value = res.completeness_pct
         if (res.document_status) assetDocumentStatus.value = res.document_status
         if (res.missing_required) missingRequired.value = res.missing_required
+        // Khoá CR-75: gán VÔ ĐIỀU KIỆN (kể cả khi vắng) để không giữ giá trị của
+        // thiết bị vừa xem trước đó — dữ liệu cũ của asset khác là nói dối.
+        assetIsCompliant.value =
+          typeof res.is_compliant === 'number' ? res.is_compliant : null
+        assetExpiredRequired.value = res.expired_required ?? []
+        assetExpiringRequired.value = res.expiring_required ?? []
+        assetRequiredTotal.value =
+          typeof res.required_total === 'number' ? res.required_total : null
+        assetRequiredSatisfied.value =
+          typeof res.required_satisfied === 'number' ? res.required_satisfied : null
+        assetHiddenCount.value = res.hidden_count ?? 0
       }
     } catch (e: unknown) {
       _captureError(e)
@@ -254,6 +283,8 @@ export const useImm05Store = defineStore('imm05', () => {
     // state
     documents, loading, error, lastApiError, pagination, currentFilters,
     assetDocuments, assetCompletenessPct, assetDocumentStatus, missingRequired,
+    assetIsCompliant, assetExpiredRequired, assetExpiringRequired,
+    assetRequiredTotal, assetRequiredSatisfied, assetHiddenCount,
     dashboardStats, dashboardLoading, documentRequests, expiringDocs,
     currentDocument,
     // getters

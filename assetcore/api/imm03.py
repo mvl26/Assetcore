@@ -50,6 +50,29 @@ def _handle(fn, *args, **kwargs) -> dict:
 
 _DT_SUPPLIER = "AC Supplier"
 
+#: Cột AVL/audit do patch `assetcore.patches.v3_1.003_install_imm03` cài lên AC Supplier.
+_AVL_COLUMNS = (
+    "imm_avl_status", "imm_avl_categories", "imm_overall_score",
+    "imm_last_audit_date", "imm_next_audit_date",
+)
+
+
+def _require_avl_schema() -> None:
+    """Chặn query khi custom field IMM-03 chưa/không còn trên AC Supplier.
+
+    Không có guard này, mọi cột thiếu rơi thẳng xuống MariaDB thành lỗi thô
+    `(1054, "Unknown column 'tabAC Supplier.imm_overall_score' in 'WHERE'")`
+    hiển thị cho end-user. Đây là lỗi cài đặt schema, không phải lỗi nhập liệu.
+    """
+    missing = [c for c in _AVL_COLUMNS if not frappe.db.has_column(_DT_SUPPLIER, c)]
+    if missing:
+        raise ServiceError(
+            ErrorCode.INTERNAL,
+            _("Hồ sơ nhà cung cấp chưa được cài đặt đầy đủ trên hệ thống "
+              "(thiếu trường: {0}). Vui lòng liên hệ quản trị viên chạy lại "
+              "bước cài đặt IMM-03.").format(", ".join(missing)),
+        )
+
 
 @frappe.whitelist()
 def list_vendor_profiles(filters: str = "{}", page: int = 1, page_size: int = 20) -> dict:
@@ -61,6 +84,7 @@ def list_vendor_profiles(filters: str = "{}", page: int = 1, page_size: int = 20
 
 
 def _list_vendor_profiles(filters: str, page: int, page_size: int) -> dict:
+    _require_avl_schema()
     f = _parse_json(filters) or {}
     page_size = max(1, min(page_size, 100))
     start = (max(1, page) - 1) * page_size

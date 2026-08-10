@@ -23,14 +23,14 @@ onMounted(async () => {
     await store.fetchWorkOrder(props.id)
   }
   if (store.currentWO) {
+    // CR-50: repair_checklist được BE seed sẵn danh mục chuẩn tại create_work_order
+    // (mỗi phiếu CM mới có >=N dòng test_description + test_category, result TRỐNG cho
+    // KTV nhập). KTV chỉ điền kết quả trên các dòng THẬT — KHÔNG fabricate dòng ở FE.
+    // (Trước đây FE tự chèn 1 dòng "pass" generic khi rỗng để né deadlock BR-09-04 —
+    //  đó là lỗ FE-side của chính BR-09-04, đã bỏ vì BE seed rows là SoT. Phiếu 0 dòng
+    //  còn kẹt do khởi tạo trước fix → backfill_repair_checklists() ở BE xử lý, KHÔNG
+    //  cho FE dựng pass giả — bảo toàn bất biến vacuous-pass: mọi 'Đạt' ⟺ dòng THẬT.)
     checklist.value = store.currentWO.repair_checklist.map(r => ({ ...r }))
-    // BR-09-04: If no checklist rows defined, auto-add a default completion confirmation row
-    // so the service's validate_repair_checklist_complete() does not block submit.
-    if (checklist.value.length === 0) {
-      checklist.value = [
-        { idx: 1, test_description: 'Xác nhận thiết bị hoạt động bình thường sau sửa chữa', result: null, measured_value: '', notes: '' } as RepairChecklistRow,
-      ]
-    }
   }
 })
 
@@ -43,6 +43,10 @@ const hasAnyFail = computed(() => checklist.value.some(r => r.result === 'Fail')
 const allAnswered = computed(() => checklist.value.every(r => r.result !== null))
 
 const canComplete = computed(() =>
+  // totalCount>0: checklist rỗng ⇒ allAnswered vacuous-true → phải chặn ở đây, nếu không
+  // nút bật rồi close_work_order/confirm_inspection 422 CHECKLIST_INCOMPLETE (BR-09-04).
+  // BE seed rows nên phiếu CM mới luôn có dòng; guard này chỉ đỡ phiếu 0-dòng chưa backfill.
+  totalCount.value > 0 &&
   allAnswered.value &&
   !hasAnyFail.value &&
   deptHeadName.value.trim() !== ''
@@ -51,6 +55,36 @@ const canComplete = computed(() =>
 function setResult(item: RepairChecklistRow, result: 'Pass' | 'Fail' | 'N/A') {
   item.result = result
 }
+
+// ─── AC-CR-84 · CỔNG ẢNH BẰNG CHỨNG NĐ98 ngay tại màn nghiệm thu (U1/U2) ───────
+// Đây là nơi người dùng bấm «Hoàn thành sửa chữa» ⇒ lý do chặn phải hiện Ở ĐÂY, kèm
+// đúng nút tải ảnh của từng mục (đường khắc phục tại chỗ). SERVER là SSoT:
+// `evidence_photo_missing_idxs` = ĐÚNG tập mà `close_work_order` từ chối (INV-CMEVID-1)
+// ⇒ FE KHÔNG đếm lại từ `item.photo` (bản diễn giải thứ hai) và KHÔNG tự khoá nút
+// (validator server mới là cổng — nút giữ nguyên điều kiện nghiệp vụ cũ).
+// Sau mỗi lần đính ảnh, `onPhotoSelected` đã refetch phiếu ⇒ tập này tự cập nhật.
+const evidenceGateApplies = computed(() => store.currentWO?.evidence_photo_required === 1)
+const evidenceMissingIdxs = computed<number[]>(() => {
+  const raw = store.currentWO?.evidence_photo_missing_idxs
+  return Array.isArray(raw)
+    ? raw.filter((n): n is number => typeof n === 'number' && Number.isFinite(n))
+    : []
+})
+const evidenceTotalRequired = computed(() => {
+  const n = store.currentWO?.evidence_photo_total_required
+  return typeof n === 'number' && Number.isFinite(n) && n > 0 ? Math.trunc(n) : 0
+})
+const evidenceDoneCount = computed(() =>
+  Math.max(0, evidenceTotalRequired.value - evidenceMissingIdxs.value.length),
+)
+const evidenceComplete = computed(
+  () => evidenceGateApplies.value && evidenceMissingIdxs.value.length === 0,
+)
+function isEvidenceMissing(idx: number): boolean {
+  return evidenceGateApplies.value && evidenceMissingIdxs.value.includes(Number(idx))
+}
+/** Thông điệp lỗi server neo DƯỚI bảng checklist (envelope `fields.repair_checklist`). */
+const checklistFieldError = ref<string | null>(null)
 
 // ── Ảnh bằng chứng mỗi mục checklist (NĐ98 Class C/D — mobile CR-15/G6) ────────
 // Đối xứng IncidentDetailView. Tối đa 1 ảnh/mục (Attach ĐƠN, BE là SoT).
@@ -120,6 +154,12 @@ async function handleComplete() {
   if (!canComplete.value) return
   submitting.value = true
   error.value = null
+  checklistFieldError.value = null
+  // CR-24 idempotency: sinh khoá 1 lần cho mỗi lần bấm "Hoàn thành sửa chữa".
+  // Ổn định qua auto-retry (axios/interceptor replay CÙNG request → CÙNG khoá →
+  // BE replay success-envelope, không tạo transition/Lifecycle Event trùng); đổi
+  // khi user chủ động bấm lại (handler chạy lại → khoá mới).
+  const clientRequestId = globalThis.crypto.randomUUID()
   try {
     const ok = await store.doCloseWorkOrder({
       name: props.id,
@@ -127,6 +167,7 @@ async function handleComplete() {
       root_cause_category: store.currentWO?.root_cause_category ?? '',
       dept_head_name: `${deptHeadName.value} — ${deptHeadTitle.value}`,
       checklist_results: checklist.value,
+      client_request_id: clientRequestId,
     })
     if (ok) {
       notify.show({ code: MSG.UI_SAVE_SUCCESS, ctx: { entity: 'hoàn thành sửa chữa' } })
@@ -134,6 +175,15 @@ async function handleComplete() {
     } else {
       notify.fromError(store.lastApiError)
       error.value = store.error ?? 'Không thể hoàn thành sửa chữa'
+      // AC-CR-84 §3: envelope từ chối vì thiếu ảnh bằng chứng neo `fields.repair_checklist`
+      // ⇒ (b) hiện thông điệp SERVER ngay dưới bảng nghiệm thu (đúng chỗ khắc phục) và
+      // (c) refetch phiếu để tập mục-thiếu-ảnh cập nhật (người dùng có thể vừa đính ảnh ở
+      // tab khác). KHÔNG coi là lỗi hệ thống, KHÔNG đăng xuất.
+      const fieldMsg = store.lastApiError?.fields?.repair_checklist
+      if (fieldMsg) {
+        checklistFieldError.value = fieldMsg
+        await store.fetchWorkOrder(props.id)
+      }
     }
   } finally {
     submitting.value = false
@@ -189,9 +239,46 @@ async function handleComplete() {
         </div>
       </div>
 
+      <!-- AC-CR-84 (U1) — dải trạng thái ảnh bằng chứng NĐ98, CHỈ khi server báo cổng áp
+           dụng (`evidence_photo_required === 1` = thiết bị nhóm nguy cơ cao). Số liệu
+           NGUYÊN VĂN từ server; FE không đếm lại từ `item.photo`. Vắng khoá (worker BE
+           chưa reload) ⇒ ẩn hoàn toàn, KHÔNG khẳng định "đã đủ ảnh". -->
+      <div
+        v-if="evidenceGateApplies"
+        data-testid="cm-checklist-evidence-banner"
+        role="status"
+        :class="[
+          'card border',
+          evidenceComplete ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50',
+        ]"
+      >
+        <p :class="['text-sm font-medium', evidenceComplete ? 'text-emerald-800' : 'text-amber-900']">
+          <template v-if="evidenceComplete">
+            Bằng chứng NĐ98: đã có ảnh {{ evidenceDoneCount }}/{{ evidenceTotalRequired }} mục
+          </template>
+          <template v-else>
+            Bằng chứng NĐ98: còn {{ evidenceMissingIdxs.length }}/{{ evidenceTotalRequired }} mục chưa có ảnh — cần đính đủ trước khi hoàn thành sửa chữa
+          </template>
+        </p>
+        <p v-if="!evidenceComplete" class="mt-1 text-xs text-amber-800">
+          Đã có {{ evidenceDoneCount }}/{{ evidenceTotalRequired }} mục có ảnh. Dùng nút “Đính ảnh” ở từng mục bên dưới để bổ sung.
+        </p>
+      </div>
+
       <!-- Checklist items -->
-      <div v-if="checklist.length === 0" class="card text-center text-slate-400 text-sm py-8">
-        Không có mục checklist nào cho phiếu sửa chữa này.
+      <div v-if="checklist.length === 0" class="card text-center py-8">
+        <p class="text-sm font-medium text-slate-600">Phiếu sửa chữa này chưa có mục nghiệm thu nào.</p>
+        <p class="mt-1 text-xs text-slate-400">
+          Danh mục nghiệm thu chuẩn được tạo tự động khi mở phiếu. Nếu phiếu cũ chưa có,
+          liên hệ quản trị để bổ sung danh mục trước khi nghiệm thu.
+        </p>
+        <button
+          type="button"
+          class="mt-4 px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+          @click="router.push(`/cm/work-orders/${id}`)"
+        >
+          Quay lại phiếu sửa chữa
+        </button>
       </div>
 
       <div v-else class="space-y-3">
@@ -278,6 +365,15 @@ async function handleComplete() {
               <span v-else-if="uploadingIdx === item.idx">Đang tải lên...</span>
               <span v-else>+ Đính ảnh (JPG hoặc PNG)</span>
             </button>
+            <!-- AC-CR-84 (U2) — mục nằm trong tập SERVER báo thiếu ảnh: nhãn CHỮ, không
+                 chỉ phân biệt bằng màu; nguồn `evidence_photo_missing_idxs`. -->
+            <span
+              v-if="isEvidenceMissing(item.idx)"
+              data-testid="cm-checklist-evidence-chip"
+              class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800"
+            >
+              Chưa có ảnh bằng chứng (bắt buộc)
+            </span>
           </div>
           <!-- Lỗi VALIDATION inline VN dưới control -->
           <p v-if="photoErrors[item.idx]" class="mt-1.5 text-xs text-red-600" role="alert">
@@ -285,6 +381,17 @@ async function handleComplete() {
           </p>
         </div>
       </div>
+
+      <!-- AC-CR-84 §3(b) — lỗi server neo Ở ĐÚNG bảng nghiệm thu (envelope
+           `fields.repair_checklist`), thông điệp NGUYÊN VĂN tiếng Việt của server. -->
+      <p
+        v-if="checklistFieldError"
+        data-testid="cm-checklist-field-error"
+        role="alert"
+        class="px-4 py-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700"
+      >
+        {{ checklistFieldError }}
+      </p>
 
       <!-- Dept head confirmation -->
       <div class="card">

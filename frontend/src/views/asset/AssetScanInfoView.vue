@@ -597,7 +597,7 @@ onMounted(load)
 
       <!-- Card model + vị trí -->
       <section class="card p-5 space-y-3">
-        <h2 class="text-sm font-semibold text-slate-700">Model &amp; Vị trí</h2>
+        <h2 class="text-sm font-semibold text-slate-700">Model và Vị trí</h2>
         <dl class="space-y-2 text-sm">
           <div class="flex justify-between gap-3">
             <dt class="text-slate-500">Model thiết bị</dt>

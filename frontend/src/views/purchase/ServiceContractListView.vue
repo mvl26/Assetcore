@@ -10,6 +10,7 @@ import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
+import ListPageShell from '@/components/ui/ListPageShell.vue'
 
 type ServiceContractRow = ServiceContract & { supplier_name?: string }
 
@@ -19,7 +20,9 @@ const { can } = useCapabilities()
 const contracts = ref<ServiceContractRow[]>([])
 const contractType = ref('')
 const loading = ref(false)
-const error = ref('')
+// AC-UX-047 lô 3 · biến thể A (02 §14.2): ô lỗi CỤC BỘ đã có, chỉ đổi giá trị "không lỗi"
+// từ chuỗi rỗng sang `null` cho khớp kiểu `errorMessage?: string | null` của ListPageShell.
+const error = ref<string | null>(null)
 const page = ref(1)
 const totalCount = ref(0)
 const showFilters = ref(false)
@@ -77,7 +80,7 @@ function quickFilter(type: string) {
 
 async function load() {
   loading.value = true
-  error.value = ''
+  error.value = null
   try {
     const res = await frappeGet<{ items: ServiceContractRow[]; pagination: { total: number } } | null>(
       `${BASE}.list_service_contracts`,
@@ -90,6 +93,13 @@ async function load() {
     if (res) {
       contracts.value = res.items || []
       totalCount.value = res.pagination?.total || 0
+    } else {
+      // `frappeGet` trả `null` khi BE trả `message: null` ⇒ KHÔNG vào `catch`. Không có nhánh
+      // này thì màn rơi vào trạng thái rỗng CÂM, giữ dữ liệu cũ và không có lối thử lại
+      // (02 §14.4 — bẫy riêng màn 3).
+      contracts.value = []
+      totalCount.value = 0
+      error.value = 'Không tải được danh sách hợp đồng dịch vụ.'
     }
   } catch (e: unknown) {
     error.value = (e as Error).message || 'Không thể tải danh sách hợp đồng. Vui lòng thử lại.'
@@ -119,6 +129,15 @@ function expiryClass(d?: string) {
   return 'text-gray-600'
 }
 
+// Chữ trạng thái rỗng — SSoT là bảng copy 02 §14.4 (LL-FE-53: 100% tiếng Việt).
+const emptyTitle = computed(() =>
+  activeFilterCount.value > 0
+    ? 'Không có hợp đồng dịch vụ nào phù hợp'
+    : 'Chưa có hợp đồng dịch vụ nào',
+)
+const emptyHint =
+  'Hợp đồng dịch vụ là căn cứ theo dõi hạn bảo hành, bảo trì và hiệu chuẩn theo nhà cung cấp.'
+
 onMounted(load)
 
 // ── Import / Export ──────────────────────────────────────────────────────────
@@ -135,7 +154,15 @@ const IMPORT_NOTICE = [
 </script>
 
 <template>
-  <div class="page-container animate-fade-in space-y-5">
+  <div>
+    <ListPageShell
+      :loading="loading"
+      :error-message="error"
+      :is-empty="!contracts.length"
+      :empty-title="emptyTitle"
+      :empty-hint="emptyHint"
+      @retry="load">
+      <template #header>
     <PageHeader
       title="Hợp đồng dịch vụ"
       :subtitle="`Tổng ${totalCount} hợp đồng`"
@@ -171,7 +198,9 @@ const IMPORT_NOTICE = [
         </button>
       </template>
     </PageHeader>
+      </template>
 
+      <template #filters>
     <ListFilterBar
       :show="showFilters"
       :chips="activeChips"
@@ -190,29 +219,30 @@ const IMPORT_NOTICE = [
         </div>
       </template>
     </ListFilterBar>
+      </template>
 
-    <div v-if="error" class="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm flex items-center justify-between">
-      <span>⚠ {{ error }}</span>
-      <button class="text-xs underline text-red-700 hover:text-red-900" @click="load">Thử lại</button>
-    </div>
+      <template #skeleton><SkeletonLoader variant="table" :rows="6" /></template>
 
-    <div class="card overflow-hidden">
-      <!-- Info row -->
+      <template #empty-action>
+        <button
+          v-if="activeFilterCount > 0"
+          class="text-xs text-brand-600 hover:text-brand-700 font-medium underline"
+          @click="resetFilters"
+        >Xóa bộ lọc để xem tất cả</button>
+        <button
+          v-else-if="can('data.create')"
+          class="btn-primary"
+          @click="router.push('/service-contracts/new')"
+        >Thêm hợp đồng dịch vụ</button>
+      </template>
+
+      <template #toolbar>
       <div class="flex items-center justify-between px-4 py-2.5 border-b border-slate-100 bg-slate-50/60 text-xs text-slate-500">
         <span>Hiển thị <strong class="text-slate-700">{{ contracts.length }}</strong> / {{ totalCount }} hợp đồng</span>
         <button v-if="activeFilterCount > 0" class="text-red-500 hover:text-red-700 font-medium" @click="resetFilters">Xóa tất cả</button>
       </div>
+      </template>
 
-      <div v-if="loading" class="p-6">
-        <SkeletonLoader variant="table" :rows="6" />
-      </div>
-      <div v-else-if="contracts.length === 0 && !error" class="flex flex-col items-center justify-center py-16 text-slate-400">
-        <p class="text-sm">Chưa có hợp đồng dịch vụ nào.</p>
-        <button v-if="activeFilterCount > 0" class="text-xs text-blue-500 hover:text-blue-700 underline mt-2" @click="resetFilters">
-          Xóa bộ lọc để xem tất cả
-        </button>
-      </div>
-      <template v-else>
         <!-- Mobile cards -->
         <div class="mobile-card-list sm:hidden">
           <div
@@ -277,8 +307,8 @@ v-for="c in contracts" :key="c.name"
           </tbody>
         </table>
         </div>
-      </template>
 
+      <template #pagination>
       <div v-if="totalCount > PAGE_SIZE" class="flex items-center justify-between px-4 py-3 border-t border-slate-100 text-sm text-slate-500">
         <span>{{ (page - 1) * PAGE_SIZE + 1 }}–{{ Math.min(page * PAGE_SIZE, totalCount) }} / {{ totalCount }}</span>
         <div class="flex gap-2">
@@ -286,7 +316,10 @@ v-for="c in contracts" :key="c.name"
           <button :disabled="page * PAGE_SIZE >= totalCount" class="px-3 py-1 rounded border border-slate-300 disabled:opacity-40 hover:bg-slate-50" @click="nextPage">›</button>
         </div>
       </div>
-    </div>
+      </template>
+    </ListPageShell>
+
+    <!-- Trình nhập Excel — NGOÀI ListPageShell (02 §14.3) -->
     <ImportWizardModal :ctx="importWizard" title="Nhập hợp đồng" unit="hợp đồng" :notice="IMPORT_NOTICE" />
   </div>
 </template>

@@ -11,6 +11,7 @@ import ListFilterBar from '@/components/common/ListFilterBar.vue'
 import BasePagination from '@/components/common/BasePagination.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
+import ListPageShell from '@/components/ui/ListPageShell.vue'
 
 const router = useRouter()
 const { can } = useCapabilities()
@@ -99,7 +100,17 @@ function quickFilter(_key: 'status', value: string) {
   load(1)
 }
 
+// ── Trạng thái nạp danh sách (AC-UX-047 lô 2 · biến thể D — 02 §13.2) ──
+// `stores/imm11.ts` dùng CHUNG một ô `error` (`_captureError`) cho MỌI lời gọi — danh
+// sách, chỉ-số, lịch, transition ⇒ bind thẳng thì một lần nạp chỉ-số hỏng sẽ xoá trắng
+// danh sách. Phải CHỤP lỗi ngay sau `await` của lượt nạp DANH SÁCH rồi trả ô về sạch.
+const loadError = ref<string | null>(null)
+const currentPage = ref(1)
+
 async function load(page = 1) {
+  currentPage.value = page
+  loadError.value = null
+  store.error = null
   await store.fetchList({
     page, page_size: 20,
     status: filterStatus.value || undefined,
@@ -107,11 +118,23 @@ async function load(page = 1) {
     calibration_type: filterType.value || undefined,
     overall_result: filterResult.value || undefined,
   })
+  loadError.value = store.error ?? null
+  if (loadError.value) store.error = null
 }
+
+/** Điểm vào DUY NHẤT của «Thử lại» — giữ nguyên bộ lọc + trang hiện tại. */
+function reload() { return load(currentPage.value) }
 
 async function loadKpis() {
   await store.fetchKpis()
+  // chỉ-số dùng CHUNG ô lỗi với danh sách ⇒ dọn để không rò sang lượt nạp sau
+  store.error = null
 }
+
+const emptyTitle = computed(() =>
+  activeFilterCount.value > 0 ? 'Không có phiếu hiệu chuẩn nào phù hợp' : 'Chưa có phiếu hiệu chuẩn nào',
+)
+const emptyHint = 'Hãy tạo phiếu hiệu chuẩn mới hoặc xoá bộ lọc để xem tất cả.'
 
 watch(() => route.query.asset, (val) => {
   assetFilter.value = (val as string) || ''
@@ -121,11 +144,20 @@ watch(() => route.query.asset, (val) => {
 watch(() => route.query.status, (val) => { filterStatus.value = (val as string) || ''; load(1) })
 watch(() => route.query.result, (val) => { filterResult.value = (val as string) || ''; load(1) })
 
-onMounted(() => { load(); loadKpis() })
+// TUẦN TỰ, không `Promise.all`: lỗi của `loadKpis` không được cướp trạng thái danh sách.
+onMounted(async () => { await load(); loadKpis() })
 </script>
 
 <template>
-  <div class="page-container animate-fade-in space-y-5">
+  <div>
+    <ListPageShell
+      :loading="loading"
+      :error-message="loadError"
+      :is-empty="!items.length"
+      :empty-title="emptyTitle"
+      :empty-hint="emptyHint"
+      @retry="reload">
+      <template #header>
     <PageHeader
       title="Hiệu chuẩn thiết bị"
       :subtitle="`Tổng ${pagination.total ?? items.length} phiếu`"
@@ -142,6 +174,9 @@ onMounted(() => { load(); loadKpis() })
         </button>
       </template>
     </PageHeader>
+      </template>
+
+      <template #filters>
 
     <ListFilterBar
       :show="showFilters"
@@ -179,8 +214,18 @@ onMounted(() => { load(); loadKpis() })
         </div>
       </template>
     </ListFilterBar>
+      </template>
 
-    <!-- KPI Cards -->
+      <template #skeleton><SkeletonLoader variant="table" :rows="6" /></template>
+
+      <template #empty-action>
+        <button v-if="activeFilterCount > 0" class="text-xs text-brand-600 hover:text-brand-700 font-medium underline" @click="resetFilters">
+          Xóa bộ lọc để xem tất cả
+        </button>
+      </template>
+
+      <!-- Dải chỉ số chỉ render ở trạng thái rỗng/có-dữ-liệu ⇒ hết cảnh in `0` khi API hỏng -->
+      <template #summary>
     <div v-if="kpis" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
       <div class="kpi-card p-4 text-center" style="--kpi-color: #334155">
         <p class="text-xs text-slate-400 mb-1">Tháng này</p>
@@ -207,24 +252,15 @@ onMounted(() => { load(); loadKpis() })
         <p class="text-2xl font-bold font-display tabular-nums text-amber-600">{{ kpis.due_soon_assets }}</p>
       </div>
     </div>
+      </template>
 
-    <!-- Table -->
-    <div class="table-wrapper">
-      <!-- Info row -->
+      <template #toolbar>
       <div class="flex items-center justify-between px-4 py-2.5 border-b border-slate-100 bg-slate-50/60 text-xs text-slate-500">
         <span>Hiển thị <strong class="text-slate-700">{{ items.length }}</strong> / {{ pagination.total }} phiếu</span>
         <button v-if="activeFilterCount > 0" class="text-red-500 hover:text-red-700 font-medium" @click="resetFilters">Xóa tất cả</button>
       </div>
-      <div v-if="loading" class="p-4">
-        <SkeletonLoader variant="table" :rows="6" />
-      </div>
-      <div v-else-if="!items.length" class="flex flex-col items-center justify-center py-16 text-slate-400">
-        <p class="text-sm font-medium">Chưa có phiếu hiệu chuẩn nào</p>
-        <button v-if="activeFilterCount > 0" class="text-xs text-blue-500 hover:text-blue-700 underline mt-2" @click="resetFilters">
-          Xóa bộ lọc để xem tất cả
-        </button>
-      </div>
-      <template v-else>
+      </template>
+
         <!-- Mobile cards (< sm) -->
         <div class="mobile-card-list sm:hidden">
           <div
@@ -258,9 +294,6 @@ onMounted(() => { load(); loadKpis() })
               <span v-if="c.overall_result" class="text-slate-300">·</span>
               <StatusBadge v-if="c.overall_result" :state="c.overall_result" />
             </div>
-          </div>
-          <div v-if="rows.length === 0" class="py-12 text-center text-slate-400">
-            <p class="text-sm font-medium">Không có dữ liệu</p>
           </div>
         </div>
 
@@ -320,9 +353,10 @@ onMounted(() => { load(); loadKpis() })
             </tbody>
           </table>
         </div>
-      </template>
-    </div>
 
-    <BasePagination :pagination="pagination" @page-change="load" />
+      <template #pagination>
+        <BasePagination :pagination="pagination" @page-change="load" />
+      </template>
+    </ListPageShell>
   </div>
 </template>

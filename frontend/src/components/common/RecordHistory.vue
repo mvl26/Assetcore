@@ -43,7 +43,7 @@ watch(() => props.refName, load)
 
 <template>
   <div class="card p-5">
-    <h2 class="font-semibold text-slate-700 mb-3">Lịch sử &amp; Nhật ký kiểm toán</h2>
+    <h2 class="font-semibold text-slate-700 mb-3">Lịch sử và Nhật ký kiểm toán</h2>
     <div v-if="loading" class="text-sm text-slate-400 py-4">Đang tải lịch sử...</div>
     <div v-else-if="loaded && !entries.length" class="text-sm text-slate-400 py-4">
       Chưa có sự kiện nào được ghi nhận.

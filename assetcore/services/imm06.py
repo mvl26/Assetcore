@@ -17,7 +17,11 @@ from assetcore.repositories.training_repo import (
 )
 from assetcore.services.shared import ErrorCode, ServiceError, normalize_filters
 from assetcore.services.shared import rbac
+from assetcore.services.shared.truncation import truncation_meta
 from assetcore.utils.lifecycle import log_audit_event
+from assetcore.utils.messages import MSG
+from assetcore.utils.notify import nthrow
+from assetcore.services.shared.permissions import rowscoped
 
 
 # ─── Status constants ────────────────────────────────────────────────────────
@@ -254,6 +258,7 @@ def compute_competency_dates(achieved_date, validity_months: int) -> dict:
 
 # ─── Training Program ─────────────────────────────────────────────────────────
 
+@rowscoped
 def list_training_programs(filters: dict, *, page: int = 1,
                             page_size: int = 20) -> dict:
     """Liệt kê chương trình đào tạo với phân trang.
@@ -302,6 +307,7 @@ def get_training_program(name: str) -> dict:
 
 # ─── Training Session ─────────────────────────────────────────────────────────
 
+@rowscoped
 def list_training_sessions(filters: dict, *, page: int = 1,
                             page_size: int = 20) -> dict:
     """Liệt kê buổi đào tạo."""
@@ -373,9 +379,19 @@ def complete_training_session(session_name: str, results: list[dict]) -> dict:
 
     # Apply scores to participant rows
     result_map: dict[str, dict] = {r["user"]: r for r in results if r.get("user")}
+
+    # BR-06-08 guard (a) — strict fail-loud (VR-14): mọi user trong results PHẢI là
+    # participant của buổi. User lạ → raise, KHÔNG drop câm, KHÔNG đổi state.
+    participant_users = {p.user for p in doc.participants if p.user}
+    unmatched = [u for u in result_map if u not in participant_users]
+    if unmatched:
+        nthrow(MSG.IMM06_RESULT_UNKNOWN_USER, error_code=ErrorCode.VALIDATION,
+               user=", ".join(unmatched))
+
     program_doc = frappe.get_doc("IMM Training Program", doc.training_program)
     pass_score = float(program_doc.passing_score_pct or 70.0)
 
+    scored_count = 0
     passing_participants = []
     for p in doc.participants:
         row_result = result_map.get(p.user)
@@ -385,8 +401,15 @@ def complete_training_session(session_name: str, results: list[dict]) -> dict:
         p.practical_score = row_result.get("practical_score", 0)
         avg_score = (float(p.theory_score) + float(p.practical_score)) / 2.0
         p.overall_result = "Pass" if avg_score >= pass_score else "Fail"
+        scored_count += 1  # đếm THỰC trong loop — KHÔNG len(results)
         if p.overall_result == "Pass":
             passing_participants.append(p)
+
+    # BR-06-08 guard (b) — empty-scoring (VR-13): 0 học viên được chấm (gồm
+    # results=[]) → chặn nghiệm-thu-giả. Đặt TRƯỚC khi đổi state + save (chống
+    # chuyển-trạng-thái-rồi-mới-fail — DB giữ In Progress khi raise).
+    if scored_count == 0:
+        nthrow(MSG.IMM06_SESSION_NO_SCORE, error_code=ErrorCode.VALIDATION)
 
     # Save session as Completed first, then create competency records
     doc.workflow_state = SessionStatus.COMPLETED
@@ -407,6 +430,7 @@ def complete_training_session(session_name: str, results: list[dict]) -> dict:
     return {
         "name": session_name,
         "workflow_state": SessionStatus.COMPLETED,
+        "scored_count": scored_count,
         "competencies_created": new_competencies,
     }
 
@@ -447,6 +471,7 @@ def _create_competency_record(participant, session_doc, program_doc) -> str | No
 
 # ─── User Competency ─────────────────────────────────────────────────────────
 
+@rowscoped
 def list_user_competencies(filters: dict, *, page: int = 1,
                             page_size: int = 20) -> dict:
     """Liệt kê hồ sơ năng lực."""
@@ -1329,6 +1354,11 @@ def enroll_participants(session: str, participants: list[dict]) -> dict:
             "department": (raw.get("department") or None),
             "role_at_session": (raw.get("role_at_session")
                                 or ("External" if external_name else None)),
+            # BR-06-08 anti nghiệm-thu-giả: Select `overall_result`
+            # (options "Pass\nFail\nConditional") bị Frappe auto-default về option
+            # đầu "Pass" khi tạo row mới → học viên VỪA ghi danh (chưa đánh giá) đã
+            # hiển thị "Đạt". Ép rỗng ngay lúc tạo → chưa chấm = chưa có kết quả.
+            "overall_result": "",
         }
         if external_name:
             row["remarks"] = f"External: {external_name}"
@@ -1501,8 +1531,9 @@ def list_competencies(filters: dict, page: int = 1, page_size: int = 20) -> dict
 def _enrich_competency_display_names(items: list[dict]) -> None:
     if not items:
         return
-    user_ids  = {it.get("user")         for it in items if it.get("user")}
-    model_ids = {it.get("device_model") for it in items if it.get("device_model")}
+    user_ids  = {it.get("user")             for it in items if it.get("user")}
+    model_ids = {it.get("device_model")     for it in items if it.get("device_model")}
+    prog_ids  = {it.get("training_program") for it in items if it.get("training_program")}
 
     def _map(doctype: str, ids: set, field: str) -> dict:
         if not ids:
@@ -1516,14 +1547,19 @@ def _enrich_competency_display_names(items: list[dict]) -> None:
         except Exception:
             return {}
 
-    user_map  = _map("User",             user_ids,  "full_name")
-    model_map = _map("IMM Device Model", model_ids, "model_name")
+    user_map  = _map("User",                 user_ids,  "full_name")
+    model_map = _map("IMM Device Model",     model_ids, "model_name")
+    prog_map  = _map("IMM Training Program", prog_ids,  "program_name")
 
     for it in items:
-        it["user_full_name"]    = user_map.get(it.get("user"))
-        it["device_model_name"] = model_map.get(it.get("device_model"))
+        # LIST: absent/broken Link → name = None (mobile OMIT — 0 raw-ID/i18n leak).
+        # KHÁC detail get_competency (:1585) có raw-ID fallback.
+        it["user_full_name"]         = user_map.get(it.get("user"))
+        it["device_model_name"]      = model_map.get(it.get("device_model"))
+        it["training_program_name"]  = prog_map.get(it.get("training_program"))
 
 
+@rowscoped
 def get_user_competencies(user: str = "") -> dict:
     """Lấy tất cả hồ sơ năng lực của một nhân viên.
 
@@ -1531,18 +1567,30 @@ def get_user_competencies(user: str = "") -> dict:
         user: email/tên user. Mặc định là session user.
 
     Returns:
-        dict với "user" và "items".
+        dict với "user", "items", "total", "truncated" (CR-47 — hợp đồng TRUNG THỰC
+        khi cắt: total = COUNT thật hồ-sơ của user TRƯỚC trần ngầm page_size=500;
+        truncated int 0/1 = len(items)≥500 ∧ total>500).
     """
     target_user = user or frappe.session.user
+    _CAP = 500
+    _user_filters = {"user": target_user}
     rows, _ = UserCompetencyRepo.list(
-        filters={"user": target_user},
+        filters=_user_filters,
         fields=["name", "device_model", "training_program", "competency_level",
                 "workflow_state", "achieved_date", "expiry_date",
                 "days_until_expiry", "is_expired", "last_assessment_score"],
         order_by="expiry_date asc",
-        page_size=500,
+        page_size=_CAP,
     )
-    return {"user": target_user, "items": rows}
+    # Bồi display-name per item[] (device_model_name + training_program_name +
+    # user_full_name) — reuse SSoT helper, chống rò Link-ID thô ra mobile (Spec 45).
+    _enrich_competency_display_names(rows)
+    # CR-47: total = COUNT thật (predicate {user}) TRƯỚC trần 500; ZERO-COST —
+    # count_fn CHỈ chạy khi len(rows)≥500 (ca thường N<500 ⇒ total==len(items)).
+    total, truncated = truncation_meta(
+        len(rows), _CAP, lambda: UserCompetencyRepo.count(_user_filters))
+    return {"user": target_user, "items": rows,
+            "total": total, "truncated": truncated}
 
 
 def get_competency(name: str) -> dict:

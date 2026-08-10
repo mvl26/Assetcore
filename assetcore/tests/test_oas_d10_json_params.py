@@ -320,10 +320,13 @@ class TestOasD10InvariantRegression(unittest.TestCase):
         )
         self.assertEqual(self.spec["x-assetcore-stats"]["enriched_count"], expected)
 
-    def test_d10_07_root_tags_23_canonical(self):
-        """root tags == 23 canonical (D9 intact) — KHÔNG raw lowercase slug."""
+    def test_d10_07_root_tags_canonical(self):
+        """root tags == 26 canonical (D9 intact; IMM-10 +1; connections +1; files +1) — KHÔNG raw slug.
+
+        Số bỏ khỏi tên method (chống magic-number-in-name drift — như test paths-count).
+        """
         tags = self.spec["tags"]
-        self.assertEqual(len(tags), 23, "23 root tag canonical (D9).")
+        self.assertEqual(len(tags), 26, "26 root tag canonical (D9; +files 'Tệp đính kèm').")
         for t in tags:
             name = t["name"]
             self.assertFalse(

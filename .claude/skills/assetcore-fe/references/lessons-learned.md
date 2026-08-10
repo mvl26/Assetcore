@@ -1015,6 +1015,24 @@ Cross-ref: LL-FE-47 (dead control khổ tem), LL-FE-46 (render thật chứng mi
 
 Cross-ref: component-patterns.md (SmartSelect allow-create/@create wire vào endpoint `create_*` sẵn có); LL-BE-65 (reuse endpoint, no new OAS); session audit 2026-06-29.
 
+### LL-FE-54: "Điền file" LUÔN = TẢI LÊN, không bao giờ là ô gõ đường dẫn (2026-07-22)
+
+**Triệu chứng (USER báo):** modal "Thêm chứng chỉ nhà cung cấp" (`VendorProfileDetailView`) có field "Tệp đính kèm" là `<input v-model="newCert.attachment" placeholder="/files/...">` — bắt người dùng **tự gõ đường dẫn**. Sweep toàn FE ra **7 chỗ cùng lỗi** ở 5 module (IMM-03 cert + hợp đồng quyết định mua sắm ×2, IMM-04 bảng kiểm hồ sơ, IMM-05 văn bản miễn đăng ký ×2, IMM-16 biên bản họp + bằng chứng CAPA). `ExemptModal.vue` còn ghi hẳn hint "Upload file trước qua Files, rồi dán đường dẫn vào đây" — anti-pattern được **viết thành hướng dẫn**.
+
+**Vì sao nghiêm trọng (không phải lỗi thẩm mỹ):** tệp KHÔNG vào hệ thống ⇒ không có bản ghi `File` ⇒ không có quyền/không có vết audit; đường dẫn gõ sai = link chết; hồ sơ NĐ98 (chứng chỉ, hợp đồng, biên bản, bằng chứng CAPA) **rỗng bằng chứng** trong khi UI vẫn xanh. BE `Vendor Cert.attachment` khai `Attach` ĐÚNG — chỉ FE render sai ⇒ vitest/typecheck không bao giờ bắt được.
+
+**Rule (kiểm được):**
+1. Field lưu tệp ⇒ FE dùng **`components/common/FileUploadField.vue`** (v-model = `file_url` server trả về). CẤM `<input type="text">`, CẤM placeholder `/files/...`, CẤM nhãn "(file URL)"/"Đường dẫn file", CẤM hint "upload trước rồi dán".
+2. Upload đi qua **`api/files.ts::uploadAttachment`** → `assetcore.api.files.upload_attachment` (gate quyền). KHÔNG gọi `/api/method/upload_file` **trần**.
+3. Truyền `:docname` **bất cứ khi nào đã có** bản ghi cha — nếu không, File riêng tư mồ côi chỉ CHỦ SỞ HỮU đọc được (`File.has_permission`) ⇒ người duyệt/kiểm toán mở link bị 403. Màn tạo mới (chưa có tên) được phép bỏ trống: hook BE `link_uploaded_files` gắn lại sau khi lưu.
+4. `doctype` là **bảng con** (Vendor Cert, Commissioning Document Record…) ⇒ BẮT BUỘC thêm `parent-doctype` (dùng xét quyền).
+5. Tải lên xong phải **XEM LẠI ĐƯỢC**: bảng/danh sách phải có cột/link mở tệp — upload mà không có lối xem = dead-end ([[LL-FE-47]] dead-control).
+6. Kiểm tra chéo BE: nếu field đích khai `Data`/`Small Text` thay vì `Attach` ⇒ đó cũng là bug (sửa doctype JSON), không phải cớ để giữ ô text. (`IMM CAPA Record.imm_effectiveness_evidence` là ca này — `Data` + description "link hoặc mô tả".)
+
+**Gate:** SKILL §GATE-9 (3 lệnh grep, output PHẢI = 0). Guard tự động: `assetcore/tests/test_attachment_upload.py::TestNoTypedFilePathInputs` — quét mọi `.vue` tìm placeholder `/files/` + `<input>` text bind vào fieldname vốn là Attach trong doctype JSON.
+
+Cross-ref: BE anti-pattern #19; `assetcore/api/files.py`; `assetcore/utils/attachments.py` (hook `doc_events["*"]`); [[LL-FE-47]] (control không dead); memory `ui_copy_language_policy` (nhãn VI); session 2026-07-22.
+
 ### LL-FE-53: UI copy — chính sách keep/translate viết tắt + 3 bẫy + kỹ thuật sweep glossary song song (2026-07-01)
 
 **Bối cảnh:** USER yêu cầu bỏ viết tắt tiếng Anh trên UI ("phần mềm không được viết tắt trừ thuật ngữ người Việt hay dùng như QR/PIN"). Sweep ~85 file toàn FE. Đây là lớp **CHÍNH SÁCH** bổ sung cho [[LL-FE-52]] (LL-FE-52 = *cách* dịch an toàn; LL-FE-53 = *dịch cái gì* + bẫy + kỹ thuật). RED thực (đã quan sát trong phiên): agent phải `AskUserQuestion` **2 lần** để biết policy + scope vòng đầu bỏ sót `constants/`+`i18n/` → phải sweep vòng 2 + 10 test vỡ (chuỗi coupled). Chốt xong = **KHÔNG cần hỏi lại**.
@@ -1074,3 +1092,15 @@ Cross-ref: SKILL §GATE-8; `_CAL_VALID_TRANSITIONS`/`_VALID_TRANSITIONS` (BE ser
 **Rule (kiểm được):** doc tổng-hợp (Procurement Plan ← Needs Request approved; allocation ← lines…) → modal create PHẢI: (1) `openCreateModal()` fetch candidate ĐÃ DUYỆT (`listNeedsRequests({workflow_state:'Approved'},1,100)`), (2) bảng checkbox chọn + đếm "Đã chọn N", (3) submit `:disabled="selected.size===0"` (gate ≥1), (4) gọi `create*(..., Array.from(selectedIds))` truyền MẢNG id. KHÔNG tạo-rỗng-rồi-thêm. DONE-gate: component test — 0 chọn→submit disabled + KHÔNG gọi API; ≥1 chọn→spy nhận đúng mảng id (LL-FE-47 param == lựa chọn); render-verify browser: modal nạp candidate + gate disabled↔enabled.
 
 Cross-ref: LL-FE-47 (control không dead — param == lựa chọn), BE LL-BE-62 (precondition ≥1 line TRƯỚC workflow); `views/needs/ProcurementPlanListView.vue` proposal-first modal; session 2026-06-29.
+
+### LL-FE-55: [BE] chạy SONG SONG — cấm bind vào khoá chưa grep thấy trên đĩa (2026-07-28)
+
+**Triệu chứng→nguyên nhân:** trong factory, [BE] và [FE] của cùng một vòng chạy **đồng thời**; khi FE code, thư mục BE có thể chưa có gì. Thực tế đã xảy ra 2 lần trong 1 run: (a) FE khai kiểu `ConnectionCell` VERBATIM theo spec trong khi `services/connections.py` + `services/shared/connection_meta.py` **chưa tồn tại** (`ls` báo No such file); (b) FE ship consumer `create_prefill` mà BE **0 hit** ⇒ nút «+ Tạo …» mở màn tạo TRỐNG. Cả hai đều **không thể bị vitest bắt**: test FE dựng payload bằng tay nên khoá luôn "có". Hệ quả là state chết sống sót qua nhiều vòng và được báo cáo là đã xong.
+
+**Rule (kiểm được):**
+1. **Grep trước khi bind:** `grep -rn "<khoá>" assetcore/` cho mọi khoá payload / endpoint / hằng số của BE mà bạn đọc. 0 hit ⇒ **(a)** code fail-safe (thiếu khoá KHÔNG vỡ UI), **(b)** khai vào `contract_unverified`, **(c)** KHÔNG tuyên bố acceptance đó đạt, **(d)** ghi `open_issues` "hợp đồng chưa land".
+2. **Khai kiểu theo spec thì được, coi là đã chạy thì không.** `?:` optional + fallback là bắt buộc cho khoá chưa verify.
+3. **Test chống khoá-ma:** với khoá mới, thêm 1 TC dựng payload **THIẾU** khoá đó và assert UI vẫn dùng được (fail-safe) — payload-đầy-đủ-dựng-tay một mình luôn xanh giả.
+4. `landed_symbols` chỉ ghi thứ chính bạn vừa grep lại thấy (`symbol → file:line`).
+
+Cross-ref: [[LL-BE-69]] (phía phát), [[LL-AUDIT-22]] (claim ≠ đĩa), LL-FE-47 (control không dead); session run-3 2026-07-28.

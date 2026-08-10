@@ -16,7 +16,11 @@ from assetcore.services.shared import (
     assert_not_self_submitter,
 )
 from assetcore.services.shared import rbac
-from assetcore.utils.notify import MSG, nthrow, nthrow_in_hook
+from assetcore.services.shared.filters import count_with_or
+from assetcore.services.shared.permissions import (assert_can_read_doc,
+                                                   assert_doctype_read_permission,
+                                                   rowscoped)
+from assetcore.utils.notify import MSG, nthrow, nthrow_in_hook, render
 from assetcore.utils.pagination import paginate
 
 # AUTH-05 — 4-eyes / Separation-of-Duties signer fields on Asset Commissioning.
@@ -43,6 +47,10 @@ _STATE_CLINICAL_RELEASE = "Clinical Release"
 _STATE_INITIAL_INSPECTION = "Initial Inspection"
 _STATE_RE_INSPECTION = "Re Inspection"
 _TERMINAL_STATES = frozenset({_STATE_CLINICAL_RELEASE, "Return To Vendor"})
+# BR-04-14 — state hợp lệ để NỘP bảng kiểm cơ sở (ghi nhận phép đo, kể cả lượt đo lại).
+_BASELINE_ENTRY_STATES = (_STATE_INITIAL_INSPECTION, _STATE_RE_INSPECTION)
+# SSoT verdict "đạt cổng G03": mọi dòng phải thuộc tập này (BR-04-13).
+_G03_PASSING = ("Pass", "N/A")
 
 # ─── Overdue SLA single-source-of-truth (BR-04-10) ────────────────────────────
 # MỘT date-anchor + MỘT ngưỡng dùng chung cho cả 3 call-site (scheduler alert,
@@ -177,12 +185,9 @@ _ALLOWED_SEARCH_DOCTYPES: dict[str, dict] = {
         "filters": {},
         "extra_fields": ["category_name"],
     },
-    "User": {
-        "label_field": "full_name",
-        "search_fields": ["name", "full_name", "email"],
-        "filters": {"enabled": 1},
-        "extra_fields": ["full_name", "email"],
-    },
+    # GỠ 2026-07-22: `search_link doctype="User"` xổ TOÀN BỘ user enabled của site
+    # (kể cả user ERPNext/CRM). Field chọn người dùng `api.user.list_assignable_users`
+    # (FE: <ApproverSelect>) — nguồn duy nhất là base role AssetCore.
     "AC Warehouse": {
         "label_field": "warehouse_name",
         "search_fields": ["name", "warehouse_name", "warehouse_code"],
@@ -349,6 +354,123 @@ def _validate_document_expiry(doc: Document) -> None:
                 )
 
 
+# ─── Gate predicates — SSoT dùng chung enforcement ⇄ display (BR-04-15 · CR-76) ─
+#
+# Vì sao tồn tại: thẻ «Điều kiện bàn giao» từng được viết **lần hai** ở tầng api
+# (`api/imm04.py`) trong khi cổng thật sống ở service/hook ⇒ 3 lệch **báo oan** đã lộ
+# (E1/E2/E3 — `04_Backend_Design.md §5.6.0`), cùng class-of-bug với G05 đã sửa ở CR-54
+# §3. Mỗi cổng nay có ĐÚNG MỘT predicate **thuần** (0 side-effect, 0 `throw`, 0
+# state-guard); *enforcement* gọi nó **sau** state-guard của mình, *display*
+# (`evaluate_gate_status`) gọi **thẳng** ⇒ lệch display⟺enforcement là **bất khả về
+# cấu trúc**, không chỉ "bị test phát hiện" (ADR-IMM-04-06).
+#
+# ⚠️ Predicate KHÔNG mang state-guard: thẻ trả lời "NẾU chuyển trạng thái bây giờ,
+# cổng này có chặn không?" (pre-flight / as-if-armed). Copy state-guard vào thẻ sẽ
+# sinh "xanh ở Draft rồi đỏ đột ngột" — đúng lớp xanh-giả CR-76 đang khử.
+_G01_ACCEPTED_DOC_STATUSES = ("Received", "Waived")
+
+
+def g01_missing_mandatory_docs(doc: Document) -> list[str]:
+    """`doc_type` của hồ sơ **bắt buộc** chưa `Received`/`Waived` (THÔ — chưa xét giải trình).
+
+    Args:
+        doc: phiếu `Asset Commissioning` (đã load child `commissioning_documents`).
+
+    Returns:
+        Danh sách `doc_type` còn thiếu; `[]` = đủ hồ sơ bắt buộc. Hồ sơ **tuỳ chọn**
+        (`is_mandatory` falsy) KHÔNG bao giờ được tính vào cổng.
+    """
+    return [
+        d.doc_type for d in (doc.get("commissioning_documents") or [])
+        if d.get("is_mandatory") and d.get("status") not in _G01_ACCEPTED_DOC_STATUSES
+    ]
+
+
+def g01_waiver_granted(doc: Document) -> bool:
+    """BR-04-02 nhánh **giải trình**: `documents_incomplete` ∧ note không rỗng.
+
+    Thực tế NĐ98: CO/CQ thường về sau thiết bị ⇒ quy trình có đường giải trình để
+    không khoá toàn bộ lắp đặt. `.strip()` là BẮT BUỘC — note toàn khoảng trắng KHÔNG
+    phải giải trình (nếu không, gõ 1 dấu cách là mở được cổng hồ sơ pháp lý).
+    """
+    return bool(doc.get("documents_incomplete")) and bool(
+        (doc.get("documents_incomplete_note") or "").strip()
+    )
+
+
+def gate_g01_blockers(doc: Document) -> list[str]:
+    """Verdict G01: `[]` = cổng **KHÔNG chặn** (đủ hồ sơ **hoặc** đã giải trình hợp lệ)."""
+    missing = g01_missing_mandatory_docs(doc)
+    if not missing or g01_waiver_granted(doc):
+        return []
+    return missing
+
+
+def gate_g03_blockers(doc: Document) -> list[str]:
+    """`parameter` của dòng baseline có `test_result` (đã `.strip()`) ∉ :data:`_G03_PASSING`.
+
+    `.strip()` giữ parity với pre-check BR-04-13: dòng `" Pass"` (thừa khoảng trắng do
+    dán từ Excel) được server CHO QUA ⇒ thẻ cũng phải xanh (E3).
+    """
+    return [
+        row.parameter for row in (doc.get("baseline_tests") or [])
+        if (row.test_result or "").strip() not in _G03_PASSING
+    ]
+
+
+def gate_g03_ok(doc: Document) -> bool:
+    """Verdict G03 ⟺ ``not (blocking or not baseline_rows)`` của pre-check BR-04-13.
+
+    Baseline **rỗng cũng chặn**: "chưa đo" không phải "đã đạt" — phiếu 0 phép đo mà
+    xanh là mất bằng chứng incoming inspection (WHO HTM §5.1.2 / NĐ98).
+    """
+    rows = doc.get("baseline_tests") or []
+    return bool(rows) and not gate_g03_blockers(doc)
+
+
+def gate_g04_applies(doc: Document) -> bool:
+    """Cổng G04 CÓ áp dụng cho phiếu này không — predicate SSoT (BR-04-17 · AC-CR-85).
+
+    ``True`` ⟺ thiết bị **phát bức xạ** (``is_radiation_device`` — gương của
+    ``IMM Device Model.is_radiation_device`` qua ``fetch_from``) **HOẶC** người dùng phân
+    loại phiếu là ``risk_class == 'Radiation'``. Đó là **hai nguồn hợp lệ duy nhất**, và
+    đây là **nơi duy nhất** trong vùng cổng G04 được đọc ``is_radiation_device``: VR-07
+    (``asset_commissioning.validate_radiation_hold``), verdict :func:`gate_g04_ok` và thẻ
+    :func:`evaluate_gate_status` đều gọi CHÍNH hàm này ⇒ advertise == enforce (INV-G04-1).
+
+    **Vì sao ``risk_class ∈ {C, D}`` KHÔNG phải nguồn** (gốc rễ AC-CR-85 — gộp SAI 2 domain
+    pháp lý): Class C/D là **nhóm nguy cơ** theo **NĐ 98/2021** Điều 28-32, nghĩa vụ hồ sơ
+    là «Chứng nhận đăng ký lưu hành» và đã có cổng riêng **GW-2**
+    (``_gw2_check_document_compliance`` qua IMM-05). Cổng G04 gác **hiện tượng vật lý phát
+    bức xạ ion hoá** theo **NĐ 142/2020** Điều 25-27, hồ sơ là «Giấy phép Cục An toàn Bức
+    xạ Hạt nhân» (``qa_license_doc``). Suy G04 từ Class C/D ⇒ đòi một giấy phép **không thể
+    tồn tại** cho máy không phát bức xạ ⇒ deadlock + ép nộp giấy tờ SAI vào hồ sơ NĐ98.
+
+    **Vì sao GIỮ vế ``risk_class == 'Radiation'``**: trước AC-CR-85 mọi phiếu ``Radiation``
+    đều được ``check_auto_clinical_hold`` bơm cờ ``1`` nên VR-07 luôn gác. Gỡ ghi đè mà
+    không giữ vế này ⇒ phiếu do người dùng phân loại ``Radiation`` trên Device Model chưa
+    gắn cờ sẽ **mất** cổng giấy phép (suy giảm an toàn thật — 04 §5.7.1, TC-04-G04-11).
+
+    Xem ``docs/imm-04/04_Backend_Design.md §5.7`` + ADR-IMM-04-08/09.
+    """
+    return bool(doc.get("is_radiation_device")) or doc.get("risk_class") == "Radiation"
+
+
+def gate_g04_ok(doc: Document) -> bool:
+    """Verdict G04 (mirror VR-07 `asset_commissioning.py:80-91`): cổng **không áp dụng**
+    (:func:`gate_g04_applies` sai) **hoặc** đã có `qa_license_doc`.
+
+    ⚠️ ``True`` mang HAI nghĩa khác hẳn nhau ("không áp dụng" / "đã có giấy phép") ⇒ client
+    PHẢI đọc kèm khoá ``g04_applicable`` của :func:`evaluate_gate_status` (ADR-IMM-04-09).
+    """
+    return not gate_g04_applies(doc) or bool(doc.get("qa_license_doc"))
+
+
+def gate_g06_ok(doc: Document) -> bool:
+    """Verdict G06: đã chỉ định `board_approver` (người ký BGĐ)."""
+    return bool(doc.get("board_approver"))
+
+
 def validate_gate_g01(doc: Document) -> None:
     """Gate G01 (VR-02): mandatory docs Received before To_Be_Installed.
 
@@ -358,19 +480,20 @@ def validate_gate_g01(doc: Document) -> None:
       vẫn duyệt được, hồ sơ bổ sung sau (yêu cầu nghiệp vụ: thực tế nhiều thiết bị
       tới mà CO/CQ chậm — không thể block toàn bộ quy trình lắp đặt).
     - Còn lại: thiếu hồ sơ bắt buộc → throw block transition.
+
+    CR-76: thân hàm nay gọi predicate SSoT :func:`g01_missing_mandatory_docs` +
+    :func:`g01_waiver_granted` — **state-guard, thứ tự, message và nhánh raise GIỮ
+    NGUYÊN** (trích xuất thuần, 0 đổi hành vi chặn).
     """
     if not doc.workflow_state or doc.workflow_state in {"Draft", "Pending Doc Verify"}:
         return
 
-    missing = [
-        d.doc_type for d in (doc.get("commissioning_documents") or [])
-        if d.get("is_mandatory") and d.status not in ("Received", "Waived")
-    ]
+    missing = g01_missing_mandatory_docs(doc)
     if not missing:
         return
 
     # User xác nhận thiếu + có note → cho phép duyệt, log warning
-    if doc.get("documents_incomplete") and (doc.get("documents_incomplete_note") or "").strip():
+    if g01_waiver_granted(doc):
         frappe.msgprint(
             _("⚠ Phiếu duyệt với hồ sơ thiếu: {0}. Ghi chú: {1}").format(
                 ", ".join(missing), doc.documents_incomplete_note,
@@ -383,31 +506,131 @@ def validate_gate_g01(doc: Document) -> None:
 
 
 def validate_gate_g03(doc: Document) -> None:
-    """Gate G03 (VR-03): 100% baseline tests Pass/N/A before Clinical Release."""
-    if doc.workflow_state not in (_STATE_CLINICAL_RELEASE, _STATE_RE_INSPECTION):
+    """Gate G03 (VR-03): 100% baseline tests Pass/N/A before Clinical Release.
+
+    ⚠️ Hiện KHÔNG được wire vào `AssetCommissioning.validate()` (defense-in-depth dự
+    phòng). Cổng G03 sống thật ở pre-check `transition_state` (BR-04-13) + hook
+    `validate_checklist_completion` (VR-03b). State-set thu hẹp về CHỈ Clinical Release:
+    `Re Inspection` LÀ trạng thái "đang có lỗi chờ đo lại" — chặn ở đó = tự khoá nhánh
+    tái kiểm (BR-04-14). Xem docs/imm-04/04_Backend_Design.md §5.5.2.
+    """
+    if doc.workflow_state != _STATE_CLINICAL_RELEASE:
         return
     failed = [row.parameter for row in (doc.get("baseline_tests") or []) if row.test_result == "Fail"]
     if failed:
         nthrow_in_hook(MSG.IMM04_BASELINE_FAILED, failed=", ".join(failed))
 
 
+def _count_open_ncs(commissioning: str) -> int:
+    """SSoT predicate for Gate G05 — count NCs still blocking Clinical Release.
+
+    "Blocking" = resolution_status == 'Open' ONLY (BR-04-13). The other four states
+    (Under Review / Resolved / Closed / Transferred) are being worked or terminal and
+    do NOT block release. This is the SINGLE source of truth shared by BOTH:
+      - enforcement: `validate_gate_g05_g06` (this module), and
+      - display: `api.imm04.get_gate_status().g05_nc`.
+    Keeping both call-sites on this one function makes a display⟺enforcement predicate
+    divergence structurally impossible (CR-54 §3). Do NOT reintroduce a `!= 'Closed'`
+    filter — that over-counts non-Open NCs and produces false gate blocks on the card.
+    """
+    return frappe.db.count(_DT_NC, {"ref_commissioning": commissioning, "resolution_status": "Open"})
+
+
 def validate_gate_g05_g06(doc: Document) -> None:
-    """Gate G05+G06: no open NCs + board_approver required for Clinical Release."""
+    """Gate G05+G06: no open NCs + board_approver required for Clinical Release.
+
+    CR-76: nhánh G06 gọi predicate SSoT :func:`gate_g06_ok` (trích xuất thuần —
+    state-guard, thứ tự G05→G06 và message giữ nguyên).
+    """
     if doc.workflow_state != _STATE_CLINICAL_RELEASE:
         return
-    open_nc = frappe.db.count(_DT_NC, {"ref_commissioning": doc.name, "resolution_status": "Open"})
+    open_nc = _count_open_ncs(doc.name)
     if open_nc > 0:
         nthrow_in_hook(MSG.IMM04_OPEN_NC, count=open_nc)
-    if not doc.board_approver:
+    if not gate_g06_ok(doc):
         nthrow_in_hook(MSG.IMM04_BOARD_APPROVER_REQUIRED)
 
 
+@rowscoped
+def evaluate_gate_status(name: str) -> dict:
+    """Thẻ «Điều kiện bàn giao» G01–G06 của MỘT phiếu — SSoT **hiển thị** (BR-04-15/16).
+
+    **Ngữ nghĩa = BLOCKING-parity**: mỗi khoá trả lời ĐÚNG một câu hỏi *"cổng này có
+    CHẶN phiếu không?"* — ``True`` = **KHÔNG chặn**, **KHÔNG** phải "đã hoàn tất/đã ký".
+    Ví dụ ``g01_docs=True`` kèm ``g01_waived=True`` nghĩa là **đang thiếu hồ sơ nhưng có
+    giải trình**; hiển thị "đã đủ hồ sơ" là nói SAI với người duyệt (04 §5.6.4).
+
+    Mọi cổng CÓ enforcement tính bằng **chính** predicate mà server dùng để chặn
+    (`gate_g01_blockers` · `gate_g03_ok` · `gate_g04_ok` · `_count_open_ncs` ·
+    `gate_g06_ok`) ⇒ INV-GATE-PARITY hai chiều. ``g02_facility`` là cổng **THAM KHẢO**:
+    `facility_checklist_pass` hiện KHÔNG có bất kỳ enforcement nào chặn theo nó ⇒ client
+    TUYỆT ĐỐI không dùng nó để gate CTA (khoá nút bằng cờ server không hề kiểm = nút chết).
+
+    Quyền đọc thẻ **==** quyền đọc phiếu (BR-04-16, khuôn 3 lớp CR-74 §9.4):
+      * **L0 ROLE** chạy **TRƯỚC** ``exists`` ⇒ persona thiếu DocPerm nhận CÙNG một 403
+        cho `name` có thật lẫn `name` bịa (0 existence-oracle trên naming-series);
+      * **L1 EXISTS** giữ 404 ``IMM04_NOT_FOUND`` cho người CÓ quyền;
+      * **L2 ROW** kích hoạt hook ``asset_commissioning_has_permission`` (hooks.py:453)
+        trên doc ĐÃ load ⇒ 0 query thêm.
+    ``@rowscoped`` chuyển ``frappe.PermissionError`` → Error envelope FORBIDDEN/403 trên
+    **HTTP-200** (client hiển thị thông báo, **KHÔNG logout** — khác dispatcher-403).
+
+    Args:
+        name: mã phiếu `Asset Commissioning`.
+
+    Returns:
+        8 khoá ``bool`` THẬT: ``g01_docs · g01_waived · g02_facility · g03_baseline ·
+        g04_radiation · g04_applicable · g05_nc · g06_approver`` (6 khoá gốc giữ nguyên
+        tên/kiểu — ``g01_waived`` (CR-76) và ``g04_applicable`` (AC-CR-85) là **additive**).
+
+        ⚠️ ``g04_radiation`` và ``g04_applicable`` trả lời HAI câu hỏi khác nhau:
+        ``g04_radiation`` là **verdict** BLOCKING-parity ("cổng có chặn không"), còn
+        ``g04_applicable`` là **applicability** ("cổng có áp dụng cho phiếu này không",
+        tính bằng CHÍNH :func:`gate_g04_applies` mà VR-07 dùng để chặn). Verdict ``True``
+        một mình KHÔNG phân biệt nổi «đã có giấy phép» với «không phát bức xạ nên cổng
+        không áp dụng» — client PHẢI đọc CẶP theo LUẬT ĐỌC 3 TRẠNG THÁI (`05 §24.6.3`) và
+        **TUYỆT ĐỐI không** hiển thị "Đạt" khi ``g04_applicable`` sai (khẳng định một hồ sơ
+        pháp lý không thể tồn tại). **INV-G04-1**: ``g04_applicable=False`` ⇒
+        ``g04_radiation=True`` LUÔN LUÔN và VR-07 không bao giờ chặn ⇒ tổ hợp
+        ``{False, False}`` là BẤT KHẢ.
+    """
+    assert_doctype_read_permission(_DT)                 # L0 ROLE (trước exists — D9)
+    doc = CommissioningRepo.get(name)                   # L1 EXISTS
+    if not doc:
+        nthrow(MSG.IMM04_NOT_FOUND, name=name)
+    assert_can_read_doc(_DT, doc)                       # L2 ROW (hook has_permission)
+
+    return {
+        "g01_docs": not gate_g01_blockers(doc),
+        # Đạt NHỜ giải trình (vẫn còn hồ sơ bắt buộc thiếu) — UI phải nói khác "đủ hồ sơ".
+        "g01_waived": g01_waiver_granted(doc) and bool(g01_missing_mandatory_docs(doc)),
+        "g02_facility": bool(doc.get("facility_checklist_pass")),   # THAM KHẢO — 0 enforcement
+        "g03_baseline": gate_g03_ok(doc),
+        "g04_radiation": gate_g04_ok(doc),
+        # Cổng G04 CÓ áp dụng không — CHÍNH predicate mà VR-07 dùng để chặn (AC-CR-85).
+        "g04_applicable": gate_g04_applies(doc),
+        "g05_nc": _count_open_ncs(name) == 0,
+        "g06_approver": gate_g06_ok(doc),
+    }
+
+
 def check_auto_clinical_hold(doc: Document) -> bool:
-    """VR-07: Return True if device needs Clinical Hold (Class C/D/Radiation)."""
-    high_risk = doc.risk_class in ("C", "D", "Radiation") if doc.risk_class else bool(doc.is_radiation_device)
-    if high_risk:
-        doc.is_radiation_device = 1
-    return high_risk
+    """BR-04-05a — phiếu có thuộc nhóm nguy cơ **CẦN Clinical Hold** không? (QUYẾT ĐỊNH, 0 side-effect)
+
+    ``True`` ⟺ ``risk_class ∈ {C, D, Radiation}``; khi ``risk_class`` rỗng thì rơi về cờ
+    ``is_radiation_device`` (nhánh fallback — GIỮ NGUYÊN từng ký tự, đó là 2 ô duy nhất mà
+    biểu thức đọc cờ). Giá trị trả về drive ``clinical_hold_required`` của
+    :func:`submit_baseline_checklist` ⇒ routing Clinical Hold bất biến 12/12 ô (04 §5.7.5).
+
+    ⚠️ **AC-CR-85 đã GỠ** câu lệnh ``doc.is_radiation_device = 1`` ở đây (BR-04-05b): hàm
+    này quyết định **Clinical Hold**, KHÔNG phải nơi sync cờ bức xạ. ``is_radiation_device``
+    khai ``read_only`` + ``fetch_from: master_item.is_radiation_device`` ⇒ SSoT là
+    ``IMM Device Model``; ghi đè ở đây đảo ngược chính SSoT của field (người dùng không có
+    đường sửa lại) và biến MỌI phiếu Class C/D thành "thiết bị bức xạ" ⇒ VR-07 đòi Giấy
+    phép Cục ATBXHN **không thể tồn tại**. Cổng bức xạ nay hỏi
+    :func:`gate_g04_applies`; nghĩa vụ hồ sơ NĐ98 của Class C/D do GW-2 gác.
+    """
+    return doc.risk_class in ("C", "D", "Radiation") if doc.risk_class else bool(doc.is_radiation_device)
 
 
 def log_lifecycle_event(doc: Document, event_type: str, from_status: str, to_status: str, remarks: str = "") -> None:
@@ -828,7 +1051,39 @@ def _dict_to_list_filters(d: dict) -> list:
     return out
 
 
+@rowscoped
 def list_commissioning(filters: dict, page: int = 1, page_size: int = 20) -> dict:
+    """Danh sách phiếu nghiệm thu — MỘT ENGINE cho cả ``total`` lẫn ``items`` (AC-CR-98).
+
+    INVARIANT (ADR-IMM00-LIST-SCOPE §4b · INV-CONN-21/27): ``pagination.total`` và
+    ``items`` phải đi qua **cùng một predicate**, kể cả
+    ``permission_query_conditions`` (``asset_commissioning_query`` — wired ở
+    ``hooks.py:444``: Vendor Engineer chỉ thấy phiếu mình được nối vào qua
+    ``vendor_engineer_name``/``owner``).
+
+    Bản trước dùng ``frappe.db.count`` + ``frappe.get_all`` — **cả hai BỎ QUA** row-scope
+    ⇒ hai lỗi cùng lúc, cả hai CÂM: (1) **rò dữ liệu** — Vendor Engineer đọc được phiếu
+    nghiệm thu của KTV NCC khác; (2) ô đếm «Phiếu nghiệm thu lắp đặt» của
+    ``get_connections`` (đi ``frappe.get_list``) KHÔNG BAO GIỜ khớp số dòng drill.
+    Nay: ``total`` qua :func:`count_with_or` và ``items`` qua ``frappe.get_list`` — cùng
+    ``DatabaseQuery``, cùng filters.
+
+    HAI LỚP QUYỀN CÙNG TỒN TẠI (ADR-IMM00-LIST-SCOPE-05 quyết định 2):
+      * **ROLE** — ``frappe.has_permission(_DT, "read", throw=True)`` ngay dưới đây
+        **GIỮ NGUYÊN** (Vendor Engineer THUẦN không có DocPerm read trên
+        ``Asset Commissioning`` ⇒ nhận Error envelope FORBIDDEN trên **HTTP-200**);
+      * **ROW** — do ``frappe.get_list`` + hook ``asset_commissioning_query`` lo.
+    ``@rowscoped`` là lưới AN TOÀN cho ``frappe.PermissionError`` phát sinh TRONG
+    ``get_list``/``count_with_or`` (vd persona chỉ có ``select`` perm): đổi thành Error
+    envelope 403 thay vì HTTP-500 câm. Nó KHÔNG bắt ``ServiceError`` nên message của lớp
+    ROLE ở trên giữ nguyên từng ký tự (Hyrum).
+
+    4 lookup tra-NHÃN (Device Model / Supplier / Department / Purchase) CỐ Ý ở lại
+    ``frappe.get_all``: 4 DocType đó **KHÔNG** row-scoped, chuyển sang ``get_list`` chỉ
+    làm MẤT NHÃN với persona thiếu DocPerm trên bảng master (hồi quy hiển thị).
+    ``AC Asset`` thì **PHẢI** đi ``get_list`` vì nó CÓ hook (``hooks.py:440``) — hệ quả
+    có chủ ý: thiết bị ngoài phạm vi hiện **mã** thay vì tên (fallback đã có sẵn).
+    """
     try:
         frappe.has_permission(_DT, ptype="read", throw=True)
     except frappe.PermissionError:
@@ -851,10 +1106,14 @@ def list_commissioning(filters: dict, page: int = 1, page_size: int = 20) -> dic
 
     page = max(1, int(page))
     page_size = min(max(1, int(page_size)), 100)
-    total = frappe.db.count(_DT, query_filters)
+    # AC-CR-98 — CÙNG ENGINE: count_with_or chạy `frappe.get_list(limit_page_length=0)`
+    # nên áp ĐÚNG `asset_commissioning_query` + DocPerm như truy vấn `items` bên dưới.
+    # TUYỆT ĐỐI KHÔNG `frappe.db.count` (bỏ row-scope ⇒ tổng vượt ngoài phạm vi) và
+    # KHÔNG `count_ignore_permissions` (bản RAW, chỉ dành cho scheduler/KPI nội bộ).
+    total = count_with_or(_DT, query_filters, None)
     pg = paginate(total, page, page_size)
 
-    records = frappe.get_all(
+    records = frappe.get_list(
         _DT, filters=query_filters, fields=_LIST_FIELDS,
         order_by=_ORDER_MODIFIED,
         limit_start=pg["offset"], limit_page_length=pg["page_size"],
@@ -891,9 +1150,15 @@ def list_commissioning(filters: dict, page: int = 1, page_size: int = 20) -> dic
     asset_map: dict = {}
     if asset_ids:
         try:
-            asset_rows = frappe.get_all(
+            # AC-CR-98 (ADR-IMM00-LIST-SCOPE-05 quyết định 4): `AC Asset` CÓ
+            # `permission_query_conditions` (`hooks.py:440`) ⇒ lookup nhãn PHẢI đi
+            # `frappe.get_list`, KHÔNG `get_all`. Hệ quả CÓ CHỦ Ý: với Vendor Engineer,
+            # thiết bị ngoài phạm vi hiện **mã** thay vì tên (fallback
+            # `r.get("final_asset")` ở vòng lặp dưới) — thà thiếu nhãn hơn là bộc lộ tên
+            # thiết bị ngoài phạm vi. 4 lookup master khác GIỮ `get_all` (không row-scoped).
+            asset_rows = frappe.get_list(
                 _DT_ASSET, filters={"name": ["in", list(asset_ids)]},
-                fields=["name", "asset_name"],
+                fields=["name", "asset_name"], limit_page_length=0,
             )
             asset_map = {a.name: a.asset_name for a in asset_rows}
         except Exception:
@@ -1100,7 +1365,7 @@ def get_po_details(po_name: str) -> dict:
 
 # ─── Command Functions ────────────────────────────────────────────────────────
 
-def transition_state(name: str, action: str) -> dict:
+def transition_state(name: str, action: str, board_approver: str = "") -> dict:
     if not frappe.db.exists(_DT, name):
         raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy phiếu '{name}'")
     try:
@@ -1116,13 +1381,69 @@ def transition_state(name: str, action: str) -> dict:
             f"Hành động '{action}' không hợp lệ từ '{current_state}'. Cho phép: {allowed_actions}",
         )
     doc = frappe.get_doc(_DT, name)
+
+    # BR-04-12 (ADR-IMM-04-03): cấp `board_approver` 4-mắt ATOMIC ngay trong
+    # transition — gỡ deadlock (gate G06 save-time đòi approver mà KHÔNG có đường
+    # ghi approver trước khi phiếu tới Clinical Release). CHỈ can thiệp khi transition
+    # đang thực thi đưa phiếu VÀO Clinical Release; `next_state` đọc từ chính
+    # transition đang chạy (KHÔNG hardcode action). Xem docs/imm-04/04_Backend_Design.md §5.4.
+    target_state = next((t["next_state"] for t in allowed if t["action"] == action), None)
+    if target_state == _STATE_CLINICAL_RELEASE:
+        # BR-04-13 (ADR-IMM-04-05) — gate G03 CHẶN mọi đường vào Clinical Release khi
+        # baseline chưa đạt: 'Phê duyệt phát hành' (Initial Inspection), 'Phê duyệt sau
+        # tái kiểm' (Re Inspection), 'Gỡ giữ lâm sàng' (Clinical Hold). Chạy TRƯỚC G06
+        # (thiết bị chưa đạt đo kiểm thì chưa cần hỏi người duyệt) và TRƯỚC
+        # apply_workflow/doc.save ⇒ workflow_state + docstatus + board_approver KHÔNG đổi.
+        # Structured ServiceError 422 → envelope Decision-B (HẾT 417 câm cho mobile/FE).
+        # CR-76: predicate trích xuất thành SSoT dùng chung với thẻ hiển thị
+        # (`gate_g03_blockers` / `gate_g03_ok`) — `not gate_g03_ok(doc)` ⟺ điều kiện
+        # cũ `blocking or not baseline_rows` (rỗng cũng chặn). 0 đổi nhánh raise.
+        blocking = gate_g03_blockers(doc)
+        if not gate_g03_ok(doc):
+            raise ServiceError(
+                ErrorCode.VALIDATION,
+                render(MSG.IMM04_GATE_G03_BASELINE,
+                       failed=", ".join(blocking) or "(chưa có phép đo nào)")[1],
+                http_status=422,
+                message_code=MSG.IMM04_GATE_G03_BASELINE,
+                context={"failed": blocking},
+            )
+        effective_approver = board_approver or doc.board_approver          # BR-04-12a
+        if not effective_approver:                                         # BR-04-12b — STRUCTURED, KHÔNG 417
+            raise ServiceError(
+                ErrorCode.VALIDATION,
+                render(MSG.IMM04_GATE_G06_APPROVER)[1],
+                http_status=422,
+                message_code=MSG.IMM04_GATE_G06_APPROVER,
+                context={"missing": ["board_approver"]},
+            )
+        if board_approver:                                                 # BR-04-12c — 4-eyes CHỈ khi caller cấp mới
+            assert_distinct_signers(                                       # raise FORBIDDEN → state KHÔNG đổi, field KHÔNG ghi
+                doc, "clinical_head", "qa_officer", "owner", "pending_approver",
+                candidate_user=board_approver, candidate_field="board_approver",
+            )
+            # BR-04-12d — set TRƯỚC apply_workflow/save. ⚠️ PHẢI ghi thẳng DB:
+            # `frappe.model.workflow.apply_workflow` mở đầu bằng `doc.load_from_db()`
+            # (frappe/model/workflow.py:102) ⇒ mọi thay đổi IN-MEMORY bị VỨT ⇒ hook
+            # save-time G06 lại raise `frappe.ValidationError` (417) và deadlock BR-04-12
+            # tái sinh. Ghi lúc docstatus còn 0, SAU khi mọi gate (G03/G06/4-mắt) đã qua.
+            doc.db_set("board_approver", board_approver, update_modified=False)
+    # else / non-CR-bound: board_approver BỎ QUA hoàn toàn (BR-04-12e — backward-compat)
+
     prev_state = doc.workflow_state
     frappe.model.workflow.apply_workflow(doc, action)
     log_lifecycle_event(doc, action, prev_state, doc.workflow_state)
     # BR-04-11: stamp ngày bàn giao khi (và chỉ khi) phiếu vừa vào Clinical Release.
-    # Đặt TRƯỚC doc.save → persist cùng lượt với auto-mint create_ac_asset bên dưới.
-    _stamp_commissioning_date(doc)
-    doc.save(ignore_permissions=False)
+    if doc.docstatus == 0:
+        # Draft-path: giữ nguyên hành vi cũ (stamp in-memory + save 1 lượt).
+        _stamp_commissioning_date(doc)
+        doc.save(ignore_permissions=False)
+    elif doc.workflow_state == _STATE_CLINICAL_RELEASE and not doc.get("commissioning_date"):
+        # State 'Clinical Release' khai doc_status=1 ⇒ apply_workflow đã SUBMIT phiếu.
+        # `commissioning_date` KHÔNG allow_on_submit ⇒ `doc.save()` ở đây =
+        # UpdateAfterSubmitError (nút "Phê duyệt phát hành" chết). Ghi thẳng DB —
+        # KHÔNG doc.save() trên doc đã submit.
+        doc.db_set("commissioning_date", nowdate(), update_modified=False)
 
     # RC-06 fix: once we reach Clinical Release (acceptance "Hoàn tất"), auto-mint
     # the AC Asset even if the user hasn't clicked Submit yet. Idempotent — guarded
@@ -1149,6 +1470,8 @@ def transition_state(name: str, action: str) -> dict:
         "name": name, "action_applied": action,
         "new_state": doc.workflow_state, "docstatus": doc.docstatus,
         "final_asset": doc.final_asset,
+        # BR-04-12: key additive — caller cũ bỏ qua; CR-bound path đọc approver đã cấp.
+        "board_approver": doc.board_approver,
     }
 
 
@@ -1435,25 +1758,72 @@ def check_sn_unique(vendor_sn: str, exclude_name: str = "") -> dict:
 
 
 def submit_baseline_checklist(name: str, results: list) -> dict:
+    """Ghi nhận bảng kiểm cơ sở — verdict là DẪN XUẤT, KHÔNG phải cổng phê duyệt.
+
+    BR-04-04e/f + BR-04-14 (ADR-IMM-04-04, docs/imm-04/04_Backend_Design.md §5.5).
+    Kết quả `Fail` là **bằng chứng phải lưu** (incoming inspection — WHO HTM §5.1.2 /
+    NĐ98/2021), KHÔNG phải input không hợp lệ ⇒ luôn `doc.save()` khi có ≥1 phép đo
+    thực. Cổng an toàn G03 nằm ở ranh giới transition vào Clinical Release
+    (`transition_state`, BR-04-13) — KHÔNG ở ô nhập liệu này.
+    """
     doc = CommissioningRepo.get(name)
     if not doc:
         raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy: {name}")
-    if doc.workflow_state != _STATE_INITIAL_INSPECTION:
-        raise ServiceError(ErrorCode.INVALID_PARAMS, f"Chỉ submit checklist khi ở {_STATE_INITIAL_INSPECTION}")
-    result_map = {r.get("parameter"): r for r in results}
-    for row in doc.baseline_tests or []:
-        if row.parameter in result_map:
-            r = result_map[row.parameter]
-            row.measured_val = r.get("measured_val", "")
-            row.test_result = r.get("test_result", "")
-            row.fail_note = r.get("fail_note", "")
-    fails = [r.parameter for r in (doc.baseline_tests or []) if r.test_result == "Fail"]
-    if fails:
-        raise ServiceError(ErrorCode.VALIDATION, f"BR-04-04: Thông số sau không đạt: {', '.join(fails)}")
+    # BR-04-14 — mở nhánh Tái kiểm: `Re Inspection` ĐƯỢC nộp lại (đo lại). Bản cũ chỉ
+    # cho `Initial Inspection` ⇒ phiếu vào Tái kiểm KẸT VĨNH VIỄN (không endpoint nào
+    # sửa được `baseline_tests`) ⇒ đứt mạch Needs→Operation.
+    if doc.workflow_state not in _BASELINE_ENTRY_STATES:
+        raise ServiceError(
+            ErrorCode.INVALID_PARAMS,
+            f"Chỉ nộp bảng kiểm khi ở {' hoặc '.join(_BASELINE_ENTRY_STATES)}. "
+            f"Hiện tại: {doc.workflow_state}",
+        )
+    # UPSERT-by-parameter: dòng có sẵn → update; parameter KTV tự thêm (chưa seed)
+    # → APPEND (cùng lớp seed-child-missing đã fix ở IMM-16). Trước đây chỉ update
+    # dòng trùng → phép đo tự thêm bị DROP CÂM (mất dữ liệu + 'Thêm dòng' vô dụng).
+    existing = {row.parameter: row for row in (doc.baseline_tests or [])}
+    tests_recorded = 0
+    for r in results:
+        param = (r.get("parameter") or "").strip()
+        if not param:
+            continue
+        row = existing.get(param)
+        if row is None:
+            row = doc.append("baseline_tests", {"parameter": param})
+            existing[param] = row
+        row.measured_val = r.get("measured_val", "")
+        row.test_result = r.get("test_result", "")
+        row.fail_note = r.get("fail_note", "")
+        if row.test_result:
+            tests_recorded += 1
+    # BR-04-04 (a+d) — silent-completion guard: verdict chỉ được set khi tests_recorded > 0.
+    # 0 phép đo THỰC (results rỗng, HOẶC sau upsert không row nào ghi test_result) ⇒
+    # chặn Pass-giả. Raise TRƯỚC doc.save() → KHÔNG persist verdict, workflow_state giữ
+    # nguyên. Xem docs/imm-04/04_Backend_Design.md §5.3 + ADR-IMM-04-02.
+    if tests_recorded == 0:
+        raise ServiceError(
+            ErrorCode.VALIDATION,
+            "BR-04-04: Chưa ghi nhận kết quả kiểm tra baseline nào — không thể "
+            "nghiệm thu. Nhập ≥1 phép đo (test_result) trước khi nộp.",
+        )
+    # BR-04-04e (thay BR-04-04c) — verdict DẪN XUẤT, KHÔNG raise. Dòng `Fail` (kèm
+    # measured_val + fail_note) PERSIST làm bằng chứng; chặn phát hành là việc của
+    # gate G03 ở `transition_state` (BR-04-13).
+    failed_parameters = [
+        row.parameter for row in (doc.baseline_tests or [])
+        if (row.test_result or "").strip() == "Fail"
+    ]
+    overall = "Fail" if failed_parameters else "Pass"
     is_high_risk = check_auto_clinical_hold(doc)
-    doc.overall_inspection_result = "Pass"
+    doc.overall_inspection_result = overall
     doc.save(ignore_permissions=True)
-    return {"name": doc.name, "overall_result": "Pass", "clinical_hold_required": is_high_risk}
+    # tests_recorded = SỐ DÒNG THỰC ghi test_result (server đếm) — FE (api/imm04.ts)
+    # gate banner thành công theo key này; thiếu ⇒ banner chết với mọi user.
+    # `overall_result` + `failed_parameters` additive (Hyrum): caller cũ đọc 3 key đầu
+    # vẫn chạy; FE/mobile render banner ĐẠT/KHÔNG ĐẠT theo `overall_result`.
+    return {"name": doc.name, "overall_result": overall,
+            "tests_recorded": tests_recorded, "failed_parameters": failed_parameters,
+            "clinical_hold_required": is_high_risk}
 
 
 def clear_clinical_hold(name: str, license_no: str = "") -> dict:
@@ -1500,7 +1870,8 @@ def approve_clinical_release(commissioning: str, board_approver: str, approval_r
         raise ServiceError(ErrorCode.INVALID_PARAMS, f"Phiếu phải ở {_STATE_CLINICAL_RELEASE}. Hiện tại: {doc.workflow_state}")
     if not board_approver:
         raise ServiceError(ErrorCode.INVALID_PARAMS, "board_approver là bắt buộc")
-    open_nc = frappe.db.count(_DT_NC, {"ref_commissioning": commissioning, "resolution_status": "Open"})
+    # VR-04 = same G05 gate predicate as the card + validator → single SSoT (CR-54 §3).
+    open_nc = _count_open_ncs(commissioning)
     if open_nc > 0:
         raise ServiceError(ErrorCode.INVALID_PARAMS, f"VR-04: Còn {open_nc} NC chưa đóng")
     # AUTH-05 — 4-eyes: board_approver must not also be the submitter or
@@ -1818,13 +2189,19 @@ def approve_pending(commissioning: str, decision: str, remarks: str = "") -> dic
 
 
 def list_my_pending_approvals() -> list[dict]:
-    """Commissioning records where current user is the pending_approver."""
+    """Commissioning records where current user is the pending_approver.
+
+    APPROVAL-INBOX-CR32 (Core Doc IMM-00 §III.22): bổ sung ADDITIVE 3 field
+    ``final_asset`` / ``asset_description`` / ``creation`` cho inbox gộp
+    (imm00.get_pending_approvals_inbox) derive asset/title/pending_since —
+    Hyrum-safe (chỉ thêm key, KHÔNG đổi/bỏ key cũ).
+    """
     items = frappe.get_all(
         _DT,
         filters={"pending_approver": frappe.session.user, "docstatus": ["!=", 2]},
         fields=["name", "workflow_state", "master_item", "vendor", "clinical_dept",
                 "approval_stage", "approval_submitted_at", "approval_remarks",
-                "owner", "modified"],
+                "owner", "modified", "final_asset", "asset_description", "creation"],
         order_by="approval_submitted_at desc",
         limit_page_length=50,
     )

@@ -15,10 +15,13 @@ import type {
 import { ROLE_GROUP_LABEL, BASE_ROLE, type RoleGroup } from '@/constants/roles'
 import { personaForRoleProfile } from '@/constants/personas'
 import { useFormDraft } from '@/composables/useFormDraft'
+import { useToast } from '@/composables/useToast'
+import { toApiError } from '@/api/errors'
 
 const props = defineProps<{ user?: string }>()
 const router = useRouter()
 const auth = useAuthStore()
+const toast = useToast()
 const isEdit = computed(() => !!props.user)
 
 const saving = ref(false)
@@ -201,14 +204,19 @@ async function doApprove() {
 const showRejectModal = ref(false)
 const rejectReason = ref('')
 const rejectReasonError = ref('')
+// AC-UX-062: lỗi CHẶN của hộp thoại phải ở TRONG hộp thoại. Trước đây ghi vào
+// `error.value` — banner của TRANG, nằm DƯỚI lớp phủ ⇒ người dùng không bao giờ thấy.
+const rejectModalError = ref<string | null>(null)
 
 function openRejectModal() {
   rejectReason.value = ''
   rejectReasonError.value = ''
+  rejectModalError.value = null
   showRejectModal.value = true
 }
 
 function closeRejectModal() {
+  rejectModalError.value = null
   showRejectModal.value = false
 }
 
@@ -219,14 +227,17 @@ async function confirmReject() {
     rejectReasonError.value = 'Vui lòng nhập lý do từ chối.'
     return
   }
-  saving.value = true; error.value = ''
+  saving.value = true; error.value = ''; rejectModalError.value = null
   try {
     await approveRegistration(props.user, 'reject', [], reason)
     success.value = 'Đã từ chối tài khoản.'
     showRejectModal.value = false
     await load()
   } catch (e: unknown) {
-    error.value = e instanceof Error ? e.message : 'Lỗi khi từ chối'
+    // Hộp thoại KHÔNG đóng; lý do hiện inline ngay trong hộp thoại (không phải
+    // banner trang bị lớp phủ che). Chuỗi đã qua sanitizer của `axios` (AC-UX-063).
+    rejectModalError.value = toApiError(e).message
+      || 'Không từ chối được tài khoản. Vui lòng kiểm tra lại và thử lại.'
   } finally { saving.value = false }
 }
 
@@ -265,6 +276,17 @@ async function saveNew() {
     const res = await createSystemUser(newUser.value)
     if (res) {
       clearNewUserDraft()
+      // ISS-002: phản hồi trạng thái email chào mừng cho admin (truy vết).
+      if (newUser.value.send_welcome_email) {
+        if (res.welcome_email_sent === false) {
+          toast.warning(
+            res.welcome_email_error ||
+              'Tài khoản đã tạo nhưng KHÔNG gửi được email chào mừng — kiểm tra cấu hình email.',
+          )
+        } else if (res.welcome_email_sent === true) {
+          toast.success('Đã gửi email chào mừng đến người dùng mới.')
+        }
+      }
       router.push(`/user-profiles/${encodeURIComponent(res.user)}`)
     }
   } catch (e: unknown) {
@@ -347,13 +369,13 @@ id="new-email" v-model="newUser.email" type="email" placeholder="ktv@hospital.vn
               class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
           </div>
           <div>
-            <label for="new-first-name" class="block text-xs font-medium text-gray-600 mb-1">Họ tên <span class="text-red-500">*</span></label>
+            <label for="new-first-name" class="block text-xs font-medium text-gray-600 mb-1">Họ và tên đệm <span class="text-red-500">*</span></label>
             <input
 id="new-first-name" v-model="newUser.first_name" type="text" placeholder="Nguyễn Văn"
               class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
           </div>
           <div>
-            <label for="new-last-name" class="block text-xs font-medium text-gray-600 mb-1">Tên đệm / tên</label>
+            <label for="new-last-name" class="block text-xs font-medium text-gray-600 mb-1">Tên</label>
             <input
 id="new-last-name" v-model="newUser.last_name" type="text" placeholder="A"
               class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
@@ -489,8 +511,8 @@ id="edit-phone" v-model="editFields.phone" type="text" placeholder="0901234567"
         <!-- Role Profile (Frappe core) — pick 1 profile, auto-sync roles -->
         <div v-if="auth.isSystemAdmin" class="bg-white rounded-xl border border-blue-200 p-5 space-y-3">
           <div class="flex items-baseline justify-between">
-            <h2 class="text-sm font-semibold text-blue-900 uppercase tracking-wide">Role Profile (persona)</h2>
-            <p class="text-xs text-gray-400">Chọn theo persona — Frappe tự đồng bộ roles</p>
+            <h2 class="text-sm font-semibold text-blue-900 uppercase tracking-wide">Role Profile</h2>
+            <p class="text-xs text-gray-400">Hệ thống tự động gán nhóm quyền tương ứng</p>
           </div>
           <div v-if="selectedPersona" class="flex items-center gap-2">
             <span
@@ -621,6 +643,7 @@ type="submit" :disabled="saving"
       title="Từ chối tài khoản"
       size="md"
       danger
+      :error="rejectModalError"
       @close="closeRejectModal"
     >
       <div class="space-y-3">

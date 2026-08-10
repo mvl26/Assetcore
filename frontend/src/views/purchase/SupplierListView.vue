@@ -11,12 +11,17 @@ import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
+import ListPageShell from '@/components/ui/ListPageShell.vue'
 const toast = useToast()
 
 const router = useRouter()
 const { can } = useCapabilities()
 const suppliers = ref<AcSupplier[]>([])
 const loading = ref(false)
+// AC-UX-047 (lô 1, biến thể B) — `error` CHỈ được gán trong `catch` của `load()`
+// (lỗi xoá đi lối `toast.error`) nên tái dùng an toàn làm nguồn lỗi của khuôn.
+// Dải `.alert-error` cũ đã bỏ: nó hiện SONG SONG với «Không có nhà cung cấp nào
+// phù hợp.» ⇒ lỗi vẫn giả dạng rỗng và không có nút thử lại.
 const error = ref('')
 const totalCount = ref(0)
 const showFilters = ref(false)
@@ -61,9 +66,13 @@ const activeChips = computed<FilterChip[]>(() => {
 })
 const activeFilterCount = computed(() => activeChips.value.length)
 
+const emptyTitle = computed(() =>
+  activeFilterCount.value > 0 ? 'Không có nhà cung cấp nào phù hợp' : 'Chưa có nhà cung cấp nào')
+const EMPTY_HINT = 'Hãy thêm nhà cung cấp mới hoặc xoá bộ lọc để xem tất cả.'
+
 async function load() {
   loading.value = true
-  error.value = ''
+  error.value = ''                             // INV-UX3-4 — xoá lỗi ĐẦU lượt
   try {
     const res = await listSuppliers(filters.value.page, PAGE_SIZE, filters.value.search) as unknown as
       { items: AcSupplier[]; pagination: { total: number } }
@@ -76,6 +85,7 @@ async function load() {
     totalCount.value = res?.pagination?.total || 0
   } catch (e: unknown) {
     error.value = (e as Error).message || 'Lỗi tải dữ liệu'
+    suppliers.value = []; totalCount.value = 0 // INV-UX3-5
   } finally {
     loading.value = false
   }
@@ -145,12 +155,20 @@ const IMPORT_NOTICE = [
 </script>
 
 <template>
-  <div class="page-container animate-fade-in">
-    <PageHeader
-      title="Nhà cung cấp"
-      :subtitle="`Tổng ${totalCount} nhà cung cấp`"
-    >
-      <template #actions>
+  <!-- AC-UX-047 (lô 1) — khuôn 4 trạng thái loại trừ (ui/ListPageShell). -->
+  <ListPageShell
+    :loading="loading"
+    :error-message="error"
+    :is-empty="!suppliers.length"
+    :empty-title="emptyTitle"
+    :empty-hint="EMPTY_HINT"
+    @retry="load">
+    <template #header>
+      <PageHeader
+        title="Nhà cung cấp"
+        :subtitle="`Tổng ${totalCount} nhà cung cấp`"
+      >
+        <template #actions>
         <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
         <button
           class="px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600 flex items-center gap-1.5 shrink-0"
@@ -179,10 +197,12 @@ const IMPORT_NOTICE = [
           </svg>
           Thêm nhà cung cấp
         </button>
-      </template>
-    </PageHeader>
+        </template>
+      </PageHeader>
+    </template>
 
-    <ListFilterBar
+    <template #filters>
+      <ListFilterBar
       :show="showFilters"
       :chips="activeChips"
       v-model:search="filters.search"
@@ -212,11 +232,20 @@ const IMPORT_NOTICE = [
           </select>
         </div>
       </template>
-    </ListFilterBar>
+      </ListFilterBar>
+    </template>
 
-    <div v-if="error" class="alert-error mb-4">{{ error }}</div>
+    <template #skeleton>
+      <SkeletonLoader v-for="i in 5" :key="i" class="h-10 mb-3" />
+    </template>
 
-    <div class="card overflow-hidden">
+    <template #empty-action>
+      <button v-if="activeFilterCount > 0" class="text-xs text-blue-500 hover:text-blue-700 underline" @click="resetFilters">
+        Xóa bộ lọc để xem tất cả
+      </button>
+    </template>
+
+    <template #toolbar>
       <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50/60">
         <span class="text-xs text-slate-500">
           <span v-if="activeFilterCount > 0">
@@ -230,18 +259,9 @@ const IMPORT_NOTICE = [
           Xóa tất cả
         </button>
       </div>
+    </template>
 
-      <div v-if="loading" class="p-6">
-        <SkeletonLoader v-for="i in 5" :key="i" class="h-10 mb-3" />
-      </div>
-      <div v-else-if="suppliers.length === 0" class="flex flex-col items-center justify-center py-16 text-slate-400">
-        <p class="text-sm">Không có nhà cung cấp nào phù hợp.</p>
-        <button v-if="activeFilterCount > 0" class="mt-3 text-xs text-blue-500 hover:text-blue-700 underline" @click="resetFilters">
-          Xóa bộ lọc để xem tất cả
-        </button>
-      </div>
-      <template v-else>
-        <!-- Mobile cards -->
+    <!-- Mobile cards -->
         <div class="mobile-card-list sm:hidden">
           <div
             v-for="s in suppliers"
@@ -331,8 +351,8 @@ const IMPORT_NOTICE = [
           </tbody>
         </table>
         </div>
-      </template>
 
+    <template #pagination>
       <div v-if="totalCount > PAGE_SIZE" class="flex items-center justify-between px-4 py-3 border-t border-slate-100 text-sm text-slate-500">
         <span>{{ (filters.page - 1) * PAGE_SIZE + 1 }}–{{ Math.min(filters.page * PAGE_SIZE, totalCount) }} / {{ totalCount }}</span>
         <div class="flex gap-2">
@@ -340,8 +360,9 @@ const IMPORT_NOTICE = [
           <button :disabled="filters.page * PAGE_SIZE >= totalCount" class="px-3 py-1 rounded border border-slate-300 disabled:opacity-40 hover:bg-slate-50" @click="nextPage">Sau ›</button>
         </div>
       </div>
-    </div>
-  </div>
+    </template>
+  </ListPageShell>
 
+  <!-- Wizard đặt NGOÀI khuôn: mở được ở CẢ 4 trạng thái (INV-UX3-17). -->
   <ImportWizardModal :ctx="importWizard" title="Nhập nhà cung cấp" unit="NCC" :notice="IMPORT_NOTICE" />
 </template>

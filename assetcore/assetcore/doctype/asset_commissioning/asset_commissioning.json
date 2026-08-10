@@ -134,7 +134,8 @@
    "label": "Tên / Mô tả Tài sản",
    "description": "Tên đầy đủ của thiết bị theo hợp đồng/PO. Dùng làm asset_name trong AC Asset.",
    "reqd": 0,
-   "in_list_view": 0
+   "in_list_view": 0,
+   "in_global_search": 1
   },
   {
    "fieldname": "delivery_note_no",
@@ -322,7 +323,8 @@
    "mandatory_depends_on": "eval:doc.workflow_state && doc.workflow_state !== 'Draft'",
    "search_index": 1,
    "description": "Bắt buộc quét bằng Barcode scanner. Hệ thống sẽ kiểm tra trùng lặp.",
-   "allow_on_submit": 1
+   "allow_on_submit": 1,
+   "in_global_search": 1
   },
   {
    "fieldname": "internal_tag_qr",
@@ -513,9 +515,11 @@
    "share": 0
   }
  ],
+ "search_fields": "vendor,vendor_serial_no,delivery_note_no",
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": [],
+ "title_field": "asset_description",
  "track_changes": 1,
  "track_views": 1
 }

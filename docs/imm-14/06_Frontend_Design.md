@@ -383,3 +383,24 @@ Matrix state × flag (mock `getDecommission`):
 - (f) Degrade: thiếu `can_approve` (undefined) → KHÔNG nút (an toàn).
 
 *Hết file 06. §11 (entrypoint asset-detail) + §12 (danh sách /decommissions) là CHỐT cho vòng 2; §13 (chi tiết + duyệt) là CHỐT cho vòng 17. Wireframe / sitemap đầy đủ §1–§10 giữ làm Đợt 3.*
+
+---
+
+## Khuôn trạng thái màn danh sách — `AC-UX-047` lô 3 (cross-cutting, 2026-08-04)
+
+Màn danh sách của module này áp **khuôn dùng chung** `frontend/src/components/ui/ListPageShell.vue`
+(4 trạng thái LOẠI TRỪ: đang tải / lỗi + «Thử lại» / rỗng + hướng dẫn / có dữ liệu). Đặc tả **KHÔNG** lặp
+ở đây — SSoT là Core Doc UI/UX:
+
+| Mục | Nơi chốt |
+|---|---|
+| Hợp đồng props/slots/`data-testid` | [`docs/ui-ux/02_LIST_PAGE_SHELL.md §3`](../ui-ux/02_LIST_PAGE_SHELL.md) |
+| Sổ lô 3 + delta từng file + bảng copy tiếng Việt | [`§14.2` / `§14.4`](../ui-ux/02_LIST_PAGE_SHELL.md) |
+| Bất biến `INV-UX3-24…29` + test `TC-UX3-38` | [`§14.5` / `§14.6`](../ui-ux/02_LIST_PAGE_SHELL.md) |
+| Guard adoption CHỈ-GIẢM (`AC-UX-070`) | `frontend/src/views/listShellAdoption.test.ts` |
+
+- **Route thuộc lô 3 của module này:** `/decommissions`
+- **File view:** `views/eol/DecommissionListView.vue`
+- **Ràng buộc riêng phải giữ:** xem cột «Bẫy riêng theo màn» ở [`§14.4`](../ui-ux/02_LIST_PAGE_SHELL.md) —
+  lỗi **lượt nạp danh sách** là nguồn DUY NHẤT của `:error-message`; lỗi biểu mẫu / cảnh báo bộ lọc /
+  hành động ghi **không** được lật trạng thái danh sách (`ADR-UX-24`).

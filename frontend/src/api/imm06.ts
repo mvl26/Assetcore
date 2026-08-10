@@ -235,11 +235,30 @@ export async function startSession(
   return frappePost<{ name: string; workflow_state: string }>(`${BASE}.start_session`, { name })
 }
 
+/**
+ * Kết quả hoàn thành buổi đào tạo (BR-06-08 — chống nghiệm-thu-giả).
+ *
+ * BE `complete_training_session` đếm THỰC trong loop, KHÔNG `len(results)`:
+ * - `scored_count`: số học viên THỰC được set overall_result (≥1 bắt buộc, nếu 0 → BE raise VALIDATION).
+ * - `competencies_created`: tên IMM User Competency THỰC persist (mỗi học viên Đạt sinh đúng 1).
+ * FE dùng 2 giá trị này cho toast thành công — KHÔNG đếm số dòng local (anti success-giả).
+ */
+export interface CompleteSessionResult {
+  name: string
+  workflow_state: string
+  scored_count: number
+  competencies_created: string[]
+  /** Lenient mode (nếu BA đổi): user gửi lên nhưng KHÔNG thuộc buổi — không tính điểm. */
+  unmatched_users?: string[]
+  /** Legacy shape — một số nhánh BE trả participants_summary thay vì scored_count. */
+  participants_summary?: Record<string, unknown>
+}
+
 export async function completeSession(
   name: string,
   participantsResults: TrainingParticipant[],
-): Promise<{ name: string; participants_summary: Record<string, unknown>; competencies_created: string[] }> {
-  return frappePost<{ name: string; participants_summary: Record<string, unknown>; competencies_created: string[] }>(
+): Promise<CompleteSessionResult> {
+  return frappePost<CompleteSessionResult>(
     `${BASE}.complete_session`,
     { name, participants_results: JSON.stringify(participantsResults) },
   )
@@ -275,10 +294,17 @@ export async function listCompetencies(
   })
 }
 
+/**
+ * Hồ sơ năng lực của 1 user. Hợp đồng cắt danh sách TRUNG THỰC (CR-43/46/47):
+ * `total` = COUNT thật trên đúng filter set (trần ngầm page_size=500); `truncated`
+ * = int 0/1 (parity CR-01, KHÔNG bool). Cả hai OPTIONAL — worker BE chưa reload trả
+ * shape cũ thiếu 2 khoá → caller phải backward-compatible. `user`/`competencies`/
+ * `summary` GIỮ NGUYÊN shape.
+ */
 export async function getUserCompetencies(
   user?: string,
-): Promise<{ user: string; competencies: UserCompetency[]; summary: Record<string, unknown> }> {
-  return frappeGet<{ user: string; competencies: UserCompetency[]; summary: Record<string, unknown> }>(
+): Promise<{ user: string; competencies: UserCompetency[]; summary: Record<string, unknown>; total?: number; truncated?: number }> {
+  return frappeGet<{ user: string; competencies: UserCompetency[]; summary: Record<string, unknown>; total?: number; truncated?: number }>(
     `${BASE}.get_user_competencies`,
     user ? { user } : {},
   )

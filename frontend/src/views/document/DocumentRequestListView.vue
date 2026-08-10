@@ -13,6 +13,7 @@ import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
+import ListPageShell from '@/components/ui/ListPageShell.vue'
 const toast = useToast()
 
 const route = useRoute()
@@ -24,7 +25,12 @@ const loading = ref(false)
 const showForm = ref(false)
 const editingName = ref<string | null>(null)
 const form = ref<Partial<DocumentRequest> & Record<string, unknown>>({})
+// `err` = lỗi của HỘP THOẠI lưu biểu mẫu — TUYỆT ĐỐI không nối vào khuôn danh sách
+// (INV-UX3-13: một lần lưu hỏng sẽ xoá trắng cả bảng).
 const err = ref('')
+// AC-UX-047 (lô 1) — lỗi của LƯỢT NẠP danh sách (trước đây `load()` không có `catch`
+// ⇒ API hỏng in «Chưa có yêu cầu hồ sơ.»).
+const loadError = ref<string | null>(null)
 
 // Filter state
 const showFilters = ref(false)
@@ -85,10 +91,15 @@ function quickFilter(key: 'status' | 'priority' | 'asset', value: string) {
   showFilters.value = false
 }
 
+const emptyTitle = computed(() =>
+  activeFilterCount.value > 0 ? 'Không có yêu cầu nào phù hợp' : 'Chưa có yêu cầu hồ sơ nào')
+const EMPTY_HINT = 'Hãy tạo yêu cầu hồ sơ mới hoặc xoá bộ lọc để xem tất cả.'
+
 const page = ref(1)
 const PAGE_SIZE = 20
 async function load() {
   loading.value = true
+  loadError.value = null                       // INV-UX3-4 — xoá lỗi ĐẦU lượt
   try {
     const d = await listDocumentRequests({
       page: page.value, page_size: PAGE_SIZE,
@@ -98,6 +109,9 @@ async function load() {
       search: filters.value.search.trim() || undefined,
     })
     items.value = d.items || []; total.value = d.total || 0
+  } catch (e: unknown) {
+    loadError.value = e instanceof Error ? e.message : String(e)
+    items.value = []; total.value = 0          // INV-UX3-5
   } finally { loading.value = false }
 }
 // Mọi đổi filter (asset/status/priority/search) → về trang 1 + reload server (debounce cho search).
@@ -163,23 +177,33 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="page-container animate-fade-in">
-    <PageHeader
-      title="Yêu cầu Hồ sơ"
-      :subtitle="`Tổng ${total} yêu cầu`"
-    >
-      <template #actions>
-        <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
-        <button class="btn-primary shrink-0" @click="openCreate">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
-          </svg>
-          Thêm yêu cầu
-        </button>
-      </template>
-    </PageHeader>
+  <!-- AC-UX-047 (lô 1) — khuôn 4 trạng thái loại trừ (ui/ListPageShell). -->
+  <ListPageShell
+    :loading="loading"
+    :error-message="loadError"
+    :is-empty="!items.length"
+    :empty-title="emptyTitle"
+    :empty-hint="EMPTY_HINT"
+    @retry="load">
+    <template #header>
+      <PageHeader
+        title="Yêu cầu Hồ sơ"
+        :subtitle="`Tổng ${total} yêu cầu`"
+      >
+        <template #actions>
+          <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
+          <button class="btn-primary shrink-0" @click="openCreate">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+            Thêm yêu cầu
+          </button>
+        </template>
+      </PageHeader>
+    </template>
 
-    <ListFilterBar
+    <template #filters>
+      <ListFilterBar
       :show="showFilters"
       :chips="activeChips"
       v-model:search="filters.search"
@@ -208,10 +232,20 @@ onMounted(load)
           </select>
         </div>
       </template>
-    </ListFilterBar>
+      </ListFilterBar>
+    </template>
 
-    <!-- Table -->
-    <div class="card overflow-hidden">
+    <template #skeleton>
+      <SkeletonLoader variant="table" :rows="6" />
+    </template>
+
+    <template #empty-action>
+      <button v-if="activeFilterCount > 0" class="text-xs text-blue-500 hover:text-blue-700 underline" @click="resetFilters">
+        Xóa bộ lọc để xem tất cả
+      </button>
+    </template>
+
+    <template #toolbar>
       <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50/60 text-xs text-slate-500">
         <span v-if="activeFilterCount > 0">
           Kết quả lọc: <strong class="text-slate-700">{{ items.length }}</strong> / {{ total }} yêu cầu
@@ -221,15 +255,9 @@ onMounted(load)
         </span>
         <button v-if="activeFilterCount > 0" class="text-red-500 hover:text-red-700 font-medium" @click="resetFilters">Xóa tất cả</button>
       </div>
+    </template>
 
-      <div v-if="loading" class="p-6">
-        <SkeletonLoader variant="table" :rows="6" />
-      </div>
-      <div v-else-if="items.length === 0" class="text-center text-slate-400 py-12 text-sm">
-        {{ activeFilterCount > 0 ? 'Không có yêu cầu nào phù hợp.' : 'Chưa có yêu cầu hồ sơ.' }}
-      </div>
-      <template v-else>
-        <!-- Mobile cards -->
+    <!-- Mobile cards -->
         <div class="mobile-card-list sm:hidden">
           <div
             v-for="d in items"
@@ -309,9 +337,8 @@ onMounted(load)
             </tr>
           </tbody>
         </table>
-      </template>
 
-      <!-- Pagination -->
+    <template #pagination>
       <div v-if="total > PAGE_SIZE" class="flex items-center justify-between px-4 py-3 border-t border-slate-100 text-sm text-slate-500">
         <span>{{ (page - 1) * PAGE_SIZE + 1 }}–{{ Math.min(page * PAGE_SIZE, total) }} / {{ total }}</span>
         <div class="flex gap-2">
@@ -319,9 +346,11 @@ onMounted(load)
           <button :disabled="page * PAGE_SIZE >= total" class="px-3 py-1 rounded border border-slate-300 disabled:opacity-40 hover:bg-slate-50" aria-label="Trang sau" @click="nextPage">›</button>
         </div>
       </div>
-    </div>
+    </template>
+  </ListPageShell>
 
-    <div v-if="showForm" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="showForm = false">
+  <!-- Hộp thoại đặt NGOÀI khuôn: mở được ở CẢ 4 trạng thái (INV-UX3-17). -->
+  <div v-if="showForm" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="showForm = false">
       <div class="bg-white rounded-xl p-6 w-[560px] max-w-full space-y-4">
         <h2 class="text-lg font-semibold">{{ editingName ? 'Sửa' : 'Thêm' }} Yêu cầu Hồ sơ</h2>
         <div v-if="err" class="bg-red-50 text-red-700 text-sm p-3 rounded">{{ err }}</div>
@@ -378,6 +407,5 @@ onMounted(load)
           <button class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg" @click="save">Lưu</button>
         </div>
       </div>
-    </div>
   </div>
 </template>

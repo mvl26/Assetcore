@@ -393,6 +393,188 @@
    "next_state": "Return To Vendor",
    "state": "Non Conformance",
    "allow_self_approval": 1
+  },
+  {
+   "action": "Gửi kiểm tra tài liệu",
+   "allowed": "Commissioning Manager",
+   "next_state": "Pending Doc Verify",
+   "state": "Draft",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Gửi kiểm tra tài liệu",
+   "allowed": "Commissioning User",
+   "next_state": "Pending Doc Verify",
+   "state": "Draft",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Xác nhận đủ tài liệu",
+   "allowed": "Commissioning Manager",
+   "next_state": "To Be Installed",
+   "state": "Pending Doc Verify",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Xác nhận đủ tài liệu",
+   "allowed": "Commissioning User",
+   "next_state": "To Be Installed",
+   "state": "Pending Doc Verify",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Yêu cầu bổ sung tài liệu",
+   "allowed": "Commissioning Manager",
+   "next_state": "Draft",
+   "state": "Pending Doc Verify",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Yêu cầu bổ sung tài liệu",
+   "allowed": "Commissioning User",
+   "next_state": "Draft",
+   "state": "Pending Doc Verify",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu lắp đặt",
+   "allowed": "Commissioning Manager",
+   "next_state": "Installing",
+   "state": "To Be Installed",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu lắp đặt",
+   "allowed": "Commissioning User",
+   "next_state": "Installing",
+   "state": "To Be Installed",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Báo cáo sự cố",
+   "allowed": "Commissioning Manager",
+   "next_state": "Non Conformance",
+   "state": "To Be Installed",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Báo cáo sự cố",
+   "allowed": "Commissioning User",
+   "next_state": "Non Conformance",
+   "state": "To Be Installed",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Lắp đặt hoàn thành",
+   "allowed": "Commissioning Manager",
+   "next_state": "Identification",
+   "state": "Installing",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Lắp đặt hoàn thành",
+   "allowed": "Commissioning User",
+   "next_state": "Identification",
+   "state": "Installing",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Báo cáo DOA",
+   "allowed": "Commissioning Manager",
+   "next_state": "Non Conformance",
+   "state": "Installing",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Báo cáo DOA",
+   "allowed": "Commissioning User",
+   "next_state": "Non Conformance",
+   "state": "Installing",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu kiểm tra",
+   "allowed": "Commissioning Manager",
+   "next_state": "Initial Inspection",
+   "state": "Identification",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu kiểm tra",
+   "allowed": "Commissioning User",
+   "next_state": "Initial Inspection",
+   "state": "Identification",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Phê duyệt phát hành",
+   "allowed": "Commissioning Manager",
+   "next_state": "Clinical Release",
+   "state": "Initial Inspection",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Giữ lâm sàng",
+   "allowed": "Commissioning Manager",
+   "next_state": "Clinical Hold",
+   "state": "Initial Inspection",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Giữ lâm sàng",
+   "allowed": "Commissioning User",
+   "next_state": "Clinical Hold",
+   "state": "Initial Inspection",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Báo cáo lỗi baseline",
+   "allowed": "Commissioning Manager",
+   "next_state": "Re Inspection",
+   "state": "Initial Inspection",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Báo cáo lỗi baseline",
+   "allowed": "Commissioning User",
+   "next_state": "Re Inspection",
+   "state": "Initial Inspection",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Gỡ giữ lâm sàng",
+   "allowed": "Commissioning Manager",
+   "next_state": "Clinical Release",
+   "state": "Clinical Hold",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Phê duyệt sau tái kiểm",
+   "allowed": "Commissioning Manager",
+   "next_state": "Clinical Release",
+   "state": "Re Inspection",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Khắc phục xong",
+   "allowed": "Commissioning Manager",
+   "next_state": "To Be Installed",
+   "state": "Non Conformance",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Khắc phục xong",
+   "allowed": "Commissioning User",
+   "next_state": "To Be Installed",
+   "state": "Non Conformance",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Trả lại nhà cung cấp",
+   "allowed": "Commissioning Manager",
+   "next_state": "Return To Vendor",
+   "state": "Non Conformance",
+   "allow_self_approval": 1
   }
  ]
 }

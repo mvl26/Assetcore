@@ -183,14 +183,26 @@ export function getIncident(name: string) {
  *  - success:true → { file_url, file_name } của File private vừa sinh.
  *  - success:false → throw ApiError giữ `code` (FORBIDDEN/VALIDATION) + `fields.file`
  *    (thông điệp VN, vd 'Tối đa 5 ảnh') để view render lỗi inline dưới control.
+ *
+ * IDEMPOTENCY-PHOTO-CR24 (B-rel-3, parity report_incident): `clientRequestId` là
+ * key idempotency do client sinh (field body `client_request_id`, khớp signature BE
+ * attach_incident_photo). Cùng key + cùng incident + cùng session → BE dedupe: trả
+ * File ĐÃ đính (name/file_url khớp lần 1), KHÔNG insert mới — đóng cửa sổ
+ * attachment-dup khi retry sau lỗi mạng. Rỗng/absent → behavior at-least-once cũ
+ * (mỗi lần gọi tạo File mới). Call-site sinh key 1 lần per-file (crypto.randomUUID)
+ * và GIỮ NGUYÊN key khi retry cùng file.
  */
 export async function attachIncidentPhoto(
   incidentName: string,
   file: File,
+  clientRequestId = '',
 ): Promise<ScenePhoto> {
   const form = new FormData()
   form.append('incident_name', incidentName)
   form.append('file', file, file.name)
+  // AC3 backward-compat: chỉ gửi field khi có key — rỗng thì FormData KHÔNG có
+  // field client_request_id (BE giữ nguyên nhánh at-least-once cũ).
+  if (clientRequestId) form.append('client_request_id', clientRequestId)
   // axios v1 tự set Content-Type multipart + boundary khi data là FormData; khai báo
   // 'multipart/form-data' để override default 'application/json' của instance.
   const res = await axiosClient.post<{ message: ApiResponse<ScenePhoto> & Record<string, unknown> }>(
@@ -345,6 +357,29 @@ export interface SubmitRcaPayload {
   rca_notes?: string
 }
 
+/**
+ * Khoá `fields` (field-level) mà nhánh LỖI của `submitRca` có thể trả — AC-CR-83.
+ *
+ * ⚠️ BẤT ĐỐI XỨNG ĐỌC ≠ GHI (CR-52 quirk 2): khoá dùng **TÊN THAM SỐ GHI**
+ * (`corrective_action`), KHÔNG phải tên field đọc trên `RCADetail`
+ * (`corrective_action_summary`) — form gửi gì thì lỗi trỏ vào đúng ô đó.
+ *
+ * Bước 5-Why lỗi ⇒ khoá có hậu tố số theo `why_number`: `five_why_steps.3`.
+ * Thiếu/thừa bước (không gắn được 1 dòng cụ thể) ⇒ khoá trần `five_why_steps`.
+ *
+ * FE chỉ ĐỌC (`ApiError.fields` đã hydrate sẵn ở `helpers.ts` + `axios.ts`) —
+ * KHÔNG tự sinh danh sách ràng buộc; SSoT là predicate ở `services/imm12.py`.
+ * Khoá lạ ngoài tập này vẫn PHẢI được hiển thị (banner gom) — không nuốt im lặng.
+ */
+export type RcaSubmitFieldKey =
+  | 'root_cause'
+  | 'corrective_action'
+  | 'preventive_action'
+  | 'rca_notes'
+  | 'assigned_to'
+  | 'five_why_steps'
+  | `five_why_steps.${number}`
+
 export function submitRca(data: SubmitRcaPayload) {
   const { five_why_steps, ...rest } = data
   return frappePost<{ name: string; status: string; linked_capa?: string }>(
@@ -371,8 +406,44 @@ export function cancelRca(name: string, reason = '') {
   )
 }
 
-export function getAssetIncidentHistory(asset: string, limit = 10) {
-  return frappeGet<{ asset: string; items: IncidentDetail[] }>(
+/**
+ * Một dòng lịch sử sự cố của thiết bị — mirror ĐÚNG `fields=[...]` mà BE
+ * `get_asset_incident_history` (services/imm12.py) chọn, KHÔNG phải cả
+ * `IncidentDetail`. Derive bằng `Pick<IncidentDetail, ...>` để union
+ * `severity`/`status` KHÔNG BAO GIỜ drift khỏi `_STATUS_*` của BE. Khai đúng tập
+ * field trả về là cùng tinh thần CR-69: kiểu FE phải NÓI THẬT về runtime (payload
+ * này KHÔNG có `description`/`asset_name`/… — khai `IncidentDetail` là hứa thừa).
+ */
+export type IncidentHistoryItem = Pick<
+  IncidentDetail,
+  | 'name'
+  | 'incident_type'
+  | 'severity'
+  | 'status'
+  | 'reported_at'
+  | 'fault_code'
+  | 'closed_date'
+  | 'linked_capa'
+  | 'rca_record'
+>
+
+/**
+ * Lịch sử sự cố của 1 thiết bị (cắt cứng theo `limit`, KHÔNG phân trang).
+ *
+ * Hợp đồng cắt danh sách TRUNG THỰC (CR-69, SSoT `services/shared/truncation.py`):
+ * `total` = COUNT DB thật trên ĐÚNG filter-set `{asset}` @`Incident Report` TRƯỚC
+ * khi cắt; `truncated` = int 0/1 (parity CR-01 — KHÔNG bool) = `len(items) >= limit
+ * ∧ total > limit`; vừa khít trần ⇒ `0`. Rows-key là `items`, asset-key là `asset`
+ * (KHÁC imm08/imm09 dùng `asset_ref`/`history`) — GIỮ NGUYÊN, ADDITIVE.
+ *
+ * ⚠️ `total`/`truncated` OPTIONAL — worker BE chưa reload trả shape CŨ thiếu 2 khoá
+ * → caller đọc phòng thủ (`total ?? items.length`, `truncated ?? 0`).
+ */
+export function getAssetIncidentHistory(
+  asset: string,
+  limit = 10,
+): Promise<{ asset: string; items: IncidentHistoryItem[]; total?: number; truncated?: 0 | 1 }> {
+  return frappeGet<{ asset: string; items: IncidentHistoryItem[]; total?: number; truncated?: 0 | 1 }>(
     `${BASE}.get_asset_incident_history`, { asset, limit },
   )
 }

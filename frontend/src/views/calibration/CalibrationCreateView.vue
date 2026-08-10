@@ -2,9 +2,8 @@
 // Copyright (c) 2026, AssetCore Team — IMM-11 Calibration Create
 import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { createCalibration, listCalibrationSchedules, type CalibrationSchedule } from '@/api/imm11'
+import { createCalibration, listCalibrationSchedules, getCalibrationSchedule, type CalibrationSchedule } from '@/api/imm11'
 import { getAssetActionMeta } from '@/api/imm00'
-import { frappeGet } from '@/api/helpers'
 import { lifecycleStatusLabel, riskClassificationLabel, calibrationTypeLabel } from '@/constants/labels'
 import SmartSelect from '@/components/common/SmartSelect.vue'
 import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
@@ -31,7 +30,6 @@ interface ScheduleMeta {
   calibration_type?: string
   interval_days?: number
   next_due_date?: string
-  reference_standard?: string
 }
 
 const router = useRouter()
@@ -64,6 +62,11 @@ const { clear: clearDraft } = useFormDraft('calibration-create', form)
 // KHI và CHỈ KHI đến từ quét QR + có asset prefill (no regression khi tạo thủ công).
 const queryAsset = (route.query.asset as string) || ''
 if (queryAsset) form.value.asset = queryAsset
+// Điều hướng «Tạo phiếu hiệu chuẩn» từ tab «Bản ghi liên quan» của một lịch hiệu chuẩn:
+// lịch cha đi qua ?schedule=. Draft cũ KHÔNG được che mất nó (prefill bị nuốt = prefill
+// giả — khoá bằng `router/connectionsCreateParity.test.ts`).
+const querySchedule = (route.query.schedule as string) || ''
+if (querySchedule) form.value.calibration_schedule = querySchedule
 const querySource = route.query.source === 'qr-scan' ? 'qr-scan' : 'manual'
 const lockedFromScan = computed(() => querySource === 'qr-scan' && !!queryAsset)
 
@@ -131,26 +134,28 @@ async function loadAssetSchedules() {
   finally { loadingSchedules.value = false }
 }
 
+// GATE-4/LL-FE-40: meta lịch hiệu chuẩn qua endpoint AssetCore perm-aware
+// getCalibrationSchedule (api/imm11.py, vendor-scope guard) — KHÔNG raw
+// frappe.client.get_value. Bản raw cũ còn CHẾT âm thầm: fieldname
+// 'reference_standard' không tồn tại trên DocType → SQL 500 → catch nuốt →
+// panel + prefill không bao giờ chạy (nhánh prefill reference_standard bỏ hẳn
+// vì field không có thật).
 async function loadSchedule() {
   if (!form.value.calibration_schedule) { scheduleMeta.value = null; return }
   try {
-    const r = await frappeGet<ScheduleMeta & { name?: string }>(
-      '/api/method/frappe.client.get_value',
-      {
-        doctype: 'IMM Calibration Schedule',
-        filters: form.value.calibration_schedule,
-        fieldname: JSON.stringify(['calibration_type', 'interval_days', 'next_due_date', 'reference_standard']),
-      },
-    )
-    scheduleMeta.value = r ?? null
+    const r = await getCalibrationSchedule(form.value.calibration_schedule)
+    scheduleMeta.value = r
+      ? {
+          calibration_type: r.calibration_type,
+          interval_days: r.interval_days,
+          next_due_date: r.next_due_date ?? undefined,
+        }
+      : null
     if (r?.calibration_type) {
-      form.value.calibration_type = r.calibration_type as 'External' | 'In-House'
+      form.value.calibration_type = r.calibration_type
     }
     if (r?.next_due_date && !form.value.scheduled_date) {
       form.value.scheduled_date = r.next_due_date
-    }
-    if (r?.reference_standard && !form.value.reference_standard_serial) {
-      form.value.reference_standard_serial = r.reference_standard
     }
   } catch { scheduleMeta.value = null }
 }

@@ -6,7 +6,6 @@
  "creation": "2026-04-18 00:00:00.000000",
  "doctype": "DocType",
  "engine": "InnoDB",
- "is_submittable": 1,
  "field_order": [
   "section_basic",
   "naming_series",
@@ -83,7 +82,8 @@
    "fieldtype": "Data",
    "label": "Số sự cố",
    "read_only": 1,
-   "in_list_view": 1
+   "in_list_view": 1,
+   "in_global_search": 1
   },
   {
    "fieldname": "asset",
@@ -430,6 +430,7 @@
    "print_hide": 1
   }
  ],
+ "is_submittable": 1,
  "links": [],
  "modified": "2026-04-21 00:00:00.000000",
  "modified_by": "Administrator",
@@ -513,8 +514,10 @@
    "share": 0
   }
  ],
+ "search_fields": "asset,incident_number,severity",
  "sort_field": "modified",
  "sort_order": "DESC",
- "track_changes": 1,
- "states": []
+ "states": [],
+ "title_field": "incident_number",
+ "track_changes": 1
 }

@@ -28,6 +28,43 @@ export interface CalibrationMeasurement {
   pass_fail?: 'Pass' | 'Fail' | null
 }
 
+/**
+ * Raw measurement fields KTV nhập — tập DUY NHẤT được gửi lên BE khi lưu phiếu.
+ * `pass_fail` / `out_of_tolerance` do SERVER tính (SSoT = controller cha
+ * `_compute_measurement_results`, imm_asset_calibration.py) → FE KHÔNG BAO GIỜ gửi
+ * hai field này (không tin payload client), chỉ render lại sau khi reload. Dùng
+ * `Pick` để lệ thuộc DUY NHẤT nguồn field CalibrationMeasurement.
+ */
+export type CalibrationMeasurementInput = Pick<
+  CalibrationMeasurement,
+  'parameter_name' | 'unit' | 'nominal_value'
+  | 'tolerance_positive' | 'tolerance_negative' | 'measured_value'
+>
+
+/**
+ * Patch cho update_calibration — CHỈ field scalar editable (mirror BE
+ * `_UPDATE_ALLOWED`) + `measurements` child-diff (raw-only). CÓ key `measurements`
+ * ⇒ BE replace-set theo parameter_name/idx + tính lại pass_fail server-side;
+ * VẮNG key ⇒ backward-compat scalar-only (hành vi cũ, 0 regression caller cũ).
+ * Transport: `updateCalibration` JSON.stringify `measurements` theo convention
+ * imm08/imm09 (BE `parse_json`).
+ */
+export interface CalibrationUpdatePatch {
+  status?: AssetCalibration['status']
+  actual_date?: string | null
+  lab_supplier?: string | null
+  lab_accreditation_number?: string | null
+  lab_contract_ref?: string | null
+  sent_date?: string | null
+  certificate_number?: string | null
+  certificate_date?: string | null
+  reference_standard_serial?: string | null
+  traceability_reference?: string | null
+  technician_notes?: string | null
+  amendment_reason?: string | null
+  measurements?: CalibrationMeasurementInput[]
+}
+
 export interface AssetCalibration {
   name: string
   asset: string
@@ -134,8 +171,16 @@ export async function createCalibration(payload: {
   return frappePost<{ name: string; status: string }>(`${BASE}.create_calibration`, payload as Record<string, unknown>)
 }
 
-export async function updateCalibration(name: string, data: Partial<AssetCalibration>) {
-  return frappePost<{ name: string; status: string }>(`${BASE}.update_calibration`, { name, ...data } as Record<string, unknown>)
+export async function updateCalibration(name: string, data: CalibrationUpdatePatch) {
+  // Serialize child-diff theo convention imm08/imm09: nested-array param = JSON string,
+  // BE `parse_json`. CHỈ stringify khi CÓ key `measurements` ⇒ giữ backward-compat
+  // (vắng key = scalar-only, không đụng bảng con) — caller scalar (vd doStartCal chỉ gửi
+  // {status}) KHÔNG kèm `measurements`, đi đúng nhánh cũ.
+  const body: Record<string, unknown> = { name, ...data }
+  if (data.measurements !== undefined) {
+    body.measurements = JSON.stringify(data.measurements)
+  }
+  return frappePost<{ name: string; status: string }>(`${BASE}.update_calibration`, body)
 }
 
 export async function submitCalibration(name: string) {
@@ -180,6 +225,70 @@ export async function cancelCalibration(name: string, reason: string) {
   )
 }
 
+// ─── AC-CR-86 · Dời lịch hiệu chuẩn (reschedule) ────────────────────────────
+/**
+ * Trạng thái CHO PHÉP dời lịch — MIRROR hằng SSoT BE `RESCHEDULE_CAL_STATES`
+ * (module-level trong `services/imm11.py`, guard AC3). Đây là **một nguồn duy nhất**
+ * cho việc gate nút «Dời lịch hiệu chuẩn» ở FE — TUYỆT ĐỐI KHÔNG rải
+ * `status === 'Scheduled'` trong view/test.
+ *
+ * ⚠️ Dời lịch **KHÔNG phải transition**: `status` GIỮ NGUYÊN sau khi dời (khác
+ * `reschedule_pm` của IMM-08). Vì vậy nút này KHÔNG gate bằng `allowed_transitions`
+ * (GATE-8/LL-FE-51 chỉ áp cho nút CHUYỂN trạng thái) mà gate bằng hằng này +
+ * capability `calibration.write` (mirror cap-gate service, AC5) + `docstatus !== 1`.
+ */
+export const RESCHEDULE_CAL_STATES: readonly AssetCalibration['status'][] = [
+  'Scheduled', 'In Progress',
+] as const
+
+/** True khi `status` nằm trong tập cho phép dời lịch (guard null-safe cho view/test). */
+export function isRescheduleCalStatus(status?: string | null): boolean {
+  return !!status && (RESCHEDULE_CAL_STATES as readonly string[]).includes(status)
+}
+
+/**
+ * Body của `reschedule_calibration` — ĐÚNG 3 field, khớp EXACT signature BE
+ * `assetcore.api.imm11.reschedule_calibration(name, new_date, reason)` và schema OAS
+ * `RescheduleCalibrationRequest` (`additionalProperties: false`). Dùng `type` (không
+ * `interface`) để assignable với `Record<string, unknown>` của frappePost.
+ */
+export type RescheduleCalibrationRequest = {
+  name: string
+  new_date: string
+  reason: string
+}
+
+/**
+ * `data` trả về khi dời lịch thành công. `status` GIỮ NGUYÊN giá trị trước khi dời —
+ * FE dùng để khẳng định "không đổi trạng thái" trong thông báo/refetch.
+ */
+export interface RescheduleCalibrationResponse {
+  name: string
+  old_date: string
+  new_date: string
+  status: AssetCalibration['status']
+}
+
+/**
+ * Dời lịch hiệu chuẩn (giữ nguyên phiếu + trạng thái, có vết audit ở BE).
+ *
+ * Thay cho đường vòng cũ "hủy phiếu + tạo lại" (đẻ phiếu `Cancelled` rác vào hồ sơ
+ * tuân thủ NĐ98) và cho `update_calibration({scheduled_date})` — khoá đó KHÔNG nằm
+ * trong `_UPDATE_ALLOWED` nên BE nay báo lỗi in-envelope `fields=['scheduled_date']`
+ * thay vì nuốt im lặng (AC6).
+ *
+ * Lỗi đều IN-ENVELOPE (HTTP-200 + `success:false`) → `frappePost` throw `ApiError`
+ * với `code` (`BAD_STATE` / `VALIDATION*` / `FORBIDDEN`) + `fields` (ô lỗi).
+ */
+export async function rescheduleCalibration(
+  name: string,
+  newDate: string,
+  reason: string,
+): Promise<RescheduleCalibrationResponse> {
+  const body: RescheduleCalibrationRequest = { name, new_date: newDate, reason }
+  return frappePost<RescheduleCalibrationResponse>(`${BASE}.reschedule_calibration`, body)
+}
+
 export interface DueCalibrationItem {
   name: string
   asset_name: string
@@ -190,8 +299,16 @@ export interface DueCalibrationItem {
   days_left: number | null
 }
 
+/**
+ * Danh sách phiếu hiệu chuẩn đến hạn (≤ `days`). Hợp đồng cắt danh sách TRUNG THỰC
+ * (CR-43/46/47): `total` = COUNT thật trên đúng filter set TRƯỚC khi cắt (guard
+ * `next_calibration_date is set` nằm trong CẢ filter lẫn count); `truncated` = int
+ * 0/1 = `len(items) >= limit ∧ total > limit` (parity CR-01, KHÔNG bool). Cả hai
+ * OPTIONAL — worker BE chưa reload trả shape cũ thiếu 2 khoá → backward-compatible.
+ * `items`/`threshold_days` GIỮ NGUYÊN.
+ */
 export async function getDueCalibrations(days = 30, limit = 50) {
-  return frappeGet<{ items: DueCalibrationItem[]; threshold_days: number }>(
+  return frappeGet<{ items: DueCalibrationItem[]; threshold_days: number; total?: number; truncated?: number }>(
     `${BASE}.get_due_calibrations`, { days, limit },
   )
 }

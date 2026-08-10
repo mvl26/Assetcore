@@ -25,10 +25,12 @@ vi.mock('vue-router', () => ({
 vi.mock('@/api/imm11', () => ({
   createCalibration: vi.fn().mockResolvedValue({ name: 'CAL-2026-00001' }),
   listCalibrationSchedules: vi.fn().mockResolvedValue({ data: [] }),
+  getCalibrationSchedule: vi.fn().mockResolvedValue(null),
 }))
 
-// frappeGet raw RPC: loadSchedule (IMM Calibration Schedule) ngoài scope — vẫn cho
-// phép. NHƯNG asset-meta KHÔNG được gọi nó nữa (assert path != AC Asset get_value).
+// frappeGet raw RPC: loadSchedule ĐÃ chuyển sang getCalibrationSchedule perm-aware
+// (GATE-4/LL-FE-40 đóng nốt) — view không còn đường raw nào; assert dưới giữ làm
+// regression guard: asset-meta KHÔNG được gọi raw (path != AC Asset get_value).
 const frappeGetSpy = vi.fn().mockResolvedValue(null)
 vi.mock('@/api/helpers', () => ({
   frappeGet: (...args: unknown[]) => frappeGetSpy(...args),

@@ -7,6 +7,7 @@ Convention:
   Response: _ok(data) | _err(message, code)
 """
 import json
+from typing import Optional
 
 import frappe
 from frappe import _
@@ -30,6 +31,10 @@ from assetcore.services.imm00 import (
     # deriver của màn quét-QR cho màn admin-detail (KHÔNG re-implement so ngày).
     _is_pm_overdue,
     _is_calibration_overdue,
+    # SSoT bảo hành (CR-38) — cùng deriver màn quét-QR (build_asset_scan_info) cho
+    # màn admin-detail (KHÔNG re-implement so-ngày / chuẩn-hoá date ở api layer).
+    _is_warranty_expired,
+    _date_str_or_none,
     ensure_asset_qr_token,
     build_asset_label_data,
     build_asset_label_data_batch,
@@ -461,7 +466,11 @@ def list_assets(
         limit_page_length=pag["page_size"],
         order_by=_ORDER_MODIFIED_DESC,
     )
-    _enrich(items, "asset_category", _DT_ASSET_CATEGORY, "category_name")
+    # out_field="category_name" (CR-64): LIST phát CÙNG key với DETAIL get_asset
+    # (:508) và OAS AssetListItem.category_name (additionalProperties:false). Mặc định
+    # out_field=f"{field}_name" sẽ ra "asset_category_name" — key KHÔNG khai trong OAS
+    # ⇒ FE/mobile mất tên nhóm VN + drift runtime↔contract. Các _enrich khác GIỮ NGUYÊN.
+    _enrich(items, "asset_category", _DT_ASSET_CATEGORY, "category_name", out_field="category_name")
     _enrich(items, "department", _DT_DEPARTMENT, "department_name")
     _enrich(items, "location", _DT_LOCATION, "location_name")
     _enrich(items, "supplier", _DT_SUPPLIER, "supplier_name")
@@ -521,6 +530,16 @@ def get_asset(name: str):
     doc["pm_overdue"] = _is_pm_overdue(doc.get("next_pm_date"), _status)
     doc["calibration_overdue"] = _is_calibration_overdue(
         doc.get("next_calibration_date"), _status)
+    # Parity BẢO HÀNH với get_asset_scan_info (CR-38) — server-flag SSoT. as_dict()
+    # leak warranty_expiry_date NGUYÊN datetime.date object → chuẩn-hoá 'YYYY-MM-DD'|
+    # None qua _date_str_or_none (KHÔNG rò date thô ra JSON). warranty_expired derive
+    # SERVER-SIDE qua CHÍNH _is_warranty_expired (STRICT < theo NGÀY server, tz-safe;
+    # null/tương-lai/hôm-nay → False) — KHÔNG re-implement so-ngày ⇒ màn admin-detail
+    # & màn quét-QR CÙNG 1 kết luận. ĐỘC LẬP lifecycle_status (no-exempt — bảo hành là
+    # sự kiện HỢP ĐỒNG). FE CHỈ render cờ — KHÔNG so ngày client.
+    _warranty_raw = doc.get("warranty_expiry_date")
+    doc["warranty_expired"] = _is_warranty_expired(_warranty_raw)
+    doc["warranty_expiry_date"] = _date_str_or_none(_warranty_raw)
     # Server-driven CTA (CR-WF-00-LIFECYCLE-SURFACE, Trục A) — allowed_transitions =
     # tập trạng-thái-đích CTA-surfaceable (SSoT asset_allowed_transitions:
     # _VALID_ASSET_TRANSITIONS − EXCEPTION − terminal Decommissioned) LỌC theo
@@ -1181,7 +1200,17 @@ def transition_status(name: str, to_status: str, reason: str = ""):
 
 @frappe.whitelist()
 def get_asset_timeline(name: str, page: int = 1, page_size: int = 50):
-    """GET /api/method/assetcore.api.imm00.get_asset_timeline"""
+    """GET /api/method/assetcore.api.imm00.get_asset_timeline
+
+    Mỗi ``items[]`` phơi (CR-60, trục lifecycle NĐ98 — tab "Lịch sử vòng đời"):
+      - ``root_doctype`` / ``root_record``: DocType + name phiếu nguồn (PM Work Order /
+        Asset Repair / IMM Asset Calibration…) — parity 2 field cùng tên trên DocType
+        Asset Lifecycle Event (populate tại emit-site imm04/08/09/11). Cho phép deep-link
+        chạm-sự-kiện → hồ-sơ-gốc. Event legacy thiếu root ⇒ '' (KHÔNG None / KHÔNG KeyError).
+      - ``actor_name``: ``User.full_name`` của actor thay email thô (UI-FIX-05); User∄ ⇒
+        fallback raw actor; actor rỗng (event hệ thống) ⇒ ''. BATCH lookup — đúng 1 truy
+        vấn User cho cả trang (KHÔNG N+1 per-row, precedent CR-40).
+    """
     if not frappe.db.exists(_DT_ASSET, name):
         return _err(_(_ERR_ASSET_NOT_FOUND), 404)
     page, page_size = int(page), int(page_size)
@@ -1190,11 +1219,31 @@ def get_asset_timeline(name: str, page: int = 1, page_size: int = 50):
     items = frappe.get_list(
         _DT_LIFECYCLE_EVENT,
         filters={"asset": name},
-        fields=["name", "event_type", "actor", "from_status", "to_status", "timestamp", "notes"],
+        fields=[
+            "name", "event_type", "actor", "from_status", "to_status",
+            "timestamp", "notes", "root_doctype", "root_record",
+        ],
         limit_start=pag["offset"],
         limit_page_length=pag["page_size"],
         order_by=_ORDER_EVENT_TS_DESC,
     )
+    # actor_name: BATCH resolve User.full_name (đúng 1 truy vấn/trang — chống N+1).
+    actor_ids = list({it["actor"] for it in items if it.get("actor")})
+    name_map = {}
+    if actor_ids:
+        name_map = {
+            u["name"]: u["full_name"]
+            for u in frappe.get_all(
+                "User", filters={"name": ["in", actor_ids]}, fields=["name", "full_name"],
+            )
+        }
+    for it in items:
+        # root_* (Data / Dynamic-Link) có thể None với event legacy → normalize ''
+        # để MỌI item LUÔN có khóa (deep-link resolvable, KHÔNG null-crash FE).
+        it["root_doctype"] = it.get("root_doctype") or ""
+        it["root_record"] = it.get("root_record") or ""
+        actor = it.get("actor") or ""
+        it["actor_name"] = name_map.get(actor) or actor or ""
     return _ok({"pagination": pag, "items": items})
 
 
@@ -2656,12 +2705,36 @@ def reject_transfer(name: str, rejection_reason: str = ""):
 
 
 @frappe.whitelist(methods=["POST"])
-def receive_transfer(name: str, handover_notes: str = ""):
-    """POST — Bên nhận xác nhận đã tiếp nhận thiết bị."""
+def receive_transfer(name: str, handover_notes: str = "", client_request_id: str = ""):
+    """POST — Bên nhận xác nhận đã tiếp nhận thiết bị.
+
+    `client_request_id` (CR-24 idempotency): khoá do client (mobile write-outbox)
+    sinh — CÙNG khoá gọi 2 lần trên 1 phiếu chỉ set_value/audit/lifecycle 1 lần;
+    call trùng REPLAY envelope `{name, status:'Received', received_by}` (KHÔNG throw
+    BAD_STATE, KHÔNG nhân đôi vết custody NĐ98). Header `X-Idempotency-Key` fallback
+    khi param vắng (param THẮNG header). Rỗng cả hai → NO-OP legacy (backward-compat
+    100%). str='' (KHÔNG str|None → tránh HTTP 417 pydantic-coercion).
+    """
     try:
-        return _ok(confirm_receipt(name, handover_notes))
+        return _ok(confirm_receipt(name, handover_notes, client_request_id=client_request_id))
     except frappe.exceptions.ValidationError as e:
         return _err(str(e), 422)
+
+
+@frappe.whitelist()
+def get_pending_approvals_inbox(**_ignore) -> dict:
+    """GET — Inbox gộp "Phiếu chờ tôi duyệt" xuyên module (APPROVAL-INBOX-CR32).
+
+    Session-scoped: KHÔNG nhận param ``user`` — ``**_ignore`` nuốt kwargs lạ
+    (chống spoof đọc inbox người khác). Guest/no-session → dispatcher-403
+    (bare @whitelist, KHÔNG allow_guest). Controller mỏng: gộp/gate/enrich nằm
+    trọn ở service (services/imm00.get_pending_approvals_inbox); envelope
+    Decision-B qua ``handle()``.
+    """
+    from assetcore.services.imm00 import (
+        get_pending_approvals_inbox as _svc_get_pending_approvals_inbox,
+    )
+    return handle(_svc_get_pending_approvals_inbox)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2676,7 +2749,10 @@ _DT_DOC_REQUEST = "Document Request"
 
 def _paginated_list(doctype: str, filters: dict, fields: list[str],
                     page: int, page_size: int, order_by: str = _ORDER_MODIFIED_DESC,
-                    or_filters: list | None = None):
+                    # Optional[list] (KHÔNG dạng union-None PEP-604): helper PRIVATE
+                    # không whitelist — guard ADR test_oas_signatures cấm text-form đó
+                    # trong api/*.py (chống 417 GET-coercion lan vào whitelist signature).
+                    or_filters: Optional[list] = None):
     offset = (page - 1) * page_size
     if or_filters:
         # frappe.db.count KHÔNG nhận or_filters → total = len(name-only query) với

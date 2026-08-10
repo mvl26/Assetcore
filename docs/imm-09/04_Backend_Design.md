@@ -65,7 +65,7 @@ Frappe ORM + MariaDB  ← 4 DocTypes
 | `repair_summary` | Text | (close) | reqd khi Completed |
 | `spare_parts_used` | Table | — | child |
 | `total_parts_cost` | Currency | — | auto Σ |
-| `repair_checklist` | Table | (close) | child; 100% Pass (BR-09-04) |
+| `repair_checklist` | Table | (close) | child `Repair Checklist`; **seed 6 dòng chuẩn tại `create_work_order`** (CR-50 — `test_description`+`test_category` điền sẵn, `result` trống); 100% Pass mới submit (BR-09-04). Xem §3.7 + ADR-IMM09-SEED-CHECKLIST |
 | `firmware_updated` | Check | — | trigger BR-09-03 |
 | `firmware_change_request` | Link FCR | BR-09-03 | reqd khi firmware_updated=1 |
 | `dept_head_name` | Data | (close) | reqd khi Completed |
@@ -213,6 +213,108 @@ data["allowed_transitions"] = _REPAIR_VALID_TRANSITIONS.get(doc.status, [])
 - **Decision:** thêm map tập trung `_REPAIR_VALID_TRANSITIONS` (SSoT, grounded workflow JSON edge-by-edge), emit `allowed_transitions[]` trong `get_work_order`. Schema YAML khai `array<string>` **KHÔNG enum-bound** + **NOT-required** (mirror IncidentDetail/PmWorkOrderDetail), `additionalProperties:true` giữ nguyên.
 - **Consequences:** FE render CTA hoàn toàn theo server (1 nguồn sự thật); thêm/bớt transition chỉ sửa workflow JSON + map (guard test bắt drift ngay). Field optional → client cũ bỏ qua an toàn (backward-compatible). Không enum-bound ⇒ thêm state mới không phá contract.
 - **Alternatives (rejected):** (a) FE hardcode `status→button` — drift 2 nơi, dead-gate; (b) schema enum-bound `items.enum=[...9 state]` — drift mỗi lần đổi workflow, phá codegen; (c) derive qua Frappe workflow-engine runtime — nặng + phụ thuộc Workflow record (IMM-09 không dùng Workflow record, enforce qua controller/guard).
+
+### 3.1-ter `_REPAIR_ACTION_SPECS` + `_build_repair_available_actions` — 6 CTA server-driven (AC-CR-82, 2026-07-27) 🟡 BE Bước-4
+
+> **Vì sao có mục này:** `allowed_transitions` (§3.1) trả lời *"trạng thái kế nào hợp lệ"*, **không** trả lời *"người đang đăng nhập bấm được gì"*. Client phải tự ghép transition × capability ⇒ **bản diễn giải thứ hai** của enforcement và nó **đã lệch 5 chỗ** (bảng D-CM-1..5 @ [`05_API_Specification.md §15.1`](./05_API_Specification.md)). Mục này chuyển quyết định về **server**. Hợp đồng wire + ma trận 54 ô + 3 ADR: **`05 §15`** (SSoT của spec này).
+
+**Hằng cần thêm (`services/imm09.py`, đặt cạnh `_REPAIR_VALID_TRANSITIONS`):**
+
+```python
+# SSoT tập trạng-thái-nguồn cho TỪNG hành động. CHÍNH service guard đọc hằng này
+# (KHÔNG còn tuple literal trong thân hàm) ⇒ advertise và enforce KHÔNG THỂ lệch.
+_ASSIGN_FROM    = frozenset({RepairStatus.OPEN})
+_DIAGNOSIS_FROM = frozenset({RepairStatus.ASSIGNED, RepairStatus.DIAGNOSING})
+_START_FROM     = frozenset({RepairStatus.ASSIGNED, RepairStatus.DIAGNOSING,
+                             RepairStatus.PENDING_PARTS})
+_PARTS_FROM     = _START_FROM | {RepairStatus.IN_REPAIR}   # DẪN XUẤT (ADR-IMM09-CTA-02)
+_CLOSE_FROM     = frozenset({RepairStatus.IN_REPAIR})
+_CONFIRM_FROM   = frozenset({RepairStatus.PENDING_INSPECTION})
+
+_CAP_REPAIR_WRITE, _CAP_REPAIR_CREATE, _CAP_REPAIR_SUBMIT = (
+    "repair.write", "repair.create", "repair.submit")
+
+# `caps` = TUPLE (HỘI) — cap lớp API ∩ cap lớp service. 4 endpoint đầu gate
+# `repair.write` @api nhưng `repair.create` @service ⇒ lấy 1 tầng = advertise
+# RỘNG HƠN enforce (ADR-IMM09-CTA-03). `endpoint` = tên hàm THẬT @api/imm09.py.
+_REPAIR_ACTION_SPECS: tuple[dict, ...] = (
+    {"key": "assign_technician",   "label": "Phân công kỹ thuật viên",
+     "endpoint": "assign_technician",   "from": _ASSIGN_FROM,
+     "caps": (_CAP_REPAIR_WRITE, _CAP_REPAIR_CREATE)},
+    {"key": "submit_diagnosis",    "label": "Ghi nhận chẩn đoán",
+     "endpoint": "submit_diagnosis",    "from": _DIAGNOSIS_FROM,
+     "caps": (_CAP_REPAIR_WRITE, _CAP_REPAIR_CREATE)},
+    {"key": "request_spare_parts", "label": "Yêu cầu phụ tùng",
+     "endpoint": "request_spare_parts", "from": _PARTS_FROM,
+     "caps": (_CAP_REPAIR_WRITE, _CAP_REPAIR_CREATE)},
+    {"key": "start_repair",        "label": "Bắt đầu sửa chữa",
+     "endpoint": "start_repair",        "from": _START_FROM,
+     "caps": (_CAP_REPAIR_WRITE, _CAP_REPAIR_CREATE)},
+    {"key": "close_work_order",    "label": "Hoàn thành sửa chữa",
+     "endpoint": "close_work_order",    "from": _CLOSE_FROM,
+     "caps": (_CAP_REPAIR_CREATE,)},
+    {"key": "confirm_inspection",  "label": "Xác nhận nghiệm thu",
+     "endpoint": "confirm_inspection",  "from": _CONFIRM_FROM,
+     "caps": (_CAP_REPAIR_SUBMIT,)},
+)
+
+_REPAIR_ACTION_REASON_TRANSITION = (
+    "Không thể thực hiện thao tác này ở trạng thái hiện tại của phiếu")
+_REPAIR_ACTION_REASON_CAPABILITY = "Bạn không có quyền thực hiện thao tác này"
+_REPAIR_ACTION_REASON_SELF_INSPECT = (
+    "Người nghiệm thu phải khác người đóng phiếu — bạn là người đã đóng phiếu này")
+
+# Hợp đồng NỢ (chỉ-giảm): action mà advertise HẸP HƠN enforcement vì @source
+# thiếu state-guard. Land guard (backlog B1) ⇒ XOÁ phần tử ⇒ INV-CMCTA-1b siết
+# về 54/54. KHÔNG được THÊM phần tử mới vào tập này.
+_ADVERTISE_NARROWER_THAN_ENFORCE = frozenset({"request_spare_parts"})
+```
+
+**Builder (đặt cạnh `_REPAIR_VALID_TRANSITIONS`, gọi trong `get_work_order` NGAY SAU `data["allowed_transitions"]`):**
+
+```python
+def _build_repair_available_actions(wo) -> list[dict]:
+    status = wo.status or ""
+    actions: list[dict] = []
+    for spec in _REPAIR_ACTION_SPECS:
+        transition_ok = status in spec["from"]
+        has_cap = all(rbac.can(c) for c in spec["caps"])
+        business_ok, business_reason = True, ""
+        # SoD CR-41 — CHỈ chạm DB khi 2 gate trước đã đạt ⇒ ≤1 query thêm, và 0
+        # query ở 8 status còn lại (INV-CMCTA-10).
+        if spec["key"] == "confirm_inspection" and transition_ok and has_cap:
+            closer = _resolve_wo_closer(wo.name)          # tái dùng, KHÔNG query mới
+            if closer and closer == frappe.session.user:  # closer None ⇒ FAIL-OPEN
+                business_ok, business_reason = False, _REPAIR_ACTION_REASON_SELF_INSPECT
+        enabled = bool(transition_ok and has_cap and business_ok)
+        if enabled:            reason = ""
+        elif not transition_ok: reason = _REPAIR_ACTION_REASON_TRANSITION
+        elif not has_cap:       reason = _REPAIR_ACTION_REASON_CAPABILITY
+        else:                   reason = business_reason or _REPAIR_ACTION_REASON_TRANSITION
+        actions.append({"key": spec["key"], "label": spec["label"], "route": "",
+                        "enabled": enabled, "reason": reason})
+    return actions
+```
+
+**Refactor 6 guard (hành vi observable KHÔNG đổi — cùng message-code, cùng `expected` context):**
+
+| Hàm @`services/imm09.py` | Trước | Sau |
+|---|---|---|
+| `assign_technician` `:1699` | `if doc.status != RepairStatus.OPEN` | `if doc.status not in _ASSIGN_FROM` |
+| `submit_diagnosis` `:1723` | `not in (ASSIGNED, DIAGNOSING)` | `not in _DIAGNOSIS_FROM` |
+| `start_repair` `:1747` | `not in (ASSIGNED, DIAGNOSING, PENDING_PARTS)` | `not in _START_FROM` |
+| `request_spare_parts` `:1766` | *(0 guard)* | **GIỮ 0 guard vòng này** — backlog B1 (`05 §15.10`) |
+| `close_work_order` `:1859` | `!= IN_REPAIR` | `not in _CLOSE_FROM` |
+| `confirm_inspection` `:1985` | `!= PENDING_INSPECTION` | `not in _CONFIRM_FROM` |
+
+**Boundaries (Always / Never):**
+
+| | |
+|---|---|
+| **Always** | Đủ **6 phần tử**, đúng thứ tự, mọi status (terminal ⇒ 6 × `enabled=false`). `transition_allowed` đọc **hằng của chính guard**. `has_cap` = **HỘI** mọi `rbac.require` trên đường gọi (api ∩ service). `reason` là **hằng VI**, D9 `enabled=false ⟺ reason != ""`. **READ-ONLY**: 0 `save()`, 0 Lifecycle Event, 0 audit, ≤1 query thêm. |
+| **Never** | KHÔNG suy CTA từ `allowed_transitions`. KHÔNG suy cap từ tên vai trò / 1 tầng. KHÔNG advertise CTA hủy (0 endpoint) hay mint key thứ 7 cho `Cannot Repair` (chung `close_work_order`). KHÔNG đổi enforcement (SoD fail-open giữ; `request_spare_parts` chưa thêm guard). KHÔNG bỏ/đổi `allowed_transitions` hoặc bất kỳ khoá detail hiện có. |
+
+**ADR:** `ADR-IMM09-CTA-01/02/03` @ [`05_API_Specification.md §15`](./05_API_Specification.md) (mở rộng `ADR-IMM09-CTA` ở trên, **KHÔNG** supersede).
 
 ### 3.1-bis Firmware Change Request — state machine SERVER-controlled (`_FCR_VALID_TRANSITIONS`) (Vòng 10, BR-09-18/19/20)
 
@@ -390,8 +492,8 @@ Endpoint `assign_technician` đã có sẵn ở BE (`api/imm09.py:58`, whitelist
 |---|---|---|
 | Handler | `assign_technician(name, technician, priority="")` | `api/imm09.py:58` |
 | Cap-gate | `rbac.require("repair.write")` | `api/imm09.py:59` |
-| Service return | `{name, status=RepairStatus.ASSIGNED, assigned_to=technician}` (3-key) | `services/imm09.py:848` |
-| Status gate | chỉ khi `status == "Open"` → nếu khác raise `IMM09_BAD_STATE` | `services/imm09.py:842` |
+| Service return | `{name, status=RepairStatus.ASSIGNED, assigned_to=technician}` (3-key) | `services/imm09.py:1023` |
+| Status gate | chỉ khi `status == "Open"` → nếu khác raise `IMM09_BAD_STATE` | `services/imm09.py:1017` |
 
 **Khác mọi C8-ACTION đã làm — đây là điểm thiết kế cần ADR:**
 
@@ -402,7 +504,7 @@ Endpoint `assign_technician` đã có sẵn ở BE (`api/imm09.py:58`, whitelist
 
 | | |
 |---|---|
-| **Always** | `AssignTechnicianResponse` props EXACT `{name,status,assigned_to}` (grounded `services/imm09.py:848`), `additionalProperties:false`, `required=[name,status,assigned_to]`. `status` enum = RepairStatus-canonical 9-state (mô tả literal `Assigned`). requestBody `required=[name,technician]` (cả 2 positional no-default), `priority` optional `default ''`. 200 = `oneOf [AssignTechnicianEnvelope, Error]` route-by-VALUE `body.success` (closed-schema, 0 discriminator). Path vào `_MVP_BUSINESS_PATHS` ⇒ 401/403 symmetry tự cân (test so SET). |
+| **Always** | `AssignTechnicianResponse` props EXACT `{name,status,assigned_to}` (grounded `services/imm09.py:1023`), `additionalProperties:false`, `required=[name,status,assigned_to]`. `status` enum = RepairStatus-canonical 9-state (mô tả literal `Assigned`). requestBody `required=[name,technician]` (cả 2 positional no-default), `priority` optional `default ''`. 200 = `oneOf [AssignTechnicianEnvelope, Error]` route-by-VALUE `body.success` (closed-schema, 0 discriminator). Path vào `_MVP_BUSINESS_PATHS` ⇒ 401/403 symmetry tự cân (test so SET). |
 | **Never** | KHÔNG reuse `RepairActionEnvelope` (2-key ≠ 3-key). KHÔNG đưa `priority` vào `required`. KHÔNG thêm `name` vào body-exclude (name **BẮT BUỘC** — positional thứ nhất). KHÔNG dùng discriminator (`success` boolean illegal §5c). KHÔNG status-line key 404/409/422 (lỗi nghiệp vụ in-handler arrive HTTP-200 + Error body). KHÔNG sửa `api/imm09.py`/`services/imm09.py` (PURE-YAML round). |
 
 **ADR-IMM09-ASSIGN — mobile contract `assignTechnician` (response RIÊNG 3-key, KHÔNG reuse 2-key envelope)**
@@ -415,7 +517,7 @@ Endpoint `assign_technician` đã có sẵn ở BE (`api/imm09.py:58`, whitelist
 
 ### 3.3 Dispatch-validation gate — `assign_technician` (R25: chặn mis-dispatch / dữ liệu rác)
 
-**Vấn đề gốc (R24 USER-eval CRITICAL):** `services/imm09.py:840` set `doc.assigned_to = technician` rồi `doc.flags.ignore_links = True` (`:846`) → bỏ qua referential-integrity của Frappe (Link field `assigned_to` → DocType `User`). Hệ quả: email bịa `khong-ton-tai@nope.invalid` vẫn POST 200 `success:true status=Assigned` — WO bị giao vào **hư vô**, KTV không bao giờ nhận việc, SLA chạy oan, audit-trail sai. `listUsers` picker (R23) ở FE lane là *tiện ích* (UX), KHÔNG phải **validation-boundary** — client tự gõ / app khác / replay request đều bypass được. Boundary đúng = **server-side gate** trước khi save.
+**Vấn đề gốc (R24 USER-eval CRITICAL):** `services/imm09.py:1015` set `doc.assigned_to = technician` rồi `doc.flags.ignore_links = True` (`:846`) → bỏ qua referential-integrity của Frappe (Link field `assigned_to` → DocType `User`). Hệ quả: email bịa `khong-ton-tai@nope.invalid` vẫn POST 200 `success:true status=Assigned` — WO bị giao vào **hư vô**, KTV không bao giờ nhận việc, SLA chạy oan, audit-trail sai. `listUsers` picker (R23) ở FE lane là *tiện ích* (UX), KHÔNG phải **validation-boundary** — client tự gõ / app khác / replay request đều bypass được. Boundary đúng = **server-side gate** trước khi save.
 
 **Hậu quả nếu data sai (5-câu-hỏi domain):** mis-dispatch là lỗi vận hành nghiêm trọng — thiết bị y tế hỏng không được sửa đúng người, vi phạm traceability (CLAUDE.md §5 "mọi nghiệp vụ phải có record" + audit-trail đúng actor). Lifecycle event `repair_assigned` ghi `assigned_to` rác → toàn chuỗi downstream (diagnosis/start/complete) treo.
 
@@ -423,8 +525,8 @@ Endpoint `assign_technician` đã có sẵn ở BE (`api/imm09.py:58`, whitelist
 
 | Mục | Giá trị | Evidence |
 |---|---|---|
-| Set không kiểm | `doc.assigned_to = technician` (0 validation) | `services/imm09.py:840` |
-| Bypass FK | `doc.flags.ignore_links = True` | `services/imm09.py:846` |
+| Set không kiểm | `doc.assigned_to = technician` (0 validation) | `services/imm09.py:1015` |
+| Bypass FK | `doc.flags.ignore_links = True` | `services/imm09.py:1021` |
 | Cap-gate (đã có) | `rbac.require("repair.write")` (dispatcher quyền **người gọi**, KHÔNG validate **người được gán**) | `api/imm09.py:59` |
 | Repair-capability binding | `repair.*` → DocPerm trên DocType `Asset Repair` (KHÔNG hardcode role-name) | `services/shared/rbac.py:37,71,91` |
 | Repair domain roles (SSoT catalog) | `Repair Manager` / `Repair User` (Domain), + Super Admin bao trùm | `services/shared/constants.py:25-35` |
@@ -440,7 +542,7 @@ Endpoint `assign_technician` đã có sẵn ở BE (`api/imm09.py:58`, whitelist
 > - `error_code=ErrorCode.VALIDATION_ERROR` cần import: `services/imm09.py` HIỆN CHƯA import `ErrorCode` → BE thêm `from assetcore.utils.response import ErrorCode` (đầu file, cạnh import `nthrow`). `MSG.IMM09_INVALID_TECHNICIAN` đã có constant + registry entry (`utils/messages.py`, http_status=422) — KHÔNG cần thêm.
 > - Sau khi thêm MSG mới, chạy `python scripts/gen_fe_messages.py` để regen `frontend/src/i18n/messages.ts` (quy trình `utils/messages.py` docstring §"Quy trình thêm mã mới"). Đây là FE-message generator, KHÔNG đụng mobile contract.
 
-**Vị trí gate trong `assign_technician` (services/imm09.py:833-848):** chèn SAU `RBAC.require` + status-gate (`status == OPEN`), TRƯỚC `doc.assigned_to = technician`. Thứ tự: not-found WO (`IMM09_NOT_FOUND`) → bad-state (`IMM09_BAD_STATE`) → **invalid-technician (`IMM09_INVALID_TECHNICIAN`)** → set + save. Khi gate fail: `nthrow(...)` raise TRƯỚC mọi mutation ⇒ `doc` KHÔNG save, `assigned_to` KHÔNG đổi, `status` GIỮ `Open` (invariant: fail-fast, no partial write).
+**Vị trí gate trong `assign_technician` (services/imm09.py:1008-1023):** chèn SAU `RBAC.require` + status-gate (`status == OPEN`), TRƯỚC `doc.assigned_to = technician`. Thứ tự: not-found WO (`IMM09_NOT_FOUND`) → bad-state (`IMM09_BAD_STATE`) → **invalid-technician (`IMM09_INVALID_TECHNICIAN`)** → set + save. Khi gate fail: `nthrow(...)` raise TRƯỚC mọi mutation ⇒ `doc` KHÔNG save, `assigned_to` KHÔNG đổi, `status` GIỮ `Open` (invariant: fail-fast, no partial write).
 
 **Error contract (DONE-gate spec-contract — Error-on-HTTP-200, KHÔNG raise→4xx):**
 
@@ -475,9 +577,9 @@ nthrow(MSG.IMM09_INVALID_TECHNICIAN,
 
 ### 3.4 Referential-integrity gate — `create_work_order` 2 optional Link FK (R26: chặn ghi FK rác)
 
-**Vấn đề gốc (R26):** `services/imm09.py:805-822` build `frappe.get_doc({...})` với `incident_report` + `source_pm_wo` lấy nguyên giá trị caller truyền, rồi `doc.flags.ignore_links = True` (`:821`) → `doc.insert(ignore_permissions=True)` (`:822`). `ignore_links=True` bỏ qua referential-integrity của Frappe cho MỌI Link field trong doc — gồm 2 optional Link `incident_report` (→ DocType `Incident Report`) và `source_pm_wo` (→ DocType `PM Work Order`). Hệ quả: caller truyền non-empty bịa (`incident_report='INC-khong-ton-tai'`) vẫn POST 200 `success:true status=Open` — WO được tạo với FK trỏ vào **record không tồn tại**, phá traceability nguồn-gốc (WO không truy được về Incident/PM thực). Đối xứng hệt R25 `assign_technician`/`assigned_to`: cùng cờ `ignore_links=True`, cùng họ "Link rác qua bypass FK".
+**Vấn đề gốc (R26):** `services/imm09.py:980-997` build `frappe.get_doc({...})` với `incident_report` + `source_pm_wo` lấy nguyên giá trị caller truyền, rồi `doc.flags.ignore_links = True` (`:821`) → `doc.insert(ignore_permissions=True)` (`:822`). `ignore_links=True` bỏ qua referential-integrity của Frappe cho MỌI Link field trong doc — gồm 2 optional Link `incident_report` (→ DocType `Incident Report`) và `source_pm_wo` (→ DocType `PM Work Order`). Hệ quả: caller truyền non-empty bịa (`incident_report='INC-khong-ton-tai'`) vẫn POST 200 `success:true status=Open` — WO được tạo với FK trỏ vào **record không tồn tại**, phá traceability nguồn-gốc (WO không truy được về Incident/PM thực). Đối xứng hệt R25 `assign_technician`/`assigned_to`: cùng cờ `ignore_links=True`, cùng họ "Link rác qua bypass FK".
 
-**Phân biệt với R25 (boundary scope):** R25 phủ `assigned_to` (User-FK). R26 phủ 2 FK nguồn-gốc `incident_report` + `source_pm_wo`. `asset_ref` (Link → Asset) ĐÃ được validate sẵn `services/imm09.py:790-791` (`IMM09_ASSET_NOT_FOUND`, http 404) — **NGOÀI scope R26, KHÔNG đụng**. R26 chỉ thêm gate cho 2 FK optional CHƯA validate.
+**Phân biệt với R25 (boundary scope):** R25 phủ `assigned_to` (User-FK). R26 phủ 2 FK nguồn-gốc `incident_report` + `source_pm_wo`. `asset_ref` (Link → Asset) ĐÃ được validate sẵn `services/imm09.py:965-966` (`IMM09_ASSET_NOT_FOUND`, http 404) — **NGOÀI scope R26, KHÔNG đụng**. R26 chỉ thêm gate cho 2 FK optional CHƯA validate.
 
 **Hậu quả nếu data sai (5-câu-hỏi domain):** WO sửa chữa (CM) ở stage *Maintenance* (WHO HTM) phải truy được về sự kiện kích hoạt — Incident Report (lỗi vận hành) hoặc PM Work Order (phát hiện khi bảo trì định kỳ). FK rác phá audit-trail nguồn (CLAUDE.md §5 "mọi nghiệp vụ phải có record" + §10 lifecycle event `root_record`). Báo cáo CAPA/RCA (IMM-12) downstream truy ngược `incident_report` rác → treo. NĐ98/audit: chuỗi nguyên-nhân→hành-động phải nối được record thật.
 
@@ -485,13 +587,13 @@ nthrow(MSG.IMM09_INVALID_TECHNICIAN,
 
 | Mục | Giá trị | Evidence |
 |---|---|---|
-| Set FK không kiểm | `"incident_report": incident_report, "source_pm_wo": source_pm_wo` (0 validation) | `services/imm09.py:814-815` |
-| Bypass FK | `doc.flags.ignore_links = True` | `services/imm09.py:821` |
-| Insert | `doc.insert(ignore_permissions=True)` | `services/imm09.py:822` |
-| `asset_ref` đã validate (ngoài scope) | `if not asset_data: nthrow(MSG.IMM09_ASSET_NOT_FOUND, ...)` | `services/imm09.py:790-791` |
-| Open-WO guard (đứng trước gate mới) | `if open_wo: nthrow(MSG.IMM09_ASSET_HAS_OPEN_WO, ...)` | `services/imm09.py:797-798` |
+| Set FK không kiểm | `"incident_report": incident_report, "source_pm_wo": source_pm_wo` (0 validation) | `services/imm09.py:989-990` |
+| Bypass FK | `doc.flags.ignore_links = True` | `services/imm09.py:996` |
+| Insert | `doc.insert(ignore_permissions=True)` | `services/imm09.py:997` |
+| `asset_ref` đã validate (ngoài scope) | `if not asset_data: nthrow(MSG.IMM09_ASSET_NOT_FOUND, ...)` | `services/imm09.py:965-966` |
+| Open-WO guard (đứng trước gate mới) | `if open_wo: nthrow(MSG.IMM09_ASSET_HAS_OPEN_WO, ...)` | `services/imm09.py:972-973` |
 | FK target DocType | `incident_report` → `Incident Report`; `source_pm_wo` → `PM Work Order` | `asset_repair.json:104-115` (Link, reqd=None) |
-| Standalone hợp lệ (slide 24b) | cả 2 FK rỗng `""` → tạo WO standalone, KHÔNG validate | doc §I.5 / `services/imm09.py:575` |
+| Standalone hợp lệ (slide 24b) | cả 2 FK rỗng `""` → tạo WO standalone, KHÔNG validate | doc §I.5 / `services/imm09.py:750` |
 
 **Định nghĩa "FK hợp lệ" (per-FK, validate chỉ khi non-empty — fail-fast):**
 
@@ -504,7 +606,7 @@ nthrow(MSG.IMM09_INVALID_TECHNICIAN,
 > - `ErrorCode` đã được import sẵn `services/imm09.py:26` (R25 đã thêm) — KHÔNG cần thêm import.
 > - 2 MSG mới `IMM09_INCIDENT_REPORT_NOT_FOUND` + `IMM09_SOURCE_PM_WO_NOT_FOUND` đã có constant + registry entry (`utils/messages.py`, http_status=422) — sau khi BE/test xong, chạy `python scripts/gen_fe_messages.py` regen `frontend/src/i18n/messages.ts`.
 
-**Vị trí gate trong `create_work_order` (services/imm09.py:787-822):** chèn SAU `asset_ref`-validate (`:790-791`, `IMM09_ASSET_NOT_FOUND`) + open-WO-guard (`:793-798`, `IMM09_ASSET_HAS_OPEN_WO`), TRƯỚC `frappe.get_doc({...})` (`:805`). Thứ tự: rbac → asset-not-found → open-WO → **incident_report∄ (`IMM09_INCIDENT_REPORT_NOT_FOUND`) → source_pm_wo∄ (`IMM09_SOURCE_PM_WO_NOT_FOUND`)** → get_doc/insert. Khi gate fail: `nthrow(...)` raise TRƯỚC `get_doc`/`insert`/`transition_asset_status`/`commit` ⇒ doc KHÔNG insert, KHÔNG partial-write, KHÔNG commit (invariant `frappe.db.exists("Asset Repair", {asset_ref})` không thêm WO mới). `asset_ref`-validate đứng trước gate này GIỮ nguyên (ngoài scope).
+**Vị trí gate trong `create_work_order` (services/imm09.py:962-997):** chèn SAU `asset_ref`-validate (`:790-791`, `IMM09_ASSET_NOT_FOUND`) + open-WO-guard (`:793-798`, `IMM09_ASSET_HAS_OPEN_WO`), TRƯỚC `frappe.get_doc({...})` (`:805`). Thứ tự: rbac → asset-not-found → open-WO → **incident_report∄ (`IMM09_INCIDENT_REPORT_NOT_FOUND`) → source_pm_wo∄ (`IMM09_SOURCE_PM_WO_NOT_FOUND`)** → get_doc/insert. Khi gate fail: `nthrow(...)` raise TRƯỚC `get_doc`/`insert`/`transition_asset_status`/`commit` ⇒ doc KHÔNG insert, KHÔNG partial-write, KHÔNG commit (invariant `frappe.db.exists("Asset Repair", {asset_ref})` không thêm WO mới). `asset_ref`-validate đứng trước gate này GIỮ nguyên (ngoài scope).
 
 **Error contract (DONE-gate spec-contract — Error-on-HTTP-200, KHÔNG raise→4xx):**
 
@@ -547,16 +649,16 @@ Bồi **2 path** vào contract mobile `docs/mobile/openapi/assetcore-mobile.open
 | Mục | Giá trị | Evidence |
 |---|---|---|
 | Handler search | `search_spare_parts(query="", limit="10")` — bare `@frappe.whitelist()` (GET), **KHÔNG `rbac.require`** | `api/imm09.py:123-125` |
-| Service search return | `list[dict]` RAW (cap SQL `LIMIT`); query `<2` ký tự → `[]` | `services/imm09.py:1223-1248` |
-| Search item shape | EXACT 10-key `{item_code, item_name, manufacturer_part_no, qty, uom, unit_cost, total_cost, stock_entry_ref, notes, idx}` | `services/imm09.py:1237-1246` |
+| Service search return | `list[dict]` RAW (cap SQL `LIMIT`); query `<2` ký tự → `[]` | `services/imm09.py:1398-1423` |
+| Search item shape | EXACT 10-key `{item_code, item_name, manufacturer_part_no, qty, uom, unit_cost, total_cost, stock_entry_ref, notes, idx}` | `services/imm09.py:1412-1421` |
 | Handler request | `request_spare_parts(name, parts="[]")` — **`@frappe.whitelist(methods=["POST"])` SẴN @source** (HEAD-committed, KHÔNG cần flip) | `api/imm09.py:77-81` |
-| Request cap | api-level `rbac.require("repair.write")` (`:79`) + service-level `rbac.require("repair.create")` (`:973`) | `api/imm09.py:79`, `services/imm09.py:973` |
-| Service request return | EXACT 4-key `{name, status, updated, allocation}` (`allocation` str\|None — Gate-2 IMM-15) | `services/imm09.py:1018-1019` |
-| Request 404 | WO∄ → `nthrow(MSG.IMM09_NOT_FOUND)` (in-handler 404 trên HTTP-200) | `services/imm09.py:976` |
+| Request cap | api-level `rbac.require("repair.write")` (`:79`) + service-level `rbac.require("repair.create")` (`:973`) | `api/imm09.py:79`, `services/imm09.py:1148` |
+| Service request return | EXACT 4-key `{name, status, updated, allocation}` (`allocation` str\|None — Gate-2 IMM-15) | `services/imm09.py:1193-1194` |
+| Request 404 | WO∄ → `nthrow(MSG.IMM09_NOT_FOUND)` (in-handler 404 trên HTTP-200) | `services/imm09.py:1151` |
 
 **Self-Correction (2 điểm — bug thiết kế gốc, sửa Core Doc TRƯỚC):**
 
-1. **`requestSpareParts` KHÔNG reuse `RepairActionResponse` 2-key.** Contract-doc §8.11 (`docs/mobile/04-api-contract.md`) forward-reserve `RepairActionResponse {name,status}` để "tái dùng cho `assign_technician`/`submit_diagnosis`/`request_spare_parts`". Đúng cho `submit_diagnosis` (2-key) nhưng **SAI cho `request_spare_parts`**: service THẬT trả **4-key** `{name,status,updated,allocation}` (`services/imm09.py:1018-1019`). ⇒ Phải sinh schema RIÊNG `RequestSparePartsResponse` (C3-split field-disjoint — precedent `ResolveIncidentResponse` 3-key thêm `rca_created`). `assign_technician` cũng đã RIÊNG 3-key (§3.2). Forward-reservation chỉ đúng cho action 2-key thuần.
+1. **`requestSpareParts` KHÔNG reuse `RepairActionResponse` 2-key.** Contract-doc §8.11 (`docs/mobile/04-api-contract.md`) forward-reserve `RepairActionResponse {name,status}` để "tái dùng cho `assign_technician`/`submit_diagnosis`/`request_spare_parts`". Đúng cho `submit_diagnosis` (2-key) nhưng **SAI cho `request_spare_parts`**: service THẬT trả **4-key** `{name,status,updated,allocation}` (`services/imm09.py:1193-1194`). ⇒ Phải sinh schema RIÊNG `RequestSparePartsResponse` (C3-split field-disjoint — precedent `ResolveIncidentResponse` 3-key thêm `rca_created`). `assign_technician` cũng đã RIÊNG 3-key (§3.2). Forward-reservation chỉ đúng cho action 2-key thuần.
 2. **Premise "flip bare→`methods=['POST']`" đã STALE.** Acceptance ghi flip `request_spare_parts` bare→POST, nhưng `git show HEAD:assetcore/api/imm09.py` cho thấy decorator **đã là `@frappe.whitelist(methods=["POST"])`** (committed vòng trước). ⇒ `requestSpareParts` là **CLEAN POST** (mirror `closeIncident` §8.16), KHÔNG verb-divergence, KHÔNG vào `_PARITY_VERB_ALLOWLIST` (giữ `set()` rỗng). BE step PURE-YAML cho **cả 2** endpoint (search bare GET untouched; request đã POST-only untouched) — `git diff api/imm09.py` cho 2 hàm này = empty.
 
 **Boundaries (Always / Never):**
@@ -569,7 +671,7 @@ Bồi **2 path** vào contract mobile `docs/mobile/openapi/assetcore-mobile.open
 **ADR-IMM09-SPARE-SEARCH — `searchSpareParts` GET RAW-list, no-pagination, slot `{200,401}` no-403**
 
 - **Status:** Accepted · **Date:** 2026-06-27
-- **Context:** màn repair-detail mobile cần picker tìm vật-tư trước khi gắn phiếu xuất kho. BE `search_spare_parts` đã sẵn (bare `@frappe.whitelist()` GET `api/imm09.py:123`), trả `list[dict]` RAW cap bởi SQL `LIMIT` (KHÔNG paginate `services/imm09.py:1223-1248`), KHÔNG `rbac.require` ở api-level (read-only picker — quyền đọc đủ).
+- **Context:** màn repair-detail mobile cần picker tìm vật-tư trước khi gắn phiếu xuất kho. BE `search_spare_parts` đã sẵn (bare `@frappe.whitelist()` GET `api/imm09.py:123`), trả `list[dict]` RAW cap bởi SQL `LIMIT` (KHÔNG paginate `services/imm09.py:1398-1423`), KHÔNG `rbac.require` ở api-level (read-only picker — quyền đọc đủ).
 - **Decision:** thêm 1 path `GET …search_spare_parts` opId `searchSpareParts`; `data` = array `<SearchSparePartItem>` RAW (envelope `SearchSparePartsEnvelope` closed `required[success,data]`, `data` là list trần KHÔNG `{...,items}`); item EXACT 10-key `required[item_code]`. 200 = `oneOf[SearchSparePartsEnvelope, Error]` route-by-VALUE. Slot `{200,401}` — **KHÔNG 403** (no api-level cap-gate). `[]` rỗng hợp lệ (query<2 / no-match — KHÔNG 404).
 - **Alternatives (rejected):** (a) bọc data trong `{query, items}` như `getAssetIncidentHistory {asset,items}` — svc THẬT trả list trần, thêm wrapper = lệch source + drift codegen; (b) thêm pagination `{page,page_size,total}` — svc không paginate (chỉ `limit` cap), bịa total → sai; (c) khai slot 403 — handler KHÔNG `rbac.require` ⇒ không có in-handler cap-403, khai 403 = phantom (mirror `getUserContext` §8.19 no-403); (d) đưa vào `_MVP_BUSINESS_PATHS` (ép 401∧403 symmetry) — vỡ vì no-403 (giống `getUserContext`).
 - **Consequences:** mobile có picker vật-tư typed; client đọc list trần cap bởi `limit`. Path/opId 40→41. `searchSpareParts` ∉ `_MVP_BUSINESS_PATHS` (read-only no-cap-gate path) — typed-200 oneOf phủ bởi guard riêng. 0 đụng `.py` (PURE-YAML).
@@ -577,16 +679,45 @@ Bồi **2 path** vào contract mobile `docs/mobile/openapi/assetcore-mobile.open
 **ADR-IMM09-REQUEST-PARTS — `requestSpareParts` POST, `RequestSparePartsResponse` RIÊNG 4-key (KHÔNG reuse 2-key), CLEAN POST**
 
 - **Status:** Accepted · **Date:** 2026-06-27
-- **Context:** sau khi tìm vật-tư, KTV gắn `stock_entry_ref` vào dòng `spare_parts_used` của WO. BE `request_spare_parts` đã sẵn **POST-only @source** (`@frappe.whitelist(methods=["POST"])` `api/imm09.py:77`, HEAD-committed). Service trả **4-key** `{name,status,updated,allocation}` (`services/imm09.py:1018-1019`) — `updated` (số row gắn được) + `allocation` (name `IMM Spare Allocation` Gate-2 IMM-15, str\|None). KHÁC giả định forward-reservation §8.11 (reuse `RepairActionResponse` 2-key cho `request_spare_parts`).
+- **Context:** sau khi tìm vật-tư, KTV gắn `stock_entry_ref` vào dòng `spare_parts_used` của WO. BE `request_spare_parts` đã sẵn **POST-only @source** (`@frappe.whitelist(methods=["POST"])` `api/imm09.py:77`, HEAD-committed). Service trả **4-key** `{name,status,updated,allocation}` (`services/imm09.py:1193-1194`) — `updated` (số row gắn được) + `allocation` (name `IMM Spare Allocation` Gate-2 IMM-15, str\|None). KHÁC giả định forward-reservation §8.11 (reuse `RepairActionResponse` 2-key cho `request_spare_parts`).
 - **Decision:** thêm 1 path `POST …request_spare_parts` opId `requestSpareParts`; schema RIÊNG `RequestSparePartsRequest` (`required[name,parts]`, `parts` item `{item_code, stock_entry_ref?, spare_part?, qty?}`, content `oneOf[json, x-www-form]`) + `RequestSparePartsEnvelope`(`data=RequestSparePartsResponse {name,status,updated,allocation}` closed `required[name,status]`, `allocation` nullable). 200 = `oneOf[RequestSparePartsEnvelope, Error]` route-by-VALUE. Slot `{200,401,403}`; 403 SINGLE-SHAPE dispatcher-403 (in-handler cap-403 `repair.write`+`repair.create` phủ bởi nhánh Error). `IMM09_NOT_FOUND` (404) arrive HTTP-200 + Error.
 - **Alternatives (rejected):** (a) **reuse `RepairActionResponse` 2-key** — DROP `updated`+`allocation`, client mất tín hiệu "đã gắn mấy dòng" + "allocation Gate-2 nào tạo" → thừa re-fetch + lệch source (Self-Correction #1); (b) **flip decorator bare→POST round này** — đã POST-only @source (Self-Correction #2), flip = no-op + vi phạm PURE-YAML; (c) **vào `_PARITY_VERB_ALLOWLIST`** — chỉ dành cho bare-`@whitelist` write-action chờ fix (submit_pm_result/submit_calibration §8.14/§8.15); `request_spare_parts` đã CLEAN POST ⇒ KHÔNG cần allowlist (giữ `set()` rỗng); (d) **khai status-line 404** — lỗi nghiệp vụ in-handler arrive HTTP-200 + Error (route `body.http_status`), KHÔNG status-line.
 - **Consequences:** mobile đóng sub-flow vật-tư; `searchSpareParts` (picker) có đích tiêu thụ. Path/opId 41→42. `requestSpareParts` ∈ `_MVP_BUSINESS_PATHS` (cap-gated write-action) ⇒ 401∧403 symmetry tự cân. Codegen sinh `requestSpareParts(name,parts)` typed + `RequestSparePartsResponse` đọc `updated`/`allocation`. CLEAN POST — KHÔNG verb-divergence (mirror `closeIncident` §8.16), 0 ADR-fix-backlog. 0 đụng `.py` (PURE-YAML — request đã POST-only). Sau USER reload gunicorn `--preload` → LIVE reject GET(405) cho `request_spare_parts`; trước reload stale worker còn nhận GET — KHÔNG curl-verify LIVE (LL-DEPLOY-07).
+
+### 3.5-bis CR-73(a) — `search_spare_parts` hợp đồng service 13 khoá (SUPERSEDE "EXACT 10-key" ở §3.5)
+
+> **Status:** 🔴 SPEC CHỐT 2026-07-25 ([BA] Bước-2) — BE thực thi ở **Bước-4**.
+> **Supersede:** mọi dòng "EXACT 10-key" / cite `services/imm09.py:1398-1423`, `:1237-1246` trong §3.5 và trong ADR-IMM09-SPARE-SEARCH là **hiện trạng TRƯỚC CR-73a** — giữ nguyên để truy vết, KHÔNG còn là hợp đồng. Hợp đồng hiện hành: **13 khoá**, đặc tả đầy đủ ở [`05_API_Specification.md §3.13-bis`](./05_API_Specification.md) + BR-09-21/22 + ADR-IMM09-SPARE-01/02/03.
+> **⚠️ Cite-drift:** dòng THẬT của `search_spare_parts` lúc chốt spec = `services/imm09.py:2280-2305` (row literal `:2103-2112`). Mọi cite trong doc/OAS phải refresh bằng số dòng **đọc tại chỗ sau khi sửa**.
+
+**Chữ ký GIỮ NGUYÊN** — `search_spare_parts(query: str, *, limit: int = 10) -> list[dict]`. 0 param mới ⇒ 0 path/opId/parameter mới trong OAS ⇒ `oas_baseline` GIỮ 105. 0 DocType/field mới ⇒ **KHÔNG `bench migrate`**.
+
+**Thứ tự thực thi bắt buộc trong hàm:**
+
+1. `assert_doctype_read_permission("IMM Device Model")` — role-gate, **TRƯỚC** mọi truy vấn (thiếu quyền ⇒ 0 dòng rò).
+2. Guard `len(query) < 2` → `[]` (giữ nguyên).
+3. SQL chính (§3.13-bis(3)): bỏ `DISTINCT`, `+ sp.parent AS device_model`, `WHERE sp.parenttype='IMM Device Model' AND (…)`, `ORDER BY sp.part_name ASC, sp.parent ASC`, `LIMIT`.
+4. Batch P1 — `model_name` cho `sorted(set(parents))` (1 truy vấn).
+5. Batch P2/P3 — resolve `AC Spare Part` theo `manufacturer_part_no` rồi fallback `part_name`, `is_active=1`, `order_by="name asc"` (≤2 truy vấn, **system-scope** `ignore_permissions` — ADR-IMM09-SPARE-02).
+6. Dựng row-dict 13 khoá (literal vô-điều-kiện, 3 khoá mới `str`, vắng = `""`).
+
+Decorator: `@rowscoped` trên chính `search_spare_parts` ⇒ `frappe.PermissionError` → `ServiceError(FORBIDDEN, http_status=403)` → `handle()` trả **HTTP-200 + Error envelope** (`services/shared/permissions.py:87-137`). **KHÔNG** để `PermissionError` trần (dispatcher-403/500 ⇒ FE hiểu nhầm hết phiên và đăng xuất user).
+
+**Hằng số / SSoT tái dùng — KHÔNG viết lại:**
+
+| Nhu cầu | SSoT |
+|---|---|
+| Role-gate DocPerm read | `services/shared/permissions.py::assert_doctype_read_permission` |
+| Bọc 403 envelope | `services/shared/permissions.py::rowscoped` |
+| Escape LIKE (K2, optional) | `services/imm00.py::escape_like_term` |
+
+**API tier `api/imm09.py:200-201` KHÔNG đổi** (`handle(svc.search_spare_parts, query, limit=int(limit))`) ⇒ không phát sinh cap-403 in-handler ở api-level; slot OAS `{200, 401}` GIỮ NGUYÊN (403 của role-gate là **Error envelope trên HTTP-200**, không phải status-line — nhất quán Decision-B).
 
 ### 3.6 Mobile-BE contract — `listRepairWorkOrders` self-scope `mine` (A2-symmetry CUỐI: tab "Phiếu CM của tôi" MVP-5b)
 
 **Vấn đề gốc (A2 known-gap — contract nói dối):** OpenAPI `listRepairWorkOrders` (summary `[MVP-5b] Phiếu CM của tôi`) description CLAIM **"Scope theo user"**, NHƯNG `list_repair_work_orders(filters, page, page_size)` (`api/imm09.py:21`) **KHÔNG có cơ chế** scope `assigned_to` — chỉ `parse_json(filters)` + `apply_vendor_scope("Asset Repair")` rồi `handle(svc.list_work_orders, …)`. ⇒ tab "Phiếu CM của tôi" trả **mọi** CM WO mà quyền đọc cho phép (với senior/QA `asset_repair_query` trả `""` → thấy hết, kể cả WO gán người khác), KHÔNG self-scope. Đối-xứng hệt R38 PM (ADR-MOBILE-016) — đây là **mắt-xích CUỐI** đóng đối-xứng A2 self-scope cho 3 list-read MyWorkOrdersView (Incident `reported_by` ADR-015 / PM `assigned_to` ADR-016 / **CM `assigned_to` ADR-017**).
 
-**5-câu-hỏi domain:** (stage HTM) Operation/Maintenance — corrective; (NĐ98) traceability nghiệp vụ sửa-chữa gắn đúng KTV; (stakeholder) KTV field-tech mobile + senior/QA web; (lifecycle event) repair_assigned đã ghi `assigned_to` (`services/imm09.py:449`); (hậu quả nếu data sai) tab hiển thị WO người khác → KTV nhầm việc, nhưng **không leak quyền** vì read-gating GIỮ DocPerm — `mine` chỉ là filter hiển thị.
+**5-câu-hỏi domain:** (stage HTM) Operation/Maintenance — corrective; (NĐ98) traceability nghiệp vụ sửa-chữa gắn đúng KTV; (stakeholder) KTV field-tech mobile + senior/QA web; (lifecycle event) repair_assigned đã ghi `assigned_to` (`services/imm09.py:624`); (hậu quả nếu data sai) tab hiển thị WO người khác → KTV nhầm việc, nhưng **không leak quyền** vì read-gating GIỮ DocPerm — `mine` chỉ là filter hiển thị.
 
 | Khía cạnh | Quyết định | Evidence |
 |---|---|---|
@@ -611,6 +742,395 @@ Bồi **2 path** vào contract mobile `docs/mobile/openapi/assetcore-mobile.open
 - **Alternatives (rejected):** (a) endpoint riêng — +path, nhân đôi enrich/SLA-derive; (b) component `RepairWorkOrderMine` mới — shape trùng `WorkOrderMine`, vỡ "0 component mới"; (c) `permission_query_conditions` auto-scope — vỡ view senior/QA (`asset_repair_query` trả `""` để thấy tất cả); (d) seed @service — CM filters parse @api, inject @api blast-radius nhỏ hơn.
 - **Consequences:** contract trung thực; `mine=0` backward-compat đo được; count==rows giữ; path-count 46 + 0 component mới ⇒ `generate_spec` get=232/post=256/total=488 UNCHANGED (`test_oas_d12/d15/d17` re-verify, KHÔNG re-baseline). Đóng TRỌN đối-xứng A2 (Incident/PM/CM). `mine` = filter ứng-dụng KHÔNG-phải-security-boundary.
 
+### 3.7 Seed Repair Checklist chuẩn tại `create_work_order` + backfill (CR-50 — gỡ deadlock `confirm_inspection` 422)
+
+**Vấn đề gốc (CR-50 — bug thiết kế gốc, Self-Correction):** `create_work_order` (`services/imm09.py:1530`) tạo `Asset Repair` **KHÔNG seed** child `repair_checklist` ⇒ phiếu CM do **mobile** tạo có `repair_checklist == []`. Chuỗi nghiệm thu `close_work_order` → `confirm_inspection` (`doc.submit()` → hook `validate_repair_checklist_complete`, BR-09-04) gặp `if not doc.repair_checklist:` → `nthrow_in_hook(MSG.IMM09_CHECKLIST_INCOMPLETE)` ⇒ **422 deadlock cho 100% phiếu CM mobile** (KTV không có dòng nào để điền → không bao giờ submit được → WO kẹt `Pending Inspection`, asset kẹt `Under Repair`, MTTR không chốt). Web-FE né được vì form desktop dựng sẵn dòng checklist; mobile không → deadlock.
+
+**5-câu-hỏi domain:** (stage HTM) Operation → Maintenance (corrective/nghiệm thu sau sửa); (NĐ98) Điều 28 hồ sơ — nghiệm thu sau sửa chữa phải có bằng chứng kiểm tra theo hạng mục chuẩn trước khi trả thiết bị lâm sàng; (stakeholder) KTV HTM điền kết quả · Trưởng khoa/QA nghiệm thu; (lifecycle event) `repair_pending_inspection` → `repair_completed`; (hậu quả nếu data sai) checklist rỗng → hoặc deadlock (chặn cả phiếu đạt) hoặc — nếu gỡ gate ẩu — thiết bị trả lâm sàng KHÔNG bằng chứng kiểm tra (vi phạm NĐ98). ⇒ Lời giải KHÔNG phải nới BR-09-04 mà **seed danh mục chuẩn** để mọi phiếu luôn có hạng mục để điền.
+
+#### Danh mục Repair Checklist chuẩn (BA chốt) — N = 6 dòng
+
+Seed **N = 6** dòng vào `repair_checklist` mỗi phiếu CM mới; mỗi dòng điền sẵn `test_description` + `test_category` (∈ enum `Repair Checklist.test_category` = `Electrical\nMechanical\nSoftware\nSafety\nPerformance`), `result` để **TRỐNG** cho KTV nhập (Pass/Fail/N/A). N=6 ≥ 4 (ngưỡng acceptance), phủ **cả 5** giá trị `test_category` (Safety ×2 — an toàn điện + an toàn vận hành, đúng trọng-tâm thiết bị y tế). Danh mục nghiệm thu sau sửa chữa (post-repair functional & safety verification) — ground theo enum schema có sẵn + WHO HTM chương Maintenance (verification-after-repair); **KHÔNG** cite chuẩn IEC/60601 cụ thể (chưa verify — `[UNVERIFIED]`).
+
+| idx | `test_description` (điền sẵn) | `test_category` | `result` |
+|---|---|---|---|
+| 1 | Kiểm tra nguồn điện và khởi động thiết bị (power-on self-test) | `Electrical` | *(trống)* |
+| 2 | Đo dòng rò và điện trở tiếp đất bảo vệ (an toàn điện) | `Safety` | *(trống)* |
+| 3 | Kiểm tra cơ khí: vỏ máy, kết cấu, đầu nối, bộ phận chuyển động | `Mechanical` | *(trống)* |
+| 4 | Xác nhận phiên bản firmware/phần mềm và cấu hình vận hành | `Software` | *(trống)* |
+| 5 | Chạy chức năng chính, đối chiếu thông số kỹ thuật thiết bị | `Performance` | *(trống)* |
+| 6 | Kiểm tra hệ thống cảnh báo và khóa an toàn (alarm & safety interlock) | `Safety` | *(trống)* |
+
+**SoT hằng số (BE):** khai module-level constant `_STANDARD_REPAIR_CHECKLIST: list[dict]` trong `services/imm09.py` (6 dict `{test_description, test_category}` theo bảng trên) + helper `_standard_repair_checklist_rows() -> list[dict]` trả bản **copy mới** mỗi lần gọi (tránh chia sẻ mutable reference giữa doc). `expected_value`/`measured_value` để trống (tùy thiết bị — KTV/model điền). CHỈ 2 field điền sẵn (`test_description`, `test_category`) — cả hai đều là `reqd=1` của child DocType ⇒ row seed hợp lệ, save không lỗi mandatory; `result` KHÔNG reqd ⇒ để trống hợp lệ đến khi submit.
+
+#### AC1 — `create_work_order` seed checklist (KHÔNG rỗng)
+
+Trong `create_work_order`, **SAU** khi build `doc = frappe.get_doc({...})` (`services/imm09.py:1574`) và **TRƯỚC** `doc.insert(...)` (`:1409`), append 6 dòng chuẩn:
+
+```python
+for row in _standard_repair_checklist_rows():
+    doc.append("repair_checklist", row)   # test_description + test_category; result trống
+```
+
+Kết quả: mọi phiếu CM mới (mobile & web) có `len(repair_checklist) == 6`, mỗi dòng có `test_description` + `test_category` ∈ enum, `result == ""`. Response `create_work_order` GIỮ shape cũ `{name, status, sla_target_hours}` (KHÔNG thêm key — checklist đọc qua `get_repair_work_order`).
+
+#### AC4 — `_apply_checklist` cập nhật dòng seed theo `idx` (KHÔNG append trùng)
+
+`_apply_checklist(doc, results)` (`services/imm09.py:1974`) ĐÃ có nhánh else idx-update (`:1802-1807`): với mỗi `r`, tìm `row.idx == r.get("idx")` rồi ghi `result`/`measured_value`/`notes`. Vì phiếu mới luôn có seed ⇒ `doc.repair_checklist` non-empty ⇒ **luôn** đi nhánh idx-update (nhánh append `if not doc.repair_checklist:` `:1793-1801` trở thành dead-path cho phiếu seeded). Invariant BE (test): sau `close_work_order(checklist_results=[{idx, result}, ...])` → `len(repair_checklist)` **GIỮ NGUYÊN = 6** (KHÔNG append trùng) + `test_category`/`test_description` của mỗi dòng seed **được bảo toàn** (nhánh idx-update KHÔNG chạm 2 field này). Contract mobile: `checklist_results[]` **PHẢI** key theo `idx` (1-based Frappe child idx) — `r` thiếu `idx` (hoặc idx∉[1..6]) → KHÔNG match → `result` giữ trống → BR-09-04 chặn (fail-loud, đúng ý đồ). Đối xứng discriminator `idx` của `attach_repair_checklist_photo` (§3.10).
+
+> **Lưu ý nhánh append (dead-path sau seed, giữ regression-safe):** nhánh `if not doc.repair_checklist:` chỉ còn dùng cho phiếu **legacy chưa backfill** (0 dòng) đóng qua web với `checklist_results` mang sẵn `test_description`. Vì `test_category` là `reqd=1`, nhánh này append `{test_description, result, measured_value, notes}` mà **thiếu** `test_category` ⇒ `doc.save()` sẽ MandatoryError. BE khi chạm hàm này PHẢI thêm `test_category` vào dict append (từ payload `r.get("test_category")` hoặc fallback `""`→sẽ lỗi; khuyến nghị fallback `Performance` hoặc yêu-cầu payload có). **KHÔNG** cần cho phiếu seeded (dead-path) nhưng ghi nhận để BE không để lỗ mandatory.
+
+#### AC5 — `backfill_repair_checklists()` callable (KHÔNG migrate, user-invoke)
+
+Thêm hàm `backfill_repair_checklists(dry_run: int = 1)` trong `assetcore/setup/backfill_repair_checklists.py` (pattern `backfill_workflow_admin.run` — user chạy `bench --site <site> execute assetcore.setup.backfill_repair_checklists.run`, **KHÔNG** patch/`bench migrate`). Logic:
+
+- Quét `Asset Repair` với `status NOT IN (Completed, Cannot Repair, Cancelled)` **và** `docstatus == 0` (phiếu CHƯA đóng — còn callable).
+- Với mỗi WO: nếu `len(repair_checklist) == 0` → append 6 dòng chuẩn (`_standard_repair_checklist_rows()`) + `doc.flags.ignore_links = True` + `RepairRepo.save(doc)` (KHÔNG submit).
+- **Idempotent:** BỎ QUA phiếu đã có ≥1 dòng (`len(repair_checklist) > 0`) + BỎ QUA phiếu `Completed`/`Cancelled`/docstatus≠0 (không đụng phiếu đã chốt/submit). Chạy lần 2 → 0 thêm.
+- Trả `{"scanned": int, "backfilled": int, "skipped_has_rows": int}` (đếm — parity `backfill_workflow_admin`). `dry_run=1` (mặc định) chỉ đếm, KHÔNG ghi; `dry_run=0` mới ghi. `frappe.db.commit()` cuối khi `dry_run=0`.
+
+#### AC3 — Regression BR-09-04 NGUYÊN VẸN
+
+`validate_repair_checklist_complete` (`services/imm09.py:829`) **KHÔNG đổi**. Sau seed, gate vẫn: (a) `repair_checklist` rỗng → 422 `IMM09_CHECKLIST_INCOMPLETE` (không còn xảy ra cho phiếu seeded, nhưng giữ cho phiếu legacy chưa backfill — fail-safe); (b) dòng có `result` trống → 422 `IMM09_CHECKLIST_INCOMPLETE` (idx nêu rõ); (c) dòng `result == "Fail"` → 422 `IMM09_CHECKLIST_FAILED`. ⇒ Phiếu điền đủ Pass mới submit được; điền thiếu HOẶC có Fail vẫn chặn (acceptance AC3). Seed CHỈ dựng khung để KTV điền — KHÔNG tự-Pass (dòng seed `result` trống ⇒ mặc định phiếu mới CHƯA thể submit đến khi KTV điền hết Pass).
+
+**Boundaries (Always / Never):**
+
+| | |
+|---|---|
+| **Always** | Seed 6 dòng chuẩn tại `create_work_order` SAU `get_doc` TRƯỚC `insert`. Mỗi dòng seed: `test_description` + `test_category` ∈ enum, `result` TRỐNG. `_apply_checklist` cập nhật dòng seed theo `idx` (giữ `len` + bảo toàn `test_category`/`test_description`). Backfill CHỈ phiếu 0-dòng, status chưa đóng, docstatus=0; idempotent; trả count. Giữ nguyên `validate_repair_checklist_complete` (BR-09-04). Danh mục là copy-mới mỗi phiếu (no shared mutable). |
+| **Never** | KHÔNG nới/bỏ BR-09-04 (không tự-Pass, không skip khi rỗng — deadlock đúng phải fix bằng seed, KHÔNG bằng gỡ gate). KHÔNG seed `result` khác trống (seed Pass = trả thiết bị KHÔNG kiểm tra, vi phạm NĐ98). KHÔNG append trùng trong `_apply_checklist` khi đã có dòng (idx-update). Backfill KHÔNG đụng phiếu Completed/Cancelled/submitted. KHÔNG `bench migrate`/patch cho backfill (user-invoke `bench execute`). KHÔNG thêm key vào response `create_work_order`. KHÔNG đổi enum `test_category` (đã đủ 5 giá trị). |
+
+**ADR-IMM09-SEED-CHECKLIST — seed danh mục Repair Checklist chuẩn tại create (constant SoT), KHÔNG nới BR-09-04**
+
+- **Status:** Accepted · **Date:** 2026-07-23 · CR-50.
+- **Context:** phiếu CM mobile tạo với `repair_checklist=[]` → `confirm_inspection` submit → BR-09-04 `if not doc.repair_checklist` raise 422 → deadlock 100% phiếu CM mobile (WO kẹt Pending Inspection, asset kẹt Under Repair, MTTR không chốt). 2 hướng: (A) nới BR-09-04 cho phép submit khi checklist rỗng; (B) seed danh mục chuẩn tại create để luôn có hạng mục điền.
+- **Decision:** chọn (B). Seed **6 dòng** danh mục chuẩn (`_STANDARD_REPAIR_CHECKLIST` constant SoT trong `services/imm09.py`) vào `repair_checklist` tại `create_work_order` (mọi kênh — mobile & web), `result` TRỐNG. `_apply_checklist` cập nhật theo `idx`. Backfill callable cho phiếu đang kẹt. BR-09-04 GIỮ NGUYÊN.
+- **Alternatives (rejected):** (a) **nới BR-09-04** (submit khi checklist rỗng) — thiết bị y tế trả lâm sàng KHÔNG bằng chứng nghiệm thu, vi phạm NĐ98 Điều 28 + xóa mục đích BR-09-04; (b) **DocType master `Repair Checklist Template`** cấu hình per device-model — linh hoạt hơn nhưng thêm doctype + migration + seed-fixture, quá tải cho MVP gỡ-deadlock; ghi ROADMAP (khi cần catalog theo hạng thiết bị). Constant đủ cho MVP, dễ audit, 0 migration; (c) **seed FE-only** (mobile app dựng 6 dòng gửi lên `close_work_order`) — client tự gõ/replay/app khác bỏ qua → checklist vẫn rỗng ở boundary; seed PHẢI ở server (create). (d) **seed tại `close_work_order` nếu rỗng** — muộn: phiếu ở Pending Inspection giữa create↔close vẫn 0 dòng, và edge race; seed sớm nhất (create) đơn giản + đối xứng lifecycle.
+- **Consequences:** mọi phiếu CM mới có 6 dòng để KTV điền → `confirm_inspection` submit được sau khi điền đủ Pass (deadlock CR-50 gỡ). `_apply_checklist` idx-update (0 append trùng). Backfill gỡ phiếu đang kẹt (user-invoke, idempotent). BR-09-04 nguyên vẹn (điền thiếu/Fail vẫn 422). 0 schema change (child `Repair Checklist` đã có `test_category`). Test: `test_imm09` module-isolated + `test_mobile_oas` XANH. Nếu sau cần catalog per device-model → ROADMAP DocType template (supersede ADR này).
+
+---
+
+### 3.8 AC-CR-78 — Phụ tùng đã dùng: predicate phiếu-xuất-kho **DÙNG CHUNG** display ⇔ enforcement (BR-09-02)
+
+> **Trạng thái:** 🔴 **SPEC CHỐT 2026-07-27 (BA — Bước-2)** · BE/FE **Bước-4**. Đóng `CR-71` sổ mobile
+> (`RepairWorkOrderDetail.spare_parts_used[]` KHÔNG có ⇒ mobile "gõ mã mò").
+> **SSoT hợp đồng wire:** [`05_API_Specification.md §13`](./05_API_Specification.md).
+> ⚠️ **Slice contract KHÔNG đóng ở Bước-2** (mirror AC-CR-77): cite `services/imm09.py:<dòng> <symbol>`
+> phải nằm TRONG vùng AST của symbol ⇒ symbol phải **land trước**, OAS + guard dán **cùng vòng** (atomic).
+
+#### 3.8.1 Vấn đề (verify @source 2026-07-27)
+
+| # | Sự thật tại chỗ | Hệ quả |
+|---|---|---|
+| **P1** | `services/imm09.py:861-869` `validate_spare_parts_stock_entries` là **nơi DUY NHẤT** biết một dòng phụ tùng có phiếu xuất kho hợp lệ hay không (BR-09-02, chạy `before_submit`) | Người dùng chỉ biết mình sai **tại giây submit** (422), sau khi đã điền xong cả phiếu |
+| **P2** | `get_work_order` (`:1170-1232`) trả `spare_parts_used` **thô** qua `doc.as_dict()` — 9 khoá domain + meta Frappe, **0 khoá phái sinh** | Mobile không có `spare_parts_used` trong hợp đồng OAS ⇒ **gõ mã mò**; không đoán được dòng nào chặn submit |
+| **P3** | `frontend/src/views/cm/CMWorkOrderDetailView.vue:376` render `v-if="p.stock_entry_ref"` → **mã phiếu màu XANH** | `stock_entry_ref` **treo (dangling)** — trỏ `AC Stock Movement` đã bị xoá/gõ sai — hiển thị **y hệt hợp lệ**. Badge XANH GIẢ. Đúng class-of-bug **display ⇔ enforcement** đã cắn 2 lần (CR-54 G05, CR-76 G01/G03) |
+| **P4** | Validator gọi `frappe.db.exists("AC Stock Movement", ref)` **trong vòng lặp** | N+1 theo số dòng phụ tùng (nhỏ nhưng là mẫu sai để nhân bản sang display) |
+
+> 🔧 **Self-Correction (thiết kế gốc sai — sửa trong vòng này):** mẫu code ở §"Error handling pattern"
+> của file này viết `frappe.db.exists("Stock Entry", …)` + `raise ServiceError(...)`. **SAI so với code
+> thật**: DocType là **`AC Stock Movement`** (`assetcore/assetcore/doctype/ac_stock_movement/`, KHÔNG dùng
+> ERPNext `Stock Entry` — v3 soft-reference) và cơ chế là `nthrow_in_hook(MSG.IMM09_*)`. Đã sửa mẫu bên dưới.
+
+#### 3.8.2 Hợp đồng SSoT — 1 predicate, 2 người tiêu thụ
+
+> ⚠️ **CẢI CHÍNH SAU KHI LAND (BE — Bước-4, 2026-07-27).** Ngữ nghĩa (bảng chân trị, ≤1 query,
+> `frappe.get_all` raw-scope, 2 message-code, thứ tự raise theo `idx`) **GIỮ NGUYÊN 100%**; chỉ
+> **TÊN + cách chia symbol** khác bản phác Bước-2 — code THẬT trên đĩa là nguồn duy nhất:
+>
+> | Bản phác Bước-2 (doc) | Đã land (`services/imm09.py`) | Ghi chú |
+> |---|---|---|
+> | `SPARE_STOCK_ENTRY_STATUSES` | **`_STOCK_ENTRY_STATUS`** `:728` | guard `cr78_g` import THẬT hằng NÀY |
+> | `_spare_parts_stock_entry_statuses(rows) -> list[str]` | **`_resolve_known_stock_entries(rows) -> set[str]`** `:711-727` (batch 1 query, `set()` ngay khi 0 ref) **+** **`_spare_row_stock_status(row, known_refs) -> str`** `:730-744` (predicate THEO DÒNG) | tách 2 để vòng lặp của validator dùng ĐÚNG predicate per-row mà không phải zip list — vẫn là MỘT predicate duy nhất |
+> | `_enrich_spare_parts_used(data)` | **inline trong `get_work_order`** `:1256-1276` | giữ enrich NGAY SAU `data = doc.as_dict()`, TRƯỚC mọi enrich khác; 3 lớp gate CR-74 vẫn chạy TRƯỚC |
+> | `_DT_STOCK_MOVEMENT` | **`_DT_STOCK_MOVEMENT`** `:727`-trên | không đổi |
+>
+> Cite trong OAS + guard `cr78_e` bám tên ĐÃ LAND. **[BA] cần ratify** tên chốt để lần sau khỏi lệch.
+
+**Symbol MỚI (`services/imm09.py`, đặt NGAY TRÊN `validate_spare_parts_stock_entries`):**
+
+| Symbol | Chữ ký | Trả về | Ràng buộc |
+|---|---|---|---|
+| `SPARE_STOCK_ENTRY_STATUSES` | `tuple[str, ...]` module-level | `("OK", "MISSING", "NOT_FOUND")` | **Enum SSoT** — OAS enum, nhãn FE và guard parity ĐỀU tham chiếu tuple này (guard `cr78_g` import THẬT, mirror `cr77_i`) |
+| `_spare_parts_stock_entry_statuses(rows)` | `(rows: Iterable) -> list[str]` | list **cùng độ dài + cùng thứ tự** với `rows`, phần tử ∈ `SPARE_STOCK_ENTRY_STATUSES` | **Predicate DUY NHẤT** của BR-09-02. Pure trừ **≤1** `frappe.get_all("AC Stock Movement", filters={"name": ("in", …)}, pluck="name")`. `rows` rỗng ⇒ `[]` + **0 query**. Mọi ref rỗng ⇒ **0 query**. Nhận CẢ child `Document` LẪN `dict` (truy cập bằng `.get("stock_entry_ref")` — cả 2 kiểu đều hỗ trợ) |
+| `_enrich_spare_parts_used(data)` | `(data: dict) -> None` | None (mutate `data`) | Sắp `data["spare_parts_used"]` theo `int(idx or 0)` **tăng dần**, bồi 2 khoá phái sinh mỗi dòng, set `data["parts_pending_stock_entry"]`. Gọi **1 lần** trong `get_work_order`, **SAU** khuôn 3 lớp CR-74 |
+
+**Bảng chân trị (một nguồn — cấm diễn giải lần 2):**
+
+| Điều kiện dòng | `stock_entry_status` | `stock_entry_ok` | `validate_spare_parts_stock_entries` |
+|---|---|---|---|
+| `stock_entry_ref` **falsy** (`""`/`None`) | `MISSING` | `0` | `nthrow_in_hook(MSG.IMM09_SPARE_NO_STOCK_ENTRY, item_name, idx)` |
+| có ref nhưng `AC Stock Movement` **∄** | `NOT_FOUND` | `0` | `nthrow_in_hook(MSG.IMM09_STOCK_ENTRY_NOT_FOUND, stock_entry_ref)` |
+| còn lại | `OK` | `1` | không raise |
+
+**Code-shape BẮT BUỘC (BE Bước-4 — thứ tự + tên symbol là hợp đồng):**
+
+```python
+SPARE_STOCK_ENTRY_STATUSES = ("OK", "MISSING", "NOT_FOUND")
+
+
+def _spare_parts_stock_entry_statuses(rows) -> list[str]:
+    """SSoT BR-09-02 — trạng thái phiếu xuất kho THEO TỪNG DÒNG phụ tùng.
+
+    Nguồn DUY NHẤT cho CẢ enforcement (`validate_spare_parts_stock_entries`,
+    before_submit) LẪN display (`get_work_order` → `stock_entry_status`) ⇒ badge
+    trên màn CM/mobile là TẤM GƯƠNG của validator, không phải bản diễn giải thứ 2
+    (INV-PARTS-1; class-of-bug đã cắn ở CR-54 G05 + CR-76 G01/G03).
+
+    ≤1 query `AC Stock Movement` cho TOÀN phiếu (batched `in`); 0 query khi rows
+    rỗng hoặc mọi ref rỗng. `frappe.get_all` (ignore_permissions) — CÙNG ngữ nghĩa
+    raw với `frappe.db.exists` mà validator dùng trước đây, KHÔNG siết thêm quyền.
+    """
+    rows = list(rows or [])
+    if not rows:
+        return []
+    refs = {r.get("stock_entry_ref") for r in rows}
+    refs.discard(None)
+    refs.discard("")
+    existing: set = set()
+    if refs:
+        # ⚠️ `limit_page_length=0` TƯỜNG MINH = KHÔNG giới hạn. `frappe.get_all` hiện đã tự set 0 khi
+        #    caller không truyền (frappe/__init__.py::get_all), NHƯNG docstring của chính nó vẫn ghi
+        #    "Default 20" và `frappe.get_list` mặc định CÓ cap ⇒ ai đó đổi sang get_list/thêm arg là
+        #    phiếu >20 dòng bị cắt câm → ref thứ 21 trở đi bị gán NHẦM `NOT_FOUND` (badge đỏ giả,
+        #    đúng lỗi soi gương của badge xanh giả). Truyền tường minh để bất biến này tự-tài-liệu.
+        existing = set(frappe.get_all(
+            "AC Stock Movement", filters={"name": ("in", sorted(refs))},
+            pluck="name", limit_page_length=0))
+    out = []
+    for r in rows:
+        ref = r.get("stock_entry_ref")
+        if not ref:
+            out.append("MISSING")
+        elif ref not in existing:
+            out.append("NOT_FOUND")
+        else:
+            out.append("OK")
+    return out
+
+
+def validate_spare_parts_stock_entries(doc) -> None:
+    """BR-09-02: mỗi dòng Spare Parts phải có stock_entry_ref trỏ AC Stock Movement.
+
+    KHÔNG tự so sánh — đọc trạng thái từ SSoT `_spare_parts_stock_entry_statuses`
+    (INV-PARTS-1). Thứ tự raise GIỮ NGUYÊN: dòng đầu tiên non-OK theo idx.
+    """
+    rows = list(doc.spare_parts_used or [])
+    for row, status in zip(rows, _spare_parts_stock_entry_statuses(rows)):
+        if status == "MISSING":
+            nthrow_in_hook(MSG.IMM09_SPARE_NO_STOCK_ENTRY,
+                           item_name=row.item_name, idx=row.idx)
+        if status == "NOT_FOUND":
+            nthrow_in_hook(MSG.IMM09_STOCK_ENTRY_NOT_FOUND,
+                           stock_entry_ref=row.stock_entry_ref)
+
+
+def _enrich_spare_parts_used(data: dict) -> None:
+    """Bồi 2 khoá phái sinh + tổng `parts_pending_stock_entry` (AC-CR-78).
+
+    `stock_entry_ok` là **integer 0|1** (quirk CR-01 — as_dict phát Check thành int;
+    KHÔNG boolean, để client codegen không phải xử lý 2 kiểu chân-trị trên cùng payload).
+    """
+    rows = list(data.get("spare_parts_used") or [])
+    rows.sort(key=lambda r: int(r.get("idx") or 0))
+    statuses = _spare_parts_stock_entry_statuses(rows)
+    pending = 0
+    for row, status in zip(rows, statuses):
+        row["stock_entry_status"] = status
+        row["stock_entry_ok"] = 1 if status == "OK" else 0
+        pending += 0 if status == "OK" else 1
+    data["spare_parts_used"] = rows
+    data["parts_pending_stock_entry"] = pending
+```
+
+**Điểm cắm trong `get_work_order`** — SAU `_enrich_sla_breach([data])`, TRƯỚC `return data`:
+
+```python
+    _enrich_sla_breach([data])
+    _enrich_spare_parts_used(data)   # AC-CR-78 — SAU khuôn 3 lớp CR-74 (A5)
+    return data
+```
+
+#### 3.8.3 Invariants
+
+| ID | Phát biểu | Đo bằng |
+|---|---|---|
+| **INV-PARTS-1** | Trên CÙNG một doc: `parts_pending_stock_entry == 0` ⟺ `validate_spare_parts_stock_entries(doc)` KHÔNG raise; `> 0` ⟺ raise | `TC-CM-PARTS-05/06` (2 chiều, cả nhánh MISSING và NOT_FOUND) |
+| **INV-PARTS-2** | `parts_pending_stock_entry == len([r for r in spare_parts_used if r["stock_entry_ok"] == 0])` | `TC-CM-PARTS-02` |
+| **INV-PARTS-3** | `spare_parts_used` LUÔN là mảng (khoá có mặt, `[]` khi 0 dòng — `as_dict` emit key cho mọi table field: `frappe/model/base_document.py::as_dict` vòng `for fieldname in self._table_fieldnames`) | `TC-CM-PARTS-01` |
+| **INV-PARTS-4** | Số query tới `AC Stock Movement` cho 1 lần `get_work_order` **≤ 1**, và KHÔNG tăng theo số dòng (N=2 ≡ N=10); `= 0` khi `spare_parts_used` rỗng | `TC-CM-PARTS-07` |
+| **INV-PARTS-6** | Batch **KHÔNG bị cắt trang**: phiếu **>20 dòng** ref hợp lệ ⇒ **tất cả** ra `OK` (`limit_page_length=0`; cap 20 sẽ khiến dòng thứ 21+ bị gán nhầm `NOT_FOUND`) | `TC-CM-PARTS-09` |
+| **INV-PARTS-5** | Persona không đọc được doc ⇒ **403 in-envelope (HTTP-200)** và enrich **KHÔNG chạy** (Error envelope 0 khoá `spare_parts_used`/`parts_pending_stock_entry`) | `TC-CM-PARTS-08` |
+
+#### 3.8.4 ADR
+
+**ADR-IMM09-PARTS-01 — MỘT predicate cho display và enforcement**
+
+- **Status:** Accepted · **Date:** 2026-07-27 · AC-CR-78.
+- **Context:** BR-09-02 chỉ sống trong validator `before_submit`. Màn CM web tự diễn giải bằng `v-if="p.stock_entry_ref"` ⇒ ref treo hiện **XANH như hợp lệ**; mobile không có dữ liệu nên "gõ mã mò". Dự án đã ăn đúng class-of-bug này 2 lần (CR-54 thẻ G05, CR-76 thẻ G01/G03).
+- **Decision:** trích predicate ra `_spare_parts_stock_entry_statuses` và bắt **cả hai** người tiêu thụ (validator + `get_work_order`) đọc từ đó. Badge = tấm gương của validator. Cấm viết lại phép so sánh `if not ref` / `exists(...)` ở bất kỳ chỗ nào khác (BE, FE, report, mobile).
+- **Alternatives (rejected):** (a) **FE tự gọi thêm endpoint kiểm tra tồn tại** cho từng ref — N request, vẫn là predicate thứ 2, và không dùng được cho mobile offline-first; (b) **thêm field lưu `stock_entry_valid` trên child DocType** — trạng thái phái sinh bị đóng băng, `AC Stock Movement` xoá sau đó thì flag nói dối (chính bẫy "badge xanh giả" nhưng bền hơn) + cần migration; (c) **để validator raise sớm hơn (on `validate`)** — chặn KTV lưu nháp giữa chừng khi chưa xin được phiếu kho, phá luồng "Pending Parts".
+- **Consequences:** 1 nơi sửa khi luật đổi. Validator hết N+1 (batched). `stock_entry_status` là **derived, không lưu** ⇒ luôn tươi. Nếu sau này cần chuẩn hoá ref (trim khoảng trắng) thì **phải sửa trong helper** ⇒ display và enforcement dịch chuyển cùng nhau, không lệch.
+
+**ADR-IMM09-PARTS-02 — `stock_entry_ok` là `integer 0|1`, KHÔNG boolean**
+
+- **Status:** Accepted · **Date:** 2026-07-27 · AC-CR-78.
+- **Context:** payload `getRepairWorkOrder` = `doc.as_dict()` ⇒ mọi field `Check` đến dạng **int thô** (quirk CR-01 đã ghim trong OAS: "4 Check fieldtype → integer enum[0,1]"). Thêm một cờ phái sinh kiểu `boolean` sẽ tạo **2 từ vựng chân-trị trên cùng một payload**.
+- **Decision:** `stock_entry_ok: integer, enum [0,1]`. `stock_entry_status` (string 3 giá trị) là khoá **chẩn đoán**; `stock_entry_ok` là khoá **quyết định** để client lọc/đếm nhanh.
+- **Alternatives (rejected):** (a) `boolean` — lệch quirk CR-01, codegen sinh 2 kiểu; (b) **chỉ có `stock_entry_status`** (bỏ `stock_entry_ok`) — client phải hardcode chuỗi `"OK"` để đếm ⇒ đổi enum sau này là breaking change câm; (c) **chỉ có `stock_entry_ok`** — mất phân biệt "chưa có phiếu" vs "phiếu không tồn tại", chính là thứ A8 cần hiển thị.
+- **Consequences:** 2 khoá phái sinh/dòng (dư 1 chút) đổi lấy: đếm không cần so chuỗi + hiển thị đủ 3 trạng thái. `parts_pending_stock_entry` định nghĩa theo `stock_entry_ok == 0` (số học, không so chuỗi).
+
+**ADR-IMM09-PARTS-03 — giữ NGUYÊN ngữ nghĩa "ref falsy" (không `.strip()`)**
+
+- **Status:** Accepted · **Date:** 2026-07-27 · AC-CR-78.
+- **Context:** validator hiện dùng truthiness thô `if not row.stock_entry_ref`. Ref toàn khoảng trắng `" "` là **truthy** ⇒ rơi nhánh `NOT_FOUND` (vì `AC Stock Movement` tên đó không tồn tại), KHÔNG phải `MISSING`.
+- **Decision:** helper giữ **đúng** truthiness thô — vòng này **0 đổi hành vi enforcement**. Ca `" "` vẫn chặn submit (chỉ khác mã lỗi hiển thị), nên không có lỗ nghiệp vụ.
+- **Alternatives (rejected):** thêm `.strip()` — đổi mã lỗi observable của một ca biên (Hyrum) **trong cùng vòng** đang đổi shape payload ⇒ trộn 2 loại thay đổi, khó quy trách khi test đỏ.
+- **Consequences:** parity display ⇔ enforcement tuyệt đối trong vòng này. Muốn chuẩn hoá về sau → ADR mới supersede, sửa **1 chỗ** (helper), và cả 2 mặt đổi cùng lúc.
+
+#### 3.8.5 Boundaries
+
+**Always** — 2 khoá phái sinh tính từ `_spare_parts_stock_entry_statuses` · enrich chạy SAU L2 `assert_can_read_doc` · `spare_parts_used` là mảng (không null) · sắp theo `idx` tăng dần · `stock_entry_ok` là int.
+**Ask-first** — chuẩn hoá/trim `stock_entry_ref` (ADR-PARTS-03) · nâng BR-09-02 lên `validate` thay `before_submit` · thêm khoá tồn kho (`available_qty`/`warehouse`) vào dòng — đó là **CR-73 nhóm-2**, KHÔNG gộp.
+**Never** — ❌ viết lại phép so sánh ref ở nơi thứ 2 (BE/FE/report/mobile) · ❌ lưu trạng thái phái sinh vào DocType · ❌ đổi/xoá/đổi tên 9 khoá domain · ❌ `stock_entry_ok` kiểu boolean · ❌ query `AC Stock Movement` trong vòng lặp · ❌ chạm `assert_vendor_can_access` / thứ tự 3 lớp CR-74 · ❌ thêm path/opId/param OAS.
+
+---
+
+### 3.9 AC-CR-79 — `_ALLOWED_FILTER_KEYS` SSoT cho `list_repair_work_orders` 🔴 SPEC
+
+> Hợp đồng đầy đủ + 3 ADR: [`../imm-08/05 §14`](../imm-08/05_API_Specification.md) (canonical) ·
+> delta CM: [`05 §14`](./05_API_Specification.md). Helper CHUNG + MSG registry + gen_fe_messages:
+> [`../imm-08/04 §4.4.1/§4.4.4`](../imm-08/04_Backend_Design.md) — **KHÔNG viết lại lần hai**.
+
+#### 3.9.1 Hằng SSoT — `services/imm09.py` (module-level, đặt cạnh `_LIST_WO_FIELDS` `:2429`)
+
+```python
+# AC-CR-79 — SSoT DUY NHẤT tập khoá `filters` được honor bởi `list_work_orders`.
+# Khoá ngoài tập này ⇒ 400 IN-ENVELOPE (KHÔNG còn OperationalError 1054 → HTTP-500
+# lộ `tabAsset Repair.<cột>`). OAS `RepairWorkOrderFilters` + guard `cr79_*` ĐỌC/SO
+# THẲNG hằng này. Mỗi khoá có consumer THẬT (`05 §14.2`).
+_ALLOWED_FILTER_KEYS = frozenset({
+    # ── cột THẬT trên `Asset Repair` ─────────────────────────────────────────
+    "name", "status", "asset_ref", "asset_name", "assigned_to",
+    "priority", "repair_type", "risk_class", "root_cause_category",
+    "sla_breached", "sla_target_hours", "is_repeat_failure",
+    "open_datetime", "completion_datetime", "mttr_hours",
+    # ── khoá ẢO (bị pop/dịch TRƯỚC khi xuống `frappe.get_list`) ─────────────
+    "open",                # → `_apply_open_drill` :1073 → `open_repair_filter` (BR-09-08)
+    "sla_breached_live",   # → `_list_sla_breached_live` :1199 (chip mobile "Quá hạn SLA")
+    "search",              # → `pop_search` (OR-LIKE name/asset_ref + asset_name)
+})
+```
+
+**CỐ Ý loại** `parts_hold_hours`/`parts_hold_started` (nội bộ đồng-hồ-dừng BR-09-10; `parts_hold_started`
+còn bị `_finalize_list_row` **pop khỏi payload** ⇒ cho filter theo nó là quảng cáo một khoá không tồn tại
+với client) — danh sách loại đầy đủ ở `05 §14.2`.
+
+#### 3.9.2 Điểm cắm — **1 dòng**, TRƯỚC `run_rowscoped`
+
+```python
+def list_work_orders(filters: dict, *, page: int = 1, page_size: int = 20) -> dict:
+    # AC-CR-79: validate TRƯỚC pop `sla_breached_live` / `pop_search` /
+    # `_apply_open_drill` / `_normalize_filters` ⇒ 3 khoá ảo còn nguyên lúc kiểm
+    # (nên PHẢI ∈ whitelist) và ngữ nghĩa KHÔNG đổi — `open` vẫn thua `status`
+    # đơn lẻ (`_apply_open_drill:1081`). Đặt NGOÀI `run_rowscoped` vì
+    # `ServiceError` ≠ `PermissionError` ⇒ không bị nhánh 403 nuốt.
+    assert_allowed_filter_keys(filters, _ALLOWED_FILTER_KEYS)
+    return run_rowscoped(_list_work_orders, filters, page=page, page_size=page_size)
+```
+
+`_list_work_orders` (`:1196`) **KHÔNG đổi 1 dòng nào** ⇒ payload success byte-identical (INV-FKEY-1).
+
+#### 3.9.3 Boundaries
+
+**Always** — 1 hằng `frozenset` module-level · cơ chế raise dùng CHUNG helper `shared/filters.py` · validate
+trước 4 phép biến đổi · `_VENDOR_SCOPE_FIELD_MAP["Asset Repair"]` (`scope.py:115`) ∈ whitelist (AC4).
+**Ask-first** — thêm/bớt khoá · đưa `parts_hold_*` vào whitelist.
+**Never** — ❌ raise → HTTP-4xx · ❌ echo tên bảng/cột SQL vào message · ❌ chép tập khoá lần hai ·
+❌ đổi ngữ nghĩa `open`/`sla_breached_live`/`search` · ❌ sửa `_VENDOR_SCOPE_FIELD_MAP` để test xanh ·
+❌ chạm `services/imm11.py` (backlog `05 §14.10`).
+
+---
+
+### 3.10 AC-CR-84 — Cổng **ảnh bằng chứng NĐ98** dựng trên MỘT predicate SSoT 🟢 **ĐÃ LAND 2026-07-27**
+
+> **Toạ độ THẬT sau khi land** (cite theo dòng HIỆN HÀNH sau **AC-CR-85** — đọc lại trước khi sửa, đa-phiên ⇒ số dịch):
+> `_EVIDENCE_HIGH_RISK` `:403` · `_MSG_REPAIR_EVIDENCE_FIELD` `:408` · `_repair_evidence_gate_applies` `:411-419` ·
+> `_repair_row_is_persisted` `:422-432` · `_repair_evidence_missing_idxs` `:435-464` ·
+> `_REPAIR_ACTION_REASON_EVIDENCE_PHOTO` `:223` · `_REPAIR_ACTION_REASON_EVIDENCE_PHOTO_INSPECT` `:232` ·
+> **P1** `close_work_order` `:2218-2341` · **P2** `confirm_inspection` `:2368-2443` ·
+> **P3** `_build_repair_available_actions` `:274-382` · **P4** `get_work_order` `:1577-1682` ·
+> **P5** `_assert_repair_photo_attachable` `:1727-1745` (gọi trong `attach_repair_checklist_photo` `:1760-1904`).
+> Đếm ảnh TÁI DÙNG `_repair_checklist_item_photos` (SoT chung với hiển thị + max-count đính ảnh) thay vì đọc
+> `row.photo` lần thứ hai — mẫu code §3.10.1 giữ nguyên NGỮ NGHĨA, khác cách viết. `test_imm09` **278 OK**.
+
+> Đặc tả hợp đồng đầy đủ + 5 ADR: [`05_API_Specification.md §16`](./05_API_Specification.md). Mục này là **recipe BE**: đặt cái gì, ở đâu, theo thứ tự nào.
+
+**Vấn đề (verify @source 2026-07-27):** `repair_checklist[].photo` có, endpoint đính ảnh có (`services/imm09.py:1595`), nhưng **0 chỗ** đọc `photo` để **chặn** — `close_work_order` (`:2046`) và `validate_repair_checklist_complete` (`:955`) chỉ kiểm `result`. Cổng NĐ98 Class C/D vì thế chỉ tồn tại ở client mobile, và ở đó nó **chết** vì suy nhóm nguy cơ từ `risk_class` (ánh xạ mất mát `_risk_map`). Xem `05 §16.1`.
+
+#### 3.10.1 Hằng + predicate (module-level, đặt CẠNH khối `_REPAIR_ACTION_*`)
+
+| Symbol | Vai trò |
+|---|---|
+| `_EVIDENCE_HIGH_RISK: frozenset[str] = {"High", "Critical"}` | SSoT nhóm nguy cơ. **Nguồn = `AC Asset.risk_classification`**, KHÔNG `Asset Repair.risk_class` (LL-BE-58) |
+| `_repair_evidence_gate_applies(risk_classification) -> bool` | `(rc or "").strip() in _EVIDENCE_HIGH_RISK` — `""`/None/giá trị lạ ⇒ `False` |
+| `_repair_row_is_persisted(row) -> bool` | `bool(row.name) and not row.get("__islocal")` — Frappe gắn `__islocal=1` cho child mới `append` (`frappe/model/base_document.py:337-338`) |
+| `_repair_evidence_missing_idxs(wo, risk_classification=None) -> list[int]` | **PREDICATE SSoT**. `None` = "chưa tra" (tự tra ≤1 query); `""` = "đã tra, chưa phân loại" (KHÔNG tra lại) |
+| `_REPAIR_ACTION_REASON_EVIDENCE_PHOTO: str` | Reason VI **hằng** cho CTA bị tắt (bậc business) |
+
+Mã nguồn mẫu: `05 §16.2`. **Predicate KHÔNG ném** — caller ném (predicate còn được dùng ở đường advertise, ném ở đó là biến nút thành lỗi).
+
+#### 3.10.2 Bốn điểm tiêu thụ — **1 định nghĩa, 4 nơi đọc**
+
+| Điểm | Hàm | Sửa gì |
+|---|---|---|
+| **P1** enforce | `close_work_order` `:2046` | Guard **NGAY SAU** block `if checklist_results: _apply_checklist(...)`, **TRƯỚC** `_apply_spare_parts`/`doc.is_repeat_failure`/`doc.status=`/`RepairRepo.save`. Chỉ nhánh `cannot_repair=0` |
+| **P2** enforce | `confirm_inspection` `:2174` | Pre-check **TRƯỚC** `doc.submit()`, **SAU** guard SoD (thứ tự INV-CMEVID-6) |
+| **P3** advertise | `_build_repair_available_actions` `:274` | Thêm kwarg `risk_classification=None`; business gate cho **2** khoá — `close_work_order` (mirror P1) **và** `confirm_inspection` (mirror P2, **AC-CR-85**; sau bậc SoD, cùng thứ tự INV-CMEVID-6), chỉ tính khi `transition_ok ∧ has_cap` |
+| **P4** read | `get_work_order` `:1577` | Emit 3 khoá `evidence_photo_*` (vô điều kiện) + truyền `risk_classification=data["risk_classification"]` xuống builder |
+| **P5** enforce *(AC-CR-85)* | `_assert_repair_photo_attachable` `:1727`, gọi trong `attach_repair_checklist_photo` | Chặn đính ảnh khi `docstatus≠0` ∨ `status ∈ REPAIR_TERMINAL_STATES` (tái dùng SSoT, KHÔNG literal mới). **Vị trí = SAU dedupe pre-check, TRƯỚC validation ladder** ⇒ re-drain idempotent vẫn success; 'Pending Inspection' KHÔNG chặn (đường khắc phục) |
+
+```python
+# P1 — close_work_order (nhánh HOÀN THÀNH), ĐẶT ĐÚNG CHỖ mới thoả A2
+    if checklist_results:
+        _apply_checklist(doc, checklist_results)
+    # [AC-CR-84 / BR-09-23] Cổng ảnh bằng chứng NĐ98 — SAU _apply_checklist (phiếu legacy
+    # được append dòng ở đây) nhưng TRƯỚC MỌI lệnh lưu ⇒ bị chặn = 0 byte ghi xuống DB.
+    _missing = _repair_evidence_missing_idxs(doc)
+    if _missing:
+        nthrow(
+            MSG.IMM09_EVIDENCE_PHOTO_REQUIRED,
+            fields={"repair_checklist": _MSG_REPAIR_EVIDENCE_FIELD.format(
+                idxs=", ".join(f"#{i}" for i in _missing))},
+            missing_count=len(_missing), missing_idxs=_missing,
+        )
+```
+
+```python
+# P4 — get_work_order: 3 khoá read, ĐẶT NGAY TRƯỚC data["available_actions"]
+    _rc = data["risk_classification"]                      # đã đọc từ asset_info ⇒ 0 query thêm
+    _missing = _repair_evidence_missing_idxs(doc, _rc)
+    data["evidence_photo_required"] = 1 if _repair_evidence_gate_applies(_rc) else 0
+    data["evidence_photo_missing_idxs"] = _missing
+    data["evidence_photo_total_required"] = (
+        sum(1 for r in (doc.repair_checklist or []) if _repair_row_is_persisted(r))
+        if data["evidence_photo_required"] else 0)
+    data["available_actions"] = _build_repair_available_actions(doc, risk_classification=_rc)
+```
+
+#### 3.10.3 Thông báo + chi phí
+
+- `utils/messages.py`: `MSG.IMM09_EVIDENCE_PHOTO_REQUIRED` + entry **422** (nội dung: `05 §16.4`) → `python scripts/gen_fe_messages.py` → `--check` **xanh** (bỏ bước này ⇒ FE render `SYS-500`).
+- Hằng câu `fields`: `_MSG_REPAIR_EVIDENCE_FIELD = "Các mục chưa có ảnh bằng chứng: {idxs}."` (đặt cạnh `_MSG_REPAIR_PHOTO_*` `:~350`).
+- **Chi phí truy vấn:** `get_work_order` **0 query thêm** (dùng `risk_classification` đã đọc) ⇒ **INV-CMCTA-10 giữ ngưỡng ≤1**. `close_work_order`/`confirm_inspection` **+≤1 query** (`AssetRepo.get_value`), chỉ khi thật sự đóng phiếu. `repair_checklist` đến qua doc đã nạp ⇒ **0 query** cho phần đếm ảnh.
+- **0 DocType/field/DocPerm/workflow mới ⇒ KHÔNG `bench migrate`.**
+
+#### 3.10.4 Boundaries
+
+**Always** — 1 predicate cho cả 4 điểm · guard **trước** mọi lệnh lưu · lỗi **in-envelope HTTP-200** qua `nthrow` · reason/message **tiếng Việt hằng** · `""` (chưa phân loại) **không** chặn.
+**Ask-first** — miễn trừ dòng `result='N/A'` (B-CR84-1) · nhân bản cổng sang IMM-08 PM (B-CR84-2) · đưa 3 khoá vào `required` OAS (ADR-IMM09-EVIDENCE-03).
+**Never** — ❌ đọc `risk_class` để suy nhóm nguy cơ · ❌ `nthrow_in_hook`/`frappe.throw` cho cổng này (→ 417 thô, ngoài envelope) · ❌ chặn nhánh `cannot_repair=1` · ❌ tính dòng checklist **chưa lưu** · ❌ viết predicate thứ hai ở tầng advertise · ❌ sửa `IMM08-PHOTO-REQUIRED` (B-CR84-4).
+
 ---
 
 ## 4. Service Layer
@@ -625,7 +1145,10 @@ File: `assetcore/services/imm09.py`
 | `validate_asset_not_under_repair(asset_ref)` | str | None | raise ServiceError BR-09-05 duplicate |
 | `check_repeat_failure(doc)` | Document | None | set `doc.is_repeat_failure` |
 | `set_asset_under_repair(asset_ref, wo_name)` | str, str | None | Asset status → Under Repair; ALE repair_opened |
-| `validate_spare_parts_stock_entries(doc)` | Document | None | raise ServiceError BR-09-02 |
+| `validate_spare_parts_stock_entries(doc)` | Document | None | raise ServiceError BR-09-02. **SỬA (AC-CR-78, §3.8):** KHÔNG tự so sánh nữa — `zip(rows, _spare_parts_stock_entry_statuses(rows))`, raise theo `status` (`MISSING` → `MSG.IMM09_SPARE_NO_STOCK_ENTRY`, `NOT_FOUND` → `MSG.IMM09_STOCK_ENTRY_NOT_FOUND`). Thứ tự raise + mã lỗi + biên GIỮ NGUYÊN; hết N+1 (1 query batched). |
+| `_spare_parts_stock_entry_statuses(rows)` | Iterable (child Document \| dict) | `list[str]` cùng độ dài/thứ tự, phần tử ∈ `SPARE_STOCK_ENTRY_STATUSES` | **MỚI (AC-CR-78, §3.8) — predicate SSoT DUY NHẤT của BR-09-02**, dùng chung enforcement (`validate_spare_parts_stock_entries`) ∧ display (`get_work_order`). ≤1 `frappe.get_all("AC Stock Movement", {"name": ("in", …)}, pluck="name")` cho toàn phiếu; 0 query khi rows rỗng hoặc mọi ref rỗng (INV-PARTS-4). Cấm viết lại phép so sánh ở nơi thứ 2. |
+| `_enrich_spare_parts_used(data)` | dict (payload `get_work_order`) | None (mutate) | **MỚI (AC-CR-78, §3.8):** sắp `spare_parts_used` theo `idx` tăng dần, bồi `stock_entry_status` (3 giá trị) + `stock_entry_ok` (**int 0\|1**, ADR-PARTS-02) mỗi dòng, set top-level `parts_pending_stock_entry` = số dòng `stock_entry_ok == 0`. Gọi 1 lần trong `get_work_order` **SAU** `_enrich_sla_breach` (tức sau khuôn 3 lớp CR-74) ⇒ persona 403 KHÔNG bao giờ chạm enrich (INV-PARTS-5). |
+| `SPARE_STOCK_ENTRY_STATUSES` | — (constant module-level) | `("OK", "MISSING", "NOT_FOUND")` | **MỚI (AC-CR-78):** enum SSoT — OAS enum, nhãn FE và guard parity `cr78_g` ĐỀU tham chiếu tuple này (mirror `_PM_ACTION_SPECS` của AC-CR-77). |
 | `validate_firmware_change_request(doc)` | Document | None | raise ServiceError BR-09-03 |
 | `validate_repair_checklist_complete(doc)` | Document | None | raise ServiceError BR-09-04 |
 | `get_sla_target(risk_class, priority)` | str, str | float | **BẤT BIẾN** (BR-09-10 không đụng) — vẫn tra `_SLA_MATRIX`. |
@@ -639,14 +1162,16 @@ File: `assetcore/services/imm09.py`
 | `cm_sla_breach_count()` | — | int | **SoT live count (BR-09-07 LIVE)**: `count(sla_breached=1)` + `count(candidate open & cờ=0 thoả `_row_is_live_overdue`)`. 2 nhánh exclusive (cờ=1 vs cờ=0) → no double-count, **idempotent vs scheduler** (INV-CM-SLA-2). Wired vào `api/dashboard.py` `cm_sla_breached` thay `_count({sla_breached:1})`. |
 | `_row_is_live_overdue(row, now)` | dict, datetime | bool | Per-row derive: `row.sla_breached==0` ∧ `is_repair_open(row.status)` ∧ `is_sla_breached(repair_elapsed_hours(row, now), row.sla_target_hours)`. **BR-09-10:** elapsed dùng SoT clock-stop `repair_elapsed_hours` (trừ `parts_hold_hours` + open-leg đang chạy nếu row.status==Pending Parts) thay `(now−open)` thô ⇒ WO ở Pending Parts KHÔNG live-overdue oan. KHÔNG query thêm — `row` PHẢI có `parts_hold_hours`/`parts_hold_started` trong `fields=[...]`. |
 | `_enrich_sla_breach(rows)` | list | None | Gắn `is_sla_breached = bool(row.sla_breached) or _row_is_live_overdue(row, now)` cho mỗi row (in-Python, no extra query). Gọi trong `list_work_orders` → drill có live-truth (INV-CM-SLA-5). |
-| `confirm_inspection(name)` | str | dict `{name, status, mttr_hours, sla_breached}` | Pending Inspection → Completed; submit doc → `complete_repair()`; requires `CAN_APPROVE_DEP` role; auto-trigger IMM-12 chronic detect nếu root_cause chứa từ khóa lặp lại |
+| `confirm_inspection(name)` | str | dict `{name, status, mttr_hours, sla_breached}` | Pending Inspection → Completed; submit doc → `complete_repair()`; requires `CAN_APPROVE_DEP` role; auto-trigger IMM-12 chronic detect nếu root_cause chứa từ khóa lặp lại. **SỬA (CR-41, BR-09-SOD):** thêm guard segregation-of-duties SAU status-gate, TRƯỚC `doc.submit()` — đọc `closer` = `actor` của ALE `repair_pending_inspection` mới nhất (`root_doctype='Asset Repair'`, `root_record=name`, ORDER BY creation DESC LIMIT 1); nếu `session.user == closer` (và KHÔNG bypass `AssetCore Super Admin`) → `nthrow(MSG.IMM09_SELF_INSPECTION)` (FORBIDDEN×403, in-handler HTTP-200 Error) — WO GIỮ Pending Inspection/docstatus=0. `closer is None` → fail-open + log debug (INV-CM-SOD-2). 0 field mới / 0 migrate. Xem ADR-IMM09-SOD-INSPECT (§5). |
 | `complete_repair(doc)` | Document | None | mttr, sla_breached, **state-machine-guarded asset restore (BR-09-09)**, ALE. **BR-09-10:** TRƯỚC khi tính elapsed → `exit_parts_hold(doc, until=completion_datetime)` chốt open-leg hold cuối (INV-CM-HOLD-5); `mttr_hours = repair_elapsed_hours(doc, completion_datetime)`; `sla_breached = is_sla_breached(repair_elapsed_hours(...), sla_target) OR doc.sla_breached`. Asset→Active CHỈ khi `prev_status == 'Under Repair'`; nếu đang `Out of Service` (hold governance khác) → giữ OoS; nếu `Decommissioned` (terminal) → bỏ qua restore. NEVER raise từ nhánh restore (INV-09-RESTORE-1). |
 | `check_repair_sla_breach()` | — | None | **BR-09-10:** elapsed = `repair_elapsed_hours(wo, now())` (clock-stop, trừ hold đang chạy nếu Pending Parts) thay `(now−open)` thô; set sla_breached qua `is_sla_breached`; publish realtime. INV-CM-HOLD-6 (card==scheduler==stamp). |
 | `check_repair_overdue()` | — | None | email Workshop Manager |
 | `update_asset_mttr_avg()` | — | None | **BẤT BIẾN** (BR-09-10 không đụng): roll-up AVG(`mttr_hours`) 12 tháng. Vì `mttr_hours` đã là clock-stop tại nguồn (`complete_repair`), avg tự động phản ánh đúng — KHÔNG sửa hàm này. |
 | `_is_repair_capable(technician)` | str | bool | **MỚI (R25, BR-09-DISPATCH):** SoT 1-chỗ cho "user được phép nhận giao việc sửa chữa". `= frappe.has_permission("Asset Repair", "write", user=technician)` (capability/DocPerm, KHÔNG so tên role — chống RBAC dead-gate). KHÔNG dùng `rbac.can` (resolve theo session, không nhận `user=`). |
 | `assign_technician(name, *, technician, priority='')` | str, str, str | dict `{name, status, assigned_to}` | **SỬA (R25, BR-09-DISPATCH):** thêm dispatch-validation gate TRƯỚC set/save (sau status-gate Open). Gate 3-AND: `frappe.db.exists("User", technician)` ∧ `User.enabled==1` ∧ `_is_repair_capable(technician)`. Fail bất kỳ điều kiện → `nthrow(MSG.IMM09_INVALID_TECHNICIAN, error_code=ErrorCode.VALIDATION_ERROR, technician=technician)` (envelope `code='VALIDATION_ERROR'` + `http_status=422`) — raise TRƯỚC mutation ⇒ `assigned_to` GIỮ nguyên, `status` GIỮ Open (fail-fast, no partial write). Happy-path KHÔNG đổi (regression-safe R24). Xem ADR-IMM09-VALIDATE-TECH (§3.3). |
-| `create_work_order(*, asset_ref, repair_type, priority, failure_description, incident_report='', source_pm_wo='', fault_image='')` | str × N | dict `{name, status, sla_target_hours}` | **SỬA (R26, BR-09-CREATE-FK):** thêm referential-integrity gate cho 2 optional Link FK, SAU `asset_ref`-validate (`IMM09_ASSET_NOT_FOUND`) + open-WO-guard (`IMM09_ASSET_HAS_OPEN_WO`), TRƯỚC `get_doc`/insert. Per-FK, CHỈ khi non-empty: `incident_report` truthy → `frappe.db.exists("Incident Report", incident_report)` (fail → `nthrow(MSG.IMM09_INCIDENT_REPORT_NOT_FOUND, error_code=ErrorCode.VALIDATION_ERROR, incident_report=...)`); `source_pm_wo` truthy → `frappe.db.exists("PM Work Order", source_pm_wo)` (fail → `nthrow(MSG.IMM09_SOURCE_PM_WO_NOT_FOUND, error_code=ErrorCode.VALIDATION_ERROR, source_pm_wo=...)`). Envelope `code='VALIDATION_ERROR'` + `http_status=422`. Raise TRƯỚC `get_doc`/insert/commit ⇒ doc KHÔNG insert, no partial-write. Cả 2 FK rỗng (standalone slide 24b) → PASS như cũ (regression-safe R-pre). `asset_ref`-validate GIỮ nguyên (ngoài scope). Xem ADR-IMM09-CREATE-FK (§3.4). |
+| `create_work_order(*, asset_ref, repair_type, priority, failure_description, incident_report='', source_pm_wo='', fault_image='')` | str × N | dict `{name, status, sla_target_hours}` | **SỬA (R26, BR-09-CREATE-FK):** thêm referential-integrity gate cho 2 optional Link FK, SAU `asset_ref`-validate (`IMM09_ASSET_NOT_FOUND`) + open-WO-guard (`IMM09_ASSET_HAS_OPEN_WO`), TRƯỚC `get_doc`/insert. Per-FK, CHỈ khi non-empty: `incident_report` truthy → `frappe.db.exists("Incident Report", incident_report)` (fail → `nthrow(MSG.IMM09_INCIDENT_REPORT_NOT_FOUND, error_code=ErrorCode.VALIDATION_ERROR, incident_report=...)`); `source_pm_wo` truthy → `frappe.db.exists("PM Work Order", source_pm_wo)` (fail → `nthrow(MSG.IMM09_SOURCE_PM_WO_NOT_FOUND, error_code=ErrorCode.VALIDATION_ERROR, source_pm_wo=...)`). Envelope `code='VALIDATION_ERROR'` + `http_status=422`. Raise TRƯỚC `get_doc`/insert/commit ⇒ doc KHÔNG insert, no partial-write. Cả 2 FK rỗng (standalone slide 24b) → PASS như cũ (regression-safe R-pre). `asset_ref`-validate GIỮ nguyên (ngoài scope). Xem ADR-IMM09-CREATE-FK (§3.4). **SỬA (CR-50, ADR-IMM09-SEED-CHECKLIST):** SAU `get_doc({...})` TRƯỚC `insert` → append 6 dòng `_standard_repair_checklist_rows()` vào `repair_checklist` (mỗi dòng `test_description`+`test_category` điền sẵn, `result` trống) ⇒ phiếu CM mới KHÔNG rỗng checklist (gỡ deadlock `confirm_inspection` 422). Response GIỮ `{name, status, sla_target_hours}` (0 key mới). Xem §3.7. |
+| `_standard_repair_checklist_rows()` | — | `list[dict]` (6 dòng copy-mới) | **MỚI (CR-50):** trả bản copy mới của `_STANDARD_REPAIR_CHECKLIST` (constant SoT 6 dict `{test_description, test_category}`) — tránh shared mutable giữa doc. Dùng bởi `create_work_order` (seed) + `backfill_repair_checklists`. Xem §3.7. |
+| `_apply_checklist(doc, results)` | Document, list | None | **CHỐT contract (CR-50, AC4):** phiếu seeded → LUÔN nhánh idx-update (`row.idx == r.get("idx")` → ghi `result`/`measured_value`/`notes`); GIỮ `len(repair_checklist)` (KHÔNG append trùng) + bảo toàn `test_category`/`test_description` dòng seed. `results[]` PHẢI key theo `idx` 1-based. Nhánh append `if not doc.repair_checklist` = dead-path cho phiếu seeded (chỉ dùng phiếu legacy chưa backfill — khi dùng phải kèm `test_category` reqd). Xem §3.7. |
 
 | `attach_repair_checklist_photo(work_order_name, checklist_item_idx, filedata=None, filename="", content_type="")` | str, int, bytes?, str, str | dict `{file_url, file_name, checklist_item_idx}` | **MỚI (Vòng 3, BR-09-15/16, mobile CR-15/G6)** — đính ảnh bằng chứng per-mục checklist sửa chữa (NĐ98 Class C/D). Thứ tự reject TRƯỚC `File.insert`: `exists(WO)`→NOT_FOUND · permission (assignee/`repair.write`)→FORBIDDEN · `checklist_item_idx`→child-row `idx` VALIDATION · file present/content-type/size/max-count(=1) VALIDATION. Success: `File.insert(is_private=1, attached_to_doctype='Asset Repair', attached_to_name=WO, content=filedata, decode=False)` → `frappe.db.set_value("Repair Checklist", row.name, "photo", file_url, update_modified=False)` (**KHÔNG `doc.save()`** trên Asset Repair — anti-pattern #10, tránh re-validate BR-09-04/docstatus) → `create_lifecycle_event('repair_checklist_photo_attached')` **TRỰC TIẾP** (KHÔNG qua wrapper `_log_lifecycle_event` swallow — hard-req, event throw→rollback) → `commit`. §05 §3.10 + ADR-IMM09-PHOTO-01/02. Đối xứng `imm08.attach_pm_checklist_photo` / `imm12.attach_incident_photo`. |
 | `_find_repair_checklist_row(wo, checklist_item_idx)` | Document, int | Repair Checklist row \| None | None — resolve mục checklist theo **Frappe child `idx`** (1-based) trong `wo.repair_checklist` (Repair Checklist KHÔNG có field STT domain như PM Checklist Result — xem ADR-IMM09-PHOTO-01). `return next((r for r in wo.repair_checklist if int(r.idx)==idx), None)`. None → nhánh reject VALIDATION (KHÔNG N+1: dùng list con đã load). |
@@ -931,19 +1456,20 @@ def validate_repair_source(doc) -> None:
             frappe._("Phải có nguồn sửa chữa: Incident Report hoặc PM Work Order gốc")
         )
 
+# ⚠️ SELF-CORRECTION 2026-07-27 (AC-CR-78): mẫu cũ ở đây viết `frappe.db.exists("Stock Entry", …)`
+#    + `raise ServiceError(...)` — SAI so với code thật. DocType là **AC Stock Movement** (v3
+#    soft-reference, KHÔNG dùng ERPNext `Stock Entry`) và cơ chế là `nthrow_in_hook(MSG.…)`.
+#    Predicate nay là SSoT dùng chung với display — xem §3.8.
 def validate_spare_parts_stock_entries(doc) -> None:
-    """BR-09-02: mọi spare part phải có stock_entry_ref tồn tại."""
-    for row in doc.spare_parts_used:
-        if not row.stock_entry_ref:
-            raise ServiceError(
-                ErrorCode.VALIDATION,
-                frappe._(f"Vật tư '{row.item_code}' (dòng {row.idx}) thiếu phiếu xuất kho")
-            )
-        if not frappe.db.exists("Stock Entry", row.stock_entry_ref):
-            raise ServiceError(
-                ErrorCode.VALIDATION,
-                frappe._(f"Phiếu xuất kho '{row.stock_entry_ref}' không tồn tại trong hệ thống")
-            )
+    """BR-09-02: mọi spare part phải có stock_entry_ref trỏ AC Stock Movement tồn tại."""
+    rows = list(doc.spare_parts_used or [])
+    for row, status in zip(rows, _spare_parts_stock_entry_statuses(rows)):  # SSoT §3.8
+        if status == "MISSING":
+            nthrow_in_hook(MSG.IMM09_SPARE_NO_STOCK_ENTRY,
+                           item_name=row.item_name, idx=row.idx)
+        if status == "NOT_FOUND":
+            nthrow_in_hook(MSG.IMM09_STOCK_ENTRY_NOT_FOUND,
+                           stock_entry_ref=row.stock_entry_ref)
 
 def complete_repair(doc) -> None:
     """on_submit: tính MTTR, SLA breach, restore Asset (guarded), sinh ALE."""
@@ -1109,13 +1635,37 @@ def _handle(fn, *args, **kwargs) -> dict:
 
 - **Status**: Accepted
 - **Date**: 2026-07-10
-- **Context**: `close_work_order` có 2 nhánh return khác key-set: happy (`services/imm09.py:1575`) trả `{name, status, mttr_hours, sla_breached}`; `_mark_cannot_repair` (`services/imm09.py:1634`) trả `{name, status, asset_status}`. (1) Hai nhánh **lệch key-set** → client mobile phải deserialize 2 shape khác nhau cho cùng 1 endpoint (dễ vỡ codegen Dart/Kotlin strict). (2) Nhánh cannot_repair emit `asset_status` **KHÔNG khai** trong OAS `CloseWorkOrderResponse` (schema đóng 4-khoá `{name,status,mttr_hours,sla_breached}`, `test_mobile_oas.py:_CLOSE_WORK_ORDER_DATA_KEYS`) ⇒ **vi phạm `additionalProperties:false`** của contract mobile — codegen/validator reject field lạ.
+- **Context**: `close_work_order` có 2 nhánh return khác key-set: happy (`services/imm09.py:1757`) trả `{name, status, mttr_hours, sla_breached}`; `_mark_cannot_repair` (`services/imm09.py:1816`) trả `{name, status, asset_status}`. (1) Hai nhánh **lệch key-set** → client mobile phải deserialize 2 shape khác nhau cho cùng 1 endpoint (dễ vỡ codegen Dart/Kotlin strict). (2) Nhánh cannot_repair emit `asset_status` **KHÔNG khai** trong OAS `CloseWorkOrderResponse` (schema đóng 4-khoá `{name,status,mttr_hours,sla_breached}`, `test_mobile_oas.py:_CLOSE_WORK_ORDER_DATA_KEYS`) ⇒ **vi phạm `additionalProperties:false`** của contract mobile — codegen/validator reject field lạ.
 - **Decision**: chuẩn hoá **cùng key-set superset đúng 5 khoá** `{name, status, mttr_hours, sla_breached, asset_status}` cho CẢ 2 nhánh — INVARIANT `set(keys happy) == set(keys cannot_repair)`. Happy thêm `asset_status` = LIVE `lifecycle_status` (thường `Under Repair`); cannot_repair thêm `mttr_hours` + `sla_breached` (= `doc.*`, thường `null` — KHÔNG tính MTTR). `asset_status` đọc **SSoT LIVE** qua `frappe.db.get_value("AC Asset", doc.asset_ref, "lifecycle_status")` / `AssetRepo.get_value` (**KHÔNG hardcode** — cùng nguồn `complete_repair` `:732`; `lifecycle_status` do nhiều process quản, BR-09-09). OAS `CloseWorkOrderResponse` **khai thêm** property `asset_status` (`type:string`, `nullable:true`); `mttr_hours`/`sla_breached` giữ nullable; `required=[name,status]`. Đồng bộ hằng test `_CLOSE_WORK_ORDER_DATA_KEYS` (+`asset_status`) + example `api/openapi_overrides.py` `imm09.close_work_order` (`:955-975`).
 - **Alternatives**:
   - *(A) Giữ 2 shape khác nhau, chỉ khai `asset_status` nullable*: bịt được vi phạm `additionalProperties` nhưng client vẫn phải xử lý key-set biến thiên → drift, không có INVARIANT test bảo vệ. Loại.
   - *(B) Bỏ `asset_status` khỏi cannot_repair cho khớp 4-khoá cũ*: mất thông tin trạng thái asset (client cần biết thiết bị đã Out of Service để cập nhật UI) → giảm giá trị nghiệp vụ. Loại.
   - *(C) Hardcode `asset_status="Under Repair"` cho happy*: sai SSoT — `lifecycle_status` có thể đã bị process khác đổi (calib-fail/decommission). Loại (mâu thuẫn BR-09-09).
 - **Consequences**: contract mobile ổn định (1 shape, INVARIANT test giữ). BE thêm 1 field-read live per branch (khuyến nghị tail dùng chung dựng đủ 5 khoá, chỉ `status` khác — chống drift). Regression-safe: `name/status/mttr_hours/sla_breached` GIỮ nguyên giá trị; happy vẫn → Pending Inspection, cannot_repair vẫn → Out of Service. **KHÔNG đụng** `confirm_inspection`/`ConfirmInspectionResponse` (4-key, `status.enum=[Completed]`, C3-split RIÊNG). Suite `mobile_oas` + `oas_d*` phải XANH sau `api:gen dev`; `test_imm09` (159) + toàn bộ test đóng/cannot_repair/pending_inspection/confirm_inspection GIỮ XANH. Chi tiết field-by-field + example: `05 §3.8 "Response contract — parity shape"`.
+
+---
+
+**ADR-IMM09-SOD-INSPECT — chặn tự-nghiệm-thu: người `confirm_inspection` phải KHÁC người `close_work_order`; đọc "người đóng" từ Asset Lifecycle Event (migrate-free), fail-open khi unknown-closer (CR-41, BR-09-SOD)**
+
+- **Status**: Accepted
+- **Date**: 2026-07-24
+- **Context**: `confirm_inspection` (`Pending Inspection → Completed`, submit docstatus=1) là **bước kiểm soát chất lượng cuối** của vòng đời CM (NĐ98 — nghiệm thu độc lập). Hiện guard chỉ có `rbac.require("repair.submit")` + status-gate → **cùng một user vừa `close_work_order` (đóng phiếu) vừa `confirm_inspection` (tự nghiệm thu)** nếu user đó có cả `repair.create` lẫn `repair.submit` (vd Workshop Manager / Super Admin trên site nhỏ) ⇒ tự-đóng-tự-duyệt = rubber-stamp, vô hiệu hoá kiểm soát 4-eyes. Ràng buộc CR-41: **KHÔNG được thêm field DocType / KHÔNG `bench migrate`** (migrate-free). Vấn đề phụ: "người đóng phiếu" hiện KHÔNG lưu ở field nào của Asset Repair (`owner` = người TẠO qua `create_work_order`, `dept_head_name` = TÊN trưởng khoa nghiệm thu do KTV nhập lúc đóng — KHÔNG phải user-id người đóng).
+- **Decision**: Đọc "người đóng phiếu" từ **`actor` của Asset Lifecycle Event mới nhất** thoả `event_type='repair_pending_inspection'` ∧ `root_doctype='Asset Repair'` (= `RepairRepo.DOCTYPE`) ∧ `root_record=name`, `ORDER BY creation DESC LIMIT 1`. Event này **ĐÃ được `close_work_order` ghi sẵn** (`services/imm09.py:1928` `_log_lifecycle_event(event_type="repair_pending_inspection", root_record=name)` → wrapper set `actor=frappe.session.user` + `root_doctype=RepairRepo.DOCTYPE`) ⇒ SSoT "người đóng" **có sẵn trong audit-trail**, 0 field mới, 0 migrate. Guard đặt SAU `NOT_FOUND` + `BAD_STATE`, TRƯỚC `doc.submit()`: nếu `session.user == closer` (và caller KHÔNG có role bypass `AssetCore Super Admin`) → `nthrow(MSG.IMM09_SELF_INSPECTION)` (registry entry `http_status=403` ⇒ `_bucket_for` map `403 → ErrorCode.FORBIDDEN`; envelope in-handler HTTP-200 `{success:false, code:'FORBIDDEN', http_status:403, message:'Người nghiệm thu phải khác người đóng phiếu.'}`) — raise TRƯỚC submit ⇒ WO GIỮ `Pending Inspection`/`docstatus=0`, asset KHÔNG reactivate. **Fail-open** khi closer không đọc được (None / phiếu legacy / event bị swallow): CHO nghiệm thu + `frappe.logger().debug(...)`.
+- **Alternatives**:
+  - *(A) Thêm field `closed_by` (Link User) trên Asset Repair, set ở `close_work_order`, so ở `confirm_inspection`*: SSoT sạch nhất NHƯNG **cần `bench migrate`** — vi phạm ràng buộc CR-41 migrate-free. Loại.
+  - *(B) Reuse `dept_head_name`*: sai ngữ nghĩa + sai kiểu — `dept_head_name` là **TÊN hiển thị** trưởng khoa nghiệm thu (free-text/link do KTV nhập lúc đóng), KHÔNG phải **user-id** của người gọi `close_work_order`; so với `session.user` không khớp domain. Loại.
+  - *(C) Reuse `scope.assert_not_self_submitter(doc, submitter_field="owner")`*: `owner` = người **TẠO** WO (`create_work_order`), KHÁC người **ĐÓNG** WO (`close_work_order`) — SoD nghiệm thu ràng buộc người ĐÓNG, không phải người tạo. Sai đối tượng. (Vẫn dùng CÙNG *pattern* 4-eyes + cùng bypass-role của `scope.py`, chỉ khác nguồn "signer".) Loại làm cơ chế chính; giữ làm precedent.
+  - *(D) Fail-closed khi unknown-closer (chặn nghiệm thu nếu không đọc được closer)*: an toàn hơn về control NHƯNG **deadlock 100% phiếu legacy** tạo trước CR-41 (chưa có event `repair_pending_inspection` với actor, hoặc event bị wrapper swallow) — cùng lớp bug với CR-50 (checklist deadlock). SoD là **control chứ không phải safety-gate cứng** ⇒ ưu tiên không brick record. **BA ratify FAIL-OPEN** (INV-CM-SOD-2). Loại fail-closed.
+- **Consequences**: 0 field DocType mới, 0 `bench migrate` (đáp ứng CR-41 AC3). Thêm **1 MSG** `IMM09_SELF_INSPECTION` (`utils/messages.py`, `http_status=403`) + 1 query ALE mới-nhất trong `confirm_inspection`. **OAS bất biến** (AC6): `code='FORBIDDEN'` ∈ `Error.code` enum sẵn có + `403` ∈ `Error.http_status` enum sẵn có (`docs/mobile/openapi/assetcore-mobile.openapi.yaml`, verified) ⇒ nhánh Error đã phủ bởi `200 = oneOf [ConfirmInspectionEnvelope, Error]` (§3.9), **KHÔNG schema/path/tag mới** → `test_mobile_oas` + `oas_baseline` count KHÔNG đổi (KHÔNG đụng IMM-10 baseline đỏ pre-existing). Regression-safe (AC4): thứ tự guard cũ `NOT_FOUND → BAD_STATE` GIỮ nguyên, chỉ append self-inspect-check ở cuối; happy-path 2-actor (A đóng, B≠A nghiệm thu) KHÔNG đổi (AC2 — `status='Completed'`, `docstatus=1`, contract CR-13a 4-key + `asset_status` LIVE bất biến). DoD (AC7): `bench --site miyano run-tests --module assetcore.tests.test_imm09` XANH — KHÔNG curl (gunicorn `--preload` stale tới khi USER reload). **Bàn giao [BE]** (chạm `services/imm09.py` + `utils/messages.py` = application code — ngoài ranh giới doc-layer của BA).
+
+### Invariant namespace INV-CM-SOD-* (BR-09-SOD)
+
+| ID | Invariant |
+|---|---|
+| INV-CM-SOD-1 | Thứ tự guard `confirm_inspection`: `NOT_FOUND` (WO không tồn tại) → `BAD_STATE` (status ≠ `Pending Inspection`) → **self-inspect-check** (`session.user == closer`). SoD-check LUÔN nằm SAU state-gate, TRƯỚC `doc.submit()`. Sai thứ tự (check SoD trước BAD_STATE) ⇒ AC4 regression đỏ. |
+| INV-CM-SOD-2 | Fail-open: `closer is None` (đọc ALE không ra actor) ⇒ CHO nghiệm thu + log debug. KHÔNG raise, KHÔNG fail-closed. |
+| INV-CM-SOD-3 | "closer" = `actor` của ALE `repair_pending_inspection` **mới nhất** cho WO (ORDER BY creation DESC LIMIT 1) — không phải ALE cũ (WO có thể qua `Pending Inspection → In Repair → Pending Inspection` re-work nhiều lần; closer = lần đóng gần nhất). |
+| INV-CM-SOD-4 | Bypass `AssetCore Super Admin` (emergency override) — ĐỐI XỨNG bypass-role của `scope.assert_not_self_submitter`. AC1/AC2 test-users là repair user thường ⇒ bypass KHÔNG ảnh hưởng acceptance. |
 
 ---
 
@@ -1163,8 +1713,8 @@ scheduler_events = {
 | Job | Tần suất | Mục đích | Trạng thái wire `hooks.py` |
 |---|---|---|---|
 | `check_repair_sla_breach` | Hourly | Mark `sla_breached=1` khi `is_sla_breached(elapsed, target)` (SoT predicate, boundary `>=`); publish realtime `cm_sla_breached` đến Kỹ thuật viên. Chỉ set khi đang 0 (idempotent). | ⚠ chưa wire (function tồn tại trong `services/imm09.py`) |
-| `check_repair_overdue` | Daily 07:00 | Email Workshop Manager khi WO > 7 ngày chưa đóng | ⚠ chưa wire (function tồn tại trong `services/imm09.py:239`) |
-| `update_asset_mttr_avg` | Monthly day 01 06:00 | Cập nhật `Asset.custom_mttr_avg_hours` (avg 12 WO gần nhất) | ⚠ chưa wire (function tồn tại trong `services/imm09.py:263`) |
+| `check_repair_overdue` | Daily 07:00 | Email Workshop Manager khi WO > 7 ngày chưa đóng | ⚠ chưa wire (function tồn tại trong `services/imm09.py:414`) |
+| `update_asset_mttr_avg` | Monthly day 01 06:00 | Cập nhật `Asset.custom_mttr_avg_hours` (avg 12 WO gần nhất) | ⚠ chưa wire (function tồn tại trong `services/imm09.py:438`) |
 
 > **Code-to-doc gap (2026-05-14):** 3 function trên đã hiện diện trong service nhưng **chưa được đăng ký** trong `assetcore/hooks.py::scheduler_events`. Cần thêm trong patch Wave 2 release.
 

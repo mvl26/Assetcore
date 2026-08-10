@@ -278,6 +278,97 @@
    "next_state": "Cancelled",
    "state": "Halted–Major Failure",
    "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu thực hiện",
+   "allowed": "PM Manager",
+   "next_state": "In Progress",
+   "state": "Open",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Đánh dấu trễ hạn",
+   "allowed": "PM Manager",
+   "next_state": "Overdue",
+   "state": "Open",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hủy phiếu",
+   "allowed": "PM Manager",
+   "next_state": "Cancelled",
+   "state": "Open",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hoàn thành PM",
+   "allowed": "PM Manager",
+   "next_state": "Completed",
+   "state": "In Progress",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Báo lỗi nghiêm trọng",
+   "allowed": "PM Manager",
+   "next_state": "Halted–Major Failure",
+   "state": "In Progress",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Thiết bị bận - hoãn",
+   "allowed": "PM Manager",
+   "next_state": "Pending–Device Busy",
+   "state": "In Progress",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Tiếp tục thực hiện",
+   "allowed": "PM Manager",
+   "next_state": "In Progress",
+   "state": "Pending–Device Busy",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu muộn",
+   "allowed": "PM Manager",
+   "next_state": "In Progress",
+   "state": "Overdue",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Tiếp tục sau xử lý",
+   "allowed": "PM Manager",
+   "next_state": "In Progress",
+   "state": "Halted–Major Failure",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hủy phiếu",
+   "allowed": "PM Manager",
+   "next_state": "Cancelled",
+   "state": "In Progress",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hủy phiếu",
+   "allowed": "PM Manager",
+   "next_state": "Cancelled",
+   "state": "Pending–Device Busy",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hủy phiếu",
+   "allowed": "PM Manager",
+   "next_state": "Cancelled",
+   "state": "Overdue",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hủy phiếu",
+   "allowed": "PM Manager",
+   "next_state": "Cancelled",
+   "state": "Halted–Major Failure",
+   "allow_self_approval": 1
   }
  ]
 }

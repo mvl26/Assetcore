@@ -119,7 +119,7 @@ export const useCommandPaletteStore = defineStore('commandPalette', () => {
   // ── Actions ────────────────────────────────────────────────────────────────
   function openPalette(): void { open.value = true }
   function closePalette(): void { open.value = false; query.value = '' }
-  function toggle(): void { open.value ? closePalette() : openPalette() }
+  function toggle(): void { if (open.value) closePalette(); else openPalette() }
   function setQuery(q: string): void { query.value = q }
 
   /** Ghi lệnh vừa chọn vào recent (unshift + dedupe + cắt 5 + persist). */

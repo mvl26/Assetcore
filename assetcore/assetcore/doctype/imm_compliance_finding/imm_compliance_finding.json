@@ -1,17 +1,9 @@
 {
  "autoname": "FND-.YYYY.-.#####",
- "naming_rule": "Naming Series",
  "creation": "2026-05-08 00:00:00.000000",
  "doctype": "DocType",
  "document_type": "Document",
  "engine": "InnoDB",
- "is_submittable": 0,
- "module": "AssetCore",
- "name": "IMM Compliance Finding",
- "track_changes": 1,
- "modified": "2026-05-08 00:00:00.000000",
- "modified_by": "Administrator",
- "owner": "Administrator",
  "field_order": [
   "rule",
   "detected_date",
@@ -107,7 +99,8 @@
    "reqd": 1,
    "default": "Open",
    "in_list_view": 1,
-   "search_index": 1
+   "search_index": 1,
+   "read_only": 1
   },
   {
    "fieldname": "reviewer",
@@ -170,6 +163,13 @@
    "search_index": 1
   }
  ],
+ "is_submittable": 0,
+ "modified": "2026-05-08 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "AssetCore",
+ "name": "IMM Compliance Finding",
+ "naming_rule": "Naming Series",
+ "owner": "Administrator",
  "permissions": [
   {
    "role": "AssetCore Super Admin",
@@ -231,5 +231,6 @@
    "email": 0,
    "share": 0
   }
- ]
+ ],
+ "track_changes": 1
 }

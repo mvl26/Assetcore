@@ -67,6 +67,34 @@ export function changePassword(oldPassword: string, newPassword: string): Promis
   return frappePost(`${BASE}.change_password`, { old_password: oldPassword, new_password: newPassword })
 }
 
+// ── ISS-002: tự đặt mật khẩu qua link trong email chào mừng ──────────────────
+// Người dùng CHƯA đăng nhập được (chưa có mật khẩu) → 2 endpoint allow_guest.
+
+export interface PasswordKeyIdentity {
+  user: string
+  full_name: string
+  login_url: string
+}
+
+export interface SetPasswordResult {
+  user: string
+  login_url: string
+  message: string
+}
+
+/** Kiểm tra link đặt mật khẩu còn hiệu lực + lấy danh tính để chào đúng tên. */
+export function verifyPasswordKey(key: string): Promise<PasswordKeyIdentity> {
+  return frappePost<PasswordKeyIdentity>(`${BASE}.verify_password_key`, { key })
+}
+
+/** Đặt mật khẩu lần đầu bằng key trong link (key dùng MỘT LẦN). */
+export function setPasswordWithKey(key: string, newPassword: string): Promise<SetPasswordResult> {
+  return frappePost<SetPasswordResult>(`${BASE}.set_password_with_key`, {
+    key,
+    new_password: newPassword,
+  })
+}
+
 /**
  * Resolve toàn bộ capability cho user hiện tại — FE cache 1 lần sau login.
  * Trả map { 'pm.read': true, 'incident.acknowledge': false, ... }.

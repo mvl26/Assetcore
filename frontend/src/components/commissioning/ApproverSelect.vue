@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, watch, onMounted } from 'vue'
 import { getUsersByRole } from '@/api/imm04'
-import { listAssignableUsers } from '@/api/user'
+import { listAssignableUsers, normalizeAssignableUserPage } from '@/api/user'
+import type { AssignableUserPage } from '@/api/user'
 
 // ─── Props & Emits ────────────────────────────────────────────────────────────
 
@@ -31,11 +32,20 @@ const props = withDefaults(defineProps<Props>(), {
   id: '',
 })
 
-/** Nguồn user: context (capability) ưu tiên hơn role. */
-function fetchUsers(q: string, limit: number): Promise<UserOption[]> {
-  return props.context
-    ? listAssignableUsers(props.context, q, limit)
-    : getUsersByRole(props.role, q, limit)
+/**
+ * Nguồn user: context (capability) ưu tiên hơn role. Cả 2 nhánh trả cùng một
+ * hình dạng `AssignableUserPage` để chỗ hiển thị chỉ đọc 1 kiểu.
+ *
+ * Nhánh `role=` (IMM-04 `get_users_by_role`) CHƯA công bố meta cắt ⇒ bọc
+ * `truncated: 0` (vẫn cắt im lặng — backlog ADR-IMM00-TRUNCATION-SSOT §7.5).
+ */
+async function fetchUsers(q: string, limit: number): Promise<AssignableUserPage> {
+  const rows = props.context
+    ? await listAssignableUsers(props.context, q, limit)
+    : await getUsersByRole(props.role, q, limit)
+  // Chuẩn hoá lần nữa: rẻ, idempotent, và giữ picker sống nếu BE (hoặc test
+  // giả lập) còn trả mảng trần theo hợp đồng cũ.
+  return normalizeAssignableUserPage(rows, limit)
 }
 
 const emit = defineEmits<{
@@ -46,8 +56,9 @@ const emit = defineEmits<{
 
 interface UserOption {
   name: string
-  full_name: string
-  email: string
+  /** null trên tài khoản cũ → hiển thị fallback về `name`. */
+  full_name: string | null
+  email: string | null
   user_image?: string | null
 }
 
@@ -57,6 +68,14 @@ const loading     = ref(false)
 const open        = ref(false)
 const highlighted = ref(-1)
 const selectedUser = ref<UserOption | null>(null)
+/** Meta cắt (AC-CR-80): tổng người được phép + cờ đã cắt ở `limit`. */
+const total       = ref(0)
+const truncated   = ref<0 | 1>(0)
+
+/** Nhãn hiển thị: KHÔNG bao giờ để trống ô tên khi `full_name` null. */
+function displayName(u: UserOption): string {
+  return u.full_name || u.name
+}
 
 // ─── Debounce search ──────────────────────────────────────────────────────────
 
@@ -65,10 +84,15 @@ let debounceTimer: ReturnType<typeof setTimeout> | null = null
 async function doSearch(q: string) {
   loading.value = true
   try {
-    const rows = await fetchUsers(q, 20)
-    results.value = rows
+    const page = await fetchUsers(q, 20)
+    results.value = page.items
+    total.value = page.total
+    truncated.value = page.truncated
   } catch {
+    // Lỗi tải: không có số liệu ⇒ KHÔNG khẳng định "đang hiển thị N/M".
     results.value = []
+    total.value = 0
+    truncated.value = 0
   } finally {
     loading.value = false
   }
@@ -142,8 +166,8 @@ async function loadInitialUser(username: string) {
   if (!username) return
   // First try to find in a short search for their own name
   try {
-    const rows = await fetchUsers('', 50)
-    const found = rows.find(r => r.name === username)
+    const page = await fetchUsers('', 50)
+    const found = page.items.find(r => r.name === username)
     if (found) {
       selectedUser.value = found
     } else {
@@ -189,18 +213,18 @@ watch(() => props.modelValue, (val) => {
           v-if="selectedUser.user_image"
           :src="selectedUser.user_image"
           class="w-7 h-7 rounded-full object-cover shrink-0 mt-0.5"
-          :alt="selectedUser.full_name"
+          :alt="displayName(selectedUser)"
         />
         <div
           v-else
           class="w-7 h-7 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-xs font-bold shrink-0 mt-0.5"
         >
-          {{ (selectedUser.full_name || selectedUser.name).charAt(0).toUpperCase() }}
+          {{ displayName(selectedUser).charAt(0).toUpperCase() }}
         </div>
 
         <!-- Info -->
         <div class="flex-1 min-w-0">
-          <p class="text-sm font-medium text-slate-800 truncate">{{ selectedUser.full_name || selectedUser.name }}</p>
+          <p class="text-sm font-medium text-slate-800 truncate">{{ displayName(selectedUser) }}</p>
           <p class="text-xs text-slate-500 truncate">{{ selectedUser.email || selectedUser.name }}</p>
         </div>
 
@@ -255,42 +279,63 @@ watch(() => props.modelValue, (val) => {
         >
           <div
             v-if="open"
-            class="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-52 overflow-y-auto z-20"
+            class="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden z-20"
           >
-            <!-- Empty state -->
-            <div
-              v-if="!loading && results.length === 0"
-              class="px-3 py-4 text-sm text-slate-400 text-center"
-            >
-              Không tìm thấy người dùng nào
+            <!--
+              Vùng CUỘN chỉ bọc danh sách. Dải cảnh báo nằm NGOÀI vùng cuộn: để
+              trong thì nó nằm sau 20 dòng, người dùng phải cuộn hết mới thấy —
+              tức vẫn là "cắt im lặng" ở góc nhìn của mắt (bằng chứng render
+              2026-07-27: DOM có chữ nhưng màn hình không hiện).
+            -->
+            <div class="max-h-52 overflow-y-auto">
+              <!-- Empty state -->
+              <div
+                v-if="!loading && results.length === 0"
+                class="px-3 py-4 text-sm text-slate-400 text-center"
+              >
+                Không tìm thấy người dùng nào
+              </div>
+
+              <!-- Results -->
+              <button
+                v-for="(user, idx) in results"
+                :key="user.name"
+                type="button"
+                class="w-full text-left px-3 py-2.5 border-b border-slate-50 last:border-0 transition-colors flex items-center gap-2.5"
+                :class="idx === highlighted ? 'bg-blue-50' : 'hover:bg-slate-50'"
+                @mousedown.prevent="selectUser(user)"
+              >
+                <img
+                  v-if="user.user_image"
+                  :src="user.user_image"
+                  class="w-7 h-7 rounded-full object-cover shrink-0"
+                  :alt="displayName(user)"
+                />
+                <div
+                  v-else
+                  class="w-7 h-7 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center text-xs font-bold shrink-0"
+                >
+                  {{ displayName(user).charAt(0).toUpperCase() }}
+                </div>
+                <div class="min-w-0">
+                  <p class="text-sm font-medium text-slate-800 truncate">{{ displayName(user) }}</p>
+                  <p class="text-xs text-slate-500 truncate">{{ user.email || user.name }}</p>
+                </div>
+              </button>
             </div>
 
-            <!-- Results -->
-            <button
-              v-for="(user, idx) in results"
-              :key="user.name"
-              type="button"
-              class="w-full text-left px-3 py-2.5 border-b border-slate-50 last:border-0 transition-colors flex items-center gap-2.5"
-              :class="idx === highlighted ? 'bg-blue-50' : 'hover:bg-slate-50'"
-              @mousedown.prevent="selectUser(user)"
+            <!--
+              AC-CR-80: danh sách bị cắt ở `limit` phải NÓI RA. Không có dải này
+              thì người dùng tin "chỉ có bấy nhiêu người đủ năng lực" (cắt im lặng).
+              Chỉ render khi truncated === 1 — không để dải rỗng chiếm chỗ.
+            -->
+            <p
+              v-if="truncated === 1"
+              role="status"
+              class="px-3 py-2 text-xs text-amber-800 bg-amber-50 border-t border-amber-200"
             >
-              <img
-                v-if="user.user_image"
-                :src="user.user_image"
-                class="w-7 h-7 rounded-full object-cover shrink-0"
-                :alt="user.full_name"
-              />
-              <div
-                v-else
-                class="w-7 h-7 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center text-xs font-bold shrink-0"
-              >
-                {{ user.full_name.charAt(0).toUpperCase() }}
-              </div>
-              <div class="min-w-0">
-                <p class="text-sm font-medium text-slate-800 truncate">{{ user.full_name }}</p>
-                <p class="text-xs text-slate-500 truncate">{{ user.email }}</p>
-              </div>
-            </button>
+              Đang hiển thị {{ results.length }}/{{ total }} người — gõ tên để tìm thêm
+            </p>
           </div>
         </Transition>
       </template>

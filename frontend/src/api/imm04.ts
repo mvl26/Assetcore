@@ -55,12 +55,24 @@ export async function listCommissioning(
 
 /**
  * Thực hiện workflow transition.
+ *
+ * CR-54 §1 — deadlock board_approver: một số action dẫn tới 'Clinical Release'
+ * (Phê duyệt phát hành / Phê duyệt sau tái kiểm / Gỡ giữ lâm sàng) đòi
+ * `board_approver` (gate G06 · 4-eyes NĐ98). Truyền `boardApprover` để BE set
+ * người ký NGAY trong cùng transition (1 call) thay vì save trước (bị gate chặn).
+ *
+ * `board_approver` CHỈ được đưa vào body khi có giá trị → transition không-phát-hành
+ * và caller cũ (không truyền tham số) gửi body y hệt trước đây (backward-compat;
+ * BE bỏ qua param cho action không dẫn tới Clinical Release).
  */
 export async function transitionState(
   name: string,
   action: string,
+  boardApprover?: string,
 ): Promise<{ name: string; action_applied: string; new_state: string; docstatus: number; message: string }> {
-  return frappePost(`${BASE}.transition_state`, { name, action })
+  const body: Record<string, unknown> = { name, action }
+  if (boardApprover) body.board_approver = boardApprover
+  return frappePost(`${BASE}.transition_state`, body)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -199,10 +211,40 @@ export async function generateInternalQr(
 // ─────────────────────────────────────────────────────────────────────────────
 // 14. SUBMIT BASELINE CHECKLIST
 // ─────────────────────────────────────────────────────────────────────────────
+/** Một dòng kết quả đo kiểm baseline gửi lên gate Nghiệm thu ban đầu. */
+export interface BaselineResultInput {
+  parameter: string
+  test_result: string
+  measured_val?: string | number
+  fail_note?: string
+}
+
+/**
+ * Kết quả tổng của bảng kiểm baseline do SERVER quyết (SSoT).
+ * 'Fail' = còn ≥1 phép đo không đạt — phiếu vẫn LƯU được để đi tiếp sang Tái kiểm.
+ */
+export type BaselineOverallResult = 'Pass' | 'Fail'
+
+/**
+ * Phản hồi từ gate nộp bảng kiểm baseline.
+ * `tests_recorded` = SỐ DÒNG THỰC ghi test_result (server đếm, KHÔNG mù len(payload)).
+ * `overall_result` chỉ 'Pass' khi `tests_recorded > 0` VÀ không còn dòng 'Fail'
+ *   — đóng false-success (silent-completion).
+ * `failed_parameters` = tên các thông số KHÔNG ĐẠT (CR-54 §2) để FE nêu đích danh
+ *   trong thông báo; rỗng/absent khi `overall_result === 'Pass'`.
+ */
+export interface BaselineSubmitResult {
+  name: string
+  overall_result: BaselineOverallResult
+  tests_recorded: number
+  clinical_hold_required: boolean
+  failed_parameters?: string[]
+}
+
 export async function submitBaselineChecklist(
   name: string,
-  results: Array<{ parameter: string; test_result: string; measured_val?: number; fail_note?: string }>,
-): Promise<{ name: string; overall_result: string; clinical_hold_required: boolean }> {
+  results: BaselineResultInput[],
+): Promise<BaselineSubmitResult> {
   return frappePost(`${BASE}.submit_baseline_checklist`, {
     name,
     results: JSON.stringify(results),
@@ -305,11 +347,40 @@ export const getUsersByRole = (role: string, search = '', limit = 20) =>
 // ─────────────────────────────────────────────────────────────────────────────
 // 23. GET GATE STATUS
 // ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Trạng thái 6 cổng nghiệm thu G01–G06 (CR-76).
+ *
+ * NGỮ NGHĨA = BLOCKING-PARITY, KHÔNG phải "đã hoàn tất":
+ * `true` = cổng đó KHÔNG chặn phát hành lâm sàng (predicate enforcement tương ứng
+ * ở `services/imm04.py` cho phiếu đi qua); `false` = đang chặn.
+ * - `g01_docs`  ⟺ `validate_gate_g01(doc)` không chặn (kể cả khi phiếu không có
+ *   hồ sơ bắt buộc nào, hoặc thiếu hồ sơ NHƯNG đã có giải trình được ghi nhận).
+ * - `g01_waived` = khoá BỔ SUNG (additive, optional để không vỡ khi backend chưa
+ *   nạp lại): `true` khi G01 qua được NHỜ giải trình thiếu hồ sơ
+ *   (`documents_incomplete` + ghi chú), KHÔNG phải vì đã đủ hồ sơ.
+ * - `g02_facility` = cổng THAM KHẢO — hiện KHÔNG có enforcement nào chặn theo nó.
+ * - `g03_baseline` ⟺ tiền kiểm BR-04-13 không chặn · `g05_nc` ⟺ 0 phiếu không phù
+ *   hợp đang mở · `g06_approver` ⟺ đã chỉ định người phê duyệt BGĐ.
+ */
 export interface GateStatus {
   g01_docs: boolean
+  /** Additive (CR-76) — `undefined` khi backend chưa nạp phiên bản mới. */
+  g01_waived?: boolean
   g02_facility: boolean
   g03_baseline: boolean
   g04_radiation: boolean
+  /**
+   * Additive (AC-CR-85) — cổng G04 CÓ áp dụng cho phiếu này hay không, tính bằng
+   * CHÍNH predicate mà validator VR-07 dùng để chặn
+   * (`services/imm04.py::gate_g04_applies` = phiếu bức xạ **hoặc**
+   * `risk_class == 'Radiation'`).
+   *
+   * `false` ⇒ hiển thị «Không áp dụng», TUYỆT ĐỐI không hiển thị «Đạt» và không
+   * tính vào các cổng đang chặn. `undefined` = backend chưa nạp phiên bản mới ⇒
+   * rơi về hành vi cũ (suy từ `doc.is_radiation_device`), xem
+   * `components/commissioning/g04Gate.ts`.
+   */
+  g04_applicable?: boolean
   g05_nc: boolean
   g06_approver: boolean
 }

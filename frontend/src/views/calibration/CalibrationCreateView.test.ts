@@ -20,6 +20,7 @@ vi.mock('vue-router', () => ({
 vi.mock('@/api/imm11', () => ({
   createCalibration: vi.fn().mockResolvedValue({ name: 'CAL-2026-00001' }),
   listCalibrationSchedules: vi.fn().mockResolvedValue({ data: [] }),
+  getCalibrationSchedule: vi.fn().mockResolvedValue(null),
 }))
 vi.mock('@/api/helpers', () => ({
   frappeGet: vi.fn().mockResolvedValue(null),

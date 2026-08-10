@@ -19,7 +19,8 @@ import StatusBadge from '@/components/common/StatusBadge.vue'
 import WorkflowStepper from '@/components/common/WorkflowStepper.vue'
 import BaseModal from '@/components/common/BaseModal.vue'
 import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
-import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
+import DetailPageShell from '@/components/common/DetailPageShell.vue'
+import { useDetailAccess } from '@/composables/useDetailAccess'
 import { useApi } from '@/composables/useApi'
 import { formatCurrency, formatDate } from '@/utils/formatters'
 import {
@@ -33,10 +34,14 @@ const route = useRoute()
 const router = useRouter()
 const store = useImm15Store()
 const api = useApi()
-const { cycleCountDetail, cycleCountDetailLoading, error } = storeToRefs(store)
+const { cycleCountDetail, cycleCountDetailLoading, error, lastApiError } = storeToRefs(store)
 
 const name = computed(() => route.params.name as string)
 const detail = computed(() => cycleCountDetail.value)
+// SSoT phân loại lỗi nạp (AC-UX-053, ADR-UX-27) — thay bản `loadErrorKind` cục bộ.
+// Getter đọc lỗi CỦA STORE, đúng khuôn 3 màn N2 đã chạy 2 vòng (§13.4.0).
+const { kind: loadKind, message: loadMsg } = useDetailAccess(() =>
+  detail.value ? null : (error.value ? (lastApiError.value ?? new Error(error.value)) : null))
 const status = computed(() => detail.value?.status ?? '')
 const items = computed<CycleCountItem[]>(() => detail.value?.items ?? [])
 
@@ -85,41 +90,68 @@ async function doSubmit() {
 }
 
 // ── Post (Reviewed → Posted) ──────────────────────────────────────────────
+// AC-UX-062: lỗi CHẶN hiện INLINE trong hộp thoại (`silentError: true` để không
+// đồng thời bắn toast/`useModal.alert` — xem docs/ui-ux/05 §3), hộp thoại KHÔNG đóng.
 const showPostModal = ref(false)
 const verifiedBy = ref<string | undefined>(undefined)
 const posting = ref(false)
+const postError = ref<string | null>(null)
+function openPostModal() {
+  postError.value = null
+  showPostModal.value = true
+}
+function closePostModal() {
+  postError.value = null
+  showPostModal.value = false
+}
 async function doPost() {
+  postError.value = null
   posting.value = true
   const res = await api.run(() => postCycleCount(name.value, verifiedBy.value || '', ''), {
     successMessage: 'Đã ghi nhận điều chỉnh tồn — phiếu Đã ghi nhận',
+    silentError: true,
   })
   posting.value = false
-  if (res) {
-    showPostModal.value = false
-    await load()
+  if (!res) {
+    postError.value = api.lastError.value?.message
+      ?? 'Không ghi nhận được điều chỉnh tồn. Vui lòng kiểm tra lại và thử lại.'
+    return   // KHÔNG đóng hộp thoại ở nhánh lỗi
   }
+  showPostModal.value = false
+  await load()
 }
 
 // ── Recount / Sửa đếm lại (Reviewed → Counting) ──────────────────────────
 const showRecountModal = ref(false)
 const recountReason = ref('')
 const recounting = ref(false)
+const recountError = ref<string | null>(null)
 function openRecountModal() {
   recountReason.value = ''
+  recountError.value = null
   showRecountModal.value = true
+}
+function closeRecountModal() {
+  recountError.value = null
+  showRecountModal.value = false
 }
 async function doRecount() {
   const reason = recountReason.value.trim()
   if (!reason) return   // BE cũng validate; nút Xác nhận đã disabled khi rỗng.
+  recountError.value = null
   recounting.value = true
   const res = await api.run(() => recountCycleCount(name.value, reason), {
     successMessage: 'Đã gửi phiếu về Đang kiểm đếm để đếm lại',
+    silentError: true,
   })
   recounting.value = false
-  if (res) {
-    showRecountModal.value = false
-    await load()
+  if (!res) {
+    recountError.value = api.lastError.value?.message
+      ?? 'Không gửi được phiếu về đếm lại. Vui lòng kiểm tra lại và thử lại.'
+    return   // KHÔNG đóng hộp thoại ở nhánh lỗi
   }
+  showRecountModal.value = false
+  await load()
 }
 
 function variancePctText(it: CycleCountItem): string {
@@ -132,31 +164,55 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="page-container animate-fade-in">
-    <PageHeader
-      :title="`Phiếu kiểm kê ${name}`"
-      subtitle="IMM-15 · Tồn kho phụ tùng — Kiểm kê tồn kho"
-      :breadcrumb="[
-        { label: 'IMM-15 · Tồn kho phụ tùng', to: '/inventory' },
-        { label: 'Kiểm kê tồn kho', to: '/inventory/cycle-counts' },
-        { label: name },
-      ]"
-    >
-      <template #actions>
-        <button class="btn-secondary" @click="router.push({ name: 'CycleCountList' })">Quay lại</button>
-      </template>
-    </PageHeader>
+  <DetailPageShell
+    :loading="cycleCountDetailLoading && !detail"
+    :error-kind="loadKind"
+    :error-message="loadMsg"
+    :doc="detail"
+    entity-label="phiếu kiểm kê"
+    :record-id="name"
+    back-label="Về danh sách kiểm kê"
+    skeleton-variant="table"
+    :skeleton-rows="5"
+    @retry="load()"
+    @back="router.push('/inventory/cycle-counts')">
+    <template #title>
+      <PageHeader
+        :title="`Phiếu kiểm kê ${name}`"
+        subtitle="IMM-15 · Tồn kho phụ tùng — Kiểm kê tồn kho"
+        :breadcrumb="[
+          { label: 'IMM-15 · Tồn kho phụ tùng', to: '/inventory' },
+          { label: 'Kiểm kê tồn kho', to: '/inventory/cycle-counts' },
+          { label: name },
+        ]"
+      />
+    </template>
 
-    <!-- Tri-branch loading / error / content -->
-    <div v-if="cycleCountDetailLoading && !detail" class="card p-6">
-      <SkeletonLoader variant="table" :rows="5" />
-    </div>
-    <div v-else-if="error && !detail" class="card p-8 flex flex-col items-center gap-3">
-      <p class="text-sm text-red-600">{{ error }}</p>
-      <button class="btn-secondary" @click="load">Thử lại</button>
-    </div>
+    <!-- CTA workflow server-driven (allowed_transitions) — CHỈ tồn tại ở content. -->
+    <template #actions>
+      <button class="btn-secondary" data-testid="cta-back" @click="router.push({ name: 'CycleCountList' })">Quay lại</button>
+      <button
+        v-if="canSubmit"
+        data-testid="cta-submit"
+        class="btn-primary"
+        :disabled="submitting"
+        @click="doSubmit"
+      >{{ submitting ? 'Đang gửi…' : 'Gửi rà soát' }}</button>
+      <button
+        v-if="canRecount"
+        data-testid="cta-recount"
+        class="bg-amber-700 hover:bg-amber-800 text-white px-4 py-2 rounded-lg text-sm font-medium focus-visible:ring-2 focus-visible:ring-amber-500"
+        @click="openRecountModal"
+      >Sửa đếm lại</button>
+      <button
+        v-if="canPost"
+        data-testid="cta-post"
+        class="bg-emerald-700 hover:bg-emerald-800 text-white px-4 py-2 rounded-lg text-sm font-medium focus-visible:ring-2 focus-visible:ring-emerald-500"
+        @click="openPostModal"
+      >Ghi nhận điều chỉnh</button>
+    </template>
 
-    <template v-else-if="detail">
+    <template v-if="detail">
       <!-- Header + workflow -->
       <div class="card p-5 space-y-4">
         <div class="flex flex-wrap items-start justify-between gap-4">
@@ -186,29 +242,6 @@ onMounted(load)
               <dd><StatusBadge :state="detail.status" /></dd>
             </div>
           </dl>
-
-          <!-- Workflow CTA (server-driven, KHÔNG hardcode status===) -->
-          <div class="flex gap-2 flex-wrap">
-            <button
-              v-if="canSubmit"
-              data-testid="cta-submit"
-              class="btn-primary"
-              :disabled="submitting"
-              @click="doSubmit"
-            >{{ submitting ? 'Đang gửi…' : 'Gửi rà soát' }}</button>
-            <button
-              v-if="canRecount"
-              data-testid="cta-recount"
-              class="bg-amber-700 hover:bg-amber-800 text-white px-4 py-2 rounded-lg text-sm font-medium focus-visible:ring-2 focus-visible:ring-amber-500"
-              @click="openRecountModal"
-            >Sửa đếm lại</button>
-            <button
-              v-if="canPost"
-              data-testid="cta-post"
-              class="bg-emerald-700 hover:bg-emerald-800 text-white px-4 py-2 rounded-lg text-sm font-medium focus-visible:ring-2 focus-visible:ring-emerald-500"
-              @click="showPostModal = true"
-            >Ghi nhận điều chỉnh</button>
-          </div>
         </div>
 
         <WorkflowStepper :steps="CYCLE_STEPS" :current="detail.status" :label-for="cycleCountStateLabel" />
@@ -301,7 +334,7 @@ onMounted(load)
     </template>
 
     <!-- Post modal: chọn người xác nhận (khác người kiểm — segregation) -->
-    <BaseModal v-if="showPostModal" title="Ghi nhận điều chỉnh tồn" @close="showPostModal = false">
+    <BaseModal v-if="showPostModal" title="Ghi nhận điều chỉnh tồn" :error="postError" @close="closePostModal">
       <div class="space-y-4">
         <p class="text-sm text-slate-600">
           Ghi nhận sẽ tạo bút toán điều chỉnh tồn theo chênh lệch đã rà soát và không thể hoàn tác.
@@ -313,7 +346,7 @@ onMounted(load)
         </div>
       </div>
       <template #footer>
-        <button class="btn-secondary" @click="showPostModal = false">Hủy</button>
+        <button class="btn-secondary" @click="closePostModal">Hủy</button>
         <button class="btn-primary" :disabled="posting" @click="doPost">
           {{ posting ? 'Đang ghi nhận…' : 'Xác nhận ghi nhận' }}
         </button>
@@ -321,7 +354,7 @@ onMounted(load)
     </BaseModal>
 
     <!-- Recount modal: gửi phiếu đã rà soát về Đang kiểm đếm để đếm lại. -->
-    <BaseModal v-if="showRecountModal" title="Sửa đếm lại" @close="showRecountModal = false">
+    <BaseModal v-if="showRecountModal" title="Sửa đếm lại" :error="recountError" @close="closeRecountModal">
       <div class="space-y-4">
         <p class="text-sm text-slate-600">
           Gửi phiếu về trạng thái Đang kiểm đếm để kiểm đếm lại. Số đếm và chênh lệch đã rà soát
@@ -346,7 +379,7 @@ onMounted(load)
         </div>
       </div>
       <template #footer>
-        <button class="btn-secondary" @click="showRecountModal = false">Hủy</button>
+        <button class="btn-secondary" @click="closeRecountModal">Hủy</button>
         <button
           class="btn-primary"
           data-testid="cta-recount-confirm"
@@ -355,5 +388,5 @@ onMounted(load)
         >{{ recounting ? 'Đang gửi…' : 'Xác nhận đếm lại' }}</button>
       </template>
     </BaseModal>
-  </div>
+  </DetailPageShell>
 </template>

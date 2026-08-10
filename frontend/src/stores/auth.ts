@@ -48,7 +48,13 @@ const CAP_DOC_APPROVE = 'doc.approve'
 // (isCapCacheStale tự bỏ persisted-caps cũ khi user load lại — self-heal IMM-14).
 // 2026-07-10 (ADR-IMM-03-05, Vòng 19): thêm 6 cap purchase.* (AC Purchase — bịt
 // lỗ RBAC bypass) → BE version v98.178ba7da7bd8 → v104.e46d05d9a66d (104 cap).
-export const CAP_SET_VERSION = 'v104.e46d05d9a66d'
+// 2026-07-30 (AC-CR-119): thêm cap `pm.read_history` → ("PM Task Log","read") để gate
+// nhánh «Kết quả bảo trì» theo DocType BỊ TRUY VẤN (endpoint đọc `PM Task Log`, không
+// phải `PM Work Order` của `pm.read`) → BE version v104.e46d05d9a66d → v105.b50a24e5f62f
+// (105 cap). ĐO TỪ ĐĨA, không chép tay: sorted(CAPABILITY_MAP) của
+// assetcore/services/shared/rbac.py cho đúng digest này. Không bump = persisted-caps bị
+// coi là stale ở MỌI lần khởi tạo store ⇒ refetch thừa mỗi lần tải trang.
+export const CAP_SET_VERSION = 'v105.b50a24e5f62f'
 
 /**
  * SSoT cho quyết định invalidate cache caps theo version-stamp (FE-2/AC4).

@@ -172,9 +172,9 @@ Child của `checklist_items` (§II.4 #13). Schema thật (`imm_audit_checklist_
 | 4 | **result** | **Select** | **`Conforming / Non-Conforming / Not Applicable`** — **field persist verdict, round-trip qua `get_audit`** (SSoT verdict) |
 | 5 | evidence | Attach | bằng chứng |
 | 6 | notes | Small Text | ghi chú (persist verbatim) |
-| 7 | finding_ref | Link → **Audit Finding** | ⚠️ KHÔNG dùng cho backlink `IMM Compliance Finding` (kiểu Link khác) — xem note out-of-scope §III |
+| 7 | finding_ref | Link → **Audit Finding** | ⚠️ KHÔNG dùng cho backlink `IMM Compliance Finding` (kiểu Link khác doctype) — xem §III.C.1c |
 
-> **KHÔNG có field** `finding_status`, `clause_ref`, `linked_finding` — 3 assign `hasattr(child, …)` tương ứng ở service là **no-op câm**. CR-27b LOẠI 2 assign đầu (`finding_status`/`clause_ref`) + map `finding_status → result`. Payload DTO `finding_status` (enum `Compliant/Minor NC/Major NC/N/A`) chỉ tồn tại ở lớp API/FE (`frontend/src/api/imm16.ts:378`) — service map sang `result` (bảng ở 05 §3.3.5), KHÔNG persist tên DTO.
+> **KHÔNG có field** `finding_status`, `clause_ref`, `linked_finding` — 3 assign `hasattr(child, …)` tương ứng ở service là **no-op câm**. CR-27b LOẠI 2 assign đầu (`finding_status`/`clause_ref`) + map `finding_status → result`. **CR-27d LOẠI nốt assign thứ 3** (`if hasattr(child, "linked_finding")`): child KHÔNG có `linked_finding`, và `finding_ref` trỏ doctype `Audit Finding` ≠ `IMM Compliance Finding` (Link-validation reject nếu nhét tên Finding vào) → backlink row→finding **BỎ**; liên kết finding→audit đi qua `source_record_doctype='IMM Internal Audit'` + `source_record=<audit>` (SSoT forward-link, đủ cho truy vấn theo audit). Backlink cấp-dòng = `[ROADMAP]` (cần field Link mới `linked_compliance_finding` nếu về sau bắt buộc). Payload DTO `finding_status` (enum `Compliant/Minor NC/Major NC/N/A`) chỉ tồn tại ở lớp API/FE (`frontend/src/api/imm16.ts:378`) — service map sang `result` (bảng ở 05 §3.3.5), KHÔNG persist tên DTO.
 
 ## II.5. IMM Compliance Scorecard (LIVE)
 
@@ -367,7 +367,7 @@ assert {CONFIRMED_NC, FALSE_POSITIVE, WAIVED, RESOLVED, UNDER_REVIEW} <= wf_next
 | `get_audit(name)` | `→ dict` | enrich lead_auditor_name **+ `allowed_transitions[]` + `can_operate` + `can_close`** (server-driven CTA — §III.C.1) |
 | `start_audit(name)` | `→ dict` | Planned → In Progress; **+1 audit-event `audit_started`** |
 | `submit_audit_findings(audit_name, findings)` | `→ dict` | **[legacy, KHÔNG wired — DEPRECATED, dùng `complete_audit_checklist`]** batch create findings + → Reporting (event `audit_findings_submitted`). **CR-WF-16-AUDIT: guard SIẾT về linear — chỉ từ `In Progress`** (bỏ nhánh Planned: Planned→Reporting là skip-start guard-permissive) |
-| `complete_audit_checklist(audit_name, items)` | `→ dict` | guard **chỉ `In Progress`** (bỏ nhánh Planned); **CR-27b: map `finding_status → child.result` (bảng SSoT §III.C.1b) để verdict round-trip — LOẠI 2 no-op `hasattr(child,"finding_status")`/`"clause_ref"`**; auto-Finding Major/Minor NC (`findings_created` KHÔNG đổi); **set `status=Reporting`** (khôi phục state chết); **+1 audit-event `audit_checklist_completed`** |
+| `complete_audit_checklist(audit_name, items)` | `→ dict` | guard **chỉ `In Progress`** (bỏ nhánh Planned); **CR-27b: map `finding_status → child.result` (bảng SSoT §III.C.1b) để verdict round-trip — LOẠI 2 no-op `hasattr(child,"finding_status")`/`"clause_ref"`**; **CR-27d: auto-sinh `IMM Compliance Finding` THẬT cho mỗi Major/Minor NC — `findings_created` = số doc persist THỰC (§III.C.1c); rule resolve qua get-or-create canonical `AUDIT-INTERNAL-NC` (fail-loud, KHÔNG nuốt lỗi)**; **set `status=Reporting`** (khôi phục state chết); **+1 audit-event `audit_checklist_completed`** |
 | `close_audit(name, audit_report)` | `→ dict` | guard **`status==Reporting`** (VR-13, chặn jump-skip) → VR-08 (FIN-008) → Closed; **+1 audit-event `audit_closed`** |
 | `close_internal_audit(audit_name)` | `→ dict` | **[legacy alias, KHÔNG wired — DEPRECATED, dùng `close_audit`]** event `internal_audit_closed`. **CR-WF-16-AUDIT: guard SIẾT về linear — chỉ đóng từ `Reporting`** (VR-13 parity `close_audit`; chặn close-từ-Planned/In Progress). *Lưu ý: legacy KHÔNG có VR-08 Major-NC gate — dùng `close_audit` để có gate đầy đủ.* |
 
@@ -410,6 +410,84 @@ _FINDING_STATUS_TO_RESULT = {
 
 - **Vì sao map thay vì thêm field:** verdict đã có nơi persist chuẩn (`result`, round-trip qua `get_audit`); thêm field `finding_status` vào child = migration + trùng dữ liệu 2 nguồn (drift). DTO enum finding_status thuộc lớp API/FE, map 1-chiều tại service. Xem ADR-IMM-16-10.
 - **unknown finding_status** (payload sai / rỗng) → `.get()` trả `None` → KHÔNG overwrite `result` → an toàn (không ghi rác vào Select).
+
+### III.C.1c. Auto-sinh `IMM Compliance Finding` THẬT cho Major/Minor NC (CR-27d — hết no-op câm)
+
+> **Bối cảnh (Self-Correction — nhánh cũ là no-op câm).** Nhánh `if finding_status in ("Major NC","Minor NC")` (services/imm16.py:1720–1743) trước đây **KHÔNG bao giờ tạo được Finding**: (1) `rule` resolve từ `getattr(child, "rule_ref", "")` — child KHÔNG có field `rule_ref` → luôn `""` → `IMM Compliance Finding.rule` **reqd=1** (Link) → `insert()` raise `MandatoryError`; (2) `except Exception: frappe.log_error(...)` **nuốt** MandatoryError → `findings_created` đọng 0 nhưng hàm vẫn return "thành công" (status Reporting, items_count>0) — **success-giả**; (3) `if hasattr(child, "linked_finding")` — field ảo → backlink no-op. Kết quả: Major/Minor NC KHÔNG để lại record Finding nào; báo cáo/compliance-rate/VR-08 (close-gate) rỗng dữ liệu. CR-27d bật THẬT nhánh này.
+
+**Nguồn `rule` (mandatory) — get-or-create canonical fallback, IDEMPOTENT.** Checklist item KHÔNG mang rule; auto-Finding cần `rule` (reqd Link → `IMM Compliance Rule`). Giải: get-or-create **1** rule canonical cố định `rule_code = "AUDIT-INTERNAL-NC"`. Vì `IMM Compliance Rule.autoname = field:rule_code` (unique) ⇒ `name == rule_code` ⇒ get-or-create khóa trên `rule_code` **tự nhiên idempotent**: chạy `complete_audit_checklist` 2 lần ⇒ ĐÚNG 1 doc rule fallback (KHÔNG nhân bản).
+
+```python
+# services/imm16.py — resolver rule canonical cho auto-Finding audit-NC (CR-27d)
+_AUDIT_NC_RULE_CODE = "AUDIT-INTERNAL-NC"
+
+def _resolve_audit_nc_rule() -> str:
+    """Get-or-create canonical Compliance Rule cho NC phát hiện qua audit nội bộ.
+    Idempotent (name==rule_code, unique) — trả về ``rule_code`` (= name Link)."""
+    if ComplianceRuleRepo.exists(_AUDIT_NC_RULE_CODE):
+        return _AUDIT_NC_RULE_CODE
+    ComplianceRuleRepo.create({
+        "rule_code":            _AUDIT_NC_RULE_CODE,
+        "rule_name":            "Điểm không phù hợp (NC) — Kiểm toán nội bộ",
+        "source_module":        "IMM-16",          # ⚠️ cần thêm option (xem note enum)
+        "category":             "Document",         # reuse enum sẵn có (catch-all)
+        "severity":             "Medium",           # severity-mẫu cấp rule (finding severity set riêng/dòng)
+        "evaluation_frequency": "Realtime",         # event-driven khi complete audit
+        "regulatory_reference": "ISO 13485 §8.2.4",
+        "is_active":            1,
+    })
+    return _AUDIT_NC_RULE_CODE
+```
+
+> ⚠️ **Enum Self-Correction (handoff [BE]):** `IMM Compliance Rule.source_module` Select hiện `\nIMM-04…\nIMM-15` — **THIẾU IMM-16** (và IMM-00..03, 17). Để canonical rule có `source_module="IMM-16"` (đúng model — IMM-16 là module-nguồn hợp lệ của compliance rule), [BE] **thêm `IMM-16` vào options** của field `source_module` (`imm_compliance_rule.json`) → backward-compatible (0 row cũ vỡ; 0 test pin option-list — đã grep) → cần `bench migrate` (được phép). *Alternative (ADR-IMM-16-11) nếu tránh migrate: dùng value enum sẵn có — LOẠI vì làm bẩn report module đó.* **Đây là schema/data-model → [BE] sửa JSON, KHÔNG phải BA.**
+
+**Vòng lặp auto-Finding (mỗi Major/Minor NC = 1 Finding, KHÔNG dedup):**
+
+```python
+# services/imm16.py — trong loop complete_audit_checklist, sau khi map result:
+if finding_status in ("Major NC", "Minor NC"):
+    severity = "High" if finding_status == "Major NC" else "Medium"
+    rule = _resolve_audit_nc_rule()               # fail-loud nếu rule create hỏng
+    finding = ComplianceFindingRepo.create({
+        "rule":                  rule,             # reqd — hết MandatoryError câm
+        "source_record_doctype": InternalAuditRepo.DOCTYPE,   # "IMM Internal Audit"
+        "source_record":         doc.name,         # Dynamic Link → audit
+        "severity":              severity,         # High (Major) / Medium (Minor)
+        "status":                FindingStatus.OPEN,  # reqd, "Open"
+        "detected_date":         now_datetime(),   # reqd, Datetime
+        "evaluation_date":       nowdate(),        # reqd, Date
+        "notes":                 payload.get("notes", ""),
+        "current_value":         clause_ref or "", # (tùy chọn) lưu điều-khoản để truy vết
+    })
+    findings_created += 1                          # CHỈ tăng SAU khi create trả doc THẬT
+    # ❌ BỎ: if hasattr(child, "linked_finding"): ...  (field ảo — no-op câm)
+    # ❌ BỎ: except Exception: log_error(...)          (nuốt lỗi → success-giả)
+```
+
+**Boundaries (Always / Never) — CR-27d:**
+- **Always:** `findings_created` = số `IMM Compliance Finding` doc **persist THỰC** (chỉ `+= 1` sau khi `create()` trả doc có `.name`). Mỗi Finding có `rule` KHÔNG rỗng (đã resolve) + `detected_date` (Datetime) + `evaluation_date` (Date) hợp lệ.
+- **Always:** 1 Finding **cho mỗi** dòng Major/Minor NC (2 NC ⇒ 2 Finding).
+- **Never (dedup-trap):** **KHÔNG** gọi `ComplianceFindingRepo.find_existing(rule, source_record, evaluation_date)` cho audit-NC. Nhiều dòng NC cùng audit chia sẻ `(rule=AUDIT-INTERNAL-NC, source_record=audit, evaluation_date=today)` ⇒ `find_existing` sẽ gộp nhiều NC → 1 Finding → `findings_created` sai (2 NC ra 1). `create_finding` (§III.B) CÓ dedup vì mỗi (rule, WO/asset) là 1 vi phạm riêng; audit-NC thì mỗi DÒNG là 1 vi phạm riêng ⇒ KHÔNG dedup.
+- **Never (swallow-trap):** **KHÔNG** bọc `try/except Exception` nuốt lỗi quanh `create`. Lỗi THẬT (rule create hỏng / DB) → **raise** (in-handler → HTTP-200 Error envelope, DONE-gate) → abort TRƯỚC `frappe.db.commit()` (all-or-nothing, KHÔNG partial/success-giả). Audit-trail logging vẫn giữ try/except RIÊNG (lỗi trail KHÔNG chặn nghiệp vụ — pattern hiện hữu).
+- **Never:** dòng `Compliant` / `N/A` / finding_status lạ → KHÔNG sinh Finding (chỉ Major/Minor NC).
+
+**Field mapping Finding (per NC row) — mọi reqd đã phủ:**
+
+| Finding field | Value | reqd |
+|---|---|---|
+| `rule` | canonical `AUDIT-INTERNAL-NC` (resolve) | reqd=1 ✓ |
+| `source_record_doctype` | `"IMM Internal Audit"` | — |
+| `source_record` | `<audit_name>` (Dynamic Link) | — |
+| `severity` | Major NC→`High`, Minor NC→`Medium` | reqd=1 ✓ |
+| `status` | `FindingStatus.OPEN` (`"Open"`) | reqd=1 ✓ (có default `Open` nhưng set tường minh) |
+| `detected_date` | `now_datetime()` (Datetime) | reqd=1 ✓ |
+| `evaluation_date` | `nowdate()` (Date) | reqd=1 ✓ |
+| `notes` | payload NC `notes` | — |
+| `current_value` | `clause_ref` (tùy chọn, truy vết điều-khoản) | — |
+
+> **Truy vấn kiểm chứng persist (acceptance):** sau `complete_audit_checklist`, query
+> `frappe.get_all("IMM Compliance Finding", filters={"source_record_doctype":"IMM Internal Audit", "source_record":<audit>}, fields=["severity","rule","detected_date","evaluation_date"])`
+> ⇒ ĐÚNG N row (N = số NC) với `severity` = High (Major) / Medium (Minor), `rule` KHÔNG rỗng. Chứng minh persist THẬT — KHÔNG phải `len(payload)`.
 
 - **Guard (defense-in-depth, HTTP-200 Error envelope `BAD_STATE` khi sai state)** — `allowed_transitions` chỉ là hint hiển thị, KHÔNG thay guard:
   - `start_audit`: chỉ từ `Planned` (giữ nguyên).
@@ -470,7 +548,20 @@ _AUDIT_ACTION_TO_NEXT_STATE = {
 - **Alternatives**:
   1. *Thêm field `finding_status` (Select) + `clause_ref` (Data) vào child* — LOẠI: migration + 2 nguồn verdict (`finding_status` vs `result`) → drift; `result` đã là SSoT có round-trip + đã có FE/report tiêu thụ.
   2. *Đổi FE gửi thẳng `result` value (Conforming/…)* — LOẠI: DTO enum finding_status mang thêm severity (Major/Minor) để auto-Finding; ép FE về `result` mất phân biệt Major↔Minor (đều `Non-Conforming`).
-- **Consequences**: 0 migration (field `result` đã tồn tại) → 0 `bench migrate`; verdict round-trip đúng; DTO enum vẫn giàu (Major/Minor) cho nhánh auto-Finding. Đánh đổi: map là 1-chiều — nếu cần lưu `clause_ref` thì phải thêm field (CR riêng, hiện discard). Backlink `linked_finding`/`finding_ref` vẫn no-op (out-of-scope, flag ở 05 §3.3.5).
+- **Consequences**: 0 migration (field `result` đã tồn tại) → 0 `bench migrate`; verdict round-trip đúng; DTO enum vẫn giàu (Major/Minor) cho nhánh auto-Finding. Đánh đổi: map là 1-chiều — nếu cần lưu `clause_ref` thì phải thêm field (CR riêng, hiện discard). Backlink `linked_finding`/`finding_ref` vẫn no-op (nay LOẠI hẳn ở CR-27d — xem ADR-IMM-16-11 + §III.C.1c).
+
+### ADR-IMM-16-11: Auto-Finding audit-NC — canonical rule get-or-create + fail-loud (CR-27d)
+
+- **Status**: Accepted
+- **Date**: 2026-07-19
+- **Context**: Nhánh auto-sinh `IMM Compliance Finding` cho Major/Minor NC trong `complete_audit_checklist` là **no-op câm**: `rule` reqd=1 nhưng resolve từ field-ảo `child.rule_ref` → `""` → `insert()` raise `MandatoryError` → bị `except Exception` **nuốt** → `findings_created` đọng 0 nhưng return "thành công" (success-giả). Checklist item KHÔNG mang rule; auto-Finding vẫn cần 1 rule hợp lệ (reqd Link).
+- **Decision**: **get-or-create 1 canonical `IMM Compliance Rule` `rule_code="AUDIT-INTERNAL-NC"`** làm nguồn `rule` cho mọi audit-NC Finding (`_resolve_audit_nc_rule()`, §III.C.1c). Idempotent nhờ `autoname=field:rule_code` (unique) ⇒ `name==rule_code`. **Bỏ blanket `except`** — lỗi create → raise (in-handler HTTP-200 Error envelope) abort trước commit. `findings_created` = số doc persist THỰC. 1 Finding/dòng NC, **KHÔNG dedup** (khác `create_finding`). Thêm `IMM-16` vào Select `source_module` (`imm_compliance_rule.json`) để canonical rule đúng module-nguồn.
+- **Alternatives**:
+  1. *Thêm field `rule` (Link) vào child + FE cho auditor chọn rule mỗi dòng* — LOẠI: UX nặng, auditor hiện trường không map từng NC về rule; checklist editor không thu rule; migration child.
+  2. *`ignore_mandatory=True` khi insert Finding (bỏ qua reqd `rule`)* — LOẠI: Finding không rule = rác data, vỡ VR-08 close-gate + report compliance-rate + Link-integrity; chỉ giấu bug.
+  3. *source_module dùng value enum sẵn có (né `bench migrate`)* — LOẠI: canonical rule là record hiển thị bền vững; gán sai module làm bẩn rule-list/report module đó. Thêm `IMM-16` (backward-compatible, 0 test pin) là đúng model. (Nếu branch buộc né migrate → interim reuse enum = tech-debt, target vẫn IMM-16.)
+  4. *Giữ dedup `find_existing(rule, source_record, evaluation_date)`* — LOẠI: gộp nhiều NC cùng audit/ngày → 1 Finding → count sai (acceptance: 2 NC ⇒ 2 Finding).
+- **Consequences**: auto-Finding hoạt động THẬT (Major→High, Minor→Medium); `findings_created` khớp số persist; VR-08 close-gate + compliance-rate có dữ liệu. **Cần `bench migrate`** (thêm option `IMM-16`, handoff [BE]). Canonical rule tự-seed lần đầu (không cần fixture). Đánh đổi: mọi audit-NC dùng chung 1 rule generic (không phân loại theo điều-khoản ISO); phân loại chi tiết = `[ROADMAP]` (map clause_ref→rule cụ thể). Backlink row→finding bỏ hẳn (forward-link finding→audit là SSoT).
 
 ## III.D. CAPA
 

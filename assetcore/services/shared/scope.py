@@ -147,6 +147,96 @@ def _resolve_vendor_assigned_assets(user: str) -> list[str]:
     return [r[0] for r in rows if r and r[0]]
 
 
+_SCOPE_SENTINEL = "__none__"
+#: Toán tử mà phép GIAO tính được **tĩnh** (0 truy vấn) từ danh sách asset đã được giao.
+_POSITIVE_OPS = ("in", "=")
+_NEGATIVE_OPS = ("not in", "!=")
+_ALL_OPS = (
+    "in", "not in", "between", "like", "not like", "=", "!=", "<", ">", "<=", ">=",
+)
+
+
+def _as_id_list(value) -> list[str]:
+    """Giá trị (vô hướng hoặc list/tuple) → list mã, bỏ rỗng, GIỮ thứ tự, KHÔNG trùng."""
+    raw = value if isinstance(value, (list, tuple, set)) else [value]
+    out: list[str] = []
+    for v in raw:
+        s = str(v).strip()
+        if s and s not in out:
+            out.append(s)
+    return out
+
+
+def _intersect_in(existing, assigned: list[str]) -> list:
+    """GIAO ràng buộc-theo-thiết-bị của caller với tập được-giao ⇒ ``["in", <list>]``.
+
+    Vì sao tồn tại (AC-CR-106 — class-of-bug đo được, bản cũ dòng ``filters[field] =
+    ["in", assigned]``): **GÁN** xoá sạch ý định của caller ⇒
+      * Vendor Engineer deep-link ĐÚNG MỘT thiết bị (``?asset=A9``) nhận về **MỌI** phiếu
+        của **MỌI** thiết bị họ được giao — rò dữ liệu so với yêu cầu, và người dùng tin
+        rằng đang xem 1 thiết bị;
+      * vỡ bất biến ``count == drill`` cho đúng persona đó (ô trên màn chi tiết đếm theo
+        1 thiết bị, màn drill trả toàn bộ) — hai con số không bao giờ khớp.
+    GIAO giữ CẢ HAI ràng buộc: phạm vi vendor (an ninh) ∧ ý định caller (nghiệp vụ).
+
+    Shape ĐẦU VÀO phủ đủ 4 dạng đã gặp trên đường dây thật (luật run-4 «filter bị nuốt
+    câm»): ``None``/khuyết/rỗng · **vô hướng** ``"A1"`` (FE deep-link) · ``["in", [...]]``
+    / ``("in", [...])`` (vendor-scope + service nội bộ) · ``["=", "A1"]`` · list literal
+    ``["A1","A2"]`` (mirror :func:`normalize_filters`).
+
+    Shape ĐẦU RA **luôn** ``["in", list]`` — hạ nguồn không phải đoán:
+    ``services/imm11.py::_extract_asset_in_scope`` (đã vá run-4) và
+    ``_normalize_list_filters`` nhận đúng dạng này, nên GIAO không cần sửa IMM-11.
+
+    Args:
+        existing: giá trị filter của caller trên CHÍNH cột scope (có thể khuyết).
+        assigned: tập mã asset được giao cho vendor (đã non-empty; có thể là sentinel).
+
+    Returns:
+        list: ``["in", <list mã>]``. Giao rỗng ⇒ ``["in", ["__none__"]]`` (0 dòng —
+        **KHÔNG** fallback về ``assigned``, vì fallback đó chính là bug đang sửa).
+
+    Op không giao được tĩnh (``like`` / ``between`` / so sánh) ⇒ **FAIL-CLOSED** về
+    sentinel + ``frappe.logger`` cảnh báo (§10.4 dòng #8): phạm vi vendor là RANH GIỚI
+    AN NINH, nên khi không tính được phần giao ta chọn 0 dòng (lỗi hiển thị HỮU HÌNH, FE
+    có empty-state có ngữ cảnh) thay vì nới về "toàn bộ thiết bị của tôi" (rò dữ liệu
+    CÂM). Nâng thành 400-in-envelope tường minh = nợ CÓ TÊN ``AC-CR-107`` (phải bọc
+    ``try/except`` ở cả 5 call site trước, nếu không ``raise`` sẽ thoát envelope).
+    Nhánh ``filters`` dạng LIST KHÔNG dùng helper này: ở đó hai điều kiện cùng field
+    ANDed trong SQL đã LÀ phép giao (§10.4 cuối bảng) nên giữ nguyên cách ghép.
+    """
+    if existing is None:
+        return ["in", list(assigned)]
+    # Vô hướng (kể cả số) — deep-link 1 mã. Rỗng/khoảng trắng = KHÔNG ràng buộc.
+    if not isinstance(existing, (list, tuple, set)):
+        wanted = _as_id_list(existing)
+        if not wanted:
+            return ["in", list(assigned)]
+        return ["in", [a for a in wanted if a in assigned] or [_SCOPE_SENTINEL]]
+
+    seq = list(existing)
+    if len(seq) == 2 and isinstance(seq[0], str) and seq[0].strip().lower() in _ALL_OPS:
+        op = seq[0].strip().lower()
+        vals = _as_id_list(seq[1])
+        if op in _POSITIVE_OPS:
+            keep = [a for a in vals if a in assigned]
+        elif op in _NEGATIVE_OPS:
+            keep = [a for a in assigned if a not in vals]
+        else:
+            # Không giao được tĩnh ⇒ fail-closed (xem docstring).
+            frappe.logger("assetcore.scope").warning(
+                "vendor_scope_unintersectable_op", extra={"op": op}
+            )
+            keep = []
+        return ["in", keep or [_SCOPE_SENTINEL]]
+
+    # List literal không mang toán tử ⇒ tập IN.
+    wanted = _as_id_list(seq)
+    if not wanted:
+        return ["in", list(assigned)]
+    return ["in", [a for a in wanted if a in assigned] or [_SCOPE_SENTINEL]]
+
+
 def apply_vendor_scope(
     filters,
     doctype: str,
@@ -156,6 +246,11 @@ def apply_vendor_scope(
 
     Non-vendor users (or bypass roles): filters returned unchanged.
     Vendor Engineer with empty scope: filtered to a sentinel that yields zero rows.
+
+    AC-CR-106: ràng buộc vendor được **GIAO** với ràng buộc của caller
+    (:func:`_intersect_in`), KHÔNG **GÁN** đè. Không có filter caller ⇒ kết quả y hệt
+    hành vi cũ (``["in", assigned]``) ⇒ 0 hồi quy cho 5 call site
+    (``api/imm00.py:413`` · ``api/imm08.py`` · ``api/imm09.py`` · ``api/imm11.py`` ×2).
     """
     user = user or frappe.session.user
     if not user or user == "Guest":
@@ -168,14 +263,24 @@ def apply_vendor_scope(
     field = _VENDOR_SCOPE_FIELD_MAP.get(doctype)
     if not field:
         return filters
-    assigned = _resolve_vendor_assigned_assets(user) or ["__none__"]
+    assigned = _resolve_vendor_assigned_assets(user) or [_SCOPE_SENTINEL]
     if isinstance(filters, dict):
         filters = dict(filters)
-        filters[field] = ["in", assigned]
+        filters[field] = _intersect_in(filters.get(field), assigned)
         return filters
     if isinstance(filters, list):
+        # Filter-list form: hai điều kiện CÙNG field ANDed trong SQL **chính là** phép
+        # giao (ADR-IMM00-LIST-SCOPE §10.4 — tiền lệ đã verify:
+        # `services/imm00.py::compose_reserved_into` ghép `name in assigned` AND
+        # `name not in reserved`). GIỮ NGUYÊN cách ghép ⇒ 0 hồi quy.
+        # ⚠️ Nợ CÓ TÊN `AC-CR-109`: nhãn doctype spliced ở đây là chuỗi caller truyền —
+        # với IMM-11 đó là **alias API** (`Calibration Schedule`/`Calibration Record`),
+        # KHÔNG phải DocType thật (`IMM Calibration Schedule`/`IMM Asset Calibration`).
+        # Hoãn được vì nhánh này **hiện không tới được** từ cả 5 call site prod (tất cả
+        # truyền dict sau `parse_json`) — bất biến đó được khoá bằng test
+        # `test_vendor_scope_intersect.py::test_ac_cr_109_list_branch_unreachable_...`.
         return list(filters) + [[doctype, field, "in", assigned]]
-    # Unknown shape: wrap as dict
+    # Unknown shape: wrap as dict (fail-closed — giữ nguyên hành vi cũ)
     return {field: ["in", assigned]}
 
 

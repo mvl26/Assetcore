@@ -12,8 +12,9 @@ Fix: guest_count đếm ĐỘNG từ chính `paths` dict — số operation có 
 `frappe.guest_methods` trong `_assetcore_stats`. `_guest_name_set()` GIỮ là SSoT cho
 quyết định is_guest PER-OP trong `_build_operation` (không đổi) — chỉ STAT đổi nguồn.
 
-Bề mặt guest THẬT (5): auth.register_user / auth.check_account_status /
-auth.account_state + layout.get_user_context / layout.ping_session.
+Bề mặt guest THẬT (7): auth.register_user / auth.check_account_status /
+auth.account_state / auth.verify_password_key / auth.set_password_with_key +
+layout.get_user_context / layout.ping_session.
 
 Run: bench --site miyano run-tests --module assetcore.tests.test_oas_d11_guest_stat
 """
@@ -27,13 +28,18 @@ from assetcore.api import openapi
 from assetcore.api import openapi_overrides as _ovr
 
 
-# Bề mặt guest documented (5 op-tail) — tập kỳ vọng TUYỆT ĐỐI (không nhiều/ít hơn).
+# Bề mặt guest documented (7 op-tail) — tập kỳ vọng TUYỆT ĐỐI (không nhiều/ít hơn).
+# Mỗi lần thêm/bớt PHẢI có chủ đích + ghi ledger (assetcore/tests/oas_baseline.py).
 _EXPECTED_GUEST_TAILS = {
     "auth.register_user",
     "auth.check_account_status",
     "auth.account_state",
     "layout.get_user_context",
     "layout.ping_session",
+    # ISS-002 (2026-07-21): user mới CHƯA có mật khẩu → không thể authed. Key
+    # sha256 một-lần trong link email là bằng chứng sở hữu hộp thư.
+    "auth.verify_password_key",
+    "auth.set_password_with_key",
 }
 
 _PREFIX = "/api/method/assetcore.api."
@@ -80,13 +86,13 @@ class TestOasD11GuestStat(unittest.TestCase):
         )
 
     # ── TC-OAS-D11-02 (exact surface) ────────────────────────────────────────
-    def test_d11_02_guest_surface_is_exactly_the_five_documented_tails(self):
-        """Tập op-tail guest == đúng 5 tail documented; guest_count == len(tập đó)."""
+    def test_d11_02_guest_surface_is_exactly_the_documented_tails(self):
+        """Tập op-tail guest == đúng tập tail documented; guest_count == len(tập đó)."""
         tails = _guest_path_tails(self.spec)
         self.assertEqual(
             tails,
             _EXPECTED_GUEST_TAILS,
-            "Bề mặt guest (security==[]) PHẢI == đúng 5 endpoint documented "
+            "Bề mặt guest (security==[]) PHẢI == đúng tập endpoint documented "
             "(không thừa, không thiếu).",
         )
         self.assertEqual(

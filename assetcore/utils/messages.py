@@ -68,6 +68,11 @@ class MSG:
     VAL_OUT_OF_RANGE = "VAL-RANGE"
     VAL_DUPLICATE = "VAL-DUPLICATE"
     VAL_INVALID_PARAMS = "VAL-INVALID-PARAMS"
+    # AC-CR-79 — khoá `filters` ngoài whitelist của module list. Danh tính RIÊNG so với
+    # VAL_INVALID_PARAMS (malformed JSON) để telemetry/i18n tách được 2 cách hỏng của
+    # CÙNG tham số `filters`; bucket ErrorCode vẫn là INVALID_PARAMS (http_status 400 →
+    # `_HTTP_TO_BUCKET` — ADR-IMM08-FILTERKEY-02, KHÔNG thêm bucket mới).
+    VAL_INVALID_FILTER_KEY = "VAL-INVALID-FILTER-KEY"
 
     # ── Business chung ─────────────────────────────────────────────────────────
     BIZ_NOT_FOUND = "BIZ-NOT-FOUND"
@@ -96,6 +101,16 @@ class MSG:
     IMM04_BASELINE_FAILED = "IMM04-BASELINE-FAILED"
     IMM04_OPEN_NC = "IMM04-OPEN-NC"
     IMM04_BOARD_APPROVER_REQUIRED = "IMM04-BOARD-APPROVER-REQUIRED"
+    # BR-04-12 (ADR-IMM-04-03): pre-check in-handler khi transition VÀO Clinical
+    # Release thiếu approver → Decision-B envelope (KHÔNG 417). Mã RIÊNG (không tái
+    # dùng IMM04-BOARD-APPROVER-REQUIRED) vì mang context={missing:[...]} cho FE map
+    # đúng control; entry cũ GIỮ NGUYÊN cho hook save-time validate_gate_g05_g06.
+    IMM04_GATE_G06_APPROVER = "IMM04-GATE-G06-APPROVER"
+    # BR-04-13 (ADR-IMM-04-05): gate G03 pre-check in-handler ở transition CR-bound
+    # → Decision-B envelope (KHÔNG 417). Mã RIÊNG (không tái dùng IMM04-BASELINE-FAILED)
+    # vì mang context={failed:[...]} cho FE map đúng dòng bảng kiểm; entry cũ GIỮ NGUYÊN
+    # cho hook save-time (defense-in-depth VR-03b).
+    IMM04_GATE_G03_BASELINE = "IMM04-GATE-G03-BASELINE"
     IMM04_CANCEL_ASSET_ACTIVE = "IMM04-CANCEL-ASSET-ACTIVE"
 
     # ── IMM-05 Registration / Document Repository ───────────────────────────────
@@ -118,6 +133,8 @@ class MSG:
     IMM08_BAD_STATE = "IMM08-BAD-STATE"
     IMM08_ALREADY_SUBMITTED = "IMM08-ALREADY-SUBMITTED"
     IMM08_CHECKLIST_INCOMPLETE = "IMM08-CHECKLIST-INCOMPLETE"
+    IMM08_CHECKLIST_EMPTY = "IMM08-CHECKLIST-EMPTY"
+    IMM08_CHECKLIST_IDX_UNKNOWN = "IMM08-CHECKLIST-IDX-UNKNOWN"
     IMM08_DURATION_REQUIRED = "IMM08-DURATION-REQUIRED"
     IMM08_STICKER_REQUIRED = "IMM08-STICKER-REQUIRED"
     IMM08_PHOTO_REQUIRED = "IMM08-PHOTO-REQUIRED"
@@ -141,6 +158,9 @@ class MSG:
     IMM09_CHECKLIST_FAILED = "IMM09-CHECKLIST-FAILED"
     IMM09_ASSET_NOT_FOUND = "IMM09-ASSET-NOT-FOUND"
     IMM09_DEPT_HEAD_REQUIRED = "IMM09-DEPT-HEAD-REQUIRED"
+    # CR-41 segregation-of-duties: người nghiệm thu (confirm_inspection) PHẢI khác
+    # người đóng phiếu (close_work_order). http_status=403 → bucket FORBIDDEN.
+    IMM09_SELF_INSPECT_FORBIDDEN = "IMM09-SELF-INSPECT-FORBIDDEN"
     # R25 dispatch-validation gate (assign_technician): technician không hợp lệ
     # (User không tồn tại / disabled / không có role repair-capable). Chặn ghi
     # dữ liệu rác qua ignore_links=True. Xem ADR-IMM09-VALIDATE-TECH (docs/imm-09/04 §3.3).
@@ -155,6 +175,11 @@ class MSG:
     # cho phép chuyển sang Under Repair (vd Draft — chưa vận hành). Defense-in-depth
     # service-tier; chặn raw InvalidAssetTransition (state machine) bubble → HTTP 500.
     IMM09_ASSET_NOT_REPAIRABLE = "IMM09-ASSET-NOT-REPAIRABLE"
+    # AC-CR-84 / BR-09-23 (05 §16.4): cổng ẢNH BẰNG CHỨNG NĐ98 (Class C/D) khi đóng
+    # phiếu CM / nghiệm thu. Field-level (`nthrow(..., fields={"repair_checklist": …})`)
+    # + context `missing_count`/`missing_idxs`. 422 IN-ENVELOPE trên HTTP-200 — KHÔNG
+    # `nthrow_in_hook` (417 thô, ngoài envelope — bài học AC-CR-83).
+    IMM09_EVIDENCE_PHOTO_REQUIRED = "IMM09-EVIDENCE-PHOTO-REQUIRED"
 
     # ── IMM-12 Incident / Corrective / RCA ──────────────────────────────────────
     # Sprint chuẩn hoá thông báo 2026-05-29 vòng 2 — docs/imm-12 §11.2
@@ -173,12 +198,22 @@ class MSG:
     IMM12_RCA_REASON_REQUIRED = "IMM12-RCA-REASON-REQUIRED"
     IMM12_RCA_ROOT_CAUSE_REQUIRED = "IMM12-RCA-ROOT-CAUSE-REQUIRED"
     IMM12_RCA_CORRECTIVE_REQUIRED = "IMM12-RCA-CORRECTIVE-REQUIRED"
+    # AC-CR-83 (05 §22.4): 3 ràng buộc hồ sơ RCA hết thoát envelope thành HTTP-417
+    # thô. 2 mã field-level đi kèm `fields` (nthrow(..., fields=…)); mã thứ 3 chỉ
+    # phục vụ hook on_submit (đường Desk/doc.submit(), KHÔNG nằm trên đường API).
+    IMM12_RCA_FIVE_WHY_INCOMPLETE = "IMM12-RCA-FIVE-WHY-INCOMPLETE"
+    IMM12_RCA_ASSIGNEE_REQUIRED = "IMM12-RCA-ASSIGNEE-REQUIRED"
+    IMM12_RCA_SUBMIT_NOT_COMPLETED = "IMM12-RCA-SUBMIT-NOT-COMPLETED"
     IMM12_RCA_ALREADY_EXISTS = "IMM12-RCA-ALREADY-EXISTS"
     IMM12_RCA_ALREADY_COMPLETED = "IMM12-RCA-ALREADY-COMPLETED"
     IMM12_BAD_STATE = "IMM12-BAD-STATE"
     IMM12_CLOSE_RCA_REQUIRED = "IMM12-CLOSE-RCA-REQUIRED"
     IMM12_CLOSE_RCA_INCOMPLETE = "IMM12-CLOSE-RCA-INCOMPLETE"
     IMM12_REPORT_SUCCESS = "IMM12-REPORT-SUCCESS"
+
+    # ── IMM-06 Training & Competency (BR-06-08 anti nghiệm-thu-giả) ──────────────
+    IMM06_SESSION_NO_SCORE = "IMM06-SESSION-NO-SCORE"
+    IMM06_RESULT_UNKNOWN_USER = "IMM06-RESULT-UNKNOWN-USER"
 
     # ── IMM-11 Calibration ──────────────────────────────────────────────────────
     # Sprint chuẩn hoá thông báo 2026-05-29 vòng 4 — docs/imm-11 §11.2
@@ -191,6 +226,7 @@ class MSG:
     IMM11_SCHEDULE_HAS_SUBMITTED = "IMM11-SCHEDULE-HAS-SUBMITTED"
     IMM11_NOT_EXTERNAL = "IMM11-NOT-EXTERNAL"
     IMM11_SEND_LAB_BAD_STATE = "IMM11-SEND-LAB-BAD-STATE"
+    IMM11_SEND_LAB_ALREADY_CERTIFIED = "IMM11-SEND-LAB-ALREADY-CERTIFIED"
     IMM11_RECEIVE_CERT_BAD_STATE = "IMM11-RECEIVE-CERT-BAD-STATE"
     IMM11_CERT_FIELDS_REQUIRED = "IMM11-CERT-FIELDS-REQUIRED"
     IMM11_CANCEL_REASON_REQUIRED = "IMM11-CANCEL-REASON-REQUIRED"
@@ -211,6 +247,13 @@ class MSG:
     IMM11_SEND_LAB_SUCCESS = "IMM11-SEND-LAB-SUCCESS"
     IMM11_CERT_RECEIVED_SUCCESS = "IMM11-CERT-RECEIVED-SUCCESS"
     IMM11_CANCEL_SUCCESS = "IMM11-CANCEL-SUCCESS"
+    # AC-CR-86 (BR-11-19/BR-11-20) — dời lịch hiệu chuẩn. Trước CR, `scheduled_date`
+    # KHÔNG nằm trong `_UPDATE_ALLOWED` ⇒ `update_calibration` NUỐT IM LẶNG khoá đó.
+    IMM11_RESCHEDULE_BAD_STATE = "IMM11-RESCHEDULE-BAD-STATE"
+    IMM11_RESCHEDULE_REASON_REQUIRED = "IMM11-RESCHEDULE-REASON-REQUIRED"
+    IMM11_RESCHEDULE_DATE_INVALID = "IMM11-RESCHEDULE-DATE-INVALID"
+    IMM11_RESCHEDULE_DATE_PAST = "IMM11-RESCHEDULE-DATE-PAST"
+    IMM11_SCHEDULED_DATE_READONLY = "IMM11-SCHEDULED-DATE-READONLY"
 
     # ── IMM-15 Kiểm kê / Cycle Count (CR-WF-15-CC) ────────────────────────────
     IMM15_RECOUNT_REASON_REQUIRED = "IMM15-RECOUNT-REASON-REQUIRED"
@@ -339,6 +382,15 @@ MESSAGES: dict[str, MessageEntry] = {
         "title": "Tham số không hợp lệ",
         "template": "Tham số {field} không hợp lệ.",
         "action_hint": "Vui lòng tải lại trang và thử lại. Nếu lỗi tiếp diễn, liên hệ IT.",
+        "severity": "warning",
+        "http_status": 400,
+    },
+    MSG.VAL_INVALID_FILTER_KEY: {
+        "title": "Bộ lọc không hợp lệ",
+        "template": ("Bộ lọc chứa khoá không được hỗ trợ: {invalid_keys}. "
+                     "Các khoá hợp lệ: {allowed_keys}."),
+        "action_hint": ("Bỏ các khoá lọc không hợp lệ rồi thử lại. Nếu bạn không tự "
+                        "đặt bộ lọc này, hãy tải lại trang."),
         "severity": "warning",
         "http_status": 400,
     },
@@ -495,6 +547,22 @@ MESSAGES: dict[str, MessageEntry] = {
         "severity": "warning",
         "http_status": 422,
     },
+    MSG.IMM04_GATE_G06_APPROVER: {
+        "title": "Chưa chọn người phê duyệt Ban Giám đốc",
+        "template": "Gate G06: Phải chọn Người Phê duyệt Ban Giám đốc (board_approver) "
+                    "trước khi Phát hành Lâm sàng.",
+        "action_hint": "Chọn người phê duyệt Ban Giám đốc rồi gửi lại yêu cầu phát hành.",
+        "severity": "warning",
+        "http_status": 422,
+    },
+    MSG.IMM04_GATE_G03_BASELINE: {
+        "title": "Chưa đạt cổng đo kiểm cơ sở",
+        "template": "Gate G03: Không thể phát hành lâm sàng — thông số chưa đạt: {failed}.",
+        "action_hint": "Chuyển phiếu sang Tái kiểm (nút “Báo cáo lỗi baseline”), đo lại các "
+                       "thông số chưa đạt rồi phê duyệt.",
+        "severity": "warning",
+        "http_status": 422,
+    },
     MSG.IMM04_CANCEL_ASSET_ACTIVE: {
         "title": "Không thể hủy nghiệm thu",
         "template": "Không thể hủy vì Tài sản '{asset}' đã được kích hoạt.",
@@ -608,6 +676,26 @@ MESSAGES: dict[str, MessageEntry] = {
         "title": "Checklist chưa hoàn tất",
         "template": "Tất cả mục checklist phải có kết quả trước khi hoàn thành bảo trì định kỳ. Mục '{item}' chưa điền.",
         "action_hint": "Điền kết quả cho mọi mục checklist rồi thử lại.",
+        "severity": "warning",
+        "http_status": 422,
+    },
+    MSG.IMM08_CHECKLIST_EMPTY: {
+        "title": "Bảng kiểm chưa có mục nào",
+        "template": (
+            "Không thể hoàn thành bảo trì định kỳ: bảng kiểm chưa có mục nào "
+            "(thiếu bảng kiểm mẫu). Vui lòng gắn bảng kiểm mẫu trước khi nghiệm thu."
+        ),
+        "action_hint": "Gắn bảng kiểm mẫu (checklist template) cho lịch bảo trì, tạo lại lệnh rồi thử lại.",
+        "severity": "warning",
+        "http_status": 422,
+    },
+    MSG.IMM08_CHECKLIST_IDX_UNKNOWN: {
+        "title": "Mục bảng kiểm không hợp lệ",
+        "template": (
+            "Kết quả gửi lên tham chiếu mục bảng kiểm không tồn tại trong lệnh bảo trì "
+            "(thứ tự: {bad_idx}). Không thể ghi nhận để tránh bỏ sót kết quả."
+        ),
+        "action_hint": "Tải lại lệnh bảo trì để lấy đúng danh sách mục bảng kiểm rồi gửi lại.",
         "severity": "warning",
         "http_status": 422,
     },
@@ -754,6 +842,17 @@ MESSAGES: dict[str, MessageEntry] = {
         "severity": "warning",
         "http_status": 400,
     },
+    # CR-41 segregation-of-duties (phân tách trách nhiệm): người nghiệm thu PHẢI
+    # khác người đóng phiếu (close_work_order). http_status=403 ⇒ _HTTP_TO_BUCKET →
+    # ErrorCode.FORBIDDEN ⇒ envelope code='FORBIDDEN'. Người-đóng đọc từ Asset
+    # Lifecycle Event 'repair_pending_inspection' (AC3 migrate-free).
+    MSG.IMM09_SELF_INSPECT_FORBIDDEN: {
+        "title": "Không thể tự nghiệm thu",
+        "template": "Người nghiệm thu phải khác người đóng phiếu.",
+        "action_hint": "Yêu cầu người khác (có quyền nghiệm thu) thực hiện bước nghiệm thu.",
+        "severity": "error",
+        "http_status": 403,
+    },
     # R25 dispatch-validation gate — chặn giao việc cho kỹ thuật viên không hợp lệ
     # (User không tồn tại / disabled / không có quyền sửa chữa). http_status=422 (đầu
     # vào không hợp lệ — field-level). Service gọi nthrow(..., error_code=VALIDATION_ERROR)
@@ -787,6 +886,19 @@ MESSAGES: dict[str, MessageEntry] = {
     # phép chuyển sang Under Repair (vd Draft — chưa vận hành). Service gọi
     # nthrow(..., error_code=VALIDATION_ERROR) ⇒ envelope code='VALIDATION_ERROR' +
     # http_status=422. {status} là nhãn VI (_lifecycle_vi) — no EN-leak.
+    # AC-CR-84 / BR-09-23 (05 §16.4) — cổng ảnh bằng chứng NĐ98 (Class C/D). Nguồn nhóm
+    # nguy cơ là `AC Asset.risk_classification` {High, Critical}; template CỐ Ý KHÔNG nội
+    # suy giá trị enum EN vào câu tiếng Việt (INV-CMEVID-8 — đối lập tiền lệ
+    # IMM08-PHOTO-REQUIRED đang chèn `{risk_class}` thô, backlog B-CR84-4).
+    # `missing_idxs` đi kèm context (client dẫn người dùng tới đúng mục) nhưng KHÔNG
+    # vào template — câu hiển thị giữ ngắn, danh sách mục nằm ở `fields.repair_checklist`.
+    MSG.IMM09_EVIDENCE_PHOTO_REQUIRED: {
+        "title": "Thiếu ảnh bằng chứng nghiệm thu",
+        "template": "Thiết bị thuộc nhóm nguy cơ cao — còn {missing_count} mục nghiệm thu chưa có ảnh bằng chứng.",
+        "action_hint": "Đính ảnh cho từng mục còn thiếu rồi thực hiện lại thao tác.",
+        "severity": "warning",
+        "http_status": 422,
+    },
     MSG.IMM09_ASSET_NOT_REPAIRABLE: {
         "title": "Thiết bị chưa thể sửa chữa",
         "template": "Không thể tạo phiếu sửa chữa cho thiết bị {asset} ở trạng thái '{status}'. Thiết bị phải đang vận hành (Đang hoạt động / Đang bảo trì) hoặc Ngừng sử dụng.",
@@ -889,6 +1001,35 @@ MESSAGES: dict[str, MessageEntry] = {
         "severity": "warning",
         "http_status": 422,
     },
+    # ── AC-CR-83 (05 §22.4) — 3 ràng buộc hồ sơ RCA ────────────────────────────
+    # `{detail}` do predicate SSoT `validate_five_why_payload` dựng (thiếu bước ⇒
+    # nêu số bước hiện có; bước khuyết ⇒ liệt kê số hiệu bước). Chi tiết field-level
+    # đi kèm envelope qua `fields` — mã này KHÔNG thay thế `fields`, mà tóm tắt.
+    MSG.IMM12_RCA_FIVE_WHY_INCOMPLETE: {
+        "title": "Hồ sơ 5 Whys chưa đầy đủ",
+        "template": "Phân tích 5 Whys chưa đầy đủ: {detail}.",
+        "action_hint": "Điền đủ 5 bước (câu hỏi và câu trả lời) rồi gửi lại.",
+        "severity": "warning",
+        "http_status": 422,
+    },
+    MSG.IMM12_RCA_ASSIGNEE_REQUIRED: {
+        "title": "Chưa phân công người phụ trách",
+        "template": ("Phải gán người phụ trách phân tích nguyên nhân gốc trước khi "
+                     "tiến hành."),
+        "action_hint": "Chọn người phụ trách hồ sơ phân tích nguyên nhân gốc rồi thử lại.",
+        "severity": "warning",
+        "http_status": 422,
+    },
+    # CHỈ dùng cho hook on_submit (đường Desk/doc.submit()) — không nằm trên đường
+    # API submit_rca (API chốt hồ sơ bằng chính hành động hoàn thành).
+    MSG.IMM12_RCA_SUBMIT_NOT_COMPLETED: {
+        "title": "Chưa thể chốt hồ sơ",
+        "template": ("Chỉ chốt được hồ sơ phân tích nguyên nhân gốc khi đã hoàn "
+                     "thành. Hiện tại: {status}."),
+        "action_hint": "Hoàn thành phân tích nguyên nhân gốc trước khi chốt hồ sơ.",
+        "severity": "warning",
+        "http_status": 409,
+    },
     MSG.IMM12_RCA_ALREADY_EXISTS: {
         "title": "Sự cố đã có phân tích nguyên nhân gốc",
         "template": "Sự cố này đã có bản phân tích nguyên nhân gốc: {rca}.",
@@ -930,6 +1071,27 @@ MESSAGES: dict[str, MessageEntry] = {
         "action_hint": "",
         "severity": "success",
         "http_status": 200,
+    },
+
+    # ── IMM-06 Training & Competency (BR-06-08 anti nghiệm-thu-giả) ──────────────
+    # message FROZEN theo docs/imm-06/05_API_Specification.md §B.5 guard (a)/(b).
+    MSG.IMM06_SESSION_NO_SCORE: {
+        "title": "Chưa chấm điểm học viên",
+        "template": ("Phải chấm điểm ít nhất 1 học viên trước khi hoàn thành "
+                     "buổi học (BR-06-08)"),
+        "action_hint": ("Nhập điểm lý thuyết/thực hành cho ít nhất một học viên "
+                        "rồi bấm Hoàn thành."),
+        "severity": "warning",
+        "http_status": 422,
+    },
+    MSG.IMM06_RESULT_UNKNOWN_USER: {
+        "title": "Học viên không thuộc buổi học",
+        "template": ("Học viên {user} không thuộc buổi đào tạo này — không thể "
+                     "chấm điểm (BR-06-08)"),
+        "action_hint": ("Chỉ chấm điểm cho học viên đã ghi danh vào buổi học này. "
+                        "Gỡ người không thuộc buổi khỏi danh sách kết quả."),
+        "severity": "warning",
+        "http_status": 422,
     },
 
     # ── IMM-11 Calibration ─────────────────────────────────────────────────────
@@ -994,6 +1156,13 @@ MESSAGES: dict[str, MessageEntry] = {
         "title": "Không thể gửi lab",
         "template": "Không thể gửi lab khi phiếu đang ở trạng thái '{state}'.",
         "action_hint": "Chỉ gửi lab khi phiếu ở trạng thái Đã lên lịch hoặc Đang xử lý.",
+        "severity": "warning",
+        "http_status": 409,
+    },
+    MSG.IMM11_SEND_LAB_ALREADY_CERTIFIED: {
+        "title": "Không thể gửi lại lab",
+        "template": "Phiếu đã có chứng chỉ hiệu chuẩn — không thể gửi lại lab (bảo toàn ngày gửi gốc, vết NĐ98).",
+        "action_hint": "Phiếu này đã nhận chứng chỉ từ lab. Hãy tiếp tục nhập kết quả đo và chốt phiếu, không gửi lại lab.",
         "severity": "warning",
         "http_status": 409,
     },
@@ -1136,6 +1305,42 @@ MESSAGES: dict[str, MessageEntry] = {
         "action_hint": "",
         "severity": "success",
         "http_status": 200,
+    },
+    # ── AC-CR-86 · BR-11-19/BR-11-20 — Dời lịch hiệu chuẩn ───────────────────
+    MSG.IMM11_RESCHEDULE_BAD_STATE: {
+        "title": "Không thể dời lịch",
+        "template": "Không thể dời lịch khi phiếu đang ở trạng thái '{state}'.",
+        "action_hint": "Chỉ dời lịch được phiếu ở trạng thái Đã lên lịch hoặc Đang thực hiện và chưa chốt.",
+        "severity": "warning",
+        "http_status": 409,
+    },
+    MSG.IMM11_RESCHEDULE_REASON_REQUIRED: {
+        "title": "Thiếu lý do dời lịch",
+        "template": "Cần nêu lý do dời lịch (tối thiểu 5 ký tự).",
+        "action_hint": "Nhập lý do dời lịch để lưu vào hồ sơ hiệu chuẩn của thiết bị.",
+        "severity": "warning",
+        "http_status": 422,
+    },
+    MSG.IMM11_RESCHEDULE_DATE_INVALID: {
+        "title": "Ngày hẹn mới không hợp lệ",
+        "template": "Ngày hẹn mới không hợp lệ.",
+        "action_hint": "Chọn ngày hẹn mới theo định dạng ngày hợp lệ rồi thử lại.",
+        "severity": "warning",
+        "http_status": 422,
+    },
+    MSG.IMM11_RESCHEDULE_DATE_PAST: {
+        "title": "Ngày hẹn mới ở quá khứ",
+        "template": "Ngày hẹn mới không được ở quá khứ.",
+        "action_hint": "Chọn ngày hẹn từ hôm nay trở đi — lùi ngày sẽ tạo ra phiếu quá hạn không có thật.",
+        "severity": "warning",
+        "http_status": 422,
+    },
+    MSG.IMM11_SCHEDULED_DATE_READONLY: {
+        "title": "Không sửa trực tiếp ngày hẹn",
+        "template": "Ngày hẹn hiệu chuẩn không sửa trực tiếp được.",
+        "action_hint": "Dùng chức năng «Dời lịch hiệu chuẩn» để đổi ngày hẹn kèm lý do và lưu vết.",
+        "severity": "warning",
+        "http_status": 422,
     },
     # ── IMM-16 ∩ IMM-00 — Cổng hiệu quả CAPA (VR-06/VR-07) ───────────────────
     MSG.FIN_CAPA_NOT_EFFECTIVE: {

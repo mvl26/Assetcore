@@ -1,22 +1,48 @@
 <template>
-  <div class="decision-detail" v-if="store.currentDecision">
-    <div class="page-header">
-      <div>
-        <h1>{{ store.currentDecision.name }}</h1>
+  <DetailPageShell
+    :loading="store.loading"
+    :error-kind="loadKind"
+    :error-message="loadMsg"
+    :doc="store.currentDecision"
+    entity-label="quyết định mua sắm"
+    :record-id="props.id"
+    back-label="Về danh sách quyết định mua sắm"
+    @retry="load()"
+    @back="$router.back()">
+    <!-- #title chỉ dùng `props.id` ⇒ null-safe, hiện ở MỌI trạng thái. -->
+    <template #title>
+      <div class="page-header">
+        <h1>{{ props.id }}</h1>
+        <button class="btn btn-outline" @click="$router.back()">← Quay lại</button>
+      </div>
+    </template>
+
+    <template #header>
+      <template v-if="store.currentDecision">
         <div class="meta">
           Hồ sơ kỹ thuật: {{ store.currentDecision.spec_ref }} ·
           Phiếu đánh giá: {{ store.currentDecision.evaluation_ref }}
         </div>
-      </div>
-      <button class="btn btn-outline" @click="$router.back()">← Quay lại</button>
-    </div>
+        <div class="stepper">
+          <span v-for="(s, i) in WORKFLOW_STATES" :key="s" :class="['step', stepClass(i)]">
+            {{ stateLabel(s) }}
+          </span>
+        </div>
+      </template>
+    </template>
 
-    <div class="stepper">
-      <span v-for="(s, i) in WORKFLOW_STATES" :key="s" :class="['step', stepClass(i)]">
-        {{ stateLabel(s) }}
-      </span>
-    </div>
+    <!-- Workflow transitions (server-driven — 1 nút/action, trừ 2 action có form riêng).
+         Nằm trong #actions ⇒ shell tắt cả cụm ngoài trạng thái có-dữ-liệu. -->
+    <template #actions>
+      <button v-for="action in workflowActions" :key="action"
+              class="btn btn-outline" data-testid="workflow-action" :data-action="action"
+              @click="doTransition(action)">
+        {{ actionLabel(action) }}
+      </button>
+    </template>
 
+    <template v-if="store.currentDecision">
+    <!-- Lỗi HÀNH ĐỘNG (transition / trao thầu) — banner riêng, KHÔNG thay cả màn. -->
     <div v-if="store.error" class="alert alert-danger">
       <strong>Lỗi:</strong> {{ store.error }}
       <button class="alert-close" @click="store.clearError()">×</button>
@@ -25,7 +51,7 @@
     <div class="grid-2col">
       <!-- Bên trái: Phương án + nhà cung cấp -->
       <div class="card">
-        <h3>1. Phương án mua sắm &amp; nhà cung cấp trúng thầu</h3>
+        <h3>1. Phương án mua sắm và nhà cung cấp trúng thầu</h3>
         <dl>
           <dt>Phương án mua sắm:</dt>
           <dd>
@@ -61,7 +87,7 @@
 
       <!-- Bên phải: Nguồn vốn + phê duyệt -->
       <div class="card">
-        <h3>2. Nguồn vốn &amp; phê duyệt</h3>
+        <h3>2. Nguồn vốn và phê duyệt</h3>
         <dl>
           <dt>Nguồn vốn:</dt><dd>{{ store.currentDecision.funding_source || '—' }}</dd>
           <dt>Người phê duyệt:</dt><dd>{{ store.currentDecision.board_approver || '—' }}</dd>
@@ -119,9 +145,14 @@
             <ApproverSelect v-model="awardForm.board_approver" context="user" required placeholder="Chọn người phê duyệt..." />
           </label>
         </div>
-        <label>Đường dẫn file hợp đồng (nếu có)
-          <input v-model="awardForm.contract_doc" type="text" placeholder="/tep/hop-dong-2026-001.pdf" />
-        </label>
+        <FileUploadField
+          v-model="awardForm.contract_doc"
+          label="Tệp hợp đồng (nếu có)"
+          doctype="IMM Procurement Decision"
+          fieldname="contract_doc"
+          :docname="store.currentDecision?.name || ''"
+          hint="Bấm để tải tệp hợp đồng (pdf, doc — tối đa 10MB)"
+        />
         <label>Ghi chú
           <input v-model="awardForm.remarks" type="text" />
         </label>
@@ -145,9 +176,14 @@
             <DateInput v-model="contractForm.signed_date" class="form-input w-full" />
           </label>
         </div>
-        <label>Đường dẫn file hợp đồng đã ký
-          <input v-model="contractForm.contract_doc" type="text" />
-        </label>
+        <FileUploadField
+          v-model="contractForm.contract_doc"
+          label="Tệp hợp đồng đã ký"
+          doctype="IMM Procurement Decision"
+          fieldname="contract_doc"
+          :docname="store.currentDecision?.name || ''"
+          hint="Bấm để tải bản hợp đồng đã ký (pdf, doc — tối đa 10MB)"
+        />
         <div class="form-actions">
           <button type="submit" class="btn btn-primary" :disabled="!contractForm.contract_no">
             Ghi nhận
@@ -155,19 +191,8 @@
         </div>
       </form>
     </div>
-
-    <!-- Workflow transitions (server-driven — 1 nút/action, trừ 2 action có form riêng) -->
-    <div v-if="workflowActions.length" class="action-bar">
-      <button v-for="action in workflowActions" :key="action"
-              class="btn btn-outline" data-testid="workflow-action" :data-action="action"
-              @click="doTransition(action)">
-        {{ actionLabel(action) }}
-      </button>
-    </div>
-  </div>
-
-  <div v-else-if="store.loading" class="loading">Đang tải…</div>
-  <div v-else class="loading muted">Không có dữ liệu</div>
+    </template>
+  </DetailPageShell>
 </template>
 
 <script setup lang="ts">
@@ -177,6 +202,7 @@ import { useImm03Store } from '@/stores/imm03'
 import CurrencyInput from '@/components/common/CurrencyInput.vue'
 import DateInput from '@/components/common/DateInput.vue'
 import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
+import FileUploadField from '@/components/common/FileUploadField.vue'
 import {
   getEvaluation, awardDecision, recordContract, transitionDecisionWorkflow,
 } from '@/api/imm03'
@@ -186,11 +212,21 @@ import {
   parseTiedCandidates,
 } from '@/utils/wave2Labels'
 import { useNotify } from '@/composables/useNotify'
+import DetailPageShell from '@/components/common/DetailPageShell.vue'
+import { loadErrorKind, toApiError, type DetailLoadKind } from '@/api/errors'
 
 const props = defineProps<{ id: string }>()
 const route = useRoute()
 const notify = useNotify()
 const store = useImm03Store()
+
+/**
+ * Lỗi NẠP — ref RIÊNG trong view. `store.error` là CHUỖI phẳng dùng chung cho mọi
+ * hành động (transition / trao thầu / ghi hợp đồng) nên không phân loại được kind,
+ * và nối nó vào `:error-kind` sẽ khiến 1 lần transition hỏng thay CẢ MÀN.
+ */
+const loadKind = ref<'' | DetailLoadKind>('')
+const loadMsg = ref('')
 
 const WORKFLOW_STATES: DecisionState[] = [
   'Draft', 'Method Selected', 'Negotiation', 'Award Recommended',
@@ -334,14 +370,32 @@ async function doTransition(action: string) {
   }
 }
 
-onMounted(async () => {
-  await store.fetchDecision(props.id || (route.params.id as string))
-  await loadEvalCandidates()
-})
+/**
+ * `store.fetchDecision` **throw lại** sau khi set `store.error` (stores/imm03.ts:105)
+ * ⇒ `onMounted` await trần trước đây tạo unhandled rejection và màn kẹt ở «Không có
+ * dữ liệu». View tự bắt + tự phân loại; KHÔNG sửa file `stores/`.
+ */
+async function load() {
+  loadKind.value = ''   // DÒNG ĐẦU — xoá lỗi lượt trước (INV-UX4-7)
+  loadMsg.value = ''
+  try {
+    await store.fetchDecision(props.id || (route.params.id as string))
+    await loadEvalCandidates()
+  } catch (e: unknown) {
+    loadKind.value = loadErrorKind(e)
+    loadMsg.value = toApiError(e).message
+    // §7.15 — `currentDecision` là state DÙNG CHUNG, không reset khi đổi route:
+    // không dọn ⇒ lần điều hướng kế tiếp nháy dữ liệu của bản ghi TRƯỚC.
+    store.currentDecision = null
+  }
+}
+
+onMounted(load)
 </script>
 
 <style scoped>
-.decision-detail { padding: 1.5rem; }
+/* `.decision-detail { padding }` đã bỏ — khuôn `DetailPageShell` mang lớp bao (padding
+   + bề rộng tối đa); giữ lại sẽ lồng padding hai lần. */
 .page-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem; }
 .meta { color: #6b7280; font-size: 0.85rem; }
 .muted { color: #6b7280; }

@@ -52,6 +52,15 @@ export const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: false, title: 'Đăng ký — AssetCore' },
   },
   {
+    // ISS-002: user mới đặt mật khẩu lần đầu qua link trong email chào mừng.
+    // KHÔNG requiresAuth — chính `?key=` trong link là bằng chứng sở hữu hộp thư
+    // (BE `verify_password_key` / `set_password_with_key` allow_guest).
+    path: '/set-password',
+    name: 'SetPassword',
+    component: () => import('@/views/auth/SetPasswordView.vue'),
+    meta: { requiresAuth: false, title: 'Đặt mật khẩu — AssetCore' },
+  },
+  {
     path: '/profile',
     name: 'Profile',
     component: () => import('@/views/auth/ProfileView.vue'),
@@ -1140,7 +1149,7 @@ function tagWorkspace(rs: RouteRecordRaw[]): RouteRecordRaw[] {
 // @ts-ignore
 // biome-ignore lint: injected global
 declare const __APP_BASE__: string
-let _appBase = ''
+let _appBase: string
 try { _appBase = __APP_BASE__ } catch { _appBase = '' }
 
 const router = createRouter({

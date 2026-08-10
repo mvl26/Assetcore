@@ -387,7 +387,9 @@ URL pattern: `POST|GET /api/method/assetcore.api.imm00.<function>`
 
 **Request:** `?name=AC-ASSET-2026-00001`
 
-**Response 200** — đầy đủ HTM fields (asset_name, udi_code, gmdn_code, byt_reg_no, byt_reg_expiry, lifecycle_status, risk_classification, next_pm_date, next_calibration_date, commissioning_date, …) + display-name enrich (`category_name`, `department_name`, `location_name`, `supplier_name`, `device_model_name`, `responsible_technician_name`) + 2 cờ overdue server-flag (`pm_overdue`, `calibration_overdue`) + **`allowed_transitions: string[]`** (Vòng 41 — CR-WF-00-LIFECYCLE-SURFACE, xem dưới).
+**Response 200** — đầy đủ HTM fields (asset_name, udi_code, gmdn_code, byt_reg_no, byt_reg_expiry, lifecycle_status, risk_classification, next_pm_date, next_calibration_date, commissioning_date, …) + display-name enrich (`category_name`, `department_name`, `location_name`, `supplier_name`, `device_model_name`, `responsible_technician_name`) + 2 cờ overdue server-flag (`pm_overdue`, `calibration_overdue`) + **2 field BẢO HÀNH server-flag** (`warranty_expired`, `warranty_expiry_date`) — CR-38, xem dưới + **`allowed_transitions: string[]`** (Vòng 41 — CR-WF-00-LIFECYCLE-SURFACE, xem dưới).
+
+> **Field delta (CR-38 — parity BẢO HÀNH detail ↔ scan-info, 2026-07-19):** payload thêm ĐÚNG 2 field ĐỐI XỨNG `get_asset_scan_info`: **`warranty_expired: bool`** (SERVER-FLAG derive qua CHÍNH `services.imm00._is_warranty_expired` — `True` ⟺ `warranty_expiry_date` không rỗng ∧ `getdate(warranty_expiry_date) < getdate(nowdate())`; STRICT `<` theo NGÀY server, tz-safe; NULL/hôm-nay/tương-lai → `false`; **ĐỘC LẬP `lifecycle_status`** — bảo hành là sự kiện HỢP ĐỒNG, Out of Service/Decommissioned VẪN có thể hết bảo hành) + **`warranty_expiry_date: str\|None`** (`'YYYY-MM-DD'`/`null` qua CÙNG `_date_str_or_none` — chuẩn hoá field `AC Asset.warranty_expiry_date` mà `as_dict()` trả NGUYÊN `datetime.date` object, KHÔNG rò date thô ra JSON). **SSoT chống drift:** `get_asset().warranty_expired == build_asset_scan_info().warranty_expired` cho CÙNG 1 asset — KHÔNG re-implement so-ngày ở api layer. FE `AssetDetailView` render badge "Hết hạn"/"Còn hạn" TỪ cờ server, KHÔNG so ngày client. `warranty_expired` LUÔN emit (∈ `required`); `warranty_expiry_date` nullable (NGOÀI `required`). **KHÔNG whitelist/schema/cap/endpoint/enum/patch/`CAP_SET_VERSION` delta** — chỉ enrich return của hàm sẵn có (`api/imm00.py get_asset`). Mobile mirror: [`../mobile/openapi/assetcore-mobile.openapi.yaml`](../mobile/openapi/assetcore-mobile.openapi.yaml) (`AssetDetail.warranty_expired`/`warranty_expiry_date`) + [`../mobile/04-api-contract.md`](../mobile/04-api-contract.md). Parity scan-info: `AssetScanInfo` §04.
 
 > **`allowed_transitions: string[]` (CHỐT Vòng 41 — CR-WF-00-LIFECYCLE-SURFACE / FR-00-109 / BR-00-58):** tập trạng-thái-đích **CTA-surfaceable của SPA** cho `lifecycle_status` hiện tại, **server-derive** qua `services.imm00.asset_allowed_transitions(status)` (mirror precedent `firmware_allowed_transitions` @get_firmware_cr). Quy tắc: `_VALID_ASSET_TRANSITIONS[status]` − **loại HẲN target `Decommissioned`** (thanh lý đi qua nút riêng "Hồ sơ giải nhiệm" IMM-14 closure — KHÔNG phải CTA chuyển-trạng-thái tự do; loại-hẳn-Decommissioned bao trùm cả `_LIFECYCLE_EXCEPTION_EDGES` lẫn 2 cạnh Thanh lý đã surface Desk) − terminal, **sorted ổn định**, rồi **LỌC theo capability caller**. **Acceptance:** (a) caller CÓ `asset.write` → subset đúng theo SSoT (verify BẰNG-NHAU từng status, bảng 8-status ở [04 §II.1.7-SURFACE](./04_Backend_Design.md)); (b) caller THIẾU `asset.write` (read-only DocPerm) → `allowed_transitions == []`; (c) status terminal `Decommissioned` → `[]`; (d) BẤT-VARIANT: **KHÔNG status nào** cho `allowed_transitions` chứa `'Decommissioned'`. FE `AssetDetailView.vue` dựng nút "Chuyển trạng thái:" **CHỈ từ** field này (bảng hardcode `TRANSITIONS` client-side BỊ XÓA hẳn); server `[]` → không render block CTA. **Không schema/cap-delta** (`asset.write` sẵn; `CAP_SET_VERSION` GIỮ; `allowed_transitions` là field dẫn-xuất response, KHÔNG lưu DB). Test: [07 §XII TC-00-WF-SURFACE](./07_Testing_QA.md).
 
@@ -920,6 +922,8 @@ Khi `device_model` được set → auto-fetch `risk_class`, `gmdn_code`, `pm_in
 
 Trả về paginated `Asset Lifecycle Event[]` sorted desc theo timestamp.
 
+> **AC-CR-100 (2026-07-28) — hợp đồng ĐỌC đầy đủ ở §III.25 (cuối Phần III, file này)**: shape response **KHÔNG đổi** (`data.pagination` + `data.items`, `pagination.total` là số công bố cho người dùng); **đổi duy nhất** là `ORDER BY` thành **tiền định** `"timestamp desc, name desc"` (`api/imm00.py:293`) — thiếu tiebreaker thì hai trang liền kề **lặp/sót** im lặng (BR-00-TL-08). Nghĩa vụ client (không cast, lật `page`, APPEND + dedupe theo `name`, tách 3 trạng thái) ở §III.25.3.
+
 ---
 
 ### `validate_for_operations` — Kiểm tra thiết bị hoạt động được
@@ -1269,6 +1273,23 @@ GET `assetcore.api.imm00.get_incident?name=IR-...` → full Incident fields.
 
 POST `assetcore.api.imm00.create_incident`. Required: `asset, severity, incident_type, description`.
 
+> 🔒 **AC-CR-90 (vòng 4/5) — bịt lỗ ghi.** Hiện trạng verify @source 2026-07-28 (`api/imm00.py::create_incident`): **0** cap-gate · **0** kiểm tra thiết bị tồn tại · `doc.update({k: v for k, v in form_dict.items() if k not in ("cmd","doctype")})` ⇒ **mọi** tài khoản đăng nhập tạo được `Incident Report`, gán **bất kỳ** field nào (kể cả `status`/`reported_by`/`reported_to_byt`), trỏ vào mã thiết bị **không tồn tại**. Đây là đường ghi **song song** với `api/imm12.py::report_incident` (đường có gác). Quyết định: [ADR §12 D-CR4-7](./ADR-IMM00-CONNECTIONS-TREE.md) · luật: [`02` BR-00-CONN-33](./02_Analysis_Design.md).
+
+**Hợp đồng SAU vòng 4 (3 tầng gác, theo đúng thứ tự):**
+
+| # | Gác | Hành vi khi vi phạm | Bất biến |
+|---|---|---|---|
+| 1 | `rbac.require("corrective.create")` — **câu lệnh ĐẦU TIÊN** của thân hàm (khuôn nhà `api/imm00.py`, 42 call-site) | `frappe.PermissionError` → **403** | `count("Incident Report")` **trước == sau** |
+| 2 | Thiếu trường bắt buộc (`asset`/`severity`/`incident_type`/`description`) | envelope `success=false`, `code=VALIDATION` — **GIỮ hành vi cũ** | — |
+| 3 | `asset` **không tồn tại** | envelope `success=false`, `code=NOT_FOUND`, **HTTP-200 in-envelope** (KHÔNG để `doc.insert()` ném FK → HTTP-417 thô) | `count("Incident Report")` **trước == sau** |
+
+**Whitelist field (tập ĐÓNG — khoá ngoài tập bị bỏ IM LẶNG, không raise):**
+`asset` · `incident_type` · `severity` · `description` · `fault_code` · `clinical_impact` · `workaround_applied` · `patient_affected` · `patient_impact_description` · `immediate_action` · `occurred_datetime` · `linked_repair_wo`.
+
+**CẤM TUYỆT ĐỐI nhận từ client:** `status` · `reported_by` · `reported_at` · `docstatus` · `workflow_state` · `name` · `owner` · `rca_record` · `reported_to_byt` — server quyết định; nhận từ client = **giả mạo vết audit** (NĐ98 đòi vết sự cố toàn vẹn, truy vết được).
+
+> ⚠️ **Ngoài phạm vi vòng 4 (đã ghi backlog, ADR §12.9):** `update_incident` mang **cùng** khuyết tật (`doc.update(form_dict)` mở + 0 cap-gate) — **KHÔNG** sửa trong vòng này. Và endpoint này trùng chức năng với `report_incident` (khác: không sinh Lifecycle Event, không audit trail, không idempotency) ⇒ hướng gộp/gỡ là CR riêng.
+
 ### `update_incident`
 
 POST `assetcore.api.imm00.update_incident`. Body: `name` (param) + fields cần cập nhật.
@@ -1456,6 +1477,8 @@ Fail-closed: thiếu cap HOẶC sai status → `0`. Suy từ CÙNG cap constant 
 ## III.14. PM Schedule (5 endpoints)
 
 `list_pm_schedules`, `get_pm_schedule`, `create_pm_schedule`, `update_pm_schedule`, `delete_pm_schedule`. Served bởi `assetcore.api.imm00`.
+
+> **`list_pm_schedules(asset=…)` — khoá drill của ô «Lịch bảo trì định kỳ» (AC-CR-94):** tham số `asset` dịch thẳng sang bộ lọc cột `asset_ref`, **không** áp bộ lọc `status`/`pm_type` mặc định ⇒ lịch `Paused`/`Suspended` **thuộc** tập trả về, giữ bất biến `count == drill` với `get_connections` (INV-CONN-18 — xem **§III.24.8** cuối phần III.24). ⚠️ **Không nhầm** với `assetcore.api.imm08.list_pm_schedules(asset_ref=…)` — hai bề mặt khác nhau; ô «Bản ghi liên quan» drill qua **`imm00`** (đường mà `frontend/src/api/imm00.ts:854` gọi).
 
 ---
 
@@ -1868,6 +1891,174 @@ Component parameter: `name: user` · `in: query` · `required: false` · `schema
 
 ---
 
+## III.22. Pending Approvals Inbox — CR-32 `get_pending_approvals_inbox` (endpoint gộp "Phiếu chờ tôi duyệt" xuyên module: Nghiệm thu + Điều chuyển + Cấp phát/Xuất kho phụ tùng + Nghiệm thu CM)
+
+> **Vòng 2 (BA / APPROVAL-INBOX-CR32) — endpoint MỚI (KHÁC CR-30/31/34 contract-only): BE viết `.py` TRƯỚC rồi curate mirror VERBATIM theo response THẬT.** Quyết định kiến trúc: [`ADR-IMM00-APPROVAL-INBOX.md`](./ADR-IMM00-APPROVAL-INBOX.md) (A: aggregation @imm00 + cap-SSoT silent-exclude · B: `route` server-computed + allocation WO-drill · C: envelope/`by_module`/KPI-parity · **D (CR-42): nguồn thứ 4 CM 'Pending Inspection' + SoD loại self-closed**). FE spec: [`06_Frontend_Design.md` §III.11](./06_Frontend_Design.md). **0 DocType change ⇒ 0 migrate;** `.py` mới ⇒ live-HTTP cần gunicorn reload (**HARD-STOP user — chỉ ghi chú deploy trong báo cáo**).
+>
+> **🔺 CR-42 delta (Vòng 2 kế / IMM-00↔IMM-09) — NGUỒN THỨ 4 `imm09` = phiếu CM 'Pending Inspection' chờ nghiệm thu, SoD-scoped, migrate-free.** Bổ sung 1 block nguồn vào `get_pending_approvals_inbox` (service), 1 khóa `imm09` vào `by_module`, enum item mở rộng (`doctype += 'Asset Repair'`, `module += imm09`). Slice **contract (OAS + shape-guard) đóng ở Bước-2 (BA)**; slice **application code (`services/imm00.py` block nguồn-d + helper batch closer `services/imm09.py`) = [BE] Bước-4**. Chi tiết: §"Nguồn thứ 4 — CR-42" bên dưới + [`ADR-IMM00-APPROVAL-INBOX.md` §D](./ADR-IMM00-APPROVAL-INBOX.md).
+
+> **🔺 CR-43 delta (Vòng 2 — hợp đồng TRUNG THỰC khi cắt) — inbox công bố `truncated` / `totals_uncapped` / `excluded_modules` thay vì cắt IM LẶNG ở trần 50/nguồn.** `data` 3→6 khóa (ADDITIVE-OPTIONAL). Slice **contract (OAS + shape-guard `test_mobile_oas` đã verify `Ran 893 OK`) đóng ở Bước-2 (BA)**; slice **application code (`services/imm00.py` compute 3 field + zero-cost conditional COUNT) = [BE] Bước-4**. Chi tiết: §"CR-43 — Hợp đồng TRUNG THỰC khi cắt" bên dưới + [`ADR-IMM00-APPROVAL-INBOX.md` §F](./ADR-IMM00-APPROVAL-INBOX.md).
+>
+> **🔺 CR-44 delta (Vòng 4 / IMM-00) — FIELD `summary` = tóm tắt VI ≤120 ký tự do SERVER dựng cho MỖI dòng, chống "duyệt mù" vết custody NĐ98. Additive, migrate-free, session-scoped GIỮ.** Item shape 10→**11 khóa** (thêm `summary`, string, LUÔN emit coalesce '', ≤120 ký tự). Slice **contract (OAS `PendingApprovalItem` += `summary` vào props+required, shape-guard `test_mobile_oas`) đóng ở Bước-2 (BA)**; slice **application code (`_inbox_item` kwarg `summary` + `_enrich_inbox_items` +3 batch query + 4 helper `_summarize_*` + `test_imm00_approvals_inbox._ITEM_KEYS` 10→11 + TC nội dung) = [BE] Bước-4**. Chi tiết: §"Field `summary` — CR-44" bên dưới + [`ADR-IMM00-APPROVAL-INBOX.md` §E](./ADR-IMM00-APPROVAL-INBOX.md). **0 param mới (signature `**_ignore` bất biến) · 0 DocType change ⇒ 0 migrate · count==rows GIỮ (summary không đổi số dòng).**
+
+### Endpoint
+
+- **`GET /api/method/assetcore.api.imm00.get_pending_approvals_inbox`**
+- Handler `api/imm00.py`: `@frappe.whitelist()` bare (KHÔNG `allow_guest` → guest **dispatcher-403**) · signature `def get_pending_approvals_inbox(**_ignore) -> dict` → `return handle(svc.get_pending_approvals_inbox)`.
+  - **`**_ignore` nuốt kwargs lạ (kể cả `user=`) — session-scoped, chống spoof** (precedent `attach_repair_checklist_photo` @`api/imm09.py:59`, `attach_incident_photo` @`api/imm12.py:295`). Service KHÔNG nhận tham số — identity DUY NHẤT = `frappe.session.user`.
+- Service `services/imm00.py`: `def get_pending_approvals_inbox() -> dict` (type hints + docstring bắt buộc — CLAUDE.md §15).
+- Envelope **Decision-B qua `handle()`** (@`utils/api_handler.py:33`): success → `{"success": true, "data": {...}}`. Endpoint KHÔNG có nhánh lỗi nghiệp vụ (thiếu cap = exclude im lặng, KHÔNG raise) ⇒ 0 in-handler cap-403; **2 loại 403**: chỉ còn dispatcher-403 (guest/no-token).
+
+### Response `data` shape
+
+```jsonc
+{
+  "items": [                       // sort pending_since ASC, tie-break name ASC (server-side — SSoT)
+    {
+      "doctype": "Asset Transfer",           // ∈ {"Asset Commissioning","Asset Transfer","IMM Spare Allocation","Asset Repair"} — CR-42 +Asset Repair
+      "name": "AT-2026-0001",
+      "module": "imm00",                     // ∈ {"imm04","imm00","imm15","imm09"} — khóa máy; nhãn VI do FE render (CR-42 +imm09)
+      "title": "Chuyển máy thở sang ICU",    // per-module derivation (bảng dưới)
+      "asset": "AST-0001",                   // '' khi chưa có (imm04 pre-registration)
+      "asset_name": "Máy thở Bennett 840",   // bulk-enrich AC Asset.asset_name, coalesce ''
+      "requested_by": "user@x.vn",
+      "requested_by_name": "Nguyễn Văn A",   // bulk-enrich User.full_name, coalesce requested_by
+      "pending_since": "2026-07-10 08:30:00",// datetime string — mốc phiếu vào hàng chờ
+      "route": "/asset-transfers/AT-2026-0001", // server-computed, LUÔN non-empty (ADR-…-B)
+      "summary": "Khoa Hồi sức → Khoa Cấp cứu · Máy thở Bennett 840" // CR-44: tóm tắt VI ≤120, server-built, coalesce ''
+    }
+  ],
+  "total": 3,                       // == len(items) == sum(by_module.values()) — count==rows (LL-BE-49)
+  "by_module": {"imm04": 1, "imm00": 1, "imm15": 1, "imm09": 0},  // CR-42: LUÔN đủ 4 khóa, nguồn exclude/rỗng = 0
+  "truncated": 0,                   // CR-43: int 0/1 — 1 nếu ∃ nguồn chạm trần (totals_uncapped[m] > by_module[m])
+  "totals_uncapped": {"imm04": 1, "imm00": 1, "imm15": 1, "imm09": 0}, // CR-43: tổng UNCAPPED; = by_module khi KHÔNG chạm trần (zero-cost); imm09 = cận-trên PRE-SoD
+  "excluded_modules": []            // CR-43: nguồn bị LOẠI vì THIẾU cap ⊆ {imm00,imm15,imm09}; imm04 identity-based KHÔNG bao giờ có
+}
+```
+
+Mọi giá trị item = **string non-nullable** (coalesce `''` — pattern `_str_or_blank`). Item đúng **11 khóa** (CR-44 +`summary`) — không thêm/bớt. `data` = **6 khóa** (CR-43 +`truncated`/`totals_uncapped`/`excluded_modules`).
+
+### CR-43 — Hợp đồng TRUNG THỰC khi cắt (`truncated` / `totals_uncapped` / `excluded_modules`)
+
+> **Quyết định kiến trúc: [`ADR-IMM00-APPROVAL-INBOX.md §F`](./ADR-IMM00-APPROVAL-INBOX.md).** Inbox cắt MỖI nguồn ở `_INBOX_LIMIT_PER_SOURCE=50` (oldest-first). Cắt IM LẶNG = người duyệt tưởng đã hết → bỏ sót phiếu chờ (vết custody NĐ98). 3 khóa ADDITIVE công bố sự thật cắt. **Slice contract (OAS + shape-guard) đóng ở Bước-2 (BA); application code (`services/imm00.py`) = [BE] Bước-4.**
+
+| Khóa | Kiểu | Ngữ nghĩa |
+|---|---|---|
+| `truncated` | int ∈ {0,1} | `1` nếu ∃ module `m`: `totals_uncapped[m] > by_module[m]` (≥1 nguồn chạm trần và tổng thật > số hiển thị). **int, KHÔNG bool/None** (parity CR-01). |
+| `totals_uncapped` | dict 4 khóa `{imm00,imm04,imm15,imm09}` → int | Tổng UNCAPPED mỗi module. **ZERO-COST:** mặc định = `by_module[m]` (KHÔNG query); CHỈ khi nguồn `len(fetched) >= _INBOX_LIMIT_PER_SOURCE` mới thay bằng **COUNT DB thật** (cùng predicate get_all nguồn đó). `totals_uncapped['imm09']` khi chạm trần = **cận-trên PRE-SoD** (COUNT predicate `{status:'Pending Inspection', docstatus:0}` TRƯỚC bước loại self-closer CR-41). ⚠️ KHÁC `by_module` (count==rows) — **được phép > `len(items)`**. |
+| `excluded_modules` | list[str] ⊆ `{imm00,imm15,imm09}` | Nguồn cap-based bị LOẠI vì caller **thiếu cap** (`rbac.can(cap)` False). **`imm04` identity-based KHÔNG bao giờ có mặt.** RỖNG khi đủ quyền mọi nguồn. FE map nhãn nghiệp vụ VI (imm00→Điều chuyển thiết bị · imm15→Cấp phát phụ tùng · imm09→Nghiệm thu sau sửa chữa). |
+
+- **AC2 zero-cost (test đếm query / spy count-fn):** khi 0 nguồn chạm trần ⇒ `truncated==0` ∧ `totals_uncapped[m]==by_module[m]` ∀m ∧ **0 lời gọi COUNT phát thêm**. BE PHẢI cho count đi qua điểm-quan-sát-được (`frappe.db.count(doctype, filters)` hoặc helper `_count_uncapped`) để test monkeypatch xác nhận không-gọi.
+- **AC3 chạm trần (test hạ `_INBOX_LIMIT_PER_SOURCE=1`, seed 2 Asset Transfer Pending):** `truncated==1` ∧ `by_module['imm00']==1` ∧ `totals_uncapped['imm00']==2` (COUNT DB cùng predicate).
+- **§BE task (application code — [BE] Bước-4, KHÔNG thuộc slice contract BA):** trong `get_pending_approvals_inbox` @`services/imm00.py`: (1) sau mỗi block nguồn cap-based, so `len(rows_fetched)` với `_INBOX_LIMIT_PER_SOURCE` → set `totals_uncapped[m]` = COUNT thật (guard-if) hoặc = `by_module[m]`; (2) `excluded_modules.append(m)` khi `rbac.can(cap)` False (transfer→imm00, allocation→imm15, repair→imm09; imm04 KHÔNG); (3) `truncated = int(any(totals_uncapped[m] > by_module[m] for m))`; (4) count qua điểm-quan-sát để test spy. **Live-HTTP cần gunicorn `--preload` reload (HARD-STOP user).**
+
+### 4 nguồn (CR-32: 3 nguồn · CR-42: +imm09) — điều kiện "chờ" + gate quyền (SSoT cap CÓ SẴN, KHÔNG hardcode role-name — chống RBAC dead-gate)
+
+| module | doctype | Điều kiện "chờ duyệt" | Gate quyền (grounded) | `pending_since` | `title` | `requested_by` |
+|---|---|---|---|---|---|---|
+| `imm04` | Asset Commissioning | `pending_approver == session.user` **AND** `docstatus != 2` — parity `list_my_pending_approvals` @`services/imm04.py:1820-1838` + `count_pending_approvals` @`services/imm00.py:3003` | **identity-based** (KHÔNG cap — filter chính là scope) | `approval_submitted_at` fallback `creation` | `asset_description` → `master_item` → `name` | `owner` |
+| `imm00` | Asset Transfer | `status == 'Pending Approval'` (`_TRANSFER_STATUS_PENDING` @`services/imm00.py:2634`) | `rbac.can(_TRANSFER_APPROVE_CAP)` = `'commissioning.submit'` @`:2604` — CÙNG cap `approve_transfer_request` enforce @`:2719` | `creation` | `reason` (required lúc tạo @`:2574`) → `transfer_type` | `owner` (doctype KHÔNG có field requested_by) |
+| `imm15` | IMM Spare Allocation | `allocation_status == 'Requested'` (`AllocationStatus.REQUESTED`) | `rbac.can(_CAP_APPROVE)` = `'inventory.submit'` @`services/imm15.py:96` — CÙNG cap `approve_allocation` enforce @`:291`; **lazy-import trong function body** (Pattern B) | `creation` (`requested_date` là Date-only, thiếu độ chính xác sort) | `work_order_ref` → `name` | `requested_by` fallback `owner` |
+| `imm09` **(CR-42)** | Asset Repair | `status == 'Pending Inspection'` (`RepairStatus.PENDING_INSPECTION`) **AND** `docstatus == 0` (WO chưa submit ở bước này — @`docs/imm-09/05 §close_work_order`) **AND** người-đóng-phiếu ≠ `session.user` (**SoD**, loại self-closed — xem BR-00-INBOX-03) | `rbac.can(_imm09._CAP_SUBMIT)` = `'repair.submit'` — **CÙNG cap `confirm_inspection` enforce** @`services/imm09.py:1806`; **lazy-import trong function body** (Pattern B) · ⚠️ BE tạo hằng SSoT `_CAP_SUBMIT` (§BE task) | `modified` (mốc vào Pending Inspection — `close_work_order` là lần save cuối trước nghiệm thu) | `failure_description` → `name` | field `requested_by` (Link User trên Asset Repair) fallback `owner` |
+
+- `asset`/`asset_name`: imm04 = `final_asset`/`asset_description`→`master_item` (phiếu nghiệm thu CHƯA có AC Asset — `asset` thường `''`); imm00/imm15 = field `asset`; **imm09 = field `asset_ref`** (Link AC Asset trên Asset Repair) → gán vào `asset`; tất cả bulk-enrich `AC Asset.asset_name` (**1 query gộp cho toàn items — no N+1**, tái dùng `_enrich_inbox_items` HIỆN CÓ — 0 sửa enrich).
+- Thiếu cap nguồn cap-based → **EXCLUDE im lặng** (0 query nguồn đó); 0 nguồn khả dụng → `success: true` + `items: []` + `total: 0` + `by_module` all-0 (**KHÔNG lỗi**). **imm09: user KHÔNG có `repair.submit` → 0 item `module=='imm09'`, KHÔNG lỗi** (đối xứng transfer/allocation).
+- Mỗi nguồn giới hạn **50 dòng** (parity limit `list_my_pending_approvals` @`:1828`), lấy **oldest-first TRƯỚC khi cap** — phiếu chờ lâu nhất luôn hiện.
+- `route` map (ADR-…-B): `imm04 → /commissioning/{name}` (`router/index.ts:235`) · `imm00 → /asset-transfers/{name}` (`:605`) · `imm15` WO-drill theo `work_order_doctype`: chứa `"PM"` → `/pm/work-orders/{work_order_ref}` (`:319`); `"Asset Repair"`/chứa `"CM"` → `/cm/work-orders/{work_order_ref}` (`:360`); thiếu ref → `/inventory` (`:668`) · **`imm09 → /cm/work-orders/{name}`** (`router/index.ts:360`, deep-link màn CM detail — nút Nghiệm thu ở detail theo `allowed_transitions`).
+
+### Nguồn thứ 4 — CR-42 (SoD scope + batch closer-resolution, migrate-free)
+
+- **SoD (Segregation of Duties) — đối xứng CR-41 vòng 1.** `confirm_inspection` (IMM-09, BR-09-SOD/CR-41) đã CHẶN người tự-đóng-phiếu tự-nghiệm-thu (`closer == session.user` → `FORBIDDEN`, in-handler HTTP-200 + Error envelope; xem [`docs/imm-09/05 §confirm_inspection`](../imm-09/05_API_Specification.md)). Inbox CR-42 **đối xứng ở tầng danh sách**: WO mà chính `session.user` tự đóng **KHÔNG xuất hiện** trong inbox của họ → không tạo dòng "duyệt mù" (click → SoD `FORBIDDEN` dead-end). "Người đóng phiếu" đọc **migrate-free** từ Asset Lifecycle Event `repair_pending_inspection` (`root_doctype='Asset Repair'`, `root_record=name`, `actor` của event mới nhất) — **tái dùng `_resolve_wo_closer`** (`services/imm09.py:1769`, SSoT CR-41).
+- **Fail-open (đối xứng CR-41 INV-CM-SOD-2).** Closer không xác định được (không có event `repair_pending_inspection` — legacy) → `_resolve_wo_closer` trả `None` → **VẪN HIỆN** trong inbox (không đủ dữ liệu để chặn ⇒ ưu tiên không bỏ sót phiếu chờ; cùng nguyên tắc fail-open của `confirm_inspection`).
+- **No N+1 — closer-resolution batch.** WO 'Pending Inspection' cần resolve closer cho MỌI dòng để lọc SoD. BE **[Bước-4]** thêm helper batch `_resolve_wo_closers(names: list[str]) -> dict[str, str | None]` @`services/imm09.py` = **1 `get_all` Asset Lifecycle Event** (`root_record IN [...]`, `event_type='repair_pending_inspection'`, order `creation desc`, dedup lấy actor mới nhất/WO) → imm00 lazy-import. **Ngưỡng chấp nhận thay thế:** vì queue Pending Inspection nhỏ (cap 50), 1-query/phiếu qua `_resolve_wo_closer` cũng đạt — **NHƯNG batch là khuyến nghị** (O(1) query, xác định bất kể queue). Enrich display (`asset_name`/`requested_by_name`) **BẮT BUỘC batch** qua `_enrich_inbox_items` hiện có — **KHÔNG per-item query enrich trong vòng lặp** (LL-BE-2).
+- **Invariant count==rows GIỮ (BR-00-INBOX-02).** WO bị SoD loại → không append vào `items` ngay từ đầu ⇒ `total == len(items) == sum(by_module.values())` vẫn đúng (KHÔNG đếm DB riêng rồi trừ). `by_module` thêm khóa `imm09` (đủ **4 khóa** cố định, 0 khi rỗng/thiếu cap).
+- **§BE task (application code — [BE] Bước-4, KHÔNG thuộc slice contract BA):** (1) hằng SSoT `_CAP_SUBMIT = "repair.submit"` @`services/imm09.py` (hiện `repair.submit` hardcode 2 chỗ: `services/imm09.py:1806` + `api/imm09.py:182`) → refactor `confirm_inspection` dùng hằng + imm00 lazy-import (chống hardcode chuỗi cap, đối xứng `_imm15._CAP_APPROVE`); (2) helper batch `_resolve_wo_closers`; (3) block nguồn-d trong `get_pending_approvals_inbox` @`services/imm00.py` (sau block imm15, trước `_enrich_inbox_items`); (4) `by_module` init thêm `"imm09": 0`; (5) TC mới trong `test_imm00_approvals_inbox.py` (§Test plan). **Live-HTTP cần gunicorn `--preload` reload (HARD-STOP user).**
+
+### Field `summary` — CR-44 (tóm tắt VI server-built ≤120 ký tự, chống "duyệt mù")
+
+> **Vấn đề:** `title` chỉ là **1 mảnh đơn** theo module → người duyệt hàng loạt không thấy **nội dung phiếu** ("chuyển từ đâu sang đâu / cấp phát gì bao nhiêu / nghiệm thu bậc mấy") nếu không mở từng detail = **"duyệt mù"**, làm hỏng giá trị audit của chữ ký duyệt trên **vết custody NĐ98**. `summary` bổ sung 1 dòng phụ mô tả **cái đang được duyệt** — advisory (nút Duyệt vẫn ở detail view theo `allowed_transitions`, GATE-8). Quyết định: [`ADR-IMM00-APPROVAL-INBOX.md` §E](./ADR-IMM00-APPROVAL-INBOX.md).
+
+- **Bất biến `summary`:** string **LUÔN emit** (coalesce `''` — KHÔNG null) · độ dài **≤120 ký tự** (server hard-cap: vượt → cắt 119 + `'…'` U+2026 = 120) · thiếu dữ liệu / dangling FK → phần lấy được hoặc `''` (**non-crash, KHÔNG raise**) · **server-built** (SSoT 1 chỗ, client chỉ render).
+
+**Composition per-source (grounded @source — field THẬT, KHÔNG bịa):**
+
+| module | Mẫu `summary` | Nguồn dữ liệu (grounded) | Denorm cần |
+|---|---|---|---|
+| `imm00` Asset Transfer | `'<src> → <dst> · <asset_name>'` | `src`=`from_department`→`AC Department.department_name` fallback `from_location`→`AC Location.location_name` fallback ''; `dst`=`to_department`/`to_location` tương tự; `asset_name`=enrich sẵn (@`asset_transfer.json`: from/to_department Link AC Department, from/to_location Link AC Location) | **+2 batch**: AC Department.department_name · AC Location.location_name |
+| `imm15` IMM Spare Allocation | `'<item_name> ×<qty> <uom>'` + `' …+N'` (N=dòng còn lại) | dòng ĐẦU child `IMM Spare Allocation Item` (order `idx`): `part_name` (đã denorm @child) fallback `spare_part`; `qty`=`qty_requested` (Float, bỏ `.0` đuôi); `uom`=Link `uom` (PK=`uom_name` autoname `field:uom_name` @`ac_uom.json` → dùng thẳng) | **+1 batch**: IMM Spare Allocation Item (`parent IN […]`, order `parent, idx`) group-by-parent |
+| `imm04` Asset Commissioning | `'Nghiệm thu ban đầu · bậc <stage_index>/<stage_total>'` | `approval_stage` Select @`asset_commissioning.json` = SSoT 4 bậc **Doc Verify · Facility Check · Baseline Review · Clinical Release** (đã có trong `list_my_pending_approvals` return @`services/imm04.py`); `stage_index`=vị trí 1-based, `stage_total`=`len(tuple)` (**derive, KHÔNG hardcode 4**); stage rỗng/không khớp → bỏ mảnh 'bậc' → `'Nghiệm thu ban đầu'` | 0 query thêm (field trên row nguồn) |
+| `imm09` Asset Repair CM | `'<failure rút gọn> · <asset_name>'` | `failure`=`failure_description`→`repair_summary` (đã fetch @builder nguồn-d); cắt free-text để tổng ≤120 **giữ hậu tố** `' · <asset_name>'`; `asset_name`=enrich từ `asset_ref` | 0 query thêm (field trên row nguồn) |
+
+- **Build-site (no-N+1):** summary phụ thuộc denorm (dept/loc name · child lines · enriched `asset_name`) → dựng **trong `_enrich_inbox_items`** SAU khi batch-map build; `imm04` (chỉ cần `approval_stage`, 0 denorm) có thể dựng ngay @builder qua kwarg mới `summary` của `_inbox_item` (default `''`). Raw source fields cho summary carry qua **per-source aux list** (song song `comm_aux`): `transfer_aux` (idx→4 id from/to dept/loc), allocation lookup child theo `item['name']`, `repair_aux` (idx→failure text).
+- **Batch denorm CR-44 = +3 query cố định** (độc lập N): (1) **AC Department** gộp mọi from/to dept id → `department_name`; (2) **AC Location** gộp mọi from/to location id → `location_name`; (3) **IMM Spare Allocation Item** (`parent IN [allocation names]`, `parenttype='IMM Spare Allocation'`, order `parent, idx`) group-by-parent. Tổng enrich = **6 query cố định** (3 hiện có + 3 CR-44) bất kể N item / phối nguồn. Dangling FK → map trả None → `_str_or_blank` → '' → summary lấy phần còn lại.
+
+- **§BE task (application code — [BE] Bước-4, KHÔNG thuộc slice contract BA):** (1) `_inbox_item(..., summary: str = "")` — khóa thứ 11, default ''; (2) mở rộng `_enrich_inbox_items` +3 batch query + 4 helper `_summarize_transfer/_summarize_allocation/_summarize_commissioning/_summarize_repair` + hằng tuple `_COMMISSIONING_APPROVAL_STAGES` (SSoT enum) + `_fmt_qty`/`_truncate_120` util; (3) carry aux per-source; (4) hard-cap 120 + coalesce cuối; (5) transfer builder thêm fetch `from_department, from_location, to_department, to_location` (hiện chỉ fetch `reason/transfer_type/…`); (6) `test_imm00_approvals_inbox._ITEM_KEYS` 10→11 (+`summary`) + TC nội dung (§Test plan CR-44). **Live-HTTP cần gunicorn `--preload` reload (HARD-STOP user).**
+
+### Mobile OAS mirror deltas — CR-44 (field `summary`) — **slice BA đóng ở Bước-2** (contract-first, shape-only)
+
+- `PendingApprovalItem.properties` **+= `summary`** (type `string`, description VI: mẫu per-source + ≤120 + coalesce '' + non-crash) · `PendingApprovalItem.required` **+= `summary`** (11 khóa) · `additionalProperties:false` GIỮ.
+- Header comment mirror + Item description: "10-key"→"11-key (CR-44 +summary)"; phân biệt `summary` (nội dung phiếu) vs `title` (1 mảnh nhãn ngắn).
+- **Guard `test_mobile_oas.py` (shape-only, BA sửa):** hằng `_PENDING_APPROVAL_ITEM_PROPS` += `'summary'` → TC-c assert **11 prop** (all-string, non-nullable, in-required — summary tự động phủ vì loop assert mọi prop). **KHÔNG thêm TC method** ⇒ `_EXPECTED_TEST_COUNT`/`_GUARD_SUITE_*`/`_MOBILE_OAS_TOTAL` **GIỮ NGUYÊN** (chỉ đổi assertion nội TC hiện có). `test_oas_baseline` (path-count) KHÔNG đổi (0 path/whitelist mới). **KHÔNG có test cross-check live-keys ↔ OAS** ⇒ contract-first hợp lệ: shape-guard XANH ngay vòng này, live-true khi BE land `summary` vào `_inbox_item` (đối xứng CR-42).
+
+### Test plan BE CR-44 (bổ sung `test_imm00_approvals_inbox.py` — [BE] Bước-4)
+
+TC nội dung `summary` (sau khi BE land live): (S1) MỖI item có key `summary` type str, `_ITEM_KEYS` 11-key; (S2) transfer: `summary == '<dept nguồn> → <dept đích> · <asset_name>'` (dùng department_name, fallback location_name khi dept rỗng); (S3) allocation multi-line: `'<part_name> ×<qty> <uom> …+N'`, N đúng số dòng còn lại; allocation 1 dòng → KHÔNG có ' …+N'; (S4) commissioning: `'Nghiệm thu ban đầu · bậc <i>/4'` đúng index theo approval_stage; stage rỗng → `'Nghiệm thu ban đầu'`; (S5) repair: `'<failure> · <asset_name>'`, failure quá dài → cắt giữ hậu tố asset_name; (S6) **≤120**: mọi summary `len ≤ 120` (dựng phiếu có dept/part/failure siêu dài → assert ≤120 + kết `'…'`); (S7) **missing-data non-crash**: dept/item/stage null hoặc FK dangling (asset xoá) → summary là str (coalesce '' / partial), KHÔNG raise; (S8) **no-N+1**: dựng ≥2 item MỖI nguồn (transfer+allocation+commissioning+repair) → assert query-count enrich **bị chặn** (≤ hằng, không tăng theo N — dùng `frappe.db.sql`-count hoặc `count_queries` harness); (S9) **session-scoped bất biến**: `inspect.signature(api.get_pending_approvals_inbox)` KHÔNG có param `user` (chỉ `**_ignore`). Targeted run: `bench --site miyano run-tests` module `test_imm00_approvals_inbox` + `test_mobile_oas`. **IMM-10 baseline đỏ pre-existing (STATE Blocker#4) KHÔNG đụng.**
+
+### Business rules
+
+- **BR-00-INBOX-01** — Inbox CHỈ gộp phiếu user có thẩm quyền duyệt theo cap-SSoT của action duyệt tương ứng (bảng trên); thiếu cap → exclude im lặng; 0 cap → empty-success. KHÔNG bao giờ hiện phiếu user không duyệt được (anti dead-link).
+- **BR-00-INBOX-02** — Bất biến count==rows: `total == len(items) == sum(by_module.values())` (LL-BE-49; không phát count DB riêng lệch drill). `by_module` = **4 khóa** cố định `{imm04, imm00, imm15, imm09}` sau CR-42.
+- **BR-00-INBOX-03 (CR-42, SoD — đối xứng BR-09-SOD/CR-41)** — Nguồn `imm09` (CM 'Pending Inspection') **loại self-closed**: WO mà chính `session.user` là người đóng phiếu (`_resolve_wo_closer(name) == session.user`) KHÔNG hiện trong inbox của họ (tránh dòng "duyệt mù" → click hứng SoD `FORBIDDEN` ở `confirm_inspection`). Closer không xác định (None, legacy — không có event `repair_pending_inspection`) → **fail-open**, vẫn hiện (đối xứng INV-CM-SOD-2). Áp SoD ở tầng list-filter, KHÔNG thay đổi guard `confirm_inspection` (2 tầng phòng thủ độc lập: list ẩn + handler chặn).
+- **BR-00-INBOX-04 (CR-44, field `summary` — chống "duyệt mù")** — MỖI item PHẢI có `summary`: string tiếng Việt do SERVER dựng, **LUÔN emit** (coalesce `''` — KHÔNG null), **≤120 ký tự** (hard-cap server + `'…'`), mô tả **cái đang được duyệt** theo nguồn (bảng §"Field `summary` — CR-44"). Thiếu dữ liệu / dangling FK → phần lấy được hoặc `''` (**non-crash, KHÔNG raise**). Denorm batch trong `_enrich_inbox_items` (+3 query cố định, **no-N+1**). `summary` là **advisory** (không thay hành động Duyệt ở detail view — GATE-8) và **không đổi số dòng** (invariant count==rows GIỮ).
+- **BR-00-INBOX-05 (CR-43, hợp đồng TRUNG THỰC khi cắt)** — `data` PHẢI công bố `truncated` (int 0/1) + `totals_uncapped` (dict 4 khóa int) + `excluded_modules` (list[str] ⊆ `{imm00,imm15,imm09}`). **ZERO-COST:** `totals_uncapped[m]` mặc định = `by_module[m]` (KHÔNG query), CHỈ COUNT thật khi `len(fetched) >= _INBOX_LIMIT_PER_SOURCE`; ca 0-chạm-trần KHÔNG phát COUNT nào (test spy). `truncated = int(any(totals_uncapped[m] > by_module[m]))`. `excluded_modules` = nguồn cap-based thiếu cap (imm04 identity-based KHÔNG bao giờ có). `totals_uncapped['imm09']` khi chạm trần = **cận-trên PRE-SoD**. **Bất biến count==rows (BR-00-INBOX-02) áp cho `total`/`by_module` — `totals_uncapped` là measure UNCAPPED riêng, ĐƯỢC PHÉP > `len(items)`.** Flag = int (KHÔNG bool/None — parity CR-01). Additive-OPTIONAL trong OAS (`required` GIỮ `[items,total,by_module]`).
+- KPI dashboard `pending_commissioning` GIỮ SSoT `count_pending_approvals` (imm04-mine) — inbox = superset by-design (ADR-…-C; BE cập nhật comment @`services/imm00.py:2996-2998`).
+
+### Mobile OAS mirror deltas — CR-42 (nguồn thứ 4 imm09) — **slice BA đóng ở Bước-2** (enum/by_module là SHAPE, curate-first; live-true khi BE land nguồn-d)
+
+> Đây là **contract-first**: BA mở rộng enum/`by_module` trong OAS mirror + shape-guard `test_mobile_oas` NGAY vòng này (đóng slice contract). Header comment mirror ghi "CURATE VERBATIM @backend LIVE" ⇒ **BE PHẢI land block nguồn-d** (§BE task) để response THẬT khớp 4-nguồn; **KHÔNG có test cross-check live-`by_module` ↔ OAS-schema** (guard chỉ assert YAML-shape + signature `**_ignore`) ⇒ shape-guard XANH ngay, không phụ thuộc BE. `test_oas_baseline` (path-count) **KHÔNG đổi** — 0 whitelist/0 path mới (chỉ mở rộng schema đã có).
+
+- `PendingApprovalItem.doctype.enum` **+= `'Asset Repair'`** (3→4 giá trị) · `PendingApprovalItem.module.enum` **+= `imm09`** (3→4).
+- `PendingApprovalsInboxData.by_module.properties` **+= `imm09`** (integer, mô tả `imm09 = Chờ nghiệm thu CM`) · `by_module.required` **+= `imm09`** (đủ 4 khóa) · `additionalProperties:false` GIỮ.
+- Cập nhật description 3 schema (Item/Data) + path summary: "3 nguồn" → "4 nguồn"; item 10-key GIỮ (0 field mới, chỉ mở enum). 0 schema mới, 0 path mới, 0 tag mới (`approvals` GIỮ 16th).
+- **Guard `test_mobile_oas.py` (shape-only, BA sửa):** hằng `_PENDING_APPROVAL_DOCTYPE_ENUM` += `'Asset Repair'`, `_PENDING_APPROVAL_MODULE_ENUM` += `imm09`; TC-f `by_module` set/required/loop 3→4 khóa. **KHÔNG thêm TC method** ⇒ `_EXPECTED_TEST_COUNT`/`_GUARD_SUITE_*`/`_MOBILE_OAS_TOTAL` **GIỮ NGUYÊN** (chỉ đổi assertion nội TC hiện có).
+
+### Mobile OAS mirror deltas — CR-43 (hợp đồng TRUNG THỰC khi cắt) — **slice BA ĐÓNG ở Bước-2** (đã verify `Ran 893 OK`)
+
+> **Contract-first ADDITIVE + guard XANH THẬT (đã chạy).** BA mở rộng `PendingApprovalsInboxData` + shape-guard NGAY vòng này. **0 path/tag/schema mới, 0 whitelist mới** ⇒ `test_oas_baseline`/counter-sync **KHÔNG đổi**; **0 TC-method mới** ⇒ `_EXPECTED_TEST_COUNT`/`_GUARD_SUITE_*`/`_MOBILE_OAS_TOTAL` **GIỮ NGUYÊN**. Response THẬT khớp 6-khóa khi **BE land §BE task** (§CR-43); guard chỉ assert YAML-shape + signature `**_ignore` (KHÔNG cross-check live-keys) ⇒ XANH độc lập BE.
+
+- `PendingApprovalsInboxData.properties` **+= 3 field ADDITIVE-OPTIONAL** (`additionalProperties:false` GIỮ; `required` GIỮ `[items,total,by_module]` byte-identical — backward-compat codegen pin required-set cũ):
+  - `truncated` — `integer` `enum:[0,1]` (cờ int 0/1, KHÔNG bool/None — CR-01).
+  - `totals_uncapped` — inline object **CLOSED** (đối xứng `by_module`) 4 khóa `{imm00,imm04,imm15,imm09}: integer`, `required` cả 4; mô tả nêu rõ **zero-cost** (= by_module khi không chạm trần) + **imm09 = cận-trên PRE-SoD**.
+  - `excluded_modules` — `array<string enum:[imm00,imm15,imm09]>` (imm04 identity-based KHÔNG bao giờ có).
+- **Guard `test_mobile_oas.py` (shape-only, BA sửa — đã chạy XANH):** `test_mob_oas_inbox_f` cập nhật `set(dprops.keys())` 3→6 khóa; giữ `required` assertion `[by_module,items,total]` (additive); thêm assertion `truncated` int-enum[0,1] · `totals_uncapped` closed 4-khóa-int · `excluded_modules` array-string-enum. **KHÔNG thêm TC method.**
+
+### Mobile OAS mirror deltas — CR-32 (BE Bước-4 — curate VERBATIM theo response THẬT sau khi `.py` xanh)
+
+- **+1 path** `GET assetcore.api.imm00.get_pending_approvals_inbox` · `operationId: getPendingApprovalsInbox` · **tag `approvals` MỚI (16th)** — inbox xuyên-module, không nhét vào tag 1 domain (precedent mở-tag CR-34 `training` 15th) · 0 parameters (session-scoped; `**_ignore` không surface param nào).
+- **3 schema CLOSED** (`additionalProperties: false`) — ⚠️ **SELF-CORRECTION vs đề-mục "2 schema Item/Envelope"**: mirror precedent CR-34 3-tầng Envelope→Data→Item (wire = `handle()`→`_ok` bọc `{success,data}`):
+  1. `PendingApprovalItem` — 10 prop string, ALL required, non-nullable (`''` coalesce); `module` enum `[imm04, imm00, imm15]`; `doctype` enum 3 giá trị.
+  2. `PendingApprovalsInboxData` — `{items: array<$ref Item>, total: integer, by_module: <inline closed object {imm04,imm00,imm15}: integer, required cả 3>}`, required cả 3 khóa (`by_module` inline — KHÔNG schema riêng).
+  3. `PendingApprovalsInboxEnvelope` — `{success: enum[true], data: $ref Data}`, required cả 2.
+- `responses`: `'200'` = INLINE `oneOf [PendingApprovalsInboxEnvelope, Error]` Decision-B route-by-VALUE (nhánh Error defensive/uniform — mirror `getNotificationPreferences` CR-30; endpoint 0 lỗi nghiệp vụ) · `'401': $ref Unauthorized401` · `'403': $ref Forbidden` **SINGLE-SHAPE dispatcher-only** (service 0 raise FORBIDDEN — silent-exclude).
+- **Membership**: ∈ `_MVP_BUSINESS_PATHS` (401/403 symmetry **79→80**) · ∈ `_MVP_READ_ENVELOPE` (+1; `_MVP_LIST_ENVELOPE` GIỮ 13 — precedent CR-34: `data` có khóa ngoài `items[]`).
+- **Counter sync** (⚠️ baselines grounded 2026-07-16 sau CR-34: path/opId **90**, c5/parity **79**, `_EXPECTED_TEST_COUNT` **818**, `_GUARD_SUITE_SUM` **961**, `_MOBILE_OAS_TOTAL` **987**, distinct-tag **15** — **BE grep-verify @source TRƯỚC bump, đa-phiên race**): path/opId 90→91 · c5/parity 79→80 · closed-schema **+= 3** (re-derive @source) · `_EXPECTED` += `get_pending_approvals_inbox → getPendingApprovalsInbox` · distinct-tag 15→16 (`approvals`) · guard class MỚI `TestMobilePendingApprovalsInboxContract` (~10 TC: path/opId/tag + 0-param + 3-schema-closed + item-10-prop-SET== + module/doctype-enum + by_module-3-khóa-required + 200-oneOf-[Env,Error]-0-discriminator + 403-slot-single-Forbidden + ∈read-∉list + symmetry + naming-guard-0-dangling + **runtime spec-parity dotted-path resolve + `is_whitelisted` bare-GET**) · `_EXPECTED_TEST_COUNT`/`_GUARD_SUITE_EXPECTED[test_mobile_oas.py]` += N-TC-THẬT · `_GUARD_SUITE_SUM`/`_MOBILE_OAS_TOTAL` += N.
+- ADR-MOBILE-0XX (YAML curate record) do **BE** author Bước-4 (numbering-race — lấy số ADR mobile kế tiếp lúc land).
+
+### Test plan BE (file MỚI `assetcore/tests/test_imm00_approvals_inbox.py`)
+
+TC tối thiểu CR-32: (1) envelope + `data` 3 khóa + item ĐÚNG 10 khóa; (2) **spoof**: gọi handler kèm `user=<người khác>` → kwargs bị nuốt, kết quả == không kèm (session-scoped); (3) imm04: user là `pending_approver` thấy phiếu / user khác KHÔNG; (4) imm00: có `commissioning.submit` thấy transfer Pending Approval, thiếu → 0 item `module=='imm00'`; (5) imm15: có `inventory.submit` thấy allocation Requested, thiếu → 0 item `module=='imm15'`; (6) 0-cap user → `success:true` + `items:[]` + by_module all-0; (7) sort `pending_since asc` + tie-break `name asc`; (8) BR-00-INBOX-02 invariant; (9) `route` đúng map 3 nguồn (kể cả imm15 fallback `/inventory` khi thiếu ref); (10) guest → `PermissionError`/dispatcher-403.
+
+**TC mới CR-42 (nguồn imm09 — [BE] Bước-4):** (11) user có `repair.submit`: WO 'Pending Inspection' docstatus 0 đóng-bởi-NGƯỜI-KHÁC → hiện 1 item `module=='imm09'` shape 10-key đúng (`doctype='Asset Repair'`, `route='/cm/work-orders/{name}'`, `asset==asset_ref`, `title=failure_description`); (12) **SoD**: WO chính `session.user` tự đóng (event `repair_pending_inspection` actor==user) → **KHÔNG** hiện (BR-00-INBOX-03); (13) **fail-open**: WO thiếu event closer (None) → **VẪN** hiện; (14) **cap-less**: user thiếu `repair.submit` → 0 item `module=='imm09'`, `success:true`, KHÔNG lỗi; (15) `by_module` giờ đủ 4 khóa + invariant `total==len(items)==sum(by_module.values())` GIỮ khi có/không item imm09; (16) no-N+1: WO Pending Inspection ≤50, closer-resolution batch (đo query-count không tăng theo N item). Targeted run: `bench --site miyano run-tests` module `test_imm00_approvals_inbox` + `test_mobile_oas` + `test_imm09` (nếu chạm helper). **IMM-10 baseline đỏ pre-existing (STATE Blocker#4) KHÔNG đụng.**
+
+**TC mới CR-43 (hợp đồng TRUNG THỰC khi cắt — [BE] Bước-4):** (17) **AC1 shape**: `data` có đủ 6 khóa; `truncated`/`totals_uncapped`(4 khóa)/`excluded_modules` LUÔN emit; 3 khóa cũ `items`/`total`/`by_module` GIỮ NGUYÊN shape+giá trị (item 11 khóa, `total==len(items)==sum(by_module.values())`); `excluded_modules ⊆ {imm00,imm15,imm09}`. (18) **AC2 zero-cost**: khi 0 nguồn chạm trần → `truncated==0` ∧ `totals_uncapped[m]==by_module[m]` ∀m ∧ **count-fn KHÔNG được gọi** (monkeypatch/spy `frappe.db.count` hoặc `_count_uncapped` = 0 lời gọi). (19) **AC3 chạm trần**: hạ `_INBOX_LIMIT_PER_SOURCE=1`, seed 2 Asset Transfer `Pending Approval` → `truncated==1` ∧ `by_module['imm00']==1` ∧ `totals_uncapped['imm00']==2`. (20) **excluded**: user thiếu `commissioning.submit`/`inventory.submit`/`repair.submit` → module tương ứng ∈ `excluded_modules` (imm04 KHÔNG bao giờ có mặt kể cả khi user không phải pending_approver). (21) **AC6 int-parity**: `truncated` + mọi `totals_uncapped[m]` là **int** (`isinstance(v,int) and not isinstance(v,bool)`); `total*` ≥ 0. Targeted run: `bench --site miyano run-tests` module `test_imm00_approvals_inbox` + `test_mobile_oas`. **IMM-10 baseline đỏ pre-existing (STATE Blocker#4) KHÔNG đụng.**
+
+### Boundaries (Always / Never)
+
+- **Always:** cap qua hằng SSoT (`_TRANSFER_APPROVE_CAP`/`_CAP_APPROVE`/**`_imm09._CAP_SUBMIT`** lazy-import) · session-scoped `**_ignore` · bulk-enrich no-N+1 (tái dùng `_enrich_inbox_items` + batch closer + **CR-44 +3 batch: AC Department · AC Location · IMM Spare Allocation Item**) · sort server-side · `route` non-empty · `by_module` đủ **4 khóa** · count==rows · **SoD imm09 tái dùng `_resolve_wo_closer` (SSoT CR-41), fail-open khi closer None** · **(CR-44) `summary` server-built ≤120 coalesce '' non-crash, `stage_total` derive từ enum tuple** · **(CR-43) `truncated`/`totals_uncapped`(4 khóa)/`excluded_modules` LUÔN emit; `totals_uncapped[m]` mặc định = `by_module[m]` (zero-cost), COUNT thật CHỈ khi `len(fetched) >= _INBOX_LIMIT_PER_SOURCE`; flag = int 0/1; `imm04` KHÔNG bao giờ ∈ `excluded_modules`**.
+- **Never:** honor param `user` · hardcode role-name/chuỗi cap (kể cả `'repair.submit'` trần — dùng `_CAP_SUBMIT`) · raise FORBIDDEN khi thiếu cap nguồn (exclude im lặng) · **fail-CLOSED khi closer None** (phải fail-open) · per-item query enrich/closer trong vòng lặp · nút duyệt inline (GATE-8) · đổi cap route/sidebar `/approvals/pending` · migrate/commit/reload worker (HARD-STOP user) · đụng IMM-10 baseline · **(CR-44) `summary` null/raise khi thiếu data · per-item query denorm cho summary · persist summary thành field DocType · hardcode `stage_total`=4 · thêm param/đổi signature** · **(CR-43) phát COUNT khi nguồn KHÔNG chạm trần (phá zero-cost) · flag kiểu bool/None (int 0/1 bắt buộc) · thêm 3 field CR-43 vào `required` OAS (additive-optional) · buộc `totals_uncapped` khớp count==rows (được phép > len)**.
+
+---
+
 # Phần IV — Endpoint → Business Rule Mapping
 
 | Endpoint | Business Rule áp dụng |
@@ -1882,6 +2073,757 @@ Component parameter: `name: user` · `in: query` · `required: false` · `schema
 | Scheduler `trigger_capa_overdue_check` | BR-00-09 |
 | `create_incident`, `update_incident`, `submit_incident` | VR-00-04, AC-E008, AC-E009 |
 | Inventory submit/cancel | BR-INV-01 → BR-INV-08 |
+| `get_pending_approvals_inbox` (CR-32/CR-42/CR-44/CR-43, §III.22) | BR-00-INBOX-01, BR-00-INBOX-02, BR-00-INBOX-03 (SoD imm09), BR-00-INBOX-04 (summary CR-44), BR-00-INBOX-05 (truthful truncation CR-43) |
+| `list_assignable_users` (AC-CR-80, §III.23) | BR-00-ASSIGN-01 … BR-00-ASSIGN-05 (capability-SSoT + truthful truncation + 400 in-envelope) |
+
+---
+
+## III.23. Picker "người nhận việc" — AC-CR-80 `list_assignable_users` (capability-SSoT + hết cắt IM LẶNG)
+
+> **Vòng 4 (BA / AC-CR-80) — ĐÓNG mobile `CR-75`.** Endpoint **ĐÃ LIVE** ở BE từ 2026-07-22 (`api/user.py:1057`) nhưng **vắng mirror** ⇒ mobile không biết mà dùng, và **vẫn cắt im lặng** ở `limit`.
+> Quyết định kiến trúc: [`ADR-IMM00-TRUNCATION-SSOT.md` §7](./ADR-IMM00-TRUNCATION-SSOT.md) — **ADR-IMM00-ASSIGN-01..04** + **INV-ASSIGN-1..8**.
+> **Slice contract (OAS mirror + guard shape `test_mobile_oas` 8 TC `cr80_a..h`) ĐÓNG ở Bước-2 (BA).** Slice **application code** (`api/user.py` bồi truncation · `frontend/src/api/user.ts` + `ApproverSelect.vue` render dải) = **[BE]/[FE] Bước-4**.
+> **0 DocType change ⇒ 0 migrate.** Sửa `api/*.py` ⇒ live-HTTP cần **USER reload gunicorn** (`--preload`, HARD-STOP) — chấm bằng `run-tests`, KHÔNG curl.
+
+### §III.23.1 Vấn đề nghiệp vụ (vì sao có endpoint riêng thay vì nới `listUsers`)
+
+Field "người nhận việc" xuất hiện ở **6 ngữ cảnh**: KTV sửa chữa (IMM-09), KTV bảo trì định kỳ (IMM-08), KTV hiệu chuẩn (IMM-11), người xử lý sự cố (IMM-12), KTV lắp đặt/nghiệm thu (IMM-04), và các field **chỉ mô tả người** (giám sát, thủ kho, trưởng khoa, người duyệt, leo thang SLA).
+
+Trước AC-CR-80, mobile chỉ có `listUsers(role=…)` **đơn trị** ⇒ buộc chọn giữa:
+
+- **lọc sai**: `role='PM User'` giấu mất `PM Manager`, `Corrective User`, `Vendor Engineer` — màn hình **khẳng định** "không tìm thấy kỹ thuật viên" trong khi chính bộ lọc của app giấu họ;
+- **không lọc**: liệt kê cả điều dưỡng/kế toán/quản trị → chọn nhầm → BE từ chối `IMM09-INVALID-TECHNICIAN` (422) **ngay tại giường bệnh**; với hiệu chuẩn (thiết bị loại B/C/D bắt buộc hiệu chuẩn theo NĐ98) còn kéo theo hồ sơ sai chủ thể.
+
+**Nguyên nhân gốc**: role-name **không phải** nguồn sự thật về quyền (anti-pattern *RBAC dead-gate* — đổi tên vai/thêm vai ⇒ gate fail âm thầm). Nguồn sự thật là **capability/DocPerm** — đúng thứ validator dùng.
+
+### §III.23.2 Endpoint
+
+- **`GET /api/method/assetcore.api.user.list_assignable_users`** — `@frappe.whitelist()` (bare, nhận GET), any-authenticated.
+- **Mirror mobile**: `operationId: listAssignableUsers`, tag `user` (`docs/mobile/openapi/assetcore-mobile.openapi.yaml`).
+- **Actor**: mọi user AssetCore đang mở form có field chọn người (tổ trưởng KTV, điều phối viên, QA duyệt…).
+- **Audit trail**: KHÔNG (read-only, không sinh Lifecycle Event).
+
+| Param | Kiểu | Bắt buộc | Default | Ghi chú |
+|---|---|---|---|---|
+| `context` | string enum | ✅ | — | `user` \| `repair` \| `pm` \| `calibration` \| `incident` \| `commissioning`. Tập enum = `{_ANY_USER_CONTEXT}` ∪ keys(`_ASSIGNABLE_CONTEXTS`) (`api/user.py:1036` + `api/user.py:1038`). |
+| `search` | string | ❌ | `''` | LIKE `%q%` trên `full_name` **hoặc** `email` (OR-filter, server-side). |
+| `limit` | integer | ❌ | `20` | **Clamp** `max(1, min(int(limit), 100))`. |
+
+**Ngữ nghĩa `context`** (SSoT bảng ánh xạ ở `api/user.py:1038`):
+
+| `context` | Kiểm gì | Dùng cho field nào |
+|---|---|---|
+| `user` | **Không lọc năng lực** — chỉ cần là user AssetCore | Field **mô tả người**: giám sát, thủ kho, trưởng khoa, người nhận, người duyệt, leo thang SLA |
+| `repair` | `has_permission("Asset Repair", "write", user=u)` | `assign_technician.technician` (IMM-09) |
+| `pm` | `has_permission("PM Work Order", "write", user=u)` | `assign_pm_technician.technician` (IMM-08) |
+| `calibration` | `has_permission("IMM Asset Calibration", "write", user=u)` | `create_calibration.technician` (IMM-11) |
+| `incident` | `has_permission("Incident Report", "write", user=u)` | người xử lý sự cố (IMM-12) |
+| `commissioning` | `has_permission("Asset Commissioning", "write", user=u)` | KTV lắp đặt / nghiệm thu (IMM-04) |
+
+> **Anti-probe**: endpoint chỉ nhận **tên ngữ cảnh**, KHÔNG nhận `doctype`/`ptype` thô từ client — nếu không, bất kỳ ai cũng dò được ma trận quyền của toàn hệ thống.
+
+### §III.23.3 Response — hình dạng ĐÍCH (AC-CR-80)
+
+```jsonc
+// 200 OK
+{
+  "success": true,
+  "data": {
+    "items": [
+      { "name": "ktv.nguyen@benhvien.vn", "full_name": "Nguyễn Văn Kỹ",
+        "email": "ktv.nguyen@benhvien.vn", "user_image": null }
+    ],
+    "total": 47,      // tổng người ĐƯỢC PHÉP (đếm SAU lọc năng lực), TRƯỚC khi cắt
+    "truncated": 1,   // integer 0|1 — KHÔNG boolean
+    "limit": 20       // trần ĐÃ CLAMP (không phải số client gửi)
+  }
+}
+```
+
+**ĐỔI HỢP ĐỒNG (breaking, có chủ đích)**: `data` từ **mảng trần** `[…]` → **object** `{items,total,truncated,limit}`.
+Lý do chấp nhận breaking: mirror **chưa từng** khai op này (0 client mobile); web-FE là **caller duy nhất** và được sửa CÙNG VÒNG; giữ mảng trần thì không có chỗ nào để nói "còn 27 người nữa" mà không bịa thêm header/khoá song song. Chi tiết + phương án đã loại: ADR-IMM00-ASSIGN-03.
+
+**Lỗi** — `context` ngoài enum:
+
+```jsonc
+// HTTP-200 (KHÔNG status-line!) 
+{ "success": false, "error": "Ngữ cảnh phân công không hợp lệ: bogus_ctx",
+  "code": "VALIDATION_ERROR", "http_status": 400 }
+```
+
+- Đây là **lỗi lập trình phía client** (sai `context`), **KHÔNG** phải phiên hết hạn ⇒ FE/mobile hiển thị thông báo, **KHÔNG LOGOUT**. Phân biệt với **dispatcher-401/403 status-line** (guest / hết token) — đó mới là ca re-auth (2 loại 403, xem `ADR-IMM00-LIST-SCOPE §9`).
+- Thông điệp **tiếng Việt**, được echo lại giá trị client gửi; **TUYỆT ĐỐI KHÔNG** đưa **giá trị** của `_ASSIGNABLE_CONTEXTS` (tên DocType `Asset Repair`/`PM Work Order`…) hay tên cột/SQL vào message — đó là bề mặt phân quyền.
+
+### §III.23.4 Business rules & invariants
+
+| ID | Luật | Ghi chú |
+|---|---|---|
+| **BR-00-ASSIGN-01** | Nguồn người = **user AssetCore** (base role `AssetCore System User`, `enabled=1`, `user_type='System User'`, đã duyệt) — KHÔNG phải toàn bộ Frappe User của site dùng chung | `get_ac_users(..., approved_only=True)` |
+| **BR-00-ASSIGN-02** | Lọc năng lực bằng **capability/DocPerm**, KHÔNG so tên role | mirror `services/imm09.py:1657 _is_repair_capable` |
+| **BR-00-ASSIGN-03** | **Display ⟺ enforcement parity**: tập hiển thị == tập validator chấp nhận (0 dead-pick) | INV-ASSIGN-5/6 |
+| **BR-00-ASSIGN-04** | Danh sách bị cắt PHẢI công bố `total`/`truncated`/`limit` qua SSoT `truncation_meta` | INV-ASSIGN-1..4, 7 |
+| **BR-00-ASSIGN-05** | `context` lạ ⇒ 400 **in-envelope** trên HTTP-200, VI, 0 leak DocType/SQL | INV-ASSIGN-8 |
+
+Invariants đầy đủ (INV-ASSIGN-1..8): [`ADR-IMM00-TRUNCATION-SSOT.md` §7.3](./ADR-IMM00-TRUNCATION-SSOT.md).
+
+### §III.23.5 Boundaries (Always / Never)
+
+**Always** — mọi field chọn người đi qua endpoint này (web `<ApproverSelect context="…">`, mobile `listAssignableUsers`) · ngữ cảnh mới = **1 khoá** `_ASSIGNABLE_CONTEXTS` **+** enum OAS **cùng vòng** · FE render dải "Đang hiển thị N/M người — gõ tên để tìm thêm" khi `truncated===1`.
+
+**Never** — KHÔNG `SmartSelect doctype="User"` / `frappe.get_all("User")` thô ở FE · KHÔNG nhận doctype thô từ client · KHÔNG lọc theo role-name ở bất kỳ tầng nào · KHÔNG trả `roles`/`imm_roles`/bí mật trong item · KHÔNG nâng `limit` thay cho `search` (trần cứng 100).
+
+### §III.23.6 Delta OAS mirror (đã LANDED ở Bước-2)
+
+| Hạng mục | Trước | Sau |
+|---|---|---|
+| `paths` | 107 | **108** (`/api/method/assetcore.api.user.list_assignable_users`) |
+| `operationId` | 107 unique | **108** unique (`listAssignableUsers`) |
+| `components.schemas` | 281 | **283** (`AssignableUserItem`, `AssignableUserListEnvelope`) |
+| `components.parameters` | 38 | **38 GIỮ** (3 param khai INLINE) |
+| Guard `test_mobile_oas` | 967 | **975** (+8 `cr80_a..h`) |
+
+> Chấm theo **DELTA**, KHÔNG theo số tuyệt đối — baseline luôn có thể đã trôi do phiên khác (STATE blocker #12).
+
+### §III.23.7 Bàn giao (Bước-4)
+
+**[BE]** `assetcore/api/user.py::list_assignable_users` — xem code-shape ở [`04_Backend_Design.md` §V.6](./04_Backend_Design.md).
+⚠️ **Cite refresh bắt buộc**: OAS cite `api/user.py:1036 / :1037 / :1047`. Nếu BE thêm import top-level (vd `truncation_meta`) thì **mọi dòng dịch xuống** ⇒ guard `cr80_e` ĐỎ **đúng thiết kế** — BE cập cite theo dòng THẬT trong CÙNG vòng (mẫu AC-CR-79). Muốn tránh, dùng **lazy import trong thân hàm**.
+⚠️ **Test BE PHẢI sửa theo shape mới**: `assetcore/tests/test_imm00_base_role.py::TestListAssignableUsers._names` (`:301`) hiện đọc `res["data"]` như **mảng** ⇒ đổi thành `res["data"]["items"]`; TC-01..07 giữ nguyên ngữ nghĩa. *(Module này KHÔNG có trong danh sách acceptance ban đầu — bổ sung bắt buộc, nếu bỏ sót thì suite ĐỎ.)*
+
+**[FE]** `frontend/src/api/user.ts` + `frontend/src/components/commissioning/ApproverSelect.vue` — xem [`06_Frontend_Design.md` §VIII.3](./06_Frontend_Design.md). `props`/`v-model` của `ApproverSelect` **KHÔNG đổi** ⇒ 51 file đang dùng không phải sửa.
+
+**Test**: [`07_Testing_QA.md` §XVII](./07_Testing_QA.md) — TC-00-ASSIGN-01..12 + FE render test.
+
+---
+
+## III.24. «Bản ghi liên quan» — AC-CR-87 `get_connections` (cây dữ liệu thật: preview + nhãn VI + đường tạo mới)
+
+> **Vòng 1/5 (BA / AC-CR-87).** Endpoint **ĐÃ LIVE** (`api/connections.py::get_connections`) nhưng chỉ trả **badge đếm** ⇒ khối UI trả lời sai câu hỏi nó gợi ra (xem [`02 §IV.39`](./02_Analysis_Design.md)).
+> Quyết định kiến trúc + invariants: [`ADR-IMM00-CONNECTIONS-TREE.md`](./ADR-IMM00-CONNECTIONS-TREE.md) (**D1–D10 · INV-CONN-1..14**). Code shape: [`04 §V.7`](./04_Backend_Design.md).
+> **KHÔNG có mirror OAS mobile** (verify 2026-07-27: 0 hit `connections` trong `docs/mobile/openapi/assetcore-mobile.openapi.yaml`) ⇒ **không** phát sinh nghĩa vụ curate OAS ở vòng này. Nếu sau này mirror: `capped: bool` **phải** đã gỡ (CR-01 cấm bool cho cờ cắt).
+> **0 DocType ⇒ 0 migrate.** Sửa `api/*.py` ⇒ cần USER reload gunicorn (`--preload`) — chấm bằng `run-tests`, KHÔNG curl.
+
+### §III.24.1 Endpoint
+
+- **`GET /api/method/assetcore.api.connections.get_connections`** — `@frappe.whitelist()`, any-authenticated (dispatcher-403 cho guest/no-token; lỗi nghiệp vụ luôn **in-envelope HTTP-200**).
+- **Actor**: mọi vai mở màn chi tiết (KTV, tổ trưởng xưởng, trưởng phòng VT-TTBYT, QA, trưởng khoa).
+- **Audit trail**: KHÔNG (read-only, không sinh Lifecycle Event).
+
+| Param | Kiểu | Bắt buộc | Default | Ghi chú |
+|---|---|---|---|---|
+| `doctype` | string | ✅ | — | DocType bản ghi cha. Phải ∈ `_ALLOWED_SOURCE_DOCTYPES` (**12** hub derive từ `*_dashboard.py`) để dựng cây; ngoài allowlist mà **tồn tại** ⇒ `groups: []` (xem §III.24.4) |
+| `name` | string | ✅ | — | Mã bản ghi cha |
+| `preview_limit` | integer | ❌ | `5` | **Clamp** `max(1, min(int(v), 10))`; parse lỗi ⇒ về `5` (KHÔNG raise — panel phụ trợ không được làm vỡ màn chi tiết). Trần **đã clamp** là số truyền vào `truncation_meta` (INV-TRUNC-LIMIT) |
+
+### §III.24.2 Response — hình dạng ĐÍCH
+
+> ⚠️ **CẬP NHẬT AC-CR-92 (2026-07-28) — ô còn ĐÚNG 9 khoá.** 4 khoá LEGACY `label` (của ô) · `count` · `capped` · `filters` **ĐÃ GỠ**; `capped: bool` thay bằng **`total_capped: int 0|1`**. Hợp đồng đầy đủ + luật đọc + cửa sổ deploy: **§III.24.10** (cuối phần III.24). Khối JSON dưới đây là **hình dạng hiện hành**.
+
+```jsonc
+// 200 OK — GET …get_connections?doctype=AC%20Asset&name=AC-ASSET-2026-00001
+{
+  "success": true,
+  "data": {
+    "doctype": "AC Asset",
+    "name": "AC-ASSET-2026-00001",
+    "total": 9,                      // cấp payload = TỔNG CỘNG DỒN `item.total` mọi ô (KHÔNG cùng nghĩa item.total)
+    "groups": [
+      {
+        "label": "Bảo trì & Sửa chữa",         // nhãn NHÓM — đã là tiếng Việt (khai bằng _("…") trong *_dashboard.py)
+        "label_vi": "Bảo trì & Sửa chữa",      // mirror để FE có MỘT accessor cho cả nhóm lẫn ô
+        "items": [
+          {
+            "doctype": "PM Work Order",
+            "label_vi": "Phiếu bảo trì định kỳ",   // SSoT LABEL_VI ở BE — nhãn DUY NHẤT của ô
+            "total": 6,                            // int, số bản ghi user thấy, CHẶN TRẦN 100
+            "truncated": 1,                        // int 0|1, KHÔNG bool. 1 ⟺ total > preview_limit  → `items` bị cắt
+            "total_capped": 0,                     // int 0|1, KHÔNG bool. 1 ⟺ total là CẬN DƯỚI (≥100) → render "100+"
+            "items": [                             // preview THẬT, đúng min(total, preview_limit) dòng
+              { "name": "PM-WO-2026-00042", "title": "Bảo trì định kỳ 6 tháng",
+                "status": "In Progress", "status_label": "Đang thực hiện", "date": "2026-08-01" },
+              { "name": "PM-WO-2026-00031", "title": "Bảo trì định kỳ 6 tháng",
+                "status": "Completed", "status_label": "Hoàn thành", "date": "2026-02-01" }
+              // … tối đa preview_limit dòng
+            ],
+            "deep_link_filters": { "asset_ref": "AC-ASSET-2026-00001" },  // mọi value là STRING
+            "can_create": true,
+            "create_route_hint": "/pm/work-orders/new"                    // "" khi can_create=false
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+**Bộ khoá theo tầng (hợp đồng đóng — client được phép so sánh TẬP):**
+
+| Tầng | Khoá | Số |
+|---|---|---|
+| `data` | `doctype` · `name` · `groups` · `total` | 4 |
+| `groups[]` | `label` · `label_vi` · `items` | 3 |
+| `groups[].items[]` (**ô**) | `doctype` · `label_vi` · `total` · `truncated` · `total_capped` · `items` · `deep_link_filters` · `can_create` · `create_route_hint` | **9** |
+| `groups[].items[].items[]` (**dòng preview**) | `name` · `title` · `status` · `status_label` · `date` | 5 |
+
+**Phần tử `items[]`** — 5 khoá, **toàn bộ kiểu `str`, KHÔNG BAO GIỜ `null`**:
+
+| Khoá | Nguồn | Khi thiếu dữ liệu |
+|---|---|---|
+| `name` | PK | luôn có |
+| `title` | `PREVIEW_FIELDS[dt].title` → `Meta.title_field` → `name` | **không bao giờ rỗng** |
+| `status` | `PREVIEW_FIELDS[dt].status` — giá trị enum **THÔ** (client so sánh/lọc dùng khoá này) | `""` (doctype không có trường trạng thái) |
+| `status_label` | nhãn VI (SSoT BE) | `""` khi `status == ""`; `"Chưa rõ"` khi có giá trị chưa có bản dịch (KHÔNG rò tiếng Anh — LL-FE-53) |
+| `date` | `PREVIEW_FIELDS[dt].date` → `modified`, chuẩn hoá `YYYY-MM-DD` | `""` chỉ khi cả hai đều rỗng (thực tế `modified` luôn có) |
+
+**Bảng SSoT chốt sẵn**: `LABEL_VI` (41 doctype) · `PREVIEW_FIELDS` (41) · `CREATE_CONTEXT` (8) — [`ADR-IMM00-CONNECTIONS-TREE.md` §3](./ADR-IMM00-CONNECTIONS-TREE.md).
+
+### §III.24.3 Bất biến hợp đồng (client được phép dựa vào)
+
+| Bất biến | Phát biểu |
+|---|---|
+| ĐẾM ⟺ DÒNG | `len(items) == min(total, preview_limit)` trên MỌI ô |
+| CẮT TRUNG THỰC | `truncated == 1 ⟺ total > preview_limit`; `total_capped == 1 ⇒ total` là **cận dưới** ⇒ UI render `"100+"` (AC-CR-92: khoá cũ `capped` đã gỡ) |
+| HAI CỜ TRỰC GIAO | `total_capped == 1 ⇒ truncated == 1`; ca `truncated == 0 ∧ total_capped == 1` **không tồn tại** |
+| KIỂU | `type(truncated) is int` ∧ `type(total_capped) is int` ∧ cả hai `∈ {0,1}` ∧ **không** phải `bool`; mọi value `deep_link_filters` là `str` |
+| TỔNG CẤP PAYLOAD | `data.total == Σ item.total` trên mọi ô của mọi nhóm |
+| ĐƯỜNG ĐI | `total > 0 ⇒ deep_link_filters != {}` |
+| NÚT SỐNG | `can_create == false ⟺ create_route_hint == ""` (hai chiều) |
+| PHÂN QUYỀN | mọi số/dòng đều chạy dưới `frappe.session.user` ⇒ `count` **bằng** số dòng thấy khi drill (ADR-IMM00-LIST-SCOPE §4b) |
+
+### §III.24.4 Ma trận lỗi (tất cả **in-envelope HTTP-200**)
+
+| Ca | `success` | `code` | Ghi chú |
+|---|---|---|---|
+| `doctype`/`name` rỗng | `false` | `VALIDATION_ERROR` | GIỮ hành vi cũ |
+| `doctype` **không tồn tại** | `false` | `NOT_FOUND` | GIỮ code cũ; message **thống nhất**, KHÔNG echo giá trị người gọi truyền vào |
+| `doctype` tồn tại nhưng **∉ allowlist** | **`true`** | — | `groups: []`, `total: 0`. GIỮ hợp đồng cũ (`test_doctype_without_dashboard_returns_empty_groups`); allowlist ở đây **giới hạn đường thực thi**, không đóng oracle — xem đính chính A6 tại [ADR §D6](./ADR-IMM00-CONNECTIONS-TREE.md) |
+| Bản ghi **không tồn tại** | `false` | `NOT_FOUND` | **CÙNG message** với ca doctype rác |
+| Không có quyền đọc bản ghi cha | `false` | `FORBIDDEN` | GIỮ (test hiện có đòi đúng `FORBIDDEN`) |
+| Doctype đích ngoài quyền đọc | — | — | **Ẩn hẳn ô** (không trả nhóm rỗng gây tò mò) — GIỮ hành vi cũ |
+| `preview_limit` rác/ngoài biên | `true` | — | clamp về `[1,10]`, KHÔNG lỗi |
+
+> ⚠️ **Đính chính acceptance A6 (BA Self-Correction, QA đọc trước khi chấm):** A6 đòi *"doctype ngoài allowlist và doctype rác trả **cùng một** mã lỗi"*, nhưng A9 đòi 11 test hiện có xanh **không sửa assert** — trong đó `test_doctype_without_dashboard_returns_empty_groups` đòi `AC Asset Category` (ngoài allowlist) trả **success**. Hai điều kiện **loại trừ nhau**. Quyết định: **A9 thắng** (hợp đồng đang chạy), phần A6 giữ được = **thống nhất message** giữa ca doctype-rác và ca bản-ghi-rác. Lý lẽ đầy đủ + rủi ro tồn dư: [ADR §D6](./ADR-IMM00-CONNECTIONS-TREE.md).
+
+### §III.24.5 Tương thích & lịch gỡ
+
+- **ADDITIVE**: 7 khoá mới, 5 khoá legacy giữ **nguyên nghĩa** ⇒ `RelatedRecords.vue` hiện tại chạy **không sửa** (A9/A11).
+- **Vòng 2 (FE — AC-CR-88)**: đọc `label_vi` + `items` + `truncated` + `deep_link_filters`; bỏ `{...item.filters}` trong `open()` (URL rác với nhóm `internal_links`). Hợp đồng đọc: §III.24.6 · spec thực thi: [`06 §VIII.4.2`](./06_Frontend_Design.md) · quyết định: [ADR §10](./ADR-IMM00-CONNECTIONS-TREE.md).
+- ~~**Vòng 3 (BE+FE cùng lúc)**: gỡ `capped` + `count` + `label`. **Không** gỡ sớm hơn.~~ → **ĐÃ THỰC HIỆN ở AC-CR-92** (hoãn qua vòng 3/4/5 vì deep-link chết là bug sống, xem [ADR §13.6](./ADR-IMM00-CONNECTIONS-TREE.md)), và gỡ **thêm** `filters`; `capped` thay bằng `total_capped: int 0|1`. Hợp đồng mới: **§III.24.10**. ⇒ **Thang tolerant-reader §III.24.6 RETIRED** (ADR §17.7 mục 3) — client hiện hành đọc thẳng khoá mới, chỉ còn **một** dòng phòng thủ cho `total_capped`.
+
+### §III.24.6 Hợp đồng phía client (tolerant reader — chốt ở vòng 2, AC-CR-88) — **RETIRED bởi AC-CR-92**
+
+> ⛔ **RETIRED 2026-07-28 (ADR §17.7 mục 3 — supersede D-FE-3).** Bảng thang fallback dưới đây **giữ lại làm lịch sử**, KHÔNG còn là hợp đồng: 4 khoá legacy đã bị gỡ nên các bậc `total → count`, `label_vi → label`, `deep_link_filters → filters` **không còn đường tới**. Hợp đồng đọc hiện hành + **một** dòng phòng thủ duy nhất (`total_capped` vắng ⇒ coi như `0`): **§III.24.10.3**. Client mới KHÔNG được cài lại các bậc fallback này (giữ chúng = giữ vĩnh viễn hai tên cho một con số).
+
+Endpoint chạy dưới gunicorn `--preload`: giữa lúc BE land và lúc USER reload worker, client **vẫn** nhận shape cũ (5 khoá legacy). Client vì thế phải đọc theo **thang fallback** dưới đây — đây là phần hợp đồng, không phải tuỳ chọn FE:
+
+| Đại lượng | Thang đọc | Khi thiếu hoàn toàn |
+|---|---|---|
+| Nhãn ô / nhãn nhóm | `label_vi` → `label` → `doctype` | không bao giờ rỗng |
+| Dòng preview | `items[]` | `undefined` ⇒ **chế độ legacy**: chỉ nhãn + số, **KHÔNG** bịa dòng, **KHÔNG** dải cắt |
+| Tổng của ô | `total` → `count` → `0` | — |
+| Cờ cắt | `truncated === 1` → suy ra `shown > 0 ∧ total > shown` | — |
+| Chạm trần | `capped === true` ⇒ hiển thị `"{total}+"` (`100+`), **cấm** `total − shown` | `false` |
+| Query "xem tất cả" | `deep_link_filters` **dùng nguyên, kể cả `{}`** → (chỉ khi `undefined`) chiếu `filters` giữ **value scalar** | 0 khoá ⇒ **không** dựng link |
+| Nút tạo | `can_create === true ∧ create_route_hint !== ''` ∧ route **phân giải được** | ⇒ không render nút |
+
+**Ba luật cứng cho mọi client (web/mobile) tiêu thụ endpoint này:**
+1. `deep_link_filters === {}` là **câu trả lời**, không phải thiếu dữ liệu ⇒ **KHÔNG** fallback sang `filters`, **KHÔNG** dẫn người dùng tới danh sách chung (đúng bug người dùng báo 2026-07-27).
+2. `status` là **mã kỹ thuật** — chỉ để so sánh/lọc; hiển thị **luôn** dùng `status_label` (LL-FE-53).
+3. `capped === true ⇒ total` là **cận dưới** ⇒ mọi phép trừ trên `total` đều là số bịa.
+
+---
+
+### §III.24.7 Vòng 4/5 (AC-CR-90) — `can_create` là GƯƠNG của enforcement + khoá mới `create_prefill`
+
+> Quyết định + invariants: [ADR §12](./ADR-IMM00-CONNECTIONS-TREE.md) (D-CR4-1..10 · INV-CONN4-1..10 · **supersede D8 điều kiện 3+4**) · nghiệp vụ: [`02 §IV.39`](./02_Analysis_Design.md) BR-00-CONN-25..34 · code shape: [`04 §V.8`](./04_Backend_Design.md) · FE: [`06 §VIII.4.6`](./06_Frontend_Design.md).
+> **ADDITIVE**: +1 khoá mỗi ô (12 → **13**). 12 khoá cũ **giữ nguyên nghĩa**. Client cũ bỏ qua `create_prefill` vẫn chạy y nguyên (nút tạo dẫn tới màn trống — hành vi vòng 3).
+> **KHÔNG có mirror OAS mobile** (verify 2026-07-28: 0 hit `connections` trong `docs/mobile/openapi/assetcore-mobile.openapi.yaml`) ⇒ **0** nghĩa vụ curate OAS; `_EXPECTED_TEST_COUNT` / `_GUARD_SUITE_SUM` **delta 0** (ADR D-CR4-10).
+
+#### §III.24.7.a Khoá thứ 13 — `create_prefill` — **[ĐÃ LAND ⇒ hợp đồng SỐNG, đọc §III.24.11]**
+
+> ✅ **AC-CR-105 (2026-07-30, [ADR §18](./ADR-IMM00-CONNECTIONS-TREE.md) D-CR105-1).** Phần BE của khoá này **ĐÃ LAND**: ô có **ĐÚNG 10 khoá** (9 của AC-CR-92 + `create_prefill`), token `CREATE_CAPABILITY` vào đường thực thi của vị-từ P3. Cảnh báo `[CHƯA CÀI — BE]` của §17 D-CR92-7 **hết hiệu lực** — giữ nguyên văn bên dưới để truy vết (P-DOC-3), nhưng **số khoá đúng là 10, không phải 13**: khoá thứ 13 của §12 được đánh số khi ô còn 12 khoá, sau AC-CR-92 (12 → 9) nó là khoá **thứ 10**.
+> ⚠️ **Đọc §III.24.11 TRƯỚC khi viết test**: hình thức bất biến ở mục này (`⟺` chuỗi ba vế) **đã được đính chính** ở ADR §18 D-CR105-2 — dịch nguyên chuỗi `⟺` thành assert sẽ mâu thuẫn với 3 doctype hợp lệ `can_create == true ∧ create_prefill == {}`.
+
+```jsonc
+{
+  "doctype": "Asset Repair",
+  "label_vi": "Phiếu sửa chữa",
+  // … 10 khoá cũ …
+  "can_create": true,
+  "create_route_hint": "/cm/create",
+  "create_prefill": { "asset": "AC-ASSET-2026-00042" }   // MỚI — {query_key: giá trị}
+}
+```
+
+| Khoá | Kiểu | Nghĩa |
+|---|---|---|
+| `create_prefill` | `dict[str,str]` — **luôn có mặt** | Ngữ cảnh cha để màn tạo điền sẵn. Vòng này luôn **0 hoặc 1** cặp: khoá = query key mà **chính màn tạo đó đọc**, giá trị = **mã bản ghi cha**. `{}` khi không tạo được **hoặc** khi màn tạo không đọc khoá query nào |
+
+**Bất biến (mở rộng "NÚT SỐNG" của §III.24.3 — INV-CONN4-1) — HÌNH THỨC ĐÃ ĐÍNH CHÍNH, ADR §18 D-CR105-2:**
+
+```
+(1)  can_create == false   ⟺   create_route_hint == ""          # biconditional THẬT
+(2)  can_create == false   ⇒   create_prefill == {}             # ⇔ prefill ≠ {} ⇒ can_create ∧ hint ≠ ""
+(3)  can_create == true  ∧  create_prefill == {}   là HỢP LỆ    # 3 lớp ca ở §III.24.11.3
+```
+
+trên **toàn bộ** doctype allowlist. Không tồn tại trạng thái "có route mà không có quyền", cũng không tồn tại "có prefill mà nút tắt" (prefill mồ côi = dữ liệu rò ra client không dùng được).
+⛔ **KHÔNG** viết chuỗi `⟺` ba vế (`can_create == false ⟺ hint == "" ⟺ prefill == {}`) như bản 2026-07-28: nó bắt buộc `prefill == {} ⇒ can_create == false`, mâu thuẫn với mệnh đề (3) ngay bên dưới — hai TC dịch từ hai câu đó **không thể cùng xanh**, và bên nào đỏ cũng sẽ bị "sửa cho xanh" bằng cách bịa khoá prefill hoặc tắt nút.
+⚠️ Chiều ngược **không** đúng theo nghĩa mạnh: `can_create == true` **có thể** đi cùng `create_prefill == {}` — đúng 3 doctype có màn tạo **không đọc khoá query nào** (`Asset Transfer` · `AC Purchase` · `Service Contract`), cộng ca cặp (đích, cha) không có khoá. Nút vẫn sống, chỉ là không điền sẵn.
+
+#### §III.24.7.b `can_create` — 4 vị-từ, mỗi vị-từ một SSoT
+
+```
+can_create ⟺ P1 có màn tạo thật (CREATE_CONTEXT)
+           ∧ P2 nhóm là liên kết NGƯỢC và Link field khớp ngữ cảnh cha (nhóm internal_links luôn false)
+           ∧ P3 capability  — rbac.can(CREATE_CAPABILITY[dt])   (§c)
+           ∧ P4 vòng đời    — vị-từ PER-DOCTYPE                  (§d)
+```
+
+#### §III.24.7.c P3 — capability là **TOKEN dùng chung 3 tầng** (verify @source 2026-07-28)
+
+| DocType đích | Token | Gate tầng API | `requiredCapabilities` route tạo | `rbac.CAPABILITY_MAP[token]` |
+|---|---|---|---|---|
+| `PM Work Order` | `pm.create` | `api/imm08.py::create_pm_work_order` | `/pm/work-orders/new` | `("PM Work Order","create")` |
+| `Asset Repair` | `repair.create` | `api/imm09.py::create_repair_work_order` | `/cm/create` | `("Asset Repair","create")` |
+| `IMM Asset Calibration` | `calibration.create` | `api/imm11.py::create_calibration` ⚠️ **không** phải `create_calibration_schedule` (cùng token, khác hàm) | `/calibration/new` | `("IMM Asset Calibration","create")` |
+| `Incident Report` | `corrective.create` | `api/imm12.py` (`_CAP_REPORT`) | `/incidents/new` | `("Incident Report","create")` |
+| `AC Purchase` | `purchase.create` | `api/purchase.py::create_purchase` | `/purchases/new` | `("AC Purchase","create")` |
+
+- Doctype **không khai token** (`Asset Document` · `Asset Transfer` · `Service Contract`) ⇒ giữ nguyên `frappe.has_permission(dt,"create")` như vòng 1. Lý do từng ca + backlog: [ADR §12 D-CR4-2 / §12.9](./ADR-IMM00-CONNECTIONS-TREE.md).
+- **Cấm** khai token mà `CAPABILITY_MAP[token] != (dt, "create")` — guard INV-CONN4-2 đỏ ngay.
+
+#### §III.24.7.d P4 — vòng đời là vị-từ **PER-DOCTYPE**, chỉ áp khi cha là `AC Asset`
+
+| Ô | Vị-từ advertise (dùng lại của enforcement) | `Active` | `Out of Service` | `Decommissioned` |
+|---|---|---|---|---|
+| Phiếu bảo trì (PM) | `status ∉ AssetStatus.BLOCKED_FOR_WO` | ✅ | ❌ | ❌ |
+| Phiếu sửa chữa | `imm00.is_valid_asset_transition(status, "Under Repair")` | ✅ | **✅** | ❌ |
+| Phiếu hiệu chuẩn | `status ∉ AssetStatus.BLOCKED_FOR_WO` | ✅ | ❌ | ❌ |
+| Sự cố | `status != "Decommissioned"` | ✅ | **✅** | ❌ |
+| 4 doctype còn lại | *(không khai ⇒ không có cổng vòng đời)* | ✅ | ✅ | ✅ |
+
+> Hai ô in đậm là **thay đổi hành vi có chủ đích** so với vòng 1–3 (trước đây bị chặn-tất bởi `BLOCKED_FOR_WO`): thiết bị đang `Out of Service` **phải** tạo được phiếu sửa chữa và báo được sự cố — đó chính là lúc cần hai thứ đó nhất. QA **không** chấm là regression.
+> Ô «Sự cố» ở `Decommissioned` chỉ đúng **sau khi** land EC-12-05 ở `services/imm12.py::report_incident` (ADR D-CR4-8 / [`docs/imm-12/02` BR-12-29](../imm-12/02_Analysis_Design.md)). Land hai thứ **cùng vòng**, nếu không oracle §III.24.7.e sẽ đỏ đúng chỗ nó phải đỏ.
+
+#### §III.24.7.e Oracle **advertise ⇔ enforce** (hợp đồng chấm DoD)
+
+`can_create` của ô **bằng** kết quả "gọi THẬT service tạo tương ứng không báo lỗi", với **mọi tiền đề khác giữ hợp lệ**: người gọi có đủ 4 capability · thiết bị vừa tạo, **không** có phiếu sửa chữa đang mở · payload hợp lệ · `is_recalibration = 0`.
+**Residual đã ratify:** `create_work_order` còn chặn khi thiết bị đã có phiếu sửa chữa **mở** — ô liên quan **không** phản chiếu (xung đột nhất thời, và mirror nó tốn +1 truy vấn/ô ⇒ phá ZERO-COST). Nút sống, màn tạo trả lỗi nghiệp vụ **có địa chỉ** — ngõ cụt **có biển báo**, xem [ADR §12 D-CR4-6](./ADR-IMM00-CONNECTIONS-TREE.md).
+
+#### §III.24.7.f Hợp đồng phía client cho `create_prefill` (bổ sung §III.24.6)
+
+| Đại lượng | Thang đọc | Khi thiếu |
+|---|---|---|
+| Prefill nút tạo | `create_prefill` **dùng nguyên, kể cả `{}`** | `undefined` (BE chưa reload) ⇒ coi như `{}` ⇒ điều hướng **chỉ path** (hành vi vòng 3, không bịa khoá) |
+
+**Ba luật cứng bổ sung:**
+1. FE điều hướng bằng `router.push({ path, query })` với `query = create_prefill` — **không** ghép chuỗi query bằng tay, **không** đẩy chỉ `path` khi prefill non-empty.
+2. `create_prefill === {}` là **câu trả lời** ("không có gì để điền sẵn"), không phải thiếu dữ liệu ⇒ **KHÔNG** fallback sang `deep_link_filters` (khoá của nó là **Link fieldname** dùng lọc *danh sách*, không phải khoá query của *màn tạo* — đính chính D8, ADR §12.7).
+3. Luật `resolve-or-hide` giữ nguyên: route không phân giải được ⇒ **ẩn nút**, kể cả khi `can_create === true`.
+
+---
+### §III.24.8 AC-CR-94 — hợp đồng **DRILL** của ô: endpoint nào, khoá nào, và bất biến `count == drill`
+
+> Quyết định: [ADR §15](./ADR-IMM00-CONNECTIONS-TREE.md) (D-CR94-1..9 · **INV-CONN-18..22**) · nghiệp vụ: [`02 §IV.39`](./02_Analysis_Design.md) BR-00-CONN-42..49 · FE: [`06 §VIII.9`](./06_Frontend_Design.md) · test: [`07 §XVIII.9`](./07_Testing_QA.md).
+> **PAYLOAD `get_connections`: 0 thay đổi** (không khoá mới, không đổi nghĩa, không bớt) — vòng này chỉ **thêm bất biến** và **đóng 1 lỗ ở endpoint drill của lịch hiệu chuẩn**.
+
+**Ô ⇒ endpoint drill (2 ô mới có nút ở vòng này):**
+
+| Ô (`doctype`) | `deep_link_filters` BE phát | Khoá màn đích đọc | Endpoint drill THẬT | Tầng đọc kết quả |
+|---|---|---|---|---|
+| `PM Schedule` | `{asset_ref: <mã cha>}` | `?asset=` (`/pm/schedules`) | `assetcore.api.imm00.list_pm_schedules(asset=…)` — **không** phải `api.imm08.list_pm_schedules(asset_ref=…)` (2 bề mặt khác nhau, §15.1 #9) | `data.items[]` + `data.total` |
+| `IMM Calibration Schedule` | `{asset: <mã cha>}` | `?asset=` (`/calibration/schedules`) | `assetcore.api.imm11.list_calibration_schedules(filters='{"asset":"…"}')` — kênh **`filters` JSON**, **KHÔNG** thêm tham số `asset=` | `data.data[]` + `data.pagination` |
+
+**Bất biến (client + QA được phép dựa vào):**
+
+- **INV-CONN-18 / INV-CONN-19** — dưới **cùng** `frappe.session.user`: `total` của ô == số dòng endpoint drill trả về khi truyền đúng khoá ở bảng trên, **và mọi dòng thuộc đúng bản ghi cha**. Hai vế, không được bỏ vế thứ hai (hai con số bằng nhau vẫn có thể cùng sai).
+- **INV-CONN-20** — bộ lọc theo thiết bị **GIAO (AND)** với bộ lọc đang có; `?asset=X&overdue=1` ⊆ cả `?asset=X` và `?overdue=1`.
+- **Ô lịch KHÔNG lọc trạng thái** (BR-00-CONN-44): ô đếm **mọi** lịch của thiết bị ⇒ drill **cấm** tự thêm `status`/`pm_type`/`is_active`. Lịch `Paused`/`Suspended`/`is_active=0` **thuộc** cả hai tập.
+- **INV-CONN-22** — ô rỗng **vẫn có mặt** trong payload: `total == 0` ∧ `truncated == 0` (int) ∧ `label_vi` khác rỗng và khác tên DocType. Client **không** được suy "ô vắng mặt = ô rỗng".
+- **INV-CONN-21 (ENFORCE từ 2026-07-30 — `AC-CR-106`)**: `apply_vendor_scope` **GIAO** (AND) giá trị caller với tập thiết bị được giao thay vì **GÁN** (dòng vi phạm cũ `services/shared/scope.py:174`) ⇒ với **Vendor Engineer**, deep-link 1 thiết bị trả **đúng** thiết bị đó; caller ngoài phạm vi trả **0 dòng** (KHÔNG phải "mọi thiết bị của tôi"). Shape ra luôn `["in", <list>]`, giao rỗng ⇒ `["in", ["__none__"]]`. Đại số đầy đủ 8 shape + boundaries + nơi đặt test: [`ADR-IMM00-LIST-SCOPE §10.4`](./ADR-IMM00-LIST-SCOPE.md) (`ADR-IMM00-LIST-SCOPE-04`). Áp cho **cả 5** call site: `api/imm00.py:413` · `api/imm08.py:39` · `api/imm09.py:36` · `api/imm11.py:30` · `api/imm11.py:83`.
+
+**Sửa lỗi kèm theo (BE, 1 nhánh — `services/imm11.py::_extract_asset_in_scope`):** helper chỉ nhận shape IN-list nên bộ lọc `asset` **vô hướng** bị `pop` rồi **không** tiêm lại ⇒ `list_calibration_schedules(filters='{"asset":"X"}')` trước vòng này trả **toàn bộ** lịch của mọi thiết bị (ảnh hưởng **mọi** caller, không riêng deep-link). Hợp đồng sau khi sửa + ràng buộc chi tiết: [`../imm-11/05 §0.1.6`](../imm-11/05_API_Specification.md).
+
+### §III.24.9 AC-CR-95 — hợp đồng **DRILL** của 4 ô còn lại có hạ tầng sẵn (0 thay đổi BE)
+
+> Quyết định: [ADR §16](./ADR-IMM00-CONNECTIONS-TREE.md) (D-CR95-1..10 · **INV-CONN-23..28**) · nghiệp vụ: [`02 §IV.39`](./02_Analysis_Design.md) BR-00-CONN-50..58 · FE: [`06 §VIII.10`](./06_Frontend_Design.md) · test: [`07 §XVIII.10`](./07_Testing_QA.md).
+> **BE: 0 thay đổi** — payload `get_connections` không đổi **và** 4 endpoint drill **đã** nhận đủ khoá từ trước. Vòng này chỉ **thêm bất biến** + **1 file test guard mới**.
+
+**Ô ⇒ endpoint drill (4 ô mới có nút ở vòng này):**
+
+| Ô (`doctype`) | `deep_link_filters` BE phát | Khoá URL màn đích đọc | Endpoint drill THẬT | Khoá gửi BE | Cột DB | Tầng đọc kết quả |
+|---|---|---|---|---|---|---|
+| `Firmware Change Request` | `{asset_ref: <mã cha>}` | `?asset=` (`/cm/firmware`) | `assetcore.api.imm00.list_firmware_crs(asset=…)` `:2898` | tham số `asset` | `asset_ref` (BE map `:2902`) | `data.items[]` + `data.total` |
+| `Asset Commissioning` | `{final_asset: <mã cha>}` | `?asset=` (`/commissioning`) | `assetcore.api.imm04.list_commissioning(filters='{"final_asset":"…"}')` `:24` | `filters.final_asset` | `final_asset` | `data.items[]` + `data.pagination` |
+| `Asset Decommission` | `{asset: <mã cha>}` | `?asset=` (`/decommissions`) | `assetcore.api.imm14.list_decommissions(filters='{"asset":"…"}')` `:85` | `filters.asset` | `asset` | `data.data[]` + `data.pagination` |
+| `IMM CAPA Record` | `{asset: <mã cha>}` | `?asset=` (`/capas`) | `assetcore.api.imm00.list_capas(asset=…)` `:1870` | tham số `asset` | `asset` | `data.items[]` + `data.pagination` |
+
+**Khoá URL luôn là `asset` trên MỌI màn** (D-CR95-2). Việc dịch `asset → final_asset` là nghĩa vụ của **view** `/commissioning`; việc dịch `asset → asset_ref` là nghĩa vụ của **BE** `list_firmware_crs`. Client **không** được gửi `?final_asset=` lên URL — `LIST_TARGET_ANCHOR` chỉ neo một khoá URL cho "thiết bị".
+
+**Bất biến (client + QA được phép dựa vào):**
+
+- **INV-CONN-23 / 24 / 25** — dưới **cùng** session: `total` của ô == số dòng endpoint drill khi truyền đúng khoá ở bảng trên **và mọi dòng thuộc đúng thiết bị**. Hai vế, không bỏ vế thứ hai.
+- **INV-CONN-26 — ngoại lệ có công thức (`Asset Commissioning`)**: `list_commissioning` **tự tiêm** `docstatus != 2` khi caller không truyền `docstatus` (`services/imm04.py:1060`) ⇒ quan hệ đúng là
+  `cell.total == len(drill.items) + #{docstatus == 2}`.
+  Trên dữ liệu sinh bởi workflow IMM-04, chênh = **0** (không state nào map `doc_status = 2`). Client **không** được "sửa" bằng cách gửi shape toán tử `docstatus: ['in',[0,1,2]]`.
+- **4 ô này KHÔNG lọc trạng thái** (BR-00-CONN-54): ô đếm **mọi** bản ghi của thiết bị ⇒ drill **cấm** tự thêm `workflow_state` / `status` / `disposal_method` / `not_closed` / `overdue`. Phiếu `Non Conformance`, CAPA `Closed`, FCR `Rolled Back`, biên bản `Cancelled` **thuộc** cả hai tập.
+- **INV-CONN-27 (ENFORCE từ 2026-07-30 — `AC-CR-98`)**: `list_commissioning` **đếm và đọc bằng MỘT engine** `frappe.get_list` (trước đây `frappe.db.count` `services/imm04.py:1076` + `frappe.get_all` `:1079` — cả hai **bỏ qua** `permission_query_conditions` `hooks.py:444` ⇒ trả toàn bảng cho persona bị row-scope = **rò dữ liệu**, không chỉ lệch số). Sau vòng này bất biến được chấm cho **3 persona** (`AssetCore Super Admin` · `Commissioning User` · `Vendor Engineer` + `Commissioning User` — ma trận [`ADR-IMM00-LIST-SCOPE §10.2`](./ADR-IMM00-LIST-SCOPE.md)), **KHÔNG** còn chỉ `Administrator`. Dung sai duy nhất được phép và **phải khai tường minh trong assert**: `cell.total == len(drill.items) + #{docstatus == 2}` (INV-CONN-26) ∧ `cell.total_capped == 0`. Hợp đồng + acceptance: [`ADR-IMM00-LIST-SCOPE §10.5/§10.8`](./ADR-IMM00-LIST-SCOPE.md) (`ADR-IMM00-LIST-SCOPE-05`). ⚠️ `Vendor Engineer` **thuần** (không kèm `Commissioning User`) **không có DocPerm read** trên `Asset Commissioning` ⇒ nhận **HTTP-200 + Error envelope** `FORBIDDEN`, KHÔNG phải danh sách rỗng — test dùng vendor thuần sẽ chấm nhầm nhánh.
+- **INV-CONN-28** — 4 khoá **ngoại lai** vẫn được `_safe_deep_link` cho đi qua (`{name:…}` từ hub `Asset Repair`/`Asset Document`/`IMM Asset Calibration`, `{vendor:…}` từ `AC Supplier`, `{master_item:…}` từ `IMM Device Model`, `{linked_incident:…}` từ `Incident Report`). Nghĩa vụ **chặn** thuộc FE `listTarget` (trả `null`), **không** phải siết allowlist BE — siết ở BE sẽ mất luôn ô/preview thay vì chỉ mất nút.
+
+---
+
+### §III.24.10 AC-CR-92 — **BREAKING**: ô **12 → 9 khoá**, `capped: bool` → `total_capped: int 0|1`
+
+> Quyết định: [ADR §17](./ADR-IMM00-CONNECTIONS-TREE.md) (D-CR92-1..9 · **INV-CONN-29..34 · INV-CONNFE9-1..6**) · nghiệp vụ: [`02 §IV.39`](./02_Analysis_Design.md) BR-00-CONN-59..66 · code shape BE: [`04 §V.9`](./04_Backend_Design.md) · FE: [`06 §VIII.12`](./06_Frontend_Design.md) · test: [`07 §XVIII.11`](./07_Testing_QA.md).
+> **Loại thay đổi: BREAKING** — vòng đầu tiên của họ Connections **không** additive ⇒ BE + FE đổi **cùng vòng**.
+> **KHÔNG có mirror OAS mobile** (verify 2026-07-28: **0 hit** `connections` trong `docs/mobile/openapi/assetcore-mobile.openapi.yaml`) ⇒ **0** nghĩa vụ curate OAS, **0** client ngoài repo bị vỡ; 3 counter guard **delta 0** (`_EXPECTED_TEST_COUNT` 1024 · `_GUARD_SUITE_SUM` 1167 · `_MOBILE_OAS_TOTAL` 1193).
+
+#### §III.24.10.1 Bảng khoá ô — **12 → 9** (delta tường minh)
+
+| Khoá | Trạng thái | Ghi chú |
+|---|---|---|
+| `doctype` | GIỮ | — |
+| `label_vi` | GIỮ | nhãn **duy nhất** của ô sau vòng này |
+| `total` | GIỮ | nghĩa không đổi: số bản ghi user thấy, **chặn trần** `CAP = 100` |
+| `truncated` | GIỮ | `int` 0\|1 — `items` bị cắt so với `preview_limit` |
+| **`total_capped`** | **MỚI** | `int` 0\|1 — **`total` là CẬN DƯỚI** (thay `capped: bool`) |
+| `items` | GIỮ | 5 khoá/dòng, `[]` khi ô rỗng (**ô vẫn có mặt** — INV-CONN-22) |
+| `deep_link_filters` | GIỮ | **nguồn duy nhất** để dựng deep-link sau khi `filters` bị gỡ |
+| `can_create` | GIỮ | — |
+| `create_route_hint` | GIỮ | — |
+| ~~`label`~~ (của **ô**) | **GỠ** | là `frappe._(doctype)` = tên DocType **tiếng Anh thô** ⇒ render nó là vi phạm LL-FE-53. Nhãn nhóm `label` **GIỮ** (khác chủ thể) |
+| ~~`count`~~ | **GỠ** | **cùng con số** với `total`, khác tên ⇒ 3 TC phải canh cho chúng khỏi nói khác nhau |
+| ~~`capped`~~ | **GỠ** | `bool` (CR-01 cấm bool cho cờ cắt) **và** tên không nói nó nói về `total` ⇒ thay bằng `total_capped` |
+| ~~`filters`~~ | **GỠ** | dạng Frappe (`["in", [...]]` không serialize được); giữ lại chỉ tạo đường **hồi sinh** khoá mà `_safe_deep_link` vừa strip (bug vòng 5, D-CR5-3) |
+| `create_prefill` | ~~**CHƯA CÀI**~~ → **ĐÃ LAND** (AC-CR-105, 2026-07-30) | Khoá **thứ 10**: ô nay có **10 khoá**. Hợp đồng sống ở **§III.24.11**; ADR §18 D-CR105-1 |
+
+#### §III.24.10.2 `truncated` vs `total_capped` — hai cờ, hai chủ thể, cùng kiểu `int`
+
+| Cờ | Nói về | Ngưỡng | Client render |
+|---|---|---|---|
+| `truncated` | danh sách `items` | `preview_limit` (clamp `[1,10]`, mặc định 5) | dải «Đang xem 5/…» |
+| `total_capped` | con số `total` | `CONNECTION_COUNT_CAP = 100` | badge «100+» |
+
+| `truncated` | `total_capped` | Ca | Badge | Dải |
+|---|---|---|---|---|
+| 0 | 0 | ≤ `preview_limit` bản ghi | `7` | *(không)* |
+| 1 | 0 | > `preview_limit`, < 100 | `7` | «Đang xem 5/7» |
+| 1 | 1 | ≥ 100 | `100+` | «Đang xem 5/100+» |
+| 0 | 1 | **KHÔNG THỂ TỒN TẠI** (invariant) | — | — |
+
+- **Predicate BE**: `total_capped = 1 if len(rows) > CAP else 0` — `>` **không** `>=` (dùng `>=` biến "đúng 100" thành "100+" = bịa thêm dữ liệu).
+- **Kiểu**: `int` THUẦN. Oracle phải là `type(v) is int` ∧ `not isinstance(v, bool)` (`bool ⊂ int` nên `assertIsInstance(v, int)` **không** bắt được).
+
+#### §III.24.10.3 Ba luật cứng cho mọi client (thay §III.24.6)
+
+1. **Đọc thẳng khoá mới, KHÔNG cài lại bậc fallback**: `total` (không `?? count`), `label_vi` (không `?? label`), `deep_link_filters` (không `?? filters`). Fallback đã bị gỡ có chủ đích — cài lại là hồi sinh đúng lớp bug vòng 5.
+2. **Phòng thủ đúng MỘT khoá**: `total_capped` vắng mặt (worker chưa reload) ⇒ coi như `0` ⇒ badge in số trần (`"7"`, **không** `"7+"`). Cài bằng so sánh tường minh `item.total_capped === 1`; **không** rải optional-chaining khắp file.
+3. **`total_capped === 1 ⇒ `total` là cận dưới** ⇒ badge phải là `"{total}+"` và **mọi** phép trừ trên `total` (kiểu *"còn 95 chưa hiển thị"*) là **số bịa** — dải cắt luôn dùng khuôn `Đang xem {shown}/{badge}`.
+
+#### §III.24.10.4 Cửa sổ deploy — **thứ tự là ràng buộc** (gunicorn `--preload`)
+
+- **BE reload TRƯỚC, FE build SAU.** Vòng này **không** `npm run build` ⇒ bundle đang chạy vẫn là bản tolerant-reader ⇒ người dùng không bao giờ gặp "client mới đọc BE cũ".
+- **Suy giảm đã KHAI TRƯỚC (QA không chấm là regression)**: trong cửa sổ chưa-reload, client **mới** đọc `total` = `undefined` ⇒ mọi ô bị coi là rỗng ⇒ tab nói «Chưa có bản ghi nào liên quan…». Tạm thời · read-only · **tự lành** sau `bench restart`. Đây là giá **có tên** để một con số chỉ còn **một** cái tên.
+- **DoD chấm bằng `run-tests` module-isolated** (`timeout` tool ≥ 600000ms), **KHÔNG curl** (LL-DEPLOY-07/08 — HTTP đang trả shape của worker cũ).
+
+---
+
+### §III.24.11 AC-CR-105 — ô **9 → 10 khoá**: `create_prefill` LIVE + capability là TOKEN (hợp đồng SỐNG)
+
+> Quyết định: [ADR §18](./ADR-IMM00-CONNECTIONS-TREE.md) (D-CR105-1..9 · INV-CONN105-1..4 · INV-CONN4-1/2/3/7/10) · nghiệp vụ: [`02 §IV.42`](./02_Analysis_Design.md) FR-00-CONN-06 / BR-00-CONN-67..76 · code shape BE: [`04 §V.10`](./04_Backend_Design.md) · FE: [`06 §VIII.14`](./06_Frontend_Design.md) · test + DoD: [`07 §XXI`](./07_Testing_QA.md).
+> **Loại thay đổi: ADDITIVE** (+1 khoá; 9 khoá cũ **0 đổi nghĩa**). Client cũ bỏ qua khoá mới vẫn chạy y nguyên.
+> **0 endpoint mới · 0 tham số mới · 0 mirror OAS** (`grep -c connections docs/mobile/openapi/*.yaml` = **0**) ⇒ 3 counter guard **delta 0**.
+
+#### §III.24.11.1 Bảng khoá ô — **9 → 10**
+
+| Khoá | Kiểu | Trạng thái | Nghĩa |
+|---|---|---|---|
+| `doctype` · `label_vi` · `total` · `truncated` · `total_capped` · `items` · `deep_link_filters` · `can_create` · `create_route_hint` | (§III.24.10.1) | **GIỮ — 0 đổi nghĩa** | — |
+| **`create_prefill`** | `dict[str,str]` — **LUÔN CÓ MẶT**, không bao giờ `null` | **MỚI (khoá thứ 10)** | Ngữ cảnh cha để màn tạo điền sẵn. **0 hoặc 1** cặp: khoá = **query key mà chính màn tạo đó đọc** (`route.query.<key>`), value = **mã bản ghi cha**. `{}` là **câu trả lời hợp lệ** |
+
+```jsonc
+// Ô «Phiếu sửa chữa» trên tab của một THIẾT BỊ (hub AC Asset)
+{
+  "doctype": "Asset Repair",
+  "label_vi": "Phiếu sửa chữa",
+  "total": 3, "truncated": 0, "total_capped": 0,
+  "items": [ /* … 5 khoá/dòng … */ ],
+  "deep_link_filters": { "asset_ref": "AC-ASSET-2026-00042" },  // Link FIELDNAME — lọc DANH SÁCH
+  "can_create": true,
+  "create_route_hint": "/cm/create",
+  "create_prefill": { "asset": "AC-ASSET-2026-00042" }          // QUERY KEY — điền sẵn MÀN TẠO
+}
+```
+
+> **Hai khoá, hai không gian tên — đọc kỹ dòng trên**: `deep_link_filters` mang **Link fieldname** (`asset_ref`) để lọc *danh sách*; `create_prefill` mang **khoá URL** (`asset`) để điền sẵn *màn tạo*. Cùng một giá trị, **hai cái tên**, và lẫn chúng đã sinh ra hai bug đắt tiền (§12.7 nhánh *tạo* · §13.1 nhánh *danh sách*).
+
+#### §III.24.11.2 Khoá prefill theo (hub, ô) — SSoT, verify @source 2026-07-30
+
+| Hub (cha) | Ô | Link fieldname (`parents`) | **Khoá prefill** | Màn tạo đọc khoá đó tại |
+|---|---|---|---|---|
+| `AC Asset` | «Phiếu bảo trì định kỳ» | `asset_ref` | **`asset`** | `/pm/work-orders/new` |
+| `AC Asset` | «Phiếu sửa chữa» | `asset_ref` | **`asset`** | `/cm/create` |
+| `AC Asset` | «Phiếu hiệu chuẩn» | `asset` | **`asset`** | `/calibration/new` |
+| `AC Asset` | «Báo cáo sự cố» | `asset` | **`asset`** | `/incidents/new` |
+| `AC Asset` | «Hồ sơ thiết bị» | `asset_ref` | **`asset`** | `/documents/new` |
+| `PM Work Order` | «Phiếu sửa chữa» | `source_pm_wo` | **`pm_wo`** | `/cm/create` |
+| `Incident Report` | «Phiếu sửa chữa» | `incident_report` | **`incident`** | `/cm/create` |
+
+⛔ **CẤM** làm khoá prefill: `asset_ref` · `source_pm_wo` · `incident_report` · `final_asset` · `critical_asset` (schema BE — màn tạo **không đọc** ⇒ query rác + lời hứa giả).
+
+#### §III.24.11.3 Ba lớp ca `create_prefill == {}` **hợp lệ** (KHÔNG phải bug)
+
+| Ca | Ví dụ | `can_create` | `create_prefill` |
+|---|---|---|---|
+| Màn tạo không đọc khoá query nào | `Asset Transfer` · `AC Purchase` · `Service Contract` | **có thể `true`** | `{}` |
+| Cặp (đích, cha) không có khoá | hub `PM Work Order` → ô «Phiếu hiệu chuẩn» (màn đọc `asset`,`schedule`, **không** `pm_wo`) | **có thể `true`** | `{}` |
+| Liên kết **XUÔI** (`internal_links`) | hub `PM Work Order` → ô «Thiết bị»/«Lịch bảo trì định kỳ» | **`false`** | `{}` |
+
+#### §III.24.11.4 P3 — capability là **TOKEN** (thay `has_permission` rời)
+
+`create_capability_allows(dt)` = `rbac.can(CREATE_CAPABILITY[dt])` khi **có** khai; **không khai ⇒ giữ nguyên** `frappe.has_permission(dt, "create")`.
+
+| DocType đích | Token | Gate API (điểm 1) | `requiredCapabilities` route tạo (điểm 2) | `CAPABILITY_MAP[token]` |
+|---|---|---|---|---|
+| `PM Work Order` | `pm.create` | `api/imm08.py:164` | `/pm/work-orders/new` → `['pm.create']` | `("PM Work Order","create")` |
+| `Asset Repair` | `repair.create` | `api/imm09.py:111` | `/cm/create` → `['repair.create']` | `("Asset Repair","create")` |
+| `IMM Asset Calibration` | `calibration.create` | `api/imm11.py:104` | `/calibration/new` → `['calibration.create']` | `("IMM Asset Calibration","create")` |
+| `Incident Report` | `corrective.create` | `api/imm12.py:60` `_CAP_REPORT` (dùng qua `_can_report():76` trong `report_incident:88`) | `/incidents/new` → `['corrective.create']` | `("Incident Report","create")` |
+| `AC Purchase` | `purchase.create` | `api/purchase.py:156` | `/purchases/new` → `['purchase.create']` | `("AC Purchase","create")` |
+
+**3 doctype cố ý KHÔNG khai token** (khai là nói dối, không phải bỏ sót — lý do từng dòng ở ADR §12 D-CR4-2): `Asset Document` (route gác `document.write` ≠ `document.create`) · `Asset Transfer` (route gác `commissioning.create` → **doctype khác**) · `Service Contract` (route gác `data.create` → **doctype khác**).
+
+> **Hành vi trên UI KHÔNG đổi vì mục này**: với cả 5 token, `CAPABILITY_MAP[token] == (dt,"create")` ⇒ `rbac.can(token)` cho **đúng** giá trị `has_permission` đang cho. Giá trị của thay đổi là **ràng buộc + guard** (đổi binding ở bất kỳ tầng nào ⇒ test ĐỎ thay vì trôi im lặng). QA **không** được chấm "không thấy khác gì" là FAIL.
+
+#### §III.24.11.5 Nghĩa vụ client (bổ sung §III.24.10.3)
+
+1. **Đọc `create_prefill` trực tiếp**, coi `{}` là **câu trả lời** ("không có gì để điền sẵn") — **KHÔNG** fallback sang `deep_link_filters` (khoá của nó là Link fieldname, dùng lọc *danh sách*).
+2. Điều hướng bằng `router.push({ path, query })` với `query` = prefill **đã lọc** theo `CREATE_PREFILL_QUERY_KEYS[route]`; prefill rỗng sau lọc ⇒ **push trần** `{ path }` (URL **không** mọc dấu `?`).
+3. Khoá backend gửi mà route không khai ⇒ **loại im lặng**, không đẩy vào URL, không cảnh báo người dùng (đó là chuyện của tầng khác).
+4. **Không** dựng nút chỉ vì có `create_prefill`: điều kiện dựng nút vẫn là `can_create` **∧** route tồn tại **∧** capability của route đích (3 lớp, fail-CLOSED).
+
+#### §III.24.11.6 Cửa sổ deploy (gunicorn `--preload`)
+
+- Khoá ADDITIVE ⇒ **không** có ca "client mới đọc BE cũ" gây vỡ: BE chưa reload ⇒ `create_prefill` **vắng mặt** ⇒ `createTarget` (`?? {}`) ⇒ push trần = **đúng hành vi cũ** (màn tạo trống). Suy giảm tạm thời, tự lành sau `bench restart`.
+- DoD chấm bằng `bench --site miyano run-tests` **module-isolated** (`timeout` tool ≥ 600000ms) + `vitest` + `vue-tsc` — **KHÔNG curl** (LL-DEPLOY-07/08: HTTP đang trả shape của worker cũ; đã có bằng chứng cứng 5 khoá vs 9/12 on-disk ở run-3/run-4).
+
+---
+
+## III.25. Tab «Lịch sử» — AC-CR-100: hợp đồng ĐỌC nguồn **đã phân trang** `get_asset_timeline` (0 delta shape, 1 dòng đổi `ORDER BY`)
+
+> **CR**: `AC-CR-100` (đề mục PM gọi «AC-CR-96» — số đã bị chiếm, bảng đối chiếu [ADR §8.0](./ADR-IMM00-TRUNCATION-SSOT.md)). Quyết định: **ADR-IMM00-TRUNCATION-SSOT §8** (D-TL-1..9 · INV-TL-1..11). FR-00-TL-01 / BR-00-TL-01..09 ([02 §IV.40](./02_Analysis_Design.md)). FE: [06 §VIII.11](./06_Frontend_Design.md). Test: [07 §XIX](./07_Testing_QA.md).
+
+### III.25.1 Shape response — **KHÔNG ĐỔI** (0 khoá mới, 0 OAS delta)
+
+```jsonc
+// GET assetcore.api.imm00.get_asset_timeline?name=AC-ASSET-…&page=1&page_size=100
+{
+  "success": true,
+  "data": {
+    "pagination": { "page": 1, "page_size": 100, "total": 137, "total_pages": 2, "offset": 0 },
+    "items": [ /* AssetTimelineEvent × ≤ page_size, mới→cũ */ ]
+  }
+}
+```
+
+- `pagination` = `paginate(total, page, page_size)` (`utils/pagination.py:37`) — `page_size` **đã CLAMP** `[1, 100]` (`_MAX_PAGE_SIZE`, `:11`); `total` = `frappe.db.count("Asset Lifecycle Event", {"asset": name})`; `total_pages = ceil(total / page_size)`, `= 0` khi `total = 0`.
+- Mirror mobile **đã đủ** và **KHÔNG đổi** vòng này: `AssetTimelineEnvelope` (`data.required = [pagination, items]`) + `Pagination.required ∋ total` — `docs/mobile/openapi/assetcore-mobile.openapi.yaml:1868-1901`, `:852-880`, op `getAssetTimeline` `:14235`. ⇒ **paths 110 · schemas 290 · parameters 38 GIỮ NGUYÊN**; 3 counter guard (`_EXPECTED_TEST_COUNT` 1024 · `_GUARD_SUITE_SUM` 1167 · `_MOBILE_OAS_TOTAL` 1193) **delta 0**.
+- Asset ∄ ⇒ **HTTP-200** + Error envelope `code = 404` (`_err(_(_ERR_ASSET_NOT_FOUND), 404)`, `api/imm00.py:1215`) — **KHÔNG** raise → HTTP-4xx. Asset tồn tại mà chưa có event ⇒ `items = []` + `total = 0` (KHÔNG 404).
+
+### III.25.2 **Đổi duy nhất ở BE**: `ORDER BY` phải TIỀN ĐỊNH (BR-00-TL-08)
+
+| | Trước | Sau |
+|---|---|---|
+| `_ORDER_EVENT_TS_DESC` (`api/imm00.py:293`) | `"timestamp desc"` | `"timestamp desc, name desc"` |
+
+- **Vì sao bắt buộc**: `Asset Lifecycle Event` trùng `timestamp` là **ca thường** (một `transition_asset_status` có thể emit ≥2 event trong cùng giây; patch/seed emit hàng loạt). Với hàng trùng khoá sắp xếp, MySQL **không đảm bảo** thứ tự nhất quán giữa hai truy vấn `LIMIT/OFFSET` ⇒ trang 2 **lặp** dòng của trang 1 **và BỎ SÓT** dòng khác ⇒ client "tải hết" mà vẫn thiếu — nguy hiểm hơn cắt im lặng, vì người dùng tin là đã đủ.
+- `autoname: naming_series:` ⇒ `name` **tăng đơn điệu theo thứ tự ghi** ⇒ tiebreaker vừa tiền định vừa đúng chiều thời gian thật. Precedent: `services/imm10.py:76 order_by="published_date desc, name desc"`.
+- **Biên**: đổi **giá trị hằng trên ĐÚNG 1 dòng** ⇒ **0 dịch dòng** trong `api/imm00.py` ⇒ **0 cite-drift** cho guard cite `@api/imm00.py:<line>` (OAS + `test_mobile_oas`). KHÔNG đổi `fields`, `filters`, `limit_start`, `limit_page_length`, batch `actor_name`, normalize `root_*`.
+- **Hệ quả vận hành**: vòng này **đụng `.py` prod** ⇒ mở **1 blocker `bench restart` mới** (`gunicorn --preload`). DoD chấm bằng `bench --site miyano run-tests` (fresh-import), **KHÔNG curl** (LL-DEPLOY-07/08). **KHÔNG** `bench migrate` (0 schema delta).
+
+### III.25.3 Nghĩa vụ của **client** (hợp đồng 2 đầu — điều mới của vòng này)
+
+| # | Nghĩa vụ | Vi phạm ⇒ |
+|---|---|---|
+| C1 | Tiêu thụ `pagination.total` làm **số công bố**; không suy từ `items.length` | cắt IM LẶNG (lần thứ 6 của lớp lỗi này) |
+| C2 | Không cast (`as unknown`/`as any`) giá trị trả về của api-client | mất `pagination` khỏi tầm nhìn compiler |
+| C3 | Lật trang bằng **`page`**, `page_size` GIỮ `100` (= trần thật) | tưởng xin 200 mà chỉ nhận 100 (INV-TRUNC-LIMIT) |
+| C4 | APPEND + dedupe theo `name`; tải hết ⇒ số dòng render `== total` | `count != rows` ở lớp UI |
+| C5 | Tách 3 trạng thái *chưa tải / rỗng thật / lỗi* | lỗi mạng hiện thành "thiết bị chưa có lịch sử" |
+
+### III.25.4 Invariants BE chấm được (INV-TL-9/10 — guard `tests/test_imm00.py`)
+
+- **INV-TL-9**: `get_asset_timeline(name, page_size=2)` trên asset có ≥3 ALE ⇒ `pagination.total == frappe.db.count("Asset Lifecycle Event", {"asset": name})` (≥3) ∧ `len(items) == 2` ∧ `total_pages == ceil(total/2)` ∧ `names(page1) ∩ names(page2) = ∅` ∧ `names(page1) ∪ names(page2) ⊆` tập name thật.
+- **INV-TL-10** (điều kiện tiên quyết của BR-00-TL-09): `"Asset Lifecycle Event" ∉ frappe.get_hooks("permission_query_conditions")` — chỉ khi đó `frappe.db.count` (raw) ≡ count của `frappe.get_list` (permission-aware). Nếu tương lai thêm PQC cho ALE thì guard **ĐỎ** ⇒ buộc đổi `total` sang engine permission-aware (D6 / INV-ROWSCOPE) thay vì lặng lẽ nói dối.
+- **Không** đổi ngữ nghĩa 404/200 · **không** thêm/bớt field · **không** đụng `page_size` default `50` của handler (FE gửi `100` tường minh).
+
+## III.26. Hồ sơ **VẬN HÀNH** của một thiết bị — AC-CR-102: hợp đồng **ĐỌC** 3 endpoint LIVE của IMM-08 / IMM-09 / IMM-12 (**0 delta BE**)
+
+> **Luật vòng này:** ba endpoint **KHÔNG đổi 1 ký tự** — không path, không param, không khoá response, **0 OAS delta**. Mục này là **hợp đồng ĐỌC** (consumer contract) do IMM-00 cần: nó **chép từ chữ ký thật + `fields=[…]` thật trên đĩa**, không suy diễn (`BR-00-OPH-17`, AC12). Spec đầy đủ + quyết định: [`ADR-IMM00-ASSET-OP-HISTORY`](./ADR-IMM00-ASSET-OP-HISTORY.md) §4. Owner-doc của từng endpoint: [`docs/imm-08/05 §9`](../imm-08/05_API_Specification.md) · [`docs/imm-09/05 §3.14`](../imm-09/05_API_Specification.md) · [`docs/imm-12/05 §20`](../imm-12/05_API_Specification.md).
+
+### III.26.1 Ba endpoint (verify từ đĩa 2026-07-30)
+
+| # | Endpoint | Verb | Param | `data` | Đơn vị dòng |
+|---|---|---|---|---|---|
+| 1 | `assetcore.api.imm08.get_asset_pm_history` (`api/imm08.py:198`) | GET | `asset_ref` **required** · `limit` int **default 10** | `{asset_ref, history[], total, truncated}` | **`PM Task Log`** (10 field) |
+| 2 | `assetcore.api.imm09.get_asset_repair_history` (`api/imm09.py:195`) | GET | `asset_ref` **required** · `limit` str default `"10"` | `{asset_ref, history[], total, truncated}` | `Asset Repair` **`docstatus=1`** (9 field) |
+| 3 | `assetcore.api.imm12.get_asset_incident_history` (`api/imm12.py:232`) | GET | **`asset`** **required** · `limit` int default 10 | **`{asset, items[], total, truncated}`** | `Incident Report` mọi docstatus (9 field) |
+
+**Ba bẫy hợp đồng mà consumer PHẢI xử lý (đọc sai ⇒ "chưa có dữ liệu" GIẢ):**
+
+1. **Bất đối xứng khoá IMM-12**: rows-key là **`items`** (không phải `history`), asset-key là **`asset`** (không phải `asset_ref`). Cố ý, đã ratify ở `docs/imm-12/05 §20` ⇒ **KHÔNG sửa BE**; store IMM-12 đọc `res.items`.
+2. **`limit` đã đồng bộ 3 tab** qua SSoT `clamp_page_size(limit, 10)`: `limit=0` **về 10** (KHÔNG "không giới hạn"), `limit>100` **chặn ở 100**. Hành vi này **đã ratify** (`docs/imm-12/05 §20`) — QA đừng coi là regression.
+3. **`total`/`truncated` khai OPTIONAL ở FE là CỐ Ý**: worker `gunicorn --preload` chưa reload có thể trả shape cũ thiếu 2 khoá ⇒ đọc phòng thủ `total ?? rows.length`, `Number(truncated) === 1 ? 1 : 0` (giữ nguyên mã hiện có).
+
+### III.26.2 Envelope + lỗi (đúng DONE-gate spec-contract)
+
+- Cả 3 đi qua `handle(...)` ⇒ thành công `{success: true, data: {...}}`.
+- **Lỗi nghiệp vụ = in-handler HTTP-200 + Error envelope** — **KHÔNG** `raise` → HTTP-4xx.
+- **Hai loại 403 phải phân biệt**: (a) **dispatcher-403** guest/no-token (ngoài handler); (b) **in-handler 403 trên HTTP-200** — `@rowscoped` đổi `frappe.PermissionError` → Error envelope (`BR-00-ROWSCOPE-403`). Riêng IMM-12 còn chặn `Guest` ở handler ⇒ **401** envelope (`api/imm12.py:234-235`) + `assert_doctype_read_permission('Incident Report')` ở service.
+- **Hệ quả FE bắt buộc**: persona **thiếu DocPerm read** (vd `PM User` với `Asset Repair` — xem cải chính `docs/imm-09/05 §3.14`) nhận **403 envelope** ⇒ ~~section phải hiện **trạng thái LỖI** (`BR-00-OPH-13`)~~, **KHÔNG** hiện «Chưa có lần sửa chữa …». Nói "chưa có" khi thực ra "không được xem" là **sai sự thật**.
+  > ⚠️ **SUPERSEDED 2026-07-30 bởi `AC-CR-119`** (nửa «trạng thái LỖI» — [ADR §11.5 `D-OPH-24`](./ADR-IMM00-ASSET-OP-HISTORY.md), `BR-00-OPH-35`). 403 ⇒ section hiện **trạng thái KHOÁ** `[op-history-locked]` (**0** «Thử lại», **0** «Xem tất cả», **0** badge số): thiếu quyền **không phải sự cố tạm** ⇒ không có gì để thử lại. Nửa «**KHÔNG** hiện *Chưa có …*» **GIỮ NGUYÊN hiệu lực** (`locked` ≠ `empty`). Vị-từ để FE biết trước là cap SOUND ở **§III.26.7**, **KHÔNG** phải `pm.read`.
+
+### III.26.3 `fields` chính xác (SSoT — FE khai type theo bảng này)
+
+| Nhánh | `fields=[…]` @source | `order_by` | Filter |
+|---|---|---|---|
+| PM | `name, pm_work_order, pm_type, completion_date, technician, overall_result, is_late, days_late, next_pm_date, summary` (`services/imm08.py:1747-1749`) | `completion_date desc` | `{asset_ref}` |
+| CM | `name, repair_type, priority, open_datetime, completion_datetime, mttr_hours, sla_breached, root_cause_category, repair_summary` (`services/imm09.py:2609-2611`) | `open_datetime desc` | `{asset_ref, docstatus: 1}` |
+| Sự cố | `name, incident_type, severity, status, reported_at, fault_code, closed_date, linked_capa, rca_record` (`services/imm12.py:1750-1752`) | `_ORDER_REPORTED_AT` | `{asset}` |
+
+Kiểu Frappe → TS (grounded `*.json`): `is_late`/`sla_breached` = **Check** ⇒ `0|1`, đọc bằng `isCheckOn` · `days_late` Int · `mttr_hours` Float · `overall_result` Select `Pass|Pass with Minor Issues|Fail` · `repair_type` Select `Corrective|Breakdown|Warranty Repair` · `severity` Select `Low|Medium|High|Critical` · `pm_work_order` Link → `PM Work Order` (**có thể rỗng** ⇒ `BR-00-OPH-08`) · `pm_type` **Data tự do** (⇒ **không render**, tránh leak EN).
+
+### III.26.4 Bất biến «hai con số» — count(ô connections) ⇄ total(section)
+
+| Nhánh | Quan hệ | Guard |
+|---|---|---|
+| PM | **độc lập** (`PM Task Log` ≠ `PM Work Order`) | `INV-OPH-15` |
+| CM | `section.total ≤ ô.total` (section lọc `docstatus=1`) | `INV-OPH-17` |
+| Sự cố | **BẰNG NHAU** (cùng filter `{asset}`, cùng "mọi docstatus") | `INV-OPH-16` |
+
+Đây là phần **thay thế** lý do cấm cũ ở `ADR-IMM00-TRUNCATION-SSOT §8.7`: hai số **hợp lệ đồng thời** vì tiêu đề section khai đúng tập hợp của nó (`BR-00-OPH-03`). Việc ô đếm chưa loại `docstatus==2` là nợ **có tên** `AC-CR-99` — **không** sửa trong vòng này (đụng `.py` prod ⇒ vi phạm AC12).
+
+### III.26.5 Acceptance contract cho [FE] Bước-4 (đo được)
+
+1. `git diff --stat -- 'assetcore/api/*.py' 'assetcore/services/**/*.py'` **không tăng path** so với đầu vòng; thêm file **chỉ** trong `assetcore/tests/`.
+2. `0` OAS delta (`docs/mobile/openapi/*.yaml` không đổi) · 3 counter `_EXPECTED_TEST_COUNT` 1024 / `_GUARD_SUITE_SUM` 1167 / `_MOBILE_OAS_TOTAL` 1193 **delta 0** (module test mới không thuộc registry `test_mobile_docset._GUARD_SUITE_EXPECTED` ⇒ delta 0 tự nhiên — **đọc lại từ đĩa** trước khi chấm).
+3. Guard BE mới `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_asset_operational_history_contract` **XANH** (timeout tool ≥600000ms) — nội dung: parity `fields` @source ⇄ bảng §III.26.3 + shape-key `history`/`items` + `clamp_page_size` bound + `INV-OPH-16`.
+4. **KHÔNG curl** để chấm (LL-DEPLOY-07/08); vòng này **0 blocker reload mới** (không đụng `.py` prod) — nợ `bench restart` của các vòng trước **không** tính cho vòng này.
+
+### III.26.6 `AC-CR-115` — hợp đồng **cắt** của 3 endpoint: `total`/`truncated` nói gì, FE được phép suy ra gì (**0 delta BE**)
+
+> Quyết định + lý do: [`ADR-IMM00-ASSET-OP-HISTORY §10`](./ADR-IMM00-ASSET-OP-HISTORY.md) (`D-OPH-17..20`). Nghiệp vụ: [`02 §IV.43`](./02_Analysis_Design.md) `BR-00-OPH-19..30`. FE: [`06 §VIII.15`](./06_Frontend_Design.md). Test: [`07 §XXII`](./07_Testing_QA.md).
+> **Vòng này KHÔNG đổi 1 ký tự** của `api/imm08.py` · `api/imm09.py` · `api/imm12.py` · `services/imm08|09|12.py` · `services/shared/truncation.py`. Chỉ **đặc tả rõ** ngữ nghĩa đã có + **thêm invariant** vào file test đã có.
+
+#### a) Nguồn sinh `total`/`truncated` — đo từ đĩa 2026-07-30
+
+Cả 3 nhánh đi qua **cùng một** SSoT `services/shared/truncation.py::truncation_meta(fetched, limit, count_fn)`:
+
+```python
+if fetched < limit:            # chưa chạm trần ⇒ đã lấy hết, KHÔNG phát COUNT (ZERO-COST)
+    return fetched, 0
+total = int(count_fn())        # chỉ khi NGHI còn dòng
+truncated = 1 if total > limit else 0
+```
+
+Call-site: `services/imm08.py:1769` · `services/imm09.py:2628` · `services/imm12.py:1760`.
+
+| Khoá | Kiểu | Ngữ nghĩa **chính xác** |
+|---|---|---|
+| `total` | `int ≥ 0` | Số bản ghi **user này được phép thấy** trên **đúng predicate** của truy vấn rows, **trước** khi áp trần `limit` (D6 của `ADR-IMM00-TRUNCATION-SSOT`). |
+| `truncated` | `int ∈ {0,1}` | **Dẫn xuất từ `total > limit`** — tức từ **trần**, KHÔNG từ `len(rows)`. Đây là chỗ cờ và số **có thể rời nhau**. |
+
+#### b) Vì sao FE **không được** render dải theo cờ (căn cứ hợp đồng, không phải thẩm mỹ)
+
+1. `truncated` được tính từ **`limit`** (`total > limit`), còn thứ người dùng **thấy** là **`len(rows)`**. Hai đại lượng chỉ trùng khi `len(rows) == limit` — đúng ở ca thường, **không** đảm bảo bởi hợp đồng nào.
+2. `total` do `count_fn()` sinh ở **nhánh mã khác** với truy vấn rows. Một lần sửa filter ở một nhánh mà quên nhánh kia là đủ để `total` và `len(rows)` rời nhau **mà không test nào đỏ** — trừ các invariant ở (c).
+3. ⇒ **Hợp đồng dành cho FE**: `hidden = max(0, total − len(rows))`; render dải **⟺ `hidden > 0`**. FE là *tolerant reader*: **bỏ qua** `truncated` khi hai nguồn lệch (`BR-00-OPH-20/21/22`).
+
+#### c) Invariant BE **MỚI** (≥3) — thêm vào `assetcore/tests/test_asset_operational_history_contract.py`, **0 dòng prod đổi**
+
+| ID | Nội dung (áp cho **cả 3** endpoint) | Fixture |
+|---|---|---|
+| **`INV-OPH-27`** | `total >= len(rows)` **luôn đúng** — không endpoint nào được trả tổng nhỏ hơn số dòng nó vừa trả. | 3 ca: dưới trần · **vừa khít** trần · trên trần |
+| **`INV-OPH-28`** | **Cờ khớp số**: `truncated == (1 if total > len(rows) else 0)`. Đây là **mirror BE** của điều kiện render FE — nếu ĐỎ thì cờ và số đã rời nhau ⇒ **bug BE thật**, báo PM/BA, **KHÔNG** sửa `services/*.py` trong vòng này (`BR-00-OPH-30`). | 3 ca như trên |
+| **`INV-OPH-29`** | **Số bị che đếm ĐÚNG**: với thiết bị có `limit + k` bản ghi hợp lệ (`k ≥ 1`), `total − len(rows) == k` **chính xác** (không xấp xỉ) ⇒ con số FE trừ ra có nghĩa. | `k = 3`, `limit = 10` |
+| **`INV-OPH-30`** | **Rỗng thật**: thiết bị 0 bản ghi ⇒ `rows == [] ∧ total == 0 ∧ truncated == 0` (mirror BE của `BR-00-OPH-23`/AC4). | asset sạch |
+
+> ⚠️ **Vừa khít trần là ca dễ sai nhất**: `fetched == limit ∧ total == limit` ⇒ `truncated = 0` **và** `total == len(rows)` ⇒ **0 dải** (đúng). Nếu ai đó "sửa" `truncation_meta` thành `truncated = 1 if fetched >= limit` thì `INV-OPH-28` **đỏ ngay** — đó là mục đích của nó.
+
+#### d) Không phát sinh nhu cầu reload
+
+Vòng này **0 dòng `.py` prod** ⇒ **0** nhu cầu `bench restart` mới; blocker BLOCKED-RELOAD của các vòng trước **không bị chạm** và **không** tính vào DoD vòng này. Chấm bằng `bench --site miyano run-tests --module assetcore.tests.test_asset_operational_history_contract` (timeout tool **≥600000ms**) — **KHÔNG** `curl` (LL-DEPLOY-07/08).
+
+### III.26.7 `AC-CR-119` — hợp đồng **QUYỀN** của 3 endpoint: cap nào SOUND, 403 đến như thế nào (BE: **+1 cap, +1 bảng, +1 gate tường minh**)
+
+> **Luật vòng này:** hợp đồng **ĐỌC** (path/param/`fields`/`order_by`/khoá response/`limit`) **KHÔNG đổi 1 ký tự** — `0` OAS delta. Đổi duy nhất ở **lớp khai báo quyền**: thêm 1 cap vào SSoT, khai bản đồ nhánh→(cap, DocType) 1 lần, và làm gate role của nhánh Bảo trì **tường minh**. Quyết định đầy đủ: [`ADR-IMM00-ASSET-OP-HISTORY §11`](./ADR-IMM00-ASSET-OP-HISTORY.md).
+
+#### a) Bảng quyền SOUND — 3 nhánh (đo từ đĩa 2026-07-30)
+
+| Nhánh | Endpoint | DocType **truy vấn thật đọc** | Đường gate THẬT | Cap **SOUND** |
+|---|---|---|---|---|
+| pm | `imm08.get_asset_pm_history` (`api/imm08.py:198` → `services/imm08.py:1744`) | **`PM Task Log`** (`repositories/pm_repo.py:20`) | `PMTaskLogRepo.list(...)` scope mặc định `"user"` → `count_with_or` → `frappe.get_list` (`filters.py:281` (invariant docstring `:249-262`)) ⇒ `PermissionError`. **`AC-CR-119` thêm** `assert_doctype_read_permission("PM Task Log")` **tường minh** trước truy vấn (`D-OPH-27`) | **`pm.read_history`** → `("PM Task Log","read")` — **MỚI** |
+| cm | `imm09.get_asset_repair_history` (`api/imm09.py:195` → `services/imm09.py:2601`) | `Asset Repair` (`repair_repo.py:8`) | `RepairRepo.list(scope="system")` → `repositories/base.py:143-144` `assert_doctype_read_permission(cls.DOCTYPE)` | `repair.read` → `("Asset Repair","read")` — **đã có, SOUND** |
+| incident | `imm12.get_asset_incident_history` (`api/imm12.py:232` → `services/imm12.py:1709`) | `Incident Report` (`services/imm12.py:44`) | `assert_doctype_read_permission(_DT_INCIDENT)` tường minh (`services/imm12.py:1732`) | `corrective.read` → `("Incident Report","read")` — **đã có, SOUND** |
+
+**Vì sao `pm.read` KHÔNG SOUND cho nhánh pm** (đây là bug gốc của 403-chết): `pm.read` auto-gen từ `_DOMAIN_PRIMARY["PM"] = "PM Work Order"` (`rbac.py:70,100-103`) ⇒ bind **`PM Work Order`**, nhưng endpoint đọc **`PM Task Log`**. Hai DocType, hai bảng DocPerm:
+
+| Role | `PM Work Order`.read | `PM Task Log`.read |
+|---|---|---|
+| `AssetCore Super Admin` · `PM Manager` · `PM User` · `AssetCore Auditor` | 1 | 1 |
+| **`Commissioning Manager`** | **1** (`pm_work_order.json`) | **KHÔNG có dòng** (`pm_task_log.json` chỉ khai 4 role) |
+
+⇒ `rbac.can("pm.read")` = **True** trong khi endpoint trả **403**. Gate FE bằng vị-từ này = mở nhánh rồi ăn 403 (`BR-00-OPH-31`).
+
+#### b) SSoT bản đồ nhánh — khai **ĐÚNG MỘT LẦN**
+
+`assetcore/services/shared/connection_meta.py` (mục 4c, cạnh `CREATE_CAPABILITY` — file này **không** import `frappe` ở mức module, luật ADR §D9):
+
+```python
+OP_HISTORY_BRANCH_GATE: dict[str, tuple[str, str]] = {
+    "pm":       ("pm.read_history", "PM Task Log"),
+    "cm":       ("repair.read",     "Asset Repair"),
+    "incident": ("corrective.read", "Incident Report"),
+}
+```
+
+Khoá là **khoá nhánh của FE** (`SectionKey` — `AssetOperationalHistory.vue:121`) ⇒ bảng BE và mảng `SECTIONS` của FE nói cùng một thứ tiếng. **Guard bắt buộc** (`INV-OPH-32`): ∀ nhánh — `CAPABILITY_MAP[cap][0] == doctype` ∧ `CAPABILITY_MAP[cap][1] == "read"` ⇒ đổi binding cap = **ĐỎ**, không im lặng. FE **chỉ chép 3 chuỗi cap**, **KHÔNG** giữ bảng doctype thứ hai (`BR-00-OPH-33`).
+
+#### c) Hợp đồng 403 — đo bằng **HÀNH VI**, không bằng đọc mã (`BR-00-OPH-32`)
+
+∀ user *u*, ∀ nhánh *b*:
+
+```
+rbac.can(cap_b) is True   ⇒  endpoint_b KHÔNG trả FORBIDDEN
+rbac.can(cap_b) is False  ⇒  endpoint_b trả ĐÚNG:
+                             HTTP 200 + {success:false, code:"FORBIDDEN", http_status:403}
+                             message == MSG.AUTH_FORBIDDEN ("Bạn không có quyền thực hiện hành động này.")
+```
+
+**KHÔNG** HTTP-500 · **KHÔNG** dispatcher-403 (status-line) · **KHÔNG** list rỗng giả. Biconditional đúng **theo cấu tạo**: `rbac.can(cap)` = `frappe.has_permission(dt, ptype)` (`rbac.py:183-187`) và gate của cả 3 endpoint cũng là `frappe.has_permission(dt,"read")` (`permissions.py:78-79`) — **cùng vị-từ, cùng DocType**.
+
+**Khe hở duy nhất, đã đo và chấp nhận:** `assert_doctype_read_permission` dùng `ptype = "select" if frappe.only_has_select_perm(dt) else "read"` còn `rbac.can` luôn `"read"` ⇒ user *chỉ có* `select` sẽ **cap=False mà endpoint cho phép** ⇒ FE **khoá quá** (fail-closed, **không** rò dữ liệu). Đo trên đĩa: `pm_task_log.json` · `asset_repair.json` · `incident_report.json` có **0** dòng DocPerm mang `select` ⇒ ca này hiện **không tồn tại**; khoá bằng `INV-OPH-36`.
+
+**Không rò nội bộ** (`BR-00-OPH-34`): message là **hằng** từ registry (`utils/messages.py:61,330-336`), và `assert_doctype_read_permission` raise `frappe.PermissionError` chứ **KHÔNG** `frappe.throw` — `frappe.throw` sẽ msgprint đẩy tên DocType vào `_server_messages` (`permissions.py:69-73`).
+
+**Riêng IMM-12** còn chặn `Guest` ngay ở handler ⇒ **401** envelope (`api/imm12.py:234-235`), **trước** cả cap-403. Hai loại phải phân biệt ở FE: 401 ⇒ hết phiên (redirect); 403-in-envelope ⇒ **KHÔNG** logout.
+
+#### d) `CAP_SET_VERSION` — hệ quả bắt buộc, khai TRƯỚC
+
+`len(CAPABILITY_MAP)` **104 → 105**; `CAP_SET_VERSION` **`v104.e46d05d9a66d` → `v105.<digest>`**. Giá trị **PHẢI ĐO** bằng `bench --site miyano execute assetcore.services.shared.rbac._compute_cap_set_version` rồi dùng **đúng giá trị đo được** ở **cả** BE test **và** `frontend/src/stores/auth.ts` — **CẤM gõ hash tay**. Danh sách **13 assert sẽ ĐỎ / 4 file** + 4 điểm cite-drift + 5 điểm cố ý không sửa: [ADR §11.9](./ADR-IMM00-ASSET-OP-HISTORY.md). **CẤM** nới assert cho xanh — guard đang làm đúng việc của nó.
+
+**Cần reload, KHÔNG cần migrate:** 3 file `.py` prod đổi ⇒ `bench restart` (gunicorn `--preload`) + `bench --site miyano clear-cache` (xoá cache caps `ac_caps::*`, TTL 1h — `rbac.py:217`) để `pm.read_history` xuất hiện trong `get_capabilities`. **0** schema/patch/fixture delta ⇒ **KHÔNG** `bench migrate`. Cả hai lệnh **thuộc USER** (HARD-STOP).
+
+#### e) Acceptance contract cho [BE] + [FE] Bước-4 (đo được)
+
+0. **Biên `.py` prod chấm bằng DELTA so với ĐẦU VÒNG** (working tree đã DIRTY từ các vòng trước ⇒ `git diff` tuyệt đối vô nghĩa làm ngưỡng): `assetcore/api/*.py` **không tăng** path; `assetcore/services/**/*.py` tăng **đúng 3** path (`shared/rbac.py` · `shared/connection_meta.py` · `imm08.py`). Chụp `git diff --name-only … | sort` trước/sau rồi `diff`.
+1. `assetcore/services/shared/rbac.py` có **đúng 1** cặp khoá-giá-trị mới `"pm.read_history": ("PM Task Log", "read")`; `pm.read` **KHÔNG đổi**; `len(CAPABILITY_MAP) == 105`.
+2. `OP_HISTORY_BRANCH_GATE` tồn tại ở `connection_meta.py` với **đúng 3** khoá `pm`/`cm`/`incident` và giá trị đúng bảng (a); `INV-OPH-32` XANH.
+3. `services/imm08.py::get_asset_history` có `assert_doctype_read_permission(_DT_PM_TASK_LOG)` **trước** `PMTaskLogRepo.list`; **0** đổi `fields`/`filters`/`order_by`/`page_size`/khoá response ⇒ `test_asset_operational_history_contract` (parity `fields` @source) **giữ XANH không sửa**.
+4. Guard BE **mới** `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_asset_op_history_acl` **XANH** (timeout tool **≥600000ms**) — nội dung: `INV-OPH-31..36` (soundness 2 chiều bằng hành vi · parity bảng ↔ `CAPABILITY_MAP` · không-leak · `Commissioning Manager` chứng minh `pm.read` unsound · 0 DocPerm select-only).
+5. `0` OAS delta; 3 counter `_EXPECTED_TEST_COUNT` / `_GUARD_SUITE_SUM` / `_MOBILE_OAS_TOTAL` **delta 0** (module test mới không thuộc registry `test_mobile_docset._GUARD_SUITE_EXPECTED` ⇒ delta 0 tự nhiên — **đọc lại từ đĩa** trước khi chấm).
+6. **KHÔNG curl** để chấm (LL-DEPLOY-07/08) — vòng này thêm **1** nhu cầu reload vào blocker BLOCKED-RELOAD; mọi kết luận live trước reload là **vô nghĩa**.
 
 ---
 

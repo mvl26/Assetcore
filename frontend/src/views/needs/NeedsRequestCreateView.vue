@@ -4,6 +4,7 @@ import { reactive, ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useImm01Store } from '@/stores/imm01'
 import { frappeGet } from '@/api/helpers'
+import { getAcUserBrief } from '@/api/user'
 import SmartSelect from '@/components/common/SmartSelect.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import type { NeedsRequestDoc, RequestType } from '@/types/imm01'
@@ -58,11 +59,9 @@ async function onDepartmentSelected(item: { id: string }) {
     })
     if (dept?.dept_head) {
       form.clinical_head = dept.dept_head
-      const user = await frappeGet<{ full_name?: string }>('/api/method/frappe.client.get_value', {
-        doctype: 'User',
-        filters: dept.dept_head,
-        fieldname: JSON.stringify(['full_name']),
-      })
+      // Đọc user qua endpoint AssetCore — KHÔNG gọi thẳng `frappe.client.get_value`
+      // doctype=User (nguồn user phải thống nhất, xem api/user.ts).
+      const user = await getAcUserBrief(dept.dept_head)
       clinicalHeadName.value = user?.full_name || dept.dept_head
     }
   } catch {

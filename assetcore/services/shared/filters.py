@@ -1,15 +1,21 @@
 # Copyright (c) 2026, AssetCore Team
 """Filter helpers shared by IMM list endpoints.
 
-Two responsibilities:
+Three responsibilities:
 1. `normalize_filters()` — wrap raw lists in ``["in", value]`` so Frappe
    does not misinterpret them as ``[op, value]`` pairs.
 2. `pop_search()` + `count_with_or()` — translate the FE free-text
    ``search`` filter key into ``or_filters`` LIKE clauses. The FE puts
    ``search`` into the same dict as column filters; if it leaks through to
    ``frappe.get_list`` we get ``Unknown column 'tab<DocType>.search'``.
+3. `assert_allowed_filter_keys()` (AC-CR-79) — reject filter keys outside a
+   module whitelist with a TYPED 400 in-envelope, BEFORE they reach
+   ``frappe.get_list`` and blow up as ``OperationalError(1054)`` → raw
+   HTTP-500 leaking the SQL table/column name.
 """
 from __future__ import annotations
+
+import re
 
 import frappe
 
@@ -36,6 +42,100 @@ def normalize_filters(f: dict | None) -> dict:
         else:
             out[k] = v
     return out
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# AC-CR-79 — whitelist khoá `filters` (MỘT nơi biết cách raise; MỖI module tự
+# khai tập khoá của mình ⇒ không có bản chép tay thứ hai).
+# ─────────────────────────────────────────────────────────────────────────────
+
+_MAX_ECHOED_KEYS = 5
+_SAFE_KEY_RE = re.compile(r"\A[A-Za-z0-9_]{1,64}\Z")
+_UNSAFE_KEY_LABEL = "<khoá không hợp lệ>"
+
+
+def _safe_key(k: object) -> str:
+    """Chuẩn hoá khoá do CLIENT gửi TRƯỚC KHI đưa vào message trả về.
+
+    Khoá lọc hợp lệ luôn là identifier (``[A-Za-z0-9_]``, ≤64 ký tự). Bất kỳ thứ gì
+    khác (chuỗi rỗng, khoảng trắng, ký tự SQL/HTML, quá dài) ⇒ KHÔNG phản chiếu
+    nguyên văn — tránh biến message lỗi thành kênh reflected-content.
+
+    Args:
+        k: khoá thô lấy từ dict `filters` của client.
+
+    Returns:
+        Chính khoá đó nếu an toàn, ngược lại nhãn cố định ``<khoá không hợp lệ>``.
+    """
+    s = str(k)
+    return s if _SAFE_KEY_RE.match(s) else _UNSAFE_KEY_LABEL
+
+
+def assert_allowed_filter_keys(f: dict | None, allowed: frozenset[str]) -> None:
+    """Chặn khoá `filters` KHÔNG thuộc whitelist của module — **400 IN-ENVELOPE**.
+
+    Vì sao tồn tại (đo được, probe LIVE 2026-07-27): ``frappe.get_list(filters={<khoá
+    lạ>: …})`` ném ``OperationalError(1054, "Unknown column 'tab<DocType>.<khoá>' in
+    'WHERE'")``, mà :func:`assetcore.utils.api_handler.handle` **CỐ Ý** không bắt
+    Exception chung ⇒ lỗi INPUT thoát ra **HTTP-500 KHÔNG có ``body.success``** và
+    **lộ tên bảng/cột SQL**. Client mobile route theo ``body.success`` nên không phân
+    loại được (có app hiểu nhầm hết phiên → đăng xuất người dùng).
+
+    Gọi ở ĐẦU entrypoint list công khai, **TRƯỚC** mọi phép biến đổi dict
+    (``pop_search`` / ``_apply_open_drill`` / ``normalize_filters``) ⇒ khoá ẢO vẫn còn
+    nguyên lúc kiểm (nên chúng PHẢI ∈ whitelist) và ngữ nghĩa của chúng KHÔNG đổi.
+    Đặt **NGOÀI** ``run_rowscoped``: ``ServiceError`` ≠ ``PermissionError`` nên không
+    bị nhánh 403 nuốt.
+
+    Args:
+        f: filter dict SAU parse_json + vendor-scope + ``mine`` + ``search`` injection.
+        allowed: whitelist của module (``_ALLOWED_FILTER_KEYS``) — SSoT DUY NHẤT.
+
+    Raises:
+        ServiceError: ``code=INVALID_PARAMS``, ``http_status=400``,
+            ``message_code=MSG.VAL_INVALID_FILTER_KEY``. Message TIẾNG VIỆT nêu khoá
+            sai + tập khoá hợp lệ; **KHÔNG** echo GIÁ TRỊ người dùng gửi (giá trị có
+            thể là dữ liệu người bệnh/thiết bị) và **KHÔNG** echo tên bảng/cột SQL.
+            Khi ``f`` KHÔNG phải mapping ⇒ CÙNG bucket ``INVALID_PARAMS``/400 nhưng
+            KHÔNG kèm ``message_code`` (đồng nhất họ "``filters`` sai định dạng" của
+            :func:`assetcore.utils.api_handler.parse_json`).
+    """
+    # Lazy-import: `services.shared.__init__` import `.filters` ⇒ import
+    # `utils.notify` ở top-level tạo vòng import lúc `bench start`. Chi phí ~0
+    # (chỉ chạy ở nhánh LỖI, và module đã nằm trong sys.modules từ lâu).
+    from assetcore.services.shared.constants import ErrorCode
+    from assetcore.services.shared.errors import ServiceError
+    from assetcore.utils.messages import MSG
+    from assetcore.utils.notify import nthrow
+
+    # SHAPE-GATE (QA 2026-07-27) — `parse_json` trả VERBATIM thứ JSON parse ra, nên
+    # `filters` có thể là list/int/str chứ không chỉ dict. Trước gate này:
+    #   `[["asset_ref","=","X"]]` (dạng filter CANONICAL của Frappe) → `set(f)` ném
+    #   `TypeError: unhashable type: 'list'`; `123` → `'int' object is not iterable`.
+    # Cả hai thoát `api_handler.handle` (cố ý không bắt Exception chung) ⇒ **HTTP-500
+    # KHÔNG có `body.success`** = ĐÚNG class-of-bug AC-CR-79 hứa đóng, chỉ khác đường
+    # vào. `str` CỐ Ý KHÔNG chặn ở đây: nó iterate ra ký tự nên rơi xuống nhánh
+    # khoá-lạ bên dưới và đã có message hữu ích + `message_code`.
+    if f is not None and not isinstance(f, (dict, str)):
+        raise ServiceError(
+            ErrorCode.INVALID_PARAMS,
+            "Tham số filters phải là đối tượng JSON dạng {\"<khoá>\": <giá trị>}. "
+            f"Các khoá hợp lệ: {', '.join(sorted(allowed))}.",
+            http_status=400,
+        )
+
+    unknown = sorted(set(f or {}) - set(allowed))
+    if not unknown:
+        return
+    # `sorted()` CẢ HAI vế ⇒ message DETERMINISTIC (test/diff/cache ổn định).
+    shown = [_safe_key(k) for k in unknown[:_MAX_ECHOED_KEYS]]
+    if len(unknown) > _MAX_ECHOED_KEYS:
+        shown.append(f"(và {len(unknown) - _MAX_ECHOED_KEYS} khoá khác)")
+    nthrow(
+        MSG.VAL_INVALID_FILTER_KEY,
+        invalid_keys=", ".join(shown),
+        allowed_keys=", ".join(sorted(allowed)),
+    )
 
 
 _LINK_LOOKUP_LIMIT = 500
@@ -135,10 +235,16 @@ def pop_search(
 
 def count_with_or(
     doctype: str,
-    filters: dict | None,
+    filters: dict | list | None,
     or_filters: list | None,
 ) -> int:
     """Count rows matching ``filters`` AND/OR ``or_filters`` — permission-aware.
+
+    ``filters`` nhận CẢ dạng **list-form** ``[[doctype, field, op, val], …]`` (AC-CR-98):
+    một số endpoint phải dùng dạng này để CÙNG một cột mang nhiều ràng buộc mà không
+    clobber (vd ``imm04.list_commissioning`` với ``overdue=1``: ``workflow_state``
+    user-chọn AND ``not in`` terminal). ``frappe.get_list`` nhận cả hai dạng như nhau
+    nên đường đếm và đường đọc vẫn là MỘT predicate — điều kiện của INVARIANT dưới đây.
 
     INVARIANT (ADR-IMM00-LIST-SCOPE §4b): the total MUST be computed with the
     **same predicate that ``frappe.get_list`` applies to the items** — including
@@ -157,11 +263,61 @@ def count_with_or(
     Procurement Document). ``or_filters`` is preserved verbatim for free-text LIKE
     search parity.
 
-    NOTE: ``limit_page_length=0`` materializes the matching ``name`` list (capped
-    by the bounded dataset). Acceptable at current scale (~1.4k assets); see ADR
-    §4b ROADMAP for a streaming count if a dataset grows past ~50k.
+    NOTE — chi phí (ĐO 2026-07-25 trên site dev, KHÔNG phải ước lượng):
+    ``limit_page_length=0`` materialize TOÀN BỘ cột ``name`` vào Python ⇒ chi phí
+    **tuyến tính theo số dòng KHỚP**: 1.6 ms @104 dòng · 5.1 ms @1060 dòng
+    (≈ 4 ms/1000 dòng). Hot path hiện tại chưa nghẽn (``PM Work Order`` 0 dòng,
+    ``Asset Repair`` 9 dòng ⇒ ``count_overdue_pm`` p95 = 1.96 ms;
+    ``imm08.get_dashboard_stats`` p95 = 24 ms) nên **cố ý CHƯA tối ưu**
+    (measure-first).
+
+    Recipe thay thế khi một DocType được đếm vượt ~20k dòng (ADR
+    §8.10 B7 — đã verify parity 11/11 case, 0 lệch, phẳng ~0.9 ms):
+    ``frappe.get_list(doctype, filters=…, or_filters=…, fields=["count(name) as _c"],
+    limit_page_length=0)[0]["_c"]`` — vẫn là DatabaseQuery ⇒ **cùng predicate**
+    (``permission_query_conditions`` + DocPerm) nên INVARIANT count==rows giữ
+    nguyên. KHÔNG đổi sang ``frappe.db.count`` (mất row-scope = tái sinh §1).
     """
     rows = frappe.get_list(
+        doctype,
+        filters=filters,
+        or_filters=or_filters if or_filters else None,
+        fields=["name"],
+        limit_page_length=0,
+    )
+    return len(rows)
+
+
+def count_ignore_permissions(
+    doctype: str,
+    filters: dict | None,
+    or_filters: list | None,
+) -> int:
+    """Count rows matching ``filters`` AND/OR ``or_filters`` — **ignoring permissions**.
+
+    Cặp song sinh RAW của :func:`count_with_or`. Mirror byte-for-byte trừ đúng MỘT
+    thứ: entrypoint là ``frappe.get_all`` (bỏ qua ``permission_query_conditions`` +
+    DocPerm) thay vì ``frappe.get_list``.
+
+    INVARIANT (ADR-IMM00-LIST-SCOPE §8.3): **counter và rows PHẢI LUÔN đi qua CÙNG
+    MỘT engine**. Dùng 2 engine khác nhau cho ``total`` và ``rows`` là nguồn duy nhất
+    sinh ra cả 2 chiều lệch đã gặp ở production:
+      - §1 (count thô > rows scoped): header "Tổng 1430" mà bảng RỖNG;
+      - §8 (count scoped < rows thô): KTV đọc được phiếu KHÔNG được giao (RÒ DỮ LIỆU).
+
+    Helper này CHỈ dùng cho ``BaseRepository.list(scope="system")`` — nhánh
+    scheduler / KPI tổng hợp / denorm-enrich, nơi rows cũng đi ``frappe.get_all``.
+    KHÔNG dùng cho endpoint list người-dùng: ở đó phải là :func:`count_with_or`.
+
+    Args:
+        doctype: tên DocType.
+        filters: filter dict (AND) — truyền VERBATIM, không normalize thêm.
+        or_filters: OR-LIKE clauses (free-text search) — verbatim như count_with_or.
+
+    Returns:
+        int — số bản ghi khớp, KHÔNG áp row-scope hook.
+    """
+    rows = frappe.get_all(
         doctype,
         filters=filters,
         or_filters=or_filters if or_filters else None,

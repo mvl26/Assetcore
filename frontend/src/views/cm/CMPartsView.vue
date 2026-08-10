@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { useImm09Store } from '@/stores/imm09'
 import { useNotify } from '@/composables/useNotify'
 import { MSG } from '@/i18n/messages'
-import type { SparePartRow } from '@/api/imm09'
+import type { SparePartRow, SparePartSuggestion } from '@/api/imm09'
 
 const props = defineProps<{ id: string }>()
 const store = useImm09Store()
@@ -19,7 +19,8 @@ const error = ref<string | null>(null)
 
 // Search state
 const searchQuery = ref('')
-const searchResults = ref<SparePartRow[]>([])
+// CR-73(a): kết quả tìm kiếm là GỢI Ý (13 khoá) — khác dòng phiếu `SparePartRow`.
+const searchResults = ref<SparePartSuggestion[]>([])
 const searchLoading = ref(false)
 const showDropdown = ref(false)
 let searchDebounce: ReturnType<typeof setTimeout> | null = null
@@ -57,19 +58,28 @@ function onSearchInput() {
   }, 300)
 }
 
-function addPart(part: SparePartRow) {
+function addPart(part: SparePartSuggestion) {
   const existing = parts.value.find(p => p.item_code === part.item_code)
   if (existing) {
     existing.qty += 1
     existing.total_cost = existing.qty * existing.unit_cost
+    // Bồi khoá THẬT nếu dòng cũ chưa có (dòng nạp từ phiếu không mang `spare_part`).
+    if (!existing.spare_part && part.spare_part) existing.spare_part = part.spare_part
   } else {
+    // Map GỢI Ý → dòng phiếu: chỉ các field của child `spare_parts_used`
+    // + `spare_part` (khoá tra kho, FE-only) — KHÔNG spread cả gợi ý.
     parts.value.push({
-      ...part,
       idx: parts.value.length + 1,
+      item_code: part.item_code,
+      item_name: part.item_name,
+      manufacturer_part_no: part.manufacturer_part_no,
       qty: 1,
+      uom: part.uom,
+      unit_cost: part.unit_cost,
       total_cost: part.unit_cost,
       stock_entry_ref: '',
       notes: '',
+      spare_part: part.spare_part,
     })
   }
   searchQuery.value = ''
@@ -176,13 +186,16 @@ async function handleStartRepair() {
             <div v-if="showDropdown" class="absolute z-20 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden">
               <button
                 v-for="item in searchResults"
-                :key="item.item_code"
+                :key="`${item.spare_part || item.item_code}|${item.device_model ?? ''}`"
                 class="w-full flex items-center justify-between px-4 py-2.5 text-sm hover:bg-slate-50 transition-colors text-left"
                 @mousedown.prevent="addPart(item)"
               >
                 <div>
                   <span class="font-medium text-slate-800">{{ item.item_name }}</span>
-                  <span class="text-xs text-slate-400 font-mono ml-2">{{ item.item_code }}</span>
+                  <span class="text-xs text-slate-400 font-mono ml-2">{{ item.manufacturer_part_no || item.item_code }}</span>
+                  <span v-if="item.device_model_name || item.device_model" class="block text-xs text-slate-500">
+                    Model thiết bị: {{ item.device_model_name || item.device_model }}
+                  </span>
                 </div>
                 <span class="text-xs text-slate-500">{{ item.unit_cost?.toLocaleString('vi-VN') }}đ / {{ item.uom }}</span>
               </button>

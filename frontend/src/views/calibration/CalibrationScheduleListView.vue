@@ -1,8 +1,7 @@
 <script setup lang="ts">
-import { useToast } from '@/composables/useToast'
 import DateInput from '@/components/common/DateInput.vue'
 import { ref, computed, onMounted, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import {
   listCalibrationSchedules, createCalibrationSchedule,
   updateCalibrationSchedule, deleteCalibrationSchedule,
@@ -17,10 +16,11 @@ import { deriveCalStatus } from '@/utils/calibrationStatus'
 import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
+import ListPageShell from '@/components/ui/ListPageShell.vue'
 import { useNotify } from '@/composables/useNotify'
+import ModalInlineError from '@/components/common/ModalInlineError.vue'
 import { useImm11Store } from '@/stores/imm11'
 import { MSG } from '@/i18n/messages'
-const toast = useToast()
 const notify = useNotify()
 const store = useImm11Store()
 
@@ -37,6 +37,7 @@ const err = ref('')
 
 // Filters
 const route = useRoute()
+const router = useRouter()
 const showFilters = ref(false)
 // R6 §9.4.3 + BR-11-08 — pre-apply từ KPI drill:
 //   ?overdue=1   → overdue_only (next_due_date < today, card calib_overdue);
@@ -46,19 +47,33 @@ const showFilters = ref(false)
 // Toàn bộ lọc/tìm-kiếm/drill chạy SERVER-SIDE (BE list_schedules: pop_search trên
 // ['name','asset'] + link_search asset_name + virtual overdue/due_soon/due_before).
 // FE KHÔNG còn lọc client-side — tránh divergence total vs rows và miss rows >page_size.
+// AC-CR-94 — thêm khoá thứ 4: `?asset=<mã>` (deep-link «Xem tất cả» từ ô «Lịch hiệu
+// chuẩn» trong tab «Bản ghi liên quan» của một thiết bị). `asset` là điều kiện ĐỘC LẬP,
+// GIAO (AND) với ưu tiên overdue > due_soon > due_before — KHÔNG nằm trong chuỗi else-if
+// đó (nếu nhét vào, một trong hai điều kiện sẽ bị mất tuỳ thứ tự). BE lọc theo cột
+// `asset`, KHÔNG tự thêm `is_active` ⇒ lịch tạm dừng vẫn hiện, khớp count ô liên quan.
 const filters = ref({
   calibration_type: '', is_active: '' as '' | '1' | '0',
   overdue_only: route.query.overdue === '1',
   due_soon: route.query.due_soon === '1',
   due_before: (route.query.due_before as string) || '',
+  asset: (route.query.asset as string) || '',
   search: '',
 })
 
 const TYPE_LABEL: Record<string, string> = { External: 'Bên ngoài', 'In-House': 'Nội bộ' }
 
-interface FilterChip { key: 'calibration_type' | 'is_active' | 'overdue_only' | 'due_soon' | 'due_before' | 'search'; label: string }
+interface FilterChip { key: 'calibration_type' | 'is_active' | 'overdue_only' | 'due_soon' | 'due_before' | 'asset' | 'search'; label: string }
+// Nhãn chip thiết bị: tên đọc được của dòng đầu khớp mã (BE list_schedules enrich
+// `asset_name`), lùi về MÃ khi chưa có tên — chip không bao giờ rỗng.
+const assetChipLabel = computed(() => {
+  const code = filters.value.asset
+  if (!code) return ''
+  return items.value.find(s => s.asset === code)?.asset_name || code
+})
 const activeChips = computed<FilterChip[]>(() => {
   const chips: FilterChip[] = []
+  if (filters.value.asset) chips.push({ key: 'asset', label: `Thiết bị: ${assetChipLabel.value}` })
   if (filters.value.calibration_type) chips.push({ key: 'calibration_type', label: TYPE_LABEL[filters.value.calibration_type] || filters.value.calibration_type })
   if (filters.value.is_active === '1') chips.push({ key: 'is_active', label: 'Đang hoạt động' })
   if (filters.value.is_active === '0') chips.push({ key: 'is_active', label: 'Tạm dừng' })
@@ -75,17 +90,30 @@ function quickFilter(key: 'calibration_type', value: string) {
   filters.value[key] = value
   showFilters.value = false
 }
+/** Xoá khoá `asset` khỏi URL — để lại thì F5/back là lọc lại đúng cái user vừa bỏ. */
+function dropAssetQuery() {
+  if (!route.query.asset) return
+  const query = { ...route.query }
+  delete query.asset
+  router.replace({ query })
+}
 function clearChip(key: string) {
   if (key === 'is_active') filters.value.is_active = ''
   else if (key === 'overdue_only') filters.value.overdue_only = false
   else if (key === 'due_soon') filters.value.due_soon = false
   else if (key === 'due_before') filters.value.due_before = ''
   else (filters.value as Record<string, unknown>)[key] = ''
+  // Bỏ chip thiết bị dọn LUÔN query (chỉ khoá asset — drill quá hạn/sắp hạn giữ nguyên).
+  if (key === 'asset') dropAssetQuery()
   // search-chip không nằm trong watch → reload thủ công (watched keys tự reload).
   if (key === 'search') load(1)
 }
 function resetFilters() {
-  filters.value = { calibration_type: '', is_active: '', overdue_only: false, due_soon: false, due_before: '', search: '' }
+  filters.value = {
+    calibration_type: '', is_active: '', overdue_only: false, due_soon: false,
+    due_before: '', asset: '', search: '',
+  }
+  dropAssetQuery()
   load(1)
 }
 
@@ -105,13 +133,23 @@ function buildFilters(): Record<string, unknown> {
   if (filters.value.overdue_only) f.overdue = 1
   else if (filters.value.due_soon) f.due_soon = 1
   else if (filters.value.due_before) f.due_before = filters.value.due_before
+  // ĐỘC LẬP với chuỗi ưu tiên trên (deep-link thiết bị GIAO với drill hạn, không
+  // clobber và không bị clobber). BE giao `asset` với tập SoT của nhánh virtual.
+  if (filters.value.asset) f.asset = filters.value.asset
   const q = filters.value.search.trim()
   if (q) f.search = q
   return f
 }
 
+// ── Trạng thái nạp danh sách (AC-UX-047 lô 2 · biến thể D — 02 §13.2) ──
+// `loadError` là ô lỗi RIÊNG của lượt nạp danh sách. KHÔNG dùng `err` (`:35`) — đó là
+// lỗi BIỂU MẪU của hộp thoại (`ModalInlineError`); nối 2 thứ vào nhau thì một lần lưu
+// hỏng sẽ xoá trắng danh sách (INV-UX3-13).
+const loadError = ref<string | null>(null)
+
 async function load(toPage = page.value) {
   loading.value = true
+  loadError.value = null
   try {
     page.value = toPage
     const res = await listCalibrationSchedules(buildFilters(), toPage, PAGE_SIZE)
@@ -119,22 +157,39 @@ async function load(toPage = page.value) {
     total.value = res.pagination?.total || 0
     totalPages.value = (res.pagination?.total_pages as number) || 0
   } catch (e: unknown) {
+    // Trước đây lỗi CHỈ đến bằng toast tự tắt còn `items` giữ dữ liệu cũ ⇒ đúng kiểu
+    // *lỗi giả dạng rỗng*. Nay hiện trong khung trang kèm «Thử lại»; bỏ `notify.fromError`
+    // Ở ĐƯỜNG NẠP (giữ nguyên cho `save()` / `confirmRemove()`).
     store._captureError(e)
-    notify.fromError(store.lastApiError)
+    loadError.value = store.lastApiError?.message ?? (e instanceof Error ? e.message : String(e))
+    items.value = []          // INV-UX3-5: không để dữ liệu cũ đứng cạnh trạng thái lỗi
+    total.value = 0
+    totalPages.value = 0
   } finally { loading.value = false }
 }
+
+/** Điểm vào DUY NHẤT của «Thử lại» — giữ nguyên bộ lọc + trang hiện tại. */
+function reload() { return load(page.value) }
+
+const emptyTitle = computed(() =>
+  activeFilterCount.value > 0 ? 'Không có lịch hiệu chuẩn nào phù hợp' : 'Chưa có lịch hiệu chuẩn nào',
+)
+const emptyHint = 'Hãy tạo lịch hiệu chuẩn mới hoặc xoá bộ lọc để xem tất cả.'
 
 // Mỗi thay đổi filter/chip → về trang 1 + reload server (search debounce qua
 // ListFilterBar @apply). Drill ?overdue/?due_soon/?due_before set ref rồi load() server-side.
 watch(
   () => [filters.value.calibration_type, filters.value.is_active,
-    filters.value.overdue_only, filters.value.due_soon, filters.value.due_before],
+    filters.value.overdue_only, filters.value.due_soon, filters.value.due_before,
+    filters.value.asset],
   () => load(1),
 )
 // Sync drill query khi điều hướng từ dashboard (giống PMWorkOrderListView).
 watch(() => route.query.overdue, (v) => { filters.value.overdue_only = v === '1' })
 watch(() => route.query.due_soon, (v) => { filters.value.due_soon = v === '1' })
 watch(() => route.query.due_before, (v) => { filters.value.due_before = (v as string) || '' })
+// Deep-link «Xem tất cả» tới CÙNG route (thiết bị khác) không remount ⇒ sync query → ref.
+watch(() => route.query.asset, (v) => { filters.value.asset = (v as string) || '' })
 
 const paginationMeta = computed(() => ({
   page: page.value, page_size: PAGE_SIZE, total: total.value, total_pages: totalPages.value,
@@ -159,12 +214,10 @@ async function save() {
   err.value = ''
   if (form.value.next_due_date && form.value.next_due_date < todayIso.value) {
     err.value = 'Ngày đến hạn không được nằm trong quá khứ'
-    toast.error(err.value)
     return
   }
   if (form.value.interval_days != null && form.value.interval_days <= 0) {
     err.value = 'Chu kỳ (ngày) phải lớn hơn 0'
-    toast.error(err.value)
     return
   }
   try {
@@ -177,9 +230,10 @@ async function save() {
     }
     showForm.value = false; await load()
   } catch (e: unknown) {
+    // AC-UX-062 đường B: lỗi CHẶN chỉ đi MỘT kênh — vùng inline trong hộp thoại
+    // (`ModalInlineError` ở đầu thân form). KHÔNG gọi `notify.fromError` song song.
     store._captureError(e)
-    err.value = store.error ?? ''
-    notify.fromError(store.lastApiError)
+    err.value = store.error ?? 'Không lưu được lịch hiệu chuẩn. Vui lòng kiểm tra lại và thử lại.'
   }
 }
 
@@ -226,13 +280,22 @@ function calStatus(date: string | null | undefined) {
 
 onMounted(() => {
   // R6 §9.3 — drill-down từ dashboard: mở panel filter để user thấy + xoá được.
-  if (filters.value.overdue_only || filters.value.due_soon || filters.value.due_before) showFilters.value = true
+  if (filters.value.overdue_only || filters.value.due_soon || filters.value.due_before
+    || filters.value.asset) showFilters.value = true
   load(1)
 })
 </script>
 
 <template>
-  <div class="page-container animate-fade-in">
+  <div>
+    <ListPageShell
+      :loading="loading"
+      :error-message="loadError"
+      :is-empty="!items.length"
+      :empty-title="emptyTitle"
+      :empty-hint="emptyHint"
+      @retry="reload">
+      <template #header>
     <PageHeader
       title="Lịch hiệu chuẩn"
       :subtitle="`Tổng ${total} lịch`"
@@ -248,7 +311,9 @@ onMounted(() => {
         </button>
       </template>
     </PageHeader>
+      </template>
 
+      <template #filters>
     <ListFilterBar
       v-model:search="filters.search"
       :show="showFilters"
@@ -281,9 +346,18 @@ onMounted(() => {
         </div>
       </template>
     </ListFilterBar>
+      </template>
 
-    <!-- Table -->
-    <div class="card overflow-hidden">
+      <template #skeleton><SkeletonLoader variant="table" :rows="6" /></template>
+
+      <template #empty-action>
+        <button v-if="activeFilterCount > 0" class="text-xs text-brand-600 hover:text-brand-700 font-medium underline" @click="resetFilters">
+          Xóa bộ lọc để xem tất cả
+        </button>
+        <button v-else class="btn-primary" @click="openCreate">Tạo lịch hiệu chuẩn đầu tiên</button>
+      </template>
+
+      <template #toolbar>
       <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50/60 text-xs text-slate-500">
         <span v-if="activeFilterCount > 0">
           Kết quả lọc: <strong class="text-slate-700">{{ total }}</strong> lịch
@@ -293,14 +367,8 @@ onMounted(() => {
         </span>
         <button v-if="activeFilterCount > 0" class="text-red-500 hover:text-red-700 font-medium" @click="resetFilters">Xóa tất cả</button>
       </div>
+      </template>
 
-      <div v-if="loading" class="p-6">
-        <SkeletonLoader v-for="i in 5" :key="i" class="h-10 mb-3" />
-      </div>
-      <div v-else-if="items.length === 0" class="p-8 text-center text-slate-400 text-sm">
-        {{ activeFilterCount > 0 ? 'Không có lịch phù hợp.' : 'Chưa có lịch hiệu chuẩn.' }}
-      </div>
-      <template v-else>
         <!-- Mobile cards (< sm) -->
         <div class="mobile-card-list sm:hidden">
           <div
@@ -333,9 +401,6 @@ onMounted(() => {
               <button class="text-blue-600 text-xs font-medium" @click="openEdit(s.name)">Sửa</button>
               <button class="text-red-600 text-xs font-medium" @click="askRemove(s.name)">Xóa</button>
             </div>
-          </div>
-          <div v-if="items.length === 0" class="py-12 text-center text-slate-400">
-            <p class="text-sm font-medium">Không có dữ liệu</p>
           </div>
         </div>
 
@@ -396,17 +461,18 @@ onMounted(() => {
             </tbody>
           </table>
         </div>
+
+      <!-- Pagination: truy cập trang >1 (rows >page_size). Server-side total. -->
+      <template #pagination>
+        <BasePagination :pagination="paginationMeta" @page-change="load" />
       </template>
-    </div>
+    </ListPageShell>
 
-    <!-- Pagination: truy cập trang >1 (rows >page_size). Server-side total. -->
-    <BasePagination :pagination="paginationMeta" @page-change="load" />
-
-    <!-- Form Modal -->
+    <!-- Form Modal — NGOÀI shell (02 §13.3); overlay tự vẽ để AC-UX-056 xử lý sau -->
     <div v-if="showForm" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="showForm = false">
       <div class="bg-white rounded-xl p-6 w-[520px] max-w-full space-y-4">
         <h2 class="text-lg font-semibold">{{ editingName ? 'Sửa' : 'Thêm' }} Lịch Hiệu chuẩn</h2>
-        <div v-if="err" class="alert-error text-sm">{{ err }}</div>
+        <ModalInlineError v-if="err" :message="err" />
         <div class="space-y-3">
           <div v-if="!editingName">
             <label class="form-label">Thiết bị *</label>

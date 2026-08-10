@@ -1,15 +1,19 @@
 <script setup lang="ts">
 // Copyright (c) 2026, AssetCore Team
 // IMM-03 — Vendor Profile Detail (FE-03-01)
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getVendorProfile, addVendorCert } from '@/api/imm03'
-import { avlStatusLabel } from '@/constants/labels'
+import { avlStatusLabel, CERT_STATUS_LABELS, tLabel } from '@/constants/labels'
 import DateInput from '@/components/common/DateInput.vue'
+import FileUploadField from '@/components/common/FileUploadField.vue'
+import DetailPageShell from '@/components/common/DetailPageShell.vue'
+import { useDetailAccess } from '@/composables/useDetailAccess'
 
 interface VendorCert {
   cert_type: string; cert_number: string; issued_by?: string
   issued_date?: string; expiry_date?: string; status?: string
+  attachment?: string
 }
 interface AvlEntry {
   name: string; device_category: string; status: string; valid_from?: string; valid_to?: string
@@ -29,8 +33,12 @@ const router = useRouter()
 const props = defineProps<{ id?: string }>()
 
 const profile = ref<VendorProfileData | null>(null)
-const loading = ref(false)
+const loading = ref(true)                        // INV-UX4-8 — chống nháy 404 một nhịp
+// `error` giữ nhiệm vụ CŨ (lỗi HÀNH ĐỘNG: lưu chứng chỉ). Lỗi LƯỢT NẠP đi ref RIÊNG.
 const error = ref<string | null>(null)
+const loadError = ref<unknown>(null)
+const { kind: loadKind, message: loadMsg } = useDetailAccess(() => loadError.value)
+const profileId = computed<string>(() => props.id || (route.params.id as string) || '')
 const showCertModal = ref(false)
 const newCert = ref({
   cert_type: '',
@@ -43,14 +51,15 @@ const newCert = ref({
 const certBusy = ref(false)
 
 async function load() {
-  const name = props.id || (route.params.id as string)
-  if (!name) return
+  loadError.value = null                         // INV-UX4-7 — xoá lỗi ở DÒNG ĐẦU
+  const name = profileId.value
+  if (!name) { loading.value = false; return }
   loading.value = true
-  error.value = null
   try {
     profile.value = await getVendorProfile(name) as unknown as VendorProfileData
   } catch (e: unknown) {
-    error.value = e instanceof Error ? e.message : String(e)
+    loadError.value = e                          // nguyên đối tượng ⇒ phân loại được kind
+    profile.value = null                         // dọn ảnh chụp cũ
   } finally {
     loading.value = false
   }
@@ -86,24 +95,38 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="page-container">
-    <div v-if="loading" class="muted">Đang tải...</div>
-    <div v-else-if="error" class="alert-error">{{ error }}</div>
-    <div v-else-if="profile">
+  <DetailPageShell
+    :loading="loading"
+    :error-kind="loadKind"
+    :error-message="loadMsg"
+    :doc="profile"
+    entity-label="hồ sơ nhà cung cấp"
+    :record-id="profileId"
+    back-label="Về danh sách nhà cung cấp"
+    @retry="load()"
+    @back="router.push('/vendor-profiles')">
+    <template #title>
       <div class="page-header">
         <div>
-          <h1>{{ profile.supplier_name || profile.name }}</h1>
-          <div class="muted">
+          <h1>{{ profile?.supplier_name || profile?.name || profileId }}</h1>
+          <div v-if="profile" class="muted">
             {{ profile.name }}
             <span v-if="profile.imm_avl_status" class="ml-2">· Duyệt nhà cung cấp {{ avlStatusLabel(profile.imm_avl_status) }}</span>
             <span v-if="profile.imm_overall_score" class="ml-2">· Điểm {{ Number(profile.imm_overall_score).toFixed(2) }}</span>
           </div>
         </div>
-        <div class="actions">
-          <button class="btn btn-outline" @click="router.back()">← Quay lại</button>
-          <button class="btn btn-primary" @click="showCertModal = true">+ Thêm chứng chỉ</button>
-        </div>
       </div>
+    </template>
+
+    <!-- CTA — CHỈ tồn tại ở trạng thái content (AC-UX-053). -->
+    <template #actions>
+      <button class="btn btn-outline" data-testid="cta-back" @click="router.back()">← Quay lại</button>
+      <button class="btn btn-primary" data-testid="cta-add-cert" @click="showCertModal = true">+ Thêm chứng chỉ</button>
+    </template>
+
+    <template v-if="profile">
+      <!-- Lỗi HÀNH ĐỘNG — kênh riêng, KHÔNG thay cả trang (bẫy 13.9.7). -->
+      <div v-if="error" role="alert" class="alert-error">{{ error }}</div>
 
       <div class="grid-2col">
         <div class="card">
@@ -140,6 +163,7 @@ onMounted(load)
               <th>Ngày cấp</th>
               <th>Ngày hết hạn</th>
               <th>Trạng thái</th>
+              <th>Tệp đính kèm</th>
             </tr>
           </thead>
           <tbody>
@@ -149,10 +173,17 @@ onMounted(load)
               <td>{{ c.issued_by || '—' }}</td>
               <td>{{ c.issued_date || '—' }}</td>
               <td>{{ c.expiry_date || '—' }}</td>
-              <td>{{ c.status || '—' }}</td>
+              <td>{{ tLabel(CERT_STATUS_LABELS, c.status) }}</td>
+              <td>
+                <a
+                  v-if="c.attachment" :href="c.attachment" target="_blank"
+                  rel="noopener" class="text-blue-600 hover:underline"
+                >Xem tệp</a>
+                <span v-else class="muted">—</span>
+              </td>
             </tr>
             <tr v-if="!(profile.imm_certifications || []).length">
-              <td colspan="6" class="muted text-center">Chưa có chứng chỉ.</td>
+              <td colspan="7" class="muted text-center">Chưa có chứng chỉ.</td>
             </tr>
           </tbody>
         </table>
@@ -196,9 +227,9 @@ onMounted(load)
           </tbody>
         </table>
       </div>
-    </div>
+    </template>
 
-    <!-- Modal thêm chứng chỉ -->
+    <!-- Modal thêm chứng chỉ — chỉ mở được từ CTA, mà CTA không tồn tại ngoài content. -->
     <div v-if="showCertModal" class="modal-backdrop" @click.self="showCertModal = false">
       <div class="modal">
         <h3>Thêm chứng chỉ</h3>
@@ -209,7 +240,15 @@ onMounted(load)
         <label>Cấp bởi: <input v-model="newCert.issued_by" /></label>
         <label>Ngày cấp: <DateInput v-model="newCert.issued_date" class="form-input w-full" /></label>
         <label>Ngày hết hạn: <DateInput v-model="newCert.expiry_date" class="form-input w-full" /></label>
-        <label>Tệp đính kèm: <input v-model="newCert.attachment" placeholder="/files/..." /></label>
+        <FileUploadField
+          v-model="newCert.attachment"
+          label="Tệp đính kèm"
+          doctype="Vendor Cert"
+          parent-doctype="AC Supplier"
+          fieldname="attachment"
+          :docname="profile?.name || ''"
+          hint="Bấm để tải bản chụp/bản mềm chứng chỉ (pdf, doc, ảnh — tối đa 10MB)"
+        />
         <div class="modal-actions">
           <button class="btn btn-outline" @click="showCertModal = false" :disabled="certBusy">Huỷ</button>
           <button class="btn btn-primary"
@@ -220,11 +259,10 @@ onMounted(load)
         </div>
       </div>
     </div>
-  </div>
+  </DetailPageShell>
 </template>
 
 <style scoped>
-.page-container { padding: 1.5rem; }
 .page-header { display: flex; justify-content: space-between; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem; }
 .muted { color: #6b7280; }
 .text-center { text-align: center; }

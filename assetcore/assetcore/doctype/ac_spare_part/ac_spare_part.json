@@ -269,6 +269,7 @@
    "share": 0
   }
  ],
+ "search_fields": "part_code,manufacturer_part_no,part_category",
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": [],

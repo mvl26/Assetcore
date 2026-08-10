@@ -196,3 +196,44 @@ describe('PM CTA terminal — allowed=[] → 0 nút CTA', () => {
     expect(ctasShown(w)).toEqual([])
   })
 })
+
+// ─── «Hoãn lịch» (reschedule_pm) + «Tiếp tục» (resume) — banner Quá-hạn ───────────
+// Cả 2 nút nằm trong banner `v-if="isOverdue"`. Gate SERVER-DRIVEN:
+//   canReschedule = cap('pm.reschedule') && allowed ∋ ('In Progress' | 'Pending–Device Busy')
+//   canResume     = cap('pm.write')      && allowed ∋ ('In Progress' | 'Pending–Device Busy')
+// AC3 (IMM-08 R21 / task 2026-07-24): BE khai 'Pending–Device Busy' vào allowed của
+// phiếu Open/Overdue để khớp hành vi reschedule thật. Các test cũ luôn có 'In Progress'
+// trong allowed của Overdue ⇒ NHÁNH 'Pending–Device Busy' của canReschedule/canResume
+// CHƯA từng được test chạm tới (dead-control, GATE-6c). Block dưới KHOÁ nhánh đó: chứng
+// minh riêng 'Pending–Device Busy' (KHÔNG kèm 'In Progress') vẫn bật đúng CTA — nếu ai
+// đó gỡ nhánh này khi "dọn code", AC3 FE-parity vỡ và test đỏ ngay.
+describe('PM CTA — «Hoãn lịch»/«Tiếp tục» gate theo allowed_transitions (AC3 branch guard)', () => {
+  it('Overdue + allowed ∋ "In Progress" → cta-reschedule + cta-resume render', async () => {
+    currentWO.value = makeWO({ status: 'Overdue' }) // allowed = [In Progress, Cancelled]
+    const w = await mountDetail()
+    expect(w.find('[data-testid="cta-reschedule"]').exists()).toBe(true)
+    expect(w.find('[data-testid="cta-resume"]').exists()).toBe(true)
+  })
+
+  it('Overdue + allowed ∋ "Pending–Device Busy" (KHÔNG "In Progress") → cta-reschedule + cta-resume render (khoá nhánh AC3, chống dead-control)', async () => {
+    currentWO.value = makeWO({ status: 'Overdue', allowed_transitions: ['Pending–Device Busy', 'Cancelled'] })
+    const w = await mountDetail()
+    expect(w.find('[data-testid="cta-reschedule"]').exists()).toBe(true)
+    expect(w.find('[data-testid="cta-resume"]').exists()).toBe(true)
+  })
+
+  it('Overdue + allowed BỎ cả "In Progress" và "Pending–Device Busy" → cta-reschedule + cta-resume ẩn (RED nếu hardcode status===Overdue)', async () => {
+    currentWO.value = makeWO({ status: 'Overdue', allowed_transitions: ['Cancelled'] })
+    const w = await mountDetail()
+    expect(w.find('[data-testid="cta-reschedule"]').exists()).toBe(false)
+    expect(w.find('[data-testid="cta-resume"]').exists()).toBe(false)
+  })
+
+  it('Overdue + THIẾU cap pm.reschedule → cta-reschedule ẩn nhưng cta-resume (pm.write) VẪN render (gate 2 cap độc lập)', async () => {
+    canImpl = (c) => c !== 'pm.reschedule'
+    currentWO.value = makeWO({ status: 'Overdue' })
+    const w = await mountDetail()
+    expect(w.find('[data-testid="cta-reschedule"]').exists()).toBe(false)
+    expect(w.find('[data-testid="cta-resume"]').exists()).toBe(true)
+  })
+})

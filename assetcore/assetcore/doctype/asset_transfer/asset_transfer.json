@@ -60,7 +60,8 @@
    "options": "AC Asset",
    "reqd": 1,
    "in_list_view": 1,
-   "search_index": 1
+   "search_index": 1,
+   "in_global_search": 1
   },
   {
    "fieldname": "transfer_date",
@@ -311,9 +312,9 @@
    "share": 0
   }
  ],
+ "search_fields": "asset,to_department,status",
  "sort_field": "transfer_date",
  "sort_order": "DESC",
- "track_changes": 1,
  "states": [
   {
    "color": "Yellow",
@@ -335,5 +336,7 @@
    "color": "Gray",
    "title": "Cancelled"
   }
- ]
+ ],
+ "title_field": "asset",
+ "track_changes": 1
 }

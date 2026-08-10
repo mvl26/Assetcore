@@ -54,7 +54,10 @@ vi.mock('@/composables/useCapabilities', () => ({
 
 // get_calibration đi qua api/imm11 trực tiếp trong view; doSubmit qua store.
 const getCalibrationSpy = vi.fn()
-vi.mock('@/api/imm11', () => ({
+// importOriginal: giữ NGUYÊN các export HẰNG của module (vd RESCHEDULE_CAL_STATES /
+// isRescheduleCalStatus — SSoT gate nút dời lịch) và CHỈ mock hàm gọi mạng.
+vi.mock('@/api/imm11', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/api/imm11')>()),
   getCalibration: (...a: unknown[]) => getCalibrationSpy(...a),
   updateCalibration: vi.fn().mockResolvedValue({ name: 'CAL-1', status: 'In Progress' }),
 }))

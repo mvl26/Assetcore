@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import DateInput from '@/components/common/DateInput.vue'
+import FileUploadField from '@/components/common/FileUploadField.vue'
 import { ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useImm05Store } from '@/stores/imm05'
@@ -41,6 +42,14 @@ const form = ref({
 })
 
 const { clear: clearDraft } = useFormDraft('document-create', form)
+
+// Draft cũ trong localStorage KHÔNG được che mất ngữ cảnh vừa điều hướng tới: người
+// dùng bấm «Tải lên hồ sơ thiết bị» trên đúng một thiết bị (hoặc «Tải phiên bản mới»
+// trên đúng một hồ sơ) thì form phải mở ra với chính hồ sơ đó — prefill bị nuốt là
+// prefill giả (khoá bằng `router/connectionsCreateParity.test.ts`).
+if (initialAsset) form.value.asset_ref = initialAsset
+if (initialDocType) form.value.doc_type_detail = initialDocType
+if (route.query.version) form.value.version = initialVersion
 
 // File upload state
 const selectedFile = ref<File | null>(null)
@@ -143,7 +152,9 @@ async function handleSubmit() {
     let fileUrl = form.value.file_attachment
     if (selectedFile.value) {
       try {
-        const uploaded = await uploadDocumentFile(selectedFile.value, { isPrivate: false })
+        const uploaded = await uploadDocumentFile(selectedFile.value, {
+          doctype: 'Asset Document', fieldname: 'file_attachment',
+        })
         fileUrl = uploaded.file_url
       } catch (uploadErr) {
         error.value = uploadErr instanceof Error ? uploadErr.message : 'Upload file thất bại. Vui lòng thử lại.'
@@ -375,13 +386,12 @@ function goBack() {
                 />
               </div>
               <div class="form-field">
-                <label for="field-exempt-proof">Bằng chứng miễn</label>
-                <input
-                  id="field-exempt-proof"
+                <label>Văn bản miễn đăng ký</label>
+                <FileUploadField
                   v-model="form.exempt_proof"
-                  type="text"
-                  placeholder="URL hoặc mã tài liệu bằng chứng..."
-                  class="input"
+                  doctype="Asset Document"
+                  fieldname="exempt_proof"
+                  hint="Bấm để tải văn bản miễn đăng ký (pdf, doc, ảnh — tối đa 10MB)"
                 />
               </div>
             </div>

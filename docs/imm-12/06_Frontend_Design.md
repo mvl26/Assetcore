@@ -90,6 +90,16 @@ State machine BE thật (khớp `imm_12_incident_workflow.json` + `_VALID_TRANSI
 >
 > **BR-12-24 (Round 38, CR-WF-12-RCA-ENTRY) — nút "Yêu cầu phân tích RCA":** SSoT = `allowed_transitions` (server-driven, GATE-8/LL-FE-51 — đối xứng "Mở lại điều tra"). Gate `canRequestRca = can('compliance.submit') && form.status === 'Resolved' && allowed_transitions.includes('RCA Required')` — **KHÔNG hardcode `status===` literal, KHÔNG hardcode role-name**. `allowed_transitions[Resolved]` vốn đã chứa `'RCA Required'` (từ Round 12) — round này bổ driver THẬT (nút + endpoint) cho advertise "câm" đó (đóng hidden-CTA). `can('compliance.submit')` đọc từ cap-map auth store (`compliance.submit` ∈ `CAPABILITY_MAP` auto-gen). Đặt nút "Yêu cầu phân tích RCA" trong cụm workflow-actions (cạnh "Đánh giá đã giải quyết"/"Mở lại điều tra"), gate `v-if="canRequestRca"`. Bấm → modal nhập `rca_reason` (bắt buộc — nút xác nhận `:disabled` khi `!rca_reason.trim()`, KHÔNG gọi endpoint) → `requestRca(name, rca_reason)` (POST envelope Decision-B, parity `reopenIncident`) → `await load()`/`invalidateQueries(imm12Keys.detail(name))` refetch. **Sau refetch:** `status` → `'RCA Required'` ⇒ badge "Cần phân tích RCA" cập nhật + stepper hiện nhánh `RCA Required` (đã render `v-if="form.status === 'RCA Required'"`) + section RCA hiện RCA Record vừa link. API client mới `requestRca(name, rca_reason)` trong `api/imm12.ts` (`POST ${BASE}.request_rca`). *Never*: render theo `status===`/role-name; *Always*: `allowed_transitions` + `can(cap)`, disable khi thiếu cap. **KHÁC nút "Tạo phân tích nguyên nhân gốc"** (`doCreateRca`/`createRca`, gate `needsRca`=rca_required∧!rca_record, cho KTV): `request_rca` là hành động governance đổi status Incident, `create_rca` chỉ tạo record RCA.
 
+#### 2.1.a Server-driven CTA — render 6 nút vòng đời từ `available_actions[]` (CR-39, GATE-8/LL-FE-51) 🟡 SPEC (FE Bước-4)
+
+**Vấn đề:** `IncidentDetailView.vue` hiện gate 6 nút vòng đời bằng **predicate-mirror** (hardcode `status===X`, `can(cap)`, tự suy BR-12-02) → FE tính khác BE ⇒ nút hiện nhưng bấm ra **403/422 sau khi bấm** (advertise≠enforce) + drift khi BE đổi cap/transition. Fix theo GATE-8/LL-FE-51: **render CTA từ `available_actions[]` do BE trả** (`get_incident_detail`, `05 §18`) — mỗi phần tử đã có `enabled`+`reason`, FE **chỉ render**, KHÔNG tự suy.
+
+- **Nguồn:** `available_actions` (6 phần tử `{key, label, enabled, reason}`, thứ tự cố định `[acknowledge, start_work, resolve, close, reopen, cancel]`) từ payload `getIncident`. Type `IncidentDetail` += `available_actions?: AvailableAction[]`.
+- **Render:** map `available_actions` → nút; `label` = nhãn BE (KHÔNG hardcode chuỗi VI ở FE); `:disabled="!action.enabled"`; khi disabled hiển thị `action.reason` (tooltip/inline) — **không** dead-button không lý do. Bấm nút `enabled` → gọi endpoint tương ứng theo `key` (`acknowledge_incident`/`start_work`/`resolve_incident`/`close_incident`/`reopen_incident`/`cancel_incident`; các nút cần `reason`/notes → mở modal như hiện tại) → `invalidateQueries(imm12Keys.detail(name))` refetch.
+- **Boundaries** — *Never*: gate nút bằng `status===X` literal / role-name / tự suy BR-12-02 ở FE (predicate-mirror — nguồn lỗi 403-sau-khi-bấm); hardcode nhãn VI (dùng `label` BE). *Always*: đọc `available_actions` server-driven; disable + show `reason` khi `!enabled`; refetch sau action. **Fallback** payload cũ chưa có `available_actions` (transition): giữ gate `allowed_transitions`+`can(cap)` hiện có (đọc `available_actions ?? <gate cũ>`) — KHÔNG vỡ khi BE Bước-4 chưa deploy.
+- **Quan hệ với CTA khác:** "Tạo phân tích nguyên nhân gốc" (`createRca`, gate `needsRca`) + "Yêu cầu phân tích RCA" (`requestRca`, BR-12-24) + RCA CTA (`get_rca.allowed_transitions`/`can_manage_rca`, §2.4.a) **KHÔNG** thuộc 6 CTA vòng đời incident — giữ nguyên. `available_actions` chỉ thay predicate-mirror của **6 nút vòng đời chính**.
+- **Test (Bước-4):** `frontend/src/views/incident/incidentActionCtaGating.test.ts` — mount combo `(status, available_actions)` assert nút enabled/disabled + reason render đúng + không nút ngoài 6 key + `label` từ payload (KHÔNG hardcode). `vue-tsc` sạch.
+
 ### 2.2 New Incident Form (`/incidents/list/new`)
 
 ```text
@@ -184,6 +194,20 @@ State machine BE thật (khớp `imm_12_incident_workflow.json` + `_VALID_TRANSI
   - cờ **falsy** (=0) → pill trung tính **"Trong hạn"** (SSoT label mới, vd `SLA_OK_LABEL = 'Trong hạn'` trong `constants/labels.ts`; class xám `bg-slate-100 text-slate-600`). `SlaBreachBadge` hiện tại KHÔNG render khi cờ=0 → để hiện "Trong hạn" cho từng dòng, FE **hoặc** thêm prop tùy chọn `always`+`okLabel` vào `SlaBreachBadge` (render "Trong hạn" khi cờ falsy) **hoặc** wrap: `<SlaBreachBadge v-if="flag"/>` else pill "Trong hạn". **Không đổi hành vi mặc định** của `SlaBreachBadge` ở list (props tên giữ nguyên, mặc định vẫn ẩn khi cờ=0).
 - **KHÔNG leak** chuỗi BE thô (`is_*_breached`/`response_breached`/`breached`) ra DOM — chỉ nhãn VI qua SSoT (anti-leak `wave2_ui_bugs`).
 - **Parity mobile (CR-21):** mobile `IncidentDetailView` hiện cùng 2 dòng, đọc cùng 2 derived flags — web KHÔNG rò field web-only khác.
+
+#### 2.3.c Thông tin xử lý (tên người, KHÔNG email thô) + trạng thái thiết bị LIVE — CR-40 🟡 SPEC (FE Bước-4)
+
+```text
+│  ─── Thông tin xử lý ─────────────────────────────────────────  │
+│    Người báo hỏng:  Bs. Nguyễn Văn A        (KHÔNG bs.nguyen@…) │
+│    Người xử lý:     KTV Trần Thị B                              │
+│    Trạng thái thiết bị:  [● Ngừng vận hành]  (badge, LIVE)      │
+```
+- **Nguồn (SoT server-enrich):** `get_incident_detail(name)` trả `reporter_name`/`assigned_to_name` (`User.full_name`) + `asset_lifecycle_status` (`AC Asset.lifecycle_status` LIVE) — `05 §19`.
+- **Hết rò email thô (U7/UI-FIX-05):** panel "Thông tin xử lý" đọc **`form.reporter_name ?? form.reported_by`** và **`form.assigned_to_name ?? form.assigned_to`** (ưu tiên tên; fallback id CHỈ cho payload cũ chưa enrich / user thiếu full_name). **TUYỆT ĐỐI KHÔNG** render thẳng `reported_by`/`assigned_to` (email/user-id thô) khi đã có tên. Cùng họ lỗ rò raw-email của transfer panel (Open thread §🔥 approval-inbox P2 FE) — audit các panel approval-processing khác cho cùng lỗi.
+- **Trạng thái thiết bị LIVE (U1):** badge đọc `form.asset_lifecycle_status` → nhãn VI qua **SSoT enum lifecycle** (KHÔNG hardcode; dịch `Out of Service`→"Ngừng vận hành", `Active`→"Đang vận hành"… — memory `ui_copy_language_policy`). Mục tiêu: KTV rút máy khỏi vận hành THẤY ngay máy đã bị khoá (acknowledge High/Critical đẩy `Out of Service`, BR-12-04). `asset_lifecycle_status` rỗng/null (phiếu no-asset) → **ẩn dòng** (KHÔNG render badge trống).
+- **KHÔNG leak** chuỗi BE thô (`asset_lifecycle_status` mã canonical, `reported_by` email) ra DOM — chỉ nhãn VI qua SSoT (anti-leak `wave2_ui_bugs` + `ui_copy_language_policy`). **KHÔNG** so ngày / client-clock (field là snapshot server-flag, FE chỉ render).
+- **Parity mobile (CR-40):** mobile `IncidentDetailView` hiện cùng 3 giá trị, đọc cùng 3 field enrich — web KHÔNG rò field web-only khác.
 
 ### 2.4 RCA Form (`/rca/:id`)
 
@@ -525,6 +549,33 @@ watch(() => form.severity, (val) => {
 | Success (create IR) | IncidentFormView | Toast xanh "Sự cố đã ghi nhận" + redirect → `/incidents/list/:name` |
 | Success (close CAPA) | CAPAFormView | Modal "CAPA đã đóng — audit đã ghi nhận." |
 | Critical alert | App shell banner | 🔴 "Sự cố Critical đang mở: [IR-2026-0042] — Máy thở Drager E. — ICU" |
+
+---
+
+## 7.1 AC-CR-83 — lỗi hồ sơ RCA hiển thị **dưới đúng ô nhập** (`RCADetailView.vue`)
+
+**Hiện trạng (verify 2026-07-27):** `submit()` (`frontend/src/views/incident/RCADetailView.vue:105-126`) chỉ làm `err.value = e.message` ⇒ mọi lỗi rơi vào **một** dải đỏ ở đầu trang; KTV bỏ trống ô «Why 3» không biết ô nào sai. Đường dẫn dữ liệu **đã sẵn sàng**: `helpers.ts::hydrateApiError` gán `ApiError.fields` từ envelope; `frappePost` ném đúng `ApiError` đó. FE chỉ chưa **đọc** nó.
+
+### Hợp đồng render
+
+| Khoá `fields` | Neo vào | `data-testid` |
+|---|---|---|
+| `five_why_steps.<n>` | ngay **dưới** textarea `#why-a-<n>` (dòng «Why n») | `rca-field-error-why-<n>` |
+| `five_why_steps` | dưới **tiêu đề** khối "Phân tích 5-Why" | `rca-field-error-five-why` |
+| `root_cause` | dưới `#rca-root-cause` | `rca-field-error-root-cause` |
+| `corrective_action` | dưới `#rca-corrective` (**tên tham số GHI** — KHÔNG `corrective_action_summary`) | `rca-field-error-corrective` |
+| `assigned_to` | dải cảnh báo trên cụm CTA (hồ sơ chưa phân công) | `rca-field-error-assigned-to` |
+
+### Quy tắc bắt buộc
+
+1. **State riêng** `fieldErrors = ref<Record<string,string>>({})`; `submit()` set từ `e instanceof ApiError ? (e.fields ?? {}) : {}`; **xoá** ở đầu mỗi lần submit và khi `load()` thành công.
+2. **Nút «Hoàn thành RCA» KHÔNG được biến mất** sau lỗi — chỉ `saving=false`. (Nút hiện gate bằng `canComplete` từ `allowed_transitions`; lỗi field-level KHÔNG chạm gate đó — INV-RCA-7.)
+3. **Không đánh mất thông điệp tổng**: `err.value` vẫn hiện `e.message` (câu tiếng Việt từ registry). `fields` là **bổ sung**, không thay thế.
+4. **Cấm rò chuỗi kỹ thuật**: DOM sau lỗi KHÔNG được chứa `Traceback`, `ValidationError`, `_server_messages`, tên module Python. Chỉ echo `ApiError.message` khi có `code` (envelope Decision-B); shape lạ ⇒ câu chung "Có lỗi máy chủ, vui lòng thử lại." (parity `attachIncidentPhoto`, `api/imm12.ts:214-231`).
+5. **`aria-describedby`**: mỗi textarea có lỗi phải trỏ tới id của thông điệp (`why-a-<n>-error`, …) + `role="alert"` để screen-reader đọc ngay.
+6. **Neo theo `why_number`, KHÔNG theo chỉ số mảng** — nhãn người dùng thấy là «Why n» (ADR-IMM12-14). Khoá lạ / `n` không khớp dòng nào ⇒ **đẩy xuống dải tổng**, tuyệt đối không nuốt im lặng.
+
+> ⚠️ Khoá `corrective_action` là **tên tham số GHI**. FE đang bind `v-model="correctiveAction"` rồi gửi `corrective_action` — đúng; nhưng field **đọc** khi `load()` là `res.corrective_action_summary` (`RCADetailView.vue:62`). Đừng "thống nhất" 2 tên: đó là bất đối xứng CÓ THẬT của BE (CR-52 quirk 2).
 
 ---
 

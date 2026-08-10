@@ -3,6 +3,7 @@ import { ref, onMounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useCommissioningStore } from '@/stores/imm04'
 import { formatDatetime } from '@/utils/docUtils'
+import { translateLifecycleEvent } from '@/utils/formatters'
 import type { LifecycleEvent } from '@/types/imm04'
 import PageHeader from '@/components/common/PageHeader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
@@ -166,7 +167,7 @@ onMounted(load)
           <div class="flex-1 bg-white border border-gray-200 rounded-xl p-4 shadow-sm min-w-0">
             <div class="flex items-start justify-between gap-3">
               <div class="min-w-0 flex-1">
-                <p class="font-semibold text-gray-900 text-sm">{{ event.event_type }}</p>
+                <p class="font-semibold text-gray-900 text-sm">{{ translateLifecycleEvent(event.event_type) }}</p>
 
                 <!-- State transition badges -->
                 <div

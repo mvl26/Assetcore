@@ -18,7 +18,7 @@
 Yêu cầu nghiệp vụ: mỗi **tài sản** (thiết bị y tế) có mã QR → in từ hệ thống → dán lên thiết bị → người dùng quét QR (camera điện thoại) → xem thông tin thiết bị.
 
 **As-Is (verify code 2026-06-04):**
-- QR hiện CÓ nhưng gắn vào IMM-04 Commissioning: field `internal_tag_qr` format `BV-{DEPT}-{YYYY}-{SEQ}` (`services/imm04.py:543`, `generate_qr_label` @996).
+- QR hiện CÓ nhưng gắn vào IMM-04 Commissioning: field `internal_tag_qr` format `BV-{DEPT}-{YYYY}-{SEQ}` (`services/imm04.py:575`, `generate_qr_label` @996).
 - `AC Asset` doctype có **0 field QR** → asset import/legacy không có QR; QR không sống ở cấp tài sản (verify: `ac_asset.json`).
 - QR encode **chuỗi tag** (không phải URL) → camera điện thoại quét ra text vô dụng, không mở app (`QRLabel.vue` encode tag string).
 - Chưa có quét bằng **camera** (`QRScanView.vue` = scanner-wedge gõ tay/đầu đọc).
@@ -227,7 +227,7 @@ Patch sinh `qr_token` cho **MỌI** asset cũ/import/legacy chưa có token:
 
 | Quyết định | Chi tiết |
 |---|---|
-| **GIỮ** field `internal_tag_qr` ở commissioning | Field `Asset Commissioning.internal_tag_qr` KHÔNG bị xoá/đổi. `assign_identification` / `generate_internal_qr` / `get_barcode_lookup` (`services/imm04.py:543,1350,921`) hoạt động NGUYÊN VẸN — KHÔNG breaking change. Field vẫn hiển thị read-only + dùng cho scanner-wedge lookup (`get_barcode_lookup` filter theo `internal_tag_qr`). |
+| **GIỮ** field `internal_tag_qr` ở commissioning | Field `Asset Commissioning.internal_tag_qr` KHÔNG bị xoá/đổi. `assign_identification` / `generate_internal_qr` / `get_barcode_lookup` (`services/imm04.py:575,1406,977`) hoạt động NGUYÊN VẸN — KHÔNG breaking change. Field vẫn hiển thị read-only + dùng cho scanner-wedge lookup (`get_barcode_lookup` filter theo `internal_tag_qr`). |
 | QR mới (asset-level) **song song** | `qr_token` là cơ chế mới, không thay `internal_tag_qr`. Một asset có thể có cả hai trong giai đoạn chuyển tiếp. |
 | **Dedup → 1 deep-link (CHỐT vòng 13/B-3 — D6)** | Xem **§D6.1** dưới — hợp nhất ẢNH QR + contract nhãn của `generate_qr_label` về **deep-link asset `/a/<token>`** (tái dùng `ensure_asset_qr_token` + `_build_qr_url` của IMM-00). Vòng A KHÔNG đụng IMM-04 logic; **vòng 13 đụng DUY NHẤT `generate_qr_label`** (chỉ contract nhãn — KHÔNG đụng field/cap/DocType). |
 | Scanner-wedge cũ | `QRScanView.vue` (gõ tay/đầu đọc) GIỮ; A5 thêm camera-scan **song song** (URL `/a/<token>` vs mã thô đều xử lý được). |
@@ -319,4 +319,4 @@ Patch sinh `qr_token` cho **MỌI** asset cũ/import/legacy chưa có token:
 - IMM-04 backend: [`./04_Backend_Design.md`](./04_Backend_Design.md) §8.1
 - Lifecycle helper: `assetcore/utils/lifecycle.py:72` (`create_lifecycle_event`)
 - RBAC: `assetcore/services/shared/rbac.py` (`CAPABILITY_MAP`)
-- Compat: `assetcore/services/imm04.py:543,996` (`internal_tag_qr`)
+- Compat: `assetcore/services/imm04.py:575,1052` (`internal_tag_qr`)

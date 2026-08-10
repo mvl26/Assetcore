@@ -15,6 +15,7 @@ import { MAX_LABEL_BATCH } from '@/constants/label'
 import { useImportWizard } from '@/composables/useImportWizard'
 import ImportWizardModal from '@/components/import/ImportWizardModal.vue'
 import { useCapabilities } from '@/composables/useCapabilities'
+import ListPageShell from '@/components/ui/ListPageShell.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -244,12 +245,34 @@ function printBatchLabels() {
   router.push({ name: 'AssetLabelPrint', query: { names: selectedNames.value.join(',') } })
 }
 
+// ── Trạng thái nạp danh sách (AC-UX-047 lô 2 · biến thể C — 02 §13.2) ──
+// `useAssetStore` có ô `error` RIÊNG cho lượt nạp danh sách và tự dọn ở đầu lượt
+// (`stores/imm00.ts:20`, `:24`) ⇒ bind thẳng `store.error` là đúng, không cần chụp.
+//
+// `fetchList` được gọi ở 6 chỗ (applyFilters / resetFilters / goToPage / onMounted /
+// watch route.query / callback nhập liệu). CHỈ thêm điểm vào cho «Thử lại», KHÔNG đổi
+// 6 chỗ kia (giữ nguyên hành vi `resetFilters` gọi `fetchList({})`).
+function reload() { return store.fetchList(cleanParams.value) }
+
+const emptyTitle = computed(() =>
+  activeFilterCount.value > 0 ? 'Không có thiết bị nào phù hợp' : 'Chưa có thiết bị nào',
+)
+const emptyHint = 'Hãy thêm thiết bị mới hoặc xoá bộ lọc để xem tất cả.'
+
 // Phơi bày cho test (chip drill BYT + batch-select A4).
 defineExpose({ clearChip, activeChips, toggleSelect, selectedNames, clearSelection })
 </script>
 
 <template>
-  <div class="page-container animate-fade-in">
+  <div>
+    <ListPageShell
+      :loading="store.loading"
+      :error-message="store.error"
+      :is-empty="!store.assets.length"
+      :empty-title="emptyTitle"
+      :empty-hint="emptyHint"
+      @retry="reload">
+      <template #header>
     <PageHeader
       title="Danh sách Thiết bị"
       :subtitle="`Tổng ${store.pagination.total} thiết bị`"
@@ -313,6 +336,9 @@ defineExpose({ clearChip, activeChips, toggleSelect, selectedNames, clearSelecti
         </button>
       </template>
     </PageHeader>
+      </template>
+
+      <template #filters>
 
     <ListFilterBar
       :show="showFilters"
@@ -360,17 +386,16 @@ defineExpose({ clearChip, activeChips, toggleSelect, selectedNames, clearSelecti
         </div>
       </template>
     </ListFilterBar>
+      </template>
 
-    <!-- Error -->
-    <div v-if="store.error" class="alert-error mb-4">{{ store.error }}</div>
+      <template #skeleton><SkeletonLoader variant="table" :rows="6" /></template>
 
-    <!-- Loading -->
-    <div v-if="store.loading" class="table-wrapper">
-      <SkeletonLoader variant="table" :rows="6" />
-    </div>
+      <template #empty-action>
+        <button v-if="activeFilterCount > 0" class="text-xs text-brand-600 hover:text-brand-700 font-medium underline" @click="resetFilters">
+          Xóa bộ lọc để xem tất cả
+        </button>
+      </template>
 
-    <!-- Data -->
-    <template v-else>
       <!-- Mobile cards (< sm) -->
       <div class="mobile-card-list sm:hidden">
         <div class="flex items-center justify-between text-xs text-slate-500 pb-1">
@@ -402,17 +427,14 @@ defineExpose({ clearChip, activeChips, toggleSelect, selectedNames, clearSelecti
           </div>
           <p class="text-sm font-medium text-slate-900 truncate">{{ asset.asset_name }}</p>
           <div class="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
-            <span v-if="asset.asset_category_name || asset.category_name || asset.asset_category">
-              {{ asset.asset_category_name || asset.category_name || asset.asset_category }}
+            <!-- category_name = SSoT (parity get_asset + OpenAPI AssetListItem). asset_category_name = fallback TẠM cho worker chưa reload; gỡ sau khi BE emit category_name ổn định (backlog). -->
+            <span v-if="asset.category_name || asset.asset_category_name || asset.asset_category">
+              {{ asset.category_name || asset.asset_category_name || asset.asset_category }}
             </span>
             <span v-if="asset.department_name || asset.department" class="text-slate-300">·</span>
             <span>{{ asset.department_name || asset.department }}</span>
             <span v-if="isPmOverdue(asset.next_pm_date)" class="text-red-600 font-semibold">Bảo trì định kỳ quá hạn</span>
           </div>
-        </div>
-        <div v-if="store.assets.length === 0" class="py-12 text-center text-slate-400">
-          <p class="text-sm font-medium">Không có thiết bị nào phù hợp</p>
-          <button v-if="activeFilterCount > 0" class="text-xs text-blue-500 underline mt-2" @click="resetFilters">Xóa bộ lọc để xem tất cả</button>
         </div>
       </div>
 
@@ -422,7 +444,7 @@ defineExpose({ clearChip, activeChips, toggleSelect, selectedNames, clearSelecti
           <span>Hiển thị <strong class="text-slate-700">{{ store.assets.length }}</strong> / {{ store.pagination.total }} thiết bị</span>
           <button v-if="activeFilterCount > 0" class="text-red-500 hover:text-red-700 font-medium" @click="resetFilters">Xóa tất cả</button>
         </div>
-        <div v-if="store.assets.length" class="overflow-x-auto">
+        <div class="overflow-x-auto">
           <table class="min-w-full divide-y divide-slate-100">
             <thead>
               <tr>
@@ -471,7 +493,7 @@ defineExpose({ clearChip, activeChips, toggleSelect, selectedNames, clearSelecti
                     v-if="asset.asset_category"
                     class="text-left text-slate-700 hover:text-blue-600 hover:underline decoration-dotted underline-offset-2 transition-colors"
                     @click.stop="quickFilter('asset_category', asset.asset_category!)"
-                  >{{ asset.asset_category_name || asset.category_name || asset.asset_category }}</button>
+                  >{{ asset.category_name || asset.asset_category_name || asset.asset_category }}</button>
                   <span v-else class="text-slate-400">—</span>
                 </td>
                 <td class="table-cell">
@@ -517,20 +539,14 @@ defineExpose({ clearChip, activeChips, toggleSelect, selectedNames, clearSelecti
             </tbody>
           </table>
         </div>
-        <div v-else class="flex flex-col items-center justify-center py-16 text-slate-400">
-          <svg class="w-12 h-12 mb-3 opacity-40" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M20 7H4a2 2 0 00-2 2v9a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2z" />
-          </svg>
-          <p class="text-sm">Không có thiết bị nào phù hợp</p>
-          <button v-if="activeFilterCount > 0" class="mt-3 text-xs text-blue-500 hover:text-blue-700 underline" @click="resetFilters">
-            Xóa bộ lọc để xem tất cả
-          </button>
-        </div>
       </div>
-    </template>
 
-    <BasePagination :pagination="store.pagination" @page-change="goToPage" />
+      <template #pagination>
+        <BasePagination :pagination="store.pagination" @page-change="goToPage" />
+      </template>
+    </ListPageShell>
 
+    <!-- Trình nhập liệu — NGOÀI shell (02 §13.3) -->
     <ImportWizardModal
       :ctx="importWizard"
       title="Nhập Thiết bị"

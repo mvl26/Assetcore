@@ -2,14 +2,16 @@
 // Copyright (c) 2026, AssetCore Team — IMM-15 Spare Forecast list view.
 import { onMounted, ref } from 'vue'
 import { useImm15Store } from '@/stores/imm15'
+import { useNotify } from '@/composables/useNotify'
+import { MSG } from '@/i18n/messages'
 import PageHeader from '@/components/common/PageHeader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 
 const store = useImm15Store()
+const notify = useNotify()
 const generating = ref(false)
 const approving = ref<string | null>(null)
 const horizon = ref(3)
-const toast = ref('')
 
 async function load() { await store.fetchForecasts({ page: 1, page_size: 50 }) }
 
@@ -17,27 +19,26 @@ async function generate() {
   generating.value = true
   try {
     const res = await store.generateForecastAction(horizon.value, 'Moving_Avg')
-    toast.value = `Đã tạo dự báo ${res.name} (${res.items_count} dòng)`
-    await load()
+    notify.show({ code: MSG.UI_SAVE_SUCCESS, ctx: { entity: `dự báo ${res.name} (${res.items_count} dòng)` } })
   } catch (e: unknown) {
-    toast.value = e instanceof Error ? e.message : String(e)
+    notify.fromError(e)
   } finally {
     generating.value = false
-    setTimeout(() => (toast.value = ''), 4000)
   }
 }
 
+// Duyệt dự báo — lái theo state THỰC server trả (store.approveForecastAction chỉ
+// trả kết quả khi workflow_state === 'Approved'; ngược lại null + set lastApiError).
+// KHÔNG toast thành-công-giả: chỉ báo thành công khi có kết quả, còn lại surface
+// message server (notify contract). Row đã được store refetch từ state THỰC.
 async function approve(name: string) {
   approving.value = name
-  try {
-    const res = await store.approveForecastAction(name)
-    toast.value = `Đã duyệt: ${res.reorder_recommendations} mục đề xuất đặt hàng`
-    await load()
-  } catch (e: unknown) {
-    toast.value = e instanceof Error ? e.message : String(e)
-  } finally {
-    approving.value = null
-    setTimeout(() => (toast.value = ''), 4000)
+  const res = await store.approveForecastAction(name)
+  approving.value = null
+  if (res) {
+    notify.show({ code: MSG.UI_SAVE_SUCCESS, ctx: { entity: `dự báo ${res.name}` } })
+  } else {
+    notify.fromError(store.lastApiError)
   }
 }
 
@@ -63,8 +64,6 @@ onMounted(load)
       </template>
     </PageHeader>
 
-    <div v-if="toast" class="mb-4 px-4 py-3 rounded-lg bg-emerald-50 text-emerald-700 text-sm border border-emerald-100">{{ toast }}</div>
-
     <div class="card overflow-hidden p-0">
       <div class="overflow-x-auto">
         <table class="w-full text-sm">
@@ -83,25 +82,40 @@ onMounted(load)
             <tr v-if="store.forecastsLoading">
               <td colspan="7" class="px-4 py-10 text-center text-slate-400">Đang tải…</td>
             </tr>
+            <tr v-else-if="store.error">
+              <td colspan="7" class="px-4 py-10 text-center">
+                <p class="text-sm text-rose-600" data-testid="forecast-list-error">{{ store.error }}</p>
+                <button class="btn-secondary text-xs py-1.5 px-3 mt-3" @click="load">Thử lại</button>
+              </td>
+            </tr>
             <tr v-else-if="!store.forecasts.length">
               <td colspan="7" class="px-4 py-12 text-center">
                 <p class="text-sm text-slate-500">Chưa có dự báo nào.</p>
                 <p class="text-xs text-slate-400 mt-1">Nhấn "Tạo dự báo" để bắt đầu phân tích.</p>
               </td>
             </tr>
-            <tr v-for="f in store.forecasts" :key="f.name" class="hover:bg-slate-50 transition-colors">
+            <tr
+              v-for="f in store.forecasts"
+              :key="f.name"
+              :data-testid="`forecast-row-${f.name}`"
+              class="hover:bg-slate-50 transition-colors"
+            >
               <td class="px-4 py-3 font-mono text-xs text-brand-700 font-semibold">{{ f.name }}</td>
               <td class="px-4 py-3 text-slate-700">{{ f.forecast_period }}</td>
               <td class="px-4 py-3 text-slate-700">{{ f.method }}</td>
-              <td class="px-4 py-3">
+              <td class="px-4 py-3" :data-testid="`forecast-status-${f.name}`">
                 <StatusBadge :state="f.workflow_state || 'Draft'" />
               </td>
               <td class="px-4 py-3 text-slate-700">{{ f.generated_by_name || f.generated_by || '—' }}</td>
               <td class="px-4 py-3 text-slate-700">{{ f.approved_by_name || f.approved_by || '—' }}</td>
               <td class="px-4 py-3 text-right">
+                <!-- Gate CTA 'Duyệt' chỉ hiện cho dòng Bản nháp (ẩn khi đã duyệt) —
+                     tránh round-trip BAD_STATE. -->
                 <button
                   v-if="(f.workflow_state || 'Draft') === 'Draft'"
-                  class="btn-secondary text-xs py-1.5 px-3"
+                  :data-testid="`forecast-approve-${f.name}`"
+                  :aria-label="`Duyệt dự báo ${f.name}`"
+                  class="btn-secondary text-xs py-1.5 px-3 focus-visible:ring-2 focus-visible:ring-emerald-500"
                   :disabled="approving === f.name"
                   @click="approve(f.name)"
                 >

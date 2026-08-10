@@ -25,7 +25,7 @@
   },
   {
    "allow_edit": "AssetCore Super Admin",
-   "doc_status": "1",
+   "doc_status": "0",
    "state": "Active",
    "type": "Success"
   },
@@ -37,13 +37,13 @@
   },
   {
    "allow_edit": "AssetCore Super Admin",
-   "doc_status": "1",
+   "doc_status": "0",
    "state": "Archived",
    "type": "Default"
   },
   {
    "allow_edit": "AssetCore Super Admin",
-   "doc_status": "1",
+   "doc_status": "0",
    "state": "Expired",
    "type": "Danger"
   }
@@ -164,6 +164,90 @@
   {
    "action": "Hủy bỏ",
    "allowed": "System Manager",
+   "next_state": "Archived",
+   "state": "Draft",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Gửi duyệt",
+   "allowed": "Document Manager",
+   "next_state": "Pending Review",
+   "state": "Draft",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Gửi duyệt",
+   "allowed": "Document User",
+   "next_state": "Pending Review",
+   "state": "Draft",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Phê duyệt",
+   "allowed": "Document Manager",
+   "next_state": "Active",
+   "state": "Pending Review",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Phê duyệt",
+   "allowed": "Document User",
+   "next_state": "Active",
+   "state": "Pending Review",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Từ chối",
+   "allowed": "Document Manager",
+   "next_state": "Rejected",
+   "state": "Pending Review",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Từ chối",
+   "allowed": "Document User",
+   "next_state": "Rejected",
+   "state": "Pending Review",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Gửi lại",
+   "allowed": "Document Manager",
+   "next_state": "Pending Review",
+   "state": "Rejected",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Gửi lại",
+   "allowed": "Document User",
+   "next_state": "Pending Review",
+   "state": "Rejected",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Lưu trữ",
+   "allowed": "Document Manager",
+   "next_state": "Archived",
+   "state": "Active",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Lưu trữ",
+   "allowed": "Document User",
+   "next_state": "Archived",
+   "state": "Active",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hủy bỏ",
+   "allowed": "Document Manager",
+   "next_state": "Archived",
+   "state": "Draft",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hủy bỏ",
+   "allowed": "Document User",
    "next_state": "Archived",
    "state": "Draft",
    "allow_self_approval": 1

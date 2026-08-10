@@ -127,6 +127,41 @@ const DRILL_CAP_RULES: ReadonlyArray<[RegExp, string]> = [
   [/^\/admin\/roles/, 'data.admin'],
 ]
 
+// ─── Nút «Tạo …» điều hướng tới màn tạo (tab «Bản ghi liên quan») ────────────
+// Backend biết quyền TẠO trên DocType (DocPerm/capability) nhưng KHÔNG biết route FE
+// nào gác capability nào. Nút tạo mà route-guard đá ra `/unauthorized` ngay sau cú bấm
+// là dạng "nút chết" tệ nhất (người dùng đã tin là làm được). Bảng dưới mirror
+// `requiredCapabilities` của đúng các route `/…/new` trong `router/index.ts` — parity
+// khoá bằng `connectionsCreateParity.test.ts`, cùng tinh thần `createButtonAffordance.test.ts`.
+export const CREATE_ROUTE_CAP: Record<string, string> = {
+  '/pm/work-orders/new': 'pm.create',
+  '/cm/create': 'repair.create',
+  '/calibration/new': 'calibration.create',
+  '/incidents/new': 'corrective.create',
+  '/documents/new': 'doc' + 'ument.write',
+  '/asset-transfers/new': 'commissioning.create',
+  '/purchases/new': 'purchase.create',
+  '/service-contracts/new': 'data.create',
+}
+
+/** Capability mà route tạo yêu cầu, hoặc `null` khi route chưa được khai. */
+export function capabilityForCreateRoute(path: string): string | null {
+  const clean = (path || '').split('?')[0].split('#')[0]
+  return CREATE_ROUTE_CAP[clean] ?? null
+}
+
+/**
+ * Nút «Tạo …» có được render không (lớp phòng thủ thứ hai, sau `can_create` của backend).
+ *
+ * **Fail-CLOSED** với route chưa khai: thà thiếu một nút (bắt ĐỎ ngay ở test parity
+ * backend↔FE) còn hơn dựng nút dẫn thẳng tới `/unauthorized`. Khác `canAccessDrill`
+ * (fail-open) vì drill chỉ là đường XEM, còn đây là lời mời GHI dữ liệu.
+ */
+export function canAccessCreateRoute(path: string, can: (cap: string) => boolean): boolean {
+  const cap = capabilityForCreateRoute(path)
+  return cap ? can(cap) : false
+}
+
 /**
  * Quyết định một drill-target (route đích của KPI/segment) có click được không.
  *
