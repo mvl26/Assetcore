@@ -209,7 +209,7 @@ defineProps<{
                     {{ ctx.previewData.value.totalRows - ctx.totalSkip.value }} dòng hợp lệ
                   </p>
                   <p class="text-xs text-gray-600">
-                    Tải báo cáo lỗi sau khi import xong để sửa &amp; import lại các dòng đã bỏ qua.
+                    Tải báo cáo lỗi sau khi import xong để sửa và import lại các dòng đã bỏ qua.
                   </p>
                 </div>
               </label>

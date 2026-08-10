@@ -237,7 +237,7 @@ stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
       <div class="card animate-slide-up" style="animation-delay: 40ms">
         <h3 class="text-sm font-semibold text-slate-800 mb-5 flex items-center gap-2">
           <span class="w-5 h-5 rounded-md bg-brand-600 text-white flex items-center justify-center text-[11px] font-bold shrink-0">1</span>
-          Thông tin Mua sắm &amp; Thiết bị
+          Thông tin Mua sắm và Thiết bị
         </h3>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
 <!-- PO Reference -->
