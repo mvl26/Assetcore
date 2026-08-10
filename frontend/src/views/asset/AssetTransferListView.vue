@@ -8,6 +8,7 @@ import { formatAssetDisplay, translateStatus, getStatusColor, formatDate } from 
 import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
+import ListPageShell from '@/components/ui/ListPageShell.vue'
 
 const router = useRouter()
 const { can } = useCapabilities()
@@ -18,7 +19,13 @@ const loading = ref(false)
 const page = ref(1)
 const totalCount = ref(0)
 const PAGE_SIZE = 30
+// Lỗi của thao tác XOÁ — KHÔNG nối vào `:error-message` của khuôn danh sách
+// (INV-UX3-13: một lần xoá hỏng không được xoá trắng cả bảng).
 const error = ref('')
+// AC-UX-047 (lô 1) — lỗi của LƯỢT NẠP danh sách. Trước đây `load()` không có
+// try/catch/finally: API hỏng ⇒ `loading` kẹt `true` (khung xương quay mãi) +
+// unhandled rejection; nếu nạp xong mà rỗng thì in «Không có dữ liệu chuyển giao».
+const loadError = ref<string | null>(null)
 const assetFilter = ref<string>((route.query.asset as string) || '')
 const typeFilter = ref('')
 const statusFilter = ref('')
@@ -96,20 +103,27 @@ function quickFilter(key: 'type' | 'status', value: string) {
   load()
 }
 
+const emptyTitle = computed(() =>
+  activeFilterCount.value > 0 ? 'Không có lượt chuyển giao nào phù hợp' : 'Chưa có lượt chuyển giao nào')
+const EMPTY_HINT = 'Hãy tạo lượt chuyển giao mới hoặc xoá bộ lọc để xem tất cả.'
+
 async function load() {
   loading.value = true
+  loadError.value = null                       // INV-UX3-4 — xoá lỗi ĐẦU lượt
   const params: Record<string, unknown> = { page: page.value, page_size: PAGE_SIZE }
   if (assetFilter.value) params.asset = assetFilter.value
   if (typeFilter.value) params.transfer_type = typeFilter.value
   if (statusFilter.value) params.status = statusFilter.value
-  const res = await frappeGet<{ items: AssetTransfer[]; pagination: { total: number } } | null>(
-    `${BASE}.list_transfers`, params,
-  )
-  loading.value = false
-  if (res) {
-    transfers.value = res.items || []
-    totalCount.value = res.pagination?.total || 0
-  }
+  try {
+    const res = await frappeGet<{ items: AssetTransfer[]; pagination: { total: number } } | null>(
+      `${BASE}.list_transfers`, params,
+    )
+    transfers.value = res?.items || []
+    totalCount.value = res?.pagination?.total || 0
+  } catch (e: unknown) {
+    loadError.value = e instanceof Error ? e.message : String(e)
+    transfers.value = []; totalCount.value = 0 // INV-UX3-5
+  } finally { loading.value = false }          // INV-UX3-3
 }
 
 function prevPage() { if (page.value > 1) { page.value--; load() } }
@@ -135,20 +149,32 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="page-container animate-fade-in space-y-5">
-    <PageHeader title="Chuyển giao thiết bị" :subtitle="`Tổng ${totalCount} lượt chuyển`">
-      <template #actions>
-        <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
-        <button v-if="can('commissioning.create')" class="btn-primary shrink-0" @click="router.push('/asset-transfers/new')">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
-          </svg>
-          Tạo mới
-        </button>
-      </template>
-    </PageHeader>
+  <!-- AC-UX-047 (lô 1) — khuôn 4 trạng thái loại trừ (ui/ListPageShell). -->
+  <ListPageShell
+    :loading="loading"
+    :error-message="loadError"
+    :is-empty="!transfers.length"
+    :empty-title="emptyTitle"
+    :empty-hint="EMPTY_HINT"
+    @retry="load">
+    <template #header>
+      <PageHeader title="Chuyển giao thiết bị" :subtitle="`Tổng ${totalCount} lượt chuyển`">
+        <template #actions>
+          <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
+          <button v-if="can('commissioning.create')" class="btn-primary shrink-0" @click="router.push('/asset-transfers/new')">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+            Tạo mới
+          </button>
+        </template>
+      </PageHeader>
+      <!-- Lỗi XOÁ sống ở cả 4 trạng thái (INV-UX3-17) và tách khỏi lỗi nạp (INV-UX3-13). -->
+      <div v-if="error" class="bg-red-50 border border-red-300 text-red-700 px-3 py-2 rounded-lg text-sm">{{ error }}</div>
+    </template>
 
-    <ListFilterBar
+    <template #filters>
+      <ListFilterBar
       :show="showFilters"
       :chips="activeChips"
       :show-search="false"
@@ -176,26 +202,23 @@ onMounted(load)
           <input id="at-asset-filter" v-model="assetFilter" placeholder="Mã thiết bị..." class="form-input text-sm" @keyup.enter="() => { page = 1; load() }" />
         </div>
       </template>
-    </ListFilterBar>
+      </ListFilterBar>
+    </template>
 
-    <div v-if="error" class="bg-red-50 border border-red-300 text-red-700 px-3 py-2 rounded-lg text-sm">{{ error }}</div>
+    <template #empty-action>
+      <button v-if="activeFilterCount > 0" class="text-xs text-blue-500 hover:text-blue-700 underline" @click="resetFilters">
+        Xóa bộ lọc để xem tất cả
+      </button>
+    </template>
 
-    <div class="card overflow-hidden">
-      <!-- Info row -->
+    <template #toolbar>
       <div class="flex items-center justify-between px-4 py-2.5 border-b border-slate-100 bg-slate-50/60 text-xs text-slate-500">
         <span>Hiển thị <strong class="text-slate-700">{{ transfers.length }}</strong> / {{ totalCount }} lượt chuyển</span>
         <button v-if="activeFilterCount > 0" class="text-red-500 hover:text-red-700 font-medium" @click="resetFilters">Xóa tất cả</button>
       </div>
+    </template>
 
-      <div v-if="loading" class="text-center text-slate-400 py-12">Đang tải...</div>
-      <div v-else-if="transfers.length === 0" class="flex flex-col items-center justify-center py-16 text-slate-400">
-        <p class="text-sm">Không có dữ liệu chuyển giao.</p>
-        <button v-if="activeFilterCount > 0" class="text-xs text-blue-500 hover:text-blue-700 underline mt-2" @click="resetFilters">
-          Xóa bộ lọc để xem tất cả
-        </button>
-      </div>
-      <template v-else>
-        <!-- Mobile cards (< sm) -->
+    <!-- Mobile cards (< sm) -->
         <div class="mobile-card-list sm:hidden">
           <div
             v-for="t in transfers"
@@ -221,9 +244,6 @@ onMounted(load)
               <span v-if="t.to_location_name" class="text-slate-300">·</span>
               <span v-if="t.to_location_name">→ {{ t.to_location_name }}</span>
             </div>
-          </div>
-          <div v-if="transfers.length === 0" class="py-12 text-center text-slate-400">
-            <p class="text-sm font-medium">Không có dữ liệu</p>
           </div>
         </div>
 
@@ -285,15 +305,15 @@ onMounted(load)
             </tbody>
           </table>
         </div>
-      </template>
 
+    <template #pagination>
       <div v-if="totalCount > PAGE_SIZE" class="flex items-center justify-between px-4 py-3 border-t border-slate-100 text-sm text-slate-500">
         <span>{{ (page - 1) * PAGE_SIZE + 1 }}–{{ Math.min(page * PAGE_SIZE, totalCount) }} / {{ totalCount }}</span>
         <div class="flex gap-2">
-          <button :disabled="page === 1" class="px-3 py-1 rounded border border-slate-300 disabled:opacity-40 hover:bg-slate-50" @click="prevPage">‹</button>
-          <button :disabled="page * PAGE_SIZE >= totalCount" class="px-3 py-1 rounded border border-slate-300 disabled:opacity-40 hover:bg-slate-50" @click="nextPage">›</button>
+          <button :disabled="page === 1" class="px-3 py-1 rounded border border-slate-300 disabled:opacity-40 hover:bg-slate-50" aria-label="Trang trước" @click="prevPage">‹</button>
+          <button :disabled="page * PAGE_SIZE >= totalCount" class="px-3 py-1 rounded border border-slate-300 disabled:opacity-40 hover:bg-slate-50" aria-label="Trang sau" @click="nextPage">›</button>
         </div>
       </div>
-    </div>
-  </div>
+    </template>
+  </ListPageShell>
 </template>

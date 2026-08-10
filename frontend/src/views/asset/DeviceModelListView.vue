@@ -11,6 +11,7 @@ import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
+import ListPageShell from '@/components/ui/ListPageShell.vue'
 import { medicalDeviceClassLabel } from '@/constants/labels'
 
 const router = useRouter()
@@ -18,6 +19,10 @@ const { can } = useCapabilities()
 const toast = useToast()
 const models = ref<ImmDeviceModel[]>([])
 const loading = ref(false)
+// AC-UX-047 (lô 1, biến thể B) — `error` CHỈ được gán trong `catch` của `load()`
+// (lỗi xoá đi lối `toast.error`) nên tái dùng an toàn làm nguồn lỗi của khuôn.
+// Dải `.alert-error` cũ đã bỏ: nó hiện SONG SONG với câu «Không tìm thấy model…»,
+// tức lỗi vẫn giả dạng rỗng và không có nút thử lại.
 const error = ref('')
 const totalCount = ref(0)
 const PAGE_SIZE = 30
@@ -65,9 +70,13 @@ const activeChips = computed<FilterChip[]>(() => {
 })
 const activeFilterCount = computed(() => activeChips.value.length)
 
+const emptyTitle = computed(() =>
+  activeFilterCount.value > 0 ? 'Không tìm thấy model thiết bị nào phù hợp' : 'Chưa có model thiết bị nào')
+const EMPTY_HINT = 'Hãy thêm model mới hoặc xoá bộ lọc để xem tất cả.'
+
 async function load() {
   loading.value = true
-  error.value = ''
+  error.value = ''                             // INV-UX3-4 — xoá lỗi ĐẦU lượt
   try {
     const res = await listDeviceModels(filters.value.page, PAGE_SIZE, filters.value.search) as unknown as
       { items: ImmDeviceModel[]; pagination: { total: number } }
@@ -83,6 +92,7 @@ async function load() {
     totalCount.value = res?.pagination?.total || 0
   } catch (e: unknown) {
     error.value = (e as Error).message || 'Lỗi tải dữ liệu'
+    models.value = []; totalCount.value = 0    // INV-UX3-5
   } finally {
     loading.value = false
   }
@@ -130,41 +140,51 @@ const IMPORT_NOTICE = [
 </script>
 
 <template>
-  <div class="page-container animate-fade-in">
-    <PageHeader title="Model thiết bị" :subtitle="`Tổng ${totalCount} model`">
-      <template #actions>
-        <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
-        <button
-          class="px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600 flex items-center gap-1.5"
-          title="Tải dữ liệu hiện tại về Excel"
-          @click="doExport"
-        >
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-          </svg>
-          Xuất Excel
-        </button>
-        <button
-          class="px-3 py-2 text-sm border border-emerald-300 rounded-lg hover:bg-emerald-50 text-emerald-700 flex items-center gap-1.5"
-          @click="openImport"
-        >
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-          </svg>
-          Nhập Excel
-        </button>
-        <button v-if="can('data.create')" class="btn-primary" @click="router.push('/device-models/new')">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
-          </svg>
-          Thêm model thiết bị
-        </button>
-      </template>
-    </PageHeader>
+  <!-- AC-UX-047 (lô 1) — khuôn 4 trạng thái loại trừ (ui/ListPageShell). -->
+  <ListPageShell
+    :loading="loading"
+    :error-message="error"
+    :is-empty="!models.length"
+    :empty-title="emptyTitle"
+    :empty-hint="EMPTY_HINT"
+    @retry="load">
+    <template #header>
+      <PageHeader title="Model thiết bị" :subtitle="`Tổng ${totalCount} model`">
+        <template #actions>
+          <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
+          <button
+            class="px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600 flex items-center gap-1.5"
+            title="Tải dữ liệu hiện tại về Excel"
+            @click="doExport"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            Xuất Excel
+          </button>
+          <button
+            class="px-3 py-2 text-sm border border-emerald-300 rounded-lg hover:bg-emerald-50 text-emerald-700 flex items-center gap-1.5"
+            @click="openImport"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+            </svg>
+            Nhập Excel
+          </button>
+          <button v-if="can('data.create')" class="btn-primary" @click="router.push('/device-models/new')">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+            Thêm model thiết bị
+          </button>
+        </template>
+      </PageHeader>
+    </template>
 
-    <ListFilterBar
+    <template #filters>
+      <ListFilterBar
       :show="showFilters"
       :chips="activeChips"
       v-model:search="filters.search"
@@ -186,12 +206,20 @@ const IMPORT_NOTICE = [
           <input v-model="filters.manufacturer" placeholder="Hãng sản xuất..." class="form-input" @keyup.enter="applyFilters" />
         </div>
       </template>
-    </ListFilterBar>
+      </ListFilterBar>
+    </template>
 
-    <div v-if="error" class="alert-error mb-4">{{ error }}</div>
+    <template #skeleton>
+      <SkeletonLoader v-for="i in 5" :key="i" class="h-12 mb-3" />
+    </template>
 
-    <!-- Table -->
-    <div class="card overflow-hidden">
+    <template #empty-action>
+      <button v-if="activeFilterCount > 0" class="text-xs text-blue-500 hover:text-blue-700 underline" @click="resetFilters">
+        Xóa bộ lọc để xem tất cả
+      </button>
+    </template>
+
+    <template #toolbar>
       <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50/60">
         <span class="text-xs text-slate-500">
           <span v-if="activeFilterCount > 0">
@@ -203,18 +231,9 @@ const IMPORT_NOTICE = [
         </span>
         <button v-if="activeFilterCount > 0" class="text-xs text-red-500 hover:text-red-700 font-medium" @click="resetFilters">Xóa tất cả</button>
       </div>
+    </template>
 
-      <div v-if="loading" class="p-6">
-        <SkeletonLoader v-for="i in 5" :key="i" class="h-12 mb-3" />
-      </div>
-      <div v-else-if="models.length === 0" class="flex flex-col items-center justify-center py-16 text-slate-400">
-        <p class="text-sm">Không tìm thấy model thiết bị nào.</p>
-        <button v-if="activeFilterCount > 0" class="mt-3 text-xs text-blue-500 hover:text-blue-700 underline" @click="resetFilters">
-          Xóa bộ lọc để xem tất cả
-        </button>
-      </div>
-      <template v-else>
-        <!-- Mobile cards -->
+    <!-- Mobile cards -->
         <div class="mobile-card-list sm:hidden">
           <div
             v-for="m in models"
@@ -303,8 +322,8 @@ const IMPORT_NOTICE = [
           </tbody>
         </table>
         </div>
-      </template>
 
+    <template #pagination>
       <div v-if="totalCount > PAGE_SIZE" class="flex items-center justify-between px-4 py-3 border-t border-slate-100 text-sm text-slate-500">
         <span>{{ (filters.page - 1) * PAGE_SIZE + 1 }}–{{ Math.min(filters.page * PAGE_SIZE, totalCount) }} / {{ totalCount }}</span>
         <div class="flex gap-2">
@@ -312,11 +331,13 @@ const IMPORT_NOTICE = [
           <button :disabled="filters.page * PAGE_SIZE >= totalCount" class="px-3 py-1 rounded border border-slate-300 disabled:opacity-40 hover:bg-slate-50" @click="nextPage">Sau ›</button>
         </div>
       </div>
-    </div>
+    </template>
+  </ListPageShell>
 
-    <ImportWizardModal :ctx="importWizard" title="Nhập Model thiết bị" unit="model" :notice="IMPORT_NOTICE" />
+  <!-- Wizard + xem ảnh đặt NGOÀI khuôn: sống ở CẢ 4 trạng thái (INV-UX3-17). -->
+  <ImportWizardModal :ctx="importWizard" title="Nhập Model thiết bị" unit="model" :notice="IMPORT_NOTICE" />
 
-    <!-- Lightbox preview -->
+  <!-- Lightbox preview -->
     <div
       v-if="previewUrl"
       class="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-6 cursor-zoom-out"
@@ -331,6 +352,5 @@ const IMPORT_NOTICE = [
           <button type="button" class="ml-2 px-3 py-1 rounded-md bg-white/10 hover:bg-white/20 border border-white/20" @click="closePreview">Đóng (Esc)</button>
         </div>
       </div>
-    </div>
   </div>
 </template>
