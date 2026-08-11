@@ -17,6 +17,7 @@ import {
 import type { AcLocation, AcDepartment, AcAssetCategory } from '@/types/imm00'
 import type { ImportPreviewResult, ImportResult, ImportStep, ImportMode, RefDataDoctype } from '@/types/import'
 import { translateDepreciationMethod } from '@/utils/formatters'
+import { clinicalAreaTypeLabel } from '@/constants/labels'
 import api from '@/api/axios'
 import { toApiError } from '@/api/errors'
 import { getAcUserBrief } from '@/api/user'
@@ -463,7 +464,7 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
             </td>
             <template v-if="tab === 'location'">
               <td class="px-4 py-3 font-medium text-gray-800">{{ r.location_name }}</td>
-              <td class="px-4 py-3 text-gray-500">{{ r.clinical_area_type || '—' }}</td>
+              <td class="px-4 py-3 text-gray-500">{{ clinicalAreaTypeLabel(r.clinical_area_type as string) }}</td>
               <td class="px-4 py-3 text-gray-500">{{ r.parent_location || '—' }}</td>
               <td class="px-4 py-3">
                 <span :class="r.is_group ? 'text-green-600' : 'text-gray-400'">{{ r.is_group ? '✓' : '—' }}</span>
@@ -907,8 +908,8 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
                 :class="['flex gap-3 text-xs px-3 py-2 rounded-lg',
                   issue.severity === 'error' ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700']"
               >
-                <span class="font-bold shrink-0">Dòng {{ issue.row }}</span>
-                <span class="font-medium shrink-0">{{ issue.field || '—' }}</span>
+                <span class="font-bold shrink-0">Hàng {{ issue.sourceRow }}</span>
+                <span class="font-medium shrink-0">{{ issue.label || 'Cả dòng' }}</span>
                 <span>{{ issue.message }}</span>
               </div>
               <p v-if="previewData.errors.length + previewData.warnings.length > 50"
@@ -930,8 +931,9 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
                 <thead class="bg-gray-50 border-b border-gray-200">
                   <tr>
                     <th v-for="fn in previewData.fieldnames.slice(0, 6)" :key="fn"
-                      class="px-3 py-2 text-left font-medium text-gray-500 whitespace-nowrap">
-                      {{ fn }}
+                      class="px-3 py-2 text-left font-medium text-gray-500 whitespace-nowrap"
+                      :title="fn">
+                      {{ previewData.fieldLabels[fn] || fn }}
                     </th>
                   </tr>
                 </thead>
@@ -953,7 +955,7 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
               class="rounded-lg border border-amber-200 bg-amber-50 p-4 space-y-3"
             >
               <p class="text-sm font-medium text-amber-900">
-                File có {{ previewData.errors.length }} dòng lỗi
+                File có {{ previewData.errors.length }} dòng lỗi hoặc trùng dữ liệu
                 <span v-if="previewData.cascadeCount">
                   + {{ previewData.cascadeCount }} dòng phụ thuộc (cha bị bỏ qua)
                 </span>
@@ -963,19 +965,20 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
                 <label class="flex items-start gap-2 cursor-pointer">
                   <input type="radio" v-model="importMode" value="strict" class="mt-1" />
                   <div>
-                    <p class="text-sm font-medium text-gray-800">Huỷ import, sửa file trước (mặc định)</p>
-                    <p class="text-xs text-gray-600">An toàn — đảm bảo file sạch trước khi import.</p>
+                    <p class="text-sm font-medium text-gray-800">Dừng lại, sửa file trước (mặc định)</p>
+                    <p class="text-xs text-gray-600">An toàn — không nhập gì cho tới khi file sạch.</p>
                   </div>
                 </label>
                 <label class="flex items-start gap-2 cursor-pointer">
                   <input type="radio" v-model="importMode" value="skip_invalid" class="mt-1" />
                   <div>
                     <p class="text-sm font-medium text-gray-800">
-                      Bỏ qua {{ totalSkip }} dòng lỗi, import
+                      Bỏ qua {{ totalSkip }} dòng lỗi/trùng, nhập
                       {{ previewData.totalRows - totalSkip }} dòng hợp lệ
                     </p>
                     <p class="text-xs text-gray-600">
-                      Tải báo cáo lỗi sau khi import xong để sửa và import lại các dòng đã bỏ qua.
+                      Báo cáo lỗi (có số hàng + tên cột) tải được sau khi nhập xong,
+                      sửa rồi nhập lại chỉ những dòng đã bỏ qua.
                     </p>
                   </div>
                 </label>
@@ -1048,7 +1051,8 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
               <p class="text-xs font-medium text-gray-500">Chi tiết lỗi:</p>
               <div v-for="(e, i) in importResult.errors" :key="i"
                 class="flex gap-3 text-xs px-3 py-2 bg-red-50 text-red-700 rounded-lg">
-                <span class="font-bold shrink-0">Dòng {{ e.row }}</span>
+                <span class="font-bold shrink-0">Hàng {{ e.sourceRow }}</span>
+                <span v-if="e.label" class="font-medium shrink-0">{{ e.label }}</span>
                 <span>{{ e.message }}</span>
               </div>
             </div>
@@ -1069,8 +1073,8 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
               <div class="space-y-1 max-h-40 overflow-y-auto">
                 <div v-for="(s, i) in importResult.skippedRows" :key="i"
                   class="flex gap-3 text-xs px-3 py-2 bg-amber-50 text-amber-800 rounded-lg">
-                  <span class="font-bold shrink-0">Dòng {{ s.row }}</span>
-                  <span class="font-medium shrink-0">{{ s.field || '—' }}</span>
+                  <span class="font-bold shrink-0">Hàng {{ s.sourceRow }}</span>
+                  <span class="font-medium shrink-0">{{ s.label || 'Cả dòng' }}</span>
                   <span class="flex-1">{{ s.message }}</span>
                   <span
                     v-if="s.reason === 'cascade_parent_skipped'"
@@ -1082,7 +1086,7 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
 
             <div class="flex justify-between pt-2">
               <button
-                v-if="importResult.failed > 0"
+                v-if="importResult.failed > 0 || importResult.skipped > 0"
                 class="text-xs text-gray-500 hover:text-gray-700 underline"
                 @click="importStep = 'upload'"
               >
