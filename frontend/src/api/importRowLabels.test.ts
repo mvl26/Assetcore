@@ -84,6 +84,22 @@ describe('import wizard — số hàng thật + nhãn cột tiếng Việt', () 
     expect(res.skippedRows[1].reason).toBe('cascade_parent_skipped')
   })
 
+  it('import: DocType cha+bảng con trả thêm số bản ghi CHA đã tạo', async () => {
+    // "3/3 dòng nhập thành công" mà không nói tạo mấy MẪU là vô nghĩa với người
+    // dùng — số dòng (hạng mục) khác số bản ghi (mẫu bảng kiểm).
+    frappePost.mockResolvedValue({
+      total: 3, success: 3, failed: 0, skipped: 0, groups_created: 2, errors: [],
+    })
+    const res = await importRefData('PM Checklist Template', '/files/x.xlsx')
+    expect(res.groupsCreated).toBe(2)
+  })
+
+  it('import: DocType phẳng KHÔNG có số bản ghi cha ⇒ bỏ trống, không bịa 0', async () => {
+    frappePost.mockResolvedValue({ total: 1, success: 1, failed: 0, skipped: 0, errors: [] })
+    const res = await importRefData('AC Department', '/files/x.xlsx')
+    expect(res.groupsCreated).toBeUndefined()
+  })
+
   it('import: gửi skip_invalid=true khi người dùng chọn bỏ qua dòng lỗi/trùng', async () => {
     // Hằng thay vì literal: đây là THAM SỐ của endpoint import (loại dữ liệu cần
     // nhập), KHÔNG phải truy cập doctype `User` của Frappe — viết literal sẽ dính

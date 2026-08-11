@@ -79,6 +79,7 @@ export async function importRefData(
     success: number
     failed: number
     skipped?: number
+    groups_created?: number
     errors: RawIssue[]
     skipped_rows?: (RawIssue & { reason: string })[]
   }>(`${BASE}.import_ref_data`, {
@@ -92,6 +93,7 @@ export async function importRefData(
     success: raw.success,
     failed: raw.failed,
     skipped: raw.skipped ?? 0,
+    groupsCreated: raw.groups_created,
     errors: (raw.errors ?? []).map(toIssue),
     skippedRows: (raw.skipped_rows ?? []).map((r): ImportSkippedRow => ({
       row: r.row,

@@ -9,6 +9,11 @@ defineProps<{
   title: string
   /** Domain noun for the result line (X / Y <unit> nhập thành công). */
   unit?: string
+  /**
+   * Domain noun for grouped DocTypes (cha + bảng con) — "Đã tạo N <groupUnit>".
+   * Vd import mẫu bảng kiểm: unit = "hạng mục", groupUnit = "mẫu bảng kiểm".
+   */
+  groupUnit?: string
   /** Optional bullet-list shown on the upload step under "Lưu ý trước khi import". */
   notice?: string[]
   /** How many fieldname columns to preview (default 6). */
@@ -286,6 +291,12 @@ defineProps<{
               <span v-if="ctx.importResult.value.skipped">
                 — <span class="text-amber-700 font-medium">{{ ctx.importResult.value.skipped }} bỏ qua</span>
               </span>
+            </p>
+            <!-- DocType nhóm (cha + bảng con): số dòng KHÔNG bằng số bản ghi tạo ra. -->
+            <p v-if="ctx.importResult.value.groupsCreated !== undefined"
+              class="text-sm text-gray-600 mt-1">
+              Đã tạo <strong>{{ ctx.importResult.value.groupsCreated }}</strong>
+              {{ groupUnit ?? 'bản ghi' }}
             </p>
           </div>
 
