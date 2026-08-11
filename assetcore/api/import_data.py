@@ -16,6 +16,7 @@ from assetcore.utils.import_helpers import (
     LINK_DISPLAY_BY_DOCTYPE,
     SOURCE_ROW_KEY,
     enrich_issues,
+    enum_to_stored,
 )
 from assetcore.utils.response import _err, _ok
 
@@ -312,6 +313,7 @@ def _do_import(doctype: str, file_url: str, skip_invalid: bool = False) -> dict:
         try:
             clean = _normalise_row(row, _BOOL_FIELDS)
             _resolve_links(clean, resolvable_links)
+            _restore_enum_values(doctype, clean)
             _drop_unresolved_optional_links(clean, optional_links)
 
             # AC Asset: workflow only allows new docs at "Draft". Capture the
@@ -358,6 +360,22 @@ def _resolve_links(clean: dict, resolvable: dict[str, tuple[str, str]]) -> None:
         if resolved:
             clean[fld] = resolved
         # else: leave value; Frappe core will surface "Could not find <Link>"
+
+
+def _restore_enum_values(doctype: str, clean: dict) -> None:
+    """Nhãn VI người dùng chọn trong file → giá trị gốc của DocType Select.
+
+    Template + export in nhãn tiếng Việt ("Đang hoạt động"), nhưng field Select
+    chỉ nhận giá trị gốc ("Active"). Bỏ bước này thì Frappe ném lỗi giá trị không
+    hợp lệ — hoặc tệ hơn, lưu thẳng nhãn VI và vỡ mọi filter/workflow sau đó.
+    Enum của DocType KHÔNG đổi — chỉ lớp nhập/xuất dịch qua lại (LL-FE-53).
+    """
+    from assetcore.utils.import_helpers import ENUM_DISPLAY_BY_DOCTYPE
+
+    for field in ENUM_DISPLAY_BY_DOCTYPE.get(doctype, {}):
+        value = clean.get(field)
+        if value:
+            clean[field] = enum_to_stored(doctype, field, str(value).strip())
 
 
 def _drop_unresolved_optional_links(clean: dict, optional: dict[str, str]) -> None:

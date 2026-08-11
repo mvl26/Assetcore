@@ -70,6 +70,181 @@ LINK_DISPLAY_BY_DOCTYPE: dict[str, dict[str, tuple[str, str]]] = {
     },
 }
 
+# ─────────────────────────────────────────────────────────────────────────────
+# ENUM DISPLAY — nhãn tiếng Việt cho cột Select
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Cùng lý do với LINK_DISPLAY: người dùng bệnh viện không gõ "Semi-Annual" hay
+# "Pass/Fail". Giá trị LƯU giữ nguyên chuỗi DocType Select (đừng đụng enum —
+# LL-FE-53); chỉ lớp NHẬP/XUẤT dịch qua lại.
+#   - template + export  → in nhãn VI
+#   - import             → nhận CẢ nhãn VI lẫn giá trị gốc, đổi về giá trị gốc
+#
+# Nhãn phải khớp SSoT FE (`utils/formatters.ts::PM_TYPE_MAP`,
+# `constants/labels.ts::MEASUREMENT_TYPE_LABELS`) — lệch = người dùng đọc màn
+# hình một kiểu, điền file một kiểu.
+# Nhãn dùng lại ở nhiều DocType — khai 1 lần để không drift giữa các file mẫu.
+_DEPRECIATION_METHOD_VI = {
+    "Straight Line": "Đường thẳng",
+    "Double Declining": "Số dư giảm dần",
+    "Units of Production": "Theo sản lượng",
+}
+# AC Asset có thêm lựa chọn 'None' = không trích khấu hao (Danh mục thì không).
+_ASSET_DEPRECIATION_METHOD_VI = {**_DEPRECIATION_METHOD_VI, "None": "Không khấu hao"}
+# formatters.ts::FREQUENCY_MAP (miền *frequency*, KHÁC pm_type — 'Ad-hoc' của
+# frequency là 'Theo yêu cầu', của pm_type là 'Đột xuất'; khác biệt có chủ đích).
+_DEPRECIATION_FREQUENCY_VI = {
+    "Monthly": "Hàng tháng",
+    "Quarterly": "Hàng quý",
+    "Yearly": "Hàng năm",
+}
+# ⚠️ `supplier_group` và `vendor_type` KHÔNG cùng tập lựa chọn: cái kết thúc bằng
+# "Service Provider", cái kia bằng "Service". Gộp 1 map = sinh khoá rác + 2 nhãn
+# trùng nhau trong một cột ⇒ đổi ngược không xác định (guard bắt được 2026-08-11).
+_SUPPLIER_GROUP_VI = {
+    "Manufacturer": "Nhà sản xuất",
+    "Distributor": "Nhà phân phối",
+    "Calibration Lab": "Phòng hiệu chuẩn",
+    "Service Provider": "Dịch vụ",
+}
+_VENDOR_TYPE_VI = {
+    "Manufacturer": "Nhà sản xuất",
+    "Distributor": "Nhà phân phối",
+    "Calibration Lab": "Phòng hiệu chuẩn",
+    "Service": "Dịch vụ",
+}
+
+ENUM_DISPLAY_BY_DOCTYPE: dict[str, dict[str, dict[str, str]]] = {
+    "AC Asset Category": {
+        "default_depreciation_method": _DEPRECIATION_METHOD_VI,
+        "depreciation_frequency": _DEPRECIATION_FREQUENCY_VI,
+    },
+    "AC Location": {
+        "clinical_area_type": {
+            "ICU": "Hồi sức tích cực",
+            "OR": "Phòng mổ",
+            "Lab": "Xét nghiệm",
+            "Imaging": "Chẩn đoán hình ảnh",
+            "General Ward": "Khoa lâm sàng thường",
+            "Storage": "Kho",
+            "Office": "Văn phòng",
+        },
+        "infection_control_level": {
+            "Standard": "Tiêu chuẩn",
+            "Enhanced": "Tăng cường",
+            "Isolation": "Cách ly",
+        },
+    },
+    "AC Supplier": {
+        "supplier_group": _SUPPLIER_GROUP_VI,
+        "vendor_type": _VENDOR_TYPE_VI,
+    },
+    "IMM Device Model": {
+        # labels.ts::MEDICAL_DEVICE_CLASS_LABEL
+        "medical_device_class": {
+            "Class I": "Loại I — Rủi ro thấp",
+            "Class II": "Loại II — Rủi ro trung bình",
+            "Class III": "Loại III — Rủi ro cao",
+        },
+        "default_calibration_type": {
+            "Internal": "Nội bộ",
+            "External": "Bên ngoài",
+            "Both": "Cả hai",
+        },
+    },
+    "Service Contract": {
+        # labels.ts::CONTRACT_TYPE_LABEL
+        "contract_type": {
+            "Preventive Maintenance": "Bảo trì định kỳ",
+            "Calibration": "Hiệu chuẩn",
+            "Repair": "Sửa chữa",
+            "Full Service": "Toàn diện",
+            "Warranty Extension": "Gia hạn bảo hành",
+        },
+    },
+    "User": {
+        # formatters.ts::STATUS_MAP
+        "imm_approval_status": {
+            "Pending": "Chờ xử lý",
+            "Approved": "Đã phê duyệt",
+            "Rejected": "Bị từ chối",
+        },
+    },
+    "AC Asset": {
+        # formatters.ts::STATUS_MAP (vòng đời tài sản)
+        "lifecycle_status": {
+            "Draft": "Bản nháp",
+            "Commissioned": "Đã đưa vào sử dụng",
+            "Active": "Đang hoạt động",
+            "Under Maintenance": "Đang bảo trì",
+            "Under Repair": "Đang sửa chữa",
+            "Calibrating": "Đang hiệu chuẩn",
+            "Out of Service": "Ngừng hoạt động",
+            "Decommissioned": "Đã thanh lý",
+        },
+        # Cột `status` không có trong file mẫu nhưng CÓ trong file xuất — thiếu
+        # nhãn là file xuất lẫn lộn nửa Việt nửa Anh.
+        "status": {
+            "Submitted": "Đã gửi",
+            "Active": "Đang hoạt động",
+            "Out of Service": "Ngừng hoạt động",
+            "Decommissioned": "Đã thanh lý",
+            "Under Repair": "Đang sửa chữa",
+            "Calibrating": "Đang hiệu chuẩn",
+        },
+        "depreciation_method": _ASSET_DEPRECIATION_METHOD_VI,
+        "depreciation_frequency": _DEPRECIATION_FREQUENCY_VI,
+    },
+    "AC Spare Part": {
+        "part_category": {
+            "Electrical": "Điện",
+            "Mechanical": "Cơ khí",
+            "Consumable": "Tiêu hao",
+            "Filter": "Bộ lọc",
+            "Battery": "Pin/Ắc-quy",
+            "Sensor": "Cảm biến",
+            "Other": "Khác",
+        },
+    },
+    # Sheet "Chính sách SLA" nằm trong file mẫu 02 (chưa nối vào wizard nhập,
+    # nhưng người dùng vẫn tải file đó về điền) — dropdown phải hợp lệ + tiếng Việt.
+    "IMM SLA Policy": {
+        "priority": {
+            "P1": "P1 — Khẩn cấp",
+            "P2": "P2 — Cao",
+            "P3": "P3 — Trung bình",
+            "P4": "P4 — Thấp",
+        },
+        # labels.ts::INCIDENT_SEVERITY_LABEL
+        "risk_class": {
+            "Low": "Thấp",
+            "Medium": "Trung bình",
+            "High": "Cao",
+            "Critical": "Nghiêm trọng",
+        },
+    },
+}
+
+
+def enum_display(doctype: str, field: str, value: str) -> str:
+    """Giá trị gốc → nhãn VI (dùng khi ghi template/export)."""
+    return ENUM_DISPLAY_BY_DOCTYPE.get(doctype, {}).get(field, {}).get(value, value)
+
+
+def enum_accepted(doctype: str, field: str) -> set[str]:
+    """Tập giá trị hợp lệ khi nhập: gồm CẢ giá trị gốc lẫn nhãn VI."""
+    mapping = ENUM_DISPLAY_BY_DOCTYPE.get(doctype, {}).get(field, {})
+    return set(mapping) | set(mapping.values())
+
+
+def enum_to_stored(doctype: str, field: str, value: str) -> str:
+    """Nhãn VI (hoặc giá trị gốc) → giá trị LƯU vào DocType Select."""
+    mapping = ENUM_DISPLAY_BY_DOCTYPE.get(doctype, {}).get(field, {})
+    if not mapping or value in mapping:
+        return value
+    reverse = {vi: en for en, vi in mapping.items()}
+    return reverse.get(value, value)
+
 # Mapping doctype → (fieldname, tiếng Việt label, export fields)
 _REF_DATA_CONFIG: dict[str, dict] = {
     "AC Asset Category": {
@@ -620,6 +795,11 @@ def export_ref_data(doctype: str) -> bytes:
 
     # Link column phải in TÊN, không in mã — file export cũng là file import lại.
     rows = resolve_links_to_display(doctype, [dict(r) for r in rows])
+    # Cột Select in nhãn VI (đúng thứ người dùng thấy trên màn hình).
+    for field_name in ENUM_DISPLAY_BY_DOCTYPE.get(doctype, {}):
+        for r in rows:
+            if r.get(field_name):
+                r[field_name] = enum_display(doctype, field_name, str(r[field_name]))
 
     wb = Workbook()
     ws = wb.active
