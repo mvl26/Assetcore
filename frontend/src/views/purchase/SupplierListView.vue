@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useToast } from '@/composables/useToast'
+import { VENDOR_TYPE_LABEL } from '@/constants/labels'
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useCapabilities } from '@/composables/useCapabilities'
@@ -35,15 +36,11 @@ const filters = ref({
   page: 1,
 })
 
+// Bộ lọc giữ nguyên 4 giá trị đang dùng ở màn tạo NCC; nhãn lấy từ SSoT
+// `constants/labels.ts` (trước đây là bản sao thứ hai của SupplierDetailView).
 const VENDOR_TYPES: { value: string; label: string }[] = [
-  { value: 'Manufacturer', label: 'Nhà sản xuất' },
-  { value: 'Distributor', label: 'Nhà phân phối' },
-  { value: 'Service Provider', label: 'Dịch vụ' },
-  { value: 'Calibration Lab', label: 'Phòng hiệu chuẩn' },
-]
-const VENDOR_TYPE_LABEL: Record<string, string> = Object.fromEntries(
-  VENDOR_TYPES.map(v => [v.value, v.label]),
-)
+  'Manufacturer', 'Distributor', 'Service Provider', 'Calibration Lab',
+].map(value => ({ value, label: VENDOR_TYPE_LABEL[value] ?? value }))
 
 const VENDOR_TYPE_COLORS: Record<string, string> = {
   Manufacturer: 'bg-purple-100 text-purple-700',

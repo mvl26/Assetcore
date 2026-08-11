@@ -384,6 +384,63 @@ export function calibrationStatusLabel(v: string) {
 }
 export function calibrationStatusClass(v: string) { return CALIBRATION_STATUS_CLASS[v] ?? 'bg-gray-100 text-gray-600' }
 
+// ─── Dữ liệu tham chiếu: khu vực lâm sàng · kiểm soát nhiễm khuẩn ─────────────
+// SSoT nhãn cho các cột Select của AC Location. Trước đây MÀN HÌNH in nguyên
+// "ICU"/"Standard" trong khi FILE nhập/xuất hỏi bằng tiếng Việt ⇒ người dùng đọc
+// hai nơi ra hai thứ. Khoá parity BE↔FE: `tests/test_import_enum_labels.py`.
+export const CLINICAL_AREA_TYPE_LABEL: Record<string, string> = {
+  'ICU':          'Hồi sức tích cực',
+  'OR':           'Phòng mổ',
+  'Lab':          'Xét nghiệm',
+  'Imaging':      'Chẩn đoán hình ảnh',
+  'General Ward': 'Khoa lâm sàng thường',
+  'Storage':      'Kho',
+  'Office':       'Văn phòng',
+}
+export function clinicalAreaTypeLabel(v?: string | null) {
+  return v ? (CLINICAL_AREA_TYPE_LABEL[v] ?? v) : '—'
+}
+
+export const INFECTION_CONTROL_LEVEL_LABEL: Record<string, string> = {
+  'Standard':  'Tiêu chuẩn',
+  'Enhanced':  'Tăng cường',
+  'Isolation': 'Cách ly',
+}
+export function infectionControlLevelLabel(v?: string | null) {
+  return v ? (INFECTION_CONTROL_LEVEL_LABEL[v] ?? v) : '—'
+}
+
+// ─── Loại phụ tùng (AC Spare Part.part_category) ──────────────────────────────
+// Gom từ map cục bộ của SparePartListView về SSoT — map cục bộ là mầm drift với
+// file nhập/xuất (guard parity BE↔FE sẽ đỏ nếu lệch).
+export const SPARE_PART_CATEGORY_LABEL: Record<string, string> = {
+  'Electrical':  'Điện',
+  'Mechanical':  'Cơ khí',
+  'Consumable':  'Tiêu hao',
+  'Filter':      'Bộ lọc',
+  'Battery':     'Pin/Ắc-quy',
+  'Sensor':      'Cảm biến',
+  'Other':       'Khác',
+}
+export function sparePartCategoryLabel(v?: string | null) {
+  return v ? (SPARE_PART_CATEGORY_LABEL[v] ?? v) : '—'
+}
+
+// ─── Nhóm / loại nhà cung cấp ─────────────────────────────────────────────────
+// ⚠️ AC Supplier có HAI field khác tập lựa chọn: `supplier_group` kết thúc bằng
+// 'Service Provider', `vendor_type` bằng 'Service'. Map này phủ CẢ HAI để không
+// field nào rơi ra chữ tiếng Anh; trước đây 2 view tự khai bản sao giống hệt.
+export const VENDOR_TYPE_LABEL: Record<string, string> = {
+  'Manufacturer':    'Nhà sản xuất',
+  'Distributor':     'Nhà phân phối',
+  'Calibration Lab': 'Phòng hiệu chuẩn',
+  'Service Provider': 'Dịch vụ',
+  'Service':         'Dịch vụ',
+}
+export function vendorTypeLabel(v?: string | null) {
+  return v ? (VENDOR_TYPE_LABEL[v] ?? v) : '—'
+}
+
 // ─── Medical device class ─────────────────────────────────────────────────────
 export const MEDICAL_DEVICE_CLASS_LABEL: Record<string, string> = {
   'Class I':   'Loại I — Rủi ro thấp',
