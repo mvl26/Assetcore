@@ -13,6 +13,7 @@ import frappe
 
 from assetcore.services.shared import ErrorCode, ServiceError
 from assetcore.utils.import_helpers import (
+    GROUPED_IMPORT_DOCTYPES,
     LINK_DISPLAY_BY_DOCTYPE,
     SOURCE_ROW_KEY,
     enrich_issues,
@@ -294,6 +295,8 @@ def _do_import(doctype: str, file_url: str, skip_invalid: bool = False) -> dict:
     # ── Insert ─────────────────────────────────────────────────────────────
     if doctype == "User":
         return _do_import_users(rows, invalid_idx, skipped_rows)
+    if doctype in GROUPED_IMPORT_DOCTYPES:
+        return _do_import_grouped(doctype, rows, invalid_idx, skipped_rows)
 
     resolvable_links = _RESOLVABLE_LINKS_BY_DOCTYPE.get(doctype, {})
     optional_links = _OPTIONAL_LINKS_BY_DOCTYPE.get(doctype, {})
@@ -344,6 +347,123 @@ def _do_import(doctype: str, file_url: str, skip_invalid: bool = False) -> dict:
     enrich_issues(doctype, rows, results["errors"])
     frappe.db.commit()
     return results
+
+
+def _group_key_of(doctype: str, cfg: dict, row: dict) -> tuple:
+    """Khoá định danh của nhóm — đã chuẩn hoá tên→mã và nhãn VI→giá trị lưu.
+
+    Người dùng có thể viết "Máy thở" ở dòng này, mã "CAT-0007" ở dòng kia; cùng
+    một mẫu thì phải rơi vào cùng nhóm, nếu không sẽ tạo 2 lần và đụng khoá.
+    """
+    resolvable = _RESOLVABLE_LINKS_BY_DOCTYPE.get(doctype, {})
+    key: list[str] = []
+    for field in cfg["group_key_fields"]:
+        value = str(row.get(field, "")).strip()
+        cfgl = resolvable.get(field)
+        if cfgl and value:
+            link_dt, display_field = cfgl
+            if not frappe.db.exists(link_dt, value):
+                value = frappe.db.get_value(link_dt, {display_field: value}, "name") or value
+        key.append(enum_to_stored(doctype, field, value))
+    return tuple(key)
+
+
+def _do_import_grouped(
+    doctype: str, rows: list[dict],
+    invalid_idx: set[int], skipped_rows: list[dict],
+) -> dict:
+    """Nhập DocType có BẢNG CON từ file phẳng: gộp các hàng cùng khoá thành 1 bản ghi.
+
+    Mỗi hàng file = 1 dòng bảng con; cột của bản ghi cha lặp lại ở mọi hàng và
+    lấy theo hàng ĐẦU TIÊN của nhóm. Hàng lỗi bị bỏ qua vẫn cho phần còn lại của
+    nhóm được tạo — đúng tinh thần 'bỏ qua dòng lỗi/trùng'.
+
+    Đi qua service layer (`services.imm08.create_template`) chứ KHÔNG
+    `new_doc().insert()` trần: quy tắc nghiệp vụ + đánh số hạng mục nằm ở đó.
+    """
+    cfg = GROUPED_IMPORT_DOCTYPES[doctype]
+    resolvable = _RESOLVABLE_LINKS_BY_DOCTYPE.get(doctype, {})
+
+    results: dict = {
+        "total": len(rows),
+        "success": 0,
+        "failed": 0,
+        "skipped": len(invalid_idx),
+        "errors": [],
+        "skipped_rows": skipped_rows,
+        "groups_created": 0,
+    }
+
+    # Gộp nhóm theo thứ tự xuất hiện để thông báo lỗi bám đúng hàng đầu nhóm.
+    groups: dict[tuple, dict] = {}
+    for i, row in enumerate(rows, start=1):
+        if i in invalid_idx:
+            continue
+        key = _group_key_of(doctype, cfg, row)
+        group = groups.setdefault(key, {"first_row": i, "rows": [], "parent": {}})
+        if not group["parent"]:
+            parent = {f: row.get(f) for f in cfg["parent_fields"] if row.get(f) not in ("", None)}
+            _resolve_links(parent, resolvable)
+            for f in cfg["parent_fields"]:
+                if parent.get(f):
+                    parent[f] = enum_to_stored(doctype, f, str(parent[f]))
+            group["parent"] = parent
+        group["rows"].append((i, row))
+
+    for key, group in groups.items():
+        row_indexes = [i for i, _ in group["rows"]]
+        try:
+            children = [
+                _build_child_row(doctype, cfg, row) for _, row in group["rows"]
+            ]
+            _create_grouped_record(doctype, group["parent"], cfg["child_table"], children)
+            results["groups_created"] += 1
+            results["success"] += len(row_indexes)
+        except Exception as e:            # noqa: BLE001 — lỗi 1 nhóm không được giết cả file
+            frappe.log_error(f"Import group {key} failed: {e}", "Import Grouped Data")
+            results["failed"] += len(row_indexes)
+            for i in row_indexes:
+                results["errors"].append({
+                    "row": i,
+                    "field": "",
+                    "message": _friendly_frappe_error(str(e)),
+                    "severity": "error",
+                })
+
+    enrich_issues(doctype, rows, results["errors"])
+    frappe.db.commit()
+    return results
+
+
+def _build_child_row(doctype: str, cfg: dict, row: dict) -> dict:
+    """1 hàng file → 1 dòng bảng con, đã ép kiểu số/cờ và đổi nhãn VI về giá trị lưu."""
+    child: dict = {}
+    for field in cfg["child_fields"]:
+        value = row.get(field)
+        if value in ("", None):
+            continue
+        if field in _BOOL_FIELDS or field == "is_critical":
+            child[field] = 1 if str(value) in ("1", "True", "true", "yes") else 0
+        elif field in ("expected_min", "expected_max"):
+            child[field] = float(str(value))
+        else:
+            child[field] = enum_to_stored(doctype, field, str(value).strip())
+    return child
+
+
+def _create_grouped_record(
+    doctype: str, parent: dict, child_table: str, children: list[dict],
+) -> None:
+    """Tạo bản ghi cha + bảng con qua service layer của module tương ứng."""
+    if doctype == "PM Checklist Template":
+        from assetcore.services import imm08
+
+        imm08.create_template({**parent, child_table: children})
+        return
+    raise ServiceError(
+        ErrorCode.VALIDATION,
+        f"DocType '{doctype}' chưa có đường tạo bản ghi theo nhóm",
+    )
 
 
 def _resolve_links(clean: dict, resolvable: dict[str, tuple[str, str]]) -> None:

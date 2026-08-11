@@ -713,6 +713,70 @@ def make_users():
 
 
 # ════════════════════════════════════════════════════════════════════════════
+# 7. MẪU BẢNG KIỂM BẢO TRÌ (PM Checklist Template + PM Checklist Item)
+# ════════════════════════════════════════════════════════════════════════════
+
+def make_pm_checklist():
+    """File PHẲNG: mỗi hàng = 1 hạng mục kiểm tra.
+
+    5 cột đầu là thông tin của MẪU — lặp lại y hệt ở mọi hàng thuộc cùng mẫu.
+    Hệ thống gộp theo (Danh mục tài sản + Loại bảo trì định kỳ) = khoá định danh
+    của mẫu, nên KHÔNG cần cột mã mẫu.
+    """
+    wb = Workbook()
+    wb.remove(wb.active)
+
+    build_sheet(wb, "Bảng kiểm bảo trì", [
+        {"name": "template_name", "label": "Tên mẫu bảng kiểm", "required": True, "width": 34,
+         "desc": "Tên mẫu. LẶP LẠI y hệt ở mọi hàng thuộc cùng một mẫu.",
+         "example": "Bảng kiểm bảo trì quý — Máy thở"},
+        {"name": "asset_category", "label": "Danh mục tài sản", "required": True, "width": 28,
+         "desc": f"Tên danh mục, khớp file 01 / sheet 'Danh mục tài sản'. {NAME_NOT_CODE} "
+                 "Cùng với Loại bảo trì tạo thành khoá của mẫu.",
+         "example": "Máy chẩn đoán hình ảnh"},
+        {"name": "pm_type", "label": "Loại bảo trì định kỳ", "required": True, "width": 22,
+         "desc": "Hàng quý / Nửa năm / Hàng năm / Đột xuất. "
+                 "Mỗi danh mục chỉ có MỘT mẫu cho mỗi loại.",
+         "example": "Hàng quý",
+         "dv": '"Hàng quý,Nửa năm,Hàng năm,Đột xuất"'},
+        {"name": "version", "label": "Phiên bản", "required": False, "width": 14,
+         "desc": "Phiên bản mẫu. Để trống = 1.0.", "example": "1.0"},
+        {"name": "effective_date", "label": "Ngày hiệu lực", "required": False, "width": 18,
+         "desc": "Định dạng: YYYY-MM-DD. Để trống = ngày nhập.", "example": "2026-01-01"},
+        {"name": "description", "label": "Nội dung kiểm tra", "required": True, "width": 46,
+         "desc": "Mô tả một hạng mục phải kiểm. MỖI HÀNG LÀ MỘT HẠNG MỤC. "
+                 "Thứ tự hạng mục theo thứ tự hàng; hệ thống tự đánh số.",
+         "example": "Kiểm tra áp suất khí nén đầu vào"},
+        {"name": "measurement_type", "label": "Cách ghi nhận kết quả", "required": True, "width": 24,
+         "desc": "Đạt/Không đạt = tick; Số đo = nhập số kèm đơn vị; Ghi chú = nhập chữ.",
+         "example": "Số đo",
+         "dv": '"Đạt/Không đạt,Số đo,Ghi chú"'},
+        {"name": "unit", "label": "Đơn vị đo", "required": False, "width": 14,
+         "desc": "Chỉ dùng khi cách ghi nhận là 'Số đo'. VD: bar, °C, mA.",
+         "example": "bar"},
+        {"name": "expected_min", "label": "Ngưỡng dưới", "required": False, "width": 16,
+         "desc": "Giá trị nhỏ nhất chấp nhận được (chỉ dùng cho 'Số đo').",
+         "example": "4"},
+        {"name": "expected_max", "label": "Ngưỡng trên", "required": False, "width": 16,
+         "desc": "Giá trị lớn nhất chấp nhận được. Phải >= ngưỡng dưới.",
+         "example": "6"},
+        {"name": "is_critical", "label": "Hạng mục trọng yếu?", "required": False, "width": 22,
+         "desc": "1 = không đạt thì cả lần bảo trì bị coi là hỏng; 0 = bình thường.",
+         "example": "1", "dv": '"1,0"'},
+        {"name": "reference_section", "label": "Mục tham chiếu tài liệu", "required": False, "width": 26,
+         "desc": "Mục trong tài liệu nhà sản xuất / quy trình. VD: SM §4.2.",
+         "example": "SM §4.2"},
+    ], [{}],
+    instructions="MỖI HÀNG = 1 hạng mục kiểm tra, điền từ HÀNG 6 (hàng 5 là ví dụ mẫu). "
+                 "5 cột đầu (tên mẫu, danh mục, loại bảo trì, phiên bản, ngày hiệu lực) "
+                 "LẶP LẠI y hệt ở mọi hàng cùng một mẫu — hệ thống gộp theo Danh mục + "
+                 "Loại bảo trì. Danh mục điền TÊN, không điền mã.")
+
+    wb.save(os.path.join(OUT_DIR, "07_bang_kiem_bao_tri.xlsx"))
+    print("✓ 07_bang_kiem_bao_tri.xlsx")
+
+
+# ════════════════════════════════════════════════════════════════════════════
 # 7. HƯỚNG DẪN TỔNG QUAN
 # ════════════════════════════════════════════════════════════════════════════
 
@@ -790,6 +854,10 @@ def make_guide():
          "Toàn bộ tài sản thiết bị y tế",
          "4 — CUỐI CÙNG",
          "Cần: Category, Model, NCC, Location, Department, User"),
+        (12, "07_bang_kiem_bao_tri.xlsx",
+         "Mẫu bảng kiểm bảo trì định kỳ theo danh mục\n(mỗi hàng = 1 hạng mục kiểm tra)",
+         "4 — Sau Danh mục tài sản",
+         "Gộp theo Danh mục + Loại bảo trì; mỗi danh mục 1 mẫu/loại"),
     ]
 
     alt_colors = ["FDFEFE", "EAF2FF"]
@@ -857,4 +925,5 @@ if __name__ == "__main__":
     make_spare_parts()
     make_warehouse()
     make_users()
-    print("\nDone! 9 files generated.")
+    make_pm_checklist()
+    print("\nDone! 10 files generated.")

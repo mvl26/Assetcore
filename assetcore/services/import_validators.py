@@ -858,6 +858,150 @@ class AssetImportValidator(BaseImportValidator):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# PM CHECKLIST TEMPLATE (mẫu bảng kiểm bảo trì — cha + bảng con)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class PmChecklistTemplateImportValidator(BaseImportValidator):
+    """File phẳng: MỖI HÀNG = 1 hạng mục kiểm tra; cột của mẫu lặp lại.
+
+    Hai tầng kiểm tra:
+      - theo HÀNG: hạng mục có nội dung, cách ghi nhận hợp lệ, ngưỡng là số…
+      - theo NHÓM (danh mục + loại bảo trì = khoá định danh của mẫu): mẫu đã tồn
+        tại chưa, các hàng cùng nhóm có khai mâu thuẫn tên/phiên bản không.
+    Lỗi mức nhóm gắn vào MỌI hàng của nhóm ⇒ bật 'bỏ qua dòng lỗi/trùng' là cả
+    mẫu trùng bị loại, các mẫu khác trong file vẫn nhập được.
+    """
+
+    doctype = "PM Checklist Template"
+
+    def validate_all(self, rows: list[dict]) -> list[ImportError]:
+        from assetcore.utils.import_helpers import enum_to_stored
+
+        valid_categories = _link_lookup_set("AC Asset Category", "category_name")
+
+        errors: list[ImportError] = []
+        # Nhóm → [(row_idx, row)] theo khoá đã chuẩn hoá (tên/mã + nhãn VI/gốc).
+        groups: dict[tuple[str, str], list[tuple[int, dict]]] = {}
+
+        for i, row in enumerate(rows, start=1):
+            errors.extend(self._validate_item_row(row, i, valid_categories))
+            cat = self._category_code(str(row.get("asset_category", "")).strip())
+            pm_type = enum_to_stored(self.doctype, "pm_type",
+                                     str(row.get("pm_type", "")).strip())
+            if cat and pm_type:
+                groups.setdefault((cat, pm_type), []).append((i, row))
+
+        for (cat, pm_type), members in groups.items():
+            errors.extend(self._validate_group(cat, pm_type, members))
+        return errors
+
+    @staticmethod
+    def _category_code(value: str) -> str:
+        """Giá trị người dùng gõ (tên HOẶC mã) → mã danh mục, để dựng khoá nhóm."""
+        if not value:
+            return ""
+        if frappe.db.exists("AC Asset Category", value):
+            return value
+        return frappe.db.get_value(
+            "AC Asset Category", {"category_name": value}, "name",
+        ) or ""
+
+    def _validate_item_row(
+        self, row: dict, row_idx: int, valid_categories: set[str],
+    ) -> list[ImportError]:
+        errors: list[ImportError] = []
+
+        for field, label in [
+            ("template_name", "Tên mẫu bảng kiểm"),
+            ("asset_category", "Danh mục tài sản"),
+            ("pm_type", "Loại bảo trì định kỳ"),
+            ("description", "Nội dung kiểm tra"),
+        ]:
+            e = self._req(row, row_idx, field, label)
+            if e:
+                errors.append(e)
+
+        cat = str(row.get("asset_category", "")).strip()
+        if cat and cat not in valid_categories:
+            errors.append(self._err(
+                row_idx, "asset_category",
+                f"Danh mục '{cat}' không tồn tại — " + _name_hint("danh mục")
+                + ", hoặc nhập danh mục trước",
+            ))
+
+        errors.extend(self._check_enum(
+            row, row_idx, "pm_type", "Loại bảo trì định kỳ"))
+        errors.extend(self._check_enum(
+            row, row_idx, "measurement_type", "Cách ghi nhận kết quả", required=True))
+
+        bounds: dict[str, float] = {}
+        for field, label in [("expected_min", "Ngưỡng dưới"), ("expected_max", "Ngưỡng trên")]:
+            value = row.get(field)
+            if value in ("", None):
+                continue
+            try:
+                bounds[field] = float(str(value))
+            except ValueError:
+                errors.append(self._err(row_idx, field, f"'{label}' phải là số"))
+        if len(bounds) == 2 and bounds["expected_min"] > bounds["expected_max"]:
+            errors.append(self._err(
+                row_idx, "expected_max",
+                f"Ngưỡng trên ({bounds['expected_max']:g}) phải >= "
+                f"ngưỡng dưới ({bounds['expected_min']:g})",
+            ))
+
+        return errors
+
+    def _validate_group(
+        self, cat: str, pm_type: str, members: list[tuple[int, dict]],
+    ) -> list[ImportError]:
+        """Kiểm tra ở mức MẪU — lỗi gắn vào mọi hàng thuộc mẫu đó."""
+        errors: list[ImportError] = []
+        cat_display = frappe.db.get_value("AC Asset Category", cat, "category_name") or cat
+
+        if frappe.db.exists("PM Checklist Template",
+                            {"asset_category": cat, "pm_type": pm_type}):
+            for row_idx, _ in members:
+                errors.append(self._err(
+                    row_idx, "template_name",
+                    f"Mẫu bảng kiểm cho danh mục '{cat_display}' đã tồn tại — "
+                    "mỗi danh mục chỉ có một mẫu cho mỗi loại bảo trì; "
+                    "sửa trực tiếp trên màn hình hoặc bỏ qua các dòng này",
+                ))
+            return errors
+
+        # Cột của mẫu lặp ở mọi hàng — khai lệch nhau thì hàng đầu thắng, phải báo.
+        first_idx, first_row = members[0]
+        for field, label in [("template_name", "Tên mẫu bảng kiểm"),
+                             ("version", "Phiên bản"),
+                             ("effective_date", "Ngày hiệu lực")]:
+            first_value = str(first_row.get(field, "")).strip()
+            for row_idx, row in members[1:]:
+                value = str(row.get(field, "")).strip()
+                if value and value != first_value:
+                    errors.append(self._warn(
+                        row_idx, field,
+                        f"'{label}' khác dòng {first_idx} ('{value}' ≠ '{first_value}') "
+                        f"— dùng giá trị của dòng {first_idx}",
+                    ))
+
+        seen_desc: dict[str, int] = {}
+        for row_idx, row in members:
+            desc = str(row.get("description", "")).strip().lower()
+            if not desc:
+                continue
+            if desc in seen_desc:
+                errors.append(self._warn(
+                    row_idx, "description",
+                    f"Nội dung kiểm tra trùng dòng {seen_desc[desc]} trong cùng mẫu",
+                ))
+            else:
+                seen_desc[desc] = row_idx
+
+        return errors
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # REGISTRY
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -869,6 +1013,7 @@ VALIDATOR_REGISTRY: dict[str, type[BaseImportValidator]] = {
     "Service Contract":  ContractImportValidator,
     "User":              UserImportValidator,
     "AC Asset":          AssetImportValidator,
+    "PM Checklist Template": PmChecklistTemplateImportValidator,
 }
 
 

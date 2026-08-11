@@ -68,6 +68,9 @@ LINK_DISPLAY_BY_DOCTYPE: dict[str, dict[str, tuple[str, str]]] = {
         # ac_department: người dùng điền "Khoa Hồi sức tích cực" → AC-DEPT-####
         "ac_department": ("AC Department", "department_name"),
     },
+    "PM Checklist Template": {
+        "asset_category": ("AC Asset Category", "category_name"),
+    },
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -221,6 +224,21 @@ ENUM_DISPLAY_BY_DOCTYPE: dict[str, dict[str, dict[str, str]]] = {
             "Medium": "Trung bình",
             "High": "Cao",
             "Critical": "Nghiêm trọng",
+        },
+    },
+    "PM Checklist Template": {
+        # formatters.ts::PM_TYPE_MAP
+        "pm_type": {
+            "Quarterly": "Hàng quý",
+            "Semi-Annual": "Nửa năm",
+            "Annual": "Hàng năm",
+            "Ad-hoc": "Đột xuất",
+        },
+        # labels.ts::MEASUREMENT_TYPE_LABELS
+        "measurement_type": {
+            "Pass/Fail": "Đạt/Không đạt",
+            "Numeric": "Số đo",
+            "Text": "Ghi chú",
         },
     },
 }
@@ -481,9 +499,52 @@ _REF_DATA_CONFIG: dict[str, dict] = {
             "is_active": "Đang hoạt động",
         },
     },
+    # Mẫu bảng kiểm bảo trì — dữ liệu CHA + BẢNG CON (hạng mục kiểm tra).
+    # File phẳng: MỖI HÀNG = 1 hạng mục; các cột của mẫu (tên/danh mục/loại/phiên
+    # bản/hiệu lực) lặp lại ở mọi hàng cùng mẫu. Nhóm theo (danh mục, loại bảo trì)
+    # — đúng khoá định danh của DocType (`autoname: PMCT-{asset_category}-{pm_type}`).
+    "PM Checklist Template": {
+        "name_field": "template_name",
+        "child_table": "checklist_items",
+        "group_key_fields": ("asset_category", "pm_type"),
+        "parent_fields": [
+            "template_name", "asset_category", "pm_type", "version", "effective_date",
+        ],
+        "child_fields": [
+            "description", "measurement_type", "unit",
+            "expected_min", "expected_max", "is_critical", "reference_section",
+        ],
+        "export_fields": [
+            "name", "template_name", "asset_category", "pm_type",
+            "version", "effective_date", "approved_by",
+            "description", "measurement_type", "unit",
+            "expected_min", "expected_max", "is_critical", "reference_section",
+        ],
+        "export_labels": {
+            "name": _LABEL_SYSTEM_CODE,
+            "template_name": "Tên mẫu bảng kiểm",
+            "asset_category": "Danh mục tài sản",
+            "pm_type": "Loại bảo trì định kỳ",
+            "version": "Phiên bản",
+            "effective_date": "Ngày hiệu lực",
+            "approved_by": "Người phê duyệt",
+            "description": "Nội dung kiểm tra",
+            "measurement_type": "Cách ghi nhận kết quả",
+            "unit": "Đơn vị đo",
+            "expected_min": "Ngưỡng dưới",
+            "expected_max": "Ngưỡng trên",
+            "is_critical": "Hạng mục trọng yếu",
+            "reference_section": "Mục tham chiếu tài liệu",
+        },
+    },
 }
 
 SUPPORTED_REF_DOCTYPES = list(_REF_DATA_CONFIG.keys())
+
+# DocType nhập theo NHÓM (cha + bảng con) thay vì 1 hàng = 1 bản ghi.
+GROUPED_IMPORT_DOCTYPES: dict[str, dict] = {
+    dt: cfg for dt, cfg in _REF_DATA_CONFIG.items() if cfg.get("child_table")
+}
 
 # Cột chỉ có trong template import (không nằm trong export_fields) — vẫn cần nhãn
 # tiếng Việt để câu báo lỗi gọi đúng tên cột người dùng nhìn thấy.
@@ -738,6 +799,47 @@ def _export_users(cfg: dict) -> list[dict]:
     return result
 
 
+def _export_pm_checklist_templates(cfg: dict) -> list[dict]:
+    """Trải phẳng mẫu bảng kiểm: mỗi hạng mục con = 1 hàng, cột cha lặp lại.
+
+    Cùng bố cục với file nhập ⇒ xuất ra sửa rồi nhập lại được (mẫu chưa có hạng
+    mục nào vẫn ra 1 hàng để không biến mất khỏi file).
+    """
+    parents = frappe.get_all(
+        "PM Checklist Template",
+        fields=["name", "template_name", "asset_category", "pm_type",
+                "version", "effective_date", "approved_by"],
+        order_by="template_name asc",
+    )
+    if not parents:
+        return []
+
+    items = frappe.get_all(
+        "PM Checklist Item",
+        filters={"parent": ["in", [p["name"] for p in parents]], "parenttype": "PM Checklist Template"},
+        fields=["parent", "idx", "description", "measurement_type", "unit",
+                "expected_min", "expected_max", "is_critical", "reference_section"],
+        order_by="parent asc, idx asc",
+    )
+    by_parent: dict[str, list[dict]] = {}
+    for it in items:
+        by_parent.setdefault(it["parent"], []).append(it)
+
+    child_fields = cfg["child_fields"]
+    rows: list[dict] = []
+    for p in parents:
+        base = {k: p.get(k) for k in
+                ("name", "template_name", "asset_category", "pm_type",
+                 "version", "effective_date", "approved_by")}
+        children = by_parent.get(p["name"], [])
+        if not children:
+            rows.append({**base, **{f: None for f in child_fields}})
+            continue
+        for it in children:
+            rows.append({**base, **{f: it.get(f) for f in child_fields}})
+    return rows
+
+
 def _display_names_for(link_doctype: str, display_field: str, codes: set[str]) -> dict[str, str]:
     """Map mã hệ thống → tên hiển thị cho một tập mã (1 query, không N+1)."""
     if not codes:
@@ -790,6 +892,8 @@ def export_ref_data(doctype: str) -> bytes:
 
     if doctype == "User":
         rows = _export_users(cfg)
+    elif doctype in GROUPED_IMPORT_DOCTYPES:
+        rows = _export_pm_checklist_templates(cfg)
     else:
         rows = frappe.get_all(doctype, fields=fields, order_by="creation asc")
 
@@ -857,6 +961,7 @@ _TEMPLATE_MAP: dict[str, str] = {
     "AC Spare Part":     "04_danh_sach_phu_tung.xlsx",
     "AC Warehouse":      "05_kho_hang.xlsx",
     "User":              "06_danh_sach_nguoi_dung.xlsx",
+    "PM Checklist Template": "07_bang_kiem_bao_tri.xlsx",
 }
 
 # Templates nằm ở assetcore/public/import_templates/
