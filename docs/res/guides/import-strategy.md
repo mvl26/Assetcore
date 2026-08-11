@@ -352,6 +352,107 @@ UI nên hiển thị dependency rõ ràng khi user chọn loại import sai th�
 
 ---
 
+## 8bis. Hợp đồng "điền TÊN, báo đúng chỗ, bỏ qua được" (chốt 2026-08-11)
+
+Phản hồi người dùng: *"có vài trường phải điền bằng mã (mã khoa phòng, mã model…)"* —
+mã hệ thống là chi tiết cài đặt, người nhập liệu bệnh viện không có cách nào tra.
+Ba cam kết dưới đây áp cho MỌI loại dữ liệu hỗ trợ nhập/xuất:
+
+**1. Cột tham chiếu luôn dùng TÊN, cả 2 chiều.**
+SSoT: `utils/import_helpers.LINK_DISPLAY_BY_DOCTYPE` (`api/import_data._RESOLVABLE_LINKS_BY_DOCTYPE`
+chỉ là alias). Một map, ba hướng dùng:
+
+| Hướng | Hàm | Hệ quả nếu quên |
+|---|---|---|
+| Nhập: tên → mã trước khi lưu | `_resolve_links` | Frappe báo "Could not find …" giữa chừng |
+| Nhập: chấp nhận cả tên lẫn mã khi kiểm tra | `_link_lookup_set` | Từ chối đúng giá trị template dạy điền |
+| Xuất: mã → tên khi ghi Excel | `resolve_links_to_display` | File xuất ra toàn mã, không nhập lại được |
+
+Ngoại lệ duy nhất: Link trỏ `User` — khoá chính là email, chính là giá trị hiển thị.
+Cột `name` ("Mã hệ thống") vẫn xuất để hỗ trợ kỹ thuật đối chiếu.
+
+**2. Báo lỗi chỉ đúng hàng và đúng cột, bằng tiếng Việt.**
+Parser loại dòng trống ⇒ "dòng thứ N" KHÔNG bằng hàng Excel `N+5`. `_rows_to_dicts`
+ghi số hàng gốc vào `__source_row__`; `enrich_issues()` bồi `source_row` + `label`
+(nhãn VI) vào mọi lỗi trả ra: xem trước · lỗi khi nhập · dòng bỏ qua · báo cáo lỗi
+`.xlsx` (cột đầu = "Hàng trong file"). Giao diện hiện **"Hàng 12 · Danh mục tài sản"**,
+không hiện `row: 7` hay `asset_category`.
+
+**3. Sai/trùng vài dòng không chặn cả file.**
+Chế độ 'Bỏ qua dòng lỗi/trùng' (opt-in, mặc định vẫn là dừng lại) áp cho MỌI loại dữ
+liệu — kể cả `User` (đường upsert riêng nhận `invalid_idx` + `skipped_rows`). Dữ liệu
+trùng đã có trong hệ thống hoặc trùng trong file đều là lỗi chặn ⇒ bỏ qua được.
+Với dữ liệu cây, bỏ qua cha thì bỏ qua luôn con (`_cascade_skip_for_tree`) để không
+sinh node mồ côi. Sau khi nhập xong tải báo cáo lỗi về sửa rồi nhập lại phần còn thiếu.
+
+Guard: `assetcore/tests/test_import_display_names.py` (17 TC) + `frontend/src/api/importRowLabels.test.ts` (4 TC).
+
+### 8bis.1 Dữ liệu có BẢNG CON — mẫu bảng kiểm bảo trì (bổ sung 2026-08-11)
+
+`PM Checklist Template` (cha) + `PM Checklist Item` (bảng con) là loại dữ liệu đầu
+tiên không phẳng. Quyết định:
+
+- **Một sheet phẳng, mỗi hàng = 1 hạng mục kiểm tra.** 5 cột đầu (tên mẫu · danh
+  mục · loại bảo trì · phiên bản · ngày hiệu lực) lặp lại y hệt ở mọi hàng cùng
+  mẫu. Không dùng 2 sheet cha/con: người nhập liệu phải tự khớp khoá bằng tay.
+- **Gộp theo khoá định danh (Danh mục + Loại bảo trì)** — đúng
+  `autoname: PMCT-{asset_category}-{pm_type}`, nên **không có cột mã mẫu**. Khoá
+  được chuẩn hoá trước khi gộp (tên→mã, nhãn VI→giá trị lưu) và gộp theo khoá chứ
+  không theo hàng liền nhau.
+- **Cột của mẫu lấy theo hàng đầu nhóm**; hàng sau khai lệch chỉ cảnh báo — chặn
+  thì file thật (người ta copy/paste tay) không bao giờ nhập nổi.
+- **Mẫu đã tồn tại** ⇒ lỗi gắn vào mọi hàng của mẫu đó, nên 'bỏ qua dòng lỗi/trùng'
+  loại đúng mẫu trùng mà các mẫu khác trong file vẫn vào. Import KHÔNG ghi đè mẫu
+  cũ — sửa mẫu là việc của màn hình `/pm/templates`.
+- **Tạo bản ghi qua service layer** (`services.imm08.create_template`), không
+  `new_doc().insert()` trần: đánh số hạng mục (`ITEM-001…`) và quy tắc nghiệp vụ
+  nằm ở đó.
+- **`success` đếm theo DÒNG**, thêm `groups_created` cho số mẫu — giao diện hiện cả
+  hai ("3 hạng mục nhập thành công · Đã tạo 2 mẫu bảng kiểm").
+- **Cột Select cũng hỏi bằng tiếng Việt** (SSoT `ENUM_DISPLAY_BY_DOCTYPE`): template
+  và export in "Hàng quý" / "Số đo"; import nhận cả nhãn VI lẫn giá trị gốc rồi đổi
+  về giá trị gốc. Enum của DocType KHÔNG đổi.
+
+Guard: `assetcore/tests/test_import_pm_checklist_template.py` (11 TC) +
+`frontend/src/views/pm/pmTemplateImportWiring.test.ts` (5 TC).
+
+### 8bis.2 Cột Select hỏi bằng tiếng Việt — áp CẢ LOẠT (đồng bộ 2026-08-11)
+
+Việt hoá enum cho riêng mẫu bảng kiểm rồi để 7 mẫu còn lại hỏi "Semi-Annual" /
+"Straight Line" **khó dùng hơn thuần tiếng Anh**: người dùng không đoán được cột
+nào theo luật nào. Đã áp đồng loạt cho mọi cột Select xuất hiện trong file mẫu
+hoặc file xuất:
+
+| Loại dữ liệu | Cột |
+|---|---|
+| Danh mục tài sản | phương pháp khấu hao · tần suất khấu hao |
+| Vị trí | loại khu vực lâm sàng · mức kiểm soát nhiễm khuẩn |
+| Nhà cung cấp | nhóm nhà cung cấp · loại nhà cung cấp |
+| Model thiết bị | phân loại thiết bị · loại hiệu chuẩn |
+| Hợp đồng dịch vụ | loại hợp đồng |
+| Người dùng | trạng thái duyệt |
+| Tài sản | trạng thái vòng đời · trạng thái · phương pháp/tần suất khấu hao |
+| Phụ tùng | loại phụ tùng |
+| Chính sách SLA | mức ưu tiên · phân loại rủi ro |
+| Mẫu bảng kiểm | loại bảo trì · cách ghi nhận kết quả |
+
+Cơ chế: SSoT `ENUM_DISPLAY_BY_DOCTYPE` + `enum_display` / `enum_accepted` /
+`enum_to_stored`. Template và file xuất in **nhãn tiếng Việt**; khi nhập, hệ thống
+nhận **cả nhãn tiếng Việt lẫn giá trị gốc** rồi đổi về giá trị gốc trước khi lưu
+(`_restore_enum_values`). **Enum trong cơ sở dữ liệu KHÔNG đổi** — chỉ lớp
+nhập/xuất dịch qua lại. Validator dùng chung `BaseImportValidator._check_enum`,
+câu báo lỗi liệt kê nhãn tiếng Việt.
+
+Nhãn phải trùng nhãn trên màn hình, nên các map nhãn còn nằm rải trong `.vue` đã
+được gom về `frontend/src/constants/labels.ts` (`CLINICAL_AREA_TYPE_LABEL`,
+`INFECTION_CONTROL_LEVEL_LABEL`, `SPARE_PART_CATEGORY_LABEL`, `VENDOR_TYPE_LABEL`).
+
+Guard `assetcore/tests/test_import_enum_labels.py` (7 TC / 4 tầng: phủ kín ·
+không khoá rác · parity với SSoT của giao diện · dropdown trong file `.xlsx` thật)
+— thêm một cột Select mới mà quên nhãn là đỏ ngay.
+
+---
+
 ## 9. Quyết định cuối cùng
 
 | Câu hỏi | Quyết định |

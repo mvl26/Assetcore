@@ -7,8 +7,13 @@ defineProps<{
   ctx: ImportWizardCtx
   /** Modal header title — e.g. "Import Thiết bị". */
   title: string
-  /** Domain noun for the result line (X / Y <unit> import thành công). */
+  /** Domain noun for the result line (X / Y <unit> nhập thành công). */
   unit?: string
+  /**
+   * Domain noun for grouped DocTypes (cha + bảng con) — "Đã tạo N <groupUnit>".
+   * Vd import mẫu bảng kiểm: unit = "hạng mục", groupUnit = "mẫu bảng kiểm".
+   */
+  groupUnit?: string
   /** Optional bullet-list shown on the upload step under "Lưu ý trước khi import". */
   notice?: string[]
   /** How many fieldname columns to preview (default 6). */
@@ -136,8 +141,8 @@ defineProps<{
               :class="['flex gap-3 text-xs px-3 py-2 rounded-lg',
                 issue.severity === 'error' ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700']"
             >
-              <span class="font-bold shrink-0">Dòng {{ issue.row }}</span>
-              <span class="font-medium shrink-0">{{ issue.field || '—' }}</span>
+              <span class="font-bold shrink-0">Hàng {{ issue.sourceRow }}</span>
+              <span class="font-medium shrink-0">{{ issue.label || 'Cả dòng' }}</span>
               <span>{{ issue.message }}</span>
             </div>
             <p v-if="ctx.previewData.value.errors.length + ctx.previewData.value.warnings.length > 50"
@@ -164,8 +169,9 @@ defineProps<{
                 <tr>
                   <th v-for="fn in ctx.previewData.value.fieldnames.slice(0, previewColumns ?? 6)"
                     :key="fn"
-                    class="px-3 py-2 text-left font-medium text-gray-500 whitespace-nowrap">
-                    {{ fn }}
+                    class="px-3 py-2 text-left font-medium text-gray-500 whitespace-nowrap"
+                    :title="fn">
+                    {{ ctx.previewData.value.fieldLabels[fn] || fn }}
                   </th>
                 </tr>
               </thead>
@@ -187,7 +193,7 @@ defineProps<{
           <div v-if="ctx.hasBlockingErrors.value && !ctx.allRowsInvalid.value"
             class="rounded-lg border border-amber-200 bg-amber-50 p-4 space-y-3">
             <p class="text-sm font-medium text-amber-900">
-              File có {{ ctx.previewData.value.errors.length }} dòng lỗi
+              File có {{ ctx.previewData.value.errors.length }} dòng lỗi hoặc trùng dữ liệu
               <span v-if="ctx.previewData.value.cascadeCount">
                 + {{ ctx.previewData.value.cascadeCount }} dòng phụ thuộc (cha bị bỏ qua)
               </span>
@@ -197,19 +203,20 @@ defineProps<{
               <label class="flex items-start gap-2 cursor-pointer">
                 <input type="radio" v-model="ctx.importMode.value" value="strict" class="mt-1" />
                 <div>
-                  <p class="text-sm font-medium text-gray-800">Huỷ import, sửa file trước (mặc định)</p>
-                  <p class="text-xs text-gray-600">An toàn — đảm bảo file sạch trước khi import.</p>
+                  <p class="text-sm font-medium text-gray-800">Dừng lại, sửa file trước (mặc định)</p>
+                  <p class="text-xs text-gray-600">An toàn — không nhập gì cho tới khi file sạch.</p>
                 </div>
               </label>
               <label class="flex items-start gap-2 cursor-pointer">
                 <input type="radio" v-model="ctx.importMode.value" value="skip_invalid" class="mt-1" />
                 <div>
                   <p class="text-sm font-medium text-gray-800">
-                    Bỏ qua {{ ctx.totalSkip.value }} dòng lỗi, import
+                    Bỏ qua {{ ctx.totalSkip.value }} dòng lỗi/trùng, nhập
                     {{ ctx.previewData.value.totalRows - ctx.totalSkip.value }} dòng hợp lệ
                   </p>
                   <p class="text-xs text-gray-600">
-                    Tải báo cáo lỗi sau khi import xong để sửa và import lại các dòng đã bỏ qua.
+                    Báo cáo lỗi (có số hàng + tên cột) tải được sau khi nhập xong,
+                    sửa rồi nhập lại chỉ những dòng đã bỏ qua.
                   </p>
                 </div>
               </label>
@@ -254,7 +261,7 @@ defineProps<{
               {{ ctx.importLoading.value
                   ? 'Đang import...'
                   : ctx.importMode.value === 'skip_invalid'
-                    ? `Import ${ctx.previewData.value.totalRows - ctx.totalSkip.value} dòng (bỏ qua ${ctx.totalSkip.value}) ▶`
+                    ? `Nhập ${ctx.previewData.value.totalRows - ctx.totalSkip.value} dòng (bỏ qua ${ctx.totalSkip.value}) ▶`
                     : 'Bắt đầu Import ▶' }}
             </button>
           </div>
@@ -277,13 +284,19 @@ defineProps<{
               {{ ctx.importResult.value.success }} / {{ ctx.importResult.value.total }}
             </p>
             <p class="text-sm text-gray-600">
-              {{ unit ?? 'dòng' }} import thành công
+              {{ unit ?? 'dòng' }} nhập thành công
               <span v-if="ctx.importResult.value.failed">
                 — <span class="text-red-600 font-medium">{{ ctx.importResult.value.failed }} lỗi</span>
               </span>
               <span v-if="ctx.importResult.value.skipped">
                 — <span class="text-amber-700 font-medium">{{ ctx.importResult.value.skipped }} bỏ qua</span>
               </span>
+            </p>
+            <!-- DocType nhóm (cha + bảng con): số dòng KHÔNG bằng số bản ghi tạo ra. -->
+            <p v-if="ctx.importResult.value.groupsCreated !== undefined"
+              class="text-sm text-gray-600 mt-1">
+              Đã tạo <strong>{{ ctx.importResult.value.groupsCreated }}</strong>
+              {{ groupUnit ?? 'bản ghi' }}
             </p>
           </div>
 
@@ -293,7 +306,8 @@ defineProps<{
             <p class="text-xs font-medium text-gray-500">Chi tiết lỗi:</p>
             <div v-for="(e, i) in ctx.importResult.value.errors" :key="i"
               class="flex gap-3 text-xs px-3 py-2 bg-red-50 text-red-700 rounded-lg">
-              <span class="font-bold shrink-0">Dòng {{ e.row }}</span>
+              <span class="font-bold shrink-0">Hàng {{ e.sourceRow }}</span>
+              <span v-if="e.label" class="font-medium shrink-0">{{ e.label }}</span>
               <span>{{ e.message }}</span>
             </div>
           </div>
@@ -312,8 +326,8 @@ defineProps<{
             <div class="space-y-1 max-h-40 overflow-y-auto">
               <div v-for="(s, i) in ctx.importResult.value.skippedRows" :key="i"
                 class="flex gap-3 text-xs px-3 py-2 bg-amber-50 text-amber-800 rounded-lg">
-                <span class="font-bold shrink-0">Dòng {{ s.row }}</span>
-                <span class="font-medium shrink-0">{{ s.field || '—' }}</span>
+                <span class="font-bold shrink-0">Hàng {{ s.sourceRow }}</span>
+                <span class="font-medium shrink-0">{{ s.label || 'Cả dòng' }}</span>
                 <span class="flex-1">{{ s.message }}</span>
                 <span v-if="s.reason === 'cascade_parent_skipped'"
                   class="shrink-0 px-1.5 py-0.5 rounded bg-amber-200 text-amber-900 text-[10px] font-medium">

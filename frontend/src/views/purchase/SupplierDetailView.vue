@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
+import { VENDOR_TYPE_LABEL } from '@/constants/labels'
 import { useRoute, useRouter } from 'vue-router'
 import { getSupplier, deleteSupplier } from '@/api/imm00'
 import PageHeader from '@/components/common/PageHeader.vue'
@@ -25,13 +26,6 @@ const error = ref('')
 /** Lỗi NẠP — ref MỚI. */
 const loadKind = ref<'' | DetailLoadKind>('')
 const loadMsg = ref('')
-
-const VENDOR_TYPE_LABEL: Record<string, string> = {
-  Manufacturer: 'Nhà sản xuất',
-  Distributor: 'Nhà phân phối',
-  'Service Provider': 'Dịch vụ',
-  'Calibration Lab': 'Phòng hiệu chuẩn',
-}
 
 const STATUS_LABELS: Record<string, string> = {
   Draft: 'Nháp', Submitted: 'Đã duyệt', Received: 'Đã nhận', Cancelled: 'Đã huỷ',

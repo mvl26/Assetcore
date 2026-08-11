@@ -10,6 +10,259 @@ import frappe
 
 _LABEL_SYSTEM_CODE = "Mã hệ thống"
 
+# Khoá kỹ thuật gắn vào mỗi dòng đã parse: số hàng THẬT trong file người dùng
+# (1-based, đúng thanh số dòng của Excel). Dùng để báo lỗi "sai ở dòng nào" —
+# KHÔNG được ghi vào DocType, nên mọi consumer phải bỏ qua khoá bắt đầu bằng "__".
+SOURCE_ROW_KEY = "__source_row__"
+
+# Hàng đầu tiên chứa dữ liệu người dùng trong template (hàng 1 banner, 2 fieldname,
+# 3 nhãn VI, 4 mô tả, 5 ví dụ). Dùng chung cho cả Excel lẫn CSV.
+FIRST_DATA_ROW = 6
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LINK DISPLAY — SSoT (LL-IMP-1 / LL-BE-26)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Người dùng LUÔN điền TÊN hiển thị (vd "Khoa Hồi sức tích cực"), không bao giờ
+# phải điền mã hệ thống (vd "AC-DEPT-0007"). Map này là NGUỒN DUY NHẤT cho cả 3
+# hướng dùng, nên sửa 1 chỗ là cả pipeline đồng bộ:
+#   1. import  — resolver `api.import_data._resolve_links` đổi tên → mã trước insert
+#   2. import  — validator `_link_lookup_set` chấp nhận CẢ tên lẫn mã
+#   3. export  — `export_ref_data` in ra TÊN thay vì mã (round-trip đọc được)
+#
+# RULE (LL-BE-26): Tree DocType (is_tree=1) BẮT BUỘC khai nsm_parent_field ở đây
+# (tự trỏ chính nó) — nếu không, Frappe core nested_set.validate_parent_field nổ
+# "Could not find Parent <Doctype>: <display_name>".
+#
+# Link trỏ tới `User` KHÔNG cần khai: PK của User chính là email = giá trị hiển thị.
+LINK_DISPLAY_BY_DOCTYPE: dict[str, dict[str, tuple[str, str]]] = {
+    "AC Asset": {
+        "asset_category": ("AC Asset Category", "category_name"),
+        "device_model":   ("IMM Device Model", "model_name"),
+        "location":       ("AC Location", "location_name"),
+        "department":     ("AC Department", "department_name"),
+        "supplier":       ("AC Supplier", "supplier_name"),
+    },
+    "AC Location": {
+        # Tree DocType — parent self-reference (LL-BE-26)
+        "parent_location": ("AC Location", "location_name"),
+    },
+    "AC Department": {
+        # Tree DocType — parent self-reference (LL-BE-26)
+        "parent_department": ("AC Department", "department_name"),
+    },
+    "AC Warehouse": {
+        "location":   ("AC Location", "location_name"),
+        "department": ("AC Department", "department_name"),
+    },
+    "AC Spare Part": {
+        "preferred_supplier": ("AC Supplier", "supplier_name"),
+    },
+    "Service Contract": {
+        "supplier": ("AC Supplier", "supplier_name"),
+    },
+    "IMM Device Model": {
+        "asset_category": ("AC Asset Category", "category_name"),
+    },
+    "User": {
+        # ac_department: người dùng điền "Khoa Hồi sức tích cực" → AC-DEPT-####
+        "ac_department": ("AC Department", "department_name"),
+    },
+    "PM Checklist Template": {
+        "asset_category": ("AC Asset Category", "category_name"),
+    },
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ENUM DISPLAY — nhãn tiếng Việt cho cột Select
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Cùng lý do với LINK_DISPLAY: người dùng bệnh viện không gõ "Semi-Annual" hay
+# "Pass/Fail". Giá trị LƯU giữ nguyên chuỗi DocType Select (đừng đụng enum —
+# LL-FE-53); chỉ lớp NHẬP/XUẤT dịch qua lại.
+#   - template + export  → in nhãn VI
+#   - import             → nhận CẢ nhãn VI lẫn giá trị gốc, đổi về giá trị gốc
+#
+# Nhãn phải khớp SSoT FE (`utils/formatters.ts::PM_TYPE_MAP`,
+# `constants/labels.ts::MEASUREMENT_TYPE_LABELS`) — lệch = người dùng đọc màn
+# hình một kiểu, điền file một kiểu.
+# Nhãn dùng lại ở nhiều DocType — khai 1 lần để không drift giữa các file mẫu.
+_DEPRECIATION_METHOD_VI = {
+    "Straight Line": "Đường thẳng",
+    "Double Declining": "Số dư giảm dần",
+    "Units of Production": "Theo sản lượng",
+}
+# AC Asset có thêm lựa chọn 'None' = không trích khấu hao (Danh mục thì không).
+_ASSET_DEPRECIATION_METHOD_VI = {**_DEPRECIATION_METHOD_VI, "None": "Không khấu hao"}
+# formatters.ts::FREQUENCY_MAP (miền *frequency*, KHÁC pm_type — 'Ad-hoc' của
+# frequency là 'Theo yêu cầu', của pm_type là 'Đột xuất'; khác biệt có chủ đích).
+_DEPRECIATION_FREQUENCY_VI = {
+    "Monthly": "Hàng tháng",
+    "Quarterly": "Hàng quý",
+    "Yearly": "Hàng năm",
+}
+# ⚠️ `supplier_group` và `vendor_type` KHÔNG cùng tập lựa chọn: cái kết thúc bằng
+# "Service Provider", cái kia bằng "Service". Gộp 1 map = sinh khoá rác + 2 nhãn
+# trùng nhau trong một cột ⇒ đổi ngược không xác định (guard bắt được 2026-08-11).
+_SUPPLIER_GROUP_VI = {
+    "Manufacturer": "Nhà sản xuất",
+    "Distributor": "Nhà phân phối",
+    "Calibration Lab": "Phòng hiệu chuẩn",
+    "Service Provider": "Dịch vụ",
+}
+_VENDOR_TYPE_VI = {
+    "Manufacturer": "Nhà sản xuất",
+    "Distributor": "Nhà phân phối",
+    "Calibration Lab": "Phòng hiệu chuẩn",
+    "Service": "Dịch vụ",
+}
+
+ENUM_DISPLAY_BY_DOCTYPE: dict[str, dict[str, dict[str, str]]] = {
+    "AC Asset Category": {
+        "default_depreciation_method": _DEPRECIATION_METHOD_VI,
+        "depreciation_frequency": _DEPRECIATION_FREQUENCY_VI,
+    },
+    "AC Location": {
+        "clinical_area_type": {
+            "ICU": "Hồi sức tích cực",
+            "OR": "Phòng mổ",
+            "Lab": "Xét nghiệm",
+            "Imaging": "Chẩn đoán hình ảnh",
+            "General Ward": "Khoa lâm sàng thường",
+            "Storage": "Kho",
+            "Office": "Văn phòng",
+        },
+        "infection_control_level": {
+            "Standard": "Tiêu chuẩn",
+            "Enhanced": "Tăng cường",
+            "Isolation": "Cách ly",
+        },
+    },
+    "AC Supplier": {
+        "supplier_group": _SUPPLIER_GROUP_VI,
+        "vendor_type": _VENDOR_TYPE_VI,
+    },
+    "IMM Device Model": {
+        # labels.ts::MEDICAL_DEVICE_CLASS_LABEL
+        "medical_device_class": {
+            "Class I": "Loại I — Rủi ro thấp",
+            "Class II": "Loại II — Rủi ro trung bình",
+            "Class III": "Loại III — Rủi ro cao",
+        },
+        "default_calibration_type": {
+            "Internal": "Nội bộ",
+            "External": "Bên ngoài",
+            "Both": "Cả hai",
+        },
+    },
+    "Service Contract": {
+        # labels.ts::CONTRACT_TYPE_LABEL
+        "contract_type": {
+            "Preventive Maintenance": "Bảo trì định kỳ",
+            "Calibration": "Hiệu chuẩn",
+            "Repair": "Sửa chữa",
+            "Full Service": "Toàn diện",
+            "Warranty Extension": "Gia hạn bảo hành",
+        },
+    },
+    "User": {
+        # formatters.ts::STATUS_MAP
+        "imm_approval_status": {
+            "Pending": "Chờ xử lý",
+            "Approved": "Đã phê duyệt",
+            "Rejected": "Bị từ chối",
+        },
+    },
+    "AC Asset": {
+        # formatters.ts::STATUS_MAP (vòng đời tài sản)
+        "lifecycle_status": {
+            "Draft": "Bản nháp",
+            "Commissioned": "Đã đưa vào sử dụng",
+            "Active": "Đang hoạt động",
+            "Under Maintenance": "Đang bảo trì",
+            "Under Repair": "Đang sửa chữa",
+            "Calibrating": "Đang hiệu chuẩn",
+            "Out of Service": "Ngừng hoạt động",
+            "Decommissioned": "Đã thanh lý",
+        },
+        # Cột `status` không có trong file mẫu nhưng CÓ trong file xuất — thiếu
+        # nhãn là file xuất lẫn lộn nửa Việt nửa Anh.
+        "status": {
+            "Submitted": "Đã gửi",
+            "Active": "Đang hoạt động",
+            "Out of Service": "Ngừng hoạt động",
+            "Decommissioned": "Đã thanh lý",
+            "Under Repair": "Đang sửa chữa",
+            "Calibrating": "Đang hiệu chuẩn",
+        },
+        "depreciation_method": _ASSET_DEPRECIATION_METHOD_VI,
+        "depreciation_frequency": _DEPRECIATION_FREQUENCY_VI,
+    },
+    "AC Spare Part": {
+        "part_category": {
+            "Electrical": "Điện",
+            "Mechanical": "Cơ khí",
+            "Consumable": "Tiêu hao",
+            "Filter": "Bộ lọc",
+            "Battery": "Pin/Ắc-quy",
+            "Sensor": "Cảm biến",
+            "Other": "Khác",
+        },
+    },
+    # Sheet "Chính sách SLA" nằm trong file mẫu 02 (chưa nối vào wizard nhập,
+    # nhưng người dùng vẫn tải file đó về điền) — dropdown phải hợp lệ + tiếng Việt.
+    "IMM SLA Policy": {
+        "priority": {
+            "P1": "P1 — Khẩn cấp",
+            "P2": "P2 — Cao",
+            "P3": "P3 — Trung bình",
+            "P4": "P4 — Thấp",
+        },
+        # labels.ts::INCIDENT_SEVERITY_LABEL
+        "risk_class": {
+            "Low": "Thấp",
+            "Medium": "Trung bình",
+            "High": "Cao",
+            "Critical": "Nghiêm trọng",
+        },
+    },
+    "PM Checklist Template": {
+        # formatters.ts::PM_TYPE_MAP
+        "pm_type": {
+            "Quarterly": "Hàng quý",
+            "Semi-Annual": "Nửa năm",
+            "Annual": "Hàng năm",
+            "Ad-hoc": "Đột xuất",
+        },
+        # labels.ts::MEASUREMENT_TYPE_LABELS
+        "measurement_type": {
+            "Pass/Fail": "Đạt/Không đạt",
+            "Numeric": "Số đo",
+            "Text": "Ghi chú",
+        },
+    },
+}
+
+
+def enum_display(doctype: str, field: str, value: str) -> str:
+    """Giá trị gốc → nhãn VI (dùng khi ghi template/export)."""
+    return ENUM_DISPLAY_BY_DOCTYPE.get(doctype, {}).get(field, {}).get(value, value)
+
+
+def enum_accepted(doctype: str, field: str) -> set[str]:
+    """Tập giá trị hợp lệ khi nhập: gồm CẢ giá trị gốc lẫn nhãn VI."""
+    mapping = ENUM_DISPLAY_BY_DOCTYPE.get(doctype, {}).get(field, {})
+    return set(mapping) | set(mapping.values())
+
+
+def enum_to_stored(doctype: str, field: str, value: str) -> str:
+    """Nhãn VI (hoặc giá trị gốc) → giá trị LƯU vào DocType Select."""
+    mapping = ENUM_DISPLAY_BY_DOCTYPE.get(doctype, {}).get(field, {})
+    if not mapping or value in mapping:
+        return value
+    reverse = {vi: en for en, vi in mapping.items()}
+    return reverse.get(value, value)
+
 # Mapping doctype → (fieldname, tiếng Việt label, export fields)
 _REF_DATA_CONFIG: dict[str, dict] = {
     "AC Asset Category": {
@@ -145,7 +398,7 @@ _REF_DATA_CONFIG: dict[str, dict] = {
             "mobile_no", "ac_department", "imm_approval_status", "roles",
         ],
         "export_labels": {
-            "email": "Email (Mã người dùng)",
+            "email": "Email đăng nhập",
             "full_name": "Họ và tên",
             "first_name": "Tên",
             "last_name": "Họ",
@@ -246,9 +499,101 @@ _REF_DATA_CONFIG: dict[str, dict] = {
             "is_active": "Đang hoạt động",
         },
     },
+    # Mẫu bảng kiểm bảo trì — dữ liệu CHA + BẢNG CON (hạng mục kiểm tra).
+    # File phẳng: MỖI HÀNG = 1 hạng mục; các cột của mẫu (tên/danh mục/loại/phiên
+    # bản/hiệu lực) lặp lại ở mọi hàng cùng mẫu. Nhóm theo (danh mục, loại bảo trì)
+    # — đúng khoá định danh của DocType (`autoname: PMCT-{asset_category}-{pm_type}`).
+    "PM Checklist Template": {
+        "name_field": "template_name",
+        "child_table": "checklist_items",
+        "group_key_fields": ("asset_category", "pm_type"),
+        "parent_fields": [
+            "template_name", "asset_category", "pm_type", "version", "effective_date",
+        ],
+        "child_fields": [
+            "description", "measurement_type", "unit",
+            "expected_min", "expected_max", "is_critical", "reference_section",
+        ],
+        "export_fields": [
+            "name", "template_name", "asset_category", "pm_type",
+            "version", "effective_date", "approved_by",
+            "description", "measurement_type", "unit",
+            "expected_min", "expected_max", "is_critical", "reference_section",
+        ],
+        "export_labels": {
+            "name": _LABEL_SYSTEM_CODE,
+            "template_name": "Tên mẫu bảng kiểm",
+            "asset_category": "Danh mục tài sản",
+            "pm_type": "Loại bảo trì định kỳ",
+            "version": "Phiên bản",
+            "effective_date": "Ngày hiệu lực",
+            "approved_by": "Người phê duyệt",
+            "description": "Nội dung kiểm tra",
+            "measurement_type": "Cách ghi nhận kết quả",
+            "unit": "Đơn vị đo",
+            "expected_min": "Ngưỡng dưới",
+            "expected_max": "Ngưỡng trên",
+            "is_critical": "Hạng mục trọng yếu",
+            "reference_section": "Mục tham chiếu tài liệu",
+        },
+    },
 }
 
 SUPPORTED_REF_DOCTYPES = list(_REF_DATA_CONFIG.keys())
+
+# DocType nhập theo NHÓM (cha + bảng con) thay vì 1 hàng = 1 bản ghi.
+GROUPED_IMPORT_DOCTYPES: dict[str, dict] = {
+    dt: cfg for dt, cfg in _REF_DATA_CONFIG.items() if cfg.get("child_table")
+}
+
+# Cột chỉ có trong template import (không nằm trong export_fields) — vẫn cần nhãn
+# tiếng Việt để câu báo lỗi gọi đúng tên cột người dùng nhìn thấy.
+_IMPORT_ONLY_LABELS: dict[str, dict[str, str]] = {
+    "AC Supplier":      {"supplier_group": "Loại nhà cung cấp"},
+    "IMM Device Model": {"specifications": "Thông số kỹ thuật"},
+    "Service Contract": {"notes": "Ghi chú"},
+}
+
+
+def field_label(doctype: str, fieldname: str) -> str:
+    """Nhãn tiếng Việt của một cột import — dùng trong câu báo lỗi.
+
+    Người dùng chỉ thấy nhãn VI ở hàng 3 của template; báo lỗi kèm fieldname
+    tiếng Anh (`asset_category`) buộc họ tự dịch ngược. Fallback về fieldname
+    khi cột không có trong cấu hình (file lạ / cột thừa).
+    """
+    if not fieldname:
+        return ""
+    cfg = _REF_DATA_CONFIG.get(doctype, {})
+    labels: dict[str, str] = dict(cfg.get("export_labels", {}))
+    labels.update(_IMPORT_ONLY_LABELS.get(doctype, {}))
+    return labels.get(fieldname, fieldname)
+
+
+def source_row_of(rows: list[dict], row_idx: int) -> int:
+    """Số hàng THẬT trong file của dòng dữ liệu thứ `row_idx` (1-based).
+
+    Dòng trống ở giữa file bị parser loại bỏ, nên "dòng thứ 3" của validator
+    KHÔNG phải hàng 8 của Excel. Trả về số hàng đã ghi lúc parse; fallback theo
+    công thức khi dòng không có dấu vết (file CSV cũ / gọi trực tiếp trong test).
+    """
+    if 1 <= row_idx <= len(rows):
+        recorded = rows[row_idx - 1].get(SOURCE_ROW_KEY)
+        if isinstance(recorded, int) and recorded > 0:
+            return recorded
+    return row_idx + FIRST_DATA_ROW - 1
+
+
+def enrich_issues(doctype: str, rows: list[dict], issues: list[dict]) -> list[dict]:
+    """Bồi `label` (nhãn VI) + `source_row` (hàng thật trong file) vào mỗi lỗi.
+
+    Validator chỉ biết index dòng dữ liệu và fieldname kỹ thuật. FE cần chỉ đúng
+    "hàng 12, cột Danh mục tài sản" để người dùng mở file sửa được ngay.
+    """
+    for issue in issues:
+        issue["label"] = field_label(doctype, str(issue.get("field") or ""))
+        issue["source_row"] = source_row_of(rows, int(issue.get("row") or 0))
+    return issues
 
 # For multi-sheet templates, map each DocType to its sheet name.
 # When a user uploads the combined template file, this ensures the correct
@@ -315,8 +660,8 @@ def _parse_excel(file_path: str, doctype: str = "") -> tuple[list[str], list[dic
     # Row index 1 (0-based) = fieldnames
     fieldnames: list[str] = [str(c).strip() if c is not None else "" for c in rows_raw[1]]
 
-    # Data starts at row index 5 (0-based), skip example row at index 4
-    data_rows = rows_raw[5:]
+    # Data starts at row index 5 (0-based) = hàng 6 của Excel, bỏ hàng ví dụ (index 4)
+    data_rows = rows_raw[FIRST_DATA_ROW - 1:]
     return fieldnames, _rows_to_dicts(fieldnames, data_rows)
 
 
@@ -330,7 +675,7 @@ def _parse_csv(file_path: str) -> tuple[list[str], list[dict]]:
         raise ValueError("File CSV rỗng hoặc thiếu dòng header.")
 
     fieldnames = [c.strip() for c in all_rows[1]]
-    data_rows_raw = [tuple(r) for r in all_rows[5:]]
+    data_rows_raw = [tuple(r) for r in all_rows[FIRST_DATA_ROW - 1:]]
     return fieldnames, _rows_to_dicts(fieldnames, data_rows_raw)
 
 
@@ -341,14 +686,20 @@ def _normalise_cell(val: Any) -> Any:
 
 
 def _rows_to_dicts(fieldnames: list[str], raw_rows) -> list[dict]:
+    """Chuyển hàng thô → dict theo fieldname, GIỮ số hàng gốc trong file.
+
+    Dòng trống bị loại khỏi kết quả, nên index trong list KHÔNG còn suy ra được
+    số hàng Excel — ghi lại ở `SOURCE_ROW_KEY` để báo lỗi chỉ đúng chỗ.
+    """
     result = []
-    for raw in raw_rows:
+    for offset, raw in enumerate(raw_rows):
         row: dict[str, Any] = {
             fn: _normalise_cell(raw[i] if i < len(raw) else None)
             for i, fn in enumerate(fieldnames)
             if fn
         }
         if any(v not in ("", None) for v in row.values()):
+            row[SOURCE_ROW_KEY] = FIRST_DATA_ROW + offset
             result.append(row)
     return result
 
@@ -357,8 +708,15 @@ def _rows_to_dicts(fieldnames: list[str], raw_rows) -> list[dict]:
 # BUILD ERROR REPORT
 # ─────────────────────────────────────────────────────────────────────────────
 
-def build_error_report(fieldnames: list[str], rows: list[dict], errors: list[dict]) -> bytes:
-    """Return xlsx bytes with error rows highlighted, plus Status + Ghi chú columns."""
+def build_error_report(
+    fieldnames: list[str], rows: list[dict], errors: list[dict],
+    doctype: str = "",
+) -> bytes:
+    """Return xlsx bytes with error rows highlighted.
+
+    Cột đầu = số hàng THẬT trong file gốc để người dùng mở file lên sửa đúng chỗ;
+    ghi chú lỗi gọi cột bằng nhãn tiếng Việt (không phải fieldname tiếng Anh).
+    """
     try:
         from openpyxl import Workbook
         from openpyxl.styles import PatternFill, Font
@@ -367,13 +725,14 @@ def build_error_report(fieldnames: list[str], rows: list[dict], errors: list[dic
 
     error_map: dict[int, list[str]] = {}
     for e in errors:
-        error_map.setdefault(e["row"], []).append(f"[{e['field']}] {e['message']}")
+        label = field_label(doctype, str(e.get("field") or "")) or "Toàn dòng"
+        error_map.setdefault(e["row"], []).append(f"[{label}] {e['message']}")
 
     wb = Workbook()
     ws = wb.active
     ws.title = "Lỗi import"
 
-    header = fieldnames + ["Trạng thái", "Ghi chú lỗi"]
+    header = ["Hàng trong file"] + fieldnames + ["Trạng thái", "Ghi chú lỗi"]
     ws.append(header)
     for cell in ws[1]:
         cell.font = Font(bold=True)
@@ -385,7 +744,7 @@ def build_error_report(fieldnames: list[str], rows: list[dict], errors: list[dic
         data = [row.get(fn, "") for fn in fieldnames]
         notes = error_map.get(i, [])
         status = "Lỗi" if notes else "OK"
-        ws.append(data + [status, "; ".join(notes)])
+        ws.append([source_row_of(rows, i)] + data + [status, "; ".join(notes)])
         xl_row = ws[ws.max_row]
         fill = red_fill if notes else ok_fill
         for cell in xl_row:
@@ -440,6 +799,82 @@ def _export_users(cfg: dict) -> list[dict]:
     return result
 
 
+def _export_pm_checklist_templates(cfg: dict) -> list[dict]:
+    """Trải phẳng mẫu bảng kiểm: mỗi hạng mục con = 1 hàng, cột cha lặp lại.
+
+    Cùng bố cục với file nhập ⇒ xuất ra sửa rồi nhập lại được (mẫu chưa có hạng
+    mục nào vẫn ra 1 hàng để không biến mất khỏi file).
+    """
+    parents = frappe.get_all(
+        "PM Checklist Template",
+        fields=["name", "template_name", "asset_category", "pm_type",
+                "version", "effective_date", "approved_by"],
+        order_by="template_name asc",
+    )
+    if not parents:
+        return []
+
+    items = frappe.get_all(
+        "PM Checklist Item",
+        filters={"parent": ["in", [p["name"] for p in parents]], "parenttype": "PM Checklist Template"},
+        fields=["parent", "idx", "description", "measurement_type", "unit",
+                "expected_min", "expected_max", "is_critical", "reference_section"],
+        order_by="parent asc, idx asc",
+    )
+    by_parent: dict[str, list[dict]] = {}
+    for it in items:
+        by_parent.setdefault(it["parent"], []).append(it)
+
+    child_fields = cfg["child_fields"]
+    rows: list[dict] = []
+    for p in parents:
+        base = {k: p.get(k) for k in
+                ("name", "template_name", "asset_category", "pm_type",
+                 "version", "effective_date", "approved_by")}
+        children = by_parent.get(p["name"], [])
+        if not children:
+            rows.append({**base, **{f: None for f in child_fields}})
+            continue
+        for it in children:
+            rows.append({**base, **{f: it.get(f) for f in child_fields}})
+    return rows
+
+
+def _display_names_for(link_doctype: str, display_field: str, codes: set[str]) -> dict[str, str]:
+    """Map mã hệ thống → tên hiển thị cho một tập mã (1 query, không N+1)."""
+    if not codes:
+        return {}
+    found = frappe.get_all(
+        link_doctype,
+        filters={"name": ["in", sorted(codes)]},
+        fields=["name", display_field],
+    )
+    return {r["name"]: str(r.get(display_field) or "") for r in found if r.get(display_field)}
+
+
+def resolve_links_to_display(doctype: str, rows: list[dict]) -> list[dict]:
+    """Đổi giá trị Link từ mã hệ thống → TÊN hiển thị, tại chỗ.
+
+    File export phải đọc được và import lại được mà không bắt người dùng tra mã:
+    cột "Khoa phòng quản lý" phải in "Khoa Hồi sức tích cực", KHÔNG phải
+    "AC-DEPT-0007". Mã không tra được (bản ghi đã xoá) giữ nguyên để không mất dấu.
+    """
+    link_map = LINK_DISPLAY_BY_DOCTYPE.get(doctype, {})
+    if not link_map or not rows:
+        return rows
+
+    for field, (link_dt, display_field) in link_map.items():
+        codes = {str(r.get(field)) for r in rows if r.get(field)}
+        lookup = _display_names_for(link_dt, display_field, codes)
+        if not lookup:
+            continue
+        for r in rows:
+            val = r.get(field)
+            if val and str(val) in lookup:
+                r[field] = lookup[str(val)]
+    return rows
+
+
 def export_ref_data(doctype: str) -> bytes:
     """Export all records of a ref-data DocType to xlsx bytes."""
     if doctype not in _REF_DATA_CONFIG:
@@ -457,8 +892,18 @@ def export_ref_data(doctype: str) -> bytes:
 
     if doctype == "User":
         rows = _export_users(cfg)
+    elif doctype in GROUPED_IMPORT_DOCTYPES:
+        rows = _export_pm_checklist_templates(cfg)
     else:
         rows = frappe.get_all(doctype, fields=fields, order_by="creation asc")
+
+    # Link column phải in TÊN, không in mã — file export cũng là file import lại.
+    rows = resolve_links_to_display(doctype, [dict(r) for r in rows])
+    # Cột Select in nhãn VI (đúng thứ người dùng thấy trên màn hình).
+    for field_name in ENUM_DISPLAY_BY_DOCTYPE.get(doctype, {}):
+        for r in rows:
+            if r.get(field_name):
+                r[field_name] = enum_display(doctype, field_name, str(r[field_name]))
 
     wb = Workbook()
     ws = wb.active
@@ -516,6 +961,7 @@ _TEMPLATE_MAP: dict[str, str] = {
     "AC Spare Part":     "04_danh_sach_phu_tung.xlsx",
     "AC Warehouse":      "05_kho_hang.xlsx",
     "User":              "06_danh_sach_nguoi_dung.xlsx",
+    "PM Checklist Template": "07_bang_kiem_bao_tri.xlsx",
 }
 
 # Templates nằm ở assetcore/public/import_templates/
@@ -540,7 +986,7 @@ def get_template_path(doctype: str) -> str:
     if not os.path.exists(path):
         raise FileNotFoundError(
             f"Template file không tồn tại: {path}. "
-            "Chạy docs/imports/generate_templates.py để sinh lại."
+            "Chạy docs/res/imports/generate_templates.py để sinh lại."
         )
     return path
 

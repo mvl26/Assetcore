@@ -1,6 +1,6 @@
 {
   "name": "assetcore-frontend",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "AssetCore IMM-04 Decoupled Frontend",
   "type": "module",
   "private": true,

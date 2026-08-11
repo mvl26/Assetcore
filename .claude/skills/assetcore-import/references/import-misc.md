@@ -23,8 +23,8 @@ Python module, và dependency order khi import nhiều DocType.
 
 **Khi thêm DocType mới vào `_TEMPLATE_MAP`:**
 1. Thêm entry vào `_TEMPLATE_MAP` trong `import_helpers.py`
-2. Tạo hàm `make_<doctype>()` riêng trong `docs/imports/generate_templates.py`
-3. Chạy `python docs/imports/generate_templates.py` để sinh file
+2. Tạo hàm `make_<doctype>()` riêng trong `docs/res/imports/generate_templates.py`
+3. Chạy `python docs/res/imports/generate_templates.py` để sinh file
 4. Thêm validator vào `VALIDATOR_REGISTRY`
 5. Reload gunicorn (xem Phần 5)
 

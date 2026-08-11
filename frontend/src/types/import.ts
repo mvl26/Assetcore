@@ -9,10 +9,16 @@ export type RefDataDoctype =
   | 'Service Contract'
   | 'User'
   | 'AC Asset'
+  | 'PM Checklist Template'
 
 export interface ImportIssue {
+  /** Thứ tự dòng dữ liệu (bỏ dòng trống) — dùng nội bộ để đối chiếu. */
   row: number
+  /** Số hàng THẬT trong file người dùng — cái phải hiện ra màn hình. */
+  sourceRow: number
   field: string
+  /** Nhãn tiếng Việt của cột (BE trả); rỗng khi lỗi thuộc cả dòng. */
+  label: string
   message: string
   severity: 'error' | 'warning'
 }
@@ -25,6 +31,8 @@ export interface ImportPreviewResult {
   validRows: number
   preview: Record<string, unknown>[]
   fieldnames: string[]
+  /** fieldname → nhãn tiếng Việt, để bảng xem trước không hiện tên cột tiếng Anh. */
+  fieldLabels: Record<string, string>
   errors: ImportIssue[]
   warnings: ImportIssue[]
   cascadeCount: number   // Tree DocType: rows skipped because parent is invalid
@@ -32,8 +40,10 @@ export interface ImportPreviewResult {
 
 export interface ImportSkippedRow {
   row: number
+  sourceRow: number
   reason: 'pre_validate' | 'cascade_parent_skipped'
   field: string
+  label: string
   message: string
 }
 
@@ -44,6 +54,12 @@ export interface ImportResult {
   skipped: number
   errors: ImportIssue[]
   skippedRows: ImportSkippedRow[]
+  /**
+   * DocType nhập theo nhóm (cha + bảng con, vd mẫu bảng kiểm): số bản ghi CHA
+   * đã tạo. `success` vẫn đếm theo DÒNG file nên nếu không có số này người dùng
+   * đọc "12/12 dòng" mà không biết đã tạo mấy mẫu.
+   */
+  groupsCreated?: number
 }
 
 export interface ErrorReportResult {

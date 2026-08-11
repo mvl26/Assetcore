@@ -19,6 +19,11 @@ import { translatePmType } from '@/utils/formatters'
 // không bẫy focus và nhãn nút do TRÌNH DUYỆT vẽ nên không Việt hoá được (LL-FE-53).
 // View gọi hàng đợi qua `useNotify().confirm()` — KHÔNG gọi tầng hàng đợi trực tiếp.
 import { useNotify } from '@/composables/useNotify'
+// Nhập/xuất hàng loạt mẫu bảng kiểm — file PHẲNG (mỗi hàng = 1 hạng mục kiểm
+// tra), BE gộp theo Danh mục + Loại bảo trì. Dùng chung khuôn wizard với các màn
+// dữ liệu tham chiếu khác (số hàng thật + tên cột tiếng Việt + bỏ qua dòng lỗi).
+import ImportWizardModal from '@/components/import/ImportWizardModal.vue'
+import { useImportWizard } from '@/composables/useImportWizard'
 const toast = useToast()
 const notify = useNotify()
 
@@ -206,6 +211,14 @@ async function applyToCategoryAssets() {
   }
 }
 
+const importWizard = useImportWizard('PM Checklist Template', () => load())
+
+const IMPORT_NOTICE = [
+  '<strong>Mỗi hàng = 1 hạng mục kiểm tra</strong>; 5 cột đầu (tên mẫu, danh mục, loại bảo trì, phiên bản, ngày hiệu lực) lặp lại y hệt ở mọi hàng cùng một mẫu.',
+  'Hệ thống gộp theo <strong>Danh mục tài sản + Loại bảo trì định kỳ</strong> — mỗi danh mục chỉ có một mẫu cho mỗi loại.',
+  'Danh mục tài sản điền <strong>TÊN</strong> (vd «Máy chẩn đoán hình ảnh»), không điền mã.',
+]
+
 onMounted(load)
 </script>
 
@@ -226,6 +239,29 @@ onMounted(load)
       >
         <template #actions>
           <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
+          <button
+            class="px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600 flex items-center gap-1.5"
+            title="Tải mẫu bảng kiểm hiện có về Excel"
+            data-testid="pm-template-export"
+            @click="importWizard.doExport"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            Xuất Excel
+          </button>
+          <button
+            class="px-3 py-2 text-sm border border-emerald-300 rounded-lg hover:bg-emerald-50 text-emerald-700 flex items-center gap-1.5"
+            data-testid="pm-template-import"
+            @click="importWizard.open"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+            </svg>
+            Nhập Excel
+          </button>
           <button class="btn-primary" @click="openCreate">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
@@ -441,4 +477,14 @@ onMounted(load)
         </div>
       </div>
   </div>
+
+  <!-- Wizard nhập Excel — cũng đặt NGOÀI khuôn để mở được ở cả 4 trạng thái. -->
+  <ImportWizardModal
+    :ctx="importWizard"
+    title="Nhập mẫu bảng kiểm bảo trì"
+    unit="hạng mục"
+    group-unit="mẫu bảng kiểm"
+    :notice="IMPORT_NOTICE"
+    :preview-columns="4"
+  />
 </template>

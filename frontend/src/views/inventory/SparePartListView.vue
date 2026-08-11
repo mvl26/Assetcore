@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // Copyright (c) 2026, AssetCore Team
 import { ref, onMounted, computed, watch } from 'vue'
+import { SPARE_PART_CATEGORY_LABEL } from '@/constants/labels'
 import { useRouter, useRoute } from 'vue-router'
 import { listSpareParts, createSparePart } from '@/api/inventory'
 import type { SparePart } from '@/types/inventory'
@@ -37,15 +38,11 @@ const form = ref<Partial<SparePart>>({
   unit_cost: 0, stock_uom: 'Cái', min_stock_level: 0, max_stock_level: 0, is_critical: 0, is_active: 1,
 })
 
+// Nhãn lấy từ SSoT `constants/labels.ts` — map cục bộ ở đây từng là bản sao thứ
+// hai, dễ lệch với file nhập/xuất Excel (guard parity BE↔FE khoá điều này).
 const CATEGORIES = [
   { v: '', l: 'Tất cả' },
-  { v: 'Electrical', l: 'Điện' },
-  { v: 'Mechanical', l: 'Cơ khí' },
-  { v: 'Consumable', l: 'Tiêu hao' },
-  { v: 'Filter', l: 'Bộ lọc' },
-  { v: 'Battery', l: 'Pin/Ắc-quy' },
-  { v: 'Sensor', l: 'Cảm biến' },
-  { v: 'Other', l: 'Khác' },
+  ...Object.entries(SPARE_PART_CATEGORY_LABEL).map(([v, l]) => ({ v, l })),
 ]
 interface Chip { key: 'q' | 'category' | 'lowStock'; label: string }
 const activeChips = computed<Chip[]>(() => {

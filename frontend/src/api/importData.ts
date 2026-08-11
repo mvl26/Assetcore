@@ -2,6 +2,7 @@
 import { frappeGet, frappePost } from './helpers'
 import type {
   RefDataDoctype,
+  ImportIssue,
   ImportPreviewResult,
   ImportResult,
   ImportMode,
@@ -10,6 +11,34 @@ import type {
 } from '@/types/import'
 
 const BASE = '/api/method/assetcore.api.import_data'
+
+/** Dạng lỗi thô từ BE — snake_case, `source_row`/`label` có thể vắng (BE cũ). */
+interface RawIssue {
+  row: number
+  source_row?: number
+  field: string
+  label?: string
+  message: string
+  severity: string
+}
+
+/**
+ * BE đánh số theo dòng dữ liệu (bỏ dòng trống); người dùng chỉ biết số hàng in
+ * ở lề trái Excel. `source_row` là số hàng thật — thiếu thì suy ra theo layout
+ * template (5 hàng khung ở đầu file) để không bao giờ hiện "Dòng 1" cho hàng 6.
+ */
+const HEADER_ROWS = 5
+
+function toIssue(r: RawIssue): ImportIssue {
+  return {
+    row: r.row,
+    sourceRow: r.source_row ?? r.row + HEADER_ROWS,
+    field: r.field,
+    label: r.label || r.field,
+    message: r.message,
+    severity: r.severity as ImportIssue['severity'],
+  }
+}
 
 export async function previewRefImport(
   doctype: RefDataDoctype,
@@ -21,8 +50,9 @@ export async function previewRefImport(
     valid_rows: number
     preview: Record<string, unknown>[]
     fieldnames: string[]
-    errors: { row: number; field: string; message: string; severity: string }[]
-    warnings: { row: number; field: string; message: string; severity: string }[]
+    field_labels?: Record<string, string>
+    errors: RawIssue[]
+    warnings: RawIssue[]
     cascade_count?: number
   }>(`${BASE}.preview_ref_data`, { doctype, file_url: fileUrl })
 
@@ -32,8 +62,9 @@ export async function previewRefImport(
     validRows: raw.valid_rows,
     preview: raw.preview,
     fieldnames: raw.fieldnames,
-    errors: raw.errors as ImportPreviewResult['errors'],
-    warnings: raw.warnings as ImportPreviewResult['warnings'],
+    fieldLabels: raw.field_labels ?? {},
+    errors: (raw.errors ?? []).map(toIssue),
+    warnings: (raw.warnings ?? []).map(toIssue),
     cascadeCount: raw.cascade_count ?? 0,
   }
 }
@@ -48,8 +79,9 @@ export async function importRefData(
     success: number
     failed: number
     skipped?: number
-    errors: { row: number; field: string; message: string; severity: string }[]
-    skipped_rows?: { row: number; reason: string; field: string; message: string }[]
+    groups_created?: number
+    errors: RawIssue[]
+    skipped_rows?: (RawIssue & { reason: string })[]
   }>(`${BASE}.import_ref_data`, {
     doctype,
     file_url: fileUrl,
@@ -61,11 +93,14 @@ export async function importRefData(
     success: raw.success,
     failed: raw.failed,
     skipped: raw.skipped ?? 0,
-    errors: raw.errors as ImportResult['errors'],
+    groupsCreated: raw.groups_created,
+    errors: (raw.errors ?? []).map(toIssue),
     skippedRows: (raw.skipped_rows ?? []).map((r): ImportSkippedRow => ({
       row: r.row,
+      sourceRow: r.source_row ?? r.row + HEADER_ROWS,
       reason: r.reason as ImportSkippedRow['reason'],
       field: r.field,
+      label: r.label || r.field,
       message: r.message,
     })),
   }
