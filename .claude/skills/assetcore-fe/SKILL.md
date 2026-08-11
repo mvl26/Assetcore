@@ -381,6 +381,12 @@ Mọi chuỗi HIỂN THỊ end-user PHẢI viết **đầy đủ tiếng Việt*
 2. **Scope KHÔNG chỉ `views/`+`components/`** — text còn render từ `constants/*.ts` (label map: đổi RHS VALUE, GIỮ KEY + role-name BE), `utils/*Labels.ts`, `i18n/messages.ts` (GENERATED — sửa `messages.py` + `python scripts/gen_fe_messages.py`, KHÔNG sửa tay). Liệt kê ĐỦ nguồn render TRƯỚC sweep.
 3. **Nhãn hành động workflow** (vd "Phát hành PO") — GIỮ value gửi BE, chỉ thêm `ACTION_LABELS` hiển thị FE-only; đổi chuỗi transition = vỡ workflow + buộc migrate.
 
+**Nhãn enum: 1 SSoT ở `constants/labels.ts`, KHÔNG map cục bộ trong view — [[LL-FE-56]]**
+Mỗi map nhãn khai trong 1 `.vue` là một bản sao sẽ drift. RED 2026-08-11: `VENDOR_TYPE_LABEL` khai TRÙNG ở `SupplierDetailView` + `SupplierListView`; `CATEGORIES` (loại phụ tùng) chỉ sống trong `SparePartListView`; `clinical_area_type` **không có map nào** ⇒ màn hình in "ICU"/"Standard" trong khi file nhập/xuất Excel hỏi bằng tiếng Việt — người dùng đọc hai nơi ra hai thứ.
+- Nhãn enum sống ở `constants/labels.ts` (hoặc `utils/formatters.ts` cho map dùng-toàn-app), export kèm hàm `xxxLabel(v)`; view CHỈ import.
+- Lớp nhập/xuất Excel là **lớp hiển thị** ⇒ cũng phải tiếng Việt. SSoT BE = `assetcore/utils/import_helpers.py::ENUM_DISPLAY_BY_DOCTYPE`; **guard parity BE↔FE** = `assetcore/tests/test_import_enum_labels.py` (đọc thẳng map trong `.ts`, đỏ khi lệch chữ). Sửa nhãn ở FE mà quên BE ⇒ guard đỏ, KHÔNG lọt ra khách.
+- Value/enum vẫn GIỮ NGUYÊN (mục (d) ở trên) — chỉ nhãn đổi.
+
 **Sau sweep chuỗi:** grep literal CŨ toàn repo (kể cả `*.test.ts`) — 1 nhãn SSoT đổi vỡ ≥5 file test ở module KHÁC (RCA/SLA 2026-07-01); full `vue-tsc --noEmit` + full `vitest run` (KHÔNG chỉ colocated — `assetcore-test`).
 
 ## Critical anti-patterns (từ bugs thực tế — KHÔNG lặp lại)

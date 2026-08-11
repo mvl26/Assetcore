@@ -1104,3 +1104,19 @@ Cross-ref: LL-FE-47 (control không dead — param == lựa chọn), BE LL-BE-62
 4. `landed_symbols` chỉ ghi thứ chính bạn vừa grep lại thấy (`symbol → file:line`).
 
 Cross-ref: [[LL-BE-69]] (phía phát), [[LL-AUDIT-22]] (claim ≠ đĩa), LL-FE-47 (control không dead); session run-3 2026-07-28.
+
+### LL-FE-56: Nhãn enum = 1 SSoT ở `constants/labels.ts` + parity với file nhập/xuất (2026-08-11)
+
+**Triệu chứng→nguyên nhân:** Việt hoá lớp nhập/xuất Excel (mẫu bảng kiểm) xong mới lộ ra: cùng một enum có tới **3 kiểu tồn tại** trong FE — (a) map cục bộ TRÙNG LẶP giữa 2 view (`VENDOR_TYPE_LABEL` ở `SupplierDetailView` + `SupplierListView`), (b) map cục bộ DUY NHẤT một view (`CATEGORIES` loại phụ tùng ở `SparePartListView`), (c) **không có map nào** (`clinical_area_type` / `infection_control_level` → `ReferenceDataView` in nguyên "ICU"/"Standard"). Hệ quả: sau khi file Excel hỏi bằng tiếng Việt, MÀN HÌNH vẫn in tiếng Anh ⇒ người dùng đọc hai nơi ra hai thứ, không biết điền theo cái nào.
+
+Đây là biến thể của anti-pattern A (English-enum leak) nhưng **không grep ra được bằng cách tìm chuỗi tiếng Anh trong `views/`** — vì chuỗi đến từ DATA, không phải literal.
+
+**Rule (kiểm được):**
+1. Nhãn enum sống ở `constants/labels.ts` (hoặc `utils/formatters.ts` nếu dùng toàn app), export `XXX_LABEL` + hàm `xxxLabel(v)` fallback trả nguyên `v`. View **chỉ import** — 0 map cục bộ. Kiểm: `grep -rn "Record<string, string> = {" src/views/` phải rỗng.
+2. **Field khác nhau ≠ dùng chung map**: `AC Supplier.supplier_group` kết thúc bằng `Service Provider`, `vendor_type` bằng `Service`. Gộp 1 map = khoá rác + 2 nhãn trùng trong một cột ⇒ đổi ngược không xác định. Đọc `options` của TỪNG field trước khi gộp.
+3. **Lớp nhập/xuất Excel cũng là lớp hiển thị** ⇒ nhãn phải khớp màn hình. SSoT BE = `utils/import_helpers.py::ENUM_DISPLAY_BY_DOCTYPE`; guard `assetcore/tests/test_import_enum_labels.py` đọc THẲNG map trong `.ts` và đỏ khi lệch chữ (4 tầng: phủ-kín · không-khoá-rác · parity FE · dropdown trong file .xlsx thật).
+4. Value/enum vẫn GIỮ NGUYÊN ([[LL-FE-52]]/[[LL-FE-53]]) — chỉ nhãn đổi.
+
+**Bẫy kèm theo (guard bắt được, đáng nhớ):** dropdown trong file mẫu từng chào `P1 Critical` / `P1 High` trong khi DocType `IMM SLA Policy.priority` chỉ có `P1..P4` ⇒ người dùng chọn đúng theo hướng dẫn mà hệ thống vẫn từ chối. Danh sách lựa chọn của file mẫu PHẢI sinh/kiểm từ `options` thật của DocType, không chép tay từ tài liệu.
+
+Cross-ref: SKILL §"UI copy — chính sách viết tắt"; [[LL-FE-53]]; skill `assetcore-import` LL-IMP-7; session 2026-08-11.
