@@ -10,6 +10,66 @@ import frappe
 
 _LABEL_SYSTEM_CODE = "Mã hệ thống"
 
+# Khoá kỹ thuật gắn vào mỗi dòng đã parse: số hàng THẬT trong file người dùng
+# (1-based, đúng thanh số dòng của Excel). Dùng để báo lỗi "sai ở dòng nào" —
+# KHÔNG được ghi vào DocType, nên mọi consumer phải bỏ qua khoá bắt đầu bằng "__".
+SOURCE_ROW_KEY = "__source_row__"
+
+# Hàng đầu tiên chứa dữ liệu người dùng trong template (hàng 1 banner, 2 fieldname,
+# 3 nhãn VI, 4 mô tả, 5 ví dụ). Dùng chung cho cả Excel lẫn CSV.
+FIRST_DATA_ROW = 6
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LINK DISPLAY — SSoT (LL-IMP-1 / LL-BE-26)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Người dùng LUÔN điền TÊN hiển thị (vd "Khoa Hồi sức tích cực"), không bao giờ
+# phải điền mã hệ thống (vd "AC-DEPT-0007"). Map này là NGUỒN DUY NHẤT cho cả 3
+# hướng dùng, nên sửa 1 chỗ là cả pipeline đồng bộ:
+#   1. import  — resolver `api.import_data._resolve_links` đổi tên → mã trước insert
+#   2. import  — validator `_link_lookup_set` chấp nhận CẢ tên lẫn mã
+#   3. export  — `export_ref_data` in ra TÊN thay vì mã (round-trip đọc được)
+#
+# RULE (LL-BE-26): Tree DocType (is_tree=1) BẮT BUỘC khai nsm_parent_field ở đây
+# (tự trỏ chính nó) — nếu không, Frappe core nested_set.validate_parent_field nổ
+# "Could not find Parent <Doctype>: <display_name>".
+#
+# Link trỏ tới `User` KHÔNG cần khai: PK của User chính là email = giá trị hiển thị.
+LINK_DISPLAY_BY_DOCTYPE: dict[str, dict[str, tuple[str, str]]] = {
+    "AC Asset": {
+        "asset_category": ("AC Asset Category", "category_name"),
+        "device_model":   ("IMM Device Model", "model_name"),
+        "location":       ("AC Location", "location_name"),
+        "department":     ("AC Department", "department_name"),
+        "supplier":       ("AC Supplier", "supplier_name"),
+    },
+    "AC Location": {
+        # Tree DocType — parent self-reference (LL-BE-26)
+        "parent_location": ("AC Location", "location_name"),
+    },
+    "AC Department": {
+        # Tree DocType — parent self-reference (LL-BE-26)
+        "parent_department": ("AC Department", "department_name"),
+    },
+    "AC Warehouse": {
+        "location":   ("AC Location", "location_name"),
+        "department": ("AC Department", "department_name"),
+    },
+    "AC Spare Part": {
+        "preferred_supplier": ("AC Supplier", "supplier_name"),
+    },
+    "Service Contract": {
+        "supplier": ("AC Supplier", "supplier_name"),
+    },
+    "IMM Device Model": {
+        "asset_category": ("AC Asset Category", "category_name"),
+    },
+    "User": {
+        # ac_department: người dùng điền "Khoa Hồi sức tích cực" → AC-DEPT-####
+        "ac_department": ("AC Department", "department_name"),
+    },
+}
+
 # Mapping doctype → (fieldname, tiếng Việt label, export fields)
 _REF_DATA_CONFIG: dict[str, dict] = {
     "AC Asset Category": {
@@ -145,7 +205,7 @@ _REF_DATA_CONFIG: dict[str, dict] = {
             "mobile_no", "ac_department", "imm_approval_status", "roles",
         ],
         "export_labels": {
-            "email": "Email (Mã người dùng)",
+            "email": "Email đăng nhập",
             "full_name": "Họ và tên",
             "first_name": "Tên",
             "last_name": "Họ",
@@ -250,6 +310,55 @@ _REF_DATA_CONFIG: dict[str, dict] = {
 
 SUPPORTED_REF_DOCTYPES = list(_REF_DATA_CONFIG.keys())
 
+# Cột chỉ có trong template import (không nằm trong export_fields) — vẫn cần nhãn
+# tiếng Việt để câu báo lỗi gọi đúng tên cột người dùng nhìn thấy.
+_IMPORT_ONLY_LABELS: dict[str, dict[str, str]] = {
+    "AC Supplier":      {"supplier_group": "Loại nhà cung cấp"},
+    "IMM Device Model": {"specifications": "Thông số kỹ thuật"},
+    "Service Contract": {"notes": "Ghi chú"},
+}
+
+
+def field_label(doctype: str, fieldname: str) -> str:
+    """Nhãn tiếng Việt của một cột import — dùng trong câu báo lỗi.
+
+    Người dùng chỉ thấy nhãn VI ở hàng 3 của template; báo lỗi kèm fieldname
+    tiếng Anh (`asset_category`) buộc họ tự dịch ngược. Fallback về fieldname
+    khi cột không có trong cấu hình (file lạ / cột thừa).
+    """
+    if not fieldname:
+        return ""
+    cfg = _REF_DATA_CONFIG.get(doctype, {})
+    labels: dict[str, str] = dict(cfg.get("export_labels", {}))
+    labels.update(_IMPORT_ONLY_LABELS.get(doctype, {}))
+    return labels.get(fieldname, fieldname)
+
+
+def source_row_of(rows: list[dict], row_idx: int) -> int:
+    """Số hàng THẬT trong file của dòng dữ liệu thứ `row_idx` (1-based).
+
+    Dòng trống ở giữa file bị parser loại bỏ, nên "dòng thứ 3" của validator
+    KHÔNG phải hàng 8 của Excel. Trả về số hàng đã ghi lúc parse; fallback theo
+    công thức khi dòng không có dấu vết (file CSV cũ / gọi trực tiếp trong test).
+    """
+    if 1 <= row_idx <= len(rows):
+        recorded = rows[row_idx - 1].get(SOURCE_ROW_KEY)
+        if isinstance(recorded, int) and recorded > 0:
+            return recorded
+    return row_idx + FIRST_DATA_ROW - 1
+
+
+def enrich_issues(doctype: str, rows: list[dict], issues: list[dict]) -> list[dict]:
+    """Bồi `label` (nhãn VI) + `source_row` (hàng thật trong file) vào mỗi lỗi.
+
+    Validator chỉ biết index dòng dữ liệu và fieldname kỹ thuật. FE cần chỉ đúng
+    "hàng 12, cột Danh mục tài sản" để người dùng mở file sửa được ngay.
+    """
+    for issue in issues:
+        issue["label"] = field_label(doctype, str(issue.get("field") or ""))
+        issue["source_row"] = source_row_of(rows, int(issue.get("row") or 0))
+    return issues
+
 # For multi-sheet templates, map each DocType to its sheet name.
 # When a user uploads the combined template file, this ensures the correct
 # sheet is parsed regardless of which sheet was active when saved.
@@ -315,8 +424,8 @@ def _parse_excel(file_path: str, doctype: str = "") -> tuple[list[str], list[dic
     # Row index 1 (0-based) = fieldnames
     fieldnames: list[str] = [str(c).strip() if c is not None else "" for c in rows_raw[1]]
 
-    # Data starts at row index 5 (0-based), skip example row at index 4
-    data_rows = rows_raw[5:]
+    # Data starts at row index 5 (0-based) = hàng 6 của Excel, bỏ hàng ví dụ (index 4)
+    data_rows = rows_raw[FIRST_DATA_ROW - 1:]
     return fieldnames, _rows_to_dicts(fieldnames, data_rows)
 
 
@@ -330,7 +439,7 @@ def _parse_csv(file_path: str) -> tuple[list[str], list[dict]]:
         raise ValueError("File CSV rỗng hoặc thiếu dòng header.")
 
     fieldnames = [c.strip() for c in all_rows[1]]
-    data_rows_raw = [tuple(r) for r in all_rows[5:]]
+    data_rows_raw = [tuple(r) for r in all_rows[FIRST_DATA_ROW - 1:]]
     return fieldnames, _rows_to_dicts(fieldnames, data_rows_raw)
 
 
@@ -341,14 +450,20 @@ def _normalise_cell(val: Any) -> Any:
 
 
 def _rows_to_dicts(fieldnames: list[str], raw_rows) -> list[dict]:
+    """Chuyển hàng thô → dict theo fieldname, GIỮ số hàng gốc trong file.
+
+    Dòng trống bị loại khỏi kết quả, nên index trong list KHÔNG còn suy ra được
+    số hàng Excel — ghi lại ở `SOURCE_ROW_KEY` để báo lỗi chỉ đúng chỗ.
+    """
     result = []
-    for raw in raw_rows:
+    for offset, raw in enumerate(raw_rows):
         row: dict[str, Any] = {
             fn: _normalise_cell(raw[i] if i < len(raw) else None)
             for i, fn in enumerate(fieldnames)
             if fn
         }
         if any(v not in ("", None) for v in row.values()):
+            row[SOURCE_ROW_KEY] = FIRST_DATA_ROW + offset
             result.append(row)
     return result
 
@@ -357,8 +472,15 @@ def _rows_to_dicts(fieldnames: list[str], raw_rows) -> list[dict]:
 # BUILD ERROR REPORT
 # ─────────────────────────────────────────────────────────────────────────────
 
-def build_error_report(fieldnames: list[str], rows: list[dict], errors: list[dict]) -> bytes:
-    """Return xlsx bytes with error rows highlighted, plus Status + Ghi chú columns."""
+def build_error_report(
+    fieldnames: list[str], rows: list[dict], errors: list[dict],
+    doctype: str = "",
+) -> bytes:
+    """Return xlsx bytes with error rows highlighted.
+
+    Cột đầu = số hàng THẬT trong file gốc để người dùng mở file lên sửa đúng chỗ;
+    ghi chú lỗi gọi cột bằng nhãn tiếng Việt (không phải fieldname tiếng Anh).
+    """
     try:
         from openpyxl import Workbook
         from openpyxl.styles import PatternFill, Font
@@ -367,13 +489,14 @@ def build_error_report(fieldnames: list[str], rows: list[dict], errors: list[dic
 
     error_map: dict[int, list[str]] = {}
     for e in errors:
-        error_map.setdefault(e["row"], []).append(f"[{e['field']}] {e['message']}")
+        label = field_label(doctype, str(e.get("field") or "")) or "Toàn dòng"
+        error_map.setdefault(e["row"], []).append(f"[{label}] {e['message']}")
 
     wb = Workbook()
     ws = wb.active
     ws.title = "Lỗi import"
 
-    header = fieldnames + ["Trạng thái", "Ghi chú lỗi"]
+    header = ["Hàng trong file"] + fieldnames + ["Trạng thái", "Ghi chú lỗi"]
     ws.append(header)
     for cell in ws[1]:
         cell.font = Font(bold=True)
@@ -385,7 +508,7 @@ def build_error_report(fieldnames: list[str], rows: list[dict], errors: list[dic
         data = [row.get(fn, "") for fn in fieldnames]
         notes = error_map.get(i, [])
         status = "Lỗi" if notes else "OK"
-        ws.append(data + [status, "; ".join(notes)])
+        ws.append([source_row_of(rows, i)] + data + [status, "; ".join(notes)])
         xl_row = ws[ws.max_row]
         fill = red_fill if notes else ok_fill
         for cell in xl_row:
@@ -440,6 +563,41 @@ def _export_users(cfg: dict) -> list[dict]:
     return result
 
 
+def _display_names_for(link_doctype: str, display_field: str, codes: set[str]) -> dict[str, str]:
+    """Map mã hệ thống → tên hiển thị cho một tập mã (1 query, không N+1)."""
+    if not codes:
+        return {}
+    found = frappe.get_all(
+        link_doctype,
+        filters={"name": ["in", sorted(codes)]},
+        fields=["name", display_field],
+    )
+    return {r["name"]: str(r.get(display_field) or "") for r in found if r.get(display_field)}
+
+
+def resolve_links_to_display(doctype: str, rows: list[dict]) -> list[dict]:
+    """Đổi giá trị Link từ mã hệ thống → TÊN hiển thị, tại chỗ.
+
+    File export phải đọc được và import lại được mà không bắt người dùng tra mã:
+    cột "Khoa phòng quản lý" phải in "Khoa Hồi sức tích cực", KHÔNG phải
+    "AC-DEPT-0007". Mã không tra được (bản ghi đã xoá) giữ nguyên để không mất dấu.
+    """
+    link_map = LINK_DISPLAY_BY_DOCTYPE.get(doctype, {})
+    if not link_map or not rows:
+        return rows
+
+    for field, (link_dt, display_field) in link_map.items():
+        codes = {str(r.get(field)) for r in rows if r.get(field)}
+        lookup = _display_names_for(link_dt, display_field, codes)
+        if not lookup:
+            continue
+        for r in rows:
+            val = r.get(field)
+            if val and str(val) in lookup:
+                r[field] = lookup[str(val)]
+    return rows
+
+
 def export_ref_data(doctype: str) -> bytes:
     """Export all records of a ref-data DocType to xlsx bytes."""
     if doctype not in _REF_DATA_CONFIG:
@@ -459,6 +617,9 @@ def export_ref_data(doctype: str) -> bytes:
         rows = _export_users(cfg)
     else:
         rows = frappe.get_all(doctype, fields=fields, order_by="creation asc")
+
+    # Link column phải in TÊN, không in mã — file export cũng là file import lại.
+    rows = resolve_links_to_display(doctype, [dict(r) for r in rows])
 
     wb = Workbook()
     ws = wb.active
@@ -540,7 +701,7 @@ def get_template_path(doctype: str) -> str:
     if not os.path.exists(path):
         raise FileNotFoundError(
             f"Template file không tồn tại: {path}. "
-            "Chạy docs/imports/generate_templates.py để sinh lại."
+            "Chạy docs/res/imports/generate_templates.py để sinh lại."
         )
     return path
 

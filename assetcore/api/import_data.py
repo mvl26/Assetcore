@@ -12,6 +12,11 @@ from __future__ import annotations
 import frappe
 
 from assetcore.services.shared import ErrorCode, ServiceError
+from assetcore.utils.import_helpers import (
+    LINK_DISPLAY_BY_DOCTYPE,
+    SOURCE_ROW_KEY,
+    enrich_issues,
+)
 from assetcore.utils.response import _err, _ok
 
 
@@ -43,46 +48,11 @@ _BOOL_FIELDS: set[str] = {
 }
 
 # Link fields where the user fills the display name in the template but the
-# Frappe field expects the doc name (system code). Resolver looks up
-# display_name → name before insert.
-#
-# RULE (LL-BE-26): Tree DocType (is_tree=1) MUST list its nsm_parent_field here
-# self-referencing — otherwise Frappe core nested_set.validate_parent_field
-# crashes with "Could not find Parent <Doctype>: <display_name>".
-_RESOLVABLE_LINKS_BY_DOCTYPE: dict[str, dict[str, tuple[str, str]]] = {
-    "AC Asset": {
-        "asset_category": ("AC Asset Category", "category_name"),
-        "device_model":   ("IMM Device Model", "model_name"),
-        "location":       ("AC Location", "location_name"),
-        "department":     ("AC Department", "department_name"),
-        "supplier":       ("AC Supplier", "supplier_name"),
-    },
-    "AC Location": {
-        # Tree DocType — parent self-reference (LL-BE-26)
-        "parent_location": ("AC Location", "location_name"),
-    },
-    "AC Department": {
-        # Tree DocType — parent self-reference (LL-BE-26)
-        "parent_department": ("AC Department", "department_name"),
-    },
-    "AC Warehouse": {
-        "location":   ("AC Location", "location_name"),
-        "department": ("AC Department", "department_name"),
-    },
-    "AC Spare Part": {
-        "preferred_supplier": ("AC Supplier", "supplier_name"),
-    },
-    "Service Contract": {
-        "supplier": ("AC Supplier", "supplier_name"),
-    },
-    "IMM Device Model": {
-        "asset_category": ("AC Asset Category", "category_name"),
-    },
-    "User": {
-        # ac_department user-fills name like "Khoa HSCC", resolve to AC-DEPT-####
-        "ac_department": ("AC Department", "department_name"),
-    },
-}
+# Frappe field expects the doc name (system code). SSoT nằm ở
+# `utils.import_helpers.LINK_DISPLAY_BY_DOCTYPE` — dùng chung với export (in TÊN
+# thay vì mã) và với validator (`_link_lookup_set` chấp nhận cả tên lẫn mã).
+# Alias giữ tên cũ cho call-site/test đang tham chiếu.
+_RESOLVABLE_LINKS_BY_DOCTYPE = LINK_DISPLAY_BY_DOCTYPE
 
 # Link fields that are tolerated as missing — if value doesn't resolve, drop
 # the field rather than fail the row. Only fields the user can legitimately
@@ -96,6 +66,12 @@ _OPTIONAL_LINKS_BY_DOCTYPE: dict[str, dict[str, str]] = {
         "custodian": "User",
         "responsible_technician": "User",
     },
+    # dept_head/manager là email User — sai chính tả không được làm hỏng cả dòng;
+    # validator đã cảnh báo "sẽ để trống" nên insert phải bỏ field, không throw.
+    "AC Department": {"dept_head": "User"},
+    "AC Location": {"dept_head": "User"},
+    "AC Warehouse": {"location": "AC Location", "department": "AC Department", "manager": "User"},
+    "AC Spare Part": {"preferred_supplier": "AC Supplier"},
 }
 
 
@@ -153,7 +129,7 @@ def _do_preview(doctype: str, file_url: str) -> dict:
         raise ServiceError(ErrorCode.VALIDATION, "File không có dòng dữ liệu (từ hàng 6 trở xuống).")
 
     validator = get_validator(doctype)
-    all_issues = validator.validate_all(rows)
+    all_issues = enrich_issues(doctype, rows, validator.validate_all(rows))
 
     errors   = [e for e in all_issues if e["severity"] == "error"]
     warnings = [e for e in all_issues if e["severity"] == "warning"]
@@ -164,12 +140,17 @@ def _do_preview(doctype: str, file_url: str) -> dict:
     _, cascade = _cascade_skip_for_tree(doctype, rows, set(invalid_rows))
     cascade_count = len(cascade)
 
+    from assetcore.utils.import_helpers import field_label
+
     return {
         "doctype": doctype,
         "total_rows": len(rows),
         "valid_rows": len(rows) - len(invalid_rows) - cascade_count,
         "preview": rows[:10],
         "fieldnames": fieldnames,
+        # Nhãn VI cho từng cột — FE hiển thị "Danh mục tài sản", không phải
+        # "asset_category" (người dùng chỉ biết nhãn ở hàng 3 của template).
+        "field_labels": {fn: field_label(doctype, fn) for fn in fieldnames if fn},
         "errors": errors,
         "warnings": warnings,
         "cascade_count": cascade_count,
@@ -283,15 +264,9 @@ def _do_import(doctype: str, file_url: str, skip_invalid: bool = False) -> dict:
         if not skip_invalid:
             raise ServiceError(
                 ErrorCode.VALIDATION,
-                f"File có {len(blocking)} lỗi bắt buộc phải sửa trước khi import. "
-                "Dùng Preview để xem chi tiết hoặc bật 'Bỏ qua dòng lỗi'.",
-            )
-        # User import chưa hỗ trợ skip (upsert logic riêng — xem _do_import_users)
-        if doctype == "User":
-            raise ServiceError(
-                ErrorCode.VALIDATION,
-                "Chế độ 'Bỏ qua dòng lỗi' chưa hỗ trợ cho import Người dùng. "
-                "Vui lòng sửa file và import lại.",
+                f"File có {len(blocking)} dòng lỗi cần sửa trước khi nhập. "
+                "Xem chi tiết ở bước kiểm tra, hoặc chọn "
+                "'Bỏ qua dòng lỗi/trùng' để nhập phần hợp lệ.",
             )
 
         for e in blocking:
@@ -310,12 +285,14 @@ def _do_import(doctype: str, file_url: str, skip_invalid: bool = False) -> dict:
         if len(invalid_idx) >= len(rows):
             raise ServiceError(
                 ErrorCode.VALIDATION,
-                "Không có dòng hợp lệ nào để import — toàn bộ file lỗi.",
+                "Không có dòng hợp lệ nào để nhập — toàn bộ file đều lỗi.",
             )
+
+    enrich_issues(doctype, rows, skipped_rows)
 
     # ── Insert ─────────────────────────────────────────────────────────────
     if doctype == "User":
-        return _do_import_users(rows)
+        return _do_import_users(rows, invalid_idx, skipped_rows)
 
     resolvable_links = _RESOLVABLE_LINKS_BY_DOCTYPE.get(doctype, {})
     optional_links = _OPTIONAL_LINKS_BY_DOCTYPE.get(doctype, {})
@@ -362,6 +339,7 @@ def _do_import(doctype: str, file_url: str, skip_invalid: bool = False) -> dict:
                 "severity": "error",
             })
 
+    enrich_issues(doctype, rows, results["errors"])
     frappe.db.commit()
     return results
 
@@ -414,7 +392,8 @@ def _normalise_row(row: dict, bool_fields: set[str]) -> dict:
     """Convert string values to proper Python types for frappe.new_doc."""
     out: dict = {}
     for k, v in row.items():
-        if v == "" or v is None:
+        # Khoá kỹ thuật của parser (SOURCE_ROW_KEY) KHÔNG phải field DocType.
+        if k == SOURCE_ROW_KEY or k.startswith("__") or v == "" or v is None:
             continue
         if k in bool_fields:
             out[k] = 1 if str(v) in ("1", "True", "true", "yes") else 0
@@ -432,19 +411,28 @@ def _friendly_frappe_error(msg: str) -> str:
     return msg[:200]
 
 
-def _do_import_users(rows: list[dict]) -> dict:
+def _do_import_users(
+    rows: list[dict],
+    invalid_idx: set[int] | None = None,
+    skipped_rows: list[dict] | None = None,
+) -> dict:
     """Upsert Frappe Users — insert new, update existing; assign roles additively.
 
     Resolves `ac_department` display name → AC-DEPT-#### code (LL-BE-26).
+    `invalid_idx` = các dòng đã bị pre-validate loại khi bật 'bỏ qua dòng lỗi'.
     """
+    invalid_idx = invalid_idx or set()
     results: dict = {
         "total": len(rows), "success": 0, "failed": 0,
-        "skipped": 0, "errors": [], "skipped_rows": [],
+        "skipped": len(invalid_idx), "errors": [],
+        "skipped_rows": skipped_rows or [],
     }
     _USER_FIELDS = ("first_name", "last_name", "mobile_no", "ac_department", "imm_approval_status")
     user_resolvable = _RESOLVABLE_LINKS_BY_DOCTYPE.get("User", {})
 
     for i, row in enumerate(rows, start=1):
+        if i in invalid_idx:
+            continue
         try:
             email = str(row.get("email", "")).strip()
             if not email:
@@ -490,6 +478,7 @@ def _do_import_users(rows: list[dict]) -> dict:
                 "severity": "error",
             })
 
+    enrich_issues("User", rows, results["errors"])
     frappe.db.commit()
     return results
 
@@ -572,9 +561,9 @@ def _do_build_error_report(doctype: str, file_url: str) -> dict:
 
     fieldnames, rows = parse_upload_file(file_url, doctype)
     validator = get_validator(doctype)
-    errors = validator.validate_all(rows)
+    errors = enrich_issues(doctype, rows, validator.validate_all(rows))
 
-    xlsx_bytes = build_error_report(fieldnames, rows, errors)
+    xlsx_bytes = build_error_report(fieldnames, rows, errors, doctype)
 
     folder = ensure_import_folder("Error Reports")
     fname = f"error_report_{doctype.replace(' ', '_').lower()}.xlsx"

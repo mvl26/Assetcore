@@ -34,6 +34,16 @@ class ImportError(TypedDict):
     severity: str  # "error" | "warning"
 
 
+def _name_hint(what: str) -> str:
+    """Hậu tố nhắc người dùng điền TÊN, không điền mã hệ thống.
+
+    Template + export đều dùng tên hiển thị (SSoT
+    `import_helpers.LINK_DISPLAY_BY_DOCTYPE`), nên câu báo lỗi phải nói rõ điều
+    đó — nếu không người dùng sẽ đi tra mã trong DB.
+    """
+    return f"điền đúng TÊN {what} như trong hệ thống (không điền mã)"
+
+
 def _link_lookup_set(doctype: str, display_field: str) -> set[str]:
     """Return union(doc names + display_field values) for a Link target DocType.
 
@@ -93,6 +103,49 @@ class BaseImportValidator:
                 severity="error",
             )
         return None
+
+    def _check_enum(
+        self, row: dict, row_idx: int, field: str, label: str,
+        *, required: bool = False,
+    ) -> list[ImportError]:
+        """Kiểm cột Select — chấp nhận CẢ nhãn tiếng Việt lẫn giá trị gốc.
+
+        Template + export in nhãn VI (SSoT `import_helpers.ENUM_DISPLAY_BY_DOCTYPE`),
+        nên validator chỉ chấp nhận giá trị gốc = từ chối đúng thứ template dạy
+        điền. Đối xứng LL-IMP-1 của Link field, cho cột Select.
+        Câu báo lỗi liệt kê NHÃN VI — liệt kê enum tiếng Anh là bắt người dùng
+        đoán xem chuỗi nào ứng với ô họ vừa chọn.
+        """
+        from assetcore.utils.import_helpers import ENUM_DISPLAY_BY_DOCTYPE, enum_accepted
+
+        value = str(row.get(field, "")).strip()
+        if not value:
+            return [self._err(row_idx, field, f"'{label}' là bắt buộc")] if required else []
+        if value in enum_accepted(self.doctype, field):
+            return []
+        choices = ENUM_DISPLAY_BY_DOCTYPE.get(self.doctype, {}).get(field, {}).values()
+        return [self._err(
+            row_idx, field,
+            f"'{label}' — giá trị '{value}' không hợp lệ; chọn: " + " / ".join(choices),
+        )]
+
+    def _check_user_email(
+        self, row: dict, row_idx: int, field: str, label: str,
+    ) -> list[ImportError]:
+        """Cảnh báo (không chặn) khi email người phụ trách sai/không tồn tại.
+
+        Link tới User dùng email làm khoá — sai chính tả mà không bắt ở đây thì
+        Frappe ném "Could not find <label>" bằng tiếng Anh giữa lúc insert và cả
+        dòng chết. Đối xứng với `_OPTIONAL_LINKS_BY_DOCTYPE` (insert bỏ field).
+        """
+        value = str(row.get(field, "")).strip()
+        if not value:
+            return []
+        if not is_valid_email(value):
+            return [self._err(row_idx, field, f"{label} '{value}' không đúng định dạng email")]
+        if not frappe.db.exists("User", value):
+            return [self._warn(row_idx, field, f"{label} '{value}' chưa có tài khoản — sẽ để trống")]
+        return []
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -162,14 +215,10 @@ class CategoryImportValidator(BaseImportValidator):
                     "Bắt buộc khi 'Cần hiệu chuẩn' = 1",
                 ))
 
-        # depreciation_method valid values
-        method = str(row.get("default_depreciation_method", "")).strip()
-        valid_methods = {"", "Straight Line", "Double Declining", "Units of Production"}
-        if method and method not in valid_methods:
-            errors.append(self._err(
-                row_idx, "default_depreciation_method",
-                f"Phương pháp '{method}' không hợp lệ — chọn: Straight Line / Double Declining / Units of Production",
-            ))
+        errors.extend(self._check_enum(
+            row, row_idx, "default_depreciation_method", "Phương pháp khấu hao"))
+        errors.extend(self._check_enum(
+            row, row_idx, "depreciation_frequency", "Tần suất khấu hao"))
 
         return errors
 
@@ -254,6 +303,8 @@ class DepartmentImportValidator(BaseImportValidator):
                 f"Email '{email}' không đúng định dạng",
             ))
 
+        errors.extend(self._check_user_email(row, row_idx, "dept_head", "Trưởng khoa/phòng"))
+
         return errors
 
 
@@ -263,9 +314,6 @@ class DepartmentImportValidator(BaseImportValidator):
 
 class LocationImportValidator(BaseImportValidator):
     doctype = "AC Location"
-
-    _VALID_AREA_TYPES = {"", "ICU", "OR", "Lab", "Imaging", "General Ward", "Storage", "Office"}
-    _VALID_INFECTION_LEVELS = {"", "Standard", "Enhanced", "Isolation"}
 
     def validate_all(self, rows: list[dict]) -> list[ImportError]:
         existing: set[str] = {
@@ -334,21 +382,12 @@ class LocationImportValidator(BaseImportValidator):
                         f"(sau dòng này) — sắp xếp lại để parent đứng trước con",
                     ))
 
-        # clinical_area_type
-        area = str(row.get("clinical_area_type", "")).strip()
-        if area and area not in self._VALID_AREA_TYPES:
-            errors.append(self._err(
-                row_idx, "clinical_area_type",
-                f"Khu vực lâm sàng '{area}' không hợp lệ — chọn: ICU / OR / Lab / Imaging / General Ward / Storage / Office",
-            ))
+        errors.extend(self._check_enum(
+            row, row_idx, "clinical_area_type", "Loại khu vực lâm sàng"))
+        errors.extend(self._check_enum(
+            row, row_idx, "infection_control_level", "Mức kiểm soát nhiễm khuẩn"))
 
-        # infection_control_level
-        icl = str(row.get("infection_control_level", "")).strip()
-        if icl and icl not in self._VALID_INFECTION_LEVELS:
-            errors.append(self._err(
-                row_idx, "infection_control_level",
-                f"Mức kiểm soát '{icl}' không hợp lệ — chọn: Standard / Enhanced / Isolation",
-            ))
+        errors.extend(self._check_user_email(row, row_idx, "dept_head", "Người phụ trách"))
 
         return errors
 
@@ -360,8 +399,6 @@ class LocationImportValidator(BaseImportValidator):
 class DeviceModelImportValidator(BaseImportValidator):
     doctype = "IMM Device Model"
 
-    _VALID_CLASSES = {"Class I", "Class II", "Class III"}
-    _VALID_CAL_TYPES = {"", "Internal", "External", "Both"}
     _NUMERIC_FIELDS = [
         ("pm_interval_days", "Chu kỳ PM"),
         ("calibration_interval_days", "Chu kỳ HC"),
@@ -408,17 +445,12 @@ class DeviceModelImportValidator(BaseImportValidator):
         elif cat not in valid_categories:
             errors.append(self._err(
                 row_idx, "asset_category",
-                f"Danh mục '{cat}' không tồn tại — kiểm tra hoặc import danh mục trước",
+                f"Danh mục '{cat}' không tồn tại — " + _name_hint("danh mục")
+                + ", hoặc nhập danh mục trước",
             ))
 
-        cls = str(row.get("medical_device_class", "")).strip()
-        if not cls:
-            errors.append(self._err(row_idx, "medical_device_class", "'Phân loại thiết bị' là bắt buộc"))
-        elif cls not in self._VALID_CLASSES:
-            errors.append(self._err(
-                row_idx, "medical_device_class",
-                f"Phân loại '{cls}' không hợp lệ — chọn: Class I / Class II / Class III",
-            ))
+        errors.extend(self._check_enum(
+            row, row_idx, "medical_device_class", "Phân loại thiết bị", required=True))
 
         gmdn = str(row.get("gmdn_code", "")).strip()
         if gmdn and not is_valid_gmdn_code(gmdn):
@@ -432,12 +464,8 @@ class DeviceModelImportValidator(BaseImportValidator):
             if not row.get("calibration_interval_days"):
                 errors.append(self._err(row_idx, "calibration_interval_days", "Bắt buộc khi 'Cần hiệu chuẩn' = 1"))
 
-        cal_type = str(row.get("default_calibration_type", "")).strip()
-        if cal_type and cal_type not in self._VALID_CAL_TYPES:
-            errors.append(self._err(
-                row_idx, "default_calibration_type",
-                f"Loại hiệu chuẩn '{cal_type}' không hợp lệ — chọn: Internal / External / Both",
-            ))
+        errors.extend(self._check_enum(
+            row, row_idx, "default_calibration_type", "Loại hiệu chuẩn"))
 
         for field, label in self._NUMERIC_FIELDS:
             val = row.get(field)
@@ -457,11 +485,6 @@ class DeviceModelImportValidator(BaseImportValidator):
 
 class ContractImportValidator(BaseImportValidator):
     doctype = "Service Contract"
-
-    _VALID_TYPES = frozenset({
-        "Preventive Maintenance", "Calibration", "Repair",
-        "Full Service", "Warranty Extension",
-    })
 
     def validate_all(self, rows: list[dict]) -> list[ImportError]:
         # contract_code đã unify với name (PK) — kiểm tra trùng cả 2 cột.
@@ -516,13 +539,10 @@ class ContractImportValidator(BaseImportValidator):
         supplier = str(row.get("supplier", "")).strip()
         if supplier and supplier not in valid_suppliers:
             errors.append(self._err(row_idx, "supplier",
-                f"Nhà cung cấp '{supplier}' không tồn tại — tạo NCC trước khi import hợp đồng"))
+                f"Nhà cung cấp '{supplier}' không tồn tại — " + _name_hint("nhà cung cấp")
+                + ", hoặc tạo nhà cung cấp trước khi nhập hợp đồng"))
 
-        # contract_type valid values
-        ctype = str(row.get("contract_type", "")).strip()
-        if ctype and ctype not in self._VALID_TYPES:
-            errors.append(self._err(row_idx, "contract_type",
-                f"Loại '{ctype}' không hợp lệ — chọn: " + " / ".join(sorted(self._VALID_TYPES))))
+        errors.extend(self._check_enum(row, row_idx, "contract_type", "Loại hợp đồng"))
 
         # contract_end must be >= contract_start
         start = str(row.get("contract_start", "")).strip()
@@ -545,7 +565,6 @@ class ContractImportValidator(BaseImportValidator):
 
 class UserImportValidator(BaseImportValidator):
     doctype = "User"
-    _VALID_STATUSES = frozenset({"Pending", "Approved", "Rejected"})
 
     def validate_all(self, rows: list[dict]) -> list[ImportError]:
         existing_emails: set[str] = {
@@ -595,15 +614,12 @@ class UserImportValidator(BaseImportValidator):
         if dept and dept not in valid_depts:
             errors.append(self._warn(
                 row_idx, "ac_department",
-                f"Khoa/phòng '{dept}' không tìm thấy trong hệ thống — sẽ để trống",
+                f"Khoa/phòng '{dept}' không tìm thấy — " + _name_hint("khoa/phòng")
+                + "; dòng này sẽ để trống khoa/phòng",
             ))
 
-        status = str(row.get("imm_approval_status", "")).strip()
-        if status and status not in self._VALID_STATUSES:
-            errors.append(self._err(
-                row_idx, "imm_approval_status",
-                f"Trạng thái duyệt '{status}' không hợp lệ — chọn: Pending / Approved / Rejected",
-            ))
+        errors.extend(self._check_enum(
+            row, row_idx, "imm_approval_status", "Trạng thái duyệt"))
 
         roles_raw = str(row.get("roles", "")).strip()
         if roles_raw:
@@ -623,15 +639,6 @@ class UserImportValidator(BaseImportValidator):
 
 class AssetImportValidator(BaseImportValidator):
     doctype = "AC Asset"
-
-    _VALID_LIFECYCLE = frozenset({
-        "", "Draft", "Commissioned", "Active",
-        "Under Maintenance", "Under Repair", "Calibrating",
-        "Out of Service", "Decommissioned",
-    })
-    _VALID_DEPRECIATION_METHODS = frozenset({
-        "", "Straight Line", "Double Declining", "Units of Production",
-    })
 
     def validate_all(self, rows: list[dict]) -> list[ImportError]:
         # LL-IMP-1: Link fields accept either system code OR display name
@@ -745,35 +752,40 @@ class AssetImportValidator(BaseImportValidator):
         if cat and cat not in categories:
             errors.append(self._err(
                 row_idx, "asset_category",
-                f"Danh mục '{cat}' không tồn tại — kiểm tra hoặc import danh mục trước",
+                f"Danh mục '{cat}' không tồn tại — " + _name_hint("danh mục")
+                + ", hoặc nhập danh mục trước",
             ))
 
         model = str(row.get("device_model", "")).strip()
         if model and model not in models:
             errors.append(self._warn(
                 row_idx, "device_model",
-                f"Model '{model}' không tồn tại — sẽ để trống",
+                f"Model '{model}' không tồn tại — " + _name_hint("model thiết bị")
+                + "; dòng này sẽ để trống model",
             ))
 
         loc = str(row.get("location", "")).strip()
         if loc and loc not in locations:
             errors.append(self._warn(
                 row_idx, "location",
-                f"Vị trí '{loc}' không tồn tại — sẽ để trống",
+                f"Vị trí '{loc}' không tồn tại — " + _name_hint("vị trí")
+                + "; dòng này sẽ để trống vị trí",
             ))
 
         dept = str(row.get("department", "")).strip()
         if dept and dept not in departments:
             errors.append(self._warn(
                 row_idx, "department",
-                f"Khoa/phòng '{dept}' không tồn tại — sẽ để trống",
+                f"Khoa/phòng '{dept}' không tồn tại — " + _name_hint("khoa/phòng")
+                + "; dòng này sẽ để trống khoa/phòng",
             ))
 
         sup = str(row.get("supplier", "")).strip()
         if sup and sup not in suppliers:
             errors.append(self._warn(
                 row_idx, "supplier",
-                f"Nhà cung cấp '{sup}' không tồn tại — sẽ để trống",
+                f"Nhà cung cấp '{sup}' không tồn tại — " + _name_hint("nhà cung cấp")
+                + "; dòng này sẽ để trống nhà cung cấp",
             ))
 
         for ufield, ulabel in [
@@ -793,22 +805,12 @@ class AssetImportValidator(BaseImportValidator):
                         f"{ulabel} '{uv}' chưa có tài khoản — sẽ để trống",
                     ))
 
-        # lifecycle_status valid values
-        ls = str(row.get("lifecycle_status", "")).strip()
-        if ls and ls not in self._VALID_LIFECYCLE:
-            errors.append(self._err(
-                row_idx, "lifecycle_status",
-                f"Trạng thái vòng đời '{ls}' không hợp lệ — chọn: "
-                + " / ".join(s for s in self._VALID_LIFECYCLE if s),
-            ))
-
-        # depreciation_method valid values
-        dm = str(row.get("depreciation_method", "")).strip()
-        if dm and dm not in self._VALID_DEPRECIATION_METHODS:
-            errors.append(self._err(
-                row_idx, "depreciation_method",
-                f"Phương pháp khấu hao '{dm}' không hợp lệ — chọn: Straight Line / Double Declining / Units of Production",
-            ))
+        errors.extend(self._check_enum(
+            row, row_idx, "lifecycle_status", "Trạng thái vòng đời"))
+        errors.extend(self._check_enum(
+            row, row_idx, "depreciation_method", "Phương pháp khấu hao"))
+        errors.extend(self._check_enum(
+            row, row_idx, "depreciation_frequency", "Tần suất khấu hao"))
 
         # purchase_date <= warranty_expiry_date
         from datetime import date as _date
