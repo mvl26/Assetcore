@@ -109,7 +109,50 @@ describe('import wizard — số hàng thật + nhãn cột tiếng Việt', () 
     await importRefData(USER_IMPORT_TYPE, '/files/x.xlsx', 'skip_invalid')
     expect(frappePost).toHaveBeenCalledWith(
       '/api/method/assetcore.api.import_data.import_ref_data',
-      { doctype: USER_IMPORT_TYPE, file_url: '/files/x.xlsx', skip_invalid: true },
+      {
+        doctype: USER_IMPORT_TYPE, file_url: '/files/x.xlsx',
+        skip_invalid: true,
+        // Cờ ghi đè luôn gửi tường minh: để undefined trôi xuống là giao cho BE
+        // đoán, mà đoán sai ở đây = thay dữ liệu đang dùng.
+        update_existing: false,
+      },
     )
+  })
+
+  it('preview: tóm tắt nhóm đổi sang camelCase cho màn hình dựng bảng', async () => {
+    frappePost.mockResolvedValue({
+      doctype: 'PM Checklist Template',
+      total_rows: 3, valid_rows: 3, preview: [], fieldnames: [],
+      errors: [], warnings: [],
+      groups: [{
+        key: 'CAT-0001 · Quarterly', name_value: 'Bảng kiểm quý — Máy thở',
+        rows: 3, items: 2, first_source_row: 6,
+        exists: true, existing_items: 5, action: 'blocked',
+        category: 'Máy thở', pm_type: 'Hàng quý',
+      }],
+      groups_total: 1,
+    })
+
+    const res = await previewRefImport('PM Checklist Template', '/files/x.xlsx')
+    expect(res.groupsTotal).toBe(1)
+    expect(res.groups?.[0]).toMatchObject({
+      nameValue: 'Bảng kiểm quý — Máy thở',
+      firstSourceRow: 6,
+      existingItems: 5,
+      action: 'blocked',
+      category: 'Máy thở',
+      pmType: 'Hàng quý',
+    })
+  })
+
+  it('preview: loại dữ liệu phẳng không có nhóm ⇒ groups vắng, không bịa mảng rỗng', async () => {
+    frappePost.mockResolvedValue({
+      doctype: 'AC Department',
+      total_rows: 1, valid_rows: 1, preview: [], fieldnames: [],
+      errors: [], warnings: [],
+    })
+    const res = await previewRefImport('AC Department', '/files/x.xlsx')
+    expect(res.groups).toBeUndefined()
+    expect(res.groupsTotal).toBeUndefined()
   })
 })

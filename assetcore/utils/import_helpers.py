@@ -85,6 +85,71 @@ LINK_DISPLAY_BY_DOCTYPE: dict[str, dict[str, tuple[str, str]]] = {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
+# UPDATE KEY — bản ghi nào trong hệ thống ứng với dòng này? (LL-IMP-11)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Một dòng file chỉ "cập nhật được" khi biết nó trỏ tới bản ghi nào. Khoá phải là
+# thứ NGƯỜI DÙNG cầm trong tay (mã / tên nghiệp vụ), không phải mã hệ thống
+# (`AC-SUP-2026-0007`) — họ không tra được mã đó.
+#
+# Danh sách theo THỨ TỰ ƯU TIÊN: cột nào có giá trị trước thì dùng cột đó. Đặt mã
+# trước tên để đổi được TÊN bằng import (khoá theo tên thì đổi tên = tạo bản ghi
+# mới, mất dấu bản cũ).
+#
+# Phải khớp với cột validator dùng để báo trùng — lệch = báo "đã tồn tại" nhưng
+# lại cập nhật nhầm bản ghi khác. Guard: `tests/test_import_update_existing.py`.
+UPDATE_KEY_BY_DOCTYPE: dict[str, tuple[str, ...]] = {
+    "AC Asset Category": ("category_code", "category_name"),
+    "AC Department":     ("department_code", "department_name"),
+    "AC Location":       ("location_code", "location_name"),
+    "AC Supplier":       ("supplier_code", "supplier_name"),
+    "IMM Device Model":  ("model_name",),
+    "Service Contract":  ("contract_code",),
+    "AC Asset":          ("asset_code",),
+    # `User` có đường upsert riêng (khoá = email, `_do_import_users`).
+}
+
+# Cột KHÔNG cho phép đổi bằng import khi cập nhật bản ghi đã có.
+# Trạng thái vòng đời đi kèm workflow + lịch sử thiết bị; mã tài sản và serial là
+# định danh đã in trên tem QR. Đổi mấy thứ này bằng file = đi vòng workflow và
+# làm nhoè vết kiểm toán (NĐ98). Sửa chúng phải qua màn hình, có người bấm nút.
+UPDATE_LOCKED_FIELDS_BY_DOCTYPE: dict[str, tuple[str, ...]] = {
+    "AC Asset": ("asset_code", "manufacturer_sn", "lifecycle_status", "status", "qr_token"),
+}
+
+
+def find_existing_by_key(doctype: str, rows: list[dict]) -> dict[int, str]:
+    """Dòng thứ N (1-based) → tên bản ghi đã có trong hệ thống, nếu tìm thấy.
+
+    Gom truy vấn theo LÔ: mỗi cột khoá đúng một câu `IN (...)`. Tra từng dòng thì
+    file 300 hàng bắn 300 truy vấn — chạy trên máy bệnh viện là thấy ngay.
+    """
+    key_fields = UPDATE_KEY_BY_DOCTYPE.get(doctype, ())
+    if not key_fields or not rows:
+        return {}
+
+    found: dict[int, str] = {}
+    for field in key_fields:
+        pending = {
+            i: str(row.get(field, "")).strip()
+            for i, row in enumerate(rows, start=1)
+            if i not in found and str(row.get(field, "")).strip()
+        }
+        if not pending:
+            continue
+        matches = frappe.get_all(
+            doctype,
+            filters={field: ["in", sorted(set(pending.values()))]},
+            fields=["name", field],
+        )
+        by_value = {str(m.get(field)): m["name"] for m in matches}
+        for i, value in pending.items():
+            if value in by_value:
+                found[i] = by_value[value]
+    return found
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # ENUM DISPLAY — nhãn tiếng Việt cho cột Select
 # ─────────────────────────────────────────────────────────────────────────────
 #
@@ -517,6 +582,7 @@ _REF_DATA_CONFIG: dict[str, dict] = {
     "PM Checklist Template": {
         "name_field": "template_name",
         "child_table": "checklist_items",
+        "child_doctype": "PM Checklist Item",
         "group_key_fields": ("asset_category", "pm_type"),
         "parent_fields": [
             "template_name", "asset_category", "pm_type", "version", "effective_date",

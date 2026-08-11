@@ -215,7 +215,9 @@ const importWizard = useImportWizard('PM Checklist Template', () => load())
 
 const IMPORT_NOTICE = [
   '<strong>Mỗi hàng = 1 hạng mục kiểm tra</strong>; 5 cột đầu (tên mẫu, danh mục, loại bảo trì, phiên bản, ngày hiệu lực) lặp lại y hệt ở mọi hàng cùng một mẫu.',
+  '<strong>Nhiều mẫu trong cùng một file</strong>: điền tiếp xuống dưới với Danh mục / Loại bảo trì khác — không cần file riêng, các hàng cùng mẫu không cần nằm liền nhau. Xem sheet «Ví dụ minh hoạ» trong file mẫu.',
   'Hệ thống gộp theo <strong>Danh mục tài sản + Loại bảo trì định kỳ</strong> — mỗi danh mục chỉ có một mẫu cho mỗi loại.',
+  'Mẫu <strong>đã có sẵn</strong> trong hệ thống: ở bước kiểm tra, bật «Cập nhật mẫu bảng kiểm đã có» để thay toàn bộ hạng mục bằng nội dung file.',
   'Danh mục tài sản điền <strong>TÊN</strong> (vd «Máy chẩn đoán hình ảnh»), không điền mã.',
 ]
 

@@ -130,8 +130,90 @@ defineProps<{
             <span v-if="ctx.previewData.value.cascadeCount" class="text-amber-600">
               Phụ thuộc: <strong>{{ ctx.previewData.value.cascadeCount }}</strong>
             </span>
+            <!-- Dữ liệu phẳng: tách rõ dòng nào tạo mới, dòng nào sửa bản ghi cũ. -->
+            <span v-if="ctx.previewData.value.willUpdate" class="text-blue-700">
+              Cập nhật: <strong>{{ ctx.previewData.value.willUpdate }}</strong>
+              — tạo mới: <strong>{{ ctx.previewData.value.willCreate }}</strong>
+            </span>
             <span class="text-xs text-gray-400 truncate">{{ ctx.uploadedFileName.value }}</span>
           </div>
+
+          <!--
+            DocType cha + bảng con: người dùng điền 30 hàng nhưng cái họ cần
+            đối chiếu là "ra mấy bản ghi, mỗi bản ghi mấy dòng con, cái nào đã
+            có sẵn". Bảng này là chỗ duy nhất trả lời được trước khi bấm nhập.
+          -->
+          <div
+            v-if="ctx.groups.value.length"
+            class="border border-gray-200 rounded-lg overflow-hidden">
+            <p class="text-xs font-medium text-gray-600 px-3 py-2 bg-gray-50 border-b border-gray-200">
+              File này sẽ tạo/cập nhật
+              <strong>{{ ctx.groups.value.length }}</strong> {{ groupUnit ?? 'bản ghi' }}
+              từ {{ ctx.previewData.value.totalRows }} dòng:
+            </p>
+            <ul class="divide-y divide-gray-100 max-h-48 overflow-y-auto">
+              <li
+                v-for="g in ctx.groups.value" :key="g.key"
+                class="flex items-start gap-3 px-3 py-2 text-xs">
+                <span
+                  :class="['shrink-0 px-2 py-0.5 rounded font-medium',
+                    g.action === 'create' ? 'bg-green-50 text-green-700'
+                    : g.action === 'update' ? 'bg-blue-50 text-blue-700'
+                    : 'bg-red-50 text-red-700']">
+                  {{ g.action === 'create' ? 'Tạo mới'
+                    : g.action === 'update' ? 'Cập nhật' : 'Đã tồn tại' }}
+                </span>
+                <span class="flex-1 min-w-0">
+                  <span class="font-medium text-gray-800">{{ g.nameValue || g.key }}</span>
+                  <span v-if="g.category" class="text-gray-500">
+                    — {{ g.category }}<span v-if="g.pmType"> · {{ g.pmType }}</span>
+                  </span>
+                  <span class="block text-gray-500">
+                    {{ g.items }} {{ unit ?? 'dòng' }}
+                    <template v-if="g.action === 'update'">
+                      (thay cho {{ g.existingItems }} {{ unit ?? 'dòng' }} hiện có)
+                    </template>
+                    <template v-else-if="g.action === 'blocked'">
+                      — đã có {{ g.existingItems }} {{ unit ?? 'dòng' }};
+                      bật "Cập nhật {{ groupUnit ?? 'bản ghi' }} đã có" để thay
+                    </template>
+                    · từ hàng {{ g.firstSourceRow }}
+                  </span>
+                </span>
+              </li>
+            </ul>
+          </div>
+
+          <!-- Ghi đè dữ liệu đang dùng: luôn TẮT sẵn, người dùng phải tự bật. -->
+          <label
+            v-if="ctx.hasExistingRecords.value"
+            class="flex items-start gap-2 cursor-pointer rounded-lg border border-blue-200 bg-blue-50 p-3">
+            <input
+              type="checkbox" class="mt-1"
+              :checked="ctx.updateExisting.value"
+              :disabled="ctx.importLoading.value"
+              @change="ctx.toggleUpdateExisting(($event.target as HTMLInputElement).checked)" />
+            <span>
+              <span class="block text-sm font-medium text-gray-800">
+                Cập nhật {{ groupUnit ?? 'bản ghi' }} đã có
+              </span>
+              <!--
+                Hai nghĩa KHÁC NHAU, không được nói chung một câu: bảng con thì
+                thay sạch rồi ghi lại; dữ liệu phẳng thì chỉ ghi đè ô có dữ liệu.
+              -->
+              <span v-if="ctx.groups.value.length" class="block text-xs text-gray-600">
+                Thay TOÀN BỘ {{ unit ?? 'dòng' }} của
+                {{ groupUnit ?? 'bản ghi' }} đó bằng nội dung trong file.
+                Không bật thì các dòng đó bị chặn và bạn chỉ nhập được
+                {{ groupUnit ?? 'bản ghi' }} mới.
+              </span>
+              <span v-else class="block text-xs text-gray-600">
+                Ghi đè các ô CÓ dữ liệu trong file; ô để trống giữ nguyên giá trị
+                cũ. Không bật thì những dòng trùng bị chặn, chỉ nhập được
+                {{ groupUnit ?? 'bản ghi' }} mới.
+              </span>
+            </span>
+          </label>
 
           <div v-if="ctx.previewData.value.errors.length || ctx.previewData.value.warnings.length"
             class="space-y-1 max-h-48 overflow-y-auto">
@@ -285,6 +367,12 @@ defineProps<{
             </p>
             <p class="text-sm text-gray-600">
               {{ unit ?? 'dòng' }} nhập thành công
+              <span v-if="ctx.importResult.value.updated">
+                — trong đó
+                <span class="text-blue-700 font-medium">
+                  {{ ctx.importResult.value.updated }} bản ghi được cập nhật
+                </span>
+              </span>
               <span v-if="ctx.importResult.value.failed">
                 — <span class="text-red-600 font-medium">{{ ctx.importResult.value.failed }} lỗi</span>
               </span>
@@ -297,6 +385,10 @@ defineProps<{
               class="text-sm text-gray-600 mt-1">
               Đã tạo <strong>{{ ctx.importResult.value.groupsCreated }}</strong>
               {{ groupUnit ?? 'bản ghi' }}
+              <span v-if="ctx.importResult.value.groupsUpdated">
+                — cập nhật <strong>{{ ctx.importResult.value.groupsUpdated }}</strong>
+                {{ groupUnit ?? 'bản ghi' }} đã có
+              </span>
             </p>
           </div>
 
